@@ -35,10 +35,10 @@ const (
 	DrillStatusPeerUnknown = "peer_unknown"
 )
 
-// Counterpart-source enum (P0-E2a, §10 A2 / §11 N8 / §12 Q4-C). A resolved
-// blocking counterpart (lock holder / binder peer) came from ONE of two
-// deterministic origins; the typed source lets every downstream face say WHICH
-// so a payload-direct resolution and a fallback-inferred one are never
+// Counterpart-source enum (P0-E2a, §10 A2 / §11 N8 / §12 Q4-C; LCK-2 §18.E).
+// A resolved blocking counterpart (lock holder / binder peer) came from ONE of
+// three deterministic origins; the typed source lets every downstream face say
+// WHICH so a payload-direct resolution and a fallback-inferred one are never
 // conflated. System-produced enum, never model prose.
 const (
 	// CounterpartSourceContentionPayload — the counterpart tid was parsed
@@ -46,12 +46,37 @@ const (
 	// present in this trace (drillable). The unchanged, information-richest
 	// origin.
 	CounterpartSourceContentionPayload = "contention_payload"
+	// CounterpartSourceNsSpanDerivation — LCK-2 rung ② (§18.E): the payload
+	// tid is a container-namespace id this trace cannot resolve directly, and
+	// the trace's own trace_mark emission pairs (SpanPID ↔ host row header)
+	// mapped it to a host THREAD (②a self-reported ns-tid sample or ②b
+	// main-thread special case; structural uniqueness enforced, comm never
+	// consulted). Confidence 0.67 — between payload-direct (0.72) and the
+	// wakeup-edge inference (0.62); 0.70 when the ②×③ identity unification
+	// cross-corroborates.
+	CounterpartSourceNsSpanDerivation = "ns_span_derivation"
 	// CounterpartSourceWakeupEdge — the payload tid named no thread this trace
-	// scheduled (cross-namespace phantom, or absent), so the counterpart was
-	// recovered from the direct 1-hop wakeup edge (the waker of the waiter).
-	// Lower confidence than a payload-direct resolution.
+	// scheduled (cross-namespace phantom, or absent) and rung ② had no mapping
+	// material, so the counterpart was recovered from the direct 1-hop wakeup
+	// edge (the waker of the waiter). Lower confidence than a payload-direct
+	// resolution.
 	CounterpartSourceWakeupEdge = "wakeup_edge"
 )
+
+// counterpartSourceIsInferred reports whether a counterpart-source value names
+// an INFERENCE lane (wakeup edge / ns-span derivation) as opposed to the
+// payload-direct origin — the set-membership form of the old single-value
+// `== CounterpartSourceWakeupEdge` comparison (LCK-2: a ns-span-derived holder
+// is also an inference, so presumption inheritance and disclosure surfaces
+// must treat it as one).
+func counterpartSourceIsInferred(source string) bool {
+	switch source {
+	case CounterpartSourceWakeupEdge, CounterpartSourceNsSpanDerivation:
+		return true
+	default:
+		return false
+	}
+}
 
 // drillSubjectUniverse is the subject set of this report's own-conduct
 // observations, keyed both by PID and by comm so a counterpart resolved as

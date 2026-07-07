@@ -103,6 +103,8 @@ var traceNoteKeyGoldenRows = []string{
 	"high_prio|cpu_load|display_only",
 	"high_prio_overlap|cpu_load|display_only",
 	"high_prio_running|cpu_load|display_only",
+	"holder_host_process|blocking|display_only",
+	"holder_ns_unification|blocking|display_only",
 	"holder_site|blocking|hard_consumer",
 	"holder_source|blocking|display_only",
 	"idle_mismatch_ms|compute_supply|soft_consumer",

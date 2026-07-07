@@ -253,6 +253,20 @@ const (
 	TraceNoteKeyPeerSource   = "peer_source"
 	TraceNoteKeyOwnerTidRaw  = "owner_tid_raw"
 	TraceNoteKeyWaitObject   = "wait_object"
+	// LCK-2 ns-span derivation family (§18.E / §18.E.1, 2026-07-07).
+	// TraceNoteKeyHolderNsUnification is the typed ②×③ identity-unification
+	// declaration ("owner_ns_tid=<N> host=<thread> lanes=ns_span_derivation+
+	// wakeup_edge"): the rung-② ns-span mapping and the rung-③ closing wakeup
+	// independently named the SAME host thread, so "payload owner and
+	// releasing holder are one physical thread" is a system fact, not model
+	// prose. TraceNoteKeyHolderHostProcess is the PROCESS-LEVEL rung-②
+	// identity ("tgid=<G> ns_pid=<P> level=process[ comm=<name>]") published
+	// when the container tid could not be mapped to a host thread — the host
+	// tgid is NEVER stuffed into a peer PID (§19 typed-pair pin), it rides
+	// this display note. Both display tier today (P0-A consumes, exactly like
+	// holder_source).
+	TraceNoteKeyHolderNsUnification = "holder_ns_unification"
+	TraceNoteKeyHolderHostProcess   = "holder_host_process"
 	// TraceNoteKeySubjectIsLockHolder (BLK §15.C, 2026-07-06): "true" on a
 	// resolved blocking_span rank row whose SUBJECT is the lock HOLDER (and
 	// whose peer= is the blocked WAITER). The projection compile reads it into
@@ -475,6 +489,9 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyPeerSource, "blocking", TraceNoteCarrierDisplayOnly},
 	{TraceNoteKeyOwnerTidRaw, "blocking", TraceNoteCarrierDisplayOnly},
 	{TraceNoteKeyWaitObject, "blocking", TraceNoteCarrierDisplayOnly},
+	// LCK-2 ns-span derivation keys (§18.E/§18.E.1) — display tier.
+	{TraceNoteKeyHolderNsUnification, "blocking", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyHolderHostProcess, "blocking", TraceNoteCarrierDisplayOnly},
 	// BLK §15.C: subject-is-holder display flag (renderer HOLD wording +
 	// next-step holder identity). Display tier, hard node-field read-in.
 	{TraceNoteKeySubjectIsLockHolder, "blocking", TraceNoteCarrierHardConsumer},

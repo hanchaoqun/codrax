@@ -3364,6 +3364,13 @@ func writeTraceFrameBundleTopBlocking(b *strings.Builder, bundle *tracequery.Fra
 		if item.OwnerTidRaw > 0 {
 			parts = append(parts, fmt.Sprintf("owner_tid_raw=%d(payload; not in trace)", item.OwnerTidRaw))
 		}
+		// LCK-2 (§18.E/§18.E.1): identity unification / process-level identity.
+		if item.HolderNsUnification != "" {
+			parts = append(parts, "holder_ns_unification="+sanitizeForBanner(item.HolderNsUnification))
+		}
+		if item.HolderHostProcess != "" {
+			parts = append(parts, "holder_host_process="+sanitizeForBanner(item.HolderHostProcess))
+		}
 		if item.WaitObject != "" {
 			parts = append(parts, "wait_object="+sanitizeForBanner(item.WaitObject))
 		}
@@ -3555,6 +3562,13 @@ func writeTraceRootCauseBlockingDetail(b *strings.Builder, item tracequery.RootC
 	}
 	if item.OwnerTidRaw > 0 {
 		parts = append(parts, fmt.Sprintf("owner_tid_raw=%d(payload; not in trace)", item.OwnerTidRaw))
+	}
+	// LCK-2 (§18.E/§18.E.1): identity unification / process-level identity.
+	if item.HolderNsUnification != "" {
+		parts = append(parts, "holder_ns_unification="+sanitizeForBanner(item.HolderNsUnification))
+	}
+	if item.HolderHostProcess != "" {
+		parts = append(parts, "holder_host_process="+sanitizeForBanner(item.HolderHostProcess))
 	}
 	if item.DrillStatus != "" {
 		parts = append(parts, "drill_status="+sanitizeForBanner(item.DrillStatus))
@@ -5073,6 +5087,11 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// P0-E2a: holder-resolution origin + phantom payload tid audit.
 				{types.TraceNoteKeyHolderSource, item.HolderSource},
 				{types.TraceNoteKeyOwnerTidRaw, traceQueryTypedCount(item.OwnerTidRaw)},
+				// LCK-2 (§18.E/§18.E.1): the typed ②×③ identity-unification
+				// declaration and the process-level ns-span identity (display
+				// tier; the host tgid never rides a peer PID).
+				{types.TraceNoteKeyHolderNsUnification, item.HolderNsUnification},
+				{types.TraceNoteKeyHolderHostProcess, item.HolderHostProcess},
 				{"drill_status", item.DrillStatus},
 				{"inherited_target_blocked_ms", traceQueryObservationMSValue(item.InheritedTargetBlockedMs)},
 				{types.TraceNoteKeyChainRelevance, item.ChainRelevance},
@@ -6083,6 +6102,10 @@ func traceQueryTypedCriticalBlockingRichNotes(item tracequery.CriticalBlockingCa
 		{types.TraceNoteKeyPeerSource, item.PeerSource},
 		{types.TraceNoteKeyOwnerTidRaw, traceQueryTypedCount(item.OwnerTidRaw)},
 		{types.TraceNoteKeyWaitObject, item.WaitObject},
+		// LCK-2 (§18.E/§18.E.1): typed ②×③ identity-unification declaration +
+		// process-level ns-span identity (display tier; tgid never a peer PID).
+		{types.TraceNoteKeyHolderNsUnification, item.HolderNsUnification},
+		{types.TraceNoteKeyHolderHostProcess, item.HolderHostProcess},
 		// RCX① (§12.3 ruling 1): typed drill-debt verdict for the row's
 		// counterpart lane (NKR display tier; projection/answer-face
 		// consumption is the P0-A batch).

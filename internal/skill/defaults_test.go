@@ -1053,3 +1053,50 @@ func stringSliceContains(values []string, want string) bool {
 	}
 	return false
 }
+
+// TestAnswerSkillInferredAttributionCoversNsSpanDerivation pins the LCK-2
+// extension of the SG-A2 INFERRED ATTRIBUTION DISCLOSURE item (§18.E/§18.E.1,
+// deferred skill half delivered 2026-07-07): the ns-span-derivation source
+// lane and both LCK-2 note keys must be taught, the process-level arm must
+// forbid thread-specific attribution, the identity-unification note must
+// upgrade to a cross-corroborated claim that still cites both lanes, and the
+// original wakeup-edge sentence stays verbatim.
+func TestAnswerSkillInferredAttributionCoversNsSpanDerivation(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+
+	sk, err := r.Get("answer-document-skill")
+	if err != nil {
+		t.Fatalf("Get(answer-document-skill) returned error: %v", err)
+	}
+	var body string
+	for _, item := range sk.WorkflowTierB {
+		if strings.HasPrefix(item.Body, "INFERRED ATTRIBUTION DISCLOSURE:") {
+			body = item.Body
+			if !item.AppliesTo.RequiresTrace {
+				t.Fatalf("SG-A2 item must stay RequiresTrace-gated; got %+v", item.AppliesTo)
+			}
+		}
+	}
+	if body == "" {
+		t.Fatalf("answer-document-skill lost the INFERRED ATTRIBUTION DISCLOSURE Tier B item")
+	}
+	for _, want := range []string{
+		// Original wakeup-edge sentence stays verbatim (no regression).
+		"rows carrying holder_source=wakeup_edge or peer_source=wakeup_edge, or flagged presumptive",
+		"presumed from the wakeup edge, not directly observed",
+		// LCK-2 ns-span-derivation lane.
+		"holder_source=ns_span_derivation",
+		"trace_mark emission pairs",
+		"thread-level, or process-level when a holder_host_process note is present",
+		"attribute to the process, never to a specific thread",
+		"not read directly from the payload",
+		// Identity-unification upgrade.
+		"holder_ns_unification note upgrades the claim",
+		"cross-corroborated fact while still citing both lanes",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("SG-A2 body missing %q:\n%s", want, body)
+		}
+	}
+}

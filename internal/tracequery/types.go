@@ -391,6 +391,15 @@ type Index struct {
 	tidPresenceOnce sync.Once
 	tidPresence     map[int]bool
 	tidScheduled    map[int]bool
+	// nsSpanOnce/nsSpanMaps back the LCK-2 rung-② ns-span derivation (§18.E):
+	// the memoized ns→host emission-pair maps (SpanPID → host tgid; (SpanPID,
+	// self-reported ns-tid) → host tid) built from every trace_mark row's
+	// typed (payload pid ↔ row-header tid/tgid) pair. Structural uniqueness is
+	// the hard gate — a second distinct host id marks the entry Ambiguous and
+	// rung ② refuses it. Lazily built once by nsSpanDerivedMaps();
+	// non-exported, never serialized, copy-safe like tidPresenceOnce.
+	nsSpanOnce sync.Once
+	nsSpanMaps *nsSpanDerivation
 }
 
 type Query struct {
@@ -1687,17 +1696,24 @@ type BinderWaitSummary struct {
 }
 
 type TraceSpanSummary struct {
-	Thread        ThreadRef `json:"thread"`
-	Kind          string    `json:"kind,omitempty"`
-	Name          string    `json:"name,omitempty"`
-	Category      string    `json:"category,omitempty"`
-	Subcategory   string    `json:"subcategory,omitempty"`
-	SemanticClass string    `json:"semantic_class,omitempty"`
-	StartTs       float64   `json:"start_ts,omitempty"`
-	EndTs         float64   `json:"end_ts,omitempty"`
-	DurationMs    float64   `json:"duration_ms,omitempty"`
-	StartLine     int       `json:"start_line,omitempty"`
-	EndLine       int       `json:"end_line,omitempty"`
+	Thread ThreadRef `json:"thread"`
+	Kind   string    `json:"kind,omitempty"`
+	Name   string    `json:"name,omitempty"`
+	// SpanPID is the trace-mark payload pid of the opening B row (`B|{pid}|…`)
+	// — the emitter's OWN pid-namespace process id, which for a containerized
+	// process differs from the row-header host Thread.TGID (§18.E emission
+	// pair). Carried so the LCK-2 rung-② ns-span owner derivation can key the
+	// contention span to its container namespace; 0 when the payload carried
+	// no pid.
+	SpanPID       int     `json:"span_pid,omitempty"`
+	Category      string  `json:"category,omitempty"`
+	Subcategory   string  `json:"subcategory,omitempty"`
+	SemanticClass string  `json:"semantic_class,omitempty"`
+	StartTs       float64 `json:"start_ts,omitempty"`
+	EndTs         float64 `json:"end_ts,omitempty"`
+	DurationMs    float64 `json:"duration_ms,omitempty"`
+	StartLine     int     `json:"start_line,omitempty"`
+	EndLine       int     `json:"end_line,omitempty"`
 }
 
 // TraceCounterDeltaSummary is the C1 (2026-07-03) numeric aggregation of a
@@ -1893,11 +1909,19 @@ type RootCauseRankItem struct {
 	// HolderSource / OwnerTidRaw (P0-E2a, §12 Q4-C): the typed origin of the
 	// resolved lock HOLDER on a blocking_span rank row —
 	// CounterpartSourceContentionPayload (payload tid present in trace,
-	// unchanged) or CounterpartSourceWakeupEdge (payload tid was a phantom, the
-	// holder was recovered from the waiter's direct wakeup edge). OwnerTidRaw
-	// carries the phantom payload tid for audit when the fallback fired.
+	// unchanged), CounterpartSourceNsSpanDerivation (LCK-2 rung ②: the phantom
+	// container tid was mapped to a host thread via trace_mark emission
+	// pairs), or CounterpartSourceWakeupEdge (the holder was recovered from
+	// the waiter's direct wakeup edge). OwnerTidRaw carries the phantom
+	// payload tid for audit when rung ① failed.
 	HolderSource string `json:"holder_source,omitempty"`
 	OwnerTidRaw  int    `json:"owner_tid_raw,omitempty"`
+	// HolderNsUnification / HolderHostProcess (LCK-2, §18.E/§18.E.1): ported
+	// verbatim from the folded blocking candidate — the typed ②×③
+	// identity-unification declaration and the process-level ns-span identity
+	// display value. See CriticalBlockingCandidate for full semantics.
+	HolderNsUnification string `json:"holder_ns_unification,omitempty"`
+	HolderHostProcess   string `json:"holder_host_process,omitempty"`
 	// DrillStatus (RCX① engine side, §12.3 ruling 1): whether this row's
 	// contention counterpart/holder was itself examined by a subject==peer
 	// observation inside THIS report's observation universe. See the
@@ -2160,9 +2184,24 @@ type CriticalBlockingCandidate struct {
 	PeerSource   string `json:"peer_source,omitempty"`
 	// OwnerTidRaw (P0-E2a): the raw owner tid the contention payload printed
 	// when it is NOT present in this trace (the phantom cross-namespace id).
-	// Non-zero only alongside HolderSource=wakeup_edge; carried as an audit
+	// Non-zero only when rung ① failed (HolderSource=wakeup_edge /
+	// ns_span_derivation, or the row stayed unresolved); carried as an audit
 	// note so the original payload claim is never lost.
 	OwnerTidRaw int `json:"owner_tid_raw,omitempty"`
+	// HolderNsUnification (LCK-2, §18.E.1): the typed ②×③ identity-unification
+	// declaration — set when the rung-② ns-span derivation and the rung-③
+	// closing wakeup edge INDEPENDENTLY name the same host thread for the
+	// payload owner ns-tid ("owner_ns_tid=<N> host=<thread> lanes=…"). Two
+	// independent lanes cross-corroborating one physical thread; comm
+	// mismatches never veto it (soft disclosure only). System-produced value.
+	HolderNsUnification string `json:"holder_ns_unification,omitempty"`
+	// HolderHostProcess (LCK-2, §18.E ②c / §19 typed-pair pin): the
+	// PROCESS-LEVEL ns-span derivation result ("tgid=<G> ns_pid=<P>
+	// level=process[ comm=<name>]") when the owner's container tid could not
+	// be mapped to a host THREAD. The host tgid is deliberately NEVER stuffed
+	// into Peer.PID — the peer stays unresolved (or a rung-③ waker) and the
+	// process identity rides this display note.
+	HolderHostProcess string `json:"holder_host_process,omitempty"`
 	// WaitObject (P0-E2a, §10 A2): the blocking span's own name, published as
 	// the wait object for payload-less blocking spans so the row can at least
 	// say what it was blocked on when no structured owner was parseable.

@@ -5833,9 +5833,13 @@ func boundTraceMarkSpans(spans []TraceSpanSummary, max int) []TraceSpanSummary {
 
 func traceSpanFromEvents(start, end Event, kind string) TraceSpanSummary {
 	return TraceSpanSummary{
-		Thread:        threadRefFromEvent(start),
-		Kind:          kind,
-		Name:          start.SpanName,
+		Thread: threadRefFromEvent(start),
+		Kind:   kind,
+		Name:   start.SpanName,
+		// LCK-2 (§18.E): the opening B row's payload pid — the emitter's OWN
+		// pid-namespace process id — travels with the span so the rung-②
+		// ns-span owner derivation can key a contention span to its container.
+		SpanPID:       start.SpanPID,
 		Category:      traceSpanCategory(start.SpanName),
 		Subcategory:   traceSpanSubcategory(start.SpanName),
 		SemanticClass: traceSpanSemanticClass(start.SpanName),
@@ -10098,6 +10102,10 @@ func rootCauseItemFromLockContentionCandidate(q Query, chainThreads map[int]bool
 	// (if the wakeup-edge fallback fired) onto the rank row.
 	item.HolderSource = cand.HolderSource
 	item.OwnerTidRaw = cand.OwnerTidRaw
+	// LCK-2 (§18.E/§18.E.1): the ②×③ identity-unification declaration and the
+	// process-level ns-span identity ride the rank row verbatim.
+	item.HolderNsUnification = cand.HolderNsUnification
+	item.HolderHostProcess = cand.HolderHostProcess
 	if holderResolved {
 		// BlockingPeer = the contention counterpart of the row subject: the
 		// blocked waiter. Deliberately left EMPTY when the holder is
@@ -12389,7 +12397,10 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 		// sub-goal hop further. sourceIsInferred inherits presumptive confidence
 		// when the counterpart itself was only wakeup-edge-resolved.
 		if item.PeerChain == nil && item.Peer.PID > 0 {
-			sourceIsInferred := item.HolderSource == CounterpartSourceWakeupEdge || item.PeerSource == CounterpartSourceWakeupEdge
+			// LCK-2: set membership instead of the single-value wakeup_edge
+			// comparison — a ns-span-derived counterpart is also an inference
+			// and inherits presumptive confidence the same way.
+			sourceIsInferred := counterpartSourceIsInferred(item.HolderSource) || counterpartSourceIsInferred(item.PeerSource)
 			item.PeerChain = buildCriticalBlockingPeerChain(idx, q, item, sourceIsInferred)
 		}
 		res.Items = append(res.Items, item)
@@ -12608,9 +12619,10 @@ func dominantThreadStateBreakdown(item ThreadStateBreakdown) string {
 // no depth parameter, no loop — the peer's peer cannot blow the chain up (q1
 // L31-33 lesson). Called at most once per critical-blocking row.
 //
-// Presumption inheritance (§12.3-5): sourceIsInferred is true when the parent
-// counterpart itself came from the wakeup-edge fallback (HolderSource /
-// PeerSource == wakeup_edge). The whole step then rides Presumptive=true.
+// Presumption inheritance (§12.3-5, LCK-2 set form): sourceIsInferred is true
+// when the parent counterpart itself came from ANY inference lane —
+// counterpartSourceIsInferred(HolderSource/PeerSource), i.e. wakeup_edge or
+// ns_span_derivation. The whole step then rides Presumptive=true.
 //
 // Two hardening rules (P0-E2b review F1/F2):
 //   - F1 self-loop discard: in a sync request-reply shape the waiter wakes the
@@ -12778,10 +12790,14 @@ func blockingSpanCandidateFromTraceSpan(span TraceSpanSummary) (CriticalBlocking
 
 // blockingSpanRow pairs one blocking-span candidate with its raw span name so
 // both consumer faces (critical_blocking rows, root_cause_rank lock lane) are
-// fed from the SAME folded lane.
+// fed from the SAME folded lane. spanNsPID (LCK-2, §18.E) is the span's own
+// trace-mark payload pid — the emitting waiter's pid-namespace process id —
+// carried so the rung-② ns-span owner derivation can key the contention to
+// its container namespace.
 type blockingSpanRow struct {
-	cand     CriticalBlockingCandidate
-	spanName string
+	cand      CriticalBlockingCandidate
+	spanName  string
+	spanNsPID int
 }
 
 // collectBlockingSpanRows (P2-3, absorbs Q4-F/Q5-D at the root): carves every
@@ -12809,7 +12825,7 @@ func collectBlockingSpanRows(idx *Index, stats WindowStats) []blockingSpanRow {
 		if !ok {
 			continue
 		}
-		row := blockingSpanRow{cand: cand, spanName: span.Name}
+		row := blockingSpanRow{cand: cand, spanName: span.Name, spanNsPID: span.SpanPID}
 		if cand.BlockingKind != "" && cand.Peer.PID > 0 {
 			merged := false
 			for i := range rows {
@@ -12840,11 +12856,22 @@ func collectBlockingSpanRows(idx *Index, stats WindowStats) []blockingSpanRow {
 //     guards against a tid collision — if a thread with that pid exists in the
 //     trace but its observed comm never equals the payload's owner comm, the
 //     payload id is a coincidental collision, so fall through to the fallback.
+//     1b. LCK-2 rung ② (§18.E, BEFORE the wakeup-edge fallback): when the owner
+//     tid is a container-namespace id on an ns-divergent contention span
+//     (span SpanPID ≠ waiter host TGID), derive the host identity from the
+//     trace's own trace_mark emission pairs — thread-level via ②a
+//     self-reported ns-tid samples or the ②b main-thread special case
+//     (HolderSource=ns_span_derivation, 0.67), process-level otherwise
+//     (EXPLICIT downgrade disclosure, host tgid never enters Peer.PID). The
+//     ②×③ cross-check against the closing wakeup runs inside
+//     applyNsSpanOwnerResolution (identity unification / corroboration /
+//     divergence disclosure).
 //  2. Structured lock contention whose owner tid is NOT present (cross-ns
-//     phantom or absent) → recover the holder from the waiter's direct 1-hop
-//     wakeup edge; stamp HolderSource=wakeup_edge, keep the phantom on
-//     OwnerTidRaw, drop the phantom PID off the Peer.
-//  2b. Structured lock contention that is TYPED-OWNERLESS (§19 S1): the payload
+//     phantom or absent) and rung ② had no mapping material → recover the
+//     holder from the waiter's direct 1-hop wakeup edge; stamp
+//     HolderSource=wakeup_edge, keep the phantom on OwnerTidRaw, drop the
+//     phantom PID off the Peer.
+//     2b. Structured lock contention that is TYPED-OWNERLESS (§19 S1): the payload
 //     printed an EXPLICIT no-holder sentinel (`owner tid: 0` or the uint64(-1)
 //     form) or carried no owner tid at all → BlockingKind stays set but no real
 //     owner exists. Keep the typed contention semantics + the parsed wait_object
@@ -12864,8 +12891,13 @@ func resolveBlockingSpanRowCounterpart(idx *Index, row *blockingSpanRow) {
 			return
 		}
 		// The payload printed an owner id this trace cannot resolve (or a
-		// colliding pid): fall back to the waiter's wakeup-edge waker.
+		// colliding pid): try the ns-span derivation (rung ②) first, then fall
+		// back to the waiter's wakeup-edge waker (rung ③).
 		rawTid := cand.Peer.PID
+		if ns := resolveOwnerViaNsSpan(idx, row.spanNsPID, cand.Thread.TGID, rawTid); ns.OK {
+			applyNsSpanOwnerResolution(idx, cand, ns, rawTid)
+			return
+		}
 		if fb := resolveCounterpartViaWakeupEdge(idx, cand.Thread, cand.StartTs, cand.EndTs); fb.OK {
 			cand.Peer = fb.Waker
 			cand.HolderSource = CounterpartSourceWakeupEdge
@@ -13030,6 +13062,12 @@ func foldLockContentionRow(a, b blockingSpanRow) blockingSpanRow {
 	merged = append(merged, folded.cand.MergedLines...)
 	merged = append(merged, firstPositive(folded.cand.LineStart, folded.cand.LineEnd))
 	survivor.cand.MergedLines = merged
+	// LCK-2: keep the container ns pid across the fold (both print forms of
+	// the same lock come from the same emitting process; take the folded
+	// form's pid only when the survivor carried none).
+	if survivor.spanNsPID <= 0 {
+		survivor.spanNsPID = folded.spanNsPID
+	}
 	return survivor
 }
 

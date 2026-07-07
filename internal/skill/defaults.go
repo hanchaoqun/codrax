@@ -490,7 +490,14 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 			},
 			{
 				// SG-A2: inferred-attribution disclosure — trace-only.
-				Body:      "INFERRED ATTRIBUTION DISCLOSURE: a runtime trace records executors as thread/process names and tid/pid numbers — it does not record which product component or module owns them. A component/module ownership claim derived from a NAME (e.g. 'this work belongs to component <X> running on thread <Y>' because the thread name contains <X>) is an inference, not an observation: either mark it as inferred in prose ('inferred from the thread name' / '从线程名推断') or drop the ownership claim and report the thread identity alone. The same disclosure applies to holder / peer / counterpart identities resolved by wakeup-edge inference instead of a direct payload (rows carrying holder_source=wakeup_edge or peer_source=wakeup_edge, or flagged presumptive): prose naming that party must state the identity is presumed from the wakeup edge, not directly observed.",
+				// EVOLUTION RECORD (§19 LCK-2 deferred half, 2026-07-07): the
+				// wakeup-edge sentence is unchanged; two sentences appended for
+				// the ns-span-derivation source lane (holder_source=
+				// ns_span_derivation, thread- vs process-level per
+				// holder_host_process) and the two-lane identity-unification
+				// upgrade (holder_ns_unification). Tokens are the LLM-visible
+				// note keys published by trace_query — no internal names.
+				Body:      "INFERRED ATTRIBUTION DISCLOSURE: a runtime trace records executors as thread/process names and tid/pid numbers — it does not record which product component or module owns them. A component/module ownership claim derived from a NAME (e.g. 'this work belongs to component <X> running on thread <Y>' because the thread name contains <X>) is an inference, not an observation: either mark it as inferred in prose ('inferred from the thread name' / '从线程名推断') or drop the ownership claim and report the thread identity alone. The same disclosure applies to holder / peer / counterpart identities resolved by wakeup-edge inference instead of a direct payload (rows carrying holder_source=wakeup_edge or peer_source=wakeup_edge, or flagged presumptive): prose naming that party must state the identity is presumed from the wakeup edge, not directly observed. Rows carrying holder_source=ns_span_derivation resolved the party by pairing the span's in-container ids with the host-side thread that emitted the span markers (trace_mark emission pairs): prose naming that holder must state the identity is derived from that pairing — thread-level, or process-level when a holder_host_process note is present (then attribute to the process, never to a specific thread) — not read directly from the payload. A holder_ns_unification note upgrades the claim: two independent lanes (span-marker pairing and the closing wakeup edge) point at the same host thread, so prose may state that identity directly as a cross-corroborated fact while still citing both lanes.",
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
 		},

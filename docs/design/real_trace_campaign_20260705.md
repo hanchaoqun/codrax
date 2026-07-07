@@ -1439,6 +1439,8 @@ opendir 案散文"owner 与 holder 均指向同一 tid 42067"**未必是模型�
 ### §22 归批
 **B1-b**(P0,CWD 后最优先):path 任意位匹配选举+终点记录修+折叠强制展开;**PTV7-SPN**:span 名三面入行+审计摘要 span=+dump per-lane 配额+trace_gap 措辞(用户裁定)+C39 漏面+零值卫生;**CWD 验收扩**:E19/C7 两 witness;**NXT**(P1):undrilled headline 的 next-step 点名(drill-debt 用户面半场);**PSG** 裁定候选(散文标量 grounding,非本轮);E1/E14E15 合并行账目→PTV7-SPN 或 P1-H。
 
+PTV7-SPN A2 评估(2026-07-07):§10-A2 修向(a)(发布 wait_object=span.Name)与 F1 helper **不共享**——(a) 是产端发射面(tracequery/query.go + tool 观测发射,需 NKR 新键 wait_object,属 P0-E 引擎批前置),F1 是显示端对既有 span_name 键的消费;本批红线不触发射逻辑,故只评估不实施,A2 留 P0-E。
+
 §21 EMIT-2 复核补记(2026-07-07):principal 独超 16 保硬拒适用于 compat 门与非 optional lane;optional lane 例外=截 16 优于 legacy 整体清空,带披露 note,已 pin(emit2_test.go OptionalAggregateFactsCapOverflowNotWiped)。复核 SHIP 4/4 突变咬红。
 
 ## §21.1 CWD 批收账(2026-07-07,复核 SHIP-WITH-FIXES→已修出厂)
@@ -1449,3 +1451,11 @@ opendir 案散文"owner 与 holder 均指向同一 tid 42067"**未必是模型�
 交付:选举谓词末端→**path 任意位置**匹配用户实体(comparator/三源/光标排除原样),命中处截断锚定(取最后出现;位置0不可当选);tie 三级裁定 pin=①typed Subject 命中>位置命中(链目标即用户实体为最强候选)②同类取匹配位置最深(截断后 trunk 最长;"影响最大"因 path 无 typed 标量弃用)③终极=发布序;产端 traceQueryWakeupChainPath 在 target 最后出现处截断(3 显示/LLM 面,rank 零波及,edge 逐条记录不截);F2=WakeupPathUserEntityHits typed 载体(截断后计算)+折叠段用户实体强制展开(有数据带量值/无数据"用户关注线程(中转)"具名行)。15 pin,复核 6/6 突变咬红,huadong 深层行 L32-34 实证保留,掉落后缀有数据节点保 depthless 席位已固化仓内 pin。
 **已知良性残余(勿当回归)**:真上游 nil-impact 段序列化在 target 最后出现之后时被截(legacy=整树错根,截断=根正确+节点保席位,严格占优);全用户实体折叠段≥6节点↺时 cycle 注无处挂(纯显示极边角);仅位置命中当选时 trunk 中段仍可能含跨分支工件(P0-E 引擎根修前已知形态)。
 **P0-E 续批立账**:CHAIN-PATH 引擎根修=按真实分支发布 path/ChainNode 真实递归 depth/树 attach 键加链域(假 L32/33/34 深度标签消除);验收含 ../customlogs huadong 案复放。
+
+## §22.2 PTV7-SPN 批收账(2026-07-07,复核 SHIP)
+交付:F1 span 名三面入行(共享 helper,SpanName 非空布尔;semantic 门只余宽度差;huadong E21 形态→`oney.hmn.berlin-42591 · H:ReceiveVsync(跟踪span)`)+F2 审计摘要 span= part+96-rune part 边界截断+F3 dump per-order 桶保底(10 桶×4=40 恰平衡,结构 pin TestSupplementQuotaOrderUniverseBalancesCap 复核后补钉:第 11 个 Order 值/抬 floor 必回此重裁措辞;order-0 默认桶入场即排除)+span_name= 准入+trace_span priority+F4 C39 明细表漏面+F5 trace_gap="数据盲区"/"窗内无调度数据·链止"/图例(用户措辞逐字)+Diagnostic lane 去 chip 去零值条。13+3 pin,复核 9 突变咬红(两批合计)。
+**观察项留账**:F2 截断对自含" · "的 span 名可能切进值内(外观级);A2 wait_object 修向(a)=产端发射面,与 F1 显示消费不共享,归 P0-E 前置。
+
+## §19.1 LCK-2 批收账(2026-07-07,复核 SHIP,含 skill 半场补交)
+交付:梯子② ns-span 推导(ns_span_derivation.go:发射对建图+结构唯一硬门第二 host id 即 Ambiguous 硬拒、comm 永不消歧;②a 自报 ns-tid 线程级 fail-closed 提取器/②b 主线程特例需 tidPresent/②c 进程级降档显式披露 tgid 永不入 Peer.PID)+②×③ 融合归一 typed 声明(holder_ns_unification,0.70)+分歧披露不推翻+comm 软披露永不否决;①"(owner tid: N)"判定块零 hunk(用户红线);置信严格序 0.72>0.70>0.67>0.62;R2' 六处同步(holder_ns_unification/holder_host_process);skill SG-A2 追加两句(wakeup-edge 原句字节不动,9-substring pin)。12+2+1 pin。
+**残余立账**:融合 0.70 为本批选值(账本仅 pin"高于单信号",如需改数值一点改);②a 真实语料 0 witness(xxx_all 84 个 tid 字段全 owner 他报,提取器故意收窄,真 witness 现身后扩形);②a 样本 vs ②b 结构推断优先序未 pin(观察>推断,可辩护);TraceSpanSummary 新增 span_pid JSON 键(omitempty);真实 62020 案复放落②进程级+③互证设计形态(§18.E 标本 xxx_all 实证)。
