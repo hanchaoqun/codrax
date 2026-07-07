@@ -331,6 +331,13 @@ func modelDiscoveryKey(cfg types.LLMProviderConfig, authOpts AuthOptions) string
 		authOpts.ClientID,
 		authOpts.Scope,
 		authOpts.ScopeResource,
+		authOpts.ResponseType,
+		authOpts.AuthorizePath,
+		authOpts.CallbackPath,
+		authOpts.TokenPath,
+		authOpts.TokenCacheFile,
+		authOpts.TokenHeader,
+		authOpts.TokenFormat,
 	}, "\x00")
 }
 

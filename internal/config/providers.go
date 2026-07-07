@@ -30,6 +30,7 @@ func LoadProviders(path string) (*types.ProvidersConfig, error) {
 // Merge order: agent-level → default-level → environment variables.
 func ResolveProvider(cfg *types.ProvidersConfig, agentName string) types.LLMProviderConfig {
 	base := cfg.LLM.Default
+	base.Auth = cloneAuthConfig(base.Auth)
 	if ac, ok := cfg.LLM.Agents[agentName]; ok {
 		merge(&base, &ac)
 	}
@@ -58,8 +59,7 @@ func merge(dst, src *types.LLMProviderConfig) {
 		dst.ModelsPath = src.ModelsPath
 	}
 	if src.Auth != nil {
-		copied := *src.Auth
-		dst.Auth = &copied
+		dst.Auth = mergeAuthConfig(dst.Auth, src.Auth)
 	}
 	if src.Headers != nil {
 		dst.Headers = mergeStringMap(dst.Headers, src.Headers)
@@ -126,6 +126,80 @@ func merge(dst, src *types.LLMProviderConfig) {
 	if src.StreamFirstByteTimeoutSeconds != 0 {
 		dst.StreamFirstByteTimeoutSeconds = src.StreamFirstByteTimeoutSeconds
 	}
+}
+
+func cloneAuthConfig(src *types.LLMAuthConfig) *types.LLMAuthConfig {
+	if src == nil {
+		return nil
+	}
+	copied := *src
+	copied.InvalidTokenErrorCodes = append([]string(nil), src.InvalidTokenErrorCodes...)
+	return &copied
+}
+
+func mergeAuthConfig(dst, src *types.LLMAuthConfig) *types.LLMAuthConfig {
+	out := cloneAuthConfig(dst)
+	if out == nil {
+		out = &types.LLMAuthConfig{}
+	}
+	if src.Mode != "" {
+		out.Mode = src.Mode
+	}
+	if src.AuthBaseURL != "" {
+		out.AuthBaseURL = src.AuthBaseURL
+	}
+	if src.ClientID != "" {
+		out.ClientID = src.ClientID
+	}
+	if src.Scope != "" {
+		out.Scope = src.Scope
+	}
+	if src.ResponseType != "" {
+		out.ResponseType = src.ResponseType
+	}
+	if src.ScopeResource != "" {
+		out.ScopeResource = src.ScopeResource
+	}
+	if src.AuthorizePath != "" {
+		out.AuthorizePath = src.AuthorizePath
+	}
+	if src.CallbackPath != "" {
+		out.CallbackPath = src.CallbackPath
+	}
+	if src.TokenPath != "" {
+		out.TokenPath = src.TokenPath
+	}
+	if src.TokenCacheFile != "" {
+		out.TokenCacheFile = src.TokenCacheFile
+	}
+	if src.PollTimeoutSeconds != 0 {
+		out.PollTimeoutSeconds = src.PollTimeoutSeconds
+	}
+	if src.PollIntervalSeconds != 0 {
+		out.PollIntervalSeconds = src.PollIntervalSeconds
+	}
+	if src.RefreshBeforeSeconds != 0 {
+		out.RefreshBeforeSeconds = src.RefreshBeforeSeconds
+	}
+	if src.TokenTTLSeconds != 0 {
+		out.TokenTTLSeconds = src.TokenTTLSeconds
+	}
+	if src.AccessTokenHeader != "" {
+		out.AccessTokenHeader = src.AccessTokenHeader
+	}
+	if src.AccessTokenFormat != "" {
+		out.AccessTokenFormat = src.AccessTokenFormat
+	}
+	if len(src.InvalidTokenErrorCodes) > 0 {
+		out.InvalidTokenErrorCodes = append([]string(nil), src.InvalidTokenErrorCodes...)
+	}
+	if src.Ambiguous401PreserveDisk != nil {
+		out.Ambiguous401PreserveDisk = src.Ambiguous401PreserveDisk
+	}
+	if src.Ambiguous401Escalation != 0 {
+		out.Ambiguous401Escalation = src.Ambiguous401Escalation
+	}
+	return out
 }
 
 // mergeEnv fills empty fields from environment variables.

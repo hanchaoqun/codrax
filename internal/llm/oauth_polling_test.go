@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,6 +17,18 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+func resetModelDiscoveryCacheForTest(t *testing.T) {
+	t.Helper()
+	modelDiscoveryCache.Lock()
+	modelDiscoveryCache.entries = map[string]modelDiscoveryResult{}
+	modelDiscoveryCache.Unlock()
+	t.Cleanup(func() {
+		modelDiscoveryCache.Lock()
+		modelDiscoveryCache.entries = map[string]modelDiscoveryResult{}
+		modelDiscoveryCache.Unlock()
+	})
+}
 
 // TestOAuthPollingGetTokenConcurrentReadIsRaceFree exercises getToken's
 // valid-token fast path concurrently with a writer that rewrites the
@@ -523,7 +536,72 @@ func TestNewFromConfig_ModelListInvalidatesOAuthTokenOn401(t *testing.T) {
 	}
 }
 
+func TestNewFromConfig_ModelDiscoveryCacheSeparatedByOAuthCacheFile(t *testing.T) {
+	resetModelDiscoveryCacheForTest(t)
+	dir := t.TempDir()
+	var modelCalls atomic.Int32
+	var tokenCalls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/oauth/getToken":
+			n := tokenCalls.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"access_token":"fresh-token-%d","expires_in":"259199","token_type":"Bearer","userAccount":"u"}`, n)))
+		case "/models":
+			modelCalls.Add(1)
+			got := r.Header.Get("X-Auth-Token")
+			if got != "fresh-token-1" && got != "fresh-token-2" {
+				t.Fatalf("model-list token=%q, want per-cache fresh token", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[{"name":"first","des":"primary"}]`))
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	baseCfg := types.LLMProviderConfig{
+		Provider:   "openai",
+		BaseURL:    srv.URL,
+		ModelsPath: "/models",
+		Stream:     boolPtr(false),
+		Auth: &types.LLMAuthConfig{
+			Mode:                "oauth2_polling",
+			AuthBaseURL:         srv.URL,
+			ClientID:            "client",
+			AccessTokenHeader:   "X-Auth-Token",
+			PollTimeoutSeconds:  1,
+			PollIntervalSeconds: 1,
+		},
+		RequestTimeoutSeconds: 5,
+	}
+	cfg1 := baseCfg
+	auth1 := *baseCfg.Auth
+	auth1.TokenCacheFile = filepath.Join(dir, "agent-a-token.json")
+	cfg1.Auth = &auth1
+	cfg2 := baseCfg
+	auth2 := *baseCfg.Auth
+	auth2.TokenCacheFile = filepath.Join(dir, "agent-b-token.json")
+	cfg2.Auth = &auth2
+
+	if adapter, err := NewFromConfig(cfg1); err != nil {
+		t.Fatalf("NewFromConfig cfg1: %v", err)
+	} else if adapter.ModelID() != "first" {
+		t.Fatalf("cfg1 model=%q, want first", adapter.ModelID())
+	}
+	if adapter, err := NewFromConfig(cfg2); err != nil {
+		t.Fatalf("NewFromConfig cfg2: %v", err)
+	} else if adapter.ModelID() != "first" {
+		t.Fatalf("cfg2 model=%q, want first", adapter.ModelID())
+	}
+	if modelCalls.Load() != 2 || tokenCalls.Load() != 2 {
+		t.Fatalf("modelCalls=%d tokenCalls=%d, want 2/2 so each OAuth cache is initialized", modelCalls.Load(), tokenCalls.Load())
+	}
+}
+
 func TestNewFromConfig_UsesFirstModelWhenModelOmitted(t *testing.T) {
+	resetModelDiscoveryCacheForTest(t)
 	var sawModels atomic.Bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/models" {

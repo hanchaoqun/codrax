@@ -97,6 +97,64 @@ func TestResolveProvider_RequestDecoration_Inheritance(t *testing.T) {
 	}
 }
 
+func TestResolveProvider_AuthPartialOverrideInheritsDefaultFields(t *testing.T) {
+	preserve := false
+	cfg := &types.ProvidersConfig{
+		LLM: types.LLMProvidersConfig{
+			Default: types.LLMProviderConfig{
+				Provider: "openai",
+				Auth: &types.LLMAuthConfig{
+					Mode:                     "oauth2_polling",
+					AuthBaseURL:              "https://auth.example.test",
+					ClientID:                 "client",
+					Scope:                    "scope-a",
+					ScopeResource:            "devuc",
+					AuthorizePath:            "/oauth2/authorize",
+					CallbackPath:             "/oauth/callback",
+					TokenPath:                "/oauth/getToken",
+					AccessTokenHeader:        "X-Auth-Token",
+					AccessTokenFormat:        "{token}",
+					InvalidTokenErrorCodes:   []string{"invalid_token", "AUTH_TOKEN_INVALID"},
+					Ambiguous401PreserveDisk: &preserve,
+					Ambiguous401Escalation:   4,
+				},
+			},
+			Agents: map[string]types.LLMProviderConfig{
+				"data_planner": {
+					Auth: &types.LLMAuthConfig{
+						TokenCacheFile: "auth/data-planner-token.json",
+					},
+				},
+			},
+		},
+	}
+
+	got := ResolveProvider(cfg, "data_planner")
+	if got.Auth == nil {
+		t.Fatal("auth should be present")
+	}
+	if got.Auth.TokenCacheFile != "auth/data-planner-token.json" {
+		t.Fatalf("token_cache_file override lost, got %q", got.Auth.TokenCacheFile)
+	}
+	if got.Auth.AuthBaseURL != "https://auth.example.test" ||
+		got.Auth.ClientID != "client" ||
+		got.Auth.Scope != "scope-a" ||
+		got.Auth.ScopeResource != "devuc" ||
+		got.Auth.AccessTokenHeader != "X-Auth-Token" ||
+		got.Auth.AccessTokenFormat != "{token}" {
+		t.Fatalf("partial auth override should inherit default OAuth fields, got %+v", got.Auth)
+	}
+	if len(got.Auth.InvalidTokenErrorCodes) != 2 || got.Auth.InvalidTokenErrorCodes[1] != "AUTH_TOKEN_INVALID" {
+		t.Fatalf("invalid token codes should inherit, got %+v", got.Auth.InvalidTokenErrorCodes)
+	}
+	if got.Auth.Ambiguous401PreserveDisk == nil || *got.Auth.Ambiguous401PreserveDisk != false || got.Auth.Ambiguous401Escalation != 4 {
+		t.Fatalf("ambiguous 401 policy should inherit, got %+v", got.Auth)
+	}
+	if cfg.LLM.Default.Auth.TokenCacheFile != "" {
+		t.Fatalf("ResolveProvider must not mutate default auth, got token_cache_file=%q", cfg.LLM.Default.Auth.TokenCacheFile)
+	}
+}
+
 func TestLoadProviders_OAuthPolling_RoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "providers.yaml")
