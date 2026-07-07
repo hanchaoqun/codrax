@@ -1404,3 +1404,7 @@ P0-E 引擎批(主归口,最终 scope):去双发布+归并口径(裁定①)+孪�
 - raw 墙钟保留为**显示事实**(cumulative/树 bar 链上占用)不进归因(显示≠归因;目标端等待总量仍由链解释,每节点可归因贡献=自身可消除量);
 - 频点缺失→§7.10 不伪造→deficit 折 0→行仍显示(raw+"未折算·墙钟上界"披露)但归因≈0,**不让未折算 raw 驱动排序**(嘈声信号红线)。
 反转段已符合(gated 的 running 分量=GatedRunningDeficitMS by construction)。实施=P0-E 吸收轮(复核+deficit-vs-ideal 专项在途,镜头0 边界呈报正被本裁定解决):非反转 running effective 从 DominantImpactMs 改 SupplyFoldDeficitMs + 频点缺失 fallback + 未折算披露;pin=非反转满频 running(deficit=0)归因≈0/弱核 running 归因=deficit/频点缺失 raw 不驱动排序三形态。
+
+### §18.E.1 LCK-2 设计补充:②×③ 融合的身份归一声明(用户洞察 2026-07-07,pin)
+opendir 案散文"owner 与 holder 均指向同一 tid 42067"**未必是模型混淆** — comm 动态改名(已裁定 comm=软信号)下,NetworkKit_AssetsUtil_Operate_0(争锁时刻 comm)与 #RxComputationT(closing-wake 时刻 comm)可为同一物理线程。若梯子② 从 closing waker 自身的 span 打点推导出其容器 ns tid == payload owner tid(42067),则 owner==holder==同一线程是**两独立信号交叉印证的可推导事实**。
+**LCK-2 新增产出=typed 身份归一声明**:②×③ 融合命中(waker 的 ns 身份推导值 == owner ns-tid)→ 发布 typed 归一("owner(ns tid X)=宿主线程 H,依据:ns-span 推导×closing-wakeup 交叉",置信高于单信号;comm 不符**预期内**=改名,软披露不否决);显示面随之呈现**单一身份**(不再 owner phantom + holder 两条),散文的归一断言从模型猜测升级为系统事实;gap#3(节点计数混乱)随归一自然消解。融合不命中(推导 ns-tid ≠ owner tid)→ 保持两身份 + 分歧披露(中介唤醒可能)。
