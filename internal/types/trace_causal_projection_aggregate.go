@@ -164,6 +164,10 @@ func traceCausalProjectionMergeSameFacts(out *TraceCausalProjection) {
 	}
 	survivors := map[string]survivorRef{}
 	merged := map[string]map[string]bool{} // fact key -> evidence ids already absorbed
+	// SFD 复核 F4: per-fact-key fold back-fill state — the absorb lane mirrors
+	// the join lane's donor-conflict rule (ambiguity fails open, never
+	// first-writer-wins), which needs memory across sequential losers.
+	foldBackfills := map[string]*traceCausalProjectionSupplyFoldBackfill{}
 	for b, bucket := range buckets {
 		kept := (*bucket)[:0]
 		for _, node := range *bucket {
@@ -176,6 +180,7 @@ func traceCausalProjectionMergeSameFacts(out *TraceCausalProjection) {
 			if !seen {
 				survivors[key] = survivorRef{bucket: b, index: len(kept)}
 				merged[key] = map[string]bool{traceCausalProjectionCanonicalNode(node.EvidenceID): true}
+				foldBackfills[key] = &traceCausalProjectionSupplyFoldBackfill{}
 				kept = append(kept, node)
 				continue
 			}
@@ -183,17 +188,105 @@ func traceCausalProjectionMergeSameFacts(out *TraceCausalProjection) {
 			if traceCausalProjectionCanonicalNode(node.EvidenceID) != "" &&
 				traceCausalProjectionCanonicalNode(node.EvidenceID) == traceCausalProjectionCanonicalNode(survivor.EvidenceID) {
 				// The survivor's own copy in another bucket — keep it so bucket
-				// overlap semantics (and their consumers) stay intact.
+				// overlap semantics (and their consumers) stay intact. A copy
+				// scanned BEFORE a fold-carrying loser stays bare here; the
+				// post-aggregation join pass re-unifies it from the back-filled
+				// survivor (same key, same account → clean donor), so surfaces
+				// converge.
 				kept = append(kept, node)
 				continue
 			}
-			traceCausalProjectionAbsorbSameFact(survivor, node, merged[key])
+			traceCausalProjectionAbsorbSameFact(survivor, node, merged[key], foldBackfills[key])
 		}
 		*bucket = kept
 	}
 }
 
-func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, loser TraceCausalProjectionNode, absorbed map[string]bool) {
+// traceCausalProjectionSupplyFoldBackfill is the R1-lane fold back-fill state
+// of ONE same-fact survivor (SFD 复核 F4): backfilled marks an account taken
+// from an absorbed loser (as opposed to the survivor's OWN publication, which
+// is never overwritten); conflicted poisons the key after two absorbed views
+// disagreed — the group is cleared and never refilled (fail-open, 裸值保留 —
+// the same ambiguity rule as the join lane's donor conflict).
+type traceCausalProjectionSupplyFoldBackfill struct {
+	backfilled bool
+	conflicted bool
+}
+
+// traceCausalProjectionAbsorbSupplyFold is the SupplyFold arm of the same-fact
+// absorb (SFD §15.A display half + SFD 复核 F1/F4): the loser view of this ONE
+// fact may carry the engine-published supply-fold accounting the survivor's
+// funnel never set (the rootCauseItem running twin publishes basis=nil by
+// construction while its causal-impact twin carries the typed fold_basis
+// notes). The group copies as a unit keyed on the presence flag — zeros are
+// load-bearing (§7.10 affirmative branch) — under the SAME precision guards
+// as the post-aggregation join lane (traceCausalProjectionJoinSupplyFoldTwins
+// covers twins whose projected values differ; an absorbed donor is gone
+// before that pass, so this arm handles the value-equal R1 shape).
+func traceCausalProjectionAbsorbSupplyFold(survivor *TraceCausalProjectionNode, loser TraceCausalProjectionNode, backfill *traceCausalProjectionSupplyFoldBackfill) {
+	if backfill == nil || !loser.SupplyFoldComputed {
+		return
+	}
+	// A survivor that PUBLISHED its own basis keeps it unconditionally — it
+	// won the priority scan (the same "conflicting non-empty values keep the
+	// survivor's" doctrine as every typed slot above).
+	if survivor.SupplyFoldComputed && !backfill.backfilled {
+		return
+	}
+	if backfill.conflicted {
+		return
+	}
+	// SFD 复核 F4(c) — running-state gate, mirroring the join lane: the fold's
+	// deficit is defined over the segment's OWN running wall clock (§7.10).
+	// The state back-fill above already adopted the loser's state when the
+	// survivor's was empty, and every fold carrier is a running row, so this
+	// arm is satisfied by construction in the reachable shapes; a survivor
+	// with a DIFFERENT non-empty state at an identical subject + %.3f value +
+	// line range would need bit-equal cross-state projections (near
+	// unreachable) — if it ever occurs, the fold stays off it.
+	if strings.TrimSpace(strings.ToLower(survivor.StateKind)) != "running" {
+		return
+	}
+	// SFD 复核 F1 — cross-window veto, mirroring the join lane: both sides
+	// declaring their own typed selected_window with any endpoint deviating
+	// beyond the F-2 tolerance re-measured the segment in DIFFERENT windows
+	// (§11-N2 — reachable via overlapping window_sweep re-measurements that
+	// R1-merge on an identical %.3f value + line range); the fold describes
+	// the loser's window's clamping and never back-fills across.
+	if survivor.QueryWindowStartTs > 0 && survivor.QueryWindowEndTs > survivor.QueryWindowStartTs &&
+		loser.QueryWindowStartTs > 0 && loser.QueryWindowEndTs > loser.QueryWindowStartTs &&
+		(math.Abs(survivor.QueryWindowStartTs-loser.QueryWindowStartTs) > traceCausalProjectionFullWindowSameWindowToleranceS ||
+			math.Abs(survivor.QueryWindowEndTs-loser.QueryWindowEndTs) > traceCausalProjectionFullWindowSameWindowToleranceS) {
+		return
+	}
+	if backfill.backfilled {
+		// SFD 复核 F4 — the join lane's donor-conflict rule on the absorb
+		// lane: a later same-fact view DISAGREEING with the already
+		// back-filled accounting is ambiguity. Clear the group and poison the
+		// key (fail-open to the bare value) — never first-writer-wins.
+		if survivor.SupplyFoldDeficitMS != loser.SupplyFoldDeficitMS ||
+			survivor.SupplyFoldIdealMS != loser.SupplyFoldIdealMS ||
+			survivor.SupplyFoldKnownMS != loser.SupplyFoldKnownMS ||
+			survivor.SupplyFoldUnknownMS != loser.SupplyFoldUnknownMS {
+			survivor.SupplyFoldComputed = false
+			survivor.SupplyFoldDeficitMS = 0
+			survivor.SupplyFoldIdealMS = 0
+			survivor.SupplyFoldKnownMS = 0
+			survivor.SupplyFoldUnknownMS = 0
+			backfill.backfilled = false
+			backfill.conflicted = true
+		}
+		return
+	}
+	survivor.SupplyFoldComputed = true
+	survivor.SupplyFoldDeficitMS = loser.SupplyFoldDeficitMS
+	survivor.SupplyFoldIdealMS = loser.SupplyFoldIdealMS
+	survivor.SupplyFoldKnownMS = loser.SupplyFoldKnownMS
+	survivor.SupplyFoldUnknownMS = loser.SupplyFoldUnknownMS
+	backfill.backfilled = true
+}
+
+func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, loser TraceCausalProjectionNode, absorbed map[string]bool, foldBackfill *traceCausalProjectionSupplyFoldBackfill) {
 	appendEvidence := func(id string) {
 		id = strings.TrimSpace(id)
 		if id == "" {
@@ -273,6 +366,9 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 	if loser.PriorityInversionCandidate {
 		survivor.PriorityInversionCandidate = true
 	}
+	// SFD (§15.A display half, user q6 issue 1): the SupplyFold arm — guards
+	// and conflict memory live in the helper (SFD 复核 F1/F4).
+	traceCausalProjectionAbsorbSupplyFold(survivor, loser, foldBackfill)
 }
 
 // traceCausalProjectionAppendMergedSubject records one merged member's thread
@@ -794,6 +890,21 @@ func traceCausalProjectionAggregateSameKind(nodes []TraceCausalProjectionNode) [
 		// Cleared unconditionally: member provenance stays lossless through
 		// MergedEvidenceIDs; no second counter is introduced.
 		aggregate.DuplicatePublications = 0
+		// SFD 复核 F3 (2026-07-07, same family as the DuplicatePublications
+		// clear above and the VS-1 F6(a) periodic re-derivation below): the ×N
+		// row carries a member SUM, so a SINGLE member's supply-fold accounting
+		// (deficit/ideal over that one segment's own running clock, §7.10) can
+		// never describe it — the group-first seed's inherited group rendered a
+		// single-member deficit clause beside a three-member sum (伪对比: 缺口
+		// 5.000ms 贴在 42.000ms 总和旁). Cleared unconditionally whenever ≥2
+		// members merge; re-deriving a fold from members stays open (P0-E)
+		// until the engine publishes a per-member basis to sum from — the
+		// display layer never mints accounting the engine did not publish.
+		aggregate.SupplyFoldComputed = false
+		aggregate.SupplyFoldDeficitMS = 0
+		aggregate.SupplyFoldIdealMS = 0
+		aggregate.SupplyFoldKnownMS = 0
+		aggregate.SupplyFoldUnknownMS = 0
 		// VS-1 F6(a) (adversarial review 2026-07-04): the ×N SUM row re-derives
 		// its periodic accounting from the MEMBERS instead of inheriting the
 		// group-first copy. All members periodic → the fold keeps the flag with

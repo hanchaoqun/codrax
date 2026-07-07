@@ -143,7 +143,7 @@ func TestTraceCausalProjectionFoldedNotesRematerializeFoldNode(t *testing.T) {
 func TestTraceCausalProjectionAbsorbBackfillsEmptyObject(t *testing.T) {
 	survivor := TraceCausalProjectionNode{Subject: "w-1", Object: ""}
 	loser := TraceCausalProjectionNode{Subject: "w-1", Object: "lock_contention", EvidenceID: "e-2"}
-	traceCausalProjectionAbsorbSameFact(&survivor, loser, map[string]bool{})
+	traceCausalProjectionAbsorbSameFact(&survivor, loser, map[string]bool{}, nil)
 	if survivor.Object != "lock_contention" {
 		t.Fatalf("empty survivor Object must take the loser's cause token: %+v", survivor)
 	}
@@ -153,7 +153,7 @@ func TestTraceCausalProjectionAbsorbBackfillsEmptyObject(t *testing.T) {
 	// 突变形态: conflicting non-empty Objects keep the survivor's and record
 	// the loser's as an 影响点, exactly as before.
 	survivor2 := TraceCausalProjectionNode{Subject: "w-1", Object: "binder_wait"}
-	traceCausalProjectionAbsorbSameFact(&survivor2, loser, map[string]bool{})
+	traceCausalProjectionAbsorbSameFact(&survivor2, loser, map[string]bool{}, nil)
 	if survivor2.Object != "binder_wait" || len(survivor2.SecondaryObjects) != 1 || survivor2.SecondaryObjects[0] != "lock_contention" {
 		t.Fatalf("conflicting Objects must keep the 影响点 lane: %+v", survivor2)
 	}
@@ -177,7 +177,7 @@ func TestTraceCausalProjectionPriorityInversionCandidateTypedField(t *testing.T)
 	}
 	// Absorb ORs the candidacy across merged views of one fact.
 	survivor := TraceCausalProjectionNode{Subject: "w-1"}
-	traceCausalProjectionAbsorbSameFact(&survivor, TraceCausalProjectionNode{PriorityInversionCandidate: true}, map[string]bool{})
+	traceCausalProjectionAbsorbSameFact(&survivor, TraceCausalProjectionNode{PriorityInversionCandidate: true}, map[string]bool{}, nil)
 	if !survivor.PriorityInversionCandidate {
 		t.Fatalf("absorb must keep the candidacy of the merged fact")
 	}

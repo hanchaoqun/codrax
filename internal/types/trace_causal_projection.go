@@ -661,6 +661,11 @@ func TraceCausalProjectionFromObservationRecords(records []ObservationRecord) Tr
 	// (exact Subject match + typed runnable StateKind) after aggregation so
 	// merged nodes carry it too, and before the PrimaryRootCause pointer copy.
 	traceCausalProjectionAttachRunnableOccupiers(&out, occupiersBySubject)
+	// SFD (§15.A display half, user q6 issue 1): join the engine-published
+	// supply-fold accounting onto the same segment's running twin projection.
+	// Runs AFTER aggregation (final node set, ×N fold rows excluded inside)
+	// and BEFORE the PrimaryRootCause pointer copy so the pointer inherits.
+	traceCausalProjectionJoinSupplyFoldTwins(&out)
 	if len(out.PrimaryRootCauses) > 0 {
 		node := out.PrimaryRootCauses[0]
 		out.PrimaryRootCause = &node
@@ -753,6 +758,152 @@ func traceCausalProjectionAttachRunnableOccupiers(projection *TraceCausalProject
 	attach(projection.AdjacentCauses)
 	attach(projection.BackgroundCauses)
 	attach(projection.SupportingHops)
+}
+
+// traceCausalProjectionSupplyFoldDonor is one collected SFD fold-basis donor:
+// the VS-2 typed accounting of ONE causal-impact projection record, keyed by
+// the segment identity below. Conflict marks a key whose donors disagree on
+// any accounting value — such a key never joins (fail-open, 裸值保留).
+type traceCausalProjectionSupplyFoldDonor struct {
+	deficitMS, idealMS, knownMS, unknownMS float64
+	windowStart, windowEnd                 float64
+	windowDeclared                         bool
+	conflict                               bool
+}
+
+// traceCausalProjectionSupplyFoldTwinKey is the SFD (§15.A display half, user
+// q6 issue 1, 2026-07-07) same-segment identity: canonical subject + the exact
+// evidence line range. The engine publishes ONE WakeupCausalImpact as two
+// projection records (the causal-impact row carrying the typed fold_basis
+// accounting, and the root-cause running twin via the rootCauseItem
+// source="wakeup_chain" funnel that never sets SupplyFoldBasis — basis=nil by
+// construction, query.go:9640); both carry the engine's OWN LineStart/LineEnd
+// verbatim, so subject+range equality is a PRECISE engine-published signal of
+// the shared underlying segment (q6 实证: both rows :45689-79142), never a
+// similarity heuristic. Empty when the node lacks a valid line span or a
+// resolvable real subject — such rows never join (the unknown-thread sentinel
+// is not an identity; mirrors the R1 same-fact key's validity arm).
+func traceCausalProjectionSupplyFoldTwinKey(node TraceCausalProjectionNode) string {
+	if node.LineStart <= 0 || node.LineEnd < node.LineStart {
+		return ""
+	}
+	if !traceCausalProjectionKnownSubject(node.Subject) {
+		return ""
+	}
+	return traceCausalProjectionCanonicalNode(node.Subject) +
+		"\x00" + strconv.Itoa(node.LineStart) + "\x00" + strconv.Itoa(node.LineEnd)
+}
+
+// traceCausalProjectionJoinSupplyFoldTwins re-uses the ALREADY-PUBLISHED
+// supply-fold accounting across same-segment twin projections (SFD, §15.A
+// display half): a running-state node whose funnel never published a
+// fold_basis note (SupplyFoldComputed=false → the tree row fell to the bare
+// 有效归因 branch while the SAME segment's causal-impact sibling carried the
+// full 供给折算 accounting) takes its twin's typed SupplyFold* group, so the
+// §7.10 decision table renders on the running row too and the two rows'
+// deficit numbers are same-source by construction. No new data is minted —
+// the copied values are the engine's own fold_basis / supply_fold_* notes.
+//
+// Precision rules (硬边界, fail-open to the bare value on every miss):
+//   - join key = canonical subject + exact line range (see the key above);
+//     different range or different subject never joins;
+//   - recipients are running-STATE rows only (typed StateKind check — the
+//     fold's deficit is defined over the segment's OWN running wall clock,
+//     §7.10) that are NOT ×N aggregates (MergedCount>1 sums/envelopes many
+//     segments; a single segment's fold does not describe the sum);
+//   - donors are non-aggregate rows whose fold_basis actually published;
+//     donors that DISAGREE on any accounting value under one key mark the
+//     key conflicted and it never joins;
+//   - a donor/recipient pair that BOTH declare their own typed
+//     selected_window and disagree beyond the F-2 per-endpoint tolerance is
+//     a cross-window re-measurement (§11-N2) — the fold describes the
+//     donor's window's clamping, so the pair never joins.
+//
+// Chain-side buckets only (PrimaryRootCauses / OnChainCauses /
+// SupportingHops): §7.10 is an on-chain lane, and every cross-bucket copy of
+// one record patches from the SAME donor map so surfaces cannot disagree.
+// Display-only field plumbing: ranking and gates never read SupplyFold*.
+func traceCausalProjectionJoinSupplyFoldTwins(projection *TraceCausalProjection) {
+	if projection == nil {
+		return
+	}
+	buckets := [][]TraceCausalProjectionNode{
+		projection.PrimaryRootCauses,
+		projection.OnChainCauses,
+		projection.SupportingHops,
+	}
+	donors := map[string]*traceCausalProjectionSupplyFoldDonor{}
+	for _, bucket := range buckets {
+		for i := range bucket {
+			node := bucket[i]
+			if !node.SupplyFoldComputed || node.MergedCount > 1 {
+				continue
+			}
+			key := traceCausalProjectionSupplyFoldTwinKey(node)
+			if key == "" {
+				continue
+			}
+			donor := traceCausalProjectionSupplyFoldDonor{
+				deficitMS: node.SupplyFoldDeficitMS, idealMS: node.SupplyFoldIdealMS,
+				knownMS: node.SupplyFoldKnownMS, unknownMS: node.SupplyFoldUnknownMS,
+				windowStart:    node.QueryWindowStartTs,
+				windowEnd:      node.QueryWindowEndTs,
+				windowDeclared: node.QueryWindowStartTs > 0 && node.QueryWindowEndTs > node.QueryWindowStartTs,
+			}
+			if existing, seen := donors[key]; seen {
+				// The same record's cross-bucket copy carries identical values
+				// and stays a non-conflict; a DIFFERENT accounting under the
+				// same key is ambiguity — never joined.
+				//
+				// SFD 复核 F5: same-ACCOUNT donors from different windows keep
+				// the FIRST donor's window for the veto below — deterministic
+				// (the bucket scan order primary → on-chain → hops is fixed
+				// and stable-sorted upstream), and semantically safe: equal
+				// accounting means the re-measurements agree on the fold, so
+				// whichever window anchors the ±1ms comparison, a recipient
+				// matching ANY of them is joining that same published
+				// accounting; a recipient matching NONE is vetoed either way.
+				if existing.deficitMS != donor.deficitMS || existing.idealMS != donor.idealMS ||
+					existing.knownMS != donor.knownMS || existing.unknownMS != donor.unknownMS {
+					existing.conflict = true
+				}
+				continue
+			}
+			donors[key] = &donor
+		}
+	}
+	if len(donors) == 0 {
+		return
+	}
+	for _, bucket := range buckets {
+		for i := range bucket {
+			node := &bucket[i]
+			if node.SupplyFoldComputed || node.MergedCount > 1 {
+				continue
+			}
+			if strings.TrimSpace(strings.ToLower(node.StateKind)) != "running" {
+				continue
+			}
+			key := traceCausalProjectionSupplyFoldTwinKey(*node)
+			if key == "" {
+				continue
+			}
+			donor := donors[key]
+			if donor == nil || donor.conflict {
+				continue
+			}
+			if donor.windowDeclared && node.QueryWindowStartTs > 0 && node.QueryWindowEndTs > node.QueryWindowStartTs &&
+				(math.Abs(node.QueryWindowStartTs-donor.windowStart) > traceCausalProjectionFullWindowSameWindowToleranceS ||
+					math.Abs(node.QueryWindowEndTs-donor.windowEnd) > traceCausalProjectionFullWindowSameWindowToleranceS) {
+				continue
+			}
+			node.SupplyFoldComputed = true
+			node.SupplyFoldDeficitMS = donor.deficitMS
+			node.SupplyFoldIdealMS = donor.idealMS
+			node.SupplyFoldKnownMS = donor.knownMS
+			node.SupplyFoldUnknownMS = donor.unknownMS
+		}
+	}
 }
 
 // traceCausalProjectionFullWindowState is one collected RN-12 full-window
