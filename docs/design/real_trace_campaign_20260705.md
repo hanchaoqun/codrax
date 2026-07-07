@@ -1408,3 +1408,17 @@ P0-E 引擎批(主归口,最终 scope):去双发布+归并口径(裁定①)+孪�
 ### §18.E.1 LCK-2 设计补充:②×③ 融合的身份归一声明(用户洞察 2026-07-07,pin)
 opendir 案散文"owner 与 holder 均指向同一 tid 42067"**未必是模型混淆** — comm 动态改名(已裁定 comm=软信号)下,NetworkKit_AssetsUtil_Operate_0(争锁时刻 comm)与 #RxComputationT(closing-wake 时刻 comm)可为同一物理线程。若梯子② 从 closing waker 自身的 span 打点推导出其容器 ns tid == payload owner tid(42067),则 owner==holder==同一线程是**两独立信号交叉印证的可推导事实**。
 **LCK-2 新增产出=typed 身份归一声明**:②×③ 融合命中(waker 的 ns 身份推导值 == owner ns-tid)→ 发布 typed 归一("owner(ns tid X)=宿主线程 H,依据:ns-span 推导×closing-wakeup 交叉",置信高于单信号;comm 不符**预期内**=改名,软披露不否决);显示面随之呈现**单一身份**(不再 owner phantom + holder 两条),散文的归一断言从模型猜测升级为系统事实;gap#3(节点计数混乱)随归一自然消解。融合不命中(推导 ns-tid ≠ owner tid)→ 保持两身份 + 分歧披露(中介唤醒可能)。
+
+## §21 回访 cmp_01(双trace对比,新构建)四维审计(2026-07-07,全 upheld)
+
+**生效确认**:对比 cell 口径标注/披露句/逐分量尺子/锁 rank1 带持有点/runnable 成因行/RN-13 平铺披露/still_present 文案自洽(SPR witness)全部客户侧生效。glyph 全"?"判定=客户端 cp936 代码页 best-fit,非我方输出(ASCII fallback 评估 P1-H 候选)。
+
+- **D-新P0 排队深度方向反转**:对比总览背景压力"≈平均排队深度"=×N 跨查询窗合并求和分子 ÷ 单锚窗分母 → 7.0=336.7 vs 6.0=449.3(6.0 更高)而工具真值 57.43 vs 43.49(7.0 更高)— 旗舰对比面与全篇散文结论相反。→CWD 批(分子分母窗基对齐)。
+- **D-repeat P0 覆盖句窗基错配**:"目标睡眠 115.902ms">窗口 101ms 同段矛盾,94%=跨窗分子÷锚窗分母,伪造 6.534ms 残差。→CWD 批同族。
+- **A① lead 语义回退缺失(P1)**:6.0 平铺 lane JIT 83.893ms 占窗83%(确定性优化点)却 lead="未定位到链上主根因";lead 三级梯队对 Kind=semantic 结构性排除。→LEAD-SEM(P0-A 显示,前置=A④ ⚠实际0.000 假标量修)。
+- **A③ 双重缺口(P1)**:(a)对比 SG 无"两侧同口径链下钻"条款(reliable sequence 止于 root_cause_rank);(b)完成门 haveWakeupFamily **全局不分工件** — 7.0 的链豁免 6.0 欠账,one-shot 零消耗;投影层已有 per-partition WakeupChainRecommendedNotRun 旗未消费。→(a)SG-2b;(b)CHAIN-SCOPE(per-artifact 分桶或直接消费分区旗,one-shot 带工件后缀)。
+- **C 17>16 cap(P1×2)**:①schema 未预告 cap+拒绝无合并路由(NUM 根因2 孪生);②**optional lane 潜伏 bug:cap 溢出静默清空全部 17 条 facts 且 emit 成功**(数据无声丢失,静态审出)。→NUM-2。
+- **repeat witness**:E7/E8 同段双行 runnable-dominant 版(RCX² 退档三证)/N3 相位披露缺(6.0 死窗 100ms 无链 vs 7.0 有链 94%)/系统补充"符号名称"表头/pid=3900 零值占位行/E29 承自注无窗基/引用 4→1 attrition(QCE#61 族疑似)。
+
+### §21 归批
+**CWD**(P0,先行):排队深度分子分母窗基对齐+覆盖句窗基+承自注窗基(显示半)/跨窗聚合 overlap→MAX(引擎半);**EMIT-2**=NUM-2(cap 预告+路由+静默清空修+自愈评估)+CHAIN-SCOPE(同文件);**SG-2b**:对比同口径链下钻条款;**RNB+LEAD-SEM**(显示批):runnable 显示行+同段折叠(三证)+lead 语义回退+⚠0.000 前置;LCK-2 队列不变。
