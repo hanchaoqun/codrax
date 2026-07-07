@@ -92,9 +92,13 @@ func TestRuntimeSourceAuthorityCompletionLanding_SoftProfileAllowsRuntimeFormLan
 	if !authority.Active || authority.CurrentSourceRequirement != types.RuntimeSourceRequirementSoft || !authority.CanDowngradeToCaveat {
 		t.Fatalf("test setup should be soft runtime/source authority, got %+v", authority)
 	}
-	if !completionAggregateFactsCanCompactForRuntime(ctx) {
-		t.Fatal("soft runtime/source authority should allow runtime aggregate compaction")
-	}
+	// EVOLUTION RECORD (§21 EMIT-2 / 维度C①, 2026-07-07): the origin-lane
+	// compaction gate completionAggregateFactsCanCompactForRuntime was removed
+	// — cap compaction is now keyed on the payload shape itself
+	// (completionAggregateFactsWithinPrincipalBudget), unconditional across
+	// origin lanes, so this profile no longer needs (or has) a compaction
+	// permission to assert. The remaining assertions pin the authority
+	// profile's other landing surfaces unchanged.
 	if !completionAggregateFactsAreOptional(ctx, "resolved") {
 		t.Fatal("soft runtime/source authority should allow aggregate facts to be optional landing context")
 	}
@@ -122,9 +126,15 @@ func TestRuntimeSourceAuthorityCompletionLanding_PreciseProfileKeepsCurrentSourc
 	if !authority.Active || authority.CurrentSourceRequirement != types.RuntimeSourceRequirementPrecise || !authority.CanHardBlockCompletion {
 		t.Fatalf("test setup should be precise runtime/source authority, got %+v", authority)
 	}
-	if completionAggregateFactsCanCompactForRuntime(ctx) {
-		t.Fatal("precise missing current-source authority must not allow runtime aggregate compaction")
-	}
+	// EVOLUTION RECORD (§21 EMIT-2 / 维度C①, 2026-07-07): the origin-lane
+	// compaction gate completionAggregateFactsCanCompactForRuntime was removed.
+	// Under it this precise-authority profile REFUSED cap compaction, which is
+	// exactly the scene-gated safety net that let a mixed-lane 17>16 payload
+	// burn retry rounds (specimen cust_trace_cmp_01 line 106/161). Compaction
+	// is now payload-shape-keyed (principal_answer facts must fit the cap) and
+	// runs regardless of this profile; the hard reject survives only for a
+	// principal slate that alone exceeds the cap. The remaining assertions pin
+	// the authority profile's other landing surfaces unchanged.
 	if completionAggregateFactsAreOptional(ctx, "resolved") {
 		t.Fatal("precise missing current-source authority must keep aggregate facts required")
 	}

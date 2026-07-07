@@ -496,6 +496,19 @@ func TraceCausalProjectionRecordArtifactIdentity(record ObservationRecord) strin
 	return key
 }
 
+// TraceCausalProjectionRecordArtifactIdentityWithLabel returns the typed
+// artifact-identity partition key AND the display label (artifact basename)
+// for one observation record — the exact typed lanes the partitioner uses,
+// never prose. Exported for the completion-gate consumer (§21 EMIT-2
+// CHAIN-SCOPE): the wakeup-chain drilldown obligation buckets per artifact
+// with the SAME identity the per-artifact projections partition on, and its
+// guidance text needs a user-readable artifact name. Empty key = the record
+// carries no artifact identity (label is then empty too).
+func TraceCausalProjectionRecordArtifactIdentityWithLabel(record ObservationRecord) (string, string) {
+	key, label, _ := traceCausalProjectionArtifactIdentity(record)
+	return key, label
+}
+
 // TraceCausalProjectionRecordMatchesArtifact reports whether one observation
 // record's typed artifact identity denotes the SAME trace artifact a compiled
 // projection was partitioned for (CMP-4/CMP-5 record→projection attribution).

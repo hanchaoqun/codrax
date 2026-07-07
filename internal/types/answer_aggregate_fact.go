@@ -162,11 +162,30 @@ type aggregateRelationMemberSetFact struct {
 }
 
 const (
-	maxAnswerAggregateFacts      = 16
+	// MaxAnswerAggregateFacts is the hard cap on aggregate_facts entries per
+	// completion payload. Exported single source (§21 EMIT-2 / 维度C④ 卫生):
+	// the emit-side role-priority compaction, the cap rejection routing text,
+	// and the tool-schema cap pre-announcement all quote THIS constant —
+	// never a bare literal, so the three surfaces cannot drift.
+	MaxAnswerAggregateFacts      = 16
 	maxAnswerAggregateDimensions = 8
 	maxAnswerAggregateMembers    = 200
 	maxAnswerAggregateTextLen    = 240
 )
+
+// AggregateFactsCapExceededError is the typed cap-overflow rejection from
+// NormalizeAnswerAggregateFacts (§21 EMIT-2 / 维度C, NUM 根因2 孪生). It exists
+// so emit-side consumers can route the rejection on a PRECISE typed signal
+// (errors.As) instead of message substring matching, and attach concrete
+// operation guidance (merge same-family facts / trim by role / move detail to
+// reason). The message stays byte-identical to the legacy fmt.Errorf text.
+type AggregateFactsCapExceededError struct {
+	Count int
+}
+
+func (e *AggregateFactsCapExceededError) Error() string {
+	return fmt.Sprintf("aggregate_facts has %d entries; max %d", e.Count, MaxAnswerAggregateFacts)
+}
 
 // NormalizeAnswerAggregateFacts validates and canonicalizes aggregate
 // facts emitted by the model. The checks are structural only: closed
@@ -182,8 +201,8 @@ func NormalizeAnswerAggregateFacts(in []AnswerAggregateFact) ([]AnswerAggregateF
 	if len(in) == 0 {
 		return nil, nil
 	}
-	if len(in) > maxAnswerAggregateFacts {
-		return nil, fmt.Errorf("aggregate_facts has %d entries; max %d", len(in), maxAnswerAggregateFacts)
+	if len(in) > MaxAnswerAggregateFacts {
+		return nil, &AggregateFactsCapExceededError{Count: len(in)}
 	}
 	out := make([]AnswerAggregateFact, 0, len(in))
 	seen := map[string]bool{}

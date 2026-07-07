@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -74,7 +75,11 @@ var (
 
 func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 	emitInvestigationCompleteParametersOnce.Do(func() {
-		emitInvestigationCompleteParametersCached = json.RawMessage(`{
+		// §21 EMIT-2 / 维度C④: the aggregate_facts cap is single-sourced from
+		// types.MaxAnswerAggregateFacts via the __AGG_FACTS_CAP__ placeholder
+		// (both the maxItems constraint and the description pre-announcement),
+		// so the schema promise can never drift from the validator.
+		emitInvestigationCompleteParametersCached = json.RawMessage(strings.ReplaceAll(`{
 		"type": "object",
 		"properties": {
 			"reason": {
@@ -97,7 +102,8 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 			},
 			"aggregate_facts": {
 				"type": "array",
-				"description": "OPTIONAL but expected for derived scalar/count answers, categorical behavior verdicts, and exhaustive member enumerations. Model-authored structured aggregate facts discovered during investigation: total counts, unique-set counts, per-group counts, per-user-bucket counts, exact member sets, scalar durations/latencies/frequencies, behavior outcomes, and excluded-candidate counts. Use this instead of burying aggregates, verdicts, or complete member lists only in reason prose. Count values must be non-negative integer strings with units kept in unit. Durations such as 119.227 ms, latency, percentage, frequency, and other non-integer measurements must use kind=scalar_value, not total_count. behavior_outcome/error_granularity_verdict values are stable category strings. For kind=member_set, value may be omitted when members contains a non-empty complete set; a verified empty set uses value=\"0\" and members=[]. If a numeric value drifts from non-empty members length, the framework canonicalizes value to len(members) from that same model-authored payload. Values must come from your verified tool output or structured evidence; this handoff is preserved downstream and no value is inferred from raw evidence.",
+				"maxItems": __AGG_FACTS_CAP__,
+				"description": "OPTIONAL but expected for derived scalar/count answers, categorical behavior verdicts, and exhaustive member enumerations. HARD CAP: at most __AGG_FACTS_CAP__ entries per call — budget them toward the highest-value facts. When a comparison or multi-group investigation would exceed the cap, merge same-family per-group scalars into ONE grouped_count fact with members (one fact per metric family, not one per group or per trace side), and keep audit-only bookkeeping details in reason instead of separate audit_ledger entries. A payload over the cap is truncated by role priority (principal_answer kept first, audit_ledger dropped first) when the principal_answer facts themselves fit the cap, and rejected otherwise. Model-authored structured aggregate facts discovered during investigation: total counts, unique-set counts, per-group counts, per-user-bucket counts, exact member sets, scalar durations/latencies/frequencies, behavior outcomes, and excluded-candidate counts. Use this instead of burying aggregates, verdicts, or complete member lists only in reason prose. Count values must be non-negative integer strings with units kept in unit. Durations such as 119.227 ms, latency, percentage, frequency, and other non-integer measurements must use kind=scalar_value, not total_count. behavior_outcome/error_granularity_verdict values are stable category strings. For kind=member_set, value may be omitted when members contains a non-empty complete set; a verified empty set uses value=\"0\" and members=[]. If a numeric value drifts from non-empty members length, the framework canonicalizes value to len(members) from that same model-authored payload. Values must come from your verified tool output or structured evidence; this handoff is preserved downstream and no value is inferred from raw evidence.",
 				"items": {
 					"type": "object",
 					"properties": {
@@ -203,7 +209,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 			}
 			},
 			"required": ["reason", "confidence", "result_kind"]
-		}`)
+		}`, "__AGG_FACTS_CAP__", strconv.Itoa(types.MaxAnswerAggregateFacts)))
 	})
 	return cloneJSONRawMessage(emitInvestigationCompleteParametersCached)
 }
@@ -865,6 +871,25 @@ func normalizeCompletionAggregateFacts(
 	}
 	merged, mergeErr := types.NormalizeAnswerAggregateFacts(out)
 	if mergeErr != nil {
+		// §21 EMIT-2 / 维度C③ (N2, 2026-07-07): a cap-class merge failure used
+		// to nil the WHOLE payload and return success — 17 individually valid
+		// facts silently wiped with only a notes breadcrumb (latent silent data
+		// loss, static-audit find). A collection-level cap error belongs to the
+		// set, not to any single entry, so the per-item salvage loop above is
+		// structurally blind to it. Fix at the shared point BEFORE the
+		// optional/contextual note split (covers both lanes): compact by role
+		// priority to the cap and disclose, never discard everything. Non-cap
+		// merge errors keep the legacy ignore path.
+		var capErr *types.AggregateFactsCapExceededError
+		if errors.As(mergeErr, &capErr) {
+			compacted := compactCompletionAggregateFactsForRuntime(out, types.MaxAnswerAggregateFacts)
+			if remerged, remergeErr := types.NormalizeAnswerAggregateFacts(compacted); remergeErr == nil {
+				notes = append(notes, fmt.Sprintf("aggregate_facts payload had %d entries over the %d-entry cap; kept %d by role priority (principal_answer first, audit_ledger last) instead of discarding the payload — merge same-family facts into one grouped_count or move detail into reason to avoid truncation", len(out), types.MaxAnswerAggregateFacts, len(remerged)))
+				merged, mergeErr = remerged, nil
+			}
+		}
+	}
+	if mergeErr != nil {
 		if optionalAggregates {
 			notes = append(notes, fmt.Sprintf("ignored optional aggregate_facts payload after merge validation error: %v", mergeErr))
 		} else {
@@ -1108,12 +1133,68 @@ func normalizeCompletionAggregateFactCompat(ctx *types.BusContext, raw []types.A
 		fact.Kind = types.AnswerAggregateScalar
 		notes = append(notes, fmt.Sprintf("aggregate_facts[%d] kind normalized %s→scalar_value because value=%q is a non-integer measurement; count kinds require integer values", i, oldKind, strings.TrimSpace(fact.Value)))
 	}
-	if len(out) > 16 && completionAggregateFactsCanCompactForRuntime(ctx) {
+	// §21 EMIT-2 / 维度C① (2026-07-07): the cap compaction used to be gated on
+	// an origin-lane scene signal (runtime completion-landing authority), which
+	// stayed closed for mixed current_source+runtime lanes and let a 17>16
+	// payload burn a full retry round (specimen cust_trace_cmp_01 line 106/161)
+	// — §18.A 根因1 同形 scene-gated safety net. The gate is now the payload
+	// shape itself, a PRECISE signal: role-priority compaction can never drop a
+	// principal_answer fact while the principal slate fits the cap, so it runs
+	// unconditionally in that shape. Only a principal slate that ALONE exceeds
+	// the cap stays a hard reject (routed by
+	// completionAggregateFactsCapRejectRouting): the model must consolidate its
+	// answer facts; the system truncates but never merges or rewrites them
+	// (系统不可代替 LLM 写用户面板答案). Same pattern as the §18.A.1 NUM
+	// landing ruling: unconditional self-heal + one precise carve-out.
+	if limit := types.MaxAnswerAggregateFacts; len(out) > limit &&
+		completionAggregateFactsWithinPrincipalBudget(out, limit) {
 		before := len(out)
-		out = compactCompletionAggregateFactsForRuntime(out, 16)
-		notes = append(notes, fmt.Sprintf("aggregate_facts compacted from %d to %d runtime-observation entries; preserve extra audit details in reason if needed", before, len(out)))
+		out = compactCompletionAggregateFactsForRuntime(out, limit)
+		notes = append(notes, fmt.Sprintf("aggregate_facts compacted from %d to %d entries (cap %d, kept by role priority: principal_answer first, audit_ledger last); preserve extra audit details in reason if needed", before, len(out), limit))
 	}
 	return out, notes
+}
+
+// completionAggregateFactsWithinPrincipalBudget reports whether the
+// principal_answer facts alone fit the cap — the payload-shape precise signal
+// (§21 EMIT-2 / 维度C①) that makes role-priority compaction lossless for the
+// answer slate: while true, truncation only sheds supporting/audit context;
+// once false, silent truncation would drop parts of the ANSWER, so the caller
+// must keep the hard reject and route the model to consolidate instead.
+func completionAggregateFactsWithinPrincipalBudget(facts []types.AnswerAggregateFact, limit int) bool {
+	principal := 0
+	for _, fact := range facts {
+		if types.NormalizeAnswerAggregateRole(fact.Role) == types.AnswerAggregateRolePrincipalAnswer {
+			principal++
+		}
+	}
+	return principal <= limit
+}
+
+// completionAggregateFactsCapRejectRouting builds the operation routing that
+// rides an aggregate_facts cap rejection (§21 EMIT-2 / 维度C②, NUM 根因2
+// 孪生): the current count, the per-role tally, and the three concrete edits
+// (merge same-family facts / move detail to reason / trim lowest-value roles).
+// LLM-facing text: it names only schema-visible concepts (roles, kinds,
+// reason), never internal mechanisms.
+func completionAggregateFactsCapRejectRouting(facts []types.AnswerAggregateFact) string {
+	counts := map[types.AnswerAggregateRole]int{}
+	for _, fact := range facts {
+		counts[types.NormalizeAnswerAggregateRole(fact.Role)]++
+	}
+	var tally []string
+	appendRole := func(label string, role types.AnswerAggregateRole) {
+		if n := counts[role]; n > 0 {
+			tally = append(tally, fmt.Sprintf("%s=%d", label, n))
+		}
+	}
+	appendRole("principal_answer", types.AnswerAggregateRolePrincipalAnswer)
+	appendRole("supporting_coverage", types.AnswerAggregateRoleSupportingCoverage)
+	appendRole("audit_ledger", types.AnswerAggregateRoleAuditLedger)
+	appendRole("unspecified_role", types.AnswerAggregateRoleUnknown)
+	return fmt.Sprintf(
+		"You sent %d facts (role tally: %s); the budget is %d entries. Keep the highest-value facts: merge same-family per-group scalars into ONE grouped_count fact with members (one fact per metric family, not one per group or per trace side), move audit-only details into reason, and drop the lowest-value audit_ledger entries first. Do not drop principal_answer facts — consolidate them into fewer aggregate rows instead.",
+		len(facts), strings.Join(tally, ", "), types.MaxAnswerAggregateFacts)
 }
 
 func completionAggregateFactValueRepairableFromMembers(fact types.AnswerAggregateFact) bool {
@@ -1167,17 +1248,6 @@ func completionAggregateFactDecimalCountShouldBeScalar(fact types.AnswerAggregat
 		return false
 	}
 	return true
-}
-
-func completionAggregateFactsCanCompactForRuntime(ctx *types.BusContext) bool {
-	if ctx == nil || ctx.AnalysisIR == nil {
-		return false
-	}
-	if allowed, decided := runtimeSourceAuthorityAllowsRuntimeCompletionLanding(ctx); decided {
-		return allowed
-	}
-	rm := ctx.AnalysisIR.RequestModel
-	return rm.HasRuntimeArtifactWithoutRequiredCurrentSource()
 }
 
 func compactCompletionAggregateFactsForRuntime(raw []types.AnswerAggregateFact, limit int) []types.AnswerAggregateFact {
@@ -1608,9 +1678,18 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	evidenceSnapshot := ctx.Mutable.EmittedEvidence()
 	aggregateFacts, softAggregateNotes, err := normalizeCompletionAggregateFacts(ctx, resultKind, p.AggregateFacts)
 	if err != nil {
+		summary := fmt.Sprintf("emit_investigation_complete rejected: %v", err)
+		// §21 EMIT-2 / 维度C② (N1, NUM 根因2 孪生): a cap rejection must teach
+		// the concrete edit, not just restate the limit — same field-routing
+		// discipline as the deterministic-count rejection lane. Typed error
+		// detection (errors.As), never message substring matching.
+		var capErr *types.AggregateFactsCapExceededError
+		if errors.As(err, &capErr) {
+			summary += " " + completionAggregateFactsCapRejectRouting(p.AggregateFacts)
+		}
 		return types.ToolResult{
 			ToolName:  t.Name(),
-			Summary:   fmt.Sprintf("emit_investigation_complete rejected: %v", err),
+			Summary:   summary,
 			Success:   false,
 			Timestamp: time.Now(),
 		}, nil
@@ -3752,22 +3831,52 @@ func explicitCurrentSourceExclusionCompletionBypassLabel(ctx *types.BusContext) 
 // that coin flip; (c) the gate is one-shot — it only ever bought ONE nudge,
 // and when the model's context already holds the contradicting sibling that
 // nudge is the q9 wasted burn, not a correction.
+//
+// CHAIN-SCOPE (账本 §21 维度A③(b), 2026-07-07): the wakeup-family exemption,
+// the sibling reconcile, and the one-shot marker are all scoped PER TRACE
+// ARTIFACT. The former run-global haveWakeupFamily let one artifact's chain
+// exempt EVERY artifact's obligation — in the cmp_01 dual-trace comparison
+// the 7.0 trace's full wakeup chain (E1-E10) structurally waived the 6.0
+// trace's chain_required=true debt, the one-shot was never consumed, and the
+// 6.0 tree shipped with "本轮未执行唤醒链下钻". The artifact identity is the
+// SAME typed lane the per-artifact projection partitioner keys on
+// (types.TraceCausalProjectionRecordArtifactIdentityWithLabel — SourceRef
+// path / artifact id / locator, never prose), so the gate's per-artifact
+// obligation mirrors the per-partition WakeupChainRecommendedNotRun flag the
+// display face compiles. Bucketing rules, all fail-open toward the legacy
+// run-global behavior when identity is absent (precise-signal absence is
+// never guessed over):
+//   - a wakeup-family observation WITH identity exempts only its own
+//     artifact; an identity-less one keeps the legacy global reach;
+//   - a chain_required row WITH identity is owed unless ITS artifact (or an
+//     identity-less wakeup observation) has a wakeup face; an identity-less
+//     row keeps the legacy "any wakeup anywhere" exemption;
+//   - a state_churn sibling reconciles only rows of the SAME artifact scope
+//     (equal keys, or either side identity-less) — same-name threads in two
+//     traces can no longer cover each other;
+//   - the one-shot key carries the artifact identity suffix: at most ONE
+//     nudge per artifact per run (the CHAIN-RECONCILE conservative arm
+//     continues; total fires stay bounded by the finite typed artifact
+//     identities of the run's actual trace files, so no livelock).
 func wakeupChainDrilldownPendingDowngrade(ctx *types.BusContext) string {
 	if ctx == nil || ctx.Mutable == nil {
 		return ""
 	}
 	// Chain-required sleep rows in scan order (deterministic downgrade pick,
-	// with source/window attribution) and, per subject, the query windows of
-	// state_churn / chain_required=false sibling rows.
+	// with source/window/artifact attribution) and, per subject, the query
+	// windows of state_churn / chain_required=false sibling rows.
 	type chainRequiredRow struct {
-		subject string
-		source  string // source= enum note of the chain_required=true row
-		window  string // selected_window (fallback window) note of that row
+		artifactKey   string // typed artifact-identity partition key ("" = identity-less legacy row)
+		artifactLabel string // display basename for the guidance text
+		subject       string
+		source        string // source= enum note of the chain_required=true row
+		window        string // selected_window (fallback window) note of that row
 	}
 	var chainRequiredRows []chainRequiredRow
 	chainRequiredSubjects := map[string]bool{}
-	siblingWindowsBySubject := map[string][]string{}
-	haveWakeupFamily := false
+	siblingWindowsBySubject := map[string][]wakeupChainSiblingWindow{}
+	wakeupFamilyGlobal := false // identity-less wakeup observation: legacy run-global reach
+	wakeupFamilyByArtifact := map[string]bool{}
 	for _, result := range append(ctx.Mutable.DispatchToolResults(), ctx.ToolResults...) {
 		if types.CanonicalToolName(result.ToolName) != "trace_query" {
 			continue
@@ -3775,7 +3884,11 @@ func wakeupChainDrilldownPendingDowngrade(ctx *types.BusContext) string {
 		for _, obs := range result.Observations {
 			switch strings.TrimSpace(obs.Predicate) {
 			case "wakeup_chain", "wakeup_chain_edge", "wakeup_causal_impact", "wakeup_causal_aggregate":
-				haveWakeupFamily = true
+				if key, _ := types.TraceCausalProjectionRecordArtifactIdentityWithLabel(obs); key != "" {
+					wakeupFamilyByArtifact[key] = true
+				} else {
+					wakeupFamilyGlobal = true
+				}
 			case "state_drilldown":
 				if strings.TrimSpace(obs.Object) != "s_sleep" {
 					continue
@@ -3789,60 +3902,99 @@ func wakeupChainDrilldownPendingDowngrade(ctx *types.BusContext) string {
 				if window == "" {
 					window = traceObservationNoteValue(obs.RichNotes, types.TraceNoteKeyWindow)
 				}
+				artifactKey, artifactLabel := types.TraceCausalProjectionRecordArtifactIdentityWithLabel(obs)
 				switch traceObservationNoteValue(obs.RichNotes, types.TraceNoteKeyChainRequired) {
 				case "true":
 					chainRequiredSubjects[subject] = true
-					chainRequiredRows = append(chainRequiredRows, chainRequiredRow{subject: subject, source: source, window: window})
+					chainRequiredRows = append(chainRequiredRows, chainRequiredRow{
+						artifactKey:   artifactKey,
+						artifactLabel: artifactLabel,
+						subject:       subject,
+						source:        source,
+						window:        window,
+					})
 				case "false":
 					// A chain-NOT-required sibling for the SAME sleep subject —
 					// its evidence face (state_churn) covers the sleep without a
-					// wakeup chain, but only for its own query window; the
-					// overlap check below decides per chain-required row.
-					// state_churn is the canonical producer of the
-					// chain_required=false sleep row (query.go:4839 via
+					// wakeup chain, but only for its own query window AND its own
+					// artifact scope; the overlap check below decides per
+					// chain-required row. state_churn is the canonical producer
+					// of the chain_required=false sleep row (query.go:4839 via
 					// stateDrilldownNeedsWakeupChainForSource); keying on it
 					// keeps the reconcile precise.
 					if source == "state_churn" && window != "" {
-						siblingWindowsBySubject[subject] = append(siblingWindowsBySubject[subject], window)
+						siblingWindowsBySubject[subject] = append(siblingWindowsBySubject[subject],
+							wakeupChainSiblingWindow{artifactKey: artifactKey, window: window})
 					}
 				}
 			}
 		}
 	}
-	if haveWakeupFamily || len(chainRequiredRows) == 0 {
+	if len(chainRequiredRows) == 0 {
 		return ""
 	}
+	// CHAIN-SCOPE wakeup exemption, per row: an artifact-scoped wakeup face
+	// covers only its own artifact; identity-less signals keep the legacy
+	// run-global reach on BOTH sides.
+	rowWakeupCovered := func(row chainRequiredRow) bool {
+		if wakeupFamilyGlobal {
+			return true
+		}
+		if row.artifactKey == "" {
+			return len(wakeupFamilyByArtifact) > 0
+		}
+		return wakeupFamilyByArtifact[row.artifactKey]
+	}
 	// Pick the first (scan-order, deterministic) chain-required row that is
-	// genuinely still owed: no state_churn / chain_required=false sibling of
-	// the same subject covers an overlapping window. Missing/unparseable
-	// windows fail toward keeping the obligation.
+	// genuinely still owed: its own artifact has no wakeup-family face, no
+	// state_churn / chain_required=false sibling of the same subject AND
+	// artifact scope covers an overlapping window, and its artifact's one-shot
+	// nudge is unburned. Missing/unparseable windows fail toward keeping the
+	// obligation.
 	var downgrade *chainRequiredRow
+	owed := 0
 	for i := range chainRequiredRows {
-		if wakeupChainSiblingWindowReconciles(chainRequiredRows[i].window, siblingWindowsBySubject[chainRequiredRows[i].subject]) {
+		row := &chainRequiredRows[i]
+		if rowWakeupCovered(*row) {
 			continue
 		}
-		downgrade = &chainRequiredRows[i]
+		if wakeupChainSiblingWindowReconciles(row.artifactKey, row.window, siblingWindowsBySubject[row.subject]) {
+			continue
+		}
+		owed++
+		oneShotKey := "wakeup_chain_drilldown_pending"
+		if row.artifactKey != "" {
+			// Per-artifact one-shot (§21 CHAIN-SCOPE): each artifact gets at
+			// most one nudge per run; identity-less rows keep the legacy
+			// run-global key byte-identical.
+			oneShotKey += "\x00" + row.artifactKey
+		}
+		if !ctx.Mutable.MarkCompletionGateOneShot(oneShotKey) {
+			continue
+		}
+		downgrade = row
 		break
 	}
 	if downgrade == nil {
-		// Every chain_required=true sleep row was reconciled by a state_churn /
-		// chain_required=false sibling covering an overlapping window — the
-		// sleep already has a wide-window decomposition evidence face; no false
-		// downgrade, and the one-shot marker stays unburned for this run.
-		// Advisory log only (soft observability of a stood-down hard gate).
-		logging.Info("[emit_investigation_complete] wakeup-chain downgrade reconciled away: %d chain_required=true sleep subject(s) each carry a window-overlapping state_churn chain_required=false sibling", len(chainRequiredSubjects))
+		if owed == 0 {
+			// Every chain_required=true sleep row was either covered by its own
+			// artifact's wakeup face or reconciled by a state_churn /
+			// chain_required=false sibling covering an overlapping window in the
+			// same artifact scope — no false downgrade, and the one-shot markers
+			// stay unburned for this run. Advisory log only (soft observability
+			// of a stood-down hard gate).
+			logging.Info("[emit_investigation_complete] wakeup-chain downgrade reconciled away: %d chain_required=true sleep subject(s) each covered by an own-artifact wakeup face or a window-overlapping state_churn chain_required=false sibling", len(chainRequiredSubjects))
+		}
 		return ""
 	}
 	downgradeSubject, downgradeRow := downgrade.subject, *downgrade
-	if !ctx.Mutable.MarkCompletionGateOneShot("wakeup_chain_drilldown_pending") {
-		return ""
-	}
-	logging.Info("[emit_investigation_complete] one-shot wakeup-chain drilldown downgrade: subject=%s source=%s window=%s",
-		downgradeSubject, downgradeRow.source, downgradeRow.window)
+	logging.Info("[emit_investigation_complete] one-shot wakeup-chain drilldown downgrade: subject=%s source=%s window=%s artifact=%s",
+		downgradeSubject, downgradeRow.source, downgradeRow.window, downgradeRow.artifactLabel)
 	// Attribution rides the row's own typed notes verbatim (source= / query
-	// window) so the model can locate the exact state_drilldown row that
-	// carries the obligation instead of dismissing the downgrade as a stale
-	// misfire; legacy rows without those notes degrade to the bare flag.
+	// window / trace artifact) so the model can locate the exact
+	// state_drilldown row that carries the obligation instead of dismissing
+	// the downgrade as a stale misfire; legacy rows without those notes
+	// degrade to the bare flag.
 	attribution := "chain_required=true"
 	if source := strings.TrimSpace(downgradeRow.source); source != "" {
 		attribution += ", source=" + source
@@ -3850,30 +4002,52 @@ func wakeupChainDrilldownPendingDowngrade(ctx *types.BusContext) string {
 	if window := strings.TrimSpace(downgradeRow.window); window != "" {
 		attribution += ", query window " + window
 	}
+	scopeSentence := "No wakeup_chain view was run this turn. "
+	closeSentence := "If the view returns no structured chain, complete directly on the next attempt; this check does not repeat."
+	if strings.TrimSpace(downgradeRow.artifactLabel) != "" {
+		attribution += ", trace artifact " + strings.TrimSpace(downgradeRow.artifactLabel)
+		scopeSentence = "No wakeup_chain view was run against that trace artifact this turn — a wakeup chain drilled on a DIFFERENT trace artifact does not cover this one; a comparison needs the same drilldown on each side. "
+		closeSentence = "If the view returns no structured chain, complete directly on the next attempt; this check fires at most once per trace artifact."
+	}
 	return EmitInvestigationCompleteDowngradePrefix + " — this run's own state_drilldown row marks the dominant sleep state of " + downgradeSubject +
 		" as requiring a wakeup-chain drilldown (" + attribution + "), and no sibling state_drilldown row of the same thread over an overlapping query window reconciles it with chain_required=false (source=state_churn). " +
-		"No wakeup_chain view was run this turn. " +
+		scopeSentence +
 		"Run trace_query(view=\"wakeup_chain\") for that thread and window once (bounded), then re-call emit_investigation_complete — " +
 		"with the chain the answer can name the upstream waker instead of stopping at the sleep symptom. " +
 		"If a state_churn row with chain_required=false already covers this thread over a window overlapping the one above, close on that evidence instead. " +
-		"If the view returns no structured chain, complete directly on the next attempt; this check does not repeat."
+		closeSentence
+}
+
+// wakeupChainSiblingWindow is one state_churn / chain_required=false sibling
+// face: its typed query window plus the typed artifact identity it was
+// observed on (§21 CHAIN-SCOPE — "" = identity-less legacy row).
+type wakeupChainSiblingWindow struct {
+	artifactKey string
+	window      string
 }
 
 // wakeupChainSiblingWindowReconciles reports whether ANY state_churn sibling
-// window overlaps the chain-required row's window. Both sides must carry a
-// parseable typed window note (selected_window / window, "start..end" floats
-// as emitted by traceQueryWindowValue); a missing or malformed window on
-// either side fails toward keeping the drilldown obligation — precise-signal
-// absence is never guessed over. Closed-interval overlap: a state_churn face
-// whose query window merely touches the chain-required window still covers
-// the boundary instant; anything disjoint reconciles nothing.
-func wakeupChainSiblingWindowReconciles(requiredWindow string, siblingWindows []string) bool {
+// in the SAME artifact scope overlaps the chain-required row's window. Both
+// sides must carry a parseable typed window note (selected_window / window,
+// "start..end" floats as emitted by traceQueryWindowValue); a missing or
+// malformed window on either side fails toward keeping the drilldown
+// obligation — precise-signal absence is never guessed over. Closed-interval
+// overlap: a state_churn face whose query window merely touches the
+// chain-required window still covers the boundary instant; anything disjoint
+// reconciles nothing. Artifact scope (§21 CHAIN-SCOPE): a sibling observed on
+// a DIFFERENT trace artifact explains nothing about this artifact's sleep —
+// same-name threads in two traces must not cover each other; either side
+// being identity-less keeps the legacy subject-keyed reach.
+func wakeupChainSiblingWindowReconciles(rowArtifactKey, requiredWindow string, siblingWindows []wakeupChainSiblingWindow) bool {
 	reqStart, reqEnd, ok := traceWindowNoteInterval(requiredWindow)
 	if !ok {
 		return false
 	}
-	for _, window := range siblingWindows {
-		sibStart, sibEnd, ok := traceWindowNoteInterval(window)
+	for _, sibling := range siblingWindows {
+		if rowArtifactKey != "" && sibling.artifactKey != "" && rowArtifactKey != sibling.artifactKey {
+			continue
+		}
+		sibStart, sibEnd, ok := traceWindowNoteInterval(sibling.window)
 		if !ok {
 			continue
 		}

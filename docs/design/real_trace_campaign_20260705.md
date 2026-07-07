@@ -1438,3 +1438,5 @@ opendir 案散文"owner 与 holder 均指向同一 tid 42067"**未必是模型�
 
 ### §22 归批
 **B1-b**(P0,CWD 后最优先):path 任意位匹配选举+终点记录修+折叠强制展开;**PTV7-SPN**:span 名三面入行+审计摘要 span=+dump per-lane 配额+trace_gap 措辞(用户裁定)+C39 漏面+零值卫生;**CWD 验收扩**:E19/C7 两 witness;**NXT**(P1):undrilled headline 的 next-step 点名(drill-debt 用户面半场);**PSG** 裁定候选(散文标量 grounding,非本轮);E1/E14E15 合并行账目→PTV7-SPN 或 P1-H。
+
+§21 EMIT-2 复核补记(2026-07-07):principal 独超 16 保硬拒适用于 compat 门与非 optional lane;optional lane 例外=截 16 优于 legacy 整体清空,带披露 note,已 pin(emit2_test.go OptionalAggregateFactsCapOverflowNotWiped)。复核 SHIP 4/4 突变咬红。
