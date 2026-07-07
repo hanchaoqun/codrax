@@ -1343,3 +1343,27 @@ NUM 数字格式批(§18.A 两根因,emit_investigation_complete.go+answer_aggre
 ### §18.E.1 comm 交叉核验降级修正(用户 2026-07-07,pin)
 
 comm 可经 prctl 动态改名(payload 记持锁时刻名,sched 面可为改名前后另
+## §19 LCK 锁形态覆盖面归因(2026-07-07;§18.E 三级梯子可行性实测含)
+
+**头条结论**:真实语料锁谱系窄 — futex/pthread/rwlock/条件变量/内核锁**文本形态全语料 0 例**(两条真实采集链均未开这些 tracepoint,按不写投机覆盖红线**不立案**,payload-less 车道兜着等 witness)。真洞在已认族内部与词表噪声:
+- **S
+## §19 LCK 锁形态覆盖面归因(2026-07-07,颠覆性结论)
+
+**头条:真实语料里锁等待谱系比预想窄得多。** futex/pthread mutex/rwlock/条件变量/内核 mutex/rtmutex/binder node lock 的文本形态在**全语料(donghu 1.9MB=customlogs/xxx_all 同 trace + carved fixture + q1-q9 转录)0 实例** — tracepoint 两条真实采集链都没开。按"不写 speculative 覆盖"红线**无立案资格**,留 isBlockingLikeText payload-less 车道兜,等真实 witness 再议。原设想 LCK 覆盖面大批 = 大部分空。
+
+**现状清点**:parseLockContentionPayload(lock_contention.go:51)恰认 2 前缀 — ①`monitor contention with owner <o>(tid) at <sig> waiters=N`(monitor_contention,提 owner comm+tid+holder_site+waiters)②`Lock contention on <subj> (owner tid: N)`(subj=="a monitor lock"→monitor_contention 否则 lock_contention;**subj 文本被丢弃未入 wait_object**)。BlockingKind 仅 2 值。语料分布:donghu `Lock contention on` ×84(suspend count 58/InternTable 25/ClassLinker 7/thread list 2),`monitor contention with owner` 仓内 0 例(只活客户标本 q4 pin/q7 转录)。
+
+**真正的高频漏判=已认族内部哨兵死角(P0,客户案 100% 必经)**:
+- `owner tid: 0`(ART 无主哨兵)**23/84** → resolveBlockingSpanRowCounterpart 两分支(query.go:12558 要 PID>0 / :12583 要 Kind=="")全跳,无 HolderSource/无 wakeup-edge 兜底/无 wait_object;
+- `owner tid: 18446744073709551615`(uint64-1)**7/84** → lock_contention.go:108 strconv.Atoi 静默钳 MaxInt64 且吞错 → 打印"owner tid 9223372036854775807 不在 trace"垃圾数字,"无主"错述"幽灵线程";
+- owner-bearing 54 行宿主侧全 phantom → E2a 兜底 100% 必经,非边角。
+
+**词表噪声穿透 typed 车道(§1 红线实证)**:isBlockingLikeText(query.go:12717)10 自由子串;`io` 命中 animation/TimerIteration/全 Audio 家族(纯DSP)、`sync` 命中全 VSync、`lock` 命中 AudioRunningLock 记账 — 纯 CPU span 领 type=blocking_span conf 0.72 + E2a 0.62 推断对端。爆炸半径受 top-8-by-duration + rank BlockingKind≠"" 闸限,但 critical_blocking 面穿透实况。
+
+**梯子②可行性(§18.E,comm 修正后)**:donghu 1680 发射对/17 SpanPID **结构唯一 17/17**(每 SpanPID 恰 1 宿主 tgid;ns 分歧 6 条含 60194→59566 673 样本);**SpanPID 是进程级**(60194 由 15 不同宿主 tid 发射)→ ②硬产出上限=宿主 tgid,线程级推不出。comm 可得率仓内 0%(全 tid-only)。42067 案=②进程级+③线程级**并列双披露**(③给 #RxComputationT 与 payload owner NetworkKit_* 名不符=裁定②降档披露标准案例,BLK-2 twin-port referent 分离已备显示面)。closing-wakeup:findWakeupForWithSelection(query.go:13764)覆写无 early-exit+尾 5µs 窗=**已是 closing 语义,无需收窄**,只缺 pin。TraceSpanSummary 不带 SpanPID(types.go:1689)→ ②接线补字段或 contention 族走 Thread.TGID,批内定。进程级 peer typed-pair 张力:不许塞 tgid 进 PID,首批走 peer 保 unresolved+进程级身份走 display note。
+
+### §19 批次(重排)
+- **LCK-1(P0 精修,升入回访收尾序列)**:S1 哨兵值收编(ParseUint,0 与 uint64-max→typed ownerless 不产垃圾数字;无主 contention 接 payload-less 兜底链,subj 文本入 wait_object[现被丢弃])+ F1 词表止噪(删 `io`/`sync` 加边界,IO 有 io_latency/blocked_reason/d_state 自有 typed 车道不需 span 名兜)+ closing-wakeup 取尾 pin。零 registry/NKR 变更,客户案直接受益。
+- **LCK-2(梯子②,ns_span_derivation)**:Index sync.Once ns→宿主 tgid memo(第二 tgid→Ambiguous 硬拒落③,comm 不消歧);resolveBlockingSpanRowCounterpart 三级梯子;holder_source/peer_source 新值 ns_span_derivation(既有 string 键零新键,但 sourceIsInferred query.go:12102 单值比较改集合成员+drill_status 第三常量+skill 披露文案扩);置信 0.67(0.72/0.62 之间);comm 只软披露不进置信算术。进程级 peer typed-pair 首批走 display note。
+- **LCK-3(软尾,低优先/待 witness)**:S4 blocked_reason caller 锁定性词(down/down_interruptible/rwsem_/rt_mutex_/__mutex_lock→定性词 IO 改锁,lane/token 不动)/S3 fence 等待(Waiting for Present Fence/WaitFence)/S2 futex span 对(FutexWait/FutexWake,与 closing-wakeup 同义佐证);S2/S3 上新 BlockingKind 才动 registry。
+- pin:closing-wakeup 取尾/无主兜底接线/uint64-max typed ownerless(永不 MaxInt64)/ns 映射多义硬拒(comm 不参与)/词表止噪(Audio/animation 不 blocking-like,FutexWait/fence 仍准入)/SpanPID 进程级(carved 多线程单 tgid)。
