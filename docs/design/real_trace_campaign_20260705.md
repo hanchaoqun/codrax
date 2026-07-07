@@ -1331,3 +1331,11 @@ NUM 数字格式批(§18.A 两根因,emit_investigation_complete.go+answer_aggre
 
 ### §18.A.1 NUM 落地裁定补记(2026-07-07,防按原处方"纠偏"回退)
 原处方(§18.A"无条件改判、不需场景门")落地时**保留一个例外**:IsCountQuestion==true(真整数计数问题)仍硬拒浮点 count 值 — 朝保守方向偏离,理由:①该 predicate 是既有硬门 typed carve-out 先例(gate/hard_gate.go:142);②analyzer 自洽门强制 is_count_question→is_scalar_answer,HEAD 旧门经 IsScalarAnswer 分支使计数硬拒**从未真实可达** — NUM 改后计数车道首次真实收紧、非计数车道放宽,是加固非放宽;③纵深防御:即使门失效,确定性计数证明门独立 DOWNGRADE 兜底。复核无 P0/P1/P2;两 nit 就地收(拒绝文案 kind 重复渲染/嵌单位数值"10.503ms"形态一跳路由)。
+
+### §18.E 持有者解析梯子三级裁定(用户 2026-07-07,pin)
+
+`(owner tid: XXX)` 匹配模式合理保留不泛化(再确认)。XXX 可能是容器外(跨 pidns)tid,解析梯子定为三级,逐级回落:
+1. **payload 直解**(现有):XXX 在本 trace 线程表(tid-presence 四字段集)→ contention_payload;
+2. **ns-span 打点推导**(新增,本裁定):查不到时先尽量从 trace 内 span 打点推导宿主身份 — 每条 trace_mark 携带 (SpanPID=容器 ns id ↔ 行头宿主 tid/tgid) 发射对(T-span 已分离存储),全 trace 扫描建 ns→宿主映射;owner tid 命中且映射唯一 → 推导宿主身份(typed 来源=ns_span_derivation,置信介于直解与唤醒兜底之间,payload owner 线程名作 comm 交叉核验);映射多义/无命中 → 落第 3 级;
+3. **最后唤醒兜底**(现有,语义收窄确认):借助**等锁 span 结束的那次唤醒**(closing wakeup=放锁唤醒,非窗内任意唤醒)推定(wakeup_edge,0.62)。
+实施=LCK-OWNER 批(待 LCK 覆盖面归因回带可行性实测:映射密度/唯一性/现 resolveCounterpartViaWakeupEdge 是否锚定 closing wakeup)。
