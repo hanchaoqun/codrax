@@ -944,8 +944,8 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 		// rows exactly when the table shows them (gated flags from the same
 		// detail rows the table renders) — every other render stays
 		// byte-stable.
-		if flags := runtimeTraceProjDetailTableLegendFlagsFor(model, zh); flags.mergedSum || flags.mergedMax || flags.mergedDedup || flags.multiSeat {
-			if flags.mergedSum || flags.mergedMax || flags.mergedDedup {
+		if flags := runtimeTraceProjDetailTableLegendFlagsFor(model, zh); flags.mergedSum || flags.mergedMax || flags.mergedWindowMax || flags.mergedDedup || flags.multiSeat {
+			if flags.mergedSum || flags.mergedMax || flags.mergedWindowMax || flags.mergedDedup {
 				var parts []string
 				if zh {
 					if flags.mergedSum {
@@ -953,6 +953,11 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 					}
 					if flags.mergedMax {
 						parts = append(parts, "×N(a–b)取最大 = 跨线程折叠,数值取成员最大(墙钟不求和)")
+					}
+					if flags.mergedWindowMax {
+						// §21 CWD: the cross-window MAX form gets its own gated
+						// line — the sum line's 数值为总和 must never gloss it.
+						parts = append(parts, "×N(a–b)跨窗取最大 = 查询窗互相重叠,数值取成员最大(重叠窗量值不求和)")
 					}
 					if flags.mergedDedup {
 						parts = append(parts, "×N同值 = 同一测量重复发布,数值即那一次")
@@ -964,6 +969,9 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 					}
 					if flags.mergedMax {
 						parts = append(parts, "×N(a–b) max = cross-thread fold, the value is the member MAX (wall clock never sums)")
+					}
+					if flags.mergedWindowMax {
+						parts = append(parts, "×N(a–b) cross-window max = overlapping query windows, the value is the member MAX (overlapping-window magnitudes never sum)")
 					}
 					if flags.mergedDedup {
 						parts = append(parts, "×N same-value = one measurement published N times, the value IS that one")
@@ -1154,12 +1162,24 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 	}
 	rows := make([]types.AnswerBlockItem, 0, len(projections)+1)
 	var densityWindows []float64
+	var densityBases []string
+	densityBaseDiffersFromProjWindow := false
+	// §21 CWD item D (§11-N3 修向(a) 披露半, cmp_01 revisit 2026-07-07): the
+	// per-side on-chain numerator + the typed chain-not-run flag feed the
+	// anchor-quality asymmetry note below. Collected from the SAME models the
+	// row cells render from, so the note can never disagree with the cells.
+	sideLabels := make([]string, 0, len(projections))
+	sideAttributed := make([]float64, 0, len(projections))
+	sideChainNotRun := make([]bool, 0, len(projections))
 	for i, projection := range projections {
 		model := buildRuntimeTraceProjTreeModel(projection, nil, zh)
 		label := strings.TrimSpace(projection.ArtifactLabel)
 		if label == "" {
 			label = dash
 		}
+		sideLabels = append(sideLabels, label)
+		sideAttributed = append(sideAttributed, runtimeTraceProjDepth1Cumulative(model))
+		sideChainNotRun = append(sideChainNotRun, model.WakeupChainRecommendedNotRun)
 		window := dash
 		if projection.WindowStartTs > 0 && projection.WindowEndTs > projection.WindowStartTs {
 			window = fmt.Sprintf("%.3fs → %.3fs", projection.WindowStartTs, projection.WindowEndTs)
@@ -1171,6 +1191,11 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 		pressureCell, densityWindow := runtimeTraceProjCompareBackgroundPressureCell(model, zh)
 		if densityWindow > 0 {
 			densityWindows = append(densityWindows, densityWindow)
+			densityBases = append(densityBases, fmt.Sprintf("%.3fms", densityWindow))
+			projWindowMS := (projection.WindowEndTs - projection.WindowStartTs) * 1000
+			if projWindowMS <= 0 || math.Abs(densityWindow-projWindowMS) > 1.0 {
+				densityBaseDiffersFromProjWindow = true
+			}
 		}
 		cells := []string{
 			runtimeTraceCausalProjectionMarkdownSafe(label),
@@ -1194,9 +1219,23 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 	// unequal windows. Rendered as the table's last row so it sits after the
 	// data on every surface.
 	if runtimeTraceProjCompareWindowsUnequal(densityWindows) {
+		// §21 CWD 复核 F3-note fix: the legacy sentence asserts the projection
+		// windows themselves differ — only true when every density base IS its
+		// side's projection window (±1ms, F-2 tolerance family). When any side
+		// normalized over a different window (cross-window-max member window /
+		// row query window) that claim is false for the table the reader sees;
+		// name the actual bases instead so the densities stay recomputable.
 		note := "⚠ 两侧投影窗长不等,背景压力已按各自窗长归一化"
 		if !zh {
 			note = "⚠ Projection window lengths differ; background pressure is normalized per window"
+		}
+		if densityBaseDiffersFromProjWindow {
+			bases := strings.Join(densityBases, " / ")
+			if zh {
+				note = "⚠ 背景压力已按各自数值所在窗归一化(窗基: " + bases + ")"
+			} else {
+				note = "⚠ Background pressure is normalized over each figure's own window (bases: " + bases + ")"
+			}
 		}
 		noteCells := make([]string, len(columns))
 		noteCells[0] = note
@@ -1216,6 +1255,18 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 			noteCells[0] = note
 			rows = append(rows, types.AnswerBlockItem{Cells: noteCells, CitationRef: -1})
 		}
+	}
+	// §21 CWD item D (§11-N3 修向(a) 披露半, cmp_01 revisit 2026-07-07): when
+	// one side's anchor window carries on-chain attribution and another's
+	// carries none, the overview rows compare a drilled window against an
+	// undrilled one with no disclosure — the 6.0-vs-7.0 specimen read "有因 vs
+	// 无因" off a pure anchor-quality asymmetry. Precise signals only: the
+	// per-side depth-1 numerator (>0 existence) and the typed
+	// WakeupChainRecommendedNotRun flag; symmetric shapes emit NOTHING.
+	if note := runtimeTraceProjCompareChainAsymmetryNote(sideLabels, sideAttributed, sideChainNotRun, zh); note != "" {
+		noteCells := make([]string, len(columns))
+		noteCells[0] = note
+		rows = append(rows, types.AnswerBlockItem{Cells: noteCells, CitationRef: -1})
 	}
 	// PTV5 C15 (#68): no internal jargon on the user panel — "typed" out, and
 	// the retired LLM-predicate framing ("对比形态判定") with it (NEW-2 made
@@ -1376,22 +1427,29 @@ func runtimeTraceProjCompareBackgroundPressureCell(model runtimeTraceProjTreeMod
 	density := bestValue / windowMS
 	queueDepth := runtimeTraceProjCrossThreadQueueDepthToken(*best)
 	concurrency := runtimeTraceProjCrossThreadConcurrencyToken(*best)
+	// §21 CWD (cmp_01 revisit 2026-07-07): a cross-window MAX row's value is
+	// the single largest member, not a Σ — the parenthetical label must not
+	// call it 累计/cumulative-of-N. Non-max rows keep the wording verbatim.
+	valueLabel, enValueLabel := "累计", "cumulative"
+	if best.MergedCrossWindowMax {
+		valueLabel, enValueLabel = "跨窗取最大", "cross-window max"
+	}
 	var cell string
 	switch {
 	case queueDepth && zh:
-		cell = fmt.Sprintf("≈平均排队深度 %.1f(累计 %.3fms,跨线程累计,非墙钟)", density, bestValue)
+		cell = fmt.Sprintf("≈平均排队深度 %.1f(%s %.3fms,跨线程累计,非墙钟)", density, valueLabel, bestValue)
 	case queueDepth:
-		cell = fmt.Sprintf("≈avg queue depth %.1f (cumulative %.3fms, cross-thread, not wall clock)", density, bestValue)
+		cell = fmt.Sprintf("≈avg queue depth %.1f (%s %.3fms, cross-thread, not wall clock)", density, enValueLabel, bestValue)
 	case concurrency && zh:
 		// PTV6-D (d): the irq-family density word — mirrored with the stanza
 		// suffix fork so both surfaces speak one semantics.
-		cell = fmt.Sprintf("≈窗内并发 %.1f×(累计 %.3fms,跨线程累计,非墙钟)", density, bestValue)
+		cell = fmt.Sprintf("≈窗内并发 %.1f×(%s %.3fms,跨线程累计,非墙钟)", density, valueLabel, bestValue)
 	case concurrency:
-		cell = fmt.Sprintf("≈avg concurrency %.1f× (cumulative %.3fms, cross-thread, not wall clock)", density, bestValue)
+		cell = fmt.Sprintf("≈avg concurrency %.1f× (%s %.3fms, cross-thread, not wall clock)", density, enValueLabel, bestValue)
 	case zh:
-		cell = fmt.Sprintf("≈均值 %.1f(累计 %.3fms,跨线程累计,非墙钟)", density, bestValue)
+		cell = fmt.Sprintf("≈均值 %.1f(%s %.3fms,跨线程累计,非墙钟)", density, valueLabel, bestValue)
 	default:
-		cell = fmt.Sprintf("≈mean %.1f (cumulative %.3fms, cross-thread, not wall clock)", density, bestValue)
+		cell = fmt.Sprintf("≈mean %.1f (%s %.3fms, cross-thread, not wall clock)", density, enValueLabel, bestValue)
 	}
 	return cell, windowMS
 }
@@ -1454,6 +1512,55 @@ func runtimeTraceProjCompareDisjointTimeBaseNote(projections []types.TraceCausal
 	}
 	return fmt.Sprintf("⚠ %s (%s); they cannot be aligned directly on one shared timeline — compare relative metrics within each artifact's own window",
 		subject, strings.Join(spans, ", "))
+}
+
+// runtimeTraceProjCompareChainAsymmetryNote renders the §21-CWD anchor-quality
+// asymmetry note row (item D; §11-N3 修向(a) 披露半, cmp_01 revisit
+// 2026-07-07): fires exactly when ≥1 side's anchor window carries NO on-chain
+// attribution while ≥1 other side's carries some — the cmp_01 shape (6.0 锚窗
+// 100ms 无链/平铺树 vs 7.0 锚窗有链 94.466ms) where the overview's 主根因 /
+// on-chain 列 read as "有因 vs 无因" off a pure evidence-depth asymmetry.
+// Precise typed signals only: the per-side depth-1 numerator (>0 existence
+// comparison — the SAME value the on-chain cell renders) and the typed
+// WakeupChainRecommendedNotRun flag naming why the chainless side is
+// chainless. Symmetric shapes (all >0 or all ==0) return "" and the table
+// stays byte-identical. Soft disclosure only — no gate consumes this.
+func runtimeTraceProjCompareChainAsymmetryNote(labels []string, attributed []float64, chainNotRun []bool, zh bool) string {
+	if len(labels) < 2 || len(labels) != len(attributed) || len(labels) != len(chainNotRun) {
+		return ""
+	}
+	var zeroSides []string
+	posLabel, posMax := "", 0.0
+	for i, label := range labels {
+		if attributed[i] > 0 {
+			if attributed[i] > posMax {
+				posLabel, posMax = label, attributed[i]
+			}
+			continue
+		}
+		side := runtimeTraceCausalProjectionMarkdownSafe(label)
+		if chainNotRun[i] {
+			if zh {
+				side += "(该侧唤醒链下钻未执行)"
+			} else {
+				side += " (its wakeup-chain drilldown did not run)"
+			}
+		}
+		zeroSides = append(zeroSides, side)
+	}
+	if len(zeroSides) == 0 || posMax <= 0 {
+		return ""
+	}
+	sep := "、"
+	if !zh {
+		sep = ", "
+	}
+	if zh {
+		return fmt.Sprintf("⚠ 锚窗质量不对称:%s 锚窗内无 on-chain 归因;%s 锚窗内 on-chain 已归因 %.3fms。两侧证据深度不同,主根因/on-chain 列不可直接行际对读",
+			strings.Join(zeroSides, sep), runtimeTraceCausalProjectionMarkdownSafe(posLabel), posMax)
+	}
+	return fmt.Sprintf("⚠ Anchor-window quality is asymmetric: %s has no on-chain attribution inside its anchor window; %s attributed %.3fms on-chain there. Evidence depth differs — do not read the primary / on-chain columns straight across",
+		strings.Join(zeroSides, sep), runtimeTraceCausalProjectionMarkdownSafe(posLabel), posMax)
 }
 
 // runtimeTraceProjCompareSupplyCells builds the per-artifact 算力供给 cells of

@@ -565,11 +565,18 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// instead of staying green (复核给定的突变形态).
 		runtimeTraceProjMarkMergedSum:   {"×3(10.000–30.000ms)", "×3(10.000–30.000ms)"},
 		runtimeTraceProjMarkMergedDedup: {"同值", "same-value"},
-		runtimeTraceProjMarkMergedMax:   {"取最大", ") max"},
+		// §21 CWD disambiguation (same discipline as the verbatim sum probe
+		// above): the bare "取最大" is a substring of the cross-window form's
+		// "跨窗取最大", so the R3 cross-thread probe anchors on its ")" prefix
+		// — ")取最大" matches the R3 tag only.
+		runtimeTraceProjMarkMergedMax: {")取最大", ") max"},
 		// §11-N2 ×N 第四式: the cross-query-window union form's ")union" suffix
 		// is the stable language-neutral token (the ") max" precedent) — the
 		// plain sum form never carries it.
-		runtimeTraceProjMarkMergedUnion:          {")union", ")union"},
+		runtimeTraceProjMarkMergedUnion: {")union", ")union"},
+		// §21 CWD ×N 第五式: the overlapping-query-window MAX form's suffix
+		// tokens (zh form word / en ") cross-window max" suffix).
+		runtimeTraceProjMarkMergedWindowMax:      {"跨窗取最大", ") cross-window max"},
 		runtimeTraceProjMarkOverWindowShare:      {"250%", "250%"},
 		runtimeTraceProjMarkWholeWindowIdle:      {"整窗等待", "whole-window wait"},
 		runtimeTraceProjMarkInheritedAttribution: {"承自归因", "inherited attribution"},
@@ -867,6 +874,9 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// §11-N2: the cross-query-window union caliber (×N 第四式) and its
 		// legend entry (fixture home: answer_document_projection_n2_union_test.go).
 		{"n2_cross_window_union", n2UnionProjection()},
+		// §21 CWD: the overlapping-query-window MAX caliber (×N 第五式) and its
+		// legend entry (fixture home: answer_document_projection_cwd_test.go).
+		{"cwd_cross_window_max", cwdCrossWindowMaxProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

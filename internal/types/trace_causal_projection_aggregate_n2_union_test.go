@@ -215,11 +215,24 @@ func TestTraceCausalProjectionCrossWindowPartialOverlapDeductionCap(t *testing.T
 // sound when every member's value is wall clock contained in its own
 // occurrence interval (value ≤ interval length). A density>1 member (a
 // multi-CPU cpu·ms-style cumulative: 200ms of value over a 50ms interval)
-// must fail the WHOLE group open to the legacy SUM — even though the
-// cross-window overlap shape would otherwise engage the union caliber.
+// must fail the WHOLE group out of the union deduction.
+//
+// EVOLUTION RECORD (§21 CWD, cmp_01 revisit audit 2026-07-07,
+// real_trace_campaign_20260705.md §21 — D-新P0 排队深度方向反转 engine half):
+// the original pin asserted the fail-open TARGET was the legacy SUM
+// (250.000). §21 rules that OVERLAPPING-query-window magnitudes must never
+// SUM (墙钟跨窗不可加和 — the specimen SUMMED 4 overlapping-window
+// supply_pressure observations to 34008.569ms and the flagship comparison's
+// direction inverted), so for window-overlapping groups the fail-open target
+// is now the member MAX with the raw Σ kept lossless in MergedSumMS. The bar
+// is NOT lowered: the union deduction still never engages on a density>1
+// member (MergedIntervalUnion stays false — the F-2 premise ruling stands),
+// and disjoint-window density>1 groups keep the legacy SUM byte-identically
+// (second leg below).
 func TestTraceCausalProjectionUnionDensityGateFailsOpenToSum(t *testing.T) {
 	records := []ObservationRecord{
-		// value 200ms > interval 50ms → density > 1 → premise broken.
+		// value 200ms > interval 50ms → density > 1 → premise broken;
+		// windows 0.900..1.150 and 1.020..1.250 OVERLAP.
 		n2Record("E1", "worker-5", "runnable", 200.000, 1.000, 1.050, 100, 200, "0.900..1.150"),
 		n2Record("E2", "worker-5", "runnable", 30.000, 1.040, 1.100, 210, 300, "1.020..1.250"),
 		n2Record("E3", "worker-5", "runnable", 20.000, 1.200, 1.240, 310, 400, "1.020..1.250"),
@@ -227,11 +240,39 @@ func TestTraceCausalProjectionUnionDensityGateFailsOpenToSum(t *testing.T) {
 	got := TraceCausalProjectionFromObservationRecords(records)
 	agg := n2FindMerged(t, got.OnChainCauses, 3)
 
-	if !n2Close(agg.ImpactMS, 250.0) || agg.MergedIntervalUnion || agg.MergedSumMS != 0 {
-		t.Fatalf("density>1 member must fail the whole group open to SUM 250.000: %+v", agg)
+	if agg.MergedIntervalUnion {
+		t.Fatalf("density>1 member must keep the union deduction OFF (F-2 premise): %+v", agg)
+	}
+	if !n2Close(agg.ImpactMS, 200.0) || !n2Close(agg.CumulativeImpactMS, 200.0) {
+		t.Fatalf("§21 CWD: overlapping-window density>1 group must publish the member MAX 200.000, never the SUM: %+v", agg)
+	}
+	if !agg.MergedCrossWindowMax {
+		t.Fatalf("§21 CWD: the row must carry the typed cross-window MAX caliber marker: %+v", agg)
+	}
+	if !n2Close(agg.MergedSumMS, 250.0) {
+		t.Fatalf("§21 CWD: the lossless raw Σ 250.000 must survive in MergedSumMS: %+v", agg)
+	}
+	// The MAX member (200ms) came from query window 0.900..1.150 — the display
+	// density base must be that member's OWN window, never the anchor window.
+	if agg.MergedMaxWindowStartTs != 0.9 || agg.MergedMaxWindowEndTs != 1.15 {
+		t.Fatalf("§21 CWD: the max member's own query window must ride the row: %+v", agg)
 	}
 	if len(agg.MergedQueryWindows) != 2 {
 		t.Fatalf("window roster disclosure survives the fail-open: %+v", agg.MergedQueryWindows)
+	}
+
+	// Second leg (bar keeper): DISJOINT-window density>1 members measured
+	// disjoint wall clock — the legacy fail-open-to-SUM stays byte-identical
+	// (§21 CWD engages on WINDOW overlap only, a precise typed comparison).
+	disjoint := []ObservationRecord{
+		n2Record("E1", "worker-6", "runnable", 200.000, 1.000, 1.050, 100, 200, "0.900..1.150"),
+		n2Record("E2", "worker-6", "runnable", 30.000, 1.240, 1.300, 210, 300, "1.200..1.450"),
+		n2Record("E3", "worker-6", "runnable", 20.000, 1.310, 1.350, 310, 400, "1.200..1.450"),
+	}
+	got = TraceCausalProjectionFromObservationRecords(disjoint)
+	agg = n2FindMerged(t, got.OnChainCauses, 3)
+	if !n2Close(agg.ImpactMS, 250.0) || agg.MergedIntervalUnion || agg.MergedCrossWindowMax || agg.MergedSumMS != 0 {
+		t.Fatalf("disjoint-window density>1 group must keep the legacy SUM 250.000 fail-open: %+v", agg)
 	}
 }
 

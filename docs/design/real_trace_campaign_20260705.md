@@ -1440,3 +1440,7 @@ opendir 案散文"owner 与 holder 均指向同一 tid 42067"**未必是模型�
 **B1-b**(P0,CWD 后最优先):path 任意位匹配选举+终点记录修+折叠强制展开;**PTV7-SPN**:span 名三面入行+审计摘要 span=+dump per-lane 配额+trace_gap 措辞(用户裁定)+C39 漏面+零值卫生;**CWD 验收扩**:E19/C7 两 witness;**NXT**(P1):undrilled headline 的 next-step 点名(drill-debt 用户面半场);**PSG** 裁定候选(散文标量 grounding,非本轮);E1/E14E15 合并行账目→PTV7-SPN 或 P1-H。
 
 §21 EMIT-2 复核补记(2026-07-07):principal 独超 16 保硬拒适用于 compat 门与非 optional lane;optional lane 例外=截 16 优于 legacy 整体清空,带披露 note,已 pin(emit2_test.go OptionalAggregateFactsCapOverflowNotWiped)。复核 SHIP 4/4 突变咬红。
+
+## §21.1 CWD 批收账(2026-07-07,复核 SHIP-WITH-FIXES→已修出厂)
+交付:引擎 ×N 第五式"跨窗取最大"(union>MAX>SUM 三态互斥,MergedSumMS 无损,typed 端点判定重叠;不相交/同窗/无窗身份字节保 SUM)+显示密度分母 7 分支同窗基(多窗合并无可解析基不出密度)+覆盖句矛盾硬门(hopSleep>WindowMS 必换披露形态,6.534 伪残差禁出厂)+承自注窗基+N3 不对称披露注。标本方向翻正 7.0=92.1>6.0=32.7(工具真值对齐,旧码 249.4 vs 453.8 反向)。复核 4/4 突变咬红;出厂前修复复核 F1=F3 注措辞矛盾(密度基≠投影窗时不再claims"投影窗长不等",改具名窗基,兼治行内基不可复算)。
+**CWD-2 立账**:①E19 树行 %-面(§22 witness,跨窗合并行对锚窗 bar 63%——不相交窗合法 SUM,坏在 %-面;分支5 模板迁移,typed key=MergedCount>1∧多窗);②C7 产端半场(tracequery 给 window_stats 来源 rank 行发 selected_window/actual_* note,显示端 absence-never-guesses 已就位);③symptom 分母车道(tree.go:4654-4688)跨窗分子未设门;④chain 窗共识要求 ≥1 带窗 chain 行(防无窗分子挂未证实窗基);⑤混合形态 union 无区间成员全值入总量(N2 既有 fail-open,非本批引入);⑥重叠判定无下限(0.5ms 重叠即 MAX,保守可接受);⑦测试名 FailsOpenToSum 语义漂移(cosmetic)。

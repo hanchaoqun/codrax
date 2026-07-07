@@ -773,6 +773,16 @@ func traceCausalProjectionAbsorbDuplicatePublication(survivor *TraceCausalProjec
 // same-(subject,object) rows are DISTINCT facts (the E9/E10 9µs strict pin;
 // the PTV6 review explicitly rejected envelope-overlap-only folding as a
 // noisy signal).
+//
+// §21 CWD cross-window MAX caliber (cmp_01 revisit 2026-07-07): when members
+// from distinct query windows have OVERLAPPING QUERY WINDOWS but the union
+// deduction is structurally unavailable (no occurrence Span ts on a windowed
+// member, or an F-2 containment violation — the density>1 cpu·ms shape), the
+// merged row publishes the member MAX instead of the SUM: overlapping-window
+// magnitudes are known to double-count even when the exact overlap cannot be
+// deducted per segment (the specimen SUMMED 4 overlapping-window
+// supply_pressure observations to 34008.569ms and the flagship comparison's
+// direction inverted). See traceCausalProjectionUnionOutcome.crossWindowMax.
 func traceCausalProjectionAggregateSameKind(nodes []TraceCausalProjectionNode) []TraceCausalProjectionNode {
 	if len(nodes) < traceCausalProjectionSameKindAggregateMin {
 		return nodes
@@ -881,6 +891,20 @@ func traceCausalProjectionAggregateSameKind(nodes []TraceCausalProjectionNode) [
 			aggregate.CumulativeImpactMS = union.unionMS
 			aggregate.MergedIntervalUnion = true
 			aggregate.MergedSumMS = sum
+		} else if union.crossWindowMax {
+			// §21 CWD (cmp_01 revisit 2026-07-07, D-新P0 排队深度方向反转
+			// engine half): overlapping-query-window magnitudes must not SUM
+			// (墙钟跨窗不可加和) and the per-segment union deduction was
+			// structurally unavailable — publish the member MAX (a lower
+			// bound that never invents; R3 cross-thread fold precedent) with
+			// the lossless raw Σ kept for the audit trail and the max
+			// member's own query window kept as the display density base.
+			aggregate.ImpactMS = maxMS
+			aggregate.CumulativeImpactMS = maxMS
+			aggregate.MergedCrossWindowMax = true
+			aggregate.MergedSumMS = sum
+			aggregate.MergedMaxWindowStartTs = union.maxMemberWindowStart
+			aggregate.MergedMaxWindowEndTs = union.maxMemberWindowEnd
 		}
 		// F2 (adversarial review 2026-07-03): the ×N row carries a SUM, so the
 		// DuplicatePublications contract ("dup>0 ⇒ the value is ONE republished
@@ -971,6 +995,20 @@ type traceCausalProjectionUnionOutcome struct {
 	// overlap in time) and this is the deduplicated value.
 	applied bool
 	unionMS float64
+	// crossWindowMax (§21 CWD, cmp_01 revisit 2026-07-07): members from ≥2
+	// distinct query windows whose QUERY WINDOWS overlap in time, while the
+	// union deduction is structurally unavailable — a windowed member without
+	// a valid occurrence interval (rank-lane rows carry no Span ts) or an F-2
+	// containment violation (value > own interval, the density>1 cpu·ms
+	// shape). Overlapping-window magnitudes must not SUM (墙钟跨窗不可加和);
+	// the merged row publishes the member MAX instead. Never set when the
+	// union caliber applied (the per-segment deduction is more precise).
+	crossWindowMax bool
+	// maxMemberWindowStart/End: the typed query window of the member whose
+	// display value is the group MAX (same strict-> / first-wins order as the
+	// R2 merge loop's maxMS). Zero when that member carries no identity.
+	maxMemberWindowStart float64
+	maxMemberWindowEnd   float64
 }
 
 // traceCausalProjectionCrossWindowUnion computes the §11-N2 window roster and
@@ -1043,6 +1081,40 @@ func traceCausalProjectionCrossWindowUnion(nodes []TraceCausalProjectionNode, me
 	if len(slots) < 2 {
 		return out
 	}
+	// §21 CWD window-level overlap (cmp_01 revisit 2026-07-07): ∃ slot pair
+	// whose QUERY WINDOWS overlap in time — pure typed arithmetic on the
+	// window endpoints, never occurrence spans. Disjoint windows measured
+	// disjoint wall clock and legitimately SUM; overlapping windows re-measure
+	// the same clock (or the same cpu·ms capacity) and must not.
+	windowsOverlap := false
+	for i := 0; i < len(slots) && !windowsOverlap; i++ {
+		for j := i + 1; j < len(slots); j++ {
+			if TraceCausalProjectionIntervalsOverlap(slots[i].StartTs, slots[i].EndTs, slots[j].StartTs, slots[j].EndTs) {
+				windowsOverlap = true
+				break
+			}
+		}
+	}
+	// markCrossWindowMax records the §21-CWD MAX-caliber outcome together with
+	// the max member's own typed query window (exact member endpoints, same
+	// strict-> first-wins scan order as the merge loop's maxMS accounting so
+	// the recorded window always belongs to the published MAX value).
+	markCrossWindowMax := func() {
+		out.crossWindowMax = true
+		best, bestValue := -1, 0.0
+		for k, idx := range members {
+			if v := traceCausalProjectionDisplayValue(nodes[idx]); v > bestValue {
+				best, bestValue = k, v
+			}
+		}
+		if best >= 0 {
+			node := nodes[members[best]]
+			if traceCausalProjectionIntervalValid(node.QueryWindowStartTs, node.QueryWindowEndTs) {
+				out.maxMemberWindowStart = node.QueryWindowStartTs
+				out.maxMemberWindowEnd = node.QueryWindowEndTs
+			}
+		}
+	}
 	// F-2 structural-premise gate (复核 2026-07-06): the union deduction
 	// assumes every member's value is wall clock CONTAINED in its own
 	// occurrence interval (value ≤ interval length). Per-occurrence
@@ -1053,15 +1125,32 @@ func traceCausalProjectionCrossWindowUnion(nodes []TraceCausalProjectionNode, me
 	// assumption (future root_cause families gaining Span ts must not
 	// silently activate an unsound deduction): ANY windowed member whose
 	// value exceeds its own interval length ×(1+1e-9) (float headroom only,
-	// not a tolerance band) fails the WHOLE group open to the legacy SUM.
-	// Windowless / interval-less members never deduct anyway and are exempt.
+	// not a tolerance band) fails the WHOLE group out of the union deduction.
+	// Windowless / interval-less members never deduct anyway and are exempt
+	// from the containment check, but a windowed member WITHOUT a valid
+	// occurrence interval leaves cross-window occurrence disjointness
+	// unprovable (§21 CWD) — tracked for the fail-open fork below.
+	//
+	// Fail-open target fork (§21 CWD, evolving the original fail-open-to-SUM):
+	// when the member QUERY WINDOWS overlap, the SUM is known to double-count
+	// regardless of whether the per-segment deduction is computable, so the
+	// group fails open to the member MAX, not the SUM. Disjoint-window groups
+	// keep the legacy SUM fail-open byte-identically.
+	windowedWithoutInterval := false
 	for k, idx := range members {
 		node := nodes[idx]
-		if slotOf[k] < 0 || !traceCausalProjectionIntervalValid(node.StartTs, node.EndTs) {
+		if slotOf[k] < 0 {
+			continue
+		}
+		if !traceCausalProjectionIntervalValid(node.StartTs, node.EndTs) {
+			windowedWithoutInterval = true
 			continue
 		}
 		intervalMS := (node.EndTs - node.StartTs) * 1000
 		if traceCausalProjectionDisplayValue(node) > intervalMS*(1+1e-9) {
+			if windowsOverlap {
+				markCrossWindowMax()
+			}
 			return out
 		}
 	}
@@ -1082,6 +1171,15 @@ func traceCausalProjectionCrossWindowUnion(nodes []TraceCausalProjectionNode, me
 		}
 	}
 	if !engaged {
+		// §21 CWD: with overlapping query windows, occurrence disjointness is
+		// only provable when every windowed member exposed a valid occurrence
+		// interval — the engagement scan above then really compared them all
+		// and found no overlap (distinct facts, SUM stands). A windowed member
+		// without an interval (the rank-lane no-Span-ts shape) leaves the
+		// double count unprovable either way → member MAX, never the SUM.
+		if windowsOverlap && windowedWithoutInterval {
+			markCrossWindowMax()
+		}
 		return out
 	}
 	// Union value: display-desc greedy with cross-window interval deduction.

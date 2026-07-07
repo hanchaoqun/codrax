@@ -17,6 +17,7 @@ package tool
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -303,6 +304,7 @@ const (
 	runtimeTraceProjMarkMergedDedup                                       // ×N同值 duplicate-publication fold (PTV4 T4 ×N 三式)
 	runtimeTraceProjMarkMergedMax                                         // ×N(a–b)取最大 cross-thread fold (PTV4 T4 ×N 三式)
 	runtimeTraceProjMarkMergedUnion                                       // ×N(a–b)union cross-query-window union caliber (§11-N2, ×N 第四式)
+	runtimeTraceProjMarkMergedWindowMax                                   // ×N(a–b)跨窗取最大 overlapping-query-window MAX caliber (§21 CWD, ×N 第五式)
 	runtimeTraceProjMarkOverWindowShare                                   // 占窗>100% multi-CPU/multi-span cumulative share (PTV4 T4)
 	runtimeTraceProjMarkWholeWindowIdle                                   // 整窗等待 whole-window idle annotation (PTV4 T4)
 	runtimeTraceProjMarkInheritedAttribution                              // 承自归因 inherited-attribution annotation (PTV4 T4)
@@ -494,6 +496,13 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkMergedUnion, runtimeTraceProjLegendGroupCaliber,
 			"- `×N(a–b)union` = 跨查询窗重叠段不重复计:N 次实例来自不同查询窗且时间重叠,数值为区间并集投影(非求和),a–b 为单次范围;原始和与窗来源见无损块。",
 			"- `×N(a–b)union` = cross-query-window overlap counted once: the N instances come from DIFFERENT query windows and overlap in time; the value is the interval-union projection (never the SUM), a–b the per-instance range; the raw sum and the window sources live in the lossless block."},
+		// §21 CWD (cmp_01 revisit 2026-07-07): the overlapping-query-window MAX
+		// caliber gets its own form token (×N 第五式) — the sum entry claims
+		// 数值为总和 and the union entry claims per-segment deduction; a MAX
+		// row may wear neither.
+		{runtimeTraceProjMarkMergedWindowMax, runtimeTraceProjLegendGroupCaliber,
+			"- `×N(a–b)跨窗取最大` = N 次实例来自互相重叠的查询窗,重叠窗量值不可求和且重叠段无法逐段核销,数值取成员最大(以该成员自身查询窗为基),a–b 为单次范围;原始和与窗来源见无损块。",
+			"- `×N(a–b) cross-window max` = the N instances come from OVERLAPPING query windows: overlapping-window magnitudes never sum and the overlap cannot be deducted per segment, so the value is the member MAX (normalized over that member's own query window), a–b the per-instance range; the raw sum and the window sources live in the lossless block."},
 		// PTV6-B (聚合幻影修复, 2026-07-06; 修正轮 Med 如实化): the entry
 		// discloses exactly what the pipeline does — NEAR-duplicate (≤3%)
 		// same-thread overlapping measurements fold as duplicate publications,
@@ -1730,13 +1739,48 @@ func runtimeTraceProjCrossThreadAggregateSuffix(node types.TraceCausalProjection
 }
 
 // runtimeTraceProjCrossThreadDensityWindowMS is the shared CMP-9 normalization
-// denominator: the node's own precise span when valid, else the projection
-// window in window mode, else 0 (no density — never an estimate). Shared by
-// the stanza suffix above and the F3 compare-overview cell so both surfaces
-// normalize over the SAME window.
+// denominator: the node's own precise span when valid, else the window base
+// the value was actually measured over, else the projection window in window
+// mode, else 0 (no density — never an estimate). Shared by the stanza suffix
+// above and the F3 compare-overview cell so both surfaces normalize over the
+// SAME window.
+//
+// §21 CWD (cmp_01 revisit 2026-07-07, D-新P0 排队深度方向反转 display half):
+// numerator and denominator must share ONE window base. The specimen bug was
+// a merged ×4 cross-window SUM (34008.569ms over ~501ms of query windows)
+// divided by the 101ms anchor window — 平均排队深度 336.7 vs 449.3 inverted
+// the flagship comparison's direction (tool truth 57.43 vs 43.49, 7.0 higher).
+// Three same-base lanes replace the blind anchor-window fallback:
+//   - a MergedCrossWindowMax row divides its MAX-member numerator by that
+//     member's OWN typed query window (MergedMaxWindowStartTs/EndTs) — this
+//     lane resolves FIRST, because a merged row's Span is the member-impact
+//     ENVELOPE (multi-member), never the base the single MAX member was
+//     measured over; no recorded window → no density, never a cross-base
+//     estimate;
+//   - a row carrying its own typed QueryWindow identity divides by THAT
+//     window (the base the value was measured over), not the anchor;
+//   - a merged row whose members span >1 known query windows without a
+//     resolvable single base renders NO density — the anchor window is not
+//     the base of a cross-window numerator.
+//
+// Rows without any window identity keep the anchor-window fallback
+// byte-identically (fail-open: absence of identity never blocks the legacy
+// single-window read).
 func runtimeTraceProjCrossThreadDensityWindowMS(node types.TraceCausalProjectionNode, denom float64, windowMode bool) float64 {
+	if node.MergedCrossWindowMax {
+		if node.MergedMaxWindowStartTs > 0 && node.MergedMaxWindowEndTs > node.MergedMaxWindowStartTs {
+			return (node.MergedMaxWindowEndTs - node.MergedMaxWindowStartTs) * 1000
+		}
+		return 0
+	}
 	if node.StartTs > 0 && node.EndTs > node.StartTs {
 		return (node.EndTs - node.StartTs) * 1000
+	}
+	if node.QueryWindowStartTs > 0 && node.QueryWindowEndTs > node.QueryWindowStartTs {
+		return (node.QueryWindowEndTs - node.QueryWindowStartTs) * 1000
+	}
+	if node.MergedCount > 1 && len(node.MergedQueryWindows) > 1 {
+		return 0
 	}
 	if windowMode && denom > 0 {
 		return denom
@@ -2668,10 +2712,14 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 	}
 	if node.MergedCount > 1 {
 		// §11-N2: the union caliber wears its own form token — the sum form's
-		// legend entry claims 数值为总和 and must stay truthful.
+		// legend entry claims 数值为总和 and must stay truthful. §21 CWD: the
+		// cross-window MAX caliber likewise wears its own form (第五式).
 		if node.MergedIntervalUnion {
 			row.marks.mark(runtimeTraceProjMarkMergedUnion)
 			demoted = append(demoted, runtimeTraceProjMergedUnionTagText(node))
+		} else if node.MergedCrossWindowMax {
+			row.marks.mark(runtimeTraceProjMarkMergedWindowMax)
+			demoted = append(demoted, runtimeTraceProjMergedCrossWindowMaxTagText(node, zh))
 		} else {
 			row.marks.mark(runtimeTraceProjMarkMergedSum)
 			demoted = append(demoted, runtimeTraceProjMergedSumTagText(node))
@@ -3012,6 +3060,20 @@ func runtimeTraceProjMergedMaxTagText(node types.TraceCausalProjectionNode, zh b
 		return fmt.Sprintf("×%d(%.3f–%.3fms)取最大", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
 	}
 	return fmt.Sprintf("×%d(%.3f–%.3fms) max", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+}
+
+// runtimeTraceProjMergedCrossWindowMaxTagText is the §21-CWD overlapping-
+// query-window MAX row's inline data token (×N 第五式): count + per-instance
+// range + the cross-window-max form suffix. The 不求和/窗基 semantics live in
+// the legend's 口径组 entry; the raw Σ and the window-source roster live in
+// the (b) lossless block. Callers fork on the typed Node.MergedCrossWindowMax
+// flag — a MAX row must never wear the plain ×N(a–b) sum form (its legend
+// entry claims 数值为总和) nor the union form (per-segment deduction).
+func runtimeTraceProjMergedCrossWindowMaxTagText(node types.TraceCausalProjectionNode, zh bool) string {
+	if zh {
+		return fmt.Sprintf("×%d(%.3f–%.3fms)跨窗取最大", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+	}
+	return fmt.Sprintf("×%d(%.3f–%.3fms) cross-window max", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
 }
 
 // runtimeTraceProjSubjectlessFoldRow identifies the R3 background fold row
@@ -3933,6 +3995,10 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 			// never the sum form (whose legend entry claims 数值为总和).
 			row.marks.mark(runtimeTraceProjMarkMergedUnion)
 			text = runtimeTraceProjMergedUnionTagText(node)
+		} else if node.MergedCrossWindowMax {
+			// §21 CWD: overlapping-query-window MAX caliber (×N 第五式).
+			row.marks.mark(runtimeTraceProjMarkMergedWindowMax)
+			text = runtimeTraceProjMergedCrossWindowMaxTagText(node, zh)
 		} else {
 			row.marks.mark(runtimeTraceProjMarkMergedSum)
 			text = runtimeTraceProjMergedSumTagText(node)
@@ -4074,6 +4140,38 @@ func runtimeTraceProjEffectiveInherited(node types.TraceCausalProjectionNode) bo
 	}
 	return node.EffectiveImpactMS > 0 && node.CumulativeImpactMS > 0 &&
 		node.EffectiveImpactMS > 10*node.CumulativeImpactMS
+}
+
+// runtimeTraceProjInheritedWindowBaseSuffix renders the §21-CWD window-base
+// clause of the 承自注 (cmp_01 revisit 2026-07-07, P2 E29 随 B 同款): the
+// inherited effective magnitude was measured over the donor wait interval's
+// query window, not this row's rendered window. Typed sources only — the
+// row's own QueryWindow identity first (the effective note rode the same
+// record), else the merged member window roster (KNOWN sources, never claimed
+// exhaustive), else "" (absence never guesses a window; legacy note
+// byte-identical).
+func runtimeTraceProjInheritedWindowBaseSuffix(node types.TraceCausalProjectionNode, zh bool) string {
+	if node.QueryWindowStartTs > 0 && node.QueryWindowEndTs > node.QueryWindowStartTs {
+		if zh {
+			return fmt.Sprintf(";窗基=查询窗 %.3f–%.3fs", node.QueryWindowStartTs, node.QueryWindowEndTs)
+		}
+		return fmt.Sprintf("; window base = query window %.3f–%.3fs", node.QueryWindowStartTs, node.QueryWindowEndTs)
+	}
+	if len(node.MergedQueryWindows) > 0 {
+		windows := make([]string, 0, len(node.MergedQueryWindows))
+		for _, w := range node.MergedQueryWindows {
+			windows = append(windows, fmt.Sprintf("%.3f–%.3fs", w.StartTs, w.EndTs))
+		}
+		sep := "、"
+		if !zh {
+			sep = ", "
+		}
+		if zh {
+			return fmt.Sprintf(";窗基=成员查询窗 %s(非本行渲染窗)", strings.Join(windows, sep))
+		}
+		return fmt.Sprintf("; window base = member query windows %s (not this row's rendered window)", strings.Join(windows, sep))
+	}
+	return ""
 }
 
 // runtimeTraceProjCrossWindow marks a node whose underlying state extends
@@ -4589,16 +4687,55 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 				}
 			}
 		case attributed <= model.WindowMS:
-			residual := model.WindowMS - attributed
-			if zh {
-				fmt.Fprintf(&b, " on-chain 已归因 %.3fms/%.0f%%,未归因残差 %.3fms/%.0f%%。",
-					attributed, attributed/model.WindowMS*100, residual, residual/model.WindowMS*100)
+			// §21 CWD (cmp_01 revisit 2026-07-07, repeat-P0 覆盖句窗基错配):
+			// when every windowed chain-data row shares ONE query window that
+			// is NOT the anchor window, the whole-window division below would
+			// divide a cross-window numerator by the anchor-window denominator
+			// — the specimen printed "on-chain 已归因 94.466ms/94%,未归因残差
+			// 6.534ms/6%" against a 101ms anchor window whose chain the
+			// numerator never measured, fabricating the residual. Same-base
+			// rendering instead: the denominator and its label switch to the
+			// chain-data window, explicitly named. Precise signals only (typed
+			// per-row selected_window identity vs the typed anchor endpoints);
+			// windowless or mixed-window chains keep the legacy rendering
+			// byte-identically (fail-open).
+			if ws, we, ok := runtimeTraceProjChainDataQueryWindow(model); ok &&
+				runtimeTraceProjCoverageWindowBaseMismatch(projection, ws, we) {
+				chainWinMS := (we - ws) * 1000
+				if attributed <= chainWinMS {
+					residual := chainWinMS - attributed
+					if zh {
+						fmt.Fprintf(&b, " on-chain 已归因 %.3fms/%.0f%%,未归因 %.3fms/%.0f%%(口径:链上数据来自查询窗 %.3fs → %.3fs 共 %.3fms,分母取该链数据窗,非上句关注窗口;两窗基不可混除)。",
+							attributed, attributed/chainWinMS*100, residual, residual/chainWinMS*100, ws, we, chainWinMS)
+					} else {
+						fmt.Fprintf(&b, " On-chain attributed %.3fms/%.0f%%, unattributed %.3fms/%.0f%% (caliber: the chain data comes from query window %.3fs → %.3fs, %.3fms total — the denominator is that window, not the requested window above; the two window bases never divide across).",
+							attributed, attributed/chainWinMS*100, residual, residual/chainWinMS*100, ws, we, chainWinMS)
+					}
+					b.WriteString(runtimeTraceProjResidualOwnCaliberNote(model, residual, zh))
+					b.WriteString(runtimeTraceProjPeriodicCadenceCoverageNote(model, residual, zh))
+				} else {
+					// Numerator exceeds even its own window — no percentage,
+					// no residual (魔术数不出厂), both magnitudes disclosed.
+					if zh {
+						fmt.Fprintf(&b, " on-chain 已归因 %.3fms(链上数据来自查询窗 %.3fs → %.3fs,非上句关注窗口;窗基不同,不给出覆盖百分比,不计未归因残差)。",
+							attributed, ws, we)
+					} else {
+						fmt.Fprintf(&b, " On-chain attributed %.3fms (the chain data comes from query window %.3fs → %.3fs, not the requested window above; different window bases — no coverage percentage, no unattributed residual).",
+							attributed, ws, we)
+					}
+				}
 			} else {
-				fmt.Fprintf(&b, " On-chain attributed %.3fms/%.0f%%, unattributed residual %.3fms/%.0f%%.",
-					attributed, attributed/model.WindowMS*100, residual, residual/model.WindowMS*100)
+				residual := model.WindowMS - attributed
+				if zh {
+					fmt.Fprintf(&b, " on-chain 已归因 %.3fms/%.0f%%,未归因残差 %.3fms/%.0f%%。",
+						attributed, attributed/model.WindowMS*100, residual, residual/model.WindowMS*100)
+				} else {
+					fmt.Fprintf(&b, " On-chain attributed %.3fms/%.0f%%, unattributed residual %.3fms/%.0f%%.",
+						attributed, attributed/model.WindowMS*100, residual, residual/model.WindowMS*100)
+				}
+				b.WriteString(runtimeTraceProjResidualOwnCaliberNote(model, residual, zh))
+				b.WriteString(runtimeTraceProjPeriodicCadenceCoverageNote(model, residual, zh))
 			}
-			b.WriteString(runtimeTraceProjResidualOwnCaliberNote(model, residual, zh))
-			b.WriteString(runtimeTraceProjPeriodicCadenceCoverageNote(model, residual, zh))
 			// PTV5 Q2 (#68 用户裁定 2026-07-05): hop-only 形态 — the target
 			// published NO state-view symptom row (the F1 denominator stays
 			// whole-window, arithmetic untouched) but its sleep-family hop-view
@@ -4606,10 +4743,35 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 			// relates the two existing magnitudes so the whole-window share is
 			// not the only reading. attributed > sleep skips the line (禁猜).
 			if runtimeTraceProjTargetSymptomMS(model) <= 0 && attributed > 0 {
-				if hopSleep := runtimeTraceProjHopOnlyTargetSleepMS(model); hopSleep > 0 && attributed <= hopSleep {
-					if zh {
+				if hopSleep, hopWinStart, hopWinEnd := runtimeTraceProjHopOnlyTargetSleep(model); hopSleep > 0 && attributed <= hopSleep {
+					// §21 CWD hard gate (precise numeric comparison — the one
+					// signal kind allowed to gate a disclosure FORM): a target
+					// sleep LONGER than the window it is printed next to is a
+					// naked self-contradiction ("目标睡眠 115.902ms" beside
+					// "共 101.000ms"). Such a magnitude must carry its base:
+					// the hop row's own typed query window when it provably
+					// differs from the anchor (F-2 tolerance), else a neutral
+					// beyond-the-window clause (true both for a state crossing
+					// out of the window and for an unknown base — never a
+					// guessed 非关注窗口 claim). hopSleep ≤ window keeps the
+					// legacy wording byte-identically.
+					switch {
+					case hopSleep > model.WindowMS && hopWinStart > 0 && hopWinEnd > hopWinStart &&
+						runtimeTraceProjCoverageWindowBaseMismatch(projection, hopWinStart, hopWinEnd):
+						if zh {
+							fmt.Fprintf(&b, " 目标睡眠 %.3fms(取自查询窗 %.3fs → %.3fs,非上句关注窗口)中 %.3fms 已由链上解释。", hopSleep, hopWinStart, hopWinEnd, attributed)
+						} else {
+							fmt.Fprintf(&b, " Of the target's %.3fms sleep (from query window %.3fs → %.3fs, not the requested window above), %.3fms is explained on-chain.", hopSleep, hopWinStart, hopWinEnd, attributed)
+						}
+					case hopSleep > model.WindowMS:
+						if zh {
+							fmt.Fprintf(&b, " 目标睡眠 %.3fms(该状态时长超出上句关注窗口)中 %.3fms 已由链上解释。", hopSleep, attributed)
+						} else {
+							fmt.Fprintf(&b, " Of the target's %.3fms sleep (its state duration extends beyond the requested window above), %.3fms is explained on-chain.", hopSleep, attributed)
+						}
+					case zh:
 						fmt.Fprintf(&b, " 目标睡眠 %.3fms 中 %.3fms 已由链上解释。", hopSleep, attributed)
-					} else {
+					default:
 						fmt.Fprintf(&b, " Of the target's %.3fms sleep, %.3fms is explained on-chain.", hopSleep, attributed)
 					}
 				}
@@ -4827,7 +4989,19 @@ func runtimeTraceProjWaitFamilyStateKind(node types.TraceCausalProjectionNode) b
 // row's display value — MAX, never a sum: nested hop views overlap on the
 // wall clock. 0 when no sleep-state hop-view self row exists.
 func runtimeTraceProjHopOnlyTargetSleepMS(model runtimeTraceProjTreeModel) float64 {
-	max := 0.0
+	ms, _, _ := runtimeTraceProjHopOnlyTargetSleep(model)
+	return ms
+}
+
+// runtimeTraceProjHopOnlyTargetSleep is the full-fat variant: alongside the
+// magnitude it returns the selected max row's own typed query window (zero
+// when that row carried no selected_window identity). §21 CWD (cmp_01 revisit
+// 2026-07-07, repeat-P0 覆盖句窗基错配): the hop-view sleep can come from a
+// DIFFERENT query window than the projection anchor — "目标睡眠 115.902ms"
+// printed beside "共 101.000ms" with no window base was a naked
+// self-contradiction; callers use the returned window to name the base.
+func runtimeTraceProjHopOnlyTargetSleep(model runtimeTraceProjTreeModel) (float64, float64, float64) {
+	max, winStart, winEnd := 0.0, 0.0, 0.0
 	for _, row := range model.SelfRows {
 		if row.Node.Role != types.TraceCausalRoleCausalHop {
 			continue
@@ -4837,9 +5011,66 @@ func runtimeTraceProjHopOnlyTargetSleepMS(model runtimeTraceProjTreeModel) float
 		}
 		if v := runtimeTraceProjNodeDisplayImpact(row.Node); v > max {
 			max = v
+			winStart, winEnd = 0, 0
+			if row.Node.QueryWindowStartTs > 0 && row.Node.QueryWindowEndTs > row.Node.QueryWindowStartTs {
+				winStart, winEnd = row.Node.QueryWindowStartTs, row.Node.QueryWindowEndTs
+			}
 		}
 	}
-	return max
+	return max, winStart, winEnd
+}
+
+// runtimeTraceProjChainDataQueryWindow returns the SINGLE typed query window
+// shared by every windowed coverage-feeding row — the data-bearing chain rows
+// (the depth-1 numerator lane) and the target's own self rows (the admitted
+// numerator lane + the hop-only sleep magnitude). ok=false when no such row
+// carries a window identity, or when the windowed rows disagree beyond the
+// F-2 ±1ms endpoint tolerance (a mixed-window chain has no single base to
+// name; the caller keeps the legacy rendering — fail-open, precise signals
+// only). §21 CWD (cmp_01 revisit 2026-07-07, repeat-P0 覆盖句窗基错配): the
+// anchor election can pick an anchor window that carries NO chain data while
+// every chain row came from another query window — the coverage arithmetic
+// must not divide that cross-window numerator by the anchor-window
+// denominator.
+func runtimeTraceProjChainDataQueryWindow(model runtimeTraceProjTreeModel) (float64, float64, bool) {
+	start, end, ok := 0.0, 0.0, false
+	consider := func(node types.TraceCausalProjectionNode) bool {
+		if node.QueryWindowStartTs <= 0 || node.QueryWindowEndTs <= node.QueryWindowStartTs {
+			return true // no identity — never votes, never vetoes
+		}
+		if !ok {
+			start, end, ok = node.QueryWindowStartTs, node.QueryWindowEndTs, true
+			return true
+		}
+		return math.Abs(node.QueryWindowStartTs-start) <= types.TraceCausalProjectionSameWindowToleranceS &&
+			math.Abs(node.QueryWindowEndTs-end) <= types.TraceCausalProjectionSameWindowToleranceS
+	}
+	for _, row := range model.TreeRows {
+		if row.Kind != runtimeTraceProjTreeRowChain || !row.HasData {
+			continue
+		}
+		if !consider(row.Node) {
+			return 0, 0, false
+		}
+	}
+	for _, row := range model.SelfRows {
+		if !consider(row.Node) {
+			return 0, 0, false
+		}
+	}
+	return start, end, ok
+}
+
+// runtimeTraceProjCoverageWindowBaseMismatch reports whether the single
+// chain-data query window differs from the projection's anchor window beyond
+// the F-2 ±1ms endpoint tolerance — the precise §21-CWD cross-window-coverage
+// signal (typed endpoints on both sides; no anchor window → no claim).
+func runtimeTraceProjCoverageWindowBaseMismatch(projection types.TraceCausalProjection, ws, we float64) bool {
+	if projection.WindowStartTs <= 0 || projection.WindowEndTs <= projection.WindowStartTs {
+		return false
+	}
+	return math.Abs(ws-projection.WindowStartTs) > types.TraceCausalProjectionSameWindowToleranceS ||
+		math.Abs(we-projection.WindowEndTs) > types.TraceCausalProjectionSameWindowToleranceS
 }
 
 func runtimeTraceProjSymptomFamilyStateKind(node types.TraceCausalProjectionNode) bool {
@@ -5272,6 +5503,10 @@ type runtimeTraceProjDetailTableLegendFlags struct {
 	// union form's semantics ride the tree legend entry and the (b) lossless
 	// block (原始和 + 窗来源).
 	mergedUnion bool
+	// mergedWindowMax (§21 CWD): a cross-window MAX ×N row is on the table —
+	// same separation discipline as mergedUnion (never raises mergedSum), and
+	// the (a)-table legend gets its own gated line.
+	mergedWindowMax bool
 }
 
 func runtimeTraceProjDetailTableLegendFlagsFor(model runtimeTraceProjTreeModel, zh bool) runtimeTraceProjDetailTableLegendFlags {
@@ -5291,6 +5526,8 @@ func runtimeTraceProjDetailTableLegendFlagsFor(model runtimeTraceProjTreeModel, 
 				flags.mergedMax = true
 			} else if node.MergedIntervalUnion {
 				flags.mergedUnion = true
+			} else if node.MergedCrossWindowMax {
+				flags.mergedWindowMax = true
 			} else {
 				flags.mergedSum = true
 			}
@@ -5363,12 +5600,15 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 		emitted[key] = true
 		name := runtimeTraceCausalProjectionNodeSubjectCell(node, zh)
 		if node.MergedCount > 1 {
-			// ×N data token inline (T4 三式 + §11-N2 第四式); the form
-			// semantics + member roster live in the (b) block and the legend.
+			// ×N data token inline (T4 三式 + §11-N2 第四式 + §21-CWD 第五式);
+			// the form semantics + member roster live in the (b) block and the
+			// legend.
 			if runtimeTraceProjSubjectlessFoldRow(node) {
 				name += " " + runtimeTraceProjMergedMaxTagText(node, zh)
 			} else if node.MergedIntervalUnion {
 				name += " " + runtimeTraceProjMergedUnionTagText(node)
+			} else if node.MergedCrossWindowMax {
+				name += " " + runtimeTraceProjMergedCrossWindowMaxTagText(node, zh)
 			} else {
 				name += " " + runtimeTraceProjMergedSumTagText(node)
 			}
@@ -5625,6 +5865,21 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 				if !zh {
 					form = fmt.Sprintf("×%d union caliber (overlap across %d windows counted once), raw sum %.3fms for cross-checking, each %.3f–%.3fms", node.MergedCount, k, node.MergedSumMS, node.MergedMinMS, node.MergedMaxMS)
 				}
+			} else if node.MergedCrossWindowMax {
+				// §21 CWD: the cross-window MAX caliber discloses itself, the
+				// max member's own window base and the lossless raw Σ.
+				k := len(node.MergedQueryWindows)
+				form = fmt.Sprintf("×%d 跨窗取最大口径(%d 窗互相重叠,重叠窗量值不求和),原始和 %.3fms 供对照,单次 %.3f–%.3fms", node.MergedCount, k, node.MergedSumMS, node.MergedMinMS, node.MergedMaxMS)
+				if !zh {
+					form = fmt.Sprintf("×%d cross-window MAX caliber (%d overlapping windows; overlapping-window magnitudes never sum), raw sum %.3fms for cross-checking, each %.3f–%.3fms", node.MergedCount, k, node.MergedSumMS, node.MergedMinMS, node.MergedMaxMS)
+				}
+				if node.MergedMaxWindowStartTs > 0 && node.MergedMaxWindowEndTs > node.MergedMaxWindowStartTs {
+					if zh {
+						form += fmt.Sprintf(";最大成员窗基=查询窗 %.3f–%.3fs", node.MergedMaxWindowStartTs, node.MergedMaxWindowEndTs)
+					} else {
+						form += fmt.Sprintf("; max-member window base = query window %.3f–%.3fs", node.MergedMaxWindowStartTs, node.MergedMaxWindowEndTs)
+					}
+				}
 			} else {
 				form = fmt.Sprintf("×%d 求和口径,单次 %.3f–%.3fms", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
 				if !zh {
@@ -5652,11 +5907,12 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 			}
 			add("×N 明细", "×N detail", runtimeTraceCausalProjectionMarkdownSafe(form))
 			// §11-N2 窗身份 (联动 q1-B6): the union row's member query windows,
-			// ascending. Gated on the union caliber so every non-union render
+			// ascending. Gated on the union caliber — §21 CWD adds the
+			// cross-window MAX caliber to the gate — so every plain-SUM render
 			// stays byte-identical (the disjoint cross-window roster disclosure
 			// belongs to the q1-B6 window-identity batch). The typed roster
 			// lists the KNOWN sources only — never claimed exhaustive.
-			if node.MergedIntervalUnion && len(node.MergedQueryWindows) > 0 {
+			if (node.MergedIntervalUnion || node.MergedCrossWindowMax) && len(node.MergedQueryWindows) > 0 {
 				windows := make([]string, 0, len(node.MergedQueryWindows))
 				for _, w := range node.MergedQueryWindows {
 					windows = append(windows, fmt.Sprintf("%.3f–%.3fs", w.StartTs, w.EndTs))
@@ -5683,6 +5939,13 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 			if !zh {
 				inherited = fmt.Sprintf("attribution %.3fms inherited from the wait interval, not measured on this row", node.EffectiveImpactMS)
 			}
+			// §21 CWD (cmp_01 revisit 2026-07-07, P2 E29): the inherited
+			// magnitude names its window base — the specimen's 2994.269ms came
+			// from a 150ms-window wait interval, ~19× this row's own window
+			// projection, with no base named. Typed sources only: the row's
+			// own query window when it carries one, else the merged member
+			// roster (known sources); no identity → no label, never a guess.
+			inherited += runtimeTraceProjInheritedWindowBaseSuffix(node, zh)
 			add("承自注", "inherited note", inherited)
 		}
 		if site := strings.TrimSpace(node.BlockingHolderSite); site != "" {

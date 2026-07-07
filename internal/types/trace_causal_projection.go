@@ -225,12 +225,15 @@ type TraceCausalProjectionNode struct {
 	// MergedCount > 1 marks an R2 ×N aggregate row: ImpactMS/CumulativeImpactMS
 	// then carry the SUM over the merged instances and MergedMinMS/MergedMaxMS
 	// the per-instance display range (lossless: every instance id is kept).
-	// Two exceptions: the R3 subjectless background fold spans DIFFERENT
+	// Three exceptions: the R3 subjectless background fold spans DIFFERENT
 	// threads, so its ImpactMS/CumulativeImpactMS carry the member MAX, never
 	// a sum (V3, customer revisit 2026-07-03 — wall clock does not add across
-	// threads); and a cross-query-window ×N row whose members' occurrence
+	// threads); a cross-query-window ×N row whose members' occurrence
 	// intervals overlap publishes the interval-union caliber instead of the
-	// sum (§11-N2 — see MergedIntervalUnion below).
+	// sum (§11-N2 — see MergedIntervalUnion below); and a cross-query-window
+	// ×N row whose member QUERY WINDOWS overlap while the union deduction is
+	// structurally unavailable publishes the member MAX (§21 CWD — see
+	// MergedCrossWindowMax below).
 	MergedCount int     `json:"merged_count,omitempty"`
 	MergedMinMS float64 `json:"merged_min_ms,omitempty"`
 	MergedMaxMS float64 `json:"merged_max_ms,omitempty"`
@@ -253,10 +256,10 @@ type TraceCausalProjectionNode struct {
 	// the renderer's ×N detail line must say the caliber explicitly:
 	// "union 口径(N 窗重叠段不重复计)" — never the SUM wording.
 	MergedIntervalUnion bool `json:"merged_interval_union,omitempty"`
-	// MergedSumMS is the lossless raw member Σ of a MergedIntervalUnion row
-	// (audit trail: union value + MergedSumMS discloses exactly how much
-	// cross-window double counting was removed). Zero on plain SUM rows — the
-	// published value IS the sum there.
+	// MergedSumMS is the lossless raw member Σ of a MergedIntervalUnion or
+	// MergedCrossWindowMax row (audit trail: published value + MergedSumMS
+	// discloses exactly how much cross-window double counting was removed).
+	// Zero on plain SUM rows — the published value IS the sum there.
 	MergedSumMS float64 `json:"merged_sum_ms,omitempty"`
 	// MergedQueryWindows lists the DISTINCT query windows the R2 ×N members
 	// were measured in (typed member QueryWindow identity; F-2 ±1ms endpoint
@@ -265,6 +268,33 @@ type TraceCausalProjectionNode struct {
 	// window identity; members WITHOUT identity are not represented here, so
 	// renderers must treat the list as the KNOWN sources, never as exhaustive.
 	MergedQueryWindows []TraceCausalProjectionQueryWindow `json:"merged_query_windows,omitempty"`
+	// MergedCrossWindowMax marks the §21-CWD cross-window MAX caliber on an R2
+	// ×N row (cmp_01 revisit audit 2026-07-07, D-新P0 排队深度方向反转 engine
+	// half, real_trace_campaign_20260705.md §21): members from DISTINCT query
+	// windows whose QUERY WINDOWS overlap in time re-measured overlapping wall
+	// clock (or overlapping cpu·ms capacity), so a SUM double-counts — yet the
+	// §11-N2 per-segment interval deduction is structurally unavailable
+	// (rank-lane members carry no occurrence Span ts, or a member breaks the
+	// F-2 containment premise: value > own interval length, the density>1
+	// cpu·ms shape). Such a row publishes the member MAX — a lower bound that
+	// never invents (R3 cross-thread fold precedent: 墙钟跨窗不可加和) — in
+	// ImpactMS/CumulativeImpactMS; MergedSumMS keeps the lossless raw Σ. The
+	// specimen bug this roots out: 4 supply_pressure observations from 4
+	// overlapping query windows SUMMED to 34008.569ms and then displayed ÷ the
+	// 101ms anchor window, inverting the flagship comparison's direction
+	// (displayed 6.0 > 7.0 while the tool truth was 7.0 > 6.0). Mutually
+	// exclusive with MergedIntervalUnion — the union caliber is more precise
+	// and wins whenever it can engage.
+	MergedCrossWindowMax bool `json:"merged_cross_window_max,omitempty"`
+	// MergedMaxWindowStartTs/EndTs is the typed query window of the member
+	// whose display value became the published MAX on a MergedCrossWindowMax
+	// row (verbatim member QueryWindowStartTs/EndTs — never a slot
+	// representative). The display density normalizes the MAX numerator over
+	// THIS window so numerator and denominator share one window base (§21 CWD
+	// display half). Zero when that member carried no window identity: the
+	// display layer then renders NO density rather than dividing across bases.
+	MergedMaxWindowStartTs float64 `json:"merged_max_window_start_ts,omitempty"`
+	MergedMaxWindowEndTs   float64 `json:"merged_max_window_end_ts,omitempty"`
 	// DuplicatePublications ≥ 2 marks a duplicate-publication fold (V4, customer
 	// revisit 2026-07-03): the SAME measurement was published N times as separate
 	// observations — exactly equal projected ms on the same (subject, object,
