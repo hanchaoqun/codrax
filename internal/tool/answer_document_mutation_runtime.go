@@ -4024,9 +4024,13 @@ func answerDocumentBlockIDIsNextSteps(id string) bool {
 // (three fixed + the RTC-2 disjoint row) emit in full and the per-record rows
 // keep a guaranteed floor of runtimeTraceNextStepComparisonRecordFloor slots,
 // so the RTC-2 row can no longer squeeze the per-record guidance out of the
-// shared budget (the former cmp6 residual). Hard upper bound = base cap +
-// floor = 6 rows. Every non-comparison shape keeps this base cap
-// byte-identical (the intermediate lanes below still read it directly).
+// shared budget (the former cmp6 residual). NXT (§22 D-P1, 2026-07-07): the
+// undrilled-headline pointed row adds its own
+// runtimeTraceNextStepUndrilledHeadlineFloor seat on top, so the hard upper
+// bound is base cap + undrilled floor + per-record floor = 7 rows (reachable
+// only on a comparison shape whose headline is also undrilled). Every
+// non-comparison shape keeps this base cap byte-identical (the intermediate
+// lanes below still read it directly).
 const runtimeTraceNextStepMaxItems = 4
 
 // runtimeTraceNextStepComparisonRecordFloor is the PTS-2 per-record slot
@@ -4035,6 +4039,18 @@ const runtimeTraceNextStepMaxItems = 4
 // (comparison rows + the coexisting recovery hints), so the reserved slots
 // can only be consumed by per-record rows.
 const runtimeTraceNextStepComparisonRecordFloor = 2
+
+// runtimeTraceNextStepUndrilledHeadlineFloor is the NXT (§22 D-P1,
+// real_trace_campaign_20260705.md, 2026-07-07) guaranteed seat for the
+// undrilled-headline pointed drilldown row — the PTS-2 floor precedent
+// applied to the headline lane. Ruling: 1 seat via DISPLACEMENT inside the
+// base cap on ordinary shapes (the pointed lane runs before every generic
+// lane, so a generic template row is what yields — huadong_01 shipped
+// "3 通用+1 口径" with the rank=1 binder_wait headline named nowhere), and via
+// cap EXTENSION only when the leading comparison family (which emits in full
+// by #69 adjudication and must not be displaced either) already filled the
+// base cap.
+const runtimeTraceNextStepUndrilledHeadlineFloor = 1
 
 func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContext) []types.AnswerBlockItem {
 	if doc == nil || ctx == nil {
@@ -4111,6 +4127,39 @@ func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContex
 			CitationRef: -1,
 		})
 	}
+	// NXT N1+N2 (§22 D-P1, real_trace_campaign_20260705.md 2026-07-07; RCX①
+	// drill-debt 用户面 next-step 半场, §12.3-1①): when a projection's HEADLINE
+	// — the node its conclusion line actually names, through the SAME
+	// runtimeTraceProjLeadSelect surface — is undrilled (typed signals only:
+	// the lead's rendered tree row sits on the dedicated 链上·深度未解析 lane,
+	// or the lead carries the typed UndrillableReason), the list gains ONE
+	// pointed drilldown row naming that subject, why it is unresolved and the
+	// concrete views to run (wakeup_chain / critical_blocking_calls). The
+	// huadong_01 specimen shipped a rank=1 · conf 0.92 binder_wait headline
+	// with four generic/window-caliber rows and zero pointed guidance.
+	// Placement: after the comparison-family lanes (their headline
+	// adjudication is untouched) and BEFORE every generic lane, so the most
+	// specific row never loses its seat to a template row. The floor constant
+	// guarantees the seat even when the comparison family already filled the
+	// base cap (see the N2 ruling on the constant).
+	undrilledHeadlineRows := 0
+	for _, hint := range runtimeTraceNextStepUndrilledHeadlineHints(ledger, zh) {
+		if hint == "" || seenText[hint] {
+			continue
+		}
+		if len(out) >= runtimeTraceNextStepMaxItems &&
+			undrilledHeadlineRows >= runtimeTraceNextStepUndrilledHeadlineFloor {
+			break
+		}
+		seenText[hint] = true
+		undrilledHeadlineRows++
+		out = append(out, types.AnswerBlockItem{
+			ID:          fmt.Sprintf("runtime_trace_next_step_%d", len(out)+1),
+			Label:       label,
+			Text:        hint,
+			CitationRef: -1,
+		})
+	}
 	// PTV5 Q3 (#68 用户裁定 2026-07-05, 单工件多锚窗支): exactly one compiled
 	// projection with ≥2 distinct typed query windows — the within-trace
 	// dual-window comparison guidance (CMP-9 normalization caliber + per-window
@@ -4180,8 +4229,10 @@ func runtimeTraceNextStepItems(doc *types.AnswerDocumentV2, ctx *types.BusContex
 	// the per-record rows read an extended cap — every leading lane above has
 	// already been placed, so the guaranteed floor slots can only be consumed
 	// by per-record rows (强保底, not a shared trailing budget). Hard upper
-	// bound = base + floor = 6. Non-comparison shapes keep recordCap == base
-	// cap: byte-identical list behavior.
+	// bound = base + undrilled-headline floor + per-record floor = 7 (NXT §22
+	// D-P1: the pointed-row floor above participates via len(out); pre-NXT the
+	// bound was base + per-record floor = 6). Non-comparison shapes keep
+	// recordCap == base cap: byte-identical list behavior.
 	recordCap := runtimeTraceNextStepMaxItems
 	if comparisonShape {
 		recordCap = len(out) + runtimeTraceNextStepComparisonRecordFloor
@@ -4402,6 +4453,140 @@ func runtimeTraceNextStepUnsampledComparisonHint(ctx *types.BusContext, ledger t
 		return "另一份 trace 本轮未取数:对其余未取数的 trace 工件以同口径(同窗/同视图)执行查询后再对比"
 	}
 	return "The other trace was not queried this round: run the same-caliber queries (same window/same views) on the remaining trace artifacts, then compare"
+}
+
+// runtimeTraceNextStepUndrilledHeadlineHints returns the NXT pointed
+// drilldown rows (§22 D-P1, real_trace_campaign_20260705.md 2026-07-07; RCX①
+// §12.3-1① 用户面 next-step 半场): one per compiled ACTIVE projection whose
+// ELECTED headline is undrilled. Precise typed signals only, never prose
+// matching:
+//   - the headline is the runtimeTraceProjLeadSelect product on the primary /
+//     on-chain-fallback lanes (the SAME single surface the conclusion line and
+//     the comparison primary cell consume, so this row can never name a
+//     different node than the headline it points at); the semantic lane never
+//     wears the 主根因 claim and is excluded by construction;
+//   - "undrilled" = the lead's rendered tree row sits on the dedicated
+//     链上·深度未解析 lane (typed row Kind + Edge pair, stamped once at model
+//     build — see runtimeTraceNextStepHeadlineDepthUnresolved), OR the lead
+//     node carries the typed UndrillableReason (missing_wakeup);
+//   - a fold roster / aggregate metric names no drillable thread and an
+//     unresolved subject is never pointed at (SG precedent: soft guidance
+//     never fabricates an identity).
+//
+// Soft guidance only — nothing gates on these rows. Multi-projection ledgers
+// disambiguate with the artifact label; identical texts dedupe here and the
+// caller layers the shared verbatim display dedupe on top.
+func runtimeTraceNextStepUndrilledHeadlineHints(ledger types.ObservationLedger, zh bool) []string {
+	set := types.CompileTraceCausalProjectionSet(ledger)
+	multi := len(set.Projections) > 1
+	var out []string
+	seen := map[string]bool{}
+	for _, projection := range set.Projections {
+		if !projection.Active() {
+			continue
+		}
+		model := buildRuntimeTraceProjTreeModel(projection, nil, zh)
+		lead, lane := runtimeTraceProjLeadSelect(projection, model)
+		if lead == nil ||
+			(lane != runtimeTraceProjLeadLanePrimary && lane != runtimeTraceProjLeadLaneOnChainFallback) {
+			continue
+		}
+		if lead.OnChainOverflowFold || lead.IsAggregateMetric() ||
+			!runtimeTraceCausalProjectionKnownSubject(lead.Subject) {
+			continue
+		}
+		depthUnresolved := runtimeTraceNextStepHeadlineDepthUnresolved(*lead, model)
+		if !depthUnresolved && !lead.Undrillable() {
+			continue
+		}
+		artifact := ""
+		if multi {
+			artifact = strings.TrimSpace(projection.ArtifactLabel)
+		}
+		text := runtimeTraceNextStepUndrilledHeadlineText(*lead, artifact, depthUnresolved, zh)
+		if text == "" || seen[text] {
+			continue
+		}
+		seen[text] = true
+		out = append(out, text)
+	}
+	return out
+}
+
+// runtimeTraceNextStepHeadlineDepthUnresolved reports whether the elected
+// lead renders on the dedicated 链上·深度未解析 lane of its own projection's
+// tree: a TRUNKED render (non-empty model.Target — the same typed signal
+// every flat surface reads) whose lead row carries row Kind depthless PLUS
+// the chain-unresolved edge — exactly the typed pair the fence edge, relation
+// cell and legend consume (stamped once at model build, PTV6 #1b; the
+// own-process IO caliber edge is deliberately NOT this lane). Flat renders
+// return false: there the whole tree is depthless by construction and the
+// dedicated flat header + RN-13(b) recovery lane own that disclosure. Node
+// identity = the same node-key equality model.LeadKey is built from.
+func runtimeTraceNextStepHeadlineDepthUnresolved(lead types.TraceCausalProjectionNode, model runtimeTraceProjTreeModel) bool {
+	if strings.TrimSpace(model.Target) == "" {
+		return false
+	}
+	key := runtimeTraceCausalProjectionNodeKey(lead)
+	for _, row := range model.TreeRows {
+		if row.Kind != runtimeTraceProjTreeRowDepthless ||
+			row.Edge != runtimeTraceProjTreeEdgeChainUnresolved {
+			continue
+		}
+		if runtimeTraceCausalProjectionNodeKey(row.Node) == key {
+			return true
+		}
+	}
+	return false
+}
+
+// runtimeTraceNextStepUndrilledHeadlineText renders ONE pointed
+// undrilled-headline drilldown row: the subject (with its cause word, engine
+// rank and, on multi-artifact ledgers, the artifact label), WHY it is
+// unresolved (深度未解析 — the same user-facing vocabulary as the tree's
+// dedicated edge — or the missing-wakeup wording the conclusion line's ⊘
+// clause already speaks) and WHAT to run (the tool-visible view names
+// wakeup_chain / critical_blocking_calls; zero internal pipeline names).
+// Identity strings and typed enum wording only — the row carries no scalar
+// claims.
+func runtimeTraceNextStepUndrilledHeadlineText(lead types.TraceCausalProjectionNode, artifact string, depthUnresolved, zh bool) string {
+	name := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(lead, zh))
+	if name == "" {
+		return ""
+	}
+	var quals []string
+	if cause := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(lead, zh)); cause != "" && cause != name {
+		quals = append(quals, cause)
+	}
+	if lead.Rank > 0 {
+		quals = append(quals, fmt.Sprintf("rank=%d", lead.Rank))
+	}
+	if artifact != "" {
+		quals = append(quals, artifact)
+	}
+	subject := name
+	// PTV5 C26 spacing family: a bare latin thread label followed by CJK keeps
+	// the separating space; a fullwidth close-paren already separates (the SG
+	// named-holder row precedent: "(持有点 %s)在重叠窗执行").
+	zhTail := " "
+	if len(quals) > 0 {
+		zhTail = ""
+		if zh {
+			subject += "(" + strings.Join(quals, ",") + ")"
+		} else {
+			subject += " (" + strings.Join(quals, ", ") + ")"
+		}
+	}
+	if zh {
+		if depthUnresolved {
+			return fmt.Sprintf("对主根因 %s%s在其发生窗执行 wakeup_chain / critical_blocking_calls 下钻:该行当前深度未解析,尚无已核实的上游因果", subject, zhTail)
+		}
+		return fmt.Sprintf("对主根因 %s%s执行 critical_blocking_calls,并调整窗口后重试 wakeup_chain:所选窗口内无匹配唤醒记录,无法继续上溯", subject, zhTail)
+	}
+	if depthUnresolved {
+		return fmt.Sprintf("Drill into the primary root cause %s with wakeup_chain / critical_blocking_calls in its occurrence window: its chain depth is unresolved and no verified upstream cause is attached yet", subject)
+	}
+	return fmt.Sprintf("Run critical_blocking_calls for the primary root cause %s and retry wakeup_chain over an adjusted window: the selected window has no matching wakeup record, so the chain cannot be traced further", subject)
 }
 
 // runtimeTraceNextStepFlatAnchorRecoveryHints returns the RN-13(b) recovery
