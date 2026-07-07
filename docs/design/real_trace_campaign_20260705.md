@@ -1386,3 +1386,6 @@ comm 可经 prctl 动态改名(payload 记持锁时刻名,sched 面可为改名�
 
 ### §20 归批
 P0-E 引擎批(主归口,最终 scope):去双发布+归并口径(裁定①)+孪生 fold typed 化+aggregate gated 补齐+聚合 adjacent 升级禁+retype Score 重算+Score 权重单源(裁定②)+gated note 接线+DrillStatus 对称+runnable 独立行+E4/E7 typed 同段身份(RCX² 退档)+SFD note 接线提升;P0-A 显示尾:LockDominated 旗 note+nearest_chain_* 消费。
+
+### §20.1 用户裁定(2026-07-07,pin)
+裁定①=**甲**:去双发布后,反转候选段的 rank 排序/Score 走 gated(runnable 全额+running 折算);raw 保留在 CumulativeImpactMs/状态字段+显示面三口径各带尺子;非反转 running 段仍 raw 参赛(§7.10 第四分支真实工作量)。丙(按 ideal/deficit 参赛)违 §7.10 红线永久排除。裁定②=blocking_span(已解析锁竞争)typeWeight=**1.35** 对齐 priority_inversion 家族(同一决定性证据类);未解析对端 blocking_span 仍低权。附带设计决定:§15.B 原"runnable 独立行"项**撤销** — 甲案下归并行的 gated 构成已含 runnable 全额分量,再发独立行=重造双计。
