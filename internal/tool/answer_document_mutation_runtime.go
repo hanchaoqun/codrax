@@ -1175,7 +1175,7 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 		cells := []string{
 			runtimeTraceCausalProjectionMarkdownSafe(label),
 			runtimeTraceCausalProjectionMarkdownSafe(runtimeTraceProjComparePrimaryCell(projection, model, zh)),
-			msCell(runtimeTraceProjTargetSymptomMS(model)),
+			runtimeTraceProjCompareTargetSymptomCell(model, zh),
 			msCell(runtimeTraceProjDepth1Cumulative(model)),
 			runtimeTraceCausalProjectionMarkdownSafe(pressureCell),
 		}
@@ -1237,6 +1237,38 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 		ClaimUses:   []types.RenderedClaimUse{{ClaimForm: types.ClaimExternalObservation}},
 		FacetIDs:    []string{"observed_artifact_fact"},
 	}
+}
+
+// runtimeTraceProjCompareTargetSymptomCell renders the comparison overview's
+// 目标症状时长 cell (P0-A2 §18.C, F1 裁定张力 resolution). The primary caliber is
+// the F1 state-segment aggregate (runtimeTraceProjTargetSymptomMS) — hop-view
+// wall clock is DELIBERATELY excluded there to avoid double counting, and that
+// exclusion is untouched here.
+//
+// F1 裁定张力 resolution (chosen implementation): when the state-view aggregate
+// is empty (a hop-only target — both self rows are causal_hop views, e.g. q9's
+// single sleep re-described as a wakeup hop) BUT a hop-view sleep magnitude does
+// exist, the cell does NOT silently fall to "—" against a tree whose coverage
+// line already publishes that sleep. Instead it shows the obtainable hop-view
+// sleep magnitude WITH an explicit view-caliber annotation ("唤醒链视图目标睡眠,
+// 非状态段聚合") so the reader can never read it as the same F1 state-segment
+// caliber the OTHER artifacts' cells carry. This is not "hop-only sleep == the
+// symptom denominator" (that would violate F1 double-count protection); it is an
+// honest, caliber-labeled fallback that keeps this cell consistent with the tree
+// coverage line (both mark the hop-view source). MAX, never Σ — the hop-only
+// value comes from runtimeTraceProjHopOnlyTargetSleepMS which already takes the
+// single largest hop-view sleep row.
+func runtimeTraceProjCompareTargetSymptomCell(model runtimeTraceProjTreeModel, zh bool) string {
+	if symptom := runtimeTraceProjTargetSymptomMS(model); symptom > 0 {
+		return fmt.Sprintf("%.3fms", symptom)
+	}
+	if hopSleep := runtimeTraceProjHopOnlyTargetSleepMS(model); hopSleep > 0 {
+		if zh {
+			return fmt.Sprintf("%.3fms(唤醒链视图目标睡眠,非状态段聚合)", hopSleep)
+		}
+		return fmt.Sprintf("%.3fms (wakeup-chain-view target sleep, not a state-segment aggregate)", hopSleep)
+	}
+	return "—"
 }
 
 // runtimeTraceProjComparePrimaryCell mirrors the conclusion line's selection

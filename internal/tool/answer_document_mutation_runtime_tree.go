@@ -4601,6 +4601,13 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 			}
 		}
 	}
+	// P0-A2 §12.3-4 裁定4① (F7: OUTSIDE the coverage-sentence gate — a pure
+	// depthless / self-heavy shape whose numerator is 0 renders no coverage
+	// sentence at all, yet that is precisely the shape most in need of the
+	// disclosure). Honestly say how many on-chain rows the numerator could not
+	// count and their single largest magnitude. Zero-caliber-risk additive
+	// wording; empty (byte-identity) when every on-chain row was countable.
+	b.WriteString(runtimeTraceProjUnadmittedOnChainDisclosureNote(model, zh))
 	// R2 双窗关系行: when a user-requested window was derivable from the typed
 	// entity pair and the projection window is a small sub-window of it (strict
 	// numeric comparison: projection < 50% of the user window), say explicitly
@@ -4928,7 +4935,46 @@ func runtimeTraceProjPeriodicCadenceCoverageNote(model runtimeTraceProjTreeModel
 	return fmt.Sprintf(" Of that, %.3fms is a periodic signal source's normal in-period cadence (not attributed, not unexplained residual).", cadence)
 }
 
+// runtimeTraceProjDepth1Cumulative is the on-chain attribution numerator. It is
+// the MAX (never Σ — wall clock does not add across rows that overlap the
+// target's blocked interval) of two typed lanes:
+//   - the depth-resolved chain cumulative (runtimeTraceProjDepth1CumulativeChain,
+//     the original H10-shallow-fallback lane, byte-preserved);
+//   - the admitted TARGET-SELF lane (P0-A2 §12.3-4 裁定4②, coordinator lane
+//     ruling 2026-07-07): the 🎯 target's OWN blocked-wait rows in model.SelfRows
+//     whose influence point (Object) is a resolved thread identity — the q6/q8
+//     lock/binder case where the target itself blocked on a NAMED holder/peer
+//     (the row carries EffectiveImpactMS + a resolved Object and lives in
+//     SelfRows, not the depthless stray lane). These are the true carriers of
+//     "the target's own wait already explained on-chain" that the depth-only
+//     numerator dropped, leaving self-heavy shapes at a falsely-low coverage.
+//     Rows whose counterpart is a bare STATE/TYPE token (sleep_wait,
+//     lock_contention, …) are NOT resolved counterparts and stay residual +
+//     disclosed (F6). The own-process IO caliber lane is excluded (F4/NEW-6
+//     double-count guard). Requires a non-empty target (F5: a flat model with
+//     target=="" never mints subjectless numerator mass).
+//
+// Boundary (裁定3): this fixes the ANCHOR-CORRECT self-heavy shape only. The F1
+// q1-B2 witness (anchor = VSyncGenerator, NOT the user thread 42591) keeps its
+// depth-1 numerator of 0.051 unchanged — that is CORRECT for a VSync anchor and
+// is a B1 anchor-selection problem, not a P0-A2 coverage problem. Do not treat
+// the q1-B2 depthless rows as the thing this lane admits.
 func runtimeTraceProjDepth1Cumulative(model runtimeTraceProjTreeModel) float64 {
+	chain := runtimeTraceProjDepth1CumulativeChain(model)
+	admitted := runtimeTraceProjAdmittedTargetSelfNumeratorMS(model)
+	if admitted > chain {
+		return admitted
+	}
+	return chain
+}
+
+// runtimeTraceProjDepth1CumulativeChain is the depth-resolved lane of the
+// coverage numerator — the pre-P0-A2 body of runtimeTraceProjDepth1Cumulative,
+// kept byte-identical so the depth-only shapes (P0-A1 q6/q8 witness, berlin H10
+// fallback, VS-1 periodic) are unchanged: the admitted target-self MAX above only
+// ever RAISES the numerator when a target-own resolved-counterpart self row
+// exceeds it.
+func runtimeTraceProjDepth1CumulativeChain(model runtimeTraceProjTreeModel) float64 {
 	if v := runtimeTraceProjChainDepthCumulative(model, 1); v > 0 {
 		return v
 	}
@@ -4989,6 +5035,169 @@ func runtimeTraceProjChainDepthCumulative(model runtimeTraceProjTreeModel, depth
 		}
 	}
 	return max
+}
+
+// runtimeTraceProjResolvedCounterpartObject reports whether a node's influence
+// point (Object) names a RESOLVED thread identity (F6, coordinator 2026-07-07),
+// as opposed to a bare scheduler-state / block-type token. TraceCausalProjection
+// KnownSubject alone was too loose — it only rejects ""/"unknown-thread", so
+// Object=="sleep_wait" / "d_state_or_io_wait" / "lock_contention" /
+// "monitor_contention" (the state words hop rows carry in Object) were treated as
+// resolved peers. The precise typed form check: a thread label carries a pid
+// structure — a trailing "-<digits>" (name-pid, runtimeTraceProjSplitNamePid), a
+// "pid=<digits>" handle (runtimeTraceProjPidHandleForm), or a bare pure-digit pid
+// (runtimeTraceProjPureInt). State/type tokens carry none of these and are
+// rejected structurally (no substring blacklist).
+func runtimeTraceProjResolvedCounterpartObject(object string) bool {
+	object = strings.TrimSpace(object)
+	if object == "" {
+		return false
+	}
+	if !types.TraceCausalProjectionKnownSubject(object) {
+		return false
+	}
+	if _, _, ok := runtimeTraceProjSplitNamePid(object); ok {
+		return true
+	}
+	if _, ok := runtimeTraceProjPidHandleForm(object); ok {
+		return true
+	}
+	if _, ok := runtimeTraceProjPureInt(object); ok {
+		return true
+	}
+	return false
+}
+
+// runtimeTraceProjTargetSelfNumeratorAdmits reports whether a target-self row
+// (model.SelfRows) is admissible into the coverage numerator (P0-A2 §12.3-4
+// 裁定4②, coordinator lane ruling 2026-07-07). SelfRows are the 🎯 target's own
+// state / blocked-wait views by construction — the q6/q8 lock/binder case where
+// the target blocked on a NAMED holder/peer lands here, carrying EffectiveImpactMS
+// and a resolved Object. There is deliberately NO subject==target clause (SelfRows
+// are all the target — that redundant clause was the very thing that killed the
+// witness on the real builder). Precise typed criteria only:
+//   - HasData;
+//   - Edge != own (F4/NEW-6: own-process IO caliber is the residual-overlap lane
+//     the coverage sentence already discloses as double-count-avoided);
+//   - EffectiveImpactMS > 0 (a real attribution caliber, not a bare state view);
+//   - the influence point Object is a resolved thread identity (F6).
+func runtimeTraceProjTargetSelfNumeratorAdmits(row runtimeTraceProjTreeRow) bool {
+	if !row.HasData || row.Edge == runtimeTraceProjTreeEdgeOwn {
+		return false
+	}
+	if row.Node.EffectiveImpactMS <= 0 {
+		return false
+	}
+	return runtimeTraceProjResolvedCounterpartObject(row.Node.Object)
+}
+
+// runtimeTraceProjAdmittedTargetSelfNumeratorMS is the admitted target-self lane
+// of the coverage numerator (P0-A2 §12.3-4 裁定4②). The admitted rows are all the
+// target's own blocked wall clock and overlap each other, so the caliber is a
+// single MAX — NEVER a Σ (墙钟重叠禁加和; union is a later precise upgrade). The
+// value is the EffectiveImpactMS attribution caliber (the same discounted caliber
+// ranking/attribution uses; a periodic row's Effective is already discounted). 0
+// for a flat model with target=="" (F5: never mints subjectless numerator mass)
+// or when no self row qualifies (byte-identity for the P0-A1 witness).
+func runtimeTraceProjAdmittedTargetSelfNumeratorMS(model runtimeTraceProjTreeModel) float64 {
+	if strings.TrimSpace(model.Target) == "" {
+		return 0
+	}
+	max := 0.0
+	for _, row := range model.SelfRows {
+		if !runtimeTraceProjTargetSelfNumeratorAdmits(row) {
+			continue
+		}
+		if v := row.Node.EffectiveImpactMS; v > max {
+			max = v
+		}
+	}
+	return max
+}
+
+// runtimeTraceProjUnadmittedOnChainDisclosure is the P0-A2 §12.3-4 裁定4① honest
+// disclosure of the coverage numerator's incompleteness (coordinator scope
+// ruling 2026-07-07). Two typed sets, both wall-clock rows the numerator could
+// NOT count:
+//   - target-self rows NOT admitted by runtimeTraceProjTargetSelfNumeratorAdmits
+//     but that carry a real attribution caliber (EffectiveImpactMS>0) — chiefly
+//     the F6 UNRESOLVED-counterpart self rows (Object is a state/type token). The
+//     own-edge lane is excluded symmetrically with admission (F4: no row gets two
+//     contradictory exclusion reasons);
+//   - depthless on-chain data rows (Kind==depthless) with a data caliber that the
+//     depth-only numerator never counted, own-edge excluded (F4).
+//
+// The demoted-to-background lane is NOT counted: the builder overwrites the
+// demoted display copy's ChainRelevance to "background" before it enters
+// model.Background (tree.go:1014) and keeps no typed original relevance, so an
+// ==\"on_chain\" test would be dead code — the scope is honestly narrowed (F3)
+// rather than fabricated.
+//
+// Returns (count N, largest single value X, has-overflow-fold). X is a single-row
+// MAX, never a Σ (墙钟不可加和). Each row's caliber is its display impact, except a
+// periodic row which contributes its discounted EffectiveImpactMS (F8, same
+// discipline as the numerator). N counts a MergedCount>1 fold row as its member
+// count, not as 1 (F8). N==0 → no disclosure (byte-identity for the P0-A1
+// depthless-free witness).
+func runtimeTraceProjUnadmittedOnChainDisclosure(model runtimeTraceProjTreeModel) (int, float64, bool) {
+	count := 0
+	maxMS := 0.0
+	folded := false
+	consider := func(node types.TraceCausalProjectionNode) {
+		if node.MergedCount > 1 {
+			count += node.MergedCount
+			folded = true
+		} else {
+			count++
+		}
+		v := runtimeTraceProjNodeDisplayImpact(node)
+		if node.PeriodicSource {
+			v = node.EffectiveImpactMS
+		}
+		if v > maxMS {
+			maxMS = v
+		}
+	}
+	for _, row := range model.SelfRows {
+		if row.Edge == runtimeTraceProjTreeEdgeOwn || !row.HasData {
+			continue
+		}
+		if runtimeTraceProjTargetSelfNumeratorAdmits(row) {
+			continue
+		}
+		if row.Node.EffectiveImpactMS <= 0 {
+			continue // no attribution caliber → not an "explained on-chain" candidate
+		}
+		consider(row.Node)
+	}
+	for _, row := range model.TreeRows {
+		if row.Kind != runtimeTraceProjTreeRowDepthless || !row.HasData {
+			continue
+		}
+		if row.Edge == runtimeTraceProjTreeEdgeOwn {
+			continue
+		}
+		consider(row.Node)
+	}
+	return count, maxMS, folded
+}
+
+// runtimeTraceProjUnadmittedOnChainDisclosureNote renders the P0-A2 §12.3-4
+// 裁定4① disclosure sentence, or "" when no on-chain row was left out of the
+// numerator. Pure additive wording (zero-caliber risk) — it states N items,
+// their largest single magnitude X, and that wall clock is not summable; it
+// never changes the numerator or the percentages the coverage sentence printed.
+// F8: plain-language "未计入的链上行" (no internal 行话); the "见明细表/树"
+// pointer keeps the reader on an in-answer surface.
+func runtimeTraceProjUnadmittedOnChainDisclosureNote(model runtimeTraceProjTreeModel, zh bool) string {
+	n, x, _ := runtimeTraceProjUnadmittedOnChainDisclosure(model)
+	if n <= 0 || x <= 0 {
+		return ""
+	}
+	if zh {
+		return fmt.Sprintf(" 另有 %d 项未计入的链上行(单项最大 %.3fms,墙钟不可加和,见明细表/树)未纳入本覆盖分子。", n, x)
+	}
+	return fmt.Sprintf(" A further %d on-chain row(s) not counted here (single largest %.3fms, wall clock not summable; see the detail table/tree) are outside this coverage numerator.", n, x)
 }
 
 // --- lossless detail table ------------------------------------------------------
