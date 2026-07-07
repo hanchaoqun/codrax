@@ -132,6 +132,12 @@ func runtimeTraceProjSupplyFoldEmbedsInversionComposition(node types.TraceCausal
 // mislabel this clause exists to kill. Both the Triple clause's 内含
 // parenthetical and the independent 影响构成 tag (non-Triple inversion rows)
 // share this text, so both surfaces carry the per-component calibers.
+//
+// §21 RNB R3 (2026-07-07): the R1 display-only runnable sub-row (⧖ runnable
+// X(全额)·就绪排队积压·gated 分量,不重复计入排序 — tree.go) reuses THIS
+// component wording verbatim (runnable X(全额), 同词). The parenthetical here
+// is the caliber DISCLOSURE of the gated total's decomposition and stays —
+// it is not a duplicate of the R1 component row (裁定: 口径披露非重复行).
 func runtimeTraceProjInversionCompositionText(node types.TraceCausalProjectionNode, zh bool) string {
 	if zh {
 		return fmt.Sprintf("runnable %.3fms(全额)+ running 折算 %.3fms(按下游消费核折算)", node.GatedRunnableMS, node.GatedRunningDeficitMS)

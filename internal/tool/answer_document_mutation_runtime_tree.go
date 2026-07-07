@@ -181,6 +181,18 @@ type runtimeTraceProjTreeRow struct {
 	// row — values + evidence ids all kept; the underlying observations and
 	// projection buckets are untouched (display grouping only).
 	IOFoldPeers []runtimeTraceProjIOFoldPeer
+	// RankFoldPeers carries the same-segment RANK-lane row(s) folded into this
+	// chain-lane row (§21/§22 RNB R2, 2026-07-07): the engine publishes ONE
+	// inversion-candidate segment through two lanes (root_cause_rank +
+	// wakeup_causal_impact) and the tree rendered both as sibling/cause rows.
+	// The chain row keeps the tree position/edge semantics; the rank row's
+	// type word / rank badge / confidence ride the fold note, its E# stays
+	// registered on the evidence index, and its numerator-relevant magnitudes
+	// ride the invariance carriers below so the coverage arithmetic is
+	// byte-identical to the two-row render (显示≠归因 red line). Display
+	// grouping only — the projection buckets and the rank funnel are
+	// untouched.
+	RankFoldPeers []runtimeTraceProjRankFoldPeer
 	// marks is the NEW-7 emission collector for this render pass. The fence
 	// renderer stamps model.Marks onto its per-row COPIES right before calling
 	// the row-render helpers, so every mark is recorded AT the emission site
@@ -305,6 +317,7 @@ const (
 	runtimeTraceProjMarkStateLabel                                        // dominant-state / impact-shape tag
 	runtimeTraceProjMarkUndrillable                                       // ⊘ missing-wakeup marker (PTV4 T5: was ⛔)
 	runtimeTraceProjMarkCrossWindow                                       // ⚠实际Xms cross-window marker (PTV4 T4: data kept, semantics in legend)
+	runtimeTraceProjMarkCrossWindowNoActual                               // ⚠跨窗 value-less cross-window marker (§21 LEAD-SEM 前置 L1: actual 未采集时禁 0.000 假标量)
 	runtimeTraceProjMarkRecursOnChain                                     // ↺ small-cycle marker
 	runtimeTraceProjMarkChainDepthChip                                    // 链上L# chain-depth chip (PTV4 T9)
 	runtimeTraceProjMarkOmitted                                           // …省略N节点… long-trunk fold row (PTV4 T8 roster)
@@ -328,6 +341,8 @@ const (
 	runtimeTraceProjMarkCandidateShapeClass                               // PTV6-D (b) 候选影响 类别词降维:行内删,图例承载
 	runtimeTraceProjMarkUserFocusTransit                                  // §22 B1-b F2 折叠段内用户关注线程强制展开(中转形态)
 	runtimeTraceProjMarkTraceGapBlindSpot                                 // §22 PTV7-SPN F5 trace_gap 数据盲区 行内披露(用户措辞裁定)
+	runtimeTraceProjMarkGatedRunnableSubRow                               // §21 RNB R1 ⧖ runnable gated 分量 display-only 子行(用户点名)
+	runtimeTraceProjMarkRankFoldNote                                      // §21/§22 RNB R2 同段rank行并入 note(同段双车道折叠为一行)
 
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
@@ -472,6 +487,14 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkCrossWindow, runtimeTraceProjLegendGroupMark,
 			"- `⚠实际Xms` = 实际状态跨出分析窗口(实际共 X ms),时长条只画窗口内投影。",
 			"- `⚠actual Xms` = the underlying state extends beyond the analysis window (X ms in total); the bar draws only the in-window projection."},
+		// §21 LEAD-SEM 前置 L1 (cmp_01 A④, 2026-07-07): the value-less fork of
+		// the ⚠ marker — the row is typed cross-window but its actual total was
+		// never captured (ActualImpactMS<=0), so the marker states the fact
+		// WITHOUT the fake "实际0.000ms" scalar (16 semantic rows on the real
+		// specimen all claimed an actual of 0.000ms they never measured).
+		{runtimeTraceProjMarkCrossWindowNoActual, runtimeTraceProjLegendGroupMark,
+			"- `⚠跨窗` = 实际状态跨出分析窗口,但窗外实际总时长未采集(无值);时长条只画窗口内投影。",
+			"- `⚠cross-window` = the underlying state extends beyond the analysis window, but its actual total was not captured (no value); the bar draws only the in-window projection."},
 		{runtimeTraceProjMarkRecursOnChain, runtimeTraceProjLegendGroupMark,
 			"- `↺` = 该线程在链上重复出现(小循环形态)。",
 			"- `↺` = this thread recurs on the chain (small-cycle shape)."},
@@ -588,6 +611,21 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkTraceGapBlindSpot, runtimeTraceProjLegendGroupMark,
 			"- `数据盲区` = 窗内无调度数据,下钻链止。",
 			"- `trace_gap` = no scheduler data inside the window; the drill chain ends there."},
+		// §21 RNB R1 (用户点名 2026-07-07): the gated composition's runnable
+		// component gets an explicit display-only sub-row — the row itself
+		// carries the three load-bearing elements (全额 / gated 分量 / 不重复
+		// 计入排序); this entry carries the class semantics.
+		{runtimeTraceProjMarkGatedRunnableSubRow, runtimeTraceProjLegendGroupCaliber,
+			"- `⧖ runnable X ms(全额)` 子行 = 反转 gated 构成内的 runnable 分量显式行:量值全额(就绪排队积压),属 gated 分量,仅作展示,不重复计入排序与覆盖。",
+			"- A `⧖ runnable X ms (in full)` sub-row = the runnable component of the inversion's gated composition made explicit: counted in full (ready-queue backlog), a gated component, display only — never double-counted into ranking or coverage."},
+		// §21/§22 RNB R2 (2026-07-07): one segment published on both the rank
+		// lane and the wakeup-chain lane folds into ONE displayed row (the
+		// chain row keeps the tree position/edge semantics); the rank row's
+		// type word / rank badge / confidence ride this note and its E# stays
+		// resolvable via the evidence index.
+		{runtimeTraceProjMarkRankFoldNote, runtimeTraceProjLegendGroupCaliber,
+			"- `同段rank行并入` = 同一段落被 rank 与链两条车道各发一行,显示折叠为链行一行;rank 行的类型词/徽章/置信并入本注,其 E# 经证据索引可查,数值不重复计入排序与覆盖。",
+			"- `same-segment rank row folded in` = one segment published on both the rank and the chain lane renders as the chain row alone; the rank row's type word/badge/confidence ride this note, its E# stays resolvable via the evidence index, and no value is double-counted into ranking or coverage."},
 	}
 }
 
@@ -792,6 +830,12 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// re-attached to the surviving primary's row after flatten (its row Kind —
 	// self or tree — is only known then).
 	chainNodes, ioFoldPeers := runtimeTraceProjFoldSameSubjectIONodes(chainNodes)
+	// RNB R2 (§21/§22, 2026-07-07): fold the rank-lane twin of a same-segment
+	// pair into its chain-lane node BEFORE the subject buckets, so the rank
+	// twin never mints a sibling/cause tree row (成因形与兄弟形 both covered by
+	// construction — the fold precedes tree-position assignment). The peers
+	// are re-attached to the surviving row after flatten (evidence + note).
+	chainNodes, rankFoldPeers := runtimeTraceProjFoldSameSegmentLaneTwins(chainNodes)
 	bySubject := map[string][]types.TraceCausalProjectionNode{}
 	for _, node := range chainNodes {
 		key := runtimeTraceCausalProjectionCanonicalNode(node.Subject)
@@ -1101,6 +1145,30 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		attach(model.TreeRows)
 	}
 
+	// RNB R2: attach the folded rank-lane peers to the surviving chain row and
+	// register every folded node on the evidence index — the fold note is the
+	// rank row's display carrier (type word/rank/confidence), the index keeps
+	// its full locator + audit detail, and the invariance carriers keep the
+	// coverage numerator / bar scale byte-identical to the two-row render.
+	if len(rankFoldPeers) > 0 {
+		attach := func(rows []runtimeTraceProjTreeRow) {
+			for i := range rows {
+				for _, peer := range rankFoldPeers[runtimeTraceCausalProjectionNodeKey(rows[i].Node)] {
+					rows[i].RankFoldPeers = append(rows[i].RankFoldPeers, runtimeTraceProjRankFoldPeer{
+						TypeWord:           strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(peer, zh)),
+						Rank:               peer.Rank,
+						Confidence:         peer.Confidence,
+						EvidenceTag:        runtimeTraceProjEvidenceTag(peer, evidence, zh),
+						CumulativeImpactMS: peer.CumulativeImpactMS,
+						DisplayImpactMS:    runtimeTraceProjNodeDisplayImpact(peer),
+					})
+				}
+			}
+		}
+		attach(model.SelfRows)
+		attach(model.TreeRows)
+	}
+
 	// PTV6 #2 (双席防御): a node key the chain universe already consumed
 	// (self / trunk / depth-attach / depthless row) never seats a SECOND copy
 	// in the ◇/▒ stanzas. Post-#1a the specimen's background rows no longer
@@ -1211,7 +1279,11 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// detail table's 因果位置·优先级 column follows the SAME selection
 	// (runtimeTraceProjLeadSelect is deterministic on (projection, model), so
 	// the conclusion line re-running it later cannot disagree).
-	if lead, _ := runtimeTraceProjLeadSelect(projection, model); lead != nil {
+	// §21 LEAD-SEM: the semantic tier-4 lead is an optimization-span
+	// statement, NOT a consumed 主根因 — it never claims LeadKey (the flat 🎯
+	// anchor lane and the 因果位置 demotion gate keep their legacy behavior).
+	if lead, lane := runtimeTraceProjLeadSelect(projection, model); lead != nil &&
+		lane != runtimeTraceProjLeadLaneSemanticFallback {
 		model.LeadKey = runtimeTraceCausalProjectionNodeKey(*lead)
 	}
 	runtimeTraceProjAssignTopBadges(&model)
@@ -1558,6 +1630,238 @@ func runtimeTraceProjIOFoldNoteText(peers []runtimeTraceProjIOFoldPeer, zh bool)
 		text += "; evidence " + strings.Join(tags, ", ")
 	}
 	return text
+}
+
+// --- RNB R2 same-segment two-lane fold (§21/§22, 2026-07-07) --------------------
+//
+// The engine publishes ONE priority-inversion-candidate segment through TWO
+// lanes — the root_cause_rank funnel (Object=priority_inversion_candidate,
+// rank/tier/confidence) and the wakeup_causal_impact hop lane (Object=the
+// dominant state, tree position/edge) — and the tree rendered both, as
+// sibling cause rows (cmp_01 E7/E8, opendir E6/E7), a trunk row + cause child
+// (huadong E4/E5) or sibling wake rows (huadong E11/E13). The fold keeps the
+// CHAIN row (树位/边语义) and merges the rank row's type word / rank badge /
+// confidence into a note on it; the rank row's E# stays registered on the
+// evidence index and mirrored in the lossless stanza. Engine work (the P0-E
+// de-double-publish) is untouched — this is the display half.
+
+// runtimeTraceProjRankFoldPeer is one folded rank-lane view of a segment: the
+// display annotation payload plus the numerator-invariance carriers (the
+// folded row's own coverage-caliber magnitudes — consumed ONLY by
+// runtimeTraceProjChainDepthCumulative / runtimeTraceProjModelMaxImpact /
+// the runtimeTraceProjUnadmittedOnChainDisclosure MAX (复核 W-B) so the
+// coverage numerator, bar scale and unadmitted-disclosure magnitude stay
+// identical to the two-row render; they never render as row values. The W-A
+// cumulative-equality fold guard bounds the cumulative carrier: a fold only
+// happens between agreeing (or absent) cumulative accounts).
+type runtimeTraceProjRankFoldPeer struct {
+	TypeWord           string
+	Rank               int
+	Confidence         float64
+	EvidenceTag        string
+	CumulativeImpactMS float64
+	DisplayImpactMS    float64
+}
+
+// runtimeTraceProjSameSegmentTwinKey is the SFD-precedent same-segment
+// identity (d5f40952, §15.A display half): canonical subject + the exact
+// evidence line range — both lanes carry the engine's OWN verbatim
+// LineStart/LineEnd (四证: cmp_01 both :103611-113217, opendir both
+// :45689-79142, huadong both :1628546-1629554 / :1027796-1029202), a
+// published precise signal, never a label/similarity heuristic. Empty when
+// the node lacks a valid line span or a resolvable real subject — such rows
+// never fold.
+func runtimeTraceProjSameSegmentTwinKey(node types.TraceCausalProjectionNode) string {
+	if node.LineStart <= 0 || node.LineEnd < node.LineStart {
+		return ""
+	}
+	if !types.TraceCausalProjectionKnownSubject(node.Subject) {
+		return ""
+	}
+	return runtimeTraceCausalProjectionCanonicalNode(node.Subject) +
+		"\x00" + strconv.Itoa(node.LineStart) + "\x00" + strconv.Itoa(node.LineEnd)
+}
+
+// runtimeTraceProjRankFoldRankArm / ChainArm classify the two lanes of one
+// segment. Precise producer signals only:
+//   - rank arm  = root_cause_* funnel predicate + a published engine rank;
+//   - chain arm = wakeup_causal_impact hop predicate + on_chain relevance.
+//
+// Shared arm requirements (双臂, SFD 复核 F2 mirror): the row IS an inversion
+// candidate (typed flag / exact Object token), is NOT a ×N aggregate
+// (MergedCount>1 sums/envelopes many segments) and NOT a periodic source
+// (the VS-1 discount lane owns those rows' semantics).
+func runtimeTraceProjRankFoldArmEligible(node types.TraceCausalProjectionNode) bool {
+	return runtimeTraceCausalProjectionInversionRow(node) &&
+		node.MergedCount <= 1 && !node.PeriodicSource
+}
+
+func runtimeTraceProjRankFoldRankArm(node types.TraceCausalProjectionNode) bool {
+	return runtimeTraceProjRankFoldArmEligible(node) && node.Rank > 0 &&
+		strings.HasPrefix(strings.TrimSpace(node.Predicate), "root_cause_")
+}
+
+func runtimeTraceProjRankFoldChainArm(node types.TraceCausalProjectionNode) bool {
+	return runtimeTraceProjRankFoldArmEligible(node) &&
+		strings.HasPrefix(strings.TrimSpace(node.Predicate), "wakeup_causal_impact") &&
+		strings.TrimSpace(node.ChainRelevance) == "on_chain"
+}
+
+// runtimeTraceProjFoldSameSegmentLaneTwins folds the rank-lane twin of a
+// same-segment pair into its chain-lane row (RNB R2). Runs on the chain-node
+// universe BEFORE the subject buckets are built (NEW-3 position), so the rank
+// twin never mints a sibling/cause tree row; the returned peer map (keyed by
+// the KEPT node's key) is re-attached to the surviving row after flatten.
+//
+// Precision rules (硬边界, fail-open to the two-row render on every miss):
+//   - join key = canonical subject + exact line range (SFD 同款, above);
+//   - exactly ONE rank arm and ONE chain arm under a key — any other shape
+//     (two rank views, two chain views) is ambiguity and never folds;
+//   - effective mirror equality: both lanes carry the engine's ONE
+//     rank-lane gated effective (R5d single source mirrored onto the hop
+//     row); a differing effective is a different accounting — the pre-P0-E
+//     raw-vs-gated twin shape (§15.B RCX² 退档: q6 E4 58.919 vs E7 37.410)
+//     stays two rows, engine 根治 owns it. This is also the SFD F3/F4
+//     conflict rule on this lane: the fold transfers ANNOTATION only (type
+//     word/rank/confidence/E#) — never an ms account, never a fold group;
+//   - cross-window veto (SFD F1 mirror): both arms declaring their own typed
+//     selected_window with any endpoint beyond the F-2 ±1ms tolerance were
+//     measured in DIFFERENT query windows and never fold.
+//
+// The kept chain node adopts the rank (typed transfer, display model only —
+// the ❶❷❸ badge lane and the fold note read it; projection buckets, the rank
+// funnel and every EffectiveImpactMs consumer are untouched). Coverage
+// invariance rides the peer carriers (see runtimeTraceProjRankFoldPeer).
+func runtimeTraceProjFoldSameSegmentLaneTwins(nodes []types.TraceCausalProjectionNode) ([]types.TraceCausalProjectionNode, map[string][]types.TraceCausalProjectionNode) {
+	type group struct {
+		rankIdx  []int
+		chainIdx []int
+	}
+	groups := map[string]*group{}
+	for i, node := range nodes {
+		rankArm := runtimeTraceProjRankFoldRankArm(node)
+		chainArm := runtimeTraceProjRankFoldChainArm(node)
+		if !rankArm && !chainArm {
+			continue
+		}
+		key := runtimeTraceProjSameSegmentTwinKey(node)
+		if key == "" {
+			continue
+		}
+		g := groups[key]
+		if g == nil {
+			g = &group{}
+			groups[key] = g
+		}
+		if rankArm {
+			g.rankIdx = append(g.rankIdx, i)
+		} else {
+			g.chainIdx = append(g.chainIdx, i)
+		}
+	}
+	foldInto := map[int]int{} // rank node index -> chain node index
+	for _, g := range groups {
+		if len(g.rankIdx) != 1 || len(g.chainIdx) != 1 {
+			continue // ambiguity fails open (SFD donor-conflict rule)
+		}
+		rank, chain := nodes[g.rankIdx[0]], nodes[g.chainIdx[0]]
+		if rank.EffectiveImpactMS <= 0 || rank.EffectiveImpactMS != chain.EffectiveImpactMS {
+			continue // not the engine's same-segment mirror — never fold
+		}
+		// 复核 W-A (RNB 收尾 2026-07-07): the mirror guard's SECOND equality —
+		// two lanes whose CUMULATIVE accounts disagree are different-scope
+		// accountings of the segment (cmp_01 E7/E8 实证: rank cum 47.503 counts
+		// the enclosing chain scope while the hop row's own cum is 28.230) and
+		// never fold ("不同账目绝不折", same standard as the effective arm).
+		// Without this arm the folded rank cum could enter a trunk Chain row's
+		// depth-MAX via the peer carriers while pre-fold it was a Cause row
+		// that never competed (coverage-numerator invariance falsified on the
+		// constructed 9.999-vs-4.115 shape). Fail-open: the two-row render
+		// stays; the fold witnesses with agreeing accounts (huadong E4/E5
+		// 4.115==4.115, E11/E13 2.770==2.770, opendir E6/E7 58.919==58.919)
+		// are untouched.
+		if rank.CumulativeImpactMS > 0 && chain.CumulativeImpactMS > 0 &&
+			rank.CumulativeImpactMS != chain.CumulativeImpactMS {
+			continue // diverging cumulative accounts (W-A) — never fold
+		}
+		if rank.QueryWindowStartTs > 0 && rank.QueryWindowEndTs > rank.QueryWindowStartTs &&
+			chain.QueryWindowStartTs > 0 && chain.QueryWindowEndTs > chain.QueryWindowStartTs &&
+			(math.Abs(rank.QueryWindowStartTs-chain.QueryWindowStartTs) > types.TraceCausalProjectionSameWindowToleranceS ||
+				math.Abs(rank.QueryWindowEndTs-chain.QueryWindowEndTs) > types.TraceCausalProjectionSameWindowToleranceS) {
+			continue // cross-window re-measurement (SFD F1 mirror) — never fold
+		}
+		foldInto[g.rankIdx[0]] = g.chainIdx[0]
+	}
+	if len(foldInto) == 0 {
+		return nodes, nil
+	}
+	dropped := map[int]bool{}
+	rankByChainIdx := map[int]int{}
+	for rankIdx, chainIdx := range foldInto {
+		dropped[rankIdx] = true
+		rankByChainIdx[chainIdx] = rankIdx
+	}
+	kept := make([]types.TraceCausalProjectionNode, 0, len(nodes))
+	peers := map[string][]types.TraceCausalProjectionNode{}
+	for i, node := range nodes {
+		if dropped[i] {
+			continue
+		}
+		if rankIdx, ok := rankByChainIdx[i]; ok {
+			if node.Rank <= 0 {
+				node.Rank = nodes[rankIdx].Rank
+			}
+			peers[runtimeTraceCausalProjectionNodeKey(node)] = append(
+				peers[runtimeTraceCausalProjectionNodeKey(node)], nodes[rankIdx])
+		}
+		kept = append(kept, node)
+	}
+	return kept, peers
+}
+
+// runtimeTraceProjRankFoldNoteText renders the R2 fold note — the rank row's
+// annotation seat on the kept chain row (fence tag + self-row mirror +
+// lossless stanza line share it). The zh face uses the within-tag no-space
+// "·" convention (F3).
+func runtimeTraceProjRankFoldNoteText(peers []runtimeTraceProjRankFoldPeer, zh bool) string {
+	parts := make([]string, 0, len(peers))
+	for _, peer := range peers {
+		word := strings.TrimSpace(peer.TypeWord)
+		if word == "" {
+			if zh {
+				word = "rank行"
+			} else {
+				word = "rank row"
+			}
+		}
+		seg := word
+		if zh {
+			if peer.Rank > 0 {
+				seg += fmt.Sprintf("·rank=%d", peer.Rank)
+			}
+			if tier := runtimeTraceProjConfidenceTier(peer.Confidence, true); tier != "" {
+				seg += "·置信" + tier
+			}
+			if tag := strings.TrimSpace(peer.EvidenceTag); tag != "" {
+				seg += "·[" + tag + "]"
+			}
+		} else {
+			if peer.Rank > 0 {
+				seg += fmt.Sprintf(" · rank=%d", peer.Rank)
+			}
+			if tier := runtimeTraceProjConfidenceTier(peer.Confidence, false); tier != "" {
+				seg += " · confidence " + tier
+			}
+			if tag := strings.TrimSpace(peer.EvidenceTag); tag != "" {
+				seg += " · [" + tag + "]"
+			}
+		}
+		parts = append(parts, seg)
+	}
+	if zh {
+		return "同段rank行并入: " + strings.Join(parts, ";")
+	}
+	return "same-segment rank row folded in: " + strings.Join(parts, "; ")
 }
 
 // runtimeTraceProjOwnProcessIONode is the NEW-3/F2 typed predicate for an
@@ -2028,6 +2332,15 @@ func runtimeTraceProjModelMaxImpact(model runtimeTraceProjTreeModel) float64 {
 	consider := func(rows []runtimeTraceProjTreeRow) {
 		for _, row := range rows {
 			v := runtimeTraceProjNodeDisplayImpact(row.Node)
+			// RNB R2 bar-scale invariance: a rank row folded into this chain
+			// row anchored this scale pre-fold — its display magnitude stays
+			// in the competition (folded arms are never cross-thread
+			// aggregates by classification).
+			for _, peer := range row.RankFoldPeers {
+				if peer.DisplayImpactMS > v {
+					v = peer.DisplayImpactMS
+				}
+			}
 			if v > fallback {
 				fallback = v
 			}
@@ -2890,6 +3203,12 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 		row.marks.mark(runtimeTraceProjMarkIOCaliberNote)
 		demoted = append(demoted, runtimeTraceProjIOFoldNoteText(row.IOFoldPeers, zh))
 	}
+	// RNB R2: a fold whose chain row landed on the target's own state lane
+	// still carries the rank-row annotation note (self-row mirror).
+	if len(row.RankFoldPeers) > 0 {
+		row.marks.mark(runtimeTraceProjMarkRankFoldNote)
+		demoted = append(demoted, runtimeTraceProjRankFoldNoteText(row.RankFoldPeers, zh))
+	}
 	if row.EvidenceTag != "" {
 		main = append(main, "["+row.EvidenceTag+"]")
 	}
@@ -3056,7 +3375,7 @@ func runtimeTraceProjRowName(row runtimeTraceProjTreeRow, zh bool) string {
 	object := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(node, zh))
 	// F1 (§22 PTV7-SPN P0): a generic row whose parsed span name reached the
 	// display model shows the REAL name in the object slot —
-	// "oney.hmn.berlin-42591 · H:ReceiveVsync(跟踪span)" — instead of the bare
+	// "oney.hmn.berlin-42591 · H:ReceiveVsync(trace span)" — instead of the bare
 	// type word. SpanName non-empty is the whole gate (precise boolean, soft
 	// display face); semantic rows keep their dedicated arm above.
 	if spanWord := runtimeTraceCausalProjectionSpanNameObjectWord(node, zh); spanWord != "" {
@@ -4010,6 +4329,24 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	if tag, ok := runtimeTraceProjSupplyFoldTag(node, foldWindowMS, zh); ok {
 		tags = append(tags, tag)
 	}
+	// §21 RNB R1 (用户点名 2026-07-07): the gated composition's runnable
+	// component gets its own display-only sub-row right after its composition
+	// carrier (the D3 影响构成 tag or the Triple 机制构成 clause above — one of
+	// them always renders when the component is non-zero). Wording reuses the
+	// composition's own component ruler verbatim (runnable X(全额), R3 同词)
+	// and carries the three load-bearing elements: 全额 / gated 分量 / 不重复
+	// 计入排序. Gate = typed component field non-zero (precise signal);
+	// display-only — the value feeds no sort, no coverage numerator, no sum
+	// (墙钟红线; the composition parenthetical above stays as the caliber
+	// disclosure, this row is the explicit component seat the user asked for).
+	if runtimeTraceCausalProjectionInversionRow(node) && node.GatedRunnableMS > 0 {
+		row.marks.mark(runtimeTraceProjMarkGatedRunnableSubRow)
+		text := fmt.Sprintf("⧖ runnable %.3fms(全额)·就绪排队积压·gated 分量,不重复计入排序", node.GatedRunnableMS)
+		if !zh {
+			text = fmt.Sprintf("⧖ runnable %.3fms (in full) · ready-queue backlog · gated component, not double-counted in ranking", node.GatedRunnableMS)
+		}
+		tags = append(tags, runtimeTraceProjTag{Text: text})
+	}
 	// RN-1 (§7.9, RN-B lane): a runnable row with a compiled same-window
 	// occupier roster says WHO held the CPU inline (helper appended at file
 	// end; Keep + ContinuationLane — the occupier names/values have no other
@@ -4254,13 +4591,29 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	// typed mark — the legend entry all fall silent together). PTV4 T4: the
 	// inline "跨窗" explanation moved to the legend; the tag keeps marker +
 	// actual value (⚠实际Xms). MainRow: a T1 Keep 记号.
+	//
+	// §21 LEAD-SEM 前置 L1 (cmp_01 A④, 2026-07-07): a typed cross-window row
+	// whose actual total was never captured (ActualImpactMS<=0 — the semantic
+	// span-work lane publishes only effective_impact_ms, never actual_*) MUST
+	// NOT print the fake "实际0.000ms" scalar — it demotes to the value-less
+	// ⚠跨窗 marker (precise boolean fork, mirroring the detail table's
+	// existing ActualImpactMS>0 guard). The detail mirror already renders "—".
 	if windowMode && runtimeTraceProjCrossWindow(node) {
-		row.marks.mark(runtimeTraceProjMarkCrossWindow)
-		text := fmt.Sprintf("⚠实际%.3fms", node.ActualImpactMS)
-		if !zh {
-			text = fmt.Sprintf("⚠actual %.3fms", node.ActualImpactMS)
+		if node.ActualImpactMS > 0 {
+			row.marks.mark(runtimeTraceProjMarkCrossWindow)
+			text := fmt.Sprintf("⚠实际%.3fms", node.ActualImpactMS)
+			if !zh {
+				text = fmt.Sprintf("⚠actual %.3fms", node.ActualImpactMS)
+			}
+			tags = append(tags, runtimeTraceProjTag{Text: text, MainRow: true})
+		} else {
+			row.marks.mark(runtimeTraceProjMarkCrossWindowNoActual)
+			text := "⚠跨窗"
+			if !zh {
+				text = "⚠cross-window"
+			}
+			tags = append(tags, runtimeTraceProjTag{Text: text, MainRow: true})
 		}
-		tags = append(tags, runtimeTraceProjTag{Text: text, MainRow: true})
 	}
 	// NEW-3: the folded same-segment IO calibers' values and evidence tags live
 	// ONLY on this note (plus the evidence index) — load-bearing, never elided;
@@ -4268,6 +4621,13 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	if len(row.IOFoldPeers) > 0 {
 		row.marks.mark(runtimeTraceProjMarkIOCaliberNote)
 		tags = append(tags, runtimeTraceProjTag{Text: runtimeTraceProjIOFoldNoteText(row.IOFoldPeers, zh)})
+	}
+	// RNB R2: the folded rank row's annotation seat — type word / rank /
+	// confidence / its E# (registered on the evidence index; the lossless
+	// stanza mirrors this note, so the rank row stays reachable everywhere).
+	if len(row.RankFoldPeers) > 0 {
+		row.marks.mark(runtimeTraceProjMarkRankFoldNote)
+		tags = append(tags, runtimeTraceProjTag{Text: runtimeTraceProjRankFoldNoteText(row.RankFoldPeers, zh)})
 	}
 	if row.Kind == runtimeTraceProjTreeRowSemantic {
 		parent := strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(row.Node.Subject, zh))
@@ -4447,7 +4807,17 @@ func runtimeTraceProjLeadText(projection types.TraceCausalProjection, model runt
 // the typed drilldown target. It never emits advice/should-sentences — the
 // system must not ghost-write the user-facing recommendation surface.
 func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel, zh bool) string {
-	primary, onChainFallback := runtimeTraceProjLeadSelect(projection, model)
+	primary, lane := runtimeTraceProjLeadSelect(projection, model)
+	onChainFallback := lane == runtimeTraceProjLeadLaneOnChainFallback
+	if primary != nil && lane == runtimeTraceProjLeadLaneSemanticFallback {
+		// §21 LEAD-SEM (cmp_01 A①): the semantic tier-4 lead is an
+		// optimization-span statement, never a 主根因 claim — the dedicated
+		// single-source wording carries no "主根因:" prefix (负向 pin).
+		if zh {
+			return runtimeTraceProjSemanticLeadText(*primary, model, true) + "。"
+		}
+		return runtimeTraceProjSemanticLeadText(*primary, model, false) + "."
+	}
 	if primary == nil {
 		if len(runtimeTraceCausalProjectionPrimaryRoots(projection)) == 0 {
 			return ""
@@ -4456,10 +4826,21 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 		// 裁定1) and no data-bearing on-chain row could lead either (RN-3(a))
 		// — the lead must say so instead of naming a demoted row as the
 		// primary root cause and contradicting the tree below it.
+		//
+		// §21 LEAD-SEM L3 (cmp_01 A② defensive check): the 见背景压力段
+		// pointer renders only when the background stanza is actually
+		// non-empty — an empty stanza would make the pointer dangle against
+		// the 背景层 two-state split below.
 		if zh {
-			return "**主根因:** 窗口内未定位到链上主根因,见背景压力段。"
+			if len(model.Background) > 0 {
+				return "**主根因:** 窗口内未定位到链上主根因,见背景压力段。"
+			}
+			return "**主根因:** 窗口内未定位到链上主根因。"
 		}
-		return "**Primary root cause:** no on-chain primary root cause was located in the window — see the background-pressure stanza."
+		if len(model.Background) > 0 {
+			return "**Primary root cause:** no on-chain primary root cause was located in the window — see the background-pressure stanza."
+		}
+		return "**Primary root cause:** no on-chain primary root cause was located in the window."
 	}
 	name := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(*primary, zh))
 	// D4: the narrative lane uses the 中文（english_token） combined format on
@@ -4615,6 +4996,20 @@ func runtimeTraceProjLeadPrimary(projection types.TraceCausalProjection, trunkLe
 	return best
 }
 
+// runtimeTraceProjLeadLane is the typed lane the single lead-selection
+// surface resolved through (§21 LEAD-SEM upgraded the former boolean): the
+// wording of the conclusion line / compare cell forks on it — the semantic
+// lane in particular must NEVER wear the 主根因 claim (负向 pin: 禁"主根因:"
+// 前缀冒称).
+type runtimeTraceProjLeadLane int
+
+const (
+	runtimeTraceProjLeadLaneNone runtimeTraceProjLeadLane = iota
+	runtimeTraceProjLeadLanePrimary
+	runtimeTraceProjLeadLaneOnChainFallback
+	runtimeTraceProjLeadLaneSemanticFallback
+)
+
 // runtimeTraceProjLeadSelect is the SINGLE lead-selection surface consumed by
 // the conclusion line, the comparison-overview primary cell and the model
 // build (LeadKey) — one implementation, deterministic on (projection, model),
@@ -4626,23 +5021,114 @@ func runtimeTraceProjLeadPrimary(projection types.TraceCausalProjection, trunkLe
 //     rendered tree (chain/flat rows, discounted single-instance value) — the
 //     customer's flat runnable 635.981ms/42% row was on the table while the
 //     conclusion said nothing on-chain was located;
-//  3. still nothing → nil, and the caller keeps the 未定位/背景压力段 text.
+//  3. §21 LEAD-SEM (cmp_01 A①, 2026-07-07): the on-chain fallback came back
+//     empty-handed too → the largest data-bearing SEMANTIC row of the
+//     rendered tree (typed engine data, never synthesized — the 6.0 specimen
+//     had a deterministic JIT optimization span at 83% of the window while
+//     the lead pointed at low-confidence background aggregates). The caller
+//     words it as an optimization-span statement, never a 主根因 claim;
+//  4. still nothing → nil, and the caller keeps the 未定位/背景压力段 text.
 //
 // An EMPTY primary bucket keeps the legacy no-conclusion behavior (the
-// fallback only replaces the contradiction case, not the no-rank-data case).
-// The second return reports that the on-chain fallback lane produced the lead
-// (callers append the RN-3(a) short note).
-func runtimeTraceProjLeadSelect(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel) (*types.TraceCausalProjectionNode, bool) {
+// fallbacks only replace the contradiction case, not the no-rank-data case).
+// The second return names the lane that produced the lead (callers append
+// the RN-3(a) short note / the LEAD-SEM wording).
+func runtimeTraceProjLeadSelect(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel) (*types.TraceCausalProjectionNode, runtimeTraceProjLeadLane) {
 	if primary := runtimeTraceProjLeadPrimary(projection, model.TrunkLen); primary != nil {
-		return primary, false
+		return primary, runtimeTraceProjLeadLanePrimary
 	}
 	if len(runtimeTraceCausalProjectionPrimaryRoots(projection)) == 0 {
-		return nil, false
+		return nil, runtimeTraceProjLeadLaneNone
 	}
 	if fallback := runtimeTraceProjLeadOnChainFallback(model); fallback != nil {
-		return fallback, true
+		return fallback, runtimeTraceProjLeadLaneOnChainFallback
 	}
-	return nil, false
+	if semantic := runtimeTraceProjLeadSemanticFallback(model); semantic != nil {
+		return semantic, runtimeTraceProjLeadLaneSemanticFallback
+	}
+	return nil, runtimeTraceProjLeadLaneNone
+}
+
+// runtimeTraceProjLeadSemanticFallback picks the §21 LEAD-SEM tier-4 lead:
+// among the rendered tree's data-bearing SEMANTIC rows, the one with the
+// largest discounted single-instance value (runtimeTraceProjLeadSelectionValue
+// — the SAME caliber as the RN-3(a) lane: ×N SUMs never compete). Rows whose
+// typed WithinRequestedWindow marker says in-window are preferred over
+// drilled-out-of-window rows (优先窗内行 — typed pointer only, never the
+// arithmetic cross-window heuristic); a 0-value best returns nil rather than
+// publishing a 0ms "largest span". Ties keep the earlier render-order row.
+func runtimeTraceProjLeadSemanticFallback(model runtimeTraceProjTreeModel) *types.TraceCausalProjectionNode {
+	var best, bestInWindow *types.TraceCausalProjectionNode
+	bestValue, bestInWindowValue := 0.0, 0.0
+	for i := range model.TreeRows {
+		row := &model.TreeRows[i]
+		if row.Kind != runtimeTraceProjTreeRowSemantic || !row.HasData {
+			continue
+		}
+		v := runtimeTraceProjLeadSelectionValue(row.Node)
+		if v > bestValue {
+			best, bestValue = &row.Node, v
+		}
+		inWindow := row.Node.WithinRequestedWindow == nil || *row.Node.WithinRequestedWindow
+		if inWindow && v > bestInWindowValue {
+			bestInWindow, bestInWindowValue = &row.Node, v
+		}
+	}
+	if bestInWindow != nil {
+		return bestInWindow
+	}
+	return best
+}
+
+// runtimeTraceProjSemanticLeadText is the SINGLE §21 LEAD-SEM wording source
+// shared by the conclusion line and the comparison primary cell (no trailing
+// period — callers add their own). Fixed form per the cmp_01 A① fix
+// direction: it states that no on-chain primary was located and names the
+// window's largest semantic optimization span WITHOUT claiming a root cause
+// (负向 pin: never a "主根因:" prefix). The 占窗 share follows the C00 同源门
+// (only a window-projection magnitude may publish one); the 见背景压力段
+// pointer renders only when the background stanza is non-empty (L3, cmp_01
+// A② defensive check — the semantic lane made the formerly unreachable empty
+// shape reachable).
+func runtimeTraceProjSemanticLeadText(node types.TraceCausalProjectionNode, model runtimeTraceProjTreeModel, zh bool) string {
+	name := strings.TrimSpace(node.SpanName)
+	if name == "" {
+		name = strings.TrimSpace(node.Object)
+	}
+	ms := runtimeTraceProjLeadSelectionValue(node)
+	share := ""
+	shareOK := false
+	switch {
+	case node.MergedCount > 1 && node.MergedMaxMS > 0:
+		// The per-instance max IS a window projection (same V1 headline rule).
+		shareOK = true
+	case node.EffectiveImpactMS > 0:
+		// The selection value fell to the attribution caliber — not a window
+		// projection, so no share (C00).
+		shareOK = false
+	default:
+		_, source := runtimeTraceProjNodeDisplayImpactSource(node)
+		shareOK = source == runtimeTraceProjImpactSourceWindow
+	}
+	if shareOK && ms > 0 && model.WindowMS > 0 {
+		if zh {
+			share = fmt.Sprintf("占窗%.0f%%,", ms/model.WindowMS*100)
+		} else {
+			share = fmt.Sprintf("%.0f%% of window, ", ms/model.WindowMS*100)
+		}
+	}
+	pointer := ""
+	if len(model.Background) > 0 {
+		if zh {
+			pointer = ",见背景压力段"
+		} else {
+			pointer = "; see the background-pressure stanza"
+		}
+	}
+	if zh {
+		return fmt.Sprintf("未定位到链上主根因;窗口内最大语义优化span: %s %.3fms(%s语义优化span·无唤醒链%s)", name, ms, share, pointer)
+	}
+	return fmt.Sprintf("no on-chain primary root cause located; largest in-window semantic optimization span: %s %.3fms (%ssemantic optimization span · no wakeup chain%s)", name, ms, share, pointer)
 }
 
 // runtimeTraceProjLeadOnChainFallback picks the RN-3(a) fallback lead: among
@@ -5455,6 +5941,20 @@ func runtimeTraceProjChainDepthCumulative(model runtimeTraceProjTreeModel, depth
 		if v > max {
 			max = v
 		}
+		// RNB R2 numerator invariance (覆盖分子红线): a rank row folded into
+		// this chain row would have competed in this same depth-MAX pre-fold
+		// — its own caliber stays in the competition so the coverage
+		// numerator is byte-identical to the two-row render. (Folded arms are
+		// never periodic by classification.)
+		for _, peer := range row.RankFoldPeers {
+			pv := peer.CumulativeImpactMS
+			if pv <= 0 {
+				pv = peer.DisplayImpactMS
+			}
+			if pv > max {
+				max = pv
+			}
+		}
 	}
 	return max
 }
@@ -5600,6 +6100,15 @@ func runtimeTraceProjUnadmittedOnChainDisclosure(model runtimeTraceProjTreeModel
 			continue
 		}
 		consider(row.Node)
+		// 复核 W-B (RNB 收尾 2026-07-07): a rank twin folded into this
+		// depthless row competed in this MAX pre-fold — its display magnitude
+		// stays in the competition. The count keeps the actually-rendered row
+		// count (行数诚实: post-fold there IS one fewer rendered row).
+		for _, peer := range row.RankFoldPeers {
+			if peer.DisplayImpactMS > maxMS {
+				maxMS = peer.DisplayImpactMS
+			}
+		}
 	}
 	return count, maxMS, folded
 }
@@ -5898,7 +6407,7 @@ func runtimeTraceProjDetailFullName(node types.TraceCausalProjectionNode, zh boo
 	} else if spanWord := runtimeTraceCausalProjectionSpanNameObjectWord(node, zh); spanWord != "" {
 		// F1 (§22 PTV7-SPN P0): this surface promises 完整名称不截断 — a
 		// generic span row's full name MUST carry the real span name
-		// ("oney.hmn.berlin-42591 / H:ReceiveVsync(跟踪span)"), never only the
+		// ("oney.hmn.berlin-42591 / H:ReceiveVsync(trace span)"), never only the
 		// type word. Shared helper with the tree row and the (a) node cell.
 		object = spanWord
 	}
@@ -6113,6 +6622,11 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 		}
 		if len(row.IOFoldPeers) > 0 {
 			add("同段IO口径", "same-segment IO calibers", runtimeTraceCausalProjectionMarkdownSafe(runtimeTraceProjIOFoldNoteText(row.IOFoldPeers, zh)))
+		}
+		// RNB R2: the folded rank row's lossless mirror — its E# and
+		// annotation stay reachable on this surface too (无损块不丢 rank 行).
+		if len(row.RankFoldPeers) > 0 {
+			add("同段rank行", "same-segment rank row", runtimeTraceCausalProjectionMarkdownSafe(runtimeTraceProjRankFoldNoteText(row.RankFoldPeers, zh)))
 		}
 		if runtimeTraceProjEffectiveInherited(node) {
 			inherited := fmt.Sprintf("有效归因 %.3fms 承自等待区间,非本行实测", node.EffectiveImpactMS)

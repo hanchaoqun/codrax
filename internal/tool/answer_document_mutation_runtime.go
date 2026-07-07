@@ -1328,16 +1328,31 @@ func runtimeTraceProjCompareTargetSymptomCell(model runtimeTraceProjTreeModel, z
 // compact table cell — the same runtimeTraceProjLeadSelect surface, so the
 // cell can never name a different node than the artifact's conclusion line.
 func runtimeTraceProjComparePrimaryCell(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel, zh bool) string {
-	primary, onChainFallback := runtimeTraceProjLeadSelect(projection, model)
+	primary, lane := runtimeTraceProjLeadSelect(projection, model)
+	if primary != nil && lane == runtimeTraceProjLeadLaneSemanticFallback {
+		// §21 LEAD-SEM (cmp_01 A①): the semantic tier-4 lead flows through the
+		// SAME single-source wording as the conclusion line — an optimization-
+		// span statement, never a 主根因 claim (负向 pin: no "主根因:" prefix).
+		return runtimeTraceProjSemanticLeadText(*primary, model, zh)
+	}
 	fallbackNote := ""
-	if onChainFallback {
+	if lane == runtimeTraceProjLeadLaneOnChainFallback {
 		fallbackNote = runtimeTraceProjLeadFallbackNote(model, zh)
 	}
 	if primary == nil {
+		// §21 LEAD-SEM L3 (cmp_01 A②): the 背景压力段 pointer renders only
+		// when the background stanza is non-empty (same defensive check as
+		// the conclusion line's 未定位 branch).
 		if zh {
-			return "未定位到链上主根因(见背景压力段)"
+			if len(model.Background) > 0 {
+				return "未定位到链上主根因(见背景压力段)"
+			}
+			return "未定位到链上主根因"
 		}
-		return "no on-chain primary (see background stanza)"
+		if len(model.Background) > 0 {
+			return "no on-chain primary (see background stanza)"
+		}
+		return "no on-chain primary"
 	}
 	name := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(*primary, zh))
 	cause := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(*primary, zh))
@@ -2438,14 +2453,27 @@ func runtimeTraceCausalProjectionNodeSubjectCell(node types.TraceCausalProjectio
 	// F1 (§22 PTV7-SPN P0): the span-name consumption gate is SpanName
 	// non-empty (shared helper) — the semantic gate's only remaining job here
 	// is the wider objectLimit split below.
+	objectLimit := 22
+	if runtimeTraceCausalProjectionSemanticSpanRow(node) {
+		objectLimit = 36
+	}
 	if runtimeTraceCausalProjectionSemanticSpanRow(node) && strings.TrimSpace(node.SpanName) != "" {
 		object = strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(node.SpanName, zh))
 	} else if spanWord := runtimeTraceCausalProjectionSpanNameObjectWord(node, zh); spanWord != "" {
 		object = spanWord
-	}
-	objectLimit := 22
-	if runtimeTraceCausalProjectionSemanticSpanRow(node) {
-		objectLimit = 36
+		// 用户裁定 2026-07-07 ("trace span" 专用名词不翻译) 连锁: the composite
+		// "name(type word)" wider than this cell's rune budget drops the
+		// type-word garnish and keeps the BARE real name — truncating the
+		// composite would cut into the name/type token ("H:ReceiveVsync(trace …")
+		// and is strictly worse than the name alone. A bare name still over
+		// budget keeps the existing rune truncation below. Pure length
+		// comparison (precise signal); the tree row (36-budget name lane) and
+		// the lossless block keep the full composite.
+		if len([]rune(object)) > objectLimit {
+			if bare := strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(node.SpanName, zh)); bare != "" {
+				object = bare
+			}
+		}
 	}
 	switch {
 	case subject != "" && object != "":

@@ -610,6 +610,16 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// (窗内无调度数据·链止) is the fence token; the legend's 数据盲区 entry
 		// renders exactly with it.
 		runtimeTraceProjMarkTraceGapBlindSpot: {"窗内无调度数据", "no in-window scheduler data"},
+		// §21 LEAD-SEM 前置 L1: the value-less cross-window marker — the ⚠跨窗
+		// token never collides with the ⚠实际/⚠actual value form.
+		runtimeTraceProjMarkCrossWindowNoActual: {"⚠跨窗", "⚠cross-window"},
+		// §21 RNB R1: the gated runnable component sub-row's ruler word is the
+		// stable probe (⧖/全额 are shared glyphs; multi-word en phrases can be
+		// split by the T3 atom wrap, so the en probe is the single hyphenated
+		// atom "ready-queue" — unique to the sub-row across the fixture set).
+		runtimeTraceProjMarkGatedRunnableSubRow: {"就绪排队积压", "ready-queue"},
+		// §21/§22 RNB R2: the same-segment rank-row fold note's lane word.
+		runtimeTraceProjMarkRankFoldNote: {"同段rank行并入", "same-segment rank row folded in"},
 	}
 }
 
@@ -893,6 +903,13 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// §22 PTV7-SPN F5: the trace_gap 数据盲区 disclosure row (fixture home:
 		// answer_document_mutation_runtime_ptv7_spn_test.go).
 		{"ptv7_spn_trace_gap", ptv7SpnTraceGapProjection()},
+		// §21/§22 RNB R1+R2: the same-segment two-lane fold note + the gated
+		// runnable component sub-row (fixture home:
+		// answer_document_projection_rnb_leadsem_test.go).
+		{"rnb_twin_fold", rnbTwinFoldProjection()},
+		// §21 LEAD-SEM 前置 L1: the value-less ⚠跨窗 marker on an out-of-window
+		// row whose actual total was never captured (same fixture home).
+		{"leadsem_cross_window_no_actual", leadSemCrossWindowNoActualProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {
