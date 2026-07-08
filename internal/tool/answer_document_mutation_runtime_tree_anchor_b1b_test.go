@@ -11,9 +11,21 @@ package tool
 // (projection.WakeupPathUserEntityHits — AnchorUserEntities 同源, single
 // compile-root comparator) is force-expanded out of the "…省略N节点" fold:
 //   - with its own data row → normal trunk row (line numbers / values kept);
-//   - without one → the named ◦ 用户关注线程(中转) transit row;
+//   - without one → the named ◦ ⊚中转 transit row;
 //   - the fold row(s) cover only the remaining segment(s) with true counts;
 //   - no hits → the single fold row stays byte-stable (legacy).
+//
+// PTV8-LAD EVOLUTION RECORD (§24.11 维度A / §24.8, 2026-07-08): two revisions
+// of the F2 display half —
+//   - L3: the 18-cell 用户关注线程(中转) long label → the 3-cell ⊚中转 short
+//     token (the label out-widened the identity it disclosed on huadong_78);
+//   - F2 展开一次: a hit inside a run-length CYCLE segment merges into the
+//     "↺ 循环×N: A ⇄ B" row (which names it in full) instead of minting a
+//     per-hit ladder row; hits outside cycle runs keep force-expanding exactly
+//     as pinned below (these fixtures carry no repetition, so every pin here
+//     exercises the unchanged lane; the cycle lane's pins live in
+//     answer_document_projection_lad_test.go).
+// The types-side F2 carrier (WakeupPathUserEntityHits) is untouched.
 
 import (
 	"strings"
@@ -87,7 +99,7 @@ func b1bUserFocusFoldNode(subject string, impact float64) types.TraceCausalProje
 // b1bUserFocusFoldProjection is the F2 TRANSIT shape (also the legend
 // bidirectional fixture): the typed user entity p6-6 (path idx 4 → trunk idx
 // 5, inside the fold) carries NO data row, so the force-expand renders the
-// named ◦ 用户关注线程(中转) row and the fold shrinks to the remaining node.
+// named ◦ ⊚中转 row and the fold shrinks to the remaining node.
 func b1bUserFocusFoldProjection() types.TraceCausalProjection {
 	return types.TraceCausalProjection{
 		WakeupPath:               b1bUserFocusFoldPath(),
@@ -112,8 +124,8 @@ func b1bFoldFence(t *testing.T, projection types.TraceCausalProjection) string {
 // count. Reverting the force-expand (folding over the hits) reds both asserts.
 func TestRuntimeTraceProjTreeFoldForceExpandsUserEntityTransitB1b(t *testing.T) {
 	fence := b1bFoldFence(t, b1bUserFocusFoldProjection())
-	if !strings.Contains(fence, "p6-6 用户关注线程(中转)") {
-		t.Fatalf("B1-b F2: the folded user entity must render as a named transit row, fence:\n%s", fence)
+	if !strings.Contains(fence, "p6-6 ⊚中转") {
+		t.Fatalf("B1-b F2: the folded user entity must render as the ⊚中转 named transit row, fence:\n%s", fence)
 	}
 	if !strings.Contains(fence, "…省略1节点") || strings.Contains(fence, "…省略2节点") {
 		t.Fatalf("B1-b F2: the fold row must cover only the remaining node (省略1, not 省略2), fence:\n%s", fence)
@@ -127,7 +139,7 @@ func TestRuntimeTraceProjTreeFoldForceExpandsUserEntityTransitB1b(t *testing.T) 
 	if !strings.Contains(legacyFence, "…省略2节点") {
 		t.Fatalf("B1-b F2: the no-hit fold must stay the legacy single 2-node fold, fence:\n%s", legacyFence)
 	}
-	if strings.Contains(legacyFence, "用户关注线程(中转)") {
+	if strings.Contains(legacyFence, "⊚中转") {
 		t.Fatalf("B1-b F2: the no-hit lane must never mint the user-focus wording, fence:\n%s", legacyFence)
 	}
 }
@@ -146,7 +158,7 @@ func TestRuntimeTraceProjTreeFoldForceExpandsUserEntityWithDataB1b(t *testing.T)
 	if !strings.Contains(fence, "…省略1节点") || strings.Contains(fence, "…省略2节点") {
 		t.Fatalf("B1-b F2: the fold row must exclude the force-expanded data row from its count, fence:\n%s", fence)
 	}
-	if strings.Contains(fence, "用户关注线程(中转)") {
+	if strings.Contains(fence, "⊚中转") {
 		t.Fatalf("B1-b F2: a data row is not a transit — no transit wording, fence:\n%s", fence)
 	}
 }
@@ -161,7 +173,7 @@ func TestRuntimeTraceProjTreeFoldForceExpandsEveryUserEntityB1b(t *testing.T) {
 		t.Fatalf("B1-b F2: expanding every folded node must leave no fold row, fence:\n%s", fence)
 	}
 	for _, name := range []string{"p6-6", "p7-7"} {
-		if !strings.Contains(fence, name+" 用户关注线程(中转)") {
+		if !strings.Contains(fence, name+" ⊚中转") {
 			t.Fatalf("B1-b F2: %s must render as a named transit row, fence:\n%s", name, fence)
 		}
 	}

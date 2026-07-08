@@ -47,7 +47,7 @@ var wordingLaneRules = []wordingLaneRule{
 		whitelist: map[string]bool{
 			"answer_document_mutation_runtime_typelabels.go::runtimeTraceRootCauseTypeZHLabel": true, // compute_supply → 算力供给 (delivery-lane zh label)
 			"answer_document_mutation_runtime_rcr.go::runtimeTraceProjImpactFormSpecs":         true, // PTV8-RCR-A §24.1/§24.3: 算力供给候选 category family word (delivery lane, user-ruled 类别词族; single-source form table)
-			"answer_document_mutation_runtime.go::runtimeTraceProjCompareOverviewBlock":        true, // compare-overview 算力供给(归一化) column header
+			"answer_document_mutation_runtime.go::runtimeTraceProjCompareOverviewBlocks":       true, // compare-overview 算力供给(归一化) column header (PTV8-LAD L6: builder renamed to the plural form, same delivery-lane strings)
 			"trace_query.go::writeTraceComputeSupplyBalance":                                   true, // compute_supply_balance(算力供给) delivery stanza
 		},
 	},

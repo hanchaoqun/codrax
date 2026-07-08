@@ -615,11 +615,13 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// row face by design (legend carries the class) — no fence probe;
 		// direction A (mark ⇔ legend entry) still asserts.
 		runtimeTraceProjMarkCandidateShapeClass: {"", ""},
-		// §22 B1-b F2: the fold force-expanded user-focus transit row's named
-		// token. The parenthesized form is the probe — the bare 中转/transit
-		// word belongs to the IconTransit probe and the ‹用户关注线程› header
-		// label never carries the (中转) suffix.
-		runtimeTraceProjMarkUserFocusTransit: {"用户关注线程(中转)", "user-focus thread (transit)"},
+		// §22 B1-b F2 → PTV8-LAD L3 (§24.8 图标化令): the fold force-expanded
+		// user-focus transit row's short token ⊚中转/⊚transit (EVOLUTION
+		// RECORD: the 18-cell 用户关注线程(中转) long label is retired). The
+		// glyph-prefixed form is the probe — the bare 中转/transit word belongs
+		// to the IconTransit probe and the ⊚ header renders "⊚ <name>" with a
+		// space, never the fused token.
+		runtimeTraceProjMarkUserFocusTransit: {runtimeTraceProjRootGlyph + "中转", runtimeTraceProjRootGlyph + "transit"},
 		// §22 PTV7-SPN F5 (用户措辞裁定): the trace_gap row's inline disclosure
 		// (窗内无调度数据·链止) is the fence token; the legend's 数据盲区 entry
 		// renders exactly with it.
@@ -664,6 +666,10 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// PTV8-RCR-C (§24.13 裁定二后半): the multi-board seat window tag
 		// (根因排序#1·窗X–Ys); the zh no-space join / en spaced join tokens.
 		runtimeTraceProjMarkRankSeatWindow: {"·窗", "· window "},
+		// PTV8-LAD L1 (§24.11 维度A): the run-length cycle fold row's count
+		// token — the bare ↺ belongs to the RecursOnChain probe (the cycle row
+		// deliberately records BOTH marks: it emits the ↺ token).
+		runtimeTraceProjMarkCycleFold: {"循环×", "cycle ×"},
 	}
 }
 
@@ -1014,6 +1020,10 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// 三面同词 word and the multi-board seat window tag (fixture home:
 		// answer_document_projection_rcrc_test.go).
 		{"rcrc_multi_board_unattached", rcrcMultiBoardUnattachedProjection()},
+		// PTV8-LAD L1 (§24.11 维度A): the run-length cycle fold row + the ⊚中转
+		// short transit token on the huadong_78 ladder shape (fixture home:
+		// answer_document_projection_lad_test.go).
+		{"lad_cycle_fold_ladder", ladHuadongLadderProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

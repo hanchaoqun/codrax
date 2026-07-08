@@ -706,8 +706,13 @@ func normalizeMergedDiagramPayloadKinds(doc *types.AnswerDocumentV2) int {
 // degrade below key on these exact spellings (F2, adversarial review
 // 2026-07-04) — keep construction and guard in lockstep via the constants.
 const (
-	runtimeTraceCausalProjectionBlockIDBase          = "runtime_trace_causal_projection"
-	runtimeTraceCausalProjectionCompareBlockID       = runtimeTraceCausalProjectionBlockIDBase + "_compare"
+	runtimeTraceCausalProjectionBlockIDBase    = "runtime_trace_causal_projection"
+	runtimeTraceCausalProjectionCompareBlockID = runtimeTraceCausalProjectionBlockIDBase + "_compare"
+	// runtimeTraceCausalProjectionCompareNotesBlockID (PTV8-LAD L6, 2026-07-08)
+	// is the overview's 对比注记明细 sibling — emitted ONLY when the layered
+	// table notes fold past the visible cap (the full set must stay reachable
+	// whole). Registered in the family guard + degrade skip below.
+	runtimeTraceCausalProjectionCompareNotesBlockID  = runtimeTraceCausalProjectionCompareBlockID + "_notes"
 	runtimeTraceCausalProjectionCoverageBlockID      = runtimeTraceCausalProjectionBlockIDBase + "_coverage"
 	runtimeTraceCausalProjectionPartitionBlockID     = runtimeTraceCausalProjectionBlockIDBase + "_partition"
 	runtimeTraceCausalProjectionArtifactBlockIDInfix = "_a"
@@ -740,7 +745,7 @@ func runtimeTraceCausalProjectionFamilyBlockID(id string) bool {
 		return false
 	}
 	switch rest {
-	case "", "_detail", "_evidence", "_compare", "_coverage", "_partition":
+	case "", "_detail", "_evidence", "_compare", "_compare_notes", "_coverage", "_partition":
 		return true
 	}
 	digits, ok := strings.CutPrefix(rest, runtimeTraceCausalProjectionArtifactBlockIDInfix)
@@ -812,7 +817,11 @@ func RuntimeTraceSystemBlockID(id string) bool {
 // dropped — the first projection section lead is the safest minimum surface.
 func runtimeTraceCausalProjectionDegradeLeadBlock(cluster []types.AnswerBlock) *types.AnswerBlock {
 	for i := range cluster {
-		if cluster[i].ID == runtimeTraceCausalProjectionCompareBlockID {
+		switch cluster[i].ID {
+		case runtimeTraceCausalProjectionCompareBlockID, runtimeTraceCausalProjectionCompareNotesBlockID:
+			// PTV8-LAD L6: the notes-detail sibling annotates the overview —
+			// degrading TO it would publish notes for a table that was just
+			// dropped (same reasoning as skipping the overview itself).
 			continue
 		}
 		return &cluster[i]
@@ -922,6 +931,10 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 	// already carry it.
 	evidence.flatChain = len(runtimeTraceCausalProjectionCleanPath(projection.WakeupPath)) < 2
 	model := buildRuntimeTraceProjTreeModel(projection, evidence, zh)
+	// PTV8-LAD L7 (§24.14 补2): the single-artifact lane is the caller's own
+	// id-prefix fact — the D-4 tree-head deviation line renders only here (the
+	// comparison overview carries its own folded per-side note; 批名即界).
+	model.SoloArtifact = idPrefix == runtimeTraceCausalProjectionBlockIDBase
 	runtimeTraceProjApplyUserFocus(&model, focus)
 	fence := runtimeTraceProjTreeFence(model, zh)
 	if fence == "" {
@@ -1130,9 +1143,9 @@ func runtimeTraceCausalProjectionMultiCluster(set types.TraceCausalProjectionSet
 	zh := runtimeTraceCausalProjectionUseChinese(lang)
 	var out []types.AnswerBlock
 	if runtimeTraceProjComparisonShape(len(set.Projections)) {
-		if block := runtimeTraceProjCompareOverviewBlock(set.Projections, ledger, lang, zh, focus); block != nil {
-			out = append(out, *block)
-		}
+		// PTV8-LAD L6: the plural form carries the 对比注记明细 sibling when
+		// the layered table notes folded past the visible cap.
+		out = append(out, runtimeTraceProjCompareOverviewBlocks(set.Projections, ledger, lang, zh, focus)...)
 	}
 	for i, projection := range set.Projections {
 		label := strings.TrimSpace(projection.ArtifactLabel)
@@ -1174,7 +1187,93 @@ func runtimeTraceProjComparisonShape(projectionCount int) bool {
 	return projectionCount >= 2
 }
 
-// runtimeTraceProjCompareOverviewBlock assembles the compact cross-artifact
+// runtimeTraceProjCompareNoteClass is the PTV8-LAD L6 (§24.19 留账 / §24.8
+// 重要度分层总则) importance layer of one comparison-overview ⚠ note. Order IS
+// importance (lower = more important): a note that says two cells cannot be
+// read against each other outranks a note naming a value's window base, which
+// outranks a contextual disclosure. Assigned at each note's build site
+// (precise emission identity, never text sniffing).
+type runtimeTraceProjCompareNoteClass int
+
+const (
+	runtimeTraceProjCompareNoteCaliberConflict runtimeTraceProjCompareNoteClass = iota // 口径矛盾类: cells not directly comparable
+	runtimeTraceProjCompareNoteWindowBase                                              // 窗基类: value normalized/sourced off the analysis window
+	runtimeTraceProjCompareNoteDisclosure                                              // 披露类: contextual construction facts
+)
+
+// runtimeTraceProjCompareNote is one classed table note.
+type runtimeTraceProjCompareNote struct {
+	Class runtimeTraceProjCompareNoteClass
+	Text  string
+}
+
+// runtimeTraceProjCompareNoteVisibleCap is the L6 fold threshold (§24.19 留账
+// 建议值 4): up to this many notes render under the table intro; beyond it the
+// lowest-importance tail folds into one pointer line and the FULL layered set
+// rides the 对比注记明细 block (重要信息永不省略 — 低重要度先折叠).
+const runtimeTraceProjCompareNoteVisibleCap = 4
+
+// runtimeTraceProjCompareLayerNotes applies the L6 layering: stable-sort by
+// importance class (same class stays adjacent, in-class build order kept),
+// then fold past the visible cap. Returns the table-face lines and, when the
+// fold fired, the full layered line set for the detail block (nil otherwise).
+func runtimeTraceProjCompareLayerNotes(notes []runtimeTraceProjCompareNote, zh bool) ([]string, []string) {
+	sorted := append([]runtimeTraceProjCompareNote(nil), notes...)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Class < sorted[j].Class })
+	lines := make([]string, 0, len(sorted))
+	for _, note := range sorted {
+		lines = append(lines, note.Text)
+	}
+	if len(lines) <= runtimeTraceProjCompareNoteVisibleCap {
+		return lines, nil
+	}
+	visible := append([]string(nil), lines[:runtimeTraceProjCompareNoteVisibleCap]...)
+	folded := len(lines) - runtimeTraceProjCompareNoteVisibleCap
+	if zh {
+		visible = append(visible, fmt.Sprintf("⚠ 其余 %d 条注记见下方「对比注记明细」", folded))
+	} else {
+		visible = append(visible, fmt.Sprintf("⚠ %d more note(s) live in the Comparison Note Detail below", folded))
+	}
+	return visible, lines
+}
+
+// runtimeTraceProjCompareNotesDetailBlock is the L6 lossless carrier: the FULL
+// layered note set (including the entries already shown above the table),
+// rendered as its own section right after the overview so the folded tail is
+// reachable whole (全量入明细面). Emitted ONLY when the fold fired.
+func runtimeTraceProjCompareNotesDetailBlock(all []string, zh bool) *types.AnswerBlock {
+	if len(all) == 0 {
+		return nil
+	}
+	title := "对比注记明细"
+	intro := "对比总览的全部注记(含总览下已显示的条目),按重要度分层排序:口径矛盾 > 窗基 > 披露。"
+	if !zh {
+		title = "Comparison Note Detail"
+		intro = "Every comparison-overview note (including the ones already shown under the table), layered by importance: caliber conflicts > window bases > disclosures."
+	}
+	return &types.AnswerBlock{
+		ID:          runtimeTraceCausalProjectionCompareNotesBlockID,
+		Kind:        types.BlockSection,
+		Title:       title,
+		Text:        intro + "\n\n" + strings.Join(all, "\n"),
+		SurfaceRole: types.SurfacePrincipal,
+		ClaimUses:   []types.RenderedClaimUse{{ClaimForm: types.ClaimExternalObservation}},
+		FacetIDs:    []string{"observed_artifact_fact"},
+	}
+}
+
+// runtimeTraceProjCompareOverviewBlock is the single-block view of the
+// overview builder (existing consumers/tests); the notes-detail sibling, when
+// the L6 fold fires, is emitted by the plural form below.
+func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProjection, ledger types.ObservationLedger, lang string, zh bool, focus runtimeTraceProjUserFocus) *types.AnswerBlock {
+	blocks := runtimeTraceProjCompareOverviewBlocks(projections, ledger, lang, zh, focus)
+	if len(blocks) == 0 {
+		return nil
+	}
+	return &blocks[0]
+}
+
+// runtimeTraceProjCompareOverviewBlocks assembles the compact cross-artifact
 // comparison table from typed fields only (CMP-1 §7.2 对比总览层): per artifact
 // the V1-lane primary root cause, the target symptom duration, the on-chain
 // attributed amount, the dominant cross-thread background pressure (F3/§7.3
@@ -1193,7 +1292,12 @@ func runtimeTraceProjComparisonShape(projectionCount int) bool {
 // base split; the supply share read 22× wrong against the 分析窗 column).
 // The focus parameter feeds ONLY the D-4 user-window deviation notes (the
 // existing display-only typed window lane); absence changes nothing.
-func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProjection, ledger types.ObservationLedger, lang string, zh bool, focus runtimeTraceProjUserFocus) *types.AnswerBlock {
+//
+// PTV8-LAD L6 (§24.19 留账 → 完整分层, 2026-07-08): the table notes are
+// classed at their build sites (口径矛盾 > 窗基 > 披露), layered by importance
+// with same-class entries adjacent, and folded past the visible cap — the
+// full set then rides the 对比注记明细 sibling block (second return element).
+func runtimeTraceProjCompareOverviewBlocks(projections []types.TraceCausalProjection, ledger types.ObservationLedger, lang string, zh bool, focus runtimeTraceProjUserFocus) []types.AnswerBlock {
 	if len(projections) < 2 {
 		return nil
 	}
@@ -1347,7 +1451,11 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 	// disclosure notes used to ride the table's first cell with a tail of
 	// empty cells ("| ⚠ … |  |  |  |") — they now render as text lines under
 	// the table intro (same facts, same order, out of the grid).
-	var tableNotes []string
+	// PTV8-LAD L6: every note carries its importance class from here on.
+	var tableNotes []runtimeTraceProjCompareNote
+	appendNote := func(class runtimeTraceProjCompareNoteClass, text string) {
+		tableNotes = append(tableNotes, runtimeTraceProjCompareNote{Class: class, Text: text})
+	}
 	if runtimeTraceProjCompareWindowsUnequal(densityWindows) {
 		// §21 CWD 复核 F3-note fix: the legacy sentence asserts the projection
 		// windows themselves differ — only true when every density base IS its
@@ -1367,7 +1475,7 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 				note = "⚠ Background pressure is normalized over each figure's own window (bases: " + bases + ")"
 			}
 		}
-		tableNotes = append(tableNotes, note)
+		appendNote(runtimeTraceProjCompareNoteWindowBase, note)
 	}
 	// COV-2 (§24.14 B-2/B-5/D-1, real_trace_campaign_20260705.md, 2026-07-08):
 	// the four value columns reuse the background column's 窗基 disclosure
@@ -1412,7 +1520,7 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 		}
 		windowBaseMerged[li] = true
 		if note := runtimeTraceProjCompareCellWindowBaseNote(label, windowBaseLanes[li].bases, zh); note != "" {
-			tableNotes = append(tableNotes, note)
+			appendNote(runtimeTraceProjCompareNoteWindowBase, note)
 		}
 	}
 	if supplyCells != nil {
@@ -1426,7 +1534,7 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 			supplyLabel = "Compute supply"
 		}
 		if note := runtimeTraceProjCompareShareWindowBaseNote(supplyLabel, supplyBases, zh); note != "" {
-			tableNotes = append(tableNotes, note)
+			appendNote(runtimeTraceProjCompareNoteWindowBase, note)
 		}
 	}
 	// COV-2 (§24.14 B-1 修向, 2026-07-08): when the symptom column mixes the
@@ -1434,7 +1542,9 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 	// cmp_78_01 3.262-vs-470.071 two-orders-of-magnitude face), say the two
 	// sides cannot be read straight across. Same-arm shapes emit NOTHING.
 	if note := runtimeTraceProjCompareSymptomCaliberNote(symptomArms, zh); note != "" {
-		tableNotes = append(tableNotes, note)
+		// L6: 口径矛盾类 — "cannot be read straight across" outranks every base
+		// note, so the layering seats it first.
+		appendNote(runtimeTraceProjCompareNoteCaliberConflict, note)
 	}
 	// RTC-2 (real_trace_campaign_20260705.md §4 案 e2, 批 #67): when the
 	// artifacts' typed time-base spans are pairwise disjoint (envelope Span ∪
@@ -1446,7 +1556,7 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 	// partition / any intersection / any span-less projection emits NOTHING.
 	if types.TraceCausalProjectionTimeBasesDisjoint(projections) {
 		if note := runtimeTraceProjCompareDisjointTimeBaseNote(projections, zh); note != "" {
-			tableNotes = append(tableNotes, note)
+			appendNote(runtimeTraceProjCompareNoteDisclosure, note)
 		}
 	}
 	// §21 CWD item D (§11-N3 修向(a) 披露半, cmp_01 revisit 2026-07-07): when
@@ -1457,13 +1567,15 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 	// per-side depth-1 numerator (>0 existence) and the typed
 	// WakeupChainRecommendedNotRun flag; symmetric shapes emit NOTHING.
 	if note := runtimeTraceProjCompareChainAsymmetryNote(sideLabels, sideAttributed, sideChainNotRun, zh); note != "" {
-		tableNotes = append(tableNotes, note)
+		appendNote(runtimeTraceProjCompareNoteDisclosure, note)
 	}
 	// COV-2 (§24.14 D-4 ±10% 容差裁定, 2026-07-08): per-side analysis-window
 	// length vs the user's requested window length — >±10% deviation on ANY
 	// side discloses BOTH sides (对读基不同构必须可见); all-within-tolerance
 	// or no typed user window emits NOTHING.
-	tableNotes = append(tableNotes, runtimeTraceProjCompareUserWindowDeviationNotes(projections, focus, zh)...)
+	for _, note := range runtimeTraceProjCompareUserWindowDeviationNotes(projections, focus, zh) {
+		appendNote(runtimeTraceProjCompareNoteDisclosure, note)
+	}
 	// PTV5 C15 (#68): no internal jargon on the user panel — "typed" out, and
 	// the retired LLM-predicate framing ("对比形态判定") with it (NEW-2 made
 	// the gate a deterministic partition count).
@@ -1473,10 +1585,13 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 		title = "Trace Causal Projection Comparison Overview"
 		text = "Cross-trace comparison overview: every value comes from each artifact's independent projection (structured fields); cross-thread cumulative values carry their unit annotation. Details live in the per-artifact sections."
 	}
-	if len(tableNotes) > 0 {
-		text += "\n" + strings.Join(tableNotes, "\n")
+	// PTV8-LAD L6: layer by importance (同类相邻), fold past the visible cap;
+	// the folded set rides the 对比注记明细 sibling whole.
+	visibleNotes, allNotes := runtimeTraceProjCompareLayerNotes(tableNotes, zh)
+	if len(visibleNotes) > 0 {
+		text += "\n" + strings.Join(visibleNotes, "\n")
 	}
-	return &types.AnswerBlock{
+	blocks := []types.AnswerBlock{{
 		ID:          runtimeTraceCausalProjectionCompareBlockID,
 		Kind:        types.BlockTable,
 		Title:       title,
@@ -1486,7 +1601,11 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 		SurfaceRole: types.SurfacePrincipal,
 		ClaimUses:   []types.RenderedClaimUse{{ClaimForm: types.ClaimExternalObservation}},
 		FacetIDs:    []string{"observed_artifact_fact"},
+	}}
+	if detail := runtimeTraceProjCompareNotesDetailBlock(allNotes, zh); detail != nil {
+		blocks = append(blocks, *detail)
 	}
+	return blocks
 }
 
 // runtimeTraceProjCompareTargetSymptomCell renders the comparison overview's
@@ -1748,6 +1867,17 @@ func runtimeTraceProjCompareShareWindowBaseNote(column string, bases []runtimeTr
 	return "⚠ " + column + " shares are normalized over each side's own query window (bases: " + tuple + "), not over the analysis window"
 }
 
+// runtimeTraceProjUserWindowDeviationPct is the ONE §24.14 D-4 judging helper
+// (±10% 容差裁定, pure arithmetic): the signed percentage deviation of an
+// analysis-window length from the user's stated window length, plus whether it
+// exceeds the ±10% disclosure threshold. Shared by the comparison face's
+// folded note (COV-2) and the single-artifact tree-head line (PTV8-LAD L7) so
+// the two disclosure lanes can never judge differently.
+func runtimeTraceProjUserWindowDeviationPct(winMS, userMS float64) (float64, bool) {
+	deviation := (winMS - userMS) / userMS * 100
+	return deviation, math.Abs(deviation) > 10
+}
+
 // runtimeTraceProjCompareUserWindowDeviationNotes renders the COV-2 (§24.14
 // D-4 ±10% 容差裁定, 2026-07-08) per-side analysis-window-vs-requested-length
 // disclosure: when ANY side's analysis-window length deviates from the user's
@@ -1786,7 +1916,7 @@ func runtimeTraceProjCompareUserWindowDeviationNotes(projections []types.TraceCa
 		}
 		winMS := (projection.WindowEndTs - projection.WindowStartTs) * 1000
 		sides = append(sides, deviationSide{label: label, winMS: winMS})
-		if math.Abs(winMS-userMS)/userMS > 0.10 {
+		if _, beyond := runtimeTraceProjUserWindowDeviationPct(winMS, userMS); beyond {
 			triggered = true
 		}
 	}
@@ -1798,7 +1928,7 @@ func runtimeTraceProjCompareUserWindowDeviationNotes(projections []types.TraceCa
 	// deviation never displays as the silence threshold's own "10%".
 	clauses := make([]string, 0, len(sides))
 	for i, side := range sides {
-		deviation := (side.winMS - userMS) / userMS * 100
+		deviation, _ := runtimeTraceProjUserWindowDeviationPct(side.winMS, userMS)
 		label := runtimeTraceCausalProjectionMarkdownSafe(side.label)
 		first := i == 0
 		switch {
@@ -2404,31 +2534,15 @@ func runtimeTraceCausalProjectionCleanPath(path []string) []string {
 	return out
 }
 
-func runtimeTraceCausalProjectionRepeatingPath(path []string) (int, int) {
-	if len(path) < 6 {
-		return 0, 0
-	}
-	maxPeriod := len(path) / 2
-	if maxPeriod > 6 {
-		maxPeriod = 6
-	}
-	for period := 1; period <= maxPeriod; period++ {
-		if len(path)/period < 3 {
-			continue
-		}
-		matches := true
-		for i := range path {
-			if runtimeTraceCausalProjectionCanonicalNode(path[i]) != runtimeTraceCausalProjectionCanonicalNode(path[i%period]) {
-				matches = false
-				break
-			}
-		}
-		if matches {
-			return period, len(path) / period
-		}
-	}
-	return 0, 0
-}
+// PTV8-LAD L1 (§24.11 维度A, 2026-07-08). EVOLUTION RECORD: the former
+// runtimeTraceCausalProjectionRepeatingPath detector (index-0-anchored FULL
+// path periodicity, path[i]==path[i%period] for every i) is RETIRED here —
+// its shape never matched the real pathology (a repeating segment in the
+// MIDDLE of a mixed path returned (0,0), so the huadong_78 ladder rendered
+// with zero ×N disclosures), and its note could only ride the first fold row.
+// The run-length lane in runtimeTraceProjFoldSegments (tree.go) detects
+// mid-path cycles directly; a fully periodic path is subsumed (its folded
+// middle is itself a run).
 
 func runtimeTraceCausalProjectionCoverageBlock(input types.ObservationLedgerInput, lang string) *types.AnswerBlock {
 	zh := runtimeTraceCausalProjectionUseChinese(lang)

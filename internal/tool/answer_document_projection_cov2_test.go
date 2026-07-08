@@ -626,11 +626,12 @@ func TestCOV2Cmp78OverviewFinalForm(t *testing.T) {
 			cmpcSupplyNotes(0.993, 164, 5, 2.701, 12, 93.100, 4)...),
 	}}
 	focus := runtimeTraceProjUserFocus{Entities: []string{"8144.608", "8145.492"}}
-	block := runtimeTraceProjCompareOverviewBlock(
+	blocks := runtimeTraceProjCompareOverviewBlocks(
 		[]types.TraceCausalProjection{side70, side60}, ledger, "zh", true, focus)
-	if block == nil {
+	if len(blocks) == 0 {
 		t.Fatalf("cmp_78 overview must render")
 	}
+	block := &blocks[0]
 	var rows []string
 	for _, item := range block.Items {
 		rows = append(rows, strings.Join(item.Cells, "|"))
@@ -688,13 +689,35 @@ func TestCOV2Cmp78OverviewFinalForm(t *testing.T) {
 	if !strings.Contains(block.Text, "⚠ 算力供给占比已按各自查询窗归一化(窗基: 80.621ms / 93.100ms),非分析窗占比") {
 		t.Fatalf("the supply column must name its window bases:\n%s", block.Text)
 	}
-	// V4: the folded D-4 line discloses BOTH sides (86.1% on the 6.0 side).
-	if !strings.Contains(block.Text, "⚠ 7.0B30SP22_7315.systrace:分析窗 1800.000ms,较你指定的 884.000ms 长 103.6%;6.0B138_3900.sys.systrace:分析窗 1645.000ms,长 86.1%:窗口按数据边界对齐构造") {
-		t.Fatalf("the folded deviation line must disclose both sides:\n%s", block.Text)
+	// V4 → PTV8-LAD L6 (§24.19 留账 完整分层) EVOLUTION RECORD: the full-trigger
+	// shape carries 6 classed notes (1 口径矛盾 + 3 窗基 + 2 披露: the RTC-2
+	// disjoint-time-base note and the D-4 deviation line), so the two
+	// lowest-importance disclosures fold past the visible cap — the table
+	// face keeps the top-4 by importance plus ONE pointer line, and the folded
+	// lines ride the 对比注记明细 sibling block WHOLE (any-side trigger /
+	// both-side clauses unchanged, same helper — see
+	// TestCOV2UserWindowDeviationNotes for the wording pins).
+	d4 := "⚠ 7.0B30SP22_7315.systrace:分析窗 1800.000ms,较你指定的 884.000ms 长 103.6%;6.0B138_3900.sys.systrace:分析窗 1645.000ms,长 86.1%:窗口按数据边界对齐构造"
+	if strings.Contains(block.Text, d4) {
+		t.Fatalf("the D-4 disclosure must fold past the visible cap on the full-trigger shape:\n%s", block.Text)
 	}
-	// 复核 F3 flood budget: the full-trigger form stays ≤6 ⚠ lines (background
-	// F3 lane included when applicable; the specimen shape carries 6).
-	if got := strings.Count(block.Text, "⚠ "); got > 6 {
+	if !strings.Contains(block.Text, "⚠ 其余 2 条注记见下方「对比注记明细」") {
+		t.Fatalf("the fold pointer line must name the folded count:\n%s", block.Text)
+	}
+	if len(blocks) != 2 || blocks[1].ID != runtimeTraceCausalProjectionCompareNotesBlockID {
+		t.Fatalf("the folded shape must emit the 对比注记明细 sibling: %+v", blocks)
+	}
+	if !strings.Contains(blocks[1].Text, d4) {
+		t.Fatalf("the notes-detail block must carry the folded D-4 line whole:\n%s", blocks[1].Text)
+	}
+	// L6: the caliber-conflict note outranks every window-base note — it leads
+	// the layered table face even though it is built after the base lanes.
+	if conflict, base := strings.Index(block.Text, "两侧口径不同"), strings.Index(block.Text, "窗基: "); conflict < 0 || base < 0 || conflict > base {
+		t.Fatalf("the caliber-conflict note must lead the layered notes:\n%s", block.Text)
+	}
+	// 复核 F3 flood budget, tightened by L6: the table face carries at most
+	// visible-cap + 1 pointer = 5 ⚠ lines; the full set lives in the sibling.
+	if got := strings.Count(block.Text, "⚠ "); got > 5 {
 		t.Fatalf("note flood budget exceeded (%d ⚠ lines):\n%s", got, block.Text)
 	}
 }

@@ -831,16 +831,25 @@ func TestApplyAndPersistMutation_TraceCausalProjectionBoundsLongWakeupChainDispl
 	if projection == nil {
 		t.Fatalf("missing projection block: %+v", got.Blocks)
 	}
-	// v3: the long trunk compresses its middle into ONE omitted marker row with
-	// the counts + detected-cycle audit note; the full chain never renders raw.
-	// PTV4 T8: the fold row names the folded segment's first/last nodes.
+	// v3: the long trunk compresses its middle; the full chain never renders
+	// raw. PTV8-LAD L1 (§24.11 维度A) EVOLUTION RECORD: the periodic middle is
+	// now a run-length CYCLE fold row with full member names ("↺ 循环×3:
+	// NS ⇄ TP" covering trunk[5:11)) — the former single "省略7节点" roster +
+	// first-fold-row "(检测到2节点循环约8轮)" note are retired with the
+	// index-0 detector; the one leftover node past the full repeats keeps the
+	// honest plain fold form (precise run-length only, no partial rounds).
 	// PTV6-C ruling C (#73): the legend's 省略行 entry no longer deflects to
 	// the intermediate trace_query record — it states the fold honestly
 	// (负向臂 below: the retired pointer must not resurface).
-	for _, want := range []string{"⊚ NetworkService-60595", "省略7节点: ", "检测到2节点循环约8轮", "中段节点名不在本报告逐一展开"} {
+	for _, want := range []string{"⊚ NetworkService-60595",
+		"↺ 循环×3: NetworkService-60595 ⇄ ThreadPoolForeg-60555",
+		"省略1节点: ", "中段节点名不在本报告逐一展开"} {
 		if !strings.Contains(projection.Text, want) {
 			t.Fatalf("long wakeup chain tree should carry bounded audit note %q:\n%s", want, projection.Text)
 		}
+	}
+	if strings.Contains(projection.Text, "检测到") {
+		t.Fatalf("retired index-0 cycle note resurfaced:\n%s", projection.Text)
 	}
 	if strings.Contains(projection.Text, "见原始 trace_query 记录") {
 		t.Fatalf("retired intermediate-record pointer resurfaced:\n%s", projection.Text)

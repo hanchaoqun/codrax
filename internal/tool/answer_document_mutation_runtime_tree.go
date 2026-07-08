@@ -35,6 +35,14 @@ const (
 	runtimeTraceProjTreeRowAdjacent   = "adjacent"
 	runtimeTraceProjTreeRowBackground = "background"
 	runtimeTraceProjTreeRowOmitted    = "omitted"
+	// runtimeTraceProjTreeRowCycleFold (PTV8-LAD L1, §24.11 维度A / §24.8
+	// 循环梯子病理, 2026-07-08) is the run-length CYCLE fold row: a consecutive
+	// k-tuple (k≤3) repeating ≥2 times inside the long-trunk folded middle
+	// renders as ONE "↺ 循环×N: A ⇄ B" line — member names in full (用户实体
+	// 整名不截 = 重要信息永不省略), children continue from the run end at one
+	// extra indent level. The huadong_78 witness rendered the same shape as a
+	// 14-row / 14-level zero-information ladder.
+	runtimeTraceProjTreeRowCycleFold = "cycle_fold"
 
 	runtimeTraceProjTreeEdgeDrill    = "drill"
 	runtimeTraceProjTreeEdgeWake     = "wake"
@@ -100,6 +108,16 @@ const (
 	// middles compress into one omitted marker row (counts + cycle note kept).
 	runtimeTraceProjTreeTrunkMaxNodes = 8
 	runtimeTraceProjTreeBarWidth      = 10
+	// runtimeTraceProjTreeIndentCap (PTV8-LAD L4 / AL3, §24.11 维度A + §24.8
+	// 重要度分层总则, 2026-07-08) caps the RENDERED ancestor-rail depth of every
+	// tree line — main rows and subordinate "· " lines alike (one shared rail
+	// builder, two consumers). Beyond the cap the shallowest rails collapse
+	// into a fixed 2-cell "⋯ " leader, so the fixed lead is BOUNDED: display
+	// geometry stops being an unbounded function of chain depth (the huadong_78
+	// ladder pushed rows to w=144 > the 100-cell cap and shredded subordinate
+	// payloads into a 20-cell column). Chain-depth semantics are untouched —
+	// the 链上L# chip and the detail blocks keep the true depth.
+	runtimeTraceProjTreeIndentCap = 12
 	// runtimeTraceProjTreeLabelColumnMax caps the SHARED label column (F-3,
 	// §7.7 回访聚焦复核 2026-07-04): pre-cap, one deep row (fixed prefix grows 4
 	// cells per level + the 20-cell name floor) or one over-wide 🎯 header
@@ -133,6 +151,11 @@ type runtimeTraceProjTreeRow struct {
 	Omitted     int
 	CyclePeriod int
 	CycleCount  int
+	// CycleTuple (PTV8-LAD L1, §24.11 维度A) carries the cycle-fold row's
+	// repeating tuple member names IN FULL (整名不截 — the row exists to
+	// disclose exactly these identities; CyclePeriod = len, CycleCount = the
+	// consecutive repeat count). Set only on Kind == CycleFold rows.
+	CycleTuple []string
 	// OmittedHead / OmittedTail carry the first/last two node names of the
 	// folded trunk middle (PTV4 T8, pure display upgrade — the names were
 	// always in the typed wakeup path). Rendered mid-truncated (T2).
@@ -283,6 +306,13 @@ type runtimeTraceProjTreeModel struct {
 	// renders; nothing else consumes these values.
 	UserWindowStart float64
 	UserWindowEnd   float64
+	// SoloArtifact (PTV8-LAD L7, §24.14 补2 D-4 单工件面, 2026-07-08) marks the
+	// single-artifact render lane: set from the cluster builder's own id-prefix
+	// fact (the legacy base prefix = the one-projection cluster), never
+	// inferred from labels. It gates ONLY the tree-head ±10% user-window
+	// deviation line — the comparison face carries its own folded D-4 note
+	// (COV-2), so the per-side tree heads must not repeat it there (批名即界).
+	SoloArtifact bool
 	// LeadKey is the node key of the row the conclusion line actually consumes
 	// (RN-3(b), §7.9 runnable 主导场景审计 2026-07-04) — computed once at model
 	// build via runtimeTraceProjLeadSelect, "" when no lead exists. The detail
@@ -391,6 +421,9 @@ const (
 	// PTV8-RCR-C (§24.9/§24.12/§24.13, 2026-07-08): two new gated seats.
 	runtimeTraceProjMarkChainSeatUnattached // 链上L#(未接入树) depthless 三面同词 (§24.12 C6)
 	runtimeTraceProjMarkRankSeatWindow      // 根因排序#N·窗X–Ys 多榜窗标 chip (§24.13 裁定二后半)
+
+	// PTV8-LAD (§24.11 维度A / §24.8, 2026-07-08): one new gated seat.
+	runtimeTraceProjMarkCycleFold // ↺ 循环×N: A ⇄ B run-length cycle fold row (L1)
 
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
@@ -589,6 +622,12 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkOmitted, runtimeTraceProjLegendGroupCaliber,
 			"- `…省略N节点` = 长链中段折叠(行内列出首尾各2个节点),中段节点名不在本报告逐一展开。",
 			"- `…N nodes omitted` = the middle of a long chain is folded (the row lists the first/last two nodes); the folded middle nodes are not expanded one by one in this report."},
+		// PTV8-LAD L1 (§24.11 维度A / §24.8 循环梯子, 2026-07-08): the run-length
+		// cycle fold row — a consecutive repeating tuple inside the folded chain
+		// middle collapses into one counted line with its member names in full.
+		{runtimeTraceProjMarkCycleFold, runtimeTraceProjLegendGroupCaliber,
+			"- `↺ 循环×N: A ⇄ B` = 长链中段的连续循环折叠:所列线程按此顺序连续重复 N 轮,循环内的逐行占位已并入本行(成员名完整列出,不截断)。",
+			"- `↺ cycle ×N: A ⇄ B` = a consecutive cycle folded inside the chain middle: the listed threads repeat in this order N times; the per-hop placeholder rows are folded into this one line (member names listed in full, never truncated)."},
 		// §21.1 CWD-2 复核收尾② (W1-a 图例互斥): the full-scale claim and the
 		// multi-window no-share entry can co-render on one tree — this entry
 		// itself scopes the multi-window merged rows' bars to relative scale
@@ -722,9 +761,14 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// the long-trunk folded middle is force-expanded to its own row; when
 		// the position carries no impact row this run, the row states the
 		// user-focus identity instead of the anonymous 中转 token.
+		// PTV8-LAD L3 (§24.11 维度A / §24.8 图标化令, 2026-07-08). EVOLUTION
+		// RECORD: the 18-cell 「用户关注线程(中转)」 long label out-widened the
+		// thread name it existed to disclose (huadong_78 ladder) — the row now
+		// wears the 3-cell ⊚中转 short token (⊚ = the root user-focus glyph,
+		// EAW-verified single cell, shared constant); the semantics live here.
 		{runtimeTraceProjMarkUserFocusTransit, runtimeTraceProjLegendGroupMark,
-			"- `用户关注线程(中转)` = 折叠段内命中的用户关注线程强制单独成行:该位置为唤醒链中转,本报告未单独计量其影响。",
-			"- `user-focus thread (transit)` = a user-focus thread inside a folded segment is force-expanded to its own row; the position is a wakeup-chain transit whose impact this report does not measure separately."},
+			"- `" + runtimeTraceProjRootGlyph + "中转` = 折叠段内命中的用户关注线程强制单独成行:该位置为唤醒链中转,本报告未单独计量其影响。",
+			"- `" + runtimeTraceProjRootGlyph + "transit` = a user-focus thread inside a folded segment is force-expanded to its own row; the position is a wakeup-chain transit whose impact this report does not measure separately."},
 		// §22 PTV7-SPN F5 (用户措辞裁定 2026-07-07, 措辞一字不改; missing_wakeup
 		// 图例措辞族 beside the ⊘ entry): the trace_gap diagnostic marker's
 		// legend home — the zh face keys on the 数据盲区 display word, the EN
@@ -909,38 +953,102 @@ func runtimeTraceProjUserEntityTrunkIndexes(projection types.TraceCausalProjecti
 	return out
 }
 
+// runtimeTraceProjFoldSeg is one typed fold segment of the long-trunk middle
+// (PTV8-LAD L1, §24.11 维度A): a PLAIN segment (CycleLen == 0 — the legacy
+// "…省略N节点" roster row) or a CYCLE segment (CycleLen > 0 — a consecutive
+// CycleLen-tuple repeating CycleCount times, rendered as ONE "↺ 循环×N: A ⇄ B"
+// row). Both cover trunk[start, End).
+type runtimeTraceProjFoldSeg struct {
+	End        int
+	CycleLen   int // tuple size k (1..3); 0 = plain fold segment
+	CycleCount int // consecutive repeats N (≥2 when CycleLen > 0)
+}
+
 // runtimeTraceProjFoldSegments splits the long-trunk fold range
-// [omitStart, omitEnd) into fold segments around the forced user-entity trunk
-// indexes (§22 B1-b F2). Returns segment-start → segment-end plus the FIRST
-// segment start (the one fold row that carries the cycle note). No forced
-// indexes → exactly one segment {omitStart: omitEnd}, byte-stable with the
-// pre-B1-b single fold row; omitStart < 0 (short trunk) → nil.
-func runtimeTraceProjFoldSegments(omitStart, omitEnd int, forced map[int]bool) (map[int]int, int) {
+// [omitStart, omitEnd) into typed fold segments (PTV8-LAD L1 run-length lane,
+// §24.11 维度A — replacing the per-hit splitter whose segment-local view had
+// no channel for the huadong_78 (user⇄VSync)×5 repetition):
+//   - run-length detection first: at each position the maximal-coverage
+//     consecutive k-tuple run (k ≤ 3, canonical node equality, ≥2 full
+//     repeats; ties prefer the smaller k) becomes a CYCLE segment;
+//   - §22 B1-b F2 as revised by §24.11 (F2 展开一次): a forced user-entity
+//     index INSIDE a cycle run merges into the cycle row — the row names every
+//     tuple member in full, so it carries the identity-disclosure duty; forced
+//     indexes OUTSIDE cycle runs keep their own force-expanded row exactly as
+//     before (returned in expanded);
+//   - remaining unforced stretches become PLAIN segments (no repetition → the
+//     legacy single roster row, byte-stable with the pre-LAD fold).
+//
+// The detection is generic run-length over canonical node names — never a
+// VSync/user-entity special case; once the P0-E engine fix publishes true
+// branches the detector goes naturally inert. omitStart < 0 (short trunk) →
+// nil, nil.
+func runtimeTraceProjFoldSegments(trunk []string, omitStart, omitEnd int, forced map[int]bool) (map[int]runtimeTraceProjFoldSeg, map[int]bool) {
 	if omitStart < 0 {
-		return nil, -1
+		return nil, nil
 	}
-	segments := map[int]int{}
-	first := -1
-	segStart := -1
-	for i := omitStart; i < omitEnd; i++ {
-		if forced[i] {
-			if segStart >= 0 {
-				segments[segStart] = i
-				segStart = -1
+	canon := func(i int) string { return runtimeTraceCausalProjectionCanonicalNode(trunk[i]) }
+	// Pass 1: greedy left-to-right maximal run detection over the fold range.
+	segments := map[int]runtimeTraceProjFoldSeg{}
+	covered := map[int]bool{}
+	for i := omitStart; i < omitEnd; {
+		bestK, bestReps := 0, 0
+		for k := 1; k <= 3 && i+2*k <= omitEnd; k++ {
+			reps := 1
+			for i+(reps+1)*k <= omitEnd {
+				match := true
+				for j := 0; j < k; j++ {
+					if canon(i+j) != canon(i+reps*k+j) {
+						match = false
+						break
+					}
+				}
+				if !match {
+					break
+				}
+				reps++
 			}
+			if reps >= 2 && reps*k > bestReps*bestK {
+				bestK, bestReps = k, reps
+			}
+		}
+		if bestK == 0 {
+			i++
+			continue
+		}
+		end := i + bestK*bestReps
+		segments[i] = runtimeTraceProjFoldSeg{End: end, CycleLen: bestK, CycleCount: bestReps}
+		for j := i; j < end; j++ {
+			covered[j] = true
+		}
+		i = end
+	}
+	// Pass 2: forced indexes outside cycle runs keep their expanded row; the
+	// unforced uncovered stretches group into plain segments.
+	expanded := map[int]bool{}
+	segStart := -1
+	flush := func(end int) {
+		if segStart >= 0 {
+			segments[segStart] = runtimeTraceProjFoldSeg{End: end}
+			segStart = -1
+		}
+	}
+	for i := omitStart; i < omitEnd; i++ {
+		if covered[i] {
+			flush(i)
+			continue
+		}
+		if forced[i] {
+			flush(i)
+			expanded[i] = true
 			continue
 		}
 		if segStart < 0 {
 			segStart = i
-			if first < 0 {
-				first = i
-			}
 		}
 	}
-	if segStart >= 0 {
-		segments[segStart] = omitEnd
-	}
-	return segments, first
+	flush(omitEnd)
+	return segments, expanded
 }
 
 // --- model construction ------------------------------------------------------
@@ -1029,21 +1137,29 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		trunk = append(trunk, path[i])
 	}
 	omitStart, omitEnd := -1, -1
-	cyclePeriod, cycleCount := 0, 0
 	if len(trunk) > runtimeTraceProjTreeTrunkMaxNodes {
 		head := runtimeTraceProjTreeTrunkMaxNodes/2 + 1
 		tail := runtimeTraceProjTreeTrunkMaxNodes - head
 		omitStart, omitEnd = head, len(trunk)-tail
-		cyclePeriod, cycleCount = runtimeTraceCausalProjectionRepeatingPath(path)
 	}
-	// §22 B1-b F2 (huadong_01 audit 2026-07-07): typed user entities inside the
-	// folded trunk middle must not vanish behind "…省略N节点" — the fold splits
-	// around every hit trunk index (projection.WakeupPathUserEntityHits, the
-	// compile-root comparator's output; the fold layer never re-derives entity
-	// matches). No hits → exactly one segment [omitStart, omitEnd), byte-stable
-	// with the pre-B1-b fold.
+	// §22 B1-b F2 (huadong_01 audit 2026-07-07), revised by PTV8-LAD (§24.11
+	// 维度A F2 展开一次, 2026-07-08): typed user entities inside the folded
+	// trunk middle must not vanish behind "…省略N节点" — a hit inside a
+	// run-length CYCLE segment is named in full by the cycle row itself (the
+	// disclosure duty rides that row); every other hit keeps its own
+	// force-expanded row (projection.WakeupPathUserEntityHits, the compile-root
+	// comparator's output; the fold layer never re-derives entity matches). No
+	// hits and no repetition → exactly one plain segment [omitStart, omitEnd),
+	// byte-stable with the pre-B1-b fold.
+	//
+	// PTV8-LAD L1 EVOLUTION RECORD (§24.11/§24.8): the former index-0-anchored
+	// whole-path detector (runtimeTraceCausalProjectionRepeatingPath) is
+	// RETIRED — it returned (0,0) on every mid-path cycle (the huadong_78
+	// ladder carried ×0 disclosures), and its note could only ride the FIRST
+	// fold row. The run-length lane detects mid-path cycles directly and each
+	// cycle row carries its own ×N count.
 	forcedTrunk := runtimeTraceProjUserEntityTrunkIndexes(projection, path)
-	foldSegments, firstFoldStart := runtimeTraceProjFoldSegments(omitStart, omitEnd, forcedTrunk)
+	foldSegments, forcedExpanded := runtimeTraceProjFoldSegments(trunk, omitStart, omitEnd, forcedTrunk)
 	// H11: mark trunk rows whose canonical subject already appeared earlier on
 	// the rendered chain (root target first, then depth 1..K). This catches the
 	// small-cycle shape (VSyncGenerator→tppmgr→VSyncGenerator) that the ≥6-node
@@ -1095,15 +1211,28 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		if idx >= len(trunk) {
 			return nil
 		}
-		if segEnd, ok := foldSegments[idx]; ok {
-			// PTV4 T8: the fold row names the folded segment's first/last two
-			// nodes (the names were always in the typed path — display upgrade
-			// only). ≤4 omitted nodes list fully via the head roster.
-			// §22 B1-b F2: a user-entity trunk index inside the folded middle is
-			// NOT part of any segment — the fold row covers [idx, segEnd) and
-			// the forced node builds as a normal trunk row below. The cycle
-			// note stays on the FIRST fold row only (one detector run, one
-			// disclosure).
+		if seg, ok := foldSegments[idx]; ok {
+			// PTV8-LAD L1 (§24.11 维度A): a CYCLE segment renders as one
+			// "↺ 循环×N: A ⇄ B" row — tuple member names in full (整名不截),
+			// children continue from the run end at ONE extra indent level
+			// (the huadong_78 shape spent 14 levels on the same information).
+			if seg.CycleLen > 0 {
+				row := runtimeTraceProjTreeRow{
+					Kind: runtimeTraceProjTreeRowCycleFold, Omitted: seg.End - idx,
+					Depth: idx + 1, CyclePeriod: seg.CycleLen, CycleCount: seg.CycleCount,
+					CycleTuple: append([]string(nil), trunk[idx:idx+seg.CycleLen]...),
+				}
+				cycle := &runtimeTraceProjTreeNode{row: row}
+				cycle.children = buildTrunk(seg.End, "…")
+				return []*runtimeTraceProjTreeNode{cycle}
+			}
+			// PTV4 T8: the plain fold row names the folded segment's first/last
+			// two nodes (the names were always in the typed path — display
+			// upgrade only). ≤4 omitted nodes list fully via the head roster.
+			// §22 B1-b F2: a force-expanded user-entity trunk index is NOT part
+			// of any segment — the fold row covers [idx, segEnd) and the forced
+			// node builds as a normal trunk row below.
+			segEnd := seg.End
 			var head, tail []string
 			if segEnd-idx <= 4 {
 				head = append(head, trunk[idx:segEnd]...)
@@ -1114,9 +1243,6 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 			row := runtimeTraceProjTreeRow{
 				Kind: runtimeTraceProjTreeRowOmitted, Omitted: segEnd - idx,
 				Depth: idx + 1, OmittedHead: head, OmittedTail: tail,
-			}
-			if idx == firstFoldStart {
-				row.CyclePeriod, row.CycleCount = cyclePeriod, cycleCount
 			}
 			omitted := &runtimeTraceProjTreeNode{row: row}
 			omitted.children = buildTrunk(segEnd, "…")
@@ -1158,10 +1284,12 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		trunkNode := &runtimeTraceProjTreeNode{row: runtimeTraceProjTreeRow{
 			Node: main, Kind: runtimeTraceProjTreeRowChain, Edge: edge, Depth: depth,
 			Parent: parentName, HasData: hasData, RecursOnChain: recurs[idx],
-			// §22 B1-b F2: flag rows force-expanded OUT of the folded middle —
-			// the transit renderer swaps the anonymous 中转 token for the named
-			// 用户关注线程(中转) token on them (data rows render normally).
-			UserFocusForced: forcedTrunk[idx] && omitStart >= 0 && idx >= omitStart && idx < omitEnd,
+			// §22 B1-b F2 (PTV8-LAD F2 展开一次): flag rows force-expanded OUT
+			// of the folded middle — the transit renderer swaps the anonymous
+			// 中转 token for the ⊚中转 user-focus token on them (data rows
+			// render normally). Hits merged into a cycle row are NOT flagged:
+			// the cycle row already names them in full.
+			UserFocusForced: forcedExpanded[idx],
 			EvidenceTag:     runtimeTraceProjEvidenceTag(main, evidence, zh),
 		}}
 		for _, node := range extra {
@@ -3162,8 +3290,18 @@ func runtimeTraceProjTreeNameBudget(fixedW int) int {
 	if maxName := runtimeTraceProjTreeLabelColumnMax - fixedW; budget > maxName {
 		budget = maxName
 	}
-	if budget < 1 {
-		budget = 1 // unreachable via the trunk cap; keeps the truncation sane
+	// PTV8-LAD L4 (§24.11 维度A P1). EVOLUTION RECORD: this arm's former
+	// clamp-1 carried an "unreachable via the trunk cap" claim that huadong_78
+	// FALSIFIED — B1-b fold splitting makes fixedW > 50 reachable and rows
+	// rendered "◦ …" with a 1-cell name (identity evaporated on the very rows
+	// F2 expanded to disclose it). The cap-vs-floor conflict now keeps the
+	// 8-cell identity floor (the omitted-row roster's pid-tail floor, T2
+	// mid-truncation keeps the pid): when the shared-column cap and the name
+	// floor collide, the NAME wins its last 8 cells and the row runs past the
+	// column instead of vaporizing the identity (§24.8 重要信息永不省略). With
+	// the L4 indent cap fixedW is bounded, so the overrun is itself bounded.
+	if budget < 8 {
+		budget = 8
 	}
 	return budget
 }
@@ -3765,15 +3903,33 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 	return main, demoted
 }
 
-func runtimeTraceProjTreePrefix(row runtimeTraceProjTreeRow) string {
+// runtimeTraceProjAncestorRails renders a row's ancestor rails with the
+// PTV8-LAD L4 indent cap (§24.11 维度A / AL3): at most the DEEPEST
+// runtimeTraceProjTreeIndentCap levels draw their 4-cell rails; deeper rows
+// collapse the shallower levels into one fixed 2-cell "⋯ " leader (EAW-
+// verified single-cell glyph), so the fixed lead of main rows AND subordinate
+// lines is bounded and the name/payload budgets stop degrading with depth.
+// The ONE builder is shared by runtimeTraceProjTreePrefix and
+// runtimeTraceProjRowContinuationIndent — the two faces can never drift.
+func runtimeTraceProjAncestorRails(ancestors []bool) string {
 	var b strings.Builder
-	for _, more := range row.Ancestors {
+	if over := len(ancestors) - runtimeTraceProjTreeIndentCap; over > 0 {
+		b.WriteString("⋯ ")
+		ancestors = ancestors[over:]
+	}
+	for _, more := range ancestors {
 		if more {
 			b.WriteString("│   ")
 		} else {
 			b.WriteString("    ")
 		}
 	}
+	return b.String()
+}
+
+func runtimeTraceProjTreePrefix(row runtimeTraceProjTreeRow) string {
+	var b strings.Builder
+	b.WriteString(runtimeTraceProjAncestorRails(row.Ancestors))
 	if row.Last {
 		b.WriteString("└─")
 	} else {
@@ -4183,6 +4339,15 @@ func runtimeTraceProjTreeRowLine(row runtimeTraceProjTreeRow, width int, denom f
 		row.marks.mark(runtimeTraceProjMarkOmitted)
 		return runtimeTraceProjOmittedRowLine(row, zh)
 	}
+	if row.Kind == runtimeTraceProjTreeRowCycleFold {
+		// PTV8-LAD L1: the cycle row emits the ↺ token, so it records the
+		// recurs mark too (NEW-7: marks record at the emission site of their
+		// token; the ↺ legend statement — the thread recurs on the chain — is
+		// literally true of every tuple member).
+		row.marks.mark(runtimeTraceProjMarkCycleFold)
+		row.marks.mark(runtimeTraceProjMarkRecursOnChain)
+		return runtimeTraceProjCycleFoldRowLine(row, zh)
+	}
 	fixed, name := runtimeTraceProjTreeLabelParts(row, zh)
 	left := runtimeTraceProjTreeLabelRow(fixed, row, name, width, zh)
 	var line string
@@ -4197,11 +4362,16 @@ func runtimeTraceProjTreeRowLine(row runtimeTraceProjTreeRow, width int, denom f
 			// §22 B1-b F2: a user-focus thread force-expanded out of the
 			// folded trunk middle must state its identity — the anonymous
 			// 中转 token would hide exactly what the expansion disclosed.
+			// PTV8-LAD L3 (§24.8 图标化令). EVOLUTION RECORD: the 18-cell
+			// 「用户关注线程(中转)」 label ate the name budget of the very row
+			// it existed to identify — the 3-cell ⊚中转 short token (root
+			// user-focus glyph, shared constant) replaces it; the legend entry
+			// carries the semantics.
 			row.marks.mark(runtimeTraceProjMarkUserFocusTransit)
 			if zh {
-				line = left + " 用户关注线程(中转)"
+				line = left + " " + runtimeTraceProjRootGlyph + "中转"
 			} else {
-				line = left + " user-focus thread (transit)"
+				line = left + " " + runtimeTraceProjRootGlyph + "transit"
 			}
 		case zh:
 			line = left + " 中转"
@@ -4228,28 +4398,22 @@ func runtimeTraceProjTreeRowLine(row runtimeTraceProjTreeRow, width int, denom f
 // runtimeTraceProjOmittedRowLine renders the long-trunk fold row (PTV4 T8):
 // the omitted count PLUS the folded segment's first/last two node names
 // (mid-truncated per T2 — pure display upgrade, the names were always in the
-// typed path) and the cycle note when the detector fired. The former trailing
-// intermediate-record pointer clause is fully retired (PTV6-C ruling C —
-// the legend's 省略行 entry now states the fold honestly instead).
+// typed path). The former trailing intermediate-record pointer clause is fully
+// retired (PTV6-C ruling C — the legend's 省略行 entry now states the fold
+// honestly instead). PTV8-LAD L1 (§24.11 维度A). EVOLUTION RECORD: the
+// "(检测到N节点循环约M轮)" clause is retired with its index-0 whole-path
+// detector — cycles now fold into their own counted CycleFold rows.
 func runtimeTraceProjOmittedRowLine(row runtimeTraceProjTreeRow, zh bool) string {
 	prefix := runtimeTraceProjTreePrefix(row)
 	head := fmt.Sprintf("…省略%d节点", row.Omitted)
 	if !zh {
 		head = fmt.Sprintf("…%d nodes omitted", row.Omitted)
 	}
-	cycle := ""
-	if row.CyclePeriod > 0 && row.CycleCount > 0 {
-		if zh {
-			cycle = fmt.Sprintf("(检测到%d节点循环约%d轮)", row.CyclePeriod, row.CycleCount)
-		} else {
-			cycle = fmt.Sprintf(" (≈%d-node cycle ×%d)", row.CyclePeriod, row.CycleCount)
-		}
-	}
 	names := append([]string(nil), row.OmittedHead...)
 	tailStart := len(names)
 	names = append(names, row.OmittedTail...)
 	if len(names) == 0 {
-		return prefix + " " + head + "…" + cycle
+		return prefix + " " + head + "…"
 	}
 	roster := func(budget int) string {
 		parts := make([]string, len(names))
@@ -4268,11 +4432,27 @@ func runtimeTraceProjOmittedRowLine(row runtimeTraceProjTreeRow, zh bool) string
 	// at the 8-cell floor that covers pids up to 6 digits; wider tails fall to
 	// the legacy tail cut, 复核勘误 of the former "every budget" claim.)
 	for budget := 18; ; budget-- {
-		line := prefix + " " + head + ": " + roster(budget) + cycle
+		line := prefix + " " + head + ": " + roster(budget)
 		if runewidth.StringWidth(line) <= runtimeTraceProjTreeRowMaxWidth || budget <= 8 {
 			return line
 		}
 	}
+}
+
+// runtimeTraceProjCycleFoldRowLine renders the PTV8-LAD L1 run-length cycle
+// fold row: "↺ 循环×N: A ⇄ B" — the repeat count plus the tuple member names
+// IN FULL (§24.8 重要信息永不省略: the row exists to disclose exactly these
+// identities, so the names never truncate; the line renders unpadded like the
+// ⊚ header when it outgrows the shared column). The folded per-hop rows are
+// reconstructible as tuple × count — strictly more information than the plain
+// roster's first/last-two form.
+func runtimeTraceProjCycleFoldRowLine(row runtimeTraceProjTreeRow, zh bool) string {
+	sep := " ⇄ "
+	members := strings.Join(row.CycleTuple, sep)
+	if zh {
+		return fmt.Sprintf("%s ↺ 循环×%d: %s", runtimeTraceProjTreePrefix(row), row.CycleCount, members)
+	}
+	return fmt.Sprintf("%s ↺ cycle ×%d: %s", runtimeTraceProjTreePrefix(row), row.CycleCount, members)
 }
 
 // runtimeTraceProjRecursSuffix is the H11 small-cycle end-of-row annotation
@@ -4543,10 +4723,16 @@ func runtimeTraceProjRowLineWithMetrics(left string, row runtimeTraceProjTreeRow
 				// ≤ 99 cells (zh ≤ 97 / en ≤ 99 at ancestors 2-7). Only the
 				// rare TRIPLE coincidence — one row that is cross-window AND
 				// undrillable AND evidence-tagged — still overflows: measured
-				// zh 103 / en 112 at ancestors=3, plateauing at zh 109 /
-				// en 118 from ancestors ≥ 5 (the label column caps at 50, so
-				// deeper rows stop growing). Recorded as-is; the T1 integrity
-				// floor keeps those marks whole rather than truncating them.
+				// zh 103 / en 112 at ancestors=3. PTV8-LAD L4 (§24.11 维度B)
+				// EVOLUTION RECORD: the former "plateauing from ancestors ≥ 5"
+				// claim relied on the label column cap alone and huadong_78
+				// FALSIFIED it (B1-b fold splitting grew rails without bound —
+				// w=144 measured); the plateau is now structural by
+				// construction: rails cap at runtimeTraceProjTreeIndentCap
+				// levels and the name keeps its 8-cell floor, so the overflow
+				// ceiling is bounded at every depth. Recorded as-is; the T1
+				// integrity floor keeps those marks whole rather than
+				// truncating them.
 				squeezed := strings.Join(strings.Fields(base), " ")
 				trimmed = strings.TrimRight(left, " ") + " " + squeezed + " " + strings.Join(mainTexts, " · ")
 			}
@@ -4572,13 +4758,10 @@ func runtimeTraceProjRowContinuationIndent(row runtimeTraceProjTreeRow) string {
 		return "      "
 	}
 	var b strings.Builder
-	for _, more := range row.Ancestors {
-		if more {
-			b.WriteString("│   ")
-		} else {
-			b.WriteString("    ")
-		}
-	}
+	// PTV8-LAD L4: the capped shared rail builder bounds the subordinate lead,
+	// so the "· " payload width has a real floor at every depth (the huadong_78
+	// E7 notes shredded into a 20-cell column under a ~78-cell lead).
+	b.WriteString(runtimeTraceProjAncestorRails(row.Ancestors))
 	if row.Last {
 		b.WriteString("  ")
 	} else {
@@ -4653,10 +4836,64 @@ func runtimeTraceProjSubordinatePackedLines(indent string, texts []string) []str
 	return out
 }
 
+// runtimeTraceProjWrapAtomCompounds (PTV8-LAD L5, §24.11 维度A F5 / 维度B
+// P2-1, DL2 先例扩展) registers the four-line-grammar compound words whose
+// mid-word break the huadong_78 E7 notes exhibited ("有效归\n因" / "下\n界" /
+// "根因\n排序#9"): each entry fuses into ONE wrap atom, so a break can never
+// bisect the claim — even at a capped-boundary width. The closed set mirrors
+// the §24.1/§24.2 grammar vocabulary (rank ordinal, attribution words, caliber
+// words, confidence tiers); it is a display-wrap boundary table only — never
+// a parser and never a gate. Longest-first inside shared prefixes.
+var runtimeTraceProjWrapAtomCompounds = []string{
+	"根因排序#", // fuses with the trailing rank digits (根因排序#9 is one atom)
+	"有效归因",
+	"承自归因",
+	"链上累计",
+	"按大核满频",
+	"按下游消费核",
+	"跨窗取最大",
+	"单次最大",
+	"置信高", "置信中", "置信低",
+	"下界",
+	"全额",
+	"折算",
+}
+
+// runtimeTraceProjWrapCompoundAt reports the registered compound starting at
+// runes[i] ("" / 0 when none). The 根因排序# entry additionally swallows the
+// trailing ordinal digits so "#9" can never open a line without its word.
+func runtimeTraceProjWrapCompoundAt(runes []rune, i int) (string, int) {
+	for _, compound := range runtimeTraceProjWrapAtomCompounds {
+		cr := []rune(compound)
+		if i+len(cr) > len(runes) {
+			continue
+		}
+		match := true
+		for j, r := range cr {
+			if runes[i+j] != r {
+				match = false
+				break
+			}
+		}
+		if !match {
+			continue
+		}
+		n := len(cr)
+		if compound == "根因排序#" {
+			for i+n < len(runes) && runes[i+n] >= '0' && runes[i+n] <= '9' {
+				n++
+			}
+		}
+		return string(runes[i : i+n]), n
+	}
+	return "", 0
+}
+
 // runtimeTraceProjWrapDisplay splits text into display chunks of at most
 // width cells, breaking ONLY at atom boundaries (PTV4 T3): an atom is a
 // maximal run of ASCII non-space, non-`·` runes — tokens like "14.597ms"
-// never split — or a single non-ASCII rune (CJK wraps naturally); spaces and
+// never split — or a single non-ASCII rune (CJK wraps naturally) — or a
+// registered compound word (PTV8-LAD L5, the table above); spaces and
 // `·` separators are break opportunities. Chunk concatenation is
 // BYTE-IDENTICAL to the input (a break space stays at the end of its chunk —
 // wrap only, never loss). An atom wider than the whole width owns its own
@@ -4672,6 +4909,13 @@ func runtimeTraceProjWrapDisplay(text string, width int) []string {
 	var atoms []atom
 	runes := []rune(text)
 	for i := 0; i < len(runes); {
+		// PTV8-LAD L5: registered compounds fuse before per-rune atomization
+		// (grouping only — byte concatenation stays identical).
+		if compound, n := runtimeTraceProjWrapCompoundAt(runes, i); n > 0 {
+			atoms = append(atoms, atom{text: compound, w: runewidth.StringWidth(compound)})
+			i += n
+			continue
+		}
 		r := runes[i]
 		switch {
 		case r == ' ':
@@ -4760,8 +5004,12 @@ func runtimeTraceProjWrapDisplay(text string, width int) []string {
 		// Pull trailing open-brackets (and, for a closing-punct next atom, the
 		// whole trailing punct chain plus one anchor atom) down to the next
 		// line so no line ends "(" or starts ")". Loop form (复核 M6): a chain
-		// like "…下界)" + next "," moves down together. Never empties the line
-		// (infinite-loop guard).
+		// like "…下界)" + next "," moves down together. The close-chain pop
+		// never empties the line (its anchor stays); the open-punct pop MAY
+		// empty it (PTV8-LAD L5 co-repair: a line holding only "(" must not
+		// flush alone when the next compound atom fills the width — the empty
+		// line then flushes as a no-op and the caller's all-open lane fuses
+		// the carry into a hard split; no re-entry, no loop).
 		var carry []atom
 		if closePunct[next.text] {
 			for len(lineAtoms) > 1 {
@@ -4774,7 +5022,7 @@ func runtimeTraceProjWrapDisplay(text string, width int) []string {
 				}
 			}
 		}
-		for len(lineAtoms) > 1 && openPunct[lineAtoms[len(lineAtoms)-1].text] {
+		for len(lineAtoms) > 0 && openPunct[lineAtoms[len(lineAtoms)-1].text] {
 			last := lineAtoms[len(lineAtoms)-1]
 			lineAtoms = lineAtoms[:len(lineAtoms)-1]
 			lineW -= last.w
@@ -4783,36 +5031,74 @@ func runtimeTraceProjWrapDisplay(text string, width int) []string {
 		flush()
 		return carry
 	}
+	// hardSplit renders text as its own line(s), splitting by runes only (no
+	// boundary inside it fits the width). Shared by the over-wide-atom lane
+	// and the PTV8-LAD L5 open-punct carry lane below.
+	hardSplit := func(text string) {
+		part := []rune(text)
+		for len(part) > 0 {
+			w, i := 0, 0
+			for i < len(part) {
+				rw := runewidth.RuneWidth(part[i])
+				if i > 0 && w+rw > width {
+					break
+				}
+				w += rw
+				i++
+			}
+			out = append(out, string(part[:i]))
+			part = part[i:]
+		}
+	}
+	// popOpenPunctCarry pulls the line's trailing open-punct chain (PTV8-LAD
+	// L5 co-repair: compound atoms like the 10-cell 按大核满频 made the
+	// hard-split lanes reachable right after an opening bracket — the flushed
+	// line must never end "(", so the chain travels INTO the split; byte
+	// concatenation stays identical).
+	popOpenPunctCarry := func() string {
+		carry := ""
+		for len(lineAtoms) > 0 && openPunct[lineAtoms[len(lineAtoms)-1].text] {
+			last := lineAtoms[len(lineAtoms)-1]
+			lineAtoms = lineAtoms[:len(lineAtoms)-1]
+			lineW -= last.w
+			carry = last.text + carry
+		}
+		return carry
+	}
 	for _, a := range atoms {
+		if a.w > width {
+			// Over-wide single atom: it owns its line(s). Handled BEFORE the
+			// normal break so the pathological-width fallback can never strand
+			// a carried "(" on its own line.
+			carry := popOpenPunctCarry()
+			flush()
+			hardSplit(carry + a.text)
+			continue
+		}
 		if lineW+a.w > width && lineW > 0 {
 			for _, c := range breakLine(a) {
 				appendAtom(c)
 			}
 			if lineW+a.w > width && lineW > 0 {
-				// Pathological width: the carried neighbors alone overflow —
-				// fall back to a plain break rather than exceeding the cap.
-				flush()
-			}
-		}
-		if a.w > width {
-			// Over-wide single atom: it owns its line(s); hard-split by runes
-			// only here (no boundary exists inside it that fits).
-			flush()
-			part := []rune(a.text)
-			for len(part) > 0 {
-				w, i := 0, 0
-				for i < len(part) {
-					rw := runewidth.RuneWidth(part[i])
-					if i > 0 && w+rw > width {
+				// Pathological width: the carried neighbors alone overflow.
+				// A pure open-punct line (breakLine's never-empty guard left
+				// it behind) fuses into a hard split of the next atom — no
+				// line may end "("; anything else takes a plain break.
+				allOpen := len(lineAtoms) > 0
+				for _, la := range lineAtoms {
+					if !openPunct[la.text] {
+						allOpen = false
 						break
 					}
-					w += rw
-					i++
 				}
-				out = append(out, string(part[:i]))
-				part = part[i:]
+				if allOpen {
+					carry := popOpenPunctCarry()
+					flush()
+					hardSplit(carry + a.text)
+					continue
+				}
+				flush()
 			}
-			continue
 		}
 		appendAtom(a)
 	}
@@ -6704,7 +6990,8 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 	// with no mention of the 3.3s window they actually asked about.
 	if model.UserWindowEnd > model.UserWindowStart && model.UserWindowStart > 0 {
 		userMS := (model.UserWindowEnd - model.UserWindowStart) * 1000
-		if model.WindowMS < userMS*0.5 {
+		switch {
+		case model.WindowMS < userMS*0.5:
 			// PTV5 C25 (#68): the sub-window comes from engine anchoring — the
 			// system never verified representativeness, so the line says 聚焦
 			// (focused), not 代表性 (representative).
@@ -6714,6 +7001,28 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 			} else {
 				fmt.Fprintf(&b, "\n- User-requested window %.3fs → %.3fs (%.1fs total); this causal tree's analysis window is one slice of it — full-window metrics live in the Trace Metric Snapshot",
 					model.UserWindowStart, model.UserWindowEnd, userMS/1000)
+			}
+		case model.SoloArtifact:
+			// PTV8-LAD L7 (§24.14 补2, D-4 ±10% 容差裁定的单工件面): the
+			// analysis window deviates from the user's stated duration by more
+			// than ±10% → one tree-head sentence names both lengths and the
+			// deviation (COV-2 同判据 helper family; the comparison face folds
+			// its own per-side note). The <50% slice shape above keeps its
+			// richer R2 relation line byte-identically (it already relates the
+			// two windows — no double disclosure); ≤±10% stays silent.
+			deviation, beyond := runtimeTraceProjUserWindowDeviationPct(model.WindowMS, userMS)
+			if !beyond {
+				break
+			}
+			switch {
+			case deviation > 0 && zh:
+				fmt.Fprintf(&b, "\n- 分析窗 %.3fms,较你指定的 %.3fms 长 %.1f%%:窗口按数据边界对齐构造", model.WindowMS, userMS, deviation)
+			case deviation > 0:
+				fmt.Fprintf(&b, "\n- The analysis window %.3fms is %.1f%% longer than your requested %.3fms: the window is constructed by aligning to data boundaries", model.WindowMS, deviation, userMS)
+			case zh:
+				fmt.Fprintf(&b, "\n- 分析窗 %.3fms,较你指定的 %.3fms 短 %.1f%%:窗口按数据边界对齐构造", model.WindowMS, userMS, -deviation)
+			default:
+				fmt.Fprintf(&b, "\n- The analysis window %.3fms is %.1f%% shorter than your requested %.3fms: the window is constructed by aligning to data boundaries", model.WindowMS, -deviation, userMS)
 			}
 		}
 	}
