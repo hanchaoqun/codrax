@@ -344,6 +344,21 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 				result.Violations = append(result.Violations,
 					runDeniedTokenAnswerCheck(docV2, o.busCtx.TypedDenials)...)
 			}
+			// PSG §25(b) (2026-07-08) — prose scalar grounding. On a
+			// runtime-trace run, model-authored prose ms/% scalars must
+			// be members of the evidence-face scalar set (aggregate
+			// facts / observation values+notes / projection blocks /
+			// citation quotes) within a loose tolerance. The regex scan
+			// is a noisy signal, so the raise is bounded to ONE retry
+			// round by the validator-side latch; the bus-scoped strict
+			// arm in isStrictViolationForBus makes that single round
+			// retry-eligible. Never a hard reject.
+			if o != nil && o.busCtx != nil {
+				result.Violations = append(result.Violations,
+					trace.run("prose_scalar_grounding", func() []types.Violation {
+						return runProseScalarGroundingCheck(docV2, o.busCtx, mut)
+					})...)
+			}
 			if rm := mut.RequestModel(); rm != nil {
 				result.Violations = append(result.Violations,
 					runTypedAnswerExclusionPolicyCheck(docV2, rm)...)

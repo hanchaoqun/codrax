@@ -37,6 +37,12 @@ func isStrictViolationForBus(v types.Violation, bus *types.BusContext) bool {
 	if !isSoftViolationKind(v.Kind) {
 		return true
 	}
+	// PSG §25(b): the prose-scalar gate's single validator-side raise is
+	// retry-eligible; the one-round latch inside the producer guarantees
+	// it can never recur, so this strict arm cannot loop.
+	if proseScalarGroundingStrictViolation(v) {
+		return true
+	}
 	return comparisonBucketSectionCoverageViolation(v, bus)
 }
 

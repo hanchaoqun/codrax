@@ -342,6 +342,14 @@ var composerExactFixSkipWhitelist = map[types.ViolationKind]string{
 	types.ViolPathDepthInsufficient:  "uses violation.Repair for fix prose (validator stamps entry/mid/exit coverage guidance)",
 	types.ViolCardinalityShort:       "uses violation.Repair for fix prose (validator stamps declared-count gap guidance)",
 	types.ViolEntityParityImbalanced: "uses violation.Repair for fix prose (validator stamps comparison-balance guidance)",
+
+	// PSG §25(b) (2026-07-08) — prose scalar grounding. The producer
+	// (orchestrator/prose_scalar_grounding_check.go) stamps a complete
+	// Detail (the unmatched numerals with their block ids) + Repair
+	// (cite the source view and window, or remove the number) pair, so
+	// the generic composer fallback is exactly right. One-shot by
+	// design: raised at most once per run.
+	types.ViolProseScalarUngrounded: "uses violation.Repair for fix prose (validator stamps unmatched numerals + cite-or-remove guidance)",
 }
 
 // TestComposer_AllViolationKindsHaveCase enforces P34's

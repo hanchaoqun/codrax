@@ -959,6 +959,32 @@ const (
 	// has fewer than half the evidence of the largest. Heavy skew
 	// makes the comparison's weaker side speculative.
 	ViolEntityParityImbalanced ViolationKind = "entity_parity_imbalanced"
+
+	// ViolProseScalarUngrounded fires when model-authored answer
+	// prose on a runtime-trace run carries an ms / percentage scalar
+	// that matches NOTHING in the report's evidence-face scalar set
+	// (accepted aggregate facts ∪ observation-ledger values and
+	// k=v note numerals ∪ system-injected runtime projection blocks
+	// ∪ citation quotes), after the tolerance and exemption arms
+	// (last-digit rounding, round-3 equality, zero values,
+	// recomputable percentages, pairwise ms sums).
+	//
+	// PSG batch (§25 ruling b, real_trace_campaign_20260705.md,
+	// 2026-07-08; huadong_01 §22 C-P1): under trace exclude-source
+	// runs the citation-quote guard family is structurally
+	// bypassed (0 citations), so prose numerals had no gate at all
+	// (46.821 unverifiable / 1.59 unattributed classes). The regex
+	// extraction is a NOISY signal, so per the precise-signals red
+	// line it drives only SOFT guidance: the producer raises this
+	// kind AT MOST ONCE per run (validator-side one-shot), the
+	// retry hint lists the unmatched numerals, and after that one
+	// round the answer always ships. Never a hard emit-time reject.
+	//
+	// SOFT-by-default at the registry layer (commercial post-emit
+	// policy); the bounded one-round retry comes from the
+	// bus-scoped strict arm in isStrictViolationForBus, mirroring
+	// the comparison-bucket precedent.
+	ViolProseScalarUngrounded ViolationKind = "prose_scalar_ungrounded"
 )
 
 // AllViolationKinds returns every declared ViolationKind in a stable
@@ -1054,6 +1080,8 @@ func AllViolationKinds() []ViolationKind {
 		ViolPathDepthInsufficient,
 		ViolCardinalityShort,
 		ViolEntityParityImbalanced,
+		// PSG prose scalar grounding (§25 ruling b, 2026-07-08).
+		ViolProseScalarUngrounded,
 	}
 }
 

@@ -117,6 +117,12 @@ type MutableState struct {
 	// completionGateOneShots tracks sticky per-run one-shot completion gates;
 	// see MarkCompletionGateOneShot.
 	completionGateOneShots map[string]bool
+	// proseScalarHintDelivered is the PSG (§25 ruling b) one-round latch:
+	// set the first time a finalize dispatch is observed CARRYING the
+	// prose-scalar retry hint (the hint reached the model exactly once),
+	// after which the prose-scalar gate never raises again this run.
+	// See MarkProseScalarGroundingHintDelivered.
+	proseScalarHintDelivered bool
 	// objective is the raw user question / task description seeded
 	// at orchestrator Run time. Replaces the old one-task TaskList
 	// wrapper — every stage reads this field as the load-bearing
@@ -5388,6 +5394,33 @@ func (m *MutableState) MarkCompletionGateOneShot(key string) bool {
 	}
 	m.completionGateOneShots[key] = true
 	return true
+}
+
+// MarkProseScalarGroundingHintDelivered records that a finalize dispatch
+// carrying the PSG prose-scalar retry hint has been observed (§25 ruling b,
+// 2026-07-08). Sticky for the whole run: once the hint has been delivered to
+// the model for its single repair round, the prose-scalar gate stays silent —
+// including when a LATER retry (caused by other violation kinds) rebuilds the
+// retry surface without the prose-scalar entry. This is the anti-livelock
+// half of the "soft fail at most one round" contract.
+func (m *MutableState) MarkProseScalarGroundingHintDelivered() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.proseScalarHintDelivered = true
+}
+
+// ProseScalarGroundingHintDelivered reports whether the PSG prose-scalar
+// retry hint has already been consumed by a finalize dispatch this run.
+func (m *MutableState) ProseScalarGroundingHintDelivered() bool {
+	if m == nil {
+		return false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.proseScalarHintDelivered
 }
 
 // SetCompletionGateNote stores a one-line audit note a completion gate wants

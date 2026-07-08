@@ -507,6 +507,23 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				Body:      "INFERRED ATTRIBUTION DISCLOSURE: a runtime trace records executors as thread/process names and tid/pid numbers — it does not record which product component or module owns them. A component/module ownership claim derived from a NAME (e.g. 'this work belongs to component <X> running on thread <Y>' because the thread name contains <X>) is an inference, not an observation: either mark it as inferred in prose ('inferred from the thread name' / '从线程名推断') or drop the ownership claim and report the thread identity alone. The same disclosure applies to holder / peer / counterpart identities resolved by wakeup-edge inference instead of a direct payload (rows carrying holder_source=wakeup_edge or peer_source=wakeup_edge, or flagged presumptive): prose naming that party must state the identity is presumed from the wakeup edge, not directly observed. Rows carrying holder_source=ns_span_derivation resolved the party by pairing the span's in-container ids with the host-side thread that emitted the span markers (trace_mark emission pairs): prose naming that holder must state the identity is derived from that pairing — thread-level, or process-level when a holder_host_process note is present (then attribute to the process, never to a specific thread) — not read directly from the payload. A holder_ns_unification note upgrades the claim: two independent lanes (span-marker pairing and the closing wakeup edge) point at the same host thread, so prose may state that identity directly as a cross-corroborated fact while still citing both lanes.",
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
+			{
+				// PSG-1: prose numeral grounding — trace-only (§25 ruling
+				// b assertion half, real_trace_campaign_20260705.md,
+				// 2026-07-08; huadong_01 C-P1: a trace answer with zero
+				// citations had no gate on prose numerals at all).
+				Body:      "PROSE NUMBER GROUNDING: every numeric measurement the prose states (a duration in ms, a percentage, an occurrence count) must be locatable somewhere in the report's evidence surfaces — the measured observation records, the projection tables, the per-file evidence index, or a structured fact you carried over from the investigation. A number that cannot be located there must either be accompanied, in the same sentence, by the exact source view and time window it was read from (quoting the value as that view published it) or be removed from the prose. Never invent a replacement number, and when you derive a value yourself (a sum, a ratio, a normalization), name the published values it was derived from so the figure stays auditable.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
+			{
+				// PSG-2: object identity assertions — trace-only (§25
+				// ruling b assertion half; the audited specimen read a
+				// thread NAMED after a fence-acquire operation as the
+				// fence object itself and asserted a holder relation with
+				// zero holder evidence rows).
+				Body:      "OBJECT IDENTITY ASSERTIONS: any claim about who HOLDS, OWNS, or BLOCKS what (a lock, a fence, a buffer, any synchronization object) must be backed by an evidence row that states that relation through its typed fields (holder / blocking / contention notes). A thread's NAME is not evidence about the objects it manipulates: thread names and object names are never interchangeable — a thread named after an operation or an object (e.g. a name containing 'Fence' or 'Lock') does not hold that object by virtue of its name, and reading such a thread name as the object being held is a fabrication. When no evidence row states the holding relation, report the thread identity and the observed wait without asserting a holder or a direction of blocking.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
 		},
 		// P5-B Tier B prohibitions: 2 items the design classifies
 		// as style-polish (always relevant but lower priority).

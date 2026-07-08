@@ -1154,4 +1154,21 @@ func init() {
 		// Fix path: explorer re-investigates the under-sampled bucket(s).
 		FixableByAgents: []AgentName{AgentExplorer},
 	})
+	// PSG batch (§25 ruling b, real_trace_campaign_20260705.md,
+	// 2026-07-08): prose ms/% scalar with no evidence-face member.
+	// SoftByDefault=true keeps the commercial post-emit default
+	// (no hidden hard retry rows); the bounded one-round retry is
+	// the bus-scoped strict arm in isStrictViolationForBus paired
+	// with the validator-side one-shot — never re-raised after the
+	// hint round, never a hard reject. No CaveatFamilyID: the miss
+	// is advisory after its one round, not a user-visible caveat.
+	RegisterViolKind(ViolKindSpec{
+		Kind: ViolProseScalarUngrounded, DefaultSeverity: SeverityMedium, RepairPhase: RepairPhaseConsistency,
+		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
+		Layer:       "answer_oracle",
+		Description: "PSG §25(b): model prose carries an ms/% numeral absent from every evidence surface (aggregate facts / observation values+notes / projection blocks / citation quotes); one-shot retry hint lists the unmatched numerals.",
+		// Fix path: prose rewrite only — quote the source view and
+		// window, or drop the numeral. No new evidence needed.
+		FixableByAgents: []AgentName{AgentFinalizer},
+	})
 }

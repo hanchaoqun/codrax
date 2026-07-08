@@ -98,6 +98,10 @@ var violRegistryGolden = map[types.ViolationKind]violGoldenRow{
 	"path_depth_insufficient":                {"medium", "medium", true, true, "explore", "tier2_completeness", "structure"},
 	"cardinality_short":                      {"medium", "medium", true, true, "extract", "tier2_completeness", "structure"},
 	"entity_parity_imbalanced":               {"medium", "medium", true, true, "explore", "tier2_completeness", "structure"},
+	// PSG §25(b) (2026-07-08): prose ms/% scalar grounding — SoftByDefault
+	// per the commercial post-emit policy; the one-round retry comes from
+	// the bus-scoped strict arm + validator latch, not from this row.
+	"prose_scalar_ungrounded": {"medium", "high", true, true, "finalizer", "answer_oracle", "consistency"},
 }
 
 // TestRegistryGoldenSnapshot pins the full derived routing surface for

@@ -325,6 +325,12 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolPathDepthInsufficient:  true,
 		ViolCardinalityShort:       true,
 		ViolEntityParityImbalanced: true,
+		// PSG prose scalar grounding (§25 ruling b, 2026-07-08).
+		// Producer wired in
+		// orchestrator/prose_scalar_grounding_check.go
+		// runProseScalarGroundingCheck, dispatched from
+		// contract_check.go in the V2 answer-oracle region.
+		ViolProseScalarUngrounded: true,
 	}
 	pending := map[ViolationKind]string{
 		ViolFamilyMismatch:                 "P9-C-retired-V1-checkShape (V2 block oracles cover read-mode block contract via runV2BlockOracles)",

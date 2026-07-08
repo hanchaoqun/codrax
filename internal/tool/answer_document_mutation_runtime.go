@@ -761,6 +761,50 @@ func runtimeTraceCausalProjectionFamilyBlockID(id string) bool {
 	return false
 }
 
+// RuntimeTraceSystemBlockID reports whether id is one of the EXACT block-id
+// spellings this file's system-injected runtime-trace surfaces construct:
+// the causal-projection family (runtimeTraceCausalProjectionFamilyBlockID),
+// the facts / semantic-optimizations blocks, and the metric-snapshot /
+// next-step / perf-quality blocks with their numbered forms. Same discipline
+// as the projection-family guard: arbitrary "runtime_trace_*" lookalikes
+// (model-authored ids that merely share the prefix) do NOT match.
+//
+// PSG §25(b) consumer (2026-07-08): the prose-scalar grounding gate treats
+// matching blocks as system evidence surfaces (their numerals ground prose,
+// their text is never scanned as model prose) — a loose prefix match there
+// would let a model-authored lookalike block launder fabricated numbers
+// into the evidence set, so this helper is deliberately exact.
+func RuntimeTraceSystemBlockID(id string) bool {
+	if runtimeTraceCausalProjectionFamilyBlockID(id) {
+		return true
+	}
+	switch id {
+	case "runtime_trace_facts",
+		"runtime_trace_semantic_optimizations",
+		"runtime_trace_metric_snapshot",
+		"runtime_trace_perf_quality":
+		return true
+	}
+	for _, base := range []string{
+		"runtime_trace_metric_snapshot_",
+		"runtime_trace_next_step_",
+		"runtime_trace_perf_quality_",
+	} {
+		if digits, ok := strings.CutPrefix(id, base); ok {
+			if digits == "" {
+				return false
+			}
+			for i := 0; i < len(digits); i++ {
+				if digits[i] < '0' || digits[i] > '9' {
+					return false
+				}
+			}
+			return true
+		}
+	}
+	return false
+}
+
 // runtimeTraceCausalProjectionDegradeLeadBlock picks the cap-degrade survivor
 // (F2a): the FIRST block that is not the comparison overview. The compare
 // table's cells summarize the per-artifact sections ("详情见各工件分段"), so
