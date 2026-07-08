@@ -55,6 +55,14 @@ var wordingLaneRules = []wordingLaneRule{
 		term: "调度压力",
 		whitelist: map[string]bool{
 			"answer_document_mutation_runtime_typelabels.go::runtimeTraceSupplyPressureDisplayLabel": true,
+			// EVOLUTION RECORD (SYM-2 §24.17 R2, 2026-07-08, §7.4/§7.5 re-read):
+			// the runnable family's 行2 category word is 调度压力候选 (user
+			// ruling verbatim "自身 runnable → 调度压力候选" — the §7.4
+			// demand-side vocabulary, replacing 就绪排队候选). Same precedent
+			// as the 算力供给候选 entry above: the single-source form table IS
+			// the category-word home; the supply_pressure token label keeps
+			// its own single source in the typelabels helper.
+			"answer_document_mutation_runtime_rcr.go::runtimeTraceProjImpactFormSpecs": true,
 		},
 	},
 	{

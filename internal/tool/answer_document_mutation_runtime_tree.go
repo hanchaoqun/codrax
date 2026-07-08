@@ -7101,7 +7101,10 @@ func runtimeTraceProjTargetSelfWaitViewRow(row runtimeTraceProjTreeRow) bool {
 		// family (IPC ≠ block IO) but stays a WAIT view — the COV census
 		// counted the huadong binder-wait 4.577 through the old membership and
 		// must keep counting it through the new family row (等待症状族).
-		case runtimeTraceProjImpactFormIOBlock, runtimeTraceProjImpactFormSleep,
+		// SYM-2 §24.17 R2 (2026-07-08): the D-state family split off IOBlock
+		// for its 行2 word only — a D-state wait stays a WAIT view here.
+		case runtimeTraceProjImpactFormIOBlock, runtimeTraceProjImpactFormDState,
+			runtimeTraceProjImpactFormSleep,
 			runtimeTraceProjImpactFormRunnable, runtimeTraceProjImpactFormBinderWait:
 			return true
 		}

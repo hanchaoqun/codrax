@@ -208,6 +208,14 @@ const (
 	TraceNoteKeyActualSleep    = "actual_sleep"
 	TraceNoteKeyActualDState   = "actual_d_state"
 	TraceNoteKeyActualIOWait   = "actual_io_wait"
+	// TraceNoteKeyRunnableBelowRTPreempted (SYM-2 §24.17 R2, 2026-07-08): the
+	// typed 「优先级低于RT」 disclosure on a SELF runnable-family rank row —
+	// the engine minted it only when the target's own priority class is below
+	// RT (Harmony ohos_cfs) and an RT-class competitor's running overlapped
+	// the wait on the same CPU (R5g displacement evidence). Value is the
+	// literal "true"; absent otherwise (absence never guesses). The projection
+	// compile promotes it onto the node for the 行2 tail wording.
+	TraceNoteKeyRunnableBelowRTPreempted = "runnable_below_rt_preempted"
 )
 
 // 周期族 (periodic-source family, VS-1 §7.8).
@@ -465,6 +473,7 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 
 	// 状态族.
 	{TraceNoteKeyDominantState, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyRunnableBelowRTPreempted, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyRunning, "state", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyRunnable, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeySleep, "state", TraceNoteCarrierSoftConsumer},

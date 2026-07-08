@@ -198,6 +198,9 @@ var traceNoteKeyGoldenRows = []string{
 	"recursive|causal_rank|soft_consumer",
 	"ret|io|display_only",
 	"runnable|state|hard_consumer",
+	// EVOLUTION RECORD (SYM-2 §24.17 R2, 2026-07-08): the typed below-RT
+	// preemption disclosure on self runnable rank rows — new hard-consumer key.
+	"runnable_below_rt_preempted|state|hard_consumer",
 	"runnable_cpu|guidance|soft_consumer",
 	"running|state|soft_consumer",
 	"runtime|sched_accounting|display_only",

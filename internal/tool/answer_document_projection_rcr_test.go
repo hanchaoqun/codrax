@@ -316,10 +316,14 @@ func TestRCRImpactFormGlyphsSingleCellNoVS16(t *testing.T) {
 			t.Fatalf("glyph %q measures %d display cells, want 1 (等宽单格宽)", spec.Glyph, w)
 		}
 		// PTV8-RCR-C 复核收尾 (2026-07-08). EVOLUTION RECORD: the ◦ 无形态兜底
-		// glyph is the ONE sanctioned share — the binder-wait family borrows
-		// it until a dedicated IPC glyph is ruled into the §24.3 closed set;
-		// every other glyph stays one-per-form.
-		if seen[spec.Glyph] && spec.Glyph != "◦" {
+		// glyph is a sanctioned share — the binder-wait family borrows it
+		// until a dedicated IPC glyph is ruled into the §24.3 closed set.
+		// EVOLUTION RECORD (SYM-2 §24.17 R2, 2026-07-08): ⛓ is the second
+		// sanctioned share — the user ruling splits the D-state family's 行2
+		// word (D状态候选) off IO阻塞候选 while keeping the EXISTING ⛓
+		// D-state icon semantics ("glyph=⛓ 既有 D-state 语义" verbatim); every
+		// other glyph stays one-per-form.
+		if seen[spec.Glyph] && spec.Glyph != "◦" && spec.Glyph != "⛓" {
 			t.Fatalf("glyph %q assigned to two forms — the closed set is one glyph per form", spec.Glyph)
 		}
 		seen[spec.Glyph] = true

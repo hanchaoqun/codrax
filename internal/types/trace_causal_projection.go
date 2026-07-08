@@ -354,6 +354,14 @@ type TraceCausalProjectionNode struct {
 	// inversion candidacy). Display wording only; the R5d gated composition
 	// stays on GatedRunnableMS/GatedRunningDeficitMS.
 	PriorityInversionCandidate bool `json:"priority_inversion_candidate,omitempty"`
+	// RunnableBelowRTPreempted mirrors the producer's typed
+	// "runnable_below_rt_preempted=true" rich note (SYM-2 §24.17 R2,
+	// 2026-07-08): a SELF runnable-family rank row whose subject — the
+	// analysis target — has a priority class below RT (Harmony ohos_cfs) and
+	// was displaced by an RT-class competitor overlapping the wait on the same
+	// CPU. Display wording only (the 行2 「(优先级低于RT)」 tail); no gate,
+	// score or sort lane reads it.
+	RunnableBelowRTPreempted bool `json:"runnable_below_rt_preempted,omitempty"`
 	// OnChainOverflowFold marks the PTS zero-silent-drop fold row (#68 用户裁定
 	// 2026-07-05): on-chain rows beyond a cap (the compile bucket limit, or the
 	// producer's per-family wire cap re-materialized from the folded_rows note
@@ -1938,6 +1946,9 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// stays alive in the display predicate for root_cause rows whose Object
 	// carries the type token.
 	node.PriorityInversionCandidate = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyPriorityInversionCandidate)) == "true"
+	// SYM-2 (§24.17 R2, 2026-07-08): the below-RT preemption disclosure on a
+	// self runnable rank row — exact typed note match, wording input only.
+	node.RunnableBelowRTPreempted = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyRunnableBelowRTPreempted)) == "true"
 	// VS-1 (§7.8): periodic-signal-source semantics — exact typed note match.
 	node.PeriodicSource = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyPeriodicSource)) == "true"
 	if node.PeriodicSource {

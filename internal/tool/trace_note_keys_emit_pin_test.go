@@ -279,7 +279,11 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				HolderSource: tracequery.CounterpartSourceContentionPayload, OwnerTidRaw: 0,
 				// BLK §15.C: the resolved rank lock row's subject is the holder.
 				SubjectIsLockHolder: true,
-				Summary:             "runnable wait dominated the frame",
+				// SYM-2 §24.17 R2: the self runnable row's typed below-RT
+				// preemption disclosure — exercises the
+				// runnable_below_rt_preempted contract key.
+				SubjectIsAnalysisTarget: true, RunnableBelowRTPreempted: true,
+				Summary: "runnable wait dominated the frame",
 			}, {
 				// BLK-2 P1/P2: holder-subject blocking_span rank row whose
 				// waiter-subject critical_blocking twin (same physical span key,

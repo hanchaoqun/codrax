@@ -820,9 +820,11 @@ func TestPTV6CSpecimen1KeyRowsAfter(t *testing.T) {
 	// degenerate 有效归因 tail (计入==原始 → 全额), and the ordinary tags pack
 	// below (grammar-clean 行1). PTV8-RCR-C EVOLUTION RECORD (§24.9 G3): the
 	// chain layer moved INTO 行2 — the packed ×2同值 line no longer leads with
-	// the Seg-20 chip.
+	// the Seg-20 chip. SYM-2 EVOLUTION RECORD (§24.17 R2, 2026-07-08): the
+	// runnable family word 就绪排队候选 → 调度压力候选 (§7.4 demand-side
+	// vocabulary, user ruling verbatim).
 	if !strings.Contains(fence, "[E1(+1)]") ||
-		!strings.Contains(fence, "就绪排队候选·根因排序#1·置信高·链上L1·有效归因 1.661ms(全额)") ||
+		!strings.Contains(fence, "调度压力候选·根因排序#1·置信高·链上L1·有效归因 1.661ms(全额)") ||
 		!strings.Contains(fence, "· ×2同值") {
 		t.Fatalf("trunk rows must keep the RCR four-line geometry:\n%s", fence)
 	}

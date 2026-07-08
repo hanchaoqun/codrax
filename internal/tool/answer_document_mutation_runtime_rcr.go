@@ -57,7 +57,11 @@ const (
 	runtimeTraceProjImpactFormSleep
 	// ⛓ IO阻塞族 (§24.3: io_latency 等 typed 事件归族,不再挂无意义 ◦).
 	runtimeTraceProjImpactFormIOBlock
-	// ⧖ 就绪排队 (runnable / scheduler-latency family).
+	// ⛓ D状态族 (SYM-2 §24.17 R2, 2026-07-08): D-state rows leave the IO
+	// family's category word — same glyph (⛓ carries the D-state icon
+	// semantics since PTV4), own 行2 word (D状态候选).
+	runtimeTraceProjImpactFormDState
+	// ⧖ 调度压力 (runnable / scheduler-latency family; §7.4 demand-side word).
 	runtimeTraceProjImpactFormRunnable
 	// ⊗ 锁竞争·持锁 (typed BlockingKind rows).
 	runtimeTraceProjImpactFormLock
@@ -116,8 +120,18 @@ func runtimeTraceProjImpactFormSpecs() []runtimeTraceProjImpactFormSpec {
 		{Form: runtimeTraceProjImpactFormIOBlock, Glyph: "⛓",
 			CategoryZH: "IO阻塞候选", CategoryEN: "IO-blocking candidate",
 			Mark: runtimeTraceProjMarkIconDState},
+		// SYM-2 §24.17 R2 (2026-07-08): the D-state family's OWN table row —
+		// glyph/mark stay on the existing ⛓ D-state icon semantics (legend
+		// entry unchanged), only the 行2 category word splits from IO阻塞候选.
+		{Form: runtimeTraceProjImpactFormDState, Glyph: "⛓",
+			CategoryZH: "D状态候选", CategoryEN: "D-state candidate",
+			Mark: runtimeTraceProjMarkIconDState},
+		// EVOLUTION RECORD (SYM-2 §24.17 R2, 2026-07-08): 就绪排队候选 →
+		// 调度压力候选 — the runnable family's 行2 word joins the §7.4
+		// ruling-locked demand-side vocabulary (调度压力/需求积压; the ⧖ legend
+		// keeps its state semantics 就绪等待).
 		{Form: runtimeTraceProjImpactFormRunnable, Glyph: "⧖",
-			CategoryZH: "就绪排队候选", CategoryEN: "ready-queue candidate",
+			CategoryZH: "调度压力候选", CategoryEN: "scheduling-pressure candidate",
 			Mark: runtimeTraceProjMarkIconRunnable},
 		{Form: runtimeTraceProjImpactFormLock, Glyph: "⊗",
 			CategoryZH: "锁竞争·持锁", CategoryEN: "lock contention · holder",
@@ -183,10 +197,15 @@ func runtimeTraceProjImpactFormLegendEntries() []runtimeTraceProjLegendEntry {
 // tokens return None and the caller falls through to the state lane.
 func runtimeTraceProjImpactFormTokenFamily(token string) runtimeTraceProjImpactForm {
 	switch token {
-	case "io_latency", "io_wait", "d_state_or_io_wait", "fragmented_d_state_or_io_wait",
+	case "io_latency", "io_wait",
 		"io_pressure", "io_burst_episode", "block_io_by_inode",
 		"file_io_hot_inode", "page_cache_churn":
 		return runtimeTraceProjImpactFormIOBlock
+	case "d_state_or_io_wait", "fragmented_d_state_or_io_wait":
+		// SYM-2 §24.17 R2 (2026-07-08): the D-without-observed-IO producer
+		// compound (rootTypeForDominantState: StateDSleep ∧ io==0) speaks its
+		// own D状态候选 word; observed-IO waits stay on the ⛓ IO family above.
+		return runtimeTraceProjImpactFormDState
 	case "binder_wait":
 		// PTV8-RCR-C 复核收尾: IPC wait-on-peer is its own family (等待症状族)
 		// — never block IO (the C7 lane must say binder等待候选, not IO阻塞候选).
@@ -265,7 +284,11 @@ func runtimeTraceProjImpactFormForNode(node types.TraceCausalProjectionNode, kin
 		return runtimeTraceProjImpactFormRunning
 	case "runnable":
 		return runtimeTraceProjImpactFormRunnable
-	case "d_state", "io_wait", "d_sleep", "uninterruptible_sleep":
+	case "d_state", "d_sleep", "uninterruptible_sleep":
+		// SYM-2 §24.17 R2 (2026-07-08): D-state STATE rows split off the IO
+		// family word (same ⛓ glyph/legend); io_wait keeps the IO family.
+		return runtimeTraceProjImpactFormDState
+	case "io_wait":
 		return runtimeTraceProjImpactFormIOBlock
 	}
 	switch runtimeTraceCausalProjectionTypeTokenStateClass(node) {
@@ -275,7 +298,9 @@ func runtimeTraceProjImpactFormForNode(node types.TraceCausalProjectionNode, kin
 		return runtimeTraceProjImpactFormRunnable
 	case "s_sleep":
 		return runtimeTraceProjImpactFormSleep
-	case "d_state_or_io_wait", "io_wait":
+	case "d_state_or_io_wait":
+		return runtimeTraceProjImpactFormDState
+	case "io_wait":
 		return runtimeTraceProjImpactFormIOBlock
 	}
 	for _, token := range []string{node.TypeToken, node.Object, node.Predicate} {
@@ -750,6 +775,18 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		return runtimeTraceProjCauseStructured{}, false
 	}
 	out.IdentityRow = strings.Join(identity, sep)
+	if node.RunnableBelowRTPreempted {
+		// SYM-2 §24.17 R2 (2026-07-08): the 行2 tail discloses that the
+		// target's own runnable wait ran below RT and was displaced by an
+		// RT-class competitor — precise typed flag minted ONLY by the engine's
+		// self-runnable stamp (ohos_cfs target + overlapping ohos_rt
+		// competitor); the display never re-derives it.
+		if zh {
+			out.IdentityRow += "(优先级低于RT)"
+		} else {
+			out.IdentityRow += " (priority below RT)"
+		}
+	}
 	row.marks.mark(runtimeTraceProjMarkCauseIdentityRow)
 	if out.ConsumedEffective {
 		// PTV8-RCR-B (UXA 域A #31): every lane that prints the 有效归因 word

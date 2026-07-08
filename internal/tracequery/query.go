@@ -9110,6 +9110,9 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	// SYM (§24.13 裁定一): typed self-subject identity for the election-ladder
 	// skip arm — tid-first against the rank's own resolved target.
 	stampRootCauseRankAnalysisTargetSubject(items, res.Target)
+	// SYM-2 (§24.17 R2): the self runnable rows that now compete carry the
+	// typed below-RT-preempted disclosure when the scheduling data proves it.
+	stampRunnableSelfBelowRTPreempted(items, stats.RunnableContext)
 	normalizeRootCauseCumulativeImpact(items)
 	normalizeRootCauseEffectiveImpact(items)
 	sortRootCauseRankItems(items, hasCausalChain)
@@ -9262,6 +9265,9 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	// SYM (§24.13 裁定一): the scheduler/compute additions above are new rows —
 	// re-stamp the whole slice with the same typed target (idempotent).
 	stampRootCauseRankAnalysisTargetSubject(rank.Items, rank.Target)
+	// SYM-2 (§24.17 R2): the enrich-minted scheduler_latency self rows are the
+	// highest-frequency runnable-family additions — same typed RT disclosure.
+	stampRunnableSelfBelowRTPreempted(rank.Items, stats.RunnableContext)
 	attributeOnChainResourceItemsToWakeupDependency(chain, rank.Items)
 	normalizeRootCauseCumulativeImpact(rank.Items)
 	normalizeRootCauseEffectiveImpact(rank.Items)
@@ -11491,12 +11497,81 @@ func rootCauseItemIsSemanticSpanWork(item RootCauseRankItem) bool {
 // comm — e.g. an untargeted window-stats rank) stamps nothing: absence never
 // guesses, and every row keeps competing exactly as before. Idempotent: the
 // enrich pass re-stamps the grown slice with the same target.
+//
+// SYM-2 (§24.17, 2026-07-08): the stamp stays FULL-population — it is the
+// identity FACT (身份事实, audit face). Only the tier consequence narrowed:
+// rootCauseItemIsTargetWaitSymptomType decides which stamped rows demote.
 func stampRootCauseRankAnalysisTargetSubject(items []RootCauseRankItem, target ThreadRef) {
 	if target.PID <= 0 && strings.TrimSpace(target.Comm) == "" {
 		return
 	}
 	for i := range items {
 		items[i].SubjectIsAnalysisTarget = sameThreadRef(items[i].Thread, target)
+	}
+}
+
+// rootCauseItemIsTargetWaitSymptomType is the SYM-2 (ledger §24.17, user
+// ruling 2026-07-08, revising the §24.13 裁定一 scope) typed 等待症状族 closed
+// set: the target's own row demotes to the symptom lane ONLY when its cause
+// token says the root cause lives at a counterpart/upstream — sleep-before-
+// wakeup family (sleep_wait / fragmented_sleep_wait / missing_wakeup),
+// binder wait-on-peer (binder_wait) and lock contention (blocking_span, the
+// self-held-lock opendir_78 form and the waiter form alike). The closed set is
+// the causal-token registry's OWN lane column (CausalLaneWakeupChain +
+// CausalLaneLockContention — single semantic source, §7.2.1 red line), never a
+// prose/substring heuristic. Everything else — the 自因可拆解族 (runnable /
+// running / IO / D-state and any other registered family) — keeps competing:
+// the target is itself an on-chain node (depth 0) and those states decompose
+// into actionable system causes (调度压力 / 算力供给 / IO阻塞 / D状态), not a
+// counterpart's behavior. Unregistered tokens compete (absence never demotes).
+func rootCauseItemIsTargetWaitSymptomType(item RootCauseRankItem) bool {
+	spec, ok := CausalTokenSpecFor(strings.TrimSpace(item.Type))
+	if !ok {
+		return false
+	}
+	switch spec.Lane {
+	case CausalLaneWakeupChain, CausalLaneLockContention:
+		return true
+	default:
+		return false
+	}
+}
+
+// stampRunnableSelfBelowRTPreempted mints the SYM-2 (§24.17 R2, 2026-07-08)
+// typed 「优先级低于RT」 disclosure on SELF runnable-family rank rows: the
+// target's own runnable wait re-enters the election as a 调度压力候选, and
+// when the typed scheduling data says the target's priority class is below RT
+// (Harmony ohos_cfs) while an RT-class competitor's running overlapped this
+// very wait on the same CPU, the display appends the disclosure tail. Every
+// input is a precise typed signal: the SubjectIsAnalysisTarget stamp, the
+// closed runnable token set, the RunnableContext priority class and the R5g
+// SameCPUTopRunning displacement-overlap roster (window-total background load
+// never participates). Non-Harmony flavors carry no RT class → nothing stamps
+// (absence never guesses). Display/wording input only; rank/score/sort lanes
+// never read the flag. Idempotent — the enrich pass re-stamps the grown slice.
+func stampRunnableSelfBelowRTPreempted(items []RootCauseRankItem, contexts []RunnableContextSummary) {
+	if len(contexts) == 0 {
+		return
+	}
+	for i := range items {
+		if !items[i].SubjectIsAnalysisTarget {
+			continue
+		}
+		switch strings.TrimSpace(items[i].Type) {
+		case "runnable_wait", "fragmented_runnable_wait", "scheduler_latency":
+		default:
+			continue
+		}
+		ctx, ok := runnableContextForThread(items[i].Thread, contexts)
+		if !ok || ctx.PriorityClass != "ohos_cfs" {
+			continue
+		}
+		for _, competitor := range ctx.SameCPUTopRunning {
+			if competitor.PriorityClass == "ohos_rt" && competitor.DurationMs > 0 {
+				items[i].RunnableBelowRTPreempted = true
+				break
+			}
+		}
 	}
 }
 
@@ -11537,9 +11612,9 @@ func assignRootCauseRanksAndTiers(items []RootCauseRankItem) {
 			}
 			continue
 		}
-		if items[i].SubjectIsAnalysisTarget {
+		if items[i].SubjectIsAnalysisTarget && rootCauseItemIsTargetWaitSymptomType(items[i]) {
 			// SYM (§24.13 裁定一, real_trace_campaign_20260705.md, 2026-07-08):
-			// the analysis target's OWN state rows are the symptom being
+			// the analysis target's OWN wait-symptom rows are the symptom being
 			// explained — same election-ladder transparency as the semantic
 			// compile-span arm above: the row neither takes a
 			// primary/secondary/tertiary slot nor shifts the slots of the
@@ -11549,13 +11624,25 @@ func assignRootCauseRanksAndTiers(items []RootCauseRankItem) {
 			// tier=primary and was crowned 主根因 for the target's own jank).
 			// Rank ordinals are untouched (榜位照发), the sort/Score lanes
 			// never read the flag, and the BackgroundRank counting above is
-			// untouched. Judged on typed SUBJECT identity only — the
-			// counterpart side of the same contention (subject != target,
-			// e.g. a peer's binder_wait row) keeps competing through the
-			// ladder below. A semantic compile span hosted ON the target
-			// thread keeps its deterministic_optimization identity (the arm
-			// above wins): an optimization point on the target's own thread
-			// stays actionable guidance, not a symptom.
+			// untouched. Judged on typed SUBJECT identity — the counterpart
+			// side of the same contention (subject != target, e.g. a peer's
+			// binder_wait row) keeps competing through the ladder below. A
+			// semantic compile span hosted ON the target thread keeps its
+			// deterministic_optimization identity (the arm above wins): an
+			// optimization point on the target's own thread stays actionable
+			// guidance, not a symptom.
+			//
+			// EVOLUTION RECORD (SYM-2, ledger §24.17, 2026-07-08): the arm
+			// narrowed from ALL stamped self rows to subject==target ∧
+			// 等待症状族 (rootCauseItemIsTargetWaitSymptomType — the registry
+			// wakeup_chain + lock_contention lanes). The 自因可拆解族 (self
+			// runnable / running / IO / D-state …) fell through to the normal
+			// ladder below: those rows take election slots, ride the
+			// co-primary promotion and may be crowned lead — the target's own
+			// scheduling pressure / compute-supply shortfall / IO block is an
+			// actionable system cause, not a counterpart symptom (cmp_78
+			// witness: both sides crowned the self binder wait while the
+			// decomposable self causes were locked out of the election).
 			items[i].Tier = RootCauseTierTargetSelfState
 			continue
 		}

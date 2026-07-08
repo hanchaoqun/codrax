@@ -1613,3 +1613,7 @@ UXA D#30 终稿取代 RN-12 verbatim 冻结面:"top 片段"→"其中最大片�
 ## §24.19 COV-2 批收账(2026-07-08,复核 SHIP-WITH-FIXES→四收尾已落)
 交付:V1 症状 cell 主导性闸(census 同源,两臂口径词齐,CWD 共识接入,异臂注 typed enum)+V2 四列窗基披露(背景列"窗基:"机制复用;供给列"占其查询窗X%";"链上已归因(单项最大)"列名正名)+V3 背景 cell 闭集回退臂(禁伪"—";复核 F1 修=值车道镜像 census(MergedMax/periodic 跳过)+口径词按 DisplayImpactSource 门,Σ 冒"单项最大"与"非跨线程累计"错标双 witness pin)+V4 D-4 ±10% 双侧同披露(%.1f;单工件面归 LAD §24.14补2)+V5 cmp_78 终形对标本原文逐格对账(链上列修正 65.232/92.346+fixture EvidenceID 撞号 bug 顺带抓获)。注洪泛最小合并(同 base 元组合一行+D-4 折一行多分句,全触发 8→6,≤6 pin;完整分层归 LAD)。11+演化 pin,8 突变咬红。
 **留账**:hop 臂"合计"vs union 口径(P3,需 tree.go 一行扩返回值,归后批);per-column row-exact 窗需新 tree.go 面(共识 lane 复用为 §21.1 刻意设计)。
+
+## §24.20 SYM-2 批收账(2026-07-08,复核 SHIP 零 FAIL)
+交付(§24.17 实施):降道谓词收窄=registry lane 推导闭集(WakeupChain∪LockContention 恰 5 token:sleep_wait/fragmented_sleep_wait/missing_wakeup/binder_wait/blocking_span;lane 活闸+token tripwire pin 双守护,新 token 入 lane 自动降道但必咬红强制对话);自因四态恢复参赛(runnable→调度压力候选·全额(§7.4 词表有意收敛,量纲注强制伴随)/running→算力供给候选·折算/IO→IO阻塞候选·全额/D-state→D状态候选 新族行(d_state_or_io_wait 按构造=D且无IO,不误标));"(优先级低于RT)"=RunnableBelowRTPreempted typed 字段(ohos_cfs 目标∧同CPU ohos_rt 竞争者∧R5g 位移重叠,Harmony-only,R2' 六处同步,6 负向 pin);盖章全量保留(身份事实)tier 只落等待族;三显示滤臂 key 在 tier 按构造同步。31+ pin,8/8 突变咬红(含复核自设两条均有既有看守)。cmp_78 修后形:自身 binder 仍不入榜,自身 runnable 加冕 lead+❶。
+**留账**:①SYM-3 候选=树形自因行 board 席(trunked 形自因行入 SelfRows 不入 board,显示加冕被排除;修向=board 改 tier 滤+❶ self-stanza 渲染+LEAD pin 冲击评估);②全自身零缺口 running 平铺形加冕 0-eff lead(新可达,与 eff≤0 旧语义一致);③tool Description 5-token 枚举无 lane pin(lane 演化手工同步);④加冕句是否携拆解成因词=措辞裁定候选。

@@ -1841,22 +1841,31 @@ const RootCauseTierDeterministicOptimization = "deterministic_optimization"
 
 // RootCauseTierTargetSelfState (SYM, ledger §24.13 裁定一, user ruling
 // 2026-07-08, real_trace_campaign_20260705.md): the independent Tier word for
-// rank rows whose SUBJECT thread is the analysis target itself (own binder
-// wait / self-held blocking_span / own sleep/runnable/running segments). In a
-// "why is the target stuck" question these rows are the SYMPTOM being
-// explained: they keep their rank-board ordinal (榜位照发) and every
-// score/weight/sort lane untouched, but are TRANSPARENT to the
-// primary/secondary/tertiary positional election and never ride the
-// co-primary lane — the deterministic_optimization precedent's ladder
-// mechanics applied to the self-symptom lane. Identity is the typed tid-first
-// subject==target match (SubjectIsAnalysisTarget), never a state-type or
-// label heuristic: the counterpart side of the same contention (subject !=
-// target) keeps competing unchanged. Wire token: verbatim in the typed tier
-// note / rank text face / root_cause_<tier> predicate — the
-// root_cause_primary prefix no longer matches, so the projection primary
-// bucket excludes self rows by construction (four witnesses: opendir_78 E1
-// self-held AssetManager lock rank#1 crowned 主根因, huadong_78 binder lead,
-// cmp_78_01 both sides binder rank#1→lead).
+// rank rows whose SUBJECT thread is the analysis target itself AND whose cause
+// token belongs to the 等待症状族 (own binder wait / self-held or waited
+// blocking_span / own sleep-before-wakeup segments). In a "why is the target
+// stuck" question these rows are the SYMPTOM being explained: they keep their
+// rank-board ordinal (榜位照发) and every score/weight/sort lane untouched,
+// but are TRANSPARENT to the primary/secondary/tertiary positional election
+// and never ride the co-primary lane — the deterministic_optimization
+// precedent's ladder mechanics applied to the self-symptom lane. Identity is
+// the typed tid-first subject==target match (SubjectIsAnalysisTarget) plus
+// the typed wait-family token closed set (rootCauseItemIsTargetWaitSymptomType
+// — registry wakeup_chain/lock_contention lanes), never a label heuristic:
+// the counterpart side of the same contention (subject != target) keeps
+// competing unchanged. Wire token: verbatim in the typed tier note / rank text
+// face / root_cause_<tier> predicate — the root_cause_primary prefix no longer
+// matches, so the projection primary bucket excludes self-symptom rows by
+// construction (four witnesses: opendir_78 E1 self-held AssetManager lock
+// rank#1 crowned 主根因, huadong_78 binder lead, cmp_78_01 both sides binder
+// rank#1→lead).
+//
+// EVOLUTION RECORD (SYM-2, ledger §24.17, 2026-07-08): scope narrowed from
+// every stamped self row to the 等待症状族 only — the 自因可拆解族 (self
+// runnable / running / IO / D-state) re-entered the election as decomposable
+// self causes (调度压力候选 / 算力供给候选 / IO阻塞候选 / D状态候选) and may
+// be crowned lead; the SubjectIsAnalysisTarget stamp itself stays
+// full-population (identity fact).
 const RootCauseTierTargetSelfState = "target_self_state"
 
 type RootCauseRankItem struct {
@@ -1976,6 +1985,17 @@ type RootCauseRankItem struct {
 	// competing. False when the rank ran without a resolved target (absence
 	// never guesses).
 	SubjectIsAnalysisTarget bool `json:"subject_is_analysis_target,omitempty"`
+	// RunnableBelowRTPreempted (SYM-2 §24.17 R2, 2026-07-08): typed scheduling
+	// disclosure on a SELF runnable-family row (subject==target, type ∈
+	// runnable_wait / fragmented_runnable_wait / scheduler_latency): the
+	// target's own priority class is below RT (Harmony ohos_cfs) while an
+	// RT-class competitor's running OVERLAPPED this runnable wait on the same
+	// CPU (RunnableContext SameCPUTopRunning displacement evidence — the R5g
+	// overlap set, never window-total background load). Display-only wording
+	// input (the 行2 「(优先级低于RT)」 tail); rank/score/sort lanes never read
+	// it. Only Harmony priority semantics can mint it — Android/generic raw
+	// priorities carry no RT class and stamp nothing (absence never guesses).
+	RunnableBelowRTPreempted bool `json:"runnable_below_rt_preempted,omitempty"`
 	// SubjectIsLockHolder (BLK §15.C, 2026-07-06): on a resolved blocking_span
 	// rank row the SUBJECT is the lock HOLDER and BlockingPeer is the blocked
 	// WAITER (the reverse of the waiter-subject critical_blocking row for the

@@ -380,6 +380,11 @@ func TestSYMDisclosurePeriodicSelfRowUsesDiscountedValue(t *testing.T) {
 
 // --- S2d: fold port — the typed tier travels with the rank ---------------------
 
+// NOTE (SYM-2 §24.17, 2026-07-08): the transplant is FAMILY-AGNOSTIC by design
+// — it ports whatever tier the engine minted, so the narrowing happened at the
+// mint (engine) and this pin keeps guarding the port mechanics. The inversion
+// token below no longer wears the self tier in production (自因族 competes);
+// the mechanics pin stays on the historical shape.
 func TestSYMFoldPortsSelfTierWithRank(t *testing.T) {
 	rankTwin := types.TraceCausalProjectionNode{
 		Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "e-rank",
