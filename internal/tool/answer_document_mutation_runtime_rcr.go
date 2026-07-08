@@ -531,10 +531,17 @@ func runtimeTraceProjInversionComponents(node types.TraceCausalProjectionNode, z
 		if !zh {
 			short, full = "discounted", "discounted, at the downstream consumer core"
 		}
+		marks := []runtimeTraceProjMark{runtimeTraceProjMarkCaliberConsumerCore}
+		// CAP (§26 C3): the discounted component's sub-row parenthesis carries
+		// the typed capability caliber (行3 keeps the short closed-set word).
+		full += runtimeTraceProjCapabilityCaliberSuffix(node.GatedCapabilitySource, zh)
+		if capMark, ok := runtimeTraceProjCapabilityCaliberMark(node.GatedCapabilitySource); ok {
+			marks = append(marks, capMark)
+		}
 		components = append(components, runtimeTraceProjAttributionComponent{
 			Word: "running", RawMS: raw, InMS: node.GatedRunningDeficitMS,
 			CaliberShort: short, CaliberFull: full,
-			Marks: []runtimeTraceProjMark{runtimeTraceProjMarkCaliberConsumerCore},
+			Marks: marks,
 		})
 	}
 	if len(components) == 0 {
@@ -760,6 +767,11 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 			// words wherever they reach the reader.
 			row.marks.mark(runtimeTraceProjMarkCaliberFull)
 			row.marks.mark(runtimeTraceProjMarkCaliberConsumerCore)
+			// CAP (§26 C3): the composition text's discounted component
+			// carries the capability disclosure — its legend follows.
+			if capMark, ok := runtimeTraceProjCapabilityCaliberMark(node.GatedCapabilitySource); ok && node.GatedRunningDeficitMS > 0 {
+				row.marks.mark(capMark)
+			}
 		}
 		// else fail-open: no balancing decomposition — the degenerate arm
 		// below may still fold the effective into 行2's tail (计入==原始);
@@ -774,12 +786,15 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		// → 计入 deficit[,下界 当 UnknownMS>0]. The legacy bare 有效归因X tag
 		// (opendir_78 E8 gap②) dies via ConsumedEffective; identity Σ计入==V
 		// holds by construction (single component, InMS == engine effective).
-		short := "折算,按大核满频"
+		// CAP 复核 F1: the basis word follows the actual reference cluster
+		// (byte-identical for the big-class basis).
+		refWord, _ := runtimeTraceProjFoldReferenceClusterWord(node.SupplyFoldReferenceClass, zh)
+		short := "折算,按" + refWord + "满频"
 		if !zh {
-			short = "discounted, at big-cluster fmax"
+			short = "discounted, at " + refWord + " fmax"
 		}
 		full := short
-		componentMarks := []runtimeTraceProjMark{runtimeTraceProjMarkCaliberBigCoreFmax}
+		componentMarks := []runtimeTraceProjMark{runtimeTraceProjFoldReferenceMark(node.SupplyFoldReferenceClass)}
 		if node.SupplyFoldUnknownMS > 0 {
 			if zh {
 				full += ",下界"
@@ -787,6 +802,12 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 				full += ", lower bound"
 			}
 			componentMarks = append(componentMarks, runtimeTraceProjMarkCaliberLowerBound)
+		}
+		// CAP (§26 C3): the sub-row parenthesis carries the fold's typed
+		// capability caliber (行3 keeps the short closed-set word).
+		full += runtimeTraceProjCapabilityCaliberSuffix(node.SupplyFoldCapabilitySource, zh)
+		if capMark, ok := runtimeTraceProjCapabilityCaliberMark(node.SupplyFoldCapabilitySource); ok {
+			componentMarks = append(componentMarks, capMark)
 		}
 		components := []runtimeTraceProjAttributionComponent{{
 			Word: "running", RawMS: runtimeTraceProjSupplyFoldRunningMS(node), InMS: effective,
@@ -885,10 +906,15 @@ func runtimeTraceProjInversionSupplyFoldDetailLine(node types.TraceCausalProject
 	if raw <= 0 {
 		return ""
 	}
+	// CAP (§26 C3): the caliber parenthesis carries the fold's typed
+	// capability disclosure. 复核 F1: the basis word follows the actual
+	// reference cluster.
+	capSuffix := runtimeTraceProjCapabilityCaliberSuffix(node.SupplyFoldCapabilitySource, zh)
+	refWord, _ := runtimeTraceProjFoldReferenceClusterWord(node.SupplyFoldReferenceClass, zh)
 	if zh {
-		return fmt.Sprintf("running 原始 %s → 供给折算缺口 %s(折算,按大核满频,下界;独立口径,不计入有效归因)",
-			runtimeTraceProjFmtMS(raw), runtimeTraceProjFmtMS(node.SupplyFoldDeficitMS))
+		return fmt.Sprintf("running 原始 %s → 供给折算缺口 %s(折算,按%s满频,下界%s;独立口径,不计入有效归因)",
+			runtimeTraceProjFmtMS(raw), runtimeTraceProjFmtMS(node.SupplyFoldDeficitMS), refWord, capSuffix)
 	}
-	return fmt.Sprintf("running raw %s → supply-fold deficit %s (discounted at big-cluster fmax, lower bound; independent caliber, not counted into attribution)",
-		runtimeTraceProjFmtMS(raw), runtimeTraceProjFmtMS(node.SupplyFoldDeficitMS))
+	return fmt.Sprintf("running raw %s → supply-fold deficit %s (discounted at %s fmax, lower bound%s; independent caliber, not counted into attribution)",
+		runtimeTraceProjFmtMS(raw), runtimeTraceProjFmtMS(node.SupplyFoldDeficitMS), refWord, capSuffix)
 }

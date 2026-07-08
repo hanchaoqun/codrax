@@ -49,6 +49,18 @@ var wordingLaneRules = []wordingLaneRule{
 			"answer_document_mutation_runtime_rcr.go::runtimeTraceProjImpactFormSpecs":         true, // PTV8-RCR-A §24.1/§24.3: 算力供给候选 category family word (delivery lane, user-ruled 类别词族; single-source form table)
 			"answer_document_mutation_runtime.go::runtimeTraceProjCompareOverviewBlocks":       true, // compare-overview 算力供给(归一化) column header (PTV8-LAD L6: builder renamed to the plural form, same delivery-lane strings)
 			"trace_query.go::writeTraceComputeSupplyBalance":                                   true, // compute_supply_balance(算力供给) delivery stanza
+			// CAP (§26 C3, real_trace_campaign_20260705.md, 2026-07-08 —
+			// §7.4/§7.5 re-read): the capability disclosure words (按默认算力比
+			// 粗算 / 核类算力差…) price the DELIVERY-side running folds — the
+			// VS-2 supply fold and the R5d discounted running component
+			// (supply_fold_deficit is a ComputeDelivery-lane token), squarely
+			// the lane §7.4 reserves 算力 for. Single sources: the clause
+			// helper + its legend seats in the catalog.
+			"answer_document_mutation_runtime_supplyfold.go::runtimeTraceProjCapabilityCaliberClause": true,
+			"answer_document_mutation_runtime_tree.go::runtimeTraceProjLegendCatalog":                 true,
+			// …and the wrap-atom registration of the same word (LAD L5 table —
+			// display-wrap boundary only, no new wording surface).
+			"answer_document_mutation_runtime_tree.go::(package-level)": true,
 		},
 	},
 	{

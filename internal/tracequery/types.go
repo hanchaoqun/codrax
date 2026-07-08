@@ -1909,9 +1909,12 @@ type RootCauseRankItem struct {
 	EffectiveImpactMs  float64                    `json:"effective_impact_ms,omitempty"`
 	// GatedRunnableMs / GatedRunningDeficitMs mirror the R5d gated-impact
 	// composition for priority_inversion_candidate rows (§7.30.3 D3); zero on
-	// every other row type.
+	// every other row type. GatedCapabilitySource (CAP §26 C3) mirrors the
+	// backing impact/aggregate's typed capability caliber for the discounted
+	// running component (CoreCapabilitySource* tokens; wording input only).
 	GatedRunnableMs       float64 `json:"gated_runnable_ms,omitempty"`
 	GatedRunningDeficitMs float64 `json:"gated_running_deficit_ms,omitempty"`
+	GatedCapabilitySource string  `json:"gated_capability_source,omitempty"`
 	// PeriodicSource / DetectedPeriodMs / LatenessMs mirror the VS-1 (§7.8)
 	// periodic-signal-source accounting of the backing causal impact/aggregate.
 	// On a periodic row EffectiveImpactMs carries the discounted attribution
@@ -2717,8 +2720,12 @@ type WakeupCausalImpact struct {
 	// capacity-proportional weak-core running deficit. Their sum IS
 	// PriorityInversionGatedMs, so renderers can show the composition instead
 	// of claiming a single scheduler state for the composite.
+	// GatedCapabilitySource (CAP §26 C3): typed capability caliber of the
+	// discounted running component (CoreCapabilitySource* tokens) — set iff
+	// GatedRunningDeficitMs > 0; wording input only, no gate reads it.
 	GatedRunnableMs       float64 `json:"gated_runnable_ms,omitempty"`
 	GatedRunningDeficitMs float64 `json:"gated_running_deficit_ms,omitempty"`
+	GatedCapabilitySource string  `json:"gated_capability_source,omitempty"`
 	// VS-1 (§7.8, customer ruling): periodic-signal-source causal accounting.
 	// A periodic waker (e.g. a VSync generator) sleeping between its ticks is
 	// normal cadence, not root-cause impact. PeriodicSource is stamped on the
@@ -2863,11 +2870,16 @@ type WakeupCausalAggregate struct {
 	// same interval, so the value honestly degrades to the member MAX (a
 	// lower bound). GatedAggregationCaliber says which caliber was used
 	// (GatedCaliber* constants); empty when no member carried a gated value.
-	PriorityInversionGatedMs float64                  `json:"priority_inversion_gated_ms,omitempty"`
-	GatedRunnableMs          float64                  `json:"gated_runnable_ms,omitempty"`
-	GatedRunningDeficitMs    float64                  `json:"gated_running_deficit_ms,omitempty"`
-	GatedAggregationCaliber  string                   `json:"gated_aggregation_caliber,omitempty"`
-	OccurrenceWindows        []WakeupCausalOccurrence `json:"occurrence_windows,omitempty"`
+	PriorityInversionGatedMs float64 `json:"priority_inversion_gated_ms,omitempty"`
+	GatedRunnableMs          float64 `json:"gated_runnable_ms,omitempty"`
+	GatedRunningDeficitMs    float64 `json:"gated_running_deficit_ms,omitempty"`
+	GatedAggregationCaliber  string  `json:"gated_aggregation_caliber,omitempty"`
+	// GatedCapabilitySource (CAP §26 C3): typed capability caliber of the
+	// members' discounted running components (one query resolves ONE
+	// capability judgment, so members never disagree); set iff
+	// GatedRunningDeficitMs > 0.
+	GatedCapabilitySource string                   `json:"gated_capability_source,omitempty"`
+	OccurrenceWindows     []WakeupCausalOccurrence `json:"occurrence_windows,omitempty"`
 	// VS-1 (§7.8): periodic-signal-source accounting, aggregate face — see the
 	// WakeupCausalImpact field docs. LatenessMs here is the SUM of the member
 	// occurrences' blocked-caliber lateness amounts, capped at raw blocking −

@@ -8010,6 +8010,19 @@ func aggregateWakeupCausalImpacts(chain *ChainResult) []WakeupCausalAggregate {
 			if a.item.SupplyFoldBasis.ClusterFreqReuseSource == "" {
 				a.item.SupplyFoldBasis.ClusterFreqReuseSource = impact.SupplyFoldBasis.ClusterFreqReuseSource
 			}
+			// CAP (§26 C3): the capability caliber rides along — one query
+			// resolves ONE capability judgment, so members are uniform;
+			// first wins (same rule as the CFR-2 source token above).
+			// 复核 F1: the reference class travels the same way (members share
+			// one governance-window reference per query window; mixed-window
+			// aggregates keep the first member's disclosure — same honesty
+			// bound as the zeroed fmax above).
+			if a.item.SupplyFoldBasis.CapabilitySource == "" {
+				a.item.SupplyFoldBasis.CapabilitySource = impact.SupplyFoldBasis.CapabilitySource
+			}
+			if a.item.SupplyFoldBasis.ReferenceClass == "" {
+				a.item.SupplyFoldBasis.ReferenceClass = impact.SupplyFoldBasis.ReferenceClass
+			}
 		}
 		a.item.OccurrenceWindows = append(a.item.OccurrenceWindows, wakeupCausalOccurrenceFromImpact(impact))
 	}
@@ -8081,10 +8094,11 @@ func aggregateWakeupCausalImpacts(chain *ChainResult) []WakeupCausalAggregate {
 // degrades to MAX.
 func applyAggregateGatedInversion(chain *ChainResult, item *WakeupCausalAggregate, members []int) {
 	type gatedMember struct {
-		window   TimeWindow
-		total    float64
-		runnable float64
-		deficit  float64
+		window     TimeWindow
+		total      float64
+		runnable   float64
+		deficit    float64
+		capability string
 	}
 	var gated []gatedMember
 	for _, idx := range members {
@@ -8096,10 +8110,11 @@ func applyAggregateGatedInversion(chain *ChainResult, item *WakeupCausalAggregat
 			continue
 		}
 		gated = append(gated, gatedMember{
-			window:   impact.Window,
-			total:    impact.PriorityInversionGatedMs,
-			runnable: impact.GatedRunnableMs,
-			deficit:  impact.GatedRunningDeficitMs,
+			window:     impact.Window,
+			total:      impact.PriorityInversionGatedMs,
+			runnable:   impact.GatedRunnableMs,
+			deficit:    impact.GatedRunningDeficitMs,
+			capability: impact.GatedCapabilitySource,
 		})
 	}
 	if len(gated) == 0 {
@@ -8122,6 +8137,11 @@ func applyAggregateGatedInversion(chain *ChainResult, item *WakeupCausalAggregat
 		for _, member := range gated {
 			item.GatedRunnableMs += member.runnable
 			item.GatedRunningDeficitMs += member.deficit
+			// CAP (§26 C3): members share one per-query capability judgment;
+			// first non-empty wins.
+			if item.GatedCapabilitySource == "" {
+				item.GatedCapabilitySource = member.capability
+			}
 		}
 		// F4 (§20.2 absorption, RCX² F2 same family): the total is derived
 		// from the summed components — never a parallel Σ of member totals,
@@ -8141,6 +8161,7 @@ func applyAggregateGatedInversion(chain *ChainResult, item *WakeupCausalAggregat
 	item.PriorityInversionGatedMs = strongest.total
 	item.GatedRunnableMs = strongest.runnable
 	item.GatedRunningDeficitMs = strongest.deficit
+	item.GatedCapabilitySource = strongest.capability
 	item.GatedAggregationCaliber = GatedCaliberMaxOverlapFallback
 }
 
@@ -10331,6 +10352,7 @@ func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem 
 		// renderer can split it instead of claiming a single state.
 		item.GatedRunnableMs = impact.GatedRunnableMs
 		item.GatedRunningDeficitMs = impact.GatedRunningDeficitMs
+		item.GatedCapabilitySource = impact.GatedCapabilitySource
 	} else if impact.DominantState == string(StateRunning) {
 		// §20.2 (2026-07-07, overturns §20.1甲 side clause — EVOLUTION): the
 		// merged non-inversion RUNNING row's ATTRIBUTION channels (effective /
@@ -10431,6 +10453,7 @@ func rootCauseItemFromCausalAggregate(aggregate WakeupCausalAggregate) RootCause
 		// §7.30.3 D3 mirror: composition travels with the row.
 		item.GatedRunnableMs = aggregate.GatedRunnableMs
 		item.GatedRunningDeficitMs = aggregate.GatedRunningDeficitMs
+		item.GatedCapabilitySource = aggregate.GatedCapabilitySource
 	} else if !aggregate.PriorityInversion && aggregate.DominantState == string(StateRunning) {
 		// §20.2 mirror (2026-07-07, overturns §20.1甲 side clause): a
 		// non-inversion running-dominant aggregate's attribution channels
@@ -13993,6 +14016,11 @@ type chainQueryCache struct {
 	// per RUNNING interval was O(intervals × pid-events) and hung on
 	// GB-scale traces.
 	switchInByPID map[int][]cpuSample
+	// capabilityByTopo memoizes the CAP (§26) core-class capability judgment
+	// per core_topology input (core_capability.go coreCapability) — one
+	// cluster resolution per query, shared by the VS-2 fold and the R5d
+	// weak-core gate.
+	capabilityByTopo map[string]coreCapabilityMap
 }
 
 type cpuSample struct {
@@ -14467,8 +14495,16 @@ func summarizeWakeupCausalImpact(idx *Index, q Query, cache *chainQueryCache, th
 	if len(gateConsumers) == 0 && thread.PID != target.PID {
 		gateConsumers = []ThreadRef{target}
 	}
-	item.GatedRunnableMs, item.GatedRunningDeficitMs = priorityInversionGatedMs(cache, gateConsumers, intervals)
+	// CAP (§26): one memoized capability resolution serves both running folds
+	// (R5d weak-core gate here, VS-2 supply fold below).
+	capability := cache.coreCapability(q.CoreTopology)
+	item.GatedRunnableMs, item.GatedRunningDeficitMs = priorityInversionGatedMs(cache, capability, gateConsumers, intervals)
 	item.PriorityInversionGatedMs = item.GatedRunnableMs + item.GatedRunningDeficitMs
+	if item.GatedRunningDeficitMs > 0 {
+		// CAP (§26 C3): the discounted running component discloses its
+		// capability caliber (typed three-state; wording input only).
+		item.GatedCapabilitySource = capability.source
+	}
 	// R5d (§7.30.1): the inversion flag and its published impact key on the
 	// GATED duration only — runnable time plus weak-core running time of the
 	// dependency. Its own sleep/D/IO time never qualifies: that is the
@@ -14533,8 +14569,8 @@ func dominantCausalImpactState(item WakeupCausalImpact) (string, float64) {
 // priorityInversionGatedMs computes the R5d-gated inversion impact from the
 // dependency thread's state intervals: RUNNABLE intervals count in full;
 // RUNNING intervals count only when the dependency ran on a CPU whose
-// frequency at that moment was below the frequency of ANY downstream chain
-// consumer's CPU — the immediate wakee and every hop back to the focus
+// equivalent capacity at that moment was below the capacity of ANY downstream
+// chain consumer's CPU — the immediate wakee and every hop back to the focus
 // thread (§7.30.1 rule 2: "被唤醒线程或者逐级回溯到用户关注线程任意一个").
 // Frequency is sampled at the interval midpoint, so a DVFS ramp inside one
 // interval attributes the whole interval to the midpoint state. Missing data
@@ -14544,7 +14580,11 @@ func dominantCausalImpactState(item WakeupCausalImpact) (string, float64) {
 // §7.30.3 D3: the two components return SEPARATELY (runnable full amount vs
 // capacity-discounted weak-core running deficit) so the published composite
 // can show its composition; the gated total is their sum.
-func priorityInversionGatedMs(cache *chainQueryCache, consumers []ThreadRef, intervals []Interval) (runnableMs, runningDeficitMs float64) {
+//
+// CAP (§26): capacity = frequency × class capability (core_capability.go);
+// under freq_only fallback every coefficient is 1 and the comparison is the
+// pre-CAP pure frequency ratio.
+func priorityInversionGatedMs(cache *chainQueryCache, capability coreCapabilityMap, consumers []ThreadRef, intervals []Interval) (runnableMs, runningDeficitMs float64) {
 	if cache == nil || len(consumers) == 0 {
 		return 0, 0
 	}
@@ -14559,7 +14599,7 @@ func priorityInversionGatedMs(cache *chainQueryCache, consumers []ThreadRef, int
 			if !it.CPUKnown {
 				continue
 			}
-			runningDeficitMs += cache.weakCoreDeficitMs(consumers, it)
+			runningDeficitMs += cache.weakCoreDeficitMs(capability, consumers, it)
 		}
 	}
 	return runnableMs, runningDeficitMs
@@ -14571,13 +14611,25 @@ func priorityInversionGatedMs(cache *chainQueryCache, consumers []ThreadRef, int
 // must be honored segment by segment, never one sample for the whole
 // interval), and each slice contributes
 //
-//	sliceMs × max(0, 1 − f_waker/f_consumerMax)
+//	sliceMs × max(0, 1 − (f_waker × cap_waker) / (f_consumerMax × cap_consumer))
 //
 // — the EXTRA time the same work would not have needed on the strongest known
-// downstream consumer core. Counting the whole running slice would inflate
-// the inversion exactly like counting whole sleeps did (§7.30.2 R5d-2).
-// Slices with unknown waker or consumer supply contribute zero.
-func (c *chainQueryCache) weakCoreDeficitMs(consumers []ThreadRef, it Interval) float64 {
+// downstream consumer core, priced in equivalent capacity (CAP §26:
+// cap = the CPU's core-class capability coefficient, 1 under the freq_only
+// fallback — the pre-CAP pure frequency comparison). The strongest consumer is
+// the one with the highest f × cap product. Counting the whole running slice
+// would inflate the inversion exactly like counting whole sleeps did (§7.30.2
+// R5d-2). Slices with unknown waker or consumer supply contribute zero.
+//
+// 复核 F2 (2026-07-08): under a usable capability map, UNKNOWN class
+// membership on EITHER participating side degrades the whole slice to the
+// PURE frequency comparison on BOTH sides. A silent cap=1 on the waker side
+// alone is the AGGRESSIVE direction — an explicit topology that failed to
+// declare the fastest core would understate that waker's equivalent capacity
+// and mint deficit against a slower-but-declared big consumer (witness:
+// 9.988ms fabricated vs a true 0), violating "missing data contributes zero,
+// never a guess".
+func (c *chainQueryCache) weakCoreDeficitMs(capability coreCapabilityMap, consumers []ThreadRef, it Interval) float64 {
 	c.buildFreqIndex()
 	boundaries := []float64{it.StartTs}
 	for _, sample := range c.freqByCPU[it.CPU] {
@@ -14597,20 +14649,46 @@ func (c *chainQueryCache) weakCoreDeficitMs(consumers []ThreadRef, it Interval) 
 		if wakerFreq <= 0 {
 			continue
 		}
-		maxConsumerFreq := 0
+		type consumerSupply struct {
+			freq float64
+			cap  float64
+		}
+		wakerCap, classKnown := capability.capabilityForKnown(it.CPU)
+		var supplies []consumerSupply
 		for _, consumer := range consumers {
 			cpu, ok := c.threadCPUNear(consumer, mid)
 			if !ok {
 				continue
 			}
-			if f := c.frequencyAt(cpu, mid); f > maxConsumerFreq {
-				maxConsumerFreq = f
+			f := c.frequencyAt(cpu, mid)
+			if f <= 0 {
+				continue
+			}
+			cap, known := capability.capabilityForKnown(cpu)
+			classKnown = classKnown && known
+			supplies = append(supplies, consumerSupply{freq: float64(f), cap: cap})
+		}
+		// 复核 F2: class pricing engages only when EVERY participating side's
+		// membership is known (a freq_only map degrades wholesale by
+		// construction — capabilityForKnown is then never true).
+		wakerEquiv := float64(wakerFreq)
+		if classKnown {
+			wakerEquiv *= wakerCap
+		}
+		maxConsumerEquiv := 0.0
+		for _, supply := range supplies {
+			equiv := supply.freq
+			if classKnown {
+				equiv *= supply.cap
+			}
+			if equiv > maxConsumerEquiv {
+				maxConsumerEquiv = equiv
 			}
 		}
-		if maxConsumerFreq <= 0 || wakerFreq >= maxConsumerFreq {
+		if maxConsumerEquiv <= 0 || wakerEquiv >= maxConsumerEquiv {
 			continue
 		}
-		deficit += (s1 - s0) * 1000 * (1 - float64(wakerFreq)/float64(maxConsumerFreq))
+		deficit += (s1 - s0) * 1000 * (1 - wakerEquiv/maxConsumerEquiv)
 	}
 	return deficit
 }

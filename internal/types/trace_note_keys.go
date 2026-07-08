@@ -273,6 +273,17 @@ const (
 	// whose frequency was reused from a same-cluster sampled core under
 	// explicit topology (SupplyFoldBasis.ClusterFreqReuse roster).
 	TraceNoteKeyFoldClusterFreqReuse = "fold_cluster_freq_reuse"
+	// TraceNoteKeyFoldCapability (CAP §26 C3): typed three-state capability
+	// caliber of the fold (default_table / evidence_table / freq_only) — the
+	// display keys the "按默认算力比粗算" / "簇结构不可判,按纯频率比折算"
+	// disclosures on this token, never on re-derived heuristics.
+	TraceNoteKeyFoldCapability = "fold_capability"
+	// TraceNoteKeyFoldReferenceClass (CAP 复核 F1, 2026-07-08): the capability
+	// class of the fold's SAME-CLUSTER (fmax, cap) reference. Emitted ONLY
+	// when the reference demoted away from the §26-nominated big class
+	// (small/middle/prime) — absence means the big-class basis, so the legacy
+	// 按大核满频 wording stands byte-identically on every undemoted record.
+	TraceNoteKeyFoldReferenceClass = "fold_reference_class"
 )
 
 // 占用族 (runnable-occupancy family, RN-1 §7.9) + CMP-9 density.
@@ -353,6 +364,9 @@ const (
 const (
 	TraceNoteKeyGatedRunnable       = "gated_runnable"
 	TraceNoteKeyGatedRunningDeficit = "gated_running_deficit"
+	// TraceNoteKeyGatedCapability (CAP §26 C3): typed capability caliber of
+	// the discounted running component (same token set as fold_capability).
+	TraceNoteKeyGatedCapability = "gated_capability"
 	// TraceNoteKeyPriorityInversionCandidate (PTV5 Q4, #68 用户裁定 2026-07-05):
 	// promoted from a display-only literal to a consumer-parsed key — the
 	// projection compile reads it into the typed
@@ -548,6 +562,12 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyFoldFmaxFinding, "supply_fold", TraceNoteCarrierDisplayOnly},
 	{TraceNoteKeyFoldClusterLaneCaveat, "supply_fold", TraceNoteCarrierDisplayOnly},
 	{TraceNoteKeyFoldClusterFreqReuse, "supply_fold", TraceNoteCarrierDisplayOnly},
+	// fold_capability (CAP §26 C3): typed node-field read-in — the projection
+	// wording forks (按默认算力比粗算 / 簇结构不可判) key on it.
+	{TraceNoteKeyFoldCapability, "supply_fold", TraceNoteCarrierHardConsumer},
+	// fold_reference_class (CAP 复核 F1): typed node-field read-in — the
+	// 按X核满频 basis wording keys on it (absence = big).
+	{TraceNoteKeyFoldReferenceClass, "supply_fold", TraceNoteCarrierHardConsumer},
 
 	// 占用族 (RN-1) + CMP-9 density.
 	{TraceNoteKeyStarvedRunnableMS, "occupancy", TraceNoteCarrierDisplayOnly},
@@ -636,6 +656,9 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// 门控族 (D3).
 	{TraceNoteKeyGatedRunnable, "gating", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyGatedRunningDeficit, "gating", TraceNoteCarrierHardConsumer},
+	// gated_capability (CAP §26 C3): typed node-field read-in — the R5d
+	// 折算,按下游消费核 caliber's capability disclosure keys on it.
+	{TraceNoteKeyGatedCapability, "gating", TraceNoteCarrierHardConsumer},
 	{"priority_inversion_gated", "gating", TraceNoteCarrierDisplayOnly},
 	// gated_aggregation_caliber (P0-E §20 E-Gap② / F3 absorption, 2026-07-07):
 	// WHICH ruler produced an inversion-typed aggregate's gated total —

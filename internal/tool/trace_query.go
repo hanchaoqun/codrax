@@ -5107,6 +5107,8 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// the projection can split the composite impact.
 				{types.TraceNoteKeyGatedRunnable, traceQueryObservationMSValue(item.GatedRunnableMs)},
 				{types.TraceNoteKeyGatedRunningDeficit, traceQueryObservationMSValue(item.GatedRunningDeficitMs)},
+				// CAP (§26 C3): the discounted component's capability caliber.
+				{types.TraceNoteKeyGatedCapability, item.GatedCapabilitySource},
 				// §20 E-Gap⑤ (P0-E engine half, 2026-07-07): the gated TOTAL
 				// rides the rank row's own note face under the SAME registered
 				// key the wakeup_causal_impact face already publishes — single
@@ -5761,6 +5763,8 @@ func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) 
 		// amount + capacity-discounted weak-core running deficit).
 		{types.TraceNoteKeyGatedRunnable, traceQueryObservationMSValue(impact.GatedRunnableMs)},
 		{types.TraceNoteKeyGatedRunningDeficit, traceQueryObservationMSValue(impact.GatedRunningDeficitMs)},
+		// CAP (§26 C3): the discounted component's capability caliber.
+		{types.TraceNoteKeyGatedCapability, impact.GatedCapabilitySource},
 		{types.TraceNoteKeyRecommendedViews, strings.Join(views, ",")},
 		{types.TraceNoteKeyChainRequired, traceQueryTypedBool(impact.OnChain && traceQueryCausalImpactNeedsChain(impact.DominantState))},
 		{types.TraceNoteKeyRecursive, traceQueryTypedBool(impact.OnChain && traceQueryCausalImpactRecursive(impact.DominantState))},
@@ -5834,6 +5838,18 @@ func traceQueryTypedSupplyFoldRichNotes(basis *tracequery.SupplyFoldBasis, defic
 		fmt.Sprintf("%s=%.3f", types.TraceNoteKeySupplyFoldDeficitMS, deficitMs),
 		fmt.Sprintf("%s=%.3f", types.TraceNoteKeySupplyFoldIdealMS, idealMs),
 		fmt.Sprintf("%s=known=%.3fms,unknown=%.3fms", types.TraceNoteKeyFoldBasis, basis.KnownMs, basis.UnknownMs),
+	}
+	// CAP (§26 C3): the fold's typed capability caliber — default_table /
+	// evidence_table / freq_only. Empty only on pre-CAP aggregates re-serialized
+	// from stored fixtures; the engine always stamps it when the fold runs.
+	if basis.CapabilitySource != "" {
+		notes = append(notes, fmt.Sprintf("%s=%s", types.TraceNoteKeyFoldCapability, basis.CapabilitySource))
+	}
+	// CAP 复核 F1: the demoted basis class — emitted ONLY when the reference
+	// moved off the nominated big class, so every undemoted record's notes
+	// stay byte-identical and absence precisely means the big-class basis.
+	if basis.ReferenceClass != "" && basis.ReferenceClass != "big" {
+		notes = append(notes, fmt.Sprintf("%s=%s", types.TraceNoteKeyFoldReferenceClass, basis.ReferenceClass))
 	}
 	// VS-2b (§7.10): fmax ladder provenance — limits (policy authority) vs
 	// observed governance fallback. Zero on aggregates (mixed member windows
@@ -5987,6 +6003,8 @@ func traceQueryTypedCausalAggregateRichNotes(aggregate tracequery.WakeupCausalAg
 			// applyAggregateGatedInversion holds the argument).
 			{types.TraceNoteKeyGatedRunnable, traceQueryObservationMSValue(aggregate.GatedRunnableMs)},
 			{types.TraceNoteKeyGatedRunningDeficit, traceQueryObservationMSValue(aggregate.GatedRunningDeficitMs)},
+			// CAP (§26 C3): the discounted component's capability caliber.
+			{types.TraceNoteKeyGatedCapability, aggregate.GatedCapabilitySource},
 			{"priority_inversion_gated", traceQueryObservationMSValue(aggregate.PriorityInversionGatedMs)},
 			// F3 (§20.2 absorption): the aggregation caliber is disclosed as
 			// a typed note so P0-A can parse WHICH ruler produced the gated

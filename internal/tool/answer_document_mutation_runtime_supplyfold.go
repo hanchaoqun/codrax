@@ -44,6 +44,123 @@ const (
 	runtimeTraceProjSupplyFoldDeficitFloorMs = 1.0
 )
 
+// CAP (§26 C3) capability-source wire tokens — byte-identical mirrors of
+// tracequery's CoreCapabilitySource* constants (core_capability.go; equality
+// pinned cross-package in the CAP display tests). The display layer keys the
+// disclosure wording on these EXACT tokens, never on re-derived heuristics.
+const (
+	runtimeTraceCapabilitySourceDefault  = "default_table"
+	runtimeTraceCapabilitySourceEvidence = "evidence_table"
+	runtimeTraceCapabilitySourceFreqOnly = "freq_only"
+)
+
+// runtimeTraceProjCapabilityCaliberClause maps a typed capability-source token
+// to its inline disclosure words (CAP §26 C3 三态披露):
+//
+//	default_table  → 按默认算力比粗算 (the §26 default ratio table priced the
+//	                 fold — coarse, not a vendor-measured capability table);
+//	freq_only      → 簇结构不可判,按纯频率比折算 (fail-loud fallback: the
+//	                 class gap is NOT priced);
+//	evidence_table → 按实测算力表折算 (reserved — no evidence channel yet);
+//	""             → "" (pre-CAP record: no claim, legacy wording preserved).
+//
+// Callers place the clause inside their own parenthesis/punctuation; the words
+// themselves are the closed extension set the §26 ruling added to the §24.1
+// caliber vocabulary, each backed by a legend entry
+// (runtimeTraceProjMarkCaliberDefaultCapability / …FreqOnlyCapability).
+func runtimeTraceProjCapabilityCaliberClause(source string, zh bool) string {
+	switch source {
+	case runtimeTraceCapabilitySourceDefault:
+		if zh {
+			return "按默认算力比粗算"
+		}
+		return "default capability-ratio estimate"
+	case runtimeTraceCapabilitySourceEvidence:
+		if zh {
+			return "按实测算力表折算"
+		}
+		return "measured capability table"
+	case runtimeTraceCapabilitySourceFreqOnly:
+		if zh {
+			return "簇结构不可判,按纯频率比折算"
+		}
+		return "cluster structure unjudged, frequency-ratio fold only"
+	default:
+		return ""
+	}
+}
+
+// runtimeTraceProjCapabilityCaliberSuffix is the joined form for insertion at
+// the tail of an existing caliber parenthesis: ",<clause>" (zh) / ", <clause>"
+// (EN); "" for no claim.
+func runtimeTraceProjCapabilityCaliberSuffix(source string, zh bool) string {
+	clause := runtimeTraceProjCapabilityCaliberClause(source, zh)
+	if clause == "" {
+		return ""
+	}
+	if zh {
+		return "," + clause
+	}
+	return ", " + clause
+}
+
+// runtimeTraceProjCapabilityCaliberMark returns the legend mark backing the
+// clause (ok=false for no claim). The evidence form teaches through the
+// default-capability seat's neighbour — it names its own table source inline
+// and needs no ratio-table legend, so it maps to no mark until the evidence
+// channel lands with its own wording ruling.
+func runtimeTraceProjCapabilityCaliberMark(source string) (runtimeTraceProjMark, bool) {
+	switch source {
+	case runtimeTraceCapabilitySourceDefault:
+		return runtimeTraceProjMarkCaliberDefaultCapability, true
+	case runtimeTraceCapabilitySourceFreqOnly:
+		return runtimeTraceProjMarkCaliberFreqOnlyCapability, true
+	default:
+		return 0, false
+	}
+}
+
+// runtimeTraceProjFoldReferenceClusterWord (CAP 复核 F1 判词随实际基准簇) maps
+// the typed demoted-reference class token to the basis-cluster word. Empty /
+// "big" / any unrecognized token (the producer mints exactly small/middle/
+// prime on demotion) keep the legacy 大核 basis word — absence means the
+// nominated big-class basis, never a guess.
+func runtimeTraceProjFoldReferenceClusterWord(refClass string, zh bool) (string, bool) {
+	switch refClass {
+	case "small":
+		if zh {
+			return "小核", true
+		}
+		return "small-cluster", true
+	case "middle":
+		if zh {
+			return "中核", true
+		}
+		return "middle-cluster", true
+	case "prime":
+		if zh {
+			return "超大核", true
+		}
+		return "prime-cluster", true
+	default:
+		if zh {
+			return "大核", false
+		}
+		return "big-cluster", false
+	}
+}
+
+// runtimeTraceProjFoldReferenceMark picks the caliber legend seat for the
+// fold-basis word: the legacy 按大核满频折算 entry for the big-class basis,
+// the demoted-reference entry otherwise (its legend explains the same-cluster
+// demotion the class word signals).
+func runtimeTraceProjFoldReferenceMark(refClass string) runtimeTraceProjMark {
+	if _, demoted := runtimeTraceProjFoldReferenceClusterWord(refClass, true); demoted {
+		return runtimeTraceProjMarkCaliberReferenceClusterFmax
+	}
+	return runtimeTraceProjMarkCaliberBigCoreFmax
+}
+
 // runtimeTraceProjSupplyFoldVerdict is the typed four-branch outcome.
 type runtimeTraceProjSupplyFoldVerdict int
 
@@ -132,10 +249,13 @@ func runtimeTraceProjSupplyFoldVerdictFor(node types.TraceCausalProjectionNode, 
 // the FAIL-OPEN lossless mirror only (detail block 有效归因构成 when the 行3
 // identity Σ计入==V cannot balance and therefore refuses to render).
 func runtimeTraceProjInversionCompositionText(node types.TraceCausalProjectionNode, zh bool) string {
+	// CAP (§26 C3): the discounted running component discloses its capability
+	// caliber (the runnable component is counted in full — no fold, no claim).
+	capSuffix := runtimeTraceProjCapabilityCaliberSuffix(node.GatedCapabilitySource, zh)
 	if zh {
-		return fmt.Sprintf("runnable %.3fms(全额)+ running 折算 %.3fms(按下游消费核折算)", node.GatedRunnableMS, node.GatedRunningDeficitMS)
+		return fmt.Sprintf("runnable %.3fms(全额)+ running 折算 %.3fms(按下游消费核折算%s)", node.GatedRunnableMS, node.GatedRunningDeficitMS, capSuffix)
 	}
-	return fmt.Sprintf("runnable %.3fms (in full) + discounted running %.3fms (folded at the downstream consumer core)", node.GatedRunnableMS, node.GatedRunningDeficitMS)
+	return fmt.Sprintf("runnable %.3fms (in full) + discounted running %.3fms (folded at the downstream consumer core%s)", node.GatedRunnableMS, node.GatedRunningDeficitMS, capSuffix)
 }
 
 // runtimeTraceProjInversionGatedTotalMS is the Triple clause's gated-composite
@@ -195,6 +315,15 @@ func runtimeTraceProjSupplyFoldClause(node types.TraceCausalProjectionNode, wind
 		return "", "", false
 	}
 	deficit := node.SupplyFoldDeficitMS
+	// CAP (§26 C3): every branch that states folded numbers or the affirmative
+	// no-deficit claim discloses the fold's capability caliber (typed token —
+	// empty on pre-CAP records keeps the legacy wording byte-identical). The
+	// no-claim "无法折算" branch stays bare: nothing was folded.
+	capSuffix := runtimeTraceProjCapabilityCaliberSuffix(node.SupplyFoldCapabilitySource, zh)
+	// CAP 复核 F1 (判词随实际基准簇): the basis-cluster word follows the typed
+	// demoted-reference class; the big-class basis keeps every legacy string
+	// byte-identically.
+	refWord, refDemoted := runtimeTraceProjFoldReferenceClusterWord(node.SupplyFoldReferenceClass, zh)
 	switch verdict {
 	case runtimeTraceProjSupplyFoldTriple:
 		// PTV8-RCR-A (§24 ②, 2026-07-08). EVOLUTION RECORD: the Triple
@@ -208,16 +337,16 @@ func runtimeTraceProjSupplyFoldClause(node types.TraceCausalProjectionNode, wind
 		fallthrough
 	case runtimeTraceProjSupplyFoldWithDemand:
 		if zh {
-			return fmt.Sprintf("机制构成(各口径独立、不可加和): 供给折算缺口 %.3fms(按大核满频折算,下界)·%s runnable %.3fms(就绪排队积压口径)",
-				deficit, runtimeTraceSupplyPressureDisplayLabel(true), node.RunnableMS), "机制构成", true
+			return fmt.Sprintf("机制构成(各口径独立、不可加和): 供给折算缺口 %.3fms(按%s满频折算,下界%s)·%s runnable %.3fms(就绪排队积压口径)",
+				deficit, refWord, capSuffix, runtimeTraceSupplyPressureDisplayLabel(true), node.RunnableMS), "机制构成", true
 		}
-		return fmt.Sprintf("mechanism (each caliber is independent and not additive): supply-fold deficit %.3fms (folded at big-cluster fmax, lower bound) · %s runnable %.3fms (ready-queue backlog caliber)",
-			deficit, runtimeTraceSupplyPressureDisplayLabel(false), node.RunnableMS), "mechanism", true
+		return fmt.Sprintf("mechanism (each caliber is independent and not additive): supply-fold deficit %.3fms (folded at %s fmax, lower bound%s) · %s runnable %.3fms (ready-queue backlog caliber)",
+			deficit, refWord, capSuffix, runtimeTraceSupplyPressureDisplayLabel(false), node.RunnableMS), "mechanism", true
 	case runtimeTraceProjSupplyFoldDominant:
 		if zh {
-			return fmt.Sprintf("供给折算缺口 %.3fms(按大核满频折算,下界)为主,running 时间含降频/小核导致的跑慢成分", deficit), "供给折算缺口", true
+			return fmt.Sprintf("供给折算缺口 %.3fms(按%s满频折算,下界%s)为主,running 时间含降频/小核导致的跑慢成分", deficit, refWord, capSuffix), "供给折算缺口", true
 		}
-		return fmt.Sprintf("supply-fold deficit %.3fms (folded at big-cluster fmax, lower bound) leads; running time carries a slow share from down-clocking / little cores", deficit), "supply-fold deficit", true
+		return fmt.Sprintf("supply-fold deficit %.3fms (folded at %s fmax, lower bound%s) leads; running time carries a slow share from down-clocking / little cores", deficit, refWord, capSuffix), "supply-fold deficit", true
 	case runtimeTraceProjSupplyFoldNoDeficit:
 		// Affirmative exclusion (§7.10 fourth branch, via_thread-NOT family
 		// value): only a fully-known basis may make this claim.
@@ -231,23 +360,40 @@ func runtimeTraceProjSupplyFoldClause(node types.TraceCausalProjectionNode, wind
 		// 0 < deficit < 阈 names the deficit and its attribution relation (the
 		// counted tail only on the §20.2 identity eff==deficit) — the sentence
 		// never denies the number beside it.
+		// CAP (§26 判词重判): under the capability fold a zero/near-zero
+		// deficit now asserts big-CLASS full-frequency equivalence — a small
+		// core at its own fmax mints a deficit and structurally leaves this
+		// branch (engine witness pin). The affirmative wording therefore
+		// stands, but it must carry its capability caliber: under freq_only
+		// the class gap was NOT priced and the claim is frequency-only.
 		if deficit > 0 {
 			counted := runtimeTraceProjRound3Equal(node.EffectiveImpactMS, deficit)
 			switch {
 			case zh && counted:
-				return fmt.Sprintf("接近大核满频,缺口仅 %.3fms(已计入有效归因)", deficit), "接近大核满频", true
+				return fmt.Sprintf("接近%s满频,缺口仅 %.3fms(已计入有效归因%s)", refWord, deficit, capSuffix), "接近" + refWord + "满频", true
 			case zh:
-				return fmt.Sprintf("接近大核满频,缺口仅 %.3fms(独立口径,不计入有效归因)", deficit), "接近大核满频", true
+				return fmt.Sprintf("接近%s满频,缺口仅 %.3fms(独立口径,不计入有效归因%s)", refWord, deficit, capSuffix), "接近" + refWord + "满频", true
 			case counted:
-				return fmt.Sprintf("near big-cluster fmax; the deficit is only %.3fms (counted into the attribution)", deficit), "near fmax", true
+				return fmt.Sprintf("near %s fmax; the deficit is only %.3fms (counted into the attribution%s)", refWord, deficit, capSuffix), "near fmax", true
 			default:
-				return fmt.Sprintf("near big-cluster fmax; the deficit is only %.3fms (independent caliber, not counted into attribution)", deficit), "near fmax", true
+				return fmt.Sprintf("near %s fmax; the deficit is only %.3fms (independent caliber, not counted into attribution%s)", refWord, deficit, capSuffix), "near fmax", true
+			}
+		}
+		capParen := ""
+		if clause := runtimeTraceProjCapabilityCaliberClause(node.SupplyFoldCapabilitySource, zh); clause != "" {
+			if zh {
+				capParen = "(" + clause + ")"
+			} else {
+				capParen = " (" + clause + ")"
 			}
 		}
 		if zh {
-			return "已按大核满频(或接近)运行,无供给缺口,running 为真实工作量", "已按大核满频", true
+			return "已按" + refWord + "满频(或接近)运行,无供给缺口,running 为真实工作量" + capParen, "已按" + refWord + "满频", true
 		}
-		return "ran at (near) full frequency on the top cluster; running is true workload", "full frequency", true
+		if refDemoted {
+			return "ran at (near) full frequency on the " + refWord + " basis; running is true workload" + capParen, "full frequency", true
+		}
+		return "ran at (near) full frequency on the top cluster; running is true workload" + capParen, "full frequency", true
 	default: // runtimeTraceProjSupplyFoldUnknownBasis
 		// PTV8-RCR-C (§24.9 G4 co-repair, 2026-07-08): a partially-unknown
 		// basis CAN still have minted a lower-bound deficit (known slices fold,
@@ -258,9 +404,9 @@ func runtimeTraceProjSupplyFoldClause(node types.TraceCausalProjectionNode, wind
 		// byte-identically.
 		if deficit > 0 {
 			if zh {
-				return fmt.Sprintf("CPU 频率数据部分缺失,已计部分按大核满频折算:缺口 %.3fms 为下界", deficit), "CPU 频率数据部分缺失", true
+				return fmt.Sprintf("CPU 频率数据部分缺失,已计部分按%s满频折算:缺口 %.3fms 为下界%s", refWord, deficit, capSuffix), "CPU 频率数据部分缺失", true
 			}
-			return fmt.Sprintf("frequency data partially missing; the known share folded at big-cluster fmax: the %.3fms deficit is a lower bound", deficit), "frequency data partially missing", true
+			return fmt.Sprintf("frequency data partially missing; the known share folded at %s fmax: the %.3fms deficit is a lower bound%s", refWord, deficit, capSuffix), "frequency data partially missing", true
 		}
 		if zh {
 			return "CPU 频率数据不全,无法折算", "CPU 频率数据不全", true

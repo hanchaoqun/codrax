@@ -3,15 +3,23 @@ package tracequery
 // supply_fold.go — VS-2 (§7.10, docs/design/customer_dead_session_audit_
 // 20260703.md): supply-fold accounting for on-chain RUNNING-dominant wakeup-
 // chain nodes. Each running slice is folded from its own CPU's governed
-// frequency to the big-cluster fmax:
+// EQUIVALENT CAPACITY (frequency × core-class capability, CAP §26
+// docs/design/real_trace_campaign_20260705.md) to the big cluster's:
 //
-//	ideal = Σ slice_ms × min(1, f_slice / f_bigmax)
+//	ideal = Σ slice_ms × min(1, (f_slice × cap(slice class)) /
+//	                            (f_bigmax × cap(big-cluster class)))
 //	SupplyFoldDeficit = RunningMs − ideal   (clamped ≥ 0)
 //
 // so the deficit answers "how much of this thread's running wall clock is
 // running-SLOW (weaker core / governed-down frequency), not running-MUCH".
-// The wording contract downstream is pinned to "按频点折算,不含微架构差异,
-// 缺口为下界" — frequency ratio only, never an IPC/microarchitecture claim.
+// CAP (§26 user ruling 2026-07-08). EVOLUTION RECORD: the pre-CAP fold was the
+// pure frequency ratio min(1, f_slice/f_bigmax) — a small core at its own full
+// frequency read as "no deficit". Capability coefficients (core_capability.go,
+// default table 小1.0/中2.3/大2.53/超大3.036) now price the class gap; the
+// judged-cluster requirement fails loud back to the pure ratio with the typed
+// freq_only disclosure. The wording contract downstream evolved with it: the
+// deficit's 下界 residue is the missing-frequency slices counted 0 — the class
+// advantage itself is now IN the fold (default or, once wired, evidence).
 //
 // Governance caliber (§7.10 (4), reusing the CMP-10 F1 ruling): a slice's
 // frequency and the big-cluster fmax read ONLY the samples that GOVERN the
@@ -90,6 +98,25 @@ type SupplyFoldBasis struct {
 	// the roster is non-empty.
 	ClusterFreqReuse       []SupplyFoldClusterReuse `json:"cluster_freq_reuse,omitempty"`
 	ClusterFreqReuseSource string                   `json:"cluster_freq_reuse_source,omitempty"`
+
+	// CapabilitySource (CAP §26 C3): typed three-state disclosure of how the
+	// fold priced core-class capability — CoreCapabilitySourceDefault (§26
+	// default ratio table, display renders "按默认算力比粗算"),
+	// CoreCapabilitySourceEvidence (reserved: vendor capacity evidence), or
+	// CoreCapabilitySourceFreqOnly (cluster structure unjudgeable — fail-loud
+	// pure-frequency fallback, display renders "簇结构不可判,按纯频率比折算").
+	// Set whenever the fold runs; wording input only, no gate reads it.
+	CapabilitySource string `json:"capability_source,omitempty"`
+
+	// ReferenceClass (复核 F1, 2026-07-08): the capability class of the fold's
+	// reference cluster — the cluster BOTH FmaxKHz and the reference cap were
+	// taken from (同簇同源, supplyFoldCapabilityReference). Normally the
+	// §26-nominated big class; a demotion (nominated cluster without
+	// window-governed fmax) records the actually chosen class (small/middle/
+	// prime) so the display stops claiming 按大核满频 for a non-big basis.
+	// Empty on the freq_only/legacy lane and on all-unknown folds. Wording
+	// input only, no gate reads it.
+	ReferenceClass string `json:"reference_class,omitempty"`
 }
 
 // SupplyFoldClusterReuse is one disclosed reuse pair: slices on CPU folded
@@ -379,6 +406,69 @@ func (c *chainQueryCache) supplyFoldBigClusterFmax(q Query, gStart, gEnd float64
 	return out
 }
 
+// supplyFoldCapabilityReference (复核 F1, 2026-07-08) resolves the fold's
+// SAME-CLUSTER basis pair under a usable capability map: the reference
+// cluster is nominated by class (§26 letter: coreCapabilityReferenceClass =
+// 大核; single-constant switch point), and BOTH the fmax and the cap come
+// from that ONE cluster — mixing the legacy pickBigClusterCeiling cluster's
+// fmax with the capability ladder's top cap fabricated deficits (Probe A:
+// prime cluster ungoverned in window → big-at-fmax slice minted 1.650ms;
+// Probe B: small-only governance window → 5.987ms plus a false 按大核满频
+// verdict).
+//
+// Demotion: when the nominated cluster has NO window-governed observed fmax,
+// the reference moves to the highest-capability-class cluster that HAS one —
+// fmax and cap move TOGETHER (宁 freq_only 勿拼积; the demoted class is
+// disclosed via SupplyFoldBasis.ReferenceClass so the display wording follows
+// the actual basis). No cluster governed at all → zero (the fold books
+// everything unknown, exactly the legacy path).
+//
+// The fmax VALUE walks the same VS-2b ladder as the legacy resolver, scoped
+// to the chosen cluster's members: window-governing cpu_frequency_limits Max
+// (policy authority) beats the highest window-governing observed sample; the
+// throttling finding compares against the SAME cluster's full-trace observed
+// maximum. Membership rule unchanged: only observed cpu_frequency samples
+// nominate (a limits-only cluster never mints a basis).
+func (c *chainQueryCache) supplyFoldCapabilityReference(capability coreCapabilityMap, gStart, gEnd float64) (supplyFoldFmax, float64, string) {
+	c.buildFreqIndex()
+	classes := []string{coreCapabilityReferenceClass}
+	for _, class := range capability.presentClassesByRankDesc() {
+		if class != coreCapabilityReferenceClass {
+			classes = append(classes, class)
+		}
+	}
+	for _, class := range classes {
+		members := capability.classClusterMembers(class)
+		if len(members) == 0 {
+			continue
+		}
+		observed, limit, traceMax := 0, 0, 0
+		for _, cpu := range members {
+			if fmax := governedMaxKHz(c.freqByCPU[cpu], gStart, gEnd); fmax > observed {
+				observed = fmax
+			}
+			if l := c.governedLimitMaxKHz(cpu, gStart, gEnd); l > limit {
+				limit = l
+			}
+			for _, sample := range c.freqByCPU[cpu] {
+				if sample.khz > traceMax {
+					traceMax = sample.khz
+				}
+			}
+		}
+		if observed <= 0 {
+			continue // this cluster cannot anchor the window's basis — demote
+		}
+		out := supplyFoldFmax{khz: observed, source: SupplyFoldFmaxSourceObserved, traceObservedMaxKHz: traceMax}
+		if limit > 0 {
+			out.khz, out.source = limit, SupplyFoldFmaxSourceLimit
+			out.throttled = traceMax > limit
+		}
+		return out, coreCapabilityDefaultByClass[class], class
+	}
+	return supplyFoldFmax{}, 0, ""
+}
+
 // supplyFoldRunningIntervals folds every RUNNING interval of one causal-impact
 // node (see the file header for the caliber). Slice boundaries follow the
 // governed frequency change points of the interval's own CPU (R5e: in-window
@@ -391,7 +481,30 @@ func (c *chainQueryCache) supplyFoldBigClusterFmax(q Query, gStart, gEnd float64
 // caller derives the deficit (clamped ≥ 0).
 func (c *chainQueryCache) supplyFoldRunningIntervals(q Query, nodeStart, nodeEnd float64, intervals []Interval) (float64, SupplyFoldBasis) {
 	gStart, gEnd := supplyFoldGovernanceWindow(q, nodeStart, nodeEnd)
-	fm := c.supplyFoldBigClusterFmax(q, gStart, gEnd)
+	// CFR (#75 簇共频) + CFR-2 (#80 变化点推导): frequency domains for
+	// same-cluster sample reuse (single authority: cluster_freq_share.go).
+	// Explicit topology wins outright; in its ABSENCE the domains derive from
+	// the FULL-trace per-CPU timelines (identity over complete sequences —
+	// robust against governance-window truncation). No resolvable membership
+	// at all fails open and the fold behaves as before.
+	//
+	// CAP (§26): the SAME resolution also carries the core-class capability
+	// judgment (memoized on the cache); the fold discloses its pricing
+	// caliber on the typed basis flag.
+	capability := c.coreCapability(q.CoreTopology)
+	domains := capability.domains
+	// 复核 F1 (同簇同源): under a usable capability map the basis pair
+	// (fmax, cap) resolves from ONE cluster — nominated big class, honest
+	// demotion, class disclosed. The freq_only/legacy lane keeps the
+	// pre-CAP pickBigClusterCeiling basis byte-identically with cap 1.
+	var fm supplyFoldFmax
+	refCap := 1.0
+	refClass := ""
+	if capability.usable() {
+		fm, refCap, refClass = c.supplyFoldCapabilityReference(capability, gStart, gEnd)
+	} else {
+		fm = c.supplyFoldBigClusterFmax(q, gStart, gEnd)
+	}
 	bigFmax := fm.khz
 	var idealMs float64
 	var basis SupplyFoldBasis
@@ -402,16 +515,10 @@ func (c *chainQueryCache) supplyFoldRunningIntervals(q Query, nodeStart, nodeEnd
 		basis.TraceObservedMaxKHz = fm.traceObservedMaxKHz
 	}
 	c.applyClusterLaneCorroboration(&basis, gStart, gEnd)
-	// CFR (#75 簇共频) + CFR-2 (#80 变化点推导): frequency domains for
-	// same-cluster sample reuse (single authority: cluster_freq_share.go).
-	// Explicit topology wins outright; in its ABSENCE the domains derive from
-	// the FULL-trace per-CPU timelines (identity over complete sequences —
-	// robust against governance-window truncation). No resolvable membership
-	// at all fails open and the fold behaves as before.
-	domains := resolveClusterFreqDomains(q.CoreTopology, func() map[int][]freqSample {
-		c.buildFreqIndex()
-		return c.freqByCPU
-	})
+	basis.CapabilitySource = capability.source
+	if bigFmax > 0 {
+		basis.ReferenceClass = refClass
+	}
 	for _, it := range intervals {
 		if it.State != StateRunning || it.DurationMs <= 0 {
 			continue
@@ -439,11 +546,16 @@ func (c *chainQueryCache) supplyFoldRunningIntervals(q Query, nodeStart, nodeEnd
 				basis.ClusterFreqReuseSource = domains.source
 			}
 		}
+		// CAP (§26) + 复核 F1: the interval's CPU prices at its cluster class
+		// relative to the CHOSEN reference cluster's cap (same-cluster pair —
+		// never a second cluster judgment; 1 under freq_only / unknown
+		// membership, the pre-CAP pure-frequency value — see sliceCapRatio).
+		capRatio := capability.sliceCapRatio(it.CPU, refCap)
 		wall := it.EndTs - it.StartTs
 		if wall <= 0 {
 			// Degenerate interval: single lookup at its start.
 			freq := governedFrequencyAt(samples, it.StartTs)
-			idealMs += supplyFoldSliceIdeal(it.DurationMs, freq, bigFmax, &basis)
+			idealMs += supplyFoldSliceIdeal(it.DurationMs, freq, bigFmax, capRatio, &basis)
 			continue
 		}
 		boundaries := []float64{it.StartTs}
@@ -460,16 +572,19 @@ func (c *chainQueryCache) supplyFoldRunningIntervals(q Query, nodeStart, nodeEnd
 			}
 			sliceMs := it.DurationMs * (s1 - s0) / wall
 			freq := governedFrequencyAt(samples, (s0+s1)/2)
-			idealMs += supplyFoldSliceIdeal(sliceMs, freq, bigFmax, &basis)
+			idealMs += supplyFoldSliceIdeal(sliceMs, freq, bigFmax, capRatio, &basis)
 		}
 	}
 	return idealMs, basis
 }
 
 // supplyFoldSliceIdeal books one slice into the basis split and returns its
-// folded ideal contribution: known slices fold at min(1, f/fmax) — the clamp
-// keeps a slice governed ABOVE the big-cluster fmax (possible under explicit
-// topology) from minting a negative deficit — unknown slices fold at 1.
+// folded ideal contribution: known slices fold at
+// min(1, (f/fmax) × capRatio) — capRatio is the CAP §26 class multiplier
+// cap(实际核类)/cap(大核簇) (1 under freq_only / unknown membership), and the
+// clamp keeps a slice governed ABOVE the big cluster's equivalent capacity
+// (possible under explicit topology) from minting a negative deficit —
+// unknown slices fold at 1.
 // recordSupplyFoldClusterReuse appends one disclosed reuse pair, deduped and
 // kept sorted by CPU (deterministic disclosure roster; a node's slices on the
 // same CPU always resolve the same donor — lowest sampled sibling).
@@ -488,13 +603,16 @@ func recordSupplyFoldClusterReuse(basis *SupplyFoldBasis, cpu, donor int) {
 	})
 }
 
-func supplyFoldSliceIdeal(sliceMs float64, freqKHz, bigFmaxKHz int, basis *SupplyFoldBasis) float64 {
+func supplyFoldSliceIdeal(sliceMs float64, freqKHz, bigFmaxKHz int, capRatio float64, basis *SupplyFoldBasis) float64 {
 	if freqKHz <= 0 {
 		basis.UnknownMs += sliceMs
 		return sliceMs
 	}
 	basis.KnownMs += sliceMs
 	ratio := float64(freqKHz) / float64(bigFmaxKHz)
+	if capRatio > 0 {
+		ratio *= capRatio
+	}
 	if ratio > 1 {
 		ratio = 1
 	}

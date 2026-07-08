@@ -408,17 +408,24 @@ func TestRCRCaliberLegendEntriesOnDemand(t *testing.T) {
 		}
 	}
 	// The Dominant supply-fold shape emits exactly the other pair, with the
-	// ledger-verbatim 下界 explanation (§24.1补 用户问"下界"何意).
+	// 下界 explanation (§24.1补 用户问"下界"何意). CAP (§26 C3, 2026-07-08).
+	// EVOLUTION RECORD: the legend's "折算未计大核单周期优势" half-sentence is
+	// RETIRED — the capability fold now prices the class gap (default or
+	// measured), the lower bound's residue is the missing-frequency slices
+	// counted 0; the negative pin below keeps the retired words dead.
 	foldModel := buildRuntimeTraceProjTreeModel(rcrSupplyFoldDominantProjection(), newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	_ = runtimeTraceProjTreeFence(foldModel, true)
 	foldLegend := strings.Join(runtimeTraceProjLegendGroupLines(foldModel.Marks, true), "\n")
 	for _, want := range []string{
 		"- `按大核满频折算` =",
-		"- `下界` = 保守最小值:频率数据缺失的片段计 0,折算未计大核单周期优势;真实可消除量只多不少。",
+		"- `下界` = 保守最小值:频率数据缺失的片段计 0;核类算力差已计入(默认或实测,标注「按纯频率比折算」的行除外);真实可消除量只多不少。",
 	} {
 		if !strings.Contains(foldLegend, want) {
 			t.Fatalf("supply-fold caliber legend entry %q must render:\n%s", want, foldLegend)
 		}
+	}
+	if strings.Contains(foldLegend, "折算未计大核单周期优势") {
+		t.Fatalf("the retired pre-CAP 下界 half-sentence must never render (§26 C3 negative pin):\n%s", foldLegend)
 	}
 	for _, absent := range []string{"- `单次最大(a–b,共N次)` =", "- `折算,按下游消费核` ="} {
 		if strings.Contains(foldLegend, absent) {
@@ -576,9 +583,12 @@ func TestRCRSuppressedClauseShapeKeepsCaliberLegend(t *testing.T) {
 		t.Fatalf("the deficit must keep its detail-block home:\n%s", detail)
 	}
 	legend := strings.Join(runtimeTraceProjLegendGroupLines(model.Marks, true), "\n")
+	// CAP (§26 C3, 2026-07-08). EVOLUTION RECORD: 下界 entry text evolved with
+	// the capability fold (the retired half-sentence's negative pin lives in
+	// TestRCRCaliberLegendEntriesOnDemand).
 	for _, want := range []string{
 		"- `按大核满频折算` =",
-		"- `下界` = 保守最小值:频率数据缺失的片段计 0,折算未计大核单周期优势;真实可消除量只多不少。",
+		"- `下界` = 保守最小值:频率数据缺失的片段计 0;核类算力差已计入(默认或实测,标注「按纯频率比折算」的行除外);真实可消除量只多不少。",
 		"- `全额` =",
 		"- `折算,按下游消费核` =",
 	} {

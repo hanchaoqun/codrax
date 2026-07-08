@@ -501,6 +501,20 @@ type TraceCausalProjectionNode struct {
 	SupplyFoldIdealMS   float64 `json:"supply_fold_ideal_ms,omitempty"`
 	SupplyFoldKnownMS   float64 `json:"supply_fold_known_ms,omitempty"`
 	SupplyFoldUnknownMS float64 `json:"supply_fold_unknown_ms,omitempty"`
+	// SupplyFoldCapabilitySource / GatedCapabilitySource (CAP §26 C3): the
+	// typed three-state capability caliber of the two running folds
+	// (default_table / evidence_table / freq_only — fold_capability /
+	// gated_capability rich notes). Wording inputs only: the display forks
+	// the "按默认算力比粗算" / "簇结构不可判,按纯频率比折算" disclosures on
+	// these tokens; empty (pre-CAP records) renders the undisclosed legacy
+	// wording byte-identically.
+	SupplyFoldCapabilitySource string `json:"supply_fold_capability_source,omitempty"`
+	GatedCapabilitySource      string `json:"gated_capability_source,omitempty"`
+	// SupplyFoldReferenceClass (CAP 复核 F1): the demoted fold-reference class
+	// (small/middle/prime — fold_reference_class rich note). Empty = the
+	// nominated big-class basis (the producer emits the note only on
+	// demotion), so 按大核满频 renders byte-identically on undemoted records.
+	SupplyFoldReferenceClass string `json:"supply_fold_reference_class,omitempty"`
 	// RunnableMS mirrors the node's typed "runnable=" rich note (the row's
 	// own in-window runnable wall clock) — consumed by the §7.10 decision
 	// table's shared RN-1 significance check and the mechanism clause's
@@ -1232,9 +1246,14 @@ func traceCausalProjectionAttachRunnableOccupiers(projection *TraceCausalProject
 // any accounting value — such a key never joins (fail-open, 裸值保留).
 type traceCausalProjectionSupplyFoldDonor struct {
 	deficitMS, idealMS, knownMS, unknownMS float64
-	windowStart, windowEnd                 float64
-	windowDeclared                         bool
-	conflict                               bool
+	// capabilitySource / referenceClass (CAP §26 C3 + 复核 F1) ride the copied
+	// accounting group — the twin must disclose the SAME caliber and basis
+	// cluster its donor's numbers were priced at.
+	capabilitySource       string
+	referenceClass         string
+	windowStart, windowEnd float64
+	windowDeclared         bool
+	conflict               bool
 }
 
 // traceCausalProjectionSupplyFoldTwinKey is the SFD (§15.A display half, user
@@ -1312,9 +1331,11 @@ func traceCausalProjectionJoinSupplyFoldTwins(projection *TraceCausalProjection)
 			donor := traceCausalProjectionSupplyFoldDonor{
 				deficitMS: node.SupplyFoldDeficitMS, idealMS: node.SupplyFoldIdealMS,
 				knownMS: node.SupplyFoldKnownMS, unknownMS: node.SupplyFoldUnknownMS,
-				windowStart:    node.QueryWindowStartTs,
-				windowEnd:      node.QueryWindowEndTs,
-				windowDeclared: node.QueryWindowStartTs > 0 && node.QueryWindowEndTs > node.QueryWindowStartTs,
+				capabilitySource: node.SupplyFoldCapabilitySource,
+				referenceClass:   node.SupplyFoldReferenceClass,
+				windowStart:      node.QueryWindowStartTs,
+				windowEnd:        node.QueryWindowEndTs,
+				windowDeclared:   node.QueryWindowStartTs > 0 && node.QueryWindowEndTs > node.QueryWindowStartTs,
 			}
 			if existing, seen := donors[key]; seen {
 				// The same record's cross-bucket copy carries identical values
@@ -1368,6 +1389,8 @@ func traceCausalProjectionJoinSupplyFoldTwins(projection *TraceCausalProjection)
 			node.SupplyFoldIdealMS = donor.idealMS
 			node.SupplyFoldKnownMS = donor.knownMS
 			node.SupplyFoldUnknownMS = donor.unknownMS
+			node.SupplyFoldCapabilitySource = donor.capabilitySource
+			node.SupplyFoldReferenceClass = donor.referenceClass
 		}
 	}
 }
@@ -1983,6 +2006,9 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// §7.30.3 D3: gated-impact composition for priority-inversion rows.
 	node.GatedRunnableMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyGatedRunnable)
 	node.GatedRunningDeficitMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyGatedRunningDeficit)
+	// CAP (§26 C3): typed capability caliber of the discounted running
+	// component — exact typed note match, wording input only.
+	node.GatedCapabilitySource = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyGatedCapability))
 	// PTV5 Q4 (#68 用户裁定 2026-07-05): inversion candidacy is a typed field —
 	// exact "true" match on the producer's note; the legacy Object-token lane
 	// stays alive in the display predicate for root_cause rows whose Object
@@ -2006,6 +2032,11 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		node.SupplyFoldKnownMS, node.SupplyFoldUnknownMS = traceCausalProjectionParseFoldBasis(basisRaw)
 		node.SupplyFoldDeficitMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeySupplyFoldDeficitMS)
 		node.SupplyFoldIdealMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeySupplyFoldIdealMS)
+		// CAP (§26 C3): the fold's typed capability caliber rides the same
+		// presence gate (a capability claim without a fold is meaningless).
+		node.SupplyFoldCapabilitySource = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyFoldCapability))
+		// CAP 复核 F1: the demoted basis class (absent = big-class basis).
+		node.SupplyFoldReferenceClass = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyFoldReferenceClass))
 	}
 	node.RunnableMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyRunnable)
 	// Verbatim typed kind token (see TypeToken doc): lets renderers specialize

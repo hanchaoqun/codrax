@@ -273,6 +273,8 @@ func traceCausalProjectionAbsorbSupplyFold(survivor *TraceCausalProjectionNode, 
 			survivor.SupplyFoldIdealMS = 0
 			survivor.SupplyFoldKnownMS = 0
 			survivor.SupplyFoldUnknownMS = 0
+			survivor.SupplyFoldCapabilitySource = ""
+			survivor.SupplyFoldReferenceClass = ""
 			backfill.backfilled = false
 			backfill.conflicted = true
 		}
@@ -283,6 +285,11 @@ func traceCausalProjectionAbsorbSupplyFold(survivor *TraceCausalProjectionNode, 
 	survivor.SupplyFoldIdealMS = loser.SupplyFoldIdealMS
 	survivor.SupplyFoldKnownMS = loser.SupplyFoldKnownMS
 	survivor.SupplyFoldUnknownMS = loser.SupplyFoldUnknownMS
+	// CAP (§26 C3 + 复核 F1): the caliber and basis-class tokens travel with
+	// the accounting group they price (same unit-copy rule as the join lane's
+	// donor).
+	survivor.SupplyFoldCapabilitySource = loser.SupplyFoldCapabilitySource
+	survivor.SupplyFoldReferenceClass = loser.SupplyFoldReferenceClass
 	backfill.backfilled = true
 }
 

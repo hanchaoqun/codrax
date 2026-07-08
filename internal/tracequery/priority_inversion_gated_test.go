@@ -60,10 +60,17 @@ func TestPriorityInversionWeakCoreRunningGate(t *testing.T) {
 	if !dep.PriorityInversionCandidate {
 		t.Fatalf("running on a weaker-supplied CPU (800MHz vs consumer 2GHz) must gate IN: %+v", dep)
 	}
-	// R5d-2 capacity-proportional estimate: ~19.5ms running × (1 − 800/2000)
-	// = ~11.7ms — the whole slice would inflate the inversion (§7.30.2).
-	if dep.PriorityInversionGatedMs < 11 || dep.PriorityInversionGatedMs > 12.4 {
-		t.Fatalf("gated impact should be the capacity-proportional ~11.7ms, got %.3f", dep.PriorityInversionGatedMs)
+	// R5d-2 capacity-proportional estimate. CAP (§26) evolution: the derived
+	// 2-cluster shape prices cpu7=小(×1.0) / cpu1=大(×2.53), so ~19.0ms
+	// running × (1 − (0.8×1.0)/(2.0×2.53)) ≈ 16.0ms (pre-CAP pure frequency:
+	// ≈11.4ms — 消费核在大核簇, the weak-core deficit grows). The whole slice
+	// would still inflate the inversion (§7.30.2).
+	t.Logf("CAP §26 direction dump (R5d weak-core form): gated pre-CAP≈11.4 → now %.3f", dep.PriorityInversionGatedMs)
+	if dep.PriorityInversionGatedMs < 15.6 || dep.PriorityInversionGatedMs > 16.4 {
+		t.Fatalf("gated impact should be the capacity-proportional ~16.0ms (CAP §26), got %.3f", dep.PriorityInversionGatedMs)
+	}
+	if dep.GatedCapabilitySource != CoreCapabilitySourceDefault {
+		t.Fatalf("judged 2-cluster gate must disclose the default capability table, got %+v", dep.GatedCapabilitySource)
 	}
 
 	// Control: the same shape WITHOUT cpu_frequency samples must gate OUT —
@@ -93,6 +100,13 @@ func TestWeakCoreGatePerSegmentAndNearestFallback(t *testing.T) {
 	// cpu7 runs at 800MHz until 5.010, then jumps to 2.4GHz (above the
 	// consumer's 2GHz): only the first ~10ms slice contributes, at the
 	// proportional rate 1−800/2000=0.6 → ~6ms.
+	//
+	// CAP (§26, 2026-07-08) fixture evolution: a trailing post-window 2.4GHz
+	// sample on cpu1 ties the two derived clusters' full-trace fmax — the
+	// capability judgment fails loud to freq_only (簇结构不可判: no defensible
+	// order on an fmax tie), so this pin keeps exercising the PURE per-segment
+	// frequency behavior it exists for. It doubles as the tie→freq_only
+	// witness; the R5e slicing rule itself is unchanged.
 	midChange := buildTraceIndex(t, "r5e_midchange.systrace", `
       <idle>-0 (-----) [007] .... 4.900000: cpu_frequency: state=800000 cpu_id=7
       <idle>-0 (-----) [001] .... 4.900000: cpu_frequency: state=2000000 cpu_id=1
@@ -103,6 +117,7 @@ func TestWeakCoreGatePerSegmentAndNearestFallback(t *testing.T) {
         dep-200 (100) [007] .... 5.019000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
         dep-200 (100) [007] .... 5.019500: sched_switch: prev_comm=dep prev_pid=200 prev_prio=20 prev_state=S ==> next_comm=idle/7 next_pid=0 next_prio=120
         app-100 (100) [001] .... 5.020000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+      <idle>-0 (-----) [001] .... 5.030000: cpu_frequency: state=2400000 cpu_id=1
 	`)
 	chain := BuildWakeupChain(midChange, Query{PID: 100, TimeStart: 5.0, TimeEnd: 5.020, MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace})
 	foundMid := false
@@ -114,6 +129,11 @@ func TestWeakCoreGatePerSegmentAndNearestFallback(t *testing.T) {
 		got := chain.CausalImpacts[i].PriorityInversionGatedMs
 		if got < 5.4 || got > 6.6 {
 			t.Fatalf("mid-interval frequency jump must be honored per segment (~6ms low-freq deficit), got %.3f", got)
+		}
+		// CAP (§26 C1 fail-loud): the fmax tie must have demoted the
+		// capability judgment to the typed freq_only disclosure.
+		if chain.CausalImpacts[i].GatedCapabilitySource != CoreCapabilitySourceFreqOnly {
+			t.Fatalf("tied cluster fmax must fail loud to freq_only, got %q", chain.CausalImpacts[i].GatedCapabilitySource)
 		}
 	}
 	if !foundMid {
@@ -140,8 +160,10 @@ func TestWeakCoreGatePerSegmentAndNearestFallback(t *testing.T) {
 		}
 		foundLate = true
 		got := chain2.CausalImpacts[i].PriorityInversionGatedMs
-		if got < 11 || got > 12.4 {
-			t.Fatalf("nearest-later samples must back the gate (~11.7ms), got %.3f", got)
+		// CAP (§26) evolution: cpu7=小(×1.0) / cpu1=大(×2.53) →
+		// ~19.0ms × (1 − 0.8/(2.0×2.53)) ≈ 16.0ms (pre-CAP ≈11.4ms).
+		if got < 15.6 || got > 16.4 {
+			t.Fatalf("nearest-later samples must back the gate (~16.0ms, CAP §26), got %.3f", got)
 		}
 	}
 	if !foundLate {
@@ -178,9 +200,10 @@ func TestPriorityInversionGatedComponentsSplit(t *testing.T) {
 	if dep.GatedRunnableMs < 9.5 || dep.GatedRunnableMs > 10.5 {
 		t.Fatalf("gated runnable component should be the ~10ms wait, got %.3f", dep.GatedRunnableMs)
 	}
-	// 9.5ms running × (1 − 800/2000) = ~5.7ms discounted deficit.
-	if dep.GatedRunningDeficitMs < 5.4 || dep.GatedRunningDeficitMs > 6.0 {
-		t.Fatalf("gated running deficit should be the ~5.7ms discount, got %.3f", dep.GatedRunningDeficitMs)
+	// CAP (§26) evolution: ~9.0ms running × (1 − (0.8×1.0)/(2.0×2.53)) ≈
+	// 7.58ms discounted deficit (pre-CAP pure frequency ≈5.4ms).
+	if dep.GatedRunningDeficitMs < 7.3 || dep.GatedRunningDeficitMs > 7.9 {
+		t.Fatalf("gated running deficit should be the ~7.58ms discount (CAP §26), got %.3f", dep.GatedRunningDeficitMs)
 	}
 	if got, want := dep.PriorityInversionGatedMs, dep.GatedRunnableMs+dep.GatedRunningDeficitMs; got != want {
 		t.Fatalf("gated total must equal the component sum: %.6f != %.6f", got, want)

@@ -10,10 +10,15 @@ import (
 //
 // Synthetic numeric fixture (pinned in the design ledger): two 10ms running
 // slices — one at 1GHz on a small core, one at 2GHz on the big core whose
-// governed fmax is 2GHz — fold to ideal 5+10=15ms, deficit 5ms; a slice with
-// no frequency data folds at ratio 1 (zero fabricated deficit, UNKNOWN
-// basis); the deficit is clamped ≥ 0 even when a slice is governed above the
-// big-cluster fmax; raw pre-window frequency history never participates.
+// governed fmax is 2GHz. CAP (§26, real_trace_campaign_20260705.md,
+// 2026-07-08). EVOLUTION RECORD: the fold now prices core-class capability
+// (derived 2-cluster shape → 小=×1.0 / 大=×2.53 default table), so the small
+// slice folds at (1/2)×(1/2.53)≈0.198 — ideal ≈1.98+10=11.98ms, deficit
+// ≈8.02ms (pre-CAP pure frequency ratio: ideal 15ms, deficit 5ms; assertions
+// evolved, none deleted). A slice with no frequency data still folds at
+// ratio 1 (zero fabricated deficit, UNKNOWN basis); the deficit is clamped
+// ≥ 0 even when a slice is governed above the big-cluster equivalent
+// capacity; raw pre-window frequency history never participates.
 
 func supplyFoldDepImpact(t *testing.T, chain ChainResult) *WakeupCausalImpact {
 	t.Helper()
@@ -26,8 +31,10 @@ func supplyFoldDepImpact(t *testing.T, chain ChainResult) *WakeupCausalImpact {
 	return nil
 }
 
-// The ledger's synthetic pin: 10ms@1GHz small + 10ms@2GHz big, big fmax=2GHz
-// → ideal = 10×(1/2) + 10×(2/2) = 15ms, deficit = 5ms, basis fully known.
+// The ledger's synthetic pin: 10ms@1GHz small + 10ms@2GHz big, big fmax=2GHz.
+// CAP (§26) evolution: ideal = 10×(1/2)×(1/2.53) + 10×(2/2) ≈ 11.98ms,
+// deficit ≈ 8.02ms (pre-CAP: 15ms / 5ms — 小核 running 缺口变大, the ruling's
+// direction witness; the big-core slice still folds to zero deficit).
 func TestSupplyFoldTwoSliceNumericPin(t *testing.T) {
 	idx := buildTraceIndex(t, "vs2_two_slice.systrace", `
       <idle>-0 (-----) [002] .... 4.900000: cpu_frequency: state=1000000 cpu_id=2
@@ -49,11 +56,17 @@ func TestSupplyFoldTwoSliceNumericPin(t *testing.T) {
 	if dep.SupplyFoldBasis == nil {
 		t.Fatalf("running-dominant on-chain node must compute the supply fold: %+v", dep)
 	}
-	if dep.SupplyFoldDeficitMs < 4.7 || dep.SupplyFoldDeficitMs > 5.3 {
-		t.Fatalf("deficit should be the ~5ms 1GHz-vs-2GHz fold, got %.3f", dep.SupplyFoldDeficitMs)
+	t.Logf("CAP §26 direction dump (two-slice ledger form): deficit pre-CAP≈5.000 → now %.3f, ideal pre-CAP≈15.000 → now %.3f", dep.SupplyFoldDeficitMs, dep.SupplyFoldIdealMs)
+	if dep.SupplyFoldDeficitMs < 7.7 || dep.SupplyFoldDeficitMs > 8.3 {
+		t.Fatalf("deficit should be the ~8.02ms capability fold (CAP §26), got %.3f", dep.SupplyFoldDeficitMs)
 	}
-	if dep.SupplyFoldIdealMs < 14.7 || dep.SupplyFoldIdealMs > 15.3 {
-		t.Fatalf("ideal should be ~15ms, got %.3f", dep.SupplyFoldIdealMs)
+	if dep.SupplyFoldIdealMs < 11.7 || dep.SupplyFoldIdealMs > 12.3 {
+		t.Fatalf("ideal should be ~11.98ms (CAP §26), got %.3f", dep.SupplyFoldIdealMs)
+	}
+	// CAP (§26 C1): the derived 2-cluster structure judges → default table in
+	// force, typed disclosure token stamped.
+	if dep.SupplyFoldBasis.CapabilitySource != CoreCapabilitySourceDefault {
+		t.Fatalf("judged 2-cluster fold must disclose the default capability table, got %+v", dep.SupplyFoldBasis)
 	}
 	// Identities: ideal + deficit == RunningMs, known + unknown == RunningMs.
 	if got, want := dep.SupplyFoldIdealMs+dep.SupplyFoldDeficitMs, dep.RunningMs; !floatNear(got, want) {
@@ -110,12 +123,13 @@ func TestSupplyFoldUnknownFrequencySliceZeroDeficit(t *testing.T) {
 	if dep.SupplyFoldBasis == nil {
 		t.Fatalf("fold must run: %+v", dep)
 	}
-	// Only the 1GHz slice folds (10×0.5=5ms deficit); the above-max-sampled
-	// CPU8 slice contributes ideal=wall and UNKNOWN basis (no upward
-	// extrapolation — derived groups here are {2} and {7}, count 2 < 3, so
-	// cpu8 is not even declared a prime pseudo-domain, and either way no
-	// sampled member exists above cpu7 to donate).
-	if dep.SupplyFoldDeficitMs < 4.7 || dep.SupplyFoldDeficitMs > 5.3 {
+	// Only the 1GHz slice folds (CAP §26 evolution: 10×(1−(1/2)/2.53)≈8.02ms
+	// deficit — pre-CAP 10×0.5=5ms); the above-max-sampled CPU8 slice
+	// contributes ideal=wall and UNKNOWN basis (no upward extrapolation —
+	// derived groups here are {2} and {7}, count 2 < 3, so cpu8 is not even
+	// declared a prime pseudo-domain, and either way no sampled member exists
+	// above cpu7 to donate).
+	if dep.SupplyFoldDeficitMs < 7.7 || dep.SupplyFoldDeficitMs > 8.3 {
 		t.Fatalf("deficit must come from the known slice only, got %.3f", dep.SupplyFoldDeficitMs)
 	}
 	if dep.SupplyFoldBasis.UnknownMs < 9.7 || dep.SupplyFoldBasis.UnknownMs > 10.3 {
@@ -134,8 +148,9 @@ func TestSupplyFoldUnknownFrequencySliceZeroDeficit(t *testing.T) {
 
 // CMP-10 F1 caliber: raw pre-window history MUST NOT participate — a 3GHz
 // burst long before the window (superseded by the 2GHz head-governing sample)
-// must not raise the big-cluster fmax. Deficit stays the 1GHz-vs-2GHz 5ms,
-// not the 6.67ms a 3GHz fmax would fabricate.
+// must not raise the big-cluster fmax. CAP (§26) evolution: deficit stays the
+// capability fold against the governed 2GHz (≈9.9×(1−(1/2)/2.53)=7.94ms), not
+// the ≈8.60ms a leaked 3GHz fmax would fabricate (pre-CAP: 5ms vs 6.67ms).
 func TestSupplyFoldPreWindowHistoryExcluded(t *testing.T) {
 	idx := buildTraceIndex(t, "vs2_prewindow.systrace", `
       <idle>-0 (-----) [007] .... 4.000000: cpu_frequency: state=3000000 cpu_id=7
@@ -153,17 +168,22 @@ func TestSupplyFoldPreWindowHistoryExcluded(t *testing.T) {
 	if dep.SupplyFoldBasis == nil {
 		t.Fatalf("fold must run: %+v", dep)
 	}
-	// ~10ms @1GHz against governed fmax 2GHz → ~5ms. A 3GHz fmax would give
-	// ~6.67ms — the pre-window burst leaking in.
-	if dep.SupplyFoldDeficitMs < 4.7 || dep.SupplyFoldDeficitMs > 5.3 {
+	// ~9.9ms @1GHz small against governed big fmax 2GHz → ≈7.94ms (CAP §26).
+	// A leaked 3GHz fmax would give ≈8.60ms — the pre-window burst leaking in.
+	if dep.SupplyFoldDeficitMs < 7.6 || dep.SupplyFoldDeficitMs > 8.2 {
 		t.Fatalf("pre-window 3GHz burst must not participate in fmax, got deficit %.3f", dep.SupplyFoldDeficitMs)
 	}
 }
 
-// Clamp: under explicit topology the big cluster's governed fmax can sit
-// BELOW another cluster's governed frequency — the ratio clamps at 1 so a
-// faster-than-big slice yields zero deficit, never a negative one. This is
-// also the affirmative fourth-branch shape: deficit 0 on a fully-known basis.
+// Clamp: under explicit topology the LABELED big cluster's governed fmax can
+// sit below another cluster's governed frequency. CAP 复核 F1 (2026-07-08).
+// EVOLUTION RECORD: the fold reference is now the capability BIG-CLASS
+// cluster resolved by fmax order (the label contributes membership only), so
+// this mislabeled-topology shape folds the cpu7 slice against ITS OWN
+// cluster's (2GHz, 2.53) basis — deficit 0 via ratio 1, no clamp engaged; the
+// REAL above-reference clamp witness is the prime-slice pin
+// (TestSupplyFoldPrimeSliceClampsAboveBigReference). Still the affirmative
+// fourth-branch shape: deficit 0 on a fully-known basis.
 func TestSupplyFoldClampAboveBigClusterFmax(t *testing.T) {
 	idx := buildTraceIndex(t, "vs2_clamp.systrace", `
       <idle>-0 (-----) [002] .... 4.900000: cpu_frequency: state=1000000 cpu_id=2
@@ -191,6 +211,12 @@ func TestSupplyFoldClampAboveBigClusterFmax(t *testing.T) {
 	}
 	if !dep.SupplyFoldBasis.AllKnown() {
 		t.Fatalf("governed slice must be known basis: %+v", dep.SupplyFoldBasis)
+	}
+	// 复核 F1 coherence: the basis pair is the fmax-ordered big-class
+	// cluster's own (cpu7, 2GHz) — never the 1GHz "big"-labeled cluster's
+	// fmax under another cluster's cap.
+	if dep.SupplyFoldBasis.ReferenceClass != "big" || dep.SupplyFoldBasis.FmaxKHz != 2000000 {
+		t.Fatalf("same-cluster basis must be (2GHz, big-class): %+v", dep.SupplyFoldBasis)
 	}
 }
 
@@ -348,8 +374,10 @@ func TestSupplyFoldFmaxLadderPrefersLimits(t *testing.T) {
 	if dep.SupplyFoldBasis.FmaxKHz != 2500000 || dep.SupplyFoldBasis.FmaxSource != SupplyFoldFmaxSourceLimit {
 		t.Fatalf("governing limits row must be the fmax authority (2.5GHz/limit), got %+v", dep.SupplyFoldBasis)
 	}
-	if dep.SupplyFoldDeficitMs < 7.7 || dep.SupplyFoldDeficitMs > 8.3 {
-		t.Fatalf("deficit against the 2.5GHz policy ceiling should be ~8ms, got %.3f", dep.SupplyFoldDeficitMs)
+	// CAP (§26) evolution: 10×(1−(1/2.5)/2.53) + 9.9×(1−2/2.5) ≈ 10.40ms
+	// (pre-CAP pure ratio ≈ 8ms).
+	if dep.SupplyFoldDeficitMs < 10.1 || dep.SupplyFoldDeficitMs > 10.7 {
+		t.Fatalf("deficit against the 2.5GHz policy ceiling should be ~10.4ms (CAP §26), got %.3f", dep.SupplyFoldDeficitMs)
 	}
 	if dep.SupplyFoldBasis.LimitThrottled {
 		t.Fatalf("limits above every observed sample must NOT raise the throttling finding: %+v", dep.SupplyFoldBasis)
@@ -390,9 +418,10 @@ func TestSupplyFoldLimitThrottledFinding(t *testing.T) {
 	if !basis.LimitThrottled || basis.TraceObservedMaxKHz != 2000000 {
 		t.Fatalf("limits below the cluster's full-trace 2GHz sample must raise the typed throttling finding: %+v", basis)
 	}
-	// ~10ms @1GHz against fmax 1.5GHz → ~3.33ms deficit.
-	if dep.SupplyFoldDeficitMs < 3.0 || dep.SupplyFoldDeficitMs > 3.7 {
-		t.Fatalf("deficit should fold against the policy ceiling (~3.33ms), got %.3f", dep.SupplyFoldDeficitMs)
+	// ~9.9ms @1GHz small against big fmax 1.5GHz: CAP (§26) evolution
+	// 9.9×(1−(1/1.5)/2.53) ≈ 7.29ms (pre-CAP pure ratio ≈ 3.33ms).
+	if dep.SupplyFoldDeficitMs < 7.0 || dep.SupplyFoldDeficitMs > 7.6 {
+		t.Fatalf("deficit should fold against the policy ceiling (~7.29ms, CAP §26), got %.3f", dep.SupplyFoldDeficitMs)
 	}
 }
 

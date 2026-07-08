@@ -90,10 +90,17 @@ var traceNoteKeyGoldenRows = []string{
 	"file_events|io|display_only",
 	"flags|blocking|display_only",
 	"fold_basis|supply_fold|hard_consumer",
+	// CAP (§26 C3, 2026-07-08): the two typed capability-caliber keys — the
+	// display wording forks (按默认算力比粗算 / 簇结构不可判) parse them into
+	// node fields (hard_consumer).
+	"fold_capability|supply_fold|hard_consumer",
 	"fold_cluster_freq_reuse|supply_fold|display_only",
 	"fold_cluster_lane_caveat|supply_fold|display_only",
 	"fold_fmax|supply_fold|display_only",
 	"fold_fmax_finding|supply_fold|display_only",
+	// CAP 复核 F1 (2026-07-08): the demoted-reference basis class (absence =
+	// the nominated big-class basis).
+	"fold_reference_class|supply_fold|hard_consumer",
 	"folded_max_ms|causal_rank|hard_consumer",
 	"folded_min_ms|causal_rank|hard_consumer",
 	"folded_rows|causal_rank|hard_consumer",
@@ -102,6 +109,8 @@ var traceNoteKeyGoldenRows = []string{
 	"freq|cpu_load|display_only",
 	"function|workqueue|display_only",
 	"gated_aggregation_caliber|gating|display_only",
+	// CAP (§26 C3): the gated twin of fold_capability above.
+	"gated_capability|gating|hard_consumer",
 	"gated_runnable|gating|hard_consumer",
 	"gated_running_deficit|gating|hard_consumer",
 	"high_prio|cpu_load|display_only",

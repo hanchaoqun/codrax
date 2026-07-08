@@ -133,8 +133,10 @@ func TestBatchP_A1_FloatFrequencyTimelineEndToEnd(t *testing.T) {
 	if dep.SupplyFoldBasis == nil || !dep.SupplyFoldBasis.AllKnown() {
 		t.Fatalf("float-shape frequency rows must still cover the fold basis: %+v", dep.SupplyFoldBasis)
 	}
-	if dep.SupplyFoldDeficitMs < 4.7 || dep.SupplyFoldDeficitMs > 5.3 {
-		t.Fatalf("float-shape timeline must fold identically to the integer ledger pin (~5ms), got %.3f", dep.SupplyFoldDeficitMs)
+	// CAP (§26) evolution in lockstep with the integer ledger pin
+	// (TestSupplyFoldTwoSliceNumericPin): ≈8.02ms capability fold.
+	if dep.SupplyFoldDeficitMs < 7.7 || dep.SupplyFoldDeficitMs > 8.3 {
+		t.Fatalf("float-shape timeline must fold identically to the integer ledger pin (~8.02ms, CAP §26), got %.3f", dep.SupplyFoldDeficitMs)
 	}
 	if dep.SupplyFoldBasis.FmaxKHz != 2000000 {
 		t.Fatalf("fmax must resolve from the float-shape samples, got %+v", dep.SupplyFoldBasis)

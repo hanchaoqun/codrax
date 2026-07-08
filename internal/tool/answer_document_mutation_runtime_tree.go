@@ -432,6 +432,15 @@ const (
 	runtimeTraceProjMarkFamilyMemberMax // 口径词 成员最大(共N段,重叠未拆) (D1)
 	runtimeTraceProjMarkFamilyCountSum  // 口径词 计数合计(共N项,同线程) (D1)
 
+	// CAP (§26 C3, 2026-07-08): the capability-fold disclosure words, each
+	// with its own on-demand legend entry (括注扩展须配图例条目).
+	runtimeTraceProjMarkCaliberDefaultCapability  // 括注 按默认算力比粗算 (§26 默认表披露)
+	runtimeTraceProjMarkCaliberFreqOnlyCapability // 披露 簇结构不可判,按纯频率比折算 (§26 fail-loud 退回)
+	// CAP 复核 F1 (2026-07-08): the demoted fold-basis words 按小核满频/按中核
+	// 满频/按超大核满频折算 share ONE legend seat (the class word is the
+	// signal; the entry explains the same-cluster demotion).
+	runtimeTraceProjMarkCaliberReferenceClusterFmax // 口径词 按X核满频折算 (基准降级, 复核 F1)
+
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
 	runtimeTraceProjMarkCount
@@ -826,9 +835,32 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `按大核满频折算` = 该数值按大核满频折算(供给口径),非原始时长。",
 			"- `folded at big-cluster fmax` = the value is folded at the big cluster's max frequency (supply caliber), not a raw duration."},
 		// §24.1补 (用户问"下界"何意, 2026-07-07 — 图例文案账本原文一字不改).
+		// CAP (§26 C3, 2026-07-08). EVOLUTION RECORD: the original half-sentence
+		// "折算未计大核单周期优势" is RETIRED (negative pin) — the capability
+		// fold now prices the core-class advantage (default table or, once
+		// wired, measured evidence), so the lower bound's only residue is the
+		// missing-frequency slices counted 0. Rows on the fail-loud freq_only
+		// fallback say so inline ("按纯频率比折算") and are the stated
+		// exception.
 		{runtimeTraceProjMarkCaliberLowerBound, runtimeTraceProjLegendGroupCaliber,
-			"- `下界` = 保守最小值:频率数据缺失的片段计 0,折算未计大核单周期优势;真实可消除量只多不少。",
-			"- `lower bound` = a conservative minimum: slices with missing frequency data count 0 and the fold ignores the big core's per-cycle advantage; the truly removable amount can only be larger."},
+			"- `下界` = 保守最小值:频率数据缺失的片段计 0;核类算力差已计入(默认或实测,标注「按纯频率比折算」的行除外);真实可消除量只多不少。",
+			"- `lower bound` = a conservative minimum: slices with missing frequency data count 0; the core-class capability gap is already priced in (default or measured — rows marked 「frequency-ratio fold only」 excepted); the truly removable amount can only be larger."},
+		// CAP (§26 C3, 2026-07-08): the capability disclosure words' legend
+		// seats — 默认表粗算必须披露, and the fail-loud freq_only fallback
+		// teaches what it did NOT price.
+		{runtimeTraceProjMarkCaliberDefaultCapability, runtimeTraceProjLegendGroupCaliber,
+			"- `按默认算力比粗算` = 核类算力差按默认比例计入(同频点:中核=小核×2.3,大核=中核×1.1≈小核×2.53,超大核=大核×1.2≈小核×3.036),非厂商实测算力表。",
+			"- `default capability-ratio estimate` = the core-class capability gap is priced with the default ratios (at one frequency point: middle=small×2.3, big=middle×1.1≈small×2.53, prime=big×1.2≈small×3.036), not a vendor-measured capability table."},
+		{runtimeTraceProjMarkCaliberFreqOnlyCapability, runtimeTraceProjLegendGroupCaliber,
+			"- `按纯频率比折算` = 簇结构不可判,核类算力差未计入,仅按频率比折算;真实缺口只多不少。",
+			"- `frequency-ratio fold only` = the cluster structure could not be judged, so the core-class capability gap is NOT priced — the fold uses the frequency ratio alone; the true deficit can only be larger."},
+		// CAP 复核 F1 (2026-07-08): the demoted-reference basis words' shared
+		// legend seat — the fold basis and its capability coefficient are
+		// same-cluster by construction (同簇同源), and the class word says
+		// WHICH cluster anchored the fold.
+		{runtimeTraceProjMarkCaliberReferenceClusterFmax, runtimeTraceProjLegendGroupCaliber,
+			"- `按小核满频折算/按中核满频折算/按超大核满频折算` = 折算基准与算力系数取自标注类簇(同簇同源):大核簇窗内无频点治理数据,基准改取有治理数据的最高类簇;数值不按大核满频。",
+			"- `folded at small-cluster/middle-cluster/prime-cluster fmax` = the fold basis and its capability coefficient come from the named cluster (same-cluster pair): the big cluster had no window-governing frequency data, so the basis moved to the highest class that has it; the value is NOT a big-cluster-fmax fold."},
 		{runtimeTraceProjMarkCaliberSingleMax, runtimeTraceProjLegendGroupCaliber,
 			"- `单次最大(a–b,共N次)` = 合并的 N 次实例中取单次最大者计入有效归因,a–b 为单次范围;行1 的 ×N 与数值为合并计数与合并投影。",
 			"- `single max (a–b, of N)` = of the N merged instances, the single largest one counts into the attribution, a–b is the per-instance range; the ×N and the value on line 1 are the merged count and the merged projection."},
@@ -4912,6 +4944,17 @@ var runtimeTraceProjWrapAtomCompounds = []string{
 	"链上累计",
 	"按大核满频",
 	"按下游消费核",
+	// CAP (§26 C3): the capability disclosure words join the unbreakable set
+	// (a wrap must never bisect 默认算力比/纯频率比 mid-claim). Longest-first
+	// inside the shared 按 prefix family. 复核 F1: the demoted basis words
+	// join too (超大 entry before 大 keeps longest-first discipline moot —
+	// the 按 head disambiguates each).
+	"按默认算力比粗算",
+	"按纯频率比折算",
+	"按超大核满频",
+	"按中核满频",
+	"按小核满频",
+	"簇结构不可判",
 	"跨窗取最大",
 	"单次最大",
 	// RCM-2 D1: the family caliber vocabulary joins the unbreakable set (a
@@ -5522,6 +5565,15 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		verdict := runtimeTraceProjSupplyFoldVerdictFor(node, foldWindowMS)
 		mechanismSentence := verdict == runtimeTraceProjSupplyFoldTriple ||
 			verdict == runtimeTraceProjSupplyFoldWithDemand
+		// CAP (§26 C3): the capability disclosure words carry their legend
+		// entry wherever they render — every clause branch except the bare
+		// "无法折算" no-fold form speaks them (supplyfold.go), and the FAIL-1
+		// detail-line home below carries them too.
+		capMark, capMarkOK := runtimeTraceProjCapabilityCaliberMark(node.SupplyFoldCapabilitySource)
+		// CAP 复核 F1: the basis word's legend seat follows the actual
+		// reference cluster (按大核满频 entry vs the demoted-basis entry).
+		refMark := runtimeTraceProjFoldReferenceMark(node.SupplyFoldReferenceClass)
+		_, refDemoted := runtimeTraceProjFoldReferenceClusterWord(node.SupplyFoldReferenceClass, zh)
 		if structuredOK && mechanismSentence && runtimeTraceCausalProjectionInversionRow(node) {
 			// 复核 FAIL-1 (§24.1补 图例破洞): the clause is suppressed here
 			// (§24 ②) but the deficit still reaches the reader through the
@@ -5529,21 +5581,41 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 			// their legend entries wherever they render (the 下界 explanation
 			// is the entry the user personally asked for).
 			if runtimeTraceProjInversionSupplyFoldDetailLine(node, zh) != "" {
-				row.marks.mark(runtimeTraceProjMarkCaliberBigCoreFmax)
+				row.marks.mark(refMark)
 				row.marks.mark(runtimeTraceProjMarkCaliberLowerBound)
+				if capMarkOK {
+					row.marks.mark(capMark)
+				}
 			}
 		} else {
 			switch verdict {
 			case runtimeTraceProjSupplyFoldTriple, runtimeTraceProjSupplyFoldWithDemand, runtimeTraceProjSupplyFoldDominant:
-				row.marks.mark(runtimeTraceProjMarkCaliberBigCoreFmax)
+				row.marks.mark(refMark)
 				row.marks.mark(runtimeTraceProjMarkCaliberLowerBound)
+				if capMarkOK {
+					row.marks.mark(capMark)
+				}
+			case runtimeTraceProjSupplyFoldNoDeficit:
+				// CAP (§26 判词重判): the affirmative / near-fmax forms carry
+				// ONLY the capability disclosure (they never speak 按大核满频
+				// 折算/下界 as caliber words) — plus the demoted-basis entry
+				// when the class word signals a non-big basis (复核 F1).
+				if capMarkOK {
+					row.marks.mark(capMark)
+				}
+				if refDemoted {
+					row.marks.mark(refMark)
+				}
 			case runtimeTraceProjSupplyFoldUnknownBasis:
 				// PTV8-RCR-C §24.9 G4 co-repair: the deficit-bearing unknown-
 				// basis form speaks 按大核满频…下界 — its caliber legend
 				// entries follow the words (the no-deficit form keeps none).
 				if node.SupplyFoldDeficitMS > 0 {
-					row.marks.mark(runtimeTraceProjMarkCaliberBigCoreFmax)
+					row.marks.mark(refMark)
 					row.marks.mark(runtimeTraceProjMarkCaliberLowerBound)
+					if capMarkOK {
+						row.marks.mark(capMark)
+					}
 				}
 			}
 			tag.Seg = 34

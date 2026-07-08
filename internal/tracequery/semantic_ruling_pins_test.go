@@ -250,8 +250,9 @@ func TestSemanticRulingPin_ClockLaneNeverFeedsSupplyFoldFmax(t *testing.T) {
 		if basis.FmaxKHz != 2000000 || basis.FmaxSource != SupplyFoldFmaxSourceObserved {
 			t.Fatalf("lane 3GHz sample must not move the 2GHz observed fmax: %+v", basis)
 		}
-		// ~10ms @1GHz vs 2GHz → ~5ms; a leaked 3GHz fmax would give ~6.67ms.
-		if dep.SupplyFoldDeficitMs < 4.7 || dep.SupplyFoldDeficitMs > 5.3 {
+		// ~9.9ms @1GHz small vs big 2GHz: CAP (§26) evolution ≈7.94ms; a
+		// leaked 3GHz fmax would give ≈8.60ms (pre-CAP: 5ms vs 6.67ms).
+		if dep.SupplyFoldDeficitMs < 7.6 || dep.SupplyFoldDeficitMs > 8.2 {
 			t.Fatalf("deficit must fold against the observed fmax only, got %.3f", dep.SupplyFoldDeficitMs)
 		}
 		if basis.ClusterLaneName != "cpu_freq" || basis.ClusterLaneMaxKHz != 3000000 {

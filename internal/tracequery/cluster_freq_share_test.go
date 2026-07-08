@@ -120,9 +120,11 @@ func TestSupplyFoldClusterSharedReuseB3Shape(t *testing.T) {
 	if !basis.AllKnown() || basis.UnknownMs != 0 {
 		t.Fatalf("cluster-shared reuse must yield a fully-known basis (b3 caveat gone), got %+v", basis)
 	}
-	// ~10ms @1GHz (reused from cpu2) against big fmax 2GHz → ~5ms deficit.
-	if dep.SupplyFoldDeficitMs < 4.7 || dep.SupplyFoldDeficitMs > 5.3 {
-		t.Fatalf("reused slice must fold at the sibling's 1GHz (deficit ~5ms), got %.3f", dep.SupplyFoldDeficitMs)
+	// ~9.9ms @1GHz (reused from cpu2) against big fmax 2GHz. CAP (§26)
+	// evolution: the middle-labeled cluster maps 小核 (2-cluster shape) —
+	// 9.9×(1−(1/2)/2.53) ≈ 7.94ms (pre-CAP pure ratio ≈ 5ms).
+	if dep.SupplyFoldDeficitMs < 7.6 || dep.SupplyFoldDeficitMs > 8.2 {
+		t.Fatalf("reused slice must fold at the sibling's 1GHz (deficit ~7.94ms, CAP §26), got %.3f", dep.SupplyFoldDeficitMs)
 	}
 	// §7.10 red line: the identity survives the reuse.
 	if got, want := dep.SupplyFoldIdealMs+dep.SupplyFoldDeficitMs, dep.RunningMs; !floatNear(got, want) {
@@ -223,8 +225,9 @@ func TestSupplyFoldClusterReusePrimeVsBigDistinct(t *testing.T) {
 }
 
 // 禁反向 mutation pin: the slice CPU has its OWN 1.5GHz sample; a same-cluster
-// 1GHz donor exists. The fold must use 1.5GHz (deficit 10×(1−0.75)=2.5ms) —
-// a donor override would read 1GHz and inflate the deficit to 5ms.
+// 1GHz donor exists. The fold must use 1.5GHz — CAP (§26) evolution:
+// 9.9×(1−(1.5/2)/2.53) ≈ 6.97ms; a donor override would read 1GHz and inflate
+// the deficit to ≈7.94ms (pre-CAP: 2.5ms vs 5ms — still discriminating).
 func TestSupplyFoldClusterReuseOwnSamplesNeverOverridden(t *testing.T) {
 	idx := buildTraceIndex(t, "cfr_own_samples.systrace", `
       <idle>-0 (-----) [002] .... 4.900000: cpu_frequency: state=1000000 cpu_id=2
@@ -244,8 +247,8 @@ func TestSupplyFoldClusterReuseOwnSamplesNeverOverridden(t *testing.T) {
 	if basis == nil {
 		t.Fatalf("fold must run: %+v", dep)
 	}
-	if dep.SupplyFoldDeficitMs < 2.2 || dep.SupplyFoldDeficitMs > 2.8 {
-		t.Fatalf("own 1.5GHz samples must win over the 1GHz donor (deficit ~2.5ms), got %.3f", dep.SupplyFoldDeficitMs)
+	if dep.SupplyFoldDeficitMs < 6.7 || dep.SupplyFoldDeficitMs > 7.2 {
+		t.Fatalf("own 1.5GHz samples must win over the 1GHz donor (deficit ~6.97ms, CAP §26), got %.3f", dep.SupplyFoldDeficitMs)
 	}
 	if len(basis.ClusterFreqReuse) != 0 {
 		t.Fatalf("own samples → no reuse disclosure: %+v", basis.ClusterFreqReuse)

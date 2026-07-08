@@ -58,6 +58,11 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 		ClusterLaneName: "lane0", ClusterLaneMaxKHz: 999, ClusterLaneDivergent: true,
 		// CFR (#75 簇共频): exercises the fold_cluster_freq_reuse emission.
 		ClusterFreqReuse: []tracequery.SupplyFoldClusterReuse{{CPU: 3, DonorCPU: 4}},
+		// CAP (§26 C3): exercises the fold_capability emission; the demoted
+		// reference class (复核 F1) exercises fold_reference_class (the note
+		// only emits on a non-big basis).
+		CapabilitySource: tracequery.CoreCapabilitySourceDefault,
+		ReferenceClass:   "small",
 	}
 	impact := tracequery.WakeupCausalImpact{
 		Thread: tracequery.ThreadRef{Comm: "dep", PID: 21}, Window: window,
@@ -70,7 +75,8 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 		ActualRunningMs: 1, ActualRunnableMs: 1, ActualSleepMs: 2, ActualDStateMs: 1, ActualIOWaitMs: 1,
 		Priority: 10, PriorityClass: "cfs", TargetPriority: 20, TargetPriorityClass: "cfs",
 		PriorityRelation: "waker_higher", PriorityInversionCandidate: true, PriorityInversionGatedMs: 1,
-		GatedRunnableMs: 1, GatedRunningDeficitMs: 1,
+		// CAP (§26 C3): exercises the gated_capability emission.
+		GatedRunnableMs: 1, GatedRunningDeficitMs: 1, GatedCapabilitySource: tracequery.CoreCapabilitySourceDefault,
 		NextStep: "inspect the waker", NextStepKind: "wakeup_chain",
 		PeriodicSource: true, DetectedPeriodMs: 16.6, LatenessMs: 0.5, EffectivePeriodicImpactMs: 0.5,
 		SupplyFoldBasis: basis, SupplyFoldDeficitMs: 1, SupplyFoldIdealMs: 4,

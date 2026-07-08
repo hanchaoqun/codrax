@@ -677,6 +677,47 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		runtimeTraceProjMarkFamilyTotal:     {"段,同线程)", "segments, same thread)"},
 		runtimeTraceProjMarkFamilyMemberMax: {"重叠未拆", "overlap not deducted"},
 		runtimeTraceProjMarkFamilyCountSum:  {"计数合计", "count total ("},
+		// CAP (§26 C3, 2026-07-08): the capability disclosure words — the
+		// default-table parenthetical and the fail-loud freq_only fallback.
+		// The zh probes are wrap atoms; the EN probes are single hyphenated
+		// tokens (the space-wrap can split a multi-word phrase mid-line, and
+		// the zh freq_only 按纯频率比折算 word also appears in the 下界 LEGEND
+		// text — 簇结构不可判/frequency-ratio stay unique to the clause).
+		runtimeTraceProjMarkCaliberDefaultCapability:  {"按默认算力比粗算", "capability-ratio"},
+		runtimeTraceProjMarkCaliberFreqOnlyCapability: {"簇结构不可判", "frequency-ratio"},
+		// CAP 复核 F1: the demoted basis words vary by class (按小核满频/
+		// 按中核满频/按超大核满频) — one mark, no single fence token, so no
+		// fence probe; direction A (mark ⇔ legend entry) still asserts (the
+		// StateLabel precedent).
+		runtimeTraceProjMarkCaliberReferenceClusterFmax: {"", ""},
+	}
+}
+
+// revisit76CAPDemotedReferenceProjection (CAP 复核 F1, 2026-07-08) exercises
+// the demoted fold-basis words (按小核满频折算) and their shared legend seat:
+// a Dominant-verdict fold whose typed reference class moved off big.
+func revisit76CAPDemotedReferenceProjection() types.TraceCausalProjection {
+	projection := revisit76CAPCapabilityProjection(runtimeTraceCapabilitySourceDefault)
+	projection.OnChainCauses[0].SupplyFoldReferenceClass = "small"
+	return projection
+}
+
+// revisit76CAPCapabilityProjection (CAP §26 C3, 2026-07-08) exercises the
+// capability disclosure words on the Dominant supply-fold verdict: source
+// selects the default-table parenthetical or the fail-loud freq_only fallback.
+func revisit76CAPCapabilityProjection(source string) types.TraceCausalProjection {
+	return types.TraceCausalProjection{
+		WakeupPath:    []string{"worker-9", "app-100"},
+		WindowStartTs: 100.0,
+		WindowEndTs:   100.2,
+		OnChainCauses: []types.TraceCausalProjectionNode{{
+			Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "cap-1",
+			Subject: "worker-9", Object: "running", StateKind: "running",
+			ChainRelevance: "on_chain", ChainDepth: 1,
+			ImpactMS: 20.0, CumulativeImpactMS: 20.0,
+			SupplyFoldComputed: true, SupplyFoldDeficitMS: 5.0, SupplyFoldIdealMS: 15.0,
+			SupplyFoldKnownMS: 20.0, SupplyFoldCapabilitySource: source, Confidence: 0.8,
+		}},
 	}
 }
 
@@ -1081,6 +1122,13 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// RCM-2 (§24.7.1/§24.10): the family-merge caliber ladder's three
 		// display words (合计/成员最大/计数合计) + their legend entries.
 		{"rcm2_family_forms", revisit76RCM2FamilyProjection()},
+		// CAP (§26 C3): the capability disclosure words on the Dominant
+		// supply-fold verdict — default table vs the fail-loud freq_only
+		// fallback (fixture above).
+		{"cap_capability_default", revisit76CAPCapabilityProjection(runtimeTraceCapabilitySourceDefault)},
+		{"cap_capability_freq_only", revisit76CAPCapabilityProjection(runtimeTraceCapabilitySourceFreqOnly)},
+		// CAP 复核 F1: the demoted-basis word + its legend seat.
+		{"cap_reference_demoted", revisit76CAPDemotedReferenceProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {
