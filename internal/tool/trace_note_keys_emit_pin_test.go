@@ -318,6 +318,27 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				SpanCategory: "shader_compile", SpanSubcategory: "shader",
 				SemanticClass: "shader_compile",
 				Summary:       "shader compilation span overlapped selected non-chain interval",
+			}, {
+				// RCM §24.7.1/§24.10 (2026-07-08): engine same-(thread,type)
+				// family-merged rank row — exercises the member_* contract keys
+				// (isolated family lane, never folded_*) plus the typed
+				// inode/dev distinguishing keys promoted out of Summary prose.
+				// F4 (对抗复核收尾): honest OVERLAP shape — member_sum_ms is
+				// emitted only when the published value sits BELOW the raw
+				// member Σ (here the max_overlap_fallback member MAX 1.136 <
+				// Σ 1.598), matching the producer convention.
+				Rank: 4, Tier: "tertiary", Type: "block_io_by_inode",
+				Thread:   tracequery.ThreadRef{Comm: "RxComputationT", PID: 106},
+				ImpactMs: 1.136, ProjectedImpactMs: 1.136, CumulativeImpactMs: 1.136,
+				EffectiveImpactMs: 1.136, Score: 1.0, Confidence: 0.76,
+				LineStart: 80, LineEnd: 90,
+				Source:    "window_stats.block_io_by_inode",
+				Causality: "background", ChainRelevance: "background",
+				MemberCount: 2, MemberMaxMs: 1.136, MemberMinMs: 0.462,
+				MemberSumMs: 1.598, MemberFoldCaliber: tracequery.RootCauseMemberFoldCaliberMaxOverlapFallback,
+				MemberRoster: []string{"inode=286395 dev=254:2 1.136ms", "inode=300123 dev=254:2 0.462ms"},
+				Dev:          "254:2", Inode: "286395",
+				Summary: "block IO family merged across two inodes on one thread",
 			}},
 		},
 		WakeupChain: &tracequery.ChainResult{

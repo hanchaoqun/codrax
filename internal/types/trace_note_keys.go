@@ -144,6 +144,42 @@ const (
 	TraceNoteKeyFoldedMinMS    = "folded_min_ms"
 	TraceNoteKeyFoldedMaxMS    = "folded_max_ms"
 	TraceNoteKeyFoldedSubjects = "folded_subjects"
+	// RCM 家族合并族 (§24.7.1/§24.10 user rulings 2026-07-08,
+	// real_trace_campaign_20260705.md §24.12): the ENGINE-side same-(thread,
+	// type) / (thread, semantic class) family-merge carriers on a rank
+	// observation — member_count counts the merged member INSTANCES, member_
+	// max_ms/member_min_ms their raw value range, member_sum_ms the lossless
+	// raw Σ (emitted ONLY when the published value sits below it — the
+	// union/max-fallback disclosure), member_fold_caliber the closed-set typed
+	// ruler that produced the published value (sum_disjoint / interval_union /
+	// max_overlap_fallback / count_sum) and member_roster the bounded
+	// "key value" member inventory joined with " | " (entries may contain
+	// commas — consumers split on the pipe, never on ","). DELIBERATELY a
+	// separate lane from the display-side folded_* family above: folded_* is a
+	// CROSS-THREAD wire-cap fold whose value is the member MAX; member_* is a
+	// SAME-THREAD engine merge whose value is legally additive — the
+	// projection compile re-materializes them into the FamilyMember* node
+	// fields and MUST NOT touch the MergedCount/MergedMaxMS lane (the display
+	// lead selector folds Merged* rows to their member MAX, which would
+	// collapse the family total back to its largest member).
+	TraceNoteKeyMemberCount       = "member_count"
+	TraceNoteKeyMemberMaxMS       = "member_max_ms"
+	TraceNoteKeyMemberMinMS       = "member_min_ms"
+	TraceNoteKeyMemberSumMS       = "member_sum_ms"
+	TraceNoteKeyMemberFoldCaliber = "member_fold_caliber"
+	TraceNoteKeyMemberRoster      = "member_roster"
+)
+
+// RCM 区分键族 (§24.7.1 ①/§24.9-B F3, 2026-07-08): the typed real
+// distinguishing keys of the inode-keyed IO rank families. EVOLUTION RECORD:
+// both key names existed as display-tier "io"-family literals (emitted on the
+// io observation rows); the rank lane now also emits them from the typed
+// RootCauseRankItem.Inode/Dev fields and the projection compile parses them
+// into node fields — promoted literals → contract-tier constants,
+// display_only → hard_consumer.
+const (
+	TraceNoteKeyInode = "inode"
+	TraceNoteKeyDev   = "dev"
 )
 
 // 冲击度量族 (impact-metric family).
@@ -438,6 +474,15 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyFoldedMinMS, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyFoldedMaxMS, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyFoldedSubjects, "causal_rank", TraceNoteCarrierHardConsumer},
+	// RCM 家族合并族 (§24.7.1/§24.10, 2026-07-08): engine same-thread family
+	// merge accounting — parsed by the projection compile into the isolated
+	// FamilyMember* node lane (never MergedCount/MergedMaxMS).
+	{TraceNoteKeyMemberCount, "causal_rank", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyMemberMaxMS, "causal_rank", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyMemberMinMS, "causal_rank", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyMemberSumMS, "causal_rank", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyMemberFoldCaliber, "causal_rank", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyMemberRoster, "causal_rank", TraceNoteCarrierHardConsumer},
 
 	// 冲击度量族.
 	{TraceNoteKeyImpact, "impact", TraceNoteCarrierHardConsumer},
@@ -693,8 +738,13 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{"cpu_count", "compute_supply", TraceNoteCarrierDisplayOnly},
 
 	// IO 族.
-	{"inode", "io", TraceNoteCarrierDisplayOnly},
-	{"dev", "io", TraceNoteCarrierDisplayOnly},
+	// EVOLUTION RECORD (RCM §24.7.1 ①/§24.9-B F3, 2026-07-08): inode/dev
+	// promoted display_only → hard_consumer — the rank lane now emits them
+	// from typed fields and the projection compile parses them into
+	// node.Inode/node.Dev (the keys previously lived only in free-text
+	// Summary prose and every display face dropped them).
+	{TraceNoteKeyInode, "io", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyDev, "io", TraceNoteCarrierHardConsumer},
 	{"name", "io", TraceNoteCarrierDisplayOnly},
 	{"op", "io", TraceNoteCarrierDisplayOnly},
 	{"count", "io", TraceNoteCarrierDisplayOnly},

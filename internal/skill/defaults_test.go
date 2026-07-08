@@ -247,10 +247,23 @@ func TestExploreSkill_TraceQueryGuidanceIsTraceGated(t *testing.T) {
 		// DCS E6/F3a (ledger §23.1 ruling ③): the double-gated mention
 		// obligation — on-chain tier word always mentioned as an optimization
 		// point with its window share; non-chain only at background_rank<=3.
+		//
+		// EVOLUTION RECORD (RCM §24.7.1/§24.10, 2026-07-08,
+		// real_trace_campaign_20260705.md §24.12): the obligation moved to
+		// FAMILY caliber — same-thread spans of one semantic class arrive as
+		// one merged rank row whose projected_impact_ms is the combined
+		// window-projection total, the mention carries the merged count +
+		// largest member name, and the share denominator is the row's OWN
+		// query window (DCS E5 lane). Pin evolved: "projected share of the
+		// analysis window" → "projected share of its own query window", plus
+		// the family-field vocabulary below.
 		"tier=deterministic_optimization",
 		"MUST mention the largest one",
 		"never as the root cause",
-		"projected share of the analysis window",
+		"projected share of its own query window",
+		"member_count",
+		"member_roster",
+		"combined window-projection total",
 		"background_rank<=3",
 		"PERF SAMPLE PROVENANCE",
 	} {

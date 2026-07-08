@@ -8804,6 +8804,9 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		item.StartTs = io.IssueTs
 		item.EndTs = io.CompleteTs
+		// RCM §24.7.1 typed member identity (never a Summary re-parse).
+		item.Dev = io.Dev
+		item.MemberKey = fmt.Sprintf("dev=%s op=%s sector=%d", io.Dev, io.Op, io.Sector)
 		items = append(items, item)
 	}
 	for _, file := range stats.FileIOByInode {
@@ -8824,6 +8827,11 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		item.StartTs = file.StartTs
 		item.EndTs = file.EndTs
+		// RCM §24.7.1/§24.9-B F3: the real distinguishing keys ride typed
+		// fields (the Summary prose was their ONLY carrier before).
+		item.Inode = file.Inode
+		item.Dev = file.Dev
+		item.MemberKey = fmt.Sprintf("inode=%s dev=%s op=%s", file.Inode, file.Dev, file.Operation)
 		items = append(items, item)
 	}
 	for _, cache := range stats.PageCacheByInode {
@@ -8837,6 +8845,10 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		item.StartTs = cache.StartTs
 		item.EndTs = cache.EndTs
+		// RCM §24.7.1/§24.9-B F3 typed distinguishing keys.
+		item.Inode = cache.Inode
+		item.Dev = cache.Dev
+		item.MemberKey = fmt.Sprintf("inode=%s dev=%s", cache.Inode, cache.Dev)
 		items = append(items, item)
 	}
 	if stats.IOPressureSummary != nil && stats.IOPressureSummary.Score > 0 {
@@ -8881,6 +8893,13 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		item.StartTs = inode.StartTs
 		item.EndTs = inode.EndTs
+		// RCM §24.7.1/§24.9-B F3 (opendir_78 gap③): inode/dev were carried by
+		// the free-text Summary ONLY and every display face dropped them —
+		// typed fields now, and the family fold folds two different-inode rows
+		// of one thread into ONE contender with both keys in the roster.
+		item.Inode = inode.Inode
+		item.Dev = inode.Dev
+		item.MemberKey = fmt.Sprintf("inode=%s dev=%s", inode.Inode, inode.Dev)
 		items = append(items, item)
 	}
 	windowImpactMs := (q.TimeEnd - q.TimeStart) * 1000
@@ -8906,9 +8925,32 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		items = append(items, rootCauseItemFromLockContentionCandidate(q, chainThreads, hasCausalChain, row))
 	}
 	var semanticNearMisses []string
-	for _, span := range stats.TraceSpans {
-		if item, ok := rootCauseItemFromSemanticTraceSpan(q, chain, span, hasCausalChain); ok {
+	// RCM §24.10 (user ruling 2026-07-08): semantic spans participate as
+	// (thread, semantic class, chain lane) FAMILIES — one contender per family
+	// carrying the window-projection total (合并量参赛). The fold is the ONE
+	// shared function the typed observation channel also consumes (§24.12: 两
+	// 消费方同一函数); stats.TraceSpans itself stays untouched (span_window /
+	// detail roster source). A family of one routes through the single-span
+	// constructor verbatim — degenerate families stay byte-identical to the
+	// pre-RCM rows (退化不变体).
+	semanticConsumed := map[int]bool{}
+	for _, fam := range FoldSemanticSpanFamilies(&chain, stats.TraceSpans) {
+		if len(fam.Members) == 1 {
+			if item, ok := rootCauseItemFromSemanticTraceSpan(q, chain, fam.Members[0], hasCausalChain); ok {
+				items = append(items, item)
+				markSemanticSpanConsumed(semanticConsumed, stats.TraceSpans, fam.Members[0])
+			}
+			continue
+		}
+		if item, ok := rootCauseItemFromSemanticSpanFamily(q, fam, hasCausalChain); ok {
 			items = append(items, item)
+			for _, member := range fam.Members {
+				markSemanticSpanConsumed(semanticConsumed, stats.TraceSpans, member)
+			}
+		}
+	}
+	for i, span := range stats.TraceSpans {
+		if semanticConsumed[i] {
 			continue
 		}
 		if _, isContention := parseLockContentionPayload(span.Name); isContention {
@@ -9067,6 +9109,8 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		item.StartTs = work.StartTs
 		item.EndTs = work.EndTs
+		// RCM §24.7.1 typed member identity.
+		item.MemberKey = fmt.Sprintf("work=%s fn=%s", work.Work, work.Function)
 		items = append(items, item)
 	}
 	for _, fence := range stats.DMAFenceActivity {
@@ -9080,6 +9124,8 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		item.StartTs = fence.StartTs
 		item.EndTs = fence.EndTs
+		// RCM §24.7.1 typed member identity.
+		item.MemberKey = fmt.Sprintf("driver=%s timeline=%s ctx=%s seqno=%s", fence.Driver, fence.Timeline, fence.Context, fence.Seqno)
 		items = append(items, item)
 	}
 	if supply := stats.SupplyPressureSummary; supply != nil {
@@ -9113,6 +9159,12 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	// SYM-2 (§24.17 R2): the self runnable rows that now compete carry the
 	// typed below-RT-preempted disclosure when the scheduling data proves it.
 	stampRunnableSelfBelowRTPreempted(items, stats.RunnableContext)
+	// RCM §24.7.1 (user ruling 2026-07-08): same-(thread,type) per-instance
+	// rows merge into ONE contender per family BEFORE the sort, so the family
+	// competes with its combined magnitude instead of splitting its own vote
+	// (opendir_78 E5/E6: 1.136 rank#3 + 0.462 rank#8 → 1.598 one seat). Keyed
+	// additionally on chain lane and typed selected window (M3 跨窗纪律).
+	items = foldSameThreadTypeRankFamilies(q, hasCausalChain, items)
 	normalizeRootCauseCumulativeImpact(items)
 	normalizeRootCauseEffectiveImpact(items)
 	sortRootCauseRankItems(items, hasCausalChain)
@@ -9134,6 +9186,9 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	}
 	assignRootCauseRanksAndTiers(items)
 	if caveat, ok := semanticSpanRankFailLoudCaveat(stats, items); ok {
+		res.Caveats = append(res.Caveats, caveat)
+	}
+	if caveat, ok := semanticSpanCapLowerBoundCaveat(stats); ok {
 		res.Caveats = append(res.Caveats, caveat)
 	}
 	if len(items) == 0 {
@@ -9269,6 +9324,11 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	// highest-frequency runnable-family additions — same typed RT disclosure.
 	stampRunnableSelfBelowRTPreempted(rank.Items, stats.RunnableContext)
 	attributeOnChainResourceItemsToWakeupDependency(chain, rank.Items)
+	// RCM §24.7.1: the enrich pass mints new per-instance rows (multiple
+	// scheduler_latency segments per thread) — same family merge before its
+	// re-sort. Idempotent over the build pass: already-merged families arrive
+	// as single rows and pass through untouched.
+	rank.Items = foldSameThreadTypeRankFamilies(q, hasCausalChain, rank.Items)
 	normalizeRootCauseCumulativeImpact(rank.Items)
 	normalizeRootCauseEffectiveImpact(rank.Items)
 	sortRootCauseRankItems(rank.Items, hasCausalChain)
@@ -9928,7 +9988,10 @@ const (
 // would evict in-window semantic compile rows, the lowest-sorted kept
 // NON-semantic rows yield their seats instead (up to the per-lane seat
 // budgets). Relative sorted order is preserved; the emitted row count never
-// exceeds limit.
+// exceeds limit. RCM §24.10/§24.12: a seat is one ROW, and after the family
+// fold one semantic row IS one (thread, semantic class, lane) FAMILY — the
+// reservation budget therefore counts families, never their member spans (a
+// ×14 family redeems exactly one seat).
 func truncateRootCauseRankItemsWithSemanticSeats(items []RootCauseRankItem, limit int) []RootCauseRankItem {
 	if limit <= 0 || len(items) <= limit {
 		return items
@@ -9980,19 +10043,24 @@ func truncateRootCauseRankItemsWithSemanticSeats(items []RootCauseRankItem, limi
 	return out
 }
 
-// semanticSpanRankFailLoudCaveat (DCS E3, ledger §23 义务② fail-loud gap):
+// semanticSpanRankFailLoudCaveat (DCS E3, ledger §23 义务② fail-loud gap;
+// family grain per RCM §24.12: classified>0 ∧ published semantic FAMILY==0):
 // window_stats classified semantic optimization spans but the published rank
 // carries ZERO semantic rows — a structurally silent loss (the near-miss
 // caveat only covers UNclassified vocabulary). Precise counting comparison on
-// typed fields only; any published semantic row silences it.
+// typed fields only; any published semantic row (each row IS one family after
+// the §24.10 fold) silences it. The counted unit is the (thread, semantic
+// class) family, matching what the rank can actually publish post-fold.
 func semanticSpanRankFailLoudCaveat(stats WindowStats, items []RootCauseRankItem) (string, bool) {
-	classified := 0
+	classifiedFamilies := map[string]bool{}
+	classifiedSpans := 0
 	for _, span := range stats.TraceSpans {
 		if strings.TrimSpace(span.SemanticClass) != "" {
-			classified++
+			classifiedSpans++
+			classifiedFamilies[threadKey(span.Thread)+"\x00"+strings.TrimSpace(span.SemanticClass)] = true
 		}
 	}
-	if classified == 0 {
+	if len(classifiedFamilies) == 0 {
 		return "", false
 	}
 	for _, item := range items {
@@ -10000,7 +10068,27 @@ func semanticSpanRankFailLoudCaveat(stats WindowStats, items []RootCauseRankItem
 			return "", false
 		}
 	}
-	return fmt.Sprintf("window_stats.trace_spans holds %d classified semantic optimization span(s) but root_cause_rank published 0 semantic rows (%d row(s) published in total); the ranked causes are incomplete for deterministic-optimization accounting — inspect window_stats.trace_spans directly", classified, len(items)), true
+	return fmt.Sprintf("window_stats.trace_spans holds %d classified semantic optimization span(s) across %d same-thread famil(ies) but root_cause_rank published 0 semantic rows (%d row(s) published in total); the ranked causes are incomplete for deterministic-optimization accounting — inspect window_stats.trace_spans directly", classifiedSpans, len(classifiedFamilies), len(items)), true
+}
+
+// semanticSpanCapLowerBoundCaveat (RCM §24.12 复核漏项补充④): the semantic
+// span reservation (traceMarkSemanticSpanCap) arriving EXACTLY full is the
+// precise witness that the engine bound MAY have dropped further classified
+// spans — every family total computed from the surviving spans is then a
+// LOWER BOUND and must say so instead of shipping a silently short 合计
+// (cmp_78_01: the 7.0 side hit precisely 16). Soft disclosure only (a caveat,
+// never a gate): the exact-cap signal is precise but cannot count the drops.
+func semanticSpanCapLowerBoundCaveat(stats WindowStats) (string, bool) {
+	classified := 0
+	for _, span := range stats.TraceSpans {
+		if strings.TrimSpace(span.SemanticClass) != "" {
+			classified++
+		}
+	}
+	if classified < traceMarkSemanticSpanCap {
+		return "", false
+	}
+	return fmt.Sprintf("the semantic span capacity (%d) is exactly full: additional classified spans may have been dropped at the window-stats bound, so every semantic family total is a lower bound (>=) of the window's true optimization volume", traceMarkSemanticSpanCap), true
 }
 
 func rootCauseChainRelevanceSortRank(item RootCauseRankItem) int {

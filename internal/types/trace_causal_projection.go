@@ -371,6 +371,40 @@ type TraceCausalProjectionNode struct {
 	// across threads). Renderers show 其余 N 项(链上折叠) and MUST NOT let this
 	// row lead a conclusion or win a badge.
 	OnChainOverflowFold bool `json:"on_chain_overflow_fold,omitempty"`
+	// --- RCM family-merge typed lane (§24.7.1/§24.10 user rulings 2026-07-08,
+	// real_trace_campaign_20260705.md §24.12 dimension-A mandate ①) -----------
+	//
+	// FamilyMemberCount > 1 marks an ENGINE-side same-(thread,type) /
+	// (thread,semantic-class) family merge: the node's value channels carry
+	// the family's combined participation value (same-thread — legally
+	// additive under the FamilyFoldCaliber ruler), FamilyMemberMaxMS/MinMS the
+	// raw member range, FamilyMemberSumMS the lossless raw Σ when the
+	// published value sits below it (union/max-fallback disclosure; zero =
+	// published == Σ) and FamilyMemberRoster the bounded member inventory
+	// carrying the real distinguishing keys (inode/dev/span names — §24.7.1 ①
+	// they must never be dropped; overflow disclosed by the count).
+	//
+	// ISOLATION MANDATE (§24.12 dim-A ①, structural): this lane is a NEW typed
+	// carrier, deliberately DISJOINT from MergedCount/MergedMinMS/MergedMaxMS —
+	// those belong to the display-side R2/R3/PTS folds whose lead selector
+	// collapses ×N rows to their member MAX (墙钟跨线程不可加和). A family
+	// total riding the Merged* carriers would be folded back to its largest
+	// member and the §24.10 合计参赛 ruling would be dead on arrival. The
+	// compile parse below never writes Merged* from member_* notes (and never
+	// writes FamilyMember* from folded_* notes) — pinned by negative test.
+	FamilyMemberCount  int      `json:"family_member_count,omitempty"`
+	FamilyMemberMaxMS  float64  `json:"family_member_max_ms,omitempty"`
+	FamilyMemberMinMS  float64  `json:"family_member_min_ms,omitempty"`
+	FamilyMemberSumMS  float64  `json:"family_member_sum_ms,omitempty"`
+	FamilyFoldCaliber  string   `json:"family_fold_caliber,omitempty"`
+	FamilyMemberRoster []string `json:"family_member_roster,omitempty"`
+	// Inode / Dev are the typed real distinguishing keys of the inode-keyed IO
+	// rank families (§24.9-B F3: previously alive only inside free-text
+	// Summary prose — every display face dropped them). Set only when the
+	// producer's typed fields agreed across the family; per-member keys live
+	// in FamilyMemberRoster.
+	Inode string `json:"inode,omitempty"`
+	Dev   string `json:"dev,omitempty"`
 	// SubjectKind is sourced verbatim from the typed subject_kind rich note.
 	// Empty = the subject is a (possibly unresolved) thread. The only non-empty
 	// value today is TraceCausalSubjectKindAggregateMetric: the row is a
@@ -1983,6 +2017,29 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		}
 		node.OnChainOverflowFold = node.ChainRelevance == "on_chain"
 	}
+	// RCM 家族合并族 (§24.7.1/§24.10, 2026-07-08): the engine same-thread
+	// family-merge accounting re-materializes on the ISOLATED FamilyMember*
+	// lane — NEVER on MergedCount/MergedMaxMS (§24.12 dim-A mandate ①: the
+	// display lead selector folds Merged* rows to their member MAX, which
+	// would collapse the same-thread family total back to its largest member).
+	// member_roster entries are joined with " | " on the wire because member
+	// keys/span names may legally contain commas.
+	if familyCount := traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyMemberCount); familyCount > 1 {
+		node.FamilyMemberCount = familyCount
+		node.FamilyMemberMaxMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyMemberMaxMS)
+		node.FamilyMemberMinMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyMemberMinMS)
+		node.FamilyMemberSumMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyMemberSumMS)
+		node.FamilyFoldCaliber = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyMemberFoldCaliber))
+		for _, entry := range strings.Split(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyMemberRoster), " | ") {
+			if entry = strings.TrimSpace(entry); entry != "" {
+				node.FamilyMemberRoster = append(node.FamilyMemberRoster, entry)
+			}
+		}
+	}
+	// RCM 区分键族 (§24.9-B F3): typed inode/dev identity — never a Summary
+	// re-parse.
+	node.Inode = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyInode))
+	node.Dev = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyDev))
 	return node
 }
 

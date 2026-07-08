@@ -2045,7 +2045,114 @@ type RootCauseRankItem struct {
 	SpanCategory                   string `json:"span_category,omitempty"`
 	SpanSubcategory                string `json:"span_subcategory,omitempty"`
 	SemanticClass                  string `json:"semantic_class,omitempty"`
-	Summary                        string `json:"summary,omitempty"`
+	// --- RCM family-merge typed carriers (§24.7.1 / §24.10, user rulings
+	// 2026-07-08, real_trace_campaign_20260705.md) ---------------------------
+	//
+	// MemberCount > 1 marks an ENGINE-side same-(thread,type) family merge: the
+	// row is ONE ranked contender whose value channels carry the family total
+	// (合并量参赛 — split participation weakens ordering, §24.7.1), and the
+	// members' real distinguishing keys (inode/dev/op/…) ride MemberRoster so
+	// they are never lost (§24.7.1 ①). This typed lane is DELIBERATELY separate
+	// from the display-side R2 ×N fold carriers (projection MergedCount /
+	// MergedMaxMS): the display lead selector folds MergedCount>1 rows to their
+	// member MAX (墙钟跨线程不可加和), while a same-thread family total is
+	// legally additive — reusing the Merged* carriers would collapse the family
+	// total back to its largest member (§24.12 dimension-A design mandate ①).
+	//
+	// MemberFoldCaliber is the closed-set typed ruler that produced the merged
+	// value (see the RootCauseMemberFoldCaliber* constants); MemberSumMs keeps
+	// the lossless raw member Σ ONLY when the published value is below it
+	// (union / max fallback disclosure — zero means published == Σ).
+	MemberCount       int      `json:"member_count,omitempty"`
+	MemberRoster      []string `json:"member_roster,omitempty"`
+	MemberMaxMs       float64  `json:"member_max_ms,omitempty"`
+	MemberMinMs       float64  `json:"member_min_ms,omitempty"`
+	MemberSumMs       float64  `json:"member_sum_ms,omitempty"`
+	MemberFoldCaliber string   `json:"member_fold_caliber,omitempty"`
+	// MemberKey is the row's OWN typed distinguishing key within its
+	// (thread,type) family, minted at construction time from typed source
+	// fields (inode=/dev=/op=/work=/… — NEVER re-parsed from Summary prose,
+	// §24.9 dim-B F3 red line). The family fold consumes it verbatim as the
+	// roster entry identity; cleared on the merged row (the roster carries it).
+	MemberKey string `json:"member_key,omitempty"`
+	// Inode / Dev are the typed real distinguishing keys of the inode-keyed IO
+	// families (block_io_by_inode / file_io_hot_inode / page_cache_churn) —
+	// promoted out of the free-text Summary (§24.9 dim-B F3: the key survived
+	// ONLY in prose and every display face dropped it). On a merged family row
+	// they stay set only when every member agrees; otherwise they clear and the
+	// per-member values live in MemberRoster.
+	Inode   string `json:"inode,omitempty"`
+	Dev     string `json:"dev,omitempty"`
+	Summary string `json:"summary,omitempty"`
+}
+
+// RootCauseMemberFoldCaliber* — the closed set of typed rulers a same-thread
+// family merge may publish its combined value under (RCM §24.7.1/§24.10,
+// 2026-07-08). 墙钟红线: same-thread disjoint wall-clock segments sum legally;
+// overlapping or unprovable segments must never publish a naive Σ.
+const (
+	// RootCauseMemberFoldCaliberSumDisjoint — every member interval is typed
+	// and pairwise disjoint: published value == member Σ (same-thread wall
+	// clock, legal; opendir_78 E5/E6 witness 1.136+0.462=1.598).
+	RootCauseMemberFoldCaliberSumDisjoint = "sum_disjoint"
+	// RootCauseMemberFoldCaliberIntervalUnion — member intervals overlap and
+	// the interval union is computable: published value == union length
+	// (< member Σ, disclosed via MemberSumMs).
+	RootCauseMemberFoldCaliberIntervalUnion = "interval_union"
+	// RootCauseMemberFoldCaliberMaxOverlapFallback — overlap without a usable
+	// union deduction (missing interval identity, or the member value is not an
+	// interval length — composite/advisory calibers): published value == member
+	// MAX, an honest lower bound (the §21 CWD fallback precedent).
+	RootCauseMemberFoldCaliberMaxOverlapFallback = "max_overlap_fallback"
+	// RootCauseMemberFoldCaliberCountSum — count-class advisory members
+	// (registry Additivity=count): counts add regardless of interval overlap.
+	RootCauseMemberFoldCaliberCountSum = "count_sum"
+)
+
+// SemanticSpanFamily is the RCM §24.10 semantic-span family carrier: all
+// window-clipped spans of ONE (thread, semantic class, chain lane) folded into
+// one contender whose participation value is the WINDOW-PROJECTION TOTAL of
+// the member segments (interval union; disjoint == Σ; union < Σ discloses via
+// SumMs). Built exclusively by FoldSemanticSpanFamilies — the ONE fold point
+// both consumers (rank minting and the typed observation channel) read, so the
+// two faces can never publish two different family shapes (§24.12 dim-A
+// mandate: two consumers, one function). stats.TraceSpans stays untouched —
+// the family is a VIEW, never a rewrite of the span inventory.
+type SemanticSpanFamily struct {
+	Thread        ThreadRef `json:"thread"`
+	SemanticClass string    `json:"semantic_class,omitempty"`
+	// OnChain is the family's 道别 (chain lane), decided per member by the
+	// SAME overlap predicate as the DCS E2 mint-time lane (same-thread chain
+	// node / causal-impact window overlap — thread membership alone never
+	// flips a lane). Members of one (thread,class) that split lanes form TWO
+	// families: on-chain and background never cross-merge (§24.7.1 道别键).
+	OnChain       bool    `json:"on_chain,omitempty"`
+	ChainDepth    int     `json:"chain_depth,omitempty"`
+	DominantState string  `json:"dominant_state,omitempty"`
+	TotalMs       float64 `json:"total_ms"`
+	// SumMs is the raw member Σ; TotalMs < SumMs means overlapping member
+	// segments were deduplicated to the interval union (typed disclosure).
+	SumMs   float64 `json:"sum_ms,omitempty"`
+	MaxMs   float64 `json:"max_ms,omitempty"`
+	MinMs   float64 `json:"min_ms,omitempty"`
+	StartTs float64 `json:"start_ts,omitempty"`
+	EndTs   float64 `json:"end_ts,omitempty"`
+	// ActualTotalMs/ActualStartTs/ActualEndTs mirror the DCS E4 dual-basis
+	// discipline: set only when at least one member was window-clipped, they
+	// carry the physical member extent (absence = nothing clipped).
+	ActualTotalMs float64 `json:"actual_total_ms,omitempty"`
+	ActualStartTs float64 `json:"actual_start_ts,omitempty"`
+	ActualEndTs   float64 `json:"actual_end_ts,omitempty"`
+	StartLine     int     `json:"start_line,omitempty"`
+	EndLine       int     `json:"end_line,omitempty"`
+	// FoldCaliber ∈ {sum_disjoint, interval_union} (semantic member values ARE
+	// window-clipped interval lengths, so the union is always computable).
+	FoldCaliber string `json:"fold_caliber,omitempty"`
+	// Members are the VERBATIM window-clipped member spans, largest first —
+	// the lossless roster (§24.7.1 ①: distinguishing keys — here the span
+	// names — must never be dropped). Members[0] is the family representative
+	// (span identity faces: name/kind/category).
+	Members []TraceSpanSummary `json:"members,omitempty"`
 }
 
 type RootCausePerfRoleContext struct {

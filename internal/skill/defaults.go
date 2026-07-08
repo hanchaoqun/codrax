@@ -134,7 +134,19 @@ func RegisterDefaults(r *Registry) {
 				// only at background_rank<=3. Complementary to (never replacing)
 				// the standing "do not promote spans into the wakeup-chain
 				// cause" prohibition.
-				Body:      "TRACE SEMANTIC SPAN ROOT CAUSES: root_cause_rank emits dedicated semantic span-work types (`jit_compile`, `class_verification`, `shader_compile`, `runtime_compile`) for compile/verify/shader spans projected into the window; consume their span_name/span_kind/span_category/span_subcategory/semantic_class plus projected_impact_ms and actual_* fields. Rows with chain_relevance=on_chain carry tier=deterministic_optimization: when at least one such row exists, the final conclusion prose MUST mention the largest one (by projected_impact_ms) as an optimization point — never as the root cause — together with its projected share of the analysis window. Rows without on-chain overlap carry background_rank (their position among non-on-chain rows); do not mention them in the conclusion unless background_rank<=3, and then only as an optimization point. Generic `trace_span` / trace_mark_category rows are supporting context; neither generic nor semantic span rows may be promoted into the direct wakeup-chain cause — the direct cause comes only from on-chain rank rows that are not optimization points.",
+				//
+				// EVOLUTION RECORD (RCM §24.7.1/§24.10 user rulings 2026-07-08,
+				// real_trace_campaign_20260705.md §24.12): the mention
+				// obligation moved from single-span to FAMILY caliber —
+				// same-thread spans of one semantic class now arrive as ONE
+				// merged rank row whose projected_impact_ms is the family's
+				// window-projection TOTAL (member_count/member_roster/
+				// member_max_ms carry the merged members), so "the largest
+				// one" is judged on family totals and the mention carries the
+				// merged count and largest member name. The background_rank<=3
+				// gate is unchanged mechanically — merged rows simply occupy
+				// fewer, larger board positions.
+				Body:      "TRACE SEMANTIC SPAN ROOT CAUSES: root_cause_rank emits dedicated semantic span-work types (`jit_compile`, `class_verification`, `shader_compile`, `runtime_compile`) for compile/verify/shader spans projected into the window. Same-thread spans of one semantic class arrive merged as a single ranked row whose projected_impact_ms is the combined window-projection total: member_count carries the merged span count, member_roster the individual span names with their durations, and member_max_ms/member_min_ms the member value range. Consume their span_name/span_kind/span_category/span_subcategory/semantic_class plus projected_impact_ms, member_count/member_roster and actual_* fields. Rows with chain_relevance=on_chain carry tier=deterministic_optimization: when at least one such row exists, the final conclusion prose MUST mention the largest one (by projected_impact_ms — for a merged row that is its combined total) as an optimization point — never as the root cause — together with its projected share of its own query window and, when member_count>1, its merged span count and largest member span name. Rows without on-chain overlap carry background_rank (their position among non-on-chain rows); do not mention them in the conclusion unless background_rank<=3, and then only as an optimization point. Generic `trace_span` / trace_mark_category rows are supporting context; neither generic nor semantic span rows may be promoted into the direct wakeup-chain cause — the direct cause comes only from on-chain rank rows that are not optimization points.",
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
 			{

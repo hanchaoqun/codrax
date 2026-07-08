@@ -70,7 +70,10 @@ var traceNoteKeyGoldenRows = []string{
 	"depth|causal_rank|hard_consumer",
 	"detected_period_ms|periodic|hard_consumer",
 	"deterministic_runtime_query_present|ledger_marker|soft_consumer",
-	"dev|io|display_only",
+	// EVOLUTION RECORD (RCM §24.7.1 ①/§24.9-B F3, 2026-07-08): dev/inode
+	// promoted display_only → hard_consumer — rank rows now carry them from
+	// typed fields and the projection compile parses them into node fields.
+	"dev|io|hard_consumer",
 	"domain|plugin|display_only",
 	"dominant_state|state|hard_consumer",
 	"drill_status|blocking|display_only",
@@ -112,7 +115,7 @@ var traceNoteKeyGoldenRows = []string{
 	"impact|impact|hard_consumer",
 	"impact_ms|impact|hard_consumer",
 	"inherited_target_blocked_ms|impact|display_only",
-	"inode|io|display_only",
+	"inode|io|hard_consumer",
 	"io_wait|state|soft_consumer",
 	"iowait_blocked|io|display_only",
 	"kind|cpu_load|display_only",
@@ -130,6 +133,15 @@ var traceNoteKeyGoldenRows = []string{
 	"max_latency|io|display_only",
 	"max_runtime|sched_accounting|display_only",
 	"max_segment|state|soft_consumer",
+	// RCM 家族合并族 (§24.7.1/§24.10, 2026-07-08): engine same-thread family
+	// merge carriers — the projection compile parses them into the isolated
+	// FamilyMember* node lane (never MergedCount/MergedMaxMS).
+	"member_count|causal_rank|hard_consumer",
+	"member_fold_caliber|causal_rank|hard_consumer",
+	"member_max_ms|causal_rank|hard_consumer",
+	"member_min_ms|causal_rank|hard_consumer",
+	"member_roster|causal_rank|hard_consumer",
+	"member_sum_ms|causal_rank|hard_consumer",
 	"metric|plugin|display_only",
 	"migrations|cpu_load|display_only",
 	"name|io|display_only",

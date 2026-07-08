@@ -258,6 +258,63 @@ var causalTokenRegistry = map[string]CausalTokenSpec{
 	"sched_stat_accounting": {Lane: CausalLaneDiagnostic, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: ""},
 }
 
+// CausalTokenFamilyFold declares a token's same-thread FAMILY-MERGE lane (RCM
+// §24.7.1/§24.10, user rulings 2026-07-08, real_trace_campaign_20260705.md):
+// whether the engine folds multiple same-(thread,type) rank rows of the token
+// into ONE contender before the rank sort (拆分参赛=弱化排序 — the family
+// competes with its combined magnitude). This column does NOT relax the
+// Additivity rulings above: wall_clock_per_thread still never sums ACROSS
+// threads (§7.2.1/§7.4/§7.5 untouched, supply_pressure final ruling untouched);
+// the family fold sums only PROVABLY DISJOINT same-thread segments and
+// otherwise publishes the interval union / member MAX (see
+// RootCauseMemberFoldCaliber* in types.go). Single source: the fold pass reads
+// THIS declaration — construction sites never hardcode the family list.
+type CausalTokenFamilyFold string
+
+const (
+	// CausalFamilyFoldSameThreadType — per-instance window-stats families
+	// merged by foldSameThreadTypeRankFamilies on the
+	// (type, thread, chain lane, selected window) key (§24.7.1; the 7-family
+	// census of §24.9 dim-B plus the founding block_io_by_inode case).
+	CausalFamilyFoldSameThreadType CausalTokenFamilyFold = "same_thread_type"
+	// CausalFamilyFoldSemanticClass — semantic compile spans merged UPSTREAM
+	// of rank minting by FoldSemanticSpanFamilies on the
+	// (thread, semantic class, chain lane) key with the window-projection
+	// interval-union total as the participation value (§24.10: 投影合计,
+	// 非单次最大). Declared here for the lane inventory; the generic
+	// same-thread pass never re-folds these rows (one family → one row by
+	// construction).
+	CausalFamilyFoldSemanticClass CausalTokenFamilyFold = "semantic_class"
+)
+
+// causalTokenFamilyFoldLanes — the exhaustive family-fold declaration
+// (§24.7.1 普查结果全族同修; §24.9 dim-B F4 census). Absent = the token never
+// family-folds: the per-thread duration families (runnable/sleep/io/d-state)
+// are structurally one-row-per-thread already, aggregate tokens have no
+// thread subject, and blocking_span keeps its own Q4-A carve-level fold.
+var causalTokenFamilyFoldLanes = map[string]CausalTokenFamilyFold{
+	// §24.7.1 generic same-(thread,type) contenders.
+	"io_latency":         CausalFamilyFoldSameThreadType,
+	"block_io_by_inode":  CausalFamilyFoldSameThreadType,
+	"file_io_hot_inode":  CausalFamilyFoldSameThreadType,
+	"page_cache_churn":   CausalFamilyFoldSameThreadType,
+	"io_burst_episode":   CausalFamilyFoldSameThreadType,
+	"workqueue_activity": CausalFamilyFoldSameThreadType,
+	"dma_fence_activity": CausalFamilyFoldSameThreadType,
+	"scheduler_latency":  CausalFamilyFoldSameThreadType,
+	// §24.10 semantic span families (fold happens at span grain).
+	"jit_compile":        CausalFamilyFoldSemanticClass,
+	"class_verification": CausalFamilyFoldSemanticClass,
+	"shader_compile":     CausalFamilyFoldSemanticClass,
+	"runtime_compile":    CausalFamilyFoldSemanticClass,
+}
+
+// CausalTokenFamilyFoldLane returns the family-fold lane for token ("" =
+// never folds). Exact match on the canonical token, never a substring.
+func CausalTokenFamilyFoldLane(token string) CausalTokenFamilyFold {
+	return causalTokenFamilyFoldLanes[token]
+}
+
 // causalRegistryCrossThreadRowExceptions: RowToken tokens whose Additivity is
 // cross_thread_cpu_ms but which are deliberately ABSENT from the two consumer
 // sets (engine rootCauseAggregateMetricTypes + display
