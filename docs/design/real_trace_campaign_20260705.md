@@ -1548,6 +1548,7 @@ UXA D#30 终稿取代 RN-12 verbatim 冻结面:"top 片段"→"其中最大片�
 ## §25.1 PSG 批收账(2026-07-08,复核 SHIP-WITH-FIXES→收尾三项已落)
 交付:ViolProseScalarUngrounded 软门(registry SoftByDefault 结构性禁硬拒+bus-scoped strict arm 一轮重试资格+双半场粘滞闩防活锁)/确定性 ms|% 标量提取(词边界+千分位 deny)对证据面标量集合成员检查(容差三臂+%重算三臂+两值和臂,宁松勿严)/未命中列表+改写路由进重试提示;P-d 评估=aggregate_facts 通道结构已够+dump floor4 洪泛保席(双实证 pin,不动策略);P-s skill 双句(数值可查性+线程名≠对象)。复核抓获**自 grounding 三洞**(模型自产 next_steps 保留块/runtime_trace_ lookalike 宽前缀/被拒草稿 attachments 回收——三 witness silent 实证)→收尾:证据喂入面收紧为系统确切拼写集(RuntimeTraceSystemBlockID 导出,免扫面松/喂证据面紧公理)+attachments 退出+三负向 pin+词边界 pin。11+5 pin,10 突变咬红。
 **残余立账**:evidence_item Summary/TurnA facts=模型产但 §25 裁定明文纳入(sanctioned,如需收紧另裁);ledger 未展示 note 过门=b/d 分工设计;计数类("两窗各8次")只靠 P-s 软引导;比例/求和重算臂巧合掩护=宁松代价;aggregate actual_* note 白名单收编归 P1-H(审计 C1 已立案)。
+**PSG-2 追加残余(第二臂绑定核对,2026-07-08)**:①值/窗长池不隔离——发布端点跨的派生窗长同时进成员 pool,散文可把窗长冒充量值引用而静默出厂(带异窗名的形仍被绑定臂抓;代码注释已 sanction 该松面);②时长区间伪窗——"0.5–2s" 类第二端点带秒单位的区间在无窗名词邻近时也解析为窗身份,可把正确陈述翻成 misbinding(软臂单轮有界;收紧候选=span 形加窗名词邻近门);③绑定核对的 text-unit 粒度=Text/Item 字段(段落级),超出"同句"scope——多段合一 Text 时句内窗/线程集合变宽,只向更松方向漂移(方向安全)。
 
 ## §24.10 回访 cmp_78_01(对比场景,含 DCS 构建,2026-07-08)——语义 span 族合计参赛裁定
 **用户裁定**:同属一个语义类(VerifyClass/JIT/Shader=class_verification/jit_compile/shader_compile)的 span,细节(被 verify 的类名等)不同也**按投影合计进入排序**——§24.7.1 合并参赛规则扩展到 DCS 语义 span 族:合并键=(线程,语义类),参赛值=**窗口投影合计**(同线程求和墙钟合法;非单次最大——用户明示"投影合计"),roster=span 明细名单(可折叠,§24.7.1 修订);链上 tier 道与非链背景综合排序道同规。
@@ -1583,3 +1584,14 @@ UXA D#30 终稿取代 RN-12 verbatim 冻结面:"top 片段"→"其中最大片�
 ## §24.16 SYM 批收账(2026-07-08,复核 SHIP-WITH-FIXES→三收尾已落)
 交付(§24.13 裁定一实施):引擎=target_self_state tier(det-opt 同型 wire token)+SubjectIsAnalysisTarget typed 盖章(tid-first sameThreadRef 字面复用,absence never guesses,build+enrich 双点+enrich 全称 pin"目标 PID 行永不穿三级 tier")+选举跳过臂(不占槽/不 co-primary 促升/序数照发/语义臂优先);显示=统一榜过滤臂+RN-3(a) 回退车道滤臂(复核 F1:跳臂让位后自身行从回退道再加冕的 P0 通路,一行滤+witness pin)+fold tier 移植(禁折叠洗白)+全自身退化形诚实回退+症状披露(量程=lead 单实例口径,×N 取 MergedMaxMS/periodic 取折算——复核 F2 防 SUM 假标量)+词面(自身行=关注线程自身/自身状态,不再穿"主根因(优先处理)");对比 cell/LLM 面三处同步。21+2 pin,7/7 突变咬红。
 **留账**:真 trace 复放随客户回访批验证 lead 终形;comm-lane 兜底=引擎既有语义未扩大;全自身形 LEAD-SEM 不可达=裁定内构造(pin 定格);窗身份 chip 归 RCR-C。
+
+## §24.17 症状降道精化(用户裁定 2026-07-08,修订 §24.13 裁定一 scope)
+**原则**:目标自身行分两族——①**等待症状族**(sleep 等唤醒/binder 等对端/自持锁阻塞他人):维持降道(§24.13/SYM 已落,根因在对端/上游/下游);②**自因可拆解族**(自身 runnable/running/IO/D-state):**以拆解后的成因身份进入根因排序参赛**——自身也是链上节点(depth 0,on-chain),这些状态的根因是系统性可动手项非对端:
+- 自身 runnable → **调度压力候选**,影响时间**全额**;目标优先级低于 RT 且被抢占时补充披露"(优先级低于RT)"(typed 调度数据判定);
+- 自身 running → **算力供给候选**("算力供给未拉满"),影响时间**折算后**(按大核满频,下界——§20.2 引擎语义已是,恢复其参赛资格即可);
+- 自身 IO → **IO阻塞候选**,全额,带 IO 根因拆解(io_latency/block_io/inode 子行);
+- 自身 D-state → **D状态候选**,全额,带 D 状态拆解(对端/设备)。
+**实施(SYM-2 批)**:S1 跳过臂谓词收窄=subject==target ∧ 等待症状态族(sleep/binder_wait/blocking_span-自持);自因族不降道、正常占槽参赛、可加冕 lead("主根因: 关注线程调度压力(runnable 全额 X ms)"类形——actionable);board/RN-3(a)/fold 滤臂同步收窄;类别词/glyph 走 §24.3 既有族(⧖调度压力候选/⚙算力供给候选/⛓IO阻塞候选/D状态候选入族);四行文法照 §24.1/§24.2(行3 口径=全额/折算按大核满频,下界);SYM 全自身退化形回退保留(全为等待症状时)。witness 预期:cmp_78 双侧 lead 从"binder等待"变为该侧自因族或非自身榜首(binder 等对端仍降道)。排批=RCR-C 落地后立即(谓词收窄触 SYM 的 query.go+tree.go 滤臂)。
+
+## §25.2 PSG-2 批收账(2026-07-08,复核 SHIP-WITH-FIXES→收尾已落)
+交付:第二软臂=值↔窗/主体绑定核对(行粒度证据索引走既有四证据面零新通道;精确判据=三元组同证据行共现+全载行正向绑定且无一相合才断言;窗相合=端点等/载行子窗单向包含/窗长 1% 容差;线程按 tid 相等非名字拼写(MUT-2 pin 看守);百分比重算分母全窗且无一匹配才 raise;同 kind 同轮闩合流不加轮次)+skill 绑定句("数旁点名的窗/线程须等于发布行;跨窗先各自归一化")。cmp_78 B-3 旗舰形("1800ms 窗内 sleep 63.6%(1430ms)"实为 2250ms 窗)与 D-2 (b)(c) 形全 pin;(d) 形 tid any-match 放行=宁松设计内。8+2+1 pin,5 突变咬红。残余三行已入 §25.1 追加段。

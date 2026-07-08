@@ -379,6 +379,263 @@ func TestProseScalarGrounding_AggregateFactChannelCarries(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// PSG-2 second arm pins (§24.14 B-3/D-2, cmp_78_01, 2026-07-08): the binding
+// audit — a value that IS on the evidence face but is bound in the prose to
+// a different window or thread than the one its evidence rows published it
+// under. Witness shapes are taken from the audited comparison specimen:
+//   B-3   — "sleep 占 63.6%（1430ms）" stated under the 1800ms window's name
+//           while the 1430.101 snapshot row is the 2250ms window (and the
+//           63.6% recomputes only against 2250).
+//   D-2(b)— "runnable 占 2.1%（41ms）" under the 1645ms window; 40.766 was
+//           published by the 2250ms-window row.
+//   D-2(c)— "如 wk:1/1/0/8-6537 阻塞约 50ms"; the ~50ms row belongs to
+//           binder:8815_1-6581.
+// Controls pin the loose dispositions: consistent binding, no window/thread
+// token in the sentence, and a window-silent carrier row all stay silent.
+
+// psgSnapshot70 returns the two 7.0-side metric-snapshot rows (2250ms and
+// 1800ms windows) in the system spelling the runtime materializer uses.
+func psgSnapshot70() types.AnswerBlock {
+	return types.AnswerBlock{
+		ID: "runtime_trace_metric_snapshot", Kind: types.BlockSection, Text: strings.Join([]string{
+			"- 查询窗 3680.569–3682.819s · demo.systrace · com.xs.fm.lite-6565 状态切换(state_churn) — running 518.776ms(26%) · runnable 21.939ms(1%) · sleep 1430.101ms(72%) · D-state 25.952ms(1%)",
+			"- 查询窗 3680.819–3682.619s · demo.systrace · com.xs.fm.lite-6565 状态切换(state_churn) — running 460.975ms(26%) · runnable 20.047ms(1%) · sleep 1295.329ms(72%) · D-state 20.417ms(1%)",
+		}, "\n"),
+	}
+}
+
+func psgBindingDoc(prose string, evidence types.AnswerBlock) *types.AnswerDocumentV2 {
+	return &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, SurfaceRole: types.SurfacePrincipal, Text: prose},
+		evidence,
+	}}
+}
+
+// TestProseScalarGrounding_BindingWindowMismatchB3 — §24.14 B-3 flagship
+// shape: the prose repeats a 2250ms-window measurement (1430.101 → "1430ms")
+// under the 1800ms window's name, and derives "63.6%" against the 2250
+// denominator while the sentence names 1800. Both must raise as BINDING
+// mismatches (not membership misses), naming the published window and the
+// stated window; the single raise stays retry-eligible via the strict arm.
+func TestProseScalarGrounding_BindingWindowMismatchB3(t *testing.T) {
+	mut := psgTraceMutable(psgTraceRecord("r1", "state_drilldown:x", "38.996"))
+	bus := psgBus(mut)
+	doc := psgBindingDoc(
+		"在 bindApplication 窗口（3680.819~3682.619s，1800ms）内，线程 com.xs.fm.lite-6565 的状态分布：sleep 占 63.6%（1430ms），是绝对主导状态。",
+		psgSnapshot70())
+
+	got := runProseScalarGroundingCheck(doc, bus, mut)
+	if len(got) != 1 {
+		t.Fatalf("B-3 shape must raise exactly one violation, got %d: %+v", len(got), got)
+	}
+	v := got[0]
+	if v.Kind != types.ViolProseScalarUngrounded {
+		t.Fatalf("kind = %q", v.Kind)
+	}
+	if strings.Contains(v.Detail, "match nothing") {
+		t.Fatalf("both numerals ARE evidence members — the raise must be the binding class, not the membership class:\n%s", v.Detail)
+	}
+	if !strings.Contains(v.Detail, "binds 2 numeric value(s)") {
+		t.Fatalf("Detail must report both misbound values (1430ms and 63.6%%):\n%s", v.Detail)
+	}
+	// The 1430ms entry names the row's window (2250ms span) AND the
+	// sentence's window (1800ms).
+	if !strings.Contains(v.Detail, "1430ms") ||
+		!strings.Contains(v.Detail, "3680.569–3682.819s (≈2250ms)") ||
+		!strings.Contains(v.Detail, "1800ms") {
+		t.Fatalf("Detail must name the value, its published window and the stated window:\n%s", v.Detail)
+	}
+	// The 63.6% entry is the percent-recompute extension: it reproduces
+	// only against the 2250 denominator.
+	if !strings.Contains(v.Detail, "63.6%") || !strings.Contains(v.Detail, "recomputes only against window ≈2250ms") {
+		t.Fatalf("the recompute extension must flag 63.6%% against the 2250 window:\n%s", v.Detail)
+	}
+	// Binding guidance rides the same repair string.
+	if !strings.Contains(v.Repair, "restate the number under its own window and thread") ||
+		!strings.Contains(v.Repair, "normalize each side by its own window length") {
+		t.Fatalf("Repair must carry the binding + normalize-before-comparing guidance:\n%s", v.Repair)
+	}
+	if !isStrictViolationForBus(v, bus) {
+		t.Fatalf("the binding raise must be retry-eligible via the bus strict arm")
+	}
+}
+
+// TestProseScalarGrounding_BindingWindowMismatchD2b — §24.14 D-2(b): in the
+// 6.0-side sentence naming the 1645ms window, only the 41ms figure (the
+// 2250ms-window runnable 40.766) is misbound; the sibling figures published
+// by the 1645ms row (834/493/283ms and the recomputable percentages) stay
+// silent.
+func TestProseScalarGrounding_BindingWindowMismatchD2b(t *testing.T) {
+	mut := psgTraceMutable(psgTraceRecord("r1", "state_drilldown:x", "38.996"))
+	bus := psgBus(mut)
+	snapshot := types.AnswerBlock{
+		ID: "runtime_trace_metric_snapshot", Kind: types.BlockSection, Text: strings.Join([]string{
+			"- 查询窗 8144.358–8146.608s · demo.systrace · com.xs.fm.lite-21538 状态切换(state_churn) — running 713.339ms(35%) · runnable 40.766ms(2%) · sleep 974.469ms(48%) · D-state 318.138ms(16%)",
+			"- 查询窗 8144.608–8146.253s · demo.systrace · com.xs.fm.lite-21538 状态切换(state_churn) — running 493.447ms(30%) · runnable 32.941ms(2%) · sleep 833.006ms(51%) · D-state 282.693ms(17%)",
+		}, "\n"),
+	}
+	doc := psgBindingDoc(
+		"在 bindApplication 窗口（8144.608~8146.253s，1645ms）内，线程 com.xs.fm.lite-21538 的状态分布：sleep 占 50.7%（834ms）、running 占 30.0%（493ms）、d_state 占 17.2%（283ms）、runnable 占 2.1%（41ms）。",
+		snapshot)
+
+	got := runProseScalarGroundingCheck(doc, bus, mut)
+	if len(got) != 1 {
+		t.Fatalf("D-2(b) shape must raise exactly one violation, got %d: %+v", len(got), got)
+	}
+	v := got[0]
+	if !strings.Contains(v.Detail, "binds 1 numeric value(s)") ||
+		!strings.Contains(v.Detail, "41ms") ||
+		!strings.Contains(v.Detail, "8144.358–8146.608s") ||
+		!strings.Contains(v.Detail, "1645ms") {
+		t.Fatalf("only the 41ms figure is misbound (2250ms row stated under the 1645ms window):\n%s", v.Detail)
+	}
+	for _, silent := range []string{"834ms", "493ms", "283ms", "50.7%", "30.0%", "17.2%"} {
+		if strings.Contains(v.Detail, silent) {
+			t.Fatalf("%s is published by (or recomputes against) the sentence's own window and must stay silent:\n%s", silent, v.Detail)
+		}
+	}
+}
+
+// TestProseScalarGrounding_BindingThreadMismatchD2c — §24.14 D-2(c): the
+// prose attributes a ~50ms wait to wk:1/1/0/8-6537 while the only evidence
+// row carrying that value belongs to binder:8815_1-6581. Thread facet
+// raises; tid equality (not name spelling) is the agreement test.
+func TestProseScalarGrounding_BindingThreadMismatchD2c(t *testing.T) {
+	mut := psgTraceMutable(psgTraceRecord("r1", "state_drilldown:x", "38.996"))
+	bus := psgBus(mut)
+	table := types.AnswerBlock{
+		ID: "runtime_trace_causal_projection", Kind: types.BlockSection,
+		Columns: []string{"节点[E#]", "窗口投影", "有效归因", "置信"},
+		Items: []types.AnswerBlockItem{
+			{ID: "e18", Cells: []string{"binder:8815_1-6581 / runnable [E18(+1)]", "50.057ms", "50.057ms", "中"}},
+			{ID: "e4", Cells: []string{"main-6565 / sleep（s_sleep） ×15(1.107–97.342ms) [E4(+14)]", "456.725ms", "97.342ms", "中"}},
+		},
+	}
+	doc := psgBindingDoc(
+		"主线程 main-6565 在等待唤醒时遭遇优先级反转，另有同步 binder 等待（如 wk:1/1/0/8-6537）阻塞约 50ms。",
+		table)
+
+	got := runProseScalarGroundingCheck(doc, bus, mut)
+	if len(got) != 1 {
+		t.Fatalf("D-2(c) shape must raise exactly one violation, got %d: %+v", len(got), got)
+	}
+	v := got[0]
+	if !strings.Contains(v.Detail, "50ms") ||
+		!strings.Contains(v.Detail, "published for thread binder:8815_1-6581") ||
+		!strings.Contains(v.Detail, "wk:1/1/0/8-6537") {
+		t.Fatalf("Detail must name the publishing thread and the stated thread:\n%s", v.Detail)
+	}
+}
+
+// TestProseScalarGrounding_BindingConsistentControl — positive control: the
+// same window-and-thread-naming sentence quoting values from THEIR OWN row
+// (1800ms window, com.xs.fm.lite-6565) never triggers, including the
+// derived window length and the row-published percentage.
+func TestProseScalarGrounding_BindingConsistentControl(t *testing.T) {
+	mut := psgTraceMutable(psgTraceRecord("r1", "state_drilldown:x", "38.996"))
+	bus := psgBus(mut)
+	doc := psgBindingDoc(
+		"在窗口（3680.819~3682.619s，1800ms）内，线程 com.xs.fm.lite-6565 的 sleep 为 1295.329ms（占 72%）。",
+		psgSnapshot70())
+	if got := runProseScalarGroundingCheck(doc, bus, mut); len(got) != 0 {
+		t.Fatalf("consistently bound values must stay silent, got %+v", got)
+	}
+}
+
+// TestProseScalarGrounding_BindingSameTidAliasControl — the thread
+// agreement test is TID EQUALITY, never name spelling (adversarial-review
+// probe A11a): trace surfaces publish the same thread under truncated or
+// aliased names (main-6565 vs com.xs.fm.lite-6565), so a value published
+// for foo.worker-6565 and stated in prose as bar.renamed-6565 (same tid,
+// matching window) must stay silent. Mutating the agreement to raw-name
+// equality turns this red.
+func TestProseScalarGrounding_BindingSameTidAliasControl(t *testing.T) {
+	mut := psgTraceMutable(psgTraceRecord("r1", "state_drilldown:x", "38.996"))
+	bus := psgBus(mut)
+	snapshot := types.AnswerBlock{
+		ID: "runtime_trace_metric_snapshot", Kind: types.BlockSection,
+		Text: "- 查询窗 3680.819–3682.619s · demo.systrace · foo.worker-6565 状态切换(state_churn) — sleep 1295.329ms(72%)",
+	}
+	doc := psgBindingDoc(
+		"在窗口（3680.819~3682.619s，1800ms）内，线程 bar.renamed-6565 的 sleep 为 1295.329ms。",
+		snapshot)
+	if got := runProseScalarGroundingCheck(doc, bus, mut); len(got) != 0 {
+		t.Fatalf("same-tid aliased thread names must agree (tid equality, not spelling), got %+v", got)
+	}
+}
+
+// TestProseScalarGrounding_BindingNoTokenControl — 句内无窗/主体 token 时不核:
+// a sentence with no window/thread naming keeps membership sufficient, even
+// for a value whose only carrier row belongs to a different window.
+func TestProseScalarGrounding_BindingNoTokenControl(t *testing.T) {
+	mut := psgTraceMutable(psgTraceRecord("r1", "state_drilldown:x", "38.996"))
+	bus := psgBus(mut)
+	doc := psgBindingDoc("本窗口内 sleep 合计 1430ms，详见指标快照。", psgSnapshot70())
+	if got := runProseScalarGroundingCheck(doc, bus, mut); len(got) != 0 {
+		t.Fatalf("a sentence naming no window/thread is never binding-audited, got %+v", got)
+	}
+}
+
+// TestProseScalarGrounding_BindingUnboundCarrierStaysLoose — loose
+// discipline: when ANY carrier row is window-silent (here an accepted
+// aggregate fact carrying the same 1430.101), the misbinding assertion is
+// off the table — the B-3 sentence that raises without it stays silent.
+func TestProseScalarGrounding_BindingUnboundCarrierStaysLoose(t *testing.T) {
+	mut := psgTraceMutable(psgTraceRecord("r1", "state_drilldown:x", "38.996"))
+	facts, err := types.NormalizeAnswerAggregateFacts([]types.AnswerAggregateFact{{
+		Kind: types.AnswerAggregateScalar, Label: "唤醒链聚合睡眠合计",
+		Value: "1430.101", Unit: "ms",
+		Role: types.AnswerAggregateRoleSupportingCoverage, Provenance: "runtime_trace",
+	}})
+	if err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+	mut.SetInvestigationAggregateFacts(facts)
+	mut.SetInvestigationComplete("trace analysis finished")
+	bus := psgBus(mut)
+	doc := psgBindingDoc(
+		"在窗口（3680.819~3682.619s，1800ms）内 sleep 合计 1430ms。",
+		psgSnapshot70())
+	if got := runProseScalarGroundingCheck(doc, bus, mut); len(got) != 0 {
+		t.Fatalf("a window-silent carrier row must keep the token silent (宁松勿严), got %+v", got)
+	}
+}
+
+// TestProseScalarGrounding_BindingSharesOneRoundLatch — the binding arm
+// reuses the SAME one-round latch as the membership arm: within one attempt
+// the verdict repeats, and once a dispatched retry surface carried the
+// kind, the gate never raises again this run.
+func TestProseScalarGrounding_BindingSharesOneRoundLatch(t *testing.T) {
+	mut := psgTraceMutable(psgTraceRecord("r1", "state_drilldown:x", "38.996"))
+	bus := psgBus(mut)
+	doc := psgBindingDoc(
+		"在 bindApplication 窗口（3680.819~3682.619s，1800ms）内，线程 com.xs.fm.lite-6565 的状态分布：sleep 占 63.6%（1430ms），是绝对主导状态。",
+		psgSnapshot70())
+	if got := runProseScalarGroundingCheck(doc, bus, mut); len(got) != 1 {
+		t.Fatalf("first pass must raise, got %+v", got)
+	}
+	// Same-attempt recheck stays consistent (latch never set at raise time).
+	if got := runProseScalarGroundingCheck(doc, bus, mut); len(got) != 1 {
+		t.Fatalf("same-attempt recheck must re-raise, got %+v", got)
+	}
+	mut.SetRetryState(&types.RetryState{Attempt: 1, ActiveViolations: []types.ScoredViolation{{
+		Kind: types.ViolProseScalarUngrounded, Severity: types.SeverityMedium, Layer: "answer_oracle",
+	}}})
+	if got := runProseScalarGroundingCheck(doc, bus, mut); len(got) != 0 {
+		t.Fatalf("the hint round is final for the binding arm too, got %+v", got)
+	}
+	if !mut.ProseScalarGroundingHintDelivered() {
+		t.Fatalf("observing the dispatched hint must set the sticky run latch")
+	}
+	mut.SetRetryState(&types.RetryState{Attempt: 2, ActiveViolations: []types.ScoredViolation{{
+		Kind: types.ViolBlockCoverageMissing, Severity: types.SeverityHigh, Layer: "v2_oracle",
+	}}})
+	if got := runProseScalarGroundingCheck(doc, bus, mut); len(got) != 0 {
+		t.Fatalf("the run-level latch caps both arms at one round total, got %+v", got)
+	}
+}
+
 // TestProseScalarGrounding_HuadongFixtureEndToEnd — e2e through
 // runContractCheck: a huadong-shaped trace run whose prose carries an
 // unverifiable 46.821ms → the contract fails ONCE with the hint listing the

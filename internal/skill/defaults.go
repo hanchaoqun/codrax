@@ -512,7 +512,16 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				// b assertion half, real_trace_campaign_20260705.md,
 				// 2026-07-08; huadong_01 C-P1: a trace answer with zero
 				// citations had no gate on prose numerals at all).
-				Body:      "PROSE NUMBER GROUNDING: every numeric measurement the prose states (a duration in ms, a percentage, an occurrence count) must be locatable somewhere in the report's evidence surfaces — the measured observation records, the projection tables, the per-file evidence index, or a structured fact you carried over from the investigation. A number that cannot be located there must either be accompanied, in the same sentence, by the exact source view and time window it was read from (quoting the value as that view published it) or be removed from the prose. Never invent a replacement number, and when you derive a value yourself (a sum, a ratio, a normalization), name the published values it was derived from so the figure stays auditable.",
+				// EVOLUTION RECORD (PSG-2 §24.14 B-3/D-2, 2026-07-08): one
+				// binding clause appended — the audited comparison answer
+				// stated a value measured over one window under another
+				// window's name and attributed a wait to the wrong thread;
+				// locatability alone does not forbid that, so the
+				// sentence-level window/thread binding obligation is
+				// spelled out. Kept distinct from the WINDOW-STATS
+				// basis-stating sentence: this clause is about the naming
+				// NEXT TO the number matching the publishing row.
+				Body:      "PROSE NUMBER GROUNDING: every numeric measurement the prose states (a duration in ms, a percentage, an occurrence count) must be locatable somewhere in the report's evidence surfaces — the measured observation records, the projection tables, the per-file evidence index, or a structured fact you carried over from the investigation. A number that cannot be located there must either be accompanied, in the same sentence, by the exact source view and time window it was read from (quoting the value as that view published it) or be removed from the prose. Never invent a replacement number, and when you derive a value yourself (a sum, a ratio, a normalization), name the published values it was derived from so the figure stays auditable. When a sentence names the time window or the thread a number belongs to, that window and thread must be the ones the number's evidence row was published under — bind each figure to its own publishing row; and when comparing across windows, normalize each side by its own window length first, then compare the normalized figures side by side.",
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
 			{

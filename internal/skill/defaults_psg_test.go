@@ -41,6 +41,11 @@ func TestPSGFinalizerSkillProseNumberGrounding(t *testing.T) {
 		"exact source view and time window",
 		"or be removed from the prose",
 		"name the published values it was derived from",
+		// PSG-2 binding clause (§24.14 B-3/D-2): the window/thread named
+		// next to a number must be its publishing row's, and cross-window
+		// comparisons normalize per side first.
+		"must be the ones the number's evidence row was published under",
+		"normalize each side by its own window length",
 	} {
 		if !strings.Contains(item.Body, want) {
 			t.Fatalf("prose-number rule missing %q:\n%s", want, item.Body)

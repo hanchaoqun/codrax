@@ -13,7 +13,8 @@ import (
 )
 
 // prose_scalar_grounding_check.go — PSG batch (§25 ruling b,
-// docs/design/real_trace_campaign_20260705.md, 2026-07-08).
+// docs/design/real_trace_campaign_20260705.md, 2026-07-08) + PSG-2 second
+// arm (§24.14, 2026-07-08).
 //
 // Background (huadong_01 §22 C-P1): on a runtime-trace run whose typed
 // boundary excludes source analysis, the answer carries ZERO citations, so
@@ -32,16 +33,45 @@ import (
 //	∪ system-injected runtime projection / facts blocks in the document
 //	∪ citation quotes
 //
+// PSG-2 second arm (§24.14 B-3/D-2, cmp_78_01): membership alone lets a
+// value that IS on the evidence face ship under the WRONG window or thread
+// — the audited flagship sentence bound a 2250ms-window measurement
+// ("sleep 63.6% (1430ms)") under an 1800ms window's name, and a ~50ms wait
+// published for one binder thread was stated for a different thread. After
+// a token passes membership, this arm audits the SENTENCE BINDING: when
+// the same prose unit names a window (endpoint span / length) or a thread
+// (name-tid token) next to the scalar, the evidence rows that actually
+// carry that scalar must agree with the named window / thread. The precise
+// signal is triple co-occurrence ON ONE EVIDENCE ROW (scalar + window
+// tokens + thread tokens published together); the sentence-side token
+// extraction is noisy, so a mismatch only ever feeds the same soft
+// violation kind — and the arm asserts a misbinding ONLY when every
+// evidence row carrying the scalar is positively bound to a different
+// window / thread. A single carrier row with no window/thread tokens, or
+// one carrier row that agrees with the sentence, keeps the token silent
+// (宁松勿严). Units with no window/thread tokens are never audited —
+// membership stays sufficient there.
+//
+// The percent-recompute exemption gets the matching extension: a
+// percentage grounded ONLY by the a/b×100 recompute arm, in a sentence
+// that names a window length, keeps its exemption only if some
+// reproducing denominator is either NOT a published window length (an
+// ordinary ratio — stays loose) or matches a window the sentence names.
+// A percent that recomputes exclusively against a DIFFERENT window's
+// length than the one the sentence names is the §24.14 B-3 shape.
+//
 // Red-line compliance (precise-signals-for-hard-gates): the regex
 // extraction is a NOISY signal, so it drives only SOFT guidance — a
-// retry hint listing the unmatched numerals, raised AT MOST ONCE per run
-// (see the one-round latch below), never a hard emit-time reject. The
-// membership tolerance and the exemption arms are deliberately LOOSE
-// (宁松勿严): mis-flagging one legitimate number costs more than letting
-// one ungrounded number ship, because the gate's failure mode is only a
-// single bounded retry.
+// retry hint listing the unmatched / misbound numerals, raised AT MOST
+// ONCE per run (see the one-round latch below), never a hard emit-time
+// reject. The membership tolerance and the exemption arms are deliberately
+// LOOSE (宁松勿严): mis-flagging one legitimate number costs more than
+// letting one ungrounded number ship, because the gate's failure mode is
+// only a single bounded retry.
 //
-// One-round latch (anti-livelock, one-shot pattern):
+// One-round latch (anti-livelock, one-shot pattern), SHARED by both arms —
+// membership misses and binding mismatches merge into ONE violation of the
+// same kind, so the run-level round budget stays exactly one:
 //
 //	part 1 — when the CURRENT dispatch's retry surface already lists
 //	         this kind, the hint has been delivered; mark the sticky
@@ -62,6 +92,15 @@ const (
 	proseScalarScanTokenCap     = 200
 	proseScalarEvidenceValueCap = 8192
 	proseScalarDetailListCap    = 8
+
+	// PSG-2 binding-arm work bounds and tolerances.
+	proseScalarBindingRowCap   = 2048 // evidence rows kept for binding audit
+	proseScalarRowValueCap     = 64   // numerals parsed per evidence row
+	proseScalarWindowRefCap    = 8    // window identities per text unit
+	proseScalarThreadRefCap    = 16   // thread identities per text unit
+	proseScalarDenominatorCap  = 32   // recompute denominators collected
+	proseScalarWindowSpanTolS  = 0.01 // endpoint tolerance, seconds
+	proseScalarWindowMaxSpanMS = 600000
 )
 
 // proseScalarTokenRE captures a decimal numeral immediately followed by an
@@ -75,11 +114,42 @@ var proseScalarTokenRE = regexp.MustCompile(`([0-9]+(?:\.[0-9]+)?)\s*(ms|毫秒|
 // text surface (unit-agnostic on purpose — the evidence pool is loose).
 var proseScalarNumeralRE = regexp.MustCompile(`[0-9]+(?:\.[0-9]+)?`)
 
+// proseScalarWindowSpanRE captures a "start–end s" second-denominated time
+// span — the window-identity form the runtime evidence rows publish
+// ("查询窗 3680.569–3682.819s") and comparison prose repeats
+// ("窗口（3680.819~3682.619s，1800ms）"). The second endpoint MUST carry the
+// seconds unit so ms ranges ("1.107–97.342ms") and line ranges never parse
+// as windows.
+var proseScalarWindowSpanRE = regexp.MustCompile(`([0-9]+(?:\.[0-9]+)?)\s*(?:s|秒)?\s*(?:[–—~～－]|\.\.|-)\s*([0-9]+(?:\.[0-9]+)?)\s*(?:s|秒)`)
+
+// proseScalarWindowLengthREs capture an explicit window LENGTH in ms next
+// to a window noun. Each pattern's single capture group is the numeral.
+// Deliberately conservative: a free-standing "1800ms" with no window noun
+// is a measurement, not a window identity.
+var proseScalarWindowLengthREs = []*regexp.Regexp{
+	// parenthesized window descriptor: 窗口（3680.819~3682.619s，1800ms）
+	regexp.MustCompile(`窗口?\s*[（(][^（()）]{0,80}?([0-9]+(?:\.[0-9]+)?)\s*(?:ms|毫秒)\s*[）)]`),
+	// genitive pre-noun form: 1800ms 的分析窗 / 2250ms 的窗口
+	regexp.MustCompile(`([0-9]+(?:\.[0-9]+)?)\s*(?:ms|毫秒)\s*的(?:分析窗|查询窗|时间窗|窗口|窗)`),
+	// post-noun form: 分析窗 1645ms / 窗长 1800ms / 窗口: 1800ms
+	regexp.MustCompile(`(?:分析窗|查询窗|时间窗|窗长|窗口长度|窗口|窗)\s*[:：=]?\s*(?:约|仅)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:ms|毫秒)`),
+	// english forms: 1800ms window / window of 1800ms / window=1800ms
+	regexp.MustCompile(`(?i)([0-9]+(?:\.[0-9]+)?)\s*ms\s+(?:analysis\s+|query\s+)?window`),
+	regexp.MustCompile(`(?i)window(?:\s+(?:of|length))?\s*[:=]\s*([0-9]+(?:\.[0-9]+)?)\s*ms`),
+}
+
+// proseScalarThreadTokenRE captures a thread identity token in the
+// name-tid form the trace surfaces publish (com.xs.fm.lite-6565,
+// binder:8815_1-6581, wk:1/1/0/8-6537, <...>-21674). Boundary and
+// name-shape guards live in extractProseScalarThreadRefs.
+var proseScalarThreadTokenRE = regexp.MustCompile(`[A-Za-z_<][A-Za-z0-9_.:/<>@\-]*-[0-9]{2,7}`)
+
 // proseScalarToken is one extracted prose scalar occurrence.
 type proseScalarToken struct {
 	Raw     string // numeral as written, e.g. "46.821"
 	Unit    string // "ms" / "毫秒" / "%" / "％"
 	BlockID string
+	Pos     int // byte offset of the numeral in its text unit
 	Value   float64
 	Ulp     float64 // one unit in the last written digit
 }
@@ -88,16 +158,67 @@ func (t proseScalarToken) percent() bool {
 	return t.Unit == "%" || t.Unit == "％"
 }
 
-// proseScalarEvidenceSet is the numeric membership pool.
+func (t proseScalarToken) label() string {
+	return t.Raw + t.Unit
+}
+
+// proseScalarWindowRef is one window identity parsed from a text surface:
+// a second-denominated endpoint span and/or a length in ms.
+type proseScalarWindowRef struct {
+	StartS   float64
+	EndS     float64
+	HasSpan  bool
+	LengthMS float64 // >0 when known (explicit, or derived from the span)
+	Raw      string  // as written, for the violation detail
+	Pos      int
+}
+
+func (w proseScalarWindowRef) displayLabel() string {
+	if w.HasSpan && w.LengthMS > 0 {
+		return fmt.Sprintf("%s (≈%.0fms)", w.Raw, w.LengthMS)
+	}
+	return w.Raw
+}
+
+// proseScalarThreadRef is one thread identity token (name-tid).
+type proseScalarThreadRef struct {
+	Raw string
+	TID string
+	Pos int
+}
+
+// proseScalarEvidenceRow is one row-granular evidence unit for the PSG-2
+// binding arm: the numerals, window identities and thread identities that
+// were PUBLISHED TOGETHER (one observation record, one line of a system
+// evidence block, one table row, one citation quote).
+type proseScalarEvidenceRow struct {
+	values  []float64
+	windows []proseScalarWindowRef
+	threads []proseScalarThreadRef
+}
+
+// proseScalarEvidenceSet is the numeric membership pool plus the
+// row-granular binding index.
 type proseScalarEvidenceSet struct {
 	exact  map[string]bool
-	values []float64 // sorted ascending, deduped
+	values []float64 // sorted ascending
+	// PSG-2 binding index.
+	rows          []proseScalarEvidenceRow
+	windowLengths []float64 // every published window length, ms
+}
+
+// proseScalarBindingFinding is one second-arm mismatch, preformatted for
+// the violation detail.
+type proseScalarBindingFinding struct {
+	entry string
 }
 
 // runProseScalarGroundingCheck is the PSG §25(b) answer-side gate. It
-// returns at most ONE violation naming every unmatched prose scalar; the
-// bus-scoped strict arm (isStrictViolationForBus) makes that single raise
-// retry-eligible for exactly one round.
+// returns at most ONE violation naming every unmatched prose scalar
+// (membership arm) and every value the prose binds to a different window /
+// thread than its evidence rows published it under (PSG-2 binding arm);
+// the bus-scoped strict arm (isStrictViolationForBus) makes that single
+// raise retry-eligible for exactly one round.
 func runProseScalarGroundingCheck(doc *types.AnswerDocumentV2, bus *types.BusContext, mut *types.MutableState) []types.Violation {
 	if doc == nil || bus == nil || mut == nil {
 		return nil
@@ -121,30 +242,47 @@ func runProseScalarGroundingCheck(doc *types.AnswerDocumentV2, bus *types.BusCon
 		return nil
 	}
 	evidence := buildProseScalarEvidenceSet(doc, mut, ledger)
-	unmatched := scanUnmatchedProseScalars(doc, evidence)
-	if len(unmatched) == 0 {
+	unmatched, misbound := scanProseScalarFindings(doc, evidence)
+	if len(unmatched) == 0 && len(misbound) == 0 {
 		return nil
 	}
-	listed := make([]string, 0, len(unmatched))
-	for i, tok := range unmatched {
-		if i >= proseScalarDetailListCap {
-			listed = append(listed, fmt.Sprintf("(+%d more)", len(unmatched)-proseScalarDetailListCap))
-			break
+	var parts []string
+	if len(unmatched) > 0 {
+		listed := make([]string, 0, len(unmatched))
+		for i, tok := range unmatched {
+			if i >= proseScalarDetailListCap {
+				listed = append(listed, fmt.Sprintf("(+%d more)", len(unmatched)-proseScalarDetailListCap))
+				break
+			}
+			listed = append(listed, fmt.Sprintf("%s (block %q)", tok.label(), tok.BlockID))
 		}
-		listed = append(listed, fmt.Sprintf("%s%s (block %q)", tok.Raw, tok.Unit, tok.BlockID))
+		parts = append(parts, fmt.Sprintf(
+			"answer prose states %d numeric value(s) that match nothing in this report's evidence surfaces (measured observation records, structured facts, projection tables, or quoted lines): %s",
+			len(unmatched), strings.Join(listed, ", ")))
+	}
+	if len(misbound) > 0 {
+		listed := make([]string, 0, len(misbound))
+		for i, f := range misbound {
+			if i >= proseScalarDetailListCap {
+				listed = append(listed, fmt.Sprintf("(+%d more)", len(misbound)-proseScalarDetailListCap))
+				break
+			}
+			listed = append(listed, f.entry)
+		}
+		parts = append(parts, fmt.Sprintf(
+			"answer prose binds %d numeric value(s) to a different time window or thread than the one their evidence rows published them under: %s",
+			len(misbound), strings.Join(listed, "; ")))
 	}
 	return []types.Violation{{
-		Kind: types.ViolProseScalarUngrounded,
-		Detail: fmt.Sprintf(
-			"answer prose states %d numeric value(s) that match nothing in this report's evidence surfaces (measured observation records, structured facts, projection tables, or quoted lines): %s",
-			len(unmatched), strings.Join(listed, ", ")),
-		Repair: "for each listed number, either state next to it the exact source view and time window it was read from — quoting the value as that view published it — or remove the number from the prose. Do not invent a replacement number; when a value is one you derived yourself, name the published values it was derived from.",
+		Kind:   types.ViolProseScalarUngrounded,
+		Detail: strings.Join(parts, "; and "),
+		Repair: "for each listed number, either state next to it the exact source view and time window it was read from — quoting the value as that view published it — or remove the number from the prose. Do not invent a replacement number; when a value is one you derived yourself, name the published values it was derived from. When a sentence names the time window or the thread a number belongs to, use the window and thread that number's evidence row was published under — restate the number under its own window and thread, or re-read the value for the window you name; when comparing two windows, normalize each side by its own window length before reading them against each other.",
 		Stage:  string(types.StageFinalize),
 		ClusterKey: types.IdentityClusterKey("prose_scalar_ungrounded",
 			"answer_prose_scalars"),
 		SuspectedRoot: types.SuspectedRoot{
 			IRField:    "answer_document.blocks.prose",
-			Reason:     "prose ms/% scalar with no evidence-face member",
+			Reason:     "prose ms/% scalar with no evidence-face member or bound to the wrong window/thread",
 			Confidence: 0.6,
 		},
 		RepairLocusOverride: types.LocusFinalizer,
@@ -210,7 +348,13 @@ func proseScalarScanExemptBlock(blk types.AnswerBlock) bool {
 	return id == "next_step" || id == "next_steps"
 }
 
-// buildProseScalarEvidenceSet assembles the loose numeric membership pool.
+// buildProseScalarEvidenceSet assembles the loose numeric membership pool
+// and the PSG-2 row-granular binding index. Both consume EXACTLY the same
+// evidence faces (§25 enumeration; the feed face stays tight, PSG 收尾①):
+// accepted aggregate facts, observation-ledger records, system-injected
+// runtime blocks, citation quotes. Window lengths derived from published
+// endpoint spans join the pool too, so an honest "the 2250ms window"
+// phrasing and a window-share recomputation both stay grounded.
 func buildProseScalarEvidenceSet(doc *types.AnswerDocumentV2, mut *types.MutableState, ledger types.ObservationLedger) proseScalarEvidenceSet {
 	set := proseScalarEvidenceSet{exact: map[string]bool{}}
 	addText := func(text string) {
@@ -230,6 +374,51 @@ func buildProseScalarEvidenceSet(doc *types.AnswerDocumentV2, mut *types.Mutable
 			}
 		}
 	}
+	addRow := func(texts ...string) {
+		if len(set.rows) >= proseScalarBindingRowCap {
+			return
+		}
+		row := proseScalarEvidenceRow{}
+		for _, text := range texts {
+			if text == "" {
+				continue
+			}
+			for _, numeral := range proseScalarNumeralRE.FindAllString(text, -1) {
+				if len(row.values) >= proseScalarRowValueCap {
+					break
+				}
+				if f, err := strconv.ParseFloat(numeral, 64); err == nil {
+					row.values = append(row.values, f)
+				}
+			}
+			row.windows = append(row.windows, extractProseScalarWindowRefs(text)...)
+			row.threads = append(row.threads, extractProseScalarThreadRefs(text)...)
+		}
+		if len(row.windows) > proseScalarWindowRefCap {
+			row.windows = row.windows[:proseScalarWindowRefCap]
+		}
+		if len(row.threads) > proseScalarThreadRefCap {
+			row.threads = row.threads[:proseScalarThreadRefCap]
+		}
+		if len(row.values) == 0 && len(row.windows) == 0 && len(row.threads) == 0 {
+			return
+		}
+		for _, w := range row.windows {
+			if w.LengthMS <= 0 {
+				continue
+			}
+			set.windowLengths = append(set.windowLengths, w.LengthMS)
+			// Derived window lengths are pool members too: the length of a
+			// published window is published arithmetic, not a model invention.
+			if len(set.values) < proseScalarEvidenceValueCap {
+				set.values = append(set.values, w.LengthMS)
+			}
+			if len(row.values) < proseScalarRowValueCap {
+				row.values = append(row.values, w.LengthMS)
+			}
+		}
+		set.rows = append(set.rows, row)
+	}
 	addFacts := func(facts []types.AnswerAggregateFact) {
 		for _, fact := range facts {
 			addText(fact.Label)
@@ -244,6 +433,13 @@ func buildProseScalarEvidenceSet(doc *types.AnswerDocumentV2, mut *types.Mutable
 			for _, n := range fact.MemberNotes {
 				addText(n)
 			}
+			texts := []string{fact.Label, fact.Value, fact.Provenance}
+			for _, dim := range fact.Dimensions {
+				texts = append(texts, dim.Value)
+			}
+			texts = append(texts, fact.Members...)
+			texts = append(texts, fact.MemberNotes...)
+			addRow(texts...)
 		}
 	}
 	// P-d① lane: the aggregate-facts channel IS an evidence surface — a
@@ -265,6 +461,10 @@ func buildProseScalarEvidenceSet(doc *types.AnswerDocumentV2, mut *types.Mutable
 		for _, term := range record.SurfaceTerms {
 			addText(term)
 		}
+		texts := []string{record.Value, record.Subject, record.Object, record.Summary, record.RawExcerpt}
+		texts = append(texts, record.RichNotes...)
+		texts = append(texts, record.SurfaceTerms...)
+		addRow(texts...)
 	}
 	if doc != nil {
 		for _, blk := range doc.Blocks {
@@ -283,9 +483,22 @@ func buildProseScalarEvidenceSet(doc *types.AnswerDocumentV2, mut *types.Mutable
 					addText(cell)
 				}
 			}
+			// Binding rows at row granularity: the block title (with its
+			// column headers) is one row, every text LINE is one row, and
+			// every item (label + text + cells published together) is one row.
+			addRow(append([]string{blk.Title}, blk.Columns...)...)
+			for _, line := range strings.Split(blk.Text, "\n") {
+				addRow(line)
+			}
+			for _, it := range blk.Items {
+				texts := []string{it.Label, it.Text}
+				texts = append(texts, it.Cells...)
+				addRow(texts...)
+			}
 		}
 		for _, cite := range doc.Citations {
 			addText(cite.Quote)
+			addRow(cite.Quote)
 		}
 	}
 	// Deliberately NOT an evidence surface (PSG 收尾①(c), 2026-07-08):
@@ -298,24 +511,72 @@ func buildProseScalarEvidenceSet(doc *types.AnswerDocumentV2, mut *types.Mutable
 	return set
 }
 
-// scanUnmatchedProseScalars walks the model-authored prose surfaces and
-// returns every ms/% token the evidence pool cannot account for.
-func scanUnmatchedProseScalars(doc *types.AnswerDocumentV2, evidence proseScalarEvidenceSet) []proseScalarToken {
-	var unmatched []proseScalarToken
+// scanProseScalarFindings walks the model-authored prose surfaces and
+// returns every ms/% token the evidence pool cannot account for (membership
+// arm) plus every grounded token whose same-unit window / thread naming
+// contradicts the evidence rows that published it (PSG-2 binding arm).
+func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEvidenceSet) (unmatched []proseScalarToken, misbound []proseScalarBindingFinding) {
 	scanned := 0
 	scan := func(blockID, text string) {
 		if text == "" || scanned >= proseScalarScanTokenCap {
 			return
 		}
-		for _, tok := range extractProseScalarTokens(blockID, text) {
+		toks := extractProseScalarTokens(blockID, text)
+		if len(toks) == 0 {
+			return
+		}
+		sentWindows := extractProseScalarWindowRefs(text)
+		sentThreads := extractProseScalarThreadRefs(text)
+		for _, tok := range toks {
 			if scanned >= proseScalarScanTokenCap {
 				return
 			}
 			scanned++
-			if proseScalarTokenGrounded(tok, evidence) {
+			verdict := proseScalarTokenGrounding(tok, evidence)
+			if !verdict.grounded {
+				unmatched = append(unmatched, tok)
 				continue
 			}
-			unmatched = append(unmatched, tok)
+			// PSG-2 binding arm: only audited when the unit positively
+			// names a window or a thread (句内无窗/主体 token 时不核 —
+			// membership stays sufficient for unbound sentences).
+			if len(sentWindows) == 0 && len(sentThreads) == 0 {
+				continue
+			}
+			if tok.Value == 0 {
+				continue // zero values carry no measurement claim
+			}
+			carriers := proseScalarCarrierRows(evidence.rows, tok)
+			if len(carriers) > 0 {
+				if len(sentWindows) > 0 {
+					if published, bad := proseScalarWindowBindingMismatch(carriers, sentWindows); bad {
+						misbound = append(misbound, proseScalarBindingFinding{entry: fmt.Sprintf(
+							"%s (block %q) is published under window %s but the prose binds it to window %s",
+							tok.label(), tok.BlockID, published,
+							proseScalarNearestWindowLabel(sentWindows, tok))})
+					}
+				}
+				if len(sentThreads) > 0 {
+					if published, bad := proseScalarThreadBindingMismatch(carriers, sentThreads); bad {
+						misbound = append(misbound, proseScalarBindingFinding{entry: fmt.Sprintf(
+							"%s (block %q) is published for thread %s but the prose binds it to thread %s",
+							tok.label(), tok.BlockID, published,
+							proseScalarNearestThreadLabel(sentThreads, tok))})
+					}
+				}
+				continue
+			}
+			// Percent-recompute extension (§24.14 B-3): a self-derived
+			// percentage in a window-naming sentence must recompute against
+			// a window the sentence names (or against a non-window pair).
+			if tok.percent() && verdict.recomputeOnly && len(sentWindows) > 0 {
+				if published, bad := proseScalarRecomputeWindowMismatch(verdict.denominatorsMS, evidence.windowLengths, sentWindows); bad {
+					misbound = append(misbound, proseScalarBindingFinding{entry: fmt.Sprintf(
+						"%s (block %q) recomputes only against window %s but the prose states it for window %s",
+						tok.label(), tok.BlockID, published,
+						proseScalarNearestWindowLabel(sentWindows, tok))})
+				}
+			}
 		}
 	}
 	for _, blk := range doc.Blocks {
@@ -337,7 +598,7 @@ func scanUnmatchedProseScalars(doc *types.AnswerDocumentV2, evidence proseScalar
 			}
 		}
 	}
-	return unmatched
+	return unmatched, misbound
 }
 
 // extractProseScalarTokens applies the unit-scoped regex with manual
@@ -379,11 +640,322 @@ func extractProseScalarTokens(blockID, text string) []proseScalarToken {
 			Raw:     raw,
 			Unit:    unit,
 			BlockID: blockID,
+			Pos:     m[2],
 			Value:   value,
 			Ulp:     proseScalarUlp(raw),
 		})
 	}
 	return out
+}
+
+// extractProseScalarWindowRefs parses the window identities a text unit
+// names: endpoint spans (with the derived length) and explicit ms lengths
+// next to a window noun. Noisy by design — window refs only ever drive the
+// SOFT binding audit, never membership.
+func extractProseScalarWindowRefs(text string) []proseScalarWindowRef {
+	if text == "" {
+		return nil
+	}
+	var out []proseScalarWindowRef
+	for _, m := range proseScalarWindowSpanRE.FindAllStringSubmatchIndex(text, -1) {
+		if len(out) >= proseScalarWindowRefCap {
+			return out
+		}
+		if m[0] > 0 {
+			prev := text[m[0]-1]
+			if prev == '.' || prev == '-' || (prev >= '0' && prev <= '9') {
+				continue
+			}
+		}
+		if m[1] < len(text) {
+			next := text[m[1]]
+			if (next >= '0' && next <= '9') || (next >= 'a' && next <= 'z') ||
+				(next >= 'A' && next <= 'Z') {
+				continue
+			}
+		}
+		start, err1 := strconv.ParseFloat(text[m[2]:m[3]], 64)
+		end, err2 := strconv.ParseFloat(text[m[4]:m[5]], 64)
+		if err1 != nil || err2 != nil || end <= start {
+			continue
+		}
+		lengthMS := (end - start) * 1000
+		if lengthMS <= 0 || lengthMS > proseScalarWindowMaxSpanMS {
+			continue
+		}
+		out = append(out, proseScalarWindowRef{
+			StartS: start, EndS: end, HasSpan: true, LengthMS: lengthMS,
+			Raw: text[m[0]:m[1]], Pos: m[0],
+		})
+	}
+	for _, re := range proseScalarWindowLengthREs {
+		for _, m := range re.FindAllStringSubmatchIndex(text, -1) {
+			if len(out) >= proseScalarWindowRefCap {
+				return out
+			}
+			v, err := strconv.ParseFloat(text[m[2]:m[3]], 64)
+			if err != nil || v <= 0 || v > proseScalarWindowMaxSpanMS {
+				continue
+			}
+			out = append(out, proseScalarWindowRef{
+				LengthMS: v,
+				Raw:      text[m[2]:m[3]] + "ms",
+				Pos:      m[2],
+			})
+		}
+	}
+	return out
+}
+
+// extractProseScalarThreadRefs parses name-tid thread identity tokens with
+// boundary guards and a name-shape guard (the name part must look like a
+// thread name — at least one lowercase letter or a namespace separator —
+// so "SHA-256"-style all-caps acronyms never parse as threads).
+func extractProseScalarThreadRefs(text string) []proseScalarThreadRef {
+	if text == "" {
+		return nil
+	}
+	var out []proseScalarThreadRef
+	for _, m := range proseScalarThreadTokenRE.FindAllStringIndex(text, -1) {
+		if len(out) >= proseScalarThreadRefCap {
+			return out
+		}
+		if m[0] > 0 {
+			prev := text[m[0]-1]
+			if prev == '-' || prev == '.' || prev == '_' || prev == ':' || prev == '/' ||
+				(prev >= '0' && prev <= '9') ||
+				(prev >= 'a' && prev <= 'z') || (prev >= 'A' && prev <= 'Z') {
+				continue
+			}
+		}
+		if m[1] < len(text) {
+			next := text[m[1]]
+			if next == '_' || (next >= '0' && next <= '9') ||
+				(next >= 'a' && next <= 'z') || (next >= 'A' && next <= 'Z') {
+				continue
+			}
+		}
+		tok := text[m[0]:m[1]]
+		dash := strings.LastIndexByte(tok, '-')
+		if dash <= 0 {
+			continue
+		}
+		name, tid := tok[:dash], tok[dash+1:]
+		if !strings.ContainsAny(name, "abcdefghijklmnopqrstuvwxyz_.:/<>@") {
+			continue
+		}
+		out = append(out, proseScalarThreadRef{Raw: tok, TID: tid, Pos: m[0]})
+	}
+	return out
+}
+
+// proseScalarTokenTol is the shared membership / carrier tolerance: one
+// unit in the token's last written digit, floored at the round-3 band so
+// "46.821" still accepts an evidence "46.8213".
+func proseScalarTokenTol(tok proseScalarToken) float64 {
+	tol := tok.Ulp
+	if tol < 0.0005 {
+		tol = 0.0005
+	}
+	return tol
+}
+
+// proseScalarCarrierRows returns the evidence rows that carry the token's
+// value (within the same tolerance the membership arm uses). This is the
+// PRECISE half of the binding audit: a scalar and a window/thread token
+// co-occurring on one published row is the provenance signal.
+func proseScalarCarrierRows(rows []proseScalarEvidenceRow, tok proseScalarToken) []proseScalarEvidenceRow {
+	tol := proseScalarTokenTol(tok)
+	var out []proseScalarEvidenceRow
+	for _, row := range rows {
+		for _, v := range row.values {
+			if math.Abs(v-tok.Value) <= tol+1e-9 {
+				out = append(out, row)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// proseScalarWindowBindingMismatch asserts a window misbinding ONLY in the
+// precise all-rows form: every carrier row names at least one window and
+// none of those windows agrees with any window the sentence names. Any
+// window-silent carrier row, or any single agreement, keeps the token
+// silent (宁松勿严).
+func proseScalarWindowBindingMismatch(carriers []proseScalarEvidenceRow, sentWindows []proseScalarWindowRef) (string, bool) {
+	published := ""
+	for _, row := range carriers {
+		if len(row.windows) == 0 {
+			return "", false
+		}
+		for _, rw := range row.windows {
+			for _, sw := range sentWindows {
+				if proseScalarWindowsMatch(rw, sw) {
+					return "", false
+				}
+			}
+		}
+		if published == "" {
+			published = proseScalarWindowListLabel(row.windows)
+		}
+	}
+	return published, published != ""
+}
+
+// proseScalarThreadBindingMismatch is the thread-facet analog: every
+// carrier row names at least one thread and no row tid intersects the
+// sentence tids (tid equality, so a truncated or aliased thread NAME for
+// the same tid still counts as agreement).
+func proseScalarThreadBindingMismatch(carriers []proseScalarEvidenceRow, sentThreads []proseScalarThreadRef) (string, bool) {
+	published := ""
+	for _, row := range carriers {
+		if len(row.threads) == 0 {
+			return "", false
+		}
+		for _, rt := range row.threads {
+			for _, st := range sentThreads {
+				if rt.TID == st.TID {
+					return "", false
+				}
+			}
+		}
+		if published == "" {
+			published = proseScalarThreadListLabel(row.threads)
+		}
+	}
+	return published, published != ""
+}
+
+// proseScalarRecomputeWindowMismatch implements the §24.14 percent
+// extension: when EVERY reproducing denominator is itself a published
+// window length and NONE matches a window length the sentence names, the
+// recompute exemption is a cross-window disguise. A single denominator
+// that is not a known window length (an ordinary ratio) keeps the
+// exemption — coincidence pairs stay a sanctioned loose cost (§25.1).
+func proseScalarRecomputeWindowMismatch(denominatorsMS, windowLengths []float64, sentWindows []proseScalarWindowRef) (string, bool) {
+	if len(denominatorsMS) == 0 || len(windowLengths) == 0 {
+		return "", false
+	}
+	var sentLens []float64
+	for _, sw := range sentWindows {
+		if sw.LengthMS > 0 {
+			sentLens = append(sentLens, sw.LengthMS)
+		}
+	}
+	if len(sentLens) == 0 {
+		return "", false
+	}
+	published := ""
+	for _, d := range denominatorsMS {
+		known := false
+		for _, w := range windowLengths {
+			if math.Abs(d-w) <= proseScalarWindowLengthTol(w) {
+				known = true
+				break
+			}
+		}
+		if !known {
+			return "", false
+		}
+		for _, s := range sentLens {
+			if math.Abs(d-s) <= proseScalarWindowLengthTol(math.Max(d, s)) {
+				return "", false
+			}
+		}
+		if published == "" {
+			published = fmt.Sprintf("≈%.0fms", d)
+		}
+	}
+	return published, published != ""
+}
+
+// proseScalarWindowsMatch reports whether a row-published window agrees
+// with a sentence-named window: matching endpoints, a row occurrence span
+// contained inside the stated window, or matching lengths. Every arm errs
+// toward agreement.
+func proseScalarWindowsMatch(rw, sw proseScalarWindowRef) bool {
+	if rw.HasSpan && sw.HasSpan {
+		if math.Abs(rw.StartS-sw.StartS) <= proseScalarWindowSpanTolS &&
+			math.Abs(rw.EndS-sw.EndS) <= proseScalarWindowSpanTolS {
+			return true
+		}
+		// A measurement published for a sub-interval may be stated inside
+		// the larger window that contains it.
+		if rw.StartS >= sw.StartS-proseScalarWindowSpanTolS &&
+			rw.EndS <= sw.EndS+proseScalarWindowSpanTolS {
+			return true
+		}
+	}
+	if rw.LengthMS > 0 && sw.LengthMS > 0 &&
+		math.Abs(rw.LengthMS-sw.LengthMS) <= proseScalarWindowLengthTol(math.Max(rw.LengthMS, sw.LengthMS)) {
+		return true
+	}
+	return false
+}
+
+// proseScalarWindowLengthTol is the loose length tolerance: 1% of the
+// window, floored at 1ms (so a stated 1645 accepts the derived 1644.940).
+func proseScalarWindowLengthTol(lengthMS float64) float64 {
+	tol := 0.01 * lengthMS
+	if tol < 1 {
+		tol = 1
+	}
+	return tol
+}
+
+func proseScalarWindowListLabel(windows []proseScalarWindowRef) string {
+	labels := make([]string, 0, 2)
+	for _, w := range windows {
+		if len(labels) >= 2 {
+			break
+		}
+		labels = append(labels, w.displayLabel())
+	}
+	return strings.Join(labels, " / ")
+}
+
+func proseScalarThreadListLabel(threads []proseScalarThreadRef) string {
+	labels := make([]string, 0, 2)
+	for _, t := range threads {
+		if len(labels) >= 2 {
+			break
+		}
+		labels = append(labels, t.Raw)
+	}
+	return strings.Join(labels, " / ")
+}
+
+// proseScalarNearestWindowLabel lists the sentence's window identities
+// nearest to the token (up to two), so the detail names the binding the
+// reader actually sees next to the number.
+func proseScalarNearestWindowLabel(sentWindows []proseScalarWindowRef, tok proseScalarToken) string {
+	ordered := make([]proseScalarWindowRef, len(sentWindows))
+	copy(ordered, sentWindows)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return proseScalarPosDistance(ordered[i].Pos, tok.Pos) < proseScalarPosDistance(ordered[j].Pos, tok.Pos)
+	})
+	return proseScalarWindowListLabel(ordered)
+}
+
+func proseScalarNearestThreadLabel(sentThreads []proseScalarThreadRef, tok proseScalarToken) string {
+	if len(sentThreads) == 0 {
+		return ""
+	}
+	nearest := sentThreads[0]
+	for _, t := range sentThreads[1:] {
+		if proseScalarPosDistance(t.Pos, tok.Pos) < proseScalarPosDistance(nearest.Pos, tok.Pos) {
+			nearest = t
+		}
+	}
+	return nearest.Raw
+}
+
+func proseScalarPosDistance(a, b int) int {
+	if a > b {
+		return a - b
+	}
+	return b - a
 }
 
 // proseScalarUlp returns one unit in the last written digit: "46.821" →
@@ -395,46 +967,55 @@ func proseScalarUlp(raw string) float64 {
 	return 1
 }
 
-// proseScalarTokenGrounded runs the tolerance and exemption arms, loosest
+// proseScalarGroundingVerdict reports how a token was grounded.
+// recomputeOnly marks tokens grounded EXCLUSIVELY by the a/b×100 recompute
+// arm; denominatorsMS carries the reproducing denominators (ms scale) the
+// §24.14 percent extension audits.
+type proseScalarGroundingVerdict struct {
+	grounded       bool
+	recomputeOnly  bool
+	denominatorsMS []float64
+}
+
+// proseScalarTokenGrounding runs the tolerance and exemption arms, loosest
 // first. Every arm errs toward acceptance (宁松勿严).
-func proseScalarTokenGrounded(tok proseScalarToken, evidence proseScalarEvidenceSet) bool {
+func proseScalarTokenGrounding(tok proseScalarToken, evidence proseScalarEvidenceSet) proseScalarGroundingVerdict {
 	// Exemption: zero values carry no measurement claim.
 	if tok.Value == 0 {
-		return true
+		return proseScalarGroundingVerdict{grounded: true}
 	}
 	// Arm 1 — verbatim numeral string appears on an evidence surface.
 	if evidence.exact[tok.Raw] {
-		return true
+		return proseScalarGroundingVerdict{grounded: true}
 	}
-	// Tolerance = one unit in the token's last written digit, floored at
-	// the round-3 band so "46.821" still accepts an evidence "46.8213".
-	tol := tok.Ulp
-	if tol < 0.0005 {
-		tol = 0.0005
-	}
+	tol := proseScalarTokenTol(tok)
 	// Arm 2 — direct member within tolerance.
 	if proseScalarNear(evidence.values, tok.Value, tol) {
-		return true
+		return proseScalarGroundingVerdict{grounded: true}
 	}
 	if tok.percent() {
 		// Arm 3 — the evidence carries the same percentage as a 0-1 ratio.
 		if proseScalarNear(evidence.values, tok.Value/100, tol/100) {
-			return true
+			return proseScalarGroundingVerdict{grounded: true}
 		}
 		// Arm 4 — recomputable percentage: some evidence pair (a, b)
 		// reproduces the value as a/b at percent scale. k=100 covers a
 		// same-unit pair; k=0.1 covers an ms numerator over a
-		// seconds-denominated window.
-		for _, k := range []float64{100, 0.1} {
-			if proseScalarRatioMatch(evidence.values, tok.Value, k, tol) {
-				return true
-			}
+		// seconds-denominated window (denominators rescaled to ms).
+		var denoms []float64
+		denoms = proseScalarRatioDenominatorsMS(evidence.values, tok.Value, 100, tol, 1, denoms)
+		denoms = proseScalarRatioDenominatorsMS(evidence.values, tok.Value, 0.1, tol, 1000, denoms)
+		if len(denoms) > 0 {
+			return proseScalarGroundingVerdict{grounded: true, recomputeOnly: true, denominatorsMS: denoms}
 		}
-		return false
+		return proseScalarGroundingVerdict{}
 	}
 	// Arm 5 (ms only) — pairwise sum of two evidence values: an honest
 	// self-derived total of two published figures is not a fabrication.
-	return proseScalarPairSumMatch(evidence.values, tok.Value, tol)
+	if proseScalarPairSumMatch(evidence.values, tok.Value, tol) {
+		return proseScalarGroundingVerdict{grounded: true}
+	}
+	return proseScalarGroundingVerdict{}
 }
 
 // proseScalarNear reports whether sorted values contains a member within
@@ -458,11 +1039,14 @@ func proseScalarPairSumMatch(values []float64, target, tol float64) bool {
 	return false
 }
 
-// proseScalarRatioMatch reports whether some pair (a, b) of sorted values
-// with b > 0 satisfies |a/b*k - target| <= tol.
-func proseScalarRatioMatch(values []float64, target, k, tol float64) bool {
-	if target <= 0 {
-		return false
+// proseScalarRatioDenominatorsMS collects every denominator b (rescaled by
+// msScale) for which some pair (a, b) of sorted values with b > 0 satisfies
+// |a/b*k - target| <= tol. A non-empty result grounds the percent (the old
+// boolean recompute arm); the collected denominators feed the §24.14
+// percent extension.
+func proseScalarRatioDenominatorsMS(values []float64, target, k, tol, msScale float64, out []float64) []float64 {
+	if target <= 0 || len(out) >= proseScalarDenominatorCap {
+		return out
 	}
 	for _, a := range values {
 		if a <= 0 {
@@ -474,10 +1058,26 @@ func proseScalarRatioMatch(values []float64, target, k, tol float64) bool {
 		if target-tol > 0 {
 			hi = a * k / (target - tol)
 		}
-		idx := sort.SearchFloat64s(values, lo-1e-9)
-		if idx < len(values) && values[idx] <= hi+1e-9 && values[idx] > 0 {
-			return true
+		for idx := sort.SearchFloat64s(values, lo-1e-9); idx < len(values) && values[idx] <= hi+1e-9; idx++ {
+			b := values[idx]
+			if b <= 0 {
+				continue
+			}
+			scaled := b * msScale
+			dup := false
+			for _, have := range out {
+				if have == scaled {
+					dup = true
+					break
+				}
+			}
+			if !dup {
+				out = append(out, scaled)
+				if len(out) >= proseScalarDenominatorCap {
+					return out
+				}
+			}
 		}
 	}
-	return false
+	return out
 }
