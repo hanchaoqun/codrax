@@ -48,10 +48,12 @@ func TestRuntimeTraceProjCoverageJitterOvershootKeepsSymptomDenominator(t *testi
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 目标等待→关注线程等待
 	// (其他族), on-chain 已归因→链上已归因, 归因口径合计→各链上口径合计,
 	// 不计未归因残差→不计未归因 (归因族).
+	// COV 批 (§24.11 C-3 后半场, 2026-07-08). EVOLUTION RECORD: 各链上口径合计 →
+	// 链上单项最大 (名实对齐: the numerator is a single-row MAX,墙钟不可求和).
 	if !strings.Contains(line, "关注线程等待(sleep/D-state/runnable) 112.175ms 中链上已归因 112.175ms(100%),未归因 0.000ms(0%)") {
 		t.Fatalf("jitter overshoot must keep the symptom denominator at full coverage:\n%s", line)
 	}
-	if !strings.Contains(line, "各链上口径合计 112.223ms,略超关注线程等待 0.048ms") {
+	if !strings.Contains(line, "链上单项最大 112.223ms,略超关注线程等待 0.048ms") {
 		t.Fatalf("the raw caliber total and excess must be disclosed verbatim:\n%s", line)
 	}
 	// The fabricated whole-window recast is gone: no 94%, no 6.838ms residual,
@@ -66,7 +68,7 @@ func TestRuntimeTraceProjCoverageJitterOvershootKeepsSymptomDenominator(t *testi
 	if !strings.Contains(en, "Of the target's 112.175ms wait time (sleep/D-state/runnable), on-chain attributed 112.175ms (100%), unattributed 0.000ms (0%)") {
 		t.Fatalf("EN surface must fork the same way:\n%s", en)
 	}
-	if !strings.Contains(en, "The attribution caliber totals 112.223ms, 0.048ms past the target wait") {
+	if !strings.Contains(en, "The largest single on-chain caliber is 112.223ms, 0.048ms past the target wait") {
 		t.Fatalf("EN surface must disclose the raw caliber total:\n%s", en)
 	}
 	if strings.Contains(en, "unattributed residual 6.838ms") || strings.Contains(en, "94%") {
@@ -82,7 +84,9 @@ func TestRuntimeTraceProjCoverageGrossOvershootPublishesBothMagnitudesNoPercent(
 	line := runtimeTraceProjWindowLine(p0a1Projection, model, true)
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 目标等待→关注线程等待,
 	// on-chain 归因口径合计→各链上口径合计 (归因族).
-	if !strings.Contains(line, "关注线程等待(sleep/D-state/runnable) 20.000ms;各链上口径合计 60.000ms,超出关注线程等待 40.000ms") {
+	// COV 批 (§24.11 C-3 后半场, 2026-07-08). EVOLUTION RECORD: 各链上口径合计 →
+	// 链上单项最大 (名实对齐,墙钟不可求和).
+	if !strings.Contains(line, "关注线程等待(sleep/D-state/runnable) 20.000ms;链上单项最大 60.000ms,超出关注线程等待 40.000ms") {
 		t.Fatalf("gross overshoot must publish both magnitudes:\n%s", line)
 	}
 	if !strings.Contains(line, "不给出覆盖百分比") {
@@ -98,7 +102,7 @@ func TestRuntimeTraceProjCoverageGrossOvershootPublishesBothMagnitudesNoPercent(
 		t.Fatalf("in-window overshoot must not claim the state crosses the window:\n%s", line)
 	}
 	en := runtimeTraceProjWindowLine(p0a1Projection, model, false)
-	if !strings.Contains(en, "Target wait (sleep/D-state/runnable) 20.000ms; the on-chain attribution caliber totals 60.000ms, 40.000ms beyond the target wait") {
+	if !strings.Contains(en, "Target wait (sleep/D-state/runnable) 20.000ms; the largest single on-chain caliber is 60.000ms, 40.000ms beyond the target wait") {
 		t.Fatalf("EN gross overshoot must fork the same way:\n%s", en)
 	}
 	if strings.Contains(en, "unattributed residual ") || strings.Contains(en, "(100%)") {

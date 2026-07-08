@@ -225,6 +225,20 @@ type TraceCausalProjectionNode struct {
 	// Zero when the source row did not expose them (gap c three-column magnitude).
 	EffectiveImpactMS float64 `json:"effective_impact_ms,omitempty"`
 	ActualImpactMS    float64 `json:"actual_impact_ms,omitempty"`
+	// TargetImpactMS is the engine's TargetBlockedMs caliber: how much of the
+	// 🎯 target's own blocked wall clock THIS row's chain actually explains
+	// (typed promotion, COV §24.9 D-1, real_trace_campaign_20260705.md,
+	// 2026-07-08). Sourced from the target_impact_ms / target_impact rich
+	// notes. It is the 已由链上解释 semantic the coverage-sentence numerator
+	// consumes FIRST — the CumulativeImpactMS channel is display-overwritten by
+	// §20.1 on inversion∧running rank rows (opendir_78: cumulative 58.919 vs
+	// target_impact 112.175 fabricated "未归因55%" against a ~97% explained
+	// wait). Merge rule everywhere (R1 absorb / R2 fold / R3 fold): member MAX,
+	// never Σ — the members explain overlapping stretches of ONE target's
+	// blocked clock — and never group-first inheritance (D-3 order-dependence
+	// family). Zero when the source row did not expose it (consumers fall back
+	// to the legacy cumulative channel byte-identically).
+	TargetImpactMS float64 `json:"target_impact_ms,omitempty"`
 	// DrilldownTarget is the direct upstream node a sleep symptom should drill
 	// into. It is attached only from typed wakeup_chain_edge/path records, and
 	// only when the immediate waker for this node is unique. Empty means the
@@ -1876,6 +1890,10 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	}
 	node.EffectiveImpactMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyEffectiveImpactMS, TraceNoteKeyEffectiveImpact)
 	node.ActualImpactMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyActualImpactMS, TraceNoteKeyActualImpact)
+	// COV §24.9 D-1: the TargetBlockedMs typed promotion (rank lane emits
+	// target_impact_ms=%.3f; the causal_impact lanes carry target_impact=%.3fms
+	// verbatim — the shared float parser strips the unit).
+	node.TargetImpactMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyTargetImpactMS, TraceNoteKeyTargetImpact)
 	node.UndrillableReason = traceCausalProjectionUndrillableReason(record)
 	// §7.30 裁定1/2: aggregate-metric rows carry a typed subject_kind so the
 	// renderer can show metric semantics instead of an "unresolved thread".
@@ -2198,6 +2216,12 @@ func traceCausalProjectionLimitHopsFold(hops, onChain []TraceCausalProjectionNod
 // from an overflow member list — the ONE fold-row constructor both the
 // on-chain bucket cap and the PTV6 hop cap consume (member MAX value, min–max
 // range, roster, every member evidence id absorbed).
+//
+// TargetImpactMS is deliberately DROPPED on this fold (COV 复核建议,
+// 2026-07-08): the overflow row is a counted cross-thread roster, not a
+// coverage-numerator carrier — a zero caliber makes consumers fall back to the
+// cumulative/display channel (conservative lower bound, never fabricates), and
+// no surface consumes a fold-row target caliber today.
 func traceCausalProjectionOverflowFoldRow(overflow []TraceCausalProjectionNode) TraceCausalProjectionNode {
 	fold := TraceCausalProjectionNode{
 		Role:                overflow[0].Role,

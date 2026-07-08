@@ -355,6 +355,12 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 	if loser.CumulativeImpactMS > survivor.CumulativeImpactMS {
 		survivor.CumulativeImpactMS = loser.CumulativeImpactMS
 	}
+	// COV §24.9 D-1: TargetImpactMS follows the same one-fact MAX discipline —
+	// both views explain the SAME stretch of the target's blocked clock, and a
+	// survivor-only inheritance would be view-order dependent (D-3 家族).
+	if loser.TargetImpactMS > survivor.TargetImpactMS {
+		survivor.TargetImpactMS = loser.TargetImpactMS
+	}
 	if survivor.Confidence <= 0 {
 		survivor.Confidence = loser.Confidence
 	}
@@ -542,6 +548,10 @@ func traceCausalProjectionAbsorbPeerAlias(named *TraceCausalProjectionNode, pidV
 	if pidVariant.CumulativeImpactMS > named.CumulativeImpactMS {
 		named.CumulativeImpactMS = pidVariant.CumulativeImpactMS
 	}
+	// COV §24.9 D-1: same one-fact MAX discipline (see the R1 absorb).
+	if pidVariant.TargetImpactMS > named.TargetImpactMS {
+		named.TargetImpactMS = pidVariant.TargetImpactMS
+	}
 	absorbed := map[string]bool{traceCausalProjectionCanonicalNode(named.EvidenceID): true}
 	for _, id := range named.MergedEvidenceIDs {
 		absorbed[traceCausalProjectionCanonicalNode(id)] = true
@@ -722,6 +732,10 @@ func traceCausalProjectionAbsorbDuplicatePublication(survivor *TraceCausalProjec
 		if dup.CumulativeImpactMS > survivor.CumulativeImpactMS {
 			survivor.CumulativeImpactMS = dup.CumulativeImpactMS
 		}
+		// COV §24.9 D-1: same one-fact MAX discipline (see the R1 absorb).
+		if dup.TargetImpactMS > survivor.TargetImpactMS {
+			survivor.TargetImpactMS = dup.TargetImpactMS
+		}
 	}
 	if survivor.DuplicatePublications < 1 {
 		survivor.DuplicatePublications = 1
@@ -873,6 +887,17 @@ func traceCausalProjectionAggregateSameKind(nodes []TraceCausalProjectionNode) [
 		aggregate.MergedMaxMS = maxMS
 		aggregate.ImpactMS = sum
 		aggregate.CumulativeImpactMS = sum
+		// COV §24.9 D-1: TargetImpactMS re-derives as the member MAX — the
+		// members explain overlapping stretches of the ONE target's blocked
+		// wall clock, so a Σ would double-count it, and a group-first
+		// inheritance is order-dependent (D-3 家族). MAX never invents.
+		targetImpact := 0.0
+		for _, idx := range g.members {
+			if v := nodes[idx].TargetImpactMS; v > targetImpact {
+				targetImpact = v
+			}
+		}
+		aggregate.TargetImpactMS = targetImpact
 		// §11-N2: cross-query-window caliber. The roster of distinct member
 		// query windows is disclosed on every ×N row whose members carried a
 		// window identity (窗身份, 联动 q1-B6); the union caliber replaces the
@@ -1346,6 +1371,16 @@ func traceCausalProjectionFoldUnknownBackground(nodes []TraceCausalProjectionNod
 	// V3: member MAX, never a cross-thread wall-clock sum (see the fold doc).
 	aggregate.ImpactMS = maxMS
 	aggregate.CumulativeImpactMS = maxMS
+	// COV §24.9 D-1: TargetImpactMS keeps the same member-MAX discipline (the
+	// fold row starts empty, so without this the typed caliber would silently
+	// vanish on fold — MAX is the honest lower bound, never a cross-thread Σ).
+	targetImpact := 0.0
+	for _, idx := range fold {
+		if v := nodes[idx].TargetImpactMS; v > targetImpact {
+			targetImpact = v
+		}
+	}
+	aggregate.TargetImpactMS = targetImpact
 	out := make([]TraceCausalProjectionNode, 0, len(nodes)-len(fold)+1)
 	for i, node := range nodes {
 		if foldSet[i] {

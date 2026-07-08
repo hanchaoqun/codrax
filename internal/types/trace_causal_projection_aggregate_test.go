@@ -275,3 +275,166 @@ func TestTraceCausalProjectionWindowFields(t *testing.T) {
 		t.Fatalf("missing anchor must leave window fields zero (fallback mode): %+v", noAnchor)
 	}
 }
+
+// TestTraceCausalProjectionFoldTargetImpactMemberMaxOrderIndependent pins the
+// COV §24.9 D-1 merge rule (real_trace_campaign_20260705.md, 2026-07-08): the
+// typed TargetImpactMS caliber re-derives as the MEMBER MAX on the R2 ×N fold —
+// never the Σ (the members explain overlapping stretches of ONE target's
+// blocked wall clock) and never a group-first inheritance (D-3 order-dependence
+// family: "若组首是 1.096 行则发布 1.096"). 突变自查: switching the fold to
+// group-first inheritance or a Σ reds the reversed-order / value assertions.
+func TestTraceCausalProjectionFoldTargetImpactMemberMaxOrderIndependent(t *testing.T) {
+	mk := func(id string, impact, target float64, lineStart, lineEnd int) ObservationRecord {
+		return aggregateTestRecord(id, "wakeup_causal_impact", "wakeup_causal_impact:"+id,
+			"worker-9", "sleep_wait", fmt.Sprintf("%.3f", impact), impact, lineStart, lineEnd,
+			"chain_relevance=on_chain", "causality=on_wakeup_chain", "chain_depth=1",
+			fmt.Sprintf("target_impact=%.3fms", target))
+	}
+	// The impact-major bucket pre-sort makes the highest-IMPACT member the
+	// group-first — the max TARGET caliber deliberately sits on a LOW-impact
+	// member (the opendir_78 family: target_impact may exceed the row's own
+	// in-window projection), so a group-first inheritance can never pass by
+	// coincidence.
+	forward := []ObservationRecord{
+		mk("T1", 1.096, 112.175, 100, 110),
+		mk("T2", 112.300, 3.000, 200, 210),
+		mk("T3", 2.082, 2.082, 300, 310),
+	}
+	reversed := []ObservationRecord{forward[2], forward[1], forward[0]}
+	find := func(p TraceCausalProjection) *TraceCausalProjectionNode {
+		for i := range p.OnChainCauses {
+			if p.OnChainCauses[i].MergedCount > 1 {
+				return &p.OnChainCauses[i]
+			}
+		}
+		return nil
+	}
+	for _, records := range [][]ObservationRecord{forward, reversed} {
+		node := find(TraceCausalProjectionFromObservationRecords(records))
+		if node == nil {
+			t.Fatalf("fixture drifted: expected an R2 ×3 fold row")
+		}
+		if node.TargetImpactMS != 112.175 {
+			t.Fatalf("folded TargetImpactMS must be the member MAX 112.175 (never Σ 115.353, never group-first), got %.3f", node.TargetImpactMS)
+		}
+	}
+}
+
+// TestTraceCausalProjectionNodeTargetImpactFromNotes pins the COV §24.9 D-1
+// typed promotion: both producer spellings — the rank lane's bare
+// target_impact_ms and the causal_impact lane's unit-suffixed target_impact —
+// land on the typed TargetImpactMS field; absence leaves it zero (consumers
+// fall back to the legacy cumulative channel byte-identically).
+func TestTraceCausalProjectionNodeTargetImpactFromNotes(t *testing.T) {
+	rank := aggregateTestRecord("R1", "root_cause_primary", "root_cause_primary:r", "dep-2", "running", "58.919", 58.919, 10, 20,
+		"rank=1", "tier=primary", "chain_relevance=on_chain", "causality=on_wakeup_chain", "chain_depth=1",
+		"target_impact_ms=112.175")
+	hop := aggregateTestRecord("H1", "wakeup_causal_impact", "wakeup_causal_impact:h", "dep-3", "sleep_wait", "40.000", 40.0, 30, 40,
+		"chain_relevance=on_chain", "causality=on_wakeup_chain", "chain_depth=1",
+		"target_impact=99.500ms")
+	bare := aggregateTestRecord("B1", "wakeup_causal_impact", "wakeup_causal_impact:b", "dep-4", "sleep_wait", "10.000", 10.0, 50, 60,
+		"chain_relevance=on_chain", "causality=on_wakeup_chain", "chain_depth=1")
+	got := TraceCausalProjectionFromObservationRecords([]ObservationRecord{rank, hop, bare})
+	byID := map[string]TraceCausalProjectionNode{}
+	for _, lane := range [][]TraceCausalProjectionNode{got.PrimaryRootCauses, got.OnChainCauses, got.SupportingHops} {
+		for _, node := range lane {
+			byID[node.EvidenceID] = node
+		}
+	}
+	if byID["R1"].TargetImpactMS != 112.175 {
+		t.Fatalf("rank-lane target_impact_ms must load the typed field, got %.3f", byID["R1"].TargetImpactMS)
+	}
+	if byID["H1"].TargetImpactMS != 99.5 {
+		t.Fatalf("causal-impact target_impact=…ms must load the typed field, got %.3f", byID["H1"].TargetImpactMS)
+	}
+	if byID["B1"].TargetImpactMS != 0 {
+		t.Fatalf("absent note must leave TargetImpactMS zero, got %.3f", byID["B1"].TargetImpactMS)
+	}
+}
+
+// TestTraceCausalProjectionAbsorbLanesLiftTargetImpactMax pins the COV §24.9
+// D-1 merge rule on the three PAIRWISE absorb lanes directly (复核收尾
+// 2026-07-08, MUT-G/H/I: the R2 fold was the only pinned lane and deleting
+// any pairwise lift survived the whole suite). Table-driven direct calls, one
+// row per lane; the MAX deliberately sits on the ABSORBED side so a
+// survivor/group-first inheritance can never pass by coincidence, and the
+// keep-direction control proves the lift is a MAX (never a blind copy that
+// could lower an already-larger survivor). 突变自查: deleting the
+// TargetImpactMS lift in traceCausalProjectionAbsorbSameFact /
+// AbsorbPeerAlias / AbsorbDuplicatePublication reds its row here.
+func TestTraceCausalProjectionAbsorbLanesLiftTargetImpactMax(t *testing.T) {
+	mkNode := func(id string, impact, target float64) TraceCausalProjectionNode {
+		return TraceCausalProjectionNode{
+			EvidenceID: id, Subject: "worker-9", Object: "running",
+			ImpactMS: impact, CumulativeImpactMS: impact, TargetImpactMS: target,
+		}
+	}
+	cases := []struct {
+		name   string
+		absorb func(survivor *TraceCausalProjectionNode, loser TraceCausalProjectionNode)
+	}{
+		{"R1 same-fact absorb", func(survivor *TraceCausalProjectionNode, loser TraceCausalProjectionNode) {
+			traceCausalProjectionAbsorbSameFact(survivor, loser, map[string]bool{}, nil)
+		}},
+		{"peer-alias fold", func(survivor *TraceCausalProjectionNode, loser TraceCausalProjectionNode) {
+			traceCausalProjectionAbsorbPeerAlias(survivor, loser)
+		}},
+		// V4 near lane: the values must differ (the exact bit-equal lane is
+		// deliberately byte-identical to pre-PTV6 and lifts nothing).
+		{"V4 near-duplicate fold", func(survivor *TraceCausalProjectionNode, loser TraceCausalProjectionNode) {
+			traceCausalProjectionAbsorbDuplicatePublication(survivor, loser)
+		}},
+	}
+	for _, tc := range cases {
+		// Lift arm: the absorbed side carries the larger target caliber.
+		survivor := mkNode("e-survivor", 58.919, 3.000)
+		tc.absorb(&survivor, mkNode("e-loser", 58.920, 112.175))
+		if survivor.TargetImpactMS != 112.175 {
+			t.Fatalf("%s: TargetImpactMS must lift to the absorbed side's MAX 112.175, got %.3f",
+				tc.name, survivor.TargetImpactMS)
+		}
+		// Keep-direction control: a smaller absorbed side never lowers the
+		// survivor (MAX semantics, not a copy).
+		keeper := mkNode("e-keeper", 58.919, 112.175)
+		tc.absorb(&keeper, mkNode("e-small", 58.920, 3.000))
+		if keeper.TargetImpactMS != 112.175 {
+			t.Fatalf("%s: a smaller absorbed target caliber must never lower the survivor, got %.3f",
+				tc.name, keeper.TargetImpactMS)
+		}
+	}
+}
+
+// TestTraceCausalProjectionR3FoldCarriesTargetImpactMemberMax pins the fourth
+// merge lane (复核收尾 2026-07-08, MUT-I second half): the R3 unknown-object
+// background fold starts from an EMPTY aggregate, so without the member-MAX
+// re-derivation the typed target caliber silently vanished on fold. The MAX
+// sits on the LAST folded member (never fold[0], whose Role/Predicate seed the
+// aggregate) so a first-member inheritance can never pass by coincidence;
+// member MAX, never a cross-thread Σ.
+func TestTraceCausalProjectionR3FoldCarriesTargetImpactMemberMax(t *testing.T) {
+	mk := func(id string, impact, target float64) TraceCausalProjectionNode {
+		return TraceCausalProjectionNode{
+			EvidenceID: id, Subject: "thr-" + id, Object: "unknown-thread",
+			Role: TraceCausalRoleRootCauseContext, Predicate: "root_cause_background",
+			ImpactMS: impact, CumulativeImpactMS: impact, TargetImpactMS: target,
+		}
+	}
+	nodes := []TraceCausalProjectionNode{
+		mk("K1", 100, 1.000), mk("K2", 90, 2.000), // kept top-2 (impact-major order)
+		mk("F1", 80, 3.000), mk("F2", 70, 112.175), // folded members; MAX on the LAST
+	}
+	out := traceCausalProjectionFoldUnknownBackground(nodes)
+	var fold *TraceCausalProjectionNode
+	for i := range out {
+		if out[i].MergedCount > 1 {
+			fold = &out[i]
+		}
+	}
+	if fold == nil {
+		t.Fatalf("fixture drifted: expected an R3 fold row, got %+v", out)
+	}
+	if fold.TargetImpactMS != 112.175 {
+		t.Fatalf("the R3 fold row must carry the member MAX 112.175 (never first-member 3.000, never Σ 115.175), got %.3f",
+			fold.TargetImpactMS)
+	}
+}

@@ -458,8 +458,11 @@ func TestRCRHopLaneOvershootJitterArmKillsPseudoResidual(t *testing.T) {
 	// the word families — 目标睡眠→关注线程睡眠, 关注窗口→分析窗,
 	// (链上)归因口径合计→各链上口径合计, on-chain 已归因→链上已归因, the
 	// 残差 statistics word retired (未归因).
+	// COV 批 (§24.11 C-3 后半场, 2026-07-08). EVOLUTION RECORD: 各链上口径合计 →
+	// 链上单项最大 (名实对齐: the numerator is a single-row MAX,墙钟不可求和;
+	// huadong_78 "各链上口径合计 4.431ms" = 单行 E15 冒名).
 	line := rcrWindowLine(t, rcrHopOnlyProjection(112.175, 112.223))
-	if !strings.Contains(line, "关注线程睡眠 112.175ms 已全部由链上解释(各链上口径合计 112.223ms,略超 0.048ms,属状态段边界抖动);占分析窗 94%。") {
+	if !strings.Contains(line, "关注线程睡眠 112.175ms 已全部由链上解释(链上单项最大 112.223ms,略超 0.048ms,属状态段边界抖动);占分析窗 94%。") {
 		t.Fatalf("jitter arm must render the UXA final wording:\n%s", line)
 	}
 	if strings.Contains(line, "未归因") {
@@ -467,7 +470,7 @@ func TestRCRHopLaneOvershootJitterArmKillsPseudoResidual(t *testing.T) {
 	}
 	// Beyond the jitter band: both magnitudes, no percentage, no residual.
 	beyond := rcrWindowLine(t, rcrHopOnlyProjection(100.000, 112.223))
-	if !strings.Contains(beyond, "关注线程睡眠 100.000ms;各链上口径合计 112.223ms,超出关注线程睡眠 12.223ms") ||
+	if !strings.Contains(beyond, "关注线程睡眠 100.000ms;链上单项最大 112.223ms,超出关注线程睡眠 12.223ms") ||
 		!strings.Contains(beyond, "不给出覆盖百分比,差值不计为未归因") {
 		t.Fatalf("beyond-jitter arm must disclose both magnitudes without arithmetic:\n%s", beyond)
 	}

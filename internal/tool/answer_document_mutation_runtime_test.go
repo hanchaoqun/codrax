@@ -930,12 +930,24 @@ func TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad(t *
 			t.Fatalf("duration triad + bar must render (gap c): missing %q:\n%s", want, rendered)
 		}
 	}
-	// gap d: the sleeping target drills to its direct typed waker — the fact-only
-	// conclusion line names the drilldown target, and the tree anchors at 🎯.
-	for _, want := range []string{"☾", "⊚ app-100", "worker-200", "下钻到 worker-200"} {
+	// gap d: the sleeping target drills to its direct typed waker — the tree
+	// anchors at 🎯 and shows the 下钻 child.
+	//
+	// COV+LEAD 批 (§24.11 C-1, 2026-07-08). EVOLUTION RECORD: the conclusion no
+	// longer names the 🎯 target's OWN rank#1 sleep symptom row (with its
+	// 下钻到 suffix) — the lead election now consumes the shared
+	// post-aggregation rank board (the ❶ badge population: rendered chain-lane
+	// rows), so the ranked CAUSE row (worker-200) leads and the target-self
+	// symptom row can never be crowned 主根因 (huadong_78 pathology family).
+	// The sleep-lead 下钻到 suffix lane stays pinned end-to-end by the v3
+	// golden (a ranked sleep CHAIN row leading with 下钻到 RenderService-3021).
+	for _, want := range []string{"☾", "⊚ app-100", "└─下钻─", "**主根因:** worker-200"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("sleep drilldown must render (gap d): missing %q:\n%s", want, rendered)
 		}
+	}
+	if strings.Contains(rendered, "**主根因:** app-100") {
+		t.Fatalf("the target's own sleep symptom row must not be crowned 主根因 (§24.11 C-1):\n%s", rendered)
 	}
 	// gap e: the undrillable sleep is explicitly flagged with the typed reason
 	// inline (self row ⛔) and stays auditable via the evidence locator.

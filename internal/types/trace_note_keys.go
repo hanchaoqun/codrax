@@ -160,6 +160,16 @@ const (
 	TraceNoteKeyTotal           = "total"
 	TraceNoteKeyActualTotalMS   = "actual_total_ms"
 	TraceNoteKeyActualTotal     = "actual_total"
+	// TraceNoteKeyTargetImpactMS / TraceNoteKeyTargetImpact carry the engine's
+	// TargetBlockedMs caliber — how much of the 🎯 target's own blocked wall
+	// clock THIS row's chain actually explains (rank lane emits
+	// target_impact_ms=%.3f, the causal_impact/aggregated_impact lanes carry the
+	// summary field target_impact=%.3fms verbatim). COV §24.9 D-1
+	// (real_trace_campaign_20260705.md, opendir_78): promoted from display-only
+	// to a typed consumer key so the coverage-sentence numerator can consume the
+	// 已由链上解释 semantic instead of the §20.1 display-overwritten cumulative.
+	TraceNoteKeyTargetImpactMS = "target_impact_ms"
+	TraceNoteKeyTargetImpact   = "target_impact"
 )
 
 // TraceNoteKeyActualPrefix marks the §7.30 S1 dual-basis family: the display
@@ -436,8 +446,15 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{"projected_impact_ms", "impact", TraceNoteCarrierDisplayOnly},
 	{"projected_total", "impact", TraceNoteCarrierDisplayOnly},
 	{"projected_total_ms", "impact", TraceNoteCarrierDisplayOnly},
-	{"target_impact", "impact", TraceNoteCarrierDisplayOnly},
-	{"target_impact_ms", "impact", TraceNoteCarrierDisplayOnly},
+	// EVOLUTION RECORD (COV 批, §24.9 D-1, 2026-07-08): target_impact family
+	// display_only → hard_consumer — the coverage-sentence numerator now
+	// consumes the typed TargetImpactMS projection field sourced from these
+	// notes (traceCausalProjectionNodeFromRecord), because the cumulative
+	// channel is display-overwritten by §20.1 on inversion∧running rank rows
+	// (opendir_78: 58.919 raw vs target_impact 112.175 → "已归因45%/未归因55%"
+	// fabricated against a ~97% explained wait).
+	{TraceNoteKeyTargetImpact, "impact", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyTargetImpactMS, "impact", TraceNoteCarrierHardConsumer},
 	// inherited_target_blocked_ms (Q4-B, §12.3 ruling 2, P0-E1): the
 	// wakeup-dependency window value an on-chain resource row INHERITS as
 	// annotation-only context — 承自只作注记,永不作硬排序键. Display tier;

@@ -1548,3 +1548,34 @@ UXA D#30 终稿取代 RN-12 verbatim 冻结面:"top 片段"→"其中最大片�
 ## §25.1 PSG 批收账(2026-07-08,复核 SHIP-WITH-FIXES→收尾三项已落)
 交付:ViolProseScalarUngrounded 软门(registry SoftByDefault 结构性禁硬拒+bus-scoped strict arm 一轮重试资格+双半场粘滞闩防活锁)/确定性 ms|% 标量提取(词边界+千分位 deny)对证据面标量集合成员检查(容差三臂+%重算三臂+两值和臂,宁松勿严)/未命中列表+改写路由进重试提示;P-d 评估=aggregate_facts 通道结构已够+dump floor4 洪泛保席(双实证 pin,不动策略);P-s skill 双句(数值可查性+线程名≠对象)。复核抓获**自 grounding 三洞**(模型自产 next_steps 保留块/runtime_trace_ lookalike 宽前缀/被拒草稿 attachments 回收——三 witness silent 实证)→收尾:证据喂入面收紧为系统确切拼写集(RuntimeTraceSystemBlockID 导出,免扫面松/喂证据面紧公理)+attachments 退出+三负向 pin+词边界 pin。11+5 pin,10 突变咬红。
 **残余立账**:evidence_item Summary/TurnA facts=模型产但 §25 裁定明文纳入(sanctioned,如需收紧另裁);ledger 未展示 note 过门=b/d 分工设计;计数类("两窗各8次")只靠 P-s 软引导;比例/求和重算臂巧合掩护=宁松代价;aggregate actual_* note 白名单收编归 P1-H(审计 C1 已立案)。
+
+## §24.10 回访 cmp_78_01(对比场景,含 DCS 构建,2026-07-08)——语义 span 族合计参赛裁定
+**用户裁定**:同属一个语义类(VerifyClass/JIT/Shader=class_verification/jit_compile/shader_compile)的 span,细节(被 verify 的类名等)不同也**按投影合计进入排序**——§24.7.1 合并参赛规则扩展到 DCS 语义 span 族:合并键=(线程,语义类),参赛值=**窗口投影合计**(同线程求和墙钟合法;非单次最大——用户明示"投影合计"),roster=span 明细名单(可折叠,§24.7.1 修订);链上 tier 道与非链背景综合排序道同规。
+**witness**:E27-E42 十六条 VerifyClass 同线程逐条成行(0.04-2.4ms,合计≈10.8ms 从未聚合),对比总览"确定性优化点"列只显示单条最大 2.424ms(占其查询窗3%)——family 量级被拆碎隐形;十六行纵向占版面同时违反 §24.8 重要度分层(与 huadong_78 梯子同族:低单值行海占版,合计信息缺席)。→并入 RCM 批(合并参赛)scope;显示=×16 一行+行3 合计口径+roster 折叠。
+
+## §24.11 huadong_78 审计收账(2026-07-08,A/B/C upheld,D 复核流中断未验证)
+**A(P0)循环梯子唯一根因**:foldSegments 段局部视角(per-hit split)无跨段 run-length 视图,重复二元组 (oney⇄VSync)×7 无合并通道;F2"每命中必展开"违反 §24.8(首次披露后 6 次=零信息占位);循环检测器只认 index-0 锚定全路径周期,mid-path 循环返回 (0,0) 整梯零 ×N 注;共享标签列 50-cell cap 击穿 20-cell 名字地板(深行身份蒸发成"◦ …",F2 自败);从属注 20-cell 竖裂(lead 无界增长,修=AL3 缩进封顶消源非抬地板);"用户关注线程(中转)"18 格长标签→「⊚中转」短记号(⊚已过 EAW)。→**PTV8-LAD 批**(run-length 循环折叠行「↺ 循环×7: A ⇄ B」+F2 首次一次+缩进封顶 12 级+名字 8-cell pid 尾地板+CJK 不可断 atom 表(根因排序#N/有效归因/下界))。引擎 ping-pong 本体=P0-E witness 登记(29 元素 path dump 入复放验收集)。
+**B(P0 原则级)**:显示几何以深度为唯一布局输入与重要度解耦;名字预算可塌缩 1 cell("unreachable"注释被证伪);深缩进齐破 100-cell row cap 且静默;E9/E11/E5 无 % 列=typed 多窗抑制非宽度省略(防误归因澄清)。
+**C**:C-1(P1 真bug)lead 选举与 ❶ 徽章读两套种群(primary 桶聚合前 cap=10+in-path class 排序把 rank#1 E9 逐出选举池,目标自身 binder 症状行捡漏加冕)→**LEAD 修**(选举种群=徽章同一 post-aggregation 榜);C-3(P1)覆盖句"等待0.011ms"=分母种群静默塌缩(仅 E2 入分母,binder/sleep 静默排除)+"各链上口径合计"名实不符(=depth-1 单行 MAX 非求和)→COV 批;C-2 E9/E11=§20 双发布 ×N 聚合形 witness(P0-E);C-4 置信跨面分叉(RCR-C 同 opendir_78);C-5 rank 序数跨榜碰撞(#1×2 等)chip 无榜身份=裁定点。
+**D(未验证,PLAUSIBLE)**:F1 榜位命名空间碰撞/F2 树头四态行未入文法+binder 双发/F3 RN-12 跨窗伪包含(分子成员窗与合计窗不相交仍发布 59%)/F6 合并行三账复发/F7 E15/16 引擎聚合在而显示双发/F8 外窗行零窗披露——待 cmp_78_01 审计或复放交叉验证后定级。
+**归批总图(更新)**:COV+LEAD(P0 小批先行)→PTV8-RCR-C(链上行文法)→PTV8-LAD(布局)→RCM(合并参赛 §24.7.1+§24.10)→P0-E(链+锁+双发布)→裁定呈报(方向盲区三 witness+序数榜身份+D-6 措辞)。
+
+## §24.12 cmp_78_01 审计收账(2026-07-08,A/C/D upheld;B 流中断续跑中)
+**维度A(RCM 语义族施工图,已交付)**:五跳全 per-span 定谳(铸造/rank/观测/投影桶(聚合豁免)/显示四面);**基准数更正 witness=7.124ms(同线程 ×14 并集合计,10.8 系跨线程误加弃用)**;三设计强制项:①family 载体禁复用 MergedCount/MergedMaxMS(lead 选择器把 ×N 一律折 MAX,合计当场失效)——新 typed 车道;②跨窗纪律=family 只在同 selected_window 内合并(RN-12 伪包含同型防双计),同线程嵌套/重叠段取区间并集(disjoint==求和,union<Σ 披露);③口径词闭集扩第五词"合计(共N段,同线程)"(图例必须紧邻 ×N取最大 条目说明"同线程可加;跨线程仍不可加和"消当面矛盾)。cap=16 恰被打满→family 合计只是下界(亦须披露);C4 块 family 分组;skill F3a 改 family 口径;E3 fail-loud 计数随 family。施工图全文在审计 output(RCM 批直接消费)。
+**维度C 四新立案**:C5(P1)继承性有效归因缺口径词——8+6 条链上行 有效归因>窗口投影 无口径词,"承自归因"闸门=eff>10×cum 嘈声比值,1.1-1.8× 全漏(修=精确判据 eff>cum 即挂承自口径词);C6(P2)Depthless 行三面口径分叉(边"深度未解析" vs 注"链上L1" vs 明细"深度1(未接入链)");C7(P2)rank#1 lead 行明细自相矛盾(类型: binder_wait+影响形态: 未分类);C8(P2)数据盲区 rank#7 参赛零证据锚(trace_gap=Diagnostic lane 竟持榜位,无 E# 无索引)。C1=方向盲区第3/4 witness(**引擎原生 rank#1,LEAD 种群修不改本案**——裁定已熟);C2=树头四态行未入文法却持榜席+❶落#3/#2(D-F2 CONFIRMED);C3/C4=COV 新形态(已随批补充);C9=LAD 第二 witness(48 行语义行海,行2/行3 逐字重复×14);C10/C11 卫生捆。
+**维度D**:P0=对比表症状 cell 双侧两口径两数量级(3.262 vs 470.071,旗舰面倒挂);P1=6.0 整窗分母把 493ms running 计成"未归因94%"(COV);P1=PSG witness(9 条唤醒延迟值 6/9 零成员资格——PSG 上线后将拦截);P1=语义明细"关系"字段把外宿主 span 伪绑定为关注线程(修=宿主如实)。
+**归批增量**:RCR-C+=C5/C6/C7/C10/C11;RCM+=施工图+C8(Diagnostic lane 不参赛=分流遗漏);COV+=C3/C4 细化+D-P0 症状 cell 对比口径(需对称化或双侧同基披露);LAD+=C9;裁定呈报=方向盲区(4 witness 已熟)+❶徽章榜身份(C2/§24.11 C-5 同席)。
+
+## §24.13 方向盲区+榜位身份双裁定(用户 2026-07-08)
+**裁定一(症状降道)**:目标自身状态行(自身 binder 等待/自持锁 blocking_span/自身睡眠段,typed subject==分析目标)在"目标为何卡顿"问题中**不再竞争主根因/lead**——榜位照发但阶梯透明(deterministic_optimization 先例同型);lead 落到榜首**非自身**行(对端/上游);无非自身行时诚实回退("未定位到链上主根因")+症状披露。引擎(选举阶梯透明臂)+显示(lead/❶ 加冕)两层。四 witness=opendir_78 自持锁 rank#1/huadong_78 binder lead/cmp_78 双侧 binder 原生 rank#1。→**SYM 批**(LEAD 种群统一批落地后其上实施,先后依赖)。
+**裁定二(榜位身份)**:❶❷❸ 徽章与 lead 消费同一 post-aggregation 榜(LEAD 批已在途);多查询窗多榜时序数 chip 带窗身份("根因排序#1·窗X")消同报告 #1×2 碰撞。→徽章半场并入 SYM/LEAD 落地面,窗标 chip 归 RCR-C 显示。
+
+## §24.14 cmp_78_01 维度B/D 补账(续跑回收,2026-07-08,全 upheld)
+**B 三 P0(对比面)**:B-1 症状 cell 双口径产生链=括注/回退闸门是存在性测试非主导性测试,主臂绕过 CWD 窗基共识(§24.12 D-P0 补链);B-2 主根因列双侧窗基 20× 不同源零披露(SG-2b 违反)+链上已归因列 MAX 冒名(COV C-4 对比面形);B-3 旗舰对比句 (值↔窗) 错绑("sleep 63.6%(1430ms)"把 2250ms 窗测量绑到 1800ms 窗名下)——**PSG 成员资格制拦不住的绑定类错误**。
+**B/D P1-P2**:B-4/D-4 双侧锚窗构造不对称(6.0=用户宣称 884ms 的 1.86×,基线分母阶段纯度不对称零 reconcile;容差判据呈用户裁定);B-5/D-1 供给列 %窗基未点名(22× 误读);B-6 优化点列=两个 ~5% 覆盖切片对读+family 载体 7.124 已存在却落深度未解析折叠行(三面分裂);D-3 背景压力 cell 闭集类型闸吞 trace_span 背景行(总览"—" vs 树 stanza 91.940ms 当面矛盾);D-5 退役词"目标睡眠/目标症状时长"在 P0-A2 发射点幸存(负向 pin 20 禁词未含);D-6 系统补充 40 席被边界漂移孪生+整窗沉睡噪声占 12 席(段级去重缺 total= 漂移臂)。
+**归批增量**:**COV-2**(对比 cell 层:B-1/B-2/B-5/D-1/D-3+§24.12 D-P0 症状 cell——四列复用背景列"窗基:"披露机制);**PSG-2**(第二臂=值↔窗/主体绑定核对,命中成员后核同句窗口线程 token 与证据行归属,仍软门);RCM+=B-6;RCR-C+=D-5;EMIT/P1-H+=D-6;**裁定待呈**:D-4 锚窗偏差披露容差判据。
+**§24.14 补:D-4 容差裁定(用户 2026-07-08,按推荐默认)**——锚窗/分析窗长与用户宣称时长偏差 >±10% 即出 typed 披露句(形如"分析窗 1645ms,较你指定的 884ms 长 86%:窗口按数据边界对齐构造");≤±10% 静默;对比场景双侧各自判,任一侧披露则两侧同披露(对读基不同构必须可见)。判据=纯算术精确信号;归 COV-2 批。
+
+## §24.15 COV+LEAD 批收账(2026-07-08,复核 SHIP-WITH-FIXES→收尾已落)
+交付:L1=runtimeTraceProjRankBoard 共享榜(post-aggregation,lead 与 ❶ 同源,恒等按构造;huadong 形 lead=E9 反转行);C1=TargetImpactMS typed 通道(引擎"目标被阻塞分支墙钟"provenance 实证;note display_only→hard_consumer;五聚合车道 member-MAX 全 pin——复核抓四车道 pin 死角后表驱动补齐,MAX 置被吸收侧)+分子阶梯 typed-first+伪造残差禁出厂;C2=症状自计排除(闭集=TraceStateKindUniverse,自持锁照计);C3=分母 census 两臂 form-switch(crossBase=排除>0;非 crossBase=单项最大>入分母合计;全称括注 form fork);C4="合计"→"链上单项最大"五臂+EN。18 pin,8 突变咬红。opendir 形终态:"睡眠 115.353ms 中 112.175ms 已由链上解释"+计 1 条未计入。
+**留账**:6.0 整窗分母 493ms running 计入未归因(COV-2)/D-P0 对比 cell(COV-2)/全榜 eff≤0 时 lead 有❶无(旧行为非回归)/overflow fold 丢 TargetImpactMS(有意保守,注释在)/lead"事实恒等"裁定注=fold 后 lead 消费合一节点面,SUM 永不出负向仍 pin。

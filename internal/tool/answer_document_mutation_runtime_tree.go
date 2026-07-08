@@ -1295,6 +1295,7 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 						EvidenceTag:        runtimeTraceProjEvidenceTag(peer, evidence, zh),
 						CumulativeImpactMS: peer.CumulativeImpactMS,
 						DisplayImpactMS:    runtimeTraceProjNodeDisplayImpact(peer),
+						TargetImpactMS:     peer.TargetImpactMS,
 					})
 				}
 			}
@@ -1461,13 +1462,51 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 // each stand alone. 去 badge 去重必红 pin:
 // TestPTV6TopBadgesOneSeatPerSubject.
 func runtimeTraceProjAssignTopBadges(model *runtimeTraceProjTreeModel) {
-	type candidate struct {
-		row   *runtimeTraceProjTreeRow
-		value float64
+	candidates := runtimeTraceProjRankBoard(model.TreeRows)
+	seated := map[string]bool{}
+	badge := 0
+	for i := 0; i < len(candidates) && badge < 3; i++ {
+		if candidates[i].Node.EffectiveImpactMS <= 0 {
+			// The eff≤0 tail of the shared board never seats a badge (the
+			// pre-LEAD candidate filter, byte-identical seating behavior).
+			continue
+		}
+		subject := runtimeTraceCausalProjectionCanonicalNode(candidates[i].Node.Subject)
+		if subject != "" {
+			if seated[subject] {
+				continue // PTV6 #11: one seat per subject — max-eff row took it
+			}
+			seated[subject] = true
+		}
+		badge++
+		candidates[i].Badge = badge
 	}
-	var candidates []candidate
-	for i := range model.TreeRows {
-		row := &model.TreeRows[i]
+}
+
+// runtimeTraceProjRankBoard is the SINGLE post-aggregation rank board shared by
+// the ❶❷❸ badge lane AND the lead-election primary lane (LEAD 修, ledger
+// §24.11 C-1, real_trace_campaign_20260705.md, 2026-07-08). Membership is the
+// badge lane's candidate population verbatim: rendered CHAIN-lane rows
+// (chain / cause / depthless kinds) carrying the engine's typed
+// root_cause_rank (Node.Rank > 0), overflow fold rows excluded (counted
+// rosters, never a root-cause focus). Ordered by EffectiveImpactMS descending,
+// stable — ties (and the entire eff≤0 tail) keep render order. Seat ❶ is
+// board[0] whenever its attribution is positive, so a lead elected from this
+// board IS the ❶ row by construction (两车道恒等 pin).
+//
+// EVOLUTION RECORD (§24.11 C-1, huadong_78 witness): the lead election
+// previously read projection.PrimaryRootCauses — a PRE-aggregation bucket
+// capped at 10 after an in-path-class-first sort — so the rank#1 inversion row
+// (E9, ×9 aggregate, class on-chain-only) was evicted from the election pool
+// while it wore ❶ on the rendered tree, and the target's own binder-wait
+// symptom row was crowned 主根因 against the tree's own badges. The election
+// population and the badge population are now the same board; no cap applies
+// before election (种群统一 only — the engine rank lanes and §20 direction
+// rulings are untouched).
+func runtimeTraceProjRankBoard(rows []runtimeTraceProjTreeRow) []*runtimeTraceProjTreeRow {
+	var board []*runtimeTraceProjTreeRow
+	for i := range rows {
+		row := &rows[i]
 		if !row.HasData || row.Node.Rank <= 0 {
 			continue
 		}
@@ -1482,27 +1521,12 @@ func runtimeTraceProjAssignTopBadges(model *runtimeTraceProjTreeModel) {
 		default:
 			continue
 		}
-		if row.Node.EffectiveImpactMS <= 0 {
-			continue
-		}
-		candidates = append(candidates, candidate{row: row, value: row.Node.EffectiveImpactMS})
+		board = append(board, row)
 	}
-	sort.SliceStable(candidates, func(i, j int) bool {
-		return candidates[i].value > candidates[j].value
+	sort.SliceStable(board, func(i, j int) bool {
+		return board[i].Node.EffectiveImpactMS > board[j].Node.EffectiveImpactMS
 	})
-	seated := map[string]bool{}
-	badge := 0
-	for i := 0; i < len(candidates) && badge < 3; i++ {
-		subject := runtimeTraceCausalProjectionCanonicalNode(candidates[i].row.Node.Subject)
-		if subject != "" {
-			if seated[subject] {
-				continue // PTV6 #11: one seat per subject — max-eff row took it
-			}
-			seated[subject] = true
-		}
-		badge++
-		candidates[i].row.Badge = badge
-	}
+	return board
 }
 
 // runtimeTraceProjBadgeGlyph maps the typed badge rank to its glyph. Empty for
@@ -1865,6 +1889,11 @@ type runtimeTraceProjRankFoldPeer struct {
 	EvidenceTag        string
 	CumulativeImpactMS float64
 	DisplayImpactMS    float64
+	// TargetImpactMS carries the folded rank row's typed TargetBlockedMs
+	// caliber (COV §24.9 D-1) so the coverage-numerator invariance holds: the
+	// peer competes with the same 已由链上解释 ladder it would have used as a
+	// standalone row.
+	TargetImpactMS float64
 }
 
 // runtimeTraceProjSameSegmentTwinKey is the SFD-precedent same-segment
@@ -5557,51 +5586,46 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 	return b.String()
 }
 
-// runtimeTraceProjLeadPrimary picks the lead-line primary from the primary
-// roots that SURVIVED the 裁定1 background demotion gate — a row rendered in
-// the background stanza must never be named as the primary root cause. Nil when
-// no primary exists or all of them were demoted.
+// runtimeTraceProjLeadPrimary picks the lead-line primary. Two lanes:
 //
-// Selection order (V1, customer revisit 2026-07-03):
-//  1. the engine's typed rank — the lowest positive Rank wins (the audit lane
-//     already published rank=1; the conclusion must consume it instead of
-//     re-ranking by displayed ms);
-//  2. no ranked candidate: the largest single-instance effective attribution
-//     (runtimeTraceProjLeadSelectionValue).
+//  1. the RANKED lane (LEAD 修, ledger §24.11 C-1, 2026-07-08): the shared
+//     post-aggregation rank board (runtimeTraceProjRankBoard — the SAME
+//     population, order and key the ❶❷❸ badge lane seats from), head row
+//     wins. A primary-lane lead is therefore ALWAYS the ❶-badged row when a
+//     ❶ exists (两车道恒等 pin: TestCOVLeadPrimaryIsBadgeOneRow);
+//  2. no board row: the largest single-instance effective attribution among
+//     the non-demoted primary roots (the V1 rankless lane, unchanged — it
+//     covers no-rank shapes, e.g. the sole-periodic 0.176ms conclusion).
 //
-// A ×N aggregate's SUM (window projection total) never participates in the
-// selection — same ruling family as S1 (排序合成分数不得以 ms 硬事实发布):
-// the real customer conclusion named a ×7 hmfs_discard sum of 13.324ms over
-// the engine's rank=1 running row of 4.115ms and contradicted its own body.
-func runtimeTraceProjLeadPrimary(projection types.TraceCausalProjection, trunkLen int) *types.TraceCausalProjectionNode {
+// EVOLUTION RECORD (§24.11 C-1): the former ranked lane read the
+// PRE-aggregation projection.PrimaryRootCauses bucket (cap=10 after an
+// in-path-class-first sort) with lowest-Rank-wins — window-local rank ordinals
+// collide across query boards (the specimen carried two #1), and the cap
+// evicted the tree's own ❶ row (E9 rank#1 inversion, eff 6.430) so the
+// target's own binder-wait symptom row (4.577) was crowned 主根因 against the
+// report's own badges. The board's eff-descending key IS the engine's rank key
+// generalized across boards (sortRootCauseRankItems orders by effective
+// attribution within a window); rank semantics themselves are untouched
+// (§20 方向盲区裁定点另案). The V1/F4 ×N-SUM discipline is preserved by
+// construction: the board key is EffectiveImpactMS (never a merged
+// window-projection SUM), and the rankless lane keeps the
+// runtimeTraceProjLeadSelectionValue caliber.
+//
+// An EMPTY primary bucket still returns nil unconditionally (the legacy
+// no-rank-data gate lives in runtimeTraceProjLeadSelect — lane 1 only replaces
+// the election-population half, never the no-conclusion shapes).
+func runtimeTraceProjLeadPrimary(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel) *types.TraceCausalProjectionNode {
 	roots := runtimeTraceCausalProjectionPrimaryRoots(projection)
-	var ranked *types.TraceCausalProjectionNode
-	for i := range roots {
-		if runtimeTraceProjNodeDemotedToBackground(roots[i], trunkLen) {
-			continue
-		}
-		if roots[i].Rank <= 0 {
-			continue
-		}
-		// F4: rank TIES break on the single-instance selection value (per-instance
-		// max for ×N aggregates), never on bucket order — the primary bucket sorts
-		// by cumulative (= the R2 SUM), so "first row wins" re-admitted the merged
-		// SUM through the very lane built to keep it out (a ×7 SUM of 13.324 beat
-		// a single instance of 4.115 on a rank tie). Still-equal values keep the
-		// earlier row (deterministic bucket order).
-		if ranked == nil || roots[i].Rank < ranked.Rank ||
-			(roots[i].Rank == ranked.Rank &&
-				runtimeTraceProjLeadSelectionValue(roots[i]) > runtimeTraceProjLeadSelectionValue(*ranked)) {
-			ranked = &roots[i]
-		}
+	if len(roots) == 0 {
+		return nil
 	}
-	if ranked != nil {
-		return ranked
+	if board := runtimeTraceProjRankBoard(model.TreeRows); len(board) > 0 {
+		return &board[0].Node
 	}
 	var best *types.TraceCausalProjectionNode
 	bestValue := 0.0
 	for i := range roots {
-		if runtimeTraceProjNodeDemotedToBackground(roots[i], trunkLen) {
+		if runtimeTraceProjNodeDemotedToBackground(roots[i], model.TrunkLen) {
 			continue
 		}
 		if v := runtimeTraceProjLeadSelectionValue(roots[i]); best == nil || v > bestValue {
@@ -5629,7 +5653,10 @@ const (
 // the conclusion line, the comparison-overview primary cell and the model
 // build (LeadKey) — one implementation, deterministic on (projection, model),
 // so the three consumers can never disagree. Order:
-//  1. the V1 primary-bucket lanes (runtimeTraceProjLeadPrimary, unchanged);
+//  1. the primary lanes (runtimeTraceProjLeadPrimary — LEAD 修 §24.11 C-1:
+//     the ranked lane reads the shared post-aggregation rank board, so a
+//     primary-lane lead is the ❶ row whenever ❶ exists; the V1 rankless
+//     lane is unchanged);
 //  2. RN-3(a) (§7.9 runnable 主导场景审计 2026-07-04): the primary bucket has
 //     rows but NONE survived the 裁定1 demotion gate (the former 未定位
 //     branch) → fall back to the largest data-bearing ON-CHAIN row of the
@@ -5649,7 +5676,7 @@ const (
 // The second return names the lane that produced the lead (callers append
 // the RN-3(a) short note / the LEAD-SEM wording).
 func runtimeTraceProjLeadSelect(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel) (*types.TraceCausalProjectionNode, runtimeTraceProjLeadLane) {
-	if primary := runtimeTraceProjLeadPrimary(projection, model.TrunkLen); primary != nil {
+	if primary := runtimeTraceProjLeadPrimary(projection, model); primary != nil {
 		return primary, runtimeTraceProjLeadLanePrimary
 	}
 	if len(runtimeTraceCausalProjectionPrimaryRoots(projection)) == 0 {
@@ -5984,14 +6011,76 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 		// below; windowless and agreeing-window shapes keep every legacy
 		// wording byte-identically).
 		_, _, _, crossBase := runtimeTraceProjCoverageWindowConsensus(model)
+		// §24.11 C-3 census (COV 批 + coordinator supplement cmp_78_01 7.0 侧,
+		// 2026-07-08): the denominator-population census runs on EVERY
+		// symptom-denominator arm — the collapse is a Role/StateKind-lane
+		// exclusion, not only a cross-window one (cmp_78_01: the parenthetical
+		// claimed "(sleep/D-state/runnable)" while a 456.725ms sleep hop view
+		// and a binder wait were silently excluded and only two tiny runnable
+		// rows fed the 3.262ms denominator).
+		censusExcluded, censusMax, censusAllOffWindow := runtimeTraceProjSymptomDenominatorCensus(projection, model)
 		switch {
 		case symptom > 0 && crossBase:
-			if zh {
-				fmt.Fprintf(&b, "\n- 关注线程等待(sleep/D-state/runnable) %.3fms;各链上口径合计 %.3fms — 链上/自身数据横跨多个查询窗,分子分母窗基不可证同基:不给出覆盖百分比,不计未归因。",
+			// §24.11 C-3 (COV 批, huadong_78 witness, 2026-07-08): when the
+			// symptom denominator's population is not the target's full wait —
+			// typed census: ≥1 of the target's own wait-view rows stayed out of
+			// the denominator, i.e. 入分母行数 < 目标状态行总数 — the sentence
+			// switches FORM instead of letting the counted slice (0.011ms)
+			// masquerade as the 全称 "关注线程等待". Wording fork only, both
+			// magnitudes still publish; a census of zero exclusions keeps the
+			// legacy crossBase wording. The "在其他查询窗" clause renders only
+			// when EVERY excluded row provably carries an off-window identity.
+			// The form drops the "(sleep/D-state/runnable)" family claim: a
+			// parenthetical must never claim a state family the denominator
+			// silently excluded (cmp_78_01 7.0 侧, coordinator supplement).
+			if excluded, excludedMax, allOffWindow := censusExcluded, censusMax, censusAllOffWindow; excluded > 0 {
+				switch {
+				case zh && allOffWindow:
+					fmt.Fprintf(&b, "\n- 仅计入分析窗内直接等待 %.3fms;另有 %d 条关注线程状态行在其他查询窗,未计入分母(单项最大 %.3fms);链上单项最大 %.3fms — 链上/自身数据横跨多个查询窗,分子分母窗基不可证同基:不给出覆盖百分比,不计未归因。",
+						symptom, excluded, excludedMax, attributed)
+				case zh:
+					fmt.Fprintf(&b, "\n- 仅计入分析窗内直接等待 %.3fms;另有 %d 条关注线程状态行未计入分母(单项最大 %.3fms);链上单项最大 %.3fms — 链上/自身数据横跨多个查询窗,分子分母窗基不可证同基:不给出覆盖百分比,不计未归因。",
+						symptom, excluded, excludedMax, attributed)
+				case allOffWindow:
+					fmt.Fprintf(&b, "\n- Only the direct wait inside the analysis window, %.3fms, is counted; %d more target state row(s) live in other query windows and are not in the denominator (single largest %.3fms); largest single on-chain caliber %.3fms — the chain/self data spans multiple query windows and the numerator/denominator window bases cannot be proven identical: no coverage percentage, no unattributed residual.",
+						symptom, excluded, excludedMax, attributed)
+				default:
+					fmt.Fprintf(&b, "\n- Only the direct wait inside the analysis window, %.3fms, is counted; %d more target state row(s) are not in the denominator (single largest %.3fms); largest single on-chain caliber %.3fms — the chain/self data spans multiple query windows and the numerator/denominator window bases cannot be proven identical: no coverage percentage, no unattributed residual.",
+						symptom, excluded, excludedMax, attributed)
+				}
+			} else if zh {
+				fmt.Fprintf(&b, "\n- 关注线程等待(sleep/D-state/runnable) %.3fms;链上单项最大 %.3fms — 链上/自身数据横跨多个查询窗,分子分母窗基不可证同基:不给出覆盖百分比,不计未归因。",
 					symptom, attributed)
 			} else {
-				fmt.Fprintf(&b, "\n- Target wait (sleep/D-state/runnable) %.3fms; the on-chain attribution caliber totals %.3fms — the chain/self data spans multiple query windows and the numerator/denominator window bases cannot be proven identical: no coverage percentage, no unattributed residual.",
+				fmt.Fprintf(&b, "\n- Target wait (sleep/D-state/runnable) %.3fms; the largest single on-chain caliber is %.3fms — the chain/self data spans multiple query windows and the numerator/denominator window bases cannot be proven identical: no coverage percentage, no unattributed residual.",
 					symptom, attributed)
+			}
+		case symptom > 0 && censusExcluded > 0 && censusMax > symptom:
+			// §24.11 C-3 + cmp_78_01 7.0 侧 (coordinator supplement,
+			// 2026-07-08): Role/StateKind-lane denominator collapse WITHOUT a
+			// provable window conflict — an excluded wait-view row's
+			// single-instance magnitude EXCEEDS the admitted denominator, so
+			// the F1 nesting premise is numerically impossible (a nested hop
+			// view can never exceed its enclosing state sum) and the admitted
+			// slice provably under-represents the target's wait. The 全称
+			// "(sleep/D-state/runnable)" claim and every %/residual arithmetic
+			// against the collapsed denominator are suppressed; both
+			// magnitudes still publish. Healthy nested shapes (excluded ≤
+			// admitted) keep every legacy arm byte-identically — this is a
+			// wording fork on precise numeric comparisons, never a gate.
+			switch {
+			case zh && censusAllOffWindow:
+				fmt.Fprintf(&b, "\n- 仅计入分析窗内直接等待 %.3fms;另有 %d 条关注线程状态行在其他查询窗,未计入分母(单项最大 %.3fms);链上单项最大 %.3fms — 分母未覆盖关注线程全部状态行,不给出覆盖百分比,不计未归因。",
+					symptom, censusExcluded, censusMax, attributed)
+			case zh:
+				fmt.Fprintf(&b, "\n- 仅计入分析窗内直接等待 %.3fms;另有 %d 条关注线程状态行未计入分母(单项最大 %.3fms);链上单项最大 %.3fms — 分母未覆盖关注线程全部状态行,不给出覆盖百分比,不计未归因。",
+					symptom, censusExcluded, censusMax, attributed)
+			case censusAllOffWindow:
+				fmt.Fprintf(&b, "\n- Only the direct wait inside the analysis window, %.3fms, is counted; %d more target state row(s) live in other query windows and are not in the denominator (single largest %.3fms); largest single on-chain caliber %.3fms — the denominator does not cover all of the target's state rows: no coverage percentage, no unattributed residual.",
+					symptom, censusExcluded, censusMax, attributed)
+			default:
+				fmt.Fprintf(&b, "\n- Only the direct wait inside the analysis window, %.3fms, is counted; %d more target state row(s) are not in the denominator (single largest %.3fms); largest single on-chain caliber %.3fms — the denominator does not cover all of the target's state rows: no coverage percentage, no unattributed residual.",
+					symptom, censusExcluded, censusMax, attributed)
 			}
 		case symptom > 0 && attributed <= symptom:
 			residual := symptom - attributed
@@ -6005,19 +6094,25 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 			b.WriteString(runtimeTraceProjResidualOwnCaliberNote(model, residual, zh))
 			b.WriteString(runtimeTraceProjPeriodicCadenceCoverageNote(model, residual, zh))
 		case symptom > 0 && attributed-symptom <= runtimeTraceProjSymptomOvershootJitterMS:
+			// EVOLUTION RECORD (§24.11 C-3 后半场, COV 批, 2026-07-08): the
+			// numerator wording 各链上口径合计 → 链上单项最大 on every arm —
+			// runtimeTraceProjDepth1Cumulative is a single-row MAX (墙钟红线:
+			// 不可求和), and "合计" claimed a sum it never was (huadong_78:
+			// "各链上口径合计 4.431ms" = the single E15 row). 名实对齐:措辞随
+			// 取值,取值不动.
 			if zh {
-				fmt.Fprintf(&b, "\n- 关注线程等待(sleep/D-state/runnable) %.3fms 中链上已归因 %.3fms(100%%),未归因 0.000ms(0%%);各链上口径合计 %.3fms,略超关注线程等待 %.3fms(状态段边界抖动;不计未归因)。",
+				fmt.Fprintf(&b, "\n- 关注线程等待(sleep/D-state/runnable) %.3fms 中链上已归因 %.3fms(100%%),未归因 0.000ms(0%%);链上单项最大 %.3fms,略超关注线程等待 %.3fms(状态段边界抖动;不计未归因)。",
 					symptom, symptom, attributed, attributed-symptom)
 			} else {
-				fmt.Fprintf(&b, "\n- Of the target's %.3fms wait time (sleep/D-state/runnable), on-chain attributed %.3fms (100%%), unattributed 0.000ms (0%%). The attribution caliber totals %.3fms, %.3fms past the target wait (state-boundary jitter; not unattributed residual).",
+				fmt.Fprintf(&b, "\n- Of the target's %.3fms wait time (sleep/D-state/runnable), on-chain attributed %.3fms (100%%), unattributed 0.000ms (0%%). The largest single on-chain caliber is %.3fms, %.3fms past the target wait (state-boundary jitter; not unattributed residual).",
 					symptom, symptom, attributed, attributed-symptom)
 			}
 		case symptom > 0:
 			if zh {
-				fmt.Fprintf(&b, "\n- 关注线程等待(sleep/D-state/runnable) %.3fms;各链上口径合计 %.3fms,超出关注线程等待 %.3fms — 两口径墙钟未对齐,不给出覆盖百分比,差值不计为未归因。",
+				fmt.Fprintf(&b, "\n- 关注线程等待(sleep/D-state/runnable) %.3fms;链上单项最大 %.3fms,超出关注线程等待 %.3fms — 两口径墙钟未对齐,不给出覆盖百分比,差值不计为未归因。",
 					symptom, attributed, attributed-symptom)
 			} else {
-				fmt.Fprintf(&b, "\n- Target wait (sleep/D-state/runnable) %.3fms; the on-chain attribution caliber totals %.3fms, %.3fms beyond the target wait — the two calibers' wall clocks do not align: no coverage percentage, and the difference is not unattributed residual.",
+				fmt.Fprintf(&b, "\n- Target wait (sleep/D-state/runnable) %.3fms; the largest single on-chain caliber is %.3fms, %.3fms beyond the target wait — the two calibers' wall clocks do not align: no coverage percentage, and the difference is not unattributed residual.",
 					symptom, attributed, attributed-symptom)
 			}
 			if attributed > model.WindowMS {
@@ -6074,10 +6169,10 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 				// would fabricate a "未归因残差 7.777ms/6%" for a fully
 				// explained wait. Wording fork only; both magnitudes publish.
 				if zh {
-					fmt.Fprintf(&b, "\n- 关注线程睡眠 %.3fms 已全部由链上解释(各链上口径合计 %.3fms,略超 %.3fms,属状态段边界抖动);占分析窗 %.0f%%。",
+					fmt.Fprintf(&b, "\n- 关注线程睡眠 %.3fms 已全部由链上解释(链上单项最大 %.3fms,略超 %.3fms,属状态段边界抖动);占分析窗 %.0f%%。",
 						hopSleep, attributed, attributed-hopSleep, attributed/model.WindowMS*100)
 				} else {
-					fmt.Fprintf(&b, "\n- The target's %.3fms sleep is fully explained on-chain (the attribution caliber totals %.3fms, %.3fms past it — state-boundary jitter); %.0f%% of the requested window.",
+					fmt.Fprintf(&b, "\n- The target's %.3fms sleep is fully explained on-chain (the largest single on-chain caliber is %.3fms, %.3fms past it — state-boundary jitter); %.0f%% of the requested window.",
 						hopSleep, attributed, attributed-hopSleep, attributed/model.WindowMS*100)
 				}
 			} else if hopSleep > 0 && attributed > hopSleep {
@@ -6085,10 +6180,10 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 				// unverified — both magnitudes, no percentage, no residual,
 				// never a whole-window recast.
 				if zh {
-					fmt.Fprintf(&b, "\n- 关注线程睡眠 %.3fms;各链上口径合计 %.3fms,超出关注线程睡眠 %.3fms — 两口径墙钟未对齐,不给出覆盖百分比,差值不计为未归因。",
+					fmt.Fprintf(&b, "\n- 关注线程睡眠 %.3fms;链上单项最大 %.3fms,超出关注线程睡眠 %.3fms — 两口径墙钟未对齐,不给出覆盖百分比,差值不计为未归因。",
 						hopSleep, attributed, attributed-hopSleep)
 				} else {
-					fmt.Fprintf(&b, "\n- Target sleep %.3fms; the on-chain attribution caliber totals %.3fms, %.3fms beyond it — the two calibers' wall clocks do not align: no coverage percentage, and the difference is not unattributed residual.",
+					fmt.Fprintf(&b, "\n- Target sleep %.3fms; the largest single on-chain caliber is %.3fms, %.3fms beyond it — the two calibers' wall clocks do not align: no coverage percentage, and the difference is not unattributed residual.",
 						hopSleep, attributed, attributed-hopSleep)
 				}
 			} else {
@@ -6521,6 +6616,113 @@ func runtimeTraceProjSymptomFamilyStateKind(node types.TraceCausalProjectionNode
 	return false
 }
 
+// runtimeTraceProjTargetSelfStateViewRow is the typed 目标自身状态行 predicate
+// (COV §24.9 D-2, real_trace_campaign_20260705.md, 2026-07-08): the SelfRows
+// row re-describes the 🎯 target's OWN scheduler-state wall clock — i.e. the
+// coverage denominator's body (state-view symptom rows) or its hop-view
+// re-description (Role=causal_hop sleep/wait rows, the very rows
+// runtimeTraceProjHopOnlyTargetSleep selects from) — never an unexplained
+// on-chain cause row. The opendir_78 witness: the "另有 4 条链上行未计入"
+// disclosure counted the target's own ×3 sleep hop view (E2, the 115.353ms
+// denominator body of the sentence right above it) as uncounted CAUSE rows.
+// Wait-family typed signals only (Role enum + StateKind enum + the registered
+// state-word universe) — a target self row without a state classification
+// (e.g. the blocking_span self-lock row) stays a countable disclosure member
+// (计数如实), and so does a blocked-wait hop row ON a counterpart (resolved
+// peer or the F6 state/type-token reject like lock_contention): only a PURE
+// state re-description — wait-family StateKind whose influence point is itself
+// a registered scheduler-state token (or absent) — is the denominator body.
+func runtimeTraceProjTargetSelfStateViewRow(row runtimeTraceProjTreeRow) bool {
+	if row.Node.Role == types.TraceCausalRoleCausalHop {
+		if !row.Node.IsSleepState() && !runtimeTraceProjWaitFamilyStateKind(row.Node) {
+			return false
+		}
+		object := strings.ToLower(strings.TrimSpace(row.Node.Object))
+		return object == "" || types.TraceStateKindRegistered(object)
+	}
+	return runtimeTraceProjSymptomFamilyStateKind(row.Node)
+}
+
+// runtimeTraceProjTargetSelfWaitViewRow is the typed 目标等待视图 predicate for
+// the §24.11 C-3 denominator census: a state/hop wait view
+// (runtimeTraceProjTargetSelfStateViewRow) OR a stateless self row whose typed
+// token family is a wait form (the §24.3 impact-form registry lanes ⛓/☾/⧖ —
+// the huadong_78 binder_wait self row carries a wait token but no StateKind).
+// A row with a PRESENT non-wait StateKind (running/…) is occupancy, never wait
+// time, and stays out on both lanes.
+func runtimeTraceProjTargetSelfWaitViewRow(row runtimeTraceProjTreeRow) bool {
+	if runtimeTraceProjTargetSelfStateViewRow(row) {
+		return true
+	}
+	if strings.TrimSpace(row.Node.StateKind) != "" {
+		return false
+	}
+	for _, token := range []string{row.Node.TypeToken, row.Node.Object, row.Node.Predicate} {
+		switch runtimeTraceProjImpactFormTokenFamily(runtimeTraceCausalProjectionCanonicalNode(token)) {
+		case runtimeTraceProjImpactFormIOBlock, runtimeTraceProjImpactFormSleep, runtimeTraceProjImpactFormRunnable:
+			return true
+		}
+	}
+	return false
+}
+
+// runtimeTraceProjSymptomDenominatorCensus is the §24.11 C-3 (COV 批,
+// real_trace_campaign_20260705.md, 2026-07-08) denominator-population census
+// over the target's SelfRows: how many of the target's own WAIT-view rows were
+// left OUT of the symptom denominator (runtimeTraceProjTargetSymptomMS admits
+// only non-hop symptom-family state rows with a positive projection), the
+// largest SINGLE-INSTANCE magnitude among them (×N → MergedMaxMS, periodic →
+// discounted attribution; 墙钟不可加和), and whether every excluded row
+// PROVABLY lives outside the anchor analysis window (typed row query-window
+// identity vs the typed anchor endpoints, or the multi-window merged marker —
+// absence of identity never claims a window). huadong_78 witness: the
+// crossBase coverage sentence published "关注线程等待 0.011ms" while the
+// denominator held ONE D-state row and the target's binder-wait 4.577,
+// critical_blocking ×4 and sleep 6.661 ×29 hop views were silently excluded —
+// a ~1000× understated 全称 wait claim. The census feeds a WORDING fork only
+// (form-switch), never a gate (precise signals: typed row counts + enum
+// predicates + numeric window comparisons).
+func runtimeTraceProjSymptomDenominatorCensus(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel) (int, float64, bool) {
+	excluded, maxMS := 0, 0.0
+	allOffWindow := true
+	for _, row := range model.SelfRows {
+		if !row.HasData {
+			continue
+		}
+		if row.Node.Role != types.TraceCausalRoleCausalHop &&
+			runtimeTraceProjSymptomFamilyStateKind(row.Node) && row.Node.ImpactMS > 0 {
+			continue // the exact TargetSymptomMS admission: this row IS the denominator
+		}
+		if !runtimeTraceProjTargetSelfWaitViewRow(row) {
+			continue
+		}
+		v := runtimeTraceProjNodeDisplayImpact(row.Node)
+		if row.Node.MergedCount > 1 && row.Node.MergedMaxMS > 0 {
+			v = row.Node.MergedMaxMS
+		}
+		if row.Node.PeriodicSource {
+			v = row.Node.EffectiveImpactMS
+		}
+		if v <= 0 {
+			continue // no wall clock of its own → nothing under-represented
+		}
+		excluded++
+		if v > maxMS {
+			maxMS = v
+		}
+		offWindow := runtimeTraceProjMultiWindowMergedRow(row.Node) ||
+			(row.Node.QueryWindowStartTs > 0 && row.Node.QueryWindowEndTs > row.Node.QueryWindowStartTs &&
+				runtimeTraceProjCoverageWindowBaseMismatch(projection, row.Node.QueryWindowStartTs, row.Node.QueryWindowEndTs))
+		if !offWindow {
+			allOffWindow = false
+		}
+	}
+	if excluded == 0 {
+		return 0, 0, false
+	}
+	return excluded, maxMS, allOffWindow
+}
+
 // runtimeTraceProjWholeWindowIdleRow is the SINGLE definition of the V3
 // "整窗等待(疑似空闲)" annotation — the tree stanza tag and the detail-table
 // mirror both call it (F3: two hand-synced copies were the drift risk). True
@@ -6700,15 +6902,30 @@ func runtimeTraceProjDepth1CumulativeChain(model runtimeTraceProjTreeModel) floa
 	return runtimeTraceProjChainDepthCumulative(model, minDepth)
 }
 
-// runtimeTraceProjChainDepthCumulative returns the largest cumulative impact
-// among data-bearing chain rows at exactly the given depth.
+// runtimeTraceProjChainDepthCumulative returns the largest 已由链上解释
+// caliber among data-bearing chain rows at exactly the given depth.
+//
+// EVOLUTION RECORD (COV §24.9 D-1, real_trace_campaign_20260705.md,
+// 2026-07-08): each row's caliber now consumes the typed TargetImpactMS
+// (engine TargetBlockedMs — how much of the target's own blocked wall clock
+// this row's chain actually explains) FIRST, and only falls back to the legacy
+// CumulativeImpactMS channel when the row exposed no target caliber. The
+// cumulative channel is display-overwritten by §20.1 on inversion∧running rank
+// rows (opendir_78 witness: E4 cumulative 58.919 raw vs target_impact 112.175
+// → the coverage sentence fabricated "已归因45%/未归因55%" against a ~97%
+// explained wait). Rows without the note keep every legacy byte. 严禁伪造残差:
+// the numerator is never clamped toward the denominator — when the typed
+// caliber still under-explains, the honest arms disclose the shortfall as-is.
 func runtimeTraceProjChainDepthCumulative(model runtimeTraceProjTreeModel, depth int) float64 {
 	max := 0.0
 	for _, row := range model.TreeRows {
 		if row.Kind != runtimeTraceProjTreeRowChain || row.Depth != depth || !row.HasData {
 			continue
 		}
-		v := row.Node.CumulativeImpactMS
+		v := row.Node.TargetImpactMS
+		if v <= 0 {
+			v = row.Node.CumulativeImpactMS
+		}
 		if v <= 0 {
 			v = runtimeTraceProjNodeDisplayImpact(row.Node)
 		}
@@ -6726,9 +6943,13 @@ func runtimeTraceProjChainDepthCumulative(model runtimeTraceProjTreeModel, depth
 		// this chain row would have competed in this same depth-MAX pre-fold
 		// — its own caliber stays in the competition so the coverage
 		// numerator is byte-identical to the two-row render. (Folded arms are
-		// never periodic by classification.)
+		// never periodic by classification. COV §24.9 D-1: the peer's typed
+		// target caliber competes first, same ladder as the row itself.)
 		for _, peer := range row.RankFoldPeers {
-			pv := peer.CumulativeImpactMS
+			pv := peer.TargetImpactMS
+			if pv <= 0 {
+				pv = peer.CumulativeImpactMS
+			}
 			if pv <= 0 {
 				pv = peer.DisplayImpactMS
 			}
@@ -6826,7 +7047,12 @@ func runtimeTraceProjAdmittedTargetSelfNumeratorMS(model runtimeTraceProjTreeMod
 //     but that carry a real attribution caliber (EffectiveImpactMS>0) — chiefly
 //     the F6 UNRESOLVED-counterpart self rows (Object is a state/type token). The
 //     own-edge lane is excluded symmetrically with admission (F4: no row gets two
-//     contradictory exclusion reasons);
+//     contradictory exclusion reasons). EVOLUTION RECORD (COV §24.9 D-2,
+//     2026-07-08): the target's own STATE/hop-view rows
+//     (runtimeTraceProjTargetSelfStateViewRow — the coverage denominator's body)
+//     are excluded from this lane: they are the 被解释对象, not uncounted cause
+//     rows (opendir_78: the ×3 sleep hop view inflated "另有 4 条" where only the
+//     self-lock row was a real uncounted member);
 //   - depthless on-chain data rows (Kind==depthless) with a data caliber that the
 //     depth-only numerator never counted, own-edge excluded (F4).
 //
@@ -6870,6 +7096,16 @@ func runtimeTraceProjUnadmittedOnChainDisclosure(model runtimeTraceProjTreeModel
 		}
 		if row.Node.EffectiveImpactMS <= 0 {
 			continue // no attribution caliber → not an "explained on-chain" candidate
+		}
+		// COV §24.9 D-2 (opendir_78): the target's OWN state/hop-view rows are
+		// the 被解释对象 — the sentence above already used them as its
+		// denominator — never "uncounted on-chain rows". Counting the ×3 sleep
+		// hop view here read as "4 more causal rows were left out" when 3 of
+		// the 4 were the denominator's own body. Typed predicate; the
+		// unclassified self rows (e.g. the blocking_span self-lock row) stay
+		// counted (计数如实).
+		if runtimeTraceProjTargetSelfStateViewRow(row) {
+			continue
 		}
 		consider(row.Node)
 	}

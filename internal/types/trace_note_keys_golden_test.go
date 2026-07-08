@@ -248,8 +248,11 @@ var traceNoteKeyGoldenRows = []string{
 	"sync_like|blocking|display_only",
 	"target|chain_path|display_only",
 	"target_cpus|interrupt|display_only",
-	"target_impact|impact|display_only",
-	"target_impact_ms|impact|display_only",
+	// EVOLUTION RECORD (COV 批, §24.9 D-1, 2026-07-08): target_impact family
+	// display_only → hard_consumer — typed TargetImpactMS promotion for the
+	// coverage-sentence numerator (永不读 §20.1 展示覆写后的 cumulative 通道).
+	"target_impact|impact|hard_consumer",
+	"target_impact_ms|impact|hard_consumer",
 	"target_mask|interrupt|display_only",
 	"target_prio|cpu_load|display_only",
 	"target_priority|cpu_load|display_only",

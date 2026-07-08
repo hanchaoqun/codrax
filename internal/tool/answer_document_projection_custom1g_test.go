@@ -68,10 +68,23 @@ func TestRuntimeTraceProjConclusionPrefersEngineRankOverMergedSum(t *testing.T) 
 }
 
 func TestRuntimeTraceProjConclusionMergedLeadShowsSingleMaxNotSum(t *testing.T) {
-	// When the engine really ranks the merged family first, the headline ms is
-	// the per-instance max with the count — the ×N SUM never publishes as the
-	// hard fact (S1 同族裁定), and the window share follows the same value.
+	// When the merged family really leads the post-aggregation board, the
+	// headline ms is the per-instance max with the count — the ×N SUM never
+	// publishes as the hard fact (S1 同族裁定), and the window share follows
+	// the same value.
+	//
+	// COV+LEAD 批 (§24.11 C-1, 2026-07-08). EVOLUTION RECORD: the lead election
+	// now consumes the shared post-aggregation rank board (the ❶ badge lane's
+	// population and key — EffectiveImpactMS), so a window-local rank ordinal
+	// no longer overrides the board (rank chips collide across query windows:
+	// huadong_78 carried two #1). The fixture therefore gives the merged
+	// family the board-leading attribution (its 单次最大 caliber, §24.2) so
+	// the merged-lead FORMATTING lane stays pinned; the rank-tie shape this
+	// test previously encoded is covered by the board-population pins in
+	// answer_document_projection_covlead_test.go.
 	projection := custom1gProjection(1, 2)
+	projection.PrimaryRootCauses[0].EffectiveImpactMS = 1.940
+	projection.PrimaryRootCauses[1].EffectiveImpactMS = 0.415
 	model := buildRuntimeTraceProjTreeModel(projection, nil, true)
 	line := runtimeTraceProjConclusionLine(projection, model, true)
 	if !strings.Contains(line, "单次最大 1.940ms ×7(占窗2%)") {
@@ -155,6 +168,9 @@ func TestRuntimeTraceProjWindowLineFallsBackToWholeWindowWithoutSelfRows(t *test
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: on-chain 已归因 →
 	// 链上已归因 (归因族); 未归因残差 → 未归因 (归因族); 目标等待 → 关注线程等待
 	// (其他族); 归因口径合计 → 各链上口径合计 (归因族).
+	// COV 批 (§24.11 C-3 后半场, 2026-07-08). EVOLUTION RECORD: 各链上口径合计 →
+	// 链上单项最大 — the numerator is a single-row MAX, never a sum (墙钟红线);
+	// "合计" 冒名退役 (huadong_78: "各链上口径合计 4.431ms" = 单行 E15).
 	line := runtimeTraceProjWindowLine(projection, custom1gWindowModel(false), true)
 	if !strings.Contains(line, "链上已归因 3.391ms(3%),未归因 97.609ms(97%)") {
 		t.Fatalf("fallback branch wording must stay unchanged:\n%s", line)
@@ -170,7 +186,7 @@ func TestRuntimeTraceProjWindowLineFallsBackToWholeWindowWithoutSelfRows(t *test
 	model.SelfRows[1].Node.ImpactMS = 2.0
 	line = runtimeTraceProjWindowLine(projection, model, true)
 	if !strings.Contains(line, "关注线程等待(sleep/D-state/runnable) 3.000ms 中链上已归因 3.000ms(100%)") ||
-		!strings.Contains(line, "各链上口径合计 3.391ms,略超关注线程等待 0.391ms") {
+		!strings.Contains(line, "链上单项最大 3.391ms,略超关注线程等待 0.391ms") {
 		t.Fatalf("attribution above the symptom must keep the symptom denominator (§15.D gap③):\n%s", line)
 	}
 	// Old-form guard (未归因残差 retired) + new-form whole-window residual figure.

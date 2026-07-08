@@ -318,7 +318,12 @@ func TestCWD2SymptomDenominatorCrossBaseGate(t *testing.T) {
 	// (其他族); on-chain 归因口径合计 → 各链上口径合计 (归因族); 不计未归因残差 →
 	// 不计未归因 (归因族); on-chain 已归因 → 链上已归因 (归因族); 「。 」粘连句 →
 	// 每句独立 "\n- " bullet (layout).
-	want := "\n- 关注线程等待(sleep/D-state/runnable) 80.000ms;各链上口径合计 40.000ms — 链上/自身数据横跨多个查询窗,分子分母窗基不可证同基:不给出覆盖百分比,不计未归因。"
+	// COV 批 (§24.11 C-3, 2026-07-08). EVOLUTION RECORD: 各链上口径合计 →
+	// 链上单项最大 (名实对齐: the numerator is a single-row MAX, 墙钟不可求和).
+	// This fixture's target published its FULL wait as the denominator (no
+	// excluded wait-view self rows) — the C-3 form-switch stays silent and the
+	// legacy crossBase form is the pinned shape (负向 pin for the census gate).
+	want := "\n- 关注线程等待(sleep/D-state/runnable) 80.000ms;链上单项最大 40.000ms — 链上/自身数据横跨多个查询窗,分子分母窗基不可证同基:不给出覆盖百分比,不计未归因。"
 	if !strings.Contains(line, want) {
 		t.Fatalf("cross-base symptom coverage must publish both magnitudes without %%:\n%s", line)
 	}
@@ -469,7 +474,10 @@ func TestCWD2SymptomGateFiresOnMultiWindowMergedNumerator(t *testing.T) {
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 目标等待 → 关注线程等待
 	// (其他族); on-chain 归因口径合计 → 各链上口径合计, 不计未归因残差 → 不计未归因,
 	// on-chain 已归因 → 链上已归因 (归因族).
-	if !strings.Contains(line, "\n- 关注线程等待(sleep/D-state/runnable) 80.000ms;各链上口径合计 63.831ms — 链上/自身数据横跨多个查询窗,分子分母窗基不可证同基:不给出覆盖百分比,不计未归因。") {
+	// COV 批 (§24.11 C-3, 2026-07-08). EVOLUTION RECORD: 各链上口径合计 →
+	// 链上单项最大 (名实对齐,墙钟不可求和); no excluded wait-view self rows here
+	// → the C-3 form-switch stays silent (负向 pin).
+	if !strings.Contains(line, "\n- 关注线程等待(sleep/D-state/runnable) 80.000ms;链上单项最大 63.831ms — 链上/自身数据横跨多个查询窗,分子分母窗基不可证同基:不给出覆盖百分比,不计未归因。") {
 		t.Fatalf("the multi-window merged numerator must fire the cross-base disclosure:\n%s", line)
 	}
 	for _, banned := range []string{"(80%)", "未归因 16.169ms"} {

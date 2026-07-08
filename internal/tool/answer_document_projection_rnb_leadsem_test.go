@@ -158,10 +158,24 @@ func TestRNBSameSegmentTwinFoldKeepsLeadAndCoverageInvariant(t *testing.T) {
 	if !strings.Contains(folded, "+E2]") {
 		t.Fatalf("the control pair must fold (positive witness):\n%s", folded)
 	}
-	for _, token := range []string{"**主根因:**", "已归因"} {
-		foldedLine, controlLine := pick(folded, token), pick(control, token)
+	// COV+LEAD 批 (§24.11 C-1, 2026-07-08). EVOLUTION RECORD: the coverage line
+	// keeps FULL byte-identity across fold/no-fold (覆盖分子红线 unchanged). The
+	// lead line's invariant is now FACT identity, not byte identity: the lead
+	// election consumes the shared post-aggregation rank board (lead == the ❶
+	// row), and the fold changes which FACE of the same segment renders — the
+	// folded native node (running form, §24.4) vs the standalone rank row — so
+	// the headline words follow the rendered face while subject, seat and the
+	// 链上累计 magnitude stay identical and no SUM ever publishes.
+	{
+		foldedLine, controlLine := pick(folded, "已归因"), pick(control, "已归因")
 		if foldedLine == "" || foldedLine != controlLine {
-			t.Fatalf("%q line must be byte-identical across fold/no-fold (display-only red line):\nfolded: %q\ncontrol: %q", token, foldedLine, controlLine)
+			t.Fatalf("coverage line must be byte-identical across fold/no-fold (覆盖分子红线):\nfolded: %q\ncontrol: %q", foldedLine, controlLine)
+		}
+	}
+	for _, md := range []string{folded, control} {
+		lead := pick(md, "**主根因:**")
+		if !strings.Contains(lead, "**主根因:** sysr-8") || !strings.Contains(lead, "链上累计 2.770ms") {
+			t.Fatalf("lead must name the same fact (sysr-8, 链上累计 2.770ms) across fold/no-fold:\n%q", lead)
 		}
 	}
 }
