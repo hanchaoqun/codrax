@@ -1516,6 +1516,17 @@ func runtimeTraceProjRankBoard(rows []runtimeTraceProjTreeRow) []*runtimeTracePr
 		if row.Node.OnChainOverflowFold {
 			continue
 		}
+		// SYM (§24.13 裁定一, 2026-07-08): the analysis target's own rank rows
+		// (typed tier minted by the engine's tid-first subject==target match)
+		// never seat on the shared board — the lead (board[0]) and the ❶❷❸
+		// badges therefore land on non-self rows by construction. The rows
+		// keep their tree seats and their rank ordinals (榜位照发). This arm
+		// is load-bearing on the FLAT shapes where the label-routed SelfRows
+		// lane cannot engage (cmp_78_01 witness: both sides crowned the
+		// target's own binder-wait rank#1 as 主根因).
+		if row.Node.IsTargetSelfStateRow() {
+			continue
+		}
 		switch row.Kind {
 		case runtimeTraceProjTreeRowChain, runtimeTraceProjTreeRowCause, runtimeTraceProjTreeRowDepthless:
 		default:
@@ -2043,6 +2054,13 @@ func runtimeTraceProjFoldSameSegmentLaneTwins(nodes []types.TraceCausalProjectio
 		if rankIdx, ok := rankByChainIdx[i]; ok {
 			if node.Rank <= 0 {
 				node.Rank = nodes[rankIdx].Rank
+				// SYM (§24.13 裁定一): the typed tier travels WITH the rank it
+				// annotates — a folded self-state rank twin must not launder
+				// its board exclusion through the fold (the kept chain node
+				// would otherwise wear Rank>0 with no tier identity).
+				if strings.TrimSpace(node.Tier) == "" {
+					node.Tier = nodes[rankIdx].Tier
+				}
 			}
 			peers[runtimeTraceCausalProjectionNodeKey(node)] = append(
 				peers[runtimeTraceCausalProjectionNodeKey(node)], nodes[rankIdx])
@@ -5425,8 +5443,25 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 		return runtimeTraceProjSemanticLeadText(*primary, model, false) + "."
 	}
 	if primary == nil {
+		// SYM (§24.13 裁定一, 2026-07-08): the honest-fallback verdict carries
+		// the target-self symptom disclosure whenever ranked self rows exist
+		// ("" on every legacy shape — bytes unchanged).
+		selfNote := runtimeTraceProjTargetSelfSymptomNote(model, zh)
 		if len(runtimeTraceCausalProjectionPrimaryRoots(projection)) == 0 {
-			return ""
+			if selfNote == "" {
+				return "" // legacy no-rank-data shape, byte-stable
+			}
+			// SYM (§24.13 裁定一): rank data exists but EVERY ranked row is
+			// the focused thread's own symptom (the all-self degenerate
+			// board) — the ladder skip left the primary bucket empty, so the
+			// lead speaks the honest fallback plus the disclosure instead of
+			// crowning the target's own wait as its own root cause. The
+			// LEAD-SEM semantic lane stays unreachable here by design (the
+			// empty-primary gate is the ruling's 诚实回退 lane).
+			if zh {
+				return "**主根因:** 窗口内未定位到链上主根因" + selfNote + "。"
+			}
+			return "**Primary root cause:** no on-chain primary root cause was located in the window" + selfNote + "."
 		}
 		// Every primary candidate was demoted to the background stanza (§7.30
 		// 裁定1) and no data-bearing on-chain row could lead either (RN-3(a))
@@ -5439,14 +5474,14 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 		// the 背景层 two-state split below.
 		if zh {
 			if len(model.Background) > 0 {
-				return "**主根因:** 窗口内未定位到链上主根因,见背景压力段。"
+				return "**主根因:** 窗口内未定位到链上主根因,见背景压力段" + selfNote + "。"
 			}
-			return "**主根因:** 窗口内未定位到链上主根因。"
+			return "**主根因:** 窗口内未定位到链上主根因" + selfNote + "。"
 		}
 		if len(model.Background) > 0 {
-			return "**Primary root cause:** no on-chain primary root cause was located in the window — see the background-pressure stanza."
+			return "**Primary root cause:** no on-chain primary root cause was located in the window — see the background-pressure stanza" + selfNote + "."
 		}
-		return "**Primary root cause:** no on-chain primary root cause was located in the window."
+		return "**Primary root cause:** no on-chain primary root cause was located in the window" + selfNote + "."
 	}
 	name := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(*primary, zh))
 	// D4: the narrative lane uses the 中文（english_token） combined format on
@@ -5845,6 +5880,18 @@ func runtimeTraceProjLeadOnChainFallback(model runtimeTraceProjTreeModel) *types
 		if row.Node.OnChainOverflowFold {
 			continue
 		}
+		// SYM (§24.13 裁定一, 复核 F1, 2026-07-08): the target's own state rows
+		// never lead through the RN-3(a) fallback lane either — post-SYM this
+		// shape is MORE reachable (the ladder skip empties the primary slots a
+		// self row used to hold), and a self row is naturally the window's
+		// largest on-chain wait, so without this arm the fallback re-crowned
+		// exactly the 加冕 §24.13 retires ("主根因: main-6565 binder等待…
+		// (链不可上溯,按窗口内最大链上等待)"). With every fallback candidate
+		// self, the nil return routes the conclusion to the honest-fallback
+		// branch, which already carries the symptom disclosure.
+		if row.Node.IsTargetSelfStateRow() {
+			continue
+		}
 		switch row.Kind {
 		case runtimeTraceProjTreeRowChain, runtimeTraceProjTreeRowDepthless:
 		default:
@@ -5874,6 +5921,59 @@ func runtimeTraceProjLeadFallbackNote(model runtimeTraceProjTreeModel, zh bool) 
 		return "(根因排序候选均降背景,按窗口内最大链上等待)"
 	}
 	return " (all ranked candidates demoted to background; largest on-chain wait in the window)"
+}
+
+// runtimeTraceProjTargetSelfSymptomNote is the SYM (§24.13 裁定一, 2026-07-08)
+// symptom-disclosure parenthetical for the honest-fallback lead lanes: when the
+// report carries ranked rows whose subject is the analysis target itself
+// (typed tier token, engine tid-first identity — never a label comparison),
+// the 未定位到链上主根因 verdict additionally discloses the target's own
+// wait/lock-hold magnitude and points at its own state rows. Magnitude = the
+// single largest runtimeTraceProjLeadSelectionValue over those rows (复核 F2:
+// the SAME single-instance caliber every lead lane competes with — a ×N
+// merged row contributes its per-instance MergedMaxMS, never its SUMmed
+// ImpactMS, and a periodic row contributes its discounted attribution, never
+// raw cadence sleep). 单项最大 wording engages when several rows compete OR
+// the winning value is itself a per-instance max of a merged roster — the
+// rows overlap on one thread's wall clock, so Σ would double count; MAX never
+// invents. "" when no such row renders, or when the largest magnitude is not
+// positive (never a 0ms disclosure) — every legacy no-lead shape stays
+// byte-stable. Shared by the conclusion line and the comparison primary cell
+// (same single-source discipline as runtimeTraceProjLeadSelect).
+func runtimeTraceProjTargetSelfSymptomNote(model runtimeTraceProjTreeModel, zh bool) string {
+	count := 0
+	max := 0.0
+	multi := false
+	for _, rows := range [][]runtimeTraceProjTreeRow{model.TreeRows, model.SelfRows, model.Adjacent, model.Background} {
+		for _, row := range rows {
+			if !row.HasData || row.Node.Rank <= 0 || !row.Node.IsTargetSelfStateRow() {
+				continue
+			}
+			count++
+			if row.Node.MergedCount > 1 {
+				multi = true // the published value is a per-instance max already
+			}
+			if v := runtimeTraceProjLeadSelectionValue(row.Node); v > max {
+				max = v
+			}
+		}
+	}
+	if count == 0 || max <= 0 {
+		return ""
+	}
+	if count > 1 {
+		multi = true
+	}
+	if zh {
+		if multi {
+			return fmt.Sprintf("(关注线程自身等待/持锁 单项最大 %.3fms,见关注线程自身行)", max)
+		}
+		return fmt.Sprintf("(关注线程自身等待/持锁 %.3fms,见关注线程自身行)", max)
+	}
+	if multi {
+		return fmt.Sprintf(" (the focused thread itself waited/held a lock — single largest %.3fms; see its own state rows)", max)
+	}
+	return fmt.Sprintf(" (the focused thread itself waited/held a lock for %.3fms; see its own state rows)", max)
 }
 
 // runtimeTraceProjLeadSelectionValue is the rank-fallback ordering key for the

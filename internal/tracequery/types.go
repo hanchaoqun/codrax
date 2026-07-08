@@ -1839,6 +1839,26 @@ const RootCauseSubjectKindAggregateMetric = "aggregate_metric"
 // the 确定性优化点 display family instead.
 const RootCauseTierDeterministicOptimization = "deterministic_optimization"
 
+// RootCauseTierTargetSelfState (SYM, ledger §24.13 裁定一, user ruling
+// 2026-07-08, real_trace_campaign_20260705.md): the independent Tier word for
+// rank rows whose SUBJECT thread is the analysis target itself (own binder
+// wait / self-held blocking_span / own sleep/runnable/running segments). In a
+// "why is the target stuck" question these rows are the SYMPTOM being
+// explained: they keep their rank-board ordinal (榜位照发) and every
+// score/weight/sort lane untouched, but are TRANSPARENT to the
+// primary/secondary/tertiary positional election and never ride the
+// co-primary lane — the deterministic_optimization precedent's ladder
+// mechanics applied to the self-symptom lane. Identity is the typed tid-first
+// subject==target match (SubjectIsAnalysisTarget), never a state-type or
+// label heuristic: the counterpart side of the same contention (subject !=
+// target) keeps competing unchanged. Wire token: verbatim in the typed tier
+// note / rank text face / root_cause_<tier> predicate — the
+// root_cause_primary prefix no longer matches, so the projection primary
+// bucket excludes self rows by construction (four witnesses: opendir_78 E1
+// self-held AssetManager lock rank#1 crowned 主根因, huadong_78 binder lead,
+// cmp_78_01 both sides binder rank#1→lead).
+const RootCauseTierTargetSelfState = "target_self_state"
+
 type RootCauseRankItem struct {
 	Rank int    `json:"rank"`
 	Tier string `json:"tier,omitempty"`
@@ -1944,6 +1964,18 @@ type RootCauseRankItem struct {
 	BlockingKind string    `json:"blocking_kind,omitempty"`
 	BlockingPeer ThreadRef `json:"blocking_peer,omitempty"`
 	HolderSite   string    `json:"holder_site,omitempty"`
+	// SubjectIsAnalysisTarget (SYM §24.13 裁定一, 2026-07-08): true when this
+	// row's SUBJECT thread is the analysis target the rank was computed FOR —
+	// the typed tid-first identity match (sameThreadRef against
+	// RootCauseRankResult.Target: PID equality decides whenever both sides
+	// carry a tid; the comm arm engages only when a side has none). Minted by
+	// stampRootCauseRankAnalysisTargetSubject before tier assignment;
+	// assignRootCauseRanksAndTiers reads it for the election-ladder skip arm
+	// (Tier=RootCauseTierTargetSelfState). The judgment is SUBJECT identity,
+	// never state type: a peer thread's binder_wait/blocking row keeps
+	// competing. False when the rank ran without a resolved target (absence
+	// never guesses).
+	SubjectIsAnalysisTarget bool `json:"subject_is_analysis_target,omitempty"`
 	// SubjectIsLockHolder (BLK §15.C, 2026-07-06): on a resolved blocking_span
 	// rank row the SUBJECT is the lock HOLDER and BlockingPeer is the blocked
 	// WAITER (the reverse of the waiter-subject critical_blocking row for the

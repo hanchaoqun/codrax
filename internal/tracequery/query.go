@@ -9107,6 +9107,9 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	attributeOnChainResourceItemsToWakeupDependency(chain, items)
 	normalizeRootCauseChainRelevance(items, hasCausalChain)
 	normalizeRootCauseSubjectKind(items)
+	// SYM (§24.13 裁定一): typed self-subject identity for the election-ladder
+	// skip arm — tid-first against the rank's own resolved target.
+	stampRootCauseRankAnalysisTargetSubject(items, res.Target)
 	normalizeRootCauseCumulativeImpact(items)
 	normalizeRootCauseEffectiveImpact(items)
 	sortRootCauseRankItems(items, hasCausalChain)
@@ -9256,6 +9259,9 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	stampWindowStatsRankQueryWindow(rank.Items, stats.Window)
 	normalizeRootCauseChainRelevance(rank.Items, hasCausalChain)
 	normalizeRootCauseSubjectKind(rank.Items)
+	// SYM (§24.13 裁定一): the scheduler/compute additions above are new rows —
+	// re-stamp the whole slice with the same typed target (idempotent).
+	stampRootCauseRankAnalysisTargetSubject(rank.Items, rank.Target)
 	attributeOnChainResourceItemsToWakeupDependency(chain, rank.Items)
 	normalizeRootCauseCumulativeImpact(rank.Items)
 	normalizeRootCauseEffectiveImpact(rank.Items)
@@ -11475,6 +11481,25 @@ func rootCauseItemIsSemanticSpanWork(item RootCauseRankItem) bool {
 	}
 }
 
+// stampRootCauseRankAnalysisTargetSubject mints the SYM (§24.13 裁定一,
+// real_trace_campaign_20260705.md, 2026-07-08) typed self-subject identity on
+// every rank row: SubjectIsAnalysisTarget = the row's subject thread IS the
+// analysis target the rank was computed for. The comparator is the engine's
+// existing tid-first identity lane (sameThreadRef): PID equality decides
+// whenever both sides carry a tid, and the comm arm engages only when a side
+// has none — never a label/prose heuristic. An unresolved target (no PID, no
+// comm — e.g. an untargeted window-stats rank) stamps nothing: absence never
+// guesses, and every row keeps competing exactly as before. Idempotent: the
+// enrich pass re-stamps the grown slice with the same target.
+func stampRootCauseRankAnalysisTargetSubject(items []RootCauseRankItem, target ThreadRef) {
+	if target.PID <= 0 && strings.TrimSpace(target.Comm) == "" {
+		return
+	}
+	for i := range items {
+		items[i].SubjectIsAnalysisTarget = sameThreadRef(items[i].Thread, target)
+	}
+}
+
 func assignRootCauseRanksAndTiers(items []RootCauseRankItem) {
 	electionPos := 0
 	backgroundPos := 0
@@ -11510,6 +11535,28 @@ func assignRootCauseRanksAndTiers(items []RootCauseRankItem) {
 			} else {
 				items[i].Tier = "tertiary"
 			}
+			continue
+		}
+		if items[i].SubjectIsAnalysisTarget {
+			// SYM (§24.13 裁定一, real_trace_campaign_20260705.md, 2026-07-08):
+			// the analysis target's OWN state rows are the symptom being
+			// explained — same election-ladder transparency as the semantic
+			// compile-span arm above: the row neither takes a
+			// primary/secondary/tertiary slot nor shifts the slots of the
+			// causal rows below it, and it never rides the co-primary
+			// promotion (opendir_78 witness: the target's self-held
+			// AssetManager lock, a resolved blocking_span, wore rank#1
+			// tier=primary and was crowned 主根因 for the target's own jank).
+			// Rank ordinals are untouched (榜位照发), the sort/Score lanes
+			// never read the flag, and the BackgroundRank counting above is
+			// untouched. Judged on typed SUBJECT identity only — the
+			// counterpart side of the same contention (subject != target,
+			// e.g. a peer's binder_wait row) keeps competing through the
+			// ladder below. A semantic compile span hosted ON the target
+			// thread keeps its deterministic_optimization identity (the arm
+			// above wins): an optimization point on the target's own thread
+			// stays actionable guidance, not a symptom.
+			items[i].Tier = RootCauseTierTargetSelfState
 			continue
 		}
 		tier := rootCauseTier(electionPos)

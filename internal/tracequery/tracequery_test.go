@@ -1678,8 +1678,27 @@ func TestRootCauseRankTiersCandidates(t *testing.T) {
 		t.Fatalf("expected ranked root-cause candidates, got %+v", res.RootCauseRank)
 	}
 	first := res.RootCauseRank.Items[0]
-	if first.Rank != 1 || first.Tier != "primary" || first.ImpactMs <= 0 || first.Score <= 0 {
-		t.Fatalf("bad primary rank item: %+v", first)
+	if first.Rank != 1 || first.ImpactMs <= 0 || first.Score <= 0 {
+		t.Fatalf("bad rank#1 item: %+v", first)
+	}
+	// EVOLUTION RECORD (SYM §24.13 裁定一, real_trace_campaign_20260705.md,
+	// 2026-07-08): this fixture's rank#1 is the target's OWN runnable wait
+	// (subject == pid 20, the query target) — pre-SYM it was pinned
+	// tier=primary; it now wears the ladder-transparent target_self_state tier
+	// while keeping its ordinal, and the primary election slot falls to the
+	// first NON-self row (ladder transparency: 不占槽也不移位).
+	if !first.SubjectIsAnalysisTarget || first.Tier != RootCauseTierTargetSelfState {
+		t.Fatalf("the target's own rank#1 row must wear the self-state tier: %+v", first)
+	}
+	sawNonSelfPrimary := false
+	for _, item := range res.RootCauseRank.Items {
+		if !item.SubjectIsAnalysisTarget && item.Tier == "primary" {
+			sawNonSelfPrimary = true
+			break
+		}
+	}
+	if !sawNonSelfPrimary {
+		t.Fatalf("the primary election slot must fall to the first non-self row: %+v", res.RootCauseRank.Items)
 	}
 	if len(res.EvidencePack) == 0 || !strings.HasPrefix(res.EvidencePack[0].Predicate, "root_cause_") {
 		t.Fatalf("root_cause_rank should produce evidence facts: %+v", res.EvidencePack)
@@ -3921,8 +3940,17 @@ func TestRootCauseRankFlagsRunnableTopPriorityInversion(t *testing.T) {
 	if found == nil {
 		t.Fatalf("expected app(prio=53) waiting behind lower-priority rival(prio=20) to be flagged priority_inversion_runnable_wait: %+v", rank.Items)
 	}
-	if found.Tier != "primary" {
-		t.Fatalf("priority_inversion_runnable_wait is a recognized co-primary type and should be tier=primary: %+v", found)
+	// EVOLUTION RECORD (SYM §24.13 裁定一, real_trace_campaign_20260705.md,
+	// 2026-07-08): this row's SUBJECT is the analysis target itself (app-20,
+	// the query's pid) — 目标 sleep/runnable 行全族 are ladder-transparent, so
+	// the row keeps its rank seat, type token and summary but wears the
+	// target_self_state tier instead of riding the co-primary lane it was
+	// pinned to pre-SYM (tier=primary).
+	if !found.SubjectIsAnalysisTarget {
+		t.Fatalf("the target's own runnable-wait row must carry the typed self-subject identity: %+v", found)
+	}
+	if found.Tier != RootCauseTierTargetSelfState {
+		t.Fatalf("the target's own priority_inversion_runnable_wait row is a symptom row (§24.13): want tier=%s, got %+v", RootCauseTierTargetSelfState, found)
 	}
 	if !strings.Contains(found.Summary, "same_cpu_competitor=rival") || !strings.Contains(found.Summary, "priority inversion candidate") {
 		t.Fatalf("summary should explain the priority-inversion competitor: %q", found.Summary)

@@ -1429,16 +1429,21 @@ func runtimeTraceProjComparePrimaryCell(projection types.TraceCausalProjection, 
 		// lane above already NAMES the span in its own wording and returns
 		// before this branch, so the presence note can never double-write.
 		presence := runtimeTraceProjCompareOptimizationPresenceNote(model, zh)
+		// SYM (§24.13 裁定一): the same single-source symptom disclosure the
+		// conclusion line's honest-fallback lanes carry — ranked target-self
+		// rows disclose the target's own wait/lock-hold magnitude next to the
+		// 未定位 verdict ("" on every legacy shape).
+		selfNote := runtimeTraceProjTargetSelfSymptomNote(model, zh)
 		if zh {
 			if len(model.Background) > 0 {
-				return "未定位到链上主根因(见背景压力段)" + presence
+				return "未定位到链上主根因(见背景压力段)" + presence + selfNote
 			}
-			return "未定位到链上主根因" + presence
+			return "未定位到链上主根因" + presence + selfNote
 		}
 		if len(model.Background) > 0 {
-			return "no on-chain primary (see background stanza)" + presence
+			return "no on-chain primary (see background stanza)" + presence + selfNote
 		}
-		return "no on-chain primary" + presence
+		return "no on-chain primary" + presence + selfNote
 	}
 	name := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(*primary, zh))
 	cause := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(*primary, zh))
@@ -2128,6 +2133,13 @@ func runtimeTraceCausalProjectionPriorityCell(node types.TraceCausalProjectionNo
 			return "确定优化"
 		}
 		return "optimize"
+	case node.IsTargetSelfStateRow():
+		// SYM (§24.13 裁定一): the target-self rank row wears its own
+		// symptom-band word — never the on_chain 重点关注 root-cause word.
+		if zh {
+			return "自身状态"
+		}
+		return "self state"
 	case strings.TrimSpace(node.ChainRelevance) == "on_chain":
 		if zh {
 			return "重点关注"
@@ -2161,6 +2173,16 @@ func runtimeTraceCausalProjectionLayerCell(node types.TraceCausalProjectionNode,
 			return "确定性优化点"
 		}
 		return "deterministic optimization"
+	}
+	if node.IsTargetSelfStateRow() {
+		// SYM (§24.13 裁定一): the target-self rank row speaks the SAME
+		// 关注线程自身 word the self row-kind lane already uses (UXA B#24
+		// family) — never the 主根因/链上 root-cause layer words. Load-bearing
+		// on flat shapes where the row renders outside the SelfRows lane.
+		if zh {
+			return "关注线程自身"
+		}
+		return "the focused thread itself"
 	}
 	if node.Role == types.TraceCausalRolePrimaryRootCause || strings.HasPrefix(strings.TrimSpace(node.Predicate), "root_cause_primary") {
 		if zh {

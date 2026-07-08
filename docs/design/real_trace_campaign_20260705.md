@@ -1579,3 +1579,7 @@ UXA D#30 终稿取代 RN-12 verbatim 冻结面:"top 片段"→"其中最大片�
 ## §24.15 COV+LEAD 批收账(2026-07-08,复核 SHIP-WITH-FIXES→收尾已落)
 交付:L1=runtimeTraceProjRankBoard 共享榜(post-aggregation,lead 与 ❶ 同源,恒等按构造;huadong 形 lead=E9 反转行);C1=TargetImpactMS typed 通道(引擎"目标被阻塞分支墙钟"provenance 实证;note display_only→hard_consumer;五聚合车道 member-MAX 全 pin——复核抓四车道 pin 死角后表驱动补齐,MAX 置被吸收侧)+分子阶梯 typed-first+伪造残差禁出厂;C2=症状自计排除(闭集=TraceStateKindUniverse,自持锁照计);C3=分母 census 两臂 form-switch(crossBase=排除>0;非 crossBase=单项最大>入分母合计;全称括注 form fork);C4="合计"→"链上单项最大"五臂+EN。18 pin,8 突变咬红。opendir 形终态:"睡眠 115.353ms 中 112.175ms 已由链上解释"+计 1 条未计入。
 **留账**:6.0 整窗分母 493ms running 计入未归因(COV-2)/D-P0 对比 cell(COV-2)/全榜 eff≤0 时 lead 有❶无(旧行为非回归)/overflow fold 丢 TargetImpactMS(有意保守,注释在)/lead"事实恒等"裁定注=fold 后 lead 消费合一节点面,SUM 永不出负向仍 pin。
+
+## §24.16 SYM 批收账(2026-07-08,复核 SHIP-WITH-FIXES→三收尾已落)
+交付(§24.13 裁定一实施):引擎=target_self_state tier(det-opt 同型 wire token)+SubjectIsAnalysisTarget typed 盖章(tid-first sameThreadRef 字面复用,absence never guesses,build+enrich 双点+enrich 全称 pin"目标 PID 行永不穿三级 tier")+选举跳过臂(不占槽/不 co-primary 促升/序数照发/语义臂优先);显示=统一榜过滤臂+RN-3(a) 回退车道滤臂(复核 F1:跳臂让位后自身行从回退道再加冕的 P0 通路,一行滤+witness pin)+fold tier 移植(禁折叠洗白)+全自身退化形诚实回退+症状披露(量程=lead 单实例口径,×N 取 MergedMaxMS/periodic 取折算——复核 F2 防 SUM 假标量)+词面(自身行=关注线程自身/自身状态,不再穿"主根因(优先处理)");对比 cell/LLM 面三处同步。21+2 pin,7/7 突变咬红。
+**留账**:真 trace 复放随客户回访批验证 lead 终形;comm-lane 兜底=引擎既有语义未扩大;全自身形 LEAD-SEM 不可达=裁定内构造(pin 定格);窗身份 chip 归 RCR-C。

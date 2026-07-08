@@ -513,6 +513,23 @@ func TraceCausalProjectionStateClass(raw string) string {
 // empty thread subject is structural, not a resolution gap).
 const TraceCausalSubjectKindAggregateMetric = "aggregate_metric"
 
+// TraceCausalTierTargetSelfState mirrors tracequery.RootCauseTierTargetSelfState
+// (SYM §24.13 裁定一, real_trace_campaign_20260705.md, 2026-07-08): the wire
+// tier token of a rank row whose subject is the analysis target itself. The
+// token is minted ENGINE-side by the typed tid-first subject==target identity
+// match and travels here verbatim through the tier rich note — display layers
+// consume the token, never a label comparison of their own.
+const TraceCausalTierTargetSelfState = "target_self_state"
+
+// IsTargetSelfStateRow reports whether this node is the analysis target's own
+// rank row (SYM §24.13 裁定一): typed tier-token equality only. Such rows keep
+// their tree seats and rank ordinals but never seat on the shared rank board
+// (lead / ❶❷❸) and never speak root-cause layer words — the target's own
+// wait/lock-hold is the symptom under analysis, not its cause.
+func (n TraceCausalProjectionNode) IsTargetSelfStateRow() bool {
+	return strings.TrimSpace(n.Tier) == TraceCausalTierTargetSelfState
+}
+
 // IsAggregateMetric reports whether this node is a window/CPU-scoped aggregate
 // metric row (typed subject_kind check — never a prose or sentinel heuristic).
 func (n TraceCausalProjectionNode) IsAggregateMetric() bool {
