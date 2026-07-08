@@ -398,6 +398,14 @@ type TraceCausalProjectionNode struct {
 	FamilyMemberSumMS  float64  `json:"family_member_sum_ms,omitempty"`
 	FamilyFoldCaliber  string   `json:"family_fold_caliber,omitempty"`
 	FamilyMemberRoster []string `json:"family_member_roster,omitempty"`
+	// BackgroundRank mirrors the producer's typed background_rank note (DCS
+	// §23.1: a non-on-chain semantic span-work contender's position among the
+	// non-chain rows — the 背景综合排序 board). Promoted for the RCM-2 display
+	// half (§24.10 链上 tier 道与非链背景综合排序道同规, 2026-07-08): a family
+	// row seated on the background board wears 「背景榜位#N」 on its 行2 the
+	// way an on-chain seat wears 根因排序#N. Display wording only — no gate,
+	// score or sort lane reads it. Zero when the source row carried none.
+	BackgroundRank int `json:"background_rank,omitempty"`
 	// Inode / Dev are the typed real distinguishing keys of the inode-keyed IO
 	// rank families (§24.9-B F3: previously alive only inside free-text
 	// Summary prose — every display face dropped them). Set only when the
@@ -2024,6 +2032,10 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// would collapse the same-thread family total back to its largest member).
 	// member_roster entries are joined with " | " on the wire because member
 	// keys/span names may legally contain commas.
+	// RCM-2 (§24.10 display half, 2026-07-08): the background comprehensive
+	// board seat — an already-emitted typed note (DCS §23.1) the display 行2
+	// consumes as 背景榜位#N. Wording input only.
+	node.BackgroundRank = traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyBackgroundRank)
 	if familyCount := traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyMemberCount); familyCount > 1 {
 		node.FamilyMemberCount = familyCount
 		node.FamilyMemberMaxMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyMemberMaxMS)

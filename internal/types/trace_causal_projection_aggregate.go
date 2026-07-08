@@ -939,6 +939,29 @@ func traceCausalProjectionAggregateSameKind(nodes []TraceCausalProjectionNode) [
 		// Cleared unconditionally: member provenance stays lossless through
 		// MergedEvidenceIDs; no second counter is introduced.
 		aggregate.DuplicatePublications = 0
+		// RCM-2 复核 F-1 (2026-07-08, ledger §24.7.1/§24.10 批): the group-first
+		// seed can be an ENGINE family contender (multi-window same-(thread,type)
+		// families make ≥3 same-kind rows production-reachable), and inheriting
+		// its FamilyMember*/FamilyFoldCaliber/roster/BackgroundRank/Inode/Dev
+		// wholesale minted a CHIMERA row carrying BOTH ×N lanes — 行1
+		// 「×2 合计6.598」 beside the subordinate 「×3(1.598–3.000ms)」 R2 tag
+		// (one row, two contradictory counts) — and let ONE member's inode/board
+		// seat impersonate the whole merge. Cleared unconditionally, same family
+		// as the DuplicatePublications/SupplyFold clears beside it: the merged
+		// row is an R2 ×N SUM and speaks ONLY that grammar; member provenance
+		// stays lossless through MergedEvidenceIDs. (The R3 background fold is
+		// structurally clean — it builds a FRESH node, never a group-first copy;
+		// R1/V4/alias absorbs keep the SURVIVOR's own identity and set no
+		// MergedCount, so no second ×N lane can co-render there.)
+		aggregate.FamilyMemberCount = 0
+		aggregate.FamilyMemberMaxMS = 0
+		aggregate.FamilyMemberMinMS = 0
+		aggregate.FamilyMemberSumMS = 0
+		aggregate.FamilyFoldCaliber = ""
+		aggregate.FamilyMemberRoster = nil
+		aggregate.BackgroundRank = 0
+		aggregate.Inode = ""
+		aggregate.Dev = ""
 		// SFD 复核 F3 (2026-07-07, same family as the DuplicatePublications
 		// clear above and the VS-1 F6(a) periodic re-derivation below): the ×N
 		// row carries a member SUM, so a SINGLE member's supply-fold accounting

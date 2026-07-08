@@ -425,6 +425,13 @@ const (
 	// PTV8-LAD (§24.11 维度A / §24.8, 2026-07-08): one new gated seat.
 	runtimeTraceProjMarkCycleFold // ↺ 循环×N: A ⇄ B run-length cycle fold row (L1)
 
+	// RCM-2 (§24.7.1①/§24.10/§24.12 维度A ③, 2026-07-08): the family-merge
+	// caliber ladder's three display words (fifth closed-set word + the max
+	// fallback + the count form), each with its own on-demand legend entry.
+	runtimeTraceProjMarkFamilyTotal     // 口径词 合计(共N段,同线程) — 第五口径词 (D1)
+	runtimeTraceProjMarkFamilyMemberMax // 口径词 成员最大(共N段,重叠未拆) (D1)
+	runtimeTraceProjMarkFamilyCountSum  // 口径词 计数合计(共N项,同线程) (D1)
+
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
 	runtimeTraceProjMarkCount
@@ -659,6 +666,21 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkMergedMax, runtimeTraceProjLegendGroupCaliber,
 			"- `×N(a–b)取最大` = N 个线程的同类行合并为一行;墙钟跨线程不可加和,数值取其中最大一项,a–b 为单项范围。",
 			"- `×N(a–b) max` = same-kind rows from N threads merged into one; wall clock never sums across threads, so the value is the largest member, a–b the per-member range."},
+		// RCM-2 (§24.12 维度A ③ verbatim, 2026-07-08): the FIFTH caliber word.
+		// MANDATED ADJACENCY: this entry sits IMMEDIATELY AFTER the ×N取最大
+		// cross-thread entry above — the two must read side by side so
+		// 同线程可加 and 跨线程不可加和 never look contradictory (口径组 renders
+		// in stable catalog order; adjacency pinned by
+		// TestRCM2FifthCaliberLegendVerbatimAndAdjacency).
+		{runtimeTraceProjMarkFamilyTotal, runtimeTraceProjLegendGroupCaliber,
+			"- `合计(共N段,同线程)` = 同线程墙钟段求和(重叠段取并集),同线程可加;跨线程仍不可加和。",
+			"- `total (N segments, same thread)` = same-thread wall-clock segments summed (overlapping segments as their interval union); same-thread wall clock adds legally — across threads it still never sums."},
+		{runtimeTraceProjMarkFamilyMemberMax, runtimeTraceProjLegendGroupCaliber,
+			"- `成员最大(共N段,重叠未拆)` = 同线程 N 段重叠且无法逐段核销,数值取成员最大(诚实下界,非求和);原始和见明细。",
+			"- `member max (N segments, overlap not deducted)` = the N same-thread segments overlap and cannot be deducted per segment, so the value is the member MAX (an honest lower bound, never a sum); the raw sum lives in the detail blocks."},
+		{runtimeTraceProjMarkFamilyCountSum, runtimeTraceProjLegendGroupCaliber,
+			"- `计数合计(共N项,同线程)` = 计数类指标按同线程成员相加(计数可加,与墙钟时长无关)。",
+			"- `count total (N items, same thread)` = count-class members of one thread added up (counts add; unrelated to wall-clock duration)."},
 		// §11-N2 (2026-07-06, real_trace_campaign ledger): the cross-query-window
 		// union caliber gets its own form token — the plain ×N(a–b) entry claims
 		// "数值为总和" and must stay truthful, so a union row NEVER wears the sum
@@ -2715,6 +2737,19 @@ func runtimeTraceProjRowFallbackCaliberWord(node types.TraceCausalProjectionNode
 	if node.PeriodicSource && source == runtimeTraceProjImpactSourceEffective {
 		return ""
 	}
+	// RCM-2 D1 (§24.22 F6 置顶收口, 2026-07-08): a FAMILY row's value is a
+	// same-thread family total — the 累计(跨线程) stanza word would mislabel it
+	// cross-thread (the F6 witness), and the on-chain attribution words would
+	// hide the fold caliber. The family caliber word is the row's word on
+	// EVERY kind; an unknown caliber makes NO claim (fail-open, never the
+	// banned cross-thread word — negative pin
+	// TestRCM2FamilyRowNeverWearsCrossThreadCumWord).
+	if runtimeTraceProjFamilyRow(node) {
+		if word, _, ok := runtimeTraceProjFamilyCaliberWord(node, zh); ok {
+			return word
+		}
+		return ""
+	}
 	if runtimeTraceProjStanzaRowKind(kind) &&
 		(source == runtimeTraceProjImpactSourceCumulative || source == runtimeTraceProjImpactSourceEffective) {
 		return runtimeTraceProjCrossThreadCumWord(zh)
@@ -3492,12 +3527,20 @@ func runtimeTraceProjRowNameKeepSuffix(row runtimeTraceProjTreeRow, zh bool) str
 	xn := ""
 	if runtimeTraceProjCauseEventFoldRow(row) {
 		xn = fmt.Sprintf(" ×%d", row.Node.MergedCount)
+	} else if runtimeTraceProjFamilyRow(row.Node) {
+		// RCM-2 D2: the family ×N chip is grammar, not name — reserved out of
+		// the name budget like the event-form chip (a width cut eats the name
+		// head, never the count).
+		xn = fmt.Sprintf(" ×%d", row.Node.FamilyMemberCount)
 	}
 	word, token := runtimeTraceProjRowCauseWordToken(row, zh)
 	stateWord := (token == "priority_inversion_candidate" &&
 		runtimeTraceCausalProjectionInversionRow(row.Node)) ||
 		runtimeTraceProjStateTokenClass(token) != ""
-	if word == "" || !stateWord {
+	// RCM-2 D2 (§24.7 行1 词位): a family contender's TYPE word is its 词位 —
+	// 「块设备IO(inode) ×2」 must survive a name squeeze whole (the subject
+	// head mid-truncates instead), exactly like the state-composition words.
+	if word == "" || !(stateWord || runtimeTraceProjFamilyRow(row.Node)) {
 		return xn
 	}
 	name := runtimeTraceProjRowNameBase(row, zh)
@@ -4072,6 +4115,11 @@ func runtimeTraceProjRowName(row runtimeTraceProjTreeRow, zh bool) string {
 	name := runtimeTraceProjRowNameBase(row, zh)
 	if runtimeTraceProjCauseEventFoldRow(row) {
 		name += fmt.Sprintf(" ×%d", row.Node.MergedCount)
+	} else if runtimeTraceProjFamilyRow(row.Node) {
+		// RCM-2 D2 行1 (§24.2 ×N 上移行1 同款): the family member count rides
+		// the 词位 (witness ✦ VerifyClass ×14 / ⛓ 块设备IO(inode) ×2); the
+		// caliber stem rides the value cell, the roster rides the sub-rows.
+		name += fmt.Sprintf(" ×%d", row.Node.FamilyMemberCount)
 	}
 	return name
 }
@@ -4079,6 +4127,16 @@ func runtimeTraceProjRowName(row runtimeTraceProjTreeRow, zh bool) string {
 func runtimeTraceProjRowNameBase(row runtimeTraceProjTreeRow, zh bool) string {
 	node := row.Node
 	if row.Kind == runtimeTraceProjTreeRowSemantic {
+		// RCM-2 D2 (§24.10, 2026-07-08): a semantic FAMILY row's 词位 is the
+		// typed semantic-class word (类型词行1词位) — one member's span name
+		// must not impersonate the ×N family; the member names live on the
+		// roster sub-rows and the detail stanza. Single-span rows keep the
+		// span name byte-identically (单成员退化零演化).
+		if runtimeTraceProjFamilyRow(node) {
+			if word := runtimeTraceProjFamilySemanticClassWord(node, zh); word != "" {
+				return word
+			}
+		}
 		name := strings.TrimSpace(node.SpanName)
 		if name == "" {
 			name = strings.TrimSpace(node.Object)
@@ -4846,6 +4904,9 @@ func runtimeTraceProjSubordinatePackedLines(indent string, texts []string) []str
 // a parser and never a gate. Longest-first inside shared prefixes.
 var runtimeTraceProjWrapAtomCompounds = []string{
 	"根因排序#", // fuses with the trailing rank digits (根因排序#9 is one atom)
+	// RCM-2 D2 (§24.21 LAD atom 表收编新口径词): the background board ordinal
+	// fuses with its digits like the rank ordinal above.
+	"背景榜位#",
 	"有效归因",
 	"承自归因",
 	"链上累计",
@@ -4853,6 +4914,17 @@ var runtimeTraceProjWrapAtomCompounds = []string{
 	"按下游消费核",
 	"跨窗取最大",
 	"单次最大",
+	// RCM-2 D1: the family caliber vocabulary joins the unbreakable set (a
+	// wrap must never bisect 合计/成员最大/同线程 mid-claim). 计数合计 keeps
+	// its own entry — the bare 合计 entry cannot match at its 计 start rune.
+	"计数合计",
+	"成员最大",
+	"合计",
+	"同线程",
+	"重叠未拆",
+	"重叠段已并",
+	"原始和",
+	"见明细",
 	"置信高", "置信中", "置信低",
 	"下界",
 	"全额",
@@ -4879,7 +4951,7 @@ func runtimeTraceProjWrapCompoundAt(runes []rune, i int) (string, int) {
 			continue
 		}
 		n := len(cr)
-		if compound == "根因排序#" {
+		if compound == "根因排序#" || compound == "背景榜位#" {
 			for i+n < len(runes) && runes[i+n] >= '0' && runes[i+n] <= '9' {
 				n++
 			}
@@ -5223,6 +5295,16 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		} else {
 			b.WriteString(" " + dash)
 		}
+	} else if prefix := runtimeTraceProjFamilyValuePrefix(node, zh); prefix != "" {
+		// RCM-2 D2 行1 (witness 「✦ VerifyClass ×14 合计7.124ms 9%」): a family
+		// row's main-line duration wears the compact caliber stem directly, so
+		// the merged magnitude is identifiable at the point of reading; the
+		// full 合计(共N段,同线程) word rides 行3 and its legend entry follows
+		// the word (marked here too — the stem must never render untaught).
+		if _, caliberMark, ok := runtimeTraceProjFamilyCaliberWord(node, zh); ok {
+			row.marks.mark(caliberMark)
+		}
+		b.WriteString(" " + prefix + fmt.Sprintf("%.3fms", impact))
 	} else {
 		b.WriteString(fmt.Sprintf(" %9.3fms", impact))
 	}
@@ -5294,6 +5376,13 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		// word and legend move together; 实际状态 fallbacks stay out).
 		if word == runtimeTraceProjCrossThreadCumWord(zh) {
 			row.marks.mark(runtimeTraceProjMarkStanzaCrossThreadCum)
+		}
+		// RCM-2 D1: a family row's fallback slot speaks the family caliber
+		// word (never 累计(跨线程) — F6) and teaches it via its own entry.
+		if runtimeTraceProjFamilyRow(node) {
+			if _, caliberMark, ok := runtimeTraceProjFamilyCaliberWord(node, zh); ok {
+				row.marks.mark(caliberMark)
+			}
 		}
 		tags = append(tags, runtimeTraceProjTag{Text: word, MainRow: true})
 	}
@@ -5592,6 +5681,10 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		// home, kind-split — the row is off the wakeup path, so an on-chain
 		// attribution word would contradict its own stanza legend).
 		switch {
+		case runtimeTraceProjFamilyRow(node) && runtimeTraceProjStanzaRowKind(row.Kind):
+			// RCM-2 D1 (F6 negative pin): a family total on a ◇/▒ seat must
+			// never wear the 累计(跨线程) word — its 行3 family caliber (and
+			// the detail stanza) carry the accounting instead.
 		case runtimeTraceProjStanzaRowKind(row.Kind):
 			row.marks.mark(runtimeTraceProjMarkStanzaCrossThreadCum)
 			tags = append(tags, runtimeTraceProjTag{Text: runtimeTraceProjCrossThreadCumTagText(node.CumulativeImpactMS, zh), Seg: 31})
@@ -5723,6 +5816,11 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 			// stanza word, zh/en 对等) — two same-word tags with two values
 			// gave the reader no way to tell them apart.
 			switch {
+			case runtimeTraceProjFamilyRow(node):
+				// RCM-2 D1 (F6): family rows never wear the cross-thread word
+				// on ANY lane — the 行1 caliber stem + detail stanza carry the
+				// same-thread accounting (the 行3 arm consumed the balanced
+				// shapes; this is the fail-open remainder).
 			case stanzaCumEmitted && node.EffectiveImpactMS == node.CumulativeImpactMS:
 				// folded: the cum tag already carries this measurement.
 			case stanzaCumEmitted:
@@ -5860,6 +5958,12 @@ func runtimeTraceProjEffectiveInherited(node types.TraceCausalProjectionNode) bo
 		return false
 	}
 	if runtimeTraceProjCauseRunningDeficitArm(node) {
+		return false
+	}
+	// RCM-2 (§24.22 M2, 2026-07-08): a family row's effective is a TYPED fold
+	// product (single formula over the member accounting) — never "inherited
+	// from the enclosing wait interval"; the family caliber word is its label.
+	if runtimeTraceProjFamilyRow(node) {
 		return false
 	}
 	return node.EffectiveImpactMS > 0 && node.CumulativeImpactMS > 0 &&
@@ -6392,11 +6496,11 @@ func runtimeTraceProjLeadSemanticFallback(model runtimeTraceProjTreeModel) *type
 // A② defensive check — the semantic lane made the formerly unreachable empty
 // shape reachable).
 func runtimeTraceProjSemanticLeadText(node types.TraceCausalProjectionNode, model runtimeTraceProjTreeModel, zh bool) string {
-	name := strings.TrimSpace(node.SpanName)
-	if name == "" {
-		name = strings.TrimSpace(node.Object)
-	}
 	ms := runtimeTraceProjLeadSelectionValue(node)
+	// RCM-2 D3 (零链括注同步的姊妹面): a family lead names the class + ×N and
+	// qualifies the magnitude with the family stem — a same-thread total must
+	// not read as one span's duration. Non-family nodes stay byte-identical.
+	name, valueCell := runtimeTraceProjSemanticCellParts(node, ms, zh)
 	share := ""
 	if text := runtimeTraceProjSemanticSpanShareText(node, ms, model, zh); text != "" {
 		if zh {
@@ -6414,9 +6518,9 @@ func runtimeTraceProjSemanticLeadText(node types.TraceCausalProjectionNode, mode
 		}
 	}
 	if zh {
-		return fmt.Sprintf("未定位到链上主根因;窗口内最大语义优化span: %s %.3fms(%s语义优化span·无唤醒链%s)", name, ms, share, pointer)
+		return fmt.Sprintf("未定位到链上主根因;窗口内最大语义优化span: %s %s(%s语义优化span·无唤醒链%s)", name, valueCell, share, pointer)
 	}
-	return fmt.Sprintf("no on-chain primary root cause located; largest in-window semantic optimization span: %s %.3fms (%ssemantic optimization span · no wakeup chain%s)", name, ms, share, pointer)
+	return fmt.Sprintf("no on-chain primary root cause located; largest in-window semantic optimization span: %s %s (%ssemantic optimization span · no wakeup chain%s)", name, valueCell, share, pointer)
 }
 
 // runtimeTraceProjSemanticSpanShareText is the SINGLE share-wording source for
@@ -6431,6 +6535,13 @@ func runtimeTraceProjSemanticLeadText(node types.TraceCausalProjectionNode, mode
 func runtimeTraceProjSemanticSpanShareText(node types.TraceCausalProjectionNode, ms float64, model runtimeTraceProjTreeModel, zh bool) string {
 	shareOK := false
 	switch {
+	case runtimeTraceProjFamilyRow(node):
+		// RCM-2 D3 (witness 占其查询窗9%): the family participation value is a
+		// WINDOW-CLIPPED interval total by engine construction (§24.22 M1 —
+		// members are window-clipped spans, overlaps as their union), so the
+		// share is publishable; the E5 source-window rebase below still picks
+		// the base (占其查询窗 when the family was measured elsewhere).
+		shareOK = true
 	case node.MergedCount > 1 && node.MergedMaxMS > 0:
 		// The per-instance max IS a window projection (same V1 headline rule).
 		shareOK = true
@@ -6612,6 +6723,18 @@ func runtimeTraceProjLeadSelectionValue(node types.TraceCausalProjectionNode) fl
 		// — the raw display impact would re-admit the cadence sleep the
 		// discount exists to keep out of the conclusion.
 		return node.EffectiveImpactMS
+	}
+	if runtimeTraceProjFamilyRow(node) {
+		// RCM-2 D3 (§24.12 维度A 施工图强制项 ①, 2026-07-08): a family row
+		// competes with its PUBLISHED combined participation value (合并量
+		// 参赛 — same-thread totals are legal under the family caliber
+		// ladder). This typed lane sits ABOVE the Merged* member-MAX discount
+		// arm below and must NEVER fall through to it: that arm exists for
+		// cross-thread ×N folds (墙钟跨线程不可加和) and would collapse the
+		// same-thread family total back to its largest member, killing the
+		// §24.10 合计参赛 ruling on arrival (pinned negative:
+		// TestRCM2LeadSelectionValueNeverTakesMergedDiscountLane).
+		return runtimeTraceProjFamilyPublishedMS(node)
 	}
 	if node.MergedCount > 1 {
 		return node.MergedMaxMS
@@ -7958,6 +8081,10 @@ type runtimeTraceProjDetailTableLegendFlags struct {
 	// same separation discipline as mergedUnion (never raises mergedSum), and
 	// the (a)-table legend gets its own gated line.
 	mergedWindowMax bool
+	// family (RCM-2 D3, §24.7.1/§24.10): a family-merge contender row is on
+	// the table (×N合计 token) — its own gated legend line; never raises any
+	// Merged* flag (isolated typed lanes).
+	family bool
 }
 
 func runtimeTraceProjDetailTableLegendFlagsFor(model runtimeTraceProjTreeModel, zh bool) runtimeTraceProjDetailTableLegendFlags {
@@ -7985,6 +8112,9 @@ func runtimeTraceProjDetailTableLegendFlagsFor(model runtimeTraceProjTreeModel, 
 		}
 		if node.DuplicatePublications > 1 {
 			flags.mergedDedup = true
+		}
+		if runtimeTraceProjFamilyRow(node) {
+			flags.family = true
 		}
 		if key != "" && len(seats[key]) > 1 {
 			flags.multiSeat = true
@@ -8069,6 +8199,12 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 		}
 		if node.DuplicatePublications > 1 {
 			name += " " + runtimeTraceProjDedupFoldTagText(node.DuplicatePublications, zh)
+		}
+		// RCM-2 D3 表面: the family contender's ×N token + caliber stem beside
+		// the name (关键指标表 family 一行); the full caliber word, roster and
+		// distinguishing keys live on the (b) family stanza.
+		if token := runtimeTraceProjFamilyTableToken(node, zh); token != "" {
+			name += " " + token
 		}
 		if node.Undrillable() {
 			name += " ⊘"
@@ -8447,6 +8583,57 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 						runtimeTraceProjInversionCompositionText(node, zh))
 				}
 				add("供给折算", "supply fold", runtimeTraceProjInversionSupplyFoldDetailLine(node, zh))
+			}
+		}
+		// RCM-2 D3 明细面 (§24.7.1 ① 区分键不能丢 + roster 全量在明细): the
+		// family stanza — fold caliber word (+ raw-Σ disclosure), the FULL wire
+		// roster with its counted account, the typed inode/dev distinguishing
+		// keys and the family's own typed query window.
+		if runtimeTraceProjFamilyRow(node) {
+			caliber, _, ok := runtimeTraceProjFamilyCaliberWord(node, zh)
+			if !ok {
+				// Unknown caliber token: verbatim raw token (never fabricated).
+				caliber = strings.TrimSpace(node.FamilyFoldCaliber)
+			}
+			// 复核 F-2 (2026-07-08): the raw-Σ note comes from the SINGLE
+			// caliber-forked source (runtimeTraceProjFamilySumDetailNote) — the
+			// hand-written copy here glued the union clause 「重叠段已并」 onto
+			// the max arm's 「重叠未拆」 caliber word (one line, two
+			// contradictory overlap claims).
+			caliber += runtimeTraceProjFamilySumDetailNote(node, zh)
+			if node.FamilyMemberMaxMS > 0 {
+				if zh {
+					caliber += fmt.Sprintf(";单段 %.3f–%.3fms", node.FamilyMemberMinMS, node.FamilyMemberMaxMS)
+				} else {
+					caliber += fmt.Sprintf("; each %.3f–%.3fms", node.FamilyMemberMinMS, node.FamilyMemberMaxMS)
+				}
+			}
+			add("家族合并", "family fold", runtimeTraceCausalProjectionMarkdownSafe(caliber))
+			if len(node.FamilyMemberRoster) > 0 {
+				sep := ";"
+				if !zh {
+					sep = "; "
+				}
+				roster := strings.Join(node.FamilyMemberRoster, sep)
+				if zh {
+					roster = fmt.Sprintf("(共%d,列%d)%s", node.FamilyMemberCount, len(node.FamilyMemberRoster), roster)
+				} else {
+					roster = fmt.Sprintf("(%d total, %d listed) %s", node.FamilyMemberCount, len(node.FamilyMemberRoster), roster)
+				}
+				add("成员", "members", runtimeTraceCausalProjectionMarkdownSafe(roster))
+			}
+			var keys []string
+			if inode := strings.TrimSpace(node.Inode); inode != "" {
+				keys = append(keys, "inode="+inode)
+			}
+			if dev := strings.TrimSpace(node.Dev); dev != "" {
+				keys = append(keys, "dev="+dev)
+			}
+			if len(keys) > 0 {
+				add("区分键", "distinguishing keys", runtimeTraceCausalProjectionMarkdownSafe(strings.Join(keys, " ")))
+			}
+			if node.QueryWindowStartTs > 0 && node.QueryWindowEndTs > node.QueryWindowStartTs {
+				add("家族窗", "family window", fmt.Sprintf("%.3f–%.3fs", node.QueryWindowStartTs, node.QueryWindowEndTs))
 			}
 		}
 		if node.MergedCount > 1 {
@@ -8993,7 +9180,14 @@ func runtimeTraceProjEvidenceBlockParts(evidence *runtimeTraceCausalProjectionEv
 		// F2 (§22 PTV7-SPN): part-boundary cut at the 96-rune audit ceiling —
 		// see runtimeTraceCausalProjectionAuditCellText for the two-half
 		// rationale (the 72-rune mid-token cut lost confidence + predicate).
-		audit := runtimeTraceCausalProjectionAuditCellText(entry.Details, 96)
+		// RCM-2 D4: a family entry's ceiling widens — its member_count/
+		// member_fold_caliber tokens are load-bearing (the E# stands for N
+		// members; a cut here would hide the merge from the audit face).
+		auditCeiling := 96
+		if entry.FamilyAudit {
+			auditCeiling = 160
+		}
+		audit := runtimeTraceCausalProjectionAuditCellText(entry.Details, auditCeiling)
 		// PTV6-C ruling C (#73, 用户裁定 2026-07-06): the former "完整定位见原始
 		// trace_query 记录" deflection tail is retired — when the display
 		// locator actually dropped the entry's line range (window-preferred

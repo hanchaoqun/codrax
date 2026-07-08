@@ -132,3 +132,46 @@ func TestTraceCausalProjectionFoldedLaneDoesNotWriteFamilyLane(t *testing.T) {
 		t.Fatalf("ISOLATION BROKEN: folded_* notes leaked into the FamilyMember* lane: %+v", node)
 	}
 }
+
+// TestTraceCausalProjectionR2AggregateClearsFamilyLane (RCM-2 复核 F-1,
+// 2026-07-08): the ≥3 same-(subject,object) R2 fold's group-first seed can be
+// an engine family contender — inheriting its FamilyMember*/caliber/roster/
+// BackgroundRank/Inode/Dev wholesale minted a chimera row carrying BOTH ×N
+// lanes (one row: 行1 「×2 合计」 + subordinate 「×3(…)」 R2 tag) and let one
+// member's inode/board seat impersonate the merge. The aggregate clears the
+// family lane unconditionally (DuplicatePublications/SupplyFold precedent).
+// Mutation M-5 (verified red, then reverted): dropping the clear block in
+// traceCausalProjectionAggregateSameKind reds this pin.
+func TestTraceCausalProjectionR2AggregateClearsFamilyLane(t *testing.T) {
+	family := func(id string, impact float64) TraceCausalProjectionNode {
+		return TraceCausalProjectionNode{
+			Role: TraceCausalRoleRootCauseContext, EvidenceID: id,
+			Subject: "RxComputationT-16816", Object: "block_io_by_inode",
+			ImpactMS: impact, CumulativeImpactMS: impact,
+			FamilyMemberCount: 2, FamilyMemberMaxMS: 1.136, FamilyMemberMinMS: 0.462,
+			FamilyMemberSumMS: 1.598, FamilyFoldCaliber: "sum_disjoint",
+			FamilyMemberRoster: []string{"inode=286395 dev=254:2 1.136ms"},
+			BackgroundRank:     2, Inode: "286395", Dev: "254:2",
+		}
+	}
+	plain := TraceCausalProjectionNode{
+		Role: TraceCausalRoleRootCauseContext, EvidenceID: "w3",
+		Subject: "RxComputationT-16816", Object: "block_io_by_inode",
+		ImpactMS: 3.0, CumulativeImpactMS: 3.0,
+	}
+	out := traceCausalProjectionAggregateSameKind([]TraceCausalProjectionNode{
+		family("w1", 1.598), family("w2", 2.0), plain,
+	})
+	if len(out) != 1 || out[0].MergedCount != 3 {
+		t.Fatalf("the three same-kind rows must fold into one ×3 row: %+v", out)
+	}
+	merged := out[0]
+	if merged.FamilyMemberCount != 0 || merged.FamilyMemberMaxMS != 0 ||
+		merged.FamilyMemberMinMS != 0 || merged.FamilyMemberSumMS != 0 ||
+		merged.FamilyFoldCaliber != "" || len(merged.FamilyMemberRoster) != 0 {
+		t.Fatalf("CHIMERA: the FamilyMember* lane must be cleared on the R2 fold: %+v", merged)
+	}
+	if merged.BackgroundRank != 0 || merged.Inode != "" || merged.Dev != "" {
+		t.Fatalf("the group-first seat/keys must not impersonate the merge: %+v", merged)
+	}
+}

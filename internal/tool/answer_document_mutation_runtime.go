@@ -1006,7 +1006,16 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 		// rows exactly when the table shows them (gated flags from the same
 		// detail rows the table renders) — every other render stays
 		// byte-stable.
-		if flags := runtimeTraceProjDetailTableLegendFlagsFor(model, zh); flags.mergedSum || flags.mergedMax || flags.mergedWindowMax || flags.mergedDedup || flags.multiSeat {
+		if flags := runtimeTraceProjDetailTableLegendFlagsFor(model, zh); flags.mergedSum || flags.mergedMax || flags.mergedWindowMax || flags.mergedDedup || flags.multiSeat || flags.family {
+			// RCM-2 D3 (§24.7.1②/§24.10): the family-merge token's gated line —
+			// present exactly when a ×N合计/×N成员最大 family row is on the table.
+			if flags.family {
+				if zh {
+					lines = append(lines, "- ×N合计 = 同一线程同类 N 段合并为一个参赛项,数值为同线程墙钟合计(重叠段取并集;跨线程仍不可加和);×N成员最大 = 重叠无法逐段核销时取成员最大(下界)。成员清单与区分键见下方明细。")
+				} else {
+					lines = append(lines, "- ×N total = N same-kind segments of ONE thread merged into one contender; the value is the same-thread wall-clock total (overlaps as their interval union; across threads wall clock still never sums). ×N member max = the member MAX lower bound when overlap cannot be deducted. Member rosters and distinguishing keys live in the detail blocks.")
+				}
+			}
 			if flags.mergedSum || flags.mergedMax || flags.mergedWindowMax || flags.mergedDedup {
 				var parts []string
 				if zh {
@@ -2070,11 +2079,14 @@ func runtimeTraceProjCompareOptimizationCell(model runtimeTraceProjTreeModel, zh
 	if !ok {
 		return "—"
 	}
-	name := strings.TrimSpace(node.SpanName)
-	if name == "" {
-		name = strings.TrimSpace(node.Object)
-	}
-	cell := fmt.Sprintf("%s %.3fms", name, ms)
+	// RCM-2 D3 (§24.10 witness cell 「类校验 ×14 合计7.124ms(占其查询窗9%)」):
+	// a family top span names the class + ×N and qualifies the magnitude with
+	// the family caliber stem — the pre-RCM cell showed ONE member's 2.424ms
+	// and hid the family's 7.124ms magnitude. Shared wording source with the
+	// presence note and the conclusion fallback (零链括注同步); non-family
+	// spans stay byte-identical.
+	name, valueCell := runtimeTraceProjSemanticCellParts(*node, ms, zh)
+	cell := fmt.Sprintf("%s %s", name, valueCell)
 	if share := runtimeTraceProjSemanticSpanShareText(*node, ms, model, zh); share != "" {
 		if zh {
 			cell += "(" + share + ")"
@@ -2095,21 +2107,20 @@ func runtimeTraceProjCompareOptimizationPresenceNote(model runtimeTraceProjTreeM
 	if !ok {
 		return ""
 	}
-	name := strings.TrimSpace(node.SpanName)
-	if name == "" {
-		name = strings.TrimSpace(node.Object)
-	}
+	// RCM-2 D3 零链括注同步: same family name/value wording source as the
+	// 确定性优化点 column cell (one helper, never a drifting copy).
+	name, valueCell := runtimeTraceProjSemanticCellParts(*node, ms, zh)
 	share := runtimeTraceProjSemanticSpanShareText(*node, ms, model, zh)
 	if zh {
 		if share != "" {
-			return fmt.Sprintf("(存在确定性优化点: %s %.3fms %s,见优化点列)", name, ms, share)
+			return fmt.Sprintf("(存在确定性优化点: %s %s %s,见优化点列)", name, valueCell, share)
 		}
-		return fmt.Sprintf("(存在确定性优化点: %s %.3fms,见优化点列)", name, ms)
+		return fmt.Sprintf("(存在确定性优化点: %s %s,见优化点列)", name, valueCell)
 	}
 	if share != "" {
-		return fmt.Sprintf(" (deterministic optimization point present: %s %.3fms, %s; see the optimization column)", name, ms, share)
+		return fmt.Sprintf(" (deterministic optimization point present: %s %s, %s; see the optimization column)", name, valueCell, share)
 	}
-	return fmt.Sprintf(" (deterministic optimization point present: %s %.3fms; see the optimization column)", name, ms)
+	return fmt.Sprintf(" (deterministic optimization point present: %s %s; see the optimization column)", name, valueCell)
 }
 
 // runtimeTraceProjPeriodicCompareCellSuffix renders a periodic primary's
@@ -2230,7 +2241,14 @@ func runtimeTraceProjCompareBackgroundTopRowCell(model runtimeTraceProjTreeModel
 		}
 		v, source := runtimeTraceProjNodeDisplayImpactSource(*node)
 		singleInstance := source == runtimeTraceProjImpactSourceWindow
-		if node.MergedCount > 1 {
+		if runtimeTraceProjFamilyRow(*node) {
+			// RCM-2 D1/D3 (F6): a family contender competes with its PUBLISHED
+			// participation value and wears the family caliber word below —
+			// never 单项最大 (it is a same-thread total) and never the
+			// cross-thread word (the F6 mislabel this batch retires).
+			v = runtimeTraceProjFamilyPublishedMS(*node)
+			singleInstance = false
+		} else if node.MergedCount > 1 {
 			if node.MergedMaxMS <= 0 {
 				continue // Σ-only merged row: no single-item magnitude to publish
 			}
@@ -2252,6 +2270,25 @@ func runtimeTraceProjCompareBackgroundTopRowCell(model runtimeTraceProjTreeModel
 			cell += " · "
 		}
 		cell += cause
+	}
+	if runtimeTraceProjFamilyRow(*best) {
+		// RCM-2 D3: the ×N token + the family caliber word (shared single
+		// source; unknown calibers make no claim — the count is still truth).
+		cell += fmt.Sprintf(" ×%d", best.FamilyMemberCount)
+		if cell != "" {
+			cell += " "
+		}
+		word, _, ok := runtimeTraceProjFamilyCaliberWord(*best, zh)
+		switch {
+		case ok && zh:
+			return cell + fmt.Sprintf("%.3fms(背景行最大,%s)", bestValue, word), true
+		case ok:
+			return cell + fmt.Sprintf("%.3fms (largest background row, %s)", bestValue, word), true
+		case zh:
+			return cell + fmt.Sprintf("%.3fms(背景行最大)", bestValue), true
+		default:
+			return cell + fmt.Sprintf("%.3fms (largest background row)", bestValue), true
+		}
 	}
 	if cell != "" {
 		cell += " "
@@ -2707,6 +2744,13 @@ type runtimeTraceCausalProjectionEvidenceEntry struct {
 	// audit 2026-07-03 §7: "…systrace:44" read as a real row); the raw record
 	// keeps the interval lines untouched.
 	SyntheticLine bool
+	// FamilyAudit (RCM-2 D4, 2026-07-08) marks an entry standing for an engine
+	// family merge: its member_count/member_fold_caliber audit tokens are
+	// load-bearing (the E# stands for N members), so the display's audit
+	// ceiling widens for exactly these entries instead of cutting the family
+	// accounting at the 96-rune boundary. Typed flag from the node, never a
+	// substring probe on the composed details.
+	FamilyAudit bool
 }
 
 func newRuntimeTraceCausalProjectionEvidenceIndex() *runtimeTraceCausalProjectionEvidenceIndex {
@@ -2740,6 +2784,7 @@ func (idx *runtimeTraceCausalProjectionEvidenceIndex) add(node types.TraceCausal
 		Window:        window,
 		Details:       runtimeTraceCausalProjectionAuditDetail(node, zh, idx.flatChain),
 		SyntheticLine: node.Undrillable(),
+		FamilyAudit:   node.FamilyMemberCount > 1,
 	})
 	return id
 }
@@ -2752,12 +2797,15 @@ func runtimeTraceCausalProjectionEvidenceText(zh bool) string {
 	// PTV8-RCR-B (UXA 域C #1 + #2 verify 修正稿, 2026-07-08). EVOLUTION
 	// RECORD: 「主表/短证据 ID/结构化审计摘要」内部口径词 → 自解释;审计
 	// token 七词得图例句闭环(token 本身零改动,§22.2.1 审计车道原文保留).
+	// RCM-2 D4 (2026-07-08). EVOLUTION RECORD: the audit-token legend sentence
+	// gains the member_* family tokens (引 §24.10/§24.22 — family entries now
+	// carry member_count/member_fold_caliber; token 本身零改动).
 	if zh {
 		return "正文用 E1、E2 等编号引用证据;本索引给出每条证据在 trace 中的位置(行号或时间区间)与审计字段。" +
-			"审计字段为 trace_query 原文 token,便于回溯核对:tier=证据层级、causality=因果位置、rank=根因排序、confidence=置信度、predicate=判定类型、span=span 名、merged_*=合并明细;其余字段同为原文 token。"
+			"审计字段为 trace_query 原文 token,便于回溯核对:tier=证据层级、causality=因果位置、rank=根因排序、confidence=置信度、predicate=判定类型、span=span 名、merged_*=合并明细、member_*=同线程家族合并明细;其余字段同为原文 token。"
 	}
 	return "The answer cites evidence by the E1/E2 numbers; this index gives each entry's location in the trace (line or time span) and its audit fields. " +
-		"Audit fields are raw trace_query tokens kept for cross-checking: tier = evidence tier, causality = causal position, rank = root-cause rank, confidence = confidence, predicate = judgment kind, span = span name, merged_* = merge detail; any other field is likewise a raw token."
+		"Audit fields are raw trace_query tokens kept for cross-checking: tier = evidence tier, causality = causal position, rank = root-cause rank, confidence = confidence, predicate = judgment kind, span = span name, merged_* = merge detail, member_* = same-thread family-merge detail; any other field is likewise a raw token."
 }
 
 func runtimeTraceCausalProjectionPriorityCell(node types.TraceCausalProjectionNode, zh bool) string {
@@ -3133,6 +3181,21 @@ func runtimeTraceCausalProjectionAuditDetail(node types.TraceCausalProjectionNod
 	}
 	if node.Confidence > 0 {
 		parts = append(parts, fmt.Sprintf("confidence=%.2f", node.Confidence))
+	}
+	// RCM-2 D4 + 复核 F-3 (2026-07-08): the engine family merge's audit tokens
+	// — the index entry says it stands for N same-thread members and names the
+	// combining ruler (member keys/roster stay on the detail stanza and the
+	// raw record). Seated right AFTER confidence, BEFORE the free-length
+	// predicate/span parts: the worst REAL prefix (tier=deterministic_
+	// optimization + causality=adjacent_to_wakeup_chain + rank + confidence)
+	// plus both member tokens measures ≤160 display runes, so the family
+	// accounting can never fall off the widened FamilyAudit ceiling — pinned
+	// by TestRCM2AuditTokensSurviveWorstCasePrefix.
+	if node.FamilyMemberCount > 1 {
+		parts = append(parts, fmt.Sprintf("member_count=%d", node.FamilyMemberCount))
+		if caliber := strings.TrimSpace(node.FamilyFoldCaliber); caliber != "" {
+			parts = append(parts, "member_fold_caliber="+caliber)
+		}
 	}
 	if pred := strings.TrimSpace(node.Predicate); pred != "" {
 		parts = append(parts, "predicate="+pred)
@@ -3898,6 +3961,48 @@ func runtimeTraceSemanticOptimizationParts(projection types.TraceCausalProjectio
 		tag := runtimeTraceProjEvidenceTag(span, evidence, zh)
 		if tag == "" {
 			tag = dash
+		}
+		// RCM-2 D5 (C4 块 family 分组, §24.10): a family contender renders as
+		// ONE header row (类型词 ×N + 合计 cost — the participation magnitude
+		// the pre-RCM table hid behind one member's value) followed by capped
+		// member rows and a COUNTED fold row (计数折叠, never a silent cut).
+		if runtimeTraceProjFamilyRow(span) {
+			famName, famCost := runtimeTraceProjSemanticCellParts(span, runtimeTraceProjFamilyPublishedMS(span), zh)
+			rows = append(rows, types.AnswerBlockItem{
+				Cells: []string{
+					runtimeTraceCausalProjectionMarkdownSafe(famName),
+					class,
+					runtimeTraceCausalProjectionMarkdownSafe(host),
+					famCost,
+					tag,
+				},
+				CitationRef: -1,
+			})
+			listed := len(span.FamilyMemberRoster)
+			if listed > 3 {
+				listed = 3
+			}
+			for _, member := range span.FamilyMemberRoster[:listed] {
+				memberCell := "· 成员 " + member
+				if !zh {
+					memberCell = "· member " + member
+				}
+				rows = append(rows, types.AnswerBlockItem{
+					Cells:       []string{runtimeTraceCausalProjectionMarkdownSafe(memberCell), dash, dash, dash, dash},
+					CitationRef: -1,
+				})
+			}
+			if rest := span.FamilyMemberCount - listed; rest > 0 {
+				foldCell := fmt.Sprintf("· 其余 %d 项(家族折叠,成员共%d,列%d;见因果投影明细)", rest, span.FamilyMemberCount, listed)
+				if !zh {
+					foldCell = fmt.Sprintf("· %d more (family fold; %d members, %d listed — see the causal projection detail)", rest, span.FamilyMemberCount, listed)
+				}
+				rows = append(rows, types.AnswerBlockItem{
+					Cells:       []string{runtimeTraceCausalProjectionMarkdownSafe(foldCell), dash, dash, dash, dash},
+					CitationRef: -1,
+				})
+			}
+			continue
 		}
 		rows = append(rows, types.AnswerBlockItem{
 			Cells: []string{

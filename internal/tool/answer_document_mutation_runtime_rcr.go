@@ -324,6 +324,14 @@ func runtimeTraceProjCauseNodeRow(row runtimeTraceProjTreeRow) bool {
 	if row.Node.Rank > 0 || len(row.RankFoldPeers) > 0 {
 		return true
 	}
+	// RCM-2 (§24.7.1 ②/§24.10, 2026-07-08): an engine family merge IS a
+	// ranking participant by construction (合并量参赛 — the fold exists to
+	// enter the boards as ONE contender), so its display identity is the cause
+	// grammar even on the observation-lane copy whose seat rides the
+	// background comprehensive board (行2 背景榜位#N) or is not yet numbered.
+	if runtimeTraceProjFamilyRow(row.Node) {
+		return true
+	}
 	return runtimeTraceCausalProjectionInversionRow(row.Node) &&
 		(row.Node.GatedRunnableMS > 0 || row.Node.GatedRunningDeficitMS > 0)
 }
@@ -345,6 +353,20 @@ func runtimeTraceProjCauseCategoryWord(node types.TraceCausalProjectionNode, kin
 			return runtimeTraceRootCauseTypeZHLabel("priority_inversion_candidate"), true
 		}
 		return "priority_inversion_candidate", true
+	case runtimeTraceProjImpactFormDeterministicOpt:
+		// RCM-2 (§24.1 类别词族 + §24.10, 2026-07-08): deterministic-
+		// optimization contenders (semantic span families included) speak the
+		// form table's category word on 行2 (确定性优化候选) — the semantic
+		// span-shape cell (语义优化span·<class>) keeps its own tag seat and
+		// never relocates into the identity line. Rank-lane deterministic rows
+		// already resolved here through the generic fallthrough below —
+		// byte-identical for them (same table row).
+		if spec, ok := runtimeTraceProjImpactFormSpecFor(form); ok {
+			if zh {
+				return spec.CategoryZH, false
+			}
+			return spec.CategoryEN, false
+		}
 	}
 	// Typed non-state shape words (IO阻塞候选 / 页缓存抖动 / 中断突发 …)
 	// relocate whole from the shape cell; a shape cell that carries a pure
@@ -639,6 +661,16 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 			identity = append(identity, chip)
 			row.marks.mark(runtimeTraceProjMarkRankSeatWindow)
 		}
+	} else if node.BackgroundRank > 0 {
+		// RCM-2 D2 (§24.10 链上 tier 道与非链背景综合排序道同规, 2026-07-08):
+		// a contender seated on the background comprehensive board wears its
+		// typed seat the way an on-chain seat wears 根因排序#N — never the
+		// on-chain word for an off-chain seat (板别如实).
+		if zh {
+			identity = append(identity, fmt.Sprintf("背景榜位#%d", node.BackgroundRank))
+		} else {
+			identity = append(identity, fmt.Sprintf("background seat #%d", node.BackgroundRank))
+		}
 	}
 	if tier := runtimeTraceProjConfidenceTier(confidence, zh); tier != "" {
 		if zh {
@@ -669,7 +701,33 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		!node.PeriodicSource && !runtimeTraceProjEffectiveInherited(node) &&
 		impactSource != runtimeTraceProjImpactSourceEffective
 	handled := false
-	if eligible && runtimeTraceCausalProjectionInversionRow(node) {
+	if runtimeTraceProjFamilyRow(node) {
+		// RCM-2 D2 (§24.10/§24.12 维度A ④, 2026-07-08): the family form OWNS
+		// the whole 行3/子行 seat — 行3 = 「有效归因 V = 合计(共N段,同线程)」
+		// (fifth caliber word per the typed fold-caliber ladder; union < Σ
+		// appends the raw-sum disclosure), 子行 = roster top-3 + counted
+		// trailer (§24.7.1 ① 区分键不能丢 + roster 折叠必带计数披露). It runs
+		// on EVERY row kind (semantic families are not chain-universe rows)
+		// and takes precedence over the inversion/event/degenerate arms — a
+		// family total must never be re-worded 全额/单次最大. Identity pin:
+		// V == 发布值 (engine effective when published, else the display
+		// impact); when the two channels BOTH exist and disagree at print
+		// precision the "=" claim fails open (拒渲绝不造数 — the plain
+		// effective tag then stays on its legacy lane).
+		word, caliberMark, wordOK := runtimeTraceProjFamilyCaliberWord(node, zh)
+		v := runtimeTraceProjFamilyPublishedMS(node)
+		balanced := effective <= 0 || impact <= 0 || runtimeTraceProjRound3Equal(effective, impact)
+		if wordOK && v > 0 && balanced && !node.PeriodicSource {
+			out.Breakdown = fmt.Sprintf("%s %s = %s%s", effectiveWord,
+				runtimeTraceProjFmtMS(v), word, runtimeTraceProjFamilySumDisclosure(node, zh))
+			out.SubRows = runtimeTraceProjFamilyRosterSubRows(node, zh)
+			row.marks.mark(runtimeTraceProjMarkEffectiveBreakdown)
+			row.marks.mark(caliberMark)
+			out.ConsumedEffective = true
+		}
+		handled = true
+	}
+	if !handled && eligible && runtimeTraceCausalProjectionInversionRow(node) {
 		if components, total, ok := runtimeTraceProjInversionComponents(node, zh); ok {
 			switch {
 			case runtimeTraceProjInversionDegenerateSingleFull(components):

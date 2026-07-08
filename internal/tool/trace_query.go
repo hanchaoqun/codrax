@@ -7372,13 +7372,27 @@ func traceQueryTypedSemanticTraceSpanObservations(result tracequery.Result, stat
 	families := tracequery.FoldSemanticSpanFamilies(chain, stats.TraceSpans)
 	out := make([]types.ObservationRecord, 0, minInt(len(families), traceQueryWidthTypedFamilyRowCap()))
 	ordinal := 0
+	// RCM-2 复核 F-4 (2026-07-08): the channel's background-comprehensive-
+	// board position. Counting mirrors the rank lane's discipline (DCS §23.1:
+	// the POSITION counts every published non-on-chain row; the FIELD is
+	// stamped narrowly) — here every emitted non-on-chain record counts, and
+	// the field lands on multi-member FAMILY records only (single-span
+	// records stay byte-identical, 单员族逐字退化 pin). Without this note the
+	// ✦ observation row's BackgroundRank was unmintable in production and the
+	// 行2 背景榜位#N seat could never render.
+	backgroundPos := 0
 	for _, fam := range families {
 		if ordinal >= traceQueryWidthTypedFamilyRowCap() {
 			break
 		}
 		if len(fam.Members) > 1 {
 			ordinal++
-			out = append(out, traceQuerySemanticSpanFamilyObservation(fam, chain, stats, ref, scope, at, ordinal))
+			backgroundRank := 0
+			if !fam.OnChain {
+				backgroundPos++
+				backgroundRank = backgroundPos
+			}
+			out = append(out, traceQuerySemanticSpanFamilyObservation(fam, chain, stats, ref, scope, at, ordinal, backgroundRank))
 			continue
 		}
 		span := fam.Members[0]
@@ -7388,6 +7402,11 @@ func traceQueryTypedSemanticTraceSpanObservations(result tracequery.Result, stat
 		}
 		ordinal++
 		ctx := traceQuerySemanticTraceSpanContext(span, chain)
+		if ctx.chainRelevance != "on_chain" {
+			// F-4 counting: single-span records hold a board position (they
+			// compete on the same board) but carry no stamped field.
+			backgroundPos++
+		}
 		notes := traceQueryTypedKVNotes([][2]string{
 			{types.TraceNoteKeySpanName, span.Name},
 			{types.TraceNoteKeySpanKind, firstNonEmptyTraceString(span.Kind, "sync")},
@@ -7454,7 +7473,7 @@ func traceQueryTypedSemanticTraceSpanObservations(result tracequery.Result, stat
 // publish a lane the rank row disagrees with; a non-chain family degrades to
 // adjacent/background by envelope-vs-chain-window overlap exactly like the
 // single-span context tail.
-func traceQuerySemanticSpanFamilyObservation(fam tracequery.SemanticSpanFamily, chain *tracequery.ChainResult, stats tracequery.WindowStats, ref types.ObservationSourceRef, scope, at string, ordinal int) types.ObservationRecord {
+func traceQuerySemanticSpanFamilyObservation(fam tracequery.SemanticSpanFamily, chain *tracequery.ChainResult, stats tracequery.WindowStats, ref types.ObservationSourceRef, scope, at string, ordinal, backgroundRank int) types.ObservationRecord {
 	rep := fam.Members[0]
 	relevance, causality := "", ""
 	chainDepth := 0
@@ -7480,6 +7499,11 @@ func traceQuerySemanticSpanFamilyObservation(fam tracequery.SemanticSpanFamily, 
 		{types.TraceNoteKeyChainRelevance, relevance},
 		{types.TraceNoteKeyCausality, causality},
 		{types.TraceNoteKeyChainDepth, traceQueryTypedCount(chainDepth)},
+		// RCM-2 复核 F-4 (2026-07-08): the family's seat on the channel's
+		// background comprehensive board (registered key, DCS §23.1 lane) —
+		// the display 行2 背景榜位#N consumer. 0 (on-chain families) drops the
+		// note (typed-count discipline; absence never guesses a seat).
+		{types.TraceNoteKeyBackgroundRank, traceQueryTypedCount(backgroundRank)},
 		{types.TraceNoteKeyWindow, traceQueryWindowValue(fam.StartTs, fam.EndTs)},
 		// DCS E5 producer half — unchanged at family grain: the source-window
 		// identity of the stats run every member came from.

@@ -670,6 +670,60 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// token — the bare ↺ belongs to the RecursOnChain probe (the cycle row
 		// deliberately records BOTH marks: it emits the ↺ token).
 		runtimeTraceProjMarkCycleFold: {"循环×", "cycle ×"},
+		// RCM-2 D1 (§24.7.1/§24.10/§24.12 维度A ③): the family caliber ladder's
+		// three words. The 合计 probe anchors on its own tail 「段,同线程)」 —
+		// the count word says 项,同线程 and the max word says 重叠未拆, so the
+		// three probes never cross-match.
+		runtimeTraceProjMarkFamilyTotal:     {"段,同线程)", "segments, same thread)"},
+		runtimeTraceProjMarkFamilyMemberMax: {"重叠未拆", "overlap not deducted"},
+		runtimeTraceProjMarkFamilyCountSum:  {"计数合计", "count total ("},
+	}
+}
+
+// revisit76RCM2FamilyProjection (RCM-2, §24.7.1/§24.10, 2026-07-08) exercises
+// the family-merge display half's three caliber forms on one render: the
+// cmp_78 E27-E42 semantic family (sum_disjoint, ×14 合计 + background board
+// seat), the opendir_78 E5/E6 generic inode family on its overlap arm
+// (max_overlap_fallback + raw-Σ disclosure) and a count_sum advisory family.
+func revisit76RCM2FamilyProjection() types.TraceCausalProjection {
+	return types.TraceCausalProjection{
+		WakeupPath:    []string{"worker-9", "app-100"},
+		WindowStartTs: 100.0,
+		WindowEndTs:   100.2,
+		OnChainCauses: []types.TraceCausalProjectionNode{
+			{Role: types.TraceCausalRolePrimaryRootCause, EvidenceID: "rcm2-max",
+				Subject: "RxComputationT-16816", Object: "block_io_by_inode",
+				TypeToken: "block_io_by_inode", ChainRelevance: "on_chain",
+				ChainDepth: 1, Rank: 3,
+				ImpactMS: 1.136, CumulativeImpactMS: 1.136, EffectiveImpactMS: 1.136,
+				FamilyMemberCount: 2, FamilyMemberMaxMS: 1.136, FamilyMemberMinMS: 0.462,
+				FamilyMemberSumMS: 1.598, FamilyFoldCaliber: "max_overlap_fallback",
+				FamilyMemberRoster: []string{"inode=286395 dev=254:2 1.136ms", "inode=300123 dev=254:2 0.462ms"},
+				Dev:                "254:2", Confidence: 0.8},
+			{Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "rcm2-count",
+				Subject: "worker-9", Object: "state_churn", TypeToken: "state_churn",
+				ChainRelevance: "on_chain", Rank: 4,
+				ImpactMS: 5.0, CumulativeImpactMS: 5.0, EffectiveImpactMS: 5.0,
+				FamilyMemberCount: 3, FamilyFoldCaliber: "count_sum",
+				FamilyMemberRoster: []string{"churn a 2", "churn b 2", "churn c 1"},
+				Confidence:         0.8},
+		},
+		SemanticSpans: []types.TraceCausalProjectionNode{
+			{Role: types.TraceCausalRoleSemanticSpan, EvidenceID: "rcm2-sem",
+				Subject: "worker-9", Predicate: "trace_semantic_span",
+				Object: "class_verification", SemanticClass: "class_verification",
+				SpanName: "VerifyClass com.demo.Big",
+				ImpactMS: 7.124, EffectiveImpactMS: 7.124, BackgroundRank: 1,
+				FamilyMemberCount: 14, FamilyMemberMaxMS: 2.424, FamilyMemberMinMS: 0.040,
+				FamilyFoldCaliber: "sum_disjoint",
+				FamilyMemberRoster: []string{
+					"VerifyClass com.demo.Big 2.424ms",
+					"VerifyClass com.demo.Mid 1.900ms",
+					"VerifyClass com.demo.Small 0.800ms",
+					"VerifyClass com.demo.Tiny 0.500ms",
+				},
+				Confidence: 0.7},
+		},
 	}
 }
 
@@ -1024,6 +1078,9 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// short transit token on the huadong_78 ladder shape (fixture home:
 		// answer_document_projection_lad_test.go).
 		{"lad_cycle_fold_ladder", ladHuadongLadderProjection()},
+		// RCM-2 (§24.7.1/§24.10): the family-merge caliber ladder's three
+		// display words (合计/成员最大/计数合计) + their legend entries.
+		{"rcm2_family_forms", revisit76RCM2FamilyProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {
