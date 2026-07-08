@@ -151,10 +151,11 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 		// PTV8-RCR-A EVOLUTION RECORD (§24.1): the ranked ⚙ row is a cause
 		// node — 行1 stays grammar-clean (keep-marks only), 行2 carries the
 		// 算力供给候选 identity, and the ordinary tags pack below.
+		// PTV8-RCR-C EVOLUTION RECORD (§24.9 G3): the chain layer moved INTO
+		// 行2 on structured cause nodes; hop rows (L3) keep the Seg-20 chip.
 		"33%  [E2]",
-		"· 算力供给候选·根因排序#2·置信高",
-		"· running · 链上L2",
-		"· 有效归因27.900ms",
+		"· 算力供给候选·根因排序#2·置信高·链上L2",
+		"· running · 有效归因27.900ms",
 		"· runnable_delay · runnable",
 		"· 链上L3",
 		// PTV5 C02 (#68): the stanza header speaks the legend's own noun.
@@ -197,7 +198,11 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 		"- 类型: compute_supply",
 		"- 关系: 唤醒 binder:42591_4-42712",
 		"RenderService-3021 / VerifyClass com.example.render.Pipeline",
-		"- 关系: binder:42591_4-42712 的语义span",
+		// PTV8-RCR-C (§24.12 维度C C-新5 宿主如实, 2026-07-08). EVOLUTION
+		// RECORD: the relation names the HOST thread (node.Subject — the same
+		// thread the tree's span-位于 line names), never the tree attach
+		// anchor (binder:42591_4-42712 was the anchor, not the host).
+		"- 关系: RenderService-3021 的语义span",
 		"语义优化span·class_verification",
 		"IOWorker-8842 / sleep ⊘",
 	} {

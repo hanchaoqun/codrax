@@ -153,6 +153,13 @@ type runtimeTraceProjTreeRow struct {
 	// 睡眠症状→查上游 guidance tag yields (it stays on rows whose upstream is
 	// NOT in the tree). Computed once at model build from rendered subjects.
 	DrillTargetRendered bool
+	// RankWindowChip (PTV8-RCR-C, §24.13 裁定二后半, 2026-07-08): the seat's
+	// query-window identity tag ("窗X–Ys"), stamped at model build ONLY when
+	// rank seats from ≥2 typed query windows render in this report (multi-board
+	// #1×2 collision) AND this row carries its own typed window. "" = the
+	// single-board form and window-less rows stay byte-identical (窗身份
+	// typed, absence never guesses).
+	RankWindowChip string
 	// RecursOnChain marks a trunk row whose canonical subject already appeared
 	// earlier on the rendered chain (target root first, then depth 1..K) — the
 	// small-cycle shape (A→B→A) the ≥6-node cycle detector cannot see (H11,
@@ -253,6 +260,12 @@ type runtimeTraceProjTreeModel struct {
 	// Shared by the 🎯 anchor-only note (R2) and the flat-fallback anchor note
 	// (RN-13(a)) — the two lanes are mutually exclusive on model.Target.
 	RootFocusUserEntities []string
+	// TargetUserAliasEntity (PTV8-RCR-C, §24.12 C11 同 tid 双名归一声明,
+	// 2026-07-08): the user entity that names the SAME tid as the ⊚ root under
+	// a different display name (com.xs.fm.lite-6565 vs main-6565). Non-empty
+	// only when the R2 comparison matched by tid with differing name halves —
+	// the tree-note lane then declares the normalization. "" = no note.
+	TargetUserAliasEntity string
 	// FlatAnchorThread / FlatAnchorMismatch (RN-13(a), §7.9 runnable 主导场景审计
 	// 2026-07-04): the flat-fallback isomorph of RootFocusAnchorOnly. In flat
 	// mode there is no 🎯 root, so the analysis anchor is the RN-3 lead row's
@@ -375,6 +388,10 @@ const (
 	runtimeTraceProjMarkStanzaDiscount          // ◇/▒ 行 折算 判别词条 (UXA 域A #19: 折算半句拆为独立条目,按需出场)
 	runtimeTraceProjMarkEffectiveAttributionTag // 有效归因 词条 (UXA 域A #31: 行内常显 tag 的图例教学点)
 
+	// PTV8-RCR-C (§24.9/§24.12/§24.13, 2026-07-08): two new gated seats.
+	runtimeTraceProjMarkChainSeatUnattached // 链上L#(未接入树) depthless 三面同词 (§24.12 C6)
+	runtimeTraceProjMarkRankSeatWindow      // 根因排序#N·窗X–Ys 多榜窗标 chip (§24.13 裁定二后半)
+
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
 	runtimeTraceProjMarkCount
@@ -479,6 +496,14 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkEdgeChainUnresolved, runtimeTraceProjLegendGroupEdge,
 			"- `└─链上·深度未解析─` = 链上项但树位深度未解析:不声称唤醒/下钻关系,不编造树位;该行 [E#] 经证据索引给出 trace 行号区间。",
 			"- `└─on-chain·depth-unresolved─` = an on-chain row whose tree depth is unresolved: no wake/drill relation is claimed and no position is invented; the row's [E#] resolves to trace line spans via the evidence index."},
+		// PTV8-RCR-C (§24.12 C6 三面同词, 2026-07-08): the depth-KNOWN sibling
+		// of the entry above — the engine resolved the row's chain layer but no
+		// attach point exists in this tree; the edge, the row chip and the
+		// detail 层级 cell speak ONE word family (the old fork spoke 深度未解析
+		// / 链上L1 / 深度1(未接入链) on one row).
+		{runtimeTraceProjMarkChainSeatUnattached, runtimeTraceProjLegendGroupEdge,
+			"- `未接入树` = 该行在链上且引擎已给出层数(行注/明细作 链上L#(未接入树),树边作 `└─链上·未接入树─`),但本树内未找到可挂靠的父节点:不声称唤醒/下钻关系,不编造树位。",
+			"- `unattached` = the row is on the chain with an engine-resolved layer (chip/detail read chain L# (unattached), the edge reads `└─on-chain·unattached─`), but no attach point exists in this tree: no wake/drill relation is claimed and no position is invented."},
 		// PTV8-RCR-A §24.3: ✦ joins the impact-form closed set as the
 		// deterministic-optimization glyph — the entry names the family.
 		{runtimeTraceProjMarkSemanticSpan, runtimeTraceProjLegendGroupEdge,
@@ -555,6 +580,12 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkChainDepthChip, runtimeTraceProjLegendGroupCaliber,
 			"- `链上L#` = 该行在唤醒链上的层数(与明细「层级」行一致)。",
 			"- `chain L#` = the row's layer number on the wakeup chain (matches the detail blocks' level line)."},
+		// PTV8-RCR-C (§24.13 裁定二后半, 2026-07-08): the multi-board window
+		// tag — several query windows each mint their own root-cause board, so
+		// a bare #1×2 collision needs the seat's window identity spelled out.
+		{runtimeTraceProjMarkRankSeatWindow, runtimeTraceProjLegendGroupCaliber,
+			"- `根因排序#N·窗X–Ys` = 本报告包含多个查询窗、各窗有各自的根因排序;窗标注明该榜位属于哪个查询窗,不同查询窗的 #N 不可跨窗比较。",
+			"- `root-cause rank #N · window X–Ys` = this report carries several query windows, each with its own root-cause board; the window tag names the board a seat belongs to — #N ordinals from different windows never compare."},
 		{runtimeTraceProjMarkOmitted, runtimeTraceProjLegendGroupCaliber,
 			"- `…省略N节点` = 长链中段折叠(行内列出首尾各2个节点),中段节点名不在本报告逐一展开。",
 			"- `…N nodes omitted` = the middle of a long chain is folded (the row lists the first/last two nodes); the folded middle nodes are not expanded one by one in this report."},
@@ -1440,7 +1471,59 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 			model.TreeRows[i].DrillTargetRendered = true
 		}
 	}
+	runtimeTraceProjStampRankWindowChips(&model, zh)
 	return model
+}
+
+// runtimeTraceProjStampRankWindowChips (PTV8-RCR-C, §24.13 裁定二后半,
+// 2026-07-08): when rank seats from TWO OR MORE typed query windows render in
+// one report, every seat ordinal carries its window identity — the bare
+// 根因排序#1 ×2 collision gave the reader two "top seats" with no board
+// identity (§24.11 C-5 / cmp_78_01). Typed inputs only: the row's own
+// QueryWindow identity (absence never guesses — a rank row without a typed
+// window stays untagged even on the multi-board form); the single-board form
+// stays byte-identical.
+func runtimeTraceProjStampRankWindowChips(model *runtimeTraceProjTreeModel, zh bool) {
+	type windowKey struct{ start, end float64 }
+	groups := [][]runtimeTraceProjTreeRow{model.TreeRows, model.SelfRows, model.Adjacent, model.Background}
+	seen := map[windowKey]bool{}
+	for _, rows := range groups {
+		for i := range rows {
+			if !rows[i].HasData {
+				continue
+			}
+			if rank, _ := runtimeTraceProjCauseRankConfidence(rows[i]); rank <= 0 {
+				continue
+			}
+			n := rows[i].Node
+			if n.QueryWindowStartTs <= 0 || n.QueryWindowEndTs <= n.QueryWindowStartTs {
+				continue
+			}
+			seen[windowKey{n.QueryWindowStartTs, n.QueryWindowEndTs}] = true
+		}
+	}
+	if len(seen) < 2 {
+		return
+	}
+	for _, rows := range groups {
+		for i := range rows {
+			if !rows[i].HasData {
+				continue
+			}
+			if rank, _ := runtimeTraceProjCauseRankConfidence(rows[i]); rank <= 0 {
+				continue
+			}
+			n := rows[i].Node
+			if n.QueryWindowStartTs <= 0 || n.QueryWindowEndTs <= n.QueryWindowStartTs {
+				continue
+			}
+			if zh {
+				rows[i].RankWindowChip = fmt.Sprintf("窗%.3f–%.3fs", n.QueryWindowStartTs, n.QueryWindowEndTs)
+			} else {
+				rows[i].RankWindowChip = fmt.Sprintf("window %.3f–%.3fs", n.QueryWindowStartTs, n.QueryWindowEndTs)
+			}
+		}
+	}
 }
 
 // runtimeTraceProjAssignTopBadges stamps the PTV4 T6 ❶❷❸ badges: among the
@@ -2638,10 +2721,18 @@ func runtimeTraceProjApplyUserFocus(model *runtimeTraceProjTreeModel, focus runt
 		// renderer-side entity list is starved or divergent (compile-side
 		// frame_target_resolution / runtime_targets lanes). Keep
 		// ‹用户关注线程›; a disclaimer here would contradict the election.
+		// §24.12 C11: an elected root under a different display name than the
+		// user's entity still declares the dual-name normalization.
+		model.TargetUserAliasEntity = runtimeTraceProjTargetUserEntityAlias(target, focus.Entities)
 		return
 	}
 	if runtimeTraceProjTargetMatchesUserEntities(target, focus.Entities) {
-		return // 🎯 root really is a user-named thread — keep ‹用户关注线程›
+		// 🎯 root really is a user-named thread — keep ‹用户关注线程›. §24.12
+		// C11 (同 tid 双名归一声明): a tid-decided match whose display names
+		// differ declares the pair explicitly (the reader typed one name and
+		// reads the other).
+		model.TargetUserAliasEntity = runtimeTraceProjTargetUserEntityAlias(target, focus.Entities)
+		return
 	}
 	model.RootFocusAnchorOnly = true
 	model.RootFocusUserEntities = runtimeTraceProjThreadOrPidEntities(focus.Entities)
@@ -2674,7 +2765,14 @@ func runtimeTraceProjFlatAnchorSubject(model runtimeTraceProjTreeModel) string {
 //     traceThreadLabel emits when the Comm was never resolved — every
 //     wakeup-path label passes through it; RF1b, adversarial review
 //     2026-07-03) equal to a pure-digit or "pid=N"-shaped entity's integer
-//     (RF1a).
+//     (RF1a);
+//   - PTV8-RCR-C (§24.12 C11 同 tid 双名, 2026-07-08): tid equality DECIDES
+//     when BOTH sides expose a -pid tail (§11-N7 tid-first rule, mirroring
+//     the compile-side anchor comparator traceCausalProjectionAnchorLabelMatchesEntity)
+//     — the user's com.xs.fm.lite-6565 and the trace's main-6565 are ONE
+//     thread; without this arm the root mislabeled itself ‹分析锚点线程›. The
+//     dual-name normalization is DECLARED via
+//     runtimeTraceProjTargetUserEntityAlias below.
 func runtimeTraceProjTargetMatchesUserEntities(target string, entities []string) bool {
 	name, pid, hasPid := runtimeTraceProjSplitNamePid(target)
 	if !hasPid {
@@ -2700,9 +2798,38 @@ func runtimeTraceProjTargetMatchesUserEntities(target string, entities []string)
 			if n, ok := runtimeTraceProjPidHandleForm(entity); ok && n == pid {
 				return true
 			}
+			// §24.12 C11: both sides carry a -pid tail — tid decides (双名).
+			if _, epid, ok := runtimeTraceProjSplitNamePid(entity); ok && epid == pid {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// runtimeTraceProjTargetUserEntityAlias (PTV8-RCR-C, §24.12 C11 同 tid 双名
+// 归一声明, 2026-07-08) returns the first user entity naming the SAME tid as
+// the target under a DIFFERENT display name (com.xs.fm.lite-6565 vs main-6565
+// — the process-name and thread-name faces of one thread). "" when no such
+// pair exists (the note lane stays byte-identical). Precise signals only:
+// both sides expose a -pid tail, integer-equal, verbatim-different non-empty
+// name halves.
+func runtimeTraceProjTargetUserEntityAlias(target string, entities []string) string {
+	name, pid, hasPid := runtimeTraceProjSplitNamePid(target)
+	if !hasPid {
+		return ""
+	}
+	for _, entity := range entities {
+		entity = strings.TrimSpace(entity)
+		if entity == "" || entity == target {
+			continue
+		}
+		if ename, epid, ok := runtimeTraceProjSplitNamePid(entity); ok && epid == pid &&
+			ename != "" && ename != name {
+			return entity
+		}
+	}
+	return ""
 }
 
 // runtimeTraceProjPidHandleForm matches the literal "pid=N" thread handle
@@ -2872,6 +2999,17 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 				b.WriteString("- root is the wakeup-chain anchor thread, not the user-specified focus (user focus: " + strings.Join(model.RootFocusUserEntities, ", ") + ")\n")
 			}
 		}
+		// PTV8-RCR-C (§24.12 C11 同 tid 双名归一声明): the root matched the
+		// user's entity by tid under a DIFFERENT display name — declare the
+		// pair once, right under the header, so the reader who typed
+		// com.xs.fm.lite-6565 recognizes main-6565 as the same thread.
+		if alias := strings.TrimSpace(model.TargetUserAliasEntity); alias != "" {
+			if zh {
+				b.WriteString("- " + model.Target + " 即你指定的 " + alias + "(同一 tid 的双名,已归一)\n")
+			} else {
+				b.WriteString("- " + model.Target + " IS your specified " + alias + " (two names of one tid, normalized)\n")
+			}
+		}
 	} else {
 		flatLine := runtimeTraceProjFlatFallbackHeader(model, zh) + "  " + runtimeTraceProjScaleNote(model, zh)
 		if runewidth.StringWidth(flatLine) > runtimeTraceProjTreeRowMaxWidth {
@@ -2974,17 +3112,13 @@ func runtimeTraceProjTreeLabelColumn(model runtimeTraceProjTreeModel, zh bool) i
 		// unpadded (never truncated) and rows keep the capped column.
 		width = runewidth.StringWidth(runtimeTraceProjTreeHeaderLabel(model, zh))
 	}
-	// 复核 P1 簇二 (2026-07-06): the width pass applies the SAME per-row
-	// main-reserve as the label composer (one helper), so the shared column
-	// measures exactly what each row will render.
-	consider := func(fixed, name string, reserve int) {
+	// 复核 P1 簇二 (2026-07-06) → PTV8-RCR-C §24.9 G2 (2026-07-08): the width
+	// pass measures the SAME fitted name the label composer renders (ONE
+	// helper carrying both the main reserve and the grammar-word keep suffix),
+	// so the shared column measures exactly what each row will render.
+	consider := func(fixed, name string, row runtimeTraceProjTreeRow) {
 		fixedW := runewidth.StringWidth(fixed)
-		budget := runtimeTraceProjTreeNameBudgetReserve(fixedW, reserve)
-		nameW := runewidth.StringWidth(name)
-		if nameW > budget {
-			nameW = budget
-		}
-		if need := fixedW + nameW; need > width {
+		if need := fixedW + runewidth.StringWidth(runtimeTraceProjRowNameFitted(fixedW, row, name, zh)); need > width {
 			width = need
 		}
 	}
@@ -2993,7 +3127,7 @@ func runtimeTraceProjTreeLabelColumn(model runtimeTraceProjTreeModel, zh bool) i
 			continue
 		}
 		fixed, name := runtimeTraceProjTreeLabelParts(row, zh)
-		consider(fixed, name, runtimeTraceProjRowMainReserve(row, zh))
+		consider(fixed, name, row)
 	}
 	// Stanza rows pad to the same column (their bars share the start column);
 	// their fixed part mirrors runtimeTraceProjStanzaRowLine exactly (nil marks:
@@ -3001,7 +3135,7 @@ func runtimeTraceProjTreeLabelColumn(model runtimeTraceProjTreeModel, zh bool) i
 	for _, rows := range [][]runtimeTraceProjTreeRow{model.Adjacent, model.Background} {
 		for _, row := range rows {
 			consider("    "+runtimeTraceProjStateIcon(row.Node, row.Kind, true, nil)+" ",
-				runtimeTraceProjRowName(row, zh), runtimeTraceProjRowMainReserve(row, zh))
+				runtimeTraceProjRowName(row, zh), row)
 		}
 	}
 	// F-3: the shared column never exceeds the cap — an over-wide 🎯 header
@@ -3060,6 +3194,17 @@ func runtimeTraceProjTreeHeaderLabel(model runtimeTraceProjTreeModel, zh bool) s
 // the name alone instead of the composed label (B1).
 func runtimeTraceProjTreeLabelParts(row runtimeTraceProjTreeRow, zh bool) (string, string) {
 	edge := runtimeTraceProjEdgeLabel(row.Edge, zh)
+	if row.Edge == runtimeTraceProjTreeEdgeChainUnresolved && runtimeTraceProjDepthlessUnattachedRow(row) {
+		// PTV8-RCR-C (§24.12 C6 三面同词): the depth is KNOWN here — an edge
+		// claiming 深度未解析 contradicted the row's own 链上L1 chip. The
+		// unattached family word takes the edge; the layer number stays on the
+		// chip/detail faces (no double-printed L# on one row).
+		if zh {
+			edge = "链上·未接入树─"
+		} else {
+			edge = "on-chain·unattached─"
+		}
+	}
 	if row.Kind == runtimeTraceProjTreeRowDepthless && strings.TrimSpace(row.Parent) == "" {
 		// Flat fallback (no resolved target): a hanging "wakes" edge word would
 		// claim a wake relation with no wakee — render a bare branch instead.
@@ -3088,7 +3233,13 @@ func runtimeTraceProjTreeLabelParts(row runtimeTraceProjTreeRow, zh bool) (strin
 		case runtimeTraceProjTreeEdgeOwn:
 			row.marks.mark(runtimeTraceProjMarkEdgeOwn)
 		case runtimeTraceProjTreeEdgeChainUnresolved:
-			row.marks.mark(runtimeTraceProjMarkEdgeChainUnresolved)
+			// §24.12 C6: the depth-known unattached variant records ITS entry
+			// (the 深度未解析 entry would describe an edge that never rendered).
+			if runtimeTraceProjDepthlessUnattachedRow(row) {
+				row.marks.mark(runtimeTraceProjMarkChainSeatUnattached)
+			} else {
+				row.marks.mark(runtimeTraceProjMarkEdgeChainUnresolved)
+			}
 		default:
 			row.marks.mark(runtimeTraceProjMarkEdgeWake)
 		}
@@ -3126,6 +3277,18 @@ func runtimeTraceProjTreeLabelReserve(fixed, name string, width, reserve int) st
 		name = runtimeTraceProjTruncateName(name, budget)
 	}
 	label := fixed + name
+	if pad := width - runewidth.StringWidth(label); pad > 0 {
+		label += strings.Repeat(" ", pad)
+	}
+	return label
+}
+
+// runtimeTraceProjTreeLabelRow is the ROW-aware label composer (PTV8-RCR-C
+// §24.9 G2): it fits the name through the shared runtimeTraceProjRowNameFitted
+// (grammar-word keep suffix + main reserve, one judgment with the width pass)
+// and pads to the shared column.
+func runtimeTraceProjTreeLabelRow(fixed string, row runtimeTraceProjTreeRow, name string, width int, zh bool) string {
+	label := fixed + runtimeTraceProjRowNameFitted(runewidth.StringWidth(fixed), row, name, zh)
 	if pad := width - runewidth.StringWidth(label); pad > 0 {
 		label += strings.Repeat(" ", pad)
 	}
@@ -3170,6 +3333,65 @@ func runtimeTraceProjRowMainReserve(row runtimeTraceProjTreeRow, zh bool) int {
 		return runewidth.StringWidth(" · " + word)
 	}
 	return 0
+}
+
+// runtimeTraceProjRowNameKeepSuffix (PTV8-RCR-C, §24.9 维度A G2, 2026-07-08)
+// returns the UN-CUTTABLE tail of a chain-universe cause node's 行1: the
+// state-composition 词位 (§24.7 用户令: 链上行行1 = glyph+线程名+·+状态构成 —
+// typed families only: the inversion composition word and the pure
+// scheduler-state words; lock/span/aggregate name lanes keep their legacy
+// discipline) plus the §24.2 ×N chip. The seat is reserved out of the name
+// budget with the RowMainReserve discipline — truncation eats only the
+// thread-name head (MidTruncateKeepPid), never the grammar word. Before this
+// seat existed, the word was a plain name suffix: a width cut dropped it and
+// the #12 guarantee re-spat it below the OwnLine block as a stray sixth line
+// (opendir_78 E4 gap①).
+func runtimeTraceProjRowNameKeepSuffix(row runtimeTraceProjTreeRow, zh bool) string {
+	if !row.HasData || !runtimeTraceProjCauseNodeRow(row) ||
+		!runtimeTraceProjChainUniverseRowKind(row.Kind) {
+		return ""
+	}
+	xn := ""
+	if runtimeTraceProjCauseEventFoldRow(row) {
+		xn = fmt.Sprintf(" ×%d", row.Node.MergedCount)
+	}
+	word, token := runtimeTraceProjRowCauseWordToken(row, zh)
+	stateWord := (token == "priority_inversion_candidate" &&
+		runtimeTraceCausalProjectionInversionRow(row.Node)) ||
+		runtimeTraceProjStateTokenClass(token) != ""
+	if word == "" || !stateWord {
+		return xn
+	}
+	name := runtimeTraceProjRowNameBase(row, zh)
+	switch {
+	case name == word:
+		return word + xn
+	case strings.HasSuffix(name, " · "+word):
+		return " · " + word + xn
+	}
+	return xn
+}
+
+// runtimeTraceProjRowNameFitted is THE single name-budget fit (§24.9 G2): the
+// keep suffix is carved out of the budget as a reserve and re-attached whole
+// after the head truncation; every other name keeps the legacy TruncateName
+// byte-identically. Shared by the width pass and the label composer so the
+// measured column and the rendered label can never drift.
+func runtimeTraceProjRowNameFitted(fixedW int, row runtimeTraceProjTreeRow, name string, zh bool) string {
+	reserve := runtimeTraceProjRowMainReserve(row, zh)
+	if keep := runtimeTraceProjRowNameKeepSuffix(row, zh); keep != "" && strings.HasSuffix(name, keep) {
+		head := strings.TrimSuffix(name, keep)
+		budget := runtimeTraceProjTreeNameBudgetReserve(fixedW, reserve+runewidth.StringWidth(keep))
+		if head != "" && runewidth.StringWidth(head) > budget {
+			head = runtimeTraceProjTruncateName(head, budget)
+		}
+		return head + keep
+	}
+	budget := runtimeTraceProjTreeNameBudgetReserve(fixedW, reserve)
+	if runewidth.StringWidth(name) > budget {
+		name = runtimeTraceProjTruncateName(name, budget)
+	}
+	return name
 }
 
 // runtimeTraceProjTruncateName display-truncates a row name to a cell budget
@@ -3220,9 +3442,13 @@ func runtimeTraceProjTruncateName(name string, width int) string {
 
 // runtimeTraceProjBoundaryTruncate (PTV8-RCR-B, UXA 域A #24/漏审A,
 // 2026-07-08) tail-truncates text to fit budget cells, cutting ONLY at a word
-// boundary — immediately before a "(", "（", "·", "/", or space — and appends
-// "…". "" when no boundary-aligned prefix fits (the caller yields the seat
-// instead of leaving an opaque mid-word residue like "s_s…").
+// boundary — immediately before a "(", "（", "·", "/", "+", or space — and
+// appends "…". "" when no boundary-aligned prefix fits (the caller yields the
+// seat instead of leaving an opaque mid-word residue like "s_s…").
+// PTV8-RCR-C (§24.9 G2 防御半): '+' joins the boundary set so a composition
+// word that ever falls back onto this lane cuts to "runnable…" instead of
+// vanishing whole — the grammar words themselves ride the reserved 行1 seat
+// (runtimeTraceProjRowNameKeepSuffix) and normally never reach this cut.
 func runtimeTraceProjBoundaryTruncate(text string, budget int) string {
 	if budget < 2 {
 		return ""
@@ -3233,7 +3459,7 @@ func runtimeTraceProjBoundaryTruncate(text string, budget int) string {
 	for i, r := range runes {
 		if i > 0 {
 			switch r {
-			case '(', '（', '·', '/', ' ':
+			case '(', '（', '·', '/', '+', ' ':
 				if w <= budget-1 {
 					best = i
 				}
@@ -3594,6 +3820,41 @@ func runtimeTraceProjEdgeLabel(edge string, zh bool) string {
 	}
 }
 
+// runtimeTraceProjDepthlessUnattachedRow (PTV8-RCR-C, §24.12 C6, 2026-07-08)
+// is the depth-KNOWN depthless shape: the engine resolved the row's chain
+// layer (Depth>0) but the tree found no attach point. The old three surfaces
+// forked on it (edge 深度未解析 / chip 链上L1 / detail 深度1(未接入链)) —
+// every surface now reads the ONE 未接入树 word family through the helpers
+// below. Flat renders keep their own header-explained wording (CMP-7a).
+func runtimeTraceProjDepthlessUnattachedRow(row runtimeTraceProjTreeRow) bool {
+	return row.Kind == runtimeTraceProjTreeRowDepthless && row.Depth > 0 && !row.FlatChain
+}
+
+// runtimeTraceProjChainDepthChipEligible is the ONE gate shared by the Seg-20
+// chip site and the 行2 identity builder (§24.9 G3 收编 — two diverging gates
+// could double- or zero-print the layer): chain-lane rows with a resolved
+// depth only; flat renders never claim 链上 (CMP-7a).
+func runtimeTraceProjChainDepthChipEligible(row runtimeTraceProjTreeRow) bool {
+	return !row.FlatChain && row.Depth > 0 &&
+		(row.Kind == runtimeTraceProjTreeRowChain || row.Kind == runtimeTraceProjTreeRowDepthless)
+}
+
+// runtimeTraceProjChainDepthChipWord renders the layer word — the §24.12 C6
+// single source consumed by the Seg-20 chip, the 行2 identity join and the
+// detail 层级 cell (三面同词).
+func runtimeTraceProjChainDepthChipWord(row runtimeTraceProjTreeRow, zh bool) string {
+	if runtimeTraceProjDepthlessUnattachedRow(row) {
+		if zh {
+			return fmt.Sprintf("链上L%d(未接入树)", row.Depth)
+		}
+		return fmt.Sprintf("chain L%d (unattached)", row.Depth)
+	}
+	if zh {
+		return fmt.Sprintf("链上L%d", row.Depth)
+	}
+	return fmt.Sprintf("chain L%d", row.Depth)
+}
+
 // runtimeTraceProjStateIcon picks the row's state icon and records the NEW-7
 // mark for the icon it actually emits (marks nil-safe; the width pass and the
 // detail-cell callers pass nil and record nothing). PTV4 T5: the sleep /
@@ -3923,7 +4184,7 @@ func runtimeTraceProjTreeRowLine(row runtimeTraceProjTreeRow, width int, denom f
 		return runtimeTraceProjOmittedRowLine(row, zh)
 	}
 	fixed, name := runtimeTraceProjTreeLabelParts(row, zh)
-	left := runtimeTraceProjTreeLabelReserve(fixed, name, width, runtimeTraceProjRowMainReserve(row, zh))
+	left := runtimeTraceProjTreeLabelRow(fixed, row, name, width, zh)
 	var line string
 	if !row.HasData {
 		// NEW-10 (§7.6): transit rows carry no bar to align — render compact.
@@ -4029,8 +4290,8 @@ func runtimeTraceProjStanzaRowLine(row runtimeTraceProjTreeRow, width int, denom
 	// rendered glyph-less, so same-depth rows had varying emoji counts and web
 	// font drift shifted them by varying offsets. The fixed part mirrors the
 	// width pass in runtimeTraceProjTreeLabelColumn exactly.
-	left := runtimeTraceProjTreeLabelReserve("    "+runtimeTraceProjStateIcon(row.Node, row.Kind, true, row.marks)+" ",
-		runtimeTraceProjRowName(row, zh), width, runtimeTraceProjRowMainReserve(row, zh))
+	left := runtimeTraceProjTreeLabelRow("    "+runtimeTraceProjStateIcon(row.Node, row.Kind, true, row.marks)+" ",
+		row, runtimeTraceProjRowName(row, zh), width, zh)
 	return runtimeTraceProjRowLineWithMetrics(left, row, denom, windowMode, zh)
 }
 
@@ -4445,6 +4706,38 @@ func runtimeTraceProjWrapDisplay(text string, width int) []string {
 	// neighbor. Byte concatenation stays identical (break position only).
 	closePunct := map[string]bool{")": true, "）": true, ",": true, "，": true, "、": true, ";": true, "；": true, "。": true}
 	openPunct := map[string]bool{"(": true, "（": true}
+	// PTV8-RCR-C (§24.9 G2/G3 随批, DL2 家族, 2026-07-08): a SHORT ASCII
+	// parenthetical group fuses into ONE atom ("(in full)" — the caliber
+	// words' EN faces) so a mid-parenthetical space can never split a caliber
+	// claim across lines ("60.000ms(in\n full)"). Non-nested "( … )" runs of
+	// ≤12 display cells only; longer parentheticals keep the L2 punct-aware
+	// break rules. Byte concatenation stays identical (grouping only).
+	for i := 0; i < len(atoms); i++ {
+		if atoms[i].text != "(" {
+			continue
+		}
+		w := atoms[i].w
+		end := -1
+		for j := i + 1; j < len(atoms) && w <= 12; j++ {
+			w += atoms[j].w
+			if atoms[j].text == "(" {
+				break
+			}
+			if atoms[j].text == ")" {
+				end = j
+				break
+			}
+		}
+		if end < 0 || w > 12 {
+			continue
+		}
+		var b strings.Builder
+		for j := i; j <= end; j++ {
+			b.WriteString(atoms[j].text)
+		}
+		atoms[i] = atom{text: b.String(), w: w}
+		atoms = append(atoms[:i+1], atoms[end+1:]...)
+	}
 	var out []string
 	var lineAtoms []atom
 	lineW := 0
@@ -4869,6 +5162,14 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 			case runtimeTraceProjSupplyFoldTriple, runtimeTraceProjSupplyFoldWithDemand, runtimeTraceProjSupplyFoldDominant:
 				row.marks.mark(runtimeTraceProjMarkCaliberBigCoreFmax)
 				row.marks.mark(runtimeTraceProjMarkCaliberLowerBound)
+			case runtimeTraceProjSupplyFoldUnknownBasis:
+				// PTV8-RCR-C §24.9 G4 co-repair: the deficit-bearing unknown-
+				// basis form speaks 按大核满频…下界 — its caliber legend
+				// entries follow the words (the no-deficit form keeps none).
+				if node.SupplyFoldDeficitMS > 0 {
+					row.marks.mark(runtimeTraceProjMarkCaliberBigCoreFmax)
+					row.marks.mark(runtimeTraceProjMarkCaliberLowerBound)
+				}
 			}
 			tag.Seg = 34
 			tags = append(tags, tag)
@@ -4912,14 +5213,16 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	// line on width pressure), the 关注 semantics moved to the T6 ❶❷❸ badges,
 	// and the detail blocks keep the full 因果位置·优先级 cell. Chain-lane
 	// rows with a resolved depth only; flat renders never claim 链上 (CMP-7a).
-	if !row.FlatChain && row.Depth > 0 &&
-		(row.Kind == runtimeTraceProjTreeRowChain || row.Kind == runtimeTraceProjTreeRowDepthless) {
+	// PTV8-RCR-C (§24.9 G3 收编): a structured cause node carries the layer
+	// inside 行2 (runtimeTraceProjCauseStructuredParts, same shared gate) —
+	// this Seg-20 seat then stays silent; hop/non-cause chain rows keep it.
+	// §24.12 C6: the depthless unattached shape speaks the 三面同词 word.
+	if !structuredOK && runtimeTraceProjChainDepthChipEligible(row) {
 		row.marks.mark(runtimeTraceProjMarkChainDepthChip)
-		text := fmt.Sprintf("链上L%d", row.Depth)
-		if !zh {
-			text = fmt.Sprintf("chain L%d", row.Depth)
+		if runtimeTraceProjDepthlessUnattachedRow(row) {
+			row.marks.mark(runtimeTraceProjMarkChainSeatUnattached)
 		}
-		tags = append(tags, runtimeTraceProjTag{Text: text, Seg: 20})
+		tags = append(tags, runtimeTraceProjTag{Text: runtimeTraceProjChainDepthChipWord(row, zh), Seg: 20})
 	}
 	if action, actionFamily := runtimeTraceCausalProjectionActionCellWithFamily(node, zh); action != "" &&
 		row.Kind != runtimeTraceProjTreeRowBackground {
@@ -4927,7 +5230,13 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		// the class token (shape-cell path + SemanticClass, precise) trims the
 		// action cell to the bare word — the same class printed twice on
 		// adjacent subordinate lines. Detail blocks keep the full cell.
-		if row.Kind == runtimeTraceProjTreeRowSemantic && shapeCellUsed &&
+		// PTV8-RCR-C (§24.12 C10, 2026-07-08). EVOLUTION RECORD: the gate was
+		// the ✦ seat KIND — the same node's ◇ stanza seat double-printed the
+		// class on one line (语义优化span·class_verification · 优化点·
+		// class_verification). The typed node identity now decides for every
+		// seat.
+		if (row.Kind == runtimeTraceProjTreeRowSemantic ||
+			runtimeTraceCausalProjectionSemanticSpanRow(node)) && shapeCellUsed &&
 			strings.TrimSpace(node.SemanticClass) != "" {
 			if zh {
 				action = "优化点"
@@ -5012,8 +5321,8 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 			// TestPTV6CRulingAChainUniverseKeepsAttributionWords). The guard
 			// mirrors the Q1 emission gate exactly, so the fold can never fire
 			// when the effective carrier itself stays silent (eff>0 is implied
-			// by the equality with the emitted cum>0; inherited needs >10×cum
-			// and can never be value-equal).
+			// by the equality with the emitted cum>0; inherited needs eff>cum
+			// (§24.12 C5 precise gate) and can never be value-equal).
 		default:
 			text := fmt.Sprintf("链上累计%.3fms", node.CumulativeImpactMS)
 			if !zh {
@@ -5235,19 +5544,41 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 }
 
 // runtimeTraceProjEffectiveInherited flags the contradictory-number shape a
-// real customer render exposed: an EffectiveImpactMS an order of magnitude
-// above the row's own cumulative means the attribution was inherited from the
-// enclosing wait interval, and MUST be annotated instead of shown bare.
+// real customer render exposed: an EffectiveImpactMS above the row's own
+// cumulative means the attribution was inherited from the enclosing wait
+// interval, and MUST be annotated instead of shown bare.
+//
+// PTV8-RCR-C (§24.12 C5, 2026-07-08). EVOLUTION RECORD: the gate was the
+// noisy eff > 10×cum RATIO — the whole 1.1×–1.8× hop-echo band (cmp_78_01:
+// 8+6 chain rows whose 有效归因 exceeded their own projection, four of them
+// even exceeding the row's physical 实际状态) shipped the bare 有效归因 word
+// with no caliber. PRECISE gate now: any effective above the row's own
+// cumulative is inherited (承自归因 + 承自注 window base). Print-equal values
+// stay non-inherited — one measurement, the PTV6-D (c) equal-value fold
+// unchanged.
 func runtimeTraceProjEffectiveInherited(node types.TraceCausalProjectionNode) bool {
 	// 复核 Low (2026-07-06, periodic∧inherited 互斥核查): a periodic source's
 	// EffectiveImpactMS is COMPUTED (runnable + lateness, VS-1), never
-	// inherited — the 10× heuristic could misfire on a tiny cumulative and
-	// stack a second 承自归因 carrier next to the VS-1 tag. Typed guard.
+	// inherited — a heuristic could misfire on a tiny cumulative and stack a
+	// second 承自归因 carrier next to the VS-1 tag. Typed guard.
 	if node.PeriodicSource {
 		return false
 	}
+	// §24.12 C5 typed-producer guards: an effective whose origin is TYPED is
+	// never "inherited from the enclosing wait interval" even when it exceeds
+	// the row's window-clipped cumulative by a hair — the inversion gated
+	// composite (runnable full + discounted running) and the §20.2 running
+	// deficit both carry their own producers and their own caliber words.
+	if runtimeTraceCausalProjectionInversionRow(node) &&
+		(node.GatedRunnableMS > 0 || node.GatedRunningDeficitMS > 0) {
+		return false
+	}
+	if runtimeTraceProjCauseRunningDeficitArm(node) {
+		return false
+	}
 	return node.EffectiveImpactMS > 0 && node.CumulativeImpactMS > 0 &&
-		node.EffectiveImpactMS > 10*node.CumulativeImpactMS
+		node.EffectiveImpactMS > node.CumulativeImpactMS &&
+		!runtimeTraceProjRound3Equal(node.EffectiveImpactMS, node.CumulativeImpactMS)
 }
 
 // runtimeTraceProjInheritedWindowBaseSuffix renders the §21-CWD window-base
@@ -5292,7 +5623,14 @@ func runtimeTraceProjInheritedWindowBaseSuffix(node types.TraceCausalProjectionN
 // tolerance) keeps the legacy anchor-based share byte-identically. Standalone
 // lane on purpose (PTV8-RCR node-shape rework friction).
 func runtimeTraceProjSemanticSourceWindowShareBaseMS(row runtimeTraceProjTreeRow, denomMS float64) (float64, bool) {
-	if row.Kind != runtimeTraceProjTreeRowSemantic {
+	// PTV8-RCR-C (§24.12 C10 ◇席窗基披露, 2026-07-08). EVOLUTION RECORD: the
+	// gate was the ✦ seat KIND only — the SAME semantic node's ◇/▒ stanza seat
+	// silently re-based its % on the anchor window (cmp_78_01 E41: tree 1%
+	// against its 81ms source window vs ◇ face 0% against 1800ms, no 来自查询窗
+	// note). The typed NODE identity now decides, so every seat of a semantic
+	// span re-bases (and discloses) identically.
+	if row.Kind != runtimeTraceProjTreeRowSemantic &&
+		!runtimeTraceCausalProjectionSemanticSpanRow(row.Node) {
 		return 0, false
 	}
 	return runtimeTraceProjSemanticSourceWindowRebaseMS(row.Node, denomMS)
@@ -6759,7 +7097,12 @@ func runtimeTraceProjTargetSelfWaitViewRow(row runtimeTraceProjTreeRow) bool {
 	}
 	for _, token := range []string{row.Node.TypeToken, row.Node.Object, row.Node.Predicate} {
 		switch runtimeTraceProjImpactFormTokenFamily(runtimeTraceCausalProjectionCanonicalNode(token)) {
-		case runtimeTraceProjImpactFormIOBlock, runtimeTraceProjImpactFormSleep, runtimeTraceProjImpactFormRunnable:
+		// PTV8-RCR-C 复核收尾 (2026-07-08): binder_wait left the ⛓ IOBlock
+		// family (IPC ≠ block IO) but stays a WAIT view — the COV census
+		// counted the huadong binder-wait 4.577 through the old membership and
+		// must keep counting it through the new family row (等待症状族).
+		case runtimeTraceProjImpactFormIOBlock, runtimeTraceProjImpactFormSleep,
+			runtimeTraceProjImpactFormRunnable, runtimeTraceProjImpactFormBinderWait:
 			return true
 		}
 	}
@@ -7473,7 +7816,14 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 		if model.WindowMS > 0 && runtimeTraceProjCrossWindow(node) && node.ActualImpactMS > 0 {
 			actual += " ⚠"
 		}
-		confidence := runtimeTraceProjConfidenceTier(node.Confidence, zh)
+		// PTV8-RCR-C (§24.9 维度A F4 / §24.11 C-4, 2026-07-08). EVOLUTION
+		// RECORD: this column read node.Confidence while the tree 行2 and the
+		// detail block read the fold-peer confidence — one merged row wore two
+		// tiers on two faces. The three faces now share ONE source
+		// (runtimeTraceProjCauseRankConfidence; rows without fold peers are
+		// byte-identical).
+		_, rowConfidence := runtimeTraceProjCauseRankConfidence(row)
+		confidence := runtimeTraceProjConfidenceTier(rowConfidence, zh)
 		if confidence == "" {
 			confidence = dash
 		}
@@ -7653,7 +8003,16 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 		// PTV6-C ruling B (#73): the inversion cell now speaks the cause full
 		// word (优先级反转候选) — 反转影响 is deleted; the D3 composition keeps
 		// its single carrier on the fence tag (never elided there).
-		shape := runtimeTraceCausalProjectionImpactShapeCell(node, zh)
+		// PTV8-RCR-C (§24.12 C7, 2026-07-08). EVOLUTION RECORD: the generic
+		// arm claimed 未分类(该行无具体状态/类型词) beside 类型: binder_wait —
+		// a typed-family row now takes its §24.3 family word (两列单源表;
+		// genuinely word-less rows keep the generic arm byte-identically).
+		shape, genericShape := runtimeTraceCausalProjectionImpactShapeCellTyped(node, zh)
+		if genericShape {
+			if family := runtimeTraceProjImpactFormFamilyWord(node, zh); family != "" {
+				shape = family
+			}
+		}
 		// V3/F3: the whole-window-wait annotation mirrors the SAME shared
 		// judgment as the fence tag — full semantics on this surface.
 		if runtimeTraceProjWholeWindowIdleRow(row, model.WindowMS) {
@@ -7712,16 +8071,24 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 			rank, confidence := runtimeTraceProjCauseRankConfidence(row)
 			var seat []string
 			if rank > 0 {
-				if zh {
-					seat = append(seat, fmt.Sprintf("#%d", rank))
-				} else {
-					seat = append(seat, fmt.Sprintf("#%d", rank))
+				seat = append(seat, fmt.Sprintf("#%d", rank))
+				// §24.13 裁定二后半: the multi-board window tag rides the seat
+				// ordinal on this face too (same stamped chip as the tree 行2).
+				if chip := strings.TrimSpace(row.RankWindowChip); chip != "" {
+					seat = append(seat, chip)
 				}
 			}
 			if tier := runtimeTraceProjConfidenceTier(confidence, zh); tier != "" {
-				if zh {
+				switch {
+				case rank <= 0:
+					// PTV8-RCR-C (§24.12 C11 明细空榜位字段形, 2026-07-08).
+					// EVOLUTION RECORD: an unseated cause node rendered
+					// 「根因排序: 置信中」 — a rank label over a bare confidence
+					// tier. The bare tier now rides its own 置信 label below.
+					seat = append(seat, tier)
+				case zh:
 					seat = append(seat, "置信"+tier)
-				} else {
+				default:
 					seat = append(seat, "confidence "+tier)
 				}
 			}
@@ -7739,7 +8106,11 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 				if !zh {
 					sep = " · "
 				}
-				add("根因排序", "root-cause rank", strings.Join(seat, sep))
+				if rank > 0 {
+					add("根因排序", "root-cause rank", strings.Join(seat, sep))
+				} else {
+					add("置信", "confidence", strings.Join(seat, sep))
+				}
 			}
 			if runtimeTraceCausalProjectionInversionRow(node) {
 				// 复核 FAIL-2: the SAME shared equation/sub-row templates the
@@ -7996,10 +8367,11 @@ func runtimeTraceProjDetailLayerCell(row runtimeTraceProjTreeRow, zh, flat bool)
 			return "—"
 		}
 		if row.Depth > 0 {
-			if zh {
-				return fmt.Sprintf("深度%d(未接入链)", row.Depth)
-			}
-			return fmt.Sprintf("depth %d (detached)", row.Depth)
+			// PTV8-RCR-C (§24.12 C6 三面同词, 2026-07-08). EVOLUTION RECORD:
+			// this cell said 深度1(未接入链) while the row chip said 链上L1 and
+			// the edge said 深度未解析 — three calibers on one row. All three
+			// faces now read the shared 链上L#(未接入树) word.
+			return runtimeTraceProjChainDepthChipWord(row, zh)
 		}
 		if zh {
 			return "链上·深度未解析"
@@ -8097,6 +8469,15 @@ func runtimeTraceProjDetailRelationCell(row runtimeTraceProjTreeRow, zh, flat bo
 		// PTV6 #1c: the relation word follows the edge — never 唤醒 (the
 		// attach point is exactly what is unresolved; same wording as the C31
 		// sibling cell and the layer cell).
+		// PTV8-RCR-C (§24.12 C6): the depth-known unattached shape follows its
+		// edge word too — 深度未解析 here would re-open the fork one field
+		// below the unified 层级 cell.
+		if runtimeTraceProjDepthlessUnattachedRow(row) {
+			if zh {
+				return "链上·未接入树"
+			}
+			return "on-chain · unattached"
+		}
 		if zh {
 			return "链上·深度未解析"
 		}
@@ -8113,6 +8494,16 @@ func runtimeTraceProjDetailRelationCell(row runtimeTraceProjTreeRow, zh, flat bo
 		}
 		return "reached by drilling from " + parent
 	case runtimeTraceProjTreeEdgeSemantic:
+		// PTV8-RCR-C (§24.12 维度C C-新5 宿主如实, 2026-07-08). EVOLUTION
+		// RECORD: this arm read the tree ATTACH anchor (row.Parent) — a span
+		// hosted on a foreign thread (cmp_78_01 E41/E42: binder:8815_1-6581 /
+		// uawei.hwid.core-10353) was asserted as "main-6565 的语义span" while
+		// the tree 行3 correctly said span 位于 <宿主> 内. The relation now
+		// names the HOST thread (node.Subject, same source as the tree line);
+		// the anchor stays visible on the tree structure itself.
+		if host := strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(row.Node.Subject, zh)); host != "" {
+			parent = host
+		}
 		if parent == "" {
 			if zh {
 				return "语义span"

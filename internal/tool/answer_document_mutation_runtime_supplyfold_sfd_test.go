@@ -210,9 +210,16 @@ func TestSFDRunningTwinJoinUnknownBasisBranch(t *testing.T) {
 	// "CPU 频率数据不全" (供给折算族); count moves to the despaced surface (the
 	// new clause carries an ASCII space the wrap/collapse may not preserve);
 	// negative pin migrates to the new affirmative form 已按大核满频.
+	// PTV8-RCR-C (§24.9 G4 co-repair, 2026-07-08). EVOLUTION RECORD: this
+	// shape MINTED a deficit (0.400ms) — the unknown-basis clause now states
+	// the lower bound instead of denying the published number ("无法折算"
+	// beside 缺口 0.400ms was the F3 contradiction family).
 	despaced := vs2Despace(md)
-	if got := strings.Count(despaced, "CPU频率数据不全,无法折算"); got < 3 {
+	if got := strings.Count(despaced, "CPU频率数据部分缺失,已计部分按大核满频折算:缺口0.400ms为下界"); got < 3 {
 		t.Fatalf("joined twin must render the unknown-basis branch too (donor alone = 2 surfaces, got %d):\n%s", got, md)
+	}
+	if strings.Contains(despaced, "无法折算") {
+		t.Fatalf("the incomplete-data sentence must not deny the published deficit:\n%s", md)
 	}
 	if strings.Contains(despaced, "已按大核满频") {
 		t.Fatalf("partial coverage must never make the affirmative claim:\n%s", md)

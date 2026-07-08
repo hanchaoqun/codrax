@@ -272,7 +272,9 @@ func TestP0A2TargetSymptomCellHopOnlyCaliberAnnotation(t *testing.T) {
 	cell := runtimeTraceProjCompareTargetSymptomCell(model, true)
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: hop-only cell
 	// "(唤醒链视图目标睡眠,非状态段聚合)" → "(唤醒链采样到的目标睡眠合计,非全窗状态统计)".
-	if cell != "1300.441ms(唤醒链采样到的目标睡眠合计,非全窗状态统计)" {
+	// PTV8-RCR-C (§24.14 D-5 退役词, 2026-07-08). EVOLUTION RECORD: 目标睡眠 →
+	// 关注线程睡眠 (B#3 词族补课;禁词 pin 同批补录).
+	if cell != "1300.441ms(唤醒链采样到的关注线程睡眠合计,非全窗状态统计)" {
 		t.Fatalf("zh hop-only cell must carry the view-caliber annotation: %q", cell)
 	}
 	en := runtimeTraceProjCompareTargetSymptomCell(model, false)

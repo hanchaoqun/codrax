@@ -589,11 +589,12 @@ func TestPTV6CB3InversionRowZeroActionCategoryWord(t *testing.T) {
 			joined += tag.Text + " · "
 		}
 		// 正向臂 — PTV8-RCR-A EVOLUTION RECORD (§24 ② + 复核 F4 裁定, §24.1
-		// 退化规则按字面执行): the 影响构成 tag is retired, and a SINGLE
+		// 退化规则按字面执行) + PTV8-RCR-C (§24.9 G3: 行2 carries ·链上L#):
+		// the 影响构成 tag is retired, and a SINGLE
 		// runnable(全额) component with 计入==原始 degenerates to the
 		// two-line form — 行3 folds into 行2's tail, no sub-row.
 		if zh {
-			if !strings.Contains(joined, "优先级反转候选·置信高·有效归因 0.277ms(全额)") {
+			if !strings.Contains(joined, "优先级反转候选·置信高·链上L1·有效归因 0.277ms(全额)") {
 				t.Fatalf("single-full inversion composite must degenerate into 行2's tail: %s", joined)
 			}
 			for _, banned := range []string{"影响构成", "ms = ", "原始"} {
@@ -817,10 +818,12 @@ func TestPTV6CSpecimen1KeyRowsAfter(t *testing.T) {
 	// PTV8-RCR-A EVOLUTION RECORD (§24.1/§24.2): the trunk is a ranked cause
 	// node — 行1 keeps the E# keep-mark, 行2 carries the identity + the
 	// degenerate 有效归因 tail (计入==原始 → 全额), and the ordinary tags pack
-	// below (grammar-clean 行1).
+	// below (grammar-clean 行1). PTV8-RCR-C EVOLUTION RECORD (§24.9 G3): the
+	// chain layer moved INTO 行2 — the packed ×2同值 line no longer leads with
+	// the Seg-20 chip.
 	if !strings.Contains(fence, "[E1(+1)]") ||
-		!strings.Contains(fence, "就绪排队候选·根因排序#1·置信高·有效归因 1.661ms(全额)") ||
-		!strings.Contains(fence, "链上L1 · ×2同值") {
+		!strings.Contains(fence, "就绪排队候选·根因排序#1·置信高·链上L1·有效归因 1.661ms(全额)") ||
+		!strings.Contains(fence, "· ×2同值") {
 		t.Fatalf("trunk rows must keep the RCR four-line geometry:\n%s", fence)
 	}
 	// PTV6-D (b): the category words left the row face (legend carries them);
@@ -880,7 +883,8 @@ func TestPTV6CSpecimen2KeyRowsAfter(t *testing.T) {
 	// PTV8-RCR-A EVOLUTION RECORD (§24.1): the cause full word rides 行2's
 	// category slot (with the seat + the degenerate 有效归因 tail), never a
 	// prepended guarantee copy — the word is whole on the row's own line.
-	if !strings.Contains(fence, "优先级反转候选·根因排序#1·置信高·有效归因 1.661ms(全额)") {
+	// PTV8-RCR-C EVOLUTION RECORD (§24.9 G3): 行2 additionally carries ·链上L#.
+	if !strings.Contains(fence, "优先级反转候选·根因排序#1·置信高·链上L1·有效归因 1.661ms(全额)") {
 		t.Fatalf("trunk row must carry the cause full word on 行2:\n%s", fence)
 	}
 	if strings.Contains(fence, "反转影响") {

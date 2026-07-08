@@ -52,6 +52,9 @@ func TestUXARetiredWordsNeverShipZH(t *testing.T) {
 		// 根因族 + 内部词
 		"根因关注点", "候选影响", "候选根因", "(rank=", "无损纵排", "关键量表", "覆盖分子",
 		"本轮", "本批",
+		// PTV8-RCR-C (§24.14 D-5, 2026-07-08): the B#3 目标→关注线程 family
+		// survivors (P0-A2 compare-face 发射点) join the negative scan.
+		"目标睡眠", "目标症状时长",
 	}
 	fixtures := map[string]types.TraceCausalProjection{
 		"opendir_node_group":  rcrOpendirProjection(),

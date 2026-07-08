@@ -69,6 +69,14 @@ const (
 	runtimeTraceProjImpactFormInterrupt
 	// ◌ 数据盲区 (trace_gap / missing_wakeup — data gaps, not causes).
 	runtimeTraceProjImpactFormBlindSpot
+	// binder 等待 (IPC wait-on-peer — 等待症状族, NOT block IO).
+	// PTV8-RCR-C 复核收尾 (2026-07-08). EVOLUTION RECORD: binder_wait rode the
+	// ⛓ IOBlock family since RCR-A — harmless while the family word had no
+	// consumer, but the C7 FamilyWord lane would have called IPC "IO阻塞候选"
+	// (typelabels 已定 binder等待). Own table row now; the glyph borrows the
+	// ◦ 无形态兜底 (a dedicated IPC glyph extends the §24.3 closed set and
+	// needs a user ruling — ledger 记账,本批不扩).
+	runtimeTraceProjImpactFormBinderWait
 	// ◦ 无形态兜底 (no dominant state, no typed family).
 	runtimeTraceProjImpactFormFallback
 )
@@ -129,6 +137,12 @@ func runtimeTraceProjImpactFormSpecs() []runtimeTraceProjImpactFormSpec {
 		{Form: runtimeTraceProjImpactFormBlindSpot, Glyph: "◌",
 			SemanticsZH: "数据缺失记号(窗内数据缺口,非成因)", SemanticsEN: "a data-gap marker (missing in-window data, not a cause)",
 			Mark: runtimeTraceProjMarkIconBlindSpot, GeneratedLegend: true},
+		// PTV8-RCR-C 复核收尾: binder IPC waits leave the ⛓ IO family — the
+		// category word rides the typelabels binder等待 typed word (+候选 同族
+		// 模式); the glyph borrows ◦ until a dedicated IPC glyph is ruled.
+		{Form: runtimeTraceProjImpactFormBinderWait, Glyph: "◦",
+			CategoryZH: "binder等待候选", CategoryEN: "binder-wait candidate",
+			Mark: runtimeTraceProjMarkIconNoDominant},
 		{Form: runtimeTraceProjImpactFormFallback, Glyph: "◦",
 			Mark: runtimeTraceProjMarkIconNoDominant},
 	}
@@ -170,9 +184,13 @@ func runtimeTraceProjImpactFormLegendEntries() []runtimeTraceProjLegendEntry {
 func runtimeTraceProjImpactFormTokenFamily(token string) runtimeTraceProjImpactForm {
 	switch token {
 	case "io_latency", "io_wait", "d_state_or_io_wait", "fragmented_d_state_or_io_wait",
-		"binder_wait", "io_pressure", "io_burst_episode", "block_io_by_inode",
+		"io_pressure", "io_burst_episode", "block_io_by_inode",
 		"file_io_hot_inode", "page_cache_churn":
 		return runtimeTraceProjImpactFormIOBlock
+	case "binder_wait":
+		// PTV8-RCR-C 复核收尾: IPC wait-on-peer is its own family (等待症状族)
+		// — never block IO (the C7 lane must say binder等待候选, not IO阻塞候选).
+		return runtimeTraceProjImpactFormBinderWait
 	case "irq_burst", "irq_activity", "ipi_activity", "workqueue_activity", "dma_fence_activity":
 		return runtimeTraceProjImpactFormInterrupt
 	case "trace_gap", "missing_wakeup":
@@ -189,6 +207,38 @@ func runtimeTraceProjImpactFormTokenFamily(token string) runtimeTraceProjImpactF
 		return runtimeTraceProjImpactFormSleep
 	}
 	return runtimeTraceProjImpactFormNone
+}
+
+// runtimeTraceProjImpactFormFamilyWord (PTV8-RCR-C, §24.12 C7, 2026-07-08)
+// resolves the §24.3 family word for a row whose TYPED token belongs to an
+// impact-form family — the detail 影响形态 cell must never claim 未分类(该行
+// 无具体状态/类型词) beside a 类型: binder_wait line (cmp_78_01 rank#1 lead
+// 行明细自相矛盾, 禁「未分类」冒名). Category-bearing families speak the
+// table's 行2 column (两列单源); the blind-spot family speaks its data-gap
+// semantics; families without a category word (sleep rides the state lane,
+// ◦ has genuinely no word) return "" and the generic arm stays honest for
+// genuinely word-less rows.
+func runtimeTraceProjImpactFormFamilyWord(node types.TraceCausalProjectionNode, zh bool) string {
+	for _, token := range []string{node.TypeToken, node.Object, node.Predicate} {
+		form := runtimeTraceProjImpactFormTokenFamily(runtimeTraceCausalProjectionCanonicalNode(token))
+		if form == runtimeTraceProjImpactFormNone {
+			continue
+		}
+		if form == runtimeTraceProjImpactFormBlindSpot {
+			if zh {
+				return "数据盲区(窗内数据缺口,非成因)"
+			}
+			return "data blind spot (missing in-window data, not a cause)"
+		}
+		if spec, ok := runtimeTraceProjImpactFormSpecFor(form); ok && spec.CategoryZH != "" {
+			if zh {
+				return spec.CategoryZH
+			}
+			return spec.CategoryEN
+		}
+		return ""
+	}
+	return ""
 }
 
 // runtimeTraceProjImpactFormForNode classifies one node onto the §24.3 form.
@@ -321,6 +371,13 @@ func runtimeTraceProjCauseEventFoldRow(row runtimeTraceProjTreeRow) bool {
 	}
 	if node.PeriodicSource || runtimeTraceProjEffectiveInherited(node) ||
 		runtimeTraceCausalProjectionInversionRow(node) {
+		return false
+	}
+	// PTV8-RCR-C §24.9 G1: a §20.2 running-deficit node is its OWN form — an
+	// eff==deficit that coincides with the merged MAX must still speak the
+	// 按大核满频 caliber, never 单次最大 (one gate ordering, shared by the
+	// name composer's ×N suffix and the structured builder).
+	if runtimeTraceProjCauseRunningDeficitArm(node) {
 		return false
 	}
 	if _, source := runtimeTraceProjNodeDisplayImpactSource(node); source == runtimeTraceProjImpactSourceEffective {
@@ -505,6 +562,25 @@ func runtimeTraceProjInversionStateCompositionWord(node types.TraceCausalProject
 	return ""
 }
 
+// runtimeTraceProjCauseRunningDeficitArm (PTV8-RCR-C, §24.9 维度A gap② /
+// §20.2 显示半场, 2026-07-08) gates the pure-running supply-deficit form: a
+// NON-inversion running-typed cause node whose supply fold ran and whose
+// engine-published effective IS the big-cluster-fmax deficit (print-precision
+// identity — the §20.2 running arm publishes EffectiveImpactMs =
+// SupplyFoldDeficitMs, authoritative). The identity check is the fail-open
+// guard: an effective from any other lane must never wear the 按大核满频
+// caliber word (显示≠归因).
+func runtimeTraceProjCauseRunningDeficitArm(node types.TraceCausalProjectionNode) bool {
+	if runtimeTraceCausalProjectionInversionRow(node) || !node.SupplyFoldComputed {
+		return false
+	}
+	running := strings.TrimSpace(strings.ToLower(node.StateKind)) == "running" ||
+		runtimeTraceCausalProjectionTypeTokenStateClass(node) == "running"
+	return running && node.SupplyFoldDeficitMS > 0 &&
+		runtimeTraceProjSupplyFoldRunningMS(node) > 0 &&
+		runtimeTraceProjRound3Equal(node.EffectiveImpactMS, node.SupplyFoldDeficitMS)
+}
+
 // runtimeTraceProjCauseStructuredParts builds rows 2..N for one cause node.
 // marks are emitted HERE (at the wording's real emission site) so the caliber
 // legend entries render exactly on demand (§24.1补).
@@ -531,12 +607,30 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		} else {
 			identity = append(identity, fmt.Sprintf("root-cause rank #%d", rank))
 		}
+		// PTV8-RCR-C (§24.13 裁定二后半): the multi-board window tag binds to
+		// the seat ordinal (根因排序#1·窗X — stamped at model build only when
+		// ≥2 rank boards render; the single-board form carries none).
+		if chip := strings.TrimSpace(row.RankWindowChip); chip != "" {
+			identity = append(identity, chip)
+			row.marks.mark(runtimeTraceProjMarkRankSeatWindow)
+		}
 	}
 	if tier := runtimeTraceProjConfidenceTier(confidence, zh); tier != "" {
 		if zh {
 			identity = append(identity, "置信"+tier)
 		} else {
 			identity = append(identity, "confidence "+tier)
+		}
+	}
+	// PTV8-RCR-C (§24.9 G3 链上L# 收编): a structured cause node carries its
+	// chain layer INSIDE 行2 (类别·根因排序#N·置信·链上L#) — the old Seg-20
+	// chip lane stays for hop/non-cause chain rows only (same shared gate;
+	// §24.12 C6: the depthless unattached shape speaks the 三面同词 word).
+	if runtimeTraceProjChainDepthChipEligible(row) {
+		identity = append(identity, runtimeTraceProjChainDepthChipWord(row, zh))
+		row.marks.mark(runtimeTraceProjMarkChainDepthChip)
+		if runtimeTraceProjDepthlessUnattachedRow(row) {
+			row.marks.mark(runtimeTraceProjMarkChainSeatUnattached)
 		}
 	}
 	effectiveWord := "有效归因"
@@ -589,6 +683,40 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		// otherwise the plain effective tag stays on the legacy lane. The
 		// 机制构成 sentence stays retired on inversion cause nodes regardless
 		// (§24 ②, enforced at the supply-fold tag site).
+	}
+	if !handled && eligible && runtimeTraceProjCauseRunningDeficitArm(node) {
+		// PTV8-RCR-C §24.9 G1 (§20.2 纯 running 缺口臂): the third closed-set
+		// caliber word gets its structured producer — 行3 = 有效归因 V =
+		// running(折算,按大核满频) V; 子行 = running 原始(ideal+deficit 恒等式)
+		// → 计入 deficit[,下界 当 UnknownMS>0]. The legacy bare 有效归因X tag
+		// (opendir_78 E8 gap②) dies via ConsumedEffective; identity Σ计入==V
+		// holds by construction (single component, InMS == engine effective).
+		short := "折算,按大核满频"
+		if !zh {
+			short = "discounted, at big-cluster fmax"
+		}
+		full := short
+		componentMarks := []runtimeTraceProjMark{runtimeTraceProjMarkCaliberBigCoreFmax}
+		if node.SupplyFoldUnknownMS > 0 {
+			if zh {
+				full += ",下界"
+			} else {
+				full += ", lower bound"
+			}
+			componentMarks = append(componentMarks, runtimeTraceProjMarkCaliberLowerBound)
+		}
+		components := []runtimeTraceProjAttributionComponent{{
+			Word: "running", RawMS: runtimeTraceProjSupplyFoldRunningMS(node), InMS: effective,
+			CaliberShort: short, CaliberFull: full, Marks: componentMarks,
+		}}
+		out.SubRows = runtimeTraceProjAttributionSubRows(components, zh)
+		out.Breakdown = effectiveWord + " " + runtimeTraceProjAttributionEquation(effective, components)
+		row.marks.mark(runtimeTraceProjMarkEffectiveBreakdown)
+		for _, m := range componentMarks {
+			row.marks.mark(m)
+		}
+		out.ConsumedEffective = true
+		handled = true
 	}
 	if !handled && eligible && runtimeTraceProjCauseEventFoldRow(row) {
 		// §24.2 event-class form: ×N moves onto 行1, the (a–b,共N次) range and

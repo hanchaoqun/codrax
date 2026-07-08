@@ -139,9 +139,12 @@ func TestRCRCauseNodeTerminalFormsVerbatim(t *testing.T) {
 	fence, _ := rcrOpendirFence(t, true)
 	// E4 lock node — §24.2 degenerate two-line form: 行1 glyph ⊗ + badge,
 	// 行2 = 类别·根因排序#1·置信 + folded 行3 tail (计入==原始 → 全额).
+	// PTV8-RCR-C (§24.9 G3, 2026-07-08). EVOLUTION RECORD: the chain layer
+	// moved INTO 行2 (类别·根因排序#N·置信·链上L#·[尾]) — the standalone
+	// Seg-20 chip is retired on structured cause nodes.
 	for _, want := range []string{
 		"❶⊗ #RxComputationT-16816 · 持锁阻塞",
-		"· 锁竞争·持锁·根因排序#1·置信中·有效归因 112.223ms(全额)",
+		"· 锁竞争·持锁·根因排序#1·置信中·链上L1·有效归因 112.223ms(全额)",
 	} {
 		if !strings.Contains(fence, want) {
 			t.Fatalf("E4 lock terminal form missing %q:\n%s", want, fence)
@@ -312,7 +315,11 @@ func TestRCRImpactFormGlyphsSingleCellNoVS16(t *testing.T) {
 		if w := runewidth.StringWidth(spec.Glyph); w != 1 {
 			t.Fatalf("glyph %q measures %d display cells, want 1 (等宽单格宽)", spec.Glyph, w)
 		}
-		if seen[spec.Glyph] {
+		// PTV8-RCR-C 复核收尾 (2026-07-08). EVOLUTION RECORD: the ◦ 无形态兜底
+		// glyph is the ONE sanctioned share — the binder-wait family borrows
+		// it until a dedicated IPC glyph is ruled into the §24.3 closed set;
+		// every other glyph stays one-per-form.
+		if seen[spec.Glyph] && spec.Glyph != "◦" {
 			t.Fatalf("glyph %q assigned to two forms — the closed set is one glyph per form", spec.Glyph)
 		}
 		seen[spec.Glyph] = true

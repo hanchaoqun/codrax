@@ -221,11 +221,47 @@ func runtimeTraceProjSupplyFoldClause(node types.TraceCausalProjectionNode, wind
 	case runtimeTraceProjSupplyFoldNoDeficit:
 		// Affirmative exclusion (§7.10 fourth branch, via_thread-NOT family
 		// value): only a fully-known basis may make this claim.
+		//
+		// PTV8-RCR-C (§24.9 维度A F3 / G4 两形, 2026-07-08). EVOLUTION RECORD:
+		// this branch spoke ONE sentence for the whole 0 ≤ deficit < 阈 band —
+		// "无供给缺口" printed beside 有效归因0.186ms whose entire semantics IS
+		// that deficit (§20.2 made the wording deny its own neighbour number).
+		// The wording now forks on the PRECISE deficit value (嘈声阈值只选句形,
+		// 数字单源): deficit == 0 keeps the affirmative sentence byte-identical;
+		// 0 < deficit < 阈 names the deficit and its attribution relation (the
+		// counted tail only on the §20.2 identity eff==deficit) — the sentence
+		// never denies the number beside it.
+		if deficit > 0 {
+			counted := runtimeTraceProjRound3Equal(node.EffectiveImpactMS, deficit)
+			switch {
+			case zh && counted:
+				return fmt.Sprintf("接近大核满频,缺口仅 %.3fms(已计入有效归因)", deficit), "接近大核满频", true
+			case zh:
+				return fmt.Sprintf("接近大核满频,缺口仅 %.3fms(独立口径,不计入有效归因)", deficit), "接近大核满频", true
+			case counted:
+				return fmt.Sprintf("near big-cluster fmax; the deficit is only %.3fms (counted into the attribution)", deficit), "near fmax", true
+			default:
+				return fmt.Sprintf("near big-cluster fmax; the deficit is only %.3fms (independent caliber, not counted into attribution)", deficit), "near fmax", true
+			}
+		}
 		if zh {
 			return "已按大核满频(或接近)运行,无供给缺口,running 为真实工作量", "已按大核满频", true
 		}
 		return "ran at (near) full frequency on the top cluster; running is true workload", "full frequency", true
 	default: // runtimeTraceProjSupplyFoldUnknownBasis
+		// PTV8-RCR-C (§24.9 G4 co-repair, 2026-07-08): a partially-unknown
+		// basis CAN still have minted a lower-bound deficit (known slices fold,
+		// unknown slices fold at ratio 1 and mint none) — "无法折算" beside a
+		// published deficit denied the neighbour number the same way the old
+		// NoDeficit form did. The deficit shape states the lower bound; the
+		// no-deficit shape keeps the honest incomplete-data sentence
+		// byte-identically.
+		if deficit > 0 {
+			if zh {
+				return fmt.Sprintf("CPU 频率数据部分缺失,已计部分按大核满频折算:缺口 %.3fms 为下界", deficit), "CPU 频率数据部分缺失", true
+			}
+			return fmt.Sprintf("frequency data partially missing; the known share folded at big-cluster fmax: the %.3fms deficit is a lower bound", deficit), "frequency data partially missing", true
+		}
 		if zh {
 			return "CPU 频率数据不全,无法折算", "CPU 频率数据不全", true
 		}

@@ -1205,7 +1205,10 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 	// PTV8-RCR-B (UXA 域D #3, 2026-07-08). EVOLUTION RECORD: 工件→trace 文件
 	// (内部词), rank=1→根因排序#1 (根因族), on-chain 已归因→链上已归因
 	// (归因族), 投影窗→分析窗 (窗族). EN face keeps its established words.
-	columns := []string{"trace 文件", "主根因(根因排序#1)", "目标症状时长", "链上已归因", "背景压力"}
+	// PTV8-RCR-C (§24.14 D-5 退役词, 2026-07-08). EVOLUTION RECORD: the B#3
+	// 目标→关注线程 family sweep left this header behind — 目标症状时长 →
+	// 关注线程症状时长 (禁词 pin 补录).
+	columns := []string{"trace 文件", "主根因(根因排序#1)", "关注线程症状时长", "链上已归因", "背景压力"}
 	if !zh {
 		columns = []string{"Artifact", "Primary root cause (rank=1)", "Target symptom", "On-chain attributed", "Background pressure"}
 	}
@@ -1371,7 +1374,7 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 }
 
 // runtimeTraceProjCompareTargetSymptomCell renders the comparison overview's
-// 目标症状时长 cell (P0-A2 §18.C, F1 裁定张力 resolution). The primary caliber is
+// 关注线程症状时长 cell (P0-A2 §18.C, F1 裁定张力 resolution). The primary caliber is
 // the F1 state-segment aggregate (runtimeTraceProjTargetSymptomMS) — hop-view
 // wall clock is DELIBERATELY excluded there to avoid double counting, and that
 // exclusion is untouched here.
@@ -1394,8 +1397,12 @@ func runtimeTraceProjCompareTargetSymptomCell(model runtimeTraceProjTreeModel, z
 		return fmt.Sprintf("%.3fms", symptom)
 	}
 	if hopSleep := runtimeTraceProjHopOnlyTargetSleepMS(model); hopSleep > 0 {
+		// PTV8-RCR-C (§24.14 D-5 退役词, 2026-07-08). EVOLUTION RECORD: the
+		// PTV8-RCR-B pass rewrote this parenthetical without applying its own
+		// B#3 目标→关注线程 family — the survivor 目标睡眠 retires here (禁词
+		// pin 补录; EN face keeps its established words).
 		if zh {
-			return fmt.Sprintf("%.3fms(唤醒链采样到的目标睡眠合计,非全窗状态统计)", hopSleep)
+			return fmt.Sprintf("%.3fms(唤醒链采样到的关注线程睡眠合计,非全窗状态统计)", hopSleep)
 		}
 		return fmt.Sprintf("%.3fms (wakeup-chain-view target sleep, not a state-segment aggregate)", hopSleep)
 	}
@@ -2237,22 +2244,22 @@ func runtimeTraceCausalProjectionActionCellWithFamily(node types.TraceCausalProj
 		stateKind = causeKind
 	}
 	if node.IsSleepState() {
-		if node.Undrillable() {
-			if zh {
-				return "睡眠症状·缺唤醒边", ""
-			}
-			return "sleep symptom·no wake edge", ""
-		}
-		if strings.TrimSpace(node.DrilldownTarget) != "" {
+		// PTV8-RCR-C (§24.12 C11 睡眠症状注三态统一, 2026-07-08). EVOLUTION
+		// RECORD: one tree spoke three sleep-note states for no principled
+		// reason (cmp_78_01: E10 睡眠症状→查上游 / E8 裸 睡眠症状 / E13-E17
+		// 无注). The note is now GUIDANCE or nothing — one word, one condition:
+		// it renders exactly when a known upstream exists to chase (the A#25
+		// gate still suppresses it when that upstream is already a rendered
+		// row). The bare 睡眠症状 restatement (the row already wears ☾ + the
+		// sleep state word) and the ·缺唤醒边 variant (the ⊘链止 keep-mark and
+		// the 无唤醒记录 lane already state that fact) are retired.
+		if !node.Undrillable() && strings.TrimSpace(node.DrilldownTarget) != "" {
 			if zh {
 				return "睡眠症状→查上游", ""
 			}
 			return "sleep symptom→upstream", ""
 		}
-		if zh {
-			return "睡眠症状", ""
-		}
-		return "sleep symptom", ""
+		return "", ""
 	}
 	if causeKind == "compute_supply" {
 		// b3 (b): the former 执行/算力 converges onto the canonical running

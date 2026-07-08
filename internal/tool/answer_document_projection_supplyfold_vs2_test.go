@@ -189,8 +189,14 @@ func TestSupplyFoldClauseUnknownBasisZH(t *testing.T) {
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: "频点数据不全" →
 	// "CPU 频率数据不全" (供给折算族); negative pin migrates to the new
 	// affirmative form 已按大核满频 (old 已满频满核 no longer renders anywhere).
-	if !strings.Contains(collapsed, "CPU 频率数据不全,无法折算") {
+	// PTV8-RCR-C (§24.9 G4 co-repair, 2026-07-08). EVOLUTION RECORD: this
+	// shape MINTED a deficit (0.400ms) — the clause now states the lower
+	// bound; "无法折算" beside a published deficit denied the number.
+	if !strings.Contains(collapsed, "CPU 频率数据部分缺失,已计部分按大核满频折算:缺口 0.400ms 为下界") {
 		t.Fatalf("unknown-basis honesty missing:\n%s", md)
+	}
+	if strings.Contains(collapsed, "无法折算") {
+		t.Fatalf("the incomplete-data sentence must not deny the published deficit:\n%s", md)
 	}
 	if strings.Contains(collapsed, "已按大核满频") {
 		t.Fatalf("partial coverage must never make the affirmative claim:\n%s", md)

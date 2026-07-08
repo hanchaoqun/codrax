@@ -658,6 +658,12 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// UXA 域A #31: the 有效归因 word rides many tag forms (Q1 tag / 行2
 		// tail / 行3 head / periodic tag) — structural, direction A only.
 		runtimeTraceProjMarkEffectiveAttributionTag: {"", ""},
+		// PTV8-RCR-C (§24.12 C6): the depthless unattached 三面同词 family —
+		// the word rides the edge, the L# chip and the detail 层级 cell.
+		runtimeTraceProjMarkChainSeatUnattached: {"未接入树", "unattached"},
+		// PTV8-RCR-C (§24.13 裁定二后半): the multi-board seat window tag
+		// (根因排序#1·窗X–Ys); the zh no-space join / en spaced join tokens.
+		runtimeTraceProjMarkRankSeatWindow: {"·窗", "· window "},
 	}
 }
 
@@ -1004,6 +1010,10 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// the stanza 折算 discriminator entries.
 		{"uxa_windowless_fallback_scale", revisit76UXAWindowlessProjection()},
 		{"uxa_stanza_discount", revisit76UXAStanzaDiscountProjection()},
+		// PTV8-RCR-C (§24.12 C6 + §24.13 裁定二后半): the depthless unattached
+		// 三面同词 word and the multi-board seat window tag (fixture home:
+		// answer_document_projection_rcrc_test.go).
+		{"rcrc_multi_board_unattached", rcrcMultiBoardUnattachedProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

@@ -395,7 +395,7 @@ func TestPTV6DSpecimenReplayLineLedger(t *testing.T) {
 			// rows) — not a packing loss; the negative arm lives in the ptv6c
 			// specimen pins.
 			inventory: []string{
-				"优先级反转候选·根因排序#1·置信高·有效归因 1.661ms(全额)", "链上L1",
+				"优先级反转候选·根因排序#1·置信高·链上L1·有效归因 1.661ms(全额)",
 				"影响点 可运行等待反转（priority_inversion_runnable_wait）",
 				"IO等待(对端 udk-irq-3-65)", "D-state/iowait(对端未解析)",
 				"IO等待(对端 udk-irq-1-63)",
