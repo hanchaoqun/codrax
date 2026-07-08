@@ -8109,29 +8109,32 @@ func runtimeTraceProjFullWindowCoverageTag(node types.TraceCausalProjectionNode,
 	if covered <= 0 {
 		return runtimeTraceProjTag{}, false
 	}
-	// PTV7 (#74, 用户裁定 2026-07-06, supersedes the PTV5 C17/C36 zh combined
-	// form 可运行等待（runnable）/睡眠等待（sleep）): the state class IS the
-	// canonical display word on both faces — the class TABLE keys stay
-	// untouched, the raw source token and the RN-12 ledger-verbatim "top 片段"
-	// wording stay exactly as ruled (R02 禁动面).
+	// PTV7 (#74, 用户裁定 2026-07-06): the state class IS the canonical
+	// display word on both faces — the class TABLE keys stay untouched.
+	// EVOLUTION RECORD (用户重裁 2026-07-08, UXA D#30 终稿, supersedes the
+	// RN-12 ledger-verbatim "top 片段" R02 禁动面): "top 片段" becomes
+	// 其中最大片段 / "its largest fragment", and the raw source token
+	// (top_sleep / state_drilldown) leaves the prose — it stays verbatim on
+	// the audit faces (system supplement / evidence index) per the §22.2.1
+	// backstop; `source` presence still gates the note (typed provenance).
 	displayClass := class
 	var text string
 	switch {
 	case node.FullWindowStateSameWindow:
-		text = fmt.Sprintf("窗内 %s 合计 %.3fms(%s),链上仅覆盖 top 片段 %.3fms(%.0f%%)",
-			displayClass, full, source, covered, covered/full*100)
+		text = fmt.Sprintf("窗内 %s 合计 %.3fms,链上仅覆盖其中最大片段 %.3fms(%.0f%%)",
+			displayClass, full, covered, covered/full*100)
 		if !zh {
-			text = fmt.Sprintf("full-window %s total %.3fms (%s); the chain covers only the top fragment %.3fms (%.0f%%)",
-				class, full, source, covered, covered/full*100)
+			text = fmt.Sprintf("full-window %s total %.3fms; the chain covers only its largest fragment %.3fms (%.0f%%)",
+				class, full, covered, covered/full*100)
 		}
 	case node.FullWindowStateWindowStart > 0 && node.FullWindowStateWindowEnd > node.FullWindowStateWindowStart:
-		text = fmt.Sprintf("另一查询窗(%.3fs–%.3fs)内 %s 合计 %.3fms(%s),链上仅覆盖 top 片段 %.3fms(%.0f%%)",
+		text = fmt.Sprintf("另一查询窗(%.3fs–%.3fs)内 %s 合计 %.3fms,链上仅覆盖其中最大片段 %.3fms(%.0f%%)",
 			node.FullWindowStateWindowStart, node.FullWindowStateWindowEnd,
-			displayClass, full, source, covered, covered/full*100)
+			displayClass, full, covered, covered/full*100)
 		if !zh {
-			text = fmt.Sprintf("%s total %.3fms in another query window (%.3fs–%.3fs) (%s); the chain covers only the top fragment %.3fms (%.0f%%)",
+			text = fmt.Sprintf("%s total %.3fms in another query window (%.3fs–%.3fs); the chain covers only its largest fragment %.3fms (%.0f%%)",
 				class, full, node.FullWindowStateWindowStart, node.FullWindowStateWindowEnd,
-				source, covered, covered/full*100)
+				covered, covered/full*100)
 		}
 	default:
 		// Defensive: neither a same-window verdict nor labelable endpoints —

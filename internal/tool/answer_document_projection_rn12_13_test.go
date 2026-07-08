@@ -7,7 +7,7 @@ package tool
 //           cross-reference tail note when the same ledger holds a
 //           same-subject full-window state total beyond the exact ×1.2
 //           threshold ("窗内 runnable 合计 2528.721ms(state_drilldown),链上仅
-//           覆盖 top 片段 635.981ms(25%)"); no observation / near-equal total
+//           覆盖其中最大片段 635.981ms(25%)"); no observation / near-equal total
 //           → no note; the sleep class is isomorphic (per-class mechanism).
 //   RN-13 — flat-fallback header explains the analysis anchor when it is not
 //           the user's focused thread (customer: anchor FFRT-49706, user focus
@@ -29,7 +29,7 @@ import (
 const rncWindow = "selected_window=100.000000..103.000000"
 
 // rncRunnableRecords is the customer 7.0 flat shape: one runnable-dominant
-// primary row (chain top fragment 635.981ms, no wakeup edge) plus, when
+// primary row (chain largest fragment 635.981ms, no wakeup edge) plus, when
 // fullMS is non-empty, the same-thread full-window state_drilldown total.
 func rncRunnableRecords(fullMS string) []types.ObservationRecord {
 	return rncRunnableRecordsWindowed(fullMS, rncWindow)
@@ -67,7 +67,7 @@ func TestRN12CoverageTailNoteZH(t *testing.T) {
 	md := audit730Render(t, audit730Bus(""), rncRunnableRecords("2528.721"), "")
 	collapsed := rn1CollapseContinuations(md)
 	// Customer pin: 635.981 vs 2528.721 → 25% (precise division, %.0f).
-	if !strings.Contains(collapsed, "窗内 runnable 合计 2528.721ms(state_drilldown),链上仅覆盖 top 片段 635.981ms(25%)") {
+	if !strings.Contains(collapsed, "窗内 runnable 合计 2528.721ms,链上仅覆盖其中最大片段 635.981ms(25%)") {
 		t.Fatalf("runnable chain row must carry the full-window coverage tail note:\n%s", md)
 	}
 }
@@ -75,7 +75,7 @@ func TestRN12CoverageTailNoteZH(t *testing.T) {
 func TestRN12CoverageTailNoteEN(t *testing.T) {
 	md := audit730Render(t, audit730Bus("en"), rncRunnableRecords("2528.721"), "en")
 	collapsed := rn1CollapseContinuations(md)
-	if !strings.Contains(collapsed, "full-window runnable total 2528.721ms (state_drilldown); the chain covers only the top fragment 635.981ms (25%)") {
+	if !strings.Contains(collapsed, "full-window runnable total 2528.721ms; the chain covers only its largest fragment 635.981ms (25%)") {
 		t.Fatalf("EN chain row must carry the coverage tail note:\n%s", md)
 	}
 	if strings.Contains(md, "窗内 runnable 合计") || strings.Contains(md, "窗内 可运行等待（runnable） 合计") {
@@ -113,7 +113,7 @@ func TestRN12SleepIsomorphTailNoteZH(t *testing.T) {
 	}
 	md := audit730Render(t, audit730Bus(""), []types.ObservationRecord{sleepRow, topSleep}, "")
 	collapsed := rn1CollapseContinuations(md)
-	if !strings.Contains(collapsed, "窗内 sleep 合计 800.000ms(top_sleep),链上仅覆盖 top 片段 120.000ms(15%)") {
+	if !strings.Contains(collapsed, "窗内 sleep 合计 800.000ms,链上仅覆盖其中最大片段 120.000ms(15%)") {
 		t.Fatalf("sleep chain row must carry the isomorphic coverage note:\n%s", md)
 	}
 }
@@ -128,7 +128,7 @@ func TestRN12CrossWindowTailNoteLabelsSourceWindowZH(t *testing.T) {
 	md := audit730Render(t, audit730Bus(""),
 		rncRunnableRecordsWindowed("2528.721", "selected_window=831.000000..834.000000"), "")
 	collapsed := rn1CollapseContinuations(md)
-	if !strings.Contains(collapsed, "另一查询窗(831.000s–834.000s)内 runnable 合计 2528.721ms(state_drilldown),链上仅覆盖 top 片段 635.981ms(25%)") {
+	if !strings.Contains(collapsed, "另一查询窗(831.000s–834.000s)内 runnable 合计 2528.721ms,链上仅覆盖其中最大片段 635.981ms(25%)") {
 		t.Fatalf("cross-window total must render the labeled wording:\n%s", md)
 	}
 	if strings.Contains(collapsed, "窗内 runnable 合计") || strings.Contains(collapsed, "窗内 可运行等待（runnable） 合计") {
@@ -159,14 +159,14 @@ func TestRN12CoverageTagUnit(t *testing.T) {
 		FullWindowStateSameWindow: true,
 	}
 	tag, ok := runtimeTraceProjFullWindowCoverageTag(node, true)
-	if !ok || tag.Text != "窗内 runnable 合计 2528.721ms(state_drilldown),链上仅覆盖 top 片段 635.981ms(25%)" {
+	if !ok || tag.Text != "窗内 runnable 合计 2528.721ms,链上仅覆盖其中最大片段 635.981ms(25%)" {
 		t.Fatalf("zh coverage tag wrong: ok=%t %q", ok, tag.Text)
 	}
 	if tag.MainRow {
 		t.Fatalf("coverage tag must be demotable (subordinate-line lane), not a MainRow mark: %+v", tag)
 	}
 	if en, ok := runtimeTraceProjFullWindowCoverageTag(node, false); !ok ||
-		en.Text != "full-window runnable total 2528.721ms (state_drilldown); the chain covers only the top fragment 635.981ms (25%)" {
+		en.Text != "full-window runnable total 2528.721ms; the chain covers only its largest fragment 635.981ms (25%)" {
 		t.Fatalf("en coverage tag wrong: %q", en.Text)
 	}
 	// F-2: SameWindow=false + endpoints → the labeled wording, zh + en.
@@ -174,11 +174,11 @@ func TestRN12CoverageTagUnit(t *testing.T) {
 	cross.FullWindowStateSameWindow = false
 	cross.FullWindowStateWindowStart, cross.FullWindowStateWindowEnd = 831.0, 834.0
 	if tag, ok := runtimeTraceProjFullWindowCoverageTag(cross, true); !ok ||
-		tag.Text != "另一查询窗(831.000s–834.000s)内 runnable 合计 2528.721ms(state_drilldown),链上仅覆盖 top 片段 635.981ms(25%)" {
+		tag.Text != "另一查询窗(831.000s–834.000s)内 runnable 合计 2528.721ms,链上仅覆盖其中最大片段 635.981ms(25%)" {
 		t.Fatalf("zh cross-window tag wrong: %q", tag.Text)
 	}
 	if tag, ok := runtimeTraceProjFullWindowCoverageTag(cross, false); !ok ||
-		tag.Text != "runnable total 2528.721ms in another query window (831.000s–834.000s) (state_drilldown); the chain covers only the top fragment 635.981ms (25%)" {
+		tag.Text != "runnable total 2528.721ms in another query window (831.000s–834.000s); the chain covers only its largest fragment 635.981ms (25%)" {
 		t.Fatalf("en cross-window tag wrong: %q", tag.Text)
 	}
 	// F-2 defensive: SameWindow=false without labelable endpoints → no tag
@@ -199,7 +199,7 @@ func TestRN12CoverageTagUnit(t *testing.T) {
 		FullWindowStateSameWindow: true,
 	}
 	if tag, ok := runtimeTraceProjFullWindowCoverageTag(sleep, true); !ok ||
-		tag.Text != "窗内 sleep 合计 800.000ms(top_sleep),链上仅覆盖 top 片段 120.000ms(15%)" {
+		tag.Text != "窗内 sleep 合计 800.000ms,链上仅覆盖其中最大片段 120.000ms(15%)" {
 		t.Fatalf("sleep-class tag wrong: %q", tag.Text)
 	}
 }
@@ -216,7 +216,9 @@ func TestRN13FlatAnchorMismatchHeaderAndNextStepZH(t *testing.T) {
 	// Customer shape: anchor FFRT-49706, user focus pid 6565.
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 唤醒链路径未解析
 	// ——按层级平铺展示 → 唤醒链路径未解析;以下各行按层级平铺 (flat-header
-	// family; the RN-12 "top 片段" pins are deliberately NOT migrated — that
+	// family. EVOLUTION RECORD (用户重裁 2026-07-08, UXA D#30 终稿): the
+	// RN-12 "top 片段" verbatim freeze is superseded — 其中最大片段 wording,
+	// raw source token out of prose (audit faces keep it). Old note — that
 	// wording awaits a user re-ruling).
 	md := audit730Render(t, rncBusWithEntities("", "6565"), rncRunnableRecords(""), "")
 	if !strings.Contains(md, "(唤醒链路径未解析;以下各行按层级平铺)") {
