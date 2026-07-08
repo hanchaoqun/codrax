@@ -165,7 +165,7 @@ func TestDCSCompareOverviewOptimizationColumnAndPresenceNote(t *testing.T) {
 		}},
 	}
 	block := runtimeTraceProjCompareOverviewBlock(
-		[]types.TraceCausalProjection{withoutSpans, withSpans}, types.ObservationLedger{}, "zh-CN", true)
+		[]types.TraceCausalProjection{withoutSpans, withSpans}, types.ObservationLedger{}, "zh-CN", true, runtimeTraceProjUserFocus{})
 	if block == nil {
 		t.Fatalf("comparison overview must render for two projections")
 	}
@@ -210,7 +210,7 @@ func TestDCSCompareOverviewOptimizationColumnAbsentWithoutSemanticSpans(t *testi
 	b := a
 	b.ArtifactLabel = "b.systrace"
 	block := runtimeTraceProjCompareOverviewBlock(
-		[]types.TraceCausalProjection{a, b}, types.ObservationLedger{}, "zh-CN", true)
+		[]types.TraceCausalProjection{a, b}, types.ObservationLedger{}, "zh-CN", true, runtimeTraceProjUserFocus{})
 	if block == nil {
 		t.Fatalf("comparison overview must render for two projections")
 	}

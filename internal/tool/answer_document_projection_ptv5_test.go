@@ -435,7 +435,7 @@ func TestPTV5ComparisonOverviewLeadDropsTypedJargon(t *testing.T) {
 		ToolName: "trace_query", Success: true, Observations: obs,
 	}}})
 	set := types.CompileTraceCausalProjectionSet(ledger)
-	block := runtimeTraceProjCompareOverviewBlock(set.Projections, ledger, "zh", true)
+	block := runtimeTraceProjCompareOverviewBlock(set.Projections, ledger, "zh", true, runtimeTraceProjUserFocus{})
 	if block == nil {
 		t.Fatalf("comparison fixture must build the overview block")
 	}
@@ -446,7 +446,7 @@ func TestPTV5ComparisonOverviewLeadDropsTypedJargon(t *testing.T) {
 		strings.Contains(block.Text, "typed") {
 		t.Fatalf("zh overview lead must speak the structured-field wording without typed: %q", block.Text)
 	}
-	en := runtimeTraceProjCompareOverviewBlock(set.Projections, ledger, "en", false)
+	en := runtimeTraceProjCompareOverviewBlock(set.Projections, ledger, "en", false, runtimeTraceProjUserFocus{})
 	if en == nil || strings.Contains(en.Text, "typed") {
 		t.Fatalf("EN overview lead must not leak typed: %+v", en)
 	}

@@ -269,7 +269,9 @@ func TestP0A2TargetSymptomCellHopOnlyCaliberAnnotation(t *testing.T) {
 	if got := runtimeTraceProjTargetSymptomMS(model); got != 0 {
 		t.Fatalf("F1 state-segment aggregate must stay 0 for a hop-only target: got %.3f", got)
 	}
-	cell := runtimeTraceProjCompareTargetSymptomCell(model, true)
+	// COV-2 (§24.14 B-1, 2026-07-08). EVOLUTION RECORD: the cell now returns
+	// its typed arm + window base alongside the text (same values, no rewording).
+	cell, arm, _ := runtimeTraceProjCompareTargetSymptomCell(projection, model, true)
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: hop-only cell
 	// "(唤醒链视图目标睡眠,非状态段聚合)" → "(唤醒链采样到的目标睡眠合计,非全窗状态统计)".
 	// PTV8-RCR-C (§24.14 D-5 退役词, 2026-07-08). EVOLUTION RECORD: 目标睡眠 →
@@ -277,13 +279,21 @@ func TestP0A2TargetSymptomCellHopOnlyCaliberAnnotation(t *testing.T) {
 	if cell != "1300.441ms(唤醒链采样到的关注线程睡眠合计,非全窗状态统计)" {
 		t.Fatalf("zh hop-only cell must carry the view-caliber annotation: %q", cell)
 	}
-	en := runtimeTraceProjCompareTargetSymptomCell(model, false)
+	if arm != runtimeTraceProjCompareSymptomArmHop {
+		t.Fatalf("hop arm enum expected, got %d", arm)
+	}
+	en, _, _ := runtimeTraceProjCompareTargetSymptomCell(projection, model, false)
 	if en != "1300.441ms (wakeup-chain-view target sleep, not a state-segment aggregate)" {
 		t.Fatalf("EN hop-only cell must carry the view-caliber annotation: %q", en)
 	}
 }
 
-func TestP0A2TargetSymptomCellStateViewUnannotated(t *testing.T) {
+func TestP0A2TargetSymptomCellStateViewDominantCaliber(t *testing.T) {
+	// COV-2 (§24.14 B-1, 2026-07-08). EVOLUTION RECORD: the state arm's bare
+	// "800.000ms" retires — both arms now carry caliber words (皆带口径词);
+	// the dominant (no census exclusion, single-base) shape speaks 全窗状态统计.
+	// 复核 F5: renamed from …StateViewUnannotated — the cell IS annotated now;
+	// the old name described the retired bare form.
 	model := runtimeTraceProjTreeModel{
 		Target:   "self-1",
 		WindowMS: 2000.0,
@@ -292,14 +302,21 @@ func TestP0A2TargetSymptomCellStateViewUnannotated(t *testing.T) {
 				Node: types.TraceCausalProjectionNode{Subject: "self-1", StateKind: "s_sleep", ImpactMS: 800.0}},
 		},
 	}
-	if cell := runtimeTraceProjCompareTargetSymptomCell(model, true); cell != "800.000ms" {
-		t.Fatalf("a state-view symptom cell stays the bare F1 caliber: %q", cell)
+	cell, arm, base := runtimeTraceProjCompareTargetSymptomCell(types.TraceCausalProjection{}, model, true)
+	if cell != "800.000ms(全窗状态统计)" {
+		t.Fatalf("a dominant state-view symptom cell carries the F1 caliber word: %q", cell)
+	}
+	if arm != runtimeTraceProjCompareSymptomArmState {
+		t.Fatalf("state arm enum expected, got %d", arm)
+	}
+	if base.known || base.cross || base.mismatch {
+		t.Fatalf("windowless rows must claim no base: %+v", base)
 	}
 }
 
 func TestP0A2TargetSymptomCellDashWhenNoSleep(t *testing.T) {
 	model := runtimeTraceProjTreeModel{Target: "self-1", WindowMS: 2000.0}
-	if cell := runtimeTraceProjCompareTargetSymptomCell(model, true); cell != "—" {
-		t.Fatalf("no symptom and no hop-only sleep must render the dash: %q", cell)
+	if cell, arm, _ := runtimeTraceProjCompareTargetSymptomCell(types.TraceCausalProjection{}, model, true); cell != "—" || arm != runtimeTraceProjCompareSymptomArmNone {
+		t.Fatalf("no symptom and no hop-only sleep must render the dash: %q (arm %d)", cell, arm)
 	}
 }

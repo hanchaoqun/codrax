@@ -553,7 +553,7 @@ func TestCWDCompareOverviewCarriesAsymmetryNoteRow(t *testing.T) {
 	}
 	block := runtimeTraceProjCompareOverviewBlock(
 		[]types.TraceCausalProjection{chainSide("7.0B30SP22_7315.systrace"), flatSide},
-		types.ObservationLedger{}, "zh", true)
+		types.ObservationLedger{}, "zh", true, runtimeTraceProjUserFocus{})
 	if block == nil {
 		t.Fatalf("overview block missing")
 	}
@@ -573,7 +573,7 @@ func TestCWDCompareOverviewCarriesAsymmetryNoteRow(t *testing.T) {
 	// Symmetric control: two attributed sides → no note line.
 	symmetric := runtimeTraceProjCompareOverviewBlock(
 		[]types.TraceCausalProjection{chainSide("A.trace"), chainSide("B.trace")},
-		types.ObservationLedger{}, "zh", true)
+		types.ObservationLedger{}, "zh", true, runtimeTraceProjUserFocus{})
 	if symmetric == nil {
 		t.Fatalf("symmetric overview block missing")
 	}

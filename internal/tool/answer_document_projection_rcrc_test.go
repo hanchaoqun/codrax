@@ -708,13 +708,15 @@ func TestRCRCSameTidDualNameMatchAndDeclaration(t *testing.T) {
 
 func TestRCRCCompareFaceRetiresTargetWords(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(rcrHopOnlyProjection(112.175, 100.000), newRuntimeTraceCausalProjectionEvidenceIndex(), true)
-	cell := runtimeTraceProjCompareTargetSymptomCell(model, true)
+	// COV-2 (§24.14 B-1, 2026-07-08). EVOLUTION RECORD: cell returns typed arm
+	// + window base alongside the text (wording unchanged on this face).
+	cell, _, _ := runtimeTraceProjCompareTargetSymptomCell(rcrHopOnlyProjection(112.175, 100.000), model, true)
 	if !strings.Contains(cell, "唤醒链采样到的关注线程睡眠合计") {
 		t.Fatalf("the hop-view cell must speak the 关注线程 family: %q", cell)
 	}
 	block := runtimeTraceProjCompareOverviewBlock([]types.TraceCausalProjection{
 		rcrHopOnlyProjection(112.175, 100.000), rcrOpendirProjection(),
-	}, types.ObservationLedger{}, "zh", true)
+	}, types.ObservationLedger{}, "zh", true, runtimeTraceProjUserFocus{})
 	if block == nil {
 		t.Fatalf("compare overview must render")
 	}

@@ -1608,3 +1608,8 @@ UXA D#30 终稿取代 RN-12 verbatim 冻结面:"top 片段"→"其中最大片�
 ## §24.18 PTV8-RCR-C 批收账(2026-07-08,复核 SHIP-WITH-FIXES→三收尾已落)
 交付六组:G1 §20.2 纯 running 缺口臂(第三口径词结构化生产者,恒等式守卫 Round3Equal(eff,deficit) fail-open,事件臂排他 pin)+G2 行1 词位预留席(RowNameFitted 唯一裁决,词整体回贴,MidTruncateKeepPid,B1/B1-b+ptv7_spn 22 pin 全绿,#12 guarantee 自灭,floor-clamp 角 pin)+G3 链上L# 收编行2(单门共享,hop 保旧)+G4 供给注两形(小缺口="接近大核满频,缺口仅 Vms(已计入)",永不否认身旁数字;"无法折算"co-repair)+G5 置信三面单源+G6 增量捆(C5 承自闸=精确 eff>cum/C6 三面"链上L#(未接入树)"/C7 禁"未分类"冒名+**binder_wait 迁族**(复核抓获 IPC 被当 IO:RCR-A 起误骑 ⛓ 族,迁独立行"binder等待候选"+◦ 兜底 glyph,COV census 成员资格保全)/C10 ◇▒ 重基/C11 卫生捆(同 tid 双名归一声明)/D-5 退役词/窗标 chip"根因排序#N·窗X")。18+2 test,9/9 突变咬红。E4/E8 终形=§24.9 钉定形 verbatim。
 **留账**:IPC 族专属 glyph 候选待用户裁定(⇄ 类,需 EAW=N 单格核验,现 ◦ 借用);混合榜(1 有窗+1 无窗)#1 碰撞整体不发 chip(absence-never-guesses 保守);G4 两形+"下界"图例将按 §26 CAP 演化;C7 trace_span 无族行"未分类"与类型行微矛盾=措辞裁定候选;新 typed effective 生产者需同步补 C5 卫(闭集)。
+**§24.14 补2(裁定,2026-07-08)**:D-4 ±10% 披露的单工件面 scope(分析窗 vs 用户宣称时长,非对比场景)归 **LAD 批**——树头披露行,复用 COV-2 同判据 helper;COV-2 只落对比面(批名即界)。
+
+## §24.19 COV-2 批收账(2026-07-08,复核 SHIP-WITH-FIXES→四收尾已落)
+交付:V1 症状 cell 主导性闸(census 同源,两臂口径词齐,CWD 共识接入,异臂注 typed enum)+V2 四列窗基披露(背景列"窗基:"机制复用;供给列"占其查询窗X%";"链上已归因(单项最大)"列名正名)+V3 背景 cell 闭集回退臂(禁伪"—";复核 F1 修=值车道镜像 census(MergedMax/periodic 跳过)+口径词按 DisplayImpactSource 门,Σ 冒"单项最大"与"非跨线程累计"错标双 witness pin)+V4 D-4 ±10% 双侧同披露(%.1f;单工件面归 LAD §24.14补2)+V5 cmp_78 终形对标本原文逐格对账(链上列修正 65.232/92.346+fixture EvidenceID 撞号 bug 顺带抓获)。注洪泛最小合并(同 base 元组合一行+D-4 折一行多分句,全触发 8→6,≤6 pin;完整分层归 LAD)。11+演化 pin,8 突变咬红。
+**留账**:hop 臂"合计"vs union 口径(P3,需 tree.go 一行扩返回值,归后批);per-column row-exact 窗需新 tree.go 面(共识 lane 复用为 §21.1 刻意设计)。

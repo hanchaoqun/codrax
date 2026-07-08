@@ -234,10 +234,13 @@ func TestTraceProjectionComparisonOverviewSupplyColumnOnDualObservations(t *test
 	// with units — ratio as %, idle mismatch in ms plus its share of that
 	// artifact's own supply window (20/101 → 19.8%, 3.5/701 → 0.5%).
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 闲置错配 → 就绪积压时核闲置 (对比总览族)
-	if got := compare.Items[0].Cells[supplyCol]; got != "供给率 44.6% · 就绪积压时核闲置 20.000ms(占窗 19.8%)" {
+	// COV-2 (§24.14 B-5/D-1, 2026-07-08). EVOLUTION RECORD: 占窗 → 占其查询窗
+	// (DCS E5 同措辞): the share's denominator is the supply observation's own
+	// query window, not the row's 分析窗.
+	if got := compare.Items[0].Cells[supplyCol]; got != "供给率 44.6% · 就绪积压时核闲置 20.000ms(占其查询窗 19.8%)" {
 		t.Fatalf("artifact A supply cell mismatch: %q", got)
 	}
-	if got := compare.Items[1].Cells[supplyCol]; got != "供给率 81.2% · 就绪积压时核闲置 3.500ms(占窗 0.5%)" {
+	if got := compare.Items[1].Cells[supplyCol]; got != "供给率 81.2% · 就绪积压时核闲置 3.500ms(占其查询窗 0.5%)" {
 		t.Fatalf("artifact B supply cell mismatch: %q", got)
 	}
 	// Every data row keeps cells aligned with the widened column set.

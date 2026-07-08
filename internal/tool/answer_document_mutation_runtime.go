@@ -1130,7 +1130,7 @@ func runtimeTraceCausalProjectionMultiCluster(set types.TraceCausalProjectionSet
 	zh := runtimeTraceCausalProjectionUseChinese(lang)
 	var out []types.AnswerBlock
 	if runtimeTraceProjComparisonShape(len(set.Projections)) {
-		if block := runtimeTraceProjCompareOverviewBlock(set.Projections, ledger, lang, zh); block != nil {
+		if block := runtimeTraceProjCompareOverviewBlock(set.Projections, ledger, lang, zh, focus); block != nil {
 			out = append(out, *block)
 		}
 	}
@@ -1184,11 +1184,20 @@ func runtimeTraceProjComparisonShape(projectionCount int) bool {
 // the typed compute_supply_balance observation) and the projection window;
 // unequal normalization windows (>10%) force a closing note row. No prose
 // reasoning; every cell is assembled from typed fields.
-func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProjection, ledger types.ObservationLedger, lang string, zh bool) *types.AnswerBlock {
+//
+// COV-2 (§24.14 B-2/B-5/D-1/D-4, real_trace_campaign_20260705.md, 2026-07-08):
+// the four value columns (主根因/症状/链上已归因/供给) reuse the background
+// column's 窗基 disclosure lane — whenever a cell's source query window
+// provably differs from its side's analysis window the note names the bases
+// (the cmp_78_01 primary cells sat on 81ms-vs-1645ms windows, a 20× silent
+// base split; the supply share read 22× wrong against the 分析窗 column).
+// The focus parameter feeds ONLY the D-4 user-window deviation notes (the
+// existing display-only typed window lane); absence changes nothing.
+func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProjection, ledger types.ObservationLedger, lang string, zh bool, focus runtimeTraceProjUserFocus) *types.AnswerBlock {
 	if len(projections) < 2 {
 		return nil
 	}
-	supplyCells := runtimeTraceProjCompareSupplyCells(projections, ledger, zh)
+	supplyCells, supplyWindows := runtimeTraceProjCompareSupplyCells(projections, ledger, zh)
 	// DCS E6 F3b (ledger §23.1 ruling ③, 2026-07-08): per-artifact top
 	// deterministic optimization span cells (typed SemanticSpans data via the
 	// shared LEAD-SEM selector). The column renders only when at least one
@@ -1208,9 +1217,14 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 	// PTV8-RCR-C (§24.14 D-5 退役词, 2026-07-08). EVOLUTION RECORD: the B#3
 	// 目标→关注线程 family sweep left this header behind — 目标症状时长 →
 	// 关注线程症状时长 (禁词 pin 补录).
-	columns := []string{"trace 文件", "主根因(根因排序#1)", "关注线程症状时长", "链上已归因", "背景压力"}
+	// COV-2 (§24.14 B-2, 2026-07-08). EVOLUTION RECORD: 链上已归因 →
+	// 链上已归因(单项最大) — the §24.15 C4 caliber word reaches the column
+	// header: the cell value is runtimeTraceProjDepth1Cumulative's largest
+	// single depth-1 caliber, never a Σ (墙钟不可加和), and the bare header
+	// read as a total.
+	columns := []string{"trace 文件", "主根因(根因排序#1)", "关注线程症状时长", "链上已归因(单项最大)", "背景压力"}
 	if !zh {
-		columns = []string{"Artifact", "Primary root cause (rank=1)", "Target symptom", "On-chain attributed", "Background pressure"}
+		columns = []string{"Artifact", "Primary root cause (rank=1)", "Target symptom", "On-chain attributed (single largest)", "Background pressure"}
 	}
 	if hasOptimization {
 		if zh {
@@ -1249,15 +1263,45 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 	sideLabels := make([]string, 0, len(projections))
 	sideAttributed := make([]float64, 0, len(projections))
 	sideChainNotRun := make([]bool, 0, len(projections))
+	// COV-2 (§24.14 B-1/B-2/B-5/D-1, 2026-07-08): per-column window-base and
+	// symptom-caliber collection — gathered from the SAME models/values the
+	// row cells render from, so the notes can never disagree with the cells.
+	primaryBases := make([]runtimeTraceProjCompareCellWindowBase, 0, len(projections))
+	symptomBases := make([]runtimeTraceProjCompareCellWindowBase, 0, len(projections))
+	chainBases := make([]runtimeTraceProjCompareCellWindowBase, 0, len(projections))
+	supplyBases := make([]runtimeTraceProjCompareCellWindowBase, 0, len(projections))
+	symptomArms := make([]runtimeTraceProjCompareSymptomArm, 0, len(projections))
 	for i, projection := range projections {
 		model := buildRuntimeTraceProjTreeModel(projection, nil, zh)
 		label := strings.TrimSpace(projection.ArtifactLabel)
 		if label == "" {
 			label = dash
 		}
+		attributed := runtimeTraceProjDepth1Cumulative(model)
 		sideLabels = append(sideLabels, label)
-		sideAttributed = append(sideAttributed, runtimeTraceProjDepth1Cumulative(model))
+		sideAttributed = append(sideAttributed, attributed)
 		sideChainNotRun = append(sideChainNotRun, model.WakeupChainRecommendedNotRun)
+		// COV-2 (§24.14 B-2): the primary cell's source window is the elected
+		// lead node's own typed query window (same runtimeTraceProjLeadSelect
+		// surface the cell renders from); a multi-window merged lead is a
+		// positive cross-window attestation. No lead / no identity → no claim.
+		primaryLead, _ := runtimeTraceProjLeadSelect(projection, model)
+		primaryBases = append(primaryBases, runtimeTraceProjCompareNodeWindowBase(projection, primaryLead))
+		// COV-2 (§24.14 B-2): the on-chain column shares the coverage lane's
+		// window consensus (chain data rows + self rows — the exact rows the
+		// depth-1 numerator reads); a zero cell claims nothing.
+		var chainBase runtimeTraceProjCompareCellWindowBase
+		if attributed > 0 {
+			cws, cwe, chainOK, chainCross := runtimeTraceProjCoverageWindowConsensus(model)
+			chainBase = runtimeTraceProjCompareWindowBaseFrom(projection, cws, cwe, chainOK, chainCross)
+		}
+		chainBases = append(chainBases, chainBase)
+		symptomCell, symptomArm, symptomBase := runtimeTraceProjCompareTargetSymptomCell(projection, model, zh)
+		symptomArms = append(symptomArms, symptomArm)
+		symptomBases = append(symptomBases, symptomBase)
+		if supplyCells != nil {
+			supplyBases = append(supplyBases, runtimeTraceProjCompareSupplyWindowBase(projection, supplyWindows[i]))
+		}
 		window := dash
 		if projection.WindowStartTs > 0 && projection.WindowEndTs > projection.WindowStartTs {
 			window = fmt.Sprintf("%.3fs → %.3fs", projection.WindowStartTs, projection.WindowEndTs)
@@ -1278,8 +1322,8 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 		cells := []string{
 			runtimeTraceCausalProjectionMarkdownSafe(label),
 			runtimeTraceCausalProjectionMarkdownSafe(runtimeTraceProjComparePrimaryCell(projection, model, zh)),
-			runtimeTraceProjCompareTargetSymptomCell(model, zh),
-			msCell(runtimeTraceProjDepth1Cumulative(model)),
+			symptomCell,
+			msCell(attributed),
 			runtimeTraceCausalProjectionMarkdownSafe(pressureCell),
 		}
 		if hasOptimization {
@@ -1325,6 +1369,73 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 		}
 		tableNotes = append(tableNotes, note)
 	}
+	// COV-2 (§24.14 B-2/B-5/D-1, real_trace_campaign_20260705.md, 2026-07-08):
+	// the four value columns reuse the background column's 窗基 disclosure
+	// lane. Precise typed signals only (row query-window endpoints vs the
+	// side's analysis-window endpoints, ±1ms F-2 tolerance; the multi-window
+	// merged marker); every-side-same-base shapes emit NOTHING.
+	// COV-2 复核 F3 (注洪泛最小合并, 2026-07-08): fired lanes whose per-side
+	// base tuples are BYTE-identical merge into one line naming both columns
+	// (the symptom and on-chain lanes routinely share one consensus tuple);
+	// full layered note design stays with the LAD batch.
+	windowBaseLanes := []struct {
+		zhLabel, enLabel string
+		bases            []runtimeTraceProjCompareCellWindowBase
+	}{
+		{"主根因", "Primary root cause", primaryBases},
+		{"关注线程症状时长", "Target symptom", symptomBases},
+		{"链上已归因(单项最大)", "On-chain attributed (single largest)", chainBases},
+	}
+	windowBaseMerged := make([]bool, len(windowBaseLanes))
+	for li := range windowBaseLanes {
+		if windowBaseMerged[li] || !runtimeTraceProjCompareCellWindowBasesFired(windowBaseLanes[li].bases) {
+			continue
+		}
+		tuple := runtimeTraceProjCompareCellWindowBaseTuple(windowBaseLanes[li].bases, zh)
+		label := windowBaseLanes[li].zhLabel
+		if !zh {
+			label = windowBaseLanes[li].enLabel
+		}
+		for lj := li + 1; lj < len(windowBaseLanes); lj++ {
+			if windowBaseMerged[lj] || !runtimeTraceProjCompareCellWindowBasesFired(windowBaseLanes[lj].bases) {
+				continue
+			}
+			if runtimeTraceProjCompareCellWindowBaseTuple(windowBaseLanes[lj].bases, zh) != tuple {
+				continue
+			}
+			windowBaseMerged[lj] = true
+			if zh {
+				label += "、" + windowBaseLanes[lj].zhLabel
+			} else {
+				label += ", " + windowBaseLanes[lj].enLabel
+			}
+		}
+		windowBaseMerged[li] = true
+		if note := runtimeTraceProjCompareCellWindowBaseNote(label, windowBaseLanes[li].bases, zh); note != "" {
+			tableNotes = append(tableNotes, note)
+		}
+	}
+	if supplyCells != nil {
+		// COV-2 (§24.14 B-5/D-1): the supply share is normalized over the
+		// observation's OWN query window (~81/93ms) — beside a 1800/1645ms
+		// 分析窗 column that base must be named (the 22× misread witness).
+		// The 算力供给 literal stays inside this whitelisted function
+		// (semantic_wording_lint_test.go delivery-lane rule).
+		supplyLabel := "算力供给"
+		if !zh {
+			supplyLabel = "Compute supply"
+		}
+		if note := runtimeTraceProjCompareShareWindowBaseNote(supplyLabel, supplyBases, zh); note != "" {
+			tableNotes = append(tableNotes, note)
+		}
+	}
+	// COV-2 (§24.14 B-1 修向, 2026-07-08): when the symptom column mixes the
+	// two caliber arms (state statistics vs wakeup-chain sampled — the
+	// cmp_78_01 3.262-vs-470.071 two-orders-of-magnitude face), say the two
+	// sides cannot be read straight across. Same-arm shapes emit NOTHING.
+	if note := runtimeTraceProjCompareSymptomCaliberNote(symptomArms, zh); note != "" {
+		tableNotes = append(tableNotes, note)
+	}
 	// RTC-2 (real_trace_campaign_20260705.md §4 案 e2, 批 #67): when the
 	// artifacts' typed time-base spans are pairwise disjoint (envelope Span ∪
 	// anchor window per partition — NOT an anchor consumer, see the F1
@@ -1348,6 +1459,11 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 	if note := runtimeTraceProjCompareChainAsymmetryNote(sideLabels, sideAttributed, sideChainNotRun, zh); note != "" {
 		tableNotes = append(tableNotes, note)
 	}
+	// COV-2 (§24.14 D-4 ±10% 容差裁定, 2026-07-08): per-side analysis-window
+	// length vs the user's requested window length — >±10% deviation on ANY
+	// side discloses BOTH sides (对读基不同构必须可见); all-within-tolerance
+	// or no typed user window emits NOTHING.
+	tableNotes = append(tableNotes, runtimeTraceProjCompareUserWindowDeviationNotes(projections, focus, zh)...)
 	// PTV5 C15 (#68): no internal jargon on the user panel — "typed" out, and
 	// the retired LLM-predicate framing ("对比形态判定") with it (NEW-2 made
 	// the gate a deterministic partition count).
@@ -1390,23 +1506,341 @@ func runtimeTraceProjCompareOverviewBlock(projections []types.TraceCausalProject
 // symptom denominator" (that would violate F1 double-count protection); it is an
 // honest, caliber-labeled fallback that keeps this cell consistent with the tree
 // coverage line (both mark the hop-view source). MAX, never Σ — the hop-only
-// value comes from runtimeTraceProjHopOnlyTargetSleepMS which already takes the
+// value comes from runtimeTraceProjHopOnlyTargetSleep which already takes the
 // single largest hop-view sleep row.
-func runtimeTraceProjCompareTargetSymptomCell(model runtimeTraceProjTreeModel, zh bool) string {
+//
+// COV-2 (§24.14 B-1 + §24.12 D-P0, real_trace_campaign_20260705.md,
+// 2026-07-08). EVOLUTION RECORD: the state arm's bare "%.3fms" retires — the
+// cmp_78_01 flagship face read 3.262ms (a two-row state aggregate whose
+// population had collapsed against a 456.725ms excluded hop view) beside
+// 470.071ms (annotated hop caliber) with no caliber word: two orders of
+// magnitude, one column, one silent existence gate. Both arms now carry
+// caliber words, and the state arm's gate is the coverage sentence's OWN
+// dominance form (§24.15 C3 census 同款: crossBase=排除>0 form fork;
+// 非 crossBase=单项最大>入 cell 合计) plus the §21 CWD window consensus (a
+// cross-window numerator never pairs with a single-window caliber claim).
+// Precise typed signals only; the returns feed the table-level 窗基 note and
+// the B-1 两侧口径不同 note (same values the cell renders — never re-derived).
+func runtimeTraceProjCompareTargetSymptomCell(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel, zh bool) (string, runtimeTraceProjCompareSymptomArm, runtimeTraceProjCompareCellWindowBase) {
 	if symptom := runtimeTraceProjTargetSymptomMS(model); symptom > 0 {
-		return fmt.Sprintf("%.3fms", symptom)
+		ws, we, okWin, crossBase := runtimeTraceProjCoverageWindowConsensus(model)
+		base := runtimeTraceProjCompareWindowBaseFrom(projection, ws, we, okWin, crossBase)
+		excluded, excludedMax, _ := runtimeTraceProjSymptomDenominatorCensus(projection, model)
+		var cell string
+		switch {
+		case crossBase && excluded > 0:
+			if zh {
+				cell = fmt.Sprintf("%.3fms(仅计入分析窗内直接等待;另有 %d 条关注线程状态行未计入,单项最大 %.3fms;链上/自身数据横跨多个查询窗)", symptom, excluded, excludedMax)
+			} else {
+				cell = fmt.Sprintf("%.3fms (direct waits inside the analysis window only; %d more target state row(s) uncounted, single largest %.3fms; the chain/self data spans multiple query windows)", symptom, excluded, excludedMax)
+			}
+		case crossBase:
+			if zh {
+				cell = fmt.Sprintf("%.3fms(状态统计;链上/自身数据横跨多个查询窗)", symptom)
+			} else {
+				cell = fmt.Sprintf("%.3fms (state statistics; the chain/self data spans multiple query windows)", symptom)
+			}
+		case excluded > 0 && excludedMax > symptom:
+			cell = fmt.Sprintf("%.3fms(仅计入分析窗内直接等待;另有 %d 条关注线程状态行未计入,单项最大 %.3fms)", symptom, excluded, excludedMax)
+			if !zh {
+				cell = fmt.Sprintf("%.3fms (direct waits inside the analysis window only; %d more target state row(s) uncounted, single largest %.3fms)", symptom, excluded, excludedMax)
+			}
+		default:
+			cell = fmt.Sprintf("%.3fms(全窗状态统计)", symptom)
+			if !zh {
+				cell = fmt.Sprintf("%.3fms (whole-window state statistics)", symptom)
+			}
+		}
+		return cell, runtimeTraceProjCompareSymptomArmState, base
 	}
-	if hopSleep := runtimeTraceProjHopOnlyTargetSleepMS(model); hopSleep > 0 {
+	if hopSleep, hopWinStart, hopWinEnd := runtimeTraceProjHopOnlyTargetSleep(model); hopSleep > 0 {
 		// PTV8-RCR-C (§24.14 D-5 退役词, 2026-07-08). EVOLUTION RECORD: the
 		// PTV8-RCR-B pass rewrote this parenthetical without applying its own
 		// B#3 目标→关注线程 family — the survivor 目标睡眠 retires here (禁词
 		// pin 补录; EN face keeps its established words).
+		base := runtimeTraceProjCompareWindowBaseFrom(projection, hopWinStart, hopWinEnd,
+			hopWinStart > 0 && hopWinEnd > hopWinStart, false)
 		if zh {
-			return fmt.Sprintf("%.3fms(唤醒链采样到的关注线程睡眠合计,非全窗状态统计)", hopSleep)
+			return fmt.Sprintf("%.3fms(唤醒链采样到的关注线程睡眠合计,非全窗状态统计)", hopSleep), runtimeTraceProjCompareSymptomArmHop, base
 		}
-		return fmt.Sprintf("%.3fms (wakeup-chain-view target sleep, not a state-segment aggregate)", hopSleep)
+		return fmt.Sprintf("%.3fms (wakeup-chain-view target sleep, not a state-segment aggregate)", hopSleep), runtimeTraceProjCompareSymptomArmHop, base
 	}
-	return "—"
+	return "—", runtimeTraceProjCompareSymptomArmNone, runtimeTraceProjCompareCellWindowBase{}
+}
+
+// runtimeTraceProjCompareSymptomArm is the typed caliber arm the symptom cell
+// actually rendered (COV-2 §24.14 B-1): the B-1 mixed-caliber note fires on
+// the precise arm enum, never on cell-text sniffing.
+type runtimeTraceProjCompareSymptomArm int
+
+const (
+	runtimeTraceProjCompareSymptomArmNone runtimeTraceProjCompareSymptomArm = iota
+	runtimeTraceProjCompareSymptomArmState
+	runtimeTraceProjCompareSymptomArmHop
+)
+
+// runtimeTraceProjCompareSymptomCaliberNote renders the COV-2 (§24.14 B-1 修向)
+// mixed-caliber note: the symptom column carries BOTH a state-statistics cell
+// and a wakeup-chain-sampled cell — different calibers that must not be read
+// straight across (cmp_78_01: 3.262 vs 470.071, two口径 two orders of
+// magnitude on the flagship face). Precise arm enums only; all-same-arm (or
+// any-dash) shapes where no two rendered arms differ emit "".
+func runtimeTraceProjCompareSymptomCaliberNote(arms []runtimeTraceProjCompareSymptomArm, zh bool) string {
+	hasState, hasHop := false, false
+	for _, arm := range arms {
+		switch arm {
+		case runtimeTraceProjCompareSymptomArmState:
+			hasState = true
+		case runtimeTraceProjCompareSymptomArmHop:
+			hasHop = true
+		}
+	}
+	if !hasState || !hasHop {
+		return ""
+	}
+	if zh {
+		return "⚠ 关注线程症状时长列两侧口径不同(全窗状态统计 / 唤醒链采样合计),不可直接对读"
+	}
+	return "⚠ The target-symptom column mixes two calibers (whole-window state statistics / wakeup-chain sampled); the two sides cannot be read straight across"
+}
+
+// runtimeTraceProjCompareCellWindowBase is one comparison-overview cell's
+// typed window-base verdict (COV-2 §24.14 B-2/B-5/D-1): where the cell's
+// value actually came from, relative to that side's analysis window. Absence
+// of a window identity never claims anything (known=false, mismatch=false);
+// a positive multi-window attestation (cross) is always a mismatch — a
+// cross-window magnitude has no single base to reconcile with the 分析窗
+// column.
+type runtimeTraceProjCompareCellWindowBase struct {
+	known    bool
+	cross    bool
+	baseMS   float64
+	mismatch bool
+}
+
+// runtimeTraceProjCompareWindowBaseFrom builds a cell window base from typed
+// query-window endpoints + the consensus cross flag. Mismatch is the §21-CWD
+// precise endpoint comparison (runtimeTraceProjCoverageWindowBaseMismatch, F-2
+// ±1ms tolerance; no analysis window → no claim).
+func runtimeTraceProjCompareWindowBaseFrom(projection types.TraceCausalProjection, ws, we float64, ok, cross bool) runtimeTraceProjCompareCellWindowBase {
+	if cross {
+		return runtimeTraceProjCompareCellWindowBase{cross: true, mismatch: true}
+	}
+	if !ok || ws <= 0 || we <= ws {
+		return runtimeTraceProjCompareCellWindowBase{}
+	}
+	return runtimeTraceProjCompareCellWindowBase{
+		known:    true,
+		baseMS:   (we - ws) * 1000,
+		mismatch: runtimeTraceProjCoverageWindowBaseMismatch(projection, ws, we),
+	}
+}
+
+// runtimeTraceProjCompareNodeWindowBase reads one node's own typed query
+// window as a cell base (the primary column's source: the elected lead row).
+// A multi-window merged row positively attests >1 windows while the
+// aggregator zeroes its row identity — same typed key as the %-faces
+// (runtimeTraceProjMultiWindowMergedRow, zero new signals). nil → no claim.
+func runtimeTraceProjCompareNodeWindowBase(projection types.TraceCausalProjection, node *types.TraceCausalProjectionNode) runtimeTraceProjCompareCellWindowBase {
+	if node == nil {
+		return runtimeTraceProjCompareCellWindowBase{}
+	}
+	if runtimeTraceProjMultiWindowMergedRow(*node) {
+		return runtimeTraceProjCompareCellWindowBase{cross: true, mismatch: true}
+	}
+	return runtimeTraceProjCompareWindowBaseFrom(projection, node.QueryWindowStartTs, node.QueryWindowEndTs,
+		node.QueryWindowStartTs > 0 && node.QueryWindowEndTs > node.QueryWindowStartTs, false)
+}
+
+// runtimeTraceProjCompareSupplyWindowBase builds the supply column's cell base
+// from the observation's own typed window_ms note (a length, not endpoints —
+// the same 1.0ms tolerance the background density lane applies to its
+// length-vs-length comparison). Missing analysis window → no claim.
+func runtimeTraceProjCompareSupplyWindowBase(projection types.TraceCausalProjection, windowMS float64) runtimeTraceProjCompareCellWindowBase {
+	if windowMS <= 0 {
+		return runtimeTraceProjCompareCellWindowBase{}
+	}
+	projWindowMS := (projection.WindowEndTs - projection.WindowStartTs) * 1000
+	return runtimeTraceProjCompareCellWindowBase{
+		known:    true,
+		baseMS:   windowMS,
+		mismatch: projWindowMS > 0 && math.Abs(windowMS-projWindowMS) > 1.0,
+	}
+}
+
+// runtimeTraceProjCompareCellWindowBaseString renders one side's base slot for
+// the 窗基 note: the named window length when it provably differs, 分析窗 when
+// it provably matches, the positive multi-window phrase, or 未标注 when the
+// cell's rows carried no window identity (absence never guesses).
+func runtimeTraceProjCompareCellWindowBaseString(base runtimeTraceProjCompareCellWindowBase, zh bool) string {
+	switch {
+	case base.cross:
+		if zh {
+			return "横跨多个查询窗"
+		}
+		return "multiple query windows"
+	case base.known && base.mismatch:
+		return fmt.Sprintf("%.3fms", base.baseMS)
+	case base.known:
+		if zh {
+			return "分析窗"
+		}
+		return "analysis window"
+	default:
+		if zh {
+			return "未标注"
+		}
+		return "unlabeled"
+	}
+}
+
+// runtimeTraceProjCompareCellWindowBasesFired reports whether ≥1 side's cell
+// value provably came from a window other than that side's analysis window —
+// the single firing predicate of the 窗基 note lanes.
+func runtimeTraceProjCompareCellWindowBasesFired(bases []runtimeTraceProjCompareCellWindowBase) bool {
+	for _, base := range bases {
+		if base.mismatch {
+			return true
+		}
+	}
+	return false
+}
+
+// runtimeTraceProjCompareCellWindowBaseTuple renders the per-side base slots
+// joined in row order — the note body AND the F3 merge key (byte-identical
+// tuples fold into one note line).
+func runtimeTraceProjCompareCellWindowBaseTuple(bases []runtimeTraceProjCompareCellWindowBase, zh bool) string {
+	parts := make([]string, 0, len(bases))
+	for _, base := range bases {
+		parts = append(parts, runtimeTraceProjCompareCellWindowBaseString(base, zh))
+	}
+	return strings.Join(parts, " / ")
+}
+
+// runtimeTraceProjCompareCellWindowBaseNote renders one value column's 窗基
+// note (COV-2 §24.14 B-2/B-5/D-1 — the background column's existing 窗基
+// disclosure mechanism generalized per-CLASS): fires exactly when ≥1 side's
+// cell value provably came from a window other than that side's analysis
+// window; every-side-same-base (or no-identity) shapes emit "".
+func runtimeTraceProjCompareCellWindowBaseNote(column string, bases []runtimeTraceProjCompareCellWindowBase, zh bool) string {
+	if !runtimeTraceProjCompareCellWindowBasesFired(bases) {
+		return ""
+	}
+	tuple := runtimeTraceProjCompareCellWindowBaseTuple(bases, zh)
+	if zh {
+		return "⚠ " + column + "数值来自各自所在查询窗(窗基: " + tuple + "),不可按分析窗折算"
+	}
+	return "⚠ " + column + " values come from each side's own query window (bases: " + tuple + "); do not scale them against the analysis window"
+}
+
+// runtimeTraceProjCompareShareWindowBaseNote is the share-caliber variant of
+// the 窗基 note for percentage cells (the supply column's 占其查询窗 share):
+// same firing rule, normalization wording (mirrors the background density
+// note's 已按各自数值所在窗归一化 form).
+func runtimeTraceProjCompareShareWindowBaseNote(column string, bases []runtimeTraceProjCompareCellWindowBase, zh bool) string {
+	if !runtimeTraceProjCompareCellWindowBasesFired(bases) {
+		return ""
+	}
+	tuple := runtimeTraceProjCompareCellWindowBaseTuple(bases, zh)
+	if zh {
+		return "⚠ " + column + "占比已按各自查询窗归一化(窗基: " + tuple + "),非分析窗占比"
+	}
+	return "⚠ " + column + " shares are normalized over each side's own query window (bases: " + tuple + "), not over the analysis window"
+}
+
+// runtimeTraceProjCompareUserWindowDeviationNotes renders the COV-2 (§24.14
+// D-4 ±10% 容差裁定, 2026-07-08) per-side analysis-window-vs-requested-length
+// disclosure: when ANY side's analysis-window length deviates from the user's
+// typed requested-window length by more than ±10%, EVERY windowed side
+// discloses its own deviation (对读基不同构必须可见 — the cmp_78_01 6.0 side
+// analyzed 1645ms against a requested 884ms, a silent 1.86× stretch under a
+// cross-side percentage comparison). Pure arithmetic on the existing typed
+// display-only user-window lane (runtimeTraceProjUserWindowFromEntities); no
+// derivable user window, no analysis window, or all sides within ±10% → nil
+// (absence never guesses; ≤10% 静默).
+func runtimeTraceProjCompareUserWindowDeviationNotes(projections []types.TraceCausalProjection, focus runtimeTraceProjUserFocus, zh bool) []string {
+	userStart, userEnd, ok := runtimeTraceProjUserWindowFromEntities(focus.Entities)
+	if !ok {
+		return nil
+	}
+	userMS := (userEnd - userStart) * 1000
+	if userMS <= 0 {
+		return nil
+	}
+	type deviationSide struct {
+		label string
+		winMS float64
+	}
+	var sides []deviationSide
+	triggered := false
+	for _, projection := range projections {
+		if projection.WindowStartTs <= 0 || projection.WindowEndTs <= projection.WindowStartTs {
+			continue // no analysis window — this side never judges and never discloses
+		}
+		label := strings.TrimSpace(projection.ArtifactLabel)
+		if label == "" {
+			label = strings.TrimSpace(projection.ArtifactPath)
+		}
+		if label == "" {
+			label = "—"
+		}
+		winMS := (projection.WindowEndTs - projection.WindowStartTs) * 1000
+		sides = append(sides, deviationSide{label: label, winMS: winMS})
+		if math.Abs(winMS-userMS)/userMS > 0.10 {
+			triggered = true
+		}
+	}
+	if !triggered {
+		return nil
+	}
+	// COV-2 复核 F3+F4 (2026-07-08): one ⚠ line, one clause per side (the
+	// requested length named once, in the first clause); %.1f so a 10.3%
+	// deviation never displays as the silence threshold's own "10%".
+	clauses := make([]string, 0, len(sides))
+	for i, side := range sides {
+		deviation := (side.winMS - userMS) / userMS * 100
+		label := runtimeTraceCausalProjectionMarkdownSafe(side.label)
+		first := i == 0
+		switch {
+		case deviation > 10:
+			switch {
+			case zh && first:
+				clauses = append(clauses, fmt.Sprintf("%s:分析窗 %.3fms,较你指定的 %.3fms 长 %.1f%%", label, side.winMS, userMS, deviation))
+			case zh:
+				clauses = append(clauses, fmt.Sprintf("%s:分析窗 %.3fms,长 %.1f%%", label, side.winMS, deviation))
+			case first:
+				clauses = append(clauses, fmt.Sprintf("%s: analysis window %.3fms is %.1f%% longer than your requested %.3fms", label, side.winMS, deviation, userMS))
+			default:
+				clauses = append(clauses, fmt.Sprintf("%s: analysis window %.3fms is %.1f%% longer", label, side.winMS, deviation))
+			}
+		case deviation < -10:
+			switch {
+			case zh && first:
+				clauses = append(clauses, fmt.Sprintf("%s:分析窗 %.3fms,较你指定的 %.3fms 短 %.1f%%", label, side.winMS, userMS, -deviation))
+			case zh:
+				clauses = append(clauses, fmt.Sprintf("%s:分析窗 %.3fms,短 %.1f%%", label, side.winMS, -deviation))
+			case first:
+				clauses = append(clauses, fmt.Sprintf("%s: analysis window %.3fms is %.1f%% shorter than your requested %.3fms", label, side.winMS, -deviation, userMS))
+			default:
+				clauses = append(clauses, fmt.Sprintf("%s: analysis window %.3fms is %.1f%% shorter", label, side.winMS, -deviation))
+			}
+		default:
+			switch {
+			case zh && first:
+				clauses = append(clauses, fmt.Sprintf("%s:分析窗 %.3fms,与你指定的 %.3fms 偏差 %.1f%%(±10%% 内)", label, side.winMS, userMS, math.Abs(deviation)))
+			case zh:
+				clauses = append(clauses, fmt.Sprintf("%s:分析窗 %.3fms,偏差 %.1f%%(±10%% 内)", label, side.winMS, math.Abs(deviation)))
+			case first:
+				clauses = append(clauses, fmt.Sprintf("%s: analysis window %.3fms is within %.1f%% of your requested %.3fms", label, side.winMS, math.Abs(deviation), userMS))
+			default:
+				clauses = append(clauses, fmt.Sprintf("%s: analysis window %.3fms is within %.1f%%", label, side.winMS, math.Abs(deviation)))
+			}
+		}
+	}
+	if zh {
+		return []string{"⚠ " + strings.Join(clauses, ";") + ":窗口按数据边界对齐构造"}
+	}
+	return []string{"⚠ " + strings.Join(clauses, "; ") + ": the window is constructed by aligning to data boundaries"}
 }
 
 // runtimeTraceProjComparePrimaryCell mirrors the conclusion line's selection
@@ -1582,6 +2016,16 @@ func runtimeTraceProjCompareBackgroundPressureCell(model runtimeTraceProjTreeMod
 		}
 	}
 	if best == nil || bestValue <= 0 {
+		// COV-2 (§24.14 D-3, real_trace_campaign_20260705.md, 2026-07-08): the
+		// closed-set type gate swallowed every non-aggregate background row —
+		// the cmp_78_01 6.0 cell rendered "—" while its own tree stanza
+		// published two 91.940ms trace_span background rank rows, a
+		// face-to-face contradiction. When the closed set misses but the
+		// stanza carries data-bearing background rows, show the top row with
+		// its caliber word instead of a fabricated "—".
+		if cell, ok := runtimeTraceProjCompareBackgroundTopRowCell(model, zh); ok {
+			return cell, 0
+		}
 		return "—", 0
 	}
 	windowMS := runtimeTraceProjCrossThreadDensityWindowMS(*best, model.WindowMS, model.WindowMS > 0)
@@ -1623,6 +2067,76 @@ func runtimeTraceProjCompareBackgroundPressureCell(model runtimeTraceProjTreeMod
 		cell = fmt.Sprintf("≈mean %.1f (%s %.3fms, cross-thread, not wall clock)", density, enValueLabel, bestValue)
 	}
 	return cell, windowMS
+}
+
+// runtimeTraceProjCompareBackgroundTopRowCell is the COV-2 (§24.14 D-3,
+// 2026-07-08) fallback arm of the comparison overview's 背景压力 cell: the
+// cross-thread-aggregate closed set found no positive row, but the background
+// stanza DOES carry data-bearing rows (e.g. trace_span background rank rows).
+// The cell then shows the largest single background row with an explicit
+// caliber word instead of contradicting the stanza with "—". Returns ok=false
+// when no such row exists (the honest "—" keeps its no-data meaning).
+//
+// COV-2 复核 F1 (2026-07-08): the value lane mirrors the census (§24.15 C3
+// 同款) so the 单项最大 word can never label a Σ — a MergedCount>1 row
+// publishes its single-instance MergedMaxMS (a merged row without one has no
+// single-item magnitude and never competes); PeriodicSource rows stay out
+// (cadence-dominated raw magnitudes). The 非跨线程累计 claim is gated on the
+// typed display-impact source: a cumulative/effective-sourced value IS the
+// cross-thread cum its own tree stanza row labels 累计(跨线程) — the cell
+// speaks the SAME shared word (runtimeTraceProjCrossThreadCumWord, no second
+// literal), never the face-to-face contradiction.
+func runtimeTraceProjCompareBackgroundTopRowCell(model runtimeTraceProjTreeModel, zh bool) (string, bool) {
+	var best *types.TraceCausalProjectionNode
+	bestValue := 0.0
+	bestSingleInstance := false
+	for i := range model.Background {
+		node := &model.Background[i].Node
+		if runtimeTraceProjCrossThreadAggregateType(*node) {
+			continue // the aggregate arm already had its shot (no positive value)
+		}
+		if node.PeriodicSource {
+			continue // 复核 F1: raw cadence-dominated magnitudes never lead this cell
+		}
+		v, source := runtimeTraceProjNodeDisplayImpactSource(*node)
+		singleInstance := source == runtimeTraceProjImpactSourceWindow
+		if node.MergedCount > 1 {
+			if node.MergedMaxMS <= 0 {
+				continue // Σ-only merged row: no single-item magnitude to publish
+			}
+			v = node.MergedMaxMS // census 同款: single-instance max, never the Σ
+			singleInstance = true
+		}
+		if v > bestValue {
+			best, bestValue, bestSingleInstance = node, v, singleInstance
+		}
+	}
+	if best == nil || bestValue <= 0 {
+		return "", false
+	}
+	name := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(*best, zh))
+	cause := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(*best, zh))
+	cell := name
+	if cause != "" {
+		if cell != "" {
+			cell += " · "
+		}
+		cell += cause
+	}
+	if cell != "" {
+		cell += " "
+	}
+	if !bestSingleInstance {
+		// cumulative/effective-sourced value: the same word its tree row carries.
+		if zh {
+			return cell + fmt.Sprintf("%.3fms(背景行单项最大,%s)", bestValue, runtimeTraceProjCrossThreadCumWord(true)), true
+		}
+		return cell + fmt.Sprintf("%.3fms (largest single background row, %s)", bestValue, runtimeTraceProjCrossThreadCumWord(false)), true
+	}
+	if zh {
+		return cell + fmt.Sprintf("%.3fms(背景行单项最大,非跨线程累计)", bestValue), true
+	}
+	return cell + fmt.Sprintf("%.3fms (largest single background row, not a cross-thread cumulative)", bestValue), true
 }
 
 // runtimeTraceProjCompareWindowsUnequal is the F3 precise inequality check
@@ -1746,28 +2260,37 @@ func runtimeTraceProjCompareChainAsymmetryNote(labels []string, attributed []flo
 // windows. Returns nil (whole column absent) when ANY projection lacks the
 // observation or a parseable required value: a half-filled or estimated
 // supply column would fabricate exactly the comparison data this table exists
-// to ground.
-func runtimeTraceProjCompareSupplyCells(projections []types.TraceCausalProjection, ledger types.ObservationLedger, zh bool) []string {
+// to ground. The second return is the per-artifact typed window_ms actually
+// used as the share denominator, feeding the COV-2 窗基 note.
+//
+// COV-2 (§24.14 B-5/D-1, 2026-07-08). EVOLUTION RECORD: 占窗 → 占其查询窗
+// (DCS E5 同措辞, tree.go 占其查询窗N% 先例): the share's denominator is the
+// supply observation's OWN query window (~81/93ms in cmp_78_01), not the
+// row's 分析窗 (1800/1645ms) — the bare 占窗 beside the 分析窗 column read
+// 22× wrong.
+func runtimeTraceProjCompareSupplyCells(projections []types.TraceCausalProjection, ledger types.ObservationLedger, zh bool) ([]string, []float64) {
 	cells := make([]string, 0, len(projections))
+	windows := make([]float64, 0, len(projections))
 	for _, projection := range projections {
 		record, ok := runtimeTraceProjSupplyBalanceRecordForArtifact(ledger, projection)
 		if !ok {
-			return nil
+			return nil, nil
 		}
 		ratio, okRatio := runtimeTraceProjSupplyNoteFloat(record, types.TraceNoteKeySupplyRatio)
 		idle, okIdle := runtimeTraceProjSupplyNoteFloat(record, types.TraceNoteKeyIdleMismatchMS)
 		window, okWindow := runtimeTraceProjSupplyNoteFloat(record, types.TraceNoteKeyWindowMS)
 		if !okRatio || !okIdle || !okWindow || window <= 0 || ratio < 0 || idle < 0 {
-			return nil
+			return nil, nil
 		}
 		share := idle / window * 100
 		if zh {
-			cells = append(cells, fmt.Sprintf("供给率 %.1f%% · 就绪积压时核闲置 %.3fms(占窗 %.1f%%)", ratio*100, idle, share))
+			cells = append(cells, fmt.Sprintf("供给率 %.1f%% · 就绪积压时核闲置 %.3fms(占其查询窗 %.1f%%)", ratio*100, idle, share))
 		} else {
-			cells = append(cells, fmt.Sprintf("supply ratio %.1f%% · idle mismatch %.3fms (%.1f%% of window)", ratio*100, idle, share))
+			cells = append(cells, fmt.Sprintf("supply ratio %.1f%% · idle mismatch %.3fms (%.1f%% of its query window)", ratio*100, idle, share))
 		}
+		windows = append(windows, window)
 	}
-	return cells
+	return cells, windows
 }
 
 // runtimeTraceProjSupplyBalanceRecordForArtifact finds THIS artifact's typed
