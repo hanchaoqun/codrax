@@ -1675,3 +1675,20 @@ UXA D#30 终稿取代 RN-12 verbatim 冻结面:"top 片段"→"其中最大片�
 - **G11 目标自身 binder_wait 不可见**:4 条 root_cause_target_self_state binder_wait(最大 3.527ms)仅存系统补充,树自身状态区无(0.011ms D-state 反而在)——§24.8 抵触。修向=目标自因等待族入自身状态区(症状身份披露)。
 - **G12 E23 双成员同值疑云**:hmfs_discard 与目标线程折叠双成员同值 14.272ms 到 μs 级,疑同段双归属;需原件复放核实(挂 D-10 复放清单)。
 - **G19** 零值折叠行噪音"×9(0.000–0.000ms)取最大"。**G20** cpu_frequency_limit 双行同值未折(系统补充)。
+
+# §28 TEX 需求裁定+texture 片段支撑数据审计(2026-07-09,用户令:79 系收口开工·商用标准)
+
+## §28.1 用户裁定(2026-07-09)
+- **TEX**:"Texture upload" 纳入语义 span 类,与 VerifyClass/Shader/JIT 完全同待遇——on-chain 累积折算参与根因竞争排序(同 §23.1 tier 车道)+提及义务(非链上背景综合排序,提及门 background_rank≤3)+§24.10 同(线程,语义类)窗口投影合计参赛。扩展点=traceSpanSemanticWorkClass 第五臂(query.go:12579)+registry semantic_class 车道第五 token(texture_upload);类名保英文(§22.2.1 专名尺子);"(15283) 512x194" 等 id/尺寸后缀归一化出类、原文留 roster 区分键。
+- **收口批准**:§27 全清单按建议收口;G9 序数=引擎侧重编号(序数只分给携榜位显示身份的行,三面同源,单窗/每窗连续;§24.20"榜位照发"相应演化,EVOLUTION RECORD 记录);G14 PSG 维持软引导+skill 加"探索期数值未入终面证据禁引用"精确指令;G13 软引导+evaluator 软检+blocking_from typed 化。
+
+## §28.2 texture 片段(trace_texture_upload.txt)支撑数据审计
+- **T1 簇轨证据(CAP-2 裁定候选,先立案不动手)**:clock_set_rate m3_c0..c3_freq 四簇轨携 cpu_id=0/2/10/12 簇锚(非发射 CPU),值 417000/417000/1200000/2750000;另 thermal_inte1 state=2200000 cpu_id=2(热限轨)、m3_vote_delay、pid_task_freq。恰补两份 79 报告"簇结构不可判"缺口。**冲突点=§7.10 VS-2c 终局裁定**(clock 名=厂商自由词汇,禁喂 fmax 供给基,semantic_ruling_pins_test 结构 pin;isCPUFrequencyClockName 现行启发也不匹配 m3_cN_freq——无"cpu"子串)。cpu_id 为键控精确字段非名字启发,是否开"cpu_id 键控簇轨"evidence 接线=需用户裁定(重提先读 §7.10/§7.5)。
+- **T2 B|pid≠发射线程 tgid**:span 标记 B|18998| 而发射线程 RenderThread-51342 tgid=50820(unyuan.app.chat)。span 归属应锚发射线程;若按标记 pid 归组则查询 pid=50820 时丢 span。TEX 批必须客户原文 pin 验证归属车道。
+- **T3 形态覆盖**:纯 B|pid|name(无 H:/无 |I 尾)、E|pid 裸关、E|pid|I39 带载荷关、span 名含空格/括号/尺寸;嵌套子 span(AllocPages/MapMemory/Alloc Ioctl/GraphicsLoad 在 Texture upload 内)——同类内区间并集已防双计;**跨类嵌套**(子类若也成语义类)双计=裁定候选,本批只收 Texture upload 顶层。单次 76–118μs、高频形——家族合计参赛正是对症(×N 合计如 VerifyClass ×14 登顶先例)。
+- **T4 调度扩展字段**:next_info 已有解析(NextInfoAffinity/AllowedCPUs/Load);prev_state=R+ 既有;prio=301(dh-irq 类)Donghu 优先级分类待核(误分类影响 R5g/反转判定)=TEX 批核验项。
+
+## §28.3 Wave-3 批次计划(三道并行)
+3.1 并行:**GAP-A**(tracequery 独占:G2 引擎跳臂+盲区判据 typed 化/G9 序数重编号/G3 引擎半场/G10 witness 本地化)+**GAP-B**(types 投影+tool 显示独占:G4 挂接窗维/G5 occurrence ×N/G6 症状列 gate/G7 词值同源/G8 折行原子/G11 自身等待可见/G17 移交链"(线程)")+**GAP-C**(skill+evaluator+verdict:G13/G14/G15/G16 软引导与软检+降级 caveat 附注,不代写正文)。
+3.2 顺序:**TEX**(语义类第五臂+T2/T3/T4 验证,tracequery+显示)+G2/G3 显示半场+blocking_from typed 化+**HYG**(G18 rune-safe 共享 helper per-CLASS 收口约 10 站点/G19 零值折叠行/G20 同值背景双行折叠)。
+CAP-2=等 T1 裁定。
