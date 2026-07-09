@@ -1,0 +1,57 @@
+# G12 定向采集脚本(berlin 滑动案 E23:两条 14.272ms 折叠成员疑同段双归属)
+# 用法(一条命令,零 LLM、纯只读、无需仓库与模型凭据):
+#   codrax --tracediag examples/tracediag/collect_g12.yaml --trace berlin.systrace --out g12_report.txt
+#
+# 判定点:hmfs_discard-26-562 与 oney.hmn.berlin-42591 各自最长 D-state/IO 等待段
+# 的行号区间是否重合。两成员步骤都覆盖**同一全区间 1017021–1625582**(按 thread
+# 过滤区分成员)——判定"是否重合"不能预设区间拆分,否则拆分本身就替你下了结论。
+#
+# 步骤设计(尾部证据不被行帽吞掉):
+#   * *_dstate_entries 两步用 pattern "prev_state=D" 只采 D 段起点行(全区间内
+#     该类行数量少,帽内必全);两成员 14.272ms 段起点行号相同⟺同一段。
+#   * *_raw_head 两步为原始行上下文面(时序头部采样,截断有诚实披露)。
+#   * rank_crosscheck 为 §28.12 裁定的 root_cause_rank 对照面。
+# 行号若与上一轮报告有偏移,调整 line_start/line_end 后重跑。
+# 注意:行区间生效时时间窗不参与过滤(引擎语义,报告步骤头会披露同一句)。
+#
+# 行数预算(P3-6:单输出文件≤1000 行,步帽合计≤950):120+120+180+180+250=850,
+# 加报告头/步骤头/摘要余量约 900 行封顶。
+version: 1
+description: "G12 双成员同段核查(E23 14.272ms 折叠成员行区间比对,全区间双覆盖)"
+defaults: { window: "6793222.031..6793225.370" }
+steps:
+  - label: hmfs_dstate_entries
+    view: event_search
+    thread: "hmfs_discard-26-562"
+    line_start: 1017021
+    line_end: 1625582
+    pattern: "prev_state=D"
+    event_types: [sched_switch]
+    max_lines: 120
+  - label: oney_dstate_entries
+    view: event_search
+    thread: "oney.hmn.berlin-42591"
+    line_start: 1017021
+    line_end: 1625582
+    pattern: "prev_state=D"
+    event_types: [sched_switch]
+    max_lines: 120
+  - label: hmfs_raw_head
+    view: event_search
+    thread: "hmfs_discard-26-562"
+    line_start: 1017021
+    line_end: 1625582
+    event_types: [sched_switch, sched_wakeup, sched_waking, sched_blocked_reason]
+    max_lines: 180
+  - label: oney_raw_head
+    view: event_search
+    thread: "oney.hmn.berlin-42591"
+    line_start: 1017021
+    line_end: 1625582
+    event_types: [sched_switch, sched_wakeup, sched_waking, sched_blocked_reason]
+    max_lines: 180
+  - label: rank_crosscheck
+    view: root_cause_rank
+    pid: 42591
+    window: "6793224.9..6793225.0"
+    max_lines: 250

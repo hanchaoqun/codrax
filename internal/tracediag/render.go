@@ -1,0 +1,653 @@
+package tracediag
+
+import (
+	"fmt"
+	"io"
+	"os"
+	"reflect"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/hanchaoqun/codrax/internal/tracequery"
+	"github.com/hanchaoqun/codrax/internal/types"
+)
+
+// maxRenderedTokenBytes bounds any single rendered value token; the cut is
+// rune-safe (CJK trace payloads must never be split mid-rune) and marked.
+const maxRenderedTokenBytes = 480
+
+// reportWriter emits report lines under the TOTAL line cap. When the cap is
+// reached it emits exactly one disclosure line, then suppresses further body
+// output; the end-of-report status summary bypasses the cap (bounded by the
+// step count) so the run outcome is never silently lost.
+type reportWriter struct {
+	w          io.Writer
+	totalCap   int
+	emitted    int
+	suppressed int
+	capHit     bool
+	err        error
+}
+
+func newReportWriter(w io.Writer, totalCap int) *reportWriter {
+	return &reportWriter{w: w, totalCap: totalCap}
+}
+
+func (rw *reportWriter) line(s string) {
+	if rw.err != nil {
+		return
+	}
+	if rw.capHit {
+		rw.suppressed++
+		return
+	}
+	if rw.emitted >= rw.totalCap {
+		rw.capHit = true
+		rw.suppressed++
+		_, rw.err = fmt.Fprintf(rw.w, "⚠ 报告总行帽 %d 已达,后续输出已抑制(全部步骤仍已执行,状态见文末摘要)\n", rw.totalCap)
+		return
+	}
+	rw.emitted++
+	_, rw.err = fmt.Fprintln(rw.w, s)
+}
+
+// summaryLine bypasses the total cap: the closing status summary is bounded
+// by the step count and must survive even a runaway body.
+func (rw *reportWriter) summaryLine(s string) {
+	if rw.err != nil {
+		return
+	}
+	_, rw.err = fmt.Fprintln(rw.w, s)
+}
+
+func (rw *reportWriter) flushErr() error { return rw.err }
+
+func writeProvenanceHeader(rw *reportWriter, opts Options, script *Script, tracePath string, info os.FileInfo, flavorHint tracequery.TraceFlavor, at time.Time) {
+	rw.line("# codrax tracediag 采集报告")
+	rw.line(fmt.Sprintf("codrax_version=%s build_time=%s", opts.Version, opts.BuildTime))
+	rw.line(fmt.Sprintf("generated_at=%s", at.Format(time.RFC3339)))
+	rw.line(fmt.Sprintf("trace=%s size_bytes=%d", tracePath, info.Size()))
+	rw.line(fmt.Sprintf("trace_flavor_hint=%s", string(flavorHint)))
+	rw.line(fmt.Sprintf("script=%s version=%d steps=%d", opts.ScriptPath, script.Version, len(script.Steps)))
+	if strings.TrimSpace(script.Description) != "" {
+		rw.line(fmt.Sprintf("description=%s", clampToken(script.Description)))
+	}
+	rw.line(fmt.Sprintf("line_caps: per_step_default=%d per_step_hard=%d report_total=%d", DefaultStepMaxLines, HardStepMaxLines, rw.totalCap))
+	rw.line("说明: 本报告为确定性证据采集面(零 LLM);数值与 token 均为引擎原文透传,行号/时间坐标均指向 trace 文件本身。")
+}
+
+func writeStepHeader(rw *reportWriter, ordinal, total int, step *Step) {
+	rw.line("")
+	rw.line(strings.Repeat("=", 80))
+	rw.line(fmt.Sprintf("[步骤 %d/%d] label=%s view=%s", ordinal, total, step.Label, step.View))
+	rw.line("参数: " + stepParamsEcho(step))
+	if requested, clamped := step.MaxLinesClamped(); clamped {
+		rw.line(fmt.Sprintf("⚠ max_lines=%d 超过硬帽 %d,已夹取为 %d", requested, HardStepMaxLines, step.EffectiveMaxLines()))
+	}
+	// P1-1 (对抗复核 2026-07-09): faithful restatement of the engine's
+	// line/time gate (tracequery eventInQueryWindow, query.go:909-925) —
+	// line bounds always apply; TIME bounds apply only when NO line bounds
+	// are set. A step carrying both must say so, or the echoed window reads
+	// as an active filter it is not.
+	if _, _, windowSet := step.WindowBounds(); windowSet && (step.LineStart > 0 || step.LineEnd > 0) {
+		rw.line("注: 行区间生效时时间窗不参与过滤(引擎语义:line 界恒生效,time 界仅在无 line 界时生效)")
+	}
+	rw.line(strings.Repeat("-", 80))
+}
+
+// stepParamsEcho echoes the step parameters verbatim (原样回显) so the report
+// is self-describing without the script file.
+func stepParamsEcho(step *Step) string {
+	parts := []string{}
+	if step.PID > 0 {
+		parts = append(parts, fmt.Sprintf("pid=%d", step.PID))
+	}
+	if step.Thread != "" {
+		parts = append(parts, fmt.Sprintf("thread=%q", step.Thread))
+	}
+	if step.Window != "" {
+		parts = append(parts, fmt.Sprintf("window=%s", step.Window))
+	}
+	if step.LineStart > 0 {
+		parts = append(parts, fmt.Sprintf("line_start=%d", step.LineStart))
+	}
+	if step.LineEnd > 0 {
+		parts = append(parts, fmt.Sprintf("line_end=%d", step.LineEnd))
+	}
+	if step.Pattern != "" {
+		parts = append(parts, fmt.Sprintf("pattern=%q", step.Pattern))
+	}
+	if len(step.EventTypes) > 0 {
+		parts = append(parts, fmt.Sprintf("event_types=[%s]", strings.Join(step.EventTypes, ",")))
+	}
+	parts = append(parts, fmt.Sprintf("max_lines=%d", step.EffectiveMaxLines()))
+	if len(parts) == 0 {
+		return "(无)"
+	}
+	return strings.Join(parts, " ")
+}
+
+func writeStatusSummary(rw *reportWriter, statuses []StepStatus) {
+	rw.summaryLine("")
+	rw.summaryLine(strings.Repeat("=", 80))
+	rw.summaryLine("[步骤状态摘要]")
+	failed := 0
+	for i, st := range statuses {
+		if st.Err != nil {
+			failed++
+			rw.summaryLine(fmt.Sprintf("- 步骤 %d label=%s view=%s 状态=失败: %s", i+1, st.Label, st.View, clampToken(st.Err.Error())))
+			continue
+		}
+		rw.summaryLine(fmt.Sprintf("- 步骤 %d label=%s view=%s 状态=成功 输出行=%d/%d", i+1, st.Label, st.View, st.BodyShown, st.BodyTotal))
+	}
+	if rw.suppressed > 0 {
+		rw.summaryLine(fmt.Sprintf("- 总行帽截断: %d 行未输出(总帽=%d)", rw.suppressed, rw.totalCap))
+	}
+	if failed > 0 {
+		rw.summaryLine(fmt.Sprintf("结论: %d/%d 步骤失败;报告仍为全量采集(失败步骤错误原文见各节)。", failed, len(statuses)))
+	} else {
+		rw.summaryLine(fmt.Sprintf("结论: 全部 %d 步骤成功。", len(statuses)))
+	}
+}
+
+// stepBody is the collected (pre-cap) body of one step.
+type stepBody struct {
+	lines []string // at most the per-step cap
+	total int      // lines the step would have produced without the cap
+}
+
+// bodySink collects body lines under the per-step cap while counting the
+// true total, so the truncation disclosure can state N/M/X honestly.
+type bodySink struct {
+	cap   int
+	lines []string
+	total int
+}
+
+func (b *bodySink) emit(s string) {
+	b.total++
+	if len(b.lines) < b.cap {
+		b.lines = append(b.lines, s)
+	}
+}
+
+// renderStepBody renders one successful step outcome into its body lines.
+func renderStepBody(step *Step, outcome stepOutcome) stepBody {
+	sink := &bodySink{cap: step.EffectiveMaxLines()}
+	if outcome.census != nil {
+		renderFormatCensus(outcome.census, sink.emit)
+		return stepBody{lines: sink.lines, total: sink.total}
+	}
+	res := outcome.result
+	renderResultMeta(res, sink.emit)
+	if len(res.Events) > 0 {
+		sink.emit(fmt.Sprintf("匹配事件 %d 行:", len(res.Events)))
+		for _, ev := range res.Events {
+			sink.emit(renderEventRow(ev))
+		}
+	}
+	if len(res.EvidencePack) > 0 {
+		sink.emit(fmt.Sprintf("观测记录(引擎 evidence,原文 token,共 %d 条):", len(res.EvidencePack)))
+		for _, fact := range res.EvidencePack {
+			sink.emit(renderEvidenceFact(fact))
+		}
+	}
+	renderResultDetail(res, sink.emit)
+	if len(res.Caveats) > 0 {
+		sink.emit(fmt.Sprintf("caveats(引擎原文,共 %d 条):", len(res.Caveats)))
+		for _, c := range res.Caveats {
+			sink.emit("- " + clampToken(c))
+		}
+	}
+	for _, comp := range res.Compactions {
+		sink.emit(fmt.Sprintf("- 引擎截断记录: view=%s dimension=%s total=%d emitted=%d last_ts=%s last_line=%d",
+			comp.View, comp.Dimension, comp.Total, comp.Emitted, formatSecondsToken(comp.LastEmittedTs), comp.LastEmittedLine))
+	}
+	return stepBody{lines: sink.lines, total: sink.total}
+}
+
+func renderResultMeta(res *tracequery.Result, emit func(string)) {
+	parts := []string{"result:", "view=" + res.View}
+	if res.TraceFlavor != "" {
+		parts = append(parts, fmt.Sprintf("flavor=%s(conf=%s)", res.TraceFlavor, formatFloatToken(res.FlavorConfidence)))
+	}
+	if res.Platform != "" {
+		parts = append(parts, "platform="+res.Platform)
+	}
+	if res.TimeUnit != "" {
+		parts = append(parts, "time_unit="+res.TimeUnit)
+	}
+	parts = append(parts,
+		fmt.Sprintf("line_count=%d", res.LineCount),
+		fmt.Sprintf("scanned_lines=%d", res.ScannedLineCount),
+		fmt.Sprintf("event_count=%d", res.EventCount),
+		fmt.Sprintf("unparsed_lines=%d", res.UnparsedLineCount),
+		fmt.Sprintf("clock_regressions=%d", res.ClockRegressions),
+	)
+	emit(strings.Join(parts, " "))
+	windowParts := []string{}
+	if res.TimeStart > 0 || res.TimeEnd > 0 {
+		windowParts = append(windowParts, fmt.Sprintf("query=[%s..%s]", formatSecondsToken(res.TimeStart), formatSecondsToken(res.TimeEnd)))
+	}
+	if res.IndexWindowed {
+		windowParts = append(windowParts, fmt.Sprintf("index=[%s..%s] index_lines=[%d..%d]",
+			formatSecondsToken(res.IndexTimeStart), formatSecondsToken(res.IndexTimeEnd), res.IndexLineStart, res.IndexLineEnd))
+	}
+	if len(windowParts) > 0 {
+		emit("window: " + strings.Join(windowParts, " "))
+	}
+}
+
+// renderEventRow renders one event_search row: coordinates as engine tokens,
+// then the raw trace line verbatim (the evidence itself).
+func renderEventRow(ev tracequery.EventView) string {
+	raw := ev.Raw
+	if raw == "" {
+		raw = ev.FieldText
+	}
+	return fmt.Sprintf("- line=%d ts=%s type=%s | %s", ev.Line, formatSecondsToken(ev.Ts), string(ev.Type), clampToken(raw))
+}
+
+// renderEvidenceFact renders one engine evidence fact in the 系统补充
+// observation-row token style: subject/predicate/object, verbatim summary,
+// line span, time span.
+func renderEvidenceFact(fact tracequery.EvidenceFact) string {
+	parts := []string{}
+	head := fact.Subject
+	if fact.Predicate != "" {
+		head += " " + fact.Predicate
+	}
+	if fact.Object != "" {
+		head += " -> " + fact.Object
+	}
+	if strings.TrimSpace(head) != "" {
+		parts = append(parts, clampToken(head))
+	}
+	if fact.Summary != "" {
+		parts = append(parts, clampToken(fact.Summary))
+	}
+	if fact.LineStart > 0 {
+		if fact.LineEnd > fact.LineStart {
+			parts = append(parts, fmt.Sprintf("lines=%d-%d", fact.LineStart, fact.LineEnd))
+		} else {
+			parts = append(parts, fmt.Sprintf("lines=%d", fact.LineStart))
+		}
+	}
+	if fact.StartTs > 0 || fact.EndTs > 0 {
+		parts = append(parts, fmt.Sprintf("ts=[%s..%s]", formatSecondsToken(fact.StartTs), formatSecondsToken(fact.EndTs)))
+	}
+	if fact.Confidence > 0 {
+		parts = append(parts, "conf="+formatFloatToken(fact.Confidence))
+	}
+	return "- " + strings.Join(parts, "; ")
+}
+
+// resultMetaFields are the Result fields the meta block / dedicated faces
+// already render; the generic detail walker skips them.
+var resultMetaFields = map[string]bool{
+	"View": true, "SourcePath": true, "TraceFlavor": true, "Platform": true,
+	"PlatformCandidate": true, "PlatformCandidateConfidence": true,
+	"PlatformCandidateSignals": true, "FlavorConfidence": true,
+	"FlavorSignals": true, "FrameworkMode": true, "FrameworkSurfaces": true,
+	"TimeUnit": true, "PrioritySemantics": true, "LineCount": true,
+	"ScannedLineCount": true, "IndexWindowed": true, "IndexTimeStart": true,
+	"IndexTimeEnd": true, "IndexLineStart": true, "IndexLineEnd": true,
+	"EventCount": true, "UnparsedLineCount": true, "ParseLinePanics": true,
+	"ClockRegressions": true, "TimeStart": true, "TimeEnd": true,
+	"Events": true, "EvidencePack": true, "Caveats": true, "Compactions": true,
+}
+
+// renderResultDetail walks every structured payload of the Result (Timeline,
+// WindowStats, RootCauseRank, WakeupChain, …) generically and emits the
+// engine's per-item Summary line families (窗口统计类 view 的 Summary 行族)
+// plus key=value token lines for structs without a Summary. Reflection keeps
+// the face complete and drift-free: payload fields added by future engine
+// batches render automatically instead of silently vanishing.
+func renderResultDetail(res *tracequery.Result, emit func(string)) {
+	v := reflect.ValueOf(res).Elem()
+	t := v.Type()
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		if field.PkgPath != "" || resultMetaFields[field.Name] || jsonExcluded(field) {
+			continue
+		}
+		fv := v.Field(i)
+		if isZeroValue(fv) {
+			continue
+		}
+		path := jsonTagName(field)
+		headered := false
+		lazyEmit := func(s string) {
+			if !headered {
+				headered = true
+				emit(fmt.Sprintf("明细 %s:", path))
+			}
+			emit(s)
+		}
+		walkDetail(fv, path, lazyEmit, 0)
+	}
+}
+
+// walkDetailMaxDepth bounds the reflection recursion; engine payloads are
+// shallow (≤6), the bound only guards against future cyclic structures.
+const walkDetailMaxDepth = 10
+
+func walkDetail(v reflect.Value, path string, emit func(string), depth int) {
+	if depth > walkDetailMaxDepth {
+		return
+	}
+	switch v.Kind() {
+	case reflect.Pointer, reflect.Interface:
+		if v.IsNil() {
+			return
+		}
+		walkDetail(v.Elem(), path, emit, depth)
+	case reflect.Struct:
+		walkStructDetail(v, path, emit, depth)
+	case reflect.Slice, reflect.Array:
+		if v.Len() == 0 {
+			return
+		}
+		if isScalarKind(v.Type().Elem().Kind()) {
+			emit(fmt.Sprintf("- %s: %s", path, formatScalarSlice(v)))
+			return
+		}
+		for i := 0; i < v.Len(); i++ {
+			walkDetail(v.Index(i), fmt.Sprintf("%s[%d]", path, i), emit, depth+1)
+		}
+	case reflect.Map:
+		if v.Len() == 0 {
+			return
+		}
+		emit(fmt.Sprintf("- %s: %s", path, formatMapTokens(v)))
+	default:
+		emit(fmt.Sprintf("- %s: %s", path, formatScalar(v)))
+	}
+}
+
+func walkStructDetail(v reflect.Value, path string, emit func(string), depth int) {
+	t := v.Type()
+	// Inline token types render as one token, never as a line family.
+	if t == reflect.TypeOf(tracequery.ThreadRef{}) || t == reflect.TypeOf(tracequery.TimeWindow{}) {
+		if token := formatInlineStruct(v); token != "" {
+			emit(fmt.Sprintf("- %s: %s", path, token))
+		}
+		return
+	}
+	summary := ""
+	// Direct (non-promoted) field lookup only: reflect promotion through a
+	// nil embedded pointer group panics, and the P4 side-table ban forbids
+	// promoted reads anyway.
+	if f, ok := directField(v, "Summary"); ok && f.Kind() == reflect.String {
+		summary = f.String()
+	}
+	if summary != "" {
+		line := fmt.Sprintf("- %s: %s", path, clampToken(summary))
+		if extra := structCoordinateTokens(v); extra != "" {
+			line += "; " + extra
+		}
+		emit(line)
+	} else if kv := structScalarTokens(v); kv != "" {
+		emit(fmt.Sprintf("- %s: %s", path, kv))
+	}
+	// Recurse into composite children so nested families (rank items,
+	// chain nodes, per-thread breakdowns) keep their own lines.
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		if field.PkgPath != "" || field.Name == "Summary" || jsonExcluded(field) {
+			continue
+		}
+		fv := v.Field(i)
+		if isZeroValue(fv) {
+			continue
+		}
+		switch fv.Kind() {
+		case reflect.Struct, reflect.Slice, reflect.Array, reflect.Map, reflect.Pointer, reflect.Interface:
+			ft := fv.Type()
+			for ft.Kind() == reflect.Pointer {
+				ft = ft.Elem()
+			}
+			if ft == reflect.TypeOf(tracequery.ThreadRef{}) || ft == reflect.TypeOf(tracequery.TimeWindow{}) {
+				continue // already rendered inline by structScalarTokens/coordinates
+			}
+			childPath := path + "." + jsonTagName(field)
+			if field.Anonymous {
+				childPath = path
+			}
+			walkDetail(fv, childPath, emit, depth+1)
+		}
+	}
+}
+
+// structCoordinateTokens extracts the standard evidence coordinates riding a
+// Summary-bearing struct: thread identity, line span, time span.
+func structCoordinateTokens(v reflect.Value) string {
+	parts := []string{}
+	for _, name := range []string{"Thread", "Target"} {
+		if f, ok := directField(v, name); ok && f.Type() == reflect.TypeOf(tracequery.ThreadRef{}) {
+			if token := formatInlineStruct(f); token != "" {
+				parts = append(parts, "thread="+token)
+			}
+		}
+	}
+	lineStart, lineEnd := 0, 0
+	if f, ok := directField(v, "LineStart"); ok && f.Kind() == reflect.Int {
+		lineStart = int(f.Int())
+	}
+	if f, ok := directField(v, "StartLine"); ok && f.Kind() == reflect.Int {
+		lineStart = int(f.Int())
+	}
+	if f, ok := directField(v, "LineEnd"); ok && f.Kind() == reflect.Int {
+		lineEnd = int(f.Int())
+	}
+	if f, ok := directField(v, "EndLine"); ok && f.Kind() == reflect.Int {
+		lineEnd = int(f.Int())
+	}
+	if lineStart > 0 {
+		if lineEnd > lineStart {
+			parts = append(parts, fmt.Sprintf("lines=%d-%d", lineStart, lineEnd))
+		} else {
+			parts = append(parts, fmt.Sprintf("lines=%d", lineStart))
+		}
+	}
+	return strings.Join(parts, "; ")
+}
+
+// structScalarTokens renders a struct's non-zero scalar fields as verbatim
+// key=value tokens (json tag names), inlining ThreadRef/TimeWindow values.
+func structScalarTokens(v reflect.Value) string {
+	t := v.Type()
+	parts := []string{}
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		if field.PkgPath != "" || jsonExcluded(field) {
+			continue
+		}
+		fv := v.Field(i)
+		if isZeroValue(fv) {
+			continue
+		}
+		ft := fv.Type()
+		if ft == reflect.TypeOf(tracequery.ThreadRef{}) || ft == reflect.TypeOf(tracequery.TimeWindow{}) {
+			if token := formatInlineStruct(fv); token != "" {
+				parts = append(parts, jsonTagName(field)+"="+token)
+			}
+			continue
+		}
+		if isScalarKind(fv.Kind()) {
+			tag := jsonTagName(field)
+			parts = append(parts, tag+"="+formatScalarForTag(fv, tag))
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// formatScalarForTag applies the P1-2 quantity-form ruling on the kv fallback
+// face: engine "_ms" fields align with the engine's own %.3f publication form
+// and "_ts" fields render as fixed-point trace coordinates; every other
+// scalar keeps the exact shortest round-trip form.
+func formatScalarForTag(v reflect.Value, tag string) string {
+	if v.Kind() == reflect.Float64 || v.Kind() == reflect.Float32 {
+		switch {
+		case strings.HasSuffix(tag, "_ms"):
+			return formatMsToken(v.Float())
+		case strings.HasSuffix(tag, "_ts"):
+			return formatSecondsToken(v.Float())
+		}
+	}
+	return formatScalar(v)
+}
+
+func formatInlineStruct(v reflect.Value) string {
+	switch ref := v.Interface().(type) {
+	case tracequery.ThreadRef:
+		if ref.Comm == "" && ref.PID == 0 {
+			return ""
+		}
+		token := ref.Comm
+		if ref.PID > 0 {
+			if token != "" {
+				token += "-"
+			}
+			token += strconv.Itoa(ref.PID)
+		}
+		if ref.TGID > 0 {
+			token += fmt.Sprintf("(tgid=%d)", ref.TGID)
+		}
+		return token
+	case tracequery.TimeWindow:
+		if ref.StartTs == 0 && ref.EndTs == 0 {
+			return ""
+		}
+		return fmt.Sprintf("[%s..%s]", formatSecondsToken(ref.StartTs), formatSecondsToken(ref.EndTs))
+	}
+	return ""
+}
+
+// jsonExcluded reports a `json:"-"` field: the engine's explicit "not an
+// observation face" marker (e.g. WindowStats.ClusterFrequencyCeilings, the
+// CFC internal computation structure kept off EVERY JSON surface). The
+// evidence walker honors the same exclusion — rendering such a field would
+// mint a display surface the engine deliberately withheld.
+func jsonExcluded(field reflect.StructField) bool {
+	return field.Tag.Get("json") == "-"
+}
+
+// directField returns a struct's OWN field by name — never a promoted field
+// from an embedded type (reflect promotion through a nil embedded pointer
+// panics, and the tracequery P4 side-table promotion ban applies).
+func directField(v reflect.Value, name string) (reflect.Value, bool) {
+	t := v.Type()
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if !f.Anonymous && f.PkgPath == "" && f.Name == name {
+			return v.Field(i), true
+		}
+	}
+	return reflect.Value{}, false
+}
+
+func jsonTagName(field reflect.StructField) string {
+	tag := field.Tag.Get("json")
+	if tag == "" || tag == "-" {
+		return field.Name
+	}
+	if idx := strings.IndexByte(tag, ','); idx >= 0 {
+		tag = tag[:idx]
+	}
+	if tag == "" {
+		return field.Name
+	}
+	return tag
+}
+
+func isScalarKind(k reflect.Kind) bool {
+	switch k {
+	case reflect.Bool, reflect.String,
+		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
+		return true
+	}
+	return false
+}
+
+func isZeroValue(v reflect.Value) bool {
+	switch v.Kind() {
+	case reflect.Slice, reflect.Map:
+		return v.Len() == 0
+	case reflect.Pointer, reflect.Interface:
+		return v.IsNil()
+	}
+	return v.IsZero()
+}
+
+func formatScalar(v reflect.Value) string {
+	switch v.Kind() {
+	case reflect.Bool:
+		return strconv.FormatBool(v.Bool())
+	case reflect.String:
+		return clampToken(v.String())
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return strconv.FormatInt(v.Int(), 10)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return strconv.FormatUint(v.Uint(), 10)
+	case reflect.Float32, reflect.Float64:
+		return formatFloatToken(v.Float())
+	}
+	return fmt.Sprintf("%v", v.Interface())
+}
+
+func formatScalarSlice(v reflect.Value) string {
+	parts := make([]string, 0, v.Len())
+	for i := 0; i < v.Len(); i++ {
+		parts = append(parts, formatScalar(v.Index(i)))
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
+}
+
+func formatMapTokens(v reflect.Value) string {
+	keys := v.MapKeys()
+	tokens := make([]string, 0, len(keys))
+	for _, k := range keys {
+		tokens = append(tokens, fmt.Sprintf("%v=%s", k.Interface(), formatScalar(v.MapIndex(k))))
+	}
+	sort.Strings(tokens)
+	return strings.Join(tokens, " ")
+}
+
+// formatFloatToken renders floats with the shortest exact round-trip form —
+// verbatim value fidelity without invented precision. NEVER use it for
+// second-scale trace coordinates: 'g' switches to scientific notation at
+// berlin-magnitude timestamps (6793222.031 → 6.793222031e+06), which is
+// unreadable as a trace coordinate (P1-2, 对抗复核 2026-07-09). Coordinates
+// go through formatSecondsToken; ms fields align with the engine's %.3f.
+func formatFloatToken(f float64) string {
+	return strconv.FormatFloat(f, 'g', -1, 64)
+}
+
+// formatSecondsToken renders a second-scale trace coordinate (ts / window
+// endpoint) in the trace file's own fixed-point form: 6 decimals, matching
+// the ftrace timestamp column, never scientific notation.
+func formatSecondsToken(f float64) string {
+	return strconv.FormatFloat(f, 'f', 6, 64)
+}
+
+// formatMsToken renders a millisecond value in the engine's own publication
+// form (%.3f — every engine Summary string uses it), so the kv fallback face
+// and the Summary face cannot publish two shapes for one quantity.
+func formatMsToken(f float64) string {
+	return strconv.FormatFloat(f, 'f', 3, 64)
+}
+
+// clampToken bounds one rendered token CJK-safely (types.CutPrefixRuneSafe,
+// the shared rune-safe truncation authority) and marks the cut.
+func clampToken(s string) string {
+	s = strings.ReplaceAll(s, "\n", "\\n")
+	if len(s) <= maxRenderedTokenBytes {
+		return s
+	}
+	return types.CutPrefixRuneSafe(s, maxRenderedTokenBytes) + "…(截断)"
+}

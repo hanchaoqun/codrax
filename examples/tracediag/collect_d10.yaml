@@ -1,0 +1,25 @@
+# D-10 定向采集脚本(东湖 OpenDir 案:#RxComputationT-16816 actual 口径两面互斥)
+# 用法(一条命令,零 LLM、纯只读、无需仓库与模型凭据):
+#   codrax --tracediag examples/tracediag/collect_d10.yaml --trace record_trace_20260606064820@33863-826532969.sys.ftrace --out d10_report.txt
+#
+# 判定点:running 的窗口内时长与实际(跨窗)总时长两个口径的来源与差值——
+# window_stats 步骤输出线程状态统计族(state_churn 行族含 actual_* token),
+# thread_timeline 步骤输出逐区间双账本(duration_ms 与 actual_duration_ms 并列)。
+#
+# 选择子说明(P0-1 修):目标线程用 thread 选择子("comm-pid" 形自带 tid),
+# **不要**再设 pid——引擎按 pid 优先,pid 会让 thread 被无视采到主线程;
+# tracediag 对 pid+thread 同设会直接拒绝执行。
+#
+# 行数预算(P3-6:单输出文件≤1000 行,步帽合计≤950):550+350=900。
+version: 1
+description: "D-10 actual 口径核查(#RxComputationT-16816 状态切换统计两口径来源)"
+defaults:
+  thread: "#RxComputationT-16816"
+  window: "33872.289161..33872.408222"
+steps:
+  - label: state_stats
+    view: window_stats
+    max_lines: 550
+  - label: timeline_dual_ledger
+    view: thread_timeline
+    max_lines: 350

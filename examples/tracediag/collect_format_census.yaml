@@ -1,0 +1,28 @@
+# 格式盲点普查脚本(§28.12 补充裁定):主动收集 trace 的格式观察面,
+# 支撑后续解析扩展与优化方向——不留格式盲点(如 hmfs_ 事件静默漏采、
+# 键控簇轨证据均由此类普查发现)。
+# 用法(一条命令,零 LLM、纯只读、无需仓库与模型凭据):
+#   codrax --tracediag examples/tracediag/collect_format_census.yaml --trace <你的trace文件> --out format_census.txt
+# 输出全部为聚合统计+有界样本(各清单 top-N 帽+总数披露),不含业务负载明文:
+#   ① 事件名全谱+未识别名单(格式盲点清单,最重要的一面)
+#   ② 标记形普查(B|/E|/S|/F|/C|、H: 前缀、E 带载荷、E|pid|I 尾形)
+#   ③ clock_set_rate 轨谱(轨名×cpu_id 数×值域×计数)
+#   ④ 调度域(prio 直方含 >139 桶、prev_state token 集、next_info 出现率)
+#   ⑤ FS/IO(事件名前缀谱、ino/dev/entry_name 覆盖率、block 计数)
+#   ⑥ 电源事件(cpu_frequency/limits/idle 计数+覆盖 CPU 集)
+#   ⑦ span 普查(top span 名、H: 占比)
+#   ⑧ 行级质量(总行数、不可解析行+样本、时间轴范围与单调性)
+# 大 trace(>1GB)如遇索引预算报错,可加 line_start/line_end 或 window 分段普查。
+# 行数预算(P3-6:单输出文件≤1000 行,步帽合计≤950):单步 800;若启用下方
+# 可选窗口化步骤,请把两步 max_lines 调低到合计 ≤950(如 475+475)。
+version: 1
+description: "格式盲点普查(全谱事件名/标记形/轨谱/调度域/FS-IO/电源/span/行级质量)"
+steps:
+  - label: format_census_full
+    view: format_census
+    max_lines: 800
+  # 可选:窗口化普查示例(大 trace 分段;去掉注释并改窗口即可)
+  # - label: format_census_window
+  #   view: format_census
+  #   window: "100.000..160.000"
+  #   max_lines: 800
