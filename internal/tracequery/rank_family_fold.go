@@ -516,6 +516,12 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 	})
 	base := members[0]
 	spec, _ := CausalTokenSpecFor(base.Type)
+	// G3 (§27.2, 2026-07-09): a Count-additivity family's member values are
+	// count-derived advisory scalars (registry: "not a physical duration even
+	// when printed with an ms suffix") — every face that prints one goes
+	// through rootCauseCountEquivalentValue instead of a bare wall-clock "ms".
+	// Arm-level on the registry Additivity column, never a per-type carve-out.
+	countFamily := spec.Additivity == CausalAdditivityCount
 	intervals := make([]foldInterval, 0, len(members))
 	intervalsUsable := true
 	sum := 0.0
@@ -562,6 +568,10 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 					}
 					roster = append(roster, entry)
 				}
+			} else if countFamily {
+				// G3: honest count-equivalent labelling — the roster face and
+				// the summary face share one renderer (两面同源).
+				roster = append(roster, fmt.Sprintf("%s %s", rootCauseFamilyMemberKey(member), rootCauseCountEquivalentValue(raw)))
 			} else {
 				roster = append(roster, fmt.Sprintf("%s %.3fms", rootCauseFamilyMemberKey(member), raw))
 			}
@@ -657,7 +667,21 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 	}
 	merged.ImpactMs = backgroundImpactMs(q, combined, hasCausalChain, rootCauseItemIsOnChain(merged))
 	merged.ProjectedImpactMs = merged.ImpactMs
-	if base.EffectiveImpactMs > 0 {
+	if caliber == RootCauseMemberFoldCaliberCountSum {
+		// G3 count-family identity (§27.2 audit, 2026-07-09): the Σ计入==V==
+		// 引擎发布值 identity broke here — CumulativeImpactMs kept the raw
+		// (uncapped) count-equivalent Σ (opendir_79 页缓存抖动 198.300, a
+		// single member of 133.200 already exceeding the whole window) while
+		// ImpactMs/Score published the §7.5-capped 41.671, and normalize then
+		// stamped the raw Σ onto EffectiveImpactMs too — a three-face fork.
+		// The published value on ALL value channels is the capped ImpactMs;
+		// the raw count-equivalent Σ survives losslessly on the existing
+		// member_sum disclosure channel below (the interval_union precedent).
+		// Conservative on both sides: attribution faces never exceed the
+		// capped published value; the disclosure face keeps the full raw Σ.
+		merged.CumulativeImpactMs = merged.ImpactMs
+		merged.EffectiveImpactMs = merged.ImpactMs
+	} else if base.EffectiveImpactMs > 0 {
 		// Pre-normalize members rarely carry an explicit effective value; when
 		// the representative does, keep the family on the same discipline: the
 		// combined magnitude, single-capped (normalize fills the rest later).
@@ -684,7 +708,12 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 	merged.MemberMinMs = minMs
 	merged.MemberFoldCaliber = caliber
 	merged.MemberSumMs = 0
-	if combined < sum {
+	// The raw-Σ disclosure keys on the PUBLISHED value (CumulativeImpactMs):
+	// identical to the legacy `combined < sum` gate on every non-count arm
+	// (there Cumulative == combined), and on the count arm it now fires
+	// whenever the §7.5 cap bit — the raw count-equivalent Σ must stay
+	// disclosed, never silently absorbed by the cap (G3).
+	if merged.CumulativeImpactMs < sum {
 		merged.MemberSumMs = sum
 	}
 	merged.MemberKey = ""
@@ -697,12 +726,34 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 	// Compact by design: the full member roster rides the typed member_roster
 	// note / MemberRoster field — the prose face only declares the merge and
 	// its caliber (summary byte budgets are shared with every other section).
-	merged.Summary = fmt.Sprintf("%s | merged x%d same-thread: combined=%.3fms (%s)",
-		base.Summary, memberCount, combined, caliber)
+	// G3: the summary prints the PUBLISHED value (same source as the tree /
+	// score faces) and renders count-family magnitudes through the same
+	// count-equivalent helper as the roster (两面同源) — a bare wall-clock
+	// "ms" on a count-derived scalar is the §27.2 wording over-claim.
+	combinedFace := fmt.Sprintf("%.3fms", merged.CumulativeImpactMs)
+	sumFace := fmt.Sprintf("%.3fms", sum)
+	if countFamily {
+		combinedFace = rootCauseCountEquivalentValue(merged.CumulativeImpactMs)
+		sumFace = rootCauseCountEquivalentValue(sum)
+	}
+	merged.Summary = fmt.Sprintf("%s | merged x%d same-thread: combined=%s (%s)",
+		base.Summary, memberCount, combinedFace, caliber)
 	if merged.MemberSumMs > 0 {
-		merged.Summary = fmt.Sprintf("%s member_sum=%.3fms", merged.Summary, sum)
+		merged.Summary = fmt.Sprintf("%s member_sum=%s", merged.Summary, sumFace)
 	}
 	return merged
+}
+
+// rootCauseCountEquivalentValue renders a Count-additivity magnitude (a
+// count-derived advisory scalar — registry CausalAdditivityCount: "not a
+// physical duration even when printed with an ms suffix") for the roster and
+// summary faces. The 计数当量 marker keeps the number comparable while
+// refusing the bare wall-clock "ms" reading (G3, §27.2/§28.1 收口 2026-07-09;
+// both faces render through THIS one helper — 两面同源, and the marker is
+// generic per-CLASS: page_cache_churn, file_io_hot_inode and any future
+// count-class family share it — never a per-type carve-out).
+func rootCauseCountEquivalentValue(ms float64) string {
+	return fmt.Sprintf("计数当量%.3fms", ms)
 }
 
 // rootCauseFamilyMemberKey is the roster-entry identity fallback for a member

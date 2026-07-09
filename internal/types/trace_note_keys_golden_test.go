@@ -305,6 +305,10 @@ var traceNoteKeyGoldenRows = []string{
 	"top_thread_ms|cpu_load|display_only",
 	"total|impact|soft_consumer",
 	"total_latency|io|display_only",
+	// G2 判据 typed 化 (§27.2/§28.1, 2026-07-09): the trace_gap blind-spot
+	// criterion enum (no_sched_data / no_eligible_wait); display tier until
+	// the follow-up tool batch keys the ◇ wording on it.
+	"trace_gap_kind|causal_rank|display_only",
 	"type|causal_rank|hard_consumer",
 	"unpaired_done|io|display_only",
 	"unpaired_start|io|display_only",

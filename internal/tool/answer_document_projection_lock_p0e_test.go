@@ -119,7 +119,11 @@ func TestLockHolderContradictionDetailStanzaP0E(t *testing.T) {
 	node.BlockingPeer = ""
 	node.BlockingHolderSource = ""
 	node.Subject = "LegoHandler-16865"
-	node.BlockingHolderContradiction = "inferred holder ugc.aweme.lite-16547 itself waited on the same payload owner tid 42067 for 112.223ms of this 115.944ms span (lines 45696-79136)"
+	// G10 (§27.4/§28.1, 2026-07-09): the engine witness is minted in Chinese
+	// (§22.2.1 词条尺子; payload/tid stay untranslated, number and line
+	// formats byte-preserved) — the zh 明细 face no longer carries an EN
+	// sentence verbatim.
+	node.BlockingHolderContradiction = "推断持有者 ugc.aweme.lite-16547 自身在同一 payload 持有者 tid 42067 上排队 112.223ms(本段共 115.944ms;行 45696-79136)"
 	projection := types.TraceCausalProjection{
 		OnChainCauses: []types.TraceCausalProjectionNode{node},
 	}

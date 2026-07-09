@@ -2046,7 +2046,15 @@ func traceQueryRootCauseRankRecord(index, ordinal int, line string, ref Observat
 	score := traceQueryFieldFloat(fields, "score")
 	conf := traceQueryFieldFloat(fields, "confidence")
 	lineStart, lineEnd := traceQueryFieldLineSpan(fields["lines"])
-	if rank <= 0 {
+	if rank <= 0 && tier == "" {
+		// 复核 P2-3 (2026-07-09): positional backfill for identity-less legacy
+		// lines only — the gate mirrors the typed-observation lane
+		// (internal/tool/trace_query.go). A tier-carrying rank=0 line is the
+		// engine's deliberate G9 no-board-seat signal (target_self_state /
+		// data_gap rows); the unconditional backfill let this text re-parse
+		// lane resurrect Rank>0 and re-badge the row on the projection face —
+		// the fourth face breaking 三面同源 (reachable only on degraded
+		// results without typed Observations).
 		rank = ordinal
 	}
 	if tier == "" {
@@ -2084,8 +2092,18 @@ func traceQueryRootCauseRankRecord(index, ordinal int, line string, ref Observat
 		claimKey = "root_cause_background"
 		predicate = "root_cause_background"
 	}
+	// 复核 P3-1 mirror: the summary fallback of a no-seat (rank<=0) row states
+	// so instead of fabricating a "#0" ordinal.
+	position := fmt.Sprintf("%s cause #%d", tier, rank)
+	if rank <= 0 {
+		position = fmt.Sprintf("%s row (no rank seat)", tier)
+	}
 	return ObservationRecord{
-		ID:              fmt.Sprintf("tool:%d#trace_query:root_cause_rank:%d", index, rank),
+		// P2-3: the record identity keys on the POSITION (ordinal), not the
+		// parsed rank — rank=0 no-seat rows would collide on a rank-keyed ID.
+		// Legacy texts list rows in rank order (rank == ordinal), so the ID is
+		// byte-identical wherever the old form was well-defined.
+		ID:              fmt.Sprintf("tool:%d#trace_query:root_cause_rank:%d", index, ordinal),
 		Origin:          AnswerEvidenceOriginRuntimeArtifact,
 		Producer:        "trace_query",
 		Role:            role,
@@ -2099,7 +2117,7 @@ func traceQueryRootCauseRankRecord(index, ordinal int, line string, ref Observat
 		Object:          typ,
 		Value:           value,
 		Unit:            "ms",
-		Summary:         firstNonEmptyString(summary, fmt.Sprintf("%s cause #%d (%s)", tier, rank, typ)),
+		Summary:         firstNonEmptyString(summary, position+" ("+typ+")"),
 		RichNotes:       notes,
 		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
 		ObservedAt:      observedAt,

@@ -223,8 +223,15 @@ func TestPeriodicSourceRankConsumesDiscountedValue(t *testing.T) {
 	if items[0].Type != "running" || items[0].Rank != 1 {
 		t.Fatalf("the real running row must outrank the periodic cadence sleep: %+v", items)
 	}
+	// EVOLUTION RECORD (复核 P1-2, 2026-07-09): the GAP-A batch briefly set
+	// this expectation to Rank==0 on the premise that the display suppresses
+	// periodic board rows — the adversarial review FALSIFIED that premise (no
+	// PeriodicSource filter on the shared board; every board/lead/成因 gate
+	// keys on Rank>0), the no-ordinal arm was deleted, and the VS-1
+	// competition form is restored: the discounted row ranks BELOW by its
+	// discounted value and keeps its board ordinal (#2).
 	if !items[1].PeriodicSource || items[1].Rank != 2 {
-		t.Fatalf("the periodic row must rank below by its discounted value: %+v", items)
+		t.Fatalf("the periodic row must rank below by its discounted value with its ordinal: %+v", items)
 	}
 	if !near(items[1].EffectiveImpactMs, 0.105, 0.001) {
 		t.Fatalf("normalize must NOT resurrect the raw sleep as effective impact: %+v", items[1])

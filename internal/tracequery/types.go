@@ -1866,7 +1866,55 @@ const RootCauseTierDeterministicOptimization = "deterministic_optimization"
 // self causes (调度压力候选 / 算力供给候选 / IO阻塞候选 / D状态候选) and may
 // be crowned lead; the SubjectIsAnalysisTarget stamp itself stays
 // full-population (identity fact).
+//
+// EVOLUTION RECORD (G9 engine renumbering, §27.3/§28.1 user ruling
+// 2026-07-09, real_trace_campaign_20260705.md): the §24.13 "榜位照发" clause
+// above is superseded — rank ordinals are now assigned ONLY to rows carrying
+// a rank-board display identity, so a demoted self-symptom row carries
+// Rank=0 (no ordinal, no board seat) instead of pre-consuming an ordinal the
+// display never shows (huadong_79/opendir_79 witness: visible boards read
+// #6/#7/#12 with #1-#5 pre-consumed by demoted rows). Everything else in
+// this comment (election transparency, score/sort lanes untouched, predicate
+// prefix exclusion) is unchanged.
 const RootCauseTierTargetSelfState = "target_self_state"
+
+// RootCauseTierDataGap (G2 引擎半场, §27.2 audit + §28.1 user ruling
+// 2026-07-09, real_trace_campaign_20260705.md): the independent Tier word for
+// trace_gap diagnostic rows — a data BLIND SPOT (数据盲区), never a cause. A
+// row wearing it neither takes a primary/secondary/tertiary election slot nor
+// shifts the slots of the causal rows below it, and it carries NO rank
+// ordinal (Rank=0 — the G9 renumbering rule: ordinals only for rows with a
+// rank-board display identity; pre-G2 the blind-spot rows occupied board
+// seats #6-#12 on the customer face). The observation keeps publishing
+// unchanged (the ◇ display arm consumes it in the follow-up display batch);
+// identity is the PRECISE mint-time type token "trace_gap" (single mint site:
+// the expandChain nil-interesting arm), never a prose heuristic. Wire token:
+// verbatim in the typed tier note / root_cause_<tier> predicate — the
+// root_cause_primary prefix never matches, so projection primary buckets
+// exclude blind-spot rows by construction (the target_self_state precedent).
+const RootCauseTierDataGap = "data_gap"
+
+// TraceGapKind* (G2 判据 typed 化, §27.2 + §28.1, 2026-07-09): the PRECISE
+// typed criterion split behind a trace_gap mint. The legacy single wording
+// "窗内无调度数据" over-claimed: the same (thread, window) could carry a
+// depth-0 running rank row (#3, 0.051ms) beside a "no scheduler data" blind
+// spot — the window HAD intervals, they just all sat below the MinDurationMs
+// floor. Two closed enum forms, decided at the single mint site from the
+// thread's own timeline (len(intervals)):
+//   - no_sched_data     — the thread timeline holds NO interval at all inside
+//                         the aligned window (the only shape the old wording
+//                         was true for);
+//   - no_eligible_wait  — intervals exist but ALL sit below MinDurationMs
+//                         (复核 P3-5 precise fact: mostInterestingInterval's
+//                         fallback admits any state at/above the floor, so
+//                         nil ⟺ all below it — a running interval at/above
+//                         the floor never reaches the mint).
+// Published as the trace_gap_kind rich note (display wording is the follow-up
+// tool batch; this batch fixes the criterion and the wire identity).
+const (
+	TraceGapKindNoSchedData    = "no_sched_data"
+	TraceGapKindNoEligibleWait = "no_eligible_wait"
+)
 
 type RootCauseRankItem struct {
 	Rank int    `json:"rank"`
@@ -2096,9 +2144,14 @@ type RootCauseRankItem struct {
 	// ONLY in prose and every display face dropped it). On a merged family row
 	// they stay set only when every member agrees; otherwise they clear and the
 	// per-member values live in MemberRoster.
-	Inode   string `json:"inode,omitempty"`
-	Dev     string `json:"dev,omitempty"`
-	Summary string `json:"summary,omitempty"`
+	Inode string `json:"inode,omitempty"`
+	Dev   string `json:"dev,omitempty"`
+	// TraceGapKind (G2 判据 typed 化, §27.2/§28.1, 2026-07-09): on Type ==
+	// "trace_gap" rows only — the precise blind-spot criterion form
+	// (TraceGapKindNoSchedData / TraceGapKindNoEligibleWait), propagated
+	// verbatim from RootEvidence.GapKind. Empty on every other row type.
+	TraceGapKind string `json:"trace_gap_kind,omitempty"`
+	Summary      string `json:"summary,omitempty"`
 }
 
 // RootCauseMemberFoldCaliber* — the closed set of typed rulers a same-thread
@@ -2989,6 +3042,11 @@ type RootEvidence struct {
 	LineEnd    int       `json:"line_end,omitempty"`
 	Summary    string    `json:"summary,omitempty"`
 	Confidence float64   `json:"confidence,omitempty"`
+	// GapKind (G2 判据 typed 化, §27.2/§28.1, 2026-07-09): set on Type ==
+	// "trace_gap" evidence only — the precise blind-spot criterion
+	// (TraceGapKindNoSchedData / TraceGapKindNoEligibleWait) decided at the
+	// expandChain mint site from the thread's own timeline shape.
+	GapKind string `json:"gap_kind,omitempty"`
 }
 
 type EvidenceFact struct {

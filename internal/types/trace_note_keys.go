@@ -506,6 +506,17 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{"selected_name", "causal_rank", TraceNoteCarrierDisplayOnly},
 	{"occurrences", "causal_rank", TraceNoteCarrierDisplayOnly},
 	{"coverage_mode", "causal_rank", TraceNoteCarrierDisplayOnly},
+	// trace_gap_kind (G2 判据 typed 化, §27.2/§28.1 user ruling 2026-07-09,
+	// real_trace_campaign_20260705.md): the precise blind-spot criterion on a
+	// trace_gap rank observation — closed enum no_sched_data (the thread
+	// timeline holds no interval at all in the aligned window) /
+	// no_eligible_wait (intervals exist but ALL sit below the MinDurationMs
+	// floor — 复核 P3-5 precise fact; the legacy "窗内无调度数据" wording
+	// over-claimed on this form). Display tier TODAY (emitted, parsed by
+	// nobody); the ◇
+	// blind-spot display arm of the follow-up tool batch promotes it to a
+	// consumer carrier when it starts keying the row wording on the enum.
+	{"trace_gap_kind", "causal_rank", TraceNoteCarrierDisplayOnly},
 	// PTS 折叠族 (#68 用户裁定 2026-07-05): wire-cap overflow fold accounting.
 	{TraceNoteKeyFoldedRows, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyFoldedMinMS, "causal_rank", TraceNoteCarrierHardConsumer},

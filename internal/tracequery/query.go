@@ -8805,7 +8805,15 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		if root.Type == "running" {
 			continue
 		}
-		items = append(items, rootCauseItem(root.Type, root.Thread, root.DurationMs, root.Confidence, root.LineStart, root.LineEnd, "wakeup_chain", root.Summary))
+		item := rootCauseItem(root.Type, root.Thread, root.DurationMs, root.Confidence, root.LineStart, root.LineEnd, "wakeup_chain", root.Summary)
+		if root.Type == "trace_gap" {
+			// G2 判据 typed 化 (§27.2/§28.1, 2026-07-09): the precise blind-spot
+			// criterion travels typed on the rank row (trace_gap_kind wire note);
+			// the row itself demotes to RootCauseTierDataGap in
+			// assignRootCauseRanksAndTiers — 数据盲区非成因.
+			item.TraceGapKind = root.GapKind
+		}
+		items = append(items, item)
 	}
 	for _, pressure := range stats.CPUPressure {
 		if pressure.RunnableWaitMs <= 0 {
@@ -9853,6 +9861,21 @@ func normalizeRootCauseEffectiveImpact(items []RootCauseRankItem) {
 			continue
 		}
 		if items[i].EffectiveImpactMs > 0 {
+			continue
+		}
+		if spec, ok := CausalTokenSpecFor(items[i].Type); ok && spec.Additivity == CausalAdditivityCount {
+			// G3 count-family identity (§27.2, 2026-07-09): a count-class
+			// advisory scalar's EFFECTIVE attribution is the PUBLISHED (window
+			// -capped) ImpactMs — the same value the Score/sort lanes already
+			// consume — never the raw count-equivalent CumulativeImpactMs the
+			// generic fallback below would resurrect (opendir_79 页缓存抖动:
+			// effective=198.300 count-equivalent "ms" against a 41.671 tree
+			// face broke the Σ计入==V==发布值 identity engine-side). The raw
+			// count-equivalent stays disclosed on the cumulative / member_sum
+			// channels. Conservative on both sides: the effective face never
+			// exceeds the capped published value, and the raw disclosure
+			// channel keeps the full uncapped magnitude.
+			items[i].EffectiveImpactMs = items[i].ImpactMs
 			continue
 		}
 		items[i].EffectiveImpactMs = rootCauseEffectiveImpactMs(items[i])
@@ -11720,11 +11743,40 @@ func stampRunnableSelfBelowRTPreempted(items []RootCauseRankItem, contexts []Run
 	}
 }
 
+// assignRootCauseRanksAndTiers assigns the per-window rank ordinals and tier
+// words. It runs once per RootCauseRankResult (after the final sort and
+// truncation, in both the build and the enrich pass — idempotent full
+// recompute), so multi-window reports number every query window independently
+// and contiguously.
+//
+// G9 engine renumbering (§27.3 + §28.1 user ruling 2026-07-09,
+// real_trace_campaign_20260705.md; three faces one source). EVOLUTION RECORD:
+// pre-G9 every row pre-consumed an ordinal (Rank=i+1) before the demotion
+// arms ran and no face ever renumbered — a multi-window report's visible
+// board read #6/#7/#12 while #1-#5 were silently eaten by rows the display
+// never shows a seat for (demoted self-symptom rows, data blind spots;
+// huadong_79/opendir_79 witness). Ordinals now go ONLY to rows carrying a
+// rank-board display identity:
+//   - competing election-ladder rows (自因四态 self-cause rows and VS-1
+//     PeriodicSource discounted rows included — 复核 P1-2: a discounted row's
+//     ordinal IS its competition identity) and semantic rows
+//     (deterministic_optimization on-chain / tertiary background) keep
+//     incrementing;
+//   - wait-symptom target_self_state rows and trace_gap data-blind-spot rows
+//     carry Rank=0 — no seat, no hole.
+// Election slots (tier words), BackgroundRank counting and every
+// score/sort lane are UNTOUCHED — only the ordinal channel moved. The display
+// badge gate is Rank>0, so Rank=0 rows drop their badge by construction.
 func assignRootCauseRanksAndTiers(items []RootCauseRankItem) {
 	electionPos := 0
 	backgroundPos := 0
+	rankPos := 0
+	takeOrdinal := func(i int) {
+		rankPos++
+		items[i].Rank = rankPos
+	}
 	for i := range items {
-		items[i].Rank = i + 1
+		items[i].Rank = 0
 		items[i].BackgroundRank = 0
 		if !rootCauseItemIsOnChain(items[i]) {
 			// DCS E1b/E6 (ledger §23.1 rulings ②/③): typed 榜位 on the
@@ -11738,6 +11790,19 @@ func assignRootCauseRanksAndTiers(items []RootCauseRankItem) {
 			if rootCauseItemIsSemanticSpanWork(items[i]) {
 				items[i].BackgroundRank = backgroundPos
 			}
+		}
+		if items[i].Type == "trace_gap" {
+			// G2 降道跳臂 (§27.2 + §28.1 user ruling 2026-07-09): a data blind
+			// spot is a diagnostic FACT, never a cause — the row wears the
+			// independent data_gap tier, takes no election slot, shifts nothing
+			// below it and carries no rank ordinal (G9: no board seat for a row
+			// the board never shows; pre-G2 the opendir_79/huadong_79 boards
+			// seated blind-spot rows at #6-#12). The observation itself keeps
+			// publishing unchanged — the ◇ display arm consumes the tier and
+			// the typed trace_gap_kind criterion in the follow-up tool batch.
+			// Precise mint-time type token only (single expandChain mint site).
+			items[i].Tier = RootCauseTierDataGap
+			continue
 		}
 		if rootCauseItemIsSemanticSpanWork(items[i]) {
 			// DCS E1 (ledger §23.1 ruling ①) + 复核 F-4 (ruling ②): EVERY
@@ -11755,6 +11820,10 @@ func assignRootCauseRanksAndTiers(items []RootCauseRankItem) {
 			} else {
 				items[i].Tier = "tertiary"
 			}
+			// G9: semantic rows keep a rank-board display identity (the
+			// deterministic_optimization / background board rows show their
+			// seat) — the ordinal keeps incrementing.
+			takeOrdinal(i)
 			continue
 		}
 		if items[i].SubjectIsAnalysisTarget && rootCauseItemIsTargetWaitSymptomType(items[i]) {
@@ -11767,8 +11836,8 @@ func assignRootCauseRanksAndTiers(items []RootCauseRankItem) {
 			// promotion (opendir_78 witness: the target's self-held
 			// AssetManager lock, a resolved blocking_span, wore rank#1
 			// tier=primary and was crowned 主根因 for the target's own jank).
-			// Rank ordinals are untouched (榜位照发), the sort/Score lanes
-			// never read the flag, and the BackgroundRank counting above is
+			// The sort/Score lanes never read the flag, and the
+			// BackgroundRank counting above is
 			// untouched. Judged on typed SUBJECT identity — the counterpart
 			// side of the same contention (subject != target, e.g. a peer's
 			// binder_wait row) keeps competing through the ladder below. A
@@ -11788,6 +11857,11 @@ func assignRootCauseRanksAndTiers(items []RootCauseRankItem) {
 			// actionable system cause, not a counterpart symptom (cmp_78
 			// witness: both sides crowned the self binder wait while the
 			// decomposable self causes were locked out of the election).
+			//
+			// EVOLUTION RECORD (G9, §28.1 user ruling 2026-07-09): the §24.13
+			// "榜位照发" clause is superseded — the demoted symptom row now
+			// carries Rank=0 instead of pre-consuming an ordinal the display
+			// never shows (see the function header). Tier semantics unchanged.
 			items[i].Tier = RootCauseTierTargetSelfState
 			continue
 		}
@@ -11797,6 +11871,18 @@ func assignRootCauseRanksAndTiers(items []RootCauseRankItem) {
 			tier = "primary"
 		}
 		items[i].Tier = tier
+		// EVOLUTION RECORD (复核 P1-2, 2026-07-09): the batch's initial
+		// PeriodicSource no-ordinal arm here was DELETED — its premise ("the
+		// display already suppresses their board row") was falsified by the
+		// adversarial review: the shared board (runtimeTraceProjRankBoard) has
+		// no PeriodicSource filter arm and every board/lead/❶/成因-grammar
+		// gate keys on Rank>0, so withholding the ordinal stripped a
+		// discounted periodic row of its §24 裁定① competition identity
+		// (成因行身份=根因排序参赛身份) and killed the VS-1 late-period form —
+		// a 30ms-late VSync ranks by its discounted eff≈30ms and may
+		// legitimately be crowned. Periodic rows take ordinals like every
+		// competing row; only the wait-symptom and data_gap arms above skip.
+		takeOrdinal(i)
 	}
 }
 
@@ -13631,7 +13717,12 @@ func guardLockHolderSelfContradiction(rows []blockingSpanRow) {
 			if overlap < spanMs*lockHolderSelfContradictionCoverage {
 				continue
 			}
-			witness := fmt.Sprintf("inferred holder %s itself waited on the same payload owner tid %d for %.3fms of this %.3fms span (lines %d-%d)",
+			// G10 (§27.4 + §28.1 收口 2026-07-09): the witness travels typed
+			// (HolderSelfContradiction → projection BlockingHolderContradiction)
+			// straight onto the zh 明细 face, so it is minted in Chinese —
+			// §22.2.1 词条尺子 (trace 专有名词 payload/tid 不翻译; number and
+			// line formats byte-preserved: %.3fms, 行 %d-%d).
+			witness := fmt.Sprintf("推断持有者 %s 自身在同一 payload 持有者 tid %d 上排队 %.3fms(本段共 %.3fms;行 %d-%d)",
 				threadLabel(cand.Peer), rows[i].payloadOwnerTid, overlap, spanMs,
 				peer.LineStart, peer.LineEnd)
 			cand.HolderSelfContradiction = witness
@@ -14485,8 +14576,23 @@ func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, 
 		node.EvidenceLine = firstPositive(interesting.StartLine, interesting.WakeupLine, interesting.EndLine)
 		node.Summary = interesting.Summary
 	} else {
+		// G2 判据 typed 化 (§27.2/§28.1, 2026-07-09): the two nil-interesting
+		// shapes are DIFFERENT facts and must never share the over-strong
+		// "no scheduler data" claim — a thread with a 0.051ms running interval
+		// below the floor HAS scheduler data (the depth-0 exception channel may
+		// even rank it in the same window). Precise typed split on the
+		// thread's own timeline; the summary states the matching form only.
 		node.Dominant = StateUnknown
-		node.Summary = "no decisive scheduler interval found in aligned window"
+		switch traceGapKindForTimeline(tl.Intervals) {
+		case TraceGapKindNoSchedData:
+			node.Summary = "no scheduler intervals for this thread inside the aligned window"
+		default:
+			// 复核 P3-5 wording narrowing: nil-interesting with intervals
+			// present ⟺ EVERY interval sits below min_duration_ms (the
+			// fallback admits any state at/above the floor, so a running
+			// interval at/above it never reaches this arm) — say exactly that.
+			node.Summary = "scheduler intervals exist in the aligned window but all sit below min_duration_ms (no eligible wait candidate)"
+		}
 	}
 	impact.ChainBranch = branch
 	if impact.TotalMs > 0 {
@@ -14504,7 +14610,7 @@ func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, 
 		// Edge is added by the caller once it knows the wakeup row.
 	}
 	if interesting == nil {
-		res.RootEvidence = append(res.RootEvidence, RootEvidence{Type: "trace_gap", Thread: thread, Summary: node.Summary, Confidence: 0.6})
+		res.RootEvidence = append(res.RootEvidence, RootEvidence{Type: "trace_gap", Thread: thread, Summary: node.Summary, Confidence: 0.6, GapKind: traceGapKindForTimeline(tl.Intervals)})
 		return nodeID
 	}
 	switch interesting.State {
@@ -15001,6 +15107,26 @@ func mostInterestingInterval(intervals []Interval, minDurationMs float64) *Inter
 		return nil
 	}
 	return &candidates[0]
+}
+
+// traceGapKindForTimeline (G2 判据 typed 化, ledger §27.2 + §28.1 user ruling
+// 2026-07-09, real_trace_campaign_20260705.md) is the PRECISE criterion behind
+// a trace_gap mint, decided from the thread's own timeline inside the aligned
+// window. mostInterestingInterval returns nil ⟺ no interval reaches the
+// MinDurationMs floor (its fallback arm admits ANY state at/above the floor,
+// Running included), so exactly two nil shapes exist:
+//   - the timeline holds NO interval at all      → TraceGapKindNoSchedData
+//     (the only shape the legacy "窗内无调度数据" wording was true for);
+//   - intervals exist but all sit below the floor → TraceGapKindNoEligibleWait
+//     (sub-threshold fragments of any state — real scheduler data; the same
+//     (thread, window) may legitimately carry a depth-0 running rank row, the
+//     §27.2 OS_FFRT self-contradiction witness).
+// Precise integer signal (len) only — never a prose/summary heuristic.
+func traceGapKindForTimeline(intervals []Interval) string {
+	if len(intervals) == 0 {
+		return TraceGapKindNoSchedData
+	}
+	return TraceGapKindNoEligibleWait
 }
 
 // interestingIntervals returns up to max intervals worth recursing into
@@ -15781,11 +15907,18 @@ func evidenceFromRootCauseRank(rank RootCauseRankResult) []EvidenceFact {
 		if perfRoles := rootCausePerfRoleSummary(item.PerfContexts, 3); perfRoles != "" {
 			summary = fmt.Sprintf("%s; perf_role_contexts=%s", summary, perfRoles)
 		}
+		// G9 (2026-07-09, 复核 P1-2 narrowed): demoted rows (target_self_state
+		// / data_gap) carry no board ordinal — the evidence face says so
+		// instead of fabricating a "#0" seat.
+		position := fmt.Sprintf("%s cause #%d", item.Tier, item.Rank)
+		if item.Rank <= 0 {
+			position = fmt.Sprintf("%s row (no rank seat)", item.Tier)
+		}
 		out = append(out, EvidenceFact{
 			Subject:    threadLabel(item.Thread),
 			Predicate:  "root_cause_" + item.Tier,
 			Object:     item.Type,
-			Summary:    fmt.Sprintf("%s cause #%d (%s): %s", item.Tier, item.Rank, item.Type, summary),
+			Summary:    fmt.Sprintf("%s (%s): %s", position, item.Type, summary),
 			LineStart:  item.LineStart,
 			LineEnd:    item.LineEnd,
 			Confidence: item.Confidence,

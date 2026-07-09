@@ -345,6 +345,36 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				MemberRoster: []string{"inode=286395 dev=254:2 1.136ms", "inode=300123 dev=254:2 0.462ms"},
 				Dev:          "254:2", Inode: "286395",
 				Summary: "block IO family merged across two inodes on one thread",
+			}, {
+				// G2/G9 (§27.2/§28.1, 2026-07-09): data-blind-spot rank row —
+				// demoted tier=data_gap with Rank=0 (no board seat; the emit
+				// face must NOT backfill an ordinal for a tier-carrying row)
+				// and the typed trace_gap_kind criterion — exercises the
+				// trace_gap_kind emission.
+				Rank: 0, Tier: "data_gap", Type: "trace_gap",
+				Thread:     tracequery.ThreadRef{Comm: "ghost", PID: 107},
+				Confidence: 0.6,
+				LineStart:  95, LineEnd: 96,
+				// 复核 P3-7: the end-to-end minted form carries the ADJACENT
+				// chain lane (the blind-spot subject is a chain node — engine
+				// -probed on the gapKindTraceNoEligibleWait fixture), so the
+				// fixture mirrors the real wire shape. 复核 P3-5: summary is
+				// the narrowed precise form (all intervals below the floor).
+				Source: "wakeup_chain", Causality: "adjacent_to_wakeup_chain", ChainRelevance: "adjacent",
+				TraceGapKind: tracequery.TraceGapKindNoEligibleWait,
+				Summary:      "scheduler intervals exist in the aligned window but all sit below min_duration_ms (no eligible wait candidate)",
+			}, {
+				// 复核 P3-1: a tier-carrying Rank=0 row with NO summary — the
+				// record Summary fallback must render the no-seat form, never
+				// a fabricated "#0" ordinal.
+				Rank: 0, Tier: "data_gap", Type: "trace_gap",
+				Thread:       tracequery.ThreadRef{Comm: "ghost2", PID: 108},
+				Confidence:   0.6,
+				LineStart:    97, LineEnd: 98,
+				Source:       "wakeup_chain",
+				Causality:    "adjacent_to_wakeup_chain",
+				ChainRelevance: "adjacent",
+				TraceGapKind: tracequery.TraceGapKindNoSchedData,
 			}},
 		},
 		WakeupChain: &tracequery.ChainResult{
@@ -407,8 +437,10 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				HolderSource: tracequery.CounterpartSourceWakeupEdge, PeerSource: tracequery.CounterpartSourceWakeupEdge,
 				OwnerTidRaw: 987654, WaitObject: "monitor of Foo",
 				// P0-E 锁车道修2 keys — exercised so the emit pin covers them.
+				// G10 (§27.4/§28.1, 2026-07-09): the engine mints the witness in
+				// Chinese (§22.2.1 词条尺子; number/line formats preserved).
 				HolderHandoff:           []string{"WorkerA", "WorkerB"},
-				HolderSelfContradiction: "inferred holder holder-102 itself waited on the same payload owner tid 987654 for 5.000ms of this 6.000ms span (lines 65-66)",
+				HolderSelfContradiction: "推断持有者 holder-102 自身在同一 payload 持有者 tid 987654 上排队 5.000ms(本段共 6.000ms;行 65-66)",
 				PeerState: &tracequery.ThreadStateBreakdown{
 					DominantState: string(tracequery.StateRunning), TotalMs: 6, RunningMs: 4,
 					RunnableMs: 1, SleepMs: 1, DStateMs: 1, IOWaitMs: 1, FragmentCount: 2,
@@ -480,6 +512,65 @@ func TestTraceNoteKeysEmittedSubsetOfRegistry(t *testing.T) {
 				t.Errorf("record %s emits UNREGISTERED rich-note key %q (note %q) — register it in types/trace_note_keys.go and walk the change protocol", record.ID, key, note)
 			}
 		}
+	}
+
+	// G2/G9 (§27.2/§28.1, 2026-07-09): the demoted blind-spot records — Rank=0
+	// rows that CARRY a Tier — must emit no rank= ordinal (the legacy
+	// positional backfill is reserved for identity-less rows with no Tier;
+	// resurrecting an ordinal here would re-badge the row on the projection
+	// face against the engine's no-board-seat signal, 三面同源) while the
+	// typed tier and trace_gap_kind criterion ride the wire.
+	var gapRecords []*types.ObservationRecord
+	for i := range records {
+		if records[i].Object == "trace_gap" {
+			gapRecords = append(gapRecords, &records[i])
+		}
+	}
+	if len(gapRecords) != 2 {
+		t.Fatalf("fixture drifted: expected the two trace_gap rank observations, got %d", len(gapRecords))
+	}
+	sawKinds := map[string]bool{}
+	for _, gapRecord := range gapRecords {
+		sawTier := false
+		for _, note := range gapRecord.RichNotes {
+			if strings.HasPrefix(note, "rank=") {
+				t.Fatalf("a tier-carrying Rank=0 row must not resurrect an ordinal on the note face, got %q", note)
+			}
+			if note == "tier=data_gap" {
+				sawTier = true
+			}
+			if kind, ok := strings.CutPrefix(note, "trace_gap_kind="); ok {
+				sawKinds[kind] = true
+			}
+		}
+		if !sawTier {
+			t.Fatalf("every blind-spot record must carry tier=data_gap, got %v", gapRecord.RichNotes)
+		}
+		// 复核 P3-2: a data blind spot is never a principal answer — the role
+		// demotes UNCONDITIONALLY (foreground or not), the provenance follows,
+		// and the typed root_cause_data_gap predicate identity is preserved
+		// (never blurred into root_cause_background).
+		if gapRecord.Role != types.AnswerAggregateRoleSupportingCoverage ||
+			gapRecord.ProvenanceLane != types.ObservationProvenanceArtifactSpan {
+			t.Fatalf("P3-2: blind-spot records must ride SupportingCoverage/ArtifactSpan, got role=%s lane=%s",
+				gapRecord.Role, gapRecord.ProvenanceLane)
+		}
+		if gapRecord.Predicate != "root_cause_data_gap" || gapRecord.ClaimKey != "root_cause_data_gap" {
+			t.Fatalf("P3-2: the typed data_gap predicate identity must survive the role demotion, got predicate=%q claim=%q",
+				gapRecord.Predicate, gapRecord.ClaimKey)
+		}
+		// 复核 P3-1: the summary face never fabricates a "#0" seat.
+		if strings.Contains(gapRecord.Summary, "#0") {
+			t.Fatalf("P3-1: a Rank=0 row's summary must not print a #0 ordinal, got %q", gapRecord.Summary)
+		}
+	}
+	if !sawKinds["no_eligible_wait"] || !sawKinds["no_sched_data"] {
+		t.Fatalf("both typed criterion forms must ride the wire, got %v", sawKinds)
+	}
+	// 复核 P3-1: the summary-less blind-spot row exercises the fallback — the
+	// no-seat wording replaces the ordinal form.
+	if !strings.Contains(gapRecords[1].Summary, "(no rank seat)") {
+		t.Fatalf("P3-1: the summary fallback for a Rank=0 tier-carrying row must render the no-seat form, got %q", gapRecords[1].Summary)
 	}
 
 	// Contract-tier coverage: every consumer-parsed key must actually be

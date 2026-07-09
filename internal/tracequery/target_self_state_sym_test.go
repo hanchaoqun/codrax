@@ -7,10 +7,17 @@ package tracequery
 //       (typed SubjectIsAnalysisTarget) AND whose token is 等待症状族 wears
 //       RootCauseTierTargetSelfState, neither takes a
 //       primary/secondary/tertiary election slot nor shifts the slots of the
-//       causal rows below it, and keeps its rank ordinal (榜位照发).
+//       causal rows below it.
 //       EVOLUTION RECORD (SYM-2, §24.17, 2026-07-08): the covered family
 //       narrowed to sleep 等唤醒族 / binder_wait / blocking_span; the 自因
 //       可拆解族 (runnable / running / IO / D-state) competes again.
+//       EVOLUTION RECORD (G9, §27.3 + §28.1 user ruling 2026-07-09): the
+//       original "keeps its rank ordinal (榜位照发)" clause is SUPERSEDED —
+//       demoted self-symptom rows now carry Rank=0 (no rank-board seat) and
+//       the ordinal sequence stays contiguous over the rows that DO show a
+//       seat (huadong_79/opendir_79 witness: visible boards read #6/#7/#12
+//       with #1-#5 pre-consumed by demoted rows). The affected assertions
+//       below evolved in place; election-slot semantics are unchanged.
 //   S1b counterpart rows keep competing — the peer/holder side of the SAME
 //       contention (subject != target) is untouched (突变自查: re-keying the
 //       criterion on a state-type match bites here).
@@ -44,16 +51,19 @@ func TestSYMSelfRowsTransparentToElectionLadder(t *testing.T) {
 	if items[0].Tier != RootCauseTierTargetSelfState {
 		t.Fatalf("the target's own binder-wait row must wear the self-state tier: %+v", items[0])
 	}
-	if items[0].Rank != 1 {
-		t.Fatalf("榜位照发: the self row keeps its rank ordinal: %+v", items[0])
+	// EVOLUTION RECORD (G9, §28.1, 2026-07-09): was `Rank != 1` (榜位照发) —
+	// the demoted self row now carries NO board ordinal, and the seats it used
+	// to pre-consume go to the rows the board actually shows.
+	if items[0].Rank != 0 {
+		t.Fatalf("G9: the demoted self row must carry no rank ordinal: %+v", items[0])
 	}
 	// Ladder transparency (不占槽也不移位): the FIRST non-self row is the
 	// positional primary, and the ladder below is unshifted.
-	if items[1].Tier != "primary" {
-		t.Fatalf("the primary election slot must fall to the first non-self row: %+v", items[1])
+	if items[1].Tier != "primary" || items[1].Rank != 1 {
+		t.Fatalf("the primary election slot and ordinal #1 must fall to the first non-self row: %+v", items[1])
 	}
-	if items[2].Tier != "secondary" || items[3].Tier != "tertiary" {
-		t.Fatalf("the ladder below the transparent self row must be unshifted: %+v / %+v", items[2], items[3])
+	if items[2].Tier != "secondary" || items[2].Rank != 2 || items[3].Tier != "tertiary" || items[3].Rank != 3 {
+		t.Fatalf("the ladder and ordinals below the transparent self row must be contiguous: %+v / %+v", items[2], items[3])
 	}
 }
 
@@ -88,6 +98,8 @@ func TestSYMSelfWaitSymptomFamilyDemotesSelfCauseFamilyCompetes(t *testing.T) {
 		if items[0].Tier != "primary" {
 			t.Fatalf("self %s row (自因可拆解族) must compete and take the primary slot: %+v", typ, items[0])
 		}
+		// G9 (§28.1): a COMPETING self-cause row carries a board seat — the
+		// ordinal channel stays on rank-display rows.
 		if items[0].Rank != 1 {
 			t.Fatalf("self %s row keeps its ordinal: %+v", typ, items[0])
 		}
@@ -180,8 +192,10 @@ func TestSYMSelfRowNeverRidesCoPrimary(t *testing.T) {
 	if items[2].Tier != RootCauseTierTargetSelfState {
 		t.Fatalf("the self-held resolved lock must wear the self-state tier, never co-primary: %+v", items[2])
 	}
-	if items[2].Rank != 3 {
-		t.Fatalf("榜位照发: the self lock row keeps its ordinal: %+v", items[2])
+	// EVOLUTION RECORD (G9, §28.1, 2026-07-09): was `Rank != 3` (榜位照发) —
+	// the demoted self lock row carries no board ordinal.
+	if items[2].Rank != 0 {
+		t.Fatalf("G9: the demoted self lock row must carry no rank ordinal: %+v", items[2])
 	}
 }
 

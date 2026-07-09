@@ -106,13 +106,17 @@ func TestSYM2SelfRunnableCanBeCrownedEnginePrimary(t *testing.T) {
 		{Type: "workqueue_activity", ImpactMs: 9, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 	}
 	assignRootCauseRanksAndTiers(items)
-	if items[0].Tier != RootCauseTierTargetSelfState || items[0].Rank != 1 {
-		t.Fatalf("binder 等对端仍降道 (榜位照发): %+v", items[0])
+	// EVOLUTION RECORD (G9, §28.1 user ruling 2026-07-09): was Rank==1 /
+	// Rank==2 (§24.20 榜位照发) — the demoted binder symptom row now carries
+	// Rank=0 and the competing self runnable row takes ordinal #1 (ordinals
+	// contiguous over board-visible rows only).
+	if items[0].Tier != RootCauseTierTargetSelfState || items[0].Rank != 0 {
+		t.Fatalf("binder 等对端仍降道 (G9: 不占序数): %+v", items[0])
 	}
-	if items[1].Tier != "primary" || items[1].Rank != 2 {
-		t.Fatalf("the self runnable row must take the primary slot: %+v", items[1])
+	if items[1].Tier != "primary" || items[1].Rank != 1 {
+		t.Fatalf("the self runnable row must take the primary slot and ordinal #1: %+v", items[1])
 	}
-	if items[2].Tier != "secondary" {
+	if items[2].Tier != "secondary" || items[2].Rank != 2 {
 		t.Fatalf("the ladder below shifts normally: %+v", items[2])
 	}
 }
