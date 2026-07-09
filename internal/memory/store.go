@@ -71,11 +71,7 @@ func sanitizeTurnText(s string, maxBytes int) string {
 	if len(s) <= maxBytes {
 		return s
 	}
-	cut := maxBytes
-	for cut > 0 && (s[cut]&0xC0) == 0x80 {
-		cut--
-	}
-	return s[:cut] + "\n…[truncated]"
+	return types.CutPrefixRuneSafe(s, maxBytes) + "\n…[truncated]"
 }
 
 // Kind classifies how a Turn was produced (and, transitively, which
@@ -1629,10 +1625,7 @@ func tokenize(s string) map[string]struct{} {
 func oneLine(s string) string {
 	s = strings.ReplaceAll(s, "\n", " ")
 	s = strings.ReplaceAll(s, "\r", " ")
-	if len(s) > 200 {
-		return s[:200] + "…"
-	}
-	return s
+	return types.TruncateBytesEllipsis(s, 200)
 }
 
 // errorResponsePlaceholder is the identical replacement emitted by

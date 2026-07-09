@@ -1483,7 +1483,7 @@ func extractRelevantFacts(facts []types.RepoFact) []string {
 	for _, f := range facts {
 		val := trimKnownFactValue(f.Key, f.Value)
 		if len(val) > maxFactValueLen {
-			val = val[:maxFactValueLen] + "... [truncated]"
+			val = types.CutPrefixRuneSafe(val, maxFactValueLen) + "... [truncated]"
 		}
 		result = append(result, fmt.Sprintf("[%s] %s = %s (source: %s, confidence: %.2f)",
 			f.Key, f.Key, val, f.Source, f.Confidence))
@@ -2577,7 +2577,12 @@ func formatRawToolSummary(toolName, summary string) string {
 	if len(summary) <= head+tail {
 		body = summary
 	} else {
-		body = summary[:head] + "\n...[trimmed " + fmt.Sprint(len(summary)-head-tail) + " bytes]...\n" + summary[len(summary)-tail:]
+		// Rune-safe head/tail cuts; the trimmed-bytes figure is
+		// computed from the actual kept slices so it stays honest
+		// when a cut backs off a rune boundary.
+		bodyHead := types.CutPrefixRuneSafe(summary, head)
+		bodyTail := types.CutSuffixRuneSafe(summary, tail)
+		body = bodyHead + "\n...[trimmed " + fmt.Sprint(len(summary)-len(bodyHead)-len(bodyTail)) + " bytes]...\n" + bodyTail
 	}
 	return fmt.Sprintf("- **%s** (%d bytes):\n```\n%s\n```\n", toolName, len(summary), body)
 }
@@ -2888,7 +2893,7 @@ func sanitizeForInlineCode(s string) string {
 	}
 	out := strings.TrimSpace(b.String())
 	if len(out) > 200 {
-		out = out[:200] + "..."
+		out = types.CutPrefixRuneSafe(out, 200) + "..."
 	}
 	return out
 }
@@ -4173,10 +4178,7 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 	if len(bundle.Residue) > 0 {
 		fmt.Fprintf(&b, "**Residue** (%d unstructured chunks):\n", len(bundle.Residue))
 		for i, r := range bundle.Residue {
-			snippet := r
-			if len(snippet) > 160 {
-				snippet = snippet[:160] + "…"
-			}
+			snippet := types.TruncateBytesEllipsis(r, 160)
 			fmt.Fprintf(&b, "  - [%d] %s\n", i+1, snippet)
 		}
 		b.WriteString("\n")
@@ -4520,22 +4522,10 @@ func truncateForPrompt(s string, max int) string {
 	if max <= 0 || len(s) <= max {
 		return s
 	}
-	// Trim to a rune boundary so multibyte UTF-8 does not split.
-	trimmed := s
-	if max < len(s) {
-		trimmed = s[:max]
-		for len(trimmed) > 0 && !isUTF8Boundary(trimmed[len(trimmed)-1]) {
-			trimmed = trimmed[:len(trimmed)-1]
-		}
-	}
-	return trimmed + "…[truncated]"
-}
-
-// isUTF8Boundary reports whether b is a valid start of a UTF-8 rune
-// or a continuation byte's terminal slot. Used by truncateForPrompt
-// to avoid emitting broken multibyte sequences into the prompt.
-func isUTF8Boundary(b byte) bool {
-	return b < 0x80 || (b&0xC0) == 0xC0 || (b&0xC0) != 0x80
+	// Rune-boundary cut via the shared helper. The previous
+	// hand-rolled backoff stripped continuation bytes but kept the
+	// dangling lead byte, still emitting invalid UTF-8.
+	return types.CutPrefixRuneSafe(s, max) + "…[truncated]"
 }
 
 // stripThinkBlocks removes any <think>…</think> spans (case-insensitive,

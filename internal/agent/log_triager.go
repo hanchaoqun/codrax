@@ -261,10 +261,7 @@ func renderLogTriageStageReport(b *types.LogBundle) string {
 }
 
 func truncateStr(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…"
+	return types.TruncateBytesEllipsis(s, n)
 }
 
 // ── Two-step controller ─────────────────────────────────────────

@@ -4984,8 +4984,10 @@ func sanitizeSubTopicSummary(summary string, entities []string) string {
 	}
 	// Tier 3: length cap. Long paragraphs force the renderer to
 	// truncate every frame and make the task row unreadable.
+	// Rune-safe cut (G18): a raw byte slice here shredded CJK requests
+	// into U+FFFD mojibake on the live task row.
 	if len(s) > subTopicSummaryMaxChars {
-		s = strings.TrimSpace(s[:subTopicSummaryMaxChars]) + "…"
+		s = strings.TrimSpace(types.CutPrefixRuneSafe(s, subTopicSummaryMaxChars)) + "…"
 	}
 	return s
 }
@@ -5076,7 +5078,7 @@ func validateAndBuildRequiredFileHintsWithContext(ctx *types.BusContext, in []em
 		}
 		rationale := strings.TrimSpace(e.Rationale)
 		if len(rationale) > requiredFileHintRationaleMaxChars {
-			rationale = rationale[:requiredFileHintRationaleMaxChars-1] + "…"
+			rationale = types.CutPrefixRuneSafe(rationale, requiredFileHintRationaleMaxChars-1) + "…"
 		}
 		out = append(out, types.RequiredFileHint{
 			Path:       canon,

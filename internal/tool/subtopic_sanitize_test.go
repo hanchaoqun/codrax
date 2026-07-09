@@ -3,6 +3,7 @@ package tool
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -67,6 +68,60 @@ func TestSanitizeSubTopicSummary(t *testing.T) {
 				t.Errorf("got %q, want %q", got, c.want)
 			}
 		})
+	}
+}
+
+// TestSanitizeSubTopicSummary_CJKTruncationRuneSafe pins the G18
+// mojibake fix on the original customer witness: the live task row
+// rendered "…找出导致帧延迟的事件��…" (garbled glyphs after 事件)
+// because the byte-offset cut s[:subTopicSummaryMaxChars] split a CJK
+// rune into U+FFFD garbage.
+// The truncated summary MUST be valid UTF-8, MUST NOT contain a
+// replacement character, and MUST end with a complete character
+// followed by the ellipsis.
+func TestSanitizeSubTopicSummary_CJKTruncationRuneSafe(t *testing.T) {
+	// Customer request from the 2026-07 revisit session. The bare
+	// sentence is 118 bytes; the closing full-width "。" (3 bytes,
+	// spanning offsets 118-120) is what straddled the 120-byte cap at
+	// runtime — the old byte cut kept 2 of its 3 bytes and rendered
+	// garbage right after "事件", exactly as witnessed.
+	const sentence = "分析线程 16547 在 33872.289161s 至 33872.408222s 时间范围内的执行情况，找出导致帧延迟的事件"
+	const witness = sentence + "。"
+	if len(witness) <= subTopicSummaryMaxChars {
+		t.Fatalf("witness is %d bytes; must exceed subTopicSummaryMaxChars=%d for this pin to bite",
+			len(witness), subTopicSummaryMaxChars)
+	}
+	got := sanitizeSubTopicSummary(witness, nil)
+	if !utf8.ValidString(got) {
+		t.Fatalf("truncated summary is not valid UTF-8: %q", got)
+	}
+	if strings.ContainsRune(got, utf8.RuneError) {
+		t.Fatalf("truncated summary contains U+FFFD mojibake: %q", got)
+	}
+	if !strings.HasSuffix(got, "…") {
+		t.Fatalf("truncated summary must end with ellipsis: %q", got)
+	}
+	body := strings.TrimSuffix(got, "…")
+	if body == "" {
+		t.Fatalf("truncation kept nothing of the witness: %q", got)
+	}
+	// The kept prefix must be a prefix of the original text ending on
+	// a complete character (byte-budget cut backed off to a rune
+	// boundary, then whitespace-trimmed) — never a shredded rune.
+	if !strings.HasPrefix(witness, body) {
+		t.Errorf("kept text %q is not a clean prefix of the witness", body)
+	}
+	if len(body) > subTopicSummaryMaxChars {
+		t.Errorf("kept text is %d bytes, budget %d", len(body), subTopicSummaryMaxChars)
+	}
+	last, _ := utf8.DecodeLastRuneInString(body)
+	if last == utf8.RuneError {
+		t.Errorf("kept text ends mid-rune: %q", body)
+	}
+	// Exact form: the straddling "。" is dropped whole; the row reads
+	// "…找出导致帧延迟的事件…" instead of the mojibake witness.
+	if want := sentence + "…"; got != want {
+		t.Errorf("truncated summary = %q, want %q", got, want)
 	}
 }
 

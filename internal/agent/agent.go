@@ -4721,7 +4721,7 @@ func mcpExternalGuidanceText(reg *mcp.Registry) string {
 	}
 	out := b.String()
 	if len(out) > 8192 {
-		return out[:8192] + "\n[MCP guidance truncated at 8192 bytes]\n"
+		return types.CutPrefixRuneSafe(out, 8192) + "\n[MCP guidance truncated at 8192 bytes]\n"
 	}
 	return out
 }
@@ -6569,7 +6569,7 @@ func analyzerBlockedParamString(obj map[string]json.RawMessage, keys ...string) 
 			continue
 		}
 		if len(s) > 240 {
-			s = s[:240]
+			s = types.CutPrefixRuneSafe(s, 240)
 		}
 		return s
 	}
@@ -6648,7 +6648,7 @@ func toolDetail(params json.RawMessage) string {
 		}
 		// Truncate long values (commands can be very long).
 		if len(s) > 60 {
-			s = s[:57] + "..."
+			s = types.CutPrefixRuneSafe(s, 57) + "..."
 		}
 		return s
 	}
@@ -7148,9 +7148,9 @@ func truncateToolDetailValue(s string, max int) string {
 		return s
 	}
 	if max <= 3 {
-		return s[:max]
+		return types.CutPrefixRuneSafe(s, max)
 	}
-	return s[:max-3] + "..."
+	return types.CutPrefixRuneSafe(s, max-3) + "..."
 }
 
 func toolResultSummary(result *types.ToolResult) string {

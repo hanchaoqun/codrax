@@ -3757,14 +3757,14 @@ func buildPlanContentDiff(best *types.ChangePlan, current *types.ChangePlan, max
 		// rewrite shouldn't crowd out other paths.
 		const perFileCap = 2048
 		if len(d) > perFileCap {
-			d = d[:perFileCap] + "\n… (per-file diff truncated)\n"
+			d = types.CutPrefixRuneSafe(d, perFileCap) + "\n… (per-file diff truncated)\n"
 		}
 		// If appending d would overflow the total cap, truncate to
 		// what fits + a marker.
 		if b.Len()+len(d) > maxBytes {
 			remaining := maxBytes - b.Len()
 			if remaining > 64 {
-				b.WriteString(d[:remaining])
+				b.WriteString(types.CutPrefixRuneSafe(d, remaining))
 				b.WriteString("\n… (truncated)\n")
 			}
 			truncatedAt = i + 1
@@ -7334,9 +7334,9 @@ func truncateBoundaryNoteField(s string, max int) string {
 		return "."
 	}
 	if max <= 3 {
-		return s[:max]
+		return types.CutPrefixRuneSafe(s, max)
 	}
-	return s[:max-3] + "..."
+	return types.CutPrefixRuneSafe(s, max-3) + "..."
 }
 
 func (o *Orchestrator) shouldAutoCompleteExploreWindowFromAcceptedClosure(pendingValidationTargets []string, pendingViolation, pendingStageRetry string) bool {

@@ -871,10 +871,7 @@ func clampSemanticObservationText(s string, max int) string {
 	if max <= 0 || len(s) <= max {
 		return s
 	}
-	if max > len(s) {
-		max = len(s)
-	}
-	return strings.TrimSpace(s[:max]) + "…"
+	return strings.TrimSpace(types.CutPrefixRuneSafe(s, max)) + "…"
 }
 
 // countFacetCoverageDepth counts (declared, anchored) pairs for the
@@ -1138,7 +1135,7 @@ func BuildSemanticQualityInput(
 			body := strings.TrimSpace(diagBody)
 			const cap = 300
 			if len(body) > cap {
-				body = body[:cap]
+				body = types.CutPrefixRuneSafe(body, cap)
 			}
 			summary.BodyExcerpt = body
 		}

@@ -166,7 +166,7 @@ func renderRecallResults(query string, entries []types.MemoryIndexEntry) string 
 			// preview ceiling).
 			body := e.Body
 			if len(body) > 600 {
-				body = body[:600] + " …[truncated]"
+				body = types.CutPrefixRuneSafe(body, 600) + " …[truncated]"
 			}
 			fmt.Fprintf(&b, "   body: %s\n", body)
 		}
@@ -193,10 +193,7 @@ func renderRecallResults(query string, entries []types.MemoryIndexEntry) string 
 }
 
 func trunc(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max] + "…"
+	return types.TruncateBytesEllipsis(s, max)
 }
 
 // allTopicsLookSelfReferential reports whether every entry's Topic

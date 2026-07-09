@@ -36,7 +36,6 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/axis"
 	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
@@ -303,9 +302,7 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 				if trimmed == "" {
 					continue
 				}
-				if len(trimmed) > extractorMaxNoteChars {
-					trimmed = trimmed[:extractorMaxNoteChars] + "…"
-				}
+				trimmed = types.TruncateBytesEllipsis(trimmed, extractorMaxNoteChars)
 				fmt.Fprintf(&b, "**Iter %d:**\n%s\n\n", i+1, trimmed)
 			}
 		}
@@ -357,9 +354,7 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 					parts := []string{ev.Subject, ev.Predicate, ev.Object}
 					summary = strings.TrimSpace(strings.Join(parts, " "))
 				}
-				if len(summary) > extractorMaxEvidenceSummary {
-					summary = summary[:extractorMaxEvidenceSummary] + "…"
-				}
+				summary = types.TruncateBytesEllipsis(summary, extractorMaxEvidenceSummary)
 				tag := ""
 				if ev.GroundingStatus == types.GroundingRecovered {
 					tag = " [recovered — read_file before citing]"
@@ -879,9 +874,7 @@ func renderExtractorValidationBoundaryNotes(ta *types.TurnAArtifacts) string {
 		if trimmed == "" {
 			continue
 		}
-		if len(trimmed) > extractorMaxNoteChars {
-			trimmed = trimmed[:extractorMaxNoteChars] + "…"
-		}
+		trimmed = types.TruncateBytesEllipsis(trimmed, extractorMaxNoteChars)
 		fmt.Fprintf(&b, "- boundary %d: %s\n", i+1, trimmed)
 	}
 	b.WriteString("\n")
@@ -1856,11 +1849,10 @@ func truncateExtractorPromptText(s string, max int) string {
 	if max <= 0 || len(s) <= max {
 		return s
 	}
-	trimmed := s[:max]
-	for len(trimmed) > 0 && !utf8.RuneStart(trimmed[len(trimmed)-1]) {
-		trimmed = trimmed[:len(trimmed)-1]
-	}
-	return strings.TrimSpace(trimmed) + "…[truncated]"
+	// types.CutPrefixRuneSafe, not a hand-rolled RuneStart walk: the old
+	// loop stripped continuation bytes but kept a dangling lead byte,
+	// emitting invalid UTF-8 into LLM prompts (HYG review P1-1).
+	return strings.TrimSpace(types.CutPrefixRuneSafe(s, max)) + "…[truncated]"
 }
 
 // sanitizeExtractorStageHandoffText projects dynamic explorer handoff
@@ -3261,9 +3253,7 @@ func latestExtractorEmitFailureContext(results []types.ToolResult) string {
 		if first == "" {
 			return ""
 		}
-		if len(first) > maxFirstLine {
-			first = first[:maxFirstLine] + "…"
-		}
+		first = types.TruncateBytesEllipsis(first, maxFirstLine)
 		return fmt.Sprintf("Your last `%s` call was rejected: %s. Address that rejection in your next attempt. ",
 			r.ToolName, first)
 	}

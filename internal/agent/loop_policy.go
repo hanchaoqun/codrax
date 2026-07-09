@@ -769,12 +769,9 @@ func indexByteZero(s string, b byte) int {
 	return -1
 }
 
-// truncForReason trims a string to max runes followed by "…" if
-// needed. Used to keep LoopResult.Reason messages readable when
-// the underlying error text is long.
+// truncForReason trims a string to a max byte budget (rune-safe)
+// followed by "…" if needed. Used to keep LoopResult.Reason messages
+// readable when the underlying error text is long.
 func truncForReason(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max] + "…"
+	return types.TruncateBytesEllipsis(s, max)
 }
