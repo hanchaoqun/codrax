@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/mattn/go-runewidth"
 )
@@ -1239,6 +1240,16 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	}
 	semanticConsumed := map[string]bool{}
 
+	// P0-E CHAIN-PATH (ledger §22.1): the depth attach carries a CHAIN DOMAIN.
+	// The elected trunk is ONE real branch (typed WakeupPathBranch); a node
+	// measured in a DIFFERENT branch must never fabricate a trunk position off
+	// its same-valued depth (the fake-L26/L27 family's attach half) — it keeps
+	// its honest 未接入树/stanza seat below. rootDepth re-bases engine depths
+	// onto the truncated-election trunk (displayed root = engine depth
+	// rootDepth). Nodes WITHOUT branch identity keep the legacy depth attach
+	// byte-identically (absence never guesses a domain).
+	electedBranch := projection.WakeupPathBranch
+	rootDepth := projection.WakeupPathRootDepth
 	depthAttach := map[int][]types.TraceCausalProjectionNode{}
 	trunkKeys := map[string]int{}
 	for i, subject := range trunk {
@@ -1253,8 +1264,30 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		if _, onTrunk := trunkKeys[subjectKey]; onTrunk {
 			continue // trunk pass consumes below
 		}
-		if node.ChainDepth > 0 && node.ChainDepth <= len(trunk) {
-			depthAttach[node.ChainDepth] = append(depthAttach[node.ChainDepth], node)
+		rel := node.ChainDepth
+		if electedBranch > 0 {
+			// P0-E 复核收尾① (对抗复核 REPRO, 2026-07-09): on a BRANCH
+			// projection the attach domain admits SAME-BRANCH nodes ONLY.
+			// ChainBranch==0 is NOT a legacy pass — the engine honestly
+			// stamps 0 on CROSS-BRANCH aggregates (huadong: the VSync×7
+			// aggregate), and the chain_branch note zero-drops, so a 0 here
+			// conflates "no identity" with "known cross-branch"; letting it
+			// through fabricated a trunk wakeup claim off a cross-branch
+			// depth (有损信号禁作硬门). Identity-less TRUE-legacy nodes are
+			// unreachable inside a branch projection (per-artifact partition:
+			// one compile = one producer version), so the honest 未接入树
+			// seat is correct for every ≠electedBranch shape.
+			if node.ChainBranch != electedBranch {
+				continue
+			}
+			rel = node.ChainDepth - rootDepth
+		} else if node.ChainBranch > 0 {
+			// Branch-stamped node on a LEGACY trunk: the trunk carries no
+			// branch identity to verify the domain against — unattached seat.
+			continue
+		}
+		if rel > 0 && rel <= len(trunk) {
+			depthAttach[rel] = append(depthAttach[rel], node)
 			consume(node)
 		}
 	}
@@ -1273,7 +1306,7 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 			if seg.CycleLen > 0 {
 				row := runtimeTraceProjTreeRow{
 					Kind: runtimeTraceProjTreeRowCycleFold, Omitted: seg.End - idx,
-					Depth: idx + 1, CyclePeriod: seg.CycleLen, CycleCount: seg.CycleCount,
+					Depth: idx + 1 + rootDepth, CyclePeriod: seg.CycleLen, CycleCount: seg.CycleCount,
 					CycleTuple: append([]string(nil), trunk[idx:idx+seg.CycleLen]...),
 				}
 				cycle := &runtimeTraceProjTreeNode{row: row}
@@ -1296,14 +1329,20 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 			}
 			row := runtimeTraceProjTreeRow{
 				Kind: runtimeTraceProjTreeRowOmitted, Omitted: segEnd - idx,
-				Depth: idx + 1, OmittedHead: head, OmittedTail: tail,
+				Depth: idx + 1 + rootDepth, OmittedHead: head, OmittedTail: tail,
 			}
 			omitted := &runtimeTraceProjTreeNode{row: row}
 			omitted.children = buildTrunk(segEnd, "…")
 			return []*runtimeTraceProjTreeNode{omitted}
 		}
 		subject := trunk[idx]
-		depth := idx + 1
+		// P0-E CHAIN-PATH: rel keys the tree STRUCTURE (position on the
+		// displayed trunk — indentation, drill-edge choice, depthAttach); the
+		// row's published Depth is the engine's TRUE chain depth (rel +
+		// rootDepth — nonzero rootDepth only on a truncated mid-chain
+		// election), so the 链上L# chip and the detail 层级 face agree.
+		rel := idx + 1
+		depth := rel + rootDepth
 		subjectKey := runtimeTraceCausalProjectionCanonicalNode(subject)
 		var main types.TraceCausalProjectionNode
 		var extra []types.TraceCausalProjectionNode
@@ -1332,7 +1371,7 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 			main = types.TraceCausalProjectionNode{Subject: subject, ChainDepth: depth}
 		}
 		edge := runtimeTraceProjTreeEdgeWake
-		if depth == 1 {
+		if rel == 1 {
 			edge = runtimeTraceProjTreeEdgeDrill
 		}
 		trunkNode := &runtimeTraceProjTreeNode{row: runtimeTraceProjTreeRow{
@@ -1373,7 +1412,7 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 				semanticConsumed[deeperKey] = true
 			}
 		}
-		for _, node := range depthAttach[depth+1] {
+		for _, node := range depthAttach[rel+1] {
 			trunkNode.children = append(trunkNode.children, &runtimeTraceProjTreeNode{row: runtimeTraceProjTreeRow{
 				Node: node, Kind: runtimeTraceProjTreeRowChain, Edge: runtimeTraceProjTreeEdgeWake,
 				Depth: depth + 1, Parent: subject, HasData: true,
@@ -1401,7 +1440,7 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		for _, node := range depthAttach[1] {
 			roots = append(roots, &runtimeTraceProjTreeNode{row: runtimeTraceProjTreeRow{
 				Node: node, Kind: runtimeTraceProjTreeRowChain, Edge: runtimeTraceProjTreeEdgeWake,
-				Depth: 1, Parent: model.Target, HasData: true,
+				Depth: 1 + rootDepth, Parent: model.Target, HasData: true,
 				EvidenceTag: runtimeTraceProjEvidenceTag(node, evidence, zh),
 			}})
 		}
@@ -6310,6 +6349,17 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 	if cause != "" {
 		b.WriteString(" " + cause)
 	}
+	// P0-E 锁车道修3 (§24.9-C F5): a lead whose lock-holder identity is an
+	// INFERENCE never states the hold as a payload fact — the qualifier rides
+	// the conclusion line (typed holder_source lanes; detail stanza carries
+	// the full origin sentence).
+	if runtimeTraceProjBlockingHolderInferred(*primary) {
+		if zh {
+			b.WriteString("(持有者推断)")
+		} else {
+			b.WriteString(" (holder inferred)")
+		}
+	}
 	if primary.MergedCount > 1 && primary.MergedMaxMS > 0 {
 		// V1 (customer revisit 2026-07-03): a ×N aggregate's SUM never publishes
 		// as the headline hard fact — show the per-instance max with the count;
@@ -8827,6 +8877,51 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 		}
 		if site := strings.TrimSpace(node.BlockingHolderSite); site != "" {
 			add("持有点", "held at", runtimeTraceCausalProjectionMarkdownSafe(site))
+		}
+		// P0-E 锁车道修3 (§24.9-C F5): the inferred-holder origin reaches the
+		// detail face — pre-P0-E the engine caveat existed but no user face
+		// consumed it (置信"中" was the only residue). Typed enum fork only.
+		if runtimeTraceProjBlockingHolderInferred(node) {
+			origin := ""
+			switch node.BlockingHolderSource {
+			case tracequery.CounterpartSourceWakeupEdge:
+				if node.BlockingOwnerTidRaw > 0 {
+					origin = fmt.Sprintf("唤醒边推断(payload owner %d 不在本 trace;由等待方的收尾唤醒边推得,非 payload 证实)", node.BlockingOwnerTidRaw)
+					if !zh {
+						origin = fmt.Sprintf("inferred from the waiter's closing wakeup edge (payload owner %d absent from this trace; not payload-confirmed)", node.BlockingOwnerTidRaw)
+					}
+				} else {
+					origin = "唤醒边推断(payload 未证实持有者;由等待方的收尾唤醒边推得)"
+					if !zh {
+						origin = "inferred from the waiter's closing wakeup edge (no payload-confirmed holder)"
+					}
+				}
+			case tracequery.CounterpartSourceNsSpanDerivation:
+				origin = fmt.Sprintf("ns-span 推导(payload owner %d 为容器命名空间 id;由 trace_mark 发射对映射,非 payload 证实)", node.BlockingOwnerTidRaw)
+				if !zh {
+					origin = fmt.Sprintf("derived via ns-span emission pairs (payload owner %d is a container-namespace id; not payload-confirmed)", node.BlockingOwnerTidRaw)
+				}
+			}
+			if origin != "" {
+				add("持有者来历", "holder origin", origin)
+			}
+		}
+		if handoff := strings.TrimSpace(node.BlockingHolderHandoff); handoff != "" {
+			// 修2: the payload hand-off chain — the named holder is the FINAL
+			// holder; the span is the wait envelope, never one thread's tenure.
+			text := handoff + "(锁在等待期内换手;所示持有者为最后持有者,非全段持有)"
+			if !zh {
+				text = handoff + " (the lock changed hands during the wait; the named holder is the FINAL holder, not the whole-span holder)"
+			}
+			add("持有者移交链", "holder hand-off chain", runtimeTraceCausalProjectionMarkdownSafe(text))
+		}
+		if contradiction := strings.TrimSpace(node.BlockingHolderContradiction); contradiction != "" {
+			// 修2 同锁自相矛盾守护: the withdrawn attribution's witness.
+			text := "持有者归因已撤回(推断持有者自身同锁排队):" + contradiction
+			if !zh {
+				text = "holder attribution withdrawn (inferred holder was itself queued on the same lock): " + contradiction
+			}
+			add("持有者归因撤回", "holder attribution withdrawn", runtimeTraceCausalProjectionMarkdownSafe(text))
 		}
 		if roster := strings.TrimSpace(node.OccupierSummary); roster != "" {
 			add("同窗占用者", "same-window occupiers", runtimeTraceCausalProjectionMarkdownSafe(runtimeTraceProjOccupierRosterDisplay(roster, zh)+"(cpu·ms)"))

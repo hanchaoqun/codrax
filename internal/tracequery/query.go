@@ -7674,16 +7674,16 @@ func buildWakeupChainWithCache(idx *Index, q Query, cache *chainQueryCache) Chai
 	if len(branches) == 0 {
 		visited := map[int]bool{}
 		targetBlockedMs := (q.TimeEnd - q.TimeStart) * 1000
-		expandChain(idx, q, cache, target, q.TimeStart, q.TimeEnd, 0, targetBlockedMs, visited, &res, "", nil)
+		expandChain(idx, q, cache, target, q.TimeStart, q.TimeEnd, 0, targetBlockedMs, visited, &res, "", nil, 1)
 		res.AggregatedImpacts = aggregateWakeupCausalImpacts(&res)
 		attachIPCGraphToChain(idx, q, &res)
 		attachChainViaThreadReport(viaRaw, &res)
 		return res
 	}
-	for _, branch := range branches {
+	for i, branch := range branches {
 		visited := map[int]bool{}
 		targetBlockedMs := (branch.EndTs - branch.StartTs) * 1000
-		expandChain(idx, q, cache, target, branch.StartTs, branch.EndTs, 0, targetBlockedMs, visited, &res, "", nil)
+		expandChain(idx, q, cache, target, branch.StartTs, branch.EndTs, 0, targetBlockedMs, visited, &res, "", nil, i+1)
 	}
 	expandViaImmuneBranches(idx, q, cache, target, targetTimeline.Intervals, branches, qualifyingBranches, viaRaw, &res)
 	res.AggregatedImpacts = aggregateWakeupCausalImpacts(&res)
@@ -7707,12 +7707,17 @@ func expandViaImmuneBranches(idx *Index, q Query, cache *chainQueryCache, target
 	all, _ := interestingIntervals(intervals, q.MinDurationMs, qualifyingBranches)
 	overflow := all[len(branches):]
 	viaKept := 0
+	// P0-E CHAIN-PATH: via-immune expansions continue the branch numbering
+	// after the capped top-N set; a rolled-back expansion leaves a gap in the
+	// ordinals (branch identity is an id, not a dense index).
+	nextBranch := len(branches)
 	for _, branch := range overflow {
 		nodesMark, edgesMark := len(res.Nodes), len(res.Edges)
 		impactsMark, rootsMark, caveatsMark := len(res.CausalImpacts), len(res.RootEvidence), len(res.Caveats)
 		visited := map[int]bool{}
 		targetBlockedMs := (branch.EndTs - branch.StartTs) * 1000
-		expandChain(idx, q, cache, target, branch.StartTs, branch.EndTs, 0, targetBlockedMs, visited, res, "", nil)
+		nextBranch++
+		expandChain(idx, q, cache, target, branch.StartTs, branch.EndTs, 0, targetBlockedMs, visited, res, "", nil, nextBranch)
 		contains := false
 		for _, node := range res.Nodes[nodesMark:] {
 			if chainThreadMatchesViaSelector(sel, node.Thread) {
@@ -7932,6 +7937,10 @@ func aggregateWakeupCausalImpacts(chain *ChainResult) []WakeupCausalAggregate {
 			a = &acc{prioVotes: map[string]int{}}
 			a.item.Thread = impact.Thread
 			a.item.ChainDepth = impact.ChainDepth
+			// P0-E CHAIN-PATH (ledger §22.1): the aggregate carries a branch
+			// identity only when EVERY member was measured in the same branch;
+			// a cross-branch aggregate stays 0 (absence never guesses).
+			a.item.ChainBranch = impact.ChainBranch
 			a.item.DominantState = impact.DominantState
 			a.item.Path = wakeupChainPathFromThread(*chain, impact.Thread)
 			accs[key] = a
@@ -7940,6 +7949,9 @@ func aggregateWakeupCausalImpacts(chain *ChainResult) []WakeupCausalAggregate {
 		a.item.OccurrenceCount++
 		if impact.ChainDepth < a.item.ChainDepth {
 			a.item.ChainDepth = impact.ChainDepth
+		}
+		if a.item.ChainBranch != impact.ChainBranch {
+			a.item.ChainBranch = 0
 		}
 		a.item.TotalMs += impact.TotalMs
 		a.item.ProjectedTotalMs += firstPositiveFloat(impact.ProjectedTotalMs, impact.TotalMs)
@@ -10370,6 +10382,7 @@ func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem 
 	item.Causality = "on_wakeup_chain"
 	item.ChainRelevance = "on_chain"
 	item.ChainDepth = impact.ChainDepth
+	item.ChainBranch = impact.ChainBranch
 	item.CumulativeImpactMs = impact.TotalMs
 	if impact.PriorityInversionCandidate && impact.DominantState == string(StateRunning) {
 		// §20.1 ruling ①甲 (raw 墙钟保留): the merged running-dominant
@@ -10470,6 +10483,7 @@ func rootCauseItemFromCausalAggregate(aggregate WakeupCausalAggregate) RootCause
 	item.Causality = "on_wakeup_chain"
 	item.ChainRelevance = "on_chain"
 	item.ChainDepth = aggregate.ChainDepth
+	item.ChainBranch = aggregate.ChainBranch
 	item.CumulativeImpactMs = aggregate.TotalMs
 	item.TargetImpactMs = aggregate.TargetBlockedMs
 	item.StartTs = aggregate.FirstTs
@@ -10538,6 +10552,12 @@ func rootCauseItemFromLockContentionCandidate(q Query, chainThreads map[int]bool
 	summary := fmt.Sprintf("%s blocked %.3fms on lock contention with unresolved owner%s", threadLabel(waiter), cand.DurationMs, suffix)
 	if holderResolved {
 		summary = fmt.Sprintf("lock holder %s blocked %s for %.3fms%s", threadLabel(holder), threadLabel(waiter), cand.DurationMs, suffix)
+		if len(cand.HolderHandoff) >= 2 {
+			// P0-E 锁车道修2: the payload recorded a hand-over — the subject
+			// is the FINAL holder; the whole-span figure is the waiter's wait
+			// envelope, never one thread's tenure.
+			summary = fmt.Sprintf("final lock holder %s (hand-over chain %s) last held the lock %s waited %.3fms on%s", threadLabel(holder), strings.Join(cand.HolderHandoff, " --> "), threadLabel(waiter), cand.DurationMs, suffix)
+		}
 	}
 	if cand.ActualDurationMs > 0 {
 		// F-1 (ledger §23.2): window-clipped contention — the rank summary
@@ -10576,6 +10596,10 @@ func rootCauseItemFromLockContentionCandidate(q Query, chainThreads map[int]bool
 	// process-level ns-span identity ride the rank row verbatim.
 	item.HolderNsUnification = cand.HolderNsUnification
 	item.HolderHostProcess = cand.HolderHostProcess
+	// P0-E 锁车道修2: the hand-off witness and the self-contradiction
+	// demotion witness ride the rank row verbatim (display disclosure faces).
+	item.HolderHandoff = append([]string(nil), cand.HolderHandoff...)
+	item.HolderSelfContradiction = cand.HolderSelfContradiction
 	if holderResolved {
 		// BlockingPeer = the contention counterpart of the row subject: the
 		// blocked waiter. Deliberately left EMPTY when the holder is
@@ -10673,7 +10697,10 @@ type semanticTraceSpanProjection struct {
 	ImpactMs      float64
 	DominantState string
 	ChainDepth    int
-	OnChain       bool
+	// ChainBranch mirrors the overlapped chain node/impact's branch identity
+	// (P0-E CHAIN-PATH, ledger §22.1) — 0 when no overlap won.
+	ChainBranch int
+	OnChain     bool
 }
 
 func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSpanSummary, hasCausalChain bool) (RootCauseRankItem, bool) {
@@ -10717,6 +10744,7 @@ func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSp
 	item.SemanticClass = work.SemanticClass
 	item.DominantState = projection.DominantState
 	item.ChainDepth = projection.ChainDepth
+	item.ChainBranch = projection.ChainBranch
 	if projection.OnChain {
 		item.Causality = "on_wakeup_chain"
 		item.ChainRelevance = "on_chain"
@@ -10789,6 +10817,7 @@ func semanticTraceSpanProjectionForRootCause(q Query, chain ChainResult, span Tr
 				out.DominantState = string(node.Dominant)
 				if node.Impact != nil {
 					out.ChainDepth = node.Impact.ChainDepth
+					out.ChainBranch = node.Impact.ChainBranch
 					if out.DominantState == "" {
 						out.DominantState = node.Impact.DominantState
 					}
@@ -10820,6 +10849,7 @@ func semanticTraceSpanProjectionForRootCause(q Query, chain ChainResult, span Tr
 					bestImpactMs = impactMs
 					out.DominantState = impact.DominantState
 					out.ChainDepth = impact.ChainDepth
+					out.ChainBranch = impact.ChainBranch
 				}
 				out.OnChain = true
 			}
@@ -11152,6 +11182,10 @@ func attributeOnChainResourceItemsToWakeupDependency(chain ChainResult, items []
 		item.InheritedTargetBlockedMs = impact.TargetBlockedMs
 		if item.ChainDepth == 0 && impact.ChainDepth > 0 {
 			item.ChainDepth = impact.ChainDepth
+			// P0-E CHAIN-PATH: the coupled impact's branch travels with the
+			// coupled depth — the display attach domain must never pair a
+			// depth from one branch with the elected trunk of another.
+			item.ChainBranch = impact.ChainBranch
 		}
 		if item.NearestChainThread.PID == 0 && strings.TrimSpace(item.NearestChainThread.Comm) == "" {
 			item.NearestChainThread = impact.Thread
@@ -13471,6 +13505,10 @@ func blockingSpanCandidateFromTraceSpan(span TraceSpanSummary) (CriticalBlocking
 		cand.Peer = info.Owner
 		cand.Waiters = info.Waiters
 		cand.HolderSite = info.HolderSite
+		// P0-E 锁车道修2 (§24.9-C F2): the payload hand-off chain is a typed
+		// witness that the holder CHANGED during this wait — the parsed final
+		// owner is the last holder, never the whole-span holder.
+		cand.HolderHandoff = info.OwnerHandoff
 		// §19 清点②: preserve the parsed lock-object name so an ownerless
 		// contention row can still say WHAT it blocked on. Never overwrites a
 		// wait_object the caller already set.
@@ -13492,6 +13530,12 @@ type blockingSpanRow struct {
 	cand      CriticalBlockingCandidate
 	spanName  string
 	spanNsPID int
+	// payloadOwnerTid preserves the PRE-RESOLUTION payload owner tid (the
+	// fold/attribution key) — after resolveBlockingSpanRowCounterpart the
+	// inferred lanes clear cand.Peer to the recovered thread and rung ①
+	// leaves the payload tid in Peer.PID, so the self-contradiction guard
+	// (P0-E 锁车道修2) needs the original claim in one stable place.
+	payloadOwnerTid int
 }
 
 // collectBlockingSpanRows (P2-3, absorbs Q4-F/Q5-D at the root): carves every
@@ -13519,7 +13563,7 @@ func collectBlockingSpanRows(idx *Index, stats WindowStats) []blockingSpanRow {
 		if !ok {
 			continue
 		}
-		row := blockingSpanRow{cand: cand, spanName: span.Name, spanNsPID: span.SpanPID}
+		row := blockingSpanRow{cand: cand, spanName: span.Name, spanNsPID: span.SpanPID, payloadOwnerTid: cand.Peer.PID}
 		if cand.BlockingKind != "" && cand.Peer.PID > 0 {
 			merged := false
 			for i := range rows {
@@ -13538,7 +13582,66 @@ func collectBlockingSpanRows(idx *Index, stats WindowStats) []blockingSpanRow {
 	for i := range rows {
 		resolveBlockingSpanRowCounterpart(idx, &rows[i])
 	}
+	guardLockHolderSelfContradiction(rows)
 	return rows
+}
+
+// lockHolderSelfContradictionCoverage is the overlap-coverage threshold of the
+// P0-E 锁车道修2 same-lock self-contradiction guard (§24.9-C F2): the guard
+// fires only when the inferred holder's OWN same-owner contention span covers
+// the MAJORITY of the span being attributed — it was queued on the same lock
+// for most of the claimed tenure, so the whole-span holder claim is falsified
+// by two typed rows (opendir_78: 112.223/115.944 ≈ 97% coverage). Sub-majority
+// overlap stays untouched: a holder can legitimately re-queue on the lock
+// after releasing it (hand-over adjacency), and demoting on a sliver would
+// hard-gate on an ambiguous shape.
+const lockHolderSelfContradictionCoverage = 0.5
+
+// guardLockHolderSelfContradiction (P0-E 锁车道修2, ledger §24.9-C F2,
+// 2026-07-09) cross-checks every INFERRED holder attribution against the
+// other contention rows of the SAME payload owner: if the thread we inferred
+// as the holder was ITSELF waiting on that same owner for ≥ the coverage
+// threshold of the attributed span, the inference is self-contradictory —
+// the closing-wake "last releaser" was a fellow waiter in the hand-over
+// relay, not the whole-span holder. The row demotes back to UNRESOLVED
+// (typed-pair gates read false → no direct on-chain slot, no 1.35 weight —
+// §12.3 未解析不准入, unchanged machinery) and carries the typed
+// HolderSelfContradiction witness + a summary disclosure. Payload-direct
+// (rung ①) holders are exempt: their identity is a direct payload claim, not
+// a closing-wake inference (the guard's precise scope).
+func guardLockHolderSelfContradiction(rows []blockingSpanRow) {
+	for i := range rows {
+		cand := &rows[i].cand
+		if !counterpartSourceIsInferred(cand.HolderSource) || cand.Peer.PID <= 0 || rows[i].payloadOwnerTid <= 0 {
+			continue
+		}
+		spanMs := (cand.EndTs - cand.StartTs) * 1000
+		if spanMs <= 0 {
+			continue
+		}
+		for j := range rows {
+			if j == i {
+				continue
+			}
+			peer := &rows[j].cand
+			if rows[j].payloadOwnerTid != rows[i].payloadOwnerTid || peer.Thread.PID != cand.Peer.PID {
+				continue
+			}
+			overlap := windowOverlapMs(cand.StartTs, cand.EndTs, peer.StartTs, peer.EndTs)
+			if overlap < spanMs*lockHolderSelfContradictionCoverage {
+				continue
+			}
+			witness := fmt.Sprintf("inferred holder %s itself waited on the same payload owner tid %d for %.3fms of this %.3fms span (lines %d-%d)",
+				threadLabel(cand.Peer), rows[i].payloadOwnerTid, overlap, spanMs,
+				peer.LineStart, peer.LineEnd)
+			cand.HolderSelfContradiction = witness
+			cand.Summary = appendRootCauseSummaryDetail(cand.Summary,
+				"holder attribution withdrawn (same-lock self-contradiction): "+witness+" — a thread queued on the lock for most of the span cannot have held it for the whole span; the holder stays unresolved")
+			cand.Peer = ThreadRef{}
+			cand.HolderSource = ""
+			break
+		}
+	}
 }
 
 // resolveBlockingSpanRowCounterpart (P0-E2a) runs once per folded blocking-span
@@ -13579,6 +13682,16 @@ func resolveBlockingSpanRowCounterpart(idx *Index, row *blockingSpanRow) {
 		return
 	}
 	cand := &row.cand
+	// P0-E 锁车道修2 (§24.9-C F2): a payload hand-off chain proves the holder
+	// CHANGED during the wait — every resolution lane below (payload-direct
+	// included) is naming the FINAL holder only, and the whole-span duration
+	// is a conservative envelope, never one thread's tenure. The disclosure
+	// rides the row unconditionally; tenure segmentation is impossible from
+	// the payload (no boundaries recorded), so segmenting would invent data.
+	if len(cand.HolderHandoff) >= 2 {
+		cand.Summary = appendRootCauseSummaryDetail(cand.Summary,
+			fmt.Sprintf("payload owner segment records a hand-off chain (%s): the lock changed hands during this wait — the resolved holder is the FINAL holder in the chain, not the whole-span holder; per-holder tenure boundaries are not recorded, so the span duration stays a conservative whole-wait envelope", strings.Join(cand.HolderHandoff, " --> ")))
+	}
 	if cand.BlockingKind != "" && cand.Peer.PID > 0 {
 		if idx.tidPresent(cand.Peer.PID) && !lockOwnerCommCollides(idx, cand.Peer) {
 			cand.HolderSource = CounterpartSourceContentionPayload
@@ -13739,8 +13852,17 @@ func lockOwnerCommMatches(payloadComm, observedComm string) bool {
 }
 
 func sameLockContention(a, b CriticalBlockingCandidate) bool {
+	// P0-E 锁车道修1 (ledger §24.9-C F1, 2026-07-09): the fold's design intent
+	// is the SAME contention printed twice (rich monitor form + tid-only
+	// form) — i.e. one WAITER's dual print. The key therefore pins the
+	// emitting waiter identity: two PHYSICALLY DIFFERENT contention spans
+	// (two different blocked threads queued on the same owner) must never
+	// fold into one chimera row (opendir_78: the target's 112.2ms victim row
+	// was swallowed whole by LegoHandler's 115.9ms span — the direction-flip
+	// lesion's first half).
 	return a.BlockingKind != "" && a.BlockingKind == b.BlockingKind &&
 		a.Peer.PID > 0 && a.Peer.PID == b.Peer.PID &&
+		a.Thread.PID > 0 && a.Thread.PID == b.Thread.PID &&
 		windowOverlapMs(a.StartTs, a.EndTs, b.StartTs, b.EndTs) > 0
 }
 
@@ -13762,6 +13884,17 @@ func foldLockContentionRow(a, b blockingSpanRow) blockingSpanRow {
 	merged = append(merged, folded.cand.MergedLines...)
 	merged = append(merged, firstPositive(folded.cand.LineStart, folded.cand.LineEnd))
 	survivor.cand.MergedLines = merged
+	// P0-E 锁车道修1 附带口径洞 (§24.9-C F5): the dual print forms of ONE
+	// waiter's contention may disagree on waiters= — keep the MAX instead of
+	// silently dropping the folded form's count.
+	if folded.cand.Waiters > survivor.cand.Waiters {
+		survivor.cand.Waiters = folded.cand.Waiters
+	}
+	// The hand-off witness travels with the fold (richer-form survivor may be
+	// the tid-only print that carried no chain).
+	if len(survivor.cand.HolderHandoff) == 0 {
+		survivor.cand.HolderHandoff = folded.cand.HolderHandoff
+	}
 	// LCK-2: keep the container ns pid across the fold (both print forms of
 	// the same lock come from the same emitting process; take the folded
 	// form's pid only when the survivor carried none).
@@ -14320,7 +14453,7 @@ func (c *chainQueryCache) priorityNear(flavor TraceFlavor, thread ThreadRef, ts 
 	return bestPrio, classifyTracePriority(flavor, bestPrio)
 }
 
-func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, start, end float64, depth int, targetBlockedMs float64, visited map[int]bool, res *ChainResult, parentID string, consumers []ThreadRef) string {
+func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, start, end float64, depth int, targetBlockedMs float64, visited map[int]bool, res *ChainResult, parentID string, consumers []ThreadRef, branch int) string {
 	if depth >= q.MaxDepth {
 		res.Caveats = append(res.Caveats, fmt.Sprintf("max_depth=%d reached at pid=%d", q.MaxDepth, thread.PID))
 		return ""
@@ -14342,7 +14475,10 @@ func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, 
 	impact := summarizeWakeupCausalImpact(idx, q, cache, thread, tl.Intervals, start, end, depth, targetBlockedMs, res.Target, consumers)
 	interesting := mostInterestingInterval(tl.Intervals, q.MinDurationMs)
 	nodeID := fmt.Sprintf("n%d", len(res.Nodes)+1)
-	node := ChainNode{ID: nodeID, Thread: thread, Window: TimeWindow{StartTs: start, EndTs: end}}
+	// P0-E CHAIN-PATH (ledger §22.1): every node — nil-impact transits
+	// included — carries its TRUE recursion depth and its owning branch, so
+	// the serialization layer never has to guess either from a flat walk.
+	node := ChainNode{ID: nodeID, Thread: thread, Window: TimeWindow{StartTs: start, EndTs: end}, Depth: depth, Branch: branch}
 	if interesting != nil {
 		node.Dominant = interesting.State
 		node.DurationMs = interesting.DurationMs
@@ -14352,6 +14488,7 @@ func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, 
 		node.Dominant = StateUnknown
 		node.Summary = "no decisive scheduler interval found in aligned window"
 	}
+	impact.ChainBranch = branch
 	if impact.TotalMs > 0 {
 		node.Impact = &impact
 		if impact.DominantState != "" {
@@ -14390,7 +14527,7 @@ func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, 
 		}
 		waker := ThreadRef{Comm: wakeup.Comm, PID: wakeup.PID, TGID: wakeup.TGID}
 		childConsumers := append(append([]ThreadRef{}, consumers...), thread)
-		childID := expandChain(idx, q, cache, waker, interesting.StartTs, wakeup.Ts, depth+1, targetBlockedMs, visited, res, nodeID, childConsumers)
+		childID := expandChain(idx, q, cache, waker, interesting.StartTs, wakeup.Ts, depth+1, targetBlockedMs, visited, res, nodeID, childConsumers, branch)
 		if childID != "" {
 			wakerPrio, wakerClass := cache.priorityNear(q.TraceFlavor, waker, wakeup.Ts)
 			wakeePrio := wakeup.WakeePrio
@@ -14402,6 +14539,7 @@ func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, 
 			res.Edges = append(res.Edges, WakeupEdge{
 				From:                       childID,
 				To:                         nodeID,
+				Branch:                     branch,
 				Waker:                      waker,
 				Wakee:                      thread,
 				WakeupTs:                   wakeup.Ts,

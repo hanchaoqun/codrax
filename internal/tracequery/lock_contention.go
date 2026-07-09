@@ -49,6 +49,15 @@ type lockContentionInfo struct {
 	// only description an ownerless contention row can carry, so it is preserved
 	// verbatim and published as the row's wait_object.
 	WaitObject string
+	// OwnerHandoff is the verbatim "#A -->#B" hand-off chain elements (leading
+	// '#' trimmed, order preserved) when the owner segment recorded MORE THAN
+	// ONE holder — the runtime observed the lock CHANGE HANDS during the wait
+	// (P0-E 锁车道修2, ledger §24.9-C F2, 2026-07-09). The FINAL element is
+	// the current/last holder (unchanged parse below); the chain itself is a
+	// PRECISE payload signal that whole-span single-holder attribution is
+	// wrong, so it must reach the typed row instead of being discarded. nil
+	// when the payload named a single owner.
+	OwnerHandoff []string
 	// OwnerAbsent is set when the payload printed an EXPLICIT ownerless sentinel
 	// in the owner-tid slot — ART emits `owner tid: 0` (no-holder sentinel, §19
 	// 语料 23/84) and `owner tid: 18446744073709551615` (uint64(-1) sentinel,
@@ -115,6 +124,19 @@ func parseMonitorContentionOwnerPayload(body string) lockContentionInfo {
 		owner = strings.TrimSpace(owner[:loc[0]])
 	}
 	// A "#A -->#B" hand-off chain names the FINAL holder last (§7.30.3 D1).
+	// P0-E 锁车道修2 (§24.9-C F2): the chain itself is preserved as a typed
+	// hand-over witness — it proves the holder changed during the wait.
+	if strings.Contains(owner, "-->") {
+		for _, part := range strings.Split(owner, "-->") {
+			part = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(part), "#"))
+			if part != "" {
+				info.OwnerHandoff = append(info.OwnerHandoff, part)
+			}
+		}
+		if len(info.OwnerHandoff) < 2 {
+			info.OwnerHandoff = nil // degenerate split: no hand-over observed
+		}
+	}
 	if idx := strings.LastIndex(owner, "-->"); idx >= 0 {
 		owner = strings.TrimSpace(owner[idx+len("-->"):])
 	}

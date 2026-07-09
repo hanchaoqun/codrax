@@ -11987,6 +11987,19 @@ type traceQueryObservationSupplementRow struct {
 	Order int
 	Key   string
 	Text  string
+	// Head/Branch (P0-E 复核收尾④, 2026-07-09): in-bucket ordering identity
+	// for the per-branch wakeup_chain path records. Head marks the ELECTED
+	// branch's record (typed: the record's branch= note equals its artifact
+	// projection's WakeupPathBranch) — it sorts to its Order bucket's head so
+	// the >40-row quota window can never omit the record the whole tree is
+	// rooted on. Branch is the record's own ordinal: when the election is
+	// undeterminable (projection absent / no elected branch) the bucket falls
+	// back to branch-ascending order (engine segment order) instead of the
+	// lexical key order that put #10 before #2 — 留账: the fallback cannot
+	// PROVE the elected record survives the cap, it only makes the order
+	// deterministic and engine-faithful (取舍 noted per review).
+	Head   bool
+	Branch int
 	// Base/LineStart/LineEnd carry the row's trace source coordinate (artifact
 	// basename + line span) so the PTV6-C ruling-C truncation tail can state
 	// WHERE the unlisted rows sit instead of deflecting to the intermediate
@@ -12064,6 +12077,17 @@ func renderTraceQueryObservationSupplement(ctx *types.AgentContext, doc *types.A
 	sort.SliceStable(rows, func(i, j int) bool {
 		if rows[i].Order != rows[j].Order {
 			return rows[i].Order < rows[j].Order
+		}
+		// P0-E 复核收尾④: the ELECTED branch's wakeup_chain path record heads
+		// its bucket (typed WakeupPathBranch match — the quota window must
+		// never omit the record the tree is rooted on); sibling branch
+		// records order by their typed branch ordinal (engine segment order),
+		// never by the lexical key order that sorted #10 before #2.
+		if rows[i].Head != rows[j].Head {
+			return rows[i].Head
+		}
+		if rows[i].Branch != rows[j].Branch {
+			return rows[i].Branch < rows[j].Branch
 		}
 		return rows[i].Key < rows[j].Key
 	})
@@ -12328,9 +12352,11 @@ func traceQueryObservationSupplementRows(ctx *types.AgentContext, _ *types.Answe
 		}
 		text += traceQueryObservationOutsideWindowNote(entry.record, projectionSet, zh)
 		base, lineStart, lineEnd := traceQueryObservationSourceCoordinate(entry.record)
+		branch, head := traceQueryObservationElectedBranchPathHead(entry.record, projectionSet)
 		rows = append(rows, traceQueryObservationSupplementRow{
 			Order: entry.order, Key: entry.key, Text: text,
 			Base: base, LineStart: lineStart, LineEnd: lineEnd,
+			Head: head, Branch: branch,
 		})
 	}
 	if foldZeroBlocked {
@@ -12455,7 +12481,10 @@ func traceQueryObservationSupplementOrder(record types.ObservationRecord) int {
 		return 15
 	case strings.HasPrefix(claimKey, "state_drilldown"):
 		return 18
-	case claimKey == "wakeup_chain:path":
+	case strings.HasPrefix(claimKey, "wakeup_chain:path"):
+		// P0-E CHAIN-PATH (ledger §22.1): per-branch path records carry
+		// distinct "wakeup_chain:path#<branch>" claim keys; the legacy
+		// identity-less record keeps the bare key — one prefix covers both.
 		return 20
 	case strings.HasPrefix(claimKey, "root_cause_secondary"):
 		return 30
@@ -12478,6 +12507,47 @@ func traceQueryObservationHasRichNotePrefix(record types.ObservationRecord, pref
 		}
 	}
 	return false
+}
+
+// traceQueryObservationElectedBranchPathHead (P0-E 复核收尾④, 2026-07-09)
+// resolves a per-branch wakeup_chain path record's in-bucket ordering
+// identity: its typed branch ordinal (branch= rich note; 0 on the legacy
+// flattened record and every non-chain record) and whether it is the ELECTED
+// branch of its OWN artifact's projection (same identity lanes as the CMP-5b
+// window matcher — never a cross-artifact guess). When the projection carries
+// no elected branch (legacy pool / election undeterminable) no record is a
+// head — the bucket then falls back to branch-ascending order (留账: order
+// determinism only; the fallback cannot prove the elected record survives
+// the row cap).
+func traceQueryObservationElectedBranchPathHead(record types.ObservationRecord, set types.TraceCausalProjectionSet) (int, bool) {
+	if strings.TrimSpace(record.Predicate) != "wakeup_chain" {
+		return 0, false
+	}
+	branch := 0
+	prefix := types.TraceNoteKeyChainPathBranch + "="
+	for _, note := range record.RichNotes {
+		note = strings.TrimSpace(note)
+		if !strings.HasPrefix(note, prefix) {
+			continue
+		}
+		if v, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(note, prefix))); err == nil {
+			branch = v
+		}
+		break
+	}
+	if branch <= 0 {
+		return 0, false
+	}
+	for _, projection := range set.Projections {
+		if !types.TraceCausalProjectionRecordMatchesArtifact(record, projection) {
+			continue
+		}
+		return branch, projection.WakeupPathBranch == branch
+	}
+	if len(set.Projections) == 1 && types.TraceCausalProjectionRecordArtifactIdentity(record) == "" {
+		return branch, set.Projections[0].WakeupPathBranch == branch
+	}
+	return branch, false
 }
 
 func traceQueryObservationSupplementKey(record types.ObservationRecord) string {

@@ -67,7 +67,7 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 	impact := tracequery.WakeupCausalImpact{
 		Thread: tracequery.ThreadRef{Comm: "dep", PID: 21}, Window: window,
 		ActualWindow: tracequery.TimeWindow{StartTs: 0.9, EndTs: 2.1},
-		ChainDepth:   1, OnChain: true, DominantState: string(tracequery.StateSSleep),
+		ChainDepth:   1, ChainBranch: 1, OnChain: true, DominantState: string(tracequery.StateSSleep),
 		DominantImpactMs: 4, ProjectedImpactMs: 4, TotalMs: 5, ProjectedTotalMs: 5,
 		ActualImpactMs: 6, ActualTotalMs: 7, TargetBlockedMs: 3,
 		FragmentCount: 2, StateSwitches: 3, MaxSegmentMs: 2, P95SegmentMs: 1,
@@ -268,7 +268,7 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				EffectiveImpactMs: 14, TargetImpactMs: 10, ActualImpactMs: 15, ActualTotalMs: 16,
 				ActualStartTs: 0.9, ActualEndTs: 2.05, Score: 0.9, Confidence: 0.85,
 				LineStart: 3, LineEnd: 4, Source: "wakeup_chain", Causality: "on_wakeup_chain",
-				ChainRelevance: "on_chain", ChainDepth: 1,
+				ChainRelevance: "on_chain", ChainDepth: 1, ChainBranch: 1,
 				DominantState: string(tracequery.StateRunnable),
 				RunningMs:     2, RunnableMs: 9, SleepMs: 1, DStateMs: 1, IOWaitMs: 1,
 				GatedRunnableMs: 9, GatedRunningDeficitMs: 2,
@@ -350,12 +350,15 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 		WakeupChain: &tracequery.ChainResult{
 			Target: tracequery.ThreadRef{Comm: "app:ui", PID: 61},
 			Window: window,
+			// P0-E CHAIN-PATH (ledger §22.1): branch-stamped nodes/edges so
+			// the per-branch path record (branch=/branches= contract keys)
+			// and the impact rows' chain_branch key are exercised.
 			Nodes: []tracequery.ChainNode{
-				{ID: "n1", Thread: tracequery.ThreadRef{Comm: "app:ui", PID: 61}, Impact: &tracequery.WakeupCausalImpact{ChainDepth: 0}},
-				{ID: "n2", Thread: tracequery.ThreadRef{Comm: "dep", PID: 21}, Impact: &tracequery.WakeupCausalImpact{ChainDepth: 1}},
+				{ID: "n1", Thread: tracequery.ThreadRef{Comm: "app:ui", PID: 61}, Branch: 1, Depth: 0, Impact: &tracequery.WakeupCausalImpact{ChainDepth: 0, ChainBranch: 1}},
+				{ID: "n2", Thread: tracequery.ThreadRef{Comm: "dep", PID: 21}, Branch: 1, Depth: 1, Impact: &tracequery.WakeupCausalImpact{ChainDepth: 1, ChainBranch: 1}},
 			},
 			Edges: []tracequery.WakeupEdge{{
-				From: "n2", To: "n1",
+				From: "n2", To: "n1", Branch: 1,
 				Waker:    tracequery.ThreadRef{Comm: "dep", PID: 21},
 				Wakee:    tracequery.ThreadRef{Comm: "app:ui", PID: 61},
 				WakeupTs: 1.024, WakeupLine: 22, LatencyMs: 14,
@@ -369,7 +372,7 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 			CausalImpacts: traceNoteKeysEmitFixtureOverflowImpacts(impact),
 			AggregatedImpacts: []tracequery.WakeupCausalAggregate{{
 				Thread: tracequery.ThreadRef{Comm: "dep", PID: 21}, Path: "dep -> app:ui",
-				ChainDepth: 1, OccurrenceCount: 3, DominantState: string(tracequery.StateSSleep),
+				ChainDepth: 1, ChainBranch: 1, OccurrenceCount: 3, DominantState: string(tracequery.StateSSleep),
 				DominantImpactMs: 6, ProjectedImpactMs: 6, TotalMs: 7, ProjectedTotalMs: 7,
 				ActualImpactMs: 8, ActualTotalMs: 9, RunningMs: 1, RunnableMs: 1, SleepMs: 4,
 				DStateMs: 1, IOWaitMs: 1, ActualRunningMs: 1, ActualRunnableMs: 1, ActualSleepMs: 4,
@@ -403,6 +406,9 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				// P0-E2a display-tier keys — exercised so the emit pin covers them.
 				HolderSource: tracequery.CounterpartSourceWakeupEdge, PeerSource: tracequery.CounterpartSourceWakeupEdge,
 				OwnerTidRaw: 987654, WaitObject: "monitor of Foo",
+				// P0-E 锁车道修2 keys — exercised so the emit pin covers them.
+				HolderHandoff:           []string{"WorkerA", "WorkerB"},
+				HolderSelfContradiction: "inferred holder holder-102 itself waited on the same payload owner tid 987654 for 5.000ms of this 6.000ms span (lines 65-66)",
 				PeerState: &tracequery.ThreadStateBreakdown{
 					DominantState: string(tracequery.StateRunning), TotalMs: 6, RunningMs: 4,
 					RunnableMs: 1, SleepMs: 1, DStateMs: 1, IOWaitMs: 1, FragmentCount: 2,

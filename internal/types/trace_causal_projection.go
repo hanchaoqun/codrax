@@ -59,8 +59,18 @@ type TraceCausalProjection struct {
 	// re-derive entity matches with a diverging comparator. nil when no entity
 	// matches (or no entities exist): the no-signal lane stays byte-stable.
 	// Display-only guidance; no hard gate reads it.
-	WakeupPathUserEntityHits []int                       `json:"wakeup_path_user_entity_hits,omitempty"`
-	SupportingHops           []TraceCausalProjectionNode `json:"supporting_hops,omitempty"`
+	WakeupPathUserEntityHits []int `json:"wakeup_path_user_entity_hits,omitempty"`
+	// WakeupPathBranch / WakeupPathRootDepth (P0-E CHAIN-PATH, ledger §22.1):
+	// the elected path's typed branch ordinal (0 = legacy identity-less
+	// candidate) and the engine depth of the elected path's END element (>0
+	// only when the B1-b election truncated the path at a mid-chain user
+	// entity — the displayed root then sits rootDepth hops up the REAL chain,
+	// and the tree's (branch, depth) attach subtracts it so trunk positions
+	// stay the engine's true depths). Display attach domain only; no gate
+	// reads either field.
+	WakeupPathBranch    int                         `json:"wakeup_path_branch,omitempty"`
+	WakeupPathRootDepth int                         `json:"wakeup_path_root_depth,omitempty"`
+	SupportingHops      []TraceCausalProjectionNode `json:"supporting_hops,omitempty"`
 	// WakeupChainRecommendedNotRun is true when this run's ledger contains a
 	// state_drilldown observation whose typed chain_required=true rich note
 	// recommended a wakeup-chain drilldown, but NO wakeup_chain-family
@@ -151,29 +161,36 @@ func (p TraceCausalProjection) Active() bool {
 }
 
 type TraceCausalProjectionNode struct {
-	Role               string   `json:"role,omitempty"`
-	EvidenceID         string   `json:"evidence_id,omitempty"`
-	Subject            string   `json:"subject,omitempty"`
-	Predicate          string   `json:"predicate,omitempty"`
-	Object             string   `json:"object,omitempty"`
-	Value              string   `json:"value,omitempty"`
-	Unit               string   `json:"unit,omitempty"`
-	Summary            string   `json:"summary,omitempty"`
-	SupportRefs        []string `json:"support_refs,omitempty"`
-	LineStart          int      `json:"line_start,omitempty"`
-	LineEnd            int      `json:"line_end,omitempty"`
-	Rank               int      `json:"rank,omitempty"`
-	Tier               string   `json:"tier,omitempty"`
-	Causality          string   `json:"causality,omitempty"`
-	ChainRelevance     string   `json:"chain_relevance,omitempty"`
-	ChainDepth         int      `json:"chain_depth,omitempty"`
-	ImpactMS           float64  `json:"impact_ms,omitempty"`
-	CumulativeImpactMS float64  `json:"cumulative_impact_ms,omitempty"`
-	SpanName           string   `json:"span_name,omitempty"`
-	SpanKind           string   `json:"span_kind,omitempty"`
-	SpanCategory       string   `json:"span_category,omitempty"`
-	SpanSubcategory    string   `json:"span_subcategory,omitempty"`
-	SemanticClass      string   `json:"semantic_class,omitempty"`
+	Role           string   `json:"role,omitempty"`
+	EvidenceID     string   `json:"evidence_id,omitempty"`
+	Subject        string   `json:"subject,omitempty"`
+	Predicate      string   `json:"predicate,omitempty"`
+	Object         string   `json:"object,omitempty"`
+	Value          string   `json:"value,omitempty"`
+	Unit           string   `json:"unit,omitempty"`
+	Summary        string   `json:"summary,omitempty"`
+	SupportRefs    []string `json:"support_refs,omitempty"`
+	LineStart      int      `json:"line_start,omitempty"`
+	LineEnd        int      `json:"line_end,omitempty"`
+	Rank           int      `json:"rank,omitempty"`
+	Tier           string   `json:"tier,omitempty"`
+	Causality      string   `json:"causality,omitempty"`
+	ChainRelevance string   `json:"chain_relevance,omitempty"`
+	ChainDepth     int      `json:"chain_depth,omitempty"`
+	// ChainBranch is the owning branch ordinal of the node's chain measurement
+	// (typed chain_branch note — P0-E CHAIN-PATH, ledger §22.1). The display
+	// tree keys its depth attach to (branch, depth): a node from a DIFFERENT
+	// branch than the elected trunk never fabricates a trunk position (the
+	// fake-L26/L27 family); it keeps its honest 未接入树 seat instead. 0 =
+	// no branch identity (legacy rows keep the pre-P0-E depth attach).
+	ChainBranch        int     `json:"chain_branch,omitempty"`
+	ImpactMS           float64 `json:"impact_ms,omitempty"`
+	CumulativeImpactMS float64 `json:"cumulative_impact_ms,omitempty"`
+	SpanName           string  `json:"span_name,omitempty"`
+	SpanKind           string  `json:"span_kind,omitempty"`
+	SpanCategory       string  `json:"span_category,omitempty"`
+	SpanSubcategory    string  `json:"span_subcategory,omitempty"`
+	SemanticClass      string  `json:"semantic_class,omitempty"`
 	// StartTs/EndTs is this node's own trace window (seconds), when the source
 	// observation exposed one (semantic_span / state_drilldown rows do; plain
 	// root_cause primary rows carry only line spans and leave these zero).
@@ -437,6 +454,20 @@ type TraceCausalProjectionNode struct {
 	BlockingPeer       string `json:"blocking_peer,omitempty"`
 	BlockingHolderSite string `json:"blocking_holder_site,omitempty"`
 	BlockingWaiters    int    `json:"blocking_waiters,omitempty"`
+	// BlockingHolderSource / BlockingOwnerTidRaw (P0-E 锁车道修3, ledger
+	// §24.9-C F5, 2026-07-09): the typed holder-resolution origin
+	// (contention_payload / ns_span_derivation / wakeup_edge) and the phantom
+	// payload owner tid — the three disclosure faces (tree-row 推断 qualifier
+	// / detail 持有者来历 line / lead 括注) key on them; pre-P0-E the engine
+	// caveat existed but never reached any user face (置信"中" was the only
+	// residue). BlockingHolderHandoff carries the verbatim payload hand-off
+	// chain (修2: the named holder is the FINAL holder, never whole-span);
+	// BlockingHolderContradiction carries the same-lock self-contradiction
+	// withdrawal witness (the row's holder was demoted to unresolved).
+	BlockingHolderSource        string `json:"blocking_holder_source,omitempty"`
+	BlockingOwnerTidRaw         int    `json:"blocking_owner_tid_raw,omitempty"`
+	BlockingHolderHandoff       string `json:"blocking_holder_handoff,omitempty"`
+	BlockingHolderContradiction string `json:"blocking_holder_contradiction,omitempty"`
 	// BlockingSubjectIsHolder (BLK §15.C, 2026-07-06) mirrors the producer's
 	// typed "subject_is_lock_holder=true" note: THIS node's Subject is the lock
 	// HOLDER and BlockingPeer is the blocked WAITER (the resolved rank lock
@@ -779,9 +810,12 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 			// collecting all of them changes NO node classification — records
 			// #2..N previously fell through the switch into nothing.
 			if path := traceCausalProjectionPath(record.Object); len(path) > 0 {
+				branch := traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyChainPathBranch)
 				wakeupPathCandidates = append(wakeupPathCandidates, traceCausalProjectionWakeupPathCandidate{
-					path:    path,
-					subject: strings.TrimSpace(record.Subject),
+					path:       path,
+					subject:    strings.TrimSpace(record.Subject),
+					branch:     branch,
+					branchForm: branch > 0,
 				})
 			} else if wakeupPathEmptyLegacy == nil {
 				wakeupPathEmptyLegacy = path
@@ -824,7 +858,7 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 	// user entity (F1b) rank first (they carry the canonical thread label),
 	// then the caller user entities in their own priority order.
 	anchorEntities := traceCausalProjectionOrderedAnchorEntities(frameTargetEntities, userEntities)
-	wakeupPath, wakeupPathUserElected := traceCausalProjectionSelectWakeupPath(
+	wakeupPath, wakeupPathUserElected, wakeupPathBranch, wakeupPathRootDepth := traceCausalProjectionSelectWakeupPath(
 		wakeupPathCandidates, anchorEntities)
 	if wakeupPath == nil {
 		wakeupPath = wakeupPathEmptyLegacy
@@ -870,6 +904,8 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 		WakeupPath:                   wakeupPath,
 		WakeupPathUserElected:        wakeupPathUserElected,
 		WakeupPathUserEntityHits:     wakeupPathUserEntityHits,
+		WakeupPathBranch:             wakeupPathBranch,
+		WakeupPathRootDepth:          wakeupPathRootDepth,
 		SupportingHops:               hops,
 		WakeupChainRecommendedNotRun: chainRequiredRecommended && !wakeupChainObserved,
 		RootCauseFamilyObserved:      rootCauseFamilyObserved,
@@ -1002,6 +1038,13 @@ type traceCausalProjectionAnchorEntity struct {
 type traceCausalProjectionWakeupPathCandidate struct {
 	path    []string
 	subject string
+	// branch / branchForm (P0-E CHAIN-PATH, ledger §22.1): the record's typed
+	// branch= note — a per-branch TRUE path record. When ANY branch-form
+	// candidate exists, the election pools branch-form candidates ONLY: the
+	// retired flattened walk (and the legacy text-parse lane's identity-less
+	// reconstructions) never compete against real branch paths.
+	branch     int
+	branchForm bool
 }
 
 // traceCausalProjectionSelectWakeupPath elects the projection anchor path
@@ -1056,9 +1099,46 @@ type traceCausalProjectionWakeupPathCandidate struct {
 //
 // The second return reports a user election (feeds
 // TraceCausalProjection.WakeupPathUserElected → the 🎯 root label lane).
-func traceCausalProjectionSelectWakeupPath(candidates []traceCausalProjectionWakeupPathCandidate, entities []traceCausalProjectionAnchorEntity) ([]string, bool) {
+//
+// P0-E CHAIN-PATH EVOLUTION (ledger §22.1, 2026-07-09): candidates are now
+// per-branch TRUE path records (one per top-level target-segment expansion;
+// typed branch= note), so the election picks a BRANCH — the flattened
+// cross-branch walk is retired from the producer. Semantics re-reviewed on
+// real branches, bar only strengthened:
+//   - pool switch: when ANY branch-form candidate exists, ONLY branch-form
+//     candidates compete (a stray identity-less candidate — e.g. the legacy
+//     text-parse reconstruction lane — never outranks a real branch);
+//   - the any-position match + last-occurrence truncation are UNCHANGED (a
+//     user entity can still sit mid-branch as a transit of a longer chain);
+//     位置0不可当选 preserved;
+//   - tie ladder unchanged: typed Subject hit > deepest matched position >
+//     publication order. On true branches "deepest position" now reads
+//     "longest resolved upstream causation for the entity" — exactly the
+//     §22.1 rationale, minus the cross-branch stitching artifacts.
+//
+// The third/fourth returns carry the elected candidate's typed branch ordinal
+// and the engine depth of the returned path's END element (0 unless the
+// truncation dropped a suffix) — the display tree's (branch, depth) attach
+// domain inputs.
+func traceCausalProjectionSelectWakeupPath(candidates []traceCausalProjectionWakeupPathCandidate, entities []traceCausalProjectionAnchorEntity) ([]string, bool, int, int) {
 	if len(candidates) == 0 {
-		return nil, false
+		return nil, false, 0, 0
+	}
+	branchForm := false
+	for _, candidate := range candidates {
+		if candidate.branchForm {
+			branchForm = true
+			break
+		}
+	}
+	if branchForm {
+		pooled := make([]traceCausalProjectionWakeupPathCandidate, 0, len(candidates))
+		for _, candidate := range candidates {
+			if candidate.branchForm {
+				pooled = append(pooled, candidate)
+			}
+		}
+		candidates = pooled
 	}
 	for _, entity := range entities {
 		if strings.TrimSpace(entity.value) == "" {
@@ -1086,10 +1166,11 @@ func traceCausalProjectionSelectWakeupPath(candidates []traceCausalProjectionWak
 			}
 		}
 		if bestIdx >= 0 {
-			return candidates[bestIdx].path[:bestPos+1], true
+			elected := candidates[bestIdx]
+			return elected.path[:bestPos+1], true, elected.branch, len(elected.path) - 1 - bestPos
 		}
 	}
-	return candidates[0].path, false
+	return candidates[0].path, false, candidates[0].branch, 0
 }
 
 // traceCausalProjectionPathLastEntityMatch returns the LAST path position whose
@@ -1941,6 +2022,7 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		Causality:       traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyCausality),
 		ChainRelevance:  traceCausalProjectionChainRelevance(record.RichNotes),
 		ChainDepth:      traceCausalProjectionRichNoteFirstInt(record.RichNotes, TraceNoteKeyChainDepth, TraceNoteKeyDepth),
+		ChainBranch:     traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyChainBranch),
 		ImpactMS:        traceCausalProjectionImpact(record),
 		SpanName:        traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeySpanName),
 		SpanKind:        traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeySpanKind),
@@ -2002,6 +2084,12 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		// renderer reads a HOLD (not the reversed lock-wait) from this exact
 		// typed note.
 		node.BlockingSubjectIsHolder = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeySubjectIsLockHolder)) == "true"
+		// P0-E 锁车道修2/修3: holder-resolution origin + phantom tid + the
+		// hand-off / self-contradiction witnesses (disclosure faces).
+		node.BlockingHolderSource = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyHolderSource))
+		node.BlockingOwnerTidRaw = traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyOwnerTidRaw)
+		node.BlockingHolderHandoff = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyHolderHandoff))
+		node.BlockingHolderContradiction = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyHolderSelfContradiction))
 	}
 	// §7.30.3 D3: gated-impact composition for priority-inversion rows.
 	node.GatedRunnableMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyGatedRunnable)

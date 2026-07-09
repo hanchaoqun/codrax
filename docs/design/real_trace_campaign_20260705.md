@@ -1633,3 +1633,10 @@ UXA D#30 终稿取代 RN-12 verbatim 冻结面:"top 片段"→"其中最大片�
 ## §26.1 CAP 批收账(2026-07-09,复核 SHIP-WITH-FIXES→三收尾已落;基准簇用户裁定=大核)
 交付(§26 实施):C1 核类识别(cluster_freq_share 单一权威;显式拓扑 membership-only 类别按 fmax 序;四 fail-loud 臂含 fmax 平局禁掷币;系数表单源 小1.0/中2.3/大2.53/超大3.036)+C2 公式(VS-2 ratio=(f/fmax)×cap 比,同簇同源(复核 F1:跨簇拼积曾凭空铸 1.650/5.987ms,修=基准簇提名后 (fmax,cap) 恒同簇,降级取有治理数据的最高类簇同迁,宁 freq_only 勿拼积);R5d 系数=1−f×cap 积比,max-over-consumers 按积序,任一侧成员未知同退纯频率(复核 F2:waker 侧裸 1 曾激进铸 9.988 vs 真值 0);clamp 双保险负 deficit 不出厂)+C3 三态披露(default"按默认算力比粗算"/freq_only 显式/evidence 接线;"下界"图例更新原半句退役;降级基准判词如实"按小核/中核满频折算"+专图例)+C4 波及演化 13 处。**基准簇裁定(用户 2026-07-09)=大核类簇(§26 字面,cap 2.53;四簇形 prime 不作基准)**——与实现一致,改裁顶簇=coreCapabilityReferenceClass 一处切换(两 pin 预期演化已注)。数值对照:小核满频 0.990→6.378/同频点跨核类 R5d 0→11.490/大核满频 0 不变。26+ pin,10 突变咬红。
 **留账**:降级形 affirmative 相对语义半句=措辞裁定候选;混窗聚合 ReferenceClass 取首成员(与 fmax 置零同界);evidence_table 通道待厂商表落地补词。
+
+## §22.2 P0-E 收官批收账(2026-07-09,复核 SHIP-WITH-FIXES→四收尾已落;销 §22.1 立账+§24.9-C 锁三修)
+**P1 链真分支**:ChainNode 真实递归 Depth+Branch(via-immune 续编,碰撞 pin);wakeup_chain 每分支一条真实 path 记录(ClaimKey wakeup_chain:path#N,扁平化只剩 legacy 回退臂);选举 branch 池独占开关(法本体共享,branch 池四臂自有 pin);树 attach 加链域(rel=Depth−rootDepth 重基,跨分支行=链上L#(未接入树) 诚实席,**ChainBranch==0 有损信号禁作硬门**——复核 REPRO 跨分支 aggregate 假挂已修+pin 翻转);假 L26/L27 深度标签消除,huadong 形=8 条真实分支+真深度 L1-L3,LAD 循环折叠自然 inert(实渲验证)。
+**P2 锁三修**:fold 键补 waiter 身份(嵌合体禁折,同 waiter 双打印仍折+Waiters max);'-->' 移交链 typed 解析+披露(最后持有者非全段持有,保守整段+披露,不分段不造数);同锁自相矛盾守护(推断级持有者自身同锁排队 ≥50% 重叠→归因撤回,经既有 §12.3 typed 机制失直通道+1.35,零权重编辑;payload-direct rung① 豁免);推断级持有者 caveat 三面显达(树行括注/明细 持有者来历·移交链·撤回 三行/lead 括注,zh/en);waiters=0 不设门(裁定)。opendir 嵌合体形=两 waiter 各自成行+受害行保留+荒谬归因撤回。
+**审计面**:系统补充当选分支 path 记录提桶首(typed WakeupPathBranch×artifact 身份匹配,fallback branch 号升序+留账)。
+28+ pin(22+6 收尾),12 突变系+4 重放全咬红。
+**留账**:raw trace 复放待原件(berlin.systrace+东湖 ftrace 入 /Users/han/opt/customlogs 即可本机复放);D-10(东湖 actual 口径)仍开;aggregate Path note 走查观察;conf 未压(取披露);移交链 tenure 分段=未来裁定;elected 记录 cap 存活非保证(fallback 注明)。

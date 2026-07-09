@@ -338,6 +338,15 @@ const (
 	// holder_source).
 	TraceNoteKeyHolderNsUnification = "holder_ns_unification"
 	TraceNoteKeyHolderHostProcess   = "holder_host_process"
+	// P0-E 锁车道修2 (ledger §24.9-C F2, 2026-07-09): the payload hand-off
+	// chain witness (the lock changed hands during the wait — the resolved
+	// holder is the FINAL holder, never the whole-span holder) and the
+	// same-lock self-contradiction demotion witness (an inferred holder that
+	// was itself queued on the same lock for most of the span had its
+	// attribution withdrawn). Node-field read-ins for the three disclosure
+	// faces (tree row / detail stanza / lead qualifier).
+	TraceNoteKeyHolderHandoff           = "holder_handoff"
+	TraceNoteKeyHolderSelfContradiction = "holder_self_contradiction"
 	// TraceNoteKeySubjectIsLockHolder (BLK §15.C, 2026-07-06): "true" on a
 	// resolved blocking_span rank row whose SUBJECT is the lock HOLDER (and
 	// whose peer= is the blocked WAITER). The projection compile reads it into
@@ -404,6 +413,20 @@ const (
 // 路径族 (chain-path family — emit_investigation_complete parses the chain
 // tail PID out of this note).
 const TraceNoteKeyPath = "path"
+
+// P0-E CHAIN-PATH (ledger §22.1, 2026-07-09): per-branch wakeup path records
+// replace the retired cross-branch flattened walk. TraceNoteKeyChainPathBranch
+// is the record's 1-based branch ordinal (the projection election keys its
+// branch-form candidate-pool switch on its PRESENCE); Branches is the total
+// expanded branch count (a published-record count below it discloses a wire
+// cap). TraceNoteKeyChainBranch rides rank/impact/aggregate rows: the owning
+// branch of the row's chain measurement, so the display tree keys its depth
+// attach to (branch, depth) instead of a cross-branch flat position.
+const (
+	TraceNoteKeyChainPathBranch   = "branch"
+	TraceNoteKeyChainPathBranches = "branches"
+	TraceNoteKeyChainBranch       = "chain_branch"
+)
 
 // 账本标记族 (ledger-marker family — NOT trace_query wire notes): composite
 // marker notes appended by the observation-ledger compile itself.
@@ -582,10 +605,17 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyPeer, "blocking", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyHolderSite, "blocking", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyWaiters, "blocking", TraceNoteCarrierHardConsumer},
-	// P0-E2a counterpart-resolution keys — display tier (P0-A consumes).
-	{TraceNoteKeyHolderSource, "blocking", TraceNoteCarrierDisplayOnly},
+	// P0-E2a counterpart-resolution keys. P0-E 锁车道修3 (§24.9-C F5,
+	// 2026-07-09): holder_source / owner_tid_raw are now typed node-field
+	// read-ins — the projection's 持有者来历 detail line, the tree-row and
+	// lead 推断 qualifiers key on them (display decisions, hard read-in tier;
+	// same promotion precedent as subject_is_lock_holder).
+	{TraceNoteKeyHolderSource, "blocking", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyPeerSource, "blocking", TraceNoteCarrierDisplayOnly},
-	{TraceNoteKeyOwnerTidRaw, "blocking", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyOwnerTidRaw, "blocking", TraceNoteCarrierHardConsumer},
+	// P0-E 锁车道修2 witnesses — node-field read-ins (disclosure faces).
+	{TraceNoteKeyHolderHandoff, "blocking", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyHolderSelfContradiction, "blocking", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyWaitObject, "blocking", TraceNoteCarrierDisplayOnly},
 	// LCK-2 ns-span derivation keys (§18.E/§18.E.1) — display tier.
 	{TraceNoteKeyHolderNsUnification, "blocking", TraceNoteCarrierDisplayOnly},
@@ -705,6 +735,13 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// 路径/链族.
 	{TraceNoteKeyPath, "chain_path", TraceNoteCarrierSoftConsumer},
 	{"target", "chain_path", TraceNoteCarrierDisplayOnly},
+	// P0-E CHAIN-PATH (ledger §22.1): branch identity of a per-branch path
+	// record (hard: the projection election pools branch-form candidates on
+	// it) and the rank/impact rows' owning-branch attach domain (hard: the
+	// display tree's depth attach keys on it).
+	{TraceNoteKeyChainPathBranch, "chain_path", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyChainPathBranches, "chain_path", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyChainBranch, "causal_rank", TraceNoteCarrierHardConsumer},
 	{"edges", "chain_path", TraceNoteCarrierDisplayOnly},
 	{"nodes", "chain_path", TraceNoteCarrierDisplayOnly},
 	{"wakeup_ts", "chain_path", TraceNoteCarrierDisplayOnly},

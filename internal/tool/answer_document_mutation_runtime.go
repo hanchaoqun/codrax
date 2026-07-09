@@ -12,6 +12,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/reasoninggraph"
 	"github.com/hanchaoqun/codrax/internal/sourceowner"
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -3525,6 +3526,12 @@ func runtimeTraceCausalProjectionBlockingName(node types.TraceCausalProjectionNo
 	if strings.TrimSpace(node.BlockingKind) == "" {
 		return ""
 	}
+	// P0-E 锁车道修3 (§24.9-C F5): an INFERRED holder identity (closing
+	// wakeup edge / ns-span derivation — typed holder_source lanes) carries a
+	// short 推断 qualifier on the row face; the detail stanza's 持有者来历
+	// line carries the full origin sentence. Payload-direct holders render
+	// unchanged.
+	inferred := runtimeTraceProjBlockingHolderInferred(node)
 	// BLK §15.C: the resolved rank lock row's subject IS the holder — render a
 	// HOLD ("持锁阻塞了 <waiter>"), never the reversed lock-WAIT that the
 	// waiter-subject critical_blocking row already carries for the SAME physical
@@ -3533,13 +3540,23 @@ func runtimeTraceCausalProjectionBlockingName(node types.TraceCausalProjectionNo
 	if node.BlockingSubjectIsHolder {
 		waiter := strings.TrimSpace(node.BlockingPeer)
 		if zh {
-			if waiter != "" {
+			switch {
+			case waiter != "" && inferred:
+				return "持锁阻塞(等待方 " + waiter + ";持有者推断)"
+			case waiter != "":
 				return "持锁阻塞(等待方 " + waiter + ")"
+			case inferred:
+				return "持锁阻塞(持有者推断)"
 			}
 			return "持锁阻塞"
 		}
-		if waiter != "" {
+		switch {
+		case waiter != "" && inferred:
+			return "holds lock, blocking " + waiter + " (holder inferred)"
+		case waiter != "":
 			return "holds lock, blocking " + waiter
+		case inferred:
+			return "holds lock (holder inferred)"
 		}
 		return "holds lock"
 	}
@@ -3548,13 +3565,35 @@ func runtimeTraceCausalProjectionBlockingName(node types.TraceCausalProjectionNo
 		name = "lock contention wait"
 	}
 	if peer := strings.TrimSpace(node.BlockingPeer); peer != "" {
-		if zh {
+		switch {
+		case zh && inferred:
+			name += "(持有者 " + peer + "·推断)"
+		case zh:
 			name += "(持有者 " + peer + ")"
-		} else {
+		case inferred:
+			name += " (owner " + peer + ", inferred)"
+		default:
 			name += " (owner " + peer + ")"
 		}
 	}
 	return name
+}
+
+// runtimeTraceProjBlockingHolderInferred is the ONE typed predicate the three
+// P0-E 锁车道修3 disclosure faces share: the row's resolved holder identity
+// came from an INFERENCE lane (the waiter's closing wakeup edge or the LCK-2
+// ns-span derivation), never the payload-direct origin. Exact typed enum
+// match on the producer's holder_source note — prose never participates.
+func runtimeTraceProjBlockingHolderInferred(node types.TraceCausalProjectionNode) bool {
+	if strings.TrimSpace(node.BlockingKind) == "" {
+		return false
+	}
+	switch node.BlockingHolderSource {
+	case tracequery.CounterpartSourceWakeupEdge, tracequery.CounterpartSourceNsSpanDerivation:
+		return true
+	default:
+		return false
+	}
 }
 
 // runtimeTraceCausalProjectionDisplaySubjectName is the node-aware subject

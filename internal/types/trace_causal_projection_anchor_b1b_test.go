@@ -34,6 +34,15 @@ package types
 // MUTATION self-check (task acceptance): reverting the any-position predicate
 // to end-only matching reds TestTraceCausalProjectionAnchorElectsMidPathUserEntityB1b
 // (the specimen shape's END element is the artifact transit node).
+//
+// P0-E CHAIN-PATH EVOLUTION RECORD (ledger §22.1, 2026-07-09): the producer's
+// flattened multi-branch walk these pins were written against is RETIRED from
+// engine results — per-branch TRUE path records (typed branch= note) are the
+// election pool now (pins: trace_causal_projection_branch_p0e_test.go). The
+// records built here carry NO branch note, so every pin below keeps
+// exercising the legacy identity-less lane byte-stably; the B1-b election law
+// itself (any-position match / truncation / tie ladder) is UNCHANGED and now
+// picks a real branch on the main lane — semantics only strengthened.
 
 import (
 	"reflect"

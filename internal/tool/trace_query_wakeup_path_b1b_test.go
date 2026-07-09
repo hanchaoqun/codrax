@@ -18,6 +18,15 @@ package tool
 // MUTATION self-check: removing the truncation reds
 // TestTraceQueryWakeupChainPathStopsAtTargetB1b (the walk end reverts to the
 // transit artifact).
+//
+// P0-E CHAIN-PATH EVOLUTION RECORD (ledger §22.1, 2026-07-09): the flattened
+// walk pinned here is now the LEGACY FALLBACK LANE ONLY — engine results carry
+// typed ChainNode.Branch/Depth identities and publish one TRUE path per branch
+// (traceQueryWakeupChainBranches; pins in trace_query_wakeup_branch_p0e_test.go).
+// These fixtures are deliberately identity-less (Branch==0), so they keep
+// exercising the degraded lane byte-stably: the overshoot truncation remains
+// that lane's honest trim. Bar not lowered — the main lane's paths terminate
+// at the target BY CONSTRUCTION, strictly stronger than the trim.
 
 import (
 	"strings"

@@ -1931,25 +1931,30 @@ type RootCauseRankItem struct {
 	// aggregate (running-dominant on-chain rows only; nil basis = fold not
 	// computed). Display/wording inputs only — the rank/score lanes never
 	// read them (§7.10 red line: deficit 不参赛).
-	SupplyFoldDeficitMs float64                  `json:"supply_fold_deficit_ms,omitempty"`
-	SupplyFoldIdealMs   float64                  `json:"supply_fold_ideal_ms,omitempty"`
-	SupplyFoldBasis     *SupplyFoldBasis         `json:"supply_fold_basis,omitempty"`
-	TargetImpactMs      float64                  `json:"target_impact_ms,omitempty"`
-	ActualImpactMs      float64                  `json:"actual_impact_ms,omitempty"`
-	ActualTotalMs       float64                  `json:"actual_total_ms,omitempty"`
-	Score               float64                  `json:"score,omitempty"`
-	Confidence          float64                  `json:"confidence,omitempty"`
-	LineStart           int                      `json:"line_start,omitempty"`
-	LineEnd             int                      `json:"line_end,omitempty"`
-	Source              string                   `json:"source,omitempty"`
-	Causality           string                   `json:"causality,omitempty"`
-	ChainRelevance      string                   `json:"chain_relevance,omitempty"`
-	ChainDepth          int                      `json:"chain_depth,omitempty"`
-	OverlapMs           float64                  `json:"overlap_ms,omitempty"`
-	EdgeCount           int                      `json:"edge_count,omitempty"`
-	NearestChainThread  ThreadRef                `json:"nearest_chain_thread,omitempty"`
-	NearestChainWindow  TimeWindow               `json:"nearest_chain_window,omitempty"`
-	OccurrenceWindows   []WakeupCausalOccurrence `json:"occurrence_windows,omitempty"`
+	SupplyFoldDeficitMs float64          `json:"supply_fold_deficit_ms,omitempty"`
+	SupplyFoldIdealMs   float64          `json:"supply_fold_ideal_ms,omitempty"`
+	SupplyFoldBasis     *SupplyFoldBasis `json:"supply_fold_basis,omitempty"`
+	TargetImpactMs      float64          `json:"target_impact_ms,omitempty"`
+	ActualImpactMs      float64          `json:"actual_impact_ms,omitempty"`
+	ActualTotalMs       float64          `json:"actual_total_ms,omitempty"`
+	Score               float64          `json:"score,omitempty"`
+	Confidence          float64          `json:"confidence,omitempty"`
+	LineStart           int              `json:"line_start,omitempty"`
+	LineEnd             int              `json:"line_end,omitempty"`
+	Source              string           `json:"source,omitempty"`
+	Causality           string           `json:"causality,omitempty"`
+	ChainRelevance      string           `json:"chain_relevance,omitempty"`
+	ChainDepth          int              `json:"chain_depth,omitempty"`
+	// ChainBranch is the owning branch ordinal of the impact/aggregate this
+	// rank row was minted from (0 = no single branch identity — window-stats
+	// lanes, cross-branch aggregates, legacy rows). Display attach domain only
+	// (P0-E CHAIN-PATH, ledger §22.1); no gate and no Score input reads it.
+	ChainBranch        int                      `json:"chain_branch,omitempty"`
+	OverlapMs          float64                  `json:"overlap_ms,omitempty"`
+	EdgeCount          int                      `json:"edge_count,omitempty"`
+	NearestChainThread ThreadRef                `json:"nearest_chain_thread,omitempty"`
+	NearestChainWindow TimeWindow               `json:"nearest_chain_window,omitempty"`
+	OccurrenceWindows  []WakeupCausalOccurrence `json:"occurrence_windows,omitempty"`
 	// StatsWindowStartTs/StatsWindowEndTs (§21.1 CWD-2 ②, cmp_01 C7 witness,
 	// real_trace_campaign_20260705.md): the typed query-window identity of a
 	// window_stats-derived rank row — the window the backing window_stats
@@ -2024,6 +2029,13 @@ type RootCauseRankItem struct {
 	// display value. See CriticalBlockingCandidate for full semantics.
 	HolderNsUnification string `json:"holder_ns_unification,omitempty"`
 	HolderHostProcess   string `json:"holder_host_process,omitempty"`
+	// HolderHandoff / HolderSelfContradiction (P0-E 锁车道修2, §24.9-C F2):
+	// ported verbatim from the folded blocking candidate — the payload
+	// hand-off chain witness (holder changed during the wait; the subject is
+	// the FINAL holder, never the whole-span holder) and the same-lock
+	// self-contradiction demotion witness. See CriticalBlockingCandidate.
+	HolderHandoff           []string `json:"holder_handoff,omitempty"`
+	HolderSelfContradiction string   `json:"holder_self_contradiction,omitempty"`
 	// DrillStatus (RCX① engine side, §12.3 ruling 1): whether this row's
 	// contention counterpart/holder was itself examined by a subject==peer
 	// observation inside THIS report's observation universe. See the
@@ -2411,6 +2423,25 @@ type CriticalBlockingCandidate struct {
 	// into Peer.PID — the peer stays unresolved (or a rung-③ waker) and the
 	// process identity rides this display note.
 	HolderHostProcess string `json:"holder_host_process,omitempty"`
+	// HolderHandoff (P0-E 锁车道修2, ledger §24.9-C F2, 2026-07-09): the
+	// verbatim payload "#A -->#B" hand-off chain elements when the owner
+	// segment recorded MORE THAN ONE holder — a PRECISE payload witness that
+	// the lock changed hands during this wait, so a single holder never held
+	// for the whole span. The resolved Peer is the FINAL holder; per-holder
+	// tenure boundaries are NOT in the payload, so the attribution stays the
+	// conservative whole-span value WITH the typed disclosure (segmenting
+	// without boundaries would invent data). nil = single-owner payload.
+	HolderHandoff []string `json:"holder_handoff,omitempty"`
+	// HolderSelfContradiction (P0-E 锁车道修2, §24.9-C F2 同锁自相矛盾守护):
+	// the typed demotion witness — the INFERRED holder thread itself carried a
+	// same-owner-tid contention span overlapping the majority of this span
+	// (it was QUEUED on the same lock, so it cannot have been the whole-span
+	// holder; opendir_78: the closing-wake "last releaser" main thread was
+	// itself waiting 112.2ms of the 115.9ms span). The row's Peer is cleared
+	// back to unresolved (§12.3 未解析不准入 keeps it out of the direct lane
+	// and the 1.35 weight automatically); this value names the contradicting
+	// span for the disclosure faces. Empty = guard never fired.
+	HolderSelfContradiction string `json:"holder_self_contradiction,omitempty"`
 	// WaitObject (P0-E2a, §10 A2): the blocking span's own name, published as
 	// the wait object for payload-less blocking spans so the row can at least
 	// say what it was blocked on when no structured owner was parseable.
@@ -2652,6 +2683,20 @@ type ChainNode struct {
 	EvidenceLine int                 `json:"evidence_line,omitempty"`
 	Impact       *WakeupCausalImpact `json:"impact,omitempty"`
 	Summary      string              `json:"summary,omitempty"`
+	// Depth is the node's TRUE recursion depth inside its own branch chain
+	// (target = 0, its waker = 1, …) — set unconditionally by expandChain,
+	// INCLUDING nil-Impact transit nodes (P0-E CHAIN-PATH 根修, ledger §22.1:
+	// the pre-P0-E flattened walk defaulted nil-impact nodes to depth 0 and
+	// minted fake L26/L27 trunk positions downstream). Zero-value on
+	// hand-built legacy fixtures: consumers fall back to Impact.ChainDepth.
+	Depth int `json:"depth,omitempty"`
+	// Branch is the 1-based ordinal of the top-level target segment expansion
+	// this node belongs to (one BuildWakeupChain call expands one branch per
+	// interesting target interval; each branch is a LINEAR parent chain by
+	// construction — the visited map forbids revisits). 0 = legacy fixture
+	// with no branch identity. The publication layer serializes ONE path per
+	// branch instead of the retired cross-branch flattened walk (§22.1).
+	Branch int `json:"branch,omitempty"`
 }
 
 type WakeupEdge struct {
@@ -2669,44 +2714,54 @@ type WakeupEdge struct {
 	PriorityRelation           string    `json:"priority_relation,omitempty"`
 	PriorityInversionCandidate bool      `json:"priority_inversion_candidate,omitempty"`
 	EvidenceLine               int       `json:"evidence_line,omitempty"`
+	// Branch mirrors the owning branch ordinal of the edge's From/To nodes
+	// (they share one branch by construction — edges never cross branches).
+	// 0 = legacy fixture (P0-E CHAIN-PATH, ledger §22.1).
+	Branch int `json:"branch,omitempty"`
 }
 
 type WakeupCausalImpact struct {
-	Thread                     ThreadRef  `json:"thread"`
-	Window                     TimeWindow `json:"window"`
-	ActualWindow               TimeWindow `json:"actual_window,omitempty"`
-	ChainDepth                 int        `json:"chain_depth,omitempty"`
-	OnChain                    bool       `json:"on_chain,omitempty"`
-	DominantState              string     `json:"dominant_state,omitempty"`
-	DominantImpactMs           float64    `json:"dominant_impact_ms,omitempty"`
-	ProjectedImpactMs          float64    `json:"projected_impact_ms,omitempty"`
-	TotalMs                    float64    `json:"total_ms,omitempty"`
-	ProjectedTotalMs           float64    `json:"projected_total_ms,omitempty"`
-	ActualImpactMs             float64    `json:"actual_impact_ms,omitempty"`
-	ActualTotalMs              float64    `json:"actual_total_ms,omitempty"`
-	RunningMs                  float64    `json:"running_ms,omitempty"`
-	RunnableMs                 float64    `json:"runnable_ms,omitempty"`
-	SleepMs                    float64    `json:"sleep_ms,omitempty"`
-	DStateMs                   float64    `json:"d_state_ms,omitempty"`
-	IOWaitMs                   float64    `json:"io_wait_ms,omitempty"`
-	ActualRunningMs            float64    `json:"actual_running_ms,omitempty"`
-	ActualRunnableMs           float64    `json:"actual_runnable_ms,omitempty"`
-	ActualSleepMs              float64    `json:"actual_sleep_ms,omitempty"`
-	ActualDStateMs             float64    `json:"actual_d_state_ms,omitempty"`
-	ActualIOWaitMs             float64    `json:"actual_io_wait_ms,omitempty"`
-	FragmentCount              int        `json:"fragment_count,omitempty"`
-	StateSwitches              int        `json:"state_switches,omitempty"`
-	MaxSegmentMs               float64    `json:"max_segment_ms,omitempty"`
-	P95SegmentMs               float64    `json:"p95_segment_ms,omitempty"`
-	TargetBlockedMs            float64    `json:"target_blocked_ms,omitempty"`
-	LineStart                  int        `json:"line_start,omitempty"`
-	LineEnd                    int        `json:"line_end,omitempty"`
-	Priority                   int        `json:"priority,omitempty"`
-	PriorityClass              string     `json:"priority_class,omitempty"`
-	TargetPriority             int        `json:"target_priority,omitempty"`
-	TargetPriorityClass        string     `json:"target_priority_class,omitempty"`
-	PriorityRelation           string     `json:"priority_relation,omitempty"`
-	PriorityInversionCandidate bool       `json:"priority_inversion_candidate,omitempty"`
+	Thread       ThreadRef  `json:"thread"`
+	Window       TimeWindow `json:"window"`
+	ActualWindow TimeWindow `json:"actual_window,omitempty"`
+	ChainDepth   int        `json:"chain_depth,omitempty"`
+	// ChainBranch is the 1-based branch ordinal this impact row was measured
+	// in (same identity as ChainNode.Branch — P0-E CHAIN-PATH, ledger §22.1).
+	// It rides the chain_branch rich note so the display tree can key its
+	// depth attach to (branch, depth) instead of a cross-branch flat position.
+	// 0 = legacy row with no branch identity (absence never guesses).
+	ChainBranch                int     `json:"chain_branch,omitempty"`
+	OnChain                    bool    `json:"on_chain,omitempty"`
+	DominantState              string  `json:"dominant_state,omitempty"`
+	DominantImpactMs           float64 `json:"dominant_impact_ms,omitempty"`
+	ProjectedImpactMs          float64 `json:"projected_impact_ms,omitempty"`
+	TotalMs                    float64 `json:"total_ms,omitempty"`
+	ProjectedTotalMs           float64 `json:"projected_total_ms,omitempty"`
+	ActualImpactMs             float64 `json:"actual_impact_ms,omitempty"`
+	ActualTotalMs              float64 `json:"actual_total_ms,omitempty"`
+	RunningMs                  float64 `json:"running_ms,omitempty"`
+	RunnableMs                 float64 `json:"runnable_ms,omitempty"`
+	SleepMs                    float64 `json:"sleep_ms,omitempty"`
+	DStateMs                   float64 `json:"d_state_ms,omitempty"`
+	IOWaitMs                   float64 `json:"io_wait_ms,omitempty"`
+	ActualRunningMs            float64 `json:"actual_running_ms,omitempty"`
+	ActualRunnableMs           float64 `json:"actual_runnable_ms,omitempty"`
+	ActualSleepMs              float64 `json:"actual_sleep_ms,omitempty"`
+	ActualDStateMs             float64 `json:"actual_d_state_ms,omitempty"`
+	ActualIOWaitMs             float64 `json:"actual_io_wait_ms,omitempty"`
+	FragmentCount              int     `json:"fragment_count,omitempty"`
+	StateSwitches              int     `json:"state_switches,omitempty"`
+	MaxSegmentMs               float64 `json:"max_segment_ms,omitempty"`
+	P95SegmentMs               float64 `json:"p95_segment_ms,omitempty"`
+	TargetBlockedMs            float64 `json:"target_blocked_ms,omitempty"`
+	LineStart                  int     `json:"line_start,omitempty"`
+	LineEnd                    int     `json:"line_end,omitempty"`
+	Priority                   int     `json:"priority,omitempty"`
+	PriorityClass              string  `json:"priority_class,omitempty"`
+	TargetPriority             int     `json:"target_priority,omitempty"`
+	TargetPriorityClass        string  `json:"target_priority_class,omitempty"`
+	PriorityRelation           string  `json:"priority_relation,omitempty"`
+	PriorityInversionCandidate bool    `json:"priority_inversion_candidate,omitempty"`
 	// PriorityInversionGatedMs is the R5d-gated inversion impact (§7.30.1):
 	// only the dependency's RUNNABLE time, plus RUNNING time on a CPU whose
 	// frequency is below its downstream chain consumer's CPU frequency at
@@ -2821,39 +2876,44 @@ const (
 )
 
 type WakeupCausalAggregate struct {
-	Thread            ThreadRef `json:"thread"`
-	Path              string    `json:"path,omitempty"`
-	ChainDepth        int       `json:"chain_depth,omitempty"`
-	OccurrenceCount   int       `json:"occurrence_count,omitempty"`
-	DominantState     string    `json:"dominant_state,omitempty"`
-	DominantImpactMs  float64   `json:"dominant_impact_ms,omitempty"`
-	ProjectedImpactMs float64   `json:"projected_impact_ms,omitempty"`
-	TotalMs           float64   `json:"total_ms,omitempty"`
-	ProjectedTotalMs  float64   `json:"projected_total_ms,omitempty"`
-	ActualImpactMs    float64   `json:"actual_impact_ms,omitempty"`
-	ActualTotalMs     float64   `json:"actual_total_ms,omitempty"`
-	RunningMs         float64   `json:"running_ms,omitempty"`
-	RunnableMs        float64   `json:"runnable_ms,omitempty"`
-	SleepMs           float64   `json:"sleep_ms,omitempty"`
-	DStateMs          float64   `json:"d_state_ms,omitempty"`
-	IOWaitMs          float64   `json:"io_wait_ms,omitempty"`
-	ActualRunningMs   float64   `json:"actual_running_ms,omitempty"`
-	ActualRunnableMs  float64   `json:"actual_runnable_ms,omitempty"`
-	ActualSleepMs     float64   `json:"actual_sleep_ms,omitempty"`
-	ActualDStateMs    float64   `json:"actual_d_state_ms,omitempty"`
-	ActualIOWaitMs    float64   `json:"actual_io_wait_ms,omitempty"`
-	TargetBlockedMs   float64   `json:"target_blocked_ms,omitempty"`
-	FragmentCount     int       `json:"fragment_count,omitempty"`
-	StateSwitches     int       `json:"state_switches,omitempty"`
-	MaxSegmentMs      float64   `json:"max_segment_ms,omitempty"`
-	FirstTs           float64   `json:"first_ts,omitempty"`
-	LastTs            float64   `json:"last_ts,omitempty"`
-	ActualFirstTs     float64   `json:"actual_first_ts,omitempty"`
-	ActualLastTs      float64   `json:"actual_last_ts,omitempty"`
-	LineStart         int       `json:"line_start,omitempty"`
-	LineEnd           int       `json:"line_end,omitempty"`
-	PriorityRelation  string    `json:"priority_relation,omitempty"`
-	PriorityInversion bool      `json:"priority_inversion_candidate,omitempty"`
+	Thread ThreadRef `json:"thread"`
+	Path   string    `json:"path,omitempty"`
+	// ChainDepth is the MIN member depth; ChainBranch is the members' shared
+	// branch ordinal when ALL members were measured in ONE branch, 0 when the
+	// occurrences span branches (a cross-branch aggregate has no single branch
+	// identity — absence never guesses; P0-E CHAIN-PATH, ledger §22.1).
+	ChainDepth        int     `json:"chain_depth,omitempty"`
+	ChainBranch       int     `json:"chain_branch,omitempty"`
+	OccurrenceCount   int     `json:"occurrence_count,omitempty"`
+	DominantState     string  `json:"dominant_state,omitempty"`
+	DominantImpactMs  float64 `json:"dominant_impact_ms,omitempty"`
+	ProjectedImpactMs float64 `json:"projected_impact_ms,omitempty"`
+	TotalMs           float64 `json:"total_ms,omitempty"`
+	ProjectedTotalMs  float64 `json:"projected_total_ms,omitempty"`
+	ActualImpactMs    float64 `json:"actual_impact_ms,omitempty"`
+	ActualTotalMs     float64 `json:"actual_total_ms,omitempty"`
+	RunningMs         float64 `json:"running_ms,omitempty"`
+	RunnableMs        float64 `json:"runnable_ms,omitempty"`
+	SleepMs           float64 `json:"sleep_ms,omitempty"`
+	DStateMs          float64 `json:"d_state_ms,omitempty"`
+	IOWaitMs          float64 `json:"io_wait_ms,omitempty"`
+	ActualRunningMs   float64 `json:"actual_running_ms,omitempty"`
+	ActualRunnableMs  float64 `json:"actual_runnable_ms,omitempty"`
+	ActualSleepMs     float64 `json:"actual_sleep_ms,omitempty"`
+	ActualDStateMs    float64 `json:"actual_d_state_ms,omitempty"`
+	ActualIOWaitMs    float64 `json:"actual_io_wait_ms,omitempty"`
+	TargetBlockedMs   float64 `json:"target_blocked_ms,omitempty"`
+	FragmentCount     int     `json:"fragment_count,omitempty"`
+	StateSwitches     int     `json:"state_switches,omitempty"`
+	MaxSegmentMs      float64 `json:"max_segment_ms,omitempty"`
+	FirstTs           float64 `json:"first_ts,omitempty"`
+	LastTs            float64 `json:"last_ts,omitempty"`
+	ActualFirstTs     float64 `json:"actual_first_ts,omitempty"`
+	ActualLastTs      float64 `json:"actual_last_ts,omitempty"`
+	LineStart         int     `json:"line_start,omitempty"`
+	LineEnd           int     `json:"line_end,omitempty"`
+	PriorityRelation  string  `json:"priority_relation,omitempty"`
+	PriorityInversion bool    `json:"priority_inversion_candidate,omitempty"`
 	// PriorityInversionGatedMs / GatedRunnableMs / GatedRunningDeficitMs
 	// (P0-E §20 E-Gap②, 2026-07-07): the R5d gated caliber on the AGGREGATE
 	// face — R5d formerly landed only on the per-occurrence lane, so
