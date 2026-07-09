@@ -1829,3 +1829,7 @@ cmp"3/4 补齐校验信息后重启探索"=**正常设计内修复环**:Tier-1 �
 
 ## §29.11 CAP-3 裁定(用户 2026-07-09):频率状态语义+拓扑 trace 全局化
 用户指正采纳:①**cpu_frequency=独立状态泳道**——窗内频率值由窗前最近变化点携入(carry-in),"窗内无采样事件"≠数据缺失;核查 CAP 折算 lane 全路径(residency 面已 carry-in,fold/deficit 面"缺失计 0 下界"臂逐个核,把状态语义错当事件语义的臂修正);②**簇拓扑=trace 全局属性非窗属性**——共动推断基改为全 trace(同 Index 全事件流),判出一次全窗共用;floor 门作用于全局基(census 见 87+ 次扫,实际几乎恒可判);huadong"同 trace 异窗一判一不判"分叉即此机理,witness=huadong_792 两窗不可判 vs g12 窗判出。诚实边界不变:全 trace 零变频→默认表;某 CPU 窗尾前无任何变化点→该 CPU 真未知不猜;**跨 trace 移植禁令(§28.4 补充)不变**。CAP-3 批排引擎道(G12-ENG 落地后);collect_cap2.yaml 回传数据=该批验收基准(修后两窗应同判)。
+
+### §29.11 补充(2026-07-09,cap2_report 回传定案):不可判=车道分叉非采样不足
+客户 collect_cap2.yaml 四步全成:huadong 两原窗窗内 cpu_frequency 各 862/926 条,window_stats 面两窗均判出 core_class(small/big),驻留段窗起点状态携入正常——"采样不足"假设**排除**。同两窗 huadong_792 折算行印"簇结构不可判"=**折算 lane 与 window_stats lane 解析基分叉**(折算基疑在切片粒度上无携入取事件)。CAP-3 施工图精化:①折算 lane 的簇域/频点解析统一到与驻留面同一状态时间线(携入语义);②拓扑 trace 全局判定(§29.11 原文);③验收=同 trace 全窗折算词一致(cap2 四窗对照即基准)。
+**cap2 顺带两观察(入 ORD 批语境)**:①同线程 runnable_wait 按 CPU 拆行各占席(#1#2#3 同一 OS_FFRT_3_45387,cpu=1/3/2)——runnable_wait 不在 §24.7.1 家族折叠车道=漏折候选;②aggregate 行+其两 occurrence 成员行三席并占(#4=occurrences=2 聚合 12.401,#5#6=两成员 6.236/6.165)——rank 车道聚合/成员双席形(GAP-B P1-1 修的是 trunk 显示半,rank 席位半未盖)。
