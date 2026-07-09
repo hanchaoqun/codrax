@@ -1851,3 +1851,7 @@ finalizer 多轮修复=大量 token 交互反复且小模型输出不稳定(后�
 ## §29.14 TRUNC 收账(2026-07-10,推 main;P1 客户面尾丢失修根;复核=产品代码零缺陷)
 双病灶(witness 逐字节吻合):①保留段 16000 rune 裸切帽(截形 "..."+"---" 三行对上代码)→帽 200000+显式双语披露("原文共X字符,此处仅显示前Y字符"),裸 "..." 根除;②挂第一稿附件/两处 auto-repair 的 FinalAnswer 覆写直调渲染丢全部 last-mile 系统补充块→单一咽喉重渲染(agent 导出 parseOutputV2 同管线),三覆写点收编+hedging 镜像同判。截断烙在组装层故 dump 同愈(终端+落盘两面)。复核实证:双重追加形结构性不可能(补充从 doc 重算/库内恒未 hedge/4 轮覆写 Count==1 零漂移 pin)+L1 恒等;收尾=短附件逐字节 pin(311 字节全段)+Count==1 负向 pin。
 **立案**:P3-2 ApplyAuthorityHedging 非幂等+recovery lane 先 hedge 后入库(marker 叠加可达形,当前结构不可达;幂等化后批,代码注释已指路)。**留观**:结构 pin 文本扫描可绕形/首稿附件含自身补充块的双份观感(归 DISP 排版)/diagram 空 normalize 披露行。验收=客户同构建重跑 huadong:保留段显式披露+系统补充块回归。
+
+## §29.15 G12-ENG+BLIND-2 收账(2026-07-10,推 main;复核=E23 定案独立确认)
+交付:①E23 显示伪造修根(§29.13 定案):typed MergedValuelessCount+混合形词"×N(有值M项 a–b,K项无时长值)"三面同源(fence/(b) 明细/图例,复核抓获 CWD 臂/union 臂/R2 求和臂三漏面全补)+standalone 全零 R2 行"×N(全部无时长值)"禁 0.000 伪值+引擎负向 pin(S+iowait 不入时长车道/跨线程同值对绝迹/blocked_reason 恒零)+DIAG tie roster 排除零值成员(微值带守护 pin 补齐);②owner-tid 键形泛化臂(富文法臂优先;tid 0/max 哨兵无主;InternTable census verbatim+非 ART 合成形 pin;泛化回退保 monitor 分类顺修);③第四取最大点 tie roster(复用 same_value_members 既有 key 零新 key)。
+**留观/裁定池**:fold 键无 wait-object 身份(不同锁描述可折一行,泛化臂扩大可达域)=裁定候选;自相矛盾守护对 payload-direct 误铸兜零=§29.7-1 设计内留档;strict 臂 TrimSuffix 边角构造形;wire folded_* 再物化 valueless 通道(结构性不可达,注释 pin 指路)。
