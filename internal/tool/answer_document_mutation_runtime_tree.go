@@ -464,6 +464,12 @@ const (
 	// signal; the entry explains the same-cluster demotion).
 	runtimeTraceProjMarkCaliberReferenceClusterFmax // 口径词 按X核满频折算 (基准降级, 复核 F1)
 
+	// DISP-2 (Wave-3.2 G2/G19/GAP-A P3-6 显示半场, §27.2/§27.5, 2026-07-09):
+	// three new gated seats.
+	runtimeTraceProjMarkTraceGapBelowFloor    // ◇ 盲区判据二 窗内无≥阈值等待区间·链止 (G2 措辞按 kind 分形)
+	runtimeTraceProjMarkAllZeroFoldNote       // 全零折叠行一行注 窗内无有效时长 (G19, 取代 ×N(0.000–0.000)取最大)
+	runtimeTraceProjMarkFamilyCountEquivalent // 计数当量Xms 对照写法词条 (GAP-A P3-6, 随 count 家族行按需出场)
+
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
 	runtimeTraceProjMarkCount
@@ -713,6 +719,14 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkFamilyCountSum, runtimeTraceProjLegendGroupCaliber,
 			"- `计数合计(共N项,同线程)` = 计数类指标按同线程成员相加(计数可加,与墙钟时长无关)。",
 			"- `count total (N items, same thread)` = count-class members of one thread added up (counts add; unrelated to wall-clock duration)."},
+		// DISP-2 / GAP-A P3-6 (§28.7 3.2 队列, 2026-07-09): the 计数当量 marker
+		// the count-family engine faces print (member roster / raw-Σ note /
+		// Summary — rootCauseCountEquivalentValue 三面同源) gets its teaching
+		// entry, riding exactly the renders where the count caliber word above
+		// appears (co-marked via runtimeTraceProjMarkFamilyCaliber).
+		{runtimeTraceProjMarkFamilyCountEquivalent, runtimeTraceProjLegendGroupCaliber,
+			"- `计数当量Xms` = 计数类数值的对照写法:按计数换算的当量毫秒,非墙钟时长,不与时长行相加。",
+			"- `计数当量Xms` (count-equivalent X ms) = the comparison form of a count-class magnitude: count-derived equivalent milliseconds, not wall-clock duration; never added to duration rows."},
 		// §11-N2 (2026-07-06, real_trace_campaign ledger): the cross-query-window
 		// union caliber gets its own form token — the plain ×N(a–b) entry claims
 		// "数值为总和" and must stay truthful, so a union row NEVER wears the sum
@@ -792,6 +806,14 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkOnChainOverflowFold, runtimeTraceProjLegendGroupCaliber,
 			"- `其余N项(链上折叠)` = 超出逐行上限的链上项折叠为一行计数,数值取成员最大(墙钟跨线程不可加和);成员见明细与证据索引。",
 			"- `N more (on-chain fold)` = on-chain rows beyond the per-row cap fold into one counted row; the value is the member MAX (wall clock never sums across threads). Members live in the detail blocks and the evidence index."},
+		// DISP-2 G19 (§27.5, 2026-07-09): the all-zero fold row's honest
+		// one-line note — a member-MAX claim over 0.000–0.000 taught nothing,
+		// so the ×N(0.000–0.000)取最大 tag is retired on that shape (EVOLUTION
+		// RECORD at the tag fork; members/evidence stay reachable via the
+		// detail blocks and the evidence index — zero information loss).
+		{runtimeTraceProjMarkAllZeroFoldNote, runtimeTraceProjLegendGroupCaliber,
+			"- `窗内无有效时长` = 该折叠行全部成员在窗内均无可计量时长,不作取最大声明;逐成员与证据见明细与证据索引。",
+			"- `no in-window effective duration` = every member of that fold carries no measurable in-window duration, so no member-MAX claim is made; members and evidence live in the detail blocks and the evidence index."},
 		// PTV6-C ruling A (#73, 用户裁定 2026-07-06): 有效归因/链上累计 belong to
 		// the chain universe — a ◇/▒ stanza row shows the same data under the
 		// cross-thread cumulative family word.
@@ -830,6 +852,15 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkTraceGapBlindSpot, runtimeTraceProjLegendGroupMark,
 			"- `数据盲区` = 窗内无调度数据,下钻链止。",
 			"- `trace_gap` = no scheduler data inside the window; the drill chain ends there."},
+		// DISP-2 G2 (§27.2 判据措辞如实, 2026-07-09): the typed no_eligible_wait
+		// criterion's own entry — the row IS still a 数据盲区, but the window
+		// held scheduler intervals that all sat below the minimum-duration
+		// floor, and the legacy "窗内无调度数据" wording over-claimed on that
+		// form (复核 P3-5 precise fact). Renders exactly with the forked inline
+		// disclosure below.
+		{runtimeTraceProjMarkTraceGapBelowFloor, runtimeTraceProjLegendGroupMark,
+			"- `窗内无≥阈值等待区间` = 数据盲区判据之二:窗内有调度区间但均低于最小时长阈值,下钻链止。",
+			"- `no in-window wait ≥ floor` = the data blind spot's second criterion: scheduler intervals exist in the window but all sit below the minimum-duration floor; the drill chain ends there."},
 		// PTV8-RCR-A (§24.1/§24.2, 2026-07-08). EVOLUTION RECORD: the §21 RNB
 		// R1 `⧖ runnable …gated 分量,不重复计入排序` sub-row entry and the
 		// §21/§22 RNB R2 `同段rank行并入` note entry are RETIRED — the
@@ -4601,6 +4632,25 @@ func runtimeTraceProjMergedMaxTagText(node types.TraceCausalProjectionNode, zh b
 	return fmt.Sprintf("×%d(%.3f–%.3fms) max", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
 }
 
+// runtimeTraceProjAllZeroFoldNoteText is the DISP-2 G19 one-line note for the
+// all-zero fold shape (§27.5, 2026-07-09) — the honest replacement of the
+// retired ×N(0.000–0.000ms)取最大 tag on that shape, shared by the fence tag
+// and the (a) table token so the two faces can never drift. The (数据盲区)
+// qualifier renders only on the typed all-members-are-data-gaps fold
+// (MergedAllDataGap — never inferred from the zero values alone).
+func runtimeTraceProjAllZeroFoldNoteText(node types.TraceCausalProjectionNode, zh bool) string {
+	if node.MergedAllDataGap {
+		if zh {
+			return "窗内无有效时长(数据盲区),见明细"
+		}
+		return "no in-window effective duration (data blind spots); see the detail blocks"
+	}
+	if zh {
+		return "窗内无有效时长,见明细"
+	}
+	return "no in-window effective duration; see the detail blocks"
+}
+
 // runtimeTraceProjMergedCrossWindowMaxTagText is the §21-CWD overlapping-
 // query-window MAX row's inline data token (×N 第五式): count + per-instance
 // range + the cross-window-max form suffix. The 不求和/窗基 semantics live in
@@ -5235,6 +5285,12 @@ var runtimeTraceProjWrapAtomCompounds = []string{
 	// wrap must never bisect 合计/成员最大/同线程 mid-claim). 计数合计 keeps
 	// its own entry — the bare 合计 entry cannot match at its 计 start rune.
 	"计数合计",
+	// DISP-2 / GAP-A P3-6 (2026-07-09): the count-class comparison marker the
+	// engine roster/Σ-note faces print (rootCauseCountEquivalentValue) — a
+	// wrap must never bisect 计数当量 mid-claim (G8 折行劈词 family). Shares
+	// the 计数 prefix with 计数合计 above; they diverge at the third rune, so
+	// order between the two is immaterial.
+	"计数当量",
 	"成员最大",
 	"合计",
 	"同线程",
@@ -5667,7 +5723,7 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		// full 合计(共N段,同线程) word rides 行3 and its legend entry follows
 		// the word (marked here too — the stem must never render untaught).
 		if _, caliberMark, ok := runtimeTraceProjFamilyCaliberWord(node, zh); ok {
-			row.marks.mark(caliberMark)
+			runtimeTraceProjMarkFamilyCaliber(row.marks, caliberMark)
 		}
 		b.WriteString(" " + prefix + fmt.Sprintf("%.3fms", impact))
 	} else {
@@ -5746,7 +5802,7 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		// word (never 累计(跨线程) — F6) and teaches it via its own entry.
 		if runtimeTraceProjFamilyRow(node) {
 			if _, caliberMark, ok := runtimeTraceProjFamilyCaliberWord(node, zh); ok {
-				row.marks.mark(caliberMark)
+				runtimeTraceProjMarkFamilyCaliber(row.marks, caliberMark)
 			}
 		}
 		tags = append(tags, runtimeTraceProjTag{Text: word, MainRow: true})
@@ -6052,12 +6108,26 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	// states what it IS inline — 窗内无调度数据·链止 — in the slot the retired
 	// candidate chip used to fake; the legend's 数据盲区 entry carries the full
 	// semantics (missing_wakeup 图例措辞族). Exact typed token match.
+	//
+	// EVOLUTION RECORD (DISP-2 G2 措辞按 kind 分形, §27.2/§28.1 user ruling
+	// 2026-07-09): the single wording over-claimed on the no_eligible_wait
+	// criterion (intervals EXIST but all sit below the MinDurationMs floor —
+	// 复核 P3-5). The inline disclosure now forks on the typed trace_gap_kind
+	// enum: no_eligible_wait speaks 窗内无≥阈值等待区间·链止 with its own
+	// legend entry; no_sched_data AND a missing kind (legacy replays, 有损缺失
+	// fail-open) keep the 2026-07-07 ruling wording byte-identically.
 	if runtimeTraceProjTraceGapNode(node) {
-		row.marks.mark(runtimeTraceProjMarkTraceGapBlindSpot)
-		text := "窗内无调度数据·链止"
+		text, mark := "窗内无调度数据·链止", runtimeTraceProjMarkTraceGapBlindSpot
 		if !zh {
 			text = "no in-window scheduler data · chain ends"
 		}
+		if strings.TrimSpace(node.TraceGapKind) == tracequery.TraceGapKindNoEligibleWait {
+			text, mark = "窗内无≥阈值等待区间·链止", runtimeTraceProjMarkTraceGapBelowFloor
+			if !zh {
+				text = "no in-window wait ≥ floor · chain ends"
+			}
+		}
+		row.marks.mark(mark)
 		tags = append(tags, runtimeTraceProjTag{Text: text, Seg: 10})
 	}
 	// stanzaCumEmitted feeds the ruling-A 折算 discriminator below: when the
@@ -6115,7 +6185,17 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		// PTV8-RCR-A §24.2: on the event form the ×N count already rode 行1
 		// and the (a–b,共N次) range rides 行3 — the legacy inline tag stays off.
 		var text string
-		if runtimeTraceProjSubjectlessFoldRow(node) {
+		if runtimeTraceProjSubjectlessFoldRow(node) && runtimeTraceProjAllZeroFoldRow(node) {
+			// EVOLUTION RECORD (DISP-2 G19, §27.5, 2026-07-09): the all-zero
+			// fold shape used to wear ×N(0.000–0.000ms)取最大 — a member-MAX
+			// claim over nothing but zeros (huadong_79 "×9(0.000–0.000ms)取最
+			// 大" noise witness). The shape now speaks the honest one-line note
+			// (typed numeric shape + fold identity; the row name keeps the
+			// 其余N项(链上折叠) count and the members stay reachable via the
+			// detail blocks and the evidence index — zero information loss).
+			row.marks.mark(runtimeTraceProjMarkAllZeroFoldNote)
+			text = runtimeTraceProjAllZeroFoldNoteText(node, zh)
+		} else if runtimeTraceProjSubjectlessFoldRow(node) {
 			// V3: the R3 cross-thread fold publishes the member MAX (取最大
 			// legend entry; wall clock never sums across threads).
 			row.marks.mark(runtimeTraceProjMarkMergedMax)
@@ -8521,6 +8601,17 @@ type runtimeTraceProjDetailTableLegendFlags struct {
 	// renders "—" (the row never seats on the rank board), and the gated
 	// legend line says so.
 	selfSymptom bool
+	// allZeroFold (DISP-2 G19, §27.5, 2026-07-09): an all-zero subjectless
+	// fold row is on the table — its token is the 窗内无有效时长 note (never
+	// the ×N取最大 form), so it must NOT raise mergedMax (whose gated line
+	// claims a member-MAX value the note row does not carry).
+	allZeroFold bool
+	// stanzaChainTotal (DISP-2 G3 表列口径, §27.2, 2026-07-09): a ◇/▒ stanza
+	// row carrying a cumulative value is on the table — its 链上累计 cell
+	// renders "—" (the column's definition is the on-chain accumulation toward
+	// the focused thread, which an off-chain row does not make), and the gated
+	// legend line says where the value lives instead.
+	stanzaChainTotal bool
 }
 
 func runtimeTraceProjDetailTableLegendFlagsFor(model runtimeTraceProjTreeModel, zh bool) runtimeTraceProjDetailTableLegendFlags {
@@ -8536,7 +8627,10 @@ func runtimeTraceProjDetailTableLegendFlagsFor(model runtimeTraceProjTreeModel, 
 		}
 		emitted[key] = true
 		if node.MergedCount > 1 {
-			if runtimeTraceProjSubjectlessFoldRow(node) {
+			if runtimeTraceProjSubjectlessFoldRow(node) && runtimeTraceProjAllZeroFoldRow(node) {
+				// DISP-2 G19: the note form, never the ×N取最大 claim.
+				flags.allZeroFold = true
+			} else if runtimeTraceProjSubjectlessFoldRow(node) {
 				flags.mergedMax = true
 			} else if node.MergedIntervalUnion {
 				flags.mergedUnion = true
@@ -8554,6 +8648,12 @@ func runtimeTraceProjDetailTableLegendFlagsFor(model runtimeTraceProjTreeModel, 
 		}
 		if node.IsTargetSelfStateRow() {
 			flags.selfSymptom = true
+		}
+		if runtimeTraceProjStanzaRowKind(row.Kind) && node.CumulativeImpactMS > 0 &&
+			!runtimeTraceProjCrossThreadAggregateType(node) {
+			// CMP-3 F6 carve-out mirrored: aggregate-metric rows keep their
+			// annotated cells, so they never raise the dash's gated line.
+			flags.stanzaChainTotal = true
 		}
 		if key != "" && len(seats[key]) > 1 {
 			flags.multiSeat = true
@@ -8626,7 +8726,11 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 			// ×N data token inline (T4 三式 + §11-N2 第四式 + §21-CWD 第五式);
 			// the form semantics + member roster live in the (b) block and the
 			// legend.
-			if runtimeTraceProjSubjectlessFoldRow(node) {
+			if runtimeTraceProjSubjectlessFoldRow(node) && runtimeTraceProjAllZeroFoldRow(node) {
+				// DISP-2 G19: the all-zero fold's honest note mirrors the fence
+				// tag (shared helper) — never a member-MAX claim over zeros.
+				name += " " + runtimeTraceProjAllZeroFoldNoteText(node, zh)
+			} else if runtimeTraceProjSubjectlessFoldRow(node) {
 				name += " " + runtimeTraceProjMergedMaxTagText(node, zh)
 			} else if node.MergedIntervalUnion {
 				name += " " + runtimeTraceProjMergedUnionTagText(node)
@@ -8727,10 +8831,28 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 		if confidence == "" {
 			confidence = dash
 		}
+		// DISP-2 G3 表列口径 (§27.2, 2026-07-09): the 链上累计 column's own
+		// definition is "沿唤醒链向关注线程累计的投影时长" — a ◇/▒ stanza row
+		// is off the wakeup chain (its seat kind IS the typed off-chain
+		// verdict, the same kind-split ruling A applies on the tree face), so
+		// printing its cumulative there claimed an on-chain accumulation the
+		// row does not make (huadong_79 E11/E12/E13: adjacent count rows wore
+		// 链上累计==窗口投影). The cell renders "—" (G6 precedent); the value
+		// keeps its honest homes — the stanza row's 累计(跨线程) tag when it
+		// differs from the projection, the 窗口投影 column when equal, and the
+		// C00 fallback main-line value when no projection exists.
+		// CMP-3 F6 carve-out: cross-thread AGGREGATE-METRIC rows keep their
+		// annotated cells on ALL duration columns (customer compare audit
+		// adjudication) — the (跨线程累计,非墙钟) annotation already denies
+		// the on-chain wall-clock reading, so the dash has nothing to repair.
+		chainTotal := annotated(node.CumulativeImpactMS)
+		if runtimeTraceProjStanzaRowKind(row.Kind) && !crossThread {
+			chainTotal = dash
+		}
 		rows = append(rows, types.AnswerBlockItem{
 			Cells: []string{
 				runtimeTraceCausalProjectionMarkdownSafe(name),
-				annotated(node.ImpactMS), annotated(node.CumulativeImpactMS),
+				annotated(node.ImpactMS), chainTotal,
 				effective, actual,
 				confidence,
 			},
@@ -9090,7 +9212,22 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 		}
 		if node.MergedCount > 1 {
 			var form string
-			if runtimeTraceProjSubjectlessFoldRow(node) {
+			if runtimeTraceProjSubjectlessFoldRow(node) && runtimeTraceProjAllZeroFoldRow(node) {
+				// DISP-2 G19 (§27.5, 2026-07-09): the all-zero fold's lossless
+				// mirror — no member-MAX claim over zeros (三面同词 with the
+				// fence note and the (a) token).
+				qualifier := ""
+				if node.MergedAllDataGap {
+					qualifier = "(数据盲区)"
+					if !zh {
+						qualifier = " (data blind spots)"
+					}
+				}
+				form = fmt.Sprintf("×%d 跨线程折叠,成员窗内均无可计量时长%s,不作取最大声明", node.MergedCount, qualifier)
+				if !zh {
+					form = fmt.Sprintf("×%d cross-thread fold; no member carries a measurable in-window duration%s, so no member-MAX claim is made", node.MergedCount, qualifier)
+				}
+			} else if runtimeTraceProjSubjectlessFoldRow(node) {
 				// PTV8-RCR-B (UXA 域B #20, 2026-07-08). EVOLUTION RECORD:
 				// 「取最大口径…不求和」→ canonical 墙钟跨线程不可加和 (三面同词).
 				form = fmt.Sprintf("×%d 跨线程折叠取最大(墙钟跨线程不可加和),各 %.3f–%.3fms", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
@@ -9207,6 +9344,15 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 		}
 		if site := strings.TrimSpace(node.BlockingHolderSite); site != "" {
 			add("持有点", "held at", runtimeTraceCausalProjectionMarkdownSafe(site))
+		}
+		// BLOCKFROM (DISP-2 Wave-3.2, 2026-07-09): the WAITER-side blocking
+		// call site of a monitor contention — the span's verbatim "blocking
+		// from ..." segment (typed blocking_from_site note; wire-contract name
+		// pinned with the TEX engine batch). 等待点 beside 持有点: WHERE the
+		// waiter blocked vs WHERE the holder held. Verbatim on this lossless
+		// surface (no truncation — 明细不截断纪律); empty renders nothing.
+		if site := strings.TrimSpace(node.BlockingFromSite); site != "" {
+			add("等待点", "blocking from", runtimeTraceCausalProjectionMarkdownSafe(site))
 		}
 		// P0-E 锁车道修3 (§24.9-C F5): the inferred-holder origin reaches the
 		// detail face — pre-P0-E the engine caveat existed but no user face

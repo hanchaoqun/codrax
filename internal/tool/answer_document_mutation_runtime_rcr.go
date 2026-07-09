@@ -214,7 +214,14 @@ func runtimeTraceProjImpactFormTokenFamily(token string) runtimeTraceProjImpactF
 		return runtimeTraceProjImpactFormInterrupt
 	case "trace_gap", "missing_wakeup":
 		return runtimeTraceProjImpactFormBlindSpot
-	case "jit_compile", "class_verification", "shader_compile", "runtime_compile":
+	case "jit_compile", "class_verification", "shader_compile", "runtime_compile", "texture_upload":
+		// TEX §28.1 fifth semantic class (DISP-2 收尾, TEX 复核 F2, 2026-07-09):
+		// texture_upload rides the deterministic-optimization family with the
+		// exact same treatment as the four sibling classes — a missing arm here
+		// dropped texture rows to FormNone (影响形态/族词车道缺席, §24.12 C7
+		// 病理形). The registry semantic_class fold lane is the enumeration
+		// source; TestDisp2ImpactFormSwitchCoversSemanticClassLane pins the
+		// alignment so a sixth class cannot miss this switch silently.
 		return runtimeTraceProjImpactFormDeterministicOpt
 	case "compute_supply", "low_frequency", "cpu_frequency_limit", "cpu_affinity_or_cpuset",
 		"running", "fragmented_running":
@@ -757,7 +764,7 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 				runtimeTraceProjFmtMS(v), word, runtimeTraceProjFamilySumDisclosure(node, zh))
 			out.SubRows = runtimeTraceProjFamilyRosterSubRows(node, zh)
 			row.marks.mark(runtimeTraceProjMarkEffectiveBreakdown)
-			row.marks.mark(caliberMark)
+			runtimeTraceProjMarkFamilyCaliber(row.marks, caliberMark)
 			out.ConsumedEffective = true
 		}
 		handled = true

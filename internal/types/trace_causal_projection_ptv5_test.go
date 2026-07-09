@@ -281,14 +281,14 @@ func TestTraceCausalProjectionOnChainFoldCarriesCaliberSource(t *testing.T) {
 			CumulativeImpactMS: 55.0, EvidenceID: "e-cum-1", Confidence: 0.8},
 		TraceCausalProjectionNode{Subject: "cum-2", Object: "runnable_wait", ChainRelevance: "on_chain",
 			CumulativeImpactMS: 12.0, EvidenceID: "e-cum-2", Confidence: 0.8})
-	out := traceCausalProjectionLimitNodesOnChainFold(nodes, traceCausalProjectionOnChainLimit)
+	out := traceCausalProjectionLimitNodesOnChainFold(nodes, traceCausalProjectionOnChainLimit, nil)
 	fold := out[len(out)-1]
 	if !fold.OnChainOverflowFold || fold.ImpactMS != 0 || fold.CumulativeImpactMS != 55.0 {
 		t.Fatalf("cumulative-only max must publish on the cumulative lane only: %+v", fold)
 	}
 	// 突变形态: a window-projection max keeps ImpactMS (window share legal).
 	nodes2 := build(traceCausalProjectionOnChainLimit + 2)
-	out2 := traceCausalProjectionLimitNodesOnChainFold(nodes2, traceCausalProjectionOnChainLimit)
+	out2 := traceCausalProjectionLimitNodesOnChainFold(nodes2, traceCausalProjectionOnChainLimit, nil)
 	fold2 := out2[len(out2)-1]
 	if fold2.ImpactMS != fold2.MergedMaxMS || fold2.ImpactMS <= 0 {
 		t.Fatalf("window-projection max keeps the projection lane: %+v", fold2)

@@ -690,6 +690,18 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// fence probe; direction A (mark ⇔ legend entry) still asserts (the
 		// StateLabel precedent).
 		runtimeTraceProjMarkCaliberReferenceClusterFmax: {"", ""},
+		// DISP-2 G2 (§27.2 措辞按 kind 分形): the no_eligible_wait blind-spot
+		// row's forked inline disclosure — never a substring of the legacy
+		// 窗内无调度数据 form, so the two probes stay disjoint.
+		runtimeTraceProjMarkTraceGapBelowFloor: {"窗内无≥阈值等待区间", "no in-window wait ≥ floor"},
+		// DISP-2 G19 (§27.5): the all-zero fold row's one-line note (the
+		// ×N(0.000–0.000ms)取最大 claim is retired on that shape).
+		runtimeTraceProjMarkAllZeroFoldNote: {"窗内无有效时长", "no in-window effective duration"},
+		// DISP-2 / GAP-A P3-6: the 计数当量 marker rides the count family's
+		// roster sub-rows (engine-real roster entries carry it verbatim on
+		// both faces — the engine helper has no EN form; G10-class debt noted
+		// in §28.7), so the zh token doubles as the EN-face probe.
+		runtimeTraceProjMarkFamilyCountEquivalent: {"计数当量", "计数当量"},
 	}
 }
 
@@ -741,12 +753,17 @@ func revisit76RCM2FamilyProjection() types.TraceCausalProjection {
 				FamilyMemberSumMS: 1.598, FamilyFoldCaliber: "max_overlap_fallback",
 				FamilyMemberRoster: []string{"inode=286395 dev=254:2 1.136ms", "inode=300123 dev=254:2 0.462ms"},
 				Dev:                "254:2", Confidence: 0.8},
+			// DISP-2 (2026-07-09): roster entries carry the engine-real
+			// 计数当量Xms marker (rootCauseCountEquivalentValue renders every
+			// count-family roster value through it — fixture 取引擎实铸形,
+			// §28.7 新纪律), so the FamilyCountEquivalent probe is
+			// bidirectional on this shape.
 			{Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "rcm2-count",
 				Subject: "worker-9", Object: "state_churn", TypeToken: "state_churn",
 				ChainRelevance: "on_chain", Rank: 4,
 				ImpactMS: 5.0, CumulativeImpactMS: 5.0, EffectiveImpactMS: 5.0,
 				FamilyMemberCount: 3, FamilyFoldCaliber: "count_sum",
-				FamilyMemberRoster: []string{"churn a 2", "churn b 2", "churn c 1"},
+				FamilyMemberRoster: []string{"churn a 计数当量2.000ms", "churn b 计数当量2.000ms", "churn c 计数当量1.000ms"},
 				Confidence:         0.8},
 		},
 		SemanticSpans: []types.TraceCausalProjectionNode{
@@ -1088,6 +1105,12 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// §22 PTV7-SPN F5: the trace_gap 数据盲区 disclosure row (fixture home:
 		// answer_document_mutation_runtime_ptv7_spn_test.go).
 		{"ptv7_spn_trace_gap", ptv7SpnTraceGapProjection()},
+		// DISP-2 G2 (§27.2 措辞按 kind 分形): the no_eligible_wait blind-spot
+		// row's forked disclosure + legend entry (same fixture home).
+		{"disp2_trace_gap_below_floor", ptv7SpnTraceGapBelowFloorProjection()},
+		// DISP-2 G19 (§27.5): the all-zero on-chain fold's one-line note
+		// (same fixture home).
+		{"disp2_all_zero_fold", disp2AllZeroFoldProjection()},
 		// §21/§22 RNB R1+R2: the same-segment two-lane fold note + the gated
 		// runnable component sub-row (fixture home:
 		// answer_document_projection_rnb_leadsem_test.go).

@@ -275,6 +275,41 @@ func ptv7SpnTraceGapProjection() types.TraceCausalProjection {
 	}
 }
 
+// ptv7SpnTraceGapBelowFloorProjection (DISP-2 G2 措辞按 kind 分形, §27.2,
+// 2026-07-09) is the same shape with the typed no_eligible_wait criterion:
+// the window HELD scheduler intervals, all below the MinDurationMs floor —
+// the inline disclosure and legend fork off the legacy 窗内无调度数据 wording.
+// The kind literal is a deliberate wire-format double-write (test files keep
+// verbatim tokens).
+func ptv7SpnTraceGapBelowFloorProjection() types.TraceCausalProjection {
+	projection := ptv7SpnTraceGapProjection()
+	projection.AdjacentCauses[0].TraceGapKind = "no_eligible_wait"
+	return projection
+}
+
+// disp2AllZeroFoldProjection (DISP-2 G19, §27.5, 2026-07-09) is the all-zero
+// on-chain overflow fold shape (huadong_79 "×9(0.000–0.000ms)取最大" noise
+// witness): every folded member is a data blind spot with no measurable
+// in-window duration — the fold row wears the honest one-line note instead of
+// a member-MAX claim over zeros.
+func disp2AllZeroFoldProjection() types.TraceCausalProjection {
+	return types.TraceCausalProjection{
+		WakeupPath:    []string{"worker-9", "app-100"},
+		WindowStartTs: 100.0,
+		WindowEndTs:   100.1,
+		OnChainCauses: []types.TraceCausalProjectionNode{
+			{Role: types.TraceCausalRoleRootCauseContext, Subject: "worker-9",
+				Object: "running_burst", StateKind: "running", ChainRelevance: "on_chain",
+				ImpactMS: 30, Confidence: 0.8},
+			{Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "disp2-zero-fold",
+				ChainRelevance: "on_chain", OnChainOverflowFold: true,
+				MergedCount: 9, MergedMinMS: 0, MergedMaxMS: 0, MergedAllDataGap: true,
+				MergedSubjects: []string{"OS_FFRT_2_2-43037", "OS_FFRT_3_1-43041"},
+				Confidence:     0.6},
+		},
+	}
+}
+
 func TestPTV7SpnTraceGapRowWording(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(ptv7SpnTraceGapProjection(), nil, true)
 	fence := runtimeTraceProjTreeFence(model, true)
@@ -355,12 +390,21 @@ func TestPTV7SpnAllZeroFoldNoValueForm(t *testing.T) {
 			t.Fatalf("all-zero fold row must not wear the candidate chip: %+v", tags)
 		}
 	}
-	// The honest ×N data token survives (only the fake value/chip leave).
+	// EVOLUTION RECORD (DISP-2 G19, §27.5, 2026-07-09): the former "×N data
+	// token survives" pin (×9(0.000–0.000ms)取最大) is RETIRED on the all-zero
+	// shape — a member-MAX claim over nothing but zeros taught noise
+	// (huadong_79 witness). The shape now speaks the honest one-line note; the
+	// count survives on the row NAME (其余 9 项(链上折叠)), and value-bearing
+	// folds keep the ×N form byte-identically (TestDisp2AllZeroFoldNote pins
+	// both directions).
 	joined := ""
 	for _, tag := range tags {
 		joined += tag.Text + " · "
 	}
-	if !strings.Contains(joined, "×9(0.000–0.000ms)") {
-		t.Fatalf("the ×N fold data token must survive: %s", joined)
+	if strings.Contains(joined, "×9(0.000–0.000ms)") {
+		t.Fatalf("the all-zero fold must not claim a member-MAX over zeros: %s", joined)
+	}
+	if !strings.Contains(joined, "窗内无有效时长") {
+		t.Fatalf("the all-zero fold must carry the honest one-line note: %s", joined)
 	}
 }

@@ -1007,7 +1007,28 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 		// rows exactly when the table shows them (gated flags from the same
 		// detail rows the table renders) — every other render stays
 		// byte-stable.
-		if flags := runtimeTraceProjDetailTableLegendFlagsFor(model, zh); flags.mergedSum || flags.mergedMax || flags.mergedWindowMax || flags.mergedDedup || flags.multiSeat || flags.family || flags.selfSymptom {
+		if flags := runtimeTraceProjDetailTableLegendFlagsFor(model, zh); flags.mergedSum || flags.mergedMax || flags.mergedWindowMax || flags.mergedDedup || flags.multiSeat || flags.family || flags.selfSymptom || flags.allZeroFold || flags.stanzaChainTotal {
+			// DISP-2 G3 表列口径 (§27.2, 2026-07-09): the ◇/▒ stanza row's
+			// gated line — present exactly when a stanza row with a cumulative
+			// value is on the table (its 链上累计 cell is "—": the column means
+			// on-chain accumulation, which an off-chain seat does not make).
+			if flags.stanzaChainTotal {
+				if zh {
+					lines = append(lines, "- ◇/▒ 区段行不在唤醒链上,「链上累计」列为 —;其累计时长以 累计(跨线程) 口径显示于树区段行(与窗口投影相等时即窗口投影列数值)。")
+				} else {
+					lines = append(lines, "- ◇/▒ stanza rows are off the wakeup chain, so their chain-total cell is “—”; their cumulative shows on the stanza rows under the cross-thread cum caliber (equal to the window-projection cell when the two match).")
+				}
+			}
+			// DISP-2 G19 (§27.5, 2026-07-09): the all-zero fold note's gated
+			// line — present exactly when the 窗内无有效时长 token is on the
+			// table (the shape never claims a member MAX).
+			if flags.allZeroFold {
+				if zh {
+					lines = append(lines, "- 窗内无有效时长 = 该折叠行全部成员在窗内均无可计量时长,不作取最大声明;成员见下方明细与证据索引。")
+				} else {
+					lines = append(lines, "- no in-window effective duration = every member of that fold carries no measurable in-window duration, so no member-MAX claim is made; members live in the detail blocks and the evidence index.")
+				}
+			}
 			// GAP-B G6 (§27.3, 2026-07-09): the wait-symptom self row's gated
 			// line — present exactly when a target_self_state row is on the
 			// table (its 有效归因 cell is "—": the row never enters the

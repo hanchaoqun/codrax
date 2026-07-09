@@ -75,6 +75,20 @@ func runtimeTraceProjFamilyCaliberWord(node types.TraceCausalProjectionNode, zh 
 	return "", 0, false
 }
 
+// runtimeTraceProjMarkFamilyCaliber records a family caliber-word mark at a
+// render site, plus the 计数当量 companion entry on the count arm (DISP-2 /
+// GAP-A P3-6, 2026-07-09): the count family's engine faces (member roster /
+// raw-Σ detail note / Summary) print the 计数当量Xms marker wherever the count
+// caliber word renders, so its teaching entry rides exactly those renders.
+// ALL family caliber-word mark sites MUST route through this helper — never a
+// bare marks.mark(caliberMark) — so the companion can never drift off one face.
+func runtimeTraceProjMarkFamilyCaliber(marks *runtimeTraceProjMarkSet, caliberMark runtimeTraceProjMark) {
+	marks.mark(caliberMark)
+	if caliberMark == runtimeTraceProjMarkFamilyCountSum {
+		marks.mark(runtimeTraceProjMarkFamilyCountEquivalent)
+	}
+}
+
 // runtimeTraceProjFamilyValuePrefix is the COMPACT 行1 value qualifier
 // (witness form 「合计7.124ms」): the fifth word's stem rides directly on the
 // main-line duration so the merged magnitude is identifiable at the point of

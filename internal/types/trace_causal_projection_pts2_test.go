@@ -43,7 +43,7 @@ func TestPTS2BucketFoldAbsorbsEngineFoldCountAndRoster(t *testing.T) {
 			ImpactMS:       2.5, CumulativeImpactMS: 2.5,
 		},
 	)
-	out := traceCausalProjectionLimitNodesOnChainFold(nodes, limit)
+	out := traceCausalProjectionLimitNodesOnChainFold(nodes, limit, nil)
 	if len(out) != limit+1 {
 		t.Fatalf("bucket fold must keep limit rows plus ONE fold row: %d", len(out))
 	}
@@ -84,7 +84,7 @@ func TestPTS2BucketFoldOrdinaryAggregateMemberStillCountsOne(t *testing.T) {
 			Predicate: "wakeup_causal_impact", ChainRelevance: "on_chain",
 			MergedCount: 3, MergedEvidenceIDs: []string{"e-agg-2", "e-agg-3"}, ImpactMS: 5},
 	}
-	out := traceCausalProjectionLimitNodesOnChainFold(nodes, limit)
+	out := traceCausalProjectionLimitNodesOnChainFold(nodes, limit, nil)
 	fold := out[len(out)-1]
 	if fold.MergedCount != 1 {
 		t.Fatalf("an ordinary ×N aggregate member must still count 1 row: %+v", fold)

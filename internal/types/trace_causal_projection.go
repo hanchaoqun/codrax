@@ -199,6 +199,16 @@ type TraceCausalProjectionNode struct {
 	Causality      string   `json:"causality,omitempty"`
 	ChainRelevance string   `json:"chain_relevance,omitempty"`
 	ChainDepth     int      `json:"chain_depth,omitempty"`
+	// TraceGapKind mirrors the producer's typed trace_gap_kind rich note (G2
+	// 显示半场, §27.2/§28.1 user ruling 2026-07-09,
+	// real_trace_campaign_20260705.md): the PRECISE blind-spot criterion of a
+	// trace_gap rank row — closed enum "no_sched_data" (the thread timeline
+	// holds no interval at all inside the aligned window) / "no_eligible_wait"
+	// (intervals exist but ALL sit below the MinDurationMs floor). Display
+	// wording input ONLY (the ◇ inline disclosure forks its wording on it);
+	// empty (legacy replays, pre-G2 traces) keeps the legacy wording fail-open.
+	// No gate, score or sort lane reads it.
+	TraceGapKind string `json:"trace_gap_kind,omitempty"`
 	// ChainBranch is the owning branch ordinal of the node's chain measurement
 	// (typed chain_branch note — P0-E CHAIN-PATH, ledger §22.1). The display
 	// tree keys its depth attach to (branch, depth): a node from a DIFFERENT
@@ -421,6 +431,12 @@ type TraceCausalProjectionNode struct {
 	// across threads). Renderers show 其余 N 项(链上折叠) and MUST NOT let this
 	// row lead a conclusion or win a badge.
 	OnChainOverflowFold bool `json:"on_chain_overflow_fold,omitempty"`
+	// MergedAllDataGap (G19 显示半场, §27.5, 2026-07-09) marks an overflow fold
+	// row EVERY member of which is a typed data-gap row (trace_gap token /
+	// tier=data_gap — traceCausalProjectionDataGapRow). Display wording input
+	// only: the all-zero fold note may then honestly say the members are data
+	// blind spots instead of the generic no-value wording. Never a gate.
+	MergedAllDataGap bool `json:"merged_all_data_gap,omitempty"`
 	// --- RCM family-merge typed lane (§24.7.1/§24.10 user rulings 2026-07-08,
 	// real_trace_campaign_20260705.md §24.12 dimension-A mandate ①) -----------
 	//
@@ -486,7 +502,15 @@ type TraceCausalProjectionNode struct {
 	BlockingKind       string `json:"blocking_kind,omitempty"`
 	BlockingPeer       string `json:"blocking_peer,omitempty"`
 	BlockingHolderSite string `json:"blocking_holder_site,omitempty"`
-	BlockingWaiters    int    `json:"blocking_waiters,omitempty"`
+	// BlockingFromSite carries the WAITER-side blocking call site of a monitor
+	// contention verbatim (the span's "blocking from ..." segment) — the typed
+	// blocking_from_site rich note (BLOCKFROM, Wave-3.2 2026-07-09; the note
+	// key name is the pinned wire contract with the TEX engine batch). It is
+	// the 等待点 counterpart of the 持有点 BlockingHolderSite above: WHERE the
+	// waiter blocked, vs WHERE the holder held. Display-only; empty renders
+	// nothing (absence never fabricates a site).
+	BlockingFromSite string `json:"blocking_from_site,omitempty"`
+	BlockingWaiters  int    `json:"blocking_waiters,omitempty"`
 	// BlockingHolderSource / BlockingOwnerTidRaw (P0-E 锁车道修3, ledger
 	// §24.9-C F5, 2026-07-09): the typed holder-resolution origin
 	// (contention_payload / ns_span_derivation / wakeup_edge) and the phantom
@@ -663,6 +687,29 @@ const TraceCausalTierTargetSelfState = "target_self_state"
 // mutually-exclusive pair silently killed the §24.16 disclosure sentence).
 func (n TraceCausalProjectionNode) IsTargetSelfStateRow() bool {
 	return strings.TrimSpace(n.Tier) == TraceCausalTierTargetSelfState
+}
+
+// TraceCausalTierDataGap mirrors tracequery.RootCauseTierDataGap (G2 引擎半场,
+// §27.2/§28.1 user ruling 2026-07-09): the wire tier token of a trace_gap
+// data-blind-spot rank row — a data gap, never a cause; such rows arrive with
+// Rank=0 and take no board seat.
+const TraceCausalTierDataGap = "data_gap"
+
+// traceCausalProjectionDataGapRow reports whether the node is a typed
+// data-blind-spot row (G2 显示半场 双发布去重, §27.2, 2026-07-09): the engine
+// tier token OR the trace_gap type token on the same TypeToken→Object→
+// Predicate lane precedence the display predicates use. Exact typed-token
+// membership only — never a prose/substring heuristic.
+func traceCausalProjectionDataGapRow(node TraceCausalProjectionNode) bool {
+	if strings.TrimSpace(node.Tier) == TraceCausalTierDataGap {
+		return true
+	}
+	for _, token := range []string{node.TypeToken, node.Object, node.Predicate} {
+		if traceCausalProjectionCanonicalNode(token) == "trace_gap" {
+			return true
+		}
+	}
+	return false
 }
 
 // IsAggregateMetric reports whether this node is a window/CPU-scoped aggregate
@@ -984,7 +1031,15 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 	// NOWHERE else fold with a count (F1 真计数同型 — no fake "其余 N 项" made
 	// of rows that render anyway).
 	out.SupportingHops = traceCausalProjectionLimitHopsFold(out.SupportingHops, out.OnChainCauses, traceCausalProjectionSupportingHopLimit)
-	out.OnChainCauses = traceCausalProjectionLimitNodesOnChainFold(out.OnChainCauses, traceCausalProjectionOnChainLimit)
+	// G2 显示半场 双发布去重 (§27.2, 2026-07-09): a data-blind-spot thread that
+	// already holds its own individual ◇/▒ stanza seat (adjacent/background
+	// bucket copy — the higher-information surface: kind wording, evidence,
+	// disclosure) is EXCLUDED from the on-chain overflow fold membership, so
+	// one thread's blind spot publishes once instead of "×N(0.000…) fold
+	// member + ◇ row" twice. Seat-conditioned (never unconditional): a
+	// blind-spot row with NO individual seat still folds — zero silent drops.
+	out.OnChainCauses = traceCausalProjectionLimitNodesOnChainFold(out.OnChainCauses, traceCausalProjectionOnChainLimit,
+		traceCausalProjectionSeatedDataGapSubjects(out.AdjacentCauses, out.BackgroundCauses))
 	// RN-1 (§7.9): attach the same-window occupier roster to runnable nodes
 	// (exact Subject match + typed runnable StateKind) after aggregation so
 	// merged nodes carry it too, and before the PrimaryRootCause pointer copy.
@@ -2091,6 +2146,9 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		SemanticClass:   traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeySemanticClass),
 		Confidence:      record.Confidence,
 	}
+	// G2 显示半场 (§27.2/§28.1, 2026-07-09): the typed blind-spot criterion —
+	// wording input for the ◇ inline disclosure fork; absent = legacy wording.
+	node.TraceGapKind = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyTraceGapKind))
 	node.CumulativeImpactMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyCumulativeImpactMS)
 	if node.CumulativeImpactMS <= 0 {
 		node.CumulativeImpactMS = node.ImpactMS
@@ -2139,6 +2197,10 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 			node.BlockingPeer = peer
 		}
 		node.BlockingHolderSite = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyHolderSite))
+		// BLOCKFROM (Wave-3.2, 2026-07-09): the waiter-side blocking call site
+		// (等待点) rides the same lock-row gate as the holder site above — a
+		// blocking-from without contention semantics is meaningless.
+		node.BlockingFromSite = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyBlockingFromSite))
 		node.BlockingWaiters = traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyWaiters)
 		// BLK §15.C: the resolved rank lock row's subject is the holder — the
 		// renderer reads a HOLD (not the reversed lock-wait) from this exact
@@ -2440,12 +2502,58 @@ func traceCausalProjectionLimitNodes(nodes []TraceCausalProjectionNode, limit in
 // on CumulativeImpactMS ONLY (ImpactMS stays 0 → the C00 display pipeline
 // prints the 链上累计 caliber word and suppresses the %, and the (a) table's
 // window-projection column honestly shows "—").
-func traceCausalProjectionLimitNodesOnChainFold(nodes []TraceCausalProjectionNode, limit int) []TraceCausalProjectionNode {
+//
+// G2 显示半场 双发布去重 (§27.2, 2026-07-09): overflow members that are typed
+// data-blind-spot rows AND whose subject already holds an individual ◇/▒
+// stanza seat (seatedDataGapSubjects — computed by the compile from the
+// post-aggregation adjacent/background buckets) leave the fold membership, and
+// the fold count honestly shrinks with them (计数如实减除). Information
+// argument: a blind-spot fold member contributes only "exists, value 0.000" to
+// the ×N counter, while its individual stanza row carries the full identity
+// (thread, kind wording, evidence, disclosure) — dropping the fold copy loses
+// nothing the seat does not state better. Members WITHOUT a seat keep folding
+// (PTS 永不静默丢).
+func traceCausalProjectionLimitNodesOnChainFold(nodes []TraceCausalProjectionNode, limit int, seatedDataGapSubjects map[string]bool) []TraceCausalProjectionNode {
 	if limit <= 0 || len(nodes) == 0 || len(nodes) <= limit {
 		return traceCausalProjectionLimitNodes(nodes, limit)
 	}
 	kept := append([]TraceCausalProjectionNode(nil), nodes[:limit]...)
-	return append(kept, traceCausalProjectionOverflowFoldRow(nodes[limit:]))
+	var overflow []TraceCausalProjectionNode
+	for _, member := range nodes[limit:] {
+		if traceCausalProjectionDataGapRow(member) &&
+			seatedDataGapSubjects[traceCausalProjectionCanonicalNode(member.Subject)] {
+			continue // G2: the individual stanza seat is the single publication
+		}
+		overflow = append(overflow, member)
+	}
+	if len(overflow) == 0 {
+		return kept
+	}
+	return append(kept, traceCausalProjectionOverflowFoldRow(overflow))
+}
+
+// traceCausalProjectionSeatedDataGapSubjects collects the canonical subjects
+// of typed data-blind-spot rows holding an individual adjacent/background
+// stanza seat (G2 双发布去重 exclusivity key). nil when none — the fold then
+// behaves byte-identically to the pre-G2 shape.
+func traceCausalProjectionSeatedDataGapSubjects(buckets ...[]TraceCausalProjectionNode) map[string]bool {
+	var out map[string]bool
+	for _, bucket := range buckets {
+		for _, node := range bucket {
+			if !traceCausalProjectionDataGapRow(node) {
+				continue
+			}
+			subject := traceCausalProjectionCanonicalNode(node.Subject)
+			if subject == "" || !traceCausalProjectionKnownSubject(subject) {
+				continue
+			}
+			if out == nil {
+				out = map[string]bool{}
+			}
+			out[subject] = true
+		}
+	}
+	return out
 }
 
 // traceCausalProjectionLimitHopsFold is the PTV6 (PTS 连带) SupportingHops
@@ -2508,6 +2616,9 @@ func traceCausalProjectionOverflowFoldRow(overflow []TraceCausalProjectionNode) 
 	}
 	var minMS, maxMS float64
 	maxFromWindowProjection := false
+	// G19 (§27.5, 2026-07-09): typed all-members-are-data-gaps accounting for
+	// the all-zero fold note's honest "(数据盲区)" qualifier.
+	allDataGap := true
 	absorbed := map[string]bool{}
 	appendID := func(raw string) {
 		raw = strings.TrimSpace(raw)
@@ -2523,6 +2634,9 @@ func traceCausalProjectionOverflowFoldRow(overflow []TraceCausalProjectionNode) 
 	}
 	memberRows := 0
 	for _, member := range overflow {
+		if !traceCausalProjectionDataGapRow(member) {
+			allDataGap = false
+		}
 		traceCausalProjectionAppendMergedSubject(&fold, member.Subject)
 		// PTS-2 F1 (复核裁定 2026-07-06, 计数吸收 — 不做桶位豁免): an absorbed
 		// member that is ITSELF an overflow fold row (engine aggregate fold /
@@ -2572,6 +2686,7 @@ func traceCausalProjectionOverflowFoldRow(overflow []TraceCausalProjectionNode) 
 	fold.MergedCount = memberRows
 	fold.MergedMinMS = minMS
 	fold.MergedMaxMS = maxMS
+	fold.MergedAllDataGap = allDataGap
 	if maxFromWindowProjection {
 		fold.ImpactMS = maxMS
 		fold.CumulativeImpactMS = maxMS
