@@ -108,6 +108,17 @@ type SupplyFoldBasis struct {
 	// Set whenever the fold runs; wording input only, no gate reads it.
 	CapabilitySource string `json:"capability_source,omitempty"`
 
+	// CapabilitySplitAudit (CAP-3 复核 P2, §29.11): when CapabilitySource is
+	// freq_only via a derived-lane FRAGMENTATION arm (>4 clusters / fmax
+	// tie), this localizes the first co-movement split behind the offending
+	// cluster pair — "cpuA↔cpuB @ts 判定臂=token(zh)". DISCLOSURE/AUDIT ONLY,
+	// never a gate: it lets a customer replay distinguish a carve-boundary
+	// form (healed by CAP-3) from real mid-stream divergence (the honest
+	// freq_only residual). Also lifted once per result into the engine
+	// caveat lane (capabilitySplitAuditCaveat, query.go) so tracediag
+	// reports carry it verbatim.
+	CapabilitySplitAudit string `json:"capability_split_audit,omitempty"`
+
 	// ReferenceClass (复核 F1, 2026-07-08): the capability class of the fold's
 	// reference cluster — the cluster BOTH FmaxKHz and the reference cap were
 	// taken from (同簇同源, supplyFoldCapabilityReference). Normally the
@@ -200,6 +211,24 @@ func (c *chainQueryCache) governedFreqSamples(cpu int, gStart, gEnd float64) []f
 // window head) + in-window samples. Used by both the cpu_frequency and the
 // cpu_frequency_limits timelines so the two ladder steps read the SAME
 // window-governance caliber.
+//
+// CAP-3 (§29.11 状态携入语义, per-side direction): the head-governing sample
+// IS the carry-in arm — cpu_frequency is a state lane, so a window/slice with
+// zero in-window change events reads the last change point BEFORE the window,
+// never "missing data" (窗内无变频事件 ≠ 数据缺失; pinned by
+// TestSupplyFoldCarryInStateSemantics against the arm silently reverting to
+// in-window events only).
+//
+//	Carry-in kept   → the folded ideal uses the frequency the hardware
+//	                  actually held (state truth); dropping it would book the
+//	                  slice UNKNOWN and hide a real deficit behind the 计0
+//	                  lower bound — conservative-looking but LOSSY (typed
+//	                  zero-value = 有损信号, forbidden as a silent default).
+//	True absence    → a CPU with NO change point anywhere up to the window
+//	                  end stays UNKNOWN (empty return): carrying a value
+//	                  backwards from a LATER sample would fabricate pre-first-
+//	                  witness state — the missing-counts-0 lower-bound arm +
+//	                  disclosure stand (absence never guesses).
 func governedWindowSamples(samples []freqSample, gStart, gEnd float64) []freqSample {
 	if len(samples) == 0 {
 		return nil
@@ -601,6 +630,11 @@ func (c *chainQueryCache) supplyFoldRunningIntervals(q Query, nodeStart, nodeEnd
 	}
 	c.applyClusterLaneCorroboration(&basis, gStart, gEnd)
 	basis.CapabilitySource = capability.source
+	// CAP-3 复核 P2: the fragmentation split localization rides the freq_only
+	// basis (disclosure only — see the field doc; empty on every other form).
+	if capability.source == CoreCapabilitySourceFreqOnly {
+		basis.CapabilitySplitAudit = capability.freqOnlySplitAudit
+	}
 	// CAP-2 (§28.4/§28.5): the typed topology-source token rides the basis
 	// only on the two evidence forms (explicit/legacy stay token-less —
 	// byte-identical wire). THERM (§28.5-T7) appends the disclosure-only

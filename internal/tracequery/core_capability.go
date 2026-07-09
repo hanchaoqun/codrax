@@ -19,7 +19,13 @@ package tracequery
 //     (cluster_freq_share.go resolveClusterFreqDomains: explicit core_topology
 //     verbatim labels, else the CFR-2 change-point derivation). The 3-class
 //     frequency-tier INFERENCE (inferCoreTopologyFromFrequency, thirds-based)
-//     is a noisy signal and never feeds capability classes.
+//     is a noisy signal and never feeds capability classes. CAP-3 (§29.11):
+//     the derivation basis is the Index-global sample stream under the
+//     boundary-robust co-movement criterion (freqTimelinesCoMove) — cluster
+//     topology is a trace attribute, judged once per Index and shared by
+//     every governance window (同 trace 全窗折算词一致 acceptance, pinned by
+//     TestSupplyFoldCapabilityTokensConsistentAcrossWindows +
+//     TestCoreCapabilityCap2FourWindowParity).
 //   - Classes map from the SAMPLED cluster structure ordered by full-trace
 //     fmax (§26: 2 簇=小+大;3 簇=小+中+大;4 簇=小+中+大+超大). Full-trace —
 //     not window-governed — because class identity is a hardware attribute;
@@ -39,7 +45,10 @@ package tracequery
 // member slices can never carry a governed frequency anyway (donor reuse is
 // same-cluster only), so they fold as UNKNOWN basis exactly as before.
 
-import "sort"
+import (
+	"fmt"
+	"sort"
+)
 
 // §26 default capability coefficients (同频点; single source — every consumer
 // reads coreCapabilityDefaultByClass). Derivation pinned by the ruling:
@@ -176,6 +185,19 @@ type coreCapabilityMap struct {
 	railFamily         string
 	railRejectReason   string
 	comoveFloorTripped bool
+
+	// freqOnlySplitAudit (CAP-3 复核 P2, 2026-07-10): when a DERIVED-lane
+	// judgment fails loud to freq_only on a fragmentation arm (>4 clusters /
+	// fmax tie), this localizes the FIRST co-movement split behind the
+	// offending pair — "cpuA↔cpuB @ts 判定臂=token(zh label)".
+	// DISCLOSURE/AUDIT ONLY: it rides SupplyFoldBasis.CapabilitySplitAudit
+	// and the result-caveat lane so a customer replay can tell a carve-
+	// boundary form (healed by CAP-3) from real mid-stream divergence (the
+	// honest residual); NO gate may consume it (precise-signals-for-hard-
+	// gates red line — this is a disclosure, not a door). Empty on explicit/
+	// keyed-rail/legacy lanes and on the non-fragmentation freq_only arms
+	// (<2 clusters, comove floor).
+	freqOnlySplitAudit string
 }
 
 // usable reports whether a class table is in force (default or, once wired,
@@ -349,6 +371,26 @@ func resolveCoreCapabilityEvidence(domains clusterFreqDomains, timelines, limits
 		// <2 (no cross-class information) or >4 (outside the §26 table):
 		// unjudgeable — fail-loud freq_only.
 		out.topologySource = ""
+		if len(clusters) > 4 {
+			// 复核 P2: >4 derived groups is the fragmentation shape — locate
+			// a same-fmax twin pair (else the two lowest-fmax groups) and
+			// disclose where the criterion split them (audit only, no gate).
+			sorted := append([]clusterFmax(nil), clusters...)
+			sort.SliceStable(sorted, func(i, j int) bool {
+				if sorted[i].fmax != sorted[j].fmax {
+					return sorted[i].fmax < sorted[j].fmax
+				}
+				return sorted[i].label < sorted[j].label
+			})
+			pairA, pairB := sorted[0].label, sorted[1].label
+			for i := 1; i < len(sorted); i++ {
+				if sorted[i].fmax == sorted[i-1].fmax {
+					pairA, pairB = sorted[i-1].label, sorted[i].label
+					break
+				}
+			}
+			out.freqOnlySplitAudit = capabilityFreqOnlySplitAudit(domains, timelines, pairA, pairB)
+		}
 		return out
 	}
 	sort.SliceStable(clusters, func(i, j int) bool {
@@ -363,6 +405,8 @@ func resolveCoreCapabilityEvidence(domains clusterFreqDomains, timelines, limits
 			// — 簇结构不可判, fail-loud freq_only (precise signal, never a
 			// coin flip on the label sort).
 			out.topologySource = ""
+			// 复核 P2: disclose where the tied pair split (audit only).
+			out.freqOnlySplitAudit = capabilityFreqOnlySplitAudit(domains, timelines, clusters[i-1].label, clusters[i].label)
 			return out
 		}
 	}
@@ -386,6 +430,40 @@ func resolveCoreCapabilityEvidence(domains clusterFreqDomains, timelines, limits
 	// four-cluster shape does not fold to prime.
 	out.refCap = coreCapabilityDefaultByClass[coreCapabilityReferenceClass]
 	return out
+}
+
+// capabilityFreqOnlySplitAudit renders the disclosure-only split localization
+// for a fragmentation freq_only verdict on the DERIVED lane (CAP-3 复核 P2).
+// It re-diagnoses the offending pair's representatives with the SAME
+// criterion implementation (freqStateCoMoveTrimmedDiag — no second judgment
+// copy may grow) and formats the three localization elements:
+// "cpuA↔cpuB @ts 判定臂=token(zh label)". Empty when either roster is empty,
+// when the pair unexpectedly co-moves (post-rail-refinement label shapes), or
+// on non-derived lanes (explicit membership cannot fragment; keyed-rail
+// members carry no samples to diagnose).
+func capabilityFreqOnlySplitAudit(domains clusterFreqDomains, timelines map[int][]freqSample, labelA, labelB string) string {
+	if domains.source != ClusterFreqSourceDerived {
+		return ""
+	}
+	membersA, membersB := domains.members[labelA], domains.members[labelB]
+	if len(membersA) == 0 || len(membersB) == 0 {
+		return ""
+	}
+	repA, repB := membersA[0], membersB[0]
+	globalTail := 0.0
+	for _, tl := range timelines {
+		if len(tl) > 0 && tl[len(tl)-1].ts > globalTail {
+			globalTail = tl[len(tl)-1].ts
+		}
+	}
+	if freqTimelinesSameEmission(timelines[repA], timelines[repB]) {
+		return ""
+	}
+	ok, split := freqStateCoMoveTrimmedDiag(timelines[repA], timelines[repB], globalTail)
+	if ok || split.arm == "" {
+		return ""
+	}
+	return fmt.Sprintf("cpu%d↔cpu%d @%.6f 判定臂=%s(%s)", repA, repB, split.ts, split.arm, freqCoMoveSplitArmZH(split.arm))
 }
 
 // coreCapabilityClusterFmax is the CAP-2 class-ORDERING fmax ladder for one

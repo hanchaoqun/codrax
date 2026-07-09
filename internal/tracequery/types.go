@@ -432,6 +432,18 @@ type Index struct {
 	// non-exported, never serialized, copy-safe like tidPresenceOnce.
 	nsSpanOnce sync.Once
 	nsSpanMaps *nsSpanDerivation
+	// freqTimelinesOnce/freqTimelines back the CAP-3 (§29.11, 复核 P3)
+	// Index-global per-CPU cpu_frequency sample memo
+	// (indexFreqSampleTimelines, cluster_freq_share.go): the window faces'
+	// cluster-domain derivation reads the full event stream per resolver
+	// construction, and re-scanning ≤250k events on every ComputeWindowStats/
+	// BuildSchedulerLatencyStats call is avoidable. READ-ONLY BY CONTRACT:
+	// every consumer (chainQueryCache.buildFreqIndex shares this exact map)
+	// treats the map and its slices as immutable. Lazily built once;
+	// non-exported, never serialized, copy-safe like tidPresenceOnce (Index
+	// is pointer-only throughout the package).
+	freqTimelinesOnce sync.Once
+	freqTimelines     map[int][]freqSample
 }
 
 type Query struct {

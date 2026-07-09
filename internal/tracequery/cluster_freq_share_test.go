@@ -544,11 +544,41 @@ func TestDeriveClusterFreqDomainsMismatchNeverMerges(t *testing.T) {
 	if d := deriveClusterFreqDomains(a); d.groupCount != 2 {
 		t.Fatalf("value mismatch must split, got %+v", d)
 	}
-	// (c) different lengths → split.
-	b := donghuBurstTimelines([]int{1090000, 1618000}, 100.0, 3, 4)
-	b[4] = b[4][:1]
-	if d := deriveClusterFreqDomains(b); d.groupCount != 2 {
-		t.Fatalf("length mismatch must split, got %+v", d)
+	// (c) different lengths. EVOLUTION RECORD (CAP-3 §29.11, 2026-07-10):
+	// the original CFR-2 pin split EVERY length mismatch. A single missing
+	// TRAILING change at the global sample-stream tail is now the adjudicated
+	// carve/cap boundary-straddle form and MERGES (the huadong_792 "簇结构
+	// 不可判" mechanical source); the split rule survives on the mid-stream
+	// forms below — real divergence never merges.
+	b := donghuBurstTimelines([]int{1090000, 1618000, 1224000}, 100.0, 3, 4)
+	b[4] = b[4][:2]
+	if d := deriveClusterFreqDomains(b); d.groupCount != 1 {
+		t.Fatalf("single trailing change at the stream tail behind ≥2 aligned changes is the boundary-cut form and must merge (CAP-3), got %+v", d)
+	}
+	// (c0) the same trailing cut behind only ONE aligned change → below the
+	// trimmed-form evidence floor (clusterFreqTrimmedMinAligned): a
+	// single coincident parked value is not co-movement — split (this is the
+	// §26 R5d cross-class witness shape).
+	c0 := donghuBurstTimelines([]int{1090000, 1618000}, 100.0, 3, 4)
+	c0[4] = c0[4][:1]
+	if d := deriveClusterFreqDomains(c0); d.groupCount != 2 {
+		t.Fatalf("trailing cut behind a single aligned change must split (evidence floor), got %+v", d)
+	}
+	// (c1) two unmatched trailing changes → real divergence, split (a
+	// boundary cut takes at most the stream's last emission burst).
+	c1 := donghuBurstTimelines([]int{1090000, 1618000, 1224000}, 100.0, 3, 4)
+	c1[4] = c1[4][:1]
+	if d := deriveClusterFreqDomains(c1); d.groupCount != 2 {
+		t.Fatalf("two trailing changes must split (real divergence), got %+v", d)
+	}
+	// (c2) one unmatched trailing change NOT at the global stream tail
+	// (a third CPU keeps sampling later) → the shorter side witnessed the
+	// stream continuing without it — real mid-stream stop, split.
+	c2 := donghuBurstTimelines([]int{1090000, 1618000}, 100.0, 3, 4)
+	c2[4] = c2[4][:1]
+	c2[9] = []freqSample{{ts: 100.0, khz: 2000000}, {ts: 101.0, khz: 2100000}}
+	if d := deriveClusterFreqDomains(c2); len(d.members[d.byCPU[3]]) != 1 || d.byCPU[3] == d.byCPU[4] {
+		t.Fatalf("trailing change deep inside the stream must split cpu3/cpu4, got %+v", d)
 	}
 	// Within-bound µs jitter (donghu shape) still merges.
 	if d := deriveClusterFreqDomains(donghuBurstTimelines([]int{1090000, 1618000}, 100.0, 3, 4)); d.groupCount != 1 {

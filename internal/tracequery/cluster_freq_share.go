@@ -23,6 +23,22 @@ package tracequery
 //     frequency-tier INFERENCE (inferCoreTopologyFromFrequency) remains a
 //     noisy signal and never arms the gate; the derivation reads exact value
 //     sequences and a documented timestamp bound — precise signals.
+//   - CAP-3 (§29.11, docs/design/real_trace_campaign_20260705.md, user ruling
+//     2026-07-09): cpu_frequency is a STATE lane and the cluster topology is
+//     a TRACE-GLOBAL attribute. (a) Every face derives over the SAME
+//     Index-global sample stream (indexFreqSampleTimelines) — never a
+//     query-window crop: cropping the derivation input moved the carve
+//     boundary per window and made the SAME trace judge in one window and
+//     fail in the next (huadong_792 两窗不可判 vs g12 窗判出, cap2_report
+//     witness). (b) The co-movement criterion (freqTimelinesCoMove) is
+//     boundary-cut robust: a carve/cap/gate boundary that straddles ONE
+//     multi-row emission burst (padded head ts-gate, padded tail ts-gate,
+//     MaxEvents budget cut, window-face TimeEnd cut) must not fragment a
+//     cluster into same-fmax twins — that fragmentation was the huadong
+//     "簇结构不可判,按纯频率比折算" degrade's mechanical source (engine-real
+//     reproduction pinned in core_capability_cap3_test.go). Real mid-stream
+//     state divergence (a member row genuinely missing/skewed while the
+//     stream continues) still SPLITS — absence never guesses.
 //   - Cluster identity is the VERBATIM (lowercased) topology label, NOT the
 //     normalized 3-class display taxonomy. normalizeCoreClass folds
 //     big/large/prime into one "big" class — correct for core-class display,
@@ -235,6 +251,13 @@ func resolveClusterFreqDomains(rawTopology string, timelines func() map[int][]fr
 //	cluster member, so same-cluster timelines are copies of each other; any
 //	mismatch splits (fail-open — a false split only loses reuse).
 //
+//	CAP-3 (§29.11) boundary evolution: the identity above is additionally
+//	accepted MODULO the index's carve boundaries (freqTimelinesCoMove): an
+//	unwitnessed head region on the later-starting side (with carry-in state
+//	agreement at the junction) and a single tail change straddled by the
+//	stream's tail boundary no longer split. Mid-stream divergence still
+//	splits — see freqStateCoMoveTrimmed for the per-side direction analysis.
+//
 //	向下继承: an unsampled core inherits the domain of the nearest sampled
 //	core with a higher-or-equal core number ("≤3 的核都和 3 核一样,依次
 //	类推") — resolved on demand in domainMembersFor.
@@ -265,15 +288,29 @@ func deriveClusterFreqDomains(timelines map[int][]freqSample) clusterFreqDomains
 		source:     ClusterFreqSourceDerived,
 		sampledAsc: sampled,
 	}
+	// CAP-3: the stream-tail boundary is a GLOBAL property of the sample
+	// stream (max sample ts over every sampled CPU) — the tail-straddle
+	// exemption in freqTimelinesCoMove keys on it, never on a per-pair value
+	// a foreign cluster's silence could fake.
+	globalTail := 0.0
+	for _, cpu := range sampled {
+		tl := timelines[cpu]
+		if last := tl[len(tl)-1].ts; last > globalTail {
+			globalTail = last
+		}
+	}
 	// Group sampled cores by timeline identity. Representatives are the
 	// lowest member of each group (ascending scan keeps this deterministic);
 	// identity against the representative suffices because same-cluster
-	// timelines are copies of one emission.
+	// timelines are copies of one emission. (CAP-3: with the boundary-trimmed
+	// form, co-movement is anchored on the representative — a member joins
+	// the FIRST representative it co-moves with; deterministic by the
+	// ascending scan.)
 	var reps []int
 	for _, cpu := range sampled {
 		joined := false
 		for gi, rep := range reps {
-			if freqTimelinesSameEmission(timelines[rep], timelines[cpu]) {
+			if freqTimelinesCoMove(timelines[rep], timelines[cpu], globalTail) {
 				label := derivedDomainLabel(gi)
 				out.byCPU[cpu] = label
 				out.members[label] = append(out.members[label], cpu)
@@ -296,23 +333,44 @@ func derivedDomainLabel(group int) string {
 	return "derived_c" + strconv.Itoa(group)
 }
 
-// windowFreqSampleTimelines adapts a window-face per-CPU Event collection to
-// the freqSample shape the derivation reads (ts + kHz only). Pure conversion
-// — the caller's collection caliber (window bounds, admission predicate) is
-// taken as-is.
-func windowFreqSampleTimelines(freqByCPU map[int][]Event) map[int][]freqSample {
-	out := make(map[int][]freqSample, len(freqByCPU))
-	for cpu, events := range freqByCPU {
-		if len(events) == 0 {
-			continue
-		}
-		tl := make([]freqSample, 0, len(events))
-		for _, ev := range events {
-			tl = append(tl, freqSample{ts: ev.Ts, khz: ev.Frequency})
-		}
-		out[cpu] = tl
+// TOMBSTONE (CAP-3 §29.11, 2026-07-10): windowFreqSampleTimelines — the
+// window faces' Event→freqSample derivation adapter — is RETIRED. Feeding
+// each face's window-cropped collection into deriveClusterFreqDomains re-cut
+// the sample stream at the query window and forked the topology judgment per
+// window (the adjudicated lane fork behind huadong_792's "簇结构不可判" vs
+// g12's judged form). The window faces' donor DERIVATION now reads
+// indexFreqSampleTimelines (below); the donor timelines' VALUES still come
+// from each face's own window collection at the call sites (governance
+// caliber untouched — only MEMBERSHIP went Index-global).
+
+// indexFreqSampleTimelines is THE Index-global per-CPU cpu_frequency sample
+// collector (CAP-3 §29.11 拓扑解析基全局化): admission via the shared
+// isPerCPUFrequencySample predicate, attribution via the cpu_id key when
+// present (eventCPUForStats), event order preserved as indexed. SINGLE
+// collector — chainQueryCache.buildFreqIndex and the window faces' domain
+// derivation both consume it, so the fold lane and the window lanes can never
+// again resolve cluster membership over two different sample bases. The
+// Index is the widest in-memory basis a query owns; its lifetime bounds the
+// judgment, so the §28.4 补充 cross-trace transplant ban holds structurally.
+//
+// 复核 P3: memoized once per Index (sync.Once, concurrent-read safe — the
+// Index lazy-memo house pattern, see Index.freqTimelinesOnce). The returned
+// map and its slices are READ-ONLY BY CONTRACT for every consumer.
+func indexFreqSampleTimelines(idx *Index) map[int][]freqSample {
+	if idx == nil {
+		return map[int][]freqSample{}
 	}
-	return out
+	idx.freqTimelinesOnce.Do(func() {
+		out := map[int][]freqSample{}
+		for _, ev := range idx.Events {
+			if !isPerCPUFrequencySample(ev) {
+				continue
+			}
+			out[eventCPUForStats(ev)] = append(out[eventCPUForStats(ev)], freqSample{ts: ev.Ts, khz: ev.Frequency})
+		}
+		idx.freqTimelines = out
+	})
+	return idx.freqTimelines
 }
 
 // freqTimelinesSameEmission is the precise 同域判据 (see
@@ -336,6 +394,238 @@ func freqTimelinesSameEmission(a, b []freqSample) bool {
 	}
 	return true
 }
+
+// freqTimelinesCoMove is the CAP-3 (§29.11) co-movement criterion: the exact
+// same-emission identity above (fast path, historical semantics byte-for-byte
+// — including its constant-equal-value merge form), OR the boundary-trimmed
+// STATE alignment (freqStateCoMoveTrimmed). globalTailTs is the sample
+// stream's tail boundary (max sample ts across ALL sampled CPUs of this
+// derivation) — the tail-straddle exemption's anchor.
+func freqTimelinesCoMove(a, b []freqSample, globalTailTs float64) bool {
+	if freqTimelinesSameEmission(a, b) {
+		return true
+	}
+	return freqStateCoMoveTrimmed(a, b, globalTailTs)
+}
+
+// freqStateChangePoints dedups a raw ts-ordered sample timeline into state
+// CHANGE points (cpu_frequency is a state lane — a re-announcement of the
+// standing value is not a transition and must not desynchronize the pairwise
+// alignment below).
+func freqStateChangePoints(tl []freqSample) []freqSample {
+	out := make([]freqSample, 0, len(tl))
+	for _, s := range tl {
+		if len(out) > 0 && out[len(out)-1].khz == s.khz {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// freqStateCoMoveTrimmed is the CAP-3 boundary-trimmed state-alignment form
+// of the 同域判据. It exists because the fold face's Index is a padded CARVE
+// of the raw trace under an event budget: the padded-head ts gate, the
+// padded-tail ts gate, the MaxEvents budget cut and the window-face TimeEnd
+// cut each land at a µs-arbitrary point of the event stream, and any of them
+// straddling ONE multi-row emission burst made same-cluster timelines differ
+// by exactly one boundary row — the whole-array identity then fragmented the
+// cluster into same-fmax twins and the §26 judgment died on the fmax-tie /
+// >4-cluster fail-loud arms (huadong_792 mechanical shape).
+//
+// Rules — all precise, evaluated on DEDUPED change points:
+//
+//	HEAD (unwitnessed region): the earlier-starting side's changes BEFORE the
+//	later side's first witness (minus skew) are trimmed. The trace carries no
+//	claim about the later CPU there (its rows were gate-cut, or its buffer
+//	started later), so the region is one-sided evidence, not disagreement.
+//	Junction guard: the trimmed side's carried state at the junction must
+//	equal the later side's first value when that first change cannot pair
+//	directly — a state DISAGREEMENT at first witness splits.
+//
+//	MIDDLE (both witnessed): strict 1:1 alignment — equal kHz and timestamps
+//	within clusterFreqDeriveMaxSkewSec at every change. Any unpaired or
+//	skew-violating mid-stream change splits: the state functions genuinely
+//	diverge there (a missing member row means the trace CLAIMS that CPU kept
+//	the old frequency — merging over it would guess hardware state).
+//
+//	TAIL (stream-tail straddle): at most ONE unmatched trailing change, on
+//	one side only, and only when it sits within the skew bound of the GLOBAL
+//	sample-stream tail (globalTailTs) — i.e. it is the stream's very last
+//	emission burst, exactly where a budget/gate cut takes member rows. A
+//	trailing change deeper inside the stream is real divergence (state
+//	carries forward) and splits regardless.
+//
+//	EVIDENCE FLOOR (CAP-3 复核 P1, 2026-07-10): every trimmed-form merge
+//	requires at least clusterFreqTrimmedMinAligned (=2) aligned change
+//	pairs. The FIRST aligned pair may be nothing more than both sides' entry
+//	ANNOUNCEMENT of a standing value (one all-policy sweep emits first rows
+//	within the skew bound) — it witnesses a shared STATE, not a shared
+//	TRANSITION. Deduped change points guarantee the SECOND aligned pair is a
+//	real co-witnessed value transition, so the floor demands at least one.
+//	The original aligned≥1 floor let two foreign clusters PARKED at one
+//	value (equal first announcements, different re-announce cadence) fuse
+//	and corrupt the §26 cluster count — 复核 REPRO: a 3-cluster trace
+//	{active small, middle parked @1430000, big parked @1430000} collapsed
+//	to 2 groups and crowned the ACTIVE SMALL cluster as big (cap 2.53)
+//	while shipping default_table silently. With the floor at 2 the trimmed
+//	form is genuinely no weaker than the historical constant-value merge
+//	(which demanded per-index ts agreement over the WHOLE arrays); the
+//	residual cost shape — a true same-cluster pair with exactly one
+//	co-witnessed transition plus differing cadence — is emission-
+//	structurally unreachable (one notifier loop emits all member rows, so
+//	same-cluster cadence is identical by construction).
+//
+// Direction (§29.11 保守方向, per side):
+//
+//	False SPLIT (criterion too strict) → the fold degrades to the pure
+//	frequency ratio with the freq_only disclosure — prices are conservative
+//	but the §26 class gap is lost on EVERY row of the query (the huadong
+//	regression this batch removes).
+//	False MERGE (criterion too loose) → fabricated donor frequencies and a
+//	corrupted cluster count. The exemptions are therefore bounded to regions
+//	where the trace makes NO claim (head) or where the stream tail provably
+//	cut the emission (tail, global anchor + single change + skew bound);
+//	mid-stream tolerance stays ZERO.
+func freqStateCoMoveTrimmed(a, b []freqSample, globalTailTs float64) bool {
+	ok, _ := freqStateCoMoveTrimmedDiag(a, b, globalTailTs)
+	return ok
+}
+
+// freqCoMoveSplit localizes the comparison that split a pair (CAP-3 复核 P2,
+// 2026-07-10): the judging arm token plus the timestamp at the failing
+// change. DISCLOSURE/AUDIT INPUT ONLY — no gate may ever read it (the split
+// decision itself is the gate; this struct merely says WHERE it fired, so a
+// customer replay can distinguish a boundary form from real mid-stream
+// divergence, §28.11 four-layer acceptance).
+type freqCoMoveSplit struct {
+	arm string
+	ts  float64
+}
+
+// Split-arm tokens (typed vocabulary for the audit face; see
+// freqCoMoveSplitArmZH for the display labels).
+const (
+	freqCoMoveSplitArmEmpty = "no_samples"
+	freqCoMoveSplitArmHead  = "head_junction_state_mismatch"
+	freqCoMoveSplitArmMid   = "mid_alignment_mismatch"
+	freqCoMoveSplitArmFloor = "co_witness_floor"
+	freqCoMoveSplitArmTail  = "tail_exemption_unmet"
+)
+
+// freqCoMoveSplitArmZH maps a split-arm token to its zh display label (the
+// audit wording keeps token+label side by side so the line stays greppable
+// AND readable).
+func freqCoMoveSplitArmZH(arm string) string {
+	switch arm {
+	case freqCoMoveSplitArmEmpty:
+		return "一侧无采样"
+	case freqCoMoveSplitArmHead:
+		return "头部接续态不一致"
+	case freqCoMoveSplitArmMid:
+		return "中段1:1对齐违例"
+	case freqCoMoveSplitArmFloor:
+		return "共见证变迁不足"
+	case freqCoMoveSplitArmTail:
+		return "尾部豁免不满足"
+	default:
+		return ""
+	}
+}
+
+// freqStateCoMoveTrimmedDiag is the single implementation of the trimmed
+// criterion (see the rule/direction documentation above). The split result is
+// meaningful only when ok=false.
+func freqStateCoMoveTrimmedDiag(a, b []freqSample, globalTailTs float64) (bool, freqCoMoveSplit) {
+	if len(a) == 0 || len(b) == 0 {
+		return false, freqCoMoveSplit{arm: freqCoMoveSplitArmEmpty}
+	}
+	x, y := freqStateChangePoints(a), freqStateChangePoints(b)
+	// y = earlier-or-equal starting side, x = later side.
+	if x[0].ts < y[0].ts {
+		x, y = y, x
+	}
+	// HEAD trim on the earlier side; carry the trimmed state for the junction
+	// guard.
+	carryKnown := false
+	carry := 0
+	for len(y) > 0 && y[0].ts < x[0].ts-clusterFreqDeriveMaxSkewSec {
+		carryKnown, carry = true, y[0].khz
+		y = y[1:]
+	}
+	aligned := 0
+	pairs := func(p, q freqSample) bool {
+		if p.khz != q.khz {
+			return false
+		}
+		skew := p.ts - q.ts
+		if skew < 0 {
+			skew = -skew
+		}
+		return skew <= clusterFreqDeriveMaxSkewSec
+	}
+	// Junction: x's first change pairs normally when it can; otherwise it may
+	// be x's trace-entry announcement of the standing state — consumable iff
+	// the trimmed side's carried state agrees (and ONLY for this first
+	// change: mid-stream carry consumption would merge over real divergence).
+	if len(y) == 0 || !pairs(x[0], y[0]) {
+		if !carryKnown || x[0].khz != carry {
+			return false, freqCoMoveSplit{arm: freqCoMoveSplitArmHead, ts: x[0].ts}
+		}
+		x = x[1:]
+	}
+	// MIDDLE: strict 1:1 alignment.
+	n := len(x)
+	if len(y) < n {
+		n = len(y)
+	}
+	for i := 0; i < n; i++ {
+		if !pairs(x[i], y[i]) {
+			return false, freqCoMoveSplit{arm: freqCoMoveSplitArmMid, ts: x[i].ts}
+		}
+	}
+	aligned = n
+	// 复核 P1 floor: ≥2 aligned pairs ⇒ at least one true co-witnessed
+	// TRANSITION beyond the entry-announcement pair (see EVIDENCE FLOOR).
+	if aligned < clusterFreqTrimmedMinAligned {
+		ts := 0.0
+		if len(x) > 0 {
+			ts = x[0].ts
+		} else if len(y) > 0 {
+			ts = y[0].ts
+		}
+		return false, freqCoMoveSplit{arm: freqCoMoveSplitArmFloor, ts: ts}
+	}
+	// TAIL: at most one unmatched trailing change, on one side, at the global
+	// stream tail.
+	extra := x[n:]
+	if len(y[n:]) > 0 {
+		extra = y[n:]
+	}
+	if len(x[n:]) > 0 && len(y[n:]) > 0 {
+		// Both sides having leftovers is impossible after the min() cut above
+		// unless n==0 — defensive split.
+		return false, freqCoMoveSplit{arm: freqCoMoveSplitArmTail, ts: extra[0].ts}
+	}
+	if len(extra) == 0 {
+		return true, freqCoMoveSplit{}
+	}
+	if len(extra) > 1 || extra[0].ts < globalTailTs-clusterFreqDeriveMaxSkewSec {
+		return false, freqCoMoveSplit{arm: freqCoMoveSplitArmTail, ts: extra[0].ts}
+	}
+	return true, freqCoMoveSplit{}
+}
+
+// clusterFreqTrimmedMinAligned is the trimmed-form merge's co-movement
+// evidence floor (see freqStateCoMoveTrimmed EVIDENCE FLOOR): at least 2
+// aligned change pairs, i.e. at least one TRUE co-witnessed transition beyond
+// a possible shared entry announcement. Same rationale as
+// clusterFreqComoveMinSamples — a single coincident value is not co-movement.
+// EVOLUTION RECORD (复核 P1, 2026-07-10): supersedes both the aligned≥1
+// general floor (parked-constant foreign clusters fused → §26 class
+// inversion) and the former tail-arm-only clusterFreqTailCutMinAligned check
+// (now subsumed: the general floor runs before the tail exemption).
+const clusterFreqTrimmedMinAligned = 2
 
 func removeInt(in []int, v int) []int {
 	out := in[:0]

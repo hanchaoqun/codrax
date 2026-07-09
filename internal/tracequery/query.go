@@ -1556,16 +1556,21 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	// sampled sibling's timeline for cores without their own samples — the
 	// cluster shares one hardware frequency point. Single resolution
 	// authority: cluster_freq_share.go — explicit core_topology first, and in
-	// its absence the CFR-2 change-point derivation over THIS window's
-	// collected timelines (identical emission sequences merge; unsampled
-	// cores inherit toward higher core numbers; never upward past the highest
-	// sampled core; a core with own samples never takes a donor). The RAW
-	// collection map stays untouched: FrequencyResidency, CPUStats.Frequency,
-	// topology inference and the ceilings snapshot keep stating sampling
-	// FACTS; every reuse is disclosed with its membership source via the
-	// window caveat + the per-CPU compute_supply donor fields.
+	// its absence the CFR-2 change-point derivation (identical emission
+	// sequences merge; unsampled cores inherit toward higher core numbers;
+	// never upward past the highest sampled core; a core with own samples
+	// never takes a donor). CAP-3 (§29.11 拓扑全局基): the derivation reads
+	// the INDEX-global sample stream — cluster topology is a trace attribute,
+	// and the old window-cropped input moved the carve boundary per query and
+	// forked the judgment between faces. hasSamples and the donor timelines'
+	// VALUES stay the window collection (governance caliber untouched — only
+	// MEMBERSHIP is global). The RAW collection map stays untouched:
+	// FrequencyResidency, CPUStats.Frequency, topology inference and the
+	// ceilings snapshot keep stating sampling FACTS; every reuse is disclosed
+	// with its membership source via the window caveat + the per-CPU
+	// compute_supply donor fields.
 	freqDonors := newClusterFreqDonorResolver(
-		resolveClusterFreqDomains(q.CoreTopology, func() map[int][]freqSample { return windowFreqSampleTimelines(freqByCPU) }),
+		resolveClusterFreqDomains(q.CoreTopology, func() map[int][]freqSample { return indexFreqSampleTimelines(idx) }),
 		func(cpu int) bool { return len(freqByCPU[cpu]) > 0 })
 	freqTimelineFor := func(cpu int) []Event {
 		if evs := freqByCPU[cpu]; len(evs) > 0 {
@@ -3086,8 +3091,10 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 	// ComputeWindowStats (single authority: cluster_freq_share.go) so the
 	// latency rows' frequency context cannot fork from the window face.
 	// Reuse is disclosed via the result caveat appended after the scan.
+	// CAP-3 (§29.11): derivation over the Index-global stream, mirroring
+	// ComputeWindowStats — membership global, values window-collected.
 	schedFreqDonors := newClusterFreqDonorResolver(
-		resolveClusterFreqDomains(q.CoreTopology, func() map[int][]freqSample { return windowFreqSampleTimelines(freqByCPU) }),
+		resolveClusterFreqDomains(q.CoreTopology, func() map[int][]freqSample { return indexFreqSampleTimelines(idx) }),
 		func(cpu int) bool { return len(freqByCPU[cpu]) > 0 })
 	schedFreqTimelineFor := func(cpu int) []Event {
 		if evs := freqByCPU[cpu]; len(evs) > 0 {
@@ -14664,29 +14671,21 @@ func (c *chainQueryCache) buildFreqIndex() {
 		return
 	}
 	c.freqIndexOnce = true
-	c.freqByCPU = map[int][]freqSample{}
-	if c.idx == nil {
-		return
-	}
-	for _, ev := range c.idx.Events {
-		// VS-2c 终局裁定 (§7.10): clock_set_rate lanes reclassified as
-		// cpu_frequency by the isCPUFrequencyClock NAME HEURISTIC carry
-		// vendor-free-vocabulary names and emitting-CPU attribution (hmtrace
-		// hardcodes cpu 0) — they MUST NOT enter the chain/fold per-CPU
-		// frequency basis (neither fmax nor slice governance). Their max
-		// surfaces only as the SupplyFoldBasis cluster-lane corroboration
-		// caveat. Precise signal: verbatim event-name match, via the CFC
-		// shared predicate (cluster_ceilings.go) so the window face cannot
-		// drift from this exclusion. Pinned in semantic_ruling_pins_test.go.
-		if !isPerCPUFrequencySample(ev) {
-			continue
-		}
-		cpu := ev.CPU
-		if ev.CPUForFieldValid {
-			cpu = ev.CPUForField
-		}
-		c.freqByCPU[cpu] = append(c.freqByCPU[cpu], freqSample{ts: ev.Ts, khz: ev.Frequency})
-	}
+	// VS-2c 终局裁定 (§7.10): clock_set_rate lanes reclassified as
+	// cpu_frequency by the isCPUFrequencyClock NAME HEURISTIC carry
+	// vendor-free-vocabulary names and emitting-CPU attribution (hmtrace
+	// hardcodes cpu 0) — they MUST NOT enter the chain/fold per-CPU
+	// frequency basis (neither fmax nor slice governance). Their max
+	// surfaces only as the SupplyFoldBasis cluster-lane corroboration
+	// caveat. Precise signal: verbatim event-name match, via the CFC
+	// shared predicate (cluster_ceilings.go) so the window face cannot
+	// drift from this exclusion. Pinned in semantic_ruling_pins_test.go.
+	// CAP-3 (§29.11): collection now lives in the SHARED Index-global
+	// collector (indexFreqSampleTimelines, cluster_freq_share.go) — same
+	// admission, same cpu_id attribution, same event order; the window
+	// faces' domain derivation reads the same function, so the fold and
+	// window lanes share ONE topology basis by construction.
+	c.freqByCPU = indexFreqSampleTimelines(c.idx)
 }
 
 // frequencyAt returns the cpu_frequency sample in effect on cpu at ts: the
@@ -16688,7 +16687,56 @@ func resultCaveats(idx *Index, q Query, res Result) []string {
 	}
 	out = append(out, traceWindowStrategyCaveats(q, res)...)
 	out = append(out, traceCompletenessCaveats(idx, q, res)...)
+	if caveat := capabilitySplitAuditCaveat(res); caveat != "" {
+		out = append(out, caveat)
+	}
 	return out
+}
+
+// capabilitySplitAuditCaveat (CAP-3 复核 P2, §29.11) lifts the FIRST
+// fragmentation split-audit found on any fold basis of this result into ONE
+// engine caveat line, so tracediag replays and tool consumers see WHERE the
+// co-movement criterion split behind a freq_only degrade. Disclosure only —
+// the wording says so explicitly and no gate reads it; "" when no basis
+// carries an audit (non-freq_only results and the non-fragmentation freq_only
+// arms stay caveat-silent, absence preserves every existing byte).
+func capabilitySplitAuditCaveat(res Result) string {
+	audit := ""
+	scanBasis := func(basis *SupplyFoldBasis) {
+		if audit == "" && basis != nil && basis.CapabilitySplitAudit != "" {
+			audit = basis.CapabilitySplitAudit
+		}
+	}
+	scanChain := func(chain *ChainResult) {
+		if chain == nil {
+			return
+		}
+		for i := range chain.CausalImpacts {
+			scanBasis(chain.CausalImpacts[i].SupplyFoldBasis)
+		}
+		for i := range chain.AggregatedImpacts {
+			scanBasis(chain.AggregatedImpacts[i].SupplyFoldBasis)
+		}
+	}
+	scanRank := func(rank *RootCauseRankResult) {
+		if rank == nil {
+			return
+		}
+		for i := range rank.Items {
+			scanBasis(rank.Items[i].SupplyFoldBasis)
+		}
+	}
+	scanChain(res.WakeupChain)
+	scanRank(res.RootCauseRank)
+	if res.FrameRootCauseBundle != nil {
+		scanChain(res.FrameRootCauseBundle.WakeupChain)
+		scanRank(res.FrameRootCauseBundle.RootCauseRank)
+	}
+	if audit == "" {
+		return ""
+	}
+	return "capability_freq_only_split_audit=" + audit +
+		" — 簇结构不可判(freq_only)降级的首个共动分裂点定位;仅披露/审计用,不参与任何判定 (first co-movement split behind the freq_only capability degrade; disclosure/audit only, never a gate)"
 }
 
 // crossTypeRescan bounds (D-diag B-1, §16). The zero-match query already paid

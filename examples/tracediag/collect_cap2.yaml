@@ -1,13 +1,22 @@
-# CAP-2 簇拓扑证据面定向核查(§29.10 语境:huadong_792 尾截断后经 tracediag 旁路确认)
+# CAP-2/CAP-3 簇拓扑证据面定向核查(§29.10 语境:huadong_792 尾截断后经 tracediag 旁路确认;
+# CAP-3 §29.11 修后=验收基准脚本:两 huadong 窗与阳性对照窗应同判)
 # 用法: codrax --tracediag examples/tracediag/collect_cap2.yaml --trace berlin.systrace --out cap2_report.txt
 # 判定点:
 #  - 各步 window_stats.cpu[N] 行的 core_class= 与 frequency_residency(共动分簇是否判出、逐窗对照);
 #  - rank 步 typed notes 中 fold_cluster_topology=/gated_cluster_topology=/fold_rail_basis=(折算基披露);
-#  - 步1/步2 = huadong_792 报告实际使用的两个查询窗(该报告印"簇结构不可判");
-#  - 步3 = g12_report 已证可判窗(阳性对照);步4 = rank 折算词消费面。
-# 预算: 240+240+240+200 = 920 ≤ 950(单文件约束)
+#    CAP-3 修后预期 fold_capability=default_table + fold_cluster_topology=freq_comovement(词=按实测频点共动分簇折算);
+#  - 若 rank 步仍印 freq_only:caveats 中 capability_freq_only_split_audit=cpuA↔cpuB @ts 判定臂=…
+#    即首个共动分裂点定位(CAP-3 复核 P2 披露面)——判定臂=mid_alignment_mismatch(中段1:1对齐违例)
+#    为真中流分歧(残余诚实形,非 carve 边界形);该注仅披露/审计,不参与任何判定;
+#  - 步1/步2 = huadong_792 报告实际使用的两个查询窗(修前该报告印"簇结构不可判");
+#  - 步3 = g12_report 已证可判窗(阳性对照);步4 = rank 折算词消费面;
+#  - 步5 = 窗b cpu_frequency 全量普查(census 面预截断聚合:matched 行数+频点梯+cpu 集;
+#    显示行截断不影响聚合),原文行含 cpu_id= 可 grep 计数(per-CPU 样本计数对照);
+#  - 步6 = 窗b carve 垫头边界邻域(6793223.799+4ms)原文行:首个簇发射的成员行是否完整
+#    (grep cpu_id= 逐 cpu 计数不等 ⇒ 边界骑跨在场;CAP-3 判据已容忍该形,此步仅留证)。
+# 预算: 240+240+240+200+15+15 = 950 ≤ 950(单文件约束)
 version: 1
-description: CAP-2 簇拓扑证据面核查(huadong 两窗 + 阳性对照窗 + rank 折算面)
+description: CAP-2/CAP-3 簇拓扑证据面核查(huadong 两窗 + 阳性对照窗 + rank 折算面 + 频点样本对照)
 defaults:
   pid: 42591
 steps:
@@ -27,3 +36,13 @@ steps:
     view: root_cause_rank
     window: "6793224.299..6793224.501"
     max_lines: 200
+  - label: freq_sample_census_window_b
+    view: event_search
+    window: "6793224.299..6793224.501"
+    event_types: [cpu_frequency]
+    max_lines: 15
+  - label: freq_boundary_rows_window_b_head
+    view: event_search
+    window: "6793223.799..6793223.803"
+    event_types: [cpu_frequency]
+    max_lines: 15
