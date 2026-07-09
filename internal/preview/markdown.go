@@ -23,9 +23,10 @@ import (
 // rawHTMLLiteralRenderer re-emits it as ESCAPED literal text (see its
 // doc for the ruling), so tokens like "<anonymous>" / "Vec<int>" stay
 // visible while keeping a zero-execution surface. The only custom HTML
-// emitted here is for fenced code blocks, where mermaid fences become
-// <div class="mermaid"> nodes and ordinary fences become escaped
-// <pre><code>.
+// emitted here is renderer-authored scaffolding: fenced code blocks
+// (mermaid fences become <div class="mermaid"> nodes, ordinary fences
+// escaped <pre><code>) and the §29.9 aux-reference appendix (pointer
+// lines + <section class="aux">, see markdown_auxfold.go).
 func RenderMarkdownHTML(markdown []byte) (string, error) {
 	var out bytes.Buffer
 	md := goldmark.New(
@@ -40,11 +41,22 @@ func RenderMarkdownHTML(markdown []byte) (string, error) {
 			extension.TaskList,
 			markdownext.StrikethroughDoubleTildeOnly,
 		),
-		goldmark.WithParserOptions(parser.WithAutoHeadingID()),
+		goldmark.WithParserOptions(
+			parser.WithAutoHeadingID(),
+			// §29.9 aux-reference appendix: exact marker paragraphs
+			// ("树读法:"/"各列口径:") plus their following list move
+			// to a document-end 「阅读参考」 appendix, leaving an
+			// in-place pointer line — HTML face only; see
+			// markdown_auxfold.go for the closed set and ruling.
+			parser.WithASTTransformers(
+				util.Prioritized(auxFoldTransformer{}, 500),
+			),
+		),
 		goldmark.WithRendererOptions(
 			renderer.WithNodeRenderers(
 				util.Prioritized(fencedCodeRenderer{}, 500),
 				util.Prioritized(rawHTMLLiteralRenderer{}, 500),
+				util.Prioritized(auxRefRenderer{}, 500),
 			),
 		),
 	)

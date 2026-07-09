@@ -505,6 +505,14 @@ pre code { background: transparent; padding: 0; }
 table { border-collapse: collapse; width: max-content; max-width: 100%; overflow: auto; display: block; }
 th, td { border: 1px solid var(--line); padding: 6px 10px; }
 blockquote { border-left: 4px solid var(--line); margin-left: 0; padding-left: 16px; color: var(--muted); }
+/* §29.9 aux-reference appendix ("树读法:"/"各列口径:" blocks, markdown_auxfold.go):
+   reference blocks relocate to the document-end 「阅读参考」 appendix;
+   the in-place pointer lines and the whole appendix render small and
+   muted, visibly subordinate to the main body. */
+.aux { font-size: .85em; color: var(--muted); }
+section.aux { margin-top: 3em; border-top: 1px solid var(--line); padding-top: 12px; }
+section.aux h2 { font-size: 1em; color: var(--muted); margin: 0 0 .5em; font-weight: 600; }
+.aux-src { margin: 1.2em 0 .2em; opacity: .85; font-style: italic; }
 .mermaid { margin: 18px 0; overflow: auto; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
 .mermaid[data-render-error="true"] { border-color: #d92d20; background: var(--error-bg); }
 .mermaid-error-title { margin: 0 0 10px; color: var(--error-fg); font-weight: 600; }
