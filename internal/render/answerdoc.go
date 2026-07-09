@@ -902,7 +902,17 @@ func renderV2BlockDiagram(b *strings.Builder, blk types.AnswerBlock, _ answerDoc
 
 const (
 	maxAnswerDisplayAttachments = 4
-	maxAnswerDisplayBodyRunes   = 16000
+	// maxAnswerDisplayBodyRunes is a protective ceiling only — it must dwarf
+	// any REAL answer shape. TRUNC 批 (P1, §29.10-1, 2026-07-09): the old
+	// 16000-rune value silently amputated huadong_792's preserved first
+	// draft mid-body with a bare "..." (witness cut byte-exact at rune
+	// 16000) — a full multi-window trace draft runs 2-4 万 runes. 200000
+	// is pinned as a ratchet by TestTRUNCDisplayBodyCapRatchet; when the
+	// ceiling does fire, trimDisplayAttachmentBody now returns a typed
+	// truncation signal and the renderer appends an explicit disclosure
+	// (total + shown rune counts) — customer-facing answers never
+	// silently truncate.
+	maxAnswerDisplayBodyRunes = 200000
 )
 
 func renderAnswerDisplayAttachments(doc *types.AnswerDocumentV2, attachments []types.AnswerDisplayAttachment, lang answerDocLang) string {
@@ -914,7 +924,7 @@ func renderAnswerDisplayAttachments(doc *types.AnswerDocumentV2, attachments []t
 	rendered := 0
 	skipped := 0
 	for _, att := range attachments {
-		body := trimDisplayAttachmentBody(att.Body)
+		body, totalRunes, truncated := trimDisplayAttachmentBody(att.Body)
 		if body == "" {
 			continue
 		}
@@ -930,6 +940,9 @@ func renderAnswerDisplayAttachments(doc *types.AnswerDocumentV2, attachments []t
 			b.WriteString(displayAttachmentPanelStart(lang))
 		}
 		renderDisplayAttachment(&b, att, body, lang)
+		if truncated {
+			renderDisplayAttachmentTruncationNote(&b, totalRunes, lang)
+		}
 		rendered++
 	}
 	if rendered == 0 {
@@ -1237,16 +1250,34 @@ func displayAttachmentPanelEnd() string {
 	return "---\n\n"
 }
 
-func trimDisplayAttachmentBody(body string) string {
+// trimDisplayAttachmentBody bounds one attachment body at the protective
+// ceiling. TRUNC 批 (§29.10-1): the legacy shape returned the cut body with a
+// bare "\n..." — the huadong_792 witness's silent mid-draft amputation. The
+// truncation is now a typed return (trimmed body, total rune count, fired
+// flag) so the caller renders an EXPLICIT disclosure instead of a bare
+// ellipsis; the trimmed body itself carries no marker.
+func trimDisplayAttachmentBody(body string) (string, int, bool) {
 	body = strings.TrimSpace(body)
 	if body == "" {
-		return ""
+		return "", 0, false
 	}
 	rs := []rune(body)
 	if len(rs) <= maxAnswerDisplayBodyRunes {
-		return body
+		return body, len(rs), false
 	}
-	return string(rs[:maxAnswerDisplayBodyRunes]) + "\n..."
+	return strings.TrimRight(string(rs[:maxAnswerDisplayBodyRunes]), "\n"), len(rs), true
+}
+
+// renderDisplayAttachmentTruncationNote appends the explicit truncation
+// disclosure for one over-ceiling attachment body. Customer-facing answers
+// never silently truncate: the note states the total and shown rune counts
+// in the answer language (TRUNC §29.10-1 修根,取代 witness 的裸 "..." 行).
+func renderDisplayAttachmentTruncationNote(b *strings.Builder, totalRunes int, lang answerDocLang) {
+	if lang == answerDocLangZH {
+		fmt.Fprintf(b, "> ⚠ 此条保留内容过长已被截断：原文共 %d 字符，此处仅显示前 %d 字符；上方已校验结构化答案主体不受影响。\n\n", totalRunes, maxAnswerDisplayBodyRunes)
+		return
+	}
+	fmt.Fprintf(b, "> ⚠ This preserved item was truncated for display: %d characters total, only the first %d are shown; the validated structured answer above is unaffected.\n\n", totalRunes, maxAnswerDisplayBodyRunes)
 }
 
 func displayAttachmentKey(kind, body string) string {

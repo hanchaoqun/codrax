@@ -46,11 +46,9 @@ func (o *Orchestrator) tryAutoRepairFinalizerAnswerDocument(out *agent.StageOutp
 	o.busCtx.Mutable.SetAnswerDisplayAttachments(attachments)
 	renderDoc := doc
 	render.ApplyAuthorityHedging(renderDoc, finalizerAutoRepairAuthorityEvidencePool(o.busCtx), o.busCtx.Language)
-	out.FinalAnswer = render.RenderAnswerDocumentWithAttachments(
-		renderDoc,
-		attachments,
-		o.busCtx.Language,
-	)
+	// TRUNC 批 (§29.10-1): render through the last-mile chokepoint so the
+	// deterministic 系统补充 blocks survive this FinalAnswer overwrite.
+	out.FinalAnswer = o.renderFinalAnswerWithLastMileSupplements(renderDoc, attachments)
 	out.Data = marshalFinalizerAutoRepairStageData(out.FinalAnswer)
 	return true
 }
@@ -265,12 +263,15 @@ func (o *Orchestrator) recoverRejectedFinalizerDraftAfterTransientFailure(c type
 	originalAttachments := o.busCtx.Mutable.AnswerDisplayAttachments()
 	renderDoc := doc
 	attachments := answertool.FilterAcceptedAnswerDisplayAttachments(renderDoc, originalAttachments)
+	// P3-2 立案说明(TRUNC 复核, 2026-07-09):ApplyAuthorityHedging 非幂等
+	// (hedging marker 可叠加),且 renderDoc 与下方 281 行入库的 doc 同指针
+	// ——先 hedge 后入库意味着 Mutable 里存的是已 hedge 稿,下游任何再取再
+	// hedge 的重渲染即 marker 叠加可达形。复核判当前结构不可达、不阻本批;
+	// 幂等化立案见账本 §29.14,本批不实现。
 	render.ApplyAuthorityHedging(renderDoc, finalizerAutoRepairAuthorityEvidencePool(o.busCtx), o.busCtx.Language)
-	answer := render.RenderAnswerDocumentWithAttachments(
-		renderDoc,
-		attachments,
-		o.busCtx.Language,
-	)
+	// TRUNC 批 (§29.10-1): render through the last-mile chokepoint so the
+	// deterministic 系统补充 blocks survive the recovery re-render.
+	answer := o.renderFinalAnswerWithLastMileSupplements(renderDoc, attachments)
 	if strings.TrimSpace(answer) == "" {
 		return nil
 	}

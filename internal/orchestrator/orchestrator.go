@@ -8032,15 +8032,37 @@ func (o *Orchestrator) appendAnswerDisplayAttachment(out *agent.StageOutput, att
 	attachments = append(attachments, att)
 	o.busCtx.Mutable.SetAnswerDisplayAttachments(attachments)
 	if doc := o.busCtx.Mutable.AnswerDocumentV2(); doc != nil {
-		out.FinalAnswer = render.RenderAnswerDocumentWithAttachments(
+		// TRUNC 批 (§29.10-1): this overwrite used to call
+		// render.RenderAnswerDocumentWithAttachments directly — dropping
+		// both the finalizer's authority hedging AND every last-mile
+		// 系统补充 block from the customer-facing answer (huadong_792
+		// witness: the whole trace_query 关键观测核对 block vanished
+		// exactly on the first-draft-attachment path). Mirror
+		// parseOutputV2: hedge the defensive clone, then render through
+		// the last-mile chokepoint.
+		render.ApplyAuthorityHedging(doc, finalizerAutoRepairAuthorityEvidencePool(o.busCtx), o.busCtx.Language)
+		out.FinalAnswer = o.renderFinalAnswerWithLastMileSupplements(
 			doc,
 			o.busCtx.Mutable.AnswerDisplayAttachments(),
-			o.busCtx.Language,
 		)
 		return
 	}
 	out.FinalAnswer = strings.TrimRight(out.FinalAnswer, "\n") + "\n\n---\n\n**" +
 		strings.TrimSpace(att.Title) + "**\n\n" + strings.TrimSpace(att.Body) + "\n\n---\n"
+}
+
+// renderFinalAnswerWithLastMileSupplements is the SINGLE orchestrator-side
+// chokepoint for re-rendering a customer-facing FinalAnswer from the
+// structured document + preserved attachments. It reproduces the finalizer's
+// full render surface — including every deterministic last-mile 系统补充
+// block — instead of the bare document+attachments projection. TRUNC 批
+// (P1, §29.10-1, 2026-07-09): direct render.RenderAnswerDocumentWithAttachments
+// overwrites silently amputated the supplements (huadong_792 witness);
+// TestTRUNCFinalAnswerRerenderChokepointStructural pins that no other
+// orchestrator file bypasses this helper on the customer answer surface.
+func (o *Orchestrator) renderFinalAnswerWithLastMileSupplements(doc *types.AnswerDocumentV2, attachments []types.AnswerDisplayAttachment) string {
+	agentCtx := ctxbuilder.BuildAgentContext(o.busCtx, types.AgentFinalizer, types.StageFinalize)
+	return agent.RenderAnswerDocumentWithLastMileSupplements(agentCtx, doc, attachments, o.busCtx.Language)
 }
 
 func draftReferenceTitle(lang string) string {
