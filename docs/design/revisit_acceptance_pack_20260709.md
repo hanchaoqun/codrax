@@ -92,3 +92,16 @@ codrax -r "查询 record_trace_20260606064820@33863-826532969.sys.ftrace 中 #Rx
 
 ## 症状:`fatal: not a git repository`
 zip 下载的源码树无 `.git`,该提示为版本号探测噪音,**不影响构建**(版本号自动回退);新构建的 Makefile 已在无 `.git` 时静音跳过。
+
+## CAP-2 簇拓扑证据面定向核查(补充,2026-07-09)
+huadong 场景转录尾段缺失时,CAP-2 面可经收集脚本旁路确认:
+```
+codrax --tracediag examples/tracediag/collect_cap2.yaml --trace berlin.systrace --out cap2_report.txt
+```
+判定点:各步 `window_stats.cpu[N]` 行的 `core_class=` 与频率驻留(共动分簇逐窗对照;步3=已证可判窗阳性对照);rank 步 typed notes 的 `fold_cluster_topology=`/`fold_rail_basis=`(折算基披露)。
+无新构建时的 grep 回退(仅证原始信号存在,无引擎判定):
+```powershell
+Select-String -Path berlin.systrace -Pattern "cpu_frequency:" | Select-Object -First 40
+Select-String -Path berlin.systrace -Pattern "clock_set_rate: m3_c" | Select-Object -First 40
+Select-String -Path berlin.systrace -Pattern "cpu_frequency_limits" | Select-Object -First 20
+```

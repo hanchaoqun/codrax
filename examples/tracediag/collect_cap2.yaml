@@ -1,0 +1,29 @@
+# CAP-2 簇拓扑证据面定向核查(§29.10 语境:huadong_792 尾截断后经 tracediag 旁路确认)
+# 用法: codrax --tracediag examples/tracediag/collect_cap2.yaml --trace berlin.systrace --out cap2_report.txt
+# 判定点:
+#  - 各步 window_stats.cpu[N] 行的 core_class= 与 frequency_residency(共动分簇是否判出、逐窗对照);
+#  - rank 步 typed notes 中 fold_cluster_topology=/gated_cluster_topology=/fold_rail_basis=(折算基披露);
+#  - 步1/步2 = huadong_792 报告实际使用的两个查询窗(该报告印"簇结构不可判");
+#  - 步3 = g12_report 已证可判窗(阳性对照);步4 = rank 折算词消费面。
+# 预算: 240+240+240+200 = 920 ≤ 950(单文件约束)
+version: 1
+description: CAP-2 簇拓扑证据面核查(huadong 两窗 + 阳性对照窗 + rank 折算面)
+defaults:
+  pid: 42591
+steps:
+  - label: huadong_window_a_stats
+    view: window_stats
+    window: "6793222.700..6793222.901"
+    max_lines: 240
+  - label: huadong_window_b_stats
+    view: window_stats
+    window: "6793224.299..6793224.501"
+    max_lines: 240
+  - label: control_window_stats
+    view: window_stats
+    window: "6793224.900..6793225.000"
+    max_lines: 240
+  - label: rank_fold_basis
+    view: root_cause_rank
+    window: "6793224.299..6793224.501"
+    max_lines: 200
