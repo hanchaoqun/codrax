@@ -504,7 +504,18 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 			},
 			{
 				// SG-A1: background-aggregate headline prohibition — trace-only.
-				Body:      "BACKGROUND AGGREGATE HEADLINE: cross-thread aggregate pressure observations (rows typed cpu_pressure / io_pressure / supply_pressure, and any cause row published with subject_kind=aggregate_metric) sum backlog/blocked time ACROSS many threads in CPU·ms (runnable queueing for the CPU-pressure lanes, IO/D-state blocking for the IO lane) — they measure system load, not wall-clock delay on the analysis target. When the evidence carries a ranked cause with rank=1 and chain_relevance=on_chain, the answer's headline root-cause sentence MUST name that on-chain cause; an aggregate pressure figure may then appear only as environment / system-load evidence, quoted with its basis stated (cross-thread accumulated CPU·ms, not wall-clock on the target), NEVER as the primary impact number and never presented as the root-cause magnitude. In a two-trace comparison the same rule applies to each side separately, and the delta explanation must not rest on the difference between the two sides' background aggregates alone — anchor the delta on each side's on-chain causes and keep aggregate deltas as supporting environment context.",
+				// EVOLUTION RECORD (GAP-C 复核 P2-3, 2026-07-09): the former
+				// "MUST name that on-chain cause" bound the headline to the
+				// literal rank=1 row — after the rank re-numbering a semantic
+				// optimization span or the target's own symptom row can wear
+				// rank=1 verbatim, so that sentence formed a second authority
+				// competing with the TRACE PRIMARY-CAUSE ENTITY CONSISTENCY
+				// rule's value comparison + explicit-divergence lane. The
+				// sentence now excepts those two row kinds and points at that
+				// rule as the single authority for WHICH entity the headline
+				// names; the aggregate prohibition (this clause's own topic)
+				// is unchanged.
+				Body:      "BACKGROUND AGGREGATE HEADLINE: cross-thread aggregate pressure observations (rows typed cpu_pressure / io_pressure / supply_pressure, and any cause row published with subject_kind=aggregate_metric) sum backlog/blocked time ACROSS many threads in CPU·ms (runnable queueing for the CPU-pressure lanes, IO/D-state blocking for the IO lane) — they measure system load, not wall-clock delay on the analysis target. When the evidence carries a ranked on-chain cause (rank=1 and chain_relevance=on_chain) that is not a deterministic-optimization span and not the target's own symptom row, the answer's headline root-cause sentence MUST name an on-chain cause — WHICH entity the headline names is decided solely by the TRACE PRIMARY-CAUSE ENTITY CONSISTENCY rule; an aggregate pressure figure may then appear only as environment / system-load evidence, quoted with its basis stated (cross-thread accumulated CPU·ms, not wall-clock on the target), NEVER as the primary impact number and never presented as the root-cause magnitude. In a two-trace comparison the same rule applies to each side separately, and the delta explanation must not rest on the difference between the two sides' background aggregates alone — anchor the delta on each side's on-chain causes and keep aggregate deltas as supporting environment context.",
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
 			{
@@ -533,7 +544,17 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				// spelled out. Kept distinct from the WINDOW-STATS
 				// basis-stating sentence: this clause is about the naming
 				// NEXT TO the number matching the publishing row.
-				Body:      "PROSE NUMBER GROUNDING: every numeric measurement the prose states (a duration in ms, a percentage, an occurrence count) must be locatable somewhere in the report's evidence surfaces — the measured observation records, the projection tables, the per-file evidence index, or a structured fact you carried over from the investigation. A number that cannot be located there must either be accompanied, in the same sentence, by the exact source view and time window it was read from (quoting the value as that view published it) or be removed from the prose. Never invent a replacement number, and when you derive a value yourself (a sum, a ratio, a normalization), name the published values it was derived from so the figure stays auditable. When a sentence names the time window or the thread a number belongs to, that window and thread must be the ones the number's evidence row was published under — bind each figure to its own publishing row; and when comparing across windows, normalize each side by its own window length first, then compare the normalized figures side by side.",
+				// EVOLUTION RECORD (G14 §27.4/§28.1 ruling, 2026-07-09;
+				// opendir_79_01 five witnesses): the former same-sentence
+				// "name the exact source view and time window" escape is
+				// RETIRED — all five leaked numerals were exploration-phase
+				// intermediates remembered from views that never entered the
+				// final evidence surfaces, and the escape licensed exactly
+				// that. The precise directive "exploration-phase numbers not
+				// in the final evidence surfaces are prohibited" replaces
+				// it. Gate unchanged: soft guidance only, no hard gate on
+				// prose numerals (噪声信号只作软引导).
+				Body:      "PROSE NUMBER GROUNDING: every numeric measurement the prose states (a duration in ms, a percentage, an occurrence count) must be locatable somewhere in the report's evidence surfaces — the measured observation records (the runtime observation supplement), the projection tables, the per-file evidence index, the metric snapshot, a quoted evidence block, or a structured fact carried into the final answer. A number that cannot be located there must be removed from the prose: intermediate values read during the investigation that never entered those final evidence surfaces (a latency, an inode token, an occurrence count, a duration remembered from an earlier view) are prohibited in the body, and naming the view or window they came from does not license them — the reader cannot audit a figure no shipped evidence surface carries. Never invent a replacement number, and when you derive a value yourself (a sum, a ratio, a normalization), name the published values it was derived from so the figure stays auditable. When a sentence names the time window or the thread a number belongs to, that window and thread must be the ones the number's evidence row was published under — bind each figure to its own publishing row; and when comparing across windows, normalize each side by its own window length first, then compare the normalized figures side by side.",
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
 			{
@@ -543,6 +564,48 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				// fence object itself and asserted a holder relation with
 				// zero holder evidence rows).
 				Body:      "OBJECT IDENTITY ASSERTIONS: any claim about who HOLDS, OWNS, or BLOCKS what (a lock, a fence, a buffer, any synchronization object) must be backed by an evidence row that states that relation through its typed fields (holder / blocking / contention notes). A thread's NAME is not evidence about the objects it manipulates: thread names and object names are never interchangeable — a thread named after an operation or an object (e.g. a name containing 'Fence' or 'Lock') does not hold that object by virtue of its name, and reading such a thread name as the object being held is a fabrication. When no evidence row states the holding relation, report the thread identity and the observed wait without asserting a holder or a direction of blocking.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
+			{
+				// G13a: primary-cause entity consistency — trace-only
+				// (§27.4 G13 + §28.1 ruling, real_trace_campaign_20260705.md,
+				// 2026-07-09; huadong_79_01 witness): the answer prose led
+				// with a periodic-source chain whose cadence-discounted
+				// attribution was ~0.17ms while the ranked evidence's largest
+				// attributable cause was an 11.5ms IO row — the report's own
+				// rank surfaces and the prose named DIFFERENT primary causes.
+				// Complements (never replaces) BACKGROUND AGGREGATE HEADLINE:
+				// that clause forbids aggregates in the headline; this one
+				// pins the headline's ENTITY to the ranked ordering and adds
+				// the explicit-divergence lane. Soft guidance only (entity
+				// naming is a noisy signal); a one-shot answer-side advisory
+				// covers the same obligation.
+				Body:      "TRACE PRIMARY-CAUSE ENTITY CONSISTENCY: the entity the prose presents as the primary / main cause must be the SAME entity the ranked root-cause evidence puts first after its own discounts and demotions — compare candidates by their attributable values as published (a periodic signal source counts at its discounted attribution, a merged family row at its combined total, rows with tier=target_self_state are the target's own symptom and never the primary cause, and rows with tier=data_gap mark data blind spots — never causes). Do not promote a lower-attribution cause to the headline while a larger attributable ranked cause exists. When your synthesis genuinely concludes that a different factor is the primary cause, you MUST still name the top-ranked entity in the primary-cause discussion, state explicitly that your conclusion diverges from the ranked ordering, and give the evidence basis for that divergence — silently substituting a different entity as the main cause is a regression the reader cannot audit.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
+			{
+				// G13b: lock-wait site quotation — trace-only (§27.4 G13
+				// second half, 2026-07-09; opendir_79_01 witness): the answer
+				// named a main-thread message-queue call as the lock wait
+				// point while the contention span's own text said the wait
+				// happened inside an asset resource read ("blocking from
+				// boolean android.content.res.AssetManager.getResourceValue
+				// (...)") — a wait site inferred from thread-role common
+				// sense, not from the span payload. Companion to OBJECT
+				// IDENTITY ASSERTIONS (which pins the HOLDER side); this
+				// clause pins the WAITER side's code site.
+				Body:      "LOCK-WAIT SITE QUOTATION: when the prose names the code site where a blocked thread is waiting (the wait point / blocking point of a lock, monitor, or similar contention), that site may come ONLY from the contention span's own recorded text — quote the span's `blocking from` (or equivalent wait-site) segment verbatim, keeping the method signature and any file:line exactly as the span prints them. Never infer the call site from framework knowledge or from the thread's role (e.g. do not name a message-queue or event-loop entry as the wait point merely because the blocked thread is a main/UI thread): a wait site the span text does not state is a fabrication. When the span carries no wait-site text, report the wait and its holder evidence without naming a code site.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
+			{
+				// G16: hop citation-assertion alignment — trace-only (§27.4
+				// G16, 2026-07-09; opendir_79_01 witness): three consecutive
+				// hops carried citations shifted by one position — the
+				// priority-inversion hop pointed at an IO-latency row, so
+				// every assertion after the shift was "backed" by the wrong
+				// evidence kind. Soft guidance only (evidence-kind matching
+				// is a noisy signal).
+				Body:      "HOP CITATION-ASSERTION ALIGNMENT: the citation attached to a list item / hop must point at evidence of the SAME kind as that item's own assertion — an item asserting lock contention or priority inversion must not carry an IO-latency row's reference, an item asserting IO blocking must not carry a lock-contention reference, and likewise for every other evidence kind. After assembling the items, re-check each item's citation_ref against what the referenced evidence actually shows before emitting: an off-by-one drift after inserting, removing, or reordering items misattaches EVERY citation that follows the shift. When no same-kind evidence backs an item, leave that item uncited and state the boundary in its text instead of borrowing an adjacent item's reference.",
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
 		},

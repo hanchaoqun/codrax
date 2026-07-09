@@ -172,6 +172,18 @@ type answerDocumentEvaluator struct {
 	// keeps final answers from replacing typed external facts with nearby
 	// source-code or raw-line reinterpretations.
 	externalObservationSelectorCoverageHinted bool
+
+	// traceProjectionHeadlineEntityHinted latches the G13 advisory
+	// (§27.4/§28.1 ruling, real_trace_campaign_20260705.md, 2026-07-09):
+	// when the run's trace causal projection elects a primary root-cause
+	// entity and the answer's summary / principal prose never mentions that
+	// entity, ONE advisory round asks the model to either align its
+	// primary-cause statement or state the divergence explicitly. Entity
+	// mention matching is a NOISY signal (substring-level, loose
+	// normalization), so this lane is advisory-only by red line — it never
+	// hard-rejects, and after the single latch the next observation accepts
+	// the emit unconditionally.
+	traceProjectionHeadlineEntityHinted bool
 }
 
 const (
@@ -344,6 +356,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	e.configTraceDiagram = false
 	e.requestedDimensionCoverageHinted = false
 	e.externalObservationSelectorCoverageHinted = false
+	e.traceProjectionHeadlineEntityHinted = false
 	if ctx != nil {
 		e.mu = ctx.Mutable
 		e.configTraceDiagram = ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.Scenario == types.ScenarioConfigTrace
@@ -8276,6 +8289,9 @@ func (e *answerDocumentEvaluator) Observe(ctx *types.AgentContext, obs LoopObser
 				if sig := e.externalObservationSelectorCoverageSignal(ctx, docV2); sig.HintRequested {
 					return sig
 				}
+				if sig := e.traceProjectionHeadlineEntitySignal(ctx, docV2); sig.HintRequested {
+					return sig
+				}
 				return LoopSignal{StopRequested: true, StopReason: "emit_answer_document called"}
 			}
 		}
@@ -8981,6 +8997,279 @@ func externalObservationSelectorCoverageHint(missing []externalObservationSelect
 		fmt.Fprintf(&b, "; answer is missing: %s\n", strings.Join(req.MissingValues, ", "))
 	}
 	b.WriteString("\nMake those values explicit in the matching line/resource explanation; state boundaries when evidence is insufficient. Do not write prose outside the tool call.")
+	return b.String()
+}
+
+// traceProjectionHeadlineEntity is one trace causal projection's elected
+// primary root-cause entity for the G13 advisory (§27.4/§28.1 ruling,
+// 2026-07-09). ArtifactLabel disambiguates multi-trace comparison runs;
+// empty on the legacy single-artifact compile.
+type traceProjectionHeadlineEntity struct {
+	Subject       string
+	ArtifactLabel string
+}
+
+// traceProjectionHeadlineEntitySignal fires the ONE-SHOT G13 advisory when
+// the compiled trace causal projection carries a primary root-cause entity
+// token that the answer's summary / principal prose never mentions. Entity
+// mention matching (substring-level, loose normalization) is a NOISY signal:
+// by red line it drives soft guidance only — an advisory patch round via the
+// standard hint channel, never a hard reject. After the latch fires once,
+// the next observation accepts the emit unconditionally.
+func (e *answerDocumentEvaluator) traceProjectionHeadlineEntitySignal(ctx *types.AgentContext, doc *types.AnswerDocumentV2) LoopSignal {
+	if e == nil || e.traceProjectionHeadlineEntityHinted {
+		return LoopSignal{}
+	}
+	missing := missingTraceProjectionHeadlineEntitiesInDocument(ctx, doc)
+	if len(missing) == 0 {
+		return LoopSignal{}
+	}
+	e.traceProjectionHeadlineEntityHinted = true
+	lang := e.language
+	if strings.TrimSpace(lang) == "" {
+		lang = extractAnswerDocLang(ctx)
+	}
+	return LoopSignal{
+		HintRequested:  true,
+		HintKey:        "answer_doc.trace_primary_cause_entity",
+		Hint:           traceProjectionHeadlineEntityCoverageHint(missing, lang),
+		Progress:       true,
+		BypassThrottle: true,
+		BypassBudget:   true,
+	}
+}
+
+// missingTraceProjectionHeadlineEntitiesInDocument compiles the run's trace
+// causal projections (same ledger + partitioned compile the rendered report
+// uses) and returns the elected primary root-cause entities whose tokens the
+// answer's primary-cause surfaces never mention. Empty when no runtime trace
+// projection is active, when no projection elects a headline candidate, or
+// when every elected entity is mentioned.
+func missingTraceProjectionHeadlineEntitiesInDocument(ctx *types.AgentContext, doc *types.AnswerDocumentV2) []traceProjectionHeadlineEntity {
+	if ctx == nil || doc == nil || len(doc.Blocks) == 0 {
+		return nil
+	}
+	ledger := answerDocObservationLedger(ctx)
+	if len(ledger.Records) == 0 {
+		return nil
+	}
+	set := types.CompileTraceCausalProjectionSet(ledger)
+	entities := traceProjectionHeadlineEntities(set)
+	if len(entities) == 0 {
+		return nil
+	}
+	visible := normalizedRequestedDimensionText(answerDocumentV2PrimaryCauseSurfaceText(doc))
+	if visible == "" {
+		return entities
+	}
+	var missing []traceProjectionHeadlineEntity
+	for _, entity := range entities {
+		if traceProjectionHeadlineEntityMentioned(entity.Subject, visible) {
+			continue
+		}
+		missing = append(missing, entity)
+	}
+	return missing
+}
+
+// traceProjectionHeadlineEntities elects one primary root-cause entity per
+// active projection, deduped by normalized subject token.
+func traceProjectionHeadlineEntities(set types.TraceCausalProjectionSet) []traceProjectionHeadlineEntity {
+	seen := map[string]bool{}
+	var out []traceProjectionHeadlineEntity
+	for _, projection := range set.Projections {
+		node, ok := traceProjectionHeadlineNode(projection)
+		if !ok {
+			continue
+		}
+		subject := strings.TrimSpace(node.Subject)
+		key := normalizedRequestedDimensionText(subject)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, traceProjectionHeadlineEntity{
+			Subject:       subject,
+			ArtifactLabel: strings.TrimSpace(projection.ArtifactLabel),
+		})
+	}
+	return out
+}
+
+// traceProjectionHeadlineNode elects the projection node the report's
+// primary root-cause headline follows. This mirrors the rendered rank
+// board's typed skips exactly — ranked (Rank>0) primary/on-chain rows,
+// minus the analysis target's own symptom rows (tier=target_self_state),
+// aggregate-metric rows, counted overflow fold rows, semantic
+// optimization-span rows (the LEAD-SEM negative pin: the semantic lane
+// never claims the primary root cause, so the advisory must never demand
+// its entity as the headline), and unknown-thread sentinel rows (§7.30
+// 裁定1: an unresolved-subject row never seats on the board; its label is a
+// sentinel, not an entity the prose could meaningfully name) — ordered by
+// discounted attribution (EffectiveImpactMS) descending.
+//
+// Conservative-arm ruling (复核 P2-2, 2026-07-09): the election speaks ONLY
+// when a candidate carries a POSITIVE discounted attribution. There is no
+// raw-value fallback lane — on an all-eff≤0 board a raw-value order would
+// re-admit exactly the values the discounts retired (a periodic source's
+// cadence sum) and diverge from the rendered lead selection. false = the
+// advisory stays silent (an advisory only speaks on solid signals; the
+// rendered report's own fallback lanes remain display-side authority).
+func traceProjectionHeadlineNode(projection types.TraceCausalProjection) (types.TraceCausalProjectionNode, bool) {
+	var best types.TraceCausalProjectionNode
+	bestEffective := 0.0
+	found := false
+	consider := func(node types.TraceCausalProjectionNode) {
+		if strings.TrimSpace(node.Subject) == "" || node.Rank <= 0 {
+			return
+		}
+		if node.IsTargetSelfStateRow() || node.IsAggregateMetric() || node.OnChainOverflowFold {
+			return
+		}
+		// Same typed pair the display board's semantic-span exclusion
+		// reads (Role enum + the trace_semantic_span predicate token).
+		if node.Role == types.TraceCausalRoleSemanticSpan ||
+			strings.TrimSpace(node.Predicate) == "trace_semantic_span" {
+			return
+		}
+		switch strings.ToLower(strings.TrimSpace(node.Subject)) {
+		case "unknown-thread", "unknown":
+			return
+		}
+		effective := node.EffectiveImpactMS
+		if effective <= 0 {
+			return
+		}
+		if found && effective <= bestEffective {
+			return
+		}
+		best, bestEffective, found = node, effective, true
+	}
+	for _, node := range projection.PrimaryRootCauses {
+		consider(node)
+	}
+	for _, node := range projection.OnChainCauses {
+		consider(node)
+	}
+	return best, found
+}
+
+// traceProjectionHeadlineEntityMentioned reports whether the normalized
+// primary-cause surface text mentions the entity token — substring-level
+// with loose normalization: case-insensitive, whitespace-collapsed, and the
+// thread label with its trailing "-<tid>" ordinal stripped also counts (prose
+// commonly names "hmfs_discard" for the subject "hmfs_discard-5876").
+func traceProjectionHeadlineEntityMentioned(subject, normalizedVisible string) bool {
+	if normalizedVisible == "" {
+		return false
+	}
+	needle := normalizedRequestedDimensionText(subject)
+	if needle == "" {
+		return false
+	}
+	candidates := []string{needle}
+	if i := strings.LastIndex(needle, "-"); i > 0 && i < len(needle)-1 {
+		if traceProjectionHeadlineAllDigits(needle[i+1:]) {
+			candidates = append(candidates, needle[:i])
+		}
+	}
+	for _, candidate := range candidates {
+		if len([]rune(candidate)) < 3 {
+			continue
+		}
+		if strings.Contains(normalizedVisible, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func traceProjectionHeadlineAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// answerDocumentV2PrimaryCauseSurfaceText collects the answer surfaces where
+// a primary-cause statement lives: summary blocks, principal-role blocks,
+// and decision blocks (title + text + item surfaces). When the document has
+// none of those (degenerate shape), the full visible text is the fallback so
+// the check never keys on an empty surface by accident.
+func answerDocumentV2PrimaryCauseSurfaceText(doc *types.AnswerDocumentV2) string {
+	if doc == nil {
+		return ""
+	}
+	var b strings.Builder
+	appendText := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return
+		}
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(s)
+	}
+	for _, block := range doc.Blocks {
+		if block.Kind != types.BlockSummary &&
+			block.Kind != types.BlockDecision &&
+			block.SurfaceRole != types.SurfacePrincipal {
+			continue
+		}
+		appendText(block.Title)
+		appendText(block.Text)
+		for _, item := range block.Items {
+			appendText(item.Label)
+			appendText(item.Text)
+			for _, cell := range item.Cells {
+				appendText(cell)
+			}
+		}
+	}
+	if b.Len() > 0 {
+		return b.String()
+	}
+	return answerDocumentV2VisibleTextForDimensionCoverage(doc)
+}
+
+// traceProjectionHeadlineEntityCoverageHint renders the one-shot G13
+// advisory: align the primary-cause statement with the projection's elected
+// entity, or state the divergence explicitly — repair the answer surface
+// only, same channel discipline as the other coverage hints.
+func traceProjectionHeadlineEntityCoverageHint(missing []traceProjectionHeadlineEntity, lang string) string {
+	zh := !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
+	var b strings.Builder
+	if zh {
+		b.WriteString("你的 `emit_answer_document` 已经落地，但正文的主要原因表述没有提及运行时证据排序中归因最高的实体。")
+		b.WriteString("这是一次建议性修订：不要重新搜索或编造没有证据的内容，优先使用 `emit_answer_document_patch` 只修订答案展示面。\n\n")
+		b.WriteString("排序最高的根因实体：\n")
+		for _, entity := range missing {
+			fmt.Fprintf(&b, "- `%s`", entity.Subject)
+			if entity.ArtifactLabel != "" {
+				fmt.Fprintf(&b, "（来自 %s）", entity.ArtifactLabel)
+			}
+			b.WriteByte('\n')
+		}
+		b.WriteString("\n请把主要原因表述对齐到该实体；如果你认定其他因素更重要，必须在正文中点名该实体并显式说明与该排序的差异及理由，不得静默改写主因。保留已有结论和引用；不要写工具外散文。")
+		return b.String()
+	}
+	b.WriteString("Your `emit_answer_document` call landed, but the body's primary-cause statement never mentions the highest-attribution entity in the run's ranked runtime evidence. ")
+	b.WriteString("This is an advisory revision: do not re-open searches or invent unsupported content; prefer `emit_answer_document_patch` and repair only the answer surface.\n\n")
+	b.WriteString("Top-ranked root-cause entity:\n")
+	for _, entity := range missing {
+		fmt.Fprintf(&b, "- `%s`", entity.Subject)
+		if entity.ArtifactLabel != "" {
+			fmt.Fprintf(&b, " (from %s)", entity.ArtifactLabel)
+		}
+		b.WriteByte('\n')
+	}
+	b.WriteString("\nAlign the primary-cause statement with that entity; if you judge another factor more important, name that entity in the body and state the divergence from the ranked ordering plus the reason explicitly — never silently rewrite the primary cause. Preserve existing conclusions and citations; do not write prose outside the tool call.")
 	return b.String()
 }
 

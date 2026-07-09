@@ -55,9 +55,19 @@ func decisionVerdictDisplay(raw string, lang answerDocLang) string {
 // The original verdict token is disclosed verbatim as the audit position;
 // it is deliberately NOT rendered through the wording map so the surface
 // cannot read as an asserted conclusion.
+//
+// EVOLUTION RECORD (G15 §27.4, real_trace_campaign_20260705.md,
+// 2026-07-09; opendir_79_01 witness): the downgrade previously rewrote the
+// verdict LABEL only, while the model's prose beside it kept asserting a
+// current-code state ("该代码路径仍然存在…风险仍然存在") — label and body
+// contradicted each other. Red line: the system never rewrites the model's
+// prose (系统不可代写正文), so the fix is a typed DISCLOSURE lane: the
+// downgrade parenthetical now also tells the reader how to read the
+// preserved body (unverified against current source this run; trend-level
+// context). The body itself stays byte-verbatim.
 func decisionVerdictDowngradeDisplay(raw string, lang answerDocLang) string {
 	if lang == answerDocLangZH {
-		return "未评估：本轮无源码证据（原始判定 `" + raw + "` 仅留档，未消费）"
+		return "未评估：本轮无源码证据（原始判定 `" + raw + "` 仅留档，未消费；正文中关于当前代码状态的表述未经本轮源码验证，请以趋势性描述解读）"
 	}
-	return "Not evaluated: no current-source evidence in this run (original verdict `" + raw + "` retained for audit only)"
+	return "Not evaluated: no current-source evidence in this run (original verdict `" + raw + "` retained for audit only; body statements about the current code state were not verified against current source this run — read them as trend-level context)"
 }

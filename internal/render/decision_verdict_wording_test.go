@@ -160,3 +160,44 @@ func TestRenderV2BlockDecision_NoStampKeepsAssertedForm(t *testing.T) {
 		t.Fatalf("evidence runs keep the asserted wording surface, got:\n%s", out)
 	}
 }
+
+// G15 pins (§27.4, real_trace_campaign_20260705.md, 2026-07-09): the
+// downgrade parenthetical carries a BODY disclosure — the model's preserved
+// prose about the current code state is flagged as unverified this run —
+// because rewriting the label alone left label and body contradicting each
+// other (opendir_79_01: "未评估" beside "该代码路径仍然存在…风险仍然存在").
+// Mutation contract: dropping the disclosure clause from either language
+// face turns the downgrade pins red; the no-stamp pin keeps evidence runs
+// disclosure-free.
+
+func TestRenderV2BlockDecision_DowngradeBodyDisclosureZH(t *testing.T) {
+	out := RenderAnswerDocument(newZeroEvidenceDowngradeDoc(), "zh")
+	if !strings.Contains(out, "正文中关于当前代码状态的表述未经本轮源码验证，请以趋势性描述解读") {
+		t.Fatalf("zh downgrade must disclose that the preserved body is unverified this run, got:\n%s", out)
+	}
+	// The disclosure is a caveat about the body, never a rewrite of it:
+	// the model prose must still be present byte-verbatim.
+	if !strings.Contains(out, "是。无法判断该优先级反转问题在最新代码中是否已修复。") {
+		t.Fatalf("model prose must survive the disclosure verbatim, got:\n%s", out)
+	}
+}
+
+func TestRenderV2BlockDecision_DowngradeBodyDisclosureEN(t *testing.T) {
+	out := RenderAnswerDocument(newZeroEvidenceDowngradeDoc(), "en")
+	if !strings.Contains(out, "body statements about the current code state were not verified against current source this run") {
+		t.Fatalf("en downgrade must carry the body disclosure, got:\n%s", out)
+	}
+}
+
+func TestRenderV2BlockDecision_NoDowngradeNoBodyDisclosure(t *testing.T) {
+	doc := newZeroEvidenceDowngradeDoc()
+	doc.CurrentStatusVerdictDowngrade = nil
+	out := RenderAnswerDocument(doc, "zh")
+	if strings.Contains(out, "未经本轮源码验证") {
+		t.Fatalf("evidence runs (no stamp) must not carry the body disclosure, got:\n%s", out)
+	}
+	outEN := RenderAnswerDocument(doc, "en")
+	if strings.Contains(outEN, "not verified against current source this run") {
+		t.Fatalf("en evidence runs must not carry the body disclosure, got:\n%s", outEN)
+	}
+}
