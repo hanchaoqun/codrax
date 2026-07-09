@@ -189,10 +189,15 @@ func capFailureSignalWithBoundary(s string, maxChars int) string {
 	if maxChars <= 0 || len(s) <= maxChars {
 		return strings.TrimRight(s, " \t\n")
 	}
-	cut := s[:maxChars]
+	// HYG-2 G18: rune-safe head cut — the "\n" boundary probe below is
+	// byte-safe on its own, but when NO newline lands in the probe window
+	// the raw byte cut could split a CJK rune at maxChars.
+	cut := CutPrefixRuneSafe(s, maxChars)
 	probe := maxChars * 3 / 4
-	if idx := strings.LastIndex(cut[probe:], "\n"); idx >= 0 {
-		cut = cut[:probe+idx]
+	if probe < len(cut) {
+		if idx := strings.LastIndex(cut[probe:], "\n"); idx >= 0 {
+			cut = cut[:probe+idx]
+		}
 	}
 	return strings.TrimRight(cut, " \t\n") + "…"
 }

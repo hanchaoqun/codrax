@@ -521,7 +521,7 @@ func readRunCompact(text string, max int) string {
 		return text
 	}
 	if max <= 3 {
-		return text[:max]
+		return types.CutPrefixRuneSafe(text, max)
 	}
-	return text[:max-3] + "..."
+	return types.CutPrefixRuneSafe(text, max-3) + "..."
 }

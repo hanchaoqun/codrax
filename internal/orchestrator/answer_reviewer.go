@@ -285,7 +285,10 @@ func renderAnswerReviewerUserMessage(in AnswerReviewerInput) string {
 	if s := strings.TrimSpace(in.FinalAnswer); s != "" {
 		const maxAnswerBytes = 4096
 		if len(s) > maxAnswerBytes {
-			s = s[:maxAnswerBytes] + "\n…(truncated)"
+			// HYG-2 G18: the final answer body is CJK-heavy — a raw byte
+			// slice can split a rune and feed U+FFFD mojibake into the
+			// reviewer prompt. Rune-safe cut, byte-identical for ASCII.
+			s = types.CutPrefixRuneSafe(s, maxAnswerBytes) + "\n…(truncated)"
 		}
 		fmt.Fprintf(&b, "## Final answer (head, possibly truncated)\n%s\n\n", s)
 	}

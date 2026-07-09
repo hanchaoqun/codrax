@@ -6,6 +6,7 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/types"
+	coretypes "github.com/hanchaoqun/codrax/internal/types"
 )
 
 func extractPython(root *sitter.Node, src []byte, file string) (pkg string, syms []types.Symbol, imps []types.Import, rels []types.Relation) {
@@ -114,7 +115,7 @@ func pyExtractFunc(node *sitter.Node, src []byte, file, parent string) (types.Sy
 	if params := node.ChildByFieldName("parameters"); params != nil {
 		sig = nodeText(params, src)
 		if len(sig) > 120 {
-			sig = sig[:117] + "..."
+			sig = coretypes.CutPrefixRuneSafe(sig, 117) + "..."
 		}
 	}
 

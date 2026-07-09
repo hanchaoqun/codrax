@@ -1666,7 +1666,7 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 					strictOK = false
 					preview := chainText
 					if len(preview) > 120 {
-						preview = preview[:120] + "..."
+						preview = types.CutPrefixRuneSafe(preview, 120) + "..."
 					}
 					logging.Debug("[erm] L0-1 terminal predicate demoted chain: %s", preview)
 					break
@@ -1680,7 +1680,7 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 					strictOK = false
 					preview := chainText
 					if len(preview) > 120 {
-						preview = preview[:120] + "..."
+						preview = types.CutPrefixRuneSafe(preview, 120) + "..."
 					}
 					logging.Debug("[erm] L0-1 origin predicate demoted chain: %s", preview)
 					break

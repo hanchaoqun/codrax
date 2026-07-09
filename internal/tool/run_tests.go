@@ -3366,21 +3366,10 @@ func truncateForLog(s string, maxBytes int) string {
 	}
 	s = strings.ReplaceAll(s, "\r", "")
 	s = strings.ReplaceAll(s, "\n", " ¶ ")
-	if maxBytes <= 0 || len(s) <= maxBytes {
-		return s
-	}
-	cut := maxBytes
-	for cut > 0 && cut < len(s) {
-		b := s[cut]
-		// Don't slice mid-UTF-8: continuation bytes have the high
-		// two bits = 10. Step back until we land on a leading byte
-		// or ASCII.
-		if b&0xC0 != 0x80 {
-			break
-		}
-		cut--
-	}
-	return s[:cut] + "…"
+	// HYG-2 G18: the former hand-rolled rune-boundary backoff moved to
+	// the shared primitive — behavior-identical, including the
+	// maxBytes<=0 pass-through above.
+	return types.TruncateBytesEllipsis(s, maxBytes)
 }
 
 // runnerPrimaryBinary returns the CLI binary name we expect the
@@ -5662,7 +5651,7 @@ func isZh(lang string) bool {
 func makeRunnerMissingReport(runner, binary, output, lang, reason string, exitCode int) *types.ChangeReport {
 	excerpt := strings.TrimSpace(output)
 	if len(excerpt) > 600 {
-		excerpt = excerpt[:600] + "\n…[output truncated]"
+		excerpt = types.CutPrefixRuneSafe(excerpt, 600) + "\n…[output truncated]"
 	}
 	hint := runnerInstallHint(runner, lang)
 	var summary string
@@ -6488,10 +6477,10 @@ func renderTestSummary(runner string, report *types.ChangeReport) string {
 			}
 			fmt.Fprintf(&b, "\n  - %s (%s)", r.AssertionID, r.Suite)
 			if r.FailureDetail != "" {
-				// Clip failure detail to first line + 鈮?60 chars.
+				// Clip failure detail to first line + ≤160 chars.
 				line := strings.SplitN(r.FailureDetail, "\n", 2)[0]
 				if len(line) > 160 {
-					line = line[:160] + "..."
+					line = types.CutPrefixRuneSafe(line, 160) + "..."
 				}
 				fmt.Fprintf(&b, "\n    %s", line)
 			}

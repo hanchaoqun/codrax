@@ -5066,7 +5066,7 @@ func trimAggregateText(s string) string {
 	}
 	s = strings.Join(strings.Fields(s), " ")
 	if len(s) > maxAnswerAggregateTextLen {
-		s = strings.TrimSpace(s[:maxAnswerAggregateTextLen])
+		s = strings.TrimSpace(CutPrefixRuneSafe(s, maxAnswerAggregateTextLen))
 	}
 	return s
 }

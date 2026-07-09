@@ -954,7 +954,7 @@ func dedupSourceLocalizationStrings(in []string, limit int) []string {
 func trimSourceLocalizationText(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if len(raw) > writeContextPackTextLen {
-		raw = raw[:writeContextPackTextLen]
+		raw = CutPrefixRuneSafe(raw, writeContextPackTextLen)
 	}
 	return raw
 }

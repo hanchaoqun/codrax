@@ -666,7 +666,7 @@ func buildAnalyzerRepoOverview(ctx *types.AgentContext, objective string) (strin
 	// Cap the overview to keep the initial prompt bounded.
 	const maxLen = 4096
 	if len(output) > maxLen {
-		output = output[:maxLen] + "\n... [truncated]\n"
+		output = types.CutPrefixRuneSafe(output, maxLen) + "\n... [truncated]\n"
 	}
 	logging.Debug("[analyzer] pre-injected %s view (%d bytes, entities=%v)", view, len(output), entities)
 	if caution != "" {
@@ -747,7 +747,7 @@ func buildMultiScopeRepoOverview(ctx *types.AgentContext, objective string, scop
 			continue
 		}
 		if len(view) > perScope {
-			view = view[:perScope] + "\n... [truncated]\n"
+			view = types.CutPrefixRuneSafe(view, perScope) + "\n... [truncated]\n"
 		}
 		fmt.Fprintf(&b, "\n# Task Map: %s\n\n%s\n", scope, view)
 		rendered++
@@ -761,7 +761,7 @@ func buildMultiScopeRepoOverview(ctx *types.AgentContext, objective string, scop
 	// resort — the per-scope per-call cap above usually keeps us
 	// well under this ceiling.
 	if max := totalBudget + 512; len(out) > max {
-		out = out[:max] + "\n... [truncated]\n"
+		out = types.CutPrefixRuneSafe(out, max) + "\n... [truncated]\n"
 	}
 	logging.Debug("[analyzer] pre-injected multi-scope view (%d bytes, scopes=%v rendered=%d)", len(out), scopes, rendered)
 	return out, primaryGraph

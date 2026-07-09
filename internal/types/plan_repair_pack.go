@@ -189,14 +189,14 @@ func trimPlanRepairText(s string, max int) string {
 	if max <= 0 || len(s) <= max {
 		return s
 	}
-	return strings.TrimSpace(s[:max]) + "..."
+	return strings.TrimSpace(CutPrefixRuneSafe(s, max)) + "..."
 }
 
 func truncatePlanRepairBytes(s string, max int) string {
 	if max <= 0 || len(s) <= max {
 		return s
 	}
-	return s[:max] + "..."
+	return CutPrefixRuneSafe(s, max) + "..."
 }
 
 func normalizePlanRepairStrings(in []string, maxItems, maxLen int) []string {

@@ -239,7 +239,7 @@ func renderAcceptanceUserMessage(in AcceptanceCheckInput) string {
 				}
 				detail := strings.TrimSpace(tr.FailureDetail)
 				if len(detail) > 200 {
-					detail = detail[:200] + "..."
+					detail = types.CutPrefixRuneSafe(detail, 200) + "..."
 				}
 				fmt.Fprintf(&b, "- %s::%s — %s\n",
 					strings.TrimSpace(tr.Suite),

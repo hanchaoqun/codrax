@@ -12,6 +12,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/dataquery"
 	"github.com/hanchaoqun/codrax/internal/dataworkflow"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 const (
@@ -4716,7 +4717,7 @@ func clampDataTaskWorkflowText(value string, limit int) string {
 	if limit <= 0 || len(value) <= limit {
 		return value
 	}
-	return value[:limit] + "\n...[truncated]"
+	return types.CutPrefixRuneSafe(value, limit) + "\n...[truncated]"
 }
 
 func clampDataTaskStringSlice(values []string, limit int) []string {

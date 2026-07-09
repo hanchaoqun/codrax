@@ -850,7 +850,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 				if ctx.PriorReports[i].Stage == types.StageExplore {
 					findings := ctx.PriorReports[i].Findings
 					if len(findings) > 3000 {
-						findings = findings[:3000] + "\n... [truncated]"
+						findings = types.CutPrefixRuneSafe(findings, 3000) + "\n... [truncated]"
 					}
 					b.WriteString("## Previous Synthesis (baseline — improve, don't restart)\n\n")
 					b.WriteString(findings)
@@ -12329,7 +12329,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 			"You do NOT need to re-investigate these — they will be provided as ground truth in synthesis.\n\n")
 		// Truncate to keep the continuation prompt from bloating.
 		if len(cvPreview) > e.heuristics.CVPreviewMaxLen {
-			cvPreview = cvPreview[:e.heuristics.CVPreviewMaxLen] + "\n... [preview truncated]\n"
+			cvPreview = types.CutPrefixRuneSafe(cvPreview, e.heuristics.CVPreviewMaxLen) + "\n... [preview truncated]\n"
 		}
 		hint.WriteString(cvPreview)
 		hint.WriteString("\n**Focus your remaining investigation on:**\n")
@@ -15377,7 +15377,7 @@ func firstChainPreview(chains []string) string {
 	}
 	c := chains[0]
 	if len(c) > 80 {
-		return c[:77] + "..."
+		return types.CutPrefixRuneSafe(c, 77) + "..."
 	}
 	return c
 }

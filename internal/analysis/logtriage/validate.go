@@ -255,7 +255,7 @@ func MergeBundles(parts []*types.LogBundle, rawLogBytes int) *types.LogBundle {
 	if len(summaries) > 0 {
 		joined := strings.Join(summaries, "; ")
 		if len(joined) > 200 {
-			joined = joined[:200]
+			joined = types.CutPrefixRuneSafe(joined, 200)
 		}
 		merged.Meta.Summary = joined
 	}

@@ -2149,7 +2149,7 @@ func readVerifyFailureArtifactPreview(path string) string {
 	}
 	const maxBytes = 4096
 	if len(data) > maxBytes {
-		return string(data[:maxBytes]) + "\n[truncated]"
+		return types.CutPrefixRuneSafe(string(data), maxBytes) + "\n[truncated]"
 	}
 	return string(data)
 }

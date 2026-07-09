@@ -55,7 +55,7 @@ func renderPlanDiff(plan *types.ChangePlan, repoRoot string, maxTotalBytes, maxP
 		}
 		body := renderOneChange(c, repoRoot)
 		if len(body) > maxPerChangeBytes {
-			body = body[:maxPerChangeBytes] + "\n… (change body truncated; inspect the plan JSON for full detail)\n"
+			body = types.CutPrefixRuneSafe(body, maxPerChangeBytes) + "\n… (change body truncated; inspect the plan JSON for full detail)\n"
 		}
 		b.WriteString(body)
 	}

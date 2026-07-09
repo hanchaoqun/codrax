@@ -1,6 +1,10 @@
 package dataworkflow
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/types"
+)
 
 func BuildWorkflowJournalEvents(records []WorkflowRecord) []WorkflowJournalEvent {
 	events := make([]WorkflowJournalEvent, 0, len(records))
@@ -78,7 +82,7 @@ func clampWorkflowRecordText(text string, limit int) string {
 		return text
 	}
 	if limit <= 3 {
-		return text[:limit]
+		return types.CutPrefixRuneSafe(text, limit)
 	}
-	return strings.TrimSpace(text[:limit-3]) + "..."
+	return strings.TrimSpace(types.CutPrefixRuneSafe(text, limit-3)) + "..."
 }

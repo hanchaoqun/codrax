@@ -11,6 +11,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // cancelListener watches stdin for `/cancel` lines while a Run is in
@@ -150,14 +151,8 @@ func (cl *cancelListener) loop() {
 
 // truncateForWarn keeps the dropped-input warn line tidy. Anything
 // longer than max gets a trailing ellipsis; UTF-8 safe (back off to
-// a rune boundary).
+// a rune boundary). HYG-2 G18: the former hand-rolled backoff loop
+// moved to the shared primitive — behavior-identical for max > 0.
 func truncateForWarn(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	cut := max
-	for cut > 0 && (s[cut]&0xC0) == 0x80 {
-		cut--
-	}
-	return s[:cut] + "…"
+	return types.TruncateBytesEllipsis(s, max)
 }

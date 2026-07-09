@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/loopkernel"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 type ReasoningNodeKind string
@@ -707,7 +708,7 @@ func trimText(s string, max int) string {
 	if max <= 0 || len(s) <= max {
 		return s
 	}
-	return strings.TrimSpace(s[:max]) + "..."
+	return strings.TrimSpace(types.CutPrefixRuneSafe(s, max)) + "..."
 }
 
 func formatSequence(seq int64) string {

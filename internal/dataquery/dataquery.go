@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/tool/width"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 type OutputFormat string
@@ -886,7 +887,7 @@ func clampViolationText(value string, limit int) string {
 	if limit <= 0 || len(value) <= limit {
 		return value
 	}
-	return value[:limit] + "...[truncated]"
+	return types.CutPrefixRuneSafe(value, limit) + "...[truncated]"
 }
 
 func snippetJSON(value any) string {
@@ -1792,7 +1793,7 @@ func clampStringSlice(in []string, limit int) []string {
 func clampOneLine(s string, limit int) string {
 	s = strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
 	if limit > 0 && len(s) > limit {
-		return s[:limit] + "...[truncated]"
+		return types.CutPrefixRuneSafe(s, limit) + "...[truncated]"
 	}
 	return s
 }
@@ -4585,7 +4586,7 @@ func appendRunnerPayloadArtifact(payload []byte, artifacts []DataArtifact) []Dat
 	}
 	sample := string(extraPayload)
 	if len(sample) > 1200 {
-		sample = sample[:1200] + "\n...[truncated]"
+		sample = types.CutPrefixRuneSafe(sample, 1200) + "\n...[truncated]"
 	}
 	// The Sample payload below is NOT the script's verbatim output bytes:
 	// json.Marshal over the extra-field map re-encodes canonically —

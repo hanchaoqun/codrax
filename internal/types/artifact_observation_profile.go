@@ -281,7 +281,10 @@ func clampProfileSnippet(s string) string {
 	if len(s) <= 240 {
 		return s
 	}
-	return s[:240]
+	// HYG-2 G18 (review P2-2): snippets carry RawRequest / observation
+	// summaries (CJK user prose) and reach LLM prompts verbatim — the cut
+	// must land on a rune boundary. Silent (no-ellipsis) shape preserved.
+	return CutPrefixRuneSafe(s, 240)
 }
 
 func dedupeStrings(in []string) []string {

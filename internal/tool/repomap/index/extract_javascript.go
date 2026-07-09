@@ -6,6 +6,7 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/types"
+	coretypes "github.com/hanchaoqun/codrax/internal/types"
 )
 
 // extractJS handles both JavaScript and TypeScript.
@@ -159,7 +160,7 @@ func jsExtractFunc(node *sitter.Node, src []byte, file string, exported bool) (t
 	if params := node.ChildByFieldName("parameters"); params != nil {
 		sig = nodeText(params, src)
 		if len(sig) > 120 {
-			sig = sig[:117] + "..."
+			sig = coretypes.CutPrefixRuneSafe(sig, 117) + "..."
 		}
 	}
 	return types.Symbol{

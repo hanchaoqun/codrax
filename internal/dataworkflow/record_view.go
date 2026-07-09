@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/dataquery"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 type WorkflowRecordView struct {
@@ -152,7 +153,7 @@ func ClampRecordViewText(value string, limit int) string {
 	if limit <= 0 || len(value) <= limit {
 		return value
 	}
-	return value[:limit] + "\n...[truncated]"
+	return types.CutPrefixRuneSafe(value, limit) + "\n...[truncated]"
 }
 
 func ClampRecordViewStringSlice(values []string, limit int) []string {

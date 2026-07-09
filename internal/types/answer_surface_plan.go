@@ -3193,7 +3193,7 @@ func CollectArtifactExternalObservationSeeds(bundle *LogBundle, perf *PerfBundle
 			}
 		}
 		if len(raw) > 240 {
-			raw = raw[:240]
+			raw = CutPrefixRuneSafe(raw, 240)
 		}
 		recordSummary(ExternalObservationSeed{
 			Kind: "log_observation",
@@ -3261,7 +3261,7 @@ func CollectArtifactExternalObservationSeeds(bundle *LogBundle, perf *PerfBundle
 		}
 		// Truncate to a reasonable preview length for prompt budgets.
 		if len(raw) > 240 {
-			raw = raw[:240]
+			raw = CutPrefixRuneSafe(raw, 240)
 		}
 		recordResidue(ExternalObservationSeed{
 			Kind: "log_residue",

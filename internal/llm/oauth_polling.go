@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 const (
@@ -1087,7 +1088,7 @@ func trimForLog(body []byte, max int) string {
 	if len(s) <= max {
 		return s
 	}
-	return s[:max] + "...[truncated]"
+	return types.CutPrefixRuneSafe(s, max) + "...[truncated]"
 }
 
 func joinURLPath(base, path string) string {

@@ -916,7 +916,7 @@ func trimToolHandoffLongText(s string, max int) string {
 	if max <= 0 || len(s) <= max {
 		return s
 	}
-	return strings.TrimSpace(s[:max]) + "..."
+	return strings.TrimSpace(CutPrefixRuneSafe(s, max)) + "..."
 }
 
 func cloneStringSliceMap(in map[string][]string) map[string][]string {

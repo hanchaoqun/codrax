@@ -15,6 +15,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/operation"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 var (
@@ -1123,7 +1124,7 @@ func renderCommandResultForPrompt(result operation.CommandOperationResult) strin
 		summary := operation.SummarizeStepOutput(step)
 		preview := strings.TrimSpace(step.OutputPreview)
 		if len(preview) > 2000 {
-			preview = preview[:2000] + "...[truncated]"
+			preview = types.CutPrefixRuneSafe(preview, 2000) + "...[truncated]"
 		}
 		fmt.Fprintf(&b, "result[%d] step_id=%s status=%s exit_code=%d timed_out=%t failure_class=%s verification_status=%s verification_summary=%q output_kind=%s output_summary=%q output_lines=%d output_bytes=%d error=%q output=%q payload_ref=%s\n",
 			i+1, step.StepID, step.Status, step.ExitCode, step.TimedOut, step.FailureClass, step.Verification.Status, step.Verification.Summary, summary.Kind, summary.Summary, summary.Lines, summary.Bytes, step.Error, preview, step.PayloadRef)
@@ -1192,7 +1193,20 @@ func commandPayloadMaterialExcerpt(ref string) string {
 	}
 	truncated := false
 	if len(data) > maxRead {
-		data = data[:maxRead]
+		// HYG-2 G18: back the cut off to a rune boundary so a CJK
+		// material file doesn't leak a broken trailing rune into the
+		// excerpt. Review P3-1 guard: a NUL-free binary payload (a long
+		// 0x80-0xBF continuation run) has no rune semantics —
+		// CutPrefixRuneSafe could walk back arbitrarily far (even to 0,
+		// emptying the excerpt). A valid UTF-8 rune carries at most 3
+		// continuation bytes, so any deeper backoff means binary: keep
+		// the raw byte cut instead.
+		cut := types.CutPrefixRuneSafe(string(data), maxRead)
+		if maxRead-len(cut) > 3 {
+			data = data[:maxRead]
+		} else {
+			data = []byte(cut)
+		}
 		truncated = true
 	}
 	if bytes.Contains(data, []byte{0}) {

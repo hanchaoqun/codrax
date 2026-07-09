@@ -2218,7 +2218,7 @@ func formatDryBuildRejection(lang, cmdDescr string, stderr []byte, originalLen i
 	const maxStderrLen = 2000
 	out := strings.TrimSpace(string(stderr))
 	if len(out) > maxStderrLen {
-		out = out[:maxStderrLen] + "\n... (truncated; full output had " + fmt.Sprintf("%d", originalLen) + " bytes)"
+		out = types.CutPrefixRuneSafe(out, maxStderrLen) + "\n... (truncated; full output had " + fmt.Sprintf("%d", originalLen) + " bytes)"
 	}
 	return fmt.Sprintf("dry-build failed: `%s` returned non-zero exit (%s). "+
 		"The new_content for one or more files has compile / syntax / type errors — read the file:line references in the output below to identify which file and which line is broken, then re-emit emit_change_plan (or emit_plan_change for that one file in multi-round mode) with the corrected new_content. Do NOT re-emit unchanged content; the same error will recur. Full output:\n%s",
@@ -2594,7 +2594,7 @@ func formatLintRejection(lang, cmdDescr string, stderr []byte, originalLen int) 
 	const maxStderrLen = 2000
 	out := strings.TrimSpace(string(stderr))
 	if len(out) > maxStderrLen {
-		out = out[:maxStderrLen] + "\n... (truncated; full output had " + fmt.Sprintf("%d", originalLen) + " bytes)"
+		out = types.CutPrefixRuneSafe(out, maxStderrLen) + "\n... (truncated; full output had " + fmt.Sprintf("%d", originalLen) + " bytes)"
 	}
 	return fmt.Sprintf("V5 lint failed: `%s` reported %s code-smell issues. "+
 		"These are not syntax errors — the code likely compiles — but the linter flagged dead variables, "+
@@ -2812,7 +2812,7 @@ func formatProjectLintRejection(lang, cmdDescr string, stderr []byte, originalLe
 	const maxStderrLen = 2000
 	out := strings.TrimSpace(string(stderr))
 	if len(out) > maxStderrLen {
-		out = out[:maxStderrLen] + "\n... (truncated; full output had " + fmt.Sprintf("%d", originalLen) + " bytes)"
+		out = types.CutPrefixRuneSafe(out, maxStderrLen) + "\n... (truncated; full output had " + fmt.Sprintf("%d", originalLen) + " bytes)"
 	}
 	return fmt.Sprintf("V6 project lint failed: `%s` reported %s project-level errors. "+
 		"The project's native build/lint tool detected issues that single-file checking cannot see "+

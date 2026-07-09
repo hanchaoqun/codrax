@@ -417,5 +417,5 @@ func boundedTestContractSnippet(s string) string {
 	if len(s) <= max {
 		return s
 	}
-	return s[:max] + "...[truncated]"
+	return types.CutPrefixRuneSafe(s, max) + "...[truncated]"
 }

@@ -8193,7 +8193,7 @@ func (r *REPL) handlePlanCmd(line string) {
 			for _, c := range plan.Changes {
 				rationale := oneLine(c.Rationale)
 				if len(rationale) > 80 {
-					rationale = rationale[:77] + "..."
+					rationale = types.CutPrefixRuneSafe(rationale, 77) + "..."
 				}
 				// Render rename rows with a leading ⇄ so they
 				// stand out (commit 12 #9). Rename is a git-history-
@@ -11274,7 +11274,7 @@ func (r *REPL) handleHitraceCmd(line string) {
 		}
 		head := r.attachedHitrace
 		if len(head) > 800 {
-			head = head[:800] + "…"
+			head = types.CutPrefixRuneSafe(head, 800) + "…"
 		}
 		r.info(fmt.Sprintf("hitrace: %d bytes\n%s", len(r.attachedHitrace), head))
 	case strings.HasPrefix(rest, "append "):
@@ -12036,10 +12036,7 @@ func wrapByWidth(s string, maxCols int) []string {
 
 func oneLine(s string) string {
 	s = strings.ReplaceAll(s, "\n", " ")
-	if len(s) > 120 {
-		return s[:120] + "…"
-	}
-	return s
+	return types.TruncateBytesEllipsis(s, 120)
 }
 
 // ensure huh.ErrUserAborted is treated as EOF for graceful shutdown.

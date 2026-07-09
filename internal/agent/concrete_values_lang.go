@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // concrete_values_lang.go — language-aware concrete-value extractors.
@@ -117,7 +118,7 @@ func extractBetween(s, lang string) string {
 		// Single-line if without block opener — take the whole rest.
 		s = strings.TrimRight(s, " \t;")
 		if len(s) > 80 {
-			s = s[:80]
+			s = types.CutPrefixRuneSafe(s, 80)
 		}
 		return strings.TrimSpace(s)
 	}
@@ -127,7 +128,7 @@ func extractBetween(s, lang string) string {
 		expr = expr[1 : len(expr)-1]
 	}
 	if len(expr) > 80 {
-		expr = expr[:80]
+		expr = types.CutPrefixRuneSafe(expr, 80)
 	}
 	return strings.TrimSpace(expr)
 }
@@ -147,7 +148,7 @@ func extractGuardCondition(s string) string {
 	}
 	s = strings.TrimRight(s, " \t{")
 	if len(s) > 80 {
-		s = s[:80]
+		s = types.CutPrefixRuneSafe(s, 80)
 	}
 	return strings.TrimSpace(s)
 }
@@ -706,7 +707,7 @@ func scanErrorsPatterns(lines []string, lang string) []concreteValueEntry {
 			if strings.HasPrefix(trimmed, "raise ") {
 				rest := strings.TrimPrefix(trimmed, "raise ")
 				if len(rest) > 60 {
-					rest = rest[:60]
+					rest = types.CutPrefixRuneSafe(rest, 60)
 				}
 				out = append(out, concreteValueEntry{
 					kind: "errors", value: "raises " + strings.TrimSpace(rest),
@@ -720,7 +721,7 @@ func scanErrorsPatterns(lines []string, lang string) []concreteValueEntry {
 				rest := strings.TrimPrefix(trimmed, "throw ")
 				rest = strings.TrimRight(rest, ";")
 				if len(rest) > 60 {
-					rest = rest[:60]
+					rest = types.CutPrefixRuneSafe(rest, 60)
 				}
 				out = append(out, concreteValueEntry{
 					kind: "errors", value: "throws " + strings.TrimSpace(rest),
@@ -734,7 +735,7 @@ func scanErrorsPatterns(lines []string, lang string) []concreteValueEntry {
 				rest := strings.TrimPrefix(trimmed, "throw ")
 				rest = strings.TrimRight(rest, ";")
 				if len(rest) > 60 {
-					rest = rest[:60]
+					rest = types.CutPrefixRuneSafe(rest, 60)
 				}
 				out = append(out, concreteValueEntry{
 					kind: "errors", value: "throws " + strings.TrimSpace(rest),
@@ -748,7 +749,7 @@ func scanErrorsPatterns(lines []string, lang string) []concreteValueEntry {
 			if strings.HasPrefix(trimmed, "throw ") {
 				rest := strings.TrimPrefix(trimmed, "throw ")
 				if len(rest) > 60 {
-					rest = rest[:60]
+					rest = types.CutPrefixRuneSafe(rest, 60)
 				}
 				out = append(out, concreteValueEntry{
 					kind: "errors", value: "throws " + strings.TrimSpace(rest),
@@ -783,7 +784,7 @@ func scanErrorsPatterns(lines []string, lang string) []concreteValueEntry {
 				rest := strings.TrimPrefix(trimmed, "throw ")
 				rest = strings.TrimRight(rest, ";")
 				if len(rest) > 60 {
-					rest = rest[:60]
+					rest = types.CutPrefixRuneSafe(rest, 60)
 				}
 				out = append(out, concreteValueEntry{
 					kind: "errors", value: "throws " + strings.TrimSpace(rest),
@@ -797,7 +798,7 @@ func scanErrorsPatterns(lines []string, lang string) []concreteValueEntry {
 				rest = strings.TrimPrefix(rest, "fail ")
 				rest = strings.TrimRight(rest, ";")
 				if len(rest) > 60 {
-					rest = rest[:60]
+					rest = types.CutPrefixRuneSafe(rest, 60)
 				}
 				out = append(out, concreteValueEntry{
 					kind: "errors", value: "raises " + strings.TrimSpace(rest),
@@ -810,7 +811,7 @@ func scanErrorsPatterns(lines []string, lang string) []concreteValueEntry {
 				rest := strings.TrimPrefix(trimmed, "throw ")
 				rest = strings.TrimRight(rest, ";")
 				if len(rest) > 60 {
-					rest = rest[:60]
+					rest = types.CutPrefixRuneSafe(rest, 60)
 				}
 				out = append(out, concreteValueEntry{
 					kind: "errors", value: "throws " + strings.TrimSpace(rest),
@@ -1016,12 +1017,12 @@ func extractErrorMessage(line string) string {
 			}
 		}
 		if len(prefix) > 40 {
-			prefix = prefix[:40]
+			prefix = types.CutPrefixRuneSafe(prefix, 40)
 		}
 		return prefix + "(...)"
 	}
 	if len(line) > 60 {
-		return line[:60]
+		return types.CutPrefixRuneSafe(line, 60)
 	}
 	return line
 }

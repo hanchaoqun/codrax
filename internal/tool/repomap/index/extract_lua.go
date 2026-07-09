@@ -6,6 +6,7 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/types"
+	coretypes "github.com/hanchaoqun/codrax/internal/types"
 )
 
 // extractLua surfaces top-level decls from tree-sitter-lua. The grammar
@@ -100,7 +101,7 @@ func luaExtractFuncStmt(node *sitter.Node, src []byte, file string) (types.Symbo
 		if ch.Type() == "parameter_list" {
 			sig = nodeText(ch, src)
 			if len(sig) > 120 {
-				sig = sig[:117] + "..."
+				sig = coretypes.CutPrefixRuneSafe(sig, 117) + "..."
 			}
 			break
 		}

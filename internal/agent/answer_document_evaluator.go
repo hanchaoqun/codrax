@@ -12626,6 +12626,16 @@ func traceQueryObservationSupplementRows(ctx *types.AgentContext, _ *types.Answe
 	rows := make([]traceQueryObservationSupplementRow, 0, traceQueryObservationSupplementMaxRows)
 	var foldSubjects []string
 	foldSubjectSeen := map[string]bool{}
+	// G20 (§27.5, opendir witness 2026-07-09): two ledger records that agree
+	// on every semantic field — claimKey, subject, predicate, object, the
+	// SAME non-empty value — and differ only in their trace coordinate
+	// (root_cause_background cpu_frequency_limit 值=119.061ms at lines 58224
+	// AND 71259) rendered as two visually identical rows. The duplicate rows
+	// fold into the first occurrence plus a counted same-value note carrying
+	// the folded rows' own coordinates. Display fold only — every raw record
+	// stays in the ledger; rows whose value differs never fold.
+	sameValueIndex := map[string]int{}
+	sameValueDups := map[int][]traceQueryObservationSameValueDup{}
 	for _, entry := range entries {
 		if foldZeroBlocked && entry.zeroBlocked {
 			subject := strings.TrimSpace(entry.record.Subject)
@@ -12639,14 +12649,27 @@ func traceQueryObservationSupplementRows(ctx *types.AgentContext, _ *types.Answe
 		if text == "" {
 			continue
 		}
-		text += traceQueryObservationOutsideWindowNote(entry.record, projectionSet, zh)
+		outsideNote := traceQueryObservationOutsideWindowNote(entry.record, projectionSet, zh)
+		text += outsideNote
 		base, lineStart, lineEnd := traceQueryObservationSourceCoordinate(entry.record)
+		if foldKey := traceQueryObservationSameValueFoldKey(entry.record, base, outsideNote, zh); foldKey != "" {
+			if kept, ok := sameValueIndex[foldKey]; ok {
+				sameValueDups[kept] = append(sameValueDups[kept], traceQueryObservationSameValueDup{
+					Base: base, LineStart: lineStart, LineEnd: lineEnd,
+				})
+				continue
+			}
+			sameValueIndex[foldKey] = len(rows)
+		}
 		branch, head := traceQueryObservationElectedBranchPathHead(entry.record, projectionSet)
 		rows = append(rows, traceQueryObservationSupplementRow{
 			Order: entry.order, Key: entry.key, Text: text,
 			Base: base, LineStart: lineStart, LineEnd: lineEnd,
 			Head: head, Branch: branch,
 		})
+	}
+	for kept, dups := range sameValueDups {
+		rows[kept].Text += traceQueryObservationSameValueFoldNote(dups, zh)
 	}
 	if foldZeroBlocked {
 		rows = append(rows, traceQueryObservationSupplementRow{
@@ -12705,6 +12728,79 @@ func traceQueryObservationZeroBlockedFoldText(count int, subjects []string, zh b
 		joined = "unresolved threads"
 	}
 	return fmt.Sprintf("critical_blocking:blocked_reason: %d zero-duration observation(s) (no duration value, folded; threads: %s%s)", count, joined, repeatNote)
+}
+
+// traceQueryObservationSameValueDup carries one folded duplicate row's trace
+// coordinate for the G20 same-value fold note (display bookkeeping only).
+type traceQueryObservationSameValueDup struct {
+	Base      string
+	LineStart int
+	LineEnd   int
+}
+
+// traceQueryObservationSameValueFoldKey is the G20 fold identity: every
+// semantic field of the rendered row EXCEPT its trace line coordinate. Only
+// rows with a non-empty Value participate (an empty value carries no "same
+// value" claim to fold on — the zero-duration blocked_reason family already
+// has its own CMP-5a fold). The outside-window annotation and the verbatim
+// note pairs join the key so a row annotated differently never folds away.
+// Review P3-2a: the ARTIFACT identity dims (typed identity lane + display
+// coordinate base) also join the key — a fold must never reach across
+// artifacts, or the grouped intro ("本块全部坐标位于 X") would be
+// contradicted by a fold note pointing into another file.
+func traceQueryObservationSameValueFoldKey(record types.ObservationRecord, base, outsideNote string, zh bool) string {
+	value := strings.TrimSpace(record.Value)
+	if value == "" {
+		return ""
+	}
+	return strings.Join([]string{
+		types.TraceCausalProjectionRecordArtifactIdentity(record),
+		base,
+		strings.TrimSpace(record.ClaimKey),
+		strings.TrimSpace(record.Subject),
+		strings.TrimSpace(record.Predicate),
+		strings.TrimSpace(record.Object),
+		value,
+		strings.TrimSpace(record.Unit),
+		traceQueryObservationSupplementNotes(record, zh),
+		outsideNote,
+	}, "\x00")
+}
+
+// traceQueryObservationSameValueFoldNote renders the counted note appended
+// to the kept row: "；另 N 条同值(行 …)" / "; N more identical-value row(s)
+// (lines …)". Coordinates render only when EVERY folded duplicate carries
+// one (a partially located list would understate the fold). The fold key
+// pins duplicates to the kept row's artifact, so spans render base-less;
+// ranges use the en-dash "–" — the same invented-text notation this block
+// already uses (grouped rows "行 N–M", the omitted tail "位于行 N–M 区间",
+// time windows "[a–bs]"); raw verbatim locators keep their own ASCII "-".
+func traceQueryObservationSameValueFoldNote(dups []traceQueryObservationSameValueDup, zh bool) string {
+	if len(dups) == 0 {
+		return ""
+	}
+	located := make([]string, 0, len(dups))
+	for _, d := range dups {
+		if d.Base == "" || d.LineStart <= 0 {
+			located = nil
+			break
+		}
+		span := strconv.Itoa(d.LineStart)
+		if d.LineEnd > d.LineStart {
+			span = fmt.Sprintf("%d–%d", d.LineStart, d.LineEnd)
+		}
+		located = append(located, span)
+	}
+	if zh {
+		if len(located) > 0 {
+			return fmt.Sprintf("；另 %d 条同值(行 %s)", len(dups), strings.Join(located, "、"))
+		}
+		return fmt.Sprintf("；另 %d 条同值", len(dups))
+	}
+	if len(located) > 0 {
+		return fmt.Sprintf("; %d more identical-value row(s) (lines %s)", len(dups), strings.Join(located, ", "))
+	}
+	return fmt.Sprintf("; %d more identical-value row(s)", len(dups))
 }
 
 // traceQueryObservationOutsideWindowNote implements CMP-5b: when BOTH the

@@ -1672,9 +1672,13 @@ func legacyReasoningSummary(text string, truncate bool) string {
 			cut--
 		}
 		if cut == 0 {
+			// No space boundary (CJK prose has none) — fall back to the
+			// byte cap; CutPrefixRuneSafe keeps the cut off a rune split
+			// (HYG-2 G18). The space-boundary path above is byte-safe as
+			// is (' ' never occurs inside a multi-byte rune).
 			cut = reasoningMaxChars - 3
 		}
-		summary = summary[:cut] + "..."
+		summary = types.CutPrefixRuneSafe(summary, cut) + "..."
 	}
 	return summary
 }

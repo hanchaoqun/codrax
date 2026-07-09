@@ -1424,7 +1424,7 @@ func formatStringList(items []string) string {
 	}
 	joined := "[" + strings.Join(out, ", ") + "]"
 	if len(joined) > maxBytes {
-		joined = joined[:maxBytes-1] + "…]"
+		joined = types.CutPrefixRuneSafe(joined, maxBytes-1) + "…]"
 	}
 	return joined
 }

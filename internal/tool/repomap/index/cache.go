@@ -227,21 +227,21 @@ const cacheFileInfosChunkSize = 1024
 // would be cheaper but adds complexity we don't need until scan
 // latency is a real bottleneck.
 var extractorVersions = map[string]int{
-	types.LangGo:         5, // batch-2 gorilla/mux routes
-	types.LangJava:       3, // P0.4 Spring routes + interface-extends fix (batch 2: no Java change)
-	types.LangPython:     4, // batch-2 Flask routes
-	types.LangJavaScript: 3, // batch-2 Express/NestJS routes
-	types.LangTypeScript: 3, // batch-2 Express/NestJS routes (TS decorators)
-	types.LangArkTS:      3,
+	types.LangGo:         6, // HYG-2 G18 rune-safe sig cut (was 5: batch-2 gorilla/mux routes)
+	types.LangJava:       4, // HYG-2 G18 rune-safe sig cut (was 3: P0.4 Spring routes + interface-extends fix)
+	types.LangPython:     5, // HYG-2 G18 rune-safe sig cut (was 4: batch-2 Flask routes)
+	types.LangJavaScript: 4, // HYG-2 G18 rune-safe sig cut (was 3: batch-2 Express/NestJS routes)
+	types.LangTypeScript: 4, // HYG-2 G18 rune-safe sig cut via extractJS (was 3: batch-2 TS decorators)
+	types.LangArkTS:      4, // HYG-2 G18 rune-safe sig cut (routes through extractJS)
 	types.LangCangjie:    3,
 	types.LangKotlin:     4, // batch-2 Kotlin Spring routes
-	types.LangRuby:       2,
+	types.LangRuby:       3, // HYG-2 G18 rune-safe sig cut
 	types.LangSwift:      3,
-	types.LangLua:        2,
+	types.LangLua:        3, // HYG-2 G18 rune-safe sig cut
 	types.LangProto:      2,
-	types.LangRust:       2,
-	types.LangC:          2,
-	types.LangCpp:        2,
+	types.LangRust:       3, // HYG-2 G18 rune-safe sig cut
+	types.LangC:          3, // HYG-2 G18 rune-safe sig cut (extractCCpp shared)
+	types.LangCpp:        3, // HYG-2 G18 rune-safe sig cut (extractCCpp shared)
 }
 
 type cacheFileInfosManifest struct {

@@ -35,9 +35,7 @@ func (m *MutableState) AddPreStageDegradation(d PreStageDegradation) {
 		return
 	}
 	d.Summary = strings.TrimSpace(d.Summary)
-	if len(d.Summary) > preStageDegradationSummaryCap {
-		d.Summary = d.Summary[:preStageDegradationSummaryCap] + "…"
-	}
+	d.Summary = TruncateBytesEllipsis(d.Summary, preStageDegradationSummaryCap)
 	switch d.Kind {
 	case PreStageDegradationDispatchError, PreStageDegradationEmitRejected:
 	default:

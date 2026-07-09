@@ -11,6 +11,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // mermaidRenderingEnabled is the master switch for the
@@ -152,7 +153,7 @@ func TryRenderMermaidBlocks(text string) (rewritten string, diags []MermaidBlock
 		body := bodyFromFenceMatch(match)
 		excerpt := body
 		if len(excerpt) > 200 {
-			excerpt = excerpt[:200] + "…"
+			excerpt = types.CutPrefixRuneSafe(excerpt, 200) + "…"
 		}
 
 		switch {

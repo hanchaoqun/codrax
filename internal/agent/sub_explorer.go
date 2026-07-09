@@ -170,7 +170,7 @@ func truncateSubExplorerAdvisoryNote(note, workDir string, req *types.SubAgentRe
 		logging.Info("[sub_explorer] advisory note persisted bytes=%d inline_bytes=%d ref=%s", len(note), cut, ref)
 		suffix = fmt.Sprintf("\n\n[advisory note truncated; full text saved at %s]", ref)
 	}
-	return strings.TrimSpace(note[:cut]) + suffix
+	return strings.TrimSpace(types.CutPrefixRuneSafe(note, cut)) + suffix
 }
 
 func subExplorerAdvisoryArtifactName(req *types.SubAgentRequest) string {

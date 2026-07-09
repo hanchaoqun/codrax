@@ -5146,7 +5146,7 @@ func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + "..."
+	return types.CutPrefixRuneSafe(s, maxLen) + "..."
 }
 
 // memorySummarizerTool is the structured-output schema the LLM

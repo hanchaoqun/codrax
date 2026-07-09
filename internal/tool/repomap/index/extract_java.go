@@ -6,6 +6,7 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/types"
+	coretypes "github.com/hanchaoqun/codrax/internal/types"
 )
 
 func extractJava(root *sitter.Node, src []byte, file string) (pkg string, syms []types.Symbol, imps []types.Import, rels []types.Relation) {
@@ -179,7 +180,7 @@ func javaExtractMembers(body *sitter.Node, src []byte, file, parent string, meth
 			if params := member.ChildByFieldName("parameters"); params != nil {
 				sig = nodeText(params, src)
 				if len(sig) > 120 {
-					sig = sig[:117] + "..."
+					sig = coretypes.CutPrefixRuneSafe(sig, 117) + "..."
 				}
 				for k := 0; k < int(params.NamedChildCount()); k++ {
 					p := params.NamedChild(k)

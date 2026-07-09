@@ -262,7 +262,7 @@ func answerSupportEntryDetail(raw, text string) string {
 	}
 	const max = 260
 	if len(raw) > max {
-		raw = strings.TrimSpace(raw[:max]) + "..."
+		raw = strings.TrimSpace(CutPrefixRuneSafe(raw, max)) + "..."
 	}
 	return raw
 }

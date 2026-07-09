@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 const (
@@ -300,7 +302,7 @@ func boundedCommandOutput(output []byte) string {
 	}
 	const max = 400
 	if len(text) > max {
-		text = text[:max] + "..."
+		text = types.CutPrefixRuneSafe(text, max) + "..."
 	}
 	return ": " + strings.ReplaceAll(text, "\n", " | ")
 }

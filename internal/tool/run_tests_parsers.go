@@ -335,7 +335,7 @@ func parseMakeOutput(stdout string, runErr error) (*types.ChangeReport, error) {
 		}
 		firstLine := strings.SplitN(detail, "\n", 2)[0]
 		if len(firstLine) > 200 {
-			firstLine = firstLine[:200] + "…"
+			firstLine = types.CutPrefixRuneSafe(firstLine, 200) + "…"
 		}
 		if reason := makeOutputUnavailableReason(stdout); reason != "" {
 			failSummary = "make target unavailable: " + firstLine
@@ -607,7 +607,7 @@ func parseGoTestJSONLines(stdout string) (*types.ChangeReport, error) {
 			detail = strings.TrimSpace(a.output.String())
 			// Cap failure detail so the report stays readable.
 			if len(detail) > 4000 {
-				detail = detail[:4000] + "\n…[failure detail truncated]"
+				detail = types.CutPrefixRuneSafe(detail, 4000) + "\n…[failure detail truncated]"
 			}
 		}
 		results = append(results, types.TestResult{
@@ -847,7 +847,7 @@ func parseJestJSON(stdout string) (*types.ChangeReport, error) {
 			if !passed && len(ar.FailureMessages) > 0 {
 				detail = strings.Join(ar.FailureMessages, "\n")
 				if len(detail) > 4000 {
-					detail = detail[:4000] + "\n…[failure detail truncated]"
+					detail = types.CutPrefixRuneSafe(detail, 4000) + "\n…[failure detail truncated]"
 				}
 			}
 			results = append(results, types.TestResult{
@@ -950,7 +950,7 @@ func parsePytestJSONReport(reportFile, stdout, cmdStr string) (*types.ChangeRepo
 		if !passed {
 			detail = tt.Call.Longrepr
 			if len(detail) > 4000 {
-				detail = detail[:4000] + "\n…[failure detail truncated]"
+				detail = types.CutPrefixRuneSafe(detail, 4000) + "\n…[failure detail truncated]"
 			}
 		}
 		results = append(results, types.TestResult{
@@ -1252,7 +1252,7 @@ func parseCargoTestText(runnerLabel, stdout string) (*types.ChangeReport, error)
 		name := m[1]
 		detail := strings.TrimSpace(m[2])
 		if len(detail) > 4000 {
-			detail = detail[:4000] + "\n…[failure detail truncated]"
+			detail = types.CutPrefixRuneSafe(detail, 4000) + "\n…[failure detail truncated]"
 		}
 		failureDetails[name] = detail
 	}
@@ -1355,14 +1355,14 @@ func truncateDetail(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	return s[:n] + "\n…[truncated]"
+	return types.CutPrefixRuneSafe(s, n) + "\n…[truncated]"
 }
 
 func stdoutHead(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	return s[:n] + "…"
+	return types.CutPrefixRuneSafe(s, n) + "…"
 }
 
 func minInt(a, b int) int {
@@ -1476,7 +1476,7 @@ func narrativeBuildErrorExcerpt(stdout string) string {
 	}
 	out := strings.Join(picked, "\n")
 	if len(out) > maxChars {
-		out = out[:maxChars] + "\n…[truncated]"
+		out = types.CutPrefixRuneSafe(out, maxChars) + "\n…[truncated]"
 	}
 	return out
 }
@@ -1717,7 +1717,7 @@ func renderBuildFailureSummary(label string, errs []types.BuildError, narrativeF
 		}
 		clipped := narrativeFirstLine
 		if len(clipped) > 200 {
-			clipped = clipped[:200] + "…"
+			clipped = types.CutPrefixRuneSafe(clipped, 200) + "…"
 		}
 		return fmt.Sprintf("%s build failed before tests ran: %s", label, clipped)
 	}
@@ -1732,7 +1732,7 @@ func renderBuildFailureSummary(label string, errs []types.BuildError, narrativeF
 	}
 	msg := first.Message
 	if len(msg) > 160 {
-		msg = msg[:160] + "…"
+		msg = types.CutPrefixRuneSafe(msg, 160) + "…"
 	}
 	return fmt.Sprintf("%s build failed: %d compile error(s) in %d file(s); first: %s — %s",
 		label, len(errs), len(files), loc, msg)
@@ -1953,7 +1953,7 @@ func junitFailureDetail(kind string, f *junitFailure) string {
 	}
 	out := b.String()
 	if len(out) > 4000 {
-		out = out[:4000] + "\n…[failure detail truncated]"
+		out = types.CutPrefixRuneSafe(out, 4000) + "\n…[failure detail truncated]"
 	}
 	return out
 }
@@ -2017,7 +2017,7 @@ func parseRSpecJSON(stdout string) (*types.ChangeReport, error) {
 		if !passed && ex.Exception != nil {
 			detail = ex.Exception.Class + ": " + ex.Exception.Message
 			if len(detail) > 4000 {
-				detail = detail[:4000] + "\n…[failure detail truncated]"
+				detail = types.CutPrefixRuneSafe(detail, 4000) + "\n…[failure detail truncated]"
 			}
 		}
 		results = append(results, types.TestResult{

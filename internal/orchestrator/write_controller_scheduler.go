@@ -2253,9 +2253,9 @@ func truncateInline(s string, max int) string {
 		return s
 	}
 	if max <= 3 {
-		return s[:max]
+		return types.CutPrefixRuneSafe(s, max)
 	}
-	return strings.TrimSpace(s[:max-3]) + "..."
+	return strings.TrimSpace(types.CutPrefixRuneSafe(s, max-3)) + "..."
 }
 
 func changePlanAllDeclaredChangesApplied(plan *types.ChangePlan) bool {
@@ -8804,9 +8804,9 @@ func truncatePlanRepairHint(s string, max int) string {
 		return s
 	}
 	if max <= 3 {
-		return s[:max]
+		return types.CutPrefixRuneSafe(s, max)
 	}
-	return strings.TrimSpace(s[:max-3]) + "..."
+	return strings.TrimSpace(types.CutPrefixRuneSafe(s, max-3)) + "..."
 }
 
 // lastPlanEmitRejectionSummary returns the most recent failed plan-emit
@@ -8847,7 +8847,7 @@ func boundedPlanEmitRejectionSummary(summary string) string {
 	}
 	const maxLen = 600
 	if len(summary) > maxLen {
-		summary = summary[:maxLen] + "..."
+		summary = types.CutPrefixRuneSafe(summary, maxLen) + "..."
 	}
 	return summary
 }
