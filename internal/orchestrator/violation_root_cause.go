@@ -298,13 +298,36 @@ func IncrementAttemptsAndCheckExhausted(violations []types.Violation, history *t
 	if len(roots) == 0 {
 		return false
 	}
+	cap := maxRepairAttemptsPerRootValue
 	allExhausted := true
 	for _, v := range roots {
 		k := types.FpKey{Kind: v.Kind, Fingerprint: clusterFingerprintOf(v)}
 		history.Increment(k)
-		if !history.Exhausted(k) {
+		if history.Get(k) < cap {
 			allExhausted = false
 		}
 	}
 	return allExhausted
+}
+
+// maxRepairAttemptsPerRootValue backs the W2.6 cross-scope (kind, fp)
+// attempt cap. FRCAP (§29.12, 2026-07-10): the cap used to be read
+// exclusively from the types.MaxRepairAttemptsPerRoot constant via
+// history.Exhausted; it is now an operator-tunable knob (codrax.yaml ::
+// pipeline_max_repair_attempts_per_root) whose default preserves the
+// shipped constant byte-for-byte. The types-side constant remains the
+// single code default; this orchestrator-side override exists so the
+// gate is config-driven without widening the types API.
+var maxRepairAttemptsPerRootValue = types.MaxRepairAttemptsPerRoot
+
+// SetMaxRepairAttemptsPerRoot overrides the cross-scope per-(kind, fp)
+// attempt cap. Non-positive values fall back to the types default —
+// the cross-scope gate must never be unbounded-open (a 0 cap would
+// declare every root exhausted on its first attempt).
+func SetMaxRepairAttemptsPerRoot(n int) {
+	if n <= 0 {
+		maxRepairAttemptsPerRootValue = types.MaxRepairAttemptsPerRoot
+		return
+	}
+	maxRepairAttemptsPerRootValue = n
 }

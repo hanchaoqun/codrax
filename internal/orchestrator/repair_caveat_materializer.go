@@ -200,13 +200,25 @@ func AppendUserCaveatsToAnswer(answer string, violations []types.Violation, lang
 }
 
 func AppendUserCaveatsToAnswerForBus(answer string, violations []types.Violation, lang string, ctx *types.BusContext) string {
+	bullets := materializedUserCaveatBulletsForBus(violations, lang, ctx)
+	if len(bullets) == 0 {
+		return answer
+	}
+	return appendSystemCaveatBullets(answer, bullets, lang)
+}
+
+// materializedUserCaveatBulletsForBus is the bullet-producing half of
+// AppendUserCaveatsToAnswerForBus, extracted (CAVSTR root fix,
+// 2026-07-10) so the caveat replay register can record exactly what the
+// append would write. Byte-equivalent filtering + materialization.
+func materializedUserCaveatBulletsForBus(violations []types.Violation, lang string, ctx *types.BusContext) []string {
 	filtered := FilterDerivedViolations(violations)
 	filtered = suppressRuntimeObservationOnlyLowPrecisionCaveats(filtered, ctx)
 	filtered = suppressGenericSoftCaveatsForAcceptedSurface(filtered, ctx)
 	if len(filtered) == 0 {
-		return answer
+		return nil
 	}
-	return AppendUserCaveatsToAnswer(answer, filtered, lang)
+	return MaterializeUnresolvedViolationsAsCaveats(filtered, lang)
 }
 
 // AppendSoftContractCaveatsToAnswer appends user-facing caveats only
@@ -223,30 +235,47 @@ func AppendSoftContractCaveatsToAnswer(answer string, violations []types.Violati
 }
 
 func AppendSoftContractCaveatsToAnswerForBus(answer string, violations []types.Violation, lang string, ctx *types.BusContext) string {
-	// F8-T2 (2026-07-03): when the current contract-check round
-	// flagged enumeration labels AND the advisory oracle-miss lane
-	// names identifiers still visible in the accepted document, ship
-	// ONE precise system supplement listing those identifiers and
-	// suppress the redundant generic enumeration-depth bullet for the
-	// two enum-label kinds (noise is eliminated at the source: one
-	// specific note instead of a vague caveat plus a note).
+	bullets, raws := softContractCaveatPayloadForBus(violations, lang, ctx)
+	if len(bullets) > 0 {
+		answer = appendSystemCaveatBullets(answer, bullets, lang)
+	}
+	for _, raw := range raws {
+		answer = strings.TrimRight(answer, "\n") + "\n\n" + raw + "\n"
+	}
+	return answer
+}
+
+// softContractCaveatPayloadForBus is the payload-producing half of
+// AppendSoftContractCaveatsToAnswerForBus, extracted (CAVSTR root fix,
+// 2026-07-10) so the caveat replay register can record exactly what the
+// append would write: heading bullets plus the raw enumeration-
+// verification supplement block (appended after the bullets — the
+// historical order).
+//
+// F8-T2 (2026-07-03): when the current contract-check round flagged
+// enumeration labels AND the advisory oracle-miss lane names
+// identifiers still visible in the accepted document, ship ONE precise
+// system supplement listing those identifiers and suppress the
+// redundant generic enumeration-depth bullet for the two enum-label
+// kinds (noise is eliminated at the source: one specific note instead
+// of a vague caveat plus a note).
+func softContractCaveatPayloadForBus(violations []types.Violation, lang string, ctx *types.BusContext) (bullets []string, raws []string) {
 	supplement := enumerationLabelVerificationSupplement(violations, ctx, lang)
 	if supplement != "" {
 		violations = suppressEnumerationLabelVerificationCaveats(violations)
-		answer = appendSoftContractCaveatsToAnswerForBusFiltered(answer, violations, lang, ctx)
-		return strings.TrimRight(answer, "\n") + "\n\n" + supplement + "\n"
+		raws = append(raws, supplement)
 	}
-	return appendSoftContractCaveatsToAnswerForBusFiltered(answer, violations, lang, ctx)
+	return softContractCaveatBulletsForBusFiltered(violations, lang, ctx), raws
 }
 
-func appendSoftContractCaveatsToAnswerForBusFiltered(answer string, violations []types.Violation, lang string, ctx *types.BusContext) string {
+func softContractCaveatBulletsForBusFiltered(violations []types.Violation, lang string, ctx *types.BusContext) []string {
 	soft := softContractCaveatViolations(violations)
 	if len(soft) == 0 {
-		return answer
+		return nil
 	}
 	soft = suppressRuntimeObservationOnlyLowPrecisionCaveats(soft, ctx)
 	if len(soft) == 0 {
-		return answer
+		return nil
 	}
 	if runtimeObservationOnlyCaveatContext(ctx) {
 		remaining, needsBoundary := splitRuntimeObservationOnlyCaveats(soft)
@@ -257,25 +286,21 @@ func appendSoftContractCaveatsToAnswerForBusFiltered(answer string, violations [
 				caveats = append(caveats, boundary)
 			}
 		}
-		caveats = append(caveats, MaterializeUnresolvedViolationsAsCaveats(remaining, lang)...)
-		if len(caveats) == 0 {
-			return answer
-		}
-		return appendSystemCaveatBullets(answer, caveats, lang)
+		return append(caveats, MaterializeUnresolvedViolationsAsCaveats(remaining, lang)...)
 	}
 	if historyNarrativeCaveatContext(ctx) {
 		remaining := filterPureHistoryNarrativeCaveats(soft)
 		remaining = suppressGenericSoftCaveatsForAcceptedSurface(remaining, ctx)
 		if len(remaining) == 0 {
-			return answer
+			return nil
 		}
-		return AppendUserCaveatsToAnswer(answer, remaining, lang)
+		return MaterializeUnresolvedViolationsAsCaveats(remaining, lang)
 	}
 	soft = suppressGenericSoftCaveatsForAcceptedSurface(soft, ctx)
 	if len(soft) == 0 {
-		return answer
+		return nil
 	}
-	return AppendUserCaveatsToAnswer(answer, soft, lang)
+	return MaterializeUnresolvedViolationsAsCaveats(soft, lang)
 }
 
 func suppressRuntimeObservationOnlyLowPrecisionCaveats(violations []types.Violation, ctx *types.BusContext) []types.Violation {

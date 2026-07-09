@@ -60,6 +60,29 @@ import (
 // A percent that recomputes exclusively against a DIFFERENT window's
 // length than the one the sentence names is the §24.14 B-3 shape.
 //
+// PSG-2H (§29.10-2 ruling, docs/design/real_trace_campaign_20260705.md,
+// 2026-07-10) — the G13/G14 residual-witness hardening (79+792 双位数
+// witness 全表), three layers, none of which is a hard reject:
+//
+//	① detection gains the THREAD-ENTITY face: prose name-tid tokens are
+//	  matched LITERALLY against the evidence-face thread spelling set
+//	  (same extractor both sides); a token matching no spelling AND no
+//	  published tid is a fabrication finding (witness: dh-irq-bind-4-93,
+//	  one character from the real dh-irq-bind-0-89). tid membership
+//	  keeps truncated/aliased spellings of a REAL thread silent. The
+//	  pairwise-sum grounding arm gains the matching binding extension
+//	  (witness: a 139.615-class cross-thread sum stated for one thread).
+//	② the single raise stays a FORCED one-round rewrite whose hint names
+//	  every violating token individually with a delete-or-replace
+//	  directive (upgrade of the §25(b) advisory wording).
+//	③ when the forced round is consumed and the SHIPPED document still
+//	  carries unlocatable tokens, a deterministic system-channel caveat
+//	  lists them verbatim (appendProseScalarResidualCaveatToAnswer at
+//	  the ship chokepoint) — the body is never rewritten, the loop
+//	  never re-enters. The FRCAP total-round hard cap (§29.12) always
+//	  wins conflicts: a cap-preempted raise ships through the residual-
+//	  concerns caveat instead, and this lane stays silent (no latch).
+//
 // Red-line compliance (precise-signals-for-hard-gates): the regex
 // extraction is a NOISY signal, so it drives only SOFT guidance — a
 // retry hint listing the unmatched / misbound numerals, raised AT MOST
@@ -101,6 +124,11 @@ const (
 	proseScalarDenominatorCap  = 32   // recompute denominators collected
 	proseScalarWindowSpanTolS  = 0.01 // endpoint tolerance, seconds
 	proseScalarWindowMaxSpanMS = 600000
+
+	// PSG-2H thread-entity arm work bounds (§29.10-2, 2026-07-10).
+	proseScalarThreadSpellingCap = 8192 // evidence thread spelling set size
+	proseScalarThreadScanCap     = 200  // prose thread tokens audited per pass
+	proseScalarSumPairCap        = 16   // reproducing (a, b) pairs audited
 )
 
 // proseScalarTokenRE captures a decimal numeral immediately followed by an
@@ -205,6 +233,12 @@ type proseScalarEvidenceSet struct {
 	// PSG-2 binding index.
 	rows          []proseScalarEvidenceRow
 	windowLengths []float64 // every published window length, ms
+	// PSG-2H thread-entity face (§29.10-2): every thread identity
+	// spelling (verbatim name-tid token) and every tid the evidence
+	// surfaces publish. Extracted with the SAME extractor the prose
+	// scan uses, so the two faces cannot diverge in shape.
+	threadSpellings map[string]bool
+	threadTIDs      map[string]bool
 }
 
 // proseScalarBindingFinding is one second-arm mismatch, preformatted for
@@ -212,6 +246,16 @@ type proseScalarEvidenceSet struct {
 type proseScalarBindingFinding struct {
 	entry string
 }
+
+// proseScalarThreadFinding is one PSG-2H fabricated-thread finding: a
+// prose name-tid token that matches no evidence-face thread spelling
+// and no evidence-face tid.
+type proseScalarThreadFinding struct {
+	Raw     string
+	BlockID string
+}
+
+func (f proseScalarThreadFinding) label() string { return f.Raw }
 
 // runProseScalarGroundingCheck is the PSG §25(b) answer-side gate. It
 // returns at most ONE violation naming every unmatched prose scalar
@@ -242,8 +286,8 @@ func runProseScalarGroundingCheck(doc *types.AnswerDocumentV2, bus *types.BusCon
 		return nil
 	}
 	evidence := buildProseScalarEvidenceSet(doc, mut, ledger)
-	unmatched, misbound := scanProseScalarFindings(doc, evidence)
-	if len(unmatched) == 0 && len(misbound) == 0 {
+	unmatched, misbound, fabricated := scanProseScalarFindings(doc, evidence)
+	if len(unmatched) == 0 && len(misbound) == 0 && len(fabricated) == 0 {
 		return nil
 	}
 	var parts []string
@@ -273,20 +317,181 @@ func runProseScalarGroundingCheck(doc *types.AnswerDocumentV2, bus *types.BusCon
 			"answer prose binds %d numeric value(s) to a different time window or thread than the one their evidence rows published them under: %s",
 			len(misbound), strings.Join(listed, "; ")))
 	}
+	if len(fabricated) > 0 {
+		listed := make([]string, 0, len(fabricated))
+		for i, f := range fabricated {
+			if i >= proseScalarDetailListCap {
+				listed = append(listed, fmt.Sprintf("(+%d more)", len(fabricated)-proseScalarDetailListCap))
+				break
+			}
+			listed = append(listed, fmt.Sprintf("%s (block %q)", f.label(), f.BlockID))
+		}
+		parts = append(parts, fmt.Sprintf(
+			"answer prose names %d thread identity token(s) that no evidence surface of this report publishes under that spelling or thread id: %s",
+			len(fabricated), strings.Join(listed, ", ")))
+	}
 	return []types.Violation{{
 		Kind:   types.ViolProseScalarUngrounded,
 		Detail: strings.Join(parts, "; and "),
-		Repair: "for each listed number, either state next to it the exact source view and time window it was read from — quoting the value as that view published it — or remove the number from the prose. Do not invent a replacement number; when a value is one you derived yourself, name the published values it was derived from. When a sentence names the time window or the thread a number belongs to, use the window and thread that number's evidence row was published under — restate the number under its own window and thread, or re-read the value for the window you name; when comparing two windows, normalize each side by its own window length before reading them against each other.",
+		Repair: "go through the listed tokens ONE BY ONE — for EACH listed number, either delete it from the prose or replace it with a value exactly as an evidence surface of this report publishes it (never invent a replacement; when a value is one you derived yourself, name the published values it was derived from); for EACH listed thread identity, either delete it or replace it with a thread spelling exactly as an evidence surface publishes it — never assemble or adjust a thread name or id. When a sentence names the time window or the thread a number belongs to, use the window and thread that number's evidence row was published under — restate the number under its own window and thread, or re-read the value for the window you name; when comparing two windows, normalize each side by its own window length before reading them against each other.",
 		Stage:  string(types.StageFinalize),
 		ClusterKey: types.IdentityClusterKey("prose_scalar_ungrounded",
 			"answer_prose_scalars"),
 		SuspectedRoot: types.SuspectedRoot{
 			IRField:    "answer_document.blocks.prose",
-			Reason:     "prose ms/% scalar with no evidence-face member or bound to the wrong window/thread",
+			Reason:     "prose ms/% scalar or thread identity with no evidence-face member, or a value bound to the wrong window/thread",
 			Confidence: 0.6,
 		},
 		RepairLocusOverride: types.LocusFinalizer,
 	}}
+}
+
+// proseScalarResidualFindingLabels re-runs the PSG scan against a
+// document and returns the display labels of everything still
+// unlocatable — the PSG-2H (§29.10-2) deterministic caveat backstop
+// input. Consumed at answer-ship time, and ONLY on runs where the one
+// forced rewrite round was actually delivered (the MutableState latch
+// is the typed activation signal), so clean runs pay nothing.
+func proseScalarResidualFindingLabels(doc *types.AnswerDocumentV2, bus *types.BusContext, mut *types.MutableState) []string {
+	if doc == nil || bus == nil || mut == nil {
+		return nil
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(bus, types.ObservationExtractLedgerEvidenceLimit))
+	if !ledger.HasDeterministicRuntimeQueryObservation() {
+		return nil
+	}
+	evidence := buildProseScalarEvidenceSet(doc, mut, ledger)
+	unmatched, misbound, fabricated := scanProseScalarFindings(doc, evidence)
+	seen := map[string]bool{}
+	var out []string
+	add := func(label string) {
+		label = strings.TrimSpace(label)
+		if label == "" || seen[label] {
+			return
+		}
+		seen[label] = true
+		out = append(out, label)
+	}
+	for _, tok := range unmatched {
+		add(tok.label())
+	}
+	for _, f := range misbound {
+		add(f.entry)
+	}
+	for _, f := range fabricated {
+		add(f.label())
+	}
+	return out
+}
+
+// proseScalarResidualCaveatMessage renders the PSG-2H deterministic
+// caveat (§29.10-2 layer ③): the run consumed its single forced
+// rewrite round and the SHIPPED document still carries unlocatable
+// values / thread identities — disclose them verbatim through the
+// system channel and never loop again. The body is never rewritten by
+// the system. Wording audited against the caveat red lines (no
+// internal pipeline vocabulary; CN branch stays CN).
+func proseScalarResidualCaveatMessage(lang string, findings []string) string {
+	if len(findings) == 0 {
+		return ""
+	}
+	listed := make([]string, 0, len(findings))
+	for i, f := range findings {
+		if i >= proseScalarDetailListCap {
+			break
+		}
+		listed = append(listed, f)
+	}
+	extra := len(findings) - len(listed)
+	if isChineseLang(lang) {
+		msg := "以下数值/实体未能定位于本报告的证据面（观测记录、结构化指标、投影表或引用行），请谨慎采信：" + strings.Join(listed, "；")
+		if extra > 0 {
+			msg += fmt.Sprintf("；另有 %d 项", extra)
+		}
+		return msg + "。"
+	}
+	msg := "The following values/entities in the answer could not be located on this report's evidence surfaces (observation records, structured facts, projection tables, or quoted lines); treat them with caution: " + strings.Join(listed, "; ")
+	if extra > 0 {
+		msg += fmt.Sprintf(" (+%d more)", extra)
+	}
+	return msg + "."
+}
+
+// appendProseScalarResidualCaveatToAnswer is the ship-time chokepoint
+// for the PSG-2H caveat backstop. Activation reads PRECISE typed
+// signals only: the run-level latch says the single forced rewrite
+// round was delivered, and the re-scan of the SHIPPED document (the
+// one in MutableState — every accept, auto-repair, recovery and
+// best-draft path writes the shipping doc back there) still finds
+// unlocatable tokens. Runs where the gate never fired return the
+// answer unchanged, byte-for-byte (正常报告零开销零 caveat).
+//
+// Livelock impossibility is structural: this helper only APPENDS a
+// disclosure at the final assembly point — it raises no violation,
+// requests no retry, and the one-round latch already guarantees the
+// gate itself can never raise a second time in one run.
+//
+// Dedup with the cap-preempt lane below: both route through the CAVSTR
+// replay register keyed by the verbatim caveat text, so a run where
+// the P6 cap branch already disclosed (e.g. a best-draft swap back to
+// the PSG-violating round while the latch is ALSO set) never appends
+// the disclosure twice.
+func (o *Orchestrator) appendProseScalarResidualCaveatToAnswer(answer string) string {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return answer
+	}
+	if !o.busCtx.Mutable.ProseScalarGroundingHintDelivered() {
+		return answer
+	}
+	return o.appendRegisteredAnswerCaveatBullet(answer, o.proseScalarResidualCaveatTextForShippedDoc())
+}
+
+// appendProseScalarCapPreemptCaveatToAnswer is the P6-cap-preempt
+// disclosure lane (adversarial review P1, 2026-07-10). When the FRCAP
+// total-round cap fires BEFORE the PSG forced rewrite round was ever
+// dispatched, the latch is cold and the ship-exit lane above stays
+// silent BY DESIGN — but the shipping violation set still carries the
+// PSG kind, whose registry entry has no caveat family, so the generic
+// residual-concerns materializer produced ZERO user-visible words for
+// it (fabricated thread names / numerals shipped undisclosed — the
+// exact inverse of the §29.10-2 layer-③ promise). This lane is
+// latch-INDEPENDENT: the P6 cap branch calls it whenever the selected
+// draft's violations contain the PSG kind, re-scanning the SHIPPED
+// document with PSG-2H's own generator. Same register key as the
+// ship-exit lane → structurally no double disclosure.
+func (o *Orchestrator) appendProseScalarCapPreemptCaveatToAnswer(answer string) string {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return answer
+	}
+	return o.appendRegisteredAnswerCaveatBullet(answer, o.proseScalarResidualCaveatTextForShippedDoc())
+}
+
+// proseScalarResidualCaveatTextForShippedDoc renders the PSG-2H
+// disclosure for the document currently in MutableState (the shipped
+// draft on every path, including after an FRCAP best-draft restore).
+// Empty when the shipped doc grounds everything.
+func (o *Orchestrator) proseScalarResidualCaveatTextForShippedDoc() string {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return ""
+	}
+	mut := o.busCtx.Mutable
+	findings := proseScalarResidualFindingLabels(mut.AnswerDocumentV2(), o.busCtx, mut)
+	if len(findings) == 0 {
+		return ""
+	}
+	return proseScalarResidualCaveatMessage(o.busCtx.Language, findings)
+}
+
+// violationsContainProseScalarKind reports whether the typed violation
+// set carries the PSG kind — the precise activation signal for the
+// cap-preempt disclosure lane.
+func violationsContainProseScalarKind(violations []types.Violation) bool {
+	for _, v := range violations {
+		if v.Kind == types.ViolProseScalarUngrounded {
+			return true
+		}
+	}
+	return false
 }
 
 // retryStateListsProseScalarHint reports whether the typed retry surface
@@ -356,7 +561,11 @@ func proseScalarScanExemptBlock(blk types.AnswerBlock) bool {
 // endpoint spans join the pool too, so an honest "the 2250ms window"
 // phrasing and a window-share recomputation both stay grounded.
 func buildProseScalarEvidenceSet(doc *types.AnswerDocumentV2, mut *types.MutableState, ledger types.ObservationLedger) proseScalarEvidenceSet {
-	set := proseScalarEvidenceSet{exact: map[string]bool{}}
+	set := proseScalarEvidenceSet{
+		exact:           map[string]bool{},
+		threadSpellings: map[string]bool{},
+		threadTIDs:      map[string]bool{},
+	}
 	addText := func(text string) {
 		if text == "" || len(set.values) >= proseScalarEvidenceValueCap {
 			return
@@ -393,6 +602,16 @@ func buildProseScalarEvidenceSet(doc *types.AnswerDocumentV2, mut *types.Mutable
 			}
 			row.windows = append(row.windows, extractProseScalarWindowRefs(text)...)
 			row.threads = append(row.threads, extractProseScalarThreadRefs(text)...)
+		}
+		// PSG-2H thread-entity face: every extracted spelling and tid
+		// joins the run-level sets BEFORE the per-row cap truncation, so
+		// a thread published on a wide row still grounds the prose.
+		for _, tref := range row.threads {
+			if len(set.threadSpellings) >= proseScalarThreadSpellingCap {
+				break
+			}
+			set.threadSpellings[tref.Raw] = true
+			set.threadTIDs[tref.TID] = true
 		}
 		if len(row.windows) > proseScalarWindowRefCap {
 			row.windows = row.windows[:proseScalarWindowRefCap]
@@ -513,20 +732,58 @@ func buildProseScalarEvidenceSet(doc *types.AnswerDocumentV2, mut *types.Mutable
 
 // scanProseScalarFindings walks the model-authored prose surfaces and
 // returns every ms/% token the evidence pool cannot account for (membership
-// arm) plus every grounded token whose same-unit window / thread naming
-// contradicts the evidence rows that published it (PSG-2 binding arm).
-func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEvidenceSet) (unmatched []proseScalarToken, misbound []proseScalarBindingFinding) {
+// arm), every grounded token whose same-unit window / thread naming
+// contradicts the evidence rows that published it (PSG-2 binding arm), and
+// every prose thread identity token that matches no evidence-face thread
+// spelling and no evidence-face tid (PSG-2H entity arm, §29.10-2 — the
+// dh-irq-bind-4-93 fabrication shape, one character away from the real
+// dh-irq-bind-0-89).
+func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEvidenceSet) (unmatched []proseScalarToken, misbound []proseScalarBindingFinding, fabricated []proseScalarThreadFinding) {
 	scanned := 0
+	threadScanned := 0
+	seenFabricated := map[string]bool{}
 	scan := func(blockID, text string) {
-		if text == "" || scanned >= proseScalarScanTokenCap {
+		if text == "" {
+			return
+		}
+		if scanned >= proseScalarScanTokenCap && threadScanned >= proseScalarThreadScanCap {
 			return
 		}
 		toks := extractProseScalarTokens(blockID, text)
+		var sentWindows []proseScalarWindowRef
+		var sentThreads []proseScalarThreadRef
+		if len(toks) > 0 || len(evidence.threadSpellings) > 0 {
+			sentWindows = extractProseScalarWindowRefs(text)
+			sentThreads = extractProseScalarThreadRefs(text)
+		}
+		// PSG-2H entity arm: audited independently of scalars — the
+		// fabricated-thread witness sentence needs no number nearby.
+		// Activation requires the evidence face to publish at least one
+		// thread token (an inventory to be absent FROM); tid membership
+		// keeps truncated / aliased spellings of a REAL thread silent
+		// (same tid-equality agreement the binding arm uses).
+		if len(evidence.threadSpellings) > 0 {
+			for _, tref := range sentThreads {
+				if threadScanned >= proseScalarThreadScanCap {
+					break
+				}
+				threadScanned++
+				if evidence.threadSpellings[tref.Raw] || evidence.threadTIDs[tref.TID] {
+					continue
+				}
+				if !proseScalarThreadNameAuditable(tref.Raw) {
+					continue
+				}
+				if seenFabricated[tref.Raw] {
+					continue
+				}
+				seenFabricated[tref.Raw] = true
+				fabricated = append(fabricated, proseScalarThreadFinding{Raw: tref.Raw, BlockID: blockID})
+			}
+		}
 		if len(toks) == 0 {
 			return
 		}
-		sentWindows := extractProseScalarWindowRefs(text)
-		sentThreads := extractProseScalarThreadRefs(text)
 		for _, tok := range toks {
 			if scanned >= proseScalarScanTokenCap {
 				return
@@ -577,6 +834,19 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 						proseScalarNearestWindowLabel(sentWindows, tok))})
 				}
 			}
+			// PSG-2H sum extension (§29.8 witness: a 139.615-class
+			// cross-thread SUM stated for one named thread). A token
+			// grounded ONLY by the pairwise-sum arm, in a thread-naming
+			// sentence, is misbound when EVERY reproducing pair is
+			// positively published for other threads.
+			if !tok.percent() && verdict.sumOnly && len(sentThreads) > 0 {
+				if published, bad := proseScalarSumThreadMismatch(evidence.rows, verdict.sumPairs, sentThreads, proseScalarTokenTol(tok)); bad {
+					misbound = append(misbound, proseScalarBindingFinding{entry: fmt.Sprintf(
+						"%s (block %q) is a sum of values published for thread(s) %s but the prose states it for thread %s",
+						tok.label(), tok.BlockID, published,
+						proseScalarNearestThreadLabel(sentThreads, tok))})
+				}
+			}
 		}
 	}
 	for _, blk := range doc.Blocks {
@@ -598,7 +868,80 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 			}
 		}
 	}
-	return unmatched, misbound
+	return unmatched, misbound, fabricated
+}
+
+// proseScalarThreadNameAuditable is the entity-arm noise dampener: the
+// name part must either carry a thread-namespace separator (: / . _ <
+// > @) or be at least 4 characters, so short hyphenated technical
+// terms ("x86-64", "sha-256", "arm-64") never enter the audit. The
+// dampener LOOSENS detection only (a missed short fabrication is a
+// sanctioned cost); it never tightens it.
+func proseScalarThreadNameAuditable(raw string) bool {
+	dash := strings.LastIndexByte(raw, '-')
+	if dash <= 0 {
+		return false
+	}
+	name := raw[:dash]
+	if strings.ContainsAny(name, ":/._<>@") {
+		return true
+	}
+	return len(name) >= 4
+}
+
+// proseScalarSumThreadMismatch audits the sum-only grounding of a token
+// in a thread-naming sentence. It asserts a misbinding ONLY in the
+// precise all-pairs form: every reproducing (a, b) pair has carrier
+// rows on BOTH sides, every one of those rows names at least one
+// thread, and no row tid intersects the sentence tids. Any silent side
+// (a summand with no carrier row, e.g. a derived window length), any
+// thread-silent row, any tid agreement, or a pair set that overflowed
+// its collection cap keeps the token silent (宁松勿严).
+func proseScalarSumThreadMismatch(rows []proseScalarEvidenceRow, pairs [][2]float64, sentThreads []proseScalarThreadRef, tol float64) (string, bool) {
+	if len(pairs) == 0 || len(pairs) > proseScalarSumPairCap {
+		return "", false
+	}
+	var publishing []proseScalarThreadRef
+	for pi, pair := range pairs {
+		for _, side := range pair {
+			carriers := proseScalarCarrierRowsForValue(rows, side, tol)
+			if len(carriers) == 0 {
+				return "", false
+			}
+			for _, row := range carriers {
+				if len(row.threads) == 0 {
+					return "", false
+				}
+				for _, rt := range row.threads {
+					for _, st := range sentThreads {
+						if rt.TID == st.TID {
+							return "", false
+						}
+					}
+				}
+				if pi == 0 {
+					publishing = append(publishing, row.threads...)
+				}
+			}
+		}
+	}
+	published := proseScalarThreadListLabel(publishing)
+	return published, published != ""
+}
+
+// proseScalarCarrierRowsForValue is the value-keyed variant of
+// proseScalarCarrierRows used by the sum extension.
+func proseScalarCarrierRowsForValue(rows []proseScalarEvidenceRow, value, tol float64) []proseScalarEvidenceRow {
+	var out []proseScalarEvidenceRow
+	for _, row := range rows {
+		for _, v := range row.values {
+			if math.Abs(v-value) <= tol+1e-9 {
+				out = append(out, row)
+				break
+			}
+		}
+	}
+	return out
 }
 
 // extractProseScalarTokens applies the unit-scoped regex with manual
@@ -970,11 +1313,15 @@ func proseScalarUlp(raw string) float64 {
 // proseScalarGroundingVerdict reports how a token was grounded.
 // recomputeOnly marks tokens grounded EXCLUSIVELY by the a/b×100 recompute
 // arm; denominatorsMS carries the reproducing denominators (ms scale) the
-// §24.14 percent extension audits.
+// §24.14 percent extension audits. sumOnly marks ms tokens grounded
+// EXCLUSIVELY by the pairwise-sum arm; sumPairs carries the reproducing
+// (a, b) pairs the PSG-2H cross-thread sum extension audits.
 type proseScalarGroundingVerdict struct {
 	grounded       bool
 	recomputeOnly  bool
 	denominatorsMS []float64
+	sumOnly        bool
+	sumPairs       [][2]float64
 }
 
 // proseScalarTokenGrounding runs the tolerance and exemption arms, loosest
@@ -1012,8 +1359,10 @@ func proseScalarTokenGrounding(tok proseScalarToken, evidence proseScalarEvidenc
 	}
 	// Arm 5 (ms only) — pairwise sum of two evidence values: an honest
 	// self-derived total of two published figures is not a fabrication.
-	if proseScalarPairSumMatch(evidence.values, tok.Value, tol) {
-		return proseScalarGroundingVerdict{grounded: true}
+	// The reproducing pairs feed the PSG-2H cross-thread sum extension
+	// (a capped overflow keeps the extension silent, 宁松勿严).
+	if pairs := proseScalarSumPairs(evidence.values, tok.Value, tol); len(pairs) > 0 {
+		return proseScalarGroundingVerdict{grounded: true, sumOnly: true, sumPairs: pairs}
 	}
 	return proseScalarGroundingVerdict{}
 }
@@ -1025,18 +1374,33 @@ func proseScalarNear(values []float64, target, tol float64) bool {
 	return idx < len(values) && values[idx] <= target+tol+1e-9
 }
 
-// proseScalarPairSumMatch reports whether two members of sorted values
-// (repetition allowed) sum to target within tol.
-func proseScalarPairSumMatch(values []float64, target, tol float64) bool {
+// proseScalarSumPairs collects the reproducing (a, b) pairs (a ≤ b,
+// deduplicated on a) for the pairwise-sum arm. Collection stops at
+// proseScalarSumPairCap+1 — the consumer treats an overflowed set as
+// unauditable and stays silent, so capping can only LOOSEN the sum
+// extension, never produce a false positive.
+func proseScalarSumPairs(values []float64, target, tol float64) [][2]float64 {
+	var out [][2]float64
+	prev := math.Inf(-1)
 	for _, v := range values {
 		if v >= target+tol {
 			break
 		}
+		if v == prev {
+			continue
+		}
+		prev = v
+		if v > target-v+tol {
+			break // beyond the midpoint every pair is a mirror of an earlier one
+		}
 		if proseScalarNear(values, target-v, tol) {
-			return true
+			out = append(out, [2]float64{v, target - v})
+			if len(out) > proseScalarSumPairCap {
+				return out
+			}
 		}
 	}
-	return false
+	return out
 }
 
 // proseScalarRatioDenominatorsMS collects every denominator b (rescaled by

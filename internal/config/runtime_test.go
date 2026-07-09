@@ -479,3 +479,51 @@ func TestLoadRuntimeSettings_ValidConfigNoUnknownKeys(t *testing.T) {
 		t.Errorf("explicit write_enabled:false must bind, got %v", s.WriteEnabled)
 	}
 }
+
+// FRCAP (§29.12, 2026-07-10): the finalize repair-loop cap knobs parse
+// as pointer fields (absent stays nil so the shipped defaults hold) and
+// are recognized keys (no unknown-key warning).
+func TestLoadRuntimeSettings_FRCAPRepairLoopKnobs(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "codrax.yaml")
+	body := `
+pipeline_same_error_class_retry_cap: 2
+pipeline_max_repair_attempts_per_root: 4
+agent_finalizer_empty_blocks_breaker_max_streak: 5
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	s, err := LoadRuntimeSettings(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(s.UnknownKeys) != 0 {
+		t.Errorf("FRCAP knobs must be recognized keys, got unknown %v", s.UnknownKeys)
+	}
+	if s.PipelineSameErrorClassRetryCap == nil || *s.PipelineSameErrorClassRetryCap != 2 {
+		t.Errorf("PipelineSameErrorClassRetryCap = %v", s.PipelineSameErrorClassRetryCap)
+	}
+	if s.PipelineMaxRepairAttemptsPerRoot == nil || *s.PipelineMaxRepairAttemptsPerRoot != 4 {
+		t.Errorf("PipelineMaxRepairAttemptsPerRoot = %v", s.PipelineMaxRepairAttemptsPerRoot)
+	}
+	if s.AgentFinalizerEmptyBlocksBreakerMaxStreak == nil || *s.AgentFinalizerEmptyBlocksBreakerMaxStreak != 5 {
+		t.Errorf("AgentFinalizerEmptyBlocksBreakerMaxStreak = %v", s.AgentFinalizerEmptyBlocksBreakerMaxStreak)
+	}
+
+	// Absent knobs stay nil — the shipped defaults (1 / 3 / 3) hold.
+	empty := filepath.Join(dir, "empty.yaml")
+	if err := os.WriteFile(empty, []byte("log_level: warning\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	s2, err := LoadRuntimeSettings(empty)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if s2.PipelineSameErrorClassRetryCap != nil || s2.PipelineMaxRepairAttemptsPerRoot != nil ||
+		s2.AgentFinalizerEmptyBlocksBreakerMaxStreak != nil {
+		t.Errorf("absent knobs must stay nil: %v %v %v",
+			s2.PipelineSameErrorClassRetryCap, s2.PipelineMaxRepairAttemptsPerRoot,
+			s2.AgentFinalizerEmptyBlocksBreakerMaxStreak)
+	}
+}

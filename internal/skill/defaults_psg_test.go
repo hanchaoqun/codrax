@@ -59,6 +59,13 @@ func TestPSGFinalizerSkillProseNumberGrounding(t *testing.T) {
 		// comparisons normalize per side first.
 		"must be the ones the number's evidence row was published under",
 		"normalize each side by its own window length",
+		// PSG-2H thread-identity clause (§29.10-2, 2026-07-10): thread
+		// identity tokens are copied verbatim from an evidence surface —
+		// never assembled, adjusted, or recalled from memory (792 witness:
+		// a fabricated spelling one character from the only real thread).
+		"copied verbatim from an evidence surface",
+		"never assemble, adjust, or recall a thread name or id",
+		"drop the token or use the published spelling",
 	} {
 		if !strings.Contains(item.Body, want) {
 			t.Fatalf("prose-number rule missing %q:\n%s", want, item.Body)

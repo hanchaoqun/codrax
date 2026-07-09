@@ -3295,6 +3295,16 @@ func initApp(cmd *cobra.Command, args []string) error {
 		if rs.PipelineFinalizerLocalRetriesBeforeEscalate != nil {
 			orchestrator.SetFinalizerLocalRetryBudget(*rs.PipelineFinalizerLocalRetriesBeforeEscalate)
 		}
+		// FRCAP (§29.12, 2026-07-10) — same-error-class retry cap and
+		// cross-scope per-root attempt cap, both formerly hardcoded
+		// finalize-loop bounds. nil keeps the shipped defaults (1 / 3)
+		// byte-for-byte.
+		if rs.PipelineSameErrorClassRetryCap != nil {
+			orchestrator.SetSameErrorClassRetryCap(*rs.PipelineSameErrorClassRetryCap)
+		}
+		if rs.PipelineMaxRepairAttemptsPerRoot != nil {
+			orchestrator.SetMaxRepairAttemptsPerRoot(*rs.PipelineMaxRepairAttemptsPerRoot)
+		}
 		// v3 B1 (2026-05-04) cluster-state closure stable-budget knob.
 		if rs.PipelineClusterStableBudget != nil {
 			orchestrator.SetClusterStableBudget(*rs.PipelineClusterStableBudget)
@@ -3716,6 +3726,13 @@ func initApp(cmd *cobra.Command, args []string) error {
 		}
 		if rs.AgentFinalizerMaxCorrectionRetries != nil {
 			a.FinalizerMaxCorrectionRetries = *rs.AgentFinalizerMaxCorrectionRetries
+		}
+		// FRCAP (§29.12, 2026-07-10) — F7 empty-blocks reject breaker
+		// threshold, formerly a hardcoded const. Package-var setter
+		// (not AgentSettings) so the knob lands without widening the
+		// shared types surface. nil keeps the shipped default (3).
+		if rs.AgentFinalizerEmptyBlocksBreakerMaxStreak != nil {
+			agent.SetFinalizerEmptyBlocksBreakerMaxStreak(*rs.AgentFinalizerEmptyBlocksBreakerMaxStreak)
 		}
 		if rs.AgentFinalizerPreservePriorProse != nil {
 			a.FinalizerPreservePriorProse = rs.AgentFinalizerPreservePriorProse

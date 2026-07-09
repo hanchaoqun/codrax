@@ -569,6 +569,17 @@ type Orchestrator struct {
 	// historical "discard + reset to main" behavior.
 	bestAppliedCommitSHA string
 
+	// answerCaveatReplay is the CAVSTR pending-caveat register
+	// (answer_caveat_replay_register.go, 2026-07-10): every string-
+	// channel caveat the read scheduler appends to a finalize answer is
+	// recorded here (ordered, key-deduplicated) and replayed by the
+	// renderFinalAnswerWithLastMileSupplements chokepoint after every
+	// FinalAnswer re-render, so no overwrite point (first-draft
+	// attachment, auto-repair, recovery, FRCAP best-draft restore) can
+	// silently drop a disclosure. Reset per task in
+	// runReadSchedulerLoop. Nil until the first registration.
+	answerCaveatReplay *answerCaveatReplayRegister
+
 	// cancelToken backs the user-driven Run cancellation surface.
 	// Allocated at Run() entry; nil between Runs (tests / single-shot
 	// CLI never need to interact with it). REPL holds an
@@ -1412,65 +1423,6 @@ func (o *Orchestrator) reviewerDispatchContext() context.Context {
 		return context.Background()
 	}
 	return o.CancelContext()
-}
-
-// injectResidualConcernsCaveat is the P6 chokepoint helper that
-// surfaces the unresolved typed concern list when the finalize
-// repair hard cap is reached AND emits a dock notice so the user-
-// facing UI knows the repair-loop terminated by design.
-//
-// P7 (2026-05-10) channel correction: the caveat now flows through
-// the SYSTEM channel ("**补充说明：**" /
-// "**Additional notes:**" heading), NOT the LLM-authored
-// AnswerDocumentV2.Caveats[] slot. The prior P6 implementation
-// wrote into doc.Caveats[] which violates
-// feedback_no_system_backfill_to_user_panel — that slot is for
-// content gaps the LLM itself identified, not orchestrator
-// decisions about repair-loop termination.
-//
-// Returns the answer string with the caveat appended via the
-// system channel; caller assigns back to out.FinalAnswer. Empty
-// (nothing to inject) input returns the answer unchanged.
-//
-// Caller has already decided the cap was exceeded (see the
-// finalizeRepairHardCapValue / state.retryUsed comparison in the
-// contract-failure loop). The dock notice is rendered through
-// softFinalizeRepairCapMessage (CN/EN aware, red-line audited);
-// the answer body receives detailed concern lines derived only from
-// typed Violation data.
-func (o *Orchestrator) injectResidualConcernsCaveat(out *agent.StageOutput, violations []types.Violation) {
-	if o == nil || o.busCtx == nil || out == nil {
-		return
-	}
-	concernCount := len(violations)
-	// Multi-repo posture detection: only suggest /repos sub-repo
-	// adjustment when the workspace actually has ≥2 sub-repos.
-	// IsSingle() short-circuits cleanly for legacy single-repo
-	// runs so the caveat doesn't render an inapplicable hint.
-	multiRepo := false
-	if mg, ok := o.busCtx.MultiGraph.(*multigraph.MultiGraph); ok && mg != nil && !mg.IsSingle() {
-		multiRepo = true
-	}
-	caveat := softFinalizeRepairCapMessage(o.busCtx.Language, concernCount, multiRepo)
-	// System-channel append: writes typed concern detail to the
-	// trailing "**补充说明：**" / "**Additional notes:**" section,
-	// distinct from the LLM-authored "**说明**：" / "**Caveats:**"
-	// channel. The dock summary below intentionally does NOT get
-	// appended to the answer; it is a progress/status message.
-	out.FinalAnswer = AppendResidualConcernDetailsToAnswer(out.FinalAnswer, violations, o.busCtx.Language)
-	// Surface the cap event to the dock so the user knows the
-	// loop terminated by design rather than silently shipping with
-	// hidden caveats. P7: dedicated NoticeFinalizeRepairCap kind
-	// (info-class gray) instead of reusing NoticeFallbackFailLoud
-	// (warning yellow) — the answer DID ship, this is informational
-	// not a fail-loud.
-	o.emit(render.Event{
-		Kind:       render.EventOrchestratorNotice,
-		Timestamp:  time.Now(),
-		Agent:      "orchestrator",
-		NoticeKind: render.NoticeFinalizeRepairCap,
-		Reasoning:  caveat,
-	})
 }
 
 func shouldDeferRunEntryRepoGraphWarmup(mode types.PipelineMode, hint types.TurnRouteHint, profile types.RuntimeArtifactPreflightProfile) bool {
@@ -4721,6 +4673,10 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// N+1's first retry round.
 		o.busCtx.Mutable.ResetRepairAttempts()
 	}
+	// CAVSTR (2026-07-10): per-task reset of the string-channel caveat
+	// replay register so task N's disclosures never replay onto task
+	// N+1's answer.
+	o.resetAnswerCaveatReplayRegister()
 	if !o.applyReadRunSnapshotSeedToTaskState() {
 		return 0
 	}
@@ -4788,6 +4744,12 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 	firstFinalizeRejectedForRewrite := false
 	preFinalizeExtractCompleted := false
 	var runtimeDispatchAdvisories []string
+	// FRCAP (§29.12, 2026-07-10): per-task retention of every failing
+	// finalize draft (answer + doc deep copy + typed violation count)
+	// so the P6 hard-cap exit can ship the BEST draft — fewest hard
+	// violations, ties to the earliest — instead of blindly shipping
+	// the latest. Bounded at hard cap + 1 entries by construction.
+	var finalizeRepairDraftLedger []finalizeRepairDraftRecord
 
 	// lastFallbackFinalizerOnly latches when the previous loop
 	// iteration picked FallbackFinalizerOnly as the fallback target —
@@ -6112,7 +6074,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		}
 
 		if res.Passed {
-			out.FinalAnswer = AppendSoftContractCaveatsToAnswerForBus(out.FinalAnswer, res.Violations, o.busCtx.Language, o.busCtx)
+			out.FinalAnswer = o.appendSoftContractCaveatsTracked(out.FinalAnswer, res.Violations)
 			out.FinalAnswer = o.appendSystemCaveatsToAnswer(out.FinalAnswer)
 			// Live preview cleanup: contract pass means the draft
 			// just streamed IS the final answer (modulo the
@@ -6138,7 +6100,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		retryViolations := FilterFinalizerRetryRootViolationsForBus(res.Violations, o.busCtx)
 		if len(retryViolations) == 0 {
 			logging.Info("[orchestrator] contract check produced only soft/non-actionable violation(s); accepting answer without LLM retry")
-			out.FinalAnswer = AppendSoftContractCaveatsToAnswerForBus(out.FinalAnswer, res.Violations, o.busCtx.Language, o.busCtx)
+			out.FinalAnswer = o.appendSoftContractCaveatsTracked(out.FinalAnswer, res.Violations)
 			out.FinalAnswer = o.appendSystemCaveatsToAnswer(out.FinalAnswer)
 			o.emit(render.Event{
 				Kind:            render.EventLivePreviewClear,
@@ -6155,6 +6117,12 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			firstFinalizeRejectedForRewrite = true
 			firstFinalizeConcerns = append([]types.Violation(nil), retryViolations...)
 		}
+		// FRCAP (§29.12): retain this failing draft (answer + doc +
+		// typed violation count) before any budget gate fires, so the
+		// hard-cap exit below can select the best-of-all-rounds draft.
+		finalizeRepairDraftLedger = recordFinalizeRepairDraft(
+			finalizeRepairDraftLedger, out, o.busCtx.Mutable,
+			retryViolations, state.retryUsed, o.finalizeRepairHardCapValue())
 		retryRes := res
 		retryRes.Violations = retryViolations
 		// Contract failed (or SC failed). The just-streamed draft
@@ -6206,19 +6174,57 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// rounds with diminishing returns.
 		//
 		// Caveat injection lives in injectResidualConcernsCaveat —
-		// writes one user-vocab line into AnswerDocumentV2.Caveats
-		// (matching CN/EN per BusContext.Language); does NOT modify
-		// answer body. Bypasses applyContractViolations (which is
-		// destructive on text); the doc reaches the user with its
-		// content preserved + transparent residual disclosure.
+		// which appends the typed concern detail to the answer's
+		// trailing system-channel "**补充说明：**" / "**Additional
+		// notes:**" section (P7 correction, 2026-05-10: NEVER into the
+		// LLM-authored AnswerDocumentV2.Caveats slot — that would
+		// violate feedback_no_system_backfill_to_user_panel). Bypasses
+		// applyContractViolations (which is destructive on text); the
+		// doc reaches the user with its content preserved +
+		// transparent residual disclosure.
 		if hardCap := o.finalizeRepairHardCapValue(); hardCap > 0 && state.retryUsed >= hardCap {
+			// FRCAP (§29.12, 2026-07-10) best-draft fallback: the cap
+			// was reached with hard violations remaining, so pick the
+			// retained draft with the FEWEST hard violations — ties go
+			// to the EARLIEST draft (later small-model rounds are not
+			// presumed better). Selection reads the typed actionable-
+			// root violation counts only (precise signal); when the
+			// best IS the current draft (hash identity — the ledger's
+			// last entry may not be the current draft when a blank
+			// answer or the bound skipped recording), the legacy ship
+			// path runs unchanged. The residual-concerns caveat below
+			// lists the SELECTED draft's own violations.
+			capViolations := retryRes.Violations
+			if best := selectBestFinalizeRepairDraft(finalizeRepairDraftLedger); best >= 0 &&
+				finalizeRepairDraftLedger[best].Hash != finalizeRepairDraftHash(out.FinalAnswer) {
+				rec := &finalizeRepairDraftLedger[best]
+				currentHash := finalizeRepairDraftHash(out.FinalAnswer)
+				if o.restoreFinalizeRepairDraft(out, rec) {
+					capViolations = rec.Violations
+					logging.Info("[orchestrator] FRCAP best-draft fallback: shipping round-%d draft (hard violations=%d, hash=%s) over current draft (hard violations=%d, hash=%s)",
+						rec.Round, rec.HardViolations, rec.Hash,
+						len(retryRes.Violations), currentHash)
+				}
+			}
 			// P7.1 (2026-05-12) channel split: the dock gets the
 			// concise "answer delivered + N concerns" status, while
 			// the answer's supplementary section lists the actual
 			// typed unresolved concerns. Do not append the dock
 			// status line into the answer body, and do not collapse
 			// concrete violations back into one generic family caveat.
-			o.injectResidualConcernsCaveat(out, retryRes.Violations)
+			o.injectResidualConcernsCaveat(out, capViolations)
+			// PSG-2H cap-preempt disclosure (adversarial review P1,
+			// 2026-07-10): the PSG kind has no caveat family, so the
+			// residual-concerns materializer above renders NOTHING for
+			// it — and the ship-exit PSG lane is latch-gated, which a
+			// cap-preempted raise never set. When the shipping
+			// violation set carries the PSG kind, disclose through
+			// PSG-2H's own generator (re-scan of the shipped doc),
+			// latch-independent; the register key dedups against the
+			// ship-exit lane.
+			if violationsContainProseScalarKind(capViolations) {
+				out.FinalAnswer = o.appendProseScalarCapPreemptCaveatToAnswer(out.FinalAnswer)
+			}
 			out.FinalAnswer = o.appendSystemCaveatsToAnswer(out.FinalAnswer)
 			logging.Warning("[orchestrator] P6 finalize repair hard cap reached (%d/%d); accepting doc with residual-concerns caveat",
 				state.retryUsed, hardCap)
@@ -6238,7 +6244,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// wasted round.
 		if IncrementAttemptsAndCheckExhausted(retryRes.Violations, o.busCtx.Mutable.RepairAttempts()) {
 			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, retryRes)
-			out.FinalAnswer = AppendUserCaveatsToAnswerForBus(out.FinalAnswer, retryRes.Violations, o.busCtx.Language, o.busCtx)
+			out.FinalAnswer = o.appendUserCaveatsTracked(out.FinalAnswer, retryRes.Violations)
 			out.FinalAnswer = o.appendSystemCaveatsToAnswer(out.FinalAnswer)
 			logging.Warning("[orchestrator] cross-scope repair attempts exhausted on every root; %d violation(s) materialised as user caveat",
 				len(retryRes.Violations))
@@ -6255,7 +6261,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// stays on logging.Warning + closure stats; the user
 			// sees natural-language caveats only.
 			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, retryRes)
-			out.FinalAnswer = AppendUserCaveatsToAnswerForBus(out.FinalAnswer, retryRes.Violations, o.busCtx.Language, o.busCtx)
+			out.FinalAnswer = o.appendUserCaveatsTracked(out.FinalAnswer, retryRes.Violations)
 			out.FinalAnswer = o.appendSystemCaveatsToAnswer(out.FinalAnswer)
 			logging.Warning("[orchestrator] retry budget exhausted; %d violation(s) materialized as user caveat", len(retryRes.Violations))
 			lastFinalize = out
@@ -6276,7 +6282,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				logging.Warning("[orchestrator] retry budget for kind=%s exhausted (%d/%d) — accepting answer with caveat",
 					kind, state.retryUsedForKind(kind), cap)
 				out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, retryRes)
-				out.FinalAnswer = AppendUserCaveatsToAnswerForBus(out.FinalAnswer, retryRes.Violations, o.busCtx.Language, o.busCtx)
+				out.FinalAnswer = o.appendUserCaveatsTracked(out.FinalAnswer, retryRes.Violations)
 				out.FinalAnswer = o.appendSystemCaveatsToAnswer(out.FinalAnswer)
 				lastFinalize = out
 				state.markDone(fin.ID)
@@ -6299,7 +6305,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				logging.Warning("[orchestrator] retry budget for class=%s exhausted (%d/%d) — accepting answer with caveat",
 					class, state.retryUsedForClass(class), cap)
 				out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, retryRes)
-				out.FinalAnswer = AppendUserCaveatsToAnswerForBus(out.FinalAnswer, retryRes.Violations, o.busCtx.Language, o.busCtx)
+				out.FinalAnswer = o.appendUserCaveatsTracked(out.FinalAnswer, retryRes.Violations)
 				out.FinalAnswer = o.appendSystemCaveatsToAnswer(out.FinalAnswer)
 				lastFinalize = out
 				state.markDone(fin.ID)
@@ -6339,7 +6345,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				Reasoning:  softYieldKillMessage(o.busCtx.Language),
 			})
 			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, retryRes)
-			out.FinalAnswer = AppendUserCaveatsToAnswerForBus(out.FinalAnswer, retryRes.Violations, o.busCtx.Language, o.busCtx)
+			out.FinalAnswer = o.appendUserCaveatsTracked(out.FinalAnswer, retryRes.Violations)
 			out.FinalAnswer = o.appendSystemCaveatsToAnswer(out.FinalAnswer)
 			lastFinalize = out
 			state.markDone(fin.ID)
@@ -6449,7 +6455,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		switch fallback {
 		case FallbackFailLoud:
 			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, retryRes)
-			out.FinalAnswer = AppendUserCaveatsToAnswerForBus(out.FinalAnswer, retryRes.Violations, o.busCtx.Language, o.busCtx)
+			out.FinalAnswer = o.appendUserCaveatsTracked(out.FinalAnswer, retryRes.Violations)
 			out.FinalAnswer = o.appendSystemCaveatsToAnswer(out.FinalAnswer)
 			lastFinalize = out
 			state.markDone(fin.ID)
@@ -6600,6 +6606,11 @@ contractFailureBreak:
 		}
 		if lastFinalize != nil {
 			lastFinalize.FinalAnswer = appendRuntimeDispatchAdvisoriesToAnswer(lastFinalize.FinalAnswer, runtimeDispatchAdvisories, o.busCtx.Language)
+			// PSG-2H (§29.10-2) deterministic caveat backstop + FRCAP
+			// (§29.12) per-answer repair-round telemetry — same order
+			// as the main exit below.
+			lastFinalize.FinalAnswer = o.appendProseScalarResidualCaveatToAnswer(lastFinalize.FinalAnswer)
+			o.logFinalizeRepairRoundsTelemetry(state)
 			o.recordTaskFinalize(lastFinalize)
 			o.emitCGECSummary()
 			return stepsUsed
@@ -6813,7 +6824,18 @@ contractFailureBreak:
 	}
 	if lastFinalize != nil {
 		lastFinalize.FinalAnswer = appendRuntimeDispatchAdvisoriesToAnswer(lastFinalize.FinalAnswer, runtimeDispatchAdvisories, o.busCtx.Language)
+		// PSG-2H (§29.10-2) deterministic caveat backstop: when the
+		// one forced rewrite round has been consumed and the SHIPPED
+		// document still carries unlocatable numerals / thread
+		// identities, disclose them through the system channel — the
+		// body is never rewritten and the loop never re-enters. Runs
+		// AFTER the first-draft attachment re-render so the caveat
+		// cannot be clobbered by a downstream FinalAnswer overwrite.
+		lastFinalize.FinalAnswer = o.appendProseScalarResidualCaveatToAnswer(lastFinalize.FinalAnswer)
 	}
+	// FRCAP (§29.12) per-answer repair-round telemetry, auditable in
+	// revisit transcripts.
+	o.logFinalizeRepairRoundsTelemetry(state)
 	o.recordTaskFinalize(lastFinalize)
 	o.emitCGECSummary()
 	return stepsUsed
@@ -8062,7 +8084,13 @@ func (o *Orchestrator) appendAnswerDisplayAttachment(out *agent.StageOutput, att
 // orchestrator file bypasses this helper on the customer answer surface.
 func (o *Orchestrator) renderFinalAnswerWithLastMileSupplements(doc *types.AnswerDocumentV2, attachments []types.AnswerDisplayAttachment) string {
 	agentCtx := ctxbuilder.BuildAgentContext(o.busCtx, types.AgentFinalizer, types.StageFinalize)
-	return agent.RenderAnswerDocumentWithLastMileSupplements(agentCtx, doc, attachments, o.busCtx.Language)
+	answer := agent.RenderAnswerDocumentWithLastMileSupplements(agentCtx, doc, attachments, o.busCtx.Language)
+	// CAVSTR (2026-07-10): a re-render starts from the doc-only surface,
+	// which carries none of the string-channel caveats the scheduler
+	// already appended — replay the register so no overwrite point can
+	// kill a disclosure (P6/FRCAP residual concerns, system notes,
+	// user/soft contract bullets, PSG-2H residual disclosure).
+	return o.replayRegisteredAnswerCaveats(answer)
 }
 
 func draftReferenceTitle(lang string) string {

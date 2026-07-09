@@ -88,11 +88,23 @@ func TestProseScalarGrounding_MissRaisesRetryHint(t *testing.T) {
 	if !strings.Contains(v.Detail, "46.821ms") || !strings.Contains(v.Detail, `block "summary"`) {
 		t.Fatalf("Detail must list the unmatched numeral with its block id:\n%s", v.Detail)
 	}
-	// Hint wording pin (LLM-facing; zero internal names): the two allowed
-	// dispositions — cite the source view + window, or remove the number.
-	if !strings.Contains(v.Repair, "source view and time window") ||
-		!strings.Contains(v.Repair, "remove the number") {
-		t.Fatalf("Repair must give the cite-or-remove guidance:\n%s", v.Repair)
+	// Hint wording pin (LLM-facing; zero internal names).
+	// EVOLUTION RECORD (PSG-2H §29.10-2 ②, 2026-07-10): the former
+	// "state the exact source view and time window next to it" escape
+	// mirrored the skill-side escape G14 already retired — the forced
+	// rewrite hint now commands a token-by-token delete-or-replace
+	// against the published evidence spellings, for numbers AND thread
+	// identities.
+	if !strings.Contains(v.Repair, "ONE BY ONE") ||
+		!strings.Contains(v.Repair, "either delete it from the prose or replace it with a value exactly as an evidence surface of this report publishes it") ||
+		!strings.Contains(v.Repair, "never invent a replacement") ||
+		!strings.Contains(v.Repair, "never assemble or adjust a thread name or id") {
+		t.Fatalf("Repair must give the per-token delete-or-replace directive:\n%s", v.Repair)
+	}
+	// Negative pin (G14-aligned): the retired same-sentence view+window
+	// escape must not come back through the retry hint.
+	if strings.Contains(v.Repair, "source view and time window") {
+		t.Fatalf("Repair must not re-open the view+window escape:\n%s", v.Repair)
 	}
 	if !isStrictViolationForBus(v, bus) {
 		t.Fatalf("the single PSG raise must be retry-eligible via the bus strict arm")

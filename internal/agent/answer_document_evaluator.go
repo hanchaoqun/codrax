@@ -9359,10 +9359,29 @@ func isolatedFinalizerProseFallbackPrompt(ctx *types.AgentContext, lang string) 
 	return b.String()
 }
 
-// emptyBlocksRejectBreakerMaxStreak mirrors the completion-side
+// emptyBlocksRejectBreakerMaxStreakDefault mirrors the completion-side
 // same-cause denial breaker threshold: three identical no-progress
 // rejects are an unrecoverable pattern, the fourth attempt is not paid.
-const emptyBlocksRejectBreakerMaxStreak = 3
+const emptyBlocksRejectBreakerMaxStreakDefault = 3
+
+// emptyBlocksRejectBreakerMaxStreak backs the F7 breaker threshold.
+// FRCAP (§29.12, 2026-07-10): previously a hardcoded const; now an
+// operator-tunable knob (codrax.yaml ::
+// agent_finalizer_empty_blocks_breaker_max_streak) whose default
+// preserves the shipped behaviour byte-for-byte.
+var emptyBlocksRejectBreakerMaxStreak = emptyBlocksRejectBreakerMaxStreakDefault
+
+// SetFinalizerEmptyBlocksBreakerMaxStreak overrides the F7 same-cause
+// breaker threshold. Non-positive values fall back to the default —
+// the breaker must never be disabled (an unbounded identical-reject
+// streak is exactly the pattern it exists to stop).
+func SetFinalizerEmptyBlocksBreakerMaxStreak(n int) {
+	if n <= 0 {
+		emptyBlocksRejectBreakerMaxStreak = emptyBlocksRejectBreakerMaxStreakDefault
+		return
+	}
+	emptyBlocksRejectBreakerMaxStreak = n
+}
 
 // emptyBlocksRejectBreakerSignal is the F7 same-cause breaker: it counts
 // consecutive emit rejects whose verbatim repair code is

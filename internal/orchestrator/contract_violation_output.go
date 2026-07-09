@@ -44,7 +44,33 @@ func dominantViolationKind(res contract.Result) types.ViolationKind {
 	return bestKind
 }
 
-func sameErrorClassRetryCap() int { return 1 }
+// sameErrorClassRetryCapDefault is the code default for the same-
+// error-class retry governor: after ONE retry for the dominant typed
+// class, ship the current core answer with caveats instead of another
+// LLM round of mechanical schema churn.
+const sameErrorClassRetryCapDefault = 1
+
+// sameErrorClassRetryCapValue backs sameErrorClassRetryCap. FRCAP
+// (§29.12, 2026-07-10): previously a hardcoded literal; now an
+// operator-tunable knob (codrax.yaml ::
+// pipeline_same_error_class_retry_cap) with the default preserving
+// the shipped behaviour byte-for-byte. 0 disables the class governor
+// (the per-kind / hard-cap gates still bound the loop).
+var sameErrorClassRetryCapValue = sameErrorClassRetryCapDefault
+
+func sameErrorClassRetryCap() int { return sameErrorClassRetryCapValue }
+
+// SetSameErrorClassRetryCap overrides the same-error-class retry cap.
+// Negative values fall back to the default; 0 is a valid explicit
+// "disable the class governor" setting (the surrounding gate treats
+// cap<=0 as inactive).
+func SetSameErrorClassRetryCap(n int) {
+	if n < 0 {
+		sameErrorClassRetryCapValue = sameErrorClassRetryCapDefault
+		return
+	}
+	sameErrorClassRetryCapValue = n
+}
 
 func dominantViolationClass(res contract.Result) string {
 	if res.Passed || len(res.Violations) == 0 {

@@ -679,7 +679,33 @@ type RuntimeSettings struct {
 	// don't directly cap finalize-stage iterations. Forensic anchor:
 	// May-9 sweep showed ~8% of runs took ≥3 repair_exec rounds with
 	// diminishing returns. nil → use FinalizeRepairHardCapDefault (2).
+	//
+	// FRCAP (§29.12, 2026-07-10): this knob is ALSO the total-rounds
+	// authority for the best-draft fallback — when the cap is reached
+	// with hard violations remaining, the orchestrator ships the
+	// retained draft with the FEWEST hard violations (ties go to the
+	// EARLIEST draft) plus a residual-concerns caveat, and every
+	// answer logs "finalize repair rounds used=N cap=M".
 	PipelineFinalizeRepairHardCap *int `yaml:"pipeline_finalize_repair_hard_cap"`
+
+	// PipelineSameErrorClassRetryCap (FRCAP §29.12, 2026-07-10,
+	// default 1) caps finalize retries for the dominant typed
+	// violation CLASS (sibling kinds in one repair family). The cap
+	// was a hardcoded literal (1) since Session 11; migrating it to a
+	// knob preserves the default byte-for-byte. 0 disables the class
+	// governor (per-kind / hard-cap gates still bound the loop);
+	// negative falls back to the default; nil → default (1).
+	PipelineSameErrorClassRetryCap *int `yaml:"pipeline_same_error_class_retry_cap"`
+
+	// PipelineMaxRepairAttemptsPerRoot (FRCAP §29.12, 2026-07-10,
+	// default 3) caps the W2.6 cross-scope per-(kind, fingerprint)
+	// repair attempt count: once every root violation has been
+	// dispatched this many times across any combination of mid-loop /
+	// fallback / contract-retry scopes, the answer ships with caveats
+	// instead of another wasted round. Was the hardcoded
+	// types.MaxRepairAttemptsPerRoot constant; the constant remains
+	// the code default. Non-positive / nil → default (3).
+	PipelineMaxRepairAttemptsPerRoot *int `yaml:"pipeline_max_repair_attempts_per_root"`
 
 	// RepomapMinParseTier (commit 53 P5) hard-gates files whose
 	// repomap parse tier exceeds the floor (Tier 1=primary
@@ -989,6 +1015,13 @@ type RuntimeSettings struct {
 	AgentLoopMaxMidLoopInjects         *int     `yaml:"agent_loop_max_midloop_injects"`
 	AgentLoopIdleStopThreshold         *int     `yaml:"agent_loop_idle_stop_threshold"`
 	AgentFinalizerMaxCorrectionRetries *int     `yaml:"agent_finalizer_max_correction_retries"`
+	// AgentFinalizerEmptyBlocksBreakerMaxStreak (FRCAP §29.12,
+	// 2026-07-10, default 3) — the F7 same-cause breaker threshold in
+	// the finalize dispatch loop: after this many consecutive
+	// identical empty-blocks emit rejects the loop stops for snapshot
+	// recovery instead of paying another identical round. Was a
+	// hardcoded const; non-positive / nil → default (3).
+	AgentFinalizerEmptyBlocksBreakerMaxStreak *int `yaml:"agent_finalizer_empty_blocks_breaker_max_streak"`
 	AgentFinalizerPreservePriorProse   *bool    `yaml:"agent_finalizer_preserve_prior_prose"`
 	AgentFinalizerShrinkageMinProseLen *int     `yaml:"agent_finalizer_shrinkage_min_prose_len"`
 	AgentFinalizerShrinkageRatio       *float64 `yaml:"agent_finalizer_shrinkage_ratio"`

@@ -84,13 +84,24 @@ func preStageDegradationSystemCaveat(o *Orchestrator) string {
 // degraded-termination disclosure. All final-answer assembly paths in
 // the read scheduler call this instead of the individual appenders so
 // a newly added system caveat is visible on every path at once.
+//
+// CAVSTR (2026-07-10): every note is routed through the caveat replay
+// register (idempotent by verbatim text) so a later FinalAnswer
+// re-render — first-draft attachment, auto-repair, recovery, FRCAP
+// best-draft restore — replays the disclosures instead of silently
+// dropping them.
 func (o *Orchestrator) appendSystemCaveatsToAnswer(answer string) string {
-	answer = o.appendInactiveScopeSystemCaveatToAnswer(answer)
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return answer
+	}
+	if note := inactiveScopeSystemCaveat(o.busCtx.Mutable.AnswerDocumentV2(), o.busCtx); note != "" {
+		answer = o.appendRegisteredAnswerCaveatBullet(answer, note)
+	}
 	if caveat := degradedTerminationSystemCaveat(o); caveat != "" {
-		answer = AppendSystemCaveatString(answer, caveat, o.busCtx.Language)
+		answer = o.appendRegisteredAnswerCaveatBullet(answer, caveat)
 	}
 	if caveat := preStageDegradationSystemCaveat(o); caveat != "" {
-		answer = AppendSystemCaveatString(answer, caveat, o.busCtx.Language)
+		answer = o.appendRegisteredAnswerCaveatBullet(answer, caveat)
 	}
 	return answer
 }
