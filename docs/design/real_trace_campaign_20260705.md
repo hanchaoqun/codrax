@@ -1833,3 +1833,11 @@ cmp"3/4 补齐校验信息后重启探索"=**正常设计内修复环**:Tier-1 �
 ### §29.11 补充(2026-07-09,cap2_report 回传定案):不可判=车道分叉非采样不足
 客户 collect_cap2.yaml 四步全成:huadong 两原窗窗内 cpu_frequency 各 862/926 条,window_stats 面两窗均判出 core_class(small/big),驻留段窗起点状态携入正常——"采样不足"假设**排除**。同两窗 huadong_792 折算行印"簇结构不可判"=**折算 lane 与 window_stats lane 解析基分叉**(折算基疑在切片粒度上无携入取事件)。CAP-3 施工图精化:①折算 lane 的簇域/频点解析统一到与驻留面同一状态时间线(携入语义);②拓扑 trace 全局判定(§29.11 原文);③验收=同 trace 全窗折算词一致(cap2 四窗对照即基准)。
 **cap2 顺带两观察(入 ORD 批语境)**:①同线程 runnable_wait 按 CPU 拆行各占席(#1#2#3 同一 OS_FFRT_3_45387,cpu=1/3/2)——runnable_wait 不在 §24.7.1 家族折叠车道=漏折候选;②aggregate 行+其两 occurrence 成员行三席并占(#4=occurrences=2 聚合 12.401,#5#6=两成员 6.236/6.165)——rank 车道聚合/成员双席形(GAP-B P1-1 修的是 trunk 显示半,rank 席位半未盖)。
+
+## §29.12 裁定(用户 2026-07-09):finalizer 修复轮硬上限
+finalizer 多轮修复=大量 token 交互反复且小模型输出不稳定(后轮可能劣于首轮),**必须次数上限控制**。设计(FRCAP,与 PSG-2H 合批):
+1. **全清点**:枚举 finalize 期全部重试/修复环(evaluator retry-hint 环/oracle 拒稿重写/finalizer_auto_repair/contract 修复轮),逐环登记现行上限与来源(硬编码=违 ShouldStop 两段式红线,一并整改为 config 驱动)。
+2. **硬上限**:codrax.yaml 新知 knob(指针型,两段式 cap 纪律),保守默认(如成文修复总轮数≤2);到顶即止,**永不无界**。
+3. **最优稿回退**:到顶仍有违规→不再重试,按精确信号选最优稿出厂(硬违规数最少者;平手取**最早稿**——采纳"后轮未必更好"判断)+确定性 caveat 披露残余问题(与 PSG-2H 兜底同型:系统不改写正文,列明未定位项)。
+4. 轮次遥测日志(每答案落"修复轮 N/上限 M"),回访转录可审计。
+排期:TRUNC 批(同域 finalizer_auto_repair 等)复核收尾提交后立即开 FRCAP+PSG-2H 合批。
