@@ -153,6 +153,19 @@ func runtimeTraceProjFamilySumDetailNote(node types.TraceCausalProjectionNode, z
 		}
 		return fmt.Sprintf("; raw sum %.3fms for cross-checking (overlapping segments deduplicated)", node.FamilyMemberSumMS)
 	}
+	// 跨批 X2 (GAP-B 收尾, 2026-07-09): a COUNT-class family's Σ is a
+	// count-derived advisory scalar, not wall clock — GAP-A's G3 makes the
+	// count arm always publish MemberSumMs, and the former fallback arm below
+	// printed it in the bare wall-clock form ("原始和 198.300ms 供对照"),
+	// contradicting the fence face (which deliberately excludes count) and
+	// the engine's roster/Summary faces. The 计数当量 marker mirrors the
+	// engine's ONE helper wording (rootCauseCountEquivalentValue) — 三面同源.
+	if strings.TrimSpace(node.FamilyFoldCaliber) == tracequery.RootCauseMemberFoldCaliberCountSum {
+		if zh {
+			return fmt.Sprintf(";原始和 计数当量%.3fms 供对照(计数类,非墙钟)", node.FamilyMemberSumMS)
+		}
+		return fmt.Sprintf("; raw sum count-equivalent %.3fms for cross-checking (count-class, not wall clock)", node.FamilyMemberSumMS)
+	}
 	if zh {
 		return fmt.Sprintf(";原始和 %.3fms 供对照", node.FamilyMemberSumMS)
 	}

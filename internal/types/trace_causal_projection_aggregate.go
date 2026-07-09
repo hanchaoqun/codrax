@@ -821,6 +821,16 @@ func traceCausalProjectionAggregateSameKind(nodes []TraceCausalProjectionNode) [
 			continue
 		}
 		key := subject + "\x00" + object
+		// 复核 P1-1 捎带 (2026-07-09, pre-existing blind spot): the R2 group
+		// key carried no predicate dimension, so a wakeup_causal_aggregate row
+		// — a DERIVED VIEW whose per-hop member rows are retained beside it —
+		// bucketed WITH its own members and a ≥3 group summed the identical
+		// wall clock twice. Aggregate views bucket apart (typed predicate
+		// discriminator): view-with-view merging stays possible, view-with-
+		// member never.
+		if strings.TrimSpace(node.Predicate) == "wakeup_causal_aggregate" {
+			key += "\x00wakeup_causal_aggregate"
+		}
 		g, ok := groups[key]
 		if !ok {
 			g = &group{first: i}
@@ -836,187 +846,12 @@ func traceCausalProjectionAggregateSameKind(nodes []TraceCausalProjectionNode) [
 		if len(g.members) < traceCausalProjectionSameKindAggregateMin {
 			continue
 		}
-		aggregate := nodes[g.first]
-		var sum, minMS, maxMS float64
-		absorbed := map[string]bool{traceCausalProjectionCanonicalNode(aggregate.EvidenceID): true}
+		replaced[g.first] = traceCausalProjectionMergeSameKindMembers(nodes, g.first, g.members)
 		for _, idx := range g.members {
-			member := nodes[idx]
-			traceCausalProjectionAppendMergedSubject(&aggregate, member.Subject)
-			display := member.ImpactMS
-			if display <= 0 {
-				display = member.CumulativeImpactMS
-			}
-			sum += display
-			if minMS == 0 || (display > 0 && display < minMS) {
-				minMS = display
-			}
-			if display > maxMS {
-				maxMS = display
-			}
 			if idx != g.first {
 				dropped[idx] = true
-				id := strings.TrimSpace(member.EvidenceID)
-				if id != "" && !absorbed[traceCausalProjectionCanonicalNode(id)] {
-					absorbed[traceCausalProjectionCanonicalNode(id)] = true
-					aggregate.MergedEvidenceIDs = append(aggregate.MergedEvidenceIDs, id)
-				}
-				for _, id := range member.MergedEvidenceIDs {
-					if id = strings.TrimSpace(id); id != "" && !absorbed[traceCausalProjectionCanonicalNode(id)] {
-						absorbed[traceCausalProjectionCanonicalNode(id)] = true
-						aggregate.MergedEvidenceIDs = append(aggregate.MergedEvidenceIDs, id)
-					}
-				}
-				for _, object := range member.SecondaryObjects {
-					traceCausalProjectionAppendSecondaryObject(&aggregate, object)
-				}
-				if member.LineStart > 0 && (aggregate.LineStart <= 0 || member.LineStart < aggregate.LineStart) {
-					aggregate.LineStart = member.LineStart
-				}
-				if member.LineEnd > aggregate.LineEnd {
-					aggregate.LineEnd = member.LineEnd
-				}
-				if member.Rank > 0 && (aggregate.Rank <= 0 || member.Rank < aggregate.Rank) {
-					aggregate.Rank = member.Rank
-				}
-				if member.Confidence > 0 && (aggregate.Confidence <= 0 || member.Confidence < aggregate.Confidence) {
-					aggregate.Confidence = member.Confidence
-				}
-				if member.StartTs > 0 && (aggregate.StartTs <= 0 || member.StartTs < aggregate.StartTs) {
-					aggregate.StartTs = member.StartTs
-				}
-				if member.EndTs > aggregate.EndTs {
-					aggregate.EndTs = member.EndTs
-				}
 			}
 		}
-		aggregate.MergedCount = len(g.members)
-		aggregate.MergedMinMS = minMS
-		aggregate.MergedMaxMS = maxMS
-		aggregate.ImpactMS = sum
-		aggregate.CumulativeImpactMS = sum
-		// COV §24.9 D-1: TargetImpactMS re-derives as the member MAX — the
-		// members explain overlapping stretches of the ONE target's blocked
-		// wall clock, so a Σ would double-count it, and a group-first
-		// inheritance is order-dependent (D-3 家族). MAX never invents.
-		targetImpact := 0.0
-		for _, idx := range g.members {
-			if v := nodes[idx].TargetImpactMS; v > targetImpact {
-				targetImpact = v
-			}
-		}
-		aggregate.TargetImpactMS = targetImpact
-		// §11-N2: cross-query-window caliber. The roster of distinct member
-		// query windows is disclosed on every ×N row whose members carried a
-		// window identity (窗身份, 联动 q1-B6); the union caliber replaces the
-		// SUM only when distinct-window members overlap in time (see the
-		// function docs — disjoint and window-less shapes keep the SUM
-		// unchanged). Row-level window identity survives only when EVERY
-		// member carried the SAME window — a mixed or partially-unknown roster
-		// must not let the merged row claim a single window as its own.
-		union := traceCausalProjectionCrossWindowUnion(nodes, g.members)
-		aggregate.MergedQueryWindows = union.roster
-		if !union.singleWindow {
-			aggregate.QueryWindowStartTs, aggregate.QueryWindowEndTs = 0, 0
-		}
-		if union.applied {
-			aggregate.ImpactMS = union.unionMS
-			aggregate.CumulativeImpactMS = union.unionMS
-			aggregate.MergedIntervalUnion = true
-			aggregate.MergedSumMS = sum
-		} else if union.crossWindowMax {
-			// §21 CWD (cmp_01 revisit 2026-07-07, D-新P0 排队深度方向反转
-			// engine half): overlapping-query-window magnitudes must not SUM
-			// (墙钟跨窗不可加和) and the per-segment union deduction was
-			// structurally unavailable — publish the member MAX (a lower
-			// bound that never invents; R3 cross-thread fold precedent) with
-			// the lossless raw Σ kept for the audit trail and the max
-			// member's own query window kept as the display density base.
-			aggregate.ImpactMS = maxMS
-			aggregate.CumulativeImpactMS = maxMS
-			aggregate.MergedCrossWindowMax = true
-			aggregate.MergedSumMS = sum
-			aggregate.MergedMaxWindowStartTs = union.maxMemberWindowStart
-			aggregate.MergedMaxWindowEndTs = union.maxMemberWindowEnd
-		}
-		// F2 (adversarial review 2026-07-03): the ×N row carries a SUM, so the
-		// DuplicatePublications contract ("dup>0 ⇒ the value is ONE republished
-		// measurement") can never hold on it — a dup count inherited from the
-		// group-first survivor (or silently lost from a non-first member) once
-		// rendered the mutually-exclusive ×2同值合并 and ×3合并 labels on one row.
-		// Cleared unconditionally: member provenance stays lossless through
-		// MergedEvidenceIDs; no second counter is introduced.
-		aggregate.DuplicatePublications = 0
-		// RCM-2 复核 F-1 (2026-07-08, ledger §24.7.1/§24.10 批): the group-first
-		// seed can be an ENGINE family contender (multi-window same-(thread,type)
-		// families make ≥3 same-kind rows production-reachable), and inheriting
-		// its FamilyMember*/FamilyFoldCaliber/roster/BackgroundRank/Inode/Dev
-		// wholesale minted a CHIMERA row carrying BOTH ×N lanes — 行1
-		// 「×2 合计6.598」 beside the subordinate 「×3(1.598–3.000ms)」 R2 tag
-		// (one row, two contradictory counts) — and let ONE member's inode/board
-		// seat impersonate the whole merge. Cleared unconditionally, same family
-		// as the DuplicatePublications/SupplyFold clears beside it: the merged
-		// row is an R2 ×N SUM and speaks ONLY that grammar; member provenance
-		// stays lossless through MergedEvidenceIDs. (The R3 background fold is
-		// structurally clean — it builds a FRESH node, never a group-first copy;
-		// R1/V4/alias absorbs keep the SURVIVOR's own identity and set no
-		// MergedCount, so no second ×N lane can co-render there.)
-		aggregate.FamilyMemberCount = 0
-		aggregate.FamilyMemberMaxMS = 0
-		aggregate.FamilyMemberMinMS = 0
-		aggregate.FamilyMemberSumMS = 0
-		aggregate.FamilyFoldCaliber = ""
-		aggregate.FamilyMemberRoster = nil
-		aggregate.BackgroundRank = 0
-		aggregate.Inode = ""
-		aggregate.Dev = ""
-		// SFD 复核 F3 (2026-07-07, same family as the DuplicatePublications
-		// clear above and the VS-1 F6(a) periodic re-derivation below): the ×N
-		// row carries a member SUM, so a SINGLE member's supply-fold accounting
-		// (deficit/ideal over that one segment's own running clock, §7.10) can
-		// never describe it — the group-first seed's inherited group rendered a
-		// single-member deficit clause beside a three-member sum (伪对比: 缺口
-		// 5.000ms 贴在 42.000ms 总和旁). Cleared unconditionally whenever ≥2
-		// members merge; re-deriving a fold from members stays open (P0-E)
-		// until the engine publishes a per-member basis to sum from — the
-		// display layer never mints accounting the engine did not publish.
-		aggregate.SupplyFoldComputed = false
-		aggregate.SupplyFoldDeficitMS = 0
-		aggregate.SupplyFoldIdealMS = 0
-		aggregate.SupplyFoldKnownMS = 0
-		aggregate.SupplyFoldUnknownMS = 0
-		// VS-1 F6(a) (adversarial review 2026-07-04): the ×N SUM row re-derives
-		// its periodic accounting from the MEMBERS instead of inheriting the
-		// group-first copy. All members periodic → the fold keeps the flag with
-		// the summed discount (Σ effective / Σ lateness are legal sums here:
-		// per-member discounts are disjoint per-occurrence amounts, never
-		// overlapping wall clock) and the group head's DetectedPeriodMS (already
-		// on the aggregate). ANY non-periodic member → the SUM row is back to
-		// raw semantics: flag, cadence fields and the inherited (periodic-only)
-		// discount are cleared — a part-cadence sum labelled periodic would
-		// discount real waits it never measured, and a stale group-first
-		// effective would understate the ×N total.
-		allPeriodic := true
-		for _, idx := range g.members {
-			if !nodes[idx].PeriodicSource {
-				allPeriodic = false
-				break
-			}
-		}
-		if allPeriodic {
-			effective, lateness := 0.0, 0.0
-			for _, idx := range g.members {
-				effective += nodes[idx].EffectiveImpactMS
-				lateness += nodes[idx].PeriodicLatenessMS
-			}
-			aggregate.EffectiveImpactMS = effective
-			aggregate.PeriodicLatenessMS = lateness
-		} else if aggregate.PeriodicSource {
-			aggregate.PeriodicSource = false
-			aggregate.DetectedPeriodMS = 0
-			aggregate.PeriodicLatenessMS = 0
-			aggregate.EffectiveImpactMS = 0
-		}
-		replaced[g.first] = aggregate
 	}
 	if len(replaced) == 0 && len(dropped) == 0 {
 		return nodes
@@ -1033,6 +868,224 @@ func traceCausalProjectionAggregateSameKind(nodes []TraceCausalProjectionNode) [
 		out = append(out, node)
 	}
 	return out
+}
+
+// traceCausalProjectionMergeSameKindMembers is THE R2 ×N member-merge body
+// (extracted 2026-07-09, GAP-B G5 — behavior-preserving refactor): given the
+// member indexes of one merged group it builds the surviving ×N aggregate
+// seeded on nodes[first]. It is the SINGLE merge authority — the ≥3-threshold
+// R2 pass above and the display trunk's ×2 same-(thread,state) occurrence fold
+// (TraceCausalProjectionMergeOccurrenceRows) both call it, so the field
+// semantics (SUM/union/cross-window-max calibers, chimera clears, periodic
+// re-derivation) can never drift between the two thresholds.
+func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode, first int, members []int) TraceCausalProjectionNode {
+	aggregate := nodes[first]
+	var sum, minMS, maxMS float64
+	absorbed := map[string]bool{traceCausalProjectionCanonicalNode(aggregate.EvidenceID): true}
+	for _, idx := range members {
+		member := nodes[idx]
+		traceCausalProjectionAppendMergedSubject(&aggregate, member.Subject)
+		display := member.ImpactMS
+		if display <= 0 {
+			display = member.CumulativeImpactMS
+		}
+		sum += display
+		if minMS == 0 || (display > 0 && display < minMS) {
+			minMS = display
+		}
+		if display > maxMS {
+			maxMS = display
+		}
+		if idx != first {
+			id := strings.TrimSpace(member.EvidenceID)
+			if id != "" && !absorbed[traceCausalProjectionCanonicalNode(id)] {
+				absorbed[traceCausalProjectionCanonicalNode(id)] = true
+				aggregate.MergedEvidenceIDs = append(aggregate.MergedEvidenceIDs, id)
+			}
+			for _, id := range member.MergedEvidenceIDs {
+				if id = strings.TrimSpace(id); id != "" && !absorbed[traceCausalProjectionCanonicalNode(id)] {
+					absorbed[traceCausalProjectionCanonicalNode(id)] = true
+					aggregate.MergedEvidenceIDs = append(aggregate.MergedEvidenceIDs, id)
+				}
+			}
+			for _, object := range member.SecondaryObjects {
+				traceCausalProjectionAppendSecondaryObject(&aggregate, object)
+			}
+			if member.LineStart > 0 && (aggregate.LineStart <= 0 || member.LineStart < aggregate.LineStart) {
+				aggregate.LineStart = member.LineStart
+			}
+			if member.LineEnd > aggregate.LineEnd {
+				aggregate.LineEnd = member.LineEnd
+			}
+			if member.Rank > 0 && (aggregate.Rank <= 0 || member.Rank < aggregate.Rank) {
+				aggregate.Rank = member.Rank
+			}
+			if member.Confidence > 0 && (aggregate.Confidence <= 0 || member.Confidence < aggregate.Confidence) {
+				aggregate.Confidence = member.Confidence
+			}
+			if member.StartTs > 0 && (aggregate.StartTs <= 0 || member.StartTs < aggregate.StartTs) {
+				aggregate.StartTs = member.StartTs
+			}
+			if member.EndTs > aggregate.EndTs {
+				aggregate.EndTs = member.EndTs
+			}
+		}
+	}
+	aggregate.MergedCount = len(members)
+	aggregate.MergedMinMS = minMS
+	aggregate.MergedMaxMS = maxMS
+	aggregate.ImpactMS = sum
+	aggregate.CumulativeImpactMS = sum
+	// COV §24.9 D-1: TargetImpactMS re-derives as the member MAX — the
+	// members explain overlapping stretches of the ONE target's blocked
+	// wall clock, so a Σ would double-count it, and a group-first
+	// inheritance is order-dependent (D-3 家族). MAX never invents.
+	targetImpact := 0.0
+	for _, idx := range members {
+		if v := nodes[idx].TargetImpactMS; v > targetImpact {
+			targetImpact = v
+		}
+	}
+	aggregate.TargetImpactMS = targetImpact
+	// §11-N2: cross-query-window caliber. The roster of distinct member
+	// query windows is disclosed on every ×N row whose members carried a
+	// window identity (窗身份, 联动 q1-B6); the union caliber replaces the
+	// SUM only when distinct-window members overlap in time (see the
+	// function docs — disjoint and window-less shapes keep the SUM
+	// unchanged). Row-level window identity survives only when EVERY
+	// member carried the SAME window — a mixed or partially-unknown roster
+	// must not let the merged row claim a single window as its own.
+	union := traceCausalProjectionCrossWindowUnion(nodes, members)
+	aggregate.MergedQueryWindows = union.roster
+	if !union.singleWindow {
+		aggregate.QueryWindowStartTs, aggregate.QueryWindowEndTs = 0, 0
+	}
+	if union.applied {
+		aggregate.ImpactMS = union.unionMS
+		aggregate.CumulativeImpactMS = union.unionMS
+		aggregate.MergedIntervalUnion = true
+		aggregate.MergedSumMS = sum
+	} else if union.crossWindowMax {
+		// §21 CWD (cmp_01 revisit 2026-07-07, D-新P0 排队深度方向反转
+		// engine half): overlapping-query-window magnitudes must not SUM
+		// (墙钟跨窗不可加和) and the per-segment union deduction was
+		// structurally unavailable — publish the member MAX (a lower
+		// bound that never invents; R3 cross-thread fold precedent) with
+		// the lossless raw Σ kept for the audit trail and the max
+		// member's own query window kept as the display density base.
+		aggregate.ImpactMS = maxMS
+		aggregate.CumulativeImpactMS = maxMS
+		aggregate.MergedCrossWindowMax = true
+		aggregate.MergedSumMS = sum
+		aggregate.MergedMaxWindowStartTs = union.maxMemberWindowStart
+		aggregate.MergedMaxWindowEndTs = union.maxMemberWindowEnd
+	}
+	// F2 (adversarial review 2026-07-03): the ×N row carries a SUM, so the
+	// DuplicatePublications contract ("dup>0 ⇒ the value is ONE republished
+	// measurement") can never hold on it — a dup count inherited from the
+	// group-first survivor (or silently lost from a non-first member) once
+	// rendered the mutually-exclusive ×2同值合并 and ×3合并 labels on one row.
+	// Cleared unconditionally: member provenance stays lossless through
+	// MergedEvidenceIDs; no second counter is introduced.
+	aggregate.DuplicatePublications = 0
+	// RCM-2 复核 F-1 (2026-07-08, ledger §24.7.1/§24.10 批): the group-first
+	// seed can be an ENGINE family contender (multi-window same-(thread,type)
+	// families make ≥3 same-kind rows production-reachable), and inheriting
+	// its FamilyMember*/FamilyFoldCaliber/roster/BackgroundRank/Inode/Dev
+	// wholesale minted a CHIMERA row carrying BOTH ×N lanes — 行1
+	// 「×2 合计6.598」 beside the subordinate 「×3(1.598–3.000ms)」 R2 tag
+	// (one row, two contradictory counts) — and let ONE member's inode/board
+	// seat impersonate the whole merge. Cleared unconditionally, same family
+	// as the DuplicatePublications/SupplyFold clears beside it: the merged
+	// row is an R2 ×N SUM and speaks ONLY that grammar; member provenance
+	// stays lossless through MergedEvidenceIDs. (The R3 background fold is
+	// structurally clean — it builds a FRESH node, never a group-first copy;
+	// R1/V4/alias absorbs keep the SURVIVOR's own identity and set no
+	// MergedCount, so no second ×N lane can co-render there.)
+	aggregate.FamilyMemberCount = 0
+	aggregate.FamilyMemberMaxMS = 0
+	aggregate.FamilyMemberMinMS = 0
+	aggregate.FamilyMemberSumMS = 0
+	aggregate.FamilyFoldCaliber = ""
+	aggregate.FamilyMemberRoster = nil
+	aggregate.BackgroundRank = 0
+	aggregate.Inode = ""
+	aggregate.Dev = ""
+	// SFD 复核 F3 (2026-07-07, same family as the DuplicatePublications
+	// clear above and the VS-1 F6(a) periodic re-derivation below): the ×N
+	// row carries a member SUM, so a SINGLE member's supply-fold accounting
+	// (deficit/ideal over that one segment's own running clock, §7.10) can
+	// never describe it — the group-first seed's inherited group rendered a
+	// single-member deficit clause beside a three-member sum (伪对比: 缺口
+	// 5.000ms 贴在 42.000ms 总和旁). Cleared unconditionally whenever ≥2
+	// members merge; re-deriving a fold from members stays open (P0-E)
+	// until the engine publishes a per-member basis to sum from — the
+	// display layer never mints accounting the engine did not publish.
+	aggregate.SupplyFoldComputed = false
+	aggregate.SupplyFoldDeficitMS = 0
+	aggregate.SupplyFoldIdealMS = 0
+	aggregate.SupplyFoldKnownMS = 0
+	aggregate.SupplyFoldUnknownMS = 0
+	// VS-1 F6(a) (adversarial review 2026-07-04): the ×N SUM row re-derives
+	// its periodic accounting from the MEMBERS instead of inheriting the
+	// group-first copy. All members periodic → the fold keeps the flag with
+	// the summed discount (Σ effective / Σ lateness are legal sums here:
+	// per-member discounts are disjoint per-occurrence amounts, never
+	// overlapping wall clock) and the group head's DetectedPeriodMS (already
+	// on the aggregate). ANY non-periodic member → the SUM row is back to
+	// raw semantics: flag, cadence fields and the inherited (periodic-only)
+	// discount are cleared — a part-cadence sum labelled periodic would
+	// discount real waits it never measured, and a stale group-first
+	// effective would understate the ×N total.
+	allPeriodic := true
+	for _, idx := range members {
+		if !nodes[idx].PeriodicSource {
+			allPeriodic = false
+			break
+		}
+	}
+	if allPeriodic {
+		effective, lateness := 0.0, 0.0
+		for _, idx := range members {
+			effective += nodes[idx].EffectiveImpactMS
+			lateness += nodes[idx].PeriodicLatenessMS
+		}
+		aggregate.EffectiveImpactMS = effective
+		aggregate.PeriodicLatenessMS = lateness
+	} else if aggregate.PeriodicSource {
+		aggregate.PeriodicSource = false
+		aggregate.DetectedPeriodMS = 0
+		aggregate.PeriodicLatenessMS = 0
+		aggregate.EffectiveImpactMS = 0
+	}
+	return aggregate
+}
+
+// TraceCausalProjectionMergeOccurrenceRows (GAP-B G5, §27.3
+// real_trace_campaign_20260705.md, 2026-07-09) merges ≥2 occurrence rows of
+// ONE subject into a single R2-grammar ×N row through the SAME merge authority
+// as the aggregation pass (traceCausalProjectionMergeSameKindMembers — sum +
+// per-instance a–b range, union/cross-window-max calibers, chimera clears,
+// periodic re-derivation, lossless MergedEvidenceIDs). rows[0] is the seed
+// identity carrier. The MEMBERSHIP decision (which rows may merge) is the
+// caller's policy — the display trunk admits same-(thread, dominant-state)
+// plain occurrence pairs at threshold 2, because rendering a thread's second
+// same-state occurrence as its own 成因 child claims the thread CAUSED ITSELF
+// (semantic error, §27.3 G5 witness: OS_mmi_EventHdr sleep 0.904 hung under
+// sleep 4.431 as "├─成因─"), while the R2 pass keeps its ≥3 threshold (its
+// fold is a row-count economy, not an error repair).
+func TraceCausalProjectionMergeOccurrenceRows(rows []TraceCausalProjectionNode) TraceCausalProjectionNode {
+	if len(rows) == 0 {
+		return TraceCausalProjectionNode{}
+	}
+	if len(rows) == 1 {
+		return rows[0]
+	}
+	members := make([]int, len(rows))
+	for i := range rows {
+		members[i] = i
+	}
+	return traceCausalProjectionMergeSameKindMembers(rows, 0, members)
 }
 
 // --- N2: cross-query-window ×N union caliber ---------------------------------

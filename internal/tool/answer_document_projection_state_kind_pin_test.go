@@ -85,6 +85,10 @@ var runtimeStateKindSwitchFallthroughLedger = map[string]types.TraceStateKindFal
 		Missing: "sleep,s_sleep,sleep_wait",
 		Why:     "PTV8-RCR-A §24.3: the sleep family is short-circuited by the IsSleepState early return above (☾ form); non-state rows fall through to the typed token-family lane, then ◦",
 	},
+	"answer_document_mutation_runtime_rcr.go:runtimeTraceProjInversionStateCompositionWord#1": {
+		Missing: "sleep,s_sleep,sleep_wait,d_sleep,d_state,io_wait,uninterruptible_sleep",
+		Why:     "GAP-B G7 词值同源 (§27.3, 2026-07-09): the inversion 行1 word-lane speaks only the two inversion COMPONENT states (runnable/running — the states the gated decomposition accounts); a sleep/D/IO-dominant window projection has no seat in the composition grammar, so the word falls back to the gated composition below (fail-open to legacy, never a fabricated component word)",
+	},
 }
 
 var runtimeStateKindSwitchSiteGolden = map[string]string{
@@ -97,10 +101,13 @@ var runtimeStateKindSwitchSiteGolden = map[string]string{
 	// moved into the single-source impact-form classifier (rcr.go) — same
 	// case set, no default arm (the classifier falls through to the typed
 	// token-family lane, then ◦).
-	"answer_document_mutation_runtime_rcr.go:runtimeTraceProjImpactFormForNode#1":       "running,runnable,d_sleep,d_state,io_wait,uninterruptible_sleep",
-	"answer_document_mutation_runtime_tree.go:runtimeTraceProjStateKindLabel#1":         "running,runnable,sleep,s_sleep,sleep_wait,d_sleep,d_state,io_wait,uninterruptible_sleep",
-	"answer_document_mutation_runtime_tree.go:runtimeTraceProjWaitFamilyStateKind#1":    "sleep,s_sleep,sleep_wait,d_sleep,d_state,io_wait,uninterruptible_sleep",
-	"answer_document_mutation_runtime_tree.go:runtimeTraceProjSymptomFamilyStateKind#1": "runnable+alias:runnable_wait",
+	"answer_document_mutation_runtime_rcr.go:runtimeTraceProjImpactFormForNode#1": "running,runnable,d_sleep,d_state,io_wait,uninterruptible_sleep",
+	// GAP-B G7 (§27.3, 2026-07-09): the 词值同源 window-lane word switch — the
+	// two inversion component states only (fall-through declared above).
+	"answer_document_mutation_runtime_rcr.go:runtimeTraceProjInversionStateCompositionWord#1": "running,runnable",
+	"answer_document_mutation_runtime_tree.go:runtimeTraceProjStateKindLabel#1":               "running,runnable,sleep,s_sleep,sleep_wait,d_sleep,d_state,io_wait,uninterruptible_sleep",
+	"answer_document_mutation_runtime_tree.go:runtimeTraceProjWaitFamilyStateKind#1":          "sleep,s_sleep,sleep_wait,d_sleep,d_state,io_wait,uninterruptible_sleep",
+	"answer_document_mutation_runtime_tree.go:runtimeTraceProjSymptomFamilyStateKind#1":       "runnable+alias:runnable_wait",
 }
 
 func TestRuntimeStateKindSwitchConsumerCoverage(t *testing.T) {

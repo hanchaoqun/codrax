@@ -1007,7 +1007,18 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 		// rows exactly when the table shows them (gated flags from the same
 		// detail rows the table renders) — every other render stays
 		// byte-stable.
-		if flags := runtimeTraceProjDetailTableLegendFlagsFor(model, zh); flags.mergedSum || flags.mergedMax || flags.mergedWindowMax || flags.mergedDedup || flags.multiSeat || flags.family {
+		if flags := runtimeTraceProjDetailTableLegendFlagsFor(model, zh); flags.mergedSum || flags.mergedMax || flags.mergedWindowMax || flags.mergedDedup || flags.multiSeat || flags.family || flags.selfSymptom {
+			// GAP-B G6 (§27.3, 2026-07-09): the wait-symptom self row's gated
+			// line — present exactly when a target_self_state row is on the
+			// table (its 有效归因 cell is "—": the row never enters the
+			// root-cause ranking; 自因四态 self rows keep their value).
+			if flags.selfSymptom {
+				if zh {
+					lines = append(lines, "- 关注线程自身的等待症状行不参与根因排序,「有效归因」列为 —;其根因看对端/上游链上行。")
+				} else {
+					lines = append(lines, "- the focused thread's own wait-symptom rows never enter the root-cause ranking, so their attribution cell is “—”; their cause lives on the counterpart/upstream chain rows.")
+				}
+			}
 			// RCM-2 D3 (§24.7.1②/§24.10): the family-merge token's gated line —
 			// present exactly when a ×N合计/×N成员最大 family row is on the table.
 			if flags.family {

@@ -171,13 +171,19 @@ func TestRCRCauseNodeTerminalFormsVerbatim(t *testing.T) {
 			t.Fatalf("E6 terminal form missing %q:\n%s", want, fence)
 		}
 	}
-	// E7 inversion node — the task-ruled four-line mock VERBATIM: 词位 =
-	// runnable+running, 行2 with the folded rank twin's seat/confidence, 行3
-	// identity breakdown, two 拆解子行; the twin's E# merged into 行1.
-	// (Badges: PTV6 #11 one seat per subject — E4 already seats
-	// #RxComputationT-16816, so E5-E8 wear no ❷/❸; the specimen agrees.)
+	// E7 inversion node — the four-line form: 行2 with the folded rank twin's
+	// seat/confidence, 行3 identity breakdown, two 拆解子行; the twin's E#
+	// merged into 行1. (Badges: PTV6 #11 one seat per subject — E4 already
+	// seats #RxComputationT-16816, so E5-E8 wear no ❷/❸; the specimen agrees.)
+	//
+	// EVOLUTION RECORD (GAP-B G7 词值同源, §27.3, 2026-07-09): 行1's 词位
+	// changed from the gated ATTRIBUTION composition (runnable+running) to the
+	// state 行1's VALUE actually measures — the window-projection lane's typed
+	// dominant state (StateKind=running here; the 58.919 IS the running
+	// projection, pinned by TestRCRIdentityRow1KeepsWindowProjection). The
+	// composition stays fully disclosed on 行3's "=" decomposition below.
 	for _, want := range []string{
-		"⇅ runnable+running",
+		"⇅ running",
 		"⚠实际59.050ms · [E7(+1)+E8]",
 		"· 优先级反转候选·根因排序#2·置信高",
 		"· 有效归因 37.410ms = runnable(全额) 20.713ms + running(折算) 16.697ms",
@@ -237,8 +243,10 @@ func TestRCRIdentitySumEqualsEffectiveOrNoBreakdown(t *testing.T) {
 func TestRCRIdentityRow1KeepsWindowProjection(t *testing.T) {
 	fence, model := rcrOpendirFence(t, true)
 	var row1 string
+	// EVOLUTION RECORD (GAP-B G7, 2026-07-09): 行1's word is the window lane's
+	// dominant state (running) — the composition word moved to 行3 only.
 	for _, line := range strings.Split(fence, "\n") {
-		if strings.Contains(line, "runnable+running") && strings.Contains(line, "+E8]") {
+		if strings.Contains(line, "⇅ running") && strings.Contains(line, "+E8]") {
 			row1 = line
 			break
 		}

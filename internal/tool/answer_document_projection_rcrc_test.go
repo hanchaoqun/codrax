@@ -230,18 +230,24 @@ func TestRCRCReservedSeatSurvivesWidthPressure(t *testing.T) {
 	}
 	// The grammar word holds its reserved seat on 行1; the pid tail survives
 	// the mid-truncation (T2) — only the name head gave way.
-	if !strings.Contains(row1, " · runnable+running") {
-		t.Fatalf("行1 must keep the reserved composition word: %q", row1)
+	// EVOLUTION RECORD (GAP-B G7 词值同源, §27.3, 2026-07-09): the reserved
+	// word is now the window lane's dominant state (running — the fixture's
+	// StateKind), not the gated composition; the composition lives on 行3.
+	if !strings.Contains(row1, " · running") {
+		t.Fatalf("行1 must keep the reserved state word: %q", row1)
 	}
 	if !strings.Contains(row1, "…-16816") {
 		t.Fatalf("the thread-name head must mid-truncate keeping the pid tail: %q", row1)
 	}
 	// §24.9 突变 pin: 宽度受压链上成因行绝不在 OwnLine 块下方复吐构成词 — no
 	// subordinate line may re-spit the bare word (the 行3 拆写形
-	// runnable(全额)… is a different, legal shape).
+	// runnable(全额)… and the 行4 "· running 原始 …" sub-row are different,
+	// legal shapes — the re-spit form is the BARE word line, alone or followed
+	// by a "·" tag joiner).
 	for _, line := range strings.Split(fence, "\n") {
-		if trimmed := strings.TrimSpace(line); strings.HasPrefix(trimmed, "· runnable+running") {
-			t.Fatalf("the composition word re-spat below the OwnLine block: %q\n%s", line, fence)
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "· running" || strings.HasPrefix(trimmed, "· running ·") {
+			t.Fatalf("the state word re-spat below the OwnLine block: %q\n%s", line, fence)
 		}
 	}
 	// The four-line grammar itself is intact under width pressure.
@@ -553,7 +559,9 @@ func TestRCRCReservedSeatFloorClampCorner(t *testing.T) {
 	row := model.TreeRows[0]
 	name := runtimeTraceProjRowName(row, true)
 	keep := runtimeTraceProjRowNameKeepSuffix(row, true)
-	if keep != " · runnable+running" {
+	// EVOLUTION RECORD (GAP-B G7, 2026-07-09): the reserved grammar word is
+	// the window lane's dominant state now (词值同源).
+	if keep != " · running" {
 		t.Fatalf("keep suffix = %q", keep)
 	}
 	// A 60-cell fixed part clamps the budget to the erosion floor (≥8): the

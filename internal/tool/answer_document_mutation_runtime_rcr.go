@@ -597,23 +597,51 @@ func runtimeTraceProjInversionDegenerateSingleFull(components []runtimeTraceProj
 }
 
 // runtimeTraceProjInversionStateCompositionWord is 行1's 词位 for an
-// inversion cause node (§24 用户裁定① / task-verbatim E7 case): the state
-// composition "runnable+running" when both gated components are live, the
-// single live component's state word otherwise, "" when the composite carries
-// no component (the caller keeps the legacy name).
+// inversion cause node (§24 用户裁定① / task-verbatim E7 case).
+//
+// EVOLUTION RECORD (GAP-B G7 词值同源, §27.3 real_trace_campaign_20260705.md,
+// 2026-07-09): the word position previously spoke the GATED ATTRIBUTION
+// composition (runnable+running / the live component) while 行1's VALUE is the
+// window-projection lane (ImpactMS — the engine's dominant_state projection,
+// pinned by TestRCRIdentityRow1KeepsWindowProjection). The two sourced
+// DIFFERENT typed lanes, so the huadong_79 E17 row read "runnable 4.115ms"
+// over a running projection and E16 read "runnable+running 2.770ms" while the
+// runnable 0.621 lived outside the printed value. The word now follows the
+// VALUE: when 行1 shows the window lane (ImpactMS>0), the word is the typed
+// dominant-state token that lane measures (StateKind, closed runnable/running
+// set); the attribution composition stays fully disclosed on 行3's
+// "有效归因 V = …" decomposition (既有). A row without a usable StateKind (or
+// whose 行1 value fell back off the window lane) keeps the gated-composition
+// word — the lossy absence never breaks the display (fail-open to legacy).
 func runtimeTraceProjInversionStateCompositionWord(node types.TraceCausalProjectionNode) string {
 	if !runtimeTraceCausalProjectionInversionRow(node) {
 		return ""
+	}
+	if node.GatedRunnableMS <= 0 && node.GatedRunningDeficitMS <= 0 {
+		// No gated decomposition → no composition word (the caller keeps the
+		// legacy concise category label; G7 repairs only the decomposed rows).
+		return ""
+	}
+	if node.ImpactMS > 0 {
+		// 行1 value == window lane (the display-impact fallback chain's first
+		// arm) — the word is that lane's own dominant state. Only the two
+		// inversion component states own a word seat here; every other
+		// dominant state falls through to the gated composition below
+		// (fall-through declared in the StateKind pin ledger).
+		switch strings.TrimSpace(strings.ToLower(node.StateKind)) {
+		case "running":
+			return "running"
+		case "runnable":
+			return "runnable"
+		}
 	}
 	switch {
 	case node.GatedRunnableMS > 0 && node.GatedRunningDeficitMS > 0:
 		return "runnable+running"
 	case node.GatedRunnableMS > 0:
 		return "runnable"
-	case node.GatedRunningDeficitMS > 0:
-		return "running"
 	}
-	return ""
+	return "running"
 }
 
 // runtimeTraceProjCauseRunningDeficitArm (PTV8-RCR-C, §24.9 维度A gap② /

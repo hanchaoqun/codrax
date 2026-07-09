@@ -66,11 +66,33 @@ type TraceCausalProjection struct {
 	// only when the B1-b election truncated the path at a mid-chain user
 	// entity — the displayed root then sits rootDepth hops up the REAL chain,
 	// and the tree's (branch, depth) attach subtracts it so trunk positions
-	// stay the engine's true depths). Display attach domain only; no gate
-	// reads either field.
-	WakeupPathBranch    int                         `json:"wakeup_path_branch,omitempty"`
-	WakeupPathRootDepth int                         `json:"wakeup_path_root_depth,omitempty"`
-	SupportingHops      []TraceCausalProjectionNode `json:"supporting_hops,omitempty"`
+	// stay the engine's true depths).
+	//
+	// EVOLUTION RECORD (GAP-B G4, §27.2 real_trace_campaign_20260705.md,
+	// 2026-07-09): the original "no gate reads either field" sentence is
+	// RETIRED — the display tree's depth-attach admission gate READS both
+	// fields (P0-E branch domain) and now also the WakeupPathQueryWindow*
+	// pair below (window domain). These are hard admission gates on PRECISE
+	// typed signals (integer ordinal equality / float endpoints under the ONE
+	// shared tolerance), per the 精确信号红线; the anchor-election lanes stay
+	// untouched.
+	WakeupPathBranch    int `json:"wakeup_path_branch,omitempty"`
+	WakeupPathRootDepth int `json:"wakeup_path_root_depth,omitempty"`
+	// WakeupPathQueryWindowStartTs/EndTs (GAP-B G4, §27.2, 2026-07-09) is the
+	// elected trunk's OWN query-window identity: the typed selected_window
+	// note of the wakeup_chain record whose path won the anchor election,
+	// through the ONE strict parser (traceCausalProjectionSelectedWindowNote).
+	// Branch ordinals are numbered per query window by the engine (each query
+	// starts at 1), so (branch, depth) alone collides ACROSS windows — the
+	// huadong_79 witness attached a W2 hmfs L2 node under the W1 touch chain
+	// and fabricated a "唤醒 OS_mmi_EventHdr" edge. The display tree's depth
+	// attach therefore additionally requires the node's query-window identity
+	// to match this pair. Zero when the elected record carried no
+	// selected_window note — absence never manufactures a rejection domain
+	// (the window gate then stays inert; 有损零值禁作硬门反向依据).
+	WakeupPathQueryWindowStartTs float64                     `json:"wakeup_path_query_window_start_ts,omitempty"`
+	WakeupPathQueryWindowEndTs   float64                     `json:"wakeup_path_query_window_end_ts,omitempty"`
+	SupportingHops               []TraceCausalProjectionNode `json:"supporting_hops,omitempty"`
 	// WakeupChainRecommendedNotRun is true when this run's ledger contains a
 	// state_drilldown observation whose typed chain_required=true rich note
 	// recommended a wakeup-chain drilldown, but NO wakeup_chain-family
@@ -204,9 +226,20 @@ type TraceCausalProjectionNode struct {
 	// the SAME physical segment into a per-occurrence row, and only the window
 	// identity tells the R2 ×N merge that the members are re-measurements
 	// rather than distinct facts. Zero when the record carried no
-	// selected_window note — absence never guesses a window. Identity carriage
-	// only: the anchor lanes (two-gate whitelist) are untouched, and no gate
-	// reads these fields.
+	// selected_window note — absence never guesses a window. The anchor lanes
+	// (two-gate whitelist) are untouched.
+	//
+	// EVOLUTION RECORD (GAP-B G4, §27.2, 2026-07-09): the original "no gate
+	// reads these fields" sentence is RETIRED. The display tree's depth-attach
+	// admission gate now compares this pair against the elected trunk's
+	// WakeupPathQueryWindow* identity (branch ordinals are per-window and
+	// collide across windows — the huadong_79 W2→W1 fake-edge witness). The
+	// gate reads PRECISE typed endpoints under the ONE shared tolerance
+	// (TraceCausalProjectionSameWindowToleranceS); a node with a ZERO pair on
+	// a windowed trunk cannot PROVE domain membership and conservatively keeps
+	// its honest 未接入树 seat (缺窗身份≠可挂靠 — the lossy zero never passes
+	// the gate in EITHER direction: it neither attaches nor manufactures a
+	// rejection when the trunk itself carries no window identity).
 	QueryWindowStartTs float64 `json:"query_window_start_ts,omitempty"`
 	QueryWindowEndTs   float64 `json:"query_window_end_ts,omitempty"`
 	// WithinRequestedWindow is three-state: nil = unknown (no precise anchor
@@ -618,9 +651,16 @@ const TraceCausalTierTargetSelfState = "target_self_state"
 
 // IsTargetSelfStateRow reports whether this node is the analysis target's own
 // rank row (SYM §24.13 裁定一): typed tier-token equality only. Such rows keep
-// their tree seats and rank ordinals but never seat on the shared rank board
-// (lead / ❶❷❸) and never speak root-cause layer words — the target's own
-// wait/lock-hold is the symptom under analysis, not its cause.
+// their tree seats but never seat on the shared rank board (lead / ❶❷❸) and
+// never speak root-cause layer words — the target's own wait/lock-hold is the
+// symptom under analysis, not its cause.
+//
+// EVOLUTION RECORD (跨批 X1, GAP-B 收尾 2026-07-09): the former "keep their
+// rank ordinals (榜位照发)" clause is RETIRED — the G9 ordinal renumbering
+// assigns rank ordinals only to rows with a seated display identity, so
+// symptom rows arrive with Rank=0. Display gates must key on THIS tier token
+// alone, never on a `Rank > 0 && IsTargetSelfStateRow()` conjunction (the
+// mutually-exclusive pair silently killed the §24.16 disclosure sentence).
 func (n TraceCausalProjectionNode) IsTargetSelfStateRow() bool {
 	return strings.TrimSpace(n.Tier) == TraceCausalTierTargetSelfState
 }
@@ -811,11 +851,20 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 			// #2..N previously fell through the switch into nothing.
 			if path := traceCausalProjectionPath(record.Object); len(path) > 0 {
 				branch := traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyChainPathBranch)
+				// GAP-B G4: carry the record's own typed selected_window so the
+				// elected candidate can publish the trunk's window identity
+				// (absence stays zero — never guessed from other records).
+				ws, we, wok := traceCausalProjectionSelectedWindowNote(record.RichNotes)
+				if !wok {
+					ws, we = 0, 0
+				}
 				wakeupPathCandidates = append(wakeupPathCandidates, traceCausalProjectionWakeupPathCandidate{
-					path:       path,
-					subject:    strings.TrimSpace(record.Subject),
-					branch:     branch,
-					branchForm: branch > 0,
+					path:        path,
+					subject:     strings.TrimSpace(record.Subject),
+					branch:      branch,
+					branchForm:  branch > 0,
+					windowStart: ws,
+					windowEnd:   we,
 				})
 			} else if wakeupPathEmptyLegacy == nil {
 				wakeupPathEmptyLegacy = path
@@ -858,7 +907,7 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 	// user entity (F1b) rank first (they carry the canonical thread label),
 	// then the caller user entities in their own priority order.
 	anchorEntities := traceCausalProjectionOrderedAnchorEntities(frameTargetEntities, userEntities)
-	wakeupPath, wakeupPathUserElected, wakeupPathBranch, wakeupPathRootDepth := traceCausalProjectionSelectWakeupPath(
+	wakeupPath, wakeupPathUserElected, wakeupPathElected, wakeupPathRootDepth := traceCausalProjectionSelectWakeupPath(
 		wakeupPathCandidates, anchorEntities)
 	if wakeupPath == nil {
 		wakeupPath = wakeupPathEmptyLegacy
@@ -904,8 +953,10 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 		WakeupPath:                   wakeupPath,
 		WakeupPathUserElected:        wakeupPathUserElected,
 		WakeupPathUserEntityHits:     wakeupPathUserEntityHits,
-		WakeupPathBranch:             wakeupPathBranch,
+		WakeupPathBranch:             wakeupPathElected.branch,
 		WakeupPathRootDepth:          wakeupPathRootDepth,
+		WakeupPathQueryWindowStartTs: wakeupPathElected.windowStart,
+		WakeupPathQueryWindowEndTs:   wakeupPathElected.windowEnd,
 		SupportingHops:               hops,
 		WakeupChainRecommendedNotRun: chainRequiredRecommended && !wakeupChainObserved,
 		RootCauseFamilyObserved:      rootCauseFamilyObserved,
@@ -1045,6 +1096,13 @@ type traceCausalProjectionWakeupPathCandidate struct {
 	// reconstructions) never compete against real branch paths.
 	branch     int
 	branchForm bool
+	// windowStart/windowEnd (GAP-B G4, §27.2, 2026-07-09): the record's own
+	// typed selected_window note (ONE strict parser) — the elected candidate
+	// publishes it as the projection's WakeupPathQueryWindow* trunk identity.
+	// Zero when the record carried no note (identity carriage only; the
+	// election ladder never reads these).
+	windowStart float64
+	windowEnd   float64
 }
 
 // traceCausalProjectionSelectWakeupPath elects the projection anchor path
@@ -1116,13 +1174,15 @@ type traceCausalProjectionWakeupPathCandidate struct {
 //     "longest resolved upstream causation for the entity" — exactly the
 //     §22.1 rationale, minus the cross-branch stitching artifacts.
 //
-// The third/fourth returns carry the elected candidate's typed branch ordinal
-// and the engine depth of the returned path's END element (0 unless the
-// truncation dropped a suffix) — the display tree's (branch, depth) attach
-// domain inputs.
-func traceCausalProjectionSelectWakeupPath(candidates []traceCausalProjectionWakeupPathCandidate, entities []traceCausalProjectionAnchorEntity) ([]string, bool, int, int) {
+// The third return is the ELECTED CANDIDATE itself (GAP-B G4, 2026-07-09 —
+// evolves the former bare branch-ordinal return): the caller publishes its
+// typed branch ordinal AND its typed selected_window identity (the display
+// tree's (branch, window, depth) attach domain inputs). The fourth return is
+// the engine depth of the returned path's END element (0 unless the
+// truncation dropped a suffix).
+func traceCausalProjectionSelectWakeupPath(candidates []traceCausalProjectionWakeupPathCandidate, entities []traceCausalProjectionAnchorEntity) ([]string, bool, traceCausalProjectionWakeupPathCandidate, int) {
 	if len(candidates) == 0 {
-		return nil, false, 0, 0
+		return nil, false, traceCausalProjectionWakeupPathCandidate{}, 0
 	}
 	branchForm := false
 	for _, candidate := range candidates {
@@ -1167,10 +1227,10 @@ func traceCausalProjectionSelectWakeupPath(candidates []traceCausalProjectionWak
 		}
 		if bestIdx >= 0 {
 			elected := candidates[bestIdx]
-			return elected.path[:bestPos+1], true, elected.branch, len(elected.path) - 1 - bestPos
+			return elected.path[:bestPos+1], true, elected, len(elected.path) - 1 - bestPos
 		}
 	}
-	return candidates[0].path, false, candidates[0].branch, 0
+	return candidates[0].path, false, candidates[0], 0
 }
 
 // traceCausalProjectionPathLastEntityMatch returns the LAST path position whose

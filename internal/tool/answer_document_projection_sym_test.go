@@ -54,7 +54,13 @@ func symOpendirProjection() types.TraceCausalProjection {
 			{
 				Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "e-selflock",
 				Subject: "aweme-16547", Object: "blocking_span", TypeToken: "blocking_span",
-				Predicate: "root_cause_target_self_state", Rank: 1,
+				// EVOLUTION RECORD (跨批 X1, 2026-07-09): Rank 1 → 0. GAP-A G9
+				// stopped assigning rank ordinals to tier=target_self_state
+				// rows (序数只分给携榜位显示身份的行); the old Rank:1 fixture
+				// drifted from the engine shape and let the symptom-disclosure
+				// gate's dead `Rank <= 0` arm pin GREEN while the disclosure
+				// was structurally dead in production (fixture 漂移致 pin 假绿).
+				Predicate: "root_cause_target_self_state", Rank: 0,
 				Tier:     types.TraceCausalTierTargetSelfState,
 				ImpactMS: 115.944, CumulativeImpactMS: 115.944, EffectiveImpactMS: 115.944,
 				ChainRelevance: "on_chain", BlockingKind: "monitor_contention",
@@ -81,14 +87,16 @@ func TestSYMOpendirLeadFallsToNonSelfBoardHead(t *testing.T) {
 	if badge == nil || badge.Node.Subject != "RxComputationT-16612" {
 		t.Fatalf("❶ must land on the non-self board head, got %+v", badge)
 	}
-	// 自持锁行留树头 + 榜位序数照发: the self-lock row keeps its SelfRows seat
-	// with its engine ordinal intact.
+	// 自持锁行留树头: the self-lock row keeps its SelfRows seat. EVOLUTION
+	// RECORD (跨批 X1, 2026-07-09): the former 榜位序数照发 assertion (rank#1
+	// intact) is RETIRED — GAP-A G9 no longer assigns ordinals to symptom
+	// rows, and the fixture now carries the production Rank=0 shape.
 	foundSelf := false
 	for _, row := range model.SelfRows {
 		if row.Node.EvidenceID == "e-selflock" {
 			foundSelf = true
-			if row.Node.Rank != 1 {
-				t.Fatalf("榜位序数照发: the self-lock row keeps rank#1, got %+v", row.Node)
+			if row.Node.Rank != 0 {
+				t.Fatalf("fixture drifted: symptom rows carry NO ordinal post-G9, got %+v", row.Node)
 			}
 		}
 	}
@@ -124,7 +132,10 @@ func symFlatCmpProjection() types.TraceCausalProjection {
 		OnChainCauses: []types.TraceCausalProjectionNode{{
 			Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "e-selfbinder",
 			Subject: "main-6565", Object: "binder_wait", TypeToken: "binder_wait",
-			Predicate: "root_cause_target_self_state", Rank: 1,
+			// EVOLUTION RECORD (跨批 X1, 2026-07-09): Rank 1 → 0 — the engine
+			// no longer assigns ordinals to symptom rows (G9); the old fixture
+			// drifted and pinned a dead gate green.
+			Predicate: "root_cause_target_self_state", Rank: 0,
 			Tier:     types.TraceCausalTierTargetSelfState,
 			ImpactMS: 3.843, CumulativeImpactMS: 3.843, EffectiveImpactMS: 3.843,
 			ChainRelevance: "on_chain", Confidence: 0.8,
@@ -138,16 +149,18 @@ func TestSYMFlatSelfRowExcludedFromBoard(t *testing.T) {
 	if strings.TrimSpace(model.Target) != "" {
 		t.Fatalf("fixture drifted: this pin needs the FLAT render (no SelfRows lane)")
 	}
-	// The self binder row renders in TreeRows (depthless) — seat preserved,
-	// ordinal preserved — but never seats on the shared board.
+	// The self binder row renders in TreeRows (depthless) — seat preserved —
+	// but never seats on the shared board. EVOLUTION RECORD (跨批 X1,
+	// 2026-07-09): the ordinal-preserved clause is retired with the G9
+	// renumbering (symptom rows carry Rank=0 in production).
 	var selfRow *runtimeTraceProjTreeRow
 	for i := range model.TreeRows {
 		if model.TreeRows[i].Node.EvidenceID == "e-selfbinder" {
 			selfRow = &model.TreeRows[i]
 		}
 	}
-	if selfRow == nil || selfRow.Node.Rank != 1 {
-		t.Fatalf("the flat self binder row must keep its tree seat and rank#1 ordinal: %+v", selfRow)
+	if selfRow == nil {
+		t.Fatalf("the flat self binder row must keep its tree seat: %+v", model.TreeRows)
 	}
 	for _, row := range runtimeTraceProjRankBoard(model.TreeRows) {
 		if row.Node.IsTargetSelfStateRow() {
@@ -184,7 +197,12 @@ func symAllSelfProjection(impact float64) types.TraceCausalProjection {
 		OnChainCauses: []types.TraceCausalProjectionNode{{
 			Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "e-selfbinder",
 			Subject: "main-6565", Object: "binder_wait", TypeToken: "binder_wait",
-			Predicate: "root_cause_target_self_state", Rank: 1,
+			// EVOLUTION RECORD (跨批 X1, 2026-07-09): Rank 1 → 0 (engine G9
+			// production shape) — the disclosure tests below are therefore the
+			// END-TO-END Rank=0 witnesses: a symptom row WITHOUT an ordinal
+			// must still produce the §24.16 disclosure sentence (the dead
+			// `Rank <= 0` gate arm this batch removed silently killed it).
+			Predicate: "root_cause_target_self_state", Rank: 0,
 			Tier:     types.TraceCausalTierTargetSelfState,
 			ImpactMS: impact, CumulativeImpactMS: impact, EffectiveImpactMS: impact,
 			ChainRelevance: "on_chain", Confidence: 0.8,

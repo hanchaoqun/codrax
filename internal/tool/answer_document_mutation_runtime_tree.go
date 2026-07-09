@@ -137,6 +137,12 @@ const (
 	// NEW-10 header wrap moves the scale note to its own line).
 	runtimeTraceProjTreeLabelColumnMax = runtimeTraceProjTreeRowMaxWidth -
 		(1 + runtimeTraceProjTreeBarWidth + 12 + 5 + 2 + runtimeTraceProjTreeKeepTagMinWidth + 3 + 1 + 3 + 4)
+	// runtimeTraceProjSelfWaitRelocateMax (GAP-B G11, §27.5, 2026-07-09)
+	// bounds the wait-symptom target-self rows relocated from the ◇/▒ stanzas
+	// into the self-state area: the top K by display magnitude move (sorted,
+	// deterministic); the remainder keep their stanza seats and the self area
+	// discloses their count + single max (有界防洪泛, §24.8 重要信息先行).
+	runtimeTraceProjSelfWaitRelocateMax = 4
 )
 
 type runtimeTraceProjTreeRow struct {
@@ -230,6 +236,14 @@ type runtimeTraceProjTreeRow struct {
 	// grouping only — the projection buckets and the rank funnel are
 	// untouched.
 	RankFoldPeers []runtimeTraceProjRankFoldPeer
+	// SelfSymptomRelocated (GAP-B G11, §27.5, 2026-07-09): this SelfRows row
+	// is a wait-symptom target-self rank row RELOCATED from the ◇/▒ stanza
+	// buckets into the target's own state area (typed tier target_self_state
+	// + canonical subject == 🎯 target). It renders with the symptom
+	// disclosure note (症状而非根因 — the sleep-row family wording); it never
+	// gains a rank seat by moving (the rank board and the symptom denominator
+	// read typed node fields, not the row's stanza).
+	SelfSymptomRelocated bool
 	// marks is the NEW-7 emission collector for this render pass. The fence
 	// renderer stamps model.Marks onto its per-row COPIES right before calling
 	// the row-render helpers, so every mark is recorded AT the emission site
@@ -314,6 +328,14 @@ type runtimeTraceProjTreeModel struct {
 	// deviation line — the comparison face carries its own folded D-4 note
 	// (COV-2), so the per-side tree heads must not repeat it there (批名即界).
 	SoloArtifact bool
+	// SelfWaitOverflowCount / SelfWaitOverflowMaxMS (GAP-B G11, §27.5,
+	// 2026-07-09): how many wait-symptom target-self stanza rows stayed in
+	// their ◇/▒ seats after the bounded top-K relocation into SelfRows, and
+	// the largest single display magnitude among them — the self area's
+	// overflow disclosure line reads both (有界防洪泛 + 永不静默丢: the rows
+	// themselves keep their stanza seats and detail entries).
+	SelfWaitOverflowCount int
+	SelfWaitOverflowMaxMS float64
 	// LeadKey is the node key of the row the conclusion line actually consumes
 	// (RN-3(b), §7.9 runnable 主导场景审计 2026-07-04) — computed once at model
 	// build via runtimeTraceProjLeadSelect, "" when no lead exists. The detail
@@ -1106,6 +1128,126 @@ func runtimeTraceProjFoldSegments(trunk []string, omitStart, omitEnd int, forced
 	return segments, expanded
 }
 
+// runtimeTraceProjTrunkPlainStateOccurrence (GAP-B G5, §27.3
+// real_trace_campaign_20260705.md, 2026-07-09) reports whether a trunk-subject
+// node is a PLAIN scheduler-state occurrence row — the only shape the trunk's
+// ×2 same-(thread,state) fold may consume. Precise typed signals only: a
+// registered dominant-state token, and NONE of the special display grammars
+// (already-merged ×N/union/cross-window forms, duplicate publications, engine
+// family contenders, supply-fold accounting, gated inversion composites, lock
+// rows) — those forms carry engine accounting a display-side re-merge would
+// corrupt, so they fail open to the legacy sibling/cause rendering.
+func runtimeTraceProjTrunkPlainStateOccurrence(node types.TraceCausalProjectionNode) bool {
+	state := strings.ToLower(strings.TrimSpace(node.StateKind))
+	if state == "" || !types.TraceStateKindRegistered(state) {
+		return false
+	}
+	// 复核 P1-1 (2026-07-09): a wakeup_causal_aggregate row is a DERIVED VIEW
+	// whose per-hop member rows are fully retained beside it (the engine
+	// publishes both; neither family carries a type= note, so the TypeToken
+	// pair compares equal-empty) — merging the view with its own members
+	// double-counts the identical wall clock (REPRO: agg 5.335 + occ 4.431 +
+	// occ 0.904 → ×3 "10.670ms", exactly 2× the truth). Precise typed
+	// predicate exclusion: an aggregate view is never a plain occurrence.
+	if strings.TrimSpace(node.Predicate) == "wakeup_causal_aggregate" {
+		return false
+	}
+	return node.MergedCount <= 1 && node.DuplicatePublications <= 1 &&
+		!node.OnChainOverflowFold && !node.MergedIntervalUnion && !node.MergedCrossWindowMax &&
+		node.FamilyMemberCount == 0 && !node.SupplyFoldComputed &&
+		node.GatedRunnableMS == 0 && node.GatedRunningDeficitMS == 0 &&
+		strings.TrimSpace(node.BlockingKind) == ""
+}
+
+// runtimeTraceProjTrunkSameStateOccurrencePair reports whether extra is a
+// re-occurrence of main's OWN (thread, dominant-state, cause-token) identity —
+// same canonical StateKind + Object + TypeToken on two plain occurrence rows
+// (subject equality is the caller's bucket key). Periodic/undrillable
+// mismatches never merge (their grammars would chimera).
+func runtimeTraceProjTrunkSameStateOccurrencePair(main, extra types.TraceCausalProjectionNode) bool {
+	if !runtimeTraceProjTrunkPlainStateOccurrence(main) || !runtimeTraceProjTrunkPlainStateOccurrence(extra) {
+		return false
+	}
+	if main.PeriodicSource != extra.PeriodicSource ||
+		strings.TrimSpace(main.UndrillableReason) != strings.TrimSpace(extra.UndrillableReason) {
+		return false
+	}
+	canon := runtimeTraceCausalProjectionCanonicalNode
+	return canon(main.StateKind) == canon(extra.StateKind) &&
+		canon(main.Object) == canon(extra.Object) &&
+		canon(main.TypeToken) == canon(extra.TypeToken)
+}
+
+// runtimeTraceProjTrunkFoldSameStateOccurrences (GAP-B G5, §27.3, 2026-07-09)
+// folds a trunk subject's same-(thread, dominant-state) occurrence rows into
+// its main row as the established R2 ×N form (SUM value + per-instance a–b
+// range, via the ONE types-side merge authority). WHY THRESHOLD 2 while the R2
+// aggregation pass keeps ≥3: rendering a thread's second same-state occurrence
+// as its own "├─成因─" child claims the thread CAUSED ITSELF (semantic error —
+// huadong_79 witness: OS_mmi_EventHdr sleep 0.904 hung under its own sleep
+// 4.431), which must be eliminated at the first repetition; the R2 ≥3
+// threshold is a row-count economy for LIST renders, not an error repair, so
+// it stays untouched. Different-state extras keep their honest cause-
+// decomposition edge (状态分解是真实拆解, never a self-cause claim).
+func runtimeTraceProjTrunkFoldSameStateOccurrences(main types.TraceCausalProjectionNode,
+	extra []types.TraceCausalProjectionNode) (types.TraceCausalProjectionNode, []types.TraceCausalProjectionNode) {
+	if len(extra) == 0 {
+		return main, extra
+	}
+	members := []types.TraceCausalProjectionNode{main}
+	kept := make([]types.TraceCausalProjectionNode, 0, len(extra))
+	for _, node := range extra {
+		if runtimeTraceProjTrunkSameStateOccurrencePair(main, node) {
+			members = append(members, node)
+			continue
+		}
+		kept = append(kept, node)
+	}
+	if len(members) == 1 {
+		return main, extra
+	}
+	return types.TraceCausalProjectionMergeOccurrenceRows(members), kept
+}
+
+// runtimeTraceProjTrunkDomainAdmit is THE chain-domain admission gate (P0-E
+// branch arm + GAP-B G4 window arm, unified for 复核 P2-1, 2026-07-09):
+// whether a node's typed (branch, window) identity is consistent with the
+// elected trunk's chain domain. ONE helper consumed by BOTH capture surfaces —
+// the depth attach AND the same-name trunk consumption (P2-1 REPRO: a W2 node
+// whose canonical subject collides with a W1 trunk subject hijacked the trunk
+// main/extra selection through the name-keyed pass, which carried NEITHER
+// gate). A rejected node is simply not consumed — it keeps its honest
+// 未接入树/stanza seat downstream.
+//
+// Branch arm (P0-E 复核收尾①, ledger §22.1): on a BRANCH trunk only
+// SAME-BRANCH nodes are domain members — ChainBranch==0 is NOT a legacy pass
+// (the engine honestly stamps 0 on cross-branch aggregates and the note
+// zero-drops, so 0 conflates "no identity" with "known cross-branch";
+// 有损信号禁作硬门). A branch-stamped node on a LEGACY trunk has no trunk
+// identity to verify against — rejected.
+//
+// Window arm (GAP-B G4, §27.2): on a WINDOWED trunk the node's query-window
+// identity must MATCH (typed endpoints, ONE shared tolerance). Zero-value arm
+// audited separately (§22.2 教训): a window-less node cannot PROVE domain
+// membership and is rejected (缺窗身份≠可挂靠); a window-less TRUNK leaves the
+// arm inert (absence never manufactures a rejection domain).
+func runtimeTraceProjTrunkDomainAdmit(node types.TraceCausalProjectionNode,
+	electedBranch int, trunkWindowed bool, trunkWS, trunkWE float64) bool {
+	if trunkWindowed {
+		if node.QueryWindowStartTs <= 0 || node.QueryWindowEndTs <= node.QueryWindowStartTs {
+			return false
+		}
+		if math.Abs(node.QueryWindowStartTs-trunkWS) > types.TraceCausalProjectionSameWindowToleranceS ||
+			math.Abs(node.QueryWindowEndTs-trunkWE) > types.TraceCausalProjectionSameWindowToleranceS {
+			return false
+		}
+	}
+	if electedBranch > 0 {
+		return node.ChainBranch == electedBranch
+	}
+	return node.ChainBranch == 0
+}
+
 // --- model construction ------------------------------------------------------
 
 func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evidence *runtimeTraceCausalProjectionEvidenceIndex, zh bool) runtimeTraceProjTreeModel {
@@ -1247,9 +1389,22 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// its honest 未接入树/stanza seat below. rootDepth re-bases engine depths
 	// onto the truncated-election trunk (displayed root = engine depth
 	// rootDepth). Nodes WITHOUT branch identity keep the legacy depth attach
-	// byte-identically (absence never guesses a domain).
+	// byte-identically (absence never guesses a domain). GAP-B G4 (§27.2,
+	// 2026-07-09): the domain is (branch, WINDOW, depth) — see the
+	// window-consistency arm inside the loop.
 	electedBranch := projection.WakeupPathBranch
 	rootDepth := projection.WakeupPathRootDepth
+	// GAP-B G4 (§27.2, real_trace_campaign_20260705.md, 2026-07-09): the attach
+	// domain carries a WINDOW dimension beside the P0-E branch dimension.
+	// Branch ordinals are numbered per query window by the engine (each query
+	// starts at 1), so (branch, depth) alone COLLIDES across windows — the
+	// huadong_79 witness attached W2's hmfs_discard L2 node under the W1 touch
+	// chain's L1 and the detail face fabricated a "关系: 唤醒 OS_mmi_EventHdr"
+	// edge (the real path is hmfs→VSyncGenerator). trunkWS/trunkWE is the
+	// elected trunk's OWN typed selected_window identity (P0-E 残洞第二形).
+	trunkWS := projection.WakeupPathQueryWindowStartTs
+	trunkWE := projection.WakeupPathQueryWindowEndTs
+	trunkWindowed := trunkWS > 0 && trunkWE > trunkWS
 	depthAttach := map[int][]types.TraceCausalProjectionNode{}
 	trunkKeys := map[string]int{}
 	for i, subject := range trunk {
@@ -1262,29 +1417,14 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		}
 		subjectKey := runtimeTraceCausalProjectionCanonicalNode(node.Subject)
 		if _, onTrunk := trunkKeys[subjectKey]; onTrunk {
-			continue // trunk pass consumes below
+			continue // trunk pass consumes below (same domain gate applied there — 复核 P2-1)
+		}
+		if !runtimeTraceProjTrunkDomainAdmit(node, electedBranch, trunkWindowed, trunkWS, trunkWE) {
+			continue
 		}
 		rel := node.ChainDepth
 		if electedBranch > 0 {
-			// P0-E 复核收尾① (对抗复核 REPRO, 2026-07-09): on a BRANCH
-			// projection the attach domain admits SAME-BRANCH nodes ONLY.
-			// ChainBranch==0 is NOT a legacy pass — the engine honestly
-			// stamps 0 on CROSS-BRANCH aggregates (huadong: the VSync×7
-			// aggregate), and the chain_branch note zero-drops, so a 0 here
-			// conflates "no identity" with "known cross-branch"; letting it
-			// through fabricated a trunk wakeup claim off a cross-branch
-			// depth (有损信号禁作硬门). Identity-less TRUE-legacy nodes are
-			// unreachable inside a branch projection (per-artifact partition:
-			// one compile = one producer version), so the honest 未接入树
-			// seat is correct for every ≠electedBranch shape.
-			if node.ChainBranch != electedBranch {
-				continue
-			}
 			rel = node.ChainDepth - rootDepth
-		} else if node.ChainBranch > 0 {
-			// Branch-stamped node on a LEGACY trunk: the trunk carries no
-			// branch identity to verify the domain against — unattached seat.
-			continue
 		}
 		if rel > 0 && rel <= len(trunk) {
 			depthAttach[rel] = append(depthAttach[rel], node)
@@ -1351,6 +1491,15 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 			if consumed[runtimeTraceCausalProjectionNodeKey(node)] {
 				continue
 			}
+			// 复核 P2-1 (2026-07-09): the same-name capture carries the SAME
+			// chain-domain gate as the depth attach (one shared helper) — a
+			// cross-window/cross-branch node whose canonical subject collides
+			// with this trunk subject must never hijack the trunk main/extra
+			// selection off its name alone. Rejected nodes stay unconsumed and
+			// take their honest depthless/stanza seat below.
+			if !runtimeTraceProjTrunkDomainAdmit(node, electedBranch, trunkWindowed, trunkWS, trunkWE) {
+				continue
+			}
 			if !hasData {
 				main, hasData = node, true
 				continue
@@ -1367,6 +1516,12 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 			for _, node := range extra {
 				consume(node)
 			}
+			// GAP-B G5 (§27.3, 2026-07-09): same-(thread, dominant-state)
+			// re-occurrences fold into the main row as ONE ×N form instead of
+			// rendering as the thread's own "├─成因─" children (自因自指形 —
+			// see the fold helper's threshold-2 rationale). Different-state
+			// extras keep the cause-decomposition edge below.
+			main, extra = runtimeTraceProjTrunkFoldSameStateOccurrences(main, extra)
 		} else {
 			main = types.TraceCausalProjectionNode{Subject: subject, ChainDepth: depth}
 		}
@@ -1554,6 +1709,60 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		}
 		attach(model.SelfRows)
 		attach(model.TreeRows)
+	}
+
+	// GAP-B G11 (§27.5, real_trace_campaign_20260705.md, 2026-07-09): the
+	// target's OWN wait-symptom rank rows (typed tier target_self_state +
+	// canonical subject == 🎯 target) relocate from the ◇/▒ stanza buckets
+	// into the self-state area under the root. FILTER POINT this repairs: the
+	// SelfRows lane fed exclusively off the CHAIN universe (primaries +
+	// on-chain + hops — the bySubject[targetKey] pass above), so a self
+	// binder_wait row classified background/adjacent never reached the 树根
+	// stanza (huadong_79: the 3.527ms binder_wait self rows lived only in the
+	// system-supplement stanza while a 0.011ms D-state was in the self area —
+	// §24.8 重要信息永不省略抵触). Bounded: top-K by display magnitude
+	// relocate (sorted, deterministic); the remainder KEEP their stanza seats
+	// (lossless) and the self area discloses their count + single max.
+	if targetKey != "" {
+		var selfWait []types.TraceCausalProjectionNode
+		for _, bucket := range [][]types.TraceCausalProjectionNode{projection.AdjacentCauses, projection.BackgroundCauses} {
+			for _, node := range bucket {
+				if consumed[runtimeTraceCausalProjectionNodeKey(node)] {
+					continue
+				}
+				if !node.IsTargetSelfStateRow() ||
+					runtimeTraceCausalProjectionCanonicalNode(node.Subject) != targetKey {
+					continue
+				}
+				selfWait = append(selfWait, node)
+			}
+		}
+		sort.SliceStable(selfWait, func(i, j int) bool {
+			return runtimeTraceProjNodeDisplayImpact(selfWait[i]) > runtimeTraceProjNodeDisplayImpact(selfWait[j])
+		})
+		for i, node := range selfWait {
+			if i >= runtimeTraceProjSelfWaitRelocateMax {
+				model.SelfWaitOverflowCount++
+				// 复核 P3-2 (2026-07-09): the disclosure word is 单条最大 — an
+				// ×N merged row's display impact is the member SUM, so the
+				// single-instance magnitude is its MergedMaxMS (the symptom
+				// census reads the same lane).
+				v := runtimeTraceProjNodeDisplayImpact(node)
+				if node.MergedCount > 1 && node.MergedMaxMS > 0 {
+					v = node.MergedMaxMS
+				}
+				if v > model.SelfWaitOverflowMaxMS {
+					model.SelfWaitOverflowMaxMS = v
+				}
+				continue
+			}
+			consume(node)
+			model.SelfRows = append(model.SelfRows, runtimeTraceProjTreeRow{
+				Node: node, Kind: runtimeTraceProjTreeRowSelf, HasData: true,
+				SelfSymptomRelocated: true,
+				EvidenceTag:          runtimeTraceProjEvidenceTag(node, evidence, zh),
+			})
+		}
 	}
 
 	// PTV6 #2 (双席防御): a node key the chain universe already consumed
@@ -1824,10 +2033,12 @@ func runtimeTraceProjRankBoard(rows []runtimeTraceProjTreeRow) []*runtimeTracePr
 		// (typed tier minted by the engine's tid-first subject==target match)
 		// never seat on the shared board — the lead (board[0]) and the ❶❷❸
 		// badges therefore land on non-self rows by construction. The rows
-		// keep their tree seats and their rank ordinals (榜位照发). This arm
-		// is load-bearing on the FLAT shapes where the label-routed SelfRows
-		// lane cannot engage (cmp_78_01 witness: both sides crowned the
-		// target's own binder-wait rank#1 as 主根因).
+		// keep their tree seats. This arm is load-bearing on the FLAT shapes
+		// where the label-routed SelfRows lane cannot engage (cmp_78_01
+		// witness: both sides crowned the target's own binder-wait rank#1 as
+		// 主根因). 跨批 X1 (2026-07-09): the former 榜位照发 clause is retired
+		// — G9 assigns no ordinal to symptom rows (they fail the Rank>0
+		// admission above anyway); the tier arm stays for defense in depth.
 		if row.Node.IsTargetSelfStateRow() {
 			continue
 		}
@@ -3280,6 +3491,19 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 			b.WriteString(line + "\n")
 		}
 	}
+	// GAP-B G11 (§27.5): the bounded self-wait relocation's overflow
+	// disclosure — the rows themselves keep their ◇/▒ stanza seats below
+	// (lossless); the self area names their count and single max so the
+	// reader never mistakes the top-K for the whole population.
+	if model.SelfWaitOverflowCount > 0 {
+		if zh {
+			b.WriteString(fmt.Sprintf("│     · 另有 %d 条自身等待症状行(单条最大 %.3fms)未在此逐行展示,见 ◇/▒ 区段与明细\n",
+				model.SelfWaitOverflowCount, model.SelfWaitOverflowMaxMS))
+		} else {
+			b.WriteString(fmt.Sprintf("│     · %d more self wait-symptom rows (single max %.3fms) are not listed here; see the ◇/▒ stanzas and the detail blocks\n",
+				model.SelfWaitOverflowCount, model.SelfWaitOverflowMaxMS))
+		}
+	}
 	if len(model.TreeRows) > 0 && strings.TrimSpace(model.Target) != "" {
 		b.WriteString("│\n")
 	}
@@ -3995,6 +4219,17 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 			}
 		}
 		main = append(main, tag)
+	}
+	// GAP-B G11 (§27.5, 2026-07-09): a relocated wait-symptom rank row renders
+	// with the sleep-row family's symptom disclosure — 症状身份, never a rank
+	// seat (the row's rank ordinal stays on the audit surfaces; the board
+	// lanes already exclude target_self_state rows).
+	if row.SelfSymptomRelocated {
+		if zh {
+			demoted = append(demoted, "症状而非根因,根因看下钻/唤醒子行与对端")
+		} else {
+			demoted = append(demoted, "symptom, not the root cause — see the drill/wake rows and the counterpart")
+		}
 	}
 	// NEW-3: a fold whose primary landed on the target's own state lane still
 	// carries the caliber note (the peers' only display carrier).
@@ -5011,6 +5246,17 @@ var runtimeTraceProjWrapAtomCompounds = []string{
 	"下界",
 	"全额",
 	"折算",
+	// GAP-B G8(b) (§27.3, 2026-07-09): the BARE core-class caliber words join
+	// the unbreakable set — they appear alone in the CAP capability legend
+	// ("中核=小核×2.3…") and the supply-fold clause ("降频/小核导致的跑慢
+	// 成分"), and the per-rune CJK atomizer split them mid-claim ("小/核").
+	// 超大核 leads its shared-suffix family (longest-first discipline: at the
+	// 超 rune only 超大核 can match, but the entry order keeps the table's
+	// stated invariant legible).
+	"超大核",
+	"大核",
+	"中核",
+	"小核",
 }
 
 // runtimeTraceProjWrapCompoundAt reports the registered compound starting at
@@ -5041,6 +5287,30 @@ func runtimeTraceProjWrapCompoundAt(runes []rune, i int) (string, int) {
 		return string(runes[i : i+n]), n
 	}
 	return "", 0
+}
+
+// runtimeTraceProjWrapValueAtom (GAP-B G8(a), §27.3, 2026-07-09) reports
+// whether a wrap atom is a VALUE shape — a pure-ASCII run carrying at least
+// one digit and ending alphanumeric/percent ("0.058ms", "37.410", "49%") —
+// the shapes whose immediately-following short caliber parenthetical fuses
+// into one super-atom (a value and its caliber are one claim; the orphan
+// "(全额)" line was the huadong_79 witness).
+func runtimeTraceProjWrapValueAtom(text string) bool {
+	if text == "" {
+		return false
+	}
+	hasDigit := false
+	for _, r := range text {
+		if r >= 0x80 {
+			return false
+		}
+		if r >= '0' && r <= '9' {
+			hasDigit = true
+		}
+	}
+	last := text[len(text)-1]
+	return hasDigit && (last >= '0' && last <= '9' ||
+		last >= 'a' && last <= 'z' || last >= 'A' && last <= 'Z' || last == '%')
 }
 
 // runtimeTraceProjWrapDisplay splits text into display chunks of at most
@@ -5135,6 +5405,19 @@ func runtimeTraceProjWrapDisplay(text string, width int) []string {
 		}
 		atoms[i] = atom{text: b.String(), w: w}
 		atoms = append(atoms[:i+1], atoms[end+1:]...)
+		// GAP-B G8(a) (§27.3, 2026-07-09): a short parenthetical that
+		// immediately follows a VALUE atom (an ASCII run carrying a digit —
+		// "0.058ms", "37.410") binds to it as ONE super-atom, so the caliber
+		// note can never open a line as an orphan ("0.058ms\n(全额)" — the
+		// huadong_79 witness). Values and their calibers are one claim; byte
+		// concatenation stays identical (grouping only). Word+parenthetical
+		// pairs ("runnable(全额)") keep the plain fusion — only the
+		// value-caliber bond is load-bearing here.
+		if i > 0 && runtimeTraceProjWrapValueAtom(atoms[i-1].text) {
+			atoms[i-1] = atom{text: atoms[i-1].text + atoms[i].text, w: atoms[i-1].w + atoms[i].w}
+			atoms = append(atoms[:i], atoms[i+1:]...)
+			i--
+		}
 	}
 	var out []string
 	var lineAtoms []atom
@@ -6803,7 +7086,15 @@ func runtimeTraceProjTargetSelfSymptomNote(model runtimeTraceProjTreeModel, zh b
 	multi := false
 	for _, rows := range [][]runtimeTraceProjTreeRow{model.TreeRows, model.SelfRows, model.Adjacent, model.Background} {
 		for _, row := range rows {
-			if !row.HasData || row.Node.Rank <= 0 || !row.Node.IsTargetSelfStateRow() {
+			// EVOLUTION RECORD (跨批 X1, GAP-B 收尾 2026-07-09): the former
+			// `Rank <= 0` arm is RETIRED. GAP-A's G9 ordinal renumbering stops
+			// assigning rank ordinals to tier=target_self_state rows entirely
+			// (序数只分给携榜位显示身份的行), so the two predicates became
+			// mutually exclusive and this §24.16 disclosure silently died on
+			// every engine-produced shape. The typed tier token is the precise
+			// signal and alone sufficient — it is minted exactly on the
+			// engine's tid-first subject==target wait-symptom match.
+			if !row.HasData || !row.Node.IsTargetSelfStateRow() {
 				continue
 			}
 			count++
@@ -7342,6 +7633,17 @@ func runtimeTraceProjTargetSymptomMS(model runtimeTraceProjTreeModel) float64 {
 		if row.Node.Role == types.TraceCausalRoleCausalHop {
 			continue // blocked-wait/attribution hop view: wall clock already counted by its enclosing state segment
 		}
+		// 复核 P1-2 (GAP-B 收尾, 2026-07-09): a G11-RELOCATED wait-symptom rank
+		// row (Role=RootCauseContext on the production shape, dominant_state
+		// often sleep) re-describes wall clock that already lives inside the
+		// target's own state segments — summing it beside the outer sleep row
+		// is exactly the F1-forbidden nesting shape (REPRO: 10.0 outer sleep +
+		// relocated 8.0 → 18.000 denominator). The typed relocation flag skips
+		// it here and in the census below; its magnitude stays disclosed on
+		// its own rendered self row.
+		if row.SelfSymptomRelocated {
+			continue
+		}
 		if !runtimeTraceProjSymptomFamilyStateKind(row.Node) {
 			continue // running/stateless rows are not wait symptom time
 		}
@@ -7687,6 +7989,13 @@ func runtimeTraceProjSymptomDenominatorCensus(projection types.TraceCausalProjec
 	allOffWindow := true
 	for _, row := range model.SelfRows {
 		if !row.HasData {
+			continue
+		}
+		// 复核 P1-2 (2026-07-09): relocated G11 rows re-describe wall clock
+		// already inside the target's state segments — they are neither
+		// denominator members nor under-represented exclusions (their
+		// magnitude renders on their own self rows).
+		if row.SelfSymptomRelocated {
 			continue
 		}
 		if row.Node.Role != types.TraceCausalRoleCausalHop &&
@@ -8207,6 +8516,11 @@ type runtimeTraceProjDetailTableLegendFlags struct {
 	// the table (×N合计 token) — its own gated legend line; never raises any
 	// Merged* flag (isolated typed lanes).
 	family bool
+	// selfSymptom (GAP-B G6, §27.3, 2026-07-09): a wait-symptom target-self
+	// row (typed tier target_self_state) is on the table — its 有效归因 cell
+	// renders "—" (the row never seats on the rank board), and the gated
+	// legend line says so.
+	selfSymptom bool
 }
 
 func runtimeTraceProjDetailTableLegendFlagsFor(model runtimeTraceProjTreeModel, zh bool) runtimeTraceProjDetailTableLegendFlags {
@@ -8237,6 +8551,9 @@ func runtimeTraceProjDetailTableLegendFlagsFor(model runtimeTraceProjTreeModel, 
 		}
 		if runtimeTraceProjFamilyRow(node) {
 			flags.family = true
+		}
+		if node.IsTargetSelfStateRow() {
+			flags.selfSymptom = true
 		}
 		if key != "" && len(seats[key]) > 1 {
 			flags.multiSeat = true
@@ -8380,6 +8697,19 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 			} else {
 				effective = fmt.Sprintf("%.3fms (runnable + lateness)", node.EffectiveImpactMS)
 			}
+		}
+		// GAP-B G6 (§27.3, real_trace_campaign_20260705.md, 2026-07-09): the
+		// column's own definition is "计入根因排序的影响时长" — a WAIT-SYMPTOM
+		// target-self row never seats on the rank board (SYM §24.13 裁定一), so
+		// printing its engine effective here claimed a ranking contribution the
+		// row does not make (huadong_79: 目标 sleep 行照印 6.357ms). Typed tier
+		// gate only (IsTargetSelfStateRow): the engine mints target_self_state
+		// EXCLUSIVELY on the 等待症状族 (SYM-2 §24.17 narrowed arm), so the
+		// 自因四态 self rows (runnable/running/IO/D-state — they compete with
+		// normal tiers and rank seats) keep their attribution value by
+		// construction (勿一刀切, both directions pinned).
+		if node.IsTargetSelfStateRow() {
+			effective = dash
 		}
 		actual := annotated(node.ActualImpactMS)
 		// RN-2b: no anchor window → no ⚠ (same gate as the tree tag).
@@ -8909,11 +9239,14 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 		if handoff := strings.TrimSpace(node.BlockingHolderHandoff); handoff != "" {
 			// 修2: the payload hand-off chain — the named holder is the FINAL
 			// holder; the span is the wait envelope, never one thread's tenure.
+			// GAP-B G17 (§27.4, 2026-07-09): the label names the chain members
+			// as THREADS — the bare "A --> B" string read as a network 链路 to
+			// the report's LLM consumer (huadong_79 misread witness).
 			text := handoff + "(锁在等待期内换手;所示持有者为最后持有者,非全段持有)"
 			if !zh {
 				text = handoff + " (the lock changed hands during the wait; the named holder is the FINAL holder, not the whole-span holder)"
 			}
-			add("持有者移交链", "holder hand-off chain", runtimeTraceCausalProjectionMarkdownSafe(text))
+			add("持有者移交链(线程)", "holder hand-off chain (threads)", runtimeTraceCausalProjectionMarkdownSafe(text))
 		}
 		if contradiction := strings.TrimSpace(node.BlockingHolderContradiction); contradiction != "" {
 			// 修2 同锁自相矛盾守护: the withdrawn attribution's witness.
