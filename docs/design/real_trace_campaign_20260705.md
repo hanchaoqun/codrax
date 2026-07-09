@@ -1701,3 +1701,13 @@ CAP-2=等 T1 裁定。
 
 ### §28.4 补充裁定(用户 2026-07-09):flavor 中立复用
 Donghu 类与鸿蒙类 trace 同硬件平台——CAP-2 五重门**不设 flavor 门**,ftrace/hitrace 同一条接线(门是结构判定,与 flavor 无关);同平台鸿蒙 trace 发同样键控轨族即自然过门升级实测折算。边界:**跨 trace 拓扑移植不自动做**——无键控轨的 trace(如 hmtrace 无键位置形 cpu-cluster.N,无 cpu_id 锚)诚实回退默认表,不得借"同平台"移植他份 trace 实测拓扑(平台身份无 trace 内精确信号,absence never guesses);未来 trace 元数据携平台标识可再议移植臂。
+
+## §28.5 cpu 片段(cust_trace_cpu.txt,关键字过滤,与 texture 片段同 trace 同平台)支撑数据审计(2026-07-09)
+- **T5 标准 cpu_frequency 全 CPU 扫存在**(行8631-8942 形):per-CPU state 键控扫,共动分组直接可得成员——{0,1}{2..9}{10,11}{12,13} 四簇(与 m3 锚 0/2/10/12 完全相容,**锚点连续推定在本平台被实测验证**)。现行 cluster_freq_share.go 单一权威只认显式拓扑、不做共动推断→"簇结构不可判"的机理候选(CAP-2 首任务核实:79 两原件是窗内无 cpu_frequency 还是有而未推断)。**CAP-2 证据梯修订=两级**:Tier-1 per-CPU cpu_frequency 共动成员+cpu_frequency_limits 治理 fmax(cluster_ceilings.go VS-2b 梯已有消费根基);Tier-2 键控簇轨五门(cpu_frequency 缺位时,成员按锚点连续推定);两级并存时交叉验证(轨值须与锚 CPU cpu_frequency 相容,不符 fail-loud 弃 Tier-2)。
+- **T6 thermal_inteN 是索引族——§28.4 早期假设纠正**:thermal_inte1/2/3 成族(①族形门旧排除论证**推翻**);inte1 携变动 cpu_id(2/3/4/5/7)→**③不变式门才是热轨判别主门**(witness pin 必做)。残余威胁:短窗只见 inte2(恒锚10)+inte3(恒锚12)可伪过①-⑤→**补第六道负向词汇筛(exclusion-only)**:名含 thermal/ddr/gpu/vote/delay/info/load 的轨排除出候选族——负向筛最坏=回退默认表,永不伪造,与 §7.10 方向相容。理论残洞(无害词汇+恒锚伪族)接受披露兜底(实测折算行审计注携轨族名可回溯)。
+- **T7 thermal_inteN+limits=热限时间线**:inte1 2200000↔1850000/inte2 2295000↔1990000/inte3 2350000,与 cpu_frequency_limits max(cpu2=2200000/cpu10=2295000/cpu0 1750000→1550000 动态)互相印证=按簇热限治理时间线。**THERM 披露候选**:算力供给行披露"窗内该簇受热限压至 X"(成因语境,disclosure-only 零权重编辑),建议并入 CAP-2 批 C4 面。
+- **T8 pid_freq 编码陷阱**:pid_freq 在 isCPUFrequencyClockName **显式白名单**(parse.go:2613),但本平台 state=10240923 等非纯 kHz 编码(10.24GHz 量纲荒谬),且单名多 cpu_id(发射 CPU 即 cpu_id);消费点 supply_fold.go:248 软车道——CAP-2 审计该车道并加量纲合理性筛(噪音源头消除);pid_task_freq 同。
+- **T9 heca_info/heca_ddr_freq**:单名扫全 CPU 的遥测轨(state 非频率编码),被③不变式门+负向筛双重排除——门设计的活 witness(pin 素材)。
+- **T10 GPU 轨族**:gpuload/gpufreq_info/gpufreq(167100000=167.1MHz)/gpu_state 治理通道——GPU 供给披露候选(texture/render 场景背景证据,未立批,等场景需求裁定)。
+- **T11 双栈确认**:同 trace 并存 Android(android.display/systemui/wmshell)与 OHOS(sceneboard/OS_IPC/OS_FFRT/render_service)线程——与 opendir 案 AssetManager.java 形一致,平台背景,无新 gap。
+- 附:本片段与 texture 片段同 trace(同线程同时间轴)——客户后续给全量原件时一次复放同时验收 TEX+CAP-2。
