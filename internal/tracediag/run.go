@@ -179,11 +179,21 @@ func runStep(ctx context.Context, tracePath string, flavorHint tracequery.TraceF
 		}
 		return stepOutcome{result: &res}
 	case ViewFormatCensus:
-		idx, err := buildStepIndex(ctx, tracePath, step)
+		// TDIAG B2 (§28.13): the census streams the whole file through the
+		// engine's exported StreamScan — no event index is built, so the
+		// 250K index budget (IndexEventLimitError) cannot bound a whole-file
+		// census; that error lane stays with the index-backed steps below.
+		// Scope (window/line) filters inside the accumulator (交集语义).
+		acc := newFormatCensusAcc(censusScopeFromStep(step))
+		shell, err := tracequery.StreamScan(ctx, tracePath, flavorHint, func(ev tracequery.Event) bool {
+			acc.observe(&ev)
+			return true
+		})
 		if err != nil {
 			return stepOutcome{err: err}
 		}
-		return stepOutcome{census: computeFormatCensus(idx, censusScopeFromStep(step))}
+		acc.finalize(shell)
+		return stepOutcome{census: acc}
 	default:
 		idx, err := buildStepIndex(ctx, tracePath, step)
 		if err != nil {

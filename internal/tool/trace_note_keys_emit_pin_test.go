@@ -43,6 +43,20 @@ func traceNoteKeysEmitFixtureOverflowImpacts(first tracequery.WakeupCausalImpact
 			Summary: "overflow hop",
 		})
 	}
+	// DIAG A1 (§28.11-3(a)): two overflow members tying the fold MAX to the µs
+	// exercise the same_value_members contract key (the huadong_79 E23 shape).
+	for i, comm := range []string{"tievictim", "tietwin"} {
+		out = append(out, tracequery.WakeupCausalImpact{
+			Thread:           tracequery.ThreadRef{Comm: comm, PID: 500 + i},
+			Window:           tracequery.TimeWindow{StartTs: 1.0, EndTs: 2.0},
+			ChainDepth:       2,
+			OnChain:          true,
+			DominantState:    string(tracequery.StateSSleep),
+			DominantImpactMs: 14.272, TotalMs: 15,
+			LineStart: 200 + 10*i, LineEnd: 205 + 10*i,
+			Summary: "overflow hop (µs tie)",
+		})
+	}
 	return out
 }
 

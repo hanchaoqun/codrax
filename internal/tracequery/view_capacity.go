@@ -1,6 +1,9 @@
 package tracequery
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // This file is the single source of truth for per-view trace_query result-row
 // budgets (E4). Every numeric value here is a literal consolidation of caps
@@ -300,6 +303,23 @@ var viewCapacityTable = map[string]ViewCapacity{
 		FallbackView:       FallbackViewEventSearch,
 		FallbackEventTypes: []string{string(EventTraceMark)},
 	},
+}
+
+// CanonicalViewNames returns the sorted canonical view-name universe of the
+// capacity table — the ONE exported view enumerator (TDIAG B1, §28.13,
+// real_trace_campaign_20260705.md, 2026-07-09). Derived from
+// viewCapacityTable's keys so it can never drift from the engine's real view
+// set: adding/renaming a view in the table changes this list in the same
+// edit. Deterministic consumers (tracediag collection scripts) validate their
+// step "view" field against exactly this list; aliases stay out by
+// construction (the table keys are canonical).
+func CanonicalViewNames() []string {
+	out := make([]string, 0, len(viewCapacityTable))
+	for name := range viewCapacityTable {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // CanonicalViewName resolves the empty-view default and the caller-facing

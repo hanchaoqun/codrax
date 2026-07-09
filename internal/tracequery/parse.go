@@ -914,8 +914,14 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 				}
 				idx.RetainedSideTableBytes += eventSideTableBytes(&ev)
 				idx.Events = append(idx.Events, ev)
-			} else if trimmed != "" && idx.ParseLinePanics == panicsBefore {
-				idx.UnparsedLines++
+			} else if trimmed != "" {
+				if idx.ParseLinePanics == panicsBefore {
+					idx.UnparsedLines++
+				}
+				// TDIAG B4 (§28.13): typed sample face — covers the no-format
+				// arm above AND the panic arm (both are "cannot parse" to the
+				// census); counters are untouched.
+				idx.recordUnparsedSample(lineNo, trimmed)
 			}
 		}
 	nextLine:
@@ -1485,6 +1491,15 @@ func parseTraceArtifactPathList(ctx context.Context, path string, size int64, mo
 		idx.ParseLinePanics += child.ParseLinePanics
 		idx.ClockRegressions += child.ClockRegressions
 		idx.UnparsedLines += child.UnparsedLines
+		// TDIAG B4: merged bundles keep the first-cap samples in artifact
+		// order (line numbers are per-artifact coordinates; the counters
+		// above stay the cross-artifact authority).
+		for _, sample := range child.UnparsedSamples {
+			if len(idx.UnparsedSamples) >= IndexUnparsedSampleCap {
+				break
+			}
+			idx.UnparsedSamples = append(idx.UnparsedSamples, sample)
+		}
 		idx.ParsedKnown += child.ParsedKnown
 		// Honest cache accounting on the merged index: the children carry
 		// the retained string/side-table bytes for the events merged below.
@@ -3260,3 +3275,19 @@ func safeParseLine(lineNo int, line string, intern *stringInterner, idx *Index) 
 // parseLineFn indirects ParseLine so the recover seam is testable with
 // an injected panic; production always points at ParseLine.
 var parseLineFn = ParseLine
+
+// recordUnparsedSample retains one unparseable-line witness on the typed
+// Index face (TDIAG B4, §28.13): first IndexUnparsedSampleCap lines only,
+// text rune-safe byte-capped (types.CutPrefixRuneSafe — the shared truncation
+// authority; a 2MiB pathological line retains ≤480 bytes). The cap check
+// comes first so the hot parse loop pays one length compare and zero
+// allocations once the sample face is full.
+func (idx *Index) recordUnparsedSample(line int, text string) {
+	if idx == nil || len(idx.UnparsedSamples) >= IndexUnparsedSampleCap {
+		return
+	}
+	idx.UnparsedSamples = append(idx.UnparsedSamples, UnparsedLineSample{
+		Line: line,
+		Text: types.CutPrefixRuneSafe(text, indexUnparsedSampleTextBytes),
+	})
+}

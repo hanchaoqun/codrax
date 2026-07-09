@@ -91,8 +91,17 @@ func writeStepHeader(rw *reportWriter, ordinal, total int, step *Step) {
 	// line bounds always apply; TIME bounds apply only when NO line bounds
 	// are set. A step carrying both must say so, or the echoed window reads
 	// as an active filter it is not.
+	//
+	// TDIAG 留观① (§28.13 scope 语义分叉, 2026-07-09): the format_census step
+	// filters by the INTERSECTION (censusScope.admits: window ∧ lines) — the
+	// engine restatement above would be a lie there, so the census step
+	// states its OWN semantics instead. No behavior change on either side.
 	if _, _, windowSet := step.WindowBounds(); windowSet && (step.LineStart > 0 || step.LineEnd > 0) {
-		rw.line("注: 行区间生效时时间窗不参与过滤(引擎语义:line 界恒生效,time 界仅在无 line 界时生效)")
+		if step.View == ViewFormatCensus {
+			rw.line("注: 本步为普查步,时间窗与行区间取交集过滤(普查步语义;引擎查询步则 line 界恒生效、time 界仅在无 line 界时生效)")
+		} else {
+			rw.line("注: 行区间生效时时间窗不参与过滤(引擎语义:line 界恒生效,time 界仅在无 line 界时生效)")
+		}
 	}
 	rw.line(strings.Repeat("-", 80))
 }
@@ -600,12 +609,17 @@ func formatScalar(v reflect.Value) string {
 	return fmt.Sprintf("%v", v.Interface())
 }
 
+// formatScalarSlice / formatMapTokens (TDIAG 留观② 反射单行字节无界,
+// §28.13, 2026-07-09): per-element clamping bounds each element but a long
+// slice/map still joined into an unbounded single line — the JOINED token now
+// passes through clampToken too (rune-safe byte cap + truncation marker; the
+// full payload stays in the engine result).
 func formatScalarSlice(v reflect.Value) string {
 	parts := make([]string, 0, v.Len())
 	for i := 0; i < v.Len(); i++ {
 		parts = append(parts, formatScalar(v.Index(i)))
 	}
-	return "[" + strings.Join(parts, ", ") + "]"
+	return clampToken("[" + strings.Join(parts, ", ") + "]")
 }
 
 func formatMapTokens(v reflect.Value) string {
@@ -615,7 +629,7 @@ func formatMapTokens(v reflect.Value) string {
 		tokens = append(tokens, fmt.Sprintf("%v=%s", k.Interface(), formatScalar(v.MapIndex(k))))
 	}
 	sort.Strings(tokens)
-	return strings.Join(tokens, " ")
+	return clampToken(strings.Join(tokens, " "))
 }
 
 // formatFloatToken renders floats with the shortest exact round-trip form —

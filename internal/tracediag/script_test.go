@@ -242,18 +242,43 @@ steps:
 	}
 }
 
-// Cross-check pin: every engine view tracediag accepts must resolve to a real
-// row of the tracequery capacity table (HeavyView or a positive DefaultLimit)
-// — an engine rename/typo fails here mechanically. (tracequery exports no
-// view enumerator; missing-API candidate recorded in the batch report.)
-func TestSupportedEngineViewsExistInCapacityTable(t *testing.T) {
-	for _, view := range supportedEngineViews {
+// EVOLUTION RECORD (TDIAG B1, §28.13, 2026-07-09) — the former cross-check
+// pin ("every self-maintained view resolves to a capacity row") evolved: the
+// self-maintained list is deleted and the script layer CONSUMES the engine's
+// exported enumerator, so the pin now asserts 导出面=引擎容量表 — the accepted
+// view set IS tracequery.CanonicalViewNames() (plus the tracediag-only
+// format_census), every name is canonical/heavy-or-limited, and the known
+// engine views are spot-pinned so an accidental table gutting cannot pass on
+// shape alone.
+func TestSupportedEngineViewsAreTheExportedEnumerator(t *testing.T) {
+	names := tracequery.CanonicalViewNames()
+	if len(supportedEngineViews) != len(names) {
+		t.Fatalf("script layer must consume the exported enumerator verbatim: %v vs %v", supportedEngineViews, names)
+	}
+	for i, view := range supportedEngineViews {
+		if view != names[i] {
+			t.Fatalf("script view list diverged from the exported enumerator at %d: %q vs %q", i, view, names[i])
+		}
 		if tracequery.CanonicalViewName(view) != view {
 			t.Errorf("view %q is not canonical (CanonicalViewName → %q)", view, tracequery.CanonicalViewName(view))
 		}
 		capacity := tracequery.ViewCapacityFor(view)
 		if !capacity.HeavyView && capacity.DefaultLimit <= 0 {
 			t.Errorf("view %q resolves to a zero capacity row — renamed or removed from the engine?", view)
+		}
+	}
+	for _, must := range []string{"event_search", "window_sweep", "root_cause_rank", "wakeup_chain", "window_stats", "critical_blocking_calls", "recipe", "evidence_pack"} {
+		if !viewSupported(must) {
+			t.Errorf("engine view %q must stay accepted", must)
+		}
+	}
+	if !viewSupported(ViewFormatCensus) {
+		t.Errorf("the tracediag-only census view must stay accepted")
+	}
+	// Aliases stay out by construction (capacity-table keys are canonical).
+	for _, reject := range []string{"state_churn", "frame_bundle", "causal_impact"} {
+		if viewSupported(reject) {
+			t.Errorf("alias %q must NOT be accepted (deterministic scripts name canonical views)", reject)
 		}
 	}
 }

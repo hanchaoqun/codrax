@@ -8421,6 +8421,12 @@ func applyAggregateGatedInversion(chain *ChainResult, item *WakeupCausalAggregat
 // DominantImpactMs min–max, an up-to-8 subject-label roster (mirror of the
 // PTV5 wire-cap fold roster bound) and the line/ts envelope. Returns nil on an
 // empty overflow so callers can assign unconditionally.
+//
+// same-value tie disclosure pending (DIAG A1 第四取最大点, 复核 P2-1 裁定):
+// this fold retains no per-member (value, line-range) detail, so the G12
+// µs-tie member roster (same_value_members) cannot be emitted here yet —
+// adjudicated into the G12-ENG batch; see ledger §29.6 / G12-ENG
+// (docs/design/real_trace_campaign_20260705.md).
 func foldWakeupCausalAggregateOverflow(overflow []WakeupCausalAggregate) *WakeupCausalAggregateFold {
 	if len(overflow) == 0 {
 		return nil
@@ -12891,6 +12897,26 @@ func traceSpanSemanticClass(name string) string {
 		return ""
 	}
 	return work.SemanticClass
+}
+
+// TraceSpanSemanticClass is the exported thin wrapper over the engine's
+// semantic span classification (TDIAG B3, §28.13, 2026-07-09): the canonical
+// semantic-class token for a span name (jit_compile / class_verification /
+// shader_compile / runtime_compile / texture_upload / config-added classes),
+// "" when unclassified. Same single classifier as root_cause_rank — never a
+// second pattern set (anti-parallel-subsystem red line); deterministic
+// consumers (tracediag census face ⑦) annotate span rosters with it.
+func TraceSpanSemanticClass(name string) string {
+	return traceSpanSemanticClass(name)
+}
+
+// TraceSpanNearMissesSemanticWork is the exported thin wrapper over the
+// advisory near-miss signal (TDIAG B3): the span name mentions
+// compile/verify/shader/texture-upload-ish vocabulary but matched no known
+// semantic pattern — the naming-drift blind-spot list. Advisory-only
+// semantics travel with the export: it must never gate or promote anything.
+func TraceSpanNearMissesSemanticWork(name string) bool {
+	return traceSpanNearMissesSemanticWorkClassification(name)
 }
 
 // traceSpanNearMissesSemanticWorkClassification flags a span name that

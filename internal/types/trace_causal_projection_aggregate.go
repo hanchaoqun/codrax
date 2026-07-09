@@ -1375,6 +1375,48 @@ func traceCausalProjectionDisplayValue(node TraceCausalProjectionNode) float64 {
 	return node.CumulativeImpactMS
 }
 
+// traceCausalProjectionSameValueFoldMembers is the DIAG A1 tie collector for
+// the cross-thread take-MAX folds (§28.11-3(a), G12): members whose display
+// value ties the fold's published MAX to the µs (strict
+// |v−max| < TraceCausalProjectionSameValueTieMS) are returned as (subject,
+// line-range) witnesses, capped at traceCausalProjectionSameValueMemberCap.
+// nil unless AT LEAST TWO members with a NON-EMPTY subject tie — a single max
+// member is the normal take-MAX shape, not a double-attribution suspicion,
+// and a subjectless member (复核 P3-1 fold-of-fold shape: the hop cap
+// re-folding a subjectless bucket-fold row whose inner max ties the outer
+// max) cannot be a nameable witness — it is SKIPPED, keeping this collector
+// symmetric with the wire parser's empty-subject discard arm
+// (traceCausalProjectionParseSameValueMembers) and the audit face free of
+// degenerate "same_value_members=,xxx" entries. Pure read: callers attach
+// the roster as disclosure and MUST NOT let it touch any fold value.
+func traceCausalProjectionSameValueFoldMembers(members []TraceCausalProjectionNode, maxMS float64) []TraceCausalProjectionSameValueMember {
+	if maxMS <= 0 {
+		return nil
+	}
+	var out []TraceCausalProjectionSameValueMember
+	for _, member := range members {
+		subject := strings.TrimSpace(member.Subject)
+		if subject == "" {
+			continue
+		}
+		v := traceCausalProjectionDisplayValue(member)
+		if v <= 0 || math.Abs(v-maxMS) >= TraceCausalProjectionSameValueTieMS {
+			continue
+		}
+		if len(out) < traceCausalProjectionSameValueMemberCap {
+			out = append(out, TraceCausalProjectionSameValueMember{
+				Subject:   subject,
+				LineStart: member.LineStart,
+				LineEnd:   member.LineEnd,
+			})
+		}
+	}
+	if len(out) < 2 {
+		return nil
+	}
+	return out
+}
+
 // --- R3: unknown-impact-point background folding -----------------------------
 
 // traceCausalProjectionFoldUnknownBackground keeps the top-K background rows
@@ -1487,6 +1529,13 @@ func traceCausalProjectionFoldUnknownBackground(nodes []TraceCausalProjectionNod
 		}
 	}
 	aggregate.TargetImpactMS = targetImpact
+	// DIAG A1 (§28.11-3(a)): µs-tie disclosure at the take-MAX merge point —
+	// zero weight, values above are already final.
+	members := make([]TraceCausalProjectionNode, 0, len(fold))
+	for _, idx := range fold {
+		members = append(members, nodes[idx])
+	}
+	aggregate.SameValueMembers = traceCausalProjectionSameValueFoldMembers(members, maxMS)
 	out := make([]TraceCausalProjectionNode, 0, len(nodes)-len(fold)+1)
 	for i, node := range nodes {
 		if foldSet[i] {

@@ -303,6 +303,27 @@ type PerfFields struct {
 	CallchainStatus     string `json:"perf_callchain_status,omitempty"`
 }
 
+// UnparsedLineSample is one retained unparseable-line witness on the Index
+// (TDIAG B4): the 1-based line number plus the line text truncated rune-safely
+// to indexUnparsedSampleTextBytes bytes.
+type UnparsedLineSample struct {
+	Line int
+	Text string
+}
+
+const (
+	// IndexUnparsedSampleCap bounds Index.UnparsedSamples (帽 5, §28.12
+	// census sample cap — the parse side and the tracediag census face share
+	// this one constant).
+	IndexUnparsedSampleCap = 5
+	// indexUnparsedSampleTextBytes bounds one retained sample's text —
+	// deliberately ABOVE the tracediag rendered-token cap (480), so a
+	// parse-side-capped sample still overflows the render clamp and carries
+	// the render-side 截断 marker: a cut sample can never silently read as a
+	// whole line.
+	indexUnparsedSampleTextBytes = 512
+)
+
 type Index struct {
 	Path             string
 	Size             int64
@@ -343,7 +364,18 @@ type Index struct {
 	// trace line format (ParseLine returned no event, without panicking)
 	// — typed input for the query layer's coverage caveat, never a hard
 	// gate.
-	UnparsedLines    int
+	UnparsedLines int
+	// UnparsedSamples retains the FIRST IndexUnparsedSampleCap unparseable
+	// line samples (line number + rune-safe byte-capped text) collected at
+	// the parse site itself — the TDIAG B4 typed diagnostic face (§28.13,
+	// real_trace_campaign_20260705.md, 2026-07-09). Covers both no-format
+	// lines and parse-panic lines; windowed builds collect inside their
+	// scanned range exactly like full builds (the old census second-read
+	// reconstruction had to honestly skip windowed indexes). Hot-path
+	// discipline: the recorder is only reached on the unparsed arm and
+	// returns immediately once the cap is full — zero allocation on normal
+	// lines. Diagnostic display input only, never a gate.
+	UnparsedSamples  []UnparsedLineSample
 	TraceFlavor      TraceFlavor
 	FlavorConfidence float64
 	FlavorSignals    []string

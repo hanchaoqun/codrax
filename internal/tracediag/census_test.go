@@ -74,7 +74,9 @@ func TestFormatCensusReportGolden(t *testing.T) {
 	report := buf.String()
 
 	for _, want := range []string{
-		"格式普查(format_census): 普查范围=全文件 范围内事件=53",
+		// TDIAG B2 (§28.13): the census streams the whole file — the header
+		// speaks the streaming caliber, no index event count.
+		"格式普查(format_census): 普查范围=全文件 范围内事件=53 (流式解析事件=53",
 		// ① full name spectrum + the blind-spot list (the load-bearing face)
 		"① 事件名全谱(共",
 		"①a 未识别事件名单(引擎分类=unknown;共 35 名,列前 30)——格式盲点清单:",
@@ -96,18 +98,31 @@ func TestFormatCensusReportGolden(t *testing.T) {
 		"- block 事件: issue=1 remap=0 complete=1",
 		// ⑥ power events with CPU sets
 		"⑥ 电源事件: cpu_frequency=2 覆盖CPU={1,2} cpu_frequency_limits=0 覆盖CPU={} cpu_idle=1 覆盖CPU={0}",
-		// ⑦ span census
+		// ⑦ span census — annotated with the engine's exported semantic
+		// classification (TDIAG B3): the fixture's Texture upload span
+		// classifies; the plain frame span carries no annotation.
 		"⑦ span 普查(B/S 起始记号;共",
-		// ⑧ line-level quality + bounded unparsed samples
+		" semantic_class=texture_upload",
+		// ⑧ line-level quality + typed unparsed samples (TDIAG B4)
 		"行级质量: unparsed_lines=",
 		"- 不可解析行样本 line=",
 		"total garbage line one",
-		// honest unsupported-face disclosure
-		"本构建不支持的普查面(如实披露):",
 	} {
 		if !strings.Contains(report, want) {
 			t.Errorf("census report missing %q\n----\n%s", want, report)
 		}
+	}
+
+	// TDIAG B2/B3/B4 (§28.13): the 缺 API honest-disclosure list is fully
+	// consumed — the section must be GONE (a reappearing entry means an
+	// engine export regressed).
+	if strings.Contains(report, "本构建不支持的普查面") {
+		t.Errorf("the unsupported-faces disclosure must be empty after the §28.13 exports:\n%s", report)
+	}
+	// The plain frame span must NOT be annotated (no fabricated class, no
+	// noisy near-miss on ordinary spans).
+	if regexp.MustCompile(`Choreographer#doFrame count=\d+ (semantic_class|⚠)`).MatchString(report) {
+		t.Errorf("plain span must carry no semantic annotation:\n%s", report)
 	}
 
 	// prio 301 must land in the >139 bucket with a nonzero count.
@@ -163,15 +178,28 @@ steps:
 	if !strings.Contains(report, "共 0 名,列前 0)——格式盲点清单") {
 		t.Errorf("window-scoped unknown list must be empty\n%s", report)
 	}
-	if !strings.Contains(report, "(行级质量计数与不可解析样本为索引全量口径;①-⑦ 统计面按普查范围过滤)") {
+	if !strings.Contains(report, "(行级质量计数与不可解析样本为全文件流式口径;①-⑦ 统计面按普查范围过滤)") {
 		t.Errorf("bounded census must disclose the two-scope split\n%s", report)
+	}
+	// TDIAG B4: a window-scoped census now carries unparsed samples too —
+	// the former "窗口化索引下…样本略" honest skip is retired.
+	if !strings.Contains(report, "- 不可解析行样本 line=") {
+		t.Errorf("window-scoped census must still carry typed unparsed samples\n%s", report)
+	}
+	if strings.Contains(report, "样本略") {
+		t.Errorf("the windowed sample-skip disclosure is retired\n%s", report)
 	}
 }
 
-// P3-3 pin (对抗复核 2026-07-09): a scanner abort during the sample second
-// read (bufio.ErrTooLong on a >1MiB line) is DISCLOSED — a partial sample
-// sweep must never read as a complete one.
-func TestFormatCensusOverlongLineScanDisclosed(t *testing.T) {
+// EVOLUTION RECORD (TDIAG B4, §28.13, 2026-07-09; renamed per DIAG 复核
+// P3-3 — the old name TestFormatCensusOverlongLineScanDisclosed claimed the
+// retired scanner-abort disclosure while the body asserts sampling success) —
+// supersedes the former TDIAG-P3-3 scanner-abort pin: the sample second read
+// (and its bufio.ErrTooLong abort arm) is deleted; samples come typed from
+// the parse site, so a >1MiB line is SAMPLED (rune-safe byte-capped) instead
+// of aborting the sweep, and the render clamp marks the cut (parse cap 512 >
+// render cap 480 — a cut sample can never silently read as whole).
+func TestFormatCensusOverlongLineSampledWithTruncationMark(t *testing.T) {
 	dir := t.TempDir()
 	var b strings.Builder
 	b.WriteString("      waker-10   (   10) [000] .... 1.000000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=waker next_pid=10 next_prio=20\n")
@@ -191,8 +219,83 @@ func TestFormatCensusOverlongLineScanDisclosed(t *testing.T) {
 		t.Fatalf("Run: failed=%d err=%v", failed, err)
 	}
 	report := buf.String()
-	if !strings.Contains(report, "不可解析行样本扫描中止") || !strings.Contains(report, "样本可能不完整") {
-		t.Fatalf("over-long line scan abort must be disclosed\n%s", report)
+	// The monster line is sampled (typed face), byte-capped, and the render
+	// marker discloses the cut.
+	if !strings.Contains(report, "- 不可解析行样本 line=2 | plain garbage before the monster line") {
+		t.Fatalf("the plain garbage line must be sampled whole\n%s", report)
+	}
+	if !regexp.MustCompile(`- 不可解析行样本 line=3 \| x+…\(截断\)`).MatchString(report) {
+		t.Fatalf("the over-long line must be sampled with a truncation marker\n%s", report)
+	}
+	// No second read remains to abort — the old disclosure wording must be gone.
+	if strings.Contains(report, "扫描中止") || strings.Contains(report, "样本可能不完整") {
+		t.Fatalf("the second-read abort disclosure is retired\n%s", report)
+	}
+}
+
+// TDIAG 留观① (§28.13 scope 语义分叉): a census step carrying BOTH a window
+// and a line range states the census intersection semantics — the engine
+// restatement ("time 界不参与") would be a lie on this step; engine steps
+// keep the engine wording byte-identically.
+func TestFormatCensusScopeSemanticsHeaderNote(t *testing.T) {
+	scriptPath, tracePath := writeCensusFixtures(t)
+	script := `
+version: 1
+steps:
+  - {label: census_both, view: format_census, window: "1.0..1.1", line_start: 1, line_end: 20}
+  - {label: engine_both, view: event_search, window: "1.0..1.1", line_start: 1, line_end: 20}
+`
+	if err := os.WriteFile(scriptPath, []byte(script), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if failed, err := Run(nil, Options{ScriptPath: scriptPath, TracePath: tracePath, Now: fixedNow}, &buf); err != nil || failed != 0 {
+		t.Fatalf("Run: failed=%d err=%v\n%s", failed, err, buf.String())
+	}
+	report := buf.String()
+	if !strings.Contains(report, "注: 本步为普查步,时间窗与行区间取交集过滤(普查步语义;引擎查询步则 line 界恒生效、time 界仅在无 line 界时生效)") {
+		t.Fatalf("census step must state its intersection semantics\n%s", report)
+	}
+	if !strings.Contains(report, "注: 行区间生效时时间窗不参与过滤(引擎语义:line 界恒生效,time 界仅在无 line 界时生效)") {
+		t.Fatalf("engine steps keep the engine-semantics note\n%s", report)
+	}
+}
+
+// TDIAG B2 (§28.13): a format_census step streams the whole file and is NOT
+// subject to the index event budget — the same budget that fails an
+// index-backed step in the SAME script leaves the census whole (自设最强突变:
+// routing the census arm back through buildStepIndex reddens here).
+func TestFormatCensusNotSubjectToIndexBudget(t *testing.T) {
+	scriptPath, tracePath := writeCensusFixtures(t)
+	script := `
+version: 1
+steps:
+  - {label: census, view: format_census}
+  - {label: heavy, view: window_stats, pid: 20, window: "1.0..1.6"}
+`
+	if err := os.WriteFile(scriptPath, []byte(script), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := stepIndexMaxEvents
+	stepIndexMaxEvents = 2 // trips every index-backed step
+	defer func() { stepIndexMaxEvents = old }()
+	var buf bytes.Buffer
+	failed, err := Run(nil, Options{ScriptPath: scriptPath, TracePath: tracePath, Now: fixedNow}, &buf)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	report := buf.String()
+	if failed != 1 {
+		t.Fatalf("only the index-backed step may fail, failed=%d\n%s", failed, report)
+	}
+	if !strings.Contains(report, "- 步骤 1 label=census view=format_census 状态=成功") {
+		t.Fatalf("census must survive the index budget (streaming path)\n%s", report)
+	}
+	if !strings.Contains(report, "格式普查(format_census): 普查范围=全文件 范围内事件=53") {
+		t.Fatalf("census under budget pressure must still census EVERY event\n%s", report)
+	}
+	if !strings.Contains(report, "- 步骤 2 label=heavy view=window_stats 状态=失败:") {
+		t.Fatalf("the IndexEventLimitError lane must stay with index-backed steps\n%s", report)
 	}
 }
 

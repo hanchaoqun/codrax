@@ -1,9 +1,7 @@
 package tracediag
 
 import (
-	"bufio"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 
@@ -14,20 +12,27 @@ import (
 // FORMAT observation faces so later engine extensions never start from a
 // blind spot (the hmfs_ silent-miss / cluster-track discoveries motivated
 // this step class). Everything here is computed from the engine's EXPORTED
-// Index face (Index.Events + the parse-quality counters) — classification is
-// the engine's own (Event.Type from classifyEventType), never a reimplemented
-// parser (anti-parallel-subsystem red line). Output is aggregate statistics
-// plus bounded samples only: every list carries a top-N cap and a total
-// disclosure, same honesty family as the report line caps.
+// streaming face (tracequery.StreamScan events + the shell's parse-quality
+// counters and typed UnparsedSamples — TDIAG B2/B4, §28.13, 2026-07-09;
+// formerly the Index face, which put whole-file censuses under the 250K
+// index event budget) — classification is the engine's own (Event.Type from
+// classifyEventType, TraceSpanSemanticClass/TraceSpanNearMissesSemanticWork
+// for face ⑦), never a reimplemented parser (anti-parallel-subsystem red
+// line). Output is aggregate statistics plus bounded samples only: every
+// list carries a top-N cap and a total disclosure, same honesty family as
+// the report line caps.
 const (
-	censusEventNameCap    = 40
-	censusUnknownNameCap  = 30
-	censusClockTrackCap   = 30
-	censusPrefixCap       = 30
-	censusPrioCap         = 20
-	censusPrevStateCap    = 20
-	censusSpanNameCap     = 20
-	censusUnparsedSamples = 5
+	censusEventNameCap   = 40
+	censusUnknownNameCap = 30
+	censusClockTrackCap  = 30
+	censusPrefixCap      = 30
+	censusPrioCap        = 20
+	censusPrevStateCap   = 20
+	censusSpanNameCap    = 20
+	// censusUnparsedSamples mirrors the engine's typed sample cap (B4: the
+	// parse site retains tracequery.IndexUnparsedSampleCap samples; the
+	// census renders exactly that face).
+	censusUnparsedSamples = tracequery.IndexUnparsedSampleCap
 )
 
 type nameCount struct {
@@ -42,11 +47,6 @@ type clockTrack struct {
 	CPUs     map[int]bool
 	MinState int
 	MaxState int
-}
-
-type unparsedSample struct {
-	Line int
-	Text string
 }
 
 // censusScope bounds one census step to the step's own window / line range.
@@ -98,11 +98,10 @@ func (s censusScope) describe() string {
 }
 
 type formatCensus struct {
-	// line-level quality (⑧)
+	// line-level quality (⑧) — filled by finalize from the StreamScan shell
 	path             string
 	scope            censusScope
 	scopedEventCount int
-	windowed         bool
 	lineCount        int
 	scannedLineCount int
 	eventCount       int
@@ -112,8 +111,7 @@ type formatCensus struct {
 	clockRegressions int
 	firstTs          float64
 	lastTs           float64
-	unparsedSamples  []unparsedSample
-	sampleNote       string
+	unparsedSamples  []tracequery.UnparsedLineSample
 
 	// ① event-name spectrum + unknown blind-spot list
 	names        []nameCount
@@ -159,165 +157,179 @@ type formatCensus struct {
 	idleCount     int
 	idleCPUs      map[int]bool
 
-	// ⑦ span census
+	// ⑦ span census (annotated with the engine's exported semantic
+	// classification — TDIAG B3)
 	spanNames      []nameCount
 	spanNamesTotal int
 	spanHPrefix    int
 
-	// faces this build cannot compute from exported engine API (honest list)
+	// streaming accumulators (live between observe calls; folded by finalize)
+	nameCounts   map[string]*nameCount
+	prefixCounts map[string]*nameCount
+	clocks       map[string]*clockTrack
+	spanCounts   map[string]int
+
+	// faces this build cannot compute from exported engine API (honest list;
+	// empty since the §28.13 exports landed — the mechanism stays for future
+	// gaps)
 	unsupportedFaces []string
 }
 
-func computeFormatCensus(idx *tracequery.Index, scope censusScope) *formatCensus {
-	c := &formatCensus{
-		path:             idx.Path,
-		scope:            scope,
-		windowed:         idx.Windowed,
-		lineCount:        idx.LineCount,
-		scannedLineCount: idx.ScannedLineCount,
-		eventCount:       len(idx.Events),
-		parsedKnown:      idx.ParsedKnown,
-		unparsedLines:    idx.UnparsedLines,
-		parsePanics:      idx.ParseLinePanics,
-		clockRegressions: idx.ClockRegressions,
-		firstTs:          idx.FirstTs,
-		lastTs:           idx.LastTs,
-		markActions:      map[string]int{},
-		prioCounts:       map[int]int{},
-		prevStates:       map[string]int{},
-		freqCPUs:         map[int]bool{},
-		freqLimitCPUs:    map[int]bool{},
-		idleCPUs:         map[int]bool{},
+// newFormatCensusAcc builds the streaming census accumulator for one step:
+// observe() consumes every StreamScan event (scope filters inside), then
+// finalize() folds the top-N faces and adopts the shell's line-level quality
+// counters + typed unparsed samples.
+func newFormatCensusAcc(scope censusScope) *formatCensus {
+	return &formatCensus{
+		scope:         scope,
+		markActions:   map[string]int{},
+		prioCounts:    map[int]int{},
+		prevStates:    map[string]int{},
+		freqCPUs:      map[int]bool{},
+		freqLimitCPUs: map[int]bool{},
+		idleCPUs:      map[int]bool{},
+		nameCounts:    map[string]*nameCount{},
+		prefixCounts:  map[string]*nameCount{},
+		clocks:        map[string]*clockTrack{},
+		spanCounts:    map[string]int{},
 	}
-	nameCounts := map[string]*nameCount{}
-	prefixCounts := map[string]*nameCount{}
-	clocks := map[string]*clockTrack{}
-	spanCounts := map[string]int{}
+}
 
-	for i := range idx.Events {
-		ev := &idx.Events[i]
-		if !scope.admits(ev) {
-			continue
-		}
-		c.scopedEventCount++
-		key := ev.Name + "\x00" + string(ev.Type)
-		if nc := nameCounts[key]; nc != nil {
+func (c *formatCensus) observe(ev *tracequery.Event) {
+	c.eventCount++
+	if !c.scope.admits(ev) {
+		return
+	}
+	c.scopedEventCount++
+	key := ev.Name + "\x00" + string(ev.Type)
+	if nc := c.nameCounts[key]; nc != nil {
+		nc.Count++
+	} else {
+		c.nameCounts[key] = &nameCount{Name: ev.Name, Type: string(ev.Type), Count: 1}
+	}
+	if p := namePrefix(ev.Name); p != "" {
+		pkey := p + "\x00" + string(ev.Type)
+		if nc := c.prefixCounts[pkey]; nc != nil {
 			nc.Count++
 		} else {
-			nameCounts[key] = &nameCount{Name: ev.Name, Type: string(ev.Type), Count: 1}
-		}
-		if p := namePrefix(ev.Name); p != "" {
-			pkey := p + "\x00" + string(ev.Type)
-			if nc := prefixCounts[pkey]; nc != nil {
-				nc.Count++
-			} else {
-				prefixCounts[pkey] = &nameCount{Name: p, Type: string(ev.Type), Count: 1}
-			}
-		}
-		switch ev.Type {
-		case tracequery.EventTraceMark:
-			c.markTotal++
-			action := ev.SpanAction
-			if action == "" {
-				action = "(none)"
-			}
-			c.markActions[action]++
-			c.countRawMarkForms(ev.FieldText)
-			if ev.SpanAction == "B" || ev.SpanAction == "S" {
-				spanCounts[ev.SpanName]++
-				if strings.HasPrefix(ev.SpanName, "H:") {
-					c.spanHPrefix++
-				}
-			}
-		case tracequery.EventClockSetRate:
-			track := clocks[ev.ClockName]
-			if track == nil {
-				track = &clockTrack{Name: ev.ClockName, CPUs: map[int]bool{}, MinState: ev.Frequency, MaxState: ev.Frequency}
-				clocks[ev.ClockName] = track
-			}
-			track.Count++
-			if ev.CPUForFieldValid {
-				track.CPUs[ev.CPUForField] = true
-			}
-			if ev.Frequency < track.MinState {
-				track.MinState = ev.Frequency
-			}
-			if ev.Frequency > track.MaxState {
-				track.MaxState = ev.Frequency
-			}
-		case tracequery.EventSchedSwitch:
-			c.schedSwitchCount++
-			c.countPrio(ev.PrevPrio)
-			c.countPrio(ev.NextPrio)
-			if ev.PrevState != "" {
-				c.prevStates[ev.PrevState]++
-			}
-			if ev.NextInfo != "" {
-				c.nextInfoCount++
-			}
-		case tracequery.EventSchedWakeup, tracequery.EventSchedWaking:
-			c.countPrio(ev.WakeePrio)
-		case tracequery.EventCPUFrequency:
-			c.freqCount++
-			if ev.CPUForFieldValid {
-				c.freqCPUs[ev.CPUForField] = true
-			}
-		case tracequery.EventCPUFrequencyLimit:
-			c.freqLimit++
-			if ev.CPUForFieldValid {
-				c.freqLimitCPUs[ev.CPUForField] = true
-			}
-		case tracequery.EventCPUIdle:
-			c.idleCount++
-			if ev.CPUForFieldValid {
-				c.idleCPUs[ev.CPUForField] = true
-			} else {
-				c.idleCPUs[ev.CPU] = true
-			}
-		case tracequery.EventBlockIssue:
-			c.blockIssue++
-		case tracequery.EventBlockRemap:
-			c.blockRemap++
-		case tracequery.EventBlockComplete:
-			c.blockComplete++
-		}
-		if ff := ev.FileFields; ff != nil {
-			c.fileKVEvents++
-			if ff.Ino != "" {
-				c.fileKVIno++
-			}
-			if ff.Dev != "" {
-				c.fileKVDev++
-			}
-			if ff.Entry != "" {
-				c.fileKVEntry++
-			}
+			c.prefixCounts[pkey] = &nameCount{Name: p, Type: string(ev.Type), Count: 1}
 		}
 	}
+	switch ev.Type {
+	case tracequery.EventTraceMark:
+		c.markTotal++
+		action := ev.SpanAction
+		if action == "" {
+			action = "(none)"
+		}
+		c.markActions[action]++
+		c.countRawMarkForms(ev.FieldText)
+		if ev.SpanAction == "B" || ev.SpanAction == "S" {
+			c.spanCounts[ev.SpanName]++
+			if strings.HasPrefix(ev.SpanName, "H:") {
+				c.spanHPrefix++
+			}
+		}
+	case tracequery.EventClockSetRate:
+		track := c.clocks[ev.ClockName]
+		if track == nil {
+			track = &clockTrack{Name: ev.ClockName, CPUs: map[int]bool{}, MinState: ev.Frequency, MaxState: ev.Frequency}
+			c.clocks[ev.ClockName] = track
+		}
+		track.Count++
+		if ev.CPUForFieldValid {
+			track.CPUs[ev.CPUForField] = true
+		}
+		if ev.Frequency < track.MinState {
+			track.MinState = ev.Frequency
+		}
+		if ev.Frequency > track.MaxState {
+			track.MaxState = ev.Frequency
+		}
+	case tracequery.EventSchedSwitch:
+		c.schedSwitchCount++
+		c.countPrio(ev.PrevPrio)
+		c.countPrio(ev.NextPrio)
+		if ev.PrevState != "" {
+			c.prevStates[ev.PrevState]++
+		}
+		if ev.NextInfo != "" {
+			c.nextInfoCount++
+		}
+	case tracequery.EventSchedWakeup, tracequery.EventSchedWaking:
+		c.countPrio(ev.WakeePrio)
+	case tracequery.EventCPUFrequency:
+		c.freqCount++
+		if ev.CPUForFieldValid {
+			c.freqCPUs[ev.CPUForField] = true
+		}
+	case tracequery.EventCPUFrequencyLimit:
+		c.freqLimit++
+		if ev.CPUForFieldValid {
+			c.freqLimitCPUs[ev.CPUForField] = true
+		}
+	case tracequery.EventCPUIdle:
+		c.idleCount++
+		if ev.CPUForFieldValid {
+			c.idleCPUs[ev.CPUForField] = true
+		} else {
+			c.idleCPUs[ev.CPU] = true
+		}
+	case tracequery.EventBlockIssue:
+		c.blockIssue++
+	case tracequery.EventBlockRemap:
+		c.blockRemap++
+	case tracequery.EventBlockComplete:
+		c.blockComplete++
+	}
+	if ff := ev.FileFields; ff != nil {
+		c.fileKVEvents++
+		if ff.Ino != "" {
+			c.fileKVIno++
+		}
+		if ff.Dev != "" {
+			c.fileKVDev++
+		}
+		if ff.Entry != "" {
+			c.fileKVEntry++
+		}
+	}
+}
 
-	c.names, c.namesTotal = sortedNameCounts(nameCounts, censusEventNameCap)
+// finalize folds the streamed accumulators into the rendered top-N faces and
+// adopts the StreamScan shell's whole-file quality counters + typed samples
+// (TDIAG B4: the samples are the parse site's own — the former bounded
+// second read, including its scanner.Err abort arm, is deleted, and windowed
+// steps get samples exactly like full-file ones).
+func (c *formatCensus) finalize(shell *tracequery.Index) {
+	c.path = shell.Path
+	c.lineCount = shell.LineCount
+	c.scannedLineCount = shell.ScannedLineCount
+	c.parsedKnown = shell.ParsedKnown
+	c.unparsedLines = shell.UnparsedLines
+	c.parsePanics = shell.ParseLinePanics
+	c.clockRegressions = shell.ClockRegressions
+	c.firstTs = shell.FirstTs
+	c.lastTs = shell.LastTs
+	c.unparsedSamples = shell.UnparsedSamples
+
+	c.names, c.namesTotal = sortedNameCounts(c.nameCounts, censusEventNameCap)
 	unknownOnly := map[string]*nameCount{}
-	for k, nc := range nameCounts {
+	for k, nc := range c.nameCounts {
 		if nc.Type == string(tracequery.EventUnknown) {
 			unknownOnly[k] = nc
 		}
 	}
 	c.unknown, c.unknownTotal = sortedNameCounts(unknownOnly, censusUnknownNameCap)
-	c.namePrefixes, c.namePrefixesTotal = sortedNameCounts(prefixCounts, censusPrefixCap)
-	c.clockTracks, c.clockTracksTotal = sortedClockTracks(clocks, censusClockTrackCap)
-	c.spanNames, c.spanNamesTotal = sortedSpanCounts(spanCounts, censusSpanNameCap)
+	c.namePrefixes, c.namePrefixesTotal = sortedNameCounts(c.prefixCounts, censusPrefixCap)
+	c.clockTracks, c.clockTracksTotal = sortedClockTracks(c.clocks, censusClockTrackCap)
+	c.spanNames, c.spanNamesTotal = sortedSpanCounts(c.spanCounts, censusSpanNameCap)
 
-	c.collectUnparsedSamples(idx)
-
-	// Faces the exported engine API does not reach in this build — honest
-	// disclosure instead of a reimplementation (缺 API 清单 companions).
-	c.unsupportedFaces = []string{
-		"语义 near-miss 名单(引擎 traceSpanNearMissesSemanticWorkClassification 未导出;本构建列 top span 名替代)",
-	}
-	if c.sampleNote != "" {
-		c.unsupportedFaces = append(c.unsupportedFaces, c.sampleNote)
-	}
-	return c
+	// 缺 API 清单 (§28.13) fully consumed: view enumerator / StreamScan /
+	// semantic near-miss exports / typed unparsed samples all landed — the
+	// honest-disclosure list is empty in this build; the mechanism stays for
+	// the next engine gap.
+	c.unsupportedFaces = nil
 }
 
 func (c *formatCensus) countPrio(prio int) {
@@ -393,51 +405,13 @@ func namePrefix(name string) string {
 	return name[:idx+1]
 }
 
-// collectUnparsedSamples reconstructs up to censusUnparsedSamples unparsed
-// line samples with a bounded second read: for an UNWINDOWED index every
-// parsed non-blank line has an event with its line number, so a non-blank
-// line absent from the event line set is exactly an engine-unparsed line.
-// Windowed indexes drop out-of-window events, so absence would lie there —
-// samples are honestly skipped (the count still comes from the engine).
-func (c *formatCensus) collectUnparsedSamples(idx *tracequery.Index) {
-	if idx.UnparsedLines == 0 && idx.ParseLinePanics == 0 {
-		return
-	}
-	if idx.Windowed {
-		c.sampleNote = "不可解析行样本(窗口化索引下行缺席≠不可解析,样本略;计数仍为引擎权威值)"
-		return
-	}
-	eventLines := make(map[int]bool, len(idx.Events))
-	for i := range idx.Events {
-		eventLines[idx.Events[i].Line] = true
-	}
-	f, err := os.Open(idx.Path)
-	if err != nil {
-		c.sampleNote = fmt.Sprintf("不可解析行样本读取失败: %v", err)
-		return
-	}
-	defer f.Close()
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 256*1024), 1024*1024)
-	lineNo := 0
-	for scanner.Scan() {
-		lineNo++
-		text := strings.TrimRight(scanner.Text(), "\r")
-		if strings.TrimSpace(text) == "" || eventLines[lineNo] {
-			continue
-		}
-		c.unparsedSamples = append(c.unparsedSamples, unparsedSample{Line: lineNo, Text: text})
-		if len(c.unparsedSamples) >= censusUnparsedSamples {
-			return
-		}
-	}
-	// P3-3 (对抗复核 2026-07-09): a scanner error (e.g. bufio.ErrTooLong on
-	// an over-1MiB line) used to end the loop indistinguishably from EOF —
-	// disclose it so a partial sample sweep never reads as a complete one.
-	if err := scanner.Err(); err != nil {
-		c.sampleNote = fmt.Sprintf("不可解析行样本扫描中止于第 %d 行(%v);样本可能不完整,计数仍为引擎权威值", lineNo, err)
-	}
-}
+// EVOLUTION RECORD (TDIAG B4, §28.13, 2026-07-09): collectUnparsedSamples —
+// the bounded second read that reconstructed samples by event-line absence
+// (and had to honestly SKIP windowed indexes, plus disclose bufio.ErrTooLong
+// aborts, 复核 P3-3) — is DELETED. Samples now come typed from the parse
+// site itself (tracequery Index.UnparsedSamples / the StreamScan shell):
+// windowed steps carry samples too, over-long lines are rune-safe
+// byte-capped at collection, and there is no second file read to abort.
 
 func sortedNameCounts(m map[string]*nameCount, cap int) ([]nameCount, int) {
 	all := make([]nameCount, 0, len(m))
@@ -497,12 +471,15 @@ func sortedSpanCounts(m map[string]int, cap int) ([]nameCount, int) {
 }
 
 func renderFormatCensus(c *formatCensus, emit func(string)) {
-	emit(fmt.Sprintf("格式普查(format_census): 普查范围=%s 范围内事件=%d (索引事件=%d 已识别=%d 行=%d 扫描行=%d)",
+	// TDIAG B2 (§28.13): the census streams the WHOLE file (tracequery
+	// StreamScan — no event index, no 250K budget); 流式解析事件 is the full
+	// parsed-event count, and the scope filters faces ①-⑦ only.
+	emit(fmt.Sprintf("格式普查(format_census): 普查范围=%s 范围内事件=%d (流式解析事件=%d 已识别=%d 行=%d 扫描行=%d)",
 		c.scope.describe(), c.scopedEventCount, c.eventCount, c.parsedKnown, c.lineCount, c.scannedLineCount))
 	emit(fmt.Sprintf("时间轴: first_ts=%s last_ts=%s clock_regressions=%d", formatSecondsToken(c.firstTs), formatSecondsToken(c.lastTs), c.clockRegressions))
-	emit(fmt.Sprintf("行级质量: unparsed_lines=%d parse_panics=%d windowed_index=%v", c.unparsedLines, c.parsePanics, c.windowed))
+	emit(fmt.Sprintf("行级质量: unparsed_lines=%d parse_panics=%d 扫描=流式全文件", c.unparsedLines, c.parsePanics))
 	if c.scope.bounded() {
-		emit("  (行级质量计数与不可解析样本为索引全量口径;①-⑦ 统计面按普查范围过滤)")
+		emit("  (行级质量计数与不可解析样本为全文件流式口径;①-⑦ 统计面按普查范围过滤)")
 	}
 	for _, s := range c.unparsedSamples {
 		emit(fmt.Sprintf("- 不可解析行样本 line=%d | %s", s.Line, clampToken(s.Text)))
@@ -557,7 +534,17 @@ func renderFormatCensus(c *formatCensus, emit func(string)) {
 
 	emit(fmt.Sprintf("⑦ span 普查(B/S 起始记号;共 %d 名,按计数列前 %d;H: 前缀 span=%d):", c.spanNamesTotal, len(c.spanNames), c.spanHPrefix))
 	for _, nc := range c.spanNames {
-		emit(fmt.Sprintf("- span=%s count=%d", clampToken(nc.Name), nc.Count))
+		// TDIAG B3 (§28.13): each top span is annotated with the engine's OWN
+		// semantic classification — semantic_class=X (classified) or the
+		// advisory near-miss flag (semantic vocabulary, no known pattern —
+		// the naming-drift blind-spot list). One classifier, exported.
+		line := fmt.Sprintf("- span=%s count=%d", clampToken(nc.Name), nc.Count)
+		if class := tracequery.TraceSpanSemanticClass(nc.Name); class != "" {
+			line += " semantic_class=" + class
+		} else if tracequery.TraceSpanNearMissesSemanticWork(nc.Name) {
+			line += " ⚠ near_miss(语义词汇命中但未匹配已知模式)"
+		}
+		emit(line)
 	}
 
 	if len(c.unsupportedFaces) > 0 {

@@ -177,6 +177,40 @@ type TraceCausalProjectionQueryWindow struct {
 	EndTs   float64 `json:"end_ts,omitempty"`
 }
 
+// TraceCausalProjectionSameValueMember is one member of a cross-thread
+// take-MAX fold whose display value ties the fold's published MAX to the µs
+// (DIAG A1, §28.11-3(a), real_trace_campaign_20260705.md, 2026-07-09): the
+// member's subject plus its OWN evidence line range, so a suspected
+// same-segment double attribution (huadong_79 E23: hmfs_discard and the
+// target thread both at 14.272ms) is answerable from the report output
+// instead of needing the raw trace file.
+type TraceCausalProjectionSameValueMember struct {
+	Subject   string `json:"subject"`
+	LineStart int    `json:"line_start,omitempty"`
+	LineEnd   int    `json:"line_end,omitempty"`
+}
+
+const (
+	// TraceCausalProjectionSameValueTieMS is the STRICT same-value criterion
+	// of the DIAG A1 disclosure (user ruling §28.11-3: 值差 < 0.0005ms 视同值
+	// — the µs-tie shape; NOT the display %.3f rounding band). Exported so the
+	// wire-side fold producer (internal/tool) and the projection folds judge
+	// ties with the one constant.
+	TraceCausalProjectionSameValueTieMS = 0.0005
+	// traceCausalProjectionSameValueMemberCap bounds the disclosed member
+	// roster (帽 4, mirroring traceCausalProjectionMergedSubjectCap): the tie
+	// FACT plus up to four (subject, line-range) witnesses; further tied
+	// members stay countable through MergedCount.
+	traceCausalProjectionSameValueMemberCap = 4
+)
+
+// TraceActualCaliberStateSegmentVsThreadTotal is the single closed-enum value
+// of the DIAG A2 two-caliber divergence disclosure (§28.11-3(b), D-10): the
+// row carries BOTH a dominant-state segment actual (actual_impact lane) and a
+// thread-level actual total (actual_total lane) and they diverge >10% of the
+// larger — two calibers from two sources, neither corrected, both stated.
+const TraceActualCaliberStateSegmentVsThreadTotal = "state_segment_vs_thread_total"
+
 // WindowDurationMS returns the requested-window length in milliseconds, or 0
 // when the window anchor was absent (renderer falls back per v3 §5).
 func (p TraceCausalProjection) WindowDurationMS() float64 {
@@ -300,6 +334,23 @@ type TraceCausalProjectionNode struct {
 	// Zero when the source row did not expose them (gap c three-column magnitude).
 	EffectiveImpactMS float64 `json:"effective_impact_ms,omitempty"`
 	ActualImpactMS    float64 `json:"actual_impact_ms,omitempty"`
+	// ActualTotalMS is the THREAD-LEVEL actual total (Σ over all scheduler
+	// states of the underlying segment) — a DIFFERENT caliber from
+	// ActualImpactMS (the dominant-STATE segment actual). DIAG A2 (§28.11-3(b),
+	// D-10, real_trace_campaign_20260705.md, 2026-07-09): opendir_79 E5 showed
+	// "实际状态 59.050ms" (state-segment) beside "actual_total=112.234ms"
+	// (thread total) with no caliber label — the two faces read as a
+	// contradiction. Sourced from the actual_total_ms / actual_total rich
+	// notes; zero when the source row did not expose it.
+	ActualTotalMS float64 `json:"actual_total_ms,omitempty"`
+	// ActualCaliberNote is the producer's typed two-caliber divergence
+	// disclosure (closed enum, currently only
+	// TraceActualCaliberStateSegmentVsThreadTotal): stamped by the engine-side
+	// note builders when BOTH actual calibers are present on one row and
+	// diverge by more than 10% of the larger. Disclosure only — no gate, no
+	// value edit; the detail stanza renders the 实际口径 line from it. Never
+	// re-derived display-side (single divergence judgment, one producer).
+	ActualCaliberNote string `json:"actual_caliber_note,omitempty"`
 	// TargetImpactMS is the engine's TargetBlockedMs caliber: how much of the
 	// 🎯 target's own blocked wall clock THIS row's chain actually explains
 	// (typed promotion, COV §24.9 D-1, real_trace_campaign_20260705.md,
@@ -452,6 +503,19 @@ type TraceCausalProjectionNode struct {
 	// only: the all-zero fold note may then honestly say the members are data
 	// blind spots instead of the generic no-value wording. Never a gate.
 	MergedAllDataGap bool `json:"merged_all_data_gap,omitempty"`
+	// SameValueMembers (DIAG A1, §28.11-3(a), G12,
+	// real_trace_campaign_20260705.md, 2026-07-09) discloses the members of a
+	// CROSS-THREAD take-MAX fold whose display values tie the published MAX to
+	// the µs (strict |v−max| < traceCausalProjectionSameValueTieMS): the
+	// huadong_79 E23 shape — hmfs_discard and the target thread folded ×2 with
+	// both members at 14.272ms, the suspected same-segment double-attribution
+	// that previously needed the raw trace to check. Each entry keeps the
+	// member subject + its OWN evidence line range so the customer can verify
+	// segment identity from the report. Cap 4
+	// (traceCausalProjectionSameValueMemberCap); set only when ≥2 members tie.
+	// Disclosure ONLY — the fold's published value/min/max/count are untouched
+	// (zero weight; pinned).
+	SameValueMembers []TraceCausalProjectionSameValueMember `json:"same_value_members,omitempty"`
 	// --- RCM family-merge typed lane (§24.7.1/§24.10 user rulings 2026-07-08,
 	// real_trace_campaign_20260705.md §24.12 dimension-A mandate ①) -----------
 	//
@@ -2320,6 +2384,11 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	}
 	node.EffectiveImpactMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyEffectiveImpactMS, TraceNoteKeyEffectiveImpact)
 	node.ActualImpactMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyActualImpactMS, TraceNoteKeyActualImpact)
+	// DIAG A2 (§28.11-3(b) D-10, 2026-07-09): the thread-level actual total
+	// (SECOND actual caliber) plus the producer's typed divergence disclosure —
+	// wording input for the 实际口径 detail line only, never a value edit.
+	node.ActualTotalMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyActualTotalMS, TraceNoteKeyActualTotal)
+	node.ActualCaliberNote = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyActualCaliberNote))
 	// COV §24.9 D-1: the TargetBlockedMs typed promotion (rank lane emits
 	// target_impact_ms=%.3f; the causal_impact lanes carry target_impact=%.3fms
 	// verbatim — the shared float parser strips the unit).
@@ -2412,6 +2481,12 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 			traceCausalProjectionAppendMergedSubject(&node, subject)
 		}
 		node.OnChainOverflowFold = node.ChainRelevance == "on_chain"
+		// DIAG A1 (§28.11-3(a)): re-materialize the producer's µs-tie member
+		// roster ("<subject>@<start>-<end>" comma-joined). Malformed entries
+		// are dropped (absence never guesses); the fold values above are
+		// untouched.
+		node.SameValueMembers = traceCausalProjectionParseSameValueMembers(
+			traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeySameValueMembers))
 	}
 	// RCM 家族合并族 (§24.7.1/§24.10, 2026-07-08): the engine same-thread
 	// family-merge accounting re-materializes on the ISOLATED FamilyMember*
@@ -2449,6 +2524,46 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	node.AbsorbedByRankFamily = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyAbsorbedByRankFamily)) == "true"
 	node.AbsorbedInto = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyAbsorbedInto))
 	return node
+}
+
+// traceCausalProjectionParseSameValueMembers parses the typed
+// same_value_members note value ("<subject>@<line_start>-<line_end>" entries,
+// comma-joined — single producer format, see the fold-record builders in
+// internal/tool/trace_query.go). The subject is everything before the LAST
+// '@' (labels never carry commas on this lane — folded_subjects convention);
+// entries whose range half does not parse are dropped, never guessed. Cap 4,
+// mirroring the fold-side traceCausalProjectionSameValueMemberCap.
+func traceCausalProjectionParseSameValueMembers(raw string) []TraceCausalProjectionSameValueMember {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var out []TraceCausalProjectionSameValueMember
+	for _, entry := range strings.Split(raw, ",") {
+		entry = strings.TrimSpace(entry)
+		at := strings.LastIndex(entry, "@")
+		if at <= 0 || at == len(entry)-1 {
+			continue
+		}
+		subject := strings.TrimSpace(entry[:at])
+		rangePart := entry[at+1:]
+		dash := strings.IndexByte(rangePart, '-')
+		if dash < 0 {
+			continue
+		}
+		start, errStart := strconv.Atoi(strings.TrimSpace(rangePart[:dash]))
+		end, errEnd := strconv.Atoi(strings.TrimSpace(rangePart[dash+1:]))
+		if errStart != nil || errEnd != nil || subject == "" {
+			continue
+		}
+		if len(out) < traceCausalProjectionSameValueMemberCap {
+			out = append(out, TraceCausalProjectionSameValueMember{Subject: subject, LineStart: start, LineEnd: end})
+		}
+	}
+	if len(out) < 2 {
+		return nil
+	}
+	return out
 }
 
 // traceCausalProjectionParseFoldBasis parses the typed fold_basis note value
@@ -2848,6 +2963,11 @@ func traceCausalProjectionOverflowFoldRow(overflow []TraceCausalProjectionNode) 
 	} else {
 		fold.CumulativeImpactMS = maxMS
 	}
+	// DIAG A1 (§28.11-3(a), G12): the huadong_79 E23 shape — two cross-thread
+	// members tying the published MAX to the µs — is disclosed as a typed
+	// (subject, line-range) roster at THIS value-merge point. Zero weight: all
+	// published values above are final before the roster is computed.
+	fold.SameValueMembers = traceCausalProjectionSameValueFoldMembers(overflow, maxMS)
 	return fold
 }
 

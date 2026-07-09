@@ -23,6 +23,9 @@ var traceNoteKeyGoldenRows = []string{
 	// relocation + 链上并入 stanza join).
 	"absorbed_by_rank_family|blocking|hard_consumer",
 	"absorbed_into|blocking|hard_consumer",
+	// DIAG A2 (§28.11-3(b) D-10, 2026-07-09): the typed two-caliber divergence
+	// disclosure (state-segment actual vs thread-level actual total).
+	"actual_caliber_note|impact|hard_consumer",
 	"actual_d_state|state|soft_consumer",
 	"actual_impact|impact|hard_consumer",
 	"actual_impact_ms|impact|hard_consumer",
@@ -30,8 +33,10 @@ var traceNoteKeyGoldenRows = []string{
 	"actual_runnable|state|soft_consumer",
 	"actual_running|state|soft_consumer",
 	"actual_sleep|state|soft_consumer",
-	"actual_total|impact|soft_consumer",
-	"actual_total_ms|impact|soft_consumer",
+	// EVOLUTION RECORD (DIAG A2, 2026-07-09): soft→hard — the projection
+	// compile now parses the thread-total caliber into node.ActualTotalMS.
+	"actual_total|impact|hard_consumer",
+	"actual_total_ms|impact|hard_consumer",
 	"actual_window|anchor_window|soft_consumer",
 	"adds|io|display_only",
 	"advisory_pretriage|ledger_marker|soft_consumer",
@@ -257,6 +262,9 @@ var traceNoteKeyGoldenRows = []string{
 	"runtime|sched_accounting|display_only",
 	"same_cpu_busy|cpu_load|display_only",
 	"same_cpu_idle|cpu_load|display_only",
+	// DIAG A1 (§28.11-3(a) G12, 2026-07-09): µs-tie fold-member roster on
+	// cross-thread take-MAX fold records (huadong_79 E23 shape).
+	"same_value_members|causal_rank|hard_consumer",
 	"sample_weight|perf|display_only",
 	"samples|perf|display_only",
 	"score|causal_rank|display_only",

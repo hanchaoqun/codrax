@@ -48,37 +48,17 @@ const (
 )
 
 // supportedEngineViews is the canonical tracequery view enum accepted by the
-// step "view" field. tracequery exports no view-name enumerator (missing-API
-// candidate), so the list is maintained here and cross-checked against the
-// engine capacity table by TestSupportedEngineViewsExistInCapacityTable:
-// every entry must resolve to a real capacity row (HeavyView or a positive
-// DefaultLimit), which catches renames/typos mechanically. Aliases the LLM
-// tool schema tolerates (state_churn→window_stats, …) are deliberately NOT
-// accepted: collection scripts are deterministic artifacts, fail-loud beats
-// silent normalization (R2 discipline).
-var supportedEngineViews = []string{
-	"event_search",
-	"window_sweep",
-	"span_window",
-	"frame_window",
-	"render_pipeline",
-	"frame_timeline",
-	"frame_flow",
-	"thread_timeline",
-	"window_stats",
-	"perf_stats",
-	"perf_timeline",
-	"trace_perf_bundle",
-	"scheduler_latency_stats",
-	"ipc_graph",
-	"wakeup_chain",
-	"root_cause_rank",
-	"frame_root_cause_bundle",
-	"critical_blocking_calls",
-	"interaction_stats",
-	"recipe",
-	"evidence_pack",
-}
+// step "view" field — CONSUMED from the engine's exported enumerator
+// (tracequery.CanonicalViewNames, TDIAG B1 §28.13, 2026-07-09; the former
+// self-maintained copy is deleted). The enumerator is derived from the
+// engine's own capacity table, so an engine view rename/addition flows here
+// in the same edit — the old cross-check pin evolved into
+// TestSupportedEngineViewsAreTheExportedEnumerator (导出面=引擎容量表).
+// Aliases the LLM tool schema tolerates (state_churn→window_stats, …) stay
+// out by construction: the capacity-table keys are canonical, and collection
+// scripts are deterministic artifacts — fail-loud beats silent normalization
+// (R2 discipline).
+var supportedEngineViews = tracequery.CanonicalViewNames()
 
 // supportedEventTypes is the closed event_types token set: the canonical
 // tracequery.EventType wire tokens plus the family filter tokens

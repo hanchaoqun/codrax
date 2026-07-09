@@ -153,6 +153,18 @@ const (
 	TraceNoteKeyFoldedMinMS    = "folded_min_ms"
 	TraceNoteKeyFoldedMaxMS    = "folded_max_ms"
 	TraceNoteKeyFoldedSubjects = "folded_subjects"
+	// TraceNoteKeySameValueMembers (DIAG A1, §28.11-3(a) G12,
+	// real_trace_campaign_20260705.md, 2026-07-09): rides beside the folded_*
+	// family on a producer-side cross-thread take-MAX fold record when ≥2
+	// members tie the published MAX to the µs (strict
+	// TraceCausalProjectionSameValueTieMS band) — the suspected same-segment
+	// double-attribution witness (huadong_79 E23: hmfs_discard + target thread
+	// both 14.272ms). Value is a comma-joined roster of
+	// "<subject>@<line_start>-<line_end>" entries (cap 4; subjects follow the
+	// folded_subjects comma convention). Hard consumer: the projection compile
+	// re-materializes it into TraceCausalProjectionNode.SameValueMembers for
+	// the audit-token face. Disclosure only — never a fold-value input.
+	TraceNoteKeySameValueMembers = "same_value_members"
 	// RCM 家族合并族 (§24.7.1/§24.10 user rulings 2026-07-08,
 	// real_trace_campaign_20260705.md §24.12): the ENGINE-side same-(thread,
 	// type) / (thread, semantic class) family-merge carriers on a rank
@@ -205,6 +217,18 @@ const (
 	TraceNoteKeyTotal           = "total"
 	TraceNoteKeyActualTotalMS   = "actual_total_ms"
 	TraceNoteKeyActualTotal     = "actual_total"
+	// TraceNoteKeyActualCaliberNote (DIAG A2, §28.11-3(b) D-10,
+	// real_trace_campaign_20260705.md, 2026-07-09): the producer's typed
+	// two-caliber divergence disclosure — value is the closed enum
+	// TraceActualCaliberStateSegmentVsThreadTotal, emitted ONLY when the same
+	// row publishes BOTH the dominant-state segment actual (actual_impact
+	// lane) and the thread-level actual total (actual_total lane) and they
+	// diverge by more than 10% of the larger (opendir_79 E5: 表面 "实际状态
+	// 59.050ms" beside "actual_total=112.234ms" read as a contradiction).
+	// Hard consumer: the projection compile parses it into
+	// TraceCausalProjectionNode.ActualCaliberNote and the detail stanza's
+	// 实际口径 line keys on it. Neither value is judged or edited (不猜哪个对).
+	TraceNoteKeyActualCaliberNote = "actual_caliber_note"
 	// TraceNoteKeyTargetImpactMS / TraceNoteKeyTargetImpact carry the engine's
 	// TargetBlockedMs caliber — how much of the 🎯 target's own blocked wall
 	// clock THIS row's chain actually explains (rank lane emits
@@ -592,6 +616,10 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyFoldedMinMS, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyFoldedMaxMS, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyFoldedSubjects, "causal_rank", TraceNoteCarrierHardConsumer},
+	// same_value_members (DIAG A1, §28.11-3(a) G12, 2026-07-09): µs-tie member
+	// roster beside the folded_* family — projection compile re-materializes
+	// it into node.SameValueMembers (audit-token disclosure face).
+	{TraceNoteKeySameValueMembers, "causal_rank", TraceNoteCarrierHardConsumer},
 	// RCM 家族合并族 (§24.7.1/§24.10, 2026-07-08): engine same-thread family
 	// merge accounting — parsed by the projection compile into the isolated
 	// FamilyMember* node lane (never MergedCount/MergedMaxMS).
@@ -615,8 +643,15 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyActualImpactMS, "impact", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyActualImpact, "impact", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyTotal, "impact", TraceNoteCarrierSoftConsumer},
-	{TraceNoteKeyActualTotalMS, "impact", TraceNoteCarrierSoftConsumer},
-	{TraceNoteKeyActualTotal, "impact", TraceNoteCarrierSoftConsumer},
+	// EVOLUTION RECORD (DIAG A2, §28.11-3(b) D-10, 2026-07-09): actual_total /
+	// actual_total_ms promoted soft_consumer → hard_consumer — the projection
+	// compile now parses them into node.ActualTotalMS (the 实际口径 stanza
+	// line's thread-total half); the coverage-view soft parse is unchanged.
+	{TraceNoteKeyActualTotalMS, "impact", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyActualTotal, "impact", TraceNoteCarrierHardConsumer},
+	// actual_caliber_note (DIAG A2): typed two-caliber divergence disclosure —
+	// node-field read-in; the detail stanza's 实际口径 line keys on it.
+	{TraceNoteKeyActualCaliberNote, "impact", TraceNoteCarrierHardConsumer},
 	{"projected_impact", "impact", TraceNoteCarrierDisplayOnly},
 	{"projected_impact_ms", "impact", TraceNoteCarrierDisplayOnly},
 	{"projected_total", "impact", TraceNoteCarrierDisplayOnly},

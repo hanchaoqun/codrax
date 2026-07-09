@@ -2784,6 +2784,12 @@ type runtimeTraceCausalProjectionEvidenceEntry struct {
 	// accounting at the 96-rune boundary. Typed flag from the node, never a
 	// substring probe on the composed details.
 	FamilyAudit bool
+	// SameValueAudit (DIAG A1, §28.11-3(a), 2026-07-09) marks an entry whose
+	// node carries the µs-tie fold-member disclosure: its
+	// same_value_members/same_value_lines tokens are the double-attribution
+	// witness the customer verifies line ranges from, so the ceiling widens
+	// exactly like FamilyAudit. Typed flag from the node.
+	SameValueAudit bool
 }
 
 func newRuntimeTraceCausalProjectionEvidenceIndex() *runtimeTraceCausalProjectionEvidenceIndex {
@@ -2815,9 +2821,10 @@ func (idx *runtimeTraceCausalProjectionEvidenceIndex) add(node types.TraceCausal
 		ID:            id,
 		Ref:           strings.TrimSpace(ref),
 		Window:        window,
-		Details:       runtimeTraceCausalProjectionAuditDetail(node, zh, idx.flatChain),
-		SyntheticLine: node.Undrillable(),
-		FamilyAudit:   node.FamilyMemberCount > 1,
+		Details:        runtimeTraceCausalProjectionAuditDetail(node, zh, idx.flatChain),
+		SyntheticLine:  node.Undrillable(),
+		FamilyAudit:    node.FamilyMemberCount > 1,
+		SameValueAudit: len(node.SameValueMembers) > 0,
 	})
 	return id
 }
@@ -2833,12 +2840,16 @@ func runtimeTraceCausalProjectionEvidenceText(zh bool) string {
 	// RCM-2 D4 (2026-07-08). EVOLUTION RECORD: the audit-token legend sentence
 	// gains the member_* family tokens (引 §24.10/§24.22 — family entries now
 	// carry member_count/member_fold_caliber; token 本身零改动).
+	// DIAG A1 (§28.11-3(a), 2026-07-09). EVOLUTION RECORD: the audit-token
+	// legend sentence gains the same_value_* pair — a cross-thread take-MAX
+	// fold whose members tie the published MAX to the µs names those members
+	// and their line intervals (token 本身零改动,§22.2.1 审计车道原文保留).
 	if zh {
 		return "正文用 E1、E2 等编号引用证据;本索引给出每条证据在 trace 中的位置(行号或时间区间)与审计字段。" +
-			"审计字段为 trace_query 原文 token,便于回溯核对:tier=证据层级、causality=因果位置、rank=根因排序、confidence=置信度、predicate=判定类型、span=span 名、merged_*=合并明细、member_*=同线程家族合并明细;其余字段同为原文 token。"
+			"审计字段为 trace_query 原文 token,便于回溯核对:tier=证据层级、causality=因果位置、rank=根因排序、confidence=置信度、predicate=判定类型、span=span 名、merged_*=合并明细、member_*=同线程家族合并明细、same_value_*=跨线程取最大折叠中同值到微秒的成员及各自行区间(供核对是否同段);其余字段同为原文 token。"
 	}
 	return "The answer cites evidence by the E1/E2 numbers; this index gives each entry's location in the trace (line or time span) and its audit fields. " +
-		"Audit fields are raw trace_query tokens kept for cross-checking: tier = evidence tier, causality = causal position, rank = root-cause rank, confidence = confidence, predicate = judgment kind, span = span name, merged_* = merge detail, member_* = same-thread family-merge detail; any other field is likewise a raw token."
+		"Audit fields are raw trace_query tokens kept for cross-checking: tier = evidence tier, causality = causal position, rank = root-cause rank, confidence = confidence, predicate = judgment kind, span = span name, merged_* = merge detail, member_* = same-thread family-merge detail, same_value_* = members of a cross-thread take-MAX fold whose values tie to the µs, with each member's own line interval (to check whether they are one segment); any other field is likewise a raw token."
 }
 
 func runtimeTraceCausalProjectionPriorityCell(node types.TraceCausalProjectionNode, zh bool) string {
@@ -3229,6 +3240,22 @@ func runtimeTraceCausalProjectionAuditDetail(node types.TraceCausalProjectionNod
 		if caliber := strings.TrimSpace(node.FamilyFoldCaliber); caliber != "" {
 			parts = append(parts, "member_fold_caliber="+caliber)
 		}
+	}
+	// DIAG A1 (§28.11-3(a) G12, 2026-07-09): the cross-thread take-MAX fold's
+	// µs-tie disclosure — subjects + per-member line intervals as two audit
+	// tokens (merged_ids family style), seated EARLY like the RCM member
+	// tokens so the free-length predicate/span parts can never push the tie
+	// witness off the audit ceiling. Same-value entries also widen the
+	// ceiling (SameValueAudit flag, FamilyAudit precedent).
+	if len(node.SameValueMembers) > 0 {
+		subjects := make([]string, 0, len(node.SameValueMembers))
+		lines := make([]string, 0, len(node.SameValueMembers))
+		for _, member := range node.SameValueMembers {
+			subjects = append(subjects, member.Subject)
+			lines = append(lines, fmt.Sprintf("%d-%d", member.LineStart, member.LineEnd))
+		}
+		parts = append(parts, "same_value_members="+strings.Join(subjects, ","))
+		parts = append(parts, "same_value_lines="+strings.Join(lines, ","))
 	}
 	// G1 跨车道对账 (§27.2-G1, 2026-07-09): an absorbed chain-lane entry keeps
 	// its family pointer on the audit face (第三面无损 — the raw observation

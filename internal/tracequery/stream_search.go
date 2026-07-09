@@ -107,8 +107,14 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 			panicsBefore := idx.ParseLinePanics
 			ev, ok := safeParseLine(lineNo, trimmed, intern, idx)
 			if !ok {
-				if trimmed != "" && idx.ParseLinePanics == panicsBefore {
-					idx.UnparsedLines++
+				if trimmed != "" {
+					if idx.ParseLinePanics == panicsBefore {
+						idx.UnparsedLines++
+					}
+					// TDIAG B4: same typed sample face as the indexed build
+					// (with a pattern set this covers candidate lines only —
+					// the counters' existing conservative scope).
+					idx.recordUnparsedSample(lineNo, trimmed)
 				}
 				goto nextLine
 			}

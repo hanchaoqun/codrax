@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -5786,6 +5787,11 @@ func traceQueryTypedPriorityRichNotes(rank int, tier, typ, source, causality str
 	if actualTotal > 0 {
 		notes = append(notes, fmt.Sprintf("%s=%.3f", types.TraceNoteKeyActualTotalMS, actualTotal))
 	}
+	// DIAG A2 (§28.11-3(b) D-10, 2026-07-09): both actual calibers on one row
+	// and >10% apart → typed disclosure (no value judged, no value edited).
+	if caliber := traceQueryActualCaliberNote(actualImpact, actualTotal); caliber != "" {
+		notes = append(notes, types.TraceNoteKeyActualCaliberNote+"="+caliber)
+	}
 	if actualWindow := traceQueryWindowValue(actualStart, actualEnd); actualWindow != "" {
 		notes = append(notes, types.TraceNoteKeyActualWindow+"="+actualWindow)
 	}
@@ -5802,6 +5808,27 @@ func traceQueryTypedPriorityRichNotes(rank int, tier, typ, source, causality str
 		notes = append(notes, fmt.Sprintf("%s=%d", types.TraceNoteKeyChainDepth, chainDepth))
 	}
 	return notes
+}
+
+// traceQueryActualCaliberNote is the single DIAG A2 divergence judgment
+// (§28.11-3(b), D-10): both actual calibers present on ONE row — the
+// dominant-state segment actual (actual_impact lane) and the thread-level
+// actual total (actual_total lane) — and diverging by MORE than 10% of the
+// larger. Returns the closed enum value; "" otherwise (the note zero-drops).
+// Precise arithmetic on two typed floats; nobody guesses which caliber is
+// "right" and neither value is edited (disclosure only, zero weight).
+func traceQueryActualCaliberNote(actualImpact, actualTotal float64) string {
+	if actualImpact <= 0 || actualTotal <= 0 {
+		return ""
+	}
+	larger := actualImpact
+	if actualTotal > larger {
+		larger = actualTotal
+	}
+	if math.Abs(actualTotal-actualImpact) > 0.10*larger {
+		return types.TraceActualCaliberStateSegmentVsThreadTotal
+	}
+	return ""
 }
 
 func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) []string {
@@ -5886,12 +5913,49 @@ func traceQueryWakeupCausalImpactFoldRecord(scope string, ref types.ObservationS
 			{types.TraceNoteKeyFoldedMinMS, traceQueryObservationMSValue(minMS)},
 			{types.TraceNoteKeyFoldedMaxMS, traceQueryObservationMSValue(maxMS)},
 			{types.TraceNoteKeyFoldedSubjects, strings.Join(subjects, ",")},
+			// DIAG A1 (§28.11-3(a) G12, 2026-07-09): µs-tie member roster at
+			// THIS wire-side take-MAX merge point (zero-dropped when <2 tie).
+			{types.TraceNoteKeySameValueMembers, traceQuerySameValueMemberNote(members, maxMS)},
 			{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(window)},
 		}),
 		SupportRefs: traceQueryObservationSupportRefs(ref, span.LineStart, span.LineEnd),
 		ObservedAt:  at,
 		Confidence:  0.78,
 	}, true
+}
+
+// traceQuerySameValueMemberNote is the wire-side DIAG A1 tie collector
+// (§28.11-3(a), same strict criterion as the projection folds —
+// types.TraceCausalProjectionSameValueTieMS): members whose dominant impact
+// ties the fold's published MAX to the µs are disclosed as
+// "<subject>@<line_start>-<line_end>" comma-joined entries (cap 4). "" when
+// fewer than two members with a NON-EMPTY thread label tie (复核 P3-1
+// symmetry: a label-less member cannot be a nameable witness — the consumer
+// parser discards subject-less entries, so the producer never mints them).
+// The note zero-drops. Disclosure only: callers pass the already-final maxMS
+// and never read anything back.
+func traceQuerySameValueMemberNote(members []tracequery.WakeupCausalImpact, maxMS float64) string {
+	if maxMS <= 0 {
+		return ""
+	}
+	var entries []string
+	for _, member := range members {
+		label := strings.TrimSpace(traceThreadLabel(member.Thread))
+		if label == "" {
+			continue
+		}
+		v := member.DominantImpactMs
+		if v <= 0 || math.Abs(v-maxMS) >= types.TraceCausalProjectionSameValueTieMS {
+			continue
+		}
+		if len(entries) < 4 {
+			entries = append(entries, fmt.Sprintf("%s@%d-%d", label, member.LineStart, member.LineEnd))
+		}
+	}
+	if len(entries) < 2 {
+		return ""
+	}
+	return strings.Join(entries, ",")
 }
 
 // traceQueryWakeupCausalAggregateFoldRecord builds the PTS-2 engine-level
@@ -5970,6 +6034,9 @@ func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) 
 		{"projected_total", traceQueryObservationMSValue(impact.ProjectedTotalMs)},
 		{types.TraceNoteKeyActualImpact, traceQueryObservationMSValue(impact.ActualImpactMs)},
 		{types.TraceNoteKeyActualTotal, traceQueryObservationMSValue(impact.ActualTotalMs)},
+		// DIAG A2 (§28.11-3(b) D-10): two actual calibers >10% apart on one
+		// row → typed disclosure (zero-dropped otherwise).
+		{types.TraceNoteKeyActualCaliberNote, traceQueryActualCaliberNote(impact.ActualImpactMs, impact.ActualTotalMs)},
 		{types.TraceNoteKeyActualWindow, traceQueryWindowValue(impact.ActualWindow.StartTs, impact.ActualWindow.EndTs)},
 		{"target_impact", traceQueryObservationMSValue(impact.TargetBlockedMs)},
 		{types.TraceNoteKeyFragments, traceQueryTypedCount(impact.FragmentCount)},
@@ -6229,6 +6296,9 @@ func traceQueryTypedCausalAggregateRichNotes(aggregate tracequery.WakeupCausalAg
 		{"projected_total", traceQueryObservationMSValue(aggregate.ProjectedTotalMs)},
 		{types.TraceNoteKeyActualImpact, traceQueryObservationMSValue(aggregate.ActualImpactMs)},
 		{types.TraceNoteKeyActualTotal, traceQueryObservationMSValue(aggregate.ActualTotalMs)},
+		// DIAG A2 (§28.11-3(b) D-10): same two-caliber disclosure as the
+		// per-occurrence impact lane (zero-dropped otherwise).
+		{types.TraceNoteKeyActualCaliberNote, traceQueryActualCaliberNote(aggregate.ActualImpactMs, aggregate.ActualTotalMs)},
 		{types.TraceNoteKeyActualWindow, traceQueryWindowValue(aggregate.ActualFirstTs, aggregate.ActualLastTs)},
 		{"target_impact", traceQueryObservationMSValue(aggregate.TargetBlockedMs)},
 		{types.TraceNoteKeyFragments, traceQueryTypedCount(aggregate.FragmentCount)},
