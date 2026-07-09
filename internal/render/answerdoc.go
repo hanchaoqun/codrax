@@ -291,13 +291,18 @@ func renderV2BlockScalar(b *strings.Builder, blk types.AnswerBlock, doc *types.A
 	}
 	label := renderUserSurfaceText(blk.Title)
 	cite := blockTopCitation(blk, doc)
+	code := renderScalarLiteralAsCodeSpan(literal)
 	if label == "" && answerDocumentHasVisibleNonScalarBlock(doc) {
 		// In mixed explanatory answers, an untitled scalar is usually a
 		// supporting value that the model already names in surrounding prose.
 		// Rendering a synthetic "Value/值" heading makes system-authored
 		// wording look like part of the answer contract. Keep the literal
 		// visible without inventing a label.
-		fmt.Fprintf(b, "`%s`", literal)
+		if code {
+			fmt.Fprintf(b, "`%s`", literal)
+		} else {
+			b.WriteString(literal)
+		}
 		if cite != "" {
 			fmt.Fprintf(b, " (%s)", cite)
 		}
@@ -314,11 +319,47 @@ func renderV2BlockScalar(b *strings.Builder, blk types.AnswerBlock, doc *types.A
 	if lang == answerDocLangZH {
 		sep = "："
 	}
-	fmt.Fprintf(b, "**%s%s** `%s`", label, sep, literal)
+	if code {
+		fmt.Fprintf(b, "**%s%s** `%s`", label, sep, literal)
+	} else {
+		fmt.Fprintf(b, "**%s%s** %s", label, sep, literal)
+	}
 	if cite != "" {
 		fmt.Fprintf(b, " (%s)", cite)
 	}
 	b.WriteString("\n\n")
+}
+
+// renderScalarLiteralAsCodeSpan reports whether a scalar block's literal may
+// render inside a single-backtick code span.
+//
+// DISP-3 item8 (§29.8 P3 "opendir 反引号整段落 metric 块形+嵌套反引号破损",
+// real_trace_campaign_20260705.md, 2026-07-09; witness
+// cust_trace_opendir_792.txt lines 57/59): the model can put a whole
+// metric-explanation PARAGRAPH into a scalar block — the unconditional wrap
+// rendered a paragraph-sized code span, and a literal that itself contains a
+// backtick (the line-59 form: `AssetManager.getResourceValue` inside the
+// paragraph) produced broken nested code spans. Such literals now render as
+// plain text — no system wording is added, the model's bytes pass through
+// unchanged; only the broken/absurd markup is withheld.
+//
+// Verbatim glyph checks only (a display-form fork, never a reject gate):
+//   - a backtick cannot nest inside a single-backtick code span;
+//   - a newline cannot live inside one either;
+//   - CJK sentence enders (。！？) and the ASCII ". " sentence break mark the
+//     literal as prose, not a single literal value (a decimal "3.14" never
+//     matches — its '.' is not followed by a space).
+//
+// True scalars (numbers, identifiers, paths, config values) contain none of
+// these and keep the code span byte-identically.
+func renderScalarLiteralAsCodeSpan(literal string) bool {
+	if strings.ContainsAny(literal, "`\n") {
+		return false
+	}
+	if strings.ContainsAny(literal, "。！？") {
+		return false
+	}
+	return !strings.Contains(literal, ". ")
 }
 
 func answerDocumentHasVisibleNonScalarBlock(doc *types.AnswerDocumentV2) bool {

@@ -523,13 +523,26 @@ func runtimeTraceProjInversionComponents(node types.TraceCausalProjectionNode, z
 		})
 	}
 	if node.GatedRunningDeficitMS > 0 {
+		// DISP-3 P2-① (§29.8 "拆解行'原始'分量取行值非引擎 raw" — G7 词值同源的
+		// 拆解行漏面, real_trace_campaign_20260705.md, 2026-07-09). EVOLUTION
+		// RECORD: the display-impact arm used to OUTRANK the engine fold raw —
+		// on a running-dominant row the 拆解子行 printed the row's whole-window
+		// display value (runnable included) as "running 原始", while the 供给
+		// 折算 line three rows below printed the engine's fold raw for the SAME
+		// component (cmp_792 E8 detail block: 拆解 "running 原始 1.392ms" vs
+		// 供给折算 "running 原始 2.681ms" — one block, two contradicting raws).
+		// The engine-published fold raw (the very number the 供给折算 face
+		// consumes — runtimeTraceProjSupplyFoldRunningMS) now leads; the
+		// display-impact arm survives only as the no-fold fallback, so rows
+		// whose two channels agree (huadong_792 E15: 5.943 both) stay
+		// byte-identical.
 		raw := 0.0
-		if strings.TrimSpace(strings.ToLower(node.StateKind)) == "running" ||
-			runtimeTraceCausalProjectionTypeTokenStateClass(node) == "running" {
-			raw = runtimeTraceProjNodeDisplayImpact(node)
-		}
-		if raw <= 0 && node.SupplyFoldComputed {
+		if node.SupplyFoldComputed {
 			raw = runtimeTraceProjSupplyFoldRunningMS(node)
+		}
+		if raw <= 0 && (strings.TrimSpace(strings.ToLower(node.StateKind)) == "running" ||
+			runtimeTraceCausalProjectionTypeTokenStateClass(node) == "running") {
+			raw = runtimeTraceProjNodeDisplayImpact(node)
 		}
 		if raw <= 0 {
 			return nil, 0, false // unknown 原始 — the sub-row cannot render

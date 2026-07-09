@@ -2047,11 +2047,11 @@ func runtimeTraceProjStampRankWindowChips(model *runtimeTraceProjTreeModel, zh b
 			if rank, _ := runtimeTraceProjCauseRankConfidence(rows[i]); rank <= 0 {
 				continue
 			}
-			n := rows[i].Node
-			if n.QueryWindowStartTs <= 0 || n.QueryWindowEndTs <= n.QueryWindowStartTs {
+			start, end, ok := runtimeTraceProjRankChipWindow(rows[i].Node)
+			if !ok {
 				continue
 			}
-			seen[windowKey{n.QueryWindowStartTs, n.QueryWindowEndTs}] = true
+			seen[windowKey{start, end}] = true
 		}
 	}
 	if len(seen) < 2 {
@@ -2065,17 +2065,35 @@ func runtimeTraceProjStampRankWindowChips(model *runtimeTraceProjTreeModel, zh b
 			if rank, _ := runtimeTraceProjCauseRankConfidence(rows[i]); rank <= 0 {
 				continue
 			}
-			n := rows[i].Node
-			if n.QueryWindowStartTs <= 0 || n.QueryWindowEndTs <= n.QueryWindowStartTs {
+			start, end, ok := runtimeTraceProjRankChipWindow(rows[i].Node)
+			if !ok {
 				continue
 			}
 			if zh {
-				rows[i].RankWindowChip = fmt.Sprintf("窗%.3f–%.3fs", n.QueryWindowStartTs, n.QueryWindowEndTs)
+				rows[i].RankWindowChip = fmt.Sprintf("窗%.3f–%.3fs", start, end)
 			} else {
-				rows[i].RankWindowChip = fmt.Sprintf("window %.3f–%.3fs", n.QueryWindowStartTs, n.QueryWindowEndTs)
+				rows[i].RankWindowChip = fmt.Sprintf("window %.3f–%.3fs", start, end)
 			}
 		}
 	}
+}
+
+// runtimeTraceProjRankChipWindow resolves the query window a rank ordinal's
+// 窗X–Ys chip names: the row's own typed QueryWindow identity first, else the
+// merge-preserved RankQueryWindow pair (DISP-3, §29.8 P2-⑧ E22 窗标回归形:
+// the §11-N2 merge zeroes the row-level pair whenever ×N members span
+// windows, and the ◇ seat's 根因排序#N chip silently lost its board identity
+// on exactly the multi-window reports the chip exists for — huadong_792 E22
+// "根因排序#2·置信中" vs the pre-merge huadong_79 chips). ok=false when
+// neither pair is set: absence never guesses, the seat stays untagged.
+func runtimeTraceProjRankChipWindow(n types.TraceCausalProjectionNode) (float64, float64, bool) {
+	if n.QueryWindowStartTs > 0 && n.QueryWindowEndTs > n.QueryWindowStartTs {
+		return n.QueryWindowStartTs, n.QueryWindowEndTs, true
+	}
+	if n.RankQueryWindowStartTs > 0 && n.RankQueryWindowEndTs > n.RankQueryWindowStartTs {
+		return n.RankQueryWindowStartTs, n.RankQueryWindowEndTs, true
+	}
+	return 0, 0, false
 }
 
 // runtimeTraceProjAssignTopBadges stamps the PTV4 T6 ❶❷❸ badges: among the
@@ -6556,6 +6574,57 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 					text = fmt.Sprintf("discounted %.3fms", node.EffectiveImpactMS)
 				}
 				tags = append(tags, runtimeTraceProjTag{Text: text, Seg: 32})
+			case types.TraceCausalProjectionKnownSubject(node.Subject):
+				// DISP-3 (§29.8 P2-⑧ 后半 "区段行'累计(跨线程)'误挂单线程行",
+				// 2026-07-09): the fallback stanza word claims 多线程时间累计,
+				// but a SINGLE-thread stanza row's effective is neither
+				// cross-thread nor a cumulative — the value is the row's rank
+				// participation caliber (huadong_792 E22: 累计(跨线程)9.169ms
+				// on oney's own ×3 row, where 9.169 is the per-instance max the
+				// rank lane counts; cmp_792 proj2 E23 同族). The fork engages
+				// ONLY on a RESOLVED thread subject — the unknown-thread
+				// sentinel row (PTV6-C ruling A pinned irq_burst form) is not
+				// provably single-thread and keeps the family word
+				// byte-identically. Three precise sub-forks, all on typed
+				// numeric identities:
+				//   - effective == the row's published main number: one
+				//     measurement, no second tag (与窗口投影相等时即窗口投影列
+				//     数值 — the (a)-table legend clause already teaches it);
+				//   - a ×N merged row whose effective IS the per-instance MAX:
+				//     the §24.2 行3 equation verbatim (有效归因 V = 单次最大
+				//     (a–b,共N次)) — the caliber word and its legend entry are
+				//     the existing closed-set pair, no new vocabulary;
+				//   - residual (rank-seated, effective ≠ both): the bare
+				//     有效归因 word — true by the word's own definition for a
+				//     seated contender (§24.7 呈现逻辑统一令); rank-less
+				//     residuals emit nothing here (the (a) table carries the
+				//     value losslessly).
+				// The multi-thread R3 fold keeps 累计(跨线程) byte-identically
+				// on the arm below (the word is exactly right there).
+				switch {
+				case runtimeTraceProjRound3Equal(node.EffectiveImpactMS, impact):
+					// value already on the main number — no tag.
+				case node.MergedCount > 1 && node.MergedMaxMS > 0 &&
+					runtimeTraceProjRound3Equal(node.EffectiveImpactMS, node.MergedMaxMS):
+					row.marks.mark(runtimeTraceProjMarkCaliberSingleMax)
+					row.marks.mark(runtimeTraceProjMarkEffectiveAttributionTag)
+					text := fmt.Sprintf("有效归因 %.3fms = 单次最大(%.3f–%.3fms,共%d次)",
+						node.EffectiveImpactMS, node.MergedMinMS, node.MergedMaxMS, node.MergedCount)
+					if !zh {
+						text = fmt.Sprintf("attribution %.3fms = single max (%.3f–%.3fms, of %d)",
+							node.EffectiveImpactMS, node.MergedMinMS, node.MergedMaxMS, node.MergedCount)
+					}
+					tags = append(tags, runtimeTraceProjTag{Text: text, Seg: 33})
+				default:
+					if rank, _ := runtimeTraceProjCauseRankConfidence(row); rank > 0 {
+						row.marks.mark(runtimeTraceProjMarkEffectiveAttributionTag)
+						text := fmt.Sprintf("有效归因%.3fms", node.EffectiveImpactMS)
+						if !zh {
+							text = fmt.Sprintf("attribution %.3fms", node.EffectiveImpactMS)
+						}
+						tags = append(tags, runtimeTraceProjTag{Text: text, Seg: 33})
+					}
+				}
 			default:
 				row.marks.mark(runtimeTraceProjMarkStanzaCrossThreadCum)
 				tags = append(tags, runtimeTraceProjTag{Text: runtimeTraceProjCrossThreadCumTagText(node.EffectiveImpactMS, zh), Seg: 31})
@@ -6779,19 +6848,72 @@ func runtimeTraceProjSemanticSourceWindowTag(node types.TraceCausalProjectionNod
 
 // runtimeTraceProjCrossWindow marks a node whose underlying state extends
 // beyond its in-window projection (deterministic comparison; also honors the
-// typed WithinRequestedWindow=false drill marker). The baseline is the LARGER
-// of per-layer projection and chain total — an actual equal to the chain total
-// does not cross anything (comparing actual against the smaller per-layer value
-// alone over-flags dual-scope rows).
+// typed WithinRequestedWindow=false drill marker).
+//
+// EVOLUTION RECORD (DISP-3, §29.8 P3 "E7 ⚠消失回归",
+// real_trace_campaign_20260705.md, 2026-07-09; witness pair huadong_79 E8
+// "1.433ms ⚠" vs huadong_792 E7 same四元组 no-⚠). The former baseline was the
+// LARGER of per-layer projection and chain total — that over-generalized the
+// dual-scope carve-out ("an actual equal to the chain total does not cross
+// anything", v3 b8762441) into masking every actual sitting in the
+// (projection, chain-total) band, although actual > own projection IS the ⚠
+// definition (实际状态跨出分析窗). Two precise repairs:
+//   - the dual-scope carve-out is now an EQUALITY carve-out (Round3Equal on
+//     actual vs chain total — the duplicated-measurement shape it was built
+//     for), not a ≤ band;
+//   - a ×N merged row compares per-instance: its surviving actual belongs to
+//     ONE member (the merge seed), so the SUM baseline was caliber-mismatched
+//     (cmp_792 E7: actual 5.957 vs ×4 SUM 11.804 masked the member that
+//     crossed its window). MergedMaxMS ≥ every member display, so the
+//     comparison stays conservative — it can under-flag a small crossed
+//     member, never over-flag. 复核 P2-1 (2026-07-10): the merged branch
+//     additionally applies the MEMBER-level dual-scope carve-out against the
+//     actual donor's own pre-merge chain total (the row-level pair is SUM-
+//     overwritten and can never match), and suppresses ⚠ outright when the
+//     donor field is absent (宁漏勿假).
+//
+// Rows without a projection keep the chain-total fallback baseline (C00
+// fallback rows), and actual ≤ baseline shapes stay byte-identical.
 func runtimeTraceProjCrossWindow(node types.TraceCausalProjectionNode) bool {
 	if node.WithinRequestedWindow != nil && !*node.WithinRequestedWindow {
 		return true
 	}
+	if node.ActualImpactMS <= 0 {
+		return false
+	}
+	if node.MergedCount > 1 {
+		// DISP-3 复核 P2-1 (2026-07-10): a merged row's actual travels
+		// VERBATIM from the merge seed while the row cumulative is overwritten
+		// with the member SUM — the row-level equality carve-out below can
+		// structurally never see a dual-scope SEED again (berlin E2 REPRO:
+		// seed 21.300/27.900/actual 27.900, its own no-⚠ shape, merged with a
+		// 25.000 member wore a fabricated ⚠ against MergedMaxMS). The
+		// member-level carve-out compares against the donor member's own
+		// pre-merge chain total; a merged row WITHOUT the donor field (any
+		// path that did not travel the merge authority) suppresses ⚠ outright
+		// — a fake ⚠ fabricates, a missing ⚠ merely under-discloses (宁漏勿假).
+		donorCum := node.MergedActualDonorCumulativeMS
+		if donorCum <= 0 {
+			return false
+		}
+		if runtimeTraceProjRound3Equal(node.ActualImpactMS, donorCum) {
+			return false
+		}
+		if node.MergedMaxMS <= 0 {
+			return false
+		}
+		return node.ActualImpactMS > node.MergedMaxMS*1.001
+	}
 	baseline := node.ImpactMS
-	if node.CumulativeImpactMS > baseline {
+	if baseline <= 0 {
 		baseline = node.CumulativeImpactMS
 	}
-	return node.ActualImpactMS > 0 && baseline > 0 && node.ActualImpactMS > baseline*1.001
+	if baseline <= 0 || node.ActualImpactMS <= baseline*1.001 {
+		return false
+	}
+	// Dual-scope duplicate: the actual channel re-published the chain total —
+	// one measurement, nothing crossed.
+	return !runtimeTraceProjRound3Equal(node.ActualImpactMS, node.CumulativeImpactMS)
 }
 
 // --- lead text ----------------------------------------------------------------
@@ -7588,7 +7710,7 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 		//     clock provably extends past the symptom segments, so per-ms
 		//     containment is unverified) → both magnitudes, no percentage, no
 		//     residual — and still never a whole-window recast.
-		symptom := runtimeTraceProjTargetSymptomMS(model)
+		symptom, _, hopResidueCount, hopResidueMaxMS := runtimeTraceProjTargetSymptomAdmission(model)
 		// §21.1 CWD-2 ③ (CWD 复核留账②, symptom 分母车道): the three symptom-
 		// denominator arms below divide (or subtract) the chain-cumulative
 		// numerator against the target's own state-row sum — two DIFFERENT
@@ -7683,6 +7805,7 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 			}
 			b.WriteString(runtimeTraceProjResidualOwnCaliberNote(model, residual, zh))
 			b.WriteString(runtimeTraceProjPeriodicCadenceCoverageNote(model, residual, zh))
+			b.WriteString(runtimeTraceProjHopAdmissionResidueNote(hopResidueCount, hopResidueMaxMS, zh))
 		case symptom > 0 && attributed-symptom <= runtimeTraceProjSymptomOvershootJitterMS:
 			// EVOLUTION RECORD (§24.11 C-3 后半场, COV 批, 2026-07-08): the
 			// numerator wording 各链上口径合计 → 链上单项最大 on every arm —
@@ -7697,6 +7820,7 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 				fmt.Fprintf(&b, "\n- Of the target's %.3fms wait time (sleep/D-state/runnable), on-chain attributed %.3fms (100%%), unattributed 0.000ms (0%%). The largest single on-chain caliber is %.3fms, %.3fms past the target wait (state-boundary jitter; not unattributed residual).",
 					symptom, symptom, attributed, attributed-symptom)
 			}
+			b.WriteString(runtimeTraceProjHopAdmissionResidueNote(hopResidueCount, hopResidueMaxMS, zh))
 		case symptom > 0:
 			if zh {
 				fmt.Fprintf(&b, "\n- 关注线程等待(sleep/D-state/runnable) %.3fms;链上单项最大 %.3fms,超出关注线程等待 %.3fms — 两口径墙钟未对齐,不给出覆盖百分比,差值不计为未归因。",
@@ -7958,8 +8082,43 @@ const runtimeTraceProjSymptomOvershootJitterMS = 0.5
 // 症状 "—" against a 42% runnable row). Precise typed signals only (Role enum
 // + StateKind enum), never prose.
 func runtimeTraceProjTargetSymptomMS(model runtimeTraceProjTreeModel) float64 {
+	total, _, _, _ := runtimeTraceProjTargetSymptomAdmission(model)
+	return total
+}
+
+// runtimeTraceProjTargetSymptomAdmission is the ONE denominator-admission
+// authority behind runtimeTraceProjTargetSymptomMS and the §24.11 C-3 census
+// (two formerly hand-mirrored admission clauses — the census must skip exactly
+// the rows the denominator admitted). Returns the symptom total plus the
+// per-index admitted flags over model.SelfRows.
+//
+// DISP-3 (§29.8 P2-⑤ "textup 覆盖句分母排除目标 sleep", 2026-07-09): the F1
+// hop-view exclusion exists because a hop view re-describes wall clock
+// "already counted by its enclosing state segment" — but when the target
+// published NO sleep-family STATE-view row at all, its dominant sleep exists
+// ONLY as the wakeup_causal_impact hop view and the exclusion left a rump
+// denominator (textup_792: two iowait state rows, 0.365ms, beside a 108.500ms
+// sleep hop — the census arm then suppressed every percentage over a
+// denominator that was never the target's wait). Repair arm, precise typed
+// signals only: when ≥1 state row was admitted AND none of them is
+// sleep-family (IsSleepState), the LARGEST sleep-state hop view joins the
+// denominator (MAX over hop views, never a Σ — nested hop views overlap on
+// the wall clock; disjoint scheduler states of one thread may then add).
+// symptom==0 shapes (no state rows at all — huadong/opendir hop-only form)
+// and sleep-state-admitted shapes stay byte-identical.
+//
+// 复核 P3-2 (2026-07-10): the hop admission is a MAX admission — when several
+// eligible sleep-hop candidates compete, only the largest joins the
+// denominator. The losers' magnitudes must not vanish silently under a 全称
+// percentage, so the function also returns their count and single largest
+// value (residue) for the coverage line's disclosure clause (wording only —
+// the denominator value and every arm decision are untouched; zero on every
+// shape where the hop arm did not engage or had no competitor).
+func runtimeTraceProjTargetSymptomAdmission(model runtimeTraceProjTreeModel) (float64, []bool, int, float64) {
+	admitted := make([]bool, len(model.SelfRows))
 	total := 0.0
-	for _, row := range model.SelfRows {
+	sleepStateAdmitted := false
+	for i, row := range model.SelfRows {
 		if row.Node.Role == types.TraceCausalRoleCausalHop {
 			continue // blocked-wait/attribution hop view: wall clock already counted by its enclosing state segment
 		}
@@ -7979,9 +8138,78 @@ func runtimeTraceProjTargetSymptomMS(model runtimeTraceProjTreeModel) float64 {
 		}
 		if row.Node.ImpactMS > 0 {
 			total += row.Node.ImpactMS
+			admitted[i] = true
+			if row.Node.IsSleepState() {
+				sleepStateAdmitted = true
+			}
 		}
 	}
-	return total
+	residueCount, residueMax := 0, 0.0
+	if total > 0 && !sleepStateAdmitted {
+		// Window-base guards (the pinned §24.11 C-3 crossBase shapes stay
+		// byte-identical): a hop that is itself a multi-window merge, a
+		// drilled-outside-the-request row, or any positively disagreeing
+		// window among the coverage-feeding rows leaves the admission closed —
+		// the census/crossBase disclosure arms then speak, exactly as pinned
+		// (huadong_78 ×29 multi-window sleep view witness).
+		if _, _, _, conflict := runtimeTraceProjCoverageWindowConsensus(model); !conflict {
+			bestIdx, best := -1, 0.0
+			eligible := []int{}
+			for i, row := range model.SelfRows {
+				if row.Node.Role != types.TraceCausalRoleCausalHop || row.SelfSymptomRelocated {
+					continue
+				}
+				if !row.Node.IsSleepState() {
+					continue
+				}
+				if runtimeTraceProjMultiWindowMergedRow(row.Node) {
+					continue
+				}
+				if row.Node.WithinRequestedWindow != nil && !*row.Node.WithinRequestedWindow {
+					continue
+				}
+				if v := runtimeTraceProjNodeDisplayImpact(row.Node); v > 0 {
+					eligible = append(eligible, i)
+					if v > best {
+						best, bestIdx = v, i
+					}
+				}
+			}
+			if bestIdx >= 0 {
+				total += best
+				admitted[bestIdx] = true
+				// P3-2: the MAX admission's silent losers — same candidate
+				// universe as the arm itself minus the winner.
+				for _, i := range eligible {
+					if i == bestIdx {
+						continue
+					}
+					residueCount++
+					if v := runtimeTraceProjNodeDisplayImpact(model.SelfRows[i].Node); v > residueMax {
+						residueMax = v
+					}
+				}
+			}
+		}
+	}
+	return total, admitted, residueCount, residueMax
+}
+
+// runtimeTraceProjHopAdmissionResidueNote renders the 复核 P3-2 disclosure of
+// the MAX admission's silent losers (wording only; the existing census
+// sentence's own phrase verbatim — zero new vocabulary): appended to the
+// percentage-rendering coverage arms exactly when ≥1 eligible sleep-hop
+// candidate with a positive value lost the MAX race. "" on every other shape
+// (single-hop, hop-arm-not-engaged and healthy-nested forms stay
+// byte-identical).
+func runtimeTraceProjHopAdmissionResidueNote(count int, maxMS float64, zh bool) string {
+	if count <= 0 || maxMS <= 0 {
+		return ""
+	}
+	if zh {
+		return fmt.Sprintf("另有 %d 条关注线程状态行未计入分母(单项最大 %.3fms)。", count, maxMS)
+	}
+	return fmt.Sprintf(" %d more target state row(s) are not in the denominator (single largest %.3fms).", count, maxMS)
 }
 
 // runtimeTraceProjResidualOwnCaliberNote implements NEW-6 (§7.6 对比场景客户回访
@@ -8317,7 +8545,12 @@ func runtimeTraceProjTargetSelfWaitViewRow(row runtimeTraceProjTreeRow) bool {
 func runtimeTraceProjSymptomDenominatorCensus(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel) (int, float64, bool) {
 	excluded, maxMS := 0, 0.0
 	allOffWindow := true
-	for _, row := range model.SelfRows {
+	// DISP-3 (§29.8 P2-⑤): the census reads the SAME admission authority the
+	// denominator uses (runtimeTraceProjTargetSymptomAdmission) instead of a
+	// hand-mirrored clause — the sleep-hop repair arm therefore drops its row
+	// out of the "未计入分母" roster on arrival.
+	_, admitted, _, _ := runtimeTraceProjTargetSymptomAdmission(model)
+	for i, row := range model.SelfRows {
 		if !row.HasData {
 			continue
 		}
@@ -8328,8 +8561,7 @@ func runtimeTraceProjSymptomDenominatorCensus(projection types.TraceCausalProjec
 		if row.SelfSymptomRelocated {
 			continue
 		}
-		if row.Node.Role != types.TraceCausalRoleCausalHop &&
-			runtimeTraceProjSymptomFamilyStateKind(row.Node) && row.Node.ImpactMS > 0 {
+		if admitted[i] {
 			continue // the exact TargetSymptomMS admission: this row IS the denominator
 		}
 		if !runtimeTraceProjTargetSelfWaitViewRow(row) {
@@ -8896,7 +9128,14 @@ func runtimeTraceProjDetailTableLegendFlagsFor(model runtimeTraceProjTreeModel, 
 		if runtimeTraceProjFamilyRow(node) {
 			flags.family = true
 		}
-		if node.IsTargetSelfStateRow() {
+		if node.IsTargetSelfStateRow() ||
+			(row.Kind == runtimeTraceProjTreeRowSelf && node.IsSleepState() &&
+				node.EffectiveImpactMS > 0) {
+			// DISP-3 G6-b: the gated legend line rides BOTH arms of the
+			// attribution-cell dash (rank-lane tier token + chain-lane self
+			// sleep rows). The chain-lane arm additionally requires a positive
+			// effective — only then did the dash repair a printed value; a
+			// value-less self sleep row keeps its legacy legend byte-stable.
 			flags.selfSymptom = true
 		}
 		if runtimeTraceProjStanzaRowKind(row.Kind) && node.CumulativeImpactMS > 0 &&
@@ -9062,7 +9301,20 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 		// 自因四态 self rows (runnable/running/IO/D-state — they compete with
 		// normal tiers and rank seats) keep their attribution value by
 		// construction (勿一刀切, both directions pinned).
-		if node.IsTargetSelfStateRow() {
+		//
+		// DISP-3 G6-b (§29.8 P1, 2026-07-09): the tier gate only covers the
+		// RANK lane — the wakeup_causal_impact lane's target-self sleep rows
+		// carry no tier token and bypassed it (huadong_792 E1 printed 6.661ms;
+		// cmp_792 E2/E3 + proj2 E3/E5). The second arm keys on the display's
+		// own typed classification: a SelfRows-lane seat (label-routed
+		// subject==target) whose dominant StateKind is the sleep family. It is
+		// deliberately NARROWER than the tier arm — a tid-matched dual-name
+		// chain row (cmp_792 proj2 E16, Kind=depthless) keeps its value: its
+		// effective feeds the visible 承自 chain (E17 "13.054ms(承自等待区间)"
+		// references it — E16 承自链需保), and self 自因族 rows (io/D/runnable/
+		// running StateKinds) keep their values on this arm too.
+		if node.IsTargetSelfStateRow() ||
+			(row.Kind == runtimeTraceProjTreeRowSelf && node.IsSleepState()) {
 			effective = dash
 		}
 		actual := annotated(node.ActualImpactMS)

@@ -1189,16 +1189,35 @@ func runtimeTraceCausalProjectionMultiCluster(set types.TraceCausalProjectionSet
 		// the layered table notes folded past the visible cap.
 		out = append(out, runtimeTraceProjCompareOverviewBlocks(set.Projections, ledger, lang, zh, focus)...)
 	}
+	// DISP-3 (§29.10-3 用户裁定, real_trace_campaign_20260705.md, 2026-07-09):
+	// when several "Trace 因果投影" sections coexist, every projection TREE
+	// section (lead block = 头/覆盖句/树读法/图例/fence + its 关键指标 table)
+	// renders first, in artifact order; the 因果明细 blocks (逐节点完整属性 +
+	// their per-artifact evidence indexes) follow, in the same artifact order —
+	// the former per-artifact interleave buried tree 2 under detail 1. Pure
+	// block REORDER on the builder's own typed block ids (block CONTENT stays
+	// byte-identical; E# cross-references are per-artifact and
+	// position-independent by construction).
+	var heads, tails []types.AnswerBlock
 	for i, projection := range set.Projections {
 		label := strings.TrimSpace(projection.ArtifactLabel)
 		if label == "" {
 			label = strings.TrimSpace(projection.ArtifactPath)
 		}
-		section := runtimeTraceCausalProjectionClusterFor(projection, lang, focus,
-			fmt.Sprintf("%s%s%d", runtimeTraceCausalProjectionBlockIDBase,
-				runtimeTraceCausalProjectionArtifactBlockIDInfix, i+1), label)
-		out = append(out, section...)
+		sectionPrefix := fmt.Sprintf("%s%s%d", runtimeTraceCausalProjectionBlockIDBase,
+			runtimeTraceCausalProjectionArtifactBlockIDInfix, i+1)
+		section := runtimeTraceCausalProjectionClusterFor(projection, lang, focus, sectionPrefix, label)
+		for _, block := range section {
+			switch block.ID {
+			case sectionPrefix, sectionPrefix + "_detail":
+				heads = append(heads, block)
+			default:
+				tails = append(tails, block)
+			}
+		}
 	}
+	out = append(out, heads...)
+	out = append(out, tails...)
 	if len(out) == 0 {
 		return nil
 	}

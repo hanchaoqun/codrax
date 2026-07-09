@@ -473,6 +473,39 @@ type TraceCausalProjectionNode struct {
 	// display layer then renders NO density rather than dividing across bases.
 	MergedMaxWindowStartTs float64 `json:"merged_max_window_start_ts,omitempty"`
 	MergedMaxWindowEndTs   float64 `json:"merged_max_window_end_ts,omitempty"`
+	// RankQueryWindowStartTs/EndTs is the typed query window of the member
+	// that SUPPLIED this merged row's Rank ordinal (verbatim member
+	// QueryWindowStartTs/EndTs at the moment the min-rank member won — never a
+	// slot representative). DISP-3 (§29.8 P2-⑧ E22 ◇席窗标缺失回归形,
+	// real_trace_campaign_20260705.md, 2026-07-09): a rank ordinal is a
+	// PER-WINDOW board identity (§24.13 裁定二), but the §11-N2 merge zeroes
+	// the row-level QueryWindow whenever members span windows — the ◇ seat's
+	// 根因排序#N chip then lost its 窗X–Ys half on every multi-window merge
+	// (huadong_792 E22 vs the pre-merge huadong_79 chips). These fields keep
+	// the ordinal's own window identity across the merge so the chip stamper
+	// can fall back to it. Zero when the rank-supplying member carried no
+	// window identity (absence never guesses). Display chip input only — no
+	// gate, score or sort lane reads them.
+	RankQueryWindowStartTs float64 `json:"rank_query_window_start_ts,omitempty"`
+	RankQueryWindowEndTs   float64 `json:"rank_query_window_end_ts,omitempty"`
+	// MergedActualDonorCumulativeMS is the pre-merge CumulativeImpactMS of the
+	// member that SUPPLIED this merged row's ActualImpactMS (the merge seed —
+	// the actual channel travels verbatim from it and is never re-derived).
+	// DISP-3 复核 P2-1 (2026-07-10): the ⚠ predicate's dual-scope carve-out
+	// compares actual against the row's cumulative, but the merge overwrites
+	// the cumulative with the member SUM — a dual-scope SEED (its own actual
+	// == its own pre-merge chain total, the no-⚠ shape) re-emerged from the
+	// merge wearing a fabricated ⚠ (berlin E2 REPRO: seed 21.300/27.900/actual
+	// 27.900 + a 25.000 member → merged max 25.000 < actual 27.900). This
+	// field preserves the donor's own chain total so the display can apply the
+	// member-level carve-out. Zero when the seed carried no actual or no
+	// cumulative — the display then SUPPRESSES ⚠ on the merged row entirely
+	// (conservative arm: a fake ⚠ fabricates, a missing ⚠ merely
+	// under-discloses — 宁漏勿假). Internal display carrier only (same lane as
+	// RankQueryWindow*/MergedMaxWindow* above — not an LLM-facing schema
+	// field, R2' six-spot sync not applicable). No gate, score or sort lane
+	// reads it.
+	MergedActualDonorCumulativeMS float64 `json:"merged_actual_donor_cumulative_ms,omitempty"`
 	// DuplicatePublications ≥ 2 marks a duplicate-publication fold (V4, customer
 	// revisit 2026-07-03): the SAME measurement was published N times as separate
 	// observations — exactly equal projected ms on the same (subject, object,
@@ -2999,6 +3032,34 @@ func traceCausalProjectionOverflowFoldRow(overflow []TraceCausalProjectionNode) 
 	fold.MergedMaxMS = maxMS
 	fold.MergedValuelessCount = valuelessRows
 	fold.MergedAllDataGap = allDataGap
+	// DISP-3 (§29.8 P3 "E19 跨窗折叠漏拒%", real_trace_campaign_20260705.md,
+	// 2026-07-09): the fold's member query-window roster rides the row through
+	// the SAME F-2 slot builder the R2 merge uses (one tolerance, no second
+	// implementation). huadong_792 E19: an 11-member on-chain overflow fold
+	// whose members straddle two query windows published its member MAX over
+	// the single anchor window as "24%" — the §21.1 CWD-2 ① %-suppression gate
+	// (runtimeTraceProjMultiWindowMergedRow) keys on MergedCount>1 ∧ >1 roster
+	// windows and never saw this constructor's rows because the roster stayed
+	// empty. Disclosure + display-gate input only; the fold's published
+	// value/min/max/count are untouched, and single-window (or windowless)
+	// folds keep their legacy % byte-identically (roster ≤1).
+	memberIdx := make([]int, len(overflow))
+	for i := range overflow {
+		memberIdx[i] = i
+	}
+	roster := traceCausalProjectionCrossWindowUnion(overflow, memberIdx).roster
+	for _, member := range overflow {
+		// An absorbed member that is ITSELF a merged row carries its window
+		// identities on its own roster (row-level pair already zeroed by the
+		// §11-N2 merge) — fold them in so the fold's roster stays the KNOWN
+		// member sources (never claimed exhaustive; same F-2 append helper,
+		// same 8-slot display cap — the >1 threshold the %-gate reads is
+		// unaffected by the cap).
+		for _, w := range member.MergedQueryWindows {
+			roster, _ = traceCausalProjectionAppendQueryWindow(roster, w.StartTs, w.EndTs)
+		}
+	}
+	fold.MergedQueryWindows = traceCausalProjectionSortQueryWindows(roster)
 	if maxFromWindowProjection {
 		fold.ImpactMS = maxMS
 		fold.CumulativeImpactMS = maxMS

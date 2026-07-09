@@ -444,28 +444,58 @@ func covCmp70Projection() types.TraceCausalProjection {
 }
 
 func TestCOVRoleLaneCollapseFormSwitchWithoutWindowConflict(t *testing.T) {
-	// cmp_78_01 7.0 侧: the census fires on the Role/StateKind-lane collapse —
-	// an excluded single-instance magnitude (456.725) exceeding the admitted
-	// denominator (3.262) proves the F1 nesting premise impossible — with NO
-	// window conflict in sight. 突变自查 M3: disabling the census gate reds
-	// this (the legacy beyond-overshoot arm would claim the 全称 wait).
+	// EVOLUTION RECORD (DISP-3 §29.8 P2-⑤ "textup 覆盖句分母排除目标 sleep",
+	// real_trace_campaign_20260705.md, 2026-07-09; textup_792 witness line 60).
+	// The pre-DISP-3 pin asserted the census disclaimer ("仅计入分析窗内直接等待
+	// 3.262ms…分母未覆盖…不给出覆盖百分比") on this shape. The DISP-3 admission
+	// arm REPAIRS the under-representation itself: when the admitted state rows
+	// carry no sleep-family member, the largest sleep-state hop view joins the
+	// denominator (the F1 nesting concern is vacuous — there is no enclosing
+	// sleep segment for it to double count against), so the sentence renders
+	// the honest full-denominator percentage instead of refusing arithmetic.
+	// The §24.11 C-3 principle (the counted slice must never masquerade as the
+	// 全称 wait) is satisfied by completing the denominator; the census
+	// disclaimer stays pinned on the window-conflicted / multi-window shapes
+	// (TestCOVCrossBase* above and the multi-window variant below).
 	projection := covCmp70Projection()
 	model := buildRuntimeTraceProjTreeModel(projection, nil, true)
-	if got := runtimeTraceProjTargetSymptomMS(model); got != 3.262 {
-		t.Fatalf("fixture drifted: the denominator must be the lone runnable row, got %.3f", got)
+	if got := runtimeTraceProjTargetSymptomMS(model); got != 459.987 {
+		t.Fatalf("the sleep hop must join the runnable denominator (3.262+456.725), got %.3f", got)
 	}
 	line := runtimeTraceProjWindowLine(projection, model, true)
-	want := "仅计入分析窗内直接等待 3.262ms;另有 2 条关注线程状态行未计入分母(单项最大 456.725ms);链上单项最大 65.232ms — 分母未覆盖关注线程全部状态行,不给出覆盖百分比,不计未归因。"
-	if !strings.Contains(line, want) {
-		t.Fatalf("the Role/StateKind-lane collapse must switch the form:\n%s", line)
+	if !strings.Contains(line, "关注线程等待(sleep/D-state/runnable) 459.987ms 中链上已归因 65.232ms(14%),未归因 394.755ms(86%)。") {
+		t.Fatalf("the admitted-hop shape must render the honest full-denominator arm:\n%s", line)
+	}
+	if strings.Contains(line, "仅计入分析窗内直接等待") {
+		t.Fatalf("the census disclaimer must not fire once the denominator is complete:\n%s", line)
+	}
+	// Multi-window sleep view (huadong_78 ×N family): the admission stays
+	// closed and the pinned census disclaimer renders unchanged.
+	crossWin := covCmp70Projection()
+	crossWin.SupportingHops[0].MergedCount = 29
+	crossWin.SupportingHops[0].MergedMinMS = 1.035
+	crossWin.SupportingHops[0].MergedMaxMS = 456.725
+	crossWin.SupportingHops[0].MergedQueryWindows = []types.TraceCausalProjectionQueryWindow{
+		{StartTs: 100.000, EndTs: 100.101}, {StartTs: 100.200, EndTs: 100.300},
+	}
+	crossModel := buildRuntimeTraceProjTreeModel(crossWin, nil, true)
+	if got := runtimeTraceProjTargetSymptomMS(crossModel); got != 3.262 {
+		t.Fatalf("a multi-window sleep view must stay out of the denominator, got %.3f", got)
+	}
+	crossLine := runtimeTraceProjWindowLine(crossWin, crossModel, true)
+	// The ×N member windows positively disagree → the §21.1 CWD-2 ③ crossBase
+	// census wording (the huadong_78 家族 form, same as TestCOVCrossBase*).
+	want := "仅计入分析窗内直接等待 3.262ms;另有 2 条关注线程状态行未计入分母(单项最大 456.725ms);链上单项最大 65.232ms — 链上/自身数据横跨多个查询窗,分子分母窗基不可证同基:不给出覆盖百分比,不计未归因。"
+	if !strings.Contains(crossLine, want) {
+		t.Fatalf("the collapse must keep the census disclaimer on the multi-window shape:\n%s", crossLine)
 	}
 	// The parenthetical must never claim a state family the denominator
 	// silently excluded (声称含 sleep 就不能静默排除全部 sleep 行).
-	if strings.Contains(line, "(sleep/D-state/runnable) 3.262ms") {
-		t.Fatalf("the 全称 family claim must not render over a collapsed denominator:\n%s", line)
+	if strings.Contains(crossLine, "(sleep/D-state/runnable) 3.262ms") {
+		t.Fatalf("the 全称 family claim must not render over a collapsed denominator:\n%s", crossLine)
 	}
-	en := runtimeTraceProjWindowLine(projection, buildRuntimeTraceProjTreeModel(projection, nil, false), false)
-	if !strings.Contains(en, "the denominator does not cover all of the target's state rows: no coverage percentage, no unattributed residual") {
+	en := runtimeTraceProjWindowLine(crossWin, buildRuntimeTraceProjTreeModel(crossWin, nil, false), false)
+	if !strings.Contains(en, "the chain/self data spans multiple query windows and the numerator/denominator window bases cannot be proven identical: no coverage percentage, no unattributed residual") {
 		t.Fatalf("EN collapse form missing:\n%s", en)
 	}
 }

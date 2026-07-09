@@ -882,6 +882,24 @@ func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode
 	aggregate := nodes[first]
 	var sum, minMS, maxMS float64
 	valuelessRows := 0
+	// DISP-3 (§29.8 P2-⑧ E22 窗标回归): the rank ordinal's own window identity
+	// travels with whichever member supplies the winning (smallest) Rank — the
+	// seed first, then every smaller-rank member below. Verbatim member
+	// endpoints; a rank-supplying member without a window identity leaves the
+	// pair zero (absence never guesses a window).
+	if aggregate.Rank > 0 && traceCausalProjectionIntervalValid(nodes[first].QueryWindowStartTs, nodes[first].QueryWindowEndTs) {
+		aggregate.RankQueryWindowStartTs = nodes[first].QueryWindowStartTs
+		aggregate.RankQueryWindowEndTs = nodes[first].QueryWindowEndTs
+	}
+	// DISP-3 复核 P2-1: the actual channel travels verbatim from the seed —
+	// its pre-merge chain total rides along so the ⚠ predicate can apply the
+	// member-level dual-scope carve-out after the SUM overwrite below destroys
+	// the row-level pair. A pre-merged seed keeps its own donor value (already
+	// copied with the seed); a seed without an actual leaves the field zero
+	// and the display suppresses ⚠ on the merged row (宁漏勿假).
+	if aggregate.ActualImpactMS > 0 && aggregate.MergedActualDonorCumulativeMS <= 0 {
+		aggregate.MergedActualDonorCumulativeMS = nodes[first].CumulativeImpactMS
+	}
 	absorbed := map[string]bool{traceCausalProjectionCanonicalNode(aggregate.EvidenceID): true}
 	for _, idx := range members {
 		member := nodes[idx]
@@ -926,6 +944,18 @@ func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode
 			}
 			if member.Rank > 0 && (aggregate.Rank <= 0 || member.Rank < aggregate.Rank) {
 				aggregate.Rank = member.Rank
+				// DISP-3 (§29.8 P2-⑧): the ordinal's window identity follows the
+				// rank-supplying member verbatim. A pre-merged member seed keeps
+				// its own RankQueryWindow pair when its row-level window was
+				// already zeroed by an earlier merge.
+				aggregate.RankQueryWindowStartTs, aggregate.RankQueryWindowEndTs = 0, 0
+				if traceCausalProjectionIntervalValid(member.QueryWindowStartTs, member.QueryWindowEndTs) {
+					aggregate.RankQueryWindowStartTs = member.QueryWindowStartTs
+					aggregate.RankQueryWindowEndTs = member.QueryWindowEndTs
+				} else if traceCausalProjectionIntervalValid(member.RankQueryWindowStartTs, member.RankQueryWindowEndTs) {
+					aggregate.RankQueryWindowStartTs = member.RankQueryWindowStartTs
+					aggregate.RankQueryWindowEndTs = member.RankQueryWindowEndTs
+				}
 			}
 			if member.Confidence > 0 && (aggregate.Confidence <= 0 || member.Confidence < aggregate.Confidence) {
 				aggregate.Confidence = member.Confidence
