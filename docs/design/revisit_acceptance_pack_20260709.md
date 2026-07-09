@@ -76,3 +76,19 @@ codrax -r "分析 berlin.systrace 中 hmfs_discard-26-562 与 oney.hmn.berlin-42
 codrax -r "查询 record_trace_20260606064820@33863-826532969.sys.ftrace 中 #RxComputationT-16816 在 33872.289161s 至 33872.408222s 的线程状态切换统计:分别给出 running、runnable、sleep 的窗口内时长与实际(跨窗)总时长,不要分析代码"
 ```
 回传:完整输出。判定点=running 实际总时长与线程级 actual_total 两个口径的来源与差值。
+
+---
+
+# 构建排障(Windows)
+
+## 症状:编译中 `VirtualAlloc … errno=1455` / `fatal error: out of memory`
+原因=Windows 提交内存(物理内存+页面文件)耗尽:`go build` 默认按 CPU 核数并行编译多个包,且本仓库 `internal/types` 是超大包,峰值内存高。两种解法(可叠加):
+1. **低内存构建目标**(新构建已内置):`make lowmem` —— 串行包编译+编译器后端串行+激进 GC,峰值内存降数倍,耗时增加属预期。旧源码包可等价执行:
+   ```powershell
+   $env:GOFLAGS='-p=1 -gcflags=all=-c=1'; $env:GOGC='50'; make
+   ```
+   仍不够时追加 `$env:GOMEMLIMIT='2GiB'`。
+2. **加大页面文件**:系统属性 → 高级 → 性能设置 → 高级 → 虚拟内存,设为系统管理或手动 ≥16GB。
+
+## 症状:`fatal: not a git repository`
+zip 下载的源码树无 `.git`,该提示为版本号探测噪音,**不影响构建**(版本号自动回退);新构建的 Makefile 已在无 `.git` 时静音跳过。

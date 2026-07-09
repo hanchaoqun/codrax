@@ -62,7 +62,11 @@ ifeq ($(OS),Windows_NT)
   EXEEXT := .exe
   OUT := $(BINARY)$(EXEEXT)
   VERSION_DATE := $(shell powershell -NoProfile -Command "(Get-Date).ToUniversalTime().ToString('yyyyMMdd')")
-  GIT_DIRTY := $(shell powershell -NoProfile -Command "if ((git status --porcelain)) { '-dirty' }")
+  # Guard on .git before invoking git: zip-download source trees (the
+  # customer build path) have no repository and bare `git status` prints
+  # "fatal: not a git repository" noise before the version fallback kicks
+  # in. Test-Path also skips the subprocess entirely in that case.
+  GIT_DIRTY := $(shell powershell -NoProfile -Command "if (Test-Path '.git') { if ((git status --porcelain 2>$$null)) { '-dirty' } }")
   BUILD_TIME := $(shell powershell -NoProfile -Command "(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')")
   WSL_REPO := $(shell powershell -NoProfile -Command "'/mnt/' + (Resolve-Path '.').Path.Substring(0,1).ToLower() + (Resolve-Path '.').Path.Substring(2).Replace('\','/')")
   WINDOWS_GO_ENV := if (-not $$env:GOROOT) { $$goBin = (Get-Command $(GO) -ErrorAction SilentlyContinue).Source; if ($$goBin) { $$goRoot = Join-Path (Split-Path (Split-Path $$goBin -Parent) -Parent) 'lib\go'; if (Test-Path $$goRoot) { $$env:GOROOT = $$goRoot } } }; $$env:CGO_ENABLED='1';
@@ -110,6 +114,31 @@ build-native:
 else
 build-native:
 	CGO_ENABLED=1 $(GO) build $(GOFLAGS) -ldflags '$(LD_VERSION) $(LDFLAGS)' -o $(OUT) .
+endif
+
+# ---------------------------------------------------------------------------
+# Low-memory build for RAM/pagefile-constrained hosts.
+#
+# Witness (customer, Windows, 2026-07-09): compiling internal/types ran the
+# machine out of commit charge — "VirtualAlloc … failed with errno=1455"
+# (ERROR_COMMITMENT_LIMIT, pagefile too small). Peak memory during `go build`
+# is (parallel package compiles) x (per-compile heap); internal/types alone
+# is the largest unit. This target trades wall-clock for peak memory:
+#   -p 1              one package compile at a time
+#   -gcflags=all=-c=1 serialize the compiler backend within each package
+#   GOGC=50           make each compiler process collect twice as eagerly
+# If it still fails with errno=1455, enlarge the Windows pagefile (System
+# Properties -> Advanced -> Performance -> Virtual memory) or set
+# GOMEMLIMIT (e.g. $env:GOMEMLIMIT='2GiB') before retrying.
+# ---------------------------------------------------------------------------
+.PHONY: lowmem
+
+ifeq ($(HOST_OS),windows)
+lowmem:
+	$(WINDOWS_GO_ENV) $$env:GOGC='50'; & $(GO) build -p 1 -gcflags=all=-c=1 $(GOFLAGS) -ldflags '$(LD_VERSION) $(LDFLAGS)' -o $(OUT) .
+else
+lowmem:
+	CGO_ENABLED=1 GOGC=50 $(GO) build -p 1 -gcflags=all=-c=1 $(GOFLAGS) -ldflags '$(LD_VERSION) $(LDFLAGS)' -o $(OUT) .
 endif
 
 # ---------------------------------------------------------------------------
