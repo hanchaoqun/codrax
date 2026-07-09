@@ -482,15 +482,24 @@ func renderHTMLPage(a pageArgs) string {
 @media (prefers-color-scheme: dark) {
   :root { --fg: #e6edf3; --muted: #9aa4b2; --line: #30363d; --code: #161b22; --bg: #0d1117; --error-bg: #2a1212; --error-fg: #ffb4a8; }
 }
-body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.62 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-main { max-width: 980px; margin: 0 auto; padding: 32px 20px 64px; }
+/* CJK-heavy report body: the stack must name CJK faces explicitly —
+   without them Windows browsers fall back to SimSun for the zh text,
+   which renders cramped (customer 2026-07-09: 字间距过紧难读). Latin
+   faces stay first so mixed zh/en prose keeps platform Latin glyphs. */
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.78 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 980px; margin: 0 auto; padding: 32px 20px 64px; letter-spacing: .02em; }
+li { margin: .3em 0; }
 .topbar { display: flex; justify-content: space-between; gap: 16px; align-items: center; margin-bottom: 24px; color: var(--muted); font-size: 13px; }
 a { color: #2563eb; text-decoration: none; }
 a:hover { text-decoration: underline; }
 h1, h2, h3 { line-height: 1.25; margin: 1.5em 0 .55em; }
 h1:first-child { margin-top: 0; }
-pre, code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
-pre { overflow: auto; padding: 14px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--code); }
+/* Causal-projection trees rely on a per-character grid: letter-spacing
+   must stay 0 here (a constant per-char pad breaks the CJK 2:1 width
+   ratio the bars are aligned against), and the CJK fallbacks keep tree
+   glyphs out of SimSun on Windows. */
+pre, code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", "Sarasa Mono SC", "Noto Sans Mono CJK SC", "HarmonyOS Sans SC", "Microsoft YaHei", monospace; letter-spacing: 0; }
+pre { overflow: auto; padding: 14px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--code); line-height: 1.6; }
 code { background: var(--code); border-radius: 4px; padding: .1em .3em; }
 pre code { background: transparent; padding: 0; }
 table { border-collapse: collapse; width: max-content; max-width: 100%; overflow: auto; display: block; }
