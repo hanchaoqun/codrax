@@ -1808,3 +1808,16 @@ SEM-LEAD 批施工图定稿:①显示 board/lead/❶❷❸ 对 on-chain 语义�
 
 ### §29.9 修订(用户 2026-07-09):折叠块否决
 <details> 折叠方案不采用。改为:HTML 渲染层把"树读法:"/"各列口径:"辅助块**移位至文末「阅读参考」附录区**(小号灰字渲染),原位置留一行小字指路("树读法与各列口径见文末「阅读参考」")——重要信息(覆盖句/树/表/明细)前移占据主版面,参考信息殿后随查。识别闭集/只动 HTML 层/Markdown 与终端零改动等约束不变。
+
+# §29.8 四场景 792 回访总账(2026-07-09;构建=13:10:29Z 含至 CAP-2,不含 DIAG)
+## 用户点名异常裁定
+cmp"3/4 补齐校验信息后重启探索"=**正常设计内修复环**:Tier-1 证据闸(checkTier1Floor)拦下仅 window_stats 级弱证据答案→回探定向钻取(热点窗 rank/bundle),最终投影核心证据全部产自回探轮,一次收敛(↻ 仅一次)。**伴随 gap(P2,CSP#63 生产 witness)**:retry 指令对纯 trace 会话点名 repo_map lenses(结构性不可满足);三道抑制臂(zero_current_source_repo/runtime_observation_closure/TraceQueryRuntimeObservationCount>0)全未命中+authority keep 臂序前置——CSP#63 开批就绪。
+## 验收横切(四场景)
+修复实锤 20+:G1 链上并入(opendir 6 条 absorbed+E# token)/页缓存三面同值+计数当量/等待点行+撤回中文+移交链(线程)/盲区零榜位+判据二措辞/自因子行消失/孤行拆词消失/词值同源(行1)/binder_wait 自身席可见/G20 同值折叠/G19 零时长折叠注/top_io_inode(东湖)/TEX 全链+优化点表/CAP-2 Tier-1 共动分簇 Android systrace 判出+fail-loud 臂/CAP 恒等式全平/真实链深/零乱码零 EN witness/弱模型修复环一次收敛。不可判 4(huadong 窗口不同:io 家族/hmfs 边/全零折叠/E23 对照形未触发)。
+## 新 gap 立案(792)
+**P1**:G6-b 症状行泄漏链车道形(huadong 6.661/cmp 三处——tier 门只盖 rank 道,wakeup_causal_impact 道自身 sleep 行无 tier token 旁路;E16 承自链需保)。
+**P2**:①拆解行"原始"分量取行值非引擎 raw(cmp E8/E10 同块两个"running 原始"自相矛盾;G7 拆解行漏面)②E7 rank 合并行三面不可对账(窗口投影恰=2×有效归因,occurrence 集不可调和;P0-E 双发布族新形)③序数洞+周期源榜位缺席=aggregate top-8 折叠吞携榜席成员(两场景实证打破验收判据,升格 ORD 批)④回探指令失配(CSP#63)⑤textup 覆盖句分母排除目标 sleep(单窗 CWD 守卫过火)⑥huadong 成文三错绑(编造线程名 dh-irq-bind-4-93/139.615 跨线程和张冠李戴/VSync 50.756×8 不可定位且矛盾)+cmp 旗舰句方向错位(供给 8109.844 vs 投影❶反转)——G13/G14 残差 witness 密度足,提请硬化裁定复审(cmp 转录=标本)⑦opendir 树层级扁平化(blocking_span 行无链身份被域门拒树位;富层级 vs 诚实席=裁定候选)⑧E22 ◇席窗标缺失(回归形)+区段行"累计(跨线程)"误挂单线程行(cmp E23 同族)。
+**P3**:E19 跨窗折叠漏拒%/E7 ⚠消失回归/E1/E12 实际状态列=单次最大错配/树头"单项最大"29.298 实为和/背景榜位#1 双行无窗标/重叠窗语义族双发布无互斥注/opendir 反引号整段落 metric 块形+嵌套反引号破损/"阻塞等待"行形态词自相矛盾/自身区跨窗行无行级窗注/"system cpu_pressure"token 直出+错别字/E21 ×2 同值 81.301 疑云(DIAG A1 下构建自答)/D-4 时长宣称形不入 lane(裁定候选)/症状 span(bindApplication)持榜=SYM scope 裁定候选。
+**流程**:huadong 转录尾截断(系统补充块缺失)→请客户补传。
+## 批次队列(792 产出)
+在途:G12-ENG+BLIND-2(owner-tid 泛化)/UXAUX(§29.9 修订形)。新开排期:DISP-3(G6-b+拆解行原始+窗标/词值/⚠/%/覆盖句分母/反引号块)→ORD(引擎:aggregate 折叠吞席修根+E7 2× 账目)→CSP#63(回探臂)→SEM-LEAD(§29.7-2)。裁定池:树层级(blocking_span 链身份)/D-4 时长形/症状 span scope/G13/G14 硬化复审。
