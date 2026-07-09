@@ -244,6 +244,17 @@ type runtimeTraceProjTreeRow struct {
 	// gains a rank seat by moving (the rank board and the symptom denominator
 	// read typed node fields, not the row's stanza).
 	SelfSymptomRelocated bool
+	// AbsorbedChainPeers (G1 跨车道对账 display half, §27.2-G1, 2026-07-09)
+	// carries the chain-lane critical_blocking observations the ENGINE
+	// absorbed into this family row (projection.AbsorbedChainRows joined by
+	// verbatim RankFamilyKey == AbsorbedInto equality). The compile relocated
+	// their bucket seats, so they never render as parallel tree/stanza rows;
+	// their E# stay registered on the evidence index and the family detail
+	// stanza prints the 链上并入 disclosure with the E# list — 信息守恒:
+	// evidence index / system supplement (raw observations untouched) / audit
+	// tokens all lossless. Attached once per family key (deterministic first
+	// rendered family row).
+	AbsorbedChainPeers []runtimeTraceProjAbsorbedChainPeer
 	// marks is the NEW-7 emission collector for this render pass. The fence
 	// renderer stamps model.Marks onto its per-row COPIES right before calling
 	// the row-render helpers, so every mark is recorded AT the emission site
@@ -257,6 +268,16 @@ type runtimeTraceProjTreeRow struct {
 type runtimeTraceProjIOFoldPeer struct {
 	Token       string
 	ImpactMS    float64
+	EvidenceTag string
+}
+
+// runtimeTraceProjAbsorbedChainPeer is one engine-absorbed chain-lane
+// observation attached to its family row (G1, §27.2-G1): the registered
+// evidence tag is the stanza disclosure's payload — the values themselves
+// already live inside the family row's combined account (raw sums strictly
+// equal by the engine's membership proof), so the note never re-prints an ms
+// that could be double-read.
+type runtimeTraceProjAbsorbedChainPeer struct {
 	EvidenceTag string
 }
 
@@ -1889,6 +1910,51 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 			return runtimeTraceProjNodeDisplayImpact(model.Background[i].Node) >
 				runtimeTraceProjNodeDisplayImpact(model.Background[j].Node)
 		})
+	}
+
+	// G1 跨车道对账 (§27.2-G1, 2026-07-09): register every engine-absorbed
+	// chain-lane observation on the evidence index (E# preserved even if the
+	// family row itself fell off a render cap — 永不静默丢) and attach the
+	// peer set to the FIRST rendered family row carrying the matching
+	// verbatim RankFamilyKey; the detail stanza prints the 链上并入
+	// disclosure from it. The compile already relocated these nodes out of
+	// every bucket, so no render face seats them as rows.
+	//
+	// 收尾 P1 (对抗复核 REPRO, 2026-07-09): this pass MUST run after EVERY
+	// row lane is populated — TreeRows/SelfRows (flatten + G11 relocation)
+	// AND the ◇/▒ stanza loops above. Its original seat right after the
+	// rankFoldPeers attach scanned model.Adjacent/model.Background while they
+	// were still empty slices, so an off-chain family row (background io
+	// family — a real production shape) could never receive its 链上并入
+	// note: dead code on exactly the stanza lanes it claimed to cover.
+	if len(projection.AbsorbedChainRows) > 0 {
+		absorbedByFamily := map[string][]runtimeTraceProjAbsorbedChainPeer{}
+		for _, node := range projection.AbsorbedChainRows {
+			key := strings.TrimSpace(node.AbsorbedInto)
+			if key == "" {
+				continue
+			}
+			absorbedByFamily[key] = append(absorbedByFamily[key], runtimeTraceProjAbsorbedChainPeer{
+				EvidenceTag: runtimeTraceProjEvidenceTag(node, evidence, zh),
+			})
+		}
+		claimed := map[string]bool{}
+		attach := func(rows []runtimeTraceProjTreeRow) {
+			for i := range rows {
+				key := strings.TrimSpace(rows[i].Node.RankFamilyKey)
+				if key == "" || claimed[key] {
+					continue
+				}
+				if peers := absorbedByFamily[key]; len(peers) > 0 {
+					rows[i].AbsorbedChainPeers = peers
+					claimed[key] = true
+				}
+			}
+		}
+		attach(model.SelfRows)
+		attach(model.TreeRows)
+		attach(model.Adjacent)
+		attach(model.Background)
 	}
 
 	// CMP-7a: flat-fallback renders (no resolved target) stamp every row so the
@@ -9209,6 +9275,22 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 			if node.QueryWindowStartTs > 0 && node.QueryWindowEndTs > node.QueryWindowStartTs {
 				add("家族窗", "family window", fmt.Sprintf("%.3f–%.3fs", node.QueryWindowStartTs, node.QueryWindowEndTs))
 			}
+		}
+		// G1 跨车道对账 (§27.2-G1, 2026-07-09): the 链上并入 disclosure — the
+		// absorbed chain-lane observations' E# stay citable here (信息守恒:
+		// their values are INSIDE this row's combined account by the engine's
+		// membership proof, so the note carries identity only, never a second
+		// ms). Bounded roster with a counted overflow (§24.7.1 ① 折叠必带计数
+		// 披露). 收尾 P2-b (对抗复核, 2026-07-09): the note sits OUTSIDE the
+		// family-row arm above — when the family contender itself merged into
+		// an R2 ×N row, the carrier keeps ONLY RankFamilyKey (the F-1 chimera
+		// clear wipes the family grammar fields), so a family-arm-gated note
+		// would be unreachable exactly where the attach still lands. Rendering
+		// keys solely on the attached peers, which only an engine-stamped
+		// RankFamilyKey match can produce.
+		if len(row.AbsorbedChainPeers) > 0 {
+			add("链上并入", "chain-lane absorbed",
+				runtimeTraceCausalProjectionMarkdownSafe(runtimeTraceProjAbsorbedChainNote(row.AbsorbedChainPeers, zh)))
 		}
 		if node.MergedCount > 1 {
 			var form string

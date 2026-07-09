@@ -1011,6 +1011,29 @@ func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode
 	aggregate.BackgroundRank = 0
 	aggregate.Inode = ""
 	aggregate.Dev = ""
+	// G1 收尾 P2-b (对抗复核, 2026-07-09): RankFamilyKey is NOT family
+	// grammar — it is the 链上并入 disclosure's JOIN IDENTITY (§27.2-G1), and
+	// unlike the nine fields above it must SURVIVE the merge: a family
+	// contender absorbed as a NON-first ×N member otherwise lost the key, the
+	// display attach found no carrier, and the absorbed-rows disclosure
+	// silently died (values stayed lossless via the SUM; the disclosure
+	// identity did not). Key ONLY — the F-1 chimera lesson holds: the merged
+	// row stays a plain R2 ×N row (family grammar fields cleared above, so
+	// runtimeTraceProjFamilyRow stays false and no family wording renders);
+	// the key's sole consumer is the AbsorbedChainPeers attach + the 链上并入
+	// note, which the display renders independent of family grammar. First
+	// non-empty member key wins (deterministic member order); a second
+	// distinct key in one merge group (two absorbing families sharing
+	// (subject,object) across windows/lanes) keeps only the first — that
+	// family's disclosure rides its E# index entries (honest residual,
+	// P3 留观 same class as the cap-seat non-return).
+	aggregate.RankFamilyKey = ""
+	for _, idx := range members {
+		if key := strings.TrimSpace(nodes[idx].RankFamilyKey); key != "" {
+			aggregate.RankFamilyKey = key
+			break
+		}
+	}
 	// SFD 复核 F3 (2026-07-07, same family as the DuplicatePublications
 	// clear above and the VS-1 F6(a) periodic re-derivation below): the ×N
 	// row carries a member SUM, so a SINGLE member's supply-fold accounting

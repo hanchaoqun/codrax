@@ -153,6 +153,21 @@ type TraceCausalProjection struct {
 	// after the 8-entry display cap — consumers must render the count as a
 	// lower bound ("≥8 个查询窗"), never a fake exact number.
 	QueryWindowsTruncated bool `json:"query_windows_truncated,omitempty"`
+	// AbsorbedChainRows (G1 跨车道对账 display half, §27.2-G1 user ruling
+	// 收口批准 §28.1, 2026-07-09, real_trace_campaign_20260705.md): the
+	// critical_blocking nodes whose engine absorption marker
+	// (absorbed_by_rank_family=true + absorbed_into=<key>) matched a rank
+	// FAMILY node (rank_family_key == that key) present in THIS projection's
+	// buckets. traceCausalProjectionFoldAbsorbedChainLaneRows relocates them
+	// here BEFORE aggregation, so every render face (tree, ◇/▒ stanzas,
+	// metric table, comparison cells) stops seating the duplicate rows
+	// without per-face suppression code — while the nodes themselves stay
+	// LOSSLESS for the evidence index (E# registration) and the family
+	// stanza's 链上并入 disclosure. 负向保护: an absorbed marker whose family
+	// key matches NO bucket node leaves the node in its bucket verbatim (the
+	// honest duplicate render beats a silent drop). Deduped by EvidenceID
+	// (one record can bucket twice: hop copy + classified copy).
+	AbsorbedChainRows []TraceCausalProjectionNode `json:"absorbed_chain_rows,omitempty"`
 }
 
 // TraceCausalProjectionQueryWindow is one distinct query-window endpoint pair
@@ -464,6 +479,21 @@ type TraceCausalProjectionNode struct {
 	FamilyMemberSumMS  float64  `json:"family_member_sum_ms,omitempty"`
 	FamilyFoldCaliber  string   `json:"family_fold_caliber,omitempty"`
 	FamilyMemberRoster []string `json:"family_member_roster,omitempty"`
+	// --- G1 跨车道对账 typed lane (§27.2-G1, 2026-07-09) ---------------------
+	//
+	// RankFamilyKey (family side, rank rows): the engine's canonical
+	// reconciliation identity from the rank_family_key note — stamped only on
+	// a family row that absorbed ≥1 critical_blocking row of the same
+	// (thread, adjudicated type family, query window). AbsorbedByRankFamily /
+	// AbsorbedInto (absorbed side, critical_blocking rows): the engine's
+	// absorption verdict + the SAME identity string. The compile joins the two
+	// sides by VERBATIM key equality (one engine renderer, never a display
+	// label re-derivation) and relocates matched absorbed nodes into
+	// TraceCausalProjection.AbsorbedChainRows; unmatched markers change
+	// nothing (负向保护).
+	RankFamilyKey        string `json:"rank_family_key,omitempty"`
+	AbsorbedByRankFamily bool   `json:"absorbed_by_rank_family,omitempty"`
+	AbsorbedInto         string `json:"absorbed_into,omitempty"`
 	// BackgroundRank mirrors the producer's typed background_rank note (DCS
 	// §23.1: a non-on-chain semantic span-work contender's position among the
 	// non-chain rows — the 背景综合排序 board). Promoted for the RCM-2 display
@@ -1011,6 +1041,13 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 		QueryWindows:                 traceCausalProjectionSortQueryWindows(queryWindows),
 		QueryWindowsTruncated:        queryWindowsTruncated,
 	}
+	// G1 跨车道对账 display half (§27.2-G1, 2026-07-09): relocate absorbed
+	// critical_blocking nodes out of the render buckets BEFORE aggregation —
+	// R1/R2/V4 then never see the duplicate rows (no ×N chimera of absorbed +
+	// non-absorbed members), every render face inherits the fold from the
+	// buckets, and the nodes stay lossless on AbsorbedChainRows for the
+	// evidence index and the family stanza's 链上并入 disclosure.
+	traceCausalProjectionFoldAbsorbedChainLaneRows(&out)
 	// Presentation v3 §6: deterministic pre-render aggregation (strict tolerance).
 	// Runs on the bucketed projection before window marking / drilldown attach so
 	// those passes see the final node set. Bucket-overlap semantics (a primary
@@ -2041,6 +2078,83 @@ func traceCausalProjectionMarkNodeWithinWindow(node *TraceCausalProjectionNode, 
 	node.WithinRequestedWindow = &within
 }
 
+// traceCausalProjectionFoldAbsorbedChainLaneRows is the G1 跨车道对账 display
+// half (§27.2-G1, user ruling 收口批准 §28.1, 2026-07-09,
+// real_trace_campaign_20260705.md): critical_blocking nodes the ENGINE marked
+// absorbed (absorbed_by_rank_family=true + absorbed_into=<key>) relocate out
+// of the render buckets into AbsorbedChainRows when — and only when — a rank
+// FAMILY node carrying the VERBATIM same rank_family_key sits in this
+// projection's buckets. One choke point before aggregation, so:
+//   - the tree / ◇▒ stanzas / metric table / comparison cells all stop
+//     seating the duplicate rows without per-face suppression code;
+//   - R1/R2/V4 aggregation never builds a mixed absorbed+non-absorbed ×N
+//     chimera (the absorbed rows are gone before grouping);
+//   - the nodes stay LOSSLESS: the display layer registers each on the
+//     evidence index (E# preserved) and the family stanza prints the
+//     链上并入 disclosure — 观测照发不删, the underlying ObservationRecords
+//     are untouched.
+//
+// 负向保护 (fail-open): an absorbed marker whose key matches NO present
+// family node leaves the node in its bucket verbatim — an honest duplicate
+// render always beats a silent drop. Join signals are PRECISE only: the
+// engine-rendered key string compared verbatim on both sides (one renderer,
+// rankFamilyReconKey) — never label/value similarity.
+func traceCausalProjectionFoldAbsorbedChainLaneRows(out *TraceCausalProjection) {
+	if out == nil {
+		return
+	}
+	familyKeys := map[string]bool{}
+	collect := func(nodes []TraceCausalProjectionNode) {
+		for _, node := range nodes {
+			// FamilyMemberCount>1 is defense in depth: the engine stamps
+			// rank_family_key exclusively on family-merged rows.
+			if key := strings.TrimSpace(node.RankFamilyKey); key != "" && node.FamilyMemberCount > 1 {
+				familyKeys[key] = true
+			}
+		}
+	}
+	collect(out.PrimaryRootCauses)
+	collect(out.OnChainCauses)
+	collect(out.AdjacentCauses)
+	collect(out.BackgroundCauses)
+	collect(out.SupportingHops)
+	if len(familyKeys) == 0 {
+		return
+	}
+	absorbedKey := func(node TraceCausalProjectionNode) string {
+		if id := strings.TrimSpace(node.EvidenceID); id != "" {
+			return id
+		}
+		return strings.Join([]string{
+			traceCausalProjectionCanonicalNode(node.Subject),
+			traceCausalProjectionCanonicalNode(node.Predicate),
+			traceCausalProjectionCanonicalNode(node.Object),
+		}, "\x00")
+	}
+	seen := map[string]bool{}
+	filter := func(nodes []TraceCausalProjectionNode) []TraceCausalProjectionNode {
+		kept := make([]TraceCausalProjectionNode, 0, len(nodes))
+		for _, node := range nodes {
+			if node.AbsorbedByRankFamily && familyKeys[strings.TrimSpace(node.AbsorbedInto)] {
+				// One record can bucket twice (hop copy + classified copy) —
+				// AbsorbedChainRows carries it once, deduped by identity.
+				if key := absorbedKey(node); !seen[key] {
+					seen[key] = true
+					out.AbsorbedChainRows = append(out.AbsorbedChainRows, node)
+				}
+				continue
+			}
+			kept = append(kept, node)
+		}
+		return kept
+	}
+	out.PrimaryRootCauses = filter(out.PrimaryRootCauses)
+	out.OnChainCauses = filter(out.OnChainCauses)
+	out.AdjacentCauses = filter(out.AdjacentCauses)
+	out.BackgroundCauses = filter(out.BackgroundCauses)
+	out.SupportingHops = filter(out.SupportingHops)
+}
+
 func traceCausalProjectionTraceQueryRecord(record ObservationRecord) bool {
 	return record.Origin == AnswerEvidenceOriginRuntimeArtifact &&
 		runtimeObservationProducerIsDeterministicQuery(record.Producer) &&
@@ -2293,6 +2407,14 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// re-parse.
 	node.Inode = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyInode))
 	node.Dev = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyDev))
+	// G1 跨车道对账 (§27.2-G1, 2026-07-09): the engine's cross-lane absorption
+	// markers — family-side identity on rank rows, absorbed-side verdict +
+	// identity on critical_blocking rows. Verbatim strings; the compile fold
+	// (traceCausalProjectionFoldAbsorbedChainLaneRows) joins the two sides by
+	// exact key equality.
+	node.RankFamilyKey = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyRankFamilyKey))
+	node.AbsorbedByRankFamily = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyAbsorbedByRankFamily)) == "true"
+	node.AbsorbedInto = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyAbsorbedInto))
 	return node
 }
 

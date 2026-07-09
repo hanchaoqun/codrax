@@ -3230,6 +3230,17 @@ func runtimeTraceCausalProjectionAuditDetail(node types.TraceCausalProjectionNod
 			parts = append(parts, "member_fold_caliber="+caliber)
 		}
 	}
+	// G1 跨车道对账 (§27.2-G1, 2026-07-09): an absorbed chain-lane entry keeps
+	// its family pointer on the audit face (第三面无损 — the raw observation
+	// carries the same typed note verbatim; this token makes the E# roster
+	// self-explaining without opening the raw record).
+	if node.AbsorbedByRankFamily {
+		if key := strings.TrimSpace(node.AbsorbedInto); key != "" {
+			parts = append(parts, "absorbed_into="+key)
+		} else {
+			parts = append(parts, "absorbed_by_rank_family=true")
+		}
+	}
 	if pred := strings.TrimSpace(node.Predicate); pred != "" {
 		parts = append(parts, "predicate="+pred)
 	}

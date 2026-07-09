@@ -255,6 +255,46 @@ func runtimeTraceProjFamilySemanticClassWord(node types.TraceCausalProjectionNod
 	return strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseName(class, zh))
 }
 
+// runtimeTraceProjAbsorbedChainNote renders the family stanza's 链上并入
+// disclosure (G1 跨车道对账, §27.2-G1 ruling wording, 2026-07-09): "链上车道
+// N 条同源观测已并入本行(E#,E#…)". The E# list is bounded with a counted
+// overflow (§24.7.1 ① roster 折叠必带计数披露); tag-less peers still count in
+// N (identity survives on the raw observation even when the evidence index
+// could not mint a locator). The note carries identity ONLY — the absorbed
+// values are already inside this row's combined account (engine membership
+// proof), so re-printing an ms here would invite double-reading.
+func runtimeTraceProjAbsorbedChainNote(peers []runtimeTraceProjAbsorbedChainPeer, zh bool) string {
+	const tagCap = 8
+	tags := make([]string, 0, len(peers))
+	for _, peer := range peers {
+		if tag := strings.TrimSpace(peer.EvidenceTag); tag != "" && len(tags) < tagCap {
+			tags = append(tags, tag)
+		}
+	}
+	sep := ","
+	if zh {
+		sep = "、"
+	}
+	list := strings.Join(tags, sep)
+	if rest := len(peers) - len(tags); rest > 0 && list != "" {
+		if zh {
+			list += fmt.Sprintf("%s等共%d条", sep, len(peers))
+		} else {
+			list += fmt.Sprintf("%s %d total", sep, len(peers))
+		}
+	}
+	if zh {
+		if list == "" {
+			return fmt.Sprintf("链上车道 %d 条同源观测已并入本行", len(peers))
+		}
+		return fmt.Sprintf("链上车道 %d 条同源观测已并入本行(%s)", len(peers), list)
+	}
+	if list == "" {
+		return fmt.Sprintf("%d chain-lane same-source observation(s) absorbed into this row", len(peers))
+	}
+	return fmt.Sprintf("%d chain-lane same-source observation(s) absorbed into this row (%s)", len(peers), list)
+}
+
 // runtimeTraceProjSemanticCellParts renders the shared name/value pair of the
 // LEAD-SEM consumers (comparison 确定性优化点 cell, the zero-chain presence
 // note and the semantic-fallback conclusion line — one wording source, D3

@@ -2156,7 +2156,31 @@ type RootCauseRankItem struct {
 	// (TraceGapKindNoSchedData / TraceGapKindNoEligibleWait), propagated
 	// verbatim from RootEvidence.GapKind. Empty on every other row type.
 	TraceGapKind string `json:"trace_gap_kind,omitempty"`
-	Summary      string `json:"summary,omitempty"`
+	// --- G1 cross-lane reconciliation, family side (§27.2-G1, user ruling
+	// 收口批准 §28.1, 2026-07-09, real_trace_campaign_20260705.md) -----------
+	//
+	// RankFamilyKey / AbsorbedChainRows are stamped by
+	// reconcileCriticalBlockingWithRankFamilies ONLY on a family-merged row
+	// (MemberCount ≥ 2) that absorbed at least one same-(thread, type family,
+	// query window) critical_blocking row whose interval lies inside the
+	// family's member interval union. RankFamilyKey is the canonical
+	// reconciliation identity (rankFamilyReconKey — the SAME engine-rendered
+	// string the absorbed rows carry in AbsorbedIntoFamily, so the display
+	// join is a verbatim string match, never a cross-package label
+	// re-derivation). AbsorbedChainRows counts the absorbed observations.
+	// Information conservation: the absorbed rows KEEP publishing (观测照发
+	// 不删 — evidence index / system supplement / audit tokens stay lossless);
+	// only their tree/stanza RENDER seat folds into this row.
+	RankFamilyKey     string `json:"rank_family_key,omitempty"`
+	AbsorbedChainRows int    `json:"absorbed_chain_rows,omitempty"`
+	// familyMemberIntervals is the merged family's member interval inventory
+	// (engine-internal, never serialized): mergeSameThreadTypeRankFamily
+	// stamps the validated member [start,end] pairs so the G1 reconciliation
+	// can test a critical_blocking row's interval against the member UNION —
+	// the precise membership signal (§27.2-G1 修向) — instead of the lossy
+	// merged-row hull (hull gaps would absorb non-members).
+	familyMemberIntervals []foldInterval
+	Summary               string `json:"summary,omitempty"`
 }
 
 // RootCauseMemberFoldCaliber* — the closed set of typed rulers a same-thread
@@ -2559,10 +2583,28 @@ type CriticalBlockingCandidate struct {
 	ActualStartTs    float64 `json:"actual_start_ts,omitempty"`
 	ActualEndTs      float64 `json:"actual_end_ts,omitempty"`
 	ActualDurationMs float64 `json:"actual_duration_ms,omitempty"`
-	LineStart        int     `json:"line_start,omitempty"`
-	LineEnd          int     `json:"line_end,omitempty"`
-	Confidence       float64 `json:"confidence,omitempty"`
-	Summary          string  `json:"summary,omitempty"`
+	// AbsorbedByRankFamily / AbsorbedIntoFamily (G1 跨车道对账, §27.2-G1 user
+	// ruling 收口批准 §28.1, 2026-07-09, real_trace_campaign_20260705.md): the
+	// typed cross-lane reconciliation marker. Stamped by
+	// reconcileCriticalBlockingWithRankFamilies when the SAME result carries a
+	// rank FAMILY row (foldSameThreadTypeRankFamilies merge, MemberCount ≥ 2)
+	// of the same (thread, adjudicated type family, query window) whose member
+	// interval union contains this row's own interval — the two lanes then
+	// published the SAME batch of source events twice (opendir_79 E3↔E6-E9 /
+	// huadong_79 E10↔E13,E19-E22: raw sums strictly equal). The row KEEPS
+	// publishing on every observation face (观测照发不删 — evidence index /
+	// audit lossless); the display layer folds only its tree/stanza RENDER
+	// seat into the family row and notes the absorption there.
+	// AbsorbedIntoFamily is the engine-rendered canonical family identity
+	// (rankFamilyReconKey) — verbatim-equal to the family row's RankFamilyKey,
+	// never a display-side label re-derivation. Absent family row → both stay
+	// zero and rendering is byte-identical (负向保护).
+	AbsorbedByRankFamily bool    `json:"absorbed_by_rank_family,omitempty"`
+	AbsorbedIntoFamily   string  `json:"absorbed_into,omitempty"`
+	LineStart            int     `json:"line_start,omitempty"`
+	LineEnd              int     `json:"line_end,omitempty"`
+	Confidence           float64 `json:"confidence,omitempty"`
+	Summary              string  `json:"summary,omitempty"`
 }
 
 type ThreadStateBreakdown struct {

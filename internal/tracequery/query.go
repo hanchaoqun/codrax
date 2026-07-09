@@ -451,6 +451,15 @@ func Run(idx *Index, q Query) Result {
 			res.EvidencePack = append([]EvidenceFact{census.EvidenceFact()}, res.EvidencePack...)
 		}
 	}
+	// G1 跨车道对账 (§27.2, 2026-07-09): every view shape that carries BOTH
+	// lanes in one result envelope (recipe with rank+blocking, the frame
+	// bundle's shared pointers) reconciles here; single-lane shapes
+	// (critical_blocking_calls alone, evidence_pack without rank) are no-ops
+	// — 负向保护 by construction. Reset-first idempotent, so re-running over
+	// the frame bundle's already-reconciled backing slices converges.
+	if res.RootCauseRank != nil && res.CriticalBlocking != nil {
+		reconcileCriticalBlockingWithRankFamilies(res.RootCauseRank, res.CriticalBlocking)
+	}
 	res.Caveats = append(res.Caveats, flavorCaveats...)
 	res.Caveats = append(res.Caveats, platformCaveats...)
 	if idx.ParseLinePanics > 0 {
@@ -12099,6 +12108,11 @@ func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 	}
 	target := firstNonEmptyThread(chain.Target, targetResolution.Target, safeResolveThread(idx, analysisQ))
 	blocking := buildCriticalBlockingCallsFromStats(idx, analysisQ, stats, chainPtr)
+	// G1 跨车道对账 (§27.2, 2026-07-09): the bundle carries BOTH lanes of one
+	// result — stamp the typed absorption markers here so every downstream
+	// face (result JSON, typed observations, projection, tree) reads one
+	// engine verdict. Marker-only writes; both lanes' rows keep publishing.
+	reconcileCriticalBlockingWithRankFamilies(&rank, &blocking)
 	perfContexts := buildFramePerfContexts(idx, analysisQ, stats, chainPtr, blocking, target)
 	bundle := FrameRootCauseBundle{
 		Target:                target,

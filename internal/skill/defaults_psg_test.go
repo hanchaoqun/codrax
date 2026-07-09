@@ -91,6 +91,10 @@ func TestG13FinalizerSkillPrimaryCauseEntityConsistency(t *testing.T) {
 		// GAP-A review P3-3 (2026-07-09): data_gap rows joined the demotion
 		// enumeration when the engine gained the data_gap tier (G2).
 		"tier=data_gap",
+		// G1 batch (2026-07-09): absorbed critical_blocking rows are the
+		// same events as the family row — never an additional cause.
+		"absorbed_by_rank_family=true",
+		"never as an additional separate cause",
 		"Do not promote a lower-attribution cause to the headline",
 		"state explicitly that your conclusion diverges from the ranked ordering",
 		"silently substituting a different entity as the main cause",

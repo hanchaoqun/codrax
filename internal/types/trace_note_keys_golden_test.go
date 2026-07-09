@@ -17,6 +17,12 @@ import (
 )
 
 var traceNoteKeyGoldenRows = []string{
+	// G1 跨车道对账 (§27.2-G1, 2026-07-09): absorbed-side markers on the
+	// critical_blocking observation; the family-side rank_family_key rides
+	// the causal_rank family below. All hard consumers (projection bucket
+	// relocation + 链上并入 stanza join).
+	"absorbed_by_rank_family|blocking|hard_consumer",
+	"absorbed_into|blocking|hard_consumer",
 	"actual_d_state|state|soft_consumer",
 	"actual_impact|impact|hard_consumer",
 	"actual_impact_ms|impact|hard_consumer",
@@ -225,6 +231,9 @@ var traceNoteKeyGoldenRows = []string{
 	"projected_total|impact|display_only",
 	"projected_total_ms|impact|display_only",
 	"rank|causal_rank|hard_consumer",
+	// G1 跨车道对账 (§27.2-G1, 2026-07-09): family-side canonical identity on
+	// the absorbing rank observation (absorbed-side keys ride blocking above).
+	"rank_family_key|causal_rank|hard_consumer",
 	"rank_impact|impact|display_only",
 	"recommended_sections|causal_rank|display_only",
 	"recommended_views|causal_rank|soft_consumer",

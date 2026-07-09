@@ -387,6 +387,31 @@ const (
 	// missing" soft gap that pushes the LLM to re-run a query which cannot add
 	// rows.
 	TraceNoteKeyLockTwinFolded = "lock_twin_folded"
+	// G1 跨车道对账族 (§27.2-G1, user ruling 收口批准 §28.1, 2026-07-09,
+	// real_trace_campaign_20260705.md): the typed cross-lane absorption
+	// markers the tracequery engine stamps when a critical_blocking row and a
+	// same-(thread, adjudicated type family, query window) rank FAMILY row
+	// published the SAME batch of source events (opendir_79 E3↔E6-E9 /
+	// huadong_79 witnesses — raw sums strictly equal).
+	//
+	// TraceNoteKeyAbsorbedByRankFamily — "true" on the absorbed
+	// critical_blocking observation. TraceNoteKeyAbsorbedInto — the
+	// engine-rendered canonical family identity on that same observation.
+	// TraceNoteKeyRankFamilyKey — the SAME identity string on the absorbing
+	// family rank observation (single engine renderer rankFamilyReconKey; the
+	// projection compile joins the two sides by verbatim string equality,
+	// never a label re-derivation). All three hard consumers: the compile
+	// relocates absorbed nodes out of the render buckets into
+	// AbsorbedChainRows ONLY when both sides are present (负向保护: family
+	// absent → the absorbed row keeps its seat), and the family detail stanza
+	// prints the 链上并入 disclosure with the absorbed rows' E# list —
+	// observations themselves keep publishing (观测照发不删, evidence/audit
+	// lossless). A typo on either side silently kills the fold and the
+	// duplicate rows come back — exactly the wire-silence failure class this
+	// registry exists for.
+	TraceNoteKeyAbsorbedByRankFamily = "absorbed_by_rank_family"
+	TraceNoteKeyAbsorbedInto         = "absorbed_into"
+	TraceNoteKeyRankFamilyKey        = "rank_family_key"
 )
 
 // 门控族 (gated-composition family, §7.30.3 D3).
@@ -552,6 +577,10 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyMemberSumMS, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyMemberFoldCaliber, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyMemberRoster, "causal_rank", TraceNoteCarrierHardConsumer},
+	// G1 跨车道对账 (§27.2-G1, 2026-07-09): family-side canonical identity on
+	// the absorbing rank observation (absorbed-side markers ride the blocking
+	// family below) — projection compile joins the two sides on it.
+	{TraceNoteKeyRankFamilyKey, "causal_rank", TraceNoteCarrierHardConsumer},
 
 	// 冲击度量族.
 	{TraceNoteKeyImpact, "impact", TraceNoteCarrierHardConsumer},
@@ -665,6 +694,12 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// BLK-2 P2: precise twin-fold witness on the surviving rank record; the
 	// coverage soft-missing scan parses it back (critical_blocking coverage).
 	{TraceNoteKeyLockTwinFolded, "blocking", TraceNoteCarrierSoftConsumer},
+	// G1 跨车道对账族 (§27.2-G1, 2026-07-09): absorbed-side markers on the
+	// critical_blocking observation, family-side identity on the rank
+	// observation — the projection compile parses all three (bucket
+	// relocation + 链上并入 stanza join), hard consumers.
+	{TraceNoteKeyAbsorbedByRankFamily, "blocking", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyAbsorbedInto, "blocking", TraceNoteCarrierHardConsumer},
 	{"flags", "blocking", TraceNoteCarrierDisplayOnly},
 	{"oneway", "blocking", TraceNoteCarrierDisplayOnly},
 	{"sync_like", "blocking", TraceNoteCarrierDisplayOnly},

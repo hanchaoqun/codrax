@@ -524,6 +524,13 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 	countFamily := spec.Additivity == CausalAdditivityCount
 	intervals := make([]foldInterval, 0, len(members))
 	intervalsUsable := true
+	// reconIntervals (G1, §27.2): the reconciliation-lane member inventory.
+	// Separate from `intervals` (which also drives the caliber ladder, kept
+	// byte-identical): a re-folded member that already carries its own member
+	// inventory contributes THOSE intervals, never its hull — so the 二次 fold
+	// hull 退化 corner (§24.22 留账, today unreachable) can never widen the
+	// G1 membership union.
+	reconIntervals := make([]foldInterval, 0, len(members))
 	sum := 0.0
 	memberCount := 0
 	roster := make([]string, 0, minIntFold(len(members), rootCauseFamilyRosterCap))
@@ -553,6 +560,11 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 			intervals = append(intervals, foldInterval{start: member.StartTs, end: member.EndTs})
 		} else {
 			intervalsUsable = false
+		}
+		if len(member.familyMemberIntervals) > 0 {
+			reconIntervals = append(reconIntervals, member.familyMemberIntervals...)
+		} else if member.StartTs > 0 && member.EndTs > member.StartTs {
+			reconIntervals = append(reconIntervals, foldInterval{start: member.StartTs, end: member.EndTs})
 		}
 		if member.Inode != base.Inode {
 			sameInode = false
@@ -707,6 +719,12 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 	merged.MemberMaxMs = maxMs
 	merged.MemberMinMs = minMs
 	merged.MemberFoldCaliber = caliber
+	// G1 (§27.2, 2026-07-09): keep the VALIDATED member intervals on the
+	// merged row (engine-internal, never serialized) — the cross-lane
+	// reconciliation tests a critical_blocking row's interval against this
+	// member UNION, never against the merged hull (hull gaps between disjoint
+	// members would absorb non-members — a noisy membership signal).
+	merged.familyMemberIntervals = reconIntervals
 	merged.MemberSumMs = 0
 	// The raw-Σ disclosure keys on the PUBLISHED value (CumulativeImpactMs):
 	// identical to the legacy `combined < sum` gate on every non-count arm

@@ -346,6 +346,9 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				MemberSumMs: 1.598, MemberFoldCaliber: tracequery.RootCauseMemberFoldCaliberMaxOverlapFallback,
 				MemberRoster: []string{"inode=286395 dev=254:2 1.136ms", "inode=300123 dev=254:2 0.462ms"},
 				Dev:          "254:2", Inode: "286395",
+				// G1 跨车道对账 (§27.2-G1, 2026-07-09): family-side canonical
+				// identity — exercises the rank_family_key contract key.
+				RankFamilyKey: "io_latency|pid:106|background|1.000000..2.000000", AbsorbedChainRows: 1,
 				Summary: "block IO family merged across two inodes on one thread",
 			}, {
 				// G2/G9 (§27.2/§28.1, 2026-07-09): data-blind-spot rank row —
@@ -491,6 +494,18 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				},
 				DurationMs: 6, StartTs: 1.3, EndTs: 1.36, LineStart: 65, LineEnd: 66,
 				Confidence: 0.7, Summary: "monitor contention with owner lockholder",
+			}, {
+				// G1 跨车道对账 (§27.2-G1, 2026-07-09): engine-absorbed
+				// io_latency row — exercises the absorbed_by_rank_family /
+				// absorbed_into contract keys (the row still publishes, 观测
+				// 照发不删; the key value mirrors the family row's
+				// rank_family_key above).
+				Type: "io_latency", Thread: tracequery.ThreadRef{Comm: "RxComputationT", PID: 106},
+				Peer:                 tracequery.ThreadRef{Comm: "udk-irq-0", PID: 73},
+				AbsorbedByRankFamily: true,
+				AbsorbedIntoFamily:   "io_latency|pid:106|background|1.000000..2.000000",
+				DurationMs:           1.136, StartTs: 1.4, EndTs: 1.41, LineStart: 80, LineEnd: 82,
+				Confidence: 0.86, Summary: "block IO 254:2 R sector=286395 len=8 took 1.136ms",
 			}},
 		},
 		WindowStats: stats,
