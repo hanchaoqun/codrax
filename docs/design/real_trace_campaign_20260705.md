@@ -1738,3 +1738,10 @@ Donghu 类与鸿蒙类 trace 同硬件平台——CAP-2 五重门**不设 flavor
 交付:引擎四维精确门(threadKey/裁定表恰 io_latency↔io_latency+universe pin/查询窗 typed 端点/区间∈成员并集**拒 hull**)+typed absorbed 标记(observations 照发不删,absorbed_by_rank_family/absorbed_into/rank_family_key 三键 hard_consumer+golden)+投影单收口点聚合前折叠(全渲染面自动继承,零逐面抑制)+家族明细「链上并入」注(E# 全引,守恒三面)+skill 不可加语义句。复核三修:P1 attach 位序(◇/▒ 桶填充前=披露死代码,复核 REPRO;移至全道填充后)+P2-a recon key 补 lane 维(与 fold key 同构,按构造对家族唯一)+P2-b ×N 合并保留首个非空 RankFamilyKey(仅 key 一字段,F-1 嵌合纪律完好)。30 pin,10 突变咬红(含 hull 嘈声维最强形)。
 **留观立案**:P3-i 单行重复(MemberCount=1)scope 外/P3-ii cap 席位不回收(同既有账)/P3-iii 跨 result 双 tool-call 形不对账(注已声明;根修向=wire 携成员区间清单,需新裁定)/P3-iv ts=0 窗 stamp 跳过 recon 空转(合成 trace 才可达)/同 merge 组双 key 只留首(E# 兜底)。
 **队列**:3.3a INODE(即开)→3.3b CAP-2+THERM。
+
+## §28.11 验收模式裁定(用户确认 2026-07-09):客户不提供原件,复放转四层
+客户不同意提供原始 trace 文件——"原件复放"依赖项全体转性:
+1. **验收主路径=回访输出对账**(79 系已证可行):四场景回访清单落 docs/design/revisit_acceptance_pack_20260709.md,客户跑新构建贴全量输出转录(含系统补充块),逐格对账闭案。覆盖 P0-E/G1/盲区降道/INODE/TEX/词形排版全部验收。
+2. **悬案转定向复查指令包**(同上文档):G12(E23 双成员同值 14.272 疑云)与 D-10(东湖 actual 口径互斥)各配精确自然语言命令,客户跑后贴几十行输出即可定案,不需文件。
+3. **DIAG 自诊断批立案(3.3c,排 CAP-2 后)**:把"需原件"永久转化为"输出自答"——(a)跨线程折叠成员同值到 μs 时审计注携逐成员行区间+same_value_members typed 披露;(b)actual 口径两面互斥时 typed 一致性披露(不猜值,只标两面来源与差值);(c)hmfs 实测无需专项=INODE top_io_inode 段即探针(东湖回访输出该段有 FS 内容⟺hmfs_ 关口生效)。
+4. **脱敏片段通道=候选**:客户已接受关键字片段粒度;必须看原始行时给脱敏指引(行号区间+名称哈希替换保结构);频繁则立 codrax sanitize 导出子命令候选(未立批)。
