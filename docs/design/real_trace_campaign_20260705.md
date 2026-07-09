@@ -1757,3 +1757,6 @@ Donghu 类与鸿蒙类 trace 同硬件平台——CAP-2 五重门**不设 flavor
 - 工作流:我们按悬案作脚本(如 collect_g12.yaml/collect_d10.yaml 随仓库 examples 出货),客户 `codrax --tracediag <script> --trace <file> --out <txt>` 一条命令收全,回传单文件。
 - 红线:纯读模式、零 LLM 调用、不触 L1 读管线字节恒等(独立 CLI 路径)、不修改 tracequery/tool(引擎只 import 消费,渲染在新包自建证据面——与系统补充同族的原文 token 风格)。
 - 验收包(§28.11 文档)随批更新:定向指令包改为 tracediag 命令,NL 形降为无新构建时的回退。
+
+### §28.12 补充裁定(用户 2026-07-09):TDIAG 增格式普查面(不留 trace 格式盲点)
+诊断簇除个案取证外,增**格式盲点普查**步骤类(format census):从客户 trace 收"支撑后续扩展与优化方向"的观察面——全部聚合统计+有界样本,回传体量小:①事件名全谱(逐名计数+解析分类,**unknown 分类 top-N 名单=盲点清单**,hmfs_ 类漏采即此面自动暴露)②标记形普查(B|/E|/S|/F|/C| 计数、H: 前缀占比、|I 尾形——async span/counter 事件支持盲点)③clock_set_rate 轨谱(轨名×异 cpu_id 数×值域×计数=CAP 证据发现面)④调度域(prio 直方含>139、prev_state token 集、next_info 覆盖率)⑤FS/IO(前缀谱+ino/dev/entry_name kv 覆盖率)⑥电源事件覆盖(frequency/limits/idle per-CPU)⑦span 普查(top 名+语义 near-miss 名单+H: 占比)⑧行级(总行/不可解析行数+有界样本/时间轴健全)。全部 top-N 帽+总数披露(截断诚实)。若引擎缺计数 API:TDIAG 批先列缺口清单,CENSUS 半场随 CAP-2 落地后补(引擎域并发约束)。出货 collect_format_census.yaml。
