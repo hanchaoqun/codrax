@@ -1830,7 +1830,8 @@ const RootCauseSubjectKindAggregateMetric = "aggregate_metric"
 // RootCauseTierDeterministicOptimization (DCS E1, ledger §23/§23.1 user
 // ruling 2026-07-07): the independent Tier word for IN-WINDOW ∧ ON-CHAIN
 // semantic compile span rows (jit_compile / class_verification /
-// shader_compile / runtime_compile). Rows wearing it hold rank-board reserved
+// shader_compile / runtime_compile / texture_upload — TEX §28.1 fifth class,
+// 2026-07-09). Rows wearing it hold rank-board reserved
 // seats and participate in ORDERING, but are transparent to the
 // primary/secondary/tertiary positional election and NEVER ride the
 // co-primary lane — a deterministic optimization point is reported as an
@@ -2029,6 +2030,10 @@ type RootCauseRankItem struct {
 	BlockingKind string    `json:"blocking_kind,omitempty"`
 	BlockingPeer ThreadRef `json:"blocking_peer,omitempty"`
 	HolderSite   string    `json:"holder_site,omitempty"`
+	// BlockingFromSite (BLOCKFROM, §27.4 G13 配套, 2026-07-09): the blocked
+	// WAITER's own call site from the payload's "blocking from …" tail — rides
+	// the rank row verbatim exactly like HolderSite (same mint funnel).
+	BlockingFromSite string `json:"blocking_from_site,omitempty"`
 	// SubjectIsAnalysisTarget (SYM §24.13 裁定一, 2026-07-08): true when this
 	// row's SUBJECT thread is the analysis target the rank was computed FOR —
 	// the typed tid-first identity match (sameThreadRef against
@@ -2306,6 +2311,10 @@ type CausalSkeletonNode struct {
 	// HolderSite is the direct blocker's code location (lock holder point) when
 	// the payload carried one; empty otherwise.
 	HolderSite string `json:"holder_site,omitempty"`
+	// BlockingFromSite is the waiting side's own blocking call site (the
+	// payload's "blocking from …" tail) when carried; empty otherwise
+	// (BLOCKFROM §27.4 G13, same shape as HolderSite).
+	BlockingFromSite string `json:"blocking_from_site,omitempty"`
 	// DrillStatus / CounterpartSource are the P0-E1/P0-E2a typed verdicts for a
 	// direct_blocker node: whether the named counterpart was itself examined, and
 	// whether it came from the payload or a wakeup-edge inference. Empty on
@@ -2447,6 +2456,12 @@ type CriticalBlockingCandidate struct {
 	// HolderSite is the lock holder's code location from the payload's
 	// "at <sig>(<file:line>)" segment, verbatim.
 	HolderSite string `json:"holder_site,omitempty"`
+	// BlockingFromSite (BLOCKFROM, §27.4 G13 配套, 2026-07-09): the WAITER's own
+	// blocking call site from the payload's "blocking from <sig>(<file:line>)"
+	// tail, verbatim — the typed 等待点 counterpart of HolderSite (持有点). Empty
+	// when the payload carried no such segment; display rendering ("等待点: …")
+	// is the DISP-2 batch's half.
+	BlockingFromSite string `json:"blocking_from_site,omitempty"`
 	// HolderSource / PeerSource (P0-E2a, §10 A2 / §11 N8 / §12 Q4-C): the typed
 	// origin of the resolved Peer counterpart — CounterpartSourceContentionPayload
 	// when the payload tid is present in this trace (unchanged path), or

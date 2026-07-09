@@ -60,7 +60,8 @@ type RuntimeSettings struct {
 	// TraceSemanticSpanPatterns append customer-specific trace_mark naming
 	// patterns to the built-in semantic span classifier. They may map only to
 	// the existing semantic classes (jit_compile, class_verification,
-	// shader_compile, runtime_compile); unknown classes are ignored by the
+	// shader_compile, runtime_compile, texture_upload); unknown classes are
+	// ignored by the
 	// trace layer. The patterns are advisory classification inputs, never hard
 	// gates.
 	TraceSemanticSpanPatterns []TraceSemanticSpanPattern `yaml:"trace_semantic_span_patterns"`

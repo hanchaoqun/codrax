@@ -220,6 +220,16 @@ var causalTokenRegistry = map[string]CausalTokenSpec{
 	"class_verification": {Lane: CausalLaneCPUWork, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 	"shader_compile":     {Lane: CausalLaneCPUWork, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 	"runtime_compile":    {Lane: CausalLaneCPUWork, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
+	// texture_upload (TEX §28.1 user ruling 2026-07-09,
+	// real_trace_campaign_20260705.md): the FIFTH semantic span class ("Texture
+	// upload" GPU resource-upload spans), same lane/additivity/subject as the
+	// other four semantic classes — per-thread wall clock on the CPU-work lane
+	// (§7.4 demand/supply split untouched: this is the subject's OWN work,
+	// never a delivery-side aggregate). The display label helper returns the
+	// ENGLISH proper term "Texture upload" (§22.2.1 专名尺子, VerifyClass
+	// precedent) — the D2 coverage pin couples the engine weight switch to
+	// that table, so the label arm and this column moved together.
+	"texture_upload":     {Lane: CausalLaneCPUWork, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 	"workqueue_activity": {Lane: CausalLaneCPUWork, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 	"dma_fence_activity": {Lane: CausalLaneCPUWork, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 
@@ -307,6 +317,10 @@ var causalTokenFamilyFoldLanes = map[string]CausalTokenFamilyFold{
 	"class_verification": CausalFamilyFoldSemanticClass,
 	"shader_compile":     CausalFamilyFoldSemanticClass,
 	"runtime_compile":    CausalFamilyFoldSemanticClass,
+	// TEX (§28.1, 2026-07-09): the fifth semantic class family-folds exactly
+	// like the other four (interval-union window-projection total per
+	// (thread, class, chain lane) — the ×N family IS the participation value).
+	"texture_upload": CausalFamilyFoldSemanticClass,
 }
 
 // CausalTokenFamilyFoldLane returns the family-fold lane for token ("" =

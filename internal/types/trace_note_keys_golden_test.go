@@ -37,6 +37,11 @@ var traceNoteKeyGoldenRows = []string{
 	"block_dev|io|display_only",
 	"block_max|io|display_only",
 	"blocking_candidate|blocking|display_only",
+	// BLOCKFROM (§27.4 G13, 2026-07-09): waiter-side blocking call site
+	// ("blocking from <sig>(<file:line>)" payload tail). EVOLUTION RECORD
+	// (Wave-3.2 收尾): display→hard_consumer — the DISP-2 projection read-in
+	// (等待点 detail line) landed the same wave.
+	"blocking_from_site|blocking|hard_consumer",
 	"blocking_kind|blocking|hard_consumer",
 	// P0-E CHAIN-PATH (ledger §22.1): per-branch path record identity + the
 	// rank/impact rows' owning-branch attach domain.
@@ -306,9 +311,10 @@ var traceNoteKeyGoldenRows = []string{
 	"total|impact|soft_consumer",
 	"total_latency|io|display_only",
 	// G2 判据 typed 化 (§27.2/§28.1, 2026-07-09): the trace_gap blind-spot
-	// criterion enum (no_sched_data / no_eligible_wait); display tier until
-	// the follow-up tool batch keys the ◇ wording on it.
-	"trace_gap_kind|causal_rank|display_only",
+	// criterion enum (no_sched_data / no_eligible_wait). EVOLUTION RECORD
+	// (Wave-3.2 收尾): display→hard_consumer — the DISP-2 ◇ wording fork
+	// parses it in the projection compile; TraceNoteKeyTraceGapKind exported.
+	"trace_gap_kind|causal_rank|hard_consumer",
 	"type|causal_rank|hard_consumer",
 	"unpaired_done|io|display_only",
 	"unpaired_start|io|display_only",

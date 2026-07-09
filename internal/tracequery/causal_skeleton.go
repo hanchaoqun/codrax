@@ -144,11 +144,14 @@ func skeletonDirectBlockerNode(blocking *CriticalBlockingResult) (CausalSkeleton
 		return CausalSkeletonNode{}, false
 	}
 	node := CausalSkeletonNode{
-		Layer:             CausalSkeletonLayerDirectBlocker,
-		Thread:            chosen.Peer,
-		State:             skeletonBlockerStateLabel(*chosen),
-		MeasuredMs:        chosen.DurationMs,
-		HolderSite:        chosen.HolderSite,
+		Layer:      CausalSkeletonLayerDirectBlocker,
+		Thread:     chosen.Peer,
+		State:      skeletonBlockerStateLabel(*chosen),
+		MeasuredMs: chosen.DurationMs,
+		HolderSite: chosen.HolderSite,
+		// BLOCKFROM (§27.4 G13): the waiter-side call site rides the skeleton
+		// node next to the holder site, same shape.
+		BlockingFromSite:  chosen.BlockingFromSite,
 		DrillStatus:       chosen.DrillStatus,
 		CounterpartSource: firstNonEmpty(chosen.HolderSource, chosen.PeerSource),
 		Note:              skeletonBlockerNote(*chosen),

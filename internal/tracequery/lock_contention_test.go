@@ -37,6 +37,45 @@ func TestParseLockContentionPayloadCustomerMonitorShape(t *testing.T) {
 	}
 }
 
+// BLOCKFROM (§27.4 G13 配套, 2026-07-09): the "blocking from …" tail — the
+// WAITER's own blocking call site — parses verbatim into the typed
+// BlockingFromSite next to the holder site, on the opendir specimen's exact
+// payload (the G13 witness: prose invented an "enqueueMessage 消息队列锁" wait
+// point while the span payload carried this segment).
+func TestParseLockContentionPayloadBlockingFromSiteVerbatim(t *testing.T) {
+	info, ok := parseLockContentionPayload(lockContentionCustomerMonitorPayload)
+	if !ok {
+		t.Fatalf("customer monitor contention payload must parse")
+	}
+	want := "boolean android.content.res.AssetManager.getResourceValue(int, int, android.util.TypedValue, boolean)(AssetManager.java:761)"
+	if info.BlockingFromSite != want {
+		t.Fatalf("blocking-from site mismatch:\n got %q\nwant %q", info.BlockingFromSite, want)
+	}
+	// The signature's own parentheses/commas never truncate the value, and the
+	// holder site keeps its own boundary (the two segments never bleed).
+	if strings.Contains(info.HolderSite, "blocking from") || strings.Contains(info.BlockingFromSite, " at ") {
+		t.Fatalf("holder/blocking-from segments must not bleed into each other: holder=%q from=%q", info.HolderSite, info.BlockingFromSite)
+	}
+	// Summary face carries the typed token next to holder_site.
+	if suffix := lockContentionSummarySuffix(info); !strings.Contains(suffix, "blocking_from_site="+want) {
+		t.Fatalf("summary suffix must carry blocking_from_site verbatim: %q", suffix)
+	}
+
+	// Absence never invents a wait point: a payload without the segment keeps
+	// the field empty on both the monitor form and the owner-tid form.
+	noFrom, ok := parseLockContentionPayload("monitor contention with owner #Worker (77) at void a.b.C.d()(C.java:5) waiters=2")
+	if !ok || noFrom.BlockingFromSite != "" {
+		t.Fatalf("payload without a blocking-from segment must keep the field empty: %+v", noFrom)
+	}
+	if noFrom.HolderSite != "void a.b.C.d()(C.java:5)" {
+		t.Fatalf("holder site must stay intact on the no-blocking-from shape: %q", noFrom.HolderSite)
+	}
+	lockForm, ok := parseLockContentionPayload(lockContentionCustomerLockPayload)
+	if !ok || lockForm.BlockingFromSite != "" {
+		t.Fatalf("the owner-tid form carries no blocking-from segment: %+v", lockForm)
+	}
+}
+
 func TestParseLockContentionPayloadOwnerTidShapes(t *testing.T) {
 	info, ok := parseLockContentionPayload(lockContentionCustomerLockPayload)
 	if !ok || info.Kind != "monitor_contention" {
@@ -127,5 +166,59 @@ func TestCriticalBlockingCarriesMonitorContentionOwnerPeer(t *testing.T) {
 	}
 	if !strings.Contains(lock.Summary, "owner=pid=42067") {
 		t.Fatalf("owner-tid contention summary must carry the owner id: %s", lock.Summary)
+	}
+}
+
+// BLOCKFROM (§27.4 G13, 2026-07-09) e2e: the parsed waiter-side call site
+// travels verbatim onto BOTH engine faces minted from the same folded lane —
+// the critical_blocking candidate and the blocking_span rank row — exactly
+// like holder_site (same mint funnel, no second parse).
+func TestBlockingFromSiteRidesCriticalBlockingAndRankRows(t *testing.T) {
+	trace := `
+        app-100 (100) [001] .... 5.000000: print: B|100|` + lockContentionCustomerMonitorPayload + `
+        app-100 (100) [001] .... 5.000100: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     worker-200 (100) [002] .... 5.112000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+        app-100 (100) [001] .... 5.112223: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+        app-100 (100) [001] .... 5.112300: print: E|100
+ NetworkKit_AssetsUtil_Operate_0-42067 (600) [003] .... 5.200000: sched_switch: prev_comm=NetworkKit_AssetsUtil_Operate_0 prev_pid=42067 prev_prio=120 prev_state=R ==> next_comm=idle/3 next_pid=0 next_prio=120
+`
+	wantFrom := "boolean android.content.res.AssetManager.getResourceValue(int, int, android.util.TypedValue, boolean)(AssetManager.java:761)"
+	idx := buildTraceIndex(t, "blocking_from.systrace", trace)
+
+	res := Run(idx, Query{View: "critical_blocking_calls", PID: 100, TimeStart: 4.99, TimeEnd: 5.115})
+	var monitor *CriticalBlockingCandidate
+	for i := range res.CriticalBlocking.Items {
+		if res.CriticalBlocking.Items[i].BlockingKind == "monitor_contention" {
+			monitor = &res.CriticalBlocking.Items[i]
+			break
+		}
+	}
+	if monitor == nil {
+		t.Fatalf("expected the monitor contention blocking row: %+v", res.CriticalBlocking)
+	}
+	if monitor.BlockingFromSite != wantFrom {
+		t.Fatalf("critical_blocking must carry the waiter-side call site verbatim:\n got %q\nwant %q", monitor.BlockingFromSite, wantFrom)
+	}
+
+	rank := BuildRootCauseRank(idx, Query{PID: 100, TimeStart: 4.99, TimeEnd: 5.115, MaxDepth: 4, MinDurationMs: 0.05, Limit: 16})
+	var lockRow *RootCauseRankItem
+	for i := range rank.Items {
+		if rank.Items[i].Type == "blocking_span" && rank.Items[i].BlockingKind == "monitor_contention" {
+			lockRow = &rank.Items[i]
+			break
+		}
+	}
+	if lockRow == nil {
+		t.Fatalf("expected the blocking_span rank row: %+v", rank.Items)
+	}
+	if lockRow.BlockingFromSite != wantFrom {
+		t.Fatalf("rank row must carry the waiter-side call site verbatim:\n got %q\nwant %q", lockRow.BlockingFromSite, wantFrom)
+	}
+	if !strings.Contains(lockRow.Summary, "blocking_from_site="+wantFrom) {
+		t.Fatalf("rank summary must name the waiter-side call site: %s", lockRow.Summary)
+	}
+	// The holder-side field is untouched next to it (two sites, two lanes).
+	if !strings.Contains(lockRow.HolderSite, "AssetManager.java:1258") {
+		t.Fatalf("holder site must survive unchanged next to blocking_from_site: %+v", lockRow)
 	}
 }

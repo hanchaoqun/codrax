@@ -3377,6 +3377,10 @@ func writeTraceFrameBundleTopBlocking(b *strings.Builder, bundle *tracequery.Fra
 		if item.HolderSite != "" {
 			parts = append(parts, "holder_site="+sanitizeForBanner(item.HolderSite))
 		}
+		// BLOCKFROM (§27.4 G13): the waiter-side call site, same shape.
+		if item.BlockingFromSite != "" {
+			parts = append(parts, "blocking_from_site="+sanitizeForBanner(item.BlockingFromSite))
+		}
 		// P0-E2a: surface the counterpart-resolution origin so the head can say
 		// whether the named holder/peer came straight from the payload or from
 		// the waiter's wakeup edge (and preserve the phantom payload tid).
@@ -3451,6 +3455,10 @@ func writeTraceFrameBundleSkeleton(b *strings.Builder, bundle *tracequery.FrameR
 		parts = append(parts, fmt.Sprintf("measured=%.3fms", node.MeasuredMs))
 		if node.HolderSite != "" {
 			parts = append(parts, "holder_site="+sanitizeForBanner(node.HolderSite))
+		}
+		// BLOCKFROM (§27.4 G13): the waiter-side call site, same shape.
+		if node.BlockingFromSite != "" {
+			parts = append(parts, "blocking_from_site="+sanitizeForBanner(node.BlockingFromSite))
 		}
 		if node.DrillStatus != "" {
 			parts = append(parts, "drill_status="+sanitizeForBanner(node.DrillStatus))
@@ -3578,6 +3586,10 @@ func writeTraceRootCauseBlockingDetail(b *strings.Builder, item tracequery.RootC
 	}
 	if item.HolderSite != "" {
 		parts = append(parts, "holder_site="+sanitizeForBanner(item.HolderSite))
+	}
+	// BLOCKFROM (§27.4 G13): the waiter-side call site, same shape.
+	if item.BlockingFromSite != "" {
+		parts = append(parts, "blocking_from_site="+sanitizeForBanner(item.BlockingFromSite))
 	}
 	if item.HolderSource != "" {
 		parts = append(parts, "holder_source="+sanitizeForBanner(item.HolderSource))
@@ -3760,11 +3772,12 @@ func traceQueryRootCauseSpanCompact(item tracequery.RootCauseRankItem) string {
 }
 
 // traceQueryRootCauseItemIsSemanticSpanWork mirrors the engine's precise
-// typed identity of a semantic compile span rank row (DCS, ledger §23.1):
-// the four type tokens are minted only by the engine's semantic span lane.
+// typed identity of a semantic compile span rank row (DCS, ledger §23.1;
+// TEX §28.1 adds texture_upload as the fifth class, 2026-07-09): these type
+// tokens are minted only by the engine's semantic span lane.
 func traceQueryRootCauseItemIsSemanticSpanWork(typ string) bool {
 	switch typ {
-	case "jit_compile", "class_verification", "shader_compile", "runtime_compile":
+	case "jit_compile", "class_verification", "shader_compile", "runtime_compile", "texture_upload":
 		return true
 	default:
 		return false
@@ -5150,9 +5163,10 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// G2 判据 typed 化 (§27.2/§28.1, 2026-07-09): the trace_gap
 				// blind-spot criterion enum (no_sched_data / no_eligible_wait)
 				// — set on Type=trace_gap rows only, zero-dropped elsewhere.
-				// NKR display tier; the follow-up tool batch keys the ◇ row
-				// wording on it.
-				{"trace_gap_kind", item.TraceGapKind},
+				// Hard-consumer tier since Wave-3.2 收尾: the projection
+				// compile keys the ◇ row wording fork on it (constant, per the
+				// contract-tier change protocol).
+				{types.TraceNoteKeyTraceGapKind, item.TraceGapKind},
 				// §7.30.3 D3: inversion rows publish the gated composition so
 				// the projection can split the composite impact.
 				{types.TraceNoteKeyGatedRunnable, traceQueryObservationMSValue(item.GatedRunnableMs)},
@@ -5175,6 +5189,9 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				{types.TraceNoteKeyBlockingKind, item.BlockingKind},
 				{types.TraceNoteKeyPeer, traceThreadLabelOptional(item.BlockingPeer)},
 				{types.TraceNoteKeyHolderSite, item.HolderSite},
+				// BLOCKFROM (§27.4 G13): the waiter-side blocking call site
+				// rides next to the holder site, same registered family.
+				{types.TraceNoteKeyBlockingFromSite, item.BlockingFromSite},
 				// BLK §15.C: the resolved lock rank row's subject IS the holder,
 				// so the projection must render a HOLD ("持锁阻塞") and steer the
 				// next-step to the holder, never the reversed lock-WAIT the
@@ -6309,6 +6326,8 @@ func traceQueryTypedCriticalBlockingRichNotes(item tracequery.CriticalBlockingCa
 		// blocking print payload; renderers key on these, never on prose.
 		{types.TraceNoteKeyBlockingKind, item.BlockingKind},
 		{types.TraceNoteKeyHolderSite, item.HolderSite},
+		// BLOCKFROM (§27.4 G13): waiter-side blocking call site, verbatim.
+		{types.TraceNoteKeyBlockingFromSite, item.BlockingFromSite},
 		{types.TraceNoteKeyWaiters, traceQueryTypedCount(item.Waiters)},
 		// P0-E2a (§10 A2 / §11 N8 / §12 Q4-C): the typed counterpart-resolution
 		// origin, the phantom payload owner tid preserved when the wakeup-edge

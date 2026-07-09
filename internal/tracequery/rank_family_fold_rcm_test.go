@@ -531,6 +531,8 @@ func TestRCMFamilyFoldRegistryLaneGolden(t *testing.T) {
 		"class_verification": CausalFamilyFoldSemanticClass,
 		"shader_compile":     CausalFamilyFoldSemanticClass,
 		"runtime_compile":    CausalFamilyFoldSemanticClass,
+		// TEX (§28.1, 2026-07-09): fifth semantic class, same fold lane.
+		"texture_upload": CausalFamilyFoldSemanticClass,
 	}
 	for _, token := range CausalTokenUniverse() {
 		want := golden[token]

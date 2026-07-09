@@ -71,6 +71,12 @@ func TestCausalTokenRegistryGoldenSnapshot(t *testing.T) {
 		// from the compute_supply aggregate ledger (§7.10 (5)).
 		"supply_fold_deficit|compute_delivery|wall_clock_per_thread|per_thread|observation_only|",
 		"supply_pressure|scheduling_demand|cross_thread_cpu_ms|aggregate_only|row|runtimeTraceSupplyPressureDisplayLabel",
+		// TEX (§28.1 user ruling 2026-07-09, real_trace_campaign_20260705.md):
+		// texture_upload joins as the FIFTH semantic span class — same
+		// cpu_work|wall_clock_per_thread|per_thread|row|label shape as the
+		// other four; the label helper returns the ENGLISH proper term
+		// "Texture upload" (§22.2.1 专名尺子, VerifyClass precedent).
+		"texture_upload|cpu_work|wall_clock_per_thread|per_thread|row|runtimeTraceRootCauseTypeZHLabel",
 		// EVOLUTION RECORD (2026-07-07, §22 PTV7-SPN F5 用户措辞裁定,
 		// docs/design/real_trace_campaign_20260705.md): trace_gap gains its zh
 		// display word 数据盲区 via runtimeTraceRootCauseTypeZHLabel — the

@@ -43,6 +43,16 @@ type lockContentionInfo struct {
 	Owner      ThreadRef
 	Waiters    int
 	HolderSite string
+	// BlockingFromSite (BLOCKFROM, §27.4 G13 配套 / §28.1 收口批准, 2026-07-09):
+	// the WAITER's own blocking call site — the "blocking from <sig>(<file:line>)"
+	// tail segment of the ART monitor-contention payload (the method the blocked
+	// thread was executing when it hit the lock). Counterpart of HolderSite
+	// (the HOLDER's location); parsed verbatim with the same boundary strategy.
+	// Empty when the payload carried no such segment — absence never invents a
+	// wait point (the opendir_78 G13 witness: prose fabricated an
+	// "enqueueMessage 消息队列锁" wait point while the span payload said
+	// AssetManager.getResourceValue(AssetManager.java:761)).
+	BlockingFromSite string
 	// WaitObject is the lock-object name the "Lock contention on <subj> (owner
 	// tid: N)" family prints as its subject (e.g. "thread suspend count lock",
 	// "the InternTable lock"). It was previously discarded (§19 清点②); it is the
@@ -151,6 +161,18 @@ func parseMonitorContentionOwnerPayload(body string) lockContentionInfo {
 		}
 		info.HolderSite = strings.TrimSpace(site)
 	}
+	// BLOCKFROM (§27.4 G13): the "blocking from <sig>(<file:line>)" tail names
+	// the WAITER's own blocking call site. Same boundary strategy as the holder
+	// site: the signature may contain parentheses/commas, so the value runs
+	// verbatim to the end of the payload, cut only at a (tolerated, not
+	// observed) trailing " waiters=" segment. No segment → field stays empty.
+	if cut := strings.Index(body, " blocking from "); cut >= 0 {
+		from := body[cut+len(" blocking from "):]
+		if w := strings.Index(from, " waiters="); w >= 0 {
+			from = from[:w]
+		}
+		info.BlockingFromSite = strings.TrimSpace(from)
+	}
 	return info
 }
 
@@ -196,6 +218,9 @@ func lockContentionSummarySuffix(info lockContentionInfo) string {
 	}
 	if info.HolderSite != "" {
 		parts = append(parts, "holder_site="+info.HolderSite)
+	}
+	if info.BlockingFromSite != "" {
+		parts = append(parts, "blocking_from_site="+info.BlockingFromSite)
 	}
 	if info.Waiters > 0 {
 		parts = append(parts, fmt.Sprintf("waiters=%d", info.Waiters))

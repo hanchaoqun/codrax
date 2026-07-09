@@ -89,6 +89,13 @@ func runtimeTraceRootCauseTypeZHLabel(token string) string {
 		return "着色器编译"
 	case "runtime_compile":
 		return "运行时编译"
+	case "texture_upload":
+		// TEX (§28.1 user ruling 2026-07-09, real_trace_campaign_20260705.md):
+		// the fifth semantic span class KEEPS its English proper term on every
+		// display face (§22.2.1 专名尺子, the VerifyClass precedent) — this arm
+		// exists because the D2 coverage pin couples the engine weight switch
+		// to this table; DISP-2 owns any richer display treatment.
+		return "Texture upload"
 	case "cpu_frequency_limit":
 		return "频率受限"
 	case "trace_span":

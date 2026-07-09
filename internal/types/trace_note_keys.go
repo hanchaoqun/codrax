@@ -133,6 +133,15 @@ const (
 	TraceNoteKeyRecursive         = "recursive"
 	TraceNoteKeySignificant       = "significant"
 	TraceNoteKeyRecommendedViews  = "recommended_views"
+	// TraceNoteKeyTraceGapKind (G2 判据 typed 化, §27.2/§28.1, 2026-07-09;
+	// carrier promoted display→hard by the DISP-2 display half, Wave-3.2):
+	// the precise blind-spot criterion enum on a Type=trace_gap rank row —
+	// no_sched_data (the thread timeline holds no interval at all in the
+	// aligned window) / no_eligible_wait (intervals exist but ALL sit below
+	// the MinDurationMs floor). The projection compile parses it into
+	// TraceCausalProjectionNode.TraceGapKind and the ◇ row wording forks on
+	// it — a typo now silently kills the blind-spot wording fork.
+	TraceNoteKeyTraceGapKind = "trace_gap_kind"
 	// PTS 折叠族 (#68 用户裁定 2026-07-05, 零静默丢弃): a producer-side fold
 	// record represents the on-chain rows beyond the per-family wire cap —
 	// folded_rows counts the folded ROWS, folded_min_ms/folded_max_ms carry
@@ -313,7 +322,18 @@ const (
 	TraceNoteKeyBlockingKind = "blocking_kind"
 	TraceNoteKeyPeer         = "peer"
 	TraceNoteKeyHolderSite   = "holder_site"
-	TraceNoteKeyWaiters      = "waiters"
+	// TraceNoteKeyBlockingFromSite (BLOCKFROM, §27.4 G13 配套 / §28.1 收口批准
+	// 2026-07-09, real_trace_campaign_20260705.md): the blocked WAITER's own
+	// call site — the payload's "blocking from <sig>(<file:line>)" tail —
+	// verbatim, the 等待点 counterpart of holder_site (持有点). Hard consumer:
+	// the DISP-2 display half parses it in the projection compile
+	// (TraceCausalProjectionNode.BlockingFromSite → the "等待点: …" detail
+	// line; landed the same wave, holder_source promotion precedent). The
+	// opendir G13 witness: prose invented an "enqueueMessage 消息队列锁" wait
+	// point while the span payload named
+	// AssetManager.getResourceValue(AssetManager.java:761).
+	TraceNoteKeyBlockingFromSite = "blocking_from_site"
+	TraceNoteKeyWaiters          = "waiters"
 	// P0-E2a counterpart-resolution family (§10 A2 / §11 N8 / §12 Q4-C): the
 	// typed origin of a resolved blocking counterpart, the raw payload owner tid
 	// preserved when a cross-namespace phantom was replaced by a wakeup-edge
@@ -512,11 +532,12 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// timeline holds no interval at all in the aligned window) /
 	// no_eligible_wait (intervals exist but ALL sit below the MinDurationMs
 	// floor — 复核 P3-5 precise fact; the legacy "窗内无调度数据" wording
-	// over-claimed on this form). Display tier TODAY (emitted, parsed by
-	// nobody); the ◇
-	// blind-spot display arm of the follow-up tool batch promotes it to a
-	// consumer carrier when it starts keying the row wording on the enum.
-	{"trace_gap_kind", "causal_rank", TraceNoteCarrierDisplayOnly},
+	// over-claimed on this form). EVOLUTION RECORD (Wave-3.2 收尾,
+	// 2026-07-09): display→hard_consumer — the DISP-2 display half parses it
+	// in the projection compile (TraceCausalProjectionNode.TraceGapKind, the
+	// ◇ row wording fork), exactly the promotion this row's original comment
+	// promised; constant exported alongside.
+	{TraceNoteKeyTraceGapKind, "causal_rank", TraceNoteCarrierHardConsumer},
 	// PTS 折叠族 (#68 用户裁定 2026-07-05): wire-cap overflow fold accounting.
 	{TraceNoteKeyFoldedRows, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyFoldedMinMS, "causal_rank", TraceNoteCarrierHardConsumer},
@@ -615,6 +636,13 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyBlockingKind, "blocking", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyPeer, "blocking", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyHolderSite, "blocking", TraceNoteCarrierHardConsumer},
+	// BLOCKFROM (§27.4 G13, 2026-07-09): waiter-side blocking call site.
+	// EVOLUTION RECORD (Wave-3.2 收尾, 2026-07-09): display→hard_consumer in
+	// the SAME wave — the DISP-2 display half landed its projection read-in
+	// (TraceCausalProjectionNode.BlockingFromSite, the 等待点 detail line)
+	// immediately, the holder_source promotion precedent compressed to one
+	// wave. A typo now silently kills the 等待点 line.
+	{TraceNoteKeyBlockingFromSite, "blocking", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyWaiters, "blocking", TraceNoteCarrierHardConsumer},
 	// P0-E2a counterpart-resolution keys. P0-E 锁车道修3 (§24.9-C F5,
 	// 2026-07-09): holder_source / owner_tid_raw are now typed node-field

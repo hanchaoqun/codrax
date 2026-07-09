@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 	"unsafe"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 var (
@@ -2304,6 +2306,10 @@ func classifySubsystemKind(raw, fields string, typ EventType) string {
 			return "fs_android"
 		case strings.Contains(text, "f2fs"):
 			return "fs_f2fs"
+		case strings.Contains(text, "hmfs"):
+			// §28.6 ④: HarmonyOS hmfs (f2fs-derivative) keeps its own honest
+			// subsystem word — never silently relabelled fs_f2fs.
+			return "fs_hmfs"
 		case strings.Contains(text, "erofs"):
 			return "fs_erofs"
 		case strings.Contains(text, "ext4"):
@@ -2355,6 +2361,13 @@ func isStorageEvent(raw string) bool {
 func isFilesystemEvent(raw string) bool {
 	return strings.HasPrefix(raw, "ext4_") ||
 		strings.HasPrefix(raw, "f2fs_") ||
+		// hmfs_ (§28.6 ④, 2026-07-09): the HarmonyOS FS layer (an f2fs
+		// derivative) emits f2fs-isomorphic tracepoints under the hmfs_
+		// prefix; without this arm the customer platform's FS events were
+		// wholesale unclassified (the 东湖 inode story leaked in only via
+		// mm_filemap). The kv field shapes reuse populateFileIOFields
+		// unchanged (generic key-driven parse, same keys as f2fs_*).
+		strings.HasPrefix(raw, "hmfs_") ||
 		strings.HasPrefix(raw, "android_fs_") ||
 		strings.HasPrefix(raw, "erofs_") ||
 		strings.HasPrefix(raw, "z_erofs_") ||
@@ -3123,14 +3136,22 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+// clampString caps s at a TOTAL byte budget of n (the legacy contract: the
+// "..." decoration is counted INSIDE the budget, hence the n-3 cut). HYG
+// (§28.2 顺手项 b, 2026-07-09): the byte cuts go through the shared rune-safe
+// primitive so a budget landing inside a multibyte rune (CJK span names,
+// interned field text) can no longer emit a broken tail — pure-ASCII behavior
+// is byte-identical to the old s[:n-3]+"..." shape. The ASCII "..." decoration
+// is deliberately kept (not "…"): the 3-byte ellipsis is part of the budget
+// arithmetic and of existing output pins.
 func clampString(s string, n int) string {
 	if n <= 0 || len(s) <= n {
 		return s
 	}
 	if n <= 3 {
-		return s[:n]
+		return types.CutPrefixRuneSafe(s, n)
 	}
-	return s[:n-3] + "..."
+	return types.CutPrefixRuneSafe(s, n-3) + "..."
 }
 
 func cleanTraceValue(raw string) string {

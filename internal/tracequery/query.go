@@ -5803,7 +5803,7 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 
 // incompleteSemanticTraceMarkCaveats (DCS E4 caveat half, ledger §23/§23.1
 // H1): after full-stream pairing, a leftover B|/S| whose name carries a
-// SEMANTIC word surface (classified or near-miss compile/verify/shader
+// SEMANTIC word surface (classified or near-miss compile/verify/shader/texture-upload
 // vocabulary) is an incomplete pair the window projection could not mint —
 // e.g. its end marker fell outside the captured trace. Fail-loud instead of
 // fail-silent: name up to three such spans. Bare sync E| orphans carry no
@@ -5844,7 +5844,7 @@ func incompleteSemanticTraceMarkCaveats(q Query, stacks map[int][]Event, asyncSt
 	if len(names) > 3 {
 		names = names[:3]
 	}
-	return []string{fmt.Sprintf("trace mark span(s) with compile/verify/shader-like names never closed inside the captured trace (e.g. %s); their duration cannot be projected into the window and they are absent from trace_spans and root_cause_rank", strings.Join(names, ", "))}
+	return []string{fmt.Sprintf("trace mark span(s) with compile/verify/shader/texture-upload-like names never closed inside the captured trace (e.g. %s); their duration cannot be projected into the window and they are absent from trace_spans and root_cause_rank", strings.Join(names, ", "))}
 }
 
 // clipTraceMarkSpanToQueryWindow (DCS E4, ledger §23/§23.1 H1) admits a fully
@@ -9021,7 +9021,7 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		items = append(items, item)
 	}
 	if len(semanticNearMisses) > 0 {
-		res.Caveats = append(res.Caveats, fmt.Sprintf("span name(s) mention compile/verify/shader-like vocabulary but did not match a known jit_compile/class_verification/shader_compile/runtime_compile pattern (e.g. %s); the app/ArkCompiler/ROM naming convention may have changed — treat as generic trace_span context, not a confirmed semantic root cause", strings.Join(semanticNearMisses, ", ")))
+		res.Caveats = append(res.Caveats, fmt.Sprintf("span name(s) mention compile/verify/shader/texture-upload-like vocabulary but did not match a known jit_compile/class_verification/shader_compile/runtime_compile/texture_upload pattern (e.g. %s); the app/ArkCompiler/ROM naming convention may have changed — treat as generic trace_span context, not a confirmed semantic root cause", strings.Join(semanticNearMisses, ", ")))
 	}
 	for _, td := range stats.RunnableTop {
 		onChain := threadInSet(chainThreads, td.Thread)
@@ -10571,7 +10571,7 @@ func rootCauseItemFromLockContentionCandidate(q Query, chainThreads map[int]bool
 		subject = holder
 	}
 	onChain := threadInSet(chainThreads, waiter) || threadInSet(chainThreads, holder)
-	suffix := lockContentionSummarySuffix(lockContentionInfo{Kind: cand.BlockingKind, Owner: holder, Waiters: cand.Waiters, HolderSite: cand.HolderSite})
+	suffix := lockContentionSummarySuffix(lockContentionInfo{Kind: cand.BlockingKind, Owner: holder, Waiters: cand.Waiters, HolderSite: cand.HolderSite, BlockingFromSite: cand.BlockingFromSite})
 	summary := fmt.Sprintf("%s blocked %.3fms on lock contention with unresolved owner%s", threadLabel(waiter), cand.DurationMs, suffix)
 	if holderResolved {
 		summary = fmt.Sprintf("lock holder %s blocked %s for %.3fms%s", threadLabel(holder), threadLabel(waiter), cand.DurationMs, suffix)
@@ -10611,6 +10611,9 @@ func rootCauseItemFromLockContentionCandidate(q Query, chainThreads map[int]bool
 	item.SpanName = row.spanName
 	item.BlockingKind = cand.BlockingKind
 	item.HolderSite = cand.HolderSite
+	// BLOCKFROM (§27.4 G13): the waiter-side blocking call site rides the rank
+	// row verbatim (typed 等待点 face; display half is DISP-2's).
+	item.BlockingFromSite = cand.BlockingFromSite
 	// P0-E2a: carry the typed holder-source origin and the phantom payload tid
 	// (if the wakeup-edge fallback fired) onto the rank row.
 	item.HolderSource = cand.HolderSource
@@ -11314,7 +11317,7 @@ func rootCauseTypeCanBeDirectOnChain(typ string) bool {
 	case "runnable_wait", "scheduler_latency", "priority_inversion_runnable_wait", "fragmented_runnable_wait",
 		"running", "fragmented_running",
 		"compute_supply", "low_frequency", "cpu_affinity_or_cpuset",
-		"jit_compile", "class_verification", "shader_compile", "runtime_compile",
+		"jit_compile", "class_verification", "shader_compile", "runtime_compile", "texture_upload",
 		"io_wait", "d_state_or_io_wait", "io_latency", "io_burst_episode", "block_io_by_inode", "file_io_hot_inode", "fragmented_d_state_or_io_wait",
 		"workqueue_activity", "dma_fence_activity",
 		"priority_inversion_candidate", "binder_wait":
@@ -11546,7 +11549,7 @@ func rootCauseTypeWeight(typ string) float64 {
 		return 0.92
 	case "running", "fragmented_running":
 		return 1.0
-	case "jit_compile", "class_verification", "shader_compile", "runtime_compile":
+	case "jit_compile", "class_verification", "shader_compile", "runtime_compile", "texture_upload":
 		return 1.02
 	case "cpu_frequency_limit":
 		return 0.7
@@ -11648,7 +11651,7 @@ func rootCauseTier(idx int) string {
 // heuristic.
 func rootCauseItemIsSemanticSpanWork(item RootCauseRankItem) bool {
 	switch item.Type {
-	case "jit_compile", "class_verification", "shader_compile", "runtime_compile":
+	case "jit_compile", "class_verification", "shader_compile", "runtime_compile", "texture_upload":
 		return true
 	default:
 		return false
@@ -12645,7 +12648,7 @@ func traceSpanSemanticClass(name string) string {
 }
 
 // traceSpanNearMissesSemanticWorkClassification flags a span name that
-// mentions compile/verify/shader-ish vocabulary but did not match any of the
+// mentions compile/verify/shader/texture-upload-ish vocabulary but did not match any of the
 // specific traceSpanLooksLike* patterns consumed by traceSpanSemanticWorkClass.
 // This is a low-cost, advisory-only signal (a caveat, never a candidate or a
 // tier) that the underlying app/ArkCompiler/ROM naming convention may have
@@ -12659,7 +12662,12 @@ func traceSpanNearMissesSemanticWorkClassification(name string) bool {
 	tokens := traceSpanNameTokenSet(lower)
 	return strings.Contains(lower, "shader") ||
 		tokens["verify"] || tokens["verifier"] || tokens["verification"] ||
-		strings.Contains(lower, "compile") || tokens["compiler"] || tokens["compilation"]
+		strings.Contains(lower, "compile") || tokens["compiler"] || tokens["compilation"] ||
+		// TEX (§28.1/§28.2, 2026-07-09): texture-upload naming drift — a span
+		// that mentions BOTH words but did not match the strict
+		// traceSpanLooksLikeTextureUpload prefix shape (e.g. "UploadTexture",
+		// "GLES texture upload path"). Advisory-only, like every arm here.
+		(strings.Contains(lower, "texture") && strings.Contains(lower, "upload"))
 }
 
 func traceSpanSemanticWorkClass(name string) (traceSpanSemanticWork, bool) {
@@ -12677,6 +12685,8 @@ func traceSpanSemanticWorkClass(name string) (traceSpanSemanticWork, bool) {
 		return traceSpanSemanticWorkForClass("shader_compile")
 	case traceSpanLooksLikeRuntimeCompile(lower, tokens):
 		return traceSpanSemanticWorkForClass("runtime_compile")
+	case traceSpanLooksLikeTextureUpload(lower):
+		return traceSpanSemanticWorkForClass("texture_upload")
 	default:
 		if class, ok := customTraceSpanSemanticClass(lower, tokens); ok {
 			return traceSpanSemanticWorkForClass(class)
@@ -12728,6 +12738,28 @@ func traceSpanSemanticWorkForClass(class string) (traceSpanSemanticWork, bool) {
 			SemanticClass:      "runtime_compile",
 			Label:              "runtime compilation",
 			Confidence:         0.78,
+			ImpactMultiplier:   2.10,
+			MinOnChainImpactMs: 3.5,
+		}, true
+	case "texture_upload":
+		// TEX (§28.1 user ruling 2026-07-09, real_trace_campaign_20260705.md):
+		// "Texture upload" is the FIFTH semantic span class, with exactly the
+		// same treatment as VerifyClass/Shader/JIT — on-chain rows ride the
+		// deterministic_optimization reserved-seat tier, off-chain rows enter
+		// the background composite board (mention gate background_rank<=3), and
+		// same-(thread,class) spans family-fold by window-projection interval
+		// union (§24.10). The class label stays English (§22.2.1 专名尺子).
+		// Confidence mirrors shader_compile (prefix-precise matcher);
+		// multiplier/floor mirror runtime_compile (conservative bottom of the
+		// existing band — texture uploads are tiny high-frequency spans whose
+		// magnitude story is the FAMILY total, never a per-span boost).
+		return traceSpanSemanticWork{
+			RootCauseType:      "texture_upload",
+			Category:           "texture_upload",
+			Subcategory:        "texture",
+			SemanticClass:      "texture_upload",
+			Label:              "Texture upload",
+			Confidence:         0.80,
 			ImpactMultiplier:   2.10,
 			MinOnChainImpactMs: 3.5,
 		}, true
@@ -12869,6 +12901,46 @@ func traceSpanLooksLikeShaderCompile(lower string, tokens map[string]bool) bool 
 		tokens["program"] ||
 		tokens["link"] ||
 		tokens["warmup"]
+}
+
+// traceSpanLooksLikeTextureUpload (TEX §28.1/§28.2, 2026-07-09) matches the
+// customer's GPU texture-upload span family: the normalized name STARTS WITH
+// "texture upload" (case-insensitive; "_"-joined and fully-joined spellings
+// accepted like the JIT arm), tolerating the "(id)" and "WxH" suffixes of the
+// real shape ("Texture upload(15283) 512x194" — trace_texture_upload.txt:8/34/53).
+// Deliberately conservative, matching the other arms' precision bar:
+//   - prefix-anchored, so "upload texture"/"TextureCache" never match
+//     (word order and the second word are both load-bearing);
+//   - the character right after the prefix must NOT be alphanumeric, so
+//     "texture uploads"/"texture uploader" stay out — the observed suffixes
+//     begin with '(' or ' '.
+// The raw span name (id + dimensions) stays on the roster as the member
+// distinguishing key; only the CLASS is normalized.
+//
+// F1 (对抗复核 SHIP-WITH-FIXES, 2026-07-09): hitrace prefixes user-space span
+// names with "H:" — prefix anchoring alone rejected "H:Texture upload(…)"
+// while the four substring-matched classmates pass straight through an H:
+// prefix, breaking 完全同待遇 on the dual-stack platform (§28.5 T11). ONE
+// case-insensitive "h:" prefix is stripped INSIDE this matcher only
+// (single-point widening: the other arms and the near-miss advisory are
+// untouched); the boundary rule then applies to the stripped name unchanged.
+func traceSpanLooksLikeTextureUpload(lower string) bool {
+	lower = strings.TrimPrefix(lower, "h:")
+	for _, prefix := range []string{"texture upload", "texture_upload", "textureupload"} {
+		if !strings.HasPrefix(lower, prefix) {
+			continue
+		}
+		rest := lower[len(prefix):]
+		if rest == "" {
+			return true
+		}
+		next := rest[0]
+		if (next >= 'a' && next <= 'z') || (next >= '0' && next <= '9') {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func traceSpanLooksLikeRuntimeCompile(lower string, tokens map[string]bool) bool {
@@ -13591,6 +13663,9 @@ func blockingSpanCandidateFromTraceSpan(span TraceSpanSummary) (CriticalBlocking
 		cand.Peer = info.Owner
 		cand.Waiters = info.Waiters
 		cand.HolderSite = info.HolderSite
+		// BLOCKFROM (§27.4 G13): the waiter's own blocking call site travels
+		// next to the holder site, verbatim.
+		cand.BlockingFromSite = info.BlockingFromSite
 		// P0-E 锁车道修2 (§24.9-C F2): the payload hand-off chain is a typed
 		// witness that the holder CHANGED during this wait — the parsed final
 		// owner is the last holder, never the whole-span holder.

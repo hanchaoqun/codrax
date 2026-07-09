@@ -303,9 +303,11 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				LineStart: 65, LineEnd: 66,
 				Source:    "window_stats.trace_spans.lock_contention",
 				Causality: "on_wakeup_chain", ChainRelevance: "on_chain", ChainDepth: 1,
-				BlockingKind:        "monitor_contention",
-				BlockingPeer:        tracequery.ThreadRef{Comm: "lockwaiter", PID: 104},
-				HolderSite:          "Bar.baz(Bar.java:7)",
+				BlockingKind: "monitor_contention",
+				BlockingPeer: tracequery.ThreadRef{Comm: "lockwaiter", PID: 104},
+				HolderSite:   "Bar.baz(Bar.java:7)",
+				// BLOCKFROM (§27.4 G13): exercises the blocking_from_site emission.
+				BlockingFromSite:    "Waiter.enter(Waiter.java:9)",
 				HolderSource:        tracequery.CounterpartSourceContentionPayload,
 				SubjectIsLockHolder: true,
 				Summary:             "lock holder lockholder-103 blocked lockwaiter-104",
@@ -433,6 +435,9 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				Type: "monitor_contention", Thread: tracequery.ThreadRef{Comm: "app:ui", PID: 61},
 				Peer: tracequery.ThreadRef{Comm: "holder", PID: 102}, BlockingKind: "monitor_contention",
 				HolderSite: "Foo.bar(Foo.java:42)", Waiters: 2,
+				// BLOCKFROM (§27.4 G13): waiter-side blocking call site —
+				// exercises the blocking_from_site emission on this face too.
+				BlockingFromSite: "App.enter(App.java:11)",
 				// P0-E2a display-tier keys — exercised so the emit pin covers them.
 				HolderSource: tracequery.CounterpartSourceWakeupEdge, PeerSource: tracequery.CounterpartSourceWakeupEdge,
 				OwnerTidRaw: 987654, WaitObject: "monitor of Foo",
@@ -595,6 +600,32 @@ func TestTraceNoteKeysEmittedSubsetOfRegistry(t *testing.T) {
 		}
 		if !emitted[row.Key] {
 			t.Errorf("contract-tier key %q (%s/%s) not emitted by the fixture — extend the fixture so the registry contract stays exercised", row.Key, row.Family, row.Carrier)
+		}
+	}
+}
+
+// BLOCKFROM (§27.4 G13 配套, 2026-07-09): the waiter-side blocking call site
+// rides BOTH typed-note faces — the lock rank row and the critical_blocking
+// row — under the registered blocking_from_site key, verbatim, exactly like
+// holder_site (the DISP-2 batch consumes this key for the 等待点 line).
+func TestTraceNoteKeysBlockingFromSiteRidesBothLockFaces(t *testing.T) {
+	records := traceQueryTypedObservations(traceNoteKeysEmitFixtureResult(), "full.systrace", "payload-ref", "raw-ref", "", time.Unix(1751600000, 0).UTC())
+	want := map[string]string{
+		// The rank-face fixture row (lockholder-103, blocking_span).
+		"blocking_from_site=Waiter.enter(Waiter.java:9)": "",
+		// The critical_blocking fixture row (app:ui-61, monitor_contention).
+		"blocking_from_site=App.enter(App.java:11)": "",
+	}
+	for _, record := range records {
+		for _, note := range record.RichNotes {
+			if _, ok := want[note]; ok {
+				want[note] = record.ID
+			}
+		}
+	}
+	for note, id := range want {
+		if id == "" {
+			t.Errorf("typed note %q must ride the wire on its face (rank/critical_blocking)", note)
 		}
 	}
 }
