@@ -397,6 +397,24 @@ type TraceCausalProjectionNode struct {
 	MergedCount int     `json:"merged_count,omitempty"`
 	MergedMinMS float64 `json:"merged_min_ms,omitempty"`
 	MergedMaxMS float64 `json:"merged_max_ms,omitempty"`
+	// MergedValuelessCount (G12-ENG 修根, §29.1,
+	// real_trace_campaign_20260705.md, 2026-07-09) counts the merged members
+	// whose display value (ImpactMS → CumulativeImpactMS fallback) is NOT
+	// positive: zero-duration marker rows (e.g. sched_blocked_reason
+	// critical_blocking observations) that legitimately fold in for roster/
+	// evidence losslessness but carry no measurable wall clock. MergedMinMS/
+	// MergedMaxMS have always ranged over the POSITIVE displays only, while
+	// MergedCount counts every member — so a mixed fold rendered
+	// "×2(14.272–14.272ms)取最大", fabricating a second 14.272ms observation
+	// under the valueless member's subject (huadong_79 E23: the target's real
+	// ×5 binder-wait sum beside hmfs_discard's ×4 zero-duration blocked_reason
+	// aggregate read as SAME-SEGMENT DOUBLE ATTRIBUTION and triggered a
+	// customer-site raw-trace audit, g12_report.txt). Typed display input for
+	// the honest mixed-fold wording; the published value/min/max/count and
+	// every rank/score lane stay untouched. Mutation self-check: zeroing this
+	// field re-fabricates the E23 form —
+	// TestG12OverflowFoldValuelessDisclosure reds.
+	MergedValuelessCount int `json:"merged_valueless_count,omitempty"`
 	// MergedIntervalUnion marks the §11-N2 cross-query-window union caliber on
 	// an R2 ×N row (real_trace_campaign_20260705.md; q2 specimen E10:
 	// 104.127+50.057+15.206+14.550 SUMMED to 183.940ms while the 15.206ms
@@ -2487,6 +2505,18 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		// untouched.
 		node.SameValueMembers = traceCausalProjectionParseSameValueMembers(
 			traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeySameValueMembers))
+		// G12-ENG 复核 P3-4 (2026-07-09): this wire re-materialization carries
+		// NO MergedValuelessCount channel — deliberately. Both producers of
+		// folded_* notes fold ONLY positive-display members by construction:
+		// the wire-cap impact fold folds WakeupCausalImpact rows admitted via
+		// the expandChain `impact.TotalMs > 0` entry guard (a positive lane
+		// total forces a positive dominant), and the engine aggregate-trim
+		// fold (foldWakeupCausalAggregateOverflow) folds aggregates built from
+		// those same admitted impacts. A zero-display member is therefore
+		// structurally unreachable here; if a future producer folds marker
+		// rows onto this lane, port the valueless accounting (a folded_
+		// valueless note) alongside — the display arms already fork on the
+		// node field.
 	}
 	// RCM 家族合并族 (§24.7.1/§24.10, 2026-07-08): the engine same-thread
 	// family-merge accounting re-materializes on the ISOLATED FamilyMember*
@@ -2903,6 +2933,7 @@ func traceCausalProjectionOverflowFoldRow(overflow []TraceCausalProjectionNode) 
 		fold.MergedEvidenceIDs = append(fold.MergedEvidenceIDs, raw)
 	}
 	memberRows := 0
+	valuelessRows := 0
 	for _, member := range overflow {
 		if !traceCausalProjectionDataGapRow(member) {
 			allDataGap = false
@@ -2928,6 +2959,16 @@ func traceCausalProjectionOverflowFoldRow(overflow []TraceCausalProjectionNode) 
 		fromWindowProjection := member.ImpactMS > 0
 		if display <= 0 {
 			display = member.CumulativeImpactMS
+		}
+		// G12-ENG (§29.1): a non-positive display member has ALWAYS been
+		// invisible to the min–max range below — count it, so the render can
+		// stop claiming "各 min–max ms" over members that never carried the
+		// value (the E23 fabricated ×2 same-value form). An absorbed fold
+		// member contributes its own valueless-row count (F1 计数吸收 twin).
+		if member.OnChainOverflowFold && member.MergedCount > 0 {
+			valuelessRows += member.MergedValuelessCount
+		} else if display <= 0 {
+			valuelessRows++
 		}
 		if minMS == 0 || (display > 0 && display < minMS) {
 			minMS = display
@@ -2956,6 +2997,7 @@ func traceCausalProjectionOverflowFoldRow(overflow []TraceCausalProjectionNode) 
 	fold.MergedCount = memberRows
 	fold.MergedMinMS = minMS
 	fold.MergedMaxMS = maxMS
+	fold.MergedValuelessCount = valuelessRows
 	fold.MergedAllDataGap = allDataGap
 	if maxFromWindowProjection {
 		fold.ImpactMS = maxMS

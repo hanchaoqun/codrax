@@ -3225,6 +3225,24 @@ type WakeupCausalAggregateFold struct {
 	LineEnd     int      `json:"line_end,omitempty"`
 	FirstTs     float64  `json:"first_ts,omitempty"`
 	LastTs      float64  `json:"last_ts,omitempty"`
+	// SameValueMembers (P2-1, §29.6 G12-ENG batch, 2026-07-09): the members
+	// whose DominantImpactMs ties the fold's published MAX to the µs (strict
+	// |v−max| < types.TraceCausalProjectionSameValueTieMS band — the same
+	// ruler every other take-MAX merge point uses), each with its OWN line
+	// interval so a suspected same-segment double can be checked from the
+	// report. Cap 4, minted only when ≥2 labeled members tie. Disclosure
+	// ONLY — Groups/Min/Max and the published value are final before this
+	// roster is computed (zero weight).
+	SameValueMembers []WakeupCausalAggregateFoldTieMember `json:"same_value_members,omitempty"`
+}
+
+// WakeupCausalAggregateFoldTieMember is one (label, line-range) entry of the
+// P2-1 tie roster — the engine-side twin of the projection fold's
+// TraceCausalProjectionSameValueMember shape.
+type WakeupCausalAggregateFoldTieMember struct {
+	Label     string `json:"label"`
+	LineStart int    `json:"line_start,omitempty"`
+	LineEnd   int    `json:"line_end,omitempty"`
 }
 
 type RootEvidence struct {

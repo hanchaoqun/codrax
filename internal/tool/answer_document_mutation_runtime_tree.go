@@ -497,6 +497,9 @@ const (
 	runtimeTraceProjMarkAllZeroFoldNote       // 全零折叠行一行注 窗内无有效时长 (G19, 取代 ×N(0.000–0.000)取最大)
 	runtimeTraceProjMarkFamilyCountEquivalent // 计数当量Xms 对照写法词条 (GAP-A P3-6, 随 count 家族行按需出场)
 
+	// G12-ENG (§29.1, 2026-07-09): one new gated seat.
+	runtimeTraceProjMarkValuelessFoldMembers // 无时长值成员 混合折叠行词条 (E23 ×2 同值伪形修根)
+
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
 	runtimeTraceProjMarkCount
@@ -841,6 +844,13 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkAllZeroFoldNote, runtimeTraceProjLegendGroupCaliber,
 			"- `窗内无有效时长` = 该折叠行全部成员在窗内均无可计量时长,不作取最大声明;逐成员与证据见明细与证据索引。",
 			"- `no in-window effective duration` = every member of that fold carries no measurable in-window duration, so no member-MAX claim is made; members and evidence live in the detail blocks and the evidence index."},
+		// G12-ENG (§29.1, 2026-07-09): the MIXED fold's honest range wording —
+		// the legacy ×N(a–b) claim over every member fabricated the huadong_79
+		// E23 "×2 both at 14.272ms" same-value double from one valued member
+		// plus one zero-duration marker aggregate.
+		{runtimeTraceProjMarkValuelessFoldMembers, runtimeTraceProjLegendGroupCaliber,
+			"- `无时长值` = 该合并/折叠行中无可计量时长的成员;不参与取最大与 a–b 范围,仅计入成员数(「全部无时长值」=所有成员均无);逐成员见明细与证据索引。",
+			"- `without measurable duration` = members of that merged/fold row carrying no measurable duration; they never join the member-MAX or the a–b range and only count toward the member total (\"all without measurable duration\" = every member); members live in the detail blocks and the evidence index."},
 		// PTV6-C ruling A (#73, 用户裁定 2026-07-06): 有效归因/链上累计 belong to
 		// the chain universe — a ◇/▒ stanza row shows the same data under the
 		// cross-thread cumulative family word.
@@ -4261,13 +4271,29 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 		// cross-window MAX caliber likewise wears its own form (第五式).
 		if node.MergedIntervalUnion {
 			row.marks.mark(runtimeTraceProjMarkMergedUnion)
-			demoted = append(demoted, runtimeTraceProjMergedUnionTagText(node))
+			if runtimeTraceProjMergedValuelessWordRenders(node) {
+				row.marks.mark(runtimeTraceProjMarkValuelessFoldMembers) // G12-ENG 复核 P2-1 连带
+			}
+			demoted = append(demoted, runtimeTraceProjMergedUnionTagText(node, zh))
 		} else if node.MergedCrossWindowMax {
 			row.marks.mark(runtimeTraceProjMarkMergedWindowMax)
+			if runtimeTraceProjMergedValuelessWordRenders(node) {
+				row.marks.mark(runtimeTraceProjMarkValuelessFoldMembers) // G12-ENG (§29.1 + 复核 P1-1)
+			}
 			demoted = append(demoted, runtimeTraceProjMergedCrossWindowMaxTagText(node, zh))
 		} else {
-			row.marks.mark(runtimeTraceProjMarkMergedSum)
-			demoted = append(demoted, runtimeTraceProjMergedSumTagText(node))
+			// G12-ENG 复核 P2-2: the all-valueless R2 row wears NO ×N(a–b) sum
+			// notation (nothing summed), so the sum legend entry must not
+			// render for it — same fork discipline as the G19 all-zero fold.
+			if runtimeTraceProjMergedAllValueless(node) {
+				row.marks.mark(runtimeTraceProjMarkValuelessFoldMembers)
+			} else {
+				row.marks.mark(runtimeTraceProjMarkMergedSum)
+				if runtimeTraceProjMergedValuelessWordRenders(node) {
+					row.marks.mark(runtimeTraceProjMarkValuelessFoldMembers)
+				}
+			}
+			demoted = append(demoted, runtimeTraceProjMergedSumTagText(node, zh))
 		}
 	}
 	// 裁定4 applies to the target's own status rows too (lock_001 customer
@@ -4686,8 +4712,27 @@ func runtimeTraceProjDedupFoldTagText(count int, zh bool) string {
 
 // runtimeTraceProjMergedSumTagText is the R2 ×N SUM aggregate's inline data
 // token (PTV4 T4 ×N 三式): count + per-instance range only; the SUM semantics
-// live in the legend's 口径组 entry. Language-neutral (numbers + units).
-func runtimeTraceProjMergedSumTagText(node types.TraceCausalProjectionNode) string {
+// live in the legend's 口径组 entry. All-valued rows stay language-neutral
+// (numbers + units, byte-identical legacy form).
+//
+// G12-ENG 复核 P2-2 (2026-07-09): the mixed shape binds the range to the
+// VALUED members; the standalone all-zero R2 shape (the hmfs ×4 blocked_reason
+// aggregate when it does NOT overflow — same E23 class) says 全部无时长值
+// instead of the ×N(0.000–0.000ms) pseudo-value (G19 covers only the
+// subjectless fold; this is its R2 twin).
+func runtimeTraceProjMergedSumTagText(node types.TraceCausalProjectionNode, zh bool) string {
+	if runtimeTraceProjMergedAllValueless(node) {
+		if zh {
+			return fmt.Sprintf("×%d(全部无时长值)", node.MergedCount)
+		}
+		return fmt.Sprintf("×%d (all without measurable duration)", node.MergedCount)
+	}
+	if valued, valueless, mixed := runtimeTraceProjMergedValuedSplit(node); mixed {
+		if zh {
+			return fmt.Sprintf("×%d(有值%d项 %s,%d项无时长值)", node.MergedCount, valued, runtimeTraceProjMergedRangeText(node), valueless)
+		}
+		return fmt.Sprintf("×%d (%d valued %s, %d without measurable duration)", node.MergedCount, valued, runtimeTraceProjMergedRangeText(node), valueless)
+	}
 	return fmt.Sprintf("×%d(%.3f–%.3fms)", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
 }
 
@@ -4695,22 +4740,106 @@ func runtimeTraceProjMergedSumTagText(node types.TraceCausalProjectionNode) stri
 // row's inline data token (×N 第四式): count + per-instance range + the union
 // form suffix. The 不重复计/非求和 semantics live in the legend's 口径组
 // entry; the raw Σ and the window-source roster live in the (b) lossless
-// block. Language-neutral (numbers + the ASCII form token), like the SUM
-// form. Callers fork on the typed Node.MergedIntervalUnion flag — a union
-// row must NEVER wear the plain ×N(a–b) sum form (its legend entry claims
-// 数值为总和).
-func runtimeTraceProjMergedUnionTagText(node types.TraceCausalProjectionNode) string {
+// block. All-valued rows stay language-neutral (numbers + the ASCII form
+// token), like the SUM form. Callers fork on the typed
+// Node.MergedIntervalUnion flag — a union row must NEVER wear the plain
+// ×N(a–b) sum form (its legend entry claims 数值为总和).
+//
+// G12-ENG 复核 P2-1 连带: the mixed shape binds the range to the VALUED
+// members (same E23-class honesty as the max/sum/CWD tags — the fence and the
+// (b) block must not contradict on one row).
+func runtimeTraceProjMergedUnionTagText(node types.TraceCausalProjectionNode, zh bool) string {
+	if valued, valueless, mixed := runtimeTraceProjMergedValuedSplit(node); mixed {
+		if zh {
+			return fmt.Sprintf("×%d(有值%d项 %s,%d项无时长值)union", node.MergedCount, valued, runtimeTraceProjMergedRangeText(node), valueless)
+		}
+		return fmt.Sprintf("×%d (%d valued %s, %d without measurable duration) union", node.MergedCount, valued, runtimeTraceProjMergedRangeText(node), valueless)
+	}
 	return fmt.Sprintf("×%d(%.3f–%.3fms)union", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+}
+
+// runtimeTraceProjMergedAllValueless is the standalone all-zero R2 shape's
+// typed gate (G12-ENG 复核 P2-2): every merged member is valueless. Distinct
+// from the G19 subjectless-fold arm (runtimeTraceProjAllZeroFoldRow), which
+// keeps its own note wording.
+func runtimeTraceProjMergedAllValueless(node types.TraceCausalProjectionNode) bool {
+	return node.MergedCount > 1 && node.MergedValuelessCount >= node.MergedCount
+}
+
+// runtimeTraceProjMergedValuelessWordRenders reports whether a merged row's
+// tag renders the 无时长值 family word (mixed OR all-valueless) — the mark
+// gate keeping the legend's 双向契约.
+func runtimeTraceProjMergedValuelessWordRenders(node types.TraceCausalProjectionNode) bool {
+	if _, _, mixed := runtimeTraceProjMergedValuedSplit(node); mixed {
+		return true
+	}
+	return runtimeTraceProjMergedAllValueless(node)
+}
+
+// runtimeTraceProjMergedPerInstanceText renders the (b) detail forms'
+// per-instance segment (G12-ENG 复核 P2-1/P2-2 三面同词): the valued range on
+// all-valued rows (legacy byte-identical), the valued split on mixed rows,
+// the honest no-value wording on all-valueless rows.
+func runtimeTraceProjMergedPerInstanceText(node types.TraceCausalProjectionNode, zh bool) string {
+	if runtimeTraceProjMergedAllValueless(node) {
+		if zh {
+			return "全部无时长值"
+		}
+		return "all without measurable duration"
+	}
+	if valued, valueless, mixed := runtimeTraceProjMergedValuedSplit(node); mixed {
+		if zh {
+			return fmt.Sprintf("有值%d项单次 %s,另%d项无时长值", valued, runtimeTraceProjMergedRangeText(node), valueless)
+		}
+		return fmt.Sprintf("%d valued member(s) each %s, %d without measurable duration", valued, runtimeTraceProjMergedRangeText(node), valueless)
+	}
+	if zh {
+		return fmt.Sprintf("单次 %.3f–%.3fms", node.MergedMinMS, node.MergedMaxMS)
+	}
+	return fmt.Sprintf("each %.3f–%.3fms", node.MergedMinMS, node.MergedMaxMS)
 }
 
 // runtimeTraceProjMergedMaxTagText is the R3 cross-thread fold's inline data
 // token (PTV4 T4 ×N 三式): the 取最大/不求和 semantics live in the legend's
 // 口径组 entry; the member roster stays via the name lane / detail blocks.
+//
+// G12-ENG (§29.1, 2026-07-09): a MIXED fold (some members valueless) binds the
+// min–max range to the VALUED member count instead of the total — the legacy
+// "×2(14.272–14.272ms)取最大" over one 14.272ms member plus one zero-duration
+// blocked_reason aggregate fabricated a second 14.272ms observation under the
+// valueless member's subject (huadong_79 E23 → customer G12 raw-trace audit).
+// All-valued folds render byte-identically to the legacy form.
 func runtimeTraceProjMergedMaxTagText(node types.TraceCausalProjectionNode, zh bool) string {
+	if valued, valueless, mixed := runtimeTraceProjMergedValuedSplit(node); mixed {
+		if zh {
+			return fmt.Sprintf("×%d(有值%d项 %s,%d项无时长值)取最大", node.MergedCount, valued, runtimeTraceProjMergedRangeText(node), valueless)
+		}
+		return fmt.Sprintf("×%d (%d valued %s, %d without measurable duration) max", node.MergedCount, valued, runtimeTraceProjMergedRangeText(node), valueless)
+	}
 	if zh {
 		return fmt.Sprintf("×%d(%.3f–%.3fms)取最大", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
 	}
 	return fmt.Sprintf("×%d(%.3f–%.3fms) max", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+}
+
+// runtimeTraceProjMergedValuedSplit splits a merged row's member count into
+// valued vs valueless members (typed MergedValuelessCount, G12-ENG §29.1).
+// mixed is true only for the both-kinds shape — the all-valued legacy form and
+// the all-zero G19 form keep their existing render arms byte-identical.
+func runtimeTraceProjMergedValuedSplit(node types.TraceCausalProjectionNode) (valued, valueless int, mixed bool) {
+	valueless = node.MergedValuelessCount
+	valued = node.MergedCount - valueless
+	return valued, valueless, valueless > 0 && valued > 0
+}
+
+// runtimeTraceProjMergedRangeText renders the valued members' display range:
+// the single value when the range is degenerate (one valued member, or
+// min == max), the a–b form otherwise. Numbers + units only.
+func runtimeTraceProjMergedRangeText(node types.TraceCausalProjectionNode) string {
+	if node.MergedMinMS == node.MergedMaxMS {
+		return fmt.Sprintf("%.3fms", node.MergedMaxMS)
+	}
+	return fmt.Sprintf("%.3f–%.3fms", node.MergedMinMS, node.MergedMaxMS)
 }
 
 // runtimeTraceProjAllZeroFoldNoteText is the DISP-2 G19 one-line note for the
@@ -4740,6 +4869,14 @@ func runtimeTraceProjAllZeroFoldNoteText(node types.TraceCausalProjectionNode, z
 // flag — a MAX row must never wear the plain ×N(a–b) sum form (its legend
 // entry claims 数值为总和) nor the union form (per-segment deduction).
 func runtimeTraceProjMergedCrossWindowMaxTagText(node types.TraceCausalProjectionNode, zh bool) string {
+	// G12-ENG (§29.1): same mixed-fold honesty as the ×N取最大 tag — the
+	// range binds to the valued member count only.
+	if valued, valueless, mixed := runtimeTraceProjMergedValuedSplit(node); mixed {
+		if zh {
+			return fmt.Sprintf("×%d(有值%d项 %s,%d项无时长值)跨窗取最大", node.MergedCount, valued, runtimeTraceProjMergedRangeText(node), valueless)
+		}
+		return fmt.Sprintf("×%d (%d valued %s, %d without measurable duration) cross-window max", node.MergedCount, valued, runtimeTraceProjMergedRangeText(node), valueless)
+	}
 	if zh {
 		return fmt.Sprintf("×%d(%.3f–%.3fms)跨窗取最大", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
 	}
@@ -6288,19 +6425,43 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 			// V3: the R3 cross-thread fold publishes the member MAX (取最大
 			// legend entry; wall clock never sums across threads).
 			row.marks.mark(runtimeTraceProjMarkMergedMax)
+			if _, _, mixed := runtimeTraceProjMergedValuedSplit(node); mixed {
+				// G12-ENG (§29.1): mixed fold → the 无时长值 legend entry
+				// teaches the honest range wording exactly when it renders.
+				row.marks.mark(runtimeTraceProjMarkValuelessFoldMembers)
+			}
 			text = runtimeTraceProjMergedMaxTagText(node, zh)
 		} else if node.MergedIntervalUnion {
 			// §11-N2: cross-query-window union caliber — its own form token,
 			// never the sum form (whose legend entry claims 数值为总和).
 			row.marks.mark(runtimeTraceProjMarkMergedUnion)
-			text = runtimeTraceProjMergedUnionTagText(node)
+			if runtimeTraceProjMergedValuelessWordRenders(node) {
+				row.marks.mark(runtimeTraceProjMarkValuelessFoldMembers) // G12-ENG 复核 P2-1 连带
+			}
+			text = runtimeTraceProjMergedUnionTagText(node, zh)
 		} else if node.MergedCrossWindowMax {
 			// §21 CWD: overlapping-query-window MAX caliber (×N 第五式).
+			// G12-ENG 复核 P1-1: the mixed CWD tag renders the 无时长值 word —
+			// its legend entry must ride along (词条-图例双向契约).
 			row.marks.mark(runtimeTraceProjMarkMergedWindowMax)
+			if runtimeTraceProjMergedValuelessWordRenders(node) {
+				row.marks.mark(runtimeTraceProjMarkValuelessFoldMembers)
+			}
 			text = runtimeTraceProjMergedCrossWindowMaxTagText(node, zh)
 		} else {
-			row.marks.mark(runtimeTraceProjMarkMergedSum)
-			text = runtimeTraceProjMergedSumTagText(node)
+			// G12-ENG 复核 P2-2: mixed/all-zero R2 sum rows render the
+			// 无时长值 family word — same legend contract. The all-valueless
+			// row wears NO ×N(a–b) sum notation (nothing summed), so the sum
+			// legend entry must not render for it (G19 fork discipline).
+			if runtimeTraceProjMergedAllValueless(node) {
+				row.marks.mark(runtimeTraceProjMarkValuelessFoldMembers)
+			} else {
+				row.marks.mark(runtimeTraceProjMarkMergedSum)
+				if runtimeTraceProjMergedValuelessWordRenders(node) {
+					row.marks.mark(runtimeTraceProjMarkValuelessFoldMembers)
+				}
+			}
+			text = runtimeTraceProjMergedSumTagText(node, zh)
 		}
 		tags = append(tags, runtimeTraceProjTag{Text: text, Seg: 30})
 	}
@@ -8822,11 +8983,11 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 			} else if runtimeTraceProjSubjectlessFoldRow(node) {
 				name += " " + runtimeTraceProjMergedMaxTagText(node, zh)
 			} else if node.MergedIntervalUnion {
-				name += " " + runtimeTraceProjMergedUnionTagText(node)
+				name += " " + runtimeTraceProjMergedUnionTagText(node, zh)
 			} else if node.MergedCrossWindowMax {
 				name += " " + runtimeTraceProjMergedCrossWindowMaxTagText(node, zh)
 			} else {
-				name += " " + runtimeTraceProjMergedSumTagText(node)
+				name += " " + runtimeTraceProjMergedSumTagText(node, zh)
 			}
 		}
 		if node.DuplicatePublications > 1 {
@@ -9335,25 +9496,42 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 			} else if runtimeTraceProjSubjectlessFoldRow(node) {
 				// PTV8-RCR-B (UXA 域B #20, 2026-07-08). EVOLUTION RECORD:
 				// 「取最大口径…不求和」→ canonical 墙钟跨线程不可加和 (三面同词).
-				form = fmt.Sprintf("×%d 跨线程折叠取最大(墙钟跨线程不可加和),各 %.3f–%.3fms", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
-				if !zh {
-					form = fmt.Sprintf("×%d cross-thread fold, member MAX (wall clock never sums across threads), each %.3f–%.3fms", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+				// G12-ENG (§29.1, 2026-07-09): the MIXED fold binds 「各 a–b ms」
+				// to the VALUED members only — the legacy form claimed the range
+				// over every member and fabricated the huadong_79 E23 same-value
+				// double (one real 14.272ms member beside a zero-duration
+				// blocked_reason aggregate read as ×2 both-at-14.272ms).
+				if valued, valueless, mixed := runtimeTraceProjMergedValuedSplit(node); mixed {
+					form = fmt.Sprintf("×%d 跨线程折叠取最大(墙钟跨线程不可加和),有值%d项各 %s,另%d项无时长值", node.MergedCount, valued, runtimeTraceProjMergedRangeText(node), valueless)
+					if !zh {
+						form = fmt.Sprintf("×%d cross-thread fold, member MAX (wall clock never sums across threads), %d valued member(s) each %s, %d without measurable duration", node.MergedCount, valued, runtimeTraceProjMergedRangeText(node), valueless)
+					}
+				} else {
+					form = fmt.Sprintf("×%d 跨线程折叠取最大(墙钟跨线程不可加和),各 %.3f–%.3fms", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+					if !zh {
+						form = fmt.Sprintf("×%d cross-thread fold, member MAX (wall clock never sums across threads), each %.3f–%.3fms", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+					}
 				}
 			} else if node.MergedIntervalUnion {
 				// §11-N2: the union caliber discloses itself + the lossless raw
 				// Σ for cross-checking; K = the distinct member query windows.
+				// G12-ENG 复核 P2-1: the per-instance segment rides the shared
+				// valued-split helper — the fence tag and this (b) line must
+				// never contradict on one mixed row.
 				k := len(node.MergedQueryWindows)
-				form = fmt.Sprintf("×%d union 口径(%d 窗重叠段不重复计),原始和 %.3fms 供对照,单次 %.3f–%.3fms", node.MergedCount, k, node.MergedSumMS, node.MergedMinMS, node.MergedMaxMS)
+				form = fmt.Sprintf("×%d union 口径(%d 窗重叠段不重复计),原始和 %.3fms 供对照,%s", node.MergedCount, k, node.MergedSumMS, runtimeTraceProjMergedPerInstanceText(node, zh))
 				if !zh {
-					form = fmt.Sprintf("×%d union caliber (overlap across %d windows counted once), raw sum %.3fms for cross-checking, each %.3f–%.3fms", node.MergedCount, k, node.MergedSumMS, node.MergedMinMS, node.MergedMaxMS)
+					form = fmt.Sprintf("×%d union caliber (overlap across %d windows counted once), raw sum %.3fms for cross-checking, %s", node.MergedCount, k, node.MergedSumMS, runtimeTraceProjMergedPerInstanceText(node, zh))
 				}
 			} else if node.MergedCrossWindowMax {
 				// §21 CWD: the cross-window MAX caliber discloses itself, the
 				// max member's own window base and the lossless raw Σ.
+				// G12-ENG 复核 P2-1: per-instance segment via the shared
+				// valued-split helper (同上).
 				k := len(node.MergedQueryWindows)
-				form = fmt.Sprintf("×%d 跨窗取最大(%d 个查询窗互相重叠,互相重叠的查询窗量值不可求和),原始和 %.3fms 供对照,单次 %.3f–%.3fms", node.MergedCount, k, node.MergedSumMS, node.MergedMinMS, node.MergedMaxMS)
+				form = fmt.Sprintf("×%d 跨窗取最大(%d 个查询窗互相重叠,互相重叠的查询窗量值不可求和),原始和 %.3fms 供对照,%s", node.MergedCount, k, node.MergedSumMS, runtimeTraceProjMergedPerInstanceText(node, zh))
 				if !zh {
-					form = fmt.Sprintf("×%d cross-window MAX caliber (%d overlapping windows; overlapping-window magnitudes never sum), raw sum %.3fms for cross-checking, each %.3f–%.3fms", node.MergedCount, k, node.MergedSumMS, node.MergedMinMS, node.MergedMaxMS)
+					form = fmt.Sprintf("×%d cross-window MAX caliber (%d overlapping windows; overlapping-window magnitudes never sum), raw sum %.3fms for cross-checking, %s", node.MergedCount, k, node.MergedSumMS, runtimeTraceProjMergedPerInstanceText(node, zh))
 				}
 				if node.MergedMaxWindowStartTs > 0 && node.MergedMaxWindowEndTs > node.MergedMaxWindowStartTs {
 					if zh {
@@ -9362,12 +9540,22 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 						form += fmt.Sprintf("; max-member window base = query window %.3f–%.3fs", node.MergedMaxWindowStartTs, node.MergedMaxWindowEndTs)
 					}
 				}
+			} else if runtimeTraceProjMergedAllValueless(node) {
+				// G12-ENG 复核 P2-2: the standalone all-zero R2 row (the hmfs ×4
+				// blocked_reason shape when it does NOT overflow) — no SUM claim
+				// and no 0.000 pseudo-range over marker rows.
+				form = fmt.Sprintf("同一线程 %d 次实例合并,全部无时长值", node.MergedCount)
+				if !zh {
+					form = fmt.Sprintf("%d instances of one thread merged, all without measurable duration", node.MergedCount)
+				}
 			} else {
 				// PTV8-RCR-B (UXA 域B #19, 2026-07-08). EVOLUTION RECORD:
 				// 「求和口径」→ 客户话「同一线程 N 次实例合并求和」.
-				form = fmt.Sprintf("同一线程 %d 次实例合并求和,单次 %.3f–%.3fms", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+				// G12-ENG 复核 P2-2: the per-instance segment rides the shared
+				// valued-split helper (mixed rows disclose their valueless part).
+				form = fmt.Sprintf("同一线程 %d 次实例合并求和,%s", node.MergedCount, runtimeTraceProjMergedPerInstanceText(node, zh))
 				if !zh {
-					form = fmt.Sprintf("%d instances of one thread merged as a SUM, each %.3f–%.3fms", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+					form = fmt.Sprintf("%d instances of one thread merged as a SUM, %s", node.MergedCount, runtimeTraceProjMergedPerInstanceText(node, zh))
 				}
 			}
 			// PTV8-RCR-B (UXA 域B #19/#20, 2026-07-08): a roster that is

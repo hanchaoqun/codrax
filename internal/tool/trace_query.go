@@ -5958,6 +5958,30 @@ func traceQuerySameValueMemberNote(members []tracequery.WakeupCausalImpact, maxM
 	return strings.Join(entries, ",")
 }
 
+// traceQueryAggregateFoldTieNote renders the engine-computed P2-1 tie roster
+// into the same "<subject>@<line_start>-<line_end>" comma-joined note form as
+// traceQuerySameValueMemberNote (single parser downstream —
+// traceCausalProjectionParseSameValueMembers). The engine helper already
+// enforces the ≥2-labeled-ties / cap-4 / strict-band discipline, so this is a
+// pure formatter; "" zero-drops the note.
+func traceQueryAggregateFoldTieNote(ties []tracequery.WakeupCausalAggregateFoldTieMember) string {
+	if len(ties) < 2 {
+		return ""
+	}
+	entries := make([]string, 0, len(ties))
+	for _, tie := range ties {
+		label := strings.TrimSpace(tie.Label)
+		if label == "" {
+			continue
+		}
+		entries = append(entries, fmt.Sprintf("%s@%d-%d", label, tie.LineStart, tie.LineEnd))
+	}
+	if len(entries) < 2 {
+		return ""
+	}
+	return strings.Join(entries, ",")
+}
+
 // traceQueryWakeupCausalAggregateFoldRecord builds the PTS-2 engine-level
 // aggregate fold record (#69 用户条件裁定 2026-07-06): the engine's aggregate
 // top-8 trim folded its rank>8 overflow into ONE bounded synthetic member
@@ -5999,6 +6023,11 @@ func traceQueryWakeupCausalAggregateFoldRecord(scope string, ref types.Observati
 			{types.TraceNoteKeyFoldedMinMS, traceQueryObservationMSValue(fold.MinImpactMs)},
 			{types.TraceNoteKeyFoldedMaxMS, traceQueryObservationMSValue(fold.MaxImpactMs)},
 			{types.TraceNoteKeyFoldedSubjects, strings.Join(fold.Subjects, ",")},
+			// P2-1 (DIAG A1 第四取最大点, G12-ENG batch, 2026-07-09): the
+			// engine's own tie roster rides the EXISTING same_value_members
+			// note (zero new keys; the projection compile re-materializes it
+			// into node.SameValueMembers — consumer chain built by DIAG A1).
+			{types.TraceNoteKeySameValueMembers, traceQueryAggregateFoldTieNote(fold.SameValueMembers)},
 			{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(window)},
 		}),
 		SupportRefs: traceQueryObservationSupportRefs(ref, span.LineStart, span.LineEnd),

@@ -881,6 +881,7 @@ func traceCausalProjectionAggregateSameKind(nodes []TraceCausalProjectionNode) [
 func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode, first int, members []int) TraceCausalProjectionNode {
 	aggregate := nodes[first]
 	var sum, minMS, maxMS float64
+	valuelessRows := 0
 	absorbed := map[string]bool{traceCausalProjectionCanonicalNode(aggregate.EvidenceID): true}
 	for _, idx := range members {
 		member := nodes[idx]
@@ -888,6 +889,12 @@ func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode
 		display := member.ImpactMS
 		if display <= 0 {
 			display = member.CumulativeImpactMS
+		}
+		// G12-ENG (§29.1): non-positive display members never enter the
+		// min–max range below — count them so the ×N range claim stays honest
+		// (same accounting as the on-chain overflow fold constructor).
+		if display <= 0 {
+			valuelessRows++
 		}
 		sum += display
 		if minMS == 0 || (display > 0 && display < minMS) {
@@ -934,6 +941,7 @@ func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode
 	aggregate.MergedCount = len(members)
 	aggregate.MergedMinMS = minMS
 	aggregate.MergedMaxMS = maxMS
+	aggregate.MergedValuelessCount = valuelessRows
 	aggregate.ImpactMS = sum
 	aggregate.CumulativeImpactMS = sum
 	// COV §24.9 D-1: TargetImpactMS re-derives as the member MAX — the

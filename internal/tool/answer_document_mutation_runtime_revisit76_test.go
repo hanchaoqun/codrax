@@ -707,6 +707,12 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// both faces — the engine helper has no EN form; G10-class debt noted
 		// in §28.7), so the zh token doubles as the EN-face probe.
 		runtimeTraceProjMarkFamilyCountEquivalent: {"计数当量", "计数当量"},
+		// G12-ENG (§29.1 + 复核 P2-2): the 无时长值 family word — renders
+		// exactly when a merged row folds valueless members (mixed form
+		// "N项无时长值" / standalone all-zero R2 form "全部无时长值"; the E23
+		// fabricated-double witness class). The shared stem is the probe so
+		// both forms satisfy the bidirectional contract.
+		runtimeTraceProjMarkValuelessFoldMembers: {"无时长值", "without measurable duration"},
 	}
 }
 
@@ -1172,6 +1178,10 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		{"cap2_topology_keyed_rail", revisit76CAP2TopologyProjection(runtimeTraceCapabilityTopologyKeyedRail, 1850000)},
 		// CAP 复核 F1: the demoted-basis word + its legend seat.
 		{"cap_reference_demoted", revisit76CAPDemotedReferenceProjection()},
+		// G12-ENG (§29.1): the mixed valued+valueless fold (huadong_79 E23
+		// shape) + its 无时长值 legend entry (fixture home:
+		// answer_document_projection_valueless_fold_g12_test.go).
+		{"g12_mixed_valueless_fold", g12MixedFoldProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

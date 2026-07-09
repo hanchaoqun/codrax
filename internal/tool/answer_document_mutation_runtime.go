@@ -3281,6 +3281,12 @@ func runtimeTraceCausalProjectionAuditDetail(node types.TraceCausalProjectionNod
 	// stays auditable from the roster entry.
 	if node.MergedCount > 1 {
 		parts = append(parts, fmt.Sprintf("merged_count=%d", node.MergedCount))
+		// G12-ENG (§29.1, 2026-07-09): valueless-member accounting on the audit
+		// face — merged_count alone let the E23 fold read as two same-value
+		// observations when one member carried no duration at all.
+		if node.MergedValuelessCount > 0 {
+			parts = append(parts, fmt.Sprintf("merged_valueless=%d", node.MergedValuelessCount))
+		}
 	}
 	// F5: the duplicate-publication fold (ONE measurement republished N times)
 	// is typed provenance distinct from both the R1 same-fact merge and the R2

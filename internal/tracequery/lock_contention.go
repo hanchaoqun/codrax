@@ -36,6 +36,16 @@ var (
 	lockContentionOwnerTidRe = regexp.MustCompile(`\(owner tid: ([0-9]+)\)`)
 	lockContentionTrailTidRe = regexp.MustCompile(`\(([0-9]+)\)$`)
 	lockContentionWaitersRe  = regexp.MustCompile(` waiters=([0-9]+)`)
+	// lockContentionOwnerTidKeyRe is the BLIND-2 GENERALIZED owner-tid key form
+	// (§29.2 / §29.7-1 ruling, real_trace_campaign_20260705.md, 2026-07-09):
+	// the literal `owner tid` key + a `:` or `=` separator (spaces tolerated) +
+	// an integer, ANCHORED ON THE KEY ITSELF rather than any parenthesis or
+	// prefix wording. Rationale (裁定原文): the owner-tid key is the carrying
+	// signal — a keyed precise form, the §28.4 cpu_id keyed-rail analogy —
+	// while the prefix text ("Lock contention on …", vendor variants) is
+	// runtime free vocabulary; anchoring on the key covers the ART census form
+	// and future vendor spellings without enumerating prefixes per flavor.
+	lockContentionOwnerTidKeyRe = regexp.MustCompile(`\bowner tid\s*[:=]\s*([0-9]+)`)
 )
 
 type lockContentionInfo struct {
@@ -92,6 +102,21 @@ func ownerTidIsSentinel(v uint64) bool {
 // name. ok is true whenever the payload matches one of the fixed contention
 // formats — even when no owner could be extracted, so callers keep the typed
 // blocking semantics and fall back to an ownerless contention row.
+//
+// BLIND-2 two-arm structure (§29.7-1 ruling, 2026-07-09):
+//   - PREFERRED rich-grammar arm: "monitor contention with owner …" — it
+//     carries the holder_site signature, waiters, blocking-from and the '-->'
+//     hand-off chain, so a span matching it never falls through to the
+//     generalized arm (信息更全,先匹配).
+//   - GENERALIZED owner-tid keyed arm: any span whose name carries the
+//     `owner tid[:=]<N>` key form mints a lock-contention-family candidate —
+//     owner tid payload-direct, the span text verbatim as the holder-point
+//     description, absent segments (at/blocking from/waiters) left empty
+//     (不造). The known ART "Lock contention on …" spelling keeps its
+//     byte-identical richer subject trimming (and its ownerless admission —
+//     that spelling is contention semantics even without the key) as a
+//     spelling-specific refinement INSIDE this family; every other prefix is
+//     free vocabulary and rides the key alone.
 func parseLockContentionPayload(name string) (lockContentionInfo, bool) {
 	name = strings.TrimSpace(name)
 	switch {
@@ -100,8 +125,45 @@ func parseLockContentionPayload(name string) (lockContentionInfo, bool) {
 	case strings.HasPrefix(name, lockContentionLockPrefix):
 		return parseLockContentionOnPayload(strings.TrimPrefix(name, lockContentionLockPrefix)), true
 	default:
+		return parseOwnerTidKeyedPayload(name)
+	}
+}
+
+// parseOwnerTidKeyedPayload is the BLIND-2 generalized arm: a span name
+// carrying the `owner tid[:=]<N>` key form (census_report_a ⑦: 5600+
+// "Lock contention on InternTable lock (owner tid: N)" ART rows plus future
+// vendor prefixes) mints a lock-contention-family candidate. The owner tid is
+// payload-direct (same sentinel discipline as the ART arms: 0 / uint64(-1) →
+// typed ownerless, never a Peer id — census witness: 469 tid-0 rows); the
+// FULL verbatim span name is preserved as the wait-object / holder-point
+// description (专名如 InternTable 保英文 — the payload is never translated);
+// holder_site / blocking_from / waiters stay empty — this form carries no
+// such segments and absence never invents one.
+func parseOwnerTidKeyedPayload(name string) (lockContentionInfo, bool) {
+	loc := lockContentionOwnerTidKeyRe.FindStringSubmatchIndex(name)
+	if loc == nil {
 		return lockContentionInfo{}, false
 	}
+	info := lockContentionInfo{Kind: blockingKindLockContention}
+	if v, err := strconv.ParseUint(name[loc[2]:loc[3]], 10, 64); err == nil {
+		if ownerTidIsSentinel(v) {
+			info.OwnerAbsent = true
+		} else if v <= math.MaxInt64 {
+			info.Owner.PID = int(v)
+		} else {
+			info.OwnerAbsent = true
+		}
+	}
+	info.WaitObject = name
+	return info, true
+}
+
+// spanNameCarriesOwnerTidKey reports whether a span name carries the BLIND-2
+// generalized owner-tid key form — the admission-side twin of
+// parseOwnerTidKeyedPayload (the key IS the carrying signal, so a vendor
+// prefix without any blocking-vocabulary token still admits).
+func spanNameCarriesOwnerTidKey(name string) bool {
+	return lockContentionOwnerTidKeyRe.MatchString(name)
 }
 
 // parseMonitorContentionOwnerPayload handles the ART "monitor contention with
@@ -183,7 +245,18 @@ func parseMonitorContentionOwnerPayload(body string) lockContentionInfo {
 func parseLockContentionOnPayload(body string) lockContentionInfo {
 	info := lockContentionInfo{Kind: blockingKindLockContention}
 	subject := body
-	if loc := lockContentionOwnerTidRe.FindStringSubmatchIndex(body); loc != nil {
+	loc := lockContentionOwnerTidRe.FindStringSubmatchIndex(body)
+	if loc == nil {
+		// BLIND-2 (§29.7-1): the strict "(owner tid: N)" paren form missed —
+		// consult the generalized key form (`owner tid[:=]N`, spaces
+		// tolerated) so a separator/spacing variant of this known spelling
+		// keeps its payload-direct owner instead of degrading to ownerless.
+		// Strictly additive: payloads without the key stay byte-identical.
+		if keyed := lockContentionOwnerTidKeyRe.FindStringSubmatchIndex(body); keyed != nil {
+			loc = keyed
+		}
+	}
+	if loc != nil {
 		// ParseUint (not Atoi): the uint64(-1) sentinel is a 20-digit value that a
 		// signed Atoi silently clamps to MaxInt64, producing the bogus
 		// 9223372036854775807 "owner". 0 and math.MaxUint64 are EXPLICIT no-holder
@@ -201,8 +274,17 @@ func parseLockContentionOnPayload(body string) lockContentionInfo {
 		}
 		subject = body[:loc[0]]
 	}
-	info.WaitObject = strings.TrimSpace(subject)
-	if strings.TrimSpace(strings.ToLower(subject)) == "a monitor lock" {
+	// The keyed fallback anchors INSIDE the parenthetical, so a wrapping "("
+	// may remain on the subject tail; the strict paren form never leaves one
+	// (its match starts at the "(") — the trim is a no-op there.
+	info.WaitObject = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(subject), "("))
+	// G12-ENG 复核 P3-1: the monitor reclassification reads the TRIMMED
+	// subject — the keyed fallback anchors inside the parenthetical and used
+	// to leave the wrapping "(" on the raw subject, so
+	// "a monitor lock (owner tid= 5)" silently lost its monitor kind.
+	// Strict-form behavior is byte-identical (its subject never carries the
+	// paren, and WaitObject is exactly the old trimmed comparand).
+	if strings.ToLower(info.WaitObject) == "a monitor lock" {
 		info.Kind = blockingKindMonitorContention
 	}
 	return info

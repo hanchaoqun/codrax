@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // unparsedLineCaveatRatio is the fraction of scanned lines that must fail to
@@ -8422,11 +8424,14 @@ func applyAggregateGatedInversion(chain *ChainResult, item *WakeupCausalAggregat
 // PTV5 wire-cap fold roster bound) and the line/ts envelope. Returns nil on an
 // empty overflow so callers can assign unconditionally.
 //
-// same-value tie disclosure pending (DIAG A1 第四取最大点, 复核 P2-1 裁定):
-// this fold retains no per-member (value, line-range) detail, so the G12
-// µs-tie member roster (same_value_members) cannot be emitted here yet —
-// adjudicated into the G12-ENG batch; see ledger §29.6 / G12-ENG
-// (docs/design/real_trace_campaign_20260705.md).
+// P2-1 (DIAG A1 第四取最大点, G12-ENG batch, ledger §29.6, 2026-07-09): the
+// fold now ALSO retains the µs-tie member roster — members whose
+// DominantImpactMs ties the published MAX inside the shared strict band
+// (types.TraceCausalProjectionSameValueTieMS) are kept as (label, line-range)
+// entries (cap 4, ≥2 labeled ties or none), so the record builder can emit
+// the EXISTING same_value_members note from this take-MAX point too (zero new
+// note keys; consumer chain built by DIAG A1). Disclosure only — every
+// published fold figure above is final before the roster is computed.
 func foldWakeupCausalAggregateOverflow(overflow []WakeupCausalAggregate) *WakeupCausalAggregateFold {
 	if len(overflow) == 0 {
 		return nil
@@ -8464,7 +8469,41 @@ func foldWakeupCausalAggregateOverflow(overflow []WakeupCausalAggregate) *Wakeup
 			fold.LastTs = member.LastTs
 		}
 	}
+	fold.SameValueMembers = wakeupCausalAggregateFoldTies(overflow, fold.MaxImpactMs)
 	return fold
+}
+
+// wakeupCausalAggregateFoldTies collects the P2-1 µs-tie roster over one
+// trimmed overflow: members with a non-empty thread label whose
+// DominantImpactMs ties maxMS inside the strict shared band. Cap 4; fewer
+// than TWO ties return nil (one member at the max is just the max, not a
+// suspected double). Pure read — callers pass the already-final maxMS.
+func wakeupCausalAggregateFoldTies(overflow []WakeupCausalAggregate, maxMS float64) []WakeupCausalAggregateFoldTieMember {
+	if maxMS <= 0 {
+		return nil
+	}
+	var ties []WakeupCausalAggregateFoldTieMember
+	for _, member := range overflow {
+		label := strings.TrimSpace(threadLabel(member.Thread))
+		if label == "" {
+			continue
+		}
+		v := member.DominantImpactMs
+		if v <= 0 || math.Abs(v-maxMS) >= types.TraceCausalProjectionSameValueTieMS {
+			continue
+		}
+		if len(ties) < 4 {
+			ties = append(ties, WakeupCausalAggregateFoldTieMember{
+				Label:     label,
+				LineStart: member.LineStart,
+				LineEnd:   member.LineEnd,
+			})
+		}
+	}
+	if len(ties) < 2 {
+		return nil
+	}
+	return ties
 }
 
 // detectPeriodicWakeupSource implements the VS-1 (§7.8) periodic-signal-source
@@ -13900,7 +13939,12 @@ func enrichCriticalBlockingWithChainContext(chain ChainResult, items []CriticalB
 // (§7.30.3 D1) live here so the two faces can never drift. ok=false for spans
 // that are not blocking-like at all.
 func blockingSpanCandidateFromTraceSpan(span TraceSpanSummary) (CriticalBlockingCandidate, bool) {
-	if !isBlockingLikeText(span.Name) {
+	// BLIND-2 (§29.7-1): the generalized `owner tid[:=]<N>` key form admits on
+	// its own — the key is the carrying signal (keyed precise form); the
+	// blocking-vocabulary screen keeps admitting the free-text family exactly
+	// as before, so a vendor prefix without lock/wait tokens no longer hides
+	// its contention span from this lane.
+	if !isBlockingLikeText(span.Name) && !spanNameCarriesOwnerTidKey(span.Name) {
 		return CriticalBlockingCandidate{}, false
 	}
 	cand := CriticalBlockingCandidate{
