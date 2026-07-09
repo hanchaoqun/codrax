@@ -1769,3 +1769,22 @@ Donghu 类与鸿蒙类 trace 同硬件平台——CAP-2 五重门**不设 flavor
 交付:Tier-1=既有 CFR-2 共动推导补强为合格算力证据(样本下限 floor=2 capability 车道/类排序 fmax 治理梯 limits>rail>observed——witness:observed 序曾把中簇 1744000 误判大核)+Tier-2=cluster_rail_evidence.go 六门(⑥负向筛九词含 temp/tsens→①族形≥2→②键控异锚(hmtrace 位置形诚实回退=flavor 中立)→③全 trace 恒锚不变式→④kHz 量纲带→⑤锚集⊆调度 CPU 集;成员锚点连续推定;>1 过门族歧义整体回退;首簇前空洞不归属零猜测)+交叉验证(正向矛盾整弃 Tier-2/vacuous 不定罪)+细分(嵌套才切/横跨=structure_conflict 弃)。三级披露词 zh/EN verbatim+图例;typed 全链(fold_cluster_topology/gated_cluster_topology hard+fold_rail_basis 审计);explicit/legacy 字节保全负向 pin;THERM 热限披露(锚集⊆单簇归属+窗内 min+精确<fmax 门,零权重双 trace 恒等 pin);pid_freq 四假设量纲筛(10240923 源头消除;190091 类存活仅入"单位不明"caveat 软面);§7.10 增臂演化(原禁令逐字保全+例外臂三探针,idx3 空转已修)。19/19 突变咬红(含 thermal 伪族/heca_info/soc_temp 三形)。复核=零行为级缺陷。
 **留观/裁定候选**:split 域未采样核 class 继承 vs 锚推定披露不一致(角落形)/THERM 同簇 limits 不一致取最紧(方向多报)/fold_rail_basis zh-only(G10-EN 债+1)/双过门族择一/floor 触发 Tier-2 补救/"limit/cap/budget" 负向词观察。
 **战役状态**:§27 20/20+§28.1-§28.6 全部立案批完结;余 3.3c DIAG(§28.11-3+TDIAG 缺 API 引擎半场)=收官批。
+
+# §29 首轮回传对账(2026-07-09,客户 tracediag 六报告:census a/c 成功+b/d 撞预算,g12 五步,d10 两步)
+
+## §29.1 两悬案裁定
+- **G12=同段双归属实锤(间接三证)**:①hmfs_discard-26-562 全区间 prev_state=D 切换**零命中**(其 IO 等待=S 态+sched_blocked_reason iowait=1,平台语义新发现);②oney 窗2 D 态合计仅 0.011ms(rank#4 行印证);③两成员 14.272ms 同值到 μs 而两线程物理上都不存在该量级 D/iowait 段——两条观测必为同一底层区间集的双端点重复计算。**立案 G12-ENG**(排 DIAG 后):critical_blocking d_state_or_io_wait 车道对 S+iowait 形的跨线程双归属修根;合成 S+iowait 形可本地复现,不再需客户数据。DIAG-A1 同值披露落地后回传输出可直接showcase。
+- **D-10=两口径各真、来源不同,机制闭案**:timeline 双账本显示 per-interval actual_duration 仅窗裁剪区间携带(状态级 actual);79 引用的 actual_total=112.234=线程级观测合计(state_churn 合计),表面 59.050=running 单态 actual——非数据错误,是双口径并存无互斥披露。DIAG-A2 typed 披露即终态修。**TDIAG P0 修复实战验证**:thread-only 选择子正确解析 tid 16816(tgid=16547 双账本)。
+## §29.2 格式盲点清单(census 四 trace)
+- **BLIND-1** `print 引擎分类=unknown` 868/1090 条(两 ftrace 各 ~2-3% marker)——非 B/E/C/S/F 载荷形未识别;census 需补"未分类 trace_mark 载荷形直方"子面定位具体形。
+- **BLIND-2 InternTable 锁风暴形**(xuewen 新场景 trace):"Lock contention on InternTable lock (owner tid: N)" ART 形 5600+ 条、数十 owner——**不在 monitor_contention 解析形内**("monitor contention with owner"形),锁车道新格式立案(xuewen 场景大概率是下一个 case)。
+- **BLIND-3** C| counter 事件 1731/1323 条(占 marker ~4-8%)——counter 车道消费=候选;S|/F| async span 存在但稀少(≤8)。东湖 trace 出现 span 名 "20"/"10"(154/116 条)疑 B| 载荷退化形,留一探针。
+- entry_name=0/72194——本平台 FS 事件全经 mm_filemap 无文件名,inode→路径 entry_name 途径死账(§28.6 候选降级)。
+- cpu_frequency_limits 仅覆盖 {0,2,10}(prime 簇 12 无 limits)——CAP-2 治理梯 limits>rail 的 rail 臂在 prime 簇为唯一治理源,两级梯设计被生产数据印证;m3_cN 恒锚 {0}{2}{10}{12}+thermal_i2_cN 新索引热族/shell_frame_temp/ptr_budget_level/pi_boost_load 全部被六门+负向筛正确排除(真轨 zoo 生产验证)。
+- prio 直方:301 系(万级)+负 prio(-1/-2)大量+X 态存在——现分类保守正确。
+## §29.3 生产 witnesses(新机制客户产线实锤)
+core_class=small/middle 入 window_stats(CAP-2 簇判定生效,"簇结构不可判"在东湖 trace 消失)/data_gap "no rank seat" 措辞/tracediag 全链(census 92-95 行、g12 零命中步诚实 caveats+流式 160 万行扫描、d10 双账本 350/1243 帽披露)。census b/d 撞 250K 索引预算=DIAG-B2 StreamScan 的活证(落地后全文件普查脱预算;过渡=census 加窗)。
+## §29.4 账面更正(如实)
+79 审计曾判 opendir 成文 "inode 0x6a16/约153ms" 为编造——**更正**:io_pressure 行 top_inode=0x6a16 d_state=157.402ms 为真实引擎 token(explore 期 window_stats 面),非幻觉;PSG-G14"终面证据外禁引用"裁定不变(该值未入终面),但性质=越面引用非编造。
+## §29.5 队列
+DIAG(在途)→G12-ENG+BLIND-2(引擎,DIAG 后)→BLIND-1 census 子面+BLIND-3 counter 候选(裁定池)。等待:四场景回访输出(验收对账主体未回传)。tracediag 观察:thread 过滤含发射者 tgid 命中(原始采集面可接受,读法注意);tppmgr data_gap 同线程双条(dedup 候选)。
