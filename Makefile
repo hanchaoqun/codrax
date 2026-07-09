@@ -117,8 +117,12 @@ GOARCH ?= $(shell $(GO) env GOARCH)
 build: build-native
 
 ifeq ($(HOST_OS),windows)
+# On failure, point straight at the low-memory path: commit-limited hosts
+# (customer witness 2026-07-09, VirtualAlloc errno=1455 / "cannot allocate
+# memory" during parallel package compiles) need `make lowmem`, and nobody
+# reads docs mid-failure. Hint text stays ASCII: GBK consoles mangle UTF-8.
 build-native:
-	$(WINDOWS_GO_ENV) & $(GO) build $(GOFLAGS) -ldflags '$(LD_VERSION) $(LDFLAGS)' -o $(OUT) .
+	$(WINDOWS_GO_ENV) & $(GO) build $(GOFLAGS) -ldflags '$(LD_VERSION) $(LDFLAGS)' -o $(OUT) .; if (-not $$?) { Write-Host ''; Write-Host 'BUILD FAILED. If the error above mentions out of memory / VirtualAlloc errno=1455: run ''make lowmem'' (serialized low-memory build). See docs/design/revisit_acceptance_pack_20260709.md for details.'; exit 1 }
 else
 build-native:
 	CGO_ENABLED=1 $(GO) build $(GOFLAGS) -ldflags '$(LD_VERSION) $(LDFLAGS)' -o $(OUT) .
@@ -143,7 +147,7 @@ endif
 
 ifeq ($(HOST_OS),windows)
 lowmem:
-	$(WINDOWS_GO_ENV) $$env:GOGC='50'; & $(GO) build -p 1 -gcflags=all=-c=1 $(GOFLAGS) -ldflags '$(LD_VERSION) $(LDFLAGS)' -o $(OUT) .
+	$(WINDOWS_GO_ENV) $$env:GOGC='50'; & $(GO) build -p 1 -gcflags=all=-c=1 $(GOFLAGS) -ldflags '$(LD_VERSION) $(LDFLAGS)' -o $(OUT) .; if (-not $$?) { Write-Host ''; Write-Host 'LOWMEM BUILD FAILED. If still out-of-memory (errno=1455): enlarge the Windows pagefile (System Properties -> Advanced -> Performance -> Virtual memory; set system-managed or >= 16 GB), or set $$env:GOMEMLIMIT=''2GiB'' and retry.'; exit 1 }
 else
 lowmem:
 	CGO_ENABLED=1 GOGC=50 $(GO) build -p 1 -gcflags=all=-c=1 $(GOFLAGS) -ldflags '$(LD_VERSION) $(LDFLAGS)' -o $(OUT) .
