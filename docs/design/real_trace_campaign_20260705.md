@@ -1698,3 +1698,6 @@ CAP-2=等 T1 裁定。
 残余假设诚实披露:成员归属=锚点连续分段**推定**(披露词单列"成员按锚点连续推定",与"簇拓扑=簇轨实测"分开);fmax=该轨 trace 内治理时间线最大值(沿 CMP-10)。
 **§7.10 VS-2c=演化非推翻**:轨名单独绑定仍禁(isCPUFrequencyClockName 名字启发仍只软引导);新增"键控簇轨复合门"例外臂;semantic_ruling_pins_test 结构 pin 走 EVOLUTION RECORD 增臂不删原 pin。thermal 轨不入 fmax 基,另立"热限披露"候选(供给侧背景证据,未立批)。
 预期效果:Donghu 类 trace CAP 从"簇结构不可判,按纯频率比折算"升级"按实测簇轨折算(成员按锚点连续推定)";门不过的 trace 行为不变,零回归面。验收=两原件复放对照。排期 Wave-3.3(GAP-A/TEX 落地后,tracequery 域)。
+
+### §28.4 补充裁定(用户 2026-07-09):flavor 中立复用
+Donghu 类与鸿蒙类 trace 同硬件平台——CAP-2 五重门**不设 flavor 门**,ftrace/hitrace 同一条接线(门是结构判定,与 flavor 无关);同平台鸿蒙 trace 发同样键控轨族即自然过门升级实测折算。边界:**跨 trace 拓扑移植不自动做**——无键控轨的 trace(如 hmtrace 无键位置形 cpu-cluster.N,无 cpu_id 锚)诚实回退默认表,不得借"同平台"移植他份 trace 实测拓扑(平台身份无 trace 内精确信号,absence never guesses);未来 trace 元数据携平台标识可再议移植臂。
