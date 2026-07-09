@@ -1760,3 +1760,7 @@ Donghu 类与鸿蒙类 trace 同硬件平台——CAP-2 五重门**不设 flavor
 
 ### §28.12 补充裁定(用户 2026-07-09):TDIAG 增格式普查面(不留 trace 格式盲点)
 诊断簇除个案取证外,增**格式盲点普查**步骤类(format census):从客户 trace 收"支撑后续扩展与优化方向"的观察面——全部聚合统计+有界样本,回传体量小:①事件名全谱(逐名计数+解析分类,**unknown 分类 top-N 名单=盲点清单**,hmfs_ 类漏采即此面自动暴露)②标记形普查(B|/E|/S|/F|/C| 计数、H: 前缀占比、|I 尾形——async span/counter 事件支持盲点)③clock_set_rate 轨谱(轨名×异 cpu_id 数×值域×计数=CAP 证据发现面)④调度域(prio 直方含>139、prev_state token 集、next_info 覆盖率)⑤FS/IO(前缀谱+ino/dev/entry_name kv 覆盖率)⑥电源事件覆盖(frequency/limits/idle per-CPU)⑦span 普查(top 名+语义 near-miss 名单+H: 占比)⑧行级(总行/不可解析行数+有界样本/时间轴健全)。全部 top-N 帽+总数披露(截断诚实)。若引擎缺计数 API:TDIAG 批先列缺口清单,CENSUS 半场随 CAP-2 落地后补(引擎域并发约束)。出货 collect_format_census.yaml。
+
+## §28.13 TDIAG 收账(2026-07-09,推 main;§28.12+补充全量闭环)
+交付:--tracediag 确定性收集模式(纯读/零 LLM/initApp 旁路 L1 零接触;strict YAML 全家桶 fail-loud;步帽 800 硬帽 1000+总帽 5000 两侧诚实披露;反射证据面渲染 map 全排序双跑 byte-equal pin;秒坐标定点 6 位/ms 对齐引擎 %.3f;--out temp+rename 失败不碰旧报告;冲突 flag fail-loud+日志 flag 披露)+八面格式普查(unknown 事件名盲点清单/标记形 S|F|C|/clock 轨谱/prio>139 直方/FS kv 覆盖率/电源覆盖/span 普查/行级健全;census 步 window/line scope 过滤)+四出货脚本(g12 五步 pattern 采 D 段起点行闭合判定点、d10 thread-only、acceptance、census;单文件预算≤950 机械 pin)。复核 P0=d10 pid+thread 同设采错线程(引擎 pid-first)——脚本修+装载层 fail-loud 三形堵death;P1=g12 对半拆行区间预设"不重合"伪证(改全区间+pattern 采样)+浮点科学计数法;P2=out 先建后验/确定性 pin 缺失/冲突 flag 静默。17 突变咬红。
+**缺 API 清单(CENSUS 引擎半场,3.3c DIAG 并批候选)**:view 枚举器未导出/流式全 trace 事件迭代器(StreamScan)/语义 near-miss 判定未导出/Index.UnparsedSamples typed 化。**留观**:scope 语义分叉(census=window∧lines 交集 vs 引擎 lines 覆盖 window)/反射单行字节无界/摘要总帽虚报/padding 镜像已字面 pin。
