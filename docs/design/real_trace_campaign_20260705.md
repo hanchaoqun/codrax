@@ -1745,3 +1745,8 @@ Donghu 类与鸿蒙类 trace 同硬件平台——CAP-2 五重门**不设 flavor
 2. **悬案转定向复查指令包**(同上文档):G12(E23 双成员同值 14.272 疑云)与 D-10(东湖 actual 口径互斥)各配精确自然语言命令,客户跑后贴几十行输出即可定案,不需文件。
 3. **DIAG 自诊断批立案(3.3c,排 CAP-2 后)**:把"需原件"永久转化为"输出自答"——(a)跨线程折叠成员同值到 μs 时审计注携逐成员行区间+same_value_members typed 披露;(b)actual 口径两面互斥时 typed 一致性披露(不猜值,只标两面来源与差值);(c)hmfs 实测无需专项=INODE top_io_inode 段即探针(东湖回访输出该段有 FS 内容⟺hmfs_ 关口生效)。
 4. **脱敏片段通道=候选**:客户已接受关键字片段粒度;必须看原始行时给脱敏指引(行号区间+名称哈希替换保结构);频繁则立 codrax sanitize 导出子命令候选(未立批)。
+
+## §28.10 Wave-3.3a INODE 收账(2026-07-09,推 main;§28.6 施工图四件套闭环)
+交付:引擎 WindowStats.TopIOInodes(截断前全量 (dev,inode) 折叠消 PID/op 维;Count=全 IO 族事件频次[实施裁定:只计 file_io 则东湖 mm_filemap 侧漏平台恒空榜],分解字段全保;延迟=单次 MAX+top-3 线程内求和,墙钟红线负向 pin;Count→Bytes→MaxLatency 序;top-10+TotalGroups+UnidentifiedEvents 双诚实披露;(unknown,unknown) 不折叠)+暴露三面(banner events= 词形[复核 P3-1 词值同源修]+typed 观测族 12 note+系统补充挂位 order 65/配额 40→44 再裁定)+路由教学(视图矩阵+TierB 两句+description,ATOMIC 过检)+QFEnumeration external_observation claim form(复核 P2-1 定性更正:提示语面+**软性 citation-role 对齐可达面扩展**,方向保护性,新可达面三臂 pin 固化)。负向 pin:统计枚举面不入投影树/rank。13 突变咬红(含"延迟臂偷偷改求和"与"折叠输入截断"两最强形);API 中断 SendMessage 唤醒无损续跑,缝隙自查零残片。
+**留观/候选**:dev-unknown 同 inode 合并伪身份(窄可达)/claimKey 建议携 dev 维/threads 键族归属卫生/inode= typed 过滤参(可选项,如需立小批)/成员 TotalLatency 含 completion 行 latency 的 legacy 口径继承。
+**队列**:3.3b CAP-2+THERM(即开,最后立案批)→3.3c DIAG(§28.11)。
