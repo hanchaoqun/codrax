@@ -452,6 +452,7 @@ func foldSameThreadTypeRankFamilies(q Query, hasCausalChain bool, items []RootCa
 		thread string
 		lane   string
 		window string
+		source string
 	}
 	groups := map[familyKey][]int{}
 	var order []familyKey
@@ -464,6 +465,14 @@ func foldSameThreadTypeRankFamilies(q Query, hasCausalChain bool, items []RootCa
 			thread: threadKey(items[i].Thread),
 			lane:   rootCauseFamilyFoldLaneKey(items[i]),
 			window: rootCauseFamilyFoldWindowKey(items[i]),
+			// ORD (2026-07-10): the mint-source identity — the wakeup-chain
+			// lane and the window-stats lane measure the SAME physical time
+			// through different rulers (e.g. a RootEvidence sleep_wait row vs
+			// the SleepTop bucket of one thread); same-(thread,type) rows
+			// from different producers must never Σ into one family (双计
+			// 防线). Every pre-ORD family type is minted from exactly ONE
+			// source string, so no existing merge splits.
+			source: items[i].Source,
 		}
 		if len(groups[key]) == 0 {
 			order = append(order, key)
@@ -536,6 +545,18 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 	roster := make([]string, 0, minIntFold(len(members), rootCauseFamilyRosterCap))
 	maxMs, minMs := 0.0, 0.0
 	sameInode, sameDev := true, true
+	// ORD (§29.11 补充 观察①, 2026-07-10): the producer-disjointness proof —
+	// true only when EVERY member carries the mint-site guarantee (a single
+	// off-CPU state machine keeps at most one open segment per PID, so the
+	// per-CPU bucket rows of one thread partition its own timeline). AND over
+	// members: a merged row re-entering the enrich-pass fold keeps the proof
+	// only if all its constituents had it.
+	producerDisjoint := true
+	for _, member := range members {
+		if !member.memberSegmentsProducerDisjoint {
+			producerDisjoint = false
+		}
+	}
 	for _, member := range members {
 		raw := rootCauseCumulativeImpactMs(member)
 		sum += raw
@@ -633,6 +654,14 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 	case disjoint:
 		caliber = RootCauseMemberFoldCaliberSumDisjoint
 		combined = sum
+	case producerDisjoint:
+		// ORD: envelope overlap with a producer-level disjointness proof —
+		// the per-CPU off-CPU buckets of one thread interleave their line/ts
+		// ENVELOPES while their underlying segments are pairwise disjoint by
+		// construction, so the same-thread Σ is legal (§24.7.1 合并量参赛;
+		// same caliber word as the envelope-proven arm above).
+		caliber = RootCauseMemberFoldCaliberSumDisjoint
+		combined = sum
 	case valuesAreIntervalLengths:
 		caliber = RootCauseMemberFoldCaliberIntervalUnion
 		combined = unionMs
@@ -641,6 +670,9 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 		}
 	}
 	merged := base
+	// ORD: the merged row keeps the producer-disjointness proof only when
+	// every member had it (idempotent re-fold in the enrich pass).
+	merged.memberSegmentsProducerDisjoint = producerDisjoint
 	merged.CumulativeImpactMs = combined
 	// F3 (对抗复核收尾, 2026-07-08): the per-state scalar channels
 	// (running/runnable/sleep/d_state/io_wait) and the categorical dominant

@@ -299,9 +299,20 @@ const (
 
 // causalTokenFamilyFoldLanes — the exhaustive family-fold declaration
 // (§24.7.1 普查结果全族同修; §24.9 dim-B F4 census). Absent = the token never
-// family-folds: the per-thread duration families (runnable/sleep/io/d-state)
-// are structurally one-row-per-thread already, aggregate tokens have no
-// thread subject, and blocking_span keeps its own Q4-A carve-level fold.
+// family-folds: aggregate tokens have no thread subject, and blocking_span
+// keeps its own Q4-A carve-level fold.
+//
+// EVOLUTION RECORD (ORD, ledger §29.11 补充 cap2 观察①, 2026-07-10): the
+// former "per-thread duration families (runnable/sleep/io/d-state) are
+// structurally one-row-per-thread already" exclusion claim was FALSIFIED by
+// the cap2 production witness — computeOffCPUStats buckets are keyed
+// (pid, comm, CPU), so ONE thread splits into per-CPU rows and pre-ORD held
+// one seat per CPU (cap2 seats #1/#2/#3 = one OS_FFRT thread, cpu=1/3/2;
+// 拆分参赛=弱化排序). The four off-CPU top families (plus the runnable
+// inversion retype) now fold on the §24.7.1 same-(thread,type) lane; the CPU
+// is a 区分键 kept in the member roster, and the mint sites carry the
+// producer-disjointness proof for the Σ caliber
+// (RootCauseRankItem.memberSegmentsProducerDisjoint).
 var causalTokenFamilyFoldLanes = map[string]CausalTokenFamilyFold{
 	// §24.7.1 generic same-(thread,type) contenders.
 	"io_latency":         CausalFamilyFoldSameThreadType,
@@ -312,6 +323,13 @@ var causalTokenFamilyFoldLanes = map[string]CausalTokenFamilyFold{
 	"workqueue_activity": CausalFamilyFoldSameThreadType,
 	"dma_fence_activity": CausalFamilyFoldSameThreadType,
 	"scheduler_latency":  CausalFamilyFoldSameThreadType,
+	// ORD (§29.11 补充 观察①, 2026-07-10): the off-CPU top families — the
+	// per-CPU bucket rows of one thread merge into ONE contender.
+	"runnable_wait":                    CausalFamilyFoldSameThreadType,
+	"priority_inversion_runnable_wait": CausalFamilyFoldSameThreadType,
+	"sleep_wait":                       CausalFamilyFoldSameThreadType,
+	"io_wait":                          CausalFamilyFoldSameThreadType,
+	"d_state_or_io_wait":               CausalFamilyFoldSameThreadType,
 	// §24.10 semantic span families (fold happens at span grain).
 	"jit_compile":        CausalFamilyFoldSemanticClass,
 	"class_verification": CausalFamilyFoldSemanticClass,

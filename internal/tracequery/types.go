@@ -2319,7 +2319,20 @@ type RootCauseRankItem struct {
 	// the precise membership signal (§27.2-G1 修向) — instead of the lossy
 	// merged-row hull (hull gaps would absorb non-members).
 	familyMemberIntervals []foldInterval
-	Summary               string `json:"summary,omitempty"`
+	// memberSegmentsProducerDisjoint (ORD, ledger §29.11 补充 cap2 观察①,
+	// 2026-07-10; engine-internal, never serialized): the mint site
+	// guarantees that this row's underlying scheduler SEGMENTS are pairwise
+	// disjoint with every same-(thread,type,source) sibling's segments —
+	// computeOffCPUStats keeps at most ONE open segment per PID in a single
+	// sequential pass, so the per-CPU bucket rows of one thread partition
+	// that thread's own timeline even though their line/ts ENVELOPES
+	// interleave. The family-fold caliber ladder reads it as a PRECISE
+	// structural disjointness proof (same-thread Σ legal, §24.7.1) where the
+	// envelope check alone would honestly degrade to the member MAX. Only the
+	// off-CPU top mint sites set it; a merged row carries the AND of its
+	// members (idempotent re-fold).
+	memberSegmentsProducerDisjoint bool
+	Summary                        string `json:"summary,omitempty"`
 }
 
 // RootCauseMemberFoldCaliber* — the closed set of typed rulers a same-thread
@@ -2327,9 +2340,17 @@ type RootCauseRankItem struct {
 // 2026-07-08). 墙钟红线: same-thread disjoint wall-clock segments sum legally;
 // overlapping or unprovable segments must never publish a naive Σ.
 const (
-	// RootCauseMemberFoldCaliberSumDisjoint — every member interval is typed
-	// and pairwise disjoint: published value == member Σ (same-thread wall
-	// clock, legal; opendir_78 E5/E6 witness 1.136+0.462=1.598).
+	// RootCauseMemberFoldCaliberSumDisjoint — published value == member Σ
+	// (same-thread wall clock, legal; opendir_78 E5/E6 witness
+	// 1.136+0.462=1.598). Two proof arms admit it (ORD, 2026-07-10):
+	//   (a) envelope proof — every member interval is typed and pairwise
+	//       disjoint;
+	//   (b) producer proof — every member carries
+	//       memberSegmentsProducerDisjoint (the off-CPU top mint sites: one
+	//       open-segment state machine per PID partitions the thread's own
+	//       timeline even though the per-CPU bucket ENVELOPES interleave;
+	//       minted only on regression-free indexes, ClockRegressions==0 —
+	//       复核 P3-1 ordered-stream premise).
 	RootCauseMemberFoldCaliberSumDisjoint = "sum_disjoint"
 	// RootCauseMemberFoldCaliberIntervalUnion — member intervals overlap and
 	// the interval union is computable: published value == union length
@@ -2832,10 +2853,13 @@ type ChainResult struct {
 	// range + up-to-8 subject roster + line/ts envelope) instead of vanishing
 	// behind the caveat count. nil when the trim never fired (≤8 groups —
 	// zero-emission anti-noise). Deliberately NOT a member of
-	// AggregatedImpacts: that slice feeds root-cause ranking and
-	// chainThreadRefs directly, and a synthetic member would contaminate both.
-	// The min/max carry per-group display values — wall clock never sums
-	// across threads.
+	// AggregatedImpacts: that slice is the wire VIEW and feeds
+	// chainThreadRefs directly, and a synthetic member would contaminate it.
+	// ORD (复核 P3-3 更正, 2026-07-10): root-cause ranking no longer reads
+	// AggregatedImpacts — seat allocation reads the FULL pre-trim census
+	// (rankAggregateCensus below), so the trim is a pure display-capacity
+	// measure and never a seat gate. The min/max carry per-group display
+	// values — wall clock never sums across threads.
 	AggregatedImpactsFold *WakeupCausalAggregateFold `json:"aggregated_impacts_fold,omitempty"`
 	IPCEdges              []IPCEdge                  `json:"ipc_edges,omitempty"`
 	BinderWaits           []BinderWaitSummary        `json:"binder_waits,omitempty"`
@@ -2849,6 +2873,15 @@ type ChainResult struct {
 	// scheduling-contention distinction the customer session lacked.
 	ViaThread *ChainViaThreadReport `json:"via_thread,omitempty"`
 	Caveats   []string              `json:"caveats,omitempty"`
+	// rankAggregateCensus (ORD, ledger §29.8 P2③, 2026-07-10; engine-internal,
+	// never serialized): the FULL pre-trim aggregate list. AggregatedImpacts
+	// above is the top-8 VIEW (PTS: a derived view with a capacity trim +
+	// fold disclosure); seat allocation must read the full family census so a
+	// family beyond the view trim still competes for its rank seat
+	// (aggregate top-8 折叠吞携榜席成员 — the trim is display capacity, never
+	// a seat gate). Empty (e.g. a JSON-roundtripped chain) degrades to the
+	// trimmed view — see chainRankAggregateCensus.
+	rankAggregateCensus []WakeupCausalAggregate
 }
 
 // ChainViaThreadReport is the typed RN-14a via verdict for one wakeup chain.

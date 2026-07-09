@@ -527,10 +527,22 @@ func TestRCMFamilyFoldRegistryLaneGolden(t *testing.T) {
 		"workqueue_activity": CausalFamilyFoldSameThreadType,
 		"dma_fence_activity": CausalFamilyFoldSameThreadType,
 		"scheduler_latency":  CausalFamilyFoldSameThreadType,
-		"jit_compile":        CausalFamilyFoldSemanticClass,
-		"class_verification": CausalFamilyFoldSemanticClass,
-		"shader_compile":     CausalFamilyFoldSemanticClass,
-		"runtime_compile":    CausalFamilyFoldSemanticClass,
+		// EVOLUTION RECORD (ORD, ledger §29.11 补充 cap2 观察① + §24.7.1
+		// 通用规则, 2026-07-10): the off-CPU top families joined the lane —
+		// the former "one-row-per-thread" exclusion premise was falsified by
+		// the cap2 production witness (computeOffCPUStats buckets keyed
+		// (pid, comm, CPU): one thread held seats #1/#2/#3 as runnable_wait
+		// cpu=1/3/2). The CPU rides the member roster as the 区分键; the
+		// runnable inversion retype folds on the same lane.
+		"runnable_wait":                    CausalFamilyFoldSameThreadType,
+		"priority_inversion_runnable_wait": CausalFamilyFoldSameThreadType,
+		"sleep_wait":                       CausalFamilyFoldSameThreadType,
+		"io_wait":                          CausalFamilyFoldSameThreadType,
+		"d_state_or_io_wait":               CausalFamilyFoldSameThreadType,
+		"jit_compile":                      CausalFamilyFoldSemanticClass,
+		"class_verification":               CausalFamilyFoldSemanticClass,
+		"shader_compile":                   CausalFamilyFoldSemanticClass,
+		"runtime_compile":                  CausalFamilyFoldSemanticClass,
 		// TEX (§28.1, 2026-07-09): fifth semantic class, same fold lane.
 		"texture_upload": CausalFamilyFoldSemanticClass,
 	}

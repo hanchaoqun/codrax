@@ -8139,6 +8139,52 @@ func viaMonotonicHops(res *ChainResult, via ThreadRef) ([]ChainViaHop, bool) {
 	return hops, false
 }
 
+// wakeupCausalAggregateGroupKey is the ONE aggregation-group identity —
+// aggregateWakeupCausalImpacts groups member occurrences by it and the ORD-A
+// member-suppression arm in buildRootCauseRankFrom tests membership against
+// it (single source: the two sides can never drift apart).
+func wakeupCausalAggregateGroupKey(pid int, dominantState string) string {
+	return fmt.Sprintf("%d/%s", pid, dominantState)
+}
+
+// chainRankAggregateCensus returns the FULL pre-trim aggregate census when the
+// chain was built in-process (the only production path — all three rank build
+// sites consume the ChainResult the aggregation pass just wrote); a chain
+// without it (e.g. JSON-roundtripped in a test harness) degrades to the
+// trimmed view, i.e. exactly the pre-ORD behavior.
+func chainRankAggregateCensus(chain ChainResult) []WakeupCausalAggregate {
+	if len(chain.rankAggregateCensus) > 0 {
+		return chain.rankAggregateCensus
+	}
+	return chain.AggregatedImpacts
+}
+
+// rankSeatAggregates resolves which aggregates hold rank seats (ORD, ledger
+// §29.8 P2③/§29.11 补充, 2026-07-10):
+//   - the FULL census feeds seat allocation — the AggregatedImpacts top-8
+//     trim is a view-capacity measure (PTS derived view) and never a seat
+//     gate (aggregate top-8 折叠吞携榜席成员 修根);
+//   - a typed PeriodicSource aggregate BYPASSES the intermediate-sleep skip:
+//     a periodic signal source competes with its DISCOUNTED attribution
+//     (runnable + lateness, §7.8 VS-1; §28.7 G9 复核纠偏 "周期源保留席位,
+//     恢复 VS-1 参赛形" — huadong_792 E12 VSyncGenerator held no seat at all
+//     while every board/lead/❶ gate keys on Rank>0). Non-periodic
+//     intermediate sleeps stay seatless — chain plumbing whose wait is
+//     explained by ITS upstream.
+func rankSeatAggregates(chain ChainResult) []WakeupCausalAggregate {
+	var out []WakeupCausalAggregate
+	for _, aggregate := range chainRankAggregateCensus(chain) {
+		if aggregate.ChainDepth <= 0 || aggregate.DominantImpactMs <= 0 {
+			continue
+		}
+		if isIntermediateSleepAggregate(chain, aggregate) && !aggregate.PeriodicSource {
+			continue
+		}
+		out = append(out, aggregate)
+	}
+	return out
+}
+
 func aggregateWakeupCausalImpacts(chain *ChainResult) []WakeupCausalAggregate {
 	type acc struct {
 		item      WakeupCausalAggregate
@@ -8154,7 +8200,7 @@ func aggregateWakeupCausalImpacts(chain *ChainResult) []WakeupCausalAggregate {
 		if impact.Thread.PID <= 0 || impact.ChainDepth <= 0 || impact.TotalMs <= 0 || strings.TrimSpace(impact.DominantState) == "" {
 			continue
 		}
-		key := fmt.Sprintf("%d/%s", impact.Thread.PID, impact.DominantState)
+		key := wakeupCausalAggregateGroupKey(impact.Thread.PID, impact.DominantState)
 		a := accs[key]
 		if a == nil {
 			a = &acc{prioVotes: map[string]int{}}
@@ -8304,6 +8350,11 @@ func aggregateWakeupCausalImpacts(chain *ChainResult) []WakeupCausalAggregate {
 		}
 		return out[i].LineStart < out[j].LineStart
 	})
+	// ORD (§29.8 P2③, 2026-07-10): the FULL census survives on the
+	// engine-internal chain field BEFORE the view trim below — seat
+	// allocation reads it so the top-8 trim stays a pure display-capacity
+	// measure and never swallows a family's rank seat.
+	chain.rankAggregateCensus = out
 	if len(out) > 8 {
 		// PTS (#68 用户裁定 2026-07-05, 零静默丢弃披露): the aggregate list is a
 		// DERIVED view over CausalImpacts (the per-hop rows remain complete);
@@ -9047,6 +9098,21 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	var items []RootCauseRankItem
 	chainThreads := wakeupChainThreadSet(chain)
 	hasCausalChain := len(chainThreads) > 1
+	// ORD (ledger §29.8 P2②/P2③ + §29.11 补充 观察②, 2026-07-10): one
+	// occurrence set = ONE seat. The seated aggregates are resolved first
+	// (full census, periodic bypass — see rankSeatAggregates) and their
+	// member occurrences are suppressed from the per-occurrence rank mint
+	// below: pre-ORD the aggregate AND its members all seated (cap2 #4/#5/#6
+	// triple seat), and the display ×N merge then summed the aggregate row
+	// (=Σ member gateds) with its own members — the cmp_792 E7 "窗口投影恰=
+	// 2×有效归因 / occurrence 集不可调和" double-count. The VIEW lane
+	// (chain.CausalImpacts wire records) stays lossless — only rank seats
+	// deduplicate.
+	seatedAggregates := rankSeatAggregates(chain)
+	seatedAggregateGroups := map[string]bool{}
+	for _, aggregate := range seatedAggregates {
+		seatedAggregateGroups[wakeupCausalAggregateGroupKey(aggregate.Thread.PID, aggregate.DominantState)] = true
+	}
 	for _, impact := range chain.CausalImpacts {
 		if impact.TotalMs <= 0 {
 			continue
@@ -9065,15 +9131,18 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		if isIntermediateSleepImpact(chain, impact) {
 			continue
 		}
+		// ORD-A member suppression: EXACTLY the aggregation admission
+		// predicate (aggregateWakeupCausalImpacts: PID>0 ∧ ChainDepth>0 ∧
+		// TotalMs>0 ∧ DominantState nonempty) + the shared group key — a
+		// depth-0 running row is NOT a member (the aggregate never grouped
+		// it) and keeps minting.
+		if impact.Thread.PID > 0 && impact.ChainDepth > 0 && strings.TrimSpace(impact.DominantState) != "" &&
+			seatedAggregateGroups[wakeupCausalAggregateGroupKey(impact.Thread.PID, impact.DominantState)] {
+			continue
+		}
 		items = append(items, rootCauseItemFromCausalImpact(impact))
 	}
-	for _, aggregate := range chain.AggregatedImpacts {
-		if aggregate.ChainDepth <= 0 || aggregate.DominantImpactMs <= 0 {
-			continue
-		}
-		if isIntermediateSleepAggregate(chain, aggregate) {
-			continue
-		}
+	for _, aggregate := range seatedAggregates {
 		items = append(items, rootCauseItemFromCausalAggregate(aggregate))
 	}
 	for _, root := range chain.RootEvidence {
@@ -9314,6 +9383,15 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	if len(semanticNearMisses) > 0 {
 		res.Caveats = append(res.Caveats, fmt.Sprintf("span name(s) mention compile/verify/shader/texture-upload-like vocabulary but did not match a known jit_compile/class_verification/shader_compile/runtime_compile/texture_upload pattern (e.g. %s); the app/ArkCompiler/ROM naming convention may have changed — treat as generic trace_span context, not a confirmed semantic root cause", strings.Join(semanticNearMisses, ", ")))
 	}
+	// ORD 复核 P3-1 (2026-07-10): the producer-disjointness proof PREMISE is a
+	// globally time-ordered event stream — the single open-segment state
+	// machine in computeOffCPUStats can only partition a thread's timeline
+	// when timestamps never move backwards. The engine itself admits the
+	// out-of-order shape via the ClockRegressions counter (parse.go; the Q1
+	// degrade criterion lane), so the proof mints ONLY on regression-free
+	// indexes; a regressed trace conservatively degrades the family fold to
+	// the member MAX (honest lower bound, never an over-count Σ).
+	offCPUProducerDisjoint := idx != nil && idx.ClockRegressions == 0
 	for _, td := range stats.RunnableTop {
 		onChain := threadInSet(chainThreads, td.Thread)
 		item := rootCauseItem("runnable_wait", td.Thread, backgroundImpactMs(q, td.DurationMs, hasCausalChain, onChain), 0.76, td.LineStart, td.LineEnd, "window_stats", fmt.Sprintf("%s was runnable for %.3fms%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)))
@@ -9323,6 +9401,12 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		item.EndTs = td.EndTs
 		item.DominantState = string(StateRunnable)
 		item.RunnableMs = td.DurationMs
+		// ORD (§29.11 补充 观察①/§24.7.1, 2026-07-10): the per-CPU bucket key
+		// is the row's 区分键 (roster face), and the single open-segment
+		// state machine of computeOffCPUStats proves same-thread member
+		// segments pairwise disjoint (Σ caliber; envelopes interleave).
+		item.MemberKey = fmt.Sprintf("cpu=%d", td.CPU)
+		item.memberSegmentsProducerDisjoint = offCPUProducerDisjoint
 		applyRunnableTopPriorityInversion(idx, q, stats, td, &item)
 		items = append(items, item)
 	}
@@ -9339,6 +9423,11 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		item.EndTs = td.EndTs
 		item.DominantState = string(StateSSleep)
 		item.SleepMs = td.DurationMs
+		// ORD: same per-CPU 区分键 + producer-disjointness as the runnable
+		// top above (one off-CPU state machine feeds all four buckets;
+		// 复核 P3-1: same ordered-stream premise gate).
+		item.MemberKey = fmt.Sprintf("cpu=%d", td.CPU)
+		item.memberSegmentsProducerDisjoint = offCPUProducerDisjoint
 		items = append(items, item)
 	}
 	for _, td := range stats.IOWaitTop {
@@ -9350,6 +9439,10 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		item.EndTs = td.EndTs
 		item.DominantState = string(StateIOWait)
 		item.IOWaitMs = td.DurationMs
+		// ORD: per-CPU 区分键 + producer-disjointness (see runnable top;
+		// 复核 P3-1: same ordered-stream premise gate).
+		item.MemberKey = fmt.Sprintf("cpu=%d", td.CPU)
+		item.memberSegmentsProducerDisjoint = offCPUProducerDisjoint
 		items = append(items, item)
 	}
 	exactIOWait := rootCauseExactThreadDurationSet(stats.IOWaitTop)
@@ -9365,6 +9458,10 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		item.EndTs = td.EndTs
 		item.DominantState = string(StateDSleep)
 		item.DStateMs = td.DurationMs
+		// ORD: per-CPU 区分键 + producer-disjointness (see runnable top;
+		// 复核 P3-1: same ordered-stream premise gate).
+		item.MemberKey = fmt.Sprintf("cpu=%d", td.CPU)
+		item.memberSegmentsProducerDisjoint = offCPUProducerDisjoint
 		items = append(items, item)
 	}
 	for _, churn := range stats.StateChurn {
