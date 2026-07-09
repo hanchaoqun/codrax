@@ -1711,3 +1711,8 @@ Donghu 类与鸿蒙类 trace 同硬件平台——CAP-2 五重门**不设 flavor
 - **T10 GPU 轨族**:gpuload/gpufreq_info/gpufreq(167100000=167.1MHz)/gpu_state 治理通道——GPU 供给披露候选(texture/render 场景背景证据,未立批,等场景需求裁定)。
 - **T11 双栈确认**:同 trace 并存 Android(android.display/systemui/wmshell)与 OHOS(sceneboard/OS_IPC/OS_FFRT/render_service)线程——与 opendir 案 AssetManager.java 形一致,平台背景,无新 gap。
 - 附:本片段与 texture 片段同 trace(同线程同时间轴)——客户后续给全量原件时一次复放同时验收 TEX+CAP-2。
+
+## §28.6 INODE 高频排序能力审计(2026-07-09,用户问询触发;三读+交叉核实,五断言全核)
+**结论:今天问"哪些 inode 高频 IO"拿不到正确答案。**现有=根因语境三载体(file_io_by_inode count/bytes/latency 按总延迟排/page_cache_by_inode churn/block_io_by_inode join 面),全部键含 PID 分片、各 top-8 静默截断、count 仅第三优先;block_io_by_inode 还建在截断后输入上(二次聚合不可恢复全量);event_search+pattern 可查单 inode 原始行但无聚合。
+**缺口 13 项**(引擎①-⑥/暴露⑦-⑨/路由显示⑩-⑬,详见审计工件):核心=①无 (dev,inode) 全窗跨线程载体(count/bytes 跨线程求和合法,墙钟红线只禁时长)②无频次优先口径④截断无披露**⑤hmfs_ 前缀不在 isFilesystemEvent 名单(parse.go:2355-2366)——本客户 HarmonyOS 平台 FS 层事件整体漏采,东湖案 inode 实际全靠 mm_filemap 侧漏进**⑥无 inode→路径注册表(entry_name 机会性;文件名仅 display-only note 车道,投影 typed 面只有 inode/dev)⑦无 inode=/dev= 过滤参⑩无"枚举/排序型 trace 问题选 view"教学(enumerate vs root_cause 路由分叉未收敛)⑪纯统计问下投影树/指标快照/观测补充三确定性面全缺位⑫QFEnumeration acceptableClaimForms 缺 external_observation(提示语误导非硬堵)。
+**最小补齐路径(INODE 批候选,Wave-3.3 与 CAP-2 同道)**:1) query.go:1764 截断前对全量 fileIO/pageCache map 按 (dev,inode) 折叠新载体 WindowStats.TopIOInodes(count 优先排序+总组数披露;延迟只发 max 或按线程分列守墙钟红线);2) 暴露面 window_stats 文本段+typed observation+description(可选 inode= 过滤参);3) skill 视图矩阵加枚举型 IO 教学+QFEnumeration claim form 提示语修;4) parse.go:2360 名单加 hmfs_(顺手关口,独立可先行);5) 若入 rank/观测补充走 R2'+§7.2.1 红线。inode→路径注册表=独立候选(f2fs 类事件无名,收益依赖 android_fs/entry_name 覆盖率,先立不批)。
