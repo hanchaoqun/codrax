@@ -1788,3 +1788,9 @@ core_class=small/middle 入 window_stats(CAP-2 簇判定生效,"簇结构不可�
 79 审计曾判 opendir 成文 "inode 0x6a16/约153ms" 为编造——**更正**:io_pressure 行 top_inode=0x6a16 d_state=157.402ms 为真实引擎 token(explore 期 window_stats 面),非幻觉;PSG-G14"终面证据外禁引用"裁定不变(该值未入终面),但性质=越面引用非编造。
 ## §29.5 队列
 DIAG(在途)→G12-ENG+BLIND-2(引擎,DIAG 后)→BLIND-1 census 子面+BLIND-3 counter 候选(裁定池)。等待:四场景回访输出(验收对账主体未回传)。tracediag 观察:thread 过滤含发射者 tgid 命中(原始采集面可接受,读法注意);tppmgr data_gap 同线程双条(dedup 候选)。
+
+## §29.6 Wave-3.3c DIAG 收账(2026-07-09,推 main;战役代码面收官批)
+交付:A1 同值折叠成员披露(三跨线程取最大点全装:溢出折叠构造器/R3/wire causal-impact;tie=|v−max|<0.0005ms 帽4 零权重;typed+note same_value_members/same_value_lines(与 member_* 族避撞)+审计 token+图例;空 Subject 双侧对称滤)+A2 actual 口径互斥披露(单判定点三 lane,闭集 state_segment_vs_thread_total,>10% 门;明细「实际口径: 状态段/线程合计(两口径,来源不同)」;actual_total 升 hard)+TDIAG 四缺 API(CanonicalViewNames/StreamScan 零第二解析器全文件普查脱 250K 预算/语义类+near-miss 导出("不支持面"清单清空负向 pin)/Index.UnparsedSamples typed 帽5 rune-safe)。19+ pin,7 突变咬红。
+**复核存档**:E23 归属排他性证明=wire 折叠 record Predicate 恒 "wakeup_causal_impact" 不可能产 critical_blocking E# → E23 根点=投影溢出折叠构造器,披露落正确链且双臂全装;A2 三 lane 源真(同源臂结构性静默非空转);B2 与索引路径逐语句同构。
+**立案**:P2-1 第四跨线程取最大点(query.go:8424 引擎 top-8 aggregate 修剪折叠)无逐成员值/行区间→tie 不可披露——**并入 G12-ENG 批**(修法=fold 结构携帽4 tie roster,代码注释已指路);P3-4 census 累积 map 基数脱预算后随全文件增长(GB 高基数 span 名形,基数帽+披露候选);P3-5 样本子串钉底层数组(帽5 有界最坏 ~10MiB,strings.Clone 候选)。
+**战役状态**:§27 20/20+§28 全裁定+§29 首轮对账全部完结;开放=G12-ENG+BLIND-2 引擎批(下批)/BLIND-1+BLIND-3 裁定池/四场景回访输出待回传。
