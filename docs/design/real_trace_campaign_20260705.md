@@ -1725,3 +1725,10 @@ Donghu 类与鸿蒙类 trace 同硬件平台——CAP-2 五重门**不设 flavor
 
 ### §28.6 补充(用户裁定 2026-07-09):INODE 批排期确认
 用户批准 INODE 批落地,排 Wave-3.3。施工图=§28.6 最小补齐路径四件套:①引擎 (dev,inode) 全窗跨线程载体 WindowStats.TopIOInodes(count 优先序+总组数披露;延迟 max/按线程分列守墙钟红线;在 query.go:1764 截断前对全量 map 折叠)②暴露面 window_stats 文本段+typed 观测+description(+可选 inode= 过滤参)③skill 视图矩阵枚举型 IO 教学+QFEnumeration claim form 提示语修④hmfs_ 前缀已由 TEX 批先行落地(§28.2-T3 顺手关口,销)。inode→路径注册表仍=独立候选不入本批。执行序:Wave-3.2 收尾提交后 → 3.2b G1 跨车道对账 → 3.3a INODE → 3.3b CAP-2+THERM(五门簇轨,flavor 中立)。
+
+## §28.8 Wave-3.2 收账(2026-07-09,三批推 main;TEX/DISP-2/HYG-2 全经对抗复核+收尾)
+**已推**:TEX+BLOCKFROM(f7738052)/DISP-2(cff25e37)/HYG-2(37fc46f3)。终态 make 绿+77 包全绿零 FAIL;三复核全 SHIP-WITH-FIXES 全闭环。
+**交付对账**:TEX=texture_upload 第五语义类全链(引擎五通用点+客户原文 pin+H: 前缀 flavor parity 复核修+registry §7.2.1/R2' 全走+skill/config 五类词表[主会话])、T2 B|pid≠tgid 归属按发射线程 pin 固化、T4 prio301 保守三层链 pin、hmfs_ 前缀关口(§28.6④销)、blocking_from_site 等待点 typed 全链(引擎解析→registry hard_consumer→投影→"等待点:"明细行,opendir 原文整签名 pin);DISP-2=G2 显示半场(盲区措辞按 kind 分形+席位排他去重+G19 全零折叠行退役)、G3 显示半场(邻近行链上累计列 dash+count 端到端恒等 pin+计数当量图例/atom)、rcr 影响形态第五臂+**semantic-class universe 机械 pin(第六类漏改任何显示面即红)**;HYG-2=域外 49+ 站点 rune-safe 收口(answer_reviewer 答案正文/repomap 8 提取器+**extractorVersions 11 项 bump**(复核抓获:不 bump 已扫仓库修复静默不生效)/clampProfileSnippet LLM 提示面漏网)+G20 同值观测行折叠(fold key 全语义面+工件身份维,quota 包络无双减)。
+**复核新教训**:⑤跨批 promotion 义务对置真空(两批各把 note key 升级留给对方,没人执行)——契约两端义务须在派单时指定唯一 owner;⑥"缓存版本协议"类仓库自身协议是复核必查面(extractorVersions);universe 覆盖 pin 是"跨面消费全谱"的机械化终态,凡枚举 switch 应配。
+**留观立案**:DISP-2 P3-1 小桶双发布残形/P3-2 family ◇席 cum 推演盲点/邻近桶 cap=8 静默 limiter;TEX F5 banner 200B parity;G10-EN 面中文 witness 债(计数当量 EN 同族);GAP-B wave3.1 P3-3 长括注超原子。
+**队列**:3.2b G1 跨车道对账(下批,引擎+显示单 agent)→3.3a INODE(§28.6 已批)→3.3b CAP-2+THERM。外部依赖:原件复放(G12/D-10/hmfs 实测/TEX-CAP 验收)+客户下一构建全场景回访。
