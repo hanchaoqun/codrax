@@ -1802,3 +1802,6 @@ DIAG(在途)→G12-ENG+BLIND-2(引擎,DIAG 后)→BLIND-1 census 子面+BLIND-3 
 ### §29.7-2 精化(用户 2026-07-09):链上语义类=无条件全权参赛
 去掉"构成主导工作量时"前置——**on-chain 语义类行必须能参赛且有机会登顶**(与其他成因同台,按有效归因竞争);即便未进 TOP N,仍必须作为优化点被提及(§23.1 链上提及义务=无条件地板,维持)。理由:这些是客户经验实战验证的确定性可优化点。非链上语义行维持背景综合排序+提及门 background_rank≤3 不变。
 SEM-LEAD 批施工图定稿:①显示 board/lead/❶❷❸ 对 on-chain 语义行全开(runtimeTraceProjExcludeSemanticSpans 语义排除臂按裁定演化,tier 词"确定性优化候选"身份保留);②参赛值=家族真实合计(如 102.172),score 乘子(2.10)留引擎排序内部——同批修 214.561 表值泄漏+semantic_multiplier/hidden_cost_boost 内部 token 出正文;③E9/E13 语义族双席合一+行1 用类名"Texture upload ×N";④evaluator 头条选举语义排除臂(GAP-C P1-1)反向演化;⑤skill 条款/工具 description "never as the root cause itself" 句演化为"全权参赛+提及地板";⑥LEAD-SEM 负向 pin 按裁定演化(EVOLUTION RECORD 引本节)。
+
+## §29.9 HTML 辅助信息 UX 裁定(用户 2026-07-09)
+"树读法"/"各列口径"类辅助块过占重要信息空间(用户大部分时间不看,偶尔参考)。裁定=HTML 渲染层折叠:辅助块默认收起为一行可点开摘要(<details> 语义恰合"偶尔参考"),内容小号灰字;**只动 preview 包 HTML 面,Markdown 正文与终端渲染零改动**(与 §28.7 HTML 字体批同层先例)。识别=精确标记段("树读法:"/"各列口径:"等闭集)+紧随列表整体包裹,非标记段零影响。UXAUX 批实施。
