@@ -1692,3 +1692,9 @@ UXA D#30 终稿取代 RN-12 verbatim 冻结面:"top 片段"→"其中最大片�
 3.1 并行:**GAP-A**(tracequery 独占:G2 引擎跳臂+盲区判据 typed 化/G9 序数重编号/G3 引擎半场/G10 witness 本地化)+**GAP-B**(types 投影+tool 显示独占:G4 挂接窗维/G5 occurrence ×N/G6 症状列 gate/G7 词值同源/G8 折行原子/G11 自身等待可见/G17 移交链"(线程)")+**GAP-C**(skill+evaluator+verdict:G13/G14/G15/G16 软引导与软检+降级 caveat 附注,不代写正文)。
 3.2 顺序:**TEX**(语义类第五臂+T2/T3/T4 验证,tracequery+显示)+G2/G3 显示半场+blocking_from typed 化+**HYG**(G18 rune-safe 共享 helper per-CLASS 收口约 10 站点/G19 零值折叠行/G20 同值背景双行折叠)。
 CAP-2=等 T1 裁定。
+
+## §28.4 CAP-2 裁定(用户确认 2026-07-09):键控簇轨复合门 evidence 接线
+裁定形=**五重结构门全过才升级 evidence,任一失败整体回退默认表**(不部分猜测):①族形门(同前缀+索引位轨族成员≥2,名字只作族分组不承载绑定语义)/②异锚门(族内两两 cpu_id 不同;witness:thermal_inte1 cpu_id=2 与 m3_c1_freq 同锚碰撞,证明裸 cpu_id 不够)/③不变式门(全 trace 同轨 cpu_id 恒定,违者 fail-loud 整体回退)/④量纲门(state 落 CPU 频率合理区间)/⑤相容门(锚点集合⊆调度观测 CPU 集合)。绑定语义全部来自 cpu_id 键控字段+确定性检查。
+残余假设诚实披露:成员归属=锚点连续分段**推定**(披露词单列"成员按锚点连续推定",与"簇拓扑=簇轨实测"分开);fmax=该轨 trace 内治理时间线最大值(沿 CMP-10)。
+**§7.10 VS-2c=演化非推翻**:轨名单独绑定仍禁(isCPUFrequencyClockName 名字启发仍只软引导);新增"键控簇轨复合门"例外臂;semantic_ruling_pins_test 结构 pin 走 EVOLUTION RECORD 增臂不删原 pin。thermal 轨不入 fmax 基,另立"热限披露"候选(供给侧背景证据,未立批)。
+预期效果:Donghu 类 trace CAP 从"簇结构不可判,按纯频率比折算"升级"按实测簇轨折算(成员按锚点连续推定)";门不过的 trace 行为不变,零回归面。验收=两原件复放对照。排期 Wave-3.3(GAP-A/TEX 落地后,tracequery 域)。
