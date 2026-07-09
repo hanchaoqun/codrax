@@ -1640,3 +1640,38 @@ UXA D#30 终稿取代 RN-12 verbatim 冻结面:"top 片段"→"其中最大片�
 **审计面**:系统补充当选分支 path 记录提桶首(typed WakeupPathBranch×artifact 身份匹配,fallback branch 号升序+留账)。
 28+ pin(22+6 收尾),12 突变系+4 重放全咬红。
 **留账**:raw trace 复放待原件(berlin.systrace+东湖 ftrace 入 /Users/han/opt/customlogs 即可本机复放);D-10(东湖 actual 口径)仍开;aggregate Path note 走查观察;conf 未压(取披露);移交链 tenure 分段=未来裁定;elected 记录 cap 存活非保证(fallback 注明)。
+
+# §27 79 系回访审计(2026-07-09,两标本:huadong_79_01/opendir_79_01;26 批改动后首轮真实回放)
+
+## §27.0 生效确认(正向 witness,勿当回归)
+真实链深 L1–L5(假 L26/27 灭,梯子消失)/家族合并参赛(io_latency ×8/×6 interval_union+原始和披露,双场景)/症状降道(目标 sleep 零榜位)/周期源降道(VSync 投影 38.996→eff 0.166)/自因四态(目标 D-state #4 参赛;OS_FFRT running→算力供给候选 #3)/CAP 双公式+纯频率比披露+恒等式全平/移交链披露/自相矛盾撤回(LegoHandler 荒谬归因撤回生效)/多窗窗标+覆盖句拒伪百分比/边界抖动披露(112.223 vs 112.175 略超 0.048)/dump 配额/E# 并入。
+
+## §27.1 已修:HTML 报告排版(6287e1cc,当日直付)
+客户投诉字间距过紧难读。根因=preview/server.go renderHTMLPage CSS 字体栈无任何中文字体(Windows 中文回落宋体)。修=CJK 栈(PingFang SC/HarmonyOS Sans SC/微软雅黑/Noto Sans CJK SC)+行高 1.62→1.78+正文 letter-spacing .02em+pre/code 字距钉回 0(保 CJK 双宽网格 bar 对齐)+li 间距;pin=TestStandaloneHTMLPageCJKFontAndSpacing。
+
+## §27.2 P1 引擎四案(三路只读核实,全部确认)
+- **G1 跨车道重复显示**:io_latency rank 家族行与 critical_blocking 逐 peer 行同批事件双发布(opendir E3↔E6-E9 原始和 2.858 相等;huadong E10↔E13/E19-E22 原始和 15.156 相等,树内并列 5 行重复)。归因:三套折叠全落空——同段两车道折叠臂资格要求 inversion 候选∧MergedCount≤1∧精确行区间(tool/answer_document_mutation_runtime_tree.go:2242-2256,:2222);critical_blocking 不在 causalTokenFamilyFoldLanes(tracequery/causal_token_registry.go:295-305);NEW-3 令牌集不含 io_latency(tree.go:2005-2011)。修向=同(线程,type,窗)成员集跨车道对账(吸收或"已并入家族行"标注)。
+- **G2 trace_gap 占席+同窗自相矛盾**:数据盲区行实占根因排序席位(#6-#12,query.go:8788-8808 无跳臂,assignRootCauseRanksAndTiers 仅语义/SYM 两跳臂 :11742-11792);"窗内无调度数据"判据整类排除 running(:15038)∧过滤<minDurationMs(:15035),而同(线程,窗)running 从 depth-0 例外通道(:8763-8772)另铸 rank#3——OS_FFRT_2_2-43037 同窗"#3 running 0.051ms"+"#6 窗内无调度数据"并存;dh-irq-bind E8 有数据+#12 盲区同窗并存。另双发布:个体 ◇ 盲区行与 on_chain 溢出折叠(types/trace_causal_projection.go:2441)不排他。修向=trace_gap 降道跳臂(非成因不占席)+判据措辞如实(或补 running 检查)+双发布去重。
+- **G3 count_sum 家族三面不一致(恒等式引擎侧已破)**:页缓存抖动行 树 41.671(封顶发布值,排序同源)/明细成员 133.200+65.100=198.300(churn×0.3 伪 ms,query.go:8871,单段超整窗)/表 链上累计=有效归因=198.300。归因:rank_family_fold.go:621-622 Cumulative=未封顶计数和 与 :658 ImpactMs=backgroundImpactMs 封顶分叉,normalize 回退把 Effective 也填成 198.300(query.go:9858,:10149-10168);roster 串 "ms" 后缀硬编码(rank_family_fold.go:566);表三列直通无家族/邻近 gate(tree.go:8356,8403-8404)。修向=count 类 Cumulative/Effective 与发布值同源(或 count 类专列语义)+roster 单位按 Additivity 印计数。
+- **G4 跨窗挂接假边**:attach 硬门只比 (ChainBranch,rel)(tree.go:1280,:1267-1293),branch 序号各查询窗自 1 编号(query.go:7683-7686)跨窗撞号→W2 hmfs L2 挂 W1 触控链 L1 下,明细"关系: 唤醒 OS_mmi_EventHdr-43103"为假边(真 path=hmfs→VSyncGenerator)。QueryWindow* 逐节点已携带但"no gate reads"(types/trace_causal_projection.go:199-209)。修向=挂接域补窗身份维(或 branch 全局编号)。P0-E 已知残洞第二形(第一形=ChainBranch==0 两义,§22.2)。
+
+## §27.3 P2 显示五案(确认)
+- **G5 occurrence 自因子行**:同线程 2 occurrence 被 buildTrunk main/extra 拆成"主行+├─成因─ 自身 sleep"(tree.go:1347-1394);×N 合并阈值≥3(trace_causal_projection_aggregate.go:45-49)+无引擎家族 note 双落空。修向=trunk 同(线程,状态) extra 并 ×N(阈值降 2)或引擎发家族 note。
+- **G6 症状行有效归因泄漏**:指标表 8300-8409 循环无 IsTargetSelfStateRow gate,目标 sleep 行"有效归因"列印 6.357(列定义=计入排序;该行无榜位)。修向=症状行该列"—"(对齐 tree.go:7611-7635 既有约定)。
+- **G7 自因分解行词值错配**:行1 状态词来自 Gated 分解(rcr.go:604-617),数值=单态 ImpactMS(tree.go:2773,:8403)——"runnable 4.115ms"实为 running 投影;sysmgr 窗口投影 2.770 漏 runnable 0.621。修向=双状态行行1 值取两态窗内和、词值同源。
+- **G8 折行孤儿**:折行器任意原子边界可断(tree.go:5222-5258),"数值(口径)"未绑超原子→"(全额)"孤行;裸"小核"不在 atom 表(:4976-5014)逐 rune 拆;无"过宽退分离形"降级。修向=数值+括注超原子+口径 CJK 词补表。
+- **G9 序数洞**:Rank=i+1 降道前预分配(query.go:11727),降道臂不回收,display 不重编号(tree.go:1915-1920)→多窗面 #6/#7/#12 独现、#1-#5 不可见。**裁定候选**:display 重编号 vs 保序数+树头披露降道席位(§24.13"阶梯透明"裁定的可见性延伸)。
+
+## §27.4 P2 管线/成文五案
+- **G13 成文主因与投影 ❶ 矛盾**:huadong LLM 全文主打 VSync 延迟链(引擎已周期源降道)而投影 ❶=hmfs IO;opendir 编造"enqueueMessage 消息队列锁"等待点(span 原文 blocking from=AssetManager.getResourceValue(AssetManager.java:761))。修向=skill 软引导(成文主根因须与投影 ❶ 同实体;等待点须引 span 原文)+blocking_from typed 化为"等待点"面(同 holder_site 待遇)+evaluator 软检;与裁定点2(提及硬门)同席裁定。
+- **G14 PSG 残差五 witness**:153ms/inode 0x6a16/287.834ms/8处/4260次——皆探索期数值未入终面证据仍出正文(软门一轮闩放行属设计)。裁定候选=维持软引导积累 witness vs ms 标量硬化。
+- **G15 verdict 降级正文残留**:"未评估:本轮无源码证据"标签下正文仍断言"该代码路径仍然存在…风险仍然存在"(opendir 决策块)。修向=降级时正文注入披露/裁剪断言。
+- **G16 引用-断言错位**:opendir Hop3/4/5 引用整体错位一格(优先级反转 hop 挂 io_latency 引用)。软引导候选。
+- **G17 移交链名义歧义**:披露"A --> B"未标注为线程名,LLM 读作"链路"。修向=披露词补"(线程)"。
+- **G10 EN 撤回披露直出**:query.go:13634 witness 英文句直出 zh 明细(§22.2.1 词条尺子违规,P0-E 新引入)。修向=witness 本地化或降入证据索引审计字段。
+
+## §27.5 P2/P3 卫生
+- **G18 字节截断 mojibake(per-CLASS)**:emit_analysis.go:4987-4988 s[:120] 字节切 CJK→"事件��…"(调查单元三面同污染);同类 s[:n]+"…" 字节截断全仓约 10 处(log_triager.go:267/loop_policy.go:779/semantic_quality_reviewer.go:877/orchestrator.go:4091/extractor.go:307,361,883,3265/context/builder.go:4178/memory/store.go:1633/recall_memory.go:199)。修=共享 rune-safe truncate helper 一次收口,禁逐处修。
+- **G11 目标自身 binder_wait 不可见**:4 条 root_cause_target_self_state binder_wait(最大 3.527ms)仅存系统补充,树自身状态区无(0.011ms D-state 反而在)——§24.8 抵触。修向=目标自因等待族入自身状态区(症状身份披露)。
+- **G12 E23 双成员同值疑云**:hmfs_discard 与目标线程折叠双成员同值 14.272ms 到 μs 级,疑同段双归属;需原件复放核实(挂 D-10 复放清单)。
+- **G19** 零值折叠行噪音"×9(0.000–0.000ms)取最大"。**G20** cpu_frequency_limit 双行同值未折(系统补充)。
