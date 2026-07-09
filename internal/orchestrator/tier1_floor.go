@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -33,9 +34,10 @@ import (
 // continue the main loop.
 func (o *Orchestrator) checkTier1Floor(ir *types.AnalysisIR, state *graphState) (msg string, proceed bool, exhausted bool) {
 	if followup := readLocalizerFollowupForTier1(o.busCtx, ir); followup != nil {
-		logging.Info("[orchestrator] pre-finalize read localizer follow-up: reason=%s paths=%d missing_routes=%d — will requeue explorer",
-			followup.ReasonCode, len(followup.CandidatePaths), len(followup.MissingRoutes))
-		msg := renderReadLocalizerFollowupRetryMessage(followup)
+		traceDrill := traceObservationDrillRetryLensActive(o.busCtx, ir)
+		logging.Info("[orchestrator] pre-finalize read localizer follow-up: reason=%s paths=%d missing_routes=%d trace_drill_lens=%v — will requeue explorer",
+			followup.ReasonCode, len(followup.CandidatePaths), len(followup.MissingRoutes), traceDrill)
+		msg := renderReadLocalizerFollowupRetryMessage(followup, traceDrill)
 		if exhausted := state.retryBudgetExhausted(); exhausted {
 			return msg, false, true
 		}
@@ -403,13 +405,131 @@ func tier1PathEqual(left, right string) bool {
 	return strings.EqualFold(left, right)
 }
 
-func renderReadLocalizerFollowupRetryMessage(followup *types.ReadLocalizerFollowup) string {
+// traceObservationDrillRetryLensActive reports whether the pre-finalize
+// localizer retry directive should steer the next exploration pass at the
+// runtime-trace drill-down surface instead of repository source navigation.
+//
+// CSP #63 回探臂 (cmp_792 witness, ledger real_trace_campaign §29.8 P2④): a
+// pure-trace comparison run tripped the pre-finalize follow-up gate and the
+// retry directive named repo_map lenses — structurally unsatisfiable guidance
+// for a session whose entire evidence pool is the attached trace (the very
+// prompt that dispatched the explorer had told it NOT to run repo breadth
+// search). The repair loop itself is design-final (gate intercept → one more
+// exploration pass → convergence — the witness converged through trace_query
+// window_sweep/rank/bundle drills); only the directive wording is forked here.
+// Suppression-arm order is deliberately untouched: re-ordering the
+// TraceQueryRuntimeObservationCount arm ahead of the authority keep arm would
+// remove the beneficial retry entirely, and the keep-arm veto in the witness
+// traces back to CurrentSourceSatisfied minted from model-authored aggregate
+// facts (plain-RM terminal current_source fallback), whose byte-stability
+// outside the typed exclude / external-only shapes is pinned by CSR #64 and
+// needs its own ruling before it can change.
+//
+// Every condition is a typed, deterministic signal (the fork drives soft
+// retry-hint wording only):
+//   - no typed precise/typed-carrier current-source requirement is on the
+//     request (readLocalizerTier1CurrentSourceRequired — the same signal the
+//     closure suppressor consumes): when the request genuinely demands
+//     current-source proof, "repository breadth search is not required"
+//     would contradict the very reason the follow-up stayed alive and
+//     strand the retry loop on an unsatisfiable directive;
+//   - the run has a typed trace-query surface (attachment, preflight trace
+//     artifact, perf bundle, or typed trace path carrier);
+//   - deterministic trace_query runtime observations already exist, so the
+//     drill-down lens is demonstrably productive for this session;
+//   - no current-source read/evidence work happened: zero CURRENT-SOURCE
+//     read files (runtime-artifact reads — the trace_query blob escape
+//     lane, .codrax materializations, artifact-shaped paths, and the
+//     attached-trace spelling — do not count as source work; the read_file
+//     tool already types that decision via ToolRuntimeArtifactRead /
+//     nil ReadCoverage, and the path filter here is the consumption-side
+//     defense should an artifact path ever reach ReadFiles), and no
+//     emitted evidence outside the runtime log/perf origins — a session
+//     that did source work keeps the source-navigation wording.
+func traceObservationDrillRetryLensActive(busCtx *types.BusContext, ir *types.AnalysisIR) bool {
+	if busCtx == nil || busCtx.Mutable == nil || ir == nil {
+		return false
+	}
+	if readLocalizerTier1CurrentSourceRequired(ir.RequestModel) {
+		return false
+	}
+	if !types.TraceQueryContextActiveFromBus(busCtx) {
+		return false
+	}
+	if busCtx.Mutable.TraceQueryRuntimeObservationCount() == 0 {
+		return false
+	}
+	if turnA := busCtx.Mutable.TurnAArtifacts(); turnA != nil {
+		for _, file := range turnA.ReadFiles {
+			if !traceRetryLensReadFileIsRuntimeArtifact(busCtx, file) {
+				return false
+			}
+		}
+	}
+	for _, ev := range busCtx.Mutable.EmittedEvidence() {
+		switch ev.Origin {
+		case types.ClaimOriginLog, types.ClaimOriginPerf:
+		default:
+			// Current-repo, cross-source, or legacy empty-origin evidence
+			// means source-lane work exists; keep the source wording.
+			return false
+		}
+	}
+	return true
+}
+
+// traceRetryLensReadFileIsRuntimeArtifact reports whether a TurnA read-file
+// entry names runtime-artifact bytes rather than current repository source.
+// Reading the attached artifact is a design-internal escape lane and must not
+// flip the retry directive back to source-navigation wording. The predicate
+// consumes the same typed authorities as the read_file tool's own
+// classification (readFileTypedSourcePath): the shared artifact path-shape
+// lane (types.RuntimeArtifactPathKind — reserved blob basenames + artifact
+// extensions, case-folded), the .codrax runtime-state root, and the
+// attached-trace user spelling (case-folded path or basename, mirroring the
+// typed citation spelling set semantics).
+func traceRetryLensReadFileIsRuntimeArtifact(busCtx *types.BusContext, path string) bool {
+	p := strings.TrimSpace(strings.ReplaceAll(path, `\`, `/`))
+	if p == "" {
+		return true // empty entry proves no source work
+	}
+	if types.RuntimeArtifactPathKind(p) != "" {
+		return true
+	}
+	trimmed := strings.TrimPrefix(p, "./")
+	if trimmed == ".codrax" || strings.HasPrefix(trimmed, ".codrax/") || strings.Contains(trimmed, "/.codrax/") {
+		return true
+	}
+	attached := strings.TrimSpace(busCtx.AttachedHitraceSource)
+	if attached == "" {
+		return false
+	}
+	attachedFold := strings.ToLower(filepath.ToSlash(filepath.Clean(attached)))
+	pathFold := strings.ToLower(filepath.ToSlash(filepath.Clean(p)))
+	return pathFold == attachedFold || filepath.Base(pathFold) == filepath.Base(attachedFold)
+}
+
+func renderReadLocalizerFollowupRetryMessage(followup *types.ReadLocalizerFollowup, traceDrill bool) string {
 	if followup == nil {
 		return ""
 	}
 	normalized := types.NormalizeReadLocalizerFollowup(*followup)
 	if normalized.State != types.ReadLocalizerFollowupNeeded {
 		return ""
+	}
+	if traceDrill {
+		// Pure-trace session: repo_map lens words are structurally
+		// unsatisfiable here and are stripped entirely; the directive points
+		// at the trace drill-down views the session can actually execute
+		// (LLM-facing wording — tool/view names only, no internal tokens).
+		var b strings.Builder
+		b.WriteString("The verification pass needs deeper runtime-trace drill-down before the investigation can finish safely.")
+		b.WriteString(" Stay on trace_query: for each attached trace, use window_sweep over that trace's already-selected span to locate the densest sub-windows,")
+		b.WriteString(" then run heavy views (root_cause_rank, critical_blocking_calls, window_stats, frame_root_cause_bundle)")
+		b.WriteString(" on those 80-150ms hotspot windows, carrying that trace's own time_start/time_end into every follow-up call.")
+		b.WriteString(" Preserve the verified findings through emit_investigation_complete (reason and, for counts/scalars, aggregate_facts) before declaring completion.")
+		b.WriteString(" Repository breadth search is not required for this pass; the attached trace remains the evidence pool.")
+		return b.String()
 	}
 	var b strings.Builder
 	b.WriteString("Source localization is not yet narrow enough to finish safely.")

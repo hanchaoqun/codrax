@@ -97,6 +97,21 @@ func TestRuntimeCitationCleanup_DonghuShapeOpensThroughDerivedAuthority(t *testi
 // Pin 2a: the typed spelling set is case-folded on both sides, aligned with
 // the shape lane; real source paths never match.
 func TestRuntimeArtifactCitationPathSet_CaseFoldAlignsWithShapeLane(t *testing.T) {
+	// Set-side fold (mutation audit 2026-07-10): an UPPERCASE user spelling
+	// of the attachment must be stored folded, or a lowercase/differently
+	// cased citation misses it — the reserved blob constants are already
+	// lowercase, so only a cased attachment spelling exercises this side.
+	casedSet := runtimeArtifactCitationPathSet(&types.BusContext{AttachedHitraceSource: "../../CustomLogs/Berlin.SysTrace"})
+	for _, variant := range []string{
+		"berlin.systrace",
+		"../../customlogs/berlin.systrace",
+		"Berlin.SYSTRACE",
+	} {
+		if !citationFileIsRuntimeArtifact(casedSet, variant) {
+			t.Fatalf("set side must fold the cased attachment spelling; %q missed", variant)
+		}
+	}
+
 	set := runtimeArtifactCitationPathSet(&types.BusContext{AttachedHitraceSource: "../../customlogs/xxx_all.systrace"})
 	for _, variant := range []string{
 		"Attached_Trace.txt",
