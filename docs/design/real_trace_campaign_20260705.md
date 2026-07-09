@@ -1732,3 +1732,9 @@ Donghu 类与鸿蒙类 trace 同硬件平台——CAP-2 五重门**不设 flavor
 **复核新教训**:⑤跨批 promotion 义务对置真空(两批各把 note key 升级留给对方,没人执行)——契约两端义务须在派单时指定唯一 owner;⑥"缓存版本协议"类仓库自身协议是复核必查面(extractorVersions);universe 覆盖 pin 是"跨面消费全谱"的机械化终态,凡枚举 switch 应配。
 **留观立案**:DISP-2 P3-1 小桶双发布残形/P3-2 family ◇席 cum 推演盲点/邻近桶 cap=8 静默 limiter;TEX F5 banner 200B parity;G10-EN 面中文 witness 债(计数当量 EN 同族);GAP-B wave3.1 P3-3 长括注超原子。
 **队列**:3.2b G1 跨车道对账(下批,引擎+显示单 agent)→3.3a INODE(§28.6 已批)→3.3b CAP-2+THERM。外部依赖:原件复放(G12/D-10/hmfs 实测/TEX-CAP 验收)+客户下一构建全场景回访。
+
+## §28.9 Wave-3.2b G1 收账(2026-07-09,推 main;§27 立案 20 项全部闭环)
+**已推**:G1 跨车道对账(见本节 commit)。§27 审计 20 项至此 **20/20 闭环**(G12 转待原件复放项)。
+交付:引擎四维精确门(threadKey/裁定表恰 io_latency↔io_latency+universe pin/查询窗 typed 端点/区间∈成员并集**拒 hull**)+typed absorbed 标记(observations 照发不删,absorbed_by_rank_family/absorbed_into/rank_family_key 三键 hard_consumer+golden)+投影单收口点聚合前折叠(全渲染面自动继承,零逐面抑制)+家族明细「链上并入」注(E# 全引,守恒三面)+skill 不可加语义句。复核三修:P1 attach 位序(◇/▒ 桶填充前=披露死代码,复核 REPRO;移至全道填充后)+P2-a recon key 补 lane 维(与 fold key 同构,按构造对家族唯一)+P2-b ×N 合并保留首个非空 RankFamilyKey(仅 key 一字段,F-1 嵌合纪律完好)。30 pin,10 突变咬红(含 hull 嘈声维最强形)。
+**留观立案**:P3-i 单行重复(MemberCount=1)scope 外/P3-ii cap 席位不回收(同既有账)/P3-iii 跨 result 双 tool-call 形不对账(注已声明;根修向=wire 携成员区间清单,需新裁定)/P3-iv ts=0 窗 stamp 跳过 recon 空转(合成 trace 才可达)/同 merge 组双 key 只留首(E# 兜底)。
+**队列**:3.3a INODE(即开)→3.3b CAP-2+THERM。
