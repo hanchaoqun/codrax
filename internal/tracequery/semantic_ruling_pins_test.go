@@ -46,6 +46,13 @@ import (
 //   - VS-2c 簇泳道角色裁定 (§7.10 终局裁定): isCPUFrequencyClock 名字启发
 //     只准喂软引导/旁证 caveat,禁作 supply-fold fmax 基准 —
 //     TestSemanticRulingPin_ClockLaneNeverFeedsSupplyFoldFmax below.
+//     EVOLUTION RECORD (CAP-2 §28.4 用户裁定 2026-07-09, real_trace_campaign_
+//     20260705.md — 演化非推翻): the NAME arm above stands untouched; a NEW
+//     exception arm exists for cpu_id-KEYED cluster-rail FAMILIES that pass
+//     ALL six structural gates (cluster_rail_evidence.go) — binding semantics
+//     from the keyed field + deterministic checks only, never the name.
+//     TestSemanticRulingPin_KeyedRailCompositeGateException below pins both
+//     arms side by side.
 //   - CFC (§7.10 VS-2c 设计): the SAME clock-lane exclusion governs the
 //     WINDOW-face per-CPU frequency basis (residency / topology inference /
 //     low_frequency verdicts) via the shared predicate isPerCPUFrequencySample
@@ -288,6 +295,61 @@ func TestSemanticRulingPin_ClockLaneNeverFeedsSupplyFoldFmax(t *testing.T) {
 			t.Fatalf("lane agreeing with fmax must not raise the divergence caveat (一致时不加注): %+v", basis)
 		}
 	})
+}
+
+// TestSemanticRulingPin_KeyedRailCompositeGateException pins the CAP-2
+// (§28.4, 2026-07-09) EVOLUTION of the §7.10 VS-2c 终局裁定 — 增臂非推翻:
+//
+//	原名字禁令臂 (retained verbatim above): a cpu-freq-NAMED clock lane that
+//	does NOT clear the six structural gates keeps its corroboration-only
+//	role — TestSemanticRulingPin_ClockLaneNeverFeedsSupplyFoldFmax and the
+//	CFC window pin stand untouched, and the probe below re-asserts the
+//	family-less single-rail shape (m3-shaped name, one rail, no family)
+//	never mints an fmax.
+//
+//	键控复合门例外臂 (new): a ≥2-rail family whose binding semantics come
+//	ENTIRELY from the cpu_id keyed field + the six deterministic gates MAY
+//	govern fold slices and anchor the fmax rung, with the typed keyed_rail
+//	topology disclosure + the anchor-presumption wording (fold_rail_basis
+//	audit note carries the family for traceback).
+func TestSemanticRulingPin_KeyedRailCompositeGateException(t *testing.T) {
+	// Original-arm probe: ONE keyed rail (no family) — the name means
+	// nothing, the gates fail at ①, the fold books everything unknown.
+	soloRail := `
+    tppmgr-idle-0-296   (    2) [000] .... 15151.855463: clock_set_rate: m3_c3_freq state=2350000 cpu_id=12
+`
+	idx := buildTraceIndex(t, "ruling_solo_rail.systrace", cap2SchedFiller()+soloRail+cap2DepBody(12))
+	chain := BuildWakeupChain(idx, cap2FoldQuery)
+	dep := supplyFoldDepImpact(t, chain)
+	if dep.SupplyFoldBasis == nil || dep.SupplyFoldBasis.FmaxKHz != 0 || dep.SupplyFoldBasis.KnownMs != 0 {
+		t.Fatalf("a family-less rail must never mint an fmax or govern a slice (原禁令臂): %+v", dep.SupplyFoldBasis)
+	}
+	// Exception-arm probe: the full six-gate family (specimen verbatim) DOES
+	// govern — with the typed disclosure trail.
+	idx2 := buildTraceIndex(t, "ruling_keyed_family.systrace", cap2SchedFiller()+cap2LimitsLines+cap2M3RailLines+cap2DepBody(12))
+	chain2 := BuildWakeupChain(idx2, cap2FoldQuery)
+	dep2 := supplyFoldDepImpact(t, chain2)
+	basis := dep2.SupplyFoldBasis
+	if basis == nil || basis.FmaxKHz <= 0 || basis.KnownMs <= 0 {
+		t.Fatalf("the six-gate family must govern (例外臂): %+v", basis)
+	}
+	if basis.ClusterTopologySource != CoreCapabilityTopologyKeyedRail || basis.RailFamily != "m3_c#_freq" {
+		t.Fatalf("the exception arm must disclose keyed_rail + the family audit trail: %+v", basis)
+	}
+	// The gate set is the ONLY door: the thermal pseudo family (⑥) stays a
+	// non-source even though its rails are keyed and constant-anchored.
+	// 复核收尾 P3-1 (2026-07-09): the probe window must COVER the verbatim
+	// thermal samples (15152.034+) — the original cap2FoldQuery window ended
+	// at 15152.010, so FmaxKHz==0 held by window misalignment, not by the
+	// gate. With the late window the inte2/inte3 family would clear ①-⑤
+	// (constant distinct keyed anchors, in-band values, scheduled CPUs) and
+	// govern the fold — ⑥ is the live guard this probe now bites on.
+	idx3 := buildTraceIndex(t, "ruling_thermal_not_source.systrace", cap2SchedFiller()+cap2ThermalInte23Lines+cap2DepBodyLate(12))
+	chain3 := BuildWakeupChain(idx3, cap2FoldQueryLate)
+	dep3 := supplyFoldDepImpact(t, chain3)
+	if dep3.SupplyFoldBasis == nil || dep3.SupplyFoldBasis.FmaxKHz != 0 || dep3.SupplyFoldBasis.KnownMs != 0 {
+		t.Fatalf("thermal rails must never enter the fmax basis (§28.4 热限披露另立): %+v", dep3.SupplyFoldBasis)
+	}
 }
 
 // TestSemanticRulingPin_CFCWindowFaceClockLaneExclusion pins the CFC batch's

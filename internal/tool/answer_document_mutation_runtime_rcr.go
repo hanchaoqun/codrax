@@ -541,8 +541,8 @@ func runtimeTraceProjInversionComponents(node types.TraceCausalProjectionNode, z
 		marks := []runtimeTraceProjMark{runtimeTraceProjMarkCaliberConsumerCore}
 		// CAP (§26 C3): the discounted component's sub-row parenthesis carries
 		// the typed capability caliber (行3 keeps the short closed-set word).
-		full += runtimeTraceProjCapabilityCaliberSuffix(node.GatedCapabilitySource, zh)
-		if capMark, ok := runtimeTraceProjCapabilityCaliberMark(node.GatedCapabilitySource); ok {
+		full += runtimeTraceProjCapabilityCaliberSuffixTopo(node.GatedCapabilitySource, node.GatedTopologySource, zh)
+		if capMark, ok := runtimeTraceProjCapabilityCaliberMarkTopo(node.GatedCapabilitySource, node.GatedTopologySource); ok {
 			marks = append(marks, capMark)
 		}
 		components = append(components, runtimeTraceProjAttributionComponent{
@@ -804,7 +804,7 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 			row.marks.mark(runtimeTraceProjMarkCaliberConsumerCore)
 			// CAP (§26 C3): the composition text's discounted component
 			// carries the capability disclosure — its legend follows.
-			if capMark, ok := runtimeTraceProjCapabilityCaliberMark(node.GatedCapabilitySource); ok && node.GatedRunningDeficitMS > 0 {
+			if capMark, ok := runtimeTraceProjCapabilityCaliberMarkTopo(node.GatedCapabilitySource, node.GatedTopologySource); ok && node.GatedRunningDeficitMS > 0 {
 				row.marks.mark(capMark)
 			}
 		}
@@ -840,8 +840,8 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		}
 		// CAP (§26 C3): the sub-row parenthesis carries the fold's typed
 		// capability caliber (行3 keeps the short closed-set word).
-		full += runtimeTraceProjCapabilityCaliberSuffix(node.SupplyFoldCapabilitySource, zh)
-		if capMark, ok := runtimeTraceProjCapabilityCaliberMark(node.SupplyFoldCapabilitySource); ok {
+		full += runtimeTraceProjCapabilityCaliberSuffixTopo(node.SupplyFoldCapabilitySource, node.SupplyFoldTopologySource, zh)
+		if capMark, ok := runtimeTraceProjCapabilityCaliberMarkTopo(node.SupplyFoldCapabilitySource, node.SupplyFoldTopologySource); ok {
 			componentMarks = append(componentMarks, capMark)
 		}
 		components := []runtimeTraceProjAttributionComponent{{
@@ -943,8 +943,8 @@ func runtimeTraceProjInversionSupplyFoldDetailLine(node types.TraceCausalProject
 	}
 	// CAP (§26 C3): the caliber parenthesis carries the fold's typed
 	// capability disclosure. 复核 F1: the basis word follows the actual
-	// reference cluster.
-	capSuffix := runtimeTraceProjCapabilityCaliberSuffix(node.SupplyFoldCapabilitySource, zh)
+	// reference cluster. CAP-2: the wording upgrades on the topology token.
+	capSuffix := runtimeTraceProjCapabilityCaliberSuffixTopo(node.SupplyFoldCapabilitySource, node.SupplyFoldTopologySource, zh)
 	refWord, _ := runtimeTraceProjFoldReferenceClusterWord(node.SupplyFoldReferenceClass, zh)
 	if zh {
 		return fmt.Sprintf("running 原始 %s → 供给折算缺口 %s(折算,按%s满频,下界%s;独立口径,不计入有效归因)",

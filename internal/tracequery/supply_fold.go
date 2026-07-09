@@ -117,6 +117,37 @@ type SupplyFoldBasis struct {
 	// Empty on the freq_only/legacy lane and on all-unknown folds. Wording
 	// input only, no gate reads it.
 	ReferenceClass string `json:"reference_class,omitempty"`
+
+	// ClusterTopologySource (CAP-2 §28.4/§28.5 三级披露词): WHERE the fold's
+	// cluster STRUCTURE came from — CoreCapabilityTopologyComovement (Tier-1,
+	// display 按实测频点共动分簇折算) or CoreCapabilityTopologyKeyedRail
+	// (Tier-2 structure used, display 按簇轨实测折算(成员按锚点连续推定)).
+	// Empty for explicit-topology / legacy / freq_only records so every
+	// pre-CAP-2 wire byte stays identical. Wording input only.
+	ClusterTopologySource string `json:"cluster_topology_source,omitempty"`
+	// RailFamily / RailGoverned (CAP-2 audit disclosure, §28.5-T6 残洞兜底):
+	// the adopted keyed-rail family mask and the roster of slice CPUs whose
+	// governance came from a rail timeline — the traceback that keeps the
+	// anchor-presumption fold auditable. Empty when no rail slice folded.
+	RailFamily   string                  `json:"rail_family,omitempty"`
+	RailGoverned []SupplyFoldRailGoverned `json:"rail_governed,omitempty"`
+
+	// ThermalCapKHz / ThermalCapClusterClass (THERM, §28.5-T7, disclosure-only
+	// zero-weight edit): the dominant running cluster of this fold was pressed
+	// below its fmax inside the governance window — by a governing
+	// cpu_frequency_limits Max and/or a thermal-named per-cluster rail — down
+	// to ThermalCapKHz. No fold number changes; the display appends the
+	// 窗内该簇受热限压至 X sentence. Zero when no press or when the cluster
+	// attribution is unavailable (absence never guesses).
+	ThermalCapKHz          int    `json:"thermal_cap_khz,omitempty"`
+	ThermalCapClusterClass string `json:"thermal_cap_cluster_class,omitempty"`
+}
+
+// SupplyFoldRailGoverned is one disclosed rail-governed slice CPU: slices on
+// CPU folded with the named keyed rail's governance timeline (CAP-2 Tier-2).
+type SupplyFoldRailGoverned struct {
+	CPU  int    `json:"cpu"`
+	Rail string `json:"rail"`
 }
 
 // SupplyFoldClusterReuse is one disclosed reuse pair: slices on CPU folded
@@ -127,10 +158,14 @@ type SupplyFoldClusterReuse struct {
 }
 
 // Typed FmaxSource values (VS-2b ladder steps 2 and 3; step 1 — sysfs — is
-// unreachable offline by definition).
+// unreachable offline by definition). CAP-2 (§28.4) appends the keyed-rail
+// rung: a cluster with neither a governing limits row nor an observed sample
+// may anchor the basis with its validated rail timeline's governed maximum —
+// the most inferential rung, so it ranks LAST (limit > observed > rail).
 const (
 	SupplyFoldFmaxSourceLimit    = "limit"
 	SupplyFoldFmaxSourceObserved = "observed"
+	SupplyFoldFmaxSourceRail     = "rail"
 )
 
 // AllKnown reports a fully-covered fold: every running slice had a governed
@@ -248,6 +283,18 @@ func (c *chainQueryCache) buildClockLaneIndex() {
 		if !isCPUFrequencyClockName(ev.ClockName) {
 			continue
 		}
+		// CAP-2 任务6 (§28.5-T8 pid_freq 量纲陷阱, 噪音源头消除): a sample
+		// implausible as a CPU frequency under EVERY unit hypothesis is
+		// telemetry noise, not a frequency — drop it here so the soft
+		// corroboration lane stops carrying it (witness: pid_freq
+		// state=10240923 — 10.24GHz/10.24MHz/10.24kHz under ÷1/÷1e3/÷1e6,
+		// 10.24THz under the ×1e3 MHz hypothesis — all outside the band).
+		// A filter INSIDE the soft lane only: the §7.10 role of this lane
+		// (corroboration caveat, never the fold basis) is untouched, and
+		// unit-ambiguous-but-plausible shapes (the pinned MHz hedge) survive.
+		if !clockLanePlausibleCPUFrequency(ev.Frequency) {
+			continue
+		}
 		// Vendor lanes are free-form about UNITS too (kHz, Hz, MHz all exist
 		// in the wild), so the sample is kept RAW here. The old single-sided
 		// "≥1e8 must be Hz" threshold produced REVERSED caveats for the
@@ -257,6 +304,27 @@ func (c *chainQueryCache) buildClockLaneIndex() {
 		// (applyClusterLaneCorroboration, 2026-07-04 review).
 		c.clockLaneSamples = append(c.clockLaneSamples, clockLaneSample{ts: ev.Ts, khz: ev.Frequency, name: ev.ClockName})
 	}
+}
+
+// clockLanePlausibilityFactors are the unit hypotheses of the soft-lane
+// plausibility filter: raw-as-kHz (÷1), Hz (÷1e3), ×1e6-scaled (÷1e6), and
+// the MHz shape (×1e3 — the corroboration comparison cannot divide its way to
+// it, but the pinned unit-unknown hedge for e.g. raw 2200 vs fmax 2200000
+// requires the sample to SURVIVE this filter). A value plausible under ANY
+// hypothesis is kept raw for the comparison-time matching.
+var clockLanePlausibilityFactors = [...]float64{1e-3, 1, 1e3, 1e6}
+
+// clockLanePlausibleCPUFrequency reports whether raw can denote a CPU
+// frequency inside [clusterRailFreqMinKHz, clusterRailFreqMaxKHz] under at
+// least one unit hypothesis.
+func clockLanePlausibleCPUFrequency(raw int) bool {
+	for _, div := range clockLanePlausibilityFactors {
+		norm := float64(raw) / div
+		if norm >= clusterRailFreqMinKHz && norm <= clusterRailFreqMaxKHz {
+			return true
+		}
+	}
+	return false
 }
 
 // clusterLaneUnitDivisors are the unit hypotheses tried when comparing a raw
@@ -438,7 +506,11 @@ func (c *chainQueryCache) supplyFoldCapabilityReference(capability coreCapabilit
 		}
 	}
 	for _, class := range classes {
-		members := capability.classClusterMembers(class)
+		label, ok := capability.classClusterLabel(class)
+		if !ok {
+			continue
+		}
+		members := capability.domains.members[label]
 		if len(members) == 0 {
 			continue
 		}
@@ -456,10 +528,23 @@ func (c *chainQueryCache) supplyFoldCapabilityReference(capability coreCapabilit
 				}
 			}
 		}
-		if observed <= 0 {
+		// CAP-2 (§28.4): a validated keyed-rail governance timeline is the
+		// LAST fmax rung and a nomination source of its own — the pure Tier-2
+		// form has no observed samples at all, yet the cluster genuinely
+		// carries a governed ceiling. Nomination stays "governance evidence
+		// required": limits-only clusters still never mint a basis (pinned
+		// membership rule).
+		railGoverned := 0
+		if tl := capability.railByCluster[label]; len(tl) > 0 {
+			railGoverned = governedMaxKHz(tl, gStart, gEnd)
+		}
+		if observed <= 0 && railGoverned <= 0 {
 			continue // this cluster cannot anchor the window's basis — demote
 		}
-		out := supplyFoldFmax{khz: observed, source: SupplyFoldFmaxSourceObserved, traceObservedMaxKHz: traceMax}
+		out := supplyFoldFmax{khz: railGoverned, source: SupplyFoldFmaxSourceRail, traceObservedMaxKHz: traceMax}
+		if observed > 0 {
+			out.khz, out.source = observed, SupplyFoldFmaxSourceObserved
+		}
 		if limit > 0 {
 			out.khz, out.source = limit, SupplyFoldFmaxSourceLimit
 			out.throttled = traceMax > limit
@@ -516,6 +601,14 @@ func (c *chainQueryCache) supplyFoldRunningIntervals(q Query, nodeStart, nodeEnd
 	}
 	c.applyClusterLaneCorroboration(&basis, gStart, gEnd)
 	basis.CapabilitySource = capability.source
+	// CAP-2 (§28.4/§28.5): the typed topology-source token rides the basis
+	// only on the two evidence forms (explicit/legacy stay token-less —
+	// byte-identical wire). THERM (§28.5-T7) appends the disclosure-only
+	// in-window thermal/policy press on the dominant running cluster.
+	if capability.usable() {
+		basis.ClusterTopologySource = capability.topologySource
+	}
+	c.applyThermalCapDisclosure(&basis, capability, gStart, gEnd, intervals)
 	if bigFmax > 0 {
 		basis.ReferenceClass = refClass
 	}
@@ -544,6 +637,22 @@ func (c *chainQueryCache) supplyFoldRunningIntervals(q Query, nodeStart, nodeEnd
 				recordSupplyFoldClusterReuse(&basis, it.CPU, donor)
 				// CFR-2 披露区分: say WHERE the membership came from.
 				basis.ClusterFreqReuseSource = domains.source
+			}
+		}
+		if len(samples) == 0 {
+			// CAP-2 Tier-2 (§28.5 轨值时间线=该簇频率治理时间线): no own
+			// samples and no donor — the slice CPU's validated keyed-rail
+			// timeline governs it. Booked as KNOWN basis with the typed
+			// rail-governed roster + family disclosure (the anchor
+			// presumption wording carries the residual assumption).
+			if label := capability.clusterLabelFor(it.CPU); label != "" {
+				if tl := capability.railByCluster[label]; len(tl) > 0 {
+					if railSamples := governedWindowSamples(tl, gStart, gEnd); len(railSamples) > 0 {
+						samples = railSamples
+						recordSupplyFoldRailGoverned(&basis, it.CPU, capability.railNameByCluster[label])
+						basis.RailFamily = capability.railFamily
+					}
+				}
 			}
 		}
 		// CAP (§26) + 复核 F1: the interval's CPU prices at its cluster class
@@ -601,6 +710,89 @@ func recordSupplyFoldClusterReuse(basis *SupplyFoldBasis, cpu, donor int) {
 		}
 		return basis.ClusterFreqReuse[i].DonorCPU < basis.ClusterFreqReuse[j].DonorCPU
 	})
+}
+
+// recordSupplyFoldRailGoverned appends one disclosed rail-governed slice CPU,
+// deduped and sorted (deterministic audit roster, mirror of the CFR recorder).
+func recordSupplyFoldRailGoverned(basis *SupplyFoldBasis, cpu int, rail string) {
+	for _, entry := range basis.RailGoverned {
+		if entry.CPU == cpu && entry.Rail == rail {
+			return
+		}
+	}
+	basis.RailGoverned = append(basis.RailGoverned, SupplyFoldRailGoverned{CPU: cpu, Rail: rail})
+	sort.Slice(basis.RailGoverned, func(i, j int) bool {
+		if basis.RailGoverned[i].CPU != basis.RailGoverned[j].CPU {
+			return basis.RailGoverned[i].CPU < basis.RailGoverned[j].CPU
+		}
+		return basis.RailGoverned[i].Rail < basis.RailGoverned[j].Rail
+	})
+}
+
+// applyThermalCapDisclosure (THERM, §28.5-T7) computes the disclosure-only
+// in-window thermal/policy press for the fold's dominant running cluster:
+//
+//	cap = min over the governance window of (a) the members' governing
+//	      cpu_frequency_limits Max samples and (b) the values of thermal-named
+//	      per-cluster rails whose anchors all sit inside this cluster;
+//	press exists ⇔ cap < the cluster's ladder fmax (precise int comparison).
+//
+// Zero-weight edit: nothing numeric changes — the display appends the
+// 窗内该簇受热限压至 X sentence off the typed field. The dominant cluster is
+// the wall-clock argmax over the node's own RUNNING slices (deterministic
+// label tie-break); an unattributable cluster emits nothing (归属不可得时
+// 不发, absence never guesses).
+func (c *chainQueryCache) applyThermalCapDisclosure(basis *SupplyFoldBasis, capability coreCapabilityMap, gStart, gEnd float64, intervals []Interval) {
+	if !capability.usable() {
+		return
+	}
+	wallByLabel := map[string]float64{}
+	for _, it := range intervals {
+		if it.State != StateRunning || !it.CPUKnown || it.DurationMs <= 0 {
+			continue
+		}
+		if label := capability.clusterLabelFor(it.CPU); label != "" {
+			wallByLabel[label] += it.DurationMs
+		}
+	}
+	label := ""
+	best := 0.0
+	for l, wall := range wallByLabel {
+		if wall > best || (wall == best && (label == "" || l < label)) {
+			label, best = l, wall
+		}
+	}
+	if label == "" {
+		return
+	}
+	fmax := capability.fmaxByCluster[label]
+	if fmax <= 0 {
+		return
+	}
+	cap := 0
+	press := func(khz int) {
+		if khz > 0 && (cap == 0 || khz < cap) {
+			cap = khz
+		}
+	}
+	c.buildFreqLimitIndex()
+	for _, cpu := range capability.domains.members[label] {
+		for _, sample := range governedWindowSamples(c.freqLimitByCPU[cpu], gStart, gEnd) {
+			press(sample.khz)
+		}
+	}
+	for _, rail := range c.thermalRailTimelines() {
+		if thermalRailClusterLabel(rail, capability) != label {
+			continue
+		}
+		for _, sample := range governedWindowSamples(rail.samples, gStart, gEnd) {
+			press(sample.khz)
+		}
+	}
+	if cap > 0 && cap < fmax {
+		basis.ThermalCapKHz = cap
+		basis.ThermalCapClusterClass = capability.classByCluster[label]
+	}
 }
 
 func supplyFoldSliceIdeal(sliceMs float64, freqKHz, bigFmaxKHz int, capRatio float64, basis *SupplyFoldBasis) float64 {

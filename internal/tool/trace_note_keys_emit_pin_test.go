@@ -63,6 +63,12 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 		// only emits on a non-big basis).
 		CapabilitySource: tracequery.CoreCapabilitySourceDefault,
 		ReferenceClass:   "small",
+		// CAP-2 (§28.4/§28.5): exercises fold_cluster_topology + the
+		// fold_rail_basis audit note; THERM exercises thermal_cap_khz.
+		ClusterTopologySource: tracequery.CoreCapabilityTopologyKeyedRail,
+		RailFamily:            "m3_c#_freq",
+		RailGoverned:          []tracequery.SupplyFoldRailGoverned{{CPU: 12, Rail: "m3_c3_freq"}},
+		ThermalCapKHz:         1850000,
 	}
 	impact := tracequery.WakeupCausalImpact{
 		Thread: tracequery.ThreadRef{Comm: "dep", PID: 21}, Window: window,
@@ -75,8 +81,10 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 		ActualRunningMs: 1, ActualRunnableMs: 1, ActualSleepMs: 2, ActualDStateMs: 1, ActualIOWaitMs: 1,
 		Priority: 10, PriorityClass: "cfs", TargetPriority: 20, TargetPriorityClass: "cfs",
 		PriorityRelation: "waker_higher", PriorityInversionCandidate: true, PriorityInversionGatedMs: 1,
-		// CAP (§26 C3): exercises the gated_capability emission.
+		// CAP (§26 C3): exercises the gated_capability emission; CAP-2:
+		// gated_cluster_topology beside it.
 		GatedRunnableMs: 1, GatedRunningDeficitMs: 1, GatedCapabilitySource: tracequery.CoreCapabilitySourceDefault,
+		GatedClusterTopology: tracequery.CoreCapabilityTopologyComovement,
 		NextStep: "inspect the waker", NextStepKind: "wakeup_chain",
 		PeriodicSource: true, DetectedPeriodMs: 16.6, LatenessMs: 0.5, EffectivePeriodicImpactMs: 0.5,
 		SupplyFoldBasis: basis, SupplyFoldDeficitMs: 1, SupplyFoldIdealMs: 4,

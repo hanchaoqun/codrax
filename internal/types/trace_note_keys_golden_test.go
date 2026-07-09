@@ -112,8 +112,12 @@ var traceNoteKeyGoldenRows = []string{
 	"fold_capability|supply_fold|hard_consumer",
 	"fold_cluster_freq_reuse|supply_fold|display_only",
 	"fold_cluster_lane_caveat|supply_fold|display_only",
+	// CAP-2 (§28.4/§28.5, 2026-07-09): cluster-structure source (wording
+	// upgrade fork, hard) + the rail-family/roster audit note (display).
+	"fold_cluster_topology|supply_fold|hard_consumer",
 	"fold_fmax|supply_fold|display_only",
 	"fold_fmax_finding|supply_fold|display_only",
+	"fold_rail_basis|supply_fold|display_only",
 	// CAP 复核 F1 (2026-07-08): the demoted-reference basis class (absence =
 	// the nominated big-class basis).
 	"fold_reference_class|supply_fold|hard_consumer",
@@ -127,6 +131,8 @@ var traceNoteKeyGoldenRows = []string{
 	"gated_aggregation_caliber|gating|display_only",
 	// CAP (§26 C3): the gated twin of fold_capability above.
 	"gated_capability|gating|hard_consumer",
+	// CAP-2: the gated twin of fold_cluster_topology.
+	"gated_cluster_topology|gating|hard_consumer",
 	"gated_runnable|gating|hard_consumer",
 	"gated_running_deficit|gating|hard_consumer",
 	// INODE (§28.6, 2026-07-09): top_io_inode whole-window fold row keys.
@@ -305,6 +311,9 @@ var traceNoteKeyGoldenRows = []string{
 	"target_prio|cpu_load|display_only",
 	"target_priority|cpu_load|display_only",
 	"thermal|supply_pressure|display_only",
+	// THERM (§28.5-T7, 2026-07-09): in-window thermal/policy press on the
+	// fold's dominant running cluster (窗内该簇受热限压至 X sentence).
+	"thermal_cap_khz|supply_fold|hard_consumer",
 	"thread|cpu_load|display_only",
 	"threads|cpu_load|display_only",
 	"throughput|supply_pressure|display_only",

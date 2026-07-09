@@ -61,6 +61,21 @@ const (
 	coreCapabilityClassPrime  = "prime"
 )
 
+// Typed cluster-topology-source tokens (CAP-2 §28.4/§28.5 三级披露词):
+// WHERE the cluster STRUCTURE came from, orthogonal to the coefficient-table
+// source above. Only the two evidence forms are minted — explicit-topology and
+// pre-CAP-2 records stay token-less so their wire bytes and display wording
+// remain byte-identical (legacy preserved by absence).
+const (
+	// CoreCapabilityTopologyComovement: Tier-1 — membership from the measured
+	// cpu_frequency co-movement derivation (display: 按实测频点共动分簇折算).
+	CoreCapabilityTopologyComovement = "freq_comovement"
+	// CoreCapabilityTopologyKeyedRail: Tier-2 structure was USED — pure
+	// keyed-rail membership, or a rail-anchor subdivision of Tier-1 clusters
+	// (display: 按簇轨实测折算(成员按锚点连续推定)).
+	CoreCapabilityTopologyKeyedRail = "keyed_rail"
+)
+
 // Typed capability-source tokens (§26 C3 三态披露: the display layer keys the
 // "(按默认算力比粗算)" / "簇结构不可判,按纯频率比折算" wording on these, and
 // ONLY on these — never on a re-derived heuristic).
@@ -137,6 +152,30 @@ type coreCapabilityMap struct {
 	capByCluster   map[string]float64
 	classByCluster map[string]string
 	refCap         float64
+
+	// CAP-2 (§28.4/§28.5) evidence companions:
+	//
+	//	topologySource   — CoreCapabilityTopology* token ("" for explicit/
+	//	                   legacy/freq_only records: absence keeps every
+	//	                   pre-CAP-2 wire byte identical);
+	//	fmaxByCluster    — the class-ORDERING fmax ladder value per cluster
+	//	                   (limits > rail > observed, full trace) — also the
+	//	                   THERM comparison base;
+	//	railByCluster /  — the validated Tier-2 rail governance timeline and
+	//	railNameByCluster  verbatim rail name per cluster label (fold slice
+	//	                   lane + audit disclosure);
+	//	railFamily       — the adopted family mask (审计注可回溯, §28.5-T6);
+	//	railRejectReason — typed pin surface: why a gate-passing family was
+	//	                   discarded at combination time (cross-validation /
+	//	                   structure conflict), "" otherwise;
+	//	comoveFloorTripped — Tier-1 样本数下限门 fired (pin surface).
+	topologySource     string
+	fmaxByCluster      map[string]int
+	railByCluster      map[string][]freqSample
+	railNameByCluster  map[string]string
+	railFamily         string
+	railRejectReason   string
+	comoveFloorTripped bool
 }
 
 // usable reports whether a class table is in force (default or, once wired,
@@ -212,26 +251,95 @@ func (m coreCapabilityMap) sliceCapRatio(cpu int, refCap float64) float64 {
 // frequency domains and the resolving face's OWN full-trace per-CPU sample
 // timelines (fold face: chainQueryCache.freqByCPU). See the file header for
 // the discipline; every fallback is typed freq_only, never a guess.
+// Behavior-identical thin wrapper over the CAP-2 evidence resolver with no
+// limits ladder and no rail evidence (the pre-CAP-2 shape, pinned).
 func resolveCoreCapability(domains clusterFreqDomains, timelines map[int][]freqSample) coreCapabilityMap {
+	return resolveCoreCapabilityEvidence(domains, timelines, nil, nil)
+}
+
+// resolveCoreCapabilityEvidence is the CAP-2 (§28.4/§28.5) two-tier evidence
+// resolver. Priority ladder: 显式拓扑 > Tier-1 (co-movement derivation, behind
+// the sample floor) > Tier-2 (six-gate keyed rail) > freq_only fallback.
+// limits is the full-trace per-CPU cpu_frequency_limits Max timeline (nil =
+// no ladder rung); rail is the six-gate-passed adoption (nil = none). Every
+// fallback stays typed freq_only, never a guess.
+func resolveCoreCapabilityEvidence(domains clusterFreqDomains, timelines, limits map[int][]freqSample, rail *clusterRailAdoption) coreCapabilityMap {
 	out := coreCapabilityMap{source: CoreCapabilitySourceFreqOnly, domains: domains}
+	var railTL map[string][]freqSample
+	var railName map[string]string
+	railFamily := ""
+	if rail != nil {
+		railFamily = rail.family
+	}
+	switch {
+	case domains.source == ClusterFreqSourceExplicit:
+		// Explicit topology outranks both tiers: rail evidence is not
+		// consulted at all (§28.5 priority ladder).
+	case domains.source == ClusterFreqSourceDerived:
+		// Tier-1 样本数下限门 (see clusterFreqComoveMinSamples): an
+		// unsupported multi-CPU merge corrupts the cluster count — the whole
+		// judgment fails loud (no Tier-2 rescue against equally-thin
+		// cross-validation data; conservative both ways: the fold degrades to
+		// the pre-CAP pure frequency ratio).
+		for _, members := range domains.members {
+			if len(members) >= 2 && len(timelines[members[0]]) < clusterFreqComoveMinSamples {
+				out.comoveFloorTripped = true
+				return out
+			}
+		}
+		if rail != nil {
+			// 两级并存 (§28.5): rail values must be compatible with the
+			// anchor clusters' own measured samples; any positive proximate
+			// contradiction discards Tier-2 (Tier-1 kept).
+			if !clusterRailCrossValidate(rail, timelines) {
+				out.railRejectReason = clusterRailRejectCrossValidation
+				rail, railFamily = nil, ""
+			} else if refined := refineDomainsWithRails(domains, rail); !refined.ok {
+				out.railRejectReason = refined.reason
+				rail, railFamily = nil, ""
+			} else {
+				domains = refined.domains
+				out.domains = domains
+				railTL = refined.railTLByLabel
+				railName = refined.railNameByLabel
+				if refined.structureUsed {
+					out.topologySource = CoreCapabilityTopologyKeyedRail
+				} else {
+					// Rail aligned 1:1 with the measured clusters: membership
+					// stays the Tier-1 claim, the rail rides only as an fmax
+					// rung + THERM/audit timeline.
+					out.topologySource = CoreCapabilityTopologyComovement
+				}
+			}
+		}
+		if out.topologySource == "" {
+			out.topologySource = CoreCapabilityTopologyComovement
+		}
+	default:
+		// No explicit topology, no Tier-1 samples: pure Tier-2 (§28.5 —
+		// cpu_frequency 缺位时). Cross-validation is vacuous by construction
+		// (no member has samples); the membership presumption is disclosed.
+		if rail == nil {
+			return out
+		}
+		domains, railTL, railName = railOnlyDomains(rail)
+		out.domains = domains
+		out.topologySource = CoreCapabilityTopologyKeyedRail
+	}
 	if !domains.known() {
+		out.topologySource = ""
 		return out
 	}
-	// Sampled clusters only: full-trace fmax per domain label.
+	// Sampled clusters: class-ordering fmax per cluster label via the CAP-2
+	// ladder (see coreCapabilityClusterFmax). A cluster with no rung at all
+	// never participates (unchanged: it folds as UNKNOWN basis).
 	type clusterFmax struct {
 		label string
 		fmax  int
 	}
 	var clusters []clusterFmax
 	for label, members := range domains.members {
-		fmax := 0
-		for _, cpu := range members {
-			for _, sample := range timelines[cpu] {
-				if sample.khz > fmax {
-					fmax = sample.khz
-				}
-			}
-		}
+		fmax := coreCapabilityClusterFmax(members, railTL[label], timelines, limits)
 		if fmax > 0 {
 			clusters = append(clusters, clusterFmax{label: label, fmax: fmax})
 		}
@@ -240,6 +348,7 @@ func resolveCoreCapability(domains clusterFreqDomains, timelines map[int][]freqS
 	if !ok {
 		// <2 (no cross-class information) or >4 (outside the §26 table):
 		// unjudgeable — fail-loud freq_only.
+		out.topologySource = ""
 		return out
 	}
 	sort.SliceStable(clusters, func(i, j int) bool {
@@ -253,16 +362,24 @@ func resolveCoreCapability(domains clusterFreqDomains, timelines map[int][]freqS
 			// An fmax tie leaves no defensible order between the two clusters
 			// — 簇结构不可判, fail-loud freq_only (precise signal, never a
 			// coin flip on the label sort).
+			out.topologySource = ""
 			return out
 		}
 	}
 	out.source = CoreCapabilitySourceDefault
 	out.capByCluster = make(map[string]float64, len(clusters))
 	out.classByCluster = make(map[string]string, len(clusters))
+	out.fmaxByCluster = make(map[string]int, len(clusters))
 	for i, cluster := range clusters {
 		class := classes[i]
 		out.classByCluster[cluster.label] = class
 		out.capByCluster[cluster.label] = coreCapabilityDefaultByClass[class]
+		out.fmaxByCluster[cluster.label] = cluster.fmax
+	}
+	out.railByCluster = railTL
+	out.railNameByCluster = railName
+	if len(railTL) > 0 {
+		out.railFamily = railFamily
 	}
 	// 复核 F1: refCap is the NOMINATED reference coefficient (§26 letter —
 	// cap(大核), present in every mapping row), not the ladder top: a
@@ -271,16 +388,75 @@ func resolveCoreCapability(domains clusterFreqDomains, timelines map[int][]freqS
 	return out
 }
 
+// coreCapabilityClusterFmax is the CAP-2 class-ORDERING fmax ladder for one
+// cluster, full-trace caliber (class identity is a hardware attribute):
+//
+//	(1) cpu_frequency_limits Max over the members — the cpufreq POLICY
+//	    ceiling; its full-trace maximum is the least-throttled policy value,
+//	    the closest offline lower bound on the rated ceiling (VS-2b step-2
+//	    authority; witness: observed-only ordering read {2..9}=1744000 above
+//	    {10..13}=1200000 and misclassed the big cluster — the limits rows
+//	    2200000 vs 2295000 order it correctly);
+//	(2) the cluster's validated Tier-2 rail maximum — the governance
+//	    timeline's own ceiling (beats observed: what a workload happened to
+//	    reach is a weaker ceiling bound than what governance declared);
+//	(3) the highest observed cpu_frequency sample (the pre-CAP-2 rung —
+//	    disclosed as a lower bound by the deficit's 下界 legend).
+//
+// Ties across clusters still fail loud upstream (禁掷币). With nil limits and
+// nil rail this IS the pre-CAP-2 observed-max computation, byte for byte.
+func coreCapabilityClusterFmax(members []int, railTL []freqSample, timelines, limits map[int][]freqSample) int {
+	limitMax := 0
+	for _, cpu := range members {
+		for _, sample := range limits[cpu] {
+			if sample.khz > limitMax {
+				limitMax = sample.khz
+			}
+		}
+	}
+	if limitMax > 0 {
+		return limitMax
+	}
+	railMax := 0
+	for _, sample := range railTL {
+		if sample.khz > railMax {
+			railMax = sample.khz
+		}
+	}
+	if railMax > 0 {
+		return railMax
+	}
+	observed := 0
+	for _, cpu := range members {
+		for _, sample := range timelines[cpu] {
+			if sample.khz > observed {
+				observed = sample.khz
+			}
+		}
+	}
+	return observed
+}
+
 // classClusterMembers returns the member CPUs of the cluster classified as
 // class ("" roster when the class is absent). One cluster per class by
 // construction (the mapping assigns each class at most once).
 func (m coreCapabilityMap) classClusterMembers(class string) []int {
+	label, ok := m.classClusterLabel(class)
+	if !ok {
+		return nil
+	}
+	return m.domains.members[label]
+}
+
+// classClusterLabel resolves the domain label carrying class (CAP-2: the fold
+// reference walk needs the label to reach the cluster's rail timeline).
+func (m coreCapabilityMap) classClusterLabel(class string) (string, bool) {
 	for label, c := range m.classByCluster {
 		if c == class {
-			return m.domains.members[label]
+			return label, true
 		}
 	}
-	return nil
+	return "", false
 }
 
 // presentClassesByRankDesc lists the judged classes present in this map,
@@ -317,7 +493,10 @@ func (c *chainQueryCache) coreCapability(rawTopology string) coreCapabilityMap {
 		return c.freqByCPU
 	})
 	c.buildFreqIndex()
-	capability := resolveCoreCapability(domains, c.freqByCPU)
+	// CAP-2 (§28.4/§28.5): the full-trace limits ladder rung and the six-gate
+	// keyed-rail evidence join the resolution (both memoized on the cache).
+	c.buildFreqLimitIndex()
+	capability := resolveCoreCapabilityEvidence(domains, c.freqByCPU, c.freqLimitByCPU, c.clusterRailScanResult().adoption)
 	c.capabilityByTopo[rawTopology] = capability
 	return capability
 }

@@ -5249,7 +5249,9 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				{types.TraceNoteKeyGatedRunnable, traceQueryObservationMSValue(item.GatedRunnableMs)},
 				{types.TraceNoteKeyGatedRunningDeficit, traceQueryObservationMSValue(item.GatedRunningDeficitMs)},
 				// CAP (§26 C3): the discounted component's capability caliber.
+				// CAP-2: the cluster-topology source rides beside it.
 				{types.TraceNoteKeyGatedCapability, item.GatedCapabilitySource},
+				{types.TraceNoteKeyGatedClusterTopology, item.GatedClusterTopology},
 				// §20 E-Gap⑤ (P0-E engine half, 2026-07-07): the gated TOTAL
 				// rides the rank row's own note face under the SAME registered
 				// key the wakeup_causal_impact face already publishes — single
@@ -5994,7 +5996,9 @@ func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) 
 		{types.TraceNoteKeyGatedRunnable, traceQueryObservationMSValue(impact.GatedRunnableMs)},
 		{types.TraceNoteKeyGatedRunningDeficit, traceQueryObservationMSValue(impact.GatedRunningDeficitMs)},
 		// CAP (§26 C3): the discounted component's capability caliber.
+		// CAP-2: the cluster-topology source rides beside it.
 		{types.TraceNoteKeyGatedCapability, impact.GatedCapabilitySource},
+		{types.TraceNoteKeyGatedClusterTopology, impact.GatedClusterTopology},
 		{types.TraceNoteKeyRecommendedViews, strings.Join(views, ",")},
 		{types.TraceNoteKeyChainRequired, traceQueryTypedBool(impact.OnChain && traceQueryCausalImpactNeedsChain(impact.DominantState))},
 		{types.TraceNoteKeyRecursive, traceQueryTypedBool(impact.OnChain && traceQueryCausalImpactRecursive(impact.DominantState))},
@@ -6080,6 +6084,30 @@ func traceQueryTypedSupplyFoldRichNotes(basis *tracequery.SupplyFoldBasis, defic
 	// stay byte-identical and absence precisely means the big-class basis.
 	if basis.ReferenceClass != "" && basis.ReferenceClass != "big" {
 		notes = append(notes, fmt.Sprintf("%s=%s", types.TraceNoteKeyFoldReferenceClass, basis.ReferenceClass))
+	}
+	// CAP-2 (§28.4/§28.5): the cluster-STRUCTURE source — emitted only on the
+	// two evidence forms (freq_comovement / keyed_rail); absence keeps every
+	// explicit-topology/legacy note stream byte-identical.
+	if basis.ClusterTopologySource != "" {
+		notes = append(notes, fmt.Sprintf("%s=%s", types.TraceNoteKeyFoldClusterTopology, basis.ClusterTopologySource))
+	}
+	// CAP-2 audit note (§28.5-T6 残洞兜底): the adopted rail family and the
+	// rail-governed slice roster keep the anchor-presumption fold traceable.
+	if basis.RailFamily != "" || len(basis.RailGoverned) > 0 {
+		parts := make([]string, 0, len(basis.RailGoverned)+1)
+		if basis.RailFamily != "" {
+			parts = append(parts, "族="+basis.RailFamily)
+		}
+		for _, entry := range basis.RailGoverned {
+			parts = append(parts, fmt.Sprintf("cpu%d 频点=簇轨 %s", entry.CPU, entry.Rail))
+		}
+		notes = append(notes, fmt.Sprintf("%s=%s", types.TraceNoteKeyFoldRailBasis, strings.Join(parts, ";")))
+	}
+	// THERM (§28.5-T7): the in-window thermal/policy press on the dominant
+	// running cluster — disclosure-only, the display renders the
+	// 窗内该簇受热限压至 X sentence off this typed value.
+	if basis.ThermalCapKHz > 0 {
+		notes = append(notes, fmt.Sprintf("%s=%d", types.TraceNoteKeyThermalCapKHz, basis.ThermalCapKHz))
 	}
 	// VS-2b (§7.10): fmax ladder provenance — limits (policy authority) vs
 	// observed governance fallback. Zero on aggregates (mixed member windows
@@ -6237,7 +6265,9 @@ func traceQueryTypedCausalAggregateRichNotes(aggregate tracequery.WakeupCausalAg
 			{types.TraceNoteKeyGatedRunnable, traceQueryObservationMSValue(aggregate.GatedRunnableMs)},
 			{types.TraceNoteKeyGatedRunningDeficit, traceQueryObservationMSValue(aggregate.GatedRunningDeficitMs)},
 			// CAP (§26 C3): the discounted component's capability caliber.
+			// CAP-2: the cluster-topology source rides beside it.
 			{types.TraceNoteKeyGatedCapability, aggregate.GatedCapabilitySource},
+			{types.TraceNoteKeyGatedClusterTopology, aggregate.GatedClusterTopology},
 			{"priority_inversion_gated", traceQueryObservationMSValue(aggregate.PriorityInversionGatedMs)},
 			// F3 (§20.2 absorption): the aggregation caliber is disclosed as
 			// a typed note so P0-A can parse WHICH ruler produced the gated

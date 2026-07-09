@@ -56,7 +56,10 @@ var wordingLaneRules = []wordingLaneRule{
 			// (supply_fold_deficit is a ComputeDelivery-lane token), squarely
 			// the lane §7.4 reserves 算力 for. Single sources: the clause
 			// helper + its legend seats in the catalog.
-			"answer_document_mutation_runtime_supplyfold.go::runtimeTraceProjCapabilityCaliberClause": true,
+			// CAP-2 (§28.4/§28.5, 2026-07-09): the clause helper grew the
+			// topology-aware single source (Clause delegates to ClauseTopo);
+			// the wording home is unchanged, only the enclosing func renamed.
+			"answer_document_mutation_runtime_supplyfold.go::runtimeTraceProjCapabilityCaliberClauseTopo": true,
 			"answer_document_mutation_runtime_tree.go::runtimeTraceProjLegendCatalog":                 true,
 			// …and the wrap-atom registration of the same word (LAD L5 table —
 			// display-wrap boundary only, no new wording surface).
@@ -90,7 +93,10 @@ var wordingLaneRules = []wordingLaneRule{
 		// function, so a second literal means a fork of the decision table.
 		term: "供给折算缺口",
 		whitelist: map[string]bool{
-			"answer_document_mutation_runtime_supplyfold.go::runtimeTraceProjSupplyFoldClause": true,
+			// CAP-2 (2026-07-09): the four-branch body moved into the Core
+			// helper so the THERM sentence could append once at the wrapper —
+			// still ONE decision-table home, only the enclosing func renamed.
+			"answer_document_mutation_runtime_supplyfold.go::runtimeTraceProjSupplyFoldClauseCore": true,
 			// PTV8-RCR-A §24 ②/§24.1 (2026-07-08): the inversion node's
 			// detail-block 供给折算 line — the retired Triple sentence's data
 			// half in the unified sub-row grammar (供给折算缺口 句式并入口径

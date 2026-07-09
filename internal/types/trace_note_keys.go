@@ -293,6 +293,27 @@ const (
 	// (small/middle/prime) — absence means the big-class basis, so the legacy
 	// 按大核满频 wording stands byte-identically on every undemoted record.
 	TraceNoteKeyFoldReferenceClass = "fold_reference_class"
+	// TraceNoteKeyFoldClusterTopology (CAP-2 §28.4/§28.5, 2026-07-09): the
+	// typed cluster-STRUCTURE source of the fold's capability map —
+	// freq_comovement (Tier-1 实测频点共动) / keyed_rail (Tier-2 键控簇轨,
+	// 成员按锚点连续推定). Emitted ONLY on the two evidence forms; absence =
+	// explicit topology / legacy, keeping every pre-CAP-2 note stream
+	// byte-identical. Hard consumer: the projection compile promotes it and
+	// the display upgrades the capability caliber wording on it.
+	TraceNoteKeyFoldClusterTopology = "fold_cluster_topology"
+	// TraceNoteKeyFoldRailBasis (CAP-2 §28.5-T6 审计注): the adopted keyed-
+	// rail family mask + the rail-governed slice-CPU roster — the traceback
+	// that keeps the anchor-presumption fold auditable. Display tier.
+	TraceNoteKeyFoldRailBasis = "fold_rail_basis"
+	// TraceNoteKeyThermalCapKHz (THERM §28.5-T7, 2026-07-09): the fold's
+	// dominant running cluster was pressed below its fmax inside the
+	// governance window — value = the pressed-to ceiling in kHz (governing
+	// limits Max and/or thermal-named cluster rail, window minimum).
+	// Disclosure-only zero-weight edit; hard consumer: the projection
+	// promotes it into the 窗内该簇受热限压至 X sentence. Absent when no
+	// press or when cluster attribution is unavailable (absence never
+	// guesses).
+	TraceNoteKeyThermalCapKHz = "thermal_cap_khz"
 )
 
 // 占用族 (runnable-occupancy family, RN-1 §7.9) + CMP-9 density.
@@ -421,6 +442,9 @@ const (
 	// TraceNoteKeyGatedCapability (CAP §26 C3): typed capability caliber of
 	// the discounted running component (same token set as fold_capability).
 	TraceNoteKeyGatedCapability = "gated_capability"
+	// TraceNoteKeyGatedClusterTopology (CAP-2 §28.4/§28.5): the gated twin of
+	// fold_cluster_topology — same token set, same absence semantics.
+	TraceNoteKeyGatedClusterTopology = "gated_cluster_topology"
 	// TraceNoteKeyPriorityInversionCandidate (PTV5 Q4, #68 用户裁定 2026-07-05):
 	// promoted from a display-only literal to a consumer-parsed key — the
 	// projection compile reads it into the typed
@@ -652,6 +676,16 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// fold_reference_class (CAP 复核 F1): typed node-field read-in — the
 	// 按X核满频 basis wording keys on it (absence = big).
 	{TraceNoteKeyFoldReferenceClass, "supply_fold", TraceNoteCarrierHardConsumer},
+	// fold_cluster_topology (CAP-2 §28.4/§28.5): typed node-field read-in —
+	// the capability caliber wording upgrades on it (按实测频点共动分簇折算 /
+	// 按簇轨实测折算(成员按锚点连续推定); absence = explicit/legacy).
+	{TraceNoteKeyFoldClusterTopology, "supply_fold", TraceNoteCarrierHardConsumer},
+	// fold_rail_basis (CAP-2 §28.5-T6 审计注): rail family + rail-governed
+	// slice roster traceback — display tier.
+	{TraceNoteKeyFoldRailBasis, "supply_fold", TraceNoteCarrierDisplayOnly},
+	// thermal_cap_khz (THERM §28.5-T7): typed node-field read-in — the
+	// 窗内该簇受热限压至 X disclosure sentence keys on it.
+	{TraceNoteKeyThermalCapKHz, "supply_fold", TraceNoteCarrierHardConsumer},
 
 	// 占用族 (RN-1) + CMP-9 density.
 	{TraceNoteKeyStarvedRunnableMS, "occupancy", TraceNoteCarrierDisplayOnly},
@@ -760,6 +794,9 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// 门控族 (D3).
 	{TraceNoteKeyGatedRunnable, "gating", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyGatedRunningDeficit, "gating", TraceNoteCarrierHardConsumer},
+	// gated_cluster_topology (CAP-2): the gated twin of fold_cluster_topology
+	// — typed node-field read-in, same wording fork.
+	{TraceNoteKeyGatedClusterTopology, "gating", TraceNoteCarrierHardConsumer},
 	// gated_capability (CAP §26 C3): typed node-field read-in — the R5d
 	// 折算,按下游消费核 caliber's capability disclosure keys on it.
 	{TraceNoteKeyGatedCapability, "gating", TraceNoteCarrierHardConsumer},

@@ -690,6 +690,11 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// fence probe; direction A (mark ⇔ legend entry) still asserts (the
 		// StateLabel precedent).
 		runtimeTraceProjMarkCaliberReferenceClusterFmax: {"", ""},
+		// CAP-2 (§28.4/§28.5): the two structure-evidence upgrade words. The
+		// zh probes sit inside registered wrap atoms (never bisected); the EN
+		// probes are single hyphenated tokens (space-wrap safe).
+		runtimeTraceProjMarkCaliberComovementTopology: {"共动分簇", "co-moving"},
+		runtimeTraceProjMarkCaliberKeyedRailTopology:  {"按簇轨实测", "cluster-rail"},
 		// DISP-2 G2 (§27.2 措辞按 kind 分形): the no_eligible_wait blind-spot
 		// row's forked inline disclosure — never a substring of the legacy
 		// 窗内无调度数据 form, so the two probes stay disjoint.
@@ -731,6 +736,17 @@ func revisit76CAPCapabilityProjection(source string) types.TraceCausalProjection
 			SupplyFoldKnownMS: 20.0, SupplyFoldCapabilitySource: source, Confidence: 0.8,
 		}},
 	}
+}
+
+// revisit76CAP2TopologyProjection (CAP-2 §28.4/§28.5, 2026-07-09) exercises
+// the structure-evidence upgrade words on the Dominant supply-fold verdict:
+// topo selects the Tier-1 co-movement wording or the Tier-2 keyed-rail
+// wording (with the THERM press sentence riding the keyed-rail form).
+func revisit76CAP2TopologyProjection(topo string, thermalKHz int) types.TraceCausalProjection {
+	projection := revisit76CAPCapabilityProjection(runtimeTraceCapabilitySourceDefault)
+	projection.OnChainCauses[0].SupplyFoldTopologySource = topo
+	projection.OnChainCauses[0].ThermalCapKHz = thermalKHz
+	return projection
 }
 
 // revisit76RCM2FamilyProjection (RCM-2, §24.7.1/§24.10, 2026-07-08) exercises
@@ -1150,6 +1166,10 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// fallback (fixture above).
 		{"cap_capability_default", revisit76CAPCapabilityProjection(runtimeTraceCapabilitySourceDefault)},
 		{"cap_capability_freq_only", revisit76CAPCapabilityProjection(runtimeTraceCapabilitySourceFreqOnly)},
+		// CAP-2 (§28.4/§28.5): the Tier-1/Tier-2 structure-evidence upgrade
+		// words + their legend entries (THERM sentence rides the rail form).
+		{"cap2_topology_comovement", revisit76CAP2TopologyProjection(runtimeTraceCapabilityTopologyComovement, 0)},
+		{"cap2_topology_keyed_rail", revisit76CAP2TopologyProjection(runtimeTraceCapabilityTopologyKeyedRail, 1850000)},
 		// CAP 复核 F1: the demoted-basis word + its legend seat.
 		{"cap_reference_demoted", revisit76CAPDemotedReferenceProjection()},
 	}

@@ -485,6 +485,12 @@ const (
 	// signal; the entry explains the same-cluster demotion).
 	runtimeTraceProjMarkCaliberReferenceClusterFmax // 口径词 按X核满频折算 (基准降级, 复核 F1)
 
+	// CAP-2 (§28.4/§28.5, 2026-07-09): the two cluster-structure-evidence
+	// upgrade words of the former 簇结构不可判 degrade, each with its own
+	// on-demand legend entry.
+	runtimeTraceProjMarkCaliberComovementTopology // 口径词 按实测频点共动分簇折算 (Tier-1)
+	runtimeTraceProjMarkCaliberKeyedRailTopology  // 口径词 按簇轨实测折算(成员按锚点连续推定) (Tier-2)
+
 	// DISP-2 (Wave-3.2 G2/G19/GAP-A P3-6 显示半场, §27.2/§27.5, 2026-07-09):
 	// three new gated seats.
 	runtimeTraceProjMarkTraceGapBelowFloor    // ◇ 盲区判据二 窗内无≥阈值等待区间·链止 (G2 措辞按 kind 分形)
@@ -929,6 +935,15 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkCaliberFreqOnlyCapability, runtimeTraceProjLegendGroupCaliber,
 			"- `按纯频率比折算` = 簇结构不可判,核类算力差未计入,仅按频率比折算;真实缺口只多不少。",
 			"- `frequency-ratio fold only` = the cluster structure could not be judged, so the core-class capability gap is NOT priced — the fold uses the frequency ratio alone; the true deficit can only be larger."},
+		// CAP-2 (§28.4/§28.5, 2026-07-09): the two structure-evidence upgrade
+		// words — each entry names its membership provenance AND keeps the
+		// default-ratio coarseness disclosure (图例单点承载).
+		{runtimeTraceProjMarkCaliberComovementTopology, runtimeTraceProjLegendGroupCaliber,
+			"- `按实测频点共动分簇折算` = 簇成员按 trace 内 cpu_frequency 实测频点共动分组(同变化点同值合并);核类算力差按默认算力比计入,非厂商实测算力表。",
+			"- `measured co-moving frequency clusters` = cluster membership is measured from co-moving in-trace cpu_frequency change points (equal timelines merge); the core-class gap is priced with the default capability ratios, not a vendor-measured table."},
+		{runtimeTraceProjMarkCaliberKeyedRailTopology, runtimeTraceProjLegendGroupCaliber,
+			"- `按簇轨实测折算(成员按锚点连续推定)` = 簇频率取自 cpu_id 键控簇轨实测时间线(六重结构门全过);簇成员按锚点连续分段推定,非逐核实测;核类算力差按默认算力比计入。",
+			"- `measured cluster-rail fold (membership by anchor contiguity)` = cluster frequency comes from a cpu_id-keyed rail timeline (all six structural gates passed); membership is PRESUMED by anchor contiguity, not measured per core; the core-class gap uses the default capability ratios."},
 		// CAP 复核 F1 (2026-07-08): the demoted-reference basis words' shared
 		// legend seat — the fold basis and its capability coefficient are
 		// same-cluster by construction (同簇同源), and the class word says
@@ -5341,6 +5356,14 @@ var runtimeTraceProjWrapAtomCompounds = []string{
 	// the 按 head disambiguates each).
 	"按默认算力比粗算",
 	"按纯频率比折算",
+	// CAP-2 (§28.4/§28.5): the structure-evidence upgrade words and the THERM
+	// press words join the unbreakable set (a wrap must never bisect
+	// 共动分簇/锚点连续推定/受热限压至 mid-claim). Longest-first inside the
+	// shared 按 prefix family is immaterial here (all diverge by rune 2).
+	"按实测频点共动分簇折算",
+	"按簇轨实测折算",
+	"锚点连续推定",
+	"受热限压至",
 	"按超大核满频",
 	"按中核满频",
 	"按小核满频",
@@ -6013,7 +6036,7 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		// entry wherever they render — every clause branch except the bare
 		// "无法折算" no-fold form speaks them (supplyfold.go), and the FAIL-1
 		// detail-line home below carries them too.
-		capMark, capMarkOK := runtimeTraceProjCapabilityCaliberMark(node.SupplyFoldCapabilitySource)
+		capMark, capMarkOK := runtimeTraceProjCapabilityCaliberMarkTopo(node.SupplyFoldCapabilitySource, node.SupplyFoldTopologySource)
 		// CAP 复核 F1: the basis word's legend seat follows the actual
 		// reference cluster (按大核满频 entry vs the demoted-basis entry).
 		refMark := runtimeTraceProjFoldReferenceMark(node.SupplyFoldReferenceClass)

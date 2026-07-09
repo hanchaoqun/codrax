@@ -8249,6 +8249,24 @@ func aggregateWakeupCausalImpacts(chain *ChainResult) []WakeupCausalAggregate {
 			if a.item.SupplyFoldBasis.ReferenceClass == "" {
 				a.item.SupplyFoldBasis.ReferenceClass = impact.SupplyFoldBasis.ReferenceClass
 			}
+			// CAP-2 (§28.4/§28.5): topology token + rail family first-win
+			// like the capability source above (one judgment per query);
+			// the rail-governed roster unions like the CFR reuse roster;
+			// THERM first-wins (same per-window honesty bound as the
+			// reference class).
+			if a.item.SupplyFoldBasis.ClusterTopologySource == "" {
+				a.item.SupplyFoldBasis.ClusterTopologySource = impact.SupplyFoldBasis.ClusterTopologySource
+			}
+			if a.item.SupplyFoldBasis.RailFamily == "" {
+				a.item.SupplyFoldBasis.RailFamily = impact.SupplyFoldBasis.RailFamily
+			}
+			for _, entry := range impact.SupplyFoldBasis.RailGoverned {
+				recordSupplyFoldRailGoverned(a.item.SupplyFoldBasis, entry.CPU, entry.Rail)
+			}
+			if a.item.SupplyFoldBasis.ThermalCapKHz == 0 {
+				a.item.SupplyFoldBasis.ThermalCapKHz = impact.SupplyFoldBasis.ThermalCapKHz
+				a.item.SupplyFoldBasis.ThermalCapClusterClass = impact.SupplyFoldBasis.ThermalCapClusterClass
+			}
 		}
 		a.item.OccurrenceWindows = append(a.item.OccurrenceWindows, wakeupCausalOccurrenceFromImpact(impact))
 	}
@@ -8325,6 +8343,7 @@ func applyAggregateGatedInversion(chain *ChainResult, item *WakeupCausalAggregat
 		runnable   float64
 		deficit    float64
 		capability string
+		topology   string
 	}
 	var gated []gatedMember
 	for _, idx := range members {
@@ -8341,6 +8360,7 @@ func applyAggregateGatedInversion(chain *ChainResult, item *WakeupCausalAggregat
 			runnable:   impact.GatedRunnableMs,
 			deficit:    impact.GatedRunningDeficitMs,
 			capability: impact.GatedCapabilitySource,
+			topology:   impact.GatedClusterTopology,
 		})
 	}
 	if len(gated) == 0 {
@@ -8364,9 +8384,13 @@ func applyAggregateGatedInversion(chain *ChainResult, item *WakeupCausalAggregat
 			item.GatedRunnableMs += member.runnable
 			item.GatedRunningDeficitMs += member.deficit
 			// CAP (§26 C3): members share one per-query capability judgment;
-			// first non-empty wins.
+			// first non-empty wins. CAP-2: the topology token travels the
+			// same way.
 			if item.GatedCapabilitySource == "" {
 				item.GatedCapabilitySource = member.capability
+			}
+			if item.GatedClusterTopology == "" {
+				item.GatedClusterTopology = member.topology
 			}
 		}
 		// F4 (§20.2 absorption, RCX² F2 same family): the total is derived
@@ -8388,6 +8412,7 @@ func applyAggregateGatedInversion(chain *ChainResult, item *WakeupCausalAggregat
 	item.GatedRunnableMs = strongest.runnable
 	item.GatedRunningDeficitMs = strongest.deficit
 	item.GatedCapabilitySource = strongest.capability
+	item.GatedClusterTopology = strongest.topology
 	item.GatedAggregationCaliber = GatedCaliberMaxOverlapFallback
 }
 
@@ -10602,6 +10627,7 @@ func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem 
 		item.GatedRunnableMs = impact.GatedRunnableMs
 		item.GatedRunningDeficitMs = impact.GatedRunningDeficitMs
 		item.GatedCapabilitySource = impact.GatedCapabilitySource
+		item.GatedClusterTopology = impact.GatedClusterTopology
 	} else if impact.DominantState == string(StateRunning) {
 		// §20.2 (2026-07-07, overturns §20.1甲 side clause — EVOLUTION): the
 		// merged non-inversion RUNNING row's ATTRIBUTION channels (effective /
@@ -10704,6 +10730,7 @@ func rootCauseItemFromCausalAggregate(aggregate WakeupCausalAggregate) RootCause
 		item.GatedRunnableMs = aggregate.GatedRunnableMs
 		item.GatedRunningDeficitMs = aggregate.GatedRunningDeficitMs
 		item.GatedCapabilitySource = aggregate.GatedCapabilitySource
+		item.GatedClusterTopology = aggregate.GatedClusterTopology
 	} else if !aggregate.PriorityInversion && aggregate.DominantState == string(StateRunning) {
 		// §20.2 mirror (2026-07-07, overturns §20.1甲 side clause): a
 		// non-inversion running-dominant aggregate's attribution channels
@@ -14539,6 +14566,15 @@ type chainQueryCache struct {
 	// cluster resolution per query, shared by the VS-2 fold and the R5d
 	// weak-core gate.
 	capabilityByTopo map[string]coreCapabilityMap
+	// CAP-2 (§28.4/§28.5) memoized lanes (cluster_rail_evidence.go): the
+	// six-gate keyed-rail scan, the scheduler-observed CPU set (gate ⑤ +
+	// membership presumption bound) and the THERM thermal-rail timelines.
+	railScanOnce    bool
+	railScan        clusterRailScan
+	schedCPUOnce    bool
+	schedCPUs       map[int]bool
+	thermalRailOnce bool
+	thermalRails    []thermalRailTimeline
 }
 
 type cpuSample struct {
@@ -15041,7 +15077,10 @@ func summarizeWakeupCausalImpact(idx *Index, q Query, cache *chainQueryCache, th
 	if item.GatedRunningDeficitMs > 0 {
 		// CAP (§26 C3): the discounted running component discloses its
 		// capability caliber (typed three-state; wording input only).
+		// CAP-2 (§28.4/§28.5): the cluster-topology source rides along
+		// (empty on explicit/legacy — byte-preserving absence).
 		item.GatedCapabilitySource = capability.source
+		item.GatedClusterTopology = capability.topologySource
 	}
 	// R5d (§7.30.1): the inversion flag and its published impact key on the
 	// GATED duration only — runnable time plus weak-core running time of the

@@ -633,6 +633,23 @@ type TraceCausalProjectionNode struct {
 	// nominated big-class basis (the producer emits the note only on
 	// demotion), so 按大核满频 renders byte-identically on undemoted records.
 	SupplyFoldReferenceClass string `json:"supply_fold_reference_class,omitempty"`
+	// SupplyFoldTopologySource / GatedTopologySource (CAP-2 §28.4/§28.5 三级
+	// 披露词): the typed cluster-STRUCTURE source of the two running folds
+	// (freq_comovement / keyed_rail — fold_cluster_topology /
+	// gated_cluster_topology rich notes). Wording inputs only: the display
+	// upgrades the default-table clause to 按实测频点共动分簇折算 /
+	// 按簇轨实测折算(成员按锚点连续推定) on these tokens; empty (explicit
+	// topology / legacy records) keeps the 按默认算力比粗算 wording
+	// byte-identically.
+	SupplyFoldTopologySource string `json:"supply_fold_topology_source,omitempty"`
+	GatedTopologySource      string `json:"gated_topology_source,omitempty"`
+	// ThermalCapKHz (THERM §28.5-T7, disclosure-only): the fold's dominant
+	// running cluster was pressed below its fmax inside the governance window
+	// (thermal rail and/or governing limits Max) down to this kHz value —
+	// thermal_cap_khz rich note. The display appends the 窗内该簇受热限压至 X
+	// sentence; zero-weight (no number changes), absent when cluster
+	// attribution was unavailable (absence never guesses).
+	ThermalCapKHz int `json:"thermal_cap_khz,omitempty"`
 	// RunnableMS mirrors the node's typed "runnable=" rich note (the row's
 	// own in-window runnable wall clock) — consumed by the §7.10 decision
 	// table's shared RN-1 significance check and the mechanism clause's
@@ -1481,9 +1498,14 @@ type traceCausalProjectionSupplyFoldDonor struct {
 	deficitMS, idealMS, knownMS, unknownMS float64
 	// capabilitySource / referenceClass (CAP §26 C3 + 复核 F1) ride the copied
 	// accounting group — the twin must disclose the SAME caliber and basis
-	// cluster its donor's numbers were priced at.
+	// cluster its donor's numbers were priced at. topologySource +
+	// thermalCapKHz (CAP-2 §28.4 / THERM §28.5-T7) travel the same way: the
+	// twin's wording must name the same cluster-structure source and the same
+	// in-window press its donor's numbers were computed under.
 	capabilitySource       string
 	referenceClass         string
+	topologySource         string
+	thermalCapKHz          int
 	windowStart, windowEnd float64
 	windowDeclared         bool
 	conflict               bool
@@ -1566,6 +1588,8 @@ func traceCausalProjectionJoinSupplyFoldTwins(projection *TraceCausalProjection)
 				knownMS: node.SupplyFoldKnownMS, unknownMS: node.SupplyFoldUnknownMS,
 				capabilitySource: node.SupplyFoldCapabilitySource,
 				referenceClass:   node.SupplyFoldReferenceClass,
+				topologySource:   node.SupplyFoldTopologySource,
+				thermalCapKHz:    node.ThermalCapKHz,
 				windowStart:      node.QueryWindowStartTs,
 				windowEnd:        node.QueryWindowEndTs,
 				windowDeclared:   node.QueryWindowStartTs > 0 && node.QueryWindowEndTs > node.QueryWindowStartTs,
@@ -1624,6 +1648,8 @@ func traceCausalProjectionJoinSupplyFoldTwins(projection *TraceCausalProjection)
 			node.SupplyFoldUnknownMS = donor.unknownMS
 			node.SupplyFoldCapabilitySource = donor.capabilitySource
 			node.SupplyFoldReferenceClass = donor.referenceClass
+			node.SupplyFoldTopologySource = donor.topologySource
+			node.ThermalCapKHz = donor.thermalCapKHz
 		}
 	}
 }
@@ -2331,8 +2357,10 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	node.GatedRunnableMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyGatedRunnable)
 	node.GatedRunningDeficitMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyGatedRunningDeficit)
 	// CAP (§26 C3): typed capability caliber of the discounted running
-	// component — exact typed note match, wording input only.
+	// component — exact typed note match, wording input only. CAP-2: the
+	// cluster-topology source rides beside it.
 	node.GatedCapabilitySource = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyGatedCapability))
+	node.GatedTopologySource = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyGatedClusterTopology))
 	// PTV5 Q4 (#68 用户裁定 2026-07-05): inversion candidacy is a typed field —
 	// exact "true" match on the producer's note; the legacy Object-token lane
 	// stays alive in the display predicate for root_cause rows whose Object
@@ -2361,6 +2389,11 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		node.SupplyFoldCapabilitySource = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyFoldCapability))
 		// CAP 复核 F1: the demoted basis class (absent = big-class basis).
 		node.SupplyFoldReferenceClass = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyFoldReferenceClass))
+		// CAP-2 (§28.4/§28.5): cluster-structure source (absent = explicit/
+		// legacy — the default-table wording stands byte-identically) and the
+		// THERM in-window press disclosure.
+		node.SupplyFoldTopologySource = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyFoldClusterTopology))
+		node.ThermalCapKHz = traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyThermalCapKHz)
 	}
 	node.RunnableMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyRunnable)
 	// Verbatim typed kind token (see TypeToken doc): lets renderers specialize

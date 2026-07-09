@@ -54,6 +54,15 @@ const (
 	runtimeTraceCapabilitySourceFreqOnly = "freq_only"
 )
 
+// CAP-2 (§28.4/§28.5) cluster-topology-source wire tokens — byte-identical
+// mirrors of tracequery's CoreCapabilityTopology* constants. Empty = explicit
+// topology / legacy record: the §26 default-table wording stands
+// byte-identically (absence preserves every pre-CAP-2 surface).
+const (
+	runtimeTraceCapabilityTopologyComovement = "freq_comovement"
+	runtimeTraceCapabilityTopologyKeyedRail  = "keyed_rail"
+)
+
 // runtimeTraceProjCapabilityCaliberClause maps a typed capability-source token
 // to its inline disclosure words (CAP §26 C3 三态披露):
 //
@@ -68,9 +77,39 @@ const (
 // themselves are the closed extension set the §26 ruling added to the §24.1
 // caliber vocabulary, each backed by a legend entry
 // (runtimeTraceProjMarkCaliberDefaultCapability / …FreqOnlyCapability).
+//
+// CAP-2 (§28.4/§28.5 三级披露词): the default-table word forks on the typed
+// cluster-topology token — the "簇结构不可判" degrade wording's structural
+// UPGRADE forms when the structure evidence exists:
+//
+//	topo ""              → 按默认算力比粗算            (explicit/legacy, byte-identical)
+//	topo freq_comovement → 按实测频点共动分簇折算       (Tier-1 — membership measured
+//	                       from co-moving cpu_frequency change points; the
+//	                       default-ratio coefficient detail moves to its legend)
+//	topo keyed_rail      → 按簇轨实测折算(成员按锚点连续推定) (Tier-2 — the rail claim
+//	                       and the membership PRESUMPTION are worded separately
+//	                       by ruling)
 func runtimeTraceProjCapabilityCaliberClause(source string, zh bool) string {
+	return runtimeTraceProjCapabilityCaliberClauseTopo(source, "", zh)
+}
+
+// runtimeTraceProjCapabilityCaliberClauseTopo is the topology-aware single
+// source (see runtimeTraceProjCapabilityCaliberClause).
+func runtimeTraceProjCapabilityCaliberClauseTopo(source, topo string, zh bool) string {
 	switch source {
 	case runtimeTraceCapabilitySourceDefault:
+		switch topo {
+		case runtimeTraceCapabilityTopologyComovement:
+			if zh {
+				return "按实测频点共动分簇折算"
+			}
+			return "measured co-moving frequency clusters (default capability ratios)"
+		case runtimeTraceCapabilityTopologyKeyedRail:
+			if zh {
+				return "按簇轨实测折算(成员按锚点连续推定)"
+			}
+			return "measured cluster-rail fold (membership by anchor contiguity)"
+		}
 		if zh {
 			return "按默认算力比粗算"
 		}
@@ -94,7 +133,12 @@ func runtimeTraceProjCapabilityCaliberClause(source string, zh bool) string {
 // the tail of an existing caliber parenthesis: ",<clause>" (zh) / ", <clause>"
 // (EN); "" for no claim.
 func runtimeTraceProjCapabilityCaliberSuffix(source string, zh bool) string {
-	clause := runtimeTraceProjCapabilityCaliberClause(source, zh)
+	return runtimeTraceProjCapabilityCaliberSuffixTopo(source, "", zh)
+}
+
+// runtimeTraceProjCapabilityCaliberSuffixTopo is the topology-aware suffix.
+func runtimeTraceProjCapabilityCaliberSuffixTopo(source, topo string, zh bool) string {
+	clause := runtimeTraceProjCapabilityCaliberClauseTopo(source, topo, zh)
 	if clause == "" {
 		return ""
 	}
@@ -110,8 +154,20 @@ func runtimeTraceProjCapabilityCaliberSuffix(source string, zh bool) string {
 // and needs no ratio-table legend, so it maps to no mark until the evidence
 // channel lands with its own wording ruling.
 func runtimeTraceProjCapabilityCaliberMark(source string) (runtimeTraceProjMark, bool) {
+	return runtimeTraceProjCapabilityCaliberMarkTopo(source, "")
+}
+
+// runtimeTraceProjCapabilityCaliberMarkTopo is the topology-aware legend seat
+// (CAP-2: each upgraded word carries its own legend entry — 括注扩展须配图例).
+func runtimeTraceProjCapabilityCaliberMarkTopo(source, topo string) (runtimeTraceProjMark, bool) {
 	switch source {
 	case runtimeTraceCapabilitySourceDefault:
+		switch topo {
+		case runtimeTraceCapabilityTopologyComovement:
+			return runtimeTraceProjMarkCaliberComovementTopology, true
+		case runtimeTraceCapabilityTopologyKeyedRail:
+			return runtimeTraceProjMarkCaliberKeyedRailTopology, true
+		}
 		return runtimeTraceProjMarkCaliberDefaultCapability, true
 	case runtimeTraceCapabilitySourceFreqOnly:
 		return runtimeTraceProjMarkCaliberFreqOnlyCapability, true
@@ -251,7 +307,8 @@ func runtimeTraceProjSupplyFoldVerdictFor(node types.TraceCausalProjectionNode, 
 func runtimeTraceProjInversionCompositionText(node types.TraceCausalProjectionNode, zh bool) string {
 	// CAP (§26 C3): the discounted running component discloses its capability
 	// caliber (the runnable component is counted in full — no fold, no claim).
-	capSuffix := runtimeTraceProjCapabilityCaliberSuffix(node.GatedCapabilitySource, zh)
+	// CAP-2: the wording upgrades on the typed cluster-topology token.
+	capSuffix := runtimeTraceProjCapabilityCaliberSuffixTopo(node.GatedCapabilitySource, node.GatedTopologySource, zh)
 	if zh {
 		return fmt.Sprintf("runnable %.3fms(全额)+ running 折算 %.3fms(按下游消费核折算%s)", node.GatedRunnableMS, node.GatedRunningDeficitMS, capSuffix)
 	}
@@ -310,6 +367,27 @@ func runtimeTraceProjInversionGatedTotalMS(node types.TraceCausalProjectionNode)
 // tag never reads as a fourth caliber; the EN face keeps the spaced " · "
 // (its within-tag convention, e.g. "periodic signal source · attribution").
 func runtimeTraceProjSupplyFoldClause(node types.TraceCausalProjectionNode, windowMS float64, zh bool) (string, string, bool) {
+	text, keep, ok := runtimeTraceProjSupplyFoldClauseCore(node, windowMS, zh)
+	if !ok {
+		return text, keep, ok
+	}
+	// THERM (§28.5-T7, disclosure-only zero-weight edit): the typed in-window
+	// thermal/policy press on the fold's dominant running cluster appends its
+	// own sentence — it never changes a number and never denies a neighbour
+	// value (数值+单位; absent field = no sentence, absence never guesses).
+	if node.ThermalCapKHz > 0 {
+		if zh {
+			text += fmt.Sprintf(";窗内该簇受热限压至 %.2fGHz", float64(node.ThermalCapKHz)/1e6)
+		} else {
+			text += fmt.Sprintf("; a thermal/policy cap pressed this cluster to %.2fGHz in-window", float64(node.ThermalCapKHz)/1e6)
+		}
+	}
+	return text, keep, ok
+}
+
+// runtimeTraceProjSupplyFoldClauseCore is the §7.10 four-branch body (see
+// runtimeTraceProjSupplyFoldClause for the THERM appendix).
+func runtimeTraceProjSupplyFoldClauseCore(node types.TraceCausalProjectionNode, windowMS float64, zh bool) (string, string, bool) {
 	verdict := runtimeTraceProjSupplyFoldVerdictFor(node, windowMS)
 	if verdict == runtimeTraceProjSupplyFoldNone {
 		return "", "", false
@@ -319,7 +397,8 @@ func runtimeTraceProjSupplyFoldClause(node types.TraceCausalProjectionNode, wind
 	// no-deficit claim discloses the fold's capability caliber (typed token —
 	// empty on pre-CAP records keeps the legacy wording byte-identical). The
 	// no-claim "无法折算" branch stays bare: nothing was folded.
-	capSuffix := runtimeTraceProjCapabilityCaliberSuffix(node.SupplyFoldCapabilitySource, zh)
+	// CAP-2: the wording upgrades on the typed cluster-topology token.
+	capSuffix := runtimeTraceProjCapabilityCaliberSuffixTopo(node.SupplyFoldCapabilitySource, node.SupplyFoldTopologySource, zh)
 	// CAP 复核 F1 (判词随实际基准簇): the basis-cluster word follows the typed
 	// demoted-reference class; the big-class basis keeps every legacy string
 	// byte-identically.
@@ -380,7 +459,7 @@ func runtimeTraceProjSupplyFoldClause(node types.TraceCausalProjectionNode, wind
 			}
 		}
 		capParen := ""
-		if clause := runtimeTraceProjCapabilityCaliberClause(node.SupplyFoldCapabilitySource, zh); clause != "" {
+		if clause := runtimeTraceProjCapabilityCaliberClauseTopo(node.SupplyFoldCapabilitySource, node.SupplyFoldTopologySource, zh); clause != "" {
 			if zh {
 				capParen = "(" + clause + ")"
 			} else {

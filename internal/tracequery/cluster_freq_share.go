@@ -71,9 +71,30 @@ const (
 	ClusterFreqSourceExplicit = "explicit_topology"
 	// ClusterFreqSourceDerived: membership derived from identical
 	// cpu_frequency change-point timelines + downward core-number
-	// inheritance (CFR-2 #80 lane).
+	// inheritance (CFR-2 #80 lane). CAP-2 (§28.5): this derivation IS the
+	// evidence ladder's Tier-1 arm (实测频点共动分簇) — the capability lane
+	// consumes it behind the clusterFreqComoveMinSamples floor below.
 	ClusterFreqSourceDerived = "freq_change_point_derived"
+	// ClusterFreqSourceKeyedRail (CAP-2 §28.4, 2026-07-09): membership from a
+	// six-gate-validated cpu_id-KEYED cluster-rail family
+	// (cluster_rail_evidence.go), anchors + contiguity presumption. Pure
+	// Tier-2 form only — no member ever has cpu_frequency samples, so the
+	// donor-reuse lane is structurally inert over these domains.
+	ClusterFreqSourceKeyedRail = "keyed_rail"
 )
+
+// clusterFreqComoveMinSamples (CAP-2 Tier-1 样本数下限门, §28.5): a derived
+// MULTI-CPU merge is admissible CAPABILITY-CLASS evidence only when the shared
+// timeline carries at least this many samples. A single coincident sample is
+// not co-movement — two distinct clusters idling at one equal value would
+// merge on a coin flip and corrupt the cluster COUNT the §26 class mapping
+// keys on; with ≥2 samples the identity criterion has witnessed the value
+// vector at two instants (constant-equal-value merges remain the HONEST-merge
+// form the ruling accepts). Scope: the capability lane ONLY — singleton
+// domains make no co-movement claim, and the CFR-2 donor-reuse lane keeps its
+// adjudicated #80 behavior untouched (reuse among identical timelines is
+// truthful at any sample count).
+const clusterFreqComoveMinSamples = 2
 
 // clusterFreqDerivedPrimeLabel marks cores ABOVE the highest sampled core
 // when the derivation already produced ≥3 domains (小/中/大 present → higher
