@@ -659,6 +659,10 @@ func TestCompileEnumeration_PrincipalListAllowsAllFacetPrincipalForms(t *testing
 		ClaimReturnFact,
 		ClaimImportEdge,
 		ClaimCallEdge,
+		// INODE (§28.6 ⑫): runtime-artifact-grounded enumerations (trace/log
+		// statistics) carry external_observation — the hint list must offer
+		// it so retries stop being steered toward source-shaped claims.
+		ClaimExternalObservation,
 	} {
 		if !containsClaimForm(list.AcceptableClaimForms, want) {
 			t.Fatalf("enumeration principal list missing acceptable claim form %s: %+v", want, list.AcceptableClaimForms)

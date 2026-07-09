@@ -37,6 +37,16 @@ func compileEnumeration(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemantic
 		ClaimImportEdge,
 		ClaimLiteralValueFact,
 		ClaimCallEdge,
+		// INODE (§28.6 ⑫, 2026-07-09): enumeration answers grounded in
+		// runtime-artifact rows (trace/log statistics such as per-inode IO
+		// frequency tables) legitimately carry external_observation claims.
+		// AcceptableClaimForms feeds HINT surfaces only (the block-contract
+		// prompt's "claim_form must be one of" list and the
+		// claim-use-missing violation's repair text) — the validator accepts
+		// any present claim_use regardless of form, so omitting the form
+		// here misled retries toward source-shaped claims without ever
+		// hard-blocking; this line fixes the hint, not the gate.
+		ClaimExternalObservation,
 	}
 	if ir != nil && ir.RequestModel.ChangeImpactProfile != nil && ir.RequestModel.ChangeImpactProfile.Active() {
 		acceptableClaimForms = append(acceptableClaimForms, ClaimGuardCondition)

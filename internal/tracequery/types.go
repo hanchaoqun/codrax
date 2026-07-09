@@ -676,6 +676,15 @@ type WindowStats struct {
 	PageFaultResources       []RuntimeResourceSummary   `json:"page_fault_resources,omitempty"`
 	FileIOByInode            []FileIOSummary            `json:"file_io_by_inode,omitempty"`
 	PageCacheByInode         []PageCacheSummary         `json:"page_cache_by_inode,omitempty"`
+	// TopIOInodes is the INODE (§28.6, 2026-07-09) whole-window (dev,inode)
+	// IO frequency carrier: folded from the FULL pre-truncation fileIO /
+	// pageCache accumulator maps (never from the truncated top-8 slices
+	// above), PID/op key dimensions collapsed, ordered Count → Bytes →
+	// MaxLatency with TotalGroups truncation disclosure. Latency follows the
+	// wall-clock red line: max single event + per-thread within-thread sums,
+	// never a cross-thread latency sum. Nil when the window has no IO-family
+	// evidence.
+	TopIOInodes *TopIOInodeStats `json:"top_io_inodes,omitempty"`
 	StorageLatencyByLayer    []StorageLatencySummary    `json:"storage_latency_by_layer,omitempty"`
 	IOPressureSummary        *IOPressureSummary         `json:"io_pressure_summary,omitempty"`
 	IOBurstEpisodes          []IOBurstEpisodeSummary    `json:"io_burst_episodes,omitempty"`
@@ -1524,6 +1533,87 @@ type BlockIOByInodeSummary struct {
 	LineEnd             int       `json:"line_end,omitempty"`
 	Confidence          float64   `json:"confidence,omitempty"`
 	Summary             string    `json:"summary,omitempty"`
+}
+
+// TopIOInodeThreadLatency is one per-thread latency contributor row of a
+// TopIOInodeSummary group. TotalLatencyMs sums file-IO event latencies WITHIN
+// this one thread only (same-thread wall clock is additive); the group never
+// publishes a cross-thread latency sum (CLAUDE.md red line).
+type TopIOInodeThreadLatency struct {
+	Thread         ThreadRef `json:"thread,omitempty"`
+	TotalLatencyMs float64   `json:"total_latency_ms,omitempty"`
+	Count          int       `json:"count,omitempty"`
+}
+
+// TopIOInodeSummary is one whole-window (dev,inode) IO frequency group
+// (INODE §28.6, 2026-07-09). Unlike the three per-context carriers above
+// (FileIOSummary keyed (dev,inode,op,pid), PageCacheSummary keyed
+// (dev,inode,pid), BlockIOByInodeSummary built on their truncated outputs),
+// this group collapses the PID and op key dimensions so "which inodes see
+// the most IO" gets one whole-window answer per inode.
+//
+// Additivity discipline: every published sum is an event count or byte count
+// (additive across threads). Latency is NEVER summed across threads —
+// MaxLatencyMs is the single largest member event, and TopThreadLatencies
+// carries per-thread within-thread sums only.
+type TopIOInodeSummary struct {
+	Dev   string `json:"dev,omitempty"`
+	Inode string `json:"inode,omitempty"`
+	// EntryName is opportunistically backfilled from the first member (event
+	// order) carrying a non-empty entry label — a trace file-name label, not
+	// an absolute path (same discipline as the accumulator carriers).
+	EntryName string `json:"entry_name,omitempty"`
+	// Count is the group's frequency caliber and primary sort key: TOTAL
+	// in-window IO-family events for this (dev,inode) — file-IO activity +
+	// completion events + page-cache add/delete events. Platforms whose FS
+	// layer surfaces only mm_filemap rows (Harmony hmfs-adjacent shape) still
+	// rank by their real event frequency.
+	Count int `json:"count,omitempty"`
+	// FileIOCount/CompletionCount/ReadCount/WriteCount decompose the file-IO
+	// side. Read/Write cover ONLY activity events whose normalized op is
+	// exactly read/read_bio or write/write_bio; ops outside that closed set
+	// (direct_io, sync, raw rwbs values, ...) count toward Count/FileIOCount
+	// only — the op domain is open-ended and is not guessed into a bucket.
+	FileIOCount     int   `json:"file_io_count,omitempty"`
+	CompletionCount int   `json:"completion_count,omitempty"`
+	ReadCount       int   `json:"read_count,omitempty"`
+	WriteCount      int   `json:"write_count,omitempty"`
+	Bytes           int64 `json:"bytes,omitempty"`
+	// Page-cache side (mm_filemap add/delete churn). PageCache byte fields are
+	// deliberately NOT merged into Bytes — different measurement caliber.
+	PageCacheAdds    int `json:"page_cache_adds,omitempty"`
+	PageCacheDeletes int `json:"page_cache_deletes,omitempty"`
+	PageCacheChurn   int `json:"page_cache_churn,omitempty"`
+	// MaxLatencyMs is the largest SINGLE member event latency (max over
+	// members, never a sum).
+	MaxLatencyMs float64 `json:"max_latency_ms,omitempty"`
+	// ThreadCount is the number of distinct threads observed touching this
+	// (dev,inode); TopThreadLatencies lists the top per-thread latency
+	// contributors (within-thread sums, bounded roster).
+	ThreadCount        int                       `json:"thread_count,omitempty"`
+	TopThreadLatencies []TopIOInodeThreadLatency `json:"top_thread_latencies,omitempty"`
+	LineStart          int                       `json:"line_start,omitempty"`
+	LineEnd            int                       `json:"line_end,omitempty"`
+	StartTs            float64                   `json:"start_ts,omitempty"`
+	EndTs              float64                   `json:"end_ts,omitempty"`
+	Summary            string                    `json:"summary,omitempty"`
+}
+
+// TopIOInodeStats is the WindowStats.TopIOInodes carrier: the ranked group
+// rows plus the truncation-honesty disclosure (§28.6 ④ — silent truncation is
+// forbidden: TotalGroups always states how many (dev,inode) groups the whole
+// window produced, whether or not they all fit in Groups).
+type TopIOInodeStats struct {
+	Groups []TopIOInodeSummary `json:"groups,omitempty"`
+	// TotalGroups counts EVERY identified (dev,inode) group folded from the
+	// full pre-truncation accumulator maps, not just the rows kept in Groups.
+	TotalGroups int `json:"total_groups,omitempty"`
+	// UnidentifiedEvents counts in-window IO-family events that carried no
+	// inode identity (inode unknown) — they cannot be enumerated per-inode
+	// and folding them into one pseudo-group would fabricate an identity, so
+	// they are disclosed as a count instead (they remain visible in the
+	// legacy per-context carriers).
+	UnidentifiedEvents int `json:"unidentified_events,omitempty"`
 }
 
 type InterruptActivity struct {

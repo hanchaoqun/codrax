@@ -893,6 +893,15 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{"adds", "io", TraceNoteCarrierDisplayOnly},
 	{"deletes", "io", TraceNoteCarrierDisplayOnly},
 	{"churn", "io", TraceNoteCarrierDisplayOnly},
+	// INODE (§28.6, 2026-07-09): whole-window (dev,inode) fold observations
+	// (claimKey prefix top_io_inode:). reads/writes are the closed-set op
+	// decomposition; top_threads carries per-thread WITHIN-thread latency
+	// sums (never a cross-thread latency total); groups_total is the
+	// truncation-honesty disclosure riding every row.
+	{"reads", "io", TraceNoteCarrierDisplayOnly},
+	{"writes", "io", TraceNoteCarrierDisplayOnly},
+	{"top_threads", "io", TraceNoteCarrierDisplayOnly},
+	{"groups_total", "io", TraceNoteCarrierDisplayOnly},
 	{"layer", "io", TraceNoteCarrierDisplayOnly},
 	{"event", "io", TraceNoteCarrierDisplayOnly},
 	{"paired", "io", TraceNoteCarrierDisplayOnly},

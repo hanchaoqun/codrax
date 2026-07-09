@@ -89,17 +89,17 @@ func TestPTV7SpnSupplementPerOrderFloor(t *testing.T) {
 	if !strings.Contains(out, "按观测类别配额选取,再按原顺序补足") || strings.Contains(out, "仅列前") {
 		t.Fatalf("a floored (non-prefix) selection must disclose itself honestly:\n%s", out)
 	}
-	if !strings.Contains(out, "(共 113 条,列出 40 条") {
+	if !strings.Contains(out, "(共 113 条,列出 44 条") {
 		t.Fatalf("the trim disclosure must state total + listed counts:\n%s", out)
 	}
 	// Single-bucket overflow keeps the LEGACY prefix wording byte-identically
 	// (the quota pass degenerates to the head cut).
-	single := make([]types.ObservationRecord, 0, 45)
-	for i := 0; i < 45; i++ {
+	single := make([]types.ObservationRecord, 0, 49)
+	for i := 0; i < 49; i++ {
 		single = append(single, ptv7SpnDrilldownRecord(i))
 	}
 	legacy := renderTraceQueryObservationSupplement(ptv7SpnSupplementContext(single), doc, "zh")
-	if !strings.Contains(legacy, "仅列前 40 条") {
+	if !strings.Contains(legacy, "仅列前 44 条") {
 		t.Fatalf("single-bucket overflow must keep the legacy prefix wording:\n%s", legacy)
 	}
 }
@@ -167,9 +167,12 @@ func TestPTV7SpnSupplementTraceSpanPriority(t *testing.T) {
 // honest only because every reachable order bucket can receive its full floor
 // before the cap runs out — reachable buckets × floor ≤ cap. The order-0
 // default bucket is structurally excluded at admission (order == 0 rows are
-// skipped before sorting), so the reachable universe is exactly the ten
-// values below. Adding an eleventh order value (or raising the floor) breaks
+// skipped before sorting), so the reachable universe is exactly the eleven
+// values below. Adding a twelfth order value (or raising the floor) breaks
 // the balance and MUST come back here to re-adjudicate the quota wording.
+// EVOLUTION RECORD (INODE §28.6, 2026-07-09): the top_io_inode statistical
+// lane joined as the eleventh bucket (order 65) and the cap was re-balanced
+// 40 → 44 = buckets × floor, keeping every lane's floor intact.
 func TestSupplementQuotaOrderUniverseBalancesCap(t *testing.T) {
 	base := func(claimKey string) types.ObservationRecord {
 		return types.ObservationRecord{
@@ -189,6 +192,7 @@ func TestSupplementQuotaOrderUniverseBalancesCap(t *testing.T) {
 		"wakeup_causal_impact:x":    50,
 		"wakeup_causal_aggregate:x": 55,
 		"root_evidence:trace_gap":   60,
+		"top_io_inode:0xaa":         65,
 	}
 	distinct := map[int]bool{}
 	for claimKey, want := range wantOrders {
@@ -209,8 +213,8 @@ func TestSupplementQuotaOrderUniverseBalancesCap(t *testing.T) {
 	if got := traceQueryObservationSupplementOrder(base("window_stats:x")); got != 0 {
 		t.Fatalf("unmatched claim key must fall to the excluded order-0 bucket, got %d", got)
 	}
-	if len(distinct) != 10 {
-		t.Fatalf("reachable order universe changed: %d buckets, want 10 — re-adjudicate the quota wording", len(distinct))
+	if len(distinct) != 11 {
+		t.Fatalf("reachable order universe changed: %d buckets, want 11 — re-adjudicate the quota wording", len(distinct))
 	}
 	if got := len(distinct) * traceQueryObservationSupplementBucketFloor; got > traceQueryObservationSupplementMaxRows {
 		t.Fatalf("buckets(%d) x floor(%d) = %d exceeds cap %d — the per-order floor can starve tail buckets and the disclosure wording lies",

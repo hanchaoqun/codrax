@@ -1770,6 +1770,11 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	stats.BIOResources = sortedRuntimeResources(bioResources, 8)
 	stats.FilesystemResources = sortedRuntimeResources(filesystemResources, 8)
 	stats.PageFaultResources = sortedRuntimeResources(pageFaultResources, 8)
+	// INODE (§28.6): fold the FULL accumulator maps BEFORE the top-8
+	// truncations below — the whole-window (dev,inode) carrier must never be
+	// built on truncated inputs (the block_io_by_inode second-aggregation
+	// lesson).
+	stats.TopIOInodes = computeTopIOInodes(fileIO, pageCache, topIOInodeGroupLimit)
 	stats.FileIOByInode = sortedFileIOSummaries(fileIO, 8)
 	stats.PageCacheByInode = sortedPageCacheSummaries(pageCache, 8)
 	stats.StorageLatencyByLayer = computeStorageLatencyByLayer(idx, q, stats.IOLatencies, 8)
@@ -7042,6 +7047,206 @@ func sortedPageCacheSummaries(in map[string]*PageCacheSummary, max int) []PageCa
 		out = out[:max]
 	}
 	return out
+}
+
+// topIOInodeGroupLimit caps the published TopIOInodes group rows; the fold
+// itself always covers every group and TotalGroups discloses the full count
+// (§28.6 ④ — truncation is never silent).
+const topIOInodeGroupLimit = 10
+
+// topIOInodeThreadContributorLimit caps the per-group per-thread latency
+// contributor roster.
+const topIOInodeThreadContributorLimit = 3
+
+type topIOInodeAcc struct {
+	item TopIOInodeSummary
+	// perThread accumulates WITHIN-thread latency sums keyed by PID (the only
+	// latency aggregation the wall-clock red line allows).
+	perThread map[int]*TopIOInodeThreadLatency
+	// threadPIDs is the distinct-thread census across both member families.
+	threadPIDs map[int]bool
+	// entryLine remembers which member donated EntryName so the earliest
+	// (event-order) non-empty label wins deterministically.
+	entryLine int
+}
+
+func (acc *topIOInodeAcc) observeThread(thread ThreadRef) {
+	if thread.PID > 0 {
+		acc.threadPIDs[thread.PID] = true
+	}
+}
+
+func (acc *topIOInodeAcc) observeEntryName(name string, line int) {
+	if name == "" {
+		return
+	}
+	if acc.item.EntryName == "" || line < acc.entryLine {
+		acc.item.EntryName = name
+		acc.entryLine = line
+	}
+}
+
+func (acc *topIOInodeAcc) observeEnvelope(lineStart, lineEnd int, startTs, endTs float64) {
+	applyLineRange(&acc.item.LineStart, &acc.item.LineEnd, lineStart)
+	applyLineRange(&acc.item.LineStart, &acc.item.LineEnd, lineEnd)
+	if startTs > 0 && (acc.item.StartTs == 0 || startTs < acc.item.StartTs) {
+		acc.item.StartTs = startTs
+	}
+	if endTs > acc.item.EndTs {
+		acc.item.EndTs = endTs
+	}
+}
+
+// computeTopIOInodes (INODE §28.6, 2026-07-09) folds the FULL pre-truncation
+// fileIO/pageCache accumulator maps by (dev,inode): the PID and op key
+// dimensions that shard the three legacy carriers are collapsed so "which
+// inodes see the most IO" gets one whole-window frequency row per inode.
+// MUST be fed the un-truncated maps (never the top-8 slices) — the
+// block_io_by_inode carrier's built-on-truncated-input flaw is the audited
+// anti-pattern this replaces for enumeration questions.
+//
+// Additivity (CLAUDE.md red line — wall clock is not additive across
+// threads): event counts and byte counts sum across threads; latency only
+// publishes the max single member event plus per-thread within-thread sums.
+// Ordering: Count (frequency caliber, the customer's "高频" question) →
+// Bytes → MaxLatencyMs → line/identity tie-breaks.
+func computeTopIOInodes(fileIO map[string]*FileIOSummary, pageCache map[string]*PageCacheSummary, max int) *TopIOInodeStats {
+	if len(fileIO) == 0 && len(pageCache) == 0 {
+		return nil
+	}
+	// Deterministic fold order: map iteration is randomized, so members are
+	// folded in event (line) order — EntryName donation and per-thread
+	// ThreadRef identity never depend on map order.
+	fileMembers := make([]*FileIOSummary, 0, len(fileIO))
+	for _, member := range fileIO {
+		fileMembers = append(fileMembers, member)
+	}
+	sort.SliceStable(fileMembers, func(i, j int) bool { return fileMembers[i].LineStart < fileMembers[j].LineStart })
+	cacheMembers := make([]*PageCacheSummary, 0, len(pageCache))
+	for _, member := range pageCache {
+		cacheMembers = append(cacheMembers, member)
+	}
+	sort.SliceStable(cacheMembers, func(i, j int) bool { return cacheMembers[i].LineStart < cacheMembers[j].LineStart })
+
+	accs := map[string]*topIOInodeAcc{}
+	unidentified := 0
+	get := func(dev, inode string) *topIOInodeAcc {
+		key := dev + "\x00" + inode
+		acc := accs[key]
+		if acc == nil {
+			acc = &topIOInodeAcc{
+				item:       TopIOInodeSummary{Dev: dev, Inode: inode},
+				perThread:  map[int]*TopIOInodeThreadLatency{},
+				threadPIDs: map[int]bool{},
+			}
+			accs[key] = acc
+		}
+		return acc
+	}
+	for _, member := range fileMembers {
+		events := member.Count + member.CompletionCount
+		if member.Inode == "" || member.Inode == "unknown" {
+			unidentified += events
+			continue
+		}
+		acc := get(member.Dev, member.Inode)
+		acc.item.Count += events
+		acc.item.FileIOCount += member.Count
+		acc.item.CompletionCount += member.CompletionCount
+		// Closed-set op classification only (exact normalized tokens); every
+		// other op stays in the total (the op domain is open-ended — raw rwbs
+		// values and syscall names pass through the accumulator unmapped).
+		switch member.Operation {
+		case "read", "read_bio":
+			acc.item.ReadCount += member.Count
+		case "write", "write_bio":
+			acc.item.WriteCount += member.Count
+		}
+		acc.item.Bytes += member.Bytes
+		if member.MaxLatencyMs > acc.item.MaxLatencyMs {
+			acc.item.MaxLatencyMs = member.MaxLatencyMs
+		}
+		acc.observeThread(member.Thread)
+		if member.TotalLatencyMs > 0 && member.Thread.PID > 0 {
+			tl := acc.perThread[member.Thread.PID]
+			if tl == nil {
+				tl = &TopIOInodeThreadLatency{Thread: member.Thread}
+				acc.perThread[member.Thread.PID] = tl
+			}
+			// Within-thread sum only: this member's events all belong to ONE
+			// thread (the accumulator key carries the PID).
+			tl.TotalLatencyMs += member.TotalLatencyMs
+			tl.Count += events
+		}
+		acc.observeEntryName(member.EntryName, member.LineStart)
+		acc.observeEnvelope(member.LineStart, member.LineEnd, member.StartTs, member.EndTs)
+	}
+	for _, member := range cacheMembers {
+		events := member.Adds + member.Deletes
+		if member.Inode == "" || member.Inode == "unknown" {
+			unidentified += events
+			continue
+		}
+		acc := get(member.Dev, member.Inode)
+		acc.item.Count += events
+		acc.item.PageCacheAdds += member.Adds
+		acc.item.PageCacheDeletes += member.Deletes
+		acc.observeThread(member.Thread)
+		acc.observeEnvelope(member.LineStart, member.LineEnd, member.StartTs, member.EndTs)
+	}
+	if len(accs) == 0 && unidentified == 0 {
+		return nil
+	}
+	groups := make([]TopIOInodeSummary, 0, len(accs))
+	for _, acc := range accs {
+		acc.item.PageCacheChurn = acc.item.PageCacheAdds + acc.item.PageCacheDeletes
+		acc.item.ThreadCount = len(acc.threadPIDs)
+		contributors := make([]TopIOInodeThreadLatency, 0, len(acc.perThread))
+		for _, tl := range acc.perThread {
+			contributors = append(contributors, *tl)
+		}
+		sort.SliceStable(contributors, func(i, j int) bool {
+			if contributors[i].TotalLatencyMs != contributors[j].TotalLatencyMs {
+				return contributors[i].TotalLatencyMs > contributors[j].TotalLatencyMs
+			}
+			return contributors[i].Thread.PID < contributors[j].Thread.PID
+		})
+		if len(contributors) > topIOInodeThreadContributorLimit {
+			contributors = contributors[:topIOInodeThreadContributorLimit]
+		}
+		if len(contributors) > 0 {
+			acc.item.TopThreadLatencies = contributors
+		}
+		acc.item.Summary = fmt.Sprintf("inode=%s dev=%s events=%d reads=%d writes=%d completions=%d bytes=%d page_cache_adds=%d page_cache_deletes=%d max_latency=%.3fms threads=%d",
+			acc.item.Inode, acc.item.Dev, acc.item.Count, acc.item.ReadCount, acc.item.WriteCount, acc.item.CompletionCount, acc.item.Bytes, acc.item.PageCacheAdds, acc.item.PageCacheDeletes, acc.item.MaxLatencyMs, acc.item.ThreadCount)
+		if acc.item.EntryName != "" {
+			acc.item.Summary += " name=" + acc.item.EntryName
+		}
+		groups = append(groups, acc.item)
+	}
+	sort.SliceStable(groups, func(i, j int) bool {
+		if groups[i].Count != groups[j].Count {
+			return groups[i].Count > groups[j].Count
+		}
+		if groups[i].Bytes != groups[j].Bytes {
+			return groups[i].Bytes > groups[j].Bytes
+		}
+		if groups[i].MaxLatencyMs != groups[j].MaxLatencyMs {
+			return groups[i].MaxLatencyMs > groups[j].MaxLatencyMs
+		}
+		if groups[i].LineStart != groups[j].LineStart {
+			return groups[i].LineStart < groups[j].LineStart
+		}
+		if groups[i].Dev != groups[j].Dev {
+			return groups[i].Dev < groups[j].Dev
+		}
+		return groups[i].Inode < groups[j].Inode
+	})
+	total := len(groups)
+	if max > 0 && len(groups) > max {
+		groups = groups[:max]
+	}
+	return &TopIOInodeStats{Groups: groups, TotalGroups: total, UnidentifiedEvents: unidentified}
 }
 
 type storageLatencyAcc struct {

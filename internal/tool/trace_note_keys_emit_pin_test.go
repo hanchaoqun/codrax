@@ -161,6 +161,24 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 			Inode: "0x2", Dev: "253,0", Thread: tracequery.ThreadRef{Comm: "pc", PID: 91},
 			Adds: 5, Deletes: 2, Churn: 7, Bytes: 8192, MinOffset: 0, MaxOffset: 4096, LineStart: 37, LineEnd: 38,
 		}},
+		// INODE (§28.6): exercises the top_io_inode observation family so its
+		// note keys (reads/writes/top_threads/groups_total + the reused io
+		// keys) stay inside the registry contract.
+		TopIOInodes: &tracequery.TopIOInodeStats{
+			Groups: []tracequery.TopIOInodeSummary{{
+				Dev: "253,0", Inode: "0x1", EntryName: "data.db",
+				Count: 13, FileIOCount: 3, CompletionCount: 3, ReadCount: 2, WriteCount: 1,
+				Bytes: 4096, PageCacheAdds: 5, PageCacheDeletes: 2, PageCacheChurn: 7,
+				MaxLatencyMs: 1, ThreadCount: 2,
+				TopThreadLatencies: []tracequery.TopIOInodeThreadLatency{
+					{Thread: tracequery.ThreadRef{Comm: "io", PID: 90}, TotalLatencyMs: 2, Count: 6},
+				},
+				LineStart: 35, LineEnd: 38, StartTs: 1.0, EndTs: 1.9,
+				Summary: "inode=0x1 dev=253,0 events=13",
+			}},
+			TotalGroups:        2,
+			UnidentifiedEvents: 1,
+		},
 		StorageLatencyByLayer: []tracequery.StorageLatencySummary{{
 			Layer: "block", Event: "block_rq", Dev: "253,0", Operation: "W",
 			Thread: tracequery.ThreadRef{Comm: "st", PID: 92}, Count: 4, PairedCount: 3,

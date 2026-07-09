@@ -64,6 +64,12 @@ func TestRenderTraceQueryViewMatrix_PreservesPinnedPromptPhrases(t *testing.T) {
 	matrix := RenderTraceQueryViewMatrix()
 	for _, want := range []string{
 		"`state_churn` context",
+		// INODE (§28.6): the enumeration-IO routing teaching rides the
+		// window_stats row — count-ordered whole-window groups, disclosed
+		// truncation, and the no-cross-thread-latency-sum clause.
+		"`top_io_inodes` section",
+		"which inodes/files see the most frequent IO",
+		"never cross-thread latency sums",
 		"fragmented state-churn causes",
 		"same-chain cumulative_impact_ms",
 		"occurrence_windows",

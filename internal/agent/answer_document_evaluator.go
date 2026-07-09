@@ -12298,7 +12298,15 @@ type traceQueryObservationSupplementRow struct {
 	LineEnd   int
 }
 
-const traceQueryObservationSupplementMaxRows = 40
+// traceQueryObservationSupplementMaxRows: the display cap equals the
+// reachable order-bucket universe × the per-order floor, so EVERY bucket is
+// guaranteed its floor seats in the worst-case flood and the "每序列保底"
+// disclosure stays honest by construction (pinned by
+// TestSupplementQuotaOrderUniverseBalancesCap). EVOLUTION RECORD: 40 (10
+// buckets) → 44 when the INODE (§28.6, 2026-07-09) top_io_inode statistical
+// lane became the 11th bucket — the last-sorted lane would otherwise own zero
+// guaranteed seats.
+const traceQueryObservationSupplementMaxRows = 44
 
 // traceQueryObservationSupplementBucketFloor is the F3① per-order guaranteed
 // floor (§22 PTV7-SPN, huadong_01 P1): every Order bucket keeps min(N, floor)
@@ -12881,6 +12889,13 @@ func traceQueryObservationSupplementOrder(record types.ObservationRecord) int {
 		return 55
 	case strings.HasPrefix(claimKey, "root_evidence"):
 		return 60
+	case strings.HasPrefix(claimKey, "top_io_inode"):
+		// INODE (§28.6, 2026-07-09): whole-window (dev,inode) IO frequency
+		// rows — a statistical enumeration face, not a causal lane, so it
+		// trails every root-cause bucket. Joining the order table costs one
+		// bucket in the floored-quota universe; the cap was re-balanced to
+		// buckets × floor (see traceQueryObservationSupplementMaxRows).
+		return 65
 	}
 	return 0
 }
@@ -13206,6 +13221,13 @@ var traceQueryObservationSupplementAllowedNotePrefixes = []string{
 	// an audit pairing).
 	"subject_state_dominant=", "subject_state_total=", "subject_state_running=", "subject_state_runnable=",
 	"subject_state_sleep=", "subject_state_d_state=", "subject_state_io_wait=", "subject_state_fragments=",
+	// INODE (§28.6, 2026-07-09): the top_io_inode statistical rows' audit
+	// notes — the truncation disclosure (groups_total), the red-line latency
+	// form (max_latency = largest single event; top_threads = per-thread
+	// WITHIN-thread sums), and the closed-set op decomposition (reads/
+	// writes). All registered io-family keys; no other admitted family emits
+	// these prefixes, so the legacy families render byte-identically.
+	"groups_total=", "max_latency=", "reads=", "writes=", "top_threads=",
 }
 
 // Per-type priority prefix tables (SG 批, §10 复核要点①: the A3/C4/Q4-K "audit
@@ -13257,6 +13279,17 @@ var (
 		types.TraceNoteKeySpanName + "=",
 		types.TraceNoteKeySemanticClass + "=",
 	}
+	// top_io_inode rows (INODE §28.6): the truncation-honesty disclosure and
+	// the red-line latency form are the audit-critical pair — without
+	// groups_total= the panel silently reads a truncated enumeration as
+	// complete (§28.6 ④), and max_latency= is the only whole-group latency
+	// figure the row may show (largest single event, never a cross-thread
+	// sum). The fill pass then admits reads=/writes=/top_threads= in
+	// producer note order.
+	traceQueryObservationSupplementTopIOInodePriorityPrefixes = []string{
+		"groups_total=",
+		"max_latency=",
+	}
 )
 
 // traceQueryObservationSupplementPriorityNoteCap bounds the priority pass to 2
@@ -13288,6 +13321,13 @@ func traceQueryObservationSupplementPriorityPrefixes(record types.ObservationRec
 	case "trace_span":
 		// §22 PTV7-SPN F3③: the span family's audit-critical pair.
 		return traceQueryObservationSupplementTraceSpanPriorityPrefixes
+	}
+	// INODE (§28.6): the statistical enumeration family classifies on its
+	// exact typed Predicate token (verbatim from the single producer; same
+	// typed-lane style as the wakeup_chain branch-head resolver) — it carries
+	// no type= note, so the switch above never reaches it.
+	if strings.TrimSpace(record.Predicate) == "top_io_inode" {
+		return traceQueryObservationSupplementTopIOInodePriorityPrefixes
 	}
 	return nil
 }

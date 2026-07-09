@@ -129,6 +129,8 @@ var traceNoteKeyGoldenRows = []string{
 	"gated_capability|gating|hard_consumer",
 	"gated_runnable|gating|hard_consumer",
 	"gated_running_deficit|gating|hard_consumer",
+	// INODE (§28.6, 2026-07-09): top_io_inode whole-window fold row keys.
+	"groups_total|io|display_only",
 	"high_prio|cpu_load|display_only",
 	"high_prio_overlap|cpu_load|display_only",
 	"high_prio_running|cpu_load|display_only",
@@ -235,6 +237,7 @@ var traceNoteKeyGoldenRows = []string{
 	// the absorbing rank observation (absorbed-side keys ride blocking above).
 	"rank_family_key|causal_rank|hard_consumer",
 	"rank_impact|impact|display_only",
+	"reads|io|display_only",
 	"recommended_sections|causal_rank|display_only",
 	"recommended_views|causal_rank|soft_consumer",
 	"recursive|causal_rank|soft_consumer",
@@ -317,6 +320,7 @@ var traceNoteKeyGoldenRows = []string{
 	"top_name|io|display_only",
 	"top_thread|cpu_load|display_only",
 	"top_thread_ms|cpu_load|display_only",
+	"top_threads|io|display_only",
 	"total|impact|soft_consumer",
 	"total_latency|io|display_only",
 	// G2 判据 typed 化 (§27.2/§28.1, 2026-07-09): the trace_gap blind-spot
@@ -341,6 +345,7 @@ var traceNoteKeyGoldenRows = []string{
 	"window_proportion|anchor_window|display_only",
 	"window_source|anchor_window|anchor_window",
 	"work|workqueue|display_only",
+	"writes|io|display_only",
 }
 
 func TestTraceNoteKeyRegistryGolden(t *testing.T) {

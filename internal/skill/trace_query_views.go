@@ -60,7 +60,7 @@ func TraceQueryViewTeachings() []TraceQueryViewTeaching {
 		},
 		{
 			View: "window_stats",
-			When: "same-window CPU/IO/binder/IRQ/frequency, compute-supply, `state_churn` context, perf_samples top symbols/DSOs/callchains, file_io_by_inode, page_cache_by_inode, storage_latency_by_layer, and io_pressure_summary context",
+			When: "same-window CPU/IO/binder/IRQ/frequency, compute-supply, `state_churn` context, perf_samples top symbols/DSOs/callchains, file_io_by_inode, page_cache_by_inode, storage_latency_by_layer, io_pressure_summary context, and ranked/enumeration IO questions (which inodes/files see the most frequent IO) via the `top_io_inodes` section — whole-window per-(dev,inode) totals ordered by event count with the total group count disclosed; its latency figures are the largest single event plus per-thread totals, never cross-thread latency sums",
 		},
 		{
 			View:   "perf_stats",
