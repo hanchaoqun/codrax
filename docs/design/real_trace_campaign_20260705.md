@@ -1750,3 +1750,10 @@ Donghu 类与鸿蒙类 trace 同硬件平台——CAP-2 五重门**不设 flavor
 交付:引擎 WindowStats.TopIOInodes(截断前全量 (dev,inode) 折叠消 PID/op 维;Count=全 IO 族事件频次[实施裁定:只计 file_io 则东湖 mm_filemap 侧漏平台恒空榜],分解字段全保;延迟=单次 MAX+top-3 线程内求和,墙钟红线负向 pin;Count→Bytes→MaxLatency 序;top-10+TotalGroups+UnidentifiedEvents 双诚实披露;(unknown,unknown) 不折叠)+暴露三面(banner events= 词形[复核 P3-1 词值同源修]+typed 观测族 12 note+系统补充挂位 order 65/配额 40→44 再裁定)+路由教学(视图矩阵+TierB 两句+description,ATOMIC 过检)+QFEnumeration external_observation claim form(复核 P2-1 定性更正:提示语面+**软性 citation-role 对齐可达面扩展**,方向保护性,新可达面三臂 pin 固化)。负向 pin:统计枚举面不入投影树/rank。13 突变咬红(含"延迟臂偷偷改求和"与"折叠输入截断"两最强形);API 中断 SendMessage 唤醒无损续跑,缝隙自查零残片。
 **留观/候选**:dev-unknown 同 inode 合并伪身份(窄可达)/claimKey 建议携 dev 维/threads 键族归属卫生/inode= typed 过滤参(可选项,如需立小批)/成员 TotalLatency 含 completion 行 latency 的 legacy 口径继承。
 **队列**:3.3b CAP-2+THERM(即开,最后立案批)→3.3c DIAG(§28.11)。
+
+## §28.12 TDIAG 裁定(用户 2026-07-09):内置 trace 诊断收集命令簇
+客户同意提供 79 系式回访转录+命令结果(单结果≤1k 行,暂不脱敏)。裁定=codrax 内置**确定性诊断收集命令簇**(取代自然语言定向指令——NL 走 LLM 管线路由不确定/耗 token/需模型凭据;内置簇直连 tracequery 引擎,确定/可复现/免 LLM/行数硬界):
+- CLI 形:tracediag 模式(flag 簇),输入=trace 路径+**收集脚本**(YAML,复用既有 yaml.v3 唯一依赖;步骤=label/view/pid/thread/window/line 区间/pattern/event_types/max_lines),输出=单文件文本报告(步骤头+每步行数帽默认 800 硬帽 1000+截断诚实披露+版本/flavor/窗口 provenance 头)。
+- 工作流:我们按悬案作脚本(如 collect_g12.yaml/collect_d10.yaml 随仓库 examples 出货),客户 `codrax --tracediag <script> --trace <file> --out <txt>` 一条命令收全,回传单文件。
+- 红线:纯读模式、零 LLM 调用、不触 L1 读管线字节恒等(独立 CLI 路径)、不修改 tracequery/tool(引擎只 import 消费,渲染在新包自建证据面——与系统补充同族的原文 token 风格)。
+- 验收包(§28.11 文档)随批更新:定向指令包改为 tracediag 命令,NL 形降为无新构建时的回退。
