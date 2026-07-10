@@ -251,7 +251,7 @@ func TestLongMalformedTraceMarkCannotRevalidateAfterInventoryClamp(t *testing.T)
 	}
 }
 
-func TestSharedAsyncLaneResetFiltersEveryStartByEmitter(t *testing.T) {
+func TestSharedAsyncDuplicateLaneResetCannotSalvageOneStartByEmitter(t *testing.T) {
 	tests := []struct {
 		name      string
 		resetLine string
@@ -273,18 +273,26 @@ func TestSharedAsyncLaneResetFiltersEveryStartByEmitter(t *testing.T) {
 				tc.resetLine,
 				traceMarkTestLine("b", 20, 2.003, "F|500|shared|cookie"),
 				traceMarkTestLine("b", 20, 2.004, "F|500|shared|cookie"),
+				traceMarkTestLine("b", 20, 2.005, "S|500|shared|cookie"),
+				traceMarkTestLine("b", 20, 2.006, "F|500|shared|cookie"),
 			)
 			idx, err := BuildIndex(context.Background(), path)
 			if err != nil {
 				t.Fatal(err)
 			}
-			spans, _, _ := computeTraceMarks(idx, Query{TimeStart: 2, TimeEnd: 2.01}, 16)
-			if len(spans) != 1 || spans[0].Kind != "async" || spans[0].Thread.PID != 20 || spans[0].StartTs != 2.001 || spans[0].EndTs != 2.003 {
-				t.Fatalf("reset emitter A left a stale start or deleted emitter B: %+v", spans)
+			spans, _, caveats := computeTraceMarks(idx, Query{TimeStart: 2, TimeEnd: 2.01}, 16)
+			if len(spans) != 1 || spans[0].Kind != "async" || spans[0].Thread.PID != 20 || spans[0].StartTs != 2.005 || spans[0].EndTs != 2.006 {
+				t.Fatalf("duplicate cohort was partially salvaged or failed to recover after depth zero: %+v", spans)
 			}
-			windows, _ := FindSpanWindows(idx, Query{TimeStart: 2, TimeEnd: 2.01}, 16)
-			if len(windows) != 1 || windows[0].Thread.PID != 20 || windows[0].StartTs != 2.001 || windows[0].EndTs != 2.003 {
-				t.Fatalf("span_window shared-lane reset parity mismatch: %+v", windows)
+			if !caveatsContain(caveats, "trace_mark_async_duplicate_key_fail_closed=true") {
+				t.Fatalf("duplicate shared lane was withheld without disclosure: %+v", caveats)
+			}
+			windows, windowCaveats := FindSpanWindows(idx, Query{TimeStart: 2, TimeEnd: 2.01}, 16)
+			if len(windows) != 1 || windows[0].Thread.PID != 20 || windows[0].StartTs != 2.005 || windows[0].EndTs != 2.006 {
+				t.Fatalf("span_window shared-lane duplicate/recovery parity mismatch: %+v", windows)
+			}
+			if !caveatsContain(windowCaveats, "trace_mark_async_duplicate_key_fail_closed=true") {
+				t.Fatalf("span_window duplicate shared lane disclosure missing: %+v", windowCaveats)
 			}
 		})
 	}

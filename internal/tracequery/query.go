@@ -6446,8 +6446,12 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 	}
 	unknownEmitter := traceMarkUnknownEmitterFailureForQuery(idx, q)
 	stacks := map[string][]Event{}
-	asyncStarts := map[string][]Event{}
 	var spans []TraceSpanSummary
+	asyncPairer := newTraceMarkAsyncPairer(q, nil, func(pair traceMarkAsyncPair) {
+		if span, ok := clipTraceMarkSpanToQueryWindow(traceSpanFromEvents(pair.start, pair.end, "async", pair.source), q); ok {
+			spans = append(spans, span)
+		}
+	})
 	unresolvedPairingRows := 0
 	counters := map[counterInventoryKey]TraceCounterSummary{}
 	// DCS E4 (ledger §23/§23.1 H1, 2026-07-08): B/E and S/F pairing runs over
@@ -6464,7 +6468,8 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 				unresolvedPairingRows++
 				continue
 			}
-			resetTraceMarkPairingState(source, resetPID, stacks, asyncStarts)
+			resetTraceMarkSyncPairingState(source, resetPID, stacks)
+			asyncPairer.observeLifecycle(source, resetPID, ev)
 			continue
 		}
 		if ev.Type != EventTraceMark {
@@ -6476,7 +6481,8 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 				unresolvedPairingRows++
 				continue
 			}
-			resetTraceMarkPairingState(source, ev.PID, stacks, asyncStarts)
+			resetTraceMarkSyncPairingState(source, ev.PID, stacks)
+			asyncPairer.observeMalformed(source, ev.PID, ev)
 			continue
 		}
 		var source string
@@ -6507,28 +6513,9 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 				spans = append(spans, span)
 			}
 		case "S":
-			key := traceMarkAsyncPairingKey(source, ev)
-			if key == "" {
-				continue
-			}
-			asyncStarts[key] = append(asyncStarts[key], ev)
+			asyncPairer.observeEndpoint(source, ev)
 		case "F":
-			key := traceMarkAsyncPairingKey(source, ev)
-			stack := asyncStarts[key]
-			if key == "" || len(stack) == 0 {
-				continue
-			}
-			start := stack[len(stack)-1]
-			asyncStarts[key] = stack[:len(stack)-1]
-			if len(asyncStarts[key]) == 0 {
-				delete(asyncStarts, key)
-			}
-			if ev.Ts < start.Ts {
-				continue
-			}
-			if span, ok := clipTraceMarkSpanToQueryWindow(traceSpanFromEvents(start, ev, "async", source), q); ok {
-				spans = append(spans, span)
-			}
+			asyncPairer.observeEndpoint(source, ev)
 		case "C":
 			if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
 				continue
@@ -6568,6 +6555,8 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 			counters[key] = counter
 		}
 	}
+	asyncOpenStarts := asyncPairer.openStarts()
+	asyncPairer.finishEOF()
 	sort.SliceStable(spans, func(i, j int) bool {
 		if spans[i].DurationMs != spans[j].DurationMs {
 			return spans[i].DurationMs > spans[j].DurationMs
@@ -6605,7 +6594,8 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 	if boundCaveat := semanticBound.caveat(); boundCaveat != "" {
 		caveats = append(caveats, boundCaveat)
 	}
-	caveats = append(caveats, incompleteSemanticTraceMarkCaveats(q, stacks, asyncStarts)...)
+	caveats = append(caveats, asyncPairer.caveats()...)
+	caveats = append(caveats, incompleteSemanticTraceMarkCaveats(q, stacks, asyncOpenStarts)...)
 	return spans, counterList, caveats
 }
 
@@ -6618,7 +6608,7 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 // name and stay silent (nothing to report without inventing an identity).
 // Only starts at or before the window end can still overlap the window; later
 // starts are irrelevant to this query and stay out.
-func incompleteSemanticTraceMarkCaveats(q Query, stacks map[string][]Event, asyncStarts map[string][]Event) []string {
+func incompleteSemanticTraceMarkCaveats(q Query, stacks map[string][]Event, asyncStarts []Event) []string {
 	var names []string
 	seen := map[string]bool{}
 	note := func(ev Event) {
@@ -6640,10 +6630,8 @@ func incompleteSemanticTraceMarkCaveats(q Query, stacks map[string][]Event, asyn
 			note(ev)
 		}
 	}
-	for _, stack := range asyncStarts {
-		for _, ev := range stack {
-			note(ev)
-		}
+	for _, ev := range asyncStarts {
+		note(ev)
 	}
 	if len(names) == 0 {
 		return nil
@@ -6933,8 +6921,15 @@ func findSpanWindowsCompacted(idx *Index, q Query, max int) ([]TraceSpanSummary,
 		}
 	}
 	stacks := map[string][]Event{}
-	asyncStarts := map[string][]Event{}
 	var spans []TraceSpanSummary
+	asyncPairer := newTraceMarkAsyncPairer(q, func(start Event) bool {
+		return traceSpanStartMatchesQuery(start, target, q)
+	}, func(pair traceMarkAsyncPair) {
+		span := traceSpanFromEvents(pair.start, pair.end, "async", pair.source)
+		if traceSpanMatchesQuery(span, target, q) {
+			spans = append(spans, span)
+		}
+	})
 	unresolvedPairingRows := 0
 	for _, ev := range idx.Events {
 		if resetPID, reset := schedulerLifecycleResetPID(ev); reset {
@@ -6943,7 +6938,8 @@ func findSpanWindowsCompacted(idx *Index, q Query, max int) ([]TraceSpanSummary,
 				unresolvedPairingRows++
 				continue
 			}
-			resetTraceMarkPairingState(source, resetPID, stacks, asyncStarts)
+			resetTraceMarkSyncPairingState(source, resetPID, stacks)
+			asyncPairer.observeLifecycle(source, resetPID, ev)
 			continue
 		}
 		if ev.Type != EventTraceMark {
@@ -6958,7 +6954,8 @@ func findSpanWindowsCompacted(idx *Index, q Query, max int) ([]TraceSpanSummary,
 				unresolvedPairingRows++
 				continue
 			}
-			resetTraceMarkPairingState(source, ev.PID, stacks, asyncStarts)
+			resetTraceMarkSyncPairingState(source, ev.PID, stacks)
+			asyncPairer.observeMalformed(source, ev.PID, ev)
 			continue
 		}
 		var source string
@@ -6991,32 +6988,12 @@ func findSpanWindowsCompacted(idx *Index, q Query, max int) ([]TraceSpanSummary,
 			}
 			spans = append(spans, span)
 		case "S":
-			key := traceMarkAsyncPairingKey(source, ev)
-			if key == "" {
-				continue
-			}
-			asyncStarts[key] = append(asyncStarts[key], ev)
+			asyncPairer.observeEndpoint(source, ev)
 		case "F":
-			key := traceMarkAsyncPairingKey(source, ev)
-			stack := asyncStarts[key]
-			if key == "" || len(stack) == 0 {
-				continue
-			}
-			start := stack[len(stack)-1]
-			asyncStarts[key] = stack[:len(stack)-1]
-			if len(asyncStarts[key]) == 0 {
-				delete(asyncStarts, key)
-			}
-			if ev.Ts < start.Ts {
-				continue
-			}
-			span := traceSpanFromEvents(start, ev, "async", source)
-			if !traceSpanMatchesQuery(span, target, q) {
-				continue
-			}
-			spans = append(spans, span)
+			asyncPairer.observeEndpoint(source, ev)
 		}
 	}
+	asyncPairer.finishEOF()
 	sort.SliceStable(spans, func(i, j int) bool {
 		if spans[i].StartTs != spans[j].StartTs {
 			return spans[i].StartTs < spans[j].StartTs
@@ -7024,6 +7001,7 @@ func findSpanWindowsCompacted(idx *Index, q Query, max int) ([]TraceSpanSummary,
 		return spans[i].StartLine < spans[j].StartLine
 	})
 	caveats := traceMarkIntegrityCaveats(idx, q)
+	caveats = append(caveats, asyncPairer.caveats()...)
 	if unresolvedPairingRows > 0 {
 		spans = nil
 		caveats = append(caveats, fmt.Sprintf("trace_mark_pairing_provenance_unresolved=true; rows=%d; span_window durations were omitted because an endpoint or reset could not be mapped to exactly one physical source artifact", unresolvedPairingRows))
@@ -7062,6 +7040,16 @@ func traceSpanMatchesQuery(span TraceSpanSummary, target ThreadRef, q Query) boo
 	}
 	if q.TimeEnd > 0 && span.StartTs > q.TimeEnd {
 		return false
+	}
+	return true
+}
+
+func traceSpanStartMatchesQuery(start Event, target ThreadRef, q Query) bool {
+	if q.SpanName != "" && !strings.Contains(strings.ToLower(start.SpanName), strings.ToLower(strings.TrimSpace(q.SpanName))) {
+		return false
+	}
+	if target.PID > 0 || target.Comm != "" {
+		return threadMatches(target, start.PID, start.Comm)
 	}
 	return true
 }

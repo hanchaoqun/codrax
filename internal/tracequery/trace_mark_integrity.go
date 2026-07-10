@@ -764,41 +764,274 @@ func traceMarkSyncPairingKey(source string, pid int) string {
 	return traceMarkPairingSourcePrefix(source) + "sync\x00" + strconv.Itoa(pid)
 }
 
-func traceMarkAsyncPairingKey(source string, ev Event) string {
-	key := traceAsyncSpanKey(ev)
-	if key == "" {
-		return ""
-	}
-	return traceMarkPairingSourcePrefix(source) + "async\x00" + key
-}
-
-// resetTraceMarkPairingState invalidates only the known physical source and
-// emitter. A lifecycle/malformed row in one attachment must never erase an
-// identically numbered emitter's open state in another attachment.
-func resetTraceMarkPairingState(source string, pid int, stacks map[string][]Event, asyncStarts map[string][]Event) {
+// resetTraceMarkSyncPairingState invalidates only the known physical source
+// and emitter. Async S/F markers use their payload pid rather than their row
+// emitter and are reset by traceMarkAsyncPairer below.
+func resetTraceMarkSyncPairingState(source string, pid int, stacks map[string][]Event) {
 	if source == "" || pid < 0 {
 		return
 	}
 	delete(stacks, traceMarkSyncPairingKey(source, pid))
-	asyncPrefix := traceMarkPairingSourcePrefix(source) + "async\x00"
-	for key, starts := range asyncStarts {
-		if !strings.HasPrefix(key, asyncPrefix) {
+}
+
+// traceMarkAsyncOwner is the lifecycle namespace for ATrace S/F markers. The
+// payload pid is the logical owner; the ftrace row emitter may legitimately
+// differ between S and F and therefore cannot be part of the wire identity.
+type traceMarkAsyncOwner struct {
+	source     string
+	payloadPID int
+}
+
+// traceMarkAsyncKey is the exact S/F duration identity. generation advances
+// only on an exact scheduler lifecycle boundary for payloadPID in the same
+// physical source, so a reused numeric pid cannot close an older occupant's
+// async marker. A comparable struct avoids delimiter collisions in opaque
+// span names and cookies.
+type traceMarkAsyncKey struct {
+	owner      traceMarkAsyncOwner
+	generation uint64
+	name       string
+	cookie     string
+}
+
+type traceMarkAsyncLane struct {
+	cohort   pairingCohortState
+	emitters map[int]struct{}
+}
+
+type traceMarkAsyncPair struct {
+	source string
+	start  Event
+	end    Event
+}
+
+// traceMarkAsyncPairer is shared by window_stats/root-rank and span_window.
+// A second S on one exact key makes the whole overlapping cohort ambiguous;
+// F endpoints then only discharge depth until zero, and no guessed LIFO/FIFO
+// pair is published. The lane is reusable immediately after that zero point.
+type traceMarkAsyncPairer struct {
+	q            Query
+	startMatches func(Event) bool
+	onPair       func(traceMarkAsyncPair)
+
+	lanes       map[traceMarkAsyncKey]*traceMarkAsyncLane
+	generations map[traceMarkAsyncOwner]uint64
+
+	ambiguousCohorts int
+	ambiguousStarts  int
+	incompleteBegins int
+	orphanEnds       int
+	lifecycleCuts    int
+	malformedCuts    int
+}
+
+func newTraceMarkAsyncPairer(q Query, startMatches func(Event) bool, onPair func(traceMarkAsyncPair)) *traceMarkAsyncPairer {
+	return &traceMarkAsyncPairer{
+		q:            q,
+		startMatches: startMatches,
+		onPair:       onPair,
+		lanes:        map[traceMarkAsyncKey]*traceMarkAsyncLane{},
+		generations:  map[traceMarkAsyncOwner]uint64{},
+	}
+}
+
+// traceMarkAsyncPayloadPID retains compatibility for hand-built Event values
+// that predate SpanPID. Production S/F rows always take the first branch:
+// parseTraceMarkValidated requires a positive payload pid before SpanAction is
+// minted.
+func traceMarkAsyncPayloadPID(ev Event) int {
+	if ev.SpanPID > 0 {
+		return ev.SpanPID
+	}
+	if ev.TGID > 0 {
+		return ev.TGID
+	}
+	return ev.PID
+}
+
+func (p *traceMarkAsyncPairer) key(source string, ev Event) (traceMarkAsyncKey, bool) {
+	if p == nil || source == "" || (ev.SpanAction != "S" && ev.SpanAction != "F") {
+		return traceMarkAsyncKey{}, false
+	}
+	payloadPID := traceMarkAsyncPayloadPID(ev)
+	if payloadPID <= 0 || strings.TrimSpace(ev.SpanName) == "" || strings.TrimSpace(ev.SpanValue) == "" {
+		return traceMarkAsyncKey{}, false
+	}
+	owner := traceMarkAsyncOwner{source: source, payloadPID: payloadPID}
+	return traceMarkAsyncKey{
+		owner:      owner,
+		generation: p.generations[owner],
+		name:       ev.SpanName,
+		cookie:     ev.SpanValue,
+	}, true
+}
+
+func (p *traceMarkAsyncPairer) matchesStart(ev Event) bool {
+	return p != nil && (p.startMatches == nil || p.startMatches(ev))
+}
+
+func traceMarkAsyncStartMayReachQuery(start Event, q Query) bool {
+	if q.LineEnd > 0 && start.Line > q.LineEnd {
+		return false
+	}
+	if q.LineStart == 0 && q.LineEnd == 0 && queryBoundedTimeEnd(q) && start.Ts > q.TimeEnd {
+		return false
+	}
+	return true
+}
+
+func (p *traceMarkAsyncPairer) observeEndpoint(source string, ev Event) {
+	key, ok := p.key(source, ev)
+	if !ok {
+		return
+	}
+	lane := p.lanes[key]
+	if ev.SpanAction == "S" {
+		if lane == nil {
+			lane = &traceMarkAsyncLane{emitters: map[int]struct{}{}}
+			p.lanes[key] = lane
+		}
+		if ev.PID >= 0 {
+			lane.emitters[ev.PID] = struct{}{}
+		}
+		lane.cohort.observeStart(ev)
+		return
+	}
+	if lane == nil {
+		// F carries the same payload name/cookie, but its row emitter is not
+		// proof of the missing begin emitter. Name scoping remains precise;
+		// thread-scoped span_window queries conservatively retain the orphan
+		// disclosure because no start exists from which to prove it unrelated.
+		if pairingEventInsideQuery(ev, p.q) && traceMarkAsyncNameMatchesQuery(ev, p.q) {
+			p.orphanEnds++
+		}
+		return
+	}
+	transition := lane.cohort.observeDone(ev)
+	if !transition.cohortClosed {
+		return
+	}
+	delete(p.lanes, key)
+	if transition.ambiguous {
+		p.accountClosedAmbiguous(transition)
+		return
+	}
+	if transition.pairReady && ev.Ts >= transition.pairStart.Ts && p.onPair != nil {
+		p.onPair(traceMarkAsyncPair{source: source, start: transition.pairStart, end: ev})
+	}
+}
+
+func traceMarkAsyncNameMatchesQuery(ev Event, q Query) bool {
+	name := strings.TrimSpace(q.SpanName)
+	return name == "" || strings.Contains(strings.ToLower(ev.SpanName), strings.ToLower(name))
+}
+
+func (p *traceMarkAsyncPairer) accountClosedAmbiguous(transition pairingCohortTransition) {
+	if !p.matchesStart(transition.first) || !pairingIntervalIntersectsQuery(transition.first, transition.last, p.q) {
+		return
+	}
+	p.ambiguousCohorts++
+	p.ambiguousStarts += transition.cohortStarts
+}
+
+func (p *traceMarkAsyncPairer) accountCut(transition pairingCohortTransition, boundary Event, lifecycle bool) {
+	if !transition.cohortClosed || !p.matchesStart(transition.first) || !pairingIntervalIntersectsQuery(transition.first, boundary, p.q) {
+		return
+	}
+	if lifecycle {
+		p.lifecycleCuts++
+	} else {
+		p.malformedCuts++
+	}
+	if transition.ambiguous {
+		p.ambiguousCohorts++
+		p.ambiguousStarts += transition.cohortStarts
+		return
+	}
+	p.incompleteBegins += transition.cohortStarts
+}
+
+// observeLifecycle closes every old-generation lane for this payload owner,
+// then advances the exact (source,payload pid) generation even when no lane is
+// currently open. A later F therefore cannot reach across the boundary.
+func (p *traceMarkAsyncPairer) observeLifecycle(source string, payloadPID int, boundary Event) {
+	if p == nil || source == "" || payloadPID <= 0 {
+		return
+	}
+	owner := traceMarkAsyncOwner{source: source, payloadPID: payloadPID}
+	for key, lane := range p.lanes {
+		if key.owner != owner {
 			continue
 		}
-		kept := starts[:0]
-		for _, start := range starts {
-			if start.PID != pid {
-				kept = append(kept, start)
+		transition := lane.cohort.finishEOF()
+		p.accountCut(transition, boundary, true)
+		delete(p.lanes, key)
+	}
+	p.generations[owner]++
+}
+
+// observeMalformed preserves the established known-emitter recovery scope:
+// only cohorts with a begin physically emitted by this source/pid are cut.
+// The malformed row has no trustworthy payload identity and therefore cannot
+// advance or select a payload-owner generation.
+func (p *traceMarkAsyncPairer) observeMalformed(source string, emitterPID int, boundary Event) {
+	if p == nil || source == "" || emitterPID < 0 {
+		return
+	}
+	for key, lane := range p.lanes {
+		if key.owner.source != source {
+			continue
+		}
+		if _, ok := lane.emitters[emitterPID]; !ok {
+			continue
+		}
+		transition := lane.cohort.finishEOF()
+		p.accountCut(transition, boundary, false)
+		delete(p.lanes, key)
+	}
+}
+
+func (p *traceMarkAsyncPairer) openStarts() []Event {
+	if p == nil || len(p.lanes) == 0 {
+		return nil
+	}
+	out := make([]Event, 0, len(p.lanes))
+	for _, lane := range p.lanes {
+		if lane.cohort.depth > 0 {
+			out = append(out, lane.cohort.first)
+		}
+	}
+	return out
+}
+
+func (p *traceMarkAsyncPairer) finishEOF() {
+	if p == nil {
+		return
+	}
+	for key, lane := range p.lanes {
+		transition := lane.cohort.finishEOF()
+		if p.matchesStart(transition.first) && traceMarkAsyncStartMayReachQuery(transition.first, p.q) {
+			if transition.ambiguous {
+				p.ambiguousCohorts++
+				p.ambiguousStarts += transition.cohortStarts
+			} else {
+				p.incompleteBegins += transition.cohortStarts
 			}
 		}
-		if len(kept) == 0 {
-			delete(asyncStarts, key)
-			continue
-		}
-		// Clear the removed tail slots before retaining the filtered stack: Event
-		// carries interned strings and side-table pointers which should not stay
-		// reachable through spare slice capacity after an emitter reset.
-		clear(starts[len(kept):])
-		asyncStarts[key] = kept
+		delete(p.lanes, key)
 	}
+}
+
+func (p *traceMarkAsyncPairer) caveats() []string {
+	if p == nil {
+		return nil
+	}
+	var out []string
+	if p.ambiguousCohorts > 0 {
+		out = append(out, fmt.Sprintf("trace_mark_async_duplicate_key_fail_closed=true; ambiguous_cohorts=%d ambiguous_starts=%d; concurrent/repeated S endpoints with the same source+payload_pid+generation+name+cookie were withheld instead of LIFO-paired", p.ambiguousCohorts, p.ambiguousStarts))
+	}
+	if p.incompleteBegins > 0 || p.orphanEnds > 0 || p.lifecycleCuts > 0 || p.malformedCuts > 0 {
+		out = append(out, fmt.Sprintf("trace_mark_async_pairing_incomplete=true; incomplete_begins=%d orphan_ends=%d lifecycle_cuts=%d malformed_cuts=%d; incomplete S/F endpoints remain searchable trace_mark inventory and mint no duration", p.incompleteBegins, p.orphanEnds, p.lifecycleCuts, p.malformedCuts))
+	}
+	return out
 }
