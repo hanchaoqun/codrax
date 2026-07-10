@@ -22,8 +22,8 @@
 1. **已校准**：SQL PERF（`03809f490`）、scheduler continuity（`7358f7386`）、typed IRQ/softirq/IPI（`e947741b4`）、blocked reason（`79ca1e3ca`）。
 2. **已修已推送**（主干 `7a4afc8fb`；二次独立审计加固 `ce3ba4ac6`）：SQL CALLSTACK 表内 endpoint correctness；公共 running-resolver taint 与跨 exporter B/E 栈分别在第 3/4 项收口。
 3. **已修已推送**（`cbb276f3e`）：SQL raw ftrace strict scalar/CPU/argset 与公共 Running interval taint 已完成实现及全量回归。
-4. **待施工**：CPU measure/clock tuple 与通用 endpoint 边界。
-5. **待复审**：客户 `cust710` witness 中是否存在新的 typed request identity 或可归纳解析格式；无 typed 两端 witness 时继续 fail-close，不猜 schema。
+4. **当前施工**：CPU measure/clock tuple；完成并独立提交后，按审计结果拆分通用 endpoint 边界小批。
+5. **并行复审**：客户 `cust710` witness 中是否存在新的 typed request identity 或可归纳解析格式；无 typed 两端 witness 时继续 fail-close，不猜 schema。
 6. **新增 P0 裁定待施工**：主因榜必须统一按折算后 effective 排序：runnable=`RunnableMs`，running=CAP/核频 supply deficit，D/IO=`DStateMs+IOWaitMs`，semantic=链路真实交集，periodic=VS-1 effective；禁止 semantic/background 保留席挤掉更高 effective 主因，未进 TOP N 的 on-chain semantic 由独立“确定性优化点”通道履行提及义务。当前审计确认 causal mixed-state 回退 `TotalMs`、`fragmented_*` 启发式、`low_frequency` 裸 running 双席与 effective=0 running 加冕仍需关闭。
 
 ## 高 ROI 主队列
