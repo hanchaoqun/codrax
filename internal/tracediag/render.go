@@ -225,6 +225,20 @@ func renderStepBody(step *Step, outcome stepOutcome) stepBody {
 		return renderEventSearchBody(step, res)
 	}
 	renderResultMeta(res, sink.emit)
+	diagnostics := collectNonEventEngineDiagnostics(res)
+	if len(diagnostics) > 0 {
+		caveats, compactions := countNonEventEngineDiagnostics(diagnostics)
+		sink.emit(fmt.Sprintf("engine_diagnostics(引擎原文去重账目): caveats=%d compactions=%d", caveats, compactions))
+	}
+	// TDIAG-KEY-FIRST: load-bearing typed quality/completeness/pairing/
+	// capability facts must precede both diagnostic rosters and ordinary
+	// detail. A long caveat list is itself bounded only by max_lines and must
+	// not recreate the old CPU-residency-before-counter-quality failure.
+	renderNonEventKeyFirstSummaries(res, sink.emit)
+	renderNonEventEngineDiagnostics(diagnostics, sink.emit)
+	// The generic walker keeps the full detail/evidence face, but skips the
+	// exact typed fields already rendered above and walks bulk arrays last.
+	renderNonEventResultDetail(res, sink.emit)
 	if len(res.Events) > 0 {
 		sink.emit(fmt.Sprintf("匹配事件 %d 行:", len(res.Events)))
 		for _, ev := range res.Events {
@@ -236,17 +250,6 @@ func renderStepBody(step *Step, outcome stepOutcome) stepBody {
 		for _, fact := range res.EvidencePack {
 			sink.emit(renderEvidenceFact(fact))
 		}
-	}
-	renderResultDetail(res, sink.emit)
-	if len(res.Caveats) > 0 {
-		sink.emit(fmt.Sprintf("caveats(引擎原文,共 %d 条):", len(res.Caveats)))
-		for _, c := range res.Caveats {
-			sink.emit("- " + clampToken(c))
-		}
-	}
-	for _, comp := range res.Compactions {
-		sink.emit(fmt.Sprintf("- 引擎截断记录: view=%s dimension=%s total=%d emitted=%d last_ts=%s last_line=%d",
-			comp.View, comp.Dimension, comp.Total, comp.Emitted, formatSecondsToken(comp.LastEmittedTs), comp.LastEmittedLine))
 	}
 	return stepBody{lines: sink.lines, total: sink.total}
 }
@@ -536,11 +539,19 @@ var resultMetaFields = map[string]bool{
 // the face complete and drift-free: payload fields added by future engine
 // batches render automatically instead of silently vanishing.
 func renderResultDetail(res *tracequery.Result, emit func(string)) {
+	renderResultDetailWithPolicy(res, emit, nil)
+}
+
+func renderNonEventResultDetail(res *tracequery.Result, emit func(string)) {
+	renderResultDetailWithPolicy(res, emit, &nonEventDetailPolicy)
+}
+
+func renderResultDetailWithPolicy(res *tracequery.Result, emit func(string), policy *detailRenderPolicy) {
 	v := reflect.ValueOf(res).Elem()
 	t := v.Type()
-	for i := 0; i < t.NumField(); i++ {
+	for _, i := range orderedDetailFieldIndexes(v, policy) {
 		field := t.Field(i)
-		if field.PkgPath != "" || resultMetaFields[field.Name] || jsonExcluded(field) {
+		if field.PkgPath != "" || resultMetaFields[field.Name] || jsonExcluded(field) || policySkipsDetailField(policy, t, field.Name) {
 			continue
 		}
 		fv := v.Field(i)
@@ -556,7 +567,7 @@ func renderResultDetail(res *tracequery.Result, emit func(string)) {
 			}
 			emit(s)
 		}
-		walkDetail(fv, path, lazyEmit, 0)
+		walkDetailWithPolicy(fv, path, lazyEmit, 0, policy)
 	}
 }
 
@@ -565,6 +576,10 @@ func renderResultDetail(res *tracequery.Result, emit func(string)) {
 const walkDetailMaxDepth = 10
 
 func walkDetail(v reflect.Value, path string, emit func(string), depth int) {
+	walkDetailWithPolicy(v, path, emit, depth, nil)
+}
+
+func walkDetailWithPolicy(v reflect.Value, path string, emit func(string), depth int, policy *detailRenderPolicy) {
 	if depth > walkDetailMaxDepth {
 		return
 	}
@@ -573,9 +588,9 @@ func walkDetail(v reflect.Value, path string, emit func(string), depth int) {
 		if v.IsNil() {
 			return
 		}
-		walkDetail(v.Elem(), path, emit, depth)
+		walkDetailWithPolicy(v.Elem(), path, emit, depth, policy)
 	case reflect.Struct:
-		walkStructDetail(v, path, emit, depth)
+		walkStructDetailWithPolicy(v, path, emit, depth, policy)
 	case reflect.Slice, reflect.Array:
 		if v.Len() == 0 {
 			return
@@ -585,7 +600,7 @@ func walkDetail(v reflect.Value, path string, emit func(string), depth int) {
 			return
 		}
 		for i := 0; i < v.Len(); i++ {
-			walkDetail(v.Index(i), fmt.Sprintf("%s[%d]", path, i), emit, depth+1)
+			walkDetailWithPolicy(v.Index(i), fmt.Sprintf("%s[%d]", path, i), emit, depth+1, policy)
 		}
 	case reflect.Map:
 		if v.Len() == 0 {
@@ -598,6 +613,10 @@ func walkDetail(v reflect.Value, path string, emit func(string), depth int) {
 }
 
 func walkStructDetail(v reflect.Value, path string, emit func(string), depth int) {
+	walkStructDetailWithPolicy(v, path, emit, depth, nil)
+}
+
+func walkStructDetailWithPolicy(v reflect.Value, path string, emit func(string), depth int, policy *detailRenderPolicy) {
 	t := v.Type()
 	// Inline token types render as one token, never as a line family.
 	if t == reflect.TypeOf(tracequery.ThreadRef{}) || t == reflect.TypeOf(tracequery.TimeWindow{}) {
@@ -619,14 +638,16 @@ func walkStructDetail(v reflect.Value, path string, emit func(string), depth int
 			line += "; " + extra
 		}
 		emit(line)
-	} else if kv := structScalarTokens(v); kv != "" {
+	} else if kv := structScalarTokensWithPolicy(v, policy); kv != "" {
 		emit(fmt.Sprintf("- %s: %s", path, kv))
 	}
 	// Recurse into composite children so nested families (rank items,
-	// chain nodes, per-thread breakdowns) keep their own lines.
-	for i := 0; i < t.NumField(); i++ {
+	// chain nodes, per-thread breakdowns) keep their own lines. Composite
+	// slices/maps are structurally bulk and run after compact pointer/struct
+	// children; the exact key-first fields are governed by the closed policy.
+	for _, i := range orderedDetailFieldIndexes(v, policy) {
 		field := t.Field(i)
-		if field.PkgPath != "" || field.Name == "Summary" || jsonExcluded(field) {
+		if field.PkgPath != "" || field.Name == "Summary" || jsonExcluded(field) || policySkipsDetailField(policy, t, field.Name) {
 			continue
 		}
 		fv := v.Field(i)
@@ -646,7 +667,7 @@ func walkStructDetail(v reflect.Value, path string, emit func(string), depth int
 			if field.Anonymous {
 				childPath = path
 			}
-			walkDetail(fv, childPath, emit, depth+1)
+			walkDetailWithPolicy(fv, childPath, emit, depth+1, policy)
 		}
 	}
 }
@@ -688,11 +709,15 @@ func structCoordinateTokens(v reflect.Value) string {
 // structScalarTokens renders a struct's non-zero scalar fields as verbatim
 // key=value tokens (json tag names), inlining ThreadRef/TimeWindow values.
 func structScalarTokens(v reflect.Value) string {
+	return structScalarTokensWithPolicy(v, nil)
+}
+
+func structScalarTokensWithPolicy(v reflect.Value, policy *detailRenderPolicy) string {
 	t := v.Type()
 	parts := []string{}
 	for i := 0; i < t.NumField(); i++ {
 		field := t.Field(i)
-		if field.PkgPath != "" || jsonExcluded(field) {
+		if field.PkgPath != "" || jsonExcluded(field) || policySkipsDetailField(policy, t, field.Name) {
 			continue
 		}
 		fv := v.Field(i)
