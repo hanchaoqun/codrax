@@ -1938,3 +1938,7 @@ finalizer 多轮修复=大量 token 交互反复且小模型输出不稳定(后�
 - **P2**：非 scheduler malformed endpoint 的 schema-specific integrity poison 尚未覆盖全部族；CPU 数据族统一补负数/超拓扑范围 ID 校验；全局 TID-reuse fail-close 可收窄到实际参与 subject 以减少无关代际冲突导致的可用性损失；C11 EN 车道闭集机械化。
 - **witness 触发留观**：A3、B5、B7、B9、C10、C12、C13、C16、BLIND-1。C12 继续坚持“无 typed 链身份不伪造树层级”。
 - **销池**：B8 维持 dash=无有效归因；C14 维持 cross-stage FRCAP 总成本上限。
+
+## §29.25 裁定(用户 2026-07-10):HarmonyOS RT 优先级边界 41-159 确认+客户 witness 落档;审计处置委托
+**裁定①(41-139→41-159 翻转追认,witness 补齐)**:用户回访附件三份支撑——`customlogs/format_census_berlin.txt`(berlin 1104MiB 全谱 census:prio 直方 **142×756604**(全 trace 最高频优先级之一)/157×3170/159×140/140×3212,prio>139 计 763186)+`customlogs/format_census.txt`(VerifyClass 案 record_trace_20260606:157×36/140×21)+`customlogs/cust_trace_vc_710.txt`(prio=53→ohos_rt 生产判定与两界兼容,20/53 CFS-RT 反转判定链完整)。真实工作负载大量落在 140-159 段,旧界 41-139 会把这些线程误归 system_or_kernel、错出高优先级压力账户。**41-159 为正确边界,远程批 flavor.go 翻转追认生效**;审计 P1-#4 的定性从"无证据链翻转"改为"witness 补齐后合法演化",剩余义务=flavor.go 与 stale-ban pin 补 EVOLUTION RECORD 引本节+witness 文件名。
+**裁定②(处置委托)**:用户原话"其它的按合理的方向进行发展"——两轮全方位审计 finding 的处置(P1/P2 修复、EVOLUTION RECORD 欠账补记、双账本状态收敛、裁定池远程关闭项(B4/B6/B9/A1/A2)按方向一致性追认)按主会话判断执行;方向存疑项仍单独上呈。
