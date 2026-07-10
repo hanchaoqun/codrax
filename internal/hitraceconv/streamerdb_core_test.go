@@ -199,12 +199,14 @@ func TestTraceDBCoreLoadsResolvers(t *testing.T) {
 	if len(coverage) != 2 || argsets[7]["irq"].Text != "32" || argsets[7]["irq_ret"].Text != "handled" {
 		t.Fatalf("argsets mismatch coverage=%+v argsets=%+v", coverage, argsets)
 	}
-	rawCPUs, rawCoverage, err := tdb.loadRawEventCPUs(context.Background())
+	rawWakeups, rawCoverage, err := tdb.loadRawWakeups(context.Background())
 	if err != nil {
-		t.Fatalf("load raw cpus: %v", err)
+		t.Fatalf("load raw wakeups: %v", err)
 	}
-	if !rawCoverage.Found || rawCPUs[traceDBInstantKey{TS: 1000, Name: "sched_wakeup"}] != 6 {
-		t.Fatalf("raw cpu mismatch coverage=%+v cpus=%+v", rawCoverage, rawCPUs)
+	if !rawCoverage.Found || len(rawWakeups) != 1 || rawWakeups[0].RowID == 0 ||
+		rawWakeups[0].TS != 1000 || rawWakeups[0].Name != "sched_wakeup" ||
+		rawWakeups[0].TargetCPU != 6 || rawWakeups[0].ITID != 10 {
+		t.Fatalf("typed raw wakeup mismatch coverage=%+v wakeups=%+v", rawCoverage, rawWakeups)
 	}
 	starts, schedCoverage, err := tdb.loadSchedStarts(context.Background())
 	if err != nil {

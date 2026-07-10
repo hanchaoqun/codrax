@@ -327,8 +327,8 @@ func TestExportTraceDBHmtraceComprehensiveFixtureSchema(t *testing.T) {
 	body := string(bodyBytes)
 	for _, want := range []string{
 		"tracing_mark_write: B|500|DoWork",
-		"sched_wakeup: comm=WorkerThread pid=501 prio=42 target_cpu=011",
-		"sched_waking: comm=WorkerThread pid=501 prio=42 target_cpu=011",
+		"sched_wakeup: comm=WorkerThread pid=501 prio=42 target_cpu=007",
+		"sched_waking: comm=WorkerThread pid=501 prio=42 target_cpu=008",
 		"softirq_entry: vec=9 [action=RCU]",
 		"cpu_frequency: state=2200000 cpu_id=11",
 		"tracing_mark_write: B|500|FrameActual-123",
@@ -677,6 +677,7 @@ func hmtraceComprehensiveFixtureStatements() []string {
 		"INSERT INTO thread VALUES (4, 4, 1782, 'DnsMgerListen', 100, 0, 2, 0, 1)",
 		"INSERT INTO thread VALUES (5, 5, 701, 'Waker', 100, 0, 3, 1, 1)",
 		"INSERT INTO thread_state VALUES (1, 900, 1000, 3, 2, 501, 500, 'Running', 0)",
+		"INSERT INTO thread_state VALUES (2, 1400, 200, 4, 5, 701, 700, 'Running', 0)",
 		"INSERT INTO callstack VALUES (1, 1000, 200, 2, '', 'DoWork', 0, NULL, 0, 0, '', '', '', '', '', '', '', '', 0)",
 		"INSERT INTO callstack VALUES (2, 1100, 0, 2, '', 'AsyncWork', 0, NULL, 0, 0, 'chain-123', '', '', 'S', '', '', '', '', 0)",
 		"INSERT INTO callstack VALUES (3, 1150, 0, 2, '', 'AsyncWork', 0, NULL, 0, 0, 'chain-123', '', '', 'C', '', '', '', '', 0)",
@@ -687,7 +688,7 @@ func hmtraceComprehensiveFixtureStatements() []string {
 		"INSERT INTO instant VALUES (1500, 'sched_wakeup', 2, 5, 'itid', NULL)",
 		"INSERT INTO instant VALUES (1510, 'sched_waking', 2, 5, 'itid', NULL)",
 		"INSERT INTO raw VALUES (1, 1500, 'sched_wakeup', 7, 2)",
-		"INSERT INTO raw VALUES (2, 1510, 'sched_waking', 8, 2)",
+		"INSERT INTO raw VALUES (2, 1510, 'sched_waking', 8, 5)",
 		"INSERT INTO data_dict VALUES (1, 'irq')",
 		"INSERT INTO data_dict VALUES (2, 'irq_ret')",
 		"INSERT INTO data_dict VALUES (3, 'handled')",

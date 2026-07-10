@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -19,6 +18,18 @@ type traceDBSchedSlice struct {
 	TID      int64
 	TGID     int64
 	Name     string
+}
+
+type traceDBWakeupInstant struct {
+	TS         int64
+	Name       string
+	Ref        int64
+	WakeupFrom int64
+}
+
+type traceDBWakeupKey struct {
+	TS   int64
+	Name string
 }
 
 func exportTraceDBSchedulerFamilies(ctx context.Context, tdb *traceDB, sink *traceDBRowSink) ([]TraceDBCoverage, error) {
@@ -47,7 +58,7 @@ func exportTraceDBSchedulerFamilies(ctx context.Context, tdb *traceDB, sink *tra
 	if err != nil {
 		return coverage, err
 	}
-	rawCPUs, rawCoverage, err := tdb.loadRawEventCPUs(ctx)
+	rawWakeups, rawCoverage, err := tdb.loadRawWakeups(ctx)
 	coverage = append(coverage, rawCoverage)
 	if err != nil {
 		return coverage, err
@@ -57,8 +68,13 @@ func exportTraceDBSchedulerFamilies(ctx context.Context, tdb *traceDB, sink *tra
 	if err != nil {
 		return coverage, err
 	}
+	running, runningCoverage, err := tdb.loadRunningIntervals(ctx)
+	coverage = append(coverage, runningCoverage)
+	if err != nil {
+		return coverage, err
+	}
 	stageStart = time.Now()
-	wakeupCoverage, err := exportTraceDBWakeups(ctx, tdb, sink, rawCPUs, starts)
+	wakeupCoverage, err := exportTraceDBWakeups(ctx, tdb, sink, index, rawWakeups, starts, running)
 	traceDBSetCoverageElapsed(&wakeupCoverage, stageStart)
 	coverage = append(coverage, wakeupCoverage)
 	if err != nil {
@@ -180,66 +196,234 @@ func exportTraceDBSchedSwitch(ctx context.Context, tdb *traceDB, sink *traceDBRo
 	return coverage, nil
 }
 
-func exportTraceDBWakeups(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, rawCPUs map[traceDBInstantKey]int64, starts map[int64][]traceDBSchedStart) (TraceDBCoverage, error) {
+func exportTraceDBWakeups(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, index traceDBThreadIndex, rawWakeups []traceDBRawWakeup, starts map[int64][]traceDBSchedStart, running map[int64][]traceDBRunningInterval) (TraceDBCoverage, error) {
 	coverage, err := tdb.inspectCoverage(ctx, "scheduler", "instant", []string{"ts", "name", "ref", "wakeup_from", "ref_type"})
+	coverage.FieldSources = map[string]string{
+		"header_cpu":                "thread_state.Running.cpu",
+		"priority":                  "inferred_next_sched_slice",
+		"raw_identity.sched_waking": "raw.itid==instant.wakeup_from",
+		"raw_identity.sched_wakeup": "producer_shape(raw.itid==instant.ref|instant.wakeup_from)+unique_bipartite_matching",
+		"target_cpu":                "raw.cpu",
+	}
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
 		return coverage, err
 	}
 	rows, err := tdb.db.QueryContext(ctx, `
-		SELECT i.ts, i.name, i.ref,
-		       t1.tid, COALESCE(t1.name, 'unknown'),
-		       COALESCE(t2.tid, 0), COALESCE(t2.name, 'unknown'),
-		       COALESCE(p2.pid, t2.tid)
+		SELECT i.ts, i.name, i.ref, i.wakeup_from
 		FROM instant i
-		LEFT JOIN thread t1 ON t1.itid = i.ref
-		LEFT JOIN thread t2 ON t2.itid = i.wakeup_from
-		LEFT JOIN process p2 ON p2.ipid = t2.ipid
 		WHERE i.name IN ('sched_wakeup', 'sched_waking')
 		  AND i.ref_type = 'itid'
-		ORDER BY i.ts
+		ORDER BY i.ts, i.name, i.ref, i.wakeup_from
 	`)
 	if err != nil {
 		coverage.Error = err.Error()
 		return coverage, err
 	}
 	defer rows.Close()
+	coverage.RowsRead = 0
+	groups := map[traceDBWakeupKey][]traceDBWakeupInstant{}
+	skipped := map[string]int{}
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
 			return coverage, err
 		}
-		var ts int64
-		var name string
-		var ref sql.NullInt64
-		var wokenTID sql.NullInt64
-		var wokenComm string
-		var fromTID, fromTGID int64
-		var fromComm string
-		if err := rows.Scan(&ts, &name, &ref, &wokenTID, &wokenComm, &fromTID, &fromComm, &fromTGID); err != nil {
+		coverage.RowsRead++
+		var ts, ref, wakeupFrom sql.NullInt64
+		var name sql.NullString
+		if err := rows.Scan(&ts, &name, &ref, &wakeupFrom); err != nil {
 			coverage.Error = err.Error()
 			return coverage, err
 		}
-		eventCPU := rawCPUs[traceDBInstantKey{TS: ts, Name: name}]
-		targetCPU, targetPrio := traceDBNextSchedMeta(starts, nullInt64Value(ref), ts, 0, 120)
-		wokenPID := "0"
-		if wokenTID.Valid {
-			wokenPID = strconv.FormatInt(wokenTID.Int64, 10)
+		trimmedName := strings.TrimSpace(name.String)
+		if !ts.Valid || ts.Int64 < 0 || !name.Valid ||
+			(trimmedName != "sched_wakeup" && trimmedName != "sched_waking") ||
+			!ref.Valid || ref.Int64 < 0 || !wakeupFrom.Valid || wakeupFrom.Int64 < 0 {
+			skipped["invalid_instant_metadata"]++
+			continue
 		}
-		body := fmt.Sprintf("%s: comm=%s pid=%s prio=%d target_cpu=%03d",
-			name, traceDBCommName(wokenComm, "unknown"), wokenPID, targetPrio, targetCPU)
-		if err := sink.add(renderedRow{
-			tsNS: uint64(ts),
-			seq:  sink.stats.RowsAccepted,
-			line: traceDBFormatLine(traceDBCommName(fromComm, "unknown"), fromTID, firstNonZero(fromTGID, fromTID), eventCPU, ts, body),
-		}); err != nil {
-			return coverage, err
-		}
-		coverage.RowsEmitted++
+		instant := traceDBWakeupInstant{TS: ts.Int64, Name: trimmedName, Ref: ref.Int64, WakeupFrom: wakeupFrom.Int64}
+		key := traceDBWakeupKey{TS: instant.TS, Name: instant.Name}
+		groups[key] = append(groups[key], instant)
 	}
 	if err := rows.Err(); err != nil {
 		coverage.Error = err.Error()
 		return coverage, err
 	}
+	rawGroups := map[traceDBWakeupKey][]traceDBRawWakeup{}
+	for _, raw := range rawWakeups {
+		key := traceDBWakeupKey{TS: raw.TS, Name: raw.Name}
+		rawGroups[key] = append(rawGroups[key], raw)
+	}
+	keys := make([]traceDBWakeupKey, 0, len(groups))
+	for key := range groups {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].TS == keys[j].TS {
+			return keys[i].Name < keys[j].Name
+		}
+		return keys[i].TS < keys[j].TS
+	})
+	for _, key := range keys {
+		instants := groups[key]
+		raws := rawGroups[key]
+		matching, reason := traceDBUniqueWakeupMatching(instants, raws)
+		if reason != "" {
+			skipped[reason] += len(instants)
+			continue
+		}
+		for instantIndex, rawIndex := range matching {
+			instant := instants[instantIndex]
+			raw := raws[rawIndex]
+			woken, wokenOK := index.ByITID[instant.Ref]
+			if !wokenOK {
+				skipped["missing_wakee_thread"]++
+				continue
+			}
+			waker, wakerOK := index.ByITID[instant.WakeupFrom]
+			if !wakerOK {
+				skipped["missing_waker_thread"]++
+				continue
+			}
+			eventCPU, cpuKnown := traceDBKnownCPUAt(running, instant.WakeupFrom, instant.TS)
+			if !cpuKnown {
+				skipped["missing_or_ambiguous_emitter_running_cpu"]++
+				continue
+			}
+			targetPrio, priorityKnown := traceDBNextSchedPriority(starts, instant.Ref, instant.TS)
+			if !priorityKnown {
+				skipped["missing_inferred_next_sched_slice_priority"]++
+				continue
+			}
+			wakerProcess := index.Processes[waker.IPID]
+			body := fmt.Sprintf("%s: comm=%s pid=%d prio=%d target_cpu=%03d",
+				instant.Name, traceDBCommName(woken.Name, "unknown"), woken.TID, targetPrio, raw.TargetCPU)
+			if err := sink.add(renderedRow{
+				tsNS: uint64(instant.TS),
+				seq:  sink.stats.RowsAccepted,
+				line: traceDBFormatLine(traceDBCommName(waker.Name, "unknown"), waker.TID, firstNonZero(wakerProcess.PID, waker.TID), eventCPU, instant.TS, body),
+			}); err != nil {
+				return coverage, err
+			}
+			coverage.RowsEmitted++
+		}
+	}
+	coverage.Skipped = traceDBWakeupSkipSummary(skipped)
 	return coverage, nil
+}
+
+func traceDBUniqueWakeupMatching(instants []traceDBWakeupInstant, raws []traceDBRawWakeup) ([]int, string) {
+	if len(instants) == 0 {
+		return nil, ""
+	}
+	if len(instants) != len(raws) {
+		return nil, "raw_instant_count_mismatch"
+	}
+	adjacency := make([][]int, len(instants))
+	for instantIndex, instant := range instants {
+		for rawIndex, raw := range raws {
+			if traceDBRawWakeupMatchesInstant(raw, instant) {
+				adjacency[instantIndex] = append(adjacency[instantIndex], rawIndex)
+			}
+		}
+		if len(adjacency[instantIndex]) == 0 {
+			return nil, "raw_identity_mismatch"
+		}
+	}
+	matchedRaw := make([]int, len(raws))
+	for i := range matchedRaw {
+		matchedRaw[i] = -1
+	}
+	var augment func(int, []bool) bool
+	augment = func(instantIndex int, seen []bool) bool {
+		for _, rawIndex := range adjacency[instantIndex] {
+			if seen[rawIndex] {
+				continue
+			}
+			seen[rawIndex] = true
+			if matchedRaw[rawIndex] == -1 || augment(matchedRaw[rawIndex], seen) {
+				matchedRaw[rawIndex] = instantIndex
+				return true
+			}
+		}
+		return false
+	}
+	for instantIndex := range instants {
+		if !augment(instantIndex, make([]bool, len(raws))) {
+			return nil, "raw_identity_mismatch"
+		}
+	}
+	matchedInstant := make([]int, len(instants))
+	for rawIndex, instantIndex := range matchedRaw {
+		matchedInstant[instantIndex] = rawIndex
+	}
+	// A perfect bipartite matching is unique iff its alternating graph has no
+	// cycle. Each non-matching instant->raw edge points to the instant that owns
+	// that raw row in the selected matching.
+	alternating := make([][]int, len(instants))
+	for instantIndex, candidates := range adjacency {
+		for _, rawIndex := range candidates {
+			if rawIndex != matchedInstant[instantIndex] {
+				alternating[instantIndex] = append(alternating[instantIndex], matchedRaw[rawIndex])
+			}
+		}
+	}
+	colors := make([]uint8, len(instants))
+	var hasCycle func(int) bool
+	hasCycle = func(node int) bool {
+		colors[node] = 1
+		for _, next := range alternating[node] {
+			if colors[next] == 1 || colors[next] == 0 && hasCycle(next) {
+				return true
+			}
+		}
+		colors[node] = 2
+		return false
+	}
+	for node := range instants {
+		if colors[node] == 0 && hasCycle(node) {
+			return nil, "ambiguous_raw_identity_mapping"
+		}
+	}
+	return matchedInstant, ""
+}
+
+func traceDBRawWakeupMatchesInstant(raw traceDBRawWakeup, instant traceDBWakeupInstant) bool {
+	if raw.TS != instant.TS || raw.Name != instant.Name {
+		return false
+	}
+	if instant.Name == "sched_waking" {
+		// Both upstream PB and bytrace importers store the waker itid here.
+		return raw.ITID == instant.WakeupFrom
+	}
+	// The upstream PB importer stores wakee(ref), while the bytrace importer
+	// stores waker(wakeup_from). Accept both documented producer shapes, then
+	// require a unique one-to-one group matching before minting any row.
+	return raw.ITID == instant.Ref || raw.ITID == instant.WakeupFrom
+}
+
+func traceDBWakeupSkipSummary(skipped map[string]int) string {
+	if len(skipped) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(skipped))
+	total := 0
+	for key, count := range skipped {
+		if count <= 0 {
+			continue
+		}
+		keys = append(keys, key)
+		total += count
+	}
+	if total == 0 {
+		return ""
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%d", key, skipped[key]))
+	}
+	return fmt.Sprintf("%d wakeup row(s) skipped: %s", total, strings.Join(parts, ","))
 }
 
 func exportTraceDBIRQ(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, argsets map[int64]map[string]traceDBValue) (TraceDBCoverage, error) {

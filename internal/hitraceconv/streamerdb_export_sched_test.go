@@ -41,6 +41,7 @@ func TestExportTraceDBSchedulerFamiliesRoundTripsThroughTraceQuery(t *testing.T)
 		"INSERT INTO irq VALUES (1500000, 10000, 4, 'irq', 'uart', 10)",
 		"INSERT INTO irq VALUES (1600000, 20000, 6, 'softirq', 'RCU', 20)",
 		"CREATE TABLE thread_state (itid INT, ts INT, dur INT, cpu INT, state TEXT)",
+		"INSERT INTO thread_state VALUES (3, 800000, 200000, 4, 'Running')",
 		"CREATE TABLE callstack (callid INT)",
 		"CREATE TABLE syscall (itid INT)",
 		"CREATE TABLE native_hook (itid INT)",
@@ -88,8 +89,8 @@ func TestExportTraceDBSchedulerFamiliesRoundTripsThroughTraceQuery(t *testing.T)
 	body := string(bodyBytes)
 	for _, want := range []string{
 		"task_rename: pid=201 oldcomm=WorkerThread newcomm=WorkerThread",
-		"sched_wakeup: comm=WorkerThread pid=201 prio=42 target_cpu=001",
-		"[007] ....",
+		"sched_wakeup: comm=WorkerThread pid=201 prio=42 target_cpu=007",
+		"[004] ....",
 		"0.000900: sched_wakeup",
 		"sched_switch: prev_comm=WorkerThread prev_pid=201 prev_prio=42 prev_state=S ==> next_comm=Waker next_pid=301 next_prio=20",
 		"irq_handler_entry: irq=32 name=uart",
@@ -114,8 +115,17 @@ func TestExportTraceDBSchedulerFamiliesRoundTripsThroughTraceQuery(t *testing.T)
 			wakeups = append(wakeups, ev)
 		}
 	}
-	if len(wakeups) != 1 || wakeups[0].WakeePID != 201 || wakeups[0].TargetCPU != 1 {
+	if len(wakeups) != 1 || wakeups[0].WakeePID != 201 || wakeups[0].CPU != 4 || wakeups[0].TargetCPU != 7 {
 		t.Fatalf("wakeup metadata lost after round trip: %+v", wakeups)
+	}
+	for _, item := range coverage {
+		if item.Family == "scheduler" && item.Table == "instant" {
+			if item.FieldSources["header_cpu"] != "thread_state.Running.cpu" ||
+				item.FieldSources["target_cpu"] != "raw.cpu" ||
+				item.FieldSources["priority"] != "inferred_next_sched_slice" {
+				t.Fatalf("wakeup field provenance missing: %+v", item)
+			}
+		}
 	}
 }
 

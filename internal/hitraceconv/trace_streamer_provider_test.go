@@ -888,6 +888,8 @@ func traceStreamerIntegrationDBStatements() []string {
 		"INSERT INTO instant VALUES (900000, 'sched_wakeup', 2, 3, 'itid', NULL)",
 		"CREATE TABLE raw (ts INT, name TEXT, cpu INT, itid INT)",
 		"INSERT INTO raw VALUES (900000, 'sched_wakeup', 7, 2)",
+		"CREATE TABLE thread_state (itid INT, ts INT, dur INT, cpu INT, state TEXT)",
+		"INSERT INTO thread_state VALUES (3, 800000, 200000, 4, 'Running')",
 		"CREATE TABLE data_dict (id INT, data TEXT)",
 		"INSERT INTO data_dict VALUES (1, 'irq')",
 		"INSERT INTO data_dict VALUES (2, 'irq_ret')",
@@ -938,7 +940,9 @@ func traceStreamerSysWakeupParityDBStatements() []string {
 		"CREATE TABLE instant (ts INT, name TEXT, ref INT, wakeup_from INT, ref_type TEXT, value REAL)",
 		"INSERT INTO instant VALUES (2942124416000, 'sched_wakeup', 1, 1, 'itid', NULL)",
 		"CREATE TABLE raw (ts INT, name TEXT, cpu INT, itid INT)",
-		"INSERT INTO raw VALUES (2942124416000, 'sched_wakeup', 4, 1)",
+		"INSERT INTO raw VALUES (2942124416000, 'sched_wakeup', 0, 1)",
+		"CREATE TABLE thread_state (itid INT, ts INT, dur INT, cpu INT, state TEXT)",
+		"INSERT INTO thread_state VALUES (1, 2942124415000, 2000, 4, 'Running')",
 	}
 }
 
@@ -960,10 +964,11 @@ func traceStreamerRootCauseMatrixDBStatements() []string {
 		"INSERT INTO instant VALUES (" + ts(0) + ", 'sched_wakeup', 1, 2, 'itid', NULL)",
 		"INSERT INTO instant VALUES (" + ts(0) + ", 'sched_waking', 1, 2, 'itid', NULL)",
 		"CREATE TABLE raw (ts INT, name TEXT, cpu INT, itid INT)",
-		"INSERT INTO raw VALUES (" + ts(0) + ", 'sched_wakeup', 2, 1)",
-		"INSERT INTO raw VALUES (" + ts(0) + ", 'sched_waking', 2, 1)",
+		"INSERT INTO raw VALUES (" + ts(0) + ", 'sched_wakeup', 3, 1)",
+		"INSERT INTO raw VALUES (" + ts(0) + ", 'sched_waking', 3, 2)",
 		"CREATE TABLE thread_state (itid INT, ts INT, dur INT, cpu INT, state TEXT)",
 		"INSERT INTO thread_state VALUES (1, " + ts(0) + ", 6000000, 3, 'Running')",
+		"INSERT INTO thread_state VALUES (2, " + ts(0) + ", 6000000, 1, 'Running')",
 		"CREATE TABLE data_dict (id INT, data TEXT)",
 		"INSERT INTO data_dict VALUES (1, 'irq')",
 		"INSERT INTO data_dict VALUES (2, 'irq_ret')",

@@ -13,6 +13,10 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// Mirrors tracequery.maxTraceCPUIndex. Keep the converter boundary identical
+// so malformed SQL CPUs are rejected before they can be minted into systrace.
+const maxTraceDBCPUIndex int64 = 4095
+
 type traceDB struct {
 	db   *sql.DB
 	path string
@@ -47,9 +51,12 @@ type traceDBThreadIndex struct {
 	TraceStart int64
 }
 
-type traceDBInstantKey struct {
-	TS   int64
-	Name string
+type traceDBRawWakeup struct {
+	RowID     int64
+	TS        int64
+	Name      string
+	TargetCPU int64
+	ITID      int64
 }
 
 type traceDBSchedStart struct {
@@ -59,9 +66,10 @@ type traceDBSchedStart struct {
 }
 
 type traceDBRunningInterval struct {
-	Start int64
-	End   int64
-	CPU   int64
+	Start        int64
+	End          int64
+	CPU          int64
+	PrefixMaxEnd int64
 }
 
 func openTraceDB(ctx context.Context, path string) (*traceDB, error) {
@@ -394,29 +402,70 @@ func (tdb *traceDB) loadArgsets(ctx context.Context) (map[int64]map[string]trace
 	return out, coverage, rows.Err()
 }
 
-func (tdb *traceDB) loadRawEventCPUs(ctx context.Context) (map[traceDBInstantKey]int64, TraceDBCoverage, error) {
-	coverage, err := tdb.inspectCoverage(ctx, "resolver", "raw", []string{"ts", "name", "cpu"})
-	out := map[traceDBInstantKey]int64{}
+func (tdb *traceDB) loadRawWakeups(ctx context.Context) ([]traceDBRawWakeup, TraceDBCoverage, error) {
+	coverage, err := tdb.inspectCoverage(ctx, "resolver", "raw", []string{"ts", "name", "cpu", "itid"})
+	var out []traceDBRawWakeup
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
 		return out, coverage, err
 	}
-	rows, err := tdb.db.QueryContext(ctx, "SELECT ts, name, cpu FROM raw WHERE ts IS NOT NULL AND name IS NOT NULL AND cpu IS NOT NULL")
+	hasID, err := tdb.columnExists(ctx, "raw", "id")
 	if err != nil {
+		coverage.Error = err.Error()
+		return out, coverage, err
+	}
+	rowIdentity := "rowid"
+	if hasID {
+		rowIdentity = quoteSQLiteIdent("id")
+	}
+	rows, err := tdb.db.QueryContext(ctx, `
+		SELECT `+rowIdentity+`, ts, name, cpu, itid
+		FROM raw
+		WHERE name IN ('sched_wakeup', 'sched_waking')
+		ORDER BY ts, name, `+rowIdentity)
+	if err != nil {
+		coverage.Error = err.Error()
 		return out, coverage, err
 	}
 	defer rows.Close()
+	coverage.RowsRead = 0
+	invalid := 0
+	seenRowIDs := map[int64]bool{}
 	for rows.Next() {
-		var ts, cpu int64
-		var name string
-		if err := rows.Scan(&ts, &name, &cpu); err != nil {
+		if err := ctx.Err(); err != nil {
 			return out, coverage, err
 		}
-		key := traceDBInstantKey{TS: ts, Name: name}
-		if _, ok := out[key]; !ok {
-			out[key] = cpu
+		coverage.RowsRead++
+		var rowID, ts, cpu, itid sql.NullInt64
+		var name sql.NullString
+		if err := rows.Scan(&rowID, &ts, &name, &cpu, &itid); err != nil {
+			coverage.Error = err.Error()
+			return out, coverage, err
 		}
+		trimmedName := strings.TrimSpace(name.String)
+		if !rowID.Valid || seenRowIDs[rowID.Int64] || !ts.Valid || ts.Int64 < 0 ||
+			!name.Valid || (trimmedName != "sched_wakeup" && trimmedName != "sched_waking") ||
+			!cpu.Valid || !validTraceDBCPUIndex(cpu.Int64) || !itid.Valid || itid.Int64 < 0 {
+			invalid++
+			continue
+		}
+		seenRowIDs[rowID.Int64] = true
+		out = append(out, traceDBRawWakeup{
+			RowID:     rowID.Int64,
+			TS:        ts.Int64,
+			Name:      trimmedName,
+			TargetCPU: cpu.Int64,
+			ITID:      itid.Int64,
+		})
+		coverage.RowsEmitted++
 	}
-	return out, coverage, rows.Err()
+	if err := rows.Err(); err != nil {
+		coverage.Error = err.Error()
+		return out, coverage, err
+	}
+	if invalid > 0 {
+		coverage.Skipped = fmt.Sprintf("%d raw wakeup row(s) skipped: invalid or duplicate typed metadata", invalid)
+	}
+	return out, coverage, nil
 }
 
 func (tdb *traceDB) loadSchedStarts(ctx context.Context) (map[int64][]traceDBSchedStart, TraceDBCoverage, error) {
@@ -455,6 +504,15 @@ func traceDBNextSchedMeta(starts map[int64][]traceDBSchedStart, itid int64, ts, 
 	return entries[idx].CPU, entries[idx].Priority
 }
 
+func traceDBNextSchedPriority(starts map[int64][]traceDBSchedStart, itid, ts int64) (int64, bool) {
+	entries := starts[itid]
+	idx := sort.Search(len(entries), func(i int) bool { return entries[i].TS >= ts })
+	if idx >= len(entries) || entries[idx].Priority < 0 {
+		return 0, false
+	}
+	return entries[idx].Priority, true
+}
+
 func (tdb *traceDB) loadRunningIntervals(ctx context.Context) (map[int64][]traceDBRunningInterval, TraceDBCoverage, error) {
 	coverage, err := tdb.inspectCoverage(ctx, "resolver", "thread_state", []string{"itid", "ts", "dur", "cpu", "state"})
 	out := map[int64][]traceDBRunningInterval{}
@@ -471,6 +529,7 @@ func (tdb *traceDB) loadRunningIntervals(ctx context.Context) (map[int64][]trace
 		return out, coverage, err
 	}
 	defer rows.Close()
+	invalidRunning := 0
 	for rows.Next() {
 		var itid int64
 		var dur int64
@@ -482,11 +541,27 @@ func (tdb *traceDB) loadRunningIntervals(ctx context.Context) (map[int64][]trace
 		if !traceDBThreadStateIsRunning(state) || dur <= 0 {
 			continue
 		}
+		if item.Start < 0 || !validTraceDBCPUIndex(item.CPU) || item.Start > int64(^uint64(0)>>1)-dur {
+			invalidRunning++
+			continue
+		}
 		item.End = item.Start + dur
+		item.PrefixMaxEnd = item.End
+		entries := out[itid]
+		if len(entries) > 0 && entries[len(entries)-1].PrefixMaxEnd > item.PrefixMaxEnd {
+			item.PrefixMaxEnd = entries[len(entries)-1].PrefixMaxEnd
+		}
 		out[itid] = append(out[itid], item)
 		coverage.RowsEmitted++
 	}
-	return out, coverage, rows.Err()
+	if err := rows.Err(); err != nil {
+		coverage.Error = err.Error()
+		return out, coverage, err
+	}
+	if invalidRunning > 0 {
+		coverage.Skipped = fmt.Sprintf("%d Running thread_state row(s) skipped: invalid CPU or time interval", invalidRunning)
+	}
+	return out, coverage, nil
 }
 
 func traceDBThreadStateIsRunning(state string) bool {
@@ -494,16 +569,44 @@ func traceDBThreadStateIsRunning(state string) bool {
 }
 
 func traceDBCPUAt(intervals map[int64][]traceDBRunningInterval, itid, ts, defaultCPU int64) int64 {
+	if cpu, ok := traceDBKnownCPUAt(intervals, itid, ts); ok {
+		return cpu
+	}
+	return defaultCPU
+}
+
+// traceDBKnownCPUAt returns a CPU only when every Running interval covering ts
+// agrees on the same non-negative CPU. The prefix maximum keeps the common
+// non-overlapping case O(log n) while still detecting malformed overlaps.
+func traceDBKnownCPUAt(intervals map[int64][]traceDBRunningInterval, itid, ts int64) (int64, bool) {
 	entries := intervals[itid]
 	idx := sort.Search(len(entries), func(i int) bool { return entries[i].Start > ts })
 	if idx == 0 {
-		return defaultCPU
+		return 0, false
 	}
-	entry := entries[idx-1]
-	if entry.Start <= ts && ts < entry.End {
-		return entry.CPU
+	var cpu int64
+	found := false
+	for i := idx - 1; i >= 0; i-- {
+		entry := entries[i]
+		if entry.Start <= ts && ts < entry.End {
+			if !validTraceDBCPUIndex(entry.CPU) {
+				return 0, false
+			}
+			if found && cpu != entry.CPU {
+				return 0, false
+			}
+			cpu = entry.CPU
+			found = true
+		}
+		if i == 0 || entries[i-1].PrefixMaxEnd <= ts {
+			break
+		}
 	}
-	return defaultCPU
+	return cpu, found
+}
+
+func validTraceDBCPUIndex(cpu int64) bool {
+	return cpu >= 0 && cpu <= maxTraceDBCPUIndex
 }
 
 func (tdb *traceDB) loadActiveThreadIDs(ctx context.Context) (map[int64]bool, []TraceDBCoverage, error) {
