@@ -175,6 +175,39 @@ func TestConvertFileNoPerfTraceAutoMissingTraceStreamerFallsBackToBuiltin(t *tes
 	}
 }
 
+func TestConvertFileLinuxRingBufferFileTypeAutoUsesTraceStreamerBeforeBuiltin(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake trace_streamer shell fixture uses /bin/sh")
+	}
+	dir := t.TempDir()
+	input := filepath.Join(dir, "linux-ring-buffer.sys")
+	body := syntheticBinaryHitrace(t)
+	body[2] = 0
+	if err := os.WriteFile(input, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fixtureDB := createTraceDBFixture(t, traceStreamerIntegrationDBStatements())
+	traceStreamer := writeFakeTraceStreamer(t, dir, 0)
+	t.Setenv("TRACE_STREAMER_FIXTURE_DB", fixtureDB)
+
+	output := filepath.Join(dir, "out.systrace")
+	result, err := ConvertFile(context.Background(), Options{
+		InputPath:         input,
+		OutputPath:        output,
+		TraceStreamerPath: traceStreamer,
+	})
+	if err != nil {
+		t.Fatalf("auto file_type=0 conversion must use trace_streamer before probing the built-in RMQ decoder: %v", err)
+	}
+	if result.OutputPath != output || result.EventsWritten == 0 {
+		t.Fatalf("trace_streamer did not produce the file_type=0 output: %+v", result)
+	}
+	if !hasTraceDecision(result.TraceDecisions, traceProviderNameTraceStreamer, true) ||
+		hasTraceDecision(result.TraceDecisions, traceProviderNameBuiltinSys, true) {
+		t.Fatalf("file_type=0 auto provider order regressed: %+v", result.TraceDecisions)
+	}
+}
+
 func TestConvertFileNoPerfSysTraceAutoTraceStreamerFailureFallsBackToBuiltin(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake trace_streamer shell fixture uses /bin/sh")

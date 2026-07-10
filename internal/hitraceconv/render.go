@@ -371,7 +371,12 @@ func genericFields(ev decodedEvent, content []byte) string {
 }
 
 func formatTimestamp(ns uint64) string {
-	us := (ns + 500) / 1000
+	// Round without adding to ns directly: a valid near-MaxUint64 timestamp
+	// must not wrap merely because the text renderer rounds nanoseconds.
+	us := ns / 1000
+	if ns%1000 >= 500 {
+		us++
+	}
 	return fmt.Sprintf("%5d.%06d", us/1_000_000, us%1_000_000)
 }
 

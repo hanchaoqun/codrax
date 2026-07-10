@@ -329,6 +329,13 @@ func scanMetadata(ctx context.Context, path string, size int64) (*traceMetadata,
 	if err != nil {
 		return nil, err
 	}
+	if header.FileType != harmonyRMQFileType {
+		return nil, &BuiltinSysDecodeError{
+			Code:     builtinSysDecodeUnsupportedFileType,
+			FileType: header.FileType,
+			Detail:   "the built-in decoder supports Harmony RMQ file_type=1 only; OpenHarmony/Linux file_type=0 requires trace_streamer",
+		}
+	}
 	meta := &traceMetadata{
 		header:   header,
 		formats:  map[int]eventFormat{},
@@ -414,6 +421,18 @@ func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]render
 		if !isRawTraceSegment(seg.Type, meta.header.CPUNum) {
 			continue
 		}
+		// The Harmony raw-trace contract stores fixed 4096-byte
+		// RmqConsumerData pages. Treat a remainder as truncation instead of
+		// silently dropping bytes at the end of the segment.
+		if seg.Size%tracePageSize != 0 {
+			return nil, 0, 0, 0, 0, &BuiltinSysDecodeError{
+				Code:        builtinSysDecodePartialPageSegment,
+				FileType:    meta.header.FileType,
+				SegmentType: seg.Type,
+				Offset:      seg.Offset,
+				Detail:      fmt.Sprintf("raw segment size %d is not a multiple of the %d-byte RMQ page size", seg.Size, tracePageSize),
+			}
+		}
 		if _, err := f.Seek(seg.Offset, io.SeekStart); err != nil {
 			return nil, 0, 0, 0, 0, err
 		}
@@ -427,24 +446,68 @@ func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]render
 			if !ok {
 				continue
 			}
-			body := page[pageHeaderSize:]
-			for off := 0; off+eventHeaderSize <= len(body); {
+			maxBodyLen := len(page) - pageHeaderSize
+			if ph.Length > uint64(maxBodyLen) {
+				return nil, 0, 0, 0, 0, &BuiltinSysDecodeError{
+					Code:        builtinSysDecodePageLength,
+					FileType:    meta.header.FileType,
+					SegmentType: seg.Type,
+					Offset:      seg.Offset + int64(pageOff+8),
+					Detail:      fmt.Sprintf("RMQ page declares %d data byte(s), maximum is %d", ph.Length, maxBodyLen),
+				}
+			}
+			body := page[pageHeaderSize : pageHeaderSize+int(ph.Length)]
+			for off := 0; off < len(body); {
+				if len(body)-off < eventHeaderSize {
+					return nil, 0, 0, 0, 0, &BuiltinSysDecodeError{
+						Code:        builtinSysDecodeTruncatedEventHeader,
+						FileType:    meta.header.FileType,
+						SegmentType: seg.Type,
+						Offset:      seg.Offset + int64(pageOff+pageHeaderSize+off),
+						Detail:      fmt.Sprintf("RMQ page ended with %d byte(s), fewer than the %d-byte event header", len(body)-off, eventHeaderSize),
+					}
+				}
 				eh, ok := parseEventHeader(body[off:])
 				if !ok {
+					// Harmony's reference parser treats a zero-sized record as an
+					// explicit end-of-page sentinel. Stop at it; never inspect the
+					// physical bytes that follow the logical terminator.
 					break
 				}
 				contentStart := off + eventHeaderSize
 				contentEnd := contentStart + int(eh.Size)
 				next := contentStart + eh.AlignedSize
 				if contentEnd > len(body) || next > len(body) {
-					break
+					return nil, 0, 0, 0, 0, &BuiltinSysDecodeError{
+						Code:        builtinSysDecodeEventBounds,
+						FileType:    meta.header.FileType,
+						SegmentType: seg.Type,
+						Offset:      seg.Offset + int64(pageOff+pageHeaderSize+off),
+						Detail:      fmt.Sprintf("RMQ event size=%d aligned_size=%d exceeds the %d-byte logical page body", eh.Size, eh.AlignedSize, len(body)),
+					}
 				}
 				content := body[contentStart:contentEnd]
 				if len(content) < 2 {
-					break
+					return nil, 0, 0, 0, 0, &BuiltinSysDecodeError{
+						Code:        builtinSysDecodeEventBounds,
+						FileType:    meta.header.FileType,
+						SegmentType: seg.Type,
+						Offset:      seg.Offset + int64(pageOff+pageHeaderSize+contentStart),
+						Detail:      "RMQ event content is too short to contain an event id",
+					}
 				}
 				eventID := int(binary.LittleEndian.Uint16(content[:2]))
-				ts := ph.TimestampNS + uint64(eh.TimestampOffsetNS)
+				offsetNS := uint64(eh.TimestampOffsetNS)
+				if ph.TimestampNS > ^uint64(0)-offsetNS {
+					return nil, 0, 0, 0, 0, &BuiltinSysDecodeError{
+						Code:        builtinSysDecodeTimestampOverflow,
+						FileType:    meta.header.FileType,
+						SegmentType: seg.Type,
+						Offset:      seg.Offset + int64(pageOff+pageHeaderSize+off),
+						Detail:      fmt.Sprintf("RMQ timestamp base=%d plus offset=%d overflows uint64 nanoseconds", ph.TimestampNS, offsetNS),
+					}
+				}
+				ts := ph.TimestampNS + offsetNS
 				format, ok := meta.formats[eventID]
 				if !ok {
 					missing++

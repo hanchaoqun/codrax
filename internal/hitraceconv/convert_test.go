@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -62,6 +63,149 @@ func TestConvertFileWritesTextSystraceAndRefusesOverwrite(t *testing.T) {
 	if _, err := ConvertFile(context.Background(), Options{InputPath: input, TraceEngine: traceEngineBuiltin}); err == nil ||
 		!strings.Contains(err.Error(), "output file already exists") {
 		t.Fatalf("expected existing output refusal, got %v", err)
+	}
+}
+
+func TestBuiltinSysRejectsLinuxRingBufferFileType(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "linux-raw.sys")
+	body := syntheticBinaryHitrace(t)
+	body[2] = 0 // OpenHarmony/Linux ring-buffer layout, not Harmony RMQ.
+	if err := os.WriteFile(input, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(dir, "out.systrace")
+	_, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: output, TraceEngine: traceEngineBuiltin})
+	var decodeErr *BuiltinSysDecodeError
+	if !errors.As(err, &decodeErr) || decodeErr.Code != builtinSysDecodeUnsupportedFileType || decodeErr.FileType != 0 {
+		t.Fatalf("file_type=0 must fail closed with typed decoder error, got %T %v", err, err)
+	}
+	if !strings.Contains(err.Error(), "requires trace_streamer") {
+		t.Fatalf("rejection must name the supported provider path: %v", err)
+	}
+	if _, statErr := os.Stat(output); !os.IsNotExist(statErr) {
+		t.Fatalf("rejected input must not create systrace output, stat err=%v", statErr)
+	}
+}
+
+func TestBuiltinSysHonorsHarmonyRMQLogicalPageLength(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "logical-length.sys")
+	first := syntheticWakeupContent(10)
+	second := syntheticWakeupContent(10)
+	page := syntheticRawPageEvents([]syntheticRawEvent{
+		{EventID: 10, OffsetNS: 0, Content: first},
+		{EventID: 10, OffsetNS: 1_000, Content: second},
+	})
+	firstRecordBytes := eventHeaderSize + int((uint32(len(first))+3)&^3)
+	// Keep the second record physically present but outside the producer's
+	// declared logical body. A decoder that scans all 4096 bytes fabricates it.
+	binary.LittleEndian.PutUint64(page[8:16], uint64(firstRecordBytes))
+	var b bytes.Buffer
+	writeFileHeader(&b, 1)
+	writeSegment(&b, segmentEventsFormat, []byte(syntheticEventFormat()))
+	writeSegment(&b, segmentCmdlines, []byte("36379 com.tencent.mm\n"))
+	writeSegment(&b, segmentTGIDs, []byte("36379 36379\n"))
+	writeSegment(&b, segmentRawTrace, page)
+	if err := os.WriteFile(input, b.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: filepath.Join(dir, "out.systrace"), TraceEngine: traceEngineBuiltin})
+	if err != nil {
+		t.Fatalf("convert logical-length fixture: %v", err)
+	}
+	if result.EventsWritten != 1 {
+		t.Fatalf("physical tail outside logical page length must not mint an event: %+v", result)
+	}
+}
+
+func TestBuiltinSysHarmonyRMQMalformedBoundariesFailClosed(t *testing.T) {
+	tests := []struct {
+		name string
+		edit func([]byte)
+		code string
+	}{
+		{
+			name: "page length exceeds physical body",
+			edit: func(page []byte) {
+				binary.LittleEndian.PutUint64(page[8:16], uint64(tracePageSize-pageHeaderSize+1))
+			},
+			code: builtinSysDecodePageLength,
+		},
+		{
+			name: "event crosses logical end",
+			edit: func(page []byte) {
+				binary.LittleEndian.PutUint64(page[8:16], uint64(eventHeaderSize+1))
+			},
+			code: builtinSysDecodeEventBounds,
+		},
+		{
+			name: "logical body truncates event header",
+			edit: func(page []byte) {
+				binary.LittleEndian.PutUint64(page[8:16], uint64(eventHeaderSize-1))
+			},
+			code: builtinSysDecodeTruncatedEventHeader,
+		},
+		{
+			name: "timestamp addition overflows",
+			edit: func(page []byte) {
+				binary.LittleEndian.PutUint64(page[0:8], ^uint64(0)-5)
+				binary.LittleEndian.PutUint32(page[pageHeaderSize:pageHeaderSize+4], 10)
+			},
+			code: builtinSysDecodeTimestampOverflow,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			input := filepath.Join(dir, "malformed.sys")
+			page := syntheticRawPageForEventID(10)
+			tt.edit(page)
+			var b bytes.Buffer
+			writeFileHeader(&b, 1)
+			writeSegment(&b, segmentEventsFormat, []byte(syntheticEventFormat()))
+			writeSegment(&b, segmentRawTrace, page)
+			if err := os.WriteFile(input, b.Bytes(), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			output := filepath.Join(dir, "out.systrace")
+			_, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: output, TraceEngine: traceEngineBuiltin})
+			var decodeErr *BuiltinSysDecodeError
+			if !errors.As(err, &decodeErr) || decodeErr.Code != tt.code {
+				t.Fatalf("malformed RMQ input must fail with code=%s, got %T %v", tt.code, err, err)
+			}
+			if _, statErr := os.Stat(output); !os.IsNotExist(statErr) {
+				t.Fatalf("rejected input must not create output, stat err=%v", statErr)
+			}
+		})
+	}
+}
+
+func TestBuiltinSysHarmonyRMQRejectsPartialPhysicalPage(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "partial-page.sys")
+	page := syntheticRawPageForEventID(10)
+	var b bytes.Buffer
+	writeFileHeader(&b, 1)
+	writeSegment(&b, segmentEventsFormat, []byte(syntheticEventFormat()))
+	writeSegment(&b, segmentRawTrace, page[:len(page)-1])
+	if err := os.WriteFile(input, b.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(dir, "out.systrace")
+	_, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: output, TraceEngine: traceEngineBuiltin})
+	var decodeErr *BuiltinSysDecodeError
+	if !errors.As(err, &decodeErr) || decodeErr.Code != builtinSysDecodePartialPageSegment {
+		t.Fatalf("partial RMQ physical page must fail closed, got %T %v", err, err)
+	}
+	if _, statErr := os.Stat(output); !os.IsNotExist(statErr) {
+		t.Fatalf("rejected input must not create output, stat err=%v", statErr)
+	}
+}
+
+func TestFormatTimestampNearUint64LimitDoesNotWrap(t *testing.T) {
+	if got, want := formatTimestamp(^uint64(0)), "18446744073.709552"; got != want {
+		t.Fatalf("near-limit timestamp: got %q, want %q", got, want)
 	}
 }
 
@@ -1659,7 +1803,6 @@ type syntheticRawEvent struct {
 func syntheticRawPageEvents(events []syntheticRawEvent) []byte {
 	page := make([]byte, tracePageSize)
 	binary.LittleEndian.PutUint64(page[0:8], 2942124416000) // ns, renders 2942.124416
-	binary.LittleEndian.PutUint64(page[8:16], tracePageSize)
 	page[16] = 1
 	off := pageHeaderSize
 	for _, ev := range events {
@@ -1677,6 +1820,9 @@ func syntheticRawPageEvents(events []syntheticRawEvent) []byte {
 		copy(page[off+eventHeaderSize:], content)
 		off += eventHeaderSize + aligned
 	}
+	// RmqConsumerData.length is the logical byte count of data[], not the
+	// physical 4096-byte page size.
+	binary.LittleEndian.PutUint64(page[8:16], uint64(off-pageHeaderSize))
 	return page
 }
 
@@ -1770,11 +1916,12 @@ func syntheticRawPage() []byte {
 }
 
 func syntheticRawPageForEventID(eventID uint16) []byte {
-	page := make([]byte, tracePageSize)
-	binary.LittleEndian.PutUint64(page[0:8], 2942124416000) // ns, renders 2942.124416
-	binary.LittleEndian.PutUint64(page[8:16], tracePageSize)
-	page[16] = 4
+	page := syntheticRawPageEvents([]syntheticRawEvent{{EventID: eventID, Content: syntheticWakeupContent(eventID)}})
+	page[16] = 4 // Preserve the historical single-event fixture CPU.
+	return page
+}
 
+func syntheticWakeupContent(eventID uint16) []byte {
 	content := make([]byte, 36)
 	binary.LittleEndian.PutUint16(content[0:2], eventID)
 	content[2] = 0
@@ -1784,12 +1931,7 @@ func syntheticRawPageForEventID(eventID uint16) []byte {
 	binary.LittleEndian.PutUint32(content[24:28], uint32(36379))
 	binary.LittleEndian.PutUint32(content[28:32], uint32(53))
 	binary.LittleEndian.PutUint32(content[32:36], uint32(0))
-
-	off := pageHeaderSize
-	binary.LittleEndian.PutUint32(page[off:off+4], 0)
-	binary.LittleEndian.PutUint16(page[off+4:off+6], uint16(len(content)))
-	copy(page[off+eventHeaderSize:], content)
-	return page
+	return content
 }
 
 func writeFileHeader(b *bytes.Buffer, cpuNum int) {

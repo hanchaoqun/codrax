@@ -20,7 +20,41 @@ const (
 	pageHeaderSize  = 17 // Python struct "@QQB".
 	eventHeaderSize = 6  // Python struct "@IH".
 	tracePageSize   = 4096
+
+	// The built-in sys decoder implements the Harmony microkernel RMQ page
+	// layout (RmqConsumerData/RmqEntry). OpenHarmony/Linux raw captures use a
+	// different ring-buffer page and event-header layout and must be handled by
+	// trace_streamer until a dedicated built-in decoder exists.
+	harmonyRMQFileType = 1
 )
+
+const (
+	builtinSysDecodeUnsupportedFileType  = "unsupported_file_type"
+	builtinSysDecodePartialPageSegment   = "partial_page_segment"
+	builtinSysDecodePageLength           = "page_length_out_of_range"
+	builtinSysDecodeTruncatedEventHeader = "truncated_event_header"
+	builtinSysDecodeEventBounds          = "event_out_of_bounds"
+	builtinSysDecodeTimestampOverflow    = "timestamp_overflow"
+)
+
+// BuiltinSysDecodeError is a fail-closed, machine-readable rejection from the
+// built-in Harmony RMQ decoder. Code is stable for tests and callers; Detail is
+// diagnostic text and must not be parsed for control flow.
+type BuiltinSysDecodeError struct {
+	Code        string
+	FileType    uint8
+	SegmentType uint32
+	Offset      int64
+	Detail      string
+}
+
+func (e *BuiltinSysDecodeError) Error() string {
+	if e == nil {
+		return "built-in sys decoder rejected input"
+	}
+	return fmt.Sprintf("built-in sys decoder rejected input: code=%s file_type=%d segment_type=%d offset=%d: %s",
+		e.Code, e.FileType, e.SegmentType, e.Offset, e.Detail)
+}
 
 type fileHeader struct {
 	Magic    uint16
