@@ -542,9 +542,13 @@ func TestSemLeadPartialOverlapSingleSeatDualCaliber(t *testing.T) {
 	md := audit730Render(t, audit730Bus(""), obs, "")
 
 	// Single seat: exactly one ✦ texture family row, no rank-lane twin row.
+	// Match the semantic edge, icon and localized family label independently:
+	// a ranked semantic seat legitimately inserts the ❶ chip between the edge
+	// and ✦ (`├─语义─ ❶✦`), so adjacency is not part of the invariant.
 	fenceRows := 0
 	for _, line := range strings.Split(md, "\n") {
-		if strings.Contains(line, "Texture upload ×2") && strings.Contains(line, "✦") {
+		if strings.Contains(line, "├─语义─") && strings.Contains(line, "✦") &&
+			strings.Contains(line, "纹理上传 ×2") {
 			fenceRows++
 		}
 	}
@@ -552,7 +556,7 @@ func TestSemLeadPartialOverlapSingleSeatDualCaliber(t *testing.T) {
 		t.Fatalf("#5: the partial-overlap family must keep exactly one ✦ seat, got %d:\n%s", fenceRows, md)
 	}
 	for _, line := range strings.Split(md, "\n") {
-		if strings.Contains(line, "Texture upload") &&
+		if (strings.Contains(line, "纹理上传") || strings.Contains(line, "Texture upload")) &&
 			(strings.Contains(line, "链上·未接入树") || strings.Contains(line, "链上·深度未解析")) {
 			t.Fatalf("#5: no unattached rank-lane texture seat may remain: %q", line)
 		}
@@ -585,7 +589,7 @@ func TestSemLeadPartialOverlapSingleSeatDualCaliber(t *testing.T) {
 			break
 		}
 	}
-	if leadLine == "" || !strings.Contains(leadLine, "Texture upload") {
+	if leadLine == "" || !strings.Contains(leadLine, "纹理上传") {
 		t.Fatalf("#5: the folded seat keeps the crown, got %q", leadLine)
 	}
 	if strings.Contains(leadLine, "9.300") {
