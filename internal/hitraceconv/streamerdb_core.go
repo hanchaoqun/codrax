@@ -45,9 +45,11 @@ type traceDBThread struct {
 
 type traceDBThreadIndex struct {
 	ByITID           map[int64]traceDBThread
+	AmbiguousITID    map[int64]bool
 	ByTID            map[int64]traceDBThread
 	ByTIDIncarnation map[int64][]traceDBThread
 	Processes        map[int64]traceDBProcess
+	AmbiguousIPID    map[int64]bool
 	ByProcess        map[int64][]traceDBThread
 	TraceStart       int64
 }
@@ -296,9 +298,11 @@ func (tdb *traceDB) loadThreadIndex(ctx context.Context) (traceDBThreadIndex, []
 	}
 	index := traceDBThreadIndex{
 		ByITID:           map[int64]traceDBThread{},
+		AmbiguousITID:    map[int64]bool{},
 		ByTID:            map[int64]traceDBThread{},
 		ByTIDIncarnation: map[int64][]traceDBThread{},
 		Processes:        map[int64]traceDBProcess{},
+		AmbiguousIPID:    map[int64]bool{},
 		ByProcess:        map[int64][]traceDBThread{},
 		TraceStart:       traceStart,
 	}
@@ -312,6 +316,9 @@ func (tdb *traceDB) loadThreadIndex(ctx context.Context) (traceDBThreadIndex, []
 			var item traceDBProcess
 			if err := rows.Scan(&item.IPID, &item.PID, &item.Name); err != nil {
 				return index, coverage, err
+			}
+			if _, exists := index.Processes[item.IPID]; exists {
+				index.AmbiguousIPID[item.IPID] = true
 			}
 			index.Processes[item.IPID] = item
 		}
@@ -340,6 +347,9 @@ func (tdb *traceDB) loadThreadIndex(ctx context.Context) (traceDBThreadIndex, []
 			return index, coverage, err
 		}
 		item.IsMainThread = mainFlag != 0
+		if _, exists := index.ByITID[item.ITID]; exists {
+			index.AmbiguousITID[item.ITID] = true
+		}
 		index.ByITID[item.ITID] = item
 		index.ByTID[item.TID] = item
 		index.ByTIDIncarnation[item.TID] = append(index.ByTIDIncarnation[item.TID], item)

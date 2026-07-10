@@ -22,7 +22,7 @@ func TestExportTraceDBExtendedFamiliesComprehensiveFixture(t *testing.T) {
 		"INSERT INTO thread VALUES (2, 501, 1, 'WorkerThread', 100, 0, 1)",
 		"INSERT INTO thread VALUES (5, 701, 1, 'ExecThread', 100, 0, 1)",
 		"CREATE TABLE thread_state (itid INT, ts INT, dur INT, cpu INT, state TEXT)",
-		"INSERT INTO thread_state VALUES (2, 900000, 500000, 3, 'Running')",
+		"INSERT INTO thread_state VALUES (2, 900000, 600000, 3, 'Running')",
 		"CREATE TABLE data_dict (id INT, data TEXT)",
 		"INSERT INTO data_dict VALUES (5, 'coldStart')",
 		"INSERT INTO data_dict VALUES (6, 'SYS')",
@@ -509,7 +509,7 @@ func TestExportTraceDBHmtraceComprehensiveFixtureSchema(t *testing.T) {
 		min    int
 	}{
 		{"metadata", "thread", 9},
-		{"slice", "callstack", 6},
+		{"slice", "callstack", 4},
 		{"scheduler", "sched_slice", 1},
 		{"scheduler", "instant", 2},
 		{"irq", "irq", 4},

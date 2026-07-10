@@ -483,59 +483,6 @@ func (tdb *traceDB) loadPerfFrames(ctx context.Context) (map[int64][]traceDBPerf
 	return out, coverage, nil
 }
 
-func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, index traceDBThreadIndex, running map[int64][]traceDBRunningInterval, _ map[int64]string) (TraceDBCoverage, error) {
-	coverage, err := tdb.inspectCoverage(ctx, "slice", "callstack", []string{"ts", "dur", "name", "flag", "cookie", "chainId", "callid"})
-	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
-		return coverage, err
-	}
-	rows, err := tdb.db.QueryContext(ctx, `
-		SELECT ts, COALESCE(dur, 0), COALESCE(name, ''),
-		       COALESCE(flag, ''), cookie, chainId, callid
-		FROM callstack
-		WHERE ts IS NOT NULL AND callid IS NOT NULL
-		ORDER BY ts
-	`)
-	if err != nil {
-		coverage.Error = err.Error()
-		return coverage, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		if err := ctx.Err(); err != nil {
-			return coverage, err
-		}
-		var ts, dur, callid int64
-		var name, flag string
-		var cookie sql.NullString
-		var chainID sql.NullString
-		if err := rows.Scan(&ts, &dur, &name, &flag, &cookie, &chainID, &callid); err != nil {
-			coverage.Error = err.Error()
-			return coverage, err
-		}
-		task, tid, tgid := traceDBThreadLineContext(index, callid)
-		cpu := traceDBCPUAt(running, callid, ts, 0)
-		asyncCookie := firstNonEmpty(nullString(cookie), nullString(chainID), "0")
-		switch flag {
-		case "S":
-			if err := addTraceDBInstantRow(sink, ts, task, tid, tgid, cpu, fmt.Sprintf("tracing_mark_write: S|%d|%s|%s", tgid, name, asyncCookie)); err != nil {
-				return coverage, err
-			}
-			coverage.RowsEmitted++
-		case "C":
-			if err := addTraceDBInstantRow(sink, ts, task, tid, tgid, cpu, fmt.Sprintf("tracing_mark_write: F|%d|%s|%s", tgid, name, asyncCookie)); err != nil {
-				return coverage, err
-			}
-			coverage.RowsEmitted++
-		default:
-			if err := addTraceDBSpanRows(sink, ts, ts+maxInt64(dur, 0), task, tid, tgid, cpu, name); err != nil {
-				return coverage, err
-			}
-			coverage.RowsEmitted += 2
-		}
-	}
-	return coverage, rows.Err()
-}
-
 func exportTraceDBFrameSlice(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, index traceDBThreadIndex, _ map[int64][]traceDBRunningInterval, _ map[int64]string) (TraceDBCoverage, error) {
 	coverage, err := tdb.inspectCoverage(ctx, "slice", "frame_slice", []string{"ts", "dur", "type_desc", "vsync", "ipid", "itid"})
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
