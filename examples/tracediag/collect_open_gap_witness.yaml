@@ -5,10 +5,8 @@
 # 用法（零 LLM、纯只读）：
 #   1) 用 --trace-tid 传目标线程 TID；
 #   2) 用 --trace-window 传报告中的精确分析窗（建议 <= 1s）；
-#   3) 无需编辑 YAML，直接执行：
-#      codrax --tracediag examples/tracediag/collect_open_gap_witness.yaml \
-#        --trace <trace文件> --trace-window <start_s>..<end_s> --trace-tid <TID> \
-#        --out open_gap_witness.txt
+#   3) 无需编辑 YAML，单行执行并只生成一个文件：
+#      codrax --tracediag examples/tracediag/collect_open_gap_witness.yaml --trace <trace文件> --trace-window <start_s>..<end_s> --trace-tid <TID> --out open_gap_witness.txt
 #
 # 四个原始证据步骤故意不绑定 TID：block complete
 # 常由 IRQ/kworker 发射，按目标线程过滤会丢掉闭合端；trace mark/unknown print
@@ -18,8 +16,7 @@
 # matched/emitted，不能把部分行当作 N/N witness；无需再手工猜第二个窗口。
 #
 # 建议同时执行：
-#   codrax --tracediag examples/tracediag/collect_format_census.yaml \
-#     --trace <trace文件> --out format_census.txt
+#   codrax --tracediag examples/tracediag/collect_format_census.yaml --trace <trace文件> --out format_census.txt
 #
 # 回传：open_gap_witness.txt + format_census.txt + 对应最终 .md/.html；无需回传
 # 原始 trace。v2 静态最坏报告预算=966 行（含 discovery/fan-out/header/summary）。

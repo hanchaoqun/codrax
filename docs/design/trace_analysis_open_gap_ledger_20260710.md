@@ -44,30 +44,14 @@
 ## 统一采集与回访命令
 
 ```bash
-./codrax version > codrax_version.txt
-shasum -a 256 <trace文件> > trace_sha256.txt
-
-./codrax --tracediag examples/tracediag/collect_format_census.yaml \
-  --trace <trace文件> --out format_census.txt
-
-./codrax --tracediag examples/tracediag/collect_open_gap_witness.yaml \
-  --trace <trace文件> --trace-window <start_s>..<end_s> \
-  --trace-tid <目标TID> \
-  --out open_gap_witness.txt \
-  2> open_gap_witness.stderr.txt
-
-# 只核对 IO pairing：无需 PID，也无需编辑模板
-./codrax --tracediag examples/tracediag/collect_io_pairing_witness.yaml \
-  --trace <trace文件> --trace-window <start_s>..<end_s> \
-  --out io_pairing_witness.txt \
-  2> io_pairing_witness.stderr.txt
-
-./codrax --repo . --branch main --htrace <trace文件> \
-  --request "只分析这份 trace，不分析代码。目标线程是 <comm-tid>，请分析 <start>s 到 <end>s 的卡顿根因。" \
-  --log-level debug --log-stdout 2>&1 | tee replay_full.txt
+./codrax --tracediag examples/tracediag/collect_format_census.yaml --trace <trace文件> --out format_census.txt
+./codrax --tracediag examples/tracediag/collect_open_gap_witness.yaml --trace <trace文件> --trace-window <start_s>..<end_s> --trace-tid <目标TID> --out open_gap_witness.txt
+./codrax --tracediag examples/tracediag/collect_io_pairing_witness.yaml --trace <trace文件> --trace-window <start_s>..<end_s> --out io_pairing_witness.txt
 ```
 
-完整操作与最小回访包见 `docs/design/trace_witness_collection_playbook_20260710.md`。回传 `codrax_version.txt`、trace 指纹、实际使用的 yaml、报告/stderr，以及成文类问题的 MD/HTML；不要回传凭据或整个 `.codrax/blob`。
+每条命令只生成一个报告文件；版本、trace 强指纹与 source lock 已在报告头。常规回传
+前两个文件，IO 专项再加第三个；UX 问题只附已有的单个 HTML。不要回传凭据或整个
+`.codrax/blob`。完整规则见 `docs/design/trace_witness_collection_playbook_20260710.md`。
 
 ## 维护规则
 

@@ -7,10 +7,8 @@
 # 任何 generated event_search compaction 都使命令非零退出，并披露
 # matched/emitted；报告中已返回的行仍保留，但不得称作 N/N 完整 witness。
 #
-# 用法：
-#   codrax --tracediag examples/tracediag/collect_io_pairing_witness.yaml \
-#     --trace <trace文件> --trace-window <start_s>..<end_s> \
-#     --out io_pairing_witness.txt 2> io_pairing_witness.stderr.txt
+# 用法（单行、只生成一个文件）：
+#   codrax --tracediag examples/tracediag/collect_io_pairing_witness.yaml --trace <trace文件> --trace-window <start_s>..<end_s> --out io_pairing_witness.txt
 version: 2
 description: "block/storage pairing 自动候选窗与原始端点 witness"
 inputs:

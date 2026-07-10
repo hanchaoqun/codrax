@@ -2,9 +2,8 @@
 # 暴露出的 S/F async、C counter、IRQ/IPI/softirq 与 block endpoint 生产面。
 # 零 LLM、纯只读；必须把 window 和 pid 改成目标卡顿帧（建议 <= 1s）。
 #
-# 用法：
-#   codrax --tracediag examples/tracediag/collect_berlin_pairing_witness.yaml \
-#     --trace berlin.systrace --out berlin_pairing_witness.txt
+# 用法（单行、只生成一个文件）：
+#   codrax --tracediag examples/tracediag/collect_berlin_pairing_witness.yaml --trace berlin.systrace --out berlin_pairing_witness.txt
 #
 # 全 35s 直接跑 counter 可能有意触发 8192-series fail-close；目标小窗才是
 # 帧级裁定面。回传本报告全文，重点保留 counter_quality、duration_pairing、
