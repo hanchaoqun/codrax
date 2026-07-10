@@ -3,6 +3,7 @@ package hitraceconv
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -196,7 +197,7 @@ func TestExportTraceDBPerfSamplesRoundTripToTraceQuery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("export perf DB systrace: %v", err)
 	}
-	assertCoverageEmitted(t, result.Coverage, "perf", "perf_sample", 4)
+	assertCoverageEmitted(t, result.Coverage, "perf", "perf_sample", 1)
 	assertCoverageEmitted(t, result.Coverage, "perf", "perf_callchain", 2)
 	bodyBytes, err := os.ReadFile(outPath)
 	if err != nil {
@@ -204,8 +205,6 @@ func TestExportTraceDBPerfSamplesRoundTripToTraceQuery(t *testing.T) {
 	}
 	body := string(bodyBytes)
 	for _, want := range []string{
-		"tracing_mark_write: B|101|hiperf:hw-cache-misses:runWorkload@entry/src/main/ets/pages/Index.ets:55:28",
-		"tracing_mark_write: C|101|hiperf:hw-cache-misses:event_count|3",
 		"perf_sample: cpu=2 cpu_known=true pid=101 tid=101",
 		`symbol="runWorkload@entry/src/main/ets/pages/Index.ets:55:28"`,
 		`callchain="runWorkload@entry/src/main/ets/pages/Index.ets:55:28;main"`,
@@ -214,6 +213,10 @@ func TestExportTraceDBPerfSamplesRoundTripToTraceQuery(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("perf DB systrace missing %q:\n%s", want, body)
 		}
+	}
+	if strings.Contains(body, "tracing_mark_write: B|101|hiperf:") ||
+		strings.Contains(body, "tracing_mark_write: C|101|hiperf:") {
+		t.Fatalf("instant perf sample must not mint synthetic trace markers:\n%s", body)
 	}
 	idx, err := tracequery.BuildIndex(context.Background(), outPath)
 	if err != nil {
@@ -224,6 +227,16 @@ func TestExportTraceDBPerfSamplesRoundTripToTraceQuery(t *testing.T) {
 		stats.PerfSamples.TopSymbols[0].Symbol != "runWorkload@entry/src/main/ets/pages/Index.ets:55:28" ||
 		stats.PerfSamples.TopSymbols[0].Period != 3 {
 		t.Fatalf("perf DB sample did not reach tracequery stats: %+v", stats.PerfSamples)
+	}
+	for _, span := range stats.TraceSpans {
+		if strings.HasPrefix(span.Name, "hiperf:") {
+			t.Fatalf("instant perf sample leaked into trace-span lane: %+v", stats.TraceSpans)
+		}
+	}
+	for _, counter := range stats.CounterDeltas {
+		if strings.HasPrefix(counter.Name, "hiperf:") {
+			t.Fatalf("instant perf sample leaked into counter lane: %+v", stats.CounterDeltas)
+		}
 	}
 }
 
@@ -279,6 +292,207 @@ func TestExportTraceDBPerfSamplesPreferTraceThreadComm(t *testing.T) {
 	}
 	if got := stats.PerfSamples.TopThreads[0].Thread.Comm; got != "s.watch.meetime" {
 		t.Fatalf("perf top thread comm = %q, want trace thread comm", got)
+	}
+}
+
+func TestExportTraceDBPerfSamplesStrictScalarsAndCPUThreeState(t *testing.T) {
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts INT)",
+		"INSERT INTO trace_range VALUES (0)",
+		"CREATE TABLE perf_thread (thread_id INT, process_id INT, thread_name TEXT)",
+		"INSERT INTO perf_thread VALUES (101, 101, 'worker')",
+		"INSERT INTO perf_thread VALUES (202, -1, 'invalid-pid')",
+		"CREATE TABLE perf_sample (callchain_id INT, timestamp_trace INT, thread_id INT, event_count INT, cpu_id INT)",
+		"CREATE TABLE perf_callchain (callchain_id INT, depth INT, name TEXT)",
+		"INSERT INTO perf_callchain VALUES (1, 0, 'leaf')",
+		"INSERT INTO perf_sample VALUES (1, 1000, 101, 3, 0)",
+		"INSERT INTO perf_sample VALUES (1, 1100, 101, 4, NULL)",
+		"INSERT INTO perf_sample VALUES (1, 1200, 101, 5, -1)",
+		"INSERT INTO perf_sample VALUES (1, 1300, 101, 6, 4096)",
+		"INSERT INTO perf_sample VALUES (1, -1, 101, 7, 1)",
+		"INSERT INTO perf_sample VALUES (1, 1.5, 101, 8, 1)",
+		"INSERT INTO perf_sample VALUES (1, 1400, 0, 9, 1)",
+		"INSERT INTO perf_sample VALUES (1, 1500, 1.5, 10, 1)",
+		"INSERT INTO perf_sample VALUES (-1, 1600, 101, 11, 1)",
+		"INSERT INTO perf_sample VALUES (1.5, 1700, 101, 12, 1)",
+		"INSERT INTO perf_sample VALUES (1, 1800, 202, 13, 1)",
+	})
+	outPath := filepath.Join(t.TempDir(), "perf-strict.systrace")
+	result, err := exportTraceDBToSystrace(context.Background(), path, outPath)
+	if err != nil {
+		t.Fatalf("export strict perf DB systrace: %v", err)
+	}
+	var perfCoverage TraceDBCoverage
+	for _, item := range result.Coverage {
+		if item.Family == "perf" && item.Table == "perf_sample" {
+			perfCoverage = item
+			break
+		}
+	}
+	if perfCoverage.RowsRead != 11 || perfCoverage.RowsEmitted != 2 {
+		t.Fatalf("strict perf coverage mismatch: %+v", perfCoverage)
+	}
+	for _, want := range []string{
+		"invalid_timestamp=2",
+		"invalid_thread_id=2",
+		"invalid_callchain_id=2",
+		"invalid_cpu=2",
+		"invalid_process_id=1",
+	} {
+		if !strings.Contains(perfCoverage.Skipped, want) {
+			t.Fatalf("strict perf coverage missing %q: %+v", want, perfCoverage)
+		}
+	}
+	bodyBytes, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(bodyBytes)
+	if strings.Count(body, "perf_sample:") != 2 || strings.Contains(body, "tracing_mark_write:") {
+		t.Fatalf("strict perf export should contain exactly two canonical samples and no markers:\n%s", body)
+	}
+	for _, want := range []string{
+		"perf_sample: cpu=0 cpu_known=true pid=101 tid=101",
+		"perf_sample: cpu=-1 cpu_known=false pid=101 tid=101",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("strict perf export missing %q:\n%s", want, body)
+		}
+	}
+	idx, err := tracequery.BuildIndex(context.Background(), outPath)
+	if err != nil {
+		t.Fatalf("tracequery parse strict perf output: %v", err)
+	}
+	known, unknown := 0, 0
+	for _, ev := range idx.Events {
+		if ev.Type != tracequery.EventPerfSample || ev.PerfFields == nil || ev.PerfFields.CPUKnown == nil {
+			continue
+		}
+		if *ev.PerfFields.CPUKnown {
+			known++
+			if ev.CPU != 0 {
+				t.Fatalf("explicit CPU0 was rewritten: %+v", ev)
+			}
+		} else {
+			unknown++
+			if ev.CPU != -1 {
+				t.Fatalf("missing CPU did not remain unknown: %+v", ev)
+			}
+		}
+	}
+	if known != 1 || unknown != 1 {
+		t.Fatalf("CPU three-state round trip mismatch: known=%d unknown=%d events=%+v", known, unknown, idx.Events)
+	}
+}
+
+func TestExportTraceDBPerfSamplesMissingCPUColumnRemainsUnknown(t *testing.T) {
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts INT)",
+		"INSERT INTO trace_range VALUES (0)",
+		"CREATE TABLE perf_sample (callchain_id INT, timestamp_trace INT, thread_id INT, event_count INT)",
+		"CREATE TABLE perf_callchain (callchain_id INT, depth INT, name TEXT)",
+		"INSERT INTO perf_callchain VALUES (1, 0, 'leaf')",
+		"INSERT INTO perf_sample VALUES (1, 1000, 101, 3)",
+	})
+	outPath := filepath.Join(t.TempDir(), "perf-no-cpu.systrace")
+	if _, err := exportTraceDBToSystrace(context.Background(), path, outPath); err != nil {
+		t.Fatalf("export perf DB without CPU column: %v", err)
+	}
+	bodyBytes, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(bodyBytes)
+	if !strings.Contains(body, "perf_sample: cpu=-1 cpu_known=false pid=101 tid=101") || strings.Contains(body, "tracing_mark_write:") {
+		t.Fatalf("missing CPU column acquired a fabricated CPU or marker:\n%s", body)
+	}
+}
+
+func TestExportTraceDBPerfSamplesResolveTIDIncarnationAtSampleTime(t *testing.T) {
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts INT)",
+		"INSERT INTO trace_range VALUES (0)",
+		"CREATE TABLE process (pid INT, ipid INT, name TEXT)",
+		"INSERT INTO process VALUES (100, 1, 'old-process')",
+		"INSERT INTO process VALUES (200, 2, 'new-process')",
+		"CREATE TABLE thread (tid INT, itid INT, ipid INT, name TEXT, is_main_thread INT, switch_count INT, start_ts INT)",
+		"INSERT INTO thread VALUES (42, 2, 2, 'new-thread', 0, 1, 100000)",
+		"INSERT INTO thread VALUES (42, 1, 1, 'old-thread', 0, 1, 0)",
+		"CREATE TABLE perf_thread (thread_id INT, process_id INT, thread_name TEXT)",
+		"INSERT INTO perf_thread VALUES (42, 200, 'perf-new')",
+		"CREATE TABLE perf_sample (callchain_id INT, timestamp_trace INT, thread_id INT, event_count INT, cpu_id INT)",
+		"CREATE TABLE perf_callchain (callchain_id INT, depth INT, name TEXT)",
+		"INSERT INTO perf_callchain VALUES (1, 0, 'leaf')",
+		"INSERT INTO perf_sample VALUES (1, 1000, 42, 3, 1)",
+		"INSERT INTO perf_sample VALUES (1, 100500, 42, 4, 1)",
+	})
+	outPath := filepath.Join(t.TempDir(), "perf-tid-reuse.systrace")
+	if _, err := exportTraceDBToSystrace(context.Background(), path, outPath); err != nil {
+		t.Fatalf("export TID-reuse perf DB: %v", err)
+	}
+	idx, err := tracequery.BuildIndex(context.Background(), outPath)
+	if err != nil {
+		t.Fatalf("tracequery parse TID-reuse perf output: %v", err)
+	}
+	var samples []tracequery.Event
+	for _, ev := range idx.Events {
+		if ev.Type == tracequery.EventPerfSample {
+			samples = append(samples, ev)
+		}
+	}
+	if len(samples) != 2 {
+		t.Fatalf("TID-reuse fixture emitted %d perf samples, want 2: %+v", len(samples), samples)
+	}
+	if samples[0].TGID != 200 || samples[0].PerfFields.Comm != "perf-new" {
+		t.Fatalf("explicit perf process identity was overwritten by the old incarnation: event=%+v fields=%q", samples[0], samples[0].FieldText)
+	}
+	if samples[1].TGID != 200 || samples[1].PerfFields.Comm != "new-thread" {
+		t.Fatalf("sample-time resolver did not select the new incarnation: %+v", samples[1])
+	}
+}
+
+func TestExportTraceDBPerfSampleDoesNotCrossPairWithCallstack(t *testing.T) {
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts INT)",
+		"INSERT INTO trace_range VALUES (0)",
+		"CREATE TABLE process (pid INT, ipid INT, name TEXT)",
+		"INSERT INTO process VALUES (101, 1, 'demo')",
+		"CREATE TABLE thread (tid INT, itid INT, ipid INT, name TEXT, is_main_thread INT, switch_count INT, start_ts INT)",
+		"INSERT INTO thread VALUES (101, 1, 1, 'worker', 1, 1, 0)",
+		"CREATE TABLE thread_state (itid INT, ts INT, dur INT, cpu INT, state TEXT)",
+		"INSERT INTO thread_state VALUES (1, 0, 10000, 2, 'Running')",
+		"CREATE TABLE perf_thread (thread_id INT, process_id INT, thread_name TEXT)",
+		"INSERT INTO perf_thread VALUES (101, 101, 'worker')",
+		"CREATE TABLE perf_sample (callchain_id INT, timestamp_trace INT, thread_id INT, event_count INT, cpu_id INT)",
+		"CREATE TABLE perf_callchain (callchain_id INT, depth INT, name TEXT)",
+		"INSERT INTO perf_callchain VALUES (1, 0, 'VerifyClass Foo')",
+		"INSERT INTO perf_sample VALUES (1, 1000, 101, 3, 2)",
+		"CREATE TABLE callstack (id INT, ts INT, dur INT, callid INT, name TEXT, flag TEXT, cookie TEXT, chainId TEXT)",
+		"INSERT INTO callstack VALUES (1, 1500, 5000, 1, 'DoWork', '', NULL, NULL)",
+	})
+	outPath := filepath.Join(t.TempDir(), "perf-callstack-cross-pair.systrace")
+	if _, err := exportTraceDBToSystrace(context.Background(), path, outPath); err != nil {
+		t.Fatalf("export perf/callstack interleave DB: %v", err)
+	}
+	idx, err := tracequery.BuildIndex(context.Background(), outPath)
+	if err != nil {
+		t.Fatalf("tracequery parse perf/callstack interleave output: %v", err)
+	}
+	stats := tracequery.ComputeWindowStats(idx, tracequery.Query{TimeStart: 0, TimeEnd: 0.00002})
+	var doWork *tracequery.TraceSpanSummary
+	for i := range stats.TraceSpans {
+		if stats.TraceSpans[i].Name == "DoWork" {
+			doWork = &stats.TraceSpans[i]
+		}
+		if strings.HasPrefix(stats.TraceSpans[i].Name, "hiperf:") || strings.Contains(stats.TraceSpans[i].Name, "VerifyClass") {
+			t.Fatalf("perf sample minted a synthetic span: %+v", stats.TraceSpans)
+		}
+	}
+	if doWork == nil || math.Abs(doWork.DurationMs-0.005) > 0.000001 {
+		t.Fatalf("perf sample corrupted the real callstack span: %+v", stats.TraceSpans)
+	}
+	if stats.PerfSamples == nil || stats.PerfSamples.SampleCount != 1 {
+		t.Fatalf("canonical perf sample was lost: %+v", stats.PerfSamples)
 	}
 }
 

@@ -121,11 +121,11 @@ func exportTraceDBPerfSamples(ctx context.Context, tdb *traceDB, sink *traceDBRo
 		sampleCoverage.Skipped = "missing required columns: " + strings.Join(sampleCoverage.ColumnsMissing, ",")
 		return []TraceDBCoverage{sampleCoverage, callchainCoverage}, nil
 	}
-	cpuExpr := "0"
+	cpuExpr := "NULL"
 	if column, ok, err := traceDBFirstExistingColumn(ctx, tdb, "perf_sample", "cpu_id", "cpu"); err != nil {
 		return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
 	} else if ok {
-		cpuExpr = "COALESCE(s." + quoteSQLiteIdent(column) + ", 0)"
+		cpuExpr = "s." + quoteSQLiteIdent(column)
 	}
 	eventCountExpr := "1"
 	if column, ok, err := traceDBFirstExistingColumn(ctx, tdb, "perf_sample", "event_count", "period", "sample_period", "sample_weight"); err != nil {
@@ -134,8 +134,8 @@ func exportTraceDBPerfSamples(ctx context.Context, tdb *traceDB, sink *traceDBRo
 		eventCountExpr = "COALESCE(s." + quoteSQLiteIdent(column) + ", 1)"
 	}
 	threadJoin := ""
-	pidExpr := "s." + quoteSQLiteIdent("thread_id")
-	threadNameExpr := "CAST(s." + quoteSQLiteIdent("thread_id") + " AS TEXT)"
+	pidExpr := "NULL"
+	threadNameExpr := "NULL"
 	if hasThread, err := tdb.tableExists(ctx, "perf_thread"); err != nil {
 		return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
 	} else if hasThread {
@@ -143,12 +143,12 @@ func exportTraceDBPerfSamples(ctx context.Context, tdb *traceDB, sink *traceDBRo
 		if ok, err := tdb.columnExists(ctx, "perf_thread", "process_id"); err != nil {
 			return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
 		} else if ok {
-			pidExpr = "COALESCE(pt.process_id, s." + quoteSQLiteIdent("thread_id") + ")"
+			pidExpr = "pt.process_id"
 		}
 		if ok, err := tdb.columnExists(ctx, "perf_thread", "thread_name"); err != nil {
 			return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
 		} else if ok {
-			threadNameExpr = "COALESCE(NULLIF(pt.thread_name, ''), CAST(s." + quoteSQLiteIdent("thread_id") + " AS TEXT))"
+			threadNameExpr = "pt.thread_name"
 		}
 	}
 	eventTypeJoin := ""
@@ -173,29 +173,65 @@ func exportTraceDBPerfSamples(ctx context.Context, tdb *traceDB, sink *traceDBRo
 	}
 	callchainCoverage.RowsEmitted = frameCoverage.RowsEmitted
 	query := fmt.Sprintf(`
-		SELECT COALESCE(s.%s, 0), %s, s.%s, %s, %s, %s, %s, s.%s
+		SELECT s.%s, %s, s.%s, %s, %s, %s, %s, s.%s
 		FROM perf_sample s
 		%s
 		%s
-		WHERE s.%s != -1
-	`, quoteSQLiteIdent(tsColumn), cpuExpr, quoteSQLiteIdent("thread_id"), pidExpr, threadNameExpr, eventCountExpr, eventTypeExpr, quoteSQLiteIdent("callchain_id"), threadJoin, eventTypeJoin, quoteSQLiteIdent("callchain_id"))
+		ORDER BY s.%s
+	`, quoteSQLiteIdent(tsColumn), cpuExpr, quoteSQLiteIdent("thread_id"), pidExpr, threadNameExpr, eventCountExpr, eventTypeExpr, quoteSQLiteIdent("callchain_id"), threadJoin, eventTypeJoin, quoteSQLiteIdent(tsColumn))
 	rows, err := tdb.db.QueryContext(ctx, query)
 	if err != nil {
 		sampleCoverage.Error = err.Error()
 		return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
 	}
 	defer rows.Close()
+	skipped := map[string]int{}
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
 			return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
 		}
-		var ts, cpu, tid, pid, callchainID int64
-		var threadName, eventType string
-		var eventCountRaw any
-		if err := rows.Scan(&ts, &cpu, &tid, &pid, &threadName, &eventCountRaw, &eventType, &callchainID); err != nil {
+		var tsRaw, cpuRaw, tidRaw, pidRaw, threadNameRaw, eventCountRaw, eventTypeRaw, callchainIDRaw any
+		if err := rows.Scan(&tsRaw, &cpuRaw, &tidRaw, &pidRaw, &threadNameRaw, &eventCountRaw, &eventTypeRaw, &callchainIDRaw); err != nil {
 			sampleCoverage.Error = err.Error()
 			return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
 		}
+		ts, ok := traceDBStrictSQLiteInt(tsRaw)
+		if !ok || ts < 0 {
+			skipped["invalid_timestamp"]++
+			continue
+		}
+		tid, ok := traceDBStrictSQLiteInt(tidRaw)
+		if !ok || tid <= 0 || tid > math.MaxInt32 {
+			skipped["invalid_thread_id"]++
+			continue
+		}
+		callchainID, ok := traceDBStrictSQLiteInt(callchainIDRaw)
+		if !ok || callchainID < 0 {
+			skipped["invalid_callchain_id"]++
+			continue
+		}
+		cpu := int64(-1)
+		cpuKnown := false
+		if cpuRaw != nil {
+			cpu, ok = traceDBStrictSQLiteInt(cpuRaw)
+			if !ok || !validTraceDBCPUIndex(cpu) {
+				skipped["invalid_cpu"]++
+				continue
+			}
+			cpuKnown = true
+		}
+		pid := int64(0)
+		pidKnown := false
+		if pidRaw != nil {
+			pid, ok = traceDBStrictSQLiteInt(pidRaw)
+			if !ok || pid <= 0 || pid > math.MaxInt32 {
+				skipped["invalid_process_id"]++
+				continue
+			}
+			pidKnown = true
+		}
+		threadName := traceDBAnyText(threadNameRaw, "")
+		eventType := traceDBAnyText(eventTypeRaw, "perf")
 		eventCount := traceDBInt64FromAny(eventCountRaw, 1)
 		if eventCount <= 0 {
 			eventCount = 1
@@ -215,29 +251,19 @@ func exportTraceDBPerfSamples(ctx context.Context, tdb *traceDB, sink *traceDBRo
 			callchainStatus = "symbolized"
 			symbolizationStatus = "symbolized"
 		}
-		label := traceDBPerfLabel("hiperf:" + firstNonEmpty(eventType, "perf") + ":" + symbol)
-		counter := traceDBPerfLabel("hiperf:" + firstNonEmpty(eventType, "perf") + ":event_count")
-		task, pid, perfCommNote := traceDBPerfSampleIdentity(index, tid, pid, threadName)
-		if err := addTraceDBInstantRow(sink, ts, task, tid, pid, cpu, fmt.Sprintf("tracing_mark_write: B|%d|%s", pid, label)); err != nil {
-			return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
+		task, pid, perfCommNote := traceDBPerfSampleIdentity(index, ts, tid, pid, pidKnown, threadName)
+		headerCPU := cpu
+		if !cpuKnown {
+			headerCPU = 0
 		}
-		sampleCoverage.RowsEmitted++
-		if err := addTraceDBInstantRow(sink, ts+1_000, task, tid, pid, cpu, fmt.Sprintf("tracing_mark_write: E|%d|", pid)); err != nil {
-			return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
-		}
-		sampleCoverage.RowsEmitted++
-		if err := addTraceDBInstantRow(sink, ts, task, tid, pid, cpu, fmt.Sprintf("tracing_mark_write: C|%d|%s|%d", pid, counter, eventCount)); err != nil {
-			return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
-		}
-		sampleCoverage.RowsEmitted++
-		body := fmt.Sprintf("perf_sample: cpu=%d cpu_known=true pid=%d tid=%d thread_comm=%s sample_weight=%d event=%s symbol=%s dso=%s ip=%s callchain=%s source=trace_streamer_db sample_kind=on_cpu symbolization_status=%s clock=trace_streamer_db clock_confidence=calibrated callchain_status=%s",
-			cpu, pid, tid, quoteTraceValue(task), eventCount, quoteTraceValue(firstNonEmpty(eventType, "perf")),
+		body := fmt.Sprintf("perf_sample: cpu=%d cpu_known=%t pid=%d tid=%d thread_comm=%s sample_weight=%d event=%s symbol=%s dso=%s ip=%s callchain=%s source=trace_streamer_db sample_kind=on_cpu symbolization_status=%s clock=trace_streamer_db clock_confidence=calibrated callchain_status=%s",
+			cpu, cpuKnown, pid, tid, quoteTraceValue(task), eventCount, quoteTraceValue(firstNonEmpty(eventType, "perf")),
 			quoteTraceValue(symbol), quoteTraceValue(dso), quoteTraceValue(ip), quoteTraceValue(callchain),
 			symbolizationStatus, callchainStatus)
 		if perfCommNote != "" {
 			body += perfCommNote
 		}
-		if err := addTraceDBInstantRow(sink, ts, task, tid, pid, cpu, body); err != nil {
+		if err := addTraceDBInstantRow(sink, ts, task, tid, pid, headerCPU, body); err != nil {
 			return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
 		}
 		sampleCoverage.RowsEmitted++
@@ -246,27 +272,93 @@ func exportTraceDBPerfSamples(ctx context.Context, tdb *traceDB, sink *traceDBRo
 		sampleCoverage.Error = err.Error()
 		return []TraceDBCoverage{sampleCoverage, callchainCoverage}, err
 	}
+	sampleCoverage.Skipped = traceDBPerfSkipSummary(skipped)
 	return []TraceDBCoverage{sampleCoverage, callchainCoverage}, nil
 }
 
-func traceDBPerfSampleIdentity(index traceDBThreadIndex, tid, pid int64, perfThreadName string) (string, int64, string) {
+func traceDBPerfSampleIdentity(index traceDBThreadIndex, ts, tid, pid int64, pidKnown bool, perfThreadName string) (string, int64, string) {
 	perfTask := traceDBCommName(perfThreadName, "perf")
-	if tid == 0 {
-		return perfTask, pid, ""
+	resolvedPID := pid
+	if !pidKnown {
+		resolvedPID = tid
 	}
-	traceTask, traceTID, tracePID := traceDBThreadLineContextByTID(index, tid)
-	if traceTID == 0 || traceTask == "" || traceTask == "unknown" {
-		return perfTask, firstNonZero(pid, tid), ""
+	thread, ok := traceDBPerfThreadAt(index, tid, ts, pid, pidKnown)
+	if !ok {
+		note := ""
+		if !pidKnown {
+			note = " process_id_source=tid_fallback"
+		}
+		return perfTask, resolvedPID, note
 	}
-	resolvedPID := firstNonZero(tracePID, pid, tid)
+	process := index.Processes[thread.IPID]
+	tracePID := firstNonZero(process.PID, thread.TID)
+	traceTask := traceDBCommName(thread.Name, "unknown")
+	if pidKnown && tracePID > 0 && tracePID != pid {
+		return perfTask, pid, fmt.Sprintf(" trace_thread_comm=%s trace_thread_pid=%d comm_source=perf_thread identity_conflict=true", quoteTraceValue(traceTask), tracePID)
+	}
+	if !pidKnown {
+		resolvedPID = firstNonZero(tracePID, tid)
+	}
 	if strings.EqualFold(traceTask, perfTask) {
-		return traceTask, resolvedPID, ""
+		note := ""
+		if !pidKnown {
+			note = " process_id_source=trace_thread"
+		}
+		return traceTask, resolvedPID, note
 	}
 	note := fmt.Sprintf(" perf_thread_comm=%s comm_source=trace_thread", quoteTraceValue(perfTask))
-	if pid != 0 && pid != resolvedPID {
-		note += fmt.Sprintf(" perf_process_pid=%d", pid)
+	if !pidKnown {
+		note += " process_id_source=trace_thread"
 	}
 	return traceTask, resolvedPID, note
+}
+
+func traceDBPerfThreadAt(index traceDBThreadIndex, tid, ts, pid int64, pidKnown bool) (traceDBThread, bool) {
+	items := index.ByTIDIncarnation[tid]
+	last := len(items) - 1
+	for last >= 0 && items[last].StartTS > ts {
+		last--
+	}
+	if last < 0 {
+		return traceDBThread{}, false
+	}
+	start := items[last].StartTS
+	first := last
+	for first > 0 && items[first-1].StartTS == start {
+		first--
+	}
+	if first == last {
+		return items[last], true
+	}
+	if !pidKnown {
+		return traceDBThread{}, false
+	}
+	var match traceDBThread
+	matches := 0
+	for i := first; i <= last; i++ {
+		if process := index.Processes[items[i].IPID]; process.PID == pid {
+			match = items[i]
+			matches++
+		}
+	}
+	return match, matches == 1
+}
+
+func traceDBPerfSkipSummary(skipped map[string]int) string {
+	order := []string{"invalid_timestamp", "invalid_thread_id", "invalid_callchain_id", "invalid_cpu", "invalid_process_id"}
+	total := 0
+	parts := make([]string, 0, len(order))
+	for _, reason := range order {
+		if skipped[reason] <= 0 {
+			continue
+		}
+		total += skipped[reason]
+		parts = append(parts, fmt.Sprintf("%s=%d", reason, skipped[reason]))
+	}
+	if total == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d perf sample row(s) skipped: %s", total, strings.Join(parts, ","))
 }
 
 func (tdb *traceDB) loadPerfFrames(ctx context.Context) (map[int64][]traceDBPerfFrame, TraceDBCoverage, error) {

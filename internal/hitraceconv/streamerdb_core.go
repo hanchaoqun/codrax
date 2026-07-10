@@ -44,11 +44,12 @@ type traceDBThread struct {
 }
 
 type traceDBThreadIndex struct {
-	ByITID     map[int64]traceDBThread
-	ByTID      map[int64]traceDBThread
-	Processes  map[int64]traceDBProcess
-	ByProcess  map[int64][]traceDBThread
-	TraceStart int64
+	ByITID           map[int64]traceDBThread
+	ByTID            map[int64]traceDBThread
+	ByTIDIncarnation map[int64][]traceDBThread
+	Processes        map[int64]traceDBProcess
+	ByProcess        map[int64][]traceDBThread
+	TraceStart       int64
 }
 
 type traceDBRawWakeup struct {
@@ -294,11 +295,12 @@ func (tdb *traceDB) loadThreadIndex(ctx context.Context) (traceDBThreadIndex, []
 		return traceDBThreadIndex{}, coverage, err
 	}
 	index := traceDBThreadIndex{
-		ByITID:     map[int64]traceDBThread{},
-		ByTID:      map[int64]traceDBThread{},
-		Processes:  map[int64]traceDBProcess{},
-		ByProcess:  map[int64][]traceDBThread{},
-		TraceStart: traceStart,
+		ByITID:           map[int64]traceDBThread{},
+		ByTID:            map[int64]traceDBThread{},
+		ByTIDIncarnation: map[int64][]traceDBThread{},
+		Processes:        map[int64]traceDBProcess{},
+		ByProcess:        map[int64][]traceDBThread{},
+		TraceStart:       traceStart,
 	}
 	if processCoverage.Found && len(processCoverage.ColumnsMissing) == 0 {
 		rows, err := tdb.db.QueryContext(ctx, "SELECT ipid, pid, COALESCE(name, '') FROM process WHERE pid IS NOT NULL")
@@ -340,10 +342,21 @@ func (tdb *traceDB) loadThreadIndex(ctx context.Context) (traceDBThreadIndex, []
 		item.IsMainThread = mainFlag != 0
 		index.ByITID[item.ITID] = item
 		index.ByTID[item.TID] = item
+		index.ByTIDIncarnation[item.TID] = append(index.ByTIDIncarnation[item.TID], item)
 		index.ByProcess[item.IPID] = append(index.ByProcess[item.IPID], item)
 	}
 	if err := rows.Err(); err != nil {
 		return index, coverage, err
+	}
+	for tid := range index.ByTIDIncarnation {
+		sort.SliceStable(index.ByTIDIncarnation[tid], func(i, j int) bool {
+			left := index.ByTIDIncarnation[tid][i]
+			right := index.ByTIDIncarnation[tid][j]
+			if left.StartTS != right.StartTS {
+				return left.StartTS < right.StartTS
+			}
+			return left.ITID < right.ITID
+		})
 	}
 	return index, coverage, nil
 }
