@@ -229,10 +229,9 @@ var causalTokenRegistry = map[string]CausalTokenSpec{
 	// upload" GPU resource-upload spans), same lane/additivity/subject as the
 	// other four semantic classes — per-thread wall clock on the CPU-work lane
 	// (§7.4 demand/supply split untouched: this is the subject's OWN work,
-	// never a delivery-side aggregate). The display label helper returns the
-	// ENGLISH proper term "Texture upload" (§22.2.1 专名尺子, VerifyClass
-	// precedent) — the D2 coverage pin couples the engine weight switch to
-	// that table, so the label arm and this column moved together.
+	// never a delivery-side aggregate). Evolution 2026-07-10: the Chinese UX
+	// label is 纹理上传 while raw span names and wire tokens remain verbatim;
+	// lane/additivity/subject semantics are unchanged.
 	"texture_upload":     {Lane: CausalLaneCPUWork, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 	"workqueue_activity": {Lane: CausalLaneCPUWork, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 	"dma_fence_activity": {Lane: CausalLaneCPUWork, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},

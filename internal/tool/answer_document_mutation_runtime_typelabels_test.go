@@ -68,3 +68,23 @@ func TestRootCauseTypeZHLabelCoversWeightUniverse(t *testing.T) {
 		t.Fatalf("zh narrative lane must use the 中文（token） combined format, got %q", got)
 	}
 }
+
+func TestSemanticOptimizationCustomerRuledLabels(t *testing.T) {
+	for _, tc := range []struct {
+		token string
+		want  string
+	}{
+		{token: "texture_upload", want: "纹理上传"},
+		{token: "jit_compile", want: "JIT编译"},
+	} {
+		if got := runtimeTraceRootCauseTypeZHLabel(tc.token); got != tc.want {
+			t.Fatalf("ZH semantic label %s = %q, want %q", tc.token, got, tc.want)
+		}
+		if got := runtimeTraceCausalProjectionDisplayCauseName(tc.token, true); got != tc.want {
+			t.Fatalf("ZH display label %s = %q, want %q", tc.token, got, tc.want)
+		}
+		if got := runtimeTraceCausalProjectionDisplayCauseName(tc.token, false); got != tc.token {
+			t.Fatalf("EN audit/display lane must keep canonical token %s, got %q", tc.token, got)
+		}
+	}
+}

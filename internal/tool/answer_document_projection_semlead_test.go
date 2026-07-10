@@ -5,7 +5,7 @@ package tool
 //
 //	① board/lead/❶❷❸ fully open for ON-CHAIN semantic rows — the ✦ 语义 row
 //	  carrying the engine rank seat joins the shared rank board, wears the
-//	  ❶ badge and crowns 主根因 (792-textup "主根因: Texture upload" 追认);
+//	  ❶ badge and crowns 主根因 (792-textup "主根因: 纹理上传" 追认);
 //	② the published effective attribution is the family REAL total — no
 //	  boosted 表值 anywhere on the answer surface;
 //	③ E9/E13 双席合一 — the rank-lane twin folds into the ✦ row (one E# seat,
@@ -29,6 +29,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/preview"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -75,7 +76,7 @@ func TestSemLeadOnChainSemanticFamilySingleSeatCrownedZH(t *testing.T) {
 			break
 		}
 	}
-	if leadLine == "" || !strings.Contains(leadLine, "worker-200") || !strings.Contains(leadLine, "Texture upload") {
+	if leadLine == "" || !strings.Contains(leadLine, "worker-200") || !strings.Contains(leadLine, "纹理上传") {
 		t.Fatalf("the on-chain semantic family must crown 主根因 (§29.7-2 ①), got %q in:\n%s", leadLine, md)
 	}
 	if strings.Contains(md, "未定位到链上主根因;窗口内最大语义优化span") {
@@ -86,7 +87,7 @@ func TestSemLeadOnChainSemanticFamilySingleSeatCrownedZH(t *testing.T) {
 	// wears the rank ordinal + tier word on 行2.
 	fenceRow := ""
 	for _, line := range strings.Split(md, "\n") {
-		if strings.Contains(line, "Texture upload ×2") && strings.Contains(line, "✦") {
+		if strings.Contains(line, "纹理上传 ×2") && strings.Contains(line, "✦") {
 			fenceRow = line
 			break
 		}
@@ -107,7 +108,7 @@ func TestSemLeadOnChainSemanticFamilySingleSeatCrownedZH(t *testing.T) {
 	if !strings.Contains(md, "已并入本行,数值不重复计入") {
 		t.Fatalf("the detail block must disclose the folded rank row:\n%s", md)
 	}
-	if strings.Contains(md, "Texture upload(15573) 1140x1856(Texture upload)") {
+	if strings.Contains(md, "Texture upload(15573) 1140x1856(纹理上传)") {
 		t.Fatalf("the rank-lane twin must not render its own row (E13 双席形):\n%s", md)
 	}
 	for _, line := range strings.Split(md, "\n") {
@@ -119,7 +120,7 @@ func TestSemLeadOnChainSemanticFamilySingleSeatCrownedZH(t *testing.T) {
 
 	// ④ 词值同源: the (a) key-metric table speaks the class word, exactly one
 	// texture row, never a member span name in the node cell.
-	tableRows := regexp.MustCompile(`(?m)^\|.*Texture upload ×2合计.*$`).FindAllString(md, -1)
+	tableRows := regexp.MustCompile(`(?m)^\|.*纹理上传 ×2合计.*$`).FindAllString(md, -1)
 	if len(tableRows) != 1 {
 		t.Fatalf("the key-metric table must seat the family exactly once with the class word, got %d:\n%s", len(tableRows), md)
 	}
@@ -148,6 +149,13 @@ func TestSemLeadOnChainSemanticFamilySingleSeatCrownedZH(t *testing.T) {
 	// Roster members stay lossless on the sub-rows (§24.7.1 ① 区分键不能丢).
 	if !strings.Contains(md, "成员 Texture upload(15573) 1140x1856") {
 		t.Fatalf("the member roster must keep the real span names:\n%s", md)
+	}
+	html, err := preview.RenderStandaloneMarkdownHTML("trace", []byte(md))
+	if err != nil {
+		t.Fatalf("render localized trace HTML: %v", err)
+	}
+	if !strings.Contains(html, "纹理上传") || !strings.Contains(html, "Texture upload(15573) 1140x1856") {
+		t.Fatalf("HTML must preserve the same localized UX label and verbatim span boundary as Markdown")
 	}
 }
 
@@ -431,7 +439,7 @@ func TestB9CustTraceVC710OffChainClassVerificationTwinSingleSeat(t *testing.T) {
 
 	_, optimizationRows := runtimeTraceSemanticOptimizationParts(projection,
 		newRuntimeTraceCausalProjectionEvidenceIndex(), true)
-	if len(optimizationRows) == 0 || !strings.Contains(strings.Join(optimizationRows[0].Cells, "|"), "class_verification") {
+	if len(optimizationRows) == 0 || !strings.Contains(strings.Join(optimizationRows[0].Cells, "|"), "类校验") {
 		t.Fatalf("off-chain folding must not remove the independent deterministic-optimization obligation: %+v", optimizationRows)
 	}
 }
@@ -566,10 +574,10 @@ func TestSemLeadBadgeOrdinalConsistencyRealBelowPrimary(t *testing.T) {
 	if !strings.Contains(badgeBlock, "根因排序#1") {
 		t.Fatalf("the ❶ row must be the 根因排序#1 node (序数≡徽章):\n%s\n---\n%s", badgeBlock, md)
 	}
-	if strings.Contains(badgeBlock, "Texture upload") {
+	if strings.Contains(badgeBlock, "纹理上传") {
 		t.Fatalf("the semantic family (real 5.300 < 8.100) must not wear ❶ on this form:\n%s", badgeBlock)
 	}
-	tex := semLeadNodeBlockLines(md, "Texture upload ×2")
+	tex := semLeadNodeBlockLines(md, "纹理上传 ×2")
 	if len(tex) == 0 {
 		t.Fatalf("the semantic family row must stay published:\n%s", md)
 	}
@@ -623,11 +631,11 @@ func TestSemLeadPureSemanticBoardMintsTypedPrimaryAndCrowns(t *testing.T) {
 			break
 		}
 	}
-	if leadLine == "" || !strings.Contains(leadLine, "Texture upload") || strings.Contains(leadLine, "未定位到链上主根因") {
+	if leadLine == "" || !strings.Contains(leadLine, "纹理上传") || strings.Contains(leadLine, "未定位到链上主根因") {
 		t.Fatalf("the pure-semantic typed primary must crown (§29.7-2 可登顶), got %q in:\n%s", leadLine, md)
 	}
 	badge := semLeadNodeBlockLines(md, "❶")
-	if len(badge) == 0 || !strings.Contains(strings.Join(badge, "\n"), "Texture upload") {
+	if len(badge) == 0 || !strings.Contains(strings.Join(badge, "\n"), "纹理上传") {
 		t.Fatalf("❶ must seat on the semantic family:\n%s", md)
 	}
 }

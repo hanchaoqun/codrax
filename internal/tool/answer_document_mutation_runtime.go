@@ -3255,6 +3255,7 @@ func runtimeTraceCausalProjectionActionCellWithFamily(node types.TraceCausalProj
 		class := strings.TrimSpace(node.SemanticClass)
 		if zh {
 			if class != "" {
+				class = runtimeTraceCausalProjectionDisplayCauseName(class, true)
 				return "优化点·" + runtimeTraceCausalProjectionCompactCellText(class, 22), ""
 			}
 			return "确定性优化点", ""
@@ -3423,6 +3424,7 @@ func runtimeTraceCausalProjectionImpactShapeCellTyped(node types.TraceCausalProj
 		// survives on the lossless table AND as the tree row's leading tag even
 		// when the B4 width cap elides the secondary action/host tags.
 		if class := strings.TrimSpace(node.SemanticClass); class != "" {
+			class = runtimeTraceCausalProjectionDisplayCauseName(class, zh)
 			label += "·" + runtimeTraceCausalProjectionCompactCellText(class, 22)
 		}
 		return label, false
@@ -4276,7 +4278,7 @@ func materializeRuntimeTraceSemanticOptimizationBlock(doc *types.AnswerDocumentV
 	// evidence index (trace line/time coordinates) — never the intermediate
 	// trace_query record file.
 	title := "确定性优化点"
-	text := "trace 中的确定性语义优化 span(类校验/JIT/着色器编译/Texture upload/GC暂停等,来自 typed semantic_class 通道):每行都是可直接落地的优化点;时长与 E# 证据均可经证据索引定位到 trace 行号区间。"
+	text := "trace 中的确定性语义优化 span(类校验/JIT编译/着色器编译/运行时编译/纹理上传/GC暂停等,来自 typed semantic_class 通道):每行都是可直接落地的优化点;时长与 E# 证据均可经证据索引定位到 trace 行号区间。"
 	if !zh {
 		title = "Deterministic Optimization Points"
 		text = "Deterministic semantic optimization spans found in the trace (class verification / JIT / shader compilation / texture upload / explicit GC pauses, from the typed semantic_class lane): each row is a directly actionable optimization point; durations and E# tags resolve to trace line spans via the evidence index."
@@ -4362,9 +4364,12 @@ func runtimeTraceSemanticOptimizationParts(projection types.TraceCausalProjectio
 		if name == "" {
 			continue
 		}
-		class := strings.TrimSpace(span.SemanticClass)
-		if class == "" {
+		classToken := strings.TrimSpace(span.SemanticClass)
+		class := classToken
+		if classToken == "" {
 			class = dash
+		} else if zh {
+			class = runtimeTraceCausalProjectionDisplayCauseName(classToken, true)
 		}
 		host := strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(span.Subject, zh))
 		if host == "" {

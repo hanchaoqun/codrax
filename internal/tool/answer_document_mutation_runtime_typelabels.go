@@ -90,12 +90,10 @@ func runtimeTraceRootCauseTypeZHLabel(token string) string {
 	case "runtime_compile":
 		return "运行时编译"
 	case "texture_upload":
-		// TEX (§28.1 user ruling 2026-07-09, real_trace_campaign_20260705.md):
-		// the fifth semantic span class KEEPS its English proper term on every
-		// display face (§22.2.1 专名尺子, the VerifyClass precedent) — this arm
-		// exists because the D2 coverage pin couples the engine weight switch
-		// to this table; DISP-2 owns any richer display treatment.
-		return "Texture upload"
+		// Evolution 2026-07-10: the Chinese decision/UX lane uses the customer-
+		// ruled term 纹理上传. Raw span names, member rosters and audit wire tokens
+		// remain verbatim, so this display mapping does not rewrite trace facts.
+		return "纹理上传"
 	case "gc_pause":
 		return "GC暂停"
 	case "cpu_frequency_limit":

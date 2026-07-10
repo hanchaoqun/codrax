@@ -2922,7 +2922,7 @@ func runtimeTraceProjFoldSameSegmentLaneTwins(nodes []types.TraceCausalProjectio
 // observation channels — the trace_semantic_span typed channel (the ✦ 语义
 // lane row: class word, family roster, caliber) and the root_cause_* rank
 // funnel (rank ordinal, tier, effective attribution) — and the display seated
-// BOTH (792-textup witness: E9 「✦ Texture upload ×11 … [E9]」 + E13
+// BOTH (792-textup witness: E9 「✦ 纹理上传 ×11 … [E9]」 + E13
 // 「链上·未接入树 ❶⚙ Texture upload(15573)… ×11 [E13]」, one 11-span family
 // on two E# seats). The fold keeps the SEMANTIC row (✦ 词位 = 类名, roster,
 // caliber word — §29.7-2 ④ 行1 类名) and folds the rank row into it: the rank
@@ -7787,7 +7787,7 @@ func runtimeTraceProjLeadPrimary(projection types.TraceCausalProjection, model r
 // the tier-4 fallback lane (a rankless semantic span named because the lead
 // came back empty-handed). An ON-CHAIN semantic row seated on the shared
 // rank board resolves through the PRIMARY lane like every board row and DOES
-// wear 主根因 when it is board[0] (792-textup "主根因: Texture upload"
+// wear 主根因 when it is board[0] (792-textup "主根因: 纹理上传"
 // 追认为正确行为) — the fallback wording stays for rows that never earned a
 // rank seat.
 type runtimeTraceProjLeadLane int

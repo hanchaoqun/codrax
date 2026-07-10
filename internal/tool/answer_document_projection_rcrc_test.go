@@ -623,10 +623,10 @@ func TestRCRCSemanticAdjacentSeatWindowBaseAndSingleClass(t *testing.T) {
 	}
 	// The class token prints ONCE (the shape tag carries it; the action cell
 	// trims to the bare word on every seat of a semantic node).
-	if strings.Contains(fence, "优化点·class_verification") {
+	if strings.Contains(fence, "优化点·类校验") {
 		t.Fatalf("the class token double-print resurfaced:\n%s", fence)
 	}
-	if !strings.Contains(fence, "语义优化span·class_verification") {
+	if !strings.Contains(fence, "语义优化span·类校验") {
 		t.Fatalf("the shape tag must keep the class token once:\n%s", fence)
 	}
 }

@@ -597,7 +597,7 @@ func TestPTV5SemanticSpanClassRendersOnceOnTreeRow(t *testing.T) {
 	classCount := 0
 	actionBare := false
 	for _, tag := range tags {
-		if strings.Contains(tag.Text, "class_verification") {
+		if strings.Contains(tag.Text, "类校验") {
 			classCount++
 		}
 		if tag.Text == "优化点" {
@@ -608,7 +608,7 @@ func TestPTV5SemanticSpanClassRendersOnceOnTreeRow(t *testing.T) {
 		t.Fatalf("the class token renders ONCE (shape tag); the action cell trims to the bare word: %+v", tags)
 	}
 	// The detail (b) surface keeps the full action cell (明细两处照旧).
-	if got := runtimeTraceCausalProjectionActionCell(node, true); got != "优化点·class_verification" {
+	if got := runtimeTraceCausalProjectionActionCell(node, true); got != "优化点·类校验" {
 		t.Fatalf("the lossless action cell keeps the class: %q", got)
 	}
 }

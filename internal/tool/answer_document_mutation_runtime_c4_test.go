@@ -129,17 +129,20 @@ func TestApplyAndPersistMutation_MaterializesDeterministicOptimizationBlock(t *t
 	}
 	for _, want := range []string{
 		"VerifyClass com.example.Foo",
-		"class_verification",
+		"类校验",
 		"threadpool-400",
 		"2.000ms",
 		"JIT compiling boolean android.net.Foo",
-		"jit_compile",
+		"JIT编译",
 		"jitpool-500",
 		"5.232ms",
 	} {
 		if !strings.Contains(flat, want) {
 			t.Fatalf("optimization rows missing %q:\n%s", want, flat)
 		}
+	}
+	if !strings.Contains(block.Text, "JIT编译") || !strings.Contains(block.Text, "纹理上传") || strings.Contains(block.Text, "Texture upload") {
+		t.Fatalf("ZH optimization intro must use the customer-ruled semantic labels: %q", block.Text)
 	}
 	// E# consistency: every row's evidence tag must appear (bracketed) inside
 	// the projection cluster, which shares the same deterministic index.

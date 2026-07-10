@@ -146,8 +146,7 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 		"⚠实际52.700ms · [E1]",
 		"⚠实际12.100ms · [E3]",
 		"⊘链止 · [E4(+1)]",
-		"4.700ms   7%  [E5]",
-		"语义优化span·class_verification",
+		"4.700ms   7%  语义优化span·类校验 · [E5]",
 		// PTV8-RCR-A EVOLUTION RECORD (§24.1): the ranked ⚙ row is a cause
 		// node — 行1 stays grammar-clean (keep-marks only), 行2 carries the
 		// 算力供给候选 identity, and the ordinary tags pack below.
@@ -203,7 +202,7 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 		// thread the tree's span-位于 line names), never the tree attach
 		// anchor (binder:42591_4-42712 was the anchor, not the host).
 		"- 关系: RenderService-3021 的语义span",
-		"语义优化span·class_verification",
+		"语义优化span·类校验",
 		"IOWorker-8842 / sleep ⊘",
 	} {
 		if !strings.Contains(md, want) {
