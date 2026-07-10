@@ -124,6 +124,31 @@ func TestShippedScriptShapes(t *testing.T) {
 		t.Errorf("d10 views = %v, want window_stats + thread_timeline", views)
 	}
 
+	// CAP CPU frequency evidence is a CPU-global lane. The target PID belongs
+	// only on target-oriented stats/rank steps; inheriting it into raw frequency
+	// searches filters by incidental emitter and manufactured a production zero
+	// result despite 926 same-window cpu_frequency rows.
+	cap2, err := LoadScript(filepath.Join("..", "..", "examples", "tracediag", "collect_cap2.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cap2.Steps) != 6 {
+		t.Fatalf("collect_cap2.yaml steps = %d, want 6", len(cap2.Steps))
+	}
+	for i, step := range cap2.Steps[:4] {
+		if step.PID != 42591 {
+			t.Errorf("cap2 target step %d pid=%d, want 42591", i, step.PID)
+		}
+	}
+	for i, step := range cap2.Steps[4:] {
+		if step.PID != 0 || step.Thread != "" {
+			t.Errorf("cap2 CPU-global step %d must be unscoped, got pid=%d thread=%q", i+4, step.PID, step.Thread)
+		}
+		if len(step.EventTypes) != 1 || step.EventTypes[0] != string(tracequery.EventCPUFrequency) {
+			t.Errorf("cap2 CPU-global step %d event_types=%v, want [cpu_frequency]", i+4, step.EventTypes)
+		}
+	}
+
 	// Open-gap witness: the four semantic/causal views are target-scoped,
 	// while the four raw evidence lanes intentionally stay unscoped so a
 	// completion emitted by IRQ/kworker or an upstream trace-mark thread is

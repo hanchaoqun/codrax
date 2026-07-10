@@ -17,32 +17,38 @@
 # 预算: 240+240+240+200+15+15 = 950 ≤ 950(单文件约束)
 version: 1
 description: CAP-2/CAP-3 簇拓扑证据面核查(huadong 两窗 + 阳性对照窗 + rank 折算面 + 频点样本对照)
-defaults:
-  pid: 42591
 steps:
   - label: huadong_window_a_stats
     view: window_stats
+    pid: 42591
     window: "6793222.700..6793222.901"
     max_lines: 240
   - label: huadong_window_b_stats
     view: window_stats
+    pid: 42591
     window: "6793224.299..6793224.501"
     max_lines: 240
   - label: control_window_stats
     view: window_stats
+    pid: 42591
     window: "6793224.900..6793225.000"
     max_lines: 240
   - label: rank_fold_basis
     view: root_cause_rank
+    pid: 42591
     window: "6793224.299..6793224.501"
     max_lines: 200
   - label: freq_sample_census_window_b
     view: event_search
+    # CPU frequency is a CPU-global state lane. Keep this step deliberately
+    # unscoped: a target-thread PID filter would discard every row emitted by
+    # idle/kworker/other threads and manufacture a false zero-result census.
     window: "6793224.299..6793224.501"
     event_types: [cpu_frequency]
     max_lines: 15
   - label: freq_boundary_rows_window_b_head
     view: event_search
+    # Same global-lane rule as the census step above.
     window: "6793223.799..6793223.803"
     event_types: [cpu_frequency]
     max_lines: 15

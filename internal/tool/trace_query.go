@@ -120,7 +120,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	    "platform": {"type":"string","enum":["auto","donghu","harmony","harmony_hitrace","android","android_atrace","generic","generic_ftrace"],"x-codrax-enum-style-alias":true,"description":"Optional typed platform hint. Use donghu when the typed task/tool call selects Donghu: scheduler/time/priority semantics follow Harmony/OpenHarmony, while Android-framework and Harmony-framework processes may coexist at process boundaries. harmony/harmony_hitrace selects Harmony semantics; android/android_atrace selects Android raw scheduler priority semantics."},
 		    "view": {"type":"string","enum":["event_search","window_sweep","span_window","frame_window","render_pipeline","frame_timeline","frame_flow","thread_timeline","window_stats","perf_stats","perf_timeline","trace_perf_bundle","scheduler_latency_stats","ipc_graph","wakeup_chain","root_cause_rank","frame_root_cause_bundle","critical_blocking_calls","interaction_stats","recipe","evidence_pack"],"x-codrax-enum-style-alias":true,"x-codrax-enum-aliases":{"state_churn":"window_stats","cpu_samples":"perf_stats","cpu_sample_stats":"perf_stats","sample_timeline":"perf_timeline","perf_sample_timeline":"perf_timeline","perf_bundle":"trace_perf_bundle","trace_perf":"trace_perf_bundle","trace_plus_perf":"trace_perf_bundle","causal_impact":"wakeup_chain","frame_bundle":"frame_root_cause_bundle","frame_rootcause_bundle":"frame_root_cause_bundle","frame_root_cause":"frame_root_cause_bundle"},"description":"The deterministic trace view to compute. Use window_sweep for a second-scale or longer dense window before heavy views: it is a streaming per-bucket coverage scan (default bucket_ms=100, clamped 50..500) that is NOT subject to the index event budget, counts sched_switch/sched_wakeup/D-state-entry/irq-entry/trace_mark rows per bucket plus target-pid sched_switch participation when pid is set, and returns advisory top-K dense sub-windows with suggested follow-up views plus a compact coverage table (folded to at most 40 rows), so drill-down windows are picked from measured density instead of blind bisection. Use span_window to turn a unique trace span into a time window: synchronous B/E spans close with unnamed E|<pid> or bare E on the same ftrace thread stack, and async S/F spans close by marker pid + name + cookie. Do not search for E|<pid>|<span_name> as an end marker. Use frame_window/render_pipeline for Choreographer/RenderFrame/VSYNC/draw/present spans; frame_timeline/frame_flow for Expected/Actual/Jank/GPU/RS/UI phase summaries and cross-thread frame flows; perf_stats for same-window CPU sample top_symbols/top_dso/top_callchains/top_threads, perf_timeline for bucketed sample weight over time, and trace_perf_bundle for a handoff-safe bundle that combines window/root-cause/wakeup evidence with perf sample context; scheduler_latency_stats for runnable wait p95/p99/max and CPU competition; wakeup_chain for wakeup edges and causal_impacts per chain node plus aggregated_impacts with bounded occurrence_windows when repeated fragmented branches share a common dependency path; critical_blocking_calls for futex/lock/sync/binder/IO/D-state candidates, with peer_state breakdown when the peer thread timeline is visible; root_cause_rank for primary/secondary/tertiary cause candidates (rows whose subject is the analysis target itself with a wait-on-counterpart type (sleep/binder wait/lock hold) instead carry tier=target_self_state — the target's own symptom, never the root cause; the target's own runnable/running/IO/D-state rows compete normally as decomposable self causes), including projected_impact_ms/projected_total_ms for selected-window projection, actual_impact_ms/actual_total_ms/actual_window for full scheduler-state duration, cumulative_impact_ms, effective_impact_ms, dominant_state/running/runnable/sleep/d_state/io_wait totals, occurrence_windows for aggregate common dependency paths, candidate-level perf_context plus role-aware perf_contexts such as candidate_thread, target_running, on_chain_dependency, same_cpu_competitor, cpu_pressure_top_running, and compute_supply_cpu, fragmented state_churn candidates when frequent short state switches cumulatively dominate, wakeup_chain causal_impacts and aggregated_impacts when repeated fragmented branches share a common dependency path, semantic span-work candidates for JIT/class verification/shader/runtime compilation hidden cost (tier=deterministic_optimization when on-chain, background_rank position when not), and co-primary on-chain runnable/running/compute-supply/D-state/IO dependencies when they are part of the same causal chain; same-chain primary root_cause_rank rows are ordered by effective_impact_ms before score, and non-semantic rows default effective_impact_ms to cumulative_impact_ms; frame_root_cause_bundle returns wakeup_chain + frame_timeline + root_cause_rank + critical_blocking_calls plus IO/IRQ/workqueue/supply/trace-mark bundle fields and role-specific perf contexts target_running_perf/on_chain_perf/binder_peer_perf/same_cpu_competitor_perf for frame/jank handoff; state_churn and causal_impacts are output sections, not standalone views; view=state_churn is accepted and treated as view=window_stats, view=causal_impact is accepted as wakeup_chain, view=perf_bundle/trace_perf/trace_plus_perf is accepted as trace_perf_bundle, and view=frame_bundle/frame_rootcause_bundle is accepted as frame_root_cause_bundle; interaction_stats for target-thread wakeup/binder interaction Top-N; recipe for standard evidence packs; and ipc_graph for binder transaction send/receive causality with explicit oneway/sync_like/blocking_candidate fields."},
 	    "thread": {"type":"string","description":"Thread name, substring, or ftrace/hitrace task label to resolve when pid is unknown. Accepts forms like \"com.tencent.mm-36379\", \"com.tencent.mm 36379\", \"com.tencent.mm [36379]\", \"[GT]ColdPool#5-36624\", \"binder:486_1-10803\", or \"pid=36379\"; pid is preferred when known."},
-    "pid": {"type":"integer","description":"Thread pid to analyze when known."},
+    "pid": {"type":"integer","description":"Thread pid to analyze when known. Do not combine pid/thread with event_search CPU-global state families (cpu_frequency, cpu_frequency_limits, cpu_idle, clock_set_rate): those rows are owned by CPUs, while the row-header task is only the incidental emitter. Remove the selector and keep the time/line window for those searches."},
     "time_start": {"oneOf":[{"type":"number"},{"type":"string"}],"description":"Trace timestamp window start in seconds. Prefer a JSON number. Also accepts strings such as \"928.081774s\", \"928.081774 秒\", or compound forms like \"1s 501ms 565μs 915ns\" and normalizes them to seconds; six fractional digits are microsecond precision."},
     "time_end": {"oneOf":[{"type":"number"},{"type":"string"}],"description":"Trace timestamp window end in seconds. Prefer a JSON number. Also accepts strings such as \"928.081774s\", \"928.081774 秒\", or compound forms like \"3s 116ms\" and normalizes them to seconds; six fractional digits are microsecond precision."},
 	    "line_start": {"type":"integer","description":"Optional result line window start for bounded search. On a composite trace this is the index-global virtual line returned by trace_query; trace_artifacts/source_spans provide the physical artifact and local line."},
@@ -158,6 +158,17 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&p); err != nil {
 		return failStrictDecodeWithError(t.Name(), time.Now(), err, nil, params)
+	}
+	if globalTypes := traceQueryCPUGlobalEventSearchTypes(p); len(globalTypes) > 0 && (p.PID.Int() > 0 || strings.TrimSpace(p.Thread) != "") {
+		return types.ToolResult{
+			ToolName: t.Name(),
+			Success:  false,
+			Summary: fmt.Sprintf(
+				"trace_query rejected pid/thread with CPU-global event_search types [%s]: a thread selector filters the task that emitted the row, not ownership of the CPU state, and can manufacture matched_events=0. Remove pid/thread and keep the time/line window plus event_types; split mixed thread-scoped and CPU-global event families into separate calls.",
+				strings.Join(globalTypes, ","),
+			),
+			Timestamp: time.Now(),
+		}, nil
 	}
 	traceQueryRecordExplicitRuntimeTarget(ctx, p)
 	var targetCaveat string
@@ -9049,7 +9060,6 @@ func traceQueryResultWakeupChain(result tracequery.Result) *tracequery.ChainResu
 	return nil
 }
 
-
 func traceQuerySameThreadRef(a, b tracequery.ThreadRef) bool {
 	if a.PID > 0 && b.PID > 0 {
 		return a.PID == b.PID
@@ -9714,6 +9724,16 @@ func traceQueryApplyRequestModelTarget(ctx *types.BusContext, p traceQueryParams
 	if p.PID.Int() > 0 || strings.TrimSpace(p.Thread) != "" {
 		return p, ""
 	}
+	if globalTypes := traceQueryCPUGlobalEventSearchTypes(p); len(globalTypes) > 0 {
+		// CPU frequency/idle/control rows describe a CPU-global state lane. The
+		// ftrace row header names whichever task happened to emit the change;
+		// inheriting the analysis target would silently turn that incidental
+		// emitter into an ownership filter and can manufacture a zero result.
+		// Keep the query unscoped and disclose the skipped inheritance. Explicit
+		// selectors are rejected earlier in Execute so the two authorities never
+		// disagree.
+		return p, fmt.Sprintf("trace_query_target_inheritance_skipped=cpu_global_event_search event_types=[%s]; pid/thread would filter emitter identity rather than CPU-state ownership", strings.Join(globalTypes, ","))
+	}
 	target, ok := traceQuerySingleRuntimeTarget(ctx)
 	if !ok {
 		return p, traceQueryUntypedTargetHintCaveat(ctx)
@@ -9725,6 +9745,30 @@ func traceQueryApplyRequestModelTarget(ctx *types.BusContext, p traceQueryParams
 		p.Thread = target.Thread
 	}
 	return p, traceQueryRequestTargetCaveat(target)
+}
+
+// traceQueryCPUGlobalEventSearchTypes returns the exact CPU-state/control
+// families whose event rows have no thread ownership semantics. It deliberately
+// applies only to event_search: target-scoped window_stats/root-cause views use
+// PID to select the analyzed thread while consuming these same events as global
+// context, which is correct and must remain allowed.
+func traceQueryCPUGlobalEventSearchTypes(p traceQueryParams) []string {
+	if tracequery.CanonicalViewName(p.View) != tracequery.FallbackViewEventSearch {
+		return nil
+	}
+	seen := map[string]bool{}
+	for _, eventType := range parseTraceQueryEventTypes(p.EventTypes.Strings()) {
+		switch eventType {
+		case tracequery.EventCPUFrequency, tracequery.EventCPUFrequencyLimit, tracequery.EventCPUIdle, tracequery.EventClockSetRate:
+			seen[string(eventType)] = true
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for eventType := range seen {
+		out = append(out, eventType)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func traceQueryRecordExplicitRuntimeTarget(ctx *types.BusContext, p traceQueryParams) {

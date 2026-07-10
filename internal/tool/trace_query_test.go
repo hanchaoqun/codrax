@@ -613,6 +613,79 @@ func TestTraceQueryInheritsDroppedPIDFromTypedRuntimeTarget(t *testing.T) {
 	}
 }
 
+func TestTraceQueryRejectsExplicitPIDOnCPUGlobalEventSearch(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "global-frequency.systrace")
+	trace := `idle-0 (0) [000] .... 2.000000: cpu_frequency: state=1800000 cpu_id=0`
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	params, _ := json.Marshal(map[string]any{
+		"source":      "path",
+		"path":        tracePath,
+		"view":        "event_search",
+		"pid":         42591,
+		"event_types": []string{"cpu_frequency"},
+		"time_start":  1.9,
+		"time_end":    2.1,
+	})
+	res, err := (&TraceQuery{}).Execute(&types.BusContext{RepoRoot: dir, WorkDir: dir}, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Success {
+		t.Fatalf("CPU-global event search with pid must fail loud, got:\n%s", res.Summary)
+	}
+	for _, want := range []string{"CPU-global", "cpu_frequency", "Remove pid/thread", "manufacture matched_events=0"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("global selector rejection missing %q:\n%s", want, res.Summary)
+		}
+	}
+}
+
+func TestTraceQueryDoesNotInheritTypedTargetIntoCPUGlobalEventSearch(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "global-frequency-inherited.systrace")
+	trace := strings.Join([]string{
+		`idle-0 (0) [000] .... 2.000000: cpu_frequency: state=1800000 cpu_id=0`,
+		`kworker-77 (77) [001] .... 2.010000: cpu_frequency: state=2200000 cpu_id=1`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{
+		RepoRoot: dir,
+		WorkDir:  dir,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{RuntimeTargets: []types.RuntimeTarget{{
+			Kind: types.RuntimeTargetKindProcess, PID: 42591, Source: "user_explicit", Confidence: 1,
+		}}}},
+	}
+	params, _ := json.Marshal(map[string]any{
+		"source":      "path",
+		"path":        tracePath,
+		"view":        "event_search",
+		"event_types": []string{"cpu_frequency"},
+		"time_start":  1.9,
+		"time_end":    2.1,
+		"limit":       10,
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("unscoped CPU-global event search failed: %s", res.Summary)
+	}
+	for _, want := range []string{"matched_events=2", "trace_query_target_inheritance_skipped=cpu_global_event_search", "cpu_id=0", "cpu_id=1"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("global query missing %q:\n%s", want, res.Summary)
+		}
+	}
+	if strings.Contains(res.Summary, "trace_query_target_inherited=true") {
+		t.Fatalf("CPU-global query inherited the focused PID:\n%s", res.Summary)
+	}
+}
+
 func TestTraceQueryRecordsExplicitPIDForLaterTypedInheritance(t *testing.T) {
 	dir := t.TempDir()
 	tracePath := filepath.Join(dir, "recorded_pid.systrace")
