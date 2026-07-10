@@ -746,7 +746,15 @@ func runtimeTraceCausalProjectionFamilyBlockID(id string) bool {
 		return false
 	}
 	switch rest {
-	case "", "_detail", "_evidence", "_compare", "_compare_notes", "_coverage", "_partition":
+	// DFULL (SEM-LEAD 收编微批, 2026-07-10): "_detail_full" joined both
+	// switches — the builder has emitted idPrefix+"_detail_full" (因果投影
+	// 明细无损块) since the PTV8 detail redesign while this guard never
+	// listed it, so (F2b) a document holding only the _detail_full residue
+	// escaped the idempotence gate and the section could emit twice, and
+	// (PSG §25(b)) the system-authored block was excluded from the evidence
+	// feed face — its engine numerals could not ground prose (false-positive
+	// repair rounds) while its text was scanned as model prose.
+	case "", "_detail", "_detail_full", "_evidence", "_compare", "_compare_notes", "_coverage", "_partition":
 		return true
 	}
 	digits, ok := strings.CutPrefix(rest, runtimeTraceCausalProjectionArtifactBlockIDInfix)
@@ -761,7 +769,7 @@ func runtimeTraceCausalProjectionFamilyBlockID(id string) bool {
 		return false
 	}
 	switch digits[i:] {
-	case "", "_detail", "_evidence":
+	case "", "_detail", "_detail_full", "_evidence":
 		return true
 	}
 	return false
@@ -3387,7 +3395,15 @@ func runtimeTraceCausalProjectionNodeSubjectCell(node types.TraceCausalProjectio
 	if runtimeTraceCausalProjectionSemanticSpanRow(node) {
 		objectLimit = 36
 	}
-	if runtimeTraceCausalProjectionSemanticSpanRow(node) && strings.TrimSpace(node.SpanName) != "" {
+	// SEM-LEAD (§29.7-2 ④, ledger real_trace_campaign_20260705.md,
+	// 2026-07-10): a semantic FAMILY row's node cell speaks the typed class
+	// word (词值同源 with the tree 行1; 792-textup witness: the (a) table read
+	// "Texture upload(15573) 1140x1856 ×11合计" — one member's span name
+	// impersonating the ×11 family). Members stay lossless on the (b) roster.
+	if runtimeTraceProjFamilyRow(node) && strings.TrimSpace(node.SemanticClass) != "" &&
+		runtimeTraceProjFamilySemanticClassWord(node, zh) != "" {
+		object = runtimeTraceProjFamilySemanticClassWord(node, zh)
+	} else if runtimeTraceCausalProjectionSemanticSpanRow(node) && strings.TrimSpace(node.SpanName) != "" {
 		object = strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(node.SpanName, zh))
 	} else if spanWord := runtimeTraceCausalProjectionSpanNameObjectWord(node, zh); spanWord != "" {
 		object = spanWord

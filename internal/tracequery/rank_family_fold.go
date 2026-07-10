@@ -309,14 +309,19 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 		ChainDepth:    fam.ChainDepth,
 		OnChain:       fam.OnChain,
 	}
-	effectiveImpactMs := semanticTraceSpanEffectiveImpactMs(work, projection, TraceSpanSummary{DurationMs: fam.TotalMs})
+	// SEM-LEAD (§29.7-2 ②, ledger real_trace_campaign_20260705.md, 2026-07-10).
+	// EVOLUTION RECORD: same as the single-span mint — the deterministic
+	// hidden-cost boost no longer publishes as EffectiveImpactMs (792-textup
+	// witness: the family's 有效归因 read 214.561ms = 102.172 × 2.10 while the
+	// participation value the ruling fixes is the family REAL window-projection
+	// total). The boost stays engine-internal on RankSortBoostedEffectiveMs;
+	// the semantic_multiplier=/hidden_cost_boost= internal tokens left the
+	// Summary (红线: internal tokens must never reach answer prose).
+	sortBoostedMs := semanticTraceSpanEffectiveImpactMs(work, projection, TraceSpanSummary{DurationMs: fam.TotalMs})
 	summary := fmt.Sprintf("%s family ×%d same-thread span(s) totalled %.3fms window projection (largest %q %.3fms, smallest %.3fms); effective_impact=%.3fms; fold_caliber=%s",
-		work.Label, len(fam.Members), fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, effectiveImpactMs, fam.FoldCaliber)
+		work.Label, len(fam.Members), fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, fam.TotalMs, fam.FoldCaliber)
 	if fam.TotalMs < fam.SumMs {
 		summary = fmt.Sprintf("%s; interval_union=%.3fms < member_sum=%.3fms (overlapping same-thread segments deduplicated)", summary, fam.TotalMs, fam.SumMs)
-	}
-	if fam.OnChain && effectiveImpactMs > fam.TotalMs {
-		summary = fmt.Sprintf("%s; semantic_multiplier=%.2f hidden_cost_boost=true", summary, work.ImpactMultiplier)
 	}
 	if fam.DominantState != "" {
 		summary = fmt.Sprintf("%s; overlapped_chain_state=%s", summary, fam.DominantState)
@@ -337,7 +342,12 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 	}
 	item.ProjectedImpactMs = fam.TotalMs
 	item.CumulativeImpactMs = fam.TotalMs
-	item.EffectiveImpactMs = effectiveImpactMs
+	// SEM-LEAD (§29.7-2 ②): published effective = the family real total; the
+	// boost rides the internal sort channel only.
+	item.EffectiveImpactMs = fam.TotalMs
+	if sortBoostedMs > fam.TotalMs {
+		item.RankSortBoostedEffectiveMs = sortBoostedMs
+	}
 	item.SpanName = rep.Name
 	item.SpanKind = rep.Kind
 	item.SpanCategory = firstNonEmpty(rep.Category, work.Category)
@@ -358,7 +368,11 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 		item.MemberSumMs = fam.SumMs
 	}
 	item.MemberFoldCaliber = fam.FoldCaliber
-	item.Score = item.EffectiveImpactMs * item.Confidence * rootCauseItemScoreWeight(item)
+	// SEM-LEAD P1-1 (§29.22 修向(a)): the Score consumes the boosted basis as
+	// a same-effective tie-break only — the on-chain ordinal key is the
+	// published family total, so the ordinal can never contradict the
+	// eff-ordered board/badges.
+	item.Score = rootCauseRankScoreBasisMs(item) * item.Confidence * rootCauseItemScoreWeight(item)
 	return item, true
 }
 

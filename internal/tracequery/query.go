@@ -10462,17 +10462,40 @@ func truncateRootCauseRankItemsWithSemanticSeats(items []RootCauseRankItem, limi
 		}
 		return false
 	}
+	// SEM-LEAD P1-1 soft face #2 (§29.22 修向(a), 2026-07-10): when MORE
+	// beyond-limit semantic families compete than reserved seats, the seats go
+	// to the families with the largest internal boosted channel (falling back
+	// to the published effective when unboosted; ties keep list order). This
+	// is the boost's ONLY capacity consumption — a soft who-gets-the-seat
+	// choice guaranteeing §29.7-2 参赛权, never a published ordinal/value
+	// (relative sorted order of the kept rows is preserved below regardless).
+	var beyondOnChain, beyondBackground []int
 	for i := limit; i < len(items); i++ {
 		if !rootCauseItemIsSemanticSpanWork(items[i]) {
 			continue
 		}
 		if rootCauseItemIsOnChain(items[i]) {
-			if onChainKept < rootCauseSemanticOnChainReservedSeats && evictLowestNonSemantic() {
-				keep[i] = true
-				onChainKept++
-			}
-			continue
+			beyondOnChain = append(beyondOnChain, i)
+		} else {
+			beyondBackground = append(beyondBackground, i)
 		}
+	}
+	seatSignal := func(i int) float64 {
+		if items[i].RankSortBoostedEffectiveMs > 0 {
+			return items[i].RankSortBoostedEffectiveMs
+		}
+		return rootCauseEffectiveImpactMs(items[i])
+	}
+	sort.SliceStable(beyondOnChain, func(a, b int) bool {
+		return seatSignal(beyondOnChain[a]) > seatSignal(beyondOnChain[b])
+	})
+	for _, i := range beyondOnChain {
+		if onChainKept < rootCauseSemanticOnChainReservedSeats && evictLowestNonSemantic() {
+			keep[i] = true
+			onChainKept++
+		}
+	}
+	for _, i := range beyondBackground {
 		if backgroundKept < rootCauseSemanticBackgroundGuaranteedSeats && evictLowestNonSemantic() {
 			keep[i] = true
 			backgroundKept++
@@ -10562,6 +10585,16 @@ func rootCauseEffectiveImpactMs(item RootCauseRankItem) float64 {
 		// VS-1 (§7.8): the discounted value is authoritative even at 0.
 		return item.EffectiveImpactMs
 	}
+	// EVOLUTION RECORD (SEM-LEAD 复核 P1-1, §29.22 修向(a), 2026-07-10): the
+	// batch's first cut returned RankSortBoostedEffectiveMs here, making the
+	// ON-CHAIN ORDINAL key the boosted heuristic while the display board /
+	// ❶❷❸ badges order by the published EffectiveImpactMS — the same page
+	// showed ❶ on rank#2 and ❷ on rank#1 (序值倒挂, zero disclosure). §7.30
+	// S1: a synthetic ranking score must never publish as an ms hard fact —
+	// and the rank ordinal IS a published face. The accessor therefore reads
+	// the PUBLISHED value only; the boost survives on exactly two SOFT faces
+	// (rootCauseRankScoreBasisMs tie-break + the semantic seat-allocation
+	// signal in truncateRootCauseRankItemsWithSemanticSeats).
 	if item.Type == "running" {
 		// §20.2 (2026-07-07): a causal-lane running row's attribution is its
 		// ELIMINABLE supply-fold deficit, authoritative even at 0 (满频
@@ -10576,6 +10609,20 @@ func rootCauseEffectiveImpactMs(item RootCauseRankItem) float64 {
 		return item.EffectiveImpactMs
 	}
 	return rootCauseCumulativeImpactMs(item)
+}
+
+// rootCauseRankScoreBasisMs is the Score-channel basis (SEM-LEAD 复核 P1-1,
+// §29.22 修向(a), 2026-07-10): the published effective attribution, lifted to
+// the engine-internal semantic boost when present. Score is a SECONDARY sort
+// key on the on-chain tier (the published-effective comparison decides
+// first), so the boost acts exactly as a same-effective TIE-BREAK — a noisy
+// heuristic driving a soft decision, never the published ordinal
+// (精确信号硬门/嘈声信号软引导 red line).
+func rootCauseRankScoreBasisMs(item RootCauseRankItem) float64 {
+	if item.RankSortBoostedEffectiveMs > 0 {
+		return item.RankSortBoostedEffectiveMs
+	}
+	return rootCauseEffectiveImpactMs(item)
 }
 
 func runnableContextForThread(thread ThreadRef, contexts []RunnableContextSummary) (RunnableContextSummary, bool) {
@@ -11128,7 +11175,18 @@ func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSp
 	if projection.ImpactMs <= 0 {
 		return RootCauseRankItem{}, false
 	}
-	effectiveImpactMs := semanticTraceSpanEffectiveImpactMs(work, projection, span)
+	// SEM-LEAD (§29.7-2 ②, ledger real_trace_campaign_20260705.md, 2026-07-10).
+	// EVOLUTION RECORD: the deterministic hidden-cost boost (ImpactMultiplier ×
+	// window projection) used to publish AS EffectiveImpactMs and leak onto
+	// every consumer face (792-textup witness: 有效归因 214.561ms 表值 =
+	// 102.172 × 2.10, plus the semantic_multiplier=/hidden_cost_boost= internal
+	// tokens escaping into answer prose via this Summary). The published
+	// effective attribution is now the REAL window projection (家族真实合计);
+	// the boost stays ENGINE-INTERNAL on the sort/score channel
+	// (RankSortBoostedEffectiveMs → rootCauseEffectiveImpactMs / Score), so the
+	// row's competitive strength is unchanged while no boosted ms ever leaves
+	// the engine as a value or a token.
+	sortBoostedMs := semanticTraceSpanEffectiveImpactMs(work, projection, span)
 	// DCS E4: a boundary-straddling span was minted from its window-clipped
 	// extent; the actual_* lanes carry the physical B/E extent when present.
 	actualStartTs, actualEndTs, actualMs := span.StartTs, span.EndTs, span.DurationMs
@@ -11136,10 +11194,7 @@ func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSp
 		actualStartTs, actualEndTs, actualMs = span.ActualStartTs, span.ActualEndTs, span.ActualDurationMs
 	}
 	summary := fmt.Sprintf("%s span %q overlapped %s for %.3fms; effective_impact=%.3fms; actual_span=%.3fms window=%.6f..%.6f",
-		work.Label, span.Name, semanticTraceSpanProjectionScope(projection, hasCausalChain), projection.ImpactMs, effectiveImpactMs, actualMs, actualStartTs, actualEndTs)
-	if projection.OnChain && effectiveImpactMs > projection.ImpactMs {
-		summary = fmt.Sprintf("%s; semantic_multiplier=%.2f hidden_cost_boost=true", summary, work.ImpactMultiplier)
-	}
+		work.Label, span.Name, semanticTraceSpanProjectionScope(projection, hasCausalChain), projection.ImpactMs, projection.ImpactMs, actualMs, actualStartTs, actualEndTs)
 	if projection.DominantState != "" {
 		summary = fmt.Sprintf("%s; overlapped_chain_state=%s", summary, projection.DominantState)
 	}
@@ -11152,7 +11207,12 @@ func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSp
 	item.ActualTotalMs = actualMs
 	item.ProjectedImpactMs = projection.ImpactMs
 	item.CumulativeImpactMs = projection.ImpactMs
-	item.EffectiveImpactMs = effectiveImpactMs
+	// SEM-LEAD (§29.7-2 ②): published effective = real projection; boost stays
+	// on the internal sort channel only.
+	item.EffectiveImpactMs = projection.ImpactMs
+	if sortBoostedMs > projection.ImpactMs {
+		item.RankSortBoostedEffectiveMs = sortBoostedMs
+	}
 	item.SpanName = span.Name
 	item.SpanKind = span.Kind
 	item.SpanCategory = firstNonEmpty(span.Category, work.Category)
@@ -11167,8 +11227,10 @@ func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSp
 	}
 	applySemanticTraceSpanState(&item, projection.DominantState, projection.ImpactMs)
 	// F6 (§20.2 absorption): item-aware weight helper — behavior-identical
-	// here (semantic work tokens are never blocking_span).
-	item.Score = item.EffectiveImpactMs * item.Confidence * rootCauseItemScoreWeight(item)
+	// here (semantic work tokens are never blocking_span). SEM-LEAD P1-1: the
+	// Score consumes the boosted basis as a same-effective tie-break only —
+	// the on-chain ordinal key is the published effective.
+	item.Score = rootCauseRankScoreBasisMs(item) * item.Confidence * rootCauseItemScoreWeight(item)
 	return item, true
 }
 

@@ -494,9 +494,15 @@ func TestLeadSemSemanticFallbackConclusionZH(t *testing.T) {
 	if !strings.Contains(despaced, rnbLeadSemZHFixedForm) {
 		t.Fatalf("the LEAD-SEM tier-4 conclusion must render the fixed form:\n%s", md)
 	}
-	// 负向 pin (禁冒称): the semantic lead never wears the 主根因 claim.
+	// 负向 pin (禁冒称): the semantic FALLBACK lead never wears the 主根因
+	// claim. EVOLUTION RECORD (SEM-LEAD §29.7-2 ①, 2026-07-10,
+	// real_trace_campaign_20260705.md): scope NARROWED to the tier-4 fallback
+	// lane — this fixture's semantic rows carry no rank seat, which is
+	// exactly the lane the ban still governs; an ON-CHAIN RANK-SEATED
+	// semantic row crowns 主根因 through the primary lane (pinned by the
+	// SEM-LEAD board/lead tests).
 	if strings.Contains(md, "主根因:") || strings.Contains(md, "Primary root cause:") {
-		t.Fatalf("the semantic lead must never claim 主根因:\n%s", md)
+		t.Fatalf("the semantic fallback lead must never claim 主根因:\n%s", md)
 	}
 	// L1 end-to-end: the out-of-window semantic rows wear the value-less
 	// ⚠跨窗 marker, never the fake 0.000 actual.
@@ -751,10 +757,14 @@ func TestRNBDepthlessFoldKeepsUnadmittedDisclosureMax(t *testing.T) {
 	}
 }
 
-// 复核 M5: the semantic tier-4 lead never claims LeadKey — the flat 🎯 anchor
-// lane and the detail-table demotion gate keep their legacy behavior (语义
-// fallback 不冒锚,平铺头保持 unresolved). Positive control first: the lane IS
-// engaged on this model.
+// 复核 M5: the semantic tier-4 FALLBACK lead never claims LeadKey — the flat
+// 🎯 anchor lane and the detail-table demotion gate keep their legacy
+// behavior (语义 fallback 不冒锚,平铺头保持 unresolved). Positive control
+// first: the lane IS engaged on this model.
+//
+// EVOLUTION RECORD (SEM-LEAD §29.7-2 ①, 2026-07-10): fallback-lane scope
+// only — a rank-seated on-chain semantic row resolving through the PRIMARY
+// lane claims LeadKey like every crowned lead (SEM-LEAD board/lead pins).
 func TestLeadSemSemanticLaneNeverClaimsLeadKey(t *testing.T) {
 	projection := leadSemCrossWindowNoActualProjection()
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)

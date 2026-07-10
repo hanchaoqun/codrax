@@ -1,0 +1,228 @@
+package tracequery
+
+// semantic_lead_semlead_test.go — SEM-LEAD engine-half pins (ledger
+// real_trace_campaign_20260705.md §29.7-2 ②, 2026-07-10): the published
+// effective attribution of on-chain semantic span work is the REAL window
+// projection (family true total — 792-textup witness: 有效归因 214.561ms 表值
+// = 102.172 × 2.10 leaked the score multiplier); the deterministic
+// hidden-cost boost stays ENGINE-INTERNAL on RankSortBoostedEffectiveMs
+// (sort/Score channel), and the semantic_multiplier=/hidden_cost_boost=
+// internal tokens never reach the Summary (红线: no internal tokens in answer
+// prose). Family grain pinned here with a REAL engine mint (fixture 引擎实铸);
+// the single-span grain is pinned by the evolved
+// TestRootCauseRankPromotesOnChainSemanticRuntimeSpanWork.
+
+import (
+	"sort"
+	"strings"
+	"testing"
+)
+
+const semLeadTextureFamilyTrace = `
+        app-100 (100) [001] .... 5.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     worker-200 (100) [002] .... 5.000400: tracing_mark_write: B|200|Texture upload(15573) 1140x1856
+     worker-200 (100) [002] .... 5.001000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=200 next_prio=20
+     worker-200 (100) [002] .... 5.002500: tracing_mark_write: E|200
+     worker-200 (100) [002] .... 5.002600: tracing_mark_write: B|200|Texture upload(15563) 1140x1140
+     worker-200 (100) [002] .... 5.005800: tracing_mark_write: E|200
+     worker-200 (100) [002] .... 5.006000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+        app-100 (100) [001] .... 5.006500: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+`
+
+func TestSemLeadFamilyPublishesRealTotalKeepsBoostInternal(t *testing.T) {
+	idx := buildTraceIndex(t, "semlead_texture_family.systrace", semLeadTextureFamilyTrace)
+	rank := BuildRootCauseRank(idx, Query{PID: 100, TimeStart: 5.0, TimeEnd: 5.007, MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
+	var fam *RootCauseRankItem
+	for i := range rank.Items {
+		if rank.Items[i].Type == "texture_upload" {
+			fam = &rank.Items[i]
+			break
+		}
+	}
+	if fam == nil {
+		t.Fatalf("expected a texture_upload family rank contender: %+v", rank.Items)
+	}
+	if fam.MemberCount != 2 || fam.SemanticClass != "texture_upload" {
+		t.Fatalf("expected the ×2 same-thread family form: %+v", fam)
+	}
+	if fam.ChainRelevance != "on_chain" || fam.Tier != RootCauseTierDeterministicOptimization {
+		t.Fatalf("the on-chain family must wear the deterministic_optimization tier: %+v", fam)
+	}
+	// §29.7-2 ②: published effective = the family REAL window-projection
+	// total (5.300ms = 2.100 + 3.200), never the boosted value.
+	if fam.EffectiveImpactMs != fam.ProjectedImpactMs {
+		t.Fatalf("family effective must publish the real total: %+v", fam)
+	}
+	if fam.RankSortBoostedEffectiveMs <= fam.ProjectedImpactMs {
+		t.Fatalf("the boost must survive on the internal sort channel: %+v", fam)
+	}
+	if fam.Score < fam.RankSortBoostedEffectiveMs*fam.Confidence*0.999 {
+		t.Fatalf("Score must consume the boosted internal channel (乘子留引擎排序内部): %+v", fam)
+	}
+	// §29.7-2 参赛可登顶: the on-chain family competes through the ordinary
+	// rank ordinals — on this board it wins seat #1.
+	if fam.Rank != 1 {
+		t.Fatalf("the dominant on-chain semantic family should top this board: %+v", rank.Items)
+	}
+	if strings.Contains(fam.Summary, "hidden_cost_boost") || strings.Contains(fam.Summary, "semantic_multiplier") {
+		t.Fatalf("internal ranking tokens must not leak into the family summary: %q", fam.Summary)
+	}
+	if !strings.Contains(fam.Summary, "effective_impact=5.300ms") {
+		t.Fatalf("the family summary must state the REAL published effective: %q", fam.Summary)
+	}
+}
+
+// --- 复核 P1-1 (§29.22 修向(a)) pins ------------------------------------------
+
+// semLeadRealBelowPrimaryTrace is the 复核 real<primary form: an on-chain
+// D/IO wait of 8.100ms beats the texture family's REAL total (5.300ms) while
+// the family's internal boost (×2.10 → 11.130ms) would have flipped the
+// order. The ordinal must follow the PUBLISHED value (ordinal ≡ board ≡
+// badges; §7.30 S1 — a synthetic ranking score never publishes as an ms hard
+// fact, and the ordinal is a published face). Worker runs only ~0.3ms so no
+// running/churn row outgrows the boost — the premise "the boost WOULD have
+// jumped a competitor" holds by construction and is asserted.
+const semLeadRealBelowPrimaryTrace = `
+        app-100 (100) [001] .... 5.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     worker-200 (100) [002] .... 5.000400: tracing_mark_write: B|200|Texture upload(15573) 1140x1856
+     worker-200 (100) [002] .... 5.002500: tracing_mark_write: E|200
+     worker-200 (100) [002] .... 5.002600: tracing_mark_write: B|200|Texture upload(15563) 1140x1140
+     worker-200 (100) [002] .... 5.005800: tracing_mark_write: E|200
+     worker-200 (100) [002] .... 5.005900: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=200 next_prio=20
+     worker-200 (100) [002] .... 5.006000: sched_switch: prev_comm=worker prev_pid=200 prev_prio=20 prev_state=D ==> next_comm=idle/2 next_pid=0 next_prio=120
+      irq-2 (2) [002] .... 5.006100: sched_blocked_reason: pid=200 iowait=1 caller=f2fs_wait_on_block
+      irq-2 (2) [002] .... 5.014100: sched_wakeup: comm=worker pid=200 prio=20 target_cpu=002
+     worker-200 (100) [002] .... 5.014200: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=200 next_prio=20
+     worker-200 (100) [002] .... 5.014300: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+     worker-200 (100) [002] .... 5.014400: sched_switch: prev_comm=worker prev_pid=200 prev_prio=20 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
+        app-100 (100) [001] .... 5.014800: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+`
+
+func TestSemLeadOrdinalFollowsPublishedEffectiveNotBoost(t *testing.T) {
+	idx := buildTraceIndex(t, "semlead_real_below_primary.systrace", semLeadRealBelowPrimaryTrace)
+	rank := BuildRootCauseRank(idx, Query{PID: 100, TimeStart: 5.0, TimeEnd: 5.015, MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
+	var fam *RootCauseRankItem
+	var onChain []*RootCauseRankItem
+	for i := range rank.Items {
+		item := &rank.Items[i]
+		if item.Type == "texture_upload" {
+			fam = item
+		}
+		if item.Rank > 0 && rootCauseItemIsOnChain(*item) {
+			onChain = append(onChain, item)
+		}
+	}
+	if fam == nil || fam.Rank <= 0 || fam.Tier != RootCauseTierDeterministicOptimization {
+		t.Fatalf("the texture family must stay a ranked deterministic-optimization contender: %+v", rank.Items)
+	}
+	// Premise: the internal boost WOULD have jumped at least one competitor
+	// (a non-semantic on-chain row with real < eff < boost exists) — i.e.
+	// this IS the 复核 real<primary shape, not a vacuous board.
+	jumped := false
+	for _, item := range onChain {
+		if rootCauseItemIsSemanticSpanWork(*item) {
+			continue
+		}
+		eff := rootCauseEffectiveImpactMs(*item)
+		if eff > fam.EffectiveImpactMs && eff < fam.RankSortBoostedEffectiveMs {
+			jumped = true
+			// P1-1: the ordinal follows the PUBLISHED effective — the row the
+			// boost would have jumped seats AHEAD of the semantic family.
+			if item.Rank >= fam.Rank {
+				t.Fatalf("ordinal must follow published effective (competitor eff=%.3f rank=%d vs fam eff=%.3f boost=%.3f rank=%d)",
+					eff, item.Rank, fam.EffectiveImpactMs, fam.RankSortBoostedEffectiveMs, fam.Rank)
+			}
+		}
+	}
+	if !jumped {
+		t.Fatalf("fixture premise broken (no competitor between real and boost): %+v", rank.Items)
+	}
+	// Invariant (ordinal ≡ published-eff order): across the ranked on-chain
+	// prefix, rank order never contradicts published-effective order.
+	sort.Slice(onChain, func(i, j int) bool { return onChain[i].Rank < onChain[j].Rank })
+	for i := 1; i < len(onChain); i++ {
+		if rootCauseEffectiveImpactMs(*onChain[i-1]) < rootCauseEffectiveImpactMs(*onChain[i]) {
+			t.Fatalf("rank ordinal contradicts published effective order: #%d eff=%.3f < #%d eff=%.3f",
+				onChain[i-1].Rank, rootCauseEffectiveImpactMs(*onChain[i-1]),
+				onChain[i].Rank, rootCauseEffectiveImpactMs(*onChain[i]))
+		}
+	}
+}
+
+// TestSemLeadBoostIsSameEffectiveTieBreak — 复核 P1-1 soft face #1: at EQUAL
+// published effective on the on-chain tier, the boosted Score decides — the
+// semantic family outranks the same-value non-semantic row; with the boost
+// absent (control) the line-order tie-break decides instead. Unit grain on
+// the pure sort function (the guards are typed-field comparisons only).
+func TestSemLeadBoostIsSameEffectiveTieBreak(t *testing.T) {
+	mk := func(boost float64) []RootCauseRankItem {
+		other := RootCauseRankItem{
+			Type: "d_state_or_io_wait", Thread: ThreadRef{Comm: "io", PID: 300},
+			ImpactMs: 5.3, EffectiveImpactMs: 5.3, Confidence: 0.55,
+			ChainRelevance: "on_chain", Causality: "on_wakeup_chain", LineStart: 1,
+		}
+		other.Score = rootCauseRankScoreBasisMs(other) * other.Confidence * rootCauseItemScoreWeight(other)
+		sem := RootCauseRankItem{
+			Type: "texture_upload", SemanticClass: "texture_upload",
+			Thread:   ThreadRef{Comm: "worker", PID: 200},
+			ImpactMs: 5.3, EffectiveImpactMs: 5.3, Confidence: 0.55,
+			RankSortBoostedEffectiveMs: boost,
+			ChainRelevance:             "on_chain", Causality: "on_wakeup_chain", LineStart: 9,
+		}
+		sem.Score = rootCauseRankScoreBasisMs(sem) * sem.Confidence * rootCauseItemScoreWeight(sem)
+		return []RootCauseRankItem{other, sem}
+	}
+	boosted := mk(11.13)
+	sortRootCauseRankItems(boosted, true)
+	if boosted[0].Type != "texture_upload" {
+		t.Fatalf("at equal published effective the boosted Score must break the tie: %+v", boosted)
+	}
+	control := mk(0)
+	sortRootCauseRankItems(control, true)
+	if control[0].Type != "d_state_or_io_wait" {
+		t.Fatalf("without the boost the legacy line-order tie-break decides: %+v", control)
+	}
+}
+
+// TestSemLeadBoostAllocatesReservedSeats — 复核 P1-1 soft face #2: when more
+// beyond-limit on-chain semantic families compete than reserved seats, the
+// boosted channel picks WHICH families redeem the seats (§29.7-2 参赛权
+// capacity guarantee); the published board order/values are untouched.
+func TestSemLeadBoostAllocatesReservedSeats(t *testing.T) {
+	items := make([]RootCauseRankItem, 0, 8)
+	for i := 0; i < 4; i++ {
+		items = append(items, RootCauseRankItem{
+			Type: "d_state_or_io_wait", Thread: ThreadRef{Comm: "io", PID: 300 + i},
+			ImpactMs: 50 - float64(i), EffectiveImpactMs: 50 - float64(i),
+			ChainRelevance: "on_chain", LineStart: i + 1,
+		})
+	}
+	mkSem := func(class string, pid int, eff, boost float64) RootCauseRankItem {
+		return RootCauseRankItem{
+			Type: class, SemanticClass: class, Thread: ThreadRef{Comm: "w", PID: pid},
+			ImpactMs: eff, EffectiveImpactMs: eff, RankSortBoostedEffectiveMs: boost,
+			ChainRelevance: "on_chain", LineStart: 100 + pid,
+		}
+	}
+	// Four beyond-limit families for three reserved seats: the SMALLEST
+	// published value carries the LARGEST boost and must win a seat.
+	items = append(items,
+		mkSem("jit_compile", 1, 4.0, 0),
+		mkSem("shader_compile", 2, 3.0, 0),
+		mkSem("class_verification", 3, 2.0, 0),
+		mkSem("texture_upload", 4, 1.0, 9.9),
+	)
+	out := truncateRootCauseRankItemsWithSemanticSeats(items, 4)
+	if len(out) != 4 {
+		t.Fatalf("limit must hold: %d", len(out))
+	}
+	kept := map[string]bool{}
+	for _, item := range out {
+		if item.SemanticClass != "" {
+			kept[item.SemanticClass] = true
+		}
+	}
+	if !kept["texture_upload"] || !kept["jit_compile"] || !kept["shader_compile"] || kept["class_verification"] {
+		t.Fatalf("the boost signal must allocate the reserved seats (largest signals win): %+v", kept)
+	}
+}

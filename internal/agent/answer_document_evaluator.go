@@ -9100,13 +9100,22 @@ func traceProjectionHeadlineEntities(set types.TraceCausalProjectionSet) []trace
 // primary root-cause headline follows. This mirrors the rendered rank
 // board's typed skips exactly — ranked (Rank>0) primary/on-chain rows,
 // minus the analysis target's own symptom rows (tier=target_self_state),
-// aggregate-metric rows, counted overflow fold rows, semantic
-// optimization-span rows (the LEAD-SEM negative pin: the semantic lane
-// never claims the primary root cause, so the advisory must never demand
-// its entity as the headline), and unknown-thread sentinel rows (§7.30
+// aggregate-metric rows, counted overflow fold rows, NON-CHAIN semantic
+// optimization-span rows, and unknown-thread sentinel rows (§7.30
 // 裁定1: an unresolved-subject row never seats on the board; its label is a
 // sentinel, not an entity the prose could meaningfully name) — ordered by
 // discounted attribution (EffectiveImpactMS) descending.
+//
+// EVOLUTION RECORD (SEM-LEAD §29.7-2 ④, ledger
+// real_trace_campaign_20260705.md, 2026-07-10; GAP-C P1-1 形 reverse
+// evolution): the arm used to exclude EVERY semantic optimization-span row
+// ("the LEAD-SEM negative pin: the semantic lane never claims the primary
+// root cause"). Per the user ruling, an ON-CHAIN semantic row competes on
+// equal footing and may be crowned 主根因 (792-textup "主根因: Texture
+// upload" 追认为正确行为), and the display board now seats it — so the
+// mirror admits on-chain semantic rows and keeps excluding only the
+// non-chain lane (背景综合排序+提及门 background_rank≤3 不变, §23.1 后半).
+// Precise typed relevance token only, never prose.
 //
 // Conservative-arm ruling (复核 P2-2, 2026-07-09): the election speaks ONLY
 // when a candidate carries a POSITIVE discounted attribution. There is no
@@ -9126,10 +9135,16 @@ func traceProjectionHeadlineNode(projection types.TraceCausalProjection) (types.
 		if node.IsTargetSelfStateRow() || node.IsAggregateMetric() || node.OnChainOverflowFold {
 			return
 		}
-		// Same typed pair the display board's semantic-span exclusion
-		// reads (Role enum + the trace_semantic_span predicate token).
-		if node.Role == types.TraceCausalRoleSemanticSpan ||
-			strings.TrimSpace(node.Predicate) == "trace_semantic_span" {
+		// Same typed pair the display's semantic-row predicate reads (Role
+		// enum + the trace_semantic_span predicate token), narrowed to the
+		// NON-CHAIN lane (SEM-LEAD §29.7-2 ④ reverse evolution — on-chain
+		// semantic rows compete for the headline like every board row; the
+		// engine also seats them through the root_cause_* rank funnel with a
+		// typed SemanticClass, so both lanes obey the ONE relevance gate).
+		if (node.Role == types.TraceCausalRoleSemanticSpan ||
+			strings.TrimSpace(node.Predicate) == "trace_semantic_span" ||
+			strings.TrimSpace(node.SemanticClass) != "") &&
+			strings.TrimSpace(node.ChainRelevance) != "on_chain" {
 			return
 		}
 		switch strings.ToLower(strings.TrimSpace(node.Subject)) {

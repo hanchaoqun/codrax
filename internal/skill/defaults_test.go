@@ -257,9 +257,18 @@ func TestExploreSkill_TraceQueryGuidanceIsTraceGated(t *testing.T) {
 		// query window (DCS E5 lane). Pin evolved: "projected share of the
 		// analysis window" → "projected share of its own query window", plus
 		// the family-field vocabulary below.
+		// EVOLUTION RECORD (SEM-LEAD §29.7-2 ⑤, 2026-07-10,
+		// real_trace_campaign_20260705.md): the "never as the root cause"
+		// pin is RETIRED — on-chain semantic rows now compete for (and may
+		// be named) the root cause; the pin set asserts the new equal-footing
+		// clause + the unconditional mention floor + the class-word naming
+		// rule, and the negative pin below keeps the retired ban out.
 		"tier=deterministic_optimization",
-		"MUST mention the largest one",
-		"never as the root cause",
+		"compete for the root cause on equal footing",
+		"name it as the root cause by its semantic class",
+		"never one member's span name",
+		"MUST mention the largest on-chain one",
+		"never omitted",
 		"projected share of its own query window",
 		"member_count",
 		"member_roster",
@@ -270,6 +279,12 @@ func TestExploreSkill_TraceQueryGuidanceIsTraceGated(t *testing.T) {
 		if !strings.Contains(traceTier, want) {
 			t.Fatalf("trace-gated workflow missing %q:\n%s", want, traceTier)
 		}
+	}
+	// SEM-LEAD §29.7-2 ⑤ negative pin: the retired ban wording must not
+	// resurface — "never as the root cause" contradicted the ruling's
+	// equal-footing crown lane (the mention floor stays as its own clause).
+	if strings.Contains(traceTier, "never as the root cause") {
+		t.Fatalf("retired semantic-span root-cause ban resurfaced in the trace tier:\n%s", traceTier)
 	}
 }
 

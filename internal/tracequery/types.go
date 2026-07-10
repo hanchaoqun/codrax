@@ -2090,6 +2090,25 @@ type RootCauseRankItem struct {
 	ProjectedImpactMs  float64                    `json:"projected_impact_ms,omitempty"`
 	CumulativeImpactMs float64                    `json:"cumulative_impact_ms,omitempty"`
 	EffectiveImpactMs  float64                    `json:"effective_impact_ms,omitempty"`
+	// RankSortBoostedEffectiveMs (SEM-LEAD §29.7-2 ② + 复核 P1-1 修向(a),
+	// ledger real_trace_campaign_20260705.md §29.22, 2026-07-10) is the
+	// ENGINE-INTERNAL boost channel for on-chain semantic span work: the
+	// deterministic hidden-cost heuristic (ImpactMultiplier × window
+	// projection, bounded by semanticTraceSpanEffectiveImpactMs) that used to
+	// publish AS EffectiveImpactMs. `json:"-"` keeps it off every
+	// wire/view/observation face — the published effective attribution AND
+	// the on-chain rank ordinal key are always the real projection
+	// (家族真实合计; 792-textup 214.561 表值泄漏修根 + 复核序值倒挂修根:
+	// ordinal ≡ board ≡ badges). The heuristic feeds EXACTLY TWO soft faces
+	// (嘈声信号只作软引导):
+	//   1. rootCauseRankScoreBasisMs — Score secondary key, i.e. a
+	//      same-published-effective TIE-BREAK on the on-chain sort;
+	//   2. truncateRootCauseRankItemsWithSemanticSeats — the seat-allocation
+	//      signal choosing WHICH beyond-limit semantic families redeem the
+	//      reserved seats (§29.7-2 参赛权 capacity guarantee).
+	// Zero on every non-semantic row and whenever the boost would not exceed
+	// the real projection.
+	RankSortBoostedEffectiveMs float64 `json:"-"`
 	// GatedRunnableMs / GatedRunningDeficitMs mirror the R5d gated-impact
 	// composition for priority_inversion_candidate rows (§7.30.3 D3); zero on
 	// every other row type. GatedCapabilitySource (CAP §26 C3) mirrors the

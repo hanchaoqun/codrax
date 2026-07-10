@@ -227,12 +227,16 @@ func TestG13HeadlineElectionHonestFallbackIsSilent(t *testing.T) {
 	}
 }
 
-// TestG13HeadlineElectionSkipsSemanticSpanRows (复核 P1-1, 2026-07-09): the
-// semantic optimization-span lane never claims the primary root cause (the
-// LEAD-SEM negative pin), and after the rank re-numbering a semantic row's
-// classified copy in the on-chain bucket carries a REAL rank — the election
-// must skip it on the same typed pair the display board's exclusion reads
-// (Role enum + trace_semantic_span predicate) and seat the next candidate.
+// TestG13HeadlineElectionSkipsSemanticSpanRows (复核 P1-1, 2026-07-09).
+// EVOLUTION RECORD (SEM-LEAD §29.7-2 ④, ledger
+// real_trace_campaign_20260705.md, 2026-07-10): the pin's original claim —
+// "the semantic optimization-span lane never claims the primary root cause"
+// — is RETIRED by the user ruling (on-chain 语义类行无条件全权参赛、可登顶;
+// 792-textup "主根因: Texture upload" 追认为正确行为). The exclusion arm
+// narrowed to the NON-CHAIN lane: every fixture row below carries no
+// on-chain relevance token, so the skips now pin the §23.1 后半 mention-gate
+// lane (非链上语义行不选头条). The on-chain positive arm is pinned by
+// TestSemLeadHeadlineElectionSeatsOnChainSemanticRow below.
 func TestG13HeadlineElectionSkipsSemanticSpanRows(t *testing.T) {
 	projection := types.TraceCausalProjection{
 		OnChainCauses: []types.TraceCausalProjectionNode{
@@ -266,6 +270,49 @@ func TestG13HeadlineElectionSkipsSemanticSpanRows(t *testing.T) {
 	projection.OnChainCauses[0].Predicate = "trace_semantic_span"
 	if node, ok := traceProjectionHeadlineNode(projection); ok {
 		t.Fatalf("an all-semantic board must stay silent, got %+v", node)
+	}
+}
+
+// TestSemLeadHeadlineElectionSeatsOnChainSemanticRow (SEM-LEAD §29.7-2 ④,
+// ledger real_trace_campaign_20260705.md, 2026-07-10): the reverse-evolution
+// positive arm — an ON-CHAIN semantic row (typed relevance token) carrying
+// the engine rank seat and the top discounted attribution IS the headline
+// entity the advisory may demand (mirror of the display board's SEM-LEAD
+// semantic-kind admission; 792-textup: rank#1 Texture upload family crowned
+// 主根因). The rank-funnel twin (root_cause_* predicate + SemanticClass) is
+// covered by the same gate. A non-chain twin of the same shape stays skipped.
+func TestSemLeadHeadlineElectionSeatsOnChainSemanticRow(t *testing.T) {
+	semantic := types.TraceCausalProjectionNode{
+		Role: types.TraceCausalRoleSemanticSpan, Subject: "RenderThread-51342",
+		Predicate: "trace_semantic_span", SemanticClass: "texture_upload",
+		ChainRelevance: "on_chain", Rank: 1,
+		ImpactMS: 102.172, EffectiveImpactMS: 102.172,
+	}
+	other := types.TraceCausalProjectionNode{
+		Role: types.TraceCausalRoleCausalHop, Subject: "hmfs_discard-5876",
+		Predicate: "root_cause_tertiary", Rank: 2,
+		ImpactMS: 11.506, EffectiveImpactMS: 11.506,
+	}
+	projection := types.TraceCausalProjection{
+		OnChainCauses: []types.TraceCausalProjectionNode{semantic, other},
+	}
+	node, ok := traceProjectionHeadlineNode(projection)
+	if !ok || node.Subject != "RenderThread-51342" {
+		t.Fatalf("an on-chain ranked semantic row must win the headline election, got %+v ok=%v", node, ok)
+	}
+	// Rank-funnel twin form (root_cause_* predicate + typed SemanticClass).
+	projection.OnChainCauses[0].Role = types.TraceCausalRoleRootCauseContext
+	projection.OnChainCauses[0].Predicate = "root_cause_deterministic_optimization"
+	node, ok = traceProjectionHeadlineNode(projection)
+	if !ok || node.Subject != "RenderThread-51342" {
+		t.Fatalf("the on-chain rank-funnel semantic twin must win the same election, got %+v ok=%v", node, ok)
+	}
+	// Non-chain control: the SAME row without the on-chain token stays
+	// excluded (§23.1 后半: 背景综合排序+提及门, never the headline).
+	projection.OnChainCauses[0].ChainRelevance = "background"
+	node, ok = traceProjectionHeadlineNode(projection)
+	if !ok || node.Subject != "hmfs_discard-5876" {
+		t.Fatalf("a non-chain semantic row must stay out of the election, got %+v ok=%v", node, ok)
 	}
 }
 

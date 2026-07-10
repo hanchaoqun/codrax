@@ -111,19 +111,38 @@ func TestDCSBackgroundRankNoteEmissionScope(t *testing.T) {
 	}
 }
 
-// LLM-facing description pin: the semantic span-work semantics speak the new
-// tier/board tokens and the co-primary sentence no longer lists semantic
-// span-work (E1 不与选举竞争 — prompt face half).
+// LLM-facing description pin: the semantic span-work semantics speak the
+// tier/board tokens.
+//
+// EVOLUTION RECORD (SEM-LEAD §29.7-2 ⑤, ledger
+// real_trace_campaign_20260705.md, 2026-07-10): the DCS-era pins "never as
+// the root cause itself" / "semantic span-work rows never join that
+// election" are RETIRED — per the user ruling an on-chain semantic row
+// competes on equal footing, may be reported as THE root cause when it
+// ranks highest, and keeps its unconditional optimization-point mention
+// floor; non-chain rows keep the background_rank mention gate. The pins now
+// assert the equal-footing wording and keep the retired ban out.
 func TestDCSTraceQueryDescriptionSpeaksOptimizationTier(t *testing.T) {
 	description := (&TraceQuery{}).Description()
 	for _, want := range []string{
 		"tier=deterministic_optimization",
 		"background_rank",
-		"never as the root cause itself",
-		"semantic span-work rows never join that election",
+		"compete for the root cause on equal footing",
+		"report it as the root cause named by its semantic class",
+		"never one member's span name",
+		"always also report it as a deterministic optimization point",
+		"on-chain semantic span-work rows join that comparison on equal footing",
 	} {
 		if !strings.Contains(description, want) {
 			t.Fatalf("description missing %q", want)
+		}
+	}
+	for _, banned := range []string{
+		"never as the root cause itself",
+		"semantic span-work rows never join that election",
+	} {
+		if strings.Contains(description, banned) {
+			t.Fatalf("retired semantic-span ban wording resurfaced: %q", banned)
 		}
 	}
 	if strings.Contains(description, "running/compute-supply, semantic span-work, low-frequency") {

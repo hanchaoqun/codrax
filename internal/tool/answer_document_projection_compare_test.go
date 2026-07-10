@@ -403,9 +403,19 @@ func TestTraceProjectionFamilyIdempotenceGuard(t *testing.T) {
 		"runtime_trace_causal_projection_a1",
 		"runtime_trace_causal_projection_a12_detail",
 		"runtime_trace_causal_projection_a2_evidence",
+		// DFULL (2026-07-10): the lossless detail block id the builder has
+		// emitted since the PTV8 detail redesign — both switch arms.
+		"runtime_trace_causal_projection_detail_full",
+		"runtime_trace_causal_projection_a2_detail_full",
 	} {
 		if !runtimeTraceCausalProjectionFamilyBlockID(id) {
 			t.Fatalf("family id %q must match", id)
+		}
+		// DFULL: every family id is a PSG §25(b) system evidence surface —
+		// the lossless detail block's engine numerals ground prose and its
+		// system text is never scanned as model prose.
+		if !RuntimeTraceSystemBlockID(id) {
+			t.Fatalf("family id %q must be a system evidence surface", id)
 		}
 	}
 	for _, id := range []string{
@@ -414,6 +424,10 @@ func TestTraceProjectionFamilyIdempotenceGuard(t *testing.T) {
 		"runtime_trace_causal_projection_a1x",
 		"runtime_trace_causal_projection_summary",
 		"runtime_trace_causal_projectionx",
+		// DFULL negative arms: exact suffix only — lookalike tails stay out.
+		"runtime_trace_causal_projection_detail_fullx",
+		"runtime_trace_causal_projection_detail_full_extra",
+		"runtime_trace_causal_projection_a2_detail_fullx",
 		"other_block",
 	} {
 		if runtimeTraceCausalProjectionFamilyBlockID(id) {
@@ -428,6 +442,10 @@ func TestTraceProjectionFamilyIdempotenceGuard(t *testing.T) {
 		"runtime_trace_causal_projection_a2",
 		"runtime_trace_causal_projection_a3_detail",
 		"runtime_trace_causal_projection_partition",
+		// DFULL (2026-07-10): a doc holding only the lossless detail block
+		// residue used to escape the guard and re-emit the whole section.
+		"runtime_trace_causal_projection_detail_full",
+		"runtime_trace_causal_projection_a1_detail_full",
 	} {
 		bus := compareProjBus(true)
 		doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{

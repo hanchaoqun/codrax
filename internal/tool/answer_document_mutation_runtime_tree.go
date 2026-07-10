@@ -1347,12 +1347,29 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// Semantic spans are excluded here — their classified copies also live in
 	// OnChainCauses, but they render exclusively through the ✦ 语义 lane (a span
 	// consumed as a same-subject "cause" row would appear twice).
+	//
+	// EVOLUTION RECORD (SEM-LEAD §29.7-2 ①, ledger
+	// real_trace_campaign_20260705.md, 2026-07-10): the exclusion arm no
+	// longer means exclusion from COMPETITION — the ✦ 语义 lane row is the
+	// entity's ONE seat, and an on-chain semantic row carrying the engine's
+	// rank seat joins the shared rank board / lead election / ❶❷❸ badges
+	// (runtimeTraceProjRankBoard semantic-kind arm; the rank-lane twin folds
+	// into the ✦ row below instead of double-seating — E9/E13 双席合一).
+	// Non-chain semantic rows keep the background comprehensive board +
+	// mention gate untouched (§23.1 后半).
 	chainUniverse := runtimeTraceProjDedupNodes(
 		runtimeTraceProjExcludeSemanticSpans(
 			append(append(append([]types.TraceCausalProjectionNode{},
 				runtimeTraceCausalProjectionPrimaryRoots(projection)...),
 				projection.OnChainCauses...),
 				projection.SupportingHops...)))
+	// SEM-LEAD (§29.7-2 ③, 2026-07-10): build the ✦ 语义 lane node list first,
+	// then fold on-chain rank-lane twins into it BEFORE the chain universe is
+	// bucketed — the folded rank row never mints a depthless/cause tree row
+	// and the surviving semantic row adopts the rank seat.
+	semantics := append([]types.TraceCausalProjectionNode(nil), projection.SemanticSpans...)
+	var semanticRankTwinPeers map[string][]types.TraceCausalProjectionNode
+	chainUniverse, semantics, semanticRankTwinPeers = runtimeTraceProjFoldSemanticRankLaneTwins(chainUniverse, semantics)
 	// §7.30 裁定1: only relation-resolved rows may enter the on-chain tree.
 	// Aggregate-metric rows and unknown-thread rows whose depth cannot attach
 	// demote to the background-pressure stanza (merged with the existing
@@ -1383,6 +1400,17 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// construction — the fold precedes tree-position assignment). The peers
 	// are re-attached to the surviving row after flatten (evidence + note).
 	chainNodes, rankFoldPeers := runtimeTraceProjFoldSameSegmentLaneTwins(chainNodes)
+	// SEM-LEAD (§29.7-2 ③): the folded on-chain rank twin of a semantic row
+	// rides the SAME RankFoldPeers carrier as the RNB fold — 行1 [E#+E#]
+	// bracket, detail 根因排序 line, bar-scale/disclosure MAX invariance.
+	if len(semanticRankTwinPeers) > 0 {
+		if rankFoldPeers == nil {
+			rankFoldPeers = map[string][]types.TraceCausalProjectionNode{}
+		}
+		for key, nodes := range semanticRankTwinPeers {
+			rankFoldPeers[key] = append(rankFoldPeers[key], nodes...)
+		}
+	}
 	bySubject := map[string][]types.TraceCausalProjectionNode{}
 	for _, node := range chainNodes {
 		key := runtimeTraceCausalProjectionCanonicalNode(node.Subject)
@@ -1451,7 +1479,8 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		seenOnChain[key] = true
 	}
 
-	semantics := append([]types.TraceCausalProjectionNode(nil), projection.SemanticSpans...)
+	// SEM-LEAD: `semantics` was built (and rank-twin folded) beside the chain
+	// universe above — this bucketing consumes the post-fold rows.
 	semanticBySubject := map[string][]types.TraceCausalProjectionNode{}
 	for _, span := range semantics {
 		key := runtimeTraceCausalProjectionCanonicalNode(span.Subject)
@@ -2184,6 +2213,25 @@ func runtimeTraceProjRankBoard(rows []runtimeTraceProjTreeRow) []*runtimeTracePr
 		}
 		switch row.Kind {
 		case runtimeTraceProjTreeRowChain, runtimeTraceProjTreeRowCause, runtimeTraceProjTreeRowDepthless:
+		case runtimeTraceProjTreeRowSemantic:
+			// EVOLUTION RECORD (SEM-LEAD §29.7-2 ①, ledger
+			// real_trace_campaign_20260705.md, 2026-07-10): the semantic ✦
+			// lane used to be structurally locked out of the shared board
+			// (the LEAD-SEM negative pin era: the semantic lane could never
+			// claim board seats / ❶❷❸ / 主根因). Per the user ruling, an
+			// ON-CHAIN semantic row is a customer-verified deterministic
+			// optimization point that MUST compete on equal footing and may
+			// top the board (on-chain 语义类行无条件全权参赛、可登顶) — the
+			// Rank>0 admission above is its engine seat (the folded rank-lane
+			// twin's ordinal), the eff-descending key below is its 有效归因
+			// (= family real total, §29.7-2 ②). Non-chain semantic rows keep
+			// the background comprehensive board + mention gate (§23.1 后半
+			// 不变) and never seat here — precise typed relevance, never a
+			// prose judgment. The tier word 确定性优化候选 identity is
+			// untouched.
+			if strings.TrimSpace(row.Node.ChainRelevance) != "on_chain" {
+				continue
+			}
 		default:
 			continue
 		}
@@ -2730,6 +2778,181 @@ func runtimeTraceProjFoldSameSegmentLaneTwins(nodes []types.TraceCausalProjectio
 // RETIRED — the folded rank row's rank/confidence ride the cause node's 行2
 // and its E# merges into 行1's bracket; the detail block carries the 根因排序
 // line. The join/guard engine above is untouched.
+
+// --- SEM-LEAD semantic-family two-lane fold (§29.7-2 ③, ledger
+// real_trace_campaign_20260705.md, 2026-07-10) --------------------------------
+//
+// The engine publishes ONE on-chain semantic span entity through TWO
+// observation channels — the trace_semantic_span typed channel (the ✦ 语义
+// lane row: class word, family roster, caliber) and the root_cause_* rank
+// funnel (rank ordinal, tier, effective attribution) — and the display seated
+// BOTH (792-textup witness: E9 「✦ Texture upload ×11 … [E9]」 + E13
+// 「链上·未接入树 ❶⚙ Texture upload(15573)… ×11 [E13]」, one 11-span family
+// on two E# seats). The fold keeps the SEMANTIC row (✦ 词位 = 类名, roster,
+// caliber word — §29.7-2 ④ 行1 类名) and folds the rank row into it: the rank
+// ordinal/tier transfer onto the node, the rank row's E#/type word ride the
+// shared RankFoldPeers carrier (行1 [E#+E#] bracket, detail 根因排序 line,
+// bar-scale/disclosure MAX invariance — the RNB R2 vocabulary verbatim).
+//
+// Scope discipline: ON-CHAIN pairs only (typed ChainRelevance on BOTH arms) —
+// §29.7-2 keeps the non-chain lane untouched (背景综合排序+提及门
+// background_rank≤3 不变), so an adjacent/background rank twin (e.g. the
+// textup E10/E18 shader pair) keeps today's two-lane render.
+//
+// Precision rules (硬边界, fail-open to the two-row render on every miss):
+//   - join key = canonical subject + typed SemanticClass token + the exact
+//     evidence line range (both lanes carry the engine's OWN verbatim family
+//     envelope / span lines — never a name or substring; 语义类身份必须
+//     typed token);
+//   - exactly ONE rank arm and ONE semantic arm under a key — any other
+//     shape is ambiguity and never folds;
+//   - value mirror equality: both lanes publish the engine's ONE
+//     participation value (the family real total / clipped span projection —
+//     §29.7-2 ② made the rank lane's effective equal it); a differing value
+//     is a different accounting and never folds;
+//   - family mirror: both lanes carry the same typed member count;
+//   - cross-window veto (SFD F1 mirror): both arms declaring their own typed
+//     selected_window beyond the ±1ms tolerance never fold.
+func runtimeTraceProjSemanticRankTwinArm(node types.TraceCausalProjectionNode) bool {
+	return strings.TrimSpace(node.SemanticClass) != "" &&
+		node.Rank > 0 &&
+		strings.HasPrefix(strings.TrimSpace(node.Predicate), "root_cause_") &&
+		strings.TrimSpace(node.ChainRelevance) == "on_chain"
+}
+
+func runtimeTraceProjSemanticLaneTwinArm(node types.TraceCausalProjectionNode) bool {
+	return runtimeTraceCausalProjectionSemanticSpanRow(node) &&
+		strings.TrimSpace(node.SemanticClass) != "" &&
+		strings.TrimSpace(node.ChainRelevance) == "on_chain"
+}
+
+func runtimeTraceProjSemanticTwinKey(node types.TraceCausalProjectionNode) string {
+	if node.LineStart <= 0 || node.LineEnd < node.LineStart {
+		return ""
+	}
+	if !types.TraceCausalProjectionKnownSubject(node.Subject) {
+		return ""
+	}
+	return runtimeTraceCausalProjectionCanonicalNode(node.Subject) +
+		"\x00" + strings.TrimSpace(node.SemanticClass) +
+		"\x00" + strconv.Itoa(node.LineStart) + "\x00" + strconv.Itoa(node.LineEnd)
+}
+
+// runtimeTraceProjFoldSemanticRankLaneTwins folds the on-chain rank-lane twin
+// of a semantic span entity into its ✦ 语义 lane row (SEM-LEAD §29.7-2 ③
+// E9/E13 双席合一). Runs on the chain-node universe BEFORE the subject
+// buckets are built (RNB position), so the rank twin never mints a
+// depthless/cause tree row; the surviving semantic node ADOPTS the rank
+// identity (Rank/Tier — the board admission and 行2 根因排序#N read them) and
+// the returned peer map (keyed by the KEPT semantic node's key) is merged
+// into the RankFoldPeers attach after flatten.
+//
+// 复核 P3-1 (theoretical form, recorded): a FAIL-OPEN remnant rank twin (any
+// guard miss — value/member/window/ambiguity) stays in the chain universe and
+// may be CONSUMED by the trunk main/extra selection when the trunk-domain
+// gate admits it (same branch + same window) — it then renders as the trunk
+// main row or a ├─成因─ child instead of the witness's depthless seat, i.e.
+// the two-seat fail-open shape can also appear as trunk-row + ✦-row. Both
+// rows stay honest (each publishes its own account; the 行1 class-word arm in
+// runtimeTraceProjRowNameBase covers the family form on every seat kind), so
+// the remnant is a display redundancy, never a double-count. No production
+// witness — the folded pairs are removed before bucketing by construction.
+func runtimeTraceProjFoldSemanticRankLaneTwins(chainNodes []types.TraceCausalProjectionNode,
+	semantics []types.TraceCausalProjectionNode) ([]types.TraceCausalProjectionNode, []types.TraceCausalProjectionNode, map[string][]types.TraceCausalProjectionNode) {
+	type group struct {
+		rankIdx []int
+		semIdx  []int
+	}
+	groups := map[string]*group{}
+	for i, node := range chainNodes {
+		if !runtimeTraceProjSemanticRankTwinArm(node) {
+			continue
+		}
+		key := runtimeTraceProjSemanticTwinKey(node)
+		if key == "" {
+			continue
+		}
+		g := groups[key]
+		if g == nil {
+			g = &group{}
+			groups[key] = g
+		}
+		g.rankIdx = append(g.rankIdx, i)
+	}
+	if len(groups) == 0 {
+		return chainNodes, semantics, nil
+	}
+	for i, node := range semantics {
+		if !runtimeTraceProjSemanticLaneTwinArm(node) {
+			continue
+		}
+		key := runtimeTraceProjSemanticTwinKey(node)
+		if key == "" {
+			continue
+		}
+		if g := groups[key]; g != nil {
+			g.semIdx = append(g.semIdx, i)
+		}
+	}
+	dropped := map[int]bool{}
+	peers := map[string][]types.TraceCausalProjectionNode{}
+	folded := false
+	for _, g := range groups {
+		if len(g.rankIdx) != 1 || len(g.semIdx) != 1 {
+			continue // ambiguity fails open (SFD donor-conflict rule)
+		}
+		rank := chainNodes[g.rankIdx[0]]
+		sem := &semantics[g.semIdx[0]]
+		if rankV, semV := runtimeTraceProjNodeDisplayImpact(rank), runtimeTraceProjNodeDisplayImpact(*sem); rankV <= 0 || rankV != semV {
+			continue // not the engine's one participation value — never fold
+		}
+		if rank.FamilyMemberCount != sem.FamilyMemberCount {
+			continue // different member accounting — never fold
+		}
+		if rank.QueryWindowStartTs > 0 && rank.QueryWindowEndTs > rank.QueryWindowStartTs &&
+			sem.QueryWindowStartTs > 0 && sem.QueryWindowEndTs > sem.QueryWindowStartTs &&
+			(math.Abs(rank.QueryWindowStartTs-sem.QueryWindowStartTs) > types.TraceCausalProjectionSameWindowToleranceS ||
+				math.Abs(rank.QueryWindowEndTs-sem.QueryWindowEndTs) > types.TraceCausalProjectionSameWindowToleranceS) {
+			continue // cross-window re-measurement (SFD F1 mirror) — never fold
+		}
+		// Typed identity transfer: the rank seat IS the semantic row's
+		// participation identity (§24.7 呈现逻辑统一令: 成因行身份 = 根因排序
+		// 参赛身份). Values are NOT transferred wholesale — the value mirror
+		// above already proved both lanes publish the same participation
+		// value; only absent-on-the-semantic-side account fields adopt.
+		sem.Rank = rank.Rank
+		if strings.TrimSpace(sem.Tier) == "" {
+			sem.Tier = rank.Tier
+		}
+		if sem.EffectiveImpactMS <= 0 {
+			sem.EffectiveImpactMS = rank.EffectiveImpactMS
+		}
+		if sem.CumulativeImpactMS <= 0 {
+			sem.CumulativeImpactMS = rank.CumulativeImpactMS
+		}
+		if sem.ChainDepth <= 0 {
+			sem.ChainDepth = rank.ChainDepth
+		}
+		if sem.Confidence <= 0 {
+			sem.Confidence = rank.Confidence
+		}
+		dropped[g.rankIdx[0]] = true
+		peers[runtimeTraceCausalProjectionNodeKey(*sem)] = append(
+			peers[runtimeTraceCausalProjectionNodeKey(*sem)], rank)
+		folded = true
+	}
+	if !folded {
+		return chainNodes, semantics, nil
+	}
+	kept := make([]types.TraceCausalProjectionNode, 0, len(chainNodes))
+	for i, node := range chainNodes {
+		if dropped[i] {
+			continue
+		}
+		kept = append(kept, node)
+	}
+	return kept, semantics, peers
+}
 
 // runtimeTraceProjOwnProcessIONode is the NEW-3/F2 typed predicate for an
 // own-process IO caliber node: an IO caliber token, and the subject's trailing
@@ -4629,6 +4852,18 @@ func runtimeTraceProjRowNameBase(row runtimeTraceProjTreeRow, zh bool) string {
 	// display face); semantic rows keep their dedicated arm above.
 	if spanWord := runtimeTraceCausalProjectionSpanNameObjectWord(node, zh); spanWord != "" {
 		object = spanWord
+	}
+	// SEM-LEAD (§29.7-2 ④, ledger real_trace_campaign_20260705.md,
+	// 2026-07-10; per-CLASS with RCM-2 D2): a semantic FAMILY row keeps the
+	// typed class 词位 on EVERY seat kind — the rank-lane / stanza seat of a
+	// family must not let one member's span name impersonate the ×N family
+	// (792-textup E13 行1 = largest member name "Texture upload(15573)
+	// 1140x1856"). Typed gate (FamilyMemberCount + SemanticClass token),
+	// never a name heuristic; single-span rows are untouched.
+	if runtimeTraceProjFamilyRow(node) && strings.TrimSpace(node.SemanticClass) != "" {
+		if word := runtimeTraceProjFamilySemanticClassWord(node, zh); word != "" {
+			object = word
+		}
 	}
 	// PTV8-RCR-A §24.1 (task-verbatim E7 case): an inversion cause node's 词位
 	// is its state composition (runnable+running) — the composite's identity
@@ -7258,8 +7493,17 @@ func runtimeTraceProjLeadPrimary(projection types.TraceCausalProjection, model r
 // runtimeTraceProjLeadLane is the typed lane the single lead-selection
 // surface resolved through (§21 LEAD-SEM upgraded the former boolean): the
 // wording of the conclusion line / compare cell forks on it — the semantic
-// lane in particular must NEVER wear the 主根因 claim (负向 pin: 禁"主根因:"
+// FALLBACK lane must NEVER wear the 主根因 claim (负向 pin: 禁"主根因:"
 // 前缀冒称).
+//
+// EVOLUTION RECORD (SEM-LEAD §29.7-2 ①, ledger
+// real_trace_campaign_20260705.md, 2026-07-10): the ban's scope NARROWED to
+// the tier-4 fallback lane (a rankless semantic span named because the lead
+// came back empty-handed). An ON-CHAIN semantic row seated on the shared
+// rank board resolves through the PRIMARY lane like every board row and DOES
+// wear 主根因 when it is board[0] (792-textup "主根因: Texture upload"
+// 追认为正确行为) — the fallback wording stays for rows that never earned a
+// rank seat.
 type runtimeTraceProjLeadLane int
 
 const (
@@ -7300,6 +7544,21 @@ func runtimeTraceProjLeadSelect(projection types.TraceCausalProjection, model ru
 		return primary, runtimeTraceProjLeadLanePrimary
 	}
 	if len(runtimeTraceCausalProjectionPrimaryRoots(projection)) == 0 {
+		// SEM-LEAD (§29.7-2 ①, ledger real_trace_campaign_20260705.md,
+		// 2026-07-10): a window whose ONLY on-chain competitors are semantic
+		// optimization spans mints no primary-tier rank row (semantic rows
+		// always wear the deterministic_optimization tier), so the legacy
+		// empty-primary gate structurally denied them the crown the ruling
+		// grants (必须能参赛且有机会登顶). When board seat ❶ IS an on-chain
+		// semantic row with a positive attribution, it crowns through the
+		// primary lane; every other empty-primary shape keeps the legacy
+		// no-conclusion behavior byte-identically (fail-open).
+		if board := runtimeTraceProjRankBoard(model.TreeRows); len(board) > 0 &&
+			board[0].Kind == runtimeTraceProjTreeRowSemantic &&
+			strings.TrimSpace(board[0].Node.ChainRelevance) == "on_chain" &&
+			board[0].Node.EffectiveImpactMS > 0 {
+			return &board[0].Node, runtimeTraceProjLeadLanePrimary
+		}
 		return nil, runtimeTraceProjLeadLaneNone
 	}
 	if fallback := runtimeTraceProjLeadOnChainFallback(model); fallback != nil {
@@ -8998,6 +9257,20 @@ func runtimeTraceProjUnadmittedOnChainDisclosure(model runtimeTraceProjTreeModel
 			}
 		}
 	}
+	// SEM-LEAD (§29.7-2 ③, 2026-07-10): an on-chain rank twin folded into a
+	// ✦ 语义 row rendered as a depthless row pre-fold and competed in this
+	// MAX — the W-B rule verbatim: the magnitude stays in the competition,
+	// the count keeps the actually-rendered row count (行数诚实).
+	for _, row := range model.TreeRows {
+		if row.Kind != runtimeTraceProjTreeRowSemantic || !row.HasData {
+			continue
+		}
+		for _, peer := range row.RankFoldPeers {
+			if peer.DisplayImpactMS > maxMS {
+				maxMS = peer.DisplayImpactMS
+			}
+		}
+	}
 	return count, maxMS, folded
 }
 
@@ -9433,6 +9706,14 @@ func runtimeTraceProjDetailFullName(node types.TraceCausalProjectionNode, zh boo
 		// ("oney.hmn.berlin-42591 / H:ReceiveVsync(trace span)"), never only the
 		// type word. Shared helper with the tree row and the (a) node cell.
 		object = spanWord
+	}
+	// SEM-LEAD (§29.7-2 ④): a semantic FAMILY row's name is the typed class
+	// word on this face too (词值同源 with the tree 行1 / (a) node cell) —
+	// the member span names stay lossless on the roster stanza lines below.
+	if runtimeTraceProjFamilyRow(node) && strings.TrimSpace(node.SemanticClass) != "" {
+		if word := runtimeTraceProjFamilySemanticClassWord(node, zh); word != "" {
+			object = word
+		}
 	}
 	switch {
 	case subject != "" && object != "":

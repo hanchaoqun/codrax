@@ -3745,11 +3745,28 @@ func TestRootCauseRankPromotesOnChainSemanticRuntimeSpanWork(t *testing.T) {
 		if item.ProjectedImpactMs <= 0 || item.ActualImpactMs < item.ProjectedImpactMs {
 			t.Fatalf("semantic span should carry projected and actual durations: %+v", item)
 		}
-		if item.EffectiveImpactMs <= item.ProjectedImpactMs {
-			t.Fatalf("on-chain semantic span should carry boosted effective impact for ranking: %+v", item)
+		// EVOLUTION RECORD (SEM-LEAD §29.7-2 ②, ledger
+		// real_trace_campaign_20260705.md, 2026-07-10): this pin used to
+		// require EffectiveImpactMs > ProjectedImpactMs (published boosted
+		// value) and the hidden_cost_boost=true Summary token. The published
+		// effective attribution is now the REAL window projection (792-textup
+		// 214.561 表值泄漏修根); the deterministic boost stays engine-internal
+		// on RankSortBoostedEffectiveMs (sort/Score channel) and the internal
+		// tokens never reach the Summary (红线: no internal tokens in prose).
+		if item.EffectiveImpactMs != item.ProjectedImpactMs {
+			t.Fatalf("on-chain semantic span must publish the real projection as effective impact: %+v", item)
 		}
-		if !strings.Contains(item.Summary, "effective_impact=") || !strings.Contains(item.Summary, "hidden_cost_boost=true") {
-			t.Fatalf("semantic span summary should explain effective impact boost: %q", item.Summary)
+		if item.RankSortBoostedEffectiveMs <= item.ProjectedImpactMs {
+			t.Fatalf("on-chain semantic span should keep the boosted ranking channel engine-internal: %+v", item)
+		}
+		if item.Score < item.RankSortBoostedEffectiveMs*item.Confidence*0.999 {
+			t.Fatalf("semantic span Score should consume the boosted internal channel: %+v", item)
+		}
+		if !strings.Contains(item.Summary, "effective_impact=") {
+			t.Fatalf("semantic span summary should state its effective impact: %q", item.Summary)
+		}
+		if strings.Contains(item.Summary, "hidden_cost_boost") || strings.Contains(item.Summary, "semantic_multiplier") {
+			t.Fatalf("internal ranking tokens must not leak into the summary: %q", item.Summary)
 		}
 	}
 	if !found {
