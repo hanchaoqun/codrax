@@ -210,8 +210,8 @@ func TestDisp3MultiProjectionTreesFirstDetailsAfter(t *testing.T) {
 		}
 	}
 	wantHeads := []string{
-		"runtime_trace_causal_projection_a1", "runtime_trace_causal_projection_a1_detail",
-		"runtime_trace_causal_projection_a2", "runtime_trace_causal_projection_a2_detail",
+		"runtime_trace_causal_projection_a1", "runtime_trace_causal_projection_a2",
+		"runtime_trace_causal_projection_a1_detail", "runtime_trace_causal_projection_a2_detail",
 	}
 	if strings.Join(headIDs, ",") != strings.Join(wantHeads, ",") {
 		t.Fatalf("head group must keep artifact order: %v", headIDs)

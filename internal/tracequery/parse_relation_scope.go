@@ -87,13 +87,22 @@ func discoverRelationScope(ctx context.Context, path string, opts BuildOptions) 
 	}
 	defer f.Close()
 
+	// Reuse only an EOF-complete timestamp-order proof. Without it the
+	// discovery pass must scan through out-of-window future rows because a
+	// later physical line may regress back into the selected window.
+	var anchorSet *traceAnchorSet
+	if info, ierr := f.Stat(); ierr == nil {
+		key := traceAnchorKeyForInfo(path, info)
+		anchorSet = anchorCache.load(key)
+	}
 	gate := windowGate{
-		lineStart:    paddedLineStart(opts),
-		lineEnd:      paddedLineEnd(opts),
-		timeStart:    paddedTimeStart(opts),
-		timeEnd:      paddedTimeEnd(opts),
-		timeStartSet: opts.TimeStartSet,
-		timeEndSet:   opts.TimeEndSet,
+		lineStart:        paddedLineStart(opts),
+		lineEnd:          paddedLineEnd(opts),
+		timeStart:        paddedTimeStart(opts),
+		timeEnd:          paddedTimeEnd(opts),
+		timeStartSet:     opts.TimeStartSet,
+		timeEndSet:       opts.TimeEndSet,
+		allowTimeEndStop: anchorSet != nil && anchorSet.TimestampOrder.AllowsTimeEndEarlyStop(),
 	}
 
 	tidToTgid := map[int]int{}
@@ -104,13 +113,10 @@ func discoverRelationScope(ctx context.Context, path string, opts BuildOptions) 
 	// P1: the discovery pre-pass consumes the anchor index too (it never
 	// records — the main pass owns extension).
 	startLine := 1
-	if info, ierr := f.Stat(); ierr == nil {
-		key := traceAnchorKey{path: path, size: info.Size(), modUnix: info.ModTime().UnixNano(), version: ParserVersion}
-		if set := anchorCache.load(key); set != nil && set.FlavorSet {
-			if a, ok := set.seekAnchorFor(opts.TimeStartSet, paddedTimeStart(opts), paddedLineStart(opts)); ok {
-				if _, serr := f.Seek(a.ByteOffset, io.SeekStart); serr == nil {
-					startLine = a.LineNo + 1
-				}
+	if anchorSet != nil && anchorSet.FlavorSet {
+		if a, ok := anchorSet.seekAnchorFor(opts.TimeStartSet, paddedTimeStart(opts), paddedLineStart(opts)); ok {
+			if _, serr := f.Seek(a.ByteOffset, io.SeekStart); serr == nil {
+				startLine = a.LineNo + 1
 			}
 		}
 	}
@@ -137,7 +143,9 @@ func discoverRelationScope(ctx context.Context, path string, opts BuildOptions) 
 					collectRelationScopeThreadCandidates(selector, ev, threadCandidates)
 					switch ev.Type {
 					case EventSchedWakeup, EventSchedWaking:
-						if ev.WakeePID > 0 && ev.PID > 0 {
+						// Task creation is a lifecycle edge, not a causal wakeup
+						// dependency from creator to the previous TID occupant.
+						if !schedWakeupStartsNewIncarnation(ev) && ev.WakeePID > 0 && ev.PID > 0 {
 							wakers := wakeeToWakers[ev.WakeePID]
 							if wakers == nil {
 								wakers = map[int]struct{}{}

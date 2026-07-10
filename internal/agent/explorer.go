@@ -9586,6 +9586,12 @@ func explorerObservationSourceRefKey(ref types.ObservationSourceRef) string {
 		ref.PageRef,
 		ref.ArtifactID,
 		ref.ArtifactKind,
+		ref.TimeDomain,
+		ref.CanonicalTimeDomain,
+		ref.ClockAlignment,
+		strconv.FormatBool(ref.ClockCalibrated),
+		explorerOptionalFloatKey(ref.ClockOffsetSec),
+		explorerOptionalFloatKey(ref.ClockSlope),
 		ref.URL,
 		ref.FetchedAt,
 		ref.Server,
@@ -9593,6 +9599,13 @@ func explorerObservationSourceRefKey(ref types.ObservationSourceRef) string {
 		ref.MIMEType,
 		ref.Connector,
 	}, "\x1e")
+}
+
+func explorerOptionalFloatKey(value *float64) string {
+	if value == nil {
+		return ""
+	}
+	return strconv.FormatFloat(*value, 'g', -1, 64)
 }
 
 func explorerObservationSpanKey(span types.ObservationSpan) string {

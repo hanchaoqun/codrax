@@ -362,11 +362,21 @@ func indexFreqSampleTimelines(idx *Index) map[int][]freqSample {
 	}
 	idx.freqTimelinesOnce.Do(func() {
 		out := map[int][]freqSample{}
+		// Cluster membership is trace-global, so its sample basis must also
+		// honor the full-index physical-order audit. A poisoned CPU is removed
+		// before derivation: otherwise canonical timestamp sorting would turn a
+		// rollback into a plausible change-point sequence and could make that
+		// CPU a donor for healthy siblings.
+		integrity := frequencyOrderIntegrityForQuery(idx, Query{})
 		for _, ev := range idx.Events {
 			if !isPerCPUFrequencySample(ev) {
 				continue
 			}
-			out[eventCPUForStats(ev)] = append(out[eventCPUForStats(ev)], freqSample{ts: ev.Ts, khz: ev.Frequency})
+			cpu := eventCPUForStats(ev)
+			if integrity.frequencyUnsafe(cpu) {
+				continue
+			}
+			out[cpu] = append(out[cpu], freqSample{ts: ev.Ts, khz: ev.Frequency})
 		}
 		idx.freqTimelines = out
 	})

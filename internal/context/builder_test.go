@@ -4063,6 +4063,9 @@ func TestBuildPromptContext_RuntimeArtifactSelectionRendersTraceOnlyExactPolicy(
 		"Policy: trace_only_exact_artifact",
 		"active_trace_source=/tmp/customer.systrace",
 		"Use trace_query with the active typed trace source",
+		"put item.source (not item.id) in path",
+		`source="attached_trace" and omit path`,
+		"compatibility-repaired only when it maps to one physical trace",
 	} {
 		if !strings.Contains(sec.Content, want) {
 			t.Fatalf("runtime artifact selection section missing %q:\n%s", want, sec.Content)
@@ -4131,7 +4134,9 @@ func TestBuildPromptContext_RuntimeArtifactSelectionRendersAmbiguityWithoutChoos
 		t.Fatal("ambiguous runtime trace selection should render selection section")
 	}
 	if !strings.Contains(sec.Content, "Policy: trace_artifact_ambiguous") ||
-		!strings.Contains(sec.Content, "Choose one typed trace source in trace_query.path") {
+		!strings.Contains(sec.Content, "Choose one typed trace source in trace_query.path") ||
+		!strings.Contains(sec.Content, "use item.source, never item.id") ||
+		!strings.Contains(sec.Content, "otherwise the tool fails closed") {
 		t.Fatalf("ambiguous trace policy not rendered:\n%s", sec.Content)
 	}
 	if strings.Contains(sec.Content, "active_trace_source=") {

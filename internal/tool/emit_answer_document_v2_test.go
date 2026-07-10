@@ -420,8 +420,8 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceNextStepFromTypedObservati
 	if doc == nil || len(doc.Blocks) != 4 {
 		t.Fatalf("runtime trace next-step block should be inserted before caveat, got %+v", doc)
 	}
-	next := doc.Blocks[2]
-	if next.ID != "next_steps" || next.Kind != types.BlockOrderedList {
+	next := projectionClusterBlock(doc.Blocks, "next_steps")
+	if next == nil || next.Kind != types.BlockOrderedList {
 		t.Fatalf("missing next_steps block: %+v", doc.Blocks)
 	}
 	// §7.30 裁定5 review follow-up: a Chinese answer composes the runnable-kind
@@ -568,8 +568,8 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceMetricSnapshotFromTypedObs
 	if doc == nil || len(doc.Blocks) != 3 {
 		t.Fatalf("runtime trace metric snapshot block should be inserted before caveat, got %+v", doc)
 	}
-	snapshot := doc.Blocks[1]
-	if snapshot.ID != "runtime_trace_metric_snapshot" || snapshot.Kind != types.BlockBulletList {
+	snapshot := projectionClusterBlock(doc.Blocks, "runtime_trace_metric_snapshot")
+	if snapshot == nil || snapshot.Kind != types.BlockBulletList {
 		t.Fatalf("missing metric snapshot block: %+v", doc.Blocks)
 	}
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: label
@@ -706,8 +706,8 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceMetricSnapshotFromSummaryT
 	if doc == nil || len(doc.Blocks) != 4 {
 		t.Fatalf("runtime trace metric snapshot and next-step blocks should be inserted before caveat, got %+v", doc)
 	}
-	snapshot := doc.Blocks[1]
-	if snapshot.ID != "runtime_trace_metric_snapshot" || snapshot.Kind != types.BlockBulletList {
+	snapshot := projectionClusterBlock(doc.Blocks, "runtime_trace_metric_snapshot")
+	if snapshot == nil || snapshot.Kind != types.BlockBulletList {
 		t.Fatalf("missing metric snapshot block: %+v", doc.Blocks)
 	}
 	line := snapshot.Items[0].Text
@@ -1115,14 +1115,18 @@ func TestEmitAnswerDocumentV2_MixedSourceAndTraceKeepsLanesSeparate(t *testing.T
 	if doc == nil || len(doc.Blocks) != 2 {
 		t.Fatalf("mixed source+trace doc should append one trace support block: %+v", doc)
 	}
-	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+	sourceBlock := projectionClusterBlock(doc.Blocks, "source_path")
+	if sourceBlock == nil {
+		t.Fatalf("source block missing after trace hierarchy normalization: %+v", doc.Blocks)
+	}
+	if got := sourceBlock.Items[0].CitationRef; got != 0 {
 		t.Fatalf("source citation ref should be preserved, got %d", got)
 	}
 	if len(doc.Citations) != 1 || doc.Citations[0].File != "internal/example.go" {
 		t.Fatalf("source citation pool should be preserved: %+v", doc.Citations)
 	}
-	traceBlock := doc.Blocks[1]
-	if traceBlock.ID != "runtime_trace_facts" || traceBlock.SurfaceRole == types.SurfacePrincipal {
+	traceBlock := projectionClusterBlock(doc.Blocks, "runtime_trace_facts")
+	if traceBlock == nil || traceBlock.SurfaceRole == types.SurfacePrincipal {
 		t.Fatalf("trace facts must stay support-only external observation lane: %+v", traceBlock)
 	}
 	if len(traceBlock.Items) != 1 || traceBlock.Items[0].CitationRef != -1 {

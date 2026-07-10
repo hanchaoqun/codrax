@@ -151,6 +151,9 @@ func StreamWindowSweep(ctx context.Context, path string, q Query) (Result, error
 		return Result{}, fmt.Errorf("trace path is empty")
 	}
 	path = canonicalTraceIndexPath(path)
+	if tracePathRequiresCompositeIndex(path) {
+		return Result{}, fmt.Errorf("stream_window_sweep requires a single physical artifact; %s has a tracebundle or sibling artifact universe, so run the sweep on an explicit physical child or use an indexed composite view", path)
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		return Result{}, err
@@ -160,6 +163,15 @@ func StreamWindowSweep(ctx context.Context, path string, q Query) (Result, error
 		return Result{}, err
 	}
 	defer f.Close()
+	openedInfo, err := f.Stat()
+	if err != nil {
+		return Result{}, err
+	}
+	if openedInfo.Size() != info.Size() || openedInfo.ModTime().UnixNano() != info.ModTime().UnixNano() {
+		return Result{}, fmt.Errorf("trace source identity changed before stream_window_sweep opened the artifact")
+	}
+	info = openedInfo
+	openedIdentity := traceFileIdentityFromInfo(openedInfo)
 
 	requestedBucketMs := q.BucketMs
 	bucketMs := ClampWindowSweepBucketMs(q.BucketMs)
@@ -186,8 +198,11 @@ func StreamWindowSweep(ctx context.Context, path string, q Query) (Result, error
 	// reconstruction), so the seek can only skip guaranteed-out-of-window
 	// lines. Seeking requires the cached flavor (a seek never sees the first
 	// ~200 raw lines the flavor vote depends on) — same rule as parseFile.
-	anchorKey := traceAnchorKey{path: path, size: info.Size(), modUnix: info.ModTime().UnixNano(), version: ParserVersion}
+	anchorKey := traceAnchorKeyForInfo(path, info)
 	anchorSet := anchorCache.load(anchorKey)
+	if anchorSet != nil {
+		idx.TimestampOrder = anchorSet.TimestampOrder
+	}
 	startLine := 1
 	seeked := false
 	var seekAnchor traceAnchor
@@ -217,9 +232,11 @@ func StreamWindowSweep(ctx context.Context, path string, q Query) (Result, error
 	targetPID := q.PID
 	// Deliberately NO raw-line prefilter: every in-window line goes through
 	// the shared classifier so bucket counts stay exactly consistent with the
-	// indexed views across all trace flavors/spellings. Cost is bounded by
-	// the request window (the anchor seek skips the prefix) and nothing is
-	// retained per line, so memory stays O(buckets).
+	// indexed views across all trace flavors/spellings. Memory stays O(buckets).
+	// With no complete monotonic proof, a cold scan continues to EOF (skipping
+	// out-of-window rows) once so a later clock regression cannot hide an
+	// in-window event; the recorded proof restores the time-end fast path on
+	// subsequent monotonic scans.
 	for lineNo := startLine; ; lineNo++ {
 		if err := ctx.Err(); err != nil {
 			return Result{}, err
@@ -249,7 +266,10 @@ func StreamWindowSweep(ctx context.Context, path string, q Query) (Result, error
 				ts, hasTS := parseLineTimestamp(trimmed)
 				if hasTS {
 					if q.TimeEnd > 0 && ts > q.TimeEnd {
-						break
+						if idx.TimestampOrder.AllowsTimeEndEarlyStop() {
+							break
+						}
+						goto nextLine
 					}
 					if q.TimeStart > 0 && ts < q.TimeStart {
 						if !seeked && lineNo <= 200 {
@@ -320,10 +340,16 @@ func StreamWindowSweep(ctx context.Context, path string, q Query) (Result, error
 	nextLine:
 		if readErr != nil {
 			if readErr == io.EOF {
+				if recording {
+					recorder.finishEOF()
+				}
 				break
 			}
 			return Result{}, readErr
 		}
+	}
+	if err := validateTraceFileIdentityAfterRead(f, openedIdentity, "stream_window_sweep"); err != nil {
+		return Result{}, err
 	}
 
 	if seeked && anchorSet != nil && anchorSet.FlavorSet {
@@ -345,7 +371,12 @@ func StreamWindowSweep(ctx context.Context, path string, q Query) (Result, error
 		}
 		anchorCache.store(anchorKey, recorder.set)
 	}
+	idx.TimestampOrder = recorder.set.TimestampOrder
+	if idx.TimestampOrder != TraceTimestampOrderUnknown {
+		idx.ClockRegressions = recorder.set.CoveredClockRegressions
+	}
 	flavorValue, confidence, signals, flavorCaveats := resolveTraceFlavor(idx, q)
+	idx.TraceArtifacts = []TraceArtifactSource{singleTraceArtifactSourceWithIdentity(path, openedIdentity, idx.LineCount, idx.ParsedKnown)}
 	q.TraceFlavor = flavorValue
 	frameworkSurfaces := detectFrameworkSurfaces(idx, q, TracePlatformAuto, 4)
 	platform, platformCandidate, platformCandidateConfidence, platformCandidateSignals, platformCaveats := resolveTracePlatform(idx, q, flavorValue, frameworkSurfaces, signals)
@@ -362,6 +393,7 @@ func StreamWindowSweep(ctx context.Context, path string, q Query) (Result, error
 	res := Result{
 		View:                        ViewWindowSweep,
 		SourcePath:                  idx.Path,
+		TraceArtifacts:              append([]TraceArtifactSource(nil), idx.TraceArtifacts...),
 		TraceFlavor:                 string(flavorValue),
 		Platform:                    string(platform),
 		PlatformCandidate:           platformCandidate,

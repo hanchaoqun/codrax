@@ -1235,7 +1235,7 @@ func TestStreamEventSearchCompactedCaveatPreventsAbsenceInference(t *testing.T) 
 	}
 }
 
-func TestStreamEventSearchHonorsTimeWindowAndStopsAfterEnd(t *testing.T) {
+func TestStreamEventSearchHonorsTimeWindowAndStopsAfterCompleteMonotonicProof(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "stream_search_window.systrace")
 	body := strings.Join([]string{
@@ -1249,24 +1249,36 @@ func TestStreamEventSearchHonorsTimeWindowAndStopsAfterEnd(t *testing.T) {
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	res, err := StreamEventSearch(context.Background(), path, Query{
+	q := Query{
 		TimeStart: 9.0,
 		TimeEnd:   9.5,
 		Limit:     10,
-	})
+	}
+	resetAnchorCaches()
+	res, err := StreamEventSearch(context.Background(), path, q)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(res.Events) != 2 {
 		t.Fatalf("expected only in-window events, got %+v", res.Events)
 	}
-	if res.ScannedLineCount != 4 {
-		t.Fatalf("expected stream search to stop at first row after time_end, scanned=%d", res.ScannedLineCount)
+	if res.ScannedLineCount != 5 {
+		t.Fatalf("cold scan without an EOF proof must inspect the suffix, scanned=%d", res.ScannedLineCount)
 	}
 	for _, ev := range res.Events {
 		if ev.Ts < 9.0 || ev.Ts > 9.5 {
 			t.Fatalf("out-of-window event returned: %+v", ev)
 		}
+	}
+	warm, err := StreamEventSearch(context.Background(), path, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(res.Events, warm.Events) {
+		t.Fatalf("warm monotonic fast path changed event set: cold=%+v warm=%+v", res.Events, warm.Events)
+	}
+	if warm.ScannedLineCount != 4 {
+		t.Fatalf("EOF-complete monotonic proof should allow stop at first row after time_end, scanned=%d", warm.ScannedLineCount)
 	}
 }
 
@@ -2143,7 +2155,7 @@ func TestBuildIndexTraceBundleMergesSystraceAndPerftrace(t *testing.T) {
 	    {"name": "no_perf_sys_binary_parity", "state": "pending_representative_fixture", "proven": false, "fixture_manifest_count": 0, "required_evidence": "commit a redistributable real no-perf Harmony/Donghu .sys fixture manifest", "evidence": ["synthetic scheduler/raw-ftrace parity guards are delivered"], "caveats": ["built-in sys binary parser remains an explicit guarded lane"]}
 	  ],
 	  "perf_clock_alignments": [
-	    {"artifact_path": "bundle.perftrace", "perf_time_domain": "perf_event_time", "trace_time_domain": "trace_seconds", "confidence": "assumed", "calibrated": false, "source": "tracebundle", "caveats": ["no capture-level trace/perf clock map is available"]}
+	    {"artifact_path": "bundle.perftrace", "perf_time_domain": "trace_seconds", "trace_time_domain": "trace_seconds", "confidence": "same_domain", "calibrated": false, "source": "tracebundle", "caveats": ["perftrace timestamps are already emitted in the trace clock domain"]}
 	  ],
   "caveats": [
     "profiler plugin ftrace-plugin metadata: clock_id=MONOTONIC dropped_events=2 overrun=1 commit_overrun=1 overwrite=0 trace_clock=boot clock_details=boot symbols=symbol_examples"
@@ -2263,7 +2275,7 @@ func TestTraceBundleTraceToolGateCaveatsAreBounded(t *testing.T) {
 	}
 }
 
-func TestBuildIndexSiblingSystracePerftraceWithoutBundle(t *testing.T) {
+func TestBuildIndexSiblingSystracePerftraceWithoutBundleIsolatesUnprovenClock(t *testing.T) {
 	dir := t.TempDir()
 	systrace := filepath.Join(dir, "pair.systrace")
 	perftrace := filepath.Join(dir, "pair.perftrace")
@@ -2283,15 +2295,27 @@ func TestBuildIndexSiblingSystracePerftraceWithoutBundle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build sibling trace index: %v", err)
 	}
-	if filepath.Base(idx.Path) != "pair.systrace" || len(idx.Events) != 3 {
+	if filepath.Base(idx.Path) != "pair.systrace" || len(idx.Events) != 2 {
 		t.Fatalf("sibling index shape: path=%s events=%d", idx.Path, len(idx.Events))
 	}
 	stats := ComputeWindowStats(idx, Query{TimeStart: 31.0, TimeEnd: 31.004})
-	if stats.EventCounts[EventSchedSwitch] != 2 || stats.EventCounts[EventPerfSample] != 1 {
-		t.Fatalf("sibling event counts did not merge sched+perf: %+v", stats.EventCounts)
+	if stats.EventCounts[EventSchedSwitch] != 2 || stats.EventCounts[EventPerfSample] != 0 {
+		t.Fatalf("unproven sibling perf clock must not enter the scheduler timeline: %+v", stats.EventCounts)
 	}
-	if stats.PerfSamples == nil || len(stats.PerfSamples.TopSymbols) == 0 || stats.PerfSamples.TopSymbols[0].Symbol != "App::layout" {
-		t.Fatalf("sibling perf samples missing: %+v", stats.PerfSamples)
+	if stats.PerfSamples != nil {
+		t.Fatalf("isolated sibling perf samples must not appear correlated: %+v", stats.PerfSamples)
+	}
+	// The systrace is the canonical artifact and must stay admitted; only
+	// the unproven perf clock is isolated.
+	if len(idx.TraceArtifacts) != 2 || !idx.TraceArtifacts[0].CausalCompatible || idx.TraceArtifacts[1].CausalCompatible {
+		t.Fatalf("clock-domain admission ledger: %+v", idx.TraceArtifacts)
+	}
+	if !strings.Contains(strings.Join(idx.Caveats, "\n"), "tracebundle_clock_domain_isolated artifact=pair.perftrace") {
+		t.Fatalf("isolation must be explicit: %+v", idx.Caveats)
+	}
+	standalone, err := BuildIndex(context.Background(), perftrace)
+	if err != nil || len(standalone.Events) != 1 || standalone.Events[0].Type != EventPerfSample {
+		t.Fatalf("isolated artifact must remain directly queryable: idx=%+v err=%v", standalone, err)
 	}
 }
 
@@ -4367,6 +4391,27 @@ func TestIPCGraphMatchesBinderSendAndReceive(t *testing.T) {
 	}
 	if !containsSubstring(edge.Caveats, "binder alloc buffer row") {
 		t.Fatalf("edge should carry alloc buffer caveat: %+v", edge.Caveats)
+	}
+}
+
+func TestIPCGraphRejectsReceiveBeforeSend(t *testing.T) {
+	idx := buildTraceIndex(t, "ipc_receive_before_send.systrace", `
+ binder:100_1-101 (  100) [002] .... 3.010000: binder_transaction_received: transaction=42
+     client-20   (   20) [001] .... 3.020000: binder_transaction: transaction=42 dest_node=0 dest_proc=100 dest_thread=101 reply=0 flags=0x12 code=0x3
+	`)
+	ipc := BuildIPCGraph(idx, Query{PID: 20, TimeStart: 3.0, TimeEnd: 3.03, Limit: 10})
+	if len(ipc.Edges) != 1 {
+		t.Fatalf("expected endpoint-only send edge, got %+v", ipc)
+	}
+	edge := ipc.Edges[0]
+	if edge.ReceiveLine != 0 || edge.ReceiveTs != 0 || edge.LatencyMs != 0 || edge.Confidence >= 0.9 {
+		t.Fatalf("receive-before-send must not mint a matched high-confidence edge: %+v", edge)
+	}
+	if !containsSubstring(edge.Caveats, "temporally impossible matches were rejected") {
+		t.Fatalf("temporal rejection must be explicit to downstream reasoning: %+v", edge.Caveats)
+	}
+	if !containsSubstring(ipc.Caveats, "endpoint-only") {
+		t.Fatalf("rejected temporal match must stay disclosed as endpoint-only: %+v", ipc.Caveats)
 	}
 }
 

@@ -124,14 +124,78 @@ func TestAnswerAggregateFactEvidenceOrigins_TypedExcludeNeverCurrentSource(t *te
 			t.Fatalf("model origin token must not beat the typed user boundary: %v", origins)
 		}
 	}
-	// The explicit model-emitted origin TOKEN lane stays byte-stable outside
-	// the exclude boundary (§29.21 scoped the reclassification to the terminal
-	// fallback; the token lane is a separately-ruled residual — see the CSP-RM
-	// batch report).
-	if plain := AnswerAggregateFactEvidenceOrigins(tokenFact, &plainRM); len(plain) == 0 ||
+	// The classification projection remains available to the support validator;
+	// A1 closes the proof lane later, at ledger compilation, so mixed-origin
+	// validation cannot be weakened by an early deletion.
+	if plain := AnswerAggregateFactEvidenceOrigins(tokenFact, &plainRM); len(plain) != 1 ||
 		plain[0] != AnswerEvidenceOriginCurrentSource {
-		t.Fatalf("explicit token lane changed outside the exclude boundary: %v", plain)
+		t.Fatalf("explicit token classification changed before ledger compilation: %v", plain)
 	}
+}
+
+func TestCompileObservationLedger_ExplicitCurrentSourceTokenCannotMintProofLane(t *testing.T) {
+	rm := RequestModel{Intent: IntentRootCause}
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		AggregateFacts: []AnswerAggregateFact{{
+			Kind:  AnswerAggregateScalar,
+			Label: "model-declared source fact",
+			Value: "1",
+			Dimensions: []AnswerAggregateDimension{
+				{Name: "origin", Value: "current_source"},
+			},
+		}},
+		RequestModel: &rm,
+	})
+	for _, record := range ledger.Records {
+		if record.Origin == AnswerEvidenceOriginCurrentSource || record.SourceRef.Kind == ObservationSourceCurrentSource {
+			t.Fatalf("model origin token minted current-source proof record: %+v", record)
+		}
+	}
+	if len(ledger.Records) != 1 || ledger.Records[0].Origin != AnswerEvidenceOriginSystemInference || ledger.Records[0].SourceRef.Kind == ObservationSourceCurrentSource {
+		t.Fatalf("model origin token must compile losslessly onto advisory lane: %+v", ledger.Records)
+	}
+}
+
+func TestCompileObservationLedger_RequiredExactSupportRefRetainsCurrentSourceWitness(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentExplain,
+		Scenario: ScenarioArchitectureExplain,
+		CurrentSourceExplanationProfile: &CurrentSourceExplanationProfile{
+			IsCurrentSourceExplanationRequested: true,
+			Modes:                               []CurrentSourceExplanationMode{CurrentSourceExplanationExplainCurrentMechanism},
+			SourceQuotes:                        []string{"结合当前源码解释"},
+			Confidence:                          0.9,
+		},
+	}
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		EvidenceItems: []EvidenceItem{{
+			ID:              "verified-coordinate",
+			Kind:            EvidenceDirect,
+			Scope:           ScopeLine,
+			Source:          "internal/tracequery/parse.go",
+			LineStart:       22,
+			GroundingStatus: GroundingGrounded,
+		}},
+		AggregateFacts: []AnswerAggregateFact{{
+			Kind:        AnswerAggregateScalar,
+			Label:       "verified source coordinate",
+			Value:       "1",
+			SupportRefs: []string{"internal/tracequery/parse.go:22"},
+			Dimensions: []AnswerAggregateDimension{
+				{Name: "origin", Value: "current_source"},
+			},
+		}},
+		RequestModel: &rm,
+	})
+	for _, record := range ledger.Records {
+		if record.Origin == AnswerEvidenceOriginCurrentSource && record.SourceRef.Kind == ObservationSourceCurrentSource &&
+			len(record.SupportRefs) == 1 && record.SupportRefs[0] == "internal/tracequery/parse.go:22" &&
+			record.SourceRef.Path == "internal/tracequery/parse.go" && record.Span.LineStart == 22 &&
+			record.GroundingStatus == GroundingGrounded {
+			return
+		}
+	}
+	t.Fatalf("required exact file:line witness was over-demoted: %+v", ledger.Records)
 }
 
 // Pin 1 (ledger face): the donghu replay compiles ZERO current-source records
@@ -209,6 +273,7 @@ func TestCompileObservationLedger_TypedExcludeAggregateFactsZeroCurrentSourceRec
 //     → current_source record → satisfied=true in a 不分析代码 run;
 //   - plain run + NegativeObservation kind (projection empty by design)
 //     → current_source record → satisfied=true from a bare model claim.
+//
 // Both shapes must now land on the advisory lane, lossless, satisfied=false.
 func TestCompileObservationLedger_LedgerSideFallbackNeverCurrentSource(t *testing.T) {
 	excludeRM := cspTypedExcludeRequestModel()

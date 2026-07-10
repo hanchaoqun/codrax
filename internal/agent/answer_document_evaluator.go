@@ -12992,8 +12992,21 @@ func traceQueryObservationSupplementKey(record types.ObservationRecord) string {
 		strings.TrimSpace(record.Object),
 		strings.TrimSpace(record.Value),
 		traceQueryObservationLocation(record),
+		strings.TrimSpace(record.SourceRef.TimeDomain),
+		strings.TrimSpace(record.SourceRef.CanonicalTimeDomain),
+		strings.TrimSpace(record.SourceRef.ClockAlignment),
+		strconv.FormatBool(record.SourceRef.ClockCalibrated),
+		answerDocumentOptionalFloatKey(record.SourceRef.ClockOffsetSec),
+		answerDocumentOptionalFloatKey(record.SourceRef.ClockSlope),
 	}
 	return strings.Join(parts, "\x00")
+}
+
+func answerDocumentOptionalFloatKey(value *float64) string {
+	if value == nil {
+		return ""
+	}
+	return strconv.FormatFloat(*value, 'g', -1, 64)
 }
 
 func traceQueryObservationSupplementText(record types.ObservationRecord, zh bool) string {

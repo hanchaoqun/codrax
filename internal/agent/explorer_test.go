@@ -11896,6 +11896,33 @@ func TestPostSameLaneLowNoveltySignal_NudgesAfterRepeatedNavigationWithoutTypedD
 	}
 }
 
+func TestExplorerObservationDeltaKeySeparatesClockProvenance(t *testing.T) {
+	base := types.ObservationRecord{
+		Origin:   types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer: "trace_query",
+		SourceRef: types.ObservationSourceRef{
+			Kind:                types.ObservationSourceRuntimeArtifact,
+			Path:                "capture.tracebundle.json",
+			ArtifactID:          "capture.perftrace",
+			ArtifactKind:        "perftrace",
+			TimeDomain:          "perf_event_time",
+			CanonicalTimeDomain: "trace_seconds",
+		},
+		ClaimKey: "hot_symbol",
+		Value:    "Render::Draw",
+	}
+	otherSourceDomain := base
+	otherSourceDomain.SourceRef.TimeDomain = "trace_seconds"
+	if got, want := explorerObservationDeltaKey(base), explorerObservationDeltaKey(otherSourceDomain); got == want {
+		t.Fatalf("source clock domains collapsed into one novelty key: %q", got)
+	}
+	otherCanonicalDomain := base
+	otherCanonicalDomain.SourceRef.CanonicalTimeDomain = "boottime_seconds"
+	if got, want := explorerObservationDeltaKey(base), explorerObservationDeltaKey(otherCanonicalDomain); got == want {
+		t.Fatalf("canonical clock domains collapsed into one novelty key: %q", got)
+	}
+}
+
 func TestPostSameLaneLowNoveltySignal_CountsGitObservationAsTypedDelta(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:      1,

@@ -183,7 +183,8 @@ func TestProseScalarGrounding_ExemptionArms(t *testing.T) {
 		doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
 			{ID: "summary", Kind: types.BlockSummary, Text: "跨窗合并行合计 63.831ms。"},
 			{ID: "runtime_trace_causal_projection", Kind: types.BlockSection,
-				Text: "├─ s_sleep ×14 63.831ms ▏63%"},
+				Text:                "├─ s_sleep ×14 63.831ms ▏63%",
+				SystemGeneratedKind: types.AnswerSystemGeneratedRuntimeTrace},
 		}}
 		if got := runProseScalarGroundingCheck(doc, psgBus(mut), mut); len(got) != 0 {
 			t.Fatalf("projection-block numerals ground the prose AND are never scanned as prose, got %+v", got)
@@ -247,6 +248,20 @@ func TestProseScalarGrounding_EvidenceFeedStaysTight(t *testing.T) {
 		got := runProseScalarGroundingCheck(doc, psgBus(mut), mut)
 		if len(got) != 1 || !strings.Contains(got[0].Detail, "46.821ms") {
 			t.Fatalf("a runtime_trace_* lookalike block must not ground prose numerals, got %+v", got)
+		}
+	})
+	t.Run("exact_reserved_id_without_system_marker_never_grounds", func(t *testing.T) {
+		mut := newMut()
+		doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+			{ID: "summary", Kind: types.BlockSummary, Text: "聚合影响 46.821ms。"},
+			// Exact spelling is model-authorable. Without the json:"-"
+			// SystemGeneratedKind marker it must remain prose, never evidence.
+			{ID: "runtime_trace_metric_snapshot", Kind: types.BlockSection,
+				Text: "补充:聚合影响 46.821ms"},
+		}}
+		got := runProseScalarGroundingCheck(doc, psgBus(mut), mut)
+		if len(got) != 1 || !strings.Contains(got[0].Detail, "46.821ms") {
+			t.Fatalf("an unmarked exact reserved id must not ground prose numerals, got %+v", got)
 		}
 	})
 	t.Run("rejected_draft_attachment_never_grounds", func(t *testing.T) {
@@ -410,7 +425,8 @@ func TestProseScalarGrounding_AggregateFactChannelCarries(t *testing.T) {
 // 1800ms windows) in the system spelling the runtime materializer uses.
 func psgSnapshot70() types.AnswerBlock {
 	return types.AnswerBlock{
-		ID: "runtime_trace_metric_snapshot", Kind: types.BlockSection, Text: strings.Join([]string{
+		ID: "runtime_trace_metric_snapshot", Kind: types.BlockSection,
+		SystemGeneratedKind: types.AnswerSystemGeneratedRuntimeTrace, Text: strings.Join([]string{
 			"- 查询窗 3680.569–3682.819s · demo.systrace · com.xs.fm.lite-6565 状态切换(state_churn) — running 518.776ms(26%) · runnable 21.939ms(1%) · sleep 1430.101ms(72%) · D-state 25.952ms(1%)",
 			"- 查询窗 3680.819–3682.619s · demo.systrace · com.xs.fm.lite-6565 状态切换(state_churn) — running 460.975ms(26%) · runnable 20.047ms(1%) · sleep 1295.329ms(72%) · D-state 20.417ms(1%)",
 		}, "\n"),
@@ -482,7 +498,8 @@ func TestProseScalarGrounding_BindingWindowMismatchD2b(t *testing.T) {
 	mut := psgTraceMutable(psgTraceRecord("r1", "state_drilldown:x", "38.996"))
 	bus := psgBus(mut)
 	snapshot := types.AnswerBlock{
-		ID: "runtime_trace_metric_snapshot", Kind: types.BlockSection, Text: strings.Join([]string{
+		ID: "runtime_trace_metric_snapshot", Kind: types.BlockSection,
+		SystemGeneratedKind: types.AnswerSystemGeneratedRuntimeTrace, Text: strings.Join([]string{
 			"- 查询窗 8144.358–8146.608s · demo.systrace · com.xs.fm.lite-21538 状态切换(state_churn) — running 713.339ms(35%) · runnable 40.766ms(2%) · sleep 974.469ms(48%) · D-state 318.138ms(16%)",
 			"- 查询窗 8144.608–8146.253s · demo.systrace · com.xs.fm.lite-21538 状态切换(state_churn) — running 493.447ms(30%) · runnable 32.941ms(2%) · sleep 833.006ms(51%) · D-state 282.693ms(17%)",
 		}, "\n"),
@@ -518,7 +535,8 @@ func TestProseScalarGrounding_BindingThreadMismatchD2c(t *testing.T) {
 	bus := psgBus(mut)
 	table := types.AnswerBlock{
 		ID: "runtime_trace_causal_projection", Kind: types.BlockSection,
-		Columns: []string{"节点[E#]", "窗口投影", "有效归因", "置信"},
+		SystemGeneratedKind: types.AnswerSystemGeneratedRuntimeTrace,
+		Columns:             []string{"节点[E#]", "窗口投影", "有效归因", "置信"},
 		Items: []types.AnswerBlockItem{
 			{ID: "e18", Cells: []string{"binder:8815_1-6581 / runnable [E18(+1)]", "50.057ms", "50.057ms", "中"}},
 			{ID: "e4", Cells: []string{"main-6565 / sleep（s_sleep） ×15(1.107–97.342ms) [E4(+14)]", "456.725ms", "97.342ms", "中"}},
@@ -567,7 +585,8 @@ func TestProseScalarGrounding_BindingSameTidAliasControl(t *testing.T) {
 	bus := psgBus(mut)
 	snapshot := types.AnswerBlock{
 		ID: "runtime_trace_metric_snapshot", Kind: types.BlockSection,
-		Text: "- 查询窗 3680.819–3682.619s · demo.systrace · foo.worker-6565 状态切换(state_churn) — sleep 1295.329ms(72%)",
+		SystemGeneratedKind: types.AnswerSystemGeneratedRuntimeTrace,
+		Text:                "- 查询窗 3680.819–3682.619s · demo.systrace · foo.worker-6565 状态切换(state_churn) — sleep 1295.329ms(72%)",
 	}
 	doc := psgBindingDoc(
 		"在窗口（3680.819~3682.619s，1800ms）内，线程 bar.renamed-6565 的 sleep 为 1295.329ms。",

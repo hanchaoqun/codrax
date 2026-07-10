@@ -24,6 +24,9 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 		return Result{}, fmt.Errorf("trace path is empty")
 	}
 	path = canonicalTraceIndexPath(path)
+	if tracePathRequiresCompositeIndex(path) {
+		return Result{}, fmt.Errorf("stream_event_search requires a single physical artifact; %s is a tracebundle, so use the indexed path to preserve artifact and clock-domain provenance", path)
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		return Result{}, err
@@ -33,6 +36,15 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 		return Result{}, err
 	}
 	defer f.Close()
+	openedInfo, err := f.Stat()
+	if err != nil {
+		return Result{}, err
+	}
+	if openedInfo.Size() != info.Size() || openedInfo.ModTime().UnixNano() != info.ModTime().UnixNano() {
+		return Result{}, fmt.Errorf("trace source identity changed before stream_event_search opened the artifact")
+	}
+	info = openedInfo
+	openedIdentity := traceFileIdentityFromInfo(openedInfo)
 
 	q.View = "event_search"
 	q = normalizeQuery(nil, q)
@@ -44,6 +56,26 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 	}
 
 	idx := &Index{Path: path, Size: info.Size(), ModTime: info.ModTime()}
+	artifactSource := singleTraceArtifactSourceWithIdentity(path, openedIdentity, 0, 0)
+	anchorKey := traceAnchorKeyForInfo(path, info)
+	anchorSet := anchorCache.load(anchorKey)
+	if anchorSet != nil {
+		idx.TimestampOrder = anchorSet.TimestampOrder
+	}
+	startLine := 1
+	seeked := false
+	var seekAnchor traceAnchor
+	if anchorSet != nil && anchorSet.FlavorSet {
+		if a, ok := anchorSet.seekAnchorFor(q.TimeStart > 0, q.TimeStart, q.LineStart); ok {
+			if _, seekErr := f.Seek(a.ByteOffset, io.SeekStart); seekErr == nil {
+				seekAnchor = a
+				startLine = a.LineNo + 1
+				seeked = true
+			}
+		}
+	}
+	recorder := newAnchorRecorder(anchorSet, seekAnchor, seeked)
+	recording := recorder.canExtend(startLine)
 	intern := newStringInterner()
 	flavor := newFlavorVote(path)
 	reader := bufio.NewReaderSize(f, 256*1024)
@@ -56,7 +88,7 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 	// so the full tier ladder costs O(distinct tiers) extra memory only.
 	census := newCPUFrequencyCensusAcc(typeSet)
 	var events []EventView
-	for lineNo := 1; ; lineNo++ {
+	for lineNo := startLine; ; lineNo++ {
 		if err := ctx.Err(); err != nil {
 			return Result{}, err
 		}
@@ -65,6 +97,10 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 			idx.LineCount = lineNo
 			idx.ScannedLineCount = lineNo
 			trimmed := strings.TrimRight(line, "\r\n")
+			lineTs, lineHasTS := parseLineTimestamp(trimmed)
+			if recording {
+				recorder.observe(lineNo, len(line), lineTs, lineHasTS)
+			}
 			if q.LineEnd > 0 && lineNo > q.LineEnd {
 				break
 			}
@@ -75,10 +111,13 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 				goto nextLine
 			}
 			if q.TimeStart > 0 || q.TimeEnd > 0 {
-				ts, hasTS := parseLineTimestamp(trimmed)
+				ts, hasTS := lineTs, lineHasTS
 				if hasTS {
 					if q.TimeEnd > 0 && ts > q.TimeEnd {
-						break
+						if idx.TimestampOrder.AllowsTimeEndEarlyStop() {
+							break
+						}
+						goto nextLine
 					}
 					if q.TimeStart > 0 && ts < q.TimeStart {
 						if lineNo <= 200 {
@@ -139,23 +178,48 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 			}
 			matchedTotal++
 			census.observe(ev)
-			if len(events) < limit {
-				idx.Events = append(idx.Events, ev)
-				events = append(events, EventView{
-					Event: applyPriorityFlavor(ev, q.TraceFlavor),
-					Raw:   trimmed,
-				})
-			}
+			events = insertEventViewChronological(events, eventViewFromSource(
+				applyPriorityFlavor(ev, q.TraceFlavor), trimmed, artifactSource, ev.Line), limit)
 		}
 	nextLine:
 		if readErr != nil {
 			if readErr == io.EOF {
+				if recording {
+					recorder.finishEOF()
+				}
 				break
 			}
 			return Result{}, readErr
 		}
 	}
-	idx.TraceFlavor, idx.FlavorConfidence, idx.FlavorSignals = flavor.result()
+	if err := validateTraceFileIdentityAfterRead(f, openedIdentity, "stream_event_search"); err != nil {
+		return Result{}, err
+	}
+	if seeked && anchorSet != nil && anchorSet.FlavorSet {
+		idx.TraceFlavor, idx.FlavorConfidence, idx.FlavorSignals = anchorSet.Flavor, anchorSet.FlavorConf, append([]string(nil), anchorSet.FlavorSignals...)
+	} else {
+		idx.TraceFlavor, idx.FlavorConfidence, idx.FlavorSignals = flavor.result()
+	}
+	if recording {
+		if !seeked && !recorder.set.FlavorSet {
+			recorder.set.FlavorSet = true
+			recorder.set.Flavor = idx.TraceFlavor
+			recorder.set.FlavorConf = idx.FlavorConfidence
+			recorder.set.FlavorSignals = append([]string(nil), idx.FlavorSignals...)
+		}
+		anchorCache.store(anchorKey, recorder.set)
+	}
+	idx.TimestampOrder = recorder.set.TimestampOrder
+	if idx.TimestampOrder != TraceTimestampOrderUnknown {
+		idx.ClockRegressions = recorder.set.CoveredClockRegressions
+	}
+	idx.Events = make([]Event, len(events))
+	for i := range events {
+		idx.Events[i] = events[i].Event
+	}
+	artifactSource.LocalLineCount = idx.LineCount
+	artifactSource.EventCount = idx.ParsedKnown
+	idx.TraceArtifacts = []TraceArtifactSource{artifactSource}
 	flavorValue, confidence, signals, flavorCaveats := resolveTraceFlavor(idx, q)
 	q.TraceFlavor = flavorValue
 	for i := range events {
@@ -183,6 +247,7 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 	res := Result{
 		View:                        "event_search",
 		SourcePath:                  idx.Path,
+		TraceArtifacts:              append([]TraceArtifactSource(nil), idx.TraceArtifacts...),
 		TraceFlavor:                 string(flavorValue),
 		Platform:                    string(platform),
 		PlatformCandidate:           platformCandidate,
@@ -212,6 +277,7 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 		res.CPUFrequencyCensus = c
 		res.EvidencePack = append([]EvidenceFact{c.EvidenceFact()}, res.EvidencePack...)
 	}
+	attachEvidenceFactProvenance(res.EvidencePack, res.TraceArtifacts)
 	res.Caveats = append(res.Caveats,
 		fmt.Sprintf("streamed_event_search=true; scanned %d line(s) without building or caching a full trace index", idx.ScannedLineCount))
 	// Same parse-quality caveat wording as the indexed Run() path: event_search
@@ -244,6 +310,32 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 	return res, nil
 }
 
+// insertEventViewChronological keeps the bounded display set equal to the
+// earliest matches by (timestamp,line), even when physical trace lines regress.
+// Memory remains O(limit); matchedTotal outside this helper still counts the
+// complete pre-truncation set.
+func insertEventViewChronological(events []EventView, candidate EventView, limit int) []EventView {
+	if limit <= 0 {
+		return events
+	}
+	pos := sort.Search(len(events), func(i int) bool {
+		if events[i].Ts != candidate.Ts {
+			return events[i].Ts > candidate.Ts
+		}
+		return events[i].Line > candidate.Line
+	})
+	if len(events) >= limit && pos >= limit {
+		return events
+	}
+	events = append(events, EventView{})
+	copy(events[pos+1:], events[pos:])
+	events[pos] = candidate
+	if len(events) > limit {
+		events = events[:limit]
+	}
+	return events
+}
+
 // StreamStateCluster scans scheduler state boundaries without materializing the
 // full trace index. It is the dense-window escape hatch for root-cause
 // investigations: preserve the parent window and surface state priorities before
@@ -257,6 +349,9 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 		return Result{}, fmt.Errorf("trace path is empty")
 	}
 	path = canonicalTraceIndexPath(path)
+	if tracePathRequiresCompositeIndex(path) {
+		return Result{}, fmt.Errorf("stream_state_cluster requires a single physical artifact; %s is a tracebundle, so use the indexed path to preserve artifact and clock-domain provenance", path)
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		return Result{}, err
@@ -266,6 +361,15 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 		return Result{}, err
 	}
 	defer f.Close()
+	openedInfo, err := f.Stat()
+	if err != nil {
+		return Result{}, err
+	}
+	if openedInfo.Size() != info.Size() || openedInfo.ModTime().UnixNano() != info.ModTime().UnixNano() {
+		return Result{}, fmt.Errorf("trace source identity changed before stream_state_cluster opened the artifact")
+	}
+	info = openedInfo
+	openedIdentity := traceFileIdentityFromInfo(openedInfo)
 	if max <= 0 {
 		max = StreamStateClusterDefaultMax
 	}
@@ -279,6 +383,13 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 		idx.IndexLineStart = q.LineStart
 		idx.IndexLineEnd = q.LineEnd
 	}
+	anchorKey := traceAnchorKeyForInfo(path, info)
+	anchorSet := anchorCache.load(anchorKey)
+	if anchorSet != nil {
+		idx.TimestampOrder = anchorSet.TimestampOrder
+	}
+	recorder := newAnchorRecorder(anchorSet, traceAnchor{}, false)
+	recording := recorder.canExtend(1)
 	intern := newStringInterner()
 	flavor := newFlavorVote(path)
 	reader := bufio.NewReaderSize(f, 256*1024)
@@ -290,8 +401,20 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 	dstate := map[string]ThreadDuration{}
 	iowait := map[string]ThreadDuration{}
 	blockedReasons := map[int][]Event{}
+	missingHeadThreads := map[int]bool{}
+	orderTracker := newSchedulerOrderTracker()
+	orderPIDTracker := newSchedulerOrderTracker()
+	var schedulerViolation *schedulerOrderViolation
+	var schedulerRowFailure *schedulerRowIntegrityFailure
+	incarnationTracker := newThreadIncarnationTracker()
+	var identityConflict *threadIncarnationConflict
+	auditIntern := newStringInterner()
+	auditScratch := &Index{}
 	seenTimeWindow := false
 	parsedEvents := 0
+	lastObservedTs := 0.0
+	lastObservedTsSet := false
+	localClockRegressions := 0
 
 	closeState := func(pid int, endTs float64, endLine int) {
 		start, ok := open[pid]
@@ -299,9 +422,6 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 			return
 		}
 		delete(open, pid)
-		if !streamStateClusterThreadAllowed(q, start.thread) {
-			return
-		}
 		addStreamStateClusterInterval(accs, running, runnable, sleep, dstate, iowait, start, endTs, endLine, q, blockedReasons)
 	}
 	openState := func(thread ThreadRef, state ThreadState, ts float64, line int) {
@@ -326,8 +446,45 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 			idx.LineCount = lineNo
 			idx.ScannedLineCount = lineNo
 			trimmed := strings.TrimRight(line, "\r\n")
+			lineTs, lineHasTS := parseLineTimestamp(trimmed)
+			preWindowCarry := false
+			if recording {
+				recorder.observe(lineNo, len(line), lineTs, lineHasTS)
+			}
 			if q.LineEnd > 0 && lineNo > q.LineEnd {
 				break
+			}
+			if schedulerIntegrityRawCandidate(trimmed) {
+				rowFailure := schedulerRowValidationFailure(lineNo, trimmed)
+				if rowFailure != nil && schedulerRowFailure == nil && schedulerRowIntegrityFailureRelevantToQuery(rowFailure, q, q.PID) {
+					copy := *rowFailure
+					copy.SourcePath = path
+					schedulerRowFailure = &copy
+				}
+				if rowFailure == nil && schedulerHeadRawCandidate(trimmed) {
+					if auditEv, auditOK := safeParseLine(lineNo, trimmed, auditIntern, auditScratch); auditOK {
+						if identityConflict == nil {
+							if conflict := incarnationTracker.observe(auditEv, 0); incarnationBoundaryInsideQuery(conflict, q) {
+								identityConflict = conflict
+							}
+						}
+						lineInOrderDomain := q.LineStart <= 0 || lineNo >= q.LineStart
+						if schedulerViolation == nil && lineInOrderDomain {
+							for _, violation := range auditSchedulerOrderEvent(orderTracker, orderPIDTracker, auditEv) {
+								if schedulerOrderViolationRelevantToQuery(&violation, q, 0) {
+									copy := violation
+									schedulerViolation = &copy
+									break
+								}
+							}
+						}
+					} else if schedulerRowFailure == nil {
+						if rejected := schedulerRejectedRowFailure(lineNo, trimmed); rejected != nil && schedulerRowIntegrityFailureRelevantToQuery(rejected, q, q.PID) {
+							rejected.SourcePath = path
+							schedulerRowFailure = rejected
+						}
+					}
+				}
 			}
 			if q.LineStart > 0 && lineNo < q.LineStart {
 				if lineNo <= 200 {
@@ -335,17 +492,33 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 				}
 				goto nextLine
 			}
+			if lineHasTS {
+				if lastObservedTsSet && lineTs < lastObservedTs {
+					localClockRegressions++
+				}
+				lastObservedTs, lastObservedTsSet = lineTs, true
+			}
 			if q.TimeStart > 0 || q.TimeEnd > 0 {
-				ts, hasTS := parseLineTimestamp(trimmed)
+				ts, hasTS := lineTs, lineHasTS
 				if hasTS {
 					if q.TimeEnd > 0 && ts > q.TimeEnd {
-						break
+						if idx.TimestampOrder.AllowsTimeEndEarlyStop() {
+							break
+						}
+						goto nextLine
 					}
 					if q.TimeStart > 0 && ts < q.TimeStart {
 						if lineNo <= 200 {
 							flavor.observeRawLine(trimmed)
 						}
-						goto nextLine
+						// State-cluster is itself the streaming escape hatch, so it
+						// already reads the prefix. Parse only scheduler-boundary rows
+						// there to carry the governing state into the selected window;
+						// all other pre-window rows keep the cheap skip path.
+						if !schedulerHeadRawCandidate(trimmed) {
+							goto nextLine
+						}
+						preWindowCarry = true
 					}
 					seenTimeWindow = true
 				} else if q.TimeStart > 0 && !seenTimeWindow {
@@ -356,19 +529,27 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 				}
 			}
 			flavor.observeRawLine(trimmed)
-			ev, ok := ParseLine(lineNo, trimmed, intern)
+			ev, ok := safeParseLine(lineNo, trimmed, intern, idx)
 			if !ok {
+				if schedulerRowFailure == nil {
+					if rejected := schedulerRejectedRowFailure(lineNo, trimmed); rejected != nil && schedulerRowIntegrityFailureRelevantToQuery(rejected, q, q.PID) {
+						rejected.SourcePath = path
+						schedulerRowFailure = rejected
+					}
+				}
 				goto nextLine
 			}
-			parsedEvents++
-			if idx.FirstTs == 0 || ev.Ts < idx.FirstTs {
-				idx.FirstTs = ev.Ts
-			}
-			if ev.Ts > idx.LastTs {
-				idx.LastTs = ev.Ts
-			}
-			if ev.Type != EventUnknown {
-				idx.ParsedKnown++
+			if !preWindowCarry {
+				parsedEvents++
+				if idx.FirstTs == 0 || ev.Ts < idx.FirstTs {
+					idx.FirstTs = ev.Ts
+				}
+				if ev.Ts > idx.LastTs {
+					idx.LastTs = ev.Ts
+				}
+				if ev.Type != EventUnknown {
+					idx.ParsedKnown++
+				}
 			}
 			flavor.observeEvent(ev)
 			switch ev.Type {
@@ -381,14 +562,31 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 					continue
 				}
 				start, ok := open[ev.WakeePID]
+				if !preWindowCarry && q.TimeStart > 0 && ev.Ts > q.TimeStart && !ok && !schedWakeupStartsNewIncarnation(ev) {
+					missingHeadThreads[ev.WakeePID] = true
+				}
 				// Shared wakeup-reopen guard (thread_state_universe.go) —
 				// same gate as the indexed face.
-				if !ok || stateChurnWakeupReopenIneligible(start.state) || ev.Ts < start.ts {
+				if !schedWakeupStartsNewIncarnation(ev) && (!ok || stateChurnWakeupReopenIneligible(start.state) || ev.Ts < start.ts) {
 					continue
 				}
-				closeState(ev.WakeePID, ev.Ts, ev.Line)
+				if ok {
+					closeState(ev.WakeePID, ev.Ts, ev.Line)
+				}
 				openState(ThreadRef{Comm: ev.WakeeComm, PID: ev.WakeePID}, StateRunnable, ev.Ts, ev.Line)
 			case EventSchedSwitch:
+				if !preWindowCarry && q.TimeStart > 0 && ev.Ts > q.TimeStart {
+					if ev.NextPID > 0 {
+						if _, known := open[ev.NextPID]; !known {
+							missingHeadThreads[ev.NextPID] = true
+						}
+					}
+					if ev.PrevPID > 0 {
+						if _, known := open[ev.PrevPID]; !known {
+							missingHeadThreads[ev.PrevPID] = true
+						}
+					}
+				}
 				if ev.NextPID > 0 {
 					closeState(ev.NextPID, ev.Ts, ev.Line)
 					openState(ThreadRef{Comm: ev.NextComm, PID: ev.NextPID}, StateRunning, ev.Ts, ev.Line)
@@ -402,10 +600,16 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 	nextLine:
 		if readErr != nil {
 			if readErr == io.EOF {
+				if recording {
+					recorder.finishEOF()
+				}
 				break
 			}
 			return Result{}, readErr
 		}
+	}
+	if err := validateTraceFileIdentityAfterRead(f, openedIdentity, "stream_state_cluster"); err != nil {
+		return Result{}, err
 	}
 	endTs := q.TimeEnd
 	if endTs == 0 && idx.LastTs > 0 {
@@ -415,29 +619,93 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 		closeState(pid, endTs, 0)
 	}
 	idx.TraceFlavor, idx.FlavorConfidence, idx.FlavorSignals = flavor.result()
+	if recording {
+		if !recorder.set.FlavorSet {
+			recorder.set.FlavorSet = true
+			recorder.set.Flavor = idx.TraceFlavor
+			recorder.set.FlavorConf = idx.FlavorConfidence
+			recorder.set.FlavorSignals = append([]string(nil), idx.FlavorSignals...)
+		}
+		anchorCache.store(anchorKey, recorder.set)
+	}
+	idx.TimestampOrder = recorder.set.TimestampOrder
+	if idx.TimestampOrder != TraceTimestampOrderUnknown {
+		idx.ClockRegressions = recorder.set.CoveredClockRegressions
+	} else {
+		idx.ClockRegressions = localClockRegressions
+	}
+	idx.TraceArtifacts = []TraceArtifactSource{singleTraceArtifactSourceWithIdentity(path, openedIdentity, idx.LineCount, parsedEvents)}
 	flavorValue, confidence, signals, flavorCaveats := resolveTraceFlavor(idx, q)
 	q.TraceFlavor = flavorValue
 	frameworkSurfaces := detectFrameworkSurfaces(idx, q, TracePlatformAuto, 4)
 	platform, platformCandidate, platformCandidateConfidence, platformCandidateSignals, platformCaveats := resolveTracePlatform(idx, q, flavorValue, frameworkSurfaces, signals)
+	filterCaveats := streamStateClusterApplyThreadFilter(q, accs, running, runnable, sleep, dstate, iowait, missingHeadThreads)
+	var stateIntegrityCaveats []string
+	if schedulerViolation != nil {
+		clearStreamStateCluster(accs, running, runnable, sleep, dstate, iowait)
+		for pid := range missingHeadThreads {
+			delete(missingHeadThreads, pid)
+		}
+		stateIntegrityCaveats = append(stateIntegrityCaveats, "stream_state_cluster_fail_closed=true; "+schedulerViolation.reason()+"; scheduler durations were discarded because same-lane clock rollback has no provable elapsed-time ordering")
+	}
+	if schedulerRowFailure != nil {
+		clearStreamStateCluster(accs, running, runnable, sleep, dstate, iowait)
+		for pid := range missingHeadThreads {
+			delete(missingHeadThreads, pid)
+		}
+		stateIntegrityCaveats = append(stateIntegrityCaveats, "stream_state_cluster_fail_closed=true; "+schedulerRowFailure.reason()+"; scheduler durations were discarded because a critical scheduler row was incomplete")
+	}
+	if identityConflict != nil {
+		clearStreamStateCluster(accs, running, runnable, sleep, dstate, iowait)
+		for pid := range missingHeadThreads {
+			delete(missingHeadThreads, pid)
+		}
+		stateIntegrityCaveats = append(stateIntegrityCaveats, "stream_state_cluster_fail_closed=true; thread_identity_fail_closed=true; "+identityConflict.reason()+"; scheduler durations were discarded because the selected window spans task incarnations")
+	}
+	var headCoverage *SchedulerHeadCoverage
+	if q.TimeStart > 0 && q.LineStart == 0 && q.LineEnd == 0 {
+		headCoverage = &SchedulerHeadCoverage{BoundaryTs: q.TimeStart}
+		if schedulerRowFailure != nil {
+			headCoverage.Status = "unknown"
+			headCoverage.Reason = "scheduler_row_parse_incomplete"
+		} else if schedulerViolation != nil {
+			headCoverage.Status = "unknown"
+			headCoverage.Reason = "scheduler_lane_timestamp_regressed"
+		} else if identityConflict != nil {
+			headCoverage.Status = "unknown"
+			headCoverage.Reason = "thread_incarnation_conflict"
+		} else if len(missingHeadThreads) > 0 {
+			headCoverage.Status = "partial_unknown"
+			headCoverage.Reason = "subject_checkpoint_missing"
+			headCoverage.MissingThreadCount = len(missingHeadThreads)
+			headCoverage.MissingThreadPIDs = sortedBoundedIntSet(missingHeadThreads, schedulerHeadMissingSubjectDisplayCap)
+			stateIntegrityCaveats = append(stateIntegrityCaveats, fmt.Sprintf("scheduler_head_subjects_unknown=true; stream prefix had no governing state for %d in-window thread(s) %v, so their pre-first-event head segments are omitted", headCoverage.MissingThreadCount, headCoverage.MissingThreadPIDs))
+		} else {
+			headCoverage.Status = "recovered"
+		}
+	}
 
 	stats := WindowStats{
-		Window:      TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd},
-		TopRunning:  streamStateTopDurations(running, max),
-		RunnableTop: streamStateTopDurations(runnable, max),
-		SleepTop:    streamStateTopDurations(sleep, max),
-		DStateTop:   streamStateTopDurations(dstate, max),
-		IOWaitTop:   streamStateTopDurations(iowait, max),
-		StateChurn:  streamStateClusterSummaries(accs, max),
+		Window:                TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd},
+		SchedulerHeadCoverage: headCoverage,
+		TopRunning:            streamStateTopDurations(running, max),
+		RunnableTop:           streamStateTopDurations(runnable, max),
+		SleepTop:              streamStateTopDurations(sleep, max),
+		DStateTop:             streamStateTopDurations(dstate, max),
+		IOWaitTop:             streamStateTopDurations(iowait, max),
+		StateChurn:            streamStateClusterSummaries(accs, max),
 		Caveats: []string{
 			"stream_state_cluster=true; derived without materializing the full trace index",
 			"state_cluster is parent-window coverage for prioritizing drilldown; root_cause_rank/frame_root_cause_bundle may still be needed on bounded phase windows",
 		},
 	}
+	stats.Caveats = append(stats.Caveats, stateIntegrityCaveats...)
+	stats.Caveats = append(stats.Caveats, filterCaveats...)
 	stats.StateDrilldownPlan, stats.IdleWholeWindowSleepers = buildStateDrilldownPlanForTarget(stats, max, q.PID, q.Thread)
 	if q.PID > 0 || strings.TrimSpace(q.ThreadInput) != "" || strings.TrimSpace(q.Thread) != "" {
 		stats.Caveats = append(stats.Caveats, "state_cluster filter="+streamStateClusterFilterLabel(q))
 	}
-	if parsedEvents == 0 || len(stats.StateChurn) == 0 {
+	if len(stats.StateChurn) == 0 && len(stats.TopRunning) == 0 && len(stats.RunnableTop) == 0 && len(stats.SleepTop) == 0 && len(stats.DStateTop) == 0 && len(stats.IOWaitTop) == 0 {
 		stats.Caveats = append(stats.Caveats, "state_cluster produced no scheduler state intervals in the selected scope; verify time/line/thread filters before making absence claims")
 	}
 	caveats := append([]string{
@@ -445,9 +713,13 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 	}, flavorCaveats...)
 	caveats = append(caveats, platformCaveats...)
 	caveats = append(caveats, stats.Caveats...)
+	if idx.ClockRegressions > 0 {
+		caveats = append(caveats, fmt.Sprintf("%d timestamp regression(s) detected in the trace (clock moved backwards); duration and ordering metrics around those points are unreliable", idx.ClockRegressions))
+	}
 	return Result{
 		View:                        "window_stats",
 		SourcePath:                  path,
+		TraceArtifacts:              append([]TraceArtifactSource(nil), idx.TraceArtifacts...),
 		TraceFlavor:                 string(flavorValue),
 		Platform:                    string(platform),
 		PlatformCandidate:           string(platformCandidate),
@@ -467,6 +739,7 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 		IndexLineStart:              idx.IndexLineStart,
 		IndexLineEnd:                idx.IndexLineEnd,
 		EventCount:                  parsedEvents,
+		ClockRegressions:            idx.ClockRegressions,
 		TimeStart:                   q.TimeStart,
 		TimeEnd:                     q.TimeEnd,
 		WindowStats:                 &stats,
@@ -497,14 +770,15 @@ func addStreamStateClusterInterval(accs map[string]*stateChurnAcc, running, runn
 		return
 	}
 	durationMs := (clampedEnd - clampedStart) * 1000
-	key := fmt.Sprintf("%d/%s", start.thread.PID, start.thread.Comm)
+	key := threadKey(start.thread)
 	acc := accs[key]
 	if acc == nil {
 		acc = &stateChurnAcc{thread: start.thread}
 		accs[key] = acc
 	}
-	if acc.thread.Comm == "" && start.thread.Comm != "" {
-		acc.thread.Comm = start.thread.Comm
+	candidateEndLine := firstPositive(endLine, start.line)
+	if candidateEndLine > acc.lineEnd || (candidateEndLine == acc.lineEnd && threadDisplayLess(start.thread, acc.thread)) {
+		acc.thread = start.thread
 	}
 	acc.fragmentCount++
 	if acc.lastState != "" && acc.lastState != start.state {
@@ -518,8 +792,8 @@ func addStreamStateClusterInterval(accs map[string]*stateChurnAcc, running, runn
 	if acc.lineStart == 0 || (start.line > 0 && start.line < acc.lineStart) {
 		acc.lineStart = start.line
 	}
-	if candidateEnd := firstPositive(endLine, start.line); candidateEnd > acc.lineEnd {
-		acc.lineEnd = candidateEnd
+	if candidateEndLine > acc.lineEnd {
+		acc.lineEnd = candidateEndLine
 	}
 	td := ThreadDuration{
 		Thread:     start.thread,
@@ -620,15 +894,15 @@ func streamStateAccumulateDuration(dst map[string]ThreadDuration, td ThreadDurat
 	if td.DurationMs <= 0 || td.Thread.PID <= 0 {
 		return
 	}
-	key := fmt.Sprintf("%d/%s", td.Thread.PID, td.Thread.Comm)
+	key := threadKey(td.Thread)
 	existing := dst[key]
 	if existing.Thread.PID == 0 {
 		dst[key] = td
 		return
 	}
 	existing.DurationMs += td.DurationMs
-	if existing.Thread.Comm == "" && td.Thread.Comm != "" {
-		existing.Thread.Comm = td.Thread.Comm
+	if td.EndTs > existing.EndTs || (td.EndTs == existing.EndTs && threadDisplayLess(td.Thread, existing.Thread)) {
+		existing.Thread = td.Thread
 	}
 	if existing.StartTs == 0 || (td.StartTs > 0 && td.StartTs < existing.StartTs) {
 		existing.StartTs = td.StartTs
@@ -664,14 +938,79 @@ func streamStateTopDurations(in map[string]ThreadDuration, max int) []ThreadDura
 
 func streamStateClusterThreadAllowed(q Query, thread ThreadRef) bool {
 	if q.PID > 0 {
-		return thread.PID == q.PID || thread.TGID == q.PID
+		return thread.PID == q.PID
 	}
-	target := strings.ToLower(strings.TrimSpace(firstNonEmpty(q.ThreadInput, q.Thread)))
+	sel := parseThreadSelector(firstNonEmpty(q.ThreadInput, q.Thread))
+	if sel.HasPID {
+		return thread.PID == sel.PID
+	}
+	target := normalizedThreadText(firstNonEmpty(sel.Name, sel.Raw))
 	if target == "" {
 		return true
 	}
-	label := strings.ToLower(threadLabel(thread))
-	return strings.Contains(label, target) || strings.Contains(target, label)
+	return normalizedThreadText(thread.Comm) == target
+}
+
+func clearStreamStateCluster(accs map[string]*stateChurnAcc, buckets ...map[string]ThreadDuration) {
+	for key := range accs {
+		delete(accs, key)
+	}
+	for _, bucket := range buckets {
+		for key := range bucket {
+			delete(bucket, key)
+		}
+	}
+}
+
+func streamStateClusterApplyThreadFilter(q Query, accs map[string]*stateChurnAcc, running, runnable, sleep, dstate, iowait map[string]ThreadDuration, missingHeadThreads map[int]bool) []string {
+	selector := strings.TrimSpace(firstNonEmpty(q.ThreadInput, q.Thread))
+	targetPID := q.PID
+	var resolution threadResolution
+	if targetPID <= 0 && selector != "" {
+		refs := make([]ThreadRef, 0, len(accs))
+		for _, acc := range accs {
+			if acc != nil {
+				refs = append(refs, acc.thread)
+			}
+		}
+		resolution = resolveThreadRefs(selector, refs)
+		if resolution.Ambiguous {
+			clearStreamStateCluster(accs, running, runnable, sleep, dstate, iowait)
+			for pid := range missingHeadThreads {
+				delete(missingHeadThreads, pid)
+			}
+			return []string{fmt.Sprintf("thread_selector_ambiguous selector=%q candidate_pids=%s; stream_state_cluster refuses to merge same-name scheduler threads — rerun with pid=<tid>", selector, joinThreadResolutionPIDs(resolution.CandidatePIDs))}
+		}
+		targetPID = resolution.Thread.PID
+		if targetPID <= 0 {
+			clearStreamStateCluster(accs, running, runnable, sleep, dstate, iowait)
+			for pid := range missingHeadThreads {
+				delete(missingHeadThreads, pid)
+			}
+			return []string{fmt.Sprintf("thread_selector_unresolved selector=%q; stream_state_cluster found no unique scheduler TID in the selected window", selector)}
+		}
+	}
+	if targetPID <= 0 {
+		return nil
+	}
+	for key, acc := range accs {
+		if acc == nil || acc.thread.PID != targetPID {
+			delete(accs, key)
+		}
+	}
+	for _, bucket := range []map[string]ThreadDuration{running, runnable, sleep, dstate, iowait} {
+		for key, td := range bucket {
+			if td.Thread.PID != targetPID {
+				delete(bucket, key)
+			}
+		}
+	}
+	for pid := range missingHeadThreads {
+		if pid != targetPID {
+			delete(missingHeadThreads, pid)
+		}
+	}
+	return nil
 }
 
 func streamStateClusterFilterLabel(q Query) string {

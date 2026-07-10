@@ -1725,15 +1725,17 @@ func TestCompileObservationLedger_AggregateExternalOriginsPreserveSourceRefsAndL
 
 func TestFormatObservationSourceRef_LabelsExternalPayloadRefs(t *testing.T) {
 	got := FormatObservationSourceRef(ObservationSourceRef{
-		Kind:       ObservationSourceCommand,
-		Command:    "git log --oneline -n 10",
-		ToolCallID: "exec_command[0]",
-		RawRef:     "blob://payload/git-log-full.txt",
-		PayloadRef: "blob://payload/git-log-full.txt",
-		RowSetRef:  "blob://rows/git-log-rows.jsonl",
-		PageRef:    "blob://payload/git-log-full.txt?page=1",
-		FetchedAt:  "2026-05-23T10:00:00Z",
-		MIMEType:   "text/plain",
+		Kind:                ObservationSourceCommand,
+		Command:             "git log --oneline -n 10",
+		ToolCallID:          "exec_command[0]",
+		RawRef:              "blob://payload/git-log-full.txt",
+		PayloadRef:          "blob://payload/git-log-full.txt",
+		RowSetRef:           "blob://rows/git-log-rows.jsonl",
+		PageRef:             "blob://payload/git-log-full.txt?page=1",
+		TimeDomain:          "perf_event_time",
+		CanonicalTimeDomain: "trace_seconds",
+		FetchedAt:           "2026-05-23T10:00:00Z",
+		MIMEType:            "text/plain",
 	}, 90)
 	for _, want := range []string{
 		"kind=command",
@@ -1742,6 +1744,8 @@ func TestFormatObservationSourceRef_LabelsExternalPayloadRefs(t *testing.T) {
 		"payload_ref=blob://payload/git-log-full.txt",
 		"row_set_ref=blob://rows/git-log-rows.jsonl",
 		"page_ref=blob://payload/git-log-full.txt?page=1",
+		"time_domain=perf_event_time",
+		"canonical_time_domain=trace_seconds",
 		"fetched_at=2026-05-23T10:00:00Z",
 		"mime_type=text/plain",
 	} {
@@ -2168,6 +2172,10 @@ func TestObservationLedgerInputFromContexts_PrefersAcceptedTurnAToolResults(t *t
 func TestObservationLedgerInputFromContexts_MergesTurnAAcceptedAggregateFacts(t *testing.T) {
 	mut := NewMutableState("headers")
 	mut.SetTurnAArtifacts(TurnAArtifacts{
+		EvidenceItems: []EvidenceItem{
+			{ID: "header-token", Kind: EvidenceDirect, Scope: ScopeLine, Source: "api.ts", LineStart: 10, GroundingStatus: GroundingGrounded},
+			{ID: "app-id", Kind: EvidenceDirect, Scope: ScopeLine, Source: "api.ts", LineStart: 12, GroundingStatus: GroundingGrounded},
+		},
 		AcceptedAggregateFacts: []AnswerAggregateFact{{
 			Kind:    AnswerAggregateMemberSet,
 			Label:   "model headers",

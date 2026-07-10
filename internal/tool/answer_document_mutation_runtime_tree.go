@@ -2053,7 +2053,85 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		}
 	}
 	runtimeTraceProjStampRankWindowChips(&model, zh)
+	// B6 (2026-07-10): when an overflow roster repeats a thread that already
+	// owns a visible rank seat, turn the apparent duplicate into a navigation
+	// pointer ("见榜位#N" / "see rank #N"). Exact canonical subject + unique
+	// rendered ordinal only; ambiguous same-subject ordinals stay unchanged.
+	runtimeTraceProjAnnotateFoldRosterRankPointers(&model, zh)
 	return model
+}
+
+// runtimeTraceProjAnnotateFoldRosterRankPointers is a display-only B6 pass.
+// MergedSubjects is mutated only on the model's node copies, after every
+// identity/sort/lead/badge/window decision has completed. The raw projection
+// roster remains untouched and the full subject text remains present before
+// the pointer suffix — no evidence or member is removed.
+func runtimeTraceProjAnnotateFoldRosterRankPointers(model *runtimeTraceProjTreeModel, zh bool) {
+	if model == nil {
+		return
+	}
+	type rankSeat struct {
+		rank      int
+		ambiguous bool
+	}
+	seats := map[string]rankSeat{}
+	groups := [][]runtimeTraceProjTreeRow{model.TreeRows, model.SelfRows, model.Adjacent, model.Background}
+	for _, rows := range groups {
+		for _, row := range rows {
+			if !row.HasData || row.Node.OnChainOverflowFold {
+				continue
+			}
+			rank, _ := runtimeTraceProjCauseRankConfidence(row)
+			if rank <= 0 {
+				continue
+			}
+			subject := runtimeTraceCausalProjectionCanonicalNode(row.Node.Subject)
+			if subject == "" {
+				continue
+			}
+			seat, exists := seats[subject]
+			if !exists {
+				seats[subject] = rankSeat{rank: rank}
+				continue
+			}
+			// A pointer is safe only when the canonical subject owns exactly one
+			// visible seat occurrence. Two query windows can legitimately publish
+			// the same subject at the same ordinal (for example both rank #2);
+			// the ordinal alone then names neither seat uniquely even though each
+			// row carries its own window chip.
+			seat.ambiguous = true
+			seats[subject] = seat
+		}
+	}
+	if len(seats) == 0 {
+		return
+	}
+	annotate := func(rows []runtimeTraceProjTreeRow) {
+		for i := range rows {
+			if !rows[i].Node.OnChainOverflowFold || len(rows[i].Node.MergedSubjects) == 0 {
+				continue
+			}
+			// Node copies are shallow: detach the roster before adding display
+			// suffixes so the typed projection and another language render stay
+			// byte-identical.
+			rows[i].Node.MergedSubjects = append([]string(nil), rows[i].Node.MergedSubjects...)
+			for j, raw := range rows[i].Node.MergedSubjects {
+				seat, ok := seats[runtimeTraceCausalProjectionCanonicalNode(raw)]
+				if !ok || seat.ambiguous || seat.rank <= 0 {
+					continue
+				}
+				if zh {
+					rows[i].Node.MergedSubjects[j] = fmt.Sprintf("%s(见榜位#%d)", raw, seat.rank)
+				} else {
+					rows[i].Node.MergedSubjects[j] = fmt.Sprintf("%s (see rank #%d)", raw, seat.rank)
+				}
+			}
+		}
+	}
+	annotate(model.TreeRows)
+	annotate(model.SelfRows)
+	annotate(model.Adjacent)
+	annotate(model.Background)
 }
 
 // runtimeTraceProjStampRankWindowChips (PTV8-RCR-C, §24.13 裁定二后半,

@@ -99,6 +99,29 @@ func TestApplyAndPersistMutation_MaterializesDeterministicOptimizationBlock(t *t
 	if len(block.Items) != 2 {
 		t.Fatalf("expected one row per semantic span, got %+v", block.Items)
 	}
+	positions := make(map[string]int, len(got.Blocks))
+	for i, candidate := range got.Blocks {
+		positions[candidate.ID] = i
+	}
+	for _, id := range []string{
+		"s1",
+		"runtime_trace_causal_projection",
+		"runtime_trace_semantic_optimizations",
+		"runtime_trace_causal_projection_detail",
+		"runtime_trace_causal_projection_detail_full",
+		"runtime_trace_causal_projection_evidence",
+	} {
+		if _, ok := positions[id]; !ok {
+			t.Fatalf("report hierarchy fixture missing block %q: %+v", id, got.Blocks)
+		}
+	}
+	if !(positions["s1"] < positions["runtime_trace_causal_projection"] &&
+		positions["runtime_trace_causal_projection"] < positions["runtime_trace_semantic_optimizations"] &&
+		positions["runtime_trace_semantic_optimizations"] < positions["runtime_trace_causal_projection_detail"] &&
+		positions["runtime_trace_causal_projection_detail"] < positions["runtime_trace_causal_projection_detail_full"] &&
+		positions["runtime_trace_causal_projection_detail_full"] < positions["runtime_trace_causal_projection_evidence"]) {
+		t.Fatalf("decision-first hierarchy must be summary -> root cause -> optimization -> metrics -> full detail -> evidence; positions=%+v", positions)
+	}
 	assertProjectionRowsCitationFree(t, block)
 	flat := ""
 	for _, item := range block.Items {
@@ -129,6 +152,212 @@ func TestApplyAndPersistMutation_MaterializesDeterministicOptimizationBlock(t *t
 		if !strings.Contains(clusterText, "["+tag+"]") {
 			t.Fatalf("evidence tag %q not found in projection cluster:\n%s", tag, clusterText)
 		}
+	}
+}
+
+func TestRuntimeTraceReportHierarchyBoundaryUsesExactSystemIDs(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "lead"},
+		{ID: "runtime_trace_causal_projection", Kind: types.BlockSection, Text: "root cause", SystemGeneratedKind: types.AnswerSystemGeneratedRuntimeTrace},
+		{ID: "runtime_trace_causal_projection_a1", Kind: types.BlockSection, Text: "artifact root cause", SystemGeneratedKind: types.AnswerSystemGeneratedRuntimeTrace},
+		{ID: "runtime_trace_causal_projection_a1_detail", Kind: types.BlockTable, Text: "metrics", SystemGeneratedKind: types.AnswerSystemGeneratedRuntimeTrace},
+		{ID: "runtime_trace_causal_projection_a1_detail_full", Kind: types.BlockSection, Text: "detail", SystemGeneratedKind: types.AnswerSystemGeneratedRuntimeTrace},
+		{ID: "runtime_trace_causal_projection_a1_evidence", Kind: types.BlockBulletList, Text: "evidence", SystemGeneratedKind: types.AnswerSystemGeneratedRuntimeTrace},
+		{ID: "caveat", Kind: types.BlockCaveat, Text: "scope"},
+	}}
+	if got, want := answerDocumentInsertionIndexBeforeRuntimeTraceDetails(doc), 3; got != want {
+		t.Fatalf("runtime summary boundary=%d, want %d", got, want)
+	}
+
+	lookalike := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "lead"},
+		{ID: "runtime_trace_causal_projection_a1_detail_extra", Kind: types.BlockSection, Text: "model block"},
+		{ID: "caveat", Kind: types.BlockCaveat, Text: "scope"},
+	}}
+	if got, want := answerDocumentInsertionIndexBeforeRuntimeTraceDetails(lookalike), 2; got != want {
+		t.Fatalf("lookalike id must not become an ordering signal: got boundary=%d, want caveat index %d", got, want)
+	}
+
+	untrustedExact := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "lead"},
+		{ID: "runtime_trace_causal_projection_a1_detail", Kind: types.BlockTable, Text: "model exact collision"},
+		{ID: "caveat", Kind: types.BlockCaveat, Text: "scope"},
+	}}
+	if got, want := answerDocumentInsertionIndexBeforeRuntimeTraceDetails(untrustedExact), 2; got != want {
+		t.Fatalf("unmarked exact reserved id must not become an ordering signal: got boundary=%d, want caveat index %d", got, want)
+	}
+}
+
+func TestRuntimeTraceReservedIDCollisionCannotSuppressOrForgeSystemBlocks(t *testing.T) {
+	bus := semanticOptimizationFixtureBus("")
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{ID: "summary", Kind: types.BlockSummary, Text: "lead"},
+			{ID: "runtime_trace_causal_projection", Kind: types.BlockSection, Text: "model fabricated 999.000ms"},
+			{ID: "runtime_trace_semantic_optimizations", Kind: types.BlockTable, Text: "model fabricated optimization"},
+		},
+	}
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil || !res.Success {
+		t.Fatalf("apply failed: err=%v res=%+v", err, res)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	if got == nil {
+		t.Fatal("persisted document missing")
+	}
+	for _, id := range []string{"runtime_trace_causal_projection", "runtime_trace_semantic_optimizations"} {
+		block := projectionClusterBlock(got.Blocks, id)
+		if block == nil || !RuntimeTraceSystemBlock(*block) {
+			t.Fatalf("authenticated system block %q missing after exact model collision: %+v", id, got.Blocks)
+		}
+	}
+	for _, id := range []string{"model_runtime_trace_causal_projection", "model_runtime_trace_semantic_optimizations"} {
+		block := projectionClusterBlock(got.Blocks, id)
+		if block == nil {
+			t.Fatalf("model content must be preserved under deterministic collision rename %q: %+v", id, got.Blocks)
+		}
+		if RuntimeTraceSystemBlock(*block) || block.SystemGeneratedKind.IsRuntimeTraceSupplement() {
+			t.Fatalf("renamed model block %q minted system provenance: %+v", id, block)
+		}
+	}
+}
+
+func TestRuntimeTraceReservedIDCollisionOnPatchRestoresAuthenticatedSystemBlock(t *testing.T) {
+	bus := semanticOptimizationFixtureBus("")
+	initial := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "lead"},
+	}}
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(initial), nil, time.Now())
+	if err != nil || !res.Success {
+		t.Fatalf("initial apply failed: err=%v res=%+v", err, res)
+	}
+	prev := bus.Mutable.AnswerDocumentV2()
+	patch := &types.AnswerDocumentV2Patch{ReplaceBlocks: []types.AnswerBlock{{
+		ID: "runtime_trace_semantic_optimizations", Kind: types.BlockTable, Text: "patched model value 777.000ms",
+	}}}
+	res, err = ApplyAndPersistMutation(bus, "test_patch", types.NewPartialMutation(patch), prev, time.Now())
+	if err != nil || !res.Success {
+		t.Fatalf("patch apply failed: err=%v res=%+v", err, res)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	system := projectionClusterBlock(got.Blocks, "runtime_trace_semantic_optimizations")
+	model := projectionClusterBlock(got.Blocks, "model_runtime_trace_semantic_optimizations")
+	if system == nil || !RuntimeTraceSystemBlock(*system) {
+		t.Fatalf("patch collision suppressed authenticated semantic block: %+v", got.Blocks)
+	}
+	if model == nil || RuntimeTraceSystemBlock(*model) || !strings.Contains(model.Text, "777.000ms") {
+		t.Fatalf("patched model block was not preserved as untrusted content: %+v", got.Blocks)
+	}
+	if !bus.Mutable.LastEmitFromPatch() {
+		t.Fatal("reserved-id normalization must preserve patch lineage")
+	}
+}
+
+func TestRuntimeTraceReportHierarchyMovesDecisionsAheadOfModelDetail(t *testing.T) {
+	bus := semanticOptimizationFixtureBus("")
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{ID: "summary", Kind: types.BlockSummary, Text: "lead"},
+			{ID: "model_evidence", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{{ID: "e1", Text: "line-by-line evidence", CitationRef: -1}}},
+			{ID: "model_detail", Kind: types.BlockSection, Text: "long drill-down detail"},
+			{ID: "next_steps", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{{ID: "n1", Text: "act on the confirmed bottleneck", CitationRef: -1}}},
+			{ID: "verdict", Kind: types.BlockDecision, Text: "confirmed"},
+			{ID: "scope", Kind: types.BlockCaveat, Text: "scope boundary"},
+		},
+	}
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil || !res.Success {
+		t.Fatalf("apply failed: err=%v res=%+v", err, res)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	positions := make(map[string]int, len(got.Blocks))
+	for i, block := range got.Blocks {
+		positions[block.ID] = i
+	}
+	ordered := []string{
+		"summary",
+		"verdict",
+		"runtime_trace_causal_projection",
+		"runtime_trace_semantic_optimizations",
+		"next_steps",
+		"runtime_trace_causal_projection_detail",
+		"model_evidence",
+		"model_detail",
+		"runtime_trace_causal_projection_detail_full",
+		"runtime_trace_causal_projection_evidence",
+		"scope",
+	}
+	for _, id := range ordered {
+		if _, ok := positions[id]; !ok {
+			t.Fatalf("hierarchy fixture missing %q: %+v", id, got.Blocks)
+		}
+	}
+	for i := 1; i < len(ordered); i++ {
+		if positions[ordered[i-1]] >= positions[ordered[i]] {
+			t.Fatalf("decision-first order violated at %q -> %q: positions=%+v", ordered[i-1], ordered[i], positions)
+		}
+	}
+}
+
+func TestRuntimeTraceExactFitCapReservesDecisionSurfacesBeforeDetails(t *testing.T) {
+	bus := semanticOptimizationFixtureBus("")
+	snapshot := cmpbSnapshotObservation("snapshot", "threadpool-400", "7.000", "state_drilldown", "state_drilldown:threadpool-400:s_sleep")
+	snapshot.RichNotes = append(snapshot.RichNotes,
+		"next_step=investigate repeated wakeups and blocking peers",
+		"next_step_kind=s_sleep")
+	bus.ToolResults[0].Observations = append(bus.ToolResults[0].Observations, snapshot)
+
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2"}
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{ID: "summary", Kind: types.BlockSummary, Text: "lead"})
+	for i := 1; i < 60; i++ {
+		doc.Blocks = append(doc.Blocks, types.AnswerBlock{
+			ID: fmt.Sprintf("model_detail_%d", i), Kind: types.BlockSection, Text: fmt.Sprintf("detail %d", i),
+		})
+	}
+	if got := runtimeTraceCriticalFollowupHeadroom(doc, bus); got != 3 {
+		t.Fatalf("fixture must reserve semantic + metric + action slots, got %d", got)
+	}
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil || !res.Success {
+		t.Fatalf("apply failed: err=%v res=%+v", err, res)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	if len(got.Blocks) != maxBlocksPerDoc {
+		t.Fatalf("exact-fit report must use but never exceed the %d-block cap, got %d", maxBlocksPerDoc, len(got.Blocks))
+	}
+	for _, id := range []string{
+		"runtime_trace_causal_projection",
+		"runtime_trace_semantic_optimizations",
+		"next_steps",
+		"runtime_trace_metric_snapshot",
+	} {
+		block := projectionClusterBlock(got.Blocks, id)
+		if block == nil || !block.SystemGeneratedKind.IsRuntimeTraceSupplement() {
+			t.Fatalf("critical runtime surface %q was crowded out at exact fit: %+v", id, got.Blocks)
+		}
+	}
+	for _, trimmed := range []string{
+		"runtime_trace_causal_projection_detail",
+		"runtime_trace_causal_projection_detail_full",
+		"runtime_trace_causal_projection_evidence",
+	} {
+		if projectionClusterBlock(got.Blocks, trimmed) != nil {
+			t.Fatalf("projection detail %q must yield before critical surfaces at exact fit", trimmed)
+		}
+	}
+}
+
+func TestRuntimeTraceProjectionAtFullCapStaysNoOp(t *testing.T) {
+	bus := semanticOptimizationFixtureBus("")
+	doc := atCapDoc()
+	before := len(doc.Blocks)
+	if materializeRuntimeTraceCausalProjectionBlock(doc, bus) {
+		t.Fatal("full-cap projection materializer must stay a no-op")
+	}
+	if len(doc.Blocks) != before || len(doc.Blocks) != maxBlocksPerDoc {
+		t.Fatalf("full-cap projection changed block count: before=%d after=%d", before, len(doc.Blocks))
 	}
 }
 

@@ -450,7 +450,8 @@ func TestTraceProjectionFamilyIdempotenceGuard(t *testing.T) {
 		bus := compareProjBus(true)
 		doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
 			{ID: "s1", Kind: types.BlockSummary, Text: "摘要"},
-			{ID: leftover, Kind: types.BlockSection, Text: "leftover"},
+			{ID: leftover, Kind: types.BlockSection, Text: "leftover",
+				SystemGeneratedKind: types.AnswerSystemGeneratedRuntimeTrace},
 		}}
 		if materializeRuntimeTraceCausalProjectionBlock(doc, bus) {
 			t.Fatalf("leftover %q must trip the idempotence guard", leftover)

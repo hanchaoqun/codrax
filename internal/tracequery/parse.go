@@ -22,13 +22,12 @@ import (
 )
 
 var (
-	ftraceLineRE     = regexp.MustCompile(`^\s*(.+)-(\d+)(?:\s+\(\s*([0-9-]+)\))?\s+\[(\d+)\]\s+\S+\s+([0-9]+(?:\.[0-9]+)?):\s+([A-Za-z0-9_./:-]+):?\s*(.*)$`)
-	traceTimestampRE = regexp.MustCompile(`\s([0-9]+(?:\.[0-9]+)?):\s+[A-Za-z0-9_./:-]+:?`)
-	kvRE             = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*=\s*("[^"]*"|'[^']*'|[^ ]+)`)
-	blockRequestRE   = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(?:(?:\d+)\s+)?\([^)]*\)\s+(\d+)\s+\+\s+(\d+)`)
-	blockSimpleRE    = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\+\s+(\d+)`)
-	blockRemapRE     = regexp.MustCompile(`^(\S+)\s+(\d+)\s+\+\s+(\d+)\s+<-(?:\s+\(([^)]+)\)\s+(\d+))?`)
-	blockErrorRE     = regexp.MustCompile(`\[([^\]]+)\]\s*$`)
+	ftraceLineRE   = regexp.MustCompile(`^\s*(.+)-(\d+)(?:\s+\(\s*([0-9-]+)\))?\s+\[(\d+)\]\s+\S+\s+([0-9]+(?:\.[0-9]+)?):\s+([A-Za-z0-9_./:-]+):?\s*(.*)$`)
+	kvRE           = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*=\s*("[^"]*"|'[^']*'|[^ ]+)`)
+	blockRequestRE = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(?:(?:\d+)\s+)?\([^)]*\)\s+(\d+)\s+\+\s+(\d+)`)
+	blockSimpleRE  = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\+\s+(\d+)`)
+	blockRemapRE   = regexp.MustCompile(`^(\S+)\s+(\d+)\s+\+\s+(\d+)\s+<-(?:\s+\(([^)]+)\)\s+(\d+))?`)
+	blockErrorRE   = regexp.MustCompile(`\[([^\]]+)\]\s*$`)
 )
 
 var spaceKVKeys = map[string]struct{}{
@@ -46,6 +45,10 @@ type parseCacheKey struct {
 	modUnix   int64
 	version   string
 	windowKey string
+	// sourceKey fingerprints every physical artifact in a composite source.
+	// Entry-path stat alone is insufficient: a sibling perftrace or a bundle
+	// child can change while the systrace/manifest remains byte-identical.
+	sourceKey string
 }
 
 const maxCachedTraceIndexBytes int64 = 64 << 20
@@ -113,9 +116,8 @@ type traceIndexCacheEntry struct {
 
 // traceIndexCache is a byte-budgeted LRU keyed by parseCacheKey. Each entry
 // is charged len(Events)*eventSizeBytes. Inserting past the budget evicts
-// least-recently-used entries; loads refresh recency. The most recent entry
-// is never evicted, so a just-built index always serves at least one repeat
-// call even when it alone exceeds the budget.
+// least-recently-used entries; loads refresh recency. An entry larger than
+// the entire budget is not cached at all.
 type traceIndexCache struct {
 	mu     sync.Mutex
 	budget int64
@@ -138,12 +140,22 @@ func traceIndexCacheCost(idx *Index) int64 {
 	if idx == nil {
 		return 0
 	}
+	idx.schedulerHeadMu.Lock()
+	headBytes := idx.schedulerHeadBytes
+	idx.schedulerHeadMu.Unlock()
 	// Struct cost + the ACTUAL retained string bytes (P2, 2026-07-03):
 	// unsafe.Sizeof counts only string headers, so payload-heavy traces
 	// used to under-charge the LRU by up to 2x and hold more real
 	// memory than the 512 MiB budget promised. Side-table struct bytes
 	// (P4) ride the same lane.
-	return int64(len(idx.Events))*eventSizeBytes + idx.RetainedStringBytes + idx.RetainedSideTableBytes
+	// A bounded index also owns its one correctness-critical window-head
+	// scheduler checkpoint; charge it to the same global LRU budget.
+	durationAuditBytes := int64(len(idx.durationOrderFailures)) * int64(unsafe.Sizeof(durationOrderViolation{}))
+	for i := range idx.durationOrderFailures {
+		failure := &idx.durationOrderFailures[i]
+		durationAuditBytes += int64(len(failure.Lane) + len(failure.LaneKey) + len(failure.SourcePath))
+	}
+	return int64(len(idx.Events))*eventSizeBytes + idx.RetainedStringBytes + idx.RetainedSideTableBytes + headBytes + durationAuditBytes
 }
 
 func (c *traceIndexCache) Load(key parseCacheKey) (*Index, bool) {
@@ -159,6 +171,11 @@ func (c *traceIndexCache) Load(key parseCacheKey) (*Index, bool) {
 
 func (c *traceIndexCache) Store(key parseCacheKey, idx *Index) {
 	cost := traceIndexCacheCost(idx)
+	if c == nil || cost <= 0 || cost > c.budget {
+		// An entry larger than the entire cache budget is served to its caller
+		// but never made process-lifetime resident.
+		return
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if el, ok := c.items[key]; ok {
@@ -384,15 +401,20 @@ func BuildIndexWithOptions(ctx context.Context, path string, opts BuildOptions) 
 	if err != nil {
 		return nil, err
 	}
+	sourceBytes, sourceKey, err := traceIndexSourceIdentity(path, info)
+	if err != nil {
+		return nil, err
+	}
 	opts = normalizeBuildOptions(opts)
 	windowKey := opts.cacheKey()
-	cacheable := shouldCacheTraceIndex(info.Size(), opts)
+	cacheable := shouldCacheTraceIndex(sourceBytes, opts)
 	key := parseCacheKey{
 		path:      path,
 		size:      info.Size(),
 		modUnix:   info.ModTime().UnixNano(),
 		version:   ParserVersion,
 		windowKey: windowKey,
+		sourceKey: sourceKey,
 	}
 	if cacheable {
 		if idx, ok := indexCache.Load(key); ok {
@@ -405,16 +427,115 @@ func BuildIndexWithOptions(ctx context.Context, path string, opts BuildOptions) 
 	// Only non-scoped windowed indices reuse the full-cache derive fast path.
 	if opts.windowed() && !opts.relationScoped() {
 		fullKey := parseCacheKey{
-			path:    path,
-			size:    info.Size(),
-			modUnix: info.ModTime().UnixNano(),
-			version: ParserVersion,
+			path:      path,
+			size:      info.Size(),
+			modUnix:   info.ModTime().UnixNano(),
+			version:   ParserVersion,
+			sourceKey: sourceKey,
 		}
 		if idx, ok := indexCache.Load(fullKey); ok {
-			return deriveWindowedIndex(idx, opts), nil
+			derived := deriveWindowedIndex(idx, opts)
+			auditQ := Query{TimeStart: derived.IndexTimeStart, TimeEnd: derived.IndexTimeEnd, LineStart: derived.IndexLineStart, LineEnd: derived.IndexLineEnd}
+			derived.schedulerOrderFailures = nil
+			derived.durationOrderFailures = nil
+			derived.durationOrderFailuresCapped = nil
+			derived.schedulerRowIntegrityFailures = nil
+			derived.threadIncarnationFailures = nil
+			for _, failure := range idx.schedulerRowIntegrityFailures {
+				if schedulerRowIntegrityFailureRelevantToQuery(&failure, auditQ, 0) {
+					appendSchedulerRowIntegrityFailure(derived, failure)
+				}
+			}
+			derived.schedulerRowIntegrityFailuresCapped = derived.schedulerRowIntegrityFailuresCapped || idx.schedulerRowIntegrityFailuresCapped
+			// parseTraceArtifactSpecs canonically sorts a bundle/composite after
+			// preserving each child's physical-order poison. Re-auditing that
+			// sorted slice would erase the exact rollback/lifecycle proof. Filter
+			// the preserved records instead; only a physical single-file index may
+			// derive fresh audit records from idx.Events.
+			canonicalComposite := traceBundlePath(idx.Path) || len(idx.TraceArtifacts) > 1
+			if canonicalComposite {
+				for _, failure := range idx.schedulerOrderFailures {
+					if schedulerOrderViolationRelevantToQuery(&failure, auditQ, 0) {
+						derived.schedulerOrderFailures = append(derived.schedulerOrderFailures, failure)
+					}
+				}
+				for _, failure := range idx.threadIncarnationFailures {
+					if incarnationBoundaryInsideQuery(&failure, auditQ) {
+						derived.threadIncarnationFailures, derived.threadIncarnationFailuresCapped = mergeThreadIncarnationFailures(
+							derived.threadIncarnationFailures, derived.threadIncarnationFailuresCapped,
+							[]threadIncarnationConflict{failure}, false, threadIncarnationFailureCap)
+					}
+				}
+				derived.schedulerOrderFailuresCapped = idx.schedulerOrderFailuresCapped
+				for _, failure := range idx.durationOrderFailures {
+					if durationOrderViolationRelevantToQuery(&failure, auditQ) {
+						appendDurationOrderFailure(derived, failure)
+					}
+				}
+				for family, capped := range idx.durationOrderFailuresCapped {
+					if capped {
+						if derived.durationOrderFailuresCapped == nil {
+							derived.durationOrderFailuresCapped = map[durationOrderFamily]bool{}
+						}
+						derived.durationOrderFailuresCapped[family] = true
+					}
+				}
+				derived.threadIncarnationFailuresCapped = derived.threadIncarnationFailuresCapped || idx.threadIncarnationFailuresCapped
+				// A child-local audit cannot see an old TID in artifact A followed by
+				// sched_wakeup_new in artifact B. Re-audit the canonical full-event
+				// timeline and union that cross-artifact proof with the preserved
+				// physical-order poison above. Never replace the physical proofs:
+				// canonical sorting can legitimately erase a child rollback/reuse.
+				mergedFailures, mergedCapped := threadIncarnationConflictsFromEvents(idx.Events, auditQ, threadIncarnationFailureCap)
+				derived.threadIncarnationFailures, derived.threadIncarnationFailuresCapped = mergeThreadIncarnationFailures(
+					derived.threadIncarnationFailures, derived.threadIncarnationFailuresCapped,
+					mergedFailures, mergedCapped, threadIncarnationFailureCap)
+			} else {
+				derived.schedulerOrderFailures, derived.schedulerOrderFailuresCapped = schedulerOrderFailuresFromEvents(idx.Events, auditQ, 0, schedulerOrderFailureCap)
+				derived.durationOrderFailures, derived.durationOrderFailuresCapped = durationOrderFailuresFromEvents(idx.Events, auditQ, durationOrderFailureCap)
+				derived.threadIncarnationFailures, derived.threadIncarnationFailuresCapped = threadIncarnationConflictsFromEvents(idx.Events, auditQ, threadIncarnationFailureCap)
+			}
+			if opts.TimeStartSet && opts.TimeStart > 0 {
+				derived.setSchedulerHead(schedulerHeadFromEvents(idx, opts.TimeStart))
+			}
+			return derived, nil
 		}
 	}
-	return buildIndexSingleflight(ctx, key, path, info.Size(), info.ModTime().UnixNano(), opts, cacheable)
+	idx, err := buildIndexSingleflight(ctx, key, path, info.Size(), info.ModTime().UnixNano(), opts, cacheable)
+	if err != nil {
+		return idx, err
+	}
+	currentEntry, statErr := os.Stat(path)
+	if statErr != nil {
+		return nil, fmt.Errorf("revalidate trace source identity after parse: %w", statErr)
+	}
+	_, currentSourceKey, identityErr := traceIndexSourceIdentity(path, currentEntry)
+	if identityErr != nil {
+		return nil, identityErr
+	}
+	if currentSourceKey != sourceKey {
+		return nil, fmt.Errorf("trace source artifacts changed while the index was being built; retry with a stable capture")
+	}
+	if opts.windowed() && opts.TimeStartSet && opts.TimeStart > 0 {
+		if err := populateWindowSchedulerHead(ctx, idx, opts.TimeStart); err != nil {
+			return nil, err
+		}
+		// The checkpoint scan is a second read phase. Revalidate the complete
+		// artifact universe again so an atomic replacement between the index and
+		// head phases cannot publish a mixed-version result.
+		finalEntry, finalStatErr := os.Stat(path)
+		if finalStatErr != nil {
+			return nil, fmt.Errorf("revalidate trace source identity after scheduler head scan: %w", finalStatErr)
+		}
+		_, finalSourceKey, finalIdentityErr := traceIndexSourceIdentity(path, finalEntry)
+		if finalIdentityErr != nil {
+			return nil, finalIdentityErr
+		}
+		if finalSourceKey != sourceKey {
+			return nil, fmt.Errorf("trace source artifacts changed while the scheduler head checkpoint was being built; retry with a stable capture")
+		}
+	}
+	return idx, nil
 }
 
 func shouldCacheTraceIndex(size int64, opts BuildOptions) bool {
@@ -422,6 +543,50 @@ func shouldCacheTraceIndex(size int64, opts BuildOptions) bool {
 		return false
 	}
 	return size <= maxCachedTraceIndexBytes
+}
+
+// traceIndexSourceIdentity returns a deterministic stat fingerprint and total
+// physical byte size for the complete source universe selected by BuildIndex.
+// It covers the bundle manifest plus every child, or a systrace plus every
+// sibling artifact.  The same value keys the cache and in-flight singleflight;
+// total bytes (not the small manifest/primary size) decide cacheability.
+func traceIndexSourceIdentity(path string, entry os.FileInfo) (int64, string, error) {
+	paths := []string{canonicalTraceIndexPath(path)}
+	if traceBundlePath(path) {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return 0, "", err
+		}
+		var bundle traceBundleFile
+		if err := json.Unmarshal(body, &bundle); err != nil {
+			return 0, "", fmt.Errorf("parse trace bundle %s for source identity: %w", path, err)
+		}
+		paths = append(paths, traceBundleIndexPaths(path, bundle)...)
+	} else {
+		paths = append(paths, siblingTraceArtifactPaths(path)...)
+	}
+	seen := map[string]bool{}
+	var total int64
+	var key strings.Builder
+	for _, candidate := range paths {
+		candidate = canonicalTraceIndexPath(candidate)
+		if candidate == "" || seen[candidate] {
+			continue
+		}
+		seen[candidate] = true
+		info := entry
+		if candidate != canonicalTraceIndexPath(path) || info == nil {
+			var err error
+			info, err = os.Stat(candidate)
+			if err != nil {
+				return 0, "", fmt.Errorf("stat trace source artifact %s: %w", candidate, err)
+			}
+		}
+		total += info.Size()
+		identity := traceFileIdentityFromInfo(info)
+		fmt.Fprintf(&key, "%d:%s:%s|", len(candidate), candidate, identity.cacheToken())
+	}
+	return total, key.String(), nil
 }
 
 func canonicalTraceIndexPath(path string) string {
@@ -467,20 +632,31 @@ func deriveWindowedIndex(full *Index, opts BuildOptions) *Index {
 		return nil
 	}
 	out := &Index{
-		Path:             full.Path,
-		Size:             full.Size,
-		ModTime:          full.ModTime,
-		LineCount:        full.LineCount,
-		ScannedLineCount: full.ScannedLineCount,
-		Windowed:         true,
-		IndexTimeStart:   paddedTimeStart(opts),
-		IndexTimeEnd:     paddedTimeEnd(opts),
-		IndexLineStart:   paddedLineStart(opts),
-		IndexLineEnd:     paddedLineEnd(opts),
-		TraceFlavor:      full.TraceFlavor,
-		FlavorConfidence: full.FlavorConfidence,
-		FlavorSignals:    append([]string(nil), full.FlavorSignals...),
-		Caveats:          append([]string(nil), full.Caveats...),
+		Path:                                full.Path,
+		Size:                                full.Size,
+		ModTime:                             full.ModTime,
+		TraceArtifacts:                      append([]TraceArtifactSource(nil), full.TraceArtifacts...),
+		LineCount:                           full.LineCount,
+		ScannedLineCount:                    full.ScannedLineCount,
+		Windowed:                            true,
+		IndexTimeStart:                      paddedTimeStart(opts),
+		IndexTimeEnd:                        paddedTimeEnd(opts),
+		IndexLineStart:                      paddedLineStart(opts),
+		IndexLineEnd:                        paddedLineEnd(opts),
+		TraceFlavor:                         full.TraceFlavor,
+		FlavorConfidence:                    full.FlavorConfidence,
+		FlavorSignals:                       append([]string(nil), full.FlavorSignals...),
+		Caveats:                             append([]string(nil), full.Caveats...),
+		ClockRegressions:                    full.ClockRegressions,
+		TimestampOrder:                      full.TimestampOrder,
+		schedulerOrderFailures:              append([]schedulerOrderViolation(nil), full.schedulerOrderFailures...),
+		durationOrderFailures:               append([]durationOrderViolation(nil), full.durationOrderFailures...),
+		durationOrderFailuresCapped:         cloneDurationOrderCapped(full.durationOrderFailuresCapped),
+		schedulerRowIntegrityFailures:       append([]schedulerRowIntegrityFailure(nil), full.schedulerRowIntegrityFailures...),
+		threadIncarnationFailures:           append([]threadIncarnationConflict(nil), full.threadIncarnationFailures...),
+		threadIncarnationFailuresCapped:     full.threadIncarnationFailuresCapped,
+		schedulerOrderFailuresCapped:        full.schedulerOrderFailuresCapped,
+		schedulerRowIntegrityFailuresCapped: full.schedulerRowIntegrityFailuresCapped,
 	}
 	firstLine, lastLine := 0, 0
 	// Window selection prefers a ZERO-COPY view: Event is ~1KB, so
@@ -659,14 +835,17 @@ func (opts BuildOptions) cacheKey() string {
 }
 
 // windowGate holds the padded line/time bounds of a windowed parse and decides,
-// for each scanned line, whether it falls before the window (skip), past it
-// (stop), or inside it (retain). Both the main parse loop and the relation-scope
-// discovery pass route through this single method so they observe a byte-
-// identical window line set — any drift between the two would corrupt pruning.
+// for each scanned line, whether it falls before/outside the window (skip), is
+// provably past it (stop), or is inside it (retain). A time-end stop is legal
+// only with a complete-file monotonic timestamp proof. Both the main parse loop
+// and the relation-scope discovery pass route through this single method so
+// they observe a byte-identical window line set — any drift between the two
+// would corrupt pruning.
 type windowGate struct {
 	lineStart, lineEnd       int
 	timeStart, timeEnd       float64
 	timeStartSet, timeEndSet bool
+	allowTimeEndStop         bool
 }
 
 func (w windowGate) decide(lineNo int, trimmed string, seenTimeWindow *bool) (skip, stop bool, ts float64, hasTS bool) {
@@ -683,7 +862,11 @@ func (w windowGate) decide(lineNo int, trimmed string, seenTimeWindow *bool) (sk
 				return true, false, ts, true
 			}
 			if w.timeEndSet && ts > w.timeEnd {
-				return false, true, ts, true
+				// A regression-free PREFIX is not a proof about the unread
+				// suffix. Without the typed complete-file proof, skip this
+				// out-of-window row and keep scanning: a later physical line may
+				// regress back into the requested window.
+				return true, w.allowTimeEndStop, ts, true
 			}
 			*seenTimeWindow = true
 		} else if w.timeStartSet && !*seenTimeWindow {
@@ -691,6 +874,45 @@ func (w windowGate) decide(lineNo int, trimmed string, seenTimeWindow *bool) (sk
 		}
 	}
 	return false, false, ts, hasTS
+}
+
+// completeTimestampOrderProof consumes the unread physical suffix using only
+// timestamp extraction and anchor bookkeeping. It is used when the event
+// budget trips in padding: the retained event slice cannot grow, but a cheap
+// O(1)-memory suffix pass can still establish (or reject) the complete-file
+// monotonic proof required to degrade safely. No event or parse-quality count
+// is fabricated for this timestamp-only suffix.
+func completeTimestampOrderProof(ctx context.Context, r *bufio.Reader, nextLine int, currentReadErr error, idx *Index, recorder *anchorRecorder, recording bool) error {
+	if !recording || recorder == nil {
+		return nil
+	}
+	if currentReadErr != nil {
+		if currentReadErr == io.EOF {
+			recorder.finishEOF()
+			return nil
+		}
+		return currentReadErr
+	}
+	for lineNo := nextLine; ; lineNo++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		line, readErr := r.ReadString('\n')
+		if len(line) > 0 {
+			idx.LineCount = lineNo
+			idx.ScannedLineCount = lineNo
+			trimmed := strings.TrimRight(line, "\r\n")
+			ts, hasTS := parseLineTimestamp(trimmed)
+			recorder.observe(lineNo, len(line), ts, hasTS)
+		}
+		if readErr != nil {
+			if readErr == io.EOF {
+				recorder.finishEOF()
+				return nil
+			}
+			return readErr
+		}
+	}
 }
 
 func parseFile(ctx context.Context, path string, size int64, modUnix int64, opts BuildOptions) (*Index, error) {
@@ -709,6 +931,14 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 		return nil, err
 	}
 	defer f.Close()
+	openedInfo, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	openedIdentity := traceFileIdentityFromInfo(openedInfo)
+	if openedInfo.Size() != size || openedInfo.ModTime().UnixNano() != modUnix {
+		return nil, fmt.Errorf("trace source identity changed before its parser opened the artifact")
+	}
 
 	idx := &Index{Path: path, Size: size, ModTime: time.Unix(0, modUnix)}
 	if opts.windowed() {
@@ -718,13 +948,22 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 		idx.IndexLineStart = paddedLineStart(opts)
 		idx.IndexLineEnd = paddedLineEnd(opts)
 	}
+	// The per-file anchor entry is keyed by immutable file identity. Its
+	// TimestampOrder value is accepted only when a prior scan reached EOF;
+	// prefix anchors alone never authorize a time-end stop.
+	anchorKey := traceAnchorKeyForIdentity(path, openedIdentity)
+	anchorSet := anchorCache.load(anchorKey)
+	if anchorSet != nil {
+		idx.TimestampOrder = anchorSet.TimestampOrder
+	}
 	gate := windowGate{
-		lineStart:    idx.IndexLineStart,
-		lineEnd:      idx.IndexLineEnd,
-		timeStart:    idx.IndexTimeStart,
-		timeEnd:      idx.IndexTimeEnd,
-		timeStartSet: opts.TimeStartSet,
-		timeEndSet:   opts.TimeEndSet,
+		lineStart:        idx.IndexLineStart,
+		lineEnd:          idx.IndexLineEnd,
+		timeStart:        idx.IndexTimeStart,
+		timeEnd:          idx.IndexTimeEnd,
+		timeStartSet:     opts.TimeStartSet,
+		timeEndSet:       opts.TimeEndSet,
+		allowTimeEndStop: idx.TimestampOrder.AllowsTimeEndEarlyStop(),
 	}
 	// Gap 3 Step 2: for a pid-relation-scoped build, first stream the window
 	// once to discover the target pid's thread set and its transitive scheduler
@@ -746,9 +985,40 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 	// to the last anchor guaranteed to precede every in-window line instead
 	// of re-streaming the whole prefix. Gate logic after the seek point is
 	// byte-identical, so the parsed event set cannot change.
-	anchorKey := traceAnchorKey{path: path, size: size, modUnix: modUnix, version: ParserVersion}
-	anchorSet := anchorCache.load(anchorKey)
 	seekAnchor, seeked := anchorSet.seekAnchorFor(opts.TimeStartSet, idx.IndexTimeStart, idx.IndexLineStart)
+	// A non-monotonic/unknown source must be audited from physical line 1 for
+	// same-lane rollback and lifecycle reuse. Seeking past the prefix would
+	// erase the very predecessor needed by those hard gates.
+	if idx.TimestampOrder != TraceTimestampOrderMonotonic {
+		seeked = false
+		seekAnchor = traceAnchor{}
+	}
+	incarnationAudit := newThreadIncarnationTracker()
+	incarnationAuditSeedBoundary := float64(0)
+	if seeked {
+		// A time anchor skips physical rows that establish whether an in-window
+		// sched_wakeup_new reuses an existing TID. Reuse the scheduler-head prefix
+		// scan as an immutable lifecycle checkpoint, then audit only rows at/after
+		// that boundary to avoid replaying the seeded prefix. Line-only seeks have
+		// no timestamp boundary for this checkpoint and therefore stay unseeked.
+		if idx.IndexTimeStart <= 0 {
+			seeked = false
+			seekAnchor = traceAnchor{}
+		} else {
+			source := singleTraceArtifactSourceWithIdentity(path, openedIdentity, 0, 0)
+			prefix, prefixErr := sourceSchedulerHeadSnapshot(ctx, source, idx.IndexTimeStart)
+			if prefixErr != nil {
+				return nil, fmt.Errorf("build lifecycle checkpoint for anchored trace window: %w", prefixErr)
+			}
+			if !prefix.Complete || prefix.lifecycle == nil {
+				seeked = false
+				seekAnchor = traceAnchor{}
+			} else {
+				incarnationAudit = prefix.lifecycle.clone()
+				incarnationAuditSeedBoundary = idx.IndexTimeStart
+			}
+		}
+	}
 	startLine := 1
 	if seeked && anchorSet != nil && anchorSet.FlavorSet {
 		if _, serr := f.Seek(seekAnchor.ByteOffset, io.SeekStart); serr != nil {
@@ -770,6 +1040,12 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 	flavor := newFlavorVote(path)
 	seenTimeWindow := false
 	lastParsedTs := float64(0)
+	schedulerAuditCPU := newSchedulerOrderTracker()
+	schedulerAuditPID := newSchedulerOrderTracker()
+	durationAudit := newDurationOrderTracker()
+	auditIntern := newStringInterner()
+	auditScratch := &Index{}
+	auditQ := Query{TimeStart: idx.IndexTimeStart, TimeEnd: idx.IndexTimeEnd, LineStart: idx.IndexLineStart, LineEnd: idx.IndexLineEnd}
 	for lineNo := startLine; ; lineNo++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -779,6 +1055,55 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 			idx.LineCount = lineNo
 			idx.ScannedLineCount = lineNo
 			trimmed := strings.TrimRight(line, "\r\n")
+			if idx.Windowed && durationOrderRawCandidate(trimmed) {
+				if auditEv, auditOK := safeParseLine(lineNo, trimmed, auditIntern, auditScratch); auditOK {
+					for _, failure := range durationAudit.observeAll(auditEv) {
+						failure.SourcePath = path
+						if durationOrderViolationRelevantToQuery(&failure, auditQ) {
+							appendDurationOrderFailure(idx, failure)
+						}
+					}
+				}
+			}
+			var rowIntegrityFailure *schedulerRowIntegrityFailure
+			if idx.Windowed && schedulerIntegrityRawCandidate(trimmed) {
+				rowIntegrityFailure = schedulerRowValidationFailure(lineNo, trimmed)
+				if rowIntegrityFailure != nil && schedulerRowIntegrityFailureRelevantToQuery(rowIntegrityFailure, auditQ, 0) {
+					rowIntegrityFailure.SourcePath = path
+					appendSchedulerRowIntegrityFailure(idx, *rowIntegrityFailure)
+				}
+			}
+			if idx.Windowed && rowIntegrityFailure == nil && schedulerHeadRawCandidate(trimmed) {
+				if auditEv, auditOK := safeParseLine(lineNo, trimmed, auditIntern, auditScratch); auditOK {
+					if incarnationAuditSeedBoundary == 0 || auditEv.Ts >= incarnationAuditSeedBoundary {
+						for _, conflict := range incarnationAudit.observeAll(auditEv, 0) {
+							if incarnationBoundaryInsideQuery(&conflict, auditQ) {
+								if len(idx.threadIncarnationFailures) < threadIncarnationFailureCap {
+									idx.threadIncarnationFailures = append(idx.threadIncarnationFailures, conflict)
+								} else {
+									idx.threadIncarnationFailuresCapped = true
+								}
+							}
+						}
+					}
+					lineInOrderDomain := (idx.IndexLineStart <= 0 || lineNo >= idx.IndexLineStart) && (idx.IndexLineEnd <= 0 || lineNo <= idx.IndexLineEnd)
+					if lineInOrderDomain {
+						for _, failure := range auditSchedulerOrderEvent(schedulerAuditCPU, schedulerAuditPID, auditEv) {
+							failure.SourcePath = path
+							if schedulerOrderViolationRelevantToQuery(&failure, auditQ, 0) {
+								if len(idx.schedulerOrderFailures) < schedulerOrderFailureCap {
+									idx.schedulerOrderFailures = append(idx.schedulerOrderFailures, failure)
+								} else {
+									idx.schedulerOrderFailuresCapped = true
+								}
+							}
+						}
+					}
+				} else if rejected := schedulerRejectedRowFailure(lineNo, trimmed); rejected != nil && schedulerRowIntegrityFailureRelevantToQuery(rejected, auditQ, 0) {
+					rejected.SourcePath = path
+					appendSchedulerRowIntegrityFailure(idx, *rejected)
+				}
+			}
 			lineTs, lineHasTS := float64(0), false
 			if idx.Windowed {
 				skip, stop, gts, ghas := gate.decide(lineNo, trimmed, &seenTimeWindow)
@@ -841,29 +1166,22 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 					// request was completely parsed, yet the ±0.5s padding tail
 					// tripped the cap and the model permanently lost the view.
 					//
-					// Degrade criterion (QF1/QF3 rework, 2026-07-03) — precise
-					// signals only, all evaluated inside this loop:
+					// Degrade criterion — precise signals only:
 					//   1. opts.TimeStartSet && opts.TimeEndSet — a half-open
 					//      window has no TimeEnd to prove tail coverage against.
-					//   2. idx.ClockRegressions == 0 — zero clock regressions
-					//      observed in THIS parse. The counter is a run-time
-					//      signal incremented earlier in this same iteration
-					//      (before this guard) for every parsed event whose ts
-					//      moved backwards vs the previous parsed event; zero
-					//      prev-event regressions ⟺ the parsed ts sequence is
-					//      non-decreasing ⟺ zero running-max regressions, so no
-					//      shadow running-max bool is needed. Out-of-order
-					//      traces (ClockRegressions > 0) keep the hard denial:
-					//      there monotonicity cannot vouch for the unparsed
-					//      remainder.
-					//   3. ev.Ts > opts.TimeEnd — STRICTLY greater: the trigger
-					//      event itself lies outside the requested window, and
-					//      with (2) every later line has ts >= ev.Ts > TimeEnd,
-					//      so zero in-window events are lost. ev.Ts == TimeEnd
+					//   2. ev.Ts > opts.TimeEnd — STRICTLY greater: the trigger
+					//      event itself lies outside the requested window.
+					//      ev.Ts == TimeEnd
 					//      must NOT degrade — timeInWindow includes both
 					//      endpoints, so that trigger is a real in-window match
 					//      whose loss would silently drop an endpoint event
 					//      (QF1); it stays on the hard-denial path.
+					//   3. TimestampOrder == complete monotonic — a zero
+					//      regression count in the parsed prefix is NOT proof
+					//      about the unread suffix. If no cached EOF proof exists,
+					//      completeTimestampOrderProof streams the suffix without
+					//      retaining events; only an EOF-complete monotonic result
+					//      authorizes truncating padding.
 					//
 					// The old idx.FirstTs <= opts.TimeStart conjunct was removed
 					// as structurally redundant for head coverage: the window
@@ -886,8 +1204,17 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 					// this main-loop budget guard and gate semantics are
 					// untouched. Requests failing any conjunct keep the
 					// existing hard IndexEventLimitError.
-					if opts.TimeStartSet && opts.TimeEndSet &&
-						idx.ClockRegressions == 0 && ev.Ts > opts.TimeEnd {
+					paddingCandidate := opts.TimeStartSet && opts.TimeEndSet && ev.Ts > opts.TimeEnd
+					if paddingCandidate && !idx.TimestampOrder.AllowsTimeEndEarlyStop() {
+						if proofErr := completeTimestampOrderProof(ctx, r, lineNo+1, err, idx, recorder, recording); proofErr != nil {
+							return nil, proofErr
+						}
+						idx.TimestampOrder = recorder.set.TimestampOrder
+						if idx.TimestampOrder != TraceTimestampOrderUnknown {
+							idx.ClockRegressions = recorder.set.CoveredClockRegressions
+						}
+					}
+					if paddingCandidate && idx.TimestampOrder.AllowsTimeEndEarlyStop() {
 						idx.PaddingTruncated = true
 						idx.PaddingTruncatedLastTs = idx.LastTs
 						idx.PaddingTruncatedNote = fmt.Sprintf(indexPaddingTruncatedNoteFmt, idx.LastTs)
@@ -915,6 +1242,16 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 				idx.RetainedSideTableBytes += eventSideTableBytes(&ev)
 				idx.Events = append(idx.Events, ev)
 			} else if trimmed != "" {
+				if rowIntegrityFailure == nil {
+					rowIntegrityFailure = schedulerRowValidationFailure(lineNo, trimmed)
+					if rowIntegrityFailure != nil && schedulerRowIntegrityFailureRelevantToQuery(rowIntegrityFailure, auditQ, 0) {
+						rowIntegrityFailure.SourcePath = path
+						appendSchedulerRowIntegrityFailure(idx, *rowIntegrityFailure)
+					} else if rejected := schedulerRejectedRowFailure(lineNo, trimmed); rejected != nil && schedulerRowIntegrityFailureRelevantToQuery(rejected, auditQ, 0) {
+						rejected.SourcePath = path
+						appendSchedulerRowIntegrityFailure(idx, *rejected)
+					}
+				}
 				if idx.ParseLinePanics == panicsBefore {
 					idx.UnparsedLines++
 				}
@@ -927,6 +1264,9 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 	nextLine:
 		if err != nil {
 			if err == io.EOF {
+				if recording {
+					recorder.finishEOF()
+				}
 				break
 			}
 			return nil, err
@@ -949,9 +1289,33 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 		}
 		anchorCache.store(anchorKey, recorder.set)
 	}
+	// Publish only the complete proof. When the cold window scan had no proof,
+	// it continued to EOF and finishEOF filled this value. A warm monotonic
+	// scan may stop early, but inherits the already-complete cached proof.
+	idx.TimestampOrder = recorder.set.TimestampOrder
+	if idx.TimestampOrder != TraceTimestampOrderUnknown {
+		idx.ClockRegressions = recorder.set.CoveredClockRegressions
+	}
 	idx.RetainedStringBytes = intern.retainedBytes
 	if len(relScopeCaveats) > 0 {
 		idx.Caveats = append(idx.Caveats, relScopeCaveats...)
+	}
+	idx.RelationScoped = relScope != nil
+	if relScope != nil {
+		idx.relationScopeTIDs = make(map[int]bool, len(relScope.relevantTids))
+		for tid := range relScope.relevantTids {
+			idx.relationScopeTIDs[tid] = true
+		}
+	}
+	if len(idx.TraceArtifacts) == 0 {
+		finalInfo, statErr := f.Stat()
+		if statErr != nil {
+			return nil, statErr
+		}
+		if !openedIdentity.matchesInfo(finalInfo) {
+			return nil, fmt.Errorf("trace source changed while it was being parsed")
+		}
+		idx.TraceArtifacts = []TraceArtifactSource{singleTraceArtifactSourceWithIdentity(path, openedIdentity, idx.LineCount, len(idx.Events))}
 	}
 	return idx, nil
 }
@@ -1068,6 +1432,8 @@ type traceBundlePerfClockAlignment struct {
 	ArtifactPath    string   `json:"artifact_path,omitempty"`
 	PerfTimeDomain  string   `json:"perf_time_domain,omitempty"`
 	TraceTimeDomain string   `json:"trace_time_domain,omitempty"`
+	OffsetSec       *float64 `json:"offset_sec,omitempty"`
+	Slope           *float64 `json:"slope,omitempty"`
 	Confidence      string   `json:"confidence,omitempty"`
 	Calibrated      bool     `json:"calibrated"`
 	Source          string   `json:"source,omitempty"`
@@ -1079,7 +1445,14 @@ func traceBundlePath(path string) bool {
 }
 
 func promoteSiblingTraceBundlePath(path string) string {
+	path = canonicalTraceIndexPath(path)
 	if traceBundlePath(path) {
+		return path
+	}
+	// A perftrace path is the explicit per-domain escape hatch. Promoting it
+	// back to a sibling bundle would make an honestly isolated perf clock
+	// impossible to query on its own (and contradict the isolation caveat).
+	if strings.HasSuffix(strings.ToLower(path), ".perftrace") {
 		return path
 	}
 	if bundle := siblingTraceBundlePath(path); bundle != "" {
@@ -1089,14 +1462,31 @@ func promoteSiblingTraceBundlePath(path string) string {
 }
 
 func siblingTraceBundlePath(path string) string {
-	base := traceArtifactBase(path)
+	requested := canonicalTraceIndexPath(path)
+	base := traceArtifactBase(requested)
 	if base == "" {
 		return ""
 	}
-	candidate := base + ".tracebundle.json"
-	if _, err := os.Stat(candidate); err == nil {
-		return candidate
+	candidate := canonicalTraceIndexPath(base + ".tracebundle.json")
+	body, err := os.ReadFile(candidate)
+	if err != nil {
+		// A sibling manifest is optional metadata. An unreadable candidate must
+		// not make the explicitly requested physical trace unusable.
+		return ""
 	}
+	var bundle traceBundleFile
+	if err := json.Unmarshal(body, &bundle); err != nil {
+		// Likewise, a partial/stale invalid manifest cannot hijack a direct
+		// systrace request. BuildIndex will continue with requested itself.
+		return ""
+	}
+	for _, spec := range traceBundleArtifactSpecs(candidate, bundle) {
+		if spec.source.Kind == "systrace" && canonicalTraceIndexPath(spec.source.SourcePath) == requested {
+			return candidate
+		}
+	}
+	// Basename proximity is not capture provenance. Only an explicit,
+	// canonically resolved systrace declaration authorizes auto-promotion.
 	return ""
 }
 
@@ -1113,8 +1503,6 @@ func siblingTraceArtifactPaths(path string) []string {
 	switch {
 	case strings.HasSuffix(lower, ".systrace"):
 		suffixes = []string{".perftrace"}
-	case strings.HasSuffix(lower, ".perftrace"):
-		suffixes = []string{".systrace"}
 	default:
 		return nil
 	}
@@ -1152,11 +1540,11 @@ func parseTraceBundleFile(ctx context.Context, path string, size int64, modUnix 
 	if err := json.Unmarshal(body, &bundle); err != nil {
 		return nil, fmt.Errorf("parse trace bundle %s: %w", path, err)
 	}
-	artifactPaths := traceBundleIndexPaths(path, bundle)
-	if len(artifactPaths) == 0 {
+	artifactSpecs := traceBundleArtifactSpecs(path, bundle)
+	if len(artifactSpecs) == 0 {
 		return nil, fmt.Errorf("trace bundle %s has no systrace or perftrace artifacts", path)
 	}
-	idx, err := parseTraceArtifactPathList(ctx, path, size, modUnix, opts, artifactPaths)
+	idx, err := parseTraceArtifactSpecs(ctx, path, size, modUnix, opts, artifactSpecs)
 	if err != nil {
 		return nil, err
 	}
@@ -1401,6 +1789,12 @@ func traceBundleClockAlignmentCaveat(alignment traceBundlePerfClockAlignment) st
 	appendKV("artifact", traceBundlePathBase(alignment.ArtifactPath))
 	appendKV("perf_time_domain", alignment.PerfTimeDomain)
 	appendKV("trace_time_domain", alignment.TraceTimeDomain)
+	if alignment.OffsetSec != nil {
+		parts = append(parts, fmt.Sprintf("offset_sec=%.9g", *alignment.OffsetSec))
+	}
+	if alignment.Slope != nil {
+		parts = append(parts, fmt.Sprintf("slope=%.12g", *alignment.Slope))
+	}
 	appendKV("confidence", alignment.Confidence)
 	parts = append(parts, fmt.Sprintf("calibrated=%t", alignment.Calibrated))
 	appendKV("source", alignment.Source)
@@ -1461,7 +1855,18 @@ func traceBundleCompactValue(value string) string {
 }
 
 func parseTraceArtifactPathList(ctx context.Context, path string, size int64, modUnix int64, opts BuildOptions, artifactPaths []string) (*Index, error) {
-	idx := &Index{Path: path, Size: size, ModTime: time.Unix(0, modUnix)}
+	return parseTraceArtifactSpecs(ctx, path, size, modUnix, opts, traceArtifactSpecsForPaths(artifactPaths))
+}
+
+func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUnix int64, opts BuildOptions, artifactSpecs []traceArtifactSpec) (*Index, error) {
+	// A bundle owns manifest bytes in addition to its children.  A sibling
+	// systrace/perftrace universe does not: the primary path is one of the
+	// children and must not be counted twice.
+	baseSize := int64(0)
+	if traceBundlePath(path) {
+		baseSize = size
+	}
+	idx := &Index{Path: path, Size: baseSize, ModTime: time.Unix(0, modUnix)}
 	if opts.windowed() {
 		idx.Windowed = true
 		idx.IndexTimeStart = paddedTimeStart(opts)
@@ -1470,54 +1875,286 @@ func parseTraceArtifactPathList(ctx context.Context, path string, size int64, mo
 		idx.IndexLineEnd = paddedLineEnd(opts)
 	}
 	var flavorSet bool
-	for _, artifactPath := range artifactPaths {
+	virtualLineBase := 0
+	for _, spec := range artifactSpecs {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		artifactPath := spec.source.SourcePath
 		info, err := os.Stat(artifactPath)
 		if err != nil {
 			return nil, fmt.Errorf("stat trace bundle artifact %s: %w", artifactPath, err)
 		}
-		child, err := parseSingleTraceFile(ctx, artifactPath, info.Size(), info.ModTime().UnixNano(), opts)
+		source := spec.source
+		source.SourceBytes = info.Size()
+		source.SourceModUnixNano = info.ModTime().UnixNano()
+		source.sourceIdentity = traceFileIdentityFromInfo(info)
+		source.VirtualLineBase = virtualLineBase
+		reserve, reserveErr := traceArtifactVirtualLineReserve(info.Size(), virtualLineBase)
+		if reserveErr != nil {
+			return nil, fmt.Errorf("trace bundle artifact %s: %w", artifactPath, reserveErr)
+		}
+		virtualLineBase += reserve
+		idx.Size += info.Size()
+		if info.ModTime().After(idx.ModTime) {
+			idx.ModTime = info.ModTime()
+		}
+		if !source.CausalCompatible {
+			idx.TraceArtifacts = append(idx.TraceArtifacts, source)
+			idx.Caveats = append(idx.Caveats, fmt.Sprintf(
+				"tracebundle_clock_domain_isolated artifact=%s time_domain=%s canonical_time_domain=%s reason=%s; query the artifact directly for per-domain analysis",
+				filepath.Base(source.SourcePath), source.TimeDomain, source.CanonicalTimeDomain, source.IsolationReason))
+			continue
+		}
+
+		childOpts, intersects, mapErr := traceArtifactBuildOptions(opts, source)
+		if mapErr != nil {
+			return nil, fmt.Errorf("map canonical window into trace bundle artifact %s: %w", artifactPath, mapErr)
+		}
+		if !intersects {
+			idx.TraceArtifacts = append(idx.TraceArtifacts, source)
+			continue
+		}
+		if strings.EqualFold(source.Kind, "perftrace") {
+			// Relation discovery consumes scheduler rows to build a waker
+			// closure. A perftrace capability does not attest scheduler-row
+			// provenance, so an injected sched_wakeup must not expand that
+			// closure before the post-parse perf-only admission gate can remove
+			// it. Parse the bounded perf window without relation pruning; typed
+			// sample identity is scrubbed/admitted immediately below.
+			childOpts.RelationScoped = false
+		}
+		child, err := parseSingleTraceFile(ctx, artifactPath, info.Size(), info.ModTime().UnixNano(), childOpts)
 		if err != nil {
 			return nil, fmt.Errorf("parse trace bundle artifact %s: %w", artifactPath, err)
 		}
-		idx.Size += child.Size
-		if child.ModTime.After(idx.ModTime) {
-			idx.ModTime = child.ModTime
+		if childSource, ok := traceArtifactSourceForPath(child.TraceArtifacts, artifactPath); ok {
+			// Bind the composite ledger to the descriptor actually parsed, rather
+			// than the pathname stat that merely preceded Open.
+			source.SourceBytes = childSource.SourceBytes
+			source.SourceModUnixNano = childSource.SourceModUnixNano
+			source.sourceIdentity = childSource.sourceIdentity
 		}
+		observedEventCount := len(child.Events)
+		if strings.EqualFold(source.Kind, "perftrace") {
+			var admission perfBundleAdmissionSummary
+			child.Events, admission = applyPerfBundleAdmission(child.Events, spec.perfCapability)
+			idx.Caveats = append(idx.Caveats, admission.caveat(source.SourcePath))
+			// The discarded rows have no authority to poison scheduler,
+			// duration, or task-incarnation lanes through their child-local
+			// audit side records. Re-audit only the admitted perf_sample set
+			// below (which has no scheduler state transitions).
+			child.schedulerRowIntegrityFailures = nil
+			child.schedulerRowIntegrityFailuresCapped = false
+			child.schedulerOrderFailures = nil
+			child.schedulerOrderFailuresCapped = false
+			child.durationOrderFailures = nil
+			child.durationOrderFailuresCapped = nil
+			child.threadIncarnationFailures = nil
+			child.threadIncarnationFailuresCapped = false
+		}
+		childAuditQ := Query{
+			TimeStart: child.IndexTimeStart, TimeEnd: child.IndexTimeEnd,
+			LineStart: child.IndexLineStart, LineEnd: child.IndexLineEnd,
+		}
+		childRowIntegrityFailures := append([]schedulerRowIntegrityFailure(nil), child.schedulerRowIntegrityFailures...)
+		childRowIntegrityCapped := child.schedulerRowIntegrityFailuresCapped
+		childSchedulerFailures := append([]schedulerOrderViolation(nil), child.schedulerOrderFailures...)
+		childSchedulerCapped := child.schedulerOrderFailuresCapped
+		reauditedSchedulerFailures, reauditSchedulerCapped := schedulerOrderFailuresFromEvents(child.Events, childAuditQ, 0, schedulerOrderFailureCap)
+		childSchedulerCapped = childSchedulerCapped || reauditSchedulerCapped
+		for _, failure := range reauditedSchedulerFailures {
+			duplicate := false
+			for _, existing := range childSchedulerFailures {
+				if existing.Lane == failure.Lane && existing.ID == failure.ID && existing.Line == failure.Line && existing.PreviousTs == failure.PreviousTs && existing.CurrentTs == failure.CurrentTs {
+					duplicate = true
+					break
+				}
+			}
+			if duplicate {
+				continue
+			}
+			if len(childSchedulerFailures) >= schedulerOrderFailureCap {
+				childSchedulerCapped = true
+				continue
+			}
+			childSchedulerFailures = append(childSchedulerFailures, failure)
+		}
+		childDurationFailures := append([]durationOrderViolation(nil), child.durationOrderFailures...)
+		childDurationCapped := cloneDurationOrderCapped(child.durationOrderFailuresCapped)
+		reauditedDurationFailures, reauditDurationCapped := durationOrderFailuresFromEvents(child.Events, childAuditQ, durationOrderFailureCap)
+		durationAuditHolder := &Index{
+			durationOrderFailures:       childDurationFailures,
+			durationOrderFailuresCapped: childDurationCapped,
+		}
+		mergeDurationOrderFailures(durationAuditHolder, reauditedDurationFailures, reauditDurationCapped)
+		childDurationFailures = durationAuditHolder.durationOrderFailures
+		childDurationCapped = durationAuditHolder.durationOrderFailuresCapped
+		childIdentityFailures := append([]threadIncarnationConflict(nil), child.threadIncarnationFailures...)
+		childIdentityCapped := child.threadIncarnationFailuresCapped
+		reauditedIdentityFailures, reauditIdentityCapped := threadIncarnationConflictsFromEvents(child.Events, childAuditQ, threadIncarnationFailureCap)
+		childIdentityFailures, childIdentityCapped = mergeThreadIncarnationFailures(
+			childIdentityFailures, childIdentityCapped,
+			reauditedIdentityFailures, reauditIdentityCapped, threadIncarnationFailureCap)
+		source.LocalLineCount = child.LineCount
+		// EventCount is physical parsed-event inventory for this artifact.
+		// The index/result EventCount remains len(idx.Events), i.e. only rows
+		// admitted to the shared stream. tracebundle_perf_admission discloses
+		// both counts when they differ.
+		source.EventCount = observedEventCount
+		idx.TraceArtifacts = append(idx.TraceArtifacts, source)
 		idx.LineCount += child.LineCount
 		idx.ScannedLineCount += child.ScannedLineCount
 		idx.ParseLinePanics += child.ParseLinePanics
 		idx.ClockRegressions += child.ClockRegressions
 		idx.UnparsedLines += child.UnparsedLines
 		// TDIAG B4: merged bundles keep the first-cap samples in artifact
-		// order (line numbers are per-artifact coordinates; the counters
-		// above stay the cross-artifact authority).
+		// order. Rebase their line to the same virtual coordinate as Events;
+		// ResolveArtifactSpans remains the one path back to local lines.
 		for _, sample := range child.UnparsedSamples {
 			if len(idx.UnparsedSamples) >= IndexUnparsedSampleCap {
 				break
 			}
+			sample.Line += source.VirtualLineBase
 			idx.UnparsedSamples = append(idx.UnparsedSamples, sample)
 		}
 		idx.ParsedKnown += child.ParsedKnown
+		idx.RelationScoped = idx.RelationScoped || child.RelationScoped
+		if len(child.relationScopeTIDs) > 0 {
+			if idx.relationScopeTIDs == nil {
+				idx.relationScopeTIDs = map[int]bool{}
+			}
+			for tid := range child.relationScopeTIDs {
+				idx.relationScopeTIDs[tid] = true
+			}
+		}
 		// Honest cache accounting on the merged index: the children carry
 		// the retained string/side-table bytes for the events merged below.
 		// (String bytes were dropped here before P4; that under-charged
 		// bundle indexes in the LRU.)
 		idx.RetainedStringBytes += child.RetainedStringBytes
 		idx.RetainedSideTableBytes += child.RetainedSideTableBytes
-		if child.FirstTs > 0 && (idx.FirstTs == 0 || child.FirstTs < idx.FirstTs) {
-			idx.FirstTs = child.FirstTs
-		}
-		if child.LastTs > idx.LastTs {
-			idx.LastTs = child.LastTs
-		}
-		if !flavorSet || child.FlavorConfidence > idx.FlavorConfidence {
+		if !strings.EqualFold(source.Kind, "perftrace") && (!flavorSet || child.FlavorConfidence > idx.FlavorConfidence) {
 			idx.TraceFlavor = child.TraceFlavor
 			idx.FlavorConfidence = child.FlavorConfidence
 			idx.FlavorSignals = append([]string(nil), child.FlavorSignals...)
 			flavorSet = true
+		}
+		var affineCanonicalSources map[uint64]uint64
+		if source.ClockAlignment == TraceClockAlignmentAffine {
+			affineCanonicalSources = make(map[uint64]uint64, len(child.Events))
+		}
+		for i := range child.Events {
+			sourceTs := child.Events[i].Ts
+			child.Events[i].Line += source.VirtualLineBase
+			mapped, ok := source.toCanonicalTsChecked(sourceTs)
+			if !ok {
+				return nil, fmt.Errorf("trace bundle artifact %s clock mapping cannot safely and reversibly represent timestamp at local line %d", artifactPath, child.Events[i].Line-source.VirtualLineBase)
+			}
+			if source.ClockAlignment == TraceClockAlignmentAffine {
+				// The inverse scan bounds above are conservative. Canonicalize a
+				// mapped event that lands within the checked-map ULP allowance of an
+				// explicit inclusive query boundary so the later query gate cannot
+				// drop a mathematically exact boundary event due only to rounding.
+				if opts.TimeStartSet && traceClockRoundTripWithinULPs(opts.TimeStart, mapped) {
+					mapped = opts.TimeStart
+				} else if opts.TimeEndSet && traceClockRoundTripWithinULPs(opts.TimeEnd, mapped) {
+					mapped = opts.TimeEnd
+				}
+			}
+			if affineCanonicalSources != nil {
+				canonicalBits := math.Float64bits(mapped)
+				sourceBits := math.Float64bits(sourceTs)
+				if previousSourceBits, exists := affineCanonicalSources[canonicalBits]; exists && previousSourceBits != sourceBits {
+					return nil, fmt.Errorf("trace bundle artifact %s affine clock mapping collapses distinct source timestamps at local line %d", artifactPath, child.Events[i].Line-source.VirtualLineBase)
+				}
+				affineCanonicalSources[canonicalBits] = sourceBits
+			}
+			child.Events[i].Ts = mapped
+		}
+		if childRowIntegrityCapped {
+			idx.schedulerRowIntegrityFailuresCapped = true
+		}
+		for _, childFailure := range childRowIntegrityFailures {
+			failure := childFailure
+			failure.Line += source.VirtualLineBase
+			failure.SourcePath = source.SourcePath
+			mapped, ok := source.toCanonicalTsChecked(failure.Ts)
+			if !ok {
+				return nil, fmt.Errorf("trace bundle artifact %s scheduler incomplete-row timestamp is not safely representable in the canonical clock", artifactPath)
+			}
+			failure.Ts = mapped
+			appendSchedulerRowIntegrityFailure(idx, failure)
+		}
+		if childSchedulerCapped {
+			idx.schedulerOrderFailuresCapped = true
+		}
+		for _, childFailure := range childSchedulerFailures {
+			if len(idx.schedulerOrderFailures) >= schedulerOrderFailureCap {
+				idx.schedulerOrderFailuresCapped = true
+				continue
+			}
+			failure := childFailure
+			failure.Line += source.VirtualLineBase
+			failure.SourcePath = source.SourcePath
+			previous, previousOK := source.toCanonicalTsChecked(failure.PreviousTs)
+			current, currentOK := source.toCanonicalTsChecked(failure.CurrentTs)
+			if !previousOK || !currentOK {
+				return nil, fmt.Errorf("trace bundle artifact %s scheduler rollback boundary is not safely representable in the canonical clock", artifactPath)
+			}
+			failure.PreviousTs, failure.CurrentTs = previous, current
+			idx.schedulerOrderFailures = append(idx.schedulerOrderFailures, failure)
+		}
+		for family, capped := range childDurationCapped {
+			if capped {
+				if idx.durationOrderFailuresCapped == nil {
+					idx.durationOrderFailuresCapped = map[durationOrderFamily]bool{}
+				}
+				idx.durationOrderFailuresCapped[family] = true
+			}
+		}
+		for _, childFailure := range childDurationFailures {
+			failure := childFailure
+			failure.Line += source.VirtualLineBase
+			failure.SourcePath = source.SourcePath
+			previous, previousOK := source.toCanonicalTsChecked(failure.PreviousTs)
+			current, currentOK := source.toCanonicalTsChecked(failure.CurrentTs)
+			if !previousOK || !currentOK {
+				return nil, fmt.Errorf("trace bundle artifact %s duration rollback boundary is not safely representable in the canonical clock", artifactPath)
+			}
+			failure.PreviousTs, failure.CurrentTs = previous, current
+			appendDurationOrderFailure(idx, failure)
+		}
+		if childIdentityCapped {
+			idx.threadIncarnationFailuresCapped = true
+		}
+		for _, childFailure := range childIdentityFailures {
+			if len(idx.threadIncarnationFailures) >= threadIncarnationFailureCap {
+				idx.threadIncarnationFailuresCapped = true
+				continue
+			}
+			failure := childFailure
+			failure.PreviousLine += source.VirtualLineBase
+			failure.BoundaryLine += source.VirtualLineBase
+			if failure.PriorDeadLine > 0 {
+				failure.PriorDeadLine += source.VirtualLineBase
+			}
+			failure.SourcePath = source.SourcePath
+			previous, previousOK := source.toCanonicalTsChecked(failure.PreviousTs)
+			boundary, boundaryOK := source.toCanonicalTsChecked(failure.BoundaryTs)
+			if !previousOK || !boundaryOK {
+				return nil, fmt.Errorf("trace bundle artifact %s lifecycle predecessor or boundary is not safely representable in the canonical clock", artifactPath)
+			}
+			failure.PreviousTs = previous
+			failure.BoundaryTs = boundary
+			if failure.PriorDead {
+				priorDead, priorDeadOK := source.toCanonicalTsChecked(failure.PriorDeadTs)
+				if !priorDeadOK {
+					return nil, fmt.Errorf("trace bundle artifact %s lifecycle termination is not safely representable in the canonical clock", artifactPath)
+				}
+				failure.PriorDeadTs = priorDead
+			}
+			idx.threadIncarnationFailures = append(idx.threadIncarnationFailures, failure)
 		}
 		if opts.MaxEvents > 0 && len(child.Events) > 0 && len(idx.Events)+len(child.Events) > opts.MaxEvents {
 			return nil, newIndexEventLimitError(path, idx, opts, child.Events[0].Line, len(idx.Events)+len(child.Events))
@@ -1527,10 +2164,21 @@ func parseTraceArtifactPathList(ctx context.Context, path string, size int64, mo
 		// truncated build as complete.
 		if child.PaddingTruncated {
 			idx.PaddingTruncated = true
-			idx.PaddingTruncatedNote = child.PaddingTruncatedNote
-			// Keep note and typed boundary paired from the same child so the
-			// rendered text and PaddingTruncatedLastTs can never disagree.
-			idx.PaddingTruncatedLastTs = child.PaddingTruncatedLastTs
+			// Child note timestamps are source-domain values.  Re-render from
+			// the canonical typed boundary so text and JSON cannot disagree on
+			// an affine-mapped artifact.
+			mapped, ok := source.toCanonicalTsChecked(child.PaddingTruncatedLastTs)
+			if !ok {
+				return nil, fmt.Errorf("trace bundle artifact %s clock mapping cannot safely and reversibly represent padding boundary", artifactPath)
+			}
+			idx.PaddingTruncatedLastTs = mapped
+			idx.PaddingTruncatedNote = fmt.Sprintf(indexPaddingTruncatedNoteFmt, idx.PaddingTruncatedLastTs)
+		}
+		if source.ClockAlignment == TraceClockAlignmentAffine {
+			offset, slope := traceClockMapValues(source.ClockOffsetSec, source.ClockSlope)
+			idx.Caveats = append(idx.Caveats, fmt.Sprintf(
+				"tracebundle_clock_alignment_applied artifact=%s source_domain=%s canonical_domain=%s formula=canonical_ts=source_ts*%.12g%+.12g",
+				filepath.Base(source.SourcePath), source.TimeDomain, source.CanonicalTimeDomain, slope, offset))
 		}
 		idx.Events = append(idx.Events, child.Events...)
 	}
@@ -1540,27 +2188,38 @@ func parseTraceArtifactPathList(ctx context.Context, path string, size int64, mo
 		}
 		return idx.Events[i].Ts < idx.Events[j].Ts
 	})
+	// Preserve the child-local physical audits above, then add the lifecycle
+	// conflicts visible only after causally compatible artifacts are merged.
+	// In particular, an old occupant may appear only in the primary systrace
+	// while its sched_wakeup_new creation edge is carried by a companion trace.
+	mergedAuditQ := Query{TimeStart: idx.IndexTimeStart, TimeEnd: idx.IndexTimeEnd, LineStart: idx.IndexLineStart, LineEnd: idx.IndexLineEnd}
+	mergedIdentityFailures, mergedIdentityCapped := threadIncarnationConflictsFromEvents(idx.Events, mergedAuditQ, threadIncarnationFailureCap)
+	idx.threadIncarnationFailures, idx.threadIncarnationFailuresCapped = mergeThreadIncarnationFailures(
+		idx.threadIncarnationFailures, idx.threadIncarnationFailuresCapped,
+		mergedIdentityFailures, mergedIdentityCapped, threadIncarnationFailureCap)
+	// Included artifacts are mapped into the canonical clock domain and then
+	// deterministically sorted, so query-side time_end stops over this merged
+	// event slice are safe even if a child's physical line order regressed.
+	idx.TimestampOrder = TraceTimestampOrderMonotonic
+	for _, ev := range idx.Events {
+		if ev.Ts > 0 && (idx.FirstTs == 0 || ev.Ts < idx.FirstTs) {
+			idx.FirstTs = ev.Ts
+		}
+		if ev.Ts > idx.LastTs {
+			idx.LastTs = ev.Ts
+		}
+	}
+	if len(idx.TraceArtifacts) > 1 {
+		idx.Caveats = append(idx.Caveats, "tracebundle_virtual_line_coordinates=true; use trace_artifacts/source_spans to resolve every global line to an artifact-local line")
+	}
 	return idx, nil
 }
 
 func traceBundleIndexPaths(bundlePath string, bundle traceBundleFile) []string {
-	baseDir := filepath.Dir(bundlePath)
-	seen := map[string]bool{}
-	var paths []string
-	add := func(p string) {
-		p = resolveTraceBundleArtifactPath(baseDir, strings.TrimSpace(p))
-		if p == "" || seen[p] || traceBundlePath(p) {
-			return
-		}
-		seen[p] = true
-		paths = append(paths, p)
-	}
-	add(bundle.Systrace)
-	for _, artifact := range bundle.Artifacts {
-		switch strings.ToLower(strings.TrimSpace(artifact.Type)) {
-		case "systrace", "perftrace":
-			add(artifact.Path)
-		}
+	specs := traceBundleArtifactSpecs(bundlePath, bundle)
+	paths := make([]string, 0, len(specs))
+	for _, spec := range specs {
+		paths = append(paths, spec.source.SourcePath)
 	}
 	return paths
 }
@@ -1570,15 +2229,21 @@ func resolveTraceBundleArtifactPath(baseDir, p string) string {
 		return ""
 	}
 	if filepath.IsAbs(p) {
-		return filepath.Clean(p)
+		return canonicalTraceIndexPath(p)
+	}
+	// Bundle-relative is the primary contract. Prefer it over an accidental
+	// same-named file in the process CWD; otherwise provenance could point at
+	// and parse a different capture than the manifest names. Retain the old
+	// CWD-relative form only as a compatibility fallback when the bundle-local
+	// target does not exist.
+	bundleRelative := filepath.Clean(filepath.Join(baseDir, p))
+	if _, err := os.Stat(bundleRelative); err == nil {
+		return canonicalTraceIndexPath(bundleRelative)
 	}
 	if _, err := os.Stat(p); err == nil {
-		if abs, absErr := filepath.Abs(p); absErr == nil {
-			return filepath.Clean(abs)
-		}
-		return filepath.Clean(p)
+		return canonicalTraceIndexPath(p)
 	}
-	return filepath.Clean(filepath.Join(baseDir, p))
+	return canonicalTraceIndexPath(bundleRelative)
 }
 
 func paddedTimeStart(opts BuildOptions) float64 {
@@ -1618,11 +2283,15 @@ func paddedLineEnd(opts BuildOptions) int {
 }
 
 func parseLineTimestamp(line string) (float64, bool) {
-	m := traceTimestampRE.FindStringSubmatch(line)
-	if len(m) != 2 {
+	// Timestamp extraction is a hard gate for window admission, EOF-complete
+	// monotonicity proof and anchor seeking.  It therefore uses the exact same
+	// anchored ftrace header grammar as ParseLine.  A timestamp-looking token
+	// in comm/field text must never be promoted into trace time.
+	m := ftraceLineRE.FindStringSubmatch(line)
+	if len(m) == 0 {
 		return 0, false
 	}
-	ts, err := strconv.ParseFloat(m[1], 64)
+	ts, err := strconv.ParseFloat(m[5], 64)
 	if err != nil {
 		return 0, false
 	}
@@ -1654,6 +2323,12 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 	}
 	ev.SubsystemKind = intern.intern(classifySubsystemKind(rawType, fields, ev.Type))
 	kv := parseKV(fields)
+	if schedulerFieldsValidationFailure(lineNo, rawType, ts, cpu, kv) != nil {
+		// Critical scheduler identities are presence-sensitive. Returning false
+		// keeps an absent/invalid PID from silently materializing as the valid
+		// idle PID 0; the physical scan records the typed fail-closed witness.
+		return Event{}, false
+	}
 	switch ev.Type {
 	case EventSchedSwitch:
 		// §7.11 A-2: comm values may contain spaces ("Signal Catcher") —

@@ -181,7 +181,12 @@ func reconcileCriticalBlockingWithRankFamilies(rank *RootCauseRankResult, blocki
 	}
 	// Reset-first idempotency: clear every G1 marker before recomputing.
 	for i := range rank.Items {
-		rank.Items[i].RankFamilyKey = ""
+		// B4 reuses the generic projection join key on an exact cross-type
+		// rank absorber. AbsorbedRankRows is its ownership marker; G1 must not
+		// erase that independent lane while resetting its own chain count.
+		if rank.Items[i].AbsorbedRankRows == 0 {
+			rank.Items[i].RankFamilyKey = ""
+		}
 		rank.Items[i].AbsorbedChainRows = 0
 	}
 	for i := range blocking.Items {

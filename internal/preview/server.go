@@ -294,6 +294,7 @@ func (s *Server) servePreview(w http.ResponseWriter, r *http.Request, id string)
 		BodyHTML:   body,
 		RawURL:     s.routeURL("/raw/"+id, r.URL.Query().Get("token")),
 		MermaidURL: s.routeURL(mermaidAssetURL, r.URL.Query().Get("token")),
+		Lang:       markdownDocumentLanguage(data),
 	})
 	w.Header().Set("Content-Type", defaultContentType)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -455,15 +456,26 @@ type pageArgs struct {
 	RawURL     string
 	MermaidURL string
 	MermaidJS  string
+	Lang       string
 }
 
 func renderHTMLPage(a pageArgs) string {
 	title := html.EscapeString(a.Title)
+	lang := "zh-CN"
+	previewLabel := "Codrax 报告预览"
+	rawLabel := "原始 Markdown"
+	standaloneLabel := "自包含 HTML"
+	if strings.EqualFold(strings.TrimSpace(a.Lang), "en") {
+		lang = "en"
+		previewLabel = "Codrax Report Preview"
+		rawLabel = "Raw Markdown"
+		standaloneLabel = "Self-contained HTML"
+	}
 	rawURL := html.EscapeString(a.RawURL)
 	mermaidURL := html.EscapeString(a.MermaidURL)
-	rawLink := `<span>Self-contained HTML</span>`
+	rawLink := `<span>` + standaloneLabel + `</span>`
 	if rawURL != "" {
-		rawLink = `<a href="` + rawURL + `">Raw Markdown</a>`
+		rawLink = `<a href="` + rawURL + `">` + rawLabel + `</a>`
 	}
 	mermaidLoader := ""
 	if strings.TrimSpace(a.MermaidJS) != "" {
@@ -472,39 +484,59 @@ func renderHTMLPage(a pageArgs) string {
 		mermaidLoader = `<script src="` + mermaidURL + `"></script>` + "\n"
 	}
 	return `<!doctype html>
-<html lang="zh-CN">
+<html lang="` + lang + `">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>` + title + `</title>
 <style>
-:root { color-scheme: light dark; --fg: #202124; --muted: #667085; --line: #d0d7de; --code: #f6f8fa; --bg: #ffffff; --error-bg: #fff5f5; --error-fg: #b42318; }
+:root {
+  color-scheme: light dark;
+  --fg: #202124; --muted: #667085; --line: #d0d7de; --code: #f6f8fa; --bg: #ffffff;
+  --error-bg: #fff5f5; --error-fg: #b42318;
+  --link: #2563eb; --focus: #2563eb;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei", Arial, sans-serif;
+  --font-mono: "Sarasa Mono SC", "Noto Sans Mono CJK SC", "Source Han Mono SC", ui-monospace, "Cascadia Mono", "Cascadia Code", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Microsoft YaHei UI", "Microsoft YaHei", monospace;
+}
 @media (prefers-color-scheme: dark) {
-  :root { --fg: #e6edf3; --muted: #9aa4b2; --line: #30363d; --code: #161b22; --bg: #0d1117; --error-bg: #2a1212; --error-fg: #ffb4a8; }
+  :root { --fg: #e6edf3; --muted: #9aa4b2; --line: #30363d; --code: #161b22; --bg: #0d1117; --error-bg: #2a1212; --error-fg: #ffb4a8; --link: #79c0ff; --focus: #60a5fa; }
 }
 /* CJK-heavy report body: the stack must name CJK faces explicitly —
    without them Windows browsers fall back to SimSun for the zh text,
    which renders cramped (customer 2026-07-09: 字间距过紧难读). Latin
    faces stay first so mixed zh/en prose keeps platform Latin glyphs. */
-body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.78 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; }
-main { max-width: 980px; margin: 0 auto; padding: 32px 20px 64px; letter-spacing: .02em; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.78 var(--font-sans); }
+main { width: 100%; max-width: 980px; min-width: 0; margin: 0 auto; padding: 32px 20px 64px; letter-spacing: .02em; }
+p, li, blockquote, th, td { overflow-wrap: anywhere; }
 li { margin: .3em 0; }
 .topbar { display: flex; justify-content: space-between; gap: 16px; align-items: center; margin-bottom: 24px; color: var(--muted); font-size: 13px; }
-a { color: #2563eb; text-decoration: none; }
+a { color: var(--link); text-decoration: none; }
 a:hover { text-decoration: underline; }
-h1, h2, h3 { line-height: 1.25; margin: 1.5em 0 .55em; }
+h1, h2, h3 { line-height: 1.25; margin: 1.5em 0 .55em; overflow-wrap: anywhere; }
 h1:first-child { margin-top: 0; }
 /* Causal-projection trees rely on a per-character grid: letter-spacing
    must stay 0 here (a constant per-char pad breaks the CJK 2:1 width
    ratio the bars are aligned against), and the CJK fallbacks keep tree
    glyphs out of SimSun on Windows. */
-pre, code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", "Sarasa Mono SC", "Noto Sans Mono CJK SC", "HarmonyOS Sans SC", "Microsoft YaHei", monospace; letter-spacing: 0; }
-pre { overflow: auto; padding: 14px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--code); line-height: 1.6; }
+pre, code { font-family: var(--font-mono); letter-spacing: 0; }
+pre { max-width: 100%; overflow: auto; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; padding: 14px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--code); line-height: 1.6; }
 code { background: var(--code); border-radius: 4px; padding: .1em .3em; }
-pre code { background: transparent; padding: 0; }
-table { border-collapse: collapse; width: max-content; max-width: 100%; overflow: auto; display: block; }
+pre code { display: block; background: transparent; padding: 0; overflow-wrap: normal; word-break: normal; }
+/* The causal tree is a calibrated character grid, not ordinary source code.
+   Prefer CJK-capable mono faces, suppress ligatures/colored emoji substitution,
+   and render it one step smaller than prose.  Horizontal scrolling preserves
+   the causal columns on narrow screens; the renderer already caps every row. */
+pre.trace-projection-tree { font-size: .8125rem; line-height: 1.52; white-space: pre; overflow-x: auto; overflow-y: hidden; scrollbar-gutter: stable; tab-size: 2; font-kerning: none; font-variant-ligatures: none; font-variant-emoji: text; font-feature-settings: "liga" 0, "calt" 0; }
+pre.trace-projection-tree code { font: inherit; line-height: inherit; white-space: inherit; font-kerning: inherit; font-variant-ligatures: inherit; font-variant-emoji: inherit; font-feature-settings: inherit; }
+pre.trace-projection-tree .trace-cell { display: inline-block; width: 1ch; min-width: 1ch; height: 1em; line-height: 1em; vertical-align: baseline; white-space: pre; }
+pre.trace-projection-tree .trace-cell-0 { width: 0; min-width: 0; }
+pre.trace-projection-tree .trace-cell-2 { width: 2ch; min-width: 2ch; }
+pre.trace-projection-tree:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+table { border-collapse: collapse; width: max-content; max-width: 100%; overflow: auto; overscroll-behavior-x: contain; display: block; }
 th, td { border: 1px solid var(--line); padding: 6px 10px; }
 blockquote { border-left: 4px solid var(--line); margin-left: 0; padding-left: 16px; color: var(--muted); }
+img, svg { max-width: 100%; height: auto; }
 /* §29.9 aux-reference appendix ("树读法:"/"各列口径:" blocks, markdown_auxfold.go):
    reference blocks relocate to the document-end 「阅读参考」 appendix;
    the in-place pointer lines and the whole appendix render small and
@@ -517,11 +549,33 @@ section.aux h2 { font-size: 1em; color: var(--muted); margin: 0 0 .5em; font-wei
 .mermaid[data-render-error="true"] { border-color: #d92d20; background: var(--error-bg); }
 .mermaid-error-title { margin: 0 0 10px; color: var(--error-fg); font-weight: 600; }
 .mermaid[data-render-error="true"] pre { margin: 0; background: var(--code); }
+@media (max-width: 640px) {
+  body { font-size: 15px; line-height: 1.72; }
+  main { padding: 20px 12px 44px; }
+  .topbar { flex-wrap: wrap; gap: 6px 12px; margin-bottom: 18px; }
+  pre { padding: 11px 12px; }
+  pre.trace-projection-tree { font-size: 12px; line-height: 1.48; }
+  th, td { padding: 5px 8px; }
+}
+@page { margin: 12mm; }
+@media print {
+  :root { color-scheme: light; --fg: #111; --muted: #555; --line: #aaa; --code: #f7f7f7; --bg: #fff; }
+  body { background: #fff; color: #111; font: 10.5pt/1.55 var(--font-sans); }
+  main { max-width: none; padding: 0; letter-spacing: 0; }
+  .topbar { display: none; }
+  a { color: inherit; text-decoration: underline; }
+  h1, h2, h3 { break-after: avoid-page; page-break-after: avoid; }
+  pre:not(.trace-projection-tree) { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+  pre.trace-projection-tree { font-size: 7.5pt; line-height: 1.4; overflow: visible; scrollbar-gutter: auto; border-color: #aaa; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  table { display: table; width: 100%; max-width: 100%; overflow: visible; table-layout: fixed; font-size: 8.5pt; }
+  th, td { overflow-wrap: anywhere; word-break: break-word; }
+  .mermaid { break-inside: avoid-page; page-break-inside: avoid; }
+}
 </style>
 </head>
 <body>
 <main>
-<div class="topbar"><span>Codrax Markdown Preview</span>` + rawLink + `</div>
+<div class="topbar"><span>` + previewLabel + `</span>` + rawLink + `</div>
 ` + a.BodyHTML + `
 </main>
 ` + mermaidLoader + `<script>

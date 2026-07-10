@@ -39,26 +39,32 @@ const (
 // ObservationSourceRef is the origin-specific address of the thing that was
 // observed. Only the fields that apply to SourceKind should be populated.
 type ObservationSourceRef struct {
-	Kind         ObservationSourceKind `json:"kind,omitempty"`
-	Repo         string                `json:"repo,omitempty"`
-	Path         string                `json:"path,omitempty"`
-	Commit       string                `json:"commit,omitempty"`
-	Range        string                `json:"range,omitempty"`
-	Pathspec     string                `json:"pathspec,omitempty"`
-	Command      string                `json:"command,omitempty"`
-	ToolCallID   string                `json:"tool_call_id,omitempty"`
-	RawRef       string                `json:"raw_ref,omitempty"`
-	PayloadRef   string                `json:"payload_ref,omitempty"`
-	RowSetRef    string                `json:"row_set_ref,omitempty"`
-	PageRef      string                `json:"page_ref,omitempty"`
-	ArtifactID   string                `json:"artifact_id,omitempty"`
-	ArtifactKind string                `json:"artifact_kind,omitempty"`
-	URL          string                `json:"url,omitempty"`
-	FetchedAt    string                `json:"fetched_at,omitempty"`
-	Server       string                `json:"server,omitempty"`
-	ResourceURI  string                `json:"resource_uri,omitempty"`
-	MIMEType     string                `json:"mime_type,omitempty"`
-	Connector    string                `json:"connector,omitempty"`
+	Kind                ObservationSourceKind `json:"kind,omitempty"`
+	Repo                string                `json:"repo,omitempty"`
+	Path                string                `json:"path,omitempty"`
+	Commit              string                `json:"commit,omitempty"`
+	Range               string                `json:"range,omitempty"`
+	Pathspec            string                `json:"pathspec,omitempty"`
+	Command             string                `json:"command,omitempty"`
+	ToolCallID          string                `json:"tool_call_id,omitempty"`
+	RawRef              string                `json:"raw_ref,omitempty"`
+	PayloadRef          string                `json:"payload_ref,omitempty"`
+	RowSetRef           string                `json:"row_set_ref,omitempty"`
+	PageRef             string                `json:"page_ref,omitempty"`
+	ArtifactID          string                `json:"artifact_id,omitempty"`
+	ArtifactKind        string                `json:"artifact_kind,omitempty"`
+	TimeDomain          string                `json:"time_domain,omitempty"`
+	CanonicalTimeDomain string                `json:"canonical_time_domain,omitempty"`
+	ClockAlignment      string                `json:"clock_alignment,omitempty"`
+	ClockCalibrated     bool                  `json:"clock_calibrated,omitempty"`
+	ClockOffsetSec      *float64              `json:"clock_offset_sec,omitempty"`
+	ClockSlope          *float64              `json:"clock_slope,omitempty"`
+	URL                 string                `json:"url,omitempty"`
+	FetchedAt           string                `json:"fetched_at,omitempty"`
+	Server              string                `json:"server,omitempty"`
+	ResourceURI         string                `json:"resource_uri,omitempty"`
+	MIMEType            string                `json:"mime_type,omitempty"`
+	Connector           string                `json:"connector,omitempty"`
 }
 
 // ObservationSpan locates the observation inside SourceRef when that source has
@@ -368,6 +374,7 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 	// exist" questions there.
 	excludesCurrentSource := input.RequestModel != nil &&
 		input.RequestModel.ExternalObservationPolicy.ExcludesCurrentSource()
+	currentSourceSupport := compileCurrentSourceSupportWitnessIndex(input.EvidenceItems, input.ToolResults)
 	var out []ObservationRecord
 	add := func(record ObservationRecord) {
 		if record.Origin == AnswerEvidenceOriginUnknown || !record.Origin.IsValid() {
@@ -395,7 +402,7 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 		out = append(out, record)
 	}
 	compileEvidenceItemObservations(input.EvidenceItems, add)
-	compileAggregateFactObservations(input.AggregateFacts, input.RequestModel, input.RowSetWriter, add)
+	compileAggregateFactObservations(input.AggregateFacts, input.RequestModel, input.RowSetWriter, currentSourceSupport, add)
 	compileSourceInventoryObservationObservations(input.SourceInventoryObservation, input.RowSetWriter, add)
 	compileToolResultObservations(input.ToolResults, input.RowSetWriter, add)
 	compileLogBundleObservations(input.LogBundle, add)
@@ -1011,7 +1018,7 @@ func runtimeArtifactKindForEvidenceItem(ev EvidenceItem) string {
 	return "runtime_artifact"
 }
 
-func compileAggregateFactObservations(facts []AnswerAggregateFact, rm *RequestModel, rowSetWriter ObservationRowSetWriter, add func(ObservationRecord)) {
+func compileAggregateFactObservations(facts []AnswerAggregateFact, rm *RequestModel, rowSetWriter ObservationRowSetWriter, currentSourceSupport currentSourceSupportWitnessIndex, add func(ObservationRecord)) {
 	for i, fact := range facts {
 		role := AnswerAggregateFactRoleForRequest(fact, rm)
 		origins := AnswerAggregateFactEvidenceOrigins(fact, rm)
@@ -1029,9 +1036,40 @@ func compileAggregateFactObservations(facts []AnswerAggregateFact, rm *RequestMo
 			origins = []AnswerEvidenceOrigin{AnswerEvidenceOriginSystemInference}
 		}
 		dims := aggregateDimensionMap(fact.Dimensions)
+		compiledOrigins := map[AnswerEvidenceOrigin]bool{}
 		for _, origin := range origins {
+			// CSP-RM A1 (§29.23): an aggregate fact is model-authored, so an
+			// explicit origin=current_source token remains useful to the emit-time
+			// support validator but is not itself a deterministic witness. Requalify
+			// it at the ledger minting choke point. The one retained proof lane is
+			// A2: current source was required AND every source-shaped SupportRef
+			// is bound to an already Grounded/Recovered deterministic evidence/tool
+			// coordinate. A bare model file:line is syntax, not a witness.
+			var currentSourceBinding currentSourceSupportBinding
+			if origin == AnswerEvidenceOriginCurrentSource {
+				binding, grounded := currentSourceSupport.bindFact(fact)
+				if rm == nil || !rm.CurrentSourceLaneDecision().RequiresCurrentSource() || !grounded {
+					origin = AnswerEvidenceOriginSystemInference
+				} else {
+					currentSourceBinding = binding
+				}
+			}
+			if compiledOrigins[origin] {
+				continue
+			}
+			compiledOrigins[origin] = true
 			resultCount := aggregateFactResultCount(fact, dims)
 			sourceRef := sourceRefForAggregateFact(origin, dims)
+			span := observationSpanForAggregateFact(dims)
+			groundingStatus := GroundingStatus("")
+			if origin == AnswerEvidenceOriginCurrentSource {
+				// Publish the canonical witnessed coordinate, not conflicting model
+				// dimensions, so every proof-lane aggregate record is auditable.
+				sourceRef.Path = currentSourceBinding.path
+				span.LineStart = currentSourceBinding.lineStart
+				span.LineEnd = currentSourceBinding.lineEnd
+				groundingStatus = currentSourceBinding.status
+			}
 			if sourceRef.RowSetRef == "" {
 				sourceRef.RowSetRef = observationRowSetRefForAggregateFact(rowSetWriter, i, origin, fact)
 			}
@@ -1043,7 +1081,7 @@ func compileAggregateFactObservations(facts []AnswerAggregateFact, rm *RequestMo
 				GroundingPolicy: AnswerClaimBindingGroundingPolicy(origin, role),
 				ProvenanceLane:  observationProvenanceLaneForAggregateFact(dims),
 				SourceRef:       sourceRef,
-				Span:            observationSpanForAggregateFact(dims),
+				Span:            span,
 				ClaimKey:        firstNonEmptyString(dims["target"], dims["query"], dims["pattern"], dims["predicate"], fact.Label),
 				Subject:         firstNonEmptyString(dims["target"], dims["query"], dims["pattern"], fact.Label),
 				Predicate:       dims["predicate"],
@@ -1056,6 +1094,7 @@ func compileAggregateFactObservations(facts []AnswerAggregateFact, rm *RequestMo
 				SupportRefs:     cloneStringSlice(fact.SupportRefs),
 				ObservedAt:      dims["searched_at"],
 				Scope:           dims["scope"],
+				GroundingStatus: groundingStatus,
 			})
 		}
 	}
@@ -3664,6 +3703,18 @@ func FormatObservationSourceRef(ref ObservationSourceRef, maxValueLen int) strin
 	}
 	appendPart("artifact_id", ref.ArtifactID)
 	appendPart("artifact_kind", ref.ArtifactKind)
+	appendPart("time_domain", ref.TimeDomain)
+	appendPart("canonical_time_domain", ref.CanonicalTimeDomain)
+	appendPart("clock_alignment", ref.ClockAlignment)
+	if ref.ClockCalibrated {
+		appendPart("clock_calibrated", "true")
+	}
+	if ref.ClockOffsetSec != nil {
+		appendPart("clock_offset_sec", strconv.FormatFloat(*ref.ClockOffsetSec, 'g', -1, 64))
+	}
+	if ref.ClockSlope != nil {
+		appendPart("clock_slope", strconv.FormatFloat(*ref.ClockSlope, 'g', -1, 64))
+	}
 	appendPart("url", ref.URL)
 	appendPart("fetched_at", ref.FetchedAt)
 	appendPart("server", ref.Server)

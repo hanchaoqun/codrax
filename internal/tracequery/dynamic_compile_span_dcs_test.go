@@ -466,16 +466,23 @@ func TestDCSZeroChainSixteenSpanWindowEndToEnd(t *testing.T) {
 	// Target process exists but never sleeps/wakes inside the window — the
 	// chain degenerates to the target-only node (zero usable chain).
 	b.WriteString("        app-100 (100) [001] .... 8144.609000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=R ==> next_comm=idle/1 next_pid=0 next_prio=120\n")
-	b.WriteString("        app-100 (100) [001] .... 8144.700000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52\n")
 	// Board saturation: 10 background threads runnable for ~90ms each.
+	// Keep every CPU lane monotonic: a grouped start/end pair per thread would
+	// move a reused CPU backwards when the next sibling starts and correctly
+	// trigger the scheduler-duration fail-closed gate.
 	for i := 0; i < 10; i++ {
 		pid := 300 + i
 		cpu := i % 8
 		fmt.Fprintf(&b, "     bg%02d-%d (%d) [00%d] .... 8144.610000: sched_switch: prev_comm=bg%02d prev_pid=%d prev_prio=120 prev_state=R ==> next_comm=idle/%d next_pid=0 next_prio=120\n",
 			i, pid, pid, cpu, i, pid, cpu)
+	}
+	for i := 0; i < 10; i++ {
+		pid := 300 + i
+		cpu := i % 8
 		fmt.Fprintf(&b, "     bg%02d-%d (%d) [00%d] .... 8144.700000: sched_switch: prev_comm=idle/%d prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=bg%02d next_pid=%d next_prio=120\n",
 			i, pid, pid, cpu, cpu, i, pid)
 	}
+	b.WriteString("        app-100 (100) [001] .... 8144.700000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52\n")
 	// 16 semantic spans hosted on external processes (the cmp_01 E2 shape:
 	// the biggest JIT lives in another process entirely).
 	durations := []float64{83.893, 20.529, 19.294, 13.982, 6.727, 5.277, 5.132, 3.226, 2.865, 1.124, 0.903, 0.875, 0.701, 0.657, 0.584, 0.427}

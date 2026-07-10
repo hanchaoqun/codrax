@@ -140,7 +140,7 @@ type SupplyFoldBasis struct {
 	// the adopted keyed-rail family mask and the roster of slice CPUs whose
 	// governance came from a rail timeline — the traceback that keeps the
 	// anchor-presumption fold auditable. Empty when no rail slice folded.
-	RailFamily   string                  `json:"rail_family,omitempty"`
+	RailFamily   string                   `json:"rail_family,omitempty"`
 	RailGoverned []SupplyFoldRailGoverned `json:"rail_governed,omitempty"`
 
 	// ThermalCapKHz / ThermalCapClusterClass (THERM, §28.5-T7, disclosure-only
@@ -269,6 +269,9 @@ func (c *chainQueryCache) buildFreqLimitIndex() {
 		// governance applied at query time (governedLimitMaxKHz).
 		cpu, ok := isPerCPULimitSample(ev)
 		if !ok {
+			continue
+		}
+		if c.frequencyLimitLaneUnsafe(cpu) {
 			continue
 		}
 		c.freqLimitByCPU[cpu] = append(c.freqLimitByCPU[cpu], freqSample{ts: ev.Ts, khz: ev.FrequencyMax})
@@ -656,6 +659,14 @@ func (c *chainQueryCache) supplyFoldRunningIntervals(q Query, nodeStart, nodeEnd
 			idealMs += it.DurationMs
 			continue
 		}
+		if c.frequencyLaneUnsafe(it.CPU) {
+			// A broken physical sample lane is UNKNOWN for this CPU. Do not let
+			// cluster donor reuse or the lower rail fallback turn the fail-close
+			// into a synthetic known-frequency slice.
+			basis.UnknownMs += it.DurationMs
+			idealMs += it.DurationMs
+			continue
+		}
 		samples := c.governedFreqSamples(it.CPU, gStart, gEnd)
 		if len(samples) == 0 && domains.known() {
 			// CFR (#75): the slice CPU has no governing samples of its own —
@@ -664,6 +675,9 @@ func (c *chainQueryCache) supplyFoldRunningIntervals(q Query, nodeStart, nodeEnd
 			// not estimation). donorFor structurally refuses when the CPU has
 			// its own samples (禁反向) and fails open on unknown membership.
 			hasGoverned := func(sibling int) bool {
+				if c.frequencyLaneUnsafe(sibling) {
+					return false
+				}
 				return len(c.governedFreqSamples(sibling, gStart, gEnd)) > 0
 			}
 			if donor, ok := domains.donorFor(it.CPU, hasGoverned); ok {

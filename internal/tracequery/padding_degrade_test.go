@@ -119,12 +119,10 @@ func TestBuildIndexPaddingDegradeDeniesTriggerAtWindowEnd(t *testing.T) {
 	}
 }
 
-// TestBuildIndexPaddingDegradeDeniesOnClockRegression pins conjunct (2) of
-// the criterion: a trace with any observed clock regression loses the
-// monotonicity proof that everything after the trigger is also past TimeEnd,
-// so the degrade must not fire even when the trigger itself is in the padding
-// tail. ClockRegressions is the in-loop run-time signal (incremented before
-// the budget guard within the same iteration), so it is visible here.
+// TestBuildIndexPaddingDegradeDeniesOnClockRegression pins the complete-order
+// criterion: a trace with any timestamp regression cannot publish the typed
+// complete-monotonic proof, so the degrade must not fire even when the trigger
+// itself is in the padding tail.
 func TestBuildIndexPaddingDegradeDeniesOnClockRegression(t *testing.T) {
 	dir := t.TempDir()
 	// 2.02 after 2.05 is a clock regression inside the padded window.
@@ -147,6 +145,35 @@ func TestBuildIndexPaddingDegradeDeniesOnClockRegression(t *testing.T) {
 	var limitErr *IndexEventLimitError
 	if !errors.As(err, &limitErr) {
 		t.Fatalf("clock-regressed trace must keep the hard denial, got %T %v", err, err)
+	}
+}
+
+// TestBuildIndexPaddingDegradeAuditsUnreadSuffixBeforeTruncating pins the P0
+// counterexample the old prefix-only ClockRegressions==0 check missed: the
+// budget trigger is beyond TimeEnd while the parsed prefix is ordered, but a
+// later unread physical row regresses back into the core request window. The
+// timestamp-only suffix pass must discover it and keep the hard denial.
+func TestBuildIndexPaddingDegradeAuditsUnreadSuffixBeforeTruncating(t *testing.T) {
+	dir := t.TempDir()
+	path := paddingDegradeTraceLines(t, dir, "tail_regressed.systrace", []string{
+		"1.900000", "2.000000", "2.050000", "2.100000", "2.200000",
+		"2.300000", // budget trigger: prefix is still monotonic and beyond TimeEnd
+		"2.080000", // unread row regresses into the request window
+		"2.400000",
+	})
+	_, err := BuildIndexWithOptions(context.Background(), path, BuildOptions{
+		TimeStart:          2.0,
+		TimeEnd:            2.1,
+		TimeStartSet:       true,
+		TimeEndSet:         true,
+		TimePaddingBefore:  0.5,
+		TimePaddingAfter:   0.5,
+		AllowWindowedParse: true,
+		MaxEvents:          5,
+	})
+	var limitErr *IndexEventLimitError
+	if !errors.As(err, &limitErr) {
+		t.Fatalf("unread suffix regression into the request window must deny truncation, got %T %v", err, err)
 	}
 }
 

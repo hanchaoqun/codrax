@@ -73,11 +73,13 @@ func computeCPUOccupancyStats(q Query, windowMs float64, running map[string]Thre
 		if td.DurationMs <= 0 || (td.Thread.PID <= 0 && td.Thread.Comm == "") {
 			continue
 		}
-		key := fmt.Sprintf("%d/%s", td.Thread.PID, td.Thread.Comm)
+		key := threadKey(td.Thread)
 		acc := threads[key]
 		if acc == nil {
 			acc = &threadAcc{item: CPUOccupancyThread{Thread: td.Thread}, cpuSet: map[int]bool{}, coreSet: map[string]bool{}}
 			threads[key] = acc
+		} else if td.LineEnd > acc.item.LineEnd || (td.LineEnd == acc.item.LineEnd && threadDisplayLess(td.Thread, acc.item.Thread)) {
+			acc.item.Thread = td.Thread
 		}
 		acc.item.RunningMs += td.DurationMs
 		if !acc.cpuSet[td.CPU] {
@@ -241,7 +243,7 @@ func computeCPUOccupancyStats(q Query, windowMs float64, running map[string]Thre
 			bands[band] = acc
 		}
 		acc.item.RunningMs += td.DurationMs
-		tk := fmt.Sprintf("%d/%s", td.Thread.PID, td.Thread.Comm)
+		tk := threadKey(td.Thread)
 		if !acc.threadSet[tk] {
 			acc.threadSet[tk] = true
 			acc.item.ThreadCount++
@@ -407,11 +409,13 @@ func computeProcessDomainCensus(idx *Index, q Query, running map[string]ThreadDu
 		if td.DurationMs <= 0 || td.Thread.PID <= 0 || !memberOf(td.Thread) {
 			continue
 		}
-		key := fmt.Sprintf("%d/%s", td.Thread.PID, td.Thread.Comm)
+		key := threadKey(td.Thread)
 		acc := members[key]
 		if acc == nil {
 			acc = &memberAcc{item: ProcessDomainThread{Thread: td.Thread}, cpuSet: map[int]bool{}, coreSet: map[string]bool{}}
 			members[key] = acc
+		} else if td.LineEnd > acc.item.LineEnd || (td.LineEnd == acc.item.LineEnd && threadDisplayLess(td.Thread, acc.item.Thread)) {
+			acc.item.Thread = td.Thread
 		}
 		acc.item.RunningMs += td.DurationMs
 		census.TotalRunningMs += td.DurationMs
@@ -535,7 +539,8 @@ func computeComputeSupplyBalance(idx *Index, q Query, windowMs float64, supply m
 		return nil
 	}
 	// Adversarial review 2026-07-04 F2: nominal capacity and the per-CPU
-	// ledger count ONLY CPUs with in-window sched_switch activity. CPUs that
+	// ledger count ONLY CPUs with an in-window switch or a proven governing
+	// window-head checkpoint. CPUs that
 	// surface via cpu_frequency samples alone (ghost CPUs: no busy/idle
 	// accounting, no switch event) are excluded wholesale and disclosed by
 	// count, so the "observed via sched_switch" caveat below stays truthful
@@ -640,13 +645,8 @@ func computeComputeSupplyBalance(idx *Index, q Query, windowMs float64, supply m
 	}
 	bal.Caveats = append(bal.Caveats,
 		"delivered/nominal/low_freq_loss/core_limited are cpu·ms; idle_mismatch is wall-clock ms (∃CPU idle ∧ runnable backlog>0 = scheduling/affinity mismatch, not missing capacity); core_limited is the residual approximation",
-		fmt.Sprintf("nominal capacity counts the %d CPU(s) observed via sched_switch in this window", len(observed)),
-		// Adversarial review 2026-07-04 F3: the window-head runnable set is
-		// seeded from pre-window prev_state=R switch segments the off-CPU
-		// pass already carries; threads made runnable ONLY by a pre-window
-		// wakeup with no in-window events remain invisible, so the figure is
-		// a lower bound and says so.
-		"idle_mismatch seeds window-head runnable threads from pre-window prev_state=R switch segments; threads woken only before the window with no in-window events stay uncounted (窗前仅被唤醒且窗内无事件的线程不计入闲置错配,该项为下界)")
+		fmt.Sprintf("nominal capacity counts the %d CPU(s) observed by an in-window sched_switch or a proven window-head scheduler checkpoint", len(observed)),
+		"idle_mismatch seeds window-head runnable threads from the scheduler head snapshot (including pre-window wakeups and prev_state=R); any subject missing a checkpoint is disclosed by scheduler_head_coverage and its unknown head segment remains omitted (该项为下界)")
 	bal.Summary = fmt.Sprintf("compute_supply_balance window_ms=%.3f cpus=%d nominal=%.3fcpu·ms delivered=%.3fcpu·ms supply_ratio=%.3f low_freq_loss=%.3fcpu·ms idle_mismatch=%.3fms(wall) core_limited≈%.3fcpu·ms",
 		bal.WindowMs, bal.CPUCount, bal.NominalCapacityMs, bal.DeliveredComputeMs, bal.SupplyRatio, bal.LowFrequencyLossMs, bal.IdleMismatchMs, bal.CoreLimitedMs)
 	return bal
@@ -670,6 +670,12 @@ func computeIdleRunnableMismatchMs(idx *Index, q Query, headRunnable map[int]boo
 	if idx == nil {
 		return 0
 	}
+	if schedulerStateIntegrityFailureForQuery(idx, q, 0) != nil {
+		return 0
+	}
+	if threadIncarnationConflictForQuery(idx, q, 0) != nil {
+		return 0
+	}
 	var evs []Event
 	for _, ev := range idx.Events {
 		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
@@ -678,6 +684,21 @@ func computeIdleRunnableMismatchMs(idx *Index, q Query, headRunnable map[int]boo
 		switch ev.Type {
 		case EventSchedSwitch, EventSchedWakeup, EventSchedWaking:
 			evs = append(evs, ev)
+		}
+	}
+	if q.TimeStart > 0 && q.LineStart == 0 && q.LineEnd == 0 {
+		if head := schedulerHeadForQuery(idx, q); head != nil && head.Complete {
+			boundarySwitchCPUs := map[int]bool{}
+			for _, ev := range evs {
+				if ev.Type == EventSchedSwitch && ev.Ts == q.TimeStart {
+					boundarySwitchCPUs[ev.CPU] = true
+				}
+			}
+			for _, state := range schedulerHeadSortedCPUs(head) {
+				if !boundarySwitchCPUs[state.CPU] {
+					evs = append(evs, Event{Type: EventSchedSwitch, Ts: q.TimeStart, CPU: state.CPU, NextPID: state.Thread.PID, NextComm: state.Thread.Comm, Line: state.Line})
+				}
+			}
 		}
 	}
 	if len(evs) == 0 {

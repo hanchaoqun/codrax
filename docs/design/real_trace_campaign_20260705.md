@@ -1916,3 +1916,25 @@ finalizer 多轮修复=大量 token 交互反复且小模型输出不稳定(后�
 **教训**:①**批验收话术可掩盖行为反转**——"充分抑制形"pin 名字钉着 insufficient 断言,复核必须对照账本裁定原文逐句核验收句(两批同窗相同教训:SEM-LEAD"排序强度零变化"话术掩盖序值倒挂);②诚实化 authority 信号会让"以污染信号为前提偶然成立"的下游有益行为失效——修根必须同步给下游换上真正度量目标语义的 typed 信号(钻取深度),不能放任 arm 用错误理由做对的事。
 **残口清单(裁定池,§29.21 scope 外)**:①explicit origin token(plain run 模型 emit `origin: current_source` 维度 token 仍可铸证明车道,字节稳 pin 在案);②line-44 required-lane 声明 SupportRefs 车道(模型声明 file:line 坐标进验证机器=边界形,防过宽 pin 在案);③binding 第四 fallback(answer_claim_binding.go 投影空集→current_source binding,仅 binding 面不喂 satisfied,修后仅 NegativeObservation/Unknown kind 可达)。留观:violation_root_cause Hard 早退微松/explorer typed-delta 进度启发式失配(软面)。
 **验收**:donghu eval 20260710-090850 PASS;cmp 形=引擎实铸两方向 pin(首轮回探照发/钻取后抑制),原件仅客户机→实跑列客户复放项。
+
+## §29.24 Trace correctness / 报告 UX 收口审计（2026-07-10）
+
+**演进承接**：本批建立在 `ORD → DISP-3 → CSP-RM → SEM-LEAD` 的主线之上。远端 `SEM-LEAD` 已把链上语义工作提升为可加冕的正式参赛者，`CSP-RM` 已把模型 fallback 从 current-source 证明车道降为 advisory；本批不回退两项裁定，而是补齐其边界证明、物理时序与发布 UX。
+
+**四个 correctness P0 关闭**：
+
+1. **线程身份**：已知 TID 后禁止 comm/TGID/free-text 补命中；name-only 必须唯一；`sched_wakeup_new`、X/Z 后重现建立代际边界，creation 不进入普通 wake 因果。PID-keyed scheduler/resource 聚合跨代际 fail-close；优先级、CPU-near、派生 TGID/进程名只读同代样本。rename 只更新显示 metadata，不拆同一 TID 的累计。
+2. **时间单调性**：time-end early stop 只认 EOF-complete monotonic proof；scheduler 按 exact CPU/TID lane 审计，坏必需字段不再默认为 0。非 scheduler 时长车道（span/counter、block/storage、IRQ、workqueue、DMA）及 cpu_frequency/frequency_limits 同样按物理 lane 审计；回拨 poison 穿过 cold window、warm cache 与 bundle canonical sort。频率 poison 精确到 CPU，并封堵 topology、donor、rail、ceiling、low-frequency 旁路；未配对事件不得用首尾 envelope 冒充时长。
+3. **窗头 carry-in**：完整 prefix checkpoint 是唯一首段 authority；unknown/partial_unknown 明示，左边界旧 0ms carry 删除。`sched_migrate_task` 以 exact PID+dest_cpu 更新 Runnable carry 的 CPU 而不重启状态；恰在左边界及窗内迁核均按事件时刻在旧核/目标核间分段，WindowStats 与 SchedulerLatency 同判。
+4. **bundle provenance**：每个事件/证据可逆映射 physical artifact+local line+clock domain；仅 same-domain 或 calibrated finite reversible affine map 入 canonical 因果域。隐式 sibling manifest 必须明确声明请求 systrace；额外 systrace 无 shared-capture identity 时隔离；source identity/cache/head/raw 读均做 TOCTOU 复核。Clock compatible 不再等同 capability compatible：perftrace 只允许 `trace_query_ready=true` 的 perf_sample，scheduler/CPU-control 永不入共享流；thread/cpu identity 只认 converter 闭集枚举，未证明坐标匿名化但保留 symbol/DSO 库存与剔除计数。
+
+**裁定池落实**：A1 explicit origin token 在 ledger throat 降 advisory；A2 要求每个 source-shaped SupportRef 唯一绑定同轮 Grounded/Recovered evidence 或成功 tool typed carrier，裸 file:line、Summary 文本、短路径歧义和部分伪造均不能铸 `CurrentSourceSatisfied`。B4 采用精确裁定表：`d_state_or_io_wait` 吸收同 TID/同窗/同区间/同行号的 `io_burst_episode`，被吸收行仍以 typed supporting observation 和“链上并入”发布，合法 t=0 同样适用。B6 roster 仅在 subject 的可见 seat occurrence 唯一时追加“见榜位#N”；跨窗同 ordinal 两席也判歧义。C15 hedge marker/caveat 改 upsert/reconcile，多次 finalize 收敛。
+
+**输入兼容与报告 UX**：`runtime_artifact:<16hex>` 误填 `source=path/path` 时只在当前 typed selection→唯一 stat-verified 物理 trace 的证明成立后自动改写；未知、错 kind、无 carrier、多映射 fail-close。工具结果头回写 `auto_resolved`、resolved source 和 canonical next call，prompt/schema 直接教 item.source/attached_trace。原 `20260710-104452.287-21978.html` 的树缺失并非“无因果”，而是三次 trace_query 都把逻辑 ID 当本地路径失败；新 eval 去掉“分层/依赖/确定性优化点”提示，要求模型主动发现，并用 tool success + 投影树作为硬验收。报告稳定排序为结论/投影树→确定性优化→行动/指标→明细/证据；系统块用 exact reserved ID + 不可由 JSON 铸造的 in-memory provenance marker。HTML 树按 rune 固定 0/1/2ch cell、跨平台 CJK fallback、小字号、独立滚动、窄屏/打印/焦点适配。
+
+**剩余 gap（ROI 排序）**：
+
+- **P1**：BLIND-3 结构化 C| counter 先做载荷 census，再建 typed schema；block/storage 同设备+扇区+操作的并发请求仍需生产 witness 与 typed request identity，避免 FIFO 在精确同键并发时交叉配对。
+- **P2**：非 scheduler malformed endpoint 的 schema-specific integrity poison 尚未覆盖全部族；CPU 数据族统一补负数/超拓扑范围 ID 校验；全局 TID-reuse fail-close 可收窄到实际参与 subject 以减少无关代际冲突导致的可用性损失；C11 EN 车道闭集机械化。
+- **witness 触发留观**：A3、B5、B7、B9、C10、C12、C13、C16、BLIND-1。C12 继续坚持“无 typed 链身份不伪造树层级”。
+- **销池**：B8 维持 dash=无有效归因；C14 维持 cross-stage FRCAP 总成本上限。

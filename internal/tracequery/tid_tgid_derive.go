@@ -99,6 +99,48 @@ func (idx *Index) derivedTidTgid() *tidTgidDerivation {
 	return idx.tidTgidVote
 }
 
+// derivedTidTgidForQuery keeps the soft span-pid vote inside the one exact
+// task incarnation selected by q. The global per-index vote remains the fast
+// path when no lifecycle boundary exists. Once a numeric TID is proven reused,
+// ballots and process-name registrations from its other incarnations are
+// excluded; a window spanning the boundary gets no derived attribution for
+// that TID at all.
+func (idx *Index) derivedTidTgidForQuery(q Query) *tidTgidDerivation {
+	if idx == nil {
+		return nil
+	}
+	boundaries, capped := ensureThreadGenerationMetadata(idx)
+	if capped {
+		return nil
+	}
+	if len(boundaries) == 0 {
+		return idx.derivedTidTgid()
+	}
+	// The native-TGID gate is index-global by contract. Filtering a reused
+	// TID must never turn a with-TGID artifact into a derived-TGID artifact.
+	for _, ev := range idx.Events {
+		if ev.TGID > 0 {
+			return idx.derivedTidTgid()
+		}
+	}
+	scopes := map[int]threadGenerationScope{}
+	filtered := make([]Event, 0, len(idx.Events))
+	for _, ev := range idx.Events {
+		if ev.PID <= 0 {
+			continue
+		}
+		scope, ok := scopes[ev.PID]
+		if !ok {
+			scope = threadGenerationScopeForQuery(idx, ev.PID, q)
+			scopes[ev.PID] = scope
+		}
+		if scope.contains(ev.Ts, ev.Line) {
+			filtered = append(filtered, ev)
+		}
+	}
+	return buildTidTgidDerivation(filtered)
+}
+
 // buildTidTgidDerivation runs the gate and the vote in one pass. Returns nil
 // whenever derivation must stay off: any native TGID present, no span votes,
 // or no tid survives the tie/name-drift guards.

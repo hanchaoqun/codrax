@@ -88,6 +88,7 @@ var (
 	traceQueryObjectiveLabeledTokenRE                 = regexp.MustCompile(`(?i)(?:span(?:_name)?(?:\s*关键字)?|marker|label|keyword|关键字|标记|标签|span名|span名称)\s*(?:=|:|：|为|是|叫|名为)?\s*([A-Za-z0-9_#./:$@+\-]{3,160})`)
 	traceQueryObjectivePreLabeledTokenRE              = regexp.MustCompile(`(?i)([A-Za-z0-9_#./:$@+\-]{3,160})\s*(?:这个|该|此)?\s*(?:span|marker|label|keyword|关键字|标记|标签)`)
 	traceQueryTimestampRE                             = regexp.MustCompile(`\s([0-9]+(?:\.[0-9]+)?):\s+`)
+	traceQueryRuntimeArtifactSelectionIDRE            = regexp.MustCompile(`(?i)^runtime_artifact:[0-9a-f]{16}$`)
 )
 
 func traceQueryMemoryForLog() (heapAlloc, heapSys uint64, gcCount uint32) {
@@ -100,6 +101,7 @@ func (t *TraceQuery) Name() string { return "trace_query" }
 
 func (t *TraceQuery) Description() string {
 	description := strings.Replace("Deterministically queries large runtime trace/log artifacts for scheduler timelines, scheduler latency stats, trace span/frame windows, frame timelines/flows, render pipelines, ranked root causes, wakeup chains, frame root-cause bundles, binder IPC graphs with explicit oneway/sync_like/blocking_candidate fields, critical blocking calls, interaction Top-N, same-window resource stats, recipes, structured event search, and line-backed evidence packs. Path inputs may be .ftrace/.trace/.systrace/.htrace/.atrace/.perftrace or .tracebundle.json; trace_query automatically promotes sibling .tracebundle.json and merges sibling .systrace+.perftrace pairs, so one path can carry joint trace+perf evidence. wakeup_chain/root_cause_rank/frame_root_cause_bundle publish structured wakeup_chain path records (one per expanded target segment; each path is a real waker chain that ends at the analyzed thread, and its branch/branches fields identify the segment), per-edge wakeup_chain_edge rows, causal_impact rows with depth/chain_branch identity, and chain_relevance fields (on_chain, adjacent, background); treat each path record as its own dependency chain - do not stitch different path records into one linear chain - and consume those ordered path/edge/relevance fields before paraphrasing dependency chains so upstream waker -> intermediate dependency -> target causality is not lost in prose and off-chain background load is not promoted to primary cause. root_cause_rank rows carry projected_impact_ms/projected_total_ms for the impact projected into the selected target/wakeup-chain window, actual_impact_ms/actual_total_ms/actual_window for the underlying scheduler state segment that may extend outside that projection, plus cumulative_impact_ms, effective_impact_ms, dominant_state, and running/runnable/sleep/d_state/io_wait totals; semantic span-work candidates add span_name/span_kind/span_category/span_subcategory/semantic_class/effective_impact_ms for system-classified runtime work such as JIT compilation, class verification, shader compilation, and runtime compilation: rows with chain_relevance=on_chain carry tier=deterministic_optimization and compete for the root cause on equal footing with other ranked rows: when such a row ranks highest, report it as the root cause named by its semantic class (for a merged row, the class word with its span count, never one member's span name), and ranked top or not, always also report it as a deterministic optimization point; rows without on-chain overlap stay background candidates and carry background_rank (their position among the non-on-chain rows), while generic trace_span rows remain supporting context. Same-thread rows of one cause family may arrive merged as a single ranked contender whose value is the family's combined magnitude: member_count carries the merged instance count, member_roster the per-member identities and values (inode/dev/span names), member_max_ms/member_min_ms the member range, member_fold_caliber the combining ruler (sum_disjoint, interval_union, max_overlap_fallback, count_sum), and member_sum_ms the raw member sum when the published value is a deduplicated lower bound; inode-keyed IO rows also expose typed inode/dev fields — report the merged row once with its combined value and name the member keys instead of re-listing members as separate causes. Use projected_* for current-window real-time projection, actual_* only to explain cross-window duration, and effective_impact_ms as a bounded ranking/hidden-cost signal rather than elapsed time. When an on_chain runnable, running/compute-supply, low-frequency, affinity/cpuset, D-state, or IO dependency is tier=primary, report it as a co-primary cause instead of moving it to background, and compare same-chain primary rows by effective_impact_ms before score; on-chain semantic span-work rows join that comparison on equal footing — a tier=deterministic_optimization row that ranks highest may be reported as the primary root cause, and every on-chain one stays a deterministic optimization point to mention with its projected share of the window; for non-semantic rows effective_impact_ms defaults to cumulative_impact_ms. Rank rows whose subject thread is the analysis target itself AND whose type is a wait-on-counterpart symptom (sleep_wait/fragmented_sleep_wait/missing_wakeup, binder_wait, blocking_span) carry tier=target_self_state: that wait/lock-hold/sleep is the symptom under analysis, so such rows carry rank=0 (no rank-board seat — rank ordinals are contiguous over the competing rows; trace_gap rows carry rank=0 the same way) and are never the primary or co-primary root cause — report them as the target's own state and take the root cause from the other ranked rows. Rows with type=trace_gap carry tier=data_gap: a data blind spot, never a cause — their trace_gap_kind field says whether the thread timeline had no intervals at all in the window (no_sched_data) or intervals that all sit below the min-duration floor (no_eligible_wait); do not report a blind spot as a ranked cause. The target's own runnable/running/IO/D-state rows are decomposable self causes, not symptoms: they compete normally (scheduling-pressure / compute-supply / IO-blocking / D-state candidates), may carry primary or co-primary tiers, and may be reported as the root cause on the target's own thread. wakeup_chain also reports aggregated_impact rows when repeated fragmented branches share a common dependency path; these rows and the corresponding root_cause_rank candidates carry bounded occurrence_windows, so enumerate the representative repeated windows and compare the aggregate against single long intervals. Treat critical_blocking_calls as direct blocking surfaces: for binder/futex/lock/sync waits, consume oneway/sync_like/blocking_candidate instead of inferring blocking semantics from raw flags, preserve peer, peer_state, chain_relevance, overlap, nearest_chain_thread, and then continue into peer thread state, wakeup_chain, root_cause_rank, and resource rows before naming the cause; if peer/on-chain evidence is missing, keep the wait as a bounded symptom/candidate with caveat. A critical_blocking row carrying absorbed_by_rank_family=true duplicates a same-thread merged rank family row of the same events (absorbed_into names that family, matching the rank row's rank_family_key): count it inside that family's combined value and cite the family row — never list absorbed rows as additional separate causes beside the family row. window_stats/event_search can filter or summarize scheduler, sched_stat accounting, binder transaction/received/lock/alloc/reply rows, CPU idle/frequency/frequency-limit, CPU affinity/cpuset/migration constraint evidence, block IO, IRQ/softirq/IPI, storage, filesystem, power, Ability/XPower/HiSystemEvent resource observations, workqueue, DMA fence, memory-like events, SmartPerf-style eBPF BIO/FileSystem/PageFault resource rows, and perf_sample CPU sampling rows when converted to text key/value fields. For perf samples, consume window_stats.perf_samples top_symbols/top_dso/top_callchains/top_threads and perf_quality/quality summaries as supporting code-execution evidence for running threads, runnable competitors, wakeup-chain dependencies, binder peers, or semantic span-work candidates; if a SQL-primary row has comm_source=trace_thread plus perf_thread_comm, thread_comm/pid/tid are the canonical trace-aligned identity and perf_thread_comm is raw converter provenance, not a separate thread. root_cause_rank candidates may carry interval/thread-filtered perf_context plus role-aware perf_contexts rows such as candidate_thread, target_running, on_chain_dependency, same_cpu_competitor, cpu_pressure_top_running, and compute_supply_cpu, and frame_root_cause_bundle may carry target_running_perf, on_chain_perf, binder_peer_perf, and same_cpu_competitor_perf role contexts. perf_quality reports source mix, sample_kind, weight_unit, symbolization_status, cpu_known/cpu_unknown, sample_cpu_scope, clock, clock_confidence, callchain_status, and caveats; sample_cpu_scope=unknown or cpu_unknown means the official/sample source did not expose sample CPU id and must not be attributed to any concrete CPU/core or used as absence proof, sample_kind=off_cpu must not be narrated as running CPU execution, unsymbolized/ip_only means raw fallback or IP/DSO-only evidence, assumed/unknown clock_confidence means trace/perf overlap is supporting evidence unless calibrated, and perf period/sample_weight values are event/sample weights rather than elapsed duration or expected sample density unless explicit sampling configuration plus calibrated CPU frequency are available. For perf evidence-quality questions, answer from sample_cpu_scope/sample_kind/weight_unit first; adjacent sched_switch CPU fields describe scheduler event rows, not the perf sample's CPU location, and should stay out of the perf hotspot conclusion unless the user explicitly asks for scheduler CPU placement. For running/compute-supply/semantic span-work causes, report perf_contexts as the code-execution support for where CPU time was spent, while scheduler overlap, chain relevance, CPU/core/frequency/affinity, D-state/IO, and supply pressure remain the causal basis. Do not treat samples alone as proof of a scheduling root cause. For runnable root causes, window_stats/root_cause_rank report runnable_context, thread_cpu_load, cpu_constraints, and secondary process_cpu_load: consume the concrete thread load, same-CPU competitors, CPU/core class, other-core idle, Harmony/Donghu sched_switch next_info affinity/restricted fields, cpuset/allowed CPU evidence, and only then the process rollup. These are output sections/candidate signals, not separate views; use view=window_stats to inspect them directly, view=root_cause_rank to let them enrich and compete with scheduler candidates, or view=frame_root_cause_bundle for frame/jank windows that need wakeup_chain + rank + blocking + IO/IRQ/IPI/workqueue/sched_stat/supply/trace-mark evidence and role-specific perf contexts in one handoff-safe result. window_stats/root_cause_rank/frame_root_cause_bundle also report inode-level IO outputs: file_io_by_inode for Android FS/F2FS/EXT4-style file read/write/sync/direct-IO rows, page_cache_by_inode for mm_filemap add/delete churn, storage_latency_by_layer for block/MMC/SCSI/F2FS/Android-FS start-done latency pairs, block_io_by_inode to join inode activity with nearest block/storage latency, io_burst_episodes for D-state/iowait/storage bursts, and io_pressure_summary to relate inode IO, page-cache churn, block/storage latency, sched_blocked_reason iowait, and D-state totals. For which-inodes-have-the-most-IO ranking or enumeration questions, read the window_stats top_io_inodes section first: it folds the whole selected window per (dev,inode) across all threads and operations before any per-section row truncation, orders groups by total event count (then bytes, then largest single-event latency), decomposes reads/writes/completions and page-cache adds/deletes, reports max_latency as the largest single event plus top_threads per-thread latency totals (latency is never summed across threads), and its trailing total-groups line discloses how many (dev,inode) groups exist beyond the listed rows. For IO completion questions, preserve file_io completions/ret/example and each storage_latency example together with bytes/len/offset and max_latency, so a single 4KB completion latency is not hidden by aggregate bytes or total latency. These are output sections/candidate signals, not separate views; use view=window_stats to inspect them directly or view=root_cause_rank/frame_root_cause_bundle to let them compete with scheduler and blocking causes. When a wakeup chain exists, treat window_stats IO/D-state/CPU-pressure rows as background context unless the corresponding root_cause_rank candidate says chain_relevance=on_chain/causality=on_wakeup_chain; aggregate rows such as cpu_pressure/io_pressure/supply_pressure remain supporting context and must not be promoted into the direct root-cause chain merely because their representative thread overlaps the chain; generic trace_span rows also stay supporting unless root_cause_rank emits a dedicated semantic span-work type. Off-chain pressure can explain system load but must not become the direct root-cause chain. window_stats/frame_root_cause_bundle also report irq_activity, softirq_activity, ipi_activity, workqueue_activity, dma_fence_activity, sched_stat_accounting, supply_pressure_summary, trace_mark_categories, and async_file_work as supporting signals; use them to explain supply-side pressure and background interference without treating them as proof unless they overlap the target window or wakeup chain. sched_stat_accounting is kernel accounting corroboration and should not replace sched_switch interval timing when both exist; ipi_activity is interrupt/reschedule pressure context, with ipi_raise counted as an instant target_mask signal unless entry/exit pairs provide active_ms. For frame/drop/jank windows with no single long sleep/runnable/D/IO/running segment, window_stats/root_cause_rank also report state_churn: frequent state switching with per-state cumulative impact, fragment count, max/p95 segment, and next-step guidance so the dominant cumulative state can still rank as the primary cause. state_churn is an output section/candidate signal, not an independent view; use view=window_stats to inspect it directly or view=root_cause_rank/frame_root_cause_bundle to let it compete with other causes. For frame/span, runnable-context, inode discovery, or perf hotspot discovery, use view=event_search with pattern as a case-insensitive literal substring, not a regex; it is best for frame ids, jank ids, span labels, trace marker labels, thread labels, next_info tokens, cpuset labels, inode tokens such as 0x478e5, entry_name values, sched_stat thread/kind fields, IPI reason/target_mask fields, perf symbols/DSOs/callchains/source/sample_kind/symbolization_status/callchain_status/clock_confidence/cpu_known, or one exact timestamp/event token before broad grep. Trace markers include B/E/C/S/F rows: event_search rows expose span_action, span_pid, span_name, and span_value; span_window/window_stats trace_spans expose kind=sync|async plus category/subcategory/semantic_class. Synchronous B/E spans end with unnamed E|<pid> or bare E on the same ftrace thread stack, async S/F spans pair by marker pid + name + cookie, and searching E|<pid>|<span_name> is not a valid end-marker test. Treat entry_name as a trace file-name label, not an absolute path; do not prefix it with /, /data/, or any directory unless that full path appears in the trace or an external mapping. If multiple span windows or zero rows come back, narrow with the returned line/time windows, a shorter literal pattern, event_types=[\"trace_mark\"], event_types=[\"perf_sample\"] for CPU sample rows, event_types=[\"cpu_constraint\"] for affinity/cpuset/next_info rows, event_types=[\"sched_stat\"] for scheduler accounting rows, event_types=[\"ipi\"] for IPI rows, event_types=[\"file_io\"] or event_types=[\"page_cache\"] for inode rows, pid/thread, or span_window before running recipe/root-cause views. Once a result reports selected_window, index_windowed, or a concrete line window, keep that same time_start/time_end or line_start/line_end on every follow-up heavy scheduler/resource/root-cause view; thread/pid alone is not enough for large traces. For big/middle/small core analysis, pass core_topology like \"small=0-3,middle=4-7,big=8-11\"; if omitted the tool only infers classes from observed CPU frequencies and reports that caveat. For very large traces, an unbounded jank recipe without time_start/time_end, line_start/line_end, span_name, pid, or thread first does light marker discovery; when timestamped top jank/frame markers are found it automatically runs bounded recipe analysis for the top candidate windows, and otherwise returns marker discovery plus next-call hints instead of expanding expensive full-trace root-cause/resource views. Trace timestamps are seconds end-to-end: 928.081774 means 928 seconds + 0.081774 seconds; with six fractional digits, the fractional part is microsecond-precision (81774 us), not a separate millisecond field. Compound timestamps such as \"1s 501ms 565μs 915ns\" are accepted and normalized to seconds. Only derived durations are rendered in ms. Trace flavor is auto-detected as harmony_hitrace, android_atrace, or generic_ftrace; set trace_flavor/platform in the typed tool call when task context requires a platform override. Raw user wording is not re-parsed by this tool for platform selection. Auto detection may report platform_candidate=mixed_harmony_base when Harmony-base trace signals coexist with Android-framework process surfaces; this uses Donghu/Harmony scheduler priority semantics, not Android priority semantics. Donghu uses Harmony/OpenHarmony trace scheduler semantics with process-isolated Android-framework and Harmony-framework surfaces; priority and timestamp semantics still follow Harmony. For HarmonyOS/hitrace user-space priority, larger numeric priority means higher priority: 1-40=CFS, 41-139=RT. Android/generic ftrace keeps raw scheduler priority and does not apply Harmony ranges. Thread selectors accept pid plus common ftrace/hitrace labels such as com.tencent.mm-36379, com.tencent.mm 36379, com.tencent.mm [36379], [GT]ColdPool#5-36624, binder:486_1-10803, or pid=36379; pass pid directly when known. Use this before ad-hoc grep/awk for ftrace/systrace/hitrace time-window causality questions; a zero-event result in a bounded window is a window/filter diagnostic, not evidence that .ftrace is unsupported. Keep grep/read_file as fallback for truly unsupported formats.", "so one path can carry joint trace+perf evidence. ", "so one path can carry joint trace+perf evidence. A .ftrace/.trace/.systrace path by itself is sufficient for core event queries, including SQL-primary perf_sample rows embedded in systrace; tracebundle is recommended context, not required input. When present, tracebundle result caveats may include tracebundle_trace_provider, tracebundle_trace_db_coverage, tracebundle_trace_coverage, and tracebundle_trace_tool_gate; use them to qualify conversion engine, SQL table coverage, trace_query cross-validation completeness, clock/perf provenance, and commercial guardrail state, not as direct runtime root causes. In tracebundle_trace_db_coverage, role=resolver_index means the DB table was consumed for joins/indexes and rows_emitted=0 is expected; role=systrace_text_output, role=perftrace_text_output, and role=query_ready_export identify text rows produced for trace_query. ", 1)
+	description = strings.Replace(description, "trace_query automatically promotes sibling .tracebundle.json and merges sibling .systrace+.perftrace pairs", "trace_query automatically promotes sibling .tracebundle.json and builds a provenance-aware .systrace+.perftrace composite: every event and derived evidence range resolves to a physical source artifact, local line, and time domain; only identical time domains or an explicit calibrated finite affine clock map enter the shared causal timeline, while incompatible artifacts are isolated with a typed caveat and remain directly queryable by their .perftrace path", 1)
 	description = strings.Replace(description, "state_churn is an output section/candidate signal, not an independent view; use view=window_stats to inspect it directly or view=root_cause_rank/frame_root_cause_bundle to let it compete with other causes.", "state_churn is an output section/candidate signal, not an independent view; use view=window_stats to inspect it directly or view=root_cause_rank/frame_root_cause_bundle to let it compete with other causes. The state_drilldown rows are the state-first handoff: top_sleep is a ranked Top-N cumulative sleep surface, long top_sleep rows require wakeup_chain/root_cause_rank recursive drilldown, fragmented sleep churn stays visible but non-recursive with thread_timeline/interaction_stats/window_stats follow-up, and fragmented runnable or D/IO waits remain recursive root-cause candidates. Preserve state_drilldown source, recommended_views, chain_required, and recursive flags instead of guessing from prose. Each state_drilldown row also carries window_proportion (fraction 0..1 of the selected window that state consumed) and a significant flag: the top-ranked state is always significant, and lower-ranked states are significant only when they clear the proportion floor; rows with significant=false are kept for coverage completeness but are too small to be worth their own per-layer root-cause drilldown, so prioritize significant=true states for per-layer root-cause analysis.", 1)
 	description = strings.Replace(description, "Once a result reports selected_window, index_windowed, or a concrete line window, keep that same time_start/time_end or line_start/line_end on every follow-up heavy scheduler/resource/root-cause view; thread/pid alone is not enough for large traces.", "Once a result reports selected_window, index_windowed, or a concrete line window, keep that same time_start/time_end or line_start/line_end on every follow-up heavy scheduler/resource/root-cause view; thread/pid alone is not enough for large traces. If a call supplies both a frame/span selector and explicit time_start/time_end, frame_root_cause_bundle preserves the explicit query window and unions it with the frame-derived previous-frame-end..current-frame-end window instead of shrinking to an interior vsync/frame marker; span_window/span_name does the same for a uniquely-matched named span, unioning the explicit window with the matched span's own start/end instead of narrowing to whichever is smaller. For jank/stall root-cause analysis over a broader typed period, prefer frame/span-derived windows or coverage windows around 80-150ms for recipe/root_cause_rank/frame_root_cause_bundle before shrinking further; sub-50ms windows are micro-probes and must not be treated as representative unless the selected frame/span itself is that short. If the task's typed target is a process id, thread id, or thread label, set pid/thread explicitly in the tool call and keep that typed filter on follow-up trace_query calls unless deliberately inspecting a named peer; if omitted and the structured request model exposes exactly one runtime_targets entry, trace_query inherits only that typed pid/thread and reports trace_query_target_inherited, but trace_query does not infer omitted pid/thread values from raw request prose, analyzer entity strings, objective text, or prior summaries. For long transaction/lifecycle windows, preserve the full typed time window as parent coverage; use event_search/span_window/frame_window to discover phase boundaries, then drill into the heaviest phase windows. If a result reports mode=index_event_limit or selected window too dense, do not retry the same parameters; for local jank/stall root-cause views split toward 80-150ms coverage windows first, add line_start/line_end, or use event_search/span_window/event_types to narrow before rerunning the heavy view; shrink below 50ms only as a local micro-probe with a caveat.", 1)
 	return description
@@ -110,7 +112,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
   "type": "object",
   "properties": {
 	    "source": {"type":"string","enum":["path","attached_trace"],"x-codrax-enum-style-alias":true,"description":"Use attached_trace for the current --htrace/--atrace blob; use path for an explicit workspace/repo file."},
-	    "path": {"type":"string","description":"Repo/workspace-relative or absolute trace/log path when source=path. Accepts ftrace-compatible text such as .ftrace/.trace/.systrace/.htrace/.atrace, text .perftrace, and .tracebundle.json. A converted .systrace or raw .ftrace text is sufficient for core event queries and may already contain SQL-primary perf_sample rows; .tracebundle.json adds provider/coverage/clock/caveat provenance. When a sibling .tracebundle.json exists, or a sibling .systrace/.perftrace pair exists, trace_query automatically builds a joint trace+perf index."},
+	    "path": {"type":"string","description":"Repo/workspace-relative or absolute trace/log path when source=path. Use the typed artifact item's source value, not its runtime_artifact:<id>. For compatibility, a copied logical id is auto-resolved only when it names a current typed trace item that maps to exactly one physical artifact; the result reports the repair and canonical next-call form. Accepts ftrace-compatible text such as .ftrace/.trace/.systrace/.htrace/.atrace, text .perftrace, and .tracebundle.json. A converted .systrace or raw .ftrace text is sufficient for core event queries and may already contain SQL-primary perf_sample rows; .tracebundle.json adds provider/coverage/clock/caveat provenance. When a sibling .tracebundle.json exists, or a sibling .systrace/.perftrace pair exists, trace_query builds a provenance-aware composite index. Same-domain artifacts merge directly; different domains merge only through an explicit calibrated finite affine map, otherwise the incompatible artifact is isolated and disclosed. Pass the .perftrace path explicitly to query an isolated perf clock on its own."},
 	    "trace_flavor": {"type":"string","enum":["auto","harmony_hitrace","android_atrace","generic_ftrace"],"x-codrax-enum-style-alias":true,"description":"Optional producer/platform flavor. Defaults to auto detection. Use harmony_hitrace for HarmonyOS HiTrace priority semantics, android_atrace for Android/Linux atrace raw scheduler priorities, and generic_ftrace when uncertain."},
 	    "platform": {"type":"string","enum":["auto","donghu","harmony","harmony_hitrace","android","android_atrace","generic","generic_ftrace"],"x-codrax-enum-style-alias":true,"description":"Optional typed platform hint. Use donghu when the typed task/tool call selects Donghu: scheduler/time/priority semantics follow Harmony/OpenHarmony, while Android-framework and Harmony-framework processes may coexist at process boundaries. harmony/harmony_hitrace selects Harmony semantics; android/android_atrace selects Android raw scheduler priority semantics."},
 		    "view": {"type":"string","enum":["event_search","window_sweep","span_window","frame_window","render_pipeline","frame_timeline","frame_flow","thread_timeline","window_stats","perf_stats","perf_timeline","trace_perf_bundle","scheduler_latency_stats","ipc_graph","wakeup_chain","root_cause_rank","frame_root_cause_bundle","critical_blocking_calls","interaction_stats","recipe","evidence_pack"],"x-codrax-enum-style-alias":true,"x-codrax-enum-aliases":{"state_churn":"window_stats","cpu_samples":"perf_stats","cpu_sample_stats":"perf_stats","sample_timeline":"perf_timeline","perf_sample_timeline":"perf_timeline","perf_bundle":"trace_perf_bundle","trace_perf":"trace_perf_bundle","trace_plus_perf":"trace_perf_bundle","causal_impact":"wakeup_chain","frame_bundle":"frame_root_cause_bundle","frame_rootcause_bundle":"frame_root_cause_bundle","frame_root_cause":"frame_root_cause_bundle"},"description":"The deterministic trace view to compute. Use window_sweep for a second-scale or longer dense window before heavy views: it is a streaming per-bucket coverage scan (default bucket_ms=100, clamped 50..500) that is NOT subject to the index event budget, counts sched_switch/sched_wakeup/D-state-entry/irq-entry/trace_mark rows per bucket plus target-pid sched_switch participation when pid is set, and returns advisory top-K dense sub-windows with suggested follow-up views plus a compact coverage table (folded to at most 40 rows), so drill-down windows are picked from measured density instead of blind bisection. Use span_window to turn a unique trace span into a time window: synchronous B/E spans close with unnamed E|<pid> or bare E on the same ftrace thread stack, and async S/F spans close by marker pid + name + cookie. Do not search for E|<pid>|<span_name> as an end marker. Use frame_window/render_pipeline for Choreographer/RenderFrame/VSYNC/draw/present spans; frame_timeline/frame_flow for Expected/Actual/Jank/GPU/RS/UI phase summaries and cross-thread frame flows; perf_stats for same-window CPU sample top_symbols/top_dso/top_callchains/top_threads, perf_timeline for bucketed sample weight over time, and trace_perf_bundle for a handoff-safe bundle that combines window/root-cause/wakeup evidence with perf sample context; scheduler_latency_stats for runnable wait p95/p99/max and CPU competition; wakeup_chain for wakeup edges and causal_impacts per chain node plus aggregated_impacts with bounded occurrence_windows when repeated fragmented branches share a common dependency path; critical_blocking_calls for futex/lock/sync/binder/IO/D-state candidates, with peer_state breakdown when the peer thread timeline is visible; root_cause_rank for primary/secondary/tertiary cause candidates (rows whose subject is the analysis target itself with a wait-on-counterpart type (sleep/binder wait/lock hold) instead carry tier=target_self_state — the target's own symptom, never the root cause; the target's own runnable/running/IO/D-state rows compete normally as decomposable self causes), including projected_impact_ms/projected_total_ms for selected-window projection, actual_impact_ms/actual_total_ms/actual_window for full scheduler-state duration, cumulative_impact_ms, effective_impact_ms, dominant_state/running/runnable/sleep/d_state/io_wait totals, occurrence_windows for aggregate common dependency paths, candidate-level perf_context plus role-aware perf_contexts such as candidate_thread, target_running, on_chain_dependency, same_cpu_competitor, cpu_pressure_top_running, and compute_supply_cpu, fragmented state_churn candidates when frequent short state switches cumulatively dominate, wakeup_chain causal_impacts and aggregated_impacts when repeated fragmented branches share a common dependency path, semantic span-work candidates for JIT/class verification/shader/runtime compilation hidden cost (tier=deterministic_optimization when on-chain, background_rank position when not), and co-primary on-chain runnable/running/compute-supply/D-state/IO dependencies when they are part of the same causal chain; same-chain primary root_cause_rank rows are ordered by effective_impact_ms before score, and non-semantic rows default effective_impact_ms to cumulative_impact_ms; frame_root_cause_bundle returns wakeup_chain + frame_timeline + root_cause_rank + critical_blocking_calls plus IO/IRQ/workqueue/supply/trace-mark bundle fields and role-specific perf contexts target_running_perf/on_chain_perf/binder_peer_perf/same_cpu_competitor_perf for frame/jank handoff; state_churn and causal_impacts are output sections, not standalone views; view=state_churn is accepted and treated as view=window_stats, view=causal_impact is accepted as wakeup_chain, view=perf_bundle/trace_perf/trace_plus_perf is accepted as trace_perf_bundle, and view=frame_bundle/frame_rootcause_bundle is accepted as frame_root_cause_bundle; interaction_stats for target-thread wakeup/binder interaction Top-N; recipe for standard evidence packs; and ipc_graph for binder transaction send/receive causality with explicit oneway/sync_like/blocking_candidate fields."},
@@ -118,8 +120,8 @@ func (t *TraceQuery) Parameters() json.RawMessage {
     "pid": {"type":"integer","description":"Thread pid to analyze when known."},
     "time_start": {"oneOf":[{"type":"number"},{"type":"string"}],"description":"Trace timestamp window start in seconds. Prefer a JSON number. Also accepts strings such as \"928.081774s\", \"928.081774 秒\", or compound forms like \"1s 501ms 565μs 915ns\" and normalizes them to seconds; six fractional digits are microsecond precision."},
     "time_end": {"oneOf":[{"type":"number"},{"type":"string"}],"description":"Trace timestamp window end in seconds. Prefer a JSON number. Also accepts strings such as \"928.081774s\", \"928.081774 秒\", or compound forms like \"3s 116ms\" and normalizes them to seconds; six fractional digits are microsecond precision."},
-    "line_start": {"type":"integer","description":"Optional artifact line window start for bounded search."},
-    "line_end": {"type":"integer","description":"Optional artifact line window end for bounded search."},
+	    "line_start": {"type":"integer","description":"Optional result line window start for bounded search. On a composite trace this is the index-global virtual line returned by trace_query; trace_artifacts/source_spans provide the physical artifact and local line."},
+	    "line_end": {"type":"integer","description":"Optional result line window end for bounded search. On a composite trace this is the index-global virtual line returned by trace_query; trace_artifacts/source_spans provide the physical artifact and local line."},
 	    "event_types": {"type":"array","items":{"type":"string"},"x-codrax-split-string-array":true,"description":"Optional event filters such as trace_mark, sched_switch, sched_wakeup, sched_blocked_reason, sched_stat, cpu_idle, cpu_frequency, cpu_frequency_limits, cpu_constraint, clock_set_rate, block_rq_issue, block_rq_complete, block_bio_remap, binder_transaction, binder_transaction_received, binder_transaction_alloc_buf, binder_lock, binder_locked, binder_unlock, binder_reply, irq, softirq, ipi, storage, filesystem, file_io, page_cache, android_fs, f2fs, scsi, mmc, storage_latency, io_pressure, perf_sample, power, ability_monitor, xpower, hi_sysevent, workqueue, dma_fence. Official formatter aliases such as sched_wakeup_new, sched_stat_wait, sched_stat_sleep, sched_stat_iowait, sched_stat_blocked, sched_stat_runtime, ipi_raise, ipi_entry, ipi_exit, block_rq_insert, block_getrq, block_bio_queue, block_bio_complete, print, tracing_mark_write_xacct, and xacct_tracing_mark_write are accepted and mapped to the matching structured event type. Use trace_mark for B/E/C/S/F marker rows; B/E end rows are unnamed E|<pid> or E, so use span_window rather than E|<pid>|<span_name> searches to prove completion. Use sched_stat/sched_stat_accounting as kernel accounting corroboration for wait/iowait/blocked/runtime, not as a replacement for sched_switch interval timing when both exist. Use ipi/ipi_activity as interrupt/scheduler-reschedule pressure context; ipi_raise target_mask is an instant signal unless paired ipi_entry/exit gives active_ms. Use perf_sample with pattern=<symbol, dso, callchain, event, thread, source, symbolization_status, callchain_status, clock_confidence, or cpu_known> for CPU sampling rows; window_stats.perf_samples summarizes top_symbols/top_dso/top_callchains/top_threads plus perf_quality as supporting execution context, not standalone root-cause proof. Raw fallback rows may have source=raw_perfdata_fallback, symbolization_status=unsymbolized, and callchain_status=ip_only; OpenHarmony hiperf proto rows may have cpu_known=false because sample CPU is unavailable. Result caveats may also carry tracebundle perf/profiler/trace conversion quality provenance such as lost_records/lost_events, lost_sample_records/lost_samples, throttle_records/unthrottle_records, aux_records/aux_bytes, ftrace-plugin structured metadata, profiler plugin metadata, dropped_events, overrun, commit_overrun, overwrite, trace_clock, clock_details, symbol_examples, tracebundle_perf_capability, tracebundle_perf_clock_alignment, tracebundle_trace_provider, tracebundle_trace_db_coverage, tracebundle_trace_coverage, and tracebundle_trace_tool_gate; use them to qualify sample/capture/conversion reliability, coverage, and converter guardrail state, not as direct runtime root causes. Use cpu_constraint/affinity/cpuset to inspect sched_setaffinity, sched_migrate_task, cpuset/cgroup attach, and Harmony/Donghu sched_switch next_info affinity/restricted evidence. Use file_io/page_cache with pattern=<inode or entry_name> for inode-level IO rows. This field also accepts a comma/semicolon separated string, and friendly aliases such as inode_io, pageCache, mm_filemap, cpuSample, perfSamples, topSymbols, callchain, cpuAffinity, schedMigrate, storageLayerLatency, irq_activity, softirq_activity, ipi_activity, sched_stat_accounting, and block_io_by_inode are accepted and mapped to the matching event types."},
     "pattern": {"type":"string","description":"For event_search, optional case-insensitive literal substring matched against parsed event text, span names, thread labels, scheduler roles, resource fields, and raw-like field text. Use this for frame ids such as \"1917295\", jank ids such as \"jank_frames=7\", exact timestamps, or trace labels such as \"Choreographer#doFrame\"; it is not a regex. Start with one exact token, then add event_types/time/line/thread filters after the first hit."},
     "span_name": {"type":"string","description":"Optional trace span name substring. For span_window, returns matching sync B/E or async S/F span windows; sync B/E end rows do not repeat the span name and appear as E|<pid> or bare E on the same ftrace thread stack. For wakeup_chain/root_cause_rank/evidence_pack without explicit time_start/time_end, a unique matching span derives the selected window."},
@@ -137,7 +139,12 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 }`)
 }
 
-func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
+func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out types.ToolResult, executeErr error) {
+	var sourceAdaptation *traceQuerySourceAdaptation
+	defer func() {
+		traceQueryAnnotateSourceAdaptation(&out, sourceAdaptation)
+	}()
+
 	params = applyStructuredPayloadCompat(t.Name(), params, t.Parameters())
 	var p traceQueryParams
 	dec := json.NewDecoder(strings.NewReader(string(params)))
@@ -148,6 +155,11 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 	traceQueryRecordExplicitRuntimeTarget(ctx, p)
 	var targetCaveat string
 	p, targetCaveat = traceQueryApplyRequestModelTarget(ctx, p)
+	var sourceReject *types.ToolResult
+	p, sourceAdaptation, sourceReject = traceQueryAdaptLogicalArtifactPath(ctx, p)
+	if sourceReject != nil {
+		return *sourceReject, nil
+	}
 	path, sourceLabel, reject := resolveTraceQuerySource(ctx, p)
 	if reject != nil {
 		return *reject, nil
@@ -522,6 +534,13 @@ func traceQueryBuildQuery(ctx *types.BusContext, p traceQueryParams, sourceLabel
 func (t *TraceQuery) maybeLargePatternWindowedView(ctx *types.BusContext, p traceQueryParams, path, sourceLabel, timeCaveat string) (types.ToolResult, bool) {
 	info, err := os.Stat(path)
 	if err != nil || info.Size() < traceQueryWindowedIndexMinBytes || !traceQueryShouldAutoWindowFromPattern(p) {
+		return types.ToolResult{}, false
+	}
+	// Auto-window discovery is a single-physical-file streaming optimization.
+	// A bundle (including sibling-promoted artifacts) must fall through to the
+	// normal indexed path so physical source coordinates and clock-domain
+	// admission remain part of the query result.
+	if tracequery.TracePathRequiresCompositeIndex(path) {
 		return types.ToolResult{}, false
 	}
 	pattern := firstNonEmptyTraceString(p.Pattern, p.SpanName)
@@ -1746,7 +1765,301 @@ func traceQueryHeavyViewGuardSummary(path, sourceLabel string, p traceQueryParam
 	return b.String()
 }
 
+// traceQuerySourceAdaptation records a deterministic compatibility repair
+// applied before trace_query resolves its source. It is deliberately kept out
+// of the engine query: the canonical Source/Path values replace the malformed
+// model parameters, while this record exists only to teach the caller the
+// cheaper form for subsequent calls.
+type traceQuerySourceAdaptation struct {
+	LogicalID       string
+	CanonicalSource string
+	CanonicalPath   string
+}
+
+type traceQueryLogicalArtifactCandidate struct {
+	resolved string
+	source   string
+	attached bool
+	info     os.FileInfo
+}
+
+// traceQueryAdaptLogicalArtifactPath accepts one narrow compatibility shape:
+// a model copied a runtime-artifact selection id into source=path/path. A
+// logical id is never sent through filesystem resolution. Instead, it must
+// match exactly one item in the current typed selection view and that item must
+// resolve, through typed carriers plus stat verification, to exactly one
+// physical trace artifact. Zero/many candidates fail closed.
+func traceQueryAdaptLogicalArtifactPath(ctx *types.BusContext, p traceQueryParams) (traceQueryParams, *traceQuerySourceAdaptation, *types.ToolResult) {
+	logicalID := strings.TrimSpace(p.Path)
+	if !traceQueryRuntimeArtifactSelectionIDRE.MatchString(logicalID) {
+		return p, nil, nil
+	}
+	source := strings.TrimSpace(p.Source)
+	if source != "" && source != "path" && source != "attached_trace" {
+		return p, nil, traceQueryLogicalArtifactIDReject(
+			"trace_query_runtime_artifact_id_invalid_source",
+			fmt.Sprintf("trace_query did not treat logical path %q as a filesystem path: source=%q is not a supported trace source. Retry with source=\"attached_trace\" and no path for the current attachment, or source=\"path\" with the typed trace item's source value.", logicalID, source),
+			logicalID,
+		)
+	}
+
+	view := traceQueryRuntimeArtifactSelectionView(ctx)
+	var matches []types.RuntimeArtifactSelectionItem
+	for _, item := range view.Items {
+		if strings.EqualFold(strings.TrimSpace(item.ID), logicalID) {
+			matches = append(matches, item)
+		}
+	}
+	if len(matches) != 1 {
+		return p, nil, traceQueryLogicalArtifactIDReject(
+			"trace_query_runtime_artifact_id_unknown",
+			fmt.Sprintf("trace_query did not treat logical path %q as a filesystem path: it does not name exactly one item in the current typed runtime-artifact selection set.%s", logicalID, traceQueryRuntimeArtifactSelectionHint(view)),
+			logicalID,
+		)
+	}
+	item := matches[0]
+	if item.Kind != "trace" {
+		return p, nil, traceQueryLogicalArtifactIDReject(
+			"trace_query_runtime_artifact_id_wrong_kind",
+			fmt.Sprintf("trace_query did not treat logical path %q as a filesystem path: the current typed item has kind=%q, not trace. Use the trace item's source with trace_query; keep log artifacts on the log evidence lane.%s", logicalID, item.Kind, traceQueryRuntimeArtifactSelectionHint(view)),
+			logicalID,
+		)
+	}
+
+	candidates := traceQueryLogicalArtifactCandidates(ctx, item)
+	if len(candidates) != 1 {
+		if len(candidates) == 0 {
+			return p, nil, traceQueryLogicalArtifactIDReject(
+				"trace_query_runtime_artifact_id_unresolved",
+				fmt.Sprintf("trace_query recognized logical id %q as the current typed trace item (source=%q, carriers=%s), but it has no stat-verified attached blob or trace path. Reattach the trace and call source=\"attached_trace\" without path, or call source=\"path\" with an existing trace file.", logicalID, item.Source, strings.Join(item.Carriers, "+")),
+				logicalID,
+			)
+		}
+		names := make([]string, 0, len(candidates))
+		for _, candidate := range candidates {
+			names = append(names, fmt.Sprintf("%q", candidate.resolved))
+		}
+		return p, nil, traceQueryLogicalArtifactIDReject(
+			"trace_query_runtime_artifact_id_ambiguous",
+			fmt.Sprintf("trace_query recognized logical id %q, but its typed carriers map to multiple physical trace files: %s. Auto-compatibility refuses to guess. Retry with source=\"attached_trace\" and no path for the current attachment, or source=\"path\" and one exact file path.", logicalID, strings.Join(names, ", ")),
+			logicalID,
+		)
+	}
+	// A perf_trace:<producer> item identifies a structured view of an
+	// attachment, not a capture path. The mutable PerfBundle proves that it
+	// came from the attached channel, but its generic producer token cannot
+	// distinguish that capture from additional request-referenced trace files.
+	// Keep the convenience repair only while the whole typed view resolves to
+	// one physical trace. A direct attached_trace/attachment carrier remains an
+	// exact channel identity and does not need this extra inventory gate.
+	if candidates[0].attached && traceQuerySelectionItemIsPerfAlias(item) {
+		physical := traceQueryPhysicalTraceCandidates(ctx, view)
+		if len(physical) > 1 {
+			names := make([]string, 0, len(physical))
+			for _, candidate := range physical {
+				names = append(names, fmt.Sprintf("%q", candidate.resolved))
+			}
+			return p, nil, traceQueryLogicalArtifactIDReject(
+				"trace_query_runtime_artifact_id_ambiguous",
+				fmt.Sprintf("trace_query recognized logical perf alias %q, but the current typed selection resolves to multiple physical trace files: %s. A producer alias does not identify one capture, so auto-compatibility refuses to guess. Retry with source=\"attached_trace\" and no path for the current attachment, or source=\"path\" and one exact file path.", logicalID, strings.Join(names, ", ")),
+				logicalID,
+			)
+		}
+	}
+
+	candidate := candidates[0]
+	adaptation := &traceQuerySourceAdaptation{LogicalID: logicalID}
+	if candidate.attached {
+		p.Source = "attached_trace"
+		p.Path = ""
+		adaptation.CanonicalSource = "attached_trace"
+		logging.Warning("[trace_query] source=path logical typed artifact id %q auto-resolved to the single physical attached trace; canonical next call is source=attached_trace with no path", logicalID)
+		return p, adaptation, nil
+	}
+	p.Source = "path"
+	p.Path = candidate.source
+	adaptation.CanonicalSource = "path"
+	adaptation.CanonicalPath = candidate.source
+	logging.Warning("[trace_query] source=path logical typed artifact id %q auto-resolved to the single stat-verified typed source %q", logicalID, candidate.source)
+	return p, adaptation, nil
+}
+
+func traceQueryRuntimeArtifactSelectionView(ctx *types.BusContext) types.RuntimeArtifactSelectionView {
+	if ctx == nil {
+		return types.RuntimeArtifactSelectionViewFromAgentContext(nil)
+	}
+	var perf *types.PerfBundle
+	if ctx.Mutable != nil {
+		perf = ctx.Mutable.PerfTrace()
+	}
+	return types.RuntimeArtifactSelectionViewFromAgentContext(&types.AgentContext{
+		Mutable:                  ctx.Mutable,
+		RuntimeArtifactPreflight: ctx.RuntimeArtifactPreflight,
+		AttachedLog:              ctx.AttachedLog,
+		AttachedHitrace:          ctx.AttachedHitrace,
+		AttachedHitraceSource:    ctx.AttachedHitraceSource,
+		AnalysisIR:               ctx.AnalysisIR,
+		PerfTrace:                perf,
+	})
+}
+
+func traceQueryLogicalArtifactCandidates(ctx *types.BusContext, item types.RuntimeArtifactSelectionItem) []traceQueryLogicalArtifactCandidate {
+	var out []traceQueryLogicalArtifactCandidate
+	appendCandidate := func(candidate traceQueryLogicalArtifactCandidate) {
+		info, err := os.Stat(candidate.resolved)
+		if err != nil || info.IsDir() {
+			return
+		}
+		candidate.info = info
+		for _, prior := range out {
+			if filepath.Clean(prior.resolved) == filepath.Clean(candidate.resolved) || os.SameFile(prior.info, info) {
+				return
+			}
+		}
+		out = append(out, candidate)
+	}
+
+	if traceQuerySelectionItemMapsToAttachedTrace(ctx, item) {
+		if path, ok := resolveAttachedTraceQueryPath(ctx); ok {
+			appendCandidate(traceQueryLogicalArtifactCandidate{resolved: path, source: "attached_trace", attached: true})
+		}
+	}
+	if types.RuntimeArtifactPathKind(item.Source) == "trace" {
+		appendCandidate(traceQueryLogicalArtifactCandidate{
+			resolved: resolveToolPath(ctx, item.Source),
+			source:   item.Source,
+		})
+	}
+	return out
+}
+
+func traceQueryPhysicalTraceCandidates(ctx *types.BusContext, view types.RuntimeArtifactSelectionView) []traceQueryLogicalArtifactCandidate {
+	var out []traceQueryLogicalArtifactCandidate
+	for _, item := range view.Items {
+		if item.Kind != "trace" {
+			continue
+		}
+		for _, candidate := range traceQueryLogicalArtifactCandidates(ctx, item) {
+			duplicate := false
+			for _, prior := range out {
+				if filepath.Clean(prior.resolved) == filepath.Clean(candidate.resolved) || os.SameFile(prior.info, candidate.info) {
+					duplicate = true
+					break
+				}
+			}
+			if !duplicate {
+				out = append(out, candidate)
+			}
+		}
+	}
+	return out
+}
+
+func traceQuerySelectionItemIsPerfAlias(item types.RuntimeArtifactSelectionItem) bool {
+	directAttachment := false
+	perfAlias := false
+	for _, carrier := range item.Carriers {
+		switch strings.TrimSpace(carrier) {
+		case "attachment", "attached_trace":
+			directAttachment = true
+		case "perf_trace", "mutable_perf_trace":
+			perfAlias = true
+		}
+	}
+	return perfAlias && !directAttachment
+}
+
+func traceQuerySelectionItemMapsToAttachedTrace(ctx *types.BusContext, item types.RuntimeArtifactSelectionItem) bool {
+	if ctx == nil {
+		return false
+	}
+	for _, carrier := range item.Carriers {
+		switch strings.TrimSpace(carrier) {
+		case "attachment", "attached_trace":
+			return true
+		}
+	}
+	var perf *types.PerfBundle
+	if ctx.Mutable != nil {
+		perf = ctx.Mutable.PerfTrace()
+	}
+	if perf == nil || traceQueryPerfArtifactSelectionSource(perf) != strings.TrimSpace(item.Source) {
+		return false
+	}
+	for _, carrier := range item.Carriers {
+		switch strings.TrimSpace(carrier) {
+		case "perf_trace", "mutable_perf_trace":
+			return true
+		}
+	}
+	return false
+}
+
+func traceQueryPerfArtifactSelectionSource(perf *types.PerfBundle) string {
+	if perf == nil || strings.TrimSpace(perf.Meta.Source) == "" {
+		return "perf_trace"
+	}
+	return "perf_trace:" + strings.TrimSpace(perf.Meta.Source)
+}
+
+func traceQueryRuntimeArtifactSelectionHint(view types.RuntimeArtifactSelectionView) string {
+	if len(view.Items) == 0 {
+		return " No current typed runtime artifacts are available."
+	}
+	parts := make([]string, 0, len(view.Items))
+	for i, item := range view.Items {
+		if i >= 8 {
+			parts = append(parts, fmt.Sprintf("... %d more", len(view.Items)-i))
+			break
+		}
+		parts = append(parts, fmt.Sprintf("id=%s kind=%s source=%q", item.ID, item.Kind, item.Source))
+	}
+	return " Current typed items: " + strings.Join(parts, "; ") + "."
+}
+
+func traceQueryLogicalArtifactIDReject(code, summary, logicalID string) *types.ToolResult {
+	return &types.ToolResult{
+		ToolName: "trace_query",
+		Success:  false,
+		Summary:  summary,
+		Repair: &types.ToolRepair{
+			Code:   code,
+			Hint:   "Use source=\"attached_trace\" with no path for the current attached trace. For a filesystem trace, use source=\"path\" with the typed item's source value, never its runtime_artifact:<id>.",
+			Fields: []string{"source", "path"},
+			Metadata: map[string]string{
+				"logical_artifact_id": logicalID,
+				"next_tool":           "trace_query",
+			},
+		},
+		Timestamp: time.Now(),
+	}
+}
+
+func traceQueryAnnotateSourceAdaptation(result *types.ToolResult, adaptation *traceQuerySourceAdaptation) {
+	if result == nil || adaptation == nil || strings.TrimSpace(adaptation.LogicalID) == "" {
+		return
+	}
+	next := `source="attached_trace" path=<omit>`
+	if adaptation.CanonicalSource == "path" {
+		next = fmt.Sprintf(`source="path" path=%q`, adaptation.CanonicalPath)
+	}
+	note := fmt.Sprintf("[trace_query source compatibility: logical_id=%s auto_resolved=true resolved_source=%s mapping=current_typed_selection+single_physical_trace canonical_next_call=%s]", adaptation.LogicalID, adaptation.CanonicalSource, next)
+	if strings.Contains(result.Summary, note) {
+		return
+	}
+	if strings.TrimSpace(result.Summary) == "" {
+		result.Summary = note
+		return
+	}
+	result.Summary = note + "\n" + result.Summary
+}
+
 func resolveTraceQuerySource(ctx *types.BusContext, p traceQueryParams) (string, string, *types.ToolResult) {
+	adapted, _, reject := traceQueryAdaptLogicalArtifactPath(ctx, p)
+	if reject != nil {
+		return "", strings.TrimSpace(p.Source), reject
+	}
+	p = adapted
 	source := strings.TrimSpace(p.Source)
 	if source == "" {
 		if strings.TrimSpace(p.Path) == "" || traceQueryPathDefaultsToAttachedTrace(ctx, p.Path) {
@@ -2133,6 +2446,13 @@ type traceQueryRecipeDiscoveryToken struct {
 }
 
 func (t *TraceQuery) maybeLargeRecipeAutoWindow(ctx *types.BusContext, p traceQueryParams, path, sourceLabel, timeCaveat string) (types.ToolResult, bool) {
+	// Marker discovery is a single-physical-file streaming optimization. A
+	// bundle (including a sibling-promoted artifact universe) must keep the
+	// indexed path so marker timestamps, physical line coordinates, and clock
+	// admission are interpreted with the same provenance as the recipe itself.
+	if tracequery.TracePathRequiresCompositeIndex(path) {
+		return types.ToolResult{}, false
+	}
 	info, err := os.Stat(path)
 	if err != nil || !traceQueryShouldUseLargeRecipeDiscovery(p, info.Size()) {
 		return types.ToolResult{}, false
@@ -2154,6 +2474,11 @@ func (t *TraceQuery) maybeLargeRecipeAutoWindow(ctx *types.BusContext, p traceQu
 }
 
 func (t *TraceQuery) maybeLargeRecipeDiscovery(ctx *types.BusContext, p traceQueryParams, path, sourceLabel string) (types.ToolResult, bool) {
+	// See maybeLargeRecipeAutoWindow: raw marker scanning cannot preserve a
+	// composite artifact universe's virtual lines or calibrated clock mapping.
+	if tracequery.TracePathRequiresCompositeIndex(path) {
+		return types.ToolResult{}, false
+	}
 	info, err := os.Stat(path)
 	if err != nil || !traceQueryShouldUseLargeRecipeDiscovery(p, info.Size()) {
 		return types.ToolResult{}, false
@@ -2772,6 +3097,15 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	)
 	fmt.Fprintf(&b, "# Trace Query: %s\n\n", result.View)
 	fmt.Fprintf(&b, "source=%s lines=%d parsed_events=%d timestamp_unit=%s selected_window=%.6f..%.6f seconds\n", result.SourcePath, result.LineCount, result.EventCount, firstNonEmptyTraceString(result.TimeUnit, "seconds"), result.TimeStart, result.TimeEnd)
+	for i, source := range result.TraceArtifacts {
+		if i >= 8 {
+			fmt.Fprintf(&b, "trace_artifacts_omitted=%d see=payload_ref\n", len(result.TraceArtifacts)-i)
+			break
+		}
+		fmt.Fprintf(&b, "trace_artifact kind=%s source=%s virtual_line_base=%d local_lines=%d events=%d time_domain=%s canonical_domain=%s alignment=%s calibrated=%t causal_compatible=%t bytes=%d isolation_reason=%s\n",
+			sanitizeForBanner(source.Kind), sanitizeForBanner(filepath.Base(source.SourcePath)), source.VirtualLineBase, source.LocalLineCount, source.EventCount,
+			sanitizeForBanner(source.TimeDomain), sanitizeForBanner(source.CanonicalTimeDomain), sanitizeForBanner(source.ClockAlignment), source.ClockCalibrated, source.CausalCompatible, source.SourceBytes, sanitizeForBanner(source.IsolationReason))
+	}
 	if result.IndexWindowed {
 		fmt.Fprintf(&b, "index_windowed=true scanned_lines=%d index_time=%.6f..%.6f index_lines=%d..%d\n", result.ScannedLineCount, result.IndexTimeStart, result.IndexTimeEnd, result.IndexLineStart, result.IndexLineEnd)
 	}
@@ -2887,7 +3221,10 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	}
 	if result.RootCauseRank != nil {
 		b.WriteString("## Root cause rank\n")
-		for _, item := range result.RootCauseRank.Items {
+		rankRows := make([]tracequery.RootCauseRankItem, 0, len(result.RootCauseRank.Items)+len(result.RootCauseRank.AbsorbedItems))
+		rankRows = append(rankRows, result.RootCauseRank.Items...)
+		rankRows = append(rankRows, result.RootCauseRank.AbsorbedItems...)
+		for _, item := range rankRows {
 			occurrenceWindows := traceQueryOccurrenceWindowsCompact(item.OccurrenceWindows, 4)
 			projection := traceQueryProjectedActualFields(item.ProjectedImpactMs, item.CumulativeImpactMs, item.ActualImpactMs, item.ActualTotalMs, item.ActualStartTs, item.ActualEndTs)
 			backgroundRank := ""
@@ -2897,12 +3234,18 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 				// rows from — the mention gate reads background_rank<=3.
 				backgroundRank = fmt.Sprintf(" background_rank=%d", item.BackgroundRank)
 			}
-			fmt.Fprintf(&b, "- rank=%d tier=%s%s type=%s thread=%s window=%.6f..%.6f occurrence_windows=%s dominant_state=%s running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms impact=%.3fms cumulative_impact=%.3fms effective_impact=%.3fms target_impact=%.3fms%s score=%.3f confidence=%.2f lines=%d-%d source=%s causality=%s chain_relevance=%s chain_depth=%d overlap=%.3fms edge_count=%d nearest_chain=%s nearest_window=%.6f..%.6f span=%s perf_context=%s perf_contexts=%s — %s\n",
+			reconciliation := ""
+			if item.AbsorbedRankRows > 0 && strings.TrimSpace(item.RankFamilyKey) != "" {
+				reconciliation = fmt.Sprintf(" absorbed_rank_rows=%d rank_family_key=%s", item.AbsorbedRankRows, sanitizeForBanner(item.RankFamilyKey))
+			} else if item.AbsorbedByRankFamily {
+				reconciliation = " absorbed_by_rank_family=true absorbed_into=" + sanitizeForBanner(item.AbsorbedIntoFamily)
+			}
+			fmt.Fprintf(&b, "- rank=%d tier=%s%s type=%s thread=%s window=%.6f..%.6f occurrence_windows=%s dominant_state=%s running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms impact=%.3fms cumulative_impact=%.3fms effective_impact=%.3fms target_impact=%.3fms%s score=%.3f confidence=%.2f lines=%d-%d source=%s causality=%s chain_relevance=%s chain_depth=%d overlap=%.3fms edge_count=%d nearest_chain=%s nearest_window=%.6f..%.6f span=%s perf_context=%s perf_contexts=%s%s — %s\n",
 				item.Rank, item.Tier, backgroundRank, item.Type, traceThreadLabel(item.Thread), item.StartTs, item.EndTs,
 				occurrenceWindows, sanitizeForBanner(item.DominantState), item.RunningMs, item.RunnableMs, item.SleepMs, item.DStateMs, item.IOWaitMs,
 				item.ImpactMs, item.CumulativeImpactMs, traceQueryRootCauseEffectiveImpact(item), item.TargetImpactMs, projection, item.Score, item.Confidence,
 				item.LineStart, item.LineEnd, item.Source, sanitizeForBanner(item.Causality), sanitizeForBanner(item.ChainRelevance), item.ChainDepth, item.OverlapMs, item.EdgeCount,
-				traceThreadLabel(item.NearestChainThread), item.NearestChainWindow.StartTs, item.NearestChainWindow.EndTs, traceQueryRootCauseSpanCompact(item), traceQueryPerfContextCompact(item.PerfContext), traceQueryPerfRoleContextsCompact(item.PerfContexts, 4), item.Summary)
+				traceThreadLabel(item.NearestChainThread), item.NearestChainWindow.StartTs, item.NearestChainWindow.EndTs, traceQueryRootCauseSpanCompact(item), traceQueryPerfContextCompact(item.PerfContext), traceQueryPerfRoleContextsCompact(item.PerfContexts, 4), reconciliation, item.Summary)
 			writeTraceRootCausePerfRoles(&b, item.Rank, item.PerfContexts)
 			writeTraceRootCauseBlockingDetail(&b, item)
 			traceQueryWriteOccurrenceRows(&b, "rank_occurrence", item.Rank, item.Thread, item.OccurrenceWindows)
@@ -2934,6 +3277,10 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	}
 	if result.Timeline != nil {
 		b.WriteString("## Thread timeline\n")
+		if head := result.Timeline.HeadState; head != nil {
+			fmt.Fprintf(&b, "- head_state status=%s boundary=%.6f state=%s actual_start=%.6f source_line=%d reason=%s\n",
+				sanitizeForBanner(head.Status), head.BoundaryTs, sanitizeForBanner(string(head.State)), head.ActualStartTs, head.SourceLine, sanitizeForBanner(head.Reason))
+		}
 		writeTraceTimelineStateTotals(&b, result.Timeline.Intervals)
 		for i, it := range result.Timeline.Intervals {
 			if i >= 12 {
@@ -2960,6 +3307,10 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	}
 	if result.WindowStats != nil {
 		b.WriteString("## Window stats\n")
+		if coverage := result.WindowStats.SchedulerHeadCoverage; coverage != nil {
+			fmt.Fprintf(&b, "- scheduler_head_coverage status=%s boundary=%.6f reason=%s missing_cpus=%d:%v missing_threads=%d:%v\n",
+				sanitizeForBanner(coverage.Status), coverage.BoundaryTs, sanitizeForBanner(coverage.Reason), coverage.MissingCPUCount, coverage.MissingCPUs, coverage.MissingThreadCount, coverage.MissingThreadPIDs)
+		}
 		for _, cpu := range result.WindowStats.CPU {
 			fmt.Fprintf(&b, "- cpu=%d core_class=%s busy=%.3fms idle=%.3fms freq=%d%s\n", cpu.CPU, sanitizeForBanner(cpu.CoreClass), cpu.BusyMs, cpu.IdleMs, cpu.Frequency, traceFrequencyResidencySummary(cpu.FrequencyResidency))
 		}
@@ -3247,11 +3598,12 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			if ev.Type == tracequery.EventPerfSample {
 				raw = traceQueryPerfSampleRawForModel(raw)
 			}
-			fmt.Fprintf(&b, "- line=%d ts=%.6f type=%s thread=%s%s%s%s raw=%s\n",
+			fmt.Fprintf(&b, "- line=%d ts=%.6f type=%s thread=%s%s%s%s%s raw=%s\n",
 				ev.Line,
 				ev.Ts,
 				ev.Type,
 				traceThreadLabel(tracequery.ThreadRef{Comm: ev.Comm, PID: ev.PID, TGID: ev.TGID}),
+				traceEventProvenanceDetail(ev),
 				traceEventPriorityDetail(ev),
 				traceEventSchedulerDetail(ev),
 				traceEventResourceDetail(ev),
@@ -3268,8 +3620,8 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 				fmt.Fprintf(&b, "... omitted %d fact(s); see payload_ref\n", len(result.EvidencePack)-i)
 				break
 			}
-			fmt.Fprintf(&b, "- %s %s %s lines=%d-%d confidence=%.2f — %s\n",
-				fact.Subject, fact.Predicate, fact.Object, fact.LineStart, fact.LineEnd, fact.Confidence, fact.Summary)
+			fmt.Fprintf(&b, "- %s %s %s lines=%d-%d%s confidence=%.2f — %s\n",
+				fact.Subject, fact.Predicate, fact.Object, fact.LineStart, fact.LineEnd, traceEvidenceFactProvenanceDetail(fact), fact.Confidence, fact.Summary)
 		}
 	}
 	for _, caveat := range result.Caveats {
@@ -3339,6 +3691,24 @@ func writeTraceFrameRootCauseBundleSummary(b *strings.Builder, bundle *tracequer
 	if bundle.SupplyPressureSummary != nil {
 		fmt.Fprintf(b, "- bundle_supply signal=%s cpu_pressure=%.3fms low_freq_cpus=%v — %s\n",
 			sanitizeForBanner(bundle.SupplyPressureSummary.Signal), bundle.SupplyPressureSummary.CPUPressureMs, bundle.SupplyPressureSummary.LowFrequencyCPUs, sanitizeForBanner(bundle.SupplyPressureSummary.Summary))
+	}
+	// Keep the semantic trace-mark handoff in the bundle head.  Composite
+	// summaries can exceed the blob preview and lose the middle Window Stats
+	// rows; counts alone are not enough for the model to recover the category
+	// or async-file work identity.
+	for i, category := range bundle.TraceMarkCategories {
+		if i >= 2 {
+			break
+		}
+		fmt.Fprintf(b, "- bundle_trace_mark_category category=%s subcategory=%s count=%d total=%.3fms top_span=%s lines=%d-%d\n",
+			sanitizeForBanner(category.Category), sanitizeForBanner(category.Subcategory), category.Count, category.TotalMs, sanitizeForBanner(category.TopSpan), category.LineStart, category.LineEnd)
+	}
+	for i, work := range bundle.AsyncFileWork {
+		if i >= 2 {
+			break
+		}
+		fmt.Fprintf(b, "- bundle_async_file_work thread=%s category=%s span=%s duration=%.3fms lines=%d-%d — %s\n",
+			traceThreadLabel(work.Thread), sanitizeForBanner(work.Category), sanitizeForBanner(work.Name), work.DurationMs, work.LineStart, work.LineEnd, sanitizeForBanner(work.Summary))
 	}
 	for _, caveat := range bundle.Caveats {
 		fmt.Fprintf(b, "- bundle_caveat=%s\n", sanitizeForBanner(caveat))
@@ -4506,6 +4876,51 @@ func tracePriorityDetail(td tracequery.ThreadDuration) string {
 	return fmt.Sprintf("prio=%d/%s", td.Priority, td.PriorityClass)
 }
 
+func traceEventProvenanceDetail(ev tracequery.EventView) string {
+	if strings.TrimSpace(ev.SourcePath) == "" || ev.LocalLine <= 0 {
+		return ""
+	}
+	parts := []string{
+		"source=" + filepath.Base(ev.SourcePath),
+		fmt.Sprintf("local_line=%d", ev.LocalLine),
+	}
+	if strings.TrimSpace(ev.TimeDomain) != "" {
+		parts = append(parts, "time_domain="+sanitizeForBanner(ev.TimeDomain))
+	}
+	if ev.SourceTs != 0 && (ev.ClockAligned || ev.SourceTs != ev.Ts) {
+		parts = append(parts, fmt.Sprintf("source_ts=%.6f", ev.SourceTs))
+	}
+	if ev.ClockAligned {
+		parts = append(parts, "clock_aligned=true")
+	}
+	if ev.RawUnavailableReason != "" {
+		parts = append(parts, "raw_unavailable="+sanitizeForBanner(ev.RawUnavailableReason))
+	}
+	return " " + strings.Join(parts, " ")
+}
+
+func traceEvidenceFactProvenanceDetail(fact tracequery.EvidenceFact) string {
+	if len(fact.SourceSpans) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(fact.SourceSpans))
+	for _, span := range fact.SourceSpans {
+		end := span.LocalLineEnd
+		if end <= 0 {
+			end = span.LocalLineStart
+		}
+		location := fmt.Sprintf("%s:%d", filepath.Base(span.SourcePath), span.LocalLineStart)
+		if end != span.LocalLineStart {
+			location += fmt.Sprintf("-%d", end)
+		}
+		if span.TimeDomain != "" {
+			location += "@" + sanitizeForBanner(span.TimeDomain)
+		}
+		parts = append(parts, location)
+	}
+	return " sources=" + strings.Join(parts, ",")
+}
+
 func traceEventPriorityDetail(ev tracequery.EventView) string {
 	var parts []string
 	if ev.PrevPrio > 0 {
@@ -5162,7 +5577,10 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 
 	if result.RootCauseRank != nil {
 		hasForegroundRootCause := traceQueryRootCauseRankHasForeground(result.RootCauseRank.Items)
-		for i, item := range result.RootCauseRank.Items {
+		rankRows := make([]tracequery.RootCauseRankItem, 0, len(result.RootCauseRank.Items)+len(result.RootCauseRank.AbsorbedItems))
+		rankRows = append(rankRows, result.RootCauseRank.Items...)
+		rankRows = append(rankRows, result.RootCauseRank.AbsorbedItems...)
+		for i, item := range rankRows {
 			if i >= traceQueryWidthTypedFamilyRowCap() {
 				break
 			}
@@ -5327,6 +5745,12 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// absorbed same-(thread,type family,window) critical_blocking
 				// rows; the projection joins absorbed rows against it verbatim.
 				{types.TraceNoteKeyRankFamilyKey, item.RankFamilyKey},
+				// B4 exact cross-type rank-seat reconciliation: the absorbed
+				// io_burst_episode keeps publishing as a supporting observation
+				// with the same generic marker pair the projection's single G1/B4
+				// fold choke point consumes. No display-side re-derivation.
+				{types.TraceNoteKeyAbsorbedByRankFamily, traceQueryTypedBool(item.AbsorbedByRankFamily)},
+				{types.TraceNoteKeyAbsorbedInto, item.AbsorbedIntoFamily},
 				// RCM 区分键族 (§24.9-B F3): typed inode/dev identity from the
 				// rank item's own fields — never a Summary re-parse.
 				{types.TraceNoteKeyInode, item.Inode},
@@ -5355,7 +5779,15 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			provenance := types.ObservationProvenanceObservedDirectCause
 			claimKey := "root_cause_" + tier
 			predicate := claimKey
-			if tier == tracequery.RootCauseTierDataGap {
+			if item.AbsorbedByRankFamily || tier == tracequery.RootCauseTierAbsorbed {
+				// One physical segment already owns the principal rank seat. The
+				// duplicate observation stays hard-grounded but supporting-only;
+				// projection relocation plus the family stanza keep it lossless.
+				role = types.AnswerAggregateRoleSupportingCoverage
+				provenance = types.ObservationProvenanceArtifactSpan
+				claimKey = "root_cause_absorbed"
+				predicate = "root_cause_absorbed"
+			} else if tier == tracequery.RootCauseTierDataGap {
 				// 复核 P3-2 (2026-07-09): a data blind spot is NEVER a
 				// principal answer — the role/provenance demote UNCONDITIONALLY
 				// (the background arm below requires a foreground root cause,
@@ -5742,6 +6174,201 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 		}
 	}
 
+	return traceQueryApplyArtifactProvenance(result, out)
+}
+
+// traceQueryApplyArtifactProvenance keeps the tracebundle path as the capture
+// identity (CMP-1 partitioning must not split one calibrated bundle into a
+// systrace tree and a perftrace tree), while replacing ambiguous bundle-line
+// support refs with physical artifact + local-line coordinates. The record's
+// Span remains the index-global virtual coordinate and Selector carries the
+// reversible mapping for consumers that do not inspect SupportRefs.
+func traceQueryApplyArtifactProvenance(result tracequery.Result, records []types.ObservationRecord) []types.ObservationRecord {
+	if len(records) == 0 || len(result.TraceArtifacts) == 0 {
+		return records
+	}
+	for i := range records {
+		spans, passthroughRefs := traceQueryRecordArtifactSpans(result, records[i])
+		if len(spans) == 0 {
+			if source, ok := traceQuerySingleCompatibleArtifact(result.TraceArtifacts); ok {
+				records[i].SourceRef.TimeDomain = source.TimeDomain
+				records[i].SourceRef.CanonicalTimeDomain = source.CanonicalTimeDomain
+				traceQueryApplyObservationClockSources(&records[i].SourceRef, []tracequery.TraceArtifactSource{source})
+			}
+			continue
+		}
+		refs := append([]string(nil), passthroughRefs...)
+		selectors := make([]string, 0, len(spans))
+		for _, span := range spans {
+			lineEnd := span.LocalLineEnd
+			if lineEnd <= 0 {
+				lineEnd = span.LocalLineStart
+			}
+			if lineEnd == span.LocalLineStart {
+				refs = append(refs, fmt.Sprintf("%s:%d", span.SourcePath, span.LocalLineStart))
+			} else {
+				refs = append(refs, fmt.Sprintf("%s:%d-%d", span.SourcePath, span.LocalLineStart, lineEnd))
+			}
+			selectors = append(selectors, fmt.Sprintf("%s:%d-%d[%s]", span.SourcePath, span.LocalLineStart, lineEnd, span.TimeDomain))
+		}
+		records[i].SupportRefs = dedupTraceQueryStrings(refs)
+		selector := "artifact_spans=" + strings.Join(selectors, ",")
+		if strings.TrimSpace(records[i].Span.Selector) == "" {
+			records[i].Span.Selector = selector
+		} else {
+			records[i].Span.Selector += ";" + selector
+		}
+		records[i].SourceRef.TimeDomain = spans[0].TimeDomain
+		records[i].SourceRef.CanonicalTimeDomain = spans[0].CanonicalTimeDomain
+		for _, span := range spans[1:] {
+			if !strings.EqualFold(span.TimeDomain, records[i].SourceRef.TimeDomain) {
+				records[i].SourceRef.TimeDomain = "multiple_aligned_domains"
+			}
+			if !strings.EqualFold(span.CanonicalTimeDomain, records[i].SourceRef.CanonicalTimeDomain) {
+				records[i].SourceRef.CanonicalTimeDomain = ""
+			}
+		}
+		traceQueryApplyObservationClockSources(&records[i].SourceRef, traceQueryArtifactSourcesForSpans(result.TraceArtifacts, spans))
+	}
+	return records
+}
+
+func traceQueryArtifactSourcesForSpans(artifacts []tracequery.TraceArtifactSource, spans []tracequery.TraceArtifactSpan) []tracequery.TraceArtifactSource {
+	byPath := make(map[string]tracequery.TraceArtifactSource, len(artifacts))
+	for _, source := range artifacts {
+		byPath[source.SourcePath] = source
+	}
+	seen := map[string]bool{}
+	out := make([]tracequery.TraceArtifactSource, 0, len(spans))
+	for _, span := range spans {
+		if seen[span.SourcePath] {
+			continue
+		}
+		source, ok := byPath[span.SourcePath]
+		if !ok {
+			continue
+		}
+		seen[span.SourcePath] = true
+		out = append(out, source)
+	}
+	return out
+}
+
+func traceQueryApplyObservationClockSources(ref *types.ObservationSourceRef, sources []tracequery.TraceArtifactSource) {
+	if ref == nil || len(sources) == 0 {
+		return
+	}
+	first := sources[0]
+	sameMapping := true
+	for _, source := range sources[1:] {
+		if source.ClockAlignment != first.ClockAlignment || source.ClockCalibrated != first.ClockCalibrated ||
+			!traceQuerySameOptionalFloat(source.ClockOffsetSec, first.ClockOffsetSec) ||
+			!traceQuerySameOptionalFloat(source.ClockSlope, first.ClockSlope) {
+			sameMapping = false
+			break
+		}
+	}
+	if !sameMapping {
+		ref.ClockAlignment = "multiple"
+		ref.ClockCalibrated = false
+		ref.ClockOffsetSec = nil
+		ref.ClockSlope = nil
+		return
+	}
+	ref.ClockAlignment = first.ClockAlignment
+	ref.ClockCalibrated = first.ClockCalibrated
+	ref.ClockOffsetSec = traceQueryCloneOptionalFloat(first.ClockOffsetSec)
+	ref.ClockSlope = traceQueryCloneOptionalFloat(first.ClockSlope)
+}
+
+func traceQuerySameOptionalFloat(a, b *float64) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return math.Float64bits(*a) == math.Float64bits(*b)
+}
+
+func traceQueryCloneOptionalFloat(value *float64) *float64 {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
+}
+
+func traceQueryRecordArtifactSpans(result tracequery.Result, record types.ObservationRecord) ([]tracequery.TraceArtifactSpan, []string) {
+	var spans []tracequery.TraceArtifactSpan
+	var passthrough []string
+	for _, supportRef := range record.SupportRefs {
+		lineStart, lineEnd, ok := traceQueryVirtualSupportRefRange(result.SourcePath, supportRef)
+		if !ok {
+			passthrough = append(passthrough, supportRef)
+			continue
+		}
+		spans = append(spans, result.ResolveArtifactSpans(lineStart, lineEnd)...)
+	}
+	if len(spans) == 0 {
+		spans = result.ResolveArtifactSpans(record.Span.LineStart, record.Span.LineEnd)
+	}
+	seen := map[string]bool{}
+	compacted := make([]tracequery.TraceArtifactSpan, 0, len(spans))
+	for _, span := range spans {
+		key := fmt.Sprintf("%s\x00%d\x00%d\x00%s", span.SourcePath, span.LocalLineStart, span.LocalLineEnd, span.TimeDomain)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		compacted = append(compacted, span)
+	}
+	return compacted, passthrough
+}
+
+func traceQueryVirtualSupportRefRange(sourcePath, supportRef string) (int, int, bool) {
+	sourcePath = strings.TrimSpace(sourcePath)
+	supportRef = strings.TrimSpace(supportRef)
+	if sourcePath == "" || !strings.HasPrefix(supportRef, sourcePath+":") {
+		return 0, 0, false
+	}
+	raw := strings.TrimPrefix(supportRef, sourcePath+":")
+	startRaw, endRaw, hasRange := strings.Cut(raw, "-")
+	start, err := strconv.Atoi(startRaw)
+	if err != nil || start <= 0 {
+		return 0, 0, false
+	}
+	end := start
+	if hasRange {
+		end, err = strconv.Atoi(endRaw)
+		if err != nil || end < start {
+			return 0, 0, false
+		}
+	}
+	return start, end, true
+}
+
+func traceQuerySingleCompatibleArtifact(sources []tracequery.TraceArtifactSource) (tracequery.TraceArtifactSource, bool) {
+	var selected tracequery.TraceArtifactSource
+	count := 0
+	for _, source := range sources {
+		if !source.CausalCompatible {
+			continue
+		}
+		selected = source
+		count++
+	}
+	return selected, count == 1
+}
+
+func dedupTraceQueryStrings(values []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
 	return out
 }
 

@@ -1304,7 +1304,7 @@ func formatRuntimeArtifactSelection(ac *types.AgentContext) string {
 		if analyzeStage {
 			lines = append(lines, "Analyze-stage boundary: record the active typed trace source in emit_analysis; do not call trace_query here. Later exploration owns trace_query runtime evidence.")
 		} else {
-			lines = append(lines, "Use trace_query with the active typed trace source for runtime evidence. Keep source/generic tools out unless a later typed current-source lane opens.")
+			lines = append(lines, "Use trace_query with the active typed trace source for runtime evidence. For an attached/perf trace alias, use source=\"attached_trace\" and omit path; for a filesystem artifact, put item.source (not item.id) in path. A copied logical item.id is compatibility-repaired only when it maps to one physical trace. Keep source/generic tools out unless a later typed current-source lane opens.")
 		}
 	case types.RuntimeArtifactAnalysisPolicyTraceArtifactAmbiguous:
 		lines = append(lines,
@@ -1313,7 +1313,7 @@ func formatRuntimeArtifactSelection(ac *types.AgentContext) string {
 		if analyzeStage {
 			lines = append(lines, "Analyze-stage boundary: preserve the ambiguity in emit_analysis exact_targets / required_files; do not call trace_query here or silently choose a trace path.")
 		} else {
-			lines = append(lines, "Choose one typed trace source in trace_query.path before querying. If the artifact choice remains ambiguous, surface that ambiguity instead of silently picking a path.")
+			lines = append(lines, "Choose one typed trace source in trace_query.path before querying: use item.source, never item.id. For the current attached/perf trace alias, use source=\"attached_trace\" and omit path. A copied logical item.id is compatibility-repaired only when it maps to one physical trace; otherwise the tool fails closed. If the artifact choice remains ambiguous, surface that ambiguity instead of silently picking a path.")
 		}
 	case types.RuntimeArtifactAnalysisPolicySelectionAdvisory:
 		lines = append(lines,
@@ -1329,7 +1329,7 @@ func formatRuntimeArtifactSelection(ac *types.AgentContext) string {
 			if analyzeStage {
 				lines = append(lines, fmt.Sprintf("Default trace artifact: id=%s source=%s. Record this typed artifact in emit_analysis; later exploration will decide trace_query.path.", item.ID, item.Source))
 			} else {
-				lines = append(lines, fmt.Sprintf("Default trace artifact: id=%s source=%s. Explicit trace_query.path still wins when provided.", item.ID, item.Source))
+				lines = append(lines, fmt.Sprintf("Default trace artifact: id=%s source=%s. Put source (not id) in trace_query.path for filesystem artifacts; use source=\"attached_trace\" without path for the current attachment. Explicit trace_query.path still wins when provided.", item.ID, item.Source))
 			}
 		}
 	}

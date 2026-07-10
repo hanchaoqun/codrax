@@ -63,16 +63,16 @@ func TestTraceIndexCache_LoadRefreshesRecency(t *testing.T) {
 	}
 }
 
-func TestTraceIndexCache_SingleOversizedEntryStaysUsable(t *testing.T) {
+func TestTraceIndexCache_SingleOversizedEntryIsNotRetained(t *testing.T) {
 	c := newTraceIndexCache(1 * eventSizeBytes)
 	big := cacheTestIndex(5)
 	c.Store(cacheTestKey("big"), big)
-	if got, ok := c.Load(cacheTestKey("big")); !ok || got != big {
-		t.Fatal("a just-built index larger than the budget must still serve repeat calls")
+	if _, ok := c.Load(cacheTestKey("big")); ok {
+		t.Fatal("an index larger than the entire cache budget must not become process-lifetime resident")
 	}
 	c.Store(cacheTestKey("next"), cacheTestIndex(1))
-	if _, ok := c.Load(cacheTestKey("big")); ok {
-		t.Fatal("the oversized entry must be evicted once a newer entry lands")
+	if _, ok := c.Load(cacheTestKey("next")); !ok {
+		t.Fatal("a budget-fitting entry should still be cached")
 	}
 }
 

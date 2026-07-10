@@ -7,10 +7,11 @@ import (
 )
 
 type threadSelector struct {
-	Raw    string
-	Name   string
-	PID    int
-	HasPID bool
+	Raw       string
+	Name      string
+	PID       int
+	HasPID    bool
+	HyphenPID bool
 }
 
 var (
@@ -61,6 +62,7 @@ func parseThreadSelector(raw string) threadSelector {
 		if pid, ok := parsePositiveInt(suffix); ok {
 			sel.PID = pid
 			sel.HasPID = true
+			sel.HyphenPID = true
 			sel.Name = cleanThreadSelectorName(raw[:hyphen])
 			return sel
 		}

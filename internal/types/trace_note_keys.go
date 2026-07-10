@@ -432,18 +432,19 @@ const (
 	// missing" soft gap that pushes the LLM to re-run a query which cannot add
 	// rows.
 	TraceNoteKeyLockTwinFolded = "lock_twin_folded"
-	// G1 跨车道对账族 (§27.2-G1, user ruling 收口批准 §28.1, 2026-07-09,
-	// real_trace_campaign_20260705.md): the typed cross-lane absorption
-	// markers the tracequery engine stamps when a critical_blocking row and a
-	// same-(thread, adjudicated type family, query window) rank FAMILY row
-	// published the SAME batch of source events (opendir_79 E3↔E6-E9 /
-	// huadong_79 witnesses — raw sums strictly equal).
+	// G1/B4 跨车道对账族 (§27.2-G1 and 2026-07-10 external-audit B4): the
+	// typed absorption markers the tracequery engine stamps when two lanes
+	// deterministically prove they published the same physical source events.
+	// G1 covers critical_blocking io_latency ↔ same-thread rank family;
+	// B4 covers exact d_state_or_io_wait ↔ io_burst_episode rank seats under
+	// numeric TID + adjudicated producer pair + query endpoints + exact
+	// interval/line-span equality.
 	//
 	// TraceNoteKeyAbsorbedByRankFamily — "true" on the absorbed
-	// critical_blocking observation. TraceNoteKeyAbsorbedInto — the
+	// absorbed observation. TraceNoteKeyAbsorbedInto — the
 	// engine-rendered canonical family identity on that same observation.
 	// TraceNoteKeyRankFamilyKey — the SAME identity string on the absorbing
-	// family rank observation (single engine renderer rankFamilyReconKey; the
+	// absorbing rank observation (single engine-rendered key; the
 	// projection compile joins the two sides by verbatim string equality,
 	// never a label re-derivation). All three hard consumers: the compile
 	// relocates absorbed nodes out of the render buckets into

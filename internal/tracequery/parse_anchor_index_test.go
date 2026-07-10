@@ -58,10 +58,17 @@ func TestAnchorSeekBuildsIdenticalIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	key := traceAnchorKey{path: cold.Path, size: cold.Size, modUnix: cold.ModTime.UnixNano(), version: ParserVersion}
+	info, statErr := os.Stat(cold.Path)
+	if statErr != nil {
+		t.Fatal(statErr)
+	}
+	key := traceAnchorKeyForInfo(cold.Path, info)
 	set := anchorCache.load(key)
 	if set == nil || len(set.Anchors) == 0 || !set.FlavorSet {
 		t.Fatalf("cold build must record anchors + flavor, got %+v", set)
+	}
+	if set.TimestampOrder != TraceTimestampOrderMonotonic {
+		t.Fatalf("cold EOF scan must publish complete monotonic proof, got %+v", set)
 	}
 
 	// Warm: same window again bypassing the index cache — must seek.
@@ -70,8 +77,8 @@ func TestAnchorSeekBuildsIdenticalIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if warm.ScannedLineCount != cold.ScannedLineCount {
-		t.Fatalf("LineCount bookkeeping drifted: cold=%d warm=%d", cold.ScannedLineCount, warm.ScannedLineCount)
+	if warm.ScannedLineCount >= cold.ScannedLineCount {
+		t.Fatalf("warm monotonic proof must restore the early-stop fast path: cold=%d warm=%d", cold.ScannedLineCount, warm.ScannedLineCount)
 	}
 	if !reflect.DeepEqual(cold.Events, warm.Events) {
 		t.Fatalf("anchor-seek event set diverged: cold=%d warm=%d events", len(cold.Events), len(warm.Events))
@@ -81,6 +88,52 @@ func TestAnchorSeekBuildsIdenticalIndex(t *testing.T) {
 	}
 	if cold.TraceFlavor != warm.TraceFlavor {
 		t.Fatalf("flavor must be stable across seek builds: %q vs %q", cold.TraceFlavor, warm.TraceFlavor)
+	}
+}
+
+func TestAnchorSeekPreservesPreAnchorThreadIncarnationIdentity(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "anchor-incarnation.systrace")
+	var body strings.Builder
+	body.WriteString("# tracer: nop\n")
+	body.WriteString(" old-42 (700) [000] .... 100.000001: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=old next_pid=42 next_prio=20\n")
+	creationTs := 0.0
+	for i := 0; i < traceAnchorLineInterval+128; i++ {
+		ts := 100.000002 + float64(i)*0.00001
+		if i == traceAnchorLineInterval+64 {
+			creationTs = ts
+			fmt.Fprintf(&body, " creator-7 (7) [001] .... %.6f: sched_wakeup_new: comm=new pid=42 prio=30 target_cpu=001\n", ts)
+			continue
+		}
+		fmt.Fprintf(&body, " noise-9 (9) [002] .... %.6f: sched_wakeup: comm=noise pid=9 prio=20 target_cpu=002\n", ts)
+	}
+	if err := os.WriteFile(path, []byte(body.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resetAnchorCaches()
+	if _, err := BuildIndex(t.Context(), path); err != nil {
+		t.Fatal(err)
+	}
+	// Force the windowed path to reuse only the warm anchor/head caches, not a
+	// cached full Index from which lifecycle evidence could be derived directly.
+	indexCache = newTraceIndexCache(traceIndexCacheBudgetBytes)
+	idx, err := BuildIndexWithOptions(t.Context(), path, BuildOptions{
+		AllowWindowedParse: true,
+		TimeStartSet:       true,
+		TimeStart:          creationTs - 0.00002,
+		TimeEndSet:         true,
+		TimeEnd:            creationTs + 0.00002,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(idx.threadIncarnationFailures) == 0 {
+		t.Fatal("warm anchor seek lost the old TID identity established before the seek point")
+	}
+	timeline := ThreadTimeline(idx, Query{PID: 42, TimeStart: creationTs - 0.00002, TimeEnd: creationTs + 0.00002})
+	if timeline.IntegrityFailure != "thread_incarnation_conflict" || len(timeline.Intervals) != 0 {
+		t.Fatalf("anchor seek merged pre-anchor and in-window TID occupants: %+v", timeline)
 	}
 }
 
@@ -138,7 +191,7 @@ func TestIndexEventLimitDenialStillStoresAnchors(t *testing.T) {
 	if serr != nil {
 		t.Fatal(serr)
 	}
-	key := traceAnchorKey{path: canonical, size: info.Size(), modUnix: info.ModTime().UnixNano(), version: ParserVersion}
+	key := traceAnchorKeyForInfo(canonical, info)
 	set := anchorCache.load(key)
 	if set == nil || len(set.Anchors) == 0 || !set.FlavorSet {
 		t.Fatalf("budget-denied build must persist prefix anchors + flavor, got %+v", set)

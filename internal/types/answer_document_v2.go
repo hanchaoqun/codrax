@@ -298,6 +298,13 @@ const (
 	AnswerSystemGeneratedPrincipalEnumerationFields  AnswerSystemGeneratedBlockKind = "principal_enumeration_fields"
 	AnswerSystemGeneratedPrincipalEnumerationNotes   AnswerSystemGeneratedBlockKind = "principal_enumeration_notes"
 	AnswerSystemGeneratedPrincipalEnumerationSection AnswerSystemGeneratedBlockKind = "principal_enumeration_section"
+
+	// AnswerSystemGeneratedRuntimeTrace marks blocks minted by the
+	// deterministic runtime-trace report assembler. The field carrying this
+	// value is json:"-", so a model can never self-assign the authority that
+	// lets a block suppress another system block, participate in structural
+	// report ordering, or feed the prose-scalar evidence lane.
+	AnswerSystemGeneratedRuntimeTrace AnswerSystemGeneratedBlockKind = "runtime_trace"
 )
 
 func (k AnswerSystemGeneratedBlockKind) IsPrincipalEnumerationSupplement() bool {
@@ -310,6 +317,13 @@ func (k AnswerSystemGeneratedBlockKind) IsPrincipalEnumerationSupplement() bool 
 	default:
 		return false
 	}
+}
+
+// IsRuntimeTraceSupplement reports whether the block kind was minted by the
+// deterministic runtime-trace report assembler. Callers must still validate
+// the exact reserved block ID when the ID itself carries semantics.
+func (k AnswerSystemGeneratedBlockKind) IsRuntimeTraceSupplement() bool {
+	return k == AnswerSystemGeneratedRuntimeTrace
 }
 
 // DiagramEdgeAnchor is a typed edge-anchor record. Each entry binds

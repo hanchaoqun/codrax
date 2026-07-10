@@ -94,10 +94,14 @@ func TestApplyAndPersistMutation_NormalizesHarmonyPriorityClassSurface(t *testin
 		t.Fatalf("expected mutation success, got %+v", res)
 	}
 	stored := bus.Mutable.AnswerDocumentV2()
-	if stored == nil || len(stored.Blocks) < 2 || len(stored.Blocks[1].Items) < 2 {
+	priority := (*types.AnswerBlock)(nil)
+	if stored != nil {
+		priority = projectionClusterBlock(stored.Blocks, "prio")
+	}
+	if priority == nil || len(priority.Items) < 2 {
 		t.Fatalf("stored answer missing priority rows: %+v", stored)
 	}
-	if got := stored.Blocks[1].Items[0].Text; !strings.Contains(got, "属于 RT 区间（41-139）") || strings.Contains(got, "属于 CFS 区间（1-40）") {
+	if got := priority.Items[0].Text; !strings.Contains(got, "属于 RT 区间（41-139）") || strings.Contains(got, "属于 CFS 区间（1-40）") {
 		t.Fatalf("prio=98/ohos_rt row was not normalized from typed class: %q", got)
 	}
 	if got := stored.Blocks[0].Text; !strings.Contains(got, "1-40=CFS, 41-139=RT") {
@@ -112,10 +116,14 @@ func TestApplyAndPersistMutation_NormalizesHarmonyPriorityClassSurface(t *testin
 	if got := stored.Blocks[0].Text; !strings.Contains(got, "prio=98 落入 RT 41-139 波段") || strings.Contains(got, "prio=98 落入 CFS 1–40 波段") {
 		t.Fatalf("class/range phrase after bare prio should be normalized from typed map: %q", got)
 	}
-	if got := stored.Blocks[1].Items[1].Text; !strings.Contains(got, "RT 区间（41-139）") {
+	if got := priority.Items[1].Text; !strings.Contains(got, "RT 区间（41-139）") {
 		t.Fatalf("already-correct row should be preserved: %q", got)
 	}
-	if got := stored.Blocks[2].Text; !strings.Contains(got, "prio=98/ohos_rt") || !strings.Contains(got, "ohos_rt（RT）") || strings.Contains(got, "ohos_cfs") {
+	table := projectionClusterBlock(stored.Blocks, "table")
+	if table == nil {
+		t.Fatalf("stored answer missing priority table: %+v", stored)
+	}
+	if got := table.Text; !strings.Contains(got, "prio=98/ohos_rt") || !strings.Contains(got, "ohos_rt（RT）") || strings.Contains(got, "ohos_cfs") {
 		t.Fatalf("table row should be normalized from typed priority map: %q", got)
 	}
 }

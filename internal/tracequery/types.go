@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const ParserVersion = "tracequery-v12"
+const ParserVersion = "tracequery-v16"
 
 type EventType string
 
@@ -59,6 +59,10 @@ const (
 )
 
 type Event struct {
+	// Line is the index-global evidence coordinate. It equals the physical
+	// 1-based line for a single artifact; a composite index rebases it into a
+	// stable non-overlapping virtual range. ResolveArtifactSpans is the only
+	// supported conversion back to source artifact + local line.
 	Line int       `json:"line"`
 	Ts   float64   `json:"ts"`
 	CPU  int       `json:"cpu,omitempty"`
@@ -324,21 +328,54 @@ const (
 	indexUnparsedSampleTextBytes = 512
 )
 
+// TraceTimestampOrder is a complete-artifact proof about timestamp order in
+// physical line order. Unknown is deliberately the zero value: a prefix with
+// no observed regression is NOT proof that the unread suffix cannot move back
+// into a requested time window. Only a scan that reaches EOF may publish one
+// of the two complete states.
+type TraceTimestampOrder uint8
+
+const (
+	TraceTimestampOrderUnknown TraceTimestampOrder = iota
+	TraceTimestampOrderMonotonic
+	TraceTimestampOrderRegressed
+)
+
+// AllowsTimeEndEarlyStop is the precise hard-gate signal for stopping a
+// physical line scan at the first timestamp beyond time_end. No heuristic,
+// prefix counter, or running maximum is accepted here.
+func (o TraceTimestampOrder) AllowsTimeEndEarlyStop() bool {
+	return o == TraceTimestampOrderMonotonic
+}
+
 type Index struct {
-	Path             string
-	Size             int64
-	ModTime          time.Time
+	Path    string
+	Size    int64
+	ModTime time.Time
+	// TraceArtifacts is the physical-source ledger for this index. Event.Line
+	// is an index-global virtual coordinate; ResolveArtifactSpans maps it back
+	// to the source artifact's 1-based local line and clock domain. A normal
+	// single-file index has one entry with VirtualLineBase=0. Multi-artifact
+	// indexes keep incompatible clock domains in this ledger with
+	// CausalCompatible=false, but never admit their events into Events.
+	TraceArtifacts   []TraceArtifactSource
 	LineCount        int
 	ScannedLineCount int
 	Windowed         bool
-	IndexTimeStart   float64
-	IndexTimeEnd     float64
-	IndexLineStart   int
-	IndexLineEnd     int
-	Events           []Event
-	FirstTs          float64
-	LastTs           float64
-	ParsedKnown      int
+	// RelationScoped is true only when the streamed parser actually pruned
+	// Events to a target/waker relation closure.  It is a precise consumer
+	// gate: global all-thread aggregates must never combine this subset with
+	// full-artifact scheduler carry-in state.
+	RelationScoped    bool
+	relationScopeTIDs map[int]bool
+	IndexTimeStart    float64
+	IndexTimeEnd      float64
+	IndexLineStart    int
+	IndexLineEnd      int
+	Events            []Event
+	FirstTs           float64
+	LastTs            float64
+	ParsedKnown       int
 	// ParseLinePanics counts lines whose parse panicked (malformed
 	// artifact input is untrusted; one bad line must not kill the
 	// query). ClockRegressions counts events whose timestamp moved
@@ -360,6 +397,12 @@ type Index struct {
 	// never a gate signal.
 	RetainedSideTableBytes int64
 	ClockRegressions       int
+	// TimestampOrder is set only from a complete EOF scan (or from a merged
+	// event stream that is deterministically sorted after every child has been
+	// scanned). It is the typed authority for any query-side time_end early
+	// stop. ClockRegressions remains the diagnostic count; zero by itself is
+	// never a completeness proof.
+	TimestampOrder TraceTimestampOrder
 	// UnparsedLines counts non-empty scanned lines that matched no known
 	// trace line format (ParseLine returned no event, without panicking)
 	// — typed input for the query layer's coverage caveat, never a hard
@@ -381,10 +424,10 @@ type Index struct {
 	FlavorSignals    []string
 	Caveats          []string
 	// PaddingTruncated marks a windowed build whose MaxEvents budget was hit
-	// only inside the safety padding tail: the parse observed zero clock
-	// regressions and the budget-tripping event's ts lies STRICTLY beyond the
-	// requested TimeEnd, so monotonicity proves the core [TimeStart,TimeEnd]
-	// window lost zero events. Typed input for the query layer's
+	// only inside the safety padding tail: a complete-artifact timestamp-order
+	// proof is monotonic and the budget-tripping event's ts lies STRICTLY beyond
+	// the requested TimeEnd, so the core [TimeStart,TimeEnd] window lost zero
+	// events. Typed input for the query layer's
 	// compaction/caveat note — never a hard gate, and the build succeeds
 	// instead of returning IndexEventLimitError.
 	PaddingTruncated bool
@@ -444,6 +487,49 @@ type Index struct {
 	// is pointer-only throughout the package).
 	freqTimelinesOnce sync.Once
 	freqTimelines     map[int][]freqSample
+	// schedulerHeads retains the one immutable scheduler state snapshot built
+	// for a bounded index's explicit window head. Full indexes derive requested
+	// checkpoints on demand instead of retaining them outside the global LRU's
+	// accounting. The map is private because these checkpoints are computation
+	// inputs, not a JSON evidence face; TimelineResult publishes status.
+	schedulerHeadMu    sync.Mutex
+	schedulerHeads     map[uint64]*schedulerHeadSnapshot
+	schedulerHeadOrder []uint64
+	schedulerHeadBytes int64
+	// schedulerOrderFailures preserve physical child/file exact same-CPU/TID
+	// rollbacks across window pruning and composite canonical sorting. They are
+	// bounded private
+	// hard-gate input; duration consumers fail closed rather than treating the
+	// sorted merge as proof that the source clock was monotonic.
+	schedulerOrderFailures []schedulerOrderViolation
+	// durationOrderFailures preserve physical child/file rollback proofs for
+	// non-scheduler elapsed-time state machines (trace marks, counters,
+	// interrupt lanes, workqueues and DMA fences). Composite canonical sorting
+	// and warm window derivation must never erase these family-scoped poisons.
+	durationOrderFailures       []durationOrderViolation
+	durationOrderFailuresCapped map[durationOrderFamily]bool
+	// schedulerRowIntegrityFailures preserve exact critical scheduler rows
+	// that could not supply their required typed fields. They are kept outside
+	// Events because such a row must never be materialized with fabricated
+	// zero-valued PIDs/state, yet duration consumers still need a bounded
+	// fail-closed witness.
+	schedulerRowIntegrityFailures []schedulerRowIntegrityFailure
+	// threadIncarnationFailures preserve exact child/file-order lifecycle
+	// conflicts across window pruning and composite canonical sorting. A set
+	// overflow is itself a fail-closed signal; hard-gate evidence is never
+	// silently truncated.
+	threadIncarnationFailures       []threadIncarnationConflict
+	threadIncarnationFailuresCapped bool
+	// generationMetadataOnce/generationMetadataBoundaries provide the lazy
+	// full-index lifecycle boundary table used by priority/CPU/TGID metadata
+	// lookups. Full single-file indexes intentionally avoid eager lifecycle
+	// audit allocation; this memo combines their event scan with any preserved
+	// child/window proofs exactly once and is immutable after publication.
+	generationMetadataOnce              sync.Once
+	generationMetadataBoundaries        map[int][]threadIncarnationConflict
+	generationMetadataCapped            bool
+	schedulerOrderFailuresCapped        bool
+	schedulerRowIntegrityFailuresCapped bool
 }
 
 type Query struct {
@@ -494,6 +580,7 @@ type Query struct {
 type Result struct {
 	View                        string                  `json:"view"`
 	SourcePath                  string                  `json:"source_path"`
+	TraceArtifacts              []TraceArtifactSource   `json:"trace_artifacts,omitempty"`
 	TraceFlavor                 string                  `json:"trace_flavor,omitempty"`
 	Platform                    string                  `json:"platform,omitempty"`
 	PlatformCandidate           string                  `json:"platform_candidate,omitempty"`
@@ -560,7 +647,14 @@ type FrameworkSurface struct {
 
 type EventView struct {
 	Event
-	Raw string `json:"raw,omitempty"`
+	Raw                  string  `json:"raw,omitempty"`
+	SourcePath           string  `json:"source_path,omitempty"`
+	LocalLine            int     `json:"local_line,omitempty"`
+	TimeDomain           string  `json:"time_domain,omitempty"`
+	CanonicalTimeDomain  string  `json:"canonical_time_domain,omitempty"`
+	SourceTs             float64 `json:"source_ts,omitempty"`
+	ClockAligned         bool    `json:"clock_aligned,omitempty"`
+	RawUnavailableReason string  `json:"raw_unavailable_reason,omitempty"`
 }
 
 type ThreadRef struct {
@@ -649,10 +743,40 @@ func (it Interval) ActualDurationMsResolved() float64 {
 }
 
 type TimelineResult struct {
-	Thread    ThreadRef  `json:"thread"`
-	Window    TimeWindow `json:"window"`
-	Intervals []Interval `json:"intervals"`
-	Caveats   []string   `json:"caveats,omitempty"`
+	Thread           ThreadRef          `json:"thread"`
+	Window           TimeWindow         `json:"window"`
+	HeadState        *TimelineHeadState `json:"head_state,omitempty"`
+	IntegrityFailure string             `json:"integrity_failure,omitempty"`
+	Intervals        []Interval         `json:"intervals"`
+	Caveats          []string           `json:"caveats,omitempty"`
+}
+
+// TimelineHeadState is the typed completeness verdict for the first instant
+// of a bounded scheduler timeline. status=recovered means an EOF/clock-order-
+// proven pre-window checkpoint seeded the interval; observed_in_index means the
+// bounded index itself contained enough history; unknown is an explicit data
+// gap and must never be narrated as zero scheduler time.
+type TimelineHeadState struct {
+	Status        string      `json:"status"`
+	BoundaryTs    float64     `json:"boundary_ts,omitempty"`
+	State         ThreadState `json:"state,omitempty"`
+	ActualStartTs float64     `json:"actual_start_ts,omitempty"`
+	SourceLine    int         `json:"source_line,omitempty"`
+	Reason        string      `json:"reason,omitempty"`
+}
+
+// SchedulerHeadCoverage reports whether scheduler-derived aggregate faces
+// know the governing state for every CPU/thread they observe after an explicit
+// window head.  Complete artifact scanning and complete subject coverage are
+// intentionally separate signals.
+type SchedulerHeadCoverage struct {
+	Status             string  `json:"status"`
+	BoundaryTs         float64 `json:"boundary_ts,omitempty"`
+	Reason             string  `json:"reason,omitempty"`
+	MissingCPUCount    int     `json:"missing_cpu_count,omitempty"`
+	MissingCPUs        []int   `json:"missing_cpus,omitempty"`
+	MissingThreadCount int     `json:"missing_thread_count,omitempty"`
+	MissingThreadPIDs  []int   `json:"missing_thread_pids,omitempty"`
 }
 
 type TimeWindow struct {
@@ -661,10 +785,11 @@ type TimeWindow struct {
 }
 
 type WindowStats struct {
-	Window       TimeWindow        `json:"window"`
-	EventCounts  map[EventType]int `json:"event_counts,omitempty"`
-	CPU          []CPUStats        `json:"cpu,omitempty"`
-	CoreTopology []CoreClassStats  `json:"core_topology,omitempty"`
+	Window                TimeWindow             `json:"window"`
+	EventCounts           map[EventType]int      `json:"event_counts,omitempty"`
+	SchedulerHeadCoverage *SchedulerHeadCoverage `json:"scheduler_head_coverage,omitempty"`
+	CPU                   []CPUStats             `json:"cpu,omitempty"`
+	CoreTopology          []CoreClassStats       `json:"core_topology,omitempty"`
 	// ClusterFrequencyCeilings is the CFC (§7.10 VS-2c 设计) single-point
 	// per-cluster fmax snapshot for this window (VS-2b ladder per cluster:
 	// window-governing limits Max > highest governed observed sample),
@@ -728,25 +853,25 @@ type WindowStats struct {
 	// wall-clock red line: max single event + per-thread within-thread sums,
 	// never a cross-thread latency sum. Nil when the window has no IO-family
 	// evidence.
-	TopIOInodes *TopIOInodeStats `json:"top_io_inodes,omitempty"`
-	StorageLatencyByLayer    []StorageLatencySummary    `json:"storage_latency_by_layer,omitempty"`
-	IOPressureSummary        *IOPressureSummary         `json:"io_pressure_summary,omitempty"`
-	IOBurstEpisodes          []IOBurstEpisodeSummary    `json:"io_burst_episodes,omitempty"`
-	BlockIOByInode           []BlockIOByInodeSummary    `json:"block_io_by_inode,omitempty"`
-	IRQActivity              []InterruptActivity        `json:"irq_activity,omitempty"`
-	SoftIRQActivity          []InterruptActivity        `json:"softirq_activity,omitempty"`
-	IPIActivity              []InterruptActivity        `json:"ipi_activity,omitempty"`
-	WorkqueueActivity        []WorkqueueActivity        `json:"workqueue_activity,omitempty"`
-	DMAFenceActivity         []DMAFenceActivity         `json:"dma_fence_activity,omitempty"`
-	SchedStatAccounting      []SchedStatSummary         `json:"sched_stat_accounting,omitempty"`
-	SupplyPressureSummary    *SupplyPressureSummary     `json:"supply_pressure_summary,omitempty"`
-	TraceMarkCategories      []TraceMarkCategory        `json:"trace_mark_categories,omitempty"`
-	AsyncFileWork            []AsyncFileWorkSummary     `json:"async_file_work,omitempty"`
-	AbilityEvents            []TracePluginSummary       `json:"ability_events,omitempty"`
-	XPowerEvents             []TracePluginSummary       `json:"xpower_events,omitempty"`
-	HiSystemEvents           []TracePluginSummary       `json:"hi_sysevent_events,omitempty"`
-	ThreadDrifts             []ThreadDriftSummary       `json:"thread_drifts,omitempty"`
-	ComputeSupply            []ComputeSupplySummary     `json:"compute_supply,omitempty"`
+	TopIOInodes           *TopIOInodeStats        `json:"top_io_inodes,omitempty"`
+	StorageLatencyByLayer []StorageLatencySummary `json:"storage_latency_by_layer,omitempty"`
+	IOPressureSummary     *IOPressureSummary      `json:"io_pressure_summary,omitempty"`
+	IOBurstEpisodes       []IOBurstEpisodeSummary `json:"io_burst_episodes,omitempty"`
+	BlockIOByInode        []BlockIOByInodeSummary `json:"block_io_by_inode,omitempty"`
+	IRQActivity           []InterruptActivity     `json:"irq_activity,omitempty"`
+	SoftIRQActivity       []InterruptActivity     `json:"softirq_activity,omitempty"`
+	IPIActivity           []InterruptActivity     `json:"ipi_activity,omitempty"`
+	WorkqueueActivity     []WorkqueueActivity     `json:"workqueue_activity,omitempty"`
+	DMAFenceActivity      []DMAFenceActivity      `json:"dma_fence_activity,omitempty"`
+	SchedStatAccounting   []SchedStatSummary      `json:"sched_stat_accounting,omitempty"`
+	SupplyPressureSummary *SupplyPressureSummary  `json:"supply_pressure_summary,omitempty"`
+	TraceMarkCategories   []TraceMarkCategory     `json:"trace_mark_categories,omitempty"`
+	AsyncFileWork         []AsyncFileWorkSummary  `json:"async_file_work,omitempty"`
+	AbilityEvents         []TracePluginSummary    `json:"ability_events,omitempty"`
+	XPowerEvents          []TracePluginSummary    `json:"xpower_events,omitempty"`
+	HiSystemEvents        []TracePluginSummary    `json:"hi_sysevent_events,omitempty"`
+	ThreadDrifts          []ThreadDriftSummary    `json:"thread_drifts,omitempty"`
+	ComputeSupply         []ComputeSupplySummary  `json:"compute_supply,omitempty"`
 	// CPUOccupancy is the CMP-8 (§7.1) occupancy-side decomposition of the
 	// selected window: who actually consumed the CPUs (top running threads,
 	// per-process running rollup, per-CPU top occupiers, priority-band
@@ -1946,11 +2071,20 @@ type ThreadDriftSummary struct {
 }
 
 type RootCauseRankResult struct {
-	Target      ThreadRef           `json:"target,omitempty"`
-	Window      TimeWindow          `json:"window"`
-	Items       []RootCauseRankItem `json:"items,omitempty"`
-	Caveats     []string            `json:"caveats,omitempty"`
-	Compactions []ViewCompaction    `json:"compactions,omitempty"`
+	Target ThreadRef           `json:"target,omitempty"`
+	Window TimeWindow          `json:"window"`
+	Items  []RootCauseRankItem `json:"items,omitempty"`
+	// AbsorbedItems (B4 cross-type rank-seat reconciliation, 2026-07-10):
+	// lossless observations that no longer consume a competing rank seat
+	// because an adjudicated row in Items proved it was the exact same
+	// physical segment. The row keeps its typed source/interval/line evidence
+	// plus AbsorbedByRankFamily/AbsorbedIntoFamily; renderers join it back to
+	// the absorbing row by the verbatim RankFamilyKey. Keeping this carrier
+	// separate both reclaims the rank/capacity seat and preserves the raw
+	// observation for audit/evidence publication.
+	AbsorbedItems []RootCauseRankItem `json:"absorbed_items,omitempty"`
+	Caveats       []string            `json:"caveats,omitempty"`
+	Compactions   []ViewCompaction    `json:"compactions,omitempty"`
 }
 
 // RootCauseSubjectKindAggregateMetric is the typed SubjectKind for root-cause
@@ -2029,6 +2163,12 @@ const RootCauseTierTargetSelfState = "target_self_state"
 // exclude blind-spot rows by construction (the target_self_state precedent).
 const RootCauseTierDataGap = "data_gap"
 
+// RootCauseTierAbsorbed is the non-competing identity of a rank-lane
+// observation moved to RootCauseRankResult.AbsorbedItems by a precise
+// cross-type reconciliation ruling. It carries Rank=0 and is published only
+// as supporting evidence; the absorbing row owns the single board seat.
+const RootCauseTierAbsorbed = "absorbed"
+
 // TraceGapKind* (G2 判据 typed 化, §27.2 + §28.1, 2026-07-09): the PRECISE
 // typed criterion split behind a trace_gap mint. The legacy single wording
 // "窗内无调度数据" over-claimed: the same (thread, window) could carry a
@@ -2037,13 +2177,14 @@ const RootCauseTierDataGap = "data_gap"
 // floor. Two closed enum forms, decided at the single mint site from the
 // thread's own timeline (len(intervals)):
 //   - no_sched_data     — the thread timeline holds NO interval at all inside
-//                         the aligned window (the only shape the old wording
-//                         was true for);
+//     the aligned window (the only shape the old wording
+//     was true for);
 //   - no_eligible_wait  — intervals exist but ALL sit below MinDurationMs
-//                         (复核 P3-5 precise fact: mostInterestingInterval's
-//                         fallback admits any state at/above the floor, so
-//                         nil ⟺ all below it — a running interval at/above
-//                         the floor never reaches the mint).
+//     (复核 P3-5 precise fact: mostInterestingInterval's
+//     fallback admits any state at/above the floor, so
+//     nil ⟺ all below it — a running interval at/above
+//     the floor never reaches the mint).
+//
 // Published as the trace_gap_kind rich note (display wording is the follow-up
 // tool batch; this batch fixes the criterion and the wire identity).
 const (
@@ -2314,23 +2455,31 @@ type RootCauseRankItem struct {
 	// (TraceGapKindNoSchedData / TraceGapKindNoEligibleWait), propagated
 	// verbatim from RootEvidence.GapKind. Empty on every other row type.
 	TraceGapKind string `json:"trace_gap_kind,omitempty"`
-	// --- G1 cross-lane reconciliation, family side (§27.2-G1, user ruling
-	// 收口批准 §28.1, 2026-07-09, real_trace_campaign_20260705.md) -----------
+	// --- G1/B4 cross-lane reconciliation -----------------------------------
 	//
-	// RankFamilyKey / AbsorbedChainRows are stamped by
-	// reconcileCriticalBlockingWithRankFamilies ONLY on a family-merged row
-	// (MemberCount ≥ 2) that absorbed at least one same-(thread, type family,
-	// query window) critical_blocking row whose interval lies inside the
-	// family's member interval union. RankFamilyKey is the canonical
-	// reconciliation identity (rankFamilyReconKey — the SAME engine-rendered
-	// string the absorbed rows carry in AbsorbedIntoFamily, so the display
-	// join is a verbatim string match, never a cross-package label
-	// re-derivation). AbsorbedChainRows counts the absorbed observations.
+	// RankFamilyKey is the canonical reconciliation identity rendered once by
+	// the engine and copied verbatim to the absorbed row's
+	// AbsorbedIntoFamily. G1 stamps it on an io_latency family that absorbed
+	// critical_blocking rows; B4 stamps it on a d_state_or_io_wait row that
+	// absorbed an exactly coincident io_burst_episode rank row. Display joins
+	// never re-derive this identity from labels or values.
+	//
+	// AbsorbedChainRows counts G1 critical-blocking observations;
+	// AbsorbedRankRows counts B4 root-rank observations. Both keep publishing
+	// through their lossless carriers; only the duplicate render/board seat is
+	// folded.
 	// Information conservation: the absorbed rows KEEP publishing (观测照发
 	// 不删 — evidence index / system supplement / audit tokens stay lossless);
 	// only their tree/stanza RENDER seat folds into this row.
 	RankFamilyKey     string `json:"rank_family_key,omitempty"`
 	AbsorbedChainRows int    `json:"absorbed_chain_rows,omitempty"`
+	AbsorbedRankRows  int    `json:"absorbed_rank_rows,omitempty"`
+	// AbsorbedByRankFamily / AbsorbedIntoFamily are the absorbed-side typed
+	// markers used by B4 rank-to-rank reconciliation. They intentionally share
+	// the established G1 wire keys: projection compilation has one exact-key
+	// fold choke point, while the JSON fields keep the provenance explicit.
+	AbsorbedByRankFamily bool   `json:"absorbed_by_rank_family,omitempty"`
+	AbsorbedIntoFamily   string `json:"absorbed_into,omitempty"`
 	// familyMemberIntervals is the merged family's member interval inventory
 	// (engine-internal, never serialized): mergeSameThreadTypeRankFamily
 	// stamps the validated member [start,end] pairs so the G1 reconciliation
@@ -3325,13 +3474,14 @@ type RootEvidence struct {
 }
 
 type EvidenceFact struct {
-	Subject    string  `json:"subject"`
-	Predicate  string  `json:"predicate,omitempty"`
-	Object     string  `json:"object,omitempty"`
-	Summary    string  `json:"summary"`
-	LineStart  int     `json:"line_start,omitempty"`
-	LineEnd    int     `json:"line_end,omitempty"`
-	StartTs    float64 `json:"start_ts,omitempty"`
-	EndTs      float64 `json:"end_ts,omitempty"`
-	Confidence float64 `json:"confidence,omitempty"`
+	Subject     string              `json:"subject"`
+	Predicate   string              `json:"predicate,omitempty"`
+	Object      string              `json:"object,omitempty"`
+	Summary     string              `json:"summary"`
+	LineStart   int                 `json:"line_start,omitempty"`
+	LineEnd     int                 `json:"line_end,omitempty"`
+	StartTs     float64             `json:"start_ts,omitempty"`
+	EndTs       float64             `json:"end_ts,omitempty"`
+	Confidence  float64             `json:"confidence,omitempty"`
+	SourceSpans []TraceArtifactSpan `json:"source_spans,omitempty"`
 }

@@ -113,17 +113,35 @@ func applyHedgeMarkerToV2Block(blk *types.AnswerBlock, marker string, _ answerDo
 	if marker == "" {
 		return
 	}
+	upsert := func(text string) string {
+		trimmed := strings.TrimLeft(text, " \t")
+		leading := text[:len(text)-len(trimmed)]
+		if ok, existing := leadingHedgeMarker(trimmed); ok {
+			// Repeated render/finalize passes must converge. Keep an equal or
+			// stronger marker; when authority tightens, replace the old system
+			// marker (and its optional system-generated reason) instead of
+			// stacking another prefix.
+			if hedgeMarkerSeverity(existing) >= hedgeMarkerSeverity(marker) {
+				return text
+			}
+			trimmed = strings.TrimSpace(stripLeadingMarkerAndReason(trimmed))
+		}
+		if trimmed == "" {
+			return leading + marker
+		}
+		return leading + marker + " " + trimmed
+	}
 	if strings.TrimSpace(blk.Text) != "" {
-		blk.Text = marker + " " + blk.Text
+		blk.Text = upsert(blk.Text)
 		return
 	}
 	for j := range blk.Items {
 		if strings.TrimSpace(blk.Items[j].Text) != "" {
-			blk.Items[j].Text = marker + " " + blk.Items[j].Text
+			blk.Items[j].Text = upsert(blk.Items[j].Text)
 			return
 		}
 		if strings.TrimSpace(blk.Items[j].Label) != "" {
-			blk.Items[j].Label = marker + " " + blk.Items[j].Label
+			blk.Items[j].Label = upsert(blk.Items[j].Label)
 			return
 		}
 	}
@@ -138,19 +156,37 @@ func applyHedgeMarkerToV2Block(blk *types.AnswerBlock, marker string, _ answerDo
 // don't treat it as principal and require a claim_use.
 func addV2AuthorityCaveat(doc *types.AnswerDocumentV2, evidence []types.EvidenceItem, l answerDocLang) {
 	caveatText := authorityCaveatText(authority.AuthorityHistogram(evidence), l)
+	target := -1
+	// Reconcile, rather than append, the private-tagged system paragraph.
+	// This makes finalize/replay idempotent while preserving every
+	// user/model-authored caveat paragraph verbatim.
+	for i := range doc.Blocks {
+		if doc.Blocks[i].Kind != types.BlockCaveat {
+			continue
+		}
+		if target < 0 {
+			target = i
+		}
+		paragraphs := strings.Split(doc.Blocks[i].Text, "\n\n")
+		kept := paragraphs[:0]
+		for _, paragraph := range paragraphs {
+			if strings.Contains(paragraph, authorityCaveatTag) {
+				continue
+			}
+			kept = append(kept, paragraph)
+		}
+		doc.Blocks[i].Text = strings.TrimSpace(strings.Join(kept, "\n\n"))
+	}
 	if caveatText == "" {
 		return
 	}
-	// If a caveat block already exists, append rather than duplicate.
-	for i := range doc.Blocks {
-		if doc.Blocks[i].Kind == types.BlockCaveat {
-			if existing := strings.TrimSpace(doc.Blocks[i].Text); existing != "" {
-				doc.Blocks[i].Text = existing + "\n\n" + caveatText
-			} else {
-				doc.Blocks[i].Text = caveatText
-			}
-			return
+	if target >= 0 {
+		if existing := strings.TrimSpace(doc.Blocks[target].Text); existing != "" {
+			doc.Blocks[target].Text = existing + "\n\n" + caveatText
+		} else {
+			doc.Blocks[target].Text = caveatText
 		}
+		return
 	}
 	// Otherwise append a new caveat block.
 	doc.Blocks = append(doc.Blocks, types.AnswerBlock{

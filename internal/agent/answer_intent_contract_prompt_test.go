@@ -344,7 +344,10 @@ func TestRenderAnswerDocObservationLedger_PreservesAggregateMemberNotes(t *testi
 	}
 	got := renderAnswerDocObservationLedger(ctx)
 	for _, want := range []string{
-		"`aggregate:0#current_source`",
+		// Model-authored file:line syntax remains visible, but without an
+		// independently Grounded/Recovered witness it is advisory rather than a
+		// current-source proof-lane record (CSP-RM A2).
+		"`aggregate:0#system_inference`",
 		"KindSymbolPresent 用于符号存在性判定",
 		"KindNoCallSites 用于调用点缺失判定",
 		"KindAnswerSetBounded 用于答案集合边界检查",
@@ -705,7 +708,7 @@ func TestRenderAnswerDocObservationLedger_CreatesLargeAggregateRowSetArtifact(t 
 	if !strings.Contains(got, "row_set_ref=") {
 		t.Fatalf("large aggregate ledger should expose row_set_ref:\n%s", got)
 	}
-	matches, err := filepath.Glob(filepath.Join(workDir, "aggregate-000-current_source-row-set-*.jsonl"))
+	matches, err := filepath.Glob(filepath.Join(workDir, "aggregate-000-system_inference-row-set-*.jsonl"))
 	if err != nil {
 		t.Fatalf("glob row-set artifact: %v", err)
 	}

@@ -525,16 +525,14 @@ func proseScalarGroundingStrictViolation(v types.Violation) bool {
 // next-step rows). Their numerals feed the evidence pool and their text is
 // never scanned as model prose.
 //
-// Adversarial-review fix (PSG 收尾①(a), 2026-07-08): the first cut used a
-// loose HasPrefix("runtime_trace_") — a model-authored lookalike id sharing
-// the prefix would have laundered fabricated numbers into the evidence set.
-// The gate now reads tool.RuntimeTraceSystemBlockID, the same exact-spelling
-// discipline the projection idempotence guard uses. The evidence-FEED face
-// must be tight even though the exemption arms are loose: 宁松勿严 governs
-// the exemption arms only, never the "model-authored text is not evidence"
-// axiom.
+// Provenance hardening (2026-07-10): exact spelling alone is insufficient —
+// the model can emit an exact reserved ID. The gate therefore requires both
+// the exact ID and the json:"-" SystemGeneratedKind marker stamped by the
+// deterministic materializer. The evidence-FEED face must be tight even
+// though the exemption arms are loose: 宁松勿严 governs the exemption arms
+// only, never the "model-authored text is not evidence" axiom.
 func proseScalarSystemEvidenceBlock(blk types.AnswerBlock) bool {
-	return tool.RuntimeTraceSystemBlockID(strings.TrimSpace(blk.ID))
+	return tool.RuntimeTraceSystemBlock(blk)
 }
 
 // proseScalarScanExemptBlock reports whether a block's text stays out of the

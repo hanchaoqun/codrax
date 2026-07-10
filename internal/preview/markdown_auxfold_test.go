@@ -150,7 +150,7 @@ func TestAuxAppendixRelocatesOpendir792ReferenceBlocks(t *testing.T) {
 	}
 	ptr1 := mustIndex(t, html, auxPointerHTML, "first pointer")
 	ptr2 := ptr1 + len(auxPointerHTML) + strings.Index(html[ptr1+len(auxPointerHTML):], auxPointerHTML)
-	fence := mustIndex(t, html, `<pre><code class="language-text">`, "projection tree fence")
+	fence := mustIndex(t, html, `<pre class="trace-projection-tree"`, "projection tree fence")
 	tableAt := mustIndex(t, html, "<table>", "metric table")
 	winPara := mustIndex(t, html, "分析窗 33872.289s", "分析窗 paragraph")
 	winItem := mustIndex(t, html, "链上已归因 112.175ms(94%)", "分析窗 list item")

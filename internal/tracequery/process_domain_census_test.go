@@ -25,7 +25,7 @@ import (
 //     ThreadCPULoad → the legacy process_cpu_load face reports the b3
 //     masquerade "threads=4".
 //   - The census truth: 39 threads = main 59566 + NetworkService + tb1..tb9
-//     + 28 census-only workers observed via print C-marks; 10 of them ran.
+//   - 28 census-only workers observed via print C-marks; 10 of them ran.
 func wsrB3CensusTrace() string {
 	var b strings.Builder
 	b.WriteString(`          <idle>-0 (-----) [000] .... 10.000000: sched_switch: prev_comm=swapper/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=hog1 next_pid=70001 next_prio=20

@@ -14,6 +14,25 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 		res.Caveats = append(res.Caveats, "trace index is empty")
 		return res
 	}
+	filterQ := q
+	if filterQ.PID <= 0 && strings.TrimSpace(firstNonEmpty(filterQ.ThreadInput, filterQ.Thread)) != "" {
+		resolution := resolveThreadSelection(idx, filterQ)
+		if resolution.Ambiguous {
+			res.Caveats = append(res.Caveats, threadResolutionCaveat(idx, filterQ))
+			return res
+		}
+		if resolution.Thread.PID > 0 {
+			filterQ.PID = resolution.Thread.PID
+			filterQ.Thread = ""
+			filterQ.ThreadInput = ""
+		}
+	}
+	if filterQ.PID > 0 {
+		if conflict := threadIncarnationConflictForQuery(idx, q, 0); conflict != nil {
+			res.Caveats = append(res.Caveats, "thread_identity_fail_closed=true; "+conflict.reason()+"; IPC edges are omitted because the target numeric TID spans task incarnations")
+			return res
+		}
+	}
 
 	receives := map[int][]Event{}
 	auxByTx := map[int][]BinderEventSummary{}
@@ -26,6 +45,10 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 	openTransact := map[int][]string{}
 	ifaceBySendLine := map[int]string{}
 	for _, ev := range idx.Events {
+		if resetPID, reset := schedulerLifecycleResetPID(ev); reset {
+			delete(openTransact, resetPID)
+			continue
+		}
 		if ev.Type == EventTraceMark {
 			switch ev.SpanAction {
 			case "B":
@@ -63,7 +86,7 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 			}
 		case isBinderAuxEventType(ev.Type):
 			summary := binderEventSummaryFromEvent(ev)
-			if binderEventMentionsQuery(ev, q) {
+			if binderEventMentionsQuery(ev, filterQ) {
 				auxEvents = append(auxEvents, summary)
 			}
 			if bf := ev.BinderFields; bf != nil && bf.TransactionID > 0 {
@@ -92,7 +115,8 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 			edge.Interface = iface
 		}
 		if bf := send.BinderFields; bf != nil && bf.TransactionID > 0 {
-			if recv, ok := chooseBinderReceive(send, receives[bf.TransactionID]); ok {
+			candidates := receives[bf.TransactionID]
+			if recv, ok := chooseBinderReceive(send, candidates); ok {
 				edge.Receiver = threadRefFromEvent(recv)
 				edge.ReceiveTs = recv.Ts
 				edge.ReceiveLine = recv.Line
@@ -101,6 +125,8 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 				}
 				edge.Confidence = 0.92
 				matchedReceives[recv.Line] = true
+			} else if len(candidates) > 0 {
+				edge.Caveats = append(edge.Caveats, "matching binder_transaction_received row(s) precede the send timestamp; temporally impossible matches were rejected")
 			}
 		}
 		endpointOnly := false
@@ -119,7 +145,7 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 			edge.Caveats = append(edge.Caveats, "flags suggest an asynchronous/oneway binder call; do not treat it as blocking without scheduler evidence")
 		}
 		edge.Caveats = append(edge.Caveats, binderAuxCaveatsForEdge(edge, auxByTx)...)
-		if ipcEdgeMentionsQuery(edge, q) {
+		if ipcEdgeMentionsQuery(edge, filterQ) {
 			res.Edges = append(res.Edges, edge)
 			if endpointOnly {
 				sendOnly++
@@ -128,7 +154,7 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 	}
 	for _, group := range receives {
 		for _, recv := range group {
-			if !matchedReceives[recv.Line] && binderReceiveMentionsQuery(recv, q) {
+			if !matchedReceives[recv.Line] && binderReceiveMentionsQuery(recv, filterQ) {
 				unmatchedReceives++
 			}
 		}
@@ -186,13 +212,13 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 
 func binderReceiveMentionsQuery(recv Event, q Query) bool {
 	if q.PID > 0 {
-		return recv.PID == q.PID || recv.TGID == q.PID
+		return recv.PID == q.PID
 	}
 	needle := strings.ToLower(strings.TrimSpace(q.Thread))
 	if needle == "" {
 		return true
 	}
-	return strings.Contains(strings.ToLower(recv.Comm), needle)
+	return strings.EqualFold(strings.TrimSpace(recv.Comm), strings.TrimSpace(q.Thread))
 }
 
 func ipcEdgeFromSend(send Event) IPCEdge {
@@ -267,13 +293,13 @@ func binderAuxSummary(item BinderEventSummary) string {
 
 func binderEventMentionsQuery(ev Event, q Query) bool {
 	if q.PID > 0 {
-		return ev.PID == q.PID || ev.TGID == q.PID
+		return ev.PID == q.PID
 	}
 	needle := strings.ToLower(strings.TrimSpace(q.Thread))
 	if needle == "" {
 		return true
 	}
-	return strings.Contains(strings.ToLower(ev.Comm), needle) || strings.Contains(strings.ToLower(ev.FieldText), needle)
+	return strings.EqualFold(strings.TrimSpace(ev.Comm), strings.TrimSpace(q.Thread))
 }
 
 func binderAuxCaveatsForEdge(edge IPCEdge, auxByTx map[int][]BinderEventSummary) []string {
@@ -306,7 +332,7 @@ func chooseBinderReceive(send Event, candidates []Event) (Event, bool) {
 			return recv, true
 		}
 	}
-	return candidates[0], true
+	return Event{}, false
 }
 
 func threadRefFromEvent(ev Event) ThreadRef {
@@ -316,18 +342,15 @@ func threadRefFromEvent(ev Event) ThreadRef {
 func ipcEdgeMentionsQuery(edge IPCEdge, q Query) bool {
 	if q.PID > 0 {
 		return edge.Sender.PID == q.PID ||
-			edge.Sender.TGID == q.PID ||
 			edge.Receiver.PID == q.PID ||
-			edge.Receiver.TGID == q.PID ||
-			edge.DestProc == q.PID ||
 			edge.DestThread == q.PID
 	}
 	needle := strings.ToLower(strings.TrimSpace(q.Thread))
 	if needle == "" {
 		return true
 	}
-	return strings.Contains(strings.ToLower(edge.Sender.Comm), needle) ||
-		strings.Contains(strings.ToLower(edge.Receiver.Comm), needle)
+	return strings.EqualFold(strings.TrimSpace(edge.Sender.Comm), strings.TrimSpace(q.Thread)) ||
+		strings.EqualFold(strings.TrimSpace(edge.Receiver.Comm), strings.TrimSpace(q.Thread))
 }
 
 func binderFlagsOneway(raw string) bool {

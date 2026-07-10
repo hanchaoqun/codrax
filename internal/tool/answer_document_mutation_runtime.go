@@ -145,6 +145,14 @@ func persistMergedAnswerDocument(
 	if fixed := normalizeMergedDiagramPayloadKinds(merged); fixed > 0 {
 		logging.Warning("[%s] repaired %d diagram block discriminator(s) before persist", toolName, fixed)
 	}
+	// Runtime-trace IDs are a reserved system namespace. The model still owns
+	// arbitrary block IDs, so normalize an exact collision before any
+	// idempotence/order/evidence consumer sees the merged document. The
+	// internal SystemGeneratedKind marker is json:"-" and therefore the only
+	// authority that lets a reserved ID retain its spelling.
+	if fixed := normalizeRuntimeTraceReservedBlockIDCollisions(merged); fixed > 0 {
+		logging.Warning("[%s] renamed %d model-authored runtime-trace reserved block id collision(s) before materialization", toolName, fixed)
+	}
 	if materializeRuntimeTraceCausalProjectionBlock(merged, ctx) {
 		logging.Info("[%s] materialized runtime trace causal projection from structured trace observations", toolName)
 	}
@@ -181,6 +189,9 @@ func persistMergedAnswerDocument(
 	}
 	if fixed := normalizeHarmonyPriorityAnswerSurface(merged, ctx); fixed > 0 {
 		logging.Warning("[%s] repaired %d late Harmony priority class surface(s) from typed prio/class facts", toolName, fixed)
+	}
+	if moved := normalizeRuntimeTraceReportHierarchy(merged); moved > 0 {
+		logging.Info("[%s] reordered %d runtime trace report block(s) into decision-first hierarchy", toolName, moved)
 	}
 	if deduped := dedupeVisibleAnswerBlocks(merged); deduped > 0 {
 		logging.Warning("[%s] dropped %d duplicate visible answer block(s) before persist", toolName, deduped)
@@ -726,7 +737,8 @@ const (
 // escaped the guard and the section was emitted twice.
 func answerDocumentHasRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2) bool {
 	for _, block := range doc.Blocks {
-		if runtimeTraceCausalProjectionFamilyBlockID(strings.TrimSpace(block.ID)) {
+		if RuntimeTraceSystemBlock(block) &&
+			runtimeTraceCausalProjectionFamilyBlockID(strings.TrimSpace(block.ID)) {
 			return true
 		}
 	}
@@ -783,11 +795,10 @@ func runtimeTraceCausalProjectionFamilyBlockID(id string) bool {
 // as the projection-family guard: arbitrary "runtime_trace_*" lookalikes
 // (model-authored ids that merely share the prefix) do NOT match.
 //
-// PSG §25(b) consumer (2026-07-08): the prose-scalar grounding gate treats
-// matching blocks as system evidence surfaces (their numerals ground prose,
-// their text is never scanned as model prose) — a loose prefix match there
-// would let a model-authored lookalike block launder fabricated numbers
-// into the evidence set, so this helper is deliberately exact.
+// This helper classifies the RESERVED ID namespace only. It deliberately does
+// not establish system provenance: a model can emit any JSON block ID. Hard
+// consumers must call RuntimeTraceSystemBlock, which additionally requires the
+// unforgeable in-memory SystemGeneratedKind marker.
 func RuntimeTraceSystemBlockID(id string) bool {
 	if runtimeTraceCausalProjectionFamilyBlockID(id) {
 		return true
@@ -819,6 +830,63 @@ func RuntimeTraceSystemBlockID(id string) bool {
 	return false
 }
 
+// RuntimeTraceSystemBlock reports whether block is an authenticated
+// deterministic runtime-trace evidence surface. Exact spelling prevents a
+// loose-prefix lookalike; the json:"-" marker prevents a model from minting an
+// exact reserved spelling and thereby suppressing a real system block or
+// laundering prose scalars into the evidence lane.
+func RuntimeTraceSystemBlock(block types.AnswerBlock) bool {
+	return block.SystemGeneratedKind.IsRuntimeTraceSupplement() &&
+		RuntimeTraceSystemBlockID(strings.TrimSpace(block.ID))
+}
+
+func markRuntimeTraceSystemBlock(block *types.AnswerBlock) {
+	if block == nil {
+		return
+	}
+	block.SystemGeneratedKind = types.AnswerSystemGeneratedRuntimeTrace
+}
+
+func markRuntimeTraceSystemBlocks(blocks []types.AnswerBlock) {
+	for i := range blocks {
+		markRuntimeTraceSystemBlock(&blocks[i])
+	}
+}
+
+// normalizeRuntimeTraceReservedBlockIDCollisions preserves model-authored
+// content while taking exact reserved IDs out of the system namespace. The
+// rename is deterministic, stable in input order, and collision-free. It runs
+// after a full/patch mutation has merged and before every runtime-trace
+// materializer, so both write paths share one choke point.
+func normalizeRuntimeTraceReservedBlockIDCollisions(doc *types.AnswerDocumentV2) int {
+	if doc == nil || len(doc.Blocks) == 0 {
+		return 0
+	}
+	used := make(map[string]bool, len(doc.Blocks))
+	for _, block := range doc.Blocks {
+		if id := strings.TrimSpace(block.ID); id != "" {
+			used[id] = true
+		}
+	}
+	renamed := 0
+	for i := range doc.Blocks {
+		block := &doc.Blocks[i]
+		id := strings.TrimSpace(block.ID)
+		if id == "" || !RuntimeTraceSystemBlockID(id) || RuntimeTraceSystemBlock(*block) {
+			continue
+		}
+		base := "model_" + id
+		candidate := base
+		for suffix := 2; used[candidate]; suffix++ {
+			candidate = fmt.Sprintf("%s_%d", base, suffix)
+		}
+		block.ID = candidate
+		used[candidate] = true
+		renamed++
+	}
+	return renamed
+}
+
 // runtimeTraceCausalProjectionDegradeLeadBlock picks the cap-degrade survivor
 // (F2a): the FIRST block that is not the comparison overview. The compare
 // table's cells summarize the per-artifact sections ("详情见各工件分段"), so
@@ -836,6 +904,127 @@ func runtimeTraceCausalProjectionDegradeLeadBlock(cluster []types.AnswerBlock) *
 		return &cluster[i]
 	}
 	return nil
+}
+
+// runtimeTraceCausalProjectionClusterWithinBudget keeps the most useful
+// self-contained subset of a projection cluster. Artifact/solo causal leads
+// are mandatory. A comparison overview is retained only when every artifact
+// lead fits (its cells point to those sections). The original order is
+// preserved, and the already tiered cluster order makes compact metrics beat
+// full attributes/evidence for any remaining slots.
+func runtimeTraceCausalProjectionClusterWithinBudget(cluster []types.AnswerBlock, budget int) []types.AnswerBlock {
+	if budget <= 0 || len(cluster) == 0 {
+		return nil
+	}
+	if len(cluster) <= budget {
+		return cluster
+	}
+	selected := make(map[int]bool, budget)
+	leadIndexes := make([]int, 0, 2)
+	compareIndex := -1
+	for i, block := range cluster {
+		id := strings.TrimSpace(block.ID)
+		switch {
+		case id == runtimeTraceCausalProjectionCompareBlockID:
+			compareIndex = i
+		case runtimeTraceCausalProjectionStandaloneLeadBlockID(id):
+			leadIndexes = append(leadIndexes, i)
+		}
+	}
+	if len(leadIndexes) == 0 {
+		if lead := runtimeTraceCausalProjectionDegradeLeadBlock(cluster); lead != nil {
+			return []types.AnswerBlock{*lead}
+		}
+		return nil
+	}
+	for _, idx := range leadIndexes {
+		if len(selected) >= budget {
+			break
+		}
+		selected[idx] = true
+	}
+	// The overview is useful only when all referenced artifact sections fit.
+	if len(selected) == len(leadIndexes) && compareIndex >= 0 && len(selected) < budget {
+		selected[compareIndex] = true
+	}
+	for i := range cluster {
+		if len(selected) >= budget {
+			break
+		}
+		if selected[i] || i == compareIndex {
+			continue
+		}
+		selected[i] = true
+	}
+	out := make([]types.AnswerBlock, 0, len(selected))
+	for i, block := range cluster {
+		if selected[i] {
+			out = append(out, block)
+		}
+	}
+	return out
+}
+
+func runtimeTraceCausalProjectionStandaloneLeadBlockID(id string) bool {
+	if id == runtimeTraceCausalProjectionBlockIDBase || id == runtimeTraceCausalProjectionCoverageBlockID {
+		return true
+	}
+	rest, ok := strings.CutPrefix(id, runtimeTraceCausalProjectionBlockIDBase+runtimeTraceCausalProjectionArtifactBlockIDInfix)
+	if !ok || rest == "" {
+		return false
+	}
+	for i := 0; i < len(rest); i++ {
+		if rest[i] < '0' || rest[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func runtimeTraceCriticalFollowupHeadroom(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
+	if doc == nil || ctx == nil {
+		return 0
+	}
+	headroom := 0
+	if !answerDocumentHasRuntimeTraceSystemBlockID(doc, "runtime_trace_semantic_optimizations") &&
+		runtimeTraceSemanticOptimizationAvailable(ctx) {
+		headroom++
+	}
+	if !answerDocumentHasRuntimeTraceSystemBlockID(doc, "runtime_trace_metric_snapshot") &&
+		len(runtimeTraceMetricSnapshotItems(doc, ctx)) > 0 {
+		headroom++
+	}
+	if !answerDocumentHasNextStepsBlock(doc) && len(runtimeTraceNextStepItems(doc, ctx)) > 0 {
+		headroom++
+	}
+	return headroom
+}
+
+func runtimeTraceSemanticOptimizationAvailable(ctx *types.BusContext) bool {
+	if ctx == nil {
+		return false
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit))
+	set := types.CompileTraceCausalProjectionSet(ledger)
+	for _, projection := range set.Projections {
+		if len(projection.SemanticSpans) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func answerDocumentHasRuntimeTraceSystemBlockID(doc *types.AnswerDocumentV2, id string) bool {
+	if doc == nil {
+		return false
+	}
+	id = strings.TrimSpace(id)
+	for _, block := range doc.Blocks {
+		if strings.TrimSpace(block.ID) == id && RuntimeTraceSystemBlock(block) {
+			return true
+		}
+	}
+	return false
 }
 
 func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
@@ -879,6 +1068,7 @@ func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, c
 	}
 	if len(cluster) == 0 {
 		if block := runtimeTraceCausalProjectionCoverageBlock(input, lang); block != nil {
+			markRuntimeTraceSystemBlock(block)
 			insertAt := answerDocumentInsertionIndexBeforeCaveat(doc)
 			doc.Blocks = append(doc.Blocks, types.AnswerBlock{})
 			copy(doc.Blocks[insertAt+1:], doc.Blocks[insertAt:])
@@ -887,17 +1077,35 @@ func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, c
 		}
 		return false
 	}
-	// The lead section is the safest minimum user-facing surface. The secondary
-	// blocks carry drilldown/evidence detail, so if the document is already near
-	// the block cap, degrade to the first projection section lead (never the
-	// compare overview — F2a) instead of dropping the whole section.
-	if len(doc.Blocks)+len(cluster) > maxBlocksPerDoc {
-		lead := runtimeTraceCausalProjectionDegradeLeadBlock(cluster)
-		if lead == nil || len(doc.Blocks)+1 > maxBlocksPerDoc {
-			logging.Warning("[answer_document] runtime trace causal projection block skipped: document already at the %d-block cap", maxBlocksPerDoc)
+	markRuntimeTraceSystemBlocks(cluster)
+	// Reserve the ACTUAL follow-up decision surfaces before consuming the
+	// remaining block budget. This closes the exact-fit shape where a complete
+	// projection cluster filled slot 64 and the unconditional semantic/action/
+	// metric blocks were then silently skipped. Causal leads win first; compact
+	// metrics win next; lossless details/evidence are the first rows trimmed.
+	available := maxBlocksPerDoc - len(doc.Blocks)
+	if available <= 0 {
+		logging.Warning("[answer_document] runtime trace causal projection block skipped: document already at the %d-block cap", maxBlocksPerDoc)
+		return false
+	}
+	reserve := runtimeTraceCriticalFollowupHeadroom(doc, ctx)
+	if reserve < 0 {
+		reserve = 0
+	}
+	if reserve > available-1 {
+		reserve = available - 1 // never sacrifice the last causal lead slot
+	}
+	clusterBudget := available - reserve
+	if clusterBudget <= 0 {
+		logging.Warning("[answer_document] runtime trace causal projection block skipped: document already at the %d-block cap", maxBlocksPerDoc)
+		return false
+	}
+	if len(cluster) > clusterBudget {
+		cluster = runtimeTraceCausalProjectionClusterWithinBudget(cluster, clusterBudget)
+		if len(cluster) == 0 {
+			logging.Warning("[answer_document] runtime trace causal projection block skipped: no self-contained lead fits the remaining block budget")
 			return false
 		}
-		cluster = []types.AnswerBlock{*lead}
 	}
 	insertAt := answerDocumentInsertionIndexBeforeCaveat(doc)
 	tail := append([]types.AnswerBlock(nil), doc.Blocks[insertAt:]...)
@@ -1191,11 +1399,19 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 // scale.
 func runtimeTraceCausalProjectionMultiCluster(set types.TraceCausalProjectionSet, ledger types.ObservationLedger, ctx *types.BusContext, lang string, focus runtimeTraceProjUserFocus) []types.AnswerBlock {
 	zh := runtimeTraceCausalProjectionUseChinese(lang)
-	var out []types.AnswerBlock
+	var leads, metrics, details []types.AnswerBlock
 	if runtimeTraceProjComparisonShape(len(set.Projections)) {
 		// PTV8-LAD L6: the plural form carries the 对比注记明细 sibling when
-		// the layered table notes folded past the visible cap.
-		out = append(out, runtimeTraceProjCompareOverviewBlocks(set.Projections, ledger, lang, zh, focus)...)
+		// the layered table notes folded past the visible cap. The compact
+		// overview is a decision surface; its lossless note sibling belongs to
+		// the later detail tier, after every artifact's root-cause lead.
+		for _, block := range runtimeTraceProjCompareOverviewBlocks(set.Projections, ledger, lang, zh, focus) {
+			if block.ID == runtimeTraceCausalProjectionCompareBlockID {
+				leads = append(leads, block)
+			} else {
+				details = append(details, block)
+			}
+		}
 	}
 	// DISP-3 (§29.10-3 用户裁定, real_trace_campaign_20260705.md, 2026-07-09):
 	// when several "Trace 因果投影" sections coexist, every projection TREE
@@ -1206,7 +1422,6 @@ func runtimeTraceCausalProjectionMultiCluster(set types.TraceCausalProjectionSet
 	// block REORDER on the builder's own typed block ids (block CONTENT stays
 	// byte-identical; E# cross-references are per-artifact and
 	// position-independent by construction).
-	var heads, tails []types.AnswerBlock
 	for i, projection := range set.Projections {
 		label := strings.TrimSpace(projection.ArtifactLabel)
 		if label == "" {
@@ -1217,15 +1432,22 @@ func runtimeTraceCausalProjectionMultiCluster(set types.TraceCausalProjectionSet
 		section := runtimeTraceCausalProjectionClusterFor(projection, lang, focus, sectionPrefix, label)
 		for _, block := range section {
 			switch block.ID {
-			case sectionPrefix, sectionPrefix + "_detail":
-				heads = append(heads, block)
+			case sectionPrefix:
+				leads = append(leads, block)
+			case sectionPrefix + "_detail":
+				metrics = append(metrics, block)
 			default:
-				tails = append(tails, block)
+				details = append(details, block)
 			}
 		}
 	}
-	out = append(out, heads...)
-	out = append(out, tails...)
+	// Decision-first hierarchy: comparison + every causal tree, then the
+	// compact key-metric tables, then lossless notes/per-node attributes/
+	// evidence indexes. Keeping the three tiers separate also gives later
+	// system summaries (notably Deterministic Optimization Points) one stable
+	// insertion boundary between conclusions and drill-down evidence.
+	out := append(leads, metrics...)
+	out = append(out, details...)
 	if len(out) == 0 {
 		return nil
 	}
@@ -2845,9 +3067,9 @@ func (idx *runtimeTraceCausalProjectionEvidenceIndex) add(node types.TraceCausal
 		window = fmt.Sprintf("[%.3f–%.3fs]", node.StartTs, node.EndTs)
 	}
 	idx.order = append(idx.order, runtimeTraceCausalProjectionEvidenceEntry{
-		ID:            id,
-		Ref:           strings.TrimSpace(ref),
-		Window:        window,
+		ID:             id,
+		Ref:            strings.TrimSpace(ref),
+		Window:         window,
 		Details:        runtimeTraceCausalProjectionAuditDetail(node, zh, idx.flatChain),
 		SyntheticLine:  node.Undrillable(),
 		FamilyAudit:    node.FamilyMemberCount > 1,
@@ -3994,7 +4216,7 @@ func materializeRuntimeTraceSemanticOptimizationBlock(doc *types.AnswerDocumentV
 		logging.Warning("[answer_document] runtime trace semantic optimization block skipped: document already at the %d-block cap", maxBlocksPerDoc)
 		return false
 	}
-	if answerDocumentHasBlockID(doc, "runtime_trace_semantic_optimizations") {
+	if answerDocumentHasRuntimeTraceSystemBlockID(doc, "runtime_trace_semantic_optimizations") {
 		return false
 	}
 	input := types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit)
@@ -4065,7 +4287,8 @@ func materializeRuntimeTraceSemanticOptimizationBlock(doc *types.AnswerDocumentV
 		}},
 		FacetIDs: []string{"observed_artifact_fact"},
 	}
-	insertAt := answerDocumentInsertionIndexBeforeCaveat(doc)
+	markRuntimeTraceSystemBlock(&block)
+	insertAt := answerDocumentInsertionIndexBeforeRuntimeTraceDetails(doc)
 	doc.Blocks = append(doc.Blocks, types.AnswerBlock{})
 	copy(doc.Blocks[insertAt+1:], doc.Blocks[insertAt:])
 	doc.Blocks[insertAt] = block
@@ -4176,7 +4399,7 @@ func materializeRuntimeTraceMetricSnapshotBlock(doc *types.AnswerDocumentV2, ctx
 		logging.Warning("[answer_document] runtime trace metric snapshot block skipped: document already at the %d-block cap", maxBlocksPerDoc)
 		return false
 	}
-	if answerDocumentHasBlockID(doc, "runtime_trace_metric_snapshot") {
+	if answerDocumentHasRuntimeTraceSystemBlockID(doc, "runtime_trace_metric_snapshot") {
 		return false
 	}
 	items := runtimeTraceMetricSnapshotItems(doc, ctx)
@@ -4197,27 +4420,12 @@ func materializeRuntimeTraceMetricSnapshotBlock(doc *types.AnswerDocumentV2, ctx
 		}},
 		FacetIDs: []string{"observed_artifact_fact"},
 	}
-	insertAt := answerDocumentInsertionIndexBeforeCaveat(doc)
+	markRuntimeTraceSystemBlock(&block)
+	insertAt := answerDocumentInsertionIndexBeforeRuntimeTraceDetails(doc)
 	doc.Blocks = append(doc.Blocks, types.AnswerBlock{})
 	copy(doc.Blocks[insertAt+1:], doc.Blocks[insertAt:])
 	doc.Blocks[insertAt] = block
 	return true
-}
-
-func answerDocumentHasBlockID(doc *types.AnswerDocumentV2, id string) bool {
-	if doc == nil {
-		return false
-	}
-	id = strings.TrimSpace(id)
-	if id == "" {
-		return false
-	}
-	for _, block := range doc.Blocks {
-		if strings.TrimSpace(block.ID) == id {
-			return true
-		}
-	}
-	return false
 }
 
 func runtimeTraceMetricSnapshotItems(doc *types.AnswerDocumentV2, ctx *types.BusContext) []types.AnswerBlockItem {
@@ -5027,7 +5235,8 @@ func materializeRuntimeTraceNextStepsBlock(doc *types.AnswerDocumentV2, ctx *typ
 		}},
 		FacetIDs: []string{"observed_artifact_fact"},
 	}
-	insertAt := answerDocumentInsertionIndexBeforeCaveat(doc)
+	markRuntimeTraceSystemBlock(&block)
+	insertAt := answerDocumentInsertionIndexBeforeRuntimeTraceDetails(doc)
 	doc.Blocks = append(doc.Blocks, types.AnswerBlock{})
 	copy(doc.Blocks[insertAt+1:], doc.Blocks[insertAt:])
 	doc.Blocks[insertAt] = block
@@ -5959,7 +6168,7 @@ func materializeRuntimeTracePerfQualityBlock(doc *types.AnswerDocumentV2, ctx *t
 		logging.Warning("[answer_document] runtime trace perf quality block skipped: document already at the %d-block cap", maxBlocksPerDoc)
 		return false
 	}
-	if answerDocumentHasBlockID(doc, "runtime_trace_perf_quality") {
+	if answerDocumentHasRuntimeTraceSystemBlockID(doc, "runtime_trace_perf_quality") {
 		return false
 	}
 	items := runtimeTracePerfQualityItems(doc, ctx)
@@ -5976,7 +6185,8 @@ func materializeRuntimeTracePerfQualityBlock(doc *types.AnswerDocumentV2, ctx *t
 		}},
 		FacetIDs: []string{"observed_artifact_fact"},
 	}
-	insertAt := answerDocumentInsertionIndexBeforeCaveat(doc)
+	markRuntimeTraceSystemBlock(&block)
+	insertAt := answerDocumentInsertionIndexBeforeRuntimeTraceDetails(doc)
 	doc.Blocks = append(doc.Blocks, types.AnswerBlock{})
 	copy(doc.Blocks[insertAt+1:], doc.Blocks[insertAt:])
 	doc.Blocks[insertAt] = block
@@ -6099,10 +6309,8 @@ func materializeRuntimeTraceObservationBlock(doc *types.AnswerDocumentV2, ctx *t
 	if len(items) == 0 {
 		return false
 	}
-	for _, block := range doc.Blocks {
-		if block.ID == "runtime_trace_facts" {
-			return false
-		}
+	if answerDocumentHasRuntimeTraceSystemBlockID(doc, "runtime_trace_facts") {
+		return false
 	}
 	block := types.AnswerBlock{
 		ID:    "runtime_trace_facts",
@@ -6114,7 +6322,8 @@ func materializeRuntimeTraceObservationBlock(doc *types.AnswerDocumentV2, ctx *t
 		}},
 		FacetIDs: []string{"observed_artifact_fact"},
 	}
-	insertAt := answerDocumentInsertionIndexBeforeCaveat(doc)
+	markRuntimeTraceSystemBlock(&block)
+	insertAt := answerDocumentInsertionIndexBeforeRuntimeTraceDetails(doc)
 	doc.Blocks = append(doc.Blocks, types.AnswerBlock{})
 	copy(doc.Blocks[insertAt+1:], doc.Blocks[insertAt:])
 	doc.Blocks[insertAt] = block
@@ -6131,6 +6340,160 @@ func answerDocumentInsertionIndexBeforeCaveat(doc *types.AnswerDocumentV2) int {
 		}
 	}
 	return len(doc.Blocks)
+}
+
+// answerDocumentInsertionIndexBeforeRuntimeTraceDetails returns the boundary
+// between decision/summary surfaces and the causal projection's drill-down
+// tier. Runtime-derived blocks that help the reader decide or act (semantic
+// optimization points, metric snapshot, next steps, evidence quality and key
+// facts) insert here, so per-node attributes and line-by-line evidence cannot
+// bury them. The exact-id classifier below intentionally follows the same
+// prefix+suffix discipline as runtimeTraceCausalProjectionFamilyBlockID: a
+// model-authored lookalike must not become a structural ordering signal.
+func answerDocumentInsertionIndexBeforeRuntimeTraceDetails(doc *types.AnswerDocumentV2) int {
+	if doc == nil {
+		return 0
+	}
+	fallback := answerDocumentInsertionIndexBeforeCaveat(doc)
+	for i := 0; i < fallback; i++ {
+		if RuntimeTraceSystemBlock(doc.Blocks[i]) &&
+			runtimeTraceCausalProjectionDetailBlockID(strings.TrimSpace(doc.Blocks[i].ID)) {
+			return i
+		}
+	}
+	return fallback
+}
+
+func runtimeTraceCausalProjectionDetailBlockID(id string) bool {
+	rest, ok := strings.CutPrefix(id, runtimeTraceCausalProjectionBlockIDBase)
+	if !ok {
+		return false
+	}
+	switch rest {
+	case "_detail", "_detail_full", "_evidence", "_compare_notes", "_partition":
+		return true
+	}
+	digits, ok := strings.CutPrefix(rest, runtimeTraceCausalProjectionArtifactBlockIDInfix)
+	if !ok {
+		return false
+	}
+	i := 0
+	for i < len(digits) && digits[i] >= '0' && digits[i] <= '9' {
+		i++
+	}
+	if i == 0 {
+		return false
+	}
+	switch digits[i:] {
+	case "_detail", "_detail_full", "_evidence":
+		return true
+	default:
+		return false
+	}
+}
+
+// normalizeRuntimeTraceReportHierarchy applies one final, typed stable sort
+// after every report materializer/normalizer has run. It never reads titles or
+// prose. Model conclusions (summary/decision/scalar) stay first; authenticated
+// causal leads and action surfaces follow; compact metrics precede model body
+// detail; lossless projection detail/evidence and caveats close the report.
+// The marker prerequisite makes an exact model-authored ID inert even before
+// the collision normalizer's deterministic rename.
+func normalizeRuntimeTraceReportHierarchy(doc *types.AnswerDocumentV2) int {
+	if doc == nil || len(doc.Blocks) < 2 {
+		return 0
+	}
+	hasRuntimeTrace := false
+	for _, block := range doc.Blocks {
+		if block.SystemGeneratedKind.IsRuntimeTraceSupplement() {
+			hasRuntimeTrace = true
+			break
+		}
+	}
+	if !hasRuntimeTrace {
+		return 0
+	}
+	const tierCount = 10
+	buckets := make([][]types.AnswerBlock, tierCount)
+	for _, block := range doc.Blocks {
+		tier := runtimeTraceReportHierarchyTier(block)
+		buckets[tier] = append(buckets[tier], block)
+	}
+	reordered := make([]types.AnswerBlock, 0, len(doc.Blocks))
+	for _, bucket := range buckets {
+		reordered = append(reordered, bucket...)
+	}
+	moved := 0
+	for i := range reordered {
+		if reordered[i].ID != doc.Blocks[i].ID {
+			moved++
+		}
+	}
+	if moved > 0 {
+		doc.Blocks = reordered
+	}
+	return moved
+}
+
+func runtimeTraceReportHierarchyTier(block types.AnswerBlock) int {
+	id := strings.TrimSpace(block.ID)
+	if block.SystemGeneratedKind.IsRuntimeTraceSupplement() {
+		switch {
+		case id == runtimeTraceCausalProjectionPartitionBlockID || block.Kind == types.BlockCaveat:
+			return 9
+		case id == runtimeTraceCausalProjectionCompareBlockID || runtimeTraceCausalProjectionStandaloneLeadBlockID(id):
+			return 1
+		case id == "runtime_trace_semantic_optimizations":
+			return 2
+		case answerDocumentBlockIDIsNextSteps(id):
+			return 3
+		case id == "runtime_trace_metric_snapshot":
+			return 4
+		case id == "runtime_trace_perf_quality" || id == "runtime_trace_facts":
+			return 5
+		case runtimeTraceCausalProjectionMetricBlockID(id):
+			return 6
+		case runtimeTraceCausalProjectionDetailBlockID(id):
+			return 8
+		default:
+			return 5
+		}
+	}
+	// The model-authored next_steps lane is an accepted action carrier and
+	// suppresses the system fallback by design. Promote that carrier by its
+	// exact structural ID so choosing model guidance cannot bury the only
+	// action surface. This affects display order only; without the internal
+	// marker it remains ineligible for system provenance/evidence consumers.
+	if answerDocumentBlockIDIsNextSteps(id) && block.Kind != types.BlockCaveat {
+		return 3
+	}
+	switch block.Kind {
+	case types.BlockSummary, types.BlockDecision, types.BlockScalar:
+		return 0
+	case types.BlockCaveat:
+		return 9
+	default:
+		return 7
+	}
+}
+
+func runtimeTraceCausalProjectionMetricBlockID(id string) bool {
+	rest, ok := strings.CutPrefix(id, runtimeTraceCausalProjectionBlockIDBase)
+	if !ok {
+		return false
+	}
+	if rest == "_detail" {
+		return true
+	}
+	digits, ok := strings.CutPrefix(rest, runtimeTraceCausalProjectionArtifactBlockIDInfix)
+	if !ok {
+		return false
+	}
+	i := 0
+	for i < len(digits) && digits[i] >= '0' && digits[i] <= '9' {
+		i++
+	}
+	return i > 0 && digits[i:] == "_detail"
 }
 
 func runtimeTraceObservationItems(doc *types.AnswerDocumentV2, perf *types.PerfBundle) []types.AnswerBlockItem {

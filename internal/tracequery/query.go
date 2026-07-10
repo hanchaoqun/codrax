@@ -102,6 +102,7 @@ func Run(idx *Index, q Query) Result {
 	res := Result{
 		View:                        q.View,
 		SourcePath:                  idx.Path,
+		TraceArtifacts:              append([]TraceArtifactSource(nil), idx.TraceArtifacts...),
 		TraceFlavor:                 string(flavor),
 		Platform:                    string(platform),
 		PlatformCandidate:           platformCandidate,
@@ -224,6 +225,7 @@ func Run(idx *Index, q Query) Result {
 	case "thread_timeline":
 		tl := ThreadTimeline(idx, q)
 		res.Timeline = &tl
+		res.Caveats = append(res.Caveats, tl.Caveats...)
 		res.EvidencePack = evidenceFromTimeline(tl)
 	case "window_stats":
 		stats := getStats()
@@ -253,8 +255,16 @@ func Run(idx *Index, q Query) Result {
 		chain := getChain()
 		res.WakeupChain = &chain
 		if q.IncludeWindowStats {
-			stats := getStats()
-			res.WindowStats = &stats
+			if idx.RelationScoped {
+				// The relation-pruned event set is complete for the target/waker
+				// chain, not for all-thread CPU/off-CPU aggregates.  Publishing
+				// WindowStats here would mix a subset of in-window transitions with
+				// full-artifact head checkpoints and fabricate whole-window load.
+				res.Caveats = append(res.Caveats, "relation_scoped_window_stats_unavailable=true; wakeup_chain is complete for the retained target/waker closure, but global window_stats are omitted because the index intentionally pruned unrelated scheduler events")
+			} else {
+				stats := getStats()
+				res.WindowStats = &stats
+			}
 		}
 		res.EvidencePack = append(evidenceFromChain(chain), evidenceFromIPCGraph(IPCGraphResult{Edges: chain.IPCEdges})...)
 	case "root_cause_rank":
@@ -488,9 +498,11 @@ func Run(idx *Index, q Query) Result {
 	}
 	res.Caveats = append(res.Caveats, spanCaveats...)
 	res.Caveats = append(res.Caveats, resultCaveats(idx, q, res)...)
+	res.Caveats = dedupStrings(res.Caveats)
 	if spanCompaction != nil {
 		res.Compactions = append(res.Compactions, *spanCompaction)
 	}
+	attachEvidenceFactProvenance(res.EvidencePack, res.TraceArtifacts)
 	collectResultCompactions(&res, q)
 	return res
 }
@@ -688,7 +700,7 @@ func detectFrameworkSurfaces(idx *Index, q Query, platform TracePlatform, limit 
 		if signal != "" {
 			a.signals[signal] = true
 		}
-		key := fmt.Sprintf("%d/%s", ref.PID, ref.Comm)
+		key := threadKey(ref)
 		if !a.seen[key] && len(a.examples) < limit {
 			a.examples = append(a.examples, ref)
 			a.seen[key] = true
@@ -876,11 +888,15 @@ func EventSearch(idx *Index, q Query) []EventView {
 			break
 		}
 	}
-	raw := loadRawLines(idx.Path, eventLines(events))
+	raw, rawIssues := loadRawArtifactLines(idx, events)
 	out := make([]EventView, 0, len(events))
 	for _, ev := range events {
 		ev = applyPriorityFlavor(ev, q.TraceFlavor)
-		out = append(out, EventView{Event: ev, Raw: raw[ev.Line]})
+		view := idx.eventView(ev, raw[ev.Line])
+		if issue := rawIssues[ev.Line]; issue != "" {
+			view.RawUnavailableReason = issue
+		}
+		out = append(out, view)
 	}
 	return out
 }
@@ -1077,7 +1093,10 @@ func isCPUConstraintEvidence(ev Event) bool {
 }
 
 func eventMentionsPID(ev Event, pid int) bool {
-	if ev.PID == pid || ev.TGID == pid || ev.PrevPID == pid || ev.NextPID == pid || ev.WakeePID == pid {
+	// Tool contract: pid is a thread id.  Process/TGID fields are deliberately
+	// excluded; otherwise two same-name sibling TIDs in one process are merged
+	// by event_search/perf_timeline despite an explicit numeric selector.
+	if ev.PID == pid || ev.PrevPID == pid || ev.NextPID == pid || ev.WakeePID == pid {
 		return true
 	}
 	if ss := ev.SchedStatFields; ss != nil && ss.PID == pid {
@@ -1086,10 +1105,10 @@ func eventMentionsPID(ev Event, pid int) bool {
 	if cf := ev.ConstraintFields; cf != nil && cf.PID == pid {
 		return true
 	}
-	if bf := ev.BinderFields; bf != nil && (bf.DestProc == pid || bf.DestThread == pid) {
+	if bf := ev.BinderFields; bf != nil && bf.DestThread == pid {
 		return true
 	}
-	if pf := ev.PerfFields; pf != nil && (pf.PID == pid || pf.TID == pid) {
+	if pf := ev.PerfFields; pf != nil && pf.TID == pid {
 		return true
 	}
 	return false
@@ -1097,8 +1116,18 @@ func eventMentionsPID(ev Event, pid int) bool {
 
 func eventMentionsThread(ev Event, thread string) bool {
 	sel := parseThreadSelector(thread)
-	if sel.HasPID && eventMentionsPID(ev, sel.PID) {
-		return true
+	if sel.HasPID {
+		// A pid-bearing selector is already precise.  Never fall back to comm,
+		// symbols, span names or free-form fields after an exact-TID miss.
+		return eventMentionsPID(ev, sel.PID)
+	}
+	if ev.Type == EventPerfSample && !perfSampleHasTypedThreadIdentity(ev) {
+		// A bundle perf sample whose capability did not prove thread identity
+		// is deliberately retained only as anonymous symbol/DSO inventory.
+		// Do not resurrect its scrubbed identity through FieldText, symbol, DSO,
+		// or callchain substring matching. The pattern field remains the proper
+		// way to search those support dimensions.
+		return false
 	}
 	names := []string{ev.Comm, ev.PrevComm, ev.NextComm, ev.WakeeComm, ev.SpanName, ev.SpanValue, ev.Reason, ev.IRQName, ev.FieldText}
 	if ss := ev.SchedStatFields; ss != nil {
@@ -1118,10 +1147,25 @@ func eventMentionsThread(ev Event, thread string) bool {
 	return false
 }
 
+func perfSampleHasTypedThreadIdentity(ev Event) bool {
+	if ev.Type != EventPerfSample {
+		return false
+	}
+	if ev.PID > 0 || ev.TGID > 0 || strings.TrimSpace(ev.Comm) != "" {
+		return true
+	}
+	pf := ev.PerfFields
+	return pf != nil && (pf.PID > 0 || pf.TID > 0 || strings.TrimSpace(pf.Comm) != "")
+}
+
 func ThreadTimeline(idx *Index, q Query) TimelineResult {
 	q = ensureQueryFlavor(idx, q)
-	target := resolveThread(idx, q)
-	return threadTimelineForTarget(idx, q, target, nil, nil, false)
+	resolution := resolveThreadSelection(idx, q)
+	res := threadTimelineForTarget(idx, q, resolution.Thread, nil, nil, false)
+	if resolution.Ambiguous {
+		res.Caveats = append([]string{threadResolutionCaveat(idx, q)}, res.Caveats...)
+	}
+	return res
 }
 
 func threadTimelineForTarget(idx *Index, q Query, target ThreadRef, eventIDs []int, blockedReasonIDs []int, useIndexedEvents bool) TimelineResult {
@@ -1137,13 +1181,65 @@ func threadTimelineForTarget(idx *Index, q Query, target ThreadRef, eventIDs []i
 		res.Caveats = append(res.Caveats, "trace index is empty")
 		return res
 	}
+	if conflict := threadIncarnationConflictForQuery(idx, q, target.PID); conflict != nil {
+		res.IntegrityFailure = "thread_incarnation_conflict"
+		if q.TimeStart > 0 && q.LineStart == 0 && q.LineEnd == 0 {
+			res.HeadState = &TimelineHeadState{Status: "unknown", BoundaryTs: q.TimeStart, Reason: "thread_selector_spans_incarnations"}
+		}
+		res.Caveats = append(res.Caveats, "thread_identity_fail_closed=true; "+conflict.reason()+"; one numeric TID denotes multiple tasks inside the selected window, so target intervals are omitted; split the query at boundary_ts/boundary_line")
+		return res
+	}
+	if failure := schedulerStateIntegrityFailureForQuery(idx, q, target.PID); failure != nil {
+		res.IntegrityFailure = failure.code
+		if q.TimeStart > 0 && q.LineStart == 0 && q.LineEnd == 0 {
+			res.HeadState = &TimelineHeadState{Status: "unknown", BoundaryTs: q.TimeStart, Reason: failure.code}
+		}
+		res.Caveats = append(res.Caveats, "scheduler_duration_fail_closed=true; "+failure.reason()+"; elapsed thread-state intervals are omitted because scheduler input completeness and same-lane ordering are not provable")
+		return res
+	}
 	var runningStart float64
+	var runningOpen bool
 	var runningLine int
 	var runningCPU int
 	var offStart float64
+	var offOpen bool
 	var offLine int
 	var offState string
+	var offKnownState ThreadState
 	var wake *Event
+	boundaryObserved := false
+	headExpected := idx.Windowed && q.TimeStart > 0 && q.LineStart == 0 && q.LineEnd == 0
+	var head *schedulerHeadSnapshot
+	if headExpected {
+		head = schedulerHeadForQuery(idx, q)
+	}
+	if headExpected && head != nil && head.Complete {
+		if state, ok := head.Threads[target.PID]; ok {
+			if state.State == StateUnknown {
+				res.HeadState = &TimelineHeadState{Status: "unknown", BoundaryTs: q.TimeStart, Reason: "prior_scheduler_state_unclassified", SourceLine: state.Line}
+			} else {
+				res.HeadState = &TimelineHeadState{
+					Status:        "recovered",
+					BoundaryTs:    q.TimeStart,
+					State:         state.State,
+					ActualStartTs: state.StartTs,
+					SourceLine:    state.Line,
+				}
+				switch state.State {
+				case StateRunning:
+					runningStart, runningOpen = state.StartTs, true
+					runningLine, runningCPU = state.Line, state.CPU
+				default:
+					offStart, offOpen = state.StartTs, true
+					offLine, offKnownState, offState = state.Line, state.State, state.PrevStateRaw
+				}
+			}
+		} else {
+			res.HeadState = &TimelineHeadState{Status: "unknown", BoundaryTs: q.TimeStart, Reason: "no_prior_scheduler_state_for_target"}
+		}
+	} else if headExpected && head != nil && !head.Complete {
+		res.HeadState = &TimelineHeadState{Status: "unknown", BoundaryTs: q.TimeStart, Reason: firstNonEmpty(head.Reason, "scheduler_head_snapshot_incomplete")}
+	}
 	visit := func(ev Event) {
 		if q.LineStart > 0 || q.LineEnd > 0 {
 			if q.LineStart > 0 && ev.Line < q.LineStart {
@@ -1153,62 +1249,211 @@ func threadTimelineForTarget(idx *Index, q Query, target ThreadRef, eventIDs []i
 				return
 			}
 		}
+		if headExpected && head != nil && ev.Ts < q.TimeStart {
+			// Any populated snapshot owns the prefix decision.  Incomplete
+			// snapshots are fail-closed, so retained padding cannot sneak a
+			// partial state back into the state machine.
+			return
+		}
 		switch ev.Type {
 		case EventSchedWakeup, EventSchedWaking:
-			if threadMatches(target, ev.WakeePID, ev.WakeeComm) && offStart > 0 && ev.Ts >= offStart {
+			if !threadMatches(target, ev.WakeePID, ev.WakeeComm) {
+				return
+			}
+			if schedWakeupStartsNewIncarnation(ev) {
+				// A new incarnation terminates any state carried by the previous
+				// occupant of this numeric TID.  Keep the old interval only up to
+				// the reset boundary, then begin the new task as runnable.
+				if runningOpen {
+					iv := makeInterval(target, StateRunning, runningStart, ev.Ts, runningLine, ev.Line, "")
+					iv.CPU, iv.CPUKnown = runningCPU, true
+					res.Intervals = append(res.Intervals, iv)
+				}
+				if offOpen {
+					res.Intervals = append(res.Intervals, offCPUIntervalsFromState(target, offStart, ev.Ts, offLine, ev.Line, offState, offKnownState, nil)...)
+				}
+				runningStart, runningOpen = 0, false
+				offStart, offOpen = ev.Ts, true
+				offLine, offKnownState, offState = ev.Line, StateRunnable, "R"
+				copy := ev
+				wake = &copy
+				boundaryObserved = boundaryObserved || ev.Ts == q.TimeStart
+				res.Caveats = append(res.Caveats, fmt.Sprintf("thread_generation_boundary=true; sched_wakeup_new reset tid=%d at line=%d", ev.WakeePID, ev.Line))
+				return
+			}
+			if !offOpen && ev.Ts == q.TimeStart {
+				offStart, offOpen = ev.Ts, true
+				offLine, offKnownState, offState = ev.Line, StateRunnable, "R"
+				boundaryObserved = true
+			}
+			if offOpen && ev.Ts >= offStart {
 				copy := ev
 				wake = &copy
 			}
 		case EventSchedSwitch:
 			if threadMatches(target, ev.NextPID, ev.NextComm) {
-				if offStart > 0 {
-					res.Intervals = append(res.Intervals, offCPUIntervals(target, offStart, ev.Ts, offLine, ev.Line, offState, wake)...)
+				boundaryObserved = boundaryObserved || ev.Ts == q.TimeStart
+				if offOpen {
+					res.Intervals = append(res.Intervals, offCPUIntervalsFromState(target, offStart, ev.Ts, offLine, ev.Line, offState, offKnownState, wake)...)
 				}
-				offStart, offLine, offState, wake = 0, 0, "", nil
-				runningStart = ev.Ts
+				offStart, offLine, offState, offKnownState, offOpen, wake = 0, 0, "", "", false, nil
+				runningStart, runningOpen = ev.Ts, true
 				runningLine = ev.Line
 				runningCPU = ev.CPU
 			}
 			if threadMatches(target, ev.PrevPID, ev.PrevComm) {
-				if runningStart > 0 {
+				boundaryObserved = boundaryObserved || ev.Ts == q.TimeStart
+				if runningOpen {
 					iv := makeInterval(target, StateRunning, runningStart, ev.Ts, runningLine, ev.Line, "")
 					iv.CPU, iv.CPUKnown = runningCPU, true
 					res.Intervals = append(res.Intervals, iv)
 				}
-				runningStart = 0
-				offStart = ev.Ts
-				offLine = ev.Line
-				offState = ev.PrevState
+				runningStart, runningOpen = 0, false
+				state := stateFromPrevState(ev.PrevState)
+				if state == StateDead {
+					offStart, offOpen = 0, false
+					offLine, offState, offKnownState = 0, "", ""
+				} else {
+					offStart, offOpen = ev.Ts, true
+					offLine = ev.Line
+					offState = ev.PrevState
+					offKnownState = ""
+				}
 				wake = nil
 			}
 		}
 	}
-	if useIndexedEvents {
-		for _, id := range eventIDs {
-			if id < 0 || id >= len(idx.Events) {
-				continue
-			}
-			visit(idx.Events[id])
-		}
-	} else {
-		for _, ev := range idx.Events {
-			visit(ev)
-		}
-	}
-	if runningStart > 0 {
+	visitEventsInTimestampOrder(idx, eventIDs, useIndexedEvents, visit)
+	if runningOpen {
 		iv := makeInterval(target, StateRunning, runningStart, q.TimeEnd, runningLine, 0, "")
 		iv.CPU, iv.CPUKnown = runningCPU, true
 		res.Intervals = append(res.Intervals, iv)
 	}
-	if offStart > 0 {
-		res.Intervals = append(res.Intervals, offCPUIntervals(target, offStart, q.TimeEnd, offLine, 0, offState, wake)...)
+	if offOpen {
+		res.Intervals = append(res.Intervals, offCPUIntervalsFromState(target, offStart, q.TimeEnd, offLine, 0, offState, offKnownState, wake)...)
 	}
 	enrichBlockedReasonIntervalsWithSelection(idx, target, res.Intervals, blockedReasonIDs, useIndexedEvents)
 	res.Intervals = clampIntervals(res.Intervals, q)
+	if headExpected {
+		covered := false
+		for _, interval := range res.Intervals {
+			if interval.StartTs <= q.TimeStart && interval.EndTs >= q.TimeStart {
+				covered = true
+				break
+			}
+		}
+		if covered {
+			// Padding replay is authoritative only when the complete-file order
+			// proof is monotonic.  It must never overwrite a fail-closed
+			// timestamp_order_regressed/unproven snapshot decision.
+			if (res.HeadState == nil && idx.TimestampOrder.AllowsTimeEndEarlyStop()) || boundaryObserved {
+				res.HeadState = &TimelineHeadState{Status: "observed_in_index", BoundaryTs: q.TimeStart}
+			}
+			if res.HeadState != nil && res.HeadState.Status == "unknown" {
+				res.Caveats = append(res.Caveats, "scheduler_head_state_unknown=true; retained padding cannot prove the governing window-head state without a monotonic complete-file timestamp order")
+			}
+		} else {
+			reason := "scheduler_head_snapshot_unavailable"
+			if res.HeadState != nil && res.HeadState.Reason != "" {
+				reason = res.HeadState.Reason
+			}
+			res.HeadState = &TimelineHeadState{Status: "unknown", BoundaryTs: q.TimeStart, Reason: reason}
+			res.Caveats = append(res.Caveats, "scheduler_head_state_unknown=true; the pre-window scheduler state could not be proven, so the window-head interval is typed unknown rather than omitted or assigned to a wait/running lane")
+		}
+	}
 	if len(res.Intervals) == 0 {
 		res.Caveats = append(res.Caveats, "no scheduler interval for the target thread was found in the selected window")
 	}
 	return res
+}
+
+func schedWakeupStartsNewIncarnation(ev Event) bool {
+	return ev.Type == EventSchedWakeup && ev.Name == "sched_wakeup_new"
+}
+
+const schedulerHeadMissingSubjectDisplayCap = 32
+
+func schedulerHeadCoverageForWindow(idx *Index, q Query, head *schedulerHeadSnapshot) *SchedulerHeadCoverage {
+	if idx == nil || q.TimeStart <= 0 || q.LineStart > 0 || q.LineEnd > 0 {
+		return nil
+	}
+	coverage := &SchedulerHeadCoverage{BoundaryTs: q.TimeStart}
+	if head == nil || !head.Complete {
+		coverage.Status = "unknown"
+		coverage.Reason = "scheduler_head_snapshot_unavailable"
+		if head != nil && head.Reason != "" {
+			coverage.Reason = head.Reason
+		}
+		return coverage
+	}
+	knownCPUs := make(map[int]bool, len(head.CPUs))
+	knownThreads := make(map[int]bool, len(head.Threads))
+	for cpu := range head.CPUs {
+		knownCPUs[cpu] = true
+	}
+	for pid, state := range head.Threads {
+		if state.State != StateUnknown {
+			knownThreads[pid] = true
+		}
+	}
+	missingCPUs := map[int]bool{}
+	missingThreads := map[int]bool{}
+	markThreadBeforeEvent := func(pid int, ts float64) {
+		if pid <= 0 {
+			return
+		}
+		if ts > q.TimeStart && !knownThreads[pid] {
+			missingThreads[pid] = true
+		}
+		knownThreads[pid] = true
+	}
+	visitEventsInTimestampOrder(idx, nil, false, func(ev Event) {
+		if !eventLineInWindow(ev, q) || ev.Ts < q.TimeStart || (q.TimeEnd > 0 && ev.Ts > q.TimeEnd) {
+			return
+		}
+		switch ev.Type {
+		case EventSchedWakeup, EventSchedWaking:
+			if schedWakeupStartsNewIncarnation(ev) {
+				// The subject did not exist before this precise lifecycle edge.
+				knownThreads[ev.WakeePID] = ev.WakeePID > 0
+				return
+			}
+			markThreadBeforeEvent(ev.WakeePID, ev.Ts)
+		case EventSchedSwitch:
+			if ev.Ts > q.TimeStart && !knownCPUs[ev.CPU] {
+				missingCPUs[ev.CPU] = true
+			}
+			knownCPUs[ev.CPU] = true
+			markThreadBeforeEvent(ev.NextPID, ev.Ts)
+			markThreadBeforeEvent(ev.PrevPID, ev.Ts)
+			if stateFromPrevState(ev.PrevState) == StateDead {
+				delete(knownThreads, ev.PrevPID)
+			}
+		}
+	})
+	coverage.MissingCPUCount = len(missingCPUs)
+	coverage.MissingThreadCount = len(missingThreads)
+	coverage.MissingCPUs = sortedBoundedIntSet(missingCPUs, schedulerHeadMissingSubjectDisplayCap)
+	coverage.MissingThreadPIDs = sortedBoundedIntSet(missingThreads, schedulerHeadMissingSubjectDisplayCap)
+	if coverage.MissingCPUCount > 0 || coverage.MissingThreadCount > 0 {
+		coverage.Status = "partial_unknown"
+		coverage.Reason = "subject_checkpoint_missing"
+	} else {
+		coverage.Status = "recovered"
+	}
+	return coverage
+}
+
+func sortedBoundedIntSet(values map[int]bool, limit int) []int {
+	out := make([]int, 0, len(values))
+	for value := range values {
+		out = append(out, value)
+	}
+	sort.Ints(out)
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out
 }
 
 func enrichBlockedReasonIntervals(idx *Index, target ThreadRef, intervals []Interval) {
@@ -1235,10 +1480,17 @@ func enrichBlockedReasonIntervalsWithSelection(idx *Index, target ThreadRef, int
 }
 
 func offCPUIntervals(thread ThreadRef, start, end float64, startLine, endLine int, prevState string, wake *Event) []Interval {
+	return offCPUIntervalsFromState(thread, start, end, startLine, endLine, prevState, "", wake)
+}
+
+func offCPUIntervalsFromState(thread ThreadRef, start, end float64, startLine, endLine int, prevState string, knownState ThreadState, wake *Event) []Interval {
 	if end <= start {
 		return nil
 	}
 	state := stateFromPrevState(prevState)
+	if knownState != "" {
+		state = knownState
+	}
 	if wake != nil && wake.Ts > start && wake.Ts < end && state != StateRunnable {
 		return []Interval{
 			makeInterval(thread, state, start, wake.Ts, startLine, wake.Line, prevState),
@@ -1355,7 +1607,13 @@ func clampIntervals(in []Interval, q Query) []Interval {
 			it.ActualEndTs = it.EndTs
 			it.ActualDurationMs = it.DurationMs
 		}
-		if it.DurationMs >= 0 {
+		// An interval that lived wholly before the selected window and closes
+		// exactly at its left edge has no in-window support.  Suppress only that
+		// stale carry row; zero-width rows at the right edge are retained because
+		// their actual_* ledger is deliberate evidence of window clamping.
+		zeroWidthStaleHeadCarry := it.DurationMs == 0 && q.TimeStart > 0 &&
+			it.EndTs == q.TimeStart && it.ActualStartTs < q.TimeStart && it.ActualEndTs <= q.TimeStart
+		if !zeroWidthStaleHeadCarry && it.DurationMs >= 0 {
 			// E1-a (RTC-R1 e1, 2026-07-05): Summary is minted at construction
 			// from the UNCLAMPED duration, and evidenceFromTimeline republishes
 			// Interval.Summary verbatim into the evidence pack. Without
@@ -1373,59 +1631,20 @@ func clampIntervals(in []Interval, q Query) []Interval {
 }
 
 func resolveThread(idx *Index, q Query) ThreadRef {
-	if q.PID > 0 {
-		name := ""
-		tgid := 0
-		for _, ev := range idx.Events {
-			if ev.PID == q.PID {
-				name, tgid = ev.Comm, ev.TGID
-				break
-			}
-			if ev.PrevPID == q.PID {
-				name = ev.PrevComm
-				break
-			}
-			if ev.NextPID == q.PID {
-				name = ev.NextComm
-				break
-			}
-			if ev.WakeePID == q.PID {
-				name = ev.WakeeComm
-				break
-			}
-		}
-		return ThreadRef{Comm: name, PID: q.PID, TGID: tgid}
-	}
-	sel := parseThreadSelector(firstNonEmpty(q.ThreadInput, q.Thread))
-	if sel.HasPID {
-		q.PID = sel.PID
-		return resolveThread(idx, q)
-	}
-	if strings.TrimSpace(sel.Raw) == "" && strings.TrimSpace(sel.Name) == "" {
-		return ThreadRef{}
-	}
-	for _, ev := range idx.Events {
-		for _, candidate := range []struct {
-			comm string
-			pid  int
-			tgid int
-		}{{ev.Comm, ev.PID, ev.TGID}, {ev.PrevComm, ev.PrevPID, 0}, {ev.NextComm, ev.NextPID, 0}, {ev.WakeeComm, ev.WakeePID, 0}} {
-			if candidate.pid > 0 && threadSelectorMatchesName(sel, candidate.comm) {
-				return ThreadRef{Comm: candidate.comm, PID: candidate.pid, TGID: candidate.tgid}
-			}
-		}
-	}
-	return ThreadRef{Comm: q.Thread}
+	return resolveThreadSelection(idx, q).Thread
 }
 
 func threadMatches(ref ThreadRef, pid int, comm string) bool {
-	if ref.PID > 0 && pid == ref.PID {
-		return true
+	// A positive scheduler PID is the precise identity signal. Once the
+	// target carries one, comm is display metadata only: names can collide
+	// across processes and can change during a thread's lifetime.
+	if ref.PID > 0 {
+		return pid > 0 && pid == ref.PID
 	}
-	if ref.Comm != "" && comm != "" && strings.EqualFold(ref.Comm, comm) {
-		return true
-	}
-	return false
+	// Some trace formats genuinely omit a usable PID. Preserve the explicit
+	// comm-only fallback for that degraded shape, but never let it override a
+	// known target PID above.
+	return ref.Comm != "" && comm != "" && strings.EqualFold(ref.Comm, comm)
 }
 
 func ComputeWindowStats(idx *Index, q Query) WindowStats {
@@ -1433,6 +1652,29 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	stats := WindowStats{
 		Window:      TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd},
 		EventCounts: map[EventType]int{},
+	}
+	if idx == nil {
+		stats.Caveats = append(stats.Caveats, "trace index is empty")
+		return stats
+	}
+	if idx.RelationScoped {
+		stats.SchedulerHeadCoverage = &SchedulerHeadCoverage{Status: "unknown", BoundaryTs: q.TimeStart, Reason: "relation_scoped_event_subset"}
+		stats.Caveats = append(stats.Caveats, "relation_scoped_window_stats_unavailable=true; global scheduler aggregates are omitted because this index intentionally retains only a target/waker relation closure")
+		return stats
+	}
+	durationFailures := durationOrderFailuresForQuery(idx, q)
+	frequencyIntegrity := frequencyOrderIntegrityForQuery(idx, q)
+	stats.Caveats = append(stats.Caveats, frequencyIntegrity.caveats()...)
+	schedulerFailure := schedulerStateIntegrityFailureForQuery(idx, q, 0)
+	identityConflict := threadIncarnationConflictForQuery(idx, q, 0)
+	schedulerDurationsSafe := schedulerFailure == nil && identityConflict == nil
+	if schedulerFailure != nil {
+		stats.SchedulerHeadCoverage = &SchedulerHeadCoverage{Status: "unknown", BoundaryTs: q.TimeStart, Reason: schedulerFailure.code}
+		stats.Caveats = append(stats.Caveats, "scheduler_duration_fail_closed=true; "+schedulerFailure.reason()+"; scheduler busy/off-CPU/latency/churn durations are omitted because scheduler input completeness and same-lane ordering are not provable")
+	}
+	if identityConflict != nil {
+		stats.SchedulerHeadCoverage = &SchedulerHeadCoverage{Status: "unknown", BoundaryTs: q.TimeStart, Reason: "thread_incarnation_conflict"}
+		stats.Caveats = append(stats.Caveats, "thread_identity_fail_closed=true; "+identityConflict.reason()+"; scheduler duration aggregates are omitted because their PID-keyed rows cannot safely merge multiple task incarnations; split the window at the lifecycle boundary")
 	}
 	byCPU := map[int][]Event{}
 	freqByCPU := map[int][]Event{}
@@ -1462,7 +1704,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		if eventLineInWindow(ev, q) && isPerCPUFrequencySample(ev) {
 			if q.TimeEnd == 0 || ev.Ts <= q.TimeEnd {
 				cpu := eventCPUForStats(ev)
-				freqByCPU[cpu] = append(freqByCPU[cpu], ev)
+				if !frequencyIntegrity.frequencyUnsafe(cpu) {
+					freqByCPU[cpu] = append(freqByCPU[cpu], ev)
+				}
 			}
 		}
 		// CFC F1: admission + CPU attribution via the shared limits predicate
@@ -1472,7 +1716,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		// limitTimelineByCPU declaration above).
 		if cpu, ok := isPerCPULimitSample(ev); ok && eventLineInWindow(ev, q) {
 			if q.TimeEnd == 0 || ev.Ts <= q.TimeEnd {
-				limitTimelineByCPU[cpu] = append(limitTimelineByCPU[cpu], freqSample{ts: ev.Ts, khz: ev.FrequencyMax})
+				if !frequencyIntegrity.limitUnsafe(cpu) {
+					limitTimelineByCPU[cpu] = append(limitTimelineByCPU[cpu], freqSample{ts: ev.Ts, khz: ev.FrequencyMax})
+				}
 			}
 		}
 		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
@@ -1481,9 +1727,13 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		stats.EventCounts[ev.Type]++
 		switch ev.Type {
 		case EventSchedSwitch:
-			byCPU[ev.CPU] = append(byCPU[ev.CPU], ev)
+			if schedulerDurationsSafe {
+				byCPU[ev.CPU] = append(byCPU[ev.CPU], ev)
+			}
 		case EventCPUFrequencyLimit:
-			accumulateCPUFrequencyLimit(freqLimits, ev)
+			if !frequencyIntegrity.limitUnsafe(eventCPUForStats(ev)) {
+				accumulateCPUFrequencyLimit(freqLimits, ev)
+			}
 		case EventBlockIssue:
 			stats.BlockIssueCount++
 		case EventBlockRemap:
@@ -1546,6 +1796,46 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		accumulatePageCache(pageCache, ev)
 		accumulateTracePluginEvent(abilityEvents, xpowerEvents, hiSystemEvents, ev)
 	}
+	// Scheduler carry-in: an in-window sched_switch describes the CPU state
+	// AFTER that instant, so without the last pre-window switch the first CPU
+	// segment was silently absent. Seed one synthetic internal switch per known
+	// CPU at the exact query head; it is never added to EventCounts/evidence.
+	if schedulerDurationsSafe && q.TimeStart > 0 && q.LineStart == 0 && q.LineEnd == 0 {
+		head := schedulerHeadForQuery(idx, q)
+		stats.SchedulerHeadCoverage = schedulerHeadCoverageForWindow(idx, q, head)
+		if head != nil && head.Complete {
+			for _, state := range schedulerHeadSortedCPUs(head) {
+				hasBoundarySwitch := false
+				for _, ev := range byCPU[state.CPU] {
+					if ev.Ts == q.TimeStart {
+						hasBoundarySwitch = true
+						break
+					}
+				}
+				if hasBoundarySwitch {
+					continue
+				}
+				byCPU[state.CPU] = append(byCPU[state.CPU], Event{
+					Line:     state.Line,
+					Ts:       q.TimeStart,
+					CPU:      state.CPU,
+					Type:     EventSchedSwitch,
+					NextComm: state.Thread.Comm,
+					NextPID:  state.Thread.PID,
+					NextPrio: state.Priority,
+				})
+			}
+		} else {
+			reason := "scheduler_head_snapshot_unavailable"
+			if head != nil && head.Reason != "" {
+				reason = head.Reason
+			}
+			stats.Caveats = append(stats.Caveats, "scheduler_head_state_unknown=true; CPU/off-CPU totals may omit an unclassified window-head segment reason="+reason)
+		}
+		if coverage := stats.SchedulerHeadCoverage; coverage != nil && coverage.Status == "partial_unknown" {
+			stats.Caveats = append(stats.Caveats, fmt.Sprintf("scheduler_head_subjects_unknown=true; complete prefix scan lacked governing state for %d in-window CPU(s) %v and %d in-window thread(s) %v, so their pre-first-event head segments are omitted rather than assigned to a state", coverage.MissingCPUCount, coverage.MissingCPUs, coverage.MissingThreadCount, coverage.MissingThreadPIDs))
+		}
+	}
 	sortFrequencyTimeline(freqByCPU)
 	for _, samples := range limitTimelineByCPU {
 		sort.SliceStable(samples, func(i, j int) bool { return samples[i].ts < samples[j].ts })
@@ -1571,8 +1861,13 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	// compute_supply donor fields.
 	freqDonors := newClusterFreqDonorResolver(
 		resolveClusterFreqDomains(q.CoreTopology, func() map[int][]freqSample { return indexFreqSampleTimelines(idx) }),
-		func(cpu int) bool { return len(freqByCPU[cpu]) > 0 })
+		// Treat an unsafe recipient as owning an unavailable lane. donorFor's
+		// own-sample guard then refuses to alias a healthy sibling into it.
+		func(cpu int) bool { return frequencyIntegrity.frequencyUnsafe(cpu) || len(freqByCPU[cpu]) > 0 })
 	freqTimelineFor := func(cpu int) []Event {
+		if frequencyIntegrity.frequencyUnsafe(cpu) {
+			return nil
+		}
 		if evs := freqByCPU[cpu]; len(evs) > 0 {
 			return evs
 		}
@@ -1618,9 +1913,12 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			} else {
 				busy += dur
 				freq := frequencyAt(cpuFreqTimeline, start)
-				key := fmt.Sprintf("%d/%s/%d", ev.NextPID, ev.NextComm, cpu)
+				key := threadCPUKey(ThreadRef{Comm: ev.NextComm, PID: ev.NextPID}, cpu)
 				td := running[key]
-				td.Thread = ThreadRef{Comm: ev.NextComm, PID: ev.NextPID}
+				candidateThread := ThreadRef{Comm: ev.NextComm, PID: ev.NextPID}
+				if td.Thread.PID == 0 || end > td.EndTs || (end == td.EndTs && threadDisplayLess(candidateThread, td.Thread)) {
+					td.Thread = candidateThread
+				}
 				td.DurationMs += dur
 				td.CPU = cpu
 				if freq > 0 {
@@ -1706,7 +2004,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	applyThreadCoreClasses(stats.IOWaitTop, coreByCPU)
 	applyCPUPressureCoreClasses(stats.CPUPressure, coreByCPU)
 	stats.CoreTopology = buildCoreClassStats(stats.CPU, stats.CPUPressure, coreByCPU, topologySource)
-	stats.CPUConstraints = computeCPUConstraintSummaries(idx, q, coreByCPU, stats.RunnableTop, stats.CPU, 8)
+	if schedulerDurationsSafe {
+		stats.CPUConstraints = computeCPUConstraintSummaries(idx, q, coreByCPU, stats.RunnableTop, stats.CPU, 8)
+	}
 	stats.ThreadCPULoad = computeThreadCPULoad(q, stats.TopRunning, stats.RunnableTop, 12)
 	windowCatalog := buildThreadCatalog(idx, q)
 	// B-3 (§7.11): tidTgidApplied is true when the span-pid vote actually
@@ -1715,7 +2015,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	// (row marker + window caveat). False on any trace with a native TGID
 	// column (vote table nil) and on span-less/tie-only windows.
 	tidTgidApplied := false
-	if derive := idx.derivedTidTgid(); derive.enabled() {
+	if derive := idx.derivedTidTgidForQuery(q); derive.enabled() {
 		for pid := range windowCatalog {
 			if derive.tgidFor(pid) > 0 {
 				tidTgidApplied = true
@@ -1771,38 +2071,101 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	if caveat := clusterFreqReuseCaveat(freqDonors.usedPairs(), freqDonors.sourceToken(), freqDonors.primeCPUs(), freqDonors.explicitIgnored()); caveat != "" {
 		stats.Caveats = append(stats.Caveats, caveat)
 	}
-	stats.IOLatencies = computeIOLatencies(idx, q, 8)
+	blockDurationFailure := durationFailures[durationOrderBlockIO]
+	if blockDurationFailure != nil {
+		stats.Caveats = append(stats.Caveats, durationOrderFailClosedCaveat(blockDurationFailure, "io_latencies/storage_latency_by_layer(block)"))
+	} else {
+		stats.IOLatencies = computeIOLatencies(idx, q, 8)
+	}
 	stats.CPUFrequencyLimits = sortedCPUFrequencyLimits(freqLimits, 8)
 	stats.SubsystemEvents = sortedSubsystemEvents(subsystems, 12)
-	stats.BIOResources = sortedRuntimeResources(bioResources, 8)
-	stats.FilesystemResources = sortedRuntimeResources(filesystemResources, 8)
-	stats.PageFaultResources = sortedRuntimeResources(pageFaultResources, 8)
-	// INODE (§28.6): fold the FULL accumulator maps BEFORE the top-8
-	// truncations below — the whole-window (dev,inode) carrier must never be
-	// built on truncated inputs (the block_io_by_inode second-aggregation
-	// lesson).
-	stats.TopIOInodes = computeTopIOInodes(fileIO, pageCache, topIOInodeGroupLimit)
-	stats.FileIOByInode = sortedFileIOSummaries(fileIO, 8)
-	stats.PageCacheByInode = sortedPageCacheSummaries(pageCache, 8)
-	stats.StorageLatencyByLayer = computeStorageLatencyByLayer(idx, q, stats.IOLatencies, 8)
-	stats.AbilityEvents = sortedTracePluginSummaries(abilityEvents, 8)
-	stats.XPowerEvents = sortedTracePluginSummaries(xpowerEvents, 8)
-	stats.HiSystemEvents = sortedTracePluginSummaries(hiSystemEvents, 8)
-	stats.Caveats = append(stats.Caveats, ioPairingCaveats(idx, q)...)
-	stats.BlockedReasons = topBlockedReasons(blockedReasons, 8)
+	if identityConflict == nil {
+		stats.BIOResources = sortedRuntimeResources(bioResources, 8)
+		stats.FilesystemResources = sortedRuntimeResources(filesystemResources, 8)
+		stats.PageFaultResources = sortedRuntimeResources(pageFaultResources, 8)
+		// INODE (§28.6): fold the FULL accumulator maps BEFORE the top-8
+		// truncations below — the whole-window (dev,inode) carrier must never be
+		// built on truncated inputs (the block_io_by_inode second-aggregation
+		// lesson).
+		stats.TopIOInodes = computeTopIOInodes(fileIO, pageCache, topIOInodeGroupLimit)
+		stats.FileIOByInode = sortedFileIOSummaries(fileIO, 8)
+		stats.PageCacheByInode = sortedPageCacheSummaries(pageCache, 8)
+		storageLatencies := computeStorageLatencyByLayer(idx, q, stats.IOLatencies, 8)
+		storageDurationFailure := durationFailures[durationOrderStorage]
+		if storageDurationFailure != nil {
+			stats.Caveats = append(stats.Caveats, durationOrderFailClosedCaveat(storageDurationFailure, "storage_latency_by_layer(non_block)"))
+		}
+		// Block request pairing and non-block storage pairing have independent
+		// exact lanes. Keep whichever side remains proven.
+		for _, latency := range storageLatencies {
+			if latency.Layer == "block" && blockDurationFailure != nil {
+				continue
+			}
+			if latency.Layer != "block" && storageDurationFailure != nil {
+				continue
+			}
+			stats.StorageLatencyByLayer = append(stats.StorageLatencyByLayer, latency)
+		}
+		stats.AbilityEvents = sortedTracePluginSummaries(abilityEvents, 8)
+		stats.XPowerEvents = sortedTracePluginSummaries(xpowerEvents, 8)
+		stats.HiSystemEvents = sortedTracePluginSummaries(hiSystemEvents, 8)
+		stats.Caveats = append(stats.Caveats, ioPairingCaveats(idx, q)...)
+	} else {
+		stats.Caveats = append(stats.Caveats, "thread_identity_resource_fail_closed=true; PID-keyed BIO/filesystem/page-fault/inode/storage/plugin/workqueue/DMA aggregates are omitted because the selected window crosses a task-incarnation boundary")
+	}
+	if schedulerDurationsSafe {
+		stats.BlockedReasons = topBlockedReasons(blockedReasons, 8)
+	}
 	var traceMarkCaveats []string
-	stats.TraceSpans, stats.TraceCounters, traceMarkCaveats = computeTraceMarks(idx, q, 8)
+	if schedulerDurationsSafe {
+		traceSpans, traceCounters, candidateCaveats := computeTraceMarks(idx, q, 8)
+		stats.TraceCounters = traceCounters
+		if failure := durationFailures[durationOrderTraceSpan]; failure != nil {
+			stats.Caveats = append(stats.Caveats, durationOrderFailClosedCaveat(failure, "trace_spans/trace_mark_categories/async_file_work"))
+		} else {
+			stats.TraceSpans = traceSpans
+			traceMarkCaveats = candidateCaveats
+		}
+		if failure := durationFailures[durationOrderTraceCounter]; failure != nil {
+			stats.Caveats = append(stats.Caveats, durationOrderFailClosedCaveat(failure, "counter_deltas"))
+		} else {
+			stats.CounterDeltas = computeCounterDeltas(idx, q, 8)
+		}
+	}
 	stats.Caveats = append(stats.Caveats, traceMarkCaveats...)
-	stats.CounterDeltas = computeCounterDeltas(idx, q, 8)
 	stats.TraceMarkCategories = computeTraceMarkCategories(stats.TraceSpans, 8)
 	stats.AsyncFileWork = computeAsyncFileWorkSummaries(stats.TraceSpans, 8)
-	stats.IRQBursts = computeIRQBursts(idx, q, 8)
-	stats.IRQActivity = computeInterruptActivity(idx, q, EventIRQ, coreByCPU, 8)
-	stats.SoftIRQActivity = computeInterruptActivity(idx, q, EventSoftIRQ, coreByCPU, 8)
-	stats.IPIActivity = computeInterruptActivity(idx, q, EventIPI, coreByCPU, 8)
-	stats.WorkqueueActivity = computeWorkqueueActivity(idx, q, 8)
-	stats.DMAFenceActivity = computeDMAFenceActivity(idx, q, 8)
-	stats.SchedStatAccounting = computeSchedStatAccounting(idx, q, 8)
+	if failure := durationFailures[durationOrderIRQ]; failure != nil {
+		stats.Caveats = append(stats.Caveats, durationOrderFailClosedCaveat(failure, "irq_bursts/irq_activity"))
+	} else {
+		stats.IRQBursts = computeIRQBursts(idx, q, 8)
+		stats.IRQActivity = computeInterruptActivity(idx, q, EventIRQ, coreByCPU, 8)
+	}
+	if failure := durationFailures[durationOrderSoftIRQ]; failure != nil {
+		stats.Caveats = append(stats.Caveats, durationOrderFailClosedCaveat(failure, "softirq_activity"))
+	} else {
+		stats.SoftIRQActivity = computeInterruptActivity(idx, q, EventSoftIRQ, coreByCPU, 8)
+	}
+	if failure := durationFailures[durationOrderIPI]; failure != nil {
+		stats.Caveats = append(stats.Caveats, durationOrderFailClosedCaveat(failure, "ipi_activity"))
+	} else {
+		stats.IPIActivity = computeInterruptActivity(idx, q, EventIPI, coreByCPU, 8)
+	}
+	if identityConflict == nil {
+		if failure := durationFailures[durationOrderWorkqueue]; failure != nil {
+			stats.Caveats = append(stats.Caveats, durationOrderFailClosedCaveat(failure, "workqueue_activity"))
+		} else {
+			stats.WorkqueueActivity = computeWorkqueueActivity(idx, q, 8)
+		}
+		if failure := durationFailures[durationOrderDMAFence]; failure != nil {
+			stats.Caveats = append(stats.Caveats, durationOrderFailClosedCaveat(failure, "dma_fence_activity"))
+		} else {
+			stats.DMAFenceActivity = computeDMAFenceActivity(idx, q, 8)
+		}
+	}
+	if schedulerDurationsSafe {
+		stats.SchedStatAccounting = computeSchedStatAccounting(idx, q, 8)
+	}
 	stats.MemoryKinds = computeMemoryKinds(idx, q, 8)
 	stats.ThreadDrifts = detectThreadDrifts(idx, q, 8)
 	for _, drift := range stats.ThreadDrifts {
@@ -1819,7 +2182,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	stats.BlockIOByInode = computeBlockIOByInode(stats, 8)
 	stats.IOBurstEpisodes = computeIOBurstEpisodes(stats, 8)
 	stats.SupplyPressureSummary = computeSupplyPressureSummary(idx, q, stats, 8)
-	stats.PerfSamples = computePerfContext(idx, q, 8)
+	if schedulerDurationsSafe {
+		stats.PerfSamples = computePerfContext(idx, q, 8)
+	}
 	return stats
 }
 
@@ -1987,12 +2352,9 @@ func perfSampleMatchesThread(ev Event, thread ThreadRef) bool {
 		pf = &PerfFields{}
 	}
 	if thread.PID > 0 {
-		if pf.TID == thread.PID || ev.PID == thread.PID {
-			return true
-		}
-		if pf.PID == thread.PID || ev.TGID == thread.PID {
-			return true
-		}
+		// ThreadRef.PID is a TID.  pf.PID/ev.TGID are process identities and
+		// comm is not an authorized fallback once a TID is known.
+		return pf.TID == thread.PID || ev.PID == thread.PID
 	}
 	if thread.Comm != "" {
 		if strings.EqualFold(thread.Comm, pf.Comm) || strings.EqualFold(thread.Comm, ev.Comm) {
@@ -2454,6 +2816,10 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 	q = ensureQueryFlavor(idx, q)
 	start, end, count := perfTimelineWindow(idx, q)
 	res := PerfTimelineResult{Window: TimeWindow{StartTs: start, EndTs: end}}
+	if conflict := threadIncarnationConflictForQuery(idx, q, 0); conflict != nil {
+		res.Caveats = append(res.Caveats, "thread_identity_fail_closed=true; "+conflict.reason()+"; PID-keyed perf timeline buckets are omitted because the selected window spans task incarnations")
+		return res
+	}
 	if count == 0 {
 		res.Caveats = append(res.Caveats, "no perf_sample events matched the selected window or filters")
 		return res
@@ -2848,9 +3214,11 @@ func accumulateThreadDuration(bucket map[string]ThreadDuration, thread ThreadRef
 	if dur <= 0 {
 		return
 	}
-	key := fmt.Sprintf("%d/%s/%d", thread.PID, thread.Comm, cpu)
+	key := threadCPUKey(thread, cpu)
 	td := bucket[key]
-	td.Thread = thread
+	if td.Thread.PID == 0 || endTs > td.EndTs || (endTs == td.EndTs && threadDisplayLess(thread, td.Thread)) {
+		td.Thread = thread
+	}
 	td.DurationMs += dur
 	td.CPU = cpu
 	if freq > 0 {
@@ -2889,12 +3257,37 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 	if idx == nil {
 		return nil, nil, nil, nil, nil
 	}
+	if schedulerStateIntegrityFailureForQuery(idx, q, 0) != nil {
+		return nil, nil, nil, nil, nil
+	}
+	if threadIncarnationConflictForQuery(idx, q, 0) != nil {
+		return nil, nil, nil, nil, nil
+	}
 	blockedReasons := blockedReasonsByPID(idx, q)
 	open := map[int]offCPUStart{}
 	runnable := map[string]ThreadDuration{}
 	sleep := map[string]ThreadDuration{}
 	dstate := map[string]ThreadDuration{}
 	iowait := map[string]ThreadDuration{}
+	head := schedulerHeadForQuery(idx, q)
+	headOwnsPrefix := idx.Windowed && q.TimeStart > 0 && q.LineStart == 0 && q.LineEnd == 0 && head != nil
+	headComplete := headOwnsPrefix && head.Complete
+	if headComplete {
+		for _, state := range schedulerHeadSortedThreads(head) {
+			switch state.State {
+			case StateRunnable, StateSSleep, StateDSleep, StateIOWait:
+				open[state.Thread.PID] = offCPUStart{
+					thread:        state.Thread,
+					state:         state.State,
+					ts:            state.StartTs,
+					line:          state.Line,
+					cpu:           state.CPU,
+					priority:      state.Priority,
+					priorityClass: classifyTracePriority(q.TraceFlavor, state.Priority),
+				}
+			}
+		}
+	}
 	addDuration := func(bucket map[string]ThreadDuration, start offCPUStart, endTs float64, endLine int) {
 		startTs := start.ts
 		if q.TimeStart > 0 && startTs < q.TimeStart {
@@ -2908,9 +3301,11 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 		}
 		dur := (endTs - startTs) * 1000
 		freq := frequencyAt(freqTimelineFor(start.cpu), startTs)
-		key := fmt.Sprintf("%d/%s/%d", start.thread.PID, start.thread.Comm, start.cpu)
+		key := threadCPUKey(start.thread, start.cpu)
 		td := bucket[key]
-		td.Thread = start.thread
+		if td.Thread.PID == 0 || endTs > td.EndTs || (endTs == td.EndTs && threadDisplayLess(start.thread, td.Thread)) {
+			td.Thread = start.thread
+		}
 		td.DurationMs += dur
 		td.CPU = start.cpu
 		if freq > 0 {
@@ -2952,18 +3347,46 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 			accumulateThreadDuration(acc.runnable, start.thread, dur, start.cpu, freq, startTs, endTs, firstPositive(endLine, start.line), start.priority, start.priorityClass)
 		}
 	}
-	for _, ev := range idx.Events {
+	visit := func(ev Event) {
 		if !eventLineInWindow(ev, q) {
-			continue
+			return
+		}
+		if headOwnsPrefix && ev.Ts < q.TimeStart {
+			return
+		}
+		if pid, destCPU, comm, migrated := schedMigrationTarget(ev); migrated {
+			if !timeInWindow(ev.Ts, q) {
+				return
+			}
+			start, exists := open[pid]
+			if !exists || start.state != StateRunnable {
+				return
+			}
+			// A runnable migration ends CPU attribution on the old lane at the
+			// exact event timestamp and immediately continues the same state on
+			// the destination. At time_start the old clamped segment is zero and
+			// addDuration intentionally emits nothing.
+			addDuration(runnable, start, ev.Ts, ev.Line)
+			start.ts = ev.Ts
+			start.line = ev.Line
+			start.cpu = destCPU
+			if start.thread.Comm == "" && comm != "" {
+				start.thread.Comm = comm
+			}
+			open[pid] = start
+			return
 		}
 		if ev.Type == EventSchedWakeup || ev.Type == EventSchedWaking {
 			if ev.WakeePID <= 0 || !timeInWindow(ev.Ts, q) {
-				continue
+				return
 			}
 			if start, ok := open[ev.WakeePID]; ok {
+				if !schedWakeupStartsNewIncarnation(ev) && start.state == StateRunnable {
+					return
+				}
 				switch start.state {
 				case StateRunnable:
-					continue
+					addDuration(runnable, start, ev.Ts, ev.Line)
 				case StateSSleep:
 					addDuration(sleep, start, ev.Ts, ev.Line)
 				case StateDSleep, StateIOWait:
@@ -2982,10 +3405,10 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 				priority:      ev.WakeePrio,
 				priorityClass: classifyTracePriority(q.TraceFlavor, ev.WakeePrio),
 			}
-			continue
+			return
 		}
 		if ev.Type != EventSchedSwitch {
-			continue
+			return
 		}
 		if ev.NextPID > 0 {
 			if start, ok := open[ev.NextPID]; ok {
@@ -3018,6 +3441,7 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 			}
 		}
 	}
+	visitEventsInTimestampOrder(idx, nil, false, visit)
 	if q.TimeEnd > 0 {
 		for _, start := range open {
 			switch start.state {
@@ -3062,10 +3486,25 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 		res.Caveats = append(res.Caveats, "trace index is empty")
 		return res
 	}
+	if failure := schedulerStateIntegrityFailureForQuery(idx, q, 0); failure != nil {
+		res.Caveats = append(res.Caveats, "scheduler_duration_fail_closed=true; "+failure.reason()+"; runnable latency intervals are omitted")
+		res.Caveats = append(res.Caveats, stats.Caveats...)
+		return res
+	}
+	if conflict := threadIncarnationConflictForQuery(idx, q, 0); conflict != nil {
+		res.Caveats = append(res.Caveats, "thread_identity_fail_closed=true; "+conflict.reason()+"; runnable latency rows are omitted because the selected window spans task incarnations")
+		res.Caveats = append(res.Caveats, stats.Caveats...)
+		return res
+	}
 	var target ThreadRef
 	if q.PID > 0 || q.Thread != "" || q.ThreadInput != "" {
-		target = resolveThread(idx, q)
+		resolution := resolveThreadSelection(idx, q)
+		target = resolution.Thread
 		res.Target = target
+		if resolution.Ambiguous {
+			res.Caveats = append(res.Caveats, threadResolutionCaveat(idx, q))
+			return res
+		}
 	}
 	cpus := map[int]CPUStats{}
 	for _, cpu := range stats.CPU {
@@ -3076,13 +3515,17 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 		pressure[p.CPU] = p
 	}
 	catalog := buildThreadCatalog(idx, q)
+	frequencyIntegrity := frequencyOrderIntegrityForQuery(idx, q)
 	freqByCPU := map[int][]Event{}
 	for _, ev := range idx.Events {
 		// CFC P0: same shared admission predicate as ComputeWindowStats — the
 		// two window-face collections must stay member-identical.
 		if eventLineInWindow(ev, q) && isPerCPUFrequencySample(ev) {
 			if q.TimeEnd == 0 || ev.Ts <= q.TimeEnd {
-				freqByCPU[eventCPUForStats(ev)] = append(freqByCPU[eventCPUForStats(ev)], ev)
+				cpu := eventCPUForStats(ev)
+				if !frequencyIntegrity.frequencyUnsafe(cpu) {
+					freqByCPU[cpu] = append(freqByCPU[cpu], ev)
+				}
 			}
 		}
 	}
@@ -3095,8 +3538,11 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 	// ComputeWindowStats — membership global, values window-collected.
 	schedFreqDonors := newClusterFreqDonorResolver(
 		resolveClusterFreqDomains(q.CoreTopology, func() map[int][]freqSample { return indexFreqSampleTimelines(idx) }),
-		func(cpu int) bool { return len(freqByCPU[cpu]) > 0 })
+		func(cpu int) bool { return frequencyIntegrity.frequencyUnsafe(cpu) || len(freqByCPU[cpu]) > 0 })
 	schedFreqTimelineFor := func(cpu int) []Event {
+		if frequencyIntegrity.frequencyUnsafe(cpu) {
+			return nil
+		}
 		if evs := freqByCPU[cpu]; len(evs) > 0 {
 			return evs
 		}
@@ -3114,6 +3560,24 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 		priorityClass string
 	}
 	open := map[int]startInfo{}
+	head := schedulerHeadForQuery(idx, q)
+	headOwnsPrefix := idx.Windowed && q.TimeStart > 0 && q.LineStart == 0 && q.LineEnd == 0 && head != nil
+	headComplete := headOwnsPrefix && head.Complete
+	if headComplete {
+		for _, state := range schedulerHeadSortedThreads(head) {
+			if state.State != StateRunnable {
+				continue
+			}
+			open[state.Thread.PID] = startInfo{
+				thread:        state.Thread,
+				ts:            state.StartTs,
+				line:          state.Line,
+				cpu:           state.CPU,
+				priority:      state.Priority,
+				priorityClass: classifyTracePriority(q.TraceFlavor, state.Priority),
+			}
+		}
+	}
 	closeWait := func(pid int, endTs float64, endLine int) {
 		start, ok := open[pid]
 		if !ok {
@@ -3195,22 +3659,45 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 		}
 		res.Items = append(res.Items, item)
 	}
-	for _, ev := range idx.Events {
+	visitLatency := func(ev Event) {
+		if headOwnsPrefix && ev.Ts < q.TimeStart {
+			return
+		}
+		if pid, destCPU, comm, migrated := schedMigrationTarget(ev); migrated {
+			if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
+				return
+			}
+			start, exists := open[pid]
+			if !exists {
+				return
+			}
+			// Emit the old-CPU wait fragment through the same close authority,
+			// then continue the still-runnable wait on the destination CPU.
+			closeWait(pid, ev.Ts, ev.Line)
+			start.ts = ev.Ts
+			start.line = ev.Line
+			start.cpu = destCPU
+			if start.thread.Comm == "" && comm != "" {
+				start.thread.Comm = comm
+			}
+			open[pid] = start
+			return
+		}
 		if !eventLineInWindow(ev, q) || ev.Type != EventSchedSwitch {
 			if ev.Type == EventSchedWakeup || ev.Type == EventSchedWaking {
 				if ev.WakeePID > 0 {
 					if target.PID > 0 || target.Comm != "" {
 						if !threadMatches(target, ev.WakeePID, ev.WakeeComm) {
-							continue
+							return
 						}
 					}
 					if q.TimeEnd > 0 && ev.Ts > q.TimeEnd {
-						continue
+						return
 					}
 					if q.TimeStart > 0 && ev.Ts < q.TimeStart {
-						continue
+						return
 					}
-					if existing, ok := open[ev.WakeePID]; !ok || ev.Ts < existing.ts {
+					if existing, ok := open[ev.WakeePID]; schedWakeupStartsNewIncarnation(ev) || !ok || ev.Ts < existing.ts {
 						open[ev.WakeePID] = startInfo{
 							thread:        catalogThreadRef(catalog, ev.WakeePID, ev.WakeeComm),
 							ts:            ev.Ts,
@@ -3222,10 +3709,10 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 					}
 				}
 			}
-			continue
+			return
 		}
 		if q.TimeEnd > 0 && ev.Ts > q.TimeEnd {
-			break
+			return
 		}
 		if ev.NextPID > 0 {
 			closeWait(ev.NextPID, ev.Ts, ev.Line)
@@ -3241,6 +3728,7 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 			}
 		}
 	}
+	visitEventsInTimestampOrder(idx, nil, false, visitLatency)
 	if q.TimeEnd > 0 {
 		for pid := range open {
 			closeWait(pid, q.TimeEnd, 0)
@@ -3380,9 +3868,28 @@ func buildThreadCatalog(idx *Index, q Query) map[int]ThreadRef {
 		}
 		out[pid] = ref
 	}
+	// Window-head scheduler state is the governing generation when a bounded
+	// index legitimately omitted the creation/rename row from its retained
+	// event slice. Seed its own comm/TGID before in-window enrichment.
+	if q.TimeStart > 0 && q.LineStart == 0 && q.LineEnd == 0 {
+		if head := schedulerHeadForQuery(idx, q); head != nil && head.Complete {
+			for pid, state := range head.Threads {
+				if pid > 0 {
+					ref := state.Thread
+					ref.PID = pid
+					out[pid] = ref
+				}
+			}
+		}
+	}
 	for _, ev := range idx.Events {
-		if !eventLineInWindow(ev, q) {
+		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
 			continue
+		}
+		if schedWakeupStartsNewIncarnation(ev) && ev.WakeePID > 0 {
+			// Exact lifecycle reset: old comm/TGID must not survive into the new
+			// occupant even when both are present in a padded index.
+			out[ev.WakeePID] = ThreadRef{PID: ev.WakeePID, Comm: ev.WakeeComm}
 		}
 		add(ev.PID, ev.Comm, ev.TGID)
 		add(ev.PrevPID, ev.PrevComm, 0)
@@ -3401,7 +3908,7 @@ func buildThreadCatalog(idx *Index, q Query) map[int]ThreadRef {
 	// processRefForThread/catalogThreadRef. Soft display enrichment only —
 	// the vote table is nil whenever the index has any native TGID, so the
 	// with-TGID path is untouched.
-	if derive := idx.derivedTidTgid(); derive.enabled() {
+	if derive := idx.derivedTidTgidForQuery(q); derive.enabled() {
 		usedTgids := map[int]bool{}
 		for pid, ref := range out {
 			if ref.TGID == 0 {
@@ -3455,6 +3962,27 @@ func threadKey(thread ThreadRef) string {
 		return fmt.Sprintf("pid:%d", thread.PID)
 	}
 	return "comm:" + strings.ToLower(strings.TrimSpace(thread.Comm))
+}
+
+func threadCPUKey(thread ThreadRef, cpu int) string {
+	return fmt.Sprintf("%s/cpu:%d", threadKey(thread), cpu)
+}
+
+// threadDisplayLess is only a deterministic tie-breaker for soft display
+// metadata. Numeric TID remains the sole hard identity whenever it is known.
+func threadDisplayLess(left, right ThreadRef) bool {
+	leftComm := strings.TrimSpace(left.Comm)
+	rightComm := strings.TrimSpace(right.Comm)
+	if leftComm != rightComm {
+		if leftComm == "" {
+			return false
+		}
+		if rightComm == "" {
+			return true
+		}
+		return leftComm < rightComm
+	}
+	return left.TGID > 0 && (right.TGID <= 0 || left.TGID < right.TGID)
 }
 
 type cpuConstraintAcc struct {
@@ -4375,6 +4903,12 @@ func computeStateChurnSummaries(idx *Index, q Query, max int) []ThreadStateChurn
 	if idx == nil {
 		return nil
 	}
+	if schedulerStateIntegrityFailureForQuery(idx, q, 0) != nil {
+		return nil
+	}
+	if threadIncarnationConflictForQuery(idx, q, 0) != nil {
+		return nil
+	}
 	minDurationMs := q.MinDurationMs
 	if minDurationMs <= 0 {
 		minDurationMs = 1
@@ -4382,6 +4916,9 @@ func computeStateChurnSummaries(idx *Index, q Query, max int) []ThreadStateChurn
 	blockedReasons := blockedReasonsByPID(idx, q)
 	open := map[int]stateChurnOpen{}
 	accs := map[string]*stateChurnAcc{}
+	head := schedulerHeadForQuery(idx, q)
+	headOwnsPrefix := idx.Windowed && q.TimeStart > 0 && q.LineStart == 0 && q.LineEnd == 0 && head != nil
+	headComplete := headOwnsPrefix && head.Complete
 	closeState := func(pid int, endTs float64, endLine int) {
 		start, ok := open[pid]
 		if !ok {
@@ -4409,22 +4946,32 @@ func computeStateChurnSummaries(idx *Index, q Query, max int) []ThreadStateChurn
 		}
 		open[thread.PID] = stateChurnOpen{thread: thread, state: state, ts: ts, line: line}
 	}
-	for _, ev := range idx.Events {
+	if headComplete {
+		for _, state := range schedulerHeadSortedThreads(head) {
+			openState(state.Thread, state.State, state.StartTs, state.Line)
+		}
+	}
+	visitChurn := func(ev Event) {
 		if !eventLineInWindow(ev, q) {
-			continue
+			return
+		}
+		if headOwnsPrefix && ev.Ts < q.TimeStart {
+			return
 		}
 		switch ev.Type {
 		case EventSchedWakeup, EventSchedWaking:
 			if ev.WakeePID <= 0 {
-				continue
+				return
 			}
 			start, ok := open[ev.WakeePID]
 			// Shared wakeup-reopen guard (thread_state_universe.go) — same
 			// gate as the streaming face.
-			if !ok || stateChurnWakeupReopenIneligible(start.state) || ev.Ts < start.ts {
-				continue
+			if !schedWakeupStartsNewIncarnation(ev) && (!ok || stateChurnWakeupReopenIneligible(start.state) || ev.Ts < start.ts) {
+				return
 			}
-			closeState(ev.WakeePID, ev.Ts, ev.Line)
+			if ok {
+				closeState(ev.WakeePID, ev.Ts, ev.Line)
+			}
 			openState(ThreadRef{Comm: ev.WakeeComm, PID: ev.WakeePID}, StateRunnable, ev.Ts, ev.Line)
 		case EventSchedSwitch:
 			if ev.NextPID > 0 {
@@ -4437,6 +4984,7 @@ func computeStateChurnSummaries(idx *Index, q Query, max int) []ThreadStateChurn
 			}
 		}
 	}
+	visitEventsInTimestampOrder(idx, nil, false, visitChurn)
 	endTs := q.TimeEnd
 	if endTs == 0 && idx.LastTs > 0 {
 		endTs = idx.LastTs
@@ -4501,14 +5049,15 @@ func addStateChurnInterval(accs map[string]*stateChurnAcc, start stateChurnOpen,
 		return
 	}
 	durationMs := (clampedEnd - clampedStart) * 1000
-	key := fmt.Sprintf("%d/%s", start.thread.PID, start.thread.Comm)
+	key := threadKey(start.thread)
 	acc := accs[key]
 	if acc == nil {
 		acc = &stateChurnAcc{thread: start.thread}
 		accs[key] = acc
 	}
-	if acc.thread.Comm == "" && start.thread.Comm != "" {
-		acc.thread.Comm = start.thread.Comm
+	candidateEndLine := firstPositive(endLine, start.line)
+	if candidateEndLine > acc.lineEnd || (candidateEndLine == acc.lineEnd && threadDisplayLess(start.thread, acc.thread)) {
+		acc.thread = start.thread
 	}
 	acc.fragmentCount++
 	if acc.lastState != "" && acc.lastState != state {
@@ -4522,8 +5071,8 @@ func addStateChurnInterval(accs map[string]*stateChurnAcc, start stateChurnOpen,
 	if acc.lineStart == 0 || (start.line > 0 && start.line < acc.lineStart) {
 		acc.lineStart = start.line
 	}
-	if candidateEnd := firstPositive(endLine, start.line); candidateEnd > acc.lineEnd {
-		acc.lineEnd = candidateEnd
+	if candidateEndLine > acc.lineEnd {
+		acc.lineEnd = candidateEndLine
 	}
 	switch state {
 	case StateRunning:
@@ -4549,7 +5098,9 @@ func blockedReasonForInterval(in map[int][]Event, thread ThreadRef, start, end f
 		if ev.Ts < start || ev.Ts > end {
 			continue
 		}
-		best = ev
+		if best == nil || eventLaterThan(*ev, *best) {
+			best = ev
+		}
 	}
 	return best
 }
@@ -4797,8 +5348,8 @@ const stateDrilldownIdleSleeperThreadListCap = 8
 // window, QF2 2026-07-03), not an idle service thread: folding it would tell
 // the model its own target did nothing and misdirect the root-cause hunt.
 func stateDrilldownPinnedTarget(thread ThreadRef, pinnedPID int, pinnedComm string) bool {
-	if pinnedPID > 0 && thread.PID == pinnedPID {
-		return true
+	if pinnedPID > 0 {
+		return thread.PID == pinnedPID
 	}
 	if pinnedComm != "" && thread.Comm == pinnedComm {
 		return true
@@ -4920,7 +5471,7 @@ func buildStateDrilldownPlanForTarget(stats WindowStats, max int, pinnedPID int,
 	seen := map[string]bool{}
 	out := make([]StateDrilldownStep, 0, len(candidates))
 	for _, step := range candidates {
-		key := fmt.Sprintf("%d/%s/%s", step.Thread.PID, step.Thread.Comm, step.State)
+		key := threadKey(step.Thread) + "/state:" + step.State
 		if seen[key] {
 			continue
 		}
@@ -4972,7 +5523,7 @@ func isFragmentedSleepChurn(churn ThreadStateChurnSummary) bool {
 }
 
 func stateDrilldownThreadKey(thread ThreadRef) string {
-	return fmt.Sprintf("%d/%s", thread.PID, thread.Comm)
+	return threadKey(thread)
 }
 
 func stateDrilldownPriority(step StateDrilldownStep) float64 {
@@ -5084,30 +5635,13 @@ func topBlockedReasons(in map[string]BlockedReasonSummary, max int) []BlockedRea
 }
 
 func resolveBlockedReasonThread(idx *Index, ev Event) ThreadRef {
-	ref := ThreadRef{PID: ev.WakeePID}
 	if idx == nil || ev.WakeePID == 0 {
-		return ref
+		return ThreadRef{PID: ev.WakeePID}
 	}
-	for _, candidate := range idx.Events {
-		if candidate.PID == ev.WakeePID {
-			ref.Comm = candidate.Comm
-			ref.TGID = candidate.TGID
-			return ref
-		}
-		if candidate.PrevPID == ev.WakeePID {
-			ref.Comm = candidate.PrevComm
-			return ref
-		}
-		if candidate.NextPID == ev.WakeePID {
-			ref.Comm = candidate.NextComm
-			return ref
-		}
-		if candidate.WakeePID == ev.WakeePID {
-			ref.Comm = candidate.WakeeComm
-			return ref
-		}
-	}
-	return ref
+	// Resolve metadata from the physical lifecycle prefix ending at this exact
+	// evidence row. A full-index first match can belong to an earlier occupant
+	// of the same numeric TID and leak its comm/TGID into the blocked reason.
+	return resolvePIDThread(idx, ev.WakeePID, Query{LineEnd: ev.Line})
 }
 
 func upsertCPUBusyIdle(in []CPUStats, cpu int, busy, idle float64) []CPUStats {
@@ -5567,7 +6101,10 @@ func computeIOLatencies(idx *Index, q Query, max int) []IOLatencySummary {
 			continue
 		}
 		if q.TimeEnd > 0 && ev.Ts > q.TimeEnd {
-			break
+			if idx.TimestampOrder.AllowsTimeEndEarlyStop() {
+				break
+			}
+			continue
 		}
 		switch ev.Type {
 		case EventBlockIssue:
@@ -5735,6 +6272,7 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 	}
 	stacks := map[int][]Event{}
 	asyncStarts := map[string][]Event{}
+	asyncOwners := map[string]int{}
 	var spans []TraceSpanSummary
 	counters := map[string]TraceCounterSummary{}
 	// DCS E4 (ledger §23/§23.1 H1, 2026-07-08): B/E and S/F pairing runs over
@@ -5745,6 +6283,16 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 	// (clipTraceMarkSpanToQueryWindow); C| counter rows keep the strict
 	// window filter unchanged.
 	for _, ev := range idx.Events {
+		if resetPID, reset := schedulerLifecycleResetPID(ev); reset {
+			delete(stacks, resetPID)
+			for key, owner := range asyncOwners {
+				if owner == resetPID {
+					delete(asyncOwners, key)
+					delete(asyncStarts, key)
+				}
+			}
+			continue
+		}
 		if ev.Type != EventTraceMark {
 			continue
 		}
@@ -5770,6 +6318,7 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 				continue
 			}
 			asyncStarts[key] = append(asyncStarts[key], ev)
+			asyncOwners[key] = ev.PID
 		case "F":
 			key := traceAsyncSpanKey(ev)
 			stack := asyncStarts[key]
@@ -5778,6 +6327,9 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 			}
 			start := stack[len(stack)-1]
 			asyncStarts[key] = stack[:len(stack)-1]
+			if len(asyncStarts[key]) == 0 {
+				delete(asyncOwners, key)
+			}
 			if ev.Ts < start.Ts {
 				continue
 			}
@@ -6033,17 +6585,40 @@ func findSpanWindowsCompacted(idx *Index, q Query, max int) ([]TraceSpanSummary,
 	if idx == nil {
 		return nil, []string{"trace index is empty"}, nil
 	}
+	if failure := durationOrderFailureForFamily(idx, q, durationOrderTraceSpan); failure != nil {
+		return nil, []string{durationOrderFailClosedCaveat(failure, "span_window")}, nil
+	}
 	if max <= 0 {
 		max = ViewCapacityFor("span_window").FloorLimit
 	}
 	var target ThreadRef
 	if q.PID > 0 || strings.TrimSpace(q.Thread) != "" || strings.TrimSpace(q.ThreadInput) != "" {
-		target = resolveThread(idx, q)
+		resolution := resolveThreadSelection(idx, q)
+		if resolution.Ambiguous {
+			return nil, []string{threadResolutionCaveat(idx, q)}, nil
+		}
+		target = resolution.Thread
+		if target.PID > 0 {
+			if conflict := threadIncarnationConflictForQuery(idx, q, target.PID); conflict != nil {
+				return nil, []string{"thread_identity_fail_closed=true; " + conflict.reason() + "; target-scoped spans are omitted because the numeric TID spans task incarnations"}, nil
+			}
+		}
 	}
 	stacks := map[int][]Event{}
 	asyncStarts := map[string][]Event{}
+	asyncOwners := map[string]int{}
 	var spans []TraceSpanSummary
 	for _, ev := range idx.Events {
+		if resetPID, reset := schedulerLifecycleResetPID(ev); reset {
+			delete(stacks, resetPID)
+			for key, owner := range asyncOwners {
+				if owner == resetPID {
+					delete(asyncOwners, key)
+					delete(asyncStarts, key)
+				}
+			}
+			continue
+		}
 		if ev.Type != EventTraceMark {
 			continue
 		}
@@ -6074,6 +6649,7 @@ func findSpanWindowsCompacted(idx *Index, q Query, max int) ([]TraceSpanSummary,
 				continue
 			}
 			asyncStarts[key] = append(asyncStarts[key], ev)
+			asyncOwners[key] = ev.PID
 		case "F":
 			key := traceAsyncSpanKey(ev)
 			stack := asyncStarts[key]
@@ -6082,6 +6658,9 @@ func findSpanWindowsCompacted(idx *Index, q Query, max int) ([]TraceSpanSummary,
 			}
 			start := stack[len(stack)-1]
 			asyncStarts[key] = stack[:len(stack)-1]
+			if len(asyncStarts[key]) == 0 {
+				delete(asyncOwners, key)
+			}
 			if ev.Ts < start.Ts {
 				continue
 			}
@@ -6160,12 +6739,10 @@ func computeIRQBursts(idx *Index, q Query, max int) []IRQBurstSummary {
 			continue
 		}
 		name := firstNonEmpty(ev.IRQName, ev.Name, "irq")
-		key := fmt.Sprintf("%d/%d/%s", ev.CPU, ev.IRQID, name)
-		for existing, burst := range active {
-			if existing != key && ev.Ts-burst.EndTs > burstGapSeconds {
-				flush(existing)
-			}
-		}
+		// CPU + vector is the exact interrupt lane; exit rows often omit the
+		// display name. An unrelated CPU's future timestamp must never flush or
+		// split this lane's burst.
+		key := fmt.Sprintf("%d/%d", ev.CPU, ev.IRQID)
 		burst := active[key]
 		if burst.Count > 0 && ev.Ts-burst.EndTs > burstGapSeconds {
 			flush(key)
@@ -6181,6 +6758,8 @@ func computeIRQBursts(idx *Index, q Query, max int) []IRQBurstSummary {
 				LineStart: ev.Line,
 				LineEnd:   ev.Line,
 			}
+		} else if burst.Name == "" || burst.Name == "irq" {
+			burst.Name = name
 		}
 		burst.Count++
 		burst.EndTs = ev.Ts
@@ -6217,7 +6796,7 @@ func computeInterruptActivity(idx *Index, q Query, typ EventType, coreByCPU map[
 	open := map[string][]interruptOpen{}
 	ensure := func(ev Event, baseName string) *InterruptActivity {
 		name := firstNonEmpty(baseName, ev.IRQName, ev.Name, string(typ))
-		key := fmt.Sprintf("%s/%d/%d/%s", typ, ev.CPU, ev.IRQID, name)
+		key := fmt.Sprintf("%s/%d/%d", typ, ev.CPU, ev.IRQID)
 		item := accs[key]
 		if item == nil {
 			item = &InterruptActivity{
@@ -6232,6 +6811,8 @@ func computeInterruptActivity(idx *Index, q Query, typ EventType, coreByCPU map[
 				EndTs:     ev.Ts,
 			}
 			accs[key] = item
+		} else if (item.Name == "" || item.Name == string(typ) || strings.Contains(item.Name, "_exit")) && name != "" {
+			item.Name = name
 		}
 		item.Count++
 		if ev.IPITargetMask != "" {
@@ -6253,7 +6834,7 @@ func computeInterruptActivity(idx *Index, q Query, typ EventType, coreByCPU map[
 		}
 		baseName, phase := interruptBaseAndPhase(ev)
 		item := ensure(ev, baseName)
-		key := fmt.Sprintf("%s/%d/%d/%s", typ, ev.CPU, ev.IRQID, item.Name)
+		key := fmt.Sprintf("%s/%d/%d", typ, ev.CPU, ev.IRQID)
 		switch phase {
 		case "entry":
 			open[key] = append(open[key], interruptOpen{ev: ev})
@@ -6278,9 +6859,9 @@ func computeInterruptActivity(idx *Index, q Query, typ EventType, coreByCPU map[
 	windowMs := (q.TimeEnd - q.TimeStart) * 1000
 	out := make([]InterruptActivity, 0, len(accs))
 	for _, item := range accs {
-		if item.ActiveMs == 0 && item.EndTs > item.StartTs && typ != EventIPI {
-			item.ActiveMs = (item.EndTs - item.StartTs) * 1000
-		}
+		// Only a typed entry/exit pair can mint active time. The old
+		// first-to-last envelope fallback turned unrelated or incomplete rows
+		// into a hard duration.
 		if windowMs > 0 {
 			item.WindowOverlapMs = minFloat(item.ActiveMs, windowMs)
 		}
@@ -6341,7 +6922,7 @@ func computeSchedStatAccounting(idx *Index, q Query, max int) []SchedStatSummary
 		}
 		thread := ThreadRef{Comm: firstNonEmpty(ss.Comm, ev.Comm), PID: firstNonZero(ss.PID, ev.PID), TGID: ev.TGID}
 		kind := firstNonEmpty(ss.Kind, strings.TrimPrefix(ev.Name, "sched_stat_"), "unknown")
-		key := fmt.Sprintf("%d/%s/%s", thread.PID, thread.Comm, kind)
+		key := threadKey(thread) + "/kind:" + kind
 		item := accs[key]
 		if item == nil {
 			item = &SchedStatSummary{
@@ -6466,9 +7047,8 @@ func computeWorkqueueActivity(idx *Index, q Query, max int) []WorkqueueActivity 
 	}
 	out := make([]WorkqueueActivity, 0, len(accs))
 	for _, item := range accs {
-		if item.DurationMs == 0 && item.EndTs > item.StartTs {
-			item.DurationMs = (item.EndTs - item.StartTs) * 1000
-		}
+		// Count-only/unpaired rows stay visible with duration=0. A first/last
+		// envelope is not a deterministic workqueue execution interval.
 		item.Summary = fmt.Sprintf("workqueue thread=%s work=%s function=%s count=%d paired=%d duration=%.3fms max=%.3fms",
 			threadLabel(item.Thread), item.Work, item.Function, item.Count, item.PairedCount, item.DurationMs, item.MaxLatencyMs)
 		out = append(out, *item)
@@ -6577,9 +7157,8 @@ func computeDMAFenceActivity(idx *Index, q Query, max int) []DMAFenceActivity {
 	}
 	out := make([]DMAFenceActivity, 0, len(accs))
 	for _, item := range accs {
-		if item.WaitMs == 0 && item.EndTs > item.StartTs {
-			item.WaitMs = (item.EndTs - item.StartTs) * 1000
-		}
+		// Count-only/unpaired rows stay visible with wait=0. Only a typed
+		// start/end pair can mint fence wait time.
 		item.Summary = fmt.Sprintf("dma_fence thread=%s driver=%s timeline=%s context=%s seqno=%s count=%d paired=%d wait=%.3fms max=%.3fms",
 			threadLabel(item.Thread), item.Driver, item.Timeline, item.Context, item.Seqno, item.Count, item.PairedCount, item.WaitMs, item.MaxWaitMs)
 		out = append(out, *item)
@@ -7879,16 +8458,30 @@ func BuildWakeupChain(idx *Index, q Query) ChainResult {
 func buildWakeupChainWithCache(idx *Index, q Query, cache *chainQueryCache) ChainResult {
 	q = normalizeQuery(idx, q)
 	q = ensureQueryFlavor(idx, q)
-	target := cache.resolveThread(q)
+	resolution := cache.resolveThreadSelection(q)
+	target := resolution.Thread
 	res := ChainResult{Target: target, Window: TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}}
+	res.Caveats = append(res.Caveats, cache.frequencyOrderCaveats()...)
 	if target.PID == 0 && target.Comm == "" {
+		if resolution.Ambiguous {
+			res.Caveats = append(res.Caveats, threadResolutionCaveat(idx, q))
+		}
 		res.Caveats = append(res.Caveats, "target thread not found")
+		return res
+	}
+	if conflict := threadIncarnationConflictForQuery(idx, q, 0); conflict != nil {
+		res.Caveats = append(res.Caveats, "wakeup_chain_fail_closed=true; thread_identity_fail_closed=true; "+conflict.reason()+"; causal aggregation is omitted because a target/waker PID may denote multiple task incarnations")
 		return res
 	}
 	tq := q
 	tq.PID = target.PID
 	tq.Thread = target.Comm
 	targetTimeline := cache.timeline(tq, target)
+	res.Caveats = dedupStrings(append(res.Caveats, targetTimeline.Caveats...))
+	if targetTimeline.IntegrityFailure != "" {
+		res.Caveats = append(res.Caveats, "wakeup_chain_fail_closed=true; target timeline integrity failure="+targetTimeline.IntegrityFailure+"; no trace_gap or causal edge is inferred from the discarded interval set")
+		return res
+	}
 	branches, qualifyingBranches := interestingIntervals(targetTimeline.Intervals, q.MinDurationMs, q.MaxBranches)
 	viaRaw := strings.TrimSpace(q.ViaThread)
 	if qualifyingBranches > len(branches) && viaRaw == "" {
@@ -9594,6 +10187,14 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	// (opendir_78 E5/E6: 1.136 rank#3 + 0.462 rank#8 → 1.598 one seat). Keyed
 	// additionally on chain lane and typed selected window (M3 跨窗纪律).
 	items = foldSameThreadTypeRankFamilies(q, hasCausalChain, items)
+	// B4 (2026-07-10): the d_state_or_io_wait source row and its
+	// io_burst_episode resource projection may be the exact same physical
+	// segment. Reconcile only the adjudicated exact-match shape before sort /
+	// capacity / ordinal assignment, so one segment owns one board seat while
+	// the absorbed observation remains lossless on res.AbsorbedItems.
+	res.Items = items
+	reconcileExactCrossTypeRankSeats(&res)
+	items = res.Items
 	normalizeRootCauseCumulativeImpact(items)
 	normalizeRootCauseEffectiveImpact(items)
 	sortRootCauseRankItems(items, hasCausalChain)
@@ -9758,6 +10359,10 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	// re-sort. Idempotent over the build pass: already-merged families arrive
 	// as single rows and pass through untouched.
 	rank.Items = foldSameThreadTypeRankFamilies(q, hasCausalChain, rank.Items)
+	// Idempotent B4 recomputation after enrichment: scheduler additions cannot
+	// silently resurrect the absorbed cross-type seat, and the dedicated
+	// lossless carrier is rejoined to the same exact engine key.
+	reconcileExactCrossTypeRankSeats(&rank)
 	normalizeRootCauseCumulativeImpact(rank.Items)
 	normalizeRootCauseEffectiveImpact(rank.Items)
 	sortRootCauseRankItems(rank.Items, hasCausalChain)
@@ -10723,7 +11328,7 @@ func rootCauseExactThreadDurationSet(items []ThreadDuration) map[string][]Thread
 		if td.Thread.PID <= 0 || td.DurationMs <= 0 {
 			continue
 		}
-		key := fmt.Sprintf("%d/%s", td.Thread.PID, td.Thread.Comm)
+		key := threadKey(td.Thread)
 		out[key] = append(out[key], td)
 	}
 	return out
@@ -10733,7 +11338,7 @@ func rootCauseThreadDurationCovered(exact map[string][]ThreadDuration, candidate
 	if candidate.Thread.PID <= 0 || candidate.DurationMs <= 0 {
 		return false
 	}
-	for _, td := range exact[fmt.Sprintf("%d/%s", candidate.Thread.PID, candidate.Thread.Comm)] {
+	for _, td := range exact[threadKey(candidate.Thread)] {
 		if windowOverlapMs(td.StartTs, td.EndTs, candidate.StartTs, candidate.EndTs) > 0 {
 			return true
 		}
@@ -12219,6 +12824,7 @@ func stampRunnableSelfBelowRTPreempted(items []RootCauseRankItem, contexts []Run
 //     incrementing;
 //   - wait-symptom target_self_state rows and trace_gap data-blind-spot rows
 //     carry Rank=0 — no seat, no hole.
+//
 // Election slots (tier words), BackgroundRank counting and every
 // score/sort lane are UNTOUCHED — only the ordinal channel moved. The display
 // badge gate is Rank>0, so Rank=0 rows drop their badge by construction.
@@ -12429,7 +13035,8 @@ func lastThreadLine(items []ThreadDuration) int {
 
 func BuildInteractionStats(idx *Index, q Query) InteractionStatsResult {
 	q = normalizeQuery(idx, q)
-	target := resolveThread(idx, q)
+	resolution := resolveThreadSelection(idx, q)
+	target := resolution.Thread
 	direction := normalizeInteractionDirection(q.InteractionDirection)
 	res := InteractionStatsResult{
 		Target:    target,
@@ -12437,7 +13044,14 @@ func BuildInteractionStats(idx *Index, q Query) InteractionStatsResult {
 		Direction: direction,
 	}
 	if target.PID == 0 && target.Comm == "" {
+		if resolution.Ambiguous {
+			res.Caveats = append(res.Caveats, threadResolutionCaveat(idx, q))
+		}
 		res.Caveats = append(res.Caveats, "target thread not found; provide pid or a thread name visible in the trace")
+		return res
+	}
+	if conflict := threadIncarnationConflictForQuery(idx, q, 0); conflict != nil {
+		res.Caveats = append(res.Caveats, "thread_identity_fail_closed=true; "+conflict.reason()+"; interaction rows are omitted because the target numeric TID spans task incarnations")
 		return res
 	}
 	acc := map[string]*InteractionSummary{}
@@ -12445,7 +13059,7 @@ func BuildInteractionStats(idx *Index, q Query) InteractionStatsResult {
 		if peer.PID == 0 && peer.Comm == "" {
 			return
 		}
-		key := fmt.Sprintf("%d/%s", peer.PID, peer.Comm)
+		key := threadKey(peer)
 		item := acc[key]
 		if item == nil {
 			item = &InteractionSummary{Peer: peer, FirstTs: ts, LastTs: ts, FirstLine: line, LastLine: line}
@@ -12473,6 +13087,9 @@ func BuildInteractionStats(idx *Index, q Query) InteractionStatsResult {
 	}
 	for _, ev := range idx.Events {
 		if ev.Type != EventSchedWakeup && ev.Type != EventSchedWaking {
+			continue
+		}
+		if schedWakeupStartsNewIncarnation(ev) {
 			continue
 		}
 		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
@@ -12594,6 +13211,7 @@ func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 	bundle.Caveats = append(bundle.Caveats, frame.Caveats...)
 	bundle.Caveats = append(bundle.Caveats, rank.Caveats...)
 	bundle.Caveats = append(bundle.Caveats, blocking.Caveats...)
+	bundle.Caveats = dedupStrings(bundle.Caveats)
 	return bundle
 }
 
@@ -13391,6 +14009,7 @@ func traceSpanLooksLikeShaderCompile(lower string, tokens map[string]bool) bool 
 //   - the character right after the prefix must NOT be alphanumeric, so
 //     "texture uploads"/"texture uploader" stay out — the observed suffixes
 //     begin with '(' or ' '.
+//
 // The raw span name (id + dimensions) stays on the roster as the member
 // distinguishing key; only the CLASS is normalized.
 //
@@ -14775,13 +15394,18 @@ type chainQueryCache struct {
 	blockedByPID    map[int][]int
 	priorityByPID   map[int][]prioritySample
 	timelineByKey   map[string]TimelineResult
-	resolvedByQuery map[string]ThreadRef
+	resolvedByQuery map[string]threadResolution
 	// freqByCPU is the lazily-built per-CPU cpu_frequency sample timeline
 	// (ts-ordered, kHz). Empty slice per CPU when the trace carries no
 	// frequency events — consumers must treat "no sample" as unknown, not
 	// as zero supply (R5d weak-core gate stays conservative).
 	freqByCPU     map[int][]freqSample
 	freqIndexOnce bool
+	// freqOrder is the full-index physical-order verdict used by trace-global
+	// topology/capability and chain-fold consumers. A per-CPU poison removes
+	// only that CPU and also blocks same-cluster donor/rail substitution.
+	freqOrder     frequencyOrderIntegrity
+	freqOrderOnce bool
 	// freqLimitByCPU is the lazily-built per-CPU cpu_frequency_limits Max
 	// timeline (ts-ordered, kHz) — the VS-2b fmax ladder's step-2 source
 	// (policy ceiling; see supply_fold.go).
@@ -14814,13 +15438,46 @@ type chainQueryCache struct {
 }
 
 type cpuSample struct {
-	ts  float64
-	cpu int
+	ts   float64
+	line int
+	cpu  int
 }
 
 type freqSample struct {
 	ts  float64
 	khz int
+}
+
+func (c *chainQueryCache) buildFrequencyOrderIntegrity() {
+	if c == nil || c.freqOrderOnce {
+		return
+	}
+	c.freqOrderOnce = true
+	c.freqOrder = frequencyOrderIntegrityForQuery(c.idx, Query{})
+}
+
+func (c *chainQueryCache) frequencyLaneUnsafe(cpu int) bool {
+	if c == nil {
+		return false
+	}
+	c.buildFrequencyOrderIntegrity()
+	return c.freqOrder.frequencyUnsafe(cpu)
+}
+
+func (c *chainQueryCache) frequencyLimitLaneUnsafe(cpu int) bool {
+	if c == nil {
+		return false
+	}
+	c.buildFrequencyOrderIntegrity()
+	return c.freqOrder.limitUnsafe(cpu)
+}
+
+func (c *chainQueryCache) frequencyOrderCaveats() []string {
+	if c == nil {
+		return nil
+	}
+	c.buildFrequencyOrderIntegrity()
+	return c.freqOrder.caveats()
 }
 
 // buildFreqIndexLocked scans the index once for cpu_frequency events. The
@@ -14830,6 +15487,7 @@ func (c *chainQueryCache) buildFreqIndex() {
 		return
 	}
 	c.freqIndexOnce = true
+	c.buildFrequencyOrderIntegrity()
 	// VS-2c 终局裁定 (§7.10): clock_set_rate lanes reclassified as
 	// cpu_frequency by the isCPUFrequencyClock NAME HEURISTIC carry
 	// vendor-free-vocabulary names and emitting-CPU attribution (hmtrace
@@ -14855,6 +15513,9 @@ func (c *chainQueryCache) buildFreqIndex() {
 // starts). Returns 0 only when the trace carries no samples for that CPU at
 // all.
 func (c *chainQueryCache) frequencyAt(cpu int, ts float64) int {
+	if c.frequencyLaneUnsafe(cpu) {
+		return 0
+	}
 	c.buildFreqIndex()
 	samples := c.freqByCPU[cpu]
 	if len(samples) == 0 {
@@ -14894,27 +15555,41 @@ func (c *chainQueryCache) threadCPUNear(thread ThreadRef, ts float64) (int, bool
 			}
 			ev := c.idx.Events[id]
 			if ev.Type == EventSchedSwitch && ev.NextPID == thread.PID {
-				samples = append(samples, cpuSample{ts: ev.Ts, cpu: ev.CPU})
+				samples = append(samples, cpuSample{ts: ev.Ts, line: ev.Line, cpu: ev.CPU})
 			}
 		}
+		sort.SliceStable(samples, func(i, j int) bool {
+			if samples[i].ts != samples[j].ts {
+				return samples[i].ts < samples[j].ts
+			}
+			return samples[i].line < samples[j].line
+		})
 		c.switchInByPID[thread.PID] = samples
 	}
+	scope := threadGenerationScopeAt(c.idx, thread.PID, ts, 0)
+	if !scope.known {
+		return 0, false
+	}
 	lo, hi := 0, len(samples)-1
-	cpu, ok := 0, false
+	best := -1
 	for lo <= hi {
 		mid := (lo + hi) / 2
 		if samples[mid].ts <= ts {
-			cpu, ok = samples[mid].cpu, true
+			best = mid
 			lo = mid + 1
 		} else {
 			hi = mid - 1
 		}
 	}
-	return cpu, ok
+	if best < 0 || !scope.contains(samples[best].ts, samples[best].line) {
+		return 0, false
+	}
+	return samples[best].cpu, true
 }
 
 type prioritySample struct {
 	ts   float64
+	line int
 	prio int
 }
 
@@ -14926,7 +15601,7 @@ func newChainQueryCache(idx *Index) *chainQueryCache {
 		blockedByPID:    map[int][]int{},
 		priorityByPID:   map[int][]prioritySample{},
 		timelineByKey:   map[string]TimelineResult{},
-		resolvedByQuery: map[string]ThreadRef{},
+		resolvedByQuery: map[string]threadResolution{},
 	}
 	if idx == nil {
 		return cache
@@ -14947,7 +15622,7 @@ func newChainQueryCache(idx *Index) *chainQueryCache {
 			if pid <= 0 || prio <= 0 {
 				return
 			}
-			cache.priorityByPID[pid] = append(cache.priorityByPID[pid], prioritySample{ts: ev.Ts, prio: prio})
+			cache.priorityByPID[pid] = append(cache.priorityByPID[pid], prioritySample{ts: ev.Ts, line: ev.Line, prio: prio})
 		}
 		switch ev.Type {
 		case EventSchedSwitch:
@@ -14969,24 +15644,27 @@ func newChainQueryCache(idx *Index) *chainQueryCache {
 	}
 	for pid, samples := range cache.priorityByPID {
 		sort.SliceStable(samples, func(i, j int) bool {
-			return samples[i].ts < samples[j].ts
+			if samples[i].ts != samples[j].ts {
+				return samples[i].ts < samples[j].ts
+			}
+			return samples[i].line < samples[j].line
 		})
 		cache.priorityByPID[pid] = samples
 	}
 	return cache
 }
 
-func (c *chainQueryCache) resolveThread(q Query) ThreadRef {
+func (c *chainQueryCache) resolveThreadSelection(q Query) threadResolution {
 	if c == nil || c.idx == nil {
-		return ThreadRef{}
+		return threadResolution{}
 	}
 	key := fmt.Sprintf("pid=%d/thread=%s/input=%s", q.PID, q.Thread, q.ThreadInput)
-	if ref, ok := c.resolvedByQuery[key]; ok {
-		return ref
+	if resolution, ok := c.resolvedByQuery[key]; ok {
+		return resolution
 	}
-	ref := resolveThread(c.idx, q)
-	c.resolvedByQuery[key] = ref
-	return ref
+	resolution := resolveThreadSelection(c.idx, q)
+	c.resolvedByQuery[key] = resolution
+	return resolution
 }
 
 func (c *chainQueryCache) timeline(q Query, thread ThreadRef) TimelineResult {
@@ -15079,13 +15757,31 @@ func (c *chainQueryCache) priorityNear(flavor TraceFlavor, thread ThreadRef, ts 
 	if len(samples) == 0 {
 		return threadPriorityNear(c.idx, flavor, thread, ts)
 	}
-	pos := sort.Search(len(samples), func(i int) bool {
-		return samples[i].ts >= ts
+	scope := threadGenerationScopeAt(c.idx, thread.PID, ts, 0)
+	if !scope.known {
+		return 0, ""
+	}
+	first, last := 0, len(samples)
+	if scope.hasStart {
+		first = sort.Search(len(samples), func(i int) bool {
+			return lifecyclePointAtOrAfter(samples[i].ts, samples[i].line, scope.start)
+		})
+	}
+	if scope.hasEnd {
+		last = sort.Search(len(samples), func(i int) bool {
+			return lifecyclePointAtOrAfter(samples[i].ts, samples[i].line, scope.end)
+		})
+	}
+	if first >= last {
+		return 0, ""
+	}
+	pos := first + sort.Search(last-first, func(i int) bool {
+		return samples[first+i].ts >= ts
 	})
 	bestPrio := 0
 	bestDist := 0.0
 	consider := func(i int) {
-		if i < 0 || i >= len(samples) || samples[i].prio <= 0 {
+		if i < first || i >= last || samples[i].prio <= 0 || !scope.contains(samples[i].ts, samples[i].line) {
 			return
 		}
 		dist := samples[i].ts - ts
@@ -15121,6 +15817,11 @@ func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, 
 	tq.TimeStart = start
 	tq.TimeEnd = end
 	tl := cache.timeline(tq, thread)
+	res.Caveats = dedupStrings(append(res.Caveats, tl.Caveats...))
+	if tl.IntegrityFailure != "" {
+		res.Caveats = append(res.Caveats, fmt.Sprintf("wakeup_chain_dependency_fail_closed=true; %s timeline integrity failure=%s; this branch is not converted into trace_gap evidence", threadLabel(thread), tl.IntegrityFailure))
+		return ""
+	}
 	impact := summarizeWakeupCausalImpact(idx, q, cache, thread, tl.Intervals, start, end, depth, targetBlockedMs, res.Target, consumers)
 	interesting := mostInterestingInterval(tl.Intervals, q.MinDurationMs)
 	nodeID := fmt.Sprintf("n%d", len(res.Nodes)+1)
@@ -15599,10 +16300,17 @@ func threadPriorityNear(idx *Index, flavor TraceFlavor, thread ThreadRef, ts flo
 	if idx == nil || (thread.PID <= 0 && thread.Comm == "") {
 		return 0, ""
 	}
+	scope := threadGenerationScope{known: true}
+	if thread.PID > 0 {
+		scope = threadGenerationScopeAt(idx, thread.PID, ts, 0)
+		if !scope.known {
+			return 0, ""
+		}
+	}
 	bestPrio := 0
 	bestDist := 0.0
 	consider := func(ev Event, pid int, comm string, prio int) {
-		if prio <= 0 || !threadMatches(thread, pid, comm) {
+		if prio <= 0 || !threadMatches(thread, pid, comm) || (thread.PID > 0 && !scope.contains(ev.Ts, ev.Line)) {
 			return
 		}
 		dist := ev.Ts - ts
@@ -15682,6 +16390,7 @@ func mostInterestingInterval(intervals []Interval, minDurationMs float64) *Inter
 //     (sub-threshold fragments of any state — real scheduler data; the same
 //     (thread, window) may legitimately carry a depth-0 running rank row, the
 //     §27.2 OS_FFRT self-contradiction witness).
+//
 // Precise integer signal (len) only — never a prose/summary heuristic.
 func traceGapKindForTimeline(intervals []Interval) string {
 	if len(intervals) == 0 {
@@ -15774,6 +16483,13 @@ func findWakeupForWithSelection(idx *Index, thread ThreadRef, start, end float64
 		if ev.Type != EventSchedWakeup && ev.Type != EventSchedWaking {
 			return
 		}
+		// sched_wakeup_new creates a new occupant of the numeric TID.  It is
+		// never evidence that the creator woke a sleep interval belonging to the
+		// previous occupant, and must not mint a cross-generation causal edge or
+		// counterpart fallback.
+		if schedWakeupStartsNewIncarnation(*ev) {
+			return
+		}
 		if ev.Ts < start {
 			return
 		}
@@ -15782,8 +16498,10 @@ func findWakeupForWithSelection(idx *Index, thread ThreadRef, start, end float64
 			return
 		}
 		if threadMatches(thread, ev.WakeePID, ev.WakeeComm) {
-			best = ev
-			usedTolerance = !inStrict
+			if best == nil || eventLaterThan(*ev, *best) {
+				best = ev
+				usedTolerance = !inStrict
+			}
 		}
 	}
 	if useIndexedEvents {
@@ -15819,7 +16537,9 @@ func findBlockedReasonForWithSelection(idx *Index, thread ThreadRef, start, end 
 			return
 		}
 		if threadMatches(thread, ev.WakeePID, "") {
-			best = ev
+			if best == nil || eventLaterThan(*ev, *best) {
+				best = ev
+			}
 		}
 	}
 	if useIndexedEvents {
@@ -15832,6 +16552,32 @@ func findBlockedReasonForWithSelection(idx *Index, thread ThreadRef, start, end 
 		}
 	}
 	return best
+}
+
+func eventLaterThan(candidate, current Event) bool {
+	return candidate.Ts > current.Ts || (candidate.Ts == current.Ts && candidate.Line > current.Line)
+}
+
+// visitEventsInTimestampOrder is the shared state-machine iterator.  Callers
+// first require schedulerStateOrderViolationForQuery == nil; with every
+// consumed PID/CPU lane proven monotonic, physical interleaving across
+// independent lanes is safe and preserves zero-allocation trace order.  We do
+// not globally sort a clock rollback into a fabricated elapsed timeline.
+func visitEventsInTimestampOrder(idx *Index, eventIDs []int, useIndexedEvents bool, visit func(Event)) {
+	if idx == nil || visit == nil {
+		return
+	}
+	if useIndexedEvents {
+		for _, id := range eventIDs {
+			if id >= 0 && id < len(idx.Events) {
+				visit(idx.Events[id])
+			}
+		}
+		return
+	}
+	for _, ev := range idx.Events {
+		visit(ev)
+	}
 }
 
 func timeInWindow(ts float64, q Query) bool {
@@ -15854,42 +16600,102 @@ func eventLineInWindow(ev Event, q Query) bool {
 	return true
 }
 
-func eventLines(events []Event) []int {
-	out := make([]int, 0, len(events))
-	for _, ev := range events {
-		if ev.Line > 0 {
-			out = append(out, ev.Line)
-		}
-	}
-	return out
-}
-
-func loadRawLines(path string, lines []int) map[int]string {
+func loadRawArtifactLines(idx *Index, events []Event) (map[int]string, map[int]string) {
 	out := map[int]string{}
-	if len(lines) == 0 {
-		return out
+	issues := map[int]string{}
+	if idx == nil || len(events) == 0 {
+		return out, issues
 	}
-	want := map[int]bool{}
-	for _, n := range lines {
-		want[n] = true
+	// source path -> local line -> virtual line(s). Virtual lines are unique,
+	// while local lines deliberately are not across bundle children.
+	wants := map[string]map[int][]int{}
+	for _, ev := range events {
+		spans := idx.ResolveArtifactSpans(ev.Line, ev.Line)
+		if len(spans) != 1 {
+			// Compatibility for hand-built/legacy Index values that predate the
+			// source ledger. Production parsers always populate TraceArtifacts.
+			if len(idx.TraceArtifacts) == 0 && strings.TrimSpace(idx.Path) != "" && ev.Line > 0 {
+				if wants[idx.Path] == nil {
+					wants[idx.Path] = map[int][]int{}
+				}
+				wants[idx.Path][ev.Line] = append(wants[idx.Path][ev.Line], ev.Line)
+			}
+			continue
+		}
+		span := spans[0]
+		if wants[span.SourcePath] == nil {
+			wants[span.SourcePath] = map[int][]int{}
+		}
+		wants[span.SourcePath][span.LocalLineStart] = append(wants[span.SourcePath][span.LocalLineStart], ev.Line)
 	}
-	f, err := os.Open(path)
-	if err != nil {
-		return out
-	}
-	defer f.Close()
-	sc := bufioNewScanner(f)
-	lineNo := 0
-	for sc.Scan() {
-		lineNo++
-		if want[lineNo] {
-			out[lineNo] = sc.Text()
-			if len(out) == len(want) {
+	for path, want := range wants {
+		markSourceIssue := func(reason string, discard bool) {
+			for _, virtualLines := range want {
+				for _, virtualLine := range virtualLines {
+					if discard {
+						delete(out, virtualLine)
+					}
+					issues[virtualLine] = reason
+				}
+			}
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			markSourceIssue("artifact_open_failed", false)
+			continue
+		}
+		// Validate the exact opened descriptor, not a pathname stat performed
+		// before Open. This closes the stat->open replacement race: the identity
+		// we approve is the same file object from which raw lines are scanned.
+		source, sourceOK := traceArtifactSourceForPath(idx.TraceArtifacts, path)
+		openedInfo, statErr := f.Stat()
+		if statErr != nil || (sourceOK && !source.identityMatchesInfo(openedInfo)) {
+			_ = f.Close()
+			markSourceIssue("artifact_identity_changed", true)
+			continue
+		}
+		openedIdentity := traceFileIdentityFromInfo(openedInfo)
+		sc := bufioNewScanner(f)
+		lineNo := 0
+		found := 0
+		for sc.Scan() {
+			lineNo++
+			virtualLines := want[lineNo]
+			if len(virtualLines) == 0 {
+				continue
+			}
+			for _, virtualLine := range virtualLines {
+				out[virtualLine] = sc.Text()
+			}
+			found++
+			if found == len(want) {
 				break
 			}
 		}
+		finalInfo, finalStatErr := f.Stat()
+		identityChanged := finalStatErr != nil || !openedIdentity.matchesInfo(finalInfo)
+		if !identityChanged && sourceOK {
+			identityChanged = !source.identityMatchesInfo(finalInfo)
+		}
+		scanErr := sc.Err()
+		_ = f.Close()
+		if identityChanged {
+			markSourceIssue("artifact_identity_changed", true)
+			continue
+		}
+		if scanErr != nil {
+			markSourceIssue("artifact_read_failed", true)
+			continue
+		}
+		for _, virtualLines := range want {
+			for _, virtualLine := range virtualLines {
+				if _, ok := out[virtualLine]; !ok {
+					issues[virtualLine] = "artifact_line_unavailable"
+				}
+			}
+		}
 	}
-	return out
+	return out, issues
 }
 
 func bufioNewScanner(f *os.File) *bufio.Scanner {
@@ -16460,7 +17266,10 @@ func evidenceFromSpans(spans []TraceSpanSummary) []EvidenceFact {
 
 func evidenceFromRootCauseRank(rank RootCauseRankResult) []EvidenceFact {
 	var out []EvidenceFact
-	for _, item := range rank.Items {
+	rows := make([]RootCauseRankItem, 0, len(rank.Items)+len(rank.AbsorbedItems))
+	rows = append(rows, rank.Items...)
+	rows = append(rows, rank.AbsorbedItems...)
+	for _, item := range rows {
 		summary := item.Summary
 		if perf := rootCausePerfSummary(item.PerfContext); perf != "" {
 			summary = fmt.Sprintf("%s; %s", summary, perf)
@@ -16474,6 +17283,9 @@ func evidenceFromRootCauseRank(rank RootCauseRankResult) []EvidenceFact {
 		position := fmt.Sprintf("%s cause #%d", item.Tier, item.Rank)
 		if item.Rank <= 0 {
 			position = fmt.Sprintf("%s row (no rank seat)", item.Tier)
+		}
+		if item.AbsorbedByRankFamily {
+			position = fmt.Sprintf("absorbed row (no rank seat; absorbed_into=%s)", item.AbsorbedIntoFamily)
 		}
 		out = append(out, EvidenceFact{
 			Subject:    threadLabel(item.Thread),
@@ -16803,6 +17615,9 @@ func resultCaveats(idx *Index, q Query, res Result) []string {
 			out = append(out, "thread selector normalized from model/customer text: "+selector+"; pid-bearing scheduler fields are used for matching")
 		}
 	}
+	if caveat := threadResolutionCaveat(idx, q); caveat != "" {
+		out = append(out, caveat)
+	}
 	if caveat := threadSelectorSpanNameCaveat(idx, q, res); caveat != "" {
 		out = append(out, caveat)
 	}
@@ -16833,6 +17648,14 @@ func resultCaveats(idx *Index, q Query, res Result) []string {
 			out = append(out, fmt.Sprintf("next_call_hint=try trace_query(view=\"thread_timeline\", pid=%d, time_start=%.6f, time_end=%.6f) or trace_query(view=\"wakeup_chain\", pid=%d, time_start=%.6f, time_end=%.6f)", q.PID, q.TimeStart, q.TimeEnd, q.PID, q.TimeStart, q.TimeEnd))
 		} else if strings.TrimSpace(q.Thread) != "" {
 			out = append(out, fmt.Sprintf("next_call_hint=try trace_query(view=\"event_search\", thread=%q, time_start=%.6f, time_end=%.6f, event_types=[\"sched_switch\",\"sched_wakeup\"]) or use pid if visible in the trace row", q.Thread, q.TimeStart, q.TimeEnd))
+		}
+	}
+	if res.View == "event_search" {
+		for _, event := range res.Events {
+			if event.RawUnavailableReason != "" {
+				out = append(out, "raw_artifact_identity_mismatch=true; raw source text was withheld because the physical artifact no longer matches the index-time size/mtime identity; rebuild the trace index before auditing raw rows")
+				break
+			}
 		}
 	}
 	if res.View == "event_search" && q.Limit > 0 && len(res.Events) >= q.Limit {
@@ -17051,7 +17874,8 @@ func threadSelectorSpanNameCaveat(idx *Index, q Query, res Result) string {
 	if sel.HasPID {
 		return ""
 	}
-	if ref := resolveThread(idx, q); ref.PID != 0 {
+	resolution := resolveThreadSelection(idx, q)
+	if resolution.Ambiguous || resolution.Thread.PID != 0 {
 		return ""
 	}
 	spanName := ""

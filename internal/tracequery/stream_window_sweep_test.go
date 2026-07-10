@@ -479,10 +479,13 @@ func TestStreamWindowSweepRecordsAnchorsAndSeeksIdentically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	key := traceAnchorKey{path: canonicalTraceIndexPath(path), size: info.Size(), modUnix: info.ModTime().UnixNano(), version: ParserVersion}
+	key := traceAnchorKeyForInfo(canonicalTraceIndexPath(path), info)
 	set := anchorCache.load(key)
 	if set == nil || len(set.Anchors) == 0 || !set.FlavorSet {
 		t.Fatalf("cold sweep must record anchors + flavor, got %+v", set)
+	}
+	if set.TimestampOrder != TraceTimestampOrderMonotonic {
+		t.Fatalf("cold EOF sweep must publish complete monotonic proof, got %+v", set)
 	}
 
 	warm, err := StreamWindowSweep(context.Background(), path, q)
@@ -492,8 +495,8 @@ func TestStreamWindowSweepRecordsAnchorsAndSeeksIdentically(t *testing.T) {
 	if !reflect.DeepEqual(cold.WindowSweep, warm.WindowSweep) {
 		t.Fatalf("anchor-seek sweep diverged:\ncold=%+v\nwarm=%+v", cold.WindowSweep, warm.WindowSweep)
 	}
-	if cold.EventCount != warm.EventCount || cold.ScannedLineCount != warm.ScannedLineCount {
-		t.Fatalf("scan bookkeeping diverged: cold events=%d lines=%d warm events=%d lines=%d",
+	if cold.EventCount != warm.EventCount || warm.ScannedLineCount >= cold.ScannedLineCount {
+		t.Fatalf("warm proof must preserve counts and scan fewer physical lines: cold events=%d lines=%d warm events=%d lines=%d",
 			cold.EventCount, cold.ScannedLineCount, warm.EventCount, warm.ScannedLineCount)
 	}
 	if cold.TraceFlavor != warm.TraceFlavor {

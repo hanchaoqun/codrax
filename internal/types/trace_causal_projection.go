@@ -2247,9 +2247,13 @@ func traceCausalProjectionFoldAbsorbedChainLaneRows(out *TraceCausalProjection) 
 	familyKeys := map[string]bool{}
 	collect := func(nodes []TraceCausalProjectionNode) {
 		for _, node := range nodes {
-			// FamilyMemberCount>1 is defense in depth: the engine stamps
-			// rank_family_key exclusively on family-merged rows.
-			if key := strings.TrimSpace(node.RankFamilyKey); key != "" && node.FamilyMemberCount > 1 {
+			// rank_family_key itself is the precise engine verdict. G1 stamps it
+			// on a same-type family merge; B4 also stamps it on a singleton
+			// d_state_or_io_wait row that absorbed one exactly coincident
+			// io_burst_episode rank observation. Requiring MemberCount>1 here
+			// would make the B4 absorber invisible. No display-side type/value
+			// inference is allowed — the verbatim key remains the only join.
+			if key := strings.TrimSpace(node.RankFamilyKey); key != "" {
 				familyKeys[key] = true
 			}
 		}

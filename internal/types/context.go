@@ -3134,6 +3134,7 @@ func cloneAnswerDocumentV2(in *AnswerDocumentV2) *AnswerDocumentV2 {
 				CurrentStatusVerdict:    b.CurrentStatusVerdict,
 				ScopeDisclosure:         b.ScopeDisclosure,
 				SurfaceRole:             b.SurfaceRole,
+				SystemGeneratedKind:     b.SystemGeneratedKind,
 			}
 			if len(b.Columns) > 0 {
 				cloned.Columns = append([]string(nil), b.Columns...)

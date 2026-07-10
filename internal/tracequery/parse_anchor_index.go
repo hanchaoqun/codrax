@@ -41,9 +41,19 @@ type traceAnchorSet struct {
 	// recorded anchors; a scan may extend coverage only when it starts at
 	// or before this frontier (anchor positions are deterministic line
 	// multiples, so extensions align).
-	CoveredLines   int
-	CoveredOffset  int64
-	CoveredMaxTs   float64
+	CoveredLines  int
+	CoveredOffset int64
+	CoveredMaxTs  float64
+	// CoveredLastTs/Set and CoveredClockRegressions describe the contiguous
+	// prefix through CoveredLines. They let a later contiguous extension keep
+	// auditing physical timestamp order without rescanning that prefix.
+	CoveredLastTs           float64
+	CoveredLastTsSet        bool
+	CoveredClockRegressions int
+	// TimestampOrder is a COMPLETE-file proof and is written only by
+	// finishEOF. A regression-free prefix must remain Unknown: it says nothing
+	// about an unread suffix that may move back into a requested window.
+	TimestampOrder TraceTimestampOrder
 	FlavorSet      bool
 	Flavor         TraceFlavor
 	FlavorConf     float64
@@ -52,10 +62,11 @@ type traceAnchorSet struct {
 }
 
 type traceAnchorKey struct {
-	path    string
-	size    int64
-	modUnix int64
-	version string
+	path     string
+	size     int64
+	modUnix  int64
+	identity string
+	version  string
 }
 
 type traceAnchorCache struct {
@@ -91,6 +102,18 @@ func (c *traceAnchorCache) store(key traceAnchorKey, set *traceAnchorSet) {
 			existing.CoveredLines = set.CoveredLines
 			existing.CoveredOffset = set.CoveredOffset
 			existing.CoveredMaxTs = set.CoveredMaxTs
+			existing.CoveredLastTs = set.CoveredLastTs
+			existing.CoveredLastTsSet = set.CoveredLastTsSet
+			existing.CoveredClockRegressions = set.CoveredClockRegressions
+		}
+		// A complete proof may arrive with the same CoveredLines as the last
+		// stride anchor (for a file ending exactly on the stride). Preserve it
+		// independently of the wider-coverage comparison.
+		if existing.TimestampOrder == TraceTimestampOrderUnknown && set.TimestampOrder != TraceTimestampOrderUnknown {
+			existing.TimestampOrder = set.TimestampOrder
+			existing.CoveredLastTs = set.CoveredLastTs
+			existing.CoveredLastTsSet = set.CoveredLastTsSet
+			existing.CoveredClockRegressions = set.CoveredClockRegressions
 		}
 		if !existing.FlavorSet && set.FlavorSet {
 			existing.FlavorSet = true
@@ -139,19 +162,26 @@ func (s *traceAnchorSet) seekAnchorFor(timeStartSet bool, paddedTimeStart float6
 
 // anchorRecorder accumulates anchors during one scan.
 type anchorRecorder struct {
-	set          *traceAnchorSet
-	runningMaxTs float64
+	set              *traceAnchorSet
+	runningMaxTs     float64
+	lastTs           float64
+	lastTsSet        bool
+	clockRegressions int
 	// recordFrom is the first line this scan may append an anchor for
 	// (extension must stay contiguous with prior coverage).
 	recordFrom int
 	byteOffset int64
 	maxLine    int
+	contiguous bool
 }
 
 func newAnchorRecorder(prior *traceAnchorSet, seek traceAnchor, seeked bool) *anchorRecorder {
 	rec := &anchorRecorder{set: &traceAnchorSet{}}
 	if prior != nil {
 		rec.set = prior
+		rec.lastTs = prior.CoveredLastTs
+		rec.lastTsSet = prior.CoveredLastTsSet
+		rec.clockRegressions = prior.CoveredClockRegressions
 	}
 	if seeked {
 		rec.runningMaxTs = seek.RunningMaxTs
@@ -171,6 +201,16 @@ func (r *anchorRecorder) observe(lineNo int, rawLen int, ts float64, hasTS bool)
 	if lineNo > r.maxLine {
 		r.maxLine = lineNo
 	}
+	// Lines below recordFrom are an overlap between the chosen seek anchor and
+	// the already-covered frontier. Their order was accounted for by the prior
+	// prefix metadata; count only the contiguous extension to avoid duplicates.
+	if lineNo >= r.recordFrom && hasTS {
+		if r.lastTsSet && ts < r.lastTs {
+			r.clockRegressions++
+		}
+		r.lastTs = ts
+		r.lastTsSet = true
+	}
 	if lineNo%traceAnchorLineInterval != 0 {
 		return
 	}
@@ -187,10 +227,36 @@ func (r *anchorRecorder) observe(lineNo int, rawLen int, ts float64, hasTS bool)
 	r.set.CoveredLines = lineNo
 	r.set.CoveredOffset = r.byteOffset
 	r.set.CoveredMaxTs = r.runningMaxTs
+	r.set.CoveredLastTs = r.lastTs
+	r.set.CoveredLastTsSet = r.lastTsSet
+	r.set.CoveredClockRegressions = r.clockRegressions
+}
+
+// finishEOF promotes the contiguous prefix metadata into a complete-artifact
+// timestamp-order proof. Callers must invoke it only after ReadString returned
+// io.EOF, never after a line/time gate or event-budget stop.
+func (r *anchorRecorder) finishEOF() {
+	if r == nil || !r.contiguous {
+		return
+	}
+	if r.maxLine > r.set.CoveredLines {
+		r.set.CoveredLines = r.maxLine
+		r.set.CoveredOffset = r.byteOffset
+		r.set.CoveredMaxTs = r.runningMaxTs
+	}
+	r.set.CoveredLastTs = r.lastTs
+	r.set.CoveredLastTsSet = r.lastTsSet
+	r.set.CoveredClockRegressions = r.clockRegressions
+	if r.clockRegressions == 0 {
+		r.set.TimestampOrder = TraceTimestampOrderMonotonic
+	} else {
+		r.set.TimestampOrder = TraceTimestampOrderRegressed
+	}
 }
 
 // canExtend reports whether this scan's starting line keeps anchor
 // extension contiguous with prior coverage.
 func (r *anchorRecorder) canExtend(startLine int) bool {
-	return startLine <= r.set.CoveredLines+1
+	r.contiguous = startLine <= r.set.CoveredLines+1
+	return r.contiguous
 }

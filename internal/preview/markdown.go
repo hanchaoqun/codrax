@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/mattn/go-runewidth"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
@@ -86,7 +87,28 @@ func RenderStandaloneMarkdownHTML(title string, markdown []byte) (string, error)
 		Title:     title,
 		BodyHTML:  body,
 		MermaidJS: string(mermaidJS),
+		Lang:      markdownDocumentLanguage(markdown),
 	}), nil
+}
+
+func markdownDocumentLanguage(markdown []byte) string {
+	var han, latin int
+	for _, r := range string(markdown) {
+		switch {
+		case unicode.Is(unicode.Han, r):
+			han++
+		case unicode.IsLetter(r):
+			latin++
+		}
+	}
+	// Language is a document-level presentation choice. A Chinese entity,
+	// path or thread name inside an otherwise English report must not flip the
+	// page chrome. Four Han characters plus a dominant-share threshold keeps
+	// short mixed identifiers neutral while recognizing ordinary zh prose.
+	if han >= 4 && han*3 >= latin {
+		return "zh-CN"
+	}
+	return "en"
 }
 
 type fencedCodeRenderer struct{}
@@ -115,14 +137,84 @@ func (f fencedCodeRenderer) renderFencedCodeBlock(w util.BufWriter, source []byt
 		_, _ = fmt.Fprint(w, "\n</div>\n")
 		return ast.WalkSkipChildren, nil
 	}
-	_, _ = fmt.Fprint(w, "<pre><code")
+	projectionTree := isTraceCausalProjectionFence(info, body)
+	if projectionTree {
+		// The generated trace tree is a horizontally scrollable, information-
+		// dense region in the standalone report.  Give the page CSS and assistive
+		// technology a precise hook without changing one byte of the authoritative
+		// Markdown fence shared by terminal / Markdown / HTML surfaces.
+		_, _ = fmt.Fprint(w, `<pre class="trace-projection-tree" role="region" aria-label="Trace causal projection tree" tabindex="0"><code`)
+	} else {
+		_, _ = fmt.Fprint(w, "<pre><code")
+	}
 	if cls := safeCodeClass(lang); cls != "" {
 		_, _ = fmt.Fprintf(w, ` class="language-%s"`, cls)
 	}
 	_, _ = fmt.Fprint(w, ">")
-	_, _ = fmt.Fprint(w, stdhtml.EscapeString(body))
+	if projectionTree {
+		writeTraceProjectionGrid(w, body)
+	} else {
+		_, _ = fmt.Fprint(w, stdhtml.EscapeString(body))
+	}
 	_, _ = fmt.Fprint(w, "</code></pre>\n")
 	return ast.WalkSkipChildren, nil
+}
+
+// isTraceCausalProjectionFence recognizes only the deterministic ```text
+// shape emitted by runtimeTraceProjTreeFence.  The scale declaration is the
+// second half of the signature: a customer-authored text diagram that happens
+// to begin with the same root glyph must keep ordinary code-block styling.
+// This remains presentation-only; it neither rewrites nor reflows the fence.
+func isTraceCausalProjectionFence(info, body string) bool {
+	if !strings.EqualFold(firstInfoToken(info), "text") {
+		return false
+	}
+	first := firstNonEmptyLine(body)
+	hasScale := strings.Contains(body, "满格=") || strings.Contains(body, "bar full =")
+	if !hasScale {
+		return false
+	}
+	if strings.HasPrefix(first, "⊚ ") && (strings.Contains(first, "‹用户关注线程›") || strings.Contains(first, "‹分析锚点线程›") || strings.Contains(first, "<user-focused thread>") || strings.Contains(first, "<analysis anchor thread>")) {
+		return true
+	}
+	for _, prefix := range []string{
+		"(睡眠区间在查询窗内无 sched_wakeup 记录",
+		"(本报告未做唤醒链下钻",
+		"(唤醒链路径未解析",
+		"(the sleep interval has no sched_wakeup record",
+		"(no wakeup-chain drilldown was run",
+		"(wakeup path unresolved",
+	} {
+		if strings.HasPrefix(first, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// writeTraceProjectionGrid makes the HTML face independent of installed CJK
+// monospace fonts. Browser fallback may draw Han, box-drawing and ordinal
+// glyphs from different faces; inline cells pin every rune to the 1/2-column
+// geometry already used by the deterministic tree renderer. The text itself
+// is unchanged and remains copyable/accessibility-visible.
+func writeTraceProjectionGrid(w util.BufWriter, body string) {
+	for _, r := range body {
+		switch r {
+		case '\r':
+			continue
+		case '\n':
+			_, _ = fmt.Fprint(w, "\n")
+			continue
+		}
+		width := runewidth.RuneWidth(r)
+		if width < 0 {
+			width = 1
+		}
+		if width > 2 {
+			width = 2
+		}
+		_, _ = fmt.Fprintf(w, `<span class="trace-cell trace-cell-%d">%s</span>`, width, stdhtml.EscapeString(string(r)))
+	}
 }
 
 // rawHTMLLiteralRenderer renders raw-HTML markdown nodes as ESCAPED
