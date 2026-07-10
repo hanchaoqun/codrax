@@ -1958,3 +1958,11 @@ finalizer 多轮修复=大量 token 交互反复且小模型输出不稳定(后�
 **用户词面统一**：英文 trace 系统补充从分散的 `Requested/Projection window`、`Target symptom/wait/sleep`、`Artifact`、`rank=N` 收敛为四个规范词族：`Analysis window`、`focused thread/focused-thread`、`Trace file`、`root-cause rank #N`。`projection.Window*` 是编译出的分析窗；真正的用户大窗继续由独立 `UserWindowStart/End` 发布为 `User-requested window`，两者不得混称。多 trace 总览、窗长归一化、时间基不相交、分区 caveat、折叠 roster、下一步与 evaluator 窗外注记同时收口，中英文下一步排名分别为 `根因排序#N` / `root-cause rank #N`。
 
 **无损边界与机械保证**：不做全局替换。原始线程名、span 名、trace 文件名中即便含 `Target` / `Artifact` 仍逐字保留；`runtime_artifact` 等 wire token 与审计明细 `rank=N` 同样保留。新增 full-face closed-set fixture 同时验证规范词、退役系统词负向、`TargetRenderer` / `ArtifactWorker` raw pass-through、raw `rank=7`，并把同一 AnswerDocument 渲染为 Markdown 用户面板和 HTML 做词面 parity。三包回归：`go test ./internal/tool ./internal/agent ./internal/types -count=1`。
+
+## §29.28 TID-reuse direct scope + SEM-DETAIL P1 收账（2026-07-10，`7af38bc23` / `3522a10e6`）
+
+**direct resource/plugin identity scope**：`BIOResources`、`FilesystemResources`、`PageFaultResources`、`AbilityEvents`、`XPowerEvents`、`HiSystemEvents` 六族只消费同一次严格窗内扫描已接纳的 Event；admission 返回实际入桶 kind，正 `ev.PID` 即其完整 numeric identity dependency。各族独立 `threadIncarnationConflictForPIDSet`：无关复用不连坐、贡献者复用只压本族、非空集合遇 lifecycle audit cap 继续 fail-close、PID=0/空族不虚构冲突。global identity clean 是所有子集 clean 的快路径，避免正常窗重复扫描。FileIO/PageCache/storage 及 TopIOInodes/IOPressure/BlockIOByInode/IOBurst/root-rank 派生链未放宽，仍等 typed completeness 贯通。
+
+**generic storage witness 裁定维持**：客户 VerifyClass 采集可见 58 issue + 59 complete（raw 步被截为 120/251），两端稳定公共字段仍只有当前已使用的 `dev/op/sector/len`；未见 `rq/request_id/req/mrq/bio/cookie/tag/cmd_tag/task_tag/unique_tag`。并行 outstanding 的 tuple 均不同，同粗键重叠为零；Berlin 只额外出现非端点 `block_bio_remap`。因此 request identity 仍属 witness-triggered，禁止把 issue bytes、提交线程、complete error 或 CPU/PID 猜成硬身份。
+
+**SEM-DETAIL P1**：SEM-LEAD 已裁定 on-chain 语义工作全权参赛，但无损明细旧 arm 仍固定显示“优化项,非根因”，可与“主根因#1”同报告冲突。修为链上 `确定性优化点(链上参与根因排序)` / EN `on-chain root-cause ranking participant`；off-chain 保留原义。判定优先级与 projection parser 同构：显式 `chain_relevance=on_chain` 为真，`adjacent/background` 为假，只有 relevance 缺失才回退 `on_wakeup_chain/on_dependency_chain`，未知 token fail-close。Rank=0/TOP N 外仍表达“参与”而不虚构榜位，Markdown/HTML/EN 三面同判。
