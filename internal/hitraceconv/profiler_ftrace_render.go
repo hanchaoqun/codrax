@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 type profilerFtraceEventRecord struct {
@@ -214,6 +215,8 @@ func renderProfilerFtraceEventBody(event profilerFtraceEventRecord) (string, str
 		}
 		return name, fmt.Sprintf("comm=%s pid=%d prio=%d target_cpu=%03d",
 			protoString(event.Payload, 1), protoInt(event.Payload, 2), protoInt(event.Payload, 3), protoInt(event.Payload, 5)), true
+	case 4002:
+		return "sched_blocked_reason", renderProfilerFtraceSchedBlockedReason(event.Payload), true
 	case 4009:
 		return "f2fs_sync_file_enter", renderProfilerFtraceF2FS(event.Payload, false, 2, 5, 0), true
 	case 4010:
@@ -229,6 +232,41 @@ func renderProfilerFtraceEventBody(event profilerFtraceEventRecord) (string, str
 	default:
 		return "", "", false
 	}
+}
+
+// renderProfilerFtraceSchedBlockedReason preserves two separate authorities:
+// caller_str is the ftrace plugin's symbolized caller and may feed the
+// semantic `caller=` token only when it is a bounded single token; the raw
+// uint64 address is provenance only. When symbolization is absent or unsafe,
+// publishing caller=unknown keeps tracequery's blocked-reason aggregation from
+// fragmenting into one pseudo-reason per address while pid/iowait remain usable.
+func renderProfilerFtraceSchedBlockedReason(data []byte) string {
+	pid := protoInt(data, 1)
+	rawCaller := protoUint(data, 2)
+	ioWait := protoUint(data, 3)
+	caller, symbolized := safeProfilerBlockedCaller(protoString(data, 4))
+	if symbolized {
+		return fmt.Sprintf("pid=%d iowait=%d caller=%s caller_raw=0x%x caller_quality=symbolized",
+			pid, ioWait, caller, rawCaller)
+	}
+	return fmt.Sprintf("pid=%d iowait=%d caller=unknown caller_raw=0x%x caller_quality=opaque",
+		pid, ioWait, rawCaller)
+}
+
+func safeProfilerBlockedCaller(raw string) (string, bool) {
+	value := strings.TrimSpace(raw)
+	if value == "" || value != raw || len(value) > 512 {
+		return "", false
+	}
+	for _, r := range value {
+		// caller= is one systrace key/value token. Whitespace, pipes and
+		// controls would either truncate the parser-visible reason or inject a
+		// second trace field/line, so such payloads fail closed to opaque.
+		if unicode.IsSpace(r) || unicode.IsControl(r) || r == '|' {
+			return "", false
+		}
+	}
+	return value, true
 }
 
 func renderProfilerFtraceFilemapPageCache(data []byte) string {

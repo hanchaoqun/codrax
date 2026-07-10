@@ -151,6 +151,7 @@ var profilerFtraceEventDescriptors = map[int]profilerFtraceEventDescriptor{
 	2420: {Field: 2420, Family: "sched", Name: "sched_wakeup"},
 	2421: {Field: 2421, Family: "sched", Name: "sched_wakeup_new"},
 	2422: {Field: 2422, Family: "sched", Name: "sched_waking"},
+	4002: {Field: 4002, Family: "sched", Name: "sched_blocked_reason"},
 	4009: {Field: 4009, Family: "f2fs", Name: "f2fs_sync_file_enter"},
 	4010: {Field: 4010, Family: "f2fs", Name: "f2fs_sync_file_exit"},
 	4011: {Field: 4011, Family: "f2fs", Name: "f2fs_write_begin"},
