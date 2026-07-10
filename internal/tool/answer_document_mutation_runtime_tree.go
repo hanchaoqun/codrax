@@ -2455,7 +2455,10 @@ func runtimeTraceProjDetailPositionCell(row runtimeTraceProjTreeRow, leadKey str
 // field, priority folded into a parenthetical exactly where it adds
 // information. Both word tables (layer + priority) were functions of the same
 // typed judgments, so the merge is lossless; the DCS deterministic-
-// optimization tier keeps its own arm (§23.1 承重).
+// optimization tier keeps its own arm (§23.1 承重). SEM-LEAD (§29.7-2)
+// later promoted typed on-chain semantic work to a full root-cause ranking
+// participant, so that arm must distinguish on-chain participation from the
+// off-chain "optimization only" form.
 func runtimeTraceProjDetailPositionMerged(node types.TraceCausalProjectionNode, zh, flatChain bool) string {
 	layer := runtimeTraceProjCausalPositionLayerCell(node, zh, flatChain)
 	if zh {
@@ -2463,6 +2466,9 @@ func runtimeTraceProjDetailPositionMerged(node types.TraceCausalProjectionNode, 
 		case "主根因":
 			return "主根因(优先处理)"
 		case "确定性优化点":
+			if runtimeTraceProjSemanticParticipatesInRootCauseRanking(node) {
+				return "确定性优化点(链上参与根因排序)"
+			}
 			return "确定性优化点(优化项,非根因)"
 		case "链上":
 			return "链上(重点)"
@@ -2479,6 +2485,9 @@ func runtimeTraceProjDetailPositionMerged(node types.TraceCausalProjectionNode, 
 	case "primary":
 		return "primary (handle first)"
 	case "deterministic optimization", "semantic":
+		if runtimeTraceProjSemanticParticipatesInRootCauseRanking(node) {
+			return layer + " (on-chain root-cause ranking participant)"
+		}
 		return layer + " (optimization item, not a root cause)"
 	case "on-chain":
 		return "on-chain (important)"
@@ -2490,6 +2499,35 @@ func runtimeTraceProjDetailPositionMerged(node types.TraceCausalProjectionNode, 
 		return "support (context)"
 	}
 	return layer
+}
+
+// runtimeTraceProjSemanticParticipatesInRootCauseRanking is the display-side
+// mirror of the typed SEM-LEAD admission: only a node already classified into
+// the semantic/deterministic-optimization display family and carrying a
+// resolved on-chain relevance token may claim participation. The caller's
+// layer switch proves the semantic family; this helper proves the relation.
+// No rank value is required: on-chain semantic work keeps the mention and
+// participation obligation even when it falls outside the visible root TOP N.
+func runtimeTraceProjSemanticParticipatesInRootCauseRanking(node types.TraceCausalProjectionNode) bool {
+	switch strings.TrimSpace(node.ChainRelevance) {
+	case "on_chain":
+		return true
+	case "adjacent", "background":
+		// Explicit relevance is the canonical producer judgment and outranks a
+		// stale/conflicting causality token, exactly like the projection parser.
+		return false
+	case "":
+		// Older producers may omit relevance while still carrying a typed
+		// causality token; resolve that compatibility shape below.
+	default:
+		return false
+	}
+	switch strings.TrimSpace(node.Causality) {
+	case "on_wakeup_chain", "on_dependency_chain":
+		return true
+	default:
+		return false
+	}
 }
 
 // runtimeTraceProjPrimaryTierNode reports the engine's primary-tier typing on

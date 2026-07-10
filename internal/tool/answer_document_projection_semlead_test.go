@@ -66,7 +66,8 @@ func semLeadEngineObservations(t *testing.T) []types.ObservationRecord {
 }
 
 func TestSemLeadOnChainSemanticFamilySingleSeatCrownedZH(t *testing.T) {
-	md := audit730Render(t, audit730Bus(""), semLeadEngineObservations(t), "")
+	obs := semLeadEngineObservations(t)
+	md := audit730Render(t, audit730Bus(""), obs, "")
 
 	// ① 主根因 crown through the primary lane, named by subject + class.
 	leadLine := ""
@@ -145,6 +146,12 @@ func TestSemLeadOnChainSemanticFamilySingleSeatCrownedZH(t *testing.T) {
 	if strings.Contains(md, "hidden_cost_boost") || strings.Contains(md, "semantic_multiplier") {
 		t.Fatalf("internal ranking tokens must never surface:\n%s", md)
 	}
+	if !strings.Contains(md, "确定性优化点(链上参与根因排序)") {
+		t.Fatalf("an on-chain semantic cause must disclose its root-cause ranking participation:\n%s", md)
+	}
+	if strings.Contains(md, "确定性优化点(优化项,非根因)") {
+		t.Fatalf("an on-chain semantic cause must never contradict its rank seat with the off-chain non-cause wording:\n%s", md)
+	}
 
 	// Roster members stay lossless on the sub-rows (§24.7.1 ① 区分键不能丢).
 	if !strings.Contains(md, "成员 Texture upload(15573) 1140x1856") {
@@ -156,6 +163,61 @@ func TestSemLeadOnChainSemanticFamilySingleSeatCrownedZH(t *testing.T) {
 	}
 	if !strings.Contains(html, "纹理上传") || !strings.Contains(html, "Texture upload(15573) 1140x1856") {
 		t.Fatalf("HTML must preserve the same localized UX label and verbatim span boundary as Markdown")
+	}
+	if !strings.Contains(html, "确定性优化点(链上参与根因排序)") || strings.Contains(html, "确定性优化点(优化项,非根因)") {
+		t.Fatalf("HTML must preserve the same on-chain semantic ranking meaning as Markdown")
+	}
+	en := audit730Render(t, audit730Bus("en"), obs, "en")
+	if !strings.Contains(en, "semantic (on-chain root-cause ranking participant)") ||
+		strings.Contains(en, "semantic (optimization item, not a root cause)") {
+		t.Fatalf("EN Markdown must preserve the same on-chain semantic ranking meaning:\n%s", en)
+	}
+}
+
+func TestSemLeadDetailPositionSeparatesOnChainAndOffChainSemanticMeaning(t *testing.T) {
+	onChain := types.TraceCausalProjectionNode{
+		Role: types.TraceCausalRoleSemanticSpan, Predicate: "trace_semantic_span",
+		SemanticClass: "jit_compile", ChainRelevance: "on_chain",
+		Causality: "on_wakeup_chain", Tier: "deterministic_optimization",
+	}
+	if got := runtimeTraceProjDetailPositionMerged(onChain, true, false); got != "确定性优化点(链上参与根因排序)" {
+		t.Fatalf("ZH on-chain semantic detail meaning drifted: %q", got)
+	}
+	if got := runtimeTraceProjDetailPositionMerged(onChain, false, false); got != "semantic (on-chain root-cause ranking participant)" {
+		t.Fatalf("EN on-chain semantic detail meaning drifted: %q", got)
+	}
+
+	// Causality alone is an accepted typed fallback when a producer omitted
+	// chain_relevance; dependency-chain semantic work has the same obligation.
+	dependency := onChain
+	dependency.ChainRelevance = ""
+	dependency.Causality = "on_dependency_chain"
+	if got := runtimeTraceProjDetailPositionMerged(dependency, true, false); got != "确定性优化点(链上参与根因排序)" {
+		t.Fatalf("dependency-chain semantic detail meaning drifted: %q", got)
+	}
+
+	offChain := onChain
+	offChain.ChainRelevance = "background"
+	offChain.Causality = "background"
+	if got := runtimeTraceProjDetailPositionMerged(offChain, true, false); got != "确定性优化点(优化项,非根因)" {
+		t.Fatalf("ZH off-chain semantic control drifted: %q", got)
+	}
+	if got := runtimeTraceProjDetailPositionMerged(offChain, false, false); got != "semantic (optimization item, not a root cause)" {
+		t.Fatalf("EN off-chain semantic control drifted: %q", got)
+	}
+
+	// Explicit relevance is authoritative when a mixed-version record also
+	// carries a stale causality token. The canonical projection parser uses the
+	// same precedence; display must not resurrect an off-chain row onto the
+	// root-cause ranking lane.
+	offChain.Causality = "on_wakeup_chain"
+	if got := runtimeTraceProjDetailPositionMerged(offChain, true, false); got != "确定性优化点(优化项,非根因)" {
+		t.Fatalf("explicit background relevance must outrank stale on-chain causality: %q", got)
+	}
+	offChain.ChainRelevance = "adjacent"
+	offChain.Causality = "on_dependency_chain"
+	if got := runtimeTraceProjDetailPositionMerged(offChain, false, false); got != "semantic (optimization item, not a root cause)" {
+		t.Fatalf("explicit adjacent relevance must outrank stale dependency causality: %q", got)
 	}
 }
 
