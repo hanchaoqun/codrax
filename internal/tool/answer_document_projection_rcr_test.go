@@ -398,6 +398,43 @@ func TestRCRImpactFormTableSingleSource(t *testing.T) {
 	}
 }
 
+func TestRCRRankedSemanticRunningNamesCPUExecutionAndTypedState(t *testing.T) {
+	node := types.TraceCausalProjectionNode{
+		Subject: "worker-200", Object: "class_verification", TypeToken: "class_verification",
+		SemanticClass: "class_verification", StateKind: "running",
+		Rank: 1, ChainDepth: 1, ChainRelevance: "on_chain",
+		ImpactMS: 4.6, CumulativeImpactMS: 4.6, EffectiveImpactMS: 4.6, Confidence: 0.8,
+	}
+	row := runtimeTraceProjTreeRow{Node: node, Kind: runtimeTraceProjTreeRowChain, HasData: true, marks: &runtimeTraceProjMarkSet{}}
+	structured, ok := runtimeTraceProjCauseStructuredParts(row, true)
+	if !ok || !strings.Contains(structured.IdentityRow, "CPU执行候选·状态running·根因排序#1") {
+		t.Fatalf("ranked semantic CPU work must disclose its typed running state beside the seat: %+v", structured)
+	}
+	if strings.Contains(structured.IdentityRow, "算力供给候选") {
+		t.Fatalf("ordinary running work is not a compute-delivery deficit: %q", structured.IdentityRow)
+	}
+
+	missing := node
+	missing.StateKind = ""
+	row.Node = missing
+	structured, ok = runtimeTraceProjCauseStructuredParts(row, true)
+	if !ok || strings.Contains(structured.IdentityRow, "状态running") || strings.Contains(structured.IdentityRow, "状态runnable") {
+		t.Fatalf("missing StateKind must never synthesize a semantic execution state: %+v", structured)
+	}
+}
+
+func TestRCRComputeSupplyKeepsDeliveryCategory(t *testing.T) {
+	node := types.TraceCausalProjectionNode{
+		Subject: "aggregate", Object: "compute_supply", TypeToken: "compute_supply", StateKind: "running",
+		Rank: 2, ImpactMS: 3, CumulativeImpactMS: 3, EffectiveImpactMS: 3, Confidence: 0.8,
+	}
+	row := runtimeTraceProjTreeRow{Node: node, Kind: runtimeTraceProjTreeRowChain, HasData: true, marks: &runtimeTraceProjMarkSet{}}
+	structured, ok := runtimeTraceProjCauseStructuredParts(row, true)
+	if !ok || !strings.Contains(structured.IdentityRow, "算力供给候选·根因排序#2") {
+		t.Fatalf("typed compute-delivery evidence must keep the supply category: %+v", structured)
+	}
+}
+
 // --- 5. §24.1补 caliber legend entries render exactly on demand ---------------
 
 func TestRCRCaliberLegendEntriesOnDemand(t *testing.T) {

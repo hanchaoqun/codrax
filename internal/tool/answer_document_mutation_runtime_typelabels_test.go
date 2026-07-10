@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // §7.30.3 D2 anti-drift guard: every type token enumerated by the
@@ -86,5 +88,15 @@ func TestSemanticOptimizationCustomerRuledLabels(t *testing.T) {
 		if got := runtimeTraceCausalProjectionDisplayCauseName(tc.token, false); got != tc.token {
 			t.Fatalf("EN audit/display lane must keep canonical token %s, got %q", tc.token, got)
 		}
+	}
+}
+
+func TestAggregatePressureDisplayNamesAreActionable(t *testing.T) {
+	supply := types.TraceCausalProjectionNode{SubjectKind: types.TraceCausalSubjectKindAggregateMetric, Object: "supply_pressure"}
+	if got := runtimeTraceCausalProjectionAggregateMetricName(supply, true); got != "调度压力(需求积压)·聚合" {
+		t.Fatalf("supply aggregate must use the ruled demand-backlog label, got %q", got)
+	}
+	if got := runtimeTraceCausalProjectionAggregateMetricName(supply, false); got != "scheduling pressure (demand backlog) · aggregate" {
+		t.Fatalf("EN supply aggregate label drifted: %q", got)
 	}
 }

@@ -70,7 +70,7 @@ func TestTraceQueryWindowStatsRendersOccupancyAndSupplyBalance(t *testing.T) {
 		"freq_known=false",
 		"无频点数据",
 		// CMP-9 densities: aggregate line + per-CPU runnable-wait line.
-		" window_ms=100.000 pressure_density=0.80 ",
+		" window_ms=100.000 pressure_density=0.20 ",
 		"- cpu_pressure cpu=1 runnable_wait=20.000ms runnable_density=0.20",
 	} {
 		if !strings.Contains(res.Summary, want) {
@@ -98,7 +98,7 @@ func TestTraceQuerySupplyPressureObservationCarriesDensityAndGuidance(t *testing
 	notes := strings.Join(supply.RichNotes, "\n")
 	for _, want := range []string{
 		"window_ms=100.000",
-		"pressure_density=0.80",
+		"pressure_density=0.20",
 		"recommended_views=window_stats",
 		"recommended_sections=cpu_occupancy,compute_supply_balance,process_cpu_load",
 	} {

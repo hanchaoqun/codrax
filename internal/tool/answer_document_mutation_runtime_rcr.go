@@ -51,7 +51,7 @@ type runtimeTraceProjImpactForm int
 
 const (
 	runtimeTraceProjImpactFormNone runtimeTraceProjImpactForm = iota
-	// ⚙ 运行占用·算力供给 (running / compute-supply family).
+	// ⚙ CPU 执行占用 (a concrete running state / CPU work).
 	runtimeTraceProjImpactFormRunning
 	// ☾ 睡眠 (symptom, never a cause category).
 	runtimeTraceProjImpactFormSleep
@@ -97,6 +97,12 @@ type runtimeTraceProjImpactFormSpec struct {
 	// Lock rows override with their precise typed shape word (持锁/阻塞 split).
 	CategoryZH string
 	CategoryEN string
+	// ComputeSupplyCategoryZH/EN is the adjudicated delivery-lane wording for
+	// the Running glyph. A shared glyph does not make ordinary CPU execution
+	// evidence equivalent to a frequency/affinity/supply deficit; the exact
+	// typed delivery gate selects this alternate table cell.
+	ComputeSupplyCategoryZH string
+	ComputeSupplyCategoryEN string
 	// SemanticsZH/EN feed the generated legend entry for the form's glyph mark
 	// (runtimeTraceProjImpactFormLegendEntries). Empty = no generated entry
 	// (the form's glyph legend lives on a pre-existing pinned entry).
@@ -113,7 +119,8 @@ type runtimeTraceProjImpactFormSpec struct {
 func runtimeTraceProjImpactFormSpecs() []runtimeTraceProjImpactFormSpec {
 	return []runtimeTraceProjImpactFormSpec{
 		{Form: runtimeTraceProjImpactFormRunning, Glyph: "⚙",
-			CategoryZH: "算力供给候选", CategoryEN: "compute-supply candidate",
+			CategoryZH: "CPU执行候选", CategoryEN: "CPU-execution candidate",
+			ComputeSupplyCategoryZH: "算力供给候选", ComputeSupplyCategoryEN: "compute-supply candidate",
 			Mark: runtimeTraceProjMarkIconRunning},
 		{Form: runtimeTraceProjImpactFormSleep, Glyph: "☾",
 			Mark: runtimeTraceProjMarkIconSleep},
@@ -386,12 +393,35 @@ func runtimeTraceProjCauseCategoryWord(node types.TraceCausalProjectionNode, kin
 		return shape, true
 	}
 	if spec, ok := runtimeTraceProjImpactFormSpecFor(form); ok {
+		if form == runtimeTraceProjImpactFormRunning && runtimeTraceProjComputeSupplyIdentity(node) {
+			if zh {
+				return spec.ComputeSupplyCategoryZH, false
+			}
+			return spec.ComputeSupplyCategoryEN, false
+		}
 		if zh {
 			return spec.CategoryZH, false
 		}
 		return spec.CategoryEN, false
 	}
 	return "", false
+}
+
+// runtimeTraceProjComputeSupplyIdentity is the exact delivery-lane selector
+// within the shared ⚙ form. SupplyFoldComputed is a producer-minted delivery
+// calculation; the four tokens are the closed compute-delivery family. A
+// semantic class that merely ran on CPU does not satisfy this gate.
+func runtimeTraceProjComputeSupplyIdentity(node types.TraceCausalProjectionNode) bool {
+	if node.SupplyFoldComputed {
+		return true
+	}
+	for _, token := range []string{node.TypeToken, node.Object, node.Predicate} {
+		switch runtimeTraceCausalProjectionCanonicalNode(token) {
+		case "compute_supply", "low_frequency", "cpu_frequency_limit", "cpu_affinity_or_cpuset":
+			return true
+		}
+	}
+	return false
 }
 
 // runtimeTraceProjCauseRankConfidence resolves the 行2 榜位/置信 pair: the
@@ -702,6 +732,9 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 	if category != "" {
 		identity = append(identity, category)
 	}
+	if state := runtimeTraceProjCauseSemanticStateIdentity(node, zh); state != "" {
+		identity = append(identity, state)
+	}
 	rank, confidence := runtimeTraceProjCauseRankConfidence(row)
 	if rank > 0 {
 		if zh {
@@ -947,6 +980,30 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		row.marks.mark(runtimeTraceProjMarkEffectiveAttributionTag)
 	}
 	return out, true
+}
+
+// runtimeTraceProjCauseSemanticStateIdentity keeps a ranked semantic-work
+// row's execution state next to its ranking identity. The customer witness
+// rendered "VerifyClass" with a CPU-execution category while the typed
+// dominant_state=running appeared only on a later detail line, making the
+// causal caliber easy to miss. Exact semantic-class tokens + producer-minted
+// StateKind only; missing state never guesses and non-semantic rows keep their
+// established compact grammar.
+func runtimeTraceProjCauseSemanticStateIdentity(node types.TraceCausalProjectionNode, zh bool) string {
+	state := runtimeTraceProjStateKindLabel(node, zh)
+	if state == "" {
+		return ""
+	}
+	for _, token := range []string{node.TypeToken, node.Object, node.SemanticClass} {
+		if runtimeTraceProjImpactFormTokenFamily(runtimeTraceCausalProjectionCanonicalNode(token)) != runtimeTraceProjImpactFormDeterministicOpt {
+			continue
+		}
+		if zh {
+			return "状态" + state
+		}
+		return "state " + state
+	}
+	return ""
 }
 
 // runtimeTraceProjCauseEvidenceRef composes 行1's evidence bracket with the

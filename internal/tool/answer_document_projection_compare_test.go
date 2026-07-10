@@ -189,7 +189,7 @@ func TestTraceProjectionMultiArtifactRendersPerArtifactSections(t *testing.T) {
 	// (b) vertical blocks.
 	var aggregateRow []string
 	for _, item := range detailA.Items {
-		if len(item.Cells) >= 5 && strings.Contains(item.Cells[0], "supply_pressure") {
+		if len(item.Cells) >= 5 && strings.Contains(item.Cells[0], "调度压力(需求积压)·聚合") {
 			aggregateRow = item.Cells
 			break
 		}

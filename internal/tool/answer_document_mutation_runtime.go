@@ -3996,6 +3996,11 @@ func runtimeTraceCausalProjectionAggregateMetricName(node types.TraceCausalProje
 			return "CPU竞争压力(聚合)"
 		}
 		return "CPU contention pressure (aggregate)"
+	case "supply_pressure":
+		if zh {
+			return runtimeTraceSupplyPressureDisplayLabel(true) + "·聚合"
+		}
+		return runtimeTraceSupplyPressureDisplayLabel(false) + " · aggregate"
 	}
 	if metric == "" {
 		metric = types.TraceCausalSubjectKindAggregateMetric
