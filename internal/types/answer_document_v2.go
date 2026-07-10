@@ -1,5 +1,7 @@
 package types
 
+import "strings"
+
 // AnswerDocumentV2 is the block-only carrier introduced by Phase 2 of
 // the docs/migration/block_only_carrier.md plan (B3 落地). It
 // REPLACES — at terminal-state B8 — the V1 `AnswerDocument` shape +
@@ -324,6 +326,103 @@ func (k AnswerSystemGeneratedBlockKind) IsPrincipalEnumerationSupplement() bool 
 // the exact reserved block ID when the ID itself carries semantics.
 func (k AnswerSystemGeneratedBlockKind) IsRuntimeTraceSupplement() bool {
 	return k == AnswerSystemGeneratedRuntimeTrace
+}
+
+// CaptureSystemGeneratedBlockKinds snapshots the block-id →
+// SystemGeneratedKind authority map of an IN-MEMORY document whose
+// json:"-" markers are still live. It is the ONLY legitimate producer of
+// the sidecar consumed by ReauthenticateSystemSnapshotBlockKinds: call it
+// at the exact moment a system-side JSON snapshot of the document is
+// taken (FRCAP draft-ledger DocJSON, RetryState.PrevEmitJSON), so the
+// authority that json.Marshal is about to strip is preserved out-of-band.
+//
+// The map never crosses a JSON boundary (its carriers are json:"-" /
+// in-memory struct fields), so a model can never author or repair it —
+// the same unforgeability contract as AnswerBlock.SystemGeneratedKind
+// itself. Only non-empty kinds on non-empty IDs are captured. Returns nil
+// when the document carries no system-generated block (the common
+// non-trace case pays nothing).
+func CaptureSystemGeneratedBlockKinds(doc *AnswerDocumentV2) map[string]AnswerSystemGeneratedBlockKind {
+	if doc == nil {
+		return nil
+	}
+	var out map[string]AnswerSystemGeneratedBlockKind
+	for i := range doc.Blocks {
+		id := strings.TrimSpace(doc.Blocks[i].ID)
+		kind := doc.Blocks[i].SystemGeneratedKind
+		if id == "" || kind == AnswerSystemGeneratedBlockUnknown {
+			continue
+		}
+		if out == nil {
+			out = make(map[string]AnswerSystemGeneratedBlockKind)
+		}
+		out[id] = kind
+	}
+	return out
+}
+
+// ReauthenticateSystemSnapshotBlockKinds re-stamps the in-memory
+// SystemGeneratedKind authority marker onto doc — the json.Unmarshal
+// product of a SYSTEM-SIDE snapshot of an already-persisted document —
+// from kinds, the sidecar CaptureSystemGeneratedBlockKinds produced from
+// the SAME document at snapshot time. Returns how many blocks were
+// re-stamped.
+//
+// Marker-stripping class root fix (audit 2026-07-10): SystemGeneratedKind
+// is json:"-" (the model must never author authority), so every
+// system-side marshal/unmarshal round trip — the FRCAP best-draft ledger
+// DocJSON, RetryState.PrevEmitJSON consumed by the patch base / recovery
+// draft / ParseOutput no-emit fallback — silently demoted genuine system
+// blocks to model grade: `##` report chapters degraded, prose-scalar
+// evidence feeds went dark (false ViolProseScalarUngrounded on
+// system-published numerals), and reserved-ID collision normalization
+// renamed real system blocks to model_runtime_trace_* (duplicate
+// chapters). This helper restores exactly the authority that provably
+// existed in memory when the snapshot was taken — nothing more.
+//
+// APPLICABILITY IS DELIBERATELY NARROW — MISUSE MINTS FORGED AUTHORITY:
+//
+//   - ONLY call on the unmarshal product of a snapshot this process took
+//     from its own MutableState document (system-side provenance), with
+//     the kinds map captured IN THE SAME MOMENT by
+//     CaptureSystemGeneratedBlockKinds.
+//   - NEVER call on model-direct JSON: emit_answer_document /
+//     emit_answer_document_patch tool params, text-recovered drafts from
+//     raw model output, or any payload that ever rode an LLM prompt or
+//     response. Those lanes must keep the zero-value kind so
+//     normalizeRuntimeTraceReservedBlockIDCollisions can rename reserved-
+//     ID lookalikes (the forgery lane json:"-" exists to close).
+//   - NEVER synthesize the kinds map (e.g. by reserved-ID spelling): a
+//     blanket re-mark by ID would re-mint authority for model-authored
+//     lookalikes that bypassed the persist choke.
+//
+// TestSystemSnapshotReauthCallSitesWhitelisted structurally pins the
+// allowed caller set; extending it requires re-auditing provenance.
+//
+// Blocks whose ID is absent from kinds — or already carrying a non-empty
+// kind — are left untouched, so the helper is idempotent and can never
+// escalate a model-authored block.
+func ReauthenticateSystemSnapshotBlockKinds(doc *AnswerDocumentV2, kinds map[string]AnswerSystemGeneratedBlockKind) int {
+	if doc == nil || len(kinds) == 0 {
+		return 0
+	}
+	restamped := 0
+	for i := range doc.Blocks {
+		if doc.Blocks[i].SystemGeneratedKind != AnswerSystemGeneratedBlockUnknown {
+			continue
+		}
+		id := strings.TrimSpace(doc.Blocks[i].ID)
+		if id == "" {
+			continue
+		}
+		kind, ok := kinds[id]
+		if !ok || kind == AnswerSystemGeneratedBlockUnknown {
+			continue
+		}
+		doc.Blocks[i].SystemGeneratedKind = kind
+		restamped++
+	}
+	return restamped
 }
 
 // DiagramEdgeAnchor is a typed edge-anchor record. Each entry binds

@@ -4453,15 +4453,27 @@ func structurallyEmptyAnswerForUser(lang string) string {
 	return "The system could not gather enough code evidence to answer this question reliably. Please refine the request or narrow the search scope and retry."
 }
 
-func appendFinalizerTransientFailureCaveat(answer, lang string) string {
+// appendFinalizerTransientFailureCaveat appends the transient-failure
+// disclosure through the CAVSTR replay register (batch hygiene, audit
+// 2026-07-10): the raw-concat form was outside the register, so a later
+// FinalAnswer overwrite (e.g. the first-draft-attachment re-render that
+// runs after the ship break on this very path) silently dropped the
+// "previous draft preserved / checks incomplete" warning. Registered
+// entries replay idempotently at the
+// renderFinalAnswerWithLastMileSupplements chokepoint.
+func (o *Orchestrator) appendFinalizerTransientFailureCaveat(answer string) string {
 	answer = strings.TrimSpace(answer)
 	if answer == "" {
 		return answer
 	}
+	return o.appendRegisteredAnswerCaveatRawSection(answer, finalizerTransientFailureCaveatText(o.answerCaveatLanguage()))
+}
+
+func finalizerTransientFailureCaveatText(lang string) string {
 	if isChineseLang(lang) {
-		return answer + "\n\n## 补充说明\n\n后续成文重试因为模型响应中断未能完成，系统保留上一版草稿给你参考；其中可能仍有未完全通过结构化校验的表达。"
+		return "## 补充说明\n\n后续成文重试因为模型响应中断未能完成，系统保留上一版草稿给你参考；其中可能仍有未完全通过结构化校验的表达。"
 	}
-	return answer + "\n\n## Note\n\nA later final-answer retry was interrupted by the model response stream, so the system preserved the previous draft for reference; some structural checks may still be incomplete."
+	return "## Note\n\nA later final-answer retry was interrupted by the model response stream, so the system preserved the previous draft for reference; some structural checks may still be incomplete."
 }
 
 func appendRuntimeDispatchAdvisoriesToAnswer(answer string, advisories []string, lang string) string {
@@ -5763,7 +5775,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			stepsUsed++
 			if lastFinalize != nil && strings.TrimSpace(lastFinalize.FinalAnswer) != "" {
 				logging.Warning("[orchestrator] finalize dispatch failed after retry budget; delivering previous draft with transient-failure caveat")
-				lastFinalize.FinalAnswer = appendFinalizerTransientFailureCaveat(lastFinalize.FinalAnswer, o.busCtx.Language)
+				lastFinalize.FinalAnswer = o.appendFinalizerTransientFailureCaveat(lastFinalize.FinalAnswer)
 				state.markDone(fin.ID)
 				o.emitNodeEnd(fin.ID, true, "")
 				break

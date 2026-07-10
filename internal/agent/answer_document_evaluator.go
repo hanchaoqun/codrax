@@ -11012,6 +11012,16 @@ func recoverRetryStateAnswerDocumentV2(ctx *types.AgentContext) (*types.AnswerDo
 	if rs != nil && len(rs.PrevEmitJSON) > 0 {
 		var doc types.AnswerDocumentV2
 		if err := json.Unmarshal(rs.PrevEmitJSON, &doc); err == nil && len(doc.Blocks) > 0 {
+			// Re-authenticate the system-side snapshot (marker-stripping
+			// class root fix, audit 2026-07-10): PrevEmitJSON lost the
+			// json:"-" SystemGeneratedKind markers; this doc renders as
+			// the user-facing FinalAnswer, so without the re-stamp the
+			// genuine runtime-trace chapters demote from `##` to
+			// ###/bold. The sidecar was captured from the same in-memory
+			// document — no model-direct JSON reaches this lane. The
+			// LastRejectedAnswerDocumentV2 arm below stays untouched: it
+			// is an in-memory clone whose markers survive.
+			types.ReauthenticateSystemSnapshotBlockKinds(&doc, rs.PrevEmitSystemBlockKinds)
 			return &doc, true
 		}
 	}

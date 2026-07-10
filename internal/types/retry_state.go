@@ -215,6 +215,22 @@ type RetryState struct {
 	// LLM falls back to PrevEmitSummary alone.
 	PrevEmitJSON json.RawMessage `json:"prev_emit_json,omitempty"`
 
+	// PrevEmitSystemBlockKinds is the id → SystemGeneratedKind authority
+	// sidecar captured (CaptureSystemGeneratedBlockKinds) from the SAME
+	// in-memory document PrevEmitJSON snapshots, at the same moment.
+	// AnswerBlock.SystemGeneratedKind is json:"-" — json.Marshal strips
+	// it from PrevEmitJSON — so decode-side consumers that rebuild a
+	// LIVE document from the snapshot (emit_answer_document_patch base
+	// recovery, the finalizer recovery draft, the ParseOutput no-emit
+	// fallback) MUST re-stamp via ReauthenticateSystemSnapshotBlockKinds
+	// with this map; otherwise genuine system blocks demote to model
+	// grade (marker-stripping class, audit 2026-07-10).
+	//
+	// json:"-" on purpose: the sidecar is in-memory-only, exactly like
+	// the marker it preserves — no JSON (and no LLM prompt/response) can
+	// ever author it. Prompt renderers must never surface it.
+	PrevEmitSystemBlockKinds map[string]AnswerSystemGeneratedBlockKind `json:"-"`
+
 	// PrevEmitSummary is the typed projection of PrevEmitJSON.
 	// Always populated when PrevEmitJSON is non-empty.
 	PrevEmitSummary RetryStateSummary `json:"prev_emit_summary"`

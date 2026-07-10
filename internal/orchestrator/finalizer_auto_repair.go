@@ -293,7 +293,7 @@ func (o *Orchestrator) recoverRejectedFinalizerDraftAfterTransientFailure(c type
 		}
 		return nil
 	}
-	out.FinalAnswer = appendFinalizerRecoveredDraftCaveat(out.FinalAnswer, o.busCtx.Language)
+	out.FinalAnswer = o.appendFinalizerRecoveredDraftCaveat(out.FinalAnswer)
 	out.Data = marshalFinalizerAutoRepairStageData(out.FinalAnswer)
 	return out
 }
@@ -308,6 +308,15 @@ func (o *Orchestrator) finalizerRecoveryDraftCandidate() (*types.AnswerDocumentV
 	if rs := o.busCtx.Mutable.RetryState(); rs != nil && len(rs.PrevEmitJSON) > 0 {
 		var doc types.AnswerDocumentV2
 		if err := json.Unmarshal(rs.PrevEmitJSON, &doc); err == nil && len(doc.Blocks) > 0 {
+			// Re-authenticate the system-side snapshot (marker-stripping
+			// class root fix, audit 2026-07-10): PrevEmitJSON lost the
+			// json:"-" SystemGeneratedKind markers at populateRetryState
+			// time; without the re-stamp the recovered draft's genuine
+			// system blocks render demoted AND their numerals leave the
+			// prose-scalar evidence face — the resulting false
+			// ViolProseScalarUngrounded aborts an otherwise-valid
+			// recovery at the contract check below.
+			types.ReauthenticateSystemSnapshotBlockKinds(&doc, rs.PrevEmitSystemBlockKinds)
 			return &doc, "retry_state"
 		}
 	}
@@ -363,15 +372,27 @@ func recoverableRetryStateFinalizerMetadata(rs *types.RetryState) ([]string, map
 	return facets, inlineIdents, true
 }
 
-func appendFinalizerRecoveredDraftCaveat(answer, lang string) string {
+// appendFinalizerRecoveredDraftCaveat appends the recovered-draft
+// disclosure through the CAVSTR replay register (batch hygiene, audit
+// 2026-07-10): the raw-concat form was outside the register, so any
+// FinalAnswer overwrite point landing after this append (the exact
+// vanish class §29.14 TRUNC / §29.17 CAVSTR closed) would silently drop
+// the "draft preserved / checks incomplete" warning. Registered entries
+// replay idempotently at the renderFinalAnswerWithLastMileSupplements
+// chokepoint after every re-render.
+func (o *Orchestrator) appendFinalizerRecoveredDraftCaveat(answer string) string {
 	answer = strings.TrimSpace(answer)
 	if answer == "" {
 		return ""
 	}
+	return o.appendRegisteredAnswerCaveatRawSection(answer, finalizerRecoveredDraftCaveatText(o.answerCaveatLanguage()))
+}
+
+func finalizerRecoveredDraftCaveatText(lang string) string {
 	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en") {
-		return answer + "\n\n---\n\n**Supplement:** The final answer pass hit a transient model stream failure after producing this structured draft. Codrax preserved the draft and only completed deterministic non-visible metadata repairs before rendering it."
+		return "---\n\n**Supplement:** The final answer pass hit a transient model stream failure after producing this structured draft. Codrax preserved the draft and only completed deterministic non-visible metadata repairs before rendering it."
 	}
-	return answer + "\n\n---\n\n**补充说明：** 成文阶段在产出这版结构化草稿后遇到模型流式响应瞬时失败；系统保留该草稿，仅补齐确定性的非可见结构元数据后展示。"
+	return "---\n\n**补充说明：** 成文阶段在产出这版结构化草稿后遇到模型流式响应瞬时失败；系统保留该草稿，仅补齐确定性的非可见结构元数据后展示。"
 }
 
 func finalizerAutoRepairAuthorityEvidencePool(ctx *types.BusContext) []types.EvidenceItem {

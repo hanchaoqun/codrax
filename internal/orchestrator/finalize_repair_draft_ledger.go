@@ -71,6 +71,15 @@ type finalizeRepairDraftRecord struct {
 	HardViolations int    // len(actionable root retry violations) — precise signal
 	Violations     []types.Violation
 	Hash           string // sha256[:12] of Answer, for the audit log
+	// SystemBlockKinds is the id → SystemGeneratedKind authority sidecar
+	// captured from the SAME in-memory document DocJSON snapshots, at the
+	// same moment (marker-stripping class root fix, audit 2026-07-10).
+	// The marker is json:"-", so DocJSON alone loses it; restore
+	// re-stamps via ReauthenticateSystemSnapshotBlockKinds so the
+	// FRCAP-selected draft keeps its `##` runtime-trace chapters and its
+	// system numerals stay on the prose-scalar evidence face. In-memory
+	// only — the record never crosses a JSON boundary.
+	SystemBlockKinds map[string]types.AnswerSystemGeneratedBlockKind
 }
 
 // recordFinalizeRepairDraft appends the current failing draft to the
@@ -98,6 +107,9 @@ func recordFinalizeRepairDraft(ledger []finalizeRepairDraftRecord, out *agent.St
 		if doc := mut.AnswerDocumentV2(); doc != nil && len(doc.Blocks) > 0 {
 			if raw, err := json.Marshal(doc); err == nil {
 				rec.DocJSON = raw
+				// Capture the json:"-" authority markers the marshal
+				// above just stripped (see SystemBlockKinds).
+				rec.SystemBlockKinds = types.CaptureSystemGeneratedBlockKinds(doc)
 			}
 		}
 	}
@@ -145,6 +157,15 @@ func (o *Orchestrator) restoreFinalizeRepairDraft(out *agent.StageOutput, rec *f
 	if len(rec.DocJSON) > 0 {
 		var doc types.AnswerDocumentV2
 		if err := json.Unmarshal(rec.DocJSON, &doc); err == nil && len(doc.Blocks) > 0 {
+			// Re-authenticate the snapshot (marker-stripping class root
+			// fix, audit 2026-07-10): DocJSON lost every json:"-"
+			// SystemGeneratedKind marker at record time; re-stamp from
+			// the sidecar captured off the SAME in-memory document, so
+			// the restored draft's genuine system blocks keep chapter
+			// promotion, dedupe/idempotence identity, and the PSG
+			// evidence face. System-side snapshot only — never applied
+			// to model-emitted JSON.
+			types.ReauthenticateSystemSnapshotBlockKinds(&doc, rec.SystemBlockKinds)
 			o.busCtx.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &doc)
 			attachments := answertool.FilterAcceptedAnswerDisplayAttachments(&doc, o.busCtx.Mutable.AnswerDisplayAttachments())
 			o.busCtx.Mutable.SetAnswerDisplayAttachments(attachments)

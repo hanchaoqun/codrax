@@ -879,6 +879,18 @@ func recoverPrevFromRetryState(mut *types.MutableState) *types.AnswerDocumentV2 
 	if len(doc.Blocks) == 0 {
 		return nil
 	}
+	// Re-authenticate the system-side snapshot (marker-stripping class
+	// root fix, audit 2026-07-10): PrevEmitJSON lost the json:"-"
+	// SystemGeneratedKind markers at snapshot time. Without the re-stamp
+	// the patch base's GENUINE system blocks fail RuntimeTraceSystemBlock
+	// at persist, get renamed to model_runtime_trace_* by
+	// normalizeRuntimeTraceReservedBlockIDCollisions, and the
+	// materializers re-mint fresh copies — duplicate runtime-trace
+	// chapters with the stale ones laundered as model content. The
+	// sidecar was captured from the same in-memory document, so only
+	// authority that provably existed is restored (model-direct JSON
+	// never reaches this lane).
+	types.ReauthenticateSystemSnapshotBlockKinds(&doc, rs.PrevEmitSystemBlockKinds)
 	return &doc
 }
 

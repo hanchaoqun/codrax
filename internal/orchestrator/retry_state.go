@@ -62,6 +62,15 @@ func populateRetryState(mut *types.MutableState, res contract.Result, prevAttemp
 		// renders).
 		if raw, err := json.Marshal(doc); err == nil {
 			rs.PrevEmitJSON = raw
+			// Marker-stripping class root fix (audit 2026-07-10):
+			// json.Marshal just stripped every json:"-"
+			// SystemGeneratedKind marker from the snapshot. Capture
+			// the live authority map alongside it so decode-side
+			// consumers that rebuild a shipping document (patch base
+			// / recovery draft / ParseOutput fallback) can
+			// re-authenticate the genuine system blocks instead of
+			// demoting them to model grade.
+			rs.PrevEmitSystemBlockKinds = types.CaptureSystemGeneratedBlockKinds(doc)
 		}
 	}
 	actionable := FilterActionableRootViolations(res.Violations)
