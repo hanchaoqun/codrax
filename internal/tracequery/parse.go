@@ -2481,9 +2481,9 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		ev.WakeePrio = atoi(kv["prio"])
 		setEventTargetCPU(&ev, kv["target_cpu"])
 	case EventSchedBlockedReason:
-		ev.WakeePID = atoi(firstNonEmpty(kv["pid"], kv["caller"]))
+		ev.WakeePID = atoi(kv["pid"])
 		ev.IOWait = atoi(kv["iowait"])
-		ev.Reason = intern.intern(firstNonEmpty(kv["caller"], fields))
+		ev.Reason = intern.intern(blockedReasonSemanticCaller(kv))
 	case EventSchedStat:
 		ev.SchedStatFields = &SchedStatFields{
 			Kind:    intern.intern(strings.TrimPrefix(strings.ToLower(rawType), "sched_stat_")),
