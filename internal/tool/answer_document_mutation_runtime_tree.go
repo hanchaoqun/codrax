@@ -500,6 +500,11 @@ const (
 	// G12-ENG (§29.1, 2026-07-09): one new gated seat.
 	runtimeTraceProjMarkValuelessFoldMembers // 无时长值成员 混合折叠行词条 (E23 ×2 同值伪形修根)
 
+	// 审计 #62 ① (§29.25 处置委托 + §29.26 待主会话落账, 2026-07-10): the
+	// on-chain semantic dual-caliber word 链上计入(共N段,同线程) + its
+	// 窗口投影合计 union disclosure (intersection<union partial-overlap form).
+	runtimeTraceProjMarkFamilyChainIntersection
+
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
 	runtimeTraceProjMarkCount
@@ -746,6 +751,13 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkFamilyMemberMax, runtimeTraceProjLegendGroupCaliber,
 			"- `成员最大(共N段,重叠未拆)` = 同线程 N 段重叠且无法逐段核销,数值取成员最大(诚实下界,非求和);原始和见明细。",
 			"- `member max (N segments, overlap not deducted)` = the N same-thread segments overlap and cannot be deducted per segment, so the value is the member MAX (an honest lower bound, never a sum); the raw sum lives in the detail blocks."},
+		// 审计 #62 ① (§29.25 处置委托 + §29.26 待主会话落账, 2026-07-10): the
+		// on-chain semantic dual-caliber entry — assembled from the existing
+		// closed-set tokens (链上/计入/(共N段,同线程)/窗口投影/合计), rendered
+		// exactly when a partial-overlap on-chain semantic row prints the word.
+		{runtimeTraceProjMarkFamilyChainIntersection, runtimeTraceProjLegendGroupCaliber,
+			"- `链上计入(共N段,同线程)` = 有效归因只计成员段与同线程链窗的精确交集;行旁「窗口投影合计」为全部成员段的并集口径,两口径同处披露、不相加。",
+			"- `on-chain counted (N segments, same thread)` = the attribution counts ONLY the exact intersection of the member segments with the same-thread chain windows; the adjacent complete window-projection total is the full member-union caliber — both calibers are disclosed side by side, never added."},
 		{runtimeTraceProjMarkFamilyCountSum, runtimeTraceProjLegendGroupCaliber,
 			"- `计数合计(共N项,同线程)` = 计数类指标按同线程成员相加(计数可加,与墙钟时长无关)。",
 			"- `count total (N items, same thread)` = count-class members of one thread added up (counts add; unrelated to wall-clock duration)."},
@@ -2982,10 +2994,16 @@ func runtimeTraceProjFoldSameSegmentLaneTwins(nodes []types.TraceCausalProjectio
 //     typed token);
 //   - exactly ONE rank arm and ONE semantic arm under a key — any other
 //     shape is ambiguity and never folds;
-//   - value mirror equality: both lanes publish the engine's ONE
-//     participation value (the family real total / clipped span projection —
-//     §29.7-2 ② made the rank lane's effective equal it); a differing value
-//     is a different accounting and never folds;
+//   - value mirror equality: both lanes carry the engine's ONE participation
+//     value. On-chain semantic rows mirror rank participation (the exact
+//     member∩chain intersection, §29.7-2 ② + the SEM-LEAD intersection
+//     caliber) against the semantic record's typed SemanticChainProjectedMS —
+//     the semantic DISPLAY value stays the complete member union (§24.10
+//     lossless observation) and must NOT be the mirror (审计 #5, §29.25/
+//     §29.26: intersection<union on every partial-overlap family re-opened
+//     the twin seats). Rows without the typed intersection keep the legacy
+//     display-impact mirror; a differing value is a different accounting and
+//     never folds;
 //   - family mirror: both lanes carry the same typed member count;
 //   - cross-window veto (SFD F1 mirror): both arms declaring their own typed
 //     selected_window beyond the ±1ms tolerance never fold.
@@ -3103,7 +3121,26 @@ func runtimeTraceProjFoldSemanticRankLaneTwinsDetailed(rankNodes []types.TraceCa
 		}
 		rank := rankNodes[g.rankIdx[0]]
 		sem := &semantics[g.semIdx[0]]
-		if rankV, semV := runtimeTraceProjNodeDisplayImpact(rank), runtimeTraceProjNodeDisplayImpact(*sem); rankV <= 0 || rankV != semV {
+		if sem.SemanticChainProjectedMS > 0 {
+			// 审计 #5 (§29.25 处置委托 + §29.26 待主会话落账, 2026-07-10):
+			// SAME-SOURCE value mirror for on-chain semantic twins. The rank
+			// lane's participation value is the exact member∩chain intersection
+			// (SEM-LEAD intersection caliber), while the semantic lane's DISPLAY
+			// value stays the complete member union (§24.10 lossless
+			// observation) — so a display-vs-display mirror is structurally
+			// false whenever intersection < union (every partial-overlap
+			// family/single span) and re-opened the E9/E13 twin seats with two
+			// contradicting 有效归因 values. Mirror rank participation against
+			// the semantic record's typed intersection instead: both arms carry
+			// the engine's ONE participation value.
+			participation := rank.EffectiveImpactMS
+			if participation <= 0 {
+				participation = runtimeTraceProjNodeDisplayImpact(rank)
+			}
+			if participation <= 0 || !runtimeTraceProjRound3Equal(participation, sem.SemanticChainProjectedMS) {
+				continue // not the engine's one participation value — never fold
+			}
+		} else if rankV, semV := runtimeTraceProjNodeDisplayImpact(rank), runtimeTraceProjNodeDisplayImpact(*sem); rankV <= 0 || rankV != semV {
 			continue // not the engine's one participation value — never fold
 		}
 		if rank.FamilyMemberCount != sem.FamilyMemberCount {
@@ -7870,13 +7907,18 @@ func runtimeTraceProjLeadSelect(projection types.TraceCausalProjection, model ru
 	if len(runtimeTraceCausalProjectionPrimaryRoots(projection)) == 0 {
 		// SEM-LEAD (§29.7-2 ①, ledger real_trace_campaign_20260705.md,
 		// 2026-07-10): a window whose ONLY on-chain competitors are semantic
-		// optimization spans mints no primary-tier rank row (semantic rows
-		// always wear the deterministic_optimization tier), so the legacy
-		// empty-primary gate structurally denied them the crown the ruling
-		// grants (必须能参赛且有机会登顶). When board seat ❶ IS an on-chain
-		// semantic row with a positive attribution, it crowns through the
-		// primary lane; every other empty-primary shape keeps the legacy
-		// no-conclusion behavior byte-identically (fail-open).
+		// rows can leave the primary-ROOT set empty (审计 #66 comment repair:
+		// post-retirement RANK-lane semantic rows DO mint ordinary
+		// primary/secondary/tertiary tiers — types.go
+		// RootCauseTierDeterministicOptimization record; but the primary-root
+		// compile buckets key on the rank-lane records, and the surviving ✦
+		// OBSERVATION-lane seat that adopted the rank ordinal via the twin
+		// fold is not a primary root), so the legacy empty-primary gate
+		// structurally denied them the crown the ruling grants (必须能参赛且
+		// 有机会登顶). When board seat ❶ IS an on-chain semantic row with a
+		// positive attribution, it crowns through the primary lane; every
+		// other empty-primary shape keeps the legacy no-conclusion behavior
+		// byte-identically (fail-open).
 		if board := runtimeTraceProjRankBoard(model.TreeRows); len(board) > 0 &&
 			board[0].Kind == runtimeTraceProjTreeRowSemantic &&
 			strings.TrimSpace(board[0].Node.ChainRelevance) == "on_chain" &&
@@ -8226,6 +8268,26 @@ func runtimeTraceProjConclusionMagnitude(primary types.TraceCausalProjectionNode
 			word = "attribution"
 		}
 		return runtimeTraceProjPeriodicHeadlineMS(primary, 0), word, true, false
+	}
+	// 审计 #5/#62 (§29.25 处置委托 + §29.26 待主会话落账, 2026-07-10): an
+	// on-chain semantic lead whose participation is the exact member∩chain
+	// intersection must not headline the complete union under the 链上累计
+	// word (the union is the §24.10 lossless observation, NOT the on-chain
+	// participation) — the headline publishes the engine's effective under
+	// the (a)-table 有效归因 vocabulary; full-overlap leads (intersection ==
+	// union) keep the legacy word byte-identically.
+	if intersection, dual := runtimeTraceProjSemanticChainDualCaliber(primary); dual {
+		v := intersection
+		if primary.EffectiveImpactMS > 0 {
+			// The engine-published effective wins; it equals the typed
+			// intersection on every genuine fold.
+			v = primary.EffectiveImpactMS
+		}
+		word := "有效归因"
+		if !zh {
+			word = "attribution"
+		}
+		return v, word, false, false
 	}
 	if primary.CumulativeImpactMS > 0 {
 		word := "链上累计"
@@ -9966,6 +10028,15 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 			return runtimeTraceProjDetailCrossThreadCell(msCell(v), v, crossThread, zh)
 		}
 		effective := annotated(node.EffectiveImpactMS)
+		// 审计 #5 (§29.25/§29.26, 2026-07-10): an unfolded on-chain semantic
+		// row carries no engine effective note, but its typed intersection IS
+		// the engine's participation value — the cell mirrors the tree 行3's
+		// dual-caliber claim instead of a dash beside it (三面同源).
+		if node.EffectiveImpactMS <= 0 {
+			if v := runtimeTraceProjSemanticChainIntersectionMS(node); v > 0 {
+				effective = annotated(v)
+			}
+		}
 		if runtimeTraceProjEffectiveInherited(node) {
 			// PTV8-RCR-B (UXA 域B #28 verify, 2026-07-08): merge into one
 			// paren group when the cross-thread annotation already opened one
@@ -10370,6 +10441,17 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 				}
 				add("供给折算", "supply fold", runtimeTraceProjInversionSupplyFoldDetailLine(node, zh))
 			}
+		}
+		// 审计 #62 ① (§29.25 处置委托 + §29.26 待主会话落账, 2026-07-10): the
+		// on-chain semantic dual-caliber stanza line — the SAME single-source
+		// word/disclosure helpers as the fence 行3 (两面同源), with the
+		// stanza's own 供对照 pointer convention.
+		if intersection, dual := runtimeTraceProjSemanticChainDualCaliber(node); dual {
+			add("链上计入", "on-chain counted",
+				runtimeTraceCausalProjectionMarkdownSafe(fmt.Sprintf("%s;%s%s",
+					runtimeTraceProjFmtMS(intersection),
+					runtimeTraceProjSemanticChainIntersectionWord(node, zh),
+					runtimeTraceProjSemanticChainUnionDisclosure(node, zh, true))))
 		}
 		// RCM-2 D3 明细面 (§24.7.1 ① 区分键不能丢 + roster 全量在明细): the
 		// family stanza — fold caliber word (+ raw-Σ disclosure), the FULL wire

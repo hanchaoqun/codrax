@@ -404,10 +404,24 @@ func traceQueryIndexLimitSummary(path, sourceLabel string, p traceQueryParams, l
 	// side — top occupiers + compute-supply balance answer "who ate the CPU /
 	// was capacity actually short" before the wait-side views.
 	b.WriteString("state_first_hint=before shrinking into arbitrary micro-windows, use the stream_state_cluster/window_stats rows below to identify the target thread's dominant and secondary states, then drill down by state family: sleep->wakeup_chain, runnable->window_stats occupancy first (cpu_occupancy top occupiers + compute_supply_balance), then scheduler_latency/root_cause_rank with same CPU competitors, running->perf/compute-supply/semantic span work, D-state/IO->critical_blocking/window_stats IO resources.\n")
-	fmt.Fprintf(&b, "next_call_hint=do not retry the same heavy view with the same dense scope. Split toward %.0f-%.0fms coverage windows for jank/stall root-cause views, add line_start/line_end from a prior event_search/span_window result, or first run event_search with exact timestamp/span/event_types filters to locate a tighter line window. Shrink below %.0fms only as a local micro-probe and do not extrapolate it to the broader requested period.\n",
-		traceQueryPreferredCoverageWindowMinSeconds*1000,
-		traceQueryPreferredCoverageWindowMaxSeconds*1000,
-		traceQueryMicroWindowProbeSeconds*1000)
+	// audit #55: when the failed request window ALREADY sits at or below the
+	// preferred coverage band, "split toward 80-150ms" is self-referential —
+	// the window that just hit the budget IS that size, so time splitting is
+	// not the lever. Precise signal: the typed request-window duration only.
+	// Non-time-splitting levers (pid/thread, event_types, line windows) take
+	// the sentence instead; unset/longer windows keep the historical text.
+	if duration := traceQueryParamWindowDurationSeconds(p); duration > 0 && duration <= traceQueryPreferredCoverageWindowMaxSeconds {
+		fmt.Fprintf(&b, "next_call_hint=do not retry the same heavy view with the same dense scope. The requested window already spans %.0fms — at or below the preferred %.0f-%.0fms coverage band — so splitting the time window further is not the lever here: narrow by pid=<target pid> or thread, split by one event type family per call via event_types, or add line_start/line_end from a prior event_search/span_window result before rerunning the heavy view. Shrink below %.0fms only as a local micro-probe and do not extrapolate it to the broader requested period.\n",
+			duration*1000,
+			traceQueryPreferredCoverageWindowMinSeconds*1000,
+			traceQueryPreferredCoverageWindowMaxSeconds*1000,
+			traceQueryMicroWindowProbeSeconds*1000)
+	} else {
+		fmt.Fprintf(&b, "next_call_hint=do not retry the same heavy view with the same dense scope. Split toward %.0f-%.0fms coverage windows for jank/stall root-cause views, add line_start/line_end from a prior event_search/span_window result, or first run event_search with exact timestamp/span/event_types filters to locate a tighter line window. Shrink below %.0fms only as a local micro-probe and do not extrapolate it to the broader requested period.\n",
+			traceQueryPreferredCoverageWindowMinSeconds*1000,
+			traceQueryPreferredCoverageWindowMaxSeconds*1000,
+			traceQueryMicroWindowProbeSeconds*1000)
+	}
 	// §4.7 W3: when the caller's explicit request window spans strictly more
 	// than WindowSweepRecoveryMinWindowSeconds, the FIRST recovery
 	// recommendation is window_sweep — one streaming coverage pass over the
@@ -5875,7 +5889,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// tree keys its depth attach to (branch, depth); zero-dropped
 				// when the row has no single branch identity.
 				{types.TraceNoteKeyChainBranch, traceQueryTypedCount(item.ChainBranch)},
-				{"overlap", traceQueryObservationMSValue(item.OverlapMs)},
+				{types.TraceNoteKeyOverlap, traceQueryObservationMSValue(item.OverlapMs)},
 				{"edge_count", traceQueryTypedCount(item.EdgeCount)},
 				{"nearest_chain_thread", traceThreadLabelOptional(item.NearestChainThread)},
 				{types.TraceNoteKeyNearestChainWindow, traceQueryTypedTimeWindow(item.NearestChainWindow)},
@@ -6843,7 +6857,7 @@ func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) 
 		// candidates publish the R5d gated composite, plain rows publish the
 		// raw attribution (no discount applies → effective == raw).
 		{types.TraceNoteKeyEffectiveImpactMS, traceQueryCausalImpactEffectiveNoteValue(impact)},
-		{"projected_impact", traceQueryObservationMSValue(impact.ProjectedImpactMs)},
+		{types.TraceNoteKeyProjectedImpact, traceQueryObservationMSValue(impact.ProjectedImpactMs)},
 		{types.TraceNoteKeyTotal, traceQueryObservationMSValue(impact.TotalMs)},
 		{"projected_total", traceQueryObservationMSValue(impact.ProjectedTotalMs)},
 		{types.TraceNoteKeyActualImpact, traceQueryObservationMSValue(impact.ActualImpactMs)},
@@ -7106,7 +7120,7 @@ func traceQueryTypedCausalAggregateRichNotes(aggregate tracequery.WakeupCausalAg
 		{"aggregation_caliber", aggregate.AggregationCaliber},
 		{types.TraceNoteKeyDominantState, aggregate.DominantState},
 		{types.TraceNoteKeyImpact, traceQueryObservationMSValue(aggregate.DominantImpactMs)},
-		{"projected_impact", traceQueryObservationMSValue(aggregate.ProjectedImpactMs)},
+		{types.TraceNoteKeyProjectedImpact, traceQueryObservationMSValue(aggregate.ProjectedImpactMs)},
 		{types.TraceNoteKeyTotal, traceQueryObservationMSValue(aggregate.TotalMs)},
 		{"projected_total", traceQueryObservationMSValue(aggregate.ProjectedTotalMs)},
 		{types.TraceNoteKeyActualImpact, traceQueryObservationMSValue(aggregate.ActualImpactMs)},
@@ -7362,7 +7376,7 @@ func traceQueryTypedCriticalBlockingRichNotes(item tracequery.CriticalBlockingCa
 		{"sync_like", traceQueryTypedBoolPtr(item.SyncLike)},
 		{"blocking_candidate", traceQueryTypedBoolPtr(item.BlockingCandidate)},
 		{types.TraceNoteKeyChainRelevance, item.ChainRelevance},
-		{"overlap", traceQueryObservationMSValue(item.OverlapMs)},
+		{types.TraceNoteKeyOverlap, traceQueryObservationMSValue(item.OverlapMs)},
 		{"edge_count", traceQueryTypedCount(item.EdgeCount)},
 		{"nearest_chain_thread", traceThreadLabel(item.NearestChainThread)},
 	})
@@ -8406,7 +8420,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 				{"name", episode.TopEntryName},
 				{"file_bytes", traceQueryTypedInt64(episode.FileIOBytes)},
 				{"page_cache_churn", traceQueryTypedCount(episode.PageCacheChurn)},
-				{"overlap", traceQueryObservationMSValue(episode.OverlapMs)},
+				{types.TraceNoteKeyOverlap, traceQueryObservationMSValue(episode.OverlapMs)},
 				{"nearest_chain_thread", traceThreadLabelOptional(episode.NearestChainThread)},
 			}),
 			SupportRefs: traceQueryObservationSupportRefs(ref, episode.LineStart, episode.LineEnd),
@@ -8798,7 +8812,19 @@ func traceQueryTypedSemanticTraceSpanObservations(result tracequery.Result, stat
 			continue
 		}
 		ordinal++
-		ctx := traceQuerySemanticTraceSpanContext(span, chain)
+		// 审计复核 R1 (§29.25 处置委托 + §29.26 待主会话落账, 2026-07-10):
+		// the single-member record derives lane/depth/overlap from the SAME
+		// family fold the rank mint prices (fam.OnChain/fam.ProjectedImpactMs
+		// — semanticTraceSpanChainIntersectionProjection, computed for
+		// single-member families too), so the observation's overlap note and
+		// the rank row's published EffectiveImpactMs are ONE value source.
+		// The retired traceQuerySemanticTraceSpanContext lane took the best
+		// SINGLE chain-window overlap (max): a span crossing several disjoint
+		// same-thread chain windows published overlap=3.000 beside the
+		// engine's cross-window intersection union 5.500 — the typed twin
+		// mirror then failed structurally, the ✦/❶ twin seats returned, and
+		// the detail cell surfaced a value the engine never published.
+		ctx := traceQuerySemanticSpanFamilyFoldContext(fam, span, chain)
 		if ctx.chainRelevance != "on_chain" {
 			// F-4 counting: single-span records hold a board position (they
 			// compete on the same board) but carry no stamped field.
@@ -8813,7 +8839,7 @@ func traceQueryTypedSemanticTraceSpanObservations(result tracequery.Result, stat
 			{types.TraceNoteKeyChainRelevance, ctx.chainRelevance},
 			{types.TraceNoteKeyCausality, ctx.causality},
 			{types.TraceNoteKeyChainDepth, traceQueryTypedCount(ctx.chainDepth)},
-			{"overlap", traceQueryObservationMSValue(ctx.overlapMs)},
+			{types.TraceNoteKeyOverlap, traceQueryObservationMSValue(ctx.overlapMs)},
 			{types.TraceNoteKeyWindow, traceQueryWindowValue(span.StartTs, span.EndTs)},
 			// DCS E5 producer half (ledger §23 H2, cmp_01 E2 witness "83% 对
 			// 锚窗", 2026-07-08): the row's typed SOURCE-window identity — the
@@ -8904,8 +8930,8 @@ func traceQuerySemanticSpanFamilyObservation(fam tracequery.SemanticSpanFamily, 
 		{types.TraceNoteKeyChainRelevance, relevance},
 		{types.TraceNoteKeyCausality, causality},
 		{types.TraceNoteKeyChainDepth, traceQueryTypedCount(chainDepth)},
-		{"projected_impact", projectedImpact},
-		{"overlap", overlap},
+		{types.TraceNoteKeyProjectedImpact, projectedImpact},
+		{types.TraceNoteKeyOverlap, overlap},
 		// RCM-2 复核 F-4 (2026-07-08): the family's seat on the channel's
 		// background comprehensive board (registered key, DCS §23.1 lane) —
 		// the display 行2 背景榜位#N consumer. 0 (on-chain families) drops the
@@ -8983,6 +9009,36 @@ type traceQuerySemanticSpanContext struct {
 	overlapMs      float64
 }
 
+// traceQuerySemanticSpanFamilyFoldContext derives the single-member semantic
+// observation context from the SAME family fold the rank lane consumes (审计
+// 复核 R1, §29.25 处置委托 + §29.26 待主会话落账, 2026-07-10):
+// fam.OnChain / fam.ProjectedImpactMs / fam.ChainDepth come from
+// FoldSemanticSpanFamilies → semanticTraceSpanChainIntersectionProjection —
+// the exact primitive the single-span rank mint prices participation with —
+// so the overlap note mirrors the rank row's published EffectiveImpactMs by
+// construction (one 道别 predicate, one value source, two consumers; the
+// divergent best-single-window traceQuerySemanticTraceSpanContext lane is
+// retired from this producer). The off-chain tail mirrors the family record's
+// derivation verbatim: envelope-vs-chain-window overlap decides
+// adjacent/background; no chain → no lane claim.
+func traceQuerySemanticSpanFamilyFoldContext(fam tracequery.SemanticSpanFamily, span tracequery.TraceSpanSummary, chain *tracequery.ChainResult) traceQuerySemanticSpanContext {
+	if fam.OnChain {
+		return traceQuerySemanticSpanContext{
+			chainRelevance: "on_chain",
+			causality:      "on_wakeup_chain",
+			chainDepth:     fam.ChainDepth,
+			overlapMs:      fam.ProjectedImpactMs,
+		}
+	}
+	if chain == nil || (len(chain.Nodes) == 0 && len(chain.CausalImpacts) == 0 && len(chain.Edges) == 0) {
+		return traceQuerySemanticSpanContext{}
+	}
+	if traceQueryWindowOverlapMS(span.StartTs, span.EndTs, chain.Window.StartTs, chain.Window.EndTs) > 0 {
+		return traceQuerySemanticSpanContext{chainRelevance: "adjacent", causality: "adjacent_to_wakeup_chain"}
+	}
+	return traceQuerySemanticSpanContext{chainRelevance: "background", causality: "background"}
+}
+
 func traceQueryResultWakeupChain(result tracequery.Result) *tracequery.ChainResult {
 	if result.WakeupChain != nil {
 		return result.WakeupChain
@@ -8993,51 +9049,6 @@ func traceQueryResultWakeupChain(result tracequery.Result) *tracequery.ChainResu
 	return nil
 }
 
-func traceQuerySemanticTraceSpanContext(span tracequery.TraceSpanSummary, chain *tracequery.ChainResult) traceQuerySemanticSpanContext {
-	if chain == nil || (len(chain.Nodes) == 0 && len(chain.CausalImpacts) == 0 && len(chain.Edges) == 0) {
-		return traceQuerySemanticSpanContext{}
-	}
-	var out traceQuerySemanticSpanContext
-	bestOverlap := 0.0
-	setOnChain := func(overlap float64, depth int) {
-		if overlap <= 0 {
-			return
-		}
-		if out.chainRelevance != "on_chain" || overlap > bestOverlap {
-			out.chainRelevance = "on_chain"
-			out.causality = "on_wakeup_chain"
-			out.overlapMs = overlap
-			out.chainDepth = depth
-			bestOverlap = overlap
-		}
-	}
-	if traceQuerySameThreadRef(span.Thread, chain.Target) {
-		setOnChain(traceQueryWindowOverlapMS(span.StartTs, span.EndTs, chain.Window.StartTs, chain.Window.EndTs), 0)
-	}
-	for _, node := range chain.Nodes {
-		if !traceQuerySameThreadRef(span.Thread, node.Thread) {
-			continue
-		}
-		depth := 0
-		if node.Impact != nil {
-			depth = node.Impact.ChainDepth
-		}
-		setOnChain(traceQueryWindowOverlapMS(span.StartTs, span.EndTs, node.Window.StartTs, node.Window.EndTs), depth)
-	}
-	for _, impact := range chain.CausalImpacts {
-		if !traceQuerySameThreadRef(span.Thread, impact.Thread) {
-			continue
-		}
-		setOnChain(traceQueryWindowOverlapMS(span.StartTs, span.EndTs, impact.Window.StartTs, impact.Window.EndTs), impact.ChainDepth)
-	}
-	if out.chainRelevance != "" {
-		return out
-	}
-	if traceQueryWindowOverlapMS(span.StartTs, span.EndTs, chain.Window.StartTs, chain.Window.EndTs) > 0 {
-		return traceQuerySemanticSpanContext{chainRelevance: "adjacent", causality: "adjacent_to_wakeup_chain"}
-	}
-	return traceQuerySemanticSpanContext{chainRelevance: "background", causality: "background"}
-}
 
 func traceQuerySameThreadRef(a, b tracequery.ThreadRef) bool {
 	if a.PID > 0 && b.PID > 0 {

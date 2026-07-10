@@ -22,9 +22,13 @@ package tool
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -503,6 +507,256 @@ func TestB9CustTraceVC710OffChainClassVerificationTwinSingleSeat(t *testing.T) {
 		newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	if len(optimizationRows) == 0 || !strings.Contains(strings.Join(optimizationRows[0].Cells, "|"), "类校验") {
 		t.Fatalf("off-chain folding must not remove the independent deterministic-optimization obligation: %+v", optimizationRows)
+	}
+}
+
+// semLeadPartialOverlapToolTrace — 审计 #5/#62 e2e fixture (§29.25 处置委托 +
+// §29.26 待主会话落账, 2026-07-10): the second texture span CROSSES the
+// sched_wakeup (5.006) and ends at 5.0098, so the family's complete
+// selected-window union (2.100+7.200=9.300ms) exceeds the exact member∩chain
+// intersection (2.100+3.400=5.500ms) — the production partial-overlap shape
+// (span still open after the worker wakes its consumer) that structurally
+// broke the display-value twin-fold mirror and re-opened the E9/E13 twin
+// seats with two contradicting 有效归因 values.
+const semLeadPartialOverlapToolTrace = `
+        app-100 (100) [001] .... 5.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     worker-200 (100) [002] .... 5.000400: tracing_mark_write: B|200|Texture upload(15573) 1140x1856
+     worker-200 (100) [002] .... 5.001000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=200 next_prio=20
+     worker-200 (100) [002] .... 5.002500: tracing_mark_write: E|200
+     worker-200 (100) [002] .... 5.002600: tracing_mark_write: B|200|Texture upload(15563) 1140x1140
+     worker-200 (100) [002] .... 5.006000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+        app-100 (100) [001] .... 5.006500: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+     worker-200 (100) [002] .... 5.009800: tracing_mark_write: E|200
+`
+
+// TestSemLeadPartialOverlapSingleSeatDualCaliber — 审计 #5 must-fix e2e pin:
+// on the partial-overlap form the report keeps ONE ✦ seat (the rank twin
+// folds through the typed-intersection mirror), the 有效归因 label carries
+// the engine's intersection (5.500ms) with the dual-caliber disclosure
+// (链上计入 + 窗口投影合计 9.300ms), and the union NEVER wears 有效归因.
+func TestSemLeadPartialOverlapSingleSeatDualCaliber(t *testing.T) {
+	obs := semLeadEngineObservationsFromTrace(t, "semlead_partial_overlap.systrace",
+		semLeadPartialOverlapToolTrace,
+		tracequery.Query{PID: 100, TimeStart: 5.0, TimeEnd: 5.010, MaxDepth: 4,
+			MinDurationMs: 0.05, TraceFlavorHint: tracequery.TraceFlavorHarmonyHitrace, Limit: 12})
+	md := audit730Render(t, audit730Bus(""), obs, "")
+
+	// Single seat: exactly one ✦ texture family row, no rank-lane twin row.
+	fenceRows := 0
+	for _, line := range strings.Split(md, "\n") {
+		if strings.Contains(line, "Texture upload ×2") && strings.Contains(line, "✦") {
+			fenceRows++
+		}
+	}
+	if fenceRows != 1 {
+		t.Fatalf("#5: the partial-overlap family must keep exactly one ✦ seat, got %d:\n%s", fenceRows, md)
+	}
+	for _, line := range strings.Split(md, "\n") {
+		if strings.Contains(line, "Texture upload") &&
+			(strings.Contains(line, "链上·未接入树") || strings.Contains(line, "链上·深度未解析")) {
+			t.Fatalf("#5: no unattached rank-lane texture seat may remain: %q", line)
+		}
+	}
+	if !regexp.MustCompile(`\[E\d+(\(\+\d+\))?\+E\d+(\(\+\d+\))?\]`).MatchString(md) {
+		t.Fatalf("#5: the folded rank twin's E# must merge into the [E#+E#] bracket:\n%s", md)
+	}
+
+	// Dual-caliber disclosure (#62 ①): intersection wears 有效归因; the union
+	// is disclosed beside it and never wears the label.
+	if !strings.Contains(md, "有效归因 5.500ms = 链上计入(共2段,同线程)") {
+		t.Fatalf("#62: 行3 must publish the intersection under the dual-caliber word:\n%s", md)
+	}
+	if !strings.Contains(md, "窗口投影合计 9.300ms") {
+		t.Fatalf("#62: the complete union must stay disclosed beside the intersection:\n%s", md)
+	}
+	if strings.Contains(md, "有效归因 9.300") || strings.Contains(md, "有效归因 9.3") {
+		t.Fatalf("#5: the union must never wear the 有效归因 label:\n%s", md)
+	}
+	// 行1 keeps the lossless window-projection union (§24.10 semantics).
+	if !strings.Contains(md, "合计9.300ms") {
+		t.Fatalf("#62: 行1/表面 must keep the lossless union value:\n%s", md)
+	}
+	// The crown follows the published intersection lane (engine ordinal ==
+	// published eff — §29.22.1 修向(a) unchanged by this batch).
+	leadLine := ""
+	for _, line := range strings.Split(md, "\n") {
+		if strings.Contains(line, "**主根因:**") {
+			leadLine = line
+			break
+		}
+	}
+	if leadLine == "" || !strings.Contains(leadLine, "Texture upload") {
+		t.Fatalf("#5: the folded seat keeps the crown, got %q", leadLine)
+	}
+	if strings.Contains(leadLine, "9.300") {
+		t.Fatalf("#5: the headline must not publish the union as the participation value: %q", leadLine)
+	}
+}
+
+// semLeadTwoWindowSingleSpanTrace — 复核 R1 witness fixture (§29.25 处置委托 +
+// §29.26 待主会话落账, 2026-07-10): ONE JIT span crosses TWO disjoint
+// same-thread chain windows (the target sleeps twice; the worker wakes it
+// twice while the span stays open). The rank lane prices participation as the
+// cross-window intersection UNION; the retired best-single-window observation
+// context published only the larger single window's overlap — three values on
+// one page and a structurally failing twin mirror.
+const semLeadTwoWindowSingleSpanTrace = `
+        app-100 (100) [001] .... 5.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     worker-200 (100) [002] .... 5.000400: tracing_mark_write: B|200|JIT compiling Foo.bar
+     worker-200 (100) [002] .... 5.000500: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=200 next_prio=20
+     worker-200 (100) [002] .... 5.003000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+        app-100 (100) [001] .... 5.003200: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+        app-100 (100) [001] .... 5.004000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+     worker-200 (100) [002] .... 5.007000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+        app-100 (100) [001] .... 5.007200: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52
+     worker-200 (100) [002] .... 5.008600: tracing_mark_write: E|200
+`
+
+func semLeadNoteFloat(t *testing.T, record types.ObservationRecord, key string) float64 {
+	t.Helper()
+	for _, note := range record.RichNotes {
+		if strings.HasPrefix(note, key+"=") {
+			raw := strings.TrimSuffix(strings.TrimPrefix(note, key+"="), "ms")
+			v, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+			if err != nil {
+				t.Fatalf("unparsable %s note %q: %v", key, note, err)
+			}
+			return v
+		}
+	}
+	return 0
+}
+
+// TestSemLeadSingleSpanCrossWindowObservationMirrorsRankParticipation — 复核
+// R1 must-fix pin: the single-span observation's overlap note and the rank
+// row's published effective are ONE value (both from the family fold's exact
+// cross-window intersection union), the report keeps ONE ✦ seat, and no face
+// publishes the best-single-window value the engine never priced.
+func TestSemLeadSingleSpanCrossWindowObservationMirrorsRankParticipation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "semlead_two_window_single_span.systrace")
+	if err := os.WriteFile(path, []byte(semLeadTwoWindowSingleSpanTrace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	idx, err := tracequery.BuildIndex(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := tracequery.Query{PID: 100, TimeStart: 5.0, TimeEnd: 5.010, MaxDepth: 4,
+		MinDurationMs: 0.05, TraceFlavorHint: tracequery.TraceFlavorHarmonyHitrace, Limit: 12}
+	chain := tracequery.BuildWakeupChain(idx, q)
+	rank := tracequery.BuildRootCauseRank(idx, q)
+	stats := tracequery.ComputeWindowStats(idx, q)
+
+	// Premise (engine-real): the JIT span overlaps ≥2 DISJOINT same-thread
+	// chain windows, and no single window covers the whole intersection —
+	// i.e. the best-single-window caliber genuinely under-reports here.
+	var span *tracequery.TraceSpanSummary
+	for i := range stats.TraceSpans {
+		if strings.HasPrefix(stats.TraceSpans[i].Name, "JIT compiling") {
+			span = &stats.TraceSpans[i]
+			break
+		}
+	}
+	if span == nil {
+		t.Fatalf("fixture must surface the JIT span: %+v", stats.TraceSpans)
+	}
+	type window struct{ start, end float64 }
+	var windows []window
+	addWindow := func(comm string, pid int, start, end float64) {
+		if comm == "worker" && pid == 200 && end > start {
+			windows = append(windows, window{start, end})
+		}
+	}
+	for _, node := range chain.Nodes {
+		addWindow(node.Thread.Comm, node.Thread.PID, node.Window.StartTs, node.Window.EndTs)
+	}
+	for _, impact := range chain.CausalImpacts {
+		addWindow(impact.Thread.Comm, impact.Thread.PID, impact.Window.StartTs, impact.Window.EndTs)
+	}
+	var pieces []window
+	maxSingle := 0.0
+	for _, w := range windows {
+		start, end := w.start, w.end
+		if span.StartTs > start {
+			start = span.StartTs
+		}
+		if span.EndTs < end {
+			end = span.EndTs
+		}
+		if end <= start {
+			continue
+		}
+		pieces = append(pieces, window{start, end})
+		if ms := (end - start) * 1000; ms > maxSingle {
+			maxSingle = ms
+		}
+	}
+	sort.Slice(pieces, func(i, j int) bool { return pieces[i].start < pieces[j].start })
+	unionMs, distinct := 0.0, 0
+	for i := 0; i < len(pieces); {
+		start, end := pieces[i].start, pieces[i].end
+		j := i + 1
+		for j < len(pieces) && pieces[j].start < end {
+			if pieces[j].end > end {
+				end = pieces[j].end
+			}
+			j++
+		}
+		unionMs += (end - start) * 1000
+		distinct++
+		i = j
+	}
+	if distinct < 2 || unionMs <= maxSingle+0.0005 {
+		t.Fatalf("fixture premise broken (need ≥2 disjoint overlapped chain windows, union>max): distinct=%d union=%.3f max=%.3f windows=%+v",
+			distinct, unionMs, maxSingle, windows)
+	}
+
+	// 值同源: rank effective == observation overlap == the intersection union.
+	obs := traceQueryTypedObservations(tracequery.Result{WakeupChain: &chain, RootCauseRank: &rank, WindowStats: &stats},
+		"semlead_two_window_single_span.systrace", "payload", "raw", "", time.Unix(1751600000, 0).UTC())
+	var rankRecord, semRecord *types.ObservationRecord
+	for i := range obs {
+		if strings.HasPrefix(obs[i].Predicate, "root_cause_") && strings.TrimSpace(obs[i].Object) == "jit_compile" {
+			rankRecord = &obs[i]
+		}
+		if obs[i].Predicate == "trace_semantic_span" && strings.TrimSpace(obs[i].Object) == "jit_compile" {
+			semRecord = &obs[i]
+		}
+	}
+	if rankRecord == nil || semRecord == nil {
+		t.Fatalf("both lanes must publish the JIT span: %+v", obs)
+	}
+	eff := semLeadNoteFloat(t, *rankRecord, "effective_impact_ms")
+	overlap := semLeadNoteFloat(t, *semRecord, "overlap")
+	if math.Abs(eff-overlap) > 0.0005 {
+		t.Fatalf("R1 值同源 broken: rank effective=%.3f vs observation overlap=%.3f", eff, overlap)
+	}
+	if math.Abs(eff-unionMs) > 0.0005 {
+		t.Fatalf("R1: participation must be the cross-window intersection union: eff=%.3f union=%.3f", eff, unionMs)
+	}
+
+	// Render: ONE ✦ seat (the twin folds), the intersection wears 有效归因
+	// under the dual-caliber word, and the never-published best-single-window
+	// value appears on no attribution face.
+	md := audit730Render(t, audit730Bus(""), obs, "")
+	seats := 0
+	for _, line := range strings.Split(md, "\n") {
+		if strings.Contains(line, "✦") && strings.Contains(line, "JIT compiling Foo.bar") {
+			seats++
+		}
+	}
+	if seats != 1 {
+		t.Fatalf("R1: the cross-window single span must keep exactly one ✦ seat, got %d:\n%s", seats, md)
+	}
+	if !regexp.MustCompile(`\[E\d+(\(\+\d+\))?\+E\d+(\(\+\d+\))?\]`).MatchString(md) {
+		t.Fatalf("R1: the folded rank twin's E# must merge into the [E#+E#] bracket:\n%s", md)
+	}
+	if !strings.Contains(md, fmt.Sprintf("有效归因 %.3fms = 链上计入", eff)) {
+		t.Fatalf("R1: 行3 must publish the engine participation %.3f under the dual-caliber word:\n%s", eff, md)
+	}
+	if math.Round(maxSingle*1000) != math.Round(eff*1000) &&
+		strings.Contains(md, fmt.Sprintf("有效归因 %.3fms", maxSingle)) {
+		t.Fatalf("R1: the best-single-window value %.3f (never engine-published) must not wear 有效归因:\n%s", maxSingle, md)
 	}
 }
 

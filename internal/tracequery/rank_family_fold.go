@@ -363,10 +363,20 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 			fam.FoldCaliber = RootCauseMemberFoldCaliberIntervalUnion
 		}
 		if fam.OnChain {
-			// P0 semantic-chain caliber: lane admission and causal magnitude use
-			// the same exact intersection algebra. TotalMs deliberately remains
-			// the complete selected-window member union; only this projected
-			// value is eligible for rank/effective attribution.
+			// EVOLUTION RECORD (§24.10 → on-chain intersection caliber; 审计
+			// #62 追认, §29.25 处置委托 + §29.26 待主会话落账, 2026-07-10).
+			// §24.10 用户裁定原文: "合并键=(线程,语义类),参赛值=窗口投影合计
+			// (同线程求和墙钟合法;非单次最大——用户明示'投影合计');链上 tier 道
+			// 与非链背景综合排序道同规". EVOLUTION: for the ON-CHAIN lane the
+			// participation/published value is the exact member∩chain
+			// intersection union (有效归因诚实方向 — the same lane-admission
+			// algebra prices the causal magnitude; consistent with the E17
+			// 承自/gated 折算 philosophy), while TotalMs deliberately remains
+			// the complete selected-window member union (§24.10 窗口投影合计
+			// verbatim) on the Value/cumulative disclosure lanes. Off-chain
+			// participation keeps the §24.10 original caliber byte-identically.
+			// Display half: the ✦ row 行3/明细 disclose BOTH calibers
+			// (链上计入 X + 窗口投影合计 Y, 审计 #62 ①).
 			chainProjection := semanticTraceSpanChainIntersection(chain, fam.Thread, intervals)
 			fam.ProjectedImpactMs = chainProjection.projection.ImpactMs
 			if fam.ProjectedImpactMs > fam.TotalMs {
@@ -457,15 +467,19 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 		ChainBranch:   fam.ChainBranch,
 		OnChain:       fam.OnChain,
 	}
-	// SEM-LEAD (§29.7-2 ②, ledger real_trace_campaign_20260705.md, 2026-07-10).
-	// EVOLUTION RECORD: same as the single-span mint — the deterministic
-	// hidden-cost boost no longer publishes as EffectiveImpactMs (792-textup
-	// witness: the family's 有效归因 read 214.561ms = 102.172 × 2.10 while the
-	// participation value is the real causal projection (for on-chain families,
-	// the exact intersection union, never the complete span union). The boost
-	// stays engine-internal on RankSortBoostedEffectiveMs;
-	// the semantic_multiplier=/hidden_cost_boost= internal tokens left the
-	// Summary (红线: internal tokens must never reach answer prose).
+	// EVOLUTION RECORD (§29.7-2 ② → intersection caliber; 审计 #62 追认,
+	// §29.25 处置委托 + §29.26 待主会话落账, 2026-07-10). §29.7-2 ② 原文:
+	// "参赛值=家族真实合计(如 102.172),score 乘子(2.10)留引擎排序内部" —
+	// same as the single-span mint, the deterministic hidden-cost boost never
+	// publishes as EffectiveImpactMs (792-textup witness: the family's
+	// 有效归因 read 214.561ms = 102.172 × 2.10); the boost stays
+	// engine-internal on RankSortBoostedEffectiveMs and the
+	// semantic_multiplier=/hidden_cost_boost= internal tokens left the Summary
+	// (红线: internal tokens must never reach answer prose). EVOLUTION on top:
+	// for ON-CHAIN families "家族真实合计" evolved to the exact member∩chain
+	// intersection union (see the FoldSemanticSpanFamilies OnChain record
+	// above); full-overlap families — the §29.22 textup 102.172 witness —
+	// are byte-identical because there intersection == union.
 	sortBoostedMs := semanticTraceSpanEffectiveImpactMs(work, projection, TraceSpanSummary{DurationMs: fam.TotalMs})
 	var summary string
 	if fam.OnChain {

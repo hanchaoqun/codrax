@@ -45,6 +45,15 @@ func TestSemLeadFamilyPublishesRealTotalKeepsBoostInternal(t *testing.T) {
 	if fam.MemberCount != 2 || fam.SemanticClass != "texture_upload" {
 		t.Fatalf("expected the ×2 same-thread family form: %+v", fam)
 	}
+	// EVOLUTION RECORD (审计 #66, §29.25 处置委托 + §29.26 待主会话落账,
+	// 2026-07-10): this assertion was FLIPPED from
+	// Tier==RootCauseTierDeterministicOptimization (the §29.22 as-built
+	// independent tier) to Tier=="primary" when the engine retired the tier
+	// mint — 追认 as the fuller reading of §29.7-2 全权参赛 (direct
+	// primary/secondary/tertiary competition). The adjudicated tier-WORD
+	// identity ("确定性优化候选") now rides the typed SemanticClass token on
+	// the display faces (types.go RootCauseTierDeterministicOptimization
+	// record).
 	if fam.ChainRelevance != "on_chain" || fam.Tier != "primary" {
 		t.Fatalf("the leading on-chain family must be a primary candidate: %+v", fam)
 	}
@@ -112,6 +121,11 @@ func TestSemLeadOrdinalFollowsPublishedEffectiveNotBoost(t *testing.T) {
 			onChain = append(onChain, item)
 		}
 	}
+	// EVOLUTION RECORD (审计 #66, §29.25/§29.26, 2026-07-10): flipped from
+	// asserting the independent deterministic_optimization tier to asserting
+	// the ordinary typed election — the tier mint retirement is 追认
+	// (types.go RootCauseTierDeterministicOptimization record; display
+	// identity survives on the SemanticClass token lane).
 	if fam == nil || fam.Rank <= 0 || fam.Tier == RootCauseTierDeterministicOptimization || fam.Tier == "" {
 		t.Fatalf("the texture family must stay in the ordinary typed election: %+v", rank.Items)
 	}

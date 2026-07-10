@@ -756,7 +756,8 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		!node.PeriodicSource && !runtimeTraceProjEffectiveInherited(node) &&
 		impactSource != runtimeTraceProjImpactSourceEffective
 	handled := false
-	if runtimeTraceProjFamilyRow(node) {
+	semIntersection, semDual := runtimeTraceProjSemanticChainDualCaliber(node)
+	if runtimeTraceProjFamilyRow(node) || semDual {
 		// RCM-2 D2 (§24.10/§24.12 维度A ④, 2026-07-08): the family form OWNS
 		// the whole 行3/子行 seat — 行3 = 「有效归因 V = 合计(共N段,同线程)」
 		// (fifth caliber word per the typed fold-caliber ladder; union < Σ
@@ -771,16 +772,41 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		// effective tag then stays on its legacy lane).
 		word, caliberMark, wordOK := runtimeTraceProjFamilyCaliberWord(node, zh)
 		v := runtimeTraceProjFamilyPublishedMS(node)
-		balanced := effective <= 0 || impact <= 0 || runtimeTraceProjRound3Equal(effective, impact)
-		if wordOK && v > 0 && balanced && !node.PeriodicSource {
-			out.Breakdown = fmt.Sprintf("%s %s = %s%s", effectiveWord,
-				runtimeTraceProjFmtMS(v), word, runtimeTraceProjFamilySumDisclosure(node, zh))
-			out.SubRows = runtimeTraceProjFamilyRosterSubRows(node, zh)
-			row.marks.mark(runtimeTraceProjMarkEffectiveBreakdown)
-			runtimeTraceProjMarkFamilyCaliber(row.marks, caliberMark)
-			out.ConsumedEffective = true
+		if semDual {
+			intersection := semIntersection
+			// 审计 #62 ① (§29.25 处置委托 + §29.26 待主会话落账, 2026-07-10):
+			// the on-chain semantic dual-caliber form — the participation is
+			// the exact member∩chain intersection while 行1 keeps the complete
+			// window-projection union (§24.10 lossless caliber), so the 行3
+			// 「合计(共N段,同线程)」 word would claim the union beside an
+			// intersection value. 行3 speaks 链上计入(共N段,同线程) with the
+			// union disclosed alongside; identity gate = the published value
+			// equals the typed intersection at print precision (an engine
+			// effective disagreeing with the typed intersection fails open —
+			// 拒渲绝不造数, legacy effective tag lane keeps the value).
+			if v > 0 && runtimeTraceProjRound3Equal(v, intersection) && !node.PeriodicSource {
+				out.Breakdown = fmt.Sprintf("%s %s = %s%s", effectiveWord,
+					runtimeTraceProjFmtMS(v),
+					runtimeTraceProjSemanticChainIntersectionWord(node, zh),
+					runtimeTraceProjSemanticChainUnionDisclosure(node, zh, false))
+				out.SubRows = runtimeTraceProjFamilyRosterSubRows(node, zh)
+				row.marks.mark(runtimeTraceProjMarkEffectiveBreakdown)
+				row.marks.mark(runtimeTraceProjMarkFamilyChainIntersection)
+				out.ConsumedEffective = true
+			}
+			handled = true
+		} else {
+			balanced := effective <= 0 || impact <= 0 || runtimeTraceProjRound3Equal(effective, impact)
+			if wordOK && v > 0 && balanced && !node.PeriodicSource {
+				out.Breakdown = fmt.Sprintf("%s %s = %s%s", effectiveWord,
+					runtimeTraceProjFmtMS(v), word, runtimeTraceProjFamilySumDisclosure(node, zh))
+				out.SubRows = runtimeTraceProjFamilyRosterSubRows(node, zh)
+				row.marks.mark(runtimeTraceProjMarkEffectiveBreakdown)
+				runtimeTraceProjMarkFamilyCaliber(row.marks, caliberMark)
+				out.ConsumedEffective = true
+			}
+			handled = true
 		}
-		handled = true
 	}
 	if !handled && eligible && runtimeTraceCausalProjectionInversionRow(node) {
 		if components, total, ok := runtimeTraceProjInversionComponents(node, zh); ok {

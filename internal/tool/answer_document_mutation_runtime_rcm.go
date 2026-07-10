@@ -116,13 +116,97 @@ func runtimeTraceProjFamilyValuePrefix(node types.TraceCausalProjectionNode, zh 
 
 // runtimeTraceProjFamilyPublishedMS is the family's PUBLISHED participation
 // value (§24.10 合并量参赛; D3 参赛值=发布值): the engine-published effective
-// attribution when present, else the row's display impact. Never a display-
-// side recomputation — the engine's fold is the single value authority.
+// attribution when present, else the row's typed on-chain intersection, else
+// the row's display impact. Never a display-side recomputation — the engine's
+// fold is the single value authority.
+//
+// EVOLUTION RECORD (审计 #5/#62, §29.25 处置委托 + §29.26 待主会话落账,
+// 2026-07-10): the on-chain semantic intersection arm was inserted between
+// the effective arm and the display fallback — an unfolded on-chain semantic
+// row (fold fail-open remnant) used to fall back to its display value = the
+// COMPLETE member union, publishing the union as 有效归因/lead value while
+// the engine's participation is the exact member∩chain intersection (✦ 行
+// 「有效归因」标签不得回退 union 裸值). Folded rows already carry the same
+// intersection on EffectiveImpactMS — byte-identical for them.
 func runtimeTraceProjFamilyPublishedMS(node types.TraceCausalProjectionNode) float64 {
 	if node.EffectiveImpactMS > 0 {
 		return node.EffectiveImpactMS
 	}
+	if v := runtimeTraceProjSemanticChainIntersectionMS(node); v > 0 {
+		return v
+	}
 	return runtimeTraceProjNodeDisplayImpact(node)
+}
+
+// runtimeTraceProjSemanticChainIntersectionMS returns the typed on-chain
+// semantic intersection participation (审计 #5/#62; see
+// TraceCausalProjectionNode.SemanticChainProjectedMS). 0 = no typed
+// intersection — every consumer fails open to its legacy lane. The
+// SemanticClass gate is defensive: the compile only mints the field on
+// trace_semantic_span records, which always carry the class token.
+func runtimeTraceProjSemanticChainIntersectionMS(node types.TraceCausalProjectionNode) float64 {
+	if strings.TrimSpace(node.SemanticClass) == "" {
+		return 0
+	}
+	return node.SemanticChainProjectedMS
+}
+
+// runtimeTraceProjSemanticChainDualCaliber reports whether the ✦ row must
+// speak the DUAL-CALIBER form (审计 #62 ①, §29.25 处置委托 + §29.26 待主会话
+// 落账): the published participation is the exact member∩chain intersection
+// AND it differs from the row's window-projection union at print precision.
+// Full-overlap rows (intersection == union, e.g. the §29.22 textup 102.172
+// witness) stay byte-identical on the legacy single-caliber form.
+func runtimeTraceProjSemanticChainDualCaliber(node types.TraceCausalProjectionNode) (intersection float64, ok bool) {
+	intersection = runtimeTraceProjSemanticChainIntersectionMS(node)
+	if intersection <= 0 {
+		return 0, false
+	}
+	union := runtimeTraceProjNodeDisplayImpact(node)
+	if union <= 0 || runtimeTraceProjRound3Equal(intersection, union) {
+		return 0, false
+	}
+	return intersection, true
+}
+
+// runtimeTraceProjSemanticChainIntersectionWord is the dual-caliber 行3 word
+// (assembled from the existing closed-set vocabulary only: 链上 / 计入 /
+// (共N段,同线程) — never a coined term): the participation counts ONLY the
+// member∩same-thread-chain-window intersection.
+func runtimeTraceProjSemanticChainIntersectionWord(node types.TraceCausalProjectionNode, zh bool) string {
+	n := node.FamilyMemberCount
+	if n <= 1 {
+		if zh {
+			return "链上计入"
+		}
+		return "on-chain counted"
+	}
+	if zh {
+		return fmt.Sprintf("链上计入(共%d段,同线程)", n)
+	}
+	return fmt.Sprintf("on-chain counted (%d segments, same thread)", n)
+}
+
+// runtimeTraceProjSemanticChainUnionDisclosure is the dual-caliber union
+// disclosure suffix beside the 行3 equation (窗口投影合计 = the complete
+// selected-window member union, the §24.10 lossless caliber; existing
+// closed-set tokens 窗口投影 / 合计 / 见明细). The stanza variant swaps the
+// pointer for the detail block's own 供对照 convention.
+func runtimeTraceProjSemanticChainUnionDisclosure(node types.TraceCausalProjectionNode, zh, stanza bool) string {
+	union := runtimeTraceProjNodeDisplayImpact(node)
+	if union <= 0 {
+		return ""
+	}
+	if zh {
+		if stanza {
+			return fmt.Sprintf("(窗口投影合计 %.3fms 供对照)", union)
+		}
+		return fmt.Sprintf("(窗口投影合计 %.3fms 见明细)", union)
+	}
+	if stanza {
+		return fmt.Sprintf(" (complete window-projection total %.3fms for cross-checking)", union)
+	}
+	return fmt.Sprintf(" (complete window-projection total %.3fms in the detail blocks)", union)
 }
 
 // runtimeTraceProjFamilySumDisclosure renders the lossless raw-Σ suffix (D1):

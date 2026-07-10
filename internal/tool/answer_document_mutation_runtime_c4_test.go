@@ -115,12 +115,18 @@ func TestApplyAndPersistMutation_MaterializesDeterministicOptimizationBlock(t *t
 			t.Fatalf("report hierarchy fixture missing block %q: %+v", id, got.Blocks)
 		}
 	}
+	// EVOLUTION RECORD (审计 #63 回裁, §29.25 处置委托 + §29.26 待主会话落账,
+	// 2026-07-10): the remote-introduced expectation put the optimization
+	// table BETWEEN a projection lead and its own key-metric table; per the
+	// §29.10-3 user ruling ("投影树(含头/覆盖句/关键指标)依次全部优先") the
+	// 关键指标 "_detail" table pairs with its lead, and system supplements
+	// insert at the first LOSSLESS detail boundary.
 	if !(positions["s1"] < positions["runtime_trace_causal_projection"] &&
-		positions["runtime_trace_causal_projection"] < positions["runtime_trace_semantic_optimizations"] &&
-		positions["runtime_trace_semantic_optimizations"] < positions["runtime_trace_causal_projection_detail"] &&
-		positions["runtime_trace_causal_projection_detail"] < positions["runtime_trace_causal_projection_detail_full"] &&
+		positions["runtime_trace_causal_projection"] < positions["runtime_trace_causal_projection_detail"] &&
+		positions["runtime_trace_causal_projection_detail"] < positions["runtime_trace_semantic_optimizations"] &&
+		positions["runtime_trace_semantic_optimizations"] < positions["runtime_trace_causal_projection_detail_full"] &&
 		positions["runtime_trace_causal_projection_detail_full"] < positions["runtime_trace_causal_projection_evidence"]) {
-		t.Fatalf("decision-first hierarchy must be summary -> root cause -> optimization -> metrics -> full detail -> evidence; positions=%+v", positions)
+		t.Fatalf("§29.10-3 hierarchy must be summary -> (root cause + its key metrics) -> optimization -> full detail -> evidence; positions=%+v", positions)
 	}
 	assertProjectionRowsCitationFree(t, block)
 	flat := ""
@@ -168,7 +174,11 @@ func TestRuntimeTraceReportHierarchyBoundaryUsesExactSystemIDs(t *testing.T) {
 		{ID: "runtime_trace_causal_projection_a1_evidence", Kind: types.BlockBulletList, Text: "evidence", SystemGeneratedKind: types.AnswerSystemGeneratedRuntimeTrace},
 		{ID: "caveat", Kind: types.BlockCaveat, Text: "scope"},
 	}}
-	if got, want := answerDocumentInsertionIndexBeforeRuntimeTraceDetails(doc), 3; got != want {
+	// EVOLUTION RECORD (审计 #63 回裁, §29.25/§29.26, 2026-07-10): the boundary
+	// is the first LOSSLESS detail block (a1_detail_full, index 4) — the
+	// key-metric "_detail" table pairs with its lead (§29.10-3) and is no
+	// longer an insertion boundary (want was 3 under the remote split).
+	if got, want := answerDocumentInsertionIndexBeforeRuntimeTraceDetails(doc), 4; got != want {
 		t.Fatalf("runtime summary boundary=%d, want %d", got, want)
 	}
 
@@ -257,7 +267,17 @@ func TestRuntimeTraceReservedIDCollisionOnPatchRestoresAuthenticatedSystemBlock(
 	}
 }
 
-func TestRuntimeTraceReportHierarchyMovesDecisionsAheadOfModelDetail(t *testing.T) {
+// EVOLUTION RECORD (审计 #59 收窄, §29.25 处置委托 + §29.26 待主会话落账,
+// 2026-07-10): formerly TestRuntimeTraceReportHierarchyMovesDecisionsAheadOf
+// ModelDetail — the remote-introduced global sort re-bucketed EVERY model
+// block (Summary/Decision promoted, sections/tables sunk below six system
+// tiers, a model-authored next_steps-shaped ID promoted by bare ID), breaking
+// model discourse order (系统不重排模型叙事红线) and exceeding the §29.10-3
+// ruling's projection-cluster scope. Narrowed: the model narrative keeps its
+// relative order as ONE body bucket ahead of the system tiers; the system
+// supplements order among THEMSELVES (lead+关键指标 paired, optimization,
+// details, evidence); trailing caveats close the report.
+func TestRuntimeTraceReportHierarchyPreservesModelNarrativeAheadOfSystemTiers(t *testing.T) {
 	bus := semanticOptimizationFixtureBus("")
 	doc := &types.AnswerDocumentV2{
 		DocumentModel: "v2",
@@ -281,13 +301,13 @@ func TestRuntimeTraceReportHierarchyMovesDecisionsAheadOfModelDetail(t *testing.
 	}
 	ordered := []string{
 		"summary",
-		"verdict",
-		"runtime_trace_causal_projection",
-		"runtime_trace_semantic_optimizations",
-		"next_steps",
-		"runtime_trace_causal_projection_detail",
 		"model_evidence",
 		"model_detail",
+		"next_steps",
+		"verdict",
+		"runtime_trace_causal_projection",
+		"runtime_trace_causal_projection_detail",
+		"runtime_trace_semantic_optimizations",
 		"runtime_trace_causal_projection_detail_full",
 		"runtime_trace_causal_projection_evidence",
 		"scope",
@@ -299,7 +319,7 @@ func TestRuntimeTraceReportHierarchyMovesDecisionsAheadOfModelDetail(t *testing.
 	}
 	for i := 1; i < len(ordered); i++ {
 		if positions[ordered[i-1]] >= positions[ordered[i]] {
-			t.Fatalf("decision-first order violated at %q -> %q: positions=%+v", ordered[i-1], ordered[i], positions)
+			t.Fatalf("#59 narrowed order violated at %q -> %q: positions=%+v", ordered[i-1], ordered[i], positions)
 		}
 	}
 }
@@ -364,21 +384,38 @@ func TestRuntimeTraceProjectionAtFullCapStaysNoOp(t *testing.T) {
 	}
 }
 
-func TestRuntimeTraceSemanticOptimizationAtFullCapReplacesLowerPriorityBlock(t *testing.T) {
+// EVOLUTION RECORD (审计 #58, §29.25 处置委托 + §29.26 待主会话落账,
+// 2026-07-10): formerly ...AtFullCapReplacesLowerPriorityBlock — the old
+// fallback deleted the LAST model block (Kind-blind; a trailing model caveat
+// was the canonical victim) to seat the optimization table. The system never
+// deletes model panel content (系统不可代替 LLM 写用户面板答案;
+// §29.14/§29.17 disclosure surfaces are load-bearing): at full cap with no
+// replaceable SYSTEM detail block the table is skipped and the skip is
+// disclosed on the document caveat lane.
+func TestRuntimeTraceSemanticOptimizationAtFullCapSkipsAndDiscloses(t *testing.T) {
 	bus := semanticOptimizationFixtureBus("")
 	doc := atCapDoc()
 	lastID := doc.Blocks[len(doc.Blocks)-1].ID
-	if !materializeRuntimeTraceSemanticOptimizationBlock(doc, bus) {
-		t.Fatal("mandatory semantic optimization surface must replace a lower-priority model block at full cap")
+	if materializeRuntimeTraceSemanticOptimizationBlock(doc, bus) {
+		t.Fatal("#58: with no replaceable system block the optimization table must be skipped, never seated on an evicted model block")
 	}
 	if len(doc.Blocks) != maxBlocksPerDoc {
-		t.Fatalf("replacement must stay count-neutral at %d blocks, got %d", maxBlocksPerDoc, len(doc.Blocks))
+		t.Fatalf("skip must stay count-neutral at %d blocks, got %d", maxBlocksPerDoc, len(doc.Blocks))
 	}
-	if projectionClusterBlock(doc.Blocks, "runtime_trace_semantic_optimizations") == nil {
-		t.Fatalf("semantic optimization block missing after full-cap replacement: %+v", doc.Blocks)
+	if projectionClusterBlock(doc.Blocks, "runtime_trace_semantic_optimizations") != nil {
+		t.Fatalf("no optimization block may exist after the skip: %+v", doc.Blocks)
 	}
-	if projectionClusterBlock(doc.Blocks, lastID) != nil {
-		t.Fatalf("the deterministic last lower-priority block %q must yield", lastID)
+	if projectionClusterBlock(doc.Blocks, lastID) == nil {
+		t.Fatalf("the last model block %q must survive untouched", lastID)
+	}
+	disclosed := false
+	for _, caveat := range doc.Caveats {
+		if strings.Contains(caveat, "确定性优化点汇总表未插入") {
+			disclosed = true
+		}
+	}
+	if !disclosed {
+		t.Fatalf("#58: the skip must be disclosed on the caveat lane: %v", doc.Caveats)
 	}
 	if projectionClusterBlock(doc.Blocks, "p0") == nil {
 		t.Fatal("canonical leading block must never be evicted")

@@ -204,7 +204,10 @@ var traceNoteKeyGoldenRows = []string{
 	"oneway|blocking|display_only",
 	"op|io|display_only",
 	"other_cpu_idle|cpu_load|display_only",
-	"overlap|causal_rank|display_only",
+	// EVOLUTION RECORD (审计 #5/#62, §29.25 处置委托 + §29.26 待主会话落账,
+	// 2026-07-10): display_only → hard_consumer — on-chain semantic-span
+	// intersection carrier (SemanticChainProjectedMS).
+	"overlap|causal_rank|hard_consumer",
 	"owner_tid_raw|blocking|hard_consumer",
 	"p95_segment|state|soft_consumer",
 	"page_cache_churn|io|display_only",
@@ -241,7 +244,11 @@ var traceNoteKeyGoldenRows = []string{
 	"priority_inversion_gated|gating|display_only",
 	"priority_relation|gating|display_only",
 	"process|cpu_load|display_only",
-	"projected_impact|impact|display_only",
+	// EVOLUTION RECORD (审计 #5/#62, 2026-07-10): display_only →
+	// hard_consumer — the on-chain semantic FAMILY record's exact
+	// intersection participation (SemanticChainProjectedMS); the rank-lane
+	// projected_impact_ms display echo stays display-only.
+	"projected_impact|impact|hard_consumer",
 	"projected_impact_ms|impact|display_only",
 	"projected_total|impact|display_only",
 	"projected_total_ms|impact|display_only",

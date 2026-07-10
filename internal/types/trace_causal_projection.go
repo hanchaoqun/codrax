@@ -336,6 +336,19 @@ type TraceCausalProjectionNode struct {
 	// Zero when the source row did not expose them (gap c three-column magnitude).
 	EffectiveImpactMS float64 `json:"effective_impact_ms,omitempty"`
 	ActualImpactMS    float64 `json:"actual_impact_ms,omitempty"`
+	// SemanticChainProjectedMS (审计 #5/#62, §29.25 处置委托 + §29.26 待主会话
+	// 落账, 2026-07-10) is the engine's exact member∩chain intersection union
+	// of an ON-CHAIN trace_semantic_span record — the ONE participation value
+	// the rank lane publishes as EffectiveImpactMs under the SEM-LEAD
+	// intersection caliber, while the record's Value/ImpactMS stays the
+	// complete selected-window member union (lossless observation, §24.10
+	// 窗口投影 semantics). Sourced from the promoted projected_impact (family)
+	// / overlap (single-span) rich notes, ONLY on on-chain semantic rows.
+	// Consumers: the E9/E13 twin-seat fold's value mirror (rank participation
+	// vs THIS value — same source on both arms) and the ✦ row's 有效归因
+	// label (never the bare union). Zero = no typed intersection (off-chain
+	// rows, legacy replays) — every consumer fails open to legacy behavior.
+	SemanticChainProjectedMS float64 `json:"semantic_chain_projected_ms,omitempty"`
 	// ActualTotalMS is the THREAD-LEVEL actual total (Σ over all scheduler
 	// states of the underlying segment) — a DIFFERENT caliber from
 	// ActualImpactMS (the dominant-STATE segment actual). DIAG A2 (§28.11-3(b),
@@ -2441,6 +2454,14 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	}
 	node.EffectiveImpactMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyEffectiveImpactMS, TraceNoteKeyEffectiveImpact)
 	node.ActualImpactMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyActualImpactMS, TraceNoteKeyActualImpact)
+	// 审计 #5/#62 (§29.25 处置委托 + §29.26 待主会话落账, 2026-07-10): the
+	// on-chain semantic-span intersection participation — promoted from the
+	// producer's projected_impact (family) / overlap (single-span) notes,
+	// gated to trace_semantic_span records on the on_chain lane only (rank
+	// rows and off-chain semantic rows keep the zero fail-open).
+	if strings.TrimSpace(record.Predicate) == "trace_semantic_span" && node.ChainRelevance == "on_chain" {
+		node.SemanticChainProjectedMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyProjectedImpact, TraceNoteKeyOverlap)
+	}
 	// DIAG A2 (§28.11-3(b) D-10, 2026-07-09): the thread-level actual total
 	// (SECOND actual caliber) plus the producer's typed divergence disclosure —
 	// wording input for the 实际口径 detail line only, never a value edit.

@@ -217,6 +217,22 @@ const (
 	TraceNoteKeyTotal           = "total"
 	TraceNoteKeyActualTotalMS   = "actual_total_ms"
 	TraceNoteKeyActualTotal     = "actual_total"
+	// TraceNoteKeyProjectedImpact / TraceNoteKeyOverlap — EVOLUTION RECORD
+	// (审计 #5/#62, §29.25 处置委托 + §29.26 待主会话落账, 2026-07-10):
+	// display_only → hard_consumer. On an ON-CHAIN trace_semantic_span record
+	// they carry the engine's exact member∩chain intersection union — the ONE
+	// participation value the rank lane publishes as EffectiveImpactMs after
+	// the SEM-LEAD intersection caliber (§24.10 参赛值=窗口投影合计 evolved to
+	// the on-chain intersection; the complete member union stays on Value/
+	// cumulative). The projection compile promotes them into
+	// TraceCausalProjectionNode.SemanticChainProjectedMS so the E9/E13
+	// twin-seat fold can mirror rank participation against the SAME value
+	// (union≠intersection on partial-overlap families broke the old
+	// display-impact mirror structurally) and so the ✦ row's 有效归因 label
+	// never falls back to the bare union. Producers: the semantic family
+	// observation emits both keys; the single-span observation emits overlap.
+	TraceNoteKeyProjectedImpact = "projected_impact"
+	TraceNoteKeyOverlap         = "overlap"
 	// TraceNoteKeyActualCaliberNote (DIAG A2, §28.11-3(b) D-10,
 	// real_trace_campaign_20260705.md, 2026-07-09): the producer's typed
 	// two-caliber divergence disclosure — value is the closed enum
@@ -592,7 +608,11 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{"score", "causal_rank", TraceNoteCarrierDisplayOnly},
 	{"edge_count", "causal_rank", TraceNoteCarrierDisplayOnly},
 	{"nearest_chain_thread", "causal_rank", TraceNoteCarrierDisplayOnly},
-	{"overlap", "causal_rank", TraceNoteCarrierDisplayOnly},
+	// EVOLUTION RECORD (审计 #5/#62, 2026-07-10): overlap promoted
+	// display_only → hard_consumer — the projection compile consumes it on
+	// on-chain trace_semantic_span records only (SemanticChainProjectedMS,
+	// the single-span intersection carrier; see TraceNoteKeyOverlap).
+	{TraceNoteKeyOverlap, "causal_rank", TraceNoteCarrierHardConsumer},
 	{"candidate_count", "causal_rank", TraceNoteCarrierDisplayOnly},
 	{"selected_role", "causal_rank", TraceNoteCarrierDisplayOnly},
 	{"selected_phase", "causal_rank", TraceNoteCarrierDisplayOnly},
@@ -653,7 +673,12 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// actual_caliber_note (DIAG A2): typed two-caliber divergence disclosure —
 	// node-field read-in; the detail stanza's 实际口径 line keys on it.
 	{TraceNoteKeyActualCaliberNote, "impact", TraceNoteCarrierHardConsumer},
-	{"projected_impact", "impact", TraceNoteCarrierDisplayOnly},
+	// EVOLUTION RECORD (审计 #5/#62, 2026-07-10): projected_impact promoted
+	// display_only → hard_consumer — the on-chain semantic family record's
+	// exact intersection participation (SemanticChainProjectedMS; see
+	// TraceNoteKeyProjectedImpact). projected_impact_ms (rank-lane display
+	// echo) stays display-only.
+	{TraceNoteKeyProjectedImpact, "impact", TraceNoteCarrierHardConsumer},
 	{"projected_impact_ms", "impact", TraceNoteCarrierDisplayOnly},
 	{"projected_total", "impact", TraceNoteCarrierDisplayOnly},
 	{"projected_total_ms", "impact", TraceNoteCarrierDisplayOnly},

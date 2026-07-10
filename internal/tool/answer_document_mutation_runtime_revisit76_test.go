@@ -713,6 +713,11 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// fabricated-double witness class). The shared stem is the probe so
 		// both forms satisfy the bidirectional contract.
 		runtimeTraceProjMarkValuelessFoldMembers: {"无时长值", "without measurable duration"},
+		// 审计 #62 ① (§29.25 处置委托 + §29.26 待主会话落账, 2026-07-10): the
+		// on-chain semantic dual-caliber word — renders exactly when a
+		// partial-overlap on-chain semantic row publishes the intersection
+		// under 链上计入 beside the 窗口投影合计 union disclosure.
+		runtimeTraceProjMarkFamilyChainIntersection: {"链上计入", "on-chain counted"},
 	}
 }
 
@@ -1182,6 +1187,10 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// shape) + its 无时长值 legend entry (fixture home:
 		// answer_document_projection_valueless_fold_g12_test.go).
 		{"g12_mixed_valueless_fold", g12MixedFoldProjection()},
+		// 审计 #62 ① (§29.25/§29.26, 2026-07-10): the partial-overlap on-chain
+		// semantic family's dual-caliber 行3 (链上计入 + 窗口投影合计) —
+		// fixture home: answer_document_projection_dispw1_test.go.
+		{"dispw1_semantic_chain_intersection", dispW1SemanticIntersectionProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

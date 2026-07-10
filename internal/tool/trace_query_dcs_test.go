@@ -140,6 +140,13 @@ func TestDCSTraceQueryDescriptionSpeaksOnChainElectionAndOffChainBackground(t *t
 	for _, banned := range []string{
 		"never as the root cause itself",
 		"semantic span-work rows never join that election",
+		// EVOLUTION RECORD (审计 #66, §29.25 处置委托 + §29.26 待主会话落账,
+		// 2026-07-10): this third entry retired the §29.22-era description
+		// sentence when the engine stopped minting the
+		// deterministic_optimization tier (追认 — on-chain semantic rows enter
+		// the ordinary election; see types.go
+		// RootCauseTierDeterministicOptimization). The adjudicated tier-word
+		// display identity survives on the typed SemanticClass lane.
 		"rows with chain_relevance=on_chain carry tier=deterministic_optimization",
 	} {
 		if strings.Contains(description, banned) {

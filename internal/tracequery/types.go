@@ -2257,6 +2257,20 @@ const RootCauseSubjectKindAggregateMetric = "aggregate_metric"
 // primary/secondary/tertiary election, while off-chain semantic work carries
 // tertiary plus BackgroundRank. Consumers must still render legacy records
 // honestly and keep their independent deterministic-optimization mention.
+//
+// EVOLUTION RECORD (审计 #60/#66 追认, §29.25 处置委托 + §29.26 待主会话落账,
+// 2026-07-10). §29.7-2 ① 原裁定原文: "on-chain 语义类行无条件全权参赛、可登顶
+// (board/lead/❶❷❸ 全开,tier 词'确定性优化候选'身份保留)"; §29.22 as-built had
+// kept an independent tier + empty-primary-bucket display crowning. The tier
+// MINT retirement (direct primary/secondary/tertiary competition) is RATIFIED
+// as the fuller reading of 全权参赛 — but the second half of the clause
+// (tier-word IDENTITY) is display-load-bearing and must survive the wire
+// change: every display face that keyed on tier=="deterministic_optimization"
+// now ALSO keys on the typed SemanticClass token (行2 类别词 form table,
+// priority/layer cells — internal/tool), so semantic rows keep the
+// 确定性优化候选/确定优化/确定性优化点 identity words without the tier.
+// Flipped pins (semantic_lead_semlead_test.go, trace_query_dcs_test.go) carry
+// their own EVOLUTION RECORDs.
 const RootCauseTierDeterministicOptimization = "deterministic_optimization"
 
 // RootCauseTierTargetSelfState (SYM, ledger §24.13 裁定一, user ruling

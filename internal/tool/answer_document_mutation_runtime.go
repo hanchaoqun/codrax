@@ -1405,7 +1405,7 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 // scale.
 func runtimeTraceCausalProjectionMultiCluster(set types.TraceCausalProjectionSet, ledger types.ObservationLedger, ctx *types.BusContext, lang string, focus runtimeTraceProjUserFocus) []types.AnswerBlock {
 	zh := runtimeTraceCausalProjectionUseChinese(lang)
-	var leads, metrics, details []types.AnswerBlock
+	var leads, details []types.AnswerBlock
 	if runtimeTraceProjComparisonShape(len(set.Projections)) {
 		// PTV8-LAD L6: the plural form carries the 对比注记明细 sibling when
 		// the layered table notes folded past the visible cap. The compact
@@ -1428,6 +1428,20 @@ func runtimeTraceCausalProjectionMultiCluster(set types.TraceCausalProjectionSet
 	// block REORDER on the builder's own typed block ids (block CONTENT stays
 	// byte-identical; E# cross-references are per-artifact and
 	// position-independent by construction).
+	//
+	// EVOLUTION RECORD (审计 #63/#6 回裁, §29.25 处置委托 + §29.26 待主会话落账,
+	// 2026-07-10). §29.10-3 用户裁定原文: "投影树(含头/覆盖句/关键指标)依次全部
+	// 优先显示,因果明细依次殿后" — the 关键指标 table is INSIDE each projection's
+	// priority unit; §29.18 ② 验收句: "总览→各投影 lead+关键指标依次→各明细+证据
+	// 索引依次→partition caveat 殿后". A remote batch (e920a5d8) split the
+	// sectionPrefix+"_detail" key-metric tables into a separate middle tier
+	// (a1,a2,a1_detail,a2_detail) and flipped the DISP-3 pin without citing a
+	// re-adjudication of §29.10-3 — reverted here to the adjudicated paired
+	// grouping (a1,a1_detail,a2,a2_detail). The system supplements' stable
+	// insertion boundary is the first LOSSLESS detail block
+	// (answerDocumentInsertionIndexBeforeRuntimeTraceDetails — "_detail" is
+	// deliberately NOT a boundary id), so decision surfaces never wedge between
+	// a tree and its own key-metric table.
 	for i, projection := range set.Projections {
 		label := strings.TrimSpace(projection.ArtifactLabel)
 		if label == "" {
@@ -1438,22 +1452,14 @@ func runtimeTraceCausalProjectionMultiCluster(set types.TraceCausalProjectionSet
 		section := runtimeTraceCausalProjectionClusterFor(projection, lang, focus, sectionPrefix, label)
 		for _, block := range section {
 			switch block.ID {
-			case sectionPrefix:
+			case sectionPrefix, sectionPrefix + "_detail":
 				leads = append(leads, block)
-			case sectionPrefix + "_detail":
-				metrics = append(metrics, block)
 			default:
 				details = append(details, block)
 			}
 		}
 	}
-	// Decision-first hierarchy: comparison + every causal tree, then the
-	// compact key-metric tables, then lossless notes/per-node attributes/
-	// evidence indexes. Keeping the three tiers separate also gives later
-	// system summaries (notably Deterministic Optimization Points) one stable
-	// insertion boundary between conclusions and drill-down evidence.
-	out := append(leads, metrics...)
-	out = append(out, details...)
+	out := append(leads, details...)
 	if len(out) == 0 {
 		return nil
 	}
@@ -3109,21 +3115,35 @@ func runtimeTraceCausalProjectionEvidenceText(zh bool) string {
 
 func runtimeTraceCausalProjectionPriorityCell(node types.TraceCausalProjectionNode, zh bool) string {
 	switch {
+	case node.Role == types.TraceCausalRoleSemanticSpan || strings.TrimSpace(node.Predicate) == "trace_semantic_span",
+		strings.TrimSpace(node.SemanticClass) != "",
+		strings.TrimSpace(node.Tier) == "deterministic_optimization":
+		// DCS E1 display word (ledger §23.1, 2026-07-08): an on-chain
+		// deterministic-optimization row wears the SAME 确定优化 priority word
+		// as the semantic observation lane — one 确定性优化 display family,
+		// and never the on_chain 重点关注 root-cause word.
+		//
+		// EVOLUTION RECORD (审计 #60/#66, §29.25 处置委托 + §29.26 待主会话
+		// 落账, 2026-07-10). §29.7-2 ① 原文: "tier 词'确定性优化候选'身份保留".
+		// The engine retired the deterministic_optimization tier mint (追认:
+		// on-chain semantic rows enter the ordinary primary/secondary/tertiary
+		// election, types.go RootCauseTier record) — post-retirement rank-lane
+		// semantic rows carry predicate root_cause_primary/…, so the tier arm
+		// alone no longer covers them and they fell to 主要关注, losing the
+		// adjudicated identity. The typed SemanticClass token now carries the
+		// identity (this arm precedes the primary arm — pre-retirement,
+		// semantic rows could NEVER wear 主要关注 because their predicate was
+		// root_cause_deterministic_optimization); the tier arm stays for
+		// legacy persisted records.
+		if zh {
+			return "确定优化"
+		}
+		return "optimize"
 	case node.Role == types.TraceCausalRolePrimaryRootCause || strings.HasPrefix(strings.TrimSpace(node.Predicate), "root_cause_primary"):
 		if zh {
 			return "主要关注"
 		}
 		return "primary focus"
-	case node.Role == types.TraceCausalRoleSemanticSpan || strings.TrimSpace(node.Predicate) == "trace_semantic_span",
-		strings.TrimSpace(node.Tier) == "deterministic_optimization":
-		// DCS E1 display word (ledger §23.1, 2026-07-08): an on-chain
-		// tier=deterministic_optimization rank row wears the SAME 确定优化
-		// priority word as the semantic observation lane — one 确定性优化
-		// display family, and never the on_chain 重点关注 root-cause word.
-		if zh {
-			return "确定优化"
-		}
-		return "optimize"
 	case node.IsTargetSelfStateRow():
 		// SYM (§24.13 裁定一): the target-self rank row wears its own
 		// symptom-band word — never the on_chain 重点关注 root-cause word.
@@ -3156,10 +3176,16 @@ func runtimeTraceCausalProjectionLayerCell(node types.TraceCausalProjectionNode,
 		}
 		return "semantic"
 	}
-	if strings.TrimSpace(node.Tier) == "deterministic_optimization" {
-		// DCS E1 display word (ledger §23.1): the on-chain optimization tier
+	if strings.TrimSpace(node.Tier) == "deterministic_optimization" ||
+		strings.TrimSpace(node.SemanticClass) != "" {
+		// DCS E1 display word (ledger §23.1): the on-chain optimization row
 		// speaks the 确定性优化点 layer word, aligned with the semantic
 		// observation lane above — never 链上 root-cause layer wording.
+		// EVOLUTION RECORD (审计 #60/#66, §29.25/§29.26, 2026-07-10): with the
+		// deterministic_optimization tier mint retired (§29.7-2 全权参赛追认),
+		// the typed SemanticClass token carries the adjudicated tier-word
+		// identity for post-retirement rank-lane semantic rows; the tier arm
+		// stays for legacy persisted records.
 		if zh {
 			return "确定性优化点"
 		}
@@ -4220,6 +4246,11 @@ func materializeRuntimeTraceSemanticOptimizationBlock(doc *types.AnswerDocumentV
 	if doc == nil || ctx == nil || ctx.Mutable == nil {
 		return false
 	}
+	// 复核 R3: every pass recomputes the at-cap skip disclosure from the
+	// document's CURRENT state — a stale "表未插入" caveat never ships beside
+	// an inserted table, after the doc dropped below the cap, or after a
+	// zh↔en language flip (the skip arm below re-appends when still true).
+	runtimeTraceSemanticOptimizationSkipCaveatReconcile(doc)
 	if answerDocumentHasRuntimeTraceSystemBlockID(doc, "runtime_trace_semantic_optimizations") {
 		return false
 	}
@@ -4271,6 +4302,9 @@ func materializeRuntimeTraceSemanticOptimizationBlock(doc *types.AnswerDocumentV
 		return false
 	}
 	if !reserveRuntimeTraceSemanticOptimizationBlockSlot(doc) {
+		// 审计 #58: never evict model content — skip the system table and
+		// disclose the skip on the document caveat lane (typed, idempotent).
+		runtimeTraceSemanticOptimizationSkipCaveat(doc, zh)
 		logging.Warning("[answer_document] runtime trace semantic optimization block skipped: no replaceable slot at the %d-block cap", maxBlocksPerDoc)
 		return false
 	}
@@ -4306,10 +4340,17 @@ func materializeRuntimeTraceSemanticOptimizationBlock(doc *types.AnswerDocumentV
 // reserveRuntimeTraceSemanticOptimizationBlockSlot enforces the semantic
 // mention obligation even when a model-authored document arrives exactly at
 // the block cap. The deterministic optimization table is a decision surface,
-// so one lower-priority detail yields before it. Selection is deterministic:
-// authenticated causal detail/evidence first, then the last non-leading
-// model block. The canonical lead (index 0) and other authenticated runtime
-// decision surfaces are never evicted. Count stays at or below the cap.
+// so one SYSTEM-authenticated lossless detail/evidence block yields before it
+// (their data stays reachable through the projection cluster's other faces).
+//
+// EVOLUTION RECORD (审计 #58, §29.25 处置委托 + §29.26 待主会话落账,
+// 2026-07-10): the former fallback evicted the LAST non-system block with no
+// Kind guard — a model-authored caveat/decision/summary could vanish from the
+// customer answer with only a log line (系统不可代替 LLM 写用户面板答案 red
+// line; disclosure blocks are load-bearing per §29.14/§29.17). Model blocks
+// are now NEVER evicted: with no replaceable system slot the system skips its
+// own table insertion and the caller discloses the skip through the document
+// caveat lane instead of silently deleting model content.
 func reserveRuntimeTraceSemanticOptimizationBlockSlot(doc *types.AnswerDocumentV2) bool {
 	if doc == nil {
 		return false
@@ -4327,14 +4368,6 @@ func reserveRuntimeTraceSemanticOptimizationBlockSlot(doc *types.AnswerDocumentV
 		}
 	}
 	if removeAt < 0 {
-		for i := len(doc.Blocks) - 1; i > 0; i-- {
-			if !RuntimeTraceSystemBlock(doc.Blocks[i]) {
-				removeAt = i
-				break
-			}
-		}
-	}
-	if removeAt < 0 {
 		return false
 	}
 	removedID := strings.TrimSpace(doc.Blocks[removeAt].ID)
@@ -4342,6 +4375,53 @@ func reserveRuntimeTraceSemanticOptimizationBlockSlot(doc *types.AnswerDocumentV
 	doc.Blocks = doc.Blocks[:len(doc.Blocks)-1]
 	logging.Warning("[answer_document] evicted lower-priority block %q to preserve the mandatory semantic optimization surface at the %d-block cap", removedID, maxBlocksPerDoc)
 	return true
+}
+
+// runtimeTraceSemanticOptimizationSkipCaveatText is the single wording source
+// of the at-cap skip disclosure (both language forms; exact strings double as
+// the reconcile identity below).
+func runtimeTraceSemanticOptimizationSkipCaveatText(zh bool) string {
+	if zh {
+		return fmt.Sprintf("文档已达 %d 块上限且无可让位的系统明细块:确定性优化点汇总表未插入;语义优化 span(类校验/JIT/着色器编译/Texture upload/GC暂停等)仍完整保留在 trace 因果投影区块中。", maxBlocksPerDoc)
+	}
+	return fmt.Sprintf("The document is at the %d-block cap with no replaceable system detail block: the Deterministic Optimization Points summary table was not inserted; the semantic optimization spans remain fully available inside the trace causal projection sections.", maxBlocksPerDoc)
+}
+
+// runtimeTraceSemanticOptimizationSkipCaveatReconcile removes every existing
+// skip disclosure (BOTH language forms — the language-agnostic identity key,
+// so a zh↔en language flip never double-mints). 复核 R3 (§29.25 处置委托 +
+// §29.26 待主会话落账, 2026-07-10), the §29.24 C15 hedge-marker
+// upsert/reconcile precedent: each materialize pass recomputes the disclosure
+// from the document's CURRENT state — when a later pass finds headroom (blocks
+// trimmed below the cap, or a system detail became evictable) and inserts the
+// table, the stale "未插入" caveat is removed instead of shipping beside the
+// table it denies.
+func runtimeTraceSemanticOptimizationSkipCaveatReconcile(doc *types.AnswerDocumentV2) {
+	if doc == nil || len(doc.Caveats) == 0 {
+		return
+	}
+	kept := doc.Caveats[:0]
+	for _, caveat := range doc.Caveats {
+		if caveat == runtimeTraceSemanticOptimizationSkipCaveatText(true) ||
+			caveat == runtimeTraceSemanticOptimizationSkipCaveatText(false) {
+			continue
+		}
+		kept = append(kept, caveat)
+	}
+	doc.Caveats = kept
+}
+
+// runtimeTraceSemanticOptimizationSkipCaveat discloses the at-cap skip on the
+// document caveat lane (upsert: reconcile-remove both language forms, then
+// append the current language once). The wording points the reader at the
+// projection cluster, which still carries every semantic span losslessly; the
+// system never deletes model panel content to make room (审计 #58).
+func runtimeTraceSemanticOptimizationSkipCaveat(doc *types.AnswerDocumentV2, zh bool) {
+	if doc == nil {
+		return
+	}
+	runtimeTraceSemanticOptimizationSkipCaveatReconcile(doc)
+	doc.Caveats = append(doc.Caveats, runtimeTraceSemanticOptimizationSkipCaveatText(zh))
 }
 
 // runtimeTraceSemanticOptimizationParts builds the ZH/EN-symmetric table rows
@@ -6420,13 +6500,21 @@ func answerDocumentInsertionIndexBeforeRuntimeTraceDetails(doc *types.AnswerDocu
 	return fallback
 }
 
+// runtimeTraceCausalProjectionDetailBlockID recognizes the LOSSLESS drill-down
+// ids only. EVOLUTION RECORD (审计 #63 回裁, §29.25 处置委托 + §29.26 待主会话
+// 落账, 2026-07-10): the "_detail" key-metric table left this set — per the
+// §29.10-3 user ruling ("投影树(含头/覆盖句/关键指标)依次全部优先显示") it is
+// part of each projection's PRIORITY unit and pairs with its lead, so it is
+// neither a supplement insertion boundary, nor an eviction candidate, nor a
+// tier-8 drill-down block. runtimeTraceCausalProjectionMetricBlockID keeps its
+// exact classifier.
 func runtimeTraceCausalProjectionDetailBlockID(id string) bool {
 	rest, ok := strings.CutPrefix(id, runtimeTraceCausalProjectionBlockIDBase)
 	if !ok {
 		return false
 	}
 	switch rest {
-	case "_detail", "_detail_full", "_evidence", "_compare_notes", "_partition":
+	case "_detail_full", "_evidence", "_compare_notes", "_partition":
 		return true
 	}
 	digits, ok := strings.CutPrefix(rest, runtimeTraceCausalProjectionArtifactBlockIDInfix)
@@ -6441,7 +6529,7 @@ func runtimeTraceCausalProjectionDetailBlockID(id string) bool {
 		return false
 	}
 	switch digits[i:] {
-	case "_detail", "_detail_full", "_evidence":
+	case "_detail_full", "_evidence":
 		return true
 	default:
 		return false
@@ -6450,9 +6538,22 @@ func runtimeTraceCausalProjectionDetailBlockID(id string) bool {
 
 // normalizeRuntimeTraceReportHierarchy applies one final, typed stable sort
 // after every report materializer/normalizer has run. It never reads titles or
-// prose. Model conclusions (summary/decision/scalar) stay first; authenticated
-// causal leads and action surfaces follow; compact metrics precede model body
-// detail; lossless projection detail/evidence and caveats close the report.
+// prose.
+//
+// EVOLUTION RECORD (审计 #59 收窄, §29.25 处置委托 + §29.26 待主会话落账,
+// 2026-07-10): the remote-introduced form re-bucketed EVERY block — model
+// Summary/Decision/Scalar jumped to tier 0, all other model blocks sank below
+// six system tiers, and a model-authored next_steps-shaped ID was promoted by
+// bare ID (contradicting the classifier's own "a model-authored lookalike must
+// not become a structural ordering signal" contract). That extended the
+// §29.10-3 ruling (projection-cluster-only reorder, 纯块序重排) onto the whole
+// model narrative and broke model discourse order (系统不重排模型叙事红线).
+// Narrowed here: ONLY system-marked runtime-trace supplements participate in
+// the tier sort; every non-system block keeps its original relative order in
+// ONE body bucket (trailing model caveats keep the pre-existing
+// insert-before-caveat convention and stay behind the system tiers). Within
+// the system tiers, each projection lead and its own key-metric "_detail"
+// table share ONE tier so the §29.10-3 pairing survives the stable sort.
 // The marker prerequisite makes an exact model-authored ID inert even before
 // the collision normalizer's deterministic rename.
 func normalizeRuntimeTraceReportHierarchy(doc *types.AnswerDocumentV2) int {
@@ -6499,6 +6600,11 @@ func runtimeTraceReportHierarchyTier(block types.AnswerBlock) int {
 			return 9
 		case id == runtimeTraceCausalProjectionCompareBlockID || runtimeTraceCausalProjectionStandaloneLeadBlockID(id):
 			return 1
+		case runtimeTraceCausalProjectionMetricBlockID(id):
+			// §29.10-3 (审计 #63 回裁): the key-metric table shares its lead's
+			// tier — the stable sort preserves the builder's paired
+			// lead,_detail,lead,_detail order inside the tier.
+			return 1
 		case id == "runtime_trace_semantic_optimizations":
 			return 2
 		case answerDocumentBlockIDIsNextSteps(id):
@@ -6507,30 +6613,20 @@ func runtimeTraceReportHierarchyTier(block types.AnswerBlock) int {
 			return 4
 		case id == "runtime_trace_perf_quality" || id == "runtime_trace_facts":
 			return 5
-		case runtimeTraceCausalProjectionMetricBlockID(id):
-			return 6
 		case runtimeTraceCausalProjectionDetailBlockID(id):
 			return 8
 		default:
 			return 5
 		}
 	}
-	// The model-authored next_steps lane is an accepted action carrier and
-	// suppresses the system fallback by design. Promote that carrier by its
-	// exact structural ID so choosing model guidance cannot bury the only
-	// action surface. This affects display order only; without the internal
-	// marker it remains ineligible for system provenance/evidence consumers.
-	if answerDocumentBlockIDIsNextSteps(id) && block.Kind != types.BlockCaveat {
-		return 3
-	}
-	switch block.Kind {
-	case types.BlockSummary, types.BlockDecision, types.BlockScalar:
-		return 0
-	case types.BlockCaveat:
+	// 审计 #59 收窄: non-system blocks form ONE order-preserving body bucket —
+	// the system never re-orders the model narrative among itself. Trailing
+	// disclosure caveats keep the established end-of-report seat (the
+	// insert-before-caveat convention predates this sort).
+	if block.Kind == types.BlockCaveat {
 		return 9
-	default:
-		return 7
 	}
+	return 0
 }
 
 func runtimeTraceCausalProjectionMetricBlockID(id string) bool {
@@ -6982,6 +7078,13 @@ func normalizeStructuralPriorityInversionCandidateLine(line string) string {
 		{"存在优先级反转", "存在低优先级依赖候选，但本窗未测得优先级反转影响"},
 		{"发生优先级反转", "出现低优先级依赖候选，但本窗未测得优先级反转影响"},
 		{"产生优先级反转", "产生低优先级依赖候选，但本窗未测得优先级反转影响"},
+		// 审计 #61: the 候选-suffixed model phrasings MUST precede their bare
+		// prefixes (the 存在/出现/产生 families above follow the same
+		// longer-key-first discipline) — otherwise the prefix entry rewrites
+		// "根因是优先级反转候选" into "结构上存在低优先级依赖候选候选" (doubled
+		// 候选 on the primary answer surface).
+		{"根因是优先级反转候选", "结构上存在低优先级依赖候选"},
+		{"根因候选是优先级反转候选", "结构上存在低优先级依赖候选"},
 		{"根因是优先级反转", "结构上存在低优先级依赖候选"},
 		{"根因候选是优先级反转", "结构上存在低优先级依赖候选"},
 		{"优先级反转导致", "低优先级依赖可能关联"},

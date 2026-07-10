@@ -220,9 +220,30 @@ var causalTokenRegistry = map[string]CausalTokenSpec{
 	"class_verification": {Lane: CausalLaneCPUWork, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 	"shader_compile":     {Lane: CausalLaneCPUWork, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 	"runtime_compile":    {Lane: CausalLaneCPUWork, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
-	// gc_pause is deliberately distinct from the aggregate memory_gc event
-	// family: this token is minted only from an explicitly named, paired trace
-	// span and therefore carries a measured wall-clock interval on one thread.
+	// gc_pause — the SIXTH semantic span class (审计 #64 追认, §29.25 处置委托
+	// + §29.26 待主会话落账, 2026-07-10; the §28.1 texture_upload "FIFTH class"
+	// user-ruling precedent is the extension pattern). Lane adjudication per
+	// the §7.2.1/§7.4/§7.5 change protocol: the §7.4 ruling-locked
+	// demand/supply split is untouched — a GC pause is neither a runnable
+	// backlog (never worded 调度压力) nor a delivery-side aggregate (never
+	// worded 算力); it is minted only from an explicitly named, paired trace
+	// span (deliberately distinct from the aggregate memory_gc COUNT family
+	// on the memory_pressure lane) and therefore carries a measured per-thread
+	// wall-clock interval, homed on the CPU-work lane as 兄弟语义类同待遇 —
+	// the same lane row as its five siblings. Honest scope of that reason
+	// (复核 R4): NO consumer keys on Lane==cpu_work (the display 确定性优化
+	// family word and the semantic_class fold key on the TOKENS, not the
+	// lane); the lane column IS behavior-bearing in one negative direction —
+	// the SYM wait-symptom demotion closed set derives from Lane ∈
+	// {wakeup_chain, lock_contention} (query.go
+	// rootCauseItemIsTargetWaitSymptomType), so cpu_work keeps target-thread
+	// GC pauses OUT of the self-symptom demotion. Recorded conflict (裁定
+	// 候选, 勿自行改列): the classifier admits waiting-shaped span names
+	// (WaitForGcToComplete / SuspendAllForGC) while this lane's doc reads
+	// "the subject itself consumed CPU" — moving the lane to a wait lane
+	// would silently demote target-thread GC pauses (§24.20 auto-demotion
+	// tripwire). Four-dimension pin:
+	// causal_token_registry_gcpause_pin_test.go.
 	"gc_pause": {Lane: CausalLaneCPUWork, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 	// texture_upload (TEX §28.1 user ruling 2026-07-09,
 	// real_trace_campaign_20260705.md): the FIFTH semantic span class ("Texture
@@ -338,9 +359,12 @@ var causalTokenFamilyFoldLanes = map[string]CausalTokenFamilyFold{
 	"class_verification": CausalFamilyFoldSemanticClass,
 	"shader_compile":     CausalFamilyFoldSemanticClass,
 	"runtime_compile":    CausalFamilyFoldSemanticClass,
-	"gc_pause":           CausalFamilyFoldSemanticClass,
+	// 审计 #64 (§29.25/§29.26, 2026-07-10): gc_pause — the SIXTH semantic
+	// class — family-folds identically to its five siblings (see the registry
+	// entry's lane adjudication above).
+	"gc_pause": CausalFamilyFoldSemanticClass,
 	// TEX (§28.1, 2026-07-09): the fifth semantic class family-folds exactly
-	// like the other four (interval-union window-projection total per
+	// like its siblings (interval-union window-projection total per
 	// (thread, class, chain lane) — the ×N family IS the participation value).
 	"texture_upload": CausalFamilyFoldSemanticClass,
 }

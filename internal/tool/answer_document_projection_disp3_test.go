@@ -209,12 +209,21 @@ func TestDisp3MultiProjectionTreesFirstDetailsAfter(t *testing.T) {
 			tailIDs = append(tailIDs, s.id)
 		}
 	}
+	// EVOLUTION RECORD (审计 #63/#6 回裁, §29.25 处置委托 + §29.26 待主会话
+	// 落账, 2026-07-10) — round-trip record. §29.10-3 用户裁定原文: "投影树
+	// (含头/覆盖句/关键指标)依次全部优先显示,因果明细依次殿后" (the 关键指标
+	// table is INSIDE each projection's priority unit; §29.18 ② 验收句 "各投影
+	// lead+关键指标依次"). The DISP-3 as-built pinned the paired order
+	// (a1,a1_detail,a2,a2_detail); a remote batch (e920a5d8) flipped this pin
+	// to the three-tier split (a1,a2,a1_detail,a2_detail) without citing a
+	// §29.10-3 re-adjudication; restored here. Any future flip of wantHeads
+	// MUST cite a user re-ruling of §29.10-3.
 	wantHeads := []string{
-		"runtime_trace_causal_projection_a1", "runtime_trace_causal_projection_a2",
-		"runtime_trace_causal_projection_a1_detail", "runtime_trace_causal_projection_a2_detail",
+		"runtime_trace_causal_projection_a1", "runtime_trace_causal_projection_a1_detail",
+		"runtime_trace_causal_projection_a2", "runtime_trace_causal_projection_a2_detail",
 	}
 	if strings.Join(headIDs, ",") != strings.Join(wantHeads, ",") {
-		t.Fatalf("head group must keep artifact order: %v", headIDs)
+		t.Fatalf("head group must keep the §29.10-3 paired order (各投影 lead+关键指标 成对依次): %v", headIDs)
 	}
 	for i := 1; i < len(tailIDs); i++ {
 		if strings.Compare(tailIDs[i-1], tailIDs[i]) > 0 &&
