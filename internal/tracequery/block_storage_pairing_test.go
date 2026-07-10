@@ -222,6 +222,84 @@ func TestMalformedBlockIdentityFailsClosedWithoutCollapsingToSectorZero(t *testi
 	}
 }
 
+func TestBlockPairingReplaysClosedPrefixWithoutFalseCarryIn(t *testing.T) {
+	idx := buildTraceIndex(t, "block-prefix-replay.systrace", `
+ io-40 (40) [003] .... 1.000000: block_rq_issue: 8,0 R 4096 () 123 + 8 [io]
+irq-2 (2) [003] .... 1.001000: block_rq_complete: 8,0 R () 123 + 8 [0]
+ io-40 (40) [003] .... 2.000000: block_rq_issue: 8,0 R 4096 () 123 + 8 [io]
+irq-2 (2) [003] .... 2.002000: block_rq_complete: 8,0 R () 123 + 8 [0]
+`)
+	q := Query{TimeStart: 1.5, TimeEnd: 2.1, TimeStartSet: true, TimeEndSet: true}
+	stats := ComputeWindowStats(idx, q)
+	if len(stats.IOLatencies) != 1 || !near(stats.IOLatencies[0].IssueTs, 2, 1e-9) || !near(stats.IOLatencies[0].DurationMs, 2, 0.001) {
+		t.Fatalf("closed pre-window pair polluted the in-window lane: %+v", stats.IOLatencies)
+	}
+	row := storageLatencyRow(stats.StorageLatencyByLayer, "block", blockEndpointFamilyRQ)
+	if row == nil || row.PairedCount != 1 || row.AmbiguousCohortCount != 0 || row.UnpairedStartCount != 0 {
+		t.Fatalf("closed prefix became false carry-in: %+v caveats=%+v", row, stats.Caveats)
+	}
+}
+
+func TestBlockPairingClosedPrefixAloneProducesNoWindowRow(t *testing.T) {
+	idx := buildTraceIndex(t, "block-prefix-only.systrace", `
+ io-40 (40) [003] .... 1.000000: block_rq_issue: 8,0 R 4096 () 123 + 8 [io]
+irq-2 (2) [003] .... 1.001000: block_rq_complete: 8,0 R () 123 + 8 [0]
+`)
+	q := Query{TimeStart: 1.5, TimeEnd: 2.0, TimeStartSet: true, TimeEndSet: true}
+	stats := ComputeWindowStats(idx, q)
+	if len(stats.IOLatencies) != 0 || storageLatencyRow(stats.StorageLatencyByLayer, "block", blockEndpointFamilyRQ) != nil {
+		t.Fatalf("fully closed prefix leaked into the selected window: latencies=%+v storage=%+v", stats.IOLatencies, stats.StorageLatencyByLayer)
+	}
+	if containsSubstring(stats.Caveats, "block_io_pairing_unpaired=true") || containsSubstring(stats.Caveats, "block_io_pairing_ambiguous=true") {
+		t.Fatalf("fully closed prefix minted a window caveat: %+v", stats.Caveats)
+	}
+}
+
+func TestGenericStoragePairingCarriesExactOpenPrefixIntoWindow(t *testing.T) {
+	idx := buildTraceIndex(t, "storage-carry-in.systrace", `
+ io-40 (40) [003] .... 1.000000: scsi_dispatch_cmd_start: dev=12,80 op=read bytes=4096
+ io-40 (40) [003] .... 2.000000: scsi_dispatch_cmd_done: dev=12,80 op=read bytes=4096
+`)
+	q := Query{TimeStart: 1.5, TimeEnd: 2.1, TimeStartSet: true, TimeEndSet: true}
+	stats := ComputeWindowStats(idx, q)
+	row := storageLatencyRow(stats.StorageLatencyByLayer, "scsi", "scsi_dispatch_cmd")
+	if row == nil || row.PairedCount != 1 || !near(row.MaxLatencyMs, 1000, 0.001) || row.UnpairedDoneCount != 0 {
+		t.Fatalf("generic storage carry-in was not reconstructed from the exact prefix: %+v caveats=%+v", row, stats.Caveats)
+	}
+}
+
+func TestGenericStorageClosedPrefixDoesNotPolluteWindow(t *testing.T) {
+	idx := buildTraceIndex(t, "storage-prefix-replay.systrace", `
+ io-40 (40) [003] .... 1.000000: scsi_dispatch_cmd_start: dev=12,80 op=read bytes=4096
+ io-40 (40) [003] .... 1.001000: scsi_dispatch_cmd_done: dev=12,80 op=read bytes=4096
+ io-40 (40) [003] .... 2.000000: scsi_dispatch_cmd_start: dev=12,80 op=read bytes=4096
+ io-40 (40) [003] .... 2.003000: scsi_dispatch_cmd_done: dev=12,80 op=read bytes=4096
+`)
+	q := Query{TimeStart: 1.5, TimeEnd: 2.1, TimeStartSet: true, TimeEndSet: true}
+	stats := ComputeWindowStats(idx, q)
+	row := storageLatencyRow(stats.StorageLatencyByLayer, "scsi", "scsi_dispatch_cmd")
+	if row == nil || row.PairedCount != 1 || !near(row.MaxLatencyMs, 3, 0.001) || row.Count != 2 || row.AmbiguousCohortCount != 0 {
+		t.Fatalf("generic storage closed prefix polluted window accounting: %+v", row)
+	}
+}
+
+func TestBlockTypedTupleKeyCannotCollideOnSlashTokens(t *testing.T) {
+	fields := func(dev, op string) *BlockIOFields {
+		return &BlockIOFields{Dev: dev, Op: op, Sector: 1, Len: 1, IdentityParsed: true, IdentityValid: true}
+	}
+	idx := &Index{Path: "/trace/key-collision.systrace", TimestampOrder: TraceTimestampOrderMonotonic, LastTs: 1.001, LineCount: 2, Events: []Event{
+		{Line: 1, Ts: 1, Type: EventBlockIssue, Name: "block_rq_issue", PID: 40, BlockIOFields: fields("a/b", "c")},
+		{Line: 2, Ts: 1.001, Type: EventBlockComplete, Name: "block_rq_complete", PID: 2, BlockIOFields: fields("a", "b/c")},
+	}}
+	stats := ComputeWindowStats(idx, Query{TimeStart: 1, TimeEnd: 1.01, TimeStartSet: true, TimeEndSet: true})
+	if len(stats.IOLatencies) != 0 {
+		t.Fatalf("slash-bearing tuple dimensions collided into a false pair: %+v", stats.IOLatencies)
+	}
+	if !containsSubstring(stats.Caveats, "block_io_pairing_unpaired=true") {
+		t.Fatalf("separate slash-bearing identities were not disclosed as unpaired: %+v", stats.Caveats)
+	}
+}
+
 func storageLatencyRow(rows []StorageLatencySummary, layer, event string) *StorageLatencySummary {
 	for i := range rows {
 		if rows[i].Layer == layer && rows[i].Event == event {

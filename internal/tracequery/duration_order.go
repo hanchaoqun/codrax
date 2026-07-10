@@ -330,31 +330,12 @@ func durationOrderObservations(ev Event) []durationOrderObservation {
 		}
 		return []durationOrderObservation{{lane: lane(family, key), phase: durationOrderSample}}
 	case EventStorage, EventFilesystem:
-		if !isStorageLatencyEvent(ev) {
-			return nil
-		}
-		layer := storageLatencyLayer(ev)
-		base, phaseName := storageLatencyBaseAndPhase(ev)
+		identity, phaseName, endpoint := genericStorageEndpoint(ev)
 		phase, ok := durationPairPhase(phaseName)
-		if !ok || layer == "" || base == "" {
+		if !endpoint || !ok {
 			return nil
 		}
-		ff := ev.FileFields
-		if ff == nil {
-			ff = &FileFields{}
-		}
-		rf := ev.ResourceFields
-		if rf == nil {
-			rf = &ResourceFields{}
-		}
-		blk := ev.BlockIOFields
-		if blk == nil {
-			blk = &BlockIOFields{}
-		}
-		dev := firstNonEmpty(ff.Dev, blk.Dev, blk.SrcDev, "unknown")
-		op := firstNonEmpty(ff.RW, rf.Op, blk.Op, fileOperationFromEventName(ev.Name), base)
-		key := strings.Join([]string{layer, base, dev, firstNonEmpty(ff.Ino, "-"), op, fmt.Sprintf("%d", ev.PID)}, "\x00")
-		return []durationOrderObservation{{lane: lane(durationOrderStorage, key), phase: phase, owner: ev.PID}}
+		return []durationOrderObservation{{lane: lane(durationOrderStorage, identity.laneKey()), phase: phase, owner: ev.PID}}
 	case EventCPUFrequency:
 		// Only the exact per-CPU samples consumed by residency, scheduling-
 		// segment weighting and the supply fold participate. Reclassified

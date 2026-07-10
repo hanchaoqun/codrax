@@ -105,6 +105,39 @@ func blockOperationAllowsZeroLength(op string, sector, length int64) bool {
 	}
 }
 
+type blockRequestIdentity struct {
+	Family string
+	Dev    string
+	Op     string
+	Sector int64
+	Len    int64
+}
+
+func blockIdentity(ev Event) (blockRequestIdentity, bool) {
+	family, _, ok := blockLatencyEndpoint(ev)
+	if !ok || !blockRequestIdentityValid(ev) {
+		return blockRequestIdentity{}, false
+	}
+	blk := ev.BlockIOFields
+	return blockRequestIdentity{
+		Family: family,
+		Dev:    blk.Dev,
+		Op:     blk.Op,
+		Sector: blk.Sector,
+		Len:    blk.Len,
+	}, true
+}
+
+func (id blockRequestIdentity) laneKey() string {
+	return strings.Join([]string{
+		id.Family,
+		id.Dev,
+		id.Op,
+		strconv.FormatInt(id.Sector, 10),
+		strconv.FormatInt(id.Len, 10),
+	}, "\x00")
+}
+
 // tracePairingSourceIdentity maps the index-global event coordinate back to
 // exactly one physical artifact. A populated provenance ledger that cannot
 // resolve the row fails closed. Path-less hand-built indexes use a stable
@@ -127,12 +160,11 @@ func tracePairingSourceIdentity(idx *Index, ev Event) (string, bool) {
 }
 
 func blockKey(ev Event) string {
-	family, _, ok := blockLatencyEndpoint(ev)
-	if !ok || !blockRequestIdentityValid(ev) {
+	identity, ok := blockIdentity(ev)
+	if !ok {
 		return ""
 	}
-	blk := ev.BlockIOFields
-	return fmt.Sprintf("%s/%s/%s/%d/%d", family, blk.Dev, blk.Op, blk.Sector, blk.Len)
+	return identity.laneKey()
 }
 
 func blockPairingKey(idx *Index, ev Event) (string, string, bool) {
@@ -148,11 +180,9 @@ func blockPairingKey(idx *Index, ev Event) (string, string, bool) {
 }
 
 type blockPairingLane struct {
-	depth        int
-	ambiguous    bool
-	cohortStarts int
-	start        Event
-	acc          *blockPairingAccumulator
+	cohort pairingCohortState
+	source string
+	family string
 }
 
 type blockPairingAccumulator struct {
@@ -180,140 +210,53 @@ func computeBlockIOLatencies(idx *Index, q Query, max int) blockPairingResult {
 	invalidIdentity := 0
 	unresolvedSourceRows := 0
 	for _, ev := range idx.Events {
-		if !eventLineInWindow(ev, q) {
-			continue
-		}
-		if q.TimeEnd > 0 && ev.Ts > q.TimeEnd {
-			if idx.TimestampOrder.AllowsTimeEndEarlyStop() {
-				break
-			}
+		// Line scopes retain their historical exact-row semantics.  Time
+		// scopes replay the complete available prefix/suffix so an already
+		// closed pre-window pair cannot survive as false carry-in and an
+		// interval crossing either boundary can be adjudicated as one cohort.
+		if (q.LineStart > 0 || q.LineEnd > 0) && !eventLineInWindow(ev, q) {
 			continue
 		}
 		family, phase, endpoint := blockLatencyEndpoint(ev)
 		if !endpoint {
 			continue
 		}
-		if phase == blockEndpointDone && q.TimeStart > 0 && ev.Ts < q.TimeStart {
-			continue
-		}
 		identity := blockKey(ev)
 		if identity == "" {
-			invalidIdentity++
+			if pairingEventInsideQuery(ev, q) {
+				invalidIdentity++
+			}
 			continue
 		}
 		source, sourceOK := tracePairingSourceIdentity(idx, ev)
 		if !sourceOK {
-			unresolvedSourceRows++
+			if pairingEventInsideQuery(ev, q) {
+				unresolvedSourceRows++
+			}
 			continue
 		}
 		laneKey := source + "\x00" + identity
-		blk := ev.BlockIOFields
-		accKey := strings.Join([]string{source, family, blk.Dev, blk.Op}, "\x00")
-		acc := accs[accKey]
-		if acc == nil {
-			acc = &blockPairingAccumulator{item: StorageLatencySummary{
-				SourcePath: source,
-				Layer:      "block",
-				Event:      family,
-				Dev:        blk.Dev,
-				Operation:  blk.Op,
-				Thread:     threadRefFromEvent(ev),
-				LineStart:  ev.Line,
-				LineEnd:    ev.Line,
-				StartTs:    ev.Ts,
-				EndTs:      ev.Ts,
-				Example:    clampString(ev.FieldText, 160),
-			}}
-			accs[accKey] = acc
-		}
-		applyLineRange(&acc.item.LineStart, &acc.item.LineEnd, ev.Line)
-		if ev.Ts < acc.item.StartTs || acc.item.StartTs == 0 {
-			acc.item.StartTs = ev.Ts
-		}
-		if ev.Ts > acc.item.EndTs {
-			acc.item.EndTs = ev.Ts
-		}
 		lane := lanes[laneKey]
 		if lane == nil {
-			lane = &blockPairingLane{}
+			lane = &blockPairingLane{source: source, family: family}
 			lanes[laneKey] = lane
 		}
+		var transition pairingCohortTransition
 		switch phase {
 		case blockEndpointStart:
-			acc.item.Count++
-			if lane.depth == 0 {
-				lane.depth = 1
-				lane.cohortStarts = 1
-				lane.start = ev
-				lane.acc = acc
-				continue
-			}
-			lane.depth++
-			lane.cohortStarts++
-			if !lane.ambiguous {
-				lane.ambiguous = true
-				lane.acc.item.AmbiguousCohortCount++
-				lane.start = Event{}
-			}
+			transition = lane.cohort.observeStart(ev)
 		case blockEndpointDone:
-			if lane.depth == 0 {
-				acc.item.Count++
-				acc.item.UnpairedDoneCount++
-				continue
-			}
-			if lane.ambiguous {
-				lane.depth--
-				if lane.depth == 0 {
-					lane.acc.item.PairingSuppressedCount += lane.cohortStarts
-					*lane = blockPairingLane{}
-				}
-				continue
-			}
-			start := lane.start
-			startAcc := lane.acc
-			*lane = blockPairingLane{}
-			if ev.Ts < start.Ts {
-				startAcc.item.PairingSuppressedCount++
-				continue
-			}
-			durationMs := (ev.Ts - start.Ts) * 1000
-			startBlk := start.BlockIOFields
-			out.latencies = append(out.latencies, IOLatencySummary{
-				SourcePath:     source,
-				Dev:            startBlk.Dev,
-				Op:             startBlk.Op,
-				Sector:         startBlk.Sector,
-				Len:            startBlk.Len,
-				IssueThread:    threadRefFromEvent(start),
-				CompleteThread: threadRefFromEvent(ev),
-				IssueTs:        start.Ts,
-				CompleteTs:     ev.Ts,
-				DurationMs:     durationMs,
-				IssueLine:      start.Line,
-				CompleteLine:   ev.Line,
-			})
-			startAcc.item.PairedCount++
-			startAcc.totalLatencyMs += durationMs
-			if durationMs > startAcc.item.MaxLatencyMs {
-				startAcc.item.MaxLatencyMs = durationMs
-			}
-			startAcc.item.Bytes += startBlk.Len * 512
+			transition = lane.cohort.observeDone(ev)
 		}
+		accountBlockPairingTransition(&out, accs, lane, transition, q)
 	}
 
 	for _, lane := range lanes {
-		if lane.depth == 0 || lane.acc == nil {
+		transition := lane.cohort.finishEOF()
+		if !pairingOpenCohortIntersectsIndex(transition.first, idx, q) {
 			continue
 		}
-		if lane.ambiguous {
-			acc := lane.acc
-			suppressed := lane.cohortStarts
-			*lane = blockPairingLane{}
-			acc.item.PairingSuppressedCount += suppressed
-		} else {
-			lane.acc.item.UnpairedStartCount++
-			*lane = blockPairingLane{}
-		}
+		accountBlockOpenTransition(accs, lane, transition)
 	}
 
 	sort.SliceStable(out.latencies, func(i, j int) bool {
@@ -351,6 +294,135 @@ func computeBlockIOLatencies(idx *Index, q Query, max int) blockPairingResult {
 		out.caveats = append(out.caveats, fmt.Sprintf("block_io_pairing_unpaired=true; unpaired_start=%d unpaired_done=%d; elapsed latency was emitted only for complete exact-family pairs", unpairedStart, unpairedDone))
 	}
 	return out
+}
+
+func blockPairingAccumulatorFor(accs map[string]*blockPairingAccumulator, source, family string, ev Event) *blockPairingAccumulator {
+	blk := ev.BlockIOFields
+	if blk == nil {
+		blk = &BlockIOFields{}
+	}
+	key := strings.Join([]string{source, family, blk.Dev, blk.Op}, "\x00")
+	if acc := accs[key]; acc != nil {
+		return acc
+	}
+	acc := &blockPairingAccumulator{item: StorageLatencySummary{
+		SourcePath: source,
+		Layer:      "block",
+		Event:      family,
+		Dev:        blk.Dev,
+		Operation:  blk.Op,
+		Thread:     threadRefFromEvent(ev),
+		LineStart:  ev.Line,
+		LineEnd:    ev.Line,
+		StartTs:    ev.Ts,
+		EndTs:      ev.Ts,
+		Example:    clampString(ev.FieldText, 160),
+	}}
+	accs[key] = acc
+	return acc
+}
+
+func observeBlockPairingEnvelope(acc *blockPairingAccumulator, first, last Event) {
+	if acc == nil {
+		return
+	}
+	for _, ev := range []Event{first, last} {
+		applyLineRange(&acc.item.LineStart, &acc.item.LineEnd, ev.Line)
+		if acc.item.StartTs == 0 || ev.Ts < acc.item.StartTs {
+			acc.item.StartTs = ev.Ts
+		}
+		if ev.Ts > acc.item.EndTs {
+			acc.item.EndTs = ev.Ts
+		}
+	}
+}
+
+func accountBlockPairingTransition(out *blockPairingResult, accs map[string]*blockPairingAccumulator, lane *blockPairingLane, transition pairingCohortTransition, q Query) {
+	if lane == nil {
+		return
+	}
+	if transition.unpairedDone {
+		if !pairingEventInsideQuery(transition.last, q) {
+			return
+		}
+		acc := blockPairingAccumulatorFor(accs, lane.source, lane.family, transition.last)
+		acc.item.Count++
+		acc.item.UnpairedDoneCount++
+		observeBlockPairingEnvelope(acc, transition.last, transition.last)
+		return
+	}
+	if !transition.cohortClosed || !pairingIntervalIntersectsQuery(transition.first, transition.last, q) {
+		return
+	}
+	acc := blockPairingAccumulatorFor(accs, lane.source, lane.family, transition.first)
+	observeBlockPairingEnvelope(acc, transition.first, transition.last)
+	acc.item.Count += transition.cohortStarts
+	if transition.ambiguous {
+		acc.item.AmbiguousCohortCount++
+		acc.item.PairingSuppressedCount += transition.cohortStarts
+		return
+	}
+	start, done := transition.pairStart, transition.last
+	if done.Ts < start.Ts {
+		acc.item.PairingSuppressedCount++
+		return
+	}
+	durationMs := (done.Ts - start.Ts) * 1000
+	startBlk := start.BlockIOFields
+	if startBlk == nil {
+		startBlk = &BlockIOFields{}
+	}
+	out.latencies = append(out.latencies, IOLatencySummary{
+		SourcePath:     lane.source,
+		Dev:            startBlk.Dev,
+		Op:             startBlk.Op,
+		Sector:         startBlk.Sector,
+		Len:            startBlk.Len,
+		IssueThread:    threadRefFromEvent(start),
+		CompleteThread: threadRefFromEvent(done),
+		IssueTs:        start.Ts,
+		CompleteTs:     done.Ts,
+		DurationMs:     durationMs,
+		IssueLine:      start.Line,
+		CompleteLine:   done.Line,
+	})
+	acc.item.PairedCount++
+	acc.totalLatencyMs += durationMs
+	if durationMs > acc.item.MaxLatencyMs {
+		acc.item.MaxLatencyMs = durationMs
+	}
+	acc.item.Bytes += startBlk.Len * 512
+}
+
+func accountBlockOpenTransition(accs map[string]*blockPairingAccumulator, lane *blockPairingLane, transition pairingCohortTransition) {
+	if lane == nil || !transition.cohortClosed || transition.cohortStarts == 0 {
+		return
+	}
+	acc := blockPairingAccumulatorFor(accs, lane.source, lane.family, transition.first)
+	observeBlockPairingEnvelope(acc, transition.first, transition.last)
+	acc.item.Count += transition.cohortStarts
+	if transition.ambiguous {
+		acc.item.AmbiguousCohortCount++
+		acc.item.PairingSuppressedCount += transition.cohortStarts
+		return
+	}
+	acc.item.UnpairedStartCount++
+}
+
+func pairingOpenCohortIntersectsIndex(first Event, idx *Index, q Query) bool {
+	if first.Line == 0 || idx == nil {
+		return false
+	}
+	if q.LineStart > 0 || q.LineEnd > 0 {
+		if q.LineEnd > 0 && first.Line > q.LineEnd {
+			return false
+		}
+		return idx.LineCount == 0 || q.LineStart == 0 || idx.LineCount >= q.LineStart
+	}
+	if queryBoundedTimeEnd(q) && first.Ts > q.TimeEnd {
+		return false
+	}
+	return !queryBoundedTimeStart(q) || idx.LastTs == 0 || idx.LastTs >= q.TimeStart
 }
 
 func storageLatencySummaryText(item StorageLatencySummary) string {

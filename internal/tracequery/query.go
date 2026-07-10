@@ -8330,133 +8330,99 @@ func computeTopIOInodes(fileIO map[string]*FileIOSummary, pageCache map[string]*
 type storageLatencyAcc struct {
 	item           StorageLatencySummary
 	totalLatencyMs float64
-	depth          int
-	ambiguous      bool
-	cohortStarts   int
-	start          Event
+}
+
+type storageLatencyLane struct {
+	cohort     pairingCohortState
+	source     string
+	identity   genericStorageIdentity
+	eventCount int
+	bytes      int64
+	inode      string
+	entryName  string
 }
 
 func computeStorageLatencyByLayer(idx *Index, q Query, blockSummaries []StorageLatencySummary, max int) ([]StorageLatencySummary, []string) {
 	accs := map[string]*storageLatencyAcc{}
+	lanes := map[string]*storageLatencyLane{}
 	unresolvedSourceRows := 0
+	lifecycleResetLanes := 0
 	if idx != nil {
 		for _, ev := range idx.Events {
-			if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) || !isStorageLatencyEvent(ev) {
+			if resetPID, reset := schedulerLifecycleResetPID(ev); reset {
+				for key, lane := range lanes {
+					if lane == nil || lane.identity.PID != resetPID || lane.cohort.depth == 0 {
+						continue
+					}
+					transition := lane.cohort.finishEOF()
+					if pairingIntervalIntersectsQuery(transition.first, ev, q) {
+						accountGenericStorageOpen(accs, lane, transition)
+						lifecycleResetLanes++
+					}
+					delete(lanes, key)
+				}
+			}
+			if (q.LineStart > 0 || q.LineEnd > 0) && !eventLineInWindow(ev, q) {
 				continue
 			}
-			// Exact block rq/bio endpoint pairing is performed by
-			// computeBlockIOLatencies. Never feed grouped EventBlock* rows into
-			// this generic suffix-based storage state machine.
-			if ev.Type == EventBlockIssue || ev.Type == EventBlockComplete {
-				continue
-			}
-			layer := storageLatencyLayer(ev)
-			base, phase := storageLatencyBaseAndPhase(ev)
-			if layer == "" || base == "" {
+			identity, phase, endpoint := genericStorageEndpoint(ev)
+			if !endpoint {
 				continue
 			}
 			source, sourceOK := tracePairingSourceIdentity(idx, ev)
 			if !sourceOK {
-				unresolvedSourceRows++
+				if pairingEventInsideQuery(ev, q) {
+					unresolvedSourceRows++
+				}
 				continue
 			}
-			ff := ev.FileFields
-			if ff == nil {
-				ff = &FileFields{}
+			key := source + "\x00" + identity.laneKey()
+			lane := lanes[key]
+			if lane == nil {
+				lane = &storageLatencyLane{source: source, identity: identity}
+				lanes[key] = lane
 			}
-			rf := ev.ResourceFields
-			if rf == nil {
-				rf = &ResourceFields{}
+			if phase == "start" && lane.cohort.depth == 0 {
+				lane.eventCount = 0
+				lane.bytes = 0
+				lane.inode = ""
+				lane.entryName = ""
 			}
-			blk := ev.BlockIOFields
-			if blk == nil {
-				blk = &BlockIOFields{}
+			lane.eventCount++
+			lane.bytes += genericStorageEndpointBytes(ev)
+			if ff := ev.FileFields; ff != nil {
+				if lane.inode == "" {
+					lane.inode = ff.Ino
+				}
+				if lane.entryName == "" {
+					lane.entryName = ff.Entry
+				}
 			}
-			dev := firstNonEmpty(ff.Dev, blk.Dev, blk.SrcDev, "unknown")
-			op := firstNonEmpty(ff.RW, rf.Op, blk.Op, fileOperationFromEventName(ev.Name), base)
-			key := strings.Join([]string{source, layer, base, dev, firstNonEmpty(ff.Ino, "-"), op, fmt.Sprintf("%d", ev.PID)}, "\x00")
-			acc := storageLatencyAccumulator(accs, key, source, layer, base, dev, op, threadRefFromEvent(ev), ev.Line, ev.Ts, ev.FieldText)
-			if acc.item.Inode == "" && ff.Ino != "" {
-				acc.item.Inode = ff.Ino
-			}
-			if acc.item.EntryName == "" && ff.Entry != "" {
-				acc.item.EntryName = ff.Entry
-			}
-			acc.item.Count++
-			if ff.Len > 0 {
-				acc.item.Bytes += ff.Len
-			} else if rf.Bytes > 0 {
-				acc.item.Bytes += rf.Bytes
-			}
-			applyLineRange(&acc.item.LineStart, &acc.item.LineEnd, ev.Line)
-			if ev.Ts > acc.item.EndTs {
-				acc.item.EndTs = ev.Ts
-			}
+			var transition pairingCohortTransition
 			switch phase {
 			case "start":
-				if acc.depth == 0 {
-					acc.depth = 1
-					acc.cohortStarts = 1
-					acc.start = ev
-					continue
-				}
-				acc.depth++
-				acc.cohortStarts++
-				if !acc.ambiguous {
-					acc.ambiguous = true
-					acc.item.AmbiguousCohortCount++
-					acc.start = Event{}
-				}
+				transition = lane.cohort.observeStart(ev)
 			case "done":
-				if acc.depth == 0 {
-					acc.item.UnpairedDoneCount++
-					continue
-				}
-				if acc.ambiguous {
-					acc.depth--
-					if acc.depth == 0 {
-						acc.item.PairingSuppressedCount += acc.cohortStarts
-						acc.ambiguous = false
-						acc.cohortStarts = 0
-						acc.start = Event{}
-					}
-					continue
-				}
-				start := acc.start
-				acc.depth = 0
-				acc.cohortStarts = 0
-				acc.start = Event{}
-				if ev.Ts < start.Ts {
-					acc.item.PairingSuppressedCount++
-					continue
-				}
-				dur := (ev.Ts - start.Ts) * 1000
-				acc.item.PairedCount++
-				acc.totalLatencyMs += dur
-				if dur > acc.item.MaxLatencyMs {
-					acc.item.MaxLatencyMs = dur
-				}
+				transition = lane.cohort.observeDone(ev)
+			}
+			accountGenericStorageTransition(accs, lane, transition, q)
+			if transition.unpairedDone || transition.cohortClosed {
+				lane.eventCount = 0
+				lane.bytes = 0
+				lane.inode = ""
+				lane.entryName = ""
 			}
 		}
 	}
 	out := append(make([]StorageLatencySummary, 0, len(blockSummaries)+len(accs)), blockSummaries...)
 	var ambiguous, suppressed, unpairedStart, unpairedDone int
-	for _, acc := range accs {
-		if acc.depth > 0 {
-			if acc.ambiguous {
-				suppressedAtEOF := acc.cohortStarts
-				acc.depth = 0
-				acc.ambiguous = false
-				acc.cohortStarts = 0
-				acc.start = Event{}
-				acc.item.PairingSuppressedCount += suppressedAtEOF
-			} else {
-				acc.item.UnpairedStartCount++
-				acc.depth = 0
-				acc.cohortStarts = 0
-				acc.start = Event{}
-			}
+	for _, lane := range lanes {
+		transition := lane.cohort.finishEOF()
+		if pairingOpenCohortIntersectsIndex(transition.first, idx, q) {
+			accountGenericStorageOpen(accs, lane, transition)
 		}
+	}
+	for _, acc := range accs {
 		if acc.item.PairedCount > 0 {
 			acc.item.AvgLatencyMs = acc.totalLatencyMs / float64(acc.item.PairedCount)
 		}
@@ -8486,6 +8452,9 @@ func computeStorageLatencyByLayer(idx *Index, q Query, blockSummaries []StorageL
 	if unresolvedSourceRows > 0 {
 		caveats = append(caveats, fmt.Sprintf("storage_latency_pairing_provenance_unresolved=true; rows=%d; endpoints without exactly one physical source artifact were excluded", unresolvedSourceRows))
 	}
+	if lifecycleResetLanes > 0 {
+		caveats = append(caveats, fmt.Sprintf("storage_latency_pairing_lifecycle_reset=true; lanes=%d; open generic-storage lanes were closed as unpaired at exact task-generation boundaries instead of crossing TID reuse", lifecycleResetLanes))
+	}
 	if ambiguous > 0 {
 		caveats = append(caveats, fmt.Sprintf("storage_latency_pairing_ambiguous=true; cohorts=%d pairing_suppressed=%d; overlapping identical coarse lanes were withheld as whole cohorts instead of FIFO-guessed", ambiguous, suppressed))
 	}
@@ -8493,6 +8462,91 @@ func computeStorageLatencyByLayer(idx *Index, q Query, blockSummaries []StorageL
 		caveats = append(caveats, fmt.Sprintf("storage_latency_pairing_unpaired=true; unpaired_start=%d unpaired_done=%d; elapsed latency was emitted only for complete exact-lane pairs", unpairedStart, unpairedDone))
 	}
 	return out, caveats
+}
+
+func storageLatencyAccumulatorForIdentity(accs map[string]*storageLatencyAcc, lane *storageLatencyLane, ev Event) *storageLatencyAcc {
+	if lane == nil {
+		return nil
+	}
+	key := lane.source + "\x00" + lane.identity.laneKey()
+	acc := storageLatencyAccumulator(accs, key, lane.source, lane.identity.Layer, lane.identity.Base, lane.identity.Dev, lane.identity.Op, threadRefFromEvent(ev), ev.Line, ev.Ts, ev.FieldText)
+	if acc.item.Inode == "" && lane.inode != "" {
+		acc.item.Inode = lane.inode
+	}
+	if acc.item.EntryName == "" && lane.entryName != "" {
+		acc.item.EntryName = lane.entryName
+	}
+	return acc
+}
+
+func observeGenericStorageEnvelope(acc *storageLatencyAcc, first, last Event) {
+	if acc == nil {
+		return
+	}
+	for _, ev := range []Event{first, last} {
+		applyLineRange(&acc.item.LineStart, &acc.item.LineEnd, ev.Line)
+		if acc.item.StartTs == 0 || ev.Ts < acc.item.StartTs {
+			acc.item.StartTs = ev.Ts
+		}
+		if ev.Ts > acc.item.EndTs {
+			acc.item.EndTs = ev.Ts
+		}
+	}
+}
+
+func accountGenericStorageTransition(accs map[string]*storageLatencyAcc, lane *storageLatencyLane, transition pairingCohortTransition, q Query) {
+	if lane == nil {
+		return
+	}
+	if transition.unpairedDone {
+		if !pairingEventInsideQuery(transition.last, q) {
+			return
+		}
+		acc := storageLatencyAccumulatorForIdentity(accs, lane, transition.last)
+		acc.item.Count += lane.eventCount
+		acc.item.Bytes += lane.bytes
+		acc.item.UnpairedDoneCount++
+		observeGenericStorageEnvelope(acc, transition.last, transition.last)
+		return
+	}
+	if !transition.cohortClosed || !pairingIntervalIntersectsQuery(transition.first, transition.last, q) {
+		return
+	}
+	acc := storageLatencyAccumulatorForIdentity(accs, lane, transition.first)
+	acc.item.Count += lane.eventCount
+	acc.item.Bytes += lane.bytes
+	observeGenericStorageEnvelope(acc, transition.first, transition.last)
+	if transition.ambiguous {
+		acc.item.AmbiguousCohortCount++
+		acc.item.PairingSuppressedCount += transition.cohortStarts
+		return
+	}
+	if transition.last.Ts < transition.pairStart.Ts {
+		acc.item.PairingSuppressedCount++
+		return
+	}
+	dur := (transition.last.Ts - transition.pairStart.Ts) * 1000
+	acc.item.PairedCount++
+	acc.totalLatencyMs += dur
+	if dur > acc.item.MaxLatencyMs {
+		acc.item.MaxLatencyMs = dur
+	}
+}
+
+func accountGenericStorageOpen(accs map[string]*storageLatencyAcc, lane *storageLatencyLane, transition pairingCohortTransition) {
+	if lane == nil || !transition.cohortClosed || transition.cohortStarts == 0 {
+		return
+	}
+	acc := storageLatencyAccumulatorForIdentity(accs, lane, transition.first)
+	acc.item.Count += lane.eventCount
+	acc.item.Bytes += lane.bytes
+	observeGenericStorageEnvelope(acc, transition.first, transition.last)
+	if transition.ambiguous {
+		acc.item.AmbiguousCohortCount++
+		acc.item.PairingSuppressedCount += transition.cohortStarts
+		return
+	}
+	acc.item.UnpairedStartCount++
 }
 
 func storageLatencyAccumulator(accs map[string]*storageLatencyAcc, key, source, layer, event, dev, op string, thread ThreadRef, line int, ts float64, example string) *storageLatencyAcc {
