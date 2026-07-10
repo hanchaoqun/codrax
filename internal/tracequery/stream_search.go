@@ -62,11 +62,19 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 	if anchorSet != nil {
 		idx.TimestampOrder = anchorSet.TimestampOrder
 	}
+	// Mixed line+time window authority (streaming-consistency audit #50): the
+	// indexed lane's eventInQueryWindow convention — "time bounds apply only
+	// when no line bounds are set" — governs both lanes. The streaming raw
+	// pre-gate used to intersect line∩time while the zero-match fallback to
+	// the indexed path applied line-only, silently flipping window semantics
+	// mid-call. timeGateActive is the single switch for the time gate, the
+	// time-end early stop, and the time side of the anchor seek below.
+	timeGateActive := q.LineStart == 0 && q.LineEnd == 0
 	startLine := 1
 	seeked := false
 	var seekAnchor traceAnchor
 	if anchorSet != nil && anchorSet.FlavorSet {
-		if a, ok := anchorSet.seekAnchorFor(q.TimeStart > 0, q.TimeStart, q.LineStart); ok {
+		if a, ok := anchorSet.seekAnchorFor(timeGateActive && q.TimeStart > 0, q.TimeStart, q.LineStart); ok {
 			if _, seekErr := f.Seek(a.ByteOffset, io.SeekStart); seekErr == nil {
 				seekAnchor = a
 				startLine = a.LineNo + 1
@@ -95,7 +103,12 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 		line, readErr := reader.ReadString('\n')
 		if len(line) > 0 {
 			idx.LineCount = lineNo
-			idx.ScannedLineCount = lineNo
+			// Actual scanned volume, not the absolute line number: after an
+			// anchor seek the skipped prefix was never read, so counting it as
+			// "scanned" both misstates the caveat and dilutes the
+			// unparsed-ratio denominator (audit #51). LineCount above keeps
+			// the absolute physical line number.
+			idx.ScannedLineCount = lineNo - startLine + 1
 			trimmed := strings.TrimRight(line, "\r\n")
 			lineTs, lineHasTS := parseLineTimestamp(trimmed)
 			if recording {
@@ -110,7 +123,7 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 				}
 				goto nextLine
 			}
-			if q.TimeStart > 0 || q.TimeEnd > 0 {
+			if timeGateActive && (q.TimeStart > 0 || q.TimeEnd > 0) {
 				ts, hasTS := lineTs, lineHasTS
 				if hasTS {
 					if q.TimeEnd > 0 && ts > q.TimeEnd {
@@ -463,9 +476,16 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 				}
 				if rowFailure == nil && schedulerHeadRawCandidate(trimmed) {
 					if auditEv, auditOK := safeParseLine(lineNo, trimmed, auditIntern, auditScratch); auditOK {
-						if identityConflict == nil {
-							if conflict := incarnationTracker.observe(auditEv, 0); incarnationBoundaryInsideQuery(conflict, q) {
-								identityConflict = conflict
+						// observeAll contract (ENG audit #42): iterate the FULL
+						// conflict slice and apply the window-relevance
+						// predicate per conflict — the tracker permanently
+						// consumes lifecycle evidence for every conflict it
+						// emits, so keeping only the first element would
+						// silently discard siblings with different relevance.
+						for _, conflict := range incarnationTracker.observeAll(auditEv, 0) {
+							if identityConflict == nil && incarnationBoundaryInsideQuery(&conflict, q) {
+								copy := conflict
+								identityConflict = &copy
 							}
 						}
 						lineInOrderDomain := q.LineStart <= 0 || lineNo >= q.LineStart
@@ -519,8 +539,14 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 							goto nextLine
 						}
 						preWindowCarry = true
+					} else {
+						// Only rows actually AT/inside the time window arm the
+						// "seen window" latch. A carry row falling through here
+						// used to set it too, which stripped every later
+						// pre-window no-timestamp line of the cheap skip path
+						// below (audit #53).
+						seenTimeWindow = true
 					}
-					seenTimeWindow = true
 				} else if q.TimeStart > 0 && !seenTimeWindow {
 					if lineNo <= 200 {
 						flavor.observeRawLine(trimmed)
@@ -529,8 +555,22 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 				}
 			}
 			flavor.observeRawLine(trimmed)
+			// Parse-quality counters mirror the sibling streaming lanes
+			// (StreamEventSearch / StreamWindowSweep) and the indexed Run()
+			// path: this face is the index_event_limit fallback for exactly
+			// the dense/degraded traces where unparseable rows mean
+			// systematically undercounted five-state durations, so the
+			// coverage disclosure must not silently disappear here
+			// (audit #52).
+			panicsBefore := idx.ParseLinePanics
 			ev, ok := safeParseLine(lineNo, trimmed, intern, idx)
 			if !ok {
+				if trimmed != "" {
+					if idx.ParseLinePanics == panicsBefore {
+						idx.UnparsedLines++
+					}
+					idx.recordUnparsedSample(lineNo, trimmed)
+				}
 				if schedulerRowFailure == nil {
 					if rejected := schedulerRejectedRowFailure(lineNo, trimmed); rejected != nil && schedulerRowIntegrityFailureRelevantToQuery(rejected, q, q.PID) {
 						rejected.SourcePath = path
@@ -563,11 +603,29 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 				}
 				start, ok := open[ev.WakeePID]
 				if !preWindowCarry && q.TimeStart > 0 && ev.Ts > q.TimeStart && !ok && !schedWakeupStartsNewIncarnation(ev) {
+					// Disclosure retained alongside the mint below: the mark
+					// says the PREFIX before this wakeup is un-witnessed,
+					// which stays true — minting the witnessed suffix segment
+					// is orthogonal (headless-wakeup alignment ruling).
 					missingHeadThreads[ev.WakeePID] = true
 				}
 				// Shared wakeup-reopen guard (thread_state_universe.go) —
-				// same gate as the indexed face.
-				if !schedWakeupStartsNewIncarnation(ev) && (!ok || stateChurnWakeupReopenIneligible(start.state) || ev.Ts < start.ts) {
+				// same gate as the indexed churn face. A normal wakeup for a
+				// thread with NO governing open state mints a runnable
+				// segment from the wakeup timestamp on BOTH lanes:
+				// pre-window carry rows mirror the indexed head authority
+				// (applySchedulerHeadEvent — audit #48), and in-window rows
+				// follow the headless-wakeup alignment ruling (主会话裁定
+				// 2026-07-10, §29.26 待落账): the wakeup is a witnessed typed
+				// transition, not a guess, and the indexed offCPU face
+				// (computeOffCPUStats) has always minted it — the
+				// index_event_limit fallback face must give the same numbers.
+				// The un-witnessed prefix stays disclosed via
+				// missingHeadThreads above (partial_unknown). Convergence is
+				// bounded: any later sched_switch naming the pid closes the
+				// segment, and repeat wakeups are rejected by the
+				// reopen-ineligible arm.
+				if !schedWakeupStartsNewIncarnation(ev) && ok && (stateChurnWakeupReopenIneligible(start.state) || ev.Ts < start.ts) {
 					continue
 				}
 				if ok {
@@ -639,7 +697,7 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 	q.TraceFlavor = flavorValue
 	frameworkSurfaces := detectFrameworkSurfaces(idx, q, TracePlatformAuto, 4)
 	platform, platformCandidate, platformCandidateConfidence, platformCandidateSignals, platformCaveats := resolveTracePlatform(idx, q, flavorValue, frameworkSurfaces, signals)
-	filterCaveats := streamStateClusterApplyThreadFilter(q, accs, running, runnable, sleep, dstate, iowait, missingHeadThreads)
+	filterCaveats, selectorRejection := streamStateClusterApplyThreadFilter(q, accs, running, runnable, sleep, dstate, iowait, missingHeadThreads)
 	var stateIntegrityCaveats []string
 	if schedulerViolation != nil {
 		clearStreamStateCluster(accs, running, runnable, sleep, dstate, iowait)
@@ -674,6 +732,15 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 		} else if identityConflict != nil {
 			headCoverage.Status = "unknown"
 			headCoverage.Reason = "thread_incarnation_conflict"
+		} else if selectorRejection != "" {
+			// A selector rejection (ambiguous / unresolved thread name)
+			// clears every bucket AND the missingHeadThreads set, so the
+			// empty set must not fall through to the "recovered" arm: the
+			// typed head-coverage face would then contradict the rejection
+			// caveat on the same result (audit #49). Same shape as the three
+			// integrity arms above: unknown + typed reason.
+			headCoverage.Status = "unknown"
+			headCoverage.Reason = selectorRejection
 		} else if len(missingHeadThreads) > 0 {
 			headCoverage.Status = "partial_unknown"
 			headCoverage.Reason = "subject_checkpoint_missing"
@@ -713,8 +780,18 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 	}, flavorCaveats...)
 	caveats = append(caveats, platformCaveats...)
 	caveats = append(caveats, stats.Caveats...)
+	// Same parse-quality caveat wording as the sibling streaming lanes and the
+	// indexed Run() path (audit #52): this fallback face serves the densest /
+	// most degraded traces, so parse-coverage disclosure must not be the one
+	// lane that stays silent.
+	if idx.ParseLinePanics > 0 {
+		caveats = append(caveats, fmt.Sprintf("%d trace line(s) could not be parsed and were skipped; results may undercount events near those lines", idx.ParseLinePanics))
+	}
 	if idx.ClockRegressions > 0 {
 		caveats = append(caveats, fmt.Sprintf("%d timestamp regression(s) detected in the trace (clock moved backwards); duration and ordering metrics around those points are unreliable", idx.ClockRegressions))
+	}
+	if idx.UnparsedLines > 0 && idx.ScannedLineCount > 0 && float64(idx.UnparsedLines) > unparsedLineCaveatRatio*float64(idx.ScannedLineCount) {
+		caveats = append(caveats, fmt.Sprintf("%d of %d scanned lines did not match any known trace format; coverage may be incomplete", idx.UnparsedLines, idx.ScannedLineCount))
 	}
 	return Result{
 		View:                        "window_stats",
@@ -733,6 +810,8 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 		PrioritySemantics:           PrioritySemanticsForFlavor(flavorValue),
 		LineCount:                   idx.LineCount,
 		ScannedLineCount:            idx.ScannedLineCount,
+		UnparsedLineCount:           idx.UnparsedLines,
+		ParseLinePanics:             idx.ParseLinePanics,
 		IndexWindowed:               idx.Windowed,
 		IndexTimeStart:              idx.IndexTimeStart,
 		IndexTimeEnd:                idx.IndexTimeEnd,
@@ -936,21 +1015,6 @@ func streamStateTopDurations(in map[string]ThreadDuration, max int) []ThreadDura
 	return out
 }
 
-func streamStateClusterThreadAllowed(q Query, thread ThreadRef) bool {
-	if q.PID > 0 {
-		return thread.PID == q.PID
-	}
-	sel := parseThreadSelector(firstNonEmpty(q.ThreadInput, q.Thread))
-	if sel.HasPID {
-		return thread.PID == sel.PID
-	}
-	target := normalizedThreadText(firstNonEmpty(sel.Name, sel.Raw))
-	if target == "" {
-		return true
-	}
-	return normalizedThreadText(thread.Comm) == target
-}
-
 func clearStreamStateCluster(accs map[string]*stateChurnAcc, buckets ...map[string]ThreadDuration) {
 	for key := range accs {
 		delete(accs, key)
@@ -962,7 +1026,16 @@ func clearStreamStateCluster(accs map[string]*stateChurnAcc, buckets ...map[stri
 	}
 }
 
-func streamStateClusterApplyThreadFilter(q Query, accs map[string]*stateChurnAcc, running, runnable, sleep, dstate, iowait map[string]ThreadDuration, missingHeadThreads map[int]bool) []string {
+// streamStateClusterApplyThreadFilter prunes the accumulated buckets to the
+// selected thread. It filters by exact TID only — stream ThreadRefs carry no
+// TGID, so pid=<process pid> deliberately selects nothing here (the
+// relation-scope pass in parse_relation_scope.go is the face that expands a
+// process id into its member threads). The second return value is the typed
+// rejection reason ("thread_selector_ambiguous" / "thread_selector_unresolved",
+// "" when the selector resolved): rejections clear every bucket AND the
+// missingHeadThreads set, so headCoverage must consume this reason instead of
+// reading the cleared set as "recovered" (audit #49).
+func streamStateClusterApplyThreadFilter(q Query, accs map[string]*stateChurnAcc, running, runnable, sleep, dstate, iowait map[string]ThreadDuration, missingHeadThreads map[int]bool) ([]string, string) {
 	selector := strings.TrimSpace(firstNonEmpty(q.ThreadInput, q.Thread))
 	targetPID := q.PID
 	var resolution threadResolution
@@ -979,7 +1052,7 @@ func streamStateClusterApplyThreadFilter(q Query, accs map[string]*stateChurnAcc
 			for pid := range missingHeadThreads {
 				delete(missingHeadThreads, pid)
 			}
-			return []string{fmt.Sprintf("thread_selector_ambiguous selector=%q candidate_pids=%s; stream_state_cluster refuses to merge same-name scheduler threads — rerun with pid=<tid>", selector, joinThreadResolutionPIDs(resolution.CandidatePIDs))}
+			return []string{fmt.Sprintf("thread_selector_ambiguous selector=%q candidate_pids=%s; stream_state_cluster refuses to merge same-name scheduler threads — rerun with pid=<tid>", selector, joinThreadResolutionPIDs(resolution.CandidatePIDs))}, "thread_selector_ambiguous"
 		}
 		targetPID = resolution.Thread.PID
 		if targetPID <= 0 {
@@ -987,11 +1060,11 @@ func streamStateClusterApplyThreadFilter(q Query, accs map[string]*stateChurnAcc
 			for pid := range missingHeadThreads {
 				delete(missingHeadThreads, pid)
 			}
-			return []string{fmt.Sprintf("thread_selector_unresolved selector=%q; stream_state_cluster found no unique scheduler TID in the selected window", selector)}
+			return []string{fmt.Sprintf("thread_selector_unresolved selector=%q; stream_state_cluster found no unique scheduler TID in the selected window", selector)}, "thread_selector_unresolved"
 		}
 	}
 	if targetPID <= 0 {
-		return nil
+		return nil, ""
 	}
 	for key, acc := range accs {
 		if acc == nil || acc.thread.PID != targetPID {
@@ -1010,7 +1083,7 @@ func streamStateClusterApplyThreadFilter(q Query, accs map[string]*stateChurnAcc
 			delete(missingHeadThreads, pid)
 		}
 	}
-	return nil
+	return nil, ""
 }
 
 func streamStateClusterFilterLabel(q Query) string {

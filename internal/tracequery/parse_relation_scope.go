@@ -175,8 +175,13 @@ func discoverRelationScope(ctx context.Context, path string, opts BuildOptions) 
 	}
 	scope := &relationScope{relevantTids: map[int]struct{}{}}
 	// Target set: the scoped pid itself (whether it names a thread or a
-	// process) plus every thread whose tgid equals it (process expansion),
-	// matching streamStateClusterThreadAllowed's pid==PID || tgid==PID.
+	// process) plus every thread whose tgid equals it (process expansion).
+	// This process expansion is relation-scope's OWN semantic — the causal
+	// chain views need every member thread of a scoped process. The streaming
+	// state-cluster face deliberately does NOT share it:
+	// streamStateClusterApplyThreadFilter (stream_search.go) filters by exact
+	// TID only (stream ThreadRefs carry no TGID), so pid=<process pid> means
+	// the whole process here and exactly one thread there (audit #54).
 	frontier := []int{scopePID}
 	scope.relevantTids[scopePID] = struct{}{}
 	for tid, tgid := range tidToTgid {

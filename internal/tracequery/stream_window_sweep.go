@@ -244,7 +244,10 @@ func StreamWindowSweep(ctx context.Context, path string, q Query) (Result, error
 		line, readErr := reader.ReadString('\n')
 		if len(line) > 0 {
 			idx.LineCount = lineNo
-			idx.ScannedLineCount = lineNo
+			// Actual scanned volume, not the absolute line number: after an
+			// anchor seek the skipped prefix was never read (audit #51, same
+			// fix as StreamEventSearch). LineCount keeps the absolute number.
+			idx.ScannedLineCount = lineNo - startLine + 1
 			trimmed := strings.TrimRight(line, "\r\n")
 			if recording {
 				// The recorder's running max must see EVERY line's ts
@@ -381,7 +384,12 @@ func StreamWindowSweep(ctx context.Context, path string, q Query) (Result, error
 	frameworkSurfaces := detectFrameworkSurfaces(idx, q, TracePlatformAuto, 4)
 	platform, platformCandidate, platformCandidateConfidence, platformCandidateSignals, platformCaveats := resolveTracePlatform(idx, q, flavorValue, frameworkSurfaces, signals)
 
-	sweep := buildWindowSweepResult(q, buckets, bucketMs, requestedBucketMs, topK, targetPID)
+	// audit #55: the hotspot suggestions consume the same typed regression
+	// signal the result's own caveat is built from (idx.ClockRegressions is
+	// final here — the anchor-proof reconciliation above already ran), so the
+	// advisory next-view wording cannot recommend duration views this very
+	// result knows will discard scheduler durations.
+	sweep := buildWindowSweepResult(q, buckets, bucketMs, requestedBucketMs, topK, targetPID, idx.ClockRegressions > 0)
 	start, end := q.TimeStart, q.TimeEnd
 	if start == 0 && sweep.Window.StartTs > 0 {
 		start = sweep.Window.StartTs
@@ -466,7 +474,11 @@ func windowSweepBucketFor(buckets map[int64]*WindowSweepBucketCounts, ts, bucket
 // buildWindowSweepResult turns the sparse bucket map into the typed result:
 // ranked top-K hotspots plus the ≤WindowSweepCoverageMaxRows coverage table.
 // Pure so tests can pin ranking/folding without a file scan.
-func buildWindowSweepResult(q Query, buckets map[int64]*WindowSweepBucketCounts, bucketMs, requestedBucketMs float64, topK, targetPID int) WindowSweepResult {
+//
+// clockRegressed is the typed timestamp-regression signal (idx.ClockRegressions
+// > 0 at the call site). It only reshapes SOFT guidance — which follow-up views
+// the hotspot summaries suggest — never counts or ranking (audit #55).
+func buildWindowSweepResult(q Query, buckets map[int64]*WindowSweepBucketCounts, bucketMs, requestedBucketMs float64, topK, targetPID int, clockRegressed bool) WindowSweepResult {
 	bucketSec := bucketMs / 1000
 	sweep := WindowSweepResult{
 		BucketMs:  bucketMs,
@@ -562,13 +574,20 @@ func buildWindowSweepResult(q Query, buckets map[int64]*WindowSweepBucketCounts,
 			StartTs:                 float64(key) * bucketSec,
 			EndTs:                   float64(key+1) * bucketSec,
 			WindowSweepBucketCounts: *acc,
-			SuggestedViews:          windowSweepSuggestedViews(*acc, avgWakeups, avgDState),
+			SuggestedViews:          windowSweepSuggestedViews(*acc, avgWakeups, avgDState, clockRegressed),
 		}
 		hotspot.Summary = fmt.Sprintf(
 			"window_sweep hotspot %.6f..%.6f sched_switches=%d wakeups=%d d_state_entries=%d irq_entries=%d trace_marks=%d target_pid_switches=%d; advisory next views: %s with this exact time window",
 			hotspot.StartTs, hotspot.EndTs, acc.SchedSwitches, acc.SchedWakeups, acc.DStateEntries, acc.IRQEntries, acc.TraceMarks, acc.TargetPIDSwitches,
 			strings.Join(hotspot.SuggestedViews, "/"))
+		if clockRegressed {
+			hotspot.Summary += "; timestamp regressions were detected in this trace, so duration-based views (window_stats/frame_window/scheduler_latency_stats) will discard scheduler durations on this window — drill down with the event-listing views suggested above"
+		}
 		sweep.Hotspots = append(sweep.Hotspots, hotspot)
+	}
+	if clockRegressed && len(sweep.Hotspots) > 0 {
+		sweep.Caveats = append(sweep.Caveats,
+			"hotspot suggested views exclude duration-based views (window_stats/frame_window) because timestamp regressions were detected in this trace; those views discard scheduler durations when the clock moves backwards, so use event_search/critical_blocking_calls listings for drill-down instead")
 	}
 
 	sweep.Coverage, sweep.CoverageFolded, sweep.CoverageFoldSpan = windowSweepCoverageRows(buckets, firstKey, lastKey, bucketSec)
@@ -619,7 +638,22 @@ func windowSweepCoverageRows(buckets map[int64]*WindowSweepBucketCounts, firstKe
 // density always gets window_stats/frame_window; above-average wakeup density
 // adds wakeup_chain; above-average D-state entries add
 // critical_blocking_calls. Soft guidance only.
-func windowSweepSuggestedViews(c WindowSweepBucketCounts, avgWakeups, avgDState float64) []string {
+//
+// clockRegressed (audit #55): on a trace with timestamp regressions the
+// scheduler-duration lanes fail closed by design
+// (scheduler_duration_fail_closed / stream_state_cluster_fail_closed), so
+// recommending window_stats/frame_window/wakeup_chain would send the model
+// straight into a known fail-close round-trip. The regressed arm steers to
+// count/list-shaped views instead: event_search always, plus
+// critical_blocking_calls on above-average D-state density.
+func windowSweepSuggestedViews(c WindowSweepBucketCounts, avgWakeups, avgDState float64, clockRegressed bool) []string {
+	if clockRegressed {
+		views := []string{"event_search"}
+		if c.DStateEntries > 0 && float64(c.DStateEntries) >= avgDState {
+			views = append(views, "critical_blocking_calls")
+		}
+		return views
+	}
 	views := []string{"window_stats", "frame_window"}
 	if c.SchedWakeups > 0 && float64(c.SchedWakeups) >= avgWakeups {
 		views = append(views, "wakeup_chain")
