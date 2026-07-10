@@ -1952,3 +1952,9 @@ finalizer 多轮修复=大量 token 交互反复且小模型输出不稳定(后�
 **中文 UX 标签演化**：用户裁定 `Texture upload → 纹理上传`、`JIT → JIT编译`。统一映射已覆盖主因 headline、语义 family 行、树 action/shape、确定性优化表“类别”列及中文引言；Markdown、用户面板与 HTML 共用同一 AnswerDocument 结果。原始 `SpanName`、成员 roster、`span 原文`、明细 `类型:` 和 evidence/wire token 继续逐字保留，避免本地化改写 trace 事实。旧节中英文 `Texture upload` 的历史 witness 引文只描述当时输出，不再作为当前中文显示裁定。
 
 **TID-reuse 可用性续批（`6405c94cf`）**：在 d729 建立 exact endpoint 闭集后，Workqueue/DMA 的完整 numeric contributor PID set 可由同一 in-window event scan 精确枚举，因此各自改用 family-scoped lifecycle gate；无关 TID reuse 不再抹掉两族，一族贡献者复用不连坐另一族，贡献 PID 复用与 lifecycle-audit cap 仍 fail-close。通用 resource caveat 同步移除 Workqueue/DMA，避免“报告说已省略但行实际存在”。offCPU/scheduler latency/IO 复合面继续维持全局保守门，直到 typed context-completeness/派生完整性可贯通，禁止把缺失上下文伪装成 0。
+
+## §29.27 EN trace 报告闭集收账（2026-07-10，`5da3fbed0`）
+
+**用户词面统一**：英文 trace 系统补充从分散的 `Requested/Projection window`、`Target symptom/wait/sleep`、`Artifact`、`rank=N` 收敛为四个规范词族：`Analysis window`、`focused thread/focused-thread`、`Trace file`、`root-cause rank #N`。`projection.Window*` 是编译出的分析窗；真正的用户大窗继续由独立 `UserWindowStart/End` 发布为 `User-requested window`，两者不得混称。多 trace 总览、窗长归一化、时间基不相交、分区 caveat、折叠 roster、下一步与 evaluator 窗外注记同时收口，中英文下一步排名分别为 `根因排序#N` / `root-cause rank #N`。
+
+**无损边界与机械保证**：不做全局替换。原始线程名、span 名、trace 文件名中即便含 `Target` / `Artifact` 仍逐字保留；`runtime_artifact` 等 wire token 与审计明细 `rank=N` 同样保留。新增 full-face closed-set fixture 同时验证规范词、退役系统词负向、`TargetRenderer` / `ArtifactWorker` raw pass-through、raw `rank=7`，并把同一 AnswerDocument 渲染为 Markdown 用户面板和 HTML 做词面 parity。三包回归：`go test ./internal/tool ./internal/agent ./internal/types -count=1`。
