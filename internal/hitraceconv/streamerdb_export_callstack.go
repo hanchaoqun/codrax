@@ -15,13 +15,17 @@ const maxTraceDBCallstackTokenBytes = 4096
 
 type traceDBCallstackRow struct {
 	ID          int64
+	SourceID    int64
 	TS          int64
 	Dur         int64
 	End         int64
 	CallID      int64
 	EmitterITID int64
+	OwnerIPID   int64
 	Name        string
 	Flag        string
+	Depth       int64
+	DepthKnown  bool
 	Cookie      string
 	Task        string
 	TID         int64
@@ -38,9 +42,10 @@ type traceDBCallstackEndpoint struct {
 }
 
 type traceDBCallstackAsyncKey struct {
-	TGID   int64
-	Name   string
-	Cookie string
+	OwnerIPID int64
+	TGID      int64
+	Name      string
+	Cookie    string
 }
 
 // exportTraceDBCallstack publishes trace-marker endpoints only after the SQL
@@ -48,11 +53,12 @@ type traceDBCallstackAsyncKey struct {
 // A malformed row is never repaired with pid/cpu/cookie zero: those values are
 // valid protocol tokens and would turn missing evidence into fabricated facts.
 func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, index traceDBThreadIndex, running map[int64][]traceDBRunningInterval, _ map[int64]string) (TraceDBCoverage, error) {
-	coverage, err := tdb.inspectCoverage(ctx, "slice", "callstack", []string{"id", "ts", "dur", "name", "callid"})
+	coverage, err := tdb.inspectCoverage(ctx, "slice", "callstack", []string{"ts", "dur", "name"})
 	coverage.FieldSources = map[string]string{
-		"cpu":              "unique Running thread_state interval at each emitted endpoint",
+		"cpu":              "all Running thread_state intervals covering an endpoint agree on one valid CPU",
 		"emitter_identity": "callstack.itid when present, otherwise callstack.callid; exact thread.itid join",
-		"row_order":        "strict unique callstack.id with endpoint phase ordering",
+		"async_owner":      "exact non-ambiguous process.ipid generation and process.pid",
+		"row_order":        "strict SQLite rowid; optional source id remains provenance only; typed endpoint phase ordering",
 		"async_identity":   "nonzero cookie or chainId; both must agree when both are present",
 		"sync_pairing":     "complete per-emitter laminar interval audit before atomic publication",
 	}
@@ -63,6 +69,23 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 	hasITID, err := tdb.columnExists(ctx, "callstack", "itid")
 	if err != nil {
 		return coverage, err
+	}
+	hasID, err := tdb.columnExists(ctx, "callstack", "id")
+	if err != nil {
+		return coverage, err
+	}
+	hasDepth, err := tdb.columnExists(ctx, "callstack", "depth")
+	if err != nil {
+		return coverage, err
+	}
+	hasCallID, err := tdb.columnExists(ctx, "callstack", "callid")
+	if err != nil {
+		return coverage, err
+	}
+	if !hasITID && !hasCallID {
+		coverage.ColumnsMissing = append(coverage.ColumnsMissing, "itid|callid")
+		coverage.Skipped = "missing required emitter identity column: itid|callid"
+		return coverage, nil
 	}
 	hasFlag, err := tdb.columnExists(ctx, "callstack", "flag")
 	if err != nil {
@@ -81,6 +104,10 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 	if hasITID {
 		itidExpr = quoteSQLiteIdent("itid")
 	}
+	callIDExpr := "NULL"
+	if hasCallID {
+		callIDExpr = quoteSQLiteIdent("callid")
+	}
 	flagExpr := "NULL"
 	if hasFlag {
 		flagExpr = quoteSQLiteIdent("flag")
@@ -93,11 +120,19 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 	if hasChainID {
 		chainIDExpr = quoteSQLiteIdent("chainId")
 	}
+	idExpr := "NULL"
+	if hasID {
+		idExpr = quoteSQLiteIdent("id")
+	}
+	depthExpr := "NULL"
+	if hasDepth {
+		depthExpr = quoteSQLiteIdent("depth")
+	}
 	query := fmt.Sprintf(`
-		SELECT id, ts, dur, name, callid, %s, %s, %s, %s
+		SELECT rowid, %s, ts, dur, name, %s, %s, %s, %s, %s, %s
 		FROM callstack
-		ORDER BY id
-	`, itidExpr, flagExpr, cookieExpr, chainIDExpr)
+		ORDER BY rowid
+	`, idExpr, callIDExpr, itidExpr, flagExpr, cookieExpr, chainIDExpr, depthExpr)
 	rows, err := tdb.db.QueryContext(ctx, query)
 	if err != nil {
 		coverage.Error = err.Error()
@@ -106,24 +141,23 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 	defer rows.Close()
 
 	skipped := map[string]int{}
-	seenIDs := map[int64]int{}
 	var accepted []traceDBCallstackRow
+	asyncPoisoned := false
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
 			return coverage, err
 		}
-		var idRaw, tsRaw, durRaw, nameRaw, callIDRaw, itidRaw, flagRaw, cookieRaw, chainIDRaw any
-		if err := rows.Scan(&idRaw, &tsRaw, &durRaw, &nameRaw, &callIDRaw, &itidRaw, &flagRaw, &cookieRaw, &chainIDRaw); err != nil {
+		var rowIDRaw, sourceIDRaw, tsRaw, durRaw, nameRaw, callIDRaw, itidRaw, flagRaw, cookieRaw, chainIDRaw, depthRaw any
+		if err := rows.Scan(&rowIDRaw, &sourceIDRaw, &tsRaw, &durRaw, &nameRaw, &callIDRaw, &itidRaw, &flagRaw, &cookieRaw, &chainIDRaw, &depthRaw); err != nil {
 			coverage.Error = err.Error()
 			return coverage, err
 		}
-		id, ok := traceDBStrictSQLiteInt(idRaw)
-		if ok && id >= 0 {
-			seenIDs[id]++
-		}
-		row, reason := prepareTraceDBCallstackRow(index, running, hasITID, hasFlag,
-			idRaw, tsRaw, durRaw, nameRaw, callIDRaw, itidRaw, flagRaw, cookieRaw, chainIDRaw)
+		row, reason := prepareTraceDBCallstackRow(index, running, hasID, hasITID, hasFlag, hasDepth,
+			rowIDRaw, sourceIDRaw, tsRaw, durRaw, nameRaw, callIDRaw, itidRaw, flagRaw, cookieRaw, chainIDRaw, depthRaw)
 		if reason != "" {
+			if traceDBCallstackPotentialAsync(flagRaw, cookieRaw, chainIDRaw, hasFlag) {
+				asyncPoisoned = true
+			}
 			skipped[reason]++
 			continue
 		}
@@ -133,25 +167,12 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 		coverage.Error = err.Error()
 		return coverage, err
 	}
-	duplicateIDs := 0
-	for _, count := range seenIDs {
-		if count > 1 {
-			duplicateIDs += count
-		}
-	}
-	if duplicateIDs > 0 {
-		skipped["duplicate_row_id"] = duplicateIDs
-		skipped["family_fail_closed"] = coverage.RowsRead
-		coverage.Skipped = traceDBCallstackSkipSummary(skipped)
-		return coverage, nil
-	}
-
 	syncLanes := map[int64][]traceDBCallstackRow{}
 	asyncGroups := map[traceDBCallstackAsyncKey][]traceDBCallstackRow{}
 	for _, row := range accepted {
 		switch row.Flag {
 		case "S", "C":
-			key := traceDBCallstackAsyncKey{TGID: row.TGID, Name: row.Name, Cookie: row.Cookie}
+			key := traceDBCallstackAsyncKey{OwnerIPID: row.OwnerIPID, TGID: row.TGID, Name: row.Name, Cookie: row.Cookie}
 			asyncGroups[key] = append(asyncGroups[key], row)
 		default:
 			syncLanes[row.EmitterITID] = append(syncLanes[row.EmitterITID], row)
@@ -177,12 +198,22 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 			coverage.RowsEmitted++
 		}
 	}
+	if asyncPoisoned {
+		for _, group := range asyncGroups {
+			skipped["async_family_fail_closed"] += len(group)
+		}
+		coverage.Skipped = traceDBCallstackSkipSummary(skipped)
+		return coverage, nil
+	}
 
 	asyncKeys := make([]traceDBCallstackAsyncKey, 0, len(asyncGroups))
 	for key := range asyncGroups {
 		asyncKeys = append(asyncKeys, key)
 	}
 	sort.Slice(asyncKeys, func(i, j int) bool {
+		if asyncKeys[i].OwnerIPID != asyncKeys[j].OwnerIPID {
+			return asyncKeys[i].OwnerIPID < asyncKeys[j].OwnerIPID
+		}
 		if asyncKeys[i].TGID != asyncKeys[j].TGID {
 			return asyncKeys[i].TGID < asyncKeys[j].TGID
 		}
@@ -220,12 +251,18 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 }
 
 func prepareTraceDBCallstackRow(index traceDBThreadIndex, running map[int64][]traceDBRunningInterval,
-	hasITID, hasFlag bool, idRaw, tsRaw, durRaw, nameRaw, callIDRaw, itidRaw, flagRaw, cookieRaw, chainIDRaw any,
+	hasID, hasITID, hasFlag, hasDepth bool,
+	rowIDRaw, sourceIDRaw, tsRaw, durRaw, nameRaw, callIDRaw, itidRaw, flagRaw, cookieRaw, chainIDRaw, depthRaw any,
 ) (traceDBCallstackRow, string) {
 	var row traceDBCallstackRow
 	var ok bool
-	if row.ID, ok = traceDBStrictSQLiteInt(idRaw); !ok || row.ID < 0 {
+	if row.ID, ok = traceDBStrictSQLiteInt(rowIDRaw); !ok || row.ID <= 0 {
 		return row, "invalid_row_id"
+	}
+	if hasID {
+		if sourceID, valid := traceDBStrictSQLiteInt(sourceIDRaw); valid && sourceID >= 0 {
+			row.SourceID = sourceID
+		}
 	}
 	if row.TS, ok = traceDBStrictSQLiteInt(tsRaw); !ok || row.TS < 0 {
 		return row, "invalid_timestamp"
@@ -237,16 +274,15 @@ func prepareTraceDBCallstackRow(index traceDBThreadIndex, running map[int64][]tr
 		return row, "interval_overflow"
 	}
 	row.End = row.TS + row.Dur
-	if row.CallID, ok = traceDBStrictSQLiteInt(callIDRaw); !ok || row.CallID < 0 {
-		return row, "invalid_callid"
-	}
-	row.EmitterITID = row.CallID
 	if hasITID {
 		if row.EmitterITID, ok = traceDBStrictSQLiteInt(itidRaw); !ok || row.EmitterITID <= 0 {
 			return row, "invalid_emitter_itid"
 		}
-	} else if row.EmitterITID <= 0 {
-		return row, "invalid_emitter_itid"
+	} else {
+		if row.CallID, ok = traceDBStrictSQLiteInt(callIDRaw); !ok || row.CallID <= 0 {
+			return row, "invalid_callid"
+		}
+		row.EmitterITID = row.CallID
 	}
 	if row.Name, ok = traceDBCallstackText(nameRaw, false); !ok || !traceDBCallstackMarkerToken(row.Name) {
 		return row, "invalid_name"
@@ -260,12 +296,21 @@ func prepareTraceDBCallstackRow(index traceDBThreadIndex, running map[int64][]tr
 	}
 	switch row.Flag {
 	case "", "I":
+		if traceDBCallstackRawIdentityPresent(cookieRaw) || traceDBCallstackRawIdentityPresent(chainIDRaw) {
+			return row, "sync_with_async_identity"
+		}
 	case "S", "C":
 		if row.Dur != 0 {
 			return row, "async_nonzero_duration"
 		}
 	default:
 		return row, "unknown_flag"
+	}
+	if hasDepth {
+		if row.Depth, ok = traceDBStrictSQLiteInt(depthRaw); !ok || row.Depth < 0 || row.Depth > math.MaxInt32 {
+			return row, "invalid_depth"
+		}
+		row.DepthKnown = true
 	}
 	thread, exists := index.ByITID[row.EmitterITID]
 	if !exists || index.AmbiguousITID[row.EmitterITID] || thread.TID <= 0 || thread.TID > math.MaxInt32 {
@@ -280,9 +325,13 @@ func prepareTraceDBCallstackRow(index traceDBThreadIndex, running map[int64][]tr
 	if index.AmbiguousIPID[thread.IPID] {
 		return row, "ambiguous_emitter_process"
 	}
-	process := index.Processes[thread.IPID]
+	process, processExists := index.Processes[thread.IPID]
+	row.OwnerIPID = thread.IPID
 	row.TID = thread.TID
-	row.TGID = firstNonZero(process.PID, thread.TID)
+	if !processExists || thread.IPID <= 0 || process.PID <= 0 || process.PID > math.MaxInt32 {
+		return row, "unresolved_owner_process"
+	}
+	row.TGID = process.PID
 	if row.TGID <= 0 || row.TGID > math.MaxInt32 {
 		return row, "invalid_emitter_process"
 	}
@@ -337,6 +386,35 @@ func traceDBCallstackText(value any, allowEmpty bool) (string, bool) {
 	return text, true
 }
 
+func traceDBCallstackPotentialAsync(flagValue, cookieValue, chainIDValue any, hasFlag bool) bool {
+	if !hasFlag {
+		return false
+	}
+	flag, ok := flagValue.(string)
+	if ok && (flag == "S" || flag == "C") {
+		return true
+	}
+	if ok && (flag == "" || flag == "I") {
+		return traceDBCallstackRawIdentityPresent(cookieValue) || traceDBCallstackRawIdentityPresent(chainIDValue)
+	}
+	return traceDBCallstackRawIdentityPresent(cookieValue) || traceDBCallstackRawIdentityPresent(chainIDValue)
+}
+
+func traceDBCallstackRawIdentityPresent(value any) bool {
+	if value == nil {
+		return false
+	}
+	switch typed := value.(type) {
+	case int64:
+		return typed != 0
+	case string:
+		trimmed := strings.TrimSpace(typed)
+		return trimmed != "" && trimmed != "0"
+	default:
+		return true
+	}
+}
+
 func traceDBCallstackCookie(value any) (string, bool, bool) {
 	if value == nil {
 		return "", false, true
@@ -361,7 +439,7 @@ func traceDBCallstackCookie(value any) (string, bool, bool) {
 }
 
 func traceDBCallstackMarkerToken(value string) bool {
-	if value == "" || len(value) > maxTraceDBCallstackTokenBytes || strings.ContainsRune(value, '|') || !utf8.ValidString(value) {
+	if value == "" || strings.TrimSpace(value) != value || len(value) > maxTraceDBCallstackTokenBytes || strings.ContainsRune(value, '|') || !utf8.ValidString(value) {
 		return false
 	}
 	for _, r := range value {
@@ -393,8 +471,20 @@ func auditTraceDBCallstackSyncLane(rows []traceDBCallstackRow) string {
 		if ordered[i].End != ordered[j].End {
 			return ordered[i].End > ordered[j].End
 		}
+		if ordered[i].DepthKnown && ordered[j].DepthKnown && ordered[i].Depth != ordered[j].Depth {
+			return ordered[i].Depth < ordered[j].Depth
+		}
 		return ordered[i].ID < ordered[j].ID
 	})
+	seenIntervals := make(map[[2]int64]traceDBCallstackRow, len(ordered))
+	for _, row := range ordered {
+		key := [2]int64{row.TS, row.End}
+		if previous, exists := seenIntervals[key]; exists &&
+			(!row.DepthKnown || !previous.DepthKnown || row.Depth == previous.Depth) {
+			return "ambiguous_identical_interval"
+		}
+		seenIntervals[key] = row
+	}
 	stack := make([]traceDBCallstackRow, 0, len(ordered))
 	for _, row := range ordered {
 		for len(stack) > 0 && row.TS >= stack[len(stack)-1].End {
@@ -402,11 +492,15 @@ func auditTraceDBCallstackSyncLane(rows []traceDBCallstackRow) string {
 		}
 		if len(stack) > 0 {
 			parent := stack[len(stack)-1]
-			if row.TS == parent.TS && row.End == parent.End {
+			if row.TS == parent.TS && row.End == parent.End &&
+				(!row.DepthKnown || !parent.DepthKnown || row.Depth == parent.Depth) {
 				return "ambiguous_identical_interval"
 			}
 			if row.End > parent.End {
 				return "crossing_sync_intervals"
+			}
+			if row.DepthKnown && parent.DepthKnown && row.Depth <= parent.Depth {
+				return "non_increasing_sync_depth"
 			}
 		}
 		stack = append(stack, row)
@@ -433,12 +527,18 @@ func traceDBCallstackSyncEndpoints(rows []traceDBCallstackRow) []traceDBCallstac
 			return leftPhase < rightPhase
 		}
 		if left.Begin && right.Begin {
+			if left.Row.DepthKnown && right.Row.DepthKnown && left.Row.Depth != right.Row.Depth {
+				return left.Row.Depth < right.Row.Depth
+			}
 			if left.Row.End != right.Row.End {
 				return left.Row.End > right.Row.End
 			}
 			return left.Row.ID < right.Row.ID
 		}
 		if !left.Begin && !right.Begin {
+			if left.Row.DepthKnown && right.Row.DepthKnown && left.Row.Depth != right.Row.Depth {
+				return left.Row.Depth > right.Row.Depth
+			}
 			if left.Row.TS != right.Row.TS {
 				return left.Row.TS > right.Row.TS
 			}
@@ -485,10 +585,12 @@ func traceDBCallstackSkipSummary(skipped map[string]int) string {
 	if len(skipped) == 0 {
 		return ""
 	}
-	total := 0
-	for reason, count := range skipped {
-		if reason != "family_fail_closed" {
-			total += count
+	total := skipped["family_fail_closed"]
+	if total == 0 {
+		for reason, count := range skipped {
+			if reason != "family_fail_closed" {
+				total += count
+			}
 		}
 	}
 	return fmt.Sprintf("%d callstack row(s) suppressed: %s", total, traceDBCountSummary(skipped))
