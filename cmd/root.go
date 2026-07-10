@@ -563,7 +563,9 @@ window_stats / root_cause_rank / wakeup_chain / format_census / …) directly
 against the engine and writes a single evidence report. No repository, no
 providers.yaml and no model credentials are needed; per-step output is capped
 (default 800 lines, hard cap 1000) with honest truncation disclosure. Sample
-scripts ship under examples/tracediag/.`,
+scripts ship under examples/tracediag/. Script v1 is static; v2 can run a
+typed deterministic discovery and fan out bounded system-derived windows
+without an LLM or manual child-window selection.`,
 	Args:              cobra.MaximumNArgs(1),
 	PersistentPreRunE: rootPreRun,
 	RunE:              rootRun,
@@ -671,7 +673,7 @@ func init() {
 	f.StringVar(&flagPlanFile, "plan-file", "", "apply/verify-mode: optional path to an existing ChangePlan JSON seed")
 	f.StringVar(&flagWriteAudit, "write-audit", "", "advanced audit: load a write final-report JSON path, or a ChangePlan path with a sibling .final.json, and print typed audit JSON without running tools or LLMs")
 	f.StringVar(&flagDataResume, "data-resume", "", "data mode: opt-in resume from a prior .codrax/data-audit/*-checkpoint-*.json workflow checkpoint")
-	f.StringVar(&flagTraceDiag, "tracediag", "", "deterministic trace diagnostic collection: path to a YAML collection script, run directly against the trace_query engine (zero LLM, read-only, no repo/providers needed; requires --trace). Exit code is nonzero when any step fails, but the report always covers every step.")
+	f.StringVar(&flagTraceDiag, "tracediag", "", "deterministic trace diagnostic collection: path to a YAML v1(static) or v2(typed discovery/fan-out) script, run directly against trace_query (zero LLM, read-only, no repo/providers needed; requires --trace). Exit code is nonzero when a discovery/step fails; independent work still runs.")
 	f.StringVar(&flagTraceDiagTrace, "trace", "", "tracediag: path to the trace file the collection script runs against")
 	f.StringVar(&flagTraceDiagOut, "out", "", "tracediag: write the collection report to this file (default: stdout)")
 	f.StringVar(&flagTraceDiagFlavor, "trace-flavor", "auto", "tracediag: trace flavor hint: auto|harmony_hitrace|android_atrace|generic_ftrace (strict; unknown values fail)")

@@ -22,13 +22,23 @@ shasum -a 256 <trace文件> > trace_sha256.txt
 
 ```bash
 cp examples/tracediag/collect_open_gap_witness.yaml open_gap_witness.used.yaml
-# 编辑 open_gap_witness.used.yaml：四个 pid + defaults.window
+# 编辑 open_gap_witness.used.yaml：四个 pid + 唯一父窗 defaults.window
 ./codrax --tracediag open_gap_witness.used.yaml \
   --trace <trace文件> --out open_gap_witness.txt \
   2> open_gap_witness.stderr.txt
 ```
 
-`tracediag` 任一步失败会返回非零退出码，但报告仍覆盖全部步骤；请同时回传报告和 stderr，不要因为退出码非零删除产物。大 trace 不要先扩大行帽：先把窗口缩到问题帧/卡顿段（建议不超过 1 秒）。
+新版通用模板是 `version: 2`：客户仍只填写一个父窗口，`pairing_integrity`
+会从物理文件开头完整重放 block/storage 端点状态，自动选择或拆分最多 2 个
+`<=50ms` 补采窗；`raw_io_pairing_rows` 按这些 typed 窗自动展开。报告顺序固定为
+“自动窗发现结果 → 已解析执行计划 → 各窗证据”，并回显 candidate rank、端点
+core、选窗依据和 source-universe 指纹。系统派生窗标为
+`FrameWindowAutoDerived=true`，不会冒充用户显式帧窗。
+
+`tracediag` 任一步失败会返回非零退出码，但报告仍覆盖全部独立步骤；请同时回传
+报告和 stderr，不要因为退出码非零删除产物。`dependency_empty` 不会静默回退父窗；
+`generated_window_compacted` 会给出 `matched/emitted`，表示已见原始行仍可用、但
+不能声称 N/N 完整。大 trace 不要先扩大行帽：父窗口仍建议不超过 1 秒。
 
 需要复现最终报告 UX 时，再跑一次真实管线：
 
@@ -45,6 +55,23 @@ cp examples/tracediag/collect_open_gap_witness.yaml open_gap_witness.used.yaml
 ### block/storage 并发请求身份
 
 - 采集：`format_census.txt` + `open_gap_witness.txt` 的 `raw_io_pairing_rows`。
+- 通用包的 2 个自动窗不足（例如报告写
+  `candidate_requires_more_than_hard_window_budget` / `generated_windows=0`）时，不要
+  手工猜窗；改跑专用模板，它会原子覆盖一个候选所需的最多 8 个小窗：
+
+```bash
+cp examples/tracediag/collect_io_pairing_witness.yaml io_pairing.used.yaml
+# 只编辑 defaults.window；无需 PID
+./codrax --tracediag io_pairing.used.yaml \
+  --trace <trace文件> --out io_pairing_witness.txt \
+  2> io_pairing_witness.stderr.txt
+```
+
+- 阅读顺序：先看 `candidate kind=ambiguous_closed`（真实同键并发）；若不存在，
+  `schema_probe` 是完成 pair 的格式样本，不等于已观察到同键并发。只有
+  `complete=true`、`identity_complete=true` 且各执行实例没有
+  `generated_window_compacted` 时，自动包才是所选 candidate 的完整端点 witness；
+  这仍不是“整个父窗不存在其它格式”的证明。
 - 关注：同一 family/dev/op/sector/len（或 storage layer/base/dev/inode/op）在前一个 start 未闭合前再次 start；以及原始载荷里的 `rq`、`request_id`、`req`、`mrq`、`bio`、`cookie`、`tag`、`cmd_tag`、`task_tag`、`unique_tag`。
 - 立案 witness：同粗键并发后 completion 顺序不能仅凭 FIFO 唯一判断，或 start/done 两端存在可稳定对齐的显式 request token。
 - 必须保留：event name、原始 key 名、token 值是否存在（可一致替换 token 内容，但不能把“缺失”和“0”混为一类）、时间戳、物理行号、artifact 名。

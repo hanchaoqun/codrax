@@ -4,47 +4,63 @@
 #
 # 用法（零 LLM、纯只读）：
 #   1) 把四个 `pid: 12345` 改成目标线程 TID；
-#   2) 把 defaults.window 改成报告中的精确分析窗（建议 <= 1s）；
+#   2) 只把 defaults.window 改成报告中的精确分析窗（建议 <= 1s）；
 #   3) 执行：
 #      codrax --tracediag examples/tracediag/collect_open_gap_witness.yaml \
 #        --trace <trace文件> --out open_gap_witness.txt
 #
 # 若只有线程名：删除四个 pid 行，并在这四步各写
 #   thread: "comm-tid"
-# pid/thread 不能同设。最后两步故意不设 pid/thread：block complete 常由 IRQ/
-# kworker 发射，按目标线程过滤会丢掉闭合端；trace mark/unknown print 也需要
-# 保留链上对端与非目标进程的格式样本。
+# pid/thread 不能同设。四个原始证据步骤故意不设 pid/thread：block complete
+# 常由 IRQ/kworker 发射，按目标线程过滤会丢掉闭合端；trace mark/unknown print
+# 也需要保留链上对端与非目标进程的格式样本。raw_io_pairing_rows 不再直接吃
+# 整个父窗：pairing_integrity 会完整重放端点前缀，自动选择/拆分最多 2 个
+# <=50ms 的补采窗。若仍有 event_search compaction，本命令会非零退出并明确写
+# matched/emitted，不能把部分行当作 N/N witness；无需再手工猜第二个窗口。
 #
 # 建议同时执行：
 #   codrax --tracediag examples/tracediag/collect_format_census.yaml \
 #     --trace <trace文件> --out format_census.txt
 #
 # 回传：open_gap_witness.txt + format_census.txt + 对应最终 .md/.html；无需回传
-# 原始 trace。行数预算：220+150+120+100+100+100+80+60=930。
-version: 1
-description: "开放 gap witness（结论/因果/阻塞 + 原始 IO/trace-mark）"
+# 原始 trace。v2 静态最坏报告预算=964 行（含 discovery/fan-out/header/summary）。
+version: 2
+description: "开放 gap witness（结论/因果/阻塞 + 自动 IO pairing 补采）"
 defaults:
   window: "100.000..100.500"       # <- 占位：改成关注窗口（秒）
+limits:
+  max_generated_windows: 2
+  max_expanded_steps: 12
+  max_report_lines: 1000
+discoveries:
+  - label: io_pairing_windows
+    strategy: pairing_integrity
+    families: [block, storage]
+    max_windows: 2
+    max_window_ms: 50
+    padding_ms: 5
+    max_lines: 20
 steps:
   - label: window_stats_snapshot
     view: window_stats
     pid: 12345                       # <- 占位：目标 TID
-    max_lines: 220
+    max_lines: 130
   - label: root_cause_rank_snapshot
     view: root_cause_rank
     pid: 12345
-    max_lines: 150
+    max_lines: 80
   - label: wakeup_chain_snapshot
     view: wakeup_chain
     pid: 12345
-    max_lines: 120
+    max_lines: 60
   - label: critical_blocking_snapshot
     view: critical_blocking_calls
     pid: 12345
-    max_lines: 100
+    max_lines: 50
   - label: raw_io_pairing_rows
     view: event_search
     event_types: [block_rq_issue, block_rq_complete, storage_latency]
+    windows_from: {discovery: io_pairing_windows}
     max_lines: 100
   - label: raw_workqueue_dma_rows
     view: event_search

@@ -1,0 +1,36 @@
+# IO pairing 专用自动补采包。只需改 defaults.window 为报告中的父窗口；
+# 不需要填写 PID，也不需要手工猜第二个/第三个小窗。
+#
+# pairing_integrity 会从物理文件开头完整重放 block/storage endpoint cohort，
+# 优先选择闭合的同键并发歧义；没有歧义时选择完成 pair 作为 schema probe。
+# 一个 cohort 跨度过大时按端点完整性原子拆成最多 8 个 <=50ms 小窗。
+# 任何 generated event_search compaction 都使命令非零退出，并披露
+# matched/emitted；报告中已返回的行仍保留，但不得称作 N/N 完整 witness。
+#
+# 用法：
+#   cp examples/tracediag/collect_io_pairing_witness.yaml io_pairing.used.yaml
+#   # 只编辑 defaults.window
+#   codrax --tracediag io_pairing.used.yaml --trace <trace文件> \
+#     --out io_pairing_witness.txt 2> io_pairing_witness.stderr.txt
+version: 2
+description: "block/storage pairing 自动候选窗与原始端点 witness"
+defaults:
+  window: "100.000..100.500"       # <- 只改这一处父窗口（秒）
+limits:
+  max_generated_windows: 8
+  max_expanded_steps: 8
+  max_report_lines: 1000
+discoveries:
+  - label: io_pairing_windows
+    strategy: pairing_integrity
+    families: [block, storage]
+    max_windows: 8
+    max_window_ms: 50
+    padding_ms: 5
+    max_lines: 80
+steps:
+  - label: raw_io_pairing_rows
+    view: event_search
+    event_types: [block_rq_issue, block_rq_complete, storage_latency]
+    windows_from: {discovery: io_pairing_windows}
+    max_lines: 80

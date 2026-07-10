@@ -3,6 +3,8 @@ package tracediag
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
 // The shipped collection scripts must always load through the strict
@@ -20,6 +22,7 @@ func TestShippedExampleScriptsParse(t *testing.T) {
 		"collect_acceptance_snapshot.yaml":    false,
 		"collect_format_census.yaml":          false,
 		"collect_open_gap_witness.yaml":       false,
+		"collect_io_pairing_witness.yaml":     false,
 		"collect_berlin_pairing_witness.yaml": false,
 	}
 	for _, path := range paths {
@@ -121,6 +124,13 @@ func TestShippedScriptShapes(t *testing.T) {
 	if len(openGap.Steps) != 8 {
 		t.Fatalf("collect_open_gap_witness.yaml steps = %d, want 8", len(openGap.Steps))
 	}
+	if openGap.Version != ScriptVersionV2 || len(openGap.Discoveries) != 1 {
+		t.Fatalf("open-gap must use one v2 typed discovery, got version=%d discoveries=%d", openGap.Version, len(openGap.Discoveries))
+	}
+	discovery := openGap.Discoveries[0]
+	if discovery.Label != "io_pairing_windows" || discovery.Strategy != string(tracequery.WindowDiscoveryPairingIntegrity) || discovery.MaxWindows != 2 || discovery.MaxWindowMS > 50 {
+		t.Fatalf("open-gap pairing discovery = %+v", discovery)
+	}
 	for i, step := range openGap.Steps[:4] {
 		if step.PID != 12345 || step.Thread != "" {
 			t.Errorf("open-gap target step %d selector = pid:%d thread:%q, want placeholder pid only", i, step.PID, step.Thread)
@@ -130,6 +140,15 @@ func TestShippedScriptShapes(t *testing.T) {
 		if step.PID != 0 || step.Thread != "" {
 			t.Errorf("open-gap raw step %d must be unscoped, got pid:%d thread:%q", i+4, step.PID, step.Thread)
 		}
+	}
+	if ref := openGap.Steps[4].WindowsFrom; ref == nil || ref.Discovery != discovery.Label {
+		t.Fatalf("open-gap raw IO lane must consume the typed discovery, got %+v", ref)
+	}
+	if openGap.Steps[4].Window != "" {
+		t.Fatalf("dynamic raw IO lane must not inherit the parent window directly: %q", openGap.Steps[4].Window)
+	}
+	if openGap.v2WorstReportLines != 964 {
+		t.Fatalf("open-gap validated worst report lines=%d, want pinned 964", openGap.v2WorstReportLines)
 	}
 	for i, step := range openGap.Steps[4:] {
 		if step.View != "event_search" {
@@ -142,11 +161,22 @@ func TestShippedScriptShapes(t *testing.T) {
 	if got := openGap.Steps[7].EventTypes; len(got) != 1 || got[0] != "unknown" {
 		t.Errorf("open-gap unknown-print lane event_types = %v, want [unknown]", got)
 	}
+
+	ioPairing, err := LoadScript(filepath.Join("..", "..", "examples", "tracediag", "collect_io_pairing_witness.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ioPairing.Version != ScriptVersionV2 || len(ioPairing.Discoveries) != 1 || len(ioPairing.Steps) != 1 {
+		t.Fatalf("dedicated IO pairing shape = version:%d discoveries:%d steps:%d", ioPairing.Version, len(ioPairing.Discoveries), len(ioPairing.Steps))
+	}
+	if ioPairing.Discoveries[0].MaxWindows != tracequery.HardWindowDiscoveryMaxWindows || ioPairing.v2WorstReportLines > 1000 {
+		t.Fatalf("dedicated IO pairing budget = discovery:%+v worst:%d", ioPairing.Discoveries[0], ioPairing.v2WorstReportLines)
+	}
 }
 
-// P3-6 budget pin (主会话裁定: "单结果≤1k 行" = 单输出文件≤1000 行): every
-// shipped script's per-step caps sum to ≤950, leaving header/summary head
-// room inside the 1000-line file budget.
+// P3-6 budget pin (主会话裁定: "单结果≤1k 行" = 单输出文件≤1000 行): v1
+// scripts retain the ≤950 body-cap rule; v2 scripts use their stricter static
+// worst-case planner, which includes discovery, fan-out, headers and summary.
 func TestShippedScriptsSingleFileBudget(t *testing.T) {
 	paths, err := filepath.Glob(filepath.Join("..", "..", "examples", "tracediag", "*.yaml"))
 	if err != nil {
@@ -159,6 +189,12 @@ func TestShippedScriptsSingleFileBudget(t *testing.T) {
 		script, err := LoadScript(path)
 		if err != nil {
 			t.Fatalf("%s: %v", path, err)
+		}
+		if script.Version == ScriptVersionV2 {
+			if script.v2WorstReportLines > 1000 {
+				t.Errorf("%s: v2 validated worst report is %d lines, budget is <=1000", filepath.Base(path), script.v2WorstReportLines)
+			}
+			continue
 		}
 		sum := 0
 		for i := range script.Steps {

@@ -1970,3 +1970,17 @@ finalizer 多轮修复=大量 token 交互反复且小模型输出不稳定(后�
 ## §29.29 HTML 因果明细列尾收口（2026-07-10，`5e441d362`）
 
 因果投影无损明细的宽屏/打印两栏布局已具备整体小字号、节点列表 `break-inside` 与窄屏退单栏，但 E# 三级标题此前可单独落在左列末尾、其属性块跳到右列。HTML CSS 为精确 wrapper 下的直接 `h3` 增加 `break-after: avoid-column` / `break-inside: avoid-column`，只约束列分页，不改变章节顺序、Markdown/终端或证据内容；standalone CSS 测试机械 pin。同期清理 finalizer recovery 路径中“hedging 尚非幂等”的过时注释，代码现状已由 C15 的 marker upsert + private caveat reconcile 保证重复渲染收敛。
+
+## §29.30 tracediag 自动补采窗演化（2026-07-10，`3e90dfc48` / `29d121d3f` / `51e26d958`）
+
+**触发**：生产回访的 `raw_io_pairing_rows` 在 151ms 父窗内出现 `120/251` 截断；要求客户继续手工猜第二个窗口既容易漏掉 carry-in，也会把“小窗无行”误读成“无并发”。裁定为零 LLM 的确定性自动发现，而不是让模型按关键词/热度猜窗。
+
+**先修 correctness 边界**：审计发现 block 旧 carry-in 只保留窗前 start、跳过窗前 done，导致“窗前已闭同键 pair”可能残留成假 open；generic storage 则完全不重放前缀。`3e90dfc48` 抽出共享 cohort FSM 与 generic identity 单源 helper，block key 改 NUL typed tuple；time scope 完整重放可用前后缀，只按 interval 与查询域相交发布，窗前已闭 pair 不污染窗内，generic 精确 carry-in 可恢复，line scope 维持原精确行语义。
+
+**发现引擎**：`29d121d3f` 新增 closed registry `pairing_integrity`，直接复用生产 block/storage admission、key 与 FSM。排序固定为 closed ambiguous → open ambiguous（只披露）→ completed-pair schema probe；同分按 collectible、单窗、max depth、endpoint count、物理行号，且 block/storage 在预算允许时各保留一席。candidate 端点 core 可原子拆为最多 8 个 `<=50ms` 窗；若所需切片超过预算则整 candidate 不选，禁止只发 3/4 个切片。端点数、活跃 lane、cohort roster 均有硬帽；TID generation、同 lane 时间回拨、坏 identity、EOF open 与 parser 盲点均 typed 披露。扫描使用完整物理顺序和显式 `TimeStartSet/EndSet`，ts=0 可表达。
+
+**source/provenance**：导出 opaque `TraceSourceVersion`，复用 size+mtime+mode+dev+inode+ctime 的强身份并覆盖 bundle/sibling universe；`StreamScan` 同时补齐开读/读后 TOCTOU 校验并拒绝 composite 单文件旁路。发现前后、每个派生实例前后及发布前均验证同一 source universe；任何原地改写、恢复 mtime 或 atomic replace 都使整份 v2 缓冲报告不发布。
+
+**tracediag v2**：`51e26d958` 保留 v1 静态路径，新增顶层 `discoveries` 与步骤 `windows_from.discovery` 的受限 typed 合约，不开放 JSONPath、模板字符串或任意前序 prose 解析。静态验证覆盖 closed strategy/family、全局 label、父窗、NaN/Inf、window/line 互斥、generated-window/expanded-step/report 最坏预算；动态实例不继承 defaults.window，使用 discovery 结果并标 `FrameWindowAutoDerived=true`。报告先显示发现结果和完整执行计划，再显示证据；`dependency_empty/failed` 明确阻断且不回退父窗。generated event_search 为 result/window/header 预留行，确保所有已返回 raw row 可见；若引擎 compaction，实例转失败并发布 matched/emitted，不能称 N/N witness。
+
+**客户心智与扩展边界**：通用 `collect_open_gap_witness.yaml` 只保留“一处父窗+四个目标 TID”输入，IO 步自动 fan-out；专用 `collect_io_pairing_witness.yaml` 无需 PID，只改父窗，可覆盖最多 8 个小窗。未来其它收集类型新增 discovery strategy，只能投影统一 `DiscoveredWindow`；下游 `windows_from` 合约与 source/budget/provenance 规则不变。`window_sweep` 的 scheduler hotspot 不被冒充 pairing 完整窗，LLM 也不参与选窗。
