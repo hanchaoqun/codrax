@@ -95,6 +95,9 @@ func Run(ctx context.Context, opts Options, w io.Writer) (failed int, runErr err
 	if opts.Now != nil {
 		now = opts.Now
 	}
+	if script.Version == ScriptVersionV2 {
+		return runV2(ctx, opts, w, script, tracePath, info, flavorHint, now())
+	}
 
 	rw := newReportWriter(w, totalCap)
 	writeProvenanceHeader(rw, opts, script, tracePath, info, flavorHint, now())
@@ -166,6 +169,13 @@ func runStep(ctx context.Context, tracePath string, flavorHint tracequery.TraceF
 	case "event_search":
 		q := stepQuery(step, flavorHint)
 		q.Limit = step.EffectiveMaxLines()
+		if step.windowOrigin != nil {
+			// Generated witness steps prioritize raw rows: renderStepBody emits
+			// result/window metadata + the match header before event rows, so
+			// reserving three lines guarantees every returned raw row remains visible. A
+			// typed engine compaction is promoted to a failed instance by v2.
+			q.Limit = step.EffectiveMaxLines() - 3
+		}
 		res, err := tracequery.StreamEventSearch(ctx, tracePath, q)
 		if err != nil {
 			return stepOutcome{err: err}
@@ -227,6 +237,9 @@ func stepQuery(step *Step, flavorHint tracequery.TraceFlavor) tracequery.Query {
 	if flavorHint != "" && flavorHint != tracequery.TraceFlavorAuto {
 		q.TraceFlavorHint = flavorHint
 		q.TraceFlavorHintSource = "cli_flag"
+	}
+	if step.windowOrigin != nil {
+		q.FrameWindowAutoDerived = true
 	}
 	return q
 }

@@ -16,7 +16,9 @@ package tracediag
 
 import (
 	"fmt"
+	"math"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -27,8 +29,11 @@ import (
 )
 
 const (
-	// ScriptVersion is the only accepted collection-script schema version.
-	ScriptVersion = 1
+	// ScriptVersion preserves the original v1 name for callers/tests.  V2 is
+	// an additive, explicitly versioned discovery/fan-out schema; v1 scripts
+	// keep their exact static execution contract.
+	ScriptVersion   = 1
+	ScriptVersionV2 = 2
 	// DefaultStepMaxLines is the per-step body line cap when a step (and the
 	// script defaults) set none.
 	DefaultStepMaxLines = 800
@@ -38,7 +43,16 @@ const (
 	HardStepMaxLines = 1000
 	// DefaultTotalMaxLines bounds the whole report so a runaway script cannot
 	// produce an unbounded file; hitting it is disclosed, never silent.
-	DefaultTotalMaxLines = 5000
+	DefaultTotalMaxLines         = 5000
+	DefaultV2MaxGeneratedWindows = 8
+	HardV2MaxGeneratedWindows    = 16
+	DefaultV2MaxExpandedSteps    = 16
+	HardV2MaxExpandedSteps       = 32
+	DefaultV2MaxReportLines      = DefaultTotalMaxLines
+	HardV2MaxReportLines         = DefaultTotalMaxLines
+	DefaultDiscoveryMaxLines     = 80
+	HardDiscoveryMaxLines        = 200
+	HardV2DiscoveryCount         = 8
 	// ViewFormatCensus is the tracediag-only census step (§28.12 补充裁定:
 	// 格式盲点普查): whole-window format census computed in THIS package from
 	// the engine's exported Index face (event names / marker forms / clock
@@ -117,10 +131,52 @@ var supportedEventTypes = []string{
 // Script is the strict-decoded collection script (R2 family discipline:
 // KnownFields(true), every unknown key fails loud).
 type Script struct {
-	Version     int      `yaml:"version"`
-	Description string   `yaml:"description"`
-	Defaults    Defaults `yaml:"defaults"`
-	Steps       []Step   `yaml:"steps"`
+	Version     int               `yaml:"version"`
+	Description string            `yaml:"description"`
+	Defaults    Defaults          `yaml:"defaults"`
+	Limits      *V2Limits         `yaml:"limits"`
+	Discoveries []WindowDiscovery `yaml:"discoveries"`
+	Steps       []Step            `yaml:"steps"`
+
+	v2Limits           V2Limits
+	v2WorstReportLines int
+}
+
+type V2Limits struct {
+	MaxGeneratedWindows int `yaml:"max_generated_windows"`
+	MaxExpandedSteps    int `yaml:"max_expanded_steps"`
+	MaxReportLines      int `yaml:"max_report_lines"`
+}
+
+type WindowDiscovery struct {
+	Label            string   `yaml:"label"`
+	Strategy         string   `yaml:"strategy"`
+	Families         []string `yaml:"families"`
+	Window           string   `yaml:"window"`
+	LineStart        int      `yaml:"line_start"`
+	LineEnd          int      `yaml:"line_end"`
+	MaxWindows       int      `yaml:"max_windows"`
+	MaxWindowMS      float64  `yaml:"max_window_ms"`
+	PaddingMS        float64  `yaml:"padding_ms"`
+	EndpointLimit    int      `yaml:"endpoint_limit"`
+	ActiveLaneLimit  int      `yaml:"active_lane_limit"`
+	CohortEventLimit int      `yaml:"cohort_event_limit"`
+	MaxLines         int      `yaml:"max_lines"`
+
+	windowStart float64
+	windowEnd   float64
+	windowSet   bool
+	effMaxLines int
+}
+
+func (d *WindowDiscovery) WindowBounds() (start, end float64, ok bool) {
+	return d.windowStart, d.windowEnd, d.windowSet
+}
+
+func (d *WindowDiscovery) EffectiveMaxLines() int { return d.effMaxLines }
+
+type WindowsFrom struct {
+	Discovery string `yaml:"discovery"`
 }
 
 // Defaults are optional script-wide step defaults; a step field overrides.
@@ -135,16 +191,17 @@ type Defaults struct {
 // label / view / pid / thread / window / line range / pattern / event_types /
 // max_lines — nothing more.
 type Step struct {
-	Label      string   `yaml:"label"`
-	View       string   `yaml:"view"`
-	PID        int      `yaml:"pid"`
-	Thread     string   `yaml:"thread"`
-	Window     string   `yaml:"window"`
-	LineStart  int      `yaml:"line_start"`
-	LineEnd    int      `yaml:"line_end"`
-	Pattern    string   `yaml:"pattern"`
-	EventTypes []string `yaml:"event_types"`
-	MaxLines   int      `yaml:"max_lines"`
+	Label       string       `yaml:"label"`
+	View        string       `yaml:"view"`
+	PID         int          `yaml:"pid"`
+	Thread      string       `yaml:"thread"`
+	Window      string       `yaml:"window"`
+	LineStart   int          `yaml:"line_start"`
+	LineEnd     int          `yaml:"line_end"`
+	Pattern     string       `yaml:"pattern"`
+	EventTypes  []string     `yaml:"event_types"`
+	MaxLines    int          `yaml:"max_lines"`
+	WindowsFrom *WindowsFrom `yaml:"windows_from"`
 
 	// Resolved fields (populated by Validate; not part of the YAML schema).
 	windowStart     float64
@@ -153,6 +210,22 @@ type Step struct {
 	effMaxLines     int
 	maxLinesClamped bool
 	requestedMaxRaw int
+	windowOrigin    *WindowProvenance
+}
+
+type WindowProvenance struct {
+	DiscoveryLabel      string
+	WindowOrdinal       int
+	CandidateRank       int
+	CandidateWindow     int
+	Family              string
+	Kind                string
+	CoreStartTs         float64
+	CoreEndTs           float64
+	CoreLineStart       int
+	CoreLineEnd         int
+	RankBasis           string
+	IdentityFingerprint string
 }
 
 // WindowBounds returns the parsed window endpoints (valid only when set).
@@ -187,7 +260,7 @@ func ParseScript(data []byte) (*Script, error) {
 	dec.KnownFields(true)
 	var script Script
 	if err := dec.Decode(&script); err != nil {
-		return nil, fmt.Errorf("tracediag: script decode failed (unknown keys are rejected; schema fields: version/description/defaults{pid,thread,window,max_lines}/steps[label,view,pid,thread,window,line_start,line_end,pattern,event_types,max_lines]): %w", err)
+		return nil, fmt.Errorf("tracediag: script decode failed (unknown keys are rejected; v1 fields: version/description/defaults/steps; v2 adds limits/discoveries/windows_from): %w", err)
 	}
 	if err := script.Validate(); err != nil {
 		return nil, err
@@ -198,11 +271,14 @@ func ParseScript(data []byte) (*Script, error) {
 // Validate applies the fail-loud schema rules and resolves defaults, window
 // bounds and line caps onto each step.
 func (s *Script) Validate() error {
-	if s.Version != ScriptVersion {
-		return fmt.Errorf("tracediag: unsupported script version %d (want %d)", s.Version, ScriptVersion)
+	if s.Version != ScriptVersion && s.Version != ScriptVersionV2 {
+		return fmt.Errorf("tracediag: unsupported script version %d (supported: %d, %d)", s.Version, ScriptVersion, ScriptVersionV2)
 	}
 	if len(s.Steps) == 0 {
 		return fmt.Errorf("tracediag: script has no steps")
+	}
+	if s.Version == ScriptVersion && (s.Limits != nil || len(s.Discoveries) > 0 || scriptHasWindowsFrom(s.Steps)) {
+		return fmt.Errorf("tracediag: limits/discoveries/windows_from are v2-only fields; set version: 2")
 	}
 	if s.Defaults.Window != "" {
 		if _, _, err := parseWindow(s.Defaults.Window); err != nil {
@@ -216,16 +292,36 @@ func (s *Script) Validate() error {
 		return fmt.Errorf("tracediag: defaults.max_lines must be >= 0, got %d", s.Defaults.MaxLines)
 	}
 	seen := map[string]bool{}
+	discoveries := map[string]*WindowDiscovery{}
+	if s.Version == ScriptVersionV2 {
+		if err := s.validateV2Limits(); err != nil {
+			return err
+		}
+		if len(s.Discoveries) > HardV2DiscoveryCount {
+			return fmt.Errorf("tracediag: discoveries=%d exceeds hard cap %d", len(s.Discoveries), HardV2DiscoveryCount)
+		}
+		for i := range s.Discoveries {
+			if err := s.validateDiscovery(i, &s.Discoveries[i], seen); err != nil {
+				return err
+			}
+			discoveries[s.Discoveries[i].Label] = &s.Discoveries[i]
+		}
+	}
 	for i := range s.Steps {
 		step := &s.Steps[i]
-		if err := s.validateStep(i, step, seen); err != nil {
+		if err := s.validateStep(i, step, seen, discoveries); err != nil {
+			return err
+		}
+	}
+	if s.Version == ScriptVersionV2 {
+		if err := s.validateV2Budgets(discoveries); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (s *Script) validateStep(i int, step *Step, seen map[string]bool) error {
+func (s *Script) validateStep(i int, step *Step, seen map[string]bool, discoveries map[string]*WindowDiscovery) error {
 	at := fmt.Sprintf("tracediag: steps[%d]", i)
 	step.Label = strings.TrimSpace(step.Label)
 	if step.Label == "" {
@@ -235,6 +331,9 @@ func (s *Script) validateStep(i int, step *Step, seen map[string]bool) error {
 		return fmt.Errorf("%s: duplicate label %q", at, step.Label)
 	}
 	seen[step.Label] = true
+	if s.Version == ScriptVersionV2 && !v2LabelRE.MatchString(step.Label) {
+		return fmt.Errorf("%s: label %q must match %s", at, step.Label, v2LabelRE.String())
+	}
 	step.View = strings.TrimSpace(step.View)
 	if step.View == "" {
 		return fmt.Errorf("%s (%s): view is required; supported: %s", at, step.Label, strings.Join(allSupportedViews(), ", "))
@@ -263,10 +362,13 @@ func (s *Script) validateStep(i int, step *Step, seen map[string]bool) error {
 	if step.PID > 0 && step.Thread != "" {
 		return fmt.Errorf("%s (%s): pid=%d and thread=%q are both set (after defaults) — the engine is pid-first and would IGNORE the thread selector; keep exactly one (a \"comm-pid\" thread selector already carries the tid)", at, step.Label, step.PID, step.Thread)
 	}
-	if strings.TrimSpace(step.Window) == "" {
+	if step.WindowsFrom == nil && strings.TrimSpace(step.Window) == "" {
 		step.Window = s.Defaults.Window
 	}
 	step.Window = strings.TrimSpace(step.Window)
+	if step.WindowsFrom != nil && step.Window != "" {
+		return fmt.Errorf("%s (%s): window and windows_from cannot both be set", at, step.Label)
+	}
 	if step.Window != "" {
 		start, end, err := parseWindow(step.Window)
 		if err != nil {
@@ -279,6 +381,18 @@ func (s *Script) validateStep(i int, step *Step, seen map[string]bool) error {
 	}
 	if step.LineStart > 0 && step.LineEnd > 0 && step.LineEnd < step.LineStart {
 		return fmt.Errorf("%s (%s): line_end %d < line_start %d", at, step.Label, step.LineEnd, step.LineStart)
+	}
+	if step.WindowsFrom != nil {
+		step.WindowsFrom.Discovery = strings.TrimSpace(step.WindowsFrom.Discovery)
+		if step.WindowsFrom.Discovery == "" {
+			return fmt.Errorf("%s (%s): windows_from.discovery is required", at, step.Label)
+		}
+		if discoveries[step.WindowsFrom.Discovery] == nil {
+			return fmt.Errorf("%s (%s): windows_from references unknown discovery %q", at, step.Label, step.WindowsFrom.Discovery)
+		}
+		if step.LineStart > 0 || step.LineEnd > 0 {
+			return fmt.Errorf("%s (%s): generated time windows cannot be combined with line_start/line_end (engine line bounds would disable the time window)", at, step.Label)
+		}
 	}
 	for _, et := range step.EventTypes {
 		if !eventTypeSupported(et) {
@@ -303,6 +417,171 @@ func (s *Script) validateStep(i int, step *Step, seen map[string]bool) error {
 		step.effMaxLines = HardStepMaxLines
 		step.maxLinesClamped = true
 	}
+	if step.WindowsFrom != nil && step.View == "event_search" && step.effMaxLines < 5 {
+		return fmt.Errorf("%s (%s): generated event_search max_lines=%d is too small; need >=5 for result/window metadata plus at least one complete start/done pair", at, step.Label, step.effMaxLines)
+	}
+	return nil
+}
+
+var v2LabelRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+
+func scriptHasWindowsFrom(steps []Step) bool {
+	for i := range steps {
+		if steps[i].WindowsFrom != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Script) validateV2Limits() error {
+	limits := V2Limits{}
+	if s.Limits != nil {
+		limits = *s.Limits
+	}
+	if limits.MaxGeneratedWindows == 0 {
+		limits.MaxGeneratedWindows = DefaultV2MaxGeneratedWindows
+	}
+	if limits.MaxExpandedSteps == 0 {
+		limits.MaxExpandedSteps = DefaultV2MaxExpandedSteps
+	}
+	if limits.MaxReportLines == 0 {
+		limits.MaxReportLines = DefaultV2MaxReportLines
+	}
+	if limits.MaxGeneratedWindows < 1 || limits.MaxGeneratedWindows > HardV2MaxGeneratedWindows {
+		return fmt.Errorf("tracediag: limits.max_generated_windows=%d outside 1..%d", limits.MaxGeneratedWindows, HardV2MaxGeneratedWindows)
+	}
+	if limits.MaxExpandedSteps < 1 || limits.MaxExpandedSteps > HardV2MaxExpandedSteps {
+		return fmt.Errorf("tracediag: limits.max_expanded_steps=%d outside 1..%d", limits.MaxExpandedSteps, HardV2MaxExpandedSteps)
+	}
+	if limits.MaxReportLines < 100 || limits.MaxReportLines > HardV2MaxReportLines {
+		return fmt.Errorf("tracediag: limits.max_report_lines=%d outside 100..%d", limits.MaxReportLines, HardV2MaxReportLines)
+	}
+	s.v2Limits = limits
+	return nil
+}
+
+func (s *Script) validateDiscovery(i int, discovery *WindowDiscovery, seen map[string]bool) error {
+	at := fmt.Sprintf("tracediag: discoveries[%d]", i)
+	discovery.Label = strings.TrimSpace(discovery.Label)
+	if discovery.Label == "" {
+		return fmt.Errorf("%s: label is required", at)
+	}
+	if !v2LabelRE.MatchString(discovery.Label) {
+		return fmt.Errorf("%s: label %q must match %s", at, discovery.Label, v2LabelRE.String())
+	}
+	if seen[discovery.Label] {
+		return fmt.Errorf("%s: duplicate label %q across discoveries/steps", at, discovery.Label)
+	}
+	seen[discovery.Label] = true
+	discovery.Strategy = strings.TrimSpace(discovery.Strategy)
+	supportedStrategy := false
+	for _, strategy := range tracequery.WindowDiscoveryStrategyNames() {
+		if discovery.Strategy == strategy {
+			supportedStrategy = true
+			break
+		}
+	}
+	if !supportedStrategy {
+		return fmt.Errorf("%s (%s): unknown strategy %q; supported: %s", at, discovery.Label, discovery.Strategy, strings.Join(tracequery.WindowDiscoveryStrategyNames(), ", "))
+	}
+	knownFamilies := map[string]bool{}
+	for _, family := range tracequery.WindowDiscoveryFamilyNames(tracequery.WindowDiscoveryStrategy(discovery.Strategy)) {
+		knownFamilies[family] = true
+	}
+	seenFamily := map[string]bool{}
+	for _, family := range discovery.Families {
+		if !knownFamilies[family] {
+			return fmt.Errorf("%s (%s): unknown family %q", at, discovery.Label, family)
+		}
+		if seenFamily[family] {
+			return fmt.Errorf("%s (%s): duplicate family %q", at, discovery.Label, family)
+		}
+		seenFamily[family] = true
+	}
+	if strings.TrimSpace(discovery.Window) == "" {
+		discovery.Window = s.Defaults.Window
+	}
+	discovery.Window = strings.TrimSpace(discovery.Window)
+	if discovery.Window != "" {
+		start, end, err := parseWindow(discovery.Window)
+		if err != nil {
+			return fmt.Errorf("%s (%s): %w", at, discovery.Label, err)
+		}
+		discovery.windowStart, discovery.windowEnd, discovery.windowSet = start, end, true
+	}
+	if discovery.LineStart < 0 || discovery.LineEnd < 0 || (discovery.LineStart > 0 && discovery.LineEnd > 0 && discovery.LineEnd < discovery.LineStart) {
+		return fmt.Errorf("%s (%s): invalid line range %d..%d", at, discovery.Label, discovery.LineStart, discovery.LineEnd)
+	}
+	if discovery.windowSet && (discovery.LineStart > 0 || discovery.LineEnd > 0) {
+		return fmt.Errorf("%s (%s): window and line range cannot be combined", at, discovery.Label)
+	}
+	if discovery.MaxWindows == 0 {
+		discovery.MaxWindows = tracequery.DefaultWindowDiscoveryMaxWindows
+	}
+	if discovery.MaxWindows < 1 || discovery.MaxWindows > tracequery.HardWindowDiscoveryMaxWindows {
+		return fmt.Errorf("%s (%s): max_windows=%d outside 1..%d", at, discovery.Label, discovery.MaxWindows, tracequery.HardWindowDiscoveryMaxWindows)
+	}
+	if discovery.MaxWindowMS == 0 {
+		discovery.MaxWindowMS = tracequery.DefaultWindowDiscoveryMaxWindowMs
+	}
+	if math.IsNaN(discovery.MaxWindowMS) || math.IsInf(discovery.MaxWindowMS, 0) || discovery.MaxWindowMS <= 0 || discovery.MaxWindowMS > tracequery.HardPairingDiscoveryMaxWindowMs {
+		return fmt.Errorf("%s (%s): max_window_ms=%v outside (0,%.0f]", at, discovery.Label, discovery.MaxWindowMS, tracequery.HardPairingDiscoveryMaxWindowMs)
+	}
+	if discovery.PaddingMS == 0 {
+		discovery.PaddingMS = tracequery.DefaultWindowDiscoveryPaddingMs
+	}
+	if math.IsNaN(discovery.PaddingMS) || math.IsInf(discovery.PaddingMS, 0) || discovery.PaddingMS < 0 || discovery.PaddingMS*2 > discovery.MaxWindowMS {
+		return fmt.Errorf("%s (%s): padding_ms=%v must be finite and <= max_window_ms/2", at, discovery.Label, discovery.PaddingMS)
+	}
+	if discovery.EndpointLimit < 0 || discovery.EndpointLimit > tracequery.HardWindowDiscoveryEndpointLimit {
+		return fmt.Errorf("%s (%s): endpoint_limit=%d must be 0(default) or 1..%d", at, discovery.Label, discovery.EndpointLimit, tracequery.HardWindowDiscoveryEndpointLimit)
+	}
+	if discovery.ActiveLaneLimit < 0 || discovery.ActiveLaneLimit > tracequery.HardWindowDiscoveryActiveLaneLimit {
+		return fmt.Errorf("%s (%s): active_lane_limit=%d must be 0(default) or 1..%d", at, discovery.Label, discovery.ActiveLaneLimit, tracequery.HardWindowDiscoveryActiveLaneLimit)
+	}
+	if discovery.CohortEventLimit < 0 || discovery.CohortEventLimit == 1 || discovery.CohortEventLimit > tracequery.HardWindowDiscoveryCohortEventLimit {
+		return fmt.Errorf("%s (%s): cohort_event_limit=%d must be 0(default) or 2..%d", at, discovery.Label, discovery.CohortEventLimit, tracequery.HardWindowDiscoveryCohortEventLimit)
+	}
+	if discovery.MaxLines == 0 {
+		discovery.MaxLines = DefaultDiscoveryMaxLines
+	}
+	if discovery.MaxLines < 1 || discovery.MaxLines > HardDiscoveryMaxLines {
+		return fmt.Errorf("%s (%s): max_lines=%d outside 1..%d", at, discovery.Label, discovery.MaxLines, HardDiscoveryMaxLines)
+	}
+	discovery.effMaxLines = discovery.MaxLines
+	return nil
+}
+
+func (s *Script) validateV2Budgets(discoveries map[string]*WindowDiscovery) error {
+	generated := 0
+	for i := range s.Discoveries {
+		generated += s.Discoveries[i].MaxWindows
+	}
+	if generated > s.v2Limits.MaxGeneratedWindows {
+		return fmt.Errorf("tracediag: worst-case generated windows=%d exceeds limits.max_generated_windows=%d", generated, s.v2Limits.MaxGeneratedWindows)
+	}
+	expanded := 0
+	worstLines := 64
+	for i := range s.Discoveries {
+		worstLines += s.Discoveries[i].EffectiveMaxLines() + 12
+	}
+	for i := range s.Steps {
+		step := &s.Steps[i]
+		multiplier := 1
+		if step.WindowsFrom != nil {
+			multiplier = discoveries[step.WindowsFrom.Discovery].MaxWindows
+		}
+		expanded += multiplier
+		worstLines += multiplier * (step.EffectiveMaxLines() + 12)
+	}
+	if expanded > s.v2Limits.MaxExpandedSteps {
+		return fmt.Errorf("tracediag: worst-case expanded steps=%d exceeds limits.max_expanded_steps=%d", expanded, s.v2Limits.MaxExpandedSteps)
+	}
+	if worstLines > s.v2Limits.MaxReportLines {
+		return fmt.Errorf("tracediag: worst-case report lines=%d exceeds limits.max_report_lines=%d; reduce discovery max_windows or step/discovery max_lines", worstLines, s.v2Limits.MaxReportLines)
+	}
+	s.v2WorstReportLines = worstLines
 	return nil
 }
 
@@ -320,6 +599,9 @@ func parseWindow(raw string) (float64, float64, error) {
 	end, err := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
 	if err != nil {
 		return 0, 0, fmt.Errorf("bad window %q: end %q is not a number", raw, parts[1])
+	}
+	if math.IsNaN(start) || math.IsInf(start, 0) || math.IsNaN(end) || math.IsInf(end, 0) {
+		return 0, 0, fmt.Errorf("bad window %q: endpoints must be finite", raw)
 	}
 	if end <= start {
 		return 0, 0, fmt.Errorf("bad window %q: end must be > start", raw)

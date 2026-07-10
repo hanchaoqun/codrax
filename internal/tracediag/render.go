@@ -119,6 +119,9 @@ func stepParamsEcho(step *Step) string {
 	if step.Window != "" {
 		parts = append(parts, fmt.Sprintf("window=%s", step.Window))
 	}
+	if step.WindowsFrom != nil {
+		parts = append(parts, fmt.Sprintf("windows_from=%s", step.WindowsFrom.Discovery))
+	}
 	if step.LineStart > 0 {
 		parts = append(parts, fmt.Sprintf("line_start=%d", step.LineStart))
 	}

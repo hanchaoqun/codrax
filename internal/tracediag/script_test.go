@@ -116,7 +116,7 @@ steps:
 }
 
 func TestParseScriptBadWindowSyntaxFailLoud(t *testing.T) {
-	for _, window := range []string{"abc", "1.0..abc", "5.0..1.0", "3.0", "1.0..1.0", "-2.0..1.0"} {
+	for _, window := range []string{"abc", "1.0..abc", "5.0..1.0", "3.0", "1.0..1.0", "-2.0..1.0", "NaN..2", "1..+Inf"} {
 		yamlText := `
 version: 1
 steps:
@@ -145,7 +145,7 @@ steps:
 
 func TestParseScriptVersionAndStructureFailLoud(t *testing.T) {
 	cases := map[string]string{
-		"version 2":             "version: 2\nsteps:\n  - {label: a, view: event_search}\n",
+		"version 3":             "version: 3\nsteps:\n  - {label: a, view: event_search}\n",
 		"missing version":       "steps:\n  - {label: a, view: event_search}\n",
 		"no steps":              "version: 1\n",
 		"missing label":         "version: 1\nsteps:\n  - {view: event_search}\n",
@@ -156,6 +156,141 @@ func TestParseScriptVersionAndStructureFailLoud(t *testing.T) {
 	for name, yamlText := range cases {
 		if _, err := ParseScript([]byte(yamlText)); err == nil {
 			t.Fatalf("%s: must fail loud", name)
+		}
+	}
+}
+
+func TestParseScriptV2DiscoveryAndTypedFanout(t *testing.T) {
+	yamlText := `
+version: 2
+description: typed fanout
+defaults: {window: "1.000..1.500"}
+limits: {max_generated_windows: 4, max_expanded_steps: 8, max_report_lines: 500}
+discoveries:
+  - label: io_pairing
+    strategy: pairing_integrity
+    families: [block, storage]
+    max_windows: 2
+    max_window_ms: 50
+    padding_ms: 5
+    max_lines: 20
+steps:
+  - {label: static_stats, view: window_stats, pid: 20, max_lines: 20}
+  - label: raw_io
+    view: event_search
+    event_types: [block_rq_issue, block_rq_complete, storage_latency]
+    windows_from: {discovery: io_pairing}
+    max_lines: 20
+`
+	script, err := ParseScript([]byte(yamlText))
+	if err != nil {
+		t.Fatalf("ParseScript(v2): %v", err)
+	}
+	if script.Version != ScriptVersionV2 || len(script.Discoveries) != 1 || len(script.Steps) != 2 {
+		t.Fatalf("v2 shape = %+v", script)
+	}
+	discovery := script.Discoveries[0]
+	start, end, ok := discovery.WindowBounds()
+	if !ok || start != 1 || end != 1.5 {
+		t.Fatalf("discovery did not inherit the one parent window: %v..%v set=%v", start, end, ok)
+	}
+	dynamic := script.Steps[1]
+	if dynamic.Window != "" {
+		t.Fatalf("dynamic step must not inherit defaults.window: %q", dynamic.Window)
+	}
+	if _, _, set := dynamic.WindowBounds(); set || dynamic.WindowsFrom == nil || dynamic.WindowsFrom.Discovery != "io_pairing" {
+		t.Fatalf("dynamic typed reference = %+v", dynamic)
+	}
+	if script.v2Limits.MaxGeneratedWindows != 4 || script.v2WorstReportLines <= 0 || script.v2WorstReportLines > 500 {
+		t.Fatalf("resolved v2 budgets = %+v worst=%d", script.v2Limits, script.v2WorstReportLines)
+	}
+}
+
+func TestParseScriptV1RejectsEveryV2Field(t *testing.T) {
+	cases := map[string]string{
+		"limits":       "version: 1\nlimits: {max_expanded_steps: 2}\nsteps:\n  - {label: a, view: event_search}\n",
+		"discoveries":  "version: 1\ndiscoveries:\n  - {label: d, strategy: pairing_integrity}\nsteps:\n  - {label: a, view: event_search}\n",
+		"windows_from": "version: 1\nsteps:\n  - {label: a, view: event_search, windows_from: {discovery: d}}\n",
+	}
+	for name, yamlText := range cases {
+		_, err := ParseScript([]byte(yamlText))
+		if err == nil || !strings.Contains(err.Error(), "v2-only") {
+			t.Errorf("%s: v1 must reject recognized v2 fields explicitly, got %v", name, err)
+		}
+	}
+}
+
+func TestParseScriptV2StrictValidationAndBudgets(t *testing.T) {
+	cases := map[string]string{
+		"unknown strategy": `
+version: 2
+discoveries: [{label: d, strategy: guess}]
+steps: [{label: a, view: event_search}]
+`,
+		"unknown family": `
+version: 2
+discoveries: [{label: d, strategy: pairing_integrity, families: [io]}]
+steps: [{label: a, view: event_search}]
+`,
+		"duplicate global label": `
+version: 2
+discoveries: [{label: same, strategy: pairing_integrity}]
+steps: [{label: same, view: event_search}]
+`,
+		"unsafe label": `
+version: 2
+steps: [{label: "bad label", view: event_search}]
+`,
+		"unknown discovery ref": `
+version: 2
+steps: [{label: a, view: event_search, windows_from: {discovery: missing}}]
+`,
+		"explicit and generated window": `
+version: 2
+discoveries: [{label: d, strategy: pairing_integrity}]
+steps: [{label: a, view: event_search, window: "1..2", windows_from: {discovery: d}}]
+`,
+		"line disables generated time": `
+version: 2
+discoveries: [{label: d, strategy: pairing_integrity}]
+steps: [{label: a, view: event_search, line_start: 1, windows_from: {discovery: d}}]
+`,
+		"generated window budget": `
+version: 2
+limits: {max_generated_windows: 1}
+discoveries: [{label: d, strategy: pairing_integrity, max_windows: 2}]
+steps: [{label: a, view: event_search}]
+`,
+		"expanded step budget": `
+version: 2
+limits: {max_expanded_steps: 1}
+discoveries: [{label: d, strategy: pairing_integrity, max_windows: 2}]
+steps: [{label: a, view: event_search, windows_from: {discovery: d}, max_lines: 1}]
+`,
+		"report budget": `
+version: 2
+limits: {max_report_lines: 100}
+steps: [{label: a, view: event_search, max_lines: 50}]
+`,
+		"discovery hard width": `
+version: 2
+discoveries: [{label: d, strategy: pairing_integrity, max_window_ms: 51}]
+steps: [{label: a, view: event_search}]
+`,
+		"cohort limit one": `
+version: 2
+discoveries: [{label: d, strategy: pairing_integrity, cohort_event_limit: 1}]
+steps: [{label: a, view: event_search}]
+`,
+		"generated event body too small": `
+version: 2
+discoveries: [{label: d, strategy: pairing_integrity}]
+steps: [{label: a, view: event_search, windows_from: {discovery: d}, max_lines: 4}]
+`,
+	}
+	for name, yamlText := range cases {
+		if _, err := ParseScript([]byte(yamlText)); err == nil {
+			t.Errorf("%s must fail loud", name)
 		}
 	}
 }
