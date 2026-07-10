@@ -963,6 +963,11 @@ func runtimeTraceProjCauseEvidenceRef(row runtimeTraceProjTreeRow) string {
 			ref += "+" + tag
 		}
 	}
+	for _, peer := range row.SelfSymptomFoldPeers {
+		if tag := strings.TrimSpace(peer.EvidenceTag); tag != "" {
+			ref += "+" + tag
+		}
+	}
 	return "[" + ref + "]"
 }
 

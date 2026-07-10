@@ -6,6 +6,7 @@ import (
 	stdhtml "html"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/mattn/go-runewidth"
 	"github.com/yuin/goldmark"
@@ -205,7 +206,22 @@ func isTraceCausalProjectionFence(info, body string) bool {
 // geometry already used by the deterministic tree renderer. The text itself
 // is unchanged and remains copyable/accessibility-visible.
 func writeTraceProjectionGrid(w util.BufWriter, body string) {
-	for _, r := range body {
+	for offset := 0; offset < len(body); {
+		if token, rank, width, ok := traceProjectionRankToken(body, offset); ok {
+			kind := "ordinal"
+			if strings.HasPrefix(token, "❶") || strings.HasPrefix(token, "❷") || strings.HasPrefix(token, "❸") {
+				kind = "chip"
+			}
+			_, _ = fmt.Fprintf(w, `<span class="trace-rank-%s trace-rank-%d trace-rank-width-%d">%s</span>`,
+				kind, rank, width, stdhtml.EscapeString(token))
+			offset += len(token)
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(body[offset:])
+		if r == utf8.RuneError && size == 0 {
+			break
+		}
+		offset += size
 		switch r {
 		case '\r':
 			continue
@@ -222,6 +238,36 @@ func writeTraceProjectionGrid(w util.BufWriter, body string) {
 		}
 		_, _ = fmt.Fprintf(w, `<span class="trace-cell trace-cell-%d">%s</span>`, width, stdhtml.EscapeString(string(r)))
 	}
+}
+
+// traceProjectionRankToken recognizes only renderer-authored rank surfaces.
+// A circled badge remains one fixed grid cell and clips its own fallback glyph,
+// preventing it from overprinting the adjacent state icon without consuming
+// label space. The ordinal arm highlights only
+// #1..#3 immediately following the closed zh/en root-cause-rank phrases;
+// arbitrary names and evidence ids are never restyled.
+func traceProjectionRankToken(body string, offset int) (string, int, int, bool) {
+	rest := body[offset:]
+	for rank, token := range []string{"❶", "❷", "❸"} {
+		if strings.HasPrefix(rest, token) {
+			return token, rank + 1, 1, true
+		}
+	}
+	previous := body[:offset]
+	if !strings.HasSuffix(previous, "根因排序") && !strings.HasSuffix(previous, "root-cause rank ") {
+		return "", 0, 0, false
+	}
+	for rank := 1; rank <= 3; rank++ {
+		token := fmt.Sprintf("#%d", rank)
+		if !strings.HasPrefix(rest, token) {
+			continue
+		}
+		if len(rest) > len(token) && rest[len(token)] >= '0' && rest[len(token)] <= '9' {
+			continue
+		}
+		return token, rank, 2, true
+	}
+	return "", 0, 0, false
 }
 
 // rawHTMLLiteralRenderer renders raw-HTML markdown nodes as ESCAPED

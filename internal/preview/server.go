@@ -505,11 +505,14 @@ func renderHTMLPage(a pageArgs) string {
   --fg: #202124; --muted: #667085; --line: #d0d7de; --code: #f6f8fa; --bg: #ffffff;
   --error-bg: #fff5f5; --error-fg: #b42318;
   --link: #2563eb; --focus: #2563eb;
+  --rank-1-fg: #7c2d12; --rank-1-bg: #ffedd5;
+  --rank-2-fg: #1e40af; --rank-2-bg: #dbeafe;
+  --rank-3-fg: #5b21b6; --rank-3-bg: #ede9fe;
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei", Arial, sans-serif;
   --font-mono: "Sarasa Mono SC", "Noto Sans Mono CJK SC", "Source Han Mono SC", ui-monospace, "Cascadia Mono", "Cascadia Code", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Microsoft YaHei UI", "Microsoft YaHei", monospace;
 }
 @media (prefers-color-scheme: dark) {
-  :root { --fg: #e6edf3; --muted: #9aa4b2; --line: #30363d; --code: #161b22; --bg: #0d1117; --error-bg: #2a1212; --error-fg: #ffb4a8; --link: #79c0ff; --focus: #60a5fa; }
+  :root { --fg: #e6edf3; --muted: #9aa4b2; --line: #30363d; --code: #161b22; --bg: #0d1117; --error-bg: #2a1212; --error-fg: #ffb4a8; --link: #79c0ff; --focus: #60a5fa; --rank-1-fg: #fed7aa; --rank-1-bg: #7c2d12; --rank-2-fg: #bfdbfe; --rank-2-bg: #1e3a8a; --rank-3-fg: #ddd6fe; --rank-3-bg: #4c1d95; }
 }
 /* CJK-heavy report body: the stack must name CJK faces explicitly —
    without them Windows browsers fall back to SimSun for the zh text,
@@ -545,6 +548,18 @@ pre.trace-projection-tree code { font: inherit; line-height: inherit; white-spac
 pre.trace-projection-tree .trace-cell { display: inline-block; width: 1ch; min-width: 1ch; height: 1em; line-height: 1em; vertical-align: baseline; white-space: pre; }
 pre.trace-projection-tree .trace-cell-0 { width: 0; min-width: 0; }
 pre.trace-projection-tree .trace-cell-2 { width: 2ch; min-width: 2ch; }
+/* Rank chips consume exactly the same two grid cells as the authoritative
+   Markdown token (#N, or circled badge + its spacer). Color and weight add a
+   scan target without changing row width/height; the symbol stack and hidden
+   overflow keep wide fallback ordinals from colliding with state icons. */
+pre.trace-projection-tree .trace-rank-chip,
+pre.trace-projection-tree .trace-rank-ordinal { display: inline-block; height: 1em; line-height: 1em; vertical-align: baseline; white-space: pre; overflow: hidden; border-radius: .22em; font-weight: 750; text-align: center; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+pre.trace-projection-tree .trace-rank-width-1 { width: 1ch; min-width: 1ch; }
+pre.trace-projection-tree .trace-rank-width-2 { width: 2ch; min-width: 2ch; }
+pre.trace-projection-tree .trace-rank-chip { font-family: "Segoe UI Symbol", "Noto Sans Symbols 2", "Arial Unicode MS", sans-serif; }
+pre.trace-projection-tree .trace-rank-1 { color: var(--rank-1-fg); background: var(--rank-1-bg); }
+pre.trace-projection-tree .trace-rank-2 { color: var(--rank-2-fg); background: var(--rank-2-bg); }
+pre.trace-projection-tree .trace-rank-3 { color: var(--rank-3-fg); background: var(--rank-3-bg); }
 pre.trace-projection-tree:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 table { border-collapse: collapse; width: max-content; max-width: 100%; overflow: auto; overscroll-behavior-x: contain; display: block; font-size: .925em; line-height: 1.52; }
 th, td { border: 1px solid var(--line); padding: 6px 10px; }

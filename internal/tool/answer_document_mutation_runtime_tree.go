@@ -236,6 +236,13 @@ type runtimeTraceProjTreeRow struct {
 	// grouping only — the projection buckets and the rank funnel are
 	// untouched.
 	RankFoldPeers []runtimeTraceProjRankFoldPeer
+	// SelfSymptomFoldPeers carries a target_self_state rank-lane view that was
+	// proven to describe the same focused-thread scheduler-state segment as
+	// this self row.  The state row remains the sole display/accounting seat;
+	// the peer contributes only its evidence id and the explicit symptom note.
+	// This is deliberately separate from RankFoldPeers: target_self_state has
+	// no board ordinal and must never acquire rank-fold accounting carriers.
+	SelfSymptomFoldPeers []runtimeTraceProjSelfSymptomFoldPeer
 	// SelfSymptomRelocated (GAP-B G11, §27.5, 2026-07-09): this SelfRows row
 	// is a wait-symptom target-self rank row RELOCATED from the ◇/▒ stanza
 	// buckets into the target's own state area (typed tier target_self_state
@@ -1872,8 +1879,25 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		sort.SliceStable(selfWait, func(i, j int) bool {
 			return runtimeTraceProjNodeDisplayImpact(selfWait[i]) > runtimeTraceProjNodeDisplayImpact(selfWait[j])
 		})
-		for i, node := range selfWait {
-			if i >= runtimeTraceProjSelfWaitRelocateMax {
+		relocatedCount := 0
+		for _, node := range selfWait {
+			// SELF-TWIN (2026-07-10 customer witness): wakeup_causal_impact and
+			// root_cause_target_self_state can publish the same focused-thread
+			// sleep segment through two views.  When the typed subject/state,
+			// selected window, display/cumulative calibers and segment start all
+			// agree, keep the scheduler-state row as the single seat and attach
+			// only the symptom peer's evidence.  Any ambiguity fails open.
+			if twin, ok := runtimeTraceProjSelfSymptomTwinIndex(model.SelfRows, node); ok {
+				consume(node)
+				model.SelfRows[twin].SelfSymptomFoldPeers = append(
+					model.SelfRows[twin].SelfSymptomFoldPeers,
+					runtimeTraceProjSelfSymptomFoldPeer{
+						EvidenceTag: runtimeTraceProjEvidenceTag(node, evidence, zh),
+					},
+				)
+				continue
+			}
+			if relocatedCount >= runtimeTraceProjSelfWaitRelocateMax {
 				model.SelfWaitOverflowCount++
 				// 复核 P3-2 (2026-07-09): the disclosure word is 单条最大 — an
 				// ×N merged row's display impact is the member SUM, so the
@@ -1894,6 +1918,7 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 				SelfSymptomRelocated: true,
 				EvidenceTag:          runtimeTraceProjEvidenceTag(node, evidence, zh),
 			})
+			relocatedCount++
 		}
 	}
 
@@ -2118,6 +2143,50 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// rendered ordinal only; ambiguous same-subject ordinals stay unchanged.
 	runtimeTraceProjAnnotateFoldRosterRankPointers(&model, zh)
 	return model
+}
+
+// runtimeTraceProjSelfSymptomTwinIndex proves that a relocated
+// root_cause_target_self_state sleep row is the rank-lane view of exactly one
+// already-rendered wakeup_causal_impact scheduler-state row. This is display
+// reconciliation only: it never changes either node or any numeric projection
+// bucket. Every join arm is typed and exact (apart from the repository-wide
+// selected-window endpoint tolerance); zero/ambiguous inputs fail open.
+func runtimeTraceProjSelfSymptomTwinIndex(rows []runtimeTraceProjTreeRow, symptom types.TraceCausalProjectionNode) (int, bool) {
+	if !symptom.IsTargetSelfStateRow() ||
+		strings.TrimSpace(symptom.Predicate) != "root_cause_target_self_state" ||
+		types.TraceCausalProjectionStateClass(symptom.StateKind) != "sleep" ||
+		symptom.LineStart <= 0 || symptom.LineEnd < symptom.LineStart ||
+		symptom.QueryWindowStartTs <= 0 || symptom.QueryWindowEndTs <= symptom.QueryWindowStartTs {
+		return 0, false
+	}
+	subject := runtimeTraceCausalProjectionCanonicalNode(symptom.Subject)
+	impact := runtimeTraceProjNodeDisplayImpact(symptom)
+	if subject == "" || impact <= 0 || symptom.CumulativeImpactMS <= 0 {
+		return 0, false
+	}
+	found := -1
+	for i := range rows {
+		row := rows[i]
+		base := row.Node
+		if row.Kind != runtimeTraceProjTreeRowSelf || row.SelfSymptomRelocated ||
+			base.Role != types.TraceCausalRoleCausalHop ||
+			strings.TrimSpace(base.Predicate) != "wakeup_causal_impact" ||
+			types.TraceCausalProjectionStateClass(base.StateKind) != "sleep" ||
+			runtimeTraceCausalProjectionCanonicalNode(base.Subject) != subject ||
+			base.LineStart != symptom.LineStart || base.LineEnd < symptom.LineEnd ||
+			runtimeTraceProjNodeDisplayImpact(base) != impact ||
+			base.CumulativeImpactMS != symptom.CumulativeImpactMS ||
+			base.QueryWindowStartTs <= 0 || base.QueryWindowEndTs <= base.QueryWindowStartTs ||
+			math.Abs(base.QueryWindowStartTs-symptom.QueryWindowStartTs) > types.TraceCausalProjectionSameWindowToleranceS ||
+			math.Abs(base.QueryWindowEndTs-symptom.QueryWindowEndTs) > types.TraceCausalProjectionSameWindowToleranceS {
+			continue
+		}
+		if found >= 0 {
+			return 0, false // more than one possible carrier: never guess
+		}
+		found = i
+	}
+	return found, found >= 0
 }
 
 // runtimeTraceProjAnnotateFoldRosterRankPointers is a display-only B6 pass.
@@ -2794,6 +2863,10 @@ type runtimeTraceProjRankFoldPeer struct {
 	// peer competes with the same 已由链上解释 ladder it would have used as a
 	// standalone row.
 	TargetImpactMS float64
+}
+
+type runtimeTraceProjSelfSymptomFoldPeer struct {
+	EvidenceTag string
 }
 
 // runtimeTraceProjSameSegmentTwinKey is the SFD-precedent same-segment
@@ -4952,7 +5025,7 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 	// with the sleep-row family's symptom disclosure — 症状身份, never a rank
 	// seat (the row's rank ordinal stays on the audit surfaces; the board
 	// lanes already exclude target_self_state rows).
-	if row.SelfSymptomRelocated {
+	if row.SelfSymptomRelocated || len(row.SelfSymptomFoldPeers) > 0 {
 		if zh {
 			demoted = append(demoted, "症状而非根因,根因看下钻/唤醒子行与对端")
 		} else {

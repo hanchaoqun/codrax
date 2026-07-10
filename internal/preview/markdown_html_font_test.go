@@ -37,7 +37,7 @@ func TestStandaloneHTMLPageCJKFontAndSpacing(t *testing.T) {
 }
 
 func TestStandaloneHTMLTraceProjectionTreePresentation(t *testing.T) {
-	projection := "```text\n⊚ render-thread-42 ‹用户关注线程› 满格=窗口16.667ms\n├─下钻─ ◦ worker-7 █████░░░░░ 8.000ms 48% [E1]\n```\n"
+	projection := "```text\n⊚ render-thread-42 ‹用户关注线程› 满格=窗口16.667ms\n├─下钻─ ❶⚙ worker-7 █████░░░░░ 8.000ms 48% [E1]\n│ · 算力供给候选·根因排序#1·置信中\n```\n"
 	page, err := RenderStandaloneMarkdownHTML("trace", []byte(projection))
 	if err != nil {
 		t.Fatal(err)
@@ -50,6 +50,14 @@ func TestStandaloneHTMLTraceProjectionTreePresentation(t *testing.T) {
 		`font-variant-emoji: text`,
 		`pre.trace-projection-tree .trace-cell { display: inline-block; width: 1ch; min-width: 1ch; height: 1em;`,
 		`pre.trace-projection-tree .trace-cell-2 { width: 2ch; min-width: 2ch; }`,
+		`<span class="trace-rank-chip trace-rank-1 trace-rank-width-1">❶</span><span class="trace-cell trace-cell-1">⚙</span>`,
+		`<span class="trace-rank-ordinal trace-rank-1 trace-rank-width-2">#1</span>`,
+		`pre.trace-projection-tree .trace-rank-chip,`,
+		`height: 1em; line-height: 1em;`,
+		`pre.trace-projection-tree .trace-rank-width-1 { width: 1ch; min-width: 1ch; }`,
+		`pre.trace-projection-tree .trace-rank-width-2 { width: 2ch; min-width: 2ch; }`,
+		`--rank-1-fg: #7c2d12; --rank-1-bg: #ffedd5;`,
+		`font-family: "Segoe UI Symbol", "Noto Sans Symbols 2"`,
 		`--link: #79c0ff; --focus: #60a5fa;`,
 		`@media (max-width: 640px)`,
 		`pre.trace-projection-tree { font-size: 12px; line-height: 1.48; }`,
@@ -84,6 +92,26 @@ func TestTraceProjectionTreeClassDoesNotLeakToOrdinaryTextFences(t *testing.T) {
 	}
 	if !strings.Contains(flat, `class="trace-projection-tree"`) {
 		t.Fatalf("flat causal projection must receive trace-tree styling:\n%s", flat)
+	}
+}
+
+func TestTraceProjectionRankHighlightIsClosedToSystemRankTokens(t *testing.T) {
+	body := "```text\n⊚ app ‹用户关注线程› 满格=窗口7.000ms\n├─下钻─ ❶⚙ worker R1 #1 根因排序#12 根因排序#2 [E1]\n```\n"
+	html, err := RenderMarkdownHTML([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(html, `class="trace-rank-chip trace-rank-1 trace-rank-width-1"`) != 1 ||
+		strings.Count(html, `class="trace-rank-ordinal trace-rank-2 trace-rank-width-2"`) != 1 {
+		t.Fatalf("closed rank tokens were not highlighted exactly once:\n%s", html)
+	}
+	for _, forbidden := range []string{
+		`class="trace-rank-ordinal trace-rank-1">#1</span>`, // bare name/content token
+		`class="trace-rank-ordinal trace-rank-1">#12`,       // multi-digit rank is not TOP-3 #1
+	} {
+		if strings.Contains(html, forbidden) {
+			t.Fatalf("non-system token was rank-highlighted as %q:\n%s", forbidden, html)
+		}
 	}
 }
 
