@@ -13040,6 +13040,12 @@ func traceQueryObservationSupplementText(record types.ObservationRecord, zh bool
 		keySegments[strings.TrimSpace(segment)] = true
 	}
 	switch {
+	case strings.TrimSpace(record.Predicate) == "wakeup_chain" && object != "":
+		// A wakeup-chain Object is already the complete ordered path and ends
+		// at Subject (the target) by the producer contract. The generic
+		// "subject -> object" rendering prepended the target a second time and
+		// minted a false cycle such as app -> worker -> app in the audit block.
+		parts = append(parts, label+labelSep+object)
 	case subject != "" && object != "" && keySegments[subject] && keySegments[object]:
 		parts = append(parts, label)
 	case subject != "" && object != "":

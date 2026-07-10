@@ -8826,6 +8826,30 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsTraceStateDrilldownSupplemen
 	}
 }
 
+func TestTraceQueryObservationSupplementWakeupPathDoesNotPrependTarget(t *testing.T) {
+	record := types.ObservationRecord{
+		ClaimKey:  "wakeup_chain:path#1",
+		Subject:   "app-100",
+		Predicate: "wakeup_chain",
+		Object:    "worker-200 -> app-100",
+	}
+	for _, tc := range []struct {
+		zh   bool
+		want string
+	}{
+		{zh: true, want: "wakeup_chain:path#1：worker-200 -> app-100"},
+		{zh: false, want: "wakeup_chain:path#1: worker-200 -> app-100"},
+	} {
+		got := traceQueryObservationSupplementText(record, tc.zh)
+		if !strings.HasPrefix(got, tc.want) {
+			t.Fatalf("wakeup path must render the producer's complete path verbatim, zh=%t got=%q", tc.zh, got)
+		}
+		if strings.Contains(got, "app-100 -> worker-200 -> app-100") {
+			t.Fatalf("target was prepended to an already complete path, zh=%t got=%q", tc.zh, got)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_ParseOutput_TraceQueryObservationSupplementExpandsBeyondOldEightRowCap(t *testing.T) {
 	observations := make([]types.ObservationRecord, 0, 32)
 	for i := 1; i <= 32; i++ {
