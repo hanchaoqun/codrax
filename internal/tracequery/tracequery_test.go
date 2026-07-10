@@ -91,9 +91,9 @@ const p1ResourceTrace = `
        main-20   (   20) [001] .... 4.016700: ufshcd_command: tag=1 opcode=0x28 doorbell=0x1
        main-20   (   20) [001] .... 4.017000: mm_vmscan_direct_reclaim_begin: order=0 may_writepage=1
        main-20   (   20) [001] .... 4.018000: thermal_power_allocator: actor=cpu power=300
-       main-20   (   20) [001] .... 4.018500: workqueue_execute_start: work struct=0000000000000000 function=do_work
-       main-20   (   20) [001] .... 4.019000: dma_fence_wait_start: driver=display timeline=present seqno=7
-       main-20   (   20) [001] .... 4.019500: dma_fence_wait_end: driver=display timeline=present seqno=7
+       main-20   (   20) [001] .... 4.018500: workqueue_execute_start: work struct=00000000000000ff function=do_work
+       main-20   (   20) [001] .... 4.019000: dma_fence_wait_start: driver=display timeline=present context=7 seqno=7
+       main-20   (   20) [001] .... 4.019500: dma_fence_wait_end: driver=display timeline=present context=7 seqno=7
        main-20   (   20) [001] .... 4.020000: print: E|20
       other-20   (   21) [002] .... 4.025000: sched_wakeup: comm=main pid=20 prio=53 target_cpu=001
 `
@@ -468,7 +468,7 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 		},
 		{
 			name:  "dma fence",
-			line:  `      waker-10   (   10) [000] .... 2.129500: dma_fence_wait_start: driver=display timeline=present seqno=7`,
+			line:  `      waker-10   (   10) [000] .... 2.129500: dma_fence_wait_start: driver=display timeline=present context=7 seqno=7`,
 			want:  EventDMAFence,
 			check: func(ev Event) bool { return ev.SubsystemKind == "dma_fence" },
 		},
@@ -4287,8 +4287,8 @@ func TestFrameRootCauseBundleCarriesRichTraceEvidenceAndChainRelevance(t *testin
         irq-7 (7) [004] .... 10.003700: irq_handler_exit: irq=17 name=ufs
         wq-8 (8) [004] .... 10.004000: workqueue_execute_start: work=0xff function=flush_cookie
         wq-8 (8) [004] .... 10.006000: workqueue_execute_end: work=0xff function=flush_cookie
-	threadpool-400 (100) [004] .... 10.001500: dma_fence_wait_start: driver=display timeline=present seqno=9
-	threadpool-400 (100) [004] .... 10.013500: dma_fence_wait_end: driver=display timeline=present seqno=9
+	threadpool-400 (100) [004] .... 10.001500: dma_fence_wait_start: driver=display timeline=present context=7 seqno=9
+	threadpool-400 (100) [004] .... 10.013500: dma_fence_wait_end: driver=display timeline=present context=7 seqno=9
         clk-1 (1) [004] .... 10.004500: clock_set_rate: ddr_clk state=933000 cpu_id=4
     network-300 (100) [003] .... 10.009000: sched_switch: prev_comm=network prev_pid=300 prev_prio=20 prev_state=S ==> next_comm=idle/3 next_pid=0 next_prio=120
      cookie-200 (100) [002] .... 10.010000: sched_switch: prev_comm=cookie prev_pid=200 prev_prio=20 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120

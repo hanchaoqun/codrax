@@ -3580,12 +3580,16 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 				sanitizeForBanner(ipi.Kind), ipi.CPU, sanitizeForBanner(ipi.CoreClass), sanitizeForBanner(ipi.Name), ipi.Count, ipi.PairedCount, ipi.ActiveMs, ipi.MaxActiveMs, sanitizeForBanner(ipi.TargetMask), traceIntList(ipi.TargetCPUs), traceQuerySourceBasename(ipi.SourcePath), ipi.LineStart, ipi.LineEnd, sanitizeForBanner(ipi.Summary))
 		}
 		for _, work := range result.WindowStats.WorkqueueActivity {
-			fmt.Fprintf(&b, "- workqueue_activity %s work=%s function=%s count=%d paired=%d duration=%.3fms max=%.3fms source=%s lines=%d-%d — %s\n",
-				traceThreadLabel(work.Thread), sanitizeForBanner(work.Work), sanitizeForBanner(work.Function), work.Count, work.PairedCount, work.DurationMs, work.MaxLatencyMs, traceQuerySourceBasename(work.SourcePath), work.LineStart, work.LineEnd, sanitizeForBanner(work.Summary))
+			fmt.Fprintf(&b, "- workqueue_activity %s work=%s function=%s count=%d paired=%d unpaired_start=%d unpaired_done=%d ambiguous_cohorts=%d pairing_suppressed=%d duration=%.3fms max=%.3fms source=%s lines=%d-%d — %s\n",
+				traceThreadLabel(work.Thread), sanitizeForBanner(work.Work), sanitizeForBanner(work.Function), work.Count, work.PairedCount,
+				work.UnpairedStartCount, work.UnpairedDoneCount, work.AmbiguousCohortCount, work.PairingSuppressedCount,
+				work.DurationMs, work.MaxLatencyMs, traceQuerySourceBasename(work.SourcePath), work.LineStart, work.LineEnd, sanitizeForBanner(work.Summary))
 		}
 		for _, fence := range result.WindowStats.DMAFenceActivity {
-			fmt.Fprintf(&b, "- dma_fence_activity %s driver=%s timeline=%s context=%s seqno=%s count=%d paired=%d wait=%.3fms max=%.3fms source=%s lines=%d-%d — %s\n",
-				traceThreadLabel(fence.Thread), sanitizeForBanner(fence.Driver), sanitizeForBanner(fence.Timeline), sanitizeForBanner(fence.Context), sanitizeForBanner(fence.Seqno), fence.Count, fence.PairedCount, fence.WaitMs, fence.MaxWaitMs, traceQuerySourceBasename(fence.SourcePath), fence.LineStart, fence.LineEnd, sanitizeForBanner(fence.Summary))
+			fmt.Fprintf(&b, "- dma_fence_activity %s driver=%s timeline=%s context=%s seqno=%s count=%d paired=%d unpaired_start=%d unpaired_done=%d ambiguous_cohorts=%d pairing_suppressed=%d wait=%.3fms max=%.3fms source=%s lines=%d-%d — %s\n",
+				traceThreadLabel(fence.Thread), sanitizeForBanner(fence.Driver), sanitizeForBanner(fence.Timeline), sanitizeForBanner(fence.Context), sanitizeForBanner(fence.Seqno), fence.Count, fence.PairedCount,
+				fence.UnpairedStartCount, fence.UnpairedDoneCount, fence.AmbiguousCohortCount, fence.PairingSuppressedCount,
+				fence.WaitMs, fence.MaxWaitMs, traceQuerySourceBasename(fence.SourcePath), fence.LineStart, fence.LineEnd, sanitizeForBanner(fence.Summary))
 		}
 		for _, accounting := range result.WindowStats.SchedStatAccounting {
 			fmt.Fprintf(&b, "- sched_stat_accounting %s kind=%s count=%d delay=%.3fms max_delay=%.3fms runtime=%.3fms max_runtime=%.3fms lines=%d-%d — %s\n",
@@ -8521,6 +8525,10 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 				{"function", work.Function},
 				{"count", traceQueryTypedCount(work.Count)},
 				{"paired", traceQueryTypedCount(work.PairedCount)},
+				{"unpaired_start", traceQueryTypedCount(work.UnpairedStartCount)},
+				{"unpaired_done", traceQueryTypedCount(work.UnpairedDoneCount)},
+				{"ambiguous_cohorts", traceQueryTypedCount(work.AmbiguousCohortCount)},
+				{"pairing_suppressed", traceQueryTypedCount(work.PairingSuppressedCount)},
 				{"max", traceQueryObservationMSValue(work.MaxLatencyMs)},
 			}),
 			SupportRefs: traceQueryObservationSupportRefs(ref, work.LineStart, work.LineEnd),
@@ -8558,6 +8566,10 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 				{"seqno", fence.Seqno},
 				{"count", traceQueryTypedCount(fence.Count)},
 				{"paired", traceQueryTypedCount(fence.PairedCount)},
+				{"unpaired_start", traceQueryTypedCount(fence.UnpairedStartCount)},
+				{"unpaired_done", traceQueryTypedCount(fence.UnpairedDoneCount)},
+				{"ambiguous_cohorts", traceQueryTypedCount(fence.AmbiguousCohortCount)},
+				{"pairing_suppressed", traceQueryTypedCount(fence.PairingSuppressedCount)},
 				{"max", traceQueryObservationMSValue(fence.MaxWaitMs)},
 			}),
 			SupportRefs: traceQueryObservationSupportRefs(ref, fence.LineStart, fence.LineEnd),

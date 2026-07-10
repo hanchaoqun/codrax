@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync/atomic"
 
@@ -7187,8 +7188,11 @@ func schedStatImpactMs(item SchedStatSummary) float64 {
 	return item.TotalRuntimeMs
 }
 
-type workqueueOpen struct {
-	ev Event
+type workqueuePairingState struct {
+	depth        int
+	cohortStarts int
+	ambiguous    bool
+	start        Event
 }
 
 func computeWorkqueueActivity(idx *Index, q Query, max int) ([]WorkqueueActivity, []string) {
@@ -7196,8 +7200,12 @@ func computeWorkqueueActivity(idx *Index, q Query, max int) ([]WorkqueueActivity
 		return nil, nil
 	}
 	accs := map[string]*WorkqueueActivity{}
-	open := map[string][]workqueueOpen{}
+	lanes := map[string]*workqueuePairingState{}
+	functionVariants := map[string]map[string]struct{}{}
 	unresolvedSourceRows := 0
+	unresolvedEndpointRows := 0
+	invalidEndpointRows := 0
+	var invalidSamples []string
 	for _, ev := range idx.Events {
 		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) || ev.Type != EventWorkqueue {
 			continue
@@ -7205,11 +7213,28 @@ func computeWorkqueueActivity(idx *Index, q Query, max int) ([]WorkqueueActivity
 		source, sourceOK := tracePairingSourceIdentity(idx, ev)
 		if !sourceOK {
 			unresolvedSourceRows++
+			if _, phase := workqueueBaseAndPhase(ev.Name); phase != "" {
+				unresolvedEndpointRows++
+			}
 			continue
 		}
-		work, function := workqueueFields(ev)
 		base, phase := workqueueBaseAndPhase(ev.Name)
-		key := source + "\x00" + fmt.Sprintf("%d/%s/%s/%s", ev.PID, firstNonEmpty(work, "-"), firstNonEmpty(function, "-"), base)
+		work, function := workqueueFields(ev)
+		if phase != "" {
+			work, function = workqueueExactEndpointFields(ev)
+		}
+		missing := workqueueEndpointMissingFields(ev, work)
+		if phase != "" && len(missing) > 0 {
+			invalidEndpointRows++
+			if len(invalidSamples) < 4 {
+				invalidSamples = append(invalidSamples, fmt.Sprintf("line=%d event=%s missing=%s", ev.Line, ev.Name, strings.Join(missing, ",")))
+			}
+			continue
+		}
+		key := strings.Join([]string{source, strconv.Itoa(ev.PID), firstNonEmpty(work, "-"), base}, "\x00")
+		if phase == "" {
+			key += "\x00meta\x00" + firstNonEmpty(function, "-")
+		}
 		item := accs[key]
 		if item == nil {
 			item = &WorkqueueActivity{
@@ -7224,6 +7249,19 @@ func computeWorkqueueActivity(idx *Index, q Query, max int) ([]WorkqueueActivity
 			}
 			accs[key] = item
 		}
+		if function != "" {
+			variants := functionVariants[key]
+			if variants == nil {
+				variants = map[string]struct{}{}
+				functionVariants[key] = variants
+			}
+			variants[function] = struct{}{}
+			if len(variants) == 1 {
+				item.Function = function
+			} else {
+				item.Function = "multiple"
+			}
+		}
 		item.Count++
 		applyLineRange(&item.LineStart, &item.LineEnd, ev.Line)
 		if item.StartTs == 0 || ev.Ts < item.StartTs {
@@ -7234,15 +7272,46 @@ func computeWorkqueueActivity(idx *Index, q Query, max int) ([]WorkqueueActivity
 		}
 		switch phase {
 		case "start":
-			open[key] = append(open[key], workqueueOpen{ev: ev})
-		case "done":
-			queue := open[key]
-			if len(queue) == 0 {
+			lane := lanes[key]
+			if lane == nil {
+				lane = &workqueuePairingState{}
+				lanes[key] = lane
+			}
+			if lane.depth == 0 {
+				lane.depth = 1
+				lane.cohortStarts = 1
+				lane.start = ev
 				continue
 			}
-			start := queue[0].ev
-			open[key] = queue[1:]
+			lane.depth++
+			lane.cohortStarts++
+			if !lane.ambiguous {
+				lane.ambiguous = true
+				item.AmbiguousCohortCount++
+				lane.start = Event{}
+			}
+		case "done":
+			lane := lanes[key]
+			if lane == nil || lane.depth == 0 {
+				item.UnpairedDoneCount++
+				continue
+			}
+			if lane.ambiguous {
+				lane.depth--
+				if lane.depth == 0 {
+					item.PairingSuppressedCount += lane.cohortStarts
+					lane.ambiguous = false
+					lane.cohortStarts = 0
+					lane.start = Event{}
+				}
+				continue
+			}
+			start := lane.start
+			lane.depth = 0
+			lane.cohortStarts = 0
+			lane.start = Event{}
 			if ev.Ts < start.Ts {
+				item.PairingSuppressedCount++
 				continue
 			}
 			dur := (ev.Ts - start.Ts) * 1000
@@ -7253,13 +7322,43 @@ func computeWorkqueueActivity(idx *Index, q Query, max int) ([]WorkqueueActivity
 			}
 		}
 	}
+	if invalidEndpointRows > 0 || unresolvedEndpointRows > 0 {
+		var caveats []string
+		if unresolvedSourceRows > 0 {
+			caveats = append(caveats, fmt.Sprintf("workqueue_pairing_provenance_unresolved=true; rows=%d; rows without exactly one physical source artifact were excluded", unresolvedSourceRows))
+		}
+		caveats = append(caveats, fmt.Sprintf("workqueue_pairing_fail_closed=true; invalid_endpoints=%d unresolved_source_endpoints=%d samples=[%s]; exact execute endpoints without required PID/work/physical-source identity suppressed the whole duration family", invalidEndpointRows, unresolvedEndpointRows, strings.Join(invalidSamples, "; ")))
+		return nil, caveats
+	}
 	out := make([]WorkqueueActivity, 0, len(accs))
+	var ambiguous, suppressed, unpairedStart, unpairedDone int
+	for key, lane := range lanes {
+		if lane.depth <= 0 {
+			continue
+		}
+		item := accs[key]
+		if lane.ambiguous {
+			item.PairingSuppressedCount += lane.cohortStarts
+		} else {
+			item.UnpairedStartCount++
+		}
+	}
 	for _, item := range accs {
 		// Count-only/unpaired rows stay visible with duration=0. A first/last
 		// envelope is not a deterministic workqueue execution interval.
-		item.Summary = fmt.Sprintf("workqueue thread=%s work=%s function=%s count=%d paired=%d duration=%.3fms max=%.3fms",
-			threadLabel(item.Thread), item.Work, item.Function, item.Count, item.PairedCount, item.DurationMs, item.MaxLatencyMs)
+		item.Summary = fmt.Sprintf("workqueue thread=%s work=%s function=%s count=%d paired=%d unpaired_start=%d unpaired_done=%d ambiguous_cohorts=%d pairing_suppressed=%d duration=%.3fms max=%.3fms",
+			threadLabel(item.Thread), item.Work, item.Function, item.Count, item.PairedCount, item.UnpairedStartCount, item.UnpairedDoneCount, item.AmbiguousCohortCount, item.PairingSuppressedCount, item.DurationMs, item.MaxLatencyMs)
+		ambiguous += item.AmbiguousCohortCount
+		suppressed += item.PairingSuppressedCount
+		unpairedStart += item.UnpairedStartCount
+		unpairedDone += item.UnpairedDoneCount
 		out = append(out, *item)
+	}
+	functionVariantRows := 0
+	for key, variants := range functionVariants {
+		if len(variants) > 1 && strings.HasSuffix(key, "\x00workqueue_execute") {
+			functionVariantRows++
+		}
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].DurationMs != out[j].DurationMs {
@@ -7277,6 +7376,15 @@ func computeWorkqueueActivity(idx *Index, q Query, max int) ([]WorkqueueActivity
 	if unresolvedSourceRows > 0 {
 		caveats = append(caveats, fmt.Sprintf("workqueue_pairing_provenance_unresolved=true; rows=%d; rows without exactly one physical source artifact were excluded", unresolvedSourceRows))
 	}
+	if ambiguous > 0 {
+		caveats = append(caveats, fmt.Sprintf("workqueue_pairing_ambiguous=true; cohorts=%d pairing_suppressed=%d; overlapping identical work identities were withheld as whole cohorts instead of FIFO-guessed", ambiguous, suppressed))
+	}
+	if unpairedStart > 0 || unpairedDone > 0 {
+		caveats = append(caveats, fmt.Sprintf("workqueue_pairing_unpaired=true; unpaired_start=%d unpaired_done=%d; elapsed time was emitted only for complete exact execute pairs", unpairedStart, unpairedDone))
+	}
+	if functionVariantRows > 0 {
+		caveats = append(caveats, fmt.Sprintf("workqueue_function_variants=true; identities=%d; function=multiple means the same typed work pointer was observed with more than one function label in the selected window", functionVariantRows))
+	}
 	return out, caveats
 }
 
@@ -7287,27 +7395,29 @@ func workqueueFields(ev Event) (work, function string) {
 	if work == "" {
 		work = valueAfterLabel(ev.FieldText, "work struct")
 	}
-	return cleanTraceValue(work), cleanTraceValue(function)
+	if function == "" {
+		function = valueAfterLabel(ev.FieldText, "function")
+	}
+	work = strings.TrimRight(cleanTraceValue(work), ":")
+	return work, cleanTraceValue(function)
 }
 
 func workqueueBaseAndPhase(name string) (base, phase string) {
-	lower := strings.ToLower(strings.TrimSpace(name))
-	base = lower
-	for _, suffix := range []string{"_start", "_enter", "_begin"} {
-		if strings.HasSuffix(lower, suffix) {
-			return strings.TrimSuffix(lower, suffix), "start"
-		}
+	raw := strings.TrimSpace(name)
+	switch raw {
+	case "workqueue_execute_start":
+		return "workqueue_execute", "start"
+	case "workqueue_execute_end":
+		return "workqueue_execute", "done"
 	}
-	for _, suffix := range []string{"_end", "_exit", "_done", "_complete"} {
-		if strings.HasSuffix(lower, suffix) {
-			return strings.TrimSuffix(lower, suffix), "done"
-		}
-	}
-	return base, ""
+	return strings.ToLower(raw), ""
 }
 
-type dmaFenceOpen struct {
-	ev Event
+type dmaFencePairingState struct {
+	depth        int
+	cohortStarts int
+	ambiguous    bool
+	start        Event
 }
 
 func computeDMAFenceActivity(idx *Index, q Query, max int) ([]DMAFenceActivity, []string) {
@@ -7315,8 +7425,11 @@ func computeDMAFenceActivity(idx *Index, q Query, max int) ([]DMAFenceActivity, 
 		return nil, nil
 	}
 	accs := map[string]*DMAFenceActivity{}
-	open := map[string][]dmaFenceOpen{}
+	lanes := map[string]*dmaFencePairingState{}
 	unresolvedSourceRows := 0
+	unresolvedEndpointRows := 0
+	invalidEndpointRows := 0
+	var invalidSamples []string
 	for _, ev := range idx.Events {
 		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) || ev.Type != EventDMAFence {
 			continue
@@ -7324,11 +7437,25 @@ func computeDMAFenceActivity(idx *Index, q Query, max int) ([]DMAFenceActivity, 
 		source, sourceOK := tracePairingSourceIdentity(idx, ev)
 		if !sourceOK {
 			unresolvedSourceRows++
+			if _, phase := dmaFenceBaseAndPhase(ev.Name); phase != "" {
+				unresolvedEndpointRows++
+			}
 			continue
 		}
-		driver, timeline, context, seqno := dmaFenceFields(ev)
 		base, phase := dmaFenceBaseAndPhase(ev.Name)
-		key := source + "\x00" + fmt.Sprintf("%d/%s/%s/%s/%s/%s", ev.PID, firstNonEmpty(driver, "-"), firstNonEmpty(timeline, "-"), firstNonEmpty(context, "-"), firstNonEmpty(seqno, "-"), base)
+		driver, timeline, context, seqno := dmaFenceFields(ev)
+		if phase != "" {
+			driver, timeline, context, seqno = dmaFenceExactEndpointFields(ev)
+		}
+		missing := dmaFenceEndpointMissingFields(ev, driver, timeline, context, seqno)
+		if phase != "" && len(missing) > 0 {
+			invalidEndpointRows++
+			if len(invalidSamples) < 4 {
+				invalidSamples = append(invalidSamples, fmt.Sprintf("line=%d event=%s missing=%s", ev.Line, ev.Name, strings.Join(missing, ",")))
+			}
+			continue
+		}
+		key := strings.Join([]string{source, strconv.Itoa(ev.PID), firstNonEmpty(driver, "-"), firstNonEmpty(timeline, "-"), firstNonEmpty(context, "-"), firstNonEmpty(seqno, "-"), base}, "\x00")
 		item := accs[key]
 		if item == nil {
 			item = &DMAFenceActivity{
@@ -7355,15 +7482,46 @@ func computeDMAFenceActivity(idx *Index, q Query, max int) ([]DMAFenceActivity, 
 		}
 		switch phase {
 		case "start":
-			open[key] = append(open[key], dmaFenceOpen{ev: ev})
-		case "done":
-			queue := open[key]
-			if len(queue) == 0 {
+			lane := lanes[key]
+			if lane == nil {
+				lane = &dmaFencePairingState{}
+				lanes[key] = lane
+			}
+			if lane.depth == 0 {
+				lane.depth = 1
+				lane.cohortStarts = 1
+				lane.start = ev
 				continue
 			}
-			start := queue[0].ev
-			open[key] = queue[1:]
+			lane.depth++
+			lane.cohortStarts++
+			if !lane.ambiguous {
+				lane.ambiguous = true
+				item.AmbiguousCohortCount++
+				lane.start = Event{}
+			}
+		case "done":
+			lane := lanes[key]
+			if lane == nil || lane.depth == 0 {
+				item.UnpairedDoneCount++
+				continue
+			}
+			if lane.ambiguous {
+				lane.depth--
+				if lane.depth == 0 {
+					item.PairingSuppressedCount += lane.cohortStarts
+					lane.ambiguous = false
+					lane.cohortStarts = 0
+					lane.start = Event{}
+				}
+				continue
+			}
+			start := lane.start
+			lane.depth = 0
+			lane.cohortStarts = 0
+			lane.start = Event{}
 			if ev.Ts < start.Ts {
+				item.PairingSuppressedCount++
 				continue
 			}
 			dur := (ev.Ts - start.Ts) * 1000
@@ -7374,12 +7532,36 @@ func computeDMAFenceActivity(idx *Index, q Query, max int) ([]DMAFenceActivity, 
 			}
 		}
 	}
+	if invalidEndpointRows > 0 || unresolvedEndpointRows > 0 {
+		var caveats []string
+		if unresolvedSourceRows > 0 {
+			caveats = append(caveats, fmt.Sprintf("dma_fence_pairing_provenance_unresolved=true; rows=%d; rows without exactly one physical source artifact were excluded", unresolvedSourceRows))
+		}
+		caveats = append(caveats, fmt.Sprintf("dma_fence_pairing_fail_closed=true; invalid_endpoints=%d unresolved_source_endpoints=%d samples=[%s]; exact wait endpoints without required PID/driver/timeline/context/seqno/physical-source identity suppressed the whole duration family", invalidEndpointRows, unresolvedEndpointRows, strings.Join(invalidSamples, "; ")))
+		return nil, caveats
+	}
 	out := make([]DMAFenceActivity, 0, len(accs))
+	var ambiguous, suppressed, unpairedStart, unpairedDone int
+	for key, lane := range lanes {
+		if lane.depth <= 0 {
+			continue
+		}
+		item := accs[key]
+		if lane.ambiguous {
+			item.PairingSuppressedCount += lane.cohortStarts
+		} else {
+			item.UnpairedStartCount++
+		}
+	}
 	for _, item := range accs {
 		// Count-only/unpaired rows stay visible with wait=0. Only a typed
 		// start/end pair can mint fence wait time.
-		item.Summary = fmt.Sprintf("dma_fence thread=%s driver=%s timeline=%s context=%s seqno=%s count=%d paired=%d wait=%.3fms max=%.3fms",
-			threadLabel(item.Thread), item.Driver, item.Timeline, item.Context, item.Seqno, item.Count, item.PairedCount, item.WaitMs, item.MaxWaitMs)
+		item.Summary = fmt.Sprintf("dma_fence thread=%s driver=%s timeline=%s context=%s seqno=%s count=%d paired=%d unpaired_start=%d unpaired_done=%d ambiguous_cohorts=%d pairing_suppressed=%d wait=%.3fms max=%.3fms",
+			threadLabel(item.Thread), item.Driver, item.Timeline, item.Context, item.Seqno, item.Count, item.PairedCount, item.UnpairedStartCount, item.UnpairedDoneCount, item.AmbiguousCohortCount, item.PairingSuppressedCount, item.WaitMs, item.MaxWaitMs)
+		ambiguous += item.AmbiguousCohortCount
+		suppressed += item.PairingSuppressedCount
+		unpairedStart += item.UnpairedStartCount
+		unpairedDone += item.UnpairedDoneCount
 		out = append(out, *item)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -7398,6 +7580,12 @@ func computeDMAFenceActivity(idx *Index, q Query, max int) ([]DMAFenceActivity, 
 	if unresolvedSourceRows > 0 {
 		caveats = append(caveats, fmt.Sprintf("dma_fence_pairing_provenance_unresolved=true; rows=%d; rows without exactly one physical source artifact were excluded", unresolvedSourceRows))
 	}
+	if ambiguous > 0 {
+		caveats = append(caveats, fmt.Sprintf("dma_fence_pairing_ambiguous=true; cohorts=%d pairing_suppressed=%d; overlapping identical fence waits were withheld as whole cohorts instead of FIFO-guessed", ambiguous, suppressed))
+	}
+	if unpairedStart > 0 || unpairedDone > 0 {
+		caveats = append(caveats, fmt.Sprintf("dma_fence_pairing_unpaired=true; unpaired_start=%d unpaired_done=%d; wait time was emitted only for complete exact wait pairs", unpairedStart, unpairedDone))
+	}
 	return out, caveats
 }
 
@@ -7411,19 +7599,14 @@ func dmaFenceFields(ev Event) (driver, timeline, context, seqno string) {
 }
 
 func dmaFenceBaseAndPhase(name string) (base, phase string) {
-	lower := strings.ToLower(strings.TrimSpace(name))
-	base = lower
-	for _, suffix := range []string{"_wait_start", "_start", "_enter", "_begin"} {
-		if strings.HasSuffix(lower, suffix) {
-			return strings.TrimSuffix(lower, suffix), "start"
-		}
+	raw := strings.TrimSpace(name)
+	switch raw {
+	case "dma_fence_wait_start":
+		return "dma_fence_wait", "start"
+	case "dma_fence_wait_end":
+		return "dma_fence_wait", "done"
 	}
-	for _, suffix := range []string{"_wait_end", "_signaled", "_signal", "_end", "_exit", "_done", "_complete"} {
-		if strings.HasSuffix(lower, suffix) {
-			return strings.TrimSuffix(lower, suffix), "done"
-		}
-	}
-	return base, ""
+	return strings.ToLower(raw), ""
 }
 
 func valueAfterLabel(text, label string) string {

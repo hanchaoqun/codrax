@@ -1896,37 +1896,45 @@ type SchedStatSummary struct {
 }
 
 type WorkqueueActivity struct {
-	SourcePath   string    `json:"source_path,omitempty"`
-	Thread       ThreadRef `json:"thread,omitempty"`
-	Work         string    `json:"work,omitempty"`
-	Function     string    `json:"function,omitempty"`
-	Count        int       `json:"count,omitempty"`
-	PairedCount  int       `json:"paired_count,omitempty"`
-	DurationMs   float64   `json:"duration_ms,omitempty"`
-	MaxLatencyMs float64   `json:"max_latency_ms,omitempty"`
-	StartTs      float64   `json:"start_ts,omitempty"`
-	EndTs        float64   `json:"end_ts,omitempty"`
-	LineStart    int       `json:"line_start,omitempty"`
-	LineEnd      int       `json:"line_end,omitempty"`
-	Summary      string    `json:"summary,omitempty"`
+	SourcePath             string    `json:"source_path,omitempty"`
+	Thread                 ThreadRef `json:"thread,omitempty"`
+	Work                   string    `json:"work,omitempty"`
+	Function               string    `json:"function,omitempty"`
+	Count                  int       `json:"count,omitempty"`
+	PairedCount            int       `json:"paired_count,omitempty"`
+	UnpairedStartCount     int       `json:"unpaired_start_count,omitempty"`
+	UnpairedDoneCount      int       `json:"unpaired_done_count,omitempty"`
+	AmbiguousCohortCount   int       `json:"ambiguous_cohort_count,omitempty"`
+	PairingSuppressedCount int       `json:"pairing_suppressed_count,omitempty"`
+	DurationMs             float64   `json:"duration_ms,omitempty"`
+	MaxLatencyMs           float64   `json:"max_latency_ms,omitempty"`
+	StartTs                float64   `json:"start_ts,omitempty"`
+	EndTs                  float64   `json:"end_ts,omitempty"`
+	LineStart              int       `json:"line_start,omitempty"`
+	LineEnd                int       `json:"line_end,omitempty"`
+	Summary                string    `json:"summary,omitempty"`
 }
 
 type DMAFenceActivity struct {
-	SourcePath  string    `json:"source_path,omitempty"`
-	Thread      ThreadRef `json:"thread,omitempty"`
-	Driver      string    `json:"driver,omitempty"`
-	Timeline    string    `json:"timeline,omitempty"`
-	Context     string    `json:"context,omitempty"`
-	Seqno       string    `json:"seqno,omitempty"`
-	Count       int       `json:"count,omitempty"`
-	PairedCount int       `json:"paired_count,omitempty"`
-	WaitMs      float64   `json:"wait_ms,omitempty"`
-	MaxWaitMs   float64   `json:"max_wait_ms,omitempty"`
-	StartTs     float64   `json:"start_ts,omitempty"`
-	EndTs       float64   `json:"end_ts,omitempty"`
-	LineStart   int       `json:"line_start,omitempty"`
-	LineEnd     int       `json:"line_end,omitempty"`
-	Summary     string    `json:"summary,omitempty"`
+	SourcePath             string    `json:"source_path,omitempty"`
+	Thread                 ThreadRef `json:"thread,omitempty"`
+	Driver                 string    `json:"driver,omitempty"`
+	Timeline               string    `json:"timeline,omitempty"`
+	Context                string    `json:"context,omitempty"`
+	Seqno                  string    `json:"seqno,omitempty"`
+	Count                  int       `json:"count,omitempty"`
+	PairedCount            int       `json:"paired_count,omitempty"`
+	UnpairedStartCount     int       `json:"unpaired_start_count,omitempty"`
+	UnpairedDoneCount      int       `json:"unpaired_done_count,omitempty"`
+	AmbiguousCohortCount   int       `json:"ambiguous_cohort_count,omitempty"`
+	PairingSuppressedCount int       `json:"pairing_suppressed_count,omitempty"`
+	WaitMs                 float64   `json:"wait_ms,omitempty"`
+	MaxWaitMs              float64   `json:"max_wait_ms,omitempty"`
+	StartTs                float64   `json:"start_ts,omitempty"`
+	EndTs                  float64   `json:"end_ts,omitempty"`
+	LineStart              int       `json:"line_start,omitempty"`
+	LineEnd                int       `json:"line_end,omitempty"`
+	Summary                string    `json:"summary,omitempty"`
 }
 
 type SupplyPressureSummary struct {

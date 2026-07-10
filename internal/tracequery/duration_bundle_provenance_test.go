@@ -33,8 +33,8 @@ func TestDurationPairingNeverCrossesPhysicalArtifacts(t *testing.T) {
 		{Line: 105, Ts: 1.009, Type: EventIPI, Name: "ipi_exit", PID: 20, CPU: 2, IRQName: "rescheduling interrupts"},
 		{Line: 6, Ts: 1.010, Type: EventWorkqueue, Name: "workqueue_execute_start", PID: 30, FieldText: "work=0xff function=flush_cookie"},
 		{Line: 106, Ts: 1.011, Type: EventWorkqueue, Name: "workqueue_execute_end", PID: 30, FieldText: "work=0xff function=flush_cookie"},
-		{Line: 7, Ts: 1.012, Type: EventDMAFence, Name: "dma_fence_wait_start", PID: 40, FieldText: "driver=display timeline=present seqno=9"},
-		{Line: 107, Ts: 1.013, Type: EventDMAFence, Name: "dma_fence_wait_end", PID: 40, FieldText: "driver=display timeline=present seqno=9"},
+		{Line: 7, Ts: 1.012, Type: EventDMAFence, Name: "dma_fence_wait_start", PID: 40, FieldText: "driver=display timeline=present context=7 seqno=9"},
+		{Line: 107, Ts: 1.013, Type: EventDMAFence, Name: "dma_fence_wait_end", PID: 40, FieldText: "driver=display timeline=present context=7 seqno=9"},
 	}
 	idx := durationBundleIndex(events)
 	q := Query{TimeStart: 0.9, TimeEnd: 1.1}
@@ -83,8 +83,8 @@ func TestSingleArtifactDurationPairsExposePhysicalSource(t *testing.T) {
 		{Line: 8, Ts: 1.007, Type: EventIPI, Name: "ipi_exit", PID: 20, CPU: 2, IRQName: "rescheduling interrupts"},
 		{Line: 9, Ts: 1.008, Type: EventWorkqueue, Name: "workqueue_execute_start", PID: 30, FieldText: "work=0xff function=flush_cookie"},
 		{Line: 10, Ts: 1.009, Type: EventWorkqueue, Name: "workqueue_execute_end", PID: 30, FieldText: "work=0xff function=flush_cookie"},
-		{Line: 11, Ts: 1.010, Type: EventDMAFence, Name: "dma_fence_wait_start", PID: 40, FieldText: "driver=display timeline=present seqno=9"},
-		{Line: 12, Ts: 1.011, Type: EventDMAFence, Name: "dma_fence_wait_end", PID: 40, FieldText: "driver=display timeline=present seqno=9"},
+		{Line: 11, Ts: 1.010, Type: EventDMAFence, Name: "dma_fence_wait_start", PID: 40, FieldText: "driver=display timeline=present context=7 seqno=9"},
+		{Line: 12, Ts: 1.011, Type: EventDMAFence, Name: "dma_fence_wait_end", PID: 40, FieldText: "driver=display timeline=present context=7 seqno=9"},
 		{Line: 13, Ts: 1.012, Type: EventBlockIssue, Name: "block_rq_issue", PID: 50, BlockIOFields: block()},
 		{Line: 14, Ts: 1.013, Type: EventBlockComplete, Name: "block_rq_complete", PID: 50, BlockIOFields: block()},
 		{Line: 15, Ts: 1.014, Type: EventStorage, Name: "scsi_dispatch_cmd_start", PID: 60, ResourceFields: &ResourceFields{Op: "read", Bytes: 4096}, FileFields: &FileFields{Dev: "12,80", RW: "read", Len: 4096}},
@@ -171,7 +171,7 @@ func TestUnresolvedDurationSourceFailsClosedWithCaveat(t *testing.T) {
 			{Line: 100, Ts: 1.001, Type: EventTraceMark, PID: 10, SpanAction: "E", SpanPID: 10, FieldText: "E|10"},
 			{Line: 101, Ts: 1.002, Type: EventIRQ, Name: "irq_handler_entry", PID: 20, CPU: 0, IRQID: 17, IRQName: "timer"},
 			{Line: 102, Ts: 1.003, Type: EventWorkqueue, Name: "workqueue_execute_start", PID: 30, FieldText: "work=0xff function=flush_cookie"},
-			{Line: 103, Ts: 1.004, Type: EventDMAFence, Name: "dma_fence_wait_start", PID: 40, FieldText: "driver=display timeline=present seqno=9"},
+			{Line: 103, Ts: 1.004, Type: EventDMAFence, Name: "dma_fence_wait_start", PID: 40, FieldText: "driver=display timeline=present context=7 seqno=9"},
 			{Line: 104, Ts: 1.005, Type: EventBlockIssue, Name: "block_rq_issue", PID: 50, BlockIOFields: &BlockIOFields{Dev: "8,0", Op: "R", Sector: 123, Len: 8, IdentityParsed: true, IdentityValid: true}},
 			{Line: 105, Ts: 1.006, Type: EventStorage, Name: "scsi_dispatch_cmd_start", PID: 60, ResourceFields: &ResourceFields{Op: "read", Bytes: 4096}, FileFields: &FileFields{Dev: "12,80", RW: "read", Len: 4096}},
 		},

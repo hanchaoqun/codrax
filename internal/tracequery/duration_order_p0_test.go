@@ -16,8 +16,8 @@ func TestDurationOrderRollbackFailsClosedOnlyAffectedFamilies(t *testing.T) {
 		`app-10 (10) [000] .... 1.100000: print: C|10|queue_depth|3`,
 		`worker-20 (20) [001] .... 2.200000: workqueue_execute_start: work=0xff function=flush_cookie`,
 		`worker-20 (20) [001] .... 1.200000: workqueue_execute_end: work=0xff function=flush_cookie`,
-		`display-30 (30) [002] .... 2.300000: dma_fence_wait_start: driver=display timeline=present seqno=9`,
-		`display-30 (30) [002] .... 1.300000: dma_fence_wait_end: driver=display timeline=present seqno=9`,
+		`display-30 (30) [002] .... 2.300000: dma_fence_wait_start: driver=display timeline=present context=7 seqno=9`,
+		`display-30 (30) [002] .... 1.300000: dma_fence_wait_end: driver=display timeline=present context=7 seqno=9`,
 		`io-40 (40) [003] .... 2.400000: block_rq_issue: 8,0 R 4096 () 123 + 8 [io]`,
 		`irq-2 (2) [003] .... 1.400000: block_rq_complete: 8,0 R () 123 + 8 [0]`,
 		`io-40 (40) [003] .... 2.450000: mmc_request_start: dev=mmcblk0 op=read`,
@@ -114,8 +114,8 @@ func TestUnpairedDurationRowsNeverMintEnvelopeTime(t *testing.T) {
 	idx := buildTraceIndex(t, "unpaired-duration.systrace", strings.Join([]string{
 		`worker-20 (20) [001] .... 1.000000: workqueue_execute_start: work=0xaa function=first`,
 		`worker-20 (20) [001] .... 1.500000: workqueue_execute_start: work=0xbb function=second`,
-		`display-30 (30) [002] .... 1.100000: dma_fence_wait_start: driver=display timeline=present seqno=1`,
-		`display-30 (30) [002] .... 1.600000: dma_fence_wait_start: driver=display timeline=present seqno=2`,
+		`display-30 (30) [002] .... 1.100000: dma_fence_wait_start: driver=display timeline=present context=7 seqno=1`,
+		`display-30 (30) [002] .... 1.600000: dma_fence_wait_start: driver=display timeline=present context=7 seqno=2`,
 		`irq-7 (7) [000] .... 1.200000: irq_handler_entry: irq=17 name=timer`,
 		`irq-7 (7) [000] .... 1.700000: irq_handler_entry: irq=18 name=gpu`,
 	}, "\n")+"\n")

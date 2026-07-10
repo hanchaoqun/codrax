@@ -983,6 +983,8 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{"paired", "io", TraceNoteCarrierDisplayOnly},
 	{"unpaired_start", "io", TraceNoteCarrierDisplayOnly},
 	{"unpaired_done", "io", TraceNoteCarrierDisplayOnly},
+	{"ambiguous_cohorts", "io", TraceNoteCarrierDisplayOnly},
+	{"pairing_suppressed", "io", TraceNoteCarrierDisplayOnly},
 	{"signal", "io", TraceNoteCarrierDisplayOnly},
 	{"block_max", "io", TraceNoteCarrierDisplayOnly},
 	{"storage_max", "io", TraceNoteCarrierDisplayOnly},

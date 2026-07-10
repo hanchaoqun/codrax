@@ -1088,6 +1088,7 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 			idx.LineCount = lineNo
 			idx.ScannedLineCount = lineNo
 			trimmed := strings.TrimRight(line, "\r\n")
+			var durationEndpointRowFailure *durationOrderViolation
 			if idx.Windowed {
 				for _, failure := range cpuInputValidationFailures(lineNo, trimmed) {
 					if cpuInputIntegrityFailureRelevantToQuery(failure, auditQ) {
@@ -1101,11 +1102,19 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 				appendTraceMarkIntegrityFailure(idx, *failure)
 			}
 			if durationOrderRawCandidate(trimmed) {
+				if failure := durationEndpointRawValidationFailure(lineNo, trimmed); failure != nil && durationOrderViolationRelevantToQuery(failure, auditQ) {
+					failure.SourcePath = path
+					appendDurationOrderFailure(idx, *failure)
+					durationEndpointRowFailure = failure
+					if idx.Windowed {
+						durationAudit.resetFamily(failure.Family)
+					}
+				}
 				if failure := interruptEndpointValidationFailure(lineNo, trimmed); failure != nil && durationOrderViolationRelevantToQuery(failure, auditQ) {
 					failure.SourcePath = path
 					appendDurationOrderFailure(idx, *failure)
 				}
-				if idx.Windowed {
+				if idx.Windowed && durationEndpointRowFailure == nil {
 					if auditEv, auditOK := safeParseLine(lineNo, trimmed, auditIntern, auditScratch); auditOK {
 						for _, failure := range durationAudit.observeAll(auditEv) {
 							failure.SourcePath = path
@@ -1293,6 +1302,12 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 				idx.RetainedSideTableBytes += eventSideTableBytes(&ev)
 				idx.Events = append(idx.Events, ev)
 			} else if trimmed != "" {
+				if durationEndpointRowFailure == nil {
+					if rejected := durationEndpointRejectedRowFailure(lineNo, trimmed); rejected != nil && durationOrderViolationRelevantToQuery(rejected, auditQ) {
+						rejected.SourcePath = path
+						appendDurationOrderFailure(idx, *rejected)
+					}
+				}
 				if rowIntegrityFailure == nil {
 					rowIntegrityFailure = schedulerRowValidationFailure(lineNo, trimmed)
 					if rowIntegrityFailure != nil && schedulerRowIntegrityFailureRelevantToQuery(rowIntegrityFailure, auditQ, 0) {

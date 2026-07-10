@@ -134,6 +134,17 @@ func (t *durationOrderTracker) resetPID(pid int) {
 	t.resetTraceMarkPID(pid)
 }
 
+func (t *durationOrderTracker) resetFamily(family durationOrderFamily) {
+	if t == nil || family == "" {
+		return
+	}
+	for lane := range t.last {
+		if lane.family == family {
+			t.clearLane(lane)
+		}
+	}
+}
+
 func (t *durationOrderTracker) resetTraceMarkPID(pid int) {
 	if t == nil || pid < 0 {
 		return
@@ -168,6 +179,13 @@ func (t *durationOrderTracker) observeAll(ev Event) []durationOrderViolation {
 	if pid, reset := schedulerLifecycleResetPID(ev); reset {
 		t.resetPID(pid)
 		return nil
+	}
+	if failure := durationEndpointValidationFailureFromEvent(ev); failure != nil {
+		// A malformed duration endpoint makes the affected family unavailable
+		// for the current query. Reset its open state as well, so a later window
+		// cannot attach a valid close to a pre-corruption start.
+		t.resetFamily(failure.Family)
+		return []durationOrderViolation{*failure}
 	}
 	observations := durationOrderObservations(ev)
 	if len(observations) == 0 {
@@ -273,19 +291,22 @@ func durationOrderObservations(ev Event) []durationOrderObservation {
 			return []durationOrderObservation{{lane: lane(durationOrderTraceCounter, key), phase: durationOrderSample}}
 		}
 	case EventWorkqueue:
-		work, function := workqueueFields(ev)
+		work, function := workqueueExactEndpointFields(ev)
 		base, phaseName := workqueueBaseAndPhase(ev.Name)
 		phase, ok := durationPairPhase(phaseName)
-		if !ok {
+		if !ok || len(workqueueEndpointMissingFields(ev, work)) > 0 {
 			return nil
 		}
-		key := strings.Join([]string{fmt.Sprintf("%d", ev.PID), work, function, base}, "\x00")
+		// Function is metadata, not cross-version hard identity: older kernel
+		// execute_end rows may expose only the stable work struct pointer.
+		_ = function
+		key := strings.Join([]string{fmt.Sprintf("%d", ev.PID), work, base}, "\x00")
 		return []durationOrderObservation{{lane: lane(durationOrderWorkqueue, key), phase: phase, owner: ev.PID}}
 	case EventDMAFence:
-		driver, timeline, context, seqno := dmaFenceFields(ev)
+		driver, timeline, context, seqno := dmaFenceExactEndpointFields(ev)
 		base, phaseName := dmaFenceBaseAndPhase(ev.Name)
 		phase, ok := durationPairPhase(phaseName)
-		if !ok {
+		if !ok || len(dmaFenceEndpointMissingFields(ev, driver, timeline, context, seqno)) > 0 {
 			return nil
 		}
 		key := strings.Join([]string{fmt.Sprintf("%d", ev.PID), driver, timeline, context, seqno, base}, "\x00")
