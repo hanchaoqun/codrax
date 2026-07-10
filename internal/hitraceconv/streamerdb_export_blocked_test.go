@@ -91,6 +91,7 @@ func TestTraceDBBlockedReasonOnSStateRemainsZeroDurationMarker(t *testing.T) {
 	statements := traceDBBlockedFixtureSchema()
 	statements = append(statements,
 		"INSERT INTO sched_slice VALUES (1, 900000, 100000, 4, 1, 'S', 40)",
+		"INSERT INTO sched_slice VALUES (2, 1000000, 100000, 4, 2, 'R', 41)",
 		"INSERT INTO thread_state VALUES (1, 1000000, 500000, NULL, 1, 562, 500, 'S', 110)",
 		"INSERT INTO data_dict VALUES (1, 'iowait')",
 		"INSERT INTO data_dict VALUES (2, 'caller')",

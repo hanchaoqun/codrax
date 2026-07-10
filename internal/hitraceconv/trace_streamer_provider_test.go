@@ -883,7 +883,7 @@ func traceStreamerIntegrationDBStatements() []string {
 		"INSERT INTO thread VALUES (3, 301, 2, 'Waker', 100, 1, 1)",
 		"CREATE TABLE sched_slice (ts INT, dur INT, cpu INT, end_state TEXT, priority INT, itid INT)",
 		"INSERT INTO sched_slice VALUES (1000000, 200000, 1, 'S', 42, 2)",
-		"INSERT INTO sched_slice VALUES (1300000, 100000, 1, 'R', 20, 3)",
+		"INSERT INTO sched_slice VALUES (1200000, 100000, 1, 'R', 20, 3)",
 		"CREATE TABLE instant (ts INT, name TEXT, ref INT, wakeup_from INT, ref_type TEXT, value REAL)",
 		"INSERT INTO instant VALUES (900000, 'sched_wakeup', 2, 3, 'itid', NULL)",
 		"CREATE TABLE raw (ts INT, name TEXT, cpu INT, itid INT)",

@@ -296,7 +296,7 @@ func TestExportTraceDBHmtraceComprehensiveFixtureSchema(t *testing.T) {
 	}{
 		{"metadata", "thread", 9},
 		{"slice", "callstack", 6},
-		{"scheduler", "sched_slice", 2},
+		{"scheduler", "sched_slice", 1},
 		{"scheduler", "instant", 2},
 		{"irq", "irq", 4},
 		{"counter", "measure", 2},

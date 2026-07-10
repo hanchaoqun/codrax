@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -18,6 +19,35 @@ type traceDBSchedSlice struct {
 	TID      int64
 	TGID     int64
 	Name     string
+}
+
+type traceDBSchedSourceRow struct {
+	Slice            traceDBSchedSlice
+	CPUAssigned      bool
+	CPUInRange       bool
+	CPUAssignmentGap string
+	TSValid          bool
+	DurationNull     bool
+	DurationValid    bool
+	ValidationGaps   []string
+}
+
+type traceDBSchedCPUAudit struct {
+	Rows    int
+	Reasons map[string]int
+}
+
+type traceDBSchedAudit struct {
+	RowsRead                  int
+	CPUs                      map[int64]*traceDBSchedCPUAudit
+	InvalidCPURows            int
+	InvalidCPUValues          []int64
+	InvalidCPUValuesTruncated bool
+	UnassignedCPURows         int
+	UnassignedCPUReasons      map[string]int
+	OpenTailRows              int
+	ExpectedBoundaryRows      int
+	PeakBufferedSourceRows    int
 }
 
 type traceDBWakeupInstant struct {
@@ -52,7 +82,7 @@ func exportTraceDBSchedulerFamilies(ctx context.Context, tdb *traceDB, sink *tra
 		return coverage, err
 	}
 	stageStart = time.Now()
-	schedCoverage, err := exportTraceDBSchedSwitch(ctx, tdb, sink)
+	schedCoverage, err := exportTraceDBSchedSwitch(ctx, tdb, sink, index)
 	traceDBSetCoverageElapsed(&schedCoverage, stageStart)
 	coverage = append(coverage, schedCoverage)
 	if err != nil {
@@ -145,60 +175,79 @@ func exportTraceDBThreadRegistrations(ctx context.Context, sink *traceDBRowSink,
 	return coverage, nil
 }
 
-func exportTraceDBSchedSwitch(ctx context.Context, tdb *traceDB, sink *traceDBRowSink) (TraceDBCoverage, error) {
+func exportTraceDBSchedSwitch(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, index traceDBThreadIndex) (TraceDBCoverage, error) {
 	coverage, err := tdb.inspectCoverage(ctx, "scheduler", "sched_slice", []string{"ts", "dur", "cpu", "end_state", "priority", "itid"})
+	coverage.FieldSources = map[string]string{
+		"boundary_timestamp": "prev_sched_slice.ts+dur; requires exact equality with next_sched_slice.ts",
+		"continuity":         "complete_per_cpu_audit_before_publish; gap_overlap_mid_null_overflow_fail_cpu_lane",
+		"header_cpu":         "sched_slice.cpu; strict SQLite INTEGER in range 0..4095",
+		"next_identity":      "next_sched_slice.itid->thread.tid/name; canonical itid=0 is swapper; tgid=positive_process.pid_else_thread.tid",
+		"open_tail":          "final sched_slice is retained as an unclosed tail; no synthetic idle close",
+		"prev_identity":      "prev_sched_slice.itid->thread.tid/name; canonical itid=0 is swapper; tgid=positive_process.pid_else_thread.tid",
+		"priority":           "sched_slice.priority; strict signed int32",
+		"state":              "sched_slice.end_state; nonempty TEXT",
+	}
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
 		return coverage, err
 	}
-	rows, err := tdb.db.QueryContext(ctx, `
-		SELECT s.ts, COALESCE(s.dur, 0), s.cpu,
-		       COALESCE(s.end_state, 'R'), COALESCE(s.priority, 120),
-		       t.tid, COALESCE(t.name, 'unknown'), COALESCE(p.pid, t.tid)
-		FROM sched_slice s
-		JOIN thread t ON t.itid = s.itid
-		LEFT JOIN process p ON p.ipid = t.ipid
-		WHERE s.ts IS NOT NULL AND s.cpu IS NOT NULL
-		ORDER BY s.cpu, s.ts
-	`)
+	audit, err := auditTraceDBSchedSwitchRows(ctx, tdb, index)
+	if err != nil {
+		coverage.Error = err.Error()
+		return coverage, err
+	}
+	coverage.RowsRead = audit.RowsRead
+	coverage.PeakBuffered = audit.PeakBufferedSourceRows
+	coverage.Skipped = traceDBSchedAuditSummary(audit)
+	if audit.UnassignedCPURows > 0 {
+		return coverage, nil
+	}
+	rows, err := queryTraceDBSchedSliceRows(ctx, tdb)
 	if err != nil {
 		coverage.Error = err.Error()
 		return coverage, err
 	}
 	defer rows.Close()
-	var prev *traceDBSchedSlice
+	previous := map[int64]traceDBSchedSourceRow{}
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
 			return coverage, err
 		}
-		cur, err := scanTraceDBSchedSlice(rows)
+		current, err := scanTraceDBSchedSourceRow(rows, index)
 		if err != nil {
 			coverage.Error = err.Error()
 			return coverage, err
 		}
-		if prev != nil && prev.CPU != cur.CPU {
-			if err := emitTraceDBSchedSwitch(sink, *prev, nil); err != nil {
+		if !current.CPUAssigned || !current.CPUInRange {
+			continue
+		}
+		cpuAudit := audit.CPUs[current.Slice.CPU]
+		if cpuAudit == nil || len(cpuAudit.Reasons) > 0 {
+			continue
+		}
+		if len(current.ValidationGaps) > 0 {
+			return coverage, fmt.Errorf("sched_slice changed after continuity audit on cpu %d", current.Slice.CPU)
+		}
+		if prev, ok := previous[current.Slice.CPU]; ok {
+			if prev.DurationNull || !prev.DurationValid || !prev.TSValid || !current.TSValid ||
+				prev.Slice.TS > math.MaxInt64-prev.Slice.Dur || prev.Slice.TS+prev.Slice.Dur != current.Slice.TS {
+				return coverage, fmt.Errorf("sched_slice continuity changed after audit on cpu %d", current.Slice.CPU)
+			}
+			if err := emitTraceDBSchedSwitch(sink, prev.Slice, current.Slice); err != nil {
 				return coverage, err
 			}
 			coverage.RowsEmitted++
-			prev = nil
 		}
-		if prev != nil {
-			if err := emitTraceDBSchedSwitch(sink, *prev, &cur); err != nil {
-				return coverage, err
-			}
-			coverage.RowsEmitted++
+		previous[current.Slice.CPU] = current
+		if len(previous) > coverage.PeakBuffered {
+			coverage.PeakBuffered = len(previous)
 		}
-		prev = &cur
 	}
 	if err := rows.Err(); err != nil {
 		coverage.Error = err.Error()
 		return coverage, err
 	}
-	if prev != nil {
-		if err := emitTraceDBSchedSwitch(sink, *prev, nil); err != nil {
-			return coverage, err
-		}
-		coverage.RowsEmitted++
+	if coverage.RowsEmitted != audit.ExpectedBoundaryRows {
+		return coverage, fmt.Errorf("sched_slice boundary publication mismatch: emitted=%d audited=%d", coverage.RowsEmitted, audit.ExpectedBoundaryRows)
 	}
 	return coverage, nil
 }
@@ -491,24 +540,268 @@ func exportTraceDBIRQ(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, a
 	return coverage, nil
 }
 
-func scanTraceDBSchedSlice(rows *sql.Rows) (traceDBSchedSlice, error) {
-	var item traceDBSchedSlice
-	err := rows.Scan(&item.TS, &item.Dur, &item.CPU, &item.EndState, &item.Priority, &item.TID, &item.Name, &item.TGID)
-	return item, err
+func queryTraceDBSchedSliceRows(ctx context.Context, tdb *traceDB) (*sql.Rows, error) {
+	return tdb.db.QueryContext(ctx, `
+		SELECT ts, dur, cpu, end_state, priority, itid
+		FROM sched_slice
+		ORDER BY cpu, ts, rowid
+	`)
 }
 
-func emitTraceDBSchedSwitch(sink *traceDBRowSink, prev traceDBSchedSlice, next *traceDBSchedSlice) error {
-	nextName := "swapper"
-	var nextTID int64
-	nextPrio := int64(120)
-	if next != nil {
-		nextName = traceDBCommName(next.Name, "unknown")
-		nextTID = next.TID
-		nextPrio = next.Priority
+func auditTraceDBSchedSwitchRows(ctx context.Context, tdb *traceDB, index traceDBThreadIndex) (traceDBSchedAudit, error) {
+	audit := traceDBSchedAudit{
+		CPUs:                 map[int64]*traceDBSchedCPUAudit{},
+		UnassignedCPUReasons: map[string]int{},
+	}
+	rows, err := queryTraceDBSchedSliceRows(ctx, tdb)
+	if err != nil {
+		return audit, err
+	}
+	defer rows.Close()
+	lastByCPU := map[int64]traceDBSchedSourceRow{}
+	for rows.Next() {
+		if err := ctx.Err(); err != nil {
+			return audit, err
+		}
+		current, err := scanTraceDBSchedSourceRow(rows, index)
+		if err != nil {
+			return audit, err
+		}
+		audit.RowsRead++
+		if !current.CPUAssigned {
+			audit.UnassignedCPURows++
+			audit.UnassignedCPUReasons[firstNonEmpty(current.CPUAssignmentGap, "non_integer_cpu")]++
+			continue
+		}
+		if !current.CPUInRange {
+			audit.InvalidCPURows++
+			var truncated bool
+			audit.InvalidCPUValues, truncated = appendBoundedUniqueInt64(audit.InvalidCPUValues, current.Slice.CPU, 8)
+			audit.InvalidCPUValuesTruncated = audit.InvalidCPUValuesTruncated || truncated
+			continue
+		}
+		lane := audit.CPUs[current.Slice.CPU]
+		if lane == nil {
+			lane = &traceDBSchedCPUAudit{Reasons: map[string]int{}}
+			audit.CPUs[current.Slice.CPU] = lane
+		}
+		lane.Rows++
+		for _, reason := range current.ValidationGaps {
+			lane.Reasons[reason]++
+		}
+		if previous, ok := lastByCPU[current.Slice.CPU]; ok {
+			switch {
+			case previous.DurationNull:
+				lane.Reasons["midstream_null_duration"]++
+			case previous.TSValid && previous.DurationValid && current.TSValid &&
+				previous.Slice.TS <= math.MaxInt64-previous.Slice.Dur:
+				end := previous.Slice.TS + previous.Slice.Dur
+				switch {
+				case end < current.Slice.TS:
+					lane.Reasons["sched_slice_gap"]++
+				case end > current.Slice.TS:
+					lane.Reasons["sched_slice_overlap"]++
+				}
+			}
+		}
+		lastByCPU[current.Slice.CPU] = current
+		if len(lastByCPU) > audit.PeakBufferedSourceRows {
+			audit.PeakBufferedSourceRows = len(lastByCPU)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return audit, err
+	}
+	for _, lane := range audit.CPUs {
+		if len(lane.Reasons) != 0 || lane.Rows == 0 {
+			continue
+		}
+		audit.OpenTailRows++
+		audit.ExpectedBoundaryRows += lane.Rows - 1
+	}
+	return audit, nil
+}
+
+func scanTraceDBSchedSourceRow(rows *sql.Rows, index traceDBThreadIndex) (traceDBSchedSourceRow, error) {
+	var rawTS, rawDur, rawCPU, rawState, rawPriority, rawITID any
+	if err := rows.Scan(&rawTS, &rawDur, &rawCPU, &rawState, &rawPriority, &rawITID); err != nil {
+		return traceDBSchedSourceRow{}, err
+	}
+	var row traceDBSchedSourceRow
+	cpu, cpuOK := traceDBStrictSQLiteInt(rawCPU)
+	if !cpuOK {
+		row.CPUAssignmentGap = "non_integer_cpu"
+		if rawCPU == nil {
+			row.CPUAssignmentGap = "null_cpu"
+		}
+	} else {
+		row.CPUAssigned = true
+		row.CPUInRange = validTraceDBCPUIndex(cpu)
+		row.Slice.CPU = cpu
+	}
+
+	if ts, ok := traceDBStrictSQLiteInt(rawTS); ok && ts >= 0 {
+		row.Slice.TS = ts
+		row.TSValid = true
+	} else {
+		row.ValidationGaps = append(row.ValidationGaps, "invalid_timestamp")
+	}
+	if rawDur == nil {
+		row.DurationNull = true
+	} else if dur, ok := traceDBStrictSQLiteInt(rawDur); ok && dur >= 0 {
+		row.Slice.Dur = dur
+		row.DurationValid = true
+	} else {
+		row.ValidationGaps = append(row.ValidationGaps, "invalid_duration")
+	}
+	if row.TSValid && row.DurationValid && row.Slice.TS > math.MaxInt64-row.Slice.Dur {
+		row.ValidationGaps = append(row.ValidationGaps, "sched_slice_end_overflow")
+	}
+
+	state, stateOK := rawState.(string)
+	state = strings.TrimSpace(state)
+	if !stateOK || state == "" {
+		row.ValidationGaps = append(row.ValidationGaps, "invalid_or_empty_state")
+	} else {
+		row.Slice.EndState = state
+	}
+	if priority, ok := traceDBStrictSQLiteInt(rawPriority); ok && priority >= math.MinInt32 && priority <= math.MaxInt32 {
+		row.Slice.Priority = priority
+	} else {
+		row.ValidationGaps = append(row.ValidationGaps, "invalid_priority")
+	}
+
+	itid, itidOK := traceDBStrictSQLiteInt(rawITID)
+	if !itidOK || itid < 0 {
+		row.ValidationGaps = append(row.ValidationGaps, "invalid_itid")
+		return row, nil
+	}
+	if itid == 0 {
+		// ProcessFilter seeds tidMappingSet_(0, 0): internal thread id 0 is the
+		// one canonical idle/swapper identity even though the thread table omits
+		// it. No other missing itid is eligible for this projection.
+		row.Slice.Name = "swapper"
+		return row, nil
+	}
+	thread, threadOK := index.ByITID[itid]
+	if !threadOK {
+		row.ValidationGaps = append(row.ValidationGaps, "missing_thread_identity")
+		return row, nil
+	}
+	if thread.TID <= 0 || thread.TID > math.MaxInt32 {
+		row.ValidationGaps = append(row.ValidationGaps, "invalid_thread_tid")
+		return row, nil
+	}
+	row.Slice.TID = thread.TID
+	row.Slice.Name = thread.Name
+	row.Slice.TGID = thread.TID
+	if process, ok := index.Processes[thread.IPID]; ok {
+		if process.PID < 0 || process.PID > math.MaxInt32 {
+			row.ValidationGaps = append(row.ValidationGaps, "invalid_tgid")
+			return row, nil
+		}
+		if process.PID > 0 {
+			row.Slice.TGID = process.PID
+		}
+	}
+	return row, nil
+}
+
+func traceDBStrictSQLiteInt(value any) (int64, bool) {
+	switch v := value.(type) {
+	case int64:
+		return v, true
+	case int:
+		return int64(v), true
+	case int32:
+		return int64(v), true
+	case int16:
+		return int64(v), true
+	case int8:
+		return int64(v), true
+	default:
+		return 0, false
+	}
+}
+
+func appendBoundedUniqueInt64(values []int64, value int64, limit int) ([]int64, bool) {
+	for _, current := range values {
+		if current == value {
+			return values, false
+		}
+	}
+	if limit > 0 && len(values) >= limit {
+		return values, true
+	}
+	return append(values, value), false
+}
+
+func traceDBSchedAuditSummary(audit traceDBSchedAudit) string {
+	var parts []string
+	if audit.UnassignedCPURows > 0 {
+		parts = append(parts, fmt.Sprintf("family_fail_closed=true rows_suppressed=%d unassigned_cpu_rows=%d reasons=%s",
+			audit.RowsRead, audit.UnassignedCPURows, traceDBCountSummary(audit.UnassignedCPUReasons)))
+	} else {
+		suppressedRows := audit.InvalidCPURows
+		for _, lane := range audit.CPUs {
+			if len(lane.Reasons) > 0 {
+				suppressedRows += lane.Rows
+			}
+		}
+		if suppressedRows > 0 {
+			parts = append(parts, fmt.Sprintf("rows_suppressed=%d", suppressedRows))
+		}
+	}
+	if audit.InvalidCPURows > 0 {
+		values := append([]int64(nil), audit.InvalidCPUValues...)
+		sort.Slice(values, func(i, j int) bool { return values[i] < values[j] })
+		detail := fmt.Sprintf("invalid_cpu_rows=%d values=%v", audit.InvalidCPURows, values)
+		if audit.InvalidCPUValuesTruncated {
+			detail += " values_truncated=true"
+		}
+		parts = append(parts, detail)
+	}
+	cpus := make([]int64, 0, len(audit.CPUs))
+	for cpu, lane := range audit.CPUs {
+		if len(lane.Reasons) > 0 {
+			cpus = append(cpus, cpu)
+		}
+	}
+	sort.Slice(cpus, func(i, j int) bool { return cpus[i] < cpus[j] })
+	for _, cpu := range cpus {
+		lane := audit.CPUs[cpu]
+		parts = append(parts, fmt.Sprintf("cpu=%03d suppressed_rows=%d reasons=%s", cpu, lane.Rows, traceDBCountSummary(lane.Reasons)))
+	}
+	if audit.OpenTailRows > 0 {
+		parts = append(parts, fmt.Sprintf("accounting: open_tail_rows=%d synthetic_idle_closes=0", audit.OpenTailRows))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func traceDBCountSummary(counts map[string]int) string {
+	keys := make([]string, 0, len(counts))
+	for key, count := range counts {
+		if count > 0 {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%d", key, counts[key]))
+	}
+	return strings.Join(parts, ",")
+}
+
+func emitTraceDBSchedSwitch(sink *traceDBRowSink, prev, next traceDBSchedSlice) error {
+	if prev.CPU != next.CPU || prev.TS < 0 || prev.Dur < 0 || next.TS < 0 ||
+		prev.TS > math.MaxInt64-prev.Dur || prev.TS+prev.Dur != next.TS {
+		return fmt.Errorf("refusing non-contiguous sched_slice boundary on cpu %d", prev.CPU)
 	}
 	ts := prev.TS + prev.Dur
 	body := fmt.Sprintf("sched_switch: prev_comm=%s prev_pid=%d prev_prio=%d prev_state=%s ==> next_comm=%s next_pid=%d next_prio=%d",
-		traceDBCommName(prev.Name, "unknown"), prev.TID, prev.Priority, firstNonEmpty(prev.EndState, "R"), nextName, nextTID, nextPrio)
+		traceDBCommName(prev.Name, "unknown"), prev.TID, prev.Priority, prev.EndState,
+		traceDBCommName(next.Name, "unknown"), next.TID, next.Priority)
 	return sink.add(renderedRow{
 		tsNS: uint64(ts),
 		seq:  sink.stats.RowsAccepted,
