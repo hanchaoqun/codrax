@@ -1971,7 +1971,7 @@ finalizer 多轮修复=大量 token 交互反复且小模型输出不稳定(后�
 
 因果投影无损明细的宽屏/打印两栏布局已具备整体小字号、节点列表 `break-inside` 与窄屏退单栏，但 E# 三级标题此前可单独落在左列末尾、其属性块跳到右列。HTML CSS 为精确 wrapper 下的直接 `h3` 增加 `break-after: avoid-column` / `break-inside: avoid-column`，只约束列分页，不改变章节顺序、Markdown/终端或证据内容；standalone CSS 测试机械 pin。同期清理 finalizer recovery 路径中“hedging 尚非幂等”的过时注释，代码现状已由 C15 的 marker upsert + private caveat reconcile 保证重复渲染收敛。
 
-## §29.30 tracediag 自动补采窗演化（2026-07-10，`3e90dfc48` / `29d121d3f` / `51e26d958` / `8070f10db`）
+## §29.30 tracediag 自动补采窗演化（2026-07-10，`3e90dfc48` / `29d121d3f` / `51e26d958` / `8070f10db` / `af1fce213`）
 
 **触发**：生产回访的 `raw_io_pairing_rows` 在 151ms 父窗内出现 `120/251` 截断；要求客户继续手工猜第二个窗口既容易漏掉 carry-in，也会把“小窗无行”误读成“无并发”。裁定为零 LLM 的确定性自动发现，而不是让模型按关键词/热度猜窗。
 
@@ -1983,6 +1983,8 @@ finalizer 多轮修复=大量 token 交互反复且小模型输出不稳定(后�
 
 **tracediag v2**：`51e26d958` 保留 v1 静态路径，新增顶层 `discoveries` 与步骤 `windows_from.discovery` 的受限 typed 合约，不开放 JSONPath、模板字符串或任意前序 prose 解析。静态验证覆盖 closed strategy/family、全局 label、父窗、NaN/Inf、window/line 互斥、generated-window/expanded-step/report 最坏预算；动态实例不继承 defaults.window，使用 discovery 结果并标 `FrameWindowAutoDerived=true`。报告先显示发现结果和完整执行计划，再显示证据；`dependency_empty/failed` 明确阻断且不回退父窗。generated event_search 为 result/window/header 预留行，确保所有已返回 raw row 可见；若引擎 compaction，实例转失败并发布 matched/emitted，不能称 N/N witness。
 
-**客户心智与扩展边界**：通用 `collect_open_gap_witness.yaml` 只保留“四个目标 TID”这类策略专属输入，父窗统一由 `--trace-window` 注入，IO 步自动 fan-out；专用 `collect_io_pairing_witness.yaml` 无需 PID 或 YAML 编辑，可覆盖最多 8 个小窗。模板以 `inputs.window=required` 声明父窗，漏传时 fail-loud，不存在演示占位窗静默运行。加载层使用 closed typed overrides 与 required-input schema，未来其它收集类型新增 discovery strategy 后仍投影统一 `DiscoveredWindow`；下游 `windows_from`、CLI 父窗和 source/budget/provenance 合约不变。`window_sweep` 的 scheduler hotspot 不被冒充 pairing 完整窗，LLM 也不参与选窗。
+**客户心智与扩展边界**：通用 `collect_open_gap_witness.yaml` 的目标 TID 与父窗分别由 `--trace-tid`、`--trace-window` 注入，无需复制或编辑 YAML，IO 步自动 fan-out；专用 `collect_io_pairing_witness.yaml` 无需 TID，可覆盖最多 8 个小窗。模板以 `inputs.tid/window=required` 声明输入，漏传时 fail-loud，不存在演示占位值静默运行。TID 只绑定声明 `pid_from: tid` 的目标视图；raw completion/trace-mark 等步骤不绑定，避免丢失 IRQ/kworker 对端。加载层使用 closed typed overrides 与 required-input schema，未来其它收集类型新增 discovery strategy 后仍投影统一 `DiscoveredWindow`；下游 `windows_from`、CLI 输入和 source/budget/provenance 合约不变。`window_sweep` 的 scheduler hotspot 不被冒充 pairing 完整窗，LLM 也不参与选窗。
 
 **CLI 收口与实测**：`8070f10db` 增加 `--trace-window`、closed `ScriptOverrides` 与 v2 `inputs.window=required`；override 只写 `defaults.window`，显式 step/discovery 窗保持权威，报告记录 `source=cli_flag target=defaults.window`，静态报告预算预留该 provenance 行。漏 flag 在创建有效报告前明确报 `requires --trace-window`。以 `customlogs/a.systrace` 的 `2942.240..2942.260` 父窗实跑专用模板，确定性生成 `2942.240207..2942.250306`（10.099ms）子窗，原样发布 line 53 `block_rq_issue` 与 line 67 `block_rq_complete`，`complete=true`、`identity_complete=true`、source lock validated；`parse_complete=false` 仍原样披露为 caveat，不把未解析行包装成全文件完备。该实测证明“原模板不编辑 + 单父窗参数 → typed discovery → fan-out → 双端 witness”执行链路闭合。
+
+**typed TID 输入**：`af1fce213` 增加 `--trace-tid`、`inputs.tid: required` 与闭集 `pid_from: tid`。TID 只注入显式绑定步骤，未绑定步骤继续服从原 YAML selector/default；v1、无声明、无消费者、显式 pid/thread 双 authority、非 ASCII 十进制或超出 `1..2147483647` 均 fail-loud。绑定值私有 provenance 保证重复 Validate 幂等，事后篡改 PID 会失败；v1 renderer 零漂移，v2 报告以规范整数记录 `source=cli_flag target=pid_from:tid`。真实 `a.systrace` 用 `--trace-tid 36644 --trace-window 2942.240..2942.260` 跑通通用八步包，共 452 行，四个目标步骤参数均为 PID 36644，四个 raw 步骤无 PID；IRQ 线程 TID 85 发出的 line 67 `block_rq_complete` 仍进入 raw IO witness，全部 8 个实例成功。漏 TID 明确报 `requires --trace-tid`，不发布伪报告。
