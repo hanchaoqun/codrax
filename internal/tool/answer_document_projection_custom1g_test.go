@@ -157,7 +157,7 @@ func TestRuntimeTraceProjWindowLineTargetSymptomDenominator(t *testing.T) {
 		}
 	}
 	en := runtimeTraceProjWindowLine(projection, custom1gWindowModel(true), false)
-	if !strings.Contains(en, "Of the target's 11.716ms wait time (sleep/D-state/runnable), on-chain attributed 3.391ms (29%), unattributed 8.325ms (71%)") {
+	if !strings.Contains(en, "Of the focused thread's 11.716ms wait time (sleep/D-state/runnable), on-chain attributed 3.391ms (29%), unattributed 8.325ms (71%)") {
 		t.Fatalf("EN coverage must use the symptom denominator:\n%s", en)
 	}
 }

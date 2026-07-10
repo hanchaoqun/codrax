@@ -90,7 +90,7 @@ func nxtNextStepTexts(t *testing.T, bus *types.BusContext) []string {
 // nxtPointedRowZH is the N1 verbatim pin for the huadong binder_wait form:
 // subject (+ cause word + engine rank), WHY (深度未解析 — the tree edge's own
 // user-facing vocabulary) and HOW (the tool-visible view names).
-const nxtPointedRowZH = "对主根因 oney.hmn.berlin-42591(binder等待,rank=1)在其发生窗执行 wakeup_chain / critical_blocking_calls 下钻:该行当前深度未解析,尚无已核实的上游因果"
+const nxtPointedRowZH = "对主根因 oney.hmn.berlin-42591(binder等待,根因排序#1)在其发生窗执行 wakeup_chain / critical_blocking_calls 下钻:该行当前深度未解析,尚无已核实的上游因果"
 
 // TestRuntimeTraceNextStepUndrilledHeadlinePointedRow — N1 positive pin
 // (huadong_01 shape): the pointed row leads the single-trace list VERBATIM,
@@ -267,7 +267,7 @@ func TestRuntimeTraceNextStepUndrilledHeadlineFloorOnComparisonShape(t *testing.
 	}
 	// The pointed row takes its guaranteed floor seat right behind the
 	// comparison family, artifact-labeled on the multi-artifact ledger.
-	want := "对主根因 oney.hmn.berlin-42591(binder等待,rank=1,nxt_a.systrace)在其发生窗执行 wakeup_chain / critical_blocking_calls 下钻:该行当前深度未解析,尚无已核实的上游因果"
+	want := "对主根因 oney.hmn.berlin-42591(binder等待,根因排序#1,nxt_a.systrace)在其发生窗执行 wakeup_chain / critical_blocking_calls 下钻:该行当前深度未解析,尚无已核实的上游因果"
 	if texts[4] != want {
 		t.Fatalf("N2 floor: pointed row must survive a cap-full comparison family:\nwant %q\n got %q", want, texts[4])
 	}
@@ -287,7 +287,7 @@ func TestRuntimeTraceNextStepUndrilledHeadlineEnglishWording(t *testing.T) {
 	bus.ToolResults = []types.ToolResult{{ToolName: "trace_query", Success: true,
 		Observations: nxtHuadongObs("cust_trace_huadong_01.systrace")}}
 	texts := nxtNextStepTexts(t, bus)
-	want := "Drill into the primary root cause oney.hmn.berlin-42591 (binder_wait, rank=1) with wakeup_chain / critical_blocking_calls in its occurrence window: its chain depth is unresolved and no verified upstream cause is attached yet"
+	want := "Drill into the primary root cause oney.hmn.berlin-42591 (binder_wait, root-cause rank #1) with wakeup_chain / critical_blocking_calls in its occurrence window: its chain depth is unresolved and no verified upstream cause is attached yet"
 	if len(texts) == 0 || texts[0] != want {
 		t.Fatalf("EN pointed row missing or drifted:\nwant %q\n got %q", want, texts)
 	}

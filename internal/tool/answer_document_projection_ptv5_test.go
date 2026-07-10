@@ -226,7 +226,7 @@ func TestPTV5HopOnlyCoverageInfoLine(t *testing.T) {
 		t.Fatalf("hop-only shape must relate target sleep to the chain-explained share:\n%s", line)
 	}
 	en := runtimeTraceProjWindowLine(projection, model, false)
-	if !strings.Contains(en, "Of the target's 120.000ms sleep, 40.000ms is explained on-chain.") {
+	if !strings.Contains(en, "Of the focused thread's 120.000ms sleep, 40.000ms is explained on-chain.") {
 		t.Fatalf("EN hop-only info line missing:\n%s", en)
 	}
 	// 突变形态: a state-view symptom row exists → the (a) variant renders and

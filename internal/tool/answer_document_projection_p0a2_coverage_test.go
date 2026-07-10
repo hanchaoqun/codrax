@@ -283,7 +283,7 @@ func TestP0A2TargetSymptomCellHopOnlyCaliberAnnotation(t *testing.T) {
 		t.Fatalf("hop arm enum expected, got %d", arm)
 	}
 	en, _, _ := runtimeTraceProjCompareTargetSymptomCell(projection, model, false)
-	if en != "1300.441ms (wakeup-chain-view target sleep, not a state-segment aggregate)" {
+	if en != "1300.441ms (wakeup-chain-view focused-thread sleep, not a state-segment aggregate)" {
 		t.Fatalf("EN hop-only cell must carry the view-caliber annotation: %q", en)
 	}
 }

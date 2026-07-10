@@ -389,7 +389,7 @@ func TestCOVCrossBaseDenominatorCollapseFormSwitch(t *testing.T) {
 		t.Fatalf("0.011ms must not masquerade as the 全称 wait claim:\n%s", line)
 	}
 	en := runtimeTraceProjWindowLine(projection, buildRuntimeTraceProjTreeModel(projection, nil, false), false)
-	if !strings.Contains(en, "Only the direct wait inside the analysis window, 0.011ms, is counted; 2 more target state row(s) are not in the denominator (single largest 6.661ms)") {
+	if !strings.Contains(en, "Only the direct wait inside the analysis window, 0.011ms, is counted; 2 more focused-thread state row(s) are not in the denominator (single largest 6.661ms)") {
 		t.Fatalf("EN crossBase collapse must fork the same way:\n%s", en)
 	}
 }

@@ -69,7 +69,7 @@ func TestRuntimeTraceProjTargetSymptomExcludesNestedBlockingViewRow(t *testing.T
 		t.Fatalf("the 18ms double-count / 44%% share must be gone:\n%s", line)
 	}
 	en := runtimeTraceProjWindowLine(projection, model, false)
-	if !strings.Contains(en, "Of the target's 10.000ms wait time (sleep/D-state/runnable), on-chain attributed 8.000ms (80%)") {
+	if !strings.Contains(en, "Of the focused thread's 10.000ms wait time (sleep/D-state/runnable), on-chain attributed 8.000ms (80%)") {
 		t.Fatalf("EN surface must fork the same way:\n%s", en)
 	}
 }

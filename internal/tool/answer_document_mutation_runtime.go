@@ -1625,7 +1625,7 @@ func runtimeTraceProjCompareOverviewBlocks(projections []types.TraceCausalProjec
 	// read as a total.
 	columns := []string{"trace 文件", "主根因(根因排序#1)", "关注线程症状时长", "链上已归因(单项最大)", "背景压力"}
 	if !zh {
-		columns = []string{"Artifact", "Primary root cause (rank=1)", "Target symptom", "On-chain attributed (single largest)", "Background pressure"}
+		columns = []string{"Trace file", "Primary root cause (root-cause rank #1)", "Focused-thread symptom duration", "On-chain attributed (single largest)", "Background pressure"}
 	}
 	if hasOptimization {
 		if zh {
@@ -1644,7 +1644,7 @@ func runtimeTraceProjCompareOverviewBlocks(projections []types.TraceCausalProjec
 	if zh {
 		columns = append(columns, "分析窗")
 	} else {
-		columns = append(columns, "Projection window")
+		columns = append(columns, "Analysis window")
 	}
 	dash := "—"
 	msCell := func(v float64) string {
@@ -1762,7 +1762,7 @@ func runtimeTraceProjCompareOverviewBlocks(projections []types.TraceCausalProjec
 		// name the actual bases instead so the densities stay recomputable.
 		note := "⚠ 两侧分析窗长度不等,背景压力已按各自窗长归一化"
 		if !zh {
-			note = "⚠ Projection window lengths differ; background pressure is normalized per window"
+			note = "⚠ Analysis-window lengths differ; background pressure is normalized per analysis window"
 		}
 		if densityBaseDiffersFromProjWindow {
 			bases := strings.Join(densityBases, " / ")
@@ -1788,7 +1788,7 @@ func runtimeTraceProjCompareOverviewBlocks(projections []types.TraceCausalProjec
 		bases            []runtimeTraceProjCompareCellWindowBase
 	}{
 		{"主根因", "Primary root cause", primaryBases},
-		{"关注线程症状时长", "Target symptom", symptomBases},
+		{"关注线程症状时长", "Focused-thread symptom duration", symptomBases},
 		{"链上已归因(单项最大)", "On-chain attributed (single largest)", chainBases},
 	}
 	windowBaseMerged := make([]bool, len(windowBaseLanes))
@@ -1880,7 +1880,7 @@ func runtimeTraceProjCompareOverviewBlocks(projections []types.TraceCausalProjec
 	text := "跨 trace 对比总览:数值来自各份 trace 独立的投影,跨线程累计值带单位标注,详情见各 trace 分段。"
 	if !zh {
 		title = "Trace Causal Projection Comparison Overview"
-		text = "Cross-trace comparison overview: every value comes from each artifact's independent projection (structured fields); cross-thread cumulative values carry their unit annotation. Details live in the per-artifact sections."
+		text = "Cross-trace comparison overview: every value comes from an independent projection of each trace file; cross-thread cumulative values carry their unit annotation. Details live in the per-trace-file sections."
 	}
 	// PTV8-LAD L6: layer by importance (同类相邻), fold past the visible cap;
 	// the folded set rides the 对比注记明细 sibling whole.
@@ -1948,7 +1948,7 @@ func runtimeTraceProjCompareTargetSymptomCell(projection types.TraceCausalProjec
 			if zh {
 				cell = fmt.Sprintf("%.3fms(仅计入分析窗内直接等待;另有 %d 条关注线程状态行未计入,单项最大 %.3fms;链上/自身数据横跨多个查询窗)", symptom, excluded, excludedMax)
 			} else {
-				cell = fmt.Sprintf("%.3fms (direct waits inside the analysis window only; %d more target state row(s) uncounted, single largest %.3fms; the chain/self data spans multiple query windows)", symptom, excluded, excludedMax)
+				cell = fmt.Sprintf("%.3fms (direct waits inside the analysis window only; %d more focused-thread state row(s) uncounted, single largest %.3fms; the chain/self data spans multiple query windows)", symptom, excluded, excludedMax)
 			}
 		case crossBase:
 			if zh {
@@ -1959,7 +1959,7 @@ func runtimeTraceProjCompareTargetSymptomCell(projection types.TraceCausalProjec
 		case excluded > 0 && excludedMax > symptom:
 			cell = fmt.Sprintf("%.3fms(仅计入分析窗内直接等待;另有 %d 条关注线程状态行未计入,单项最大 %.3fms)", symptom, excluded, excludedMax)
 			if !zh {
-				cell = fmt.Sprintf("%.3fms (direct waits inside the analysis window only; %d more target state row(s) uncounted, single largest %.3fms)", symptom, excluded, excludedMax)
+				cell = fmt.Sprintf("%.3fms (direct waits inside the analysis window only; %d more focused-thread state row(s) uncounted, single largest %.3fms)", symptom, excluded, excludedMax)
 			}
 		default:
 			cell = fmt.Sprintf("%.3fms(全窗状态统计)", symptom)
@@ -1979,7 +1979,7 @@ func runtimeTraceProjCompareTargetSymptomCell(projection types.TraceCausalProjec
 		if zh {
 			return fmt.Sprintf("%.3fms(唤醒链采样到的关注线程睡眠合计,非全窗状态统计)", hopSleep), runtimeTraceProjCompareSymptomArmHop, base
 		}
-		return fmt.Sprintf("%.3fms (wakeup-chain-view target sleep, not a state-segment aggregate)", hopSleep), runtimeTraceProjCompareSymptomArmHop, base
+		return fmt.Sprintf("%.3fms (wakeup-chain-view focused-thread sleep, not a state-segment aggregate)", hopSleep), runtimeTraceProjCompareSymptomArmHop, base
 	}
 	return "—", runtimeTraceProjCompareSymptomArmNone, runtimeTraceProjCompareCellWindowBase{}
 }
@@ -2017,7 +2017,7 @@ func runtimeTraceProjCompareSymptomCaliberNote(arms []runtimeTraceProjCompareSym
 	if zh {
 		return "⚠ 关注线程症状时长列两侧口径不同(全窗状态统计 / 唤醒链采样合计),不可直接对读"
 	}
-	return "⚠ The target-symptom column mixes two calibers (whole-window state statistics / wakeup-chain sampled); the two sides cannot be read straight across"
+	return "⚠ The focused-thread-symptom column mixes two calibers (whole-window state statistics / wakeup-chain sampled); the two sides cannot be read straight across"
 }
 
 // runtimeTraceProjCompareCellWindowBase is one comparison-overview cell's
@@ -2646,11 +2646,11 @@ func runtimeTraceProjCompareDisjointTimeBaseNote(projections []types.TraceCausal
 		return fmt.Sprintf("⚠ %s(%s),不可直接在同一时间轴对齐;对比请以各自窗口内相对指标为准",
 			subject, strings.Join(spans, ","))
 	}
-	subject := "The two artifacts' time bases do not overlap"
+	subject := "The two trace files' time bases do not overlap"
 	if len(projections) > 2 {
-		subject = "The artifacts' time bases are pairwise disjoint"
+		subject = "The trace files' time bases are pairwise disjoint"
 	}
-	return fmt.Sprintf("⚠ %s (%s); they cannot be aligned directly on one shared timeline — compare relative metrics within each artifact's own window",
+	return fmt.Sprintf("⚠ %s (%s); they cannot be aligned directly on one shared timeline — compare relative metrics within each trace file's own window",
 		subject, strings.Join(spans, ", "))
 }
 
@@ -2795,7 +2795,7 @@ func runtimeTraceProjPartitionCaveatBlock(set types.TraceCausalProjectionSet, zh
 		if zh {
 			parts = append(parts, fmt.Sprintf("%d 条观测无法归属到任一 trace 文件,未纳入投影。", set.UnattributedObservationCount))
 		} else {
-			parts = append(parts, fmt.Sprintf("%d observation(s) carried no artifact identity and were left out of every projection.", set.UnattributedObservationCount))
+			parts = append(parts, fmt.Sprintf("%d observation(s) carried no trace-file identity and were left out of every projection.", set.UnattributedObservationCount))
 		}
 	}
 	if len(set.OmittedArtifactLabels) > 0 {
@@ -2803,7 +2803,7 @@ func runtimeTraceProjPartitionCaveatBlock(set types.TraceCausalProjectionSet, zh
 			parts = append(parts, fmt.Sprintf("trace 文件分区数超过上限,仅保留观测最多的 %d 个;未展示: %s。",
 				len(set.Projections), strings.Join(set.OmittedArtifactLabels, "、")))
 		} else {
-			parts = append(parts, fmt.Sprintf("Artifact partitions exceeded the cap; the %d with the most observations are shown. Omitted: %s.",
+			parts = append(parts, fmt.Sprintf("Trace-file partitions exceeded the cap; the %d with the most observations are shown. Omitted: %s.",
 				len(set.Projections), strings.Join(set.OmittedArtifactLabels, ", ")))
 		}
 	}
@@ -5754,7 +5754,7 @@ func runtimeTraceNextStepUnsampledComparisonHint(ctx *types.BusContext, ledger t
 	if zh {
 		return "另一份 trace 本报告未取数:对其余未取数的 trace 文件以同口径(同窗)执行查询后再对比"
 	}
-	return "The other trace was not queried this round: run the same-caliber queries (same window/same views) on the remaining trace artifacts, then compare"
+	return "The other trace was not queried for this report: run the same-caliber queries (same window) on the remaining trace files, then compare"
 }
 
 // runtimeTraceNextStepUndrilledHeadlineHints returns the NXT pointed
@@ -5861,7 +5861,11 @@ func runtimeTraceNextStepUndrilledHeadlineText(lead types.TraceCausalProjectionN
 		quals = append(quals, cause)
 	}
 	if lead.Rank > 0 {
-		quals = append(quals, fmt.Sprintf("rank=%d", lead.Rank))
+		if zh {
+			quals = append(quals, fmt.Sprintf("根因排序#%d", lead.Rank))
+		} else {
+			quals = append(quals, fmt.Sprintf("root-cause rank #%d", lead.Rank))
+		}
 	}
 	if artifact != "" {
 		quals = append(quals, artifact)

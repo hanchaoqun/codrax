@@ -74,7 +74,7 @@ func TestCOV2SymptomCellDominanceCollapseDiscloses(t *testing.T) {
 		t.Fatalf("state arm expected, got %d", arm)
 	}
 	en, _, _ := runtimeTraceProjCompareTargetSymptomCell(types.TraceCausalProjection{}, model, false)
-	if en != "3.262ms (direct waits inside the analysis window only; 1 more target state row(s) uncounted, single largest 456.725ms)" {
+	if en != "3.262ms (direct waits inside the analysis window only; 1 more focused-thread state row(s) uncounted, single largest 456.725ms)" {
 		t.Fatalf("EN collapsed cell mismatch: %q", en)
 	}
 }

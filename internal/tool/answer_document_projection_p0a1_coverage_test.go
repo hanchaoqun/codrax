@@ -65,10 +65,10 @@ func TestRuntimeTraceProjCoverageJitterOvershootKeepsSymptomDenominator(t *testi
 		}
 	}
 	en := runtimeTraceProjWindowLine(p0a1Projection, model, false)
-	if !strings.Contains(en, "Of the target's 112.175ms wait time (sleep/D-state/runnable), on-chain attributed 112.175ms (100%), unattributed 0.000ms (0%)") {
+	if !strings.Contains(en, "Of the focused thread's 112.175ms wait time (sleep/D-state/runnable), on-chain attributed 112.175ms (100%), unattributed 0.000ms (0%)") {
 		t.Fatalf("EN surface must fork the same way:\n%s", en)
 	}
-	if !strings.Contains(en, "The largest single on-chain caliber is 112.223ms, 0.048ms past the target wait") {
+	if !strings.Contains(en, "The largest single on-chain caliber is 112.223ms, 0.048ms past the focused-thread wait") {
 		t.Fatalf("EN surface must disclose the raw caliber total:\n%s", en)
 	}
 	if strings.Contains(en, "unattributed residual 6.838ms") || strings.Contains(en, "94%") {
@@ -102,7 +102,7 @@ func TestRuntimeTraceProjCoverageGrossOvershootPublishesBothMagnitudesNoPercent(
 		t.Fatalf("in-window overshoot must not claim the state crosses the window:\n%s", line)
 	}
 	en := runtimeTraceProjWindowLine(p0a1Projection, model, false)
-	if !strings.Contains(en, "Target wait (sleep/D-state/runnable) 20.000ms; the largest single on-chain caliber is 60.000ms, 40.000ms beyond the target wait") {
+	if !strings.Contains(en, "Focused-thread wait (sleep/D-state/runnable) 20.000ms; the largest single on-chain caliber is 60.000ms, 40.000ms beyond the focused-thread wait") {
 		t.Fatalf("EN gross overshoot must fork the same way:\n%s", en)
 	}
 	if strings.Contains(en, "unattributed residual ") || strings.Contains(en, "(100%)") {

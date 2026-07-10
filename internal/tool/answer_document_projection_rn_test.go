@@ -142,7 +142,7 @@ func TestRNUnconsumedPrimaryTierBackgroundRowDemotesPositionLabel(t *testing.T) 
 	// EN mirror of the demoted cell (T10 (b) surface).
 	enModel := buildRuntimeTraceProjTreeModel(projection, nil, false)
 	enFull := runtimeTraceProjDetailFullText(enModel, false)
-	if !strings.Contains(enFull, "background (context) (rank=1)") {
+	if !strings.Contains(enFull, "background (context) (root-cause rank #1)") {
 		t.Fatalf("EN demoted cell missing:\n%s", enFull)
 	}
 	for _, banned := range []string{"primary focus", "primary (handle first)"} {

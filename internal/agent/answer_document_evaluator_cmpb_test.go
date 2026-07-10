@@ -201,6 +201,35 @@ func TestAnswerDocumentEvaluator_TraceQuerySupplementMarksOutsideWindowObservati
 	}
 }
 
+// EN-CLOSED-SET pin (2026-07-10): user-facing reports call the selected
+// interval the analysis window. Keep the English outside-window note on that
+// canonical term while preserving the established Chinese face.
+func TestTraceQueryObservationOutsideWindowNote_UsesAnalysisWindowInEnglish(t *testing.T) {
+	record := types.ObservationRecord{
+		SourceRef: types.ObservationSourceRef{
+			Kind:       types.ObservationSourceRuntimeArtifact,
+			ArtifactID: "seven.systrace",
+		},
+		Span: types.ObservationSpan{StartTs: 30, EndTs: 31},
+	}
+	set := types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{{
+		ArtifactLabel: "seven.systrace",
+		WindowStartTs: 10,
+		WindowEndTs:   20,
+	}}}
+
+	en := traceQueryObservationOutsideWindowNote(record, set, false)
+	if !strings.Contains(en, "(outside the analysis window)") {
+		t.Fatalf("English outside-window note must use the canonical analysis-window term: %q", en)
+	}
+	if strings.Contains(en, "outside the projection window") {
+		t.Fatalf("retired English projection-window wording must not render: %q", en)
+	}
+	if zh := traceQueryObservationOutsideWindowNote(record, set, true); zh != "(窗外观测)" {
+		t.Fatalf("Chinese outside-window note must stay byte-identical: %q", zh)
+	}
+}
+
 // CMP-7b pin (supplement face): a missing_wakeup absence observation shows the
 // artifact name without its synthetic line number.
 func TestAnswerDocumentEvaluator_TraceQuerySupplementDropsSyntheticMissingWakeupLine(t *testing.T) {

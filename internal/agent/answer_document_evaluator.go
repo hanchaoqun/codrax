@@ -12866,7 +12866,7 @@ func traceQueryObservationOutsideWindowNote(record types.ObservationRecord, set 
 	if zh {
 		return "(窗外观测)"
 	}
-	return " (outside the projection window)"
+	return " (outside the analysis window)"
 }
 
 // traceQueryObservationProjectionWindow resolves the projection window of the

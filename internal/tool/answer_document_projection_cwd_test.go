@@ -371,8 +371,8 @@ func TestCWDCoverageSentenceCrossWindowBase(t *testing.T) {
 	}
 
 	en := runtimeTraceProjWindowLine(projection, model, false)
-	if !strings.Contains(en, "the denominator is that window, not the requested window above") ||
-		!strings.Contains(en, "not the requested window above), 94.466ms is explained on-chain.") {
+	if !strings.Contains(en, "the denominator is that window, not the analysis window above") ||
+		!strings.Contains(en, "not the analysis window above), 94.466ms is explained on-chain.") {
 		t.Fatalf("EN same-base coverage rendering missing:\n%s", en)
 	}
 

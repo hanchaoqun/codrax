@@ -63,7 +63,7 @@ func TestB6FoldRosterPointsToPublishedRankSeat(t *testing.T) {
 			break
 		}
 	}
-	if enFold == nil || enFold.Node.MergedSubjects[0] != "ranked-10 (see rank #2)" ||
+	if enFold == nil || enFold.Node.MergedSubjects[0] != "ranked-10 (see root-cause rank #2)" ||
 		enFold.Node.MergedSubjects[1] != "hidden-11" {
 		t.Fatalf("EN model roster pointer parity failed: %+v", enFold)
 	}
