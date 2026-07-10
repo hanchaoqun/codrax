@@ -28,6 +28,9 @@ kubectl logs pod/foo | ./codrax --repo . --request "analyse crash" --log -
 # REPL: /log <path>  |  /log (paste, end /end)  |  /log clear  |  /log show
 # Same shape: --htrace / --atrace and /htrace / /atrace.
 
+# Zero-LLM deterministic trace collection (--tracediag mode; pure read, bypasses the LLM pipeline entirely):
+./codrax --tracediag examples/tracediag/collect_open_gap_witness.yaml --trace t.systrace --trace-window 10.0..10.2 --trace-tid 1234 --out report.txt
+
 # Write mode (CLI explicit opt-in; REPL auto route enters Auto Pilot; refused when write_enabled: false):
 ./codrax --mode=write --request "add X"
 ./codrax --mode=write --write-phase=plan --request "add X" --plan-out /tmp/p.json  # advanced plan-only
@@ -46,17 +49,21 @@ For everything else — stage table, agent contracts, retry layering, write-mode
 
 ## Red lines (enforced by structural tests)
 
-- **L1**: read mode byte-preserved — `runReadSchedulerLoop` is byte-identical to pre-T4 `runTaskGraph` body.
+- **L1**: read-mode `Run` behavior is write-machinery-independent — `Mode=""` and `Mode=ModeRead` produce equivalent `BusContext` output, pinned by `TestRunMode_ReadByteIdentical` (`internal/orchestrator/mode_dispatch_test.go`) plus `read_e2e_regression_test.go`. `runReadSchedulerLoop` does evolve for read-mode features; the invariant is behavioral equivalence with write machinery absent, not a frozen byte copy.
 - **L2**: write Auto Pilot can be entered explicitly (`/mode write` / `/write` / CLI `--mode=write`) or by REPL structured TurnPolicy `route=write`; classifier auto-route may enter `ModeApply` but cannot skip deterministic risk/approval/fingerprint/worktree gates or merge to main. Low-confidence write routes demote to repo analysis, unsettled plans/workflows block conflicting new writes, and explicit `write_enabled: false` refuses all write modes.
 - **L3**: write tools MUST NOT call `ground.BuildContext` / `ground.GroundItem`.
-- **L5**: worktree cleanup unconditional — outer defer in `Run()` calls `worktree.DiscardByPath` on any exit.
-- **L6**: write skills keep `exec_command` in `ToolSuggestions` (worktree contains blast radius).
-- **L7**: `render/mermaid` failure paths MUST rewrite the fence to ` ```text` and inject a `# ⚠ <reason>` leader.
+- **L5**: worktree cleanup defer sits at the top of `Run()` — every failure path unconditionally calls `worktree.DiscardByPath`; `pipeline_keep_worktree_on_success` / skip-verify is a success-path-only opt-out.
+- **L6**: write execution skills (code-write-skill / test-execute-skill) keep `exec_command` in `ToolSuggestions` (worktree contains blast radius). The planner (change-plan-skill) deliberately does NOT expose generic `exec_command` — it uses typed dry-run probes; both directions are pinned in `internal/skill/defaults_test.go`.
+- **L7**: `render/mermaid` failure paths MUST rewrite the fence to ` ```text` and inject a `# · <reason>` leader (soft `·` replaced `⚠` on user-facing surfaces, deliberate — commit 9ec4bf01).
 - **L8**: `render/mermaid` library-subset gaps absorbed by L1+L2 shims; MUST NOT propagate into LLM-facing prompts.
 
 Repomap red lines: `extToLang[".ts"] → LangArkTS` only when `IsArkTSProject` finds `oh-package.json5` in any ancestor; `.cjo` denied at scanner; Cangjie `FileInfo.Package` MUST come from `package_clause` (path inference forbidden); all parse fallbacks log `repomap: <lang> <file> tier N→M: <reason>` at WARN (format pinned by TestFallbackWarnLogFormatPinned).
 
 Trace causal-token red line: `internal/tracequery/causal_token_registry.go` is the single source of truth for causal token semantic lanes (demand/supply split, additivity, subject kind); before moving any token or wording lane read `docs/architecture.md` §7.2.1 and ledger §7.4/§7.5 (`docs/design/customer_dead_session_audit_20260703.md`).
+
+Trace correctness sub-systems (status ledger: `docs/design/trace_analysis_open_gap_ledger_20260710.md`; rulings: campaign ledger `real_trace_campaign_20260705.md` §29.24+): bundle provenance hard gate (`internal/tracequery/provenance.go` — only same-domain or calibrated-affine clock mappings enter the shared causal timeline), thread/scheduler identity generations (`thread_incarnation_guard.go`), structured `C|` counter parsing (`trace_counter.go`), and the zero-LLM `--tracediag` collection mode (`internal/tracediag/` + `examples/tracediag/`, see `docs/architecture.md` §13.7).
+
+Proof-lane red line (§29.21, user ruling 2026-07-10): pure model assertions never mint `current_source`-level observations — `CurrentSourceSatisfied` accepts only deterministic tool witnesses (read_file coverage / grep / trace_query typed observations); model claims stay on the advisory lane (`internal/types/observation_ledger.go` / `answer_evidence_origin.go`).
 
 Evidence-lite runtime gate: `BaseAgent.executeTool` → `validateAnalyzerPrescanToolCall` rejects `grep` in `StageAnalyze` when `files_only` is not true.
 
@@ -76,4 +83,4 @@ Pipeline topology is code-only; no YAML counterpart.
 
 ## Dependencies
 
-`gopkg.in/yaml.v3` only. Go 1.22.5. No linters, no CI config.
+Go 1.25.0 (`go.mod`). Direct deps: `gopkg.in/yaml.v3` (config), cobra (CLI), bubbletea/bubbles/huh + lipgloss + glamour + goldmark + pterm + termenv + go-runewidth (REPL/TUI + markdown), go-tree-sitter (repomap), mermaid-ascii (diagram preview), go-udiff (diffs), golang.org/x/{sys,term}. No linters, no CI config.

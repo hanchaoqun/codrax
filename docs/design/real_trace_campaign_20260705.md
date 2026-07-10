@@ -12,6 +12,8 @@ com.baidu.tieba 59566 主线程 ~34579.472865–34579.475857s 卡顿)与
 新用例:`eval/cases/real_traces/`(18 案,均只引用仓内 fixture 拷贝)。
 本批产出后不跑批 —— 运行协议见 §3,主会话统一执行。
 
+**双账本权威声明(2026-07-11,§29.26 审计总收账批)**:本账本=trace 战役**权威账**(裁定原文、批次收账、验收句的唯一权威);`trace_analysis_open_gap_ledger_20260710.md`=trace correctness 子域的**施工账**(逐项状态/commit SHA/验证命令的唯一状态权威)。同一项的开放/结案状态以施工账为准,裁定原文与验收句以本账为准;两账头部互指(§29.24『剩余 gap』与施工账的三处状态矛盾已按此口径加勘注收敛)。**行号免责**:各节引用的 `.go:line` 均为该批收账时的工作树坐标,后续大改会漂移(实例:§29.6 P2-1 的 query.go:8424 现已指向无关代码)——引用旧节裸行号排批前先以符号名重定位;行号以该节收账 commit 为准,不逐节回改。
+
 ---
 
 ## 1. 维度矩阵
@@ -1844,7 +1846,7 @@ finalizer 多轮修复=大量 token 交互反复且小模型输出不稳定(后�
 排期:TRUNC 批(同域 finalizer_auto_repair 等)复核收尾提交后立即开 FRCAP+PSG-2H 合批。
 
 ## §29.13 G12 勘察修正(2026-07-09,G12-ENG 批编译级复现定案;修正 §29.1)
-**§29.1"同段双归属/双端点重复计算"结论作废**——引擎从未双计。E23 真相(逐字节复现产线形):14.272ms 唯一真身=目标线程自己的 5 条真实 binder 等待求和(1.035+2.215+2.918+3.527+4.577,R1 三副本合并+R2 ×5 聚合成单条 oney 自症状行,归属正确);hmfs"成员"=×4 全零时长 sched_blocked_reason 标记行(S+iowait 平台形留不下时长);**伪造点=显示层溢出折叠的 min-max 只统计有值成员而 ×N 计全员**,渲染成"×2(14.272–14.272)取最大"凭空给 hmfs 铸出第二个 14.272。三个引擎侧候选机理(互指/双端点/pid 错位)全部排除并负向 pin(S+iowait 永不入 D/iowait 时长车道)。修=显示层混合形如实"×2(有值1项 14.272ms,1项无时长值)取最大"+typed MergedValuelessCount+图例「无时长值」+审计 merged_valueless=N;DIAG-A1 tie roster 排除零值成员;发布数值零变动只降不升。§29.1 的 S+iowait 平台语义发现保留(已 pin)。**教训:审计推断"双归属"时未先区分成员的有值/无值——折叠行 min-max 与 ×N 分母不同源是伪造温床,同源 pin 已装。**
+**§29.1"同段双归属/双端点重复计算"结论作废**——引擎从未双计。E23 真相(逐字节复现产线形):14.272ms 唯一真身=目标线程自己的 5 条真实 binder 等待求和(1.035+2.215+2.918+3.527+4.577,R1 三副本合并+R2 ×5 聚合成单条 oney 自症状行,归属正确);hmfs"成员"=×4 全零时长 sched_blocked_reason 标记行(S+iowait 平台形留不下时长);**伪造点=显示层溢出折叠的 min-max 只统计有值成员而 ×N 计全员**,渲染成"×2(14.272–14.272)取最大"凭空给 hmfs 铸出第二个 14.272。三个引擎侧候选机理(互指/双端点/pid 错位)全部排除并负向 pin(S+iowait 永不入 D/iowait 时长车道)。修=显示层混合形如实"×2(有值1项 14.272ms,1项无时长值)取最大"+typed MergedValuelessCount+图例「无时长值」+审计 merged_valueless=N;DIAG-A1 tie roster 排除零值成员;发布数值零变动只降不升。§29.1 的 S+iowait 平台语义发现保留(已 pin)。**教训:审计推断"双归属"时未先区分成员的有值/无值——折叠行 min-max 与 ×N 分母不同源是伪造温床,同源 pin 已装。**(验收回注 2026-07-11:已于 §29.28① 关账——cust710 g12_report 生产二次确认:hmfs prev_state=D 匹配 0 行、oney 6 条真 D、hmfs 全 S+iowait。)
 
 ## §29.9 收账(2026-07-09,UXAUX 推 main;复核 SHIP 零 P0/P1/P2)
 交付:HTML 层辅助块(树读法/各列口径,双冒号字形闭集)移文末「阅读参考」附录(小号灰字+上边线)+原位一行指路(相邻合并)+字节级去重(源字节区间键,结构变体不误合并)+**来源标签**(最近前置 heading 文本,多投影 4 块近似图例不再匿名;复核实测 cmp_792 两套图例 42vs40 条字节有差=按需生成活物,去重不命中系正确行为);Markdown/终端零字节改动;opendir 首屏省 ~48 行。复核收尾:fallback 护栏一致化(越界 panic 形 pin)+门语义注释如实(扁平文本恰等,包裹形搬移无损)。**留观/裁定池**:双 List 分裂形(发生器结构性不可达,留档)/EN 车道闭集扩展(zh-en 同词先例,下轮议程)/指路行锚点链接 nice-to-have。
@@ -1861,7 +1863,7 @@ finalizer 多轮修复=大量 token 交互反复且小模型输出不稳定(后�
 **勘察修正(修正 §29.11 补充的施工推断)**:折算 lane 早有携入语义(governedFreqSamples 头样携入+frequencyAt 全索引二分),拓扑基早读全 Index——"折算基在切片粒度上无携入"假设不成立。真实分叉:①**主根点=共动判据 freqTimelinesSameEmission 要求字节级全数组同一,对 carve 边界脆弱**(cluster_freq_share.go;垫头/垫尾 ts 闸/MaxEvents 预算切/window 面 TimeEnd 切四种刀)——刀落多行簇发射中间(成员行距 1–4µs)即裂簇成同 fmax 双胞胎→平局/>4 簇 fail-loud→freq_only;cap2 witness 因果链同构:huadong 两窗 event_count=250000 恰触预算 vs g12 对照窗 244629 未触。②次根点=window 面 windowFreqSampleTimelines 以窗裁剪样本推导拓扑。修:**freqTimelinesCoMove 新判据**(旧全数组同一快路径字节保全 ∨ 状态语义修剪形:变化点去重→头部未见证修剪[junction 携入态一致守卫]→中段严格 1:1 零容忍→尾部豁免[恰 1 条+全局样本流尾 15µs 锚+对齐变迁 floor])+indexFreqSampleTimelines 单点收集器(window 面共用,窗裁剪收集器退役)+Index once-memo(与 fold cache 共享单基)。
 **复核(SHIP-WITH-FIXES)P1 实锤收**:初版 merge 地板 aligned≥1 把**入场公告对当共见证变迁**——两真异簇全 trace 钉同值+首样本 15µs 内共现+cadence 异→假并,域级实测**类倒置**(活跃小核簇加冕 big 静默出厂,踩 §26 类映射伪造红线)。修=floor 提 2(clusterFreqTrimmedMinAligned=至少 1 次真共见证变迁;尾臂专用常量收编)+a1'/a2-head split pin+域级 witness pin(停泊双胞不融合/活跃小核永不加冕/平局禁掷币);残余代价形(真同簇仅 1 次共见证变迁+异 cadence)发射学不可达(同簇成员由单 notifier 循环发射,cadence 结构性同一)。**P2 收(验收定位面)**:真机窗归因=推断非见证(straddle 两窗同中招 ~1e-3;备选机理=中段成员行真缺失/迟发>15µs 在新判据下依然诚实 split=残余形①)。修=freq_only 降级披露携带 split 点三要素(判定臂 token+违例 ts+cpu 对;判据单实现返回诊断零第二判定副本;**仅披露/审计,永不作门**)+collect_cap2.yaml +2 步(cpu_frequency 全量 census+carve 垫头边界邻域原文行,头注含判读指引)——客户复跑一次即可判"straddle 已愈 vs 残余形①在场"。突变 5/5 咬红(floor 回退 1=五面齐红)。
 **教训**:①放宽判据的 merge 地板必须只数"真共见证变迁"——**入场公告=共享状态非共同行为**,首对齐对不作证据;②验收依赖推断归因时,**降级词面必须携带定位三要素**,否则复跑失败无从判型;③字节级全数组同一判据对任何 carve/预算边界天然脆弱,"同 trace 异窗一判一不判"即其指纹。
-**留观/裁定池**:gated-only 行(无 SupplyFoldBasis 载体)不携 split audit(需 WakeupCausalImpact 新 json 字段=裁定候选);audit 进 rank 步 typed notes 需注册表 key+R2' 六处同步(留升级);中流真分歧残余形①=诚实 freq_only 留档。验收=客户复放 collect_cap2.yaml:修后 huadong 两窗折算词应与 g12 同判;若仍 freq_only,split_audit 判型。
+**留观/裁定池**:gated-only 行(无 SupplyFoldBasis 载体)不携 split audit(需 WakeupCausalImpact 新 json 字段=裁定候选);audit 进 rank 步 typed notes 需注册表 key+R2' 六处同步(留升级);中流真分歧残余形①=诚实 freq_only 留档。验收=客户复放 collect_cap2.yaml:修后 huadong 两窗折算词应与 g12 同判;若仍 freq_only,split_audit 判型。(验收回注 2026-07-11:已于 §29.28① 关账——cust710 两窗 core_class=small 全判出+全报告零"簇结构不可判/按纯频率比折算"词=两窗同判,straddle 已愈。)
 
 ## §29.17 FRCAP+PSG-2H 收账(2026-07-10,推 main;复核 P2 根修收编 CAVSTR 批销案)
 **FRCAP(§29.12 落地)**:finalize 期修复/重试环 18 环全清点——成文修复总轮硬上限=既有 pipeline_finalize_repair_hard_cap 预占检查(默认 2,cross-stage 口径:retryUsed 计入 explore fact/Tier-1 floor/SC 重投;finalize-only 子计数=裁定候选,会放宽 cap 语义须用户裁定);三处硬编码迁 config(pipeline_max_repair_attempts_per_root/pipeline_same_error_class_retry_cap/agent_finalizer_empty_blocks_breaker_max_streak,默认字节恒等,两段式 cap 纪律);**最优稿回退**=到顶不再重试,稿账本(渲染稿+doc 深拷贝+hash,cap+1 有界)按硬违规数最少选稿、严格平手取最早稿("后轮未必更好"),换稿判定比 hash 非索引;轮次遥测 "finalize repair budget used=N cap=M (cross-stage)"(标签口径如实,回访转录可审计)。复核裁定:违规计数公平性通过(池内全 strict root,advisory/soft 前置滤除;severity 分层需先立 typed lane=裁定候选);换稿无死循环面(被选稿在其自身轮已过检)。
@@ -1882,7 +1884,7 @@ finalizer 多轮修复=大量 token 交互反复且小模型输出不稳定(后�
 **复核(SHIP-WITH-FIXES,五件零正确性缺陷;含 git restore 事故重建逐落点审计 PASS)收尾**:P2-1 **lane 准入类型全域披露**——五 token 折叠不止 window_stats 四铸点,wakeup_chain RootEvidence 行(无 typed ts→退成员 MAX+member_sum 披露 raw Σ)同受波及;witness=cmp:396 E11(main-6565 sleep ×6,29.298→单行 MAX 14.561+member_sum=29.298)——方向诚实且**顺销 §29.8 P3"树头单项最大实为和"**;E11 形引擎实铸 pin 补装。P3-1 时序门/P3-2 四铸点 proof 普查 pin(复核自设突变抓获三点静默降值无绊线)/P3-3 两注释改真/P3-4 账目确数更正(pin=10 test,突变=14 次记录)。
 **教训**:①"恰 2×/恰 N×"类精确倍数=同集双加恒等式指纹,账目侦破先做精确算术分解;②类型全域准入(registry 车道)的波及面清单必须在批报告全列——铸点之外的同 token 行类都会改行为;③agent 突变自查 git restore 事故再犯(重建后经复核逐落点审计通过)——**突变恢复只允许 cp 副本,派单必须显式写明**;④"结构性 one-row-per-thread"类注释断言会被生产 witness 证伪,注释不是裁定依据。
 **裁定项(需用户)**:①d_state_or_io_wait↔io_burst_episode 同段双席(huadong 窗2 洞#8 真身,同线程同区间同 1.062ms 两席;跨 type 席位语义变更需裁定,候选=G1 式裁定表扩对);②同 token 跨车道(RootEvidence vs window_stats top)双席仍在(本批只装禁并防线,G1-类对账候选,无 interior-hole witness);③榜自席与树「其余N项(链上折叠)」roster 并存措辞(PTS 显示语义遗留)。**留观**:ORD×DISP-3 吸收行可现"有效归因(gated 复合)>窗口投影(running 主导)"两把尺形(各自诚实,入复放核对)。
-**复放核对清单(collect_cap2.yaml rank_fold_basis 步)**:runnable per-CPU→单行 sum_disjoint Σ12.537+roster cpu=1/3/2;#4#5#6→单 aggregate 席;E11→单行 MAX 14.561+member_sum=29.298;VSync 周期源低位入席;每窗序数连续(洞#8 待裁除外)。
+**复放核对清单(collect_cap2.yaml rank_fold_basis 步)**:runnable per-CPU→单行 sum_disjoint Σ12.537+roster cpu=1/3/2;#4#5#6→单 aggregate 席;E11→单行 MAX 14.561+member_sum=29.298;VSync 周期源低位入席;每窗序数连续(洞#8 待裁除外)。(验收回注 2026-07-11:已于 §29.28① 关账——cust710 cap2_report_02 rank_fold_basis 步逐字命中:runnable merged ×3 combined=12.537ms sum_disjoint、优先级反转 aggregated occurrences=2 单席、VSyncGenerator occurrences=8 周期源入席 tertiary #5、序数 #1..#12 连续。)
 
 ## §29.20 CSP#63 回探臂收账(2026-07-10,推 main;词面 fork 修,闸判定/臂序零变更)
 **测绘边界(多轮立案对账)**:生产侧零排放/donghu authority 自开门/negative_search 定性/case-fold 残口=均已由 70d0c0c1 等前批修(20260706 post-fix eval 生产 run 实证 satisfied=false+citations=0);本批=**回探臂失配半(§29.8 P2④)**。witness=cmp_792:77-79"↻ 3/4 正在补齐校验信息":retry 指令对纯 trace 会话点名"Missing repo_map lenses"(结构性不可满足),同 prompt 工件段又禁 repo 广度搜索,模型逐字点出矛盾;探针 HEAD 逐位复现=污染源为模型 aggregate facts 经 plain-RM 终端 fallback 铸 current_source→satisfied=true→keep 臂前置短路三抑制臂。
@@ -1934,9 +1936,9 @@ finalizer 多轮修复=大量 token 交互反复且小模型输出不稳定(后�
 
 **剩余 gap（ROI 排序）**：
 
-- **P1**：BLIND-3 结构化 C| counter 先做载荷 census，再建 typed schema；block/storage 同设备+扇区+操作的并发请求仍需生产 witness 与 typed request identity，避免 FIFO 在精确同键并发时交叉配对。
-- **P2**：非 scheduler malformed endpoint 的 schema-specific integrity poison 尚未覆盖全部族；CPU 数据族统一补负数/超拓扑范围 ID 校验；全局 TID-reuse fail-close 可收窄到实际参与 subject 以减少无关代际冲突导致的可用性损失；C11 EN 车道闭集机械化。
-- **witness 触发留观**：A3、B5、B7、B9、C10、C12、C13、C16、BLIND-1。C12 继续坚持“无 typed 链身份不伪造树层级”。
+- **P1**：BLIND-3 结构化 C| counter 先做载荷 census，再建 typed schema；block/storage 同设备+扇区+操作的并发请求仍需生产 witness 与 typed request identity，避免 FIFO 在精确同键并发时交叉配对。（勘注 2026-07-11，§29.26：BLIND-3 已由 `5d91b433d` 结案，状态权威=施工账 `trace_analysis_open_gap_ledger_20260710.md` BLIND-3 行；block/storage request identity 仍 witness 触发（§29.28② W-8 维持）。本行保留为当日审计原文。）
+- **P2**：非 scheduler malformed endpoint 的 schema-specific integrity poison 尚未覆盖全部族；CPU 数据族统一补负数/超拓扑范围 ID 校验；全局 TID-reuse fail-close 可收窄到实际参与 subject 以减少无关代际冲突导致的可用性损失；C11 EN 车道闭集机械化。（勘注 2026-07-11，§29.26：本行四项后续进展——统一 CPU ID 校验已结案 `5d91b433d`；Workqueue/DMA endpoint 半已结案 `d729f634f`（generic storage 仍部分修）；TID-reuse 已收窄至 perf+Workqueue/DMA+direct 六族（`b303c3fd5`/`6405c94cf`/`7af38bc23`，复合面仍开放）；C11 EN 闭集已结案 `5da3fbed0`。状态权威=施工账对应行。）
+- **witness 触发留观**：A3、B5、B7、B9、C10、C12、C13、C16、BLIND-1。C12 继续坚持“无 typed 链身份不伪造树层级”。（勘注 2026-07-11，§29.26：B9 已由 `5d91b433d` 结案——`cust_trace_vc_710` 生产 witness，不再属等待池；BLIND-1 触发条件已满足（§29.28② W-6，G/H/N/I 已由 `61271e8f1` typed 实施，其余自由文本长尾继续触发式）；其余项状态权威=施工账。）
 - **销池**：B8 维持 dash=无有效归因；C14 维持 cross-stage FRCAP 总成本上限。
 
 ## §29.25 裁定(用户 2026-07-10):HarmonyOS RT 优先级边界 41-159 确认+客户 witness 落档;审计处置委托
@@ -1954,6 +1956,8 @@ finalizer 多轮修复=大量 token 交互反复且小模型输出不稳定(后�
 **TID-reuse 可用性续批（`6405c94cf`）**：在 d729 建立 exact endpoint 闭集后，Workqueue/DMA 的完整 numeric contributor PID set 可由同一 in-window event scan 精确枚举，因此各自改用 family-scoped lifecycle gate；无关 TID reuse 不再抹掉两族，一族贡献者复用不连坐另一族，贡献 PID 复用与 lifecycle-audit cap 仍 fail-close。通用 resource caveat 同步移除 Workqueue/DMA，避免“报告说已省略但行实际存在”。offCPU/scheduler latency/IO 复合面继续维持全局保守门，直到 typed context-completeness/派生完整性可贯通，禁止把缺失上下文伪装成 0。
 
 ## §29.27 EN trace 报告闭集收账（2026-07-10，`5da3fbed0`）
+
+> **互指(2026-07-11)**:两轮全方位审计的总收账节因物理追加位于文末(§29.27.1 之后),编号沿用审计六 commit(`e63efd2b`/`4f627c9f`/`c6040084`/`84b1f076`/`588a8538`/`bff91dc5`)message 已固化的「**§29.26 审计总收账**」,与上文远端批「§29.26 Workqueue/DMA endpoint integrity」**同号异题**;其语义序位在本节之前。同理,文末「**§29.28 cust710 回传对账**」与下文「§29.28 TID-reuse direct scope」同号异题。
 
 **用户词面统一**：英文 trace 系统补充从分散的 `Requested/Projection window`、`Target symptom/wait/sleep`、`Artifact`、`rank=N` 收敛为四个规范词族：`Analysis window`、`focused thread/focused-thread`、`Trace file`、`root-cause rank #N`。`projection.Window*` 是编译出的分析窗；真正的用户大窗继续由独立 `UserWindowStart/End` 发布为 `User-requested window`，两者不得混称。多 trace 总览、窗长归一化、时间基不相交、分区 caveat、折叠 roster、下一步与 evaluator 窗外注记同时收口，中英文下一步排名分别为 `根因排序#N` / `root-cause rank #N`。
 
@@ -1991,3 +1995,69 @@ finalizer 多轮修复=大量 token 交互反复且小模型输出不稳定(后�
 
 ### §29.27.1 补充裁定(用户 2026-07-11):徽章跟随席位+TOP5+三面记号一致
 用户观察"大部分时候很少看到 ❶❷❸"经 witness 量化实锤:opendir_792/textup_792 中 ❷❸ 仅图例出现、正文零行佩戴——同树内 #1 行(锁竞争 lane)戴 ❶ 而 #2 行(下钻 lane ⇅,opendir:111)/#3 行(IO 家族折叠 ⛓,opendir:118)裸奔。根因=**徽章跟随行形非跟随席位**(各 lane 行构造器逐个实现,典型逐 SHAPE 病)。裁定:①**徽章单点权威**——凡 Rank∈TOP N 的行,无论 lane/行形/渲染面(树内/未接入树/下钻/背景段/语义 ✦ 行)一律佩戴,单一发射 helper;②**扩 TOP 5**(❹ U+2778/❺ U+2779 同 dingbat 区块同宽度类,不引入新 EAW 类;图例「❶..❺ = 根因排序前五(依有效归因)」);③**三面记号一致**——投影树/榜(明细表)/§29.27② 覆盖账归因行内联同组 ❶..❺+E#,同一单点词源。入 COV-4 批;验收=opendir/textup 复放正文 TOP5 席位行全佩戴+vc_710 覆盖账三面同记号。
+
+## §29.26 审计总收账(2026-07-10→11;两轮全方位审计+Wave-1 五批+Wave-2 PERF+PROV;§29.25② 处置委托执行)
+
+**编号注**:本节与上文远端批「§29.26 Workqueue/DMA endpoint integrity」**同号异题**——审计六 commit(`e63efd2b`/`4f627c9f`/`c6040084`/`84b1f076`/`588a8538`/`bff91dc5`)的 message 与代码内 EVOLUTION RECORD 均以「§29.26」指本节,编号随已推 commit 固化不可改,两节以标题区分;本节语义序位在 §29.27 之前,物理追加于文末(§29.27 头部有互指注)。
+
+**① 方法与数字**:对远端 correctness 大批(`e920a5d8`/`5d91b433`/`78349788` 等 24+ 提交)与本地窗口做两轮全方位审计——第一轮 12 维 62 agents,第二轮对抗复核 6 维 52 agents;逐项 verdict 收敛后 **71 项确认=11 P1/27 P2/33 P3**(r1=35/r2=36;finding 以 #0–#70 编号,本节与 §29.24/§29.25 的引用即此编号)。处置依据=§29.25② 用户委托("其它的按合理的方向进行发展");方向存疑项明列于 ③ 追认清单与文末裁定池,供用户复核可翻转。
+
+**② 六批收账(五个 W1 hash 为 rebase 后族;远端 24 提交 3-way 叠加消解)**:
+- **W1-ENG `e63efd2b`**:block done 端点对称化(全流配对+铸对时窗口判定,跨窗假 io_latency 灭,#2)/threadIncarnationConflictForQuery 改 observeAll 修 masked-conflict/中断同 lane 嵌套=cohort ambiguous fail-close(#9)/census 冲突 fail-close+caveat/负 PID 拒(#47)/prose 行不铸 span poison+ts=0 漏网关闭(#4)/RT 41-159 EVOLUTION RECORD(§29.25① witness 补齐,#12)。复核 SHIP 零阻断;pin 6 新文件+突变 46/46 咬红。
+- **W1-STREAM `4f627c9f`**:窗前 wakeup carry 铸 StateRunnable(饥饿线程双车道 parity,#48)/无头 wakeup 三面对齐(见③-6)/line+time 窗口语义统一到索引权威(#50)/解析质量披露 parity(#52)/scanned 量如实(#51)。复核 SHIP 零必修(三攻击形实测守住);突变 24+3 咬红。
+- **W1-DISP `c6040084`**:交集口径追认+双口径披露(见③-1,#62)/twin-fold 值镜像改 typed 同源(复核 R1 根修=单员族观测复用 family fold 精确算法,分歧源函数删除)/§29.10-3 排版回裁(见③-2,#63)/HTML wrapper 精确闭集终止(#56)/单 span 值源统一/tier 退役追认+SemanticClass 显示身份臂(见③-3,#60/#66)/gc_pause registry pins(见③-4,#64)。复核 SHIP-WITH-FIXES 全收;突变 13+3 咬红。
+- **W1-MARKER `84b1f076`**:SystemGeneratedKind 剥离类根修(#10/#57/#68/#69:CaptureSystemGeneratedBlockKinds 快照时刻捕权威 sidecar 永不过 JSON 边界+Reauthenticate 只还原捕获时刻实有;11 回灌车道穷举=5 接/4 advisory/2 严禁接)/假 ViolProseScalarUngrounded 杀有益 recovery 形修复/两终端 caveat appender 收编 CAVSTR 寄存器(#11)。复核 SHIP 零阻断;突变 9+4 咬红。
+- **W1-SEC `588a8538`**:敏感配置三面门(read/grep/exec 注册凭据路径精确拒,basename 限锚域,外仓同名放行+软警示=用户意图红线,#26)/内部读取门谓词下沉 types 层(citation 回填/grounding 伪造引用不物化凭据)/tracediag 报告绝对路径脱敏 basename+sha256 对账(#27)/preview 默认 127.0.0.1(#28)/operation env 敏感变量 blocklist+日志 0600(#29)/berlin yaml S|/F| 锚定 async 车道(#30)。复核 SHIP-WITH-FIXES 全收;突变 29 咬红,零假 pin。
+- **W2-PERF+PROV `bff91dc5`**:windowed 解析热环单扫 memo(#21 29× 回归修根,warm anchored 39.7ms=原基线 1.0×;非窗口吞吐恢复持平,#22)/audit tracker 有界化(#3/#23,预算域定案见⑤)/五族 witness LocalLine 双坐标(#36 虚拟行号×物理路径引用伪造面关)/raw reason 五值分文案(#37 clock_inverse 三重失实纠正)/one-systrace 因果 authority 下沉+trace_mark B/E 排序分歧双入口 fail-close(#40/#41)/direct .perftrace unattested 披露(#35)。复核 SHIP-WITH-FIXES 全收;26 pin+突变 59/59;全仓 TEST-EXIT=0 直验。
+
+**③ 追认清单(§29.25② 委托下主会话裁决;明列供用户复核,任一项否决按 pin 反向回滚)**:
+1. **交集口径(#62)**:链上语义家族发布 EffectiveImpactMs=成员∩链窗**交集并**(可加性红线方向),配双口径披露「链上计入 X(窗口投影合计 Y)」全闭集词素;全重叠形对 §29.22 witness 字节恒等,部分重叠正负 pin。
+2. **DISP-3 排版回裁往返(#63)**:恢复 §29.10-3 裁定排版(各投影 lead+关键指标**成对依次**),远端"全部树先行分层"反转回裁;系统补充永不插入对间;64 帽禁删模型块+跨语言幂等。
+3. **tier 退役+SemanticClass 身份(#60/#66)**:追认引擎退役 RootCauseTierDeterministicOptimization 铸造(链上语义行走 primary/secondary/tertiary 常规选举=SEM-LEAD 全权参赛的同向延伸);裁定过的"确定性优化候选"类词显示身份改由 typed SemanticClass 车道承载(身份 cells+正负 pin;#61 双写"候选候选"顺修)。
+4. **gc_pause 第六类(#64)**:追认 causal_token_registry 第六语义类扩容(注释理由如实化+四维 pin);等待形 span×cpu_work lane 前瞻冲突形入本节裁定池。
+5. **B4·B6·B9·A1·A2 远程关闭追认(#0/#14/#17/#33)**:五项裁定池项由远端批单方实施,经逐项对照裁定原文核验为**同向**(B4=本地候选 G1 式裁定表扩对,吸收行 typed supporting+「链上并入」发布;B6=可见 seat occurrence 唯一才「见榜位#N」;B9=§29.22 残留①预告的 on-chain 门放宽+生产 witness `cust_trace_vc_710`;A1/A2=§29.21"satisfied 只认确定性工具见证"的同向收紧)——按 §29.25② 追认关闭。§29.19 裁定项①③/§29.22 残留①/§29.23 残口①② 原文保留,以本条为处置注记;EVOLUTION RECORD 欠账(#13,远端批 ~25 处零新增+删 3 条 §23.1① 记录)以本节与 §29.25① 为账面补记,不再逐 pin 回填。
+6. **无头 wakeup (b') 三面对齐(STREAM)**:窗内无头 wakeup(无前置 sched_switch 头)铸 runnable=typed 见证非猜测,索引/流式/churn 三面同判;partial_unknown 披露保留(churn 守卫 hunk 物理位于 W1-ENG commit 的 query.go)。
+
+**④ 事故记录与新纪律(如实)**:
+- **假绿管道**:批内验证管道曾以 `go test ... | grep ...` 形吞掉 go test 退出码,两次终验输出已印 FAIL 未读即推送(假绿出厂,复核环抓回)。
+- **DISP 过期基线验证失实**:曾以"本树绿"宣称"main 绿"——验证跑在过期基线上,"本树绿"≠"main 绿"。
+- **修复轮无复核环**:复核 finding 的修复轮未再过独立复核即收账。
+- **render.go 冲突标记入 commit**:rebase 后残留 conflict marker 曾进 commit(amend 修复)。
+**新纪律四条**:①终验直读完整输出尾+退出码,禁 grep 管道吞 exit code;②任何"绿"结论必附验证基线 commit;③修复轮必经主会话抽验;④`rebase --continue` 前必 grep 冲突标记。
+
+**⑤ PERF 预算域定案(复核 F4)+残余**:durationOrderTrackerLaneBudget=**65536/族,域=全扫描区**(windowed 构建审计完整物理前缀+窗口)vs traceCounterSeriesBudget=**8192,域=窗内已裁剪消费事件集**——GiB 级 capture 合法携带 >8192 个全文件 counter 身份,故 tracker 预算=消费者 8×(~300B/lane,最坏 ~20MB/族);溢出 fail-close 永不静默(family capped+既有 order_audit_truncated poison 全消费者可见)。两域差异已注释成文于 `internal/tracequery/duration_order.go`。#24 memo witness 帽=1024(durationOrderEventScanWitnessCap,帽满如实披露,"假整族 fail-close"类灭)。#41 残余类=composite canonical sort 改 trace_mark B/E 栈配对语义形——已由双入口(BuildIndex/StreamScan)排序分歧 fail-close 收口。**比值型性能 pin=假防线教训**:cold/warm 比值断言随分子分母同伸缩恒真(29× 回归曾在其下全程绿)——重造为**绝对预算+同跑校准地板**(cold≈1× 全量解析语义地板,tripwire ≤4×,突变实证咬红)。
+
+**⑥ 双修撞车三例与协调纪律**:同窗两会话(本地审计批×远端 correctness 批)三处撞车——①**block 配对**(W1-ENG done 端点对称化 × 远端 `3e90dfc48` 共享 cohort FSM 重构);②**semlead pin**(本地 SEM-LEAD 系 pin × 远端 `0d53b781` ranked localized semantic seat 演化);③**provenance 脱敏**(W1-SEC tracediag 绝对路径脱敏 × 远端 `7d574ec74` basename-only)。消解纪律=**pin-as-judge**:冲突不以先来后到,以账本裁定原文+对应 pin 为裁判——rebase 3-way 叠加后逐 pin 实跑判存留(实例:远端 traceMarkAsyncPairer 取代本批 #25a 优化;远端流式新校验接入本批 lineScan memo 净赚一次正则,benchmark 复测未稀释)。**协调纪律**:两会话以账本为唯一同步点——裁定/收账/状态变更必须先落账本,另一会话方可依赖;绕过账本的"对方会话已知"假设一律无效。
+
+**裁定池新增(前瞻/留档,零行为变更;沿用 finding 编号)**:
+- **gc_pause 等待形 span×cpu_work lane(前瞻)**:SYM(target_self_state)降道闭集派生自 registry Lane 列,gc_pause 现挂 cpu_work lane 故不受降道;若将来迁 wait lane,GC 暂停行将**静默**进入降道闭集——现状正确,纯前瞻;迁移前需先裁定该派生是否仍成立。
+- **berlin 引擎 typed SpanAction 选择器(#30 尾)**:模板 async 车道现以锚定子串+exact `trace_mark_actions` 过滤双保险;引擎侧 S|/F| 车道判定是否整体迁 typed SpanAction 选择器=留档裁定。
+- **模型中段 BlockCaveat 尾置语义(#59 邻)**:系统排序器把模型中段 caveat 块移文末——叙事位置是否属作者意图的一部分=裁定候选。
+- **exec 递归扫出口遮蔽候选(SEC 留观)**:递归目录扫描的出口路径遮蔽形。
+- **repl localOperationSkillEnv inherit(#29 邻)**:REPL 本地操作技能子进程 env 仍整继承(SEC 批 blocklist 只覆盖 operation executor 面)。
+- **STREAM F2/F3(书面)**:F2=unparsed-ratio 披露分母稀释形;F3=流式扫尾成本。
+- **ENG P4×3(书面)**:孤儿 exit 无披露/count=0 paired=1 读感/双重降解行逃逸。
+- **MARKER P4×4(书面)**:白名单文件粒度/empty-ID 守卫无 pin/walk 只扫 internal//尾 \n。
+- **远端 pairer lanes 全表扫(留档)**:遍历全 lanes 表的线性扫描形。
+- **BLIND-1 升级**:触发条件已满足(§29.28② W-6)——从 witness 触发升为"条件已满足,验证远端 `61271e8f1` 覆盖后关账或补批"。
+
+## §29.28 cust710 回传对账(2026-07-11;客户 build=0.1.20260710/14:06Z,含战役七批、不含 W1 审计批;witness=`customlogs/cust710/` 全套含 `*_02` 续片)
+
+**编号注**:与上文远端批「§29.28 TID-reuse direct scope + SEM-DETAIL P1 收账」同号异题,见 §29.27 头互指注。
+
+**① 三验收命中(关账)**:
+- **ORD(§29.19)**:cap2_report_02 rank_fold_basis 步——runnable merged ×3 combined=12.537ms sum_disjoint 与 §29.19 复放预测**逐字同**;优先级反转 aggregated occurrences=2 单席;VSyncGenerator occurrences=8 周期源入席 tertiary #5;序数 #1..#12 连续。§29.19 复放核对清单关账(原节已加回注)。
+- **CAP-3(§29.16)**:两窗 core_class=small 全判出+全报告零"簇结构不可判/按纯频率比折算"词=两窗同判——straddle 已愈,§29.16 验收关账(原节已加回注)。
+- **G12/E23(§29.13)**:g12_report——hmfs prev_state=D 匹配 0 行+oney 6 条真 D+hmfs 全 S+iowait=§29.13 定案生产二次确认,验收关账(原节已加回注)。
+
+**② 新 witness 立案**:
+- **W-1 platform 标签同报告翻转**:open_gap_witness_02 步骤6/7=harmony vs 步骤8=donghu,同 trace 同 run——排查批候选。
+- **W-2 blocked_reason caller=ASCII 污染假指针**:0x383435317c45000d="8451|E"、0x702e64676f6c6968="hilogd.p"(字节反转形)——支撑远端 `0e49700c` structured blocked reasons 方向(施工账头部互指段已注明)。
+- **W-3 prio 301/65534/65535 大计数观察**:census 41-159 分带面工作正常(>159 入 system_or_kernel/raw 带,不入 RT 压力,与 §29.25① 一致)。
+- **W-4 irq=0 合法+同 CPU 异 vector 嵌套实锤**:W1-ENG 中断 lane 键设计被生产验证;完整性门不得拒 irq=0。
+- **W-6 BLIND-1 触发条件满足**:N|/I|/G|/H| 结构形(I| 带 ms 值、G|H| 带 cookie 对)=远端 `61271e8f1` ATRACE-TRACK 目标形——留作验证覆盖用样本;裁定池对应升级(§29.26 尾)。
+- **W-7 open_gap instance5 `generated_window_compacted` typed fail**:fail-loud 行为正确;模板拆族/提帽改进建议归 remote 模板域。
+- **W-8 B1 维持 witness-triggered**:io 两窗 pairs 零歧义+payload 空括号无 request token——立案条件不满足,维持等待。
+- **W-9 d_state 202.000=整窗 carry 五行批量形**:carry-in clamp 行为正确;COV-4 覆盖账语境备注。
+
+**③ 采集协议生产可用性**:客户命令列表显示已使用 `--trace-window`/`--trace-tid` 新 typed 输入跑通采集包,其中一步失败走了诚实 fail-loud(未发布伪报告)——§29.30 交付的"原模板不编辑+typed 输入→discovery→fan-out"链路生产可用性初证。

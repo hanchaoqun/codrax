@@ -1220,3 +1220,36 @@ func TestAnswerSkillInferredAttributionCoversNsSpanDerivation(t *testing.T) {
 		}
 	}
 }
+
+// TestWriteExecutionSkillsKeepExecCommandL6 is the enforcing structural pin
+// for the CLAUDE.md L6 red line (audit #7, campaign ledger §29.26 审计总收账,
+// 2026-07-11): the write EXECUTION skills — code-write-skill and
+// test-execute-skill — MUST keep "exec_command" in ToolSuggestions, because
+// the worktree sandbox contains the blast radius and the coder/verifier need
+// generic shell probes (verify a file wrote, git status, ls). Before this pin
+// an edit dropping exec_command compiled and passed the entire suite silently.
+//
+// Scope note: the planner (change-plan-skill) is deliberately NOT in this
+// set — it uses typed dry-run probes instead, and its NEGATIVE pin lives in
+// TestChangePlanSkill_BatchLocalPlanningWorkflow ("planner must not expose
+// generic exec_command"). Both directions together are the L6 contract.
+func TestWriteExecutionSkillsKeepExecCommandL6(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	for _, name := range []string{"code-write-skill", "test-execute-skill"} {
+		sk, err := r.Get(name)
+		if err != nil {
+			t.Fatalf("Get(%s): %v", name, err)
+		}
+		found := false
+		for _, tool := range sk.ToolSuggestions {
+			if tool == "exec_command" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("L6 red line: %s must keep exec_command in ToolSuggestions (worktree contains blast radius); got %v", name, sk.ToolSuggestions)
+		}
+	}
+}

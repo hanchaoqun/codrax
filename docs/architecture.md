@@ -1720,7 +1720,7 @@ manifest 探测优先级排序在 `runnerManifest` 表：HarmonyOS / Cangjie 排
 - **L2**：写 Auto Pilot 可由显式 `/mode write` / `/write` 或 REPL structured `route=write` 进入；auto 可进入 `ModeApply`,但低置信降级 repo、未结算 plan/workflow 拒绝或恢复；apply 仍必须经过 typed approval/risk/fingerprint/worktree gates,merge 仍必须显式 `/merge`；显式 `write_enabled: false` 为 kill switch,全链路拒启动
 - **L3**：写工具（emit_change_plan / apply_patch / run_tests / emit_test_results）**不得** import `internal/tool/ground`；由 `write_mode_red_lines_test.go` 结构性扫描固化
 - **L5**：worktree 清理 defer 位于 Run() 顶层，失败路径**无条件**触发；keep-on-success 仅是成功路径的 opt-out
-- **L6**：写模式 skill（change-plan-skill / code-write-skill / test-execute-skill）`ToolSuggestions` 保留 exec_command——worktree 沙箱已限住 blast radius
+- **L6**：写模式**执行** skill（code-write-skill / test-execute-skill）`ToolSuggestions` 保留 exec_command——worktree 沙箱已限住 blast radius；planner（change-plan-skill）刻意**不**暴露通用 exec_command（typed dry-run 探针 `run_tests dry_run=true` 代替）。两个方向均由 `internal/skill/defaults_test.go` 结构性 pin（正向=执行 skill 保留；负向=planner 禁暴露。勘正 2026-07-11：旧文把 change-plan-skill 列入保留清单，与负向 pin 矛盾）
 - **L7**：合并/退出全程**不 push** 远程；任何 cherry-pick conflict 完整回滚
 
 ### 8.22 env_recommend — 测试失败 / 裸目录拒绝时的诊断 + 推荐
@@ -2555,7 +2555,7 @@ per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，
 | `event.go` | Event struct（Kind, Timestamp, TraceID, Agent, ...) + 事件类型（PipelineStart/End, StageDispatch, AgentReasoning, ToolCall, ToolResult, AnalysisReady, TaskNodeStart/End, ...） |
 | `renderer.go` / `renderer_dock.go` | CLI 渲染器（pterm.Area + 实时事件消费）+ docking station（双行状态栏） |
 | `answerdoc.go` | AnswerDocumentV2 → markdown 渲染器，block-kind-aware，多语言（zh/en），code block 语法标记，citation pool 渲染 |
-| `mermaid_render.go` | Mermaid 内嵌预览 + library-subset 的失败兜底（fence 改为 ```text` + 注入 `# ⚠ <reason>` leader） |
+| `mermaid_render.go` | Mermaid 内嵌预览 + library-subset 的失败兜底（fence 改为 ```text` + 注入 `# · <reason>` leader；柔和 `·` 取代 `⚠` 为 9ec4bf01 的有意演化，pin 在 `mermaid_render_test.go`） |
 | `apply_authority_hedging.go` | drift-bounded 答案的权威标注渲染（`[hedged]` / `[historical]` / `[illustrative]` 带状） |
 | `cjk_adapter.go` / `wrap_by_display_width_test.go` | CJK 字符等宽显示 / 换行宽度计算 |
 | `dock.go` / `dock_state.go` / `tty_preview_area.go` | 终端实时预览（finalizer 流式 summary 提取） |
@@ -2575,6 +2575,22 @@ per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，
 资源通道只允许读取 server 已通过 `resources/list` 枚举过的精确 URI：`mcp_read_resource(uri=...)` 不拼接、不解析、不猜 URI。`prompts/list` 和 resource metadata 会作为 "External Guidance (MCP)" 追加给探索类 agent，并明确标注为外部不可信建议；模型必须通过 MCP 工具返回的行/资源-backed 结果再把它当证据使用。
 
 MCP typed line support 是可选协议：server 若返回 `version:"codrax.mcp.observation.v1"` 或 `application/vnd.codrax.observation+json` 的 JSON envelope，Codrax 会把其中 `resource_uri` / `line_start` / `line_end` / `row` / `json_pointer` / `selector` 投影成一条或多条 `mcp_resource` observation。普通文本和普通 JSON 不会被正则猜行号，避免把外部散文误当行证据。
+
+### 13.7 internal/tracediag — `--tracediag` 零 LLM 确定性收集模式
+
+客户回访取证命令簇（裁定=campaign 账本 §28.12/§28.13，自动补采窗演化=§29.30）：
+
+```bash
+codrax --tracediag <script.yaml> --trace <trace> \
+  [--trace-flavor auto|harmony_hitrace|android_atrace|generic_ftrace] \
+  [--trace-window <start_s>..<end_s>] [--trace-tid <tid>] [--out report.txt]
+```
+
+- **纯读、零 LLM**：完全旁路 initApp / LLM 管线（无 providers.yaml 需求，不触 L1 读管线字节恒等）；只 import tracequery 引擎消费，报告渲染在本包自建证据面。
+- **脚本**：strict YAML（仅 yaml.v3，未知字段 fail-loud）。v1=静态步骤（label/view/pid/thread/window/line 区间/pattern/event_types/max_lines）；v2=受限 typed `discoveries` + `windows_from.discovery` 自动窗发现/fan-out（closed strategy registry，当前 `pairing_integrity`；不开放 JSONPath/模板字符串/prose 解析）。v2 模板以 `inputs.window/tid: required` 声明输入：`--trace-window` 只写 `defaults.window`（显式 step/discovery 窗保持权威），`--trace-tid` 只注入声明 `pid_from: tid` 的目标步骤（raw IO/WQ/DMA/trace-mark/unknown 车道不绑定，保住 IRQ/kworker 对端）；漏传 fail-loud，不产伪报告。
+- **预算与诚实披露**：步行数帽默认 800 硬帽 1000 + 总帽，截断两侧如实披露；报告头带版本/flavor/窗口/provenance（basename-only 脱敏 + 主工件字节级 sha256 对账）。
+- **失败语义**：冲突 flag fail-loud；discovery/step 失败 → 非零退出码，独立步骤仍继续执行；`--out` 走 temp+rename，失败不碰旧报告。
+- **出货模板**：`examples/tracediag/`（collect_format_census / collect_open_gap_witness / collect_io_pairing_witness / collect_berlin_pairing_witness / collect_cap2 / collect_g12 / collect_d10 / collect_acceptance_snapshot）。回访命令与回传规则见 `docs/design/trace_analysis_open_gap_ledger_20260710.md`（统一采集与回访命令节）+ `docs/design/trace_witness_collection_playbook_20260710.md`。
 
 ---
 
@@ -2627,7 +2643,7 @@ OAuth auth-failure policy is structured-signal first. `401` with a precise inval
 | `tool_width_*` | 中央宽度 governor（`internal/tool/width` 单源表；9 个主维度，其余常量 code-only；`SetWidthGovernor` 启动一次性注入，非正=默认，production cap ≤ entry threshold 等交叉校验 clamp 时 WARN） | `tool_width_grep_line_entry_threshold`（80）/ `tool_width_grep_file_entry_threshold`（120，list_files 显式别名同源）/ `tool_width_grep_byte_threshold`（16 KB）/ `tool_width_grep_production_cap`（line 48 / file 80，一个 knob 双模式各自 clamp）/ `tool_width_grep_dirscan_max_file_bytes`（4 MiB）/ `tool_width_path_discovery_candidate_limit`（256）/ `tool_width_read_file_page_window_max`（200）/ `tool_width_trace_query_event_search_limit`（engine 默认 40，tool 侧套用不动 tracequery 容量表）/ `tool_width_repo_map_navigation_max_rows`（96） |
 | `analysis_*` | emit_analysis 运行时验证 | `analysis_warn_below_keywords`（8）/ `analysis_reject_below_keywords`（deprecated; positive values become warning-only）/ `analysis_generic_entity_blocklist` / `analysis_reject_multiple_emit` / `analysis_max_prescan_rounds`（3）/ `analysis_emit_only_correction_retries`（3）/ `analysis_warn_below_keyword_hit_ratio` / `analysis_warn_below_entity_hit_ratio` / `analysis_evidence_profile`（permissive/balanced/strict/custom）/ `analysis_grounding_floor` / `analysis_evidence_tier1_floor` |
 | `evidence_*` | explorer completion gate | `evidence_grounding_floor` / `evidence_tier1_floor`（legacy numeric overrides; omitted values inherit the active evidence profile） |
-| `pipeline_*` | 流水线预算 + 行为开关 | `pipeline_max_steps`（50）/ `pipeline_max_steps_ceil`（100）/ `pipeline_max_retries_per_stage`（3）/ `pipeline_max_stage_visits`（4）/ `pipeline_write_retry_budget`（3）/ `pipeline_write_retry_budget_ceil`（5）/ `pipeline_max_phases_per_run`（5）/ `pipeline_baseline_capture_enabled` / `pipeline_baseline_cache_max`（16）/ `pipeline_keep_worktree_on_success` / `pipeline_lint_enabled`（true）/ `pipeline_richness_softening_warn`（true）/ `pipeline_demotion_storm_threshold`（10）/ `pipeline_forced_read_storm_threshold`（8）/ `pipeline_finalizer_local_retries_before_escalate`（2）/ `pipeline_finalize_repair_hard_cap`（2，FRCAP §29.12 成文修复总轮硬上限；到顶=最优稿回退：硬违规最少者胜、平手取最早稿+残余披露，每答案落 "finalize repair rounds used=N cap=M" 审计行）/ `pipeline_same_error_class_retry_cap`（1，FRCAP 迁 config）/ `pipeline_max_repair_attempts_per_root`（3，FRCAP 迁 config）/ `pipeline_cluster_stable_budget`（2）/ `pipeline_finalizer_retry_no_think`（true）/ `pipeline_failure_taxonomy_enabled` 系列 / `pipeline_answer_taxonomy_enabled` 系列 / `pipeline_contract_soft_kinds` / `pipeline_contract_strict_kinds` / `pipeline_fallback_policy_overrides` / `pipeline_max_upstream_fallbacks_per_run`（2）/ `pipeline_facet_validators_enabled`（true）/ `pipeline_strict_answer_review_enabled`（true）/ `pipeline_self_consistency_review_enabled`（false，opt-in）系列 / `pipeline_semantic_quality_review_enabled`（false，opt-in）/ `pipeline_transient_retry_budget`（3）/ `pipeline_force_finalize_attempts`（3）/ `pipeline_write_max_seconds`（900）/ `pipeline_plan_critic_enabled` / `pipeline_mermaid_renderability_gate`（"soft"） |
+| `pipeline_*` | 流水线预算 + 行为开关 | `pipeline_max_steps`（50）/ `pipeline_max_steps_ceil`（100）/ `pipeline_max_retries_per_stage`（3）/ `pipeline_max_stage_visits`（4）/ `pipeline_write_retry_budget`（3）/ `pipeline_write_retry_budget_ceil`（5）/ `pipeline_max_phases_per_run`（5）/ `pipeline_baseline_capture_enabled` / `pipeline_baseline_cache_max`（16）/ `pipeline_keep_worktree_on_success` / `pipeline_lint_enabled`（true）/ `pipeline_richness_softening_warn`（true）/ `pipeline_demotion_storm_threshold`（10）/ `pipeline_forced_read_storm_threshold`（8）/ `pipeline_finalizer_local_retries_before_escalate`（2）/ `pipeline_finalize_repair_hard_cap`（2，FRCAP §29.12 成文修复总轮硬上限；到顶=最优稿回退：硬违规最少者胜、平手取最早稿+残余披露，每答案落 "[orchestrator] finalize repair budget used=N cap=M (cross-stage)" 审计行——grep 该字面回访可审计，const 定义在 `finalize_repair_draft_ledger.go`）/ `pipeline_same_error_class_retry_cap`（1，FRCAP 迁 config）/ `pipeline_max_repair_attempts_per_root`（3，FRCAP 迁 config）/ `pipeline_cluster_stable_budget`（2）/ `pipeline_finalizer_retry_no_think`（true）/ `pipeline_failure_taxonomy_enabled` 系列 / `pipeline_answer_taxonomy_enabled` 系列 / `pipeline_contract_soft_kinds` / `pipeline_contract_strict_kinds` / `pipeline_fallback_policy_overrides` / `pipeline_max_upstream_fallbacks_per_run`（2）/ `pipeline_facet_validators_enabled`（true）/ `pipeline_strict_answer_review_enabled`（true）/ `pipeline_self_consistency_review_enabled`（false，opt-in）系列 / `pipeline_semantic_quality_review_enabled`（false，opt-in）/ `pipeline_transient_retry_budget`（3）/ `pipeline_force_finalize_attempts`（3）/ `pipeline_write_max_seconds`（900）/ `pipeline_plan_critic_enabled` / `pipeline_mermaid_renderability_gate`（"soft"） |
 | `write_*` | 写模式 gate | `write_enabled`（true;显式 false=kill switch）/ `write_auto_approval` / `write_plan_dir` / `write_auto_init_repo` / `write_scaffold_enabled` / `write_workflow_engine`（compatibility-only, always controller-first） |
 | `gate_*` | analyzer 质量门 | `gate_coverage_min`（0.6）/ `gate_coverage_weight_{symbol,config,concept}`（1.0/0.7/0.4）/ `gate_hypothesis_min_priority` |
 | `explore_*` | explorer heuristics | `explore_per_tool_default_cap` + 15 个 ExploreHeuristics 阈值 |

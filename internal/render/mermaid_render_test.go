@@ -422,7 +422,8 @@ func TestRenderMermaidBlocks_InfoStringCoverageTracksKeywordRegistry(t *testing.
 // Mermaid the LLM is right to emit, but pgavlin's subset cannot
 // draw. The renderer short-circuits BEFORE the library call,
 // rewrites the fence to ```text``` (so chroma never highlights it),
-// and prepends a # ⚠ leader so the user sees an explicit signal.
+// and prepends a # · leader so the user sees an explicit signal
+// (soft · replaced ⚠ on user-facing surfaces — 9ec4bf01, deliberate).
 // The original source survives verbatim for copy-paste into a real
 // Mermaid renderer.
 func TestRenderMermaidBlocks_UnsupportedKindShortCircuits(t *testing.T) {
@@ -447,7 +448,7 @@ func TestRenderMermaidBlocks_UnsupportedKindShortCircuits(t *testing.T) {
 				t.Errorf("unsupported kind output must use ```text``` fence (no chroma deception); got:\n%s", out)
 			}
 			if !strings.Contains(out, "# ·") {
-				t.Errorf("unsupported kind output must inject # ⚠ leader; got:\n%s", out)
+				t.Errorf("unsupported kind output must inject # · leader; got:\n%s", out)
 			}
 			if !strings.Contains(out, tc.kind) {
 				t.Errorf("unsupported kind output must reference kind %q for the user; got:\n%s", tc.kind, out)
