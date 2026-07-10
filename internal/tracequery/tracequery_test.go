@@ -2342,7 +2342,7 @@ func TestRootCauseRankAttachesPerfContextToCandidateThread(t *testing.T) {
 	}
 }
 
-func TestRootCauseRankAttachesPerfRoleContextToCPUPressure(t *testing.T) {
+func TestRootCauseRankAttachesPerfRoleContextToPressureAggregate(t *testing.T) {
 	idx := buildTraceIndex(t, "rank_perf_cpu_pressure.systrace", `
       rival-300   (  300) [000] .... 2.000000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=rival next_pid=300 next_prio=20
          app-20   (   20) [000] .... 2.002000: sched_wakeup: comm=app pid=20 prio=52 target_cpu=000
@@ -2353,13 +2353,13 @@ func TestRootCauseRankAttachesPerfRoleContextToCPUPressure(t *testing.T) {
 	rank := BuildRootCauseRank(idx, Query{PID: 20, TimeStart: 2.0, TimeEnd: 2.018, MinDurationMs: 0.05, Limit: 8, TraceFlavorHint: TraceFlavorHarmonyHitrace})
 	var pressure *RootCauseRankItem
 	for i := range rank.Items {
-		if rank.Items[i].Type == "cpu_pressure" {
+		if rank.Items[i].Type == "supply_pressure" {
 			pressure = &rank.Items[i]
 			break
 		}
 	}
 	if pressure == nil {
-		t.Fatalf("expected cpu_pressure root cause candidate: %+v", rank.Items)
+		t.Fatalf("expected the one-seat pressure aggregate: %+v", rank.Items)
 	}
 	var sawRole bool
 	for _, ctx := range pressure.PerfContexts {

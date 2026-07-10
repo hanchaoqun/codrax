@@ -1954,7 +1954,12 @@ type DMAFenceActivity struct {
 }
 
 type SupplyPressureSummary struct {
-	Signal                         string                  `json:"signal,omitempty"`
+	Signal string `json:"signal,omitempty"`
+	// CPUPressureMs is the cross-thread sum of runnable-wait backlog only
+	// (cpu·ms). HighPriorityRunningMs and the overlap fields are typed
+	// occupancy/competition context for that same wait account; they are never
+	// added to this numerator. Dividing this value by WindowMs yields average
+	// runnable queue depth.
 	CPUPressureMs                  float64                 `json:"cpu_pressure_ms,omitempty"`
 	RunnableWaitMs                 float64                 `json:"runnable_wait_ms,omitempty"`
 	HighPriorityRunningMs          float64                 `json:"high_priority_running_ms,omitempty"`

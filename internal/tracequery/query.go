@@ -5070,8 +5070,15 @@ func computeSupplyPressureSummary(idx *Index, q Query, stats WindowStats, maxBac
 		summary.SystemOrKernelRunningMs += pressure.SystemOrKernelRunningMs
 		summary.SystemOrKernelRunningOverlapMs += pressure.SystemOrKernelRunningOverlapMs
 		summary.SystemOrKernelCompetitorCount += pressure.SystemOrKernelCompetitorCount
-		if pressure.RunnableWaitMs > 0 || pressure.HighPriorityRunningMs > 0 {
-			summary.CPUPressureMs += pressure.RunnableWaitMs + pressure.HighPriorityRunningMs
+		if pressure.RunnableWaitMs > 0 {
+			// PRESSURE-ONE-SEAT (2026-07-10 customer witness): this field is
+			// the demand backlog numerator used as an average runnable-queue
+			// depth. HighPriorityRunningMs is occupancy context; unless its
+			// interval overlaps a runnable wait it is not displacement, and even
+			// an overlap is evidence ABOUT the same wait rather than additional
+			// queue time. Adding it here made app-100's unrelated 1.2ms running
+			// inflate a 0.8ms runnable backlog to 2.0ms.
+			summary.CPUPressureMs += pressure.RunnableWaitMs
 		}
 	}
 	for _, accounting := range stats.SchedStatAccounting {
@@ -5140,7 +5147,7 @@ func computeSupplyPressureSummary(idx *Index, q Query, stats WindowStats, maxBac
 			break
 		}
 	}
-	if summary.CPUPressureMs == 0 && summary.SystemOrKernelRunningMs == 0 && summary.SchedStatWaitMs == 0 && summary.SchedStatIOWaitMs == 0 && summary.SchedStatBlockedMs == 0 && summary.IPIEventCount == 0 && len(summary.LowFrequencyCPUs) == 0 && summary.ClockSetRateCount == 0 && summary.ThermalEventCount == 0 && summary.DDREventCount == 0 && summary.L3EventCount == 0 && summary.ThroughputEventCount == 0 {
+	if summary.CPUPressureMs == 0 && summary.HighPriorityRunningMs == 0 && summary.SystemOrKernelRunningMs == 0 && summary.SchedStatWaitMs == 0 && summary.SchedStatIOWaitMs == 0 && summary.SchedStatBlockedMs == 0 && summary.IPIEventCount == 0 && len(summary.LowFrequencyCPUs) == 0 && summary.ClockSetRateCount == 0 && summary.ThermalEventCount == 0 && summary.DDREventCount == 0 && summary.L3EventCount == 0 && summary.ThroughputEventCount == 0 {
 		return nil
 	}
 	switch {
@@ -10614,8 +10621,18 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		}
 		items = append(items, item)
 	}
+	// PRESSURE-ONE-SEAT: when SupplyPressureSummary is the exact sum of this
+	// WindowStats cohort's per-CPU runnable-wait components, the aggregate owns
+	// the single rank seat. Per-CPU components remain fully typed in
+	// WindowStats.CPUPressure (banner/JSON/perf drilldown); seating them beside
+	// their total would split one demand account across N+1 ranks. Any absent or
+	// mismatched aggregate fails open to the per-CPU seats.
+	aggregateOwnsCPUPressure := rootCauseSupplyPressureOwnsCPURankSeat(stats)
 	for _, pressure := range stats.CPUPressure {
 		if pressure.RunnableWaitMs <= 0 {
+			continue
+		}
+		if aggregateOwnsCPUPressure {
 			continue
 		}
 		// R5g (§7.30.2): confidence and the competition wording key off the
@@ -11459,6 +11476,29 @@ func matchingCPUPressuresForRootCauseItem(item RootCauseRankItem, pressures []CP
 		out = append(out, scoredItems[i].pressure)
 	}
 	return out
+}
+
+// rootCauseSupplyPressureOwnsCPURankSeat proves that the window-level demand
+// backlog is exactly the sum of the per-CPU runnable-wait components carried
+// by the same WindowStats value. This is a hard seat-reconciliation gate, so
+// it uses exact typed arithmetic in the same iteration order as
+// computeSupplyPressureSummary; no tolerance or summary text participates.
+// The component rows remain available in WindowStats for drilldown.
+func rootCauseSupplyPressureOwnsCPURankSeat(stats WindowStats) bool {
+	supply := stats.SupplyPressureSummary
+	if supply == nil || supply.CPUPressureMs <= 0 {
+		return false
+	}
+	componentCount := 0
+	componentSum := 0.0
+	for _, pressure := range stats.CPUPressure {
+		if pressure.RunnableWaitMs <= 0 {
+			continue
+		}
+		componentCount++
+		componentSum += pressure.RunnableWaitMs
+	}
+	return componentCount > 0 && componentSum == supply.CPUPressureMs
 }
 
 func computeSupplyForRootCauseItem(item RootCauseRankItem, summaries []ComputeSupplySummary) (ComputeSupplySummary, bool) {

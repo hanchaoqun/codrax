@@ -72,10 +72,11 @@ func TestBerlinSystemOrKernelPressureStaysOutOfHighPriorityBucket(t *testing.T) 
 		supply.SystemOrKernelCompetitorCount != 2 {
 		t.Fatalf("aggregate typed pressure split drifted: %+v", supply)
 	}
-	// CPUPressureMs retains its existing ruler (runnable + genuine RT); raw
-	// system/kernel activity is disclosed but cannot inflate that hard account.
-	if !near(supply.CPUPressureMs, 114000, 0.001) {
-		t.Fatalf("raw time must not inflate cpu_pressure_ms, got %.3f", supply.CPUPressureMs)
+	// CPUPressureMs is the 102s runnable backlog only. Genuine RT and raw
+	// system/kernel occupancy stay in their own context buckets and neither is
+	// added to the wait account a second time.
+	if !near(supply.CPUPressureMs, 102000, 0.001) {
+		t.Fatalf("running occupancy must not inflate cpu_pressure_ms, got %.3f", supply.CPUPressureMs)
 	}
 
 	if stats.CPUOccupancy == nil {

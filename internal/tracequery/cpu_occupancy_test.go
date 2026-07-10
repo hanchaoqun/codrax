@@ -112,11 +112,13 @@ func TestSupplyPressureDensityPin(t *testing.T) {
 	}
 	approxEq(t, "WindowMs", supply.WindowMs, 100)
 	approxEq(t, "PressureDensity", supply.PressureDensity, supply.CPUPressureMs/100)
-	// CPUPressureMs = runnable backlog (20ms on cpu1) + high-priority running
-	// (60ms ohos_rt on cpu0) = 80 cpu·ms → density 80/100 = 0.8 exactly.
-	approxEq(t, "CPUPressureMs", supply.CPUPressureMs, 80)
-	approxEq(t, "PressureDensity(exact)", supply.PressureDensity, 0.8)
-	if !strings.Contains(supply.Summary, "window_ms=100.000") || !strings.Contains(supply.Summary, "pressure_density=0.80") {
+	// CPUPressureMs is runnable backlog only. The 60ms ohos_rt occupancy stays
+	// in HighPriorityRunningMs as context and must not be added a second time
+	// to the 20 cpu·ms wait account.
+	approxEq(t, "CPUPressureMs", supply.CPUPressureMs, 20)
+	approxEq(t, "HighPriorityRunningMs", supply.HighPriorityRunningMs, 60)
+	approxEq(t, "PressureDensity(exact)", supply.PressureDensity, 0.2)
+	if !strings.Contains(supply.Summary, "window_ms=100.000") || !strings.Contains(supply.Summary, "pressure_density=0.20") {
 		t.Fatalf("supply summary missing CMP-9 typed tokens: %s", supply.Summary)
 	}
 	foundCPU1 := false
