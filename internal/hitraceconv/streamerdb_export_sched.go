@@ -98,11 +98,13 @@ func exportTraceDBSchedulerFamilies(ctx context.Context, tdb *traceDB, sink *tra
 	if err != nil {
 		return coverage, err
 	}
-	running, runningCoverage, err := tdb.loadRunningIntervals(ctx)
+	running, runningIntegrity, runningCoverage, err := tdb.loadRunningIntervals(ctx)
 	coverage = append(coverage, runningCoverage)
 	if err != nil {
 		return coverage, err
 	}
+	index.RunningTaintedITID = runningIntegrity.TaintedITIDs
+	index.RunningGlobalTaint = runningIntegrity.GlobalTaint
 	stageStart = time.Now()
 	wakeupCoverage, err := exportTraceDBWakeups(ctx, tdb, sink, index, rawWakeups, starts, running)
 	traceDBSetCoverageElapsed(&wakeupCoverage, stageStart)
@@ -334,6 +336,10 @@ func exportTraceDBWakeups(ctx context.Context, tdb *traceDB, sink *traceDBRowSin
 			waker, wakerOK := index.ByITID[instant.WakeupFrom]
 			if !wakerOK {
 				skipped["missing_waker_thread"]++
+				continue
+			}
+			if index.RunningGlobalTaint || index.RunningTaintedITID[instant.WakeupFrom] {
+				skipped["tainted_emitter_running_cpu"]++
 				continue
 			}
 			eventCPU, cpuKnown := traceDBKnownCPUAt(running, instant.WakeupFrom, instant.TS)

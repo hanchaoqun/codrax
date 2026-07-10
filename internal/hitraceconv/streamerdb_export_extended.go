@@ -17,11 +17,13 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 	if err != nil {
 		return coverage, err
 	}
-	running, runningCoverage, err := tdb.loadRunningIntervals(ctx)
+	running, runningIntegrity, runningCoverage, err := tdb.loadRunningIntervals(ctx)
 	coverage = append(coverage, runningCoverage)
 	if err != nil {
 		return coverage, err
 	}
+	index.RunningTaintedITID = runningIntegrity.TaintedITIDs
+	index.RunningGlobalTaint = runningIntegrity.GlobalTaint
 	dict, dictCoverage, err := tdb.loadDataDict(ctx)
 	coverage = append(coverage, dictCoverage)
 	if err != nil {

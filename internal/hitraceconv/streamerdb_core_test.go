@@ -196,7 +196,7 @@ func TestTraceDBCoreLoadsResolvers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load argsets: %v", err)
 	}
-	if len(coverage) != 2 || argsets[7]["irq"].Text != "32" || argsets[7]["irq_ret"].Text != "handled" {
+	if len(coverage) != 2 || argsets.Sets[7]["irq"].Text != "32" || argsets.Sets[7]["irq_ret"].Text != "handled" {
 		t.Fatalf("argsets mismatch coverage=%+v argsets=%+v", coverage, argsets)
 	}
 	rawWakeups, rawCoverage, err := tdb.loadRawWakeups(context.Background())
@@ -218,7 +218,7 @@ func TestTraceDBCoreLoadsResolvers(t *testing.T) {
 	if cpu, prio := traceDBNextSchedMeta(starts, 10, 1000, 0, 120); cpu != 5 || prio != 42 {
 		t.Fatalf("next sched meta mismatch cpu=%d prio=%d starts=%+v", cpu, prio, starts)
 	}
-	intervals, stateCoverage, err := tdb.loadRunningIntervals(context.Background())
+	intervals, _, stateCoverage, err := tdb.loadRunningIntervals(context.Background())
 	if err != nil {
 		t.Fatalf("load running intervals: %v", err)
 	}
@@ -252,18 +252,21 @@ func TestTraceDBCoreThreadStateRunningCoverage(t *testing.T) {
 	}
 	defer tdb.close()
 
-	intervals, coverage, err := tdb.loadRunningIntervals(context.Background())
+	intervals, integrity, coverage, err := tdb.loadRunningIntervals(context.Background())
 	if err != nil {
 		t.Fatalf("load running intervals: %v", err)
 	}
-	if coverage.RowsRead != 5 || coverage.RowsEmitted != 2 {
+	if coverage.RowsRead != 5 || coverage.RowsEmitted != 1 {
 		t.Fatalf("thread_state coverage mismatch: %+v", coverage)
+	}
+	if !integrity.TaintedITIDs[10] {
+		t.Fatalf("malformed Running rows must taint their itid: %+v", integrity)
 	}
 	if got := traceDBCPUAt(intervals, 10, 950, 0); got != 3 {
 		t.Fatalf("CPU at first running window = %d, want 3", got)
 	}
-	if got := traceDBCPUAt(intervals, 10, 1350, 0); got != 4 {
-		t.Fatalf("CPU at normalized running window = %d, want 4", got)
+	if got := traceDBCPUAt(intervals, 10, 1350, 0); got != 0 {
+		t.Fatalf("case-drifted Running token must not become a CPU witness, got %d", got)
 	}
 	if got := traceDBCPUAt(intervals, 10, 1750, 0); got != 0 {
 		t.Fatalf("zero-duration row must not become a running window, got CPU %d", got)
@@ -271,8 +274,9 @@ func TestTraceDBCoreThreadStateRunningCoverage(t *testing.T) {
 	if got := traceDBCPUAt(intervals, 10, 1950, 0); got != 0 {
 		t.Fatalf("Runnable row must not become a Running window, got CPU %d", got)
 	}
-	if !traceDBThreadStateIsRunning(" Running ") || !traceDBThreadStateIsRunning("running") || traceDBThreadStateIsRunning("R") {
-		t.Fatal("thread_state running normalization should accept canonical Running only")
+	if !traceDBThreadStateIsRunning("Running") || traceDBThreadStateIsRunning(" Running ") ||
+		traceDBThreadStateIsRunning("running") || traceDBThreadStateIsRunning("R") {
+		t.Fatal("thread_state CPU witness must accept only the exact Running token")
 	}
 }
 

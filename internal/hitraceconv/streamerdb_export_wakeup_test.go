@@ -148,7 +148,7 @@ func TestTraceDBWakeupsEnforceTraceCPUIdentityDomain(t *testing.T) {
 	}{
 		{name: "upper boundary", targetCPU: 4095, headerCPU: 4095, wantEmit: true},
 		{name: "target above boundary", targetCPU: 4096, headerCPU: 2, wantSkip: "raw_instant_count_mismatch=1", wantRawGap: true},
-		{name: "header above boundary", targetCPU: 7, headerCPU: 4096, wantSkip: "missing_or_ambiguous_emitter_running_cpu=1"},
+		{name: "header above boundary", targetCPU: 7, headerCPU: 4096, wantSkip: "tainted_emitter_running_cpu=1"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

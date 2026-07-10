@@ -334,6 +334,9 @@ func prepareTraceDBCallstackRow(index traceDBThreadIndex, running map[int64][]tr
 	if row.TS < thread.StartTS {
 		return row, "outside_emitter_lifetime"
 	}
+	if index.RunningGlobalTaint || index.RunningTaintedITID[row.EmitterITID] {
+		return row, "tainted_running_cpu_witness"
+	}
 	if index.AmbiguousIPID[thread.IPID] {
 		return row, "ambiguous_emitter_process"
 	}
