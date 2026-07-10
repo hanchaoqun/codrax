@@ -1966,3 +1966,7 @@ finalizer 多轮修复=大量 token 交互反复且小模型输出不稳定(后�
 **generic storage witness 裁定维持**：客户 VerifyClass 采集可见 58 issue + 59 complete（raw 步被截为 120/251），两端稳定公共字段仍只有当前已使用的 `dev/op/sector/len`；未见 `rq/request_id/req/mrq/bio/cookie/tag/cmd_tag/task_tag/unique_tag`。并行 outstanding 的 tuple 均不同，同粗键重叠为零；Berlin 只额外出现非端点 `block_bio_remap`。因此 request identity 仍属 witness-triggered，禁止把 issue bytes、提交线程、complete error 或 CPU/PID 猜成硬身份。
 
 **SEM-DETAIL P1**：SEM-LEAD 已裁定 on-chain 语义工作全权参赛，但无损明细旧 arm 仍固定显示“优化项,非根因”，可与“主根因#1”同报告冲突。修为链上 `确定性优化点(链上参与根因排序)` / EN `on-chain root-cause ranking participant`；off-chain 保留原义。判定优先级与 projection parser 同构：显式 `chain_relevance=on_chain` 为真，`adjacent/background` 为假，只有 relevance 缺失才回退 `on_wakeup_chain/on_dependency_chain`，未知 token fail-close。Rank=0/TOP N 外仍表达“参与”而不虚构榜位，Markdown/HTML/EN 三面同判。
+
+## §29.29 HTML 因果明细列尾收口（2026-07-10，`5e441d362`）
+
+因果投影无损明细的宽屏/打印两栏布局已具备整体小字号、节点列表 `break-inside` 与窄屏退单栏，但 E# 三级标题此前可单独落在左列末尾、其属性块跳到右列。HTML CSS 为精确 wrapper 下的直接 `h3` 增加 `break-after: avoid-column` / `break-inside: avoid-column`，只约束列分页，不改变章节顺序、Markdown/终端或证据内容；standalone CSS 测试机械 pin。同期清理 finalizer recovery 路径中“hedging 尚非幂等”的过时注释，代码现状已由 C15 的 marker upsert + private caveat reconcile 保证重复渲染收敛。
