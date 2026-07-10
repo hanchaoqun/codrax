@@ -14,6 +14,29 @@ const tracediagCmdTestTrace = `      waker-10   (   10) [000] .... 1.000000: sch
         app-20   (   20) [001] .... 1.200000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
 `
 
+const berlinV2CLITestTrace = `        app-20 (20) [001] .... 1.000000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+      waker-10 (10) [000] .... 1.010000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001
+        app-20 (20) [001] .... 1.020000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53
+        app-20 (20) [001] .... 1.030000: tracing_mark_write: B|20|sync-work
+        app-20 (20) [001] .... 1.031000: tracing_mark_write: E|20
+        app-20 (20) [001] .... 1.032000: tracing_mark_write: C|20|counter|1|S|20|
+        app-20 (20) [001] .... 1.033000: tracing_mark_write: S|20|async-work|7
+      worker-30 (30) [002] .... 1.034000: tracing_mark_write: F|20|async-work|7
+        app-20 (20) [001] .... 1.035000: tracing_mark_write: G|20|track|track-work|9
+      worker-30 (30) [002] .... 1.036000: tracing_mark_write: H|20|track|9
+        app-20 (20) [001] .... 1.037000: tracing_mark_write: N|20|track|track-point
+        app-20 (20) [001] .... 1.038000: tracing_mark_write: I|20|process-point
+          irq-2 (2) [003] .... 1.040000: irq_handler_entry: irq=7 name=test_irq
+          irq-2 (2) [003] .... 1.041000: irq_handler_exit: irq=7 ret=handled
+          irq-2 (2) [003] .... 1.042000: softirq_entry: vec=1 [action=TIMER]
+          irq-2 (2) [003] .... 1.043000: softirq_exit: vec=1 [action=TIMER]
+          irq-2 (2) [003] .... 1.044000: ipi_entry: (Rescheduling interrupts)
+          irq-2 (2) [003] .... 1.045000: ipi_exit: (Rescheduling interrupts)
+          io-40 (40) [003] .... 1.050000: block_rq_issue: 8,0 R 4096 () 123 + 8 [io]
+          irq-2 (2) [003] .... 1.051000: block_rq_complete: 8,0 R () 123 + 8 [0]
+        app-20 (20) [001] .... 1.060000: vendor_magic: opaque_key=opaque_value
+`
+
 const tracediagCmdTestScript = `
 version: 1
 description: "cmd wiring test"
@@ -149,6 +172,124 @@ steps:
 			t.Errorf("typed TID report missing %q\n%s", want, report)
 		}
 	}
+}
+
+func TestRunTraceDiagCLIBerlinV2SingleFileAtomicEndToEnd(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "berlin-mini.systrace")
+	if err := os.WriteFile(tracePath, []byte(berlinV2CLITestTrace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outPath := filepath.Join(dir, "berlin_pairing_witness.txt")
+	if err := os.WriteFile(outPath, []byte("STALE REPORT MUST BE REPLACED\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	scriptPath := filepath.Join("..", "examples", "tracediag", "collect_berlin_pairing_witness.yaml")
+	withTraceDiagFlags(t, scriptPath, tracePath, outPath, "auto")
+	flagTraceDiagWindow = "0.990..1.100"
+	flagTraceDiagTID = "00020"
+	var stdout bytes.Buffer
+	if err := runTraceDiagCLI(nil, &stdout, nil); err != nil {
+		t.Fatalf("Berlin v2 CLI: %v\nstdout=%s", err, stdout.String())
+	}
+	if strings.Contains(stdout.String(), "# codrax tracediag") || !strings.Contains(stdout.String(), "report written to "+outPath) {
+		t.Fatalf("--out must publish one file and only a path receipt on stdout: %q", stdout.String())
+	}
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := string(data)
+	for _, want := range []string{
+		"# codrax tracediag 自动采集报告",
+		"script=collect_berlin_pairing_witness.yaml version=2 discoveries=1 logical_steps=10 expanded_instances=10",
+		"window_override=0.990..1.100 source=cli_flag target=defaults.window",
+		"tid_override=20 source=cli_flag target=pid_from:tid",
+		"validated_worst_report_lines=910",
+		"[自动窗发现 1/1] label=io_pairing_windows strategy=pairing_integrity",
+		"family=block kind=schema_probe",
+		"block_rq_complete: 8,0 R () 123 + 8",
+		"结论: 全部 1 个 discovery 与 10 个执行实例成功",
+	} {
+		if !strings.Contains(report, want) {
+			t.Errorf("Berlin report missing %q\n%s", want, report)
+		}
+	}
+	if strings.Contains(report, "STALE REPORT") || strings.Contains(report, "pattern=") {
+		t.Fatalf("Berlin output retained stale/manual-pattern state\n%s", report)
+	}
+	target := traceDiagExecutionInstance(report, "target_window_stats")
+	if !strings.Contains(traceDiagParamsLine(target), "pid=20 window=0.990..1.100") {
+		t.Fatalf("target stats did not consume the typed TID/window: %s", traceDiagParamsLine(target))
+	}
+	wantActions := map[string]string{
+		"raw_sync_marks":     "trace_mark_actions=[B,E]",
+		"raw_counter_marks":  "trace_mark_actions=[C]",
+		"raw_async_starts":   "trace_mark_actions=[S]",
+		"raw_async_finishes": "trace_mark_actions=[F]",
+		"raw_track_marks":    "trace_mark_actions=[G,H]",
+		"raw_instant_marks":  "trace_mark_actions=[N,I]",
+	}
+	for label, actionEcho := range wantActions {
+		section := traceDiagExecutionInstance(report, label)
+		params := traceDiagParamsLine(section)
+		if strings.Contains(params, "pid=") || strings.Contains(params, "thread=") || !strings.Contains(params, actionEcho) {
+			t.Errorf("raw marker lane %s selector/action echo = %q", label, params)
+		}
+	}
+	asyncSection := traceDiagExecutionInstance(report, "raw_async_starts")
+	if !strings.Contains(asyncSection, "S|20|async-work|7") || strings.Contains(asyncSection, "C|20|counter|1|S|20|") {
+		t.Fatalf("exact S action lane admitted a C payload substring impostor\n%s", asyncSection)
+	}
+	for _, label := range []string{"raw_interrupt_endpoints", "raw_io_pairing_rows", "raw_unknown_events"} {
+		params := traceDiagParamsLine(traceDiagExecutionInstance(report, label))
+		if strings.Contains(params, "pid=") || strings.Contains(params, "thread=") {
+			t.Errorf("global/raw lane %s inherited target selector: %q", label, params)
+		}
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.Contains(entry.Name(), ".tmp-") {
+			t.Fatalf("atomic Berlin output left temp residue %s", entry.Name())
+		}
+	}
+}
+
+func traceDiagExecutionInstance(report, label string) string {
+	needle := "label=" + label + " view="
+	searchFrom := 0
+	for {
+		relative := strings.Index(report[searchFrom:], needle)
+		if relative < 0 {
+			return ""
+		}
+		start := searchFrom + relative
+		lineStart := strings.LastIndex(report[:start], "\n") + 1
+		lineEnd := strings.Index(report[start:], "\n")
+		if lineEnd < 0 {
+			lineEnd = len(report) - start
+		}
+		if strings.Contains(report[lineStart:start+lineEnd], "[执行实例 ") {
+			sectionEnd := strings.Index(report[start+lineEnd:], "\n================================================================================\n[执行实例 ")
+			if sectionEnd < 0 {
+				sectionEnd = len(report) - (start + lineEnd)
+			}
+			return report[lineStart : start+lineEnd+sectionEnd]
+		}
+		searchFrom = start + len(needle)
+	}
+}
+
+func traceDiagParamsLine(section string) string {
+	for _, line := range strings.Split(section, "\n") {
+		if strings.HasPrefix(line, "参数: ") {
+			return line
+		}
+	}
+	return ""
 }
 
 func TestRunTraceDiagCLITIDRejectedByV1AndPreservesExistingOut(t *testing.T) {

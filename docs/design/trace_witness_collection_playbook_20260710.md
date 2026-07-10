@@ -137,16 +137,25 @@ core、选窗依据和 source-universe 指纹。系统派生窗标为
 
 Berlin census 已确认约 1022 万 events，包含 S/F async、C counter、完整
 IRQ/IPI/softirq 族及大量 block endpoint。不要用全 35s 的 counter 结果代替目标帧
-判断；先把模板里的 `window` 和 `pid` 改成 ≤1s 的目标窗口，再执行：
+判断。模板已升级为 v2，客户只传一个 ≤1s 的目标窗口和目标 TID，无需复制或编辑
+YAML；命令保持单行，并只通过 `--out` 原子生成一个文件：
 
 ```bash
-./codrax --tracediag examples/tracediag/collect_berlin_pairing_witness.yaml --trace berlin.systrace --out berlin_pairing_witness.txt
+./codrax --tracediag examples/tracediag/collect_berlin_pairing_witness.yaml --trace <trace文件> --trace-window <start_s>..<end_s> --trace-tid <目标TID> --out berlin_pairing_witness.txt
 ```
 
-模板分别保留 `C|`、`S|`、`F|`、interrupt、block 与 unknown 原始样本，并在
-`window_stats` 发布 `counter_quality` 及 pairing caveat。若出现
+`window` 和 `tid` 都是 required，漏传任一参数会在读取 trace 前 fail-loud，已有
+`--out` 不会被截断。TID 只绑定 `target_window_stats`；原始 marker、interrupt、
+unknown 与 IO 车道全部无 PID/TID selector，避免按偶然 emitter 漏掉对端。
+
+marker 不再用 payload 子串 `pattern` 或手改 PID，而按 parser-validated closed action
+精确分为 `B/E`、`C`、`S`、`F`、`G/H`、`N/I` 六组。block/storage 接入
+`pairing_integrity`，自动选择或原子拆分最多 2 个 `<=50ms` 小窗；报告的静态最坏
+预算为 910 行、最多 11 个展开实例，均低于单文件 1000 行硬约束。若出现
+`generated_window_compacted`，该实例不是 N/N 完整 witness；若出现
 `series_budget_exceeded=true`，表示该查询窗的 counter identity 已超过有界候选
-宇宙，派生 Top-N 按设计 fail-close；请继续缩窗，而不能据此写“该帧无 counter”。
+宇宙，派生 Top-N 按设计 fail-close。两种情况都应缩窗或按报告提示补采，不能据此
+写“该帧无 counter”。
 
 ### A3：binding fallback（非 trace 格式问题）
 
@@ -161,6 +170,7 @@ IRQ/IPI/softirq 族及大量 block endpoint。不要用全 35s 的 counter 结�
 
 - 常规只回传 `format_census.txt` 与 `open_gap_witness.txt`，每条命令各一个文件。
 - IO 身份专项再加 `io_pairing_witness.txt`。
+- Berlin marker/counter 专项回传 `berlin_pairing_witness.txt`。
 - CAP/G12/D-10 只在对应固定场景回传各自的单个报告。
 - UX 问题只加已有的单个 HTML。
 

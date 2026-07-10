@@ -1,57 +1,87 @@
-# Berlin 大 trace 的 pairing/counter 定向回访包。用于 2026-07-10 census
-# 暴露出的 S/F async、C counter、IRQ/IPI/softirq 与 block endpoint 生产面。
-# 零 LLM、纯只读；必须把 window 和 pid 改成目标卡顿帧（建议 <= 1s）。
+# Berlin 大 trace 的 pairing/marker 定向回访包。客户只提供目标窗口与 TID，
+# 不复制、不编辑 YAML；零 LLM、纯只读，单行命令只生成一个报告文件。
 #
-# 用法（单行、只生成一个文件）：
-#   codrax --tracediag examples/tracediag/collect_berlin_pairing_witness.yaml --trace berlin.systrace --out berlin_pairing_witness.txt
+# 用法（单行、单文件、成功后原子替换 --out）：
+#   ./codrax --tracediag examples/tracediag/collect_berlin_pairing_witness.yaml --trace <trace文件> --trace-window <start_s>..<end_s> --trace-tid <目标TID> --out berlin_pairing_witness.txt
 #
-# pattern 语义（引擎事实，SEC #30，2026-07-10）：pattern 是大小写不敏感的
-# **子串**匹配（对 payload/FieldText 等字段 Contains，无前缀锚定语法）。裸
-# "S|"/"F|" 会命中任何 payload 含 …s|… / …f|… 的 trace_mark 行（如名字以 s
-# 结尾的计数器 "C|1252|H:VSync-rs|0"、B| span），在 100 行帽下把真 async 行
-# 挤出报告。因此 async 两步用 "S|<pid>|"/"F|<pid>|" 借 async 载荷的固定
-# 分段形（S|pid|name|cookie）作锚——"s|<pid>|" 不会出现在其它载荷位置。
-# **跑之前必须把这两处 pattern 里的 42591 一并改成目标进程 PID**（与 async
-# 标记载荷第二段一致的进程号；跨进程 async 需按进程各跑一遍）。counter 步
-# 保留宽面 "C|"（计数器行本就是该步目标；少量 …c|… span 混入可由行首 C|
-# 前缀判别，且报告透传原始行、不会伪装成计数器）。
+# TID 只绑定 target_window_stats。trace mark、IRQ/softirq/IPI、unknown 以及
+# block/storage 原始端点全部保持无 PID/TID selector，避免把偶然 emitter 当成
+# 事件 owner 而漏掉跨线程/IRQ/kworker 的对端。marker 车道按 parser-validated
+# trace_mark_actions 精确分流，不再用大小写不敏感的 payload 子串 pattern，也不再
+# 手改 async payload PID：B/E、C、S、F、G/H、N/I 各自独立、不会互相挤占行帽。
 #
-# 全 35s 直接跑 counter 可能有意触发 8192-series fail-close；目标小窗才是
-# 帧级裁定面。回传本报告全文，重点保留 counter_quality、duration_pairing、
-# trace_mark_integrity、block_io_pairing caveat。预算 260+100*6=860。
-version: 1
-description: "Berlin async/counter/interrupt/block 定向 pairing witness"
-defaults:
-  window: "6793224.900..6793225.000" # <- 改成目标精确窗口（秒）
+# pairing_integrity 从物理文件开头完整重放 block/storage endpoint cohort，自动
+# 选择或原子拆分最多 2 个 <=50ms 小窗；raw_io_pairing_rows 只消费这些 typed 窗。
+# 若 generated_window_compacted，命令非零退出并披露 matched/emitted，已返回行仍
+# 可用，但不得称作 N/N 完整 witness。父窗口建议 <=1s；counter_quality 若出现
+# series_budget_exceeded=true，应继续缩小父窗，不能据此宣称该帧无 counter。
+#
+# 静态最坏预算：66 + discovery(20+12) + target(160+12)
+# + 6*marker(50+12) + interrupt(60+12) + 2*io(60+12)
+# + unknown(40+12) = 910 行；logical steps=10，最坏
+# expanded=9 static + 2 io fan-out = 11。
+version: 2
+description: "Berlin marker/counter/interrupt + 自动 block/storage pairing witness"
+inputs:
+  window: required
+  tid: required
+limits:
+  max_generated_windows: 2
+  max_expanded_steps: 11
+  max_report_lines: 1000
+discoveries:
+  - label: io_pairing_windows
+    strategy: pairing_integrity
+    families: [block, storage]
+    max_windows: 2
+    max_window_ms: 50
+    padding_ms: 5
+    max_lines: 20
 steps:
   - label: target_window_stats
     view: window_stats
-    pid: 42591                       # <- 改成目标 TID
-    max_lines: 260
+    pid_from: tid
+    max_lines: 160
+  - label: raw_sync_marks
+    view: event_search
+    event_types: [trace_mark]
+    trace_mark_actions: [B, E]
+    max_lines: 50
   - label: raw_counter_marks
     view: event_search
     event_types: [trace_mark]
-    pattern: "C|"                    # 宽面：计数器即本步目标；子串语义见文件头
-    max_lines: 100
+    trace_mark_actions: [C]
+    max_lines: 50
   - label: raw_async_starts
     view: event_search
     event_types: [trace_mark]
-    pattern: "S|42591|"              # <- 42591 改成目标进程 PID；S|pid| 锚定 async-start 载荷，防 …s|… 计数器/span 挤占行帽
-    max_lines: 100
+    trace_mark_actions: [S]
+    max_lines: 50
   - label: raw_async_finishes
     view: event_search
     event_types: [trace_mark]
-    pattern: "F|42591|"              # <- 42591 改成目标进程 PID；F|pid| 锚定 async-finish 载荷
-    max_lines: 100
+    trace_mark_actions: [F]
+    max_lines: 50
+  - label: raw_track_marks
+    view: event_search
+    event_types: [trace_mark]
+    trace_mark_actions: [G, H]
+    max_lines: 50
+  - label: raw_instant_marks
+    view: event_search
+    event_types: [trace_mark]
+    trace_mark_actions: [N, I]
+    max_lines: 50
   - label: raw_interrupt_endpoints
     view: event_search
     event_types: [irq, softirq, ipi]
-    max_lines: 100
-  - label: raw_block_endpoints
+    max_lines: 60
+  - label: raw_io_pairing_rows
     view: event_search
-    event_types: [block_rq_issue, block_rq_complete]
-    max_lines: 100
+    event_types: [block_rq_issue, block_rq_complete, storage_latency]
+    windows_from: {discovery: io_pairing_windows}
+    max_lines: 60
   - label: raw_unknown_events
     view: event_search
     event_types: [unknown]
-    max_lines: 100
+    max_lines: 40

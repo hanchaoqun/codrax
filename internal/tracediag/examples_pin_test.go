@@ -14,6 +14,8 @@ func loadShippedScript(path string) (*Script, error) {
 		return LoadScriptWithOverrides(path, ScriptOverrides{Window: "100.000..100.500", TID: "12345"})
 	case "collect_io_pairing_witness.yaml":
 		return LoadScriptWithOverrides(path, ScriptOverrides{Window: "100.000..100.500"})
+	case "collect_berlin_pairing_witness.yaml":
+		return LoadScriptWithOverrides(path, ScriptOverrides{Window: "100.000..100.500", TID: "12345"})
 	default:
 		return LoadScript(path)
 	}
