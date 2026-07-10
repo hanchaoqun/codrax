@@ -80,6 +80,13 @@ func exportTraceDBSchedulerFamilies(ctx context.Context, tdb *traceDB, sink *tra
 	if err != nil {
 		return coverage, err
 	}
+	stageStart = time.Now()
+	blockedCoverage, err := exportTraceDBBlockedReasons(ctx, tdb, sink, index)
+	traceDBSetCoverageElapsed(&blockedCoverage, stageStart)
+	coverage = append(coverage, blockedCoverage)
+	if err != nil {
+		return coverage, err
+	}
 	argsets, argCoverage, err := tdb.loadArgsets(ctx)
 	coverage = append(coverage, argCoverage...)
 	if err != nil {
