@@ -549,6 +549,9 @@ section.trace-projection-evidence { margin-top: 2.5em; padding: 14px 16px; borde
 section.trace-projection-detail { column-count: 2; column-gap: 28px; column-rule: 1px solid var(--line); }
 section.trace-projection-detail > h2,
 section.trace-projection-evidence > h2 { margin: 0 0 .75em; padding-bottom: .45em; border-bottom: 1px solid var(--line); font-size: 1.18rem; column-span: all; }
+/* Keep each per-node E# heading attached to the first attribute block instead
+   of stranding it at the foot of the left audit column. */
+section.trace-projection-detail > h3 { break-after: avoid-column; break-inside: avoid-column; }
 section.trace-projection-detail > p { break-after: avoid-column; }
 section.trace-projection-detail > ul,
 section.trace-projection-detail > ol,

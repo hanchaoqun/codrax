@@ -81,6 +81,7 @@ func TestStandaloneTraceAuditCSSIsCompactResponsiveAndPrintable(t *testing.T) {
 	for _, want := range []string{
 		"section.trace-projection-detail", "section.trace-projection-evidence",
 		"column-count: 2", "font-size: .86rem", "column-count: 1", "font-size: 8pt",
+		"section.trace-projection-detail > h3 { break-after: avoid-column; break-inside: avoid-column; }",
 	} {
 		if !strings.Contains(page, want) {
 			t.Fatalf("standalone report missing compact audit CSS %q", want)
