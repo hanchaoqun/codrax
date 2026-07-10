@@ -50,6 +50,50 @@ func TestProvenanceHeaderSanitizesPathsAndCarriesDigest(t *testing.T) {
 	}
 }
 
+// The automatic v2 lane has its own header renderer. Keep it enrolled in the
+// same basename-only policy: open-gap/customer pairing templates use v2, so a
+// v1-only pin would leave the highest-volume round-trip surface unprotected.
+func TestV2ProvenanceHeaderSanitizesTraceAndScriptPaths(t *testing.T) {
+	const v2Script = `
+version: 2
+description: "v2 provenance security fixture"
+steps:
+  - label: raw_rows
+    view: event_search
+    window: "1.0..1.6"
+    event_types: [sched_switch]
+    max_lines: 20
+`
+	scriptPath, tracePath, dir := writeRunFixtures(t, v2Script)
+	var buf bytes.Buffer
+	failed, err := Run(nil, Options{
+		ScriptPath: scriptPath,
+		TracePath:  tracePath,
+		Version:    "test-2.0",
+		BuildTime:  "2026-07-10",
+		Now:        fixedNow,
+	}, &buf)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if failed != 0 {
+		t.Fatalf("failed = %d, want 0\n%s", failed, buf.String())
+	}
+	report := buf.String()
+	if !strings.Contains(report, "trace="+baseName(tracePath)+" primary_size_bytes=") {
+		t.Errorf("v2 report missing basename trace identity:\n%s", report)
+	}
+	if !strings.Contains(report, "script="+baseName(scriptPath)+" version=2") {
+		t.Errorf("v2 report missing basename script identity:\n%s", report)
+	}
+	if !strings.Contains(report, "source_fingerprint=sha256:") {
+		t.Errorf("v2 report lost source-universe reconciliation fingerprint:\n%s", report)
+	}
+	if strings.Contains(report, dir) {
+		t.Errorf("v2 report leaks the collection machine's absolute path %q:\n%s", dir, report)
+	}
+}
+
 func baseName(p string) string {
 	if i := strings.LastIndexAny(p, `/\`); i >= 0 {
 		return p[i+1:]
