@@ -91,22 +91,31 @@ func renderV2DiscoveryBody(spec *WindowDiscovery, result *tracequery.WindowDisco
 			stats.UnpairedDoneCount, stats.InvalidIdentityCount, stats.LifecycleResetLaneCount,
 			stats.TimestampRollbackCount, stats.CohortEventOverflowCount))
 	}
-	for _, candidate := range result.Candidates {
-		sink.emit(fmt.Sprintf("- candidate rank=%d family=%s kind=%s selected=%t collectible=%t single_window=%t required_windows=%d endpoints=%d(start=%d done=%d) max_depth=%d lines=%d-%d core=[%s..%s] identity=%s fingerprint=%s selection=%s blocked=%s",
-			candidate.Rank, candidate.Family, candidate.Kind, candidate.Selected,
-			candidate.CollectionComplete, candidate.FitsSingleWindow, candidate.RequiredWindowCount,
-			candidate.EndpointCount, candidate.StartCount, candidate.DoneCount, candidate.MaxDepth,
-			candidate.FirstLine, candidate.LastLine, formatSecondsToken(candidate.CoreStartTs), formatSecondsToken(candidate.CoreEndTs),
-			clampToken(candidate.Identity), candidate.IdentityFingerprint, clampToken(candidate.SelectionReason), clampToken(candidate.CollectionBlockedReason)))
-	}
+	// Generated scopes and quality caveats are the discovery decision surface;
+	// keep them ahead of the potentially long candidate-detail roster so a
+	// small per-discovery line cap cannot hide what will actually be collected
+	// or why discovery failed closed.
 	for _, window := range result.Windows {
-		sink.emit(fmt.Sprintf("- generated_window ordinal=%d candidate_rank=%d slice=%d family=%s kind=%s window=[%s..%s] width_ms=%s core=[%s..%s] core_lines=%d-%d fingerprint=%s",
+		sink.emit(fmt.Sprintf("- generated_window ordinal=%d candidate_rank=%d slice=%d family=%s kind=%s pairing_status=%s carry_class=%s semantic_class=%s window=[%s..%s] width_ms=%s core=[%s..%s] core_lines=%d-%d start_endpoint=%s end_endpoint=%s fingerprint=%s",
 			window.Ordinal, window.CandidateRank, window.CandidateWindow, window.Family, window.Kind,
+			firstNonEmptyV2(string(window.PairingStatus), "none"), firstNonEmptyV2(string(window.CarryClass), "none"), firstNonEmptyV2(window.SemanticClass, "none"),
 			formatSecondsToken(window.StartTs), formatSecondsToken(window.EndTs), formatFloatToken((window.EndTs-window.StartTs)*1000),
-			formatSecondsToken(window.CoreStartTs), formatSecondsToken(window.CoreEndTs), window.CoreLineStart, window.CoreLineEnd, window.IdentityFingerprint))
+			formatSecondsToken(window.CoreStartTs), formatSecondsToken(window.CoreEndTs), window.CoreLineStart, window.CoreLineEnd,
+			formatWindowDiscoveryEndpoint(window.StartEndpoint), formatWindowDiscoveryEndpoint(window.EndEndpoint), window.IdentityFingerprint))
 	}
 	for _, caveat := range result.Caveats {
 		sink.emit("- caveat: " + clampToken(caveat))
+	}
+	for _, candidate := range result.Candidates {
+		sink.emit(fmt.Sprintf("- candidate rank=%d family=%s kind=%s pairing_status=%s carry_class=%s semantic_class=%s selected=%t collectible=%t single_window=%t required_windows=%d endpoints=%d(start=%d done=%d) max_depth=%d lines=%d-%d core=[%s..%s] start_endpoint=%s end_endpoint=%s identity=%s fingerprint=%s selection=%s blocked=%s",
+			candidate.Rank, candidate.Family, candidate.Kind,
+			firstNonEmptyV2(string(candidate.PairingStatus), "none"), firstNonEmptyV2(string(candidate.CarryClass), "none"), firstNonEmptyV2(candidate.SemanticClass, "none"),
+			candidate.Selected,
+			candidate.CollectionComplete, candidate.FitsSingleWindow, candidate.RequiredWindowCount,
+			candidate.EndpointCount, candidate.StartCount, candidate.DoneCount, candidate.MaxDepth,
+			candidate.FirstLine, candidate.LastLine, formatSecondsToken(candidate.CoreStartTs), formatSecondsToken(candidate.CoreEndTs),
+			formatWindowDiscoveryEndpoint(candidate.StartEndpoint), formatWindowDiscoveryEndpoint(candidate.EndEndpoint),
+			clampToken(candidate.Identity), candidate.IdentityFingerprint, clampToken(candidate.SelectionReason), clampToken(candidate.CollectionBlockedReason)))
 	}
 	return stepBody{lines: sink.lines, total: sink.total}
 }
@@ -122,9 +131,10 @@ func writeV2ExecutionPlan(rw *reportWriter, instances []v2StepInstance) {
 			continue
 		}
 		if origin := instance.step.windowOrigin; origin != nil {
-			rw.line(fmt.Sprintf("- instance=%d logical_step=%d label=%s view=%s fanout=%d/%d origin=%s#window%d candidate_rank=%d candidate_slice=%d family=%s kind=%s resolved_window=%s",
+			rw.line(fmt.Sprintf("- instance=%d logical_step=%d label=%s view=%s fanout=%d/%d origin=%s#window%d candidate_rank=%d candidate_slice=%d family=%s kind=%s pairing_status=%s carry_class=%s semantic_class=%s resolved_window=%s",
 				i+1, instance.logicalOrdinal, instance.logicalLabel, instance.step.View, instance.instanceOrdinal, instance.instanceCount,
-				origin.DiscoveryLabel, origin.WindowOrdinal, origin.CandidateRank, origin.CandidateWindow, origin.Family, origin.Kind, instance.step.Window))
+				origin.DiscoveryLabel, origin.WindowOrdinal, origin.CandidateRank, origin.CandidateWindow, origin.Family, origin.Kind,
+				firstNonEmptyV2(origin.PairingStatus, "none"), firstNonEmptyV2(origin.CarryClass, "none"), firstNonEmptyV2(origin.SemanticClass, "none"), instance.step.Window))
 			continue
 		}
 		rw.line(fmt.Sprintf("- instance=%d logical_step=%d label=%s view=%s origin=static window=%s", i+1, instance.logicalOrdinal, instance.logicalLabel, instance.step.View, firstNonEmptyV2(instance.step.Window, "(unbounded)")))
@@ -140,9 +150,11 @@ func writeV2InstanceHeader(rw *reportWriter, ordinal, total int, instance v2Step
 		rw.line(fmt.Sprintf("⚠ max_lines=%d 超过硬帽 %d,已夹取为 %d", requested, HardStepMaxLines, instance.step.EffectiveMaxLines()))
 	}
 	if origin := instance.step.windowOrigin; origin != nil {
-		rw.line(fmt.Sprintf("自动窗 provenance: discovery=%s window_ordinal=%d candidate_rank=%d candidate_slice=%d family=%s kind=%s core=[%s..%s] core_lines=%d-%d rank_basis=%s fingerprint=%s",
+		rw.line(fmt.Sprintf("自动窗 provenance: discovery=%s window_ordinal=%d candidate_rank=%d candidate_slice=%d family=%s kind=%s pairing_status=%s carry_class=%s semantic_class=%s core=[%s..%s] core_lines=%d-%d start_endpoint=%s end_endpoint=%s rank_basis=%s fingerprint=%s",
 			origin.DiscoveryLabel, origin.WindowOrdinal, origin.CandidateRank, origin.CandidateWindow, origin.Family, origin.Kind,
+			firstNonEmptyV2(origin.PairingStatus, "none"), firstNonEmptyV2(origin.CarryClass, "none"), firstNonEmptyV2(origin.SemanticClass, "none"),
 			formatSecondsToken(origin.CoreStartTs), formatSecondsToken(origin.CoreEndTs), origin.CoreLineStart, origin.CoreLineEnd,
+			formatWindowDiscoveryEndpoint(origin.StartEndpoint), formatWindowDiscoveryEndpoint(origin.EndEndpoint),
 			clampToken(origin.RankBasis), origin.IdentityFingerprint))
 		rw.line("注: 本窗为系统确定性派生窗(FrameWindowAutoDerived=true)，不是用户显式帧窗；仅用于补采该候选的完整端点证据。")
 	}
@@ -190,4 +202,18 @@ func firstNonEmptyV2(value, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func formatWindowDiscoveryEndpoint(endpoint *tracequery.WindowDiscoveryEndpointProvenance) string {
+	if endpoint == nil {
+		return "none"
+	}
+	source := filepath.Base(endpoint.SourcePath)
+	if source == "." || strings.TrimSpace(source) == "" {
+		source = "unknown"
+	}
+	return clampToken(fmt.Sprintf("action:%s,source:%s,line:%d,ts:%s,emitter_pid:%d,payload_pid:%d,generation:%d,name:%s,track:%s,cookie:%s",
+		firstNonEmptyV2(endpoint.Action, "unknown"), source, endpoint.Line,
+		formatSecondsToken(endpoint.Ts), endpoint.EmitterPID, endpoint.PayloadPID, endpoint.Generation,
+		firstNonEmptyV2(endpoint.Name, "-"), firstNonEmptyV2(endpoint.Track, "-"), firstNonEmptyV2(endpoint.Cookie, "-")))
 }

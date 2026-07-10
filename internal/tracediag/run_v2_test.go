@@ -3,6 +3,7 @@ package tracediag
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -265,4 +266,56 @@ steps:
 	if got := strings.Count(report, "type=block_rq_"); got != 2 {
 		t.Fatalf("every returned raw row must remain visible (want 2), got %d\n%s", got, report)
 	}
+}
+
+func TestRunV2TraceMarkCarryGeneratedCompactionFailsLoud(t *testing.T) {
+	trace := strings.Join([]string{
+		traceMarkTestLineForTraceDiag("app", 20, 1.000, "B|20|first"),
+		traceMarkTestLineForTraceDiag("app", 20, 1.001, "E"),
+		traceMarkTestLineForTraceDiag("app", 20, 1.002, "B|20|second"),
+		traceMarkTestLineForTraceDiag("app", 20, 1.003, "E"),
+		traceMarkTestLineForTraceDiag("app", 20, 1.004, "S|20|async|7"),
+		traceMarkTestLineForTraceDiag("app", 20, 1.005, "F|20|async|7"),
+	}, "\n") + "\n"
+	script := `
+version: 2
+defaults: {window: "0.990..1.010"}
+limits: {max_generated_windows: 1, max_expanded_steps: 1, max_report_lines: 500}
+discoveries:
+  - {label: marker_pair, strategy: trace_mark_carry, families: [trace_sync, trace_async], max_windows: 1, max_window_ms: 50, max_lines: 20}
+steps:
+  - label: raw_marker_endpoints
+    view: event_search
+    event_types: [trace_mark]
+    trace_mark_actions: [B, E, S, F]
+    windows_from: {discovery: marker_pair}
+    max_lines: 5
+`
+	scriptPath, tracePath := writeRunV2Fixtures(t, trace, script)
+	var buf bytes.Buffer
+	failed, err := Run(context.Background(), Options{ScriptPath: scriptPath, TracePath: tracePath, Now: fixedNow}, &buf)
+	if err != nil {
+		t.Fatalf("Run(trace_mark_carry compaction): %v", err)
+	}
+	if failed != 1 {
+		t.Fatalf("compacted marker endpoint witness must fail, got failed=%d\n%s", failed, buf.String())
+	}
+	report := buf.String()
+	for _, want := range []string{
+		"strategy=trace_mark_carry",
+		"pairing_status=complete_exact",
+		"carry_class=inside_pair",
+		"start_endpoint=action:B",
+		"generated_window_compacted",
+		"matched=6 emitted=2",
+		"不得把本实例当作 N/N 完整 witness",
+	} {
+		if !strings.Contains(report, want) {
+			t.Errorf("marker compaction report missing %q\n%s", want, report)
+		}
+	}
+}
+
+func traceMarkTestLineForTraceDiag(comm string, pid int, ts float64, payload string) string {
+	return fmt.Sprintf(" %s-%d (%d) [000] .... %.6f: tracing_mark_write: %s", comm, pid, pid, ts, payload)
 }

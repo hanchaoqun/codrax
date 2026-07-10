@@ -1,6 +1,7 @@
 package tracediag
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -282,6 +283,54 @@ steps:
 	}
 	if script.v2Limits.MaxGeneratedWindows != 4 || script.v2WorstReportLines <= 0 || script.v2WorstReportLines > 500 {
 		t.Fatalf("resolved v2 budgets = %+v worst=%d", script.v2Limits, script.v2WorstReportLines)
+	}
+}
+
+func TestParseScriptV2TraceMarkCarrySchemaAndAtomicBudget(t *testing.T) {
+	yamlText := `
+version: 2
+defaults: {window: "1.000..1.100"}
+limits: {max_generated_windows: 2, max_expanded_steps: 2, max_report_lines: 300}
+discoveries:
+  - label: marker_pairs
+    strategy: trace_mark_carry
+    families: [trace_sync, trace_async, trace_track]
+    max_windows: 2
+    max_window_ms: 50
+    max_lines: 20
+steps:
+  - label: raw_marker_endpoints
+    view: event_search
+    event_types: [trace_mark]
+    trace_mark_actions: [B, E, S, F, G, H]
+    windows_from: {discovery: marker_pairs}
+    max_lines: 20
+`
+	script, err := ParseScript([]byte(yamlText))
+	if err != nil {
+		t.Fatalf("ParseScript(trace_mark_carry): %v", err)
+	}
+	if len(script.Discoveries) != 1 || script.Discoveries[0].Strategy != string(tracequery.WindowDiscoveryTraceMarkCarry) ||
+		!reflect.DeepEqual(script.Discoveries[0].Families, []string{"trace_sync", "trace_async", "trace_track"}) ||
+		script.v2Limits.MaxGeneratedWindows != 2 || script.v2Limits.MaxExpandedSteps != 2 || script.v2WorstReportLines > 300 {
+		t.Fatalf("trace_mark_carry schema/budget = discoveries:%+v limits:%+v worst:%d", script.Discoveries, script.v2Limits, script.v2WorstReportLines)
+	}
+	step := script.Steps[0]
+	if step.WindowsFrom == nil || step.WindowsFrom.Discovery != "marker_pairs" ||
+		!reflect.DeepEqual(step.TraceMarkActions, []string{"B", "E", "S", "F", "G", "H"}) {
+		t.Fatalf("trace_mark_carry generated endpoint step = %+v", step)
+	}
+
+	foreignFamily := strings.Replace(yamlText, "trace_sync, trace_async, trace_track", "block", 1)
+	if _, err := ParseScript([]byte(foreignFamily)); err == nil || !strings.Contains(err.Error(), `strategy "trace_mark_carry"`) {
+		t.Fatalf("trace_mark_carry accepted a foreign family: %v", err)
+	}
+	unbounded := strings.Replace(yamlText, `defaults: {window: "1.000..1.100"}`, "", 1)
+	if unbounded == yamlText {
+		t.Fatal("test fixture failed to remove defaults.window")
+	}
+	if _, err := ParseScript([]byte(unbounded)); err == nil || !strings.Contains(err.Error(), "bounded parent") {
+		t.Fatalf("trace_mark_carry accepted an unbounded parent: %v", err)
 	}
 }
 

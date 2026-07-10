@@ -17,6 +17,7 @@ type WindowDiscoveryStrategy string
 
 const (
 	WindowDiscoveryPairingIntegrity WindowDiscoveryStrategy = "pairing_integrity"
+	WindowDiscoveryTraceMarkCarry   WindowDiscoveryStrategy = "trace_mark_carry"
 
 	DefaultWindowDiscoveryMaxWindows       = 3
 	HardWindowDiscoveryMaxWindows          = 8
@@ -37,19 +38,73 @@ const (
 type WindowDiscoveryFamily string
 
 const (
-	WindowDiscoveryFamilyBlock   WindowDiscoveryFamily = "block"
-	WindowDiscoveryFamilyStorage WindowDiscoveryFamily = "storage"
+	WindowDiscoveryFamilyBlock      WindowDiscoveryFamily = "block"
+	WindowDiscoveryFamilyStorage    WindowDiscoveryFamily = "storage"
+	WindowDiscoveryFamilyTraceSync  WindowDiscoveryFamily = "trace_sync"
+	WindowDiscoveryFamilyTraceAsync WindowDiscoveryFamily = "trace_async"
+	WindowDiscoveryFamilyTraceTrack WindowDiscoveryFamily = "trace_track"
 )
 
 func WindowDiscoveryStrategyNames() []string {
-	return []string{string(WindowDiscoveryPairingIntegrity)}
+	return []string{string(WindowDiscoveryPairingIntegrity), string(WindowDiscoveryTraceMarkCarry)}
 }
 
 func WindowDiscoveryFamilyNames(strategy WindowDiscoveryStrategy) []string {
-	if strategy != WindowDiscoveryPairingIntegrity {
+	switch strategy {
+	case WindowDiscoveryPairingIntegrity:
+		return []string{string(WindowDiscoveryFamilyBlock), string(WindowDiscoveryFamilyStorage)}
+	case WindowDiscoveryTraceMarkCarry:
+		return []string{string(WindowDiscoveryFamilyTraceSync), string(WindowDiscoveryFamilyTraceAsync), string(WindowDiscoveryFamilyTraceTrack)}
+	default:
 		return nil
 	}
-	return []string{string(WindowDiscoveryFamilyBlock), string(WindowDiscoveryFamilyStorage)}
+}
+
+// WindowDiscoveryPairingStatus is the closed endpoint-state verdict carried
+// by both candidate diagnostics and selected windows. Only PairingCompleteExact
+// may produce a DiscoveredWindow; every other value is a typed fail-closed
+// explanation and never becomes a collection scope.
+type WindowDiscoveryPairingStatus string
+
+const (
+	WindowDiscoveryPairingCompleteExact      WindowDiscoveryPairingStatus = "complete_exact"
+	WindowDiscoveryPairingAmbiguousDuplicate WindowDiscoveryPairingStatus = "ambiguous_duplicate"
+	WindowDiscoveryPairingIncompleteOpen     WindowDiscoveryPairingStatus = "incomplete_open"
+	WindowDiscoveryPairingOrphanEnd          WindowDiscoveryPairingStatus = "orphan_end"
+	WindowDiscoveryPairingLifecycleCut       WindowDiscoveryPairingStatus = "lifecycle_cut"
+	WindowDiscoveryPairingMalformedEndpoint  WindowDiscoveryPairingStatus = "malformed_endpoint"
+	WindowDiscoveryPairingTimestampRollback  WindowDiscoveryPairingStatus = "timestamp_rollback"
+	WindowDiscoveryPairingSourceUnresolved   WindowDiscoveryPairingStatus = "source_unresolved"
+	WindowDiscoveryPairingBudgetExceeded     WindowDiscoveryPairingStatus = "budget_exceeded"
+)
+
+// WindowDiscoveryCarryClass is the exact relationship between a complete
+// endpoint pair and the operator's parent scope. It is descriptive collection
+// provenance only; it never asserts causality or rank.
+type WindowDiscoveryCarryClass string
+
+const (
+	WindowDiscoveryCarryIn      WindowDiscoveryCarryClass = "carry_in"
+	WindowDiscoveryCarryOut     WindowDiscoveryCarryClass = "carry_out"
+	WindowDiscoveryCarryThrough WindowDiscoveryCarryClass = "carry_through"
+	WindowDiscoveryInsidePair   WindowDiscoveryCarryClass = "inside_pair"
+)
+
+// WindowDiscoveryEndpointProvenance preserves one exact physical marker
+// endpoint. Generation is lifecycle-derived; SourcePath+Line is the physical
+// identity authority, while emitter/payload identities remain separate.
+type WindowDiscoveryEndpointProvenance struct {
+	Action     string  `json:"action"`
+	SourcePath string  `json:"source_path"`
+	Line       int     `json:"line"`
+	Ts         float64 `json:"ts"`
+	EmitterPID int     `json:"emitter_pid"`
+	PayloadPID int     `json:"payload_pid,omitempty"`
+	Generation int     `json:"generation"`
+	Name       string  `json:"name,omitempty"`
+	Track      string  `json:"track,omitempty"`
+	Cookie     string  `json:"cookie,omitempty"`
+	RawEvent   string  `json:"raw_event,omitempty"`
 }
 
 type WindowDiscoveryRequest struct {
@@ -91,26 +146,31 @@ type WindowDiscoveryFamilyStats struct {
 }
 
 type WindowDiscoveryCandidate struct {
-	Rank                    int                   `json:"rank"`
-	Family                  WindowDiscoveryFamily `json:"family"`
-	Kind                    string                `json:"kind"`
-	Identity                string                `json:"identity"`
-	IdentityFingerprint     string                `json:"identity_fingerprint"`
-	FirstLine               int                   `json:"first_line"`
-	LastLine                int                   `json:"last_line"`
-	CoreStartTs             float64               `json:"core_start_ts"`
-	CoreEndTs               float64               `json:"core_end_ts"`
-	EndpointCount           int                   `json:"endpoint_count"`
-	StartCount              int                   `json:"start_count"`
-	DoneCount               int                   `json:"done_count"`
-	MaxDepth                int                   `json:"max_depth"`
-	Closed                  bool                  `json:"closed"`
-	CollectionComplete      bool                  `json:"collection_complete"`
-	FitsSingleWindow        bool                  `json:"fits_single_window"`
-	RequiredWindowCount     int                   `json:"required_window_count,omitempty"`
-	Selected                bool                  `json:"selected"`
-	SelectionReason         string                `json:"selection_reason,omitempty"`
-	CollectionBlockedReason string                `json:"collection_blocked_reason,omitempty"`
+	Rank                    int                                `json:"rank"`
+	Family                  WindowDiscoveryFamily              `json:"family"`
+	Kind                    string                             `json:"kind"`
+	Identity                string                             `json:"identity"`
+	IdentityFingerprint     string                             `json:"identity_fingerprint"`
+	FirstLine               int                                `json:"first_line"`
+	LastLine                int                                `json:"last_line"`
+	CoreStartTs             float64                            `json:"core_start_ts"`
+	CoreEndTs               float64                            `json:"core_end_ts"`
+	EndpointCount           int                                `json:"endpoint_count"`
+	StartCount              int                                `json:"start_count"`
+	DoneCount               int                                `json:"done_count"`
+	MaxDepth                int                                `json:"max_depth"`
+	Closed                  bool                               `json:"closed"`
+	CollectionComplete      bool                               `json:"collection_complete"`
+	FitsSingleWindow        bool                               `json:"fits_single_window"`
+	RequiredWindowCount     int                                `json:"required_window_count,omitempty"`
+	Selected                bool                               `json:"selected"`
+	SelectionReason         string                             `json:"selection_reason,omitempty"`
+	CollectionBlockedReason string                             `json:"collection_blocked_reason,omitempty"`
+	PairingStatus           WindowDiscoveryPairingStatus       `json:"pairing_status,omitempty"`
+	CarryClass              WindowDiscoveryCarryClass          `json:"carry_class,omitempty"`
+	SemanticClass           string                             `json:"semantic_class,omitempty"`
+	StartEndpoint           *WindowDiscoveryEndpointProvenance `json:"start_endpoint,omitempty"`
+	EndEndpoint             *WindowDiscoveryEndpointProvenance `json:"end_endpoint,omitempty"`
 
 	events  []Event
 	windows []DiscoveredWindow
@@ -120,20 +180,25 @@ type WindowDiscoveryCandidate struct {
 // collector.  Core* covers the endpoint cluster; Start/End includes bounded
 // context padding and is always <= the strategy's configured hard width.
 type DiscoveredWindow struct {
-	Ordinal             int                   `json:"ordinal"`
-	CandidateRank       int                   `json:"candidate_rank"`
-	CandidateWindow     int                   `json:"candidate_window"`
-	Family              WindowDiscoveryFamily `json:"family"`
-	Kind                string                `json:"kind"`
-	StartTs             float64               `json:"start_ts"`
-	EndTs               float64               `json:"end_ts"`
-	CoreStartTs         float64               `json:"core_start_ts"`
-	CoreEndTs           float64               `json:"core_end_ts"`
-	CoreLineStart       int                   `json:"core_line_start"`
-	CoreLineEnd         int                   `json:"core_line_end"`
-	WindowOrigin        string                `json:"window_origin"`
-	RankBasis           string                `json:"rank_basis"`
-	IdentityFingerprint string                `json:"identity_fingerprint"`
+	Ordinal             int                                `json:"ordinal"`
+	CandidateRank       int                                `json:"candidate_rank"`
+	CandidateWindow     int                                `json:"candidate_window"`
+	Family              WindowDiscoveryFamily              `json:"family"`
+	Kind                string                             `json:"kind"`
+	StartTs             float64                            `json:"start_ts"`
+	EndTs               float64                            `json:"end_ts"`
+	CoreStartTs         float64                            `json:"core_start_ts"`
+	CoreEndTs           float64                            `json:"core_end_ts"`
+	CoreLineStart       int                                `json:"core_line_start"`
+	CoreLineEnd         int                                `json:"core_line_end"`
+	WindowOrigin        string                             `json:"window_origin"`
+	RankBasis           string                             `json:"rank_basis"`
+	IdentityFingerprint string                             `json:"identity_fingerprint"`
+	PairingStatus       WindowDiscoveryPairingStatus       `json:"pairing_status,omitempty"`
+	CarryClass          WindowDiscoveryCarryClass          `json:"carry_class,omitempty"`
+	SemanticClass       string                             `json:"semantic_class,omitempty"`
+	StartEndpoint       *WindowDiscoveryEndpointProvenance `json:"start_endpoint,omitempty"`
+	EndEndpoint         *WindowDiscoveryEndpointProvenance `json:"end_endpoint,omitempty"`
 }
 
 type WindowDiscoveryResult struct {
@@ -201,24 +266,48 @@ func DiscoverWindows(ctx context.Context, path string, flavorHint TraceFlavor, r
 	if err != nil {
 		return WindowDiscoveryResult{}, err
 	}
-	d := newPairingWindowDiscovery(req, canonicalTraceIndexPath(path))
-	shell, err := StreamScan(ctx, path, flavorHint, func(ev Event) bool {
-		return d.observe(ev)
-	})
+	canonicalPath := canonicalTraceIndexPath(path)
+	var shell *Index
+	switch req.Strategy {
+	case WindowDiscoveryPairingIntegrity:
+		d := newPairingWindowDiscovery(req, canonicalPath)
+		shell, err = StreamScan(ctx, path, flavorHint, func(ev Event) bool { return d.observe(ev) })
+		if err == nil {
+			if windowDiscoveryAfterStreamScanHook != nil {
+				windowDiscoveryAfterStreamScanHook()
+			}
+			if err = version.Validate(path); err == nil {
+				return d.finalize(shell, version), nil
+			}
+		}
+	case WindowDiscoveryTraceMarkCarry:
+		d := newTraceMarkCarryDiscovery(req, canonicalPath)
+		shell, err = StreamScan(ctx, path, flavorHint, func(ev Event) bool { return d.observe(canonicalPath, ev) })
+		if err == nil {
+			if windowDiscoveryAfterStreamScanHook != nil {
+				windowDiscoveryAfterStreamScanHook()
+			}
+			if err = version.Validate(path); err == nil {
+				return d.finalize(shell, version), nil
+			}
+		}
+	}
 	if err != nil {
 		return WindowDiscoveryResult{}, err
 	}
-	if err := version.Validate(path); err != nil {
-		return WindowDiscoveryResult{}, err
-	}
-	return d.finalize(shell, version), nil
+	return WindowDiscoveryResult{}, fmt.Errorf("window discovery: unsupported strategy %q", req.Strategy)
 }
+
+// Test-only seam: production leaves this nil. It proves that the immutable
+// source-universe version captured before StreamScan is revalidated before a
+// discovery result can be published.
+var windowDiscoveryAfterStreamScanHook func()
 
 func normalizeWindowDiscoveryRequest(in WindowDiscoveryRequest) (WindowDiscoveryRequest, error) {
 	if in.Strategy == "" {
 		return in, fmt.Errorf("window discovery: strategy is required; supported: %s", strings.Join(WindowDiscoveryStrategyNames(), ", "))
 	}
-	if in.Strategy != WindowDiscoveryPairingIntegrity {
+	if in.Strategy != WindowDiscoveryPairingIntegrity && in.Strategy != WindowDiscoveryTraceMarkCarry {
 		return in, fmt.Errorf("window discovery: unknown strategy %q; supported: %s", in.Strategy, strings.Join(WindowDiscoveryStrategyNames(), ", "))
 	}
 	if in.TimeStartSet != in.TimeEndSet {
@@ -236,17 +325,29 @@ func normalizeWindowDiscoveryRequest(in WindowDiscoveryRequest) (WindowDiscovery
 		return in, fmt.Errorf("window discovery: time and line scopes cannot be combined")
 	}
 	familySet := map[WindowDiscoveryFamily]bool{}
+	allowedFamilies := map[WindowDiscoveryFamily]bool{}
+	for _, name := range WindowDiscoveryFamilyNames(in.Strategy) {
+		allowedFamilies[WindowDiscoveryFamily(name)] = true
+	}
 	if len(in.Families) == 0 {
-		in.Families = []WindowDiscoveryFamily{WindowDiscoveryFamilyBlock, WindowDiscoveryFamilyStorage}
+		for _, name := range WindowDiscoveryFamilyNames(in.Strategy) {
+			in.Families = append(in.Families, WindowDiscoveryFamily(name))
+		}
 	}
 	for _, family := range in.Families {
-		if family != WindowDiscoveryFamilyBlock && family != WindowDiscoveryFamilyStorage {
-			return in, fmt.Errorf("window discovery: unknown pairing family %q; supported: %s", family, strings.Join(WindowDiscoveryFamilyNames(in.Strategy), ", "))
+		if !allowedFamilies[family] {
+			return in, fmt.Errorf("window discovery: unknown %s family %q; supported: %s", in.Strategy, family, strings.Join(WindowDiscoveryFamilyNames(in.Strategy), ", "))
 		}
 		if familySet[family] {
 			return in, fmt.Errorf("window discovery: duplicate pairing family %q", family)
 		}
 		familySet[family] = true
+	}
+	if in.Strategy == WindowDiscoveryTraceMarkCarry && !in.TimeStartSet && in.LineStart == 0 && in.LineEnd == 0 {
+		return in, fmt.Errorf("window discovery: trace_mark_carry requires a bounded parent time or line window")
+	}
+	if in.Strategy == WindowDiscoveryTraceMarkCarry && !in.TimeStartSet && (in.LineStart == 0 || in.LineEnd == 0) {
+		return in, fmt.Errorf("window discovery: trace_mark_carry line parent requires both line_start and line_end")
 	}
 	if in.MaxWindows == 0 {
 		in.MaxWindows = DefaultWindowDiscoveryMaxWindows
@@ -258,7 +359,7 @@ func normalizeWindowDiscoveryRequest(in WindowDiscoveryRequest) (WindowDiscovery
 		in.MaxWindowMs = DefaultWindowDiscoveryMaxWindowMs
 	}
 	if math.IsNaN(in.MaxWindowMs) || math.IsInf(in.MaxWindowMs, 0) || in.MaxWindowMs <= 0 || in.MaxWindowMs > HardPairingDiscoveryMaxWindowMs {
-		return in, fmt.Errorf("window discovery: max_window_ms=%.9g outside (0,%.0f] for pairing_integrity", in.MaxWindowMs, HardPairingDiscoveryMaxWindowMs)
+		return in, fmt.Errorf("window discovery: max_window_ms=%.9g outside (0,%.0f] for %s", in.MaxWindowMs, HardPairingDiscoveryMaxWindowMs, in.Strategy)
 	}
 	if in.PaddingMs == 0 {
 		in.PaddingMs = DefaultWindowDiscoveryPaddingMs

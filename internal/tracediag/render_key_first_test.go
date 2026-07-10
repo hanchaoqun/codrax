@@ -114,6 +114,43 @@ func TestRenderStepBodyRootCapabilityAndSplitKeyFirst(t *testing.T) {
 	}
 }
 
+func TestRenderV2DiscoveryDecisionSurfacePrecedesCandidateRoster(t *testing.T) {
+	spec := &WindowDiscovery{effMaxLines: 5}
+	endpoint := &tracequery.WindowDiscoveryEndpointProvenance{Action: "B", SourcePath: "/customer/private/trace.systrace", Line: 10, Ts: 1, EmitterPID: 20, Name: "VerifyClass"}
+	result := &tracequery.WindowDiscoveryResult{
+		Complete: true, IdentityComplete: true, ParseComplete: true, ScannedLineCount: 100,
+		EndpointCount: 20, ScopedEndpointCount: 2, RetainedCandidateCount: 20,
+		SelectionBasis: "soft semantic selection; no causal claim",
+		Families:       []tracequery.WindowDiscoveryFamilyStats{{Family: tracequery.WindowDiscoveryFamilyTraceSync, EndpointCount: 20, StartCount: 10, DoneCount: 10, CompletedPairCount: 10}},
+		Windows: []tracequery.DiscoveredWindow{{
+			Ordinal: 1, CandidateRank: 20, CandidateWindow: 1, Family: tracequery.WindowDiscoveryFamilyTraceSync, Kind: "exact_pair",
+			StartTs: .995, EndTs: 1.005, CoreStartTs: 1, CoreEndTs: 1.001, CoreLineStart: 10, CoreLineEnd: 11,
+			PairingStatus: tracequery.WindowDiscoveryPairingCompleteExact, CarryClass: tracequery.WindowDiscoveryInsidePair,
+			SemanticClass: "class_verification", StartEndpoint: endpoint, EndEndpoint: &tracequery.WindowDiscoveryEndpointProvenance{Action: "E", SourcePath: endpoint.SourcePath, Line: 11, Ts: 1.001, EmitterPID: 20},
+		}},
+		Caveats: []string{"typed quality caveat must remain visible"},
+	}
+	for i := 0; i < 20; i++ {
+		result.Candidates = append(result.Candidates, tracequery.WindowDiscoveryCandidate{Rank: i + 1, Family: tracequery.WindowDiscoveryFamilyTraceSync, Kind: "pairing_issue"})
+	}
+	body := renderV2DiscoveryBody(spec, result)
+	report := strings.Join(body.lines, "\n")
+	for _, want := range []string{"generated_window ordinal=1", "semantic_class=class_verification", "typed quality caveat must remain visible"} {
+		if !strings.Contains(report, want) {
+			t.Fatalf("small-cap discovery report lost decision surface %q:\n%s", want, report)
+		}
+	}
+	if strings.Contains(report, "candidate rank=") {
+		t.Fatalf("candidate detail displaced the discovery decision surface:\n%s", report)
+	}
+	if strings.Contains(report, "/customer/private/") {
+		t.Fatalf("endpoint rendering leaked an absolute source path:\n%s", report)
+	}
+	if len(body.lines) != spec.EffectiveMaxLines() || body.total <= len(body.lines) {
+		t.Fatalf("discovery cap accounting lines=%d total=%d cap=%d", len(body.lines), body.total, spec.EffectiveMaxLines())
+	}
+}
+
 func TestNonEventKeyFirstTypedFieldsAreNotRepeatedByGenericWalker(t *testing.T) {
 	step := &Step{View: "window_stats", effMaxLines: 100}
 	res := &tracequery.Result{

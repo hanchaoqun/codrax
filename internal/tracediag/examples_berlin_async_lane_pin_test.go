@@ -33,16 +33,21 @@ func TestBerlinWitnessV2TemplateParseAndScope(t *testing.T) {
 	if script.Version != ScriptVersionV2 || script.Inputs == nil || script.Inputs.Window != "required" || script.Inputs.TID != "required" {
 		t.Fatalf("Berlin typed inputs/version = version:%d inputs:%+v", script.Version, script.Inputs)
 	}
-	if script.v2Limits.MaxGeneratedWindows != 2 || script.v2Limits.MaxExpandedSteps != 11 || script.v2Limits.MaxReportLines != 1000 || script.v2WorstReportLines != 910 {
+	if script.v2Limits.MaxGeneratedWindows != 4 || script.v2Limits.MaxExpandedSteps != 13 || script.v2Limits.MaxReportLines != 1000 || script.v2WorstReportLines != 996 {
 		t.Fatalf("Berlin mechanical budget drift: limits=%+v worst=%d", script.v2Limits, script.v2WorstReportLines)
 	}
-	if len(script.Discoveries) != 1 {
-		t.Fatalf("Berlin discoveries=%d, want one pairing discovery", len(script.Discoveries))
+	if len(script.Discoveries) != 2 {
+		t.Fatalf("Berlin discoveries=%d, want IO pairing + trace-mark carry", len(script.Discoveries))
 	}
-	discovery := script.Discoveries[0]
-	if discovery.Label != "io_pairing_windows" || discovery.Strategy != string(tracequery.WindowDiscoveryPairingIntegrity) ||
-		!reflect.DeepEqual(discovery.Families, []string{"block", "storage"}) || discovery.MaxWindows != 2 || discovery.MaxWindowMS > 50 || !discovery.windowInherited {
-		t.Fatalf("Berlin pairing discovery = %+v", discovery)
+	ioDiscovery := findBerlinDiscovery(script.Discoveries, "io_pairing_windows")
+	if ioDiscovery == nil || ioDiscovery.Strategy != string(tracequery.WindowDiscoveryPairingIntegrity) ||
+		!reflect.DeepEqual(ioDiscovery.Families, []string{"block", "storage"}) || ioDiscovery.MaxWindows != 2 || ioDiscovery.MaxWindowMS > 50 || !ioDiscovery.windowInherited {
+		t.Fatalf("Berlin pairing discovery = %+v", ioDiscovery)
+	}
+	markDiscovery := findBerlinDiscovery(script.Discoveries, "trace_mark_carry_windows")
+	if markDiscovery == nil || markDiscovery.Strategy != string(tracequery.WindowDiscoveryTraceMarkCarry) ||
+		!reflect.DeepEqual(markDiscovery.Families, []string{"trace_sync", "trace_async", "trace_track"}) || markDiscovery.MaxWindows != 2 || markDiscovery.MaxWindowMS > 50 || !markDiscovery.windowInherited {
+		t.Fatalf("Berlin trace-mark carry discovery = %+v", markDiscovery)
 	}
 
 	wantActions := map[string][]string{
@@ -82,8 +87,8 @@ func TestBerlinWitnessV2TemplateParseAndScope(t *testing.T) {
 	}) {
 		t.Fatalf("Berlin exact marker lanes = %v", foundActions)
 	}
-	if len(script.Steps) != 10 {
-		t.Fatalf("Berlin logical steps=%d, want 10", len(script.Steps))
+	if len(script.Steps) != 11 {
+		t.Fatalf("Berlin logical steps=%d, want 11", len(script.Steps))
 	}
 	interrupt := findBerlinStep(script.Steps, "raw_interrupt_endpoints")
 	if interrupt == nil || !reflect.DeepEqual(interrupt.EventTypes, []string{"irq", "softirq", "ipi"}) {
@@ -94,8 +99,14 @@ func TestBerlinWitnessV2TemplateParseAndScope(t *testing.T) {
 		t.Fatalf("Berlin unknown lane = %+v", unknown)
 	}
 	ioRows := findBerlinStep(script.Steps, "raw_io_pairing_rows")
-	if ioRows == nil || ioRows.WindowsFrom == nil || ioRows.WindowsFrom.Discovery != discovery.Label || ioRows.Window != "" {
+	if ioRows == nil || ioRows.WindowsFrom == nil || ioRows.WindowsFrom.Discovery != ioDiscovery.Label || ioRows.Window != "" {
 		t.Fatalf("Berlin IO fan-out lane = %+v", ioRows)
+	}
+	markRows := findBerlinStep(script.Steps, "raw_trace_mark_carry_endpoints")
+	if markRows == nil || markRows.WindowsFrom == nil || markRows.WindowsFrom.Discovery != markDiscovery.Label || markRows.Window != "" ||
+		!reflect.DeepEqual(markRows.EventTypes, []string{"trace_mark"}) ||
+		!reflect.DeepEqual(markRows.TraceMarkActions, []string{"B", "E", "S", "F", "G", "H"}) {
+		t.Fatalf("Berlin trace-mark endpoint fan-out lane = %+v", markRows)
 	}
 }
 
@@ -111,6 +122,15 @@ func findBerlinStep(steps []Step, label string) *Step {
 	for i := range steps {
 		if steps[i].Label == label {
 			return &steps[i]
+		}
+	}
+	return nil
+}
+
+func findBerlinDiscovery(discoveries []WindowDiscovery, label string) *WindowDiscovery {
+	for i := range discoveries {
+		if discoveries[i].Label == label {
+			return &discoveries[i]
 		}
 	}
 	return nil

@@ -272,6 +272,11 @@ func resolveV2Plan(script *Script, discoveries []v2DiscoveryOutcome) ([]v2StepIn
 				CoreLineEnd:         window.CoreLineEnd,
 				RankBasis:           window.RankBasis,
 				IdentityFingerprint: window.IdentityFingerprint,
+				PairingStatus:       string(window.PairingStatus),
+				CarryClass:          string(window.CarryClass),
+				SemanticClass:       window.SemanticClass,
+				StartEndpoint:       window.StartEndpoint,
+				EndEndpoint:         window.EndEndpoint,
 			}
 			instances = append(instances, v2StepInstance{step: resolved, logicalOrdinal: i + 1, logicalLabel: logical.Label, instanceOrdinal: j + 1, instanceCount: count})
 		}

@@ -10,24 +10,26 @@
 # trace_mark_actions 精确分流，不再用大小写不敏感的 payload 子串 pattern，也不再
 # 手改 async payload PID：B/E、C、S、F、G/H、N/I 各自独立、不会互相挤占行帽。
 #
-# pairing_integrity 从物理文件开头完整重放 block/storage endpoint cohort，自动
-# 选择或原子拆分最多 2 个 <=50ms 小窗；raw_io_pairing_rows 只消费这些 typed 窗。
+# pairing_integrity 从物理文件开头完整重放 block/storage endpoint cohort；
+# trace_mark_carry 同样全文件重放 B/E、S/F、G/H，只选择与父窗相交的完整 exact
+# pair。两种 discovery 各自最多生成 2 个 <=50ms 小窗；跨度过大的一个 pair 只会
+# 原子发布两个 endpoint-centered 小窗，预算不足时两端都不发布。
 # 若 generated_window_compacted，命令非零退出并披露 matched/emitted，已返回行仍
 # 可用，但不得称作 N/N 完整 witness。父窗口建议 <=1s；counter_quality 若出现
 # series_budget_exceeded=true，应继续缩小父窗，不能据此宣称该帧无 counter。
 #
-# 静态最坏预算：66 + discovery(20+12) + target(160+12)
+# 静态最坏预算：66 + 2*discovery(20+12) + target(150+12)
 # + 6*marker(50+12) + interrupt(60+12) + 2*io(60+12)
-# + unknown(40+12) = 910 行；logical steps=10，最坏
-# expanded=9 static + 2 io fan-out = 11。
+# + 2*marker_endpoint(20+12) + unknown(40+12) = 996 行；
+# logical steps=11，最坏 expanded=9 static + 2 io + 2 marker endpoint=13。
 version: 2
-description: "Berlin marker/counter/interrupt + 自动 block/storage pairing witness"
+description: "Berlin marker/counter/interrupt + 自动 block/storage 与 trace-mark carry witness"
 inputs:
   window: required
   tid: required
 limits:
-  max_generated_windows: 2
-  max_expanded_steps: 11
+  max_generated_windows: 4
+  max_expanded_steps: 13
   max_report_lines: 1000
 discoveries:
   - label: io_pairing_windows
@@ -37,11 +39,18 @@ discoveries:
     max_window_ms: 50
     padding_ms: 5
     max_lines: 20
+  - label: trace_mark_carry_windows
+    strategy: trace_mark_carry
+    families: [trace_sync, trace_async, trace_track]
+    max_windows: 2
+    max_window_ms: 50
+    padding_ms: 5
+    max_lines: 20
 steps:
   - label: target_window_stats
     view: window_stats
     pid_from: tid
-    max_lines: 160
+    max_lines: 150
   - label: raw_sync_marks
     view: event_search
     event_types: [trace_mark]
@@ -81,6 +90,12 @@ steps:
     event_types: [block_rq_issue, block_rq_complete, storage_latency]
     windows_from: {discovery: io_pairing_windows}
     max_lines: 60
+  - label: raw_trace_mark_carry_endpoints
+    view: event_search
+    event_types: [trace_mark]
+    trace_mark_actions: [B, E, S, F, G, H]
+    windows_from: {discovery: trace_mark_carry_windows}
+    max_lines: 20
   - label: raw_unknown_events
     view: event_search
     event_types: [unknown]

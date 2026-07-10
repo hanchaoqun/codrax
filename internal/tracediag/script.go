@@ -252,6 +252,11 @@ type WindowProvenance struct {
 	CoreLineEnd         int
 	RankBasis           string
 	IdentityFingerprint string
+	PairingStatus       string
+	CarryClass          string
+	SemanticClass       string
+	StartEndpoint       *tracequery.WindowDiscoveryEndpointProvenance
+	EndEndpoint         *tracequery.WindowDiscoveryEndpointProvenance
 }
 
 // WindowBounds returns the parsed window endpoints (valid only when set).
@@ -666,7 +671,7 @@ func (s *Script) validateDiscovery(i int, discovery *WindowDiscovery, seen map[s
 	seenFamily := map[string]bool{}
 	for _, family := range discovery.Families {
 		if !knownFamilies[family] {
-			return fmt.Errorf("%s (%s): unknown family %q", at, discovery.Label, family)
+			return fmt.Errorf("%s (%s): unknown family %q for strategy %q; supported: %s", at, discovery.Label, family, discovery.Strategy, strings.Join(tracequery.WindowDiscoveryFamilyNames(tracequery.WindowDiscoveryStrategy(discovery.Strategy)), ", "))
 		}
 		if seenFamily[family] {
 			return fmt.Errorf("%s (%s): duplicate family %q", at, discovery.Label, family)
@@ -690,6 +695,12 @@ func (s *Script) validateDiscovery(i int, discovery *WindowDiscovery, seen map[s
 	}
 	if discovery.windowSet && (discovery.LineStart > 0 || discovery.LineEnd > 0) {
 		return fmt.Errorf("%s (%s): window and line range cannot be combined", at, discovery.Label)
+	}
+	if discovery.Strategy == string(tracequery.WindowDiscoveryTraceMarkCarry) && !discovery.windowSet && discovery.LineStart == 0 && discovery.LineEnd == 0 {
+		return fmt.Errorf("%s (%s): trace_mark_carry requires a bounded parent window or complete line range", at, discovery.Label)
+	}
+	if discovery.Strategy == string(tracequery.WindowDiscoveryTraceMarkCarry) && !discovery.windowSet && (discovery.LineStart == 0 || discovery.LineEnd == 0) {
+		return fmt.Errorf("%s (%s): trace_mark_carry line parent requires both line_start and line_end", at, discovery.Label)
 	}
 	if discovery.MaxWindows == 0 {
 		discovery.MaxWindows = tracequery.DefaultWindowDiscoveryMaxWindows

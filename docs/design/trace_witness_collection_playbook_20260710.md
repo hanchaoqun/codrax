@@ -150,8 +150,22 @@ unknown 与 IO 车道全部无 PID/TID selector，避免按偶然 emitter 漏掉
 
 marker 不再用 payload 子串 `pattern` 或手改 PID，而按 parser-validated closed action
 精确分为 `B/E`、`C`、`S`、`F`、`G/H`、`N/I` 六组。block/storage 接入
-`pairing_integrity`，自动选择或原子拆分最多 2 个 `<=50ms` 小窗；报告的静态最坏
-预算为 910 行、最多 11 个展开实例，均低于单文件 1000 行硬约束。若出现
+`pairing_integrity`；B/E、S/F、G/H 接入独立的 `trace_mark_carry`。两种 discovery
+都从物理文件开头 source-locked 重放，只把与父窗相交的完整 exact pair 投影成
+typed 小窗，各自最多 2 个 `<=50ms` 窗。一个 pair 跨度过大时原子拆成两个
+endpoint-centered 小窗，预算不足则两个都不发布，绝不只采一端。
+
+报告在 candidate、generated window 与执行实例三处回显 `pairing_status`、
+`carry_class`（`carry_in/carry_out/carry_through/inside_pair`）以及 B/E、S/F、G/H
+两端的 source basename、物理行、时间、emitter/payload PID、generation、name/
+track/cookie。只有 `complete_exact` pair 能生成窗；同键重入、生命周期切断、坏
+marker、时间回退、source 不可解和预算停止均 typed fail-close。确定性 semantic
+class 先于 generic carry class 参与**采集候选的软优先级**，避免 VerifyClass/JIT/
+Shader 等客户可行动 witness 被长 monitor pair 挤出；该顺序不宣称 on-chain、根因
+或因果关系。
+
+当前模板静态最坏预算为 996 行、最多 13 个展开实例和 4 个生成窗，仍低于单文件
+1000 行硬约束。若出现
 `generated_window_compacted`，该实例不是 N/N 完整 witness；若出现
 `series_budget_exceeded=true`，表示该查询窗的 counter identity 已超过有界候选
 宇宙，派生 Top-N 按设计 fail-close。两种情况都应缩窗或按报告提示补采，不能据此

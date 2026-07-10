@@ -200,16 +200,22 @@ func TestRunTraceDiagCLIBerlinV2SingleFileAtomicEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	report := string(data)
+	if strings.Contains(report, "%!") {
+		t.Fatalf("Berlin report contains a formatting failure\n%s", report)
+	}
 	for _, want := range []string{
 		"# codrax tracediag 自动采集报告",
-		"script=collect_berlin_pairing_witness.yaml version=2 discoveries=1 logical_steps=10 expanded_instances=10",
+		"script=collect_berlin_pairing_witness.yaml version=2 discoveries=2 logical_steps=11 expanded_instances=12",
 		"window_override=0.990..1.100 source=cli_flag target=defaults.window",
 		"tid_override=20 source=cli_flag target=pid_from:tid",
-		"validated_worst_report_lines=910",
-		"[自动窗发现 1/1] label=io_pairing_windows strategy=pairing_integrity",
+		"validated_worst_report_lines=996",
+		"[自动窗发现 1/2] label=io_pairing_windows strategy=pairing_integrity",
+		"[自动窗发现 2/2] label=trace_mark_carry_windows strategy=trace_mark_carry",
+		"pairing_status=complete_exact carry_class=inside_pair",
+		"start_endpoint=action:",
 		"family=block kind=schema_probe",
 		"block_rq_complete: 8,0 R () 123 + 8",
-		"结论: 全部 1 个 discovery 与 10 个执行实例成功",
+		"结论: 全部 2 个 discovery 与 12 个执行实例成功",
 	} {
 		if !strings.Contains(report, want) {
 			t.Errorf("Berlin report missing %q\n%s", want, report)
@@ -241,11 +247,15 @@ func TestRunTraceDiagCLIBerlinV2SingleFileAtomicEndToEnd(t *testing.T) {
 	if !strings.Contains(asyncSection, "S|20|async-work|7") || strings.Contains(asyncSection, "C|20|counter|1|S|20|") {
 		t.Fatalf("exact S action lane admitted a C payload substring impostor\n%s", asyncSection)
 	}
-	for _, label := range []string{"raw_interrupt_endpoints", "raw_io_pairing_rows", "raw_unknown_events"} {
+	for _, label := range []string{"raw_interrupt_endpoints", "raw_io_pairing_rows", "raw_trace_mark_carry_endpoints", "raw_unknown_events"} {
 		params := traceDiagParamsLine(traceDiagExecutionInstance(report, label))
 		if strings.Contains(params, "pid=") || strings.Contains(params, "thread=") {
 			t.Errorf("global/raw lane %s inherited target selector: %q", label, params)
 		}
+	}
+	markEndpointParams := traceDiagParamsLine(traceDiagExecutionInstance(report, "raw_trace_mark_carry_endpoints"))
+	if !strings.Contains(markEndpointParams, "trace_mark_actions=[B,E,S,F,G,H]") {
+		t.Fatalf("generated marker endpoint lane lost its exact action filter: %q", markEndpointParams)
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
