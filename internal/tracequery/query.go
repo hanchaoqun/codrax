@@ -1697,6 +1697,13 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	abilityEvents := map[string]*TracePluginSummary{}
 	xpowerEvents := map[string]*TracePluginSummary{}
 	hiSystemEvents := map[string]*TracePluginSummary{}
+	// Workqueue/DMA aggregators consume exactly their selected in-window Event
+	// rows, so this scan can enumerate their complete numeric identity
+	// dependencies without a second pass or a noisy inference. Other resource
+	// families retain the global conservative gate until their contributor
+	// completeness is independently proven.
+	workqueueContributorPIDs := map[int]bool{}
+	dmaFenceContributorPIDs := map[int]bool{}
 	for _, ev := range idx.Events {
 		// CFC P0 (§7.10 VS-2c): the per-CPU frequency basis admits only genuine
 		// per-CPU samples — reclassified clock_set_rate lanes are excluded by
@@ -1769,8 +1776,14 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			stats.HiSystemEventCount++
 		case EventWorkqueue:
 			stats.WorkqueueEventCount++
+			if ev.PID > 0 {
+				workqueueContributorPIDs[ev.PID] = true
+			}
 		case EventDMAFence:
 			stats.DMAFenceEventCount++
+			if ev.PID > 0 {
+				dmaFenceContributorPIDs[ev.PID] = true
+			}
 		case EventSchedBlockedReason:
 			stats.BlockedReasonCount++
 			if ev.IOWait > 0 {
@@ -2119,7 +2132,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		stats.XPowerEvents = sortedTracePluginSummaries(xpowerEvents, 8)
 		stats.HiSystemEvents = sortedTracePluginSummaries(hiSystemEvents, 8)
 	} else {
-		stats.Caveats = append(stats.Caveats, "thread_identity_resource_fail_closed=true; PID-keyed BIO/filesystem/page-fault/inode/storage/plugin/workqueue/DMA aggregates are omitted because the selected window crosses a task-incarnation boundary")
+		stats.Caveats = append(stats.Caveats, "thread_identity_resource_fail_closed=true; PID-keyed BIO/filesystem/page-fault/inode/storage/plugin aggregates are omitted because the selected window crosses a task-incarnation boundary")
 	}
 	if schedulerDurationsSafe {
 		stats.BlockedReasons = topBlockedReasons(blockedReasons, 8)
@@ -2171,19 +2184,30 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		stats.IPIActivity, tracePairingCaveats = computeInterruptActivity(idx, q, EventIPI, coreByCPU, 8)
 		stats.Caveats = append(stats.Caveats, tracePairingCaveats...)
 	}
-	if identityConflict == nil {
-		if failure := durationFailures[durationOrderWorkqueue]; failure != nil {
-			stats.Caveats = append(stats.Caveats, durationOrderFailClosedCaveat(failure, "workqueue_activity"))
-		} else {
-			stats.WorkqueueActivity, tracePairingCaveats = computeWorkqueueActivity(idx, q, 8)
-			stats.Caveats = append(stats.Caveats, tracePairingCaveats...)
-		}
-		if failure := durationFailures[durationOrderDMAFence]; failure != nil {
-			stats.Caveats = append(stats.Caveats, durationOrderFailClosedCaveat(failure, "dma_fence_activity"))
-		} else {
-			stats.DMAFenceActivity, tracePairingCaveats = computeDMAFenceActivity(idx, q, 8)
-			stats.Caveats = append(stats.Caveats, tracePairingCaveats...)
-		}
+	workqueueIdentityConflict := threadIncarnationConflictForPIDSet(idx, q, workqueueContributorPIDs)
+	workqueueDurationFailure := durationFailures[durationOrderWorkqueue]
+	if workqueueDurationFailure != nil {
+		stats.Caveats = append(stats.Caveats, durationOrderFailClosedCaveat(workqueueDurationFailure, "workqueue_activity"))
+	}
+	if workqueueIdentityConflict != nil {
+		stats.Caveats = append(stats.Caveats, "thread_identity_workqueue_fail_closed=true; "+workqueueIdentityConflict.reason()+"; workqueue activity is omitted because a contributing PID spans task incarnations")
+	}
+	if workqueueDurationFailure == nil && workqueueIdentityConflict == nil {
+		stats.WorkqueueActivity, tracePairingCaveats = computeWorkqueueActivity(idx, q, 8)
+		stats.Caveats = append(stats.Caveats, tracePairingCaveats...)
+	}
+
+	dmaIdentityConflict := threadIncarnationConflictForPIDSet(idx, q, dmaFenceContributorPIDs)
+	dmaDurationFailure := durationFailures[durationOrderDMAFence]
+	if dmaDurationFailure != nil {
+		stats.Caveats = append(stats.Caveats, durationOrderFailClosedCaveat(dmaDurationFailure, "dma_fence_activity"))
+	}
+	if dmaIdentityConflict != nil {
+		stats.Caveats = append(stats.Caveats, "thread_identity_dma_fence_fail_closed=true; "+dmaIdentityConflict.reason()+"; DMA fence activity is omitted because a contributing PID spans task incarnations")
+	}
+	if dmaDurationFailure == nil && dmaIdentityConflict == nil {
+		stats.DMAFenceActivity, tracePairingCaveats = computeDMAFenceActivity(idx, q, 8)
+		stats.Caveats = append(stats.Caveats, tracePairingCaveats...)
 	}
 	if schedulerDurationsSafe {
 		stats.SchedStatAccounting = computeSchedStatAccounting(idx, q, 8)
