@@ -1950,3 +1950,5 @@ finalizer 多轮修复=大量 token 交互反复且小模型输出不稳定(后�
 **歧义与坏行策略**：同 typed key 两个未闭合 start 使整 cohort 进入 ambiguous，全部 duration withheld，depth 回零后才恢复；不再 FIFO 猜配。物理 raw 行在 Event admission 前按标准 event column 审计，缺字段、伪指针、坏 PID/CPU/时间戳及 parser reject 均 poison affected family；未知时间用“不可证明在窗外”的语义处理，不能折成 ts=0 后 fail-open。报告新增 unpaired/ambiguous/suppressed 计数与 bounded caveat。generic storage 的 typed request identity 仍需生产 raw token witness，不由本批猜 schema。
 
 **中文 UX 标签演化**：用户裁定 `Texture upload → 纹理上传`、`JIT → JIT编译`。统一映射已覆盖主因 headline、语义 family 行、树 action/shape、确定性优化表“类别”列及中文引言；Markdown、用户面板与 HTML 共用同一 AnswerDocument 结果。原始 `SpanName`、成员 roster、`span 原文`、明细 `类型:` 和 evidence/wire token 继续逐字保留，避免本地化改写 trace 事实。旧节中英文 `Texture upload` 的历史 witness 引文只描述当时输出，不再作为当前中文显示裁定。
+
+**TID-reuse 可用性续批（`6405c94cf`）**：在 d729 建立 exact endpoint 闭集后，Workqueue/DMA 的完整 numeric contributor PID set 可由同一 in-window event scan 精确枚举，因此各自改用 family-scoped lifecycle gate；无关 TID reuse 不再抹掉两族，一族贡献者复用不连坐另一族，贡献 PID 复用与 lifecycle-audit cap 仍 fail-close。通用 resource caveat 同步移除 Workqueue/DMA，避免“报告说已省略但行实际存在”。offCPU/scheduler latency/IO 复合面继续维持全局保守门，直到 typed context-completeness/派生完整性可贯通，禁止把缺失上下文伪装成 0。
