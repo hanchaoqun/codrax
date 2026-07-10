@@ -515,6 +515,9 @@ a { color: var(--link); text-decoration: none; }
 a:hover { text-decoration: underline; }
 h1, h2, h3 { line-height: 1.25; margin: 1.5em 0 .55em; overflow-wrap: anywhere; }
 h1:first-child { margin-top: 0; }
+/* Runtime reports are decision-first chapters. A light H2 divider makes the
+   scan path explicit without turning every section into a card dashboard. */
+h2 { margin-top: 2em; padding-bottom: .34em; border-bottom: 1px solid var(--line); }
 /* Causal-projection trees rely on a per-character grid: letter-spacing
    must stay 0 here (a constant per-char pad breaks the CJK 2:1 width
    ratio the bars are aligned against), and the CJK fallbacks keep tree
@@ -533,10 +536,26 @@ pre.trace-projection-tree .trace-cell { display: inline-block; width: 1ch; min-w
 pre.trace-projection-tree .trace-cell-0 { width: 0; min-width: 0; }
 pre.trace-projection-tree .trace-cell-2 { width: 2ch; min-width: 2ch; }
 pre.trace-projection-tree:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
-table { border-collapse: collapse; width: max-content; max-width: 100%; overflow: auto; overscroll-behavior-x: contain; display: block; }
+table { border-collapse: collapse; width: max-content; max-width: 100%; overflow: auto; overscroll-behavior-x: contain; display: block; font-size: .925em; line-height: 1.52; }
 th, td { border: 1px solid var(--line); padding: 6px 10px; }
+th { background: var(--code); font-weight: 650; }
 blockquote { border-left: 4px solid var(--line); margin-left: 0; padding-left: 16px; color: var(--muted); }
 img, svg { max-width: 100%; height: auto; }
+/* Lossless trace audit surfaces remain complete but visually subordinate to
+   conclusion/root-cause/optimization chapters. Per-node blocks flow into two
+   balanced columns on wide screens; a node's paragraph/list stays together. */
+section.trace-projection-detail,
+section.trace-projection-evidence { margin-top: 2.5em; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--code); font-size: .86rem; line-height: 1.55; }
+section.trace-projection-detail { column-count: 2; column-gap: 28px; column-rule: 1px solid var(--line); }
+section.trace-projection-detail > h2,
+section.trace-projection-evidence > h2 { margin: 0 0 .75em; padding-bottom: .45em; border-bottom: 1px solid var(--line); font-size: 1.18rem; column-span: all; }
+section.trace-projection-detail > p { break-after: avoid-column; }
+section.trace-projection-detail > ul,
+section.trace-projection-detail > ol,
+section.trace-projection-detail > table,
+section.trace-projection-detail > pre { break-before: avoid-column; break-inside: avoid-column; }
+section.trace-projection-detail li,
+section.trace-projection-evidence li { margin: .2em 0; }
 /* §29.9 aux-reference appendix ("树读法:"/"各列口径:" blocks, markdown_auxfold.go):
    reference blocks relocate to the document-end 「阅读参考」 appendix;
    the in-place pointer lines and the whole appendix render small and
@@ -556,6 +575,9 @@ section.aux h2 { font-size: 1em; color: var(--muted); margin: 0 0 .5em; font-wei
   pre { padding: 11px 12px; }
   pre.trace-projection-tree { font-size: 12px; line-height: 1.48; }
   th, td { padding: 5px 8px; }
+  section.trace-projection-detail { column-count: 1; }
+  section.trace-projection-detail,
+  section.trace-projection-evidence { padding: 11px 12px; font-size: 12.5px; }
 }
 @page { margin: 12mm; }
 @media print {
@@ -570,6 +592,9 @@ section.aux h2 { font-size: 1em; color: var(--muted); margin: 0 0 .5em; font-wei
   table { display: table; width: 100%; max-width: 100%; overflow: visible; table-layout: fixed; font-size: 8.5pt; }
   th, td { overflow-wrap: anywhere; word-break: break-word; }
   .mermaid { break-inside: avoid-page; page-break-inside: avoid; }
+  section.trace-projection-detail,
+  section.trace-projection-evidence { font-size: 8pt; line-height: 1.42; }
+  section.trace-projection-detail { column-count: 2; column-gap: 8mm; }
 }
 </style>
 </head>

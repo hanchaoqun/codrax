@@ -79,17 +79,24 @@ func TestT3TaggedEndClosesTaggedBeginOnEmittingThread(t *testing.T) {
 
 func TestT4Prio301ClassifiesSystemOrKernelNeverRT(t *testing.T) {
 	// dh-irq-bind threads carry prio=301 (specimen lines 3/14/25/…): outside
-	// the documented HarmonyOS user-space 1-40 CFS / 41-139 RT bands.
+	// the documented HarmonyOS user-space 1-40 CFS / 41-159 RT bands.
 	if got := classifyTracePriority(TraceFlavorHarmonyHitrace, 301); got != "system_or_kernel" {
 		t.Fatalf("prio=301 must classify system_or_kernel under Harmony semantics, got %q", got)
 	}
-	// Band edges stay pinned so the 301 verdict is the >139 arm, not an
+	// Band edges stay pinned so the 301 verdict is the >159 arm, not an
 	// accidental band shift.
 	if got := classifyTracePriority(TraceFlavorHarmonyHitrace, 139); got != "ohos_rt" {
 		t.Fatalf("prio=139 must stay ohos_rt, got %q", got)
 	}
-	if got := classifyTracePriority(TraceFlavorHarmonyHitrace, 140); got != "system_or_kernel" {
-		t.Fatalf("prio=140 must be system_or_kernel, got %q", got)
+	for _, prio := range []int{140, 142, 157, 159} {
+		if got := classifyTracePriority(TraceFlavorHarmonyHitrace, prio); got != "ohos_rt" {
+			t.Fatalf("microkernel prio=%d must stay ohos_rt, got %q", prio, got)
+		}
+	}
+	for _, prio := range []int{160, 301} {
+		if got := classifyTracePriority(TraceFlavorHarmonyHitrace, prio); got != "system_or_kernel" {
+			t.Fatalf("raw prio=%d must classify system_or_kernel, got %q", prio, got)
+		}
 	}
 }
 
@@ -128,11 +135,11 @@ func TestT4Prio301CompetitorNeverMintsBelowRTPreempted(t *testing.T) {
 
 func TestT4Prio301DependencyNeverReadsAsLowerPriority(t *testing.T) {
 	// The inversion candidate gate requires relation=lower_priority_dependency.
-	// Under Harmony semantics (larger = higher) a prio=301 kernel-side
-	// dependency reads HIGHER than any user-band target — it can never seed a
-	// fake inversion candidate.
-	if got := dependencyPriorityRelation(TraceFlavorHarmonyHitrace, 40, 301, 1); got != "higher_priority_dependency" {
-		t.Fatalf("prio=301 dependency vs user-band target must read higher_priority_dependency, got %q", got)
+	// prio=301 is outside the documented Harmony userspace bands. It is a raw
+	// system/kernel token, not a numerically comparable user priority, so it can
+	// never seed either a lower- or higher-priority dependency claim.
+	if got := dependencyPriorityRelation(TraceFlavorHarmonyHitrace, 40, 301, 1); got != "raw_priority_uninterpreted" {
+		t.Fatalf("prio=301 dependency vs user-band target must stay uninterpreted, got %q", got)
 	}
 	// F4 (复核收尾, 2026-07-09) positive control — the lower arm still fires
 	// for genuine user-band pairs (dependency 10 below target 40), so the 301
@@ -143,6 +150,40 @@ func TestT4Prio301DependencyNeverReadsAsLowerPriority(t *testing.T) {
 	// Non-Harmony flavors stay uninterpreted — no band mapping is guessed.
 	if got := dependencyPriorityRelation(TraceFlavorAndroidAtrace, 120, 301, 1); got != "raw_priority_uninterpreted" {
 		t.Fatalf("non-Harmony flavors must not interpret raw priorities, got %q", got)
+	}
+}
+
+func TestT4PriorityRelationRequiresTwoComparableHarmonyUserBands(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		wakee, waker       int
+		target, dependency int
+	}{
+		{name: "raw waker", wakee: 53, waker: 301, target: 53, dependency: 301},
+		{name: "raw wakee", wakee: 301, waker: 20, target: 301, dependency: 20},
+		{name: "both raw", wakee: 301, waker: 160, target: 301, dependency: 160},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := priorityRelation(TraceFlavorHarmonyHitrace, tc.wakee, tc.waker); got != "raw_priority_uninterpreted" {
+				t.Fatalf("raw/system wake edge minted relation %q", got)
+			}
+			if got := dependencyPriorityRelation(TraceFlavorHarmonyHitrace, tc.target, tc.dependency, 1); got != "raw_priority_uninterpreted" {
+				t.Fatalf("raw/system dependency minted relation %q", got)
+			}
+		})
+	}
+
+	if got := priorityRelation(TraceFlavorHarmonyHitrace, 53, 20); got != "lower_priority_waker" {
+		t.Fatalf("comparable CFS->RT positive control lost: %q", got)
+	}
+	if got := priorityRelation(TraceFlavorHarmonyHitrace, 20, 53); got != "higher_priority_waker" {
+		t.Fatalf("comparable RT->CFS positive control lost: %q", got)
+	}
+	if got := priorityRelation(TraceFlavorHarmonyHitrace, 159, 140); got != "lower_priority_waker" {
+		t.Fatalf("microkernel 140->159 wake relation must remain comparable, got %q", got)
+	}
+	if got := dependencyPriorityRelation(TraceFlavorHarmonyHitrace, 159, 140, 1); got != "lower_priority_dependency" {
+		t.Fatalf("microkernel 140->159 dependency must remain inversion-comparable, got %q", got)
 	}
 }
 

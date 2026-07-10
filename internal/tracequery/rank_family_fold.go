@@ -51,37 +51,187 @@ type foldInterval struct {
 	start, end float64
 }
 
-// foldIntervalUnionMs computes the total length (ms) of the union of the
-// given [start,end] second-intervals plus whether they are pairwise disjoint.
-// Callers pass only validated intervals (end > start).
-func foldIntervalUnionMs(intervals []foldInterval) (unionMs float64, disjoint bool) {
-	if len(intervals) == 0 {
-		return 0, true
-	}
-	sorted := make([]foldInterval, len(intervals))
-	copy(sorted, intervals)
-	sort.Slice(sorted, func(i, j int) bool {
-		if sorted[i].start != sorted[j].start {
-			return sorted[i].start < sorted[j].start
+// foldIntervalUnionWithDisjoint returns the sorted, non-overlapping union of valid
+// [start,end] intervals plus whether the input intervals were pairwise
+// disjoint. Adjacent half-open intervals remain separate (and disjoint); that
+// distinction matters to the fold-caliber disclosure even though it does not
+// change the total length.
+func foldIntervalUnionWithDisjoint(intervals []foldInterval) (merged []foldInterval, disjoint bool) {
+	valid := make([]foldInterval, 0, len(intervals))
+	for _, interval := range intervals {
+		if interval.end > interval.start {
+			valid = append(valid, interval)
 		}
-		return sorted[i].end < sorted[j].end
+	}
+	if len(valid) == 0 {
+		return nil, true
+	}
+	sort.Slice(valid, func(i, j int) bool {
+		if valid[i].start != valid[j].start {
+			return valid[i].start < valid[j].start
+		}
+		return valid[i].end < valid[j].end
 	})
 	disjoint = true
-	curStart, curEnd := sorted[0].start, sorted[0].end
-	total := 0.0
-	for _, iv := range sorted[1:] {
-		if iv.start < curEnd {
+	current := valid[0]
+	for _, interval := range valid[1:] {
+		if interval.start < current.end {
 			disjoint = false
-			if iv.end > curEnd {
-				curEnd = iv.end
+			if interval.end > current.end {
+				current.end = interval.end
 			}
 			continue
 		}
-		total += curEnd - curStart
-		curStart, curEnd = iv.start, iv.end
+		merged = append(merged, current)
+		current = interval
 	}
-	total += curEnd - curStart
-	return total * 1000, disjoint
+	return append(merged, current), disjoint
+}
+
+// foldIntervalUnionMs computes the total length (ms) of the union of the
+// given [start,end] second-intervals plus whether they are pairwise disjoint.
+// Invalid intervals are ignored rather than acquiring negative duration.
+func foldIntervalUnionMs(intervals []foldInterval) (unionMs float64, disjoint bool) {
+	merged, disjoint := foldIntervalUnionWithDisjoint(intervals)
+	for _, interval := range merged {
+		unionMs += (interval.end - interval.start) * 1000
+	}
+	return unionMs, disjoint
+}
+
+type semanticChainWindow struct {
+	interval foldInterval
+	state    string
+	depth    int
+	branch   int
+}
+
+type semanticChainIntersectionProjection struct {
+	projection            semanticTraceSpanProjection
+	dominantStateImpactMs float64
+}
+
+// semanticTraceSpanChainIntersectionProjection is the shared single/family
+// projection primitive. It computes exactly
+//
+//	union(member intervals) ∩ union(same-thread chain node/impact windows)
+//
+// by unioning all pairwise intersections. Consequently overlapping family
+// members, overlapping chain windows, and duplicate node+impact faces each
+// contribute at most once. The wrapper intentionally returns the existing
+// projection carrier so the single-span mint can consume the same algebra.
+func semanticTraceSpanChainIntersectionProjection(chain *ChainResult, thread ThreadRef, memberIntervals []foldInterval) semanticTraceSpanProjection {
+	return semanticTraceSpanChainIntersection(chain, thread, memberIntervals).projection
+}
+
+func semanticTraceSpanChainIntersection(chain *ChainResult, thread ThreadRef, memberIntervals []foldInterval) semanticChainIntersectionProjection {
+	if chain == nil {
+		return semanticChainIntersectionProjection{}
+	}
+	members, _ := foldIntervalUnionWithDisjoint(memberIntervals)
+	if len(members) == 0 {
+		return semanticChainIntersectionProjection{}
+	}
+	var windows []semanticChainWindow
+	for _, node := range chain.Nodes {
+		if !sameThreadRef(node.Thread, thread) || node.Window.EndTs <= node.Window.StartTs {
+			continue
+		}
+		state := string(node.Dominant)
+		depth, branch := node.Depth, node.Branch
+		if node.Impact != nil {
+			if depth == 0 {
+				depth = node.Impact.ChainDepth
+			}
+			if branch == 0 {
+				branch = node.Impact.ChainBranch
+			}
+			if state == "" {
+				state = node.Impact.DominantState
+			}
+		}
+		windows = append(windows, semanticChainWindow{
+			interval: foldInterval{start: node.Window.StartTs, end: node.Window.EndTs},
+			state:    state, depth: depth, branch: branch,
+		})
+	}
+	for _, impact := range chain.CausalImpacts {
+		if !sameThreadRef(impact.Thread, thread) || impact.Window.EndTs <= impact.Window.StartTs {
+			continue
+		}
+		windows = append(windows, semanticChainWindow{
+			interval: foldInterval{start: impact.Window.StartTs, end: impact.Window.EndTs},
+			state:    impact.DominantState, depth: impact.ChainDepth, branch: impact.ChainBranch,
+		})
+	}
+	if len(windows) == 0 {
+		return semanticChainIntersectionProjection{}
+	}
+
+	type windowOverlap struct {
+		window    semanticChainWindow
+		overlapMs float64
+	}
+	var allIntersections []foldInterval
+	stateIntersections := map[string][]foldInterval{}
+	var stateOrder []string
+	stateSeen := map[string]bool{}
+	var windowOverlaps []windowOverlap
+	for _, window := range windows {
+		var intersections []foldInterval
+		for _, member := range members {
+			start := maxFloat(member.start, window.interval.start)
+			end := minFloat(member.end, window.interval.end)
+			if end <= start {
+				continue
+			}
+			intersections = append(intersections, foldInterval{start: start, end: end})
+		}
+		if len(intersections) == 0 {
+			continue
+		}
+		overlapMs, _ := foldIntervalUnionMs(intersections)
+		windowOverlaps = append(windowOverlaps, windowOverlap{window: window, overlapMs: overlapMs})
+		allIntersections = append(allIntersections, intersections...)
+		if window.state != "" {
+			if !stateSeen[window.state] {
+				stateSeen[window.state] = true
+				stateOrder = append(stateOrder, window.state)
+			}
+			stateIntersections[window.state] = append(stateIntersections[window.state], intersections...)
+		}
+	}
+	projected, _ := foldIntervalUnionWithDisjoint(allIntersections)
+	if len(projected) == 0 {
+		return semanticChainIntersectionProjection{}
+	}
+	result := semanticChainIntersectionProjection{}
+	result.projection.OnChain = true
+	result.projection.StartTs = projected[0].start
+	result.projection.EndTs = projected[len(projected)-1].end
+	for _, interval := range projected {
+		result.projection.ImpactMs += (interval.end - interval.start) * 1000
+	}
+	for _, state := range stateOrder {
+		stateMs, _ := foldIntervalUnionMs(stateIntersections[state])
+		if stateMs > result.dominantStateImpactMs {
+			result.dominantStateImpactMs = stateMs
+			result.projection.DominantState = state
+		}
+	}
+	bestWindowMs := 0.0
+	for _, overlap := range windowOverlaps {
+		if result.projection.DominantState != "" && overlap.window.state != result.projection.DominantState {
+			continue
+		}
+		if overlap.overlapMs <= bestWindowMs {
+			continue
+		}
+		bestWindowMs = overlap.overlapMs
+		result.projection.ChainDepth = overlap.window.depth
+		result.projection.ChainBranch = overlap.window.branch
+	}
+	return result
 }
 
 // --- 1. semantic span families (§24.10) ---------------------------------------
@@ -105,57 +255,17 @@ func semanticSpanFamilyAdmits(span TraceSpanSummary) bool {
 // the lane plus the best-overlap dominant state / chain depth for display
 // context.
 func semanticSpanFamilyLane(chain *ChainResult, span TraceSpanSummary) (onChain bool, depth int, state string) {
-	if chain == nil {
-		return false, 0, ""
-	}
-	best := 0.0
-	consider := func(winStart, winEnd float64, nodeState string, nodeDepth int) {
-		overlapStart, overlapEnd, ok := overlapTimeWindow(span.StartTs, span.EndTs, winStart, winEnd)
-		if !ok {
-			return
-		}
-		overlapMs := (overlapEnd - overlapStart) * 1000
-		if overlapMs <= 0 {
-			return
-		}
-		onChain = true
-		if overlapMs > best || state == "" {
-			best = overlapMs
-			state = nodeState
-			depth = nodeDepth
-		}
-	}
-	for _, node := range chain.Nodes {
-		if !sameThreadRef(node.Thread, span.Thread) {
-			continue
-		}
-		nodeState := string(node.Dominant)
-		nodeDepth := 0
-		if node.Impact != nil {
-			nodeDepth = node.Impact.ChainDepth
-			if nodeState == "" {
-				nodeState = node.Impact.DominantState
-			}
-		}
-		consider(node.Window.StartTs, node.Window.EndTs, nodeState, nodeDepth)
-	}
-	if !onChain {
-		for _, impact := range chain.CausalImpacts {
-			if !sameThreadRef(impact.Thread, span.Thread) {
-				continue
-			}
-			consider(impact.Window.StartTs, impact.Window.EndTs, impact.DominantState, impact.ChainDepth)
-		}
-	}
-	return onChain, depth, state
+	projection := semanticTraceSpanChainIntersectionProjection(chain, span.Thread, []foldInterval{{start: span.StartTs, end: span.EndTs}})
+	return projection.OnChain, projection.ChainDepth, projection.DominantState
 }
 
 // FoldSemanticSpanFamilies folds the window-clipped semantic spans of ONE
-// window_stats run into (thread, semantic class, chain lane) families. The
-// input spans MUST come from a single stats run (they already share one
-// selected window — the M3 same-window discipline holds by construction; the
-// tool observation face additionally stamps the family record with that run's
-// selected_window note, unchanged). stats.TraceSpans is never modified.
+// window_stats run into (physical artifact, thread, semantic class, chain
+// lane) families. A stats run can contain several attached artifacts, so the
+// physical source is an identity dimension even though every member shares
+// one selected window (the M3 same-window discipline holds by construction;
+// the tool observation face additionally stamps the family record with that
+// run's selected_window note, unchanged). stats.TraceSpans is never modified.
 // Families emit in FIRST-MEMBER APPEARANCE order (the span inventory is
 // already duration-ranked by the stats bound, and appearance order keeps the
 // degenerate all-singles shape byte-identical to the pre-RCM per-span
@@ -166,6 +276,7 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 		thread string
 		class  string
 		lane   bool
+		source string
 	}
 	type acc struct {
 		family  SemanticSpanFamily
@@ -178,12 +289,13 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 			continue
 		}
 		onChain, depth, state := semanticSpanFamilyLane(chain, span)
-		key := laneKey{thread: threadKey(span.Thread), class: traceSpanSemanticClass(span.Name), lane: onChain}
+		key := laneKey{thread: threadKey(span.Thread), class: traceSpanSemanticClass(span.Name), lane: onChain, source: span.SourcePath}
 		group, ok := groups[key]
 		if !ok {
 			group = &acc{family: SemanticSpanFamily{
 				Thread:        span.Thread,
 				SemanticClass: key.class,
+				SourcePath:    span.SourcePath,
 				OnChain:       onChain,
 				ChainDepth:    depth,
 				DominantState: state,
@@ -250,6 +362,26 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 		} else {
 			fam.FoldCaliber = RootCauseMemberFoldCaliberIntervalUnion
 		}
+		if fam.OnChain {
+			// P0 semantic-chain caliber: lane admission and causal magnitude use
+			// the same exact intersection algebra. TotalMs deliberately remains
+			// the complete selected-window member union; only this projected
+			// value is eligible for rank/effective attribution.
+			chainProjection := semanticTraceSpanChainIntersection(chain, fam.Thread, intervals)
+			fam.ProjectedImpactMs = chainProjection.projection.ImpactMs
+			if fam.ProjectedImpactMs > fam.TotalMs {
+				fam.ProjectedImpactMs = fam.TotalMs
+			}
+			fam.ProjectedStartTs = chainProjection.projection.StartTs
+			fam.ProjectedEndTs = chainProjection.projection.EndTs
+			fam.DominantState = chainProjection.projection.DominantState
+			fam.DominantStateImpactMs = chainProjection.dominantStateImpactMs
+			if fam.DominantStateImpactMs > fam.ProjectedImpactMs {
+				fam.DominantStateImpactMs = fam.ProjectedImpactMs
+			}
+			fam.ChainDepth = chainProjection.projection.ChainDepth
+			fam.ChainBranch = chainProjection.projection.ChainBranch
+		}
 		if clipped {
 			// DCS E4 dual basis at family grain: physical member extents, with
 			// each un-clipped member contributing its own (raw == clipped)
@@ -285,8 +417,10 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 }
 
 // rootCauseItemFromSemanticSpanFamily mints the ONE rank contender for a
-// multi-member semantic family (§24.10: 合并量参赛,参赛值=窗口投影合计 — the
-// user explicitly rejected 单次最大). Single-member families never come here:
+// multi-member semantic family (§24.10). Off-chain participation remains the
+// complete selected-window member union. On-chain participation is the exact
+// member∩chain intersection union; the complete member union remains on the
+// cumulative/actual disclosure lanes. Single-member families never come here:
 // the caller routes them through rootCauseItemFromSemanticTraceSpan verbatim,
 // so a family of one stays byte-identical to the pre-RCM single-span row
 // (退化不变体). The effective-impact discount runs the SAME single formula
@@ -301,34 +435,56 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 	if !ok {
 		return RootCauseRankItem{}, false
 	}
+	participationMs := fam.TotalMs
+	projectionStartTs, projectionEndTs := fam.StartTs, fam.EndTs
+	if fam.OnChain {
+		participationMs = fam.ProjectedImpactMs
+		projectionStartTs, projectionEndTs = fam.ProjectedStartTs, fam.ProjectedEndTs
+		if participationMs <= 0 || projectionEndTs <= projectionStartTs {
+			// FoldSemanticSpanFamilies uses the same exact projection primitive
+			// for lane admission and magnitude, so this is structurally
+			// unreachable for a genuine family. Fail closed rather than letting
+			// the full family union leak back into the causal lane.
+			return RootCauseRankItem{}, false
+		}
+	}
 	projection := semanticTraceSpanProjection{
-		StartTs:       fam.StartTs,
-		EndTs:         fam.EndTs,
-		ImpactMs:      fam.TotalMs,
+		StartTs:       projectionStartTs,
+		EndTs:         projectionEndTs,
+		ImpactMs:      participationMs,
 		DominantState: fam.DominantState,
 		ChainDepth:    fam.ChainDepth,
+		ChainBranch:   fam.ChainBranch,
 		OnChain:       fam.OnChain,
 	}
 	// SEM-LEAD (§29.7-2 ②, ledger real_trace_campaign_20260705.md, 2026-07-10).
 	// EVOLUTION RECORD: same as the single-span mint — the deterministic
 	// hidden-cost boost no longer publishes as EffectiveImpactMs (792-textup
 	// witness: the family's 有效归因 read 214.561ms = 102.172 × 2.10 while the
-	// participation value the ruling fixes is the family REAL window-projection
-	// total). The boost stays engine-internal on RankSortBoostedEffectiveMs;
+	// participation value is the real causal projection (for on-chain families,
+	// the exact intersection union, never the complete span union). The boost
+	// stays engine-internal on RankSortBoostedEffectiveMs;
 	// the semantic_multiplier=/hidden_cost_boost= internal tokens left the
 	// Summary (红线: internal tokens must never reach answer prose).
 	sortBoostedMs := semanticTraceSpanEffectiveImpactMs(work, projection, TraceSpanSummary{DurationMs: fam.TotalMs})
-	summary := fmt.Sprintf("%s family ×%d same-thread span(s) totalled %.3fms window projection (largest %q %.3fms, smallest %.3fms); effective_impact=%.3fms; fold_caliber=%s",
-		work.Label, len(fam.Members), fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, fam.TotalMs, fam.FoldCaliber)
+	var summary string
+	if fam.OnChain {
+		summary = fmt.Sprintf("%s family ×%d same-thread span(s) attributed %.3fms by exact on-chain interval intersection from %.3fms complete selected-window span union (largest %q %.3fms, smallest %.3fms); effective_impact=%.3fms; fold_caliber=%s",
+			work.Label, len(fam.Members), participationMs, fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, participationMs, fam.FoldCaliber)
+	} else {
+		summary = fmt.Sprintf("%s family ×%d same-thread span(s) totalled %.3fms window projection (largest %q %.3fms, smallest %.3fms); effective_impact=%.3fms; fold_caliber=%s",
+			work.Label, len(fam.Members), fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, fam.TotalMs, fam.FoldCaliber)
+	}
 	if fam.TotalMs < fam.SumMs {
 		summary = fmt.Sprintf("%s; interval_union=%.3fms < member_sum=%.3fms (overlapping same-thread segments deduplicated)", summary, fam.TotalMs, fam.SumMs)
 	}
 	if fam.DominantState != "" {
 		summary = fmt.Sprintf("%s; overlapped_chain_state=%s", summary, fam.DominantState)
 	}
-	item := rootCauseItem(work.RootCauseType, fam.Thread, fam.TotalMs, work.Confidence, fam.StartLine, fam.EndLine, "window_stats.trace_spans.semantic", summary)
-	item.StartTs = fam.StartTs
-	item.EndTs = fam.EndTs
+	item := rootCauseItem(work.RootCauseType, fam.Thread, participationMs, work.Confidence, fam.StartLine, fam.EndLine, "window_stats.trace_spans.semantic", summary)
+	item.PhysicalSourcePath = fam.SourcePath
+	item.StartTs = projectionStartTs
+	item.EndTs = projectionEndTs
 	if fam.ActualTotalMs > 0 {
 		item.ActualStartTs = fam.ActualStartTs
 		item.ActualEndTs = fam.ActualEndTs
@@ -340,12 +496,15 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 		item.ActualImpactMs = fam.TotalMs
 		item.ActualTotalMs = fam.TotalMs
 	}
-	item.ProjectedImpactMs = fam.TotalMs
+	item.ProjectedImpactMs = participationMs
+	// The complete selected-window family union is a disclosure caliber, not
+	// an on-chain ranking caliber. Keeping it here preserves the full family
+	// total on the existing projected-total/cumulative wire face.
 	item.CumulativeImpactMs = fam.TotalMs
-	// SEM-LEAD (§29.7-2 ②): published effective = the family real total; the
-	// boost rides the internal sort channel only.
-	item.EffectiveImpactMs = fam.TotalMs
-	if sortBoostedMs > fam.TotalMs {
+	// SEM-LEAD (§29.7-2 ②): published effective = the real causal projection;
+	// the boost rides the internal sort channel only.
+	item.EffectiveImpactMs = participationMs
+	if sortBoostedMs > participationMs {
 		item.RankSortBoostedEffectiveMs = sortBoostedMs
 	}
 	item.SpanName = rep.Name
@@ -355,11 +514,17 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 	item.SemanticClass = work.SemanticClass
 	item.DominantState = fam.DominantState
 	item.ChainDepth = fam.ChainDepth
+	item.ChainBranch = fam.ChainBranch
 	if fam.OnChain {
 		item.Causality = "on_wakeup_chain"
 		item.ChainRelevance = "on_chain"
+		item.OverlapMs = participationMs
 	}
-	applySemanticTraceSpanState(&item, fam.DominantState, fam.TotalMs)
+	stateImpactMs := participationMs
+	if fam.OnChain {
+		stateImpactMs = fam.DominantStateImpactMs
+	}
+	applySemanticTraceSpanState(&item, fam.DominantState, stateImpactMs)
 	item.MemberCount = len(fam.Members)
 	item.MemberRoster = fam.MemberRosterEntries()
 	item.MemberMaxMs = fam.MaxMs
@@ -370,7 +535,7 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 	item.MemberFoldCaliber = fam.FoldCaliber
 	// SEM-LEAD P1-1 (§29.22 修向(a)): the Score consumes the boosted basis as
 	// a same-effective tie-break only — the on-chain ordinal key is the
-	// published family total, so the ordinal can never contradict the
+	// published intersection projection, so the ordinal can never contradict the
 	// eff-ordered board/badges.
 	item.Score = rootCauseRankScoreBasisMs(item) * item.Confidence * rootCauseItemScoreWeight(item)
 	return item, true
@@ -462,11 +627,12 @@ func foldSameThreadTypeRankFamilies(q Query, hasCausalChain bool, items []RootCa
 		return items
 	}
 	type familyKey struct {
-		typ    string
-		thread string
-		lane   string
-		window string
-		source string
+		typ            string
+		thread         string
+		lane           string
+		window         string
+		source         string
+		physicalSource string
 	}
 	groups := map[familyKey][]int{}
 	var order []familyKey
@@ -486,7 +652,8 @@ func foldSameThreadTypeRankFamilies(q Query, hasCausalChain bool, items []RootCa
 			// from different producers must never Σ into one family (双计
 			// 防线). Every pre-ORD family type is minted from exactly ONE
 			// source string, so no existing merge splits.
-			source: items[i].Source,
+			source:         items[i].Source,
+			physicalSource: items[i].PhysicalSourcePath,
 		}
 		if len(groups[key]) == 0 {
 			order = append(order, key)

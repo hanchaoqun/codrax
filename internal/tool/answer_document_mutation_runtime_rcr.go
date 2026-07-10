@@ -65,7 +65,7 @@ const (
 	runtimeTraceProjImpactFormRunnable
 	// ⊗ 锁竞争·持锁 (typed BlockingKind rows).
 	runtimeTraceProjImpactFormLock
-	// ⇅ 优先级反转 (inversion candidates).
+	// ⇅ 优先级反转候选 (inversion candidates).
 	runtimeTraceProjImpactFormInversion
 	// ✦ 确定性优化 (semantic spans + deterministic compile/verify classes).
 	runtimeTraceProjImpactFormDeterministicOpt
@@ -139,7 +139,7 @@ func runtimeTraceProjImpactFormSpecs() []runtimeTraceProjImpactFormSpec {
 			Mark: runtimeTraceProjMarkIconLock, GeneratedLegend: true},
 		{Form: runtimeTraceProjImpactFormInversion, Glyph: "⇅",
 			CategoryZH: "优先级反转候选", CategoryEN: "priority-inversion candidate",
-			SemanticsZH: "优先级反转(低优先级持有资源阻塞高优先级)", SemanticsEN: "priority inversion (a low-priority holder blocks a high-priority waiter)",
+			SemanticsZH: "优先级反转候选(低优先级依赖/持有资源可能阻塞高优先级)", SemanticsEN: "a priority-inversion candidate (a lower-priority dependency/holder may block a higher-priority waiter)",
 			Mark: runtimeTraceProjMarkIconInversion, GeneratedLegend: true},
 		{Form: runtimeTraceProjImpactFormDeterministicOpt, Glyph: "✦",
 			CategoryZH: "确定性优化候选", CategoryEN: "deterministic-optimization candidate",
@@ -214,7 +214,7 @@ func runtimeTraceProjImpactFormTokenFamily(token string) runtimeTraceProjImpactF
 		return runtimeTraceProjImpactFormInterrupt
 	case "trace_gap", "missing_wakeup":
 		return runtimeTraceProjImpactFormBlindSpot
-	case "jit_compile", "class_verification", "shader_compile", "runtime_compile", "texture_upload":
+	case "jit_compile", "class_verification", "shader_compile", "runtime_compile", "texture_upload", "gc_pause":
 		// TEX §28.1 fifth semantic class (DISP-2 收尾, TEX 复核 F2, 2026-07-09):
 		// texture_upload rides the deterministic-optimization family with the
 		// exact same treatment as the four sibling classes — a missing arm here

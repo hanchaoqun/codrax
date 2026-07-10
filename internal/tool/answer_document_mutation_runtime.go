@@ -153,6 +153,12 @@ func persistMergedAnswerDocument(
 	if fixed := normalizeRuntimeTraceReservedBlockIDCollisions(merged); fixed > 0 {
 		logging.Warning("[%s] renamed %d model-authored runtime-trace reserved block id collision(s) before materialization", toolName, fixed)
 	}
+	if fixed := normalizePriorityInversionCandidateAnswerSurface(merged, ctx); fixed > 0 {
+		logging.Warning("[%s] repaired %d priority-inversion claim(s) to typed authority-calibrated wording before persist", toolName, fixed)
+	}
+	if fixed := normalizeRuntimeTraceLowCoverageRootCauseSurface(merged, ctx); fixed > 0 {
+		logging.Warning("[%s] weakened %d whole-frame root-cause claim(s) to low-coverage candidate wording before persist", toolName, fixed)
+	}
 	if materializeRuntimeTraceCausalProjectionBlock(merged, ctx) {
 		logging.Info("[%s] materialized runtime trace causal projection from structured trace observations", toolName)
 	}
@@ -4199,8 +4205,8 @@ func runtimeTraceCausalProjectionPathTail(path string, components int) string {
 }
 
 // materializeRuntimeTraceSemanticOptimizationBlock renders the deterministic
-// semantic optimization points (class_verify / jit_compile / shader_compile /
-// runtime_compile spans that the projection already carries as typed
+// semantic optimization points (class verification / JIT / shader / runtime
+// compile / texture upload / explicit GC-pause spans) that the projection carries as typed
 // SemanticSpans with a semantic_class lane) as an UNCONDITIONAL system typed
 // block in the answer body (§7.30.2 C4a). Before this block, those spans only
 // surfaced inside the causal-projection cluster and the body relied on the
@@ -4210,10 +4216,6 @@ func runtimeTraceCausalProjectionPathTail(path string, components int) string {
 // snapshot / next-steps blocks). No spans → no block.
 func materializeRuntimeTraceSemanticOptimizationBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
 	if doc == nil || ctx == nil || ctx.Mutable == nil {
-		return false
-	}
-	if len(doc.Blocks) >= maxBlocksPerDoc {
-		logging.Warning("[answer_document] runtime trace semantic optimization block skipped: document already at the %d-block cap", maxBlocksPerDoc)
 		return false
 	}
 	if answerDocumentHasRuntimeTraceSystemBlockID(doc, "runtime_trace_semantic_optimizations") {
@@ -4266,14 +4268,18 @@ func materializeRuntimeTraceSemanticOptimizationBlock(doc *types.AnswerDocumentV
 	if len(rows) == 0 {
 		return false
 	}
+	if !reserveRuntimeTraceSemanticOptimizationBlockSlot(doc) {
+		logging.Warning("[answer_document] runtime trace semantic optimization block skipped: no replaceable slot at the %d-block cap", maxBlocksPerDoc)
+		return false
+	}
 	// PTV6-C ruling C (#73): the grounding clause points at the report's own
 	// evidence index (trace line/time coordinates) — never the intermediate
 	// trace_query record file.
 	title := "确定性优化点"
-	text := "trace 中的确定性语义优化 span(类校验/JIT/着色器编译等,来自 typed semantic_class 通道):每行都是可直接落地的优化点;时长与 E# 证据均可经证据索引定位到 trace 行号区间。"
+	text := "trace 中的确定性语义优化 span(类校验/JIT/着色器编译/Texture upload/GC暂停等,来自 typed semantic_class 通道):每行都是可直接落地的优化点;时长与 E# 证据均可经证据索引定位到 trace 行号区间。"
 	if !zh {
 		title = "Deterministic Optimization Points"
-		text = "Deterministic semantic optimization spans found in the trace (class verification / JIT / shader compilation etc., from the typed semantic_class lane): each row is a directly actionable optimization point; durations and E# tags resolve to trace line spans via the evidence index."
+		text = "Deterministic semantic optimization spans found in the trace (class verification / JIT / shader compilation / texture upload / explicit GC pauses, from the typed semantic_class lane): each row is a directly actionable optimization point; durations and E# tags resolve to trace line spans via the evidence index."
 	}
 	block := types.AnswerBlock{
 		ID:      "runtime_trace_semantic_optimizations",
@@ -4292,6 +4298,47 @@ func materializeRuntimeTraceSemanticOptimizationBlock(doc *types.AnswerDocumentV
 	doc.Blocks = append(doc.Blocks, types.AnswerBlock{})
 	copy(doc.Blocks[insertAt+1:], doc.Blocks[insertAt:])
 	doc.Blocks[insertAt] = block
+	return true
+}
+
+// reserveRuntimeTraceSemanticOptimizationBlockSlot enforces the semantic
+// mention obligation even when a model-authored document arrives exactly at
+// the block cap. The deterministic optimization table is a decision surface,
+// so one lower-priority detail yields before it. Selection is deterministic:
+// authenticated causal detail/evidence first, then the last non-leading
+// model block. The canonical lead (index 0) and other authenticated runtime
+// decision surfaces are never evicted. Count stays at or below the cap.
+func reserveRuntimeTraceSemanticOptimizationBlockSlot(doc *types.AnswerDocumentV2) bool {
+	if doc == nil {
+		return false
+	}
+	if len(doc.Blocks) < maxBlocksPerDoc {
+		return true
+	}
+	removeAt := -1
+	for i := len(doc.Blocks) - 1; i > 0; i-- {
+		block := doc.Blocks[i]
+		if RuntimeTraceSystemBlock(block) &&
+			runtimeTraceCausalProjectionDetailBlockID(strings.TrimSpace(block.ID)) {
+			removeAt = i
+			break
+		}
+	}
+	if removeAt < 0 {
+		for i := len(doc.Blocks) - 1; i > 0; i-- {
+			if !RuntimeTraceSystemBlock(doc.Blocks[i]) {
+				removeAt = i
+				break
+			}
+		}
+	}
+	if removeAt < 0 {
+		return false
+	}
+	removedID := strings.TrimSpace(doc.Blocks[removeAt].ID)
+	copy(doc.Blocks[removeAt:], doc.Blocks[removeAt+1:])
+	doc.Blocks = doc.Blocks[:len(doc.Blocks)-1]
+	logging.Warning("[answer_document] evicted lower-priority block %q to preserve the mandatory semantic optimization surface at the %d-block cap", removedID, maxBlocksPerDoc)
 	return true
 }
 
@@ -6544,6 +6591,588 @@ func runtimeTraceObservationLabel(obs types.PerfObservation) string {
 
 var runtimeHarmonyPrioClassRE = regexp.MustCompile(`prio=([0-9]+)/(ohos_(?:rt|cfs))`)
 
+// normalizePriorityInversionCandidateAnswerSurface keeps model-authored prose
+// at the strength of the deterministic trace wire. A relation-only edge is a
+// low-priority dependency candidate with no measured inversion impact; a
+// positive ranked effective impact is a measured inversion candidate; explicit
+// holder/waiter authority is confirmed. Authority is subject/edge scoped: an
+// edge elsewhere in the report must never weaken an independently measured or
+// confirmed claim. Rewrites are deliberately limited to a small closed phrase
+// set and never touch deterministic system blocks.
+func normalizePriorityInversionCandidateAnswerSurface(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
+	structural, measured, confirmed := runtimeTracePriorityInversionAuthorities(ctx)
+	if doc == nil || len(structural)+len(measured) == 0 {
+		return 0
+	}
+	fixed := 0
+	for i := range doc.Blocks {
+		block := &doc.Blocks[i]
+		if block.SystemGeneratedKind != "" || block.Kind == types.BlockDiagram {
+			continue
+		}
+		fixed += normalizePriorityInversionCandidateString(&block.Title, structural, measured, confirmed)
+		fixed += normalizePriorityInversionCandidateString(&block.Text, structural, measured, confirmed)
+		for j := range block.Items {
+			item := &block.Items[j]
+			fixed += normalizePriorityInversionCandidateString(&item.Label, structural, measured, confirmed)
+			fixed += normalizePriorityInversionCandidateString(&item.Text, structural, measured, confirmed)
+			for k := range item.Cells {
+				fixed += normalizePriorityInversionCandidateString(&item.Cells[k], structural, measured, confirmed)
+			}
+		}
+	}
+	for i := range doc.Caveats {
+		fixed += normalizePriorityInversionCandidateString(&doc.Caveats[i], structural, measured, confirmed)
+	}
+	return fixed
+}
+
+type runtimeTracePriorityInversionAuthority struct {
+	subjectTokens  []string
+	peerTokens     []string
+	requirePeer    bool
+	relationTokens []string
+}
+
+// runtimeTracePriorityInversionAuthorities returns three subject/edge-scoped
+// exact wire authorities:
+//   - structural: a lower-priority dependency/waker relation was observed, but
+//     no ranked inversion impact was measured for that identity in this window;
+//   - measured: root_cause_* published a priority_inversion_* row with a
+//     positive effective_impact_ms;
+//   - confirmed: a holder/waiter authority explicitly confirmed inversion.
+//
+// This split is load-bearing. lower_priority_waker/dependency proves a graph
+// relation and a risk candidate only; it is not itself elapsed inversion time.
+// Subject identity is preferred; an exact typed priority_relation token is the
+// fallback for short model labels that omit the thread name. No answer prose is
+// mined to create authority.
+func runtimeTracePriorityInversionAuthorities(ctx *types.BusContext) (structural, measured, confirmed []runtimeTracePriorityInversionAuthority) {
+	if ctx == nil {
+		return nil, nil, nil
+	}
+	for _, result := range ctx.ToolResults {
+		if result.ToolName != "trace_query" || !result.Success {
+			continue
+		}
+		for _, record := range result.Observations {
+			object := strings.TrimSpace(record.Object)
+			isCandidate := runtimeTracePriorityInversionCandidateType(object)
+			isConfirmed := object == "priority_inversion_confirmed" ||
+				strings.TrimSpace(record.Predicate) == "priority_inversion_confirmed"
+			var relation string
+			for _, note := range record.RichNotes {
+				note = strings.TrimSpace(note)
+				switch note {
+				case "priority_inversion_candidate=true":
+					isCandidate = true
+				case "priority_inversion_confirmed=true", "priority_inversion_authority=confirmed_holder_waiter":
+					isConfirmed = true
+				}
+				if value, ok := strings.CutPrefix(note, "priority_relation="); ok {
+					relation = strings.TrimSpace(value)
+				}
+				if value, ok := strings.CutPrefix(note, types.TraceNoteKeyType+"="); ok &&
+					runtimeTracePriorityInversionCandidateType(strings.TrimSpace(value)) {
+					isCandidate = true
+				}
+			}
+			if !isCandidate && !isConfirmed {
+				continue
+			}
+			authority := runtimeTracePriorityInversionAuthority{
+				subjectTokens:  runtimeTracePriorityInversionIdentityTokens(record.Subject),
+				relationTokens: runtimeTracePriorityInversionRelationTokens(relation),
+			}
+			predicate := strings.TrimSpace(record.Predicate)
+			if len(authority.subjectTokens) > 0 && object != "" &&
+				(predicate == "wakeup_chain_edge" || (isConfirmed && object != "priority_inversion_confirmed")) {
+				authority.peerTokens = runtimeTracePriorityInversionIdentityTokens(object)
+				authority.requirePeer = true
+			}
+			if len(authority.subjectTokens) == 0 && len(authority.relationTokens) == 0 {
+				// An unbound report-level bit is not precise enough to mutate
+				// unrelated model prose. Deterministic system surfaces still carry
+				// the candidate semantics independently.
+				continue
+			}
+			if isCandidate {
+				if runtimeTracePriorityInversionMeasuredRecord(record) {
+					measured = append(measured, authority)
+				} else {
+					structural = append(structural, authority)
+				}
+			}
+			if isConfirmed {
+				confirmed = append(confirmed, authority)
+			}
+		}
+	}
+	return structural, measured, confirmed
+}
+
+// runtimeTracePriorityInversionMeasuredRecord is the precise measured-impact
+// gate. A generic edge bit, a candidate object without a ranked root-cause
+// publication, or an absent/zero/non-finite effective value stays structural.
+// Same-CPU identity is deliberately NOT part of this gate: the producer's
+// broad inversion metric may count an on-chain dependency's runnable time in
+// full and a cross-CPU weak-core/supply running deficit.
+func runtimeTracePriorityInversionMeasuredRecord(record types.ObservationRecord) bool {
+	if !strings.HasPrefix(strings.TrimSpace(record.Predicate), "root_cause_") ||
+		!runtimeTracePriorityInversionCandidateType(strings.TrimSpace(record.Object)) {
+		return false
+	}
+	for _, note := range record.RichNotes {
+		value, ok := strings.CutPrefix(strings.TrimSpace(note), "effective_impact_ms=")
+		if !ok {
+			continue
+		}
+		impact, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+		return err == nil && !math.IsNaN(impact) && !math.IsInf(impact, 0) && impact > 0
+	}
+	return false
+}
+
+func runtimeTracePriorityInversionCandidateType(value string) bool {
+	switch strings.TrimSpace(value) {
+	case "priority_inversion_candidate", "priority_inversion_runnable_wait":
+		return true
+	default:
+		return false
+	}
+}
+
+// runtimeTracePriorityInversionIdentityTokens derives the display aliases only
+// from the typed canonical thread label. The full name-pid form is always
+// retained; the comm alias is admitted only by the existing strict
+// name-<pure digits> parser. Thus shadowhook-task-64305 can bind the customer's
+// shorter "shadowhook-task线程" wording without mining arbitrary prose.
+func runtimeTracePriorityInversionIdentityTokens(label string) []string {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return nil
+	}
+	tokens := []string{label}
+	if comm, _, ok := runtimeTraceProjSplitNamePid(label); ok {
+		comm = strings.TrimSpace(comm)
+		if comm != "" && comm != label {
+			tokens = append(tokens, comm)
+		}
+	}
+	return tokens
+}
+
+func runtimeTracePriorityInversionRelationTokens(relation string) []string {
+	switch strings.TrimSpace(relation) {
+	case "lower_priority_waker":
+		return []string{"lower_priority_waker", "低优先级唤醒者"}
+	case "lower_priority_dependency":
+		return []string{"lower_priority_dependency", "低优先级依赖"}
+	default:
+		return nil
+	}
+}
+
+func runtimeTracePriorityInversionAuthorityMatchesLine(authority runtimeTracePriorityInversionAuthority, line string) bool {
+	identityMatch := runtimeTracePriorityInversionIdentityMatchesLine(line, authority.subjectTokens)
+	if identityMatch && authority.requirePeer {
+		identityMatch = runtimeTracePriorityInversionIdentityMatchesLine(line, authority.peerTokens)
+	}
+	if identityMatch {
+		return true
+	}
+	for _, token := range authority.relationTokens {
+		if runtimeTracePriorityInversionLineContainsToken(line, token) {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeTracePriorityInversionIdentityMatchesLine(line string, tokens []string) bool {
+	if len(tokens) == 0 {
+		return false
+	}
+	// Token 0 is the full typed identity. Any later token is a comm alias
+	// derived by runtimeTraceProjSplitNamePid.
+	if runtimeTracePriorityInversionLineContainsToken(line, tokens[0]) {
+		return true
+	}
+	for _, alias := range tokens[1:] {
+		if runtimeTracePriorityInversionLineContainsCommAlias(line, alias) {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeTracePriorityInversionLineHasAuthority(line string, authorities []runtimeTracePriorityInversionAuthority) bool {
+	for _, authority := range authorities {
+		if runtimeTracePriorityInversionAuthorityMatchesLine(authority, line) {
+			return true
+		}
+	}
+	return false
+}
+
+// runtimeTracePriorityInversionLineContainsToken performs a case-folded exact
+// token match. ASCII alphanumeric/underscore continuations are rejected so a
+// typed worker-20 authority cannot bind model text about worker-200 and a
+// lower_priority_waker token cannot match lower_priority_wakerish.
+func runtimeTracePriorityInversionLineContainsToken(line, token string) bool {
+	line = strings.ToLower(line)
+	token = strings.ToLower(strings.TrimSpace(token))
+	if token == "" {
+		return false
+	}
+	for offset := 0; offset <= len(line)-len(token); {
+		rel := strings.Index(line[offset:], token)
+		if rel < 0 {
+			return false
+		}
+		start := offset + rel
+		end := start + len(token)
+		beforeOK := start == 0 || !runtimeTracePriorityInversionTokenContinuation(line[start-1])
+		afterOK := end == len(line) || !runtimeTracePriorityInversionTokenContinuation(line[end])
+		if beforeOK && afterOK {
+			return true
+		}
+		offset = start + 1
+	}
+	return false
+}
+
+// runtimeTracePriorityInversionLineContainsCommAlias accepts a model's shorter
+// typed-comm rendering but rejects an occurrence immediately extended into a
+// different canonical comm-<pid> label. For example, worker (derived from
+// worker-20) binds "worker线程" but not worker-200.
+func runtimeTracePriorityInversionLineContainsCommAlias(line, alias string) bool {
+	line = strings.ToLower(line)
+	alias = strings.ToLower(strings.TrimSpace(alias))
+	if alias == "" {
+		return false
+	}
+	for offset := 0; offset <= len(line)-len(alias); {
+		rel := strings.Index(line[offset:], alias)
+		if rel < 0 {
+			return false
+		}
+		start := offset + rel
+		end := start + len(alias)
+		beforeOK := start == 0 || !runtimeTracePriorityInversionTokenContinuation(line[start-1])
+		afterOK := end == len(line) || !runtimeTracePriorityInversionTokenContinuation(line[end])
+		canonicalSuffix := false
+		if end < len(line) && line[end] == '-' {
+			j := end + 1
+			for j < len(line) && line[j] >= '0' && line[j] <= '9' {
+				j++
+			}
+			canonicalSuffix = j > end+1 && (j == len(line) || !runtimeTracePriorityInversionTokenContinuation(line[j]))
+		}
+		if beforeOK && afterOK && !canonicalSuffix {
+			return true
+		}
+		offset = start + 1
+	}
+	return false
+}
+
+func runtimeTracePriorityInversionTokenContinuation(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') || b == '_'
+}
+
+func normalizePriorityInversionCandidateString(value *string, structural, measured, confirmed []runtimeTracePriorityInversionAuthority) int {
+	if value == nil || *value == "" {
+		return 0
+	}
+	before := *value
+	lines := strings.Split(*value, "\n")
+	for i, line := range lines {
+		if runtimeTracePriorityInversionLineHasAuthority(line, confirmed) {
+			lines[i] = line
+			continue
+		}
+		if runtimeTracePriorityInversionLineHasAuthority(line, measured) {
+			lines[i] = normalizeMeasuredPriorityInversionCandidateLine(line)
+			continue
+		}
+		if runtimeTracePriorityInversionLineHasAuthority(line, structural) {
+			lines[i] = normalizeStructuralPriorityInversionCandidateLine(line)
+			continue
+		}
+		lines[i] = line
+	}
+	*value = strings.Join(lines, "\n")
+	if *value == before {
+		return 0
+	}
+	return 1
+}
+
+func normalizeMeasuredPriorityInversionCandidateLine(line string) string {
+	// Idempotence: a measured line already carrying the candidate caliber
+	// stays byte-identical. A measured candidate remains a real ranked
+	// candidate even when its impact arose across CPUs.
+	lower := strings.ToLower(line)
+	if strings.Contains(line, "优先级反转候选") ||
+		strings.Contains(lower, "priority-inversion candidate") ||
+		strings.Contains(lower, "priority inversion candidate") {
+		return line
+	}
+	replacements := []struct{ old, new string }{
+		{"存在优先级反转", "存在优先级反转候选"},
+		{"发生优先级反转", "出现优先级反转候选"},
+		{"产生优先级反转", "产生优先级反转候选"},
+		{"优先级反转：低优先级唤醒者", "优先级反转候选：低优先级唤醒者"},
+		{"优先级反转:低优先级唤醒者", "优先级反转候选:低优先级唤醒者"},
+		{"优先级反转是", "优先级反转候选是"},
+		{"优先级反转为", "优先级反转候选为"},
+		{"优先级反转导致", "优先级反转候选可能导致"},
+		{"根因是优先级反转", "根因候选是优先级反转"},
+		{"there is a priority inversion", "there is a priority-inversion candidate"},
+		{"There is a priority inversion", "There is a priority-inversion candidate"},
+		{"priority inversion exists", "a priority-inversion candidate exists"},
+		{"Priority inversion exists", "A priority-inversion candidate exists"},
+		{"caused a priority inversion", "produced a priority-inversion candidate"},
+		{"Caused a priority inversion", "Produced a priority-inversion candidate"},
+		{"priority inversion is the on-chain root cause", "priority-inversion candidate is the leading on-chain candidate"},
+		{"Priority inversion is the on-chain root cause", "Priority-inversion candidate is the leading on-chain candidate"},
+		{"priority inversion caused the frame", "priority-inversion candidate may explain the frame"},
+		{"Priority inversion caused the frame", "Priority-inversion candidate may explain the frame"},
+	}
+	for _, replacement := range replacements {
+		line = strings.ReplaceAll(line, replacement.old, replacement.new)
+	}
+	return line
+}
+
+var (
+	// These two closed shapes repair the concrete overclaim seen in the
+	// 20260710-163301 customer report. They run only behind the typed structural
+	// authority above; unrelated prose cannot activate them.
+	runtimeTraceStructuralInversionBlockingClauseZH = regexp.MustCompile(`，阻塞了高优先级的[^。；\n]*?——存在优先级反转(?:候选)?(?:（lower_priority_(?:waker|dependency)）|\(lower_priority_(?:waker|dependency)\))`)
+	runtimeTraceStructuralInversionIndirectBlockZH  = regexp.MustCompile(`，[A-Za-z0-9_.:-]+ 被间接阻塞`)
+)
+
+func normalizeStructuralPriorityInversionCandidateLine(line string) string {
+	// The dependency edge is useful evidence, but it carries no measured
+	// inversion duration. Remove the report's specific "blocked high-priority
+	// thread" leap before applying the general closed phrase table.
+	line = runtimeTraceStructuralInversionBlockingClauseZH.ReplaceAllString(line,
+		"；该低优先级关系仅构成依赖候选，本窗未测得优先级反转影响")
+	line = runtimeTraceStructuralInversionIndirectBlockZH.ReplaceAllString(line, "")
+
+	replacements := []struct{ old, new string }{
+		{"优先级反转候选：低优先级唤醒者", "低优先级依赖候选：低优先级唤醒者（本窗未测得反转影响）"},
+		{"优先级反转候选:低优先级唤醒者", "低优先级依赖候选:低优先级唤醒者（本窗未测得反转影响）"},
+		{"优先级反转：低优先级唤醒者", "低优先级依赖候选：低优先级唤醒者（本窗未测得反转影响）"},
+		{"优先级反转:低优先级唤醒者", "低优先级依赖候选:低优先级唤醒者（本窗未测得反转影响）"},
+		{"存在优先级反转候选", "存在低优先级依赖候选，但本窗未测得优先级反转影响"},
+		{"出现优先级反转候选", "出现低优先级依赖候选，但本窗未测得优先级反转影响"},
+		{"产生优先级反转候选", "产生低优先级依赖候选，但本窗未测得优先级反转影响"},
+		{"存在优先级反转", "存在低优先级依赖候选，但本窗未测得优先级反转影响"},
+		{"发生优先级反转", "出现低优先级依赖候选，但本窗未测得优先级反转影响"},
+		{"产生优先级反转", "产生低优先级依赖候选，但本窗未测得优先级反转影响"},
+		{"根因是优先级反转", "结构上存在低优先级依赖候选"},
+		{"根因候选是优先级反转", "结构上存在低优先级依赖候选"},
+		{"优先级反转导致", "低优先级依赖可能关联"},
+		{"优先级反转候选可能导致", "低优先级依赖可能关联"},
+		{"there is a priority-inversion candidate", "there is a lower-priority dependency candidate, but no priority-inversion impact was measured in this window"},
+		{"There is a priority-inversion candidate", "There is a lower-priority dependency candidate, but no priority-inversion impact was measured in this window"},
+		{"there is a priority inversion candidate", "there is a lower-priority dependency candidate, but no priority-inversion impact was measured in this window"},
+		{"There is a priority inversion candidate", "There is a lower-priority dependency candidate, but no priority-inversion impact was measured in this window"},
+		{"there is a priority inversion", "there is a lower-priority dependency candidate, but no priority-inversion impact was measured in this window"},
+		{"There is a priority inversion", "There is a lower-priority dependency candidate, but no priority-inversion impact was measured in this window"},
+		{"priority inversion exists", "a lower-priority dependency candidate exists, but no priority-inversion impact was measured in this window"},
+		{"Priority inversion exists", "A lower-priority dependency candidate exists, but no priority-inversion impact was measured in this window"},
+		{"priority inversion caused the frame", "the lower-priority dependency is structural only; no priority-inversion impact was measured in this window"},
+		{"Priority inversion caused the frame", "The lower-priority dependency is structural only; no priority-inversion impact was measured in this window"},
+	}
+	for _, replacement := range replacements {
+		line = strings.ReplaceAll(line, replacement.old, replacement.new)
+	}
+	return line
+}
+
+type runtimeTraceLowCoverageLeadAuthority struct {
+	subjectTokens []string
+}
+
+// normalizeRuntimeTraceLowCoverageRootCauseSurface prevents model-authored
+// prose from promoting a small, typed explained slice into a whole-frame
+// verdict. The coverage arithmetic and comparability decision come only from
+// runtimeTraceProjCoverageVerdictFor — the same helper consumed by the window
+// renderer. The mutation is wording-only and subject-bound to the exact lead
+// selected from that projection.
+func normalizeRuntimeTraceLowCoverageRootCauseSurface(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
+	if doc == nil || ctx == nil {
+		return 0
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit))
+	set := types.CompileTraceCausalProjectionSet(ledger)
+	authorities := make([]runtimeTraceLowCoverageLeadAuthority, 0, len(set.Projections))
+	seen := map[string]bool{}
+	for _, projection := range set.Projections {
+		if !projection.Active() {
+			continue
+		}
+		model := buildRuntimeTraceProjTreeModel(projection, nil, true)
+		if !runtimeTraceProjCoverageVerdictFor(projection, model).LowCoverage() {
+			continue
+		}
+		lead, _ := runtimeTraceProjLeadSelect(projection, model)
+		if lead == nil || !types.TraceCausalProjectionKnownSubject(lead.Subject) {
+			continue
+		}
+		tokens := runtimeTracePriorityInversionIdentityTokens(lead.Subject)
+		if len(tokens) == 0 {
+			continue
+		}
+		key := strings.Join(tokens, "\x00")
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		authorities = append(authorities, runtimeTraceLowCoverageLeadAuthority{subjectTokens: tokens})
+	}
+	return normalizeRuntimeTraceLowCoverageRootCauseSurfaceWithAuthorities(doc, authorities)
+}
+
+func normalizeRuntimeTraceLowCoverageRootCauseSurfaceForProjection(doc *types.AnswerDocumentV2,
+	projection types.TraceCausalProjection, model runtimeTraceProjTreeModel) int {
+	if doc == nil || !runtimeTraceProjCoverageVerdictFor(projection, model).LowCoverage() {
+		return 0
+	}
+	lead, _ := runtimeTraceProjLeadSelect(projection, model)
+	if lead == nil || !types.TraceCausalProjectionKnownSubject(lead.Subject) {
+		return 0
+	}
+	tokens := runtimeTracePriorityInversionIdentityTokens(lead.Subject)
+	if len(tokens) == 0 {
+		return 0
+	}
+	return normalizeRuntimeTraceLowCoverageRootCauseSurfaceWithAuthorities(doc,
+		[]runtimeTraceLowCoverageLeadAuthority{{subjectTokens: tokens}})
+}
+
+func normalizeRuntimeTraceLowCoverageRootCauseSurfaceWithAuthorities(doc *types.AnswerDocumentV2,
+	authorities []runtimeTraceLowCoverageLeadAuthority) int {
+	if doc == nil || len(authorities) == 0 {
+		return 0
+	}
+	fixed := 0
+	for i := range doc.Blocks {
+		block := &doc.Blocks[i]
+		if block.SystemGeneratedKind != "" || block.Kind == types.BlockDiagram {
+			continue
+		}
+		fixed += normalizeRuntimeTraceLowCoverageRootCauseString(&block.Title, authorities)
+		fixed += normalizeRuntimeTraceLowCoverageRootCauseString(&block.Text, authorities)
+		for j := range block.Items {
+			item := &block.Items[j]
+			fixed += normalizeRuntimeTraceLowCoverageRootCauseString(&item.Label, authorities)
+			fixed += normalizeRuntimeTraceLowCoverageRootCauseString(&item.Text, authorities)
+			for k := range item.Cells {
+				fixed += normalizeRuntimeTraceLowCoverageRootCauseString(&item.Cells[k], authorities)
+			}
+		}
+	}
+	for i := range doc.Caveats {
+		fixed += normalizeRuntimeTraceLowCoverageRootCauseString(&doc.Caveats[i], authorities)
+	}
+	return fixed
+}
+
+func runtimeTraceLowCoverageLeadMatchesLine(line string, authorities []runtimeTraceLowCoverageLeadAuthority) bool {
+	for _, authority := range authorities {
+		if runtimeTracePriorityInversionIdentityMatchesLine(line, authority.subjectTokens) {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeRuntimeTraceLowCoverageRootCauseString(value *string, authorities []runtimeTraceLowCoverageLeadAuthority) int {
+	if value == nil || *value == "" {
+		return 0
+	}
+	before := *value
+	lines := strings.Split(*value, "\n")
+	for i, line := range lines {
+		lower := strings.ToLower(line)
+		if strings.Contains(line, "当前已解释部分中最大候选") ||
+			strings.Contains(lower, "largest candidate within the currently explained portion") ||
+			!runtimeTraceLowCoverageLeadMatchesLine(line, authorities) ||
+			runtimeTraceLowCoverageRootClaimNegated(line) {
+			continue
+		}
+		replacements := []struct{ old, new string }{
+			{"是导致整帧丢帧的核心原因", "是当前已解释部分中最大候选"},
+			{"导致了整帧丢帧", "是当前已解释部分中最大候选"},
+			{"导致整帧丢帧", "是当前已解释部分中最大候选"},
+			{"导致了这一帧丢帧", "是当前已解释部分中最大候选"},
+			{"导致这一帧丢帧", "是当前已解释部分中最大候选"},
+			{"整帧核心原因", "当前已解释部分中最大候选"},
+			{"整帧核心根因", "当前已解释部分中最大候选"},
+			{"整帧主根因", "当前已解释部分中最大候选"},
+			{"本帧核心原因", "当前已解释部分中最大候选"},
+			{"本帧主根因", "当前已解释部分中最大候选"},
+			{"核心原因是", "当前已解释部分中最大候选是"},
+			{"核心根因是", "当前已解释部分中最大候选是"},
+			{"主根因是", "当前已解释部分中最大候选是"},
+			{"是核心原因", "是当前已解释部分中最大候选"},
+			{"是核心根因", "是当前已解释部分中最大候选"},
+			{"是主根因", "是当前已解释部分中最大候选"},
+			{"核心原因：", "当前已解释部分中最大候选："},
+			{"核心原因:", "当前已解释部分中最大候选:"},
+			{"核心根因：", "当前已解释部分中最大候选："},
+			{"核心根因:", "当前已解释部分中最大候选:"},
+			{"主根因：", "当前已解释部分中最大候选："},
+			{"主根因:", "当前已解释部分中最大候选:"},
+			{"caused the frame drop", "is the largest candidate within the currently explained portion"},
+			{"Caused the frame drop", "Is the largest candidate within the currently explained portion"},
+			{"caused this frame drop", "is the largest candidate within the currently explained portion"},
+			{"Caused this frame drop", "Is the largest candidate within the currently explained portion"},
+			{"caused the frame", "is the largest candidate within the currently explained portion"},
+			{"Caused the frame", "Is the largest candidate within the currently explained portion"},
+			{"is the primary root cause of the frame", "is the largest candidate within the currently explained portion"},
+			{"is the main root cause of the frame", "is the largest candidate within the currently explained portion"},
+			{"the primary root cause is", "the largest candidate within the currently explained portion is"},
+			{"The primary root cause is", "The largest candidate within the currently explained portion is"},
+			{"the main root cause is", "the largest candidate within the currently explained portion is"},
+			{"The main root cause is", "The largest candidate within the currently explained portion is"},
+			{"is the main root cause", "is the largest candidate within the currently explained portion"},
+			{"is a primary root cause", "is the largest candidate within the currently explained portion"},
+			{"primary root cause:", "largest candidate within the currently explained portion:"},
+			{"Primary root cause:", "Largest candidate within the currently explained portion:"},
+			{"main root cause:", "largest candidate within the currently explained portion:"},
+			{"Main root cause:", "Largest candidate within the currently explained portion:"},
+		}
+		for _, replacement := range replacements {
+			line = strings.ReplaceAll(line, replacement.old, replacement.new)
+		}
+		lines[i] = line
+	}
+	*value = strings.Join(lines, "\n")
+	if *value == before {
+		return 0
+	}
+	return 1
+}
+
+func runtimeTraceLowCoverageRootClaimNegated(line string) bool {
+	lower := strings.ToLower(line)
+	for _, token := range []string{
+		"未导致", "没有导致", "并未导致", "不是主根因", "并非主根因", "不是核心原因", "并非核心原因",
+		"did not cause", "didn't cause", "does not cause", "is not the primary root cause", "is not the main root cause",
+	} {
+		if strings.Contains(lower, token) {
+			return true
+		}
+	}
+	return false
+}
+
 func normalizeHarmonyPriorityAnswerSurface(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
 	if doc == nil || !runtimeAnswerHasHarmonyPriorityAuthority(ctx) {
 		return 0
@@ -6640,9 +7269,14 @@ func normalizeHarmonyPriorityString(s *string, authoritySurface string, classMap
 	if s == nil || strings.TrimSpace(*s) == "" {
 		return 0
 	}
+	rangeFixed := 0
+	if normalized := normalizeHarmonyPriorityRuleRange(*s); normalized != *s {
+		*s = normalized
+		rangeFixed = 1
+	}
 	class, ok := uniqueHarmonyPriorityClass(strings.Join([]string{authoritySurface, *s}, " "), classMap)
 	if !ok {
-		return 0
+		return rangeFixed
 	}
 	hasPriorityAuthority := hasHarmonyPriorityClassSurface(authoritySurface, classMap) || hasHarmonyPriorityClassSurface(*s, classMap)
 	lines := strings.Split(*s, "\n")
@@ -6652,6 +7286,7 @@ func normalizeHarmonyPriorityString(s *string, authoritySurface string, classMap
 			continue
 		}
 		before := line
+		line = normalizeHarmonyPriorityRuleRange(line)
 		lines[i] = normalizeHarmonyPriorityLine(line, class, classMap)
 		if lines[i] != before {
 			fixed++
@@ -6660,7 +7295,7 @@ func normalizeHarmonyPriorityString(s *string, authoritySurface string, classMap
 	if fixed > 0 {
 		*s = strings.Join(lines, "\n")
 	}
-	return fixed
+	return rangeFixed + fixed
 }
 
 func uniqueHarmonyPriorityClass(surface string, classMap map[int]string) (string, bool) {
@@ -6722,17 +7357,41 @@ func harmonyPriorityLineIsRule(line string) bool {
 	}
 	lower := strings.ToLower(line)
 	return strings.Contains(lower, "1-40") &&
-		strings.Contains(lower, "41-139") &&
+		(strings.Contains(lower, "41-139") || strings.Contains(lower, "41-159")) &&
 		strings.Contains(lower, "cfs") &&
 		strings.Contains(lower, "rt")
+}
+
+func normalizeHarmonyPriorityRuleRange(line string) string {
+	for _, old := range []string{"41-139", "41–139"} {
+		line = strings.ReplaceAll(line, old, strings.ReplaceAll(old, "139", "159"))
+	}
+	for _, old := range []string{">139", "＞139"} {
+		line = strings.ReplaceAll(line, old, strings.ReplaceAll(old, "139", "159"))
+	}
+	// Legacy two-band rules omitted the opaque raw scheduler-token lane. Once
+	// the RT ceiling is upgraded, complete the common machine-readable rule
+	// shape as well; otherwise an old answer can still imply that every value
+	// above 40 is RT even though its numeric boundary was repaired.
+	lower := strings.ToLower(line)
+	if !strings.Contains(lower, "system_or_kernel") &&
+		!strings.Contains(line, ">159") && !strings.Contains(line, "＞159") {
+		for _, rtRule := range []string{"41-159=RT", "41–159=RT"} {
+			if strings.Contains(line, rtRule) {
+				line = strings.Replace(line, rtRule, rtRule+", >159=system_or_kernel/raw", 1)
+				break
+			}
+		}
+	}
+	return line
 }
 
 func normalizeHarmonyPriorityLine(line, class string, classMap map[int]string) string {
 	switch class {
 	case "ohos_rt":
-		line = replaceHarmonyPriorityClassPhrases(line, "CFS", "RT", "1-40", "41-139", classMap)
+		line = replaceHarmonyPriorityClassPhrases(line, "CFS", "RT", "1-40", "41-159", classMap)
 	case "ohos_cfs":
-		line = replaceHarmonyPriorityClassPhrases(line, "RT", "CFS", "41-139", "1-40", classMap)
+		line = replaceHarmonyPriorityClassPhrases(line, "RT", "CFS", "41-159", "1-40", classMap)
 	}
 	return line
 }
@@ -6839,7 +7498,7 @@ func harmonyPriorityRangeVariants(class string) []string {
 	case "CFS":
 		return []string{"1-40", "1–40"}
 	case "RT":
-		return []string{"41-139", "41–139"}
+		return []string{"41-159", "41–159"}
 	default:
 		return nil
 	}

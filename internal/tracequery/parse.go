@@ -153,9 +153,22 @@ func traceIndexCacheCost(idx *Index) int64 {
 	durationAuditBytes := int64(len(idx.durationOrderFailures)) * int64(unsafe.Sizeof(durationOrderViolation{}))
 	for i := range idx.durationOrderFailures {
 		failure := &idx.durationOrderFailures[i]
-		durationAuditBytes += int64(len(failure.Lane) + len(failure.LaneKey) + len(failure.SourcePath))
+		durationAuditBytes += int64(len(failure.Lane) + len(failure.LaneKey) + len(failure.Issue) + len(failure.EventName) + len(failure.SourcePath))
+		for _, field := range failure.Fields {
+			durationAuditBytes += int64(len(field))
+		}
 	}
-	return int64(len(idx.Events))*eventSizeBytes + idx.RetainedStringBytes + idx.RetainedSideTableBytes + headBytes + durationAuditBytes
+	cpuInputAuditBytes := int64(len(idx.cpuInputIntegrityFailures)) * int64(unsafe.Sizeof(cpuInputIntegrityFailure{}))
+	for i := range idx.cpuInputIntegrityFailures {
+		failure := &idx.cpuInputIntegrityFailures[i]
+		cpuInputAuditBytes += int64(len(failure.EventName) + len(failure.Field) + len(failure.Raw) + len(failure.ReasonCode) + len(failure.SourcePath))
+	}
+	traceMarkAuditBytes := int64(len(idx.traceMarkIntegrityFailures)) * int64(unsafe.Sizeof(traceMarkIntegrityFailure{}))
+	for i := range idx.traceMarkIntegrityFailures {
+		failure := &idx.traceMarkIntegrityFailures[i]
+		traceMarkAuditBytes += int64(len(failure.Action) + len(failure.Reason) + len(failure.SourcePath))
+	}
+	return int64(len(idx.Events))*eventSizeBytes + idx.RetainedStringBytes + idx.RetainedSideTableBytes + headBytes + durationAuditBytes + cpuInputAuditBytes + traceMarkAuditBytes
 }
 
 func (c *traceIndexCache) Load(key parseCacheKey) (*Index, bool) {
@@ -440,6 +453,9 @@ func BuildIndexWithOptions(ctx context.Context, path string, opts BuildOptions) 
 			derived.durationOrderFailures = nil
 			derived.durationOrderFailuresCapped = nil
 			derived.schedulerRowIntegrityFailures = nil
+			derived.cpuInputIntegrityFailures = nil
+			derived.traceMarkIntegrityFailures = nil
+			derived.traceMarkIntegrityDroppedGlobalPoison = idx.traceMarkIntegrityDroppedGlobalPoison
 			derived.threadIncarnationFailures = nil
 			for _, failure := range idx.schedulerRowIntegrityFailures {
 				if schedulerRowIntegrityFailureRelevantToQuery(&failure, auditQ, 0) {
@@ -447,6 +463,18 @@ func BuildIndexWithOptions(ctx context.Context, path string, opts BuildOptions) 
 				}
 			}
 			derived.schedulerRowIntegrityFailuresCapped = derived.schedulerRowIntegrityFailuresCapped || idx.schedulerRowIntegrityFailuresCapped
+			for _, failure := range idx.cpuInputIntegrityFailures {
+				if cpuInputIntegrityFailureRelevantToQuery(failure, auditQ) {
+					appendCPUInputIntegrityFailure(derived, failure)
+				}
+			}
+			derived.cpuInputIntegrityFailuresCapped = derived.cpuInputIntegrityFailuresCapped || idx.cpuInputIntegrityFailuresCapped
+			for _, failure := range idx.traceMarkIntegrityFailures {
+				if traceMarkIntegrityFailureRelevantToQuery(failure, auditQ) {
+					appendTraceMarkIntegrityFailure(derived, failure)
+				}
+			}
+			derived.traceMarkIntegrityFailuresCapped = derived.traceMarkIntegrityFailuresCapped || idx.traceMarkIntegrityFailuresCapped
 			// parseTraceArtifactSpecs canonically sorts a bundle/composite after
 			// preserving each child's physical-order poison. Re-auditing that
 			// sorted slice would erase the exact rollback/lifecycle proof. Filter
@@ -632,31 +660,36 @@ func deriveWindowedIndex(full *Index, opts BuildOptions) *Index {
 		return nil
 	}
 	out := &Index{
-		Path:                                full.Path,
-		Size:                                full.Size,
-		ModTime:                             full.ModTime,
-		TraceArtifacts:                      append([]TraceArtifactSource(nil), full.TraceArtifacts...),
-		LineCount:                           full.LineCount,
-		ScannedLineCount:                    full.ScannedLineCount,
-		Windowed:                            true,
-		IndexTimeStart:                      paddedTimeStart(opts),
-		IndexTimeEnd:                        paddedTimeEnd(opts),
-		IndexLineStart:                      paddedLineStart(opts),
-		IndexLineEnd:                        paddedLineEnd(opts),
-		TraceFlavor:                         full.TraceFlavor,
-		FlavorConfidence:                    full.FlavorConfidence,
-		FlavorSignals:                       append([]string(nil), full.FlavorSignals...),
-		Caveats:                             append([]string(nil), full.Caveats...),
-		ClockRegressions:                    full.ClockRegressions,
-		TimestampOrder:                      full.TimestampOrder,
-		schedulerOrderFailures:              append([]schedulerOrderViolation(nil), full.schedulerOrderFailures...),
-		durationOrderFailures:               append([]durationOrderViolation(nil), full.durationOrderFailures...),
-		durationOrderFailuresCapped:         cloneDurationOrderCapped(full.durationOrderFailuresCapped),
-		schedulerRowIntegrityFailures:       append([]schedulerRowIntegrityFailure(nil), full.schedulerRowIntegrityFailures...),
-		threadIncarnationFailures:           append([]threadIncarnationConflict(nil), full.threadIncarnationFailures...),
-		threadIncarnationFailuresCapped:     full.threadIncarnationFailuresCapped,
-		schedulerOrderFailuresCapped:        full.schedulerOrderFailuresCapped,
-		schedulerRowIntegrityFailuresCapped: full.schedulerRowIntegrityFailuresCapped,
+		Path:                                  full.Path,
+		Size:                                  full.Size,
+		ModTime:                               full.ModTime,
+		TraceArtifacts:                        append([]TraceArtifactSource(nil), full.TraceArtifacts...),
+		LineCount:                             full.LineCount,
+		ScannedLineCount:                      full.ScannedLineCount,
+		Windowed:                              true,
+		IndexTimeStart:                        paddedTimeStart(opts),
+		IndexTimeEnd:                          paddedTimeEnd(opts),
+		IndexLineStart:                        paddedLineStart(opts),
+		IndexLineEnd:                          paddedLineEnd(opts),
+		TraceFlavor:                           full.TraceFlavor,
+		FlavorConfidence:                      full.FlavorConfidence,
+		FlavorSignals:                         append([]string(nil), full.FlavorSignals...),
+		Caveats:                               append([]string(nil), full.Caveats...),
+		ClockRegressions:                      full.ClockRegressions,
+		TimestampOrder:                        full.TimestampOrder,
+		schedulerOrderFailures:                append([]schedulerOrderViolation(nil), full.schedulerOrderFailures...),
+		durationOrderFailures:                 append([]durationOrderViolation(nil), full.durationOrderFailures...),
+		durationOrderFailuresCapped:           cloneDurationOrderCapped(full.durationOrderFailuresCapped),
+		schedulerRowIntegrityFailures:         append([]schedulerRowIntegrityFailure(nil), full.schedulerRowIntegrityFailures...),
+		cpuInputIntegrityFailures:             append([]cpuInputIntegrityFailure(nil), full.cpuInputIntegrityFailures...),
+		cpuInputIntegrityFailuresCapped:       full.cpuInputIntegrityFailuresCapped,
+		traceMarkIntegrityFailures:            append([]traceMarkIntegrityFailure(nil), full.traceMarkIntegrityFailures...),
+		traceMarkIntegrityFailuresCapped:      full.traceMarkIntegrityFailuresCapped,
+		traceMarkIntegrityDroppedGlobalPoison: full.traceMarkIntegrityDroppedGlobalPoison,
+		threadIncarnationFailures:             append([]threadIncarnationConflict(nil), full.threadIncarnationFailures...),
+		threadIncarnationFailuresCapped:       full.threadIncarnationFailuresCapped,
+		schedulerOrderFailuresCapped:          full.schedulerOrderFailuresCapped,
+		schedulerRowIntegrityFailuresCapped:   full.schedulerRowIntegrityFailuresCapped,
 	}
 	firstLine, lastLine := 0, 0
 	// Window selection prefers a ZERO-COPY view: Event is ~1KB, so
@@ -1055,12 +1088,30 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 			idx.LineCount = lineNo
 			idx.ScannedLineCount = lineNo
 			trimmed := strings.TrimRight(line, "\r\n")
-			if idx.Windowed && durationOrderRawCandidate(trimmed) {
-				if auditEv, auditOK := safeParseLine(lineNo, trimmed, auditIntern, auditScratch); auditOK {
-					for _, failure := range durationAudit.observeAll(auditEv) {
+			if idx.Windowed {
+				for _, failure := range cpuInputValidationFailures(lineNo, trimmed) {
+					if cpuInputIntegrityFailureRelevantToQuery(failure, auditQ) {
 						failure.SourcePath = path
-						if durationOrderViolationRelevantToQuery(&failure, auditQ) {
-							appendDurationOrderFailure(idx, failure)
+						appendCPUInputIntegrityFailure(idx, failure)
+					}
+				}
+			}
+			if failure := traceMarkValidationFailure(lineNo, trimmed); failure != nil && traceMarkIntegrityFailureRelevantToQuery(*failure, auditQ) {
+				failure.SourcePath = path
+				appendTraceMarkIntegrityFailure(idx, *failure)
+			}
+			if durationOrderRawCandidate(trimmed) {
+				if failure := interruptEndpointValidationFailure(lineNo, trimmed); failure != nil && durationOrderViolationRelevantToQuery(failure, auditQ) {
+					failure.SourcePath = path
+					appendDurationOrderFailure(idx, *failure)
+				}
+				if idx.Windowed {
+					if auditEv, auditOK := safeParseLine(lineNo, trimmed, auditIntern, auditScratch); auditOK {
+						for _, failure := range durationAudit.observeAll(auditEv) {
+							failure.SourcePath = path
+							if durationOrderViolationRelevantToQuery(&failure, auditQ) {
+								appendDurationOrderFailure(idx, failure)
+							}
 						}
 					}
 				}
@@ -1946,6 +1997,11 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 			// below (which has no scheduler state transitions).
 			child.schedulerRowIntegrityFailures = nil
 			child.schedulerRowIntegrityFailuresCapped = false
+			child.cpuInputIntegrityFailures = nil
+			child.cpuInputIntegrityFailuresCapped = false
+			child.traceMarkIntegrityFailures = nil
+			child.traceMarkIntegrityFailuresCapped = false
+			child.traceMarkIntegrityDroppedGlobalPoison = false
 			child.schedulerOrderFailures = nil
 			child.schedulerOrderFailuresCapped = false
 			child.durationOrderFailures = nil
@@ -1959,6 +2015,11 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 		}
 		childRowIntegrityFailures := append([]schedulerRowIntegrityFailure(nil), child.schedulerRowIntegrityFailures...)
 		childRowIntegrityCapped := child.schedulerRowIntegrityFailuresCapped
+		childCPUInputFailures := append([]cpuInputIntegrityFailure(nil), child.cpuInputIntegrityFailures...)
+		childCPUInputCapped := child.cpuInputIntegrityFailuresCapped
+		childTraceMarkFailures := append([]traceMarkIntegrityFailure(nil), child.traceMarkIntegrityFailures...)
+		childTraceMarkCapped := child.traceMarkIntegrityFailuresCapped
+		childTraceMarkDroppedGlobalPoison := child.traceMarkIntegrityDroppedGlobalPoison
 		childSchedulerFailures := append([]schedulerOrderViolation(nil), child.schedulerOrderFailures...)
 		childSchedulerCapped := child.schedulerOrderFailuresCapped
 		reauditedSchedulerFailures, reauditSchedulerCapped := schedulerOrderFailuresFromEvents(child.Events, childAuditQ, 0, schedulerOrderFailureCap)
@@ -2085,6 +2146,37 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 			}
 			failure.Ts = mapped
 			appendSchedulerRowIntegrityFailure(idx, failure)
+		}
+		if childCPUInputCapped {
+			idx.cpuInputIntegrityFailuresCapped = true
+		}
+		for _, childFailure := range childCPUInputFailures {
+			failure := childFailure
+			failure.Line += source.VirtualLineBase
+			failure.SourcePath = source.SourcePath
+			mapped, ok := source.toCanonicalTsChecked(failure.Ts)
+			if !ok {
+				return nil, fmt.Errorf("trace bundle artifact %s invalid-CPU witness timestamp is not safely representable in the canonical clock", artifactPath)
+			}
+			failure.Ts = mapped
+			appendCPUInputIntegrityFailure(idx, failure)
+		}
+		if childTraceMarkCapped {
+			idx.traceMarkIntegrityFailuresCapped = true
+		}
+		idx.traceMarkIntegrityDroppedGlobalPoison = idx.traceMarkIntegrityDroppedGlobalPoison || childTraceMarkDroppedGlobalPoison
+		for _, childFailure := range childTraceMarkFailures {
+			failure := childFailure
+			failure.Line += source.VirtualLineBase
+			failure.SourcePath = source.SourcePath
+			if failure.TimestampKnown {
+				mapped, ok := source.toCanonicalTsChecked(failure.Ts)
+				if !ok {
+					return nil, fmt.Errorf("trace bundle artifact %s malformed trace-mark witness timestamp is not safely representable in the canonical clock", artifactPath)
+				}
+				failure.Ts = mapped
+			}
+			appendTraceMarkIntegrityFailure(idx, failure)
 		}
 		if childSchedulerCapped {
 			idx.schedulerOrderFailuresCapped = true
@@ -2291,8 +2383,8 @@ func parseLineTimestamp(line string) (float64, bool) {
 	if len(m) == 0 {
 		return 0, false
 	}
-	ts, err := strconv.ParseFloat(m[5], 64)
-	if err != nil {
+	ts, ok := parseTraceTimestampSeconds(m[5])
+	if !ok {
 		return 0, false
 	}
 	return ts, true
@@ -2303,10 +2395,30 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 	if len(m) == 0 {
 		return Event{}, false
 	}
-	pid := atoi(m[2])
+	pid, pidOK := parseUnsignedTraceInt(m[2])
+	if !pidOK {
+		// Header PID is an identity, not a magnitude. Overflow/non-decimal input
+		// must never collapse to the valid idle identity 0.
+		return Event{}, false
+	}
 	tgid := atoi(m[3])
-	cpu := atoi(m[4])
-	ts, _ := strconv.ParseFloat(m[5], 64)
+	cpu, cpuPresent, cpuValid, _ := parseTraceCPUScalar(m[4])
+	if !cpuPresent || !cpuValid {
+		// The row-header CPU participates in scheduler, IRQ, resource and perf
+		// attribution. Parse it as an identity scalar, not through atoi: a
+		// decimal overflow must not collapse to the valid CPU 0. A globally
+		// invalid identity cannot be safely narrowed to one family, so reject
+		// the event; the physical scan retains a bounded cpu_input_invalid
+		// witness for the query caveat.
+		return Event{}, false
+	}
+	ts, tsOK := parseTraceTimestampSeconds(m[5])
+	if !tsOK {
+		// ParseLine and parseLineTimestamp are both admission gates. Keeping
+		// them on one finite parser prevents a range-overflow timestamp from
+		// entering the event index while the window/ordering scan rejects it.
+		return Event{}, false
+	}
 	comm := strings.TrimSpace(m[1])
 	rawType := strings.TrimSuffix(strings.TrimSpace(m[6]), ":")
 	fields := strings.TrimSpace(m[7])
@@ -2347,7 +2459,7 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		ev.WakeeComm = intern.intern(schedCommValue(fields, "comm", kv["comm"]))
 		ev.WakeePID = atoi(kv["pid"])
 		ev.WakeePrio = atoi(kv["prio"])
-		ev.TargetCPU = atoi(kv["target_cpu"])
+		setEventTargetCPU(&ev, kv["target_cpu"])
 	case EventSchedBlockedReason:
 		ev.WakeePID = atoi(firstNonEmpty(kv["pid"], kv["caller"]))
 		ev.IOWait = atoi(kv["iowait"])
@@ -2366,7 +2478,7 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		// shape ("state=2200000.0") — Atoi fast path, ParseFloat truncation
 		// fallback. Applies to cpu_idle/cpu_frequency/limits/clock_set_rate.
 		ev.State = atoiFloatTolerant(kv["state"])
-		ev.CPUForField, ev.CPUForFieldValid = atoiMaybe(kv["cpu_id"])
+		setEventCPUForField(&ev, kv["cpu_id"])
 	case EventCPUFrequency:
 		freqRaw := firstNonEmpty(kv["state"], kv["frequency"], kv["freq"])
 		if freqRaw == "" && rawType == "clock_set_rate" {
@@ -2375,12 +2487,12 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 			freqRaw = clockSetRatePositionalValue(fields)
 		}
 		ev.Frequency = atoiFloatTolerant(freqRaw)
-		ev.CPUForField, ev.CPUForFieldValid = atoiMaybe(kv["cpu_id"])
+		setEventCPUForField(&ev, kv["cpu_id"])
 		ev.ClockName = intern.intern(clockNameForEvent(rawType, fields))
 	case EventCPUFrequencyLimit:
 		ev.FrequencyMin = atoiFloatTolerant(firstNonEmpty(kv["min"], kv["min_freq"]))
 		ev.FrequencyMax = atoiFloatTolerant(firstNonEmpty(kv["max"], kv["max_freq"]))
-		ev.CPUForField, ev.CPUForFieldValid = atoiMaybe(kv["cpu_id"])
+		setEventCPUForField(&ev, kv["cpu_id"])
 		ev.ClockName = intern.intern(rawType)
 	case EventCPUConstraint:
 		ev.ConstraintFields = &ConstraintFields{}
@@ -2393,20 +2505,23 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 			rateRaw = clockSetRatePositionalValue(fields)
 		}
 		ev.Frequency = atoiFloatTolerant(rateRaw)
-		ev.CPUForField, ev.CPUForFieldValid = atoiMaybe(kv["cpu_id"])
+		setEventCPUForField(&ev, kv["cpu_id"])
 		ev.ClockName = intern.intern(clockNameForEvent(rawType, fields))
 	case EventTraceMark:
-		ev.SpanAction, ev.SpanPID, ev.SpanName, ev.SpanValue = parseTraceMark(fields)
+		parsed := parseTraceMarkValidated(fields)
+		ev.SpanAction, ev.SpanPID, ev.SpanName, ev.SpanValue = parsed.action, parsed.spanPID, parsed.name, parsed.value
 		ev.SpanAction = intern.intern(ev.SpanAction)
 		ev.SpanName = intern.intern(ev.SpanName)
 		ev.SpanValue = intern.intern(ev.SpanValue)
 	case EventBlockIssue, EventBlockComplete:
-		dev, op, sector, length := parseBlockRequest(fields)
+		dev, op, sector, length, identityValid := parseBlockRequestValidated(fields)
 		bf := &BlockIOFields{
-			Dev:    intern.intern(dev),
-			Op:     intern.intern(op),
-			Sector: sector,
-			Len:    length,
+			Dev:            intern.intern(dev),
+			Op:             intern.intern(op),
+			Sector:         sector,
+			Len:            length,
+			IdentityParsed: true,
+			IdentityValid:  identityValid,
 		}
 		if ev.Type == EventBlockComplete {
 			bf.Error = intern.intern(parseBlockError(fields))
@@ -2463,12 +2578,16 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		}
 		ev.ResourceFields = &ResourceFields{}
 		ev.FileFields = &FileFields{}
-		populateResourceFields(&ev, kv, intern)
+		if !populateResourceFields(&ev, kv, intern) {
+			return Event{}, false
+		}
 		populateFileIOFields(&ev, kv, intern)
 	case EventStorage, EventFilesystem:
 		ev.ResourceFields = &ResourceFields{}
 		ev.FileFields = &FileFields{}
-		populateResourceFields(&ev, kv, intern)
+		if !populateResourceFields(&ev, kv, intern) {
+			return Event{}, false
+		}
 		populateFileIOFields(&ev, kv, intern)
 	case EventAbilityMonitor, EventXPower, EventHiSystemEvent:
 		ev.PluginFields = &PluginFields{}
@@ -2500,8 +2619,13 @@ func populatePerfSampleFields(ev *Event, kv map[string]string, intern *stringInt
 		return
 	}
 	pf := ev.PerfFields
-	if cpu, ok := atoiMaybe(kv["cpu"]); ok {
-		ev.CPU = cpu
+	if cpu, present, valid, _ := parseTraceCPUScalar(kv["cpu"]); present {
+		if valid {
+			ev.CPU = cpu
+		} else {
+			ev.CPU = -1
+			ev.CPUInputInvalid = true
+		}
 	}
 	pf.PID = atoi(firstNonEmpty(kv["pid"], kv["process_pid"], kv["tgid"]))
 	pf.TID = atoi(firstNonEmpty(kv["tid"], kv["thread_pid"]))
@@ -2542,7 +2666,11 @@ func populatePerfSampleFields(ev *Event, kv map[string]string, intern *stringInt
 		pf.CPUKnown = boolPtr(known)
 	}
 	if pf.CPUKnown == nil {
-		pf.CPUKnown = boolPtr(ev.CPU >= 0)
+		pf.CPUKnown = boolPtr(validTraceCPUIndex(ev.CPU))
+	} else if *pf.CPUKnown && !validTraceCPUIndex(ev.CPU) {
+		// An explicit truthy cpu_known flag cannot resurrect a malformed CPU
+		// identity token into perf attribution.
+		pf.CPUKnown = boolPtr(false)
 	}
 	if pf.SymbolizationStatus == "" {
 		pf.SymbolizationStatus = intern.intern(defaultPerfSymbolizationStatus(pf))
@@ -2638,22 +2766,45 @@ func populateCPUConstraintFields(ev *Event, rawType string, kv map[string]string
 	if cf.CPUSetName != "" && ev.CGroup == "" {
 		ev.CGroup = cf.CPUSetName
 	}
-	if cpu, ok := atoiMaybe(firstNonEmpty(kv["cpu"], kv["target_cpu"])); ok {
-		cf.CPU = cpu
-		cf.CPUValid = true
+	cpuRaw := firstNonEmpty(kv["cpu"], kv["target_cpu"])
+	if cpu, present, valid, _ := parseTraceCPUScalar(cpuRaw); present {
+		cf.CPUPresent = true
+		if valid {
+			cf.CPU = cpu
+			cf.CPUValid = true
+		} else {
+			ev.CPUInputInvalid = true
+		}
 	}
-	if cpu, ok := atoiMaybe(kv["orig_cpu"]); ok {
-		cf.OrigCPU = cpu
-		cf.OrigCPUSet = true
+	if cpu, present, valid, _ := parseTraceCPUScalar(kv["orig_cpu"]); present {
+		cf.OrigCPUPresent = true
+		if valid {
+			cf.OrigCPU = cpu
+			cf.OrigCPUSet = true
+		} else {
+			ev.CPUInputInvalid = true
+		}
 	}
-	if cpu, ok := atoiMaybe(kv["dest_cpu"]); ok {
-		cf.DestCPU = cpu
-		cf.DestCPUSet = true
-		ev.TargetCPU = cpu
+	if cpu, present, valid, _ := parseTraceCPUScalar(kv["dest_cpu"]); present {
+		cf.DestCPUPresent = true
+		if valid {
+			cf.DestCPU = cpu
+			cf.DestCPUSet = true
+			ev.TargetCPU = cpu
+			ev.TargetCPUValid = true
+		} else {
+			ev.CPUInputInvalid = true
+		}
 	}
 	allowedText := cleanTraceValue(firstNonEmpty(kv["allowed_cpus"], kv["cpus_allowed"], kv["cpumask"], kv["cpus"], kv["affinity"], kv["mask"]))
 	cf.AllowedText = intern.intern(allowedText)
-	cf.Allowed = parseCPUSetList(allowedText)
+	if allowedText != "" {
+		cf.AllowedPresent = true
+		cf.Allowed, cf.AllowedValid, _ = parseCPUSetListStrict(allowedText)
+		if !cf.AllowedValid {
+			ev.CPUInputInvalid = true
+		}
+	}
 }
 
 func populateHarmonyNextInfoFields(ev *Event) {
@@ -2707,15 +2858,11 @@ func parseHarmonyNextInfo(raw string) (harmonyNextInfoFields, bool) {
 }
 
 func parseCPUSetList(raw string) []int {
-	raw = strings.TrimSpace(strings.Trim(raw, "{}[]()"))
-	if raw == "" {
+	cpus, valid, _ := parseCPUSetListStrict(raw)
+	if !valid {
 		return nil
 	}
-	lower := strings.ToLower(raw)
-	if strings.HasPrefix(lower, "0x") || containsHexAlpha(lower) {
-		return parseCPUMaskHex(raw)
-	}
-	return uniqueSortedInts(parseCPURangeList(raw))
+	return cpus
 }
 
 func parseCPUMaskHex(raw string) []int {
@@ -2763,17 +2910,26 @@ func uniqueSortedInts(in []int) []int {
 	return out
 }
 
-func populateResourceFields(ev *Event, kv map[string]string, intern *stringInterner) {
+func populateResourceFields(ev *Event, kv map[string]string, intern *stringInterner) bool {
 	if ev == nil || ev.ResourceFields == nil {
-		return
+		return true
 	}
 	rf := ev.ResourceFields
 	rf.Path = intern.intern(cleanTraceValue(firstNonEmpty(kv["path"], kv["file"], kv["filename"], kv["entry_name"], kv["name"])))
 	rf.Op = intern.intern(firstNonEmpty(kv["op"], kv["operation"], kv["syscall"], kv["type"], kv["rw"], kv["rwbs"]))
-	rf.LatencyMs = parseLatencyMs(kv)
+	latencyMs, latencyOK := parseLatencyMsChecked(kv)
+	if !latencyOK {
+		// A resource row that explicitly claims a malformed/non-finite
+		// latency is not safe count or duration evidence. Reject the row at
+		// admission instead of keeping a zero-latency shell that can still
+		// acquire an advisory rank through event-count fallbacks.
+		return false
+	}
+	rf.LatencyMs = latencyMs
 	rf.Bytes = atoi64(firstNonEmpty(kv["bytes"], kv["size"], kv["len"], kv["length"]))
 	rf.Address = intern.intern(firstNonEmpty(kv["addr"], kv["address"], kv["fault_addr"]))
 	rf.Callstack = intern.intern(clampString(firstNonEmpty(kv["callstack"], kv["backtrace"], kv["stack"]), 160))
+	return true
 }
 
 func populateFileIOFields(ev *Event, kv map[string]string, intern *stringInterner) {
@@ -2813,18 +2969,6 @@ func populatePluginFields(ev *Event, rawType string, kv map[string]string, inter
 	pl.Metric = intern.intern(firstNonEmpty(kv["metric"], kv["key"], kv["item"], kv["counter"], kv["component"], kv["type"]))
 	pl.Value = intern.intern(firstNonEmpty(kv["value"], kv["val"], kv["state"], kv["usage"], kv["energy"], kv["count"], kv["duration_ms"], kv["latency_ms"]))
 	pl.Category = intern.intern(firstNonEmpty(kv["category"], kv["level"], kv["tag"], kv["scene"]))
-}
-
-func parseBlockRequest(fields string) (dev, op string, sector, length int64) {
-	trimmed := strings.TrimSpace(fields)
-	m := blockRequestRE.FindStringSubmatch(trimmed)
-	if len(m) != 5 {
-		m = blockSimpleRE.FindStringSubmatch(trimmed)
-	}
-	if len(m) != 5 {
-		return "", "", 0, 0
-	}
-	return m[1], m[2], atoi64(m[3]), atoi64(m[4])
 }
 
 func parseBlockRemap(fields string) (dev string, sector, length int64, srcDev string, srcSector int64) {
@@ -3367,43 +3511,8 @@ func isTraceMarkPayload(fields string) bool {
 }
 
 func parseTraceMark(fields string) (action string, spanPID int, name, value string) {
-	fields = normalizeTraceMarkPayload(fields)
-	if fields == "" {
-		return "", 0, "", ""
-	}
-	parts := strings.Split(fields, "|")
-	action = strings.TrimSpace(parts[0])
-	if len(parts) >= 2 {
-		spanPID = atoi(parts[1])
-	}
-	if len(parts) >= 3 {
-		name = strings.TrimSpace(parts[2])
-	}
-	if len(parts) >= 4 {
-		value = strings.TrimSpace(parts[3])
-	}
-	switch action {
-	case "B":
-		if value == "" && len(parts) > 3 {
-			value = strings.TrimSpace(parts[3])
-		}
-	case "E":
-		// Synchronous atrace/ftrace spans close with E|pid or bare E; the
-		// closing row intentionally does not repeat the begin span name.
-		if name == "" {
-			name = fields
-		}
-	case "C":
-		// Counter value is the first payload after the counter name.
-	case "S", "F":
-		// Async spans use name+cookie; extra payload after the cookie remains
-		// in FieldText/Raw for literal event_search matching.
-	default:
-		if name == "" {
-			name = fields
-		}
-	}
-	return action, spanPID, name, value
+	parsed := parseTraceMarkValidated(fields)
+	return parsed.action, parsed.spanPID, parsed.name, parsed.value
 }
 
 func normalizeTraceMarkPayload(fields string) string {
@@ -3754,38 +3863,59 @@ func atoiFloatTolerant(raw string) int {
 }
 
 func parseLatencyMs(kv map[string]string) float64 {
+	value, _ := parseLatencyMsChecked(kv)
+	return value
+}
+
+// parseLatencyMsChecked distinguishes a missing/zero latency (valid inventory
+// input) from an explicitly malformed numeric claim (invalid event input).
+func parseLatencyMsChecked(kv map[string]string) (float64, bool) {
 	if len(kv) == 0 {
-		return 0
+		return 0, true
 	}
-	for _, key := range []string{"latency_ms", "duration_ms", "dur_ms"} {
-		if v := parseFloat(kv[key]); v > 0 {
-			return v
+	groups := []struct {
+		keys    []string
+		divisor float64
+	}{
+		{keys: []string{"latency_ms", "duration_ms", "dur_ms"}, divisor: 1},
+		{keys: []string{"latency_us", "duration_us", "dur_us"}, divisor: 1000},
+		{keys: []string{"latency_ns", "duration_ns", "dur_ns"}, divisor: 1000000},
+		{keys: []string{"latency", "duration", "dur"}, divisor: 1},
+	}
+	for _, group := range groups {
+		for _, key := range group.keys {
+			raw := strings.TrimSpace(kv[key])
+			if raw == "" {
+				continue
+			}
+			value, ok := parseFiniteTraceNumber(raw)
+			if !ok {
+				// A malformed higher-precedence field poisons the latency
+				// claim. Do not fall through to a second unit spelling and
+				// accidentally mint a usable duration from conflicting input.
+				return 0, false
+			}
+			if value < 0 {
+				return 0, false
+			}
+			if value == 0 {
+				continue
+			}
+			latencyMs := value / group.divisor
+			if !isFiniteTraceNumber(latencyMs) || latencyMs <= 0 {
+				return 0, false
+			}
+			return latencyMs, true
 		}
 	}
-	for _, key := range []string{"latency_us", "duration_us", "dur_us"} {
-		if v := parseFloat(kv[key]); v > 0 {
-			return v / 1000
-		}
-	}
-	for _, key := range []string{"latency_ns", "duration_ns", "dur_ns"} {
-		if v := parseFloat(kv[key]); v > 0 {
-			return v / 1000000
-		}
-	}
-	for _, key := range []string{"latency", "duration", "dur"} {
-		if v := parseFloat(kv[key]); v > 0 {
-			return v
-		}
-	}
-	return 0
+	return 0, true
 }
 
 func parseFloat(raw string) float64 {
-	raw = strings.Trim(strings.TrimSpace(raw), ":,")
-	if raw == "" {
+	v, ok := parseFiniteTraceNumber(raw)
+	if !ok {
 		return 0
 	}
-	v, _ := strconv.ParseFloat(raw, 64)
 	return v
 }
 
@@ -3940,11 +4070,24 @@ func (i *stringInterner) intern(s string) string {
 func safeParseLine(lineNo int, line string, intern *stringInterner, idx *Index) (ev Event, ok bool) {
 	defer func() {
 		if r := recover(); r != nil {
-			idx.ParseLinePanics++
+			if idx != nil {
+				idx.ParseLinePanics++
+				for _, failure := range cpuInputValidationFailures(lineNo, line) {
+					failure.SourcePath = idx.Path
+					appendCPUInputIntegrityFailure(idx, failure)
+				}
+			}
 			ev, ok = Event{}, false
 		}
 	}()
-	return parseLineFn(lineNo, line, intern)
+	ev, ok = parseLineFn(lineNo, line, intern)
+	if idx != nil && (!ok || ev.CPUInputInvalid) {
+		for _, failure := range cpuInputValidationFailures(lineNo, line) {
+			failure.SourcePath = idx.Path
+			appendCPUInputIntegrityFailure(idx, failure)
+		}
+	}
+	return ev, ok
 }
 
 // parseLineFn indirects ParseLine so the recover seam is testable with

@@ -3751,14 +3751,12 @@ func TestRootCauseRankPromotesOnChainSemanticRuntimeSpanWork(t *testing.T) {
 		if item.ChainRelevance != "on_chain" || item.Causality != "on_wakeup_chain" {
 			t.Fatalf("semantic span work should be on-chain: %+v all=%+v", item, rank.Items)
 		}
-		// EVOLUTION RECORD (DCS E1, ledger §23.1 ruling ①, 2026-07-08): this
-		// pin used to require Tier=="primary" (co-primary election). On-chain
-		// semantic compile spans now carry the independent
-		// deterministic_optimization tier and never compete in the
-		// primary/co-primary election — an optimization point is reported as
-		// an optimization, not as the root cause.
-		if item.Tier != RootCauseTierDeterministicOptimization {
-			t.Fatalf("on-chain semantic span work should wear the deterministic_optimization tier: %+v", item)
+		// SEM-LEAD-P0: chain membership is causal, so semantic work uses the
+		// same positional election as other ranked rows. In this fixture it is
+		// the leading contender and therefore primary; the independent semantic
+		// observation still guarantees its optimization-point mention.
+		if item.Tier != "primary" {
+			t.Fatalf("leading on-chain semantic span work should be primary: %+v", item)
 		}
 		if item.BackgroundRank != 0 {
 			t.Fatalf("on-chain semantic span work is not on the background board: %+v", item)

@@ -190,6 +190,20 @@ func TestEmitPerfTrace_Execute_AddsHarmonyPrioritySemanticsObservation(t *testin
 	}
 }
 
+func TestHarmonyPriorityClassPinsMicrokernelAndRawBoundaries(t *testing.T) {
+	tests := map[int]string{
+		0: "",
+		1: "ohos_cfs", 40: "ohos_cfs",
+		41: "ohos_rt", 139: "ohos_rt", 140: "ohos_rt", 159: "ohos_rt",
+		160: "system_or_kernel", 301: "system_or_kernel",
+	}
+	for prio, want := range tests {
+		if got := harmonyPriorityClass(prio); got != want {
+			t.Fatalf("harmonyPriorityClass(%d)=%q, want %q", prio, got, want)
+		}
+	}
+}
+
 func TestEmitPerfTrace_Execute_NormalizesConflictingHarmonyPriorityObservation(t *testing.T) {
 	bus := &types.BusContext{
 		Mutable:               types.NewMutableState("鸿蒙 bytrace 调度优先级分析"),
@@ -240,12 +254,12 @@ func TestEmitPerfTrace_Execute_NormalizesConflictingHarmonyPriorityObservation(t
 	if strings.Contains(strings.ToLower(bundle.Meta.Summary), "cfs baseline") || strings.Contains(strings.ToLower(bundle.Meta.Summary), "120位于cfs") {
 		t.Fatalf("meta summary retained conflicting priority prose: %q", bundle.Meta.Summary)
 	}
-	for _, want := range []string{"prio=98/ohos_rt", "prio=120/ohos_rt", "prio=124/ohos_rt", "1-40=CFS", "41-139=RT"} {
+	for _, want := range []string{"prio=98/ohos_rt", "prio=120/ohos_rt", "prio=124/ohos_rt", "1-40=CFS", "41-159=RT", ">159=system_or_kernel/raw"} {
 		if !strings.Contains(normalized.Summary, want) {
 			t.Fatalf("normalized summary missing %q: %q", want, normalized.Summary)
 		}
 	}
-	if !strings.Contains(bundle.Meta.Summary, "41-139=RT") {
+	if !strings.Contains(bundle.Meta.Summary, "41-159=RT") || !strings.Contains(bundle.Meta.Summary, ">159=system_or_kernel/raw") {
 		t.Fatalf("meta summary was not normalized to Harmony priority rule: %q", bundle.Meta.Summary)
 	}
 }

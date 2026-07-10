@@ -50,7 +50,7 @@ func TestApplyAndPersistMutation_ReplaceAllPersistsDocAndClearsPatchFlag(t *test
 	}
 }
 
-func TestApplyAndPersistMutation_NormalizesHarmonyPriorityClassSurface(t *testing.T) {
+func TestApplyAndPersistMutation_UpgradesLegacyHarmonyPriorityRuleAndNormalizesClassSurface(t *testing.T) {
 	bus := newBusForMutationTest()
 	bus.Mutable.SetPerfTrace(&types.PerfBundle{
 		Meta: types.PerfMeta{Source: "hitrace"},
@@ -101,11 +101,11 @@ func TestApplyAndPersistMutation_NormalizesHarmonyPriorityClassSurface(t *testin
 	if priority == nil || len(priority.Items) < 2 {
 		t.Fatalf("stored answer missing priority rows: %+v", stored)
 	}
-	if got := priority.Items[0].Text; !strings.Contains(got, "属于 RT 区间（41-139）") || strings.Contains(got, "属于 CFS 区间（1-40）") {
+	if got := priority.Items[0].Text; !strings.Contains(got, "属于 RT 区间（41-159）") || strings.Contains(got, "属于 CFS 区间（1-40）") {
 		t.Fatalf("prio=98/ohos_rt row was not normalized from typed class: %q", got)
 	}
-	if got := stored.Blocks[0].Text; !strings.Contains(got, "1-40=CFS, 41-139=RT") {
-		t.Fatalf("rule text should not be rewritten: %q", got)
+	if got := stored.Blocks[0].Text; !strings.Contains(got, "1-40=CFS, 41-159=RT") || !strings.Contains(got, ">159=system_or_kernel/raw") {
+		t.Fatalf("legacy priority rule should be upgraded to the current Harmony boundary: %q", got)
 	}
 	if got := stored.Blocks[0].Text; !strings.Contains(got, "处于 RT 类（prio=98）") || strings.Contains(got, "处于 CFS 类（prio=98）") {
 		t.Fatalf("bare prio=98 summary class should be normalized from typed map while preserving rule text: %q", got)
@@ -113,11 +113,11 @@ func TestApplyAndPersistMutation_NormalizesHarmonyPriorityClassSurface(t *testin
 	if got := stored.Blocks[0].Text; !strings.Contains(got, "prio=98（RT，rcu_preempt）") || strings.Contains(got, "prio=98（CFS，rcu_preempt）") {
 		t.Fatalf("paren class after bare prio should be normalized from typed map: %q", got)
 	}
-	if got := stored.Blocks[0].Text; !strings.Contains(got, "prio=98 落入 RT 41-139 波段") || strings.Contains(got, "prio=98 落入 CFS 1–40 波段") {
+	if got := stored.Blocks[0].Text; !strings.Contains(got, "prio=98 落入 RT 41-159 波段") || strings.Contains(got, "prio=98 落入 CFS 1–40 波段") {
 		t.Fatalf("class/range phrase after bare prio should be normalized from typed map: %q", got)
 	}
-	if got := priority.Items[1].Text; !strings.Contains(got, "RT 区间（41-139）") {
-		t.Fatalf("already-correct row should be preserved: %q", got)
+	if got := priority.Items[1].Text; !strings.Contains(got, "RT 区间（41-159）") {
+		t.Fatalf("legacy RT range should be upgraded: %q", got)
 	}
 	table := projectionClusterBlock(stored.Blocks, "table")
 	if table == nil {

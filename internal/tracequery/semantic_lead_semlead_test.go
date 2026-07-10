@@ -45,8 +45,8 @@ func TestSemLeadFamilyPublishesRealTotalKeepsBoostInternal(t *testing.T) {
 	if fam.MemberCount != 2 || fam.SemanticClass != "texture_upload" {
 		t.Fatalf("expected the ×2 same-thread family form: %+v", fam)
 	}
-	if fam.ChainRelevance != "on_chain" || fam.Tier != RootCauseTierDeterministicOptimization {
-		t.Fatalf("the on-chain family must wear the deterministic_optimization tier: %+v", fam)
+	if fam.ChainRelevance != "on_chain" || fam.Tier != "primary" {
+		t.Fatalf("the leading on-chain family must be a primary candidate: %+v", fam)
 	}
 	// §29.7-2 ②: published effective = the family REAL window-projection
 	// total (5.300ms = 2.100 + 3.200), never the boosted value.
@@ -112,8 +112,8 @@ func TestSemLeadOrdinalFollowsPublishedEffectiveNotBoost(t *testing.T) {
 			onChain = append(onChain, item)
 		}
 	}
-	if fam == nil || fam.Rank <= 0 || fam.Tier != RootCauseTierDeterministicOptimization {
-		t.Fatalf("the texture family must stay a ranked deterministic-optimization contender: %+v", rank.Items)
+	if fam == nil || fam.Rank <= 0 || fam.Tier == RootCauseTierDeterministicOptimization || fam.Tier == "" {
+		t.Fatalf("the texture family must stay in the ordinary typed election: %+v", rank.Items)
 	}
 	// Premise: the internal boost WOULD have jumped at least one competitor
 	// (a non-semantic on-chain row with real < eff < boost exists) — i.e.

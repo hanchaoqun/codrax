@@ -3,9 +3,8 @@ package tracequery
 // dynamic_compile_span_dcs_test.go — DCS 修复批 engine pins (ledger
 // real_trace_campaign_20260705.md §23/§23.1, 2026-07-08):
 //
-//   E1  reserved seats + deterministic_optimization tier for 窗内∧链上
-//       semantic compile spans; ladder transparency (不与 primary/co-primary
-//       选举竞争 — the positional election never counts them).
+//   E1  reserved seats for 窗内∧链上 semantic spans; current SEM-LEAD-P0
+//       makes them ordinary primary/secondary/tertiary election candidates.
 //   E1b non-chain spans join the background composite board ordered by the
 //       window-share basis (占窗比 — wall-clock clipped ÷ window for spans,
 //       own-caliber cumulative ÷ window for everything else; NEVER raw Score
@@ -29,29 +28,26 @@ import (
 	"testing"
 )
 
-// --- E1: tier assignment + ladder transparency --------------------------------
+// --- E1: tier assignment + on-chain election -----------------------------------
 
-func TestDCSAssignTiersOnChainSemanticWearsOptimizationTierAndSkipsElection(t *testing.T) {
+func TestDCSAssignTiersOnChainSemanticParticipatesInElection(t *testing.T) {
 	items := []RootCauseRankItem{
 		{Type: "jit_compile", ImpactMs: 5, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 		{Type: "runnable_wait", ImpactMs: 9, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 		{Type: "supply_pressure", ImpactMs: 40, ChainRelevance: "background"},
 	}
 	assignRootCauseRanksAndTiers(items)
-	if items[0].Tier != RootCauseTierDeterministicOptimization {
-		t.Fatalf("on-chain semantic span must wear the deterministic_optimization tier: %+v", items[0])
+	if items[0].Tier != "primary" {
+		t.Fatalf("the highest on-chain semantic span must be a primary candidate: %+v", items[0])
 	}
 	if items[0].BackgroundRank != 0 {
 		t.Fatalf("on-chain semantic span is not on the background board: %+v", items[0])
 	}
-	// Ladder transparency (负向 pin, 不与 primary 选举竞争): the semantic row
-	// at index 0 neither takes the primary slot nor shifts the ladder — the
-	// FIRST non-semantic row is still the positional primary.
 	if items[1].Tier != "primary" {
-		t.Fatalf("the first non-semantic row must keep the positional primary tier: %+v", items[1])
+		t.Fatalf("the existing on-chain runnable co-primary rule must remain: %+v", items[1])
 	}
-	if items[2].Tier != "secondary" {
-		t.Fatalf("the ladder must not be shifted by the transparent semantic row: %+v", items[2])
+	if items[2].Tier != "tertiary" {
+		t.Fatalf("the ordinary ladder must include the semantic row: %+v", items[2])
 	}
 	// 复核 F-2 (ledger §23.2): the position COUNTS every non-on-chain row but
 	// the FIELD is stamped on semantic rows only — a non-semantic background
@@ -99,14 +95,14 @@ func TestDCSNonChainSemanticNeverTakesPrimarySlot(t *testing.T) {
 	}
 }
 
-func TestDCSCoPrimaryWhitelistExcludesSemanticSpanTypes(t *testing.T) {
-	// EVOLUTION RECORD (§23.1 ruling ①): pre-DCS the four semantic types rode
-	// the co-primary whitelist; they now never join the election even with
-	// the on-chain precondition satisfied.
-	for _, typ := range []string{"jit_compile", "class_verification", "shader_compile", "runtime_compile"} {
+func TestDCSSemanticSpanTypesUsePositionalElectionNotBlanketCoPrimary(t *testing.T) {
+	// Semantic work competes through assignRootCauseRanksAndTiers. It does not
+	// use the blanket co-primary promotion, which would incorrectly crown every
+	// on-chain optimization span regardless of sorted position.
+	for _, typ := range []string{"jit_compile", "class_verification", "shader_compile", "runtime_compile", "texture_upload", "gc_pause"} {
 		item := RootCauseRankItem{Type: typ, ImpactMs: 50, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"}
 		if rootCauseShouldBeCoPrimary(item) {
-			t.Fatalf("%s must never be co-primary eligible", typ)
+			t.Fatalf("%s must use positional election, not blanket co-primary", typ)
 		}
 	}
 	// Control: the on-chain hard precondition and the non-semantic whitelist
@@ -433,8 +429,8 @@ func TestDCSSameThreadNoOverlapSpanStaysNonChainAdjacent(t *testing.T) {
 			tailSpan = &rank.Items[i]
 		}
 	}
-	if onChainSpan == nil || onChainSpan.ChainRelevance != "on_chain" || onChainSpan.Tier != RootCauseTierDeterministicOptimization {
-		t.Fatalf("the overlapping span must stay on the on-chain optimization lane: %+v", onChainSpan)
+	if onChainSpan == nil || onChainSpan.ChainRelevance != "on_chain" || onChainSpan.Tier != "primary" {
+		t.Fatalf("the overlapping span must stay on-chain and participate in the primary election: %+v", onChainSpan)
 	}
 	if tailSpan == nil {
 		t.Fatalf("the no-overlap span must still mint a typed row (E2 fall-through): %+v", rank.Items)

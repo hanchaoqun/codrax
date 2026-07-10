@@ -36,6 +36,9 @@ type durationOrderViolation struct {
 	Family     durationOrderFamily
 	Lane       string
 	LaneKey    string
+	Issue      string
+	EventName  string
+	Fields     []string
 	PreviousTs float64
 	CurrentTs  float64
 	Line       int
@@ -48,6 +51,14 @@ func (v *durationOrderViolation) reason() string {
 	}
 	if v.Lane == "order_audit_truncated" {
 		return fmt.Sprintf("duration_lane_timestamp_audit_truncated family=%s; overflow is fail-closed", v.Family)
+	}
+	if v.Issue == "endpoint_parse_incomplete" {
+		reason := fmt.Sprintf("duration_endpoint_parse_incomplete family=%s event=%s missing_or_invalid=%s ts=%.6f line=%d",
+			v.Family, v.EventName, strings.Join(v.Fields, ","), v.CurrentTs, v.Line)
+		if v.SourcePath != "" {
+			reason += fmt.Sprintf(" source=%s", v.SourcePath)
+		}
+		return reason
 	}
 	reason := fmt.Sprintf("duration_lane_timestamp_regressed family=%s lane=%s previous_ts=%.6f current_ts=%.6f line=%d", v.Family, v.Lane, v.PreviousTs, v.CurrentTs, v.Line)
 	if v.SourcePath != "" {
@@ -83,14 +94,27 @@ type durationOrderTracker struct {
 	last   map[durationOrderLane]float64
 	depth  map[durationOrderLane]int
 	owners map[durationOrderLane]int
+	// traceSpanOwners mirrors the open-order stack for trace spans only. Async
+	// S/F lanes are keyed by payload pid/name/cookie and may legitimately hold
+	// starts emitted by several row PIDs; a last-writer owner cannot safely
+	// decide which lifecycle/malformed reset touches the shared lane.
+	traceSpanOwners map[durationOrderLane][]int
 }
 
 func newDurationOrderTracker() *durationOrderTracker {
 	return &durationOrderTracker{
-		last:   map[durationOrderLane]float64{},
-		depth:  map[durationOrderLane]int{},
-		owners: map[durationOrderLane]int{},
+		last:            map[durationOrderLane]float64{},
+		depth:           map[durationOrderLane]int{},
+		owners:          map[durationOrderLane]int{},
+		traceSpanOwners: map[durationOrderLane][]int{},
 	}
+}
+
+func (t *durationOrderTracker) clearLane(lane durationOrderLane) {
+	delete(t.last, lane)
+	delete(t.depth, lane)
+	delete(t.owners, lane)
+	delete(t.traceSpanOwners, lane)
 }
 
 func (t *durationOrderTracker) resetPID(pid int) {
@@ -99,15 +123,46 @@ func (t *durationOrderTracker) resetPID(pid int) {
 	}
 	for lane, owner := range t.owners {
 		if owner == pid {
-			delete(t.last, lane)
-			delete(t.depth, lane)
-			delete(t.owners, lane)
+			t.clearLane(lane)
 		}
 	}
+	// Trace async identities do not contain the row emitter and can be shared
+	// by several emitters. Membership in the open-owner stack is the precise
+	// signal; when present, clear the whole audit lane conservatively because a
+	// partial depth/timestamp predecessor would no longer describe its pairing
+	// state.
+	t.resetTraceMarkPID(pid)
+}
+
+func (t *durationOrderTracker) resetTraceMarkPID(pid int) {
+	if t == nil || pid < 0 {
+		return
+	}
+	for lane, owners := range t.traceSpanOwners {
+		if lane.family != durationOrderTraceSpan {
+			continue
+		}
+		for _, owner := range owners {
+			if owner == pid {
+				t.clearLane(lane)
+				break
+			}
+		}
+	}
+	// pid 0 is not retained in owners, but the synchronous key is still exact.
+	syncLane := durationOrderLane{family: durationOrderTraceSpan, key: fmt.Sprintf("sync\x00%d", pid)}
+	t.clearLane(syncLane)
 }
 
 func (t *durationOrderTracker) observeAll(ev Event) []durationOrderViolation {
 	if t == nil {
+		return nil
+	}
+	if traceMarkEventMalformed(ev) {
+		// The malformed row is inventory, not an endpoint observation. Reset the
+		// known emitter's open lanes so a later valid close cannot attach to
+		// pre-corruption state; a later valid begin starts a fresh recoverable lane.
+		t.resetTraceMarkPID(ev.PID)
 		return nil
 	}
 	if pid, reset := schedulerLifecycleResetPID(ev); reset {
@@ -137,14 +192,20 @@ func (t *durationOrderTracker) observeAll(ev Event) []durationOrderViolation {
 		case durationOrderOpen:
 			t.depth[lane]++
 			t.last[lane] = ev.Ts
-			if observation.owner > 0 {
+			if lane.family == durationOrderTraceSpan {
+				t.traceSpanOwners[lane] = append(t.traceSpanOwners[lane], observation.owner)
+			} else if observation.owner > 0 {
 				t.owners[lane] = observation.owner
 			}
 		case durationOrderClose:
+			if lane.family == durationOrderTraceSpan {
+				owners := t.traceSpanOwners[lane]
+				if len(owners) > 0 {
+					t.traceSpanOwners[lane] = owners[:len(owners)-1]
+				}
+			}
 			if t.depth[lane] <= 1 {
-				delete(t.depth, lane)
-				delete(t.last, lane)
-				delete(t.owners, lane)
+				t.clearLane(lane)
 			} else {
 				t.depth[lane]--
 				t.last[lane] = ev.Ts
@@ -165,12 +226,19 @@ func durationOrderObservations(ev Event) []durationOrderObservation {
 	}
 	switch ev.Type {
 	case EventBlockIssue, EventBlockComplete:
+		_, endpointPhase, endpoint := blockLatencyEndpoint(ev)
+		if !endpoint {
+			// block_rq_insert/block_getrq are inventory rows, not elapsed-time
+			// endpoints. The exact raw name gate also prevents rq/bio cross-family
+			// closes despite their shared wire-compatible EventType.
+			return nil
+		}
 		key := blockKey(ev)
 		if key == "" {
 			return nil
 		}
 		phase := durationOrderOpen
-		if ev.Type == EventBlockComplete {
+		if endpointPhase == blockEndpointDone {
 			phase = durationOrderClose
 		}
 		return []durationOrderObservation{{lane: lane(durationOrderBlockIO, key), phase: phase, owner: ev.PID}}
@@ -191,10 +259,18 @@ func durationOrderObservations(ev Event) []durationOrderObservation {
 			}
 			return []durationOrderObservation{{lane: lane(durationOrderTraceSpan, "async\x00"+key), phase: phase, owner: ev.PID}}
 		case "C":
-			// computeCounterDeltas groups by row-header TID + counter name.
-			// Match that exact consumer identity; SpanPID is payload metadata.
-			key := fmt.Sprintf("%d\x00%s", ev.PID, ev.SpanName)
-			return []durationOrderObservation{{lane: lane(durationOrderTraceCounter, key), phase: durationOrderSample, owner: ev.PID}}
+			// Counter identity comes from the C| payload, not the row-header
+			// writer: one process/global counter may be emitted by several
+			// threads, while one writer may publish counters for several payload
+			// owners. Only finite numeric rows feed counter_deltas. Do not attach
+			// a scheduler-lifecycle owner: payload pids may live in a container
+			// namespace, so a host sched_wakeup_new with the same integer is not
+			// precise authority to reset this lane.
+			key, ok := traceCounterTypedLaneKey(ev)
+			if !ok {
+				return nil
+			}
+			return []durationOrderObservation{{lane: lane(durationOrderTraceCounter, key), phase: durationOrderSample}}
 		}
 	case EventWorkqueue:
 		work, function := workqueueFields(ev)
@@ -221,9 +297,16 @@ func durationOrderObservations(ev Event) []durationOrderObservation {
 		} else if ev.Type == EventIPI {
 			family = durationOrderIPI
 		}
-		// Type + CPU + vector is the kernel's exact interrupt lane. Names are
-		// display metadata and are commonly absent from exit rows.
-		key := fmt.Sprintf("%s\x00%d\x00%d", ev.Type, ev.CPU, ev.IRQID)
+		_, phase := interruptBaseAndPhase(ev)
+		// Raise rows are instantaneous inventory. They neither open a duration
+		// lane nor govern entry/exit pairing/order.
+		if phase != "entry" && phase != "exit" {
+			return nil
+		}
+		key, ok := interruptLaneKey(ev)
+		if !ok {
+			return nil
+		}
 		return []durationOrderObservation{{lane: lane(family, key), phase: durationOrderSample}}
 	case EventStorage, EventFilesystem:
 		if !isStorageLatencyEvent(ev) {
@@ -292,7 +375,7 @@ var durationOrderRawTokens = [...]string{
 	"tracing_mark_write", ": print:", "workqueue_", "dma_fence",
 	"irq_handler_", "softirq_", "ipi_", "sched_wakeup_new:", "sched_switch:",
 	"cpu_frequency:", "cpu_frequency_limits:",
-	"block_rq_issue:", "block_rq_complete:", "ufshcd_", "mmc_", "scsi_", "i2c_", "smbus_", "bio_", "ebpf_bio",
+	"block_rq_issue:", "block_rq_complete:", "block_bio_queue:", "block_bio_complete:", "ufshcd_", "mmc_", "scsi_", "i2c_", "smbus_", "bio_", "ebpf_bio",
 	"f2fs_", "hmfs_", "android_fs_", "ext4_", "erofs_", "z_erofs_", "filesystem", "file_system", "ebpf_file", "file_check_and_advance_wb_err", "filemap_set_wb_err",
 }
 
@@ -338,6 +421,7 @@ func appendDurationOrderFailure(idx *Index, failure durationOrderViolation) {
 		idx.durationOrderFailuresCapped[failure.Family] = true
 		return
 	}
+	failure.Fields = append([]string(nil), failure.Fields...)
 	idx.durationOrderFailures = append(idx.durationOrderFailures, failure)
 }
 
@@ -385,6 +469,21 @@ func cloneDurationOrderCapped(in map[durationOrderFamily]bool) map[durationOrder
 func durationOrderViolationRelevantToQuery(v *durationOrderViolation, q Query) bool {
 	if v == nil {
 		return false
+	}
+	// Interrupt activity pairs only endpoints retained inside the selected
+	// window; unlike trace-span/workqueue carry-in, an earlier malformed IRQ
+	// endpoint cannot govern a later pair. Keep this poison scoped to the same
+	// exact line/time selection instead of suppressing unrelated future windows.
+	if v.Issue == "endpoint_parse_incomplete" {
+		if q.LineStart > 0 && v.Line < q.LineStart {
+			return false
+		}
+		if q.TimeStart > 0 && v.CurrentTs < q.TimeStart {
+			return false
+		}
+		if q.TimeEnd > 0 && v.CurrentTs > q.TimeEnd {
+			return false
+		}
 	}
 	if q.LineEnd > 0 && v.Line > q.LineEnd {
 		return false
@@ -457,7 +556,11 @@ func durationOrderFailClosedCaveat(failure *durationOrderViolation, outputs stri
 	if failure == nil {
 		return ""
 	}
-	return "duration_pairing_fail_closed=true; " + failure.reason() + "; omitted affected output family=" + outputs + " because its exact typed lane moved backwards in physical trace order"
+	suffix := "because its exact typed lane moved backwards in physical trace order"
+	if failure.Issue == "endpoint_parse_incomplete" {
+		suffix = "because a required endpoint identity was absent or malformed"
+	}
+	return "duration_pairing_fail_closed=true; " + failure.reason() + "; omitted affected output family=" + outputs + " " + suffix
 }
 
 // frequencyOrderIntegrity is the per-CPU fail-close view over the two

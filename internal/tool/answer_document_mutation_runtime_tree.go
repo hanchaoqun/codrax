@@ -1363,13 +1363,52 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 				runtimeTraceCausalProjectionPrimaryRoots(projection)...),
 				projection.OnChainCauses...),
 				projection.SupportingHops...)))
-	// SEM-LEAD (§29.7-2 ③, 2026-07-10): build the ✦ 语义 lane node list first,
-	// then fold on-chain rank-lane twins into it BEFORE the chain universe is
-	// bucketed — the folded rank row never mints a depthless/cause tree row
-	// and the surviving semantic row adopts the rank seat.
+	adjacentCauses := append([]types.TraceCausalProjectionNode(nil), projection.AdjacentCauses...)
+	backgroundCauses := append([]types.TraceCausalProjectionNode(nil), projection.BackgroundCauses...)
+	// SEM-LEAD/B9: build the ✦ 语义 lane node list first, then fold rank-lane
+	// twins across ALL relevance buckets before any tree/stanza bucketing. A
+	// precisely matched on-chain, adjacent, or background rank twin therefore
+	// cannot retain a second depthless/◇/▒ seat; mismatches remain fail-open.
 	semantics := append([]types.TraceCausalProjectionNode(nil), projection.SemanticSpans...)
 	var semanticRankTwinPeers map[string][]types.TraceCausalProjectionNode
-	chainUniverse, semantics, semanticRankTwinPeers = runtimeTraceProjFoldSemanticRankLaneTwins(chainUniverse, semantics)
+	chainUniverse, adjacentCauses, backgroundCauses, semantics, semanticRankTwinPeers =
+		runtimeTraceProjFoldSemanticRankLaneTwinsAcrossBuckets(chainUniverse, adjacentCauses, backgroundCauses, semantics)
+	// Causal main tree purity: only typed on-chain semantic work may occupy a
+	// `├─语义─` seat. Adjacent/background semantic work keeps one stanza seat
+	// (after B9 twin folding) and is still published by the independent
+	// deterministic-optimization table.
+	treeSemantics := make([]types.TraceCausalProjectionNode, 0, len(semantics))
+	adjacentSemanticSeats := make(map[string]bool, len(adjacentCauses))
+	for _, node := range adjacentCauses {
+		adjacentSemanticSeats[runtimeTraceCausalProjectionNodeKey(node)] = true
+	}
+	backgroundSemanticSeats := make(map[string]bool, len(backgroundCauses))
+	for _, node := range backgroundCauses {
+		backgroundSemanticSeats[runtimeTraceCausalProjectionNodeKey(node)] = true
+	}
+	for _, span := range semantics {
+		lane, ok := runtimeTraceProjSemanticTwinLane(span)
+		switch {
+		case ok && lane == "on_chain":
+			treeSemantics = append(treeSemantics, span)
+		case ok && lane == "adjacent":
+			key := runtimeTraceCausalProjectionNodeKey(span)
+			if !adjacentSemanticSeats[key] {
+				adjacentCauses = append(adjacentCauses, span)
+				adjacentSemanticSeats[key] = true
+			}
+		default:
+			// A semantic span not proved on-chain must never mint a causal-tree
+			// edge. Keep one lossless context seat even when the independent
+			// context bucket was capped (or an older projection omitted the
+			// relevance token); the node's typed relevance remains untouched.
+			key := runtimeTraceCausalProjectionNodeKey(span)
+			if !backgroundSemanticSeats[key] {
+				backgroundCauses = append(backgroundCauses, span)
+				backgroundSemanticSeats[key] = true
+			}
+		}
+	}
 	// §7.30 裁定1: only relation-resolved rows may enter the on-chain tree.
 	// Aggregate-metric rows and unknown-thread rows whose depth cannot attach
 	// demote to the background-pressure stanza (merged with the existing
@@ -1482,7 +1521,7 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// SEM-LEAD: `semantics` was built (and rank-twin folded) beside the chain
 	// universe above — this bucketing consumes the post-fold rows.
 	semanticBySubject := map[string][]types.TraceCausalProjectionNode{}
-	for _, span := range semantics {
+	for _, span := range treeSemantics {
 		key := runtimeTraceCausalProjectionCanonicalNode(span.Subject)
 		semanticBySubject[key] = append(semanticBySubject[key], span)
 	}
@@ -1746,7 +1785,7 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		}})
 	}
 	// Orphan semantic spans (subject not on the trunk at all).
-	for _, span := range semantics {
+	for _, span := range treeSemantics {
 		key := runtimeTraceCausalProjectionCanonicalNode(span.Subject)
 		if semanticConsumed[key] {
 			continue
@@ -1792,31 +1831,6 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		attach(model.TreeRows)
 	}
 
-	// RNB R2: attach the folded rank-lane peers to the surviving chain row and
-	// register every folded node on the evidence index — the fold note is the
-	// rank row's display carrier (type word/rank/confidence), the index keeps
-	// its full locator + audit detail, and the invariance carriers keep the
-	// coverage numerator / bar scale byte-identical to the two-row render.
-	if len(rankFoldPeers) > 0 {
-		attach := func(rows []runtimeTraceProjTreeRow) {
-			for i := range rows {
-				for _, peer := range rankFoldPeers[runtimeTraceCausalProjectionNodeKey(rows[i].Node)] {
-					rows[i].RankFoldPeers = append(rows[i].RankFoldPeers, runtimeTraceProjRankFoldPeer{
-						TypeWord:           strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(peer, zh)),
-						Rank:               peer.Rank,
-						Confidence:         peer.Confidence,
-						EvidenceTag:        runtimeTraceProjEvidenceTag(peer, evidence, zh),
-						CumulativeImpactMS: peer.CumulativeImpactMS,
-						DisplayImpactMS:    runtimeTraceProjNodeDisplayImpact(peer),
-						TargetImpactMS:     peer.TargetImpactMS,
-					})
-				}
-			}
-		}
-		attach(model.SelfRows)
-		attach(model.TreeRows)
-	}
-
 	// GAP-B G11 (§27.5, real_trace_campaign_20260705.md, 2026-07-09): the
 	// target's OWN wait-symptom rank rows (typed tier target_self_state +
 	// canonical subject == 🎯 target) relocate from the ◇/▒ stanza buckets
@@ -1831,7 +1845,7 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// (lossless) and the self area discloses their count + single max.
 	if targetKey != "" {
 		var selfWait []types.TraceCausalProjectionNode
-		for _, bucket := range [][]types.TraceCausalProjectionNode{projection.AdjacentCauses, projection.BackgroundCauses} {
+		for _, bucket := range [][]types.TraceCausalProjectionNode{adjacentCauses, backgroundCauses} {
 			for _, node := range bucket {
 				if consumed[runtimeTraceCausalProjectionNodeKey(node)] {
 					continue
@@ -1879,7 +1893,7 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// once, on the chain (the stanza copy is the duplicate; the (a) table's
 	// 双席 declaration follows the actual seats and drops with it).
 	adjacentSeen := map[string]bool{}
-	for _, node := range runtimeTraceProjAdjacentNodesForDisplay(projection.AdjacentCauses) {
+	for _, node := range runtimeTraceProjAdjacentNodesForDisplay(adjacentCauses) {
 		key := runtimeTraceCausalProjectionNodeKey(node)
 		if consumed[key] {
 			continue
@@ -1891,7 +1905,7 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		})
 	}
 	backgroundSeen := map[string]bool{}
-	for _, node := range projection.BackgroundCauses {
+	for _, node := range backgroundCauses {
 		key := runtimeTraceCausalProjectionNodeKey(node)
 		if consumed[key] {
 			continue // PTV6 #2: chain seat wins — no 链/▒ double seat
@@ -1964,6 +1978,39 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 			return runtimeTraceProjNodeDisplayImpact(model.Background[i].Node) >
 				runtimeTraceProjNodeDisplayImpact(model.Background[j].Node)
 		})
+	}
+
+	// RNB R2 / B9: attach every folded rank-lane peer only after ALL four
+	// display populations have been materialized. On-chain pairs attach to the
+	// surviving tree/self row; adjacent/background pairs attach to their sole
+	// stanza row. The peer remains an evidence/detail carrier, but an off-chain
+	// peer has no root-cause-board ordinal: its surviving semantic row carries
+	// BackgroundRank instead. Bar/coverage invariance still reads the peer's
+	// magnitudes exactly as before.
+	if len(rankFoldPeers) > 0 {
+		attach := func(rows []runtimeTraceProjTreeRow) {
+			for i := range rows {
+				for _, peer := range rankFoldPeers[runtimeTraceCausalProjectionNodeKey(rows[i].Node)] {
+					peerRank := peer.Rank
+					if lane, ok := runtimeTraceProjSemanticTwinLane(peer); ok && lane != "on_chain" {
+						peerRank = 0
+					}
+					rows[i].RankFoldPeers = append(rows[i].RankFoldPeers, runtimeTraceProjRankFoldPeer{
+						TypeWord:           strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(peer, zh)),
+						Rank:               peerRank,
+						Confidence:         peer.Confidence,
+						EvidenceTag:        runtimeTraceProjEvidenceTag(peer, evidence, zh),
+						CumulativeImpactMS: peer.CumulativeImpactMS,
+						DisplayImpactMS:    runtimeTraceProjNodeDisplayImpact(peer),
+						TargetImpactMS:     peer.TargetImpactMS,
+					})
+				}
+			}
+		}
+		attach(model.SelfRows)
+		attach(model.TreeRows)
+		attach(model.Adjacent)
+		attach(model.Background)
 	}
 
 	// G1 跨车道对账 (§27.2-G1, 2026-07-09): register every engine-absorbed
@@ -2461,6 +2508,17 @@ func runtimeTraceProjPrimaryTierNode(node types.TraceCausalProjectionNode) bool 
 // depth cannot attach inside the wakeup trunk demote to the background-pressure
 // stanza. Precise typed signals only — never a prose heuristic.
 func runtimeTraceProjNodeDemotedToBackground(node types.TraceCausalProjectionNode, trunkLen int) bool {
+	// SEM-LEAD-P0: an engine-typed on-chain semantic rank row is never
+	// background pressure. If its independent semantic twin cannot fold (or
+	// the subject/depth cannot attach to the visible trunk), keep the honest
+	// depthless on-chain seat; relation incompleteness may change layout, never
+	// causal lane. Exact typed signals only.
+	onChainSemantic := strings.TrimSpace(node.SemanticClass) != "" &&
+		(strings.TrimSpace(node.ChainRelevance) == "on_chain" ||
+			strings.TrimSpace(node.Causality) == "on_wakeup_chain")
+	if onChainSemantic {
+		return false
+	}
 	if node.IsAggregateMetric() {
 		return true
 	}
@@ -2860,7 +2918,7 @@ func runtimeTraceProjFoldSameSegmentLaneTwins(nodes []types.TraceCausalProjectio
 // --- SEM-LEAD semantic-family two-lane fold (§29.7-2 ③, ledger
 // real_trace_campaign_20260705.md, 2026-07-10) --------------------------------
 //
-// The engine publishes ONE on-chain semantic span entity through TWO
+// The engine publishes ONE semantic span entity through TWO
 // observation channels — the trace_semantic_span typed channel (the ✦ 语义
 // lane row: class word, family roster, caliber) and the root_cause_* rank
 // funnel (rank ordinal, tier, effective attribution) — and the display seated
@@ -2872,10 +2930,12 @@ func runtimeTraceProjFoldSameSegmentLaneTwins(nodes []types.TraceCausalProjectio
 // shared RankFoldPeers carrier (行1 [E#+E#] bracket, detail 根因排序 line,
 // bar-scale/disclosure MAX invariance — the RNB R2 vocabulary verbatim).
 //
-// Scope discipline: ON-CHAIN pairs only (typed ChainRelevance on BOTH arms) —
-// §29.7-2 keeps the non-chain lane untouched (背景综合排序+提及门
-// background_rank≤3 不变), so an adjacent/background rank twin (e.g. the
-// textup E10/E18 shader pair) keeps today's two-lane render.
+// B9 production witness (cust_trace_vc_710.txt, 2026-07-10) widened the
+// relevance scope: the same off-chain class_verification family occupied a
+// `├─语义─` seat and a `◇邻近区段` seat. Matching now admits on_chain,
+// adjacent, and background pairs, but the relevance lane is part of the exact
+// join key and MUST agree on both arms. The surviving semantic row retains the
+// off-chain BackgroundRank; no off-chain row gains an on-chain board seat.
 //
 // Precision rules (硬边界, fail-open to the two-row render on every miss):
 //   - join key = canonical subject + typed SemanticClass token + the exact
@@ -2892,16 +2952,36 @@ func runtimeTraceProjFoldSameSegmentLaneTwins(nodes []types.TraceCausalProjectio
 //   - cross-window veto (SFD F1 mirror): both arms declaring their own typed
 //     selected_window beyond the ±1ms tolerance never fold.
 func runtimeTraceProjSemanticRankTwinArm(node types.TraceCausalProjectionNode) bool {
-	return strings.TrimSpace(node.SemanticClass) != "" &&
+	_, laneOK := runtimeTraceProjSemanticTwinLane(node)
+	return laneOK && strings.TrimSpace(node.SemanticClass) != "" &&
 		node.Rank > 0 &&
-		strings.HasPrefix(strings.TrimSpace(node.Predicate), "root_cause_") &&
-		strings.TrimSpace(node.ChainRelevance) == "on_chain"
+		strings.HasPrefix(strings.TrimSpace(node.Predicate), "root_cause_")
 }
 
 func runtimeTraceProjSemanticLaneTwinArm(node types.TraceCausalProjectionNode) bool {
-	return runtimeTraceCausalProjectionSemanticSpanRow(node) &&
-		strings.TrimSpace(node.SemanticClass) != "" &&
-		strings.TrimSpace(node.ChainRelevance) == "on_chain"
+	_, laneOK := runtimeTraceProjSemanticTwinLane(node)
+	return laneOK && runtimeTraceCausalProjectionSemanticSpanRow(node) &&
+		strings.TrimSpace(node.SemanticClass) != ""
+}
+
+func runtimeTraceProjSemanticTwinLane(node types.TraceCausalProjectionNode) (string, bool) {
+	lane := strings.TrimSpace(node.ChainRelevance)
+	if lane == "" {
+		switch strings.TrimSpace(node.Causality) {
+		case "on_wakeup_chain", "on_dependency_chain":
+			lane = "on_chain"
+		case "adjacent_to_wakeup_chain", "adjacent_to_dependency_chain":
+			lane = "adjacent"
+		case "background", "off_chain":
+			lane = "background"
+		}
+	}
+	switch lane {
+	case "on_chain", "adjacent", "background":
+		return lane, true
+	default:
+		return "", false
+	}
 }
 
 func runtimeTraceProjSemanticTwinKey(node types.TraceCausalProjectionNode) string {
@@ -2911,19 +2991,22 @@ func runtimeTraceProjSemanticTwinKey(node types.TraceCausalProjectionNode) strin
 	if !types.TraceCausalProjectionKnownSubject(node.Subject) {
 		return ""
 	}
-	return runtimeTraceCausalProjectionCanonicalNode(node.Subject) +
+	lane, ok := runtimeTraceProjSemanticTwinLane(node)
+	if !ok {
+		return ""
+	}
+	return lane + "\x00" + runtimeTraceCausalProjectionCanonicalNode(node.Subject) +
 		"\x00" + strings.TrimSpace(node.SemanticClass) +
 		"\x00" + strconv.Itoa(node.LineStart) + "\x00" + strconv.Itoa(node.LineEnd)
 }
 
-// runtimeTraceProjFoldSemanticRankLaneTwins folds the on-chain rank-lane twin
-// of a semantic span entity into its ✦ 语义 lane row (SEM-LEAD §29.7-2 ③
-// E9/E13 双席合一). Runs on the chain-node universe BEFORE the subject
-// buckets are built (RNB position), so the rank twin never mints a
-// depthless/cause tree row; the surviving semantic node ADOPTS the rank
-// identity (Rank/Tier — the board admission and 行2 根因排序#N read them) and
-// the returned peer map (keyed by the KEPT semantic node's key) is merged
-// into the RankFoldPeers attach after flatten.
+// runtimeTraceProjFoldSemanticRankLaneTwinsDetailed folds one precisely
+// matched rank-lane twin into its trace_semantic_span entity (SEM-LEAD
+// §29.7-2 ③ + B9). The lane is part of the exact key: on-chain survivors
+// adopt Rank/Tier and remain board candidates; adjacent/background survivors
+// retain BackgroundRank and never gain an on-chain ordinal. The returned peer
+// map (keyed by the kept semantic entity) preserves the rank E#/confidence and
+// accounting invariance carriers for the single rendered seat.
 //
 // 复核 P3-1 (theoretical form, recorded): a FAIL-OPEN remnant rank twin (any
 // guard miss — value/member/window/ambiguity) stays in the chain universe and
@@ -2934,15 +3017,16 @@ func runtimeTraceProjSemanticTwinKey(node types.TraceCausalProjectionNode) strin
 // rows stay honest (each publishes its own account; the 行1 class-word arm in
 // runtimeTraceProjRowNameBase covers the family form on every seat kind), so
 // the remnant is a display redundancy, never a double-count. No production
-// witness — the folded pairs are removed before bucketing by construction.
-func runtimeTraceProjFoldSemanticRankLaneTwins(chainNodes []types.TraceCausalProjectionNode,
-	semantics []types.TraceCausalProjectionNode) ([]types.TraceCausalProjectionNode, []types.TraceCausalProjectionNode, map[string][]types.TraceCausalProjectionNode) {
+// witness — the folded pairs are removed before display bucketing by
+// construction.
+func runtimeTraceProjFoldSemanticRankLaneTwinsDetailed(rankNodes []types.TraceCausalProjectionNode,
+	semantics []types.TraceCausalProjectionNode) ([]types.TraceCausalProjectionNode, map[string][]types.TraceCausalProjectionNode, map[int]bool) {
 	type group struct {
 		rankIdx []int
 		semIdx  []int
 	}
 	groups := map[string]*group{}
-	for i, node := range chainNodes {
+	for i, node := range rankNodes {
 		if !runtimeTraceProjSemanticRankTwinArm(node) {
 			continue
 		}
@@ -2958,7 +3042,7 @@ func runtimeTraceProjFoldSemanticRankLaneTwins(chainNodes []types.TraceCausalPro
 		g.rankIdx = append(g.rankIdx, i)
 	}
 	if len(groups) == 0 {
-		return chainNodes, semantics, nil
+		return semantics, nil, nil
 	}
 	for i, node := range semantics {
 		if !runtimeTraceProjSemanticLaneTwinArm(node) {
@@ -2979,7 +3063,7 @@ func runtimeTraceProjFoldSemanticRankLaneTwins(chainNodes []types.TraceCausalPro
 		if len(g.rankIdx) != 1 || len(g.semIdx) != 1 {
 			continue // ambiguity fails open (SFD donor-conflict rule)
 		}
-		rank := chainNodes[g.rankIdx[0]]
+		rank := rankNodes[g.rankIdx[0]]
 		sem := &semantics[g.semIdx[0]]
 		if rankV, semV := runtimeTraceProjNodeDisplayImpact(rank), runtimeTraceProjNodeDisplayImpact(*sem); rankV <= 0 || rankV != semV {
 			continue // not the engine's one participation value — never fold
@@ -2998,7 +3082,18 @@ func runtimeTraceProjFoldSemanticRankLaneTwins(chainNodes []types.TraceCausalPro
 		// 参赛身份). Values are NOT transferred wholesale — the value mirror
 		// above already proved both lanes publish the same participation
 		// value; only absent-on-the-semantic-side account fields adopt.
-		sem.Rank = rank.Rank
+		lane, _ := runtimeTraceProjSemanticTwinLane(*sem)
+		if lane == "on_chain" {
+			sem.Rank = rank.Rank
+		} else {
+			// Off-chain rows retain the background-board identity. The folded
+			// rank record remains reachable through RankFoldPeers/E# but must
+			// not turn the surviving semantic row into an on-chain rank seat.
+			sem.Rank = 0
+			if rank.BackgroundRank > 0 {
+				sem.BackgroundRank = rank.BackgroundRank
+			}
+		}
 		if strings.TrimSpace(sem.Tier) == "" {
 			sem.Tier = rank.Tier
 		}
@@ -3020,16 +3115,103 @@ func runtimeTraceProjFoldSemanticRankLaneTwins(chainNodes []types.TraceCausalPro
 		folded = true
 	}
 	if !folded {
-		return chainNodes, semantics, nil
+		return semantics, nil, nil
 	}
-	kept := make([]types.TraceCausalProjectionNode, 0, len(chainNodes))
-	for i, node := range chainNodes {
-		if dropped[i] {
-			continue
+	return semantics, peers, dropped
+}
+
+// runtimeTraceProjFoldSemanticRankLaneTwins is the unit-grain wrapper used by
+// the precision-guard tests and single-bucket callers.
+func runtimeTraceProjFoldSemanticRankLaneTwins(rankNodes []types.TraceCausalProjectionNode,
+	semantics []types.TraceCausalProjectionNode) ([]types.TraceCausalProjectionNode, []types.TraceCausalProjectionNode, map[string][]types.TraceCausalProjectionNode) {
+	semantics, peers, dropped := runtimeTraceProjFoldSemanticRankLaneTwinsDetailed(rankNodes, semantics)
+	if len(dropped) == 0 {
+		return rankNodes, semantics, nil
+	}
+	kept := make([]types.TraceCausalProjectionNode, 0, len(rankNodes)-len(dropped))
+	for i, node := range rankNodes {
+		if !dropped[i] {
+			kept = append(kept, node)
 		}
-		kept = append(kept, node)
 	}
 	return kept, semantics, peers
+}
+
+// runtimeTraceProjFoldSemanticRankLaneTwinsAcrossBuckets runs one ambiguity
+// census across chain/adjacent/background rank populations, then removes each
+// proven rank twin from its original bucket. Running one joined census is
+// load-bearing: two rank arms under one exact key fail open even if they came
+// from different projection buckets. A surviving on-chain semantic entity
+// keeps its causal-tree seat; an off-chain entity keeps exactly one seat in
+// its original ◇/▒ bucket (or is inserted there when that bucket's independent
+// semantic copy was capped).
+func runtimeTraceProjFoldSemanticRankLaneTwinsAcrossBuckets(
+	chainNodes, adjacentNodes, backgroundNodes, semantics []types.TraceCausalProjectionNode,
+) ([]types.TraceCausalProjectionNode, []types.TraceCausalProjectionNode, []types.TraceCausalProjectionNode,
+	[]types.TraceCausalProjectionNode, map[string][]types.TraceCausalProjectionNode) {
+	all := make([]types.TraceCausalProjectionNode, 0, len(chainNodes)+len(adjacentNodes)+len(backgroundNodes))
+	all = append(all, chainNodes...)
+	adjacentStart := len(all)
+	all = append(all, adjacentNodes...)
+	backgroundStart := len(all)
+	all = append(all, backgroundNodes...)
+
+	semantics, peers, dropped := runtimeTraceProjFoldSemanticRankLaneTwinsDetailed(all, semantics)
+	if len(dropped) == 0 {
+		return chainNodes, adjacentNodes, backgroundNodes, semantics, nil
+	}
+	foldedSemantic := map[string]types.TraceCausalProjectionNode{}
+	for _, sem := range semantics {
+		key := runtimeTraceCausalProjectionNodeKey(sem)
+		if len(peers[key]) > 0 {
+			foldedSemantic[key] = sem
+		}
+	}
+	replacementByRank := map[string]types.TraceCausalProjectionNode{}
+	for semKey, rankPeers := range peers {
+		sem, ok := foldedSemantic[semKey]
+		if !ok {
+			continue
+		}
+		lane, _ := runtimeTraceProjSemanticTwinLane(sem)
+		if lane == "on_chain" {
+			continue
+		}
+		for _, rank := range rankPeers {
+			replacementByRank[runtimeTraceCausalProjectionNodeKey(rank)] = sem
+		}
+	}
+	filter := func(nodes []types.TraceCausalProjectionNode, offset int, offChainBucket bool) []types.TraceCausalProjectionNode {
+		out := make([]types.TraceCausalProjectionNode, 0, len(nodes))
+		semanticCopies := map[string]bool{}
+		if offChainBucket {
+			for _, node := range nodes {
+				if runtimeTraceCausalProjectionSemanticSpanRow(node) {
+					semanticCopies[runtimeTraceCausalProjectionNodeKey(node)] = true
+				}
+			}
+		}
+		for i, node := range nodes {
+			if dropped[offset+i] {
+				if replacement, ok := replacementByRank[runtimeTraceCausalProjectionNodeKey(node)]; ok &&
+					!semanticCopies[runtimeTraceCausalProjectionNodeKey(replacement)] {
+					out = append(out, replacement)
+				}
+				continue
+			}
+			if offChainBucket && runtimeTraceCausalProjectionSemanticSpanRow(node) {
+				if replacement, ok := foldedSemantic[runtimeTraceCausalProjectionNodeKey(node)]; ok {
+					node = replacement
+				}
+			}
+			out = append(out, node)
+		}
+		return out
+	}
+	chainNodes = filter(chainNodes, 0, false)
+	adjacentNodes = filter(adjacentNodes, adjacentStart, true)
+	backgroundNodes = filter(backgroundNodes, backgroundStart, true)
+	return chainNodes, adjacentNodes, backgroundNodes, semantics, peers
 }
 
 // runtimeTraceProjOwnProcessIONode is the NEW-3/F2 typed predicate for an
@@ -4550,6 +4732,20 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 	node := row.Node
 	var main, demoted []string
 	name := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(node, zh))
+	// A runnable self row names the focused thread's scheduler state, not the
+	// causal object token (runnable_wait). Use the shared state label on both
+	// languages so the compact tree reads 自身·runnable / own·runnable.
+	if strings.EqualFold(strings.TrimSpace(node.StateKind), "runnable") {
+		if stateName := strings.TrimSpace(runtimeTraceProjStateKindLabel(node, zh)); stateName != "" {
+			name = stateName
+		}
+	}
+	selfPrefix := "自身·"
+	selfOnly := "自身"
+	if !zh {
+		selfPrefix = "own·"
+		selfOnly = "own"
+	}
 	if node.IsSleepState() {
 		// PTV6-C #8 (#73, 标本归因 2026-07-06): the sleep self row speaks the
 		// 裁定4 StateKindLabel (PTV7: ☾ sleep, the canonical display word)
@@ -4565,14 +4761,14 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 			label = "sleep"
 		}
 		row.marks.mark(runtimeTraceProjMarkIconSleep)
-		main = append(main, "☾ "+label)
+		main = append(main, "☾ "+selfPrefix+label)
 	} else if name != "" {
 		// NEW-10 (§7.6 记号区规整): every self row leads with exactly one state
 		// glyph (sleep rows already carry ☾) — a constant one-glyph slot keeps
 		// same-depth rows aligned on proportional web fonts.
-		main = append(main, runtimeTraceProjStateIcon(node, row.Kind, true, row.marks)+" "+name)
+		main = append(main, runtimeTraceProjStateIcon(node, row.Kind, true, row.marks)+" "+selfPrefix+name)
 	} else {
-		main = append(main, runtimeTraceProjStateIcon(node, row.Kind, true, row.marks))
+		main = append(main, runtimeTraceProjStateIcon(node, row.Kind, true, row.marks)+" "+selfOnly)
 	}
 	if v := runtimeTraceProjNodeDisplayImpact(node); v > 0 {
 		main = append(main, fmt.Sprintf("%.3fms", v))
@@ -4889,20 +5085,32 @@ func runtimeTraceProjRowName(row runtimeTraceProjTreeRow, zh bool) string {
 
 func runtimeTraceProjRowNameBase(row runtimeTraceProjTreeRow, zh bool) string {
 	node := row.Node
-	if row.Kind == runtimeTraceProjTreeRowSemantic {
+	if runtimeTraceCausalProjectionSemanticSpanRow(node) {
 		// RCM-2 D2 (§24.10, 2026-07-08): a semantic FAMILY row's 词位 is the
 		// typed semantic-class word (类型词行1词位) — one member's span name
 		// must not impersonate the ×N family; the member names live on the
 		// roster sub-rows and the detail stanza. Single-span rows keep the
 		// span name byte-identically (单成员退化零演化).
+		name := ""
 		if runtimeTraceProjFamilyRow(node) {
 			if word := runtimeTraceProjFamilySemanticClassWord(node, zh); word != "" {
-				return word
+				name = word
 			}
 		}
-		name := strings.TrimSpace(node.SpanName)
 		if name == "" {
-			name = strings.TrimSpace(node.Object)
+			name = strings.TrimSpace(node.SpanName)
+			if name == "" {
+				name = strings.TrimSpace(node.Object)
+			}
+		}
+		// An on-chain semantic row is structurally nested at its host/trunk
+		// position. An off-chain stanza row has no such parent, so its sole
+		// publication seat keeps the host beside the optimization name.
+		if row.Kind != runtimeTraceProjTreeRowSemantic {
+			host := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(node, zh))
+			if host != "" && name != "" {
+				return host + " · " + name
+			}
 		}
 		return name
 	}
@@ -7649,7 +7857,7 @@ func runtimeTraceProjLeadSelect(projection types.TraceCausalProjection, model ru
 }
 
 // runtimeTraceProjLeadSemanticFallback picks the §21 LEAD-SEM tier-4 lead:
-// among the rendered tree's data-bearing SEMANTIC rows, the one with the
+// among all rendered data-bearing trace_semantic_span rows, the one with the
 // largest discounted single-instance value (runtimeTraceProjLeadSelectionValue
 // — the SAME caliber as the RN-3(a) lane: ×N SUMs never compete). Rows whose
 // typed WithinRequestedWindow marker says in-window are preferred over
@@ -7659,18 +7867,22 @@ func runtimeTraceProjLeadSelect(projection types.TraceCausalProjection, model ru
 func runtimeTraceProjLeadSemanticFallback(model runtimeTraceProjTreeModel) *types.TraceCausalProjectionNode {
 	var best, bestInWindow *types.TraceCausalProjectionNode
 	bestValue, bestInWindowValue := 0.0, 0.0
-	for i := range model.TreeRows {
-		row := &model.TreeRows[i]
-		if row.Kind != runtimeTraceProjTreeRowSemantic || !row.HasData {
-			continue
-		}
-		v := runtimeTraceProjLeadSelectionValue(row.Node)
-		if v > bestValue {
-			best, bestValue = &row.Node, v
-		}
-		inWindow := row.Node.WithinRequestedWindow == nil || *row.Node.WithinRequestedWindow
-		if inWindow && v > bestInWindowValue {
-			bestInWindow, bestInWindowValue = &row.Node, v
+	groups := [][]runtimeTraceProjTreeRow{model.TreeRows, model.Adjacent, model.Background}
+	for _, rows := range groups {
+		for i := range rows {
+			row := &rows[i]
+			if !row.HasData || (row.Kind != runtimeTraceProjTreeRowSemantic &&
+				!runtimeTraceCausalProjectionSemanticSpanRow(row.Node)) {
+				continue
+			}
+			v := runtimeTraceProjLeadSelectionValue(row.Node)
+			if v > bestValue {
+				best, bestValue = &row.Node, v
+			}
+			inWindow := row.Node.WithinRequestedWindow == nil || *row.Node.WithinRequestedWindow
+			if inWindow && v > bestInWindowValue {
+				bestInWindow, bestInWindowValue = &row.Node, v
+			}
 		}
 	}
 	if bestInWindow != nil {
@@ -7995,6 +8207,106 @@ func runtimeTraceProjConclusionMagnitude(primary types.TraceCausalProjectionNode
 	return v, runtimeTraceProjImpactCaliberWord(source, zh), false, false
 }
 
+// runtimeTraceProjCoverageVerdict is the single typed arithmetic decision
+// shared by the window-line renderer and the model-prose overclaim guard.
+// Comparable means the existing coverage lanes proved one denominator on the
+// same basis as AttributedMS. It is deliberately false for cross-base,
+// denominator-census collapse, beyond-jitter overshoot, and missing-window /
+// missing-attribution shapes. No prose or formatted percentage participates.
+type runtimeTraceProjCoverageVerdict struct {
+	HasData       bool
+	Comparable    bool
+	AttributedMS  float64
+	DenominatorMS float64
+	SymptomMS     float64
+
+	HopResidueCount int
+	HopResidueMaxMS float64
+	CrossBase       bool
+	CensusExcluded  int
+	CensusMaxMS     float64
+	CensusAllOff    bool
+
+	ChainWindowStart    float64
+	ChainWindowEnd      float64
+	ChainWindowMS       float64
+	ChainWindowMismatch bool
+	HopOvershootSleepMS float64
+}
+
+// LowCoverage reports the precise <=20% condition used to weaken only
+// model-authored whole-frame root-cause prose. Multiplication avoids a
+// separately rounded percentage: the full-precision typed values decide.
+func (v runtimeTraceProjCoverageVerdict) LowCoverage() bool {
+	return v.Comparable && v.DenominatorMS > 0 && v.AttributedMS >= 0 &&
+		v.AttributedMS*5 <= v.DenominatorMS
+}
+
+func runtimeTraceProjCoverageVerdictFor(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel) runtimeTraceProjCoverageVerdict {
+	verdict := runtimeTraceProjCoverageVerdict{
+		AttributedMS: runtimeTraceProjDepth1Cumulative(model),
+	}
+	verdict.HasData = verdict.AttributedMS > 0 || runtimeTraceProjChainHasPeriodicData(model)
+	if model.WindowMS <= 0 || !verdict.HasData {
+		return verdict
+	}
+
+	verdict.SymptomMS, _, verdict.HopResidueCount, verdict.HopResidueMaxMS =
+		runtimeTraceProjTargetSymptomAdmission(model)
+	_, _, _, verdict.CrossBase = runtimeTraceProjCoverageWindowConsensus(model)
+	verdict.CensusExcluded, verdict.CensusMaxMS, verdict.CensusAllOff =
+		runtimeTraceProjSymptomDenominatorCensus(projection, model)
+
+	if verdict.SymptomMS > 0 {
+		// These are the exact first two non-arithmetic arms in
+		// runtimeTraceProjWindowLine: a positively mixed window base, or a
+		// denominator population proven to have collapsed.
+		if verdict.CrossBase ||
+			(verdict.CensusExcluded > 0 && verdict.CensusMaxMS > verdict.SymptomMS) {
+			return verdict
+		}
+		if verdict.AttributedMS <= verdict.SymptomMS ||
+			verdict.AttributedMS-verdict.SymptomMS <= runtimeTraceProjSymptomOvershootJitterMS {
+			verdict.Comparable = true
+			verdict.DenominatorMS = verdict.SymptomMS
+		}
+		// Beyond-jitter symptom overshoot is intentionally incomparable.
+		return verdict
+	}
+
+	// The renderer's whole-window arithmetic is reachable only when the
+	// attribution itself does not overrun the analysis window. A positive
+	// mixed-base signal is never safe for the prose guard, even though legacy
+	// renderer wording may fail open when it cannot name a single source
+	// window.
+	if verdict.AttributedMS > model.WindowMS || verdict.CrossBase {
+		return verdict
+	}
+	if ws, we, ok := runtimeTraceProjChainDataQueryWindow(model); ok &&
+		runtimeTraceProjCoverageWindowBaseMismatch(projection, ws, we) {
+		verdict.ChainWindowStart = ws
+		verdict.ChainWindowEnd = we
+		verdict.ChainWindowMS = (we - ws) * 1000
+		verdict.ChainWindowMismatch = true
+		if verdict.ChainWindowMS > 0 && verdict.AttributedMS <= verdict.ChainWindowMS {
+			verdict.Comparable = true
+			verdict.DenominatorMS = verdict.ChainWindowMS
+		}
+		return verdict
+	}
+
+	verdict.HopOvershootSleepMS = runtimeTraceProjHopOnlyOvershootSleepMS(model, verdict.AttributedMS)
+	if verdict.HopOvershootSleepMS > 0 && verdict.AttributedMS > verdict.HopOvershootSleepMS {
+		if verdict.AttributedMS-verdict.HopOvershootSleepMS > runtimeTraceProjSymptomOvershootJitterMS {
+			return verdict
+		}
+		// The jitter arm reports the attributed share of the analysis window.
+	}
+	verdict.Comparable = true
+	verdict.DenominatorMS = model.WindowMS
+	return verdict
+}
+
 func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel, zh bool) string {
 	if model.WindowMS <= 0 {
 		if zh {
@@ -8015,7 +8327,8 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 	// sentence — "on-chain 已归因 0.000ms" IS the finding (the wait was normal
 	// cadence), not a missing-data state; the >0 short-circuit alone would
 	// silently drop the line exactly when the discount did its job.
-	if attributed := runtimeTraceProjDepth1Cumulative(model); attributed > 0 || runtimeTraceProjChainHasPeriodicData(model) {
+	coverage := runtimeTraceProjCoverageVerdictFor(projection, model)
+	if attributed := coverage.AttributedMS; coverage.HasData {
 		// PTV5 Q2 (#68 用户裁定 2026-07-05): the coverage sentence's caliber has
 		// its own dynamic-legend entry — marked exactly when the sentence
 		// renders (the lead builds the legend after this line runs).
@@ -8047,7 +8360,8 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 		//     clock provably extends past the symptom segments, so per-ms
 		//     containment is unverified) → both magnitudes, no percentage, no
 		//     residual — and still never a whole-window recast.
-		symptom, _, hopResidueCount, hopResidueMaxMS := runtimeTraceProjTargetSymptomAdmission(model)
+		symptom := coverage.SymptomMS
+		hopResidueCount, hopResidueMaxMS := coverage.HopResidueCount, coverage.HopResidueMaxMS
 		// §21.1 CWD-2 ③ (CWD 复核留账②, symptom 分母车道): the three symptom-
 		// denominator arms below divide (or subtract) the chain-cumulative
 		// numerator against the target's own state-row sum — two DIFFERENT
@@ -8059,7 +8373,7 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 		// disclosure instead (same CWD gate family as the whole-window branch
 		// below; windowless and agreeing-window shapes keep every legacy
 		// wording byte-identically).
-		_, _, _, crossBase := runtimeTraceProjCoverageWindowConsensus(model)
+		crossBase := coverage.CrossBase
 		// §24.11 C-3 census (COV 批 + coordinator supplement cmp_78_01 7.0 侧,
 		// 2026-07-08): the denominator-population census runs on EVERY
 		// symptom-denominator arm — the collapse is a Role/StateKind-lane
@@ -8067,7 +8381,7 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 		// claimed "(sleep/D-state/runnable)" while a 456.725ms sleep hop view
 		// and a binder wait were silently excluded and only two tiny runnable
 		// rows fed the 3.262ms denominator).
-		censusExcluded, censusMax, censusAllOffWindow := runtimeTraceProjSymptomDenominatorCensus(projection, model)
+		censusExcluded, censusMax, censusAllOffWindow := coverage.CensusExcluded, coverage.CensusMaxMS, coverage.CensusAllOff
 		switch {
 		case symptom > 0 && crossBase:
 			// §24.11 C-3 (COV 批, huadong_78 witness, 2026-07-08): when the
@@ -8186,9 +8500,8 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 			// per-row selected_window identity vs the typed anchor endpoints);
 			// windowless or mixed-window chains keep the legacy rendering
 			// byte-identically (fail-open).
-			if ws, we, ok := runtimeTraceProjChainDataQueryWindow(model); ok &&
-				runtimeTraceProjCoverageWindowBaseMismatch(projection, ws, we) {
-				chainWinMS := (we - ws) * 1000
+			if ws, we := coverage.ChainWindowStart, coverage.ChainWindowEnd; coverage.ChainWindowMismatch {
+				chainWinMS := coverage.ChainWindowMS
 				if attributed <= chainWinMS {
 					residual := chainWinMS - attributed
 					if zh {
@@ -8211,7 +8524,7 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 							attributed, ws, we)
 					}
 				}
-			} else if hopSleep := runtimeTraceProjHopOnlyOvershootSleepMS(model, attributed); hopSleep > 0 &&
+			} else if hopSleep := coverage.HopOvershootSleepMS; hopSleep > 0 &&
 				attributed > hopSleep && attributed-hopSleep <= runtimeTraceProjSymptomOvershootJitterMS {
 				// PTV8-RCR-A A5 (§15.D 同款边界抖动臂, hop 车道; UXA 域A 条4
 				// 终稿文案, opendir_02 witness): the target's hop-view sleep is
@@ -10486,6 +10799,22 @@ func runtimeTraceProjDetailRelationCell(row runtimeTraceProjTreeRow, zh, flat bo
 		} else {
 			parent = "(folded segment)"
 		}
+	}
+	// Semantic identity outranks display placement: an off-chain semantic
+	// span now lives in a ◇/▒ stanza rather than the causal tree, but its
+	// relation remains “span hosted by <thread>”, not generic context support.
+	if runtimeTraceCausalProjectionSemanticSpanRow(row.Node) {
+		host := strings.TrimSpace(runtimeTraceCausalProjectionDisplayNodeName(row.Node.Subject, zh))
+		if host == "" {
+			if zh {
+				return "语义span"
+			}
+			return "span"
+		}
+		if zh {
+			return host + " 的语义span"
+		}
+		return "semantic span of " + host
 	}
 	switch row.Kind {
 	case runtimeTraceProjTreeRowSelf:

@@ -49,12 +49,12 @@ func cmp8ExecuteView(t *testing.T, view string) types.ToolResult {
 // on the window_stats view text.
 func TestTraceQueryWindowStatsRendersOccupancyAndSupplyBalance(t *testing.T) {
 	res := cmp8ExecuteView(t, "window_stats")
-	// The tool path pads the requested 1.0..1.1 window by the ±0.5ms
-	// shortened-timestamp tolerance → wall window 101ms: nominal 202 cpu·ms,
-	// density 80/101≈0.79, core-limited remainder 202−90−30−20=62.
+	// The requested 1.0..1.1 window is the sole metric denominator: lookup
+	// tolerance must not pad this 100ms wall window. Nominal=200 cpu·ms,
+	// density=80/100=0.80, core-limited remainder=200−90−30−20=60.
 	for _, want := range []string{
 		// CMP-8 occupancy stanza (cpu·ms unit contract on every surface).
-		"- cpu_occupancy window_ms=101.000 unit=cpu·ms",
+		"- cpu_occupancy window_ms=100.000 unit=cpu·ms",
 		"- cpu_occupancy_thread hi-101 running=60.000cpu·ms",
 		"- cpu_occupancy_thread worker-201 running=50.000cpu·ms",
 		"threads=2 running=60.000cpu·ms",
@@ -64,13 +64,13 @@ func TestTraceQueryWindowStatsRendersOccupancyAndSupplyBalance(t *testing.T) {
 		"- cpu_occupancy_priority_band band=ohos_cfs high_priority=false running=60.000cpu·ms threads=2",
 		"- cpu_occupancy_caveat=occupancy durations are cpu-time (cpu·ms)",
 		// CMP-10 supply ledger with the pinned numeric decomposition.
-		"- compute_supply_balance(算力供给) window_ms=101.000 cpus=2 nominal=202.000cpu·ms delivered=90.000cpu·ms supply_ratio=0.446 low_freq_loss=30.000cpu·ms idle_mismatch=20.000ms(wall) core_limited≈62.000cpu·ms",
+		"- compute_supply_balance(算力供给) window_ms=100.000 cpus=2 nominal=200.000cpu·ms delivered=90.000cpu·ms supply_ratio=0.450 low_freq_loss=30.000cpu·ms idle_mismatch=20.000ms(wall) core_limited≈60.000cpu·ms",
 		"- compute_supply_balance_cpu cpu=0 ",
 		"max_freq=2000000kHz freq_known=true",
 		"freq_known=false",
 		"无频点数据",
 		// CMP-9 densities: aggregate line + per-CPU runnable-wait line.
-		" window_ms=101.000 pressure_density=0.79 ",
+		" window_ms=100.000 pressure_density=0.80 ",
 		"- cpu_pressure cpu=1 runnable_wait=20.000ms runnable_density=0.20",
 	} {
 		if !strings.Contains(res.Summary, want) {
@@ -97,8 +97,8 @@ func TestTraceQuerySupplyPressureObservationCarriesDensityAndGuidance(t *testing
 	}
 	notes := strings.Join(supply.RichNotes, "\n")
 	for _, want := range []string{
-		"window_ms=101.000",
-		"pressure_density=0.79",
+		"window_ms=100.000",
+		"pressure_density=0.80",
 		"recommended_views=window_stats",
 		"recommended_sections=cpu_occupancy,compute_supply_balance,process_cpu_load",
 	} {
@@ -132,16 +132,16 @@ func TestTraceQueryComputeSupplyBalanceObservationContract(t *testing.T) {
 		t.Fatalf("Producer = %q, want trace_query", bal.Producer)
 	}
 	notes := strings.Join(bal.RichNotes, "\n")
-	// Padded 101ms window: nominal 202 cpu·ms, delivered 90, ratio 0.446,
-	// loss 30, idle mismatch 20, core-limited remainder 62 (same pinned
+	// Exact requested 100ms window: nominal 200 cpu·ms, delivered 90, ratio
+	// 0.450, loss 30, idle mismatch 20, core-limited remainder 60 (same pinned
 	// numbers as the rendered stanza above).
 	for _, want := range []string{
-		"supply_ratio=0.446",
+		"supply_ratio=0.450",
 		"delivered_cpu_ms=90.000",
 		"low_freq_loss_cpu_ms=30.000",
 		"idle_mismatch_ms=20.000",
-		"core_limited_cpu_ms=62.000",
-		"window_ms=101.000",
+		"core_limited_cpu_ms=60.000",
+		"window_ms=100.000",
 		"cpu_count=2",
 	} {
 		if !strings.Contains(notes, want) {

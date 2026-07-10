@@ -18,8 +18,10 @@ const (
 	traceCausalProjectionPrimaryLimit       = 10
 	traceCausalProjectionOnChainLimit       = 24
 	traceCausalProjectionContextBucketLimit = 8
-	traceCausalProjectionSemanticSpanLimit  = 16
-	traceCausalProjectionSupportingHopLimit = 10
+	// Off-chain semantic spans are bounded detail. Typed on-chain semantic
+	// spans are causal candidates and are never truncated at projection compile.
+	traceCausalProjectionSemanticOffChainLimit = 16
+	traceCausalProjectionSupportingHopLimit    = 10
 )
 
 type TraceCausalProjection struct {
@@ -1158,7 +1160,7 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 		OnChainCauses:                traceCausalProjectionSelectChainRelevance(classified, "on_chain"),
 		AdjacentCauses:               traceCausalProjectionLimitNodes(traceCausalProjectionSelectChainRelevance(classified, "adjacent"), traceCausalProjectionContextBucketLimit),
 		BackgroundCauses:             traceCausalProjectionLimitNodes(traceCausalProjectionSelectChainRelevance(classified, "background"), traceCausalProjectionContextBucketLimit),
-		SemanticSpans:                traceCausalProjectionLimitNodes(semantic, traceCausalProjectionSemanticSpanLimit),
+		SemanticSpans:                traceCausalProjectionSelectSemanticSpans(semantic, traceCausalProjectionSemanticOffChainLimit),
 		WakeupPath:                   wakeupPath,
 		WakeupPathUserElected:        wakeupPathUserElected,
 		WakeupPathUserEntityHits:     wakeupPathUserEntityHits,
@@ -2822,6 +2824,33 @@ func traceCausalProjectionLimitNodes(nodes []TraceCausalProjectionNode, limit in
 		nodes = nodes[:limit]
 	}
 	return append([]TraceCausalProjectionNode(nil), nodes...)
+}
+
+// traceCausalProjectionSelectSemanticSpans preserves the compiler's stable
+// semantic ordering while applying capacity only to OFF-CHAIN detail. Every
+// typed on-chain semantic node survives: it is both a deterministic
+// optimization point and a root-cause candidate, so a projection-level
+// nodes[:16] cut would silently remove causal facts before report rendering.
+// Off-chain rows remain bounded and can still appear in the background
+// context bucket under its independent capacity policy.
+func traceCausalProjectionSelectSemanticSpans(nodes []TraceCausalProjectionNode, offChainLimit int) []TraceCausalProjectionNode {
+	if len(nodes) == 0 {
+		return nil
+	}
+	out := make([]TraceCausalProjectionNode, 0, len(nodes))
+	offChain := 0
+	for _, node := range nodes {
+		if traceCausalProjectionNodeOnChain(node) {
+			out = append(out, node)
+			continue
+		}
+		if offChainLimit <= 0 || offChain >= offChainLimit {
+			continue
+		}
+		out = append(out, node)
+		offChain++
+	}
+	return out
 }
 
 // traceCausalProjectionLimitNodesOnChainFold is the PTS zero-silent-drop

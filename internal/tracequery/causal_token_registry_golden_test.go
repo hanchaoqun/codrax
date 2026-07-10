@@ -36,6 +36,9 @@ func TestCausalTokenRegistryGoldenSnapshot(t *testing.T) {
 		"fragmented_runnable_wait|scheduling_demand|wall_clock_per_thread|per_thread|row|runtimeTraceRootCauseTypeZHLabel",
 		"fragmented_running|cpu_work|wall_clock_per_thread|per_thread|row|runtimeTraceRootCauseTypeZHLabel",
 		"fragmented_sleep_wait|wakeup_chain|wall_clock_per_thread|per_thread|row|runtimeTraceRootCauseTypeZHLabel",
+		// Explicit paired GC trace spans are per-thread CPU work; keep them
+		// distinct from the aggregate count-only memory_gc event family.
+		"gc_pause|cpu_work|wall_clock_per_thread|per_thread|row|runtimeTraceRootCauseTypeZHLabel",
 		"io_burst_episode|io_blocking|wall_clock_per_thread|either|row|runtimeTraceRootCauseTypeZHLabel",
 		"io_latency|io_blocking|wall_clock_per_thread|per_thread|row|runtimeTraceRootCauseTypeZHLabel",
 		"io_pressure|io_blocking|cross_thread_cpu_ms|either|row|runtimeTraceRootCauseTypeZHLabel",

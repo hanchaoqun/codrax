@@ -532,11 +532,11 @@ func (s TraceArtifactSource) ToCanonicalTs(sourceTs float64) float64 {
 }
 
 func (s TraceArtifactSource) toCanonicalTsChecked(sourceTs float64) (float64, bool) {
-	if math.IsNaN(sourceTs) || math.IsInf(sourceTs, 0) {
+	if !isSafeTraceTimestamp(sourceTs) {
 		return 0, false
 	}
 	mapped := s.ToCanonicalTs(sourceTs)
-	if math.IsNaN(mapped) || math.IsInf(mapped, 0) {
+	if !isSafeTraceTimestamp(mapped) {
 		return 0, false
 	}
 	if s.ClockAlignment == TraceClockAlignmentAffine {
@@ -558,11 +558,11 @@ func (s TraceArtifactSource) ToSourceTs(canonicalTs float64) float64 {
 }
 
 func (s TraceArtifactSource) toSourceTsChecked(canonicalTs float64) (float64, bool) {
-	if math.IsNaN(canonicalTs) || math.IsInf(canonicalTs, 0) {
+	if !isSafeTraceTimestamp(canonicalTs) {
 		return 0, false
 	}
 	mapped := s.ToSourceTs(canonicalTs)
-	if math.IsNaN(mapped) || math.IsInf(mapped, 0) {
+	if !isSafeTraceTimestamp(mapped) {
 		return 0, false
 	}
 	if s.ClockAlignment == TraceClockAlignmentAffine {

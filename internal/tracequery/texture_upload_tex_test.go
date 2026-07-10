@@ -11,8 +11,8 @@ package tracequery
 //   TEX-2  registry: texture_upload token on cpu_work|wall_clock_per_thread|
 //          per_thread|row + the semantic_class family-fold lane (golden files
 //          pin the exact rows);
-//   TEX-3  equal treatment, verified per lane: on-chain rows wear the
-//          deterministic_optimization tier and stay election-transparent;
+//   TEX-3  equal treatment, verified per lane: on-chain rows participate in
+//          the ordinary root-cause election;
 //          non-chain rows join the background composite board (background_rank
 //          mention gate); co-primary whitelist keeps excluding semantic types;
 //   TEX-4  customer-specimen e2e (trace_texture_upload.txt verbatim, lines
@@ -216,25 +216,23 @@ func TestTEXTextureUploadRegistryLaneMirrorsSemanticClassmates(t *testing.T) {
 
 // --- TEX-3: equal treatment on the rank lanes ---------------------------------
 
-func TestTEXOnChainTextureUploadWearsOptimizationTierAndSkipsElection(t *testing.T) {
+func TestTEXOnChainTextureUploadParticipatesInRootCauseElection(t *testing.T) {
 	items := []RootCauseRankItem{
 		{Type: "texture_upload", ImpactMs: 5, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 		{Type: "runnable_wait", ImpactMs: 9, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 	}
 	assignRootCauseRanksAndTiers(items)
-	if items[0].Tier != RootCauseTierDeterministicOptimization {
-		t.Fatalf("on-chain texture_upload must wear the deterministic_optimization tier: %+v", items[0])
+	if items[0].Tier != "primary" {
+		t.Fatalf("top on-chain texture_upload must be a primary candidate: %+v", items[0])
 	}
-	// 保留席不竞争 primary: the semantic row is transparent to the positional
-	// election — the first non-semantic row keeps the primary tier.
 	if items[1].Tier != "primary" {
-		t.Fatalf("texture_upload must not occupy or shift the primary slot: %+v", items[1])
+		t.Fatalf("the existing on-chain runnable co-primary rule must remain: %+v", items[1])
 	}
 	if !rootCauseTypeCanBeDirectOnChain("texture_upload") {
 		t.Fatalf("texture_upload must be direct-on-chain admissible like its classmates")
 	}
 	if rootCauseShouldBeCoPrimary(items[0]) {
-		t.Fatalf("semantic span rows never ride the co-primary lane (§23.1 ①): %+v", items[0])
+		t.Fatalf("semantic rows use positional election, not blanket co-primary: %+v", items[0])
 	}
 }
 

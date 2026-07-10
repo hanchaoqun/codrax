@@ -275,6 +275,14 @@ var threadStateSwitchFallthroughLedger = map[string]threadStateFallthroughDecl{
 		missing: "running,runnable,s_sleep,stopped,dead,unknown",
 		why:     "membership test for the uninterruptible/IO blocking family only",
 	},
+	"wakeup_aggregate_overlap.go:addWakeupAggregateStateValue#1": {
+		missing: "stopped,dead,unknown",
+		why:     "actual aggregate wire has only the five accountable duration buckets; stopped/dead/unknown own no numeric lane",
+	},
+	"wakeup_aggregate_overlap.go:addWakeupAggregateStateValue#2": {
+		missing: "stopped,dead,unknown",
+		why:     "projected aggregate wire has only the five accountable duration buckets; stopped/dead/unknown own no numeric lane",
+	},
 }
 
 // threadStateSwitchSiteGolden pins every consumer switch's handled member set
@@ -296,22 +304,24 @@ var threadStateSwitchSiteGolden = map[string]string{
 	// F1 (§20.2 absorption, 2026-07-07): StateRunning joined the sensitive set
 	// so running-dominant inversion aggregates type as candidates (gated
 	// caliber) — per-occurrence candidate-gate parity.
-	"query.go:aggregateRootCauseIsPrioritySensitive#1":         "running,runnable,d_sleep,io_wait|default",
-	"query.go:stateChurnRootCauseType#1":                       "running,runnable,s_sleep,d_sleep,io_wait|default",
-	"query.go:computeSupplyDominantState#1":                    "running,runnable|default",
-	"query.go:rootCauseItemHasDStateOrIO#1":                    "d_sleep,io_wait|default",
-	"query.go:rootCauseItemHasRunnableOrRunning#1":             "running,runnable|default",
-	"query.go:summarizeThreadStateBreakdown#1":                 "running,runnable,s_sleep,d_sleep,io_wait",
-	"query.go:expandChain#1":                                   "running,runnable,s_sleep,d_sleep,io_wait|default",
-	"query.go:summarizeWakeupCausalImpact#1":                   "running,runnable,s_sleep,d_sleep,io_wait",
-	"query.go:priorityInversionGatedMs#1":                      "running,runnable",
-	"query.go:actualCausalImpactBlockingMs#1":                  "running,runnable,s_sleep,d_sleep,io_wait|default",
-	"query.go:interestingIntervals#1":                          "running,runnable,s_sleep,d_sleep,io_wait|default",
-	"stream_search.go:addStreamStateClusterInterval#1":         "running,runnable,s_sleep,d_sleep,io_wait",
-	"thread_state_universe.go:stateChurnOpenIneligible#1":      "stopped,dead,unknown",
-	"thread_state_universe.go:dominantStateFromLanes#1":        "running,runnable,s_sleep,d_sleep,io_wait",
-	"thread_state_universe.go:dominantStateIsDStateOrIOWait#1": "d_sleep,io_wait",
-	"thread_state_universe.go:rootTypeForDominantState#1":      "running,runnable,s_sleep,d_sleep,io_wait|default",
+	"query.go:aggregateRootCauseIsPrioritySensitive#1":           "running,runnable,d_sleep,io_wait|default",
+	"query.go:stateChurnRootCauseType#1":                         "running,runnable,s_sleep,d_sleep,io_wait|default",
+	"query.go:computeSupplyDominantState#1":                      "running,runnable|default",
+	"query.go:rootCauseItemHasDStateOrIO#1":                      "d_sleep,io_wait|default",
+	"query.go:rootCauseItemHasRunnableOrRunning#1":               "running,runnable|default",
+	"query.go:summarizeThreadStateBreakdown#1":                   "running,runnable,s_sleep,d_sleep,io_wait",
+	"query.go:expandChain#1":                                     "running,runnable,s_sleep,d_sleep,io_wait|default",
+	"query.go:summarizeWakeupCausalImpact#1":                     "running,runnable,s_sleep,d_sleep,io_wait",
+	"query.go:priorityInversionGatedMs#1":                        "running,runnable",
+	"query.go:actualCausalImpactBlockingMs#1":                    "running,runnable,s_sleep,d_sleep,io_wait|default",
+	"query.go:interestingIntervals#1":                            "running,runnable,s_sleep,d_sleep,io_wait|default",
+	"stream_search.go:addStreamStateClusterInterval#1":           "running,runnable,s_sleep,d_sleep,io_wait",
+	"thread_state_universe.go:stateChurnOpenIneligible#1":        "stopped,dead,unknown",
+	"thread_state_universe.go:dominantStateFromLanes#1":          "running,runnable,s_sleep,d_sleep,io_wait",
+	"thread_state_universe.go:dominantStateIsDStateOrIOWait#1":   "d_sleep,io_wait",
+	"thread_state_universe.go:rootTypeForDominantState#1":        "running,runnable,s_sleep,d_sleep,io_wait|default",
+	"wakeup_aggregate_overlap.go:addWakeupAggregateStateValue#1": "running,runnable,s_sleep,d_sleep,io_wait",
+	"wakeup_aggregate_overlap.go:addWakeupAggregateStateValue#2": "running,runnable,s_sleep,d_sleep,io_wait",
 }
 
 func TestThreadStateSwitchConsumerCoverage(t *testing.T) {

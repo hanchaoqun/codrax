@@ -296,7 +296,7 @@ func TestTraceProjectionV3GoldenAwemeShapeAggregated(t *testing.T) {
 	// (asserted right below) and must not resurface on the tree's self line.
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: bare "/ s_sleep"
 	// audit cell → PTV7 alias form "/ sleep（s_sleep）" (typelabels item 12).
-	for _, want := range []string{"⊚ .ugc.aweme.lite-16547 ‹用户关注线程›", "☾ sleep 112.175", "/ sleep（s_sleep） [E1]"} {
+	for _, want := range []string{"⊚ .ugc.aweme.lite-16547 ‹用户关注线程›", "☾ 自身·sleep 112.175", "/ sleep（s_sleep） [E1]"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("aweme golden missing target/self surface %q:\n%s", want, md)
 		}

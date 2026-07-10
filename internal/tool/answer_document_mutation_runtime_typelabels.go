@@ -96,6 +96,8 @@ func runtimeTraceRootCauseTypeZHLabel(token string) string {
 		// exists because the D2 coverage pin couples the engine weight switch
 		// to this table; DISP-2 owns any richer display treatment.
 		return "Texture upload"
+	case "gc_pause":
+		return "GC暂停"
 	case "cpu_frequency_limit":
 		return "频率受限"
 	case "trace_span":

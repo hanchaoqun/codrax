@@ -969,7 +969,7 @@ func TestTraceQueryRawRequestPlatformWordsDoNotSelectFlavor(t *testing.T) {
 		"trace flavor was selected from explicit user request",
 		"larger numeric value means higher priority",
 		"1-40=CFS",
-		"priority_rule=harmony_larger_numeric_higher_1_40_CFS_41_139_RT",
+		"priority_rule=harmony_larger_numeric_higher_1_40_CFS_41_159_RT_gt159_raw",
 	} {
 		if strings.Contains(res.Summary, forbidden) {
 			t.Fatalf("raw user wording must not select trace flavor/platform, found %q:\n%s", forbidden, res.Summary)
@@ -1731,6 +1731,38 @@ func TestTraceQuerySchemaDocumentsFtraceAndCompoundTime(t *testing.T) {
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("trace_query ftrace/time teaching missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestTraceQueryDescriptionPinsHarmonyMicrokernelPriorityBoundary(t *testing.T) {
+	description := (&TraceQuery{}).Description()
+	schema := string((&TraceQuery{}).Parameters())
+	for _, want := range []string{
+		"1-40=CFS, 41-159=RT, >159=system_or_kernel/raw",
+		"Only ohos_rt enters high-priority pressure",
+		"raw system/kernel running and displacement overlap are reported in separate typed buckets",
+		"never compared numerically for priority inversion",
+	} {
+		if !strings.Contains(description, want) {
+			t.Fatalf("trace_query description missing Harmony priority contract %q:\n%s", want, description)
+		}
+	}
+	for _, stale := range []string{"41-139", ">139"} {
+		if strings.Contains(description, stale) {
+			t.Fatalf("trace_query description retained stale Harmony boundary %q", stale)
+		}
+		if strings.Contains(schema, stale) {
+			t.Fatalf("trace_query schema retained stale Harmony boundary %q", stale)
+		}
+	}
+	for _, want := range []string{
+		"1-40=CFS, 41-159=RT, >159=system_or_kernel/raw",
+		"only ohos_rt enters high-priority pressure",
+		"separate typed bucket",
+	} {
+		if !strings.Contains(schema, want) {
+			t.Fatalf("trace_query schema missing Harmony priority contract %q", want)
 		}
 	}
 }

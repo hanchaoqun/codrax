@@ -339,14 +339,15 @@ func applySchedulerHeadEvent(snapshot *schedulerHeadSnapshot, ev Event) {
 				}
 			}
 		}
+		targetCPU, targetCPUKnown := eventTargetCPU(ev)
 		snapshot.Threads[ev.WakeePID] = schedulerHeadThread{
 			Thread:        ThreadRef{Comm: firstNonEmpty(ev.WakeeComm, current.Thread.Comm), PID: ev.WakeePID, TGID: tgid},
 			State:         StateRunnable,
 			StartTs:       ev.Ts,
 			LastEventTs:   ev.Ts,
 			Line:          ev.Line,
-			CPU:           ev.TargetCPU,
-			CPUKnown:      ev.TargetCPU >= 0,
+			CPU:           targetCPU,
+			CPUKnown:      targetCPUKnown,
 			Priority:      ev.WakeePrio,
 			PriorityClass: classifyTracePriority(TraceFlavorGenericFtrace, ev.WakeePrio),
 		}
@@ -455,7 +456,7 @@ func schedMigrationTarget(ev Event) (pid, destCPU int, comm string, ok bool) {
 		return 0, 0, "", false
 	}
 	cf := ev.ConstraintFields
-	if cf.Kind != "sched_migrate_task" || cf.PID <= 0 || !cf.DestCPUSet || cf.DestCPU < 0 {
+	if cf.Kind != "sched_migrate_task" || cf.PID <= 0 || !cf.DestCPUSet || !validTraceCPUIndex(cf.DestCPU) {
 		return 0, 0, "", false
 	}
 	return cf.PID, cf.DestCPU, cf.Comm, true

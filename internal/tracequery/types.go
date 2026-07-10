@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const ParserVersion = "tracequery-v16"
+const ParserVersion = "tracequery-v18"
 
 type EventType string
 
@@ -100,15 +100,26 @@ type Event struct {
 
 	*ConstraintFields
 
-	State            int    `json:"state,omitempty"`
-	Frequency        int    `json:"frequency,omitempty"`
-	FrequencyMin     int    `json:"frequency_min,omitempty"`
-	FrequencyMax     int    `json:"frequency_max,omitempty"`
-	CPUForField      int    `json:"cpu_for_field,omitempty"`
-	CPUForFieldValid bool   `json:"cpu_for_field_valid,omitempty"`
-	ClockName        string `json:"clock_name,omitempty"`
-	Reason           string `json:"reason,omitempty"`
-	IOWait           int    `json:"io_wait,omitempty"`
+	State            int  `json:"state,omitempty"`
+	Frequency        int  `json:"frequency,omitempty"`
+	FrequencyMin     int  `json:"frequency_min,omitempty"`
+	FrequencyMax     int  `json:"frequency_max,omitempty"`
+	CPUForField      int  `json:"cpu_for_field,omitempty"`
+	CPUForFieldValid bool `json:"cpu_for_field_valid,omitempty"`
+	// CPUForFieldPresent prevents a malformed explicit cpu_id from silently
+	// falling back to the row-header CPU.
+	CPUForFieldPresent bool `json:"-"`
+	// TargetCPUValid separates an explicit, validated cpu0 from an absent or
+	// malformed target_cpu token. It sits beside the other CPU validity bits
+	// so the hot Event struct uses existing alignment padding.
+	TargetCPUValid bool `json:"-"`
+	// CPUInputInvalid is a zero-allocation parse-to-index handoff. The
+	// raw validator is invoked only for marked/rejected rows, keeping the
+	// overwhelmingly common valid parse lane allocation-flat.
+	CPUInputInvalid bool   `json:"-"`
+	ClockName       string `json:"clock_name,omitempty"`
+	Reason          string `json:"reason,omitempty"`
+	IOWait          int    `json:"io_wait,omitempty"`
 	*SchedStatFields
 	SpanAction string `json:"span_action,omitempty"`
 	SpanPID    int    `json:"span_pid,omitempty"`
@@ -186,19 +197,24 @@ type Event struct {
 
 // ConstraintFields is the EventCPUConstraint side table.
 type ConstraintFields struct {
-	Comm        string `json:"constraint_comm,omitempty"`
-	PID         int    `json:"constraint_pid,omitempty"`
-	Kind        string `json:"constraint_kind,omitempty"`
-	Policy      string `json:"constraint_policy,omitempty"`
-	CPU         int    `json:"constraint_cpu,omitempty"`
-	CPUValid    bool   `json:"-"`
-	OrigCPU     int    `json:"constraint_orig_cpu,omitempty"`
-	OrigCPUSet  bool   `json:"-"`
-	DestCPU     int    `json:"constraint_dest_cpu,omitempty"`
-	DestCPUSet  bool   `json:"-"`
-	AllowedText string `json:"allowed_cpus_text,omitempty"`
-	Allowed     []int  `json:"allowed_cpus,omitempty"`
-	CPUSetName  string `json:"cpuset,omitempty"`
+	Comm           string `json:"constraint_comm,omitempty"`
+	PID            int    `json:"constraint_pid,omitempty"`
+	Kind           string `json:"constraint_kind,omitempty"`
+	Policy         string `json:"constraint_policy,omitempty"`
+	CPU            int    `json:"constraint_cpu,omitempty"`
+	CPUPresent     bool   `json:"-"`
+	CPUValid       bool   `json:"-"`
+	OrigCPU        int    `json:"constraint_orig_cpu,omitempty"`
+	OrigCPUPresent bool   `json:"-"`
+	OrigCPUSet     bool   `json:"-"`
+	DestCPU        int    `json:"constraint_dest_cpu,omitempty"`
+	DestCPUPresent bool   `json:"-"`
+	DestCPUSet     bool   `json:"-"`
+	AllowedText    string `json:"allowed_cpus_text,omitempty"`
+	Allowed        []int  `json:"allowed_cpus,omitempty"`
+	AllowedPresent bool   `json:"-"`
+	AllowedValid   bool   `json:"-"`
+	CPUSetName     string `json:"cpuset,omitempty"`
 }
 
 // SchedStatFields is the EventSchedStat side table.
@@ -235,6 +251,12 @@ type BlockIOFields struct {
 	Error     string `json:"block_error,omitempty"`
 	SrcDev    string `json:"block_src_dev,omitempty"`
 	SrcSector int64  `json:"block_src_sector,omitempty"`
+	// IdentityParsed distinguishes production parser output from hand-built
+	// compatibility Events. Production block endpoints must carry an explicit,
+	// fully validated dev/op/sector/len tuple; in particular sector=0 is valid,
+	// while a missing/overflowed sector must not collapse to the same value.
+	IdentityParsed bool `json:"-"`
+	IdentityValid  bool `json:"-"`
 }
 
 // ResourceFields is the memory/storage/filesystem resource side table.
@@ -514,6 +536,22 @@ type Index struct {
 	// zero-valued PIDs/state, yet duration consumers still need a bounded
 	// fail-closed witness.
 	schedulerRowIntegrityFailures []schedulerRowIntegrityFailure
+	// cpuInputIntegrityFailures retain a bounded typed witness for malformed
+	// or out-of-range CPU scalar/range tokens that were deliberately excluded
+	// from every attribution consumer.
+	cpuInputIntegrityFailures       []cpuInputIntegrityFailure
+	cpuInputIntegrityFailuresCapped bool
+	// traceMarkIntegrityFailures retain bounded malformed endpoint/header
+	// witnesses outside Event's public JSON surface. Unknown emitter identity
+	// is a global pairing poison; known emitters reset locally and recover.
+	traceMarkIntegrityFailures       []traceMarkIntegrityFailure
+	traceMarkIntegrityFailuresCapped bool
+	// traceMarkIntegrityDroppedGlobalPoison distinguishes a witness-cap hit
+	// made only of materialized, known-emitter rows from a dropped endpoint
+	// whose emitter/physical position was unavailable. The former remains
+	// locally recoverable because every malformed Event still resets its own
+	// emitter in the pairing scan; only the latter may globally fail-close.
+	traceMarkIntegrityDroppedGlobalPoison bool
 	// threadIncarnationFailures preserve exact child/file-order lifecycle
 	// conflicts across window pruning and composite canonical sorting. A set
 	// overflow is itself a fail-closed signal; hard-gate evidence is never
@@ -799,52 +837,53 @@ type WindowStats struct {
 	// (CFC ruling: no new token). Sole display consumer: the soft
 	// window_stats stanza line (writeTraceClusterFrequencyCeilings,
 	// internal/tool/trace_query.go).
-	ClusterFrequencyCeilings []ClusterFrequencyCeiling  `json:"-"`
-	TopRunning               []ThreadDuration           `json:"top_running,omitempty"`
-	RunnableTop              []ThreadDuration           `json:"runnable_top,omitempty"`
-	SleepTop                 []ThreadDuration           `json:"sleep_top,omitempty"`
-	DStateTop                []ThreadDuration           `json:"d_state_top,omitempty"`
-	IOWaitTop                []ThreadDuration           `json:"io_wait_top,omitempty"`
-	CPUPressure              []CPUPressureStats         `json:"cpu_pressure,omitempty"`
-	CPUConstraints           []CPUConstraintSummary     `json:"cpu_constraints,omitempty"`
-	ThreadCPULoad            []ThreadCPULoadSummary     `json:"thread_cpu_load,omitempty"`
-	ProcessCPULoad           []ProcessCPULoadSummary    `json:"process_cpu_load,omitempty"`
-	RunnableContext          []RunnableContextSummary   `json:"runnable_context,omitempty"`
-	IOLatencies              []IOLatencySummary         `json:"io_latencies,omitempty"`
-	CPUFrequencyLimits       []CPUFrequencyLimit        `json:"cpu_frequency_limits,omitempty"`
-	SubsystemEvents          []SubsystemEventSummary    `json:"subsystem_events,omitempty"`
-	BlockIssueCount          int                        `json:"block_issue_count,omitempty"`
-	BlockRemapCount          int                        `json:"block_remap_count,omitempty"`
-	BlockCompleteCount       int                        `json:"block_complete_count,omitempty"`
-	BinderCount              int                        `json:"binder_count,omitempty"`
-	BinderReceivedCount      int                        `json:"binder_received_count,omitempty"`
-	BinderAuxCount           int                        `json:"binder_aux_count,omitempty"`
-	IRQCount                 int                        `json:"irq_count,omitempty"`
-	SoftIRQCount             int                        `json:"softirq_count,omitempty"`
-	MemoryEventCount         int                        `json:"memory_event_count,omitempty"`
-	StorageEventCount        int                        `json:"storage_event_count,omitempty"`
-	FilesystemEventCount     int                        `json:"filesystem_event_count,omitempty"`
-	PowerEventCount          int                        `json:"power_event_count,omitempty"`
-	AbilityEventCount        int                        `json:"ability_event_count,omitempty"`
-	XPowerEventCount         int                        `json:"xpower_event_count,omitempty"`
-	HiSystemEventCount       int                        `json:"hi_sysevent_event_count,omitempty"`
-	WorkqueueEventCount      int                        `json:"workqueue_event_count,omitempty"`
-	DMAFenceEventCount       int                        `json:"dma_fence_event_count,omitempty"`
-	BlockedReasonCount       int                        `json:"blocked_reason_count,omitempty"`
-	SchedStatCount           int                        `json:"sched_stat_count,omitempty"`
-	IPICount                 int                        `json:"ipi_count,omitempty"`
-	IOWaitBlockedCount       int                        `json:"io_wait_blocked_count,omitempty"`
-	BlockedReasons           []BlockedReasonSummary     `json:"blocked_reasons,omitempty"`
-	TraceSpans               []TraceSpanSummary         `json:"trace_spans,omitempty"`
-	TraceCounters            []TraceCounterSummary      `json:"trace_counters,omitempty"`
-	CounterDeltas            []TraceCounterDeltaSummary `json:"counter_deltas,omitempty"`
-	IRQBursts                []IRQBurstSummary          `json:"irq_bursts,omitempty"`
-	MemoryKinds              []MemoryKindSummary        `json:"memory_kinds,omitempty"`
-	BIOResources             []RuntimeResourceSummary   `json:"bio_resources,omitempty"`
-	FilesystemResources      []RuntimeResourceSummary   `json:"filesystem_resources,omitempty"`
-	PageFaultResources       []RuntimeResourceSummary   `json:"page_fault_resources,omitempty"`
-	FileIOByInode            []FileIOSummary            `json:"file_io_by_inode,omitempty"`
-	PageCacheByInode         []PageCacheSummary         `json:"page_cache_by_inode,omitempty"`
+	ClusterFrequencyCeilings []ClusterFrequencyCeiling   `json:"-"`
+	TopRunning               []ThreadDuration            `json:"top_running,omitempty"`
+	RunnableTop              []ThreadDuration            `json:"runnable_top,omitempty"`
+	SleepTop                 []ThreadDuration            `json:"sleep_top,omitempty"`
+	DStateTop                []ThreadDuration            `json:"d_state_top,omitempty"`
+	IOWaitTop                []ThreadDuration            `json:"io_wait_top,omitempty"`
+	CPUPressure              []CPUPressureStats          `json:"cpu_pressure,omitempty"`
+	CPUConstraints           []CPUConstraintSummary      `json:"cpu_constraints,omitempty"`
+	ThreadCPULoad            []ThreadCPULoadSummary      `json:"thread_cpu_load,omitempty"`
+	ProcessCPULoad           []ProcessCPULoadSummary     `json:"process_cpu_load,omitempty"`
+	RunnableContext          []RunnableContextSummary    `json:"runnable_context,omitempty"`
+	IOLatencies              []IOLatencySummary          `json:"io_latencies,omitempty"`
+	CPUFrequencyLimits       []CPUFrequencyLimit         `json:"cpu_frequency_limits,omitempty"`
+	SubsystemEvents          []SubsystemEventSummary     `json:"subsystem_events,omitempty"`
+	BlockIssueCount          int                         `json:"block_issue_count,omitempty"`
+	BlockRemapCount          int                         `json:"block_remap_count,omitempty"`
+	BlockCompleteCount       int                         `json:"block_complete_count,omitempty"`
+	BinderCount              int                         `json:"binder_count,omitempty"`
+	BinderReceivedCount      int                         `json:"binder_received_count,omitempty"`
+	BinderAuxCount           int                         `json:"binder_aux_count,omitempty"`
+	IRQCount                 int                         `json:"irq_count,omitempty"`
+	SoftIRQCount             int                         `json:"softirq_count,omitempty"`
+	MemoryEventCount         int                         `json:"memory_event_count,omitempty"`
+	StorageEventCount        int                         `json:"storage_event_count,omitempty"`
+	FilesystemEventCount     int                         `json:"filesystem_event_count,omitempty"`
+	PowerEventCount          int                         `json:"power_event_count,omitempty"`
+	AbilityEventCount        int                         `json:"ability_event_count,omitempty"`
+	XPowerEventCount         int                         `json:"xpower_event_count,omitempty"`
+	HiSystemEventCount       int                         `json:"hi_sysevent_event_count,omitempty"`
+	WorkqueueEventCount      int                         `json:"workqueue_event_count,omitempty"`
+	DMAFenceEventCount       int                         `json:"dma_fence_event_count,omitempty"`
+	BlockedReasonCount       int                         `json:"blocked_reason_count,omitempty"`
+	SchedStatCount           int                         `json:"sched_stat_count,omitempty"`
+	IPICount                 int                         `json:"ipi_count,omitempty"`
+	IOWaitBlockedCount       int                         `json:"io_wait_blocked_count,omitempty"`
+	BlockedReasons           []BlockedReasonSummary      `json:"blocked_reasons,omitempty"`
+	TraceSpans               []TraceSpanSummary          `json:"trace_spans,omitempty"`
+	TraceCounters            []TraceCounterSummary       `json:"trace_counters,omitempty"`
+	CounterDeltas            []TraceCounterDeltaSummary  `json:"counter_deltas,omitempty"`
+	CounterQuality           *TraceCounterQualitySummary `json:"counter_quality,omitempty"`
+	IRQBursts                []IRQBurstSummary           `json:"irq_bursts,omitempty"`
+	MemoryKinds              []MemoryKindSummary         `json:"memory_kinds,omitempty"`
+	BIOResources             []RuntimeResourceSummary    `json:"bio_resources,omitempty"`
+	FilesystemResources      []RuntimeResourceSummary    `json:"filesystem_resources,omitempty"`
+	PageFaultResources       []RuntimeResourceSummary    `json:"page_fault_resources,omitempty"`
+	FileIOByInode            []FileIOSummary             `json:"file_io_by_inode,omitempty"`
+	PageCacheByInode         []PageCacheSummary          `json:"page_cache_by_inode,omitempty"`
 	// TopIOInodes is the INODE (§28.6, 2026-07-09) whole-window (dev,inode)
 	// IO frequency carrier: folded from the FULL pre-truncation fileIO /
 	// pageCache accumulator maps (never from the truncated top-8 slices
@@ -1052,6 +1091,16 @@ type SchedulerLatencyItem struct {
 	// other threads that overlapped THIS runnable wait interval — the
 	// displacement-evidenced share (§7.30.2 R5g).
 	HighPriorityRunningOverlapMs float64 `json:"high_priority_running_overlap_ms,omitempty"`
+	// SystemOrKernelRunningMs is the full-window running total whose Harmony
+	// priority token is outside the documented user-space bands (>159). It is
+	// raw competition context, never part of HighPriorityRunningMs.
+	SystemOrKernelRunningMs float64 `json:"system_or_kernel_running_ms,omitempty"`
+	// SystemOrKernelRunningOverlapMs and SystemOrKernelCompetitorCount are the
+	// raw/system running share and distinct competitor count that overlapped
+	// THIS runnable wait. They are disclosed separately and never drive a
+	// high-priority or priority-inversion verdict.
+	SystemOrKernelRunningOverlapMs float64 `json:"system_or_kernel_running_overlap_ms,omitempty"`
+	SystemOrKernelCompetitorCount  int     `json:"system_or_kernel_competitor_count,omitempty"`
 	// SameCPUTopRunning lists only threads whose running time overlapped this
 	// wait interval; DurationMs is the overlapped portion, not the window
 	// running total. Serial hand-offs (zero overlap) are excluded (§7.30.2
@@ -1098,11 +1147,16 @@ type ComputeSupplySummary struct {
 	// other threads that overlapped THIS thread's runnable waits on the same
 	// CPU (displacement evidence, §7.30.2 R5g).
 	HighPriorityRunningOverlapMs float64 `json:"high_priority_running_overlap_ms,omitempty"`
-	Verdict                      string  `json:"verdict,omitempty"`
-	Confidence                   float64 `json:"confidence,omitempty"`
-	LineStart                    int     `json:"line_start,omitempty"`
-	LineEnd                      int     `json:"line_end,omitempty"`
-	Summary                      string  `json:"summary,omitempty"`
+	// Raw Harmony >159 scheduler tokens stay in a separate accounting bucket;
+	// they are observable system/kernel competition, not ohos_rt evidence.
+	SystemOrKernelRunningMs        float64 `json:"system_or_kernel_running_ms,omitempty"`
+	SystemOrKernelRunningOverlapMs float64 `json:"system_or_kernel_running_overlap_ms,omitempty"`
+	SystemOrKernelCompetitorCount  int     `json:"system_or_kernel_competitor_count,omitempty"`
+	Verdict                        string  `json:"verdict,omitempty"`
+	Confidence                     float64 `json:"confidence,omitempty"`
+	LineStart                      int     `json:"line_start,omitempty"`
+	LineEnd                        int     `json:"line_end,omitempty"`
+	Summary                        string  `json:"summary,omitempty"`
 }
 
 // CPUOccupancyStats is the CMP-8 (§7.1) occupancy-side answer to "who ate the
@@ -1334,33 +1388,35 @@ type CPUConstraintSummary struct {
 }
 
 type ThreadCPULoadSummary struct {
-	Thread                ThreadRef `json:"thread"`
-	RunningMs             float64   `json:"running_ms,omitempty"`
-	RunnableWaitMs        float64   `json:"runnable_wait_ms,omitempty"`
-	HighPriorityRunningMs float64   `json:"high_priority_running_ms,omitempty"`
-	CPU                   int       `json:"cpu"`
-	CoreClass             string    `json:"core_class,omitempty"`
-	Frequency             int       `json:"frequency,omitempty"`
-	Priority              int       `json:"priority,omitempty"`
-	PriorityClass         string    `json:"priority_class,omitempty"`
-	LineStart             int       `json:"line_start,omitempty"`
-	LineEnd               int       `json:"line_end,omitempty"`
-	Summary               string    `json:"summary,omitempty"`
+	Thread                  ThreadRef `json:"thread"`
+	RunningMs               float64   `json:"running_ms,omitempty"`
+	RunnableWaitMs          float64   `json:"runnable_wait_ms,omitempty"`
+	HighPriorityRunningMs   float64   `json:"high_priority_running_ms,omitempty"`
+	SystemOrKernelRunningMs float64   `json:"system_or_kernel_running_ms,omitempty"`
+	CPU                     int       `json:"cpu"`
+	CoreClass               string    `json:"core_class,omitempty"`
+	Frequency               int       `json:"frequency,omitempty"`
+	Priority                int       `json:"priority,omitempty"`
+	PriorityClass           string    `json:"priority_class,omitempty"`
+	LineStart               int       `json:"line_start,omitempty"`
+	LineEnd                 int       `json:"line_end,omitempty"`
+	Summary                 string    `json:"summary,omitempty"`
 }
 
 type ProcessCPULoadSummary struct {
-	Process               ThreadRef `json:"process"`
-	ThreadCount           int       `json:"thread_count,omitempty"`
-	RunningMs             float64   `json:"running_ms,omitempty"`
-	RunnableWaitMs        float64   `json:"runnable_wait_ms,omitempty"`
-	HighPriorityRunningMs float64   `json:"high_priority_running_ms,omitempty"`
-	TopThread             ThreadRef `json:"top_thread,omitempty"`
-	TopThreadMs           float64   `json:"top_thread_ms,omitempty"`
-	CPUs                  []int     `json:"cpus,omitempty"`
-	CoreClasses           []string  `json:"core_classes,omitempty"`
-	LineStart             int       `json:"line_start,omitempty"`
-	LineEnd               int       `json:"line_end,omitempty"`
-	Summary               string    `json:"summary,omitempty"`
+	Process                 ThreadRef `json:"process"`
+	ThreadCount             int       `json:"thread_count,omitempty"`
+	RunningMs               float64   `json:"running_ms,omitempty"`
+	RunnableWaitMs          float64   `json:"runnable_wait_ms,omitempty"`
+	HighPriorityRunningMs   float64   `json:"high_priority_running_ms,omitempty"`
+	SystemOrKernelRunningMs float64   `json:"system_or_kernel_running_ms,omitempty"`
+	TopThread               ThreadRef `json:"top_thread,omitempty"`
+	TopThreadMs             float64   `json:"top_thread_ms,omitempty"`
+	CPUs                    []int     `json:"cpus,omitempty"`
+	CoreClasses             []string  `json:"core_classes,omitempty"`
+	LineStart               int       `json:"line_start,omitempty"`
+	LineEnd                 int       `json:"line_end,omitempty"`
+	Summary                 string    `json:"summary,omitempty"`
 }
 
 type RunnableContextSummary struct {
@@ -1380,7 +1436,10 @@ type RunnableContextSummary struct {
 	// HighPriorityRunningOverlapMs counts only high-priority running time from
 	// other threads that overlapped this thread's runnable wait interval
 	// (displacement evidence, §7.30.2 R5g).
-	HighPriorityRunningOverlapMs float64 `json:"high_priority_running_overlap_ms,omitempty"`
+	HighPriorityRunningOverlapMs   float64 `json:"high_priority_running_overlap_ms,omitempty"`
+	SystemOrKernelRunningMs        float64 `json:"system_or_kernel_running_ms,omitempty"`
+	SystemOrKernelRunningOverlapMs float64 `json:"system_or_kernel_running_overlap_ms,omitempty"`
+	SystemOrKernelCompetitorCount  int     `json:"system_or_kernel_competitor_count,omitempty"`
 	// SameCPUTopRunning lists only threads whose running overlapped this
 	// thread's runnable wait; DurationMs is the overlapped portion (§7.30.2
 	// R5g).
@@ -1416,6 +1475,12 @@ type CPUPressureStats struct {
 	// that overlapped some OTHER thread's runnable wait on this CPU — the
 	// displacement-evidenced share of HighPriorityRunningMs (§7.30.2 R5g).
 	HighPriorityRunningOverlapMs float64 `json:"high_priority_running_overlap_ms,omitempty"`
+	// Harmony priorities >159 are raw system/kernel scheduler tokens. Their
+	// window total, displacement-overlap duration and distinct overlapped
+	// competitor count stay observable here without entering the RT bucket.
+	SystemOrKernelRunningMs        float64 `json:"system_or_kernel_running_ms,omitempty"`
+	SystemOrKernelRunningOverlapMs float64 `json:"system_or_kernel_running_overlap_ms,omitempty"`
+	SystemOrKernelCompetitorCount  int     `json:"system_or_kernel_competitor_count,omitempty"`
 	// OverlapCompetitors lists threads whose running time overlapped another
 	// thread's runnable wait on this CPU (any priority); DurationMs carries
 	// the overlapped portion only, not the window running total.
@@ -1440,15 +1505,16 @@ type CPUFrequencyResidency struct {
 }
 
 type CoreClassStats struct {
-	Class               string  `json:"class,omitempty"`
-	CPUs                []int   `json:"cpus,omitempty"`
-	BusyMs              float64 `json:"busy_ms,omitempty"`
-	IdleMs              float64 `json:"idle_ms,omitempty"`
-	RunnableWaitMs      float64 `json:"runnable_wait_ms,omitempty"`
-	HighPriorityRunMs   float64 `json:"high_priority_running_ms,omitempty"`
-	MaxFrequency        int     `json:"max_frequency,omitempty"`
-	TopologySource      string  `json:"topology_source,omitempty"`
-	ComputeSupplySignal string  `json:"compute_supply_signal,omitempty"`
+	Class                   string  `json:"class,omitempty"`
+	CPUs                    []int   `json:"cpus,omitempty"`
+	BusyMs                  float64 `json:"busy_ms,omitempty"`
+	IdleMs                  float64 `json:"idle_ms,omitempty"`
+	RunnableWaitMs          float64 `json:"runnable_wait_ms,omitempty"`
+	HighPriorityRunMs       float64 `json:"high_priority_running_ms,omitempty"`
+	SystemOrKernelRunningMs float64 `json:"system_or_kernel_running_ms,omitempty"`
+	MaxFrequency            int     `json:"max_frequency,omitempty"`
+	TopologySource          string  `json:"topology_source,omitempty"`
+	ComputeSupplySignal     string  `json:"compute_supply_signal,omitempty"`
 }
 
 type ThreadDuration struct {
@@ -1563,6 +1629,7 @@ type StateDrilldownStep struct {
 }
 
 type IOLatencySummary struct {
+	SourcePath     string    `json:"source_path,omitempty"`
 	Dev            string    `json:"dev,omitempty"`
 	Op             string    `json:"op,omitempty"`
 	Sector         int64     `json:"sector,omitempty"`
@@ -1618,6 +1685,7 @@ type PageCacheSummary struct {
 }
 
 type StorageLatencySummary struct {
+	SourcePath         string    `json:"source_path,omitempty"`
 	Layer              string    `json:"layer,omitempty"`
 	Event              string    `json:"event,omitempty"`
 	Dev                string    `json:"dev,omitempty"`
@@ -1629,15 +1697,20 @@ type StorageLatencySummary struct {
 	PairedCount        int       `json:"paired_count,omitempty"`
 	UnpairedStartCount int       `json:"unpaired_start_count,omitempty"`
 	UnpairedDoneCount  int       `json:"unpaired_done_count,omitempty"`
-	Bytes              int64     `json:"bytes,omitempty"`
-	MaxLatencyMs       float64   `json:"max_latency_ms,omitempty"`
-	AvgLatencyMs       float64   `json:"avg_latency_ms,omitempty"`
-	LineStart          int       `json:"line_start,omitempty"`
-	LineEnd            int       `json:"line_end,omitempty"`
-	StartTs            float64   `json:"start_ts,omitempty"`
-	EndTs              float64   `json:"end_ts,omitempty"`
-	Example            string    `json:"example,omitempty"`
-	Summary            string    `json:"summary,omitempty"`
+	// AmbiguousCohortCount counts exact coarse-key cohorts whose concurrent
+	// depth exceeded one. PairingSuppressedCount is the number of operations
+	// deliberately withheld rather than FIFO-guessed inside those cohorts.
+	AmbiguousCohortCount   int     `json:"ambiguous_cohort_count,omitempty"`
+	PairingSuppressedCount int     `json:"pairing_suppressed_count,omitempty"`
+	Bytes                  int64   `json:"bytes,omitempty"`
+	MaxLatencyMs           float64 `json:"max_latency_ms,omitempty"`
+	AvgLatencyMs           float64 `json:"avg_latency_ms,omitempty"`
+	LineStart              int     `json:"line_start,omitempty"`
+	LineEnd                int     `json:"line_end,omitempty"`
+	StartTs                float64 `json:"start_ts,omitempty"`
+	EndTs                  float64 `json:"end_ts,omitempty"`
+	Example                string  `json:"example,omitempty"`
+	Summary                string  `json:"summary,omitempty"`
 }
 
 type IOPressureSummary struct {
@@ -1786,6 +1859,7 @@ type TopIOInodeStats struct {
 }
 
 type InterruptActivity struct {
+	SourcePath      string  `json:"source_path,omitempty"`
 	Kind            string  `json:"kind,omitempty"`
 	CPU             int     `json:"cpu"`
 	CoreClass       string  `json:"core_class,omitempty"`
@@ -1822,6 +1896,7 @@ type SchedStatSummary struct {
 }
 
 type WorkqueueActivity struct {
+	SourcePath   string    `json:"source_path,omitempty"`
 	Thread       ThreadRef `json:"thread,omitempty"`
 	Work         string    `json:"work,omitempty"`
 	Function     string    `json:"function,omitempty"`
@@ -1837,6 +1912,7 @@ type WorkqueueActivity struct {
 }
 
 type DMAFenceActivity struct {
+	SourcePath  string    `json:"source_path,omitempty"`
 	Thread      ThreadRef `json:"thread,omitempty"`
 	Driver      string    `json:"driver,omitempty"`
 	Timeline    string    `json:"timeline,omitempty"`
@@ -1854,23 +1930,26 @@ type DMAFenceActivity struct {
 }
 
 type SupplyPressureSummary struct {
-	Signal                 string                  `json:"signal,omitempty"`
-	CPUPressureMs          float64                 `json:"cpu_pressure_ms,omitempty"`
-	RunnableWaitMs         float64                 `json:"runnable_wait_ms,omitempty"`
-	HighPriorityRunningMs  float64                 `json:"high_priority_running_ms,omitempty"`
-	SchedStatWaitMs        float64                 `json:"sched_stat_wait_ms,omitempty"`
-	SchedStatIOWaitMs      float64                 `json:"sched_stat_iowait_ms,omitempty"`
-	SchedStatBlockedMs     float64                 `json:"sched_stat_blocked_ms,omitempty"`
-	IPIEventCount          int                     `json:"ipi_event_count,omitempty"`
-	IPIActiveMs            float64                 `json:"ipi_active_ms,omitempty"`
-	LowFrequencyCPUs       []int                   `json:"low_frequency_cpus,omitempty"`
-	ClockSetRateCount      int                     `json:"clock_set_rate_count,omitempty"`
-	ThermalEventCount      int                     `json:"thermal_event_count,omitempty"`
-	DDREventCount          int                     `json:"ddr_event_count,omitempty"`
-	L3EventCount           int                     `json:"l3_event_count,omitempty"`
-	ThroughputEventCount   int                     `json:"throughput_event_count,omitempty"`
-	TopBackgroundThreads   []ThreadCPULoadSummary  `json:"top_background_threads,omitempty"`
-	TopBackgroundProcesses []ProcessCPULoadSummary `json:"top_background_processes,omitempty"`
+	Signal                         string                  `json:"signal,omitempty"`
+	CPUPressureMs                  float64                 `json:"cpu_pressure_ms,omitempty"`
+	RunnableWaitMs                 float64                 `json:"runnable_wait_ms,omitempty"`
+	HighPriorityRunningMs          float64                 `json:"high_priority_running_ms,omitempty"`
+	SystemOrKernelRunningMs        float64                 `json:"system_or_kernel_running_ms,omitempty"`
+	SystemOrKernelRunningOverlapMs float64                 `json:"system_or_kernel_running_overlap_ms,omitempty"`
+	SystemOrKernelCompetitorCount  int                     `json:"system_or_kernel_competitor_count,omitempty"`
+	SchedStatWaitMs                float64                 `json:"sched_stat_wait_ms,omitempty"`
+	SchedStatIOWaitMs              float64                 `json:"sched_stat_iowait_ms,omitempty"`
+	SchedStatBlockedMs             float64                 `json:"sched_stat_blocked_ms,omitempty"`
+	IPIEventCount                  int                     `json:"ipi_event_count,omitempty"`
+	IPIActiveMs                    float64                 `json:"ipi_active_ms,omitempty"`
+	LowFrequencyCPUs               []int                   `json:"low_frequency_cpus,omitempty"`
+	ClockSetRateCount              int                     `json:"clock_set_rate_count,omitempty"`
+	ThermalEventCount              int                     `json:"thermal_event_count,omitempty"`
+	DDREventCount                  int                     `json:"ddr_event_count,omitempty"`
+	L3EventCount                   int                     `json:"l3_event_count,omitempty"`
+	ThroughputEventCount           int                     `json:"throughput_event_count,omitempty"`
+	TopBackgroundThreads           []ThreadCPULoadSummary  `json:"top_background_threads,omitempty"`
+	TopBackgroundProcesses         []ProcessCPULoadSummary `json:"top_background_processes,omitempty"`
 	// WindowMs is the wall-clock length of the selected window backing this
 	// aggregate (CMP-9 §7.3). 0 when the query window is unbounded — then no
 	// density is published (never an estimate).
@@ -1955,9 +2034,10 @@ type BinderWaitSummary struct {
 }
 
 type TraceSpanSummary struct {
-	Thread ThreadRef `json:"thread"`
-	Kind   string    `json:"kind,omitempty"`
-	Name   string    `json:"name,omitempty"`
+	SourcePath string    `json:"source_path,omitempty"`
+	Thread     ThreadRef `json:"thread"`
+	Kind       string    `json:"kind,omitempty"`
+	Name       string    `json:"name,omitempty"`
 	// SpanPID is the trace-mark payload pid of the opening B row (`B|{pid}|…`)
 	// — the emitter's OWN pid-namespace process id, which for a containerized
 	// process differs from the row-header host Thread.TGID (§18.E emission
@@ -1985,40 +2065,108 @@ type TraceSpanSummary struct {
 	EndLine          int     `json:"end_line,omitempty"`
 }
 
-// TraceCounterDeltaSummary is the C1 (2026-07-03) numeric aggregation of a
-// C| counter series within the window: one row per (thread, counter name)
-// with first/last/min/max/delta over samples whose values parse as numbers.
-// Additive beside TraceCounterSummary (which keeps per-value latest rows) so
-// existing surfaces stay byte-identical; ranked by |delta| descending.
+// TraceCounterDeltaSummary is the numeric aggregation of one exact atrace /
+// Harmony C| counter identity inside the selected window. Counter identity is
+// the verbatim (physical source, payload owner pid, name, trailing track tag)
+// tuple -- never the ftrace row-header tid. Thread retains the historical wire
+// contract: it is the row-header emitter of the first sample. Payload ownership
+// is carried only by OwnerPID/OwnerScope. A payload pid of zero is an explicit
+// global counter and is distinguished by OwnerScope.
+//
+// Baseline is always "in_window_first_sample": no pre-window state is guessed
+// from index padding. UnitStatus is always "unknown" because the C| wire
+// grammar carries no unit field; unit-looking name text is deliberately not
+// parsed as authority. A series containing any invalid/non-finite value is
+// omitted from this face and disclosed through CounterQuality instead.
 type TraceCounterDeltaSummary struct {
-	Thread    ThreadRef `json:"thread"`
-	Name      string    `json:"name,omitempty"`
-	Samples   int       `json:"samples,omitempty"`
-	First     float64   `json:"first"`
-	Last      float64   `json:"last"`
-	Min       float64   `json:"min"`
-	Max       float64   `json:"max"`
-	Delta     float64   `json:"delta"`
-	FirstLine int       `json:"first_line,omitempty"`
-	LastLine  int       `json:"last_line,omitempty"`
+	Thread         ThreadRef `json:"thread"`
+	OwnerPID       int       `json:"owner_pid"`
+	OwnerScope     string    `json:"owner_scope"`
+	Name           string    `json:"name,omitempty"`
+	TrailingTag    string    `json:"trailing_tag,omitempty"`
+	SourcePath     string    `json:"source_path,omitempty"`
+	Baseline       string    `json:"baseline"`
+	UnitStatus     string    `json:"unit_status"`
+	Samples        int       `json:"samples,omitempty"`
+	First          float64   `json:"first"`
+	Last           float64   `json:"last"`
+	Min            float64   `json:"min"`
+	Max            float64   `json:"max"`
+	Delta          float64   `json:"delta"`
+	FirstLine      int       `json:"first_line,omitempty"`
+	LastLine       int       `json:"last_line,omitempty"`
+	FirstLocalLine int       `json:"first_local_line,omitempty"`
+	LastLocalLine  int       `json:"last_local_line,omitempty"`
+}
+
+// TraceCounterQualitySummary is the bounded fail-loud face for C| rows that
+// cannot participate in a deterministic numeric series. Counts cover the full
+// selected window; Issues retains only a small sample per reason. Suppression
+// is series-wide: skipping a malformed middle or final sample and still
+// publishing first/last would falsely claim the observed endpoint state.
+type TraceCounterQualitySummary struct {
+	Rows                 int                        `json:"rows"`
+	ValidIdentityRows    int                        `json:"valid_identity_rows,omitempty"`
+	NumericRows          int                        `json:"numeric_rows,omitempty"`
+	InvalidRows          int                        `json:"invalid_rows,omitempty"`
+	NonNumericRows       int                        `json:"non_numeric_rows,omitempty"`
+	DerivedInvalidSeries int                        `json:"derived_invalid_series,omitempty"`
+	TotalSeries          int                        `json:"total_series,omitempty"`
+	TotalSeriesStatus    string                     `json:"total_series_status,omitempty"`
+	PublishedSeries      int                        `json:"published_series,omitempty"`
+	SuppressedSeries     int                        `json:"suppressed_series,omitempty"`
+	TruncatedSeries      int                        `json:"truncated_series,omitempty"`
+	SeriesBudget         int                        `json:"series_budget,omitempty"`
+	SeriesBudgetExceeded bool                       `json:"series_budget_exceeded,omitempty"`
+	OverflowRows         int                        `json:"overflow_rows,omitempty"`
+	BaselinePolicy       string                     `json:"baseline_policy"`
+	UnitPolicy           string                     `json:"unit_policy"`
+	Issues               []TraceCounterIssueSummary `json:"issues,omitempty"`
+}
+
+type TraceCounterIssueSummary struct {
+	Reason  string                    `json:"reason"`
+	Count   int                       `json:"count"`
+	Samples []TraceCounterIssueSample `json:"samples,omitempty"`
+}
+
+type TraceCounterIssueSample struct {
+	Line        int    `json:"line,omitempty"`
+	LocalLine   int    `json:"local_line,omitempty"`
+	SourcePath  string `json:"source_path,omitempty"`
+	OwnerRaw    string `json:"owner_raw,omitempty"`
+	Name        string `json:"name,omitempty"`
+	Value       string `json:"value,omitempty"`
+	TrailingTag string `json:"trailing_tag,omitempty"`
 }
 
 type TraceCounterSummary struct {
-	Thread ThreadRef `json:"thread"`
-	Name   string    `json:"name,omitempty"`
-	Value  string    `json:"value,omitempty"`
-	Count  int       `json:"count,omitempty"`
-	Line   int       `json:"line,omitempty"`
-	Ts     float64   `json:"ts,omitempty"`
+	// Thread is the ftrace row-header emitter. Owner* is the independent C|
+	// payload owner and deliberately matches CounterDeltas' typed identity.
+	Thread      ThreadRef `json:"thread"`
+	OwnerPID    int       `json:"owner_pid"`
+	OwnerRaw    string    `json:"owner_raw,omitempty"`
+	OwnerScope  string    `json:"owner_scope,omitempty"`
+	Name        string    `json:"name,omitempty"`
+	Value       string    `json:"value,omitempty"`
+	TrailingTag string    `json:"trailing_tag,omitempty"`
+	Count       int       `json:"count,omitempty"`
+	Line        int       `json:"line,omitempty"`
+	Ts          float64   `json:"ts,omitempty"`
 }
 
 type IRQBurstSummary struct {
-	CPU        int     `json:"cpu"`
-	Name       string  `json:"name,omitempty"`
-	IRQ        int     `json:"irq,omitempty"`
-	Count      int     `json:"count,omitempty"`
-	StartTs    float64 `json:"start_ts,omitempty"`
-	EndTs      float64 `json:"end_ts,omitempty"`
+	CPU     int     `json:"cpu"`
+	Name    string  `json:"name,omitempty"`
+	IRQ     int     `json:"irq,omitempty"`
+	Count   int     `json:"count,omitempty"`
+	StartTs float64 `json:"start_ts,omitempty"`
+	EndTs   float64 `json:"end_ts,omitempty"`
+	// SpanMs is first-to-last inventory coverage, not interrupt active time.
+	// Only InterruptActivity.ActiveMs may carry paired entry/exit duration.
+	SpanMs float64 `json:"span_ms,omitempty"`
+	// DurationMs is retained for wire compatibility but intentionally remains
+	// zero: an IRQ burst envelope must never masquerade as elapsed work.
 	DurationMs float64 `json:"duration_ms,omitempty"`
 	LineStart  int     `json:"line_start,omitempty"`
 	LineEnd    int     `json:"line_end,omitempty"`
@@ -2095,17 +2243,12 @@ type RootCauseRankResult struct {
 // "unknown thread": the empty ThreadRef is structural, not a resolution gap.
 const RootCauseSubjectKindAggregateMetric = "aggregate_metric"
 
-// RootCauseTierDeterministicOptimization (DCS E1, ledger §23/§23.1 user
-// ruling 2026-07-07): the independent Tier word for IN-WINDOW ∧ ON-CHAIN
-// semantic compile span rows (jit_compile / class_verification /
-// shader_compile / runtime_compile / texture_upload — TEX §28.1 fifth class,
-// 2026-07-09). Rows wearing it hold rank-board reserved
-// seats and participate in ORDERING, but are transparent to the
-// primary/secondary/tertiary positional election and NEVER ride the
-// co-primary lane — a deterministic optimization point is reported as an
-// optimization, not as the root cause. Wire token: it appears verbatim in the
-// typed tier note / root_cause_<tier> predicate faces; user-panel prose uses
-// the 确定性优化点 display family instead.
+// RootCauseTierDeterministicOptimization is retained for backward wire
+// compatibility with persisted DCS-era records. The current engine never
+// mints it: on-chain semantic span-work participates in the ordinary
+// primary/secondary/tertiary election, while off-chain semantic work carries
+// tertiary plus BackgroundRank. Consumers must still render legacy records
+// honestly and keep their independent deterministic-optimization mention.
 const RootCauseTierDeterministicOptimization = "deterministic_optimization"
 
 // RootCauseTierTargetSelfState (SYM, ledger §24.13 裁定一, user ruling
@@ -2213,8 +2356,13 @@ type RootCauseRankItem struct {
 	// thread, and RootCauseSubjectKindAggregateMetric when the row is a
 	// window/CPU-scoped aggregate metric with no single subject thread.
 	// Deterministic typed signal set at construction time.
-	SubjectKind        string                     `json:"subject_kind,omitempty"`
-	Thread             ThreadRef                  `json:"thread,omitempty"`
+	SubjectKind string    `json:"subject_kind,omitempty"`
+	Thread      ThreadRef `json:"thread,omitempty"`
+	// PhysicalSourcePath is the bundle-local physical artifact identity behind
+	// duration rows. Logical Source (window_stats/semantic/...) describes the
+	// producer lane; this field prevents lookalike intervals from different
+	// attachments being folded into one rank family.
+	PhysicalSourcePath string                     `json:"physical_source_path,omitempty"`
 	PerfContext        *PerfContext               `json:"perf_context,omitempty"`
 	PerfContexts       []RootCausePerfRoleContext `json:"perf_contexts,omitempty"`
 	StartTs            float64                    `json:"start_ts,omitempty"`
@@ -2535,10 +2683,13 @@ const (
 )
 
 // SemanticSpanFamily is the RCM §24.10 semantic-span family carrier: all
-// window-clipped spans of ONE (thread, semantic class, chain lane) folded into
-// one contender whose participation value is the WINDOW-PROJECTION TOTAL of
-// the member segments (interval union; disjoint == Σ; union < Σ discloses via
-// SumMs). Built exclusively by FoldSemanticSpanFamilies — the ONE fold point
+// window-clipped spans of ONE (physical artifact, thread, semantic class,
+// chain lane) folded into one contender. TotalMs is the complete selected-
+// window member union
+// (interval union; disjoint == Σ; union < Σ discloses via SumMs). For an
+// on-chain family, ProjectedImpactMs is the narrower exact intersection union
+// that alone participates in causal ranking/effective attribution. Built
+// exclusively by FoldSemanticSpanFamilies — the ONE fold point
 // both consumers (rank minting and the typed observation channel) read, so the
 // two faces can never publish two different family shapes (§24.12 dim-A
 // mandate: two consumers, one function). stats.TraceSpans stays untouched —
@@ -2546,6 +2697,9 @@ const (
 type SemanticSpanFamily struct {
 	Thread        ThreadRef `json:"thread"`
 	SemanticClass string    `json:"semantic_class,omitempty"`
+	// SourcePath is part of the family identity. Two attached artifacts may
+	// reuse thread ids, span names and timestamps; they must never cross-fold.
+	SourcePath string `json:"source_path,omitempty"`
 	// OnChain is the family's 道别 (chain lane), decided per member by the
 	// SAME overlap predicate as the DCS E2 mint-time lane (same-thread chain
 	// node / causal-impact window overlap — thread membership alone never
@@ -2553,8 +2707,22 @@ type SemanticSpanFamily struct {
 	// families: on-chain and background never cross-merge (§24.7.1 道别键).
 	OnChain       bool    `json:"on_chain,omitempty"`
 	ChainDepth    int     `json:"chain_depth,omitempty"`
+	ChainBranch   int     `json:"chain_branch,omitempty"`
 	DominantState string  `json:"dominant_state,omitempty"`
 	TotalMs       float64 `json:"total_ms"`
+	// ProjectedImpactMs is set only for an on-chain family and is the exact
+	// interval union of every member's intersections with every same-thread
+	// chain node/impact window. It is the ONLY family value admitted to causal
+	// ranking/effective attribution. TotalMs remains the complete selected-
+	// window member union for lossless disclosure and off-chain behavior.
+	ProjectedImpactMs float64 `json:"projected_impact_ms,omitempty"`
+	ProjectedStartTs  float64 `json:"projected_start_ts,omitempty"`
+	ProjectedEndTs    float64 `json:"projected_end_ts,omitempty"`
+	// DominantStateImpactMs is the exact union attributable to the selected
+	// dominant chain state. It may be smaller than ProjectedImpactMs when the
+	// family intersects multiple chain states; state decomposition must never
+	// stamp the whole cross-state projection into one state bucket.
+	DominantStateImpactMs float64 `json:"dominant_state_impact_ms,omitempty"`
 	// SumMs is the raw member Σ; TotalMs < SumMs means overlapping member
 	// segments were deduplicated to the interval union (typed disclosure).
 	SumMs   float64 `json:"sum_ms,omitempty"`
@@ -3328,6 +3496,11 @@ type WakeupCausalOccurrence struct {
 const (
 	GatedCaliberSumDisjointOccurrences = "sum_disjoint_occurrences"
 	GatedCaliberMaxOverlapFallback     = "max_overlap_fallback"
+	// WakeupAggregateCaliberOverlapSafe means occurrence windows overlapped:
+	// full-window metrics use the exact interval union, while partial metrics
+	// conservatively use a MAX per overlap-connected cohort. This prevents a
+	// multi-branch projection of one physical segment from being summed twice.
+	WakeupAggregateCaliberOverlapSafe = "interval_union_or_max_overlap_fallback"
 )
 
 type WakeupCausalAggregate struct {
@@ -3337,38 +3510,44 @@ type WakeupCausalAggregate struct {
 	// branch ordinal when ALL members were measured in ONE branch, 0 when the
 	// occurrences span branches (a cross-branch aggregate has no single branch
 	// identity — absence never guesses; P0-E CHAIN-PATH, ledger §22.1).
-	ChainDepth        int     `json:"chain_depth,omitempty"`
-	ChainBranch       int     `json:"chain_branch,omitempty"`
-	OccurrenceCount   int     `json:"occurrence_count,omitempty"`
-	DominantState     string  `json:"dominant_state,omitempty"`
-	DominantImpactMs  float64 `json:"dominant_impact_ms,omitempty"`
-	ProjectedImpactMs float64 `json:"projected_impact_ms,omitempty"`
-	TotalMs           float64 `json:"total_ms,omitempty"`
-	ProjectedTotalMs  float64 `json:"projected_total_ms,omitempty"`
-	ActualImpactMs    float64 `json:"actual_impact_ms,omitempty"`
-	ActualTotalMs     float64 `json:"actual_total_ms,omitempty"`
-	RunningMs         float64 `json:"running_ms,omitempty"`
-	RunnableMs        float64 `json:"runnable_ms,omitempty"`
-	SleepMs           float64 `json:"sleep_ms,omitempty"`
-	DStateMs          float64 `json:"d_state_ms,omitempty"`
-	IOWaitMs          float64 `json:"io_wait_ms,omitempty"`
-	ActualRunningMs   float64 `json:"actual_running_ms,omitempty"`
-	ActualRunnableMs  float64 `json:"actual_runnable_ms,omitempty"`
-	ActualSleepMs     float64 `json:"actual_sleep_ms,omitempty"`
-	ActualDStateMs    float64 `json:"actual_d_state_ms,omitempty"`
-	ActualIOWaitMs    float64 `json:"actual_io_wait_ms,omitempty"`
-	TargetBlockedMs   float64 `json:"target_blocked_ms,omitempty"`
-	FragmentCount     int     `json:"fragment_count,omitempty"`
-	StateSwitches     int     `json:"state_switches,omitempty"`
-	MaxSegmentMs      float64 `json:"max_segment_ms,omitempty"`
-	FirstTs           float64 `json:"first_ts,omitempty"`
-	LastTs            float64 `json:"last_ts,omitempty"`
-	ActualFirstTs     float64 `json:"actual_first_ts,omitempty"`
-	ActualLastTs      float64 `json:"actual_last_ts,omitempty"`
-	LineStart         int     `json:"line_start,omitempty"`
-	LineEnd           int     `json:"line_end,omitempty"`
-	PriorityRelation  string  `json:"priority_relation,omitempty"`
-	PriorityInversion bool    `json:"priority_inversion_candidate,omitempty"`
+	ChainDepth      int `json:"chain_depth,omitempty"`
+	ChainBranch     int `json:"chain_branch,omitempty"`
+	OccurrenceCount int `json:"occurrence_count,omitempty"`
+	// AggregationCaliber describes the additivity proof for the ordinary
+	// aggregate duration fields (independent from the gated inversion caliber).
+	// sum_disjoint_occurrences means every occurrence window was pairwise
+	// disjoint; interval_union_or_max_overlap_fallback is the overlap-safe
+	// union/MAX rule above.
+	AggregationCaliber string  `json:"aggregation_caliber,omitempty"`
+	DominantState      string  `json:"dominant_state,omitempty"`
+	DominantImpactMs   float64 `json:"dominant_impact_ms,omitempty"`
+	ProjectedImpactMs  float64 `json:"projected_impact_ms,omitempty"`
+	TotalMs            float64 `json:"total_ms,omitempty"`
+	ProjectedTotalMs   float64 `json:"projected_total_ms,omitempty"`
+	ActualImpactMs     float64 `json:"actual_impact_ms,omitempty"`
+	ActualTotalMs      float64 `json:"actual_total_ms,omitempty"`
+	RunningMs          float64 `json:"running_ms,omitempty"`
+	RunnableMs         float64 `json:"runnable_ms,omitempty"`
+	SleepMs            float64 `json:"sleep_ms,omitempty"`
+	DStateMs           float64 `json:"d_state_ms,omitempty"`
+	IOWaitMs           float64 `json:"io_wait_ms,omitempty"`
+	ActualRunningMs    float64 `json:"actual_running_ms,omitempty"`
+	ActualRunnableMs   float64 `json:"actual_runnable_ms,omitempty"`
+	ActualSleepMs      float64 `json:"actual_sleep_ms,omitempty"`
+	ActualDStateMs     float64 `json:"actual_d_state_ms,omitempty"`
+	ActualIOWaitMs     float64 `json:"actual_io_wait_ms,omitempty"`
+	TargetBlockedMs    float64 `json:"target_blocked_ms,omitempty"`
+	FragmentCount      int     `json:"fragment_count,omitempty"`
+	StateSwitches      int     `json:"state_switches,omitempty"`
+	MaxSegmentMs       float64 `json:"max_segment_ms,omitempty"`
+	FirstTs            float64 `json:"first_ts,omitempty"`
+	LastTs             float64 `json:"last_ts,omitempty"`
+	ActualFirstTs      float64 `json:"actual_first_ts,omitempty"`
+	ActualLastTs       float64 `json:"actual_last_ts,omitempty"`
+	LineStart          int     `json:"line_start,omitempty"`
+	LineEnd            int     `json:"line_end,omitempty"`
+	PriorityRelation   string  `json:"priority_relation,omitempty"`
+	PriorityInversion  bool    `json:"priority_inversion_candidate,omitempty"`
 	// PriorityInversionGatedMs / GatedRunnableMs / GatedRunningDeficitMs
 	// (P0-E §20 E-Gap②, 2026-07-07): the R5d gated caliber on the AGGREGATE
 	// face — R5d formerly landed only on the per-occurrence lane, so
@@ -3405,16 +3584,19 @@ type WakeupCausalAggregate struct {
 	// RunnableMs (F1(c): occurrences sharing one branch window must not
 	// double-count the same target wait into the Summary);
 	// EffectivePeriodicImpactMs = the aggregate RunnableMs (full) + LatenessMs,
-	// capped at the raw blocking value. Raw sums above stay untouched.
+	// capped at the aggregate's overlap-safe blocking value. Per-occurrence raw
+	// rows stay lossless; aggregate duration fields follow AggregationCaliber
+	// and therefore never sum overlapping physical windows.
 	PeriodicSource            bool    `json:"periodic_source,omitempty"`
 	DetectedPeriodMs          float64 `json:"detected_period_ms,omitempty"`
 	LatenessMs                float64 `json:"lateness_ms,omitempty"`
 	EffectivePeriodicImpactMs float64 `json:"effective_periodic_impact_ms,omitempty"`
-	// VS-2 (§7.10): the SUM of the member occurrences' supply-fold fields
-	// (only members whose fold ran contribute — see WakeupCausalImpact). The
-	// per-member identity ideal+deficit==RunningMs therefore holds for the
-	// folded SUBSET, not necessarily the aggregate RunningMs. nil basis =
-	// no member folded.
+	// VS-2 (§7.10): the overlap-safe merge of member supply-fold vectors (only
+	// members whose fold ran contribute — see WakeupCausalImpact). Disjoint
+	// components sum; an overlap-connected component contributes one complete
+	// representative vector, never independent field maxima. The selected
+	// vector identity ideal+deficit==known+unknown remains mechanical. nil
+	// basis = no selected member folded.
 	SupplyFoldDeficitMs float64          `json:"supply_fold_deficit_ms,omitempty"`
 	SupplyFoldIdealMs   float64          `json:"supply_fold_ideal_ms,omitempty"`
 	SupplyFoldBasis     *SupplyFoldBasis `json:"supply_fold_basis,omitempty"`

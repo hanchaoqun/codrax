@@ -147,16 +147,33 @@ func buildNsSpanDerivation(events []Event) *nsSpanDerivation {
 	}
 	for i := range events {
 		ev := &events[i]
-		if ev.Type != EventTraceMark || ev.SpanPID <= 0 {
+		if ev.Type != EventTraceMark {
+			continue
+		}
+		spanPID := ev.SpanPID
+		switch ev.SpanAction {
+		case "B", "E":
+			// Closed action set: async S/F payload subjects do not establish a
+			// process mapping.
+		case "C":
+			sample := parseTraceCounterSample(*ev)
+			if !sample.identityOK || !sample.numericValid {
+				continue
+			}
+			spanPID = sample.ownerPID
+		default:
+			continue
+		}
+		if spanPID <= 0 {
 			continue
 		}
 		// Process map: every B/E/C emission pair with a known host tgid votes;
 		// a second DISTINCT tgid poisons the entry (structural uniqueness).
 		if ev.TGID > 0 {
-			pm := d.process[ev.SpanPID]
+			pm := d.process[spanPID]
 			if pm == nil {
 				pm = &nsSpanProcessMapping{HostTGID: ev.TGID}
-				d.process[ev.SpanPID] = pm
+				d.process[spanPID] = pm
 			}
 			if pm.HostTGID != ev.TGID {
 				pm.Ambiguous = true
@@ -172,14 +189,14 @@ func buildNsSpanDerivation(events []Event) *nsSpanDerivation {
 		// emitter (SpanPID ≠ host tgid) can self-report a container tid; an
 		// identity-namespace self-report is inert (rung ① already resolves
 		// those owners) and is not harvested.
-		if ev.SpanAction != "B" || ev.PID <= 0 || ev.TGID <= 0 || ev.SpanPID == ev.TGID {
+		if ev.SpanAction != "B" || ev.PID <= 0 || ev.TGID <= 0 || spanPID == ev.TGID {
 			continue
 		}
 		nsTid, ok := nsSpanSelfReportedTid(ev.SpanName)
 		if !ok {
 			continue
 		}
-		key := nsSpanThreadKey{NsPID: ev.SpanPID, NsTID: nsTid}
+		key := nsSpanThreadKey{NsPID: spanPID, NsTID: nsTid}
 		tm := d.thread[key]
 		if tm == nil {
 			tm = &nsSpanThreadMapping{HostTID: ev.PID, HostTGID: ev.TGID}

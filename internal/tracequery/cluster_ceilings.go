@@ -51,7 +51,7 @@ import (
 // attribution), so they are legitimate per-CPU samples; widening this
 // predicate to a name heuristic would violate the precise-signals red line.
 func isPerCPUFrequencySample(ev Event) bool {
-	return ev.Type == EventCPUFrequency && ev.Frequency > 0 && ev.Name != "clock_set_rate"
+	return ev.Type == EventCPUFrequency && ev.Frequency > 0 && ev.Name != "clock_set_rate" && eventCPUForStats(ev) >= 0
 }
 
 // isPerCPULimitSample is THE admission predicate for any per-CPU
@@ -74,7 +74,8 @@ func isPerCPULimitSample(ev Event) (cpu int, ok bool) {
 	if ev.Type != EventCPUFrequencyLimit || ev.FrequencyMax <= 0 {
 		return 0, false
 	}
-	return eventCPUForStats(ev), true
+	cpu = eventCPUForStats(ev)
+	return cpu, cpu >= 0
 }
 
 // ClusterFrequencyCeiling is one core-class cluster's frequency ceiling for a

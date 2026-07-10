@@ -185,6 +185,12 @@ func renderV2BlockSection(b *strings.Builder, blk types.AnswerBlock, doc *types.
 	if heading == "" {
 		// A Section without an explicit Title is rendered without a
 		// heading line; the body still appears.
+	} else if blk.SystemGeneratedKind.IsRuntimeTraceSupplement() {
+		// Runtime-trace supplements are independently navigable report
+		// chapters, not subheadings of whichever model-authored section happened
+		// to precede them.  The authority bit is json:"-", so model prose cannot
+		// opt itself into this structural promotion.
+		fmt.Fprintf(b, "## %s\n\n", heading)
 	} else {
 		fmt.Fprintf(b, "### %s\n\n", heading)
 	}
@@ -213,7 +219,7 @@ func renderV2BlockSection(b *strings.Builder, blk types.AnswerBlock, doc *types.
 
 func renderV2BlockOrderedList(b *strings.Builder, blk types.AnswerBlock, doc *types.AnswerDocumentV2, lang answerDocLang) {
 	if heading := renderV2ListHeading(blk, lang); heading != "" {
-		fmt.Fprintf(b, "**%s**\n\n", heading)
+		renderV2ListOrTableHeading(b, blk, heading)
 	}
 	if text := renderUserSurfaceText(blk.Text); text != "" {
 		b.WriteString(text)
@@ -235,7 +241,7 @@ func renderV2BlockOrderedList(b *strings.Builder, blk types.AnswerBlock, doc *ty
 
 func renderV2BlockBulletList(b *strings.Builder, blk types.AnswerBlock, doc *types.AnswerDocumentV2, lang answerDocLang) {
 	if heading := renderV2ListHeading(blk, lang); heading != "" {
-		fmt.Fprintf(b, "**%s**\n\n", heading)
+		renderV2ListOrTableHeading(b, blk, heading)
 	}
 	if text := renderUserSurfaceText(blk.Text); text != "" {
 		b.WriteString(text)
@@ -266,6 +272,21 @@ func renderV2ListHeading(blk types.AnswerBlock, lang answerDocLang) string {
 		return "下一步"
 	}
 	return "Next steps"
+}
+
+// renderV2ListOrTableHeading keeps ordinary model-authored list/table titles
+// byte-compatible while giving authenticated runtime-trace decision and audit
+// surfaces real chapter headings.  This fixes the HTML information hierarchy
+// without trusting a title string or reserved ID supplied by the model.
+func renderV2ListOrTableHeading(b *strings.Builder, blk types.AnswerBlock, heading string) {
+	if b == nil || strings.TrimSpace(heading) == "" {
+		return
+	}
+	if blk.SystemGeneratedKind.IsRuntimeTraceSupplement() {
+		fmt.Fprintf(b, "## %s\n\n", heading)
+		return
+	}
+	fmt.Fprintf(b, "**%s**\n\n", heading)
 }
 
 func answerBlockIDIsNextStepCarrier(id string) bool {
@@ -571,7 +592,7 @@ func scopeDisclosureDisplayLine(disclosure types.ScopeDisclosureKind, lang answe
 
 func renderV2BlockTable(b *strings.Builder, blk types.AnswerBlock, _ *types.AnswerDocumentV2, lang answerDocLang) {
 	if strings.TrimSpace(blk.Title) != "" {
-		fmt.Fprintf(b, "**%s**\n\n", blk.Title)
+		renderV2ListOrTableHeading(b, blk, strings.TrimSpace(blk.Title))
 	}
 	if text := renderUserSurfaceText(blk.Text); text != "" {
 		b.WriteString(text)

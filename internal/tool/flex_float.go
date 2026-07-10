@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -39,7 +40,13 @@ func (ff *FlexFloat) UnmarshalJSON(data []byte) error {
 	}
 	v, err := strconv.ParseFloat(string(trimmed), 64)
 	if err != nil {
+		if isFloatRangeError(err) {
+			return fmt.Errorf("flex-float: value %q is outside the finite float64 range", string(trimmed))
+		}
 		return fmt.Errorf("flex-float: cannot parse %q as number", string(trimmed))
+	}
+	if !isFiniteToolFloat(v) {
+		return fmt.Errorf("flex-float: non-finite value %q is not allowed", string(trimmed))
 	}
 	*ff = FlexFloat(v)
 	return nil
@@ -102,7 +109,26 @@ func parseFlexFloatLiteral(raw string) (float64, error) {
 	}
 	v, err := strconv.ParseFloat(lower, 64)
 	if err != nil {
+		if isFloatRangeError(err) {
+			return 0, fmt.Errorf("flex-float: value %q is outside the finite float64 range", raw)
+		}
 		return 0, fmt.Errorf("flex-float: cannot parse %q as number", raw)
 	}
-	return v * scale, nil
+	if !isFiniteToolFloat(v) {
+		return 0, fmt.Errorf("flex-float: non-finite value %q is not allowed", raw)
+	}
+	normalized := v * scale
+	if !isFiniteToolFloat(normalized) {
+		return 0, fmt.Errorf("flex-float: unit conversion for %q is outside the finite float64 range", raw)
+	}
+	return normalized, nil
+}
+
+func isFiniteToolFloat(v float64) bool {
+	return !math.IsNaN(v) && !math.IsInf(v, 0)
+}
+
+func isFloatRangeError(err error) bool {
+	numErr, ok := err.(*strconv.NumError)
+	return ok && numErr.Err == strconv.ErrRange
 }

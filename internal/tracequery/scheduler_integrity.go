@@ -95,8 +95,8 @@ func schedulerFieldsValidationFailure(lineNo int, rawType string, ts float64, cp
 		}
 		return true
 	}
-	requireNonNegativeInt := func(field, raw string) bool {
-		if value, ok := atoiMaybe(raw); ok && value >= 0 {
+	requireCPUScalar := func(field, raw string) bool {
+		if _, present, valid, _ := parseTraceCPUScalar(raw); present && valid {
 			return true
 		}
 		failure.Fields = append(failure.Fields, field)
@@ -132,8 +132,8 @@ func schedulerFieldsValidationFailure(lineNo int, rawType string, ts float64, cp
 			failure.Fields = append(failure.Fields, "pid")
 			failure.AffectsAllPIDs = true
 		}
-		requireNonNegativeInt("orig_cpu", kv["orig_cpu"])
-		requireNonNegativeInt("dest_cpu", kv["dest_cpu"])
+		requireCPUScalar("orig_cpu", kv["orig_cpu"])
+		requireCPUScalar("dest_cpu", kv["dest_cpu"])
 	}
 	if len(failure.Fields) == 0 {
 		return nil

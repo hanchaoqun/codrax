@@ -37,7 +37,7 @@ and return compact line-backed facts to the model.
   a tiny bounded tolerance so near-boundary trace rows are not missed.
 - Preserve HarmonyOS/hitrace priority semantics as metadata: for user-space
   priorities, larger numeric value means higher priority; `1-40` is CFS,
-  `41-139` is RT, and values outside that range remain raw/system-kernel
+  `41-159` is RT, and values above `159` remain raw/system-kernel
   priorities.
 - Provide deterministic views:
   - `event_search`
@@ -367,7 +367,7 @@ platform/flavor dimension. Both supported entry paths lose or underuse flavor:
 The scheduler row structure is mostly shared, so wakeup-chain and timeline
 parsing still work. Priority interpretation is not shared: HarmonyOS customer
 traces use the documented user-space rule "larger numeric priority is higher;
-1-40=CFS, 41-139=RT", while Android/Linux ftrace priority values must not be
+1-40=CFS, 41-159=RT, >159=system_or_kernel/raw", while Android/Linux ftrace priority values must not be
 silently interpreted through that HarmonyOS mapping.
 
 ### Root cause

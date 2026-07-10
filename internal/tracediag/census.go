@@ -132,11 +132,12 @@ type formatCensus struct {
 	clockTracksTotal int
 
 	// ④ scheduling domain
-	schedSwitchCount int
-	prioCounts       map[int]int
-	prioOver139      int
-	prevStates       map[string]int
-	nextInfoCount    int
+	schedSwitchCount  int
+	prioCounts        map[int]int
+	prioMicrokernelRT int
+	prioOver159       int
+	prevStates        map[string]int
+	nextInfoCount     int
 
 	// ⑤ FS / IO
 	namePrefixes      []nameCount
@@ -337,8 +338,11 @@ func (c *formatCensus) countPrio(prio int) {
 		return
 	}
 	c.prioCounts[prio]++
-	if prio > 139 {
-		c.prioOver139++
+	if prio >= 140 && prio <= 159 {
+		c.prioMicrokernelRT++
+	}
+	if prio > 159 {
+		c.prioOver159++
 	}
 }
 
@@ -519,7 +523,8 @@ func renderFormatCensus(c *formatCensus, emit func(string)) {
 
 	emit(fmt.Sprintf("④ 调度域: sched_switch=%d next_info出现=%d/%d", c.schedSwitchCount, c.nextInfoCount, c.schedSwitchCount))
 	emit("- prio 直方(按计数列前 " + fmt.Sprintf("%d", censusPrioCap) + "):" + formatIntHistogram(c.prioCounts, censusPrioCap))
-	emit(fmt.Sprintf("- prio>139 计数=%d", c.prioOver139))
+	emit(fmt.Sprintf("- prio=140..159 (Harmony microkernel RT) 计数=%d", c.prioMicrokernelRT))
+	emit(fmt.Sprintf("- prio>159 计数=%d", c.prioOver159))
 	emit("- prev_state token 集: " + formatStringHistogram(c.prevStates, censusPrevStateCap))
 
 	emit(fmt.Sprintf("⑤ FS/IO: 事件名前缀谱(共 %d 前缀,列前 %d):", c.namePrefixesTotal, len(c.namePrefixes)))

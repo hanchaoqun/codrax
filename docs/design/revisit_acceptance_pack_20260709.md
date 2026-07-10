@@ -37,6 +37,9 @@
 
 新构建内置 **tracediag 确定性采集模式**(§28.12):零 LLM、纯只读、不需要仓库与模型凭据,直接对 trace 跑采集脚本并生成单文件文本报告(每步行数帽默认 800/硬帽 1000,截断诚实披露;任一步骤失败退出码非零但报告仍全量)。采集脚本随构建在 `examples/tracediag/` 出货。
 
+开放 gap 的逐项触发判据、最小回传文件和脱敏边界见
+[`trace_witness_collection_playbook_20260710.md`](trace_witness_collection_playbook_20260710.md)。通用窗口采集模板为 `examples/tracediag/collect_open_gap_witness.yaml`。
+
 ## G12(滑动场景,两条 14.272ms 折叠成员疑同段双归属)
 ```
 codrax --tracediag examples/tracediag/collect_g12.yaml --trace berlin.systrace --out g12_report.txt

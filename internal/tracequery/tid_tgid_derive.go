@@ -209,7 +209,20 @@ func buildTidTgidDerivation(events []Event) *tidTgidDerivation {
 		default:
 			delete(pendingReg, ev.PID)
 		}
-		if ev.SpanPID <= 0 {
+		voteTGID := 0
+		switch ev.SpanAction {
+		case "B":
+			voteTGID = ev.SpanPID
+		case "C":
+			// C rows vote only through the same closed, finite wire schema used
+			// by counter deltas. A malformed/non-numeric inventory counter must
+			// not become process-identity authority through SpanPID's zero-fill.
+			sample := parseTraceCounterSample(ev)
+			if sample.identityOK && sample.numericValid {
+				voteTGID = sample.ownerPID
+			}
+		}
+		if voteTGID <= 0 {
 			continue
 		}
 		switch ev.SpanAction {
@@ -224,7 +237,7 @@ func buildTidTgidDerivation(events []Event) *tidTgidDerivation {
 				m = map[int]int{}
 				votes[ev.PID] = m
 			}
-			m[ev.SpanPID]++
+			m[voteTGID]++
 		}
 	}
 	if len(votes) == 0 {

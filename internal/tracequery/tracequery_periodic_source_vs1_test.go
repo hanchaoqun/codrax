@@ -169,12 +169,49 @@ func TestPeriodicSourceTrueLatenessFromBlockedCaliber(t *testing.T) {
 	if !near(agg.LatenessMs, 16.7, 0.001) {
 		t.Fatalf("aggregate lateness should be the 16.7ms overage, got %.6f", agg.LatenessMs)
 	}
-	runnableSum := 0.0
-	for _, r := range runnables {
-		runnableSum += r
+	// The late occurrence's 24.9ms projected window overlaps the following
+	// cadence observations. Cadence starts prove periodicity, not physical
+	// window disjointness, so the overlap cohort contributes one complete
+	// representative vector (.017ms runnable) instead of the three-member
+	// runnable sum. The first three windows remain disjoint.
+	const reconciledRunnable = 0.020 + 0.015 + 0.018 + 0.017
+	if !near(agg.RunnableMs, reconciledRunnable, 0.001) {
+		t.Fatalf("overlapping periodic windows must reconcile runnable to %.3fms, got %.6f", reconciledRunnable, agg.RunnableMs)
 	}
-	if !near(agg.EffectivePeriodicImpactMs, runnableSum+16.7, 0.001) {
-		t.Fatalf("effective should be runnable %.3f + lateness 16.7, got %.6f", runnableSum, agg.EffectivePeriodicImpactMs)
+	if !near(agg.EffectivePeriodicImpactMs, reconciledRunnable+16.7, 0.001) {
+		t.Fatalf("effective should be reconciled runnable %.3f + lateness 16.7, got %.6f", reconciledRunnable, agg.EffectivePeriodicImpactMs)
+	}
+}
+
+// TestPeriodicSourceCadenceDoesNotProveWindowDisjointness is the explicit
+// counterexample to the former periodic bypass: starts recur every 8ms, while
+// every projected occurrence spans 12.1ms. The cadence is real, but summing
+// the five overlapping state vectors would mint 60ms of sleep and .5ms of
+// runnable from a ~44ms physical envelope.
+func TestPeriodicSourceCadenceDoesNotProveWindowDisjointness(t *testing.T) {
+	intervals := []float64{8, 8, 8, 8}
+	sleeps := []float64{12, 12, 12, 12, 12}
+	runnables := []float64{0.1, 0.1, 0.1, 0.1, 0.1}
+	chain := buildPeriodicVSyncChain(intervals, sleeps, runnables)
+	for i := range chain.CausalImpacts {
+		chain.CausalImpacts[i].TargetBlockedMs = 8 // no lateness in this fixture
+	}
+	aggregates := aggregateWakeupCausalImpacts(&chain)
+	if len(aggregates) != 1 || !aggregates[0].PeriodicSource {
+		t.Fatalf("8ms starts must still establish the periodic source: %+v", aggregates)
+	}
+	agg := aggregates[0]
+	if agg.AggregationCaliber != WakeupAggregateCaliberOverlapSafe {
+		t.Fatalf("periodic overlap must use the ordinary overlap-safe caliber: %+v", agg)
+	}
+	if !near(agg.SleepMs, 12, 0.001) || !near(agg.RunnableMs, 0.1, 0.001) || !near(agg.TotalMs, 12.1, 0.001) {
+		t.Fatalf("one complete cohort vector must replace the overlapping sums: %+v", agg)
+	}
+	if !near(agg.LatenessMs, 0, 0.000001) || !near(agg.EffectivePeriodicImpactMs, 0.1, 0.001) {
+		t.Fatalf("periodic effective impact must derive from the reconciled vector: %+v", agg)
+	}
+	if agg.OccurrenceCount != 5 {
+		t.Fatalf("reconciliation must preserve the full observation census: %+v", agg)
 	}
 }
 

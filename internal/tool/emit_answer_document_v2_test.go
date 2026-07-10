@@ -334,7 +334,7 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceStructuredFacts(t *testing
 		Observations: []types.PerfObservation{
 			{
 				Kind:    "priority_semantics",
-				Summary: "Harmony priority semantics: 数值越大优先级越高; 1-40=CFS, 41-139=RT. Observed classes: prio=120/ohos_rt.",
+				Summary: "Harmony priority semantics: 数值越大优先级越高; 1-40=CFS, 41-159=RT, >159=system_or_kernel/raw. Observed classes: prio=120/ohos_rt.",
 			},
 			{
 				Kind:    "time_semantics",
@@ -1091,7 +1091,7 @@ func TestEmitAnswerDocumentV2_MixedSourceAndTraceKeepsLanesSeparate(t *testing.T
 		Meta: types.PerfMeta{Source: "hitrace"},
 		Observations: []types.PerfObservation{{
 			Kind:    "priority_semantics",
-			Summary: "Harmony priority semantics: 数值越大优先级越高; 1-40=CFS, 41-139=RT. Observed classes: prio=120/ohos_rt.",
+			Summary: "Harmony priority semantics: 数值越大优先级越高; 1-40=CFS, 41-159=RT, >159=system_or_kernel/raw. Observed classes: prio=120/ohos_rt.",
 		}},
 	})
 	tool := &EmitAnswerDocument{}

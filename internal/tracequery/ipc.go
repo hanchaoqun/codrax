@@ -14,6 +14,11 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 		res.Caveats = append(res.Caveats, "trace index is empty")
 		return res
 	}
+	res.Caveats = append(res.Caveats, traceMarkIntegrityCaveats(idx, q)...)
+	interfaceJoinFailClosed := traceMarkUnknownEmitterFailureForQuery(idx, q)
+	if interfaceJoinFailClosed {
+		res.Caveats = append(res.Caveats, "trace_mark_interface_join_fail_closed=true; binder edges remain available, but transact-span interface joins are omitted because a malformed trace_mark endpoint has an unknown emitter, could not materialize as an Event, or overflowed the bounded witness ledger")
+	}
 	filterQ := q
 	if filterQ.PID <= 0 && strings.TrimSpace(firstNonEmpty(filterQ.ThreadInput, filterQ.Thread)) != "" {
 		resolution := resolveThreadSelection(idx, filterQ)
@@ -50,6 +55,13 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 			continue
 		}
 		if ev.Type == EventTraceMark {
+			if traceMarkEventMalformed(ev) {
+				delete(openTransact, ev.PID)
+				continue
+			}
+			if interfaceJoinFailClosed {
+				continue
+			}
 			switch ev.SpanAction {
 			case "B":
 				if name, ok := transactSpanInterface(ev.SpanName); ok {

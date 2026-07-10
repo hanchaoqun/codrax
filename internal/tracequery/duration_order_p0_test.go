@@ -60,7 +60,7 @@ func TestInterruptLaneMonotonicityPreservesCrossCPUPhysicalInterleave(t *testing
 			break
 		}
 	}
-	if burst == nil || burst.Count != 2 || burst.DurationMs < 0.49 || burst.DurationMs > 0.51 {
+	if burst == nil || burst.Count != 2 || burst.SpanMs < 0.49 || burst.SpanMs > 0.51 || burst.DurationMs != 0 {
 		t.Fatalf("cross-CPU future row split/flushed CPU0 IRQ burst: %+v", stats.IRQBursts)
 	}
 	var activity *InterruptActivity

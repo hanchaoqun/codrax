@@ -87,9 +87,10 @@ func TestFormatCensusReportGolden(t *testing.T) {
 		// ③ clock track census: one track, two cpu_ids, min/max value range
 		"③ clock_set_rate 轨谱(共 1 轨,按计数列前 1):",
 		"- track=cpu-cluster.0 count=2 distinct_cpu_id=2 cpu_ids={0,1} 值域=[1400000..1800000]",
-		// ④ sched domain: the >139 bucket must be visible
+		// ④ sched domain: microkernel RT and raw >159 buckets stay separate.
 		"④ 调度域: sched_switch=",
-		"- prio>139 计数=",
+		"- prio=140..159 (Harmony microkernel RT) 计数=",
+		"- prio>159 计数=",
 		"- prev_state token 集:",
 		// ⑤ FS/IO faces
 		"⑤ FS/IO: 事件名前缀谱(共",
@@ -125,11 +126,11 @@ func TestFormatCensusReportGolden(t *testing.T) {
 		t.Errorf("plain span must carry no semantic annotation:\n%s", report)
 	}
 
-	// prio 301 must land in the >139 bucket with a nonzero count.
-	re := regexp.MustCompile(`- prio>139 计数=(\d+)`)
+	// prio 301 must land in the >159 bucket with a nonzero count.
+	re := regexp.MustCompile(`- prio>159 计数=(\d+)`)
 	m := re.FindStringSubmatch(report)
 	if m == nil || m[1] == "0" {
-		t.Fatalf("prio>139 bucket must count the prio-301 rows, got %v", m)
+		t.Fatalf("prio>159 bucket must count the prio-301 rows, got %v", m)
 	}
 
 	// Unknown-list cap honesty (自设最强突变: silently dropping the unknown
@@ -326,5 +327,18 @@ func TestFormatCensusUnparsedSampleCap(t *testing.T) {
 	}
 	if !strings.Contains(report, fmt.Sprintf("样本帽 %d", censusUnparsedSamples)) {
 		t.Errorf("missing sample-cap disclosure\n%s", report)
+	}
+}
+
+func TestFormatCensusHarmonyMicrokernelPriorityBuckets(t *testing.T) {
+	c := newFormatCensusAcc(censusScope{})
+	for _, prio := range []int{139, 140, 142, 157, 159, 160, 301} {
+		c.countPrio(prio)
+	}
+	if c.prioMicrokernelRT != 4 {
+		t.Fatalf("140/142/157/159 must occupy the microkernel RT bucket, got %d", c.prioMicrokernelRT)
+	}
+	if c.prioOver159 != 2 {
+		t.Fatalf("only 160/301 may occupy the raw >159 bucket, got %d", c.prioOver159)
 	}
 }

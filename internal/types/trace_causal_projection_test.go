@@ -235,13 +235,13 @@ func TestTraceCausalProjectionExpandsSemanticSpanBucket(t *testing.T) {
 	}
 
 	got := CompileTraceCausalProjection(ObservationLedger{Records: records})
-	if len(got.SemanticSpans) != 16 {
-		t.Fatalf("semantic span bucket should keep the expanded bounded surface, got %d: %+v", len(got.SemanticSpans), got.SemanticSpans)
+	if len(got.SemanticSpans) != 18 {
+		t.Fatalf("semantic span bucket must preserve every typed on-chain node, got %d: %+v", len(got.SemanticSpans), got.SemanticSpans)
 	}
-	if got.SemanticSpans[0].Subject != "dep-01" || got.SemanticSpans[15].Subject != "dep-16" {
+	if got.SemanticSpans[0].Subject != "dep-01" || got.SemanticSpans[17].Subject != "dep-18" {
 		t.Fatalf("semantic span ordering should remain typed and deterministic, got %+v", got.SemanticSpans)
 	}
-	if len(got.OnChainCauses) < 16 {
+	if len(got.OnChainCauses) < 18 {
 		t.Fatalf("expanded on-chain bucket should retain semantic optimization context, got %+v", got.OnChainCauses)
 	}
 }

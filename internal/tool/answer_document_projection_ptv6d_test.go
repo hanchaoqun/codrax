@@ -150,7 +150,7 @@ func TestPTV6DSelfRowPrefixFillAndPacking(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("fitting self row must stay a single line, got %d: %q", len(lines), lines)
 	}
-	for _, want := range []string{"☾ sleep", "25.806ms", "×2同值", "×3(1.000–12.000ms)", "[E1]"} {
+	for _, want := range []string{"☾ 自身·sleep", "25.806ms", "×2同值", "×3(1.000–12.000ms)", "[E1]"} {
 		if !strings.Contains(lines[0], want) {
 			t.Fatalf("self row lost part %q: %q", want, lines[0])
 		}

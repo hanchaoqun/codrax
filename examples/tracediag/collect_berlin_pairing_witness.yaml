@@ -1,0 +1,47 @@
+# Berlin 大 trace 的 pairing/counter 定向回访包。用于 2026-07-10 census
+# 暴露出的 S/F async、C counter、IRQ/IPI/softirq 与 block endpoint 生产面。
+# 零 LLM、纯只读；必须把 window 和 pid 改成目标卡顿帧（建议 <= 1s）。
+#
+# 用法：
+#   codrax --tracediag examples/tracediag/collect_berlin_pairing_witness.yaml \
+#     --trace berlin.systrace --out berlin_pairing_witness.txt
+#
+# 全 35s 直接跑 counter 可能有意触发 8192-series fail-close；目标小窗才是
+# 帧级裁定面。回传本报告全文，重点保留 counter_quality、duration_pairing、
+# trace_mark_integrity、block_io_pairing caveat。预算 260+100*6=860。
+version: 1
+description: "Berlin async/counter/interrupt/block 定向 pairing witness"
+defaults:
+  window: "6793224.900..6793225.000" # <- 改成目标精确窗口（秒）
+steps:
+  - label: target_window_stats
+    view: window_stats
+    pid: 42591                       # <- 改成目标 TID
+    max_lines: 260
+  - label: raw_counter_marks
+    view: event_search
+    event_types: [trace_mark]
+    pattern: "C|"
+    max_lines: 100
+  - label: raw_async_starts
+    view: event_search
+    event_types: [trace_mark]
+    pattern: "S|"
+    max_lines: 100
+  - label: raw_async_finishes
+    view: event_search
+    event_types: [trace_mark]
+    pattern: "F|"
+    max_lines: 100
+  - label: raw_interrupt_endpoints
+    view: event_search
+    event_types: [irq, softirq, ipi]
+    max_lines: 100
+  - label: raw_block_endpoints
+    view: event_search
+    event_types: [block_rq_issue, block_rq_complete]
+    max_lines: 100
+  - label: raw_unknown_events
+    view: event_search
+    event_types: [unknown]
+    max_lines: 100

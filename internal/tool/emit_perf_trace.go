@@ -387,7 +387,7 @@ func augmentPerfBundleWithPrioritySemantics(b *types.PerfBundle, ctx *types.BusC
 	if len(classes) == 0 {
 		return
 	}
-	summary := "Harmony priority semantics: 数值越大优先级越高/larger numeric value is higher; 1-40=CFS, 41-139=RT. Observed classes: " + strings.Join(classes, ", ") + "."
+	summary := "Harmony priority semantics: 数值越大优先级越高/larger numeric value is higher; 1-40=CFS, 41-159=RT, >159=system_or_kernel/raw. Observed classes: " + strings.Join(classes, ", ") + "."
 	obs := types.PerfObservation{
 		Kind:       "priority_semantics",
 		Subject:    "HarmonyOS priority semantics",
@@ -409,7 +409,7 @@ func normalizeHarmonyPriorityClaims(b *types.PerfBundle, ctx *types.BusContext, 
 	if len(classes) == 0 {
 		return
 	}
-	summary := "Harmony priority class normalized from raw prio fields: " + strings.Join(classes, ", ") + ". Rule: 数值越大优先级越高; 1-40=CFS, 41-139=RT."
+	summary := "Harmony priority class normalized from raw prio fields: " + strings.Join(classes, ", ") + ". Rule: 数值越大优先级越高; 1-40=CFS, 41-159=RT, >159=system_or_kernel/raw."
 	if harmonyPriorityTextContradicts(b.Meta.Summary) {
 		b.Meta.Summary = summary
 	}
@@ -652,12 +652,14 @@ func formatTraceDuration(durationMs float64) string {
 
 func harmonyPriorityClass(prio int) string {
 	switch {
+	case prio <= 0:
+		return ""
 	case prio >= 1 && prio <= 40:
 		return "ohos_cfs"
-	case prio >= 41 && prio <= 139:
+	case prio >= 41 && prio <= 159:
 		return "ohos_rt"
 	default:
-		return "system_or_kernel_raw"
+		return "system_or_kernel"
 	}
 }
 

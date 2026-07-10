@@ -361,6 +361,30 @@ func TestRuntimeTraceProjectionAtFullCapStaysNoOp(t *testing.T) {
 	}
 }
 
+func TestRuntimeTraceSemanticOptimizationAtFullCapReplacesLowerPriorityBlock(t *testing.T) {
+	bus := semanticOptimizationFixtureBus("")
+	doc := atCapDoc()
+	lastID := doc.Blocks[len(doc.Blocks)-1].ID
+	if !materializeRuntimeTraceSemanticOptimizationBlock(doc, bus) {
+		t.Fatal("mandatory semantic optimization surface must replace a lower-priority model block at full cap")
+	}
+	if len(doc.Blocks) != maxBlocksPerDoc {
+		t.Fatalf("replacement must stay count-neutral at %d blocks, got %d", maxBlocksPerDoc, len(doc.Blocks))
+	}
+	if projectionClusterBlock(doc.Blocks, "runtime_trace_semantic_optimizations") == nil {
+		t.Fatalf("semantic optimization block missing after full-cap replacement: %+v", doc.Blocks)
+	}
+	if projectionClusterBlock(doc.Blocks, lastID) != nil {
+		t.Fatalf("the deterministic last lower-priority block %q must yield", lastID)
+	}
+	if projectionClusterBlock(doc.Blocks, "p0") == nil {
+		t.Fatal("canonical leading block must never be evicted")
+	}
+	if err := validateMergedV2Doc(doc); err != nil {
+		t.Fatalf("count-neutral replacement must remain a valid document: %v", err)
+	}
+}
+
 // C4a EN symmetry: same block, English title/columns.
 func TestApplyAndPersistMutation_MaterializesDeterministicOptimizationBlockInEnglish(t *testing.T) {
 	bus := semanticOptimizationFixtureBus("en")

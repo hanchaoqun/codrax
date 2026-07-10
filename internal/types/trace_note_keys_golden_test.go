@@ -308,6 +308,9 @@ var traceNoteKeyGoldenRows = []string{
 	"symbol|perf|display_only",
 	"symbolization_status|perf|display_only",
 	"sync_like|blocking|display_only",
+	"system_or_kernel_competitors|cpu_load|display_only",
+	"system_or_kernel_overlap|cpu_load|display_only",
+	"system_or_kernel_running|cpu_load|display_only",
 	"target|chain_path|display_only",
 	"target_cpus|interrupt|display_only",
 	// EVOLUTION RECORD (COV 批, §24.9 D-1, 2026-07-08): target_impact family

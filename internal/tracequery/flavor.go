@@ -232,9 +232,9 @@ func FrameworkModeForPlatform(platform TracePlatform) string {
 func PrioritySemanticsForFlavor(flavor TraceFlavor) string {
 	switch flavor {
 	case TraceFlavorHarmonyHitrace:
-		return "HarmonyOS/hitrace user-space priority: larger numeric value means higher priority; 1-40=CFS, 41-139=RT; values outside that range are reported as system_or_kernel/raw."
+		return "HarmonyOS/hitrace user-space priority: larger numeric value means higher priority; 1-40=CFS, 41-159=RT; values above 159 are reported as system_or_kernel/raw."
 	case TraceFlavorAndroidAtrace:
-		return "Android/atrace ftrace priority is reported as raw scheduler priority; do not apply HarmonyOS 1-40/41-139 mapping. Lower raw values often indicate higher scheduling priority, but exact meaning depends on scheduler class and kernel policy."
+		return "Android/atrace ftrace priority is reported as raw scheduler priority; do not apply HarmonyOS 1-40/41-159 mapping. Lower raw values often indicate higher scheduling priority, but exact meaning depends on scheduler class and kernel policy."
 	default:
 		return "Generic ftrace priority is reported as raw scheduler priority; no platform-specific CFS/RT mapping was applied. Treat priority-derived pressure as advisory unless the trace producer's priority semantics are known."
 	}
@@ -249,9 +249,9 @@ func classifyTracePriority(flavor TraceFlavor, prio int) string {
 		switch {
 		case prio >= 1 && prio <= 40:
 			return "ohos_cfs"
-		case prio >= 41 && prio <= 139:
+		case prio >= 41 && prio <= 159:
 			return "ohos_rt"
-		case prio > 139:
+		case prio > 159:
 			return "system_or_kernel"
 		}
 	case TraceFlavorAndroidAtrace:
@@ -262,13 +262,16 @@ func classifyTracePriority(flavor TraceFlavor, prio int) string {
 	return ""
 }
 
-func isHighPriorityForPressure(flavor TraceFlavor, prio int, class string) bool {
-	switch flavor {
-	case TraceFlavorHarmonyHitrace:
-		return class == "ohos_rt" || class == "system_or_kernel" || prio >= 41
-	default:
-		return false
-	}
+func isHighPriorityForPressure(flavor TraceFlavor, _ int, class string) bool {
+	// Only the typed Harmony RT class enters the high-priority pressure
+	// account. system_or_kernel (>159) is an opaque raw scheduler token and
+	// remains visible through its own accounting bucket; numeric magnitude can
+	// never reopen this hard classification gate.
+	return flavor == TraceFlavorHarmonyHitrace && class == "ohos_rt"
+}
+
+func isSystemOrKernelForPressure(flavor TraceFlavor, class string) bool {
+	return flavor == TraceFlavorHarmonyHitrace && class == "system_or_kernel"
 }
 
 func applyPriorityFlavor(ev Event, flavor TraceFlavor) Event {

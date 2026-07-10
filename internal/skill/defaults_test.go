@@ -263,12 +263,15 @@ func TestExploreSkill_TraceQueryGuidanceIsTraceGated(t *testing.T) {
 		// be named) the root cause; the pin set asserts the new equal-footing
 		// clause + the unconditional mention floor + the class-word naming
 		// rule, and the negative pin below keeps the retired ban out.
-		"tier=deterministic_optimization",
+		"`gc_pause`",
+		"ordinary primary/secondary/tertiary root-cause election",
+		"MUST NEVER enter the Background board",
 		"compete for the root cause on equal footing",
 		"name it as the root cause by its semantic class",
 		"never one member's span name",
-		"MUST mention the largest on-chain one",
-		"never omitted",
+		"MUST mention EVERY retained on-chain semantic family",
+		"Independently of root-cause TOP N",
+		"never omitted merely because their rank row was truncated",
 		"projected share of its own query window",
 		"member_count",
 		"member_roster",
@@ -285,6 +288,9 @@ func TestExploreSkill_TraceQueryGuidanceIsTraceGated(t *testing.T) {
 	// equal-footing crown lane (the mention floor stays as its own clause).
 	if strings.Contains(traceTier, "never as the root cause") {
 		t.Fatalf("retired semantic-span root-cause ban resurfaced in the trace tier:\n%s", traceTier)
+	}
+	if strings.Contains(traceTier, "tier=deterministic_optimization") || strings.Contains(traceTier, "largest on-chain one") {
+		t.Fatalf("retired semantic-span tier/mention contract resurfaced in the trace tier:\n%s", traceTier)
 	}
 }
 
@@ -1047,6 +1053,74 @@ func TestMultiSourceMarker_PerfTriageSkillTeachesIt(t *testing.T) {
 		blob := strings.Join(append([]string{sk.Goal, sk.OutputFormat}, sk.Workflow...), "\n")
 		if !strings.Contains(blob, "# codrax-source:") {
 			t.Errorf("%s must teach the `# codrax-source:` multi-attach marker", name)
+		}
+	}
+}
+
+func TestRuntimeTraceSkillsPinHarmonyMicrokernelPriorityBoundary(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+
+	explore, err := r.Get("explore-skill")
+	if err != nil {
+		t.Fatalf("explore-skill missing: %v", err)
+	}
+	perf, err := r.Get("perf-triage-skill")
+	if err != nil {
+		t.Fatalf("perf-triage-skill missing: %v", err)
+	}
+	corpora := []struct {
+		name  string
+		body  string
+		wants []string
+	}{
+		{name: "explore", body: allWorkflowBodies(explore), wants: []string{
+			"41-159", ">159", "system_or_kernel/raw", "HarmonyOS/hitrace means larger numeric priority is higher",
+		}},
+		{name: "perf_triage", body: strings.Join(perf.Workflow, "\n"), wants: []string{
+			"41-159", ">159", "system_or_kernel/raw", "prio=140", "prio=159", "prio=160", "prio=301",
+		}},
+	}
+	for _, corpus := range corpora {
+		for _, want := range corpus.wants {
+			if !strings.Contains(corpus.body, want) {
+				t.Fatalf("%s priority guidance missing %q", corpus.name, want)
+			}
+		}
+		for _, stale := range []string{"41-139", ">139"} {
+			if strings.Contains(corpus.body, stale) {
+				t.Fatalf("%s priority guidance retained stale boundary %q", corpus.name, stale)
+			}
+		}
+	}
+}
+
+func TestRuntimeTraceSkillsKeepPriorityInversionBroadAndEvidenceCalibrated(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	explore, err := r.Get("explore-skill")
+	if err != nil {
+		t.Fatalf("explore-skill missing: %v", err)
+	}
+	perf, err := r.Get("perf-triage-skill")
+	if err != nil {
+		t.Fatalf("perf-triage-skill missing: %v", err)
+	}
+	for _, corpus := range []struct {
+		name string
+		body string
+	}{
+		{name: "explore", body: allWorkflowBodies(explore)},
+		{name: "perf_triage", body: strings.Join(perf.Workflow, "\n")},
+	} {
+		for _, want := range []string{
+			"lower_priority_waker", "lower_priority_dependency",
+			"effective_impact_ms", "cross-CPU weak-core/compute-supply running deficit",
+			"runnable time in full", "same-CPU preemption",
+		} {
+			if !strings.Contains(corpus.body, want) {
+				t.Fatalf("%s inversion guidance missing %q", corpus.name, want)
+			}
 		}
 	}
 }

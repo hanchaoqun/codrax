@@ -2533,7 +2533,7 @@ func traceQueryThreadCPULoadRecord(index, ordinal int, line string, ref Observat
 		Value:           value,
 		Unit:            "ms",
 		Summary:         traceQueryLoadSummaryFromFields("thread_cpu_load", fields, summary),
-		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"thread", TraceNoteKeyRunning, TraceNoteKeyRunnable, "high_prio_running", "cpu", "core_class", "freq", "prio"}),
+		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"thread", TraceNoteKeyRunning, TraceNoteKeyRunnable, "high_prio_running", "system_or_kernel_running", "cpu", "core_class", "freq", "prio"}),
 		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
 		ObservedAt:      observedAt,
 		Confidence:      0.72,
@@ -2605,7 +2605,7 @@ func traceQueryRunnableContextRecord(index, ordinal int, line string, ref Observ
 		Value:           value,
 		Unit:            "ms",
 		Summary:         traceQueryLoadSummaryFromFields("runnable_context", fields, summary),
-		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"thread", TraceNoteKeyRunnable, "cpu", "core_class", "freq", "same_cpu_busy", "same_cpu_idle", "other_cpu_idle", "high_prio_running", "top_background_threads", "top_background_process", "constraint", "verdict"}),
+		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"thread", TraceNoteKeyRunnable, "cpu", "core_class", "freq", "same_cpu_busy", "same_cpu_idle", "other_cpu_idle", "high_prio_running", "high_prio_overlap", "system_or_kernel_running", "system_or_kernel_overlap", "system_or_kernel_competitors", "top_background_threads", "top_background_process", "constraint", "verdict"}),
 		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
 		ObservedAt:      observedAt,
 		Confidence:      conf,
@@ -2642,7 +2642,7 @@ func traceQueryProcessCPULoadRecord(index, ordinal int, line string, ref Observa
 		Value:           value,
 		Unit:            "ms",
 		Summary:         traceQueryLoadSummaryFromFields("process_cpu_load", fields, summary),
-		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"process", "threads", TraceNoteKeyRunning, TraceNoteKeyRunnable, "high_prio_running", "top_thread", "top_thread_ms", "cpus", "core_classes"}),
+		RichNotes:       traceQuerySelectedRichNotes(fields, []string{"process", "threads", TraceNoteKeyRunning, TraceNoteKeyRunnable, "high_prio_running", "system_or_kernel_running", "top_thread", "top_thread_ms", "cpus", "core_classes"}),
 		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
 		ObservedAt:      observedAt,
 		Confidence:      0.66,
@@ -2651,7 +2651,7 @@ func traceQueryProcessCPULoadRecord(index, ordinal int, line string, ref Observa
 
 func traceQueryLoadSummaryFromFields(label string, fields map[string]string, fallback string) string {
 	parts := []string{label}
-	keys := []string{"thread", "process", "running", "runnable", "high_prio_running", "cpu", "core_class", "freq", "allowed_cpus", "allowed_core_classes", "cpuset", "policy", "top_background_threads", "top_background_process", "constraint", "verdict", "top_thread", "cpus", "core_classes"}
+	keys := []string{"thread", "process", "running", "runnable", "high_prio_running", "high_prio_overlap", "system_or_kernel_running", "system_or_kernel_overlap", "system_or_kernel_competitors", "cpu", "core_class", "freq", "allowed_cpus", "allowed_core_classes", "cpuset", "policy", "top_background_threads", "top_background_process", "constraint", "verdict", "top_thread", "cpus", "core_classes"}
 	for _, key := range keys {
 		if value := strings.TrimSpace(fields[key]); value != "" {
 			parts = append(parts, key+"="+value)

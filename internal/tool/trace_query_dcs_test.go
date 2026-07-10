@@ -122,16 +122,16 @@ func TestDCSBackgroundRankNoteEmissionScope(t *testing.T) {
 // ranks highest, and keeps its unconditional optimization-point mention
 // floor; non-chain rows keep the background_rank mention gate. The pins now
 // assert the equal-footing wording and keep the retired ban out.
-func TestDCSTraceQueryDescriptionSpeaksOptimizationTier(t *testing.T) {
+func TestDCSTraceQueryDescriptionSpeaksOnChainElectionAndOffChainBackground(t *testing.T) {
 	description := (&TraceQuery{}).Description()
 	for _, want := range []string{
-		"tier=deterministic_optimization",
 		"background_rank",
-		"compete for the root cause on equal footing",
+		"ordinary primary/secondary/tertiary root-cause election",
+		"must never enter the background board",
 		"report it as the root cause named by its semantic class",
 		"never one member's span name",
 		"always also report it as a deterministic optimization point",
-		"on-chain semantic span-work rows join that comparison on equal footing",
+		"explicit GC pauses",
 	} {
 		if !strings.Contains(description, want) {
 			t.Fatalf("description missing %q", want)
@@ -140,6 +140,7 @@ func TestDCSTraceQueryDescriptionSpeaksOptimizationTier(t *testing.T) {
 	for _, banned := range []string{
 		"never as the root cause itself",
 		"semantic span-work rows never join that election",
+		"rows with chain_relevance=on_chain carry tier=deterministic_optimization",
 	} {
 		if strings.Contains(description, banned) {
 			t.Fatalf("retired semantic-span ban wording resurfaced: %q", banned)

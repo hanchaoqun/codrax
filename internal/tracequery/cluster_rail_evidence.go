@@ -256,7 +256,7 @@ func collectClusterRailCandidates(events []Event) map[string]*railCandidate {
 			out[ev.ClockName] = cand
 		}
 		cand.samples = append(cand.samples, freqSample{ts: ev.Ts, khz: ev.Frequency})
-		if !ev.CPUForFieldValid {
+		if !ev.CPUForFieldValid || !validTraceCPUIndex(ev.CPUForField) {
 			cand.keyless++
 			continue
 		}
@@ -660,7 +660,7 @@ func (c *chainQueryCache) thermalRailTimelines() []thermalRailTimeline {
 			byName[ev.ClockName] = rail
 			valid[ev.ClockName] = true
 		}
-		if !ev.CPUForFieldValid || ev.Frequency < clusterRailFreqMinKHz || ev.Frequency > clusterRailFreqMaxKHz {
+		if !ev.CPUForFieldValid || !validTraceCPUIndex(ev.CPUForField) || ev.Frequency < clusterRailFreqMinKHz || ev.Frequency > clusterRailFreqMaxKHz {
 			// Unkeyed or non-frequency-shaped thermal telemetry: the whole
 			// rail is dropped (absence never guesses a ceiling).
 			valid[ev.ClockName] = false

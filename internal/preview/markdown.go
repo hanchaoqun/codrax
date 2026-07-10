@@ -26,8 +26,10 @@ import (
 // visible while keeping a zero-execution surface. The only custom HTML
 // emitted here is renderer-authored scaffolding: fenced code blocks
 // (mermaid fences become <div class="mermaid"> nodes, ordinary fences
-// escaped <pre><code>) and the §29.9 aux-reference appendix (pointer
-// lines + <section class="aux">, see markdown_auxfold.go).
+// escaped <pre><code>), the §29.9 aux-reference appendix (pointer
+// lines + <section class="aux">, see markdown_auxfold.go), and exact-title
+// runtime-trace audit regions used only for compact report presentation (see
+// markdown_trace_sections.go).
 func RenderMarkdownHTML(markdown []byte) (string, error) {
 	var out bytes.Buffer
 	md := goldmark.New(
@@ -51,6 +53,10 @@ func RenderMarkdownHTML(markdown []byte) (string, error) {
 			// markdown_auxfold.go for the closed set and ruling.
 			parser.WithASTTransformers(
 				util.Prioritized(auxFoldTransformer{}, 500),
+				// Run after auxFoldTransformer: any legend/glossary pair
+				// relocated to the appendix must not remain inside a compact
+				// projection-detail region at its former location.
+				util.Prioritized(traceAuditSectionTransformer{}, 600),
 			),
 		),
 		goldmark.WithRendererOptions(
@@ -58,6 +64,7 @@ func RenderMarkdownHTML(markdown []byte) (string, error) {
 				util.Prioritized(fencedCodeRenderer{}, 500),
 				util.Prioritized(rawHTMLLiteralRenderer{}, 500),
 				util.Prioritized(auxRefRenderer{}, 500),
+				util.Prioritized(traceAuditSectionRenderer{}, 500),
 			),
 		),
 	)

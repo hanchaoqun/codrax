@@ -6,7 +6,6 @@ import (
 	"math"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 	"sync/atomic"
 
@@ -1665,6 +1664,8 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	durationFailures := durationOrderFailuresForQuery(idx, q)
 	frequencyIntegrity := frequencyOrderIntegrityForQuery(idx, q)
 	stats.Caveats = append(stats.Caveats, frequencyIntegrity.caveats()...)
+	stats.Caveats = append(stats.Caveats, cpuInputIntegrityCaveats(idx, q)...)
+	stats.Caveats = append(stats.Caveats, traceMarkIntegrityCaveats(idx, q)...)
 	schedulerFailure := schedulerStateIntegrityFailureForQuery(idx, q, 0)
 	identityConflict := threadIncarnationConflictForQuery(idx, q, 0)
 	schedulerDurationsSafe := schedulerFailure == nil && identityConflict == nil
@@ -1961,6 +1962,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 				if highPriority {
 					acc.highPriorityRunningMs += dur
 				}
+				if isSystemOrKernelForPressure(q.TraceFlavor, td.PriorityClass) {
+					acc.systemOrKernelRunningMs += dur
+				}
 				acc.runningSegs = append(acc.runningSegs, pressureSegment{
 					thread:        td.Thread,
 					cpu:           cpu,
@@ -2072,10 +2076,13 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		stats.Caveats = append(stats.Caveats, caveat)
 	}
 	blockDurationFailure := durationFailures[durationOrderBlockIO]
+	var blockPairing blockPairingResult
 	if blockDurationFailure != nil {
 		stats.Caveats = append(stats.Caveats, durationOrderFailClosedCaveat(blockDurationFailure, "io_latencies/storage_latency_by_layer(block)"))
 	} else {
-		stats.IOLatencies = computeIOLatencies(idx, q, 8)
+		blockPairing = computeBlockIOLatencies(idx, q, 8)
+		stats.IOLatencies = blockPairing.latencies
+		stats.Caveats = append(stats.Caveats, blockPairing.caveats...)
 	}
 	stats.CPUFrequencyLimits = sortedCPUFrequencyLimits(freqLimits, 8)
 	stats.SubsystemEvents = sortedSubsystemEvents(subsystems, 12)
@@ -2090,7 +2097,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		stats.TopIOInodes = computeTopIOInodes(fileIO, pageCache, topIOInodeGroupLimit)
 		stats.FileIOByInode = sortedFileIOSummaries(fileIO, 8)
 		stats.PageCacheByInode = sortedPageCacheSummaries(pageCache, 8)
-		storageLatencies := computeStorageLatencyByLayer(idx, q, stats.IOLatencies, 8)
+		storageLatencies, storagePairingCaveats := computeStorageLatencyByLayer(idx, q, blockPairing.summaries, 8)
 		storageDurationFailure := durationFailures[durationOrderStorage]
 		if storageDurationFailure != nil {
 			stats.Caveats = append(stats.Caveats, durationOrderFailClosedCaveat(storageDurationFailure, "storage_latency_by_layer(non_block)"))
@@ -2106,10 +2113,10 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			}
 			stats.StorageLatencyByLayer = append(stats.StorageLatencyByLayer, latency)
 		}
+		stats.Caveats = append(stats.Caveats, storagePairingCaveats...)
 		stats.AbilityEvents = sortedTracePluginSummaries(abilityEvents, 8)
 		stats.XPowerEvents = sortedTracePluginSummaries(xpowerEvents, 8)
 		stats.HiSystemEvents = sortedTracePluginSummaries(hiSystemEvents, 8)
-		stats.Caveats = append(stats.Caveats, ioPairingCaveats(idx, q)...)
 	} else {
 		stats.Caveats = append(stats.Caveats, "thread_identity_resource_fail_closed=true; PID-keyed BIO/filesystem/page-fault/inode/storage/plugin/workqueue/DMA aggregates are omitted because the selected window crosses a task-incarnation boundary")
 	}
@@ -2126,41 +2133,55 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			stats.TraceSpans = traceSpans
 			traceMarkCaveats = candidateCaveats
 		}
+		counterDeltas, counterQuality := computeCounterDeltas(idx, q, 8)
+		stats.CounterQuality = counterQuality
 		if failure := durationFailures[durationOrderTraceCounter]; failure != nil {
 			stats.Caveats = append(stats.Caveats, durationOrderFailClosedCaveat(failure, "counter_deltas"))
 		} else {
-			stats.CounterDeltas = computeCounterDeltas(idx, q, 8)
+			stats.CounterDeltas = counterDeltas
+		}
+		if quality := stats.CounterQuality; quality != nil && (quality.InvalidRows > 0 || quality.NonNumericRows > 0 || quality.DerivedInvalidSeries > 0 || quality.SeriesBudgetExceeded) {
+			stats.Caveats = append(stats.Caveats, fmt.Sprintf(
+				"trace_counter_quality_degraded=true; invalid_rows=%d non_numeric_rows=%d derived_invalid_series=%d suppressed_series=%d series_budget=%d budget_exceeded=%t overflow_rows=%d; malformed/non-finite/over-budget series are omitted from counter_deltas and retained in trace_counters/counter_quality",
+				quality.InvalidRows, quality.NonNumericRows, quality.DerivedInvalidSeries, quality.SuppressedSeries,
+				quality.SeriesBudget, quality.SeriesBudgetExceeded, quality.OverflowRows))
 		}
 	}
 	stats.Caveats = append(stats.Caveats, traceMarkCaveats...)
 	stats.TraceMarkCategories = computeTraceMarkCategories(stats.TraceSpans, 8)
 	stats.AsyncFileWork = computeAsyncFileWorkSummaries(stats.TraceSpans, 8)
+	var tracePairingCaveats []string
 	if failure := durationFailures[durationOrderIRQ]; failure != nil {
 		stats.Caveats = append(stats.Caveats, durationOrderFailClosedCaveat(failure, "irq_bursts/irq_activity"))
 	} else {
 		stats.IRQBursts = computeIRQBursts(idx, q, 8)
-		stats.IRQActivity = computeInterruptActivity(idx, q, EventIRQ, coreByCPU, 8)
+		stats.IRQActivity, tracePairingCaveats = computeInterruptActivity(idx, q, EventIRQ, coreByCPU, 8)
+		stats.Caveats = append(stats.Caveats, tracePairingCaveats...)
 	}
 	if failure := durationFailures[durationOrderSoftIRQ]; failure != nil {
 		stats.Caveats = append(stats.Caveats, durationOrderFailClosedCaveat(failure, "softirq_activity"))
 	} else {
-		stats.SoftIRQActivity = computeInterruptActivity(idx, q, EventSoftIRQ, coreByCPU, 8)
+		stats.SoftIRQActivity, tracePairingCaveats = computeInterruptActivity(idx, q, EventSoftIRQ, coreByCPU, 8)
+		stats.Caveats = append(stats.Caveats, tracePairingCaveats...)
 	}
 	if failure := durationFailures[durationOrderIPI]; failure != nil {
 		stats.Caveats = append(stats.Caveats, durationOrderFailClosedCaveat(failure, "ipi_activity"))
 	} else {
-		stats.IPIActivity = computeInterruptActivity(idx, q, EventIPI, coreByCPU, 8)
+		stats.IPIActivity, tracePairingCaveats = computeInterruptActivity(idx, q, EventIPI, coreByCPU, 8)
+		stats.Caveats = append(stats.Caveats, tracePairingCaveats...)
 	}
 	if identityConflict == nil {
 		if failure := durationFailures[durationOrderWorkqueue]; failure != nil {
 			stats.Caveats = append(stats.Caveats, durationOrderFailClosedCaveat(failure, "workqueue_activity"))
 		} else {
-			stats.WorkqueueActivity = computeWorkqueueActivity(idx, q, 8)
+			stats.WorkqueueActivity, tracePairingCaveats = computeWorkqueueActivity(idx, q, 8)
+			stats.Caveats = append(stats.Caveats, tracePairingCaveats...)
 		}
 		if failure := durationFailures[durationOrderDMAFence]; failure != nil {
 			stats.Caveats = append(stats.Caveats, durationOrderFailClosedCaveat(failure, "dma_fence_activity"))
 		} else {
-			stats.DMAFenceActivity = computeDMAFenceActivity(idx, q, 8)
+			stats.DMAFenceActivity, tracePairingCaveats = computeDMAFenceActivity(idx, q, 8)
+			stats.Caveats = append(stats.Caveats, tracePairingCaveats...)
 		}
 	}
 	if schedulerDurationsSafe {
@@ -2964,15 +2985,16 @@ func topWeightedKey(in map[string]int64) string {
 }
 
 type cpuPressureAcc struct {
-	runnableWaitMs        float64
-	runnableEvents        int
-	runningMs             float64
-	runningEvents         int
-	highPriorityRunningMs float64
-	runnable              map[string]ThreadDuration
-	running               map[string]ThreadDuration
-	runningSegs           []pressureSegment
-	runnableSegs          []pressureSegment
+	runnableWaitMs          float64
+	runnableEvents          int
+	runningMs               float64
+	runningEvents           int
+	highPriorityRunningMs   float64
+	systemOrKernelRunningMs float64
+	runnable                map[string]ThreadDuration
+	running                 map[string]ThreadDuration
+	runningSegs             []pressureSegment
+	runnableSegs            []pressureSegment
 }
 
 // pressureSegment is one contiguous scheduling interval (running or runnable)
@@ -2997,6 +3019,13 @@ type timeInterval struct {
 	end   float64
 }
 
+type priorityPressureOverlap struct {
+	highPriorityMs                float64
+	systemOrKernelMs              float64
+	systemOrKernelCompetitorCount int
+	competitors                   []ThreadDuration
+}
+
 // overlapCompetitorsForIntervals keeps only the running time that overlapped
 // the target's runnable interval(s) on one CPU (§7.30.2 R5g displacement
 // evidence). It returns the high-priority-only overlapped total plus the
@@ -3005,11 +3034,13 @@ type timeInterval struct {
 // descending. Serial hand-offs where a peer only runs outside the target's
 // waits contribute nothing. runningSegs must be sorted by start and disjoint
 // (single-CPU running segments are).
-func overlapCompetitorsForIntervals(runningSegs []pressureSegment, target ThreadRef, intervals []timeInterval, maxCompetitors int) (float64, []ThreadDuration) {
+func overlapCompetitorsForIntervals(runningSegs []pressureSegment, target ThreadRef, intervals []timeInterval, maxCompetitors int) priorityPressureOverlap {
 	if len(runningSegs) == 0 || len(intervals) == 0 {
-		return 0, nil
+		return priorityPressureOverlap{}
 	}
 	highPriorityMs := 0.0
+	systemOrKernelMs := 0.0
+	systemOrKernelCompetitors := map[string]bool{}
 	competitors := map[string]ThreadDuration{}
 	for _, interval := range intervals {
 		if interval.end <= interval.start {
@@ -3030,6 +3061,10 @@ func overlapCompetitorsForIntervals(runningSegs []pressureSegment, target Thread
 				highPriorityMs += overlapMs
 			}
 			key := threadKey(seg.thread)
+			if seg.priorityClass == "system_or_kernel" {
+				systemOrKernelMs += overlapMs
+				systemOrKernelCompetitors[key] = true
+			}
 			td := competitors[key]
 			td.Thread = seg.thread
 			td.DurationMs += overlapMs
@@ -3064,7 +3099,12 @@ func overlapCompetitorsForIntervals(runningSegs []pressureSegment, target Thread
 	if maxCompetitors > 0 && len(out) > maxCompetitors {
 		out = out[:maxCompetitors]
 	}
-	return highPriorityMs, out
+	return priorityPressureOverlap{
+		highPriorityMs:                highPriorityMs,
+		systemOrKernelMs:              systemOrKernelMs,
+		systemOrKernelCompetitorCount: len(systemOrKernelCompetitors),
+		competitors:                   out,
+	}
 }
 
 // sortPressureSegments orders segments by start time (line as tiebreak) so
@@ -3096,7 +3136,7 @@ func runnableIntervalsForThread(pressure CPUPressureStats, target ThreadRef) []t
 // overlapped total plus the per-competitor overlapped list (§7.30.2 R5g).
 // Zero when the target never waited runnable on this CPU — co-residency
 // without displacement is not competition.
-func runnableDisplacementOverlap(pressure CPUPressureStats, target ThreadRef, maxCompetitors int) (float64, []ThreadDuration) {
+func runnableDisplacementOverlap(pressure CPUPressureStats, target ThreadRef, maxCompetitors int) priorityPressureOverlap {
 	return overlapCompetitorsForIntervals(pressure.runningSegments, target, runnableIntervalsForThread(pressure, target), maxCompetitors)
 }
 
@@ -3105,9 +3145,9 @@ func runnableDisplacementOverlap(pressure CPUPressureStats, target ThreadRef, ma
 // runnable wait on this CPU, plus the per-competitor overlapped durations
 // (any priority). Running segments on one CPU are disjoint, so each instant
 // contributes at most once (§7.30.2 R5g). Both inputs must be sorted by start.
-func cpuDisplacementAggregate(runningSegs, runnableSegs []pressureSegment, maxCompetitors int) (float64, []ThreadDuration) {
+func cpuDisplacementAggregate(runningSegs, runnableSegs []pressureSegment, maxCompetitors int) priorityPressureOverlap {
 	if len(runningSegs) == 0 || len(runnableSegs) == 0 {
-		return 0, nil
+		return priorityPressureOverlap{}
 	}
 	type boundary struct {
 		ts    float64
@@ -3135,6 +3175,8 @@ func cpuDisplacementAggregate(runningSegs, runnableSegs []pressureSegment, maxCo
 		}
 	}
 	highPriorityMs := 0.0
+	systemOrKernelMs := 0.0
+	systemOrKernelCompetitors := map[string]bool{}
 	competitors := map[string]ThreadDuration{}
 	for _, seg := range runningSegs {
 		if seg.endTs <= seg.startTs {
@@ -3151,6 +3193,10 @@ func cpuDisplacementAggregate(runningSegs, runnableSegs []pressureSegment, maxCo
 				overlapMs := (to - cursor) * 1000
 				if seg.highPriority {
 					highPriorityMs += overlapMs
+				}
+				if seg.priorityClass == "system_or_kernel" {
+					systemOrKernelMs += overlapMs
+					systemOrKernelCompetitors[segKey] = true
 				}
 				td := competitors[segKey]
 				td.Thread = seg.thread
@@ -3195,7 +3241,12 @@ func cpuDisplacementAggregate(runningSegs, runnableSegs []pressureSegment, maxCo
 	if maxCompetitors > 0 && len(out) > maxCompetitors {
 		out = out[:maxCompetitors]
 	}
-	return highPriorityMs, out
+	return priorityPressureOverlap{
+		highPriorityMs:                highPriorityMs,
+		systemOrKernelMs:              systemOrKernelMs,
+		systemOrKernelCompetitorCount: len(systemOrKernelCompetitors),
+		competitors:                   out,
+	}
 }
 
 func cpuPressure(in map[int]*cpuPressureAcc, cpu int) *cpuPressureAcc {
@@ -3396,12 +3447,13 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 					}
 				}
 			}
+			targetCPU, _ := eventTargetCPU(ev)
 			open[ev.WakeePID] = offCPUStart{
 				thread:        ThreadRef{Comm: ev.WakeeComm, PID: ev.WakeePID},
 				state:         StateRunnable,
 				ts:            ev.Ts,
 				line:          ev.Line,
-				cpu:           ev.TargetCPU,
+				cpu:           targetCPU,
 				priority:      ev.WakeePrio,
 				priorityClass: classifyTracePriority(q.TraceFlavor, ev.WakeePrio),
 			}
@@ -3613,27 +3665,30 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 		}
 		freq := frequencyAt(schedFreqTimelineFor(start.cpu), startTs)
 		freqStats := segmentFrequencyStats(schedFreqTimelineFor(start.cpu), startTs, endTs)
-		hpOverlapMs, overlapCompetitors := overlapCompetitorsForIntervals(p.runningSegments, start.thread, []timeInterval{{start: startTs, end: endTs}}, 8)
+		overlap := overlapCompetitorsForIntervals(p.runningSegments, start.thread, []timeInterval{{start: startTs, end: endTs}}, 8)
 		item := SchedulerLatencyItem{
-			Thread:                       start.thread,
-			StartTs:                      startTs,
-			EndTs:                        endTs,
-			DurationMs:                   duration,
-			CPU:                          start.cpu,
-			CoreClass:                    cpu.CoreClass,
-			Frequency:                    freq,
-			WeightedFrequency:            int(math.Round(freqStats.weightedKHz)),
-			ObservedMaxFrequency:         freqStats.observedMaxKHz,
-			Priority:                     start.priority,
-			PriorityClass:                start.priorityClass,
-			StartLine:                    start.line,
-			EndLine:                      firstPositive(endLine, start.line),
-			SameCPUBusyMs:                cpu.BusyMs,
-			SameCPUIdleMs:                cpu.IdleMs,
-			OtherCPUIdleMs:               otherIdle,
-			HighPriorityRunningMs:        p.HighPriorityRunningMs,
-			HighPriorityRunningOverlapMs: hpOverlapMs,
-			SameCPUTopRunning:            overlapCompetitors,
+			Thread:                         start.thread,
+			StartTs:                        startTs,
+			EndTs:                          endTs,
+			DurationMs:                     duration,
+			CPU:                            start.cpu,
+			CoreClass:                      cpu.CoreClass,
+			Frequency:                      freq,
+			WeightedFrequency:              int(math.Round(freqStats.weightedKHz)),
+			ObservedMaxFrequency:           freqStats.observedMaxKHz,
+			Priority:                       start.priority,
+			PriorityClass:                  start.priorityClass,
+			StartLine:                      start.line,
+			EndLine:                        firstPositive(endLine, start.line),
+			SameCPUBusyMs:                  cpu.BusyMs,
+			SameCPUIdleMs:                  cpu.IdleMs,
+			OtherCPUIdleMs:                 otherIdle,
+			HighPriorityRunningMs:          p.HighPriorityRunningMs,
+			HighPriorityRunningOverlapMs:   overlap.highPriorityMs,
+			SystemOrKernelRunningMs:        p.SystemOrKernelRunningMs,
+			SystemOrKernelRunningOverlapMs: overlap.systemOrKernelMs,
+			SystemOrKernelCompetitorCount:  overlap.systemOrKernelCompetitorCount,
+			SameCPUTopRunning:              overlap.competitors,
 		}
 		if freqStats.known && freqStats.inSegmentSamples == 0 {
 			item.FrequencySample = FrequencySampleNearestFallback
@@ -3653,6 +3708,10 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 		}
 		if item.HighPriorityRunningOverlapMs > 0 {
 			item.Summary = fmt.Sprintf("%s high_prio_overlap=%.3fms", item.Summary, item.HighPriorityRunningOverlapMs)
+		}
+		if item.SystemOrKernelRunningOverlapMs > 0 {
+			item.Summary = fmt.Sprintf("%s system_or_kernel_overlap=%.3fms system_or_kernel_competitors=%d",
+				item.Summary, item.SystemOrKernelRunningOverlapMs, item.SystemOrKernelCompetitorCount)
 		}
 		if item.OtherCPUIdleMs > 0 {
 			item.Summary = fmt.Sprintf("%s other_cpu_idle=%.3fms", item.Summary, item.OtherCPUIdleMs)
@@ -3698,11 +3757,12 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 						return
 					}
 					if existing, ok := open[ev.WakeePID]; schedWakeupStartsNewIncarnation(ev) || !ok || ev.Ts < existing.ts {
+						targetCPU, _ := eventTargetCPU(ev)
 						open[ev.WakeePID] = startInfo{
 							thread:        catalogThreadRef(catalog, ev.WakeePID, ev.WakeeComm),
 							ts:            ev.Ts,
 							line:          ev.Line,
-							cpu:           ev.TargetCPU,
+							cpu:           targetCPU,
 							priority:      ev.WakeePrio,
 							priorityClass: classifyTracePriority(q.TraceFlavor, ev.WakeePrio),
 						}
@@ -3820,19 +3880,22 @@ func buildCPUPressureStats(in map[int]*cpuPressureAcc, max int) []CPUPressureSta
 		}
 		sortPressureSegments(acc.runningSegs)
 		sortPressureSegments(acc.runnableSegs)
-		highPriorityOverlapMs, overlapCompetitors := cpuDisplacementAggregate(acc.runningSegs, acc.runnableSegs, max)
+		overlap := cpuDisplacementAggregate(acc.runningSegs, acc.runnableSegs, max)
 		out = append(out, CPUPressureStats{
-			CPU:                          cpu,
-			RunnableWaitMs:               acc.runnableWaitMs,
-			RunnableEvents:               acc.runnableEvents,
-			RunningMs:                    acc.runningMs,
-			HighPriorityRunningMs:        acc.highPriorityRunningMs,
-			HighPriorityRunningOverlapMs: highPriorityOverlapMs,
-			OverlapCompetitors:           overlapCompetitors,
-			TopRunnable:                  topThreadDurations(acc.runnable, max),
-			TopRunning:                   topThreadDurations(acc.running, max),
-			runningSegments:              acc.runningSegs,
-			runnableSegments:             acc.runnableSegs,
+			CPU:                            cpu,
+			RunnableWaitMs:                 acc.runnableWaitMs,
+			RunnableEvents:                 acc.runnableEvents,
+			RunningMs:                      acc.runningMs,
+			HighPriorityRunningMs:          acc.highPriorityRunningMs,
+			HighPriorityRunningOverlapMs:   overlap.highPriorityMs,
+			SystemOrKernelRunningMs:        acc.systemOrKernelRunningMs,
+			SystemOrKernelRunningOverlapMs: overlap.systemOrKernelMs,
+			SystemOrKernelCompetitorCount:  overlap.systemOrKernelCompetitorCount,
+			OverlapCompetitors:             overlap.competitors,
+			TopRunnable:                    topThreadDurations(acc.runnable, max),
+			TopRunning:                     topThreadDurations(acc.running, max),
+			runningSegments:                acc.runningSegs,
+			runnableSegments:               acc.runnableSegs,
 		})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -4233,6 +4296,9 @@ func computeThreadCPULoad(q Query, running []ThreadDuration, runnable []ThreadDu
 			if isHighPriorityForPressure(q.TraceFlavor, td.Priority, td.PriorityClass) {
 				acc.item.HighPriorityRunningMs += td.DurationMs
 			}
+			if isSystemOrKernelForPressure(q.TraceFlavor, td.PriorityClass) {
+				acc.item.SystemOrKernelRunningMs += td.DurationMs
+			}
 		} else {
 			acc.item.RunnableWaitMs += td.DurationMs
 		}
@@ -4262,8 +4328,8 @@ func computeThreadCPULoad(q Query, running []ThreadDuration, runnable []ThreadDu
 		item := acc.item
 		item.LineStart = acc.lineStart
 		item.LineEnd = acc.lineEnd
-		item.Summary = fmt.Sprintf("%s thread load running=%.3fms runnable=%.3fms high_prio_running=%.3fms cpu=%d",
-			threadLabel(item.Thread), item.RunningMs, item.RunnableWaitMs, item.HighPriorityRunningMs, item.CPU)
+		item.Summary = fmt.Sprintf("%s thread load running=%.3fms runnable=%.3fms high_prio_running=%.3fms system_or_kernel_running=%.3fms cpu=%d",
+			threadLabel(item.Thread), item.RunningMs, item.RunnableWaitMs, item.HighPriorityRunningMs, item.SystemOrKernelRunningMs, item.CPU)
 		if item.CoreClass != "" {
 			item.Summary = fmt.Sprintf("%s core_class=%s", item.Summary, item.CoreClass)
 		}
@@ -4330,6 +4396,7 @@ func computeProcessCPULoad(catalog map[int]ThreadRef, loads []ThreadCPULoadSumma
 		acc.item.RunningMs += load.RunningMs
 		acc.item.RunnableWaitMs += load.RunnableWaitMs
 		acc.item.HighPriorityRunningMs += load.HighPriorityRunningMs
+		acc.item.SystemOrKernelRunningMs += load.SystemOrKernelRunningMs
 		loadTotal := load.RunningMs + load.RunnableWaitMs
 		if loadTotal > acc.item.TopThreadMs {
 			acc.item.TopThread = load.Thread
@@ -4416,21 +4483,24 @@ func computeRunnableContextSummaries(items []SchedulerLatencyItem, threadLoads [
 	var out []RunnableContextSummary
 	for _, item := range items {
 		ctx := RunnableContextSummary{
-			Thread:                       item.Thread,
-			RunnableWaitMs:               item.DurationMs,
-			CPU:                          item.CPU,
-			CoreClass:                    item.CoreClass,
-			Frequency:                    item.Frequency,
-			Priority:                     item.Priority,
-			PriorityClass:                item.PriorityClass,
-			SameCPUBusyMs:                item.SameCPUBusyMs,
-			SameCPUIdleMs:                item.SameCPUIdleMs,
-			OtherCPUIdleMs:               item.OtherCPUIdleMs,
-			HighPriorityRunningMs:        item.HighPriorityRunningMs,
-			HighPriorityRunningOverlapMs: item.HighPriorityRunningOverlapMs,
-			SameCPUTopRunning:            item.SameCPUTopRunning,
-			LineStart:                    item.StartLine,
-			LineEnd:                      item.EndLine,
+			Thread:                         item.Thread,
+			RunnableWaitMs:                 item.DurationMs,
+			CPU:                            item.CPU,
+			CoreClass:                      item.CoreClass,
+			Frequency:                      item.Frequency,
+			Priority:                       item.Priority,
+			PriorityClass:                  item.PriorityClass,
+			SameCPUBusyMs:                  item.SameCPUBusyMs,
+			SameCPUIdleMs:                  item.SameCPUIdleMs,
+			OtherCPUIdleMs:                 item.OtherCPUIdleMs,
+			HighPriorityRunningMs:          item.HighPriorityRunningMs,
+			HighPriorityRunningOverlapMs:   item.HighPriorityRunningOverlapMs,
+			SystemOrKernelRunningMs:        item.SystemOrKernelRunningMs,
+			SystemOrKernelRunningOverlapMs: item.SystemOrKernelRunningOverlapMs,
+			SystemOrKernelCompetitorCount:  item.SystemOrKernelCompetitorCount,
+			SameCPUTopRunning:              item.SameCPUTopRunning,
+			LineStart:                      item.StartLine,
+			LineEnd:                        item.EndLine,
 		}
 		if proc, ok := processLoadForThread(item.Thread, processes); ok {
 			copy := proc
@@ -4547,8 +4617,9 @@ func renderRunnableContextSummary(ctx RunnableContextSummary) string {
 	if ctx.Frequency > 0 {
 		parts = append(parts, fmt.Sprintf("freq=%dkHz", ctx.Frequency))
 	}
-	parts = append(parts, fmt.Sprintf("same_cpu_busy=%.3fms same_cpu_idle=%.3fms other_cpu_idle=%.3fms high_prio_overlap=%.3fms high_prio_running_window=%.3fms",
-		ctx.SameCPUBusyMs, ctx.SameCPUIdleMs, ctx.OtherCPUIdleMs, ctx.HighPriorityRunningOverlapMs, ctx.HighPriorityRunningMs))
+	parts = append(parts, fmt.Sprintf("same_cpu_busy=%.3fms same_cpu_idle=%.3fms other_cpu_idle=%.3fms high_prio_overlap=%.3fms high_prio_running_window=%.3fms system_or_kernel_running_window=%.3fms system_or_kernel_overlap=%.3fms system_or_kernel_competitors=%d",
+		ctx.SameCPUBusyMs, ctx.SameCPUIdleMs, ctx.OtherCPUIdleMs, ctx.HighPriorityRunningOverlapMs, ctx.HighPriorityRunningMs,
+		ctx.SystemOrKernelRunningMs, ctx.SystemOrKernelRunningOverlapMs, ctx.SystemOrKernelCompetitorCount))
 	if len(ctx.SameCPUTopRunning) > 0 {
 		parts = append(parts, fmt.Sprintf("same_cpu_top_running=%s overlap=%.3fms", threadLabel(ctx.SameCPUTopRunning[0].Thread), ctx.SameCPUTopRunning[0].DurationMs))
 	}
@@ -4616,8 +4687,8 @@ func computeSupplySummaries(stats WindowStats, max int) []ComputeSupplySummary {
 		weighted := td.weightedFrequencyKHz()
 		// R5g (§7.30.2): the pressure term only counts high-priority running
 		// that overlapped THIS thread's runnable waits on this CPU.
-		hpOverlapMs, _ := runnableDisplacementOverlap(p, td.Thread, 1)
-		verdict, conf := computeSupplyVerdict(td.DurationMs, weighted, td.freqObservedMaxKHz, hpOverlapMs, cpu)
+		overlap := runnableDisplacementOverlap(p, td.Thread, 8)
+		verdict, conf := computeSupplyVerdict(td.DurationMs, weighted, td.freqObservedMaxKHz, overlap.highPriorityMs, cpu)
 		frequencySample := ""
 		if weighted > 0 && td.freqInSegmentSamples == 0 {
 			frequencySample = FrequencySampleNearestFallback
@@ -4638,29 +4709,35 @@ func computeSupplySummaries(stats WindowStats, max int) []ComputeSupplySummary {
 		if cpu.BusyMs > 0 || cpu.IdleMs > 0 {
 			summary = fmt.Sprintf("%s busy=%.3fms idle=%.3fms", summary, cpu.BusyMs, cpu.IdleMs)
 		}
-		if hpOverlapMs > 0 {
-			summary = fmt.Sprintf("%s high_prio_overlap=%.3fms", summary, hpOverlapMs)
+		if overlap.highPriorityMs > 0 {
+			summary = fmt.Sprintf("%s high_prio_overlap=%.3fms", summary, overlap.highPriorityMs)
+		}
+		if overlap.systemOrKernelMs > 0 {
+			summary = fmt.Sprintf("%s system_or_kernel_overlap=%.3fms system_or_kernel_competitors=%d", summary, overlap.systemOrKernelMs, overlap.systemOrKernelCompetitorCount)
 		}
 		out = append(out, ComputeSupplySummary{
-			Thread:                       td.Thread,
-			State:                        state,
-			CPU:                          td.CPU,
-			CoreClass:                    cpu.CoreClass,
-			DurationMs:                   td.DurationMs,
-			Frequency:                    td.Frequency,
-			WeightedFrequency:            weighted,
-			ObservedMaxFrequency:         td.freqObservedMaxKHz,
-			FrequencySample:              frequencySample,
-			CPUBusyMs:                    cpu.BusyMs,
-			CPUIdleMs:                    cpu.IdleMs,
-			RunnableWaitMs:               p.RunnableWaitMs,
-			HighPriorityRunningMs:        p.HighPriorityRunningMs,
-			HighPriorityRunningOverlapMs: hpOverlapMs,
-			Verdict:                      verdict,
-			Confidence:                   conf,
-			LineStart:                    td.LineStart,
-			LineEnd:                      td.LineEnd,
-			Summary:                      summary + " verdict=" + verdict,
+			Thread:                         td.Thread,
+			State:                          state,
+			CPU:                            td.CPU,
+			CoreClass:                      cpu.CoreClass,
+			DurationMs:                     td.DurationMs,
+			Frequency:                      td.Frequency,
+			WeightedFrequency:              weighted,
+			ObservedMaxFrequency:           td.freqObservedMaxKHz,
+			FrequencySample:                frequencySample,
+			CPUBusyMs:                      cpu.BusyMs,
+			CPUIdleMs:                      cpu.IdleMs,
+			RunnableWaitMs:                 p.RunnableWaitMs,
+			HighPriorityRunningMs:          p.HighPriorityRunningMs,
+			HighPriorityRunningOverlapMs:   overlap.highPriorityMs,
+			SystemOrKernelRunningMs:        p.SystemOrKernelRunningMs,
+			SystemOrKernelRunningOverlapMs: overlap.systemOrKernelMs,
+			SystemOrKernelCompetitorCount:  overlap.systemOrKernelCompetitorCount,
+			Verdict:                        verdict,
+			Confidence:                     conf,
+			LineStart:                      td.LineStart,
+			LineEnd:                        td.LineEnd,
+			Summary:                        summary + " verdict=" + verdict,
 		})
 	}
 	// TSH review F4: the ComputeSupplySummary.State words minted here are
@@ -4736,6 +4813,9 @@ func computeSupplyPressureSummary(idx *Index, q Query, stats WindowStats, maxBac
 	for _, pressure := range stats.CPUPressure {
 		summary.RunnableWaitMs += pressure.RunnableWaitMs
 		summary.HighPriorityRunningMs += pressure.HighPriorityRunningMs
+		summary.SystemOrKernelRunningMs += pressure.SystemOrKernelRunningMs
+		summary.SystemOrKernelRunningOverlapMs += pressure.SystemOrKernelRunningOverlapMs
+		summary.SystemOrKernelCompetitorCount += pressure.SystemOrKernelCompetitorCount
 		if pressure.RunnableWaitMs > 0 || pressure.HighPriorityRunningMs > 0 {
 			summary.CPUPressureMs += pressure.RunnableWaitMs + pressure.HighPriorityRunningMs
 		}
@@ -4806,7 +4886,7 @@ func computeSupplyPressureSummary(idx *Index, q Query, stats WindowStats, maxBac
 			break
 		}
 	}
-	if summary.CPUPressureMs == 0 && summary.SchedStatWaitMs == 0 && summary.SchedStatIOWaitMs == 0 && summary.SchedStatBlockedMs == 0 && summary.IPIEventCount == 0 && len(summary.LowFrequencyCPUs) == 0 && summary.ClockSetRateCount == 0 && summary.ThermalEventCount == 0 && summary.DDREventCount == 0 && summary.L3EventCount == 0 && summary.ThroughputEventCount == 0 {
+	if summary.CPUPressureMs == 0 && summary.SystemOrKernelRunningMs == 0 && summary.SchedStatWaitMs == 0 && summary.SchedStatIOWaitMs == 0 && summary.SchedStatBlockedMs == 0 && summary.IPIEventCount == 0 && len(summary.LowFrequencyCPUs) == 0 && summary.ClockSetRateCount == 0 && summary.ThermalEventCount == 0 && summary.DDREventCount == 0 && summary.L3EventCount == 0 && summary.ThroughputEventCount == 0 {
 		return nil
 	}
 	switch {
@@ -4824,6 +4904,10 @@ func computeSupplyPressureSummary(idx *Index, q Query, stats WindowStats, maxBac
 		summary.Signal = "capacity_limit_signal"
 	case summary.DDREventCount > 0 || summary.L3EventCount > 0 || summary.ThroughputEventCount > 0:
 		summary.Signal = "memory_or_cache_supply_signal"
+	case summary.SystemOrKernelRunningMs > 0:
+		// Raw >159 Harmony scheduler tokens are disclosed as activity only.
+		// They never enter the high-priority account or mint a priority claim.
+		summary.Signal = "system_or_kernel_activity"
 	default:
 		summary.Signal = "supply_activity"
 	}
@@ -4836,8 +4920,10 @@ func computeSupplyPressureSummary(idx *Index, q Query, stats WindowStats, maxBac
 			summary.PressureDensity = summary.CPUPressureMs / windowMs
 		}
 	}
-	summary.Summary = fmt.Sprintf("supply_pressure signal=%s cpu_pressure=%.3fms runnable=%.3fms high_prio=%.3fms sched_stat_wait=%.3fms sched_stat_iowait=%.3fms sched_stat_blocked=%.3fms ipi_events=%d ipi_active=%.3fms low_freq_cpus=%v clock_set_rate=%d thermal=%d ddr=%d l3=%d throughput=%d",
-		summary.Signal, summary.CPUPressureMs, summary.RunnableWaitMs, summary.HighPriorityRunningMs, summary.SchedStatWaitMs, summary.SchedStatIOWaitMs, summary.SchedStatBlockedMs, summary.IPIEventCount, summary.IPIActiveMs, summary.LowFrequencyCPUs, summary.ClockSetRateCount, summary.ThermalEventCount, summary.DDREventCount, summary.L3EventCount, summary.ThroughputEventCount)
+	summary.Summary = fmt.Sprintf("supply_pressure signal=%s cpu_pressure=%.3fms runnable=%.3fms high_prio=%.3fms system_or_kernel_running=%.3fms system_or_kernel_overlap=%.3fms system_or_kernel_competitors=%d sched_stat_wait=%.3fms sched_stat_iowait=%.3fms sched_stat_blocked=%.3fms ipi_events=%d ipi_active=%.3fms low_freq_cpus=%v clock_set_rate=%d thermal=%d ddr=%d l3=%d throughput=%d",
+		summary.Signal, summary.CPUPressureMs, summary.RunnableWaitMs, summary.HighPriorityRunningMs,
+		summary.SystemOrKernelRunningMs, summary.SystemOrKernelRunningOverlapMs, summary.SystemOrKernelCompetitorCount,
+		summary.SchedStatWaitMs, summary.SchedStatIOWaitMs, summary.SchedStatBlockedMs, summary.IPIEventCount, summary.IPIActiveMs, summary.LowFrequencyCPUs, summary.ClockSetRateCount, summary.ThermalEventCount, summary.DDREventCount, summary.L3EventCount, summary.ThroughputEventCount)
 	if summary.WindowMs > 0 {
 		summary.Summary += fmt.Sprintf(" window_ms=%.3f pressure_density=%.2f (≈avg queue depth; cpu_pressure is a cross-thread cpu·ms sum, not wall clock)", summary.WindowMs, summary.PressureDensity)
 	}
@@ -5221,7 +5307,8 @@ func stateChurnRunnableCPU(item ThreadStateChurnSummary, pressures []CPUPressure
 // the overlapped ms (displacement evidence), and the competitor's window
 // running total on this CPU (background context).
 func stateChurnTopCompetitor(target ThreadRef, pressure CPUPressureStats) (string, float64, float64) {
-	_, competitors := runnableDisplacementOverlap(pressure, target, 8)
+	overlap := runnableDisplacementOverlap(pressure, target, 8)
+	competitors := overlap.competitors
 	for _, running := range competitors {
 		label := threadLabel(running.Thread)
 		if label == "" {
@@ -5656,8 +5743,11 @@ func upsertCPUBusyIdle(in []CPUStats, cpu int, busy, idle float64) []CPUStats {
 }
 
 func eventCPUForStats(ev Event) int {
-	if ev.CPUForFieldValid {
+	if ev.CPUForFieldValid && validTraceCPUIndex(ev.CPUForField) {
 		return ev.CPUForField
+	}
+	if ev.CPUForFieldPresent || !validTraceCPUIndex(ev.CPU) {
+		return -1
 	}
 	return ev.CPU
 }
@@ -5741,25 +5831,11 @@ func normalizeCoreClass(raw string) string {
 }
 
 func parseCPURangeList(raw string) []int {
-	var out []int
-	for _, part := range strings.FieldsFunc(raw, func(r rune) bool { return r == '|' || r == '/' || r == ' ' || r == ',' }) {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		if start, end, ok := strings.Cut(part, "-"); ok {
-			a, b := atoi(start), atoi(end)
-			if a > b {
-				a, b = b, a
-			}
-			for cpu := a; cpu <= b; cpu++ {
-				out = append(out, cpu)
-			}
-			continue
-		}
-		out = append(out, atoi(part))
+	cpus, valid, _ := parseCPURangeListStrict(raw)
+	if !valid {
+		return nil
 	}
-	return out
+	return cpus
 }
 
 func inferCoreTopologyFromFrequency(cpus []CPUStats) map[int]string {
@@ -5867,6 +5943,7 @@ func buildCoreClassStats(cpus []CPUStats, pressure []CPUPressureStats, byCPU map
 		a := ensure(byCPU[p.CPU])
 		a.item.RunnableWaitMs += p.RunnableWaitMs
 		a.item.HighPriorityRunMs += p.HighPriorityRunningMs
+		a.item.SystemOrKernelRunningMs += p.SystemOrKernelRunningMs
 	}
 	out := make([]CoreClassStats, 0, len(byClass))
 	for _, a := range byClass {
@@ -6090,191 +6167,26 @@ func appendFrequencyResidency(in []CPUFrequencyResidency, ev Event, start, end f
 	return append(in, res)
 }
 
-func computeIOLatencies(idx *Index, q Query, max int) []IOLatencySummary {
-	if idx == nil {
-		return nil
-	}
-	open := map[string][]Event{}
-	var out []IOLatencySummary
-	for _, ev := range idx.Events {
-		if !eventLineInWindow(ev, q) {
-			continue
-		}
-		if q.TimeEnd > 0 && ev.Ts > q.TimeEnd {
-			if idx.TimestampOrder.AllowsTimeEndEarlyStop() {
-				break
-			}
-			continue
-		}
-		switch ev.Type {
-		case EventBlockIssue:
-			key := blockKey(ev)
-			if key == "" {
-				continue
-			}
-			open[key] = append(open[key], ev)
-		case EventBlockComplete:
-			if q.TimeStart > 0 && ev.Ts < q.TimeStart {
-				continue
-			}
-			key := blockKey(ev)
-			queue := open[key]
-			if key == "" || len(queue) == 0 {
-				continue
-			}
-			issue := queue[0]
-			open[key] = queue[1:]
-			if ev.Ts < issue.Ts {
-				continue
-			}
-			blk := ev.BlockIOFields
-			if blk == nil {
-				blk = &BlockIOFields{}
-			}
-			out = append(out, IOLatencySummary{
-				Dev:            blk.Dev,
-				Op:             blk.Op,
-				Sector:         blk.Sector,
-				Len:            blk.Len,
-				IssueThread:    threadRefFromEvent(issue),
-				CompleteThread: threadRefFromEvent(ev),
-				IssueTs:        issue.Ts,
-				CompleteTs:     ev.Ts,
-				DurationMs:     (ev.Ts - issue.Ts) * 1000,
-				IssueLine:      issue.Line,
-				CompleteLine:   ev.Line,
-			})
-		}
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].DurationMs != out[j].DurationMs {
-			return out[i].DurationMs > out[j].DurationMs
-		}
-		return out[i].IssueLine < out[j].IssueLine
-	})
-	if max > 0 && len(out) > max {
-		out = out[:max]
-	}
-	return out
-}
-
-func ioPairingCaveats(idx *Index, q Query) []string {
-	if idx == nil {
-		return nil
-	}
-	issues := 0
-	completes := 0
-	missingIdentity := 0
-	for _, ev := range idx.Events {
-		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
-			continue
-		}
-		switch ev.Type {
-		case EventBlockIssue:
-			issues++
-			if blockKey(ev) == "" {
-				missingIdentity++
-			}
-		case EventBlockComplete:
-			completes++
-			if blockKey(ev) == "" {
-				missingIdentity++
-			}
-		}
-	}
-	var out []string
-	if issues > 0 && completes == 0 {
-		out = append(out, "block_rq_issue rows were present but no matching block_rq_complete rows appeared in the selected window; IO latency may extend outside the window")
-	}
-	if completes > 0 && issues == 0 {
-		out = append(out, "block_rq_complete rows were present but issue rows were outside the selected window or unavailable; IO latency cannot be paired deterministically")
-	}
-	if missingIdentity > 0 {
-		out = append(out, fmt.Sprintf("%d block IO row(s) lacked parseable device/sector/length identity and were excluded from latency pairing", missingIdentity))
-	}
-	return out
-}
-
-func blockKey(ev Event) string {
-	blk := ev.BlockIOFields
-	if blk == nil || blk.Dev == "" || blk.Sector == 0 || blk.Len == 0 {
-		return ""
-	}
-	return fmt.Sprintf("%s/%s/%d/%d", blk.Dev, blk.Op, blk.Sector, blk.Len)
-}
-
-// computeCounterDeltas aggregates C| counter marks numerically per
-// (thread, counter name): first/last/min/max/delta across the window,
-// top-N by |delta| (C1, 2026-07-03). Counters whose values never parse as
-// numbers are skipped — they stay visible through TraceCounters.
-func computeCounterDeltas(idx *Index, q Query, max int) []TraceCounterDeltaSummary {
-	if idx == nil {
-		return nil
-	}
-	type key struct {
-		pid  int
-		name string
-	}
-	acc := map[key]*TraceCounterDeltaSummary{}
-	for _, ev := range idx.Events {
-		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) || ev.Type != EventTraceMark || ev.SpanAction != "C" {
-			continue
-		}
-		value, err := strconv.ParseFloat(strings.TrimSpace(ev.SpanValue), 64)
-		if err != nil {
-			continue
-		}
-		k := key{pid: ev.PID, name: ev.SpanName}
-		row := acc[k]
-		if row == nil {
-			row = &TraceCounterDeltaSummary{
-				Thread: threadRefFromEvent(ev),
-				Name:   ev.SpanName,
-				First:  value, Last: value, Min: value, Max: value,
-				FirstLine: ev.Line, LastLine: ev.Line,
-			}
-			acc[k] = row
-		}
-		row.Samples++
-		row.Last = value
-		row.LastLine = ev.Line
-		if value < row.Min {
-			row.Min = value
-		}
-		if value > row.Max {
-			row.Max = value
-		}
-	}
-	out := make([]TraceCounterDeltaSummary, 0, len(acc))
-	for _, row := range acc {
-		row.Delta = row.Last - row.First
-		out = append(out, *row)
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		di, dj := math.Abs(out[i].Delta), math.Abs(out[j].Delta)
-		if di != dj {
-			return di > dj
-		}
-		if out[i].Samples != out[j].Samples {
-			return out[i].Samples > out[j].Samples
-		}
-		return out[i].FirstLine < out[j].FirstLine
-	})
-	if max > 0 && len(out) > max {
-		out = out[:max]
-	}
-	return out
-}
-
 func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []TraceCounterSummary, []string) {
 	if idx == nil {
 		return nil, nil, nil
 	}
-	stacks := map[int][]Event{}
+	type counterInventoryKey struct {
+		emitterPID  int
+		ownerPID    int
+		ownerRaw    string
+		ownerScope  string
+		name        string
+		value       string
+		trailingTag string
+		issueReason string
+	}
+	unknownEmitter := traceMarkUnknownEmitterFailureForQuery(idx, q)
+	stacks := map[string][]Event{}
 	asyncStarts := map[string][]Event{}
-	asyncOwners := map[string]int{}
 	var spans []TraceSpanSummary
-	counters := map[string]TraceCounterSummary{}
+	unresolvedPairingRows := 0
+	counters := map[counterInventoryKey]TraceCounterSummary{}
 	// DCS E4 (ledger §23/§23.1 H1, 2026-07-08): B/E and S/F pairing runs over
 	// the WHOLE trace-mark stream instead of the query window — a compile span
 	// riding the window boundary used to lose one end to the window filter and
@@ -6284,43 +6196,61 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 	// window filter unchanged.
 	for _, ev := range idx.Events {
 		if resetPID, reset := schedulerLifecycleResetPID(ev); reset {
-			delete(stacks, resetPID)
-			for key, owner := range asyncOwners {
-				if owner == resetPID {
-					delete(asyncOwners, key)
-					delete(asyncStarts, key)
-				}
+			source, ok := tracePairingSourceIdentity(idx, ev)
+			if !ok {
+				unresolvedPairingRows++
+				continue
 			}
+			resetTraceMarkPairingState(source, resetPID, stacks, asyncStarts)
 			continue
 		}
 		if ev.Type != EventTraceMark {
 			continue
 		}
+		if traceMarkEventMalformed(ev) {
+			source, ok := tracePairingSourceIdentity(idx, ev)
+			if !ok {
+				unresolvedPairingRows++
+				continue
+			}
+			resetTraceMarkPairingState(source, ev.PID, stacks, asyncStarts)
+			continue
+		}
+		var source string
+		if ev.SpanAction == "B" || ev.SpanAction == "E" || ev.SpanAction == "S" || ev.SpanAction == "F" {
+			var ok bool
+			source, ok = tracePairingSourceIdentity(idx, ev)
+			if !ok {
+				unresolvedPairingRows++
+				continue
+			}
+		}
 		switch ev.SpanAction {
 		case "B":
-			stacks[ev.PID] = append(stacks[ev.PID], ev)
+			key := traceMarkSyncPairingKey(source, ev.PID)
+			stacks[key] = append(stacks[key], ev)
 		case "E":
-			stack := stacks[ev.PID]
+			key := traceMarkSyncPairingKey(source, ev.PID)
+			stack := stacks[key]
 			if len(stack) == 0 {
 				continue
 			}
 			start := stack[len(stack)-1]
-			stacks[ev.PID] = stack[:len(stack)-1]
+			stacks[key] = stack[:len(stack)-1]
 			if ev.Ts < start.Ts {
 				continue
 			}
-			if span, ok := clipTraceMarkSpanToQueryWindow(traceSpanFromEvents(start, ev, "sync"), q); ok {
+			if span, ok := clipTraceMarkSpanToQueryWindow(traceSpanFromEvents(start, ev, "sync", source), q); ok {
 				spans = append(spans, span)
 			}
 		case "S":
-			key := traceAsyncSpanKey(ev)
+			key := traceMarkAsyncPairingKey(source, ev)
 			if key == "" {
 				continue
 			}
 			asyncStarts[key] = append(asyncStarts[key], ev)
-			asyncOwners[key] = ev.PID
 		case "F":
-			key := traceAsyncSpanKey(ev)
+			key := traceMarkAsyncPairingKey(source, ev)
 			stack := asyncStarts[key]
 			if key == "" || len(stack) == 0 {
 				continue
@@ -6328,25 +6258,47 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 			start := stack[len(stack)-1]
 			asyncStarts[key] = stack[:len(stack)-1]
 			if len(asyncStarts[key]) == 0 {
-				delete(asyncOwners, key)
+				delete(asyncStarts, key)
 			}
 			if ev.Ts < start.Ts {
 				continue
 			}
-			if span, ok := clipTraceMarkSpanToQueryWindow(traceSpanFromEvents(start, ev, "async"), q); ok {
+			if span, ok := clipTraceMarkSpanToQueryWindow(traceSpanFromEvents(start, ev, "async", source), q); ok {
 				spans = append(spans, span)
 			}
 		case "C":
 			if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
 				continue
 			}
-			key := fmt.Sprintf("%d/%d/%s/%s", ev.PID, ev.SpanPID, ev.SpanName, ev.SpanValue)
-			counter := counters[key]
-			counter.Thread = threadRefFromEvent(ev)
-			counter.Name = ev.SpanName
-			counter.Value = ev.SpanValue
+			// Use the same closed C| parser as CounterDeltas. In particular,
+			// `name |(unit)|value` and trailing Harmony tags must not acquire a
+			// second, contradictory legacy interpretation. Invalid/non-numeric
+			// rows stay in this compatibility inventory; CounterQuality carries
+			// the typed reason and suppresses only derived numeric claims.
+			sample := parseTraceCounterSample(ev)
+			name, value := sample.name, sample.valueRaw
+			if name == "" {
+				name = strings.TrimSpace(ev.SpanName)
+			}
+			if value == "" {
+				value = strings.TrimSpace(ev.SpanValue)
+			}
+			key := counterInventoryKey{
+				emitterPID: ev.PID, ownerPID: sample.ownerPID, ownerRaw: sample.ownerRaw,
+				ownerScope: sample.ownerScope, name: name, value: value,
+				trailingTag: sample.trailingTag, issueReason: sample.issueReason,
+			}
+			counter, exists := counters[key]
+			if !exists {
+				counter = TraceCounterSummary{
+					Thread: threadRefFromEvent(ev), OwnerPID: sample.ownerPID,
+					OwnerRaw: sample.ownerRaw, OwnerScope: sample.ownerScope,
+					Name: name, Value: value, TrailingTag: sample.trailingTag,
+				}
+			}
 			counter.Count++
 			if counter.Line == 0 || ev.Line < counter.Line {
+				counter.Thread = threadRefFromEvent(ev)
 				counter.Line = ev.Line
 				counter.Ts = ev.Ts
 			}
@@ -6359,7 +6311,8 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 		}
 		return spans[i].StartLine < spans[j].StartLine
 	})
-	spans = boundTraceMarkSpans(spans, max)
+	var semanticBound traceMarkSemanticBoundInfo
+	spans, semanticBound = boundTraceMarkSpansWithInfo(spans, max)
 	counterList := make([]TraceCounterSummary, 0, len(counters))
 	for _, c := range counters {
 		counterList = append(counterList, c)
@@ -6373,7 +6326,24 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 	if max > 0 && len(counterList) > max {
 		counterList = counterList[:max]
 	}
-	return spans, counterList, incompleteSemanticTraceMarkCaveats(q, stacks, asyncStarts)
+	caveats := traceMarkIntegrityCaveats(idx, q)
+	if unresolvedPairingRows > 0 {
+		spans = nil
+		caveats = append(caveats, fmt.Sprintf("trace_mark_pairing_provenance_unresolved=true; rows=%d; trace span durations were omitted because an endpoint or reset could not be mapped to exactly one physical source artifact", unresolvedPairingRows))
+	}
+	if unknownEmitter {
+		spans = nil
+		caveats = append(caveats, "trace_mark_span_pairing_fail_closed=true; a malformed trace_mark endpoint has an unknown emitter, could not materialize as an Event, or overflowed the bounded witness ledger, so trace_spans/trace_mark_categories/async_file_work are omitted; trace counter inventory remains available")
+		return spans, counterList, caveats
+	}
+	if unresolvedPairingRows > 0 {
+		return spans, counterList, caveats
+	}
+	if boundCaveat := semanticBound.caveat(); boundCaveat != "" {
+		caveats = append(caveats, boundCaveat)
+	}
+	caveats = append(caveats, incompleteSemanticTraceMarkCaveats(q, stacks, asyncStarts)...)
+	return spans, counterList, caveats
 }
 
 // incompleteSemanticTraceMarkCaveats (DCS E4 caveat half, ledger §23/§23.1
@@ -6385,7 +6355,7 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 // name and stay silent (nothing to report without inventing an identity).
 // Only starts at or before the window end can still overlap the window; later
 // starts are irrelevant to this query and stay out.
-func incompleteSemanticTraceMarkCaveats(q Query, stacks map[int][]Event, asyncStarts map[string][]Event) []string {
+func incompleteSemanticTraceMarkCaveats(q Query, stacks map[string][]Event, asyncStarts map[string][]Event) []string {
 	var names []string
 	seen := map[string]bool{}
 	note := func(ev Event) {
@@ -6461,7 +6431,7 @@ func clipTraceMarkSpanToQueryWindow(span TraceSpanSummary, q Query) (TraceSpanSu
 }
 
 // traceMarkSemanticSpanCap bounds semantic-class spans (JIT compile, class
-// verification, shader compile, runtime compile) separately from the generic
+// verification, shader/runtime compile, texture upload, GC pause) separately from the generic
 // duration-ranked cap in boundTraceMarkSpans, so a short compile/verify span
 // is not silently evicted by longer unrelated spans before
 // traceSpanSemanticWorkClass ever gets to classify it. Matches
@@ -6477,8 +6447,39 @@ const traceMarkSemanticSpanCap = 16
 // never reach traceSpanSemanticWorkClass, root_cause_rank, or the
 // independent trace_semantic_span typed-observation channel at all.
 func boundTraceMarkSpans(spans []TraceSpanSummary, max int) []TraceSpanSummary {
+	out, _ := boundTraceMarkSpansWithInfo(spans, max)
+	return out
+}
+
+type traceMarkSemanticBoundInfo struct {
+	totalSpans      int
+	keptSpans       int
+	totalFamilies   int
+	omittedFamilies int
+	omittedRoster   []string
+}
+
+func (info traceMarkSemanticBoundInfo) caveat() string {
+	omitted := info.totalSpans - info.keptSpans
+	if omitted <= 0 {
+		return ""
+	}
+	roster := "none (omissions only reduce totals of represented families)"
+	if len(info.omittedRoster) > 0 {
+		roster = strings.Join(info.omittedRoster, ", ")
+	}
+	return fmt.Sprintf("semantic span bound kept %d/%d classified span(s) across %d family/families; omitted %d span(s) from %d whole family/families (bounded omitted-family roster, first 8: %s). Published semantic family totals are lower bounds; every wholly omitted family is counted, and up to the first 8 are named here instead of the overflow disappearing silently", info.keptSpans, info.totalSpans, info.totalFamilies, omitted, info.omittedFamilies, roster)
+}
+
+// boundTraceMarkSpansWithInfo preserves one representative of every semantic
+// (thread,class) family before filling remaining semantic seats by duration.
+// Thus a high-frequency VerifyClass family cannot crowd a rarer GC/JIT/shader
+// family out of the independent mention channel. If more than the bounded 16
+// families exist, the exact omitted count and a bounded family roster travel
+// in the caveat above; loss is never silent.
+func boundTraceMarkSpansWithInfo(spans []TraceSpanSummary, max int) ([]TraceSpanSummary, traceMarkSemanticBoundInfo) {
 	if max <= 0 || len(spans) <= max {
-		return spans
+		return spans, traceMarkSemanticBoundInfo{}
 	}
 	var generic, semantic []TraceSpanSummary
 	for _, span := range spans {
@@ -6491,8 +6492,66 @@ func boundTraceMarkSpans(spans []TraceSpanSummary, max int) []TraceSpanSummary {
 	if len(generic) > max {
 		generic = generic[:max]
 	}
+	info := traceMarkSemanticBoundInfo{totalSpans: len(semantic)}
 	if len(semantic) > traceMarkSemanticSpanCap {
-		semantic = semantic[:traceMarkSemanticSpanCap]
+		type semanticSeat struct {
+			span     TraceSpanSummary
+			family   string
+			selected bool
+		}
+		seats := make([]semanticSeat, len(semantic))
+		familySeen := map[string]bool{}
+		familyKept := map[string]bool{}
+		for i, span := range semantic {
+			class := firstNonEmpty(strings.TrimSpace(span.SemanticClass), traceSpanSemanticClass(span.Name))
+			family := threadKey(span.Thread) + "\x00" + class
+			seats[i] = semanticSeat{span: span, family: family}
+			familySeen[family] = true
+			if familyKept[family] || info.keptSpans >= traceMarkSemanticSpanCap {
+				continue
+			}
+			seats[i].selected = true
+			familyKept[family] = true
+			info.keptSpans++
+		}
+		// When fewer than 16 families exist, use the spare seats for the next
+		// largest members so family totals remain as complete as the cap allows.
+		for i := range seats {
+			if info.keptSpans >= traceMarkSemanticSpanCap {
+				break
+			}
+			if seats[i].selected {
+				continue
+			}
+			seats[i].selected = true
+			info.keptSpans++
+		}
+		semantic = semantic[:0]
+		omittedSeen := map[string]bool{}
+		for _, seat := range seats {
+			if seat.selected {
+				semantic = append(semantic, seat.span)
+				continue
+			}
+			if familyKept[seat.family] || omittedSeen[seat.family] {
+				continue
+			}
+			omittedSeen[seat.family] = true
+			info.omittedFamilies++
+			if len(info.omittedRoster) < 8 {
+				info.omittedRoster = append(info.omittedRoster,
+					fmt.Sprintf("%s@%s", firstNonEmpty(strings.TrimSpace(seat.span.SemanticClass), traceSpanSemanticClass(seat.span.Name), "unknown_class"), threadLabel(seat.span.Thread)))
+			}
+		}
+		info.totalFamilies = len(familySeen)
+	} else {
+		families := map[string]bool{}
+		for _, span := range semantic {
+			class := firstNonEmpty(strings.TrimSpace(span.SemanticClass), traceSpanSemanticClass(span.Name))
+			families[threadKey(span.Thread)+"\x00"+class] = true
+		}
+		info.totalFamilies = len(families)
+		info.keptSpans = len(semantic)
 	}
 	out := make([]TraceSpanSummary, 0, len(generic)+len(semantic))
 	out = append(out, generic...)
@@ -6503,14 +6562,15 @@ func boundTraceMarkSpans(spans []TraceSpanSummary, max int) []TraceSpanSummary {
 		}
 		return out[i].StartLine < out[j].StartLine
 	})
-	return out
+	return out, info
 }
 
-func traceSpanFromEvents(start, end Event, kind string) TraceSpanSummary {
+func traceSpanFromEvents(start, end Event, kind, source string) TraceSpanSummary {
 	return TraceSpanSummary{
-		Thread: threadRefFromEvent(start),
-		Kind:   kind,
-		Name:   start.SpanName,
+		SourcePath: source,
+		Thread:     threadRefFromEvent(start),
+		Kind:       kind,
+		Name:       start.SpanName,
 		// LCK-2 (§18.E): the opening B row's payload pid — the emitter's OWN
 		// pid-namespace process id — travels with the span so the rung-②
 		// ns-span owner derivation can key a contention span to its container.
@@ -6588,6 +6648,11 @@ func findSpanWindowsCompacted(idx *Index, q Query, max int) ([]TraceSpanSummary,
 	if failure := durationOrderFailureForFamily(idx, q, durationOrderTraceSpan); failure != nil {
 		return nil, []string{durationOrderFailClosedCaveat(failure, "span_window")}, nil
 	}
+	if traceMarkUnknownEmitterFailureForQuery(idx, q) {
+		caveats := traceMarkIntegrityCaveats(idx, q)
+		caveats = append(caveats, "trace_mark_span_pairing_fail_closed=true; span_window is omitted because a malformed trace_mark endpoint has an unknown emitter, could not materialize as an Event, or overflowed the bounded witness ledger")
+		return nil, caveats, nil
+	}
 	if max <= 0 {
 		max = ViewCapacityFor("span_window").FloorLimit
 	}
@@ -6604,19 +6669,18 @@ func findSpanWindowsCompacted(idx *Index, q Query, max int) ([]TraceSpanSummary,
 			}
 		}
 	}
-	stacks := map[int][]Event{}
+	stacks := map[string][]Event{}
 	asyncStarts := map[string][]Event{}
-	asyncOwners := map[string]int{}
 	var spans []TraceSpanSummary
+	unresolvedPairingRows := 0
 	for _, ev := range idx.Events {
 		if resetPID, reset := schedulerLifecycleResetPID(ev); reset {
-			delete(stacks, resetPID)
-			for key, owner := range asyncOwners {
-				if owner == resetPID {
-					delete(asyncOwners, key)
-					delete(asyncStarts, key)
-				}
+			source, ok := tracePairingSourceIdentity(idx, ev)
+			if !ok {
+				unresolvedPairingRows++
+				continue
 			}
+			resetTraceMarkPairingState(source, resetPID, stacks, asyncStarts)
 			continue
 		}
 		if ev.Type != EventTraceMark {
@@ -6625,33 +6689,52 @@ func findSpanWindowsCompacted(idx *Index, q Query, max int) ([]TraceSpanSummary,
 		if !eventLineInWindow(ev, q) {
 			continue
 		}
+		if traceMarkEventMalformed(ev) {
+			source, ok := tracePairingSourceIdentity(idx, ev)
+			if !ok {
+				unresolvedPairingRows++
+				continue
+			}
+			resetTraceMarkPairingState(source, ev.PID, stacks, asyncStarts)
+			continue
+		}
+		var source string
+		if ev.SpanAction == "B" || ev.SpanAction == "E" || ev.SpanAction == "S" || ev.SpanAction == "F" {
+			var ok bool
+			source, ok = tracePairingSourceIdentity(idx, ev)
+			if !ok {
+				unresolvedPairingRows++
+				continue
+			}
+		}
 		switch ev.SpanAction {
 		case "B":
-			stacks[ev.PID] = append(stacks[ev.PID], ev)
+			key := traceMarkSyncPairingKey(source, ev.PID)
+			stacks[key] = append(stacks[key], ev)
 		case "E":
-			stack := stacks[ev.PID]
+			key := traceMarkSyncPairingKey(source, ev.PID)
+			stack := stacks[key]
 			if len(stack) == 0 {
 				continue
 			}
 			start := stack[len(stack)-1]
-			stacks[ev.PID] = stack[:len(stack)-1]
+			stacks[key] = stack[:len(stack)-1]
 			if ev.Ts < start.Ts {
 				continue
 			}
-			span := traceSpanFromEvents(start, ev, "sync")
+			span := traceSpanFromEvents(start, ev, "sync", source)
 			if !traceSpanMatchesQuery(span, target, q) {
 				continue
 			}
 			spans = append(spans, span)
 		case "S":
-			key := traceAsyncSpanKey(ev)
+			key := traceMarkAsyncPairingKey(source, ev)
 			if key == "" {
 				continue
 			}
 			asyncStarts[key] = append(asyncStarts[key], ev)
-			asyncOwners[key] = ev.PID
 		case "F":
-			key := traceAsyncSpanKey(ev)
+			key := traceMarkAsyncPairingKey(source, ev)
 			stack := asyncStarts[key]
 			if key == "" || len(stack) == 0 {
 				continue
@@ -6659,12 +6742,12 @@ func findSpanWindowsCompacted(idx *Index, q Query, max int) ([]TraceSpanSummary,
 			start := stack[len(stack)-1]
 			asyncStarts[key] = stack[:len(stack)-1]
 			if len(asyncStarts[key]) == 0 {
-				delete(asyncOwners, key)
+				delete(asyncStarts, key)
 			}
 			if ev.Ts < start.Ts {
 				continue
 			}
-			span := traceSpanFromEvents(start, ev, "async")
+			span := traceSpanFromEvents(start, ev, "async", source)
 			if !traceSpanMatchesQuery(span, target, q) {
 				continue
 			}
@@ -6677,7 +6760,11 @@ func findSpanWindowsCompacted(idx *Index, q Query, max int) ([]TraceSpanSummary,
 		}
 		return spans[i].StartLine < spans[j].StartLine
 	})
-	var caveats []string
+	caveats := traceMarkIntegrityCaveats(idx, q)
+	if unresolvedPairingRows > 0 {
+		spans = nil
+		caveats = append(caveats, fmt.Sprintf("trace_mark_pairing_provenance_unresolved=true; rows=%d; span_window durations were omitted because an endpoint or reset could not be mapped to exactly one physical source artifact", unresolvedPairingRows))
+	}
 	var compaction *ViewCompaction
 	if len(spans) > max {
 		last := spans[max-1]
@@ -6726,7 +6813,9 @@ func computeIRQBursts(idx *Index, q Query, max int) []IRQBurstSummary {
 	flush := func(key string) {
 		burst := active[key]
 		if burst.Count > 0 {
-			burst.DurationMs = (burst.EndTs - burst.StartTs) * 1000
+			// Inventory only. This envelope says how widely the observed rows are
+			// spread; it is never interrupt active time and never enters rank.
+			burst.SpanMs = (burst.EndTs - burst.StartTs) * 1000
 			bursts = append(bursts, burst)
 		}
 		delete(active, key)
@@ -6773,8 +6862,8 @@ func computeIRQBursts(idx *Index, q Query, max int) []IRQBurstSummary {
 		if bursts[i].Count != bursts[j].Count {
 			return bursts[i].Count > bursts[j].Count
 		}
-		if bursts[i].DurationMs != bursts[j].DurationMs {
-			return bursts[i].DurationMs > bursts[j].DurationMs
+		if bursts[i].SpanMs != bursts[j].SpanMs {
+			return bursts[i].SpanMs > bursts[j].SpanMs
 		}
 		return bursts[i].LineStart < bursts[j].LineStart
 	})
@@ -6788,33 +6877,33 @@ type interruptOpen struct {
 	ev Event
 }
 
-func computeInterruptActivity(idx *Index, q Query, typ EventType, coreByCPU map[int]string, max int) []InterruptActivity {
+func computeInterruptActivity(idx *Index, q Query, typ EventType, coreByCPU map[int]string, max int) ([]InterruptActivity, []string) {
 	if idx == nil {
-		return nil
+		return nil, nil
 	}
 	accs := map[string]*InterruptActivity{}
 	open := map[string][]interruptOpen{}
-	ensure := func(ev Event, baseName string) *InterruptActivity {
+	unresolvedSourceRows := 0
+	ensure := func(ev Event, baseName, key, source string) *InterruptActivity {
 		name := firstNonEmpty(baseName, ev.IRQName, ev.Name, string(typ))
-		key := fmt.Sprintf("%s/%d/%d", typ, ev.CPU, ev.IRQID)
 		item := accs[key]
 		if item == nil {
 			item = &InterruptActivity{
-				Kind:      string(typ),
-				CPU:       ev.CPU,
-				CoreClass: coreByCPU[ev.CPU],
-				Vector:    ev.IRQID,
-				Name:      name,
-				LineStart: ev.Line,
-				LineEnd:   ev.Line,
-				StartTs:   ev.Ts,
-				EndTs:     ev.Ts,
+				SourcePath: source,
+				Kind:       string(typ),
+				CPU:        ev.CPU,
+				CoreClass:  coreByCPU[ev.CPU],
+				Vector:     ev.IRQID,
+				Name:       name,
+				LineStart:  ev.Line,
+				LineEnd:    ev.Line,
+				StartTs:    ev.Ts,
+				EndTs:      ev.Ts,
 			}
 			accs[key] = item
 		} else if (item.Name == "" || item.Name == string(typ) || strings.Contains(item.Name, "_exit")) && name != "" {
 			item.Name = name
 		}
-		item.Count++
 		if ev.IPITargetMask != "" {
 			item.TargetMask = ev.IPITargetMask
 		}
@@ -6828,27 +6917,82 @@ func computeInterruptActivity(idx *Index, q Query, typ EventType, coreByCPU map[
 		}
 		return item
 	}
+	observe := func(ev Event, baseName, key, source string) *InterruptActivity {
+		item := ensure(ev, baseName, key, source)
+		item.Count++
+		return item
+	}
 	for _, ev := range idx.Events {
-		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) || ev.Type != typ {
+		if !eventLineInWindow(ev, q) || ev.Type != typ {
 			continue
 		}
 		baseName, phase := interruptBaseAndPhase(ev)
-		item := ensure(ev, baseName)
-		key := fmt.Sprintf("%s/%d/%d", typ, ev.CPU, ev.IRQID)
+		lane, ok := interruptLaneKey(ev)
+		if !ok || phase == "" {
+			continue
+		}
+		source, sourceOK := tracePairingSourceIdentity(idx, ev)
+		if !sourceOK {
+			unresolvedSourceRows++
+			continue
+		}
+		key := source + "\x00" + lane
 		switch phase {
+		case "instant":
+			// Raise rows are point inventory. Unlike entry/exit pairs they have
+			// no interval that can overlap the selected window.
+			if timeInWindow(ev.Ts, q) {
+				observe(ev, baseName, key, source)
+			}
 		case "entry":
+			if timeInWindow(ev.Ts, q) {
+				observe(ev, baseName, key, source)
+			}
 			open[key] = append(open[key], interruptOpen{ev: ev})
 		case "exit":
+			var item *InterruptActivity
+			if timeInWindow(ev.Ts, q) {
+				item = observe(ev, baseName, key, source)
+			}
 			queue := open[key]
 			if len(queue) == 0 {
 				continue
 			}
-			start := queue[0].ev
-			open[key] = queue[1:]
+			// Kernel interrupt endpoints are stack-shaped. Keying by exact
+			// type+CPU+vector first prevents a different lane from closing this
+			// one; LIFO then respects nested endpoint order.
+			start := queue[len(queue)-1].ev
+			open[key] = queue[:len(queue)-1]
 			if ev.Ts < start.Ts {
 				continue
 			}
-			dur := (ev.Ts - start.Ts) * 1000
+			clipStart, clipEnd := start.Ts, ev.Ts
+			if q.TimeEnd > q.TimeStart {
+				var overlaps bool
+				clipStart, clipEnd, overlaps = overlapTimeWindow(start.Ts, ev.Ts, q.TimeStart, q.TimeEnd)
+				if !overlaps {
+					continue
+				}
+			}
+			// A malformed identity-less endpoint inside the physical pair can
+			// change its LIFO nesting. Suppress only that affected pair; a bad
+			// row before a later fully-contained exact pair does not poison the
+			// unrelated future window.
+			if interruptPairHasValidationFailure(idx, interruptDurationFamily(typ), start.Ts, ev.Ts) {
+				continue
+			}
+			if item == nil {
+				item = ensure(start, baseName, key, source)
+			}
+			applyLineRange(&item.LineStart, &item.LineEnd, start.Line)
+			applyLineRange(&item.LineStart, &item.LineEnd, ev.Line)
+			if item.StartTs == 0 || start.Ts < item.StartTs {
+				item.StartTs = start.Ts
+			}
+			if ev.Ts > item.EndTs {
+				item.EndTs = ev.Ts
+			}
+			dur := (clipEnd - clipStart) * 1000
 			item.PairedCount++
 			item.ActiveMs += dur
 			if dur > item.MaxActiveMs {
@@ -6885,23 +7029,76 @@ func computeInterruptActivity(idx *Index, q Query, typ EventType, coreByCPU map[
 	if max > 0 && len(out) > max {
 		out = out[:max]
 	}
-	return out
+	var caveats []string
+	if unresolvedSourceRows > 0 {
+		caveats = append(caveats, fmt.Sprintf("interrupt_pairing_provenance_unresolved=true; family=%s rows=%d; endpoints without exactly one physical source artifact were excluded", typ, unresolvedSourceRows))
+	}
+	return out, caveats
+}
+
+func interruptDurationFamily(typ EventType) durationOrderFamily {
+	switch typ {
+	case EventIRQ:
+		return durationOrderIRQ
+	case EventSoftIRQ:
+		return durationOrderSoftIRQ
+	case EventIPI:
+		return durationOrderIPI
+	default:
+		return ""
+	}
+}
+
+func interruptPairHasValidationFailure(idx *Index, family durationOrderFamily, startTs, endTs float64) bool {
+	if idx == nil || family == "" || endTs < startTs {
+		return false
+	}
+	if idx.durationOrderFailuresCapped[family] {
+		return true
+	}
+	for i := range idx.durationOrderFailures {
+		failure := &idx.durationOrderFailures[i]
+		if failure.Family != family || failure.Issue != "endpoint_parse_incomplete" {
+			continue
+		}
+		if failure.CurrentTs >= startTs && failure.CurrentTs <= endTs {
+			return true
+		}
+	}
+	return false
 }
 
 func interruptBaseAndPhase(ev Event) (baseName, phase string) {
 	name := strings.ToLower(strings.TrimSpace(ev.Name))
 	baseName = firstNonEmpty(ev.IRQName, ev.Name)
-	if ev.Type == EventIPI && strings.HasSuffix(name, "_raise") {
-		return strings.TrimSuffix(baseName, "_raise"), "instant"
-	}
-	for _, suffix := range []string{"_entry", "_raise", "_start", "_enter"} {
-		if strings.HasSuffix(name, suffix) {
-			return strings.TrimSuffix(baseName, suffix), "entry"
+	// Only the kernel's closed endpoint families are duration-bearing. Generic
+	// irq_* / softirq_* observations stay inventory and cannot accidentally
+	// become a pair merely because their name happens to share a suffix.
+	switch ev.Type {
+	case EventIRQ:
+		switch name {
+		case "irq_handler_entry":
+			return baseName, "entry"
+		case "irq_handler_exit":
+			return baseName, "exit"
 		}
-	}
-	for _, suffix := range []string{"_exit", "_done", "_end", "_complete"} {
-		if strings.HasSuffix(name, suffix) {
-			return strings.TrimSuffix(baseName, suffix), "exit"
+	case EventSoftIRQ:
+		switch name {
+		case "softirq_raise":
+			return baseName, "instant"
+		case "softirq_entry":
+			return baseName, "entry"
+		case "softirq_exit":
+			return baseName, "exit"
+		}
+	case EventIPI:
+		switch name {
+		case "ipi_raise":
+			return baseName, "instant"
+		case "ipi_entry":
+			return baseName, "entry"
+		case "ipi_exit":
+			return baseName, "exit"
 		}
 	}
 	return baseName, ""
@@ -6990,29 +7187,36 @@ type workqueueOpen struct {
 	ev Event
 }
 
-func computeWorkqueueActivity(idx *Index, q Query, max int) []WorkqueueActivity {
+func computeWorkqueueActivity(idx *Index, q Query, max int) ([]WorkqueueActivity, []string) {
 	if idx == nil {
-		return nil
+		return nil, nil
 	}
 	accs := map[string]*WorkqueueActivity{}
 	open := map[string][]workqueueOpen{}
+	unresolvedSourceRows := 0
 	for _, ev := range idx.Events {
 		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) || ev.Type != EventWorkqueue {
 			continue
 		}
+		source, sourceOK := tracePairingSourceIdentity(idx, ev)
+		if !sourceOK {
+			unresolvedSourceRows++
+			continue
+		}
 		work, function := workqueueFields(ev)
 		base, phase := workqueueBaseAndPhase(ev.Name)
-		key := fmt.Sprintf("%d/%s/%s/%s", ev.PID, firstNonEmpty(work, "-"), firstNonEmpty(function, "-"), base)
+		key := source + "\x00" + fmt.Sprintf("%d/%s/%s/%s", ev.PID, firstNonEmpty(work, "-"), firstNonEmpty(function, "-"), base)
 		item := accs[key]
 		if item == nil {
 			item = &WorkqueueActivity{
-				Thread:    threadRefFromEvent(ev),
-				Work:      work,
-				Function:  function,
-				LineStart: ev.Line,
-				LineEnd:   ev.Line,
-				StartTs:   ev.Ts,
-				EndTs:     ev.Ts,
+				SourcePath: source,
+				Thread:     threadRefFromEvent(ev),
+				Work:       work,
+				Function:   function,
+				LineStart:  ev.Line,
+				LineEnd:    ev.Line,
+				StartTs:    ev.Ts,
+				EndTs:      ev.Ts,
 			}
 			accs[key] = item
 		}
@@ -7065,7 +7269,11 @@ func computeWorkqueueActivity(idx *Index, q Query, max int) []WorkqueueActivity 
 	if max > 0 && len(out) > max {
 		out = out[:max]
 	}
-	return out
+	var caveats []string
+	if unresolvedSourceRows > 0 {
+		caveats = append(caveats, fmt.Sprintf("workqueue_pairing_provenance_unresolved=true; rows=%d; rows without exactly one physical source artifact were excluded", unresolvedSourceRows))
+	}
+	return out, caveats
 }
 
 func workqueueFields(ev Event) (work, function string) {
@@ -7098,31 +7306,38 @@ type dmaFenceOpen struct {
 	ev Event
 }
 
-func computeDMAFenceActivity(idx *Index, q Query, max int) []DMAFenceActivity {
+func computeDMAFenceActivity(idx *Index, q Query, max int) ([]DMAFenceActivity, []string) {
 	if idx == nil {
-		return nil
+		return nil, nil
 	}
 	accs := map[string]*DMAFenceActivity{}
 	open := map[string][]dmaFenceOpen{}
+	unresolvedSourceRows := 0
 	for _, ev := range idx.Events {
 		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) || ev.Type != EventDMAFence {
 			continue
 		}
+		source, sourceOK := tracePairingSourceIdentity(idx, ev)
+		if !sourceOK {
+			unresolvedSourceRows++
+			continue
+		}
 		driver, timeline, context, seqno := dmaFenceFields(ev)
 		base, phase := dmaFenceBaseAndPhase(ev.Name)
-		key := fmt.Sprintf("%d/%s/%s/%s/%s/%s", ev.PID, firstNonEmpty(driver, "-"), firstNonEmpty(timeline, "-"), firstNonEmpty(context, "-"), firstNonEmpty(seqno, "-"), base)
+		key := source + "\x00" + fmt.Sprintf("%d/%s/%s/%s/%s/%s", ev.PID, firstNonEmpty(driver, "-"), firstNonEmpty(timeline, "-"), firstNonEmpty(context, "-"), firstNonEmpty(seqno, "-"), base)
 		item := accs[key]
 		if item == nil {
 			item = &DMAFenceActivity{
-				Thread:    threadRefFromEvent(ev),
-				Driver:    driver,
-				Timeline:  timeline,
-				Context:   context,
-				Seqno:     seqno,
-				LineStart: ev.Line,
-				LineEnd:   ev.Line,
-				StartTs:   ev.Ts,
-				EndTs:     ev.Ts,
+				SourcePath: source,
+				Thread:     threadRefFromEvent(ev),
+				Driver:     driver,
+				Timeline:   timeline,
+				Context:    context,
+				Seqno:      seqno,
+				LineStart:  ev.Line,
+				LineEnd:    ev.Line,
+				StartTs:    ev.Ts,
+				EndTs:      ev.Ts,
 			}
 			accs[key] = item
 		}
@@ -7175,7 +7390,11 @@ func computeDMAFenceActivity(idx *Index, q Query, max int) []DMAFenceActivity {
 	if max > 0 && len(out) > max {
 		out = out[:max]
 	}
-	return out
+	var caveats []string
+	if unresolvedSourceRows > 0 {
+		caveats = append(caveats, fmt.Sprintf("dma_fence_pairing_provenance_unresolved=true; rows=%d; rows without exactly one physical source artifact were excluded", unresolvedSourceRows))
+	}
+	return out, caveats
 }
 
 func dmaFenceFields(ev Event) (driver, timeline, context, seqno string) {
@@ -7840,35 +8059,34 @@ func computeTopIOInodes(fileIO map[string]*FileIOSummary, pageCache map[string]*
 type storageLatencyAcc struct {
 	item           StorageLatencySummary
 	totalLatencyMs float64
-	open           []Event
+	depth          int
+	ambiguous      bool
+	cohortStarts   int
+	start          Event
 }
 
-func computeStorageLatencyByLayer(idx *Index, q Query, blockLatencies []IOLatencySummary, max int) []StorageLatencySummary {
+func computeStorageLatencyByLayer(idx *Index, q Query, blockSummaries []StorageLatencySummary, max int) ([]StorageLatencySummary, []string) {
 	accs := map[string]*storageLatencyAcc{}
-	for _, io := range blockLatencies {
-		key := strings.Join([]string{"block", "block_rq", io.Dev, io.Op}, "/")
-		acc := storageLatencyAccumulator(accs, key, "block", "block_rq", io.Dev, io.Op, io.IssueThread, io.IssueLine, io.IssueTs, "")
-		acc.item.Count++
-		acc.item.PairedCount++
-		acc.totalLatencyMs += io.DurationMs
-		if io.DurationMs > acc.item.MaxLatencyMs {
-			acc.item.MaxLatencyMs = io.DurationMs
-		}
-		acc.item.Bytes += io.Len * 512
-		applyLineRange(&acc.item.LineStart, &acc.item.LineEnd, io.IssueLine)
-		applyLineRange(&acc.item.LineStart, &acc.item.LineEnd, io.CompleteLine)
-		if io.CompleteTs > acc.item.EndTs {
-			acc.item.EndTs = io.CompleteTs
-		}
-	}
+	unresolvedSourceRows := 0
 	if idx != nil {
 		for _, ev := range idx.Events {
 			if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) || !isStorageLatencyEvent(ev) {
 				continue
 			}
+			// Exact block rq/bio endpoint pairing is performed by
+			// computeBlockIOLatencies. Never feed grouped EventBlock* rows into
+			// this generic suffix-based storage state machine.
+			if ev.Type == EventBlockIssue || ev.Type == EventBlockComplete {
+				continue
+			}
 			layer := storageLatencyLayer(ev)
 			base, phase := storageLatencyBaseAndPhase(ev)
 			if layer == "" || base == "" {
+				continue
+			}
+			source, sourceOK := tracePairingSourceIdentity(idx, ev)
+			if !sourceOK {
+				unresolvedSourceRows++
 				continue
 			}
 			ff := ev.FileFields
@@ -7885,8 +8103,8 @@ func computeStorageLatencyByLayer(idx *Index, q Query, blockLatencies []IOLatenc
 			}
 			dev := firstNonEmpty(ff.Dev, blk.Dev, blk.SrcDev, "unknown")
 			op := firstNonEmpty(ff.RW, rf.Op, blk.Op, fileOperationFromEventName(ev.Name), base)
-			key := strings.Join([]string{layer, base, dev, firstNonEmpty(ff.Ino, "-"), op, fmt.Sprintf("%d", ev.PID)}, "/")
-			acc := storageLatencyAccumulator(accs, key, layer, base, dev, op, threadRefFromEvent(ev), ev.Line, ev.Ts, ev.FieldText)
+			key := strings.Join([]string{source, layer, base, dev, firstNonEmpty(ff.Ino, "-"), op, fmt.Sprintf("%d", ev.PID)}, "\x00")
+			acc := storageLatencyAccumulator(accs, key, source, layer, base, dev, op, threadRefFromEvent(ev), ev.Line, ev.Ts, ev.FieldText)
 			if acc.item.Inode == "" && ff.Ino != "" {
 				acc.item.Inode = ff.Ino
 			}
@@ -7905,15 +8123,40 @@ func computeStorageLatencyByLayer(idx *Index, q Query, blockLatencies []IOLatenc
 			}
 			switch phase {
 			case "start":
-				acc.open = append(acc.open, ev)
+				if acc.depth == 0 {
+					acc.depth = 1
+					acc.cohortStarts = 1
+					acc.start = ev
+					continue
+				}
+				acc.depth++
+				acc.cohortStarts++
+				if !acc.ambiguous {
+					acc.ambiguous = true
+					acc.item.AmbiguousCohortCount++
+					acc.start = Event{}
+				}
 			case "done":
-				if len(acc.open) == 0 {
+				if acc.depth == 0 {
 					acc.item.UnpairedDoneCount++
 					continue
 				}
-				start := acc.open[0]
-				acc.open = acc.open[1:]
+				if acc.ambiguous {
+					acc.depth--
+					if acc.depth == 0 {
+						acc.item.PairingSuppressedCount += acc.cohortStarts
+						acc.ambiguous = false
+						acc.cohortStarts = 0
+						acc.start = Event{}
+					}
+					continue
+				}
+				start := acc.start
+				acc.depth = 0
+				acc.cohortStarts = 0
+				acc.start = Event{}
 				if ev.Ts < start.Ts {
+					acc.item.PairingSuppressedCount++
 					continue
 				}
 				dur := (ev.Ts - start.Ts) * 1000
@@ -7925,13 +8168,32 @@ func computeStorageLatencyByLayer(idx *Index, q Query, blockLatencies []IOLatenc
 			}
 		}
 	}
-	out := make([]StorageLatencySummary, 0, len(accs))
+	out := append(make([]StorageLatencySummary, 0, len(blockSummaries)+len(accs)), blockSummaries...)
+	var ambiguous, suppressed, unpairedStart, unpairedDone int
 	for _, acc := range accs {
-		acc.item.UnpairedStartCount += len(acc.open)
+		if acc.depth > 0 {
+			if acc.ambiguous {
+				suppressedAtEOF := acc.cohortStarts
+				acc.depth = 0
+				acc.ambiguous = false
+				acc.cohortStarts = 0
+				acc.start = Event{}
+				acc.item.PairingSuppressedCount += suppressedAtEOF
+			} else {
+				acc.item.UnpairedStartCount++
+				acc.depth = 0
+				acc.cohortStarts = 0
+				acc.start = Event{}
+			}
+		}
 		if acc.item.PairedCount > 0 {
 			acc.item.AvgLatencyMs = acc.totalLatencyMs / float64(acc.item.PairedCount)
 		}
-		acc.item.Summary = fmt.Sprintf("layer=%s event=%s dev=%s op=%s count=%d paired=%d max_latency=%.3fms", acc.item.Layer, acc.item.Event, acc.item.Dev, acc.item.Operation, acc.item.Count, acc.item.PairedCount, acc.item.MaxLatencyMs)
+		acc.item.Summary = storageLatencySummaryText(acc.item)
+		ambiguous += acc.item.AmbiguousCohortCount
+		suppressed += acc.item.PairingSuppressedCount
+		unpairedStart += acc.item.UnpairedStartCount
+		unpairedDone += acc.item.UnpairedDoneCount
 		out = append(out, acc.item)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -7949,25 +8211,36 @@ func computeStorageLatencyByLayer(idx *Index, q Query, blockLatencies []IOLatenc
 	if max > 0 && len(out) > max {
 		out = out[:max]
 	}
-	return out
+	var caveats []string
+	if unresolvedSourceRows > 0 {
+		caveats = append(caveats, fmt.Sprintf("storage_latency_pairing_provenance_unresolved=true; rows=%d; endpoints without exactly one physical source artifact were excluded", unresolvedSourceRows))
+	}
+	if ambiguous > 0 {
+		caveats = append(caveats, fmt.Sprintf("storage_latency_pairing_ambiguous=true; cohorts=%d pairing_suppressed=%d; overlapping identical coarse lanes were withheld as whole cohorts instead of FIFO-guessed", ambiguous, suppressed))
+	}
+	if unpairedStart > 0 || unpairedDone > 0 {
+		caveats = append(caveats, fmt.Sprintf("storage_latency_pairing_unpaired=true; unpaired_start=%d unpaired_done=%d; elapsed latency was emitted only for complete exact-lane pairs", unpairedStart, unpairedDone))
+	}
+	return out, caveats
 }
 
-func storageLatencyAccumulator(accs map[string]*storageLatencyAcc, key, layer, event, dev, op string, thread ThreadRef, line int, ts float64, example string) *storageLatencyAcc {
+func storageLatencyAccumulator(accs map[string]*storageLatencyAcc, key, source, layer, event, dev, op string, thread ThreadRef, line int, ts float64, example string) *storageLatencyAcc {
 	acc := accs[key]
 	if acc != nil {
 		return acc
 	}
 	acc = &storageLatencyAcc{item: StorageLatencySummary{
-		Layer:     layer,
-		Event:     event,
-		Dev:       dev,
-		Operation: op,
-		Thread:    thread,
-		LineStart: line,
-		LineEnd:   line,
-		StartTs:   ts,
-		EndTs:     ts,
-		Example:   clampString(example, 160),
+		SourcePath: source,
+		Layer:      layer,
+		Event:      event,
+		Dev:        dev,
+		Operation:  op,
+		Thread:     thread,
+		LineStart:  line,
+		LineEnd:    line,
+		StartTs:    ts,
+		EndTs:      ts,
+		Example:    clampString(example, 160),
 	}}
 	accs[key] = acc
 	return acc
@@ -8858,64 +9131,11 @@ func aggregateWakeupCausalImpacts(chain *ChainResult) []WakeupCausalAggregate {
 		if impact.PriorityInversionCandidate {
 			a.invCount++
 		}
-		// VS-2 (§7.10): fold fields SUM over the folded members only (the
-		// nil-basis members never computed a fold — their running stays
-		// outside the basis split by design). The VS-2b/VS-2c fmax and
-		// cluster-lane fields intentionally stay ZERO on the aggregate:
-		// member folds ran against per-occurrence governance windows, so a
-		// merged aggregate has no single honest fmax — the per-occurrence
-		// rows keep theirs.
-		if impact.SupplyFoldBasis != nil {
-			if a.item.SupplyFoldBasis == nil {
-				a.item.SupplyFoldBasis = &SupplyFoldBasis{}
-			}
-			a.item.SupplyFoldBasis.KnownMs += impact.SupplyFoldBasis.KnownMs
-			a.item.SupplyFoldBasis.UnknownMs += impact.SupplyFoldBasis.UnknownMs
-			a.item.SupplyFoldDeficitMs += impact.SupplyFoldDeficitMs
-			a.item.SupplyFoldIdealMs += impact.SupplyFoldIdealMs
-			// CFR (#75 簇共频): the reuse disclosure is a set union — an
-			// aggregate whose members folded reused slices must keep the
-			// provenance auditable (dedupe + sort inside the recorder).
-			// CFR-2 (#80): the source token rides along — one query resolves
-			// one domains object, so member sources are uniform; first wins.
-			for _, pair := range impact.SupplyFoldBasis.ClusterFreqReuse {
-				recordSupplyFoldClusterReuse(a.item.SupplyFoldBasis, pair.CPU, pair.DonorCPU)
-			}
-			if a.item.SupplyFoldBasis.ClusterFreqReuseSource == "" {
-				a.item.SupplyFoldBasis.ClusterFreqReuseSource = impact.SupplyFoldBasis.ClusterFreqReuseSource
-			}
-			// CAP (§26 C3): the capability caliber rides along — one query
-			// resolves ONE capability judgment, so members are uniform;
-			// first wins (same rule as the CFR-2 source token above).
-			// 复核 F1: the reference class travels the same way (members share
-			// one governance-window reference per query window; mixed-window
-			// aggregates keep the first member's disclosure — same honesty
-			// bound as the zeroed fmax above).
-			if a.item.SupplyFoldBasis.CapabilitySource == "" {
-				a.item.SupplyFoldBasis.CapabilitySource = impact.SupplyFoldBasis.CapabilitySource
-			}
-			if a.item.SupplyFoldBasis.ReferenceClass == "" {
-				a.item.SupplyFoldBasis.ReferenceClass = impact.SupplyFoldBasis.ReferenceClass
-			}
-			// CAP-2 (§28.4/§28.5): topology token + rail family first-win
-			// like the capability source above (one judgment per query);
-			// the rail-governed roster unions like the CFR reuse roster;
-			// THERM first-wins (same per-window honesty bound as the
-			// reference class).
-			if a.item.SupplyFoldBasis.ClusterTopologySource == "" {
-				a.item.SupplyFoldBasis.ClusterTopologySource = impact.SupplyFoldBasis.ClusterTopologySource
-			}
-			if a.item.SupplyFoldBasis.RailFamily == "" {
-				a.item.SupplyFoldBasis.RailFamily = impact.SupplyFoldBasis.RailFamily
-			}
-			for _, entry := range impact.SupplyFoldBasis.RailGoverned {
-				recordSupplyFoldRailGoverned(a.item.SupplyFoldBasis, entry.CPU, entry.Rail)
-			}
-			if a.item.SupplyFoldBasis.ThermalCapKHz == 0 {
-				a.item.SupplyFoldBasis.ThermalCapKHz = impact.SupplyFoldBasis.ThermalCapKHz
-				a.item.SupplyFoldBasis.ThermalCapClusterClass = impact.SupplyFoldBasis.ThermalCapClusterClass
-			}
-		}
+		// VS-2 (§7.10): the shared merge authority keeps the fold's numeric
+		// vector and permitted aggregate provenance together. Overlap
+		// reconciliation invokes the same helper after selecting one complete
+		// physical occurrence vector per overlap-connected cohort.
+		addWakeupAggregateSupplyFold(&a.item, impact)
 		a.item.OccurrenceWindows = append(a.item.OccurrenceWindows, wakeupCausalOccurrenceFromImpact(impact))
 	}
 	var out []WakeupCausalAggregate
@@ -8923,13 +9143,29 @@ func aggregateWakeupCausalImpacts(chain *ChainResult) []WakeupCausalAggregate {
 		if a.item.OccurrenceCount < 2 {
 			continue
 		}
+		// Periodic-source detection works from recurring occurrence starts, but
+		// cadence does not prove the projected windows are disjoint. Detect on
+		// the raw members, then reconcile every aggregate through the same
+		// overlap-safe path and recompute the derived periodic account.
 		a.item.DominantState, a.item.DominantImpactMs = dominantAggregateState(a.item)
+		detectPeriodicWakeupSource(chain, &a.item, a.members)
+		reconcileWakeupAggregateOccurrenceOverlap(chain, &a.item, a.members)
+		a.item.DominantState, a.item.DominantImpactMs = dominantAggregateState(a.item)
+		if a.item.PeriodicSource {
+			totalLateness := reconciledWakeupAggregatePeriodicLateness(chain, a.members)
+			rawBlocking := aggregateBlockingMs(a.item)
+			maxLateness := math.Max(rawBlocking-a.item.RunnableMs, 0)
+			if totalLateness > maxLateness {
+				totalLateness = maxLateness
+			}
+			a.item.LatenessMs = totalLateness
+			a.item.EffectivePeriodicImpactMs = minPositiveCapFloat(a.item.RunnableMs+totalLateness, rawBlocking)
+		}
 		a.item.ProjectedImpactMs = aggregateBlockingMs(a.item)
 		a.item.ActualImpactMs = actualAggregateBlockingMs(a.item)
 		a.item.PriorityRelation = mostFrequentString(a.prioVotes)
 		a.item.PriorityInversion = a.invCount > 0
 		applyAggregateGatedInversion(chain, &a.item, a.members)
-		detectPeriodicWakeupSource(chain, &a.item, a.members)
 		a.item.OccurrenceWindows = trimWakeupCausalOccurrences(a.item.OccurrenceWindows, wakeupCausalAggregateOccurrenceCap)
 		a.item.Summary = renderWakeupCausalAggregateSummary(a.item)
 		out = append(out, a.item)
@@ -9481,6 +9717,9 @@ func renderWakeupCausalAggregateSummary(item WakeupCausalAggregate) string {
 	if item.Path != "" {
 		summary += " path=" + item.Path
 	}
+	if item.AggregationCaliber != "" {
+		summary += " aggregation_caliber=" + item.AggregationCaliber
+	}
 	if item.PriorityRelation != "" {
 		summary += " priority_relation=" + item.PriorityRelation
 	}
@@ -9706,6 +9945,14 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	for _, aggregate := range seatedAggregates {
 		seatedAggregateGroups[wakeupCausalAggregateGroupKey(aggregate.Thread.PID, aggregate.DominantState)] = true
 	}
+	// One physical causal occurrence may be published on both lossless
+	// wakeup-chain faces: CausalImpacts and RootEvidence.  Only the former owns
+	// the active rank seat when it (or its aggregate) was admitted.  Record the
+	// exact derived RootEvidence identity for each admitted occurrence so the
+	// later RootEvidence loop can preserve every non-twin lane (missing wakeup,
+	// trace gap, depth-0 fallback, binder evidence) without double minting the
+	// same interval.
+	seatedCausalRootEvidence := map[string]bool{}
 	for _, impact := range chain.CausalImpacts {
 		if impact.TotalMs <= 0 {
 			continue
@@ -9731,9 +9978,11 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		// it) and keeps minting.
 		if impact.Thread.PID > 0 && impact.ChainDepth > 0 && strings.TrimSpace(impact.DominantState) != "" &&
 			seatedAggregateGroups[wakeupCausalAggregateGroupKey(impact.Thread.PID, impact.DominantState)] {
+			seatedCausalRootEvidence[rootEvidenceRankSeatKey(rootEvidenceFromCausalImpact(impact, "", 0))] = true
 			continue
 		}
 		items = append(items, rootCauseItemFromCausalImpact(impact))
+		seatedCausalRootEvidence[rootEvidenceRankSeatKey(rootEvidenceFromCausalImpact(impact, "", 0))] = true
 	}
 	for _, aggregate := range seatedAggregates {
 		items = append(items, rootCauseItemFromCausalAggregate(aggregate))
@@ -9755,7 +10004,7 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		// "runnable independent effective-attribution row" is WITHDRAWN — the
 		// merged row's gated composition already counts the runnable share in
 		// full; re-publishing it would recreate the double count.
-		if root.Type == "running" {
+		if seatedCausalRootEvidence[rootEvidenceRankSeatKey(root)] {
 			continue
 		}
 		item := rootCauseItem(root.Type, root.Thread, root.DurationMs, root.Confidence, root.LineStart, root.LineEnd, "wakeup_chain", root.Summary)
@@ -9784,6 +10033,12 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		} else if pressure.HighPriorityRunningMs > 0 {
 			summary = fmt.Sprintf("%s; high-priority running time %.3fms in window without runnable-wait overlap (background, not displacement)", summary, pressure.HighPriorityRunningMs)
 		}
+		if pressure.SystemOrKernelRunningOverlapMs > 0 {
+			summary = fmt.Sprintf("%s; raw system/kernel competition overlap %.3fms across %d competitor(s) (window total %.3fms; not high-priority evidence)",
+				summary, pressure.SystemOrKernelRunningOverlapMs, pressure.SystemOrKernelCompetitorCount, pressure.SystemOrKernelRunningMs)
+		} else if pressure.SystemOrKernelRunningMs > 0 {
+			summary = fmt.Sprintf("%s; raw system/kernel running time %.3fms in window (not high-priority evidence)", summary, pressure.SystemOrKernelRunningMs)
+		}
 		item := rootCauseItem("cpu_pressure", ThreadRef{}, backgroundImpactMs(q, pressure.RunnableWaitMs, hasCausalChain, false), conf, firstThreadLine(pressure.TopRunnable), lastThreadLine(pressure.TopRunning), "window_stats", summary)
 		item.CumulativeImpactMs = pressure.RunnableWaitMs
 		if hasCausalChain {
@@ -9792,12 +10047,33 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		items = append(items, item)
 	}
 	for _, io := range stats.IOLatencies {
+		projectedStart, projectedEnd := io.IssueTs, io.CompleteTs
+		projectedMs := io.DurationMs
+		if q.TimeEnd > q.TimeStart && io.CompleteTs > io.IssueTs {
+			if start, end, ok := overlapTimeWindow(io.IssueTs, io.CompleteTs, q.TimeStart, q.TimeEnd); ok {
+				projectedStart, projectedEnd = start, end
+				projectedMs = (end - start) * 1000
+			} else {
+				continue
+			}
+		}
+		if projectedMs <= 0 {
+			continue
+		}
 		onChain := threadInSet(chainThreads, io.IssueThread) || threadInSet(chainThreads, io.CompleteThread)
-		item := rootCauseItem("io_latency", io.IssueThread, backgroundImpactMs(q, io.DurationMs, hasCausalChain, onChain), 0.86, io.IssueLine, io.CompleteLine, "window_stats", fmt.Sprintf("block IO %s %s sector=%d len=%d took %.3fms", io.Dev, io.Op, io.Sector, io.Len, io.DurationMs))
-		item.CumulativeImpactMs = io.DurationMs
+		item := rootCauseItem("io_latency", io.IssueThread, backgroundImpactMs(q, projectedMs, hasCausalChain, onChain), 0.86, io.IssueLine, io.CompleteLine, "window_stats", fmt.Sprintf("block IO %s %s sector=%d len=%d projected %.3fms inside the selected window (physical %.3fms)", io.Dev, io.Op, io.Sector, io.Len, projectedMs, io.DurationMs))
+		item.PhysicalSourcePath = io.SourcePath
+		item.ProjectedImpactMs = projectedMs
+		item.CumulativeImpactMs = projectedMs
 		item.Causality = causalityLabel(hasCausalChain, onChain)
-		item.StartTs = io.IssueTs
-		item.EndTs = io.CompleteTs
+		item.StartTs = projectedStart
+		item.EndTs = projectedEnd
+		if io.CompleteTs > io.IssueTs && (projectedStart != io.IssueTs || projectedEnd != io.CompleteTs) {
+			item.ActualStartTs = io.IssueTs
+			item.ActualEndTs = io.CompleteTs
+			item.ActualImpactMs = io.DurationMs
+			item.ActualTotalMs = io.DurationMs
+		}
 		// RCM §24.7.1 typed member identity (never a Summary re-parse).
 		item.Dev = io.Dev
 		item.MemberKey = fmt.Sprintf("dev=%s op=%s sector=%d", io.Dev, io.Op, io.Sector)
@@ -9956,6 +10232,7 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 			semanticNearMisses = append(semanticNearMisses, span.Name)
 		}
 		item := rootCauseItem("trace_span", span.Thread, span.DurationMs, 0.74, span.StartLine, span.EndLine, "window_stats", fmt.Sprintf("trace span %q lasted %.3fms", span.Name, span.DurationMs))
+		item.PhysicalSourcePath = span.SourcePath
 		item.StartTs = span.StartTs
 		item.EndTs = span.EndTs
 		if span.ActualDurationMs > 0 {
@@ -9974,7 +10251,7 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		items = append(items, item)
 	}
 	if len(semanticNearMisses) > 0 {
-		res.Caveats = append(res.Caveats, fmt.Sprintf("span name(s) mention compile/verify/shader/texture-upload-like vocabulary but did not match a known jit_compile/class_verification/shader_compile/runtime_compile/texture_upload pattern (e.g. %s); the app/ArkCompiler/ROM naming convention may have changed — treat as generic trace_span context, not a confirmed semantic root cause", strings.Join(semanticNearMisses, ", ")))
+		res.Caveats = append(res.Caveats, fmt.Sprintf("span name(s) mention compile/verify/shader/texture-upload/GC-like vocabulary but did not match a known jit_compile/class_verification/shader_compile/runtime_compile/texture_upload/gc_pause pattern (e.g. %s); the app/ArkCompiler/ROM naming convention may have changed — treat as generic trace_span context, not a confirmed semantic root cause", strings.Join(semanticNearMisses, ", ")))
 	}
 	// ORD 复核 P3-1 (2026-07-10): the producer-disjointness proof PREMISE is a
 	// globally time-ordered event stream — the single open-segment state
@@ -10084,12 +10361,9 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		item.IOWaitMs = churn.IOWaitMs
 		items = append(items, item)
 	}
-	for _, burst := range stats.IRQBursts {
-		item := rootCauseItem("irq_burst", ThreadRef{}, burst.DurationMs, 0.66, burst.LineStart, burst.LineEnd, "window_stats", fmt.Sprintf("IRQ burst %s irq=%d on cpu=%d had %d event(s) over %.3fms", burst.Name, burst.IRQ, burst.CPU, burst.Count, burst.DurationMs))
-		item.StartTs = burst.StartTs
-		item.EndTs = burst.EndTs
-		items = append(items, item)
-	}
+	// IRQBursts is count/span inventory only. It intentionally consumes no
+	// root-rank seat: paired IRQActivity.ActiveMs is the sole elapsed-time
+	// contender for the same physical interrupt rows.
 	for _, irq := range stats.IRQActivity {
 		if irq.ActiveMs <= 0 {
 			continue
@@ -10127,6 +10401,7 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	for _, work := range stats.WorkqueueActivity {
 		onChain := threadInSet(chainThreads, work.Thread)
 		item := rootCauseItem("workqueue_activity", work.Thread, backgroundImpactMs(q, work.DurationMs, hasCausalChain, onChain), 0.62, work.LineStart, work.LineEnd, "window_stats.workqueue_activity", work.Summary)
+		item.PhysicalSourcePath = work.SourcePath
 		item.CumulativeImpactMs = work.DurationMs
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		item.StartTs = work.StartTs
@@ -10142,6 +10417,7 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		}
 		onChain := threadInSet(chainThreads, fence.Thread)
 		item := rootCauseItem("dma_fence_activity", fence.Thread, backgroundImpactMs(q, impact, hasCausalChain, onChain), 0.63, fence.LineStart, fence.LineEnd, "window_stats.dma_fence_activity", fence.Summary)
+		item.PhysicalSourcePath = fence.SourcePath
 		item.CumulativeImpactMs = impact
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		item.StartTs = fence.StartTs
@@ -10151,10 +10427,12 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		items = append(items, item)
 	}
 	if supply := stats.SupplyPressureSummary; supply != nil {
-		impact := firstPositiveFloat(supply.CPUPressureMs, supply.IPIActiveMs, (supply.SchedStatWaitMs+supply.SchedStatIOWaitMs+supply.SchedStatBlockedMs)*0.35)
-		if impact <= 0 {
-			impact = float64(supply.IPIEventCount) * 0.05
-		}
+		// supply_pressure is the demand/capacity aggregate. Paired IPI active
+		// time already owns the typed ipi_activity seat above; using the same
+		// duration (or an event-count proxy) here let one physical interrupt
+		// occupy two board seats. Keep IPI in SupplyPressureSummary as context,
+		// but mint this rank row only from an independent demand-side duration.
+		impact := firstPositiveFloat(supply.CPUPressureMs, (supply.SchedStatWaitMs+supply.SchedStatIOWaitMs+supply.SchedStatBlockedMs)*0.35)
 		if impact > 0 {
 			item := rootCauseItem("supply_pressure", ThreadRef{}, backgroundImpactMs(q, impact, hasCausalChain, false), 0.58, supply.LineStart, supply.LineEnd, "window_stats.supply_pressure_summary", supply.Summary)
 			item.CumulativeImpactMs = impact
@@ -10200,19 +10478,21 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	sortRootCauseRankItems(items, hasCausalChain)
 	items = placeNonChainSemanticSpanRows(q, items)
 	limit := ViewCapacityFor("root_cause_rank").ClampLimit(q.Limit)
-	if len(items) > limit {
-		total := len(items)
-		items = truncateRootCauseRankItemsWithSemanticSeats(items, limit)
-		last := items[len(items)-1]
+	items, candidateTotal, candidateEmitted, sideTotal, sideEmitted := truncateRootCauseRankCandidatesAndSideRows(items, limit)
+	if candidateTotal > candidateEmitted {
+		last := items[candidateEmitted-1]
 		res.Compactions = append(res.Compactions, ViewCompaction{
 			View:            "root_cause_rank",
 			Dimension:       CompactionDimensionCandidates,
-			Total:           total,
-			Emitted:         len(items),
+			Total:           candidateTotal,
+			Emitted:         candidateEmitted,
 			LastEmittedTs:   last.EndTs,
 			LastEmittedLine: last.LineEnd,
 		})
-		res.Caveats = append(res.Caveats, fmt.Sprintf("root_cause_rank compacted from %d to %d candidate(s)", total, len(items)))
+		res.Caveats = append(res.Caveats, fmt.Sprintf("root_cause_rank compacted from %d to %d competing candidate(s); rank-0 diagnostics do not consume candidate seats", candidateTotal, candidateEmitted))
+	}
+	if sideTotal > sideEmitted {
+		res.Caveats = append(res.Caveats, fmt.Sprintf("root_cause_rank kept %d of %d rank-0 diagnostic/target-self disclosure row(s); these rows do not consume candidate seats", sideEmitted, sideTotal))
 	}
 	assignRootCauseRanksAndTiers(items)
 	if caveat, ok := semanticSpanRankFailLoudCaveat(stats, items); ok {
@@ -10368,19 +10648,22 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	sortRootCauseRankItems(rank.Items, hasCausalChain)
 	rank.Items = placeNonChainSemanticSpanRows(q, rank.Items)
 	limit := ViewCapacityFor("root_cause_rank").ClampLimit(q.Limit)
-	if len(rank.Items) > limit {
-		total := len(rank.Items)
-		rank.Items = truncateRootCauseRankItemsWithSemanticSeats(rank.Items, limit)
-		last := rank.Items[len(rank.Items)-1]
+	var candidateTotal, candidateEmitted, sideTotal, sideEmitted int
+	rank.Items, candidateTotal, candidateEmitted, sideTotal, sideEmitted = truncateRootCauseRankCandidatesAndSideRows(rank.Items, limit)
+	if candidateTotal > candidateEmitted {
+		last := rank.Items[candidateEmitted-1]
 		rank.Compactions = append(rank.Compactions, ViewCompaction{
 			View:            "root_cause_rank",
 			Dimension:       CompactionDimensionCandidates,
-			Total:           total,
-			Emitted:         len(rank.Items),
+			Total:           candidateTotal,
+			Emitted:         candidateEmitted,
 			LastEmittedTs:   last.EndTs,
 			LastEmittedLine: last.LineEnd,
 		})
-		rank.Caveats = append(rank.Caveats, fmt.Sprintf("root_cause_rank compacted after scheduler/compute enrichment from %d to %d candidate(s)", total, len(rank.Items)))
+		rank.Caveats = append(rank.Caveats, fmt.Sprintf("root_cause_rank compacted after scheduler/compute enrichment from %d to %d competing candidate(s); rank-0 diagnostics do not consume candidate seats", candidateTotal, candidateEmitted))
+	}
+	if sideTotal > sideEmitted {
+		rank.Caveats = append(rank.Caveats, fmt.Sprintf("root_cause_rank kept %d of %d rank-0 diagnostic/target-self disclosure row(s) after enrichment; these rows do not consume candidate seats", sideEmitted, sideTotal))
 	}
 	assignRootCauseRanksAndTiers(rank.Items)
 	rank.Caveats = append(rank.Caveats, latency.Caveats...)
@@ -11804,6 +12087,7 @@ func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSp
 		summary = fmt.Sprintf("%s; overlapped_chain_state=%s", summary, projection.DominantState)
 	}
 	item := rootCauseItem(work.RootCauseType, span.Thread, projection.ImpactMs, work.Confidence, span.StartLine, span.EndLine, "window_stats.trace_spans.semantic", summary)
+	item.PhysicalSourcePath = span.SourcePath
 	item.StartTs = projection.StartTs
 	item.EndTs = projection.EndTs
 	item.ActualStartTs = actualStartTs
@@ -11874,69 +12158,11 @@ func semanticTraceSpanProjectionForRootCause(q Query, chain ChainResult, span Tr
 		return semanticTraceSpanProjection{}
 	}
 	if len(chain.Nodes) > 0 || len(chain.Edges) > 0 || len(chain.CausalImpacts) > 0 {
-		var out semanticTraceSpanProjection
-		bestImpactMs := 0.0
-		for _, node := range chain.Nodes {
-			if !sameThreadRef(node.Thread, span.Thread) {
-				continue
-			}
-			overlapStart, overlapEnd, overlapOK := overlapTimeWindow(start, end, node.Window.StartTs, node.Window.EndTs)
-			if !overlapOK {
-				continue
-			}
-			impactMs := (overlapEnd - overlapStart) * 1000
-			if impactMs <= 0 {
-				continue
-			}
-			if out.ImpactMs == 0 || overlapStart < out.StartTs {
-				out.StartTs = overlapStart
-			}
-			if overlapEnd > out.EndTs {
-				out.EndTs = overlapEnd
-			}
-			out.ImpactMs += impactMs
-			if impactMs > bestImpactMs || out.DominantState == "" {
-				bestImpactMs = impactMs
-				out.DominantState = string(node.Dominant)
-				if node.Impact != nil {
-					out.ChainDepth = node.Impact.ChainDepth
-					out.ChainBranch = node.Impact.ChainBranch
-					if out.DominantState == "" {
-						out.DominantState = node.Impact.DominantState
-					}
-				}
-			}
-			out.OnChain = true
-		}
-		if out.ImpactMs <= 0 {
-			for _, impact := range chain.CausalImpacts {
-				if !sameThreadRef(impact.Thread, span.Thread) {
-					continue
-				}
-				overlapStart, overlapEnd, overlapOK := overlapTimeWindow(start, end, impact.Window.StartTs, impact.Window.EndTs)
-				if !overlapOK {
-					continue
-				}
-				impactMs := (overlapEnd - overlapStart) * 1000
-				if impactMs <= 0 {
-					continue
-				}
-				if out.ImpactMs == 0 || overlapStart < out.StartTs {
-					out.StartTs = overlapStart
-				}
-				if overlapEnd > out.EndTs {
-					out.EndTs = overlapEnd
-				}
-				out.ImpactMs += impactMs
-				if impactMs > bestImpactMs || out.DominantState == "" {
-					bestImpactMs = impactMs
-					out.DominantState = impact.DominantState
-					out.ChainDepth = impact.ChainDepth
-					out.ChainBranch = impact.ChainBranch
-				}
-				out.OnChain = true
-			}
-		}
+		// Single spans and semantic families share one exact interval algebra:
+		// union(span members) ∩ union(same-thread chain windows). This prevents
+		// the node and its mirrored causal-impact window (or two overlapping
+		// branch nodes) from counting the same physical span twice.
+		out := semanticTraceSpanChainIntersectionProjection(&chain, span.Thread, []foldInterval{{start: start, end: end}})
 		if out.ImpactMs > 0 {
 			return out
 		}
@@ -12374,7 +12600,7 @@ func rootCauseTypeCanBeDirectOnChain(typ string) bool {
 	case "runnable_wait", "scheduler_latency", "priority_inversion_runnable_wait", "fragmented_runnable_wait",
 		"running", "fragmented_running",
 		"compute_supply", "low_frequency", "cpu_affinity_or_cpuset",
-		"jit_compile", "class_verification", "shader_compile", "runtime_compile", "texture_upload",
+		"jit_compile", "class_verification", "shader_compile", "runtime_compile", "texture_upload", "gc_pause",
 		"io_wait", "d_state_or_io_wait", "io_latency", "io_burst_episode", "block_io_by_inode", "file_io_hot_inode", "fragmented_d_state_or_io_wait",
 		"workqueue_activity", "dma_fence_activity",
 		"priority_inversion_candidate", "binder_wait":
@@ -12606,7 +12832,7 @@ func rootCauseTypeWeight(typ string) float64 {
 		return 0.92
 	case "running", "fragmented_running":
 		return 1.0
-	case "jit_compile", "class_verification", "shader_compile", "runtime_compile", "texture_upload":
+	case "jit_compile", "class_verification", "shader_compile", "runtime_compile", "texture_upload", "gc_pause":
 		return 1.02
 	case "cpu_frequency_limit":
 		return 0.7
@@ -12703,12 +12929,12 @@ func rootCauseTier(idx int) string {
 }
 
 // rootCauseItemIsSemanticSpanWork is the PRECISE typed identity of a semantic
-// compile span rank row (DCS, ledger §23/§23.1): the four type tokens are
+// span-work rank row (DCS/SEM-LEAD): these closed-set type tokens are
 // minted ONLY by rootCauseItemFromSemanticTraceSpan — never a name/substring
 // heuristic.
 func rootCauseItemIsSemanticSpanWork(item RootCauseRankItem) bool {
 	switch item.Type {
-	case "jit_compile", "class_verification", "shader_compile", "runtime_compile", "texture_upload":
+	case "jit_compile", "class_verification", "shader_compile", "runtime_compile", "texture_upload", "gc_pause":
 		return true
 	default:
 		return false
@@ -12817,11 +13043,11 @@ func stampRunnableSelfBelowRTPreempted(items []RootCauseRankItem, contexts []Run
 // never shows a seat for (demoted self-symptom rows, data blind spots;
 // huadong_79/opendir_79 witness). Ordinals now go ONLY to rows carrying a
 // rank-board display identity:
-//   - competing election-ladder rows (自因四态 self-cause rows and VS-1
+//   - competing election-ladder rows (自因四态 self-cause rows, on-chain
+//     semantic span-work rows and VS-1
 //     PeriodicSource discounted rows included — 复核 P1-2: a discounted row's
-//     ordinal IS its competition identity) and semantic rows
-//     (deterministic_optimization on-chain / tertiary background) keep
-//     incrementing;
+//     ordinal IS its competition identity) plus off-chain semantic background
+//     rows keep incrementing;
 //   - wait-symptom target_self_state rows and trace_gap data-blind-spot rows
 //     carry Rank=0 — no seat, no hole.
 //
@@ -12865,25 +13091,14 @@ func assignRootCauseRanksAndTiers(items []RootCauseRankItem) {
 			items[i].Tier = RootCauseTierDataGap
 			continue
 		}
-		if rootCauseItemIsSemanticSpanWork(items[i]) {
-			// DCS E1 (ledger §23.1 ruling ①) + 复核 F-4 (ruling ②): EVERY
-			// semantic compile span row is TRANSPARENT to the positional
-			// election ladder — it neither takes a primary/secondary/tertiary
-			// slot nor shifts the slots of the causal rows below it. On-chain
-			// rows wear the independent deterministic_optimization tier;
-			// non-chain rows wear the ladder's default supporting band word
-			// (tertiary) — pre-F-4 a degenerate zero-aggregate board let a
-			// non-chain span occupy slot 0 and wear tier=primary, directly
-			// contradicting §23.1② (非链上不入链上 tier,入背景综合排序;
-			// its board identity is background_rank, never the election).
-			if rootCauseItemIsOnChain(items[i]) {
-				items[i].Tier = RootCauseTierDeterministicOptimization
-			} else {
-				items[i].Tier = "tertiary"
-			}
-			// G9: semantic rows keep a rank-board display identity (the
-			// deterministic_optimization / background board rows show their
-			// seat) — the ordinal keeps incrementing.
+		if rootCauseItemIsSemanticSpanWork(items[i]) && !rootCauseItemIsOnChain(items[i]) {
+			// SEM-LEAD-P0 (2026-07-10): only OFF-CHAIN semantic work belongs
+			// to the background board. It is transparent to the causal election,
+			// always wears the supporting tier and carries BackgroundRank above.
+			// ON-CHAIN semantic rows deliberately fall through to the ordinary
+			// primary/secondary/tertiary ladder below: their measured interval is
+			// part of the causal chain and must be allowed to win the root cause.
+			items[i].Tier = "tertiary"
 			takeOrdinal(i)
 			continue
 		}
@@ -12902,10 +13117,8 @@ func assignRootCauseRanksAndTiers(items []RootCauseRankItem) {
 			// untouched. Judged on typed SUBJECT identity — the counterpart
 			// side of the same contention (subject != target, e.g. a peer's
 			// binder_wait row) keeps competing through the ladder below. A
-			// semantic compile span hosted ON the target thread keeps its
-			// deterministic_optimization identity (the arm above wins): an
-			// optimization point on the target's own thread stays actionable
-			// guidance, not a symptom.
+			// Semantic span-work is not a wait-on-counterpart symptom and falls
+			// through to the ordinary election before this arm is relevant.
 			//
 			// EVOLUTION RECORD (SYM-2, ledger §24.17, 2026-07-08): the arm
 			// narrowed from ALL stamped self rows to subject==target ∧
@@ -12951,14 +13164,11 @@ func rootCauseShouldBeCoPrimary(item RootCauseRankItem) bool {
 	if !rootCauseItemIsOnChain(item) || item.ImpactMs <= 0 {
 		return false
 	}
-	// EVOLUTION RECORD (DCS E1, ledger §23.1 ruling ①, 2026-07-08): the four
-	// semantic compile span types (jit_compile / class_verification /
-	// shader_compile / runtime_compile) left this whitelist — on-chain
-	// semantic spans now carry their own independent tier
-	// (RootCauseTierDeterministicOptimization) and NEVER compete in the
-	// primary/co-primary election; the on-chain hard precondition above is
-	// untouched. Pre-§23.1 they rode co-primary here (pinned then by
-	// TestRootCauseRankPromotesOnChainSemanticRuntimeSpanWork).
+	// Semantic span-work intentionally stays out of this blanket co-primary
+	// promotion: it participates through the ordinary positional ladder in
+	// assignRootCauseRanksAndTiers. Thus the highest sorted on-chain semantic
+	// row is primary, while later semantic rows honestly remain secondary or
+	// tertiary instead of every one being promoted to co-primary.
 	switch item.Type {
 	case "runnable_wait", "scheduler_latency", "fragmented_runnable_wait",
 		"running", "fragmented_running",
@@ -13725,7 +13935,8 @@ func traceSpanSemanticClass(name string) string {
 // TraceSpanSemanticClass is the exported thin wrapper over the engine's
 // semantic span classification (TDIAG B3, §28.13, 2026-07-09): the canonical
 // semantic-class token for a span name (jit_compile / class_verification /
-// shader_compile / runtime_compile / texture_upload / config-added classes),
+// shader_compile / runtime_compile / texture_upload / gc_pause /
+// config-added classes),
 // "" when unclassified. Same single classifier as root_cause_rank — never a
 // second pattern set (anti-parallel-subsystem red line); deterministic
 // consumers (tracediag census face ⑦) annotate span rosters with it.
@@ -13735,7 +13946,7 @@ func TraceSpanSemanticClass(name string) string {
 
 // TraceSpanNearMissesSemanticWork is the exported thin wrapper over the
 // advisory near-miss signal (TDIAG B3): the span name mentions
-// compile/verify/shader/texture-upload-ish vocabulary but matched no known
+// compile/verify/shader/texture-upload/GC-ish vocabulary but matched no known
 // semantic pattern — the naming-drift blind-spot list. Advisory-only
 // semantics travel with the export: it must never gate or promote anything.
 func TraceSpanNearMissesSemanticWork(name string) bool {
@@ -13758,6 +13969,7 @@ func traceSpanNearMissesSemanticWorkClassification(name string) bool {
 	return strings.Contains(lower, "shader") ||
 		tokens["verify"] || tokens["verifier"] || tokens["verification"] ||
 		strings.Contains(lower, "compile") || tokens["compiler"] || tokens["compilation"] ||
+		traceSpanNearMissesGCPause(lower, tokens) ||
 		// TEX (§28.1/§28.2, 2026-07-09): texture-upload naming drift — a span
 		// that mentions BOTH words but did not match the strict
 		// traceSpanLooksLikeTextureUpload prefix shape (e.g. "UploadTexture",
@@ -13782,6 +13994,8 @@ func traceSpanSemanticWorkClass(name string) (traceSpanSemanticWork, bool) {
 		return traceSpanSemanticWorkForClass("runtime_compile")
 	case traceSpanLooksLikeTextureUpload(lower):
 		return traceSpanSemanticWorkForClass("texture_upload")
+	case traceSpanLooksLikeGCPause(lower, tokens):
+		return traceSpanSemanticWorkForClass("gc_pause")
 	default:
 		if class, ok := customTraceSpanSemanticClass(lower, tokens); ok {
 			return traceSpanSemanticWorkForClass(class)
@@ -13857,6 +14071,21 @@ func traceSpanSemanticWorkForClass(class string) (traceSpanSemanticWork, bool) {
 			Confidence:         0.80,
 			ImpactMultiplier:   2.10,
 			MinOnChainImpactMs: 3.5,
+		}, true
+	case "gc_pause":
+		// GC semantic work is intentionally narrower than memory_gc inventory:
+		// only explicit pause/collection trace-span names reach this class. The
+		// interval is therefore a measured, same-thread wall-clock candidate,
+		// not a count-derived memory-pressure claim.
+		return traceSpanSemanticWork{
+			RootCauseType:      "gc_pause",
+			Category:           "garbage_collection",
+			Subcategory:        "gc_pause",
+			SemanticClass:      "gc_pause",
+			Label:              "GC pause",
+			Confidence:         0.82,
+			ImpactMultiplier:   2.40,
+			MinOnChainImpactMs: 4.0,
 		}, true
 	default:
 		return traceSpanSemanticWork{}, false
@@ -14037,6 +14266,73 @@ func traceSpanLooksLikeTextureUpload(lower string) bool {
 		return true
 	}
 	return false
+}
+
+// traceSpanLooksLikeGCPause classifies only explicit garbage-collection work
+// names. A bare substring check for "gc" is intentionally forbidden: it
+// would turn unrelated names such as "GCLockerMetrics" or "gc_cache" into
+// causal candidates. One hitrace H: prefix is accepted, then one of these
+// precise shapes must hold:
+//   - the exact token GC;
+//   - GC followed by a delimiter and an explicit collection/pause phase;
+//   - a garbage-collection prefix with a non-alphanumeric boundary;
+//   - a small closed set of ART/runtime compound pause names.
+func traceSpanLooksLikeGCPause(lower string, _ map[string]bool) bool {
+	lower = strings.TrimSpace(strings.TrimPrefix(lower, "h:"))
+	if lower == "gc" {
+		return true
+	}
+	for _, prefix := range []string{"garbage collection", "garbage_collection", "garbagecollection"} {
+		if semanticSpanHasPrefixBoundary(lower, prefix) {
+			return true
+		}
+	}
+	for _, exactPrefix := range []string{
+		"suspendallforgc", "suspend_all_for_gc", "suspend all for gc",
+		"waitforgctocomplete", "wait_for_gc_to_complete", "wait for gc to complete",
+		"collectgarbage", "collect_garbage", "collect garbage",
+	} {
+		if semanticSpanHasPrefixBoundary(lower, exactPrefix) {
+			return true
+		}
+	}
+	if !semanticSpanHasPrefixBoundary(lower, "gc") {
+		return false
+	}
+	rest := strings.TrimLeftFunc(lower[len("gc"):], func(r rune) bool {
+		return r == ':' || r == '_' || r == '-' || r == '/' || r == ' ' || r == '\t' || r == '(' || r == '['
+	})
+	if rest == "" {
+		return true
+	}
+	restTokens := traceSpanNameTokenSet(rest)
+	for _, token := range []string{
+		"pause", "paused", "collect", "collection", "collector", "young",
+		"minor", "major", "full", "concurrent", "mark", "sweep", "compact",
+	} {
+		if restTokens[token] {
+			return true
+		}
+	}
+	return false
+}
+
+func semanticSpanHasPrefixBoundary(lower, prefix string) bool {
+	if !strings.HasPrefix(lower, prefix) {
+		return false
+	}
+	if len(lower) == len(prefix) {
+		return true
+	}
+	next := lower[len(prefix)]
+	return !((next >= 'a' && next <= 'z') || (next >= '0' && next <= '9'))
+}
+
+func traceSpanNearMissesGCPause(lower string, tokens map[string]bool) bool {
+	lower = strings.TrimSpace(strings.TrimPrefix(lower, "h:"))
+	return tokens["gc"] ||
+		(strings.Contains(lower, "garbage") &&
+			(tokens["collect"] || tokens["collection"] || tokens["collector"]))
 }
 
 func traceSpanLooksLikeRuntimeCompile(lower string, tokens map[string]bool) bool {
@@ -16340,6 +16636,13 @@ func dependencyPriorityRelation(flavor TraceFlavor, targetPrio, dependencyPrio, 
 	}
 	switch flavor {
 	case TraceFlavorHarmonyHitrace:
+		// Only the documented Harmony userspace bands share an ordering
+		// semantics. Values outside 1..159 are explicitly classified as
+		// system_or_kernel/raw; comparing either side numerically would turn an
+		// opaque scheduler token into a hard lower/higher dependency claim.
+		if !harmonyUserPriorityComparable(targetPrio) || !harmonyUserPriorityComparable(dependencyPrio) {
+			return "raw_priority_uninterpreted"
+		}
 		if dependencyPrio < targetPrio {
 			return "lower_priority_dependency"
 		}
@@ -16358,6 +16661,13 @@ func priorityRelation(flavor TraceFlavor, wakeePrio, wakerPrio int) string {
 	}
 	switch flavor {
 	case TraceFlavorHarmonyHitrace:
+		// The lower-priority-waker token is the precise gate that mints a
+		// priority-inversion candidate. Require both endpoints to belong to the
+		// documented, comparable ohos_cfs/ohos_rt closed set; a raw/system
+		// priority may still be displayed, but can never mint the candidate.
+		if !harmonyUserPriorityComparable(wakeePrio) || !harmonyUserPriorityComparable(wakerPrio) {
+			return "raw_priority_uninterpreted"
+		}
 		if wakerPrio < wakeePrio {
 			return "lower_priority_waker"
 		}
@@ -16367,6 +16677,15 @@ func priorityRelation(flavor TraceFlavor, wakeePrio, wakerPrio int) string {
 		return "same_priority"
 	default:
 		return "raw_priority_uninterpreted"
+	}
+}
+
+func harmonyUserPriorityComparable(prio int) bool {
+	switch classifyTracePriority(TraceFlavorHarmonyHitrace, prio) {
+	case "ohos_cfs", "ohos_rt":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -17009,12 +17328,12 @@ func evidenceFromStats(stats WindowStats) []EvidenceFact {
 			Subject:    fmt.Sprintf("cpu=%d", burst.CPU),
 			Predicate:  "irq_burst",
 			Object:     burst.Name,
-			Summary:    fmt.Sprintf("IRQ burst %s irq=%d on cpu=%d had %d event(s) over %.3f ms", burst.Name, burst.IRQ, burst.CPU, burst.Count, burst.DurationMs),
+			Summary:    fmt.Sprintf("IRQ burst inventory %s irq=%d on cpu=%d had %d event(s) across a %.3f ms span; span is not active duration", burst.Name, burst.IRQ, burst.CPU, burst.Count, burst.SpanMs),
 			LineStart:  burst.LineStart,
 			LineEnd:    burst.LineEnd,
 			StartTs:    burst.StartTs,
 			EndTs:      burst.EndTs,
-			Confidence: 0.72,
+			Confidence: 0.58,
 		})
 		if len(out) >= 32 {
 			break
@@ -17430,44 +17749,168 @@ func durationCPUDetail(td ThreadDuration) string {
 	return " (" + strings.Join(parts, " ") + ")"
 }
 
-// applyRunnableTopPriorityInversion reclassifies a direct runnable_wait
-// candidate to priority_inversion_runnable_wait when the same-CPU competitor
-// already resolved into stats.RunnableContext (via runnableContextForThread)
-// has strictly lower scheduling priority than the waiting thread, using the
-// same dependencyPriorityRelation primitive and Harmony/Donghu-vs-Android
-// priority semantics the sleep/wakeup chain path already relies on
-// (summarizeWakeupCausalImpact). priority_inversion_runnable_wait is already
-// a recognized co-primary type (rootCauseShouldBeCoPrimary); this only wires
-// a value into it for the direct RunnableTop candidate path.
-func applyRunnableTopPriorityInversion(idx *Index, q Query, stats WindowStats, td ThreadDuration, item *RootCauseRankItem) {
-	if idx == nil {
-		return
+type runnableInversionOverlapWitness struct {
+	competitor     ThreadDuration
+	targetPrio     int
+	competitorPrio int
+	durationMs     float64
+	interval       timeInterval
+	intervalExact  bool
+}
+
+// runnableInversionWitnessInterval returns a union-safe interval only when
+// the typed envelope and typed overlap duration prove one contiguous overlap.
+// SameCPUTopRunning may aggregate fragmented runs of one competitor; its
+// StartTs..EndTs is then only an envelope and must not be treated as elapsed
+// overlap. Those rows remain usable through the conservative MAX lane below.
+func runnableInversionWitnessInterval(td, competitor ThreadDuration, durationMs float64) (timeInterval, bool) {
+	if durationMs <= 0 || competitor.EndTs <= competitor.StartTs {
+		return timeInterval{}, false
 	}
-	ctx, ok := runnableContextForThread(td.Thread, stats.RunnableContext)
-	if !ok || len(ctx.SameCPUTopRunning) == 0 {
-		return
-	}
-	competitor := ctx.SameCPUTopRunning[0]
-	ts := td.StartTs
+	start, end := competitor.StartTs, competitor.EndTs
 	if td.EndTs > td.StartTs {
-		ts = (td.StartTs + td.EndTs) / 2
+		var overlaps bool
+		start, end, overlaps = overlapTimeWindow(start, end, td.StartTs, td.EndTs)
+		if !overlaps {
+			return timeInterval{}, false
+		}
 	}
-	targetPrio, _ := threadPriorityNear(idx, q.TraceFlavor, td.Thread, ts)
-	competitorPrio, _ := threadPriorityNear(idx, q.TraceFlavor, competitor.Thread, ts)
-	if dependencyPriorityRelation(q.TraceFlavor, targetPrio, competitorPrio, 1) != "lower_priority_dependency" {
+	envelopeMs := (end - start) * 1000
+	tolerance := math.Max(1e-6, math.Max(envelopeMs, durationMs)*1e-9)
+	if math.Abs(envelopeMs-durationMs) > tolerance {
+		return timeInterval{}, false
+	}
+	return timeInterval{start: start, end: end}, true
+}
+
+// conservativeRunnableInversionOverlap uses a true interval union only for
+// contiguous overlap witnesses. Any aggregated/unknown-time witness is mixed
+// in by MAX, never by summation: without a disjointness proof, adding it to
+// another competitor would manufacture wall-clock time. The result is always
+// bounded by the raw runnable wait represented by the rank row.
+func conservativeRunnableInversionOverlap(witnesses []runnableInversionOverlapWitness, rawRunnableMs float64) (float64, string) {
+	if len(witnesses) == 0 || rawRunnableMs <= 0 {
+		return 0, ""
+	}
+	maxObservedMs := 0.0
+	intervals := make([]timeInterval, 0, len(witnesses))
+	for _, witness := range witnesses {
+		if witness.durationMs > maxObservedMs {
+			maxObservedMs = witness.durationMs
+		}
+		if witness.intervalExact {
+			intervals = append(intervals, witness.interval)
+		}
+	}
+	unionMs := 0.0
+	if len(intervals) > 0 {
+		sort.SliceStable(intervals, func(i, j int) bool {
+			if intervals[i].start != intervals[j].start {
+				return intervals[i].start < intervals[j].start
+			}
+			return intervals[i].end < intervals[j].end
+		})
+		start, end := intervals[0].start, intervals[0].end
+		for _, interval := range intervals[1:] {
+			if interval.start <= end {
+				if interval.end > end {
+					end = interval.end
+				}
+				continue
+			}
+			unionMs += (end - start) * 1000
+			start, end = interval.start, interval.end
+		}
+		unionMs += (end - start) * 1000
+	}
+	impactMs := math.Max(maxObservedMs, unionMs)
+	caliber := "typed_overlap_max"
+	if unionMs > maxObservedMs {
+		caliber = "typed_interval_union"
+	} else if len(witnesses) == 1 {
+		caliber = "typed_overlap_single"
+	}
+	if impactMs > rawRunnableMs {
+		impactMs = rawRunnableMs
+		caliber += "_bounded"
+	}
+	return impactMs, caliber
+}
+
+// applyRunnableTopPriorityInversion reclassifies a direct runnable_wait
+// candidate only when typed same-CPU running overlap belongs to a strictly
+// lower-priority dependency. The raw runnable wait remains on ImpactMs /
+// CumulativeImpactMs / RunnableMs for disclosure; EffectiveImpactMs and Score
+// carry only the provable inversion overlap. This prevents a 2ms lower-prio
+// displacement from turning an unrelated 30ms runnable envelope into 30ms of
+// priority-inversion impact.
+func applyRunnableTopPriorityInversion(idx *Index, q Query, stats WindowStats, td ThreadDuration, item *RootCauseRankItem) {
+	if item == nil || td.DurationMs <= 0 {
 		return
 	}
+	var witnesses []runnableInversionOverlapWitness
+	competitorKeys := map[string]bool{}
+	for _, ctx := range stats.RunnableContext {
+		if !sameThreadRef(ctx.Thread, td.Thread) || ctx.CPU != td.CPU {
+			continue
+		}
+		for _, competitor := range ctx.SameCPUTopRunning {
+			if competitor.DurationMs <= 0 || sameThreadRef(competitor.Thread, td.Thread) {
+				continue
+			}
+			ts := td.StartTs
+			if competitor.EndTs > competitor.StartTs {
+				ts = (competitor.StartTs + competitor.EndTs) / 2
+			} else if td.EndTs > td.StartTs {
+				ts = (td.StartTs + td.EndTs) / 2
+			}
+			targetPrio := ctx.Priority
+			if targetPrio <= 0 {
+				targetPrio = td.Priority
+			}
+			if targetPrio <= 0 {
+				targetPrio, _ = threadPriorityNear(idx, q.TraceFlavor, td.Thread, ts)
+			}
+			competitorPrio := competitor.Priority
+			if competitorPrio <= 0 {
+				competitorPrio, _ = threadPriorityNear(idx, q.TraceFlavor, competitor.Thread, ts)
+			}
+			if dependencyPriorityRelation(q.TraceFlavor, targetPrio, competitorPrio, 1) != "lower_priority_dependency" {
+				continue
+			}
+			durationMs := math.Min(competitor.DurationMs, td.DurationMs)
+			interval, exact := runnableInversionWitnessInterval(td, competitor, durationMs)
+			witnesses = append(witnesses, runnableInversionOverlapWitness{
+				competitor: competitor, targetPrio: targetPrio, competitorPrio: competitorPrio,
+				durationMs: durationMs, interval: interval, intervalExact: exact,
+			})
+			competitorKeys[threadKey(competitor.Thread)] = true
+		}
+	}
+	impactMs, caliber := conservativeRunnableInversionOverlap(witnesses, td.DurationMs)
+	if impactMs <= 0 {
+		return
+	}
+	sort.SliceStable(witnesses, func(i, j int) bool {
+		if witnesses[i].durationMs != witnesses[j].durationMs {
+			return witnesses[i].durationMs > witnesses[j].durationMs
+		}
+		if witnesses[i].competitor.LineStart != witnesses[j].competitor.LineStart {
+			return witnesses[i].competitor.LineStart < witnesses[j].competitor.LineStart
+		}
+		return threadKey(witnesses[i].competitor.Thread) < threadKey(witnesses[j].competitor.Thread)
+	})
+	primary := witnesses[0]
 	item.Type = "priority_inversion_runnable_wait"
+	item.EffectiveImpactMs = impactMs
 	// §20 B/D-Gap④ (state_churn precedent §7.30 S1, 2026-07-07): a retyped
 	// row re-passes the causal-token registry guard and re-derives Score from
-	// its ranking channel — the construction-time Score was computed with the
-	// runnable_wait weight (1.15) and would silently under-rank the inversion
-	// retype (1.35) while publishing the stale number.
+	// the measured inversion-overlap ranking channel — never the raw wait.
 	assertCausalTokenRow(item.Type, item.Thread, "root_cause_rank")
-	// Same ranking channel the construction used (the background-capped
-	// ImpactMs) — only the weight changes with the type.
-	item.Score = item.ImpactMs * item.Confidence * rootCauseItemScoreWeight(*item)
-	item.Summary = fmt.Sprintf("%s; same_cpu_competitor=%s has lower priority (target_prio=%d competitor_prio=%d) — priority inversion candidate", item.Summary, threadLabel(competitor.Thread), targetPrio, competitorPrio)
+	item.Score = item.EffectiveImpactMs * item.Confidence * rootCauseItemScoreWeight(*item)
+	item.Summary = fmt.Sprintf("%s; same_cpu_competitor=%s has lower priority (target_prio=%d competitor_prio=%d); raw_runnable_wait=%.3fms inversion_overlap=%.3fms overlap_caliber=%s lower_priority_competitors=%d — priority inversion candidate",
+		item.Summary, threadLabel(primary.competitor.Thread), primary.targetPrio, primary.competitorPrio,
+		td.DurationMs, item.EffectiveImpactMs, caliber, len(competitorKeys))
 }
 
 func evidenceFromChain(chain ChainResult) []EvidenceFact {
@@ -17595,6 +18038,8 @@ func resultCaveats(idx *Index, q Query, res Result) []string {
 	}
 	if idx != nil {
 		out = append(out, idx.Caveats...)
+		out = append(out, cpuInputIntegrityCaveats(idx, q)...)
+		out = append(out, traceMarkIntegrityCaveats(idx, q)...)
 	}
 	if idx != nil && idx.Windowed {
 		// QF5: a padding-tail-truncated build (PaddingTruncated) stopped
@@ -18174,7 +18619,8 @@ func isPageCacheEvent(ev Event) bool {
 
 func isStorageLatencyEvent(ev Event) bool {
 	if ev.Type == EventBlockIssue || ev.Type == EventBlockComplete {
-		return true
+		_, _, endpoint := blockLatencyEndpoint(ev)
+		return endpoint
 	}
 	layer := storageLatencyLayer(ev)
 	if layer == "" {
@@ -18188,7 +18634,10 @@ func storageLatencyLayer(ev Event) string {
 	name := strings.ToLower(ev.Name)
 	switch {
 	case ev.Type == EventBlockIssue || ev.Type == EventBlockComplete:
-		return "block"
+		if _, _, endpoint := blockLatencyEndpoint(ev); endpoint {
+			return "block"
+		}
+		return ""
 	case strings.HasPrefix(name, "mmc_"):
 		return "mmc"
 	case strings.HasPrefix(name, "scsi_"):
@@ -18209,6 +18658,12 @@ func storageLatencyLayer(ev Event) string {
 }
 
 func storageLatencyBaseAndPhase(ev Event) (base, phase string) {
+	if family, endpointPhase, endpoint := blockLatencyEndpoint(ev); endpoint {
+		if endpointPhase == blockEndpointStart {
+			return family, "start"
+		}
+		return family, "done"
+	}
 	name := strings.ToLower(strings.TrimSpace(ev.Name))
 	for _, suffix := range []string{"_start", "_enter", "_begin"} {
 		if strings.HasSuffix(name, suffix) {

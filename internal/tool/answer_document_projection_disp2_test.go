@@ -415,7 +415,7 @@ func TestDisp2TextureUploadImpactFormFifthArm(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
 	t.Logf("texture_upload semantic family render (zh fence):\n%s", fence)
-	if !strings.Contains(fence, "✦ Texture upload ×9") {
+	if !strings.Contains(fence, "✦ RenderThread-51342 · Texture upload ×9") {
 		t.Fatalf("texture family row must wear the ✦ glyph + class word + ×N (四类同待遇):\n%s", fence)
 	}
 	if !strings.Contains(fence, "合计1.062ms") {

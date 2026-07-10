@@ -124,7 +124,7 @@ func TestRCM2SemanticFamilyFourLineForm(t *testing.T) {
 	// 行1: 类型词 词位 + ×N 上移 + 合计 value stem + E# (one row for the
 	// sixteen-row pre-RCM shape).
 	for _, want := range []string{
-		"✦ 类校验 ×14",
+		"✦ worker-9 · 类校验 ×14",
 		"合计7.124ms",
 		"[E1]",
 	} {
@@ -630,13 +630,11 @@ func TestRCM2CompareBackgroundTopRowCellFamilyForm(t *testing.T) {
 func TestRCM2SemanticLeadTextFamilyForm(t *testing.T) {
 	projection := rcm2CmpSemanticFamilyProjection()
 	model, _ := rcm2RenderFence(t, projection, true)
-	node := model.TreeRows[len(model.TreeRows)-1].Node
-	for i := range model.TreeRows {
-		if model.TreeRows[i].Kind == runtimeTraceProjTreeRowSemantic {
-			node = model.TreeRows[i].Node
-		}
+	node, _, ok := runtimeTraceProjSemanticTopSpan(model)
+	if !ok || node == nil {
+		t.Fatalf("the off-chain semantic family must remain reachable through the shared optimization selector: %+v", model)
 	}
-	text := runtimeTraceProjSemanticLeadText(node, model, true)
+	text := runtimeTraceProjSemanticLeadText(*node, model, true)
 	if !strings.Contains(text, "类校验 ×14 合计7.124ms") {
 		t.Fatalf("the semantic-fallback conclusion must speak the family form: %q", text)
 	}

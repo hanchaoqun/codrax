@@ -12,7 +12,9 @@ import (
 
 // TraceSecond accepts trace timestamps as JSON numbers or natural unit strings.
 // It normalizes everything to trace-clock seconds while preserving enough input
-// precision to apply a tiny query tolerance for shortened fractional values.
+// precision to apply a tiny event-lookup tolerance for shortened fractional
+// values. Causal/statistical query windows never use that tolerance as their
+// metric or report denominator; see normalizedTraceQueryWindow.
 type TraceSecond struct {
 	seconds        float64
 	set            bool
@@ -81,7 +83,13 @@ func (ts *TraceSecond) UnmarshalJSON(data []byte) error {
 	raw := string(trimmed)
 	value, err := strconv.ParseFloat(raw, 64)
 	if err != nil {
+		if isFloatRangeError(err) {
+			return fmt.Errorf("trace-second: value %q is outside the finite float64 range", raw)
+		}
 		return fmt.Errorf("trace-second: cannot parse %q as seconds", raw)
+	}
+	if !isFiniteToolFloat(value) {
+		return fmt.Errorf("trace-second: non-finite value %q is not allowed", raw)
 	}
 	*ts = TraceSecond{
 		seconds:        value,
@@ -146,10 +154,20 @@ func parseTraceSecondLiteral(raw string) (TraceSecond, error) {
 	}
 	value, err := strconv.ParseFloat(lower, 64)
 	if err != nil {
+		if isFloatRangeError(err) {
+			return TraceSecond{}, fmt.Errorf("trace-second: value %q is outside the finite float64 range", raw)
+		}
 		return TraceSecond{}, fmt.Errorf("trace-second: cannot parse %q as a trace timestamp", raw)
 	}
+	if !isFiniteToolFloat(value) {
+		return TraceSecond{}, fmt.Errorf("trace-second: non-finite value %q is not allowed", raw)
+	}
+	normalized := value * scale
+	if !isFiniteToolFloat(normalized) {
+		return TraceSecond{}, fmt.Errorf("trace-second: unit conversion for %q is outside the finite float64 range", raw)
+	}
 	return TraceSecond{
-		seconds:        value * scale,
+		seconds:        normalized,
 		set:            true,
 		raw:            raw,
 		unit:           unit,
@@ -174,13 +192,26 @@ func parseCompoundTraceSecondLiteral(raw string) (TraceSecond, bool, error) {
 		unitRaw := raw[match[4]:match[5]]
 		value, err := strconv.ParseFloat(valueRaw, 64)
 		if err != nil {
+			if isFloatRangeError(err) {
+				return TraceSecond{}, false, fmt.Errorf("trace-second: compound item %q in %q is outside the finite float64 range", valueRaw, raw)
+			}
 			return TraceSecond{}, false, fmt.Errorf("trace-second: cannot parse %q as a trace timestamp", raw)
+		}
+		if !isFiniteToolFloat(value) {
+			return TraceSecond{}, false, fmt.Errorf("trace-second: non-finite compound item %q in %q is not allowed", valueRaw, raw)
 		}
 		scale, ok := traceSecondUnitScale(unitRaw)
 		if !ok {
 			return TraceSecond{}, false, fmt.Errorf("trace-second: cannot parse %q as a trace timestamp", raw)
 		}
-		total += value * scale
+		normalized := value * scale
+		if !isFiniteToolFloat(normalized) {
+			return TraceSecond{}, false, fmt.Errorf("trace-second: unit conversion for compound item %q in %q is outside the finite float64 range", valueRaw, raw)
+		}
+		total += normalized
+		if !isFiniteToolFloat(total) {
+			return TraceSecond{}, false, fmt.Errorf("trace-second: compound timestamp %q is outside the finite float64 range", raw)
+		}
 		if digits := decimalDigits(valueRaw); digits > maxFractionDigits {
 			maxFractionDigits = digits
 		}

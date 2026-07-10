@@ -114,9 +114,9 @@ Donghu means:
 - Priority semantics: Harmony user-space priority semantics.
   - Larger numeric value means higher priority.
   - `1..40` means CFS.
-  - `41..139` means RT.
-  - Values outside this range are raw/system/kernel and must be reported as
-    such.
+  - `41..159` means RT.
+  - Values above `159` are raw/system/kernel and must be reported as such;
+    they do not enter the RT/high-priority bucket.
 - Framework surface: Android framework processes and Harmony framework
   processes may coexist.
 - Mixing boundary: process-level isolation. Do not infer that one process mixes

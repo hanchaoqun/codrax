@@ -89,17 +89,16 @@ func (a *cpuFrequencyCensusAcc) observe(ev Event) {
 	}
 	switch ev.Type {
 	case EventCPUFrequencyLimit:
-		a.limitRows++
+		if _, ok := isPerCPULimitSample(ev); ok {
+			a.limitRows++
+		}
 	case EventCPUFrequency:
-		if ev.Frequency <= 0 {
+		if !isPerCPUFrequencySample(ev) {
 			return
 		}
 		a.matched++
 		a.rows[ev.Frequency]++
-		cpu := ev.CPU
-		if ev.CPUForFieldValid {
-			cpu = ev.CPUForField
-		}
+		cpu := eventCPUForStats(ev)
 		if cpu >= 0 {
 			a.cpus[cpu] = true
 			set := a.tierCPUs[ev.Frequency]
@@ -128,7 +127,7 @@ func (a *cpuFrequencyCensusAcc) finalize(displayed []EventView) *CPUFrequencyCen
 	}
 	shown := 0
 	for _, ev := range displayed {
-		if ev.Type == EventCPUFrequency && ev.Frequency > 0 {
+		if isPerCPUFrequencySample(ev.Event) {
 			shown++
 		}
 	}

@@ -241,20 +241,20 @@ func TestSYMUnresolvedTargetStampsNothing(t *testing.T) {
 
 // --- S1e: DCS interplay + BackgroundRank scope ---------------------------------
 
-func TestSYMSemanticSpanOnTargetKeepsOptimizationTier(t *testing.T) {
-	// A compile span hosted ON the target thread stays a deterministic
-	// optimization point (the DCS arm wins over the self arm): actionable
-	// guidance, not a symptom. DCS pin 族不扰.
+func TestSYMSemanticSpanOnTargetParticipatesAsCauseNotWaitSymptom(t *testing.T) {
+	// A semantic span hosted ON the target thread remains actionable causal
+	// work, not a wait-on-counterpart symptom. It participates normally and is
+	// also mentioned through the independent optimization channel.
 	items := []RootCauseRankItem{
 		{Type: "jit_compile", SubjectIsAnalysisTarget: true, ImpactMs: 5, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 		{Type: "workqueue_activity", ImpactMs: 9, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 	}
 	assignRootCauseRanksAndTiers(items)
-	if items[0].Tier != RootCauseTierDeterministicOptimization {
-		t.Fatalf("a target-hosted on-chain compile span keeps the optimization tier: %+v", items[0])
+	if items[0].Tier != "primary" {
+		t.Fatalf("a target-hosted on-chain compile span can be primary: %+v", items[0])
 	}
-	if items[1].Tier != "primary" {
-		t.Fatalf("ladder unshifted: %+v", items[1])
+	if items[1].Tier != "secondary" {
+		t.Fatalf("semantic primary must consume the first positional slot: %+v", items[1])
 	}
 }
 

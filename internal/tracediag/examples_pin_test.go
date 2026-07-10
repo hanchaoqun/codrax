@@ -15,10 +15,12 @@ func TestShippedExampleScriptsParse(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]bool{
-		"collect_g12.yaml":                 false,
-		"collect_d10.yaml":                 false,
-		"collect_acceptance_snapshot.yaml": false,
-		"collect_format_census.yaml":       false,
+		"collect_g12.yaml":                    false,
+		"collect_d10.yaml":                    false,
+		"collect_acceptance_snapshot.yaml":    false,
+		"collect_format_census.yaml":          false,
+		"collect_open_gap_witness.yaml":       false,
+		"collect_berlin_pairing_witness.yaml": false,
 	}
 	for _, path := range paths {
 		script, err := LoadScript(path)
@@ -105,6 +107,37 @@ func TestShippedScriptShapes(t *testing.T) {
 	}
 	if !views["window_stats"] || !views["thread_timeline"] {
 		t.Errorf("d10 views = %v, want window_stats + thread_timeline", views)
+	}
+
+	// Open-gap witness: the four semantic/causal views are target-scoped,
+	// while the three raw evidence lanes intentionally stay unscoped so a
+	// completion emitted by IRQ/kworker or an upstream trace-mark thread is
+	// not filtered out. The exact seven-step shape is the customer handoff
+	// contract documented in the script header.
+	openGap, err := LoadScript(filepath.Join("..", "..", "examples", "tracediag", "collect_open_gap_witness.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(openGap.Steps) != 7 {
+		t.Fatalf("collect_open_gap_witness.yaml steps = %d, want 7", len(openGap.Steps))
+	}
+	for i, step := range openGap.Steps[:4] {
+		if step.PID != 12345 || step.Thread != "" {
+			t.Errorf("open-gap target step %d selector = pid:%d thread:%q, want placeholder pid only", i, step.PID, step.Thread)
+		}
+	}
+	for i, step := range openGap.Steps[4:] {
+		if step.PID != 0 || step.Thread != "" {
+			t.Errorf("open-gap raw step %d must be unscoped, got pid:%d thread:%q", i+4, step.PID, step.Thread)
+		}
+	}
+	for i, step := range openGap.Steps[4:] {
+		if step.View != "event_search" {
+			t.Errorf("open-gap raw view %d = %q, want event_search", i+4, step.View)
+		}
+	}
+	if got := openGap.Steps[6].EventTypes; len(got) != 1 || got[0] != "unknown" {
+		t.Errorf("open-gap unknown-print lane event_types = %v, want [unknown]", got)
 	}
 }
 

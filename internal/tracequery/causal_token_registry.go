@@ -220,6 +220,10 @@ var causalTokenRegistry = map[string]CausalTokenSpec{
 	"class_verification": {Lane: CausalLaneCPUWork, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 	"shader_compile":     {Lane: CausalLaneCPUWork, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 	"runtime_compile":    {Lane: CausalLaneCPUWork, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
+	// gc_pause is deliberately distinct from the aggregate memory_gc event
+	// family: this token is minted only from an explicitly named, paired trace
+	// span and therefore carries a measured wall-clock interval on one thread.
+	"gc_pause": {Lane: CausalLaneCPUWork, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 	// texture_upload (TEX §28.1 user ruling 2026-07-09,
 	// real_trace_campaign_20260705.md): the FIFTH semantic span class ("Texture
 	// upload" GPU resource-upload spans), same lane/additivity/subject as the
@@ -335,6 +339,7 @@ var causalTokenFamilyFoldLanes = map[string]CausalTokenFamilyFold{
 	"class_verification": CausalFamilyFoldSemanticClass,
 	"shader_compile":     CausalFamilyFoldSemanticClass,
 	"runtime_compile":    CausalFamilyFoldSemanticClass,
+	"gc_pause":           CausalFamilyFoldSemanticClass,
 	// TEX (§28.1, 2026-07-09): the fifth semantic class family-folds exactly
 	// like the other four (interval-union window-projection total per
 	// (thread, class, chain lane) — the ×N family IS the participation value).
