@@ -18663,7 +18663,10 @@ func evidenceFromEvents(events []EventView) []EvidenceFact {
 
 func resultCaveats(idx *Index, q Query, res Result) []string {
 	var out []string
-	if idx != nil && idx.ParsedKnown == 0 {
+	// Streaming event_search deliberately does not materialize rows into the
+	// index.  A non-empty result is therefore positive parse evidence even when
+	// idx.ParsedKnown remains zero; do not claim the trace has no parsed rows.
+	if idx != nil && idx.ParsedKnown == 0 && len(res.Events) == 0 {
 		switch {
 		case len(idx.Events) == 0 && idx.Windowed:
 			out = append(out, "no ftrace rows were parsed inside the selected bounded index window; ftrace-compatible text is supported, so verify time_start/time_end/line_start/line_end and timestamp units before concluding parser incompatibility")
