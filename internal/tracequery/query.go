@@ -1692,16 +1692,22 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	bioResources := map[string]*RuntimeResourceSummary{}
 	filesystemResources := map[string]*RuntimeResourceSummary{}
 	pageFaultResources := map[string]*RuntimeResourceSummary{}
+	bioResourceContributorPIDs := map[int]bool{}
+	filesystemResourceContributorPIDs := map[int]bool{}
+	pageFaultResourceContributorPIDs := map[int]bool{}
 	fileIO := map[string]*FileIOSummary{}
 	pageCache := map[string]*PageCacheSummary{}
 	abilityEvents := map[string]*TracePluginSummary{}
 	xpowerEvents := map[string]*TracePluginSummary{}
 	hiSystemEvents := map[string]*TracePluginSummary{}
-	// Workqueue/DMA aggregators consume exactly their selected in-window Event
-	// rows, so this scan can enumerate their complete numeric identity
-	// dependencies without a second pass or a noisy inference. Other resource
-	// families retain the global conservative gate until their contributor
-	// completeness is independently proven.
+	abilityContributorPIDs := map[int]bool{}
+	xpowerContributorPIDs := map[int]bool{}
+	hiSystemContributorPIDs := map[int]bool{}
+	// Workqueue/DMA and the direct resource/plugin summaries consume exactly
+	// their selected in-window Event rows, so this scan can enumerate their
+	// complete numeric identity dependencies without a second pass or a noisy
+	// inference. File-IO/page-cache/storage composites retain the global
+	// conservative gate until their multi-input completeness is propagated.
 	workqueueContributorPIDs := map[int]bool{}
 	dmaFenceContributorPIDs := map[int]bool{}
 	for _, ev := range idx.Events {
@@ -1806,10 +1812,30 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			stats.IPICount++
 		}
 		accumulateSubsystemEvent(subsystems, ev)
-		accumulateRuntimeResource(bioResources, filesystemResources, pageFaultResources, ev)
+		resourceKind := accumulateRuntimeResource(bioResources, filesystemResources, pageFaultResources, ev)
+		if ev.PID > 0 {
+			switch resourceKind {
+			case "bio":
+				bioResourceContributorPIDs[ev.PID] = true
+			case "filesystem":
+				filesystemResourceContributorPIDs[ev.PID] = true
+			case "page_fault":
+				pageFaultResourceContributorPIDs[ev.PID] = true
+			}
+		}
 		accumulateFileIO(fileIO, ev)
 		accumulatePageCache(pageCache, ev)
-		accumulateTracePluginEvent(abilityEvents, xpowerEvents, hiSystemEvents, ev)
+		pluginKind := accumulateTracePluginEvent(abilityEvents, xpowerEvents, hiSystemEvents, ev)
+		if ev.PID > 0 {
+			switch pluginKind {
+			case "ability_monitor":
+				abilityContributorPIDs[ev.PID] = true
+			case "xpower":
+				xpowerContributorPIDs[ev.PID] = true
+			case "hi_sysevent":
+				hiSystemContributorPIDs[ev.PID] = true
+			}
+		}
 	}
 	// Scheduler carry-in: an in-window sched_switch describes the CPU state
 	// AFTER that instant, so without the last pre-window switch the first CPU
@@ -2100,10 +2126,46 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	}
 	stats.CPUFrequencyLimits = sortedCPUFrequencyLimits(freqLimits, 8)
 	stats.SubsystemEvents = sortedSubsystemEvents(subsystems, 12)
+	// Direct resource/plugin summaries consume only their own accepted
+	// in-window rows. Their complete numeric identity dependencies are the
+	// positive event PIDs collected by that same admission call above, so an
+	// unrelated task-incarnation boundary must not erase them. Keep each
+	// family independent: a reused contributor suppresses that whole family
+	// (never a partial cross-generation aggregate), while an empty/PID-less
+	// family has no numeric identity dependency. The inode/storage composites
+	// below retain the global guard until their multi-input completeness can be
+	// propagated end-to-end.
+	publishRuntimeResources := func(name string, contributors map[int]bool, items map[string]*RuntimeResourceSummary) []RuntimeResourceSummary {
+		// The already-computed global result is a cheap proof that every
+		// contributor set is clean on the common path. Re-scan a family only
+		// when some lifecycle conflict exists in the window and we must decide
+		// whether that conflict actually intersects this family.
+		if identityConflict != nil {
+			if conflict := threadIncarnationConflictForPIDSet(idx, q, contributors); conflict != nil {
+				stats.Caveats = append(stats.Caveats, "thread_identity_"+name+"_resource_fail_closed=true; "+conflict.reason()+"; "+name+" resource summaries are omitted because a contributing PID spans task incarnations")
+				return nil
+			}
+		}
+		return sortedRuntimeResources(items, 8)
+	}
+	stats.BIOResources = publishRuntimeResources("bio", bioResourceContributorPIDs, bioResources)
+	stats.FilesystemResources = publishRuntimeResources("filesystem", filesystemResourceContributorPIDs, filesystemResources)
+	stats.PageFaultResources = publishRuntimeResources("page_fault", pageFaultResourceContributorPIDs, pageFaultResources)
+
+	publishPluginEvents := func(name string, contributors map[int]bool, items map[string]*TracePluginSummary) []TracePluginSummary {
+		if identityConflict != nil {
+			if conflict := threadIncarnationConflictForPIDSet(idx, q, contributors); conflict != nil {
+				stats.Caveats = append(stats.Caveats, "thread_identity_"+name+"_plugin_fail_closed=true; "+conflict.reason()+"; "+name+" plugin summaries are omitted because a contributing PID spans task incarnations")
+				return nil
+			}
+		}
+		return sortedTracePluginSummaries(items, 8)
+	}
+	stats.AbilityEvents = publishPluginEvents("ability_monitor", abilityContributorPIDs, abilityEvents)
+	stats.XPowerEvents = publishPluginEvents("xpower", xpowerContributorPIDs, xpowerEvents)
+	stats.HiSystemEvents = publishPluginEvents("hi_sysevent", hiSystemContributorPIDs, hiSystemEvents)
+
 	if identityConflict == nil {
-		stats.BIOResources = sortedRuntimeResources(bioResources, 8)
-		stats.FilesystemResources = sortedRuntimeResources(filesystemResources, 8)
-		stats.PageFaultResources = sortedRuntimeResources(pageFaultResources, 8)
 		// INODE (§28.6): fold the FULL accumulator maps BEFORE the top-8
 		// truncations below — the whole-window (dev,inode) carrier must never be
 		// built on truncated inputs (the block_io_by_inode second-aggregation
@@ -2128,11 +2190,8 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			stats.StorageLatencyByLayer = append(stats.StorageLatencyByLayer, latency)
 		}
 		stats.Caveats = append(stats.Caveats, storagePairingCaveats...)
-		stats.AbilityEvents = sortedTracePluginSummaries(abilityEvents, 8)
-		stats.XPowerEvents = sortedTracePluginSummaries(xpowerEvents, 8)
-		stats.HiSystemEvents = sortedTracePluginSummaries(hiSystemEvents, 8)
 	} else {
-		stats.Caveats = append(stats.Caveats, "thread_identity_resource_fail_closed=true; PID-keyed BIO/filesystem/page-fault/inode/storage/plugin aggregates are omitted because the selected window crosses a task-incarnation boundary")
+		stats.Caveats = append(stats.Caveats, "thread_identity_resource_fail_closed=true; PID-keyed inode/file-IO/page-cache/storage composite aggregates are omitted because the selected window crosses a task-incarnation boundary")
 	}
 	if schedulerDurationsSafe {
 		stats.BlockedReasons = topBlockedReasons(blockedReasons, 8)
@@ -7790,10 +7849,10 @@ func sortedSubsystemEvents(in map[string]SubsystemEventSummary, max int) []Subsy
 	return out
 }
 
-func accumulateRuntimeResource(bio, filesystem, pageFault map[string]*RuntimeResourceSummary, ev Event) {
+func accumulateRuntimeResource(bio, filesystem, pageFault map[string]*RuntimeResourceSummary, ev Event) string {
 	kind := runtimeResourceKind(ev)
 	if kind == "" {
-		return
+		return ""
 	}
 	target := bio
 	switch kind {
@@ -7846,6 +7905,7 @@ func accumulateRuntimeResource(bio, filesystem, pageFault map[string]*RuntimeRes
 	if item.Address == "" {
 		item.Address = rf.Address
 	}
+	return kind
 }
 
 func runtimeResourceKind(ev Event) string {
@@ -8773,10 +8833,10 @@ func computeIOBurstEpisodes(stats WindowStats, max int) []IOBurstEpisodeSummary 
 	return out
 }
 
-func accumulateTracePluginEvent(ability, xpower, hiSystem map[string]*TracePluginSummary, ev Event) {
+func accumulateTracePluginEvent(ability, xpower, hiSystem map[string]*TracePluginSummary, ev Event) string {
 	kind := tracePluginKind(ev.Type)
 	if kind == "" {
-		return
+		return ""
 	}
 	target := ability
 	switch kind {
@@ -8817,6 +8877,7 @@ func accumulateTracePluginEvent(ability, xpower, hiSystem map[string]*TracePlugi
 	if item.Example == "" {
 		item.Example = clampString(ev.FieldText, 160)
 	}
+	return kind
 }
 
 func tracePluginKind(typ EventType) string {
