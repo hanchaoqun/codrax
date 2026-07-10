@@ -137,6 +137,24 @@ func TestStreamScanEarlyStop(t *testing.T) {
 	}
 }
 
+func TestStreamScanRejectsMutationDuringCallback(t *testing.T) {
+	path := writeDiagScanTrace(t)
+	mutated := false
+	_, err := StreamScan(context.Background(), path, TraceFlavorAuto, func(Event) bool {
+		if mutated {
+			return true
+		}
+		mutated = true
+		if writeErr := os.WriteFile(path, []byte("replacement-generation\n"), 0o644); writeErr != nil {
+			t.Fatalf("mutate trace: %v", writeErr)
+		}
+		return true
+	})
+	if err == nil || (!strings.Contains(err.Error(), "changed during stream_scan") && !strings.Contains(err.Error(), "path was replaced")) {
+		t.Fatalf("StreamScan published a mixed-version scan: %v", err)
+	}
+}
+
 // TestStreamScanNotSubjectToIndexBudget is the budget-freedom witness (自设
 // 最强突变形): the SAME trace denies an indexed build under a tiny MaxEvents
 // budget, while StreamScan streams every event.

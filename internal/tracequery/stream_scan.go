@@ -48,6 +48,9 @@ func StreamScan(ctx context.Context, path string, flavorHint TraceFlavor, fn fun
 		return nil, fmt.Errorf("trace path is empty")
 	}
 	path = canonicalTraceIndexPath(path)
+	if tracePathRequiresCompositeIndex(path) {
+		return nil, fmt.Errorf("stream_scan requires a single physical artifact; %s has a tracebundle or sibling artifact universe, so use an indexed composite view", path)
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil, err
@@ -57,6 +60,15 @@ func StreamScan(ctx context.Context, path string, flavorHint TraceFlavor, fn fun
 		return nil, err
 	}
 	defer f.Close()
+	openedInfo, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	openedIdentity := traceFileIdentityFromInfo(openedInfo)
+	if !openedIdentity.sameVersion(traceFileIdentityFromInfo(info)) {
+		return nil, fmt.Errorf("trace source identity changed before stream_scan opened the artifact")
+	}
+	info = openedInfo
 
 	applyHint := flavorHint != "" && flavorHint != TraceFlavorAuto
 	idx := &Index{Path: path, Size: info.Size(), ModTime: info.ModTime()}
@@ -119,6 +131,9 @@ func StreamScan(ctx context.Context, path string, flavorHint TraceFlavor, fn fun
 			}
 			return nil, readErr
 		}
+	}
+	if err := validateTraceFileIdentityAfterRead(f, openedIdentity, "stream_scan"); err != nil {
+		return nil, err
 	}
 	idx.TraceFlavor, idx.FlavorConfidence, idx.FlavorSignals = flavor.result()
 	return idx, nil

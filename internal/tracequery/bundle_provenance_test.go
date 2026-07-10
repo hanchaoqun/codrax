@@ -603,6 +603,9 @@ func TestSiblingArtifactUniverseCannotUseSingleFileStreaming(t *testing.T) {
 	if _, err := StreamEventSearch(context.Background(), systrace, Query{View: "event_search", Limit: 10}); err == nil || !strings.Contains(err.Error(), "single physical artifact") {
 		t.Fatalf("streaming must refuse to bypass sibling provenance: %v", err)
 	}
+	if _, err := StreamScan(context.Background(), systrace, TraceFlavorAuto, func(Event) bool { return true }); err == nil || !strings.Contains(err.Error(), "single physical artifact") {
+		t.Fatalf("full streaming scan must refuse to bypass sibling provenance: %v", err)
+	}
 }
 
 func TestCompositeCacheabilityUsesTotalArtifactBytes(t *testing.T) {

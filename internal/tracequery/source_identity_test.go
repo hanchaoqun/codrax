@@ -170,3 +170,60 @@ func TestValidateTraceFileIdentityAfterReadRejectsAtomicPathReplacement(t *testi
 		t.Fatalf("atomic source replacement was not rejected: %v", err)
 	}
 }
+
+func TestTraceSourceVersionValidatesWholeRunGeneration(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "run-version.systrace")
+	original := " app-10 (10) [000] .... 1.000000: sched_wakeup: comm=app pid=10 prio=120 target_cpu=000\n"
+	replacement := strings.Replace(original, "pid=10", "pid=20", 1)
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	version, err := CaptureTraceSourceVersion(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version.Fingerprint() == "" || version.SourceBytes() != int64(len(original)) {
+		t.Fatalf("opaque source version metadata = fingerprint:%q bytes:%d", version.Fingerprint(), version.SourceBytes())
+	}
+	if err := version.Validate(path); err != nil {
+		t.Fatalf("unchanged source rejected: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := traceFileIdentityFromInfo(info)
+	if !identity.strong {
+		t.Skip("host filesystem does not expose device+inode+ctime through os.FileInfo")
+	}
+	after := overwriteTraceSameSizeAndRestoreMtime(t, path, replacement, info)
+	if identity.sameVersion(traceFileIdentityFromInfo(after)) {
+		t.Fatal("adversarial fixture did not change the strong identity")
+	}
+	if err := version.Validate(path); err == nil || !strings.Contains(err.Error(), "source universe changed") {
+		t.Fatalf("same-size/restored-mtime rewrite passed run-level lock: %v", err)
+	}
+}
+
+func TestTraceSourceVersionRejectsAtomicReplacement(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "run-version.systrace")
+	replacement := filepath.Join(dir, "replacement.systrace")
+	if err := os.WriteFile(path, []byte("first-version\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	version, err := CaptureTraceSourceVersion(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(replacement, []byte("second-version\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(replacement, path); err != nil {
+		t.Fatal(err)
+	}
+	if err := version.Validate(path); err == nil || !strings.Contains(err.Error(), "source universe changed") {
+		t.Fatalf("atomic replacement passed run-level lock: %v", err)
+	}
+}
