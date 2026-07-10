@@ -223,7 +223,7 @@ func TestExportTraceDBCallstackMalformedAsyncEndpointPoisonsFamily(t *testing.T)
 		"INSERT INTO thread_state VALUES (1, 2900000, 200000, 2, 'Running')",
 		"CREATE TABLE callstack (id INT, ts INT, dur INT, callid INT, name TEXT, flag TEXT, cookie INT, chainId TEXT)",
 		"INSERT INTO callstack VALUES (1, 1000000, 0, 1, 'async', 'S', 9, NULL)",
-		"INSERT INTO callstack VALUES (2, 2000000, 0, 1, 'async', 'c', 9, NULL)",
+		"INSERT INTO callstack VALUES (2, 2000000, 0, 1, 'async', 'c', NULL, NULL)",
 		"INSERT INTO callstack VALUES (3, 3000000, 0, 1, 'async', 'C', 9, NULL)",
 	})
 	outPath := filepath.Join(t.TempDir(), "callstack-async-poison.systrace")

@@ -99,6 +99,18 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 	if err != nil {
 		return coverage, err
 	}
+	for _, optional := range []struct {
+		name    string
+		present bool
+	}{
+		{"id", hasID}, {"itid", hasITID}, {"callid", hasCallID}, {"flag", hasFlag},
+		{"cookie", hasCookie}, {"chainId", hasChainID}, {"depth", hasDepth},
+	} {
+		if optional.present {
+			coverage.ColumnsPresent = appendTraceDBCoverageColumn(coverage.ColumnsPresent, optional.name)
+		}
+	}
+	sort.Strings(coverage.ColumnsPresent)
 
 	itidExpr := "NULL"
 	if hasITID {
@@ -386,6 +398,15 @@ func traceDBCallstackText(value any, allowEmpty bool) (string, bool) {
 	return text, true
 }
 
+func appendTraceDBCoverageColumn(columns []string, column string) []string {
+	for _, existing := range columns {
+		if existing == column {
+			return columns
+		}
+	}
+	return append(columns, column)
+}
+
 func traceDBCallstackPotentialAsync(flagValue, cookieValue, chainIDValue any, hasFlag bool) bool {
 	if !hasFlag {
 		return false
@@ -397,7 +418,10 @@ func traceDBCallstackPotentialAsync(flagValue, cookieValue, chainIDValue any, ha
 	if ok && (flag == "" || flag == "I") {
 		return traceDBCallstackRawIdentityPresent(cookieValue) || traceDBCallstackRawIdentityPresent(chainIDValue)
 	}
-	return traceDBCallstackRawIdentityPresent(cookieValue) || traceDBCallstackRawIdentityPresent(chainIDValue)
+	// Any row-level flag that is not a proven sync flag may be a malformed
+	// async endpoint.  Poisoning the async lane prevents a later valid finish
+	// from bridging across the rejected row and minting a false long span.
+	return true
 }
 
 func traceDBCallstackRawIdentityPresent(value any) bool {
