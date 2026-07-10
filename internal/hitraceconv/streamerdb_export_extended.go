@@ -43,6 +43,13 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 	if err != nil {
 		return coverage, err
 	}
+	stageStart = time.Now()
+	measureCoverage, err := exportTraceDBMeasureFamilies(ctx, tdb, sink)
+	traceDBSetCoverageListElapsed(measureCoverage, stageStart)
+	coverage = append(coverage, measureCoverage...)
+	if err != nil {
+		return coverage, err
+	}
 	exporters := []func(context.Context, *traceDB, *traceDBRowSink, traceDBThreadIndex, map[int64][]traceDBRunningInterval, map[int64]string) (TraceDBCoverage, error){
 		exportTraceDBCallstack,
 		exportTraceDBFrameSlice,
@@ -52,8 +59,6 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 		exportTraceDBAppStartup,
 		exportTraceDBStaticInitialize,
 		exportTraceDBNativeHook,
-		exportTraceDBCPUMeasures,
-		exportTraceDBClockRates,
 		exportTraceDBProcessMeasures,
 		exportTraceDBNetwork,
 		exportTraceDBDiskIO,
@@ -721,95 +726,6 @@ func exportTraceDBNativeHook(ctx context.Context, tdb *traceDB, sink *traceDBRow
 			}
 			coverage.RowsEmitted++
 		}
-	}
-	return coverage, rows.Err()
-}
-
-func exportTraceDBCPUMeasures(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, _ traceDBThreadIndex, _ map[int64][]traceDBRunningInterval, _ map[int64]string) (TraceDBCoverage, error) {
-	coverage, err := tdb.inspectCoverage(ctx, "counter", "measure", []string{"ts", "value", "filter_id"})
-	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
-		return coverage, err
-	}
-	filterCoverage, err := tdb.inspectCoverage(ctx, "counter", "cpu_measure_filter", []string{"id", "name", "cpu"})
-	if err != nil {
-		return coverage, err
-	}
-	if !filterCoverage.Found || len(filterCoverage.ColumnsMissing) > 0 {
-		coverage.Skipped = "missing cpu_measure_filter dependency"
-		return coverage, nil
-	}
-	rows, err := tdb.db.QueryContext(ctx, `
-		SELECT m.ts, m.value, f.name, COALESCE(f.cpu, 0)
-		FROM measure m
-		JOIN cpu_measure_filter f ON f.id = m.filter_id
-		WHERE f.name IN ('cpu_idle', 'cpu_frequency', 'cpu_frequency_limits_min', 'cpu_frequency_limits_max')
-		ORDER BY m.ts
-	`)
-	if err != nil {
-		coverage.Error = err.Error()
-		return coverage, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var ts, cpu int64
-		var value any
-		var name string
-		if err := rows.Scan(&ts, &value, &name, &cpu); err != nil {
-			coverage.Error = err.Error()
-			return coverage, err
-		}
-		valueText := traceDBIntegerText(value, "0")
-		body := ""
-		switch name {
-		case "cpu_idle":
-			body = fmt.Sprintf("cpu_idle: state=%s cpu_id=%d", valueText, cpu)
-		case "cpu_frequency":
-			body = fmt.Sprintf("cpu_frequency: state=%s cpu_id=%d", valueText, cpu)
-		case "cpu_frequency_limits_min":
-			body = fmt.Sprintf("cpu_frequency_limits: min=%s max=0 cpu_id=%d", valueText, cpu)
-		case "cpu_frequency_limits_max":
-			body = fmt.Sprintf("cpu_frequency_limits: min=0 max=%s cpu_id=%d", valueText, cpu)
-		}
-		if body == "" {
-			continue
-		}
-		if err := addTraceDBInstantRow(sink, ts, "<idle>", 0, 0, cpu, body); err != nil {
-			return coverage, err
-		}
-		coverage.RowsEmitted++
-	}
-	return coverage, rows.Err()
-}
-
-func exportTraceDBClockRates(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, _ traceDBThreadIndex, _ map[int64][]traceDBRunningInterval, _ map[int64]string) (TraceDBCoverage, error) {
-	coverage, err := tdb.inspectCoverage(ctx, "counter", "measure_filter", []string{"id", "name", "type"})
-	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
-		return coverage, err
-	}
-	rows, err := tdb.db.QueryContext(ctx, `
-		SELECT m.ts, m.value, f.name
-		FROM measure m
-		JOIN measure_filter f ON f.id = m.filter_id
-		WHERE f.type = 'clock_rate_filter'
-		ORDER BY m.ts
-	`)
-	if err != nil {
-		coverage.Error = err.Error()
-		return coverage, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var ts int64
-		var value any
-		var name string
-		if err := rows.Scan(&ts, &value, &name); err != nil {
-			coverage.Error = err.Error()
-			return coverage, err
-		}
-		if err := addTraceDBInstantRow(sink, ts, "<kworker>", 0, 0, 0, fmt.Sprintf("clock_set_rate: %s state=%s cpu_id=0", name, traceDBIntegerText(value, "0"))); err != nil {
-			return coverage, err
-		}
-		coverage.RowsEmitted++
 	}
 	return coverage, rows.Err()
 }

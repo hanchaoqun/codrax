@@ -138,7 +138,7 @@ func TestExportTraceDBExtendedFamiliesComprehensiveFixture(t *testing.T) {
 		"tracing_mark_write: C|500|HeapSize|8192",
 		"cpu_idle: state=1 cpu_id=1",
 		"cpu_frequency: state=2200000 cpu_id=4",
-		"clock_set_rate: ddr_freq state=400 cpu_id=0",
+		"clock_set_rate: ddr_freq 400",
 		"tracing_mark_write: C|500|H:Heap size (KB)|4096.0",
 		"tracing_mark_write: C|0|net_tx_speed|1.5",
 		"tracing_mark_write: C|0|disk_wr_speed|20.0",
