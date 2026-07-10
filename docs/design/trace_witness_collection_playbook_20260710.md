@@ -8,6 +8,8 @@
 tracediag 报告头已自带 Codrax 版本、trace 路径/大小、source-universe 强指纹与
 source-lock 状态，不再另采版本、哈希、stderr、exit code 或 README。
 
+> 提示（SEC #27, 2026-07-10 起）：`tracediag` 报告的 provenance 头只写 trace/script 的 **basename + size_bytes + sha256**，不再包含采集机的绝对路径（`/Users/<用户名>/…` 不会随报告外传）。对账方式：报告头 `sha256=` 应与上面 `trace_sha256.txt` 的值一致；不一致说明报告与 trace 不是同一件工件。
+
 跑全文件格式普查：
 
 ```bash

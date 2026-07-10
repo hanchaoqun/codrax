@@ -483,6 +483,15 @@ func readRepoFile(gc *Context, repoRel string) ([]byte, error) {
 	if root != "" {
 		full = filepath.Join(root, repoRel)
 	}
+	// SEC #26 必修② (2026-07-10): grounding is an internal read point that
+	// bypasses the tool-layer gates — a model-supplied evidence file naming
+	// the live credential store must not be read into grounding context.
+	// Same shared authority as read_file/grep (types-level predicate; this
+	// package cannot import internal/tool). The error surfaces through the
+	// existing Ungrounded-item note lane; generic wording, zero path echo.
+	if types.IsSensitiveConfigFilePath(full) {
+		return nil, fmt.Errorf("configuration credentials file is not readable for grounding")
+	}
 	body, err := width.ReadFileBounded(full, 0)
 	if err != nil {
 		return nil, err

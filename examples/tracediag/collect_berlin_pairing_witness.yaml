@@ -5,6 +5,17 @@
 # 用法（单行、只生成一个文件）：
 #   codrax --tracediag examples/tracediag/collect_berlin_pairing_witness.yaml --trace berlin.systrace --out berlin_pairing_witness.txt
 #
+# pattern 语义（引擎事实，SEC #30，2026-07-10）：pattern 是大小写不敏感的
+# **子串**匹配（对 payload/FieldText 等字段 Contains，无前缀锚定语法）。裸
+# "S|"/"F|" 会命中任何 payload 含 …s|… / …f|… 的 trace_mark 行（如名字以 s
+# 结尾的计数器 "C|1252|H:VSync-rs|0"、B| span），在 100 行帽下把真 async 行
+# 挤出报告。因此 async 两步用 "S|<pid>|"/"F|<pid>|" 借 async 载荷的固定
+# 分段形（S|pid|name|cookie）作锚——"s|<pid>|" 不会出现在其它载荷位置。
+# **跑之前必须把这两处 pattern 里的 42591 一并改成目标进程 PID**（与 async
+# 标记载荷第二段一致的进程号；跨进程 async 需按进程各跑一遍）。counter 步
+# 保留宽面 "C|"（计数器行本就是该步目标；少量 …c|… span 混入可由行首 C|
+# 前缀判别，且报告透传原始行、不会伪装成计数器）。
+#
 # 全 35s 直接跑 counter 可能有意触发 8192-series fail-close；目标小窗才是
 # 帧级裁定面。回传本报告全文，重点保留 counter_quality、duration_pairing、
 # trace_mark_integrity、block_io_pairing caveat。预算 260+100*6=860。
@@ -20,17 +31,17 @@ steps:
   - label: raw_counter_marks
     view: event_search
     event_types: [trace_mark]
-    pattern: "C|"
+    pattern: "C|"                    # 宽面：计数器即本步目标；子串语义见文件头
     max_lines: 100
   - label: raw_async_starts
     view: event_search
     event_types: [trace_mark]
-    pattern: "S|"
+    pattern: "S|42591|"              # <- 42591 改成目标进程 PID；S|pid| 锚定 async-start 载荷，防 …s|… 计数器/span 挤占行帽
     max_lines: 100
   - label: raw_async_finishes
     view: event_search
     event_types: [trace_mark]
-    pattern: "F|"
+    pattern: "F|42591|"              # <- 42591 改成目标进程 PID；F|pid| 锚定 async-finish 载荷
     max_lines: 100
   - label: raw_interrupt_endpoints
     view: event_search

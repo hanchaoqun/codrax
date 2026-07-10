@@ -533,6 +533,13 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 			result.Timestamp = time.Now()
 			return result, nil
 		}
+		// SEC #26 exec arm: the read-mode shell allowlist includes cat /
+		// grep / rg / sed, so a command that NAMES a sensitive config file
+		// (directly or via glob) would bypass the read_file/grep gates.
+		if execCommandNamesSensitiveConfigPath(ctx, command) {
+			result := sensitiveConfigRefusal(t.Name())
+			return result, nil
+		}
 		if result := readModeExecSourceInventoryDebtRepair(ctx, command); result != nil {
 			result.Timestamp = time.Now()
 			return *result, nil
@@ -2229,6 +2236,13 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	if info, err := os.Stat(searchPath); err == nil {
 		searchPathIsFile = !info.IsDir()
 	}
+	// SEC #26 hard gate (precise path signal): an explicit sensitive-config
+	// target is refused with the generic caveat before any backend runs;
+	// directory scans exclude these files per-backend below. testdata
+	// fixtures pass the predicate (typed escape lane).
+	if searchPathIsFile && IsSensitiveConfigFilePath(searchPath) {
+		return sensitiveConfigRefusal(t.Name()), nil
+	}
 	lineWindow := p.LineStart > 0 || p.LineEnd > 0
 	if p.LineStart < 0 || p.LineEnd < 0 {
 		return types.ToolResult{
@@ -2327,13 +2341,11 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		useNativeBackend = true
 	}
 	if useNativeBackend {
-		var shouldSkip func(path string, d fs.DirEntry) bool
-		if ctx != nil && ctx.RepoRoot != "" {
-			shouldSkip = func(path string, d fs.DirEntry) bool {
-				rel, ok := repoRelativePathWithinRoot(ctx.RepoRoot, path)
-				return ok && dirFilter.ExcludesRepoRelativePath(rel)
-			}
-		}
+		// SEC #26: the sensitive-config file skip is layered into the walk
+		// callback unconditionally (grepNativeShouldSkip); the repo-relative
+		// directory exclusion policy applies only when a repo root is known,
+		// exactly as before.
+		shouldSkip := grepNativeShouldSkip(ctx, dirFilter)
 		var includeGlobs []string
 		if strings.TrimSpace(p.FileType) != "" {
 			includeGlobs = fileTypeToGlobs(p.FileType)
@@ -2459,6 +2471,27 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		for _, glob := range ReservedDeviceRipgrepGlobs() {
 			args = append(args, "--glob", "!"+glob)
 		}
+		// SEC #26 (复核必修① 收窄): broad directory scans exclude ONLY the
+		// concrete active credential files that live inside the scanned
+		// tree — an external repository's same-named providers.yaml stays
+		// searchable. rg negative globs anchor to the process CWD
+		// (empirically verified), so the anchored precise form is used when
+		// the command runs with cwd=repoRoot; otherwise fall back to
+		// basename globs for the (rare) outside-repo directory scan that
+		// actually contains an anchor credential file.
+		if !searchPathIsFile {
+			if commandDir != "" {
+				rgGlobs, _ := sensitiveConfigScanExcludes(commandDir)
+				for _, glob := range rgGlobs {
+					args = append(args, "--glob", glob)
+				}
+			} else {
+				_, baseExcludes := sensitiveConfigScanExcludes(searchPath)
+				for _, base := range baseExcludes {
+					args = append(args, "--glob", "!"+base)
+				}
+			}
+		}
 		if p.FileType != "" {
 			for _, glob := range fileTypeToGlobs(p.FileType) {
 				args = append(args, "--glob", glob)
@@ -2495,6 +2528,21 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}
 		for _, glob := range ReservedDeviceGrepExcludes() {
 			args = append(args, "--exclude="+glob)
+		}
+		// SEC #26 (复核必修① 收窄): same narrowed exclusion as the rg
+		// backend. GNU grep --exclude only matches basenames, so this
+		// over-excludes same-named nested files ONLY when an anchor
+		// credential file is inside the scanned tree (self-analysis);
+		// external repos get no exclusion at all.
+		if !searchPathIsFile {
+			scanBase := commandDir
+			if scanBase == "" {
+				scanBase = searchPath
+			}
+			_, baseExcludes := sensitiveConfigScanExcludes(scanBase)
+			for _, base := range baseExcludes {
+				args = append(args, "--exclude="+base)
+			}
 		}
 		args = append(args, p.Pattern)
 		// file_type → --include globs for GNU grep (no --type support).
@@ -2695,6 +2743,12 @@ func finalizeGrepOutput(ctx *types.BusContext, params grepToolParams, countBanne
 		return compacted, rawRef, refinement
 	}
 	payload := countBanner + paramsBanner
+	// SEC #26 复核必修①: explicit grep of an ALLOWED credential-named file
+	// (external repo providers.yaml) succeeds but carries the same soft
+	// sensitivity advisory as read_file.
+	if advisory := sensitiveConfigSoftAdvisory(resolveToolPath(ctx, params.Path)); advisory != "" {
+		payload += advisory + "\n"
+	}
 	if grepParamsTargetRuntimeArtifactFile(ctx, params) {
 		if advisory := grepTraceQueryRequiredAdvisory(ctx, params); advisory != "" {
 			payload += advisory
@@ -4717,6 +4771,12 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	if reject != nil {
 		return *reject, nil
 	}
+	// SEC #26 hard gate (precise path signal): the active providers/settings
+	// config and providers credential files are never readable. Generic
+	// refusal, zero path echo; testdata fixtures pass (typed escape lane).
+	if IsSensitiveConfigFilePath(fsPath) {
+		return sensitiveConfigRefusal(t.Name()), nil
+	}
 	// Whole-read wall (customer OOM 2026-07-03): read_file pages AFTER
 	// slurping, so a GiB-scale artifact must be refused before allocation.
 	data, err := width.ReadFileBounded(fsPath, width.Current().ReadFile.MaxWholeReadBytes)
@@ -4889,6 +4949,12 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		banner += "[read_file notice: legacy offset was accepted and interpreted as zero-based line_offset, not as a byte or character offset]\n"
 	} else if lineOffset > 0 || p.LineOffset != nil {
 		banner += "[read_file coordinates: line_offset is a zero-based line offset, not a byte or character offset; gutter line numbers are 1-based]\n"
+	}
+	// SEC #26 复核必修①: an ALLOWED file that merely shares the credential
+	// naming convention (external repo providers.yaml) reads normally but
+	// carries a soft sensitivity advisory — soft guidance, never a gate.
+	if advisory := sensitiveConfigSoftAdvisory(fsPath); advisory != "" {
+		banner += advisory + "\n"
 	}
 	content = banner + content
 

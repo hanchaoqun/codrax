@@ -83,6 +83,20 @@ func currentSourceCitationLines(repoRoot, file string, lineCache map[string][]st
 			return cached, cached != nil
 		}
 	}
+	// SEC #26 必修② (2026-07-10): the citation quote backfill is an
+	// internal read point that bypasses the tool-layer gates — a forged
+	// citation naming the live credential store (providers.yaml:4) would
+	// otherwise MATERIALIZE the real api_key line into the grounded
+	// answer. Consult the same shared authority as read_file/grep; on
+	// deny the model's own quote is kept un-backfilled (never real
+	// content), matching the existing unreadable-file semantics.
+	if types.IsSensitiveConfigFilePath(path) {
+		logging.Warning("[emit_answer_document] citation quote normalize refused a configuration credentials file citation (quote left un-backfilled)")
+		if lineCache != nil {
+			lineCache[path] = nil
+		}
+		return nil, false
+	}
 	// Bounded read (customer OOM 2026-07-03): a citation file field can
 	// name a multi-GiB runtime artifact inside the repo directory —
 	// stat first and skip this optional quote repair instead of slurping

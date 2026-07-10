@@ -2594,6 +2594,19 @@ func initApp(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// SEC #26 (复核必修① 收窄): register ONLY the resolved credential store
+	// (flagProviders — final here: yaml merge + anchoring + CLI override)
+	// with the shared sensitive-file authority. Its parent directory becomes
+	// the rule-2 anchor domain, so unregistered fallback-slot siblings
+	// (providers.*.yaml next to the binary) stay covered while an external
+	// analyzed repository's same-named file stays readable (soft advisory
+	// only). The runtime settings file (codrax.yaml / $CODRAX_SETTINGS) is
+	// deliberately NOT registered: it carries runtime knobs, not credentials
+	// — refusing to read it has zero security benefit and violates user
+	// intent. Live api_key lines must never enter LLM prompts, logs, or
+	// citation-backfilled answers.
+	tool.SetSensitiveConfigFilePaths([]string{flagProviders})
+
 	// --- Phase 3: initialize subsystems ---
 	//
 	// Create the runtime anchor up-front so the logger + memory store

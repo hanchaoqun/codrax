@@ -132,7 +132,10 @@ func NewFromFlags(dir, level string, mirrorStdout bool) (*Logger, error) {
 	if dir == "" {
 		dir = "logs"
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	// SEC #29 (2026-07-10): owner-only. Debug-level logs carry full prompts
+	// and repository excerpts; on shared multi-user machines other local
+	// accounts must not be able to read them (dir 0700, files 0600).
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create log dir: %w", err)
 	}
 	rw, err := newRotatingWriter(dir)
@@ -320,7 +323,9 @@ func (w *rotatingWriter) openNew() error {
 		}
 		path = filepath.Join(w.dir, fmt.Sprintf("%s-%d%s", base, i, fileSuffix))
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	// SEC #29: 0600 — log files carry full prompts / repo content at the
+	// default debug level.
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return fmt.Errorf("open log file: %w", err)
 	}

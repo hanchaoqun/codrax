@@ -2,6 +2,8 @@ package tracediag
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -107,7 +109,7 @@ func Run(ctx context.Context, opts Options, w io.Writer) (failed int, runErr err
 	}
 
 	rw := newReportWriter(w, totalCap)
-	writeProvenanceHeader(rw, opts, script, tracePath, info, flavorHint, now())
+	writeProvenanceHeader(rw, opts, script, tracePath, traceFileSHA256(tracePath), info, flavorHint, now())
 
 	statuses := make([]StepStatus, 0, len(script.Steps))
 	for i := range script.Steps {
@@ -147,6 +149,25 @@ func Run(ctx context.Context, opts Options, w io.Writer) (failed int, runErr err
 		}
 	}
 	return failed, nil
+}
+
+// traceFileSHA256 streams the trace once through sha256 for the provenance
+// header (SEC #27: basename+size+digest replace the absolute path; the
+// digest keeps exact artifact reconciliation). A read failure degrades to a
+// disclosed `unavailable` token instead of aborting — collection
+// completeness beats early abort, and any step would surface the same IO
+// error verbatim anyway.
+func traceFileSHA256(tracePath string) string {
+	f, err := os.Open(tracePath)
+	if err != nil {
+		return "unavailable(open_error)"
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "unavailable(read_error)"
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func resolveFlavorHint(raw string) (tracequery.TraceFlavor, error) {

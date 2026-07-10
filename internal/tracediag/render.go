@@ -1,9 +1,12 @@
 package tracediag
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strconv"
@@ -64,13 +67,19 @@ func (rw *reportWriter) summaryLine(s string) {
 
 func (rw *reportWriter) flushErr() error { return rw.err }
 
-func writeProvenanceHeader(rw *reportWriter, opts Options, script *Script, tracePath string, info os.FileInfo, flavorHint tracequery.TraceFlavor, at time.Time) {
+func writeProvenanceHeader(rw *reportWriter, opts Options, script *Script, tracePath, traceSHA256 string, info os.FileInfo, flavorHint tracequery.TraceFlavor, at time.Time) {
 	rw.line("# codrax tracediag 采集报告")
 	rw.line(fmt.Sprintf("codrax_version=%s build_time=%s", opts.Version, opts.BuildTime))
 	rw.line(fmt.Sprintf("generated_at=%s", at.Format(time.RFC3339)))
-	rw.line(fmt.Sprintf("trace=%s size_bytes=%d", tracePath, info.Size()))
+	// SEC #27 (2026-07-10): the report is THE round-trip artifact (witness
+	// recipes instruct customers to return it verbatim), so the provenance
+	// header identifies the trace/script by basename + size + content digest
+	// — never by the operator's absolute path (/Users/<name>/… must not
+	// leak). sha256 keeps exact artifact reconciliation without the path;
+	// absolute paths stay in local logs only.
+	rw.line(fmt.Sprintf("trace=%s size_bytes=%d sha256=%s", filepath.Base(tracePath), info.Size(), traceSHA256))
 	rw.line(fmt.Sprintf("trace_flavor_hint=%s", string(flavorHint)))
-	rw.line(fmt.Sprintf("script=%s version=%d steps=%d", opts.ScriptPath, script.Version, len(script.Steps)))
+	rw.line(fmt.Sprintf("script=%s version=%d steps=%d", filepath.Base(opts.ScriptPath), script.Version, len(script.Steps)))
 	if strings.TrimSpace(opts.WindowOverride) != "" {
 		rw.line(fmt.Sprintf("window_override=%s source=cli_flag target=defaults.window", clampToken(opts.WindowOverride)))
 	}
@@ -196,6 +205,11 @@ func renderStepBody(step *Step, outcome stepOutcome) stepBody {
 		return stepBody{lines: sink.lines, total: sink.total}
 	}
 	res := outcome.result
+	// SEC 捎带⑤: prescan for same-basename source_path collisions so the
+	// basename-sanitized display (SEC #27) stays unambiguous in dual-trace
+	// (CMP) results; reset after the step body.
+	sourcePathAmbiguousBases = collectAmbiguousSourcePathBases(res)
+	defer func() { sourcePathAmbiguousBases = nil }()
 	renderResultMeta(res, sink.emit)
 	if len(res.Events) > 0 {
 		sink.emit(fmt.Sprintf("匹配事件 %d 行:", len(res.Events)))
@@ -503,7 +517,17 @@ func structScalarTokens(v reflect.Value) string {
 // face: engine "_ms" fields align with the engine's own %.3f publication form
 // and "_ts" fields render as fixed-point trace coordinates; every other
 // scalar keeps the exact shortest round-trip form.
+//
+// SEC #27 exception to verbatim passthrough: `source_path` fields carry the
+// COLLECTION MACHINE's absolute file path (engine provenance, not trace
+// evidence) — the report is the round-trip artifact, so they render as
+// basename only, matching the provenance header's trace= line. Trace-internal
+// paths (ResourceFields.Path etc., tag "path") stay verbatim: they are device
+// paths from the trace itself, i.e. evidence.
 func formatScalarForTag(v reflect.Value, tag string) string {
+	if v.Kind() == reflect.String && tag == "source_path" {
+		return clampToken(sourcePathDisplayToken(v.String()))
+	}
 	if v.Kind() == reflect.Float64 || v.Kind() == reflect.Float32 {
 		switch {
 		case strings.HasSuffix(tag, "_ms"):
@@ -513,6 +537,87 @@ func formatScalarForTag(v reflect.Value, tag string) string {
 		}
 	}
 	return formatScalar(v)
+}
+
+// sourcePathAmbiguousBases is the per-step render state for the SEC 捎带⑤
+// disambiguation: when one result carries DISTINCT source paths sharing a
+// basename (CMP dual-trace comparisons with same-named files), the basename
+// alone is ambiguous. renderStepBody prescans the result and stamps the
+// colliding basenames here; sourcePathDisplayToken then appends a short
+// non-path identifier (file size when statable, else a path-derived short
+// id). Rendering is single-threaded (one CLI report writer), so plain
+// package state set/reset around each step body is safe.
+var sourcePathAmbiguousBases map[string]bool
+
+// sourcePathDisplayToken renders one machine-local source path as its
+// basename, plus a short disambiguator when the current step carries a
+// same-basename collision. The disambiguator never contains path segments.
+func sourcePathDisplayToken(p string) string {
+	base := filepath.Base(p)
+	if !sourcePathAmbiguousBases[strings.ToLower(base)] {
+		return base
+	}
+	if info, err := os.Stat(p); err == nil {
+		return fmt.Sprintf("%s(size_bytes=%d)", base, info.Size())
+	}
+	sum := sha256.Sum256([]byte(p))
+	return fmt.Sprintf("%s(id=%s)", base, hex.EncodeToString(sum[:4]))
+}
+
+// collectAmbiguousSourcePathBases reflect-walks a result the same way the
+// detail renderer does and returns the lowercased basenames that map to
+// more than one distinct source_path value.
+func collectAmbiguousSourcePathBases(res *tracequery.Result) map[string]bool {
+	pathsByBase := map[string]map[string]bool{}
+	var walk func(v reflect.Value, depth int)
+	walk = func(v reflect.Value, depth int) {
+		if depth > walkDetailMaxDepth {
+			return
+		}
+		switch v.Kind() {
+		case reflect.Pointer, reflect.Interface:
+			if v.IsNil() {
+				return
+			}
+			walk(v.Elem(), depth)
+		case reflect.Struct:
+			t := v.Type()
+			for i := 0; i < t.NumField(); i++ {
+				field := t.Field(i)
+				if field.PkgPath != "" || jsonExcluded(field) {
+					continue
+				}
+				fv := v.Field(i)
+				if fv.Kind() == reflect.String && jsonTagName(field) == "source_path" {
+					full := fv.String()
+					if strings.TrimSpace(full) == "" {
+						continue
+					}
+					base := strings.ToLower(filepath.Base(full))
+					if pathsByBase[base] == nil {
+						pathsByBase[base] = map[string]bool{}
+					}
+					pathsByBase[base][full] = true
+					continue
+				}
+				walk(fv, depth+1)
+			}
+		case reflect.Slice, reflect.Array:
+			for i := 0; i < v.Len(); i++ {
+				walk(v.Index(i), depth+1)
+			}
+		}
+	}
+	if res != nil {
+		walk(reflect.ValueOf(res).Elem(), 0)
+	}
+	out := map[string]bool{}
+	for base, paths := range pathsByBase {
+		if len(paths) > 1 {
+			out[base] = true
+		}
+	}
+	return out
 }
 
 func formatInlineStruct(v reflect.Value) string {

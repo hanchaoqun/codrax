@@ -160,11 +160,13 @@ type RuntimeSettings struct {
 	//
 	//   - markdown_preview_server: auto/on/off. auto (default) starts on
 	//     first use; off disables URL hints.
-	//   - markdown_preview_host: listen IP/host. Empty means all
-	//     interfaces (0.0.0.0); the printed URL then uses the best
-	//     reachable local IP the process can detect. Set a concrete IP /
-	//     host to force both the listener and printed URL, or 127.0.0.1
-	//     for loopback-only previews.
+	//   - markdown_preview_host: listen IP/host. Empty means loopback
+	//     only (127.0.0.1 — SEC hardening 2026-07-10: previews render
+	//     customer analysis content and the auth token rides the URL
+	//     query string). Set "0.0.0.0" explicitly to listen on all
+	//     interfaces; the printed URL then uses the best reachable local
+	//     IP the process can detect. A concrete IP/host forces both the
+	//     listener and the printed URL.
 	//   - markdown_preview_port: 0/absent asks the OS for a free high
 	//     port. Positive values pin the port.
 	MarkdownPreviewServer *string `yaml:"markdown_preview_server"`

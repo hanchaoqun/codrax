@@ -113,9 +113,11 @@ func (e CommandExecutor) executeStep(ctx context.Context, plan CommandOperationP
 	if workDir != "" {
 		cmd.Dir = workDir
 	}
-	if len(step.Env) > 0 {
-		cmd.Env = append(os.Environ(), step.Env...)
-	}
+	// SEC #29 (2026-07-10): LLM-planned operation commands never inherit
+	// credential-bearing environment variables. The child env is ALWAYS set
+	// (not only when step.Env is non-empty — a nil cmd.Env would inherit the
+	// full parent env via os/exec defaults).
+	cmd.Env = operationSubprocessEnv(os.Environ(), step.Env)
 
 	capture, err := newOperationOutputCapture(e.OutputDir, plan.ID, step.ID, policy.OutputPreviewBytes)
 	if err != nil {
@@ -196,6 +198,59 @@ func (e CommandExecutor) executeStep(ctx context.Context, plan CommandOperationP
 		PayloadRef:    ref,
 		Verification:  verification,
 	}
+}
+
+// operationSensitiveEnvNamePatterns is the credential blocklist for
+// LLM-planned subprocess environments: a variable whose NAME contains any of
+// these tokens (case-insensitive) is stripped from the inherited parent env.
+// Pattern-shaped on purpose — API keys travel under many spellings
+// (OPENAI_API_KEY, GITHUB_TOKEN, AWS_SECRET_ACCESS_KEY, DB_PASSWORD, …) and
+// under-stripping leaks credentials into command output capture, which flows
+// back into LLM context and .codrax logs. Runtime-essential variables
+// (PATH, HOME, LANG, TMPDIR, SystemRoot, …) contain none of these tokens and
+// pass through untouched.
+var operationSensitiveEnvNamePatterns = []string{"KEY", "TOKEN", "SECRET", "PASSWORD"}
+
+// operationEnvNameIsSensitive reports whether one env variable NAME is
+// credential-bearing per the blocklist, or is CODRAX_SETTINGS (the runtime
+// settings override — it points at the config tree that includes the
+// providers credential file).
+func operationEnvNameIsSensitive(name string) bool {
+	upper := strings.ToUpper(strings.TrimSpace(name))
+	if upper == "" {
+		return false
+	}
+	if upper == "CODRAX_SETTINGS" {
+		return true
+	}
+	for _, pattern := range operationSensitiveEnvNamePatterns {
+		if strings.Contains(upper, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+// operationSubprocessEnv builds the child environment for an operation
+// command step: the parent env minus blocklisted credential variables, then
+// the plan's explicit step env entries verbatim (typed plan input already
+// risk-gated upstream; an explicit entry may deliberately supply a value the
+// inheritance strip removed).
+func operationSubprocessEnv(parent, stepEnv []string) []string {
+	out := make([]string, 0, len(parent)+len(stepEnv))
+	for _, kv := range parent {
+		eq := strings.IndexByte(kv, '=')
+		if eq <= 0 {
+			// No name part (Windows "=C:=…" oddities) — keep as-is.
+			out = append(out, kv)
+			continue
+		}
+		if operationEnvNameIsSensitive(kv[:eq]) {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return append(out, stepEnv...)
 }
 
 func classifyCommandFailure(err error, output string) string {

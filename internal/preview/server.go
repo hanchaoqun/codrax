@@ -27,7 +27,12 @@ const (
 	ModeOn   = "on"
 	ModeOff  = "off"
 
-	defaultHost        = "0.0.0.0"
+	// SEC #28 (2026-07-10): default bind is loopback-only. Preview pages
+	// render customer trace/repo analysis content, and the auth token rides
+	// the URL query string (browser history / chat paste / proxy logs), so
+	// LAN exposure must be an explicit operator decision: set
+	// codrax.yaml :: markdown_preview_host: "0.0.0.0" to widen.
+	defaultHost        = "127.0.0.1"
 	defaultPort        = 0
 	maxMarkdownBytes   = 32 << 20
 	readHeaderTimeout  = 5 * time.Second
@@ -41,8 +46,9 @@ const (
 var assets embed.FS
 
 // Config controls the in-process markdown preview server. Empty values
-// are intentionally useful: Mode defaults to auto, Host to all
-// interfaces, and Port to an OS-selected high port.
+// are intentionally useful: Mode defaults to auto, Host to loopback
+// (127.0.0.1; set 0.0.0.0 explicitly for LAN exposure), and Port to an
+// OS-selected high port.
 type Config struct {
 	Mode string
 	Host string
@@ -203,8 +209,12 @@ func (s *Server) ensureStartedLocked() error {
 		Handler:           s,
 		ReadHeaderTimeout: readHeaderTimeout,
 	}
+	// Capture the *http.Server locally: Close nils s.server under the lock,
+	// and a goroutine that re-reads the field can otherwise panic on a
+	// nil Serve when Close wins the race before Serve starts.
+	server := s.server
 	go func() {
-		if err := s.server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logging.Warning("[markdown_preview] server stopped: %v", err)
 		}
 	}()
