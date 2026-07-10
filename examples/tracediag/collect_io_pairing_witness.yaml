@@ -1,5 +1,5 @@
-# IO pairing 专用自动补采包。只需改 defaults.window 为报告中的父窗口；
-# 不需要填写 PID，也不需要手工猜第二个/第三个小窗。
+# IO pairing 专用自动补采包。父窗口由 --trace-window 传入；无需填写
+# PID、编辑 YAML，或手工猜第二个/第三个小窗。
 #
 # pairing_integrity 会从物理文件开头完整重放 block/storage endpoint cohort，
 # 优先选择闭合的同键并发歧义；没有歧义时选择完成 pair 作为 schema probe。
@@ -8,14 +8,13 @@
 # matched/emitted；报告中已返回的行仍保留，但不得称作 N/N 完整 witness。
 #
 # 用法：
-#   cp examples/tracediag/collect_io_pairing_witness.yaml io_pairing.used.yaml
-#   # 只编辑 defaults.window
-#   codrax --tracediag io_pairing.used.yaml --trace <trace文件> \
+#   codrax --tracediag examples/tracediag/collect_io_pairing_witness.yaml \
+#     --trace <trace文件> --trace-window <start_s>..<end_s> \
 #     --out io_pairing_witness.txt 2> io_pairing_witness.stderr.txt
 version: 2
 description: "block/storage pairing 自动候选窗与原始端点 witness"
-defaults:
-  window: "100.000..100.500"       # <- 只改这一处父窗口（秒）
+inputs:
+  window: required                  # 漏传 --trace-window 时 fail-loud
 limits:
   max_generated_windows: 8
   max_expanded_steps: 8

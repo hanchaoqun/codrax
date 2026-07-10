@@ -2,10 +2,20 @@ package tracediag
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
+
+func loadShippedScript(path string) (*Script, error) {
+	switch filepath.Base(path) {
+	case "collect_open_gap_witness.yaml", "collect_io_pairing_witness.yaml":
+		return LoadScriptWithOverrides(path, ScriptOverrides{Window: "100.000..100.500"})
+	default:
+		return LoadScript(path)
+	}
+}
 
 // The shipped collection scripts must always load through the strict
 // loader — a schema drift between loader and examples reddens here before a
@@ -26,7 +36,7 @@ func TestShippedExampleScriptsParse(t *testing.T) {
 		"collect_berlin_pairing_witness.yaml": false,
 	}
 	for _, path := range paths {
-		script, err := LoadScript(path)
+		script, err := loadShippedScript(path)
 		if err != nil {
 			t.Errorf("shipped script %s must parse: %v", path, err)
 			continue
@@ -117,7 +127,11 @@ func TestShippedScriptShapes(t *testing.T) {
 	// completion emitted by IRQ/kworker or an upstream trace-mark thread is
 	// not filtered out. The exact eight-step shape is the customer handoff
 	// contract documented in the script header.
-	openGap, err := LoadScript(filepath.Join("..", "..", "examples", "tracediag", "collect_open_gap_witness.yaml"))
+	openGapPath := filepath.Join("..", "..", "examples", "tracediag", "collect_open_gap_witness.yaml")
+	if _, err := LoadScript(openGapPath); err == nil || !strings.Contains(err.Error(), "requires --trace-window") {
+		t.Fatalf("open-gap template must fail loud when the required parent window is omitted, got %v", err)
+	}
+	openGap, err := loadShippedScript(openGapPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,8 +161,8 @@ func TestShippedScriptShapes(t *testing.T) {
 	if openGap.Steps[4].Window != "" {
 		t.Fatalf("dynamic raw IO lane must not inherit the parent window directly: %q", openGap.Steps[4].Window)
 	}
-	if openGap.v2WorstReportLines != 964 {
-		t.Fatalf("open-gap validated worst report lines=%d, want pinned 964", openGap.v2WorstReportLines)
+	if openGap.v2WorstReportLines != 965 {
+		t.Fatalf("open-gap validated worst report lines=%d, want pinned 965", openGap.v2WorstReportLines)
 	}
 	for i, step := range openGap.Steps[4:] {
 		if step.View != "event_search" {
@@ -162,7 +176,11 @@ func TestShippedScriptShapes(t *testing.T) {
 		t.Errorf("open-gap unknown-print lane event_types = %v, want [unknown]", got)
 	}
 
-	ioPairing, err := LoadScript(filepath.Join("..", "..", "examples", "tracediag", "collect_io_pairing_witness.yaml"))
+	ioPairingPath := filepath.Join("..", "..", "examples", "tracediag", "collect_io_pairing_witness.yaml")
+	if _, err := LoadScript(ioPairingPath); err == nil || !strings.Contains(err.Error(), "requires --trace-window") {
+		t.Fatalf("dedicated IO template must fail loud when the required parent window is omitted, got %v", err)
+	}
+	ioPairing, err := loadShippedScript(ioPairingPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +204,7 @@ func TestShippedScriptsSingleFileBudget(t *testing.T) {
 		t.Fatal("no shipped scripts found")
 	}
 	for _, path := range paths {
-		script, err := LoadScript(path)
+		script, err := loadShippedScript(path)
 		if err != nil {
 			t.Fatalf("%s: %v", path, err)
 		}

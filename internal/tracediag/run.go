@@ -16,6 +16,9 @@ import (
 type Options struct {
 	ScriptPath string
 	TracePath  string
+	// WindowOverride replaces script defaults.window before strict validation.
+	// Explicit step/discovery windows are unchanged.
+	WindowOverride string
 	// FlavorHint is the CLI --trace-flavor value. STRICT enum
 	// (auto|harmony_hitrace|android_atrace|generic_ftrace); empty means auto.
 	// tracequery.NormalizeTraceFlavor's silent unknown→auto tolerance is an
@@ -68,7 +71,7 @@ func Run(ctx context.Context, opts Options, w io.Writer) (failed int, runErr err
 	if err != nil {
 		return 0, err
 	}
-	script, err := LoadScript(opts.ScriptPath)
+	script, err := LoadScriptWithOverrides(opts.ScriptPath, ScriptOverrides{Window: opts.WindowOverride})
 	if err != nil {
 		return 0, err
 	}

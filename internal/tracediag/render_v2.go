@@ -17,6 +17,9 @@ func writeV2ProvenanceHeader(rw *reportWriter, opts Options, script *Script, tra
 	rw.line(fmt.Sprintf("source_fingerprint=%s source_lock=tracequery_source_universe source_lock_status=validated", sourceVersion.Fingerprint()))
 	rw.line(fmt.Sprintf("trace_flavor_hint=%s", string(flavorHint)))
 	rw.line(fmt.Sprintf("script=%s version=%d discoveries=%d logical_steps=%d expanded_instances=%d", opts.ScriptPath, script.Version, len(script.Discoveries), len(script.Steps), expanded))
+	if strings.TrimSpace(opts.WindowOverride) != "" {
+		rw.line(fmt.Sprintf("window_override=%s source=cli_flag target=defaults.window", clampToken(opts.WindowOverride)))
+	}
 	if strings.TrimSpace(script.Description) != "" {
 		rw.line(fmt.Sprintf("description=%s", clampToken(script.Description)))
 	}

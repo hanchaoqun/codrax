@@ -4,10 +4,11 @@
 #
 # 用法（零 LLM、纯只读）：
 #   1) 把四个 `pid: 12345` 改成目标线程 TID；
-#   2) 只把 defaults.window 改成报告中的精确分析窗（建议 <= 1s）；
+#   2) 运行时用 --trace-window 传报告中的精确分析窗（建议 <= 1s）；
 #   3) 执行：
 #      codrax --tracediag examples/tracediag/collect_open_gap_witness.yaml \
-#        --trace <trace文件> --out open_gap_witness.txt
+#        --trace <trace文件> --trace-window <start_s>..<end_s> \
+#        --out open_gap_witness.txt
 #
 # 若只有线程名：删除四个 pid 行，并在这四步各写
 #   thread: "comm-tid"
@@ -23,11 +24,11 @@
 #     --trace <trace文件> --out format_census.txt
 #
 # 回传：open_gap_witness.txt + format_census.txt + 对应最终 .md/.html；无需回传
-# 原始 trace。v2 静态最坏报告预算=964 行（含 discovery/fan-out/header/summary）。
+# 原始 trace。v2 静态最坏报告预算=965 行（含 discovery/fan-out/header/summary）。
 version: 2
 description: "开放 gap witness（结论/因果/阻塞 + 自动 IO pairing 补采）"
-defaults:
-  window: "100.000..100.500"       # <- 占位：改成关注窗口（秒）
+inputs:
+  window: required                  # 漏传 --trace-window 时 fail-loud
 limits:
   max_generated_windows: 2
   max_expanded_steps: 12

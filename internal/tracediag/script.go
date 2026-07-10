@@ -133,6 +133,7 @@ var supportedEventTypes = []string{
 type Script struct {
 	Version     int               `yaml:"version"`
 	Description string            `yaml:"description"`
+	Inputs      *ScriptInputs     `yaml:"inputs"`
 	Defaults    Defaults          `yaml:"defaults"`
 	Limits      *V2Limits         `yaml:"limits"`
 	Discoveries []WindowDiscovery `yaml:"discoveries"`
@@ -140,6 +141,15 @@ type Script struct {
 
 	v2Limits           V2Limits
 	v2WorstReportLines int
+	windowOverrideSet  bool
+}
+
+// ScriptInputs declares the small, typed set of runtime values a reusable v2
+// collection script requires. Values are closed enums rather than arbitrary
+// key/value interpolation, so adding a future input cannot turn the script
+// loader into a template language.
+type ScriptInputs struct {
+	Window string `yaml:"window"`
 }
 
 type V2Limits struct {
@@ -163,10 +173,11 @@ type WindowDiscovery struct {
 	CohortEventLimit int      `yaml:"cohort_event_limit"`
 	MaxLines         int      `yaml:"max_lines"`
 
-	windowStart float64
-	windowEnd   float64
-	windowSet   bool
-	effMaxLines int
+	windowStart     float64
+	windowEnd       float64
+	windowSet       bool
+	windowInherited bool
+	effMaxLines     int
 }
 
 func (d *WindowDiscovery) WindowBounds() (start, end float64, ok bool) {
@@ -185,6 +196,14 @@ type Defaults struct {
 	Thread   string `yaml:"thread"`
 	Window   string `yaml:"window"`
 	MaxLines int    `yaml:"max_lines"`
+}
+
+// ScriptOverrides is the typed CLI-to-script override boundary. Keep this a
+// closed struct rather than a string map: future collection inputs can be
+// added without teaching the loader to interpret arbitrary keys or weakening
+// KnownFields validation for the script itself.
+type ScriptOverrides struct {
+	Window string
 }
 
 // Step is one collection step. Field set is pinned to the §28.12 ruling:
@@ -207,6 +226,7 @@ type Step struct {
 	windowStart     float64
 	windowEnd       float64
 	windowSet       bool
+	windowInherited bool
 	effMaxLines     int
 	maxLinesClamped bool
 	requestedMaxRaw int
@@ -245,22 +265,39 @@ func (s *Step) MaxLinesClamped() (requested int, clamped bool) {
 
 // LoadScript reads and strict-decodes a collection script, then validates it.
 func LoadScript(path string) (*Script, error) {
+	return LoadScriptWithOverrides(path, ScriptOverrides{})
+}
+
+// LoadScriptWithOverrides applies typed field-operator inputs before strict
+// validation. Window replaces defaults.window only; explicit per-step and
+// per-discovery windows remain authoritative. Shipped generic templates
+// deliberately inherit the default so one CLI parent window can drive both
+// today's pairing strategy and future typed discovery strategies.
+func LoadScriptWithOverrides(path string, overrides ScriptOverrides) (*Script, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("tracediag: read script: %w", err)
 	}
-	return ParseScript(data)
+	return parseScript(data, overrides)
 }
 
 // ParseScript strict-decodes a collection script from bytes and validates it.
 func ParseScript(data []byte) (*Script, error) {
+	return parseScript(data, ScriptOverrides{})
+}
+
+func parseScript(data []byte, overrides ScriptOverrides) (*Script, error) {
 	dec := yaml.NewDecoder(strings.NewReader(string(data)))
 	// R2 family discipline: the schema IS the decoder — unknown keys fail
 	// loud instead of being silently dropped.
 	dec.KnownFields(true)
 	var script Script
 	if err := dec.Decode(&script); err != nil {
-		return nil, fmt.Errorf("tracediag: script decode failed (unknown keys are rejected; v1 fields: version/description/defaults/steps; v2 adds limits/discoveries/windows_from): %w", err)
+		return nil, fmt.Errorf("tracediag: script decode failed (unknown keys are rejected; v1 fields: version/description/defaults/steps; v2 adds inputs/limits/discoveries/windows_from): %w", err)
+	}
+	if override := strings.TrimSpace(overrides.Window); override != "" {
+		script.Defaults.Window = override
+		script.windowOverrideSet = true
 	}
 	if err := script.Validate(); err != nil {
 		return nil, err
@@ -277,8 +314,8 @@ func (s *Script) Validate() error {
 	if len(s.Steps) == 0 {
 		return fmt.Errorf("tracediag: script has no steps")
 	}
-	if s.Version == ScriptVersion && (s.Limits != nil || len(s.Discoveries) > 0 || scriptHasWindowsFrom(s.Steps)) {
-		return fmt.Errorf("tracediag: limits/discoveries/windows_from are v2-only fields; set version: 2")
+	if s.Version == ScriptVersion && (s.Inputs != nil || s.Limits != nil || len(s.Discoveries) > 0 || scriptHasWindowsFrom(s.Steps)) {
+		return fmt.Errorf("tracediag: inputs/limits/discoveries/windows_from are v2-only fields; set version: 2")
 	}
 	if s.Defaults.Window != "" {
 		if _, _, err := parseWindow(s.Defaults.Window); err != nil {
@@ -294,6 +331,9 @@ func (s *Script) Validate() error {
 	seen := map[string]bool{}
 	discoveries := map[string]*WindowDiscovery{}
 	if s.Version == ScriptVersionV2 {
+		if err := s.validateV2Inputs(); err != nil {
+			return err
+		}
 		if err := s.validateV2Limits(); err != nil {
 			return err
 		}
@@ -314,11 +354,45 @@ func (s *Script) Validate() error {
 		}
 	}
 	if s.Version == ScriptVersionV2 {
+		if err := s.validateV2InputConsumers(); err != nil {
+			return err
+		}
 		if err := s.validateV2Budgets(discoveries); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (s *Script) validateV2Inputs() error {
+	if s.Inputs == nil {
+		return nil
+	}
+	s.Inputs.Window = strings.TrimSpace(s.Inputs.Window)
+	if s.Inputs.Window != "required" {
+		return fmt.Errorf("tracediag: inputs.window=%q is unsupported; supported: required", s.Inputs.Window)
+	}
+	if !s.windowOverrideSet {
+		return fmt.Errorf("tracediag: this script requires --trace-window <start_s>..<end_s>")
+	}
+	return nil
+}
+
+func (s *Script) validateV2InputConsumers() error {
+	if s.Inputs == nil || s.Inputs.Window != "required" {
+		return nil
+	}
+	for i := range s.Discoveries {
+		if s.Discoveries[i].windowInherited {
+			return nil
+		}
+	}
+	for i := range s.Steps {
+		if s.Steps[i].windowInherited {
+			return nil
+		}
+	}
+	return fmt.Errorf("tracediag: inputs.window=required is unused; at least one discovery or static step must inherit defaults.window")
 }
 
 func (s *Script) validateStep(i int, step *Step, seen map[string]bool, discoveries map[string]*WindowDiscovery) error {
@@ -364,6 +438,7 @@ func (s *Script) validateStep(i int, step *Step, seen map[string]bool, discoveri
 	}
 	if step.WindowsFrom == nil && strings.TrimSpace(step.Window) == "" {
 		step.Window = s.Defaults.Window
+		step.windowInherited = true
 	}
 	step.Window = strings.TrimSpace(step.Window)
 	if step.WindowsFrom != nil && step.Window != "" {
@@ -501,6 +576,7 @@ func (s *Script) validateDiscovery(i int, discovery *WindowDiscovery, seen map[s
 	}
 	if strings.TrimSpace(discovery.Window) == "" {
 		discovery.Window = s.Defaults.Window
+		discovery.windowInherited = true
 	}
 	discovery.Window = strings.TrimSpace(discovery.Window)
 	if discovery.Window != "" {
@@ -562,7 +638,9 @@ func (s *Script) validateV2Budgets(discoveries map[string]*WindowDiscovery) erro
 		return fmt.Errorf("tracediag: worst-case generated windows=%d exceeds limits.max_generated_windows=%d", generated, s.v2Limits.MaxGeneratedWindows)
 	}
 	expanded := 0
-	worstLines := 64
+	// Reserve one line for the optional CLI override provenance. It is a
+	// runtime option, so the script-only planner must budget it pessimistically.
+	worstLines := 65
 	for i := range s.Discoveries {
 		worstLines += s.Discoveries[i].EffectiveMaxLines() + 12
 	}

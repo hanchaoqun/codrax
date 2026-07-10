@@ -71,6 +71,9 @@ func writeProvenanceHeader(rw *reportWriter, opts Options, script *Script, trace
 	rw.line(fmt.Sprintf("trace=%s size_bytes=%d", tracePath, info.Size()))
 	rw.line(fmt.Sprintf("trace_flavor_hint=%s", string(flavorHint)))
 	rw.line(fmt.Sprintf("script=%s version=%d steps=%d", opts.ScriptPath, script.Version, len(script.Steps)))
+	if strings.TrimSpace(opts.WindowOverride) != "" {
+		rw.line(fmt.Sprintf("window_override=%s source=cli_flag target=defaults.window", clampToken(opts.WindowOverride)))
+	}
 	if strings.TrimSpace(script.Description) != "" {
 		rw.line(fmt.Sprintf("description=%s", clampToken(script.Description)))
 	}

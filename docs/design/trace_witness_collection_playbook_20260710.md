@@ -22,9 +22,11 @@ shasum -a 256 <trace文件> > trace_sha256.txt
 
 ```bash
 cp examples/tracediag/collect_open_gap_witness.yaml open_gap_witness.used.yaml
-# 编辑 open_gap_witness.used.yaml：四个 pid + 唯一父窗 defaults.window
+# 只编辑 open_gap_witness.used.yaml 的四个 pid；父窗走 CLI，不改 YAML
+# 该模板声明 inputs.window=required，漏传 --trace-window 会立即失败，不会跑占位窗
 ./codrax --tracediag open_gap_witness.used.yaml \
-  --trace <trace文件> --out open_gap_witness.txt \
+  --trace <trace文件> --trace-window <start_s>..<end_s> \
+  --out open_gap_witness.txt \
   2> open_gap_witness.stderr.txt
 ```
 
@@ -60,10 +62,10 @@ core、选窗依据和 source-universe 指纹。系统派生窗标为
   手工猜窗；改跑专用模板，它会原子覆盖一个候选所需的最多 8 个小窗：
 
 ```bash
-cp examples/tracediag/collect_io_pairing_witness.yaml io_pairing.used.yaml
-# 只编辑 defaults.window；无需 PID
-./codrax --tracediag io_pairing.used.yaml \
-  --trace <trace文件> --out io_pairing_witness.txt \
+# 无需复制/编辑模板，也无需 PID；漏传 --trace-window 会立即失败
+./codrax --tracediag examples/tracediag/collect_io_pairing_witness.yaml \
+  --trace <trace文件> --trace-window <start_s>..<end_s> \
+  --out io_pairing_witness.txt \
   2> io_pairing_witness.stderr.txt
 ```
 

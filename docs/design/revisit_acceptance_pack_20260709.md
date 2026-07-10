@@ -35,11 +35,11 @@
 
 # 定向复查指令包(两悬案,输出片段即可定案,无需提供 trace 文件)
 
-新构建内置 **tracediag 确定性采集模式**(§28.12, v2 演化见 §29.30):零 LLM、纯只读、不需要仓库与模型凭据,直接对 trace 跑采集脚本并生成单文件文本报告。v1 静态脚本保持兼容；v2 增加 typed discovery→候选窗→有界 fan-out，客户只填一个父窗，系统可自动生成 pairing 补采小窗。整次 v2 run 用 source-universe 强身份锁，发现为空不回退父窗，生成窗发生 compaction 时退出码非零并披露 matched/emitted。采集脚本随构建在 `examples/tracediag/` 出货。
+新构建内置 **tracediag 确定性采集模式**(§28.12, v2 演化见 §29.30):零 LLM、纯只读、不需要仓库与模型凭据,直接对 trace 跑采集脚本并生成单文件文本报告。v1 静态脚本保持兼容；v2 增加 typed discovery→候选窗→有界 fan-out，客户只通过 `--trace-window` 填一个父窗，系统可自动生成 pairing 补采小窗。整次 v2 run 用 source-universe 强身份锁，发现为空不回退父窗，生成窗发生 compaction 时退出码非零并披露 matched/emitted。采集脚本随构建在 `examples/tracediag/` 出货。
 
 开放 gap 的逐项触发判据、最小回传文件和脱敏边界见
 [`trace_witness_collection_playbook_20260710.md`](trace_witness_collection_playbook_20260710.md)。通用窗口采集模板为 `examples/tracediag/collect_open_gap_witness.yaml`。
-只做 block/storage pairing 时可直接用 `examples/tracediag/collect_io_pairing_witness.yaml`；该模板无需 PID，只改 `defaults.window`。
+只做 block/storage pairing 时可直接用 `examples/tracediag/collect_io_pairing_witness.yaml`；该模板无需 PID、无需编辑 YAML，父窗通过 `--trace-window <start..end>` 传入。模板以 `inputs.window=required` 声明该输入，漏传会立即失败，不会静默采集演示占位窗。
 
 ## G12(滑动场景,两条 14.272ms 折叠成员疑同段双归属)
 ```

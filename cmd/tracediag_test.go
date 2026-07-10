@@ -24,10 +24,13 @@ steps:
 func withTraceDiagFlags(t *testing.T, script, trace, out, flavor string) {
 	t.Helper()
 	oldScript, oldTrace, oldOut, oldFlavor := flagTraceDiag, flagTraceDiagTrace, flagTraceDiagOut, flagTraceDiagFlavor
+	oldWindow := flagTraceDiagWindow
 	t.Cleanup(func() {
 		flagTraceDiag, flagTraceDiagTrace, flagTraceDiagOut, flagTraceDiagFlavor = oldScript, oldTrace, oldOut, oldFlavor
+		flagTraceDiagWindow = oldWindow
 	})
 	flagTraceDiag, flagTraceDiagTrace, flagTraceDiagOut, flagTraceDiagFlavor = script, trace, out, flavor
+	flagTraceDiagWindow = ""
 }
 
 func writeTraceDiagCmdFixtures(t *testing.T) (scriptPath, tracePath, dir string) {
@@ -80,6 +83,35 @@ func TestRunTraceDiagCLIWritesReportToOutFile(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "report written to") {
 		t.Errorf("stdout must note the out path, got %q", buf.String())
+	}
+}
+
+func TestRunTraceDiagCLIWindowOverrideAvoidsTemplateEditing(t *testing.T) {
+	scriptPath, tracePath, _ := writeTraceDiagCmdFixtures(t)
+	script := `
+version: 1
+defaults: {window: "0.0..0.1"}
+steps:
+  - {label: rows, view: event_search, thread: "app-20", event_types: [sched_switch], max_lines: 20}
+`
+	if err := os.WriteFile(scriptPath, []byte(script), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withTraceDiagFlags(t, scriptPath, tracePath, "", "auto")
+	flagTraceDiagWindow = "1.000..1.300"
+	var buf bytes.Buffer
+	if err := runTraceDiagCLI(nil, &buf, nil); err != nil {
+		t.Fatalf("runTraceDiagCLI override: %v", err)
+	}
+	report := buf.String()
+	for _, want := range []string{
+		"window_override=1.000..1.300 source=cli_flag target=defaults.window",
+		"window=1.000..1.300",
+		"next_comm=app next_pid=20",
+	} {
+		if !strings.Contains(report, want) {
+			t.Errorf("override report missing %q\n%s", want, report)
+		}
 	}
 }
 
@@ -234,5 +266,13 @@ func TestRootPreRunSkipsInitAppForTraceDiag(t *testing.T) {
 	withTraceDiagFlags(t, "some-script.yaml", "some.trace", "", "auto")
 	if err := rootPreRun(rootCmd, nil); err != nil {
 		t.Fatalf("rootPreRun must skip initApp and return nil, got %v", err)
+	}
+}
+
+func TestRootPreRunRejectsTraceWindowWithoutTraceDiag(t *testing.T) {
+	withTraceDiagFlags(t, "", "", "", "auto")
+	flagTraceDiagWindow = "1.0..2.0"
+	if err := rootPreRun(rootCmd, nil); err == nil || !strings.Contains(err.Error(), "--trace-window requires --tracediag") {
+		t.Fatalf("orphan --trace-window must fail before initApp, got %v", err)
 	}
 }

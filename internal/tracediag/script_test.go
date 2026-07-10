@@ -206,8 +206,94 @@ steps:
 	}
 }
 
+func TestScriptWindowOverrideReplacesOnlyInheritedDefault(t *testing.T) {
+	script, err := parseScript([]byte(validScriptYAML), ScriptOverrides{Window: "2.000..3.000"})
+	if err != nil {
+		t.Fatalf("parseScript override: %v", err)
+	}
+	// raw_events has an explicit step window and must remain unchanged.
+	start, end, ok := script.Steps[0].WindowBounds()
+	if !ok || start != 6793224.9 || end != 6793225.0 {
+		t.Fatalf("explicit step window was overwritten: %v..%v set=%v", start, end, ok)
+	}
+	// rank inherited defaults.window and therefore takes the CLI override.
+	start, end, ok = script.Steps[1].WindowBounds()
+	if !ok || start != 2 || end != 3 || script.Defaults.Window != "2.000..3.000" {
+		t.Fatalf("inherited window did not take override: %v..%v set=%v default=%q", start, end, ok, script.Defaults.Window)
+	}
+	if _, err := parseScript([]byte(validScriptYAML), ScriptOverrides{Window: "NaN..3"}); err == nil {
+		t.Fatal("invalid CLI window override must fail through the same strict parser")
+	}
+}
+
+func TestScriptWindowOverrideDrivesV2DiscoveryButNotExplicitWindows(t *testing.T) {
+	yamlText := `
+version: 2
+defaults: {window: "1.000..1.500"}
+limits: {max_generated_windows: 2, max_expanded_steps: 3, max_report_lines: 300}
+discoveries:
+  - {label: inherited, strategy: pairing_integrity, families: [block], max_windows: 1, max_lines: 10}
+  - {label: explicit, strategy: pairing_integrity, families: [storage], window: "4.000..4.500", max_windows: 1, max_lines: 10}
+steps:
+  - {label: raw, view: event_search, event_types: [block_rq_issue, block_rq_complete], windows_from: {discovery: inherited}, max_lines: 10}
+`
+	script, err := parseScript([]byte(yamlText), ScriptOverrides{Window: "2.000..3.000"})
+	if err != nil {
+		t.Fatalf("parseScript v2 override: %v", err)
+	}
+	start, end, ok := script.Discoveries[0].WindowBounds()
+	if !ok || start != 2 || end != 3 {
+		t.Fatalf("inherited discovery did not take override: %v..%v set=%v", start, end, ok)
+	}
+	start, end, ok = script.Discoveries[1].WindowBounds()
+	if !ok || start != 4 || end != 4.5 {
+		t.Fatalf("explicit discovery window was overwritten: %v..%v set=%v", start, end, ok)
+	}
+	if script.Steps[0].Window != "" {
+		t.Fatalf("dynamic step must keep typed discovery source, got window=%q", script.Steps[0].Window)
+	}
+}
+
+func TestScriptRequiredWindowInputFailsLoudAndStaysTyped(t *testing.T) {
+	yamlText := `
+version: 2
+inputs: {window: required}
+steps:
+  - {label: rows, view: event_search}
+`
+	if _, err := ParseScript([]byte(yamlText)); err == nil || !strings.Contains(err.Error(), "requires --trace-window") {
+		t.Fatalf("missing required window override must fail with operator guidance, got %v", err)
+	}
+	script, err := parseScript([]byte(yamlText), ScriptOverrides{Window: "2.000..3.000"})
+	if err != nil {
+		t.Fatalf("required window with override: %v", err)
+	}
+	start, end, ok := script.Steps[0].WindowBounds()
+	if !ok || start != 2 || end != 3 {
+		t.Fatalf("required window was not consumed: %v..%v set=%v", start, end, ok)
+	}
+	if err := script.Validate(); err != nil {
+		t.Fatalf("resolved script validation must remain idempotent: %v", err)
+	}
+
+	unsupported := strings.Replace(yamlText, "window: required", "window: optional", 1)
+	if _, err := parseScript([]byte(unsupported), ScriptOverrides{Window: "2..3"}); err == nil || !strings.Contains(err.Error(), "supported: required") {
+		t.Fatalf("input mode must remain a closed enum, got %v", err)
+	}
+	unused := `
+version: 2
+inputs: {window: required}
+steps:
+  - {label: rows, view: event_search, window: "4..5"}
+`
+	if _, err := parseScript([]byte(unused), ScriptOverrides{Window: "2..3"}); err == nil || !strings.Contains(err.Error(), "is unused") {
+		t.Fatalf("declared required input must have an inherited consumer, got %v", err)
+	}
+}
+
 func TestParseScriptV1RejectsEveryV2Field(t *testing.T) {
 	cases := map[string]string{
+		"inputs":       "version: 1\ninputs: {window: required}\nsteps:\n  - {label: a, view: event_search}\n",
 		"limits":       "version: 1\nlimits: {max_expanded_steps: 2}\nsteps:\n  - {label: a, view: event_search}\n",
 		"discoveries":  "version: 1\ndiscoveries:\n  - {label: d, strategy: pairing_integrity}\nsteps:\n  - {label: a, view: event_search}\n",
 		"windows_from": "version: 1\nsteps:\n  - {label: a, view: event_search, windows_from: {discovery: d}}\n",
