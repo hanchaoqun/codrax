@@ -468,10 +468,13 @@ func TestSupplyFoldNotesRoundTrip(t *testing.T) {
 		RichNotes: append([]string{"rank=1", "runnable=150.000"}, notes...),
 	}
 	projection := types.TraceCausalProjectionFromObservationRecords([]types.ObservationRecord{record})
-	if len(projection.PrimaryRootCauses) != 1 {
-		t.Fatalf("expected one node: %+v", projection)
+	if len(projection.PrimaryRootCauses) != 0 || len(projection.OnChainCauses) != 1 {
+		t.Fatalf("zero-deficit running must stay as one on-chain context node, never a primary: %+v", projection)
 	}
-	node := projection.PrimaryRootCauses[0]
+	node := projection.OnChainCauses[0]
+	if node.Tier != types.TraceCausalTierContextOnly || node.EffectiveImpactMS != 0 {
+		t.Fatalf("zero-deficit running must compile to typed context_only: %+v", node)
+	}
 	if !node.SupplyFoldComputed || node.SupplyFoldDeficitMS != 0 || node.SupplyFoldIdealMS != 20.0 ||
 		node.SupplyFoldKnownMS != 20.0 || node.SupplyFoldUnknownMS != 0 || node.RunnableMS != 150.0 {
 		t.Fatalf("node must reconstruct the fold accounting from typed notes: %+v", node)

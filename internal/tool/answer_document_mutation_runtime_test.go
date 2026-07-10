@@ -913,7 +913,7 @@ func TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad(t *
 	bus.ToolResults = []types.ToolResult{{
 		ToolName: "trace_query", Success: true,
 		Observations: []types.ObservationRecord{
-			mkRoot("root-run", "worker-200", "running", "4.600", "running", 2),
+			mkRoot("root-run", "worker-200", "running", "4.600", "running", 2, "effective_impact_ms=4.600"),
 			mkRoot("root-sleep", "app-100", "sleep_wait", "5.000", "s_sleep", 1, "effective_impact_ms=11.040", "actual_impact_ms=4.600"),
 			{
 				ID: "path", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",

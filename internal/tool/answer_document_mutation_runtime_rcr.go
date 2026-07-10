@@ -336,7 +336,7 @@ func runtimeTraceProjImpactFormForNode(node types.TraceCausalProjectionNode, kin
 // ranking (typed engine Rank, incl. the RNB fold-adopted rank) or is an
 // inversion composite carrying gated components. Precise signals only.
 func runtimeTraceProjCauseNodeRow(row runtimeTraceProjTreeRow) bool {
-	if !row.HasData || row.Node.OnChainOverflowFold {
+	if !row.HasData || row.Node.OnChainOverflowFold || row.Node.IsContextOnlyRow() {
 		return false
 	}
 	if row.Node.Rank > 0 || len(row.RankFoldPeers) > 0 {

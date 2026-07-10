@@ -41,6 +41,7 @@ package tracequery
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 )
@@ -329,9 +330,10 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 		intervals := make([]foldInterval, 0, len(group.members))
 		clipped := false
 		for _, member := range group.members {
+			firstMember := fam.SumMs <= 0
 			fam.SumMs += member.DurationMs
 			intervals = append(intervals, foldInterval{start: member.StartTs, end: member.EndTs})
-			if fam.StartTs == 0 || member.StartTs < fam.StartTs {
+			if firstMember || member.StartTs < fam.StartTs {
 				fam.StartTs = member.StartTs
 			}
 			if member.EndTs > fam.EndTs {
@@ -736,6 +738,12 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 	// G1 membership union.
 	reconIntervals := make([]foldInterval, 0, len(members))
 	sum := 0.0
+	effectiveSum := 0.0
+	effectiveMax := 0.0
+	effectiveMatchesRaw := true
+	strongestEffective := RootCauseRankItem{}
+	gatedRunnableSum, gatedDeficitSum := 0.0, 0.0
+	allEffectivePureRunnable, allEffectivePureDeficit := true, true
 	memberCount := 0
 	roster := make([]string, 0, minIntFold(len(members), rootCauseFamilyRosterCap))
 	maxMs, minMs := 0.0, 0.0
@@ -754,7 +762,28 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 	}
 	for _, member := range members {
 		raw := rootCauseCumulativeImpactMs(member)
+		effective := rootCauseEffectiveImpactMs(member)
 		sum += raw
+		effectiveSum += effective
+		if effectiveMax == 0 || effective > effectiveMax {
+			effectiveMax = effective
+			strongestEffective = member
+		}
+		tolerance := raw * 0.001
+		if tolerance < 0.001 {
+			tolerance = 0.001
+		}
+		if effective < raw-tolerance || effective > raw+tolerance {
+			effectiveMatchesRaw = false
+		}
+		gatedRunnableSum += member.GatedRunnableMs
+		gatedDeficitSum += member.GatedRunningDeficitMs
+		if math.Abs(member.GatedRunnableMs-effective) > tolerance || math.Abs(member.GatedRunningDeficitMs) > tolerance {
+			allEffectivePureRunnable = false
+		}
+		if math.Abs(member.GatedRunningDeficitMs-effective) > tolerance || math.Abs(member.GatedRunnableMs) > tolerance {
+			allEffectivePureDeficit = false
+		}
 		count := member.MemberCount
 		if count <= 0 {
 			count = 1
@@ -906,6 +935,50 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 	}
 	merged.ImpactMs = backgroundImpactMs(q, combined, hasCausalChain, rootCauseItemIsOnChain(merged))
 	merged.ProjectedImpactMs = merged.ImpactMs
+	foldedEffective := effectiveMax
+	switch caliber {
+	case RootCauseMemberFoldCaliberSumDisjoint:
+		foldedEffective = effectiveSum
+	case RootCauseMemberFoldCaliberIntervalUnion:
+		if effectiveMatchesRaw {
+			foldedEffective = combined
+		}
+	}
+	if rootCauseTypeIsPriorityInversion(merged.Type) {
+		switch caliber {
+		case RootCauseMemberFoldCaliberSumDisjoint:
+			merged.GatedRunnableMs = gatedRunnableSum
+			merged.GatedRunningDeficitMs = gatedDeficitSum
+		case RootCauseMemberFoldCaliberIntervalUnion:
+			switch {
+			case effectiveMatchesRaw && allEffectivePureRunnable:
+				merged.GatedRunnableMs = foldedEffective
+				merged.GatedRunningDeficitMs = 0
+			case effectiveMatchesRaw && allEffectivePureDeficit:
+				merged.GatedRunnableMs = 0
+				merged.GatedRunningDeficitMs = foldedEffective
+			default:
+				// Partial gated subsets overlap without endpoint identity. MAX is
+				// the only non-double-counting effective ruler; carry the same
+				// strongest member's component split.
+				foldedEffective = effectiveMax
+				merged.GatedRunnableMs = strongestEffective.GatedRunnableMs
+				merged.GatedRunningDeficitMs = strongestEffective.GatedRunningDeficitMs
+			}
+		default:
+			merged.GatedRunnableMs = strongestEffective.GatedRunnableMs
+			merged.GatedRunningDeficitMs = strongestEffective.GatedRunningDeficitMs
+		}
+	}
+	foldedEffective = backgroundImpactMs(q, foldedEffective, hasCausalChain, rootCauseItemIsOnChain(merged))
+	if rootCauseTypeIsPriorityInversion(merged.Type) {
+		componentTotal := merged.GatedRunnableMs + merged.GatedRunningDeficitMs
+		if componentTotal > 0 && math.Abs(componentTotal-foldedEffective) > 0.000001 {
+			scale := foldedEffective / componentTotal
+			merged.GatedRunnableMs *= scale
+			merged.GatedRunningDeficitMs *= scale
+		}
+	}
 	if caliber == RootCauseMemberFoldCaliberCountSum {
 		// G3 count-family identity (§27.2 audit, 2026-07-09): the Σ计入==V==
 		// 引擎发布值 identity broke here — CumulativeImpactMs kept the raw
@@ -920,13 +993,21 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 		// capped published value; the disclosure face keeps the full raw Σ.
 		merged.CumulativeImpactMs = merged.ImpactMs
 		merged.EffectiveImpactMs = merged.ImpactMs
-	} else if base.EffectiveImpactMs > 0 {
-		// Pre-normalize members rarely carry an explicit effective value; when
-		// the representative does, keep the family on the same discipline: the
-		// combined magnitude, single-capped (normalize fills the rest later).
-		merged.EffectiveImpactMs = merged.ImpactMs
+	} else {
+		// Fold attribution with the same provable disjoint/union/MAX ruler as
+		// the raw family, but from each member's typed effective scalar. Raw
+		// Impact/Cumulative stay on the display lane and cannot leak back into
+		// runnable/inversion/running attribution through normalization.
+		merged.EffectiveImpactMs = foldedEffective
 	}
-	merged.Score = merged.ImpactMs * merged.Confidence * rootCauseItemScoreWeight(merged)
+	// Install the typed family identity before deriving Score. Interval-union
+	// folds intentionally clear per-state scalar channels; the effective
+	// accessor can recognize the already-adjudicated family scalar only when
+	// MemberCount/MemberFoldCaliber are present. Writing them after Score
+	// silently turned valid runnable and D/IO union families into score=0.
+	merged.MemberCount = memberCount
+	merged.MemberFoldCaliber = caliber
+	merged.Score = rootCauseRankScoreBasisMs(merged) * merged.Confidence * rootCauseItemScoreWeight(merged)
 	for _, member := range members[1:] {
 		if member.StartTs > 0 && (merged.StartTs == 0 || member.StartTs < merged.StartTs) {
 			merged.StartTs = member.StartTs
@@ -941,11 +1022,9 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 			merged.LineEnd = member.LineEnd
 		}
 	}
-	merged.MemberCount = memberCount
 	merged.MemberRoster = roster
 	merged.MemberMaxMs = maxMs
 	merged.MemberMinMs = minMs
-	merged.MemberFoldCaliber = caliber
 	// G1 (§27.2, 2026-07-09): keep the VALIDATED member intervals on the
 	// merged row (engine-internal, never serialized) — the cross-lane
 	// reconciliation tests a critical_blocking row's interval against this

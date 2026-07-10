@@ -1562,7 +1562,7 @@ func TestTraceQueryNestedWakeupChainCarriesLayerDrilldownHandoff(t *testing.T) {
 	}
 	var sawRootCauseTypedHandoff bool
 	for _, obs := range res.Observations {
-		if obs.Predicate != "root_cause_primary" || obs.Producer != "trace_query" {
+		if !strings.HasPrefix(obs.Predicate, "root_cause_") || obs.Producer != "trace_query" {
 			continue
 		}
 		notes := strings.Join(obs.RichNotes, "\n")

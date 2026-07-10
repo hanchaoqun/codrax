@@ -64,3 +64,47 @@ func TestTraceQueryDescriptionReplaceArmsAllFire(t *testing.T) {
 		t.Fatalf("retired trace_query schema wording resurfaced: %q", banned)
 	}
 }
+
+// TestTraceQueryRootCauseClosedMatrixContractPinned keeps Description() and
+// Parameters() on the same authoritative participation contract. A drift on
+// either surface can teach a smaller model to republish raw wall time or a
+// context-only aggregate as a ranked cause even when the engine is correct.
+func TestTraceQueryRootCauseClosedMatrixContractPinned(t *testing.T) {
+	surfaces := map[string]string{
+		"description": (&TraceQuery{}).Description(),
+		"parameters":  string((&TraceQuery{}).Parameters()),
+	}
+	for name, surface := range surfaces {
+		for _, want := range []string{
+			"authoritative closed typed effective-impact matrix",
+			"runnable uses the full typed runnable duration",
+			"running uses only the CAP/compute-supply deficit, and a missing or zero deficit is context_only",
+			"uses its exact chain/window intersection",
+			"must be mentioned as a deterministic optimization point even outside Top N",
+			"off-chain semantic work is background-only",
+			"periodic sources use VS-1 effective impact",
+			"D-state and IO use a mutually exclusive typed sum",
+			"ordinary sleep, unknown state, generic trace spans, and aggregate CPU/IO/supply pressure are context_only",
+			"Only rank #1 is primary",
+			"later positive contenders are secondary/tertiary",
+		} {
+			if !strings.Contains(surface, want) {
+				t.Fatalf("trace_query %s missing closed-matrix contract fragment %q", name, want)
+			}
+		}
+		for _, banned := range []string{
+			"co-primary",
+			"tier=deterministic_optimization",
+			"for non-semantic rows effective_impact_ms defaults to cumulative_impact_ms",
+			"non-semantic rows default effective_impact_ms to cumulative_impact_ms",
+			"dominant cumulative state can still rank as the primary cause",
+			"fragmented state_churn candidates",
+			"to let it compete with other causes",
+			"the target's own runnable/running/IO/D-state rows compete normally as decomposable self causes",
+		} {
+			if strings.Contains(surface, banned) {
+				t.Fatalf("retired trace_query %s root-cause contract resurfaced: %q", name, banned)
+			}
+		}
+	}
+}

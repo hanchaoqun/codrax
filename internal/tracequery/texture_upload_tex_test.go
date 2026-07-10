@@ -218,28 +218,29 @@ func TestTEXTextureUploadRegistryLaneMirrorsSemanticClassmates(t *testing.T) {
 
 func TestTEXOnChainTextureUploadParticipatesInRootCauseElection(t *testing.T) {
 	items := []RootCauseRankItem{
-		{Type: "texture_upload", ImpactMs: 5, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
-		{Type: "runnable_wait", ImpactMs: 9, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
+		{Type: "texture_upload", ImpactMs: 10, EffectiveImpactMs: 10, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
+		{Type: "runnable_wait", ImpactMs: 9, RunnableMs: 9, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 	}
+	sortRootCauseRankItems(items, true)
 	assignRootCauseRanksAndTiers(items)
 	if items[0].Tier != "primary" {
 		t.Fatalf("top on-chain texture_upload must be a primary candidate: %+v", items[0])
 	}
-	if items[1].Tier != "primary" {
-		t.Fatalf("the existing on-chain runnable co-primary rule must remain: %+v", items[1])
+	if items[1].Tier != "secondary" {
+		t.Fatalf("the runnable cause must use its strict second positional tier: %+v", items[1])
 	}
 	if !rootCauseTypeCanBeDirectOnChain("texture_upload") {
 		t.Fatalf("texture_upload must be direct-on-chain admissible like its classmates")
 	}
-	if rootCauseShouldBeCoPrimary(items[0]) {
-		t.Fatalf("semantic rows use positional election, not blanket co-primary: %+v", items[0])
+	if items[0].Rank != 1 || items[1].Rank != 2 {
+		t.Fatalf("semantic and runnable rows must share one contiguous positional ladder: %+v", items)
 	}
 }
 
 func TestTEXNonChainTextureUploadCarriesBackgroundRank(t *testing.T) {
 	items := []RootCauseRankItem{
 		{Type: "supply_pressure", ImpactMs: 40, ChainRelevance: "background"},
-		{Type: "texture_upload", ImpactMs: 4, ChainRelevance: "background", Causality: "background"},
+		{Type: "texture_upload", ImpactMs: 4, EffectiveImpactMs: 4, ChainRelevance: "background", Causality: "background"},
 	}
 	assignRootCauseRanksAndTiers(items)
 	// §23.1 ③ typed mention gate: the background board position counts every

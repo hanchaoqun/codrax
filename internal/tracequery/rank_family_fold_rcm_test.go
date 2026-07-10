@@ -51,6 +51,20 @@ func rcmSpan(thread ThreadRef, name string, startTs, endTs float64, startLine, e
 func rcmRankItem(typ string, thread ThreadRef, raw float64, startTs, endTs float64, lineStart, lineEnd int) RootCauseRankItem {
 	item := rootCauseItem(typ, thread, raw, 0.76, lineStart, lineEnd, "window_stats", "fixture "+typ)
 	item.CumulativeImpactMs = raw
+	switch typ {
+	case "runnable_wait", "scheduler_latency", "fragmented_runnable_wait":
+		item.DominantState = string(StateRunnable)
+		item.RunnableMs = raw
+	case "io_wait":
+		item.DominantState = string(StateIOWait)
+		item.IOWaitMs = raw
+	case "d_state_or_io_wait", "fragmented_d_state_or_io_wait":
+		item.DominantState = string(StateDSleep)
+		item.DStateMs = raw
+	}
+	if rootCauseItemIsSemanticSpanWork(item) {
+		item.EffectiveImpactMs = raw
+	}
 	item.StartTs = startTs
 	item.EndTs = endTs
 	item.StatsWindowStartTs = 10.0
@@ -428,6 +442,61 @@ func TestRCMGenericFamilyIntervalUnionCaliber(t *testing.T) {
 	}
 }
 
+func TestRCMStateFamilyIntervalUnionKeepsEffectiveScoreAndIdempotence(t *testing.T) {
+	thread := ThreadRef{Comm: "worker", PID: 300}
+	q := Query{TimeStart: 10.0, TimeEnd: 10.2}
+	tests := []struct {
+		name string
+		typ  string
+	}{
+		{name: "runnable", typ: "runnable_wait"},
+		{name: "D IO", typ: "d_state_or_io_wait"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			a := rcmRankItem(tc.typ, thread, 2.0, 10.010, 10.012, 100, 101)
+			b := rcmRankItem(tc.typ, thread, 2.0, 10.011, 10.013, 102, 103)
+			once := foldSameThreadTypeRankFamilies(q, false, []RootCauseRankItem{a, b})
+			if len(once) != 1 || once[0].MemberFoldCaliber != RootCauseMemberFoldCaliberIntervalUnion {
+				t.Fatalf("overlapping state members must publish one union family: %+v", once)
+			}
+			if got := rootCauseEffectiveImpactMs(once[0]); !near(got, 3, 0.000001) {
+				t.Fatalf("union effective must remain authoritative after state scalars clear, got %.6f: %+v", got, once[0])
+			}
+			if once[0].Score <= 0 {
+				t.Fatalf("positive union effective must derive a positive score: %+v", once[0])
+			}
+			twice := foldSameThreadTypeRankFamilies(q, false, append([]RootCauseRankItem(nil), once...))
+			if !reflect.DeepEqual(once, twice) {
+				t.Fatalf("state union family must remain idempotent:\nonce=%+v\ntwice=%+v", once, twice)
+			}
+		})
+	}
+}
+
+func TestRCMBackgroundSingletonAndFamilyUseSamePublishedCap(t *testing.T) {
+	q := Query{TimeStart: 10.0, TimeEnd: 10.1}
+	thread := ThreadRef{PID: 300, Comm: "background"}
+	single := rcmRankItem("runnable_wait", thread, 80, 10.010, 10.090, 100, 103)
+	single.ImpactMs = backgroundImpactMs(q, 80, true, false)
+
+	a := rcmRankItem("runnable_wait", thread, 40, 10.010, 10.050, 100, 101)
+	b := rcmRankItem("runnable_wait", thread, 40, 10.050, 10.090, 102, 103)
+	a.ImpactMs = backgroundImpactMs(q, 40, true, false)
+	b.ImpactMs = backgroundImpactMs(q, 40, true, false)
+	family := foldSameThreadTypeRankFamilies(q, true, []RootCauseRankItem{a, b})
+	if len(family) != 1 {
+		t.Fatalf("fixture must form one background family: %+v", family)
+	}
+	want := backgroundImpactMs(q, 80, true, false)
+	if got := rootCauseEffectiveImpactMs(single); !near(got, want, 0.000001) {
+		t.Fatalf("singleton background effective must honor published cap: got %.3f want %.3f %+v", got, want, single)
+	}
+	if got := rootCauseEffectiveImpactMs(family[0]); !near(got, want, 0.000001) {
+		t.Fatalf("family and singleton must be representation-invariant: got %.3f want %.3f %+v", got, want, family[0])
+	}
+}
+
 func TestRCMGenericFamilyCompositeOverlapFallsBackToMax(t *testing.T) {
 	// block_io values are composite scores, NOT interval lengths — an overlap
 	// without a usable union deduction publishes the member MAX (honest lower
@@ -543,7 +612,7 @@ func TestRCMFamilyFoldRegistryLaneGolden(t *testing.T) {
 		"class_verification":               CausalFamilyFoldSemanticClass,
 		"shader_compile":                   CausalFamilyFoldSemanticClass,
 		"runtime_compile":                  CausalFamilyFoldSemanticClass,
-		"gc_pause":                        CausalFamilyFoldSemanticClass,
+		"gc_pause":                         CausalFamilyFoldSemanticClass,
 		// TEX (§28.1, 2026-07-09): fifth semantic class, same fold lane.
 		"texture_upload": CausalFamilyFoldSemanticClass,
 	}
@@ -745,9 +814,9 @@ func TestRCMBackgroundRankCountsFamilyOnce(t *testing.T) {
 	}
 }
 
-func TestRCMTruncationSeatCountsFamilyRows(t *testing.T) {
-	// A ×N family redeems exactly ONE reserved seat (§24.10/§24.12: 席位按
-	// family 行计) — the seat ledger counts rows, and one family IS one row.
+func TestRCMTruncationDoesNotReserveFamilySeat(t *testing.T) {
+	// A folded semantic family remains one contender, but it receives no
+	// type-specific capacity reservation. The strict effective prefix decides.
 	var items []RootCauseRankItem
 	for i := 0; i < 12; i++ {
 		items = append(items, rcmRankItem("runnable_wait", ThreadRef{Comm: "bg", PID: 400 + i}, 10.0-float64(i)*0.1, 10.0, 10.01, 100+i, 100+i))
@@ -758,7 +827,16 @@ func TestRCMTruncationSeatCountsFamilyRows(t *testing.T) {
 	fam.SpanName = "VerifyClass com.example.Klass"
 	fam.SemanticClass = "class_verification"
 	items = append(items, fam)
-	kept := truncateRootCauseRankItemsWithSemanticSeats(items, 12)
+	for i := range items {
+		if items[i].Type == "runnable_wait" {
+			items[i].RunnableMs = items[i].ImpactMs
+		}
+		if items[i].Type == "class_verification" {
+			items[i].EffectiveImpactMs = items[i].ImpactMs
+		}
+	}
+	sortRootCauseRankItems(items, false)
+	kept := truncateRootCauseRankItemsStrict(items, 12)
 	if len(kept) != 12 {
 		t.Fatalf("capacity holds: %d", len(kept))
 	}
@@ -771,7 +849,7 @@ func TestRCMTruncationSeatCountsFamilyRows(t *testing.T) {
 			}
 		}
 	}
-	if seated != 1 {
-		t.Fatalf("the ×14 family redeems exactly one guaranteed seat: %d", seated)
+	if seated != 0 {
+		t.Fatalf("the below-cut ×14 family must not displace a larger effective cause: %d", seated)
 	}
 }

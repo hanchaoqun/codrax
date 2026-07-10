@@ -3115,6 +3115,8 @@ func runtimeTraceCausalProjectionEvidenceText(zh bool) string {
 
 func runtimeTraceCausalProjectionPriorityCell(node types.TraceCausalProjectionNode, zh bool) string {
 	switch {
+	case node.IsContextOnlyRow():
+		return runtimeTraceCausalProjectionContextLayerCell(node, zh)
 	case node.Role == types.TraceCausalRoleSemanticSpan || strings.TrimSpace(node.Predicate) == "trace_semantic_span",
 		strings.TrimSpace(node.SemanticClass) != "",
 		strings.TrimSpace(node.Tier) == "deterministic_optimization":
@@ -3170,6 +3172,9 @@ func runtimeTraceCausalProjectionPriorityCell(node types.TraceCausalProjectionNo
 }
 
 func runtimeTraceCausalProjectionLayerCell(node types.TraceCausalProjectionNode, zh bool) string {
+	if node.IsContextOnlyRow() {
+		return runtimeTraceCausalProjectionContextLayerCell(node, zh)
+	}
 	if node.Role == types.TraceCausalRoleSemanticSpan || strings.TrimSpace(node.Predicate) == "trace_semantic_span" {
 		if zh {
 			return "确定性优化点"
@@ -3232,6 +3237,34 @@ func runtimeTraceCausalProjectionLayerCell(node types.TraceCausalProjectionNode,
 			return "支撑"
 		}
 		return "support"
+	}
+}
+
+// runtimeTraceCausalProjectionContextLayerCell keeps the context-only tier
+// orthogonal to causal relevance: a zero-effective background row must never
+// be promoted by wording into chain membership. Exact relevance enum only.
+func runtimeTraceCausalProjectionContextLayerCell(node types.TraceCausalProjectionNode, zh bool) string {
+	switch strings.TrimSpace(node.ChainRelevance) {
+	case "on_chain":
+		if zh {
+			return "链路上下文"
+		}
+		return "chain context"
+	case "adjacent":
+		if zh {
+			return "邻近上下文"
+		}
+		return "adjacent context"
+	case "background":
+		if zh {
+			return "背景上下文"
+		}
+		return "background context"
+	default:
+		if zh {
+			return "上下文"
+		}
+		return "context"
 	}
 }
 

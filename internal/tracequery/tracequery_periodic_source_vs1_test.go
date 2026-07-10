@@ -278,7 +278,8 @@ func TestPeriodicSourceRankConsumesDiscountedValue(t *testing.T) {
 // TestPeriodicSourceNotDetectedForAperiodicIntervals pins the negative shape:
 // chaotic high-variance intervals never set the periodic fields — the gap
 // carve anchored on a noisy minimum must not absorb everything as "some
-// multiple" — and the aggregate/rank rows keep their pre-VS-1 bytes.
+// multiple". Without a periodic witness, ordinary S-sleep remains rank-0
+// dependency context under the closed effective matrix.
 func TestPeriodicSourceNotDetectedForAperiodicIntervals(t *testing.T) {
 	chain := buildPeriodicVSyncChain([]float64{8.3, 12.9, 3.1, 9.9, 24.0}, berlinVSyncSleepMs, berlinVSyncRunnableMs)
 	aggregates := aggregateWakeupCausalImpacts(&chain)
@@ -301,8 +302,8 @@ func TestPeriodicSourceNotDetectedForAperiodicIntervals(t *testing.T) {
 	if item.PeriodicSource {
 		t.Fatalf("rank item must not carry the periodic flag: %+v", item)
 	}
-	if !near(item.Score, item.ImpactMs*item.Confidence*2.05, 0.0001) {
-		t.Fatalf("aperiodic rank score must keep the raw formula: %+v", item)
+	if item.EffectiveImpactMs != 0 || item.Score != 0 {
+		t.Fatalf("aperiodic S-sleep must not resurrect raw wait as rank impact: %+v", item)
 	}
 }
 

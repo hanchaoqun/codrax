@@ -229,18 +229,16 @@ func TestPTV4TopBadgesFollowTypedRankAndAttribution(t *testing.T) {
 			t.Fatalf("rankless rows must never carry a badge: %+v", row.Node.Subject)
 		}
 	}
-	// EVOLUTION RECORD (§29.27.1): a published TOP-5 seat wears its badge even
-	// at zero effective attribution — the row still prints 根因排序#N, and a
-	// bare seat text without its pictograph is exactly the witness disease
-	// (the retired lane's eff>0 filter created seat-text/badge splits).
+	// Strict effective matrix: a stale Rank paired with zero authoritative
+	// attribution is not a valid seat and must stay bare on every surface.
 	zeroEff := ptv4BadgeModel(1)
 	for i := range zeroEff.TreeRows {
 		zeroEff.TreeRows[i].Node.EffectiveImpactMS = 0
 	}
 	runtimeTraceProjAssignTopBadges(&zeroEff)
 	for _, row := range zeroEff.TreeRows {
-		if row.Badge != row.Node.Rank {
-			t.Fatalf("a published TOP-5 seat keeps its badge at zero attribution: %+v", row.Node.Subject)
+		if row.Badge != 0 {
+			t.Fatalf("zero-effective stale ranks must never carry a badge: %+v", row.Node.Subject)
 		}
 	}
 	// The badge is an independent token, never a state glyph: the label parts

@@ -3521,6 +3521,7 @@ func accumulateThreadDuration(bucket map[string]ThreadDuration, thread ThreadRef
 	}
 	key := threadCPUKey(thread, cpu)
 	td := bucket[key]
+	firstSegment := td.DurationMs <= 0
 	if td.Thread.PID == 0 || endTs > td.EndTs || (endTs == td.EndTs && threadDisplayLess(thread, td.Thread)) {
 		td.Thread = thread
 	}
@@ -3531,7 +3532,7 @@ func accumulateThreadDuration(bucket map[string]ThreadDuration, thread ThreadRef
 	}
 	td.Priority = priority
 	td.PriorityClass = priorityClass
-	if td.StartTs == 0 || (startTs > 0 && startTs < td.StartTs) {
+	if firstSegment || startTs < td.StartTs {
 		td.StartTs = startTs
 	}
 	if endTs > td.EndTs {
@@ -3608,6 +3609,7 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 		freq := frequencyAt(freqTimelineFor(start.cpu), startTs)
 		key := threadCPUKey(start.thread, start.cpu)
 		td := bucket[key]
+		firstSegment := td.DurationMs <= 0
 		if td.Thread.PID == 0 || endTs > td.EndTs || (endTs == td.EndTs && threadDisplayLess(start.thread, td.Thread)) {
 			td.Thread = start.thread
 		}
@@ -3618,7 +3620,7 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 		}
 		td.Priority = start.priority
 		td.PriorityClass = start.priorityClass
-		if td.StartTs == 0 || startTs < td.StartTs {
+		if firstSegment || startTs < td.StartTs {
 			td.StartTs = startTs
 		}
 		if endTs > td.EndTs {
@@ -3695,9 +3697,10 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 				case StateSSleep:
 					addDuration(sleep, start, ev.Ts, ev.Line)
 				case StateDSleep, StateIOWait:
-					addDuration(dstate, start, ev.Ts, ev.Line)
 					if offCPUStateIsIOWait(start, ev.Ts, blockedReasons) {
 						addDuration(iowait, start, ev.Ts, ev.Line)
+					} else {
+						addDuration(dstate, start, ev.Ts, ev.Line)
 					}
 				}
 			}
@@ -3724,9 +3727,10 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 				case StateSSleep:
 					addDuration(sleep, start, ev.Ts, ev.Line)
 				case StateDSleep, StateIOWait:
-					addDuration(dstate, start, ev.Ts, ev.Line)
 					if offCPUStateIsIOWait(start, ev.Ts, blockedReasons) {
 						addDuration(iowait, start, ev.Ts, ev.Line)
+					} else {
+						addDuration(dstate, start, ev.Ts, ev.Line)
 					}
 				}
 				delete(open, ev.NextPID)
@@ -3756,9 +3760,10 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 			case StateSSleep:
 				addDuration(sleep, start, q.TimeEnd, 0)
 			case StateDSleep, StateIOWait:
-				addDuration(dstate, start, q.TimeEnd, 0)
 				if offCPUStateIsIOWait(start, q.TimeEnd, blockedReasons) {
 					addDuration(iowait, start, q.TimeEnd, 0)
+				} else {
+					addDuration(dstate, start, q.TimeEnd, 0)
 				}
 			}
 		}
@@ -8861,19 +8866,25 @@ func computeIOPressureSummary(stats WindowStats) *IOPressureSummary {
 	for _, item := range stats.DStateTop {
 		dStateMs += item.DurationMs
 	}
-	if blockMax == 0 && storageMax == 0 && fileBytes == 0 && fileEvents == 0 && pageChurn == 0 && stats.IOWaitBlockedCount == 0 && dStateMs == 0 {
+	var ioWaitMs float64
+	for _, item := range stats.IOWaitTop {
+		ioWaitMs += item.DurationMs
+	}
+	if blockMax == 0 && storageMax == 0 && fileBytes == 0 && fileEvents == 0 && pageChurn == 0 && stats.IOWaitBlockedCount == 0 && dStateMs == 0 && ioWaitMs == 0 {
 		return nil
 	}
 	score := firstPositiveFloat(blockMax, storageMax) +
 		float64(stats.IOWaitBlockedCount)*5 +
-		dStateMs +
+		dStateMs + ioWaitMs +
 		float64(pageChurn)*0.2 +
 		float64(fileEvents)*0.1 +
 		float64(fileBytes)/(1024*1024)*2
 	signal := "io_activity"
 	switch {
-	case stats.IOWaitBlockedCount > 0 && (blockMax > 0 || storageMax > 0):
+	case (stats.IOWaitBlockedCount > 0 || ioWaitMs > 0) && (blockMax > 0 || storageMax > 0):
 		signal = "scheduler_iowait_with_storage_latency"
+	case ioWaitMs > 0:
+		signal = "scheduler_iowait"
 	case fileBytes > 0 || fileEvents > 0:
 		signal = "file_io_hot_inode"
 	case pageChurn > 0:
@@ -8903,12 +8914,13 @@ func computeIOPressureSummary(stats WindowStats) *IOPressureSummary {
 		PageCacheChurn:      pageChurn,
 		IOWaitBlockedCount:  stats.IOWaitBlockedCount,
 		DStateMs:            dStateMs,
+		IOWaitMs:            ioWaitMs,
 		TopInode:            topInode,
 		TopDev:              topDev,
 		TopEntryName:        topName,
 		LineStart:           lineStart,
 		LineEnd:             lineEnd,
-		Summary:             fmt.Sprintf("io pressure signal=%s score=%.3f block_max=%.3fms storage_max=%.3fms file_bytes=%d file_events=%d page_cache_churn=%d iowait_blocked=%d d_state=%.3fms top_inode=%s", signal, score, blockMax, storageMax, fileBytes, fileEvents, pageChurn, stats.IOWaitBlockedCount, dStateMs, firstNonEmpty(topInode, "unknown")),
+		Summary:             fmt.Sprintf("io pressure signal=%s score=%.3f block_max=%.3fms storage_max=%.3fms file_bytes=%d file_events=%d page_cache_churn=%d iowait_blocked=%d d_state=%.3fms io_wait=%.3fms top_inode=%s", signal, score, blockMax, storageMax, fileBytes, fileEvents, pageChurn, stats.IOWaitBlockedCount, dStateMs, ioWaitMs, firstNonEmpty(topInode, "unknown")),
 	}
 }
 
@@ -9087,13 +9099,28 @@ func computeIOBurstEpisodes(stats WindowStats, max int) []IOBurstEpisodeSummary 
 			LineEnd:        td.LineEnd,
 			Confidence:     0.74,
 		}
-		for _, br := range stats.BlockedReasons {
-			if sameThreadRef(br.Thread, td.Thread) && br.IOWait > 0 {
-				item.IOWaitMs = td.DurationMs
-				item.DominantSignal = "scheduler_iowait"
-				item.Confidence = 0.82
-				break
-			}
+		if topIO != nil {
+			item.BlockMaxLatencyMs = topIO.BlockMaxLatencyMs
+			item.StorageMaxLatencyMs = topIO.StorageMaxLatencyMs
+			item.FileIOBytes = topIO.FileIOBytes
+			item.PageCacheChurn = topIO.PageCacheChurn
+			item.TopInode = topIO.TopInode
+			item.TopDev = topIO.TopDev
+			item.TopEntryName = topIO.TopEntryName
+		}
+		add(item)
+	}
+	for _, td := range stats.IOWaitTop {
+		item := IOBurstEpisodeSummary{
+			Thread:         td.Thread,
+			DominantSignal: "scheduler_iowait",
+			IOWaitMs:       td.DurationMs,
+			DurationMs:     td.DurationMs,
+			StartTs:        td.StartTs,
+			EndTs:          td.EndTs,
+			LineStart:      td.LineStart,
+			LineEnd:        td.LineEnd,
+			Confidence:     0.82,
 		}
 		if topIO != nil {
 			item.BlockMaxLatencyMs = topIO.BlockMaxLatencyMs
@@ -9821,7 +9848,7 @@ func applyAggregateGatedInversion(chain *ChainResult, item *WakeupCausalAggregat
 			continue
 		}
 		impact := chain.CausalImpacts[idx]
-		if impact.PriorityInversionGatedMs <= 0 {
+		if !impact.PriorityInversionCandidate || impact.PriorityInversionGatedMs <= 0 {
 			continue
 		}
 		gated = append(gated, gatedMember{
@@ -10613,7 +10640,20 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		if key, ok := rootEvidenceDStateTwinFamilyKey(root); ok && seatedCausalRootEvidence[key] {
 			continue
 		}
+		if sameThreadRef(root.Thread, res.Target) && rootEvidenceStateOwnedByWindowStats(root, stats) {
+			// The formal WindowStats state account is richer (typed interval,
+			// CPU/window identity and priority-inversion refinement) and owns the
+			// single self-cause seat. RootEvidence remains lossless on the
+			// wakeup_chain view but must not mint a second rank vote.
+			continue
+		}
 		item := rootCauseItem(root.Type, root.Thread, root.DurationMs, root.Confidence, root.LineStart, root.LineEnd, "wakeup_chain", root.Summary)
+		stampRootEvidenceRankCaliber(root, &item)
+		if sameThreadRef(root.Thread, res.Target) &&
+			(root.Type == "runnable_wait" || root.Type == "io_wait" || root.Type == "d_state_or_io_wait") {
+			item.Causality = "on_wakeup_chain"
+			item.ChainRelevance = "on_chain"
+		}
 		if root.Type == "trace_gap" {
 			// G2 判据 typed 化 (§27.2/§28.1, 2026-07-09): the precise blind-spot
 			// criterion travels typed on the rank row (trace_gap_kind wire note);
@@ -10738,21 +10778,24 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		items = append(items, item)
 	}
 	if stats.IOPressureSummary != nil && stats.IOPressureSummary.Score > 0 {
-		thread := ThreadRef{}
-		if len(stats.FileIOByInode) > 0 {
-			thread = stats.FileIOByInode[0].Thread
-		}
-		onChain := threadInSet(chainThreads, thread)
-		item := rootCauseItem("io_pressure", thread, backgroundImpactMs(q, stats.IOPressureSummary.Score, hasCausalChain, onChain), 0.70, stats.IOPressureSummary.LineStart, stats.IOPressureSummary.LineEnd, "window_stats.io_pressure_summary", stats.IOPressureSummary.Summary)
+		// Aggregate pressure has no single causal thread. Borrowing the top
+		// inode thread promoted a composite (whose constituents already have
+		// their own seats) onto the wakeup chain. Keep it as rank-0 context.
+		item := rootCauseItem("io_pressure", ThreadRef{}, backgroundImpactMs(q, stats.IOPressureSummary.Score, hasCausalChain, false), 0.70, stats.IOPressureSummary.LineStart, stats.IOPressureSummary.LineEnd, "window_stats.io_pressure_summary", stats.IOPressureSummary.Summary)
 		item.CumulativeImpactMs = stats.IOPressureSummary.Score
-		item.Causality = causalityLabel(hasCausalChain, onChain)
-		if len(stats.FileIOByInode) > 0 {
-			item.StartTs = stats.FileIOByInode[0].StartTs
-			item.EndTs = stats.FileIOByInode[0].EndTs
+		if hasCausalChain {
+			item.Causality = "background"
+			item.ChainRelevance = "background"
 		}
 		items = append(items, item)
 	}
 	for _, episode := range stats.IOBurstEpisodes {
+		if episode.DominantSignal == "d_state_or_io_wait" || episode.DominantSignal == "scheduler_iowait" {
+			// Scheduler-derived episodes are a diagnostic projection of the
+			// formal mutually-exclusive D/IO state account above. They remain in
+			// WindowStats/typed observations and never mint a second rank seat.
+			continue
+		}
 		onChain := threadInSet(chainThreads, episode.Thread)
 		impact := firstPositiveFloat(episode.DurationMs, episode.DStateMs+episode.IOWaitMs, episode.BlockMaxLatencyMs, episode.StorageMaxLatencyMs)
 		if impact <= 0 {
@@ -10877,7 +10920,7 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	// degrade criterion lane), so the proof mints ONLY on regression-free
 	// indexes; a regressed trace conservatively degrades the family fold to
 	// the member MAX (honest lower bound, never an over-count Σ).
-	offCPUProducerDisjoint := idx != nil && idx.ClockRegressions == 0
+	offCPUProducerDisjoint := idx != nil && idx.TimestampOrder == TraceTimestampOrderMonotonic
 	for _, td := range stats.RunnableTop {
 		onChain := threadInSet(chainThreads, td.Thread)
 		item := rootCauseItem("runnable_wait", td.Thread, backgroundImpactMs(q, td.DurationMs, hasCausalChain, onChain), 0.76, td.LineStart, td.LineEnd, "window_stats", fmt.Sprintf("%s was runnable for %.3fms%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)))
@@ -10916,57 +10959,18 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		item.memberSegmentsProducerDisjoint = offCPUProducerDisjoint
 		items = append(items, item)
 	}
-	for _, td := range stats.IOWaitTop {
-		onChain := threadInSet(chainThreads, td.Thread)
-		item := rootCauseItem("io_wait", td.Thread, backgroundImpactMs(q, td.DurationMs, hasCausalChain, onChain), 0.84, td.LineStart, td.LineEnd, "window_stats.io_wait_top", fmt.Sprintf("%s was in IO wait for %.3fms%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)))
-		item.CumulativeImpactMs = td.DurationMs
-		item.Causality = causalityLabel(hasCausalChain, onChain)
-		item.StartTs = td.StartTs
-		item.EndTs = td.EndTs
-		item.DominantState = string(StateIOWait)
-		item.IOWaitMs = td.DurationMs
-		// ORD: per-CPU 区分键 + producer-disjointness (see runnable top;
-		// 复核 P3-1: same ordered-stream premise gate).
-		item.MemberKey = fmt.Sprintf("cpu=%d", td.CPU)
-		item.memberSegmentsProducerDisjoint = offCPUProducerDisjoint
-		items = append(items, item)
-	}
-	exactIOWait := rootCauseExactThreadDurationSet(stats.IOWaitTop)
-	for _, td := range stats.DStateTop {
-		if rootCauseThreadDurationCovered(exactIOWait, td) {
-			continue
-		}
-		onChain := threadInSet(chainThreads, td.Thread)
-		item := rootCauseItem("d_state_or_io_wait", td.Thread, backgroundImpactMs(q, td.DurationMs, hasCausalChain, onChain), 0.82, td.LineStart, td.LineEnd, "window_stats", fmt.Sprintf("%s was in D-state/IO-like wait for %.3fms%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)))
-		item.CumulativeImpactMs = td.DurationMs
-		item.Causality = causalityLabel(hasCausalChain, onChain)
-		item.StartTs = td.StartTs
-		item.EndTs = td.EndTs
-		item.DominantState = string(StateDSleep)
-		item.DStateMs = td.DurationMs
-		// ORD: per-CPU 区分键 + producer-disjointness (see runnable top;
-		// 复核 P3-1: same ordered-stream premise gate).
-		item.MemberKey = fmt.Sprintf("cpu=%d", td.CPU)
-		item.memberSegmentsProducerDisjoint = offCPUProducerDisjoint
-		items = append(items, item)
-	}
+	items = append(items, rootCauseDIOStateFamilyItems(q, stats, chainThreads, hasCausalChain, offCPUProducerDisjoint)...)
 	for _, churn := range stats.StateChurn {
 		onChain := threadInSet(chainThreads, churn.Thread)
-		// Physical dominant-state duration as the published impact; the
-		// fragmentation ranking boost lives in the ranking-only channels
-		// (EffectiveImpactMs AND Score) without masquerading as a
-		// scheduler-state duration (§7.30 S1). Score must be recomputed from
-		// the composite here: rootCauseItem derives it from the physical
-		// impact param, and outside the chain-aware on_chain sort tier the
-		// Score channel is the only ordering key — leaving it physical would
-		// silently drop the fragmentation boost for no-chain windows and
-		// make root_cause_rank disagree with the drilldown plan.
+		// Physical dominant-state duration stays on the display lane. Root-rank
+		// participation is derived only from the matching typed state caliber:
+		// runnable in full, D/IO in full, sleep in full, and running only from
+		// an independently computed CAP/supply deficit. StateChurn carries no
+		// such running fold, so fragmented_running is authoritatively zero here.
+		// In particular, the former "dominant + half the remaining states"
+		// heuristic is a drilldown-priority hint, not a causal duration, and may
+		// never enter EffectiveImpactMs/Score.
 		item := rootCauseItem(stateChurnRootCauseType(churn.DominantState), churn.Thread, backgroundImpactMs(q, churn.DominantImpactMs, hasCausalChain, onChain), churn.Confidence, churn.LineStart, churn.LineEnd, "window_stats.state_churn", churn.Summary)
-		item.EffectiveImpactMs = backgroundImpactMs(q, stateChurnRankImpactMs(churn), hasCausalChain, onChain)
-		// F6 (§20.2 absorption): item-aware weight helper — behavior-identical
-		// here (churn tokens are never blocking_span), kept for single-source
-		// consistency with every other Score recompute.
-		item.Score = item.EffectiveImpactMs * item.Confidence * rootCauseItemScoreWeight(item)
 		item.CumulativeImpactMs = churn.TotalMs
 		item.Causality = causalityLabel(hasCausalChain, onChain)
 		item.DominantState = churn.DominantState
@@ -10975,6 +10979,8 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		item.SleepMs = churn.SleepMs
 		item.DStateMs = churn.DStateMs
 		item.IOWaitMs = churn.IOWaitMs
+		item.EffectiveImpactMs = rootCauseFragmentedStateEffectiveImpactMs(item)
+		item.Score = item.EffectiveImpactMs * item.Confidence * rootCauseItemScoreWeight(item)
 		items = append(items, item)
 	}
 	// IRQBursts is count/span inventory only. It intentionally consumes no
@@ -11092,7 +11098,6 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	normalizeRootCauseCumulativeImpact(items)
 	normalizeRootCauseEffectiveImpact(items)
 	sortRootCauseRankItems(items, hasCausalChain)
-	items = placeNonChainSemanticSpanRows(q, items)
 	limit := ViewCapacityFor("root_cause_rank").ClampLimit(q.Limit)
 	items, candidateTotal, candidateEmitted, sideTotal, sideEmitted := truncateRootCauseRankCandidatesAndSideRows(items, limit)
 	if candidateTotal > candidateEmitted {
@@ -11124,6 +11129,186 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	res.Caveats = append(res.Caveats, stats.Caveats...)
 	res.Caveats = append(res.Caveats, chain.Caveats...)
 	return res
+}
+
+// stampRootEvidenceRankCaliber preserves the exact state scalar carried by a
+// RootEvidence-only rank row. The closed effective-impact matrix deliberately
+// refuses to infer runnable or D/IO attribution from a generic raw DurationMs;
+// these exact root tokens therefore must populate the same typed channel as
+// their WindowStats/CausalImpact counterparts. Sleep/missing/unknown remain
+// context-only and are intentionally absent from this switch.
+func stampRootEvidenceRankCaliber(root RootEvidence, item *RootCauseRankItem) {
+	if item == nil || root.DurationMs <= 0 {
+		return
+	}
+	switch strings.TrimSpace(root.Type) {
+	case "runnable_wait":
+		item.DominantState = string(StateRunnable)
+		item.RunnableMs = root.DurationMs
+	case "io_wait":
+		item.DominantState = string(StateIOWait)
+		item.IOWaitMs = root.DurationMs
+	case "d_state_or_io_wait":
+		item.DominantState = string(StateDSleep)
+		item.DStateMs = root.DurationMs
+	}
+}
+
+func rootEvidenceStateOwnedByWindowStats(root RootEvidence, stats WindowStats) bool {
+	containsThread := func(items []ThreadDuration) bool {
+		for _, td := range items {
+			if td.DurationMs > 0 && sameThreadRef(td.Thread, root.Thread) {
+				return true
+			}
+		}
+		return false
+	}
+	switch strings.TrimSpace(root.Type) {
+	case "runnable_wait":
+		return containsThread(stats.RunnableTop)
+	case "io_wait":
+		return containsThread(stats.IOWaitTop)
+	case "d_state_or_io_wait":
+		return containsThread(stats.DStateTop) || containsThread(stats.IOWaitTop)
+	default:
+		return false
+	}
+}
+
+// rootCauseDIOStateFamilyItems publishes one formal D/IO blocking account per
+// numeric thread for the selected WindowStats run. computeOffCPUStats feeds
+// mutually-exclusive DStateTop and IOWaitTop ledgers; their same-thread
+// surviving bounded segments are therefore wall-clock additive when the
+// ordered-stream proof is present. Keeping them in one contender prevents D
+// and IO fragments from splitting their vote and gives StateChurn one formal
+// account to reconcile. The upstream Top8-per-lane capacity remains disclosed
+// separately; this helper never claims unseen members.
+func rootCauseDIOStateFamilyItems(q Query, stats WindowStats, chainThreads map[int]bool, hasCausalChain, producerDisjoint bool) []RootCauseRankItem {
+	type member struct {
+		state string
+		td    ThreadDuration
+	}
+	groups := map[string][]member{}
+	threads := map[string]ThreadRef{}
+	var order []string
+	add := func(state string, td ThreadDuration) {
+		if td.Thread.PID <= 0 || td.DurationMs <= 0 {
+			return
+		}
+		key := threadKey(td.Thread)
+		if _, ok := groups[key]; !ok {
+			order = append(order, key)
+		}
+		groups[key] = append(groups[key], member{state: state, td: td})
+		current := threads[key]
+		if current.PID == 0 || threadDisplayLess(td.Thread, current) {
+			threads[key] = td.Thread
+		}
+	}
+	for _, td := range stats.IOWaitTop {
+		add(string(StateIOWait), td)
+	}
+	for _, td := range stats.DStateTop {
+		add(string(StateDSleep), td)
+	}
+
+	out := make([]RootCauseRankItem, 0, len(order))
+	for _, key := range order {
+		members := groups[key]
+		if len(members) == 0 {
+			continue
+		}
+		thread := threads[key]
+		onChain := threadInSet(chainThreads, thread)
+		total, dStateMs, ioWaitMs := 0.0, 0.0, 0.0
+		maxMs, minMs := 0.0, 0.0
+		startTs, endTs := 0.0, 0.0
+		hasStart := false
+		lineStart, lineEnd := 0, 0
+		var roster []string
+		strongest := members[0]
+		for _, m := range members {
+			total += m.td.DurationMs
+			if m.state == string(StateIOWait) {
+				ioWaitMs += m.td.DurationMs
+			} else {
+				dStateMs += m.td.DurationMs
+			}
+			if m.td.DurationMs > strongest.td.DurationMs {
+				strongest = m
+			}
+			if maxMs == 0 || m.td.DurationMs > maxMs {
+				maxMs = m.td.DurationMs
+			}
+			if minMs == 0 || m.td.DurationMs < minMs {
+				minMs = m.td.DurationMs
+			}
+			if m.td.EndTs > m.td.StartTs && (!hasStart || m.td.StartTs < startTs) {
+				startTs = m.td.StartTs
+				hasStart = true
+			}
+			if m.td.EndTs > endTs {
+				endTs = m.td.EndTs
+			}
+			applyLineRange(&lineStart, &lineEnd, m.td.LineStart)
+			applyLineRange(&lineStart, &lineEnd, m.td.LineEnd)
+			if len(roster) < rootCauseFamilyRosterCap {
+				roster = append(roster, fmt.Sprintf("%s cpu=%d %.3fms", m.state, m.td.CPU, m.td.DurationMs))
+			}
+		}
+		caliber := RootCauseMemberFoldCaliberSumDisjoint
+		memberSum := 0.0
+		if len(members) > 1 && !producerDisjoint {
+			// Clock regression removes the producer disjointness proof. Publish
+			// the strongest exact member as an honest lower bound, never Σ.
+			memberSum = total
+			total = strongest.td.DurationMs
+			dStateMs, ioWaitMs = 0, 0
+			if strongest.state == string(StateIOWait) {
+				ioWaitMs = total
+			} else {
+				dStateMs = total
+			}
+			caliber = RootCauseMemberFoldCaliberMaxOverlapFallback
+		}
+		typ := "d_state_or_io_wait"
+		dominant := string(StateDSleep)
+		confidence := 0.82
+		if dStateMs == 0 && ioWaitMs > 0 {
+			typ = "io_wait"
+			dominant = string(StateIOWait)
+			confidence = 0.84
+		} else if ioWaitMs > dStateMs {
+			dominant = string(StateIOWait)
+		}
+		source := "window_stats"
+		if typ == "io_wait" {
+			source = "window_stats.io_wait_top"
+		}
+		summary := fmt.Sprintf("%s had a mutually-exclusive D/IO blocking account of %.3fms (d_state=%.3fms io_wait=%.3fms)", threadLabel(thread), total, dStateMs, ioWaitMs)
+		if caliber == RootCauseMemberFoldCaliberMaxOverlapFallback {
+			summary = fmt.Sprintf("%s had an unproven-overlap D/IO lower bound of %.3fms (member_max; raw_member_sum=%.3fms)", threadLabel(thread), total, memberSum)
+		}
+		item := rootCauseItem(typ, thread, backgroundImpactMs(q, total, hasCausalChain, onChain), confidence,
+			lineStart, lineEnd, source, summary)
+		item.CumulativeImpactMs = total
+		item.Causality = causalityLabel(hasCausalChain, onChain)
+		item.StartTs, item.EndTs = startTs, endTs
+		item.DominantState = dominant
+		item.DStateMs, item.IOWaitMs = dStateMs, ioWaitMs
+		item.memberSegmentsProducerDisjoint = producerDisjoint
+		item.EffectiveImpactMs = rootCauseEffectiveImpactMs(item)
+		item.Score = item.EffectiveImpactMs * item.Confidence * rootCauseItemScoreWeight(item)
+		if len(members) > 1 {
+			item.MemberCount = len(members)
+			item.MemberRoster = roster
+			item.MemberMaxMs, item.MemberMinMs = maxMs, minMs
+			item.MemberFoldCaliber = caliber
+			item.MemberSumMs = memberSum
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency SchedulerLatencyResult, stats WindowStats, chain ChainResult) RootCauseRankResult {
@@ -11207,11 +11392,20 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 				continue
 			}
 			onChain := threadInSet(chainThreads, supply.Thread)
+			dominantState := computeSupplyDominantState(supply)
+			// A running low-frequency verdict is already represented by the
+			// causal running row's CAP/supply-deficit attribution. Publishing the
+			// same raw running DurationMs as a second low_frequency contender both
+			// bypasses the fold and consumes a duplicate seat. Keep the verdict in
+			// WindowStats for diagnosis, but do not mint an independent rank row.
+			if typ == "low_frequency" && dominantState == string(StateRunning) {
+				continue
+			}
 			candidate := rootCauseItem(typ, supply.Thread, backgroundImpactMs(q, supply.DurationMs, hasCausalChain, onChain), supply.Confidence, supply.LineStart, supply.LineEnd, "window_stats.compute_supply", supply.Summary)
 			candidate.CumulativeImpactMs = supply.DurationMs
 			candidate.Causality = causalityLabel(hasCausalChain, onChain)
 			candidate.ChainRelevance = chainRelevanceFromCausality(candidate.Causality)
-			candidate.DominantState = computeSupplyDominantState(supply)
+			candidate.DominantState = dominantState
 			if candidate.DominantState == string(StateRunning) {
 				candidate.RunningMs = supply.DurationMs
 			} else if candidate.DominantState == string(StateRunnable) {
@@ -11262,7 +11456,6 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	normalizeRootCauseCumulativeImpact(rank.Items)
 	normalizeRootCauseEffectiveImpact(rank.Items)
 	sortRootCauseRankItems(rank.Items, hasCausalChain)
-	rank.Items = placeNonChainSemanticSpanRows(q, rank.Items)
 	limit := ViewCapacityFor("root_cause_rank").ClampLimit(q.Limit)
 	var candidateTotal, candidateEmitted, sideTotal, sideEmitted int
 	rank.Items, candidateTotal, candidateEmitted, sideTotal, sideEmitted = truncateRootCauseRankCandidatesAndSideRows(rank.Items, limit)
@@ -11524,10 +11717,10 @@ func computeSupplyForRootCauseItem(item RootCauseRankItem, summaries []ComputeSu
 
 func rootCauseThreadDurationWindow(fallback TimeWindow, td ThreadDuration) (float64, float64) {
 	start, end := td.StartTs, td.EndTs
-	if start <= 0 || end <= start {
+	if end <= start {
 		return fallback.StartTs, fallback.EndTs
 	}
-	if fallback.StartTs > 0 && start < fallback.StartTs {
+	if fallback.EndTs > fallback.StartTs && start < fallback.StartTs {
 		start = fallback.StartTs
 	}
 	if fallback.EndTs > 0 && end > fallback.EndTs {
@@ -11795,25 +11988,49 @@ func normalizeRootCauseEffectiveImpact(items []RootCauseRankItem) {
 		}
 		items[i].EffectiveImpactMs = rootCauseEffectiveImpactMs(items[i])
 	}
+	for i := range items {
+		previous := items[i].EffectiveImpactMs
+		canonical := rootCauseEffectiveImpactMs(items[i])
+		items[i].EffectiveImpactMs = canonical
+		if canonical > 0 {
+			// Preserve specialized score weights while bringing any pre-cap score
+			// onto the same published effective scalar. This matters for
+			// off-chain inversion/state rows whose mint-time score used raw ms.
+			if previous > 0 && canonical < previous && items[i].Score > 0 {
+				items[i].Score *= canonical / previous
+			}
+			continue
+		}
+		// A typed zero attribution is rank-0 context. It cannot retain a
+		// positive score/boost minted earlier from the raw wall-clock display
+		// lane: that would publish "not participating" and a positive ranking
+		// score on the same row, and could perturb zero-row order.
+		items[i].Score = 0
+		items[i].RankSortBoostedEffectiveMs = 0
+	}
 }
 
 func sortRootCauseRankItems(items []RootCauseRankItem, chainAware bool) {
 	sort.SliceStable(items, func(i, j int) bool {
+		ri, rj := 0, 0
 		if chainAware {
-			ri := rootCauseChainRelevanceSortRank(items[i])
-			rj := rootCauseChainRelevanceSortRank(items[j])
+			ri = rootCauseChainRelevanceSortRank(items[i])
+			rj = rootCauseChainRelevanceSortRank(items[j])
 			if ri != rj {
 				return ri < rj
 			}
-			if ri == chainRelevanceRank("on_chain") {
-				// §12.3 ruling 2 (engine sort face): 实测优先 — the tier key is
-				// the row's OWN effective/measured impact (Q4-B keeps every
-				// inherited value out of this channel)…
-				ci := rootCauseEffectiveImpactMs(items[i])
-				cj := rootCauseEffectiveImpactMs(items[j])
-				if ci != cj {
-					return ci > cj
-				}
+		}
+		// Root-cause ordinals and capacity are decided by the published typed
+		// effective attribution for every lane. Score/weights are tie-breakers
+		// only; they may not let a confidence heuristic or semantic boost evict
+		// a row with a larger measured effective impact.
+		ci := rootCauseEffectiveImpactMs(items[i])
+		cj := rootCauseEffectiveImpactMs(items[j])
+		if ci != cj {
+			return ci > cj
+		}
+		if !chainAware || ri == chainRelevanceRank("on_chain") {
+			if chainAware {
 				// …已解析对端行优先 — at equal measured impact the row with a
 				// RESOLVED contention counterpart outranks the one without…
 				pi := rootCauseItemHasResolvedBlockingPeer(items[i])
@@ -11847,194 +12064,17 @@ func rootCauseItemHasResolvedBlockingPeer(item RootCauseRankItem) bool {
 	return item.BlockingKind != "" && threadRefResolved(item.BlockingPeer)
 }
 
-// --- DCS E1b: non-chain semantic span rows on the background composite board
-// (ledger §23.1 ruling ②, 2026-07-08) -----------------------------------------
-//
-// 口径红线 (§7.30 S1 precedent): a wall-clock compile span and a cross-thread
-// cumulative cpu·ms aggregate must NEVER race on the raw Score channel — the
-// Score of an aggregate multiplies a cpu·ms magnitude that can exceed the
-// window by two orders of magnitude, so the race is decided by the caliber,
-// not the evidence. The defensible ordering basis for the background
-// composite board is the WINDOW-SHARE (占窗比): each row's own-caliber
-// magnitude normalized by the SAME window length —
-//   - semantic span row:      墙钟裁剪值 ÷ 窗长   (wall-clock in-window share)
-//   - cross-thread aggregate: 跨线程累计 ÷ 窗长   (≈平均排队深度, the display's
-//     own density normalization, §7.3 裁定2)
-//   - thread state row:       墙钟状态时长 ÷ 窗长 (wall-clock state share)
-//
-// i.e. every caliber is reduced to "多少个窗口当量" — the only dimensionless
-// scale that does not fabricate an equivalence between ms kinds; the caliber
-// words stay on every published surface. Within one board the shared window
-// length cancels, so the comparison reads the basis magnitudes directly (the
-// share semantics is documented here and in the ledger; the division is not
-// performed twice for nothing). Zero-chain aggregate rows keep their raw
-// cross-thread cumulative published value — the 35% window cap ruling (§7.5)
-// is untouched.
-//
-// Scope discipline: ONLY the non-chain semantic span rows are (re)placed;
-// every other row keeps its exact Score-sorted position, so existing boards
-// stay byte-stable. Rows demoted to the adjacent tier (same-thread without
-// overlap) stay where the chain-aware sort put them.
-func placeNonChainSemanticSpanRows(q Query, items []RootCauseRankItem) []RootCauseRankItem {
-	windowMs := (q.TimeEnd - q.TimeStart) * 1000
-	if windowMs <= 0 || len(items) < 2 {
-		// No bounded window → no share basis; absence never guesses a window
-		// and the Score order stands.
-		return items
-	}
-	kept := make([]RootCauseRankItem, 0, len(items))
-	var movable []RootCauseRankItem
-	for _, item := range items {
-		if rootCauseItemIsSemanticSpanWork(item) && !rootCauseItemIsOnChain(item) &&
-			rootCauseChainRelevanceSortRank(item) >= chainRelevanceRank("background") {
-			movable = append(movable, item)
-			continue
-		}
-		kept = append(kept, item)
-	}
-	if len(movable) == 0 {
-		return items
-	}
-	// Bigger shares insert first so equal-share spans keep their relative
-	// Score order (stable by construction).
-	sort.SliceStable(movable, func(i, j int) bool {
-		return rootCauseBackgroundShareBasisMs(movable[i]) > rootCauseBackgroundShareBasisMs(movable[j])
-	})
-	for _, span := range movable {
-		basis := rootCauseBackgroundShareBasisMs(span) // 墙钟裁剪值; share = basis/窗长
-		at := len(kept)
-		for i := range kept {
-			if rootCauseChainRelevanceSortRank(kept[i]) < chainRelevanceRank("background") {
-				// Never above the on-chain / adjacent tiers.
-				continue
-			}
-			// Both sides read the window-share basis (each in its own caliber,
-			// normalized by the SAME window — the division cancels).
-			if rootCauseBackgroundShareBasisMs(kept[i]) < basis {
-				at = i
-				break
-			}
-		}
-		kept = append(kept, RootCauseRankItem{})
-		copy(kept[at+1:], kept[at:])
-		kept[at] = span
-	}
-	return kept
-}
-
-// rootCauseBackgroundShareBasisMs is the numerator of a row's 占窗比 on the
-// background composite board — the row's own-caliber magnitude (ms):
-// wall-clock in-window projection for semantic spans, the raw cumulative for
-// everything else (cross-thread cpu·ms for aggregates ≙ the display density
-// numerator; wall-clock state duration for thread rows). Never conf- or
-// weight-scaled: the Score channel stays out of the cross-caliber race.
-func rootCauseBackgroundShareBasisMs(item RootCauseRankItem) float64 {
-	if rootCauseItemIsSemanticSpanWork(item) {
-		return item.ImpactMs
-	}
-	return rootCauseCumulativeImpactMs(item)
-}
-
-// --- DCS E1/E1b reserved seats inside the rank capacity (ledger §23/§23.1) ---
-
-const (
-	// rootCauseSemanticOnChainReservedSeats (E1): in-window ∧ on-chain
-	// semantic compile spans keep up to this many seats inside the
-	// root_cause_rank capacity — the engine-side TraceSpans bound has kept a
-	// 16-seat semantic reservation since boundTraceMarkSpans, and the rank
-	// board was the only asymmetric hop (the §23 audit's capacity breakpoint).
-	rootCauseSemanticOnChainReservedSeats = 3
-	// rootCauseSemanticBackgroundGuaranteedSeats (E1b): the TOP non-chain
-	// semantic span (by the background window-share basis) keeps one seat, so
-	// the §23.1 ruling-③ mention gate (background_rank<=3, typed 榜位) reads
-	// an honest board instead of a capacity artifact — in the cmp_01 6.0
-	// witness shape the aggregates + per-CPU pressure rows structurally fill
-	// all 12 seats and every semantic span died at the cap. Visibility ≠
-	// mention: the seat guarantees publication, the 榜位 stays earned.
-	rootCauseSemanticBackgroundGuaranteedSeats = 1
-)
-
-// truncateRootCauseRankItemsWithSemanticSeats truncates the sorted rank pool
-// to limit rows while honoring the semantic reserved seats: when truncation
-// would evict in-window semantic compile rows, the lowest-sorted kept
-// NON-semantic rows yield their seats instead (up to the per-lane seat
-// budgets). Relative sorted order is preserved; the emitted row count never
-// exceeds limit. RCM §24.10/§24.12: a seat is one ROW, and after the family
-// fold one semantic row IS one (thread, semantic class, lane) FAMILY — the
-// reservation budget therefore counts families, never their member spans (a
-// ×14 family redeems exactly one seat).
-func truncateRootCauseRankItemsWithSemanticSeats(items []RootCauseRankItem, limit int) []RootCauseRankItem {
+// truncateRootCauseRankItemsStrict applies capacity to the already sorted
+// candidate board without type-specific displacement. Semantic work competes
+// by the same published effective value as every other candidate; when it is
+// below the cut, the independent semantic-optimization disclosure channel is
+// responsible for mentioning it. This keeps Rank, capacity, and effective
+// attribution on one deterministic order.
+func truncateRootCauseRankItemsStrict(items []RootCauseRankItem, limit int) []RootCauseRankItem {
 	if limit <= 0 || len(items) <= limit {
 		return items
 	}
-	keep := make([]bool, len(items))
-	onChainKept, backgroundKept := 0, 0
-	for i := 0; i < limit; i++ {
-		keep[i] = true
-		if !rootCauseItemIsSemanticSpanWork(items[i]) {
-			continue
-		}
-		if rootCauseItemIsOnChain(items[i]) {
-			onChainKept++
-		} else {
-			backgroundKept++
-		}
-	}
-	evictLowestNonSemantic := func() bool {
-		for i := len(items) - 1; i >= 0; i-- {
-			if keep[i] && !rootCauseItemIsSemanticSpanWork(items[i]) {
-				keep[i] = false
-				return true
-			}
-		}
-		return false
-	}
-	// SEM-LEAD P1-1 soft face #2 (§29.22 修向(a), 2026-07-10): when MORE
-	// beyond-limit semantic families compete than reserved seats, the seats go
-	// to the families with the largest internal boosted channel (falling back
-	// to the published effective when unboosted; ties keep list order). This
-	// is the boost's ONLY capacity consumption — a soft who-gets-the-seat
-	// choice guaranteeing §29.7-2 参赛权, never a published ordinal/value
-	// (relative sorted order of the kept rows is preserved below regardless).
-	var beyondOnChain, beyondBackground []int
-	for i := limit; i < len(items); i++ {
-		if !rootCauseItemIsSemanticSpanWork(items[i]) {
-			continue
-		}
-		if rootCauseItemIsOnChain(items[i]) {
-			beyondOnChain = append(beyondOnChain, i)
-		} else {
-			beyondBackground = append(beyondBackground, i)
-		}
-	}
-	seatSignal := func(i int) float64 {
-		if items[i].RankSortBoostedEffectiveMs > 0 {
-			return items[i].RankSortBoostedEffectiveMs
-		}
-		return rootCauseEffectiveImpactMs(items[i])
-	}
-	sort.SliceStable(beyondOnChain, func(a, b int) bool {
-		return seatSignal(beyondOnChain[a]) > seatSignal(beyondOnChain[b])
-	})
-	for _, i := range beyondOnChain {
-		if onChainKept < rootCauseSemanticOnChainReservedSeats && evictLowestNonSemantic() {
-			keep[i] = true
-			onChainKept++
-		}
-	}
-	for _, i := range beyondBackground {
-		if backgroundKept < rootCauseSemanticBackgroundGuaranteedSeats && evictLowestNonSemantic() {
-			keep[i] = true
-			backgroundKept++
-		}
-	}
-	out := make([]RootCauseRankItem, 0, limit)
-	for i := range items {
-		if keep[i] {
-			out = append(out, items[i])
-		}
-	}
-	return out
+	return items[:limit]
 }
 
 // semanticSpanRankFailLoudCaveat (DCS E3, ledger §23 义务② fail-loud gap;
@@ -12108,8 +12148,43 @@ func rootCauseCumulativeImpactMs(item RootCauseRankItem) float64 {
 }
 
 func rootCauseEffectiveImpactMs(item RootCauseRankItem) float64 {
+	effective := rootCauseEffectiveImpactMsUncapped(item)
+	// Off-chain rows live on the background board. When a causal chain exists,
+	// backgroundImpactMs applies the long-standing selected-window cap on the
+	// published ImpactMs; the effective channel must honor that same cap for a
+	// singleton exactly as foldRankFamily already does for a family. Otherwise
+	// splitting one physical background account into two members changed its
+	// value from raw to capped and reordered the board.
+	if !rootCauseItemIsOnChain(item) && item.ImpactMs > 0 && effective > item.ImpactMs {
+		return item.ImpactMs
+	}
+	return effective
+}
+
+func rootCauseEffectiveImpactMsUncapped(item RootCauseRankItem) float64 {
 	if item.PeriodicSource {
 		// VS-1 (§7.8): the discounted value is authoritative even at 0.
+		return item.EffectiveImpactMs
+	}
+	// Semantic deterministic work participates by its measured intersection
+	// projection, even when that work happened while the host thread was
+	// running. It is not a generic running-state row and must never be replaced
+	// by the host CPU supply deficit.
+	if rootCauseItemIsSemanticSpanWork(item) {
+		return item.EffectiveImpactMs
+	}
+	// A typed priority-inversion row owns its gated algorithm result
+	// authoritatively, including zero. Falling through at zero would resurrect
+	// the raw runnable/running/D-IO wall clock under an inversion label even
+	// though the gate proved no inversion-attributable impact.
+	if item.Type == "priority_inversion_candidate" || item.Type == "priority_inversion_runnable_wait" {
+		return item.EffectiveImpactMs
+	}
+	// The family fold has already applied its typed disjoint/union/MAX ruler
+	// across member effective values. Interval-union families deliberately
+	// clear per-state scalar sums when a channel split cannot be reconstructed;
+	// the folded effective field is therefore the authoritative family scalar.
+	if item.MemberCount > 1 && strings.TrimSpace(item.MemberFoldCaliber) != "" {
 		return item.EffectiveImpactMs
 	}
 	// EVOLUTION RECORD (SEM-LEAD 复核 P1-1, §29.22 修向(a), 2026-07-10): the
@@ -12119,23 +12194,90 @@ func rootCauseEffectiveImpactMs(item RootCauseRankItem) float64 {
 	// showed ❶ on rank#2 and ❷ on rank#1 (序值倒挂, zero disclosure). §7.30
 	// S1: a synthetic ranking score must never publish as an ms hard fact —
 	// and the rank ordinal IS a published face. The accessor therefore reads
-	// the PUBLISHED value only; the boost survives on exactly two SOFT faces
-	// (rootCauseRankScoreBasisMs tie-break + the semantic seat-allocation
-	// signal in truncateRootCauseRankItemsWithSemanticSeats).
-	if item.Type == "running" {
-		// §20.2 (2026-07-07): a causal-lane running row's attribution is its
-		// ELIMINABLE supply-fold deficit, authoritative even at 0 (满频
-		// running is real work, not attribution; un-folded raw never drives
-		// ranking) — the cumulative fallback below must not resurrect the
-		// raw. Precise typed token: "running" is minted ONLY by the
-		// wakeup_chain causal impact/aggregate lanes (state-churn running
-		// rides fragmented_running and sets its own effective).
+	// the PUBLISHED value only; the boost survives solely as the
+	// rootCauseRankScoreBasisMs same-effective tie-break and never affects the
+	// strict capacity prefix.
+	if rootCauseItemIsRunningCaliber(item) {
+		// Running participates only through its ELIMINABLE CAP/supply-fold
+		// deficit. Missing fold data and a fully supplied interval both mean
+		// effective=0; raw RunningMs/ImpactMs remain display evidence only.
+		// This includes fragmented_running and any running compute-delivery
+		// observation, closing the raw-Duration low_frequency bypass.
 		return item.EffectiveImpactMs
+	}
+	if rootCauseItemIsRunnableCaliber(item) {
+		// Scheduling demand is the measured runnable lane in full. TotalMs may
+		// include running/sleep and is never a fallback for this caliber.
+		return item.RunnableMs
+	}
+	if rootCauseItemIsDStateOrIOCaliber(item) {
+		// D-state and I/O are one blocking family and participate by the exact
+		// typed union-of-lanes scalar carried by the row.
+		return item.DStateMs + item.IOWaitMs
+	}
+	if item.Type == "fragmented_sleep_wait" {
+		// Non-periodic S-sleep is a dependency symptom/context, not one of the
+		// closed root-cause participation calibers. Periodic sources returned
+		// above through VS-1; D/IO has its own exact branch.
+		return 0
+	}
+	switch strings.TrimSpace(item.Type) {
+	case "sleep_wait", "missing_wakeup", "unknown_state", "state_churn",
+		"trace_span", "io_pressure", "cpu_pressure", "supply_pressure",
+		"cpu_frequency_limit", "sched_stat_accounting", "irq_activity", "ipi_activity":
+		return 0
 	}
 	if item.EffectiveImpactMs > 0 {
 		return item.EffectiveImpactMs
 	}
 	return rootCauseCumulativeImpactMs(item)
+}
+
+func rootCauseItemIsRunningCaliber(item RootCauseRankItem) bool {
+	switch strings.TrimSpace(item.Type) {
+	case "running", "fragmented_running":
+		return true
+	case "low_frequency", "compute_supply":
+		return item.DominantState == string(StateRunning)
+	default:
+		return item.DominantState == string(StateRunning) && item.RunningMs > 0
+	}
+}
+
+func rootCauseItemIsRunnableCaliber(item RootCauseRankItem) bool {
+	switch strings.TrimSpace(item.Type) {
+	case "runnable_wait", "scheduler_latency", "fragmented_runnable_wait":
+		return true
+	case "low_frequency", "compute_supply", "cpu_affinity_or_cpuset":
+		return item.DominantState == string(StateRunnable)
+	default:
+		return item.DominantState == string(StateRunnable) && item.RunnableMs > 0
+	}
+}
+
+func rootCauseItemIsDStateOrIOCaliber(item RootCauseRankItem) bool {
+	switch strings.TrimSpace(item.Type) {
+	case "io_wait", "d_state_or_io_wait", "fragmented_d_state_or_io_wait":
+		return true
+	default:
+		return dominantStateIsDStateOrIOWait(item.DominantState) && (item.DStateMs > 0 || item.IOWaitMs > 0)
+	}
+}
+
+func rootCauseFragmentedStateEffectiveImpactMs(item RootCauseRankItem) float64 {
+	switch strings.TrimSpace(item.Type) {
+	case "fragmented_running":
+		// StateChurn has no CAP/supply-fold basis, so absence is authoritative.
+		return 0
+	case "fragmented_runnable_wait":
+		return item.RunnableMs
+	case "fragmented_d_state_or_io_wait":
+		return item.DStateMs + item.IOWaitMs
+	case "fragmented_sleep_wait":
+		return 0
+	default:
+		return 0
+	}
 }
 
 // rootCauseRankScoreBasisMs is the Score-channel basis (SEM-LEAD 复核 P1-1,
@@ -12232,7 +12374,7 @@ func rootCauseItem(typ string, thread ThreadRef, impactMs float64, confidence fl
 // window stamps nothing (absence never guesses a window base). Idempotent:
 // build and enrich both call it over the same window.
 func stampWindowStatsRankQueryWindow(items []RootCauseRankItem, window TimeWindow) {
-	if window.StartTs <= 0 || window.EndTs <= window.StartTs {
+	if window.EndTs <= window.StartTs {
 		return
 	}
 	for i := range items {
@@ -12242,33 +12384,6 @@ func stampWindowStatsRankQueryWindow(items []RootCauseRankItem, window TimeWindo
 		items[i].StatsWindowStartTs = window.StartTs
 		items[i].StatsWindowEndTs = window.EndTs
 	}
-}
-
-func rootCauseExactThreadDurationSet(items []ThreadDuration) map[string][]ThreadDuration {
-	out := map[string][]ThreadDuration{}
-	for _, td := range items {
-		if td.Thread.PID <= 0 || td.DurationMs <= 0 {
-			continue
-		}
-		key := threadKey(td.Thread)
-		out[key] = append(out[key], td)
-	}
-	return out
-}
-
-func rootCauseThreadDurationCovered(exact map[string][]ThreadDuration, candidate ThreadDuration) bool {
-	if candidate.Thread.PID <= 0 || candidate.DurationMs <= 0 {
-		return false
-	}
-	for _, td := range exact[threadKey(candidate.Thread)] {
-		if windowOverlapMs(td.StartTs, td.EndTs, candidate.StartTs, candidate.EndTs) > 0 {
-			return true
-		}
-		if td.LineStart > 0 && candidate.LineStart > 0 && td.LineStart <= candidate.LineEnd && candidate.LineStart <= td.LineEnd {
-			return true
-		}
-	}
-	return false
 }
 
 // WakeupCausalImpactEffectiveImpactMs is the PTV5 Q1 effective-attribution
@@ -12294,10 +12409,11 @@ func WakeupCausalImpactEffectiveImpactMs(impact WakeupCausalImpact) float64 {
 	if impact.PeriodicSource {
 		return impact.EffectivePeriodicImpactMs
 	}
-	if impact.PriorityInversionCandidate && impact.PriorityInversionGatedMs > 0 {
+	if impact.PriorityInversionCandidate {
 		return impact.PriorityInversionGatedMs
 	}
-	if impact.DominantState == string(StateRunning) {
+	switch impact.DominantState {
+	case string(StateRunning):
 		// §20.2 (user ruling 2026-07-07, OVERTURNS the §20.1甲 raw-participates
 		// side clause — EVOLUTION, not regression): a NON-inversion running
 		// segment's ATTRIBUTION is its ELIMINABLE supply-fold deficit — never
@@ -12314,20 +12430,57 @@ func WakeupCausalImpactEffectiveImpactMs(impact WakeupCausalImpact) float64 {
 		// (Inversion running segments already returned above: their running
 		// share is GatedRunningDeficitMs by construction — same principle.)
 		return impact.SupplyFoldDeficitMs
+	case string(StateRunnable):
+		// Runnable is scheduling demand and participates in full. TotalMs may
+		// include unrelated running/sleep intervals and is forbidden here.
+		return impact.RunnableMs
+	case string(StateDSleep), string(StateIOWait):
+		// D/IO is one blocking caliber; both typed lanes participate in full.
+		return impact.DStateMs + impact.IOWaitMs
+	case string(StateSSleep):
+		// Ordinary S-sleep is the dependency symptom being drilled through. Only
+		// a proved periodic source (handled above) converts it into a VS-1
+		// effective contender; missing wakeup remains context/data quality.
+		return 0
+	default:
+		// stopped/dead/unknown own no causal-duration lane.
+		return 0
 	}
-	if impact.TotalMs > 0 {
-		return impact.TotalMs
+}
+
+// WakeupCausalAggregateEffectiveImpactMs is the aggregate face of the same
+// closed participation matrix. It is exported so rank construction and tool
+// observations cannot drift on authoritative zeros (plain running without a
+// CAP deficit, ordinary sleep, unknown state) or resurrect raw totals.
+func WakeupCausalAggregateEffectiveImpactMs(aggregate WakeupCausalAggregate) float64 {
+	if aggregate.PeriodicSource {
+		return aggregate.EffectivePeriodicImpactMs
 	}
-	if stateTotal := impact.RunningMs + impact.RunnableMs + impact.SleepMs + impact.DStateMs + impact.IOWaitMs; stateTotal > 0 {
-		return stateTotal
+	if WakeupCausalAggregateInversionTyped(aggregate) {
+		return aggregate.PriorityInversionGatedMs
 	}
-	if impact.PriorityInversionCandidate {
-		return impact.PriorityInversionGatedMs
+	switch aggregate.DominantState {
+	case string(StateRunning):
+		return aggregate.SupplyFoldDeficitMs
+	case string(StateRunnable):
+		return aggregate.RunnableMs
+	case string(StateDSleep), string(StateIOWait):
+		return aggregate.DStateMs + aggregate.IOWaitMs
+	default:
+		return 0
 	}
-	return causalImpactBlockingMs(impact)
+}
+
+// RootCauseRankItemEffectiveImpactMs exports the single ranking-caliber
+// authority to tool/report layers. Consumers must not reimplement fallback
+// rules: authoritative zeros (running without CAP deficit, non-periodic
+// sleep, context-only inversion, unknown state) are load-bearing facts.
+func RootCauseRankItemEffectiveImpactMs(item RootCauseRankItem) float64 {
+	return rootCauseEffectiveImpactMs(item)
 }
 
 func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem {
+	effectiveMs := WakeupCausalImpactEffectiveImpactMs(impact)
 	typ := causalImpactRootType(impact)
 	if impact.PriorityInversionCandidate {
 		typ = "priority_inversion_candidate"
@@ -12343,8 +12496,8 @@ func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem 
 		impactMs = impact.PriorityInversionGatedMs
 	}
 	item := rootCauseItem(typ, impact.Thread, impactMs, conf, impact.LineStart, impact.LineEnd, "wakeup_chain.causal_impacts", impact.Summary)
+	item.EffectiveImpactMs = effectiveMs
 	if impact.PriorityInversionCandidate {
-		item.EffectiveImpactMs = impact.PriorityInversionGatedMs
 		// §7.30.3 D3: the composite's composition travels with the row so the
 		// renderer can split it instead of claiming a single state.
 		item.GatedRunnableMs = impact.GatedRunnableMs
@@ -12363,7 +12516,7 @@ func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem 
 		// WakeupCausalImpactEffectiveImpactMs — pinned two-lane-equal by
 		// TestWakeupCausalImpactEffectiveMirrorsRankLane. (PeriodicSource is
 		// only ever stamped on sleep-dominant rows, structurally exclusive.)
-		item.EffectiveImpactMs = impact.SupplyFoldDeficitMs
+		item.EffectiveImpactMs = effectiveMs
 	}
 	item.Causality = "on_wakeup_chain"
 	item.ChainRelevance = "on_chain"
@@ -12393,12 +12546,7 @@ func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem 
 	item.ProjectedImpactMs = firstPositiveFloat(impact.ProjectedImpactMs, impactMs)
 	item.ActualImpactMs = impact.ActualImpactMs
 	item.ActualTotalMs = impact.ActualTotalMs
-	item.Score = impactMs * conf * rootCauseScoreWeightChainImpact
-	if !impact.PriorityInversionCandidate && impact.DominantState == string(StateRunning) {
-		// §20.2: the Score channel is an attribution channel — deficit-based,
-		// same as effective/sort; the raw impactMs above stays display-only.
-		item.Score = impact.SupplyFoldDeficitMs * conf * rootCauseScoreWeightChainImpact
-	}
+	item.Score = effectiveMs * conf * rootCauseScoreWeightChainImpact
 	if impact.PeriodicSource {
 		// VS-1 (§7.8): a periodic source's sleep-dominant occurrence ranks and
 		// scores by its DISCOUNTED attribution (runnable in full + lateness) —
@@ -12409,8 +12557,8 @@ func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem 
 		item.PeriodicSource = true
 		item.DetectedPeriodMs = impact.DetectedPeriodMs
 		item.LatenessMs = impact.LatenessMs
-		item.EffectiveImpactMs = impact.EffectivePeriodicImpactMs
-		item.Score = impact.EffectivePeriodicImpactMs * conf * rootCauseScoreWeightChainImpact
+		item.EffectiveImpactMs = effectiveMs
+		item.Score = effectiveMs * conf * rootCauseScoreWeightChainImpact
 	}
 	// VS-2 (§7.10) fold accounting travels with the rank row for the display
 	// decision table. §20.2 EVOLUTION (2026-07-07): for non-inversion RUNNING
@@ -12427,16 +12575,18 @@ func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem 
 }
 
 func rootCauseItemFromCausalAggregate(aggregate WakeupCausalAggregate) RootCauseRankItem {
+	inversionTyped := WakeupCausalAggregateInversionTyped(aggregate)
+	effectiveMs := WakeupCausalAggregateEffectiveImpactMs(aggregate)
 	typ := aggregateRootCauseType(aggregate)
-	if WakeupCausalAggregateInversionTyped(aggregate) {
+	if inversionTyped {
 		typ = "priority_inversion_candidate"
 	}
 	conf := 0.82
-	if aggregate.PriorityInversion {
+	if inversionTyped {
 		conf = 0.88
 	}
 	impactMs := aggregateBlockingMs(aggregate)
-	if typ == "priority_inversion_candidate" && aggregate.PriorityInversionGatedMs > 0 {
+	if inversionTyped {
 		// R5d aggregate half (§20 E-Gap②, 2026-07-07): an inversion-typed
 		// aggregate row publishes and ranks with its gated caliber — the same
 		// R5d rule the per-occurrence lane has carried since §7.30.1; the raw
@@ -12447,14 +12597,14 @@ func rootCauseItemFromCausalAggregate(aggregate WakeupCausalAggregate) RootCause
 		impactMs = aggregate.PriorityInversionGatedMs
 	}
 	item := rootCauseItem(typ, aggregate.Thread, impactMs, conf, aggregate.LineStart, aggregate.LineEnd, "wakeup_chain.aggregated_impacts", aggregate.Summary)
-	if typ == "priority_inversion_candidate" && aggregate.PriorityInversionGatedMs > 0 {
-		item.EffectiveImpactMs = aggregate.PriorityInversionGatedMs
+	item.EffectiveImpactMs = effectiveMs
+	if inversionTyped {
 		// §7.30.3 D3 mirror: composition travels with the row.
 		item.GatedRunnableMs = aggregate.GatedRunnableMs
 		item.GatedRunningDeficitMs = aggregate.GatedRunningDeficitMs
 		item.GatedCapabilitySource = aggregate.GatedCapabilitySource
 		item.GatedClusterTopology = aggregate.GatedClusterTopology
-	} else if !aggregate.PriorityInversion && aggregate.DominantState == string(StateRunning) {
+	} else if aggregate.DominantState == string(StateRunning) {
 		// §20.2 mirror (2026-07-07, overturns §20.1甲 side clause): a
 		// non-inversion running-dominant aggregate's attribution channels
 		// carry the ELIMINABLE member-deficit value (VS-2 fold sum over the
@@ -12462,10 +12612,11 @@ func rootCauseItemFromCausalAggregate(aggregate WakeupCausalAggregate) RootCause
 		// missing — authoritative at 0 via the type=="running" branch in
 		// rootCauseEffectiveImpactMs). Raw ΣRunning stays display-only
 		// (ImpactMs/ProjectedImpactMs bar + TotalMs cumulative below). The
-		// !PriorityInversion guard (F1) keeps any inversion-flagged aggregate
-		// out of this lane even if its typing ever drifts — an inversion
-		// segment's attribution is the gated caliber, never a plain fold.
-		item.EffectiveImpactMs = aggregate.SupplyFoldDeficitMs
+		// The typed inversion gate above is authoritative. The raw aggregate
+		// flag is an audit census bit ("some member was flagged") and cannot
+		// suppress a valid plain-running CAP deficit when no typed gated
+		// inversion survived aggregation.
+		item.EffectiveImpactMs = effectiveMs
 	}
 	item.Causality = "on_wakeup_chain"
 	item.ChainRelevance = "on_chain"
@@ -12487,20 +12638,15 @@ func rootCauseItemFromCausalAggregate(aggregate WakeupCausalAggregate) RootCause
 	item.ActualImpactMs = aggregate.ActualImpactMs
 	item.ActualTotalMs = aggregate.ActualTotalMs
 	item.OccurrenceWindows = append([]WakeupCausalOccurrence(nil), aggregate.OccurrenceWindows...)
-	item.Score = impactMs * conf * rootCauseScoreWeightChainAggregate
-	if !aggregate.PriorityInversion && aggregate.DominantState == string(StateRunning) {
-		// §20.2: Score is an attribution channel — deficit-based like
-		// effective/sort; raw impactMs above stays display-only.
-		item.Score = aggregate.SupplyFoldDeficitMs * conf * rootCauseScoreWeightChainAggregate
-	}
+	item.Score = effectiveMs * conf * rootCauseScoreWeightChainAggregate
 	if aggregate.PeriodicSource {
 		// VS-1 (§7.8): same discounted ranking as the per-occurrence face —
 		// see rootCauseItemFromCausalImpact. Raw impact/cumulative unchanged.
 		item.PeriodicSource = true
 		item.DetectedPeriodMs = aggregate.DetectedPeriodMs
 		item.LatenessMs = aggregate.LatenessMs
-		item.EffectiveImpactMs = aggregate.EffectivePeriodicImpactMs
-		item.Score = aggregate.EffectivePeriodicImpactMs * conf * rootCauseScoreWeightChainAggregate
+		item.EffectiveImpactMs = effectiveMs
+		item.Score = effectiveMs * conf * rootCauseScoreWeightChainAggregate
 	}
 	// VS-2 (§7.10): same mirror as rootCauseItemFromCausalImpact — display
 	// decision-table input only, never a rank/score participant.
@@ -12698,7 +12844,7 @@ func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSp
 	if !ok || span.DurationMs <= 0 || span.EndTs <= span.StartTs {
 		return RootCauseRankItem{}, false
 	}
-	projection := semanticTraceSpanProjectionForRootCause(q, chain, span)
+	projection, dominantStateImpactMs := semanticTraceSpanProjectionForRootCause(q, chain, span)
 	if projection.ImpactMs <= 0 {
 		return RootCauseRankItem{}, false
 	}
@@ -12753,7 +12899,7 @@ func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSp
 		item.Causality = "on_wakeup_chain"
 		item.ChainRelevance = "on_chain"
 	}
-	applySemanticTraceSpanState(&item, projection.DominantState, projection.ImpactMs)
+	applySemanticTraceSpanState(&item, projection.DominantState, dominantStateImpactMs)
 	// F6 (§20.2 absorption): item-aware weight helper — behavior-identical
 	// here (semantic work tokens are never blocking_span). SEM-LEAD P1-1: the
 	// Score consumes the boosted basis as a same-effective tie-break only —
@@ -12791,19 +12937,19 @@ func semanticTraceSpanEffectiveImpactMs(work traceSpanSemanticWork, projection s
 	return effective
 }
 
-func semanticTraceSpanProjectionForRootCause(q Query, chain ChainResult, span TraceSpanSummary) semanticTraceSpanProjection {
+func semanticTraceSpanProjectionForRootCause(q Query, chain ChainResult, span TraceSpanSummary) (semanticTraceSpanProjection, float64) {
 	start, end, ok := selectedTraceSpanWindow(q, span)
 	if !ok {
-		return semanticTraceSpanProjection{}
+		return semanticTraceSpanProjection{}, 0
 	}
 	if len(chain.Nodes) > 0 || len(chain.Edges) > 0 || len(chain.CausalImpacts) > 0 {
 		// Single spans and semantic families share one exact interval algebra:
 		// union(span members) ∩ union(same-thread chain windows). This prevents
 		// the node and its mirrored causal-impact window (or two overlapping
 		// branch nodes) from counting the same physical span twice.
-		out := semanticTraceSpanChainIntersectionProjection(&chain, span.Thread, []foldInterval{{start: start, end: end}})
-		if out.ImpactMs > 0 {
-			return out
+		intersection := semanticTraceSpanChainIntersection(&chain, span.Thread, []foldInterval{{start: start, end: end}})
+		if intersection.projection.ImpactMs > 0 {
+			return intersection.projection, intersection.dominantStateImpactMs
 		}
 		// DCS E2 fall-through (ledger §23.1 rulings ①/②, 2026-07-08): a chain
 		// exists but NO same-thread chain-node/impact window overlap — the row
@@ -12815,7 +12961,7 @@ func semanticTraceSpanProjectionForRootCause(q Query, chain ChainResult, span Tr
 			StartTs:  start,
 			EndTs:    end,
 			ImpactMs: (end - start) * 1000,
-		}
+		}, 0
 	}
 	// DCS E2 PID-gate removal (ledger §23.1 ruling ②; cmp_01 E2 witness: the
 	// 83.893ms JIT span's host com.huawei.hwid is NOT the query target, and
@@ -12827,7 +12973,7 @@ func semanticTraceSpanProjectionForRootCause(q Query, chain ChainResult, span Tr
 		StartTs:  start,
 		EndTs:    end,
 		ImpactMs: (end - start) * 1000,
-	}
+	}, 0
 }
 
 func selectedTraceSpanWindow(q Query, span TraceSpanSummary) (float64, float64, bool) {
@@ -12914,14 +13060,13 @@ func actualAggregateBlockingMs(item WakeupCausalAggregate) float64 {
 
 func aggregateRootCauseIsPrioritySensitive(item WakeupCausalAggregate) bool {
 	switch item.DominantState {
-	// F1 (§20.2 absorption, 2026-07-07): StateRunning joined the sensitive
-	// set to align with the per-occurrence candidate gate
-	// (summarizeWakeupCausalImpact admits runnable- OR running-dominant
-	// segments as inversion candidates) — a running-dominant inversion
-	// aggregate must type as priority_inversion_candidate and rank by its
-	// gated caliber, never by raw ΣRunning (the pre-F1 raw punch-through).
-	case string(StateRunnable), string(StateRunning), string(StateDSleep), string(StateIOWait):
-		return aggregateBlockingMs(item) > 0
+	// Inversion gating describes scheduling supply only: runnable in full plus
+	// CAP-discounted running deficit. D/IO-dominant aggregates retain their
+	// own full blocking caliber even when their members also carry a lower-
+	// priority relation; retyping them as inversion would replace real D/IO
+	// with the smaller scheduling-only gated scalar.
+	case string(StateRunnable), string(StateRunning):
+		return aggregateBlockingMs(item) > 0 && item.PriorityInversionGatedMs > 0
 	default:
 		return false
 	}
@@ -12943,7 +13088,7 @@ func WakeupCausalAggregateInversionTyped(aggregate WakeupCausalAggregate) bool {
 func aggregateRootCauseType(item WakeupCausalAggregate) string {
 	// Shared root-type authority (thread_state_universe.go) — byte-identical
 	// twin of the causal-impact mapping.
-	return rootTypeForDominantState(item.DominantState, item.PriorityInversion, item.IOWaitMs)
+	return rootTypeForDominantState(item.DominantState, WakeupCausalAggregateInversionTyped(item), item.IOWaitMs)
 }
 
 func wakeupChainThreadSet(chain ChainResult) map[int]bool {
@@ -13084,6 +13229,13 @@ func rootCauseChainContextForItem(item RootCauseRankItem, ctx chainCandidateCont
 	// tier/mention double gate (rootCauseItemIsOnChain stays false).
 	if ctx.relevance == "on_chain" && rootCauseItemIsSemanticSpanWork(item) && !rootCauseItemIsOnChain(item) {
 		ctx.relevance = "adjacent"
+		return ctx
+	}
+	if ctx.relevance == "on_chain" && rootCauseTypeIsResourceAttribution(item.Type) && item.EndTs <= item.StartTs {
+		// Resource rows need their own typed interval to prove intersection
+		// with a chain window. Same-TID membership alone is not causality.
+		ctx.relevance = "adjacent"
+		ctx.overlapMs = 0
 		return ctx
 	}
 	if ctx.relevance != "on_chain" || rootCauseItemCanBeDirectOnChain(item) {
@@ -13254,8 +13406,8 @@ func chainContextForCandidate(chain ChainResult, thread ThreadRef, start, end fl
 	if len(chain.Nodes) == 0 && len(chain.Edges) == 0 && len(chain.CausalImpacts) == 0 {
 		return ctx
 	}
-	hasCandidateWindow := start > 0 && end > start
-	if end > 0 && start > end {
+	hasCandidateWindow := end > start
+	if start > end {
 		start, end = end, start
 		hasCandidateWindow = true
 	}
@@ -13266,14 +13418,20 @@ func chainContextForCandidate(chain ChainResult, thread ThreadRef, start, end fl
 	}
 	bestDistance := 0.0
 	foundNearest := false
+	sameThreadSeen := false
 	for _, node := range chain.Nodes {
 		if thread.PID > 0 && node.Thread.PID == thread.PID {
-			ctx.relevance = "on_chain"
+			sameThreadSeen = true
 			ctx.nearest = node.Thread
 			ctx.window = node.Window
 			if hasCandidateWindow {
-				ctx.overlapMs = maxFloat(ctx.overlapMs, windowOverlapMs(start, end, node.Window.StartTs, node.Window.EndTs))
+				overlap := windowOverlapMs(start, end, node.Window.StartTs, node.Window.EndTs)
+				if overlap > 0 {
+					ctx.relevance = "on_chain"
+					ctx.overlapMs = maxFloat(ctx.overlapMs, overlap)
+				}
 			} else {
+				ctx.relevance = "on_chain"
 				ctx.overlapMs = maxFloat(ctx.overlapMs, (node.Window.EndTs-node.Window.StartTs)*1000)
 			}
 			if ctx.edgeCount == 0 {
@@ -13305,7 +13463,15 @@ func chainContextForCandidate(chain ChainResult, thread ThreadRef, start, end fl
 		}
 	}
 	if ctx.relevance == "" {
-		ctx.relevance = "background"
+		// A bounded interval on a chain member that does not intersect any of
+		// that member's chain windows is typed proximity, not causality. Keep
+		// it adjacent: on_chain would fabricate an overlap, while background
+		// would erase the useful same-thread relationship.
+		if sameThreadSeen && hasCandidateWindow {
+			ctx.relevance = "adjacent"
+		} else {
+			ctx.relevance = "background"
+		}
 		ctx.overlapMs = 0
 	}
 	return ctx
@@ -13730,25 +13896,14 @@ func assignRootCauseRanksAndTiers(items []RootCauseRankItem) {
 			items[i].Tier = RootCauseTierDataGap
 			continue
 		}
-		if rootCauseItemIsSemanticSpanWork(items[i]) && !rootCauseItemIsOnChain(items[i]) {
-			// SEM-LEAD-P0 (2026-07-10): only OFF-CHAIN semantic work belongs
-			// to the background board. It is transparent to the causal election,
-			// always wears the supporting tier and carries BackgroundRank above.
-			// ON-CHAIN semantic rows deliberately fall through to the ordinary
-			// primary/secondary/tertiary ladder below: their measured interval is
-			// part of the causal chain and must be allowed to win the root cause.
-			items[i].Tier = "tertiary"
-			takeOrdinal(i)
-			continue
-		}
 		if items[i].SubjectIsAnalysisTarget && rootCauseItemIsTargetWaitSymptomType(items[i]) {
 			// SYM (§24.13 裁定一, real_trace_campaign_20260705.md, 2026-07-08):
 			// the analysis target's OWN wait-symptom rows are the symptom being
 			// explained — same election-ladder transparency as the semantic
 			// compile-span arm above: the row neither takes a
 			// primary/secondary/tertiary slot nor shifts the slots of the
-			// causal rows below it, and it never rides the co-primary
-			// promotion (opendir_78 witness: the target's self-held
+			// causal rows below it, and it never enters the ranked election
+			// (opendir_78 witness: the target's self-held
 			// AssetManager lock, a resolved blocking_span, wore rank#1
 			// tier=primary and was crowned 主根因 for the target's own jank).
 			// The sort/Score lanes never read the flag, and the
@@ -13764,8 +13919,8 @@ func assignRootCauseRanksAndTiers(items []RootCauseRankItem) {
 			// 等待症状族 (rootCauseItemIsTargetWaitSymptomType — the registry
 			// wakeup_chain + lock_contention lanes). The 自因可拆解族 (self
 			// runnable / running / IO / D-state …) fell through to the normal
-			// ladder below: those rows take election slots, ride the
-			// co-primary promotion and may be crowned lead — the target's own
+			// ladder below: those rows take election slots and may be crowned
+			// lead by their strict position — the target's own
 			// scheduling pressure / compute-supply shortfall / IO block is an
 			// actionable system cause, not a counterpart symptom (cmp_78
 			// witness: both sides crowned the self binder wait while the
@@ -13778,11 +13933,26 @@ func assignRootCauseRanksAndTiers(items []RootCauseRankItem) {
 			items[i].Tier = RootCauseTierTargetSelfState
 			continue
 		}
+		if rootCauseEffectiveImpactMs(items[i]) <= 0 {
+			// A zero effective attribution is typed chain/background context, not
+			// a competing cause. Keep the row visible on the bounded rank-0 side
+			// lane without consuming an ordinal or election position.
+			items[i].Tier = RootCauseTierContextOnly
+			continue
+		}
+		if rootCauseItemIsSemanticSpanWork(items[i]) && !rootCauseItemIsOnChain(items[i]) {
+			// SEM-LEAD-P0 (2026-07-10): only OFF-CHAIN semantic work belongs
+			// to the background board. It is transparent to the causal election,
+			// always wears the supporting tier and carries BackgroundRank above.
+			// ON-CHAIN semantic rows deliberately fall through to the ordinary
+			// primary/secondary/tertiary ladder below: their measured interval is
+			// part of the causal chain and must be allowed to win the root cause.
+			items[i].Tier = "tertiary"
+			takeOrdinal(i)
+			continue
+		}
 		tier := rootCauseTier(electionPos)
 		electionPos++
-		if rootCauseShouldBeCoPrimary(items[i]) {
-			tier = "primary"
-		}
 		items[i].Tier = tier
 		// EVOLUTION RECORD (复核 P1-2, 2026-07-09): the batch's initial
 		// PeriodicSource no-ordinal arm here was DELETED — its premise ("the
@@ -13796,40 +13966,6 @@ func assignRootCauseRanksAndTiers(items []RootCauseRankItem) {
 		// legitimately be crowned. Periodic rows take ordinals like every
 		// competing row; only the wait-symptom and data_gap arms above skip.
 		takeOrdinal(i)
-	}
-}
-
-func rootCauseShouldBeCoPrimary(item RootCauseRankItem) bool {
-	if !rootCauseItemIsOnChain(item) || item.ImpactMs <= 0 {
-		return false
-	}
-	// Semantic span-work intentionally stays out of this blanket co-primary
-	// promotion: it participates through the ordinary positional ladder in
-	// assignRootCauseRanksAndTiers. Thus the highest sorted on-chain semantic
-	// row is primary, while later semantic rows honestly remain secondary or
-	// tertiary instead of every one being promoted to co-primary.
-	switch item.Type {
-	case "runnable_wait", "scheduler_latency", "fragmented_runnable_wait",
-		"running", "fragmented_running",
-		"compute_supply", "low_frequency", "cpu_affinity_or_cpuset",
-		"io_wait", "d_state_or_io_wait", "io_latency", "io_burst_episode", "block_io_by_inode", "file_io_hot_inode", "fragmented_d_state_or_io_wait":
-		return true
-	case "priority_inversion_candidate", "priority_inversion_runnable_wait":
-		// P2-1 (Q4-D 复核吸收, per-CLASS with P2-2): a lock-dominated demoted
-		// inversion row keeps its observation but must not ride the inversion
-		// co-primary lane. Non-demoted priority_inversion_runnable_wait rows
-		// always carry RunnableMs>0, so this branch preserves their legacy
-		// unconditional co-primary admission.
-		if item.PriorityInversionLockDominated {
-			return false
-		}
-		return rootCauseItemHasDStateOrIO(item) || rootCauseItemHasRunnableOrRunning(item)
-	case "blocking_span":
-		// Q4-A 修1: co-primary only in the resolved lock-contention form —
-		// same precise typed pair as the direct-on-chain admission gate.
-		return item.BlockingKind != "" && threadRefResolved(item.BlockingPeer)
-	default:
-		return false
 	}
 }
 
@@ -15375,7 +15511,18 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 			LineStart:  td.LineStart,
 			LineEnd:    td.LineEnd,
 			Confidence: 0.80,
-			Summary:    fmt.Sprintf("%s spent %.3fms in D-state/IO-like wait%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)),
+			Summary:    fmt.Sprintf("%s spent %.3fms in non-IO D-state wait%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)),
+		})
+	}
+	for _, td := range stats.IOWaitTop {
+		add(CriticalBlockingCandidate{
+			Type:       "io_wait",
+			Thread:     td.Thread,
+			DurationMs: td.DurationMs,
+			LineStart:  td.LineStart,
+			LineEnd:    td.LineEnd,
+			Confidence: 0.84,
+			Summary:    fmt.Sprintf("%s spent %.3fms in scheduler IO wait%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)),
 		})
 	}
 	// P2-3 (Q4-F root fold): the span lane arrives pre-folded — dual print
@@ -17748,7 +17895,7 @@ func evidenceFromStats(stats WindowStats) []EvidenceFact {
 		out = append(out, EvidenceFact{
 			Subject:    threadLabel(td.Thread),
 			Predicate:  "d_state_or_io_wait",
-			Summary:    fmt.Sprintf("%s spent %.3f ms in D-state or IO-like wait in the selected window%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)),
+			Summary:    fmt.Sprintf("%s spent %.3f ms in non-IO D-state wait in the selected window%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)),
 			LineStart:  td.LineStart,
 			LineEnd:    td.LineEnd,
 			Confidence: 0.8,
@@ -18546,6 +18693,11 @@ func applyRunnableTopPriorityInversion(idx *Index, q Query, stats WindowStats, t
 	primary := witnesses[0]
 	item.Type = "priority_inversion_runnable_wait"
 	item.EffectiveImpactMs = impactMs
+	// This retype's inversion algorithm is pure runnable overlap; publish the
+	// same scalar on the gated component lane so family folding and report
+	// decomposition preserve total == runnable + running_deficit.
+	item.GatedRunnableMs = impactMs
+	item.GatedRunningDeficitMs = 0
 	// §20 B/D-Gap④ (state_churn precedent §7.30 S1, 2026-07-07): a retyped
 	// row re-passes the causal-token registry guard and re-derives Score from
 	// the measured inversion-overlap ranking channel — never the raw wait.

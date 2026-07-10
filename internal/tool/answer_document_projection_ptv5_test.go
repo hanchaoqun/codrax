@@ -176,14 +176,15 @@ func TestPTV5WakeupCausalImpactEmitsEffectiveNote(t *testing.T) {
 	if got := strings.Count(first, "effective_impact_ms="); got != 1 {
 		t.Fatalf("periodic impact row must carry exactly one effective note, got %d:\n%s", got, first)
 	}
-	// The synthetic overflow rows below the cap are plain non-periodic hops:
-	// effective mirrors the rank lane's cumulative backfill (TotalMs — 复核
-	// Med 真镜像 2026-07-06; the fixture rows carry TotalMs=2).
+	// The synthetic overflow rows below the cap are plain non-periodic sleep
+	// hops. Ordinary sleep is context-only in the closed participation matrix:
+	// TotalMs remains lossless display evidence but cannot backfill ranking
+	// effective impact.
 	if len(impactNotes) < 2 {
 		t.Fatalf("expected capped per-row impact records")
 	}
-	if !strings.Contains(impactNotes[1], "effective_impact_ms=2.000") {
-		t.Fatalf("a plain hop must publish the rank-lane effective (TotalMs backfill):\n%s", impactNotes[1])
+	if !strings.Contains(impactNotes[1], "effective_impact_ms=0.000") {
+		t.Fatalf("a plain non-periodic sleep hop must publish typed zero effective impact:\n%s", impactNotes[1])
 	}
 }
 

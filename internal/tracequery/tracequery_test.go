@@ -3634,7 +3634,7 @@ func TestRootCauseRankPromotesOnChainIOWhenWakerIsRunning(t *testing.T) {
 	}
 }
 
-func TestRootCauseRankKeepsLongRunningWakerWithoutResourceCause(t *testing.T) {
+func TestRootCauseRankKeepsUnfoldedRunningAsContextNotPrimary(t *testing.T) {
 	idx := buildTraceIndex(t, "running_waker_no_resource.systrace", `
         app-100 (100) [001] .... 3.000000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
      worker-200 (100) [002] .... 3.001000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=200 next_prio=20
@@ -3654,8 +3654,11 @@ func TestRootCauseRankKeepsLongRunningWakerWithoutResourceCause(t *testing.T) {
 			break
 		}
 	}
-	if running == nil || running.ChainRelevance != "on_chain" || running.Tier != "primary" {
-		t.Fatalf("long running waker should remain an on-chain primary candidate when no deeper typed resource cause exists, got %+v", rank.Items)
+	if running == nil || running.ChainRelevance != "on_chain" {
+		t.Fatalf("long running waker should remain visible as on-chain context, got %+v", rank.Items)
+	}
+	if running.Tier == "primary" || rootCauseEffectiveImpactMs(*running) != 0 {
+		t.Fatalf("missing CAP/frequency evidence means effective=0 and forbids primary promotion, got %+v", running)
 	}
 	if running.ImpactMs < 100 || running.TargetImpactMs < 100 {
 		t.Fatalf("running waker should carry the target blocking attribution, got %+v", running)
@@ -4001,25 +4004,27 @@ func TestRootCauseRankDoesNotFlagHigherPriorityCompetitorAsInversion(t *testing.
 	}
 }
 
-func TestRootCauseTierKeepsOnChainDIOAsCoPrimary(t *testing.T) {
+func TestRootCauseTierUsesStrictTypedEffectivePositions(t *testing.T) {
 	items := []RootCauseRankItem{
 		{
-			Type:           "priority_inversion_candidate",
-			Thread:         ThreadRef{Comm: "cookie", PID: 200},
-			ImpactMs:       12,
-			ChainRelevance: "on_chain",
-			Causality:      "on_wakeup_chain",
-			DominantState:  string(StateRunnable),
-			RunnableMs:     12,
+			Type:              "priority_inversion_candidate",
+			Thread:            ThreadRef{Comm: "cookie", PID: 200},
+			ImpactMs:          12,
+			ChainRelevance:    "on_chain",
+			Causality:         "on_wakeup_chain",
+			DominantState:     string(StateRunnable),
+			RunnableMs:        12,
+			EffectiveImpactMs: 12,
 		},
 		{
-			Type:           "priority_inversion_candidate",
-			Thread:         ThreadRef{Comm: "threadpool", PID: 400},
-			ImpactMs:       9.149,
-			ChainRelevance: "on_chain",
-			Causality:      "on_wakeup_chain",
-			DominantState:  string(StateIOWait),
-			DStateMs:       9.149,
+			Type:              "priority_inversion_candidate",
+			Thread:            ThreadRef{Comm: "threadpool", PID: 400},
+			ImpactMs:          9.149,
+			ChainRelevance:    "on_chain",
+			Causality:         "on_wakeup_chain",
+			DominantState:     string(StateIOWait),
+			IOWaitMs:          9.149,
+			EffectiveImpactMs: 9.149,
 		},
 		{
 			Type:           "d_state_or_io_wait",
@@ -4049,18 +4054,22 @@ func TestRootCauseTierKeepsOnChainDIOAsCoPrimary(t *testing.T) {
 			RunnableMs:     4.0,
 		},
 	}
+	sortRootCauseRankItems(items, true)
 	assignRootCauseRanksAndTiers(items)
 	if items[0].Tier != "primary" {
 		t.Fatalf("first ranked runnable cause should remain primary: %+v", items[0])
 	}
-	if items[1].Tier != "primary" {
-		t.Fatalf("on-chain D/IO dependency should be co-primary, got %+v", items[1])
+	if items[1].Tier != "secondary" {
+		t.Fatalf("on-chain D/IO dependency must take its strict second position, got %+v", items[1])
 	}
-	if items[2].Tier == "primary" {
-		t.Fatalf("background D-state must not be promoted: %+v", items[2])
+	if items[2].Type != "cpu_affinity_or_cpuset" || items[2].Tier != "tertiary" {
+		t.Fatalf("the next positive on-chain runnable cause must take the third position: %+v", items)
 	}
-	if items[3].Tier != "primary" || items[4].Tier != "primary" {
-		t.Fatalf("on-chain compute supply and affinity constraints should be co-primary: %+v", items)
+	if items[3].Type != "compute_supply" || items[3].Tier != RootCauseTierContextOnly || items[3].Rank != 0 {
+		t.Fatalf("running compute-supply without a CAP deficit has effective=0 and must be context-only: %+v", items[3])
+	}
+	if items[4].Type != "d_state_or_io_wait" || items[4].Tier == "primary" {
+		t.Fatalf("background D-state must stay behind the on-chain partition and cannot be promoted: %+v", items[4])
 	}
 }
 
@@ -4231,9 +4240,11 @@ func TestWakeupChainAggregatesFragmentedCommonDependency(t *testing.T) {
 	if len(item.OccurrenceWindows) != 2 || !near(item.OccurrenceWindows[0].IOWaitMs, 3.1, 0.001) {
 		t.Fatalf("aggregate-derived root cause should carry occurrence windows: %+v", item)
 	}
-	assignRootCauseRanksAndTiers([]RootCauseRankItem{item})
-	if rootCauseShouldBeCoPrimary(item) != true {
-		t.Fatalf("aggregate D/IO candidate should be co-primary eligible: %+v", item)
+	one := []RootCauseRankItem{item}
+	sortRootCauseRankItems(one, true)
+	assignRootCauseRanksAndTiers(one)
+	if one[0].Tier != "primary" || one[0].Rank != 1 {
+		t.Fatalf("a sole aggregate D/IO candidate should win the strict positional election: %+v", one[0])
 	}
 }
 
@@ -4562,8 +4573,8 @@ func TestWindowStatsCountsRuntimeResourcesAndOffCPU(t *testing.T) {
 	if stats.RunnableTop[0].CPU != 1 {
 		t.Fatalf("expected runnable top to keep CPU context: %+v", stats.RunnableTop[0])
 	}
-	if len(stats.DStateTop) == 0 || stats.DStateTop[0].Thread.PID != 30 {
-		t.Fatalf("expected D-state top for worker thread: %+v", stats.DStateTop)
+	if len(stats.DStateTop) != 0 || len(stats.IOWaitTop) == 0 || stats.IOWaitTop[0].Thread.PID != 30 {
+		t.Fatalf("iowait-refined intervals must live exclusively on IOWaitTop, d_state=%+v io_wait=%+v", stats.DStateTop, stats.IOWaitTop)
 	}
 	if len(stats.IOLatencies) != 1 || stats.IOLatencies[0].DurationMs <= 0 || stats.IOLatencies[0].IssueLine == 0 || stats.IOLatencies[0].CompleteLine == 0 {
 		t.Fatalf("expected paired IO latency: %+v", stats.IOLatencies)

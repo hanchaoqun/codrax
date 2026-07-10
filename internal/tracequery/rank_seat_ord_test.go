@@ -294,6 +294,16 @@ func ordChainWithNAggregateGroups(groups int, depth0RunningPID int) ChainResult 
 
 func TestAggregateFullCensusSeatsBeyondTopEightORD(t *testing.T) {
 	chain := ordChainWithNAggregateGroups(9, 0)
+	// This is a seat-census test, not a CAP test. Convert its synthetic groups
+	// to the runnable caliber, whose full typed duration is independently
+	// rankable; a raw running wall clock without a supply deficit is correctly
+	// rank-0 under the closed effective matrix.
+	for i := range chain.CausalImpacts {
+		impact := &chain.CausalImpacts[i]
+		impact.DominantState = string(StateRunnable)
+		impact.RunnableMs = impact.RunningMs
+		impact.RunningMs = 0
+	}
 	chain.AggregatedImpacts = aggregateWakeupCausalImpacts(&chain)
 	if len(chain.AggregatedImpacts) != 8 || chain.AggregatedImpactsFold == nil {
 		t.Fatalf("fixture drifted: want the top-8 view trim to fire (8 kept + fold), got %d fold=%v", len(chain.AggregatedImpacts), chain.AggregatedImpactsFold)
@@ -311,7 +321,7 @@ func TestAggregateFullCensusSeatsBeyondTopEightORD(t *testing.T) {
 	}
 	// And none of the 18 member occurrences re-mint beside their aggregates.
 	for pid := 1001; pid <= 1009; pid++ {
-		rows := rankItemsOfTypeAndPID(rank.Items, "running", pid)
+		rows := rankItemsOfTypeAndPID(rank.Items, "runnable_wait", pid)
 		if len(rows) != 1 || rows[0].Source != "wakeup_chain.aggregated_impacts" {
 			t.Fatalf("pid %d: want exactly the aggregate seat, got %+v", pid, rows)
 		}

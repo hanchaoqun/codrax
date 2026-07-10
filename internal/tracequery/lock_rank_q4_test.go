@@ -77,8 +77,8 @@ func TestRootCauseRankPublishesResolvedLockContentionAsBlockingSpanHead(t *testi
 	if head.ChainRelevance != "on_chain" || head.Tier != "primary" {
 		t.Fatalf("resolved lock row must be admissible as a direct on-chain primary, got %+v", head)
 	}
-	if !rootCauseItemCanBeDirectOnChain(head) || !rootCauseShouldBeCoPrimary(head) {
-		t.Fatalf("typed admission pair must hold for the resolved lock row: %+v", head)
+	if !rootCauseItemCanBeDirectOnChain(head) || head.Rank != 1 || rootCauseEffectiveImpactMs(head) <= 0 {
+		t.Fatalf("typed direct admission and strict positional win must hold for the resolved lock row: %+v", head)
 	}
 	// Carve-out: the contention span must NOT double-publish as a generic
 	// trace_span rank row.
@@ -233,8 +233,8 @@ func TestRootCauseRankKeepsUnresolvedLockContentionOffTheDirectLane(t *testing.T
 	if lock.ChainRelevance == "on_chain" {
 		t.Fatalf("unresolved contention must not take a direct on-chain slot, got %+v", lock)
 	}
-	if rootCauseItemCanBeDirectOnChain(*lock) || rootCauseShouldBeCoPrimary(*lock) {
-		t.Fatalf("typed admission pair must reject the unresolved lock row: %+v", lock)
+	if rootCauseItemCanBeDirectOnChain(*lock) {
+		t.Fatalf("typed direct admission must reject the unresolved lock row: %+v", lock)
 	}
 	if lock.DrillStatus != DrillStatusPeerUnknown {
 		t.Fatalf("unresolved holder must stamp peer_unknown on the rank row, got %+v", lock)
@@ -398,30 +398,39 @@ func TestDemoteLockDominatedInversionCandidates(t *testing.T) {
 	if !items[3].PriorityInversionLockDominated || !strings.Contains(items[3].Summary, "锁等待主导") {
 		t.Fatalf("P2-2: priority_inversion_runnable_wait must demote under the same gate, got %+v", items[3])
 	}
-	// P2-1: a demoted row must not ride the inversion co-primary lane; the
-	// same row without the flag keeps its legacy admission.
+	// The lock-dominated flag remains an observation/adjudication fact; tiering
+	// is now exclusively the shared strict positional ladder. Neither the
+	// demoted nor undemoted form may leap over a larger measured cause.
 	demoted := items[0]
 	demoted.ChainRelevance = "on_chain"
 	demoted.ImpactMs = 5
+	demoted.DominantState = string(StateRunnable)
 	demoted.RunnableMs = 5
-	if rootCauseShouldBeCoPrimary(demoted) {
-		t.Fatalf("P2-1: lock-dominated inversion row must not be co-primary, got %+v", demoted)
-	}
-	demoted.PriorityInversionLockDominated = false
-	if !rootCauseShouldBeCoPrimary(demoted) {
-		t.Fatalf("P2-1: undemoted inversion row keeps co-primary admission, got %+v", demoted)
-	}
+	demoted.EffectiveImpactMs = 5
 	demotedRunnable := items[3]
 	demotedRunnable.ChainRelevance = "on_chain"
 	demotedRunnable.ImpactMs = 5
+	demotedRunnable.DominantState = string(StateRunnable)
 	demotedRunnable.RunnableMs = 5
-	if rootCauseShouldBeCoPrimary(demotedRunnable) {
-		t.Fatalf("P2-1 per-CLASS: demoted priority_inversion_runnable_wait must not be co-primary, got %+v", demotedRunnable)
+	demotedRunnable.EffectiveImpactMs = 5
+	assertStrictSecond := func(label string, candidate RootCauseRankItem) {
+		t.Helper()
+		board := []RootCauseRankItem{
+			{Type: "runnable_wait", ImpactMs: 10, RunnableMs: 10, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
+			candidate,
+		}
+		sortRootCauseRankItems(board, true)
+		assignRootCauseRanksAndTiers(board)
+		if board[0].Type != "runnable_wait" || board[0].Tier != "primary" || board[1].Tier != "secondary" {
+			t.Fatalf("%s must obey strict positional tiering: %+v", label, board)
+		}
 	}
+	assertStrictSecond("lock-dominated inversion", demoted)
+	demoted.PriorityInversionLockDominated = false
+	assertStrictSecond("ordinary inversion", demoted)
+	assertStrictSecond("lock-dominated runnable inversion", demotedRunnable)
 	demotedRunnable.PriorityInversionLockDominated = false
-	if !rootCauseShouldBeCoPrimary(demotedRunnable) {
-		t.Fatalf("P2-1: undemoted priority_inversion_runnable_wait keeps co-primary admission, got %+v", demotedRunnable)
-	}
+	assertStrictSecond("ordinary runnable inversion", demotedRunnable)
 }
 
 // §12.3 ruling 2 engine sort face: at equal measured impact inside the
@@ -444,6 +453,8 @@ func TestSortRootCauseRankItemsAppliesRuling2TieBreaks(t *testing.T) {
 		Thread:             ThreadRef{Comm: "io", PID: 300},
 		ImpactMs:           50,
 		CumulativeImpactMs: 50,
+		DominantState:      string(StateIOWait),
+		IOWaitMs:           50,
 		Score:              10,
 		ChainRelevance:     "on_chain",
 		LineStart:          20,

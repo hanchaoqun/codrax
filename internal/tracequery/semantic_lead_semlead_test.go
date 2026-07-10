@@ -172,7 +172,7 @@ func TestSemLeadBoostIsSameEffectiveTieBreak(t *testing.T) {
 	mk := func(boost float64) []RootCauseRankItem {
 		other := RootCauseRankItem{
 			Type: "d_state_or_io_wait", Thread: ThreadRef{Comm: "io", PID: 300},
-			ImpactMs: 5.3, EffectiveImpactMs: 5.3, Confidence: 0.55,
+			ImpactMs: 5.3, EffectiveImpactMs: 5.3, DStateMs: 5.3, Confidence: 0.55,
 			ChainRelevance: "on_chain", Causality: "on_wakeup_chain", LineStart: 1,
 		}
 		other.Score = rootCauseRankScoreBasisMs(other) * other.Confidence * rootCauseItemScoreWeight(other)
@@ -198,16 +198,15 @@ func TestSemLeadBoostIsSameEffectiveTieBreak(t *testing.T) {
 	}
 }
 
-// TestSemLeadBoostAllocatesReservedSeats — 复核 P1-1 soft face #2: when more
-// beyond-limit on-chain semantic families compete than reserved seats, the
-// boosted channel picks WHICH families redeem the seats (§29.7-2 参赛权
-// capacity guarantee); the published board order/values are untouched.
-func TestSemLeadBoostAllocatesReservedSeats(t *testing.T) {
+// TestSemLeadBoostCannotDisplaceStrictCapacityPrefix: the hidden semantic
+// boost is only a same-effective tie-break. It cannot redeem a reserved seat
+// or evict a row with larger published effective attribution.
+func TestSemLeadBoostCannotDisplaceStrictCapacityPrefix(t *testing.T) {
 	items := make([]RootCauseRankItem, 0, 8)
 	for i := 0; i < 4; i++ {
 		items = append(items, RootCauseRankItem{
 			Type: "d_state_or_io_wait", Thread: ThreadRef{Comm: "io", PID: 300 + i},
-			ImpactMs: 50 - float64(i), EffectiveImpactMs: 50 - float64(i),
+			ImpactMs: 50 - float64(i), EffectiveImpactMs: 50 - float64(i), DStateMs: 50 - float64(i),
 			ChainRelevance: "on_chain", LineStart: i + 1,
 		})
 	}
@@ -218,15 +217,16 @@ func TestSemLeadBoostAllocatesReservedSeats(t *testing.T) {
 			ChainRelevance: "on_chain", LineStart: 100 + pid,
 		}
 	}
-	// Four beyond-limit families for three reserved seats: the SMALLEST
-	// published value carries the LARGEST boost and must win a seat.
+	// Four below-cut semantic families: the SMALLEST published value carries
+	// the LARGEST boost and still must not win a seat.
 	items = append(items,
 		mkSem("jit_compile", 1, 4.0, 0),
 		mkSem("shader_compile", 2, 3.0, 0),
 		mkSem("class_verification", 3, 2.0, 0),
 		mkSem("texture_upload", 4, 1.0, 9.9),
 	)
-	out := truncateRootCauseRankItemsWithSemanticSeats(items, 4)
+	sortRootCauseRankItems(items, true)
+	out := truncateRootCauseRankItemsStrict(items, 4)
 	if len(out) != 4 {
 		t.Fatalf("limit must hold: %d", len(out))
 	}
@@ -236,7 +236,7 @@ func TestSemLeadBoostAllocatesReservedSeats(t *testing.T) {
 			kept[item.SemanticClass] = true
 		}
 	}
-	if !kept["texture_upload"] || !kept["jit_compile"] || !kept["shader_compile"] || kept["class_verification"] {
-		t.Fatalf("the boost signal must allocate the reserved seats (largest signals win): %+v", kept)
+	if len(kept) != 0 {
+		t.Fatalf("semantic boost must not displace the strict effective prefix: %+v rows=%+v", kept, out)
 	}
 }

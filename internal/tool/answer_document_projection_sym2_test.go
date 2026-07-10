@@ -39,7 +39,7 @@ func sym2FlatMixedProjection() types.TraceCausalProjection {
 	selfRunnable := types.TraceCausalProjectionNode{
 		Role: types.TraceCausalRolePrimaryRootCause, EvidenceID: "e-selfrunnable",
 		Subject: "main-6565", Object: "runnable_wait", TypeToken: "runnable_wait",
-		Predicate: "root_cause_primary", Rank: 2, Tier: "primary",
+		Predicate: "root_cause_primary", Rank: 1, Tier: "primary",
 		ImpactMS: 2.500, CumulativeImpactMS: 2.500, EffectiveImpactMS: 2.500,
 		ChainRelevance: "on_chain", Confidence: 0.8,
 	}
@@ -51,7 +51,7 @@ func sym2FlatMixedProjection() types.TraceCausalProjection {
 			{
 				Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "e-selfbinder",
 				Subject: "main-6565", Object: "binder_wait", TypeToken: "binder_wait",
-				Predicate: "root_cause_target_self_state", Rank: 1,
+				Predicate: "root_cause_target_self_state", Rank: 0,
 				Tier:     types.TraceCausalTierTargetSelfState,
 				ImpactMS: 3.843, CumulativeImpactMS: 3.843, EffectiveImpactMS: 3.843,
 				ChainRelevance: "on_chain", Confidence: 0.8,
@@ -60,7 +60,7 @@ func sym2FlatMixedProjection() types.TraceCausalProjection {
 			{
 				Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "e-peer",
 				Subject: "LaunchPoolT1-6712", Object: "runnable_wait", TypeToken: "runnable_wait",
-				Predicate: "root_cause_secondary", Rank: 3, Tier: "secondary",
+				Predicate: "root_cause_secondary", Rank: 2, Tier: "secondary",
 				ImpactMS: 1.200, CumulativeImpactMS: 1.200, EffectiveImpactMS: 1.200,
 				ChainRelevance: "on_chain", Confidence: 0.7,
 			},
@@ -93,15 +93,14 @@ func TestSYM2FlatSelfRunnableCrownedLead(t *testing.T) {
 		t.Fatalf("§24.17 加冕: the lead must crown the target's own runnable row, got lane=%d lead=%+v", lane, lead)
 	}
 	// EVOLUTION RECORD (§29.27.1 徽章跟随席位, 2026-07-11): the crowned self
-	// runnable row publishes seat #2 and wears ❷ (badge follows the seat, not
-	// the election); the wait-symptom self row carries a stale Rank=1 in this
-	// fixture but its target_self_state tier is the typed defense arm — it
-	// never wears a badge (负对照, same arm as the board exclusion).
+	// runnable row publishes the contiguous seat #1 and wears ❶; the wait-
+	// symptom self row is Rank=0 and its target_self_state tier is an
+	// independent defense arm.
 	for _, row := range model.TreeRows {
 		switch row.Node.EvidenceID {
 		case "e-selfrunnable":
-			if row.Badge != 2 {
-				t.Fatalf("the crowned #2 seat row must wear ❷, got badge %d", row.Badge)
+			if row.Badge != 1 {
+				t.Fatalf("the crowned #1 seat row must wear ❶, got badge %d", row.Badge)
 			}
 		case "e-selfbinder":
 			if row.Badge != 0 {
@@ -187,11 +186,11 @@ func TestSYM2ZeroDeficitSelfRunningNeverBeatsPositiveCandidate(t *testing.T) {
 		OnChainCauses:     []types.TraceCausalProjectionNode{zeroRunning, peer},
 	}
 	model := buildRuntimeTraceProjTreeModel(projection, nil, true)
-	// The zero-deficit row PARTICIPATES (it boards — §24.17 restored its
-	// eligibility) but its participation value 0 sorts it to the tail.
+	// The zero-deficit row remains lossless context but never boards. Only the
+	// positive typed contender owns a rank seat.
 	board := runtimeTraceProjRankBoard(model.TreeRows)
-	if len(board) != 2 || board[0].Node.EvidenceID != "e-peer" || board[1].Node.EvidenceID != "e-zerorunning" {
-		t.Fatalf("board order must be positive candidate first, zero-deficit self row at the tail: %+v", board)
+	if len(board) != 1 || board[0].Node.EvidenceID != "e-peer" {
+		t.Fatalf("only the positive candidate may board; zero-deficit running is context-only: %+v", board)
 	}
 	lead, lane := runtimeTraceProjLeadSelect(projection, model)
 	if lead == nil || lane != runtimeTraceProjLeadLanePrimary || lead.EvidenceID != "e-peer" {

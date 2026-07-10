@@ -45,7 +45,7 @@ func TestSYMSelfRowsTransparentToElectionLadder(t *testing.T) {
 		{Type: "binder_wait", SubjectIsAnalysisTarget: true, ImpactMs: 90, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 		{Type: "workqueue_activity", ImpactMs: 9, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 		{Type: "dma_fence_activity", ImpactMs: 5, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
-		{Type: "sched_stat_accounting", ImpactMs: 2, ChainRelevance: "background"},
+		{Type: "jit_compile", ImpactMs: 2, EffectiveImpactMs: 2, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 	}
 	assignRootCauseRanksAndTiers(items)
 	if items[0].Tier != RootCauseTierTargetSelfState {
@@ -90,10 +90,28 @@ func TestSYMSelfWaitSymptomFamilyDemotesSelfCauseFamilyCompetes(t *testing.T) {
 	// 自因四态各一不降道 (§24.17): the self row takes the FIRST election slot
 	// (primary) and the ladder below shifts normally — actionable self causes.
 	for _, typ := range []string{"runnable_wait", "running", "io_latency", "d_state_or_io_wait"} {
+		cause := RootCauseRankItem{Type: typ, SubjectIsAnalysisTarget: true, ImpactMs: 50,
+			ChainRelevance: "on_chain", Causality: "on_wakeup_chain"}
+		switch typ {
+		case "runnable_wait":
+			cause.RunnableMs = 50
+			cause.DominantState = string(StateRunnable)
+		case "running":
+			cause.RunningMs = 50
+			cause.DominantState = string(StateRunning)
+			cause.EffectiveImpactMs = 50
+		case "io_latency":
+			cause.IOWaitMs = 50
+			cause.DominantState = string(StateIOWait)
+		case "d_state_or_io_wait":
+			cause.DStateMs = 50
+			cause.DominantState = string(StateDSleep)
+		}
 		items := []RootCauseRankItem{
-			{Type: typ, SubjectIsAnalysisTarget: true, ImpactMs: 50, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
+			cause,
 			{Type: "workqueue_activity", ImpactMs: 9, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 		}
+		sortRootCauseRankItems(items, true)
 		assignRootCauseRanksAndTiers(items)
 		if items[0].Tier != "primary" {
 			t.Fatalf("self %s row (自因可拆解族) must compete and take the primary slot: %+v", typ, items[0])
@@ -135,18 +153,19 @@ func TestSYM2WaitSymptomClosedSetIsRegistryLane(t *testing.T) {
 	}
 }
 
-func TestSYM2SelfCauseRowRidesCoPrimary(t *testing.T) {
-	// §24.17: a competing self-cause row is co-primary eligible again — the
-	// opendir-shape control stays on the WAIT family (S1c pins the self lock).
+func TestSYM2SelfCauseRowUsesStrictPositionalElection(t *testing.T) {
+	// §24.17: a competing self-cause row is eligible for the ordinary strict
+	// positional election; the opendir-shape control stays on the WAIT family.
 	items := []RootCauseRankItem{
 		{Type: "workqueue_activity", ImpactMs: 9, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 		{Type: "d_state_or_io_wait", SubjectIsAnalysisTarget: true, ImpactMs: 40,
 			DStateMs: 40, DominantState: string(StateDSleep),
 			ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 	}
+	sortRootCauseRankItems(items, true)
 	assignRootCauseRanksAndTiers(items)
-	if items[1].Tier != "primary" {
-		t.Fatalf("a self D-state row placed below the head must ride the co-primary promotion: %+v", items[1])
+	if items[0].Type != "d_state_or_io_wait" || items[0].Tier != "primary" || items[1].Tier != "secondary" {
+		t.Fatalf("a larger self D-state cause must win by strict measured position: %+v", items)
 	}
 }
 
@@ -164,12 +183,13 @@ func TestSYMCounterpartRowsKeepCompeting(t *testing.T) {
 		{Type: "blocking_span", ImpactMs: 30, ChainRelevance: "on_chain", Causality: "on_wakeup_chain",
 			BlockingKind: "monitor_contention", BlockingPeer: ThreadRef{Comm: "waiter", PID: 77}},
 	}
+	sortRootCauseRankItems(items, true)
 	assignRootCauseRanksAndTiers(items)
 	if items[0].Tier != "primary" {
 		t.Fatalf("a counterpart binder-wait row must keep the positional primary tier: %+v", items[0])
 	}
-	if items[1].Tier != "primary" {
-		t.Fatalf("a counterpart resolved lock row must keep its co-primary lane: %+v", items[1])
+	if items[1].Tier != "secondary" {
+		t.Fatalf("a counterpart resolved lock row must keep competing at its strict position: %+v", items[1])
 	}
 }
 
@@ -246,9 +266,10 @@ func TestSYMSemanticSpanOnTargetParticipatesAsCauseNotWaitSymptom(t *testing.T) 
 	// work, not a wait-on-counterpart symptom. It participates normally and is
 	// also mentioned through the independent optimization channel.
 	items := []RootCauseRankItem{
-		{Type: "jit_compile", SubjectIsAnalysisTarget: true, ImpactMs: 5, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
+		{Type: "jit_compile", SubjectIsAnalysisTarget: true, ImpactMs: 10, EffectiveImpactMs: 10, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 		{Type: "workqueue_activity", ImpactMs: 9, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 	}
+	sortRootCauseRankItems(items, true)
 	assignRootCauseRanksAndTiers(items)
 	if items[0].Tier != "primary" {
 		t.Fatalf("a target-hosted on-chain compile span can be primary: %+v", items[0])
@@ -265,7 +286,7 @@ func TestSYMBackgroundRankCountingUntouched(t *testing.T) {
 	// on semantic rows only.
 	items := []RootCauseRankItem{
 		{Type: "sleep_wait", SubjectIsAnalysisTarget: true, ImpactMs: 12}, // non-chain self row
-		{Type: "jit_compile", ImpactMs: 5},                                // non-chain semantic span
+		{Type: "jit_compile", ImpactMs: 5, EffectiveImpactMs: 5},          // non-chain semantic span
 	}
 	assignRootCauseRanksAndTiers(items)
 	if items[0].Tier != RootCauseTierTargetSelfState || items[0].BackgroundRank != 0 {

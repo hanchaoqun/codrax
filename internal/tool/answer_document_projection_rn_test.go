@@ -44,6 +44,7 @@ func rnCustomerRunnableProjection() types.TraceCausalProjection {
 		EvidenceID: "E-run", Subject: "OS_FFRT_2_3-49706", Object: "runnable",
 		Role: types.TraceCausalRoleCausalHop, StateKind: "runnable",
 		ChainRelevance: "on_chain", ImpactMS: 635.981, CumulativeImpactMS: 635.981,
+		EffectiveImpactMS: 635.981,
 	}
 	return types.TraceCausalProjection{
 		WindowStartTs:     100.0,
@@ -123,11 +124,12 @@ func TestRNUnconsumedPrimaryTierBackgroundRowDemotesPositionLabel(t *testing.T) 
 	// must not read 主根因 while the conclusion names another node — it demotes
 	// to 背景(参考) with the rank kept for audit.
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 因果位置·优先级 →
-	// 因果位置 merged cell, 背景 · 支撑参考(rank=1) → 背景(参考)(根因排序❶#1)
-	// (§29.27.1 ③ 三面记号一致: the seat token carries its badge glyph inline.)
+	// 因果位置 merged cell, 背景 · 支撑参考(rank=1) → 背景(参考)(根因排序#1).
+	// The aggregate pressure row is context-only, so a stale ordinal remains
+	// a bare audit chip and never mints a TOP glyph.
 	// (根因族: (rank=N)→(根因排序#N) zh-only demoted cell); 平铺 row drops the
 	// 重点关注 priority half.
-	if !strings.Contains(full, "- 因果位置: 背景(参考)(根因排序❶#1)") {
+	if !strings.Contains(full, "- 因果位置: 背景(参考)(根因排序#1)") {
 		t.Fatalf("unconsumed primary-tier background row must demote with its rank note:\n%s", full)
 	}
 	// The consumed flat row keeps the CMP-7a flat position (the conclusion
@@ -143,7 +145,7 @@ func TestRNUnconsumedPrimaryTierBackgroundRowDemotesPositionLabel(t *testing.T) 
 	// EN mirror of the demoted cell (T10 (b) surface).
 	enModel := buildRuntimeTraceProjTreeModel(projection, nil, false)
 	enFull := runtimeTraceProjDetailFullText(enModel, false)
-	if !strings.Contains(enFull, "background (context) (root-cause rank ❶#1)") {
+	if !strings.Contains(enFull, "background (context) (root-cause rank #1)") {
 		t.Fatalf("EN demoted cell missing:\n%s", enFull)
 	}
 	for _, banned := range []string{"primary focus", "primary (handle first)"} {

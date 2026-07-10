@@ -2387,7 +2387,8 @@ func runtimeTraceProjAssignTopBadges(model *runtimeTraceProjTreeModel) {
 // the row's DISPLAYED seat ordinal when it is 1..runtimeTraceProjBadgeTopN,
 // 0 otherwise. Typed fields only.
 func runtimeTraceProjRowSeatBadgeOrdinal(row runtimeTraceProjTreeRow) int {
-	if !row.HasData || row.Node.OnChainOverflowFold || row.Node.IsTargetSelfStateRow() {
+	if !row.HasData || row.Node.OnChainOverflowFold || row.Node.IsTargetSelfStateRow() ||
+		row.Node.IsContextOnlyRow() || row.Node.EffectiveImpactMS <= 0 {
 		return 0
 	}
 	rank, _ := runtimeTraceProjCauseRankConfidence(row)
@@ -2433,7 +2434,7 @@ func runtimeTraceProjRankBoard(rows []runtimeTraceProjTreeRow) []*runtimeTracePr
 	var board []*runtimeTraceProjTreeRow
 	for i := range rows {
 		row := &rows[i]
-		if !row.HasData || row.Node.Rank <= 0 {
+		if !row.HasData || row.Node.Rank <= 0 || row.Node.EffectiveImpactMS <= 0 {
 			continue
 		}
 		// PTS (复核 Low, 2026-07-06): the on-chain overflow fold row is a
@@ -2453,6 +2454,12 @@ func runtimeTraceProjRankBoard(rows []runtimeTraceProjTreeRow) []*runtimeTracePr
 		// — G9 assigns no ordinal to symptom rows (they fail the Rank>0
 		// admission above anyway); the tier arm stays for defense in depth.
 		if row.Node.IsTargetSelfStateRow() {
+			continue
+		}
+		// A context-only row is retained as causal-path evidence, never as a
+		// root-cause contender. Key on the typed tier even for stale persisted
+		// rows that accidentally carry a positive rank/effective pair.
+		if row.Node.IsContextOnlyRow() {
 			continue
 		}
 		switch row.Kind {
@@ -2481,10 +2488,90 @@ func runtimeTraceProjRankBoard(rows []runtimeTraceProjTreeRow) []*runtimeTracePr
 		}
 		board = append(board, row)
 	}
-	sort.SliceStable(board, func(i, j int) bool {
-		return board[i].Node.EffectiveImpactMS > board[j].Node.EffectiveImpactMS
+	boardIDs := runtimeTraceProjStableRankBoardIDs(board)
+	groups := map[string][]*runtimeTraceProjTreeRow{}
+	var groupOrder []string
+	for _, row := range board {
+		id := boardIDs[row]
+		if _, ok := groups[id]; !ok {
+			groupOrder = append(groupOrder, id)
+		}
+		groups[id] = append(groups[id], row)
+	}
+	for _, id := range groupOrder {
+		sort.SliceStable(groups[id], func(i, j int) bool {
+			if groups[id][i].Node.Rank != groups[id][j].Node.Rank {
+				return groups[id][i].Node.Rank < groups[id][j].Node.Rank
+			}
+			return groups[id][i].Node.EffectiveImpactMS > groups[id][j].Node.EffectiveImpactMS
+		})
+	}
+	sort.SliceStable(groupOrder, func(i, j int) bool {
+		iMax, jMax := 0.0, 0.0
+		for _, row := range groups[groupOrder[i]] {
+			iMax = math.Max(iMax, row.Node.EffectiveImpactMS)
+		}
+		for _, row := range groups[groupOrder[j]] {
+			jMax = math.Max(jMax, row.Node.EffectiveImpactMS)
+		}
+		if iMax != jMax {
+			return iMax > jMax
+		}
+		return groupOrder[i] < groupOrder[j]
 	})
-	return board
+	flattened := make([]*runtimeTraceProjTreeRow, 0, len(board))
+	for _, id := range groupOrder {
+		flattened = append(flattened, groups[id]...)
+	}
+	return flattened
+}
+
+// runtimeTraceProjStableRankBoardIDs clusters explicit query windows once,
+// outside any sort comparator. A fixed cluster anchor makes the relation
+// transitive; missing-window rows inherit only when the model contains exactly
+// one explicit board, avoiding both specimen duplicate badges and multi-window
+// guessing.
+func runtimeTraceProjStableRankBoardIDs(rows []*runtimeTraceProjTreeRow) map[*runtimeTraceProjTreeRow]string {
+	type windowRow struct {
+		row        *runtimeTraceProjTreeRow
+		start, end float64
+	}
+	var explicit []windowRow
+	for _, row := range rows {
+		if start, end, ok := runtimeTraceProjRankChipWindow(row.Node); ok {
+			explicit = append(explicit, windowRow{row: row, start: start, end: end})
+		}
+	}
+	sort.SliceStable(explicit, func(i, j int) bool {
+		if explicit[i].start != explicit[j].start {
+			return explicit[i].start < explicit[j].start
+		}
+		return explicit[i].end < explicit[j].end
+	})
+	ids := map[*runtimeTraceProjTreeRow]string{}
+	clusterCount := 0
+	anchorStart, anchorEnd := 0.0, 0.0
+	currentID := ""
+	for _, item := range explicit {
+		if currentID == "" || math.Abs(item.start-anchorStart) > types.TraceCausalProjectionSameWindowToleranceS ||
+			math.Abs(item.end-anchorEnd) > types.TraceCausalProjectionSameWindowToleranceS {
+			clusterCount++
+			anchorStart, anchorEnd = item.start, item.end
+			currentID = fmt.Sprintf("window=%03d:%.6f..%.6f", clusterCount, anchorStart, anchorEnd)
+		}
+		ids[item.row] = currentID
+	}
+	for _, row := range rows {
+		if ids[row] != "" {
+			continue
+		}
+		if clusterCount == 1 {
+			ids[row] = fmt.Sprintf("window=%03d:%.6f..%.6f", 1, anchorStart, anchorEnd)
+		} else {
+			ids[row] = "window=unspecified"
+		}
+	}
+	return ids
 }
 
 // runtimeTraceProjBadgeGlyph maps the typed seat ordinal to its badge glyph.
@@ -2564,6 +2651,9 @@ func runtimeTraceProjDetailPositionCell(row runtimeTraceProjTreeRow, leadKey str
 		}
 		return "the focused thread itself"
 	}
+	if node.IsContextOnlyRow() {
+		return runtimeTraceProjDetailPositionMerged(node, zh, row.FlatChain)
+	}
 	if row.Kind == runtimeTraceProjTreeRowBackground && runtimeTraceProjPrimaryTierNode(node) &&
 		(leadKey == "" || runtimeTraceCausalProjectionNodeKey(node) != leadKey) {
 		display := node
@@ -2602,6 +2692,8 @@ func runtimeTraceProjDetailPositionMerged(node types.TraceCausalProjectionNode, 
 	layer := runtimeTraceProjCausalPositionLayerCell(node, zh, flatChain)
 	if zh {
 		switch layer {
+		case "链路上下文", "邻近上下文", "背景上下文", "上下文":
+			return layer + "(不参与根因排序)"
 		case "主根因":
 			return "主根因(优先处理)"
 		case "确定性优化点":
@@ -2621,6 +2713,8 @@ func runtimeTraceProjDetailPositionMerged(node types.TraceCausalProjectionNode, 
 		return layer
 	}
 	switch layer {
+	case "chain context", "adjacent context", "background context", "context":
+		return layer + " (not ranked)"
 	case "primary":
 		return "primary (handle first)"
 	case "deterministic optimization", "semantic":
@@ -2648,6 +2742,9 @@ func runtimeTraceProjDetailPositionMerged(node types.TraceCausalProjectionNode, 
 // No rank value is required: on-chain semantic work keeps the mention and
 // participation obligation even when it falls outside the visible root TOP N.
 func runtimeTraceProjSemanticParticipatesInRootCauseRanking(node types.TraceCausalProjectionNode) bool {
+	if node.IsContextOnlyRow() {
+		return false
+	}
 	switch strings.TrimSpace(node.ChainRelevance) {
 	case "on_chain":
 		return true
@@ -2674,6 +2771,9 @@ func runtimeTraceProjSemanticParticipatesInRootCauseRanking(node types.TraceCaus
 // enum + root_cause_primary predicate prefix), extracted so the RN-3(b)
 // display gate and those cells cannot drift.
 func runtimeTraceProjPrimaryTierNode(node types.TraceCausalProjectionNode) bool {
+	if node.IsContextOnlyRow() {
+		return false
+	}
 	return node.Role == types.TraceCausalRolePrimaryRootCause ||
 		strings.HasPrefix(strings.TrimSpace(node.Predicate), "root_cause_primary")
 }
@@ -2956,7 +3056,7 @@ func runtimeTraceProjSameSegmentTwinKey(node types.TraceCausalProjectionNode) st
 // (MergedCount>1 sums/envelopes many segments) and NOT a periodic source
 // (the VS-1 discount lane owns those rows' semantics).
 func runtimeTraceProjRankFoldArmEligible(node types.TraceCausalProjectionNode) bool {
-	return runtimeTraceCausalProjectionInversionRow(node) &&
+	return !node.IsContextOnlyRow() && runtimeTraceCausalProjectionInversionRow(node) &&
 		node.MergedCount <= 1 && !node.PeriodicSource
 }
 
@@ -3140,7 +3240,7 @@ func runtimeTraceProjFoldSameSegmentLaneTwins(nodes []types.TraceCausalProjectio
 //     selected_window beyond the ±1ms tolerance never fold.
 func runtimeTraceProjSemanticRankTwinArm(node types.TraceCausalProjectionNode) bool {
 	_, laneOK := runtimeTraceProjSemanticTwinLane(node)
-	return laneOK && strings.TrimSpace(node.SemanticClass) != "" &&
+	return !node.IsContextOnlyRow() && laneOK && strings.TrimSpace(node.SemanticClass) != "" &&
 		node.Rank > 0 &&
 		strings.HasPrefix(strings.TrimSpace(node.Predicate), "root_cause_")
 }
@@ -6804,6 +6904,16 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		}
 		tags = append(tags, runtimeTraceProjTag{Text: word, MainRow: true})
 	}
+	// Context-only rows keep their state/duration/evidence on the tree, but
+	// name their non-ranking status at the point of reading. This is a typed
+	// tier disclosure, not a conclusion inferred from Rank==0.
+	if node.IsContextOnlyRow() {
+		text := "上下文·不参与根因排序"
+		if !zh {
+			text = "context · not ranked"
+		}
+		tags = append(tags, runtimeTraceProjTag{Text: text, Seg: 10})
+	}
 	// PTV8-RCR-A (§24.1/§24.2): a cause node renders the four-line grammar —
 	// 行2 identity, 行3 「=」breakdown and the 拆解子行 land as OwnLine tags in
 	// fixed order; the legacy seats they replace (row-tail shape word, the
@@ -7998,6 +8108,9 @@ func runtimeTraceProjLeadPrimary(projection types.TraceCausalProjection, model r
 	var best *types.TraceCausalProjectionNode
 	bestValue := 0.0
 	for i := range roots {
+		if roots[i].IsContextOnlyRow() {
+			continue
+		}
 		if runtimeTraceProjNodeDemotedToBackground(roots[i], model.TrunkLen) {
 			continue
 		}
@@ -8110,6 +8223,9 @@ func runtimeTraceProjLeadSemanticFallback(model runtimeTraceProjTreeModel) *type
 			row := &rows[i]
 			if !row.HasData || (row.Kind != runtimeTraceProjTreeRowSemantic &&
 				!runtimeTraceCausalProjectionSemanticSpanRow(row.Node)) {
+				continue
+			}
+			if row.Node.IsContextOnlyRow() {
 				continue
 			}
 			v := runtimeTraceProjLeadSelectionValue(row.Node)
@@ -8258,6 +8374,15 @@ func runtimeTraceProjLeadOnChainFallback(model runtimeTraceProjTreeModel) *types
 		if row.Node.OnChainOverflowFold {
 			continue
 		}
+		if row.Node.IsContextOnlyRow() {
+			continue
+		}
+		// Precise-signal hard gate: RN-3 may only use an explicitly published
+		// positive effective attribution. Missing/zero must never fall back to
+		// a raw duration from RootEvidence or critical-blocking supporting rows.
+		if row.Node.EffectiveImpactMS <= 0 {
+			continue
+		}
 		// SYM (§24.13 裁定一, 复核 F1, 2026-07-08): the target's own state rows
 		// never lead through the RN-3(a) fallback lane either — post-SYM this
 		// shape is MORE reachable (the ladder skip empties the primary slots a
@@ -8368,6 +8493,9 @@ func runtimeTraceProjTargetSelfSymptomNote(model runtimeTraceProjTreeModel, zh b
 // total across instances and must never compete against single-instance hard
 // facts (V1, customer revisit 2026-07-03).
 func runtimeTraceProjLeadSelectionValue(node types.TraceCausalProjectionNode) float64 {
+	if node.IsContextOnlyRow() {
+		return 0
+	}
 	if node.PeriodicSource {
 		// VS-1 (§7.8): a periodic source competes with its DISCOUNTED
 		// attribution only, even when it is exactly 0 (pure in-period cadence)
@@ -10474,7 +10602,7 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 		// effective feeds the visible 承自 chain (E17 "13.054ms(承自等待区间)"
 		// references it — E16 承自链需保), and self 自因族 rows (io/D/runnable/
 		// running StateKinds) keep their values on this arm too.
-		if node.IsTargetSelfStateRow() ||
+		if node.IsTargetSelfStateRow() || node.IsContextOnlyRow() ||
 			(row.Kind == runtimeTraceProjTreeRowSelf && node.IsSleepState()) {
 			effective = dash
 		}

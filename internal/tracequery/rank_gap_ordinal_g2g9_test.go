@@ -189,7 +189,7 @@ func TestRankOrdinalsOnlyForBoardVisibleRowsG9(t *testing.T) {
 		{Type: "workqueue_activity", ImpactMs: 9, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 		{Type: "trace_gap", Thread: ThreadRef{Comm: "ghost", PID: 500}, TraceGapKind: TraceGapKindNoEligibleWait},
 		{Type: "dma_fence_activity", ImpactMs: 5, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
-		{Type: "jit_compile", ImpactMs: 4},
+		{Type: "jit_compile", ImpactMs: 4, EffectiveImpactMs: 4},
 	}
 	assignRootCauseRanksAndTiers(items)
 	// Demoted rows: no ordinal, tier semantics per their own arms.

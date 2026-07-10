@@ -39,7 +39,7 @@ func symOpendirProjection() types.TraceCausalProjection {
 	inversion := types.TraceCausalProjectionNode{
 		Role: types.TraceCausalRolePrimaryRootCause, EvidenceID: "e-inversion",
 		Subject: "RxComputationT-16612", Object: "priority_inversion_candidate",
-		Predicate: "root_cause_primary", Rank: 2, Tier: "primary",
+		Predicate: "root_cause_primary", Rank: 1, Tier: "primary",
 		PriorityInversionCandidate: true,
 		ImpactMS:                   58.919, CumulativeImpactMS: 58.919, EffectiveImpactMS: 37.410,
 		ChainRelevance: "on_chain", Causality: "on_wakeup_chain", ChainDepth: 1,
@@ -83,11 +83,10 @@ func TestSYMOpendirLeadFallsToNonSelfBoardHead(t *testing.T) {
 		t.Fatalf("修后 lead = 非自身榜首 (the inversion row), got %q", lead.Subject)
 	}
 	// EVOLUTION RECORD (§29.27.1 徽章跟随席位, 2026-07-11): the badge is the
-	// row's published seat pictograph — the non-self board head publishes seat
-	// #2 here and wears ❷ (the retired board-position lane wore ❶ on it); no
-	// rendered row wears ❶ because no row publishes seat #1.
-	if got := covLeadRowBadge(model, "RxComputationT-16612"); got != 2 {
-		t.Fatalf("the non-self #2 seat row must wear ❷ (徽章跟随席位), got badge %d", got)
+	// row's published seat pictograph. Symptom Rank=0 is transparent, so the
+	// non-self board head owns contiguous seat #1 and wears ❶.
+	if got := covLeadRowBadge(model, "RxComputationT-16612"); got != 1 {
+		t.Fatalf("the non-self #1 seat row must wear ❶ (徽章跟随席位), got badge %d", got)
 	}
 	// 自持锁行留树头: the self-lock row keeps its SelfRows seat. EVOLUTION
 	// RECORD (跨批 X1, 2026-07-09): the former 榜位序数照发 assertion (rank#1
@@ -123,7 +122,7 @@ func symFlatCmpProjection() types.TraceCausalProjection {
 	primary := types.TraceCausalProjectionNode{
 		Role: types.TraceCausalRolePrimaryRootCause, EvidenceID: "e-launchpool",
 		Subject: "LaunchPoolT1-6712", Object: "runnable_wait",
-		Predicate: "root_cause_primary", Rank: 2, Tier: "primary",
+		Predicate: "root_cause_primary", Rank: 1, Tier: "primary",
 		ImpactMS: 1.900, CumulativeImpactMS: 1.900, EffectiveImpactMS: 1.900,
 		ChainRelevance: "on_chain", Confidence: 0.8,
 	}
@@ -176,10 +175,10 @@ func TestSYMFlatSelfRowExcludedFromBoard(t *testing.T) {
 		t.Fatalf("lead must fall to the non-self board head, got lane=%d lead=%+v", lane, lead)
 	}
 	// EVOLUTION RECORD (§29.27.1 徽章跟随席位, 2026-07-11): the non-self row
-	// publishes seat #2 and wears ❷ (the retired lane wore ❶ on the board
-	// head); the self symptom row (Rank=0 post-G9 + tier defense) stays bare.
-	if got := covLeadRowBadge(model, "LaunchPoolT1-6712"); got != 2 {
-		t.Fatalf("the non-self #2 seat row must wear ❷ (徽章跟随席位), got badge %d", got)
+	// publishes contiguous seat #1 and wears ❶; the self symptom row (Rank=0
+	// post-G9 + tier defense) stays bare.
+	if got := covLeadRowBadge(model, "LaunchPoolT1-6712"); got != 1 {
+		t.Fatalf("the non-self #1 seat row must wear ❶ (徽章跟随席位), got badge %d", got)
 	}
 	if selfRow.Badge != 0 {
 		t.Fatalf("the self row never wears a badge: %+v", selfRow)

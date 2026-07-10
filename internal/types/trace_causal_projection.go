@@ -897,6 +897,23 @@ func (n TraceCausalProjectionNode) IsTargetSelfStateRow() bool {
 	return strings.TrimSpace(n.Tier) == TraceCausalTierTargetSelfState
 }
 
+// TraceCausalTierContextOnly mirrors tracequery.RootCauseTierContextOnly: a
+// chain/adjacent/background state observation retained as causal-analysis
+// context, but carrying no effective attribution and therefore no root-cause
+// rank seat. The exact tier token is the authority; thread names, state words
+// and prose never infer this status. ChainRelevance independently decides
+// whether the display calls it chain, adjacent, background, or generic context.
+const TraceCausalTierContextOnly = "context_only"
+
+// IsContextOnlyRow reports whether this node is causal-analysis context rather
+// than a root-cause contender. Context-only rows keep their evidence/display
+// seat, but display and election layers must never promote them to a board
+// seat, badge, lead, or root-cause candidate even if a stale persisted record
+// carries rank fields.
+func (n TraceCausalProjectionNode) IsContextOnlyRow() bool {
+	return strings.TrimSpace(n.Tier) == TraceCausalTierContextOnly
+}
+
 // TraceCausalTierDataGap mirrors tracequery.RootCauseTierDataGap (G2 引擎半场,
 // §27.2/§28.1 user ruling 2026-07-09): the wire tier token of a trace_gap
 // data-blind-spot rank row — a data gap, never a cause; such rows arrive with
@@ -1099,6 +1116,13 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 			wakeupEdges = append(wakeupEdges, edge)
 		}
 		switch {
+		case traceCausalProjectionContextOnly(record):
+			// A context-only root_cause_* record is intentionally retained on
+			// its declared relevance lane, but it must not enter the primary
+			// bucket merely because its producer predicate is
+			// root_cause_primary. Role normalization here makes every later
+			// projection consumer see the same typed non-candidate identity.
+			classified = append(classified, traceCausalProjectionNodeFromRecord(TraceCausalRoleRootCauseContext, record))
 		case traceCausalProjectionIsPrimaryRootCause(record):
 			node := traceCausalProjectionNodeFromRecord(TraceCausalRolePrimaryRootCause, record)
 			primary = append(primary, node)
@@ -1308,6 +1332,15 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 		return TraceCausalProjection{}
 	}
 	return out
+}
+
+// traceCausalProjectionContextOnly is the compile-side admission gate for a
+// root_cause_* record on the typed non-ranking context lane. Causal-hop
+// families may carry the same tier, but must keep their CausalHop role and
+// SupportingHops edge semantics, so this shortcut deliberately excludes them.
+func traceCausalProjectionContextOnly(record ObservationRecord) bool {
+	return traceCausalProjectionIsRootCauseContext(record) &&
+		strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyTier)) == TraceCausalTierContextOnly
 }
 
 // traceCausalProjectionFrameTargetSourceExplicit is the ONE

@@ -100,6 +100,62 @@ func traceQueryMemoryForLog() (heapAlloc, heapSys uint64, gcCount uint32) {
 
 func (t *TraceQuery) Name() string { return "trace_query" }
 
+const traceQueryRootCauseClosedMatrixContract = "Root-cause participation uses this authoritative closed typed effective-impact matrix: runnable uses the full typed runnable duration; running uses only the CAP/compute-supply deficit, and a missing or zero deficit is context_only; on-chain semantic work (VerifyClass, JIT compilation, shader compilation, texture upload, and explicit GC pauses) uses its exact chain/window intersection, enters the ordinary strict positional ranking, and must be mentioned as a deterministic optimization point even outside Top N, while off-chain semantic work is background-only; periodic sources use VS-1 effective impact; D-state and IO use a mutually exclusive typed sum; ordinary sleep, unknown state, generic trace spans, and aggregate CPU/IO/supply pressure are context_only. Only rank #1 is primary; same-chain primary ownership belongs only to that rank, later positive contenders are secondary/tertiary, and there is no shared-primary promotion."
+
+// traceQueryApplyRootCauseClosedMatrixContract removes retired, open-ended
+// participation rules from both LLM-facing surfaces. Keep this mechanical:
+// Description and Parameters are independently consumed by model adapters, so
+// either one retaining the cumulative fallback or a shared-primary rule is a
+// correctness regression rather than harmless documentation drift.
+func traceQueryApplyRootCauseClosedMatrixContract(text string) string {
+	replacements := [][2]string{
+		{
+			"When an on_chain runnable, running/compute-supply, low-frequency, affinity/cpuset, D-state, or IO dependency is tier=primary, report it as a co-primary cause instead of moving it to background, and compare same-chain primary rows by effective_impact_ms before score; ",
+			"Compare authorized positive contenders by effective_impact_ms before score and assign one strict positional rank; ",
+		},
+		{
+			"and are never the primary or co-primary root cause",
+			"and are never a ranked root cause",
+		},
+		{
+			"The target's own runnable/running/IO/D-state rows are decomposable self causes, not symptoms: they compete normally (scheduling-pressure / compute-supply / IO-blocking / D-state candidates), may carry primary or co-primary tiers, and may be reported as the root cause on the target's own thread.",
+			"The target's own runnable/running/IO/D-state rows are decomposable state evidence, not wait-on-counterpart symptoms: runnable and mutually exclusive typed D-state/IO enter the strict positional ladder with their authorized effective impact, while running enters only through a positive CAP/compute-supply deficit and otherwise stays context_only.",
+		},
+		{
+			"the target's own runnable/running/IO/D-state rows compete normally as decomposable self causes",
+			"target-owned runnable and mutually exclusive typed D-state/IO use their authorized matrix values, while target-owned running requires a positive CAP/compute-supply deficit",
+		},
+		{
+			"for non-semantic rows effective_impact_ms defaults to cumulative_impact_ms.",
+			"effective_impact_ms is assigned only by the closed typed matrix and never falls back generically to cumulative_impact_ms.",
+		},
+		{
+			"For frame/drop/jank windows with no single long sleep/runnable/D/IO/running segment, window_stats/root_cause_rank also report state_churn: frequent state switching with per-state cumulative impact, fragment count, max/p95 segment, and next-step guidance so the dominant cumulative state can still rank as the primary cause.",
+			"For frame/drop/jank windows with no single long sleep/runnable/D/IO/running segment, window_stats/root_cause_rank also report state_churn as context-only fragmentation diagnostics with per-state cumulative impact, fragment count, max/p95 segment, and next-step guidance; state_churn itself never takes a rank-board seat.",
+		},
+		{
+			"state_churn is an output section/candidate signal, not an independent view; use view=window_stats to inspect it directly or view=root_cause_rank/frame_root_cause_bundle to let it compete with other causes.",
+			"state_churn is a context-only output section, not an independent view; use view=window_stats to inspect it directly or view=root_cause_rank/frame_root_cause_bundle to preserve its fragmentation diagnostics beside typed causes.",
+		},
+		{
+			"fragmented state_churn candidates when frequent short state switches cumulatively dominate,",
+			"context-only state_churn diagnostics when frequent short state switches cumulatively dominate,",
+		},
+		{
+			"and co-primary on-chain runnable/running/compute-supply/D-state/IO dependencies when they are part of the same causal chain; same-chain primary root_cause_rank rows are ordered by effective_impact_ms before score, and non-semantic rows default effective_impact_ms to cumulative_impact_ms;",
+			"and strict positional root-cause ranks for authorized positive contenders; effective_impact_ms never falls back generically to cumulative_impact_ms;",
+		},
+		{
+			"state_churn and causal_impacts are output sections, not standalone views;",
+			"state_churn is a context-only output section and causal_impacts are typed output sections, not standalone views;",
+		},
+	}
+	for _, replacement := range replacements {
+		text = strings.ReplaceAll(text, replacement[0], replacement[1])
+	}
+	return text
+}
+
 func (t *TraceQuery) Description() string {
 	description := strings.Replace("Deterministically queries large runtime trace/log artifacts for scheduler timelines, scheduler latency stats, trace span/frame windows, frame timelines/flows, render pipelines, ranked root causes, wakeup chains, frame root-cause bundles, binder IPC graphs with explicit oneway/sync_like/blocking_candidate fields, critical blocking calls, interaction Top-N, same-window resource stats, recipes, structured event search, and line-backed evidence packs. Path inputs may be .ftrace/.trace/.systrace/.htrace/.atrace/.perftrace or .tracebundle.json; trace_query automatically promotes sibling .tracebundle.json and merges sibling .systrace+.perftrace pairs, so one path can carry joint trace+perf evidence. wakeup_chain/root_cause_rank/frame_root_cause_bundle publish structured wakeup_chain path records (one per expanded target segment; each path is a real waker chain that ends at the analyzed thread, and its branch/branches fields identify the segment), per-edge wakeup_chain_edge rows, causal_impact rows with depth/chain_branch identity, and chain_relevance fields (on_chain, adjacent, background); treat each path record as its own dependency chain - do not stitch different path records into one linear chain - and consume those ordered path/edge/relevance fields before paraphrasing dependency chains so upstream waker -> intermediate dependency -> target causality is not lost in prose and off-chain background load is not promoted to primary cause. root_cause_rank rows carry projected_impact_ms/projected_total_ms for the impact projected into the selected target/wakeup-chain window, actual_impact_ms/actual_total_ms/actual_window for the underlying scheduler state segment that may extend outside that projection, plus cumulative_impact_ms, effective_impact_ms, dominant_state, and running/runnable/sleep/d_state/io_wait totals; semantic span-work candidates add span_name/span_kind/span_category/span_subcategory/semantic_class/effective_impact_ms for system-classified runtime work such as JIT compilation, class verification, shader compilation, and runtime compilation: rows with chain_relevance=on_chain carry tier=deterministic_optimization and compete for the root cause on equal footing with other ranked rows: when such a row ranks highest, report it as the root cause named by its semantic class (for a merged row, the class word with its span count, never one member's span name), and ranked top or not, always also report it as a deterministic optimization point; rows without on-chain overlap stay background candidates and carry background_rank (their position among the non-on-chain rows), while generic trace_span rows remain supporting context. Same-thread rows of one cause family may arrive merged as a single ranked contender whose value is the family's combined magnitude: member_count carries the merged instance count, member_roster the per-member identities and values (inode/dev/span names), member_max_ms/member_min_ms the member range, member_fold_caliber the combining ruler (sum_disjoint, interval_union, max_overlap_fallback, count_sum), and member_sum_ms the raw member sum when the published value is a deduplicated lower bound; inode-keyed IO rows also expose typed inode/dev fields — report the merged row once with its combined value and name the member keys instead of re-listing members as separate causes. Use projected_* for current-window real-time projection, actual_* only to explain cross-window duration, and effective_impact_ms as a bounded ranking/hidden-cost signal rather than elapsed time. When an on_chain runnable, running/compute-supply, low-frequency, affinity/cpuset, D-state, or IO dependency is tier=primary, report it as a co-primary cause instead of moving it to background, and compare same-chain primary rows by effective_impact_ms before score; on-chain semantic span-work rows join that comparison on equal footing — a tier=deterministic_optimization row that ranks highest may be reported as the primary root cause, and every on-chain one stays a deterministic optimization point to mention with its projected share of the window; for non-semantic rows effective_impact_ms defaults to cumulative_impact_ms. Rank rows whose subject thread is the analysis target itself AND whose type is a wait-on-counterpart symptom (sleep_wait/fragmented_sleep_wait/missing_wakeup, binder_wait, blocking_span) carry tier=target_self_state: that wait/lock-hold/sleep is the symptom under analysis, so such rows carry rank=0 (no rank-board seat — rank ordinals are contiguous over the competing rows; trace_gap rows carry rank=0 the same way) and are never the primary or co-primary root cause — report them as the target's own state and take the root cause from the other ranked rows. Rows with type=trace_gap carry tier=data_gap: a data blind spot, never a cause — their trace_gap_kind field says whether the thread timeline had no intervals at all in the window (no_sched_data) or intervals that all sit below the min-duration floor (no_eligible_wait); do not report a blind spot as a ranked cause. The target's own runnable/running/IO/D-state rows are decomposable self causes, not symptoms: they compete normally (scheduling-pressure / compute-supply / IO-blocking / D-state candidates), may carry primary or co-primary tiers, and may be reported as the root cause on the target's own thread. wakeup_chain also reports aggregated_impact rows when repeated fragmented branches share a common dependency path; these rows and the corresponding root_cause_rank candidates carry bounded occurrence_windows, so enumerate the representative repeated windows and compare the aggregate against single long intervals. Treat critical_blocking_calls as direct blocking surfaces: for binder/futex/lock/sync waits, consume oneway/sync_like/blocking_candidate instead of inferring blocking semantics from raw flags, preserve peer, peer_state, chain_relevance, overlap, nearest_chain_thread, and then continue into peer thread state, wakeup_chain, root_cause_rank, and resource rows before naming the cause; if peer/on-chain evidence is missing, keep the wait as a bounded symptom/candidate with caveat. A critical_blocking row carrying absorbed_by_rank_family=true duplicates a same-thread merged rank family row of the same events (absorbed_into names that family, matching the rank row's rank_family_key): count it inside that family's combined value and cite the family row — never list absorbed rows as additional separate causes beside the family row. window_stats/event_search can filter or summarize scheduler, sched_stat accounting, binder transaction/received/lock/alloc/reply rows, CPU idle/frequency/frequency-limit, CPU affinity/cpuset/migration constraint evidence, block IO, IRQ/softirq/IPI, storage, filesystem, power, Ability/XPower/HiSystemEvent resource observations, workqueue, DMA fence, memory-like events, SmartPerf-style eBPF BIO/FileSystem/PageFault resource rows, and perf_sample CPU sampling rows when converted to text key/value fields. For perf samples, consume window_stats.perf_samples top_symbols/top_dso/top_callchains/top_threads and perf_quality/quality summaries as supporting code-execution evidence for running threads, runnable competitors, wakeup-chain dependencies, binder peers, or semantic span-work candidates; if a SQL-primary row has comm_source=trace_thread plus perf_thread_comm, thread_comm/pid/tid are the canonical trace-aligned identity and perf_thread_comm is raw converter provenance, not a separate thread. root_cause_rank candidates may carry interval/thread-filtered perf_context plus role-aware perf_contexts rows such as candidate_thread, target_running, on_chain_dependency, same_cpu_competitor, cpu_pressure_top_running, and compute_supply_cpu, and frame_root_cause_bundle may carry target_running_perf, on_chain_perf, binder_peer_perf, and same_cpu_competitor_perf role contexts. perf_quality reports source mix, sample_kind, weight_unit, symbolization_status, cpu_known/cpu_unknown, sample_cpu_scope, clock, clock_confidence, callchain_status, and caveats; sample_cpu_scope=unknown or cpu_unknown means the official/sample source did not expose sample CPU id and must not be attributed to any concrete CPU/core or used as absence proof, sample_kind=off_cpu must not be narrated as running CPU execution, unsymbolized/ip_only means raw fallback or IP/DSO-only evidence, assumed/unknown clock_confidence means trace/perf overlap is supporting evidence unless calibrated, and perf period/sample_weight values are event/sample weights rather than elapsed duration or expected sample density unless explicit sampling configuration plus calibrated CPU frequency are available. For perf evidence-quality questions, answer from sample_cpu_scope/sample_kind/weight_unit first; adjacent sched_switch CPU fields describe scheduler event rows, not the perf sample's CPU location, and should stay out of the perf hotspot conclusion unless the user explicitly asks for scheduler CPU placement. For running/compute-supply/semantic span-work causes, report perf_contexts as the code-execution support for where CPU time was spent, while scheduler overlap, chain relevance, CPU/core/frequency/affinity, D-state/IO, and supply pressure remain the causal basis. Do not treat samples alone as proof of a scheduling root cause. For runnable root causes, window_stats/root_cause_rank report runnable_context, thread_cpu_load, cpu_constraints, and secondary process_cpu_load: consume the concrete thread load, same-CPU competitors, CPU/core class, other-core idle, Harmony/Donghu sched_switch next_info affinity/restricted fields, cpuset/allowed CPU evidence, and only then the process rollup. These are output sections/candidate signals, not separate views; use view=window_stats to inspect them directly, view=root_cause_rank to let them enrich and compete with scheduler candidates, or view=frame_root_cause_bundle for frame/jank windows that need wakeup_chain + rank + blocking + IO/IRQ/IPI/workqueue/sched_stat/supply/trace-mark evidence and role-specific perf contexts in one handoff-safe result. window_stats/root_cause_rank/frame_root_cause_bundle also report inode-level IO outputs: file_io_by_inode for Android FS/F2FS/EXT4-style file read/write/sync/direct-IO rows, page_cache_by_inode for mm_filemap add/delete churn, storage_latency_by_layer for block/MMC/SCSI/F2FS/Android-FS start-done latency pairs, block_io_by_inode to join inode activity with nearest block/storage latency, io_burst_episodes for D-state/iowait/storage bursts, and io_pressure_summary to relate inode IO, page-cache churn, block/storage latency, sched_blocked_reason iowait, and D-state totals. For which-inodes-have-the-most-IO ranking or enumeration questions, read the window_stats top_io_inodes section first: it folds the whole selected window per (dev,inode) across all threads and operations before any per-section row truncation, orders groups by total event count (then bytes, then largest single-event latency), decomposes reads/writes/completions and page-cache adds/deletes, reports max_latency as the largest single event plus top_threads per-thread latency totals (latency is never summed across threads), and its trailing total-groups line discloses how many (dev,inode) groups exist beyond the listed rows. For IO completion questions, preserve file_io completions/ret/example and each storage_latency example together with bytes/len/offset and max_latency, so a single 4KB completion latency is not hidden by aggregate bytes or total latency. These are output sections/candidate signals, not separate views; use view=window_stats to inspect them directly or view=root_cause_rank/frame_root_cause_bundle to let them compete with scheduler and blocking causes. When a wakeup chain exists, treat window_stats IO/D-state/CPU-pressure rows as background context unless the corresponding root_cause_rank candidate says chain_relevance=on_chain/causality=on_wakeup_chain; aggregate rows such as cpu_pressure/io_pressure/supply_pressure remain supporting context and must not be promoted into the direct root-cause chain merely because their representative thread overlaps the chain; generic trace_span rows also stay supporting unless root_cause_rank emits a dedicated semantic span-work type. Off-chain pressure can explain system load but must not become the direct root-cause chain. window_stats/frame_root_cause_bundle also report irq_activity, softirq_activity, ipi_activity, workqueue_activity, dma_fence_activity, sched_stat_accounting, supply_pressure_summary, trace_mark_categories, and async_file_work as supporting signals; use them to explain supply-side pressure and background interference without treating them as proof unless they overlap the target window or wakeup chain. sched_stat_accounting is kernel accounting corroboration and should not replace sched_switch interval timing when both exist; ipi_activity is interrupt/reschedule pressure context, with ipi_raise counted as an instant target_mask signal unless entry/exit pairs provide active_ms. For frame/drop/jank windows with no single long sleep/runnable/D/IO/running segment, window_stats/root_cause_rank also report state_churn: frequent state switching with per-state cumulative impact, fragment count, max/p95 segment, and next-step guidance so the dominant cumulative state can still rank as the primary cause. state_churn is an output section/candidate signal, not an independent view; use view=window_stats to inspect it directly or view=root_cause_rank/frame_root_cause_bundle to let it compete with other causes. For frame/span, runnable-context, inode discovery, or perf hotspot discovery, use view=event_search with pattern as a case-insensitive literal substring, not a regex; it is best for frame ids, jank ids, span labels, trace marker labels, thread labels, next_info tokens, cpuset labels, inode tokens such as 0x478e5, entry_name values, sched_stat thread/kind fields, IPI reason/target_mask fields, perf symbols/DSOs/callchains/source/sample_kind/symbolization_status/callchain_status/clock_confidence/cpu_known, or one exact timestamp/event token before broad grep. Trace markers include B/E/C/S/F rows: event_search rows expose span_action, span_pid, span_name, and span_value; span_window/window_stats trace_spans expose kind=sync|async plus category/subcategory/semantic_class. Synchronous B/E spans end with unnamed E|<pid> or bare E on the same ftrace thread stack, async S/F spans pair by marker pid + name + cookie, and searching E|<pid>|<span_name> is not a valid end-marker test. Treat entry_name as a trace file-name label, not an absolute path; do not prefix it with /, /data/, or any directory unless that full path appears in the trace or an external mapping. If multiple span windows or zero rows come back, narrow with the returned line/time windows, a shorter literal pattern, event_types=[\"trace_mark\"], event_types=[\"perf_sample\"] for CPU sample rows, event_types=[\"cpu_constraint\"] for affinity/cpuset/next_info rows, event_types=[\"sched_stat\"] for scheduler accounting rows, event_types=[\"ipi\"] for IPI rows, event_types=[\"file_io\"] or event_types=[\"page_cache\"] for inode rows, pid/thread, or span_window before running recipe/root-cause views. Once a result reports selected_window, index_windowed, or a concrete line window, keep that same time_start/time_end or line_start/line_end on every follow-up heavy scheduler/resource/root-cause view; thread/pid alone is not enough for large traces. For big/middle/small core analysis, pass core_topology like \"small=0-3,middle=4-7,big=8-11\"; if omitted the tool only infers classes from observed CPU frequencies and reports that caveat. For very large traces, an unbounded jank recipe without time_start/time_end, line_start/line_end, span_name, pid, or thread first does light marker discovery; when timestamped top jank/frame markers are found it automatically runs bounded recipe analysis for the top candidate windows, and otherwise returns marker discovery plus next-call hints instead of expanding expensive full-trace root-cause/resource views. Trace timestamps are seconds end-to-end: 928.081774 means 928 seconds + 0.081774 seconds; with six fractional digits, the fractional part is microsecond-precision (81774 us), not a separate millisecond field. Compound timestamps such as \"1s 501ms 565μs 915ns\" are accepted and normalized to seconds. Only derived durations are rendered in ms. Trace flavor is auto-detected as harmony_hitrace, android_atrace, or generic_ftrace; set trace_flavor/platform in the typed tool call when task context requires a platform override. Raw user wording is not re-parsed by this tool for platform selection. Auto detection may report platform_candidate=mixed_harmony_base when Harmony-base trace signals coexist with Android-framework process surfaces; this uses Donghu/Harmony scheduler priority semantics, not Android priority semantics. Donghu uses Harmony/OpenHarmony trace scheduler semantics with process-isolated Android-framework and Harmony-framework surfaces; priority and timestamp semantics still follow Harmony. For HarmonyOS/hitrace user-space priority, larger numeric priority means higher priority: 1-40=CFS, 41-159=RT, >159=system_or_kernel/raw. Only ohos_rt enters high-priority pressure; raw system/kernel running and displacement overlap are reported in separate typed buckets and never compared numerically for priority inversion. Android/generic ftrace keeps raw scheduler priority and does not apply Harmony ranges. Thread selectors accept pid plus common ftrace/hitrace labels such as com.tencent.mm-36379, com.tencent.mm 36379, com.tencent.mm [36379], [GT]ColdPool#5-36624, binder:486_1-10803, or pid=36379; pass pid directly when known. Use this before ad-hoc grep/awk for ftrace/systrace/hitrace time-window causality questions; a zero-event result in a bounded window is a window/filter diagnostic, not evidence that .ftrace is unsupported. Keep grep/read_file as fallback for truly unsupported formats.", "so one path can carry joint trace+perf evidence. ", "so one path can carry joint trace+perf evidence. A .ftrace/.trace/.systrace path by itself is sufficient for core event queries, including SQL-primary perf_sample rows embedded in systrace; tracebundle is recommended context, not required input. When present, tracebundle result caveats may include tracebundle_trace_provider, tracebundle_trace_db_coverage, tracebundle_trace_coverage, and tracebundle_trace_tool_gate; use them to qualify conversion engine, SQL table coverage, trace_query cross-validation completeness, clock/perf provenance, and commercial guardrail state, not as direct runtime root causes. In tracebundle_trace_db_coverage, role=resolver_index means the DB table was consumed for joins/indexes and rows_emitted=0 is expected; role=systrace_text_output, role=perftrace_text_output, and role=query_ready_export identify text rows produced for trace_query. ", 1)
 	description = strings.Replace(description, "semantic span-work candidates add span_name/span_kind/span_category/span_subcategory/semantic_class/effective_impact_ms for system-classified runtime work such as JIT compilation, class verification, shader compilation, and runtime compilation: rows with chain_relevance=on_chain carry tier=deterministic_optimization and compete for the root cause on equal footing with other ranked rows", "semantic span-work candidates add span_name/span_kind/span_category/span_subcategory/semantic_class/effective_impact_ms for system-classified runtime work such as JIT compilation, class verification, shader compilation, runtime compilation, texture upload, and explicit GC pauses: rows with chain_relevance=on_chain participate in the ordinary primary/secondary/tertiary root-cause election and must never enter the background board", 1)
@@ -109,6 +165,8 @@ func (t *TraceQuery) Description() string {
 	description = strings.Replace(description, "state_churn is an output section/candidate signal, not an independent view; use view=window_stats to inspect it directly or view=root_cause_rank/frame_root_cause_bundle to let it compete with other causes.", "state_churn is an output section/candidate signal, not an independent view; use view=window_stats to inspect it directly or view=root_cause_rank/frame_root_cause_bundle to let it compete with other causes. The state_drilldown rows are the state-first handoff: top_sleep is a ranked Top-N cumulative sleep surface, long top_sleep rows require wakeup_chain/root_cause_rank recursive drilldown, fragmented sleep churn stays visible but non-recursive with thread_timeline/interaction_stats/window_stats follow-up, and fragmented runnable or D/IO waits remain recursive root-cause candidates. Preserve state_drilldown source, recommended_views, chain_required, and recursive flags instead of guessing from prose. Each state_drilldown row also carries window_proportion (fraction 0..1 of the selected window that state consumed) and a significant flag: the top-ranked state is always significant, and lower-ranked states are significant only when they clear the proportion floor; rows with significant=false are kept for coverage completeness but are too small to be worth their own per-layer root-cause drilldown, so prioritize significant=true states for per-layer root-cause analysis.", 1)
 	description = strings.Replace(description, "Once a result reports selected_window, index_windowed, or a concrete line window, keep that same time_start/time_end or line_start/line_end on every follow-up heavy scheduler/resource/root-cause view; thread/pid alone is not enough for large traces.", "Once a result reports selected_window, index_windowed, or a concrete line window, keep that same time_start/time_end or line_start/line_end on every follow-up heavy scheduler/resource/root-cause view; thread/pid alone is not enough for large traces. If a call supplies both a frame/span selector and explicit time_start/time_end, frame_root_cause_bundle preserves the explicit query window and unions it with the frame-derived previous-frame-end..current-frame-end window instead of shrinking to an interior vsync/frame marker; span_window/span_name does the same for a uniquely-matched named span, unioning the explicit window with the matched span's own start/end instead of narrowing to whichever is smaller. For jank/stall root-cause analysis over a broader typed period, prefer frame/span-derived windows or coverage windows around 80-150ms for recipe/root_cause_rank/frame_root_cause_bundle before shrinking further; sub-50ms windows are micro-probes and must not be treated as representative unless the selected frame/span itself is that short. If the task's typed target is a process id, thread id, or thread label, set pid/thread explicitly in the tool call and keep that typed filter on follow-up trace_query calls unless deliberately inspecting a named peer; if omitted and the structured request model exposes exactly one runtime_targets entry, trace_query inherits only that typed pid/thread and reports trace_query_target_inherited, but trace_query does not infer omitted pid/thread values from raw request prose, analyzer entity strings, objective text, or prior summaries. For long transaction/lifecycle windows, preserve the full typed time window as parent coverage; use event_search/span_window/frame_window to discover phase boundaries, then drill into the heaviest phase windows. If a result reports mode=index_event_limit or selected window too dense, do not retry the same parameters; for local jank/stall root-cause views split toward 80-150ms coverage windows first, add line_start/line_end, or use event_search/span_window/event_types to narrow before rerunning the heavy view; shrink below 50ms only as a local micro-probe with a caveat.", 1)
 	description = strings.Replace(description, "Trace markers include B/E/C/S/F rows: event_search rows expose span_action, span_pid, span_name, and span_value; span_window/window_stats trace_spans expose kind=sync|async plus category/subcategory/semantic_class.", "Trace markers include B/E/C/S/F/G/H/N/I rows: event_search preserves their exact raw payload plus span_action/span_pid/span_track/span_name/span_value. G/H ASYNC_FOR_TRACK pairs use payload pid + track_name + cookie and physical source/generation, publish typed track_name as trace_track_spans, and never inherit emitter-thread ownership or enter semantic/root-cause ranking. N/I publish only as zero-duration trace_instants. span_window/window_stats trace_spans remain the separate B/E/S/F kind=sync|async lane with category/subcategory/semantic_class.", 1)
+	description = traceQueryApplyRootCauseClosedMatrixContract(description)
+	description += " " + traceQueryRootCauseClosedMatrixContract
 	return description
 }
 
@@ -146,6 +204,8 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	schema = strings.Replace(schema,
 		"semantic span-work candidates for JIT/class verification/shader/runtime compilation hidden cost (tier=deterministic_optimization when on-chain, background_rank position when not)",
 		"semantic span-work candidates for JIT/class verification/shader/runtime compilation, texture upload, and explicit GC pauses (ordinary primary/secondary/tertiary election when on-chain; background_rank only when off-chain)", 1)
+	schema = traceQueryApplyRootCauseClosedMatrixContract(schema)
+	schema = strings.Replace(schema, "frame_root_cause_bundle returns", traceQueryRootCauseClosedMatrixContract+" frame_root_cause_bundle returns", 1)
 	return json.RawMessage(schema)
 }
 
@@ -4406,30 +4466,7 @@ func traceQueryRootCauseItemIsSemanticSpanWork(typ string) bool {
 }
 
 func traceQueryRootCauseEffectiveImpact(item tracequery.RootCauseRankItem) float64 {
-	if item.PeriodicSource {
-		// VS-1 (§7.8): a periodic-source row's discounted attribution is
-		// authoritative even at 0 — the cumulative/impact fallbacks would
-		// republish the raw in-period sleep as effective impact.
-		return item.EffectiveImpactMs
-	}
-	if item.Type == "running" {
-		// §20.2 (2026-07-07) mirror of the engine's rootCauseEffectiveImpactMs:
-		// a causal-lane running row's attribution is its ELIMINABLE supply-fold
-		// deficit, authoritative even at 0 — the cumulative fallback below
-		// must never republish the raw wall clock as effective attribution
-		// (the raw stays on the cumulative/impact display notes).
-		return item.EffectiveImpactMs
-	}
-	if item.EffectiveImpactMs > 0 {
-		return item.EffectiveImpactMs
-	}
-	if item.CumulativeImpactMs > 0 {
-		return item.CumulativeImpactMs
-	}
-	if item.ImpactMs > 0 {
-		return item.ImpactMs
-	}
-	return item.TargetImpactMs
+	return tracequery.RootCauseRankItemEffectiveImpactMs(item)
 }
 
 func traceQueryPerfRoleContextsCompact(contexts []tracequery.RootCausePerfRoleContext, max int) string {
@@ -4722,7 +4759,7 @@ func traceQuerySourceBasename(path string) string {
 }
 
 func writeTraceIOPressure(b *strings.Builder, item tracequery.IOPressureSummary) {
-	fmt.Fprintf(b, "- io_pressure signal=%s score=%.3f block_max=%.3fms storage_max=%.3fms file_bytes=%d file_events=%d page_cache_churn=%d iowait_blocked=%d d_state=%.3fms top_inode=%s top_dev=%s top_name=%s lines=%d-%d — %s\n",
+	fmt.Fprintf(b, "- io_pressure signal=%s score=%.3f block_max=%.3fms storage_max=%.3fms file_bytes=%d file_events=%d page_cache_churn=%d iowait_blocked=%d d_state=%.3fms io_wait=%.3fms top_inode=%s top_dev=%s top_name=%s lines=%d-%d — %s\n",
 		sanitizeForBanner(item.Signal),
 		item.Score,
 		item.BlockMaxLatencyMs,
@@ -4732,6 +4769,7 @@ func writeTraceIOPressure(b *strings.Builder, item tracequery.IOPressureSummary)
 		item.PageCacheChurn,
 		item.IOWaitBlockedCount,
 		item.DStateMs,
+		item.IOWaitMs,
 		sanitizeForBanner(firstNonEmptyTraceString(item.TopInode, "unknown")),
 		sanitizeForBanner(firstNonEmptyTraceString(item.TopDev, "unknown")),
 		sanitizeForBanner(firstNonEmptyTraceString(item.TopEntryName, "unknown")),
@@ -5490,6 +5528,9 @@ func traceQueryRootCausePositionWord(tier string, rank int) string {
 
 func traceQueryRootCauseRankHasForeground(items []tracequery.RootCauseRankItem) bool {
 	for _, item := range items {
+		if item.Rank <= 0 || item.Tier == tracequery.RootCauseTierContextOnly || tracequery.RootCauseRankItemEffectiveImpactMs(item) <= 0 {
+			continue
+		}
 		switch traceQueryRootCauseItemRelevance(item) {
 		case "on_chain", "adjacent":
 			return true
@@ -5922,13 +5963,10 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// obligation reads background_rank<=3, never a prose count.
 				notes = append(notes, fmt.Sprintf("%s=%d", types.TraceNoteKeyBackgroundRank, item.BackgroundRank))
 			}
-			if item.Type == "running" && traceQueryRootCauseEffectiveImpact(item) <= 0 {
-				// §20.2 (2026-07-07): a running row's ZERO attribution is
-				// authoritative (eliminable deficit; raw is display-only) and
-				// must not vanish off the positive-only note filter — an
-				// absent effective note would invite the cumulative fallback
-				// (raw) exactly the way §20.2 forbids. Same explicit-zero
-				// discipline as the VS-1 periodic lane.
+			if tier == tracequery.RootCauseTierContextOnly && !item.PeriodicSource {
+				// A context-only row's ZERO attribution is authoritative and must
+				// survive the positive-only note filter. Raw Impact/Cumulative are
+				// display evidence, never a fallback cause magnitude.
 				notes = append(notes, fmt.Sprintf("%s=%.3f", types.TraceNoteKeyEffectiveImpactMS, 0.0))
 			}
 			notes = append(notes, traceQueryTypedRootCauseStateRichNotes(item)...)
@@ -6098,7 +6136,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				provenance = types.ObservationProvenanceArtifactSpan
 				claimKey = "root_cause_absorbed"
 				predicate = "root_cause_absorbed"
-			} else if tier == tracequery.RootCauseTierDataGap {
+			} else if tier == tracequery.RootCauseTierDataGap || tier == tracequery.RootCauseTierContextOnly {
 				// 复核 P3-2 (2026-07-09): a data blind spot is NEVER a
 				// principal answer — the role/provenance demote UNCONDITIONALLY
 				// (the background arm below requires a foreground root cause,
@@ -6413,9 +6451,16 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				Value:           traceQueryObservationMSValue(root.DurationMs),
 				Unit:            "ms",
 				Summary:         root.Summary,
-				SupportRefs:     traceQueryObservationSupportRefs(ref, root.LineStart, root.LineEnd),
-				ObservedAt:      at,
-				Confidence:      root.Confidence,
+				// RootEvidence is a lossless, reduced-shape wakeup witness. It does
+				// not carry CAP/gated/state-union provenance, so only the richer
+				// root_cause_rank/causal-impact lanes may participate in ranking.
+				RichNotes: []string{
+					types.TraceNoteKeyTier + "=" + tracequery.RootCauseTierContextOnly,
+					types.TraceNoteKeyEffectiveImpactMS + "=0.000",
+				},
+				SupportRefs: traceQueryObservationSupportRefs(ref, root.LineStart, root.LineEnd),
+				ObservedAt:  at,
+				Confidence:  root.Confidence,
 			})
 		}
 	}
@@ -6976,6 +7021,11 @@ func traceQueryWakeupCausalAggregateFoldRecord(scope string, ref types.Observati
 
 func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) []string {
 	views := traceQueryCausalImpactRecommendedViews(impact)
+	effectiveMs := tracequery.WakeupCausalImpactEffectiveImpactMs(impact)
+	tier := ""
+	if effectiveMs <= 0 {
+		tier = tracequery.RootCauseTierContextOnly
+	}
 	notes := traceQueryTypedKVNotes([][2]string{
 		// F-1 mutual pin: traceQueryTypedCount zero-drops, so ChainDepth==0
 		// publishes NO depth= note. RN-14c consumers in
@@ -6987,6 +7037,7 @@ func traceQueryTypedCausalImpactRichNotes(impact tracequery.WakeupCausalImpact) 
 		// ordinal (zero-dropped on legacy rows) — display attach domain only.
 		{types.TraceNoteKeyChainBranch, traceQueryTypedCount(impact.ChainBranch)},
 		{types.TraceNoteKeyCausality, traceQueryCausalityLabel(impact.OnChain)},
+		{types.TraceNoteKeyTier, tier},
 		{types.TraceNoteKeyDominantState, impact.DominantState},
 		{types.TraceNoteKeyImpact, traceQueryObservationMSValue(impact.DominantImpactMs)},
 		// PTV5 Q1 (#68 用户裁定 2026-07-05, 上游根治): every wakeup_causal_impact
@@ -7065,14 +7116,10 @@ func traceQueryCausalImpactEffectiveNoteValue(impact tracequery.WakeupCausalImpa
 		return ""
 	}
 	value := tracequery.WakeupCausalImpactEffectiveImpactMs(impact)
-	if value <= 0 && impact.DominantState == string(tracequery.StateRunning) {
-		// §20.2 (2026-07-07): running rows' zero attribution prints
-		// explicitly (VS-1 explicit-zero discipline) — the eliminable
-		// deficit being 0 IS the load-bearing fact; dropping the note would
-		// leave the raw wall clock looking like the attribution.
-		return "0.000"
-	}
-	return traceQueryObservationMSValue(value)
+	// Authoritative zero is load-bearing for every closed-matrix context lane
+	// (plain running without CAP deficit, ordinary sleep, unknown), not just
+	// running. Always print the scalar so projection cannot fall back to raw.
+	return fmt.Sprintf("%.3f", value)
 }
 
 func traceQueryTypedPeriodicSourceRichNotes(periodic bool, periodMs, latenessMs, effectiveMs float64, includeEffective bool) []string {
@@ -7248,6 +7295,15 @@ func traceQueryTypedCausalAggregateRichNotes(aggregate tracequery.WakeupCausalAg
 	// F2 (§20.2 absorption): the single typed rank-face determination —
 	// see the gating comment at the candidate note below.
 	inversionTyped := tracequery.WakeupCausalAggregateInversionTyped(aggregate)
+	effectiveMs := tracequery.WakeupCausalAggregateEffectiveImpactMs(aggregate)
+	tier := ""
+	if effectiveMs <= 0 {
+		tier = tracequery.RootCauseTierContextOnly
+	}
+	effectiveNote := ""
+	if !aggregate.PeriodicSource {
+		effectiveNote = fmt.Sprintf("%.3f", effectiveMs)
+	}
 	notes := traceQueryTypedOccurrenceWindowRichNotes(aggregate.OccurrenceWindows)
 	notes = append(notes, traceQueryTypedKVNotes([][2]string{
 		{types.TraceNoteKeyDepth, traceQueryTypedCount(aggregate.ChainDepth)},
@@ -7255,10 +7311,12 @@ func traceQueryTypedCausalAggregateRichNotes(aggregate tracequery.WakeupCausalAg
 		// cross-branch aggregate has no single identity (engine keeps 0).
 		{types.TraceNoteKeyChainBranch, traceQueryTypedCount(aggregate.ChainBranch)},
 		{types.TraceNoteKeyPath, aggregate.Path},
+		{types.TraceNoteKeyTier, tier},
 		{"occurrences", traceQueryTypedCount(aggregate.OccurrenceCount)},
 		{"aggregation_caliber", aggregate.AggregationCaliber},
 		{types.TraceNoteKeyDominantState, aggregate.DominantState},
 		{types.TraceNoteKeyImpact, traceQueryObservationMSValue(aggregate.DominantImpactMs)},
+		{types.TraceNoteKeyEffectiveImpactMS, effectiveNote},
 		{types.TraceNoteKeyProjectedImpact, traceQueryObservationMSValue(aggregate.ProjectedImpactMs)},
 		{types.TraceNoteKeyTotal, traceQueryObservationMSValue(aggregate.TotalMs)},
 		{"projected_total", traceQueryObservationMSValue(aggregate.ProjectedTotalMs)},
@@ -8016,7 +8074,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 	out = append(out, traceQueryTypedThreadDurationObservations(stats.TopRunning, stats.Window, ref, scope, at, "top_running", "running_time", "running", "selected-window running time", 0.70)...)
 	out = append(out, traceQueryTypedThreadDurationObservations(stats.RunnableTop, stats.Window, ref, scope, at, "top_runnable", "runnable_wait", "runnable", "selected-window runnable wait", 0.75)...)
 	out = append(out, traceQueryTypedThreadDurationObservations(stats.SleepTop, stats.Window, ref, scope, at, "top_sleep", "sleep_wait", "sleep", "selected-window sleep before wakeup", 0.76)...)
-	out = append(out, traceQueryTypedThreadDurationObservations(stats.DStateTop, stats.Window, ref, scope, at, "top_d_state", "d_state_or_io_wait", "d_state", "selected-window D-state or IO-like wait", 0.80)...)
+	out = append(out, traceQueryTypedThreadDurationObservations(stats.DStateTop, stats.Window, ref, scope, at, "top_d_state", "d_state_or_io_wait", "d_state", "selected-window non-IO D-state wait", 0.80)...)
 	out = append(out, traceQueryTypedThreadDurationObservations(stats.IOWaitTop, stats.Window, ref, scope, at, "top_io_wait", "io_wait", "io_wait", "selected-window IO wait", 0.82)...)
 	// RN-1 (§7.9): significant runnable starvation gets its same-window
 	// occupier attribution published as a ledger observation — without it the

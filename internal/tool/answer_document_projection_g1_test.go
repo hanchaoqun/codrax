@@ -205,8 +205,11 @@ func TestG1DisplayEndToEndHuadongShape(t *testing.T) {
 		t.Fatalf("expected one projection, got %d", len(set.Projections))
 	}
 	projection := set.Projections[0]
-	if len(projection.AbsorbedChainRows) != 8 {
-		t.Fatalf("huadong shape must relocate 8 absorbed rows, got %d", len(projection.AbsorbedChainRows))
+	if len(projection.AbsorbedChainRows) != 7 {
+		// One of the eight exact chain publications is the native carrier
+		// folded into the visible family node; the other seven are relocated
+		// into the absorbed-row audit lane.
+		t.Fatalf("huadong shape must relocate 7 peers beside the native family carrier, got %d", len(projection.AbsorbedChainRows))
 	}
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	var family *runtimeTraceProjTreeRow
@@ -218,12 +221,12 @@ func TestG1DisplayEndToEndHuadongShape(t *testing.T) {
 			family = &rows[i]
 		}
 	}
-	if family == nil || family.Node.FamilyMemberCount != 8 || len(family.AbsorbedChainPeers) != 8 {
-		t.Fatalf("huadong family row must render ×8 with 8 absorbed peers: %+v", family)
+	if family == nil || family.Node.FamilyMemberCount != 8 || len(family.AbsorbedChainPeers) != 7 {
+		t.Fatalf("huadong family row must render ×8 with one native carrier plus 7 absorbed peers: %+v", family)
 	}
 	detail := runtimeTraceProjDetailFullText(model, true)
-	if !strings.Contains(detail, "链上车道 8 条同源观测已并入本行(") {
-		t.Fatalf("huadong family stanza must carry the ×8 链上并入 note:\n%s", detail)
+	if !strings.Contains(detail, "链上车道 7 条同源观测已并入本行(") {
+		t.Fatalf("huadong family stanza must disclose the 7 relocated peers beside the native carrier:\n%s", detail)
 	}
 	if strings.Contains(runtimeTraceProjTreeFence(model, true), "udk-irq-") {
 		t.Fatal("huadong fence must not seat absorbed peer rows")

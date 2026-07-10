@@ -41,6 +41,9 @@ func rootCauseRankItemIsZeroSeatDisclosure(item RootCauseRankItem) bool {
 	if item.Type == "trace_gap" {
 		return true
 	}
+	if rootCauseEffectiveImpactMs(item) <= 0 {
+		return true
+	}
 	return item.SubjectIsAnalysisTarget && rootCauseItemIsTargetWaitSymptomType(item)
 }
 
@@ -70,7 +73,7 @@ func truncateRootCauseRankCandidatesAndSideRows(items []RootCauseRankItem, limit
 	}
 	candidateTotal = len(candidates)
 	if limit > 0 && len(candidates) > limit {
-		candidates = truncateRootCauseRankItemsWithSemanticSeats(candidates, limit)
+		candidates = truncateRootCauseRankItemsStrict(candidates, limit)
 	}
 	candidateEmitted = len(candidates)
 	side := make([]RootCauseRankItem, 0, rootCauseRankZeroSeatDisclosureCap)

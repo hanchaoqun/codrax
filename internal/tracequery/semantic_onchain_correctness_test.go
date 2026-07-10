@@ -7,11 +7,12 @@ import (
 
 func TestSemanticOnChainUsesOrdinaryElectionOffChainUsesBackgroundOnly(t *testing.T) {
 	items := []RootCauseRankItem{
-		{Type: "jit_compile", ImpactMs: 9, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
-		{Type: "shader_compile", ImpactMs: 7, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
-		{Type: "gc_pause", ImpactMs: 5, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
-		{Type: "class_verification", ImpactMs: 4, ChainRelevance: "background", Causality: "background"},
+		{Type: "jit_compile", ImpactMs: 9, EffectiveImpactMs: 9, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
+		{Type: "shader_compile", ImpactMs: 7, EffectiveImpactMs: 7, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
+		{Type: "gc_pause", ImpactMs: 5, EffectiveImpactMs: 5, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
+		{Type: "class_verification", ImpactMs: 4, EffectiveImpactMs: 4, ChainRelevance: "background", Causality: "background"},
 	}
+	sortRootCauseRankItems(items, true)
 	assignRootCauseRanksAndTiers(items)
 	for i, want := range []string{"primary", "secondary", "tertiary"} {
 		if items[i].Tier != want || items[i].Rank != i+1 {

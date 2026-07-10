@@ -13,7 +13,7 @@ func TestRankZeroDisclosureCapacityReservesBothTypedLanes(t *testing.T) {
 		{Type: "trace_gap", Thread: ThreadRef{Comm: "peer-a", PID: 201}},
 		{Type: "trace_gap", Thread: ThreadRef{Comm: "peer-b", PID: 202}},
 		{Type: "trace_gap", Thread: ThreadRef{Comm: "peer-c", PID: 203}},
-		{Type: "cpu_pressure", Thread: ThreadRef{Comm: "worker", PID: 300}},
+		{Type: "runnable_wait", Thread: ThreadRef{Comm: "worker", PID: 300}, ImpactMs: 1, RunnableMs: 1},
 	}
 
 	got, candidateTotal, candidateEmitted, sideTotal, sideEmitted := truncateRootCauseRankCandidatesAndSideRows(items, 1)

@@ -3,12 +3,12 @@ package tracequery
 // dynamic_compile_span_dcs_test.go — DCS 修复批 engine pins (ledger
 // real_trace_campaign_20260705.md §23/§23.1, 2026-07-08):
 //
-//   E1  reserved seats for 窗内∧链上 semantic spans; current SEM-LEAD-P0
-//       makes them ordinary primary/secondary/tertiary election candidates.
-//   E1b non-chain spans join the background composite board ordered by the
-//       window-share basis (占窗比 — wall-clock clipped ÷ window for spans,
-//       own-caliber cumulative ÷ window for everything else; NEVER raw Score
-//       across calibers, §7.30 S1), plus one guaranteed board seat.
+//   E1  窗内∧链上 semantic spans are ordinary effective-ranked
+//       primary/secondary/tertiary election candidates; no reserved seats.
+//   E1b non-chain spans join the background board under the same published
+//       effective ordering as every other row. Below-cut spans use the
+//       independent deterministic-optimization mention lane rather than
+//       evicting a larger cause.
 //   E2  mint fall-through (chain-exists-no-overlap → typed non-chain row) and
 //       the opened PID gate (external-process spans mint; cmp_01 E2 witness);
 //       道别红线: enrichment thread-membership can never flip a mint-time
@@ -18,8 +18,8 @@ package tracequery
 //   E4  cross-window-boundary B/E pairs mint window-clipped spans with typed
 //       actual_* extent; dangling semantic-word-surface pairs caveat.
 //   E2E cmp_01 6.0-shape fixture: 16-span zero-chain window with a saturated
-//       board → background seat keeps the top span visible; the E6 mention
-//       gate reads its typed background_rank.
+//       board → no semantic displacement seat; the fail-loud/optimization
+//       channel preserves the independent mention obligation.
 
 import (
 	"encoding/json"
@@ -32,10 +32,11 @@ import (
 
 func TestDCSAssignTiersOnChainSemanticParticipatesInElection(t *testing.T) {
 	items := []RootCauseRankItem{
-		{Type: "jit_compile", ImpactMs: 5, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
-		{Type: "runnable_wait", ImpactMs: 9, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
-		{Type: "supply_pressure", ImpactMs: 40, ChainRelevance: "background"},
+		{Type: "jit_compile", ImpactMs: 10, EffectiveImpactMs: 10, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
+		{Type: "runnable_wait", ImpactMs: 9, RunnableMs: 9, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
+		{Type: "workqueue_activity", ImpactMs: 4, EffectiveImpactMs: 4, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 	}
+	sortRootCauseRankItems(items, true)
 	assignRootCauseRanksAndTiers(items)
 	if items[0].Tier != "primary" {
 		t.Fatalf("the highest on-chain semantic span must be a primary candidate: %+v", items[0])
@@ -43,8 +44,8 @@ func TestDCSAssignTiersOnChainSemanticParticipatesInElection(t *testing.T) {
 	if items[0].BackgroundRank != 0 {
 		t.Fatalf("on-chain semantic span is not on the background board: %+v", items[0])
 	}
-	if items[1].Tier != "primary" {
-		t.Fatalf("the existing on-chain runnable co-primary rule must remain: %+v", items[1])
+	if items[1].Tier != "secondary" {
+		t.Fatalf("the runnable row must take the strict second positional tier: %+v", items[1])
 	}
 	if items[2].Tier != "tertiary" {
 		t.Fatalf("the ordinary ladder must include the semantic row: %+v", items[2])
@@ -69,8 +70,8 @@ func TestDCSAssignTiersOnChainSemanticParticipatesInElection(t *testing.T) {
 // non-chain lane's board identity background_rank, never an election slot.
 func TestDCSNonChainSemanticNeverTakesPrimarySlot(t *testing.T) {
 	items := []RootCauseRankItem{
-		{Type: "jit_compile", ImpactMs: 83.893, SpanName: "JIT compiling method00"},
-		{Type: "runnable_wait", ImpactMs: 9},
+		{Type: "jit_compile", ImpactMs: 83.893, EffectiveImpactMs: 83.893, SpanName: "JIT compiling method00"},
+		{Type: "runnable_wait", ImpactMs: 9, RunnableMs: 9},
 	}
 	assignRootCauseRanksAndTiers(items)
 	if items[0].Tier == "primary" || items[0].Tier == RootCauseTierDeterministicOptimization {
@@ -88,56 +89,67 @@ func TestDCSNonChainSemanticNeverTakesPrimarySlot(t *testing.T) {
 		t.Fatalf("the election ladder must not be consumed by the semantic row: %+v", items[1])
 	}
 	// Fully degenerate board: ONLY the semantic row — still never primary.
-	solo := []RootCauseRankItem{{Type: "shader_compile", ImpactMs: 20.5, SpanName: "shader_compile warmup"}}
+	solo := []RootCauseRankItem{{Type: "shader_compile", ImpactMs: 20.5, EffectiveImpactMs: 20.5, SpanName: "shader_compile warmup"}}
 	assignRootCauseRanksAndTiers(solo)
 	if solo[0].Tier != "tertiary" || solo[0].BackgroundRank != 1 {
 		t.Fatalf("degenerate single-span board: %+v", solo[0])
 	}
 }
 
-func TestDCSSemanticSpanTypesUsePositionalElectionNotBlanketCoPrimary(t *testing.T) {
-	// Semantic work competes through assignRootCauseRanksAndTiers. It does not
-	// use the blanket co-primary promotion, which would incorrectly crown every
-	// on-chain optimization span regardless of sorted position.
+func TestDCSSemanticSpanTypesUseStrictPositionalElection(t *testing.T) {
+	// Semantic work competes through the same sort+assignment path as every
+	// other typed cause. A later semantic row must stay secondary instead of
+	// being promoted independently of its measured position.
 	for _, typ := range []string{"jit_compile", "class_verification", "shader_compile", "runtime_compile", "texture_upload", "gc_pause"} {
-		item := RootCauseRankItem{Type: typ, ImpactMs: 50, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"}
-		if rootCauseShouldBeCoPrimary(item) {
-			t.Fatalf("%s must use positional election, not blanket co-primary", typ)
+		items := []RootCauseRankItem{
+			{Type: "runnable_wait", ImpactMs: 60, RunnableMs: 60, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
+			{Type: typ, ImpactMs: 50, EffectiveImpactMs: 50, ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
+		}
+		sortRootCauseRankItems(items, true)
+		assignRootCauseRanksAndTiers(items)
+		if items[0].Type != "runnable_wait" || items[0].Tier != "primary" || items[1].Type != typ || items[1].Tier != "secondary" {
+			t.Fatalf("%s must use strict positional election: %+v", typ, items)
 		}
 	}
-	// Control: the on-chain hard precondition and the non-semantic whitelist
-	// are untouched.
-	if !rootCauseShouldBeCoPrimary(RootCauseRankItem{Type: "runnable_wait", ImpactMs: 5, ChainRelevance: "on_chain"}) {
-		t.Fatalf("runnable_wait co-primary lane must stay")
+	// Control: chain relevance remains the hard first sort partition.
+	items := []RootCauseRankItem{
+		{Type: "runnable_wait", ImpactMs: 5, RunnableMs: 5, ChainRelevance: "on_chain"},
+		{Type: "runnable_wait", ImpactMs: 50, RunnableMs: 50, ChainRelevance: "background"},
 	}
-	if rootCauseShouldBeCoPrimary(RootCauseRankItem{Type: "runnable_wait", ImpactMs: 5, ChainRelevance: "background"}) {
-		t.Fatalf("the on-chain hard precondition must stay")
+	sortRootCauseRankItems(items, true)
+	assignRootCauseRanksAndTiers(items)
+	if items[0].ChainRelevance != "on_chain" || items[0].Tier != "primary" {
+		t.Fatalf("the on-chain hard partition must stay: %+v", items)
 	}
 }
 
-// --- E1/E1b: reserved seats inside the truncation ------------------------------
+// --- E1/E1b: strict effective capacity -----------------------------------------
 
 func dcsSeatItems(nonSemantic int) []RootCauseRankItem {
 	items := make([]RootCauseRankItem, 0, nonSemantic)
 	for i := 0; i < nonSemantic; i++ {
 		items = append(items, RootCauseRankItem{
 			Type: "runnable_wait", ImpactMs: float64(100 - i), CumulativeImpactMs: float64(100 - i),
-			Score: float64(100 - i),
+			RunnableMs: float64(100 - i), Score: float64(100 - i),
 		})
 	}
 	return items
 }
 
-func TestDCSTruncationKeepsOnChainSemanticReservedSeats(t *testing.T) {
+func TestDCSTruncationUsesStrictEffectivePrefixWithoutOnChainReservation(t *testing.T) {
 	items := dcsSeatItems(12)
 	for i := 0; i < 4; i++ {
 		items = append(items, RootCauseRankItem{
-			Type: "jit_compile", ImpactMs: 3 + float64(i), CumulativeImpactMs: 3 + float64(i),
+			Type: "jit_compile", ImpactMs: 3 + float64(i), EffectiveImpactMs: 3 + float64(i), CumulativeImpactMs: 3 + float64(i),
 			ChainRelevance: "on_chain", Causality: "on_wakeup_chain", Score: 2,
 			SpanName: fmt.Sprintf("JIT compiling seat%d", i),
 		})
 	}
-	out := truncateRootCauseRankItemsWithSemanticSeats(items, 12)
+	for i := range items {
+		items[i].ChainRelevance = "on_chain"
+	}
+	sortRootCauseRankItems(items, true)
+	out := truncateRootCauseRankItemsStrict(items, 12)
 	if len(out) != 12 {
 		t.Fatalf("truncation must emit exactly the limit: got %d", len(out))
 	}
@@ -147,27 +159,24 @@ func TestDCSTruncationKeepsOnChainSemanticReservedSeats(t *testing.T) {
 			kept++
 		}
 	}
-	// E1 正向: exactly the reserved seat budget survives; the 4th on-chain
-	// span stays out (seats are a guarantee, not an unbounded bypass).
-	if kept != rootCauseSemanticOnChainReservedSeats {
-		t.Fatalf("expected %d on-chain semantic seats, got %d: %+v", rootCauseSemanticOnChainReservedSeats, kept, out)
+	if kept != 0 {
+		t.Fatalf("below-cut semantic rows must not evict larger effective causes, got %d: %+v", kept, out)
 	}
-	// The evicted rows are the LOWEST non-semantic rows; order is preserved.
 	for i := 1; i < len(out); i++ {
-		if !rootCauseItemIsSemanticSpanWork(out[i]) && !rootCauseItemIsSemanticSpanWork(out[i-1]) &&
-			out[i].Score > out[i-1].Score {
-			t.Fatalf("relative sorted order must be preserved: %+v", out)
+		if rootCauseEffectiveImpactMs(out[i]) > rootCauseEffectiveImpactMs(out[i-1]) {
+			t.Fatalf("strict prefix must preserve effective order: %+v", out)
 		}
 	}
 }
 
-func TestDCSTruncationGuaranteesTopBackgroundSemanticSeat(t *testing.T) {
+func TestDCSTruncationDoesNotGuaranteeBackgroundSemanticSeat(t *testing.T) {
 	items := dcsSeatItems(12)
 	items = append(items, RootCauseRankItem{
-		Type: "jit_compile", ImpactMs: 83.893, CumulativeImpactMs: 83.893, Score: 70,
+		Type: "jit_compile", ImpactMs: 83.893, EffectiveImpactMs: 83.893, CumulativeImpactMs: 83.893, Score: 70,
 		SpanName: "JIT compiling android.content.pm.Foo",
 	})
-	out := truncateRootCauseRankItemsWithSemanticSeats(items, 12)
+	sortRootCauseRankItems(items, false)
+	out := truncateRootCauseRankItemsStrict(items, 12)
 	if len(out) != 12 {
 		t.Fatalf("truncation must emit exactly the limit: got %d", len(out))
 	}
@@ -177,45 +186,39 @@ func TestDCSTruncationGuaranteesTopBackgroundSemanticSeat(t *testing.T) {
 			found = true
 		}
 	}
-	if !found {
-		t.Fatalf("the top non-chain semantic span must keep its guaranteed board seat (E1b): %+v", out)
+	if found {
+		t.Fatalf("below-cut background semantic work must use the independent mention lane, not displace a larger cause: %+v", out)
 	}
 }
 
-// --- E1b: background composite ordering basis ----------------------------------
+// --- E1b: effective ordering has no semantic placement exception ----------------
 
-func TestDCSBackgroundPlacementUsesWindowShareBasisNotScore(t *testing.T) {
-	q := Query{TimeStart: 1.0, TimeEnd: 1.101}
+func TestDCSBackgroundOrderingUsesEffectiveNotScore(t *testing.T) {
 	agg := RootCauseRankItem{Type: "supply_pressure", ImpactMs: 28914, CumulativeImpactMs: 28914, Score: 12078}
-	run1 := RootCauseRankItem{Type: "runnable_wait", ImpactMs: 101, CumulativeImpactMs: 101, Score: 90}
-	run2 := RootCauseRankItem{Type: "runnable_wait", ImpactMs: 60, CumulativeImpactMs: 60, Score: 55}
+	run1 := RootCauseRankItem{Type: "runnable_wait", ImpactMs: 101, CumulativeImpactMs: 101, RunnableMs: 101, Score: 90}
+	run2 := RootCauseRankItem{Type: "runnable_wait", ImpactMs: 60, CumulativeImpactMs: 60, RunnableMs: 60, Score: 55}
 	// The span's Score (95) would beat run1's (90) on the raw Score channel —
 	// exactly the cross-caliber race the S1 precedent forbids. Its SHARE
 	// basis (83.893ms wall-clock ÷ window) sits below run1's (101ms).
-	span := RootCauseRankItem{Type: "jit_compile", ImpactMs: 83.893, CumulativeImpactMs: 83.893, Score: 95,
+	span := RootCauseRankItem{Type: "jit_compile", ImpactMs: 83.893, EffectiveImpactMs: 83.893, CumulativeImpactMs: 83.893, Score: 950,
 		SpanName: "JIT compiling android.content.pm.Foo"}
-	items := placeNonChainSemanticSpanRows(q, []RootCauseRankItem{agg, span, run1, run2})
-	if items[1].Type != "runnable_wait" || items[2].Type != "jit_compile" {
-		t.Fatalf("placement must follow the window-share basis (below the 101ms runnable), never raw Score: %+v", items)
+	items := []RootCauseRankItem{agg, span, run1, run2}
+	sortRootCauseRankItems(items, false)
+	if items[0].Type != "runnable_wait" || items[1].Type != "jit_compile" {
+		t.Fatalf("ordering must follow effective (below 101ms runnable), never the semantic Score: %+v", items)
 	}
-	if items[3].Type != "runnable_wait" || items[3].ImpactMs != 60 {
+	if items[2].Type != "runnable_wait" || items[2].ImpactMs != 60 || items[3].Type != "supply_pressure" {
 		t.Fatalf("the span must still sit above smaller-share rows: %+v", items)
-	}
-	// 无窗控制 (absence never guesses): without a bounded window there is no
-	// share basis and the Score order stands.
-	unmoved := placeNonChainSemanticSpanRows(Query{}, []RootCauseRankItem{agg, span, run1, run2})
-	if unmoved[1].Type != "jit_compile" {
-		t.Fatalf("without a window the Score order must stand: %+v", unmoved)
 	}
 }
 
-func TestDCSBackgroundPlacementNeverCrossesOnChainTiers(t *testing.T) {
-	q := Query{TimeStart: 1.0, TimeEnd: 1.101}
-	onChain := RootCauseRankItem{Type: "io_wait", ImpactMs: 2, CumulativeImpactMs: 2, Score: 3,
+func TestDCSBackgroundOrderingNeverCrossesOnChainTiers(t *testing.T) {
+	onChain := RootCauseRankItem{Type: "io_wait", ImpactMs: 2, EffectiveImpactMs: 2, CumulativeImpactMs: 2, IOWaitMs: 2, Score: 3,
 		ChainRelevance: "on_chain", Causality: "on_wakeup_chain"}
-	span := RootCauseRankItem{Type: "jit_compile", ImpactMs: 83.893, CumulativeImpactMs: 83.893, Score: 70,
+	span := RootCauseRankItem{Type: "jit_compile", ImpactMs: 83.893, EffectiveImpactMs: 83.893, CumulativeImpactMs: 83.893, Score: 70,
 		ChainRelevance: "background", Causality: "background"}
-	items := placeNonChainSemanticSpanRows(q, []RootCauseRankItem{onChain, span})
+	items := []RootCauseRankItem{span, onChain}
+	sortRootCauseRankItems(items, true)
 	if items[0].Type != "io_wait" {
 		t.Fatalf("a non-chain span must never place above an on-chain row: %+v", items)
 	}
@@ -456,7 +459,9 @@ func TestDCSSameThreadNoOverlapSpanStaysNonChainAdjacent(t *testing.T) {
 // compile spans hosted on NON-target processes inside a zero-chain window
 // whose board is saturated by runnable/cpu-pressure noise. Pre-DCS every
 // span died at the PID gate / the 12-seat cap and the rank published zero
-// semantic rows with zero warning.
+// semantic rows with zero warning. Under the current ruling a semantic row
+// survives only when its real effective value earns the prefix; otherwise the
+// independent fail-loud/optimization channel must disclose the omission.
 func TestDCSZeroChainSixteenSpanWindowEndToEnd(t *testing.T) {
 	var b strings.Builder
 	// Target process exists but never sleeps/wakes inside the window — the
@@ -491,8 +496,14 @@ func TestDCSZeroChainSixteenSpanWindowEndToEnd(t *testing.T) {
 	}
 	idx := buildTraceIndex(t, "dcs_zero_chain_16_spans.systrace", b.String())
 	rank := BuildRootCauseRank(idx, Query{PID: 100, TimeStart: 8144.608, TimeEnd: 8144.708, MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
-	if len(rank.Items) > 12 {
-		t.Fatalf("the 12-seat capacity must hold: %d rows", len(rank.Items))
+	candidateRows := 0
+	for _, item := range rank.Items {
+		if !rootCauseRankItemIsZeroSeatDisclosure(item) {
+			candidateRows++
+		}
+	}
+	if candidateRows > 12 {
+		t.Fatalf("the 12-seat candidate capacity must hold independently of rank-0 disclosures: candidates=%d rows=%d", candidateRows, len(rank.Items))
 	}
 	var top *RootCauseRankItem
 	semanticPublished := 0
@@ -507,32 +518,24 @@ func TestDCSZeroChainSixteenSpanWindowEndToEnd(t *testing.T) {
 			t.Fatalf("classified spans must never degrade to generic trace_span rows: %+v", rank.Items[i])
 		}
 	}
-	// E1b 背景榜可见: the saturated board still publishes the top span via
-	// the guaranteed background seat (mutation: plain [:limit] truncation
-	// bites here).
-	if semanticPublished == 0 {
-		t.Fatalf("the background seat must keep at least one semantic span visible: %+v", rank.Items)
+	if top != nil {
+		if top.ChainRelevance == "on_chain" || top.Tier == RootCauseTierDeterministicOptimization || top.Tier == "primary" {
+			t.Fatalf("an external-process zero-chain span stays on the non-chain lane: %+v", top)
+		}
+		if top.BackgroundRank <= 0 {
+			t.Fatalf("an earned published span must carry its typed background board position: %+v", top)
+		}
 	}
-	if top == nil {
-		t.Fatalf("the TOP span by window share (83.893ms) must be the seated one: %+v", rank.Items)
-	}
-	if top.ChainRelevance == "on_chain" || top.Tier == RootCauseTierDeterministicOptimization || top.Tier == "primary" {
-		t.Fatalf("an external-process zero-chain span stays on the non-chain lane: %+v", top)
-	}
-	if top.BackgroundRank <= 0 {
-		t.Fatalf("the published span must carry its typed background board position: %+v", top)
-	}
-	// E6 按榜位提及判定: the aggregates/pressure/runnable rows above it hold
-	// the top board positions, so the typed gate says NO prose mention
-	// (background_rank>3) — exactly the §23.1 ruling-④ expectation for the
-	// witness; the LEAD-SEM conclusion fallback still names it display-side.
-	if top.BackgroundRank <= 3 {
-		t.Fatalf("witness shape: the span must sit below the TOP-3 mention line, got background_rank=%d (board: %+v)", top.BackgroundRank, rank.Items)
-	}
-	// E3 negative: semantic rows published → no fail-loud caveat.
+	failLoud := false
 	for _, caveat := range rank.Caveats {
 		if strings.Contains(caveat, "0 semantic rows") {
-			t.Fatalf("fail-loud caveat must stay silent when semantic rows published: %q", caveat)
+			failLoud = true
 		}
+	}
+	if semanticPublished == 0 && !failLoud {
+		t.Fatalf("below-cut semantic work must be handed to the independent disclosure channel: items=%+v caveats=%v", rank.Items, rank.Caveats)
+	}
+	if semanticPublished > 0 && failLoud {
+		t.Fatalf("fail-loud caveat must stay silent when semantic rows earned the prefix: %v", rank.Caveats)
 	}
 }

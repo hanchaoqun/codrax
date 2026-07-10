@@ -859,39 +859,43 @@ type WindowStats struct {
 	TopRunning               []ThreadDuration          `json:"top_running,omitempty"`
 	RunnableTop              []ThreadDuration          `json:"runnable_top,omitempty"`
 	SleepTop                 []ThreadDuration          `json:"sleep_top,omitempty"`
-	DStateTop                []ThreadDuration          `json:"d_state_top,omitempty"`
-	IOWaitTop                []ThreadDuration          `json:"io_wait_top,omitempty"`
-	CPUPressure              []CPUPressureStats        `json:"cpu_pressure,omitempty"`
-	CPUConstraints           []CPUConstraintSummary    `json:"cpu_constraints,omitempty"`
-	ThreadCPULoad            []ThreadCPULoadSummary    `json:"thread_cpu_load,omitempty"`
-	ProcessCPULoad           []ProcessCPULoadSummary   `json:"process_cpu_load,omitempty"`
-	RunnableContext          []RunnableContextSummary  `json:"runnable_context,omitempty"`
-	IOLatencies              []IOLatencySummary        `json:"io_latencies,omitempty"`
-	CPUFrequencyLimits       []CPUFrequencyLimit       `json:"cpu_frequency_limits,omitempty"`
-	SubsystemEvents          []SubsystemEventSummary   `json:"subsystem_events,omitempty"`
-	BlockIssueCount          int                       `json:"block_issue_count,omitempty"`
-	BlockRemapCount          int                       `json:"block_remap_count,omitempty"`
-	BlockCompleteCount       int                       `json:"block_complete_count,omitempty"`
-	BinderCount              int                       `json:"binder_count,omitempty"`
-	BinderReceivedCount      int                       `json:"binder_received_count,omitempty"`
-	BinderAuxCount           int                       `json:"binder_aux_count,omitempty"`
-	IRQCount                 int                       `json:"irq_count,omitempty"`
-	SoftIRQCount             int                       `json:"softirq_count,omitempty"`
-	MemoryEventCount         int                       `json:"memory_event_count,omitempty"`
-	StorageEventCount        int                       `json:"storage_event_count,omitempty"`
-	FilesystemEventCount     int                       `json:"filesystem_event_count,omitempty"`
-	PowerEventCount          int                       `json:"power_event_count,omitempty"`
-	AbilityEventCount        int                       `json:"ability_event_count,omitempty"`
-	XPowerEventCount         int                       `json:"xpower_event_count,omitempty"`
-	HiSystemEventCount       int                       `json:"hi_sysevent_event_count,omitempty"`
-	WorkqueueEventCount      int                       `json:"workqueue_event_count,omitempty"`
-	DMAFenceEventCount       int                       `json:"dma_fence_event_count,omitempty"`
-	BlockedReasonCount       int                       `json:"blocked_reason_count,omitempty"`
-	SchedStatCount           int                       `json:"sched_stat_count,omitempty"`
-	IPICount                 int                       `json:"ipi_count,omitempty"`
-	IOWaitBlockedCount       int                       `json:"io_wait_blocked_count,omitempty"`
-	BlockedReasons           []BlockedReasonSummary    `json:"blocked_reasons,omitempty"`
-	TraceSpans               []TraceSpanSummary        `json:"trace_spans,omitempty"`
+	// DStateTop and IOWaitTop are mutually exclusive scheduler-state ledgers:
+	// an interval refined by sched_blocked_reason iowait=1 appears only in
+	// IOWaitTop; DStateTop contains the remaining non-IO uninterruptible waits.
+	// Their same-thread sum is the complete D/IO blocking account.
+	DStateTop            []ThreadDuration         `json:"d_state_top,omitempty"`
+	IOWaitTop            []ThreadDuration         `json:"io_wait_top,omitempty"`
+	CPUPressure          []CPUPressureStats       `json:"cpu_pressure,omitempty"`
+	CPUConstraints       []CPUConstraintSummary   `json:"cpu_constraints,omitempty"`
+	ThreadCPULoad        []ThreadCPULoadSummary   `json:"thread_cpu_load,omitempty"`
+	ProcessCPULoad       []ProcessCPULoadSummary  `json:"process_cpu_load,omitempty"`
+	RunnableContext      []RunnableContextSummary `json:"runnable_context,omitempty"`
+	IOLatencies          []IOLatencySummary       `json:"io_latencies,omitempty"`
+	CPUFrequencyLimits   []CPUFrequencyLimit      `json:"cpu_frequency_limits,omitempty"`
+	SubsystemEvents      []SubsystemEventSummary  `json:"subsystem_events,omitempty"`
+	BlockIssueCount      int                      `json:"block_issue_count,omitempty"`
+	BlockRemapCount      int                      `json:"block_remap_count,omitempty"`
+	BlockCompleteCount   int                      `json:"block_complete_count,omitempty"`
+	BinderCount          int                      `json:"binder_count,omitempty"`
+	BinderReceivedCount  int                      `json:"binder_received_count,omitempty"`
+	BinderAuxCount       int                      `json:"binder_aux_count,omitempty"`
+	IRQCount             int                      `json:"irq_count,omitempty"`
+	SoftIRQCount         int                      `json:"softirq_count,omitempty"`
+	MemoryEventCount     int                      `json:"memory_event_count,omitempty"`
+	StorageEventCount    int                      `json:"storage_event_count,omitempty"`
+	FilesystemEventCount int                      `json:"filesystem_event_count,omitempty"`
+	PowerEventCount      int                      `json:"power_event_count,omitempty"`
+	AbilityEventCount    int                      `json:"ability_event_count,omitempty"`
+	XPowerEventCount     int                      `json:"xpower_event_count,omitempty"`
+	HiSystemEventCount   int                      `json:"hi_sysevent_event_count,omitempty"`
+	WorkqueueEventCount  int                      `json:"workqueue_event_count,omitempty"`
+	DMAFenceEventCount   int                      `json:"dma_fence_event_count,omitempty"`
+	BlockedReasonCount   int                      `json:"blocked_reason_count,omitempty"`
+	SchedStatCount       int                      `json:"sched_stat_count,omitempty"`
+	IPICount             int                      `json:"ipi_count,omitempty"`
+	IOWaitBlockedCount   int                      `json:"io_wait_blocked_count,omitempty"`
+	BlockedReasons       []BlockedReasonSummary   `json:"blocked_reasons,omitempty"`
+	TraceSpans           []TraceSpanSummary       `json:"trace_spans,omitempty"`
 	// TraceTrackSpans is the isolated Android ASYNC_FOR_TRACK G/H lane. These
 	// spans have logical track ownership, not emitter-thread ownership, and
 	// therefore never feed TraceSpans, semantic classification or root rank.
@@ -1748,6 +1752,7 @@ type IOPressureSummary struct {
 	PageCacheChurn      int     `json:"page_cache_churn,omitempty"`
 	IOWaitBlockedCount  int     `json:"io_wait_blocked_count,omitempty"`
 	DStateMs            float64 `json:"d_state_ms,omitempty"`
+	IOWaitMs            float64 `json:"io_wait_ms,omitempty"`
 	TopInode            string  `json:"top_inode,omitempty"`
 	TopDev              string  `json:"top_dev,omitempty"`
 	TopEntryName        string  `json:"top_entry_name,omitempty"`
@@ -2342,16 +2347,22 @@ const RootCauseSubjectKindAggregateMetric = "aggregate_metric"
 // their own EVOLUTION RECORDs.
 const RootCauseTierDeterministicOptimization = "deterministic_optimization"
 
+// RootCauseTierContextOnly marks a typed row whose authoritative effective
+// attribution is exactly zero. The raw scheduler/span duration remains useful
+// chain context, but the row has no root-cause board seat: Rank stays 0 and it
+// cannot consume capacity, become a ranked cause, or receive a TOP badge.
+// The source views (wakeup_chain/window_stats) retain the full raw evidence.
+const RootCauseTierContextOnly = "context_only"
+
 // RootCauseTierTargetSelfState (SYM, ledger §24.13 裁定一, user ruling
 // 2026-07-08, real_trace_campaign_20260705.md): the independent Tier word for
 // rank rows whose SUBJECT thread is the analysis target itself AND whose cause
 // token belongs to the 等待症状族 (own binder wait / self-held or waited
 // blocking_span / own sleep-before-wakeup segments). In a "why is the target
 // stuck" question these rows are the SYMPTOM being explained: they keep their
-// rank-board ordinal (榜位照发) and every score/weight/sort lane untouched,
-// but are TRANSPARENT to the primary/secondary/tertiary positional election
-// and never ride the co-primary lane — the deterministic_optimization
-// precedent's ladder mechanics applied to the self-symptom lane. Identity is
+// raw evidence and every score/weight/sort input untouched, but carry Rank=0,
+// consume no board capacity, and are TRANSPARENT to the
+// primary/secondary/tertiary positional election. Identity is
 // the typed tid-first subject==target match (SubjectIsAnalysisTarget) plus
 // the typed wait-family token closed set (rootCauseItemIsTargetWaitSymptomType
 // — registry wakeup_chain/lock_contention lanes), never a label heuristic:
@@ -2479,13 +2490,11 @@ type RootCauseRankItem struct {
 	// wire/view/observation face — the published effective attribution AND
 	// the on-chain rank ordinal key are always the real projection
 	// (家族真实合计; 792-textup 214.561 表值泄漏修根 + 复核序值倒挂修根:
-	// ordinal ≡ board ≡ badges). The heuristic feeds EXACTLY TWO soft faces
-	// (嘈声信号只作软引导):
-	//   1. rootCauseRankScoreBasisMs — Score secondary key, i.e. a
-	//      same-published-effective TIE-BREAK on the on-chain sort;
-	//   2. truncateRootCauseRankItemsWithSemanticSeats — the seat-allocation
-	//      signal choosing WHICH beyond-limit semantic families redeem the
-	//      reserved seats (§29.7-2 参赛权 capacity guarantee).
+	// ordinal ≡ board ≡ badges). The heuristic feeds exactly one soft face:
+	// rootCauseRankScoreBasisMs, a same-published-effective tie-break. It never
+	// changes capacity: the main board is the strict effective-sorted prefix,
+	// and below-cut semantic work is disclosed by the independent optimization
+	// channel.
 	// Zero on every non-semantic row and whenever the boost would not exceed
 	// the real projection.
 	RankSortBoostedEffectiveMs float64 `json:"-"`

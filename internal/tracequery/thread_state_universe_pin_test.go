@@ -301,19 +301,23 @@ var threadStateSwitchSiteGolden = map[string]string{
 	"query.go:stateDrilldownNeedsWakeupChain#1": "s_sleep,d_sleep,io_wait|default",
 	"query.go:applySemanticTraceSpanState#1":    "running,runnable,s_sleep,d_sleep,io_wait",
 	"query.go:actualAggregateBlockingMs#1":      "running,runnable,s_sleep,d_sleep,io_wait|default",
-	// F1 (§20.2 absorption, 2026-07-07): StateRunning joined the sensitive set
-	// so running-dominant inversion aggregates type as candidates (gated
-	// caliber) — per-occurrence candidate-gate parity.
-	"query.go:aggregateRootCauseIsPrioritySensitive#1":           "running,runnable,d_sleep,io_wait|default",
-	"query.go:stateChurnRootCauseType#1":                         "running,runnable,s_sleep,d_sleep,io_wait|default",
-	"query.go:computeSupplyDominantState#1":                      "running,runnable|default",
-	"query.go:rootCauseItemHasDStateOrIO#1":                      "d_sleep,io_wait|default",
-	"query.go:rootCauseItemHasRunnableOrRunning#1":               "running,runnable|default",
-	"query.go:summarizeThreadStateBreakdown#1":                   "running,runnable,s_sleep,d_sleep,io_wait",
-	"query.go:expandChain#1":                                     "running,runnable,s_sleep,d_sleep,io_wait|default",
-	"query.go:summarizeWakeupCausalImpact#1":                     "running,runnable,s_sleep,d_sleep,io_wait",
-	"query.go:priorityInversionGatedMs#1":                        "running,runnable",
-	"query.go:actualCausalImpactBlockingMs#1":                    "running,runnable,s_sleep,d_sleep,io_wait|default",
+	// Scheduling inversion gating applies only to runnable/running. D/IO
+	// aggregates keep their full typed blocking caliber.
+	"query.go:aggregateRootCauseIsPrioritySensitive#1": "running,runnable|default",
+	"query.go:stateChurnRootCauseType#1":               "running,runnable,s_sleep,d_sleep,io_wait|default",
+	"query.go:computeSupplyDominantState#1":            "running,runnable|default",
+	"query.go:rootCauseItemHasDStateOrIO#1":            "d_sleep,io_wait|default",
+	"query.go:rootCauseItemHasRunnableOrRunning#1":     "running,runnable|default",
+	"query.go:summarizeThreadStateBreakdown#1":         "running,runnable,s_sleep,d_sleep,io_wait",
+	"query.go:expandChain#1":                           "running,runnable,s_sleep,d_sleep,io_wait|default",
+	"query.go:summarizeWakeupCausalImpact#1":           "running,runnable,s_sleep,d_sleep,io_wait",
+	"query.go:priorityInversionGatedMs#1":              "running,runnable",
+	"query.go:actualCausalImpactBlockingMs#1":          "running,runnable,s_sleep,d_sleep,io_wait|default",
+	"query.go:WakeupCausalImpactEffectiveImpactMs#1":   "running,runnable,s_sleep,d_sleep,io_wait|default",
+	// Aggregate closed-matrix projection mirrors the participating lanes. A
+	// non-periodic s_sleep aggregate is ordinary dependency context, so the
+	// default arm deliberately returns zero for it.
+	"query.go:WakeupCausalAggregateEffectiveImpactMs#1":          "running,runnable,d_sleep,io_wait|default",
 	"query.go:interestingIntervals#1":                            "running,runnable,s_sleep,d_sleep,io_wait|default",
 	"stream_search.go:addStreamStateClusterInterval#1":           "running,runnable,s_sleep,d_sleep,io_wait",
 	"thread_state_universe.go:stateChurnOpenIneligible#1":        "stopped,dead,unknown",
@@ -529,15 +533,10 @@ var threadStateComparisonSiteGolden = map[string]string{
 	// refinement (S sleeps pairing iowait>0 blocked_reason markers; the
 	// interval stays S — single attribution, no lane reclassifies).
 	"target_window_state_account.go:buildTargetWindowStateAccount": "running,s_sleep#2",
-	// P0-E §20 merge caliber + §20.2 deficit attribution (2026-07-07):
-	// dominant_state==running is read at the exported effective helper's
-	// §20.2 branch, its rank-lane mirror in rootCauseItemFromCausalImpact
-	// (deficit effective + deficit Score + inversion-row raw cumulative, 3
-	// comparisons), the aggregate mirror (deficit effective + deficit Score,
-	// 2 comparisons), and the depth-0 running admission in the rank funnel
-	// (buildRootCauseRankFrom).
-	"query.go:WakeupCausalImpactEffectiveImpactMs": "running#1",
-	"query.go:addStateChurnInterval":               "d_sleep#1",
+	// P0-E §20 merge caliber + §20.2 deficit attribution (2026-07-07): the
+	// exported effective helpers now use exhaustive state switches pinned by
+	// the switch-site census; the remaining explicit comparisons stay below.
+	"query.go:addStateChurnInterval": "d_sleep#1",
 	// A1 bounded continuation (§12.3-5): the peer's own dominant state gates
 	// whether it was itself sleep-blocked (→ name its single direct blocker).
 	"query.go:buildCriticalBlockingPeerChain":      "s_sleep#1",
@@ -546,20 +545,27 @@ var threadStateComparisonSiteGolden = map[string]string{
 	"query.go:buildStateDrilldownPlanForTarget":    "s_sleep#1",
 	// Exact sched_migrate_task handling splits only an open RUNNABLE wait;
 	// sleeping/d-state lanes cannot acquire CPU attribution from migration.
-	"query.go:computeOffCPUStats":                         "runnable,s_sleep,d_sleep,io_wait#7",
-	"query.go:detectPeriodicWakeupSource":                 "s_sleep#1",
-	"query.go:enrichBlockedReasonIntervalsWithSelection":  "d_sleep#1",
-	"query.go:enrichRootCauseRankWithScheduler":           "running,runnable#2",
-	"query.go:enrichStateChurnWithCPUPressure":            "runnable#1",
-	"query.go:findBinderWaitsForChain":                    "s_sleep,d_sleep,io_wait#3",
-	"query.go:interestingIntervals":                       "running#1",
-	"query.go:isFragmentedSleepChurn":                     "s_sleep#1",
-	"query.go:isIntermediateSleepAggregate":               "s_sleep#1",
-	"query.go:isIntermediateSleepImpact":                  "s_sleep#1",
-	"query.go:offCPUIntervalsFromState":                   "runnable#1",
-	"query.go:offCPUStateIsIOWait":                        "d_sleep,io_wait#2",
-	"query.go:rootCauseItemFromCausalAggregate":           "running#2",
-	"query.go:rootCauseItemFromCausalImpact":              "running#3",
+	"query.go:computeOffCPUStats":                        "runnable,s_sleep,d_sleep,io_wait#7",
+	"query.go:detectPeriodicWakeupSource":                "s_sleep#1",
+	"query.go:enrichBlockedReasonIntervalsWithSelection": "d_sleep#1",
+	"query.go:enrichRootCauseRankWithScheduler":          "running,runnable#3",
+	"query.go:enrichStateChurnWithCPUPressure":           "runnable#1",
+	"query.go:findBinderWaitsForChain":                   "s_sleep,d_sleep,io_wait#3",
+	"query.go:interestingIntervals":                      "running#1",
+	"query.go:isFragmentedSleepChurn":                    "s_sleep#1",
+	"query.go:isIntermediateSleepAggregate":              "s_sleep#1",
+	"query.go:isIntermediateSleepImpact":                 "s_sleep#1",
+	"query.go:offCPUIntervalsFromState":                  "runnable#1",
+	"query.go:offCPUStateIsIOWait":                       "d_sleep,io_wait#2",
+	// Formal WindowStats D/IO ownership partitions mutually-exclusive IOWait
+	// and non-IO D-state members before folding one per-thread account.
+	"query.go:rootCauseDIOStateFamilyItems": "io_wait#2",
+	// The closed aggregate effective accessor now owns one former duplicated
+	// running-state branch; the constructor retains only its raw-display case.
+	"query.go:rootCauseItemFromCausalAggregate":           "running#1",
+	"query.go:rootCauseItemFromCausalImpact":              "running#2",
+	"query.go:rootCauseItemIsRunnableCaliber":             "runnable#2",
+	"query.go:rootCauseItemIsRunningCaliber":              "running#2",
 	"query.go:schedulerHeadCoverageForWindow":             "dead,unknown#2",
 	"query.go:stateDrilldownNeedsRecursiveChainForSource": "runnable#1",
 	"query.go:stateDrilldownNeedsWakeupChainForSource":    "s_sleep#1",

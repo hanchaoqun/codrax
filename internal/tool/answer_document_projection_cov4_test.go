@@ -65,7 +65,7 @@ func cov4RunningDominantProjection() types.TraceCausalProjection {
 		}},
 		SemanticSpans: []types.TraceCausalProjectionNode{{
 			Role: types.TraceCausalRoleSemanticSpan, EvidenceID: "e-verify",
-			Subject: "ease.app-63993",
+			Subject:  "ease.app-63993",
 			SpanName: "VerifyClass demo", SemanticClass: "class_verification",
 			Predicate: "trace_semantic_span", Rank: 3, Tier: "deterministic_optimization",
 			ImpactMS: 10.394, CumulativeImpactMS: 10.394, EffectiveImpactMS: 10.394,
@@ -397,6 +397,11 @@ func TestCov4SeatTokenGatedWithBadge(t *testing.T) {
 	// single badge authority — the detail face must be bare too (复核 C-1:
 	// the first cut minted 「❶#1」 from the raw rank, splitting the faces).
 	projection := sym2FlatMixedProjection()
+	for i := range projection.OnChainCauses {
+		if projection.OnChainCauses[i].EvidenceID == "e-selfbinder" {
+			projection.OnChainCauses[i].Rank = 1 // deliberate stale-rank mutation
+		}
+	}
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	for _, row := range model.TreeRows {
 		if row.Node.EvidenceID == "e-selfbinder" && row.Badge != 0 {
@@ -404,12 +409,23 @@ func TestCov4SeatTokenGatedWithBadge(t *testing.T) {
 		}
 	}
 	detail := runtimeTraceProjDetailFullText(model, true)
-	if strings.Contains(detail, "❶#1") {
-		t.Fatalf("the detail face must not mint a ❶ the tree face refused (双面一致):\n%s", detail)
+	binderStart := strings.Index(detail, "**main-6565 / binder等待**")
+	if binderStart < 0 {
+		t.Fatalf("fixture drifted: missing binder detail block:\n%s", detail)
+	}
+	binderEnd := strings.Index(detail[binderStart+2:], "\n**")
+	if binderEnd < 0 {
+		binderEnd = len(detail) - binderStart
+	} else {
+		binderEnd += 2
+	}
+	binderBlock := detail[binderStart : binderStart+binderEnd]
+	if strings.Contains(binderBlock, "❶#1") {
+		t.Fatalf("the symptom detail block must not mint a ❶ the tree face refused (双面一致):\n%s", binderBlock)
 	}
 	// The bare pre-batch chip form stays for the gated seat text (词面先例).
-	if !strings.Contains(detail, "#1") {
-		t.Fatalf("the gated seat keeps its bare ordinal chip:\n%s", detail)
+	if !strings.Contains(binderBlock, "#1") {
+		t.Fatalf("the gated seat keeps its bare ordinal chip:\n%s", binderBlock)
 	}
 	// Positive control: an ungated seat still wears its glyph on the detail
 	// face (the single token source stays live).
