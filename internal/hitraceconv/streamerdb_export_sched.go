@@ -159,11 +159,7 @@ func exportTraceDBThreadRegistrations(ctx context.Context, sink *traceDBRowSink,
 			fmt.Sprintf("tracing_mark_write: B|%d|%s", tgid, processName),
 			fmt.Sprintf("tracing_mark_write: E|%d|", tgid),
 		} {
-			if err := sink.add(renderedRow{
-				tsNS: uint64(ts),
-				seq:  sink.stats.RowsAccepted,
-				line: traceDBFormatLine(task, thread.TID, tgid, 0, ts, body),
-			}); err != nil {
+			if err := addTraceDBInstantRow(sink, ts, task, thread.TID, tgid, 0, body); err != nil {
 				return coverage, err
 			}
 			coverage.RowsEmitted++
@@ -355,11 +351,8 @@ func exportTraceDBWakeups(ctx context.Context, tdb *traceDB, sink *traceDBRowSin
 			wakerProcess := index.Processes[waker.IPID]
 			body := fmt.Sprintf("%s: comm=%s pid=%d prio=%d target_cpu=%03d",
 				instant.Name, traceDBCommName(woken.Name, "unknown"), woken.TID, targetPrio, raw.TargetCPU)
-			if err := sink.add(renderedRow{
-				tsNS: uint64(instant.TS),
-				seq:  sink.stats.RowsAccepted,
-				line: traceDBFormatLine(traceDBCommName(waker.Name, "unknown"), waker.TID, firstNonZero(wakerProcess.PID, waker.TID), eventCPU, instant.TS, body),
-			}); err != nil {
+			if err := addTraceDBInstantRow(sink, instant.TS, traceDBCommName(waker.Name, "unknown"), waker.TID,
+				firstNonZero(wakerProcess.PID, waker.TID), eventCPU, body); err != nil {
 				return coverage, err
 			}
 			coverage.RowsEmitted++
@@ -745,28 +738,8 @@ func emitTraceDBSchedSwitch(sink *traceDBRowSink, prev, next traceDBSchedSlice) 
 	body := fmt.Sprintf("sched_switch: prev_comm=%s prev_pid=%d prev_prio=%d prev_state=%s ==> next_comm=%s next_pid=%d next_prio=%d",
 		traceDBCommName(prev.Name, "unknown"), prev.TID, prev.Priority, prev.EndState,
 		traceDBCommName(next.Name, "unknown"), next.TID, next.Priority)
-	return sink.add(renderedRow{
-		tsNS: uint64(ts),
-		seq:  sink.stats.RowsAccepted,
-		line: traceDBFormatLine(traceDBCommName(prev.Name, "unknown"), prev.TID, firstNonZero(prev.TGID, prev.TID), prev.CPU, ts, body),
-	})
-}
-
-func addTraceDBInstantRow(sink *traceDBRowSink, ts int64, task string, tid, tgid, cpu int64, body string) error {
-	return sink.add(renderedRow{
-		tsNS: uint64(ts),
-		seq:  sink.stats.RowsAccepted,
-		line: traceDBFormatLine(task, tid, tgid, cpu, ts, body),
-	})
-}
-
-func traceDBFormatLine(task string, tid, tgid, cpu, tsNS int64, body string) string {
-	task = traceDBCommName(task, "unknown")
-	if tgid == 0 {
-		tgid = tid
-	}
-	return fmt.Sprintf("%16s-%-6d (%5d) [%03d] .... %s: %s",
-		task, tid, tgid, cpu, formatTimestamp(uint64(tsNS)), body)
+	return addTraceDBInstantRow(sink, ts, traceDBCommName(prev.Name, "unknown"), prev.TID,
+		firstNonZero(prev.TGID, prev.TID), prev.CPU, body)
 }
 
 func traceDBCommName(name, fallback string) string {

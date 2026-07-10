@@ -154,12 +154,8 @@ func exportTraceDBBlockedReasons(ctx context.Context, tdb *traceDB, sink *traceD
 		body += " timestamp_source=thread_state_start_projection original_timestamp_known=false"
 		body += " header_thread_source=thread_state_subject_projection original_header_thread_known=false"
 		body += " header_cpu_source=exact_prev_sched_slice_boundary source=thread_state_argset"
-		if err := sink.add(renderedRow{
-			tsNS: uint64(row.TS),
-			seq:  sink.stats.RowsAccepted,
-			line: traceDBFormatLine(traceDBCommName(candidate.Thread.Name, "unknown"), row.TID,
-				firstNonZero(candidate.Process.PID, row.PID, row.TID), headerCPU, row.TS, body),
-		}); err != nil {
+		if err := addTraceDBInstantRow(sink, row.TS, traceDBCommName(candidate.Thread.Name, "unknown"), row.TID,
+			firstNonZero(candidate.Process.PID, row.PID, row.TID), headerCPU, body); err != nil {
 			return coverage, err
 		}
 		coverage.RowsEmitted++

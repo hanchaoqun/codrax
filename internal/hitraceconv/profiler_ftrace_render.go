@@ -2,6 +2,7 @@ package hitraceconv
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"unicode"
@@ -39,8 +40,16 @@ func renderProfilerFtraceStructuredRows(data []byte, seq *int, sink *traceDBRowS
 			tid = event.TGID
 		}
 		task := firstNonEmpty(event.Comm, "unknown")
-		line := traceDBFormatLine(task, tid, firstNonZero(event.TGID, tid), event.CPU, int64(event.TSNS), name+": "+body)
-		if err := sink.add(renderedRow{tsNS: event.TSNS, seq: *seq, line: line}); err != nil {
+		if event.TSNS > math.MaxInt64 {
+			return rows, profilerFtraceEventRenderCoverageList(coverageByField),
+				&traceDBOutputInvariantError{Reason: "invalid_timestamp"}
+		}
+		row, err := prepareTraceDBRenderedRow(int64(event.TSNS), *seq, task, tid,
+			firstNonZero(event.TGID, tid), event.CPU, name+": "+body)
+		if err != nil {
+			return rows, profilerFtraceEventRenderCoverageList(coverageByField), err
+		}
+		if err := sink.add(row); err != nil {
 			return rows, profilerFtraceEventRenderCoverageList(coverageByField), err
 		}
 		(*seq)++

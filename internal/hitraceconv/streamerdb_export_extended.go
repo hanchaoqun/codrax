@@ -677,6 +677,7 @@ func exportTraceDBStaticInitialize(ctx context.Context, tdb *traceDB, sink *trac
 		return coverage, err
 	}
 	defer rows.Close()
+	skipped := map[string]int{}
 	for rows.Next() {
 		var start, end, ipid, tid int64
 		var so any
@@ -685,14 +686,20 @@ func exportTraceDBStaticInitialize(ctx context.Context, tdb *traceDB, sink *trac
 			return coverage, err
 		}
 		task, _, tgid := traceDBThreadOrProcessContext(index, 0, ipid, "soInit")
-		if tid == 0 {
-			tid = tgid
+		if tid <= 0 || tid > math.MaxInt32 {
+			skipped["invalid_emitter_tid"]++
+			continue
+		}
+		if tgid <= 0 || tgid > math.MaxInt32 {
+			skipped["unresolved_owner_process"]++
+			continue
 		}
 		if err := addTraceDBSpanRows(sink, start, end, task, tid, tgid, 0, "SoInit:"+traceDBAnyText(so, "None")); err != nil {
 			return coverage, err
 		}
 		coverage.RowsEmitted += 2
 	}
+	coverage.Skipped = traceDBCountSummary(skipped)
 	return coverage, rows.Err()
 }
 
@@ -911,10 +918,26 @@ func exportTraceDBSimpleCounters(ctx context.Context, tdb *traceDB, sink *traceD
 }
 
 func addTraceDBSpanRows(sink *traceDBRowSink, start, end int64, task string, tid, tgid, cpu int64, name string) error {
-	if err := addTraceDBInstantRow(sink, start, task, tid, tgid, cpu, fmt.Sprintf("tracing_mark_write: B|%d|%s", tgid, name)); err != nil {
+	if end < start {
+		return &traceDBOutputInvariantError{Reason: "invalid_interval"}
+	}
+	if !traceDBCallstackMarkerToken(name) {
+		return &traceDBOutputInvariantError{Reason: "invalid_span_name"}
+	}
+	begin, err := prepareTraceDBRenderedRow(start, sink.stats.RowsAccepted, task, tid, tgid, cpu,
+		fmt.Sprintf("tracing_mark_write: B|%d|%s", tgid, name))
+	if err != nil {
 		return err
 	}
-	return addTraceDBInstantRow(sink, end, task, tid, tgid, cpu, fmt.Sprintf("tracing_mark_write: E|%d|", tgid))
+	finish, err := prepareTraceDBRenderedRow(end, sink.stats.RowsAccepted+1, task, tid, tgid, cpu,
+		fmt.Sprintf("tracing_mark_write: E|%d|", tgid))
+	if err != nil {
+		return err
+	}
+	if err := sink.add(begin); err != nil {
+		return err
+	}
+	return sink.add(finish)
 }
 
 func traceDBThreadLineContext(index traceDBThreadIndex, itid int64) (string, int64, int64) {

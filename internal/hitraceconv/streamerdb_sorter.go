@@ -66,6 +66,9 @@ func newTraceDBRowSink(tempDir string, threshold int) (*traceDBRowSink, error) {
 }
 
 func (s *traceDBRowSink) add(row renderedRow) error {
+	if !traceDBSinglePhysicalLine(row.line, false) {
+		return &traceDBOutputInvariantError{Reason: "invalid_rendered_line"}
+	}
 	if s.stats.RowsAccepted == 0 || row.tsNS < s.stats.FirstTSNS {
 		s.stats.FirstTSNS = row.tsNS
 	}
