@@ -20,6 +20,9 @@ func writeV2ProvenanceHeader(rw *reportWriter, opts Options, script *Script, tra
 	if strings.TrimSpace(opts.WindowOverride) != "" {
 		rw.line(fmt.Sprintf("window_override=%s source=cli_flag target=defaults.window", clampToken(opts.WindowOverride)))
 	}
+	if script.tidOverrideSet {
+		rw.line(fmt.Sprintf("tid_override=%d source=cli_flag target=pid_from:tid", script.tidOverride))
+	}
 	if strings.TrimSpace(script.Description) != "" {
 		rw.line(fmt.Sprintf("description=%s", clampToken(script.Description)))
 	}

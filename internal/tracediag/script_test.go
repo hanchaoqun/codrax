@@ -291,12 +291,158 @@ steps:
 	}
 }
 
+func TestScriptTIDOverrideBindsOnlyDeclaredSteps(t *testing.T) {
+	yamlText := `
+version: 2
+inputs: {window: required, tid: required}
+limits: {max_generated_windows: 1, max_expanded_steps: 2, max_report_lines: 300}
+steps:
+  - {label: target, view: window_stats, pid_from: tid, max_lines: 20}
+  - {label: raw, view: event_search, event_types: [block_rq_complete], max_lines: 20}
+`
+	if _, err := parseScript([]byte(yamlText), ScriptOverrides{Window: "2..3"}); err == nil || !strings.Contains(err.Error(), "requires --trace-tid") {
+		t.Fatalf("missing required TID must fail with operator guidance, got %v", err)
+	}
+	script, err := parseScript([]byte(yamlText), ScriptOverrides{Window: "2..3", TID: "42591"})
+	if err != nil {
+		t.Fatalf("typed TID parse: %v", err)
+	}
+	if got := script.Steps[0]; got.PID != 42591 || got.PIDFrom != "tid" || got.Thread != "" {
+		t.Fatalf("bound target selector = pid:%d pid_from:%q thread:%q", got.PID, got.PIDFrom, got.Thread)
+	}
+	if got := script.Steps[1]; got.PID != 0 || got.PIDFrom != "" || got.Thread != "" {
+		t.Fatalf("unbound raw evidence lane was scoped: pid:%d pid_from:%q thread:%q", got.PID, got.PIDFrom, got.Thread)
+	}
+	if err := script.Validate(); err != nil {
+		t.Fatalf("resolved TID binding validation must remain idempotent: %v", err)
+	}
+	script.Steps[0].PID = 9
+	if err := script.Validate(); err == nil || !strings.Contains(err.Error(), "binding was modified") {
+		t.Fatalf("mutated resolved TID binding must fail loud, got %v", err)
+	}
+
+	for _, bad := range []string{"0", "-1", "+20", "20x", "2147483648"} {
+		if _, err := parseScript([]byte(yamlText), ScriptOverrides{Window: "2..3", TID: bad}); err == nil || !strings.Contains(err.Error(), "--trace-tid") {
+			t.Errorf("invalid TID %q must fail loud, got %v", bad, err)
+		}
+	}
+}
+
+func TestParseTIDOverrideCanonicalBoundaries(t *testing.T) {
+	for raw, want := range map[string]int{
+		"1":          1,
+		"00020":      20,
+		" 20 ":       20,
+		"2147483647": 2147483647,
+	} {
+		got, err := parseTIDOverride(raw)
+		if err != nil || got != want {
+			t.Errorf("parseTIDOverride(%q) = %d, %v; want %d", raw, got, err, want)
+		}
+	}
+	for _, raw := range []string{"", " ", "0", "-1", "+20", "2147483648", "0x14", "20.0", "2e1", "20x", "２０"} {
+		if got, err := parseTIDOverride(raw); err == nil {
+			t.Errorf("parseTIDOverride(%q) = %d, want error", raw, got)
+		}
+	}
+}
+
+func TestScriptTIDBindingDoesNotInheritSelectorDefaults(t *testing.T) {
+	cases := map[string]struct {
+		defaults          string
+		wantUnboundPID    int
+		wantUnboundThread string
+	}{
+		"pid default":    {defaults: "pid: 99", wantUnboundPID: 99},
+		"thread default": {defaults: `thread: "worker-99"`, wantUnboundThread: "worker-99"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			yamlText := `
+version: 2
+inputs: {tid: required}
+defaults: {` + tc.defaults + `}
+steps:
+  - {label: bound, view: event_search, pid_from: tid}
+  - {label: unbound, view: event_search}
+`
+			script, err := parseScript([]byte(yamlText), ScriptOverrides{TID: "7"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := script.Steps[0]; got.PID != 7 || got.Thread != "" {
+				t.Fatalf("bound step inherited selector defaults: pid=%d thread=%q", got.PID, got.Thread)
+			}
+			if got := script.Steps[1]; got.PID != tc.wantUnboundPID || got.Thread != tc.wantUnboundThread {
+				t.Fatalf("unbound defaults changed: pid=%d thread=%q", got.PID, got.Thread)
+			}
+		})
+	}
+}
+
+func TestScriptTIDBindingRejectsAmbiguousOrUnusedShapes(t *testing.T) {
+	cases := map[string]string{
+		"empty inputs": `
+version: 2
+inputs: {}
+steps: [{label: a, view: event_search}]
+`,
+		"unsupported tid mode": `
+version: 2
+inputs: {tid: optional}
+steps: [{label: a, view: event_search, pid_from: tid}]
+`,
+		"unknown binding": `
+version: 2
+inputs: {tid: required}
+steps: [{label: a, view: event_search, pid_from: target}]
+`,
+		"explicit pid": `
+version: 2
+inputs: {tid: required}
+steps: [{label: a, view: event_search, pid_from: tid, pid: 7}]
+`,
+		"explicit thread": `
+version: 2
+inputs: {tid: required}
+steps: [{label: a, view: event_search, pid_from: tid, thread: app-7}]
+`,
+		"undeclared input": `
+version: 2
+steps: [{label: a, view: event_search, pid_from: tid}]
+`,
+		"required but unused": `
+version: 2
+inputs: {tid: required}
+steps: [{label: a, view: event_search, window: "1..2"}]
+`,
+	}
+	for name, yamlText := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parseScript([]byte(yamlText), ScriptOverrides{TID: "7"}); err == nil {
+				t.Fatal("ambiguous or unused TID shape must fail")
+			}
+		})
+	}
+	noDeclaration := `
+version: 2
+steps: [{label: a, view: event_search, window: "1..2"}]
+`
+	if _, err := parseScript([]byte(noDeclaration), ScriptOverrides{TID: "7"}); err == nil || !strings.Contains(err.Error(), "does not declare inputs.tid") {
+		t.Fatalf("unused CLI TID must not be silently ignored, got %v", err)
+	}
+	if _, err := parseScript([]byte(validScriptYAML), ScriptOverrides{TID: "7"}); err == nil || !strings.Contains(err.Error(), "version: 2") {
+		t.Fatalf("v1 script must reject --trace-tid instead of silently ignoring it, got %v", err)
+	}
+}
+
 func TestParseScriptV1RejectsEveryV2Field(t *testing.T) {
 	cases := map[string]string{
 		"inputs":       "version: 1\ninputs: {window: required}\nsteps:\n  - {label: a, view: event_search}\n",
 		"limits":       "version: 1\nlimits: {max_expanded_steps: 2}\nsteps:\n  - {label: a, view: event_search}\n",
 		"discoveries":  "version: 1\ndiscoveries:\n  - {label: d, strategy: pairing_integrity}\nsteps:\n  - {label: a, view: event_search}\n",
 		"windows_from": "version: 1\nsteps:\n  - {label: a, view: event_search, windows_from: {discovery: d}}\n",
+		"pid_from":     "version: 1\nsteps:\n  - {label: a, view: event_search, pid_from: tid}\n",
 	}
 	for name, yamlText := range cases {
 		_, err := ParseScript([]byte(yamlText))

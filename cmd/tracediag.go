@@ -40,6 +40,7 @@ func runTraceDiagCLI(ctx context.Context, stdout io.Writer, args []string) error
 		ScriptPath:     scriptPath,
 		TracePath:      tracePath,
 		WindowOverride: strings.TrimSpace(flagTraceDiagWindow),
+		TIDOverride:    strings.TrimSpace(flagTraceDiagTID),
 		FlavorHint:     strings.TrimSpace(flagTraceDiagFlavor),
 		Version:        version,
 		BuildTime:      buildTime,

@@ -142,6 +142,8 @@ type Script struct {
 	v2Limits           V2Limits
 	v2WorstReportLines int
 	windowOverrideSet  bool
+	tidOverride        int
+	tidOverrideSet     bool
 }
 
 // ScriptInputs declares the small, typed set of runtime values a reusable v2
@@ -150,6 +152,7 @@ type Script struct {
 // loader into a template language.
 type ScriptInputs struct {
 	Window string `yaml:"window"`
+	TID    string `yaml:"tid"`
 }
 
 type V2Limits struct {
@@ -204,15 +207,16 @@ type Defaults struct {
 // KnownFields validation for the script itself.
 type ScriptOverrides struct {
 	Window string
+	TID    string
 }
 
-// Step is one collection step. Field set is pinned to the §28.12 ruling:
-// label / view / pid / thread / window / line range / pattern / event_types /
-// max_lines — nothing more.
+// Step is one collection step. V2 adds only the typed pid_from and
+// windows_from bindings to the original §28.12 static field set.
 type Step struct {
 	Label       string       `yaml:"label"`
 	View        string       `yaml:"view"`
 	PID         int          `yaml:"pid"`
+	PIDFrom     string       `yaml:"pid_from"`
 	Thread      string       `yaml:"thread"`
 	Window      string       `yaml:"window"`
 	LineStart   int          `yaml:"line_start"`
@@ -231,6 +235,7 @@ type Step struct {
 	maxLinesClamped bool
 	requestedMaxRaw int
 	windowOrigin    *WindowProvenance
+	pidFromResolved bool
 }
 
 type WindowProvenance struct {
@@ -293,11 +298,19 @@ func parseScript(data []byte, overrides ScriptOverrides) (*Script, error) {
 	dec.KnownFields(true)
 	var script Script
 	if err := dec.Decode(&script); err != nil {
-		return nil, fmt.Errorf("tracediag: script decode failed (unknown keys are rejected; v1 fields: version/description/defaults/steps; v2 adds inputs/limits/discoveries/windows_from): %w", err)
+		return nil, fmt.Errorf("tracediag: script decode failed (unknown keys are rejected; v1 fields: version/description/defaults/steps; v2 adds inputs/limits/discoveries/windows_from/pid_from): %w", err)
 	}
 	if override := strings.TrimSpace(overrides.Window); override != "" {
 		script.Defaults.Window = override
 		script.windowOverrideSet = true
+	}
+	if override := strings.TrimSpace(overrides.TID); override != "" {
+		tid, err := parseTIDOverride(override)
+		if err != nil {
+			return nil, fmt.Errorf("tracediag: --trace-tid: %w", err)
+		}
+		script.tidOverride = tid
+		script.tidOverrideSet = true
 	}
 	if err := script.Validate(); err != nil {
 		return nil, err
@@ -314,8 +327,11 @@ func (s *Script) Validate() error {
 	if len(s.Steps) == 0 {
 		return fmt.Errorf("tracediag: script has no steps")
 	}
-	if s.Version == ScriptVersion && (s.Inputs != nil || s.Limits != nil || len(s.Discoveries) > 0 || scriptHasWindowsFrom(s.Steps)) {
-		return fmt.Errorf("tracediag: inputs/limits/discoveries/windows_from are v2-only fields; set version: 2")
+	if s.Version == ScriptVersion && s.tidOverrideSet {
+		return fmt.Errorf("tracediag: --trace-tid requires a version: 2 script with inputs.tid and pid_from: tid")
+	}
+	if s.Version == ScriptVersion && (s.Inputs != nil || s.Limits != nil || len(s.Discoveries) > 0 || scriptHasWindowsFrom(s.Steps) || scriptHasPIDFrom(s.Steps)) {
+		return fmt.Errorf("tracediag: inputs/limits/discoveries/windows_from/pid_from are v2-only fields; set version: 2")
 	}
 	if s.Defaults.Window != "" {
 		if _, _, err := parseWindow(s.Defaults.Window); err != nil {
@@ -366,33 +382,64 @@ func (s *Script) Validate() error {
 
 func (s *Script) validateV2Inputs() error {
 	if s.Inputs == nil {
+		if s.tidOverrideSet {
+			return fmt.Errorf("tracediag: --trace-tid was provided but the script does not declare inputs.tid")
+		}
 		return nil
 	}
 	s.Inputs.Window = strings.TrimSpace(s.Inputs.Window)
-	if s.Inputs.Window != "required" {
+	s.Inputs.TID = strings.TrimSpace(s.Inputs.TID)
+	if s.Inputs.Window == "" && s.Inputs.TID == "" {
+		return fmt.Errorf("tracediag: inputs must declare at least one typed input (supported: window, tid)")
+	}
+	if s.Inputs.Window != "" && s.Inputs.Window != "required" {
 		return fmt.Errorf("tracediag: inputs.window=%q is unsupported; supported: required", s.Inputs.Window)
 	}
-	if !s.windowOverrideSet {
+	if s.Inputs.TID != "" && s.Inputs.TID != "required" {
+		return fmt.Errorf("tracediag: inputs.tid=%q is unsupported; supported: required", s.Inputs.TID)
+	}
+	if s.Inputs.Window == "required" && !s.windowOverrideSet {
 		return fmt.Errorf("tracediag: this script requires --trace-window <start_s>..<end_s>")
+	}
+	if s.Inputs.TID == "required" && !s.tidOverrideSet {
+		return fmt.Errorf("tracediag: this script requires --trace-tid <positive_tid>")
+	}
+	if s.tidOverrideSet && s.Inputs.TID == "" {
+		return fmt.Errorf("tracediag: --trace-tid was provided but the script does not declare inputs.tid")
 	}
 	return nil
 }
 
 func (s *Script) validateV2InputConsumers() error {
-	if s.Inputs == nil || s.Inputs.Window != "required" {
+	if s.Inputs != nil && s.Inputs.Window == "required" {
+		consumed := false
+		for i := range s.Discoveries {
+			if s.Discoveries[i].windowInherited {
+				consumed = true
+				break
+			}
+		}
+		if !consumed {
+			for i := range s.Steps {
+				if s.Steps[i].windowInherited {
+					consumed = true
+					break
+				}
+			}
+		}
+		if !consumed {
+			return fmt.Errorf("tracediag: inputs.window=required is unused; at least one discovery or static step must inherit defaults.window")
+		}
+	}
+	if s.Inputs == nil || s.Inputs.TID != "required" {
 		return nil
 	}
-	for i := range s.Discoveries {
-		if s.Discoveries[i].windowInherited {
-			return nil
-		}
-	}
 	for i := range s.Steps {
-		if s.Steps[i].windowInherited {
+		if s.Steps[i].PIDFrom == "tid" {
 			return nil
 		}
 	}
-	return fmt.Errorf("tracediag: inputs.window=required is unused; at least one discovery or static step must inherit defaults.window")
+	return fmt.Errorf("tracediag: inputs.tid=required is unused; at least one step must set pid_from: tid")
 }
 
 func (s *Script) validateStep(i int, step *Step, seen map[string]bool, discoveries map[string]*WindowDiscovery) error {
@@ -415,15 +462,34 @@ func (s *Script) validateStep(i int, step *Step, seen map[string]bool, discoveri
 	if !viewSupported(step.View) {
 		return fmt.Errorf("%s (%s): unknown view %q; supported: %s", at, step.Label, step.View, strings.Join(allSupportedViews(), ", "))
 	}
-	// Defaults inheritance: a step-zero field inherits the script default.
-	if step.PID == 0 {
-		step.PID = s.Defaults.PID
+	step.PIDFrom = strings.TrimSpace(step.PIDFrom)
+	if step.PIDFrom != "" {
+		if step.PIDFrom != "tid" {
+			return fmt.Errorf("%s (%s): pid_from=%q is unsupported; supported: tid", at, step.Label, step.PIDFrom)
+		}
+		if s.Inputs == nil || s.Inputs.TID != "required" {
+			return fmt.Errorf("%s (%s): pid_from: tid requires inputs.tid: required", at, step.Label)
+		}
+		if !step.pidFromResolved && (step.PID != 0 || strings.TrimSpace(step.Thread) != "") {
+			return fmt.Errorf("%s (%s): pid_from cannot be combined with pid or thread", at, step.Label)
+		}
+		if step.pidFromResolved && (step.PID != s.tidOverride || strings.TrimSpace(step.Thread) != "") {
+			return fmt.Errorf("%s (%s): resolved pid_from binding was modified", at, step.Label)
+		}
+		step.PID = s.tidOverride
+		step.Thread = ""
+		step.pidFromResolved = true
+	} else {
+		// Defaults inheritance: a step-zero field inherits the script default.
+		if step.PID == 0 {
+			step.PID = s.Defaults.PID
+		}
+		if strings.TrimSpace(step.Thread) == "" {
+			step.Thread = s.Defaults.Thread
+		}
 	}
 	if step.PID < 0 {
 		return fmt.Errorf("%s (%s): pid must be >= 0, got %d", at, step.Label, step.PID)
-	}
-	if strings.TrimSpace(step.Thread) == "" {
-		step.Thread = s.Defaults.Thread
 	}
 	step.Thread = strings.TrimSpace(step.Thread)
 	// P0-1 (对抗复核 2026-07-09): the engine thread resolver is PID-first —
@@ -503,6 +569,15 @@ var v2LabelRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 func scriptHasWindowsFrom(steps []Step) bool {
 	for i := range steps {
 		if steps[i].WindowsFrom != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func scriptHasPIDFrom(steps []Step) bool {
+	for i := range steps {
+		if strings.TrimSpace(steps[i].PIDFrom) != "" {
 			return true
 		}
 	}
@@ -638,9 +713,9 @@ func (s *Script) validateV2Budgets(discoveries map[string]*WindowDiscovery) erro
 		return fmt.Errorf("tracediag: worst-case generated windows=%d exceeds limits.max_generated_windows=%d", generated, s.v2Limits.MaxGeneratedWindows)
 	}
 	expanded := 0
-	// Reserve one line for the optional CLI override provenance. It is a
-	// runtime option, so the script-only planner must budget it pessimistically.
-	worstLines := 65
+	// Reserve two lines for optional CLI override provenance (window + TID).
+	// They are runtime options, so the script-only planner budgets both.
+	worstLines := 66
 	for i := range s.Discoveries {
 		worstLines += s.Discoveries[i].EffectiveMaxLines() + 12
 	}
@@ -688,6 +763,23 @@ func parseWindow(raw string) (float64, float64, error) {
 		return 0, 0, fmt.Errorf("bad window %q: start must be >= 0", raw)
 	}
 	return start, end, nil
+}
+
+func parseTIDOverride(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, fmt.Errorf("value is empty")
+	}
+	for _, r := range raw {
+		if r < '0' || r > '9' {
+			return 0, fmt.Errorf("%q is not a positive base-10 integer", raw)
+		}
+	}
+	value, err := strconv.ParseUint(raw, 10, 31)
+	if err != nil || value == 0 {
+		return 0, fmt.Errorf("%q must be in 1..2147483647", raw)
+	}
+	return int(value), nil
 }
 
 func viewSupported(view string) bool {

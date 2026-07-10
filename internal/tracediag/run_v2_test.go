@@ -82,6 +82,9 @@ func TestRunV2DiscoveryFanoutReportEndToEnd(t *testing.T) {
 		t.Fatalf("v2 fixed-input reports are not byte-identical:\nfirst=%s\nsecond=%s", first, second)
 	}
 	report := string(first)
+	if strings.Contains(report, "tid_override=") {
+		t.Fatalf("report without a TID input fabricated TID provenance\n%s", report)
+	}
 	for _, want := range []string{
 		"# codrax tracediag 自动采集报告",
 		"source_lock=tracequery_source_universe source_lock_status=validated",
@@ -106,6 +109,48 @@ func TestRunV2DiscoveryFanoutReportEndToEnd(t *testing.T) {
 	}
 	if strings.Index(report, "[已解析执行计划]") > strings.Index(report, "[执行实例 1/3]") {
 		t.Fatalf("resolved plan must appear before evidence execution\n%s", report)
+	}
+}
+
+func TestRunV2TIDBindingDoesNotFilterUnboundRawFanout(t *testing.T) {
+	scriptText := strings.Replace(runV2Script,
+		"description: \"typed 自动窗端到端\"",
+		"description: \"typed TID 自动窗端到端\"\ninputs: {tid: required}", 1)
+	scriptText = strings.Replace(scriptText,
+		"  - label: static_rows\n    view: event_search",
+		"  - label: static_rows\n    view: event_search\n    pid_from: tid", 1)
+	scriptPath, tracePath := writeRunV2Fixtures(t, runV2PairingTrace, scriptText)
+	var buf bytes.Buffer
+	failed, err := Run(context.Background(), Options{
+		ScriptPath:  scriptPath,
+		TracePath:   tracePath,
+		TIDOverride: "20",
+		Now:         fixedNow,
+	}, &buf)
+	if err != nil || failed != 0 {
+		t.Fatalf("Run(v2 typed TID): failed=%d err=%v\n%s", failed, err, buf.String())
+	}
+	report := buf.String()
+	for _, want := range []string{
+		"tid_override=20 source=cli_flag target=pid_from:tid",
+		"[执行实例 1/3] logical_step=1 label=static_rows",
+		"参数: pid=20 window=0.990..1.020 event_types=[sched_wakeup]",
+		"block_rq_complete: 8,0 R () 123 + 8",
+	} {
+		if !strings.Contains(report, want) {
+			t.Errorf("typed TID fanout report missing %q\n%s", want, report)
+		}
+	}
+	rawStart := strings.Index(report, "[执行实例 2/3] logical_step=2 label=raw_io")
+	if rawStart < 0 {
+		t.Fatalf("raw fanout instance missing\n%s", report)
+	}
+	rawTail := report[rawStart:]
+	if paramsEnd := strings.Index(rawTail, "\n"); paramsEnd >= 0 {
+		rawTail = rawTail[paramsEnd+1:]
+	}
+	if paramsEnd := strings.Index(rawTail, "\n"); paramsEnd >= 0 && strings.Contains(rawTail[:paramsEnd], "pid=") {
+		t.Fatalf("unbound raw fanout inherited CLI TID: %s", rawTail[:paramsEnd])
 	}
 }
 

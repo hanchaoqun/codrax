@@ -25,12 +25,15 @@ func withTraceDiagFlags(t *testing.T, script, trace, out, flavor string) {
 	t.Helper()
 	oldScript, oldTrace, oldOut, oldFlavor := flagTraceDiag, flagTraceDiagTrace, flagTraceDiagOut, flagTraceDiagFlavor
 	oldWindow := flagTraceDiagWindow
+	oldTID := flagTraceDiagTID
 	t.Cleanup(func() {
 		flagTraceDiag, flagTraceDiagTrace, flagTraceDiagOut, flagTraceDiagFlavor = oldScript, oldTrace, oldOut, oldFlavor
 		flagTraceDiagWindow = oldWindow
+		flagTraceDiagTID = oldTID
 	})
 	flagTraceDiag, flagTraceDiagTrace, flagTraceDiagOut, flagTraceDiagFlavor = script, trace, out, flavor
 	flagTraceDiagWindow = ""
+	flagTraceDiagTID = ""
 }
 
 func writeTraceDiagCmdFixtures(t *testing.T) (scriptPath, tracePath, dir string) {
@@ -111,6 +114,71 @@ steps:
 	} {
 		if !strings.Contains(report, want) {
 			t.Errorf("override report missing %q\n%s", want, report)
+		}
+	}
+}
+
+func TestRunTraceDiagCLITIDOverrideUsesTypedBinding(t *testing.T) {
+	scriptPath, tracePath, _ := writeTraceDiagCmdFixtures(t)
+	script := `
+version: 2
+inputs: {window: required, tid: required}
+limits: {max_generated_windows: 1, max_expanded_steps: 2, max_report_lines: 300}
+steps:
+  - {label: target_rows, view: event_search, pid_from: tid, event_types: [sched_switch], max_lines: 20}
+  - {label: raw_rows, view: event_search, event_types: [sched_wakeup], max_lines: 20}
+`
+	if err := os.WriteFile(scriptPath, []byte(script), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withTraceDiagFlags(t, scriptPath, tracePath, "", "auto")
+	flagTraceDiagWindow = "1.000..1.300"
+	flagTraceDiagTID = "00020"
+	var buf bytes.Buffer
+	if err := runTraceDiagCLI(nil, &buf, nil); err != nil {
+		t.Fatalf("runTraceDiagCLI typed TID: %v", err)
+	}
+	report := buf.String()
+	for _, want := range []string{
+		"tid_override=20 source=cli_flag target=pid_from:tid",
+		"label=target_rows view=event_search",
+		"参数: pid=20 window=1.000..1.300",
+		"label=raw_rows view=event_search",
+	} {
+		if !strings.Contains(report, want) {
+			t.Errorf("typed TID report missing %q\n%s", want, report)
+		}
+	}
+}
+
+func TestRunTraceDiagCLITIDRejectedByV1AndPreservesExistingOut(t *testing.T) {
+	scriptPath, tracePath, dir := writeTraceDiagCmdFixtures(t)
+	outPath := filepath.Join(dir, "report.txt")
+	previous := []byte("PREVIOUS VALUABLE REPORT\n")
+	if err := os.WriteFile(outPath, previous, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withTraceDiagFlags(t, scriptPath, tracePath, outPath, "auto")
+	flagTraceDiagTID = "20"
+	var buf bytes.Buffer
+	err := runTraceDiagCLI(nil, &buf, nil)
+	if err == nil || !strings.Contains(err.Error(), "version: 2") {
+		t.Fatalf("v1 --trace-tid must fail loud, got %v", err)
+	}
+	got, readErr := os.ReadFile(outPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !bytes.Equal(got, previous) {
+		t.Fatalf("failed TID binding changed previous report: got %q want %q", got, previous)
+	}
+	entries, readErr := os.ReadDir(dir)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	for _, entry := range entries {
+		if strings.Contains(entry.Name(), ".tmp-") {
+			t.Fatalf("failed TID binding left temp residue %s", entry.Name())
 		}
 	}
 }
@@ -274,5 +342,13 @@ func TestRootPreRunRejectsTraceWindowWithoutTraceDiag(t *testing.T) {
 	flagTraceDiagWindow = "1.0..2.0"
 	if err := rootPreRun(rootCmd, nil); err == nil || !strings.Contains(err.Error(), "--trace-window requires --tracediag") {
 		t.Fatalf("orphan --trace-window must fail before initApp, got %v", err)
+	}
+}
+
+func TestRootPreRunRejectsTraceTIDWithoutTraceDiag(t *testing.T) {
+	withTraceDiagFlags(t, "", "", "", "auto")
+	flagTraceDiagTID = "20"
+	if err := rootPreRun(rootCmd, nil); err == nil || !strings.Contains(err.Error(), "--trace-tid requires --tracediag") {
+		t.Fatalf("orphan --trace-tid must fail before initApp, got %v", err)
 	}
 }

@@ -10,7 +10,9 @@ import (
 
 func loadShippedScript(path string) (*Script, error) {
 	switch filepath.Base(path) {
-	case "collect_open_gap_witness.yaml", "collect_io_pairing_witness.yaml":
+	case "collect_open_gap_witness.yaml":
+		return LoadScriptWithOverrides(path, ScriptOverrides{Window: "100.000..100.500", TID: "12345"})
+	case "collect_io_pairing_witness.yaml":
 		return LoadScriptWithOverrides(path, ScriptOverrides{Window: "100.000..100.500"})
 	default:
 		return LoadScript(path)
@@ -131,6 +133,9 @@ func TestShippedScriptShapes(t *testing.T) {
 	if _, err := LoadScript(openGapPath); err == nil || !strings.Contains(err.Error(), "requires --trace-window") {
 		t.Fatalf("open-gap template must fail loud when the required parent window is omitted, got %v", err)
 	}
+	if _, err := LoadScriptWithOverrides(openGapPath, ScriptOverrides{Window: "100..101"}); err == nil || !strings.Contains(err.Error(), "requires --trace-tid") {
+		t.Fatalf("open-gap template must fail loud when the required TID is omitted, got %v", err)
+	}
 	openGap, err := loadShippedScript(openGapPath)
 	if err != nil {
 		t.Fatal(err)
@@ -146,13 +151,13 @@ func TestShippedScriptShapes(t *testing.T) {
 		t.Fatalf("open-gap pairing discovery = %+v", discovery)
 	}
 	for i, step := range openGap.Steps[:4] {
-		if step.PID != 12345 || step.Thread != "" {
-			t.Errorf("open-gap target step %d selector = pid:%d thread:%q, want placeholder pid only", i, step.PID, step.Thread)
+		if step.PID != 12345 || step.PIDFrom != "tid" || step.Thread != "" {
+			t.Errorf("open-gap target step %d selector = pid:%d pid_from:%q thread:%q, want typed TID binding", i, step.PID, step.PIDFrom, step.Thread)
 		}
 	}
 	for i, step := range openGap.Steps[4:] {
-		if step.PID != 0 || step.Thread != "" {
-			t.Errorf("open-gap raw step %d must be unscoped, got pid:%d thread:%q", i+4, step.PID, step.Thread)
+		if step.PID != 0 || step.PIDFrom != "" || step.Thread != "" {
+			t.Errorf("open-gap raw step %d must be unscoped, got pid:%d pid_from:%q thread:%q", i+4, step.PID, step.PIDFrom, step.Thread)
 		}
 	}
 	if ref := openGap.Steps[4].WindowsFrom; ref == nil || ref.Discovery != discovery.Label {
@@ -161,8 +166,8 @@ func TestShippedScriptShapes(t *testing.T) {
 	if openGap.Steps[4].Window != "" {
 		t.Fatalf("dynamic raw IO lane must not inherit the parent window directly: %q", openGap.Steps[4].Window)
 	}
-	if openGap.v2WorstReportLines != 965 {
-		t.Fatalf("open-gap validated worst report lines=%d, want pinned 965", openGap.v2WorstReportLines)
+	if openGap.v2WorstReportLines != 966 {
+		t.Fatalf("open-gap validated worst report lines=%d, want pinned 966", openGap.v2WorstReportLines)
 	}
 	for i, step := range openGap.Steps[4:] {
 		if step.View != "event_search" {
@@ -189,6 +194,9 @@ func TestShippedScriptShapes(t *testing.T) {
 	}
 	if ioPairing.Discoveries[0].MaxWindows != tracequery.HardWindowDiscoveryMaxWindows || ioPairing.v2WorstReportLines > 1000 {
 		t.Fatalf("dedicated IO pairing budget = discovery:%+v worst:%d", ioPairing.Discoveries[0], ioPairing.v2WorstReportLines)
+	}
+	if _, err := LoadScriptWithOverrides(ioPairingPath, ScriptOverrides{Window: "100..101", TID: "7"}); err == nil || !strings.Contains(err.Error(), "does not declare inputs.tid") {
+		t.Fatalf("IO-only template must not silently ignore --trace-tid, got %v", err)
 	}
 }
 

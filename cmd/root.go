@@ -263,6 +263,7 @@ var (
 	flagTraceDiagOut    string
 	flagTraceDiagFlavor string
 	flagTraceDiagWindow string
+	flagTraceDiagTID    string
 )
 
 // defaultAttachedLogMaxBytes is the out-of-the-box cap on attached-
@@ -558,7 +559,7 @@ When invoked with a request, runs the pipeline once and exits.
 When invoked with no arguments, enters interactive REPL mode.
 
 Trace diagnostic collection (deterministic, zero LLM):
-  codrax --tracediag <script.yaml> --trace <trace-file> [--trace-window <start..end>] [--out report.txt]
+  codrax --tracediag <script.yaml> --trace <trace-file> [--trace-window <start..end>] [--trace-tid <tid>] [--out report.txt]
 runs a YAML collection script of trace_query steps (event_search /
 window_stats / root_cause_rank / wakeup_chain / format_census / …) directly
 against the engine and writes a single evidence report. No repository, no
@@ -567,7 +568,8 @@ providers.yaml and no model credentials are needed; per-step output is capped
 scripts ship under examples/tracediag/. Script v1 is static; v2 can run a
 typed deterministic discovery and fan out bounded system-derived windows
 without an LLM or manual child-window selection. Reusable v2 scripts may
-declare --trace-window as a required typed input; omission then fails loud.`,
+declare --trace-window and --trace-tid as required typed inputs; omission
+then fails loud.`,
 	Args:              cobra.MaximumNArgs(1),
 	PersistentPreRunE: rootPreRun,
 	RunE:              rootRun,
@@ -588,6 +590,9 @@ func rootPreRun(cmd *cobra.Command, args []string) error {
 	}
 	if strings.TrimSpace(flagTraceDiagWindow) != "" {
 		return fmt.Errorf("--trace-window requires --tracediag <script.yaml>")
+	}
+	if strings.TrimSpace(flagTraceDiagTID) != "" {
+		return fmt.Errorf("--trace-tid requires --tracediag <script.yaml>")
 	}
 	if strings.TrimSpace(flagWriteAudit) != "" {
 		return initWriteAuditOnly(cmd, args)
@@ -683,6 +688,7 @@ func init() {
 	f.StringVar(&flagTraceDiagOut, "out", "", "tracediag: write the collection report to this file (default: stdout)")
 	f.StringVar(&flagTraceDiagFlavor, "trace-flavor", "auto", "tracediag: trace flavor hint: auto|harmony_hitrace|android_atrace|generic_ftrace (strict; unknown values fail)")
 	f.StringVar(&flagTraceDiagWindow, "trace-window", "", "tracediag: typed <start_s>..<end_s> override for script defaults.window (required by automatic pairing templates); explicit per-step/discovery windows remain unchanged")
+	f.StringVar(&flagTraceDiagTID, "trace-tid", "", "tracediag: positive target TID injected only into v2 steps declaring pid_from: tid; the CLI input does not alter unbound steps")
 	f.BoolVar(&flagAutoInitRepo, "auto-init-repo", false, "authorize codrax to run `git init` + empty initial commit when the target dir is bare (yaml: write_auto_init_repo)")
 	f.BoolVar(&flagScaffold, "allow-scaffold", false, "authorize the planner to invent files for a 0-source-file target dir (from-scratch project creation; yaml: write_scaffold_enabled). Required IN ADDITION TO --auto-init-repo for empty-dir runs.")
 

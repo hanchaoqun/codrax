@@ -18,19 +18,18 @@ shasum -a 256 <trace文件> > trace_sha256.txt
   --trace <trace文件> --out format_census.txt
 ```
 
-复制通用窗口模板，按文件头注释填写目标 TID 与精确窗口，再执行：
+通用窗口模板无需复制或编辑；目标 TID 与精确父窗都从 CLI 输入：
 
 ```bash
-cp examples/tracediag/collect_open_gap_witness.yaml open_gap_witness.used.yaml
-# 只编辑 open_gap_witness.used.yaml 的四个 pid；父窗走 CLI，不改 YAML
-# 该模板声明 inputs.window=required，漏传 --trace-window 会立即失败，不会跑占位窗
-./codrax --tracediag open_gap_witness.used.yaml \
+# 两个输入都是 required；漏传任一参数都会立即失败
+./codrax --tracediag examples/tracediag/collect_open_gap_witness.yaml \
   --trace <trace文件> --trace-window <start_s>..<end_s> \
+  --trace-tid <目标TID> \
   --out open_gap_witness.txt \
   2> open_gap_witness.stderr.txt
 ```
 
-新版通用模板是 `version: 2`：客户仍只填写一个父窗口，`pairing_integrity`
+新版通用模板是 `version: 2`：客户只输入一个目标 TID 和一个父窗口，`pairing_integrity`
 会从物理文件开头完整重放 block/storage 端点状态，自动选择或拆分最多 2 个
 `<=50ms` 补采窗；`raw_io_pairing_rows` 按这些 typed 窗自动展开。报告顺序固定为
 “自动窗发现结果 → 已解析执行计划 → 各窗证据”，并回显 candidate rank、端点
@@ -175,7 +174,6 @@ witness_<scene>/
   codrax_version.txt
   trace_sha256.txt
   format_census.txt
-  open_gap_witness.used.yaml
   open_gap_witness.txt
   open_gap_witness.stderr.txt
   replay_full.txt                 # 仅显示/成文类 gap 需要

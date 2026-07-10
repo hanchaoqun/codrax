@@ -19,6 +19,10 @@ type Options struct {
 	// WindowOverride replaces script defaults.window before strict validation.
 	// Explicit step/discovery windows are unchanged.
 	WindowOverride string
+	// TIDOverride supplies a positive trace thread ID only to v2 steps that
+	// explicitly bind pid_from: tid. The CLI input does not scope unbound
+	// steps; their ordinary YAML defaults remain authoritative.
+	TIDOverride string
 	// FlavorHint is the CLI --trace-flavor value. STRICT enum
 	// (auto|harmony_hitrace|android_atrace|generic_ftrace); empty means auto.
 	// tracequery.NormalizeTraceFlavor's silent unknown→auto tolerance is an
@@ -71,7 +75,7 @@ func Run(ctx context.Context, opts Options, w io.Writer) (failed int, runErr err
 	if err != nil {
 		return 0, err
 	}
-	script, err := LoadScriptWithOverrides(opts.ScriptPath, ScriptOverrides{Window: opts.WindowOverride})
+	script, err := LoadScriptWithOverrides(opts.ScriptPath, ScriptOverrides{Window: opts.WindowOverride, TID: opts.TIDOverride})
 	if err != nil {
 		return 0, err
 	}
