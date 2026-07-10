@@ -27,11 +27,32 @@ func interruptLaneKey(ev Event) (string, bool) {
 	}
 }
 
+// interruptEndpointRawCandidate is the O(1) token prescreen for the six
+// duration-bearing interrupt endpoint names (perf audit #22): a violation can
+// only be minted for irq_handler_/softirq_/ipi_ entry/exit rows, so the full
+// header regex is never spent on sched/print/fs lines that the wide
+// duration-order token table also matches.
+func interruptEndpointRawCandidate(line string) bool {
+	return strings.Contains(line, "irq_handler_") ||
+		strings.Contains(line, "softirq_") ||
+		strings.Contains(line, "ipi_")
+}
+
 // interruptEndpointValidationFailure records only duration-bearing endpoint
 // families. *_raise is an instantaneous inventory signal and deliberately
 // does not participate in the pairing integrity gate.
 func interruptEndpointValidationFailure(lineNo int, line string) *durationOrderViolation {
-	m := ftraceLineRE.FindStringSubmatch(line)
+	var scan lineScan
+	scan.reset(lineNo, line)
+	return interruptEndpointValidationFailureScan(&scan)
+}
+
+func interruptEndpointValidationFailureScan(s *lineScan) *durationOrderViolation {
+	lineNo := s.lineNo
+	if !interruptEndpointRawCandidate(s.line) {
+		return nil
+	}
+	m := s.match()
 	if len(m) == 0 {
 		return nil
 	}
@@ -48,9 +69,9 @@ func interruptEndpointValidationFailure(lineNo int, line string) *durationOrderV
 		return nil
 	}
 
-	ts, tsOK := parseLineTimestamp(line)
+	ts, tsOK := s.timestamp()
 	cpu, cpuOK := atoiMaybe(m[4])
-	kv := parseKV(strings.TrimSpace(m[7]))
+	kv := s.keyValues()
 	fields := make([]string, 0, 2)
 	// ENG audit #4b (§29.25 处置委托 2026-07-10): an unparseable/overflowed
 	// timestamp is itself a damaged required field. Swallowing it minted a

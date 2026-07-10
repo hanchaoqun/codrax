@@ -22,11 +22,19 @@ import (
 // the flavor and every seek-build reuses it (also making flavor a stable
 // per-file property instead of a per-window vote).
 
-// traceAnchorLineInterval is the anchor spacing. 64K lines ≈ 6-9 MB of
-// typical ftrace text — ~170 anchors for a 1 GiB artifact.
-const traceAnchorLineInterval = 65536
+// traceAnchorLineInterval is the anchor spacing. 8K lines ≈ 0.8-1.1 MB of
+// typical ftrace text — ~1.4K anchors (≈33 KB) for a 1 GiB artifact. The
+// spacing directly bounds the seek OVERSHOOT a warm windowed build re-scans
+// before its window head; since the correctness batch made every overshoot
+// line pay the physical-row audits plus one shared Event parse (perf audit
+// #21, §29.25 处置委托 2026-07-10), the old 64K stride made anchor-seek rebuilds
+// ~8× more expensive than the anchor resolution itself. Seek safety is
+// stride-independent: an anchor is only chosen when its running-max ts is
+// strictly below the padded window start.
+const traceAnchorLineInterval = 8192
 
-// traceAnchorCacheMaxFiles bounds the anchor cache; entries are a few KB.
+// traceAnchorCacheMaxFiles bounds the anchor cache; entries are a few tens
+// of KB for GiB-scale artifacts.
 const traceAnchorCacheMaxFiles = 32
 
 type traceAnchor struct {

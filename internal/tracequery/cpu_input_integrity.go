@@ -25,6 +25,9 @@ type cpuInputIntegrityFailure struct {
 	Ts         float64
 	CPU        int
 	SourcePath string
+	// LocalLine: artifact-local physical line, set at composite rebase time
+	// (audit #36); zero when Line is already physical.
+	LocalLine int
 }
 
 func (f cpuInputIntegrityFailure) reason() string {
@@ -32,6 +35,7 @@ func (f cpuInputIntegrityFailure) reason() string {
 		f.EventName, f.Field, f.Raw, f.ReasonCode, f.Ts, f.CPU, f.Line)
 	if f.SourcePath != "" {
 		reason += " source=" + f.SourcePath
+		reason += witnessLocalLineSuffix(f.Line, f.LocalLine)
 	}
 	return reason
 }
@@ -186,24 +190,42 @@ func parseCPUSetListStrict(raw string) ([]int, bool, string) {
 	return parseCPURangeListStrict(raw)
 }
 
+// cpuInputRawCandidate is the O(1) token prescreen shared by the parse hot
+// loop and the standalone entry point: only these event families (or a header
+// CPU token wide enough to exceed the limit) can mint a cpu_input witness.
+func cpuInputRawCandidate(line string) bool {
+	if traceHeaderCPUCouldExceedLimit(line) {
+		return true
+	}
+	return strings.Contains(line, "cpu_") || strings.Contains(line, "clock_set_rate:") ||
+		strings.Contains(line, "perf_sample:") ||
+		strings.Contains(line, "sched_wakeup:") || strings.Contains(line, "sched_wakeup_new:") ||
+		strings.Contains(line, "sched_waking:") || strings.Contains(line, "sched_migrate_task:") ||
+		strings.Contains(line, "sched_setaffinity:") || strings.Contains(line, "cpuset_attach:") ||
+		strings.Contains(line, "cgroup_attach_task:")
+}
+
 func cpuInputValidationFailures(lineNo int, line string) []cpuInputIntegrityFailure {
-	headerMayBeOutOfRange := traceHeaderCPUCouldExceedLimit(line)
-	if !headerMayBeOutOfRange && !strings.Contains(line, "cpu_") && !strings.Contains(line, "clock_set_rate:") &&
-		!strings.Contains(line, "perf_sample:") &&
-		!strings.Contains(line, "sched_wakeup:") && !strings.Contains(line, "sched_wakeup_new:") &&
-		!strings.Contains(line, "sched_waking:") && !strings.Contains(line, "sched_migrate_task:") &&
-		!strings.Contains(line, "sched_setaffinity:") && !strings.Contains(line, "cpuset_attach:") &&
-		!strings.Contains(line, "cgroup_attach_task:") {
+	if !cpuInputRawCandidate(line) {
 		return nil
 	}
-	m := ftraceLineRE.FindStringSubmatch(line)
+	var scan lineScan
+	scan.reset(lineNo, line)
+	return cpuInputValidationFailuresScan(&scan)
+}
+
+// cpuInputValidationFailuresScan consumes the shared per-line memo; callers
+// on the hot loop gate it behind cpuInputRawCandidate.
+func cpuInputValidationFailuresScan(s *lineScan) []cpuInputIntegrityFailure {
+	lineNo := s.lineNo
+	m := s.match()
 	if len(m) == 0 {
 		return nil
 	}
 	rawType := strings.TrimSuffix(strings.TrimSpace(m[6]), ":")
 	typ := classifyEventType(strings.TrimSpace(m[1]), rawType, strings.TrimSpace(m[7]))
 	headerCPU, _ := strconv.Atoi(m[4])
-	ts, _ := parseLineTimestamp(line)
+	ts, _ := s.timestamp()
 	var out []cpuInputIntegrityFailure
 	if !validTraceCPUIndex(headerCPU) {
 		out = append(out, cpuInputIntegrityFailure{EventName: rawType, Field: "header_cpu", Raw: m[4], ReasonCode: "cpu_above_limit", Line: lineNo, Ts: ts, CPU: headerCPU})
@@ -213,7 +235,7 @@ func cpuInputValidationFailures(lineNo int, line string) []cpuInputIntegrityFail
 	default:
 		return out
 	}
-	kv := parseKV(strings.TrimSpace(m[7]))
+	kv := s.keyValues()
 	addScalar := func(field string) {
 		raw, exists := kv[field]
 		if !exists {

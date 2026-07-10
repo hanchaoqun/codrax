@@ -16,6 +16,10 @@ type threadIncarnationConflict struct {
 	PriorDeadTs   float64
 	PriorDeadLine int
 	SourcePath    string
+	// Local*Line: artifact-local physical lines, set at composite rebase
+	// time (audit #36); zero when the published lines are already physical.
+	LocalPreviousLine int
+	LocalBoundaryLine int
 }
 
 func (c *threadIncarnationConflict) reason() string {
@@ -25,6 +29,9 @@ func (c *threadIncarnationConflict) reason() string {
 	reason := fmt.Sprintf("thread_incarnation_conflict tid=%d signal=%s previous_line=%d boundary_line=%d boundary_ts=%.6f", c.PID, c.Signal, c.PreviousLine, c.BoundaryLine, c.BoundaryTs)
 	if c.SourcePath != "" {
 		reason += " source=" + c.SourcePath
+		if c.LocalBoundaryLine > 0 && c.LocalBoundaryLine != c.BoundaryLine {
+			reason += fmt.Sprintf(" local_previous_line=%d local_boundary_line=%d", c.LocalPreviousLine, c.LocalBoundaryLine)
+		}
 	}
 	return reason
 }
@@ -325,6 +332,8 @@ func mergeThreadIncarnationFailures(dst []threadIncarnationConflict, dstCapped b
 			}
 			if existing.SourcePath == "" {
 				existing.SourcePath = candidate.SourcePath
+				existing.LocalPreviousLine = candidate.LocalPreviousLine
+				existing.LocalBoundaryLine = candidate.LocalBoundaryLine
 			}
 			if !existing.PriorDead && candidate.PriorDead {
 				existing.PriorDead = true

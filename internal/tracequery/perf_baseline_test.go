@@ -81,12 +81,16 @@ func BenchmarkBuildIndexWindowed(b *testing.B) {
 	}
 }
 
+// benchAnchoredTraceLines is pinned to the historical 4×65536 fixture size so
+// windowed-benchmark numbers stay comparable across anchor-stride changes.
+const benchAnchoredTraceLines = 262144
+
 // BenchmarkBuildIndexWindowedAnchored measures the P1 anchor-seek win: a
-// late window over a file large enough to carry anchors (>64K lines). The
-// first build is cold (records anchors); every subsequent iteration seeks.
+// late window over a file large enough to carry anchors. The first build is
+// cold (records anchors); every subsequent iteration seeks.
 func BenchmarkBuildIndexWindowedAnchored(b *testing.B) {
-	path := writeSyntheticTrace(b, 4*traceAnchorLineInterval)
-	late := 100.0 + float64(4*traceAnchorLineInterval-2000)*0.0001
+	path := writeSyntheticTrace(b, benchAnchoredTraceLines)
+	late := 100.0 + float64(benchAnchoredTraceLines-2000)*0.0001
 	opts := BuildOptions{AllowWindowedParse: true, TimeStart: late, TimeStartSet: true, TimeEnd: late + 0.1, TimeEndSet: true}
 	if _, err := BuildIndexWithOptions(b.Context(), path, opts); err != nil {
 		b.Fatal(err)
@@ -104,8 +108,8 @@ func BenchmarkBuildIndexWindowedAnchored(b *testing.B) {
 // benchmark: identical file and window, but the anchor cache is dropped
 // every iteration so each build re-streams the whole prefix.
 func BenchmarkBuildIndexWindowedColdPrefix(b *testing.B) {
-	path := writeSyntheticTrace(b, 4*traceAnchorLineInterval)
-	late := 100.0 + float64(4*traceAnchorLineInterval-2000)*0.0001
+	path := writeSyntheticTrace(b, benchAnchoredTraceLines)
+	late := 100.0 + float64(benchAnchoredTraceLines-2000)*0.0001
 	opts := BuildOptions{AllowWindowedParse: true, TimeStart: late, TimeStartSet: true, TimeEnd: late + 0.1, TimeEndSet: true}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

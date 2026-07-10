@@ -576,6 +576,15 @@ type Index struct {
 	generationMetadataCapped            bool
 	schedulerOrderFailuresCapped        bool
 	schedulerRowIntegrityFailuresCapped bool
+	// durationOrderEventScanOnce backs the lazy full-event duration-order
+	// audit needed by non-monotonic indexes (perf audit #24, §29.25 处置委托
+	// 2026-07-10): the scan core is query-independent (relevance is a pure
+	// post-filter), so it runs once per index instead of once per view.
+	// Same house pattern as generationMetadataOnce; Index is pointer-only
+	// throughout the package, so the sync.Once is copy-safe.
+	durationOrderEventScanOnce     sync.Once
+	durationOrderEventScanFailures []durationOrderViolation
+	durationOrderEventScanCapped   map[durationOrderFamily]bool
 }
 
 type Query struct {

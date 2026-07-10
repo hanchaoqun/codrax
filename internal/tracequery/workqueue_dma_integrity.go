@@ -135,13 +135,31 @@ func durationExactEndpointFamily(rawType string) durationOrderFamily {
 	}
 }
 
+// durationEndpointFallbackCandidate is the O(1) prescreen for the fallback
+// grammar: durationEndpointFallbackRE can only match a line carrying one of
+// the four exact endpoint names, all of which contain one of these two
+// prefixes. Without it every sched/print/fs line matching the wide
+// duration-order token table paid a second full regex (perf audit #21/#22).
+func durationEndpointFallbackCandidate(line string) bool {
+	return strings.Contains(line, "workqueue_execute_") || strings.Contains(line, "dma_fence_wait_")
+}
+
 func durationEndpointRawMatch(line string) []string {
-	if match := ftraceLineRE.FindStringSubmatch(line); len(match) != 0 {
+	var scan lineScan
+	scan.reset(0, line)
+	return durationEndpointRawMatchScan(&scan)
+}
+
+func durationEndpointRawMatchScan(s *lineScan) []string {
+	if match := s.match(); len(match) != 0 {
 		if durationExactEndpointFamily(strings.TrimSuffix(strings.TrimSpace(match[6]), ":")) != "" {
 			return match
 		}
 	}
-	return durationEndpointFallbackRE.FindStringSubmatch(line)
+	if !durationEndpointFallbackCandidate(s.line) {
+		return nil
+	}
+	return durationEndpointFallbackRE.FindStringSubmatch(s.line)
 }
 
 // durationEndpointRawValidationFailure audits the physical row before Event
@@ -149,7 +167,14 @@ func durationEndpointRawMatch(line string) []string {
 // cannot disappear into the generic unparsed census while another pair in the
 // same family still mints elapsed time.
 func durationEndpointRawValidationFailure(lineNo int, line string) *durationOrderViolation {
-	m := durationEndpointRawMatch(line)
+	var scan lineScan
+	scan.reset(lineNo, line)
+	return durationEndpointRawValidationFailureScan(&scan)
+}
+
+func durationEndpointRawValidationFailureScan(s *lineScan) *durationOrderViolation {
+	lineNo := s.lineNo
+	m := durationEndpointRawMatchScan(s)
 	if len(m) == 0 {
 		return nil
 	}
@@ -198,13 +223,19 @@ func durationEndpointRawValidationFailure(lineNo int, line string) *durationOrde
 }
 
 func durationEndpointRejectedRowFailure(lineNo int, line string) *durationOrderViolation {
-	m := durationEndpointRawMatch(line)
+	var scan lineScan
+	scan.reset(lineNo, line)
+	return durationEndpointRejectedRowFailureScan(&scan)
+}
+
+func durationEndpointRejectedRowFailureScan(s *lineScan) *durationOrderViolation {
+	m := durationEndpointRawMatchScan(s)
 	if len(m) == 0 {
 		return nil
 	}
 	rawType := strings.TrimSuffix(strings.TrimSpace(m[6]), ":")
 	family := durationExactEndpointFamily(rawType)
-	if family == "" || durationEndpointRawValidationFailure(lineNo, line) != nil {
+	if family == "" || durationEndpointRawValidationFailureScan(s) != nil {
 		return nil
 	}
 	ts, ok := parseTraceTimestampSeconds(m[5])
@@ -213,7 +244,7 @@ func durationEndpointRejectedRowFailure(lineNo int, line string) *durationOrderV
 	}
 	return &durationOrderViolation{
 		Family: family, Issue: "endpoint_parse_incomplete", EventName: rawType,
-		Fields: []string{"parser_rejected_row"}, CurrentTs: ts, Line: lineNo,
+		Fields: []string{"parser_rejected_row"}, CurrentTs: ts, Line: s.lineNo,
 	}
 }
 

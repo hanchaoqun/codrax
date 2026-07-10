@@ -869,13 +869,77 @@ func (opts BuildOptions) cacheKey() string {
 	return key
 }
 
+// lineScan memoizes the per-line ftrace header analysis shared by the window
+// gate, the anchor recorder, every physical-row integrity audit and the event
+// parse itself. One physical line pays for at most ONE ftraceLineRE match, one
+// parseKV and one Event parse no matter how many consumers inspect it (perf
+// audit #21, §29.25 处置委托 2026-07-10: the five per-line audits used to re-run
+// the full header regex up to 4× and re-parse the same line 2-3×, a measured
+// 29× windowed-build regression on GiB traces). The struct is reused across
+// loop iterations; reset() only clears the memo flags.
+type lineScan struct {
+	lineNo  int
+	line    string
+	m       []string
+	mTried  bool
+	kv      map[string]string
+	kvTried bool
+	ts      float64
+	tsOK    bool
+	tsTried bool
+}
+
+func (s *lineScan) reset(lineNo int, line string) {
+	s.lineNo, s.line = lineNo, line
+	s.mTried, s.kvTried, s.tsTried = false, false, false
+}
+
+func (s *lineScan) match() []string {
+	if !s.mTried {
+		s.mTried = true
+		s.m = ftraceLineRE.FindStringSubmatch(s.line)
+	}
+	return s.m
+}
+
+// keyValues returns the parseKV view of the matched fields column. Consumers
+// must treat the map as read-only: it is shared by every audit on this line
+// and by the event parse.
+func (s *lineScan) keyValues() map[string]string {
+	if !s.kvTried {
+		s.kvTried = true
+		s.kv = nil
+		if m := s.match(); len(m) != 0 {
+			s.kv = parseKV(strings.TrimSpace(m[7]))
+		}
+	}
+	return s.kv
+}
+
+// timestamp is byte-identical to parseLineTimestamp over the same line: the
+// exact anchored header grammar plus the finite-seconds parse. A
+// timestamp-looking token in comm/field text must never be promoted into
+// trace time.
+func (s *lineScan) timestamp() (float64, bool) {
+	if !s.tsTried {
+		s.tsTried = true
+		s.ts, s.tsOK = 0, false
+		if m := s.match(); len(m) != 0 {
+			s.ts, s.tsOK = parseTraceTimestampSeconds(m[5])
+		}
+	}
+	return s.ts, s.tsOK
+}
+
 // windowGate holds the padded line/time bounds of a windowed parse and decides,
 // for each scanned line, whether it falls before/outside the window (skip), is
 // provably past it (stop), or is inside it (retain). A time-end stop is legal
 // only with a complete-file monotonic timestamp proof. Both the main parse loop
 // and the relation-scope discovery pass route through this single method so
 // they observe a byte-identical window line set — any drift between the two
-// would corrupt pruning.
+// would corrupt pruning. Timestamp extraction flows through the shared
+// lineScan memo, so the gate never pays a second header match on a line whose
+// audits or parse already matched it.
 type windowGate struct {
 	lineStart, lineEnd       int
 	timeStart, timeEnd       float64
@@ -883,32 +947,32 @@ type windowGate struct {
 	allowTimeEndStop         bool
 }
 
-func (w windowGate) decide(lineNo int, trimmed string, seenTimeWindow *bool) (skip, stop bool, ts float64, hasTS bool) {
+func (w windowGate) decide(lineNo int, scan *lineScan, seenTimeWindow *bool) (skip, stop bool) {
 	if w.lineEnd > 0 && lineNo > w.lineEnd {
-		return false, true, 0, false
+		return false, true
 	}
 	if w.lineStart > 0 && lineNo < w.lineStart {
-		return true, false, 0, false
+		return true, false
 	}
 	if w.timeStartSet || w.timeEndSet {
-		ts, hasTS = parseLineTimestamp(trimmed)
+		ts, hasTS := scan.timestamp()
 		if hasTS {
 			if w.timeStartSet && ts < w.timeStart {
-				return true, false, ts, true
+				return true, false
 			}
 			if w.timeEndSet && ts > w.timeEnd {
 				// A regression-free PREFIX is not a proof about the unread
 				// suffix. Without the typed complete-file proof, skip this
 				// out-of-window row and keep scanning: a later physical line may
 				// regress back into the requested window.
-				return true, w.allowTimeEndStop, ts, true
+				return true, w.allowTimeEndStop
 			}
 			*seenTimeWindow = true
 		} else if w.timeStartSet && !*seenTimeWindow {
-			return true, false, 0, false
+			return true, false
 		}
 	}
-	return false, false, ts, hasTS
+	return false, false
 }
 
 // completeTimestampOrderProof consumes the unread physical suffix using only
@@ -957,7 +1021,20 @@ func parseFile(ctx context.Context, path string, size int64, modUnix int64, opts
 	if companions := siblingTraceArtifactPaths(path); len(companions) > 0 {
 		return parseTraceArtifactPathList(ctx, path, size, modUnix, opts, append([]string{path}, companions...))
 	}
-	return parseSingleTraceFile(ctx, path, size, modUnix, opts)
+	idx, err := parseSingleTraceFile(ctx, path, size, modUnix, opts)
+	if err == nil && idx != nil && strings.HasSuffix(strings.ToLower(path), ".perftrace") {
+		// Audit #35 (§29.25 处置委托 2026-07-10): a directly queried .perftrace is
+		// the intentional per-clock-domain escape hatch and deliberately never
+		// consults a sibling bundle manifest (promoteSiblingTraceBundlePath pin).
+		// That also means the bundle lane's capability admission gate
+		// (trace_query_ready / thread-identity enums / scheduler-row exclusion /
+		// identity scrub) has NOT vouched for these rows — disclose it instead
+		// of silently publishing identity/scheduler lanes at full authority.
+		// Bundle children take the composite lane and never see this caveat;
+		// their rows pass applyPerfBundleAdmission instead.
+		idx.Caveats = append(idx.Caveats, "perftrace_capability_unattested=true; this .perftrace was queried directly (per-clock-domain escape hatch), so no bundle capability manifest attested its thread/CPU identity or scheduler-row provenance; treat identity-derived and scheduler-derived lanes as unattested, or query the owning tracebundle for capability-gated admission")
+	}
+	return idx, err
 }
 
 func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix int64, opts BuildOptions) (*Index, error) {
@@ -1081,6 +1158,7 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 	auditIntern := newStringInterner()
 	auditScratch := &Index{}
 	auditQ := Query{TimeStart: idx.IndexTimeStart, TimeEnd: idx.IndexTimeEnd, LineStart: idx.IndexLineStart, LineEnd: idx.IndexLineEnd}
+	var scan lineScan
 	for lineNo := startLine; ; lineNo++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -1090,21 +1168,34 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 			idx.LineCount = lineNo
 			idx.ScannedLineCount = lineNo
 			trimmed := strings.TrimRight(line, "\r\n")
-			var durationEndpointRowFailure *durationOrderViolation
+			scan.reset(lineNo, trimmed)
+			// The window verdict is computed first because it decides which
+			// interner/ledger the single shared parse below feeds. The gate is
+			// pure over (lineNo, ts), so evaluating it before the audits cannot
+			// change which lines the audits observe; every audit still runs on
+			// skipped prefix rows (carry-in state) and on the stop row, exactly
+			// as before.
+			skip, stop := false, false
 			if idx.Windowed {
-				for _, failure := range cpuInputValidationFailures(lineNo, trimmed) {
+				skip, stop = gate.decide(lineNo, &scan, &seenTimeWindow)
+			}
+			retained := !skip && !stop
+			var durationEndpointRowFailure *durationOrderViolation
+			if idx.Windowed && cpuInputRawCandidate(trimmed) {
+				for _, failure := range cpuInputValidationFailuresScan(&scan) {
 					if cpuInputIntegrityFailureRelevantToQuery(failure, auditQ) {
 						failure.SourcePath = path
 						appendCPUInputIntegrityFailure(idx, failure)
 					}
 				}
 			}
-			if failure := traceMarkValidationFailure(lineNo, trimmed); failure != nil && traceMarkIntegrityFailureRelevantToQuery(*failure, auditQ) {
+			if failure := traceMarkValidationFailureScan(&scan); failure != nil && traceMarkIntegrityFailureRelevantToQuery(*failure, auditQ) {
 				failure.SourcePath = path
 				appendTraceMarkIntegrityFailure(idx, *failure)
 			}
-			if durationOrderRawCandidate(trimmed) {
-				if failure := durationEndpointRawValidationFailure(lineNo, trimmed); failure != nil && durationOrderViolationRelevantToQuery(failure, auditQ) {
+			durationCandidate := durationOrderRawCandidate(trimmed)
+			if durationCandidate {
+				if failure := durationEndpointRawValidationFailureScan(&scan); failure != nil && durationOrderViolationRelevantToQuery(failure, auditQ) {
 					failure.SourcePath = path
 					appendDurationOrderFailure(idx, *failure)
 					durationEndpointRowFailure = failure
@@ -1112,33 +1203,53 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 						durationAudit.resetFamily(failure.Family)
 					}
 				}
-				if failure := interruptEndpointValidationFailure(lineNo, trimmed); failure != nil && durationOrderViolationRelevantToQuery(failure, auditQ) {
-					failure.SourcePath = path
-					appendDurationOrderFailure(idx, *failure)
-				}
-				if idx.Windowed && durationEndpointRowFailure == nil {
-					if auditEv, auditOK := safeParseLine(lineNo, trimmed, auditIntern, auditScratch); auditOK {
-						for _, failure := range durationAudit.observeAll(auditEv) {
-							failure.SourcePath = path
-							if durationOrderViolationRelevantToQuery(&failure, auditQ) {
-								appendDurationOrderFailure(idx, failure)
-							}
-						}
+				// Perf audit #22: the interrupt endpoint validator only ever
+				// returns a violation for the six irq/softirq/ipi entry/exit
+				// names, so lines without those tokens skip its regex outright.
+				if interruptEndpointRawCandidate(trimmed) {
+					if failure := interruptEndpointValidationFailureScan(&scan); failure != nil && durationOrderViolationRelevantToQuery(failure, auditQ) {
+						failure.SourcePath = path
+						appendDurationOrderFailure(idx, *failure)
 					}
 				}
 			}
 			var rowIntegrityFailure *schedulerRowIntegrityFailure
 			if idx.Windowed && schedulerIntegrityRawCandidate(trimmed) {
-				rowIntegrityFailure = schedulerRowValidationFailure(lineNo, trimmed)
+				rowIntegrityFailure = schedulerRowValidationFailureScan(&scan)
 				if rowIntegrityFailure != nil && schedulerRowIntegrityFailureRelevantToQuery(rowIntegrityFailure, auditQ, 0) {
 					rowIntegrityFailure.SourcePath = path
 					appendSchedulerRowIntegrityFailure(idx, *rowIntegrityFailure)
 				}
 			}
-			if idx.Windowed && rowIntegrityFailure == nil && schedulerHeadRawCandidate(trimmed) {
-				if auditEv, auditOK := safeParseLine(lineNo, trimmed, auditIntern, auditScratch); auditOK {
-					if incarnationAuditSeedBoundary == 0 || auditEv.Ts >= incarnationAuditSeedBoundary {
-						for _, conflict := range incarnationAudit.observeAll(auditEv, 0) {
+			schedulerHeadCandidate := idx.Windowed && rowIntegrityFailure == nil && schedulerHeadRawCandidate(trimmed)
+			// ONE Event parse per physical line: retained rows parse into the
+			// main interner/ledger (exactly the rows the admission block below
+			// consumes), while gate-skipped rows that a stateful audit needs
+			// parse into the throwaway audit interner, as before. Both the
+			// duration tracker and the scheduler-head audits consume this same
+			// ev instead of re-parsing.
+			panicsBefore := idx.ParseLinePanics
+			var ev Event
+			evOK := false
+			if retained || (idx.Windowed && durationCandidate && durationEndpointRowFailure == nil) || schedulerHeadCandidate {
+				if retained {
+					ev, evOK = safeParseLineScan(&scan, intern, idx)
+				} else {
+					ev, evOK = safeParseLineScan(&scan, auditIntern, auditScratch)
+				}
+			}
+			if idx.Windowed && durationCandidate && durationEndpointRowFailure == nil && evOK {
+				for _, failure := range durationAudit.observeAll(ev) {
+					failure.SourcePath = path
+					if durationOrderViolationRelevantToQuery(&failure, auditQ) {
+						appendDurationOrderFailure(idx, failure)
+					}
+				}
+			}
+			if schedulerHeadCandidate {
+				if evOK {
+					if incarnationAuditSeedBoundary == 0 || ev.Ts >= incarnationAuditSeedBoundary {
+						for _, conflict := range incarnationAudit.observeAll(ev, 0) {
 							if incarnationBoundaryInsideQuery(&conflict, auditQ) {
 								if len(idx.threadIncarnationFailures) < threadIncarnationFailureCap {
 									idx.threadIncarnationFailures = append(idx.threadIncarnationFailures, conflict)
@@ -1150,7 +1261,7 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 					}
 					lineInOrderDomain := (idx.IndexLineStart <= 0 || lineNo >= idx.IndexLineStart) && (idx.IndexLineEnd <= 0 || lineNo <= idx.IndexLineEnd)
 					if lineInOrderDomain {
-						for _, failure := range auditSchedulerOrderEvent(schedulerAuditCPU, schedulerAuditPID, auditEv) {
+						for _, failure := range auditSchedulerOrderEvent(schedulerAuditCPU, schedulerAuditPID, ev) {
 							failure.SourcePath = path
 							if schedulerOrderViolationRelevantToQuery(&failure, auditQ, 0) {
 								if len(idx.schedulerOrderFailures) < schedulerOrderFailureCap {
@@ -1161,23 +1272,18 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 							}
 						}
 					}
-				} else if rejected := schedulerRejectedRowFailure(lineNo, trimmed); rejected != nil && schedulerRowIntegrityFailureRelevantToQuery(rejected, auditQ, 0) {
+				} else if rejected := schedulerRejectedRowFailureScan(&scan); rejected != nil && schedulerRowIntegrityFailureRelevantToQuery(rejected, auditQ, 0) {
 					rejected.SourcePath = path
 					appendSchedulerRowIntegrityFailure(idx, *rejected)
 				}
 			}
-			lineTs, lineHasTS := float64(0), false
 			if idx.Windowed {
-				skip, stop, gts, ghas := gate.decide(lineNo, trimmed, &seenTimeWindow)
-				lineTs, lineHasTS = gts, ghas
 				if recording {
-					// The gate skips ts extraction on line-window skips;
-					// the recorder's running max must still see EVERY
-					// line's ts or a future time-window seek could jump
-					// past an in-window line.
-					if !lineHasTS {
-						lineTs, lineHasTS = parseLineTimestamp(trimmed)
-					}
+					// The recorder's running max must still see EVERY line's
+					// ts (memoized: at most one header match per line) or a
+					// future time-window seek could jump past an in-window
+					// line.
+					lineTs, lineHasTS := scan.timestamp()
 					recorder.observe(lineNo, len(line), lineTs, lineHasTS)
 				}
 				if stop {
@@ -1190,12 +1296,11 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 					goto nextLine
 				}
 			} else if recording {
-				lineTs, lineHasTS = parseLineTimestamp(trimmed)
+				lineTs, lineHasTS := scan.timestamp()
 				recorder.observe(lineNo, len(line), lineTs, lineHasTS)
 			}
 			flavor.observeRawLine(trimmed)
-			panicsBefore := idx.ParseLinePanics
-			if ev, ok := safeParseLine(lineNo, trimmed, intern, idx); ok {
+			if evOK {
 				if prev := lastParsedTs; prev > 0 && ev.Ts > 0 && ev.Ts < prev {
 					idx.ClockRegressions++
 				}
@@ -1305,17 +1410,17 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 				idx.Events = append(idx.Events, ev)
 			} else if trimmed != "" {
 				if durationEndpointRowFailure == nil {
-					if rejected := durationEndpointRejectedRowFailure(lineNo, trimmed); rejected != nil && durationOrderViolationRelevantToQuery(rejected, auditQ) {
+					if rejected := durationEndpointRejectedRowFailureScan(&scan); rejected != nil && durationOrderViolationRelevantToQuery(rejected, auditQ) {
 						rejected.SourcePath = path
 						appendDurationOrderFailure(idx, *rejected)
 					}
 				}
 				if rowIntegrityFailure == nil {
-					rowIntegrityFailure = schedulerRowValidationFailure(lineNo, trimmed)
+					rowIntegrityFailure = schedulerRowValidationFailureScan(&scan)
 					if rowIntegrityFailure != nil && schedulerRowIntegrityFailureRelevantToQuery(rowIntegrityFailure, auditQ, 0) {
 						rowIntegrityFailure.SourcePath = path
 						appendSchedulerRowIntegrityFailure(idx, *rowIntegrityFailure)
-					} else if rejected := schedulerRejectedRowFailure(lineNo, trimmed); rejected != nil && schedulerRowIntegrityFailureRelevantToQuery(rejected, auditQ, 0) {
+					} else if rejected := schedulerRejectedRowFailureScan(&scan); rejected != nil && schedulerRowIntegrityFailureRelevantToQuery(rejected, auditQ, 0) {
 						rejected.SourcePath = path
 						appendSchedulerRowIntegrityFailure(idx, *rejected)
 					}
@@ -1338,6 +1443,17 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 				break
 			}
 			return nil, err
+		}
+	}
+	// A duration-audit lane-budget overflow (durationOrderTrackerLaneBudget)
+	// means some lanes of the family were never audited; fail-close the family
+	// on the index exactly like a witness-ledger overflow.
+	for family, capped := range durationAudit.capped {
+		if capped {
+			if idx.durationOrderFailuresCapped == nil {
+				idx.durationOrderFailuresCapped = map[durationOrderFamily]bool{}
+			}
+			idx.durationOrderFailuresCapped[family] = true
 		}
 	}
 	if seeked && anchorSet.FlavorSet {
@@ -2098,6 +2214,23 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 			sample.Line += source.VirtualLineBase
 			idx.UnparsedSamples = append(idx.UnparsedSamples, sample)
 		}
+		// Audit #39 (§29.25 处置委托 2026-07-10): child parse-time disclosures
+		// (today: the relation-scope seed-resolution failure) must survive the
+		// composite merge — dropping them silently erased the only record that
+		// a thread selector failed to resolve at parse time. Exact-duplicate
+		// strings from sibling children collapse.
+		for _, caveat := range child.Caveats {
+			duplicate := false
+			for _, existing := range idx.Caveats {
+				if existing == caveat {
+					duplicate = true
+					break
+				}
+			}
+			if !duplicate {
+				idx.Caveats = append(idx.Caveats, caveat)
+			}
+		}
 		idx.ParsedKnown += child.ParsedKnown
 		idx.RelationScoped = idx.RelationScoped || child.RelationScoped
 		if len(child.relationScopeTIDs) > 0 {
@@ -2157,6 +2290,7 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 		}
 		for _, childFailure := range childRowIntegrityFailures {
 			failure := childFailure
+			failure.LocalLine = childFailure.Line
 			failure.Line += source.VirtualLineBase
 			failure.SourcePath = source.SourcePath
 			mapped, ok := source.toCanonicalTsChecked(failure.Ts)
@@ -2171,6 +2305,7 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 		}
 		for _, childFailure := range childCPUInputFailures {
 			failure := childFailure
+			failure.LocalLine = childFailure.Line
 			failure.Line += source.VirtualLineBase
 			failure.SourcePath = source.SourcePath
 			mapped, ok := source.toCanonicalTsChecked(failure.Ts)
@@ -2207,6 +2342,7 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 				continue
 			}
 			failure := childFailure
+			failure.LocalLine = childFailure.Line
 			failure.Line += source.VirtualLineBase
 			failure.SourcePath = source.SourcePath
 			previous, previousOK := source.toCanonicalTsChecked(failure.PreviousTs)
@@ -2227,6 +2363,7 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 		}
 		for _, childFailure := range childDurationFailures {
 			failure := childFailure
+			failure.LocalLine = childFailure.Line
 			failure.Line += source.VirtualLineBase
 			failure.SourcePath = source.SourcePath
 			previous, previousOK := source.toCanonicalTsChecked(failure.PreviousTs)
@@ -2246,6 +2383,8 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 				continue
 			}
 			failure := childFailure
+			failure.LocalPreviousLine = childFailure.PreviousLine
+			failure.LocalBoundaryLine = childFailure.BoundaryLine
 			failure.PreviousLine += source.VirtualLineBase
 			failure.BoundaryLine += source.VirtualLineBase
 			if failure.PriorDeadLine > 0 {
@@ -2411,7 +2550,17 @@ func parseLineTimestamp(line string) (float64, bool) {
 }
 
 func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
-	m := ftraceLineRE.FindStringSubmatch(line)
+	var scan lineScan
+	scan.reset(lineNo, line)
+	return parseLineScan(&scan, intern)
+}
+
+// parseLineScan is ParseLine over the shared per-line memo: the header match
+// and parseKV computed by the window gate or any physical-row audit are reused
+// here instead of being recomputed (perf audit #21).
+func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
+	lineNo := s.lineNo
+	m := s.match()
 	if len(m) == 0 {
 		return Event{}, false
 	}
@@ -2432,7 +2581,7 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		// witness for the query caveat.
 		return Event{}, false
 	}
-	ts, tsOK := parseTraceTimestampSeconds(m[5])
+	ts, tsOK := s.timestamp()
 	if !tsOK {
 		// ParseLine and parseLineTimestamp are both admission gates. Keeping
 		// them on one finite parser prevents a range-overflow timestamp from
@@ -2454,7 +2603,7 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		FieldText: intern.intern(clampString(fields, 300)),
 	}
 	ev.SubsystemKind = intern.intern(classifySubsystemKind(rawType, fields, ev.Type))
-	kv := parseKV(fields)
+	kv := s.keyValues()
 	if schedulerFieldsValidationFailure(lineNo, rawType, ts, cpu, kv) != nil {
 		// Critical scheduler identities are presence-sensitive. Returning false
 		// keeps an absent/invalid PID from silently materializing as the valid
@@ -4125,9 +4274,43 @@ func safeParseLine(lineNo int, line string, intern *stringInterner, idx *Index) 
 	return ev, ok
 }
 
+// safeParseLineScan is safeParseLine over the shared per-line memo. Same
+// panic isolation and typed-counter degrade contract; the cpu_input witness
+// paths consume the memoized header match instead of re-running the regex.
+func safeParseLineScan(s *lineScan, intern *stringInterner, idx *Index) (ev Event, ok bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			if idx != nil {
+				idx.ParseLinePanics++
+				if cpuInputRawCandidate(s.line) {
+					for _, failure := range cpuInputValidationFailuresScan(s) {
+						failure.SourcePath = idx.Path
+						appendCPUInputIntegrityFailure(idx, failure)
+					}
+				}
+			}
+			ev, ok = Event{}, false
+		}
+	}()
+	ev, ok = parseLineScanFn(s, intern)
+	if idx != nil && (!ok || ev.CPUInputInvalid) {
+		if cpuInputRawCandidate(s.line) {
+			for _, failure := range cpuInputValidationFailuresScan(s) {
+				failure.SourcePath = idx.Path
+				appendCPUInputIntegrityFailure(idx, failure)
+			}
+		}
+	}
+	return ev, ok
+}
+
 // parseLineFn indirects ParseLine so the recover seam is testable with
 // an injected panic; production always points at ParseLine.
 var parseLineFn = ParseLine
+
+// parseLineScanFn is the same testable recover seam for the memoized parse
+// used by the main windowed/full parse loop.
+var parseLineScanFn = parseLineScan
 
 // recordUnparsedSample retains one unparseable-line witness on the typed
 // Index face (TDIAG B4, §28.13): first IndexUnparsedSampleCap lines only,

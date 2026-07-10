@@ -30,6 +30,15 @@ const (
 
 const durationOrderFailureCap = 64
 
+// durationOrderEventScanWitnessCap bounds the per-index memoized full-event
+// scan (audit #24, 复核 F3): the 64-witness ledger cap was sized for
+// per-query scan cost, which the once-memo removed. A larger memo cap keeps
+// bounded memory (~200B/witness → ~200KB) while making the "first 64
+// violations all sit outside the query window, so the in-window one collapses
+// into a whole-family order_audit_truncated" false-close class 16× rarer.
+// Overflow keeps the capped fail-close semantics.
+const durationOrderEventScanWitnessCap = 1024
+
 // durationOrderViolation is a precise physical-order regression on one typed
 // duration lane. Lane is a bounded, deterministic digest for disclosure; the
 // tracker itself always keys on the full, untruncated typed identity.
@@ -49,6 +58,11 @@ type durationOrderViolation struct {
 	TsUnknown  bool
 	Line       int
 	SourcePath string
+	// LocalLine is the artifact-local physical line, carried at composite
+	// rebase time (audit #36, §29.25 处置委托 2026-07-10): Line is then a
+	// virtual index-global coordinate and MUST NOT be read against the
+	// physical SourcePath alone.
+	LocalLine int
 }
 
 func (v *durationOrderViolation) reason() string {
@@ -63,14 +77,29 @@ func (v *durationOrderViolation) reason() string {
 			v.Family, v.EventName, strings.Join(v.Fields, ","), v.CurrentTs, v.Line)
 		if v.SourcePath != "" {
 			reason += fmt.Sprintf(" source=%s", v.SourcePath)
+			reason += witnessLocalLineSuffix(v.Line, v.LocalLine)
 		}
 		return reason
 	}
 	reason := fmt.Sprintf("duration_lane_timestamp_regressed family=%s lane=%s previous_ts=%.6f current_ts=%.6f line=%d", v.Family, v.Lane, v.PreviousTs, v.CurrentTs, v.Line)
 	if v.SourcePath != "" {
 		reason += fmt.Sprintf(" source=%s", v.SourcePath)
+		reason += witnessLocalLineSuffix(v.Line, v.LocalLine)
 	}
 	return reason
+}
+
+// witnessLocalLineSuffix renders the artifact-local coordinate whenever a
+// witness line was rebased into virtual index-global space (audit #36):
+// printing only "line=<virtual> source=<physical path>" invites fabricated
+// file:line citations because that line does not exist at that offset in the
+// named file. Coinciding coordinates (single-file or base-0 artifact) stay
+// terse.
+func witnessLocalLineSuffix(line, localLine int) string {
+	if localLine <= 0 || localLine == line {
+		return ""
+	}
+	return fmt.Sprintf(" local_line=%d", localLine)
 }
 
 type durationOrderLane struct {
@@ -92,10 +121,25 @@ type durationOrderObservation struct {
 	owner int
 }
 
+// durationOrderTrackerLaneBudget bounds the number of concurrently tracked
+// lanes per typed family (perf audit #3/#23, §29.25 处置委托 2026-07-10): a
+// hostile or degenerate capture minting a fresh counter/async identity per
+// row must not grow tracker memory with capture-wide identity cardinality.
+// DOMAIN SEMANTICS (复核 F4): this counter's domain is the ENTIRE scanned
+// region (windowed builds audit the full physical prefix plus the window),
+// unlike traceCounterSeriesBudget=8192 whose domain is the already
+// window-clipped consumer event set. A GiB-scale capture can legitimately
+// carry >8192 distinct counter identities file-wide, so the tracker budget is
+// 8× the consumer budget; at ~300B/lane the worst case stays ~20MB/family.
+// Overflow is fail-closed, never silent: the family is marked capped and
+// every consumer sees the existing order_audit_truncated poison for it.
+const durationOrderTrackerLaneBudget = 65536
+
 // durationOrderTracker follows physical input order. Open/close lanes are
 // forgotten when their typed state machine closes, bounding workqueue/DMA/span
 // memory by concurrent opens rather than capture-wide identity cardinality.
-// Sample lanes (IRQ bursts and counters) retain one timestamp per exact lane.
+// Sample lanes (IRQ bursts and counters) retain one timestamp per exact lane,
+// bounded per family by durationOrderTrackerLaneBudget.
 type durationOrderTracker struct {
 	last   map[durationOrderLane]float64
 	depth  map[durationOrderLane]int
@@ -105,6 +149,15 @@ type durationOrderTracker struct {
 	// starts emitted by several row PIDs; a last-writer owner cannot safely
 	// decide which lifecycle/malformed reset touches the shared lane.
 	traceSpanOwners map[durationOrderLane][]int
+	// Inverse indexes keep every reset amortized O(affected lanes) instead of
+	// a full-table scan per lifecycle/malformed row (perf audit #23):
+	// familyLanes mirrors the exact domain of t.last per family, ownerLanes
+	// mirrors t.owners, and spanOwnerLanes counts per-pid stack membership in
+	// traceSpanOwners.
+	familyLanes    map[durationOrderFamily]map[durationOrderLane]struct{}
+	ownerLanes     map[int]map[durationOrderLane]struct{}
+	spanOwnerLanes map[int]map[durationOrderLane]int
+	capped         map[durationOrderFamily]bool
 }
 
 func newDurationOrderTracker() *durationOrderTracker {
@@ -113,25 +166,121 @@ func newDurationOrderTracker() *durationOrderTracker {
 		depth:           map[durationOrderLane]int{},
 		owners:          map[durationOrderLane]int{},
 		traceSpanOwners: map[durationOrderLane][]int{},
+		familyLanes:     map[durationOrderFamily]map[durationOrderLane]struct{}{},
+		ownerLanes:      map[int]map[durationOrderLane]struct{}{},
+		spanOwnerLanes:  map[int]map[durationOrderLane]int{},
+		capped:          map[durationOrderFamily]bool{},
 	}
 }
 
+func (t *durationOrderTracker) trackLane(lane durationOrderLane) {
+	set := t.familyLanes[lane.family]
+	if set == nil {
+		set = map[durationOrderLane]struct{}{}
+		t.familyLanes[lane.family] = set
+	}
+	set[lane] = struct{}{}
+}
+
+func (t *durationOrderTracker) setOwner(lane durationOrderLane, owner int) {
+	if previous, ok := t.owners[lane]; ok {
+		if previous == owner {
+			return
+		}
+		if set := t.ownerLanes[previous]; set != nil {
+			delete(set, lane)
+			if len(set) == 0 {
+				delete(t.ownerLanes, previous)
+			}
+		}
+	}
+	t.owners[lane] = owner
+	set := t.ownerLanes[owner]
+	if set == nil {
+		set = map[durationOrderLane]struct{}{}
+		t.ownerLanes[owner] = set
+	}
+	set[lane] = struct{}{}
+}
+
+func (t *durationOrderTracker) pushSpanOwner(lane durationOrderLane, owner int) {
+	t.traceSpanOwners[lane] = append(t.traceSpanOwners[lane], owner)
+	byLane := t.spanOwnerLanes[owner]
+	if byLane == nil {
+		byLane = map[durationOrderLane]int{}
+		t.spanOwnerLanes[owner] = byLane
+	}
+	byLane[lane]++
+}
+
+func (t *durationOrderTracker) dropSpanOwner(lane durationOrderLane, owner int) {
+	byLane := t.spanOwnerLanes[owner]
+	if byLane == nil {
+		return
+	}
+	if byLane[lane] <= 1 {
+		delete(byLane, lane)
+		if len(byLane) == 0 {
+			delete(t.spanOwnerLanes, owner)
+		}
+		return
+	}
+	byLane[lane]--
+}
+
+func (t *durationOrderTracker) popSpanOwner(lane durationOrderLane) {
+	owners := t.traceSpanOwners[lane]
+	if len(owners) == 0 {
+		return
+	}
+	owner := owners[len(owners)-1]
+	t.traceSpanOwners[lane] = owners[:len(owners)-1]
+	t.dropSpanOwner(lane, owner)
+}
+
 func (t *durationOrderTracker) clearLane(lane durationOrderLane) {
+	if owner, ok := t.owners[lane]; ok {
+		if set := t.ownerLanes[owner]; set != nil {
+			delete(set, lane)
+			if len(set) == 0 {
+				delete(t.ownerLanes, owner)
+			}
+		}
+	}
+	for _, owner := range t.traceSpanOwners[lane] {
+		t.dropSpanOwner(lane, owner)
+	}
+	if set := t.familyLanes[lane.family]; set != nil {
+		delete(set, lane)
+		if len(set) == 0 {
+			delete(t.familyLanes, lane.family)
+		}
+	}
 	delete(t.last, lane)
 	delete(t.depth, lane)
 	delete(t.owners, lane)
 	delete(t.traceSpanOwners, lane)
 }
 
+func (t *durationOrderTracker) clearLaneSet(lanes map[durationOrderLane]struct{}) {
+	if len(lanes) == 0 {
+		return
+	}
+	// clearLane mutates the inverse sets being iterated; collect first.
+	collected := make([]durationOrderLane, 0, len(lanes))
+	for lane := range lanes {
+		collected = append(collected, lane)
+	}
+	for _, lane := range collected {
+		t.clearLane(lane)
+	}
+}
+
 func (t *durationOrderTracker) resetPID(pid int) {
 	if t == nil || pid <= 0 {
 		return
 	}
-	for lane, owner := range t.owners {
-		if owner == pid {
-			t.clearLane(lane)
-		}
-	}
+	t.clearLaneSet(t.ownerLanes[pid])
 	// Trace async identities do not contain the row emitter and can be shared
 	// by several emitters. Membership in the open-owner stack is the precise
 	// signal; when present, clear the whole audit lane conservatively because a
@@ -144,26 +293,20 @@ func (t *durationOrderTracker) resetFamily(family durationOrderFamily) {
 	if t == nil || family == "" {
 		return
 	}
-	for lane := range t.last {
-		if lane.family == family {
-			t.clearLane(lane)
-		}
-	}
+	t.clearLaneSet(t.familyLanes[family])
 }
 
 func (t *durationOrderTracker) resetTraceMarkPID(pid int) {
 	if t == nil || pid < 0 {
 		return
 	}
-	for lane, owners := range t.traceSpanOwners {
-		if lane.family != durationOrderTraceSpan {
-			continue
+	if byLane := t.spanOwnerLanes[pid]; len(byLane) > 0 {
+		collected := make([]durationOrderLane, 0, len(byLane))
+		for lane := range byLane {
+			collected = append(collected, lane)
 		}
-		for _, owner := range owners {
-			if owner == pid {
-				t.clearLane(lane)
-				break
-			}
+		for _, lane := range collected {
+			t.clearLane(lane)
 		}
 	}
 	// pid 0 is not retained in owners, but the synchronous key is still exact.
@@ -206,6 +349,17 @@ func (t *durationOrderTracker) observeAll(ev Event) []durationOrderViolation {
 		if observation.phase == durationOrderClose && t.depth[lane] == 0 {
 			continue
 		}
+		if !seen {
+			// Only open/sample phases can mint a NEW lane (a close on an
+			// unseen lane bailed above). Past the per-family budget the lane
+			// is dropped and the family fail-closes via the capped mark —
+			// bounded memory, never a silently-missing audit.
+			if len(t.familyLanes[lane.family]) >= durationOrderTrackerLaneBudget {
+				t.capped[lane.family] = true
+				continue
+			}
+			t.trackLane(lane)
+		}
 		if seen && ev.Ts < previous {
 			out = append(out, durationOrderViolation{
 				Family: lane.family, Lane: durationOrderLaneLabel(lane), LaneKey: lane.key,
@@ -217,16 +371,13 @@ func (t *durationOrderTracker) observeAll(ev Event) []durationOrderViolation {
 			t.depth[lane]++
 			t.last[lane] = ev.Ts
 			if lane.family == durationOrderTraceSpan {
-				t.traceSpanOwners[lane] = append(t.traceSpanOwners[lane], observation.owner)
+				t.pushSpanOwner(lane, observation.owner)
 			} else if observation.owner > 0 {
-				t.owners[lane] = observation.owner
+				t.setOwner(lane, observation.owner)
 			}
 		case durationOrderClose:
 			if lane.family == durationOrderTraceSpan {
-				owners := t.traceSpanOwners[lane]
-				if len(owners) > 0 {
-					t.traceSpanOwners[lane] = owners[:len(owners)-1]
-				}
+				t.popSpanOwner(lane)
 			}
 			if t.depth[lane] <= 1 {
 				t.clearLane(lane)
@@ -237,7 +388,7 @@ func (t *durationOrderTracker) observeAll(ev Event) []durationOrderViolation {
 		default:
 			t.last[lane] = ev.Ts
 			if observation.owner > 0 {
-				t.owners[lane] = observation.owner
+				t.setOwner(lane, observation.owner)
 			}
 		}
 	}
@@ -407,7 +558,10 @@ func durationOrderRawCandidate(line string) bool {
 }
 
 func durationOrderFailuresFromEvents(events []Event, q Query, limit int) ([]durationOrderViolation, map[durationOrderFamily]bool) {
-	if limit <= 0 || limit > durationOrderFailureCap {
+	// Explicit limits up to the memo cap are honored (the per-index event
+	// scan passes durationOrderEventScanWitnessCap); everything else stays on
+	// the 64-witness ledger cap.
+	if limit <= 0 || limit > durationOrderEventScanWitnessCap {
 		limit = durationOrderFailureCap
 	}
 	tracker := newDurationOrderTracker()
@@ -423,6 +577,14 @@ func durationOrderFailuresFromEvents(events []Event, q Query, limit int) ([]dura
 				continue
 			}
 			out = append(out, failure)
+		}
+	}
+	// A lane-budget overflow means some lanes of that family were never
+	// audited at all — fail-close the whole family, mirroring the witness-cap
+	// semantics above.
+	for family, isCapped := range tracker.capped {
+		if isCapped {
+			capped[family] = true
 		}
 	}
 	return out, capped
@@ -523,6 +685,25 @@ func durationOrderViolationRelevantToQuery(v *durationOrderViolation, q Query) b
 	return true
 }
 
+// ensureDurationOrderEventScan memoizes the full-event duration-order audit
+// for non-monotonic indexes (perf audit #24; generationMetadataOnce house
+// pattern). The tracker scan is query-independent — every observeAll runs
+// over every event regardless of q — so the memo scans once with an empty
+// query and each caller applies its own relevance post-filter. Cap semantics
+// can only tighten: a violation the per-query scan would have surfaced is
+// either inside the memo (then post-filtered in) or beyond the unfiltered
+// witness cap, in which case its family carries the capped mark and every
+// consumer fail-closes it via order_audit_truncated.
+func ensureDurationOrderEventScan(idx *Index) ([]durationOrderViolation, map[durationOrderFamily]bool) {
+	if idx == nil {
+		return nil, nil
+	}
+	idx.durationOrderEventScanOnce.Do(func() {
+		idx.durationOrderEventScanFailures, idx.durationOrderEventScanCapped = durationOrderFailuresFromEvents(idx.Events, Query{}, durationOrderEventScanWitnessCap)
+	})
+	return idx.durationOrderEventScanFailures, idx.durationOrderEventScanCapped
+}
+
 func durationOrderFailuresForQuery(idx *Index, q Query) map[durationOrderFamily]*durationOrderViolation {
 	out := map[durationOrderFamily]*durationOrderViolation{}
 	if idx == nil {
@@ -550,13 +731,14 @@ func durationOrderFailuresForQuery(idx *Index, q Query) map[durationOrderFamily]
 		return out
 	}
 	// Single-file full indexes retain physical event order and can be audited
-	// lazily. Composite indexes are canonically sorted, but their child-local
-	// physical failures were copied into the private fields above; scanning the
-	// sorted slice can only add a cross-artifact canonical-lane failure.
-	failures, capped := durationOrderFailuresFromEvents(idx.Events, q, durationOrderFailureCap)
+	// lazily (memoized per index, filtered per query). Composite indexes are
+	// canonically sorted, but their child-local physical failures were copied
+	// into the private fields above; scanning the sorted slice can only add a
+	// cross-artifact canonical-lane failure.
+	failures, capped := ensureDurationOrderEventScan(idx)
 	for i := range failures {
 		failure := failures[i]
-		if _, exists := out[failure.Family]; !exists {
+		if _, exists := out[failure.Family]; !exists && durationOrderViolationRelevantToQuery(&failure, q) {
 			copy := failure
 			out[failure.Family] = &copy
 		}
@@ -633,10 +815,11 @@ func frequencyOrderIntegrityForQuery(idx *Index, q Query) frequencyOrderIntegrit
 
 	// The common monotonic proof makes a second event scan redundant. For an
 	// unknown/regressed single-file index, audit the retained physical order
-	// lazily; composite children already contributed their physical poison to
-	// the private failure ledger before the canonical merge sort.
+	// lazily (memoized per index, filtered per query by add); composite
+	// children already contributed their physical poison to the private
+	// failure ledger before the canonical merge sort.
 	if idx.TimestampOrder != TraceTimestampOrderMonotonic {
-		failures, capped := durationOrderFailuresFromEvents(idx.Events, q, durationOrderFailureCap)
+		failures, capped := ensureDurationOrderEventScan(idx)
 		for _, failure := range failures {
 			add(failure)
 		}

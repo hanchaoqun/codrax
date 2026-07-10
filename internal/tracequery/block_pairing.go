@@ -146,9 +146,12 @@ func tracePairingSourceIdentity(idx *Index, ev Event) (string, bool) {
 	if idx == nil {
 		return "", false
 	}
-	spans := idx.ResolveArtifactSpans(ev.Line, ev.Line)
-	if len(spans) == 1 && strings.TrimSpace(spans[0].SourcePath) != "" {
-		return spans[0].SourcePath, true
+	// Allocation-free single-line resolution (perf audit #25): identical
+	// verdicts to ResolveArtifactSpans(ev.Line, ev.Line) with len(spans)==1.
+	if i, ok := resolveTraceArtifactSourceIndexForLine(idx.TraceArtifacts, ev.Line); ok {
+		if strings.TrimSpace(idx.TraceArtifacts[i].SourcePath) != "" {
+			return idx.TraceArtifacts[i].SourcePath, true
+		}
 	}
 	if len(idx.TraceArtifacts) > 0 {
 		return "", false
@@ -249,6 +252,13 @@ func computeBlockIOLatencies(idx *Index, q Query, max int) blockPairingResult {
 			transition = lane.cohort.observeDone(ev)
 		}
 		accountBlockPairingTransition(&out, accs, lane, transition, q)
+		// A closed cohort left its zero state behind; drop the lane so map
+		// residency tracks CONCURRENT opens, not distinct identities seen
+		// (perf audit #25). A later same-identity start recreates an
+		// identical fresh lane.
+		if lane.cohort.depth == 0 {
+			delete(lanes, laneKey)
+		}
 	}
 
 	for _, lane := range lanes {

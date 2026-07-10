@@ -249,19 +249,6 @@ func traceBundleArtifactSpecs(bundlePath string, bundle traceBundleFile) []trace
 		traceDomain = ""
 	}
 
-	// A time-domain label is not a capture identity. Without a typed shared-
-	// capture proof in the manifest schema, merging two distinct systrace files
-	// can fabricate ordering and durations across unrelated recordings. The
-	// first declared systrace is the sole causal authority; exact duplicate paths
-	// were already deduplicated above and therefore remain a compatibility no-op.
-	primarySystracePath := ""
-	for _, declaration := range declarations {
-		if declaration.kind == "systrace" {
-			primarySystracePath = declaration.path
-			break
-		}
-	}
-
 	var out []traceArtifactSpec
 	for _, declaration := range declarations {
 		path, kind, capability := declaration.path, declaration.kind, declaration.capability
@@ -302,9 +289,6 @@ func traceBundleArtifactSpecs(bundlePath string, bundle traceBundleFile) []trace
 		spec.alignmentDeclared = hasAlignment || alignmentConflicts[path]
 		spec.alignmentConflict = alignmentConflicts[path]
 		spec.canonicalDomainConflict = traceDomainConflict && kind != "systrace" && spec.alignmentDeclared
-		if kind == "systrace" && primarySystracePath != "" && path != primarySystracePath {
-			spec.forcedIsolationReason = "additional systrace lacks explicit shared-capture identity proof; only one systrace causal authority is permitted"
-		}
 		out = append(out, spec)
 	}
 	return finalizeTraceArtifactSpecs(out)
@@ -313,6 +297,29 @@ func traceBundleArtifactSpecs(bundlePath string, bundle traceBundleFile) []trace
 func finalizeTraceArtifactSpecs(specs []traceArtifactSpec) []traceArtifactSpec {
 	if len(specs) == 0 {
 		return nil
+	}
+	// A time-domain label is not a capture identity. Without a typed shared-
+	// capture proof, merging two distinct systrace files would fabricate
+	// ordering and durations across unrelated recordings. The first declared
+	// systrace is the sole causal authority; every later systrace-kind spec is
+	// force-isolated. The rule lives HERE — the one finalization point every
+	// spec producer flows through — so a future path-list caller cannot
+	// silently identity-merge two same-domain systraces (audit #40, §29.25
+	// 处置委托 2026-07-10; previously enforced only inside the bundle spec
+	// builder). Exact duplicate paths are deduplicated by every producer and
+	// therefore remain a compatibility no-op.
+	primarySystraceSeen := false
+	for i := range specs {
+		if !strings.EqualFold(specs[i].source.Kind, "systrace") {
+			continue
+		}
+		if !primarySystraceSeen {
+			primarySystraceSeen = true
+			continue
+		}
+		if specs[i].forcedIsolationReason == "" {
+			specs[i].forcedIsolationReason = "additional systrace lacks explicit shared-capture identity proof; only one systrace causal authority is permitted"
+		}
 	}
 	canonical := strings.TrimSpace(specs[0].source.TimeDomain)
 	// Prefer the trace-body clock when present even if a hand-authored bundle
@@ -676,6 +683,33 @@ func (idx *Index) ResolveArtifactSpans(lineStart, lineEnd int) []TraceArtifactSp
 // the query engine (notably by the typed observation publisher).
 func (r Result) ResolveArtifactSpans(lineStart, lineEnd int) []TraceArtifactSpan {
 	return resolveTraceArtifactSpans(r.TraceArtifacts, lineStart, lineEnd)
+}
+
+// resolveTraceArtifactSourceIndexForLine is the allocation-free single-line
+// twin of resolveTraceArtifactSpans (perf audit #25: pairing identity resolves
+// one source per event on query hot loops). It returns the index of the
+// unique causal-compatible source containing the virtual line; ok=false for
+// line<=0, no containing source, or more than one (ambiguous — same
+// fail-closed outcome as len(spans)!=1).
+func resolveTraceArtifactSourceIndexForLine(sources []TraceArtifactSource, line int) (int, bool) {
+	if line <= 0 {
+		return -1, false
+	}
+	found := -1
+	for i := range sources {
+		source := &sources[i]
+		if !source.CausalCompatible || source.LocalLineCount <= 0 {
+			continue
+		}
+		if line < source.VirtualLineBase+1 || line > source.VirtualLineBase+source.LocalLineCount {
+			continue
+		}
+		if found >= 0 {
+			return -1, false
+		}
+		found = i
+	}
+	return found, found >= 0
 }
 
 func resolveTraceArtifactSpans(sources []TraceArtifactSource, lineStart, lineEnd int) []TraceArtifactSpan {

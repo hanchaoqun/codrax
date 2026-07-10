@@ -100,6 +100,7 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 	// so the full tier ladder costs O(distinct tiers) extra memory only.
 	census := newCPUFrequencyCensusAcc(typeSet)
 	var events []EventView
+	var scan lineScan
 	for lineNo := startLine; ; lineNo++ {
 		if err := ctx.Err(); err != nil {
 			return Result{}, err
@@ -114,7 +115,8 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 			// the absolute physical line number.
 			idx.ScannedLineCount = lineNo - startLine + 1
 			trimmed := strings.TrimRight(line, "\r\n")
-			lineTs, lineHasTS := parseLineTimestamp(trimmed)
+			scan.reset(lineNo, trimmed)
+			lineTs, lineHasTS := scan.timestamp()
 			if recording {
 				recorder.observe(lineNo, len(line), lineTs, lineHasTS)
 			}
@@ -156,7 +158,9 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 			// or G/H row merely because its parser-validated SpanAction is empty.
 			// Audit before the pattern prefilter; raw prefixes remain diagnostic
 			// witnesses only and are never re-admitted as typed matches below.
-			if failure := traceMarkValidationFailure(lineNo, trimmed); failure != nil && traceMarkIntegrityFailureRelevantToQuery(*failure, q) {
+			// The shared lineScan memo keeps this audit plus the parse below at
+			// ONE header match per line (perf audit #21).
+			if failure := traceMarkValidationFailureScan(&scan); failure != nil && traceMarkIntegrityFailureRelevantToQuery(*failure, q) {
 				failure.SourcePath = path
 				appendTraceMarkIntegrityFailure(idx, *failure)
 			}
@@ -170,7 +174,7 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 			// the candidate lines only (the prefilter skip is load-bearing for
 			// GB traces) — a conservative undercount, never an overclaim.
 			panicsBefore := idx.ParseLinePanics
-			ev, ok := safeParseLine(lineNo, trimmed, intern, idx)
+			ev, ok := safeParseLineScan(&scan, intern, idx)
 			if !ok {
 				if trimmed != "" {
 					if idx.ParseLinePanics == panicsBefore {

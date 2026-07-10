@@ -77,6 +77,7 @@ func StreamScan(ctx context.Context, path string, flavorHint TraceFlavor, fn fun
 	reader := bufio.NewReaderSize(f, 256*1024)
 	lastParsedTs := 0.0
 	stopped := false
+	var scan lineScan
 	for lineNo := 1; !stopped; lineNo++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -86,22 +87,24 @@ func StreamScan(ctx context.Context, path string, flavorHint TraceFlavor, fn fun
 			idx.LineCount = lineNo
 			idx.ScannedLineCount = lineNo
 			trimmed := strings.TrimRight(line, "\r\n")
+			scan.reset(lineNo, trimmed)
 			// Keep the streaming metadata shell on the same raw trace-mark
 			// integrity contract as BuildIndex. This audit must run before
-			// safeParseLine: malformed endpoint rows with an invalid emitter,
+			// the parse: malformed endpoint rows with an invalid emitter,
 			// CPU, or timestamp cannot materialize as Event, but they are still
 			// authoritative fail-closed witnesses for B/E/S/F/G/H/N/I state
-			// machines. traceMarkValidationFailure uses the precise corrupted-row
-			// remnant gate, so ordinary unparsed prose that merely quotes a mark
-			// payload remains an unparsed-quality observation, never a pairing
-			// poison.
-			if failure := traceMarkValidationFailure(lineNo, trimmed); failure != nil {
+			// machines. traceMarkValidationFailureScan uses the precise
+			// corrupted-row remnant gate, so ordinary unparsed prose that merely
+			// quotes a mark payload remains an unparsed-quality observation,
+			// never a pairing poison. The shared lineScan memo keeps this audit
+			// plus the parse at ONE header match per line (perf audit #21).
+			if failure := traceMarkValidationFailureScan(&scan); failure != nil {
 				failure.SourcePath = path
 				appendTraceMarkIntegrityFailure(idx, *failure)
 			}
 			flavor.observeRawLine(trimmed)
 			panicsBefore := idx.ParseLinePanics
-			ev, ok := safeParseLine(lineNo, trimmed, intern, idx)
+			ev, ok := safeParseLineScan(&scan, intern, idx)
 			if !ok {
 				if trimmed != "" {
 					if idx.ParseLinePanics == panicsBefore {

@@ -14,6 +14,9 @@ type schedulerOrderViolation struct {
 	CurrentTs  float64
 	Line       int
 	SourcePath string
+	// LocalLine: artifact-local physical line, set at composite rebase time
+	// (audit #36); zero when Line is already physical.
+	LocalLine int
 }
 
 func (v *schedulerOrderViolation) reason() string {
@@ -23,6 +26,7 @@ func (v *schedulerOrderViolation) reason() string {
 	reason := fmt.Sprintf("scheduler_lane_timestamp_regressed lane=%s id=%d previous_ts=%.6f current_ts=%.6f line=%d", v.Lane, v.ID, v.PreviousTs, v.CurrentTs, v.Line)
 	if v.SourcePath != "" {
 		reason += fmt.Sprintf(" source=%s", v.SourcePath)
+		reason += witnessLocalLineSuffix(v.Line, v.LocalLine)
 	}
 	return reason
 }

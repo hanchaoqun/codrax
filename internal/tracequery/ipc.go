@@ -19,6 +19,22 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 	if interfaceJoinFailClosed {
 		res.Caveats = append(res.Caveats, "trace_mark_interface_join_fail_closed=true; binder edges remain available, but transact-span interface joins are omitted because a malformed trace_mark endpoint has an unknown emitter, could not materialize as an Event, or overflowed the bounded witness ledger")
 	}
+	// Audit #41 (§29.25 处置委托 2026-07-10): the transact-interface join is a
+	// strictly order-dependent per-PID B-push/E-pop stack walk. A physical
+	// trace_span lane rollback makes that order untrustworthy — and, because a
+	// composite index canonically re-sorts rows by (Ts, Line) while a direct
+	// single-file query keeps physical order, the SAME capture used to yield
+	// different interface attributions from the two supported entry points.
+	// Both entry points preserve the physical-order poison (direct: lazy
+	// event-scan on a non-monotonic index; composite: child-local reaudit
+	// preserved before the canonical sort), so consuming it here fail-closes
+	// the join identically on both. Binder edges themselves remain available.
+	if !interfaceJoinFailClosed {
+		if violation := durationOrderFailureForFamily(idx, q, durationOrderTraceSpan); violation != nil {
+			interfaceJoinFailClosed = true
+			res.Caveats = append(res.Caveats, "trace_mark_interface_join_fail_closed=true; binder edges remain available, but transact-span interface joins are omitted because the trace_span lane order is not trustworthy for this query: "+violation.reason())
+		}
+	}
 	filterQ := q
 	if filterQ.PID <= 0 && strings.TrimSpace(firstNonEmpty(filterQ.ThreadInput, filterQ.Thread)) != "" {
 		resolution := resolveThreadSelection(idx, filterQ)
@@ -46,7 +62,11 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 	// wraps binder sends in a `transact[Interface:code]` trace-mark span on
 	// the SAME thread, so a single ordered pass tracking each thread's open
 	// transact span names lets the edge carry the interface — a verbatim
-	// span-name join, no prose inference. idx.Events is in file order.
+	// span-name join, no prose inference. Iteration order is the composite
+	// contract order: physical file order for a single-file index, canonical
+	// (Ts, Line) order for a composite (parse.go sorts merged children). The
+	// two agree except around clock regressions, where the trace_span poison
+	// gate above has already fail-closed this join (audit #41).
 	openTransact := map[int][]string{}
 	ifaceBySendLine := map[int]string{}
 	for _, ev := range idx.Events {

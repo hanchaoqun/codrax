@@ -563,10 +563,19 @@ var traceMarkCorruptedRowRemnantRE = regexp.MustCompile(`\d+\.\d{3,9}: |\[\d{1,4
 // trace-mark row whose header emitter cannot be represented as int. The latter
 // cannot be materialized as Event and is therefore a global span-pairing poison.
 func traceMarkValidationFailure(lineNo int, line string) *traceMarkIntegrityFailure {
+	var scan lineScan
+	scan.reset(lineNo, line)
+	return traceMarkValidationFailureScan(&scan)
+}
+
+// traceMarkValidationFailureScan consumes the shared per-line memo so the hot
+// loop pays a single header match per physical line (perf audit #21).
+func traceMarkValidationFailureScan(s *lineScan) *traceMarkIntegrityFailure {
+	lineNo, line := s.lineNo, s.line
 	if !traceMarkRawCandidate(line) {
 		return nil
 	}
-	m := ftraceLineRE.FindStringSubmatch(line)
+	m := s.match()
 	if len(m) == 0 {
 		fields, prefix, ok := traceMarkPayloadAndPrefixFromRawCandidate(line)
 		if !ok {
@@ -756,12 +765,8 @@ func traceMarkIntegrityCaveats(idx *Index, q Query) []string {
 	return []string{"trace_mark_integrity_degraded=true; " + scope + "; malformed B/E/S/F/G/H/N/I rows remain searchable trace_mark inventory and are excluded from their typed duration/instant lanes"}
 }
 
-func traceMarkPairingSourcePrefix(source string) string {
-	return source + "\x00"
-}
-
 func traceMarkSyncPairingKey(source string, pid int) string {
-	return traceMarkPairingSourcePrefix(source) + "sync\x00" + strconv.Itoa(pid)
+	return source + "\x00sync\x00" + strconv.Itoa(pid)
 }
 
 // resetTraceMarkSyncPairingState invalidates only the known physical source

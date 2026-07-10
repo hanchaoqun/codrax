@@ -122,8 +122,9 @@ func discoverRelationScope(ctx context.Context, path string, opts BuildOptions) 
 	}
 	r := bufio.NewReaderSize(f, 256*1024)
 	intern := newStringInterner()
-	scratch := &Index{} // throwaway sink for safeParseLine's panic bookkeeping
+	scratch := &Index{} // throwaway sink for safeParseLineScan's panic bookkeeping
 	seenTimeWindow := false
+	var scan lineScan
 	for lineNo := startLine; ; lineNo++ {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
@@ -131,12 +132,13 @@ func discoverRelationScope(ctx context.Context, path string, opts BuildOptions) 
 		line, rerr := r.ReadString('\n')
 		if len(line) > 0 {
 			trimmed := strings.TrimRight(line, "\r\n")
-			skip, stop, _, _ := gate.decide(lineNo, trimmed, &seenTimeWindow)
+			scan.reset(lineNo, trimmed)
+			skip, stop := gate.decide(lineNo, &scan, &seenTimeWindow)
 			if stop {
 				break
 			}
 			if !skip {
-				if ev, ok := safeParseLine(lineNo, trimmed, intern, scratch); ok {
+				if ev, ok := safeParseLineScan(&scan, intern, scratch); ok {
 					if ev.PID > 0 && ev.TGID > 0 {
 						tidToTgid[ev.PID] = ev.TGID
 					}

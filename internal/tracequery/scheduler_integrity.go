@@ -20,6 +20,9 @@ type schedulerRowIntegrityFailure struct {
 	AffectsAllPIDs bool
 	Fields         []string
 	SourcePath     string
+	// LocalLine: artifact-local physical line, set at composite rebase time
+	// (audit #36); zero when Line is already physical.
+	LocalLine int
 }
 
 const schedulerRowIntegrityFailureCap = 64
@@ -33,6 +36,7 @@ func (f *schedulerRowIntegrityFailure) reason() string {
 		f.EventName, strings.Join(f.Fields, ","), f.Ts, f.CPU, f.Line)
 	if f.SourcePath != "" {
 		reason += fmt.Sprintf(" source=%s", f.SourcePath)
+		reason += witnessLocalLineSuffix(f.Line, f.LocalLine)
 	}
 	return reason
 }
@@ -54,10 +58,19 @@ func schedulerIntegrityRawCandidate(line string) bool {
 // mentioned inside another event's payload is not allowed to poison scheduler
 // state.
 func schedulerRowValidationFailure(lineNo int, line string) *schedulerRowIntegrityFailure {
-	if !schedulerIntegrityRawCandidate(line) {
+	var scan lineScan
+	scan.reset(lineNo, line)
+	return schedulerRowValidationFailureScan(&scan)
+}
+
+// schedulerRowValidationFailureScan consumes the shared per-line memo so the
+// hot loop pays a single header match and a single parseKV per physical line
+// (perf audit #21).
+func schedulerRowValidationFailureScan(s *lineScan) *schedulerRowIntegrityFailure {
+	if !schedulerIntegrityRawCandidate(s.line) {
 		return nil
 	}
-	m := ftraceLineRE.FindStringSubmatch(line)
+	m := s.match()
 	if len(m) == 0 {
 		return nil
 	}
@@ -67,10 +80,9 @@ func schedulerRowValidationFailure(lineNo int, line string) *schedulerRowIntegri
 	default:
 		return nil
 	}
-	ts, _ := parseLineTimestamp(line)
+	ts, _ := s.timestamp()
 	cpu, _ := atoiMaybe(m[4])
-	fields := strings.TrimSpace(m[7])
-	return schedulerFieldsValidationFailure(lineNo, rawType, ts, cpu, parseKV(fields))
+	return schedulerFieldsValidationFailure(s.lineNo, rawType, ts, cpu, s.keyValues())
 }
 
 func schedulerFieldsValidationFailure(lineNo int, rawType string, ts float64, cpu int, kv map[string]string) *schedulerRowIntegrityFailure {
@@ -154,10 +166,16 @@ func schedulerFieldsValidationFailure(lineNo int, rawType string, ts float64, cp
 // field check but the parser still rejected (or panicked on) it. This is rare,
 // but silently ignoring it would reopen the same zero/absence ambiguity.
 func schedulerRejectedRowFailure(lineNo int, line string) *schedulerRowIntegrityFailure {
-	if !schedulerIntegrityRawCandidate(line) {
+	var scan lineScan
+	scan.reset(lineNo, line)
+	return schedulerRejectedRowFailureScan(&scan)
+}
+
+func schedulerRejectedRowFailureScan(s *lineScan) *schedulerRowIntegrityFailure {
+	if !schedulerIntegrityRawCandidate(s.line) {
 		return nil
 	}
-	m := ftraceLineRE.FindStringSubmatch(line)
+	m := s.match()
 	if len(m) == 0 {
 		return nil
 	}
@@ -167,11 +185,11 @@ func schedulerRejectedRowFailure(lineNo int, line string) *schedulerRowIntegrity
 	default:
 		return nil
 	}
-	ts, _ := parseLineTimestamp(line)
+	ts, _ := s.timestamp()
 	cpu, _ := atoiMaybe(m[4])
 	return &schedulerRowIntegrityFailure{
 		EventName:      rawType,
-		Line:           lineNo,
+		Line:           s.lineNo,
 		Ts:             ts,
 		CPU:            cpu,
 		AffectsAllPIDs: true,

@@ -8659,11 +8659,13 @@ func computeStorageLatencyByLayer(idx *Index, q Query, blockSummaries []StorageL
 				transition = lane.cohort.observeDone(ev)
 			}
 			accountGenericStorageTransition(accs, lane, transition, q)
-			if transition.unpairedDone || transition.cohortClosed {
-				lane.eventCount = 0
-				lane.bytes = 0
-				lane.inode = ""
-				lane.entryName = ""
+			// A closed/idle cohort left its zero state behind; drop the lane
+			// so map residency (and the lifecycle-reset scan above) tracks
+			// CONCURRENT opens, not distinct identities seen (perf audit
+			// #25). A later same-identity start recreates an identical fresh
+			// lane, matching the old depth==0 metadata reset.
+			if lane.cohort.depth == 0 {
+				delete(lanes, key)
 			}
 		}
 	}
@@ -18733,10 +18735,31 @@ func resultCaveats(idx *Index, q Query, res Result) []string {
 		}
 	}
 	if res.View == "event_search" {
+		// Audit #37 (§29.25 处置委托 2026-07-10): RawUnavailableReason is a typed
+		// five-value enum; collapsing every value into the identity-mismatch
+		// prose misdescribed open/read/line failures and the clock_inverse
+		// precision case (whose raw text is not even withheld). Emit one
+		// reason-keyed caveat per distinct reason present.
+		seenRawIssues := map[string]bool{}
 		for _, event := range res.Events {
-			if event.RawUnavailableReason != "" {
+			reason := event.RawUnavailableReason
+			if reason == "" || seenRawIssues[reason] {
+				continue
+			}
+			seenRawIssues[reason] = true
+			switch reason {
+			case "artifact_identity_changed":
 				out = append(out, "raw_artifact_identity_mismatch=true; raw source text was withheld because the physical artifact no longer matches the index-time size/mtime identity; rebuild the trace index before auditing raw rows")
-				break
+			case "artifact_open_failed":
+				out = append(out, "raw_artifact_open_failed=true; raw source text was withheld because the physical artifact could not be opened (moved/deleted/permission); restore the artifact at its indexed path or rebuild the trace index before auditing raw rows")
+			case "artifact_read_failed":
+				out = append(out, "raw_artifact_read_failed=true; raw source text was withheld because reading the physical artifact failed (I/O error or oversized line); the indexed event fields remain valid")
+			case "artifact_line_unavailable":
+				out = append(out, "raw_artifact_line_unavailable=true; raw source text was withheld because the recorded line number lies beyond the current artifact content; rebuild the trace index before auditing raw rows")
+			case "clock_inverse_unsafe":
+				out = append(out, "raw_source_ts_inverse_unsafe=true; this artifact's affine clock mapping cannot losslessly invert the canonical timestamp for the affected rows, so no artifact-local source_ts could be derived: their source_ts field carries the CANONICAL value and clock_aligned stays false; raw text and canonical timestamps remain valid")
+			default:
+				out = append(out, fmt.Sprintf("raw_source_unavailable=true; reason=%s; raw source text for the affected rows could not be served from the physical artifact", reason))
 			}
 		}
 	}
