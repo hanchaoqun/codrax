@@ -570,7 +570,7 @@ func TestCompileObservationLedger_CategoricalAggregateIsNotCount(t *testing.T) {
 		t.Fatalf("NormalizeAnswerAggregateFacts: %v", err)
 	}
 	ledger := CompileObservationLedger(ObservationLedgerInput{AggregateFacts: facts})
-	got := findObservationRecord(t, ledger, "aggregate:0#current_source")
+	got := findObservationRecord(t, ledger, "aggregate:0#system_inference")
 	if got.Value != "per_item_rejection" {
 		t.Fatalf("categorical value should be preserved, got %+v", got)
 	}
@@ -730,7 +730,7 @@ func TestCompileObservationLedger_AggregateRichNotesPreferMemberNotes(t *testing
 			},
 		}},
 	})
-	got := findObservationRecord(t, ledger, "aggregate:0#current_source")
+	got := findObservationRecord(t, ledger, "aggregate:0#system_inference")
 	if len(got.RichNotes) < 2 {
 		t.Fatalf("rich member notes should be preserved in the ledger: %+v", got)
 	}
@@ -888,7 +888,7 @@ func TestCompileObservationLedger_CurrentSourceHardRequiresExactLineSpan(t *test
 	if ev.GroundingPolicy == ClaimGroundingHard {
 		t.Fatalf("current-source ledger record without exact span must downgrade from hard: %+v", ev)
 	}
-	agg := findObservationRecord(t, ledger, "aggregate:0#current_source")
+	agg := findObservationRecord(t, ledger, "aggregate:0#system_inference")
 	if agg.GroundingPolicy == ClaimGroundingHard {
 		t.Fatalf("current-source aggregate without source support must not become hard citation pressure: %+v", agg)
 	}
@@ -1231,11 +1231,11 @@ func TestCompileObservationLedger_AutoCreatesLargeAggregateRowSetRef(t *testing.
 			return "blob://rows/" + name
 		},
 	})
-	got := findObservationRecord(t, ledger, "aggregate:0#current_source")
-	if got.SourceRef.RowSetRef != "blob://rows/aggregate-000-current_source-row-set.jsonl" {
+	got := findObservationRecord(t, ledger, "aggregate:0#system_inference")
+	if got.SourceRef.RowSetRef != "blob://rows/aggregate-000-system_inference-row-set.jsonl" {
 		t.Fatalf("row_set_ref not attached: %+v", got.SourceRef)
 	}
-	if seenName != "aggregate-000-current_source-row-set.jsonl" {
+	if seenName != "aggregate-000-system_inference-row-set.jsonl" {
 		t.Fatalf("unexpected row-set artifact name %q", seenName)
 	}
 	for _, want := range []string{
@@ -1264,7 +1264,7 @@ func TestCompileObservationLedger_SmallAggregateDoesNotCreateRowSetRef(t *testin
 			return "blob://rows/" + name
 		},
 	})
-	got := findObservationRecord(t, ledger, "aggregate:0#current_source")
+	got := findObservationRecord(t, ledger, "aggregate:0#system_inference")
 	if called || got.SourceRef.RowSetRef != "" {
 		t.Fatalf("small aggregate should stay inline-only, called=%v ref=%q", called, got.SourceRef.RowSetRef)
 	}
@@ -1322,8 +1322,8 @@ func TestCompileObservationLedger_AutoCreatesLargeExcludedRowSetRef(t *testing.T
 			return "blob://rows/" + name
 		},
 	})
-	got := findObservationRecord(t, ledger, "aggregate:0#current_source")
-	if got.SourceRef.RowSetRef != "blob://rows/aggregate-000-current_source-row-set.jsonl" {
+	got := findObservationRecord(t, ledger, "aggregate:0#system_inference")
+	if got.SourceRef.RowSetRef != "blob://rows/aggregate-000-system_inference-row-set.jsonl" {
 		t.Fatalf("row_set_ref not attached for exact excluded set: %+v", got.SourceRef)
 	}
 	for _, want := range []string{
@@ -1352,7 +1352,7 @@ func TestCompileObservationLedger_PartialExcludedSetDoesNotCreateRowSetRef(t *te
 			return "blob://rows/" + name
 		},
 	})
-	got := findObservationRecord(t, ledger, "aggregate:0#current_source")
+	got := findObservationRecord(t, ledger, "aggregate:0#system_inference")
 	if called || got.SourceRef.RowSetRef != "" {
 		t.Fatalf("partial excluded set should stay inline-only, called=%v ref=%q", called, got.SourceRef.RowSetRef)
 	}

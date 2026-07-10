@@ -232,7 +232,18 @@ func aggregateMemberFactAllowsCurrentSourceLocations(origins []AnswerEvidenceOri
 	}
 	for _, origin := range origins {
 		switch origin {
-		case AnswerEvidenceOriginCurrentSource, AnswerEvidenceOriginUnknown:
+		// system_inference is the §29.21 model-claim ADVISORY lane, not an
+		// origin-specific external lane: since CSP-RM the plain-run terminal
+		// fallback classifies unattributed model facts system_inference instead
+		// of current_source, and this display-side location recovery (member
+		// locations resolved against the TYPED evidence index / structured
+		// support refs — witnessed coordinates, not model claims) must keep
+		// working for them. The exclusion below remains for genuinely
+		// origin-specific external facts (runtime/VCS/web/...), which must not
+		// be converted into current-checkout file:line pressure. The proof lane
+		// is unaffected: CurrentSourceSatisfied reads ledger record kinds, not
+		// this display predicate.
+		case AnswerEvidenceOriginCurrentSource, AnswerEvidenceOriginUnknown, AnswerEvidenceOriginSystemInference:
 			return true
 		}
 	}

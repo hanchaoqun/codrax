@@ -143,25 +143,55 @@ func TestObservationLedgerInputFromAgentContext_MixedExternalBundleFactsNeverCur
 	}
 }
 
-// Ruling 1 negative control (the non-external side must stay byte-stable):
-// when the bundle RESOLVES to current-repo files the historical terminal
-// current_source fallback is the correct posture and must survive. An
-// over-widened reclassification (any-bundle instead of external-only) flips
-// THIS pin red while the external-shape pin stays green.
-func TestObservationLedgerInputFromBusContext_ResolvedBundleKeepsCurrentSourceFallback(t *testing.T) {
+// Ruling 1 negative control — EVOLUTION RECORD (CSP-RM, §29.21 ruling
+// 2026-07-10): this pin used to freeze the RESOLVED-bundle mixed run on the
+// historical terminal current_source fallback (satisfied=true from bare model
+// facts). §29.21 retired that fallback in every run shape: satisfied now only
+// comes from deterministic tool witnesses, so the resolved-bundle shape with
+// ZERO landed reads honestly reports satisfied=false. What this pin still
+// guards is the CSR #64 ruling-1 boundary in its evolved form: a RESOLVED
+// (non-external) bundle must NOT classify the model facts runtime_artifact —
+// they are bare model claims (system_inference), not external restatements.
+// An over-widened external reclassification flips THIS pin red while the
+// external-shape pin stays green. Note: this shape keeps a PRECISE
+// current-source requirement (PerfTrace.ResolvedFiles), so the source lane
+// stays load-bearing through the requirement itself — not through fake
+// satisfaction (the run is pushed toward真读, the anti-hallucination
+// direction).
+func TestObservationLedgerInputFromBusContext_ResolvedBundleFactsAreModelClaimsNotRuntime(t *testing.T) {
 	facts := csrMixedRunFacts()
 	perf := csrExternalOnlyPerfBundle()
 	perf.ResolvedFiles = []string{"internal/render/frame.go"}
 	bus := csrMixedRunBus(perf, facts, nil)
 
 	ledger := CompileObservationLedger(ObservationLedgerInputFromBusContext(bus, 64))
-	cs, _ := csrCountLedgerLanes(ledger)
-	if cs != len(facts) {
-		t.Fatalf("resolved-bundle mixed run lost the historical current_source fallback: got %d, want %d; records=%+v", cs, len(facts), ledger.Records)
+	cs, runtime := csrCountLedgerLanes(ledger)
+	if cs != 0 {
+		t.Fatalf("resolved-bundle model facts re-entered the current-source lane (CSP-RM regression): got %d; records=%+v", cs, ledger.Records)
+	}
+	// The perf frame record stays runtime; the model facts must NOT join it
+	// (resolved bundle ⇒ non-external ⇒ facts are bare model claims).
+	if runtime != 1 {
+		t.Fatalf("resolved-bundle facts must not classify runtime_artifact (ruling-1 boundary): got %d, want 1; records=%+v", runtime, ledger.Records)
+	}
+	modelClaims := 0
+	for _, r := range ledger.Records {
+		if r.Origin == AnswerEvidenceOriginSystemInference && r.SourceRef.Kind == ObservationSourceModelClaim {
+			modelClaims++
+		}
+	}
+	if modelClaims != len(facts) {
+		t.Fatalf("resolved-bundle model facts must stay lossless on the advisory lane: got %d, want %d", modelClaims, len(facts))
 	}
 	authority := BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(bus, ObservationLedger{})
-	if !authority.CurrentSourceSatisfied {
-		t.Fatalf("resolved-bundle authority posture changed (over-tightening): %+v", authority)
+	if authority.CurrentSourceSatisfied {
+		t.Fatalf("bare model facts still fake-satisfy the resolved-bundle source lane (CSP-RM regression): %+v", authority)
+	}
+	if authority.CurrentSourceRequirement != RuntimeSourceRequirementPrecise {
+		t.Fatalf("resolved-bundle precise requirement lost (fixture drift): %+v", authority)
+	}
+	if !authority.KeepsCurrentSourceLaneLoadBearing() {
+		t.Fatalf("resolved-bundle source lane must stay load-bearing through the PRECISE requirement: %+v", authority)
 	}
 }
 
@@ -257,6 +287,17 @@ func TestCompileObservationLedger_ExcludeNegativeSearchNeverCurrentSourceKind(t 
 // negative search keeps its historical current_source qualification and stays
 // the satisfaction valve — an over-widened requalification flips this red
 // while the exclude pin stays green.
+//
+// EVOLUTION RECORD (CSP-RM, §29.21 ruling 2026-07-10): reviewed against the
+// plain-fallback retirement and kept BYTE-STABLE on purpose. §29.21 ranks the
+// lanes explicitly: satisfied only accepts deterministic tool witnesses
+// (read_file coverage / grep / trace_query typed observations), and a
+// negative repo search is a grep-family witness — "模型断言比负向搜索更弱,
+// 不应享更高定性" is the ruling's own ordering. The pollution class the
+// ruling closed is the TERMINAL fallback for bare model claims (now
+// system_inference, see csp_current_source_exclude_test.go); the negative
+// search valve for "asked about a symbol that does not exist" questions is
+// the legitimate satisfaction path and survives unchanged.
 func TestCompileObservationLedger_PlainNegativeSearchKeepsCurrentSourceKind(t *testing.T) {
 	plainRM := RequestModel{Intent: IntentRootCause}
 	ledger := CompileObservationLedger(ObservationLedgerInput{

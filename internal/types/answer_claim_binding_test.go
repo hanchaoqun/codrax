@@ -53,7 +53,14 @@ func TestCompileAnswerClaimBindingsFromAggregateFacts_CurrentSourcePrincipalIsHa
 	}
 }
 
-func TestCompileAnswerClaimBindingsFromAggregateFacts_CurrentSourceWithoutSupportIsRepairable(t *testing.T) {
+// EVOLUTION RECORD (CSP-RM, §29.21 ruling 2026-07-10): previously this pin
+// asserted a no-support-ref model fact compiled a REPAIRABLE current_source
+// binding — the binding face of the terminal fallback that also fed
+// CurrentSourceSatisfied pollution. Pure model claims now compile advisory
+// system_inference bindings (soft grounding, illustrative ceiling, never
+// citation-eligible). Facts that DECLARE exact SupportRefs keep the Hard
+// current_source verification lane (see ..._CurrentSourcePrincipalIsHard).
+func TestCompileAnswerClaimBindingsFromAggregateFacts_ModelClaimWithoutSupportIsAdvisory(t *testing.T) {
 	rm := RequestModel{Intent: IntentExplain}
 	facts := []AnswerAggregateFact{{
 		Kind:    AnswerAggregateMemberSet,
@@ -64,13 +71,29 @@ func TestCompileAnswerClaimBindingsFromAggregateFacts_CurrentSourceWithoutSuppor
 	}}
 
 	got := CompileAnswerClaimBindingsFromAggregateFacts(facts, &rm, nil)
-	b := assertClaimBinding(t, got, AnswerEvidenceOriginCurrentSource, ClaimGroundingRepairable, AnswerRequestedOutputSummary)
+	b := assertClaimBinding(t, got, AnswerEvidenceOriginSystemInference, ClaimGroundingSoft, AnswerRequestedOutputSummary)
 	if AnswerClaimBindingHasExactCurrentSourceSupport(b) {
 		t.Fatalf("binding without support refs must not be current-source citation eligible: %+v", b)
 	}
+	if b.AuthorityCeiling != AuthorityIllustrative {
+		t.Fatalf("model-claim binding must stay illustrative: %+v", b)
+	}
+	for _, binding := range got {
+		if binding.Origin == AnswerEvidenceOriginCurrentSource {
+			t.Fatalf("no-support model fact minted a current_source binding (CSP-RM regression): %+v", got)
+		}
+	}
 }
 
-func TestCompileAnswerClaimBindingsFromAggregateFacts_SourceLocationMemberCarriesExactSupport(t *testing.T) {
+// EVOLUTION RECORD (CSP-RM, §29.21 ruling 2026-07-10): a file:line spelled
+// only inside a MEMBER (not declared as a SupportRef) is a model claim, not
+// declared support — it used to reach a HARD current_source binding through
+// the terminal fallback plus member parsing, which is exactly the
+// model-assertion-outranks-witness shape the ruling closed. The member's
+// coordinate still resolves through the display-side location machinery
+// (aggregateMemberFactAllowsCurrentSourceLocations admits system_inference);
+// declared SupportRefs keep the Hard lane byte-stable.
+func TestCompileAnswerClaimBindingsFromAggregateFacts_SourceLocationMemberWithoutDeclaredSupportIsAdvisory(t *testing.T) {
 	rm := RequestModel{Intent: IntentEnumerate}
 	facts := []AnswerAggregateFact{{
 		Kind:    AnswerAggregateMemberSet,
@@ -81,9 +104,9 @@ func TestCompileAnswerClaimBindingsFromAggregateFacts_SourceLocationMemberCarrie
 	}}
 
 	got := CompileAnswerClaimBindingsFromAggregateFacts(facts, &rm, nil)
-	b := assertClaimBinding(t, got, AnswerEvidenceOriginCurrentSource, ClaimGroundingHard, AnswerRequestedOutputSummary)
-	if !AnswerClaimBindingHasExactCurrentSourceSupport(b) {
-		t.Fatalf("source-location member should carry exact current-source support into binding: %+v", b)
+	b := assertClaimBinding(t, got, AnswerEvidenceOriginSystemInference, ClaimGroundingSoft, AnswerRequestedOutputSummary)
+	if AnswerClaimBindingHasExactCurrentSourceSupport(b) {
+		t.Fatalf("member-spelled location must not count as declared exact support: %+v", b)
 	}
 }
 

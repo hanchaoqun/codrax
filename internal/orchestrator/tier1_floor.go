@@ -104,7 +104,18 @@ func readLocalizerFollowupForTier1(busCtx *types.BusContext, ir *types.AnalysisI
 	if busCtx == nil || busCtx.Mutable == nil || ir == nil {
 		return nil
 	}
-	if types.RuntimeArtifactReadSourceNavigationNotRequiredForBusContext(busCtx) {
+	// CSP-RM F-1 (§29.21 review, 2026-07-10): the source-navigation waiver is
+	// a SOURCE-lane advisory statement; it must not kill the pending
+	// trace-drill retry (cmp_792, ledger :1815: the final projection's core
+	// evidence — root_cause_rank hot windows / frame_root_cause_bundle — was
+	// all produced by the retry round after the first pass landed only
+	// window_stats/window_sweep/wakeup_chain-level rows truncated by
+	// index_event_limit). While the trace drill lens is active and the typed
+	// drill DEPTH is still zero, this arm yields; convergence is bounded by
+	// the existing retry budget (depth>0 after one drill round flips the
+	// pending gate off, matching the witness's single-pass convergence).
+	if types.RuntimeArtifactReadSourceNavigationNotRequiredForBusContext(busCtx) &&
+		!traceDrillRetryPending(busCtx, ir) {
 		return nil
 	}
 	// A runtime-artifact-only checkout has no source to localize: the
@@ -155,6 +166,19 @@ func runtimeObservationClosureSuppressesReadLocalizerFollowup(busCtx *types.BusC
 	if readLocalizerRuntimeSourceAuthorityKeepsFollowup(authority) {
 		return false
 	}
+	// CSP-RM F-1 (§29.21 review): for the trace-drill lens shape the closure
+	// criterion is the typed drill DEPTH, not the mere existence of
+	// deterministic observations. "One wakeup-level observation exists" plus
+	// an insufficient sufficiency status is not a closed investigation
+	// (cmp_792: the first pass had exactly that shape and the answer's core
+	// attribution evidence only landed in the retry round). Depth==0 keeps
+	// the follow-up alive (the §29.20 trace directive fires); depth>0 falls
+	// through to the arms below, which suppress — one drill round converges.
+	// Arm ORDER below is untouched; this is a typed precise carve-out after
+	// the keep arm.
+	if traceDrillRetryPending(busCtx, ir) {
+		return false
+	}
 	if readLocalizerRuntimeSourceAuthoritySuppressesFollowup(authority) {
 		return true
 	}
@@ -174,6 +198,41 @@ func runtimeObservationClosureSuppressesReadLocalizerFollowup(busCtx *types.BusC
 		return true
 	}
 	return busCtx.Mutable.TraceQueryRuntimeObservationCount() > 0
+}
+
+// traceDrillRetryPending reports whether the §29.20 beneficial trace-drill
+// retry is still pending: the trace drill lens shape is active (typed
+// conditions in traceObservationDrillRetryLensActive) AND the typed drill
+// depth is zero — no deterministic root-cause-rank-family observation has
+// landed yet. Both inputs are precise signals: the lens is a five-way typed
+// conjunction, and the depth reads the trace observation coverage taxonomy's
+// root_cause_rank dimension over hard deterministic trace_query records
+// (trace_observation_coverage.go — system-authored predicates/claim keys, not
+// model prose). Convergence is bounded by the existing retry budget: the
+// drill round publishes rank rows, depth flips >0, and the pending gate turns
+// itself off (witness cmp_792 converged in exactly one pass).
+func traceDrillRetryPending(busCtx *types.BusContext, ir *types.AnalysisIR) bool {
+	if !traceObservationDrillRetryLensActive(busCtx, ir) {
+		return false
+	}
+	return traceDrillDepthObservationCount(busCtx) == 0
+}
+
+// traceDrillDepthObservationCount is the typed "drill depth" face for the
+// pending gate: the count of deterministic trace_query observations in the
+// root_cause_rank coverage dimension (root_cause_* predicates/claim keys —
+// the heavy hot-window attribution family that frame_root_cause_bundle rows
+// also classify into). Window/sweep/wakeup-level rows deliberately do not
+// count: the cmp_792 first pass had those and still produced a weak answer.
+func traceDrillDepthObservationCount(busCtx *types.BusContext) int {
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(busCtx, types.ObservationExtractLedgerEvidenceLimit))
+	coverage := types.TraceObservationCoverageFromObservationRecords(ledger.Records)
+	for _, dim := range coverage.Dimensions {
+		if dim.Dimension == types.TraceObservationDimensionRootCauseRank {
+			return dim.Count
+		}
+	}
+	return 0
 }
 
 func readLocalizerRuntimeSourceAuthorityKeepsFollowup(authority types.RuntimeSourceAnswerAuthoritySnapshot) bool {
@@ -419,11 +478,13 @@ func tier1PathEqual(left, right string) bool {
 // window_sweep/rank/bundle drills); only the directive wording is forked here.
 // Suppression-arm order is deliberately untouched: re-ordering the
 // TraceQueryRuntimeObservationCount arm ahead of the authority keep arm would
-// remove the beneficial retry entirely, and the keep-arm veto in the witness
-// traces back to CurrentSourceSatisfied minted from model-authored aggregate
-// facts (plain-RM terminal current_source fallback), whose byte-stability
-// outside the typed exclude / external-only shapes is pinned by CSR #64 and
-// needs its own ruling before it can change.
+// remove the beneficial retry entirely. The keep-arm veto in the original
+// witness traced back to CurrentSourceSatisfied minted from model-authored
+// aggregate facts (plain-RM terminal current_source fallback); the §29.21
+// ruling (CSP-RM, 2026-07-10) retired that fallback — pure model claims now
+// classify onto the advisory lane (system_inference/model_claim) and the
+// keep arm only rides deterministic witnesses (read coverage / evidence /
+// negative search) or a typed precise requirement.
 //
 // Every condition is a typed, deterministic signal (the fork drives soft
 // retry-hint wording only):

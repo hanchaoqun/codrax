@@ -26,6 +26,14 @@ const (
 	ObservationSourceWebPage          ObservationSourceKind = "web_page"
 	ObservationSourceMCPResource      ObservationSourceKind = "mcp_resource"
 	ObservationSourceConnector        ObservationSourceKind = "connector_resource"
+	// ObservationSourceModelClaim marks a record whose only backing is a model
+	// assertion (system_inference origin — the §29.21 advisory lane). It is a
+	// purely internal classification: no LLM-facing schema emits or receives
+	// it (so no R2' six-spot sync), every kind switch in the tree has a
+	// default arm, and the authority view counts only current_source /
+	// runtime_artifact kinds. Prompt renderers print it verbatim
+	// (kind=model_claim), which is the honest label for an unwitnessed claim.
+	ObservationSourceModelClaim ObservationSourceKind = "model_claim"
 )
 
 // ObservationSourceRef is the origin-specific address of the thing that was
@@ -731,6 +739,8 @@ func ObservationSourceKindForOrigin(origin AnswerEvidenceOrigin) ObservationSour
 		return ObservationSourceMCPResource
 	case AnswerEvidenceOriginConnectorResource:
 		return ObservationSourceConnector
+	case AnswerEvidenceOriginSystemInference:
+		return ObservationSourceModelClaim
 	default:
 		return ObservationSourceUnknown
 	}
@@ -898,6 +908,27 @@ func compileEvidenceItemObservations(items []EvidenceItem, add func(ObservationR
 			id = "evidence:" + id
 		}
 		origin := evidenceItemObservationOrigin(ev)
+		// CSP-RM F-2 (§29.21 review, 2026-07-10): the third bypass. An
+		// evidence item whose grounding pass VERIFIED FAILURE
+		// (GroundingUngrounded — the model-emitted file:line did not match
+		// the checkout) must not mint a current-source proof record: it fed
+		// CurrentSourceRecordCount → CurrentSourceSatisfied exactly like the
+		// aggregate-fact fallbacks (the donghu pseudo-citation shape). It is
+		// requalified onto the same advisory lane (system_inference /
+		// kind=model_claim), lossless — path/span/summary retained for
+		// display faces, which already exclude Ungrounded from every
+		// citation-eligible surface (ObservationRecordHasCurrentSourceLineSpan,
+		// answer_surface_plan, enumeration display). Deliberately narrow:
+		//   - GroundingGrounded stays current_source (tool-verified);
+		//   - GroundingRecovered stays current_source (deterministic
+		//     index/symbol-table recovery — the CSR #64 P4 supply lane and
+		//     the tier1 current-repo-evidence pin depend on it);
+		//   - empty status stays current_source (legacy deterministic scans;
+		//     the grounding pass not running is NOT a verified failure —
+		//     absence never guesses).
+		if origin == AnswerEvidenceOriginCurrentSource && ev.GroundingStatus == GroundingUngrounded {
+			origin = AnswerEvidenceOriginSystemInference
+		}
 		add(ObservationRecord{
 			ID:              id,
 			Origin:          origin,
@@ -940,6 +971,14 @@ func evidenceItemObservationOrigin(ev EvidenceItem) AnswerEvidenceOrigin {
 
 func sourceRefForEvidenceItem(ev EvidenceItem, origin AnswerEvidenceOrigin) ObservationSourceRef {
 	path := strings.TrimSpace(ev.Source)
+	if origin == AnswerEvidenceOriginSystemInference {
+		// F-2: ungrounded model-claimed evidence — advisory kind, path kept
+		// lossless (the authority counts neither this Origin nor this Kind).
+		return ObservationSourceRef{
+			Kind: ObservationSourceModelClaim,
+			Path: path,
+		}
+	}
 	if origin != AnswerEvidenceOriginRuntimeArtifact {
 		return ObservationSourceRef{
 			Kind: ObservationSourceCurrentSource,
@@ -977,7 +1016,17 @@ func compileAggregateFactObservations(facts []AnswerAggregateFact, rm *RequestMo
 		role := AnswerAggregateFactRoleForRequest(fact, rm)
 		origins := AnswerAggregateFactEvidenceOrigins(fact, rm)
 		if len(origins) == 0 {
-			origins = []AnswerEvidenceOrigin{AnswerEvidenceOriginCurrentSource}
+			// CSP-RM (§29.21): the ledger-side re-stamp is the second copy of
+			// the terminal model-claim fallback and must mint the same ADVISORY
+			// origin. Before the fix it re-stamped current_source ABOVE the
+			// zero-emission chokepoint inside AnswerAggregateFactEvidenceOrigins,
+			// so a typed-exclude run ("不分析代码") with a non-runtime-carryable
+			// fact kind (e.g. AnswerAggregateExcluded) still compiled a
+			// current_source record and set CurrentSourceSatisfied (probe
+			// 2026-07-10: exclude + Excluded-kind fact → satisfied=true) — the
+			// CSP #63 pollution class through the back door. system_inference
+			// keeps the record lossless and advisory in every run shape.
+			origins = []AnswerEvidenceOrigin{AnswerEvidenceOriginSystemInference}
 		}
 		dims := aggregateDimensionMap(fact.Dimensions)
 		for _, origin := range origins {
@@ -1492,6 +1541,18 @@ func compileProducerToolResultObservations(index int, result ToolResult, seen ma
 			record.Producer = strings.TrimSpace(result.ToolName)
 		}
 		if record.SourceRef.Kind == ObservationSourceUnknown {
+			record.SourceRef.Kind = ObservationSourceKindForOrigin(record.Origin)
+		}
+		// CSP-RM F-5 (§29.21 review): kind-side twin of the origin guard
+		// above. A producer row must not smuggle current-source proof through
+		// an explicit Kind badge its own origin cannot mint (the authority
+		// counts SourceRef.Kind as a second arm): a mismatched
+		// current_source Kind is requalified to the origin's canonical kind,
+		// row content lossless. Origins whose canonical kind IS
+		// current_source (repo_negative_search — the satisfaction valve)
+		// pass unchanged.
+		if record.SourceRef.Kind == ObservationSourceCurrentSource &&
+			ObservationSourceKindForOrigin(record.Origin) != ObservationSourceCurrentSource {
 			record.SourceRef.Kind = ObservationSourceKindForOrigin(record.Origin)
 		}
 		if record.SourceRef.ToolCallID == "" {

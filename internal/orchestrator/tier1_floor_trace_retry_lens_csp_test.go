@@ -33,13 +33,36 @@ package orchestrator
 // Shared root: CurrentSourceSatisfied minted from the model's own aggregate
 // facts via the plain-RM terminal current_source fallback
 // (types/answer_evidence_origin.go) — the CSP #63 pollution class in the
-// plain/required-lane shape, whose byte-stability is pinned by CSR #64
-// (csr_current_source_qualification_test.go P6 =
-// TestCompileObservationLedger_PlainNegativeSearchKeepsCurrentSourceKind;
-// the plain aggregate-fact terminal fallback itself is mutation-pinned in
-// csp_current_source_exclude_test.go). Changing that fallback or the
-// keep-arm order is an authority-semantics change that needs its own
-// ruling; the fix here forks retry WORDING only.
+// plain/required-lane shape.
+//
+// EVOLUTION RECORD (CSP-RM, §29.21 ruling 2026-07-10; amended same day per
+// CSP-RM review F-1): the ruling this file's conscious-flip marker was
+// waiting for has landed. The plain-RM terminal fallback now mints the
+// ADVISORY lane (system_inference / kind=model_claim); pure model claims can
+// no longer set CurrentSourceSatisfied, so the witness shape's keep-arm veto
+// is gone. The FIRST evolution of this file let the honest authority suppress
+// the witness follow-up entirely — review F-1 rejected that as a quality
+// regression (ledger :1815: the cmp retry was BENEFICIAL — the final
+// projection's core evidence, the root_cause_rank hot windows and
+// frame_root_cause_bundle rows, was all produced by the retry round; the
+// first pass had only window_stats/window_sweep/wakeup_chain-level rows,
+// heavy views truncated by index_event_limit). The closure criterion for the
+// trace-drill shape is therefore the typed drill DEPTH
+// (traceDrillRetryPending in tier1_floor.go — root_cause_rank-family
+// deterministic observation count over the trace coverage taxonomy):
+//   - Pin 1  (zero-drill retry): witness first-pass shape (depth==0) → the
+//     follow-up still fires with the §29.20 trace word-face — the beneficial
+//     retry is preserved, now riding a typed trace-side signal instead of
+//     the satisfied pollution.
+//   - Pin 1c (post-drill closure): a rank-family observation landed
+//     (depth>0) → the follow-up is honestly suppressed — single-pass
+//     convergence, matching the witness.
+//   - Pin 1b (negative-grep keep): a REAL deterministic source witness keeps
+//     the source lane satisfied and the retry directive stays trace-worded.
+// The wording fork itself (lens + renderer) is unchanged and stays pinned at
+// unit level (Pins 3/3b). Suppression-arm ORDER remains untouched; the
+// pending gate is a typed carve-out after the keep arm, bounded by the
+// existing retry budget.
 //
 // Review fixes (SHIP-WITH-FIXES 2026-07-10):
 //   P1-1 the lens additionally requires the ABSENCE of a typed
@@ -66,15 +89,43 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// cspCmp792Round1TraceToolResult mirrors the witness's FIRST-pass evidence
+// level (review F-1 fidelity fix): window_stats/window_sweep/wakeup_chain
+// class rows landed, while the heavy hot-window attribution family
+// (root_cause_rank / frame_root_cause_bundle) was truncated by
+// index_event_limit and produced no rows — the typed drill depth is zero.
+// The Predicate is the trace coverage taxonomy's wakeup_chain lane
+// (trace_observation_coverage.go), NOT a root_cause_* key.
+func cspCmp792Round1TraceToolResult() types.ToolResult {
+	return types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		// Distinct summary: the ledger tool-result merge dedupes on
+		// ToolName+RawRef+Summary, and drilled twins append a second
+		// trace_query result to the same context.
+		Summary: "[trace_query: view=wakeup_chain window=5.000s-5.007s]",
+		Observations: []types.ObservationRecord{{
+			ID:              "trace_query:window#wakeup_chain:1",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef:       types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact},
+			Subject:         "com.baidu.tieba-59566",
+			Predicate:       "wakeup_chain",
+			Object:          "ThreadPoolForeg-60555",
+		}},
+	}
+}
+
 // cspCmp792TraceBusContext mirrors the witness run shape: two preflight trace
 // artifacts referenced in the request, a non-artifact-only cwd census, one
-// deterministic trace_query runtime observation, a completed first
-// investigation pass whose model-authored aggregate facts are retained, and
-// zero source reads.
+// deterministic FIRST-PASS-level trace_query runtime observation (wakeup
+// chain — zero drill depth), a completed first investigation pass whose
+// model-authored aggregate facts are retained, and zero source reads.
 func cspCmp792TraceBusContext() *types.BusContext {
 	mu := types.NewMutableState("对比分析两个 systrace 的 bindApplication 耗时差异主要原因")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{})
-	mu.AppendDispatchToolResult(tier1TraceQueryRuntimeToolResult())
+	mu.AppendDispatchToolResult(cspCmp792Round1TraceToolResult())
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
 		{Kind: types.AnswerAggregateScalar, Label: "7.0 sleep", Value: "1430.101 ms"},
 		{Kind: types.AnswerAggregateScalar, Label: "6.0 sleep", Value: "974.469 ms"},
@@ -103,11 +154,15 @@ func cspCmp792TraceBusContext() *types.BusContext {
 	}
 }
 
-// Pin 1 — witness replay: the retry still fires (the repair loop is
-// design-final and stays), but the directive names the trace drill-down views
-// the session can actually execute; every repo-navigation demand word is
-// stripped.
-func TestCheckTier1Floor_Cmp792PureTraceRetryNamesTraceDrillLenses(t *testing.T) {
+// Pin 1 (RE-EVOLVED per CSP-RM review F-1) — witness first-pass replay,
+// zero-drill retry: the authority is honest (satisfied=false, keeps=false —
+// the §29.21 root fix), the keep-arm veto is gone, and the follow-up STILL
+// fires because the typed drill depth is zero (no root_cause_rank-family
+// deterministic observation yet — exactly the witness first pass whose heavy
+// views were truncated). The directive carries the §29.20 trace word-face.
+// The beneficial retry the witness converged through is preserved, now
+// riding a typed trace-side signal instead of the satisfied pollution.
+func TestCheckTier1Floor_Cmp792ZeroDrillDepthFiresTraceDrillRetry(t *testing.T) {
 	prev := tool.CurrentGroundingPolicy()
 	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())
 	t.Cleanup(func() { tool.SetGroundingPolicy(prev) })
@@ -115,25 +170,136 @@ func TestCheckTier1Floor_Cmp792PureTraceRetryNamesTraceDrillLenses(t *testing.T)
 	busCtx := cspCmp792TraceBusContext()
 	o := &Orchestrator{busCtx: busCtx}
 
-	// Arm-attribution sub-pins (conscious-flip markers): the keep-arm veto in
-	// this shape rides on the polluted satisfied flag. A future root fix of
-	// the plain-shape current_source fallback flips these first — re-read the
-	// header comment before "fixing" this test.
-	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(busCtx, types.ObservationLedger{})
-	if !authority.CurrentSourceSatisfied || !authority.KeepsCurrentSourceLaneLoadBearing() {
-		t.Fatalf("witness precondition drifted: keep-arm veto no longer rides on satisfied pollution: %+v", authority)
-	}
+	// Witness preconditions (fixture drift guards).
 	if busCtx.RuntimeArtifactPreflight.ZeroCurrentSourceRepo() {
 		t.Fatal("witness precondition drifted: census must not be artifact-only")
 	}
 	if busCtx.Mutable.TraceQueryRuntimeObservationCount() == 0 {
 		t.Fatal("witness precondition drifted: deterministic trace observation missing")
 	}
+	if depth := traceDrillDepthObservationCount(busCtx); depth != 0 {
+		t.Fatalf("witness precondition drifted: first pass must have zero drill depth, got %d", depth)
+	}
+
+	// §29.21 root-fix face: the model facts no longer mint current-source
+	// proof — they live losslessly on the advisory lane, the keep arm is
+	// honest, and the pending gate (not pollution) is what keeps the retry.
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(busCtx, types.ObservationLedger{})
+	if authority.CurrentSourceSatisfied || authority.CurrentSourceRecordCount != 0 {
+		t.Fatalf("model aggregate facts fake-satisfied the source lane again (§29.21 regression): %+v", authority)
+	}
+	if authority.KeepsCurrentSourceLaneLoadBearing() {
+		t.Fatalf("keep arm rides pollution again (§29.21 regression): %+v", authority)
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(busCtx, types.ObservationExtractLedgerEvidenceLimit))
+	advisory := 0
+	for _, record := range ledger.Records {
+		if record.Origin == types.AnswerEvidenceOriginSystemInference &&
+			record.SourceRef.Kind == types.ObservationSourceModelClaim {
+			advisory++
+		}
+	}
+	if advisory != 3 {
+		t.Fatalf("model facts must stay lossless on the advisory lane: got %d, want 3; records=%+v", advisory, ledger.Records)
+	}
+
+	// F-1 pending-gate attribution: the trace-drill retry is pending, so
+	// neither arm0 (source-navigation waiver) nor the arm2 closure may
+	// suppress on source-lane-advisory reasoning.
+	if !traceDrillRetryPending(busCtx, busCtx.AnalysisIR) {
+		t.Fatal("zero-drill witness shape must report a pending trace-drill retry")
+	}
+	if runtimeObservationClosureSuppressesReadLocalizerFollowup(busCtx, busCtx.AnalysisIR) {
+		t.Fatal("arm2 closure must yield while the drill retry is pending (F-1 regression)")
+	}
 
 	state := newGraphState(types.TaskGraph{ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 4}})
 	msg, proceed, exhausted := o.checkTier1Floor(busCtx.AnalysisIR, state)
 	if proceed || exhausted {
-		t.Fatalf("repair loop must keep firing for the witness shape (design-final), proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
+		t.Fatalf("zero-drill witness shape must fire the beneficial retry (F-1), proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
+	}
+	for _, want := range []string{
+		"trace_query", "window_sweep", "root_cause_rank", "frame_root_cause_bundle",
+		"time_start", "emit_investigation_complete",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("trace drill retry directive missing %q:\n%s", want, msg)
+		}
+	}
+	for _, banned := range []string{"repo_map", "read_file", "Source localization"} {
+		if strings.Contains(msg, banned) {
+			t.Fatalf("pure-trace retry directive still carries repo-navigation word-face %q (cmp_792 regression):\n%s", banned, msg)
+		}
+	}
+}
+
+// Pin 1c (NEW per CSP-RM review F-1) — post-drill closure: once a
+// root_cause_rank-family deterministic observation lands (the retry round's
+// product), the drill depth flips >0, the pending gate turns off, and the
+// follow-up is honestly suppressed through the authority arms — single-pass
+// convergence, matching the witness. The authority stays honest
+// (satisfied=false: drill rows are trace-side, not source proof).
+func TestCheckTier1Floor_Cmp792DrilledRankObservationSuppressesRetry(t *testing.T) {
+	prev := tool.CurrentGroundingPolicy()
+	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())
+	t.Cleanup(func() { tool.SetGroundingPolicy(prev) })
+
+	busCtx := cspCmp792TraceBusContext()
+	busCtx.Mutable.AppendDispatchToolResult(tier1TraceQueryRuntimeToolResult())
+	if depth := traceDrillDepthObservationCount(busCtx); depth == 0 {
+		t.Fatal("fixture drifted: rank-family observation must register drill depth")
+	}
+	if traceDrillRetryPending(busCtx, busCtx.AnalysisIR) {
+		t.Fatal("pending gate must turn off once the drill round landed")
+	}
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(busCtx, types.ObservationLedger{})
+	if authority.CurrentSourceSatisfied || authority.KeepsCurrentSourceLaneLoadBearing() {
+		t.Fatalf("drill rows must not fake source-lane proof: %+v", authority)
+	}
+
+	o := &Orchestrator{busCtx: busCtx}
+	state := newGraphState(types.TaskGraph{ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 4}})
+	msg, proceed, exhausted := o.checkTier1Floor(busCtx.AnalysisIR, state)
+	if !proceed || exhausted || msg != "" {
+		t.Fatalf("drilled shape must complete without a further retry (single-pass convergence), proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
+	}
+}
+
+// Pin 1b (NEW with CSP-RM §29.21; wording corrected per review F-3 — the
+// trigger here is the negative-grep WITNESS keeping the source lane, not an
+// "insufficiency" verdict): when the source lane is satisfied by a REAL
+// deterministic witness (a negative repo grep — the §29.21-sanctioned
+// grep-family valve) and trace localization is still incomplete, the
+// follow-up stays alive through the honest keep arm and the directive
+// carries the §29.20 trace word-face verbatim — riding a witness instead of
+// pollution.
+func TestCheckTier1Floor_HonestKeepNegativeGrepFiresTraceDrillRetry(t *testing.T) {
+	prev := tool.CurrentGroundingPolicy()
+	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())
+	t.Cleanup(func() { tool.SetGroundingPolicy(prev) })
+
+	busCtx := cspCmp792TraceBusContext()
+	busCtx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:        "neg-row",
+			Origin:    types.AnswerEvidenceOriginRepoNegativeSearch,
+			SourceRef: types.ObservationSourceRef{Kind: types.ObservationSourceCurrentSource, Path: "src/"},
+			Summary:   "no bindApplication match",
+			Negative:  true,
+		}},
+	})
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(busCtx, types.ObservationLedger{})
+	if !authority.CurrentSourceSatisfied || !authority.KeepsCurrentSourceLaneLoadBearing() {
+		t.Fatalf("negative-grep witness must satisfy and keep the source lane (deterministic valve): %+v", authority)
+	}
+
+	o := &Orchestrator{busCtx: busCtx}
+	state := newGraphState(types.TaskGraph{ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 4}})
+	msg, proceed, exhausted := o.checkTier1Floor(busCtx.AnalysisIR, state)
+	if proceed || exhausted {
+		t.Fatalf("honest keep must fire the trace-drill retry, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}
 	for _, want := range []string{
 		"trace_query", "window_sweep", "root_cause_rank", "frame_root_cause_bundle",
@@ -154,6 +320,12 @@ func TestCheckTier1Floor_Cmp792PureTraceRetryNamesTraceDrillLenses(t *testing.T)
 // files keeps the repository-navigation wording byte-for-byte, even with an
 // active trace surface and deterministic trace observations. Both fork
 // directions are pinned; over-broadening the trace lens flips this red.
+//
+// EVOLUTION RECORD (CSP-RM §29.21): the fixture previously kept the follow-up
+// alive through the satisfied POLLUTION (bare ReadFiles never reach the
+// ledger); post-ruling the keep must ride a real witness, so the fixture now
+// carries the read_file tool result with its typed ReadCoverage — the exact
+// deterministic read witness §29.21 names as the accepted proof lane.
 func TestCheckTier1Floor_SourceReadSessionKeepsRepoMapLensWording(t *testing.T) {
 	prev := tool.CurrentGroundingPolicy()
 	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())
@@ -163,6 +335,19 @@ func TestCheckTier1Floor_SourceReadSessionKeepsRepoMapLensWording(t *testing.T) 
 	busCtx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
 		ReadFiles: []string{"pkg/handler.py"},
 	})
+	busCtx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		ReadCoverage: &types.ToolReadCoverage{
+			Path:      "pkg/handler.py",
+			LineStart: 1,
+			LineEnd:   40,
+		},
+	})
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(busCtx, types.ObservationLedger{})
+	if !authority.CurrentSourceSatisfied {
+		t.Fatalf("read coverage witness must satisfy the source lane (§29.21 accepted proof): %+v", authority)
+	}
 	o := &Orchestrator{busCtx: busCtx}
 	state := newGraphState(types.TaskGraph{ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 4}})
 
@@ -298,12 +483,32 @@ func TestRenderReadLocalizerFollowupRetryMessage_ForkByTraceLens(t *testing.T) {
 
 // Pin 4 — current-repo evidence in the buffer: source-lane work exists, so
 // the source wording stays even though the session never called read_file.
+//
+// EVOLUTION RECORD (CSP-RM §29.21): the follow-up previously stayed alive
+// through the satisfied pollution while the evidence only steered the LENS
+// (Mutable evidence is a lens input; the BUS ledger reads bus.EvidenceItems).
+// Post-ruling the keep must ride the real evidence witness, so the fixture
+// carries the item on BOTH faces: bus.EvidenceItems (ledger/authority) and
+// Mutable evidence (lens).
 func TestCheckTier1Floor_CurrentRepoEvidenceKeepsSourceWording(t *testing.T) {
 	prev := tool.CurrentGroundingPolicy()
 	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())
 	t.Cleanup(func() { tool.SetGroundingPolicy(prev) })
 
 	busCtx := cspCmp792TraceBusContext()
+	busCtx.EvidenceItems = []types.EvidenceItem{{
+		ID:              "current-source-recovered-only",
+		Kind:            types.EvidenceMechanism,
+		Subject:         "handler.py",
+		Predicate:       "mechanism",
+		Object:          "dispatch",
+		Source:          "pkg/handler.py",
+		LineStart:       42,
+		Scope:           types.ScopeLine,
+		GroundingStatus: types.GroundingRecovered,
+		GroundingTier:   types.TierSymbolTable,
+		Origin:          types.ClaimOriginCurrentRepo,
+	}}
 	busCtx.Mutable.AppendEvidence([]types.EvidenceItem{{
 		ID:              "current-source-recovered-only",
 		Kind:            types.EvidenceMechanism,
@@ -317,6 +522,10 @@ func TestCheckTier1Floor_CurrentRepoEvidenceKeepsSourceWording(t *testing.T) {
 		GroundingTier:   types.TierSymbolTable,
 		Origin:          types.ClaimOriginCurrentRepo,
 	}})
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(busCtx, types.ObservationLedger{})
+	if !authority.CurrentSourceSatisfied {
+		t.Fatalf("evidence witness must satisfy the source lane (§29.21 accepted proof): %+v", authority)
+	}
 	o := &Orchestrator{busCtx: busCtx}
 	state := newGraphState(types.TaskGraph{ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 4}})
 
@@ -386,13 +595,26 @@ func TestCheckTier1Floor_ArtifactReadKeepsTraceDrillWording(t *testing.T) {
 			artifactRead.RuntimeArtifactRead, artifactRead.ReadCoverage)
 	}
 
-	// (b) Defense: artifact path in ReadFiles anyway → trace wording stays.
+	// (b) Defense (re-evolved per CSP-RM review F-1): an artifact read must
+	// never mint source-lane proof (authority face pinned below), and with
+	// the zero-drill pending gate restored the follow-up FIRES with the
+	// trace wording — reading the attached artifact is a design-internal
+	// escape lane and must not flip the directive back to source navigation
+	// (the original P2-1 assertion, now riding the honest authority + typed
+	// depth signal instead of the satisfied pollution).
 	busCtx := cspCmp792TraceBusContext()
 	busCtx.RepoRoot = repoRoot
 	busCtx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
 		ReadFiles:   []string{"attached_trace.txt"},
 		ToolResults: []types.ToolResult{artifactRead},
 	})
+	if !traceObservationDrillRetryLensActive(busCtx, busCtx.AnalysisIR) {
+		t.Fatal("artifact read disabled the trace lens (P2-1 regression)")
+	}
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(busCtx, types.ObservationLedger{})
+	if authority.CurrentSourceSatisfied {
+		t.Fatalf("artifact read minted source-lane proof (§29.21 regression): %+v", authority)
+	}
 	o := &Orchestrator{busCtx: busCtx}
 	state := newGraphState(types.TaskGraph{ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 4}})
 	msg, proceed, exhausted := o.checkTier1Floor(busCtx.AnalysisIR, state)

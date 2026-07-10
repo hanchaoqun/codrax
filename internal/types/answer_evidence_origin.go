@@ -67,8 +67,27 @@ func AnswerAggregateFactEvidenceOrigins(fact AnswerAggregateFact, rm *RequestMod
 			add(inferAggregateFactExternalOriginFromRequest(fact, rm))
 		}
 	}
+	// CSP-RM (§29.21 ruling, 2026-07-10): a model-authored aggregate fact with
+	// NO origin evidence is a pure model claim, and pure model claims must not
+	// enter the current-source proof lane that feeds CurrentSourceSatisfied —
+	// every satisfied consumer is a hard-gate face (keep-arm short circuit,
+	// completion gates, authority views), and model facts are the noisiest
+	// possible signal (double witness: donghu 20260703 satisfied=true + 4 blob
+	// pseudo-citations; cmp_792 three model facts → satisfied=true → all three
+	// retry-suppression arms dead → self-contradicting retry directive).
+	// The terminal fallback therefore mints the ADVISORY lane instead:
+	// AnswerEvidenceOriginSystemInference (existing enum value — grounding
+	// Soft/DisplayOnly, authority ceiling Illustrative, excluded from both the
+	// current-source proof count and the external-observation sufficiency
+	// candidates). The record is retained losslessly and keeps feeding
+	// display/soft guidance; CurrentSourceSatisfied now only comes from
+	// deterministic tool witnesses (read_file coverage / grep / negative
+	// search / trace_query typed observations). Reusing the existing internal
+	// enum value means no LLM-facing schema change and no R2' six-spot sync
+	// (precedent: CSR #64 ruling 2 requalified Kind at the compile throat the
+	// same way — internal record classification, not a model-emitted field).
 	if len(out) == 0 && aggregateFactKindUsuallyCurrentSource(fact.Kind) {
-		add(AnswerEvidenceOriginCurrentSource)
+		add(AnswerEvidenceOriginSystemInference)
 	}
 	return out
 }

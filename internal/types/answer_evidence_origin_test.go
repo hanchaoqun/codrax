@@ -427,7 +427,16 @@ func TestAnswerAggregateFactEvidenceOrigins_RuntimeBehaviorOutcome(t *testing.T)
 	}
 }
 
-func TestAnswerAggregateFactEvidenceOrigins_DefaultsToCurrentSourceForOrdinaryAggregate(t *testing.T) {
+// EVOLUTION RECORD (CSP-RM, §29.21 ruling 2026-07-10): this pin previously
+// asserted the terminal fallback stamped [current_source] for an ordinary
+// aggregate with no origin evidence. That fallback was the live pollution
+// source behind CurrentSourceSatisfied=true from pure model claims (donghu
+// 20260703, cmp_792), so it now mints the ADVISORY lane instead:
+// system_inference (grounding Soft/DisplayOnly, ceiling Illustrative, not
+// counted by the authority's current-source proof lane). Facts that carry an
+// exact file:line SupportRef under a required lane still classify
+// current_source through the explicit lane above the fallback.
+func TestAnswerAggregateFactEvidenceOrigins_DefaultsToModelClaimAdvisoryForOrdinaryAggregate(t *testing.T) {
 	fact := AnswerAggregateFact{
 		Kind:    AnswerAggregateMemberSet,
 		Label:   "public functions",
@@ -435,7 +444,7 @@ func TestAnswerAggregateFactEvidenceOrigins_DefaultsToCurrentSourceForOrdinaryAg
 		Members: []string{"Eval", "EvalAll"},
 	}
 	got := AnswerAggregateFactEvidenceOrigins(fact, nil)
-	want := []AnswerEvidenceOrigin{AnswerEvidenceOriginCurrentSource}
+	want := []AnswerEvidenceOrigin{AnswerEvidenceOriginSystemInference}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("origins mismatch\ngot:  %#v\nwant: %#v", got, want)
 	}

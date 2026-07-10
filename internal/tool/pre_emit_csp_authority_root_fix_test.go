@@ -94,6 +94,43 @@ func TestRuntimeCitationCleanup_DonghuShapeOpensThroughDerivedAuthority(t *testi
 	}
 }
 
+// Pin 1b (NEW with CSP-RM, §29.21 ruling 2026-07-10): the PLAIN-shape twin of
+// Pin 1. The cmp_792 run had no exclude boundary — a plain required-lane RM
+// with attached traces — and its model aggregate facts minted
+// CurrentSourceSatisfied through the terminal current_source fallback, so
+// KeepsCurrentSourceLaneLoadBearing vetoed this very cleanup. Post-ruling the
+// facts classify advisory (system_inference/model_claim), the authority is
+// honest, and the blob pseudo-citation cleanup opens through the DERIVED
+// authority lane with no exclude boundary needed.
+func TestRuntimeCitationCleanup_PlainShapeOpensThroughDerivedAuthority(t *testing.T) {
+	ctx := &types.BusContext{
+		Mutable:               types.NewMutableState("对比分析两个 systrace 的 bindApplication 耗时差异主要原因"),
+		AttachedHitrace:       "tracer: nop\n<idle>-0 [000] 34579.472865: sched_switch ...",
+		AttachedHitraceSource: "../../customlogs/xxx_all.systrace",
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentRootCause,
+		}},
+	}
+	ctx.Mutable.SetInvestigationAggregateFacts(cspDonghuToolAggregateFacts())
+	ctx.Mutable.RetainInvestigationAggregateFacts()
+
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshotForBusContext(ctx, types.ObservationLedger{})
+	if authority.CurrentSourceRecordCount != 0 || authority.CurrentSourceSatisfied {
+		t.Fatalf("plain-run model facts fake-satisfied the source lane again (§29.21 regression): %+v", authority)
+	}
+	if authority.KeepsCurrentSourceLaneLoadBearing() {
+		t.Fatalf("derived authority still vetoes the plain-shape cleanup: %+v", authority)
+	}
+
+	doc := cpdSpecimenDoc()
+	if fixed := normalizeRuntimeArtifactCitationRefsWithContext(doc, ctx, newPreEmitCheckContext(ctx)); fixed == 0 {
+		t.Fatal("plain-shape cleanup gate did not open through the derived authority")
+	}
+	if len(doc.Citations) != 0 {
+		t.Fatalf("blob pseudo-citations must not survive the plain shape: %+v", doc.Citations)
+	}
+}
+
 // Pin 2a: the typed spelling set is case-folded on both sides, aligned with
 // the shape lane; real source paths never match.
 func TestRuntimeArtifactCitationPathSet_CaseFoldAlignsWithShapeLane(t *testing.T) {
