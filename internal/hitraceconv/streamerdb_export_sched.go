@@ -117,13 +117,8 @@ func exportTraceDBSchedulerFamilies(ctx context.Context, tdb *traceDB, sink *tra
 	if err != nil {
 		return coverage, err
 	}
-	argsets, argCoverage, err := tdb.loadArgsets(ctx)
-	coverage = append(coverage, argCoverage...)
-	if err != nil {
-		return coverage, err
-	}
 	stageStart = time.Now()
-	irqCoverage, err := exportTraceDBIRQ(ctx, tdb, sink, argsets)
+	irqCoverage, err := exportTraceDBIRQ(ctx, tdb, sink)
 	traceDBSetCoverageElapsed(&irqCoverage, stageStart)
 	coverage = append(coverage, irqCoverage)
 	return coverage, err
@@ -482,64 +477,6 @@ func traceDBWakeupSkipSummary(skipped map[string]int) string {
 	return fmt.Sprintf("%d wakeup row(s) skipped: %s", total, strings.Join(parts, ","))
 }
 
-func exportTraceDBIRQ(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, argsets map[int64]map[string]traceDBValue) (TraceDBCoverage, error) {
-	coverage, err := tdb.inspectCoverage(ctx, "irq", "irq", []string{"ts", "dur", "callid", "cat", "name", "argsetid"})
-	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
-		return coverage, err
-	}
-	rows, err := tdb.db.QueryContext(ctx, `
-		SELECT ts, COALESCE(dur, 0), COALESCE(callid, 0),
-		       COALESCE(cat, ''), COALESCE(name, ''), COALESCE(argsetid, 0)
-		FROM irq
-		WHERE dur >= 0
-		ORDER BY ts
-	`)
-	if err != nil {
-		coverage.Error = err.Error()
-		return coverage, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		if err := ctx.Err(); err != nil {
-			return coverage, err
-		}
-		var ts, dur, cpu, argsetID int64
-		var cat, name string
-		if err := rows.Scan(&ts, &dur, &cpu, &cat, &name, &argsetID); err != nil {
-			coverage.Error = err.Error()
-			return coverage, err
-		}
-		args := argsets[argsetID]
-		if cat == "softirq" {
-			vec := traceDBArgText(args, "vec", "0")
-			action := firstNonEmpty(name, "unknown")
-			if err := addTraceDBInstantRow(sink, ts, "<softirq>", 0, 0, cpu, fmt.Sprintf("softirq_entry: vec=%s [action=%s]", vec, action)); err != nil {
-				return coverage, err
-			}
-			if err := addTraceDBInstantRow(sink, ts+dur, "<softirq>", 0, 0, cpu, fmt.Sprintf("softirq_exit: vec=%s [action=%s]", vec, action)); err != nil {
-				return coverage, err
-			}
-			coverage.RowsEmitted += 2
-			continue
-		}
-		irqNum := traceDBArgText(args, "irq", "0")
-		ret := traceDBArgText(args, "irq_ret", "handled")
-		displayName := firstNonEmpty(name, "None")
-		if err := addTraceDBInstantRow(sink, ts, "<irq>", 0, 0, cpu, fmt.Sprintf("irq_handler_entry: irq=%s name=%s", irqNum, displayName)); err != nil {
-			return coverage, err
-		}
-		if err := addTraceDBInstantRow(sink, ts+dur, "<irq>", 0, 0, cpu, fmt.Sprintf("irq_handler_exit: irq=%s ret=%s", irqNum, ret)); err != nil {
-			return coverage, err
-		}
-		coverage.RowsEmitted += 2
-	}
-	if err := rows.Err(); err != nil {
-		coverage.Error = err.Error()
-		return coverage, err
-	}
-	return coverage, nil
-}
-
 func queryTraceDBSchedSliceRows(ctx context.Context, tdb *traceDB) (*sql.Rows, error) {
 	return tdb.db.QueryContext(ctx, `
 		SELECT ts, dur, cpu, end_state, priority, itid
@@ -870,13 +807,6 @@ func sortedTraceDBThreads(items map[int64]traceDBThread) []traceDBThread {
 		return out[i].StartTS < out[j].StartTS
 	})
 	return out
-}
-
-func traceDBArgText(args map[string]traceDBValue, key, fallback string) string {
-	if value, ok := args[key]; ok && value.Valid && strings.TrimSpace(value.Text) != "" {
-		return value.Text
-	}
-	return fallback
 }
 
 func nullInt64Value(value sql.NullInt64) int64 {
