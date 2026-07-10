@@ -1942,3 +1942,11 @@ finalizer 多轮修复=大量 token 交互反复且小模型输出不稳定(后�
 ## §29.25 裁定(用户 2026-07-10):HarmonyOS RT 优先级边界 41-159 确认+客户 witness 落档;审计处置委托
 **裁定①(41-139→41-159 翻转追认,witness 补齐)**:用户回访附件三份支撑——`customlogs/format_census_berlin.txt`(berlin 1104MiB 全谱 census:prio 直方 **142×756604**(全 trace 最高频优先级之一)/157×3170/159×140/140×3212,prio>139 计 763186)+`customlogs/format_census.txt`(VerifyClass 案 record_trace_20260606:157×36/140×21)+`customlogs/cust_trace_vc_710.txt`(prio=53→ohos_rt 生产判定与两界兼容,20/53 CFS-RT 反转判定链完整)。真实工作负载大量落在 140-159 段,旧界 41-139 会把这些线程误归 system_or_kernel、错出高优先级压力账户。**41-159 为正确边界,远程批 flavor.go 翻转追认生效**;审计 P1-#4 的定性从"无证据链翻转"改为"witness 补齐后合法演化",剩余义务=flavor.go 与 stale-ban pin 补 EVOLUTION RECORD 引本节+witness 文件名。
 **裁定②(处置委托)**:用户原话"其它的按合理的方向进行发展"——两轮全方位审计 finding 的处置(P1/P2 修复、EVOLUTION RECORD 欠账补记、双账本状态收敛、裁定池远程关闭项(B4/B6/B9/A1/A2)按方向一致性追认)按主会话判断执行;方向存疑项仍单独上呈。
+
+## §29.26 Workqueue/DMA endpoint integrity + 语义标签演化（2026-07-10，`d729f634f` / `40fcf403b`）
+
+**Workqueue/DMA correctness 收口**：elapsed-time 端点改为大小写敏感 exact 闭集。Workqueue 仅 `workqueue_execute_start/end`，硬身份=`PID + 可解析非零 work pointer + physical source`，function 只作 metadata（兼容旧内核 end 缺 function）；DMA 仅 `dma_fence_wait_start/end`，硬身份=`PID + driver + timeline + unsigned context + unsigned seqno + physical source`，`dma_fence_signaled` 明确为瞬时 inventory、不得关闭 wait。宽别名只可服务 inventory，不能满足 hard identity；tuple 采用 NUL 分隔，避免 driver/timeline 自由文本拼接碰撞。
+
+**歧义与坏行策略**：同 typed key 两个未闭合 start 使整 cohort 进入 ambiguous，全部 duration withheld，depth 回零后才恢复；不再 FIFO 猜配。物理 raw 行在 Event admission 前按标准 event column 审计，缺字段、伪指针、坏 PID/CPU/时间戳及 parser reject 均 poison affected family；未知时间用“不可证明在窗外”的语义处理，不能折成 ts=0 后 fail-open。报告新增 unpaired/ambiguous/suppressed 计数与 bounded caveat。generic storage 的 typed request identity 仍需生产 raw token witness，不由本批猜 schema。
+
+**中文 UX 标签演化**：用户裁定 `Texture upload → 纹理上传`、`JIT → JIT编译`。统一映射已覆盖主因 headline、语义 family 行、树 action/shape、确定性优化表“类别”列及中文引言；Markdown、用户面板与 HTML 共用同一 AnswerDocument 结果。原始 `SpanName`、成员 roster、`span 原文`、明细 `类型:` 和 evidence/wire token 继续逐字保留，避免本地化改写 trace 事实。旧节中英文 `Texture upload` 的历史 witness 引文只描述当时输出，不再作为当前中文显示裁定。

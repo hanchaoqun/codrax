@@ -49,11 +49,12 @@ cp examples/tracediag/collect_open_gap_witness.yaml open_gap_witness.used.yaml
 - 立案 witness：同粗键并发后 completion 顺序不能仅凭 FIFO 唯一判断，或 start/done 两端存在可稳定对齐的显式 request token。
 - 必须保留：event name、原始 key 名、token 值是否存在（可一致替换 token 内容，但不能把“缺失”和“0”混为一类）、时间戳、物理行号、artifact 名。
 
-### workqueue / DMA fence 配对身份
+### workqueue / DMA fence 厂商兼容扩展
 
-- 采集：通用包；若 census 显示大量该族，再将模板最后一个 raw step 的 `event_types` 改为 `[workqueue, dma_fence]` 后另跑一份。
-- 立案 witness：同一 coarse lane 出现两个未闭合 start，或载荷中有稳定 work/cookie/fence/context/seqno token 但当前报告未使用。
-- 回传：并发 cohort 前后至少各 5 行，包含第一个 start、第二个 start、全部 end。
+- 采集：通用包内已独立提供 `raw_workqueue_dma_rows`，无需再改写 IO step。
+- 当前正确性基线（`d729f634f`）：Workqueue 只以精确 `workqueue_execute_start/end` 和 `PID + work pointer + physical source` 配对；DMA 只以精确 `dma_fence_wait_start/end` 和 `PID + driver + timeline + context + seqno + physical source` 配对。`dma_fence_signaled` 只作瞬时 inventory；同 typed key 并发整 cohort 抑制，不作 FIFO 猜配；缺字段、坏 PID/CPU/时间戳及解析拒绝均按 affected family fail-close。
+- 新立案条件只限**兼容能力**：生产 trace 使用不同的厂商事件名/字段名，或标准字段之外存在稳定 typed token 且当前报告保守抑制了可唯一配对的 cohort。不要因看到 `pairing_suppressed` 就要求放宽硬门。
+- 回传：合法 pair、并发 cohort 前后至少各 5 行，包含第一个 start、第二个 start、全部 end；字段值可一致脱敏，但必须保留“字段存在/缺失”和两端相等关系。
 
 ### B5：同 token 跨车道双席
 

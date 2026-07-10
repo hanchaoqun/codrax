@@ -110,16 +110,16 @@ func TestShippedScriptShapes(t *testing.T) {
 	}
 
 	// Open-gap witness: the four semantic/causal views are target-scoped,
-	// while the three raw evidence lanes intentionally stay unscoped so a
+	// while the four raw evidence lanes intentionally stay unscoped so a
 	// completion emitted by IRQ/kworker or an upstream trace-mark thread is
-	// not filtered out. The exact seven-step shape is the customer handoff
+	// not filtered out. The exact eight-step shape is the customer handoff
 	// contract documented in the script header.
 	openGap, err := LoadScript(filepath.Join("..", "..", "examples", "tracediag", "collect_open_gap_witness.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(openGap.Steps) != 7 {
-		t.Fatalf("collect_open_gap_witness.yaml steps = %d, want 7", len(openGap.Steps))
+	if len(openGap.Steps) != 8 {
+		t.Fatalf("collect_open_gap_witness.yaml steps = %d, want 8", len(openGap.Steps))
 	}
 	for i, step := range openGap.Steps[:4] {
 		if step.PID != 12345 || step.Thread != "" {
@@ -136,7 +136,10 @@ func TestShippedScriptShapes(t *testing.T) {
 			t.Errorf("open-gap raw view %d = %q, want event_search", i+4, step.View)
 		}
 	}
-	if got := openGap.Steps[6].EventTypes; len(got) != 1 || got[0] != "unknown" {
+	if got := openGap.Steps[5].EventTypes; len(got) != 2 || got[0] != "workqueue" || got[1] != "dma_fence" {
+		t.Errorf("open-gap workqueue/DMA lane event_types = %v, want [workqueue dma_fence]", got)
+	}
+	if got := openGap.Steps[7].EventTypes; len(got) != 1 || got[0] != "unknown" {
 		t.Errorf("open-gap unknown-print lane event_types = %v, want [unknown]", got)
 	}
 }
