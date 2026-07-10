@@ -1037,6 +1037,7 @@ func syntheticRootCauseMatrixSysBinary(t *testing.T) []byte {
 		{EventID: 95, OffsetNS: 1_800_000, Content: syntheticMatrixClockContent()},
 		{EventID: 96, OffsetNS: 2_000_000, Content: syntheticMatrixTraceMarkContent(96, 100, "B|100|DoWork")},
 		{EventID: 96, OffsetNS: 2_200_000, Content: syntheticMatrixTraceMarkContent(96, 100, "E|100")},
+		{EventID: 96, OffsetNS: 2_300_000, Content: syntheticMatrixTraceMarkContent(96, 100, "I|100|NativeHook:AllocEvent")},
 		{EventID: 96, OffsetNS: 2_300_000, Content: syntheticMatrixTraceMarkContent(96, 100, "C|100|HeapSize|8192")},
 		{EventID: 96, OffsetNS: 2_600_000, Content: syntheticMatrixTraceMarkContent(96, 100, "B|100|FrameActual-123")},
 		{EventID: 96, OffsetNS: 2_800_000, Content: syntheticMatrixTraceMarkContent(96, 100, "E|100")},

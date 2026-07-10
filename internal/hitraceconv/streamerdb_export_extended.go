@@ -696,40 +696,6 @@ func exportTraceDBStaticInitialize(ctx context.Context, tdb *traceDB, sink *trac
 	return coverage, rows.Err()
 }
 
-func exportTraceDBNativeHook(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, index traceDBThreadIndex, _ map[int64][]traceDBRunningInterval, _ map[int64]string) (TraceDBCoverage, error) {
-	coverage, err := tdb.inspectCoverage(ctx, "slice", "native_hook", []string{"start_ts", "end_ts", "event_type", "all_heap_size", "itid", "ipid"})
-	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
-		return coverage, err
-	}
-	rows, err := tdb.db.QueryContext(ctx, "SELECT start_ts, end_ts, COALESCE(event_type, 'NativeHook'), all_heap_size, COALESCE(itid, 0), COALESCE(ipid, 0) FROM native_hook WHERE end_ts > start_ts ORDER BY start_ts")
-	if err != nil {
-		coverage.Error = err.Error()
-		return coverage, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var start, end, itid, ipid int64
-		var name string
-		var heap any
-		if err := rows.Scan(&start, &end, &name, &heap, &itid, &ipid); err != nil {
-			coverage.Error = err.Error()
-			return coverage, err
-		}
-		task, tid, tgid := traceDBThreadOrProcessContext(index, itid, ipid, "hook")
-		if err := addTraceDBSpanRows(sink, start, end, task, tid, tgid, 0, firstNonEmpty(name, "NativeHook")); err != nil {
-			return coverage, err
-		}
-		coverage.RowsEmitted += 2
-		if text := traceDBAnyText(heap, ""); text != "" {
-			if err := addTraceDBInstantRow(sink, start, task, tid, tgid, 0, fmt.Sprintf("tracing_mark_write: C|%d|HeapSize|%s", tgid, text)); err != nil {
-				return coverage, err
-			}
-			coverage.RowsEmitted++
-		}
-	}
-	return coverage, rows.Err()
-}
-
 func exportTraceDBProcessMeasures(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, index traceDBThreadIndex, _ map[int64][]traceDBRunningInterval, _ map[int64]string) (TraceDBCoverage, error) {
 	coverage, err := tdb.inspectCoverage(ctx, "counter", "process_measure", []string{"ts", "value", "filter_id"})
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
