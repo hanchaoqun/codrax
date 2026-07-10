@@ -1021,7 +1021,7 @@ func eventMatchesPattern(ev Event, pattern string) bool {
 		int64s = append(int64s, ff.Offset, ff.Len, ff.Ret, ff.Size)
 	}
 	if pl := ev.PluginFields; pl != nil {
-		candidates = append(candidates, pl.Domain, pl.EventName, pl.Metric, pl.Value, pl.Category)
+		candidates = append(candidates, pl.Domain, pl.EventName, pl.Metric, pl.Value, pl.Category, pl.SpanTrack)
 	}
 	if pf := ev.PerfFields; pf != nil {
 		candidates = append(candidates, pf.Comm, pf.EventName, pf.Symbol, pf.DSO, pf.IP, pf.Callchain, pf.Source, pf.SymbolizationStatus, pf.Clock, pf.ClockConfidence, pf.CallchainStatus)
@@ -2234,6 +2234,11 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 				quality.SeriesBudget, quality.SeriesBudgetExceeded, quality.OverflowRows))
 		}
 	}
+	stats.Caveats = append(stats.Caveats, traceMarkCaveats...)
+	// Android G/H track spans and I/N instants use logical payload ownership,
+	// not emitter-thread ownership. Publish them on their isolated typed faces;
+	// their own source/generation/order gates fail closed independently.
+	stats.TraceTrackSpans, stats.TraceInstants, traceMarkCaveats = computeTraceTrackMarks(idx, q, 8)
 	stats.Caveats = append(stats.Caveats, traceMarkCaveats...)
 	stats.TraceMarkCategories = computeTraceMarkCategories(stats.TraceSpans, 8)
 	stats.AsyncFileWork = computeAsyncFileWorkSummaries(stats.TraceSpans, 8)
@@ -18546,7 +18551,7 @@ func resultCaveats(idx *Index, q Query, res Result) []string {
 	if res.View == "event_search" && len(res.Events) == 0 {
 		out = append(out, "matched_events=0 for the selected filters; this is not absence proof if the thread label, time window, event types, or line window are too narrow")
 		if pattern := strings.TrimSpace(q.Pattern); pattern != "" {
-			out = append(out, fmt.Sprintf("pattern_no_match_hint=pattern %q is a literal substring, not a regex; try one shorter exact frame id/span label/marker token/symbol/DSO/callchain/source/symbolization_status/callchain_status/clock_confidence/cpu_known fragment, add event_types=[\"trace_mark\"] for B/E/C/S/F marker rows or event_types=[\"perf_sample\"] for CPU sample rows, or remove over-narrow pid/thread/time filters before falling back to grep/read_file; for B/E spans, do not search E|<pid>|<span_name> because end rows are unnamed E|<pid> or bare E on the same ftrace thread stack", pattern))
+			out = append(out, fmt.Sprintf("pattern_no_match_hint=pattern %q is a literal substring, not a regex; try one shorter exact frame id/span label/marker token/symbol/DSO/callchain/source/symbolization_status/callchain_status/clock_confidence/cpu_known fragment, add event_types=[\"trace_mark\"] for B/E/C/S/F/G/H/N/I marker rows or event_types=[\"perf_sample\"] for CPU sample rows, or remove over-narrow pid/thread/time filters before falling back to grep/read_file; for B/E spans, do not search E|<pid>|<span_name> because end rows are unnamed E|<pid> or bare E on the same ftrace thread stack", pattern))
 			if len(q.EventTypes) == 0 {
 				out = append(out, fmt.Sprintf("next_pattern_call_hint=try trace_query(view=\"event_search\", pattern=%q, event_types=[\"trace_mark\"], time_start=%.6f, time_end=%.6f, limit=40), trace_query(view=\"event_search\", pattern=%q, event_types=[\"perf_sample\"], time_start=%.6f, time_end=%.6f, limit=40), or trace_query(view=\"span_window\", span_name=\"<span label>\", line_start=<line>, line_end=<line>) after selecting a line window", pattern, q.TimeStart, q.TimeEnd, pattern, q.TimeStart, q.TimeEnd))
 			} else {

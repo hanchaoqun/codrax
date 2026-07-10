@@ -10,8 +10,8 @@ import (
 
 // Trace-mark endpoints are hard state-machine inputs. ParseLine validates the
 // full wire payload before Event.FieldText is bounded for inventory display;
-// a searchable row with an empty SpanAction and a retained B/E/S/F prefix is
-// therefore malformed by construction. Never re-admit it by validating the
+// a searchable row with an empty SpanAction and a retained B/E/S/F/G/H prefix
+// is therefore malformed by construction. Never re-admit it by validating the
 // bounded FieldText again: truncation can remove the invalid tail. The bounded
 // private Index ledger retains the exact full-payload action/reason witness.
 type traceMarkInvalidAction uint8
@@ -22,6 +22,10 @@ const (
 	traceMarkActionE
 	traceMarkActionS
 	traceMarkActionF
+	traceMarkActionG
+	traceMarkActionH
+	traceMarkActionN
+	traceMarkActionI
 )
 
 func traceMarkActionCode(action string) traceMarkInvalidAction {
@@ -34,6 +38,14 @@ func traceMarkActionCode(action string) traceMarkInvalidAction {
 		return traceMarkActionS
 	case "F":
 		return traceMarkActionF
+	case "G":
+		return traceMarkActionG
+	case "H":
+		return traceMarkActionH
+	case "N":
+		return traceMarkActionN
+	case "I":
+		return traceMarkActionI
 	default:
 		return traceMarkActionValid
 	}
@@ -49,6 +61,14 @@ func (a traceMarkInvalidAction) String() string {
 		return "S"
 	case traceMarkActionF:
 		return "F"
+	case traceMarkActionG:
+		return "G"
+	case traceMarkActionH:
+		return "H"
+	case traceMarkActionN:
+		return "N"
+	case traceMarkActionI:
+		return "I"
 	default:
 		return ""
 	}
@@ -62,6 +82,8 @@ const (
 	traceMarkReasonPayloadPIDMustBePositive
 	traceMarkReasonEmptyName
 	traceMarkReasonEmptyCookie
+	traceMarkReasonInvalidCookie
+	traceMarkReasonEmptyTrack
 	traceMarkReasonInvalidArity
 	traceMarkReasonInvalidEndTag
 	traceMarkReasonInvalidEmitterPID
@@ -80,6 +102,10 @@ func (r traceMarkInvalidReason) String() string {
 		return "empty_name"
 	case traceMarkReasonEmptyCookie:
 		return "empty_cookie"
+	case traceMarkReasonInvalidCookie:
+		return "invalid_cookie"
+	case traceMarkReasonEmptyTrack:
+		return "empty_track_name"
 	case traceMarkReasonInvalidArity:
 		return "invalid_arity"
 	case traceMarkReasonInvalidEndTag:
@@ -101,9 +127,47 @@ type traceMarkParseResult struct {
 	action        string
 	spanPID       int
 	name          string
+	track         string
 	value         string
 	invalidAction traceMarkInvalidAction
 	invalidReason traceMarkInvalidReason
+}
+
+// parseATraceTrackCookie accepts exactly the signed decimal int32 wire shape
+// emitted by AOSP's atrace ASYNC_FOR_TRACK helpers. The canonical decimal is
+// used as pairing identity so equivalent numeric spellings cannot split a
+// logical lane; FieldText retains the producer's original payload verbatim.
+func parseATraceTrackCookie(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", false
+	}
+	start := 0
+	if raw[0] == '-' {
+		start = 1
+	}
+	if start == len(raw) || !isAllDigits(raw[start:]) {
+		return "", false
+	}
+	n, err := strconv.ParseInt(raw, 10, 32)
+	if err != nil {
+		return "", false
+	}
+	return strconv.FormatInt(n, 10), true
+}
+
+func parseATraceExtendedPID(raw string) (int, bool) {
+	raw = strings.TrimSpace(raw)
+	if !isAllDigits(raw) {
+		return 0, false
+	}
+	// AOSP writes pid_t with %d. Keep the typed owner inside signed int32 so
+	// a 64-bit decimal payload cannot masquerade as an Android process id.
+	n, err := strconv.ParseUint(raw, 10, 31)
+	if err != nil {
+		return 0, false
+	}
+	return int(n), true
 }
 
 func parseUnsignedTraceInt(raw string) (int, bool) {
@@ -153,8 +217,9 @@ func joinTraceMarkEndpointName(parts []string) (string, bool) {
 
 // parseTraceMarkValidated is the single post-normalization schema authority.
 // C remains an inventory action even when its identity/value is malformed;
-// parseTraceCounterSample owns that typed quality lane. B/E/S/F are endpoints
-// and therefore fail closed here.
+// parseTraceCounterSample owns that typed quality lane. B/E/S/F and G/H are
+// duration endpoints and therefore fail closed here; N/I use the same strict
+// typed parser but never enter a duration state machine.
 func parseTraceMarkValidated(fields string) traceMarkParseResult {
 	fields = normalizeTraceMarkPayload(fields)
 	if fields == "" {
@@ -247,6 +312,97 @@ func parseTraceMarkValidated(fields string) traceMarkParseResult {
 			return invalid(traceMarkReasonEmptyCookie)
 		}
 		result.spanPID, result.name, result.value = pid, name, cookie
+	case "G":
+		// AOSP ASYNC_FOR_TRACK begin:
+		// G|pid|track_name|name|cookie. Pipes in names are sanitized by the
+		// producer, so any extra field is ambiguous and fails closed.
+		if len(parts) != 5 {
+			return invalid(traceMarkReasonInvalidArity)
+		}
+		pid, ok := parseATraceExtendedPID(parts[1])
+		if !ok {
+			return invalid(traceMarkReasonInvalidPayloadPID)
+		}
+		if pid == 0 {
+			return invalid(traceMarkReasonPayloadPIDMustBePositive)
+		}
+		track, name := strings.TrimSpace(parts[2]), strings.TrimSpace(parts[3])
+		if track == "" {
+			return invalid(traceMarkReasonEmptyTrack)
+		}
+		if name == "" {
+			return invalid(traceMarkReasonEmptyName)
+		}
+		cookie, ok := parseATraceTrackCookie(parts[4])
+		if !ok {
+			if strings.TrimSpace(parts[4]) == "" {
+				return invalid(traceMarkReasonEmptyCookie)
+			}
+			return invalid(traceMarkReasonInvalidCookie)
+		}
+		result.spanPID, result.track, result.name, result.value = pid, track, name, cookie
+	case "H":
+		// AOSP ASYNC_FOR_TRACK end has no span name:
+		// H|pid|track_name|cookie.
+		if len(parts) != 4 {
+			return invalid(traceMarkReasonInvalidArity)
+		}
+		pid, ok := parseATraceExtendedPID(parts[1])
+		if !ok {
+			return invalid(traceMarkReasonInvalidPayloadPID)
+		}
+		if pid == 0 {
+			return invalid(traceMarkReasonPayloadPIDMustBePositive)
+		}
+		track := strings.TrimSpace(parts[2])
+		if track == "" {
+			return invalid(traceMarkReasonEmptyTrack)
+		}
+		cookie, ok := parseATraceTrackCookie(parts[3])
+		if !ok {
+			if strings.TrimSpace(parts[3]) == "" {
+				return invalid(traceMarkReasonEmptyCookie)
+			}
+			return invalid(traceMarkReasonInvalidCookie)
+		}
+		result.spanPID, result.track, result.value = pid, track, cookie
+	case "N":
+		// AOSP INSTANT_FOR_TRACK: N|pid|track_name|name.
+		if len(parts) != 4 {
+			return invalid(traceMarkReasonInvalidArity)
+		}
+		pid, ok := parseATraceExtendedPID(parts[1])
+		if !ok {
+			return invalid(traceMarkReasonInvalidPayloadPID)
+		}
+		if pid == 0 {
+			return invalid(traceMarkReasonPayloadPIDMustBePositive)
+		}
+		track, name := strings.TrimSpace(parts[2]), strings.TrimSpace(parts[3])
+		if track == "" {
+			return invalid(traceMarkReasonEmptyTrack)
+		}
+		if name == "" {
+			return invalid(traceMarkReasonEmptyName)
+		}
+		result.spanPID, result.track, result.name = pid, track, name
+	case "I":
+		// AOSP process instant: I|pid|name.
+		if len(parts) != 3 {
+			return invalid(traceMarkReasonInvalidArity)
+		}
+		pid, ok := parseATraceExtendedPID(parts[1])
+		if !ok {
+			return invalid(traceMarkReasonInvalidPayloadPID)
+		}
+		if pid == 0 {
+			return invalid(traceMarkReasonPayloadPIDMustBePositive)
+		}
+		name := strings.TrimSpace(parts[2])
+		if name == "" {
+			return invalid(traceMarkReasonEmptyName)
+		}
+		result.spanPID, result.name = pid, name
 	case "C":
 		// C is deliberately permissive here. Its inventory row remains visible;
 		// numeric aggregation and identity voting both re-enter the closed schema
@@ -278,7 +434,19 @@ func traceMarkEventMalformed(ev Event) bool {
 	if ev.Type != EventTraceMark || ev.SpanAction != "" {
 		return false
 	}
-	return traceMarkRetainedEndpointAction(ev.FieldText) != traceMarkActionValid
+	return traceMarkClassicEndpointAction(traceMarkRetainedEndpointAction(ev.FieldText))
+}
+
+func traceMarkClassicEndpointAction(action traceMarkInvalidAction) bool {
+	return action == traceMarkActionB || action == traceMarkActionE || action == traceMarkActionS || action == traceMarkActionF
+}
+
+func traceMarkTrackEndpointAction(action traceMarkInvalidAction) bool {
+	return action == traceMarkActionG || action == traceMarkActionH
+}
+
+func traceMarkInstantAction(action traceMarkInvalidAction) bool {
+	return action == traceMarkActionN || action == traceMarkActionI
 }
 
 // traceMarkRetainedEndpointAction reads only the closed action prefix. It is
@@ -295,7 +463,11 @@ func traceMarkRetainedEndpointAction(fields string) traceMarkInvalidAction {
 }
 
 func traceMarkEventInvalidCodes(ev Event) (traceMarkInvalidAction, traceMarkInvalidReason) {
-	if !traceMarkEventMalformed(ev) {
+	if ev.Type != EventTraceMark || ev.SpanAction != "" {
+		return traceMarkActionValid, traceMarkReasonValid
+	}
+	retainedAction := traceMarkRetainedEndpointAction(ev.FieldText)
+	if retainedAction == traceMarkActionValid {
 		return traceMarkActionValid, traceMarkReasonValid
 	}
 	parsed := parseTraceMarkValidated(ev.FieldText)
@@ -304,7 +476,7 @@ func traceMarkEventInvalidCodes(ev Event) (traceMarkInvalidAction, traceMarkInva
 	// into a valid-looking prefix, do not invent a reason: the raw-line Index
 	// ledger is the exact authority and traceMarkIntegrityCaveats publishes it.
 	if parsed.invalidAction == traceMarkActionValid || parsed.invalidReason == traceMarkReasonValid {
-		return traceMarkRetainedEndpointAction(ev.FieldText), traceMarkReasonValid
+		return retainedAction, traceMarkReasonValid
 	}
 	return parsed.invalidAction, parsed.invalidReason
 }
@@ -401,7 +573,8 @@ func traceMarkValidationFailure(lineNo int, line string) *traceMarkIntegrityFail
 			return nil
 		}
 		action := strings.TrimSpace(strings.SplitN(normalizeTraceMarkPayload(fields), "|", 2)[0])
-		if traceMarkActionCode(action) == traceMarkActionValid {
+		actionCode := traceMarkActionCode(action)
+		if !traceMarkClassicEndpointAction(actionCode) && !traceMarkTrackEndpointAction(actionCode) && !traceMarkInstantAction(actionCode) {
 			return nil
 		}
 		// ENG audit #4a (§29.25 处置委托 2026-07-10): global span poison is a
@@ -433,6 +606,10 @@ func traceMarkValidationFailure(lineNo int, line string) *traceMarkIntegrityFail
 	}
 	normalized := normalizeTraceMarkPayload(fields)
 	action := strings.TrimSpace(strings.SplitN(normalized, "|", 2)[0])
+	actionCode := traceMarkActionCode(action)
+	if !traceMarkClassicEndpointAction(actionCode) && !traceMarkTrackEndpointAction(actionCode) && !traceMarkInstantAction(actionCode) {
+		return nil
+	}
 	failure := &traceMarkIntegrityFailure{Action: action, Line: lineNo, LocalLine: lineNo}
 	pid, ok := parseUnsignedTraceInt(m[2])
 	if !ok {
@@ -473,7 +650,13 @@ func appendTraceMarkIntegrityFailure(idx *Index, failure traceMarkIntegrityFailu
 	}
 	if len(idx.traceMarkIntegrityFailures) >= traceMarkIntegrityFailureCap {
 		idx.traceMarkIntegrityFailuresCapped = true
-		if !failure.EmitterKnown || failure.Unmaterialized {
+		action := traceMarkActionCode(failure.Action)
+		if traceMarkTrackEndpointAction(action) {
+			// A materialized malformed G/H row still cannot identify which
+			// payload-owner track lane to reset, so a dropped witness closes
+			// the whole track-duration face conservatively.
+			idx.traceTrackIntegrityDroppedPoison = true
+		} else if traceMarkClassicEndpointAction(action) && (!failure.EmitterKnown || failure.Unmaterialized) {
 			idx.traceMarkIntegrityDroppedGlobalPoison = true
 		}
 		return
@@ -506,11 +689,29 @@ func traceMarkUnknownEmitterFailureForQuery(idx *Index, q Query) bool {
 		return true
 	}
 	for _, failure := range idx.traceMarkIntegrityFailures {
-		if (!failure.EmitterKnown || failure.Unmaterialized) && traceMarkIntegrityFailureRelevantToQuery(failure, q) {
+		if traceMarkClassicEndpointAction(traceMarkActionCode(failure.Action)) &&
+			(!failure.EmitterKnown || failure.Unmaterialized) && traceMarkIntegrityFailureRelevantToQuery(failure, q) {
 			return true
 		}
 	}
 	return false
+}
+
+func traceTrackIntegrityFailureForQuery(idx *Index, q Query) *traceMarkIntegrityFailure {
+	if idx == nil {
+		return nil
+	}
+	if idx.traceTrackIntegrityDroppedPoison {
+		return &traceMarkIntegrityFailure{Action: "G/H", Reason: "integrity_witness_cap_exceeded"}
+	}
+	for i := range idx.traceMarkIntegrityFailures {
+		failure := &idx.traceMarkIntegrityFailures[i]
+		if traceMarkTrackEndpointAction(traceMarkActionCode(failure.Action)) && traceMarkIntegrityFailureRelevantToQuery(*failure, q) {
+			copy := *failure
+			return &copy
+		}
+	}
+	return nil
 }
 
 func traceMarkIntegrityCaveats(idx *Index, q Query) []string {
@@ -552,7 +753,7 @@ func traceMarkIntegrityCaveats(idx *Index, q Query) []string {
 	if first != nil {
 		scope += "; first=" + first.reason()
 	}
-	return []string{"trace_mark_integrity_degraded=true; " + scope + "; malformed B/E/S/F endpoints remain searchable trace_mark inventory, are excluded from duration pairing and reset only their known emitter state"}
+	return []string{"trace_mark_integrity_degraded=true; " + scope + "; malformed B/E/S/F/G/H/N/I rows remain searchable trace_mark inventory and are excluded from their typed duration/instant lanes"}
 }
 
 func traceMarkPairingSourcePrefix(source string) string {

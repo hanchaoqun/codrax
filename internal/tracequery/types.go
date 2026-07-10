@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const ParserVersion = "tracequery-v18"
+const ParserVersion = "tracequery-v19"
 
 type EventType string
 
@@ -282,13 +282,17 @@ type FileFields struct {
 	Size      int64  `json:"file_size,omitempty"`
 }
 
-// PluginFields is the ability/xpower/hisysevent plugin side table.
+// PluginFields is the rare ability/xpower/hisysevent and extended trace-mark
+// auxiliary side table. EventTraceMark allocates it only for G/H/N rows whose
+// exact Android track_name must survive as a typed field; ordinary B/E/C/S/F/I
+// rows and every scheduler event keep the pointer nil.
 type PluginFields struct {
 	Domain    string `json:"plugin_domain,omitempty"`
 	EventName string `json:"plugin_event_name,omitempty"`
 	Metric    string `json:"plugin_metric,omitempty"`
 	Value     string `json:"plugin_value,omitempty"`
 	Category  string `json:"plugin_category,omitempty"`
+	SpanTrack string `json:"span_track,omitempty"`
 }
 
 // PerfFields is the EventPerfSample side table — the single largest block of
@@ -552,6 +556,10 @@ type Index struct {
 	// locally recoverable because every malformed Event still resets its own
 	// emitter in the pairing scan; only the latter may globally fail-close.
 	traceMarkIntegrityDroppedGlobalPoison bool
+	// traceTrackIntegrityDroppedPoison is the G/H counterpart. Track pairing
+	// cannot recover a dropped malformed endpoint from emitter-local state,
+	// because its logical owner is the payload pid rather than the row emitter.
+	traceTrackIntegrityDroppedPoison bool
 	// threadIncarnationFailures preserve exact child/file-order lifecycle
 	// conflicts across window pruning and composite canonical sorting. A set
 	// overflow is itself a fail-closed signal; hard-gate evidence is never
@@ -837,53 +845,60 @@ type WindowStats struct {
 	// (CFC ruling: no new token). Sole display consumer: the soft
 	// window_stats stanza line (writeTraceClusterFrequencyCeilings,
 	// internal/tool/trace_query.go).
-	ClusterFrequencyCeilings []ClusterFrequencyCeiling   `json:"-"`
-	TopRunning               []ThreadDuration            `json:"top_running,omitempty"`
-	RunnableTop              []ThreadDuration            `json:"runnable_top,omitempty"`
-	SleepTop                 []ThreadDuration            `json:"sleep_top,omitempty"`
-	DStateTop                []ThreadDuration            `json:"d_state_top,omitempty"`
-	IOWaitTop                []ThreadDuration            `json:"io_wait_top,omitempty"`
-	CPUPressure              []CPUPressureStats          `json:"cpu_pressure,omitempty"`
-	CPUConstraints           []CPUConstraintSummary      `json:"cpu_constraints,omitempty"`
-	ThreadCPULoad            []ThreadCPULoadSummary      `json:"thread_cpu_load,omitempty"`
-	ProcessCPULoad           []ProcessCPULoadSummary     `json:"process_cpu_load,omitempty"`
-	RunnableContext          []RunnableContextSummary    `json:"runnable_context,omitempty"`
-	IOLatencies              []IOLatencySummary          `json:"io_latencies,omitempty"`
-	CPUFrequencyLimits       []CPUFrequencyLimit         `json:"cpu_frequency_limits,omitempty"`
-	SubsystemEvents          []SubsystemEventSummary     `json:"subsystem_events,omitempty"`
-	BlockIssueCount          int                         `json:"block_issue_count,omitempty"`
-	BlockRemapCount          int                         `json:"block_remap_count,omitempty"`
-	BlockCompleteCount       int                         `json:"block_complete_count,omitempty"`
-	BinderCount              int                         `json:"binder_count,omitempty"`
-	BinderReceivedCount      int                         `json:"binder_received_count,omitempty"`
-	BinderAuxCount           int                         `json:"binder_aux_count,omitempty"`
-	IRQCount                 int                         `json:"irq_count,omitempty"`
-	SoftIRQCount             int                         `json:"softirq_count,omitempty"`
-	MemoryEventCount         int                         `json:"memory_event_count,omitempty"`
-	StorageEventCount        int                         `json:"storage_event_count,omitempty"`
-	FilesystemEventCount     int                         `json:"filesystem_event_count,omitempty"`
-	PowerEventCount          int                         `json:"power_event_count,omitempty"`
-	AbilityEventCount        int                         `json:"ability_event_count,omitempty"`
-	XPowerEventCount         int                         `json:"xpower_event_count,omitempty"`
-	HiSystemEventCount       int                         `json:"hi_sysevent_event_count,omitempty"`
-	WorkqueueEventCount      int                         `json:"workqueue_event_count,omitempty"`
-	DMAFenceEventCount       int                         `json:"dma_fence_event_count,omitempty"`
-	BlockedReasonCount       int                         `json:"blocked_reason_count,omitempty"`
-	SchedStatCount           int                         `json:"sched_stat_count,omitempty"`
-	IPICount                 int                         `json:"ipi_count,omitempty"`
-	IOWaitBlockedCount       int                         `json:"io_wait_blocked_count,omitempty"`
-	BlockedReasons           []BlockedReasonSummary      `json:"blocked_reasons,omitempty"`
-	TraceSpans               []TraceSpanSummary          `json:"trace_spans,omitempty"`
-	TraceCounters            []TraceCounterSummary       `json:"trace_counters,omitempty"`
-	CounterDeltas            []TraceCounterDeltaSummary  `json:"counter_deltas,omitempty"`
-	CounterQuality           *TraceCounterQualitySummary `json:"counter_quality,omitempty"`
-	IRQBursts                []IRQBurstSummary           `json:"irq_bursts,omitempty"`
-	MemoryKinds              []MemoryKindSummary         `json:"memory_kinds,omitempty"`
-	BIOResources             []RuntimeResourceSummary    `json:"bio_resources,omitempty"`
-	FilesystemResources      []RuntimeResourceSummary    `json:"filesystem_resources,omitempty"`
-	PageFaultResources       []RuntimeResourceSummary    `json:"page_fault_resources,omitempty"`
-	FileIOByInode            []FileIOSummary             `json:"file_io_by_inode,omitempty"`
-	PageCacheByInode         []PageCacheSummary          `json:"page_cache_by_inode,omitempty"`
+	ClusterFrequencyCeilings []ClusterFrequencyCeiling `json:"-"`
+	TopRunning               []ThreadDuration          `json:"top_running,omitempty"`
+	RunnableTop              []ThreadDuration          `json:"runnable_top,omitempty"`
+	SleepTop                 []ThreadDuration          `json:"sleep_top,omitempty"`
+	DStateTop                []ThreadDuration          `json:"d_state_top,omitempty"`
+	IOWaitTop                []ThreadDuration          `json:"io_wait_top,omitempty"`
+	CPUPressure              []CPUPressureStats        `json:"cpu_pressure,omitempty"`
+	CPUConstraints           []CPUConstraintSummary    `json:"cpu_constraints,omitempty"`
+	ThreadCPULoad            []ThreadCPULoadSummary    `json:"thread_cpu_load,omitempty"`
+	ProcessCPULoad           []ProcessCPULoadSummary   `json:"process_cpu_load,omitempty"`
+	RunnableContext          []RunnableContextSummary  `json:"runnable_context,omitempty"`
+	IOLatencies              []IOLatencySummary        `json:"io_latencies,omitempty"`
+	CPUFrequencyLimits       []CPUFrequencyLimit       `json:"cpu_frequency_limits,omitempty"`
+	SubsystemEvents          []SubsystemEventSummary   `json:"subsystem_events,omitempty"`
+	BlockIssueCount          int                       `json:"block_issue_count,omitempty"`
+	BlockRemapCount          int                       `json:"block_remap_count,omitempty"`
+	BlockCompleteCount       int                       `json:"block_complete_count,omitempty"`
+	BinderCount              int                       `json:"binder_count,omitempty"`
+	BinderReceivedCount      int                       `json:"binder_received_count,omitempty"`
+	BinderAuxCount           int                       `json:"binder_aux_count,omitempty"`
+	IRQCount                 int                       `json:"irq_count,omitempty"`
+	SoftIRQCount             int                       `json:"softirq_count,omitempty"`
+	MemoryEventCount         int                       `json:"memory_event_count,omitempty"`
+	StorageEventCount        int                       `json:"storage_event_count,omitempty"`
+	FilesystemEventCount     int                       `json:"filesystem_event_count,omitempty"`
+	PowerEventCount          int                       `json:"power_event_count,omitempty"`
+	AbilityEventCount        int                       `json:"ability_event_count,omitempty"`
+	XPowerEventCount         int                       `json:"xpower_event_count,omitempty"`
+	HiSystemEventCount       int                       `json:"hi_sysevent_event_count,omitempty"`
+	WorkqueueEventCount      int                       `json:"workqueue_event_count,omitempty"`
+	DMAFenceEventCount       int                       `json:"dma_fence_event_count,omitempty"`
+	BlockedReasonCount       int                       `json:"blocked_reason_count,omitempty"`
+	SchedStatCount           int                       `json:"sched_stat_count,omitempty"`
+	IPICount                 int                       `json:"ipi_count,omitempty"`
+	IOWaitBlockedCount       int                       `json:"io_wait_blocked_count,omitempty"`
+	BlockedReasons           []BlockedReasonSummary    `json:"blocked_reasons,omitempty"`
+	TraceSpans               []TraceSpanSummary        `json:"trace_spans,omitempty"`
+	// TraceTrackSpans is the isolated Android ASYNC_FOR_TRACK G/H lane. These
+	// spans have logical track ownership, not emitter-thread ownership, and
+	// therefore never feed TraceSpans, semantic classification or root rank.
+	TraceTrackSpans []TraceTrackSpanSummary `json:"trace_track_spans,omitempty"`
+	// TraceInstants contains Android I/N point markers. They are inventory
+	// observations only and never mint elapsed duration.
+	TraceInstants       []TraceInstantSummary       `json:"trace_instants,omitempty"`
+	TraceCounters       []TraceCounterSummary       `json:"trace_counters,omitempty"`
+	CounterDeltas       []TraceCounterDeltaSummary  `json:"counter_deltas,omitempty"`
+	CounterQuality      *TraceCounterQualitySummary `json:"counter_quality,omitempty"`
+	IRQBursts           []IRQBurstSummary           `json:"irq_bursts,omitempty"`
+	MemoryKinds         []MemoryKindSummary         `json:"memory_kinds,omitempty"`
+	BIOResources        []RuntimeResourceSummary    `json:"bio_resources,omitempty"`
+	FilesystemResources []RuntimeResourceSummary    `json:"filesystem_resources,omitempty"`
+	PageFaultResources  []RuntimeResourceSummary    `json:"page_fault_resources,omitempty"`
+	FileIOByInode       []FileIOSummary             `json:"file_io_by_inode,omitempty"`
+	PageCacheByInode    []PageCacheSummary          `json:"page_cache_by_inode,omitempty"`
 	// TopIOInodes is the INODE (§28.6, 2026-07-09) whole-window (dev,inode)
 	// IO frequency carrier: folded from the FULL pre-truncation fileIO /
 	// pageCache accumulator maps (never from the truncated top-8 slices
@@ -2071,6 +2086,45 @@ type TraceSpanSummary struct {
 	ActualDurationMs float64 `json:"actual_duration_ms,omitempty"`
 	StartLine        int     `json:"start_line,omitempty"`
 	EndLine          int     `json:"end_line,omitempty"`
+}
+
+// TraceTrackSpanSummary is one complete Android atrace G/H
+// ASYNC_FOR_TRACK interval. OwnerPID/TrackName/Cookie are the logical wire
+// identity. BeginEmitter/EndEmitter are endpoint provenance only; neither is
+// asserted to own or execute the tracked work.
+type TraceTrackSpanSummary struct {
+	SourcePath       string    `json:"source_path"`
+	OwnerPID         int       `json:"owner_pid"`
+	TrackName        string    `json:"track_name"`
+	Name             string    `json:"name"`
+	Cookie           string    `json:"cookie"`
+	BeginEmitter     ThreadRef `json:"begin_emitter"`
+	EndEmitter       ThreadRef `json:"end_emitter"`
+	BeginPayload     string    `json:"begin_payload,omitempty"`
+	EndPayload       string    `json:"end_payload,omitempty"`
+	StartTs          float64   `json:"start_ts"`
+	EndTs            float64   `json:"end_ts"`
+	DurationMs       float64   `json:"duration_ms"`
+	ActualStartTs    float64   `json:"actual_start_ts,omitempty"`
+	ActualEndTs      float64   `json:"actual_end_ts,omitempty"`
+	ActualDurationMs float64   `json:"actual_duration_ms,omitempty"`
+	StartLine        int       `json:"start_line"`
+	EndLine          int       `json:"end_line"`
+}
+
+// TraceInstantSummary is one Android atrace I/N point marker. Action stays
+// explicit because I (process instant) and N (instant-for-track) have
+// different ownership shapes. No duration field exists by design.
+type TraceInstantSummary struct {
+	SourcePath string    `json:"source_path"`
+	Action     string    `json:"action"`
+	OwnerPID   int       `json:"owner_pid"`
+	TrackName  string    `json:"track_name,omitempty"`
+	Name       string    `json:"name"`
+	Emitter    ThreadRef `json:"emitter"`
+	Payload    string    `json:"payload,omitempty"`
+	Ts         float64   `json:"ts"`
+	Line       int       `json:"line"`
 }
 
 // TraceCounterDeltaSummary is the numeric aggregation of one exact atrace /

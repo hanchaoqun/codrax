@@ -456,6 +456,7 @@ func BuildIndexWithOptions(ctx context.Context, path string, opts BuildOptions) 
 			derived.cpuInputIntegrityFailures = nil
 			derived.traceMarkIntegrityFailures = nil
 			derived.traceMarkIntegrityDroppedGlobalPoison = idx.traceMarkIntegrityDroppedGlobalPoison
+			derived.traceTrackIntegrityDroppedPoison = idx.traceTrackIntegrityDroppedPoison
 			derived.threadIncarnationFailures = nil
 			for _, failure := range idx.schedulerRowIntegrityFailures {
 				if schedulerRowIntegrityFailureRelevantToQuery(&failure, auditQ, 0) {
@@ -686,6 +687,7 @@ func deriveWindowedIndex(full *Index, opts BuildOptions) *Index {
 		traceMarkIntegrityFailures:            append([]traceMarkIntegrityFailure(nil), full.traceMarkIntegrityFailures...),
 		traceMarkIntegrityFailuresCapped:      full.traceMarkIntegrityFailuresCapped,
 		traceMarkIntegrityDroppedGlobalPoison: full.traceMarkIntegrityDroppedGlobalPoison,
+		traceTrackIntegrityDroppedPoison:      full.traceTrackIntegrityDroppedPoison,
 		threadIncarnationFailures:             append([]threadIncarnationConflict(nil), full.threadIncarnationFailures...),
 		threadIncarnationFailuresCapped:       full.threadIncarnationFailuresCapped,
 		schedulerOrderFailuresCapped:          full.schedulerOrderFailuresCapped,
@@ -2017,6 +2019,7 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 			child.traceMarkIntegrityFailures = nil
 			child.traceMarkIntegrityFailuresCapped = false
 			child.traceMarkIntegrityDroppedGlobalPoison = false
+			child.traceTrackIntegrityDroppedPoison = false
 			child.schedulerOrderFailures = nil
 			child.schedulerOrderFailuresCapped = false
 			child.durationOrderFailures = nil
@@ -2035,6 +2038,7 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 		childTraceMarkFailures := append([]traceMarkIntegrityFailure(nil), child.traceMarkIntegrityFailures...)
 		childTraceMarkCapped := child.traceMarkIntegrityFailuresCapped
 		childTraceMarkDroppedGlobalPoison := child.traceMarkIntegrityDroppedGlobalPoison
+		childTraceTrackDroppedPoison := child.traceTrackIntegrityDroppedPoison
 		childSchedulerFailures := append([]schedulerOrderViolation(nil), child.schedulerOrderFailures...)
 		childSchedulerCapped := child.schedulerOrderFailuresCapped
 		reauditedSchedulerFailures, reauditSchedulerCapped := schedulerOrderFailuresFromEvents(child.Events, childAuditQ, 0, schedulerOrderFailureCap)
@@ -2180,6 +2184,7 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 			idx.traceMarkIntegrityFailuresCapped = true
 		}
 		idx.traceMarkIntegrityDroppedGlobalPoison = idx.traceMarkIntegrityDroppedGlobalPoison || childTraceMarkDroppedGlobalPoison
+		idx.traceTrackIntegrityDroppedPoison = idx.traceTrackIntegrityDroppedPoison || childTraceTrackDroppedPoison
 		for _, childFailure := range childTraceMarkFailures {
 			failure := childFailure
 			failure.Line += source.VirtualLineBase
@@ -2528,6 +2533,9 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		ev.SpanAction = intern.intern(ev.SpanAction)
 		ev.SpanName = intern.intern(ev.SpanName)
 		ev.SpanValue = intern.intern(ev.SpanValue)
+		if parsed.track != "" {
+			ev.PluginFields = &PluginFields{SpanTrack: intern.intern(parsed.track)}
+		}
 	case EventBlockIssue, EventBlockComplete:
 		dev, op, sector, length, identityValid := parseBlockRequestValidated(fields)
 		bf := &BlockIOFields{
@@ -3263,7 +3271,7 @@ func isPrintFamilyRaw(raw string) bool {
 }
 
 // classifyPrintPluginPayload types a print-family row whose payload is NOT a
-// B|/E|/C|/S|/F| trace mark (§7.11 B-4). Converters such as hmtrace
+// B|/E|/C|/S|/F|/G|/H|/N|/I| trace mark (§7.11 B-4). Converters such as hmtrace
 // db2systrace.py re-emit HiLog rows as "print: [{level}][{tag}] {msg}"
 // (db2systrace.py:626-634) and HiSysEvent rows as
 // "print: {domain}/{ename}: {contents}" (db2systrace.py:751-764); before this
@@ -3520,6 +3528,14 @@ func isTraceMarkPayload(fields string) bool {
 		return true
 	case strings.HasPrefix(fields, "F|"):
 		return true
+	case strings.HasPrefix(fields, "G|"):
+		return true
+	case strings.HasPrefix(fields, "H|"):
+		return true
+	case strings.HasPrefix(fields, "N|"):
+		return true
+	case strings.HasPrefix(fields, "I|"):
+		return true
 	default:
 		return false
 	}
@@ -3543,7 +3559,7 @@ func normalizeTraceMarkPayload(fields string) string {
 		payload := strings.TrimSpace(fields[idx+1:])
 		if tracePrintPrefixLooksLikeAddress(prefix) {
 			// Standard address-carved mark: "0x<addr>: B|pid|name" — the payload
-			// still leads with the B|/E|/C|/S|/F| action letter; pass it through
+			// still leads with a supported trace-mark action letter; pass it through
 			// byte-identical.
 			if isDirectTraceMarkPayload(payload) {
 				return payload
@@ -3755,7 +3771,11 @@ func isDirectTraceMarkPayload(fields string) bool {
 		strings.HasPrefix(fields, "E|") ||
 		strings.HasPrefix(fields, "C|") ||
 		strings.HasPrefix(fields, "S|") ||
-		strings.HasPrefix(fields, "F|")
+		strings.HasPrefix(fields, "F|") ||
+		strings.HasPrefix(fields, "G|") ||
+		strings.HasPrefix(fields, "H|") ||
+		strings.HasPrefix(fields, "N|") ||
+		strings.HasPrefix(fields, "I|")
 }
 
 func tracePrintPrefixLooksLikeAddress(prefix string) bool {

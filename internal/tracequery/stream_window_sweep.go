@@ -85,7 +85,7 @@ type WindowSweepBucketCounts struct {
 	DStateEntries int `json:"d_state_entries"`
 	// IRQEntries counts irq handler entry events.
 	IRQEntries int `json:"irq_entries"`
-	// TraceMarks counts trace_mark (B/E/C/S/F) rows.
+	// TraceMarks counts trace_mark (B/E/C/S/F/G/H/N/I) rows.
 	TraceMarks int `json:"trace_marks"`
 	// TargetPIDSwitches counts sched_switch events where the query's target
 	// pid participates (switched in OR switched out). Zero when no pid given.

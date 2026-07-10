@@ -15,6 +15,7 @@ type durationOrderFamily string
 
 const (
 	durationOrderTraceSpan    durationOrderFamily = "trace_span"
+	durationOrderTraceTrack   durationOrderFamily = "trace_track_span"
 	durationOrderTraceCounter durationOrderFamily = "trace_counter_delta"
 	durationOrderIRQ          durationOrderFamily = "irq"
 	durationOrderSoftIRQ      durationOrderFamily = "softirq"
@@ -294,6 +295,16 @@ func durationOrderObservations(ev Event) []durationOrderObservation {
 				return nil
 			}
 			return []durationOrderObservation{{lane: lane(durationOrderTraceCounter, key), phase: durationOrderSample}}
+		case "G", "H":
+			key := traceTrackWireKey(ev)
+			if key == "" {
+				return nil
+			}
+			phase := durationOrderOpen
+			if ev.SpanAction == "H" {
+				phase = durationOrderClose
+			}
+			return []durationOrderObservation{{lane: lane(durationOrderTraceTrack, key), phase: phase, owner: ev.SpanPID}}
 		}
 	case EventWorkqueue:
 		work, function := workqueueExactEndpointFields(ev)
