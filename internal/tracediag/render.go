@@ -178,8 +178,19 @@ func writeStatusSummary(rw *reportWriter, statuses []StepStatus) {
 
 // stepBody is the collected (pre-cap) body of one step.
 type stepBody struct {
-	lines []string // at most the per-step cap
-	total int      // lines the step would have produced without the cap
+	lines       []string // at most the per-step cap
+	total       int      // lines the step would have produced without the cap
+	eventSearch *eventSearchReportAccounting
+}
+
+// eventSearchReportAccounting records the rows the REPORT actually exposes,
+// not merely the rows returned by the engine before report metadata consumed
+// its line cap. Generated-window completeness gates consume this face so
+// `emitted=N` can never exceed the number of visible raw rows.
+type eventSearchReportAccounting struct {
+	matched   int
+	emitted   int
+	compacted bool
 }
 
 // bodySink collects body lines under the per-step cap while counting the
@@ -210,6 +221,9 @@ func renderStepBody(step *Step, outcome stepOutcome) stepBody {
 	// (CMP) results; reset after the step body.
 	sourcePathAmbiguousBases = collectAmbiguousSourcePathBases(res)
 	defer func() { sourcePathAmbiguousBases = nil }()
+	if step.View == "event_search" {
+		return renderEventSearchBody(step, res)
+	}
 	renderResultMeta(res, sink.emit)
 	if len(res.Events) > 0 {
 		sink.emit(fmt.Sprintf("匹配事件 %d 行:", len(res.Events)))
@@ -235,6 +249,193 @@ func renderStepBody(step *Step, outcome stepOutcome) stepBody {
 			comp.View, comp.Dimension, comp.Total, comp.Emitted, formatSecondsToken(comp.LastEmittedTs), comp.LastEmittedLine))
 	}
 	return stepBody{lines: sink.lines, total: sink.total}
+}
+
+// renderEventSearchBody is a dedicated raw-witness renderer. Event search's
+// EvidencePack is a row-for-row projection of Events (apart from structured
+// summaries such as CPUFrequencyCensus), so rendering it after the raw rows
+// doubled the same evidence and pushed the load-bearing caveat/compaction
+// metadata beyond max_lines. This face instead publishes, in priority order:
+// result/window metadata, typed compaction + engine caveats, an exact visible
+// raw-row header, then the raw rows. The header also carries the accounting
+// and priority caveat token, so even the minimum generated cap keeps those
+// facts visible while preserving its two-endpoint raw-row floor.
+func renderEventSearchBody(step *Step, res *tracequery.Result) stepBody {
+	capLines := step.EffectiveMaxLines()
+	var meta []string
+	renderResultMeta(res, func(line string) { meta = append(meta, line) })
+
+	matched := eventSearchMatchedRows(res)
+	available := capLines - len(meta) - 1 // one exact match/header line
+	if available < 0 {
+		available = 0
+	}
+	rawFloor := 0
+	if len(res.Events) > 0 && available > 0 {
+		rawFloor = 1
+		if step.windowOrigin != nil && len(res.Events) > 1 && available > 1 {
+			rawFloor = 2
+		}
+	}
+
+	// The diagnostic roster size depends on whether report-level trimming
+	// itself creates a compaction. Iterate to the tiny fixed point (false→true
+	// at most once in practice); the visible budget is otherwise pure integer
+	// arithmetic and therefore deterministic for static/generated twins.
+	emitted := minInt(len(res.Events), available)
+	compacted := matched > emitted
+	var diagnostics, shownDiagnostics []string
+	for i := 0; i < 4; i++ {
+		diagnostics = eventSearchDiagnosticLines(res, matched, emitted, compacted)
+		diagnosticBudget := available - rawFloor
+		if diagnosticBudget < 0 {
+			diagnosticBudget = 0
+		}
+		shownCount := minInt(len(diagnostics), diagnosticBudget)
+		shownDiagnostics = diagnostics[:shownCount]
+		rawCapacity := available - shownCount
+		if rawCapacity < 0 {
+			rawCapacity = 0
+		}
+		nextEmitted := minInt(len(res.Events), rawCapacity)
+		nextCompacted := matched > nextEmitted
+		if nextEmitted == emitted && nextCompacted == compacted {
+			emitted, compacted = nextEmitted, nextCompacted
+			break
+		}
+		emitted, compacted = nextEmitted, nextCompacted
+	}
+	// Rebuild once with the fixed-point accounting values; line cardinality is
+	// stable, but the compaction/census tokens must state the final emitted N.
+	diagnostics = eventSearchDiagnosticLines(res, matched, emitted, compacted)
+	diagnosticBudget := available - rawFloor
+	if diagnosticBudget < 0 {
+		diagnosticBudget = 0
+	}
+	shownCount := minInt(len(diagnostics), diagnosticBudget)
+	shownDiagnostics = diagnostics[:shownCount]
+
+	// Preserve non-duplicate structured faces (notably TraceArtifacts) when
+	// the raw roster leaves room. CPUFrequencyCensus already has the compact,
+	// report-visible-count row above; Events/EvidencePack/caveats/compactions
+	// are deliberately cleared so this tail cannot restate priority content.
+	detailResult := *res
+	detailResult.Events = nil
+	detailResult.EvidencePack = nil
+	detailResult.Caveats = nil
+	detailResult.Compactions = nil
+	detailResult.CPUFrequencyCensus = nil
+	var details []string
+	renderResultDetail(&detailResult, func(line string) { details = append(details, line) })
+	detailBudget := capLines - (len(meta) + len(shownDiagnostics) + 1 + emitted)
+	if detailBudget < 0 {
+		detailBudget = 0
+	}
+	shownDetailCount := minInt(len(details), detailBudget)
+	priorityCaveat := eventSearchPriorityCaveat(compacted, res.Caveats)
+	header := fmt.Sprintf("匹配事件 %d 行 (matched=%d emitted=%d compacted=%t caveat=%s diagnostics=%d/%d details=%d/%d):",
+		emitted, matched, emitted, compacted, priorityCaveat,
+		len(shownDiagnostics), len(diagnostics), shownDetailCount, len(details))
+	lines := make([]string, 0, len(meta)+len(shownDiagnostics)+1+emitted+shownDetailCount)
+	lines = append(lines, meta...)
+	lines = append(lines, shownDiagnostics...)
+	lines = append(lines, header)
+	for i := 0; i < emitted; i++ {
+		lines = append(lines, renderEventRow(res.Events[i]))
+	}
+	lines = append(lines, details[:shownDetailCount]...)
+	return stepBody{
+		lines: lines,
+		// Raw-row compaction and diagnostic/detail suppression are already
+		// carried by the typed header above. Returning the presentation total
+		// prevents Run's generic "…共 N 行" tail from conflating those three
+		// different dimensions into one opaque body-line count.
+		total: len(lines),
+		eventSearch: &eventSearchReportAccounting{
+			matched: matched, emitted: emitted, compacted: compacted,
+		},
+	}
+}
+
+func eventSearchMatchedRows(res *tracequery.Result) int {
+	matched := len(res.Events)
+	for _, compaction := range res.Compactions {
+		if compaction.Dimension == tracequery.CompactionDimensionEvents && compaction.Total > matched {
+			matched = compaction.Total
+		}
+	}
+	return matched
+}
+
+func eventSearchDiagnosticLines(res *tracequery.Result, matched, emitted int, compacted bool) []string {
+	var lines []string
+	if compacted {
+		lastTs := 0.0
+		lastLine := 0
+		if emitted > 0 && emitted <= len(res.Events) {
+			last := res.Events[emitted-1]
+			lastTs, lastLine = last.Ts, last.Line
+		}
+		lines = append(lines, fmt.Sprintf("- 报告截断账目: view=event_search dimension=%s matched=%d emitted=%d compacted=true last_visible_ts=%s last_visible_line=%d",
+			tracequery.CompactionDimensionEvents, matched, emitted, formatSecondsToken(lastTs), lastLine))
+		lines = append(lines, fmt.Sprintf("- 报告完整性提示: report_event_search_compacted=true; matched=%d emitted=%d; omitted raw rows may contain later frame/span ids, so do not infer absence without a narrower exact query", matched, emitted))
+	}
+
+	for _, caveat := range eventSearchEngineCaveats(res.Caveats) {
+		lines = append(lines, "- 引擎 caveat 原文: "+clampToken(caveat))
+	}
+	// CPUFrequencyCensus is the one event_search structured face that is not
+	// a duplicate of a raw Event. Keep it as one compact priority row and use
+	// the REPORT-visible frequency count, not the engine pre-render count.
+	if census := res.CPUFrequencyCensus; census != nil {
+		visibleFrequencyRows := 0
+		for i := 0; i < emitted && i < len(res.Events); i++ {
+			if res.Events[i].Type == tracequery.EventCPUFrequency {
+				visibleFrequencyRows++
+			}
+		}
+		lines = append(lines, fmt.Sprintf("- cpu_frequency_census: matched_frequency_rows=%d displayed_frequency_rows=%d tiers_khz_x_rows=%s min_khz=%d max_khz=%d cpus=%v",
+			census.MatchedFrequencyRows, visibleFrequencyRows,
+			tracequery.FormatCPUFrequencyCensusTiers(census.Tiers, 24),
+			census.MinKHz, census.MaxKHz, census.CPUs))
+	}
+	return lines
+}
+
+func eventSearchEngineCaveats(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, caveat := range in {
+		// This engine token describes Result.Events, whose Emitted count can be
+		// larger than the report-visible roster after tracediag prioritizes
+		// metadata. The report-level replacement above owns that final number;
+		// retaining this stale twin would present two conflicting rulers.
+		if strings.HasPrefix(strings.TrimSpace(caveat), "event_search_stream_compacted=") {
+			continue
+		}
+		out = append(out, caveat)
+	}
+	return out
+}
+
+func eventSearchPriorityCaveat(compacted bool, caveats []string) string {
+	if compacted {
+		return "report_event_search_compacted=true"
+	}
+	if len(caveats) == 0 {
+		return "none"
+	}
+	token := strings.TrimSpace(strings.SplitN(caveats[0], ";", 2)[0])
+	if token == "" {
+		return "present"
+	}
+	return clampToken(token)
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func renderResultMeta(res *tracequery.Result, emit func(string)) {

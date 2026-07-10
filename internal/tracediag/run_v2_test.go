@@ -255,6 +255,7 @@ steps:
 	for _, want := range []string{
 		"generated_window_compacted",
 		"matched=4 emitted=2",
+		"匹配事件 2 行 (matched=4 emitted=2 compacted=true caveat=report_event_search_compacted=true",
 		"不得把本实例当作 N/N 完整 witness",
 	} {
 		if !strings.Contains(report, want) {

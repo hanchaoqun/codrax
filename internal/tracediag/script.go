@@ -558,6 +558,9 @@ func (s *Script) validateStep(i int, step *Step, seen map[string]bool, discoveri
 		step.effMaxLines = HardStepMaxLines
 		step.maxLinesClamped = true
 	}
+	if step.View == "event_search" && step.effMaxLines < eventSearchReportBaseLines {
+		return fmt.Errorf("%s (%s): event_search max_lines=%d is too small; need >=%d for result/window metadata plus visible match accounting", at, step.Label, step.effMaxLines, eventSearchReportBaseLines)
+	}
 	if step.WindowsFrom != nil && step.View == "event_search" && step.effMaxLines < 5 {
 		return fmt.Errorf("%s (%s): generated event_search max_lines=%d is too small; need >=5 for result/window metadata plus at least one complete start/done pair", at, step.Label, step.effMaxLines)
 	}

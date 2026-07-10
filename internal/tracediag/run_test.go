@@ -242,6 +242,76 @@ steps:
 	}
 }
 
+// event_search max_lines is a REPORT-body cap, not an Events-only cap. Pin
+// the static lane that originally returned max_lines raw rows, then lost the
+// final three behind result/window/header metadata while still claiming all N
+// were visible. The priority face must expose matched/emitted/compaction and
+// its caveat inside the cap, and the header count must equal visible raw rows.
+func TestRunStaticEventSearchVisibleBudgetAccounting(t *testing.T) {
+	var trace strings.Builder
+	for i := 0; i < 8; i++ {
+		fmt.Fprintf(&trace, "waker-%d ( %d) [000] .... 1.%06d: sched_wakeup: comm=app pid=%d prio=53 target_cpu=001\n",
+			10+i, 10+i, 100000+i, 20+i)
+	}
+	scriptYAML := `
+version: 1
+steps:
+  - label: static_rows
+    view: event_search
+    window: "1.0..2.0"
+    event_types: [sched_wakeup]
+    max_lines: 7
+`
+	scriptPath, tracePath, _ := writeRunFixtures(t, scriptYAML)
+	if err := os.WriteFile(tracePath, []byte(trace.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	failed, err := Run(nil, Options{ScriptPath: scriptPath, TracePath: tracePath, Now: fixedNow}, &buf)
+	if err != nil || failed != 0 {
+		t.Fatalf("Run(static compacted event_search): failed=%d err=%v\n%s", failed, err, buf.String())
+	}
+	report := buf.String()
+	headerRE := regexp.MustCompile(`匹配事件 (\d+) 行 \(matched=(\d+) emitted=(\d+) compacted=true caveat=report_event_search_compacted=true diagnostics=\d+/\d+ details=\d+/\d+\):`)
+	header := headerRE.FindStringSubmatch(report)
+	if header == nil {
+		t.Fatalf("static match accounting is not priority-visible\n%s", report)
+	}
+	var headerRows, matched, emitted int
+	fmt.Sscanf(header[1], "%d", &headerRows)
+	fmt.Sscanf(header[2], "%d", &matched)
+	fmt.Sscanf(header[3], "%d", &emitted)
+	visibleRaw := len(regexp.MustCompile(`(?m)^- line=\d+ .* type=sched_wakeup \|`).FindAllString(report, -1))
+	if matched != 8 || emitted != headerRows || headerRows != visibleRaw {
+		t.Fatalf("header/raw accounting drifted: matched=%d emitted=%d header=%d visible_raw=%d\n%s",
+			matched, emitted, headerRows, visibleRaw, report)
+	}
+	for _, token := range []string{
+		"- 报告截断账目: view=event_search dimension=events matched=8 emitted=",
+		"- 报告完整性提示: report_event_search_compacted=true; matched=8 emitted=",
+		"- 引擎 caveat 原文: streamed_event_search=true;",
+		"输出行=7/",
+	} {
+		if !strings.Contains(report, token) {
+			t.Errorf("static compacted report missing %q\n%s", token, report)
+		}
+	}
+	if strings.Contains(report, "观测记录(引擎 evidence") {
+		t.Fatalf("event_search duplicated its raw rows through EvidencePack\n%s", report)
+	}
+	if strings.Contains(report, "caveats(引擎原文") || strings.Contains(report, "引擎截断记录: view=event_search") {
+		t.Fatalf("report-level compaction was mislabeled as engine-originated\n%s", report)
+	}
+	if strings.Contains(report, "…共 ") {
+		t.Fatalf("event_search raw/diagnostic/detail compaction was collapsed into the generic body-line ruler\n%s", report)
+	}
+	// Window provenance must not change the engine's raw budget; generated
+	// and static instances enter the same deterministic limit helper.
+	if got := eventSearchEngineRowLimit(7); got != 4 {
+		t.Fatalf("event_search engine raw budget=%d, want max_lines-base=4", got)
+	}
+}
+
 // Total report cap: when the whole-report budget is exhausted the writer
 // discloses ONCE, keeps executing every step, and the status summary always
 // lands (自设最强突变: removing the cap or the summary bypass reddens here).

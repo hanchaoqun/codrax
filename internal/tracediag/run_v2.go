@@ -129,7 +129,7 @@ func runV2(ctx context.Context, opts Options, w io.Writer, script *Script, trace
 		if body.total > len(body.lines) {
 			rw.line(fmt.Sprintf("…共 %d 行,按帽截断至 %d,余 %d 行未列", body.total, len(body.lines), body.total-len(body.lines)))
 		}
-		if completenessErr := generatedCollectionCompletenessError(&instance.step, outcome); completenessErr != nil {
+		if completenessErr := generatedCollectionCompletenessError(&instance.step, outcome, body); completenessErr != nil {
 			status.err = completenessErr
 			rw.line(fmt.Sprintf("[完整性失败] %v", completenessErr))
 			rw.line("[完整性失败] 已返回的原始行均可见，但该自动窗仍有匹配行未发布；不得把本实例当作 N/N 完整 witness。")
@@ -165,9 +165,13 @@ func runV2(ctx context.Context, opts Options, w io.Writer, script *Script, trace
 	return failed, nil
 }
 
-func generatedCollectionCompletenessError(step *Step, outcome stepOutcome) error {
+func generatedCollectionCompletenessError(step *Step, outcome stepOutcome, body stepBody) error {
 	if step == nil || step.windowOrigin == nil || step.View != "event_search" || outcome.result == nil {
 		return nil
+	}
+	if accounting := body.eventSearch; accounting != nil && accounting.compacted {
+		return fmt.Errorf("generated_window_compacted discovery=%s candidate_rank=%d matched=%d emitted=%d; reduce event families or add a denser partition strategy",
+			step.windowOrigin.DiscoveryLabel, step.windowOrigin.CandidateRank, accounting.matched, accounting.emitted)
 	}
 	for _, compaction := range outcome.result.Compactions {
 		if compaction.Dimension == tracequery.CompactionDimensionEvents && compaction.Total > compaction.Emitted {

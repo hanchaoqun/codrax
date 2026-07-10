@@ -64,6 +64,27 @@ var flavorHintEnum = []string{
 // future budget flag.
 var stepIndexMaxEvents = 0
 
+// eventSearchReportBaseLines is the invariant report overhead shared by
+// static and generated event_search steps: one result line, one window line,
+// and one match-accounting/header line. The window line is absent only for an
+// unbounded zero-match query; reserving it anyway keeps the engine raw-row
+// budget deterministic across both execution lanes. renderEventSearchBody
+// may spend additional body lines on typed compaction/caveats, but protects a
+// generated step's two-row endpoint floor before doing so.
+const eventSearchReportBaseLines = 3
+
+func eventSearchEngineRowLimit(maxLines int) int {
+	limit := maxLines - eventSearchReportBaseLines
+	// Query.Limit==0 means "use the engine default", not zero rows. Keep a
+	// one-row internal sample for metadata/compaction accounting when a tiny
+	// static step has no room to publish raw rows; the renderer will honestly
+	// report emitted=0 under that cap.
+	if limit < 1 {
+		return 1
+	}
+	return limit
+}
+
 // Run executes the collection script against the trace and writes the full
 // report to w. It ALWAYS runs every step (collection completeness beats early
 // abort): a step engine error is rendered verbatim into the report and
@@ -196,14 +217,11 @@ func runStep(ctx context.Context, tracePath string, flavorHint tracequery.TraceF
 	switch step.View {
 	case "event_search":
 		q := stepQuery(step, flavorHint)
-		q.Limit = step.EffectiveMaxLines()
-		if step.windowOrigin != nil {
-			// Generated witness steps prioritize raw rows: renderStepBody emits
-			// result/window metadata + the match header before event rows, so
-			// reserving three lines guarantees every returned raw row remains visible. A
-			// typed engine compaction is promoted to a failed instance by v2.
-			q.Limit = step.EffectiveMaxLines() - 3
-		}
+		// Static and generated steps use the SAME visible-row budget. max_lines
+		// caps the whole rendered step body, not merely Result.Events; handing
+		// the full cap to the engine made a static report say "匹配事件 N 行"
+		// while only N-3 raw rows fitted after result/window/header metadata.
+		q.Limit = eventSearchEngineRowLimit(step.EffectiveMaxLines())
 		res, err := tracequery.StreamEventSearch(ctx, tracePath, q)
 		if err != nil {
 			return stepOutcome{err: err}
