@@ -2,6 +2,7 @@ package tracequery
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -356,6 +357,11 @@ func traceMarkRawCandidate(line string) bool {
 }
 
 func traceMarkPayloadFromRawCandidate(line string) (string, bool) {
+	payload, _, ok := traceMarkPayloadAndPrefixFromRawCandidate(line)
+	return payload, ok
+}
+
+func traceMarkPayloadAndPrefixFromRawCandidate(line string) (string, string, bool) {
 	for _, marker := range []string{
 		"tracing_mark_write:",
 		"tracing_mark_write_xacct:",
@@ -368,11 +374,18 @@ func traceMarkPayloadFromRawCandidate(line string) (string, bool) {
 		}
 		fields := strings.TrimSpace(line[at+len(marker):])
 		if isTraceMarkPayload(fields) {
-			return fields, true
+			return fields, line[:at], true
 		}
 	}
-	return "", false
+	return "", "", false
 }
+
+// traceMarkCorruptedRowRemnantRE is the precise structural signal that a line
+// which failed the full ftrace header match is nevertheless a (corrupted)
+// ftrace ROW rather than free prose quoting a mark payload: an ftrace-style
+// seconds timestamp terminated by ": " or a bracketed CPU column surviving in
+// the text BEFORE the marker.
+var traceMarkCorruptedRowRemnantRE = regexp.MustCompile(`\d+\.\d{3,9}: |\[\d{1,4}\]`)
 
 // traceMarkValidationFailure records both a malformed endpoint payload and a
 // trace-mark row whose header emitter cannot be represented as int. The latter
@@ -383,12 +396,29 @@ func traceMarkValidationFailure(lineNo int, line string) *traceMarkIntegrityFail
 	}
 	m := ftraceLineRE.FindStringSubmatch(line)
 	if len(m) == 0 {
-		fields, ok := traceMarkPayloadFromRawCandidate(line)
+		fields, prefix, ok := traceMarkPayloadAndPrefixFromRawCandidate(line)
 		if !ok {
 			return nil
 		}
 		action := strings.TrimSpace(strings.SplitN(normalizeTraceMarkPayload(fields), "|", 2)[0])
 		if traceMarkActionCode(action) == traceMarkActionValid {
+			return nil
+		}
+		// ENG audit #4a (§29.25 处置委托 2026-07-10): global span poison is a
+		// hard gate and must key on a precise structural signal. A free-prose
+		// line that merely QUOTES a mark payload (the common mixed-log
+		// artifact shape) used to mint an artifact-global Unmaterialized
+		// poison and fail-close every span face for every query. Structural
+		// '#' comments never poison, and a poison now requires a
+		// corrupted-ftrace-row remnant before the marker; a really corrupted
+		// trace-mark row keeps its timestamp/CPU-column remnant and stays
+		// fail-closed (pinned by the invalid-header/invalid-timestamp cases in
+		// TestUnmaterializedTraceMarkEndpointGloballyFailsClosed, which travel
+		// the matched-header branch below).
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			return nil
+		}
+		if !traceMarkCorruptedRowRemnantRE.MatchString(prefix) {
 			return nil
 		}
 		return &traceMarkIntegrityFailure{

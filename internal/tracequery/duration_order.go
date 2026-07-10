@@ -41,6 +41,11 @@ type durationOrderViolation struct {
 	Fields     []string
 	PreviousTs float64
 	CurrentTs  float64
+	// TsUnknown marks a malformed endpoint whose own timestamp did not parse
+	// (ENG audit #4b, §29.25 处置委托 2026-07-10): CurrentTs is then 0 and MUST
+	// NOT be read as a time coordinate — window relevance and the per-pair
+	// interval match treat such a violation conservatively (line-scoped).
+	TsUnknown  bool
 	Line       int
 	SourcePath string
 }
@@ -480,11 +485,16 @@ func durationOrderViolationRelevantToQuery(v *durationOrderViolation, q Query) b
 		if q.LineStart > 0 && v.Line < q.LineStart {
 			return false
 		}
-		if q.TimeStart > 0 && v.CurrentTs < q.TimeStart {
-			return false
-		}
-		if q.TimeEnd > 0 && v.CurrentTs > q.TimeEnd {
-			return false
+		// ENG audit #4b: an endpoint whose timestamp did not parse has no time
+		// coordinate — its CurrentTs=0 must not let a windowed query scope the
+		// poison out (the row may well sit inside the window).
+		if !v.TsUnknown {
+			if q.TimeStart > 0 && v.CurrentTs < q.TimeStart {
+				return false
+			}
+			if q.TimeEnd > 0 && v.CurrentTs > q.TimeEnd {
+				return false
+			}
 		}
 	}
 	if q.LineEnd > 0 && v.Line > q.LineEnd {

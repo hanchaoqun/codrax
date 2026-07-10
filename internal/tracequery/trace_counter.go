@@ -217,15 +217,27 @@ type traceCounterSourceCoordinate struct {
 	localLine int
 }
 
-func traceCounterSourceCoordinateForLine(idx *Index, line int) traceCounterSourceCoordinate {
+// traceCounterSourceCoordinateForLine mirrors the tracePairingSourceIdentity
+// discipline (block/trace-mark/storage lanes). ENG audit #4c (§29.25 处置委托
+// 2026-07-10): the old fallback failed OPEN — when a populated composite
+// ledger could not resolve the row to exactly one physical artifact, the
+// shared idx.Path became the series identity and lookalike counters from
+// different artifacts could join one series, contradicting the identity
+// promise documented on computeCounterDeltas. A populated provenance ledger
+// that cannot resolve the row now fails closed; the single-file/path-less
+// compatibility lanes are unchanged.
+func traceCounterSourceCoordinateForLine(idx *Index, line int) (traceCounterSourceCoordinate, bool) {
 	if idx != nil {
 		spans := idx.ResolveArtifactSpans(line, line)
 		if len(spans) == 1 {
-			return traceCounterSourceCoordinate{path: spans[0].SourcePath, localLine: spans[0].LocalLineStart}
+			return traceCounterSourceCoordinate{path: spans[0].SourcePath, localLine: spans[0].LocalLineStart}, true
 		}
-		return traceCounterSourceCoordinate{path: idx.Path, localLine: line}
+		if len(idx.TraceArtifacts) > 0 {
+			return traceCounterSourceCoordinate{}, false
+		}
+		return traceCounterSourceCoordinate{path: idx.Path, localLine: line}, true
 	}
-	return traceCounterSourceCoordinate{localLine: line}
+	return traceCounterSourceCoordinate{localLine: line}, true
 }
 
 // computeCounterDeltas aggregates only complete, finite numeric series. The
@@ -250,7 +262,16 @@ func computeCounterDeltas(idx *Index, q Query, max int) ([]TraceCounterDeltaSumm
 		}
 		quality.Rows++
 		sample := parseTraceCounterSample(ev)
-		coord := traceCounterSourceCoordinateForLine(idx, ev.Line)
+		coord, coordOK := traceCounterSourceCoordinateForLine(idx, ev.Line)
+		if !coordOK {
+			// ENG audit #4c: a populated provenance ledger that cannot map
+			// this row to exactly one physical artifact fails closed — the
+			// row is excluded from series identity and disclosed, never
+			// merged under the shared composite path.
+			quality.InvalidRows++
+			appendTraceCounterIssueReason(issues, "source_identity_unresolved", sample, coord, ev.Line)
+			continue
+		}
 		if !sample.identityOK {
 			quality.InvalidRows++
 			appendTraceCounterIssue(issues, sample, coord, ev.Line)

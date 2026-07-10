@@ -273,8 +273,11 @@ func TestReappearanceAfterDeadWithoutWakeupNewFailsClosed(t *testing.T) {
 
 func TestLifecycleAuditPreservesEveryConflictOnOneSchedulerRow(t *testing.T) {
 	tracker := newThreadIncarnationTracker()
-	tracker.observe(Event{Line: 1, Ts: 1.0, Type: EventSchedSwitch, PrevPID: 10, PrevState: "X", NextPID: 0}, 0)
-	tracker.observe(Event{Line: 2, Ts: 1.1, Type: EventSchedSwitch, PrevPID: 20, PrevState: "X", NextPID: 0}, 0)
+	// ENG audit #42 (2026-07-10): seeding switched observe→observeAll when the
+	// first-conflict-only observe helper was removed (it masked window-relevant
+	// sibling conflicts while consuming their lifecycle evidence).
+	tracker.observeAll(Event{Line: 1, Ts: 1.0, Type: EventSchedSwitch, PrevPID: 10, PrevState: "X", NextPID: 0}, 0)
+	tracker.observeAll(Event{Line: 2, Ts: 1.1, Type: EventSchedSwitch, PrevPID: 20, PrevState: "X", NextPID: 0}, 0)
 	conflicts := tracker.observeAll(Event{Line: 3, Ts: 1.2, Type: EventSchedSwitch, PrevPID: 10, PrevState: "R", NextPID: 20}, 0)
 	if len(conflicts) != 2 || conflicts[0].PID != 10 || conflicts[1].PID != 20 {
 		t.Fatalf("one scheduler row masked an independent lifecycle conflict: %+v", conflicts)

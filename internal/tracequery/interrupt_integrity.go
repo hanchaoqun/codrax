@@ -48,10 +48,19 @@ func interruptEndpointValidationFailure(lineNo int, line string) *durationOrderV
 		return nil
 	}
 
-	ts, _ := parseLineTimestamp(line)
+	ts, tsOK := parseLineTimestamp(line)
 	cpu, cpuOK := atoiMaybe(m[4])
 	kv := parseKV(strings.TrimSpace(m[7]))
 	fields := make([]string, 0, 2)
+	// ENG audit #4b (§29.25 处置委托 2026-07-10): an unparseable/overflowed
+	// timestamp is itself a damaged required field. Swallowing it minted a
+	// violation with CurrentTs=0 (excluded by every windowed relevance check
+	// and unreachable by the per-pair interval match) — or, with intact lane
+	// keys, no violation at all. Record it and mark the violation TsUnknown so
+	// both suppression nets treat it conservatively.
+	if !tsOK {
+		fields = append(fields, "ts")
+	}
 	if !cpuOK || cpu < 0 {
 		fields = append(fields, "cpu")
 	}
@@ -75,6 +84,6 @@ func interruptEndpointValidationFailure(lineNo int, line string) *durationOrderV
 	sort.Strings(fields)
 	return &durationOrderViolation{
 		Family: family, Issue: "endpoint_parse_incomplete", EventName: rawType,
-		Fields: fields, CurrentTs: ts, Line: lineNo,
+		Fields: fields, CurrentTs: ts, TsUnknown: !tsOK, Line: lineNo,
 	}
 }

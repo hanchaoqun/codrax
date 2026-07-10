@@ -50,7 +50,11 @@ func TestInterruptLaneMonotonicityPreservesCrossCPUPhysicalInterleave(t *testing
 	}, "\n")+"\n")
 
 	stats := ComputeWindowStats(idx, Query{TimeStart: 0.9, TimeEnd: 100.1})
-	if containsSubstring(stats.Caveats, "family=irq") {
+	// EVOLUTION (ENG audit #9, 2026-07-10): the assertion targets the
+	// fail-close POISON caveat specifically; the honest
+	// interrupt_pairing_unpaired disclosure for the exit-less irq=23 entry is
+	// not lane poison and legitimately mentions family=irq.
+	if containsSubstring(stats.Caveats, "omitted affected output family=irq") {
 		t.Fatalf("unrelated CPU future row poisoned a monotonic IRQ lane: %v", stats.Caveats)
 	}
 	var burst *IRQBurstSummary

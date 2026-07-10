@@ -1676,7 +1676,11 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	}
 	if identityConflict != nil {
 		stats.SchedulerHeadCoverage = &SchedulerHeadCoverage{Status: "unknown", BoundaryTs: q.TimeStart, Reason: "thread_incarnation_conflict"}
-		stats.Caveats = append(stats.Caveats, "thread_identity_fail_closed=true; "+identityConflict.reason()+"; scheduler duration aggregates are omitted because their PID-keyed rows cannot safely merge multiple task incarnations; split the window at the lifecycle boundary")
+		// ENG audit #44 (§29.25 处置委托 2026-07-10): the caveat names the
+		// process-domain census because that face is also withheld below — its
+		// thread count and catalog TGID/comm attribution would otherwise seat a
+		// reused TID's new task in the old task's process domain.
+		stats.Caveats = append(stats.Caveats, "thread_identity_fail_closed=true; "+identityConflict.reason()+"; scheduler duration aggregates and the process-domain census are omitted because their PID-keyed rows cannot safely merge multiple task incarnations; split the window at the lifecycle boundary")
 	}
 	byCPU := map[int][]Event{}
 	freqByCPU := map[int][]Event{}
@@ -2078,7 +2082,17 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	// lane only: TopRunning / ThreadCPULoad / ProcessCPULoad stay byte-identical
 	// whether or not a pid is present. Roster cap 8 = the shared up-to-8
 	// subject roster convention (PTV5 wire-cap fold bound).
-	stats.ProcessDomainCensus = computeProcessDomainCensus(idx, q, running, windowCatalog, coreByCPU, 8, tidTgidApplied)
+	// ENG audit #44 (§29.25 处置委托 2026-07-10): the census is PID-keyed on
+	// both faces (thread count via catalog+observed PIDs, rollup via running
+	// buckets) and buildThreadCatalog's TGID/comm merge bridges generations
+	// for the creation-edge-less reappeared-after-dead reuse shape. Under a
+	// declared incarnation conflict it fails closed with every sibling
+	// PID-keyed face (BIO/filesystem/inode/storage gates below) instead of
+	// publishing cross-incarnation process attribution beside the very caveat
+	// that proves identity is unsafe.
+	if identityConflict == nil {
+		stats.ProcessDomainCensus = computeProcessDomainCensus(idx, q, running, windowCatalog, coreByCPU, 8, tidTgidApplied)
+	}
 	if tidTgidApplied {
 		stats.Caveats = append(stats.Caveats, tidTgidDerivedCaveat)
 	}
@@ -2945,13 +2959,11 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 	res.BucketMs = bucketSec * 1000
 	buckets := map[int]*perfTimelineBucketAcc{}
 	for _, ev := range idx.Events {
-		if ev.Type != EventPerfSample || !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
-			continue
-		}
-		if q.PID > 0 && !eventMentionsPID(ev, q.PID) {
-			continue
-		}
-		if q.PID <= 0 && strings.TrimSpace(q.Thread) != "" && !eventMentionsThread(ev, q.Thread) {
+		// ENG audit #46 (§29.25 处置委托 2026-07-10): single shared admission
+		// predicate with perfTimelineWindow — the contributor-PID guard is
+		// sound only if every bucketed sample went through the same filter, so
+		// the two loops must never drift apart.
+		if !perfTimelineAdmits(ev, q) {
 			continue
 		}
 		idxBucket := 0
@@ -3026,18 +3038,31 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 	return res
 }
 
+// perfTimelineAdmits is the ONE admission predicate for perf timeline
+// samples. ENG audit #46 (§29.25 处置委托 2026-07-10): BuildPerfTimeline's
+// bucket loop and perfTimelineWindow's contributor loop used to carry
+// byte-identical copy-pasted filters; the incarnation guard consumes the
+// contributor set, so any one-sided edit would have created samples that are
+// bucketed but never guard-checked. Both loops now call this predicate.
+func perfTimelineAdmits(ev Event, q Query) bool {
+	if ev.Type != EventPerfSample || !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
+		return false
+	}
+	if q.PID > 0 && !eventMentionsPID(ev, q.PID) {
+		return false
+	}
+	if q.PID <= 0 && strings.TrimSpace(q.Thread) != "" && !eventMentionsThread(ev, q.Thread) {
+		return false
+	}
+	return true
+}
+
 func perfTimelineWindow(idx *Index, q Query) (float64, float64, int, map[int]bool) {
 	start, end := q.TimeStart, q.TimeEnd
 	count := 0
 	contributorPIDs := map[int]bool{}
 	for _, ev := range idx.Events {
-		if ev.Type != EventPerfSample || !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
-			continue
-		}
-		if q.PID > 0 && !eventMentionsPID(ev, q.PID) {
-			continue
-		}
-		if q.PID <= 0 && strings.TrimSpace(q.Thread) != "" && !eventMentionsThread(ev, q.Thread) {
+		if !perfTimelineAdmits(ev, q) {
 			continue
 		}
 		count++
@@ -3050,6 +3075,15 @@ func perfTimelineWindow(idx *Index, q Query) (float64, float64, int, map[int]boo
 		if end == 0 || ev.Ts > end {
 			end = ev.Ts
 		}
+	}
+	// ENG audit #46 residual gap: a sample can be admitted for the pid
+	// selector via the row-header ev.PID while its own thread identity
+	// (pf.TID>0≠q.PID) is what enters the contributor set — leaving the
+	// addressed subject itself unguarded against incarnation conflicts. When
+	// q.PID selected samples, the subject's identity is load-bearing for the
+	// published timeline and always joins the guarded set.
+	if q.PID > 0 && count > 0 {
+		contributorPIDs[q.PID] = true
 	}
 	if end < start {
 		end = start
@@ -5139,8 +5173,17 @@ func computeStateChurnSummaries(idx *Index, q Query, max int) []ThreadStateChurn
 			}
 			start, ok := open[ev.WakeePID]
 			// Shared wakeup-reopen guard (thread_state_universe.go) — same
-			// gate as the streaming face.
-			if !schedWakeupStartsNewIncarnation(ev) && (!ok || stateChurnWakeupReopenIneligible(start.state) || ev.Ts < start.ts) {
+			// gate as the streaming face. EVOLUTION RECORD (headless-wakeup
+			// alignment ruling, 主会话裁定 2026-07-10, §29.26 待落账): a
+			// normal wakeup for a thread with no governing open state now
+			// MINTS a runnable segment from the wakeup timestamp instead of
+			// being dropped (the old `!ok` reject arm) — aligning this churn
+			// face with the offCPU face (computeOffCPUStats), which has
+			// always minted it, and with the streaming state-cluster face.
+			// The wakeup is a witnessed typed transition; only the prefix
+			// before it stays unknown, and the head-coverage face keeps
+			// disclosing that prefix independently.
+			if !schedWakeupStartsNewIncarnation(ev) && ok && (stateChurnWakeupReopenIneligible(start.state) || ev.Ts < start.ts) {
 				return
 			}
 			if ok {
@@ -6965,13 +7008,30 @@ type interruptOpen struct {
 	ev Event
 }
 
+// interruptPairingLane carries the block-pairing cohort discipline for one
+// exact interrupt lane (ENG audit #9, §29.25 处置委托 2026-07-10): one CPU's
+// exact IRQ/softirq/IPI lane cannot physically self-nest, so depth>=2 can
+// only come from event loss. LIFO-guessing such a lane minted OVERLAPPING
+// pairs whose ActiveMs sum double-counted the overlap and booked unproven
+// wall clock as hard active time (feeding root_cause_rank seats and
+// supply_pressure). The whole cohort is withheld and disclosed instead.
+type interruptPairingLane struct {
+	open      []interruptOpen
+	ambiguous bool
+	// cohortStarts counts entry rows of the current cohort for the
+	// suppression disclosure; inWindow marks window relevance of the cohort.
+	cohortStarts int
+	inWindow     bool
+}
+
 func computeInterruptActivity(idx *Index, q Query, typ EventType, coreByCPU map[int]string, max int) ([]InterruptActivity, []string) {
 	if idx == nil {
 		return nil, nil
 	}
 	accs := map[string]*InterruptActivity{}
-	open := map[string][]interruptOpen{}
+	lanes := map[string]*interruptPairingLane{}
 	unresolvedSourceRows := 0
+	ambiguousCohorts, suppressedPairs, unpairedEntries := 0, 0, 0
 	ensure := func(ev Event, baseName, key, source string) *InterruptActivity {
 		name := firstNonEmpty(baseName, ev.IRQName, ev.Name, string(typ))
 		item := accs[key]
@@ -7036,21 +7096,50 @@ func computeInterruptActivity(idx *Index, q Query, typ EventType, coreByCPU map[
 			if timeInWindow(ev.Ts, q) {
 				observe(ev, baseName, key, source)
 			}
-			open[key] = append(open[key], interruptOpen{ev: ev})
+			lane := lanes[key]
+			if lane == nil {
+				lane = &interruptPairingLane{}
+				lanes[key] = lane
+			}
+			lane.open = append(lane.open, interruptOpen{ev: ev})
+			lane.cohortStarts++
+			if timeInWindow(ev.Ts, q) {
+				lane.inWindow = true
+			}
+			// ENG audit #9: this exact lane cannot physically self-nest —
+			// depth>=2 proves event loss and the whole cohort becomes
+			// ambiguous (block-pairing discipline) instead of LIFO-guessed.
+			if len(lane.open) > 1 {
+				lane.ambiguous = true
+			}
 		case "exit":
 			var item *InterruptActivity
 			if timeInWindow(ev.Ts, q) {
 				item = observe(ev, baseName, key, source)
 			}
-			queue := open[key]
-			if len(queue) == 0 {
+			lane := lanes[key]
+			if lane == nil || len(lane.open) == 0 {
 				continue
 			}
-			// Kernel interrupt endpoints are stack-shaped. Keying by exact
-			// type+CPU+vector first prevents a different lane from closing this
-			// one; LIFO then respects nested endpoint order.
-			start := queue[len(queue)-1].ev
-			open[key] = queue[:len(queue)-1]
+			if timeInWindow(ev.Ts, q) {
+				lane.inWindow = true
+			}
+			if lane.ambiguous {
+				lane.open = lane.open[:len(lane.open)-1]
+				if len(lane.open) == 0 {
+					if lane.inWindow {
+						ambiguousCohorts++
+						suppressedPairs += lane.cohortStarts
+					}
+					*lane = interruptPairingLane{}
+				}
+				continue
+			}
+			// Keying by exact type+CPU+vector first prevents a different lane
+			// from closing this one; a non-ambiguous lane holds at most one
+			// open entry.
+			start := lane.open[len(lane.open)-1].ev
+			*lane = interruptPairingLane{}
 			if ev.Ts < start.Ts {
 				continue
 			}
@@ -7066,7 +7155,7 @@ func computeInterruptActivity(idx *Index, q Query, typ EventType, coreByCPU map[
 			// change its LIFO nesting. Suppress only that affected pair; a bad
 			// row before a later fully-contained exact pair does not poison the
 			// unrelated future window.
-			if interruptPairHasValidationFailure(idx, interruptDurationFamily(typ), start.Ts, ev.Ts) {
+			if interruptPairHasValidationFailure(idx, interruptDurationFamily(typ), start.Ts, ev.Ts, start.Line, ev.Line) {
 				continue
 			}
 			if item == nil {
@@ -7085,6 +7174,26 @@ func computeInterruptActivity(idx *Index, q Query, typ EventType, coreByCPU map[
 			item.ActiveMs += dur
 			if dur > item.MaxActiveMs {
 				item.MaxActiveMs = dur
+			}
+		}
+	}
+	// Drain: leftover open entries are either an ambiguous cohort that never
+	// resolved (withhold + disclose) or window-relevant unpaired entries
+	// (disclose, mirroring block's unpaired_start lane).
+	for _, lane := range lanes {
+		if len(lane.open) == 0 {
+			continue
+		}
+		if lane.ambiguous {
+			if lane.inWindow {
+				ambiguousCohorts++
+				suppressedPairs += lane.cohortStarts
+			}
+			continue
+		}
+		for _, open := range lane.open {
+			if q.TimeEnd <= 0 || open.ev.Ts <= q.TimeEnd {
+				unpairedEntries++
 			}
 		}
 	}
@@ -7121,6 +7230,12 @@ func computeInterruptActivity(idx *Index, q Query, typ EventType, coreByCPU map[
 	if unresolvedSourceRows > 0 {
 		caveats = append(caveats, fmt.Sprintf("interrupt_pairing_provenance_unresolved=true; family=%s rows=%d; endpoints without exactly one physical source artifact were excluded", typ, unresolvedSourceRows))
 	}
+	if ambiguousCohorts > 0 {
+		caveats = append(caveats, fmt.Sprintf("interrupt_pairing_ambiguous=true; family=%s cohorts=%d pairing_suppressed=%d; same-lane nested entry/exit endpoints are physically impossible for one exact type+cpu+vector lane (event loss), so whole cohorts were withheld instead of LIFO-guessed", typ, ambiguousCohorts, suppressedPairs))
+	}
+	if unpairedEntries > 0 {
+		caveats = append(caveats, fmt.Sprintf("interrupt_pairing_unpaired=true; family=%s unpaired_entry=%d; active time was emitted only for complete exact-lane pairs", typ, unpairedEntries))
+	}
 	return out, caveats
 }
 
@@ -7137,7 +7252,7 @@ func interruptDurationFamily(typ EventType) durationOrderFamily {
 	}
 }
 
-func interruptPairHasValidationFailure(idx *Index, family durationOrderFamily, startTs, endTs float64) bool {
+func interruptPairHasValidationFailure(idx *Index, family durationOrderFamily, startTs, endTs float64, startLine, endLine int) bool {
 	if idx == nil || family == "" || endTs < startTs {
 		return false
 	}
@@ -7147,6 +7262,17 @@ func interruptPairHasValidationFailure(idx *Index, family durationOrderFamily, s
 	for i := range idx.durationOrderFailures {
 		failure := &idx.durationOrderFailures[i]
 		if failure.Family != family || failure.Issue != "endpoint_parse_incomplete" {
+			continue
+		}
+		// ENG audit #4b (§29.25 处置委托 2026-07-10): a malformed endpoint whose
+		// timestamp itself did not parse (TsUnknown, CurrentTs=0) can never hit
+		// the [startTs,endTs] interval — match it by its known physical line
+		// instead (same-lane physical order tracks time), keeping the
+		// suppression scoped to pairs it can actually corrupt.
+		if failure.TsUnknown {
+			if startLine > 0 && endLine >= startLine && failure.Line >= startLine && failure.Line <= endLine {
+				return true
+			}
 			continue
 		}
 		if failure.CurrentTs >= startTs && failure.CurrentTs <= endTs {
@@ -10279,6 +10405,19 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	// trace gap, depth-0 fallback, binder evidence) without double minting the
 	// same interval.
 	seatedCausalRootEvidence := map[string]bool{}
+	// ENG audit #65 (§29.25 处置委托 2026-07-10): seed BOTH the exact seat key
+	// (unmutated constructor output) and the mutation-invariant d_state/io_wait
+	// family key — expandChain mutates the D-state twin in place when a
+	// sched_blocked_reason resolves (Type/LineEnd), so the exact key alone let
+	// that twin escape the single-seat gate and mint a second rank row for the
+	// same physical occurrence.
+	seatRootEvidenceTwin := func(impact WakeupCausalImpact) {
+		seed := rootEvidenceFromCausalImpact(impact, "", 0)
+		seatedCausalRootEvidence[rootEvidenceRankSeatKey(seed)] = true
+		if key, ok := rootEvidenceDStateTwinFamilyKey(seed); ok {
+			seatedCausalRootEvidence[key] = true
+		}
+	}
 	for _, impact := range chain.CausalImpacts {
 		if impact.TotalMs <= 0 {
 			continue
@@ -10304,33 +10443,45 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		// it) and keeps minting.
 		if impact.Thread.PID > 0 && impact.ChainDepth > 0 && strings.TrimSpace(impact.DominantState) != "" &&
 			seatedAggregateGroups[wakeupCausalAggregateGroupKey(impact.Thread.PID, impact.DominantState)] {
-			seatedCausalRootEvidence[rootEvidenceRankSeatKey(rootEvidenceFromCausalImpact(impact, "", 0))] = true
+			seatRootEvidenceTwin(impact)
 			continue
 		}
 		items = append(items, rootCauseItemFromCausalImpact(impact))
-		seatedCausalRootEvidence[rootEvidenceRankSeatKey(rootEvidenceFromCausalImpact(impact, "", 0))] = true
+		seatRootEvidenceTwin(impact)
 	}
 	for _, aggregate := range seatedAggregates {
 		items = append(items, rootCauseItemFromCausalAggregate(aggregate))
 	}
 	for _, root := range chain.RootEvidence {
-		// §20 headline + §20.1 ruling ① (2026-07-07, RKC): the RootEvidence
-		// RUNNING twin (expandChain case StateRunning) no longer mints a rank
-		// row — the SAME WakeupCausalImpact already publishes its rank row via
-		// the CausalImpacts lane above, and the twin's raw DominantImpactMs
-		// used to outrank the segment's own gated inversion row in the same
-		// pool (q6: raw 58.919 over gated 37.410, a co-primary double mint
-		// that bypassed all three fold generations). One segment, one rank
-		// row; the CausalImpacts row is the single rank carrier. RootEvidence
-		// itself is untouched — it stays a wakeup_chain view evidence row.
-		// Precise typed-token gate: only the running lane is affected; every
-		// other RootEvidence type (missing_wakeup / binder_wait / trace_gap /
-		// runnable / D-state / unknown lanes) keeps minting unchanged.
+		// §20 headline + §20.1 ruling ① (2026-07-07, RKC): a RootEvidence twin
+		// of an ADMITTED CausalImpact no longer mints a rank row — the SAME
+		// WakeupCausalImpact already publishes its rank row via the
+		// CausalImpacts lane above, and the running twin's raw
+		// DominantImpactMs used to outrank the segment's own gated inversion
+		// row in the same pool (q6: raw 58.919 over gated 37.410, a
+		// co-primary double mint that bypassed all three fold generations).
+		// One segment, one rank row; the CausalImpacts row is the single rank
+		// carrier. RootEvidence itself is untouched — it stays a wakeup_chain
+		// view evidence row.
+		// EVOLUTION RECORD (5d91b433 + ENG audit #65, §29.25 处置委托
+		// 2026-07-10): the original §20.1 gate was the precise typed token
+		// `root.Type == "running"`. 5d91b433 widened it to the exact
+		// occurrence identity key (Type|thread|LineStart|LineEnd|DurationMs),
+		// so EVERY exact twin of an admitted impact — running, runnable,
+		// D-state — is suppressed, while non-twin lanes (missing_wakeup /
+		// binder_wait / trace_gap / depth-0 fallback / unknown) keep minting
+		// because their identities are never seeded. This batch closed the
+		// remaining escape: the blocked-reason-mutated D-state twin no longer
+		// matches the exact key and is folded by the mutation-invariant
+		// family key below (rootEvidenceDStateTwinFamilyKey).
 		// §15.B revocation note (§20.1): the formerly-planned separate
 		// "runnable independent effective-attribution row" is WITHDRAWN — the
 		// merged row's gated composition already counts the runnable share in
 		// full; re-publishing it would recreate the double count.
 		if seatedCausalRootEvidence[rootEvidenceRankSeatKey(root)] {
+			continue
+		}
+		if key, ok := rootEvidenceDStateTwinFamilyKey(root); ok && seatedCausalRootEvidence[key] {
 			continue
 		}
 		item := rootCauseItem(root.Type, root.Thread, root.DurationMs, root.Confidence, root.LineStart, root.LineEnd, "wakeup_chain", root.Summary)

@@ -32,27 +32,32 @@ type schedulerHeadSnapshot struct {
 	lifecycle *threadIncarnationTracker
 }
 
+// ENG audit #45 (§29.25 处置委托 2026-07-10): the head structs deliberately
+// store only the raw Priority. They used to also store a PriorityClass
+// classified with a hardcoded TraceFlavorGenericFtrace — dead-but-wrong data
+// on Harmony traces (window-head prio 100 stored as raw_scheduler_prio
+// instead of ohos_rt) and a booby trap for any future consumer reading the
+// stored field. Every consumer classifies from Priority with the query's
+// proven flavor at read time (classifyTracePriority(q.TraceFlavor, ...)).
 type schedulerHeadThread struct {
-	Thread        ThreadRef
-	State         ThreadState
-	StartTs       float64
-	LastEventTs   float64
-	Line          int
-	CPU           int
-	CPUKnown      bool
-	Priority      int
-	PriorityClass string
-	PrevStateRaw  string
+	Thread       ThreadRef
+	State        ThreadState
+	StartTs      float64
+	LastEventTs  float64
+	Line         int
+	CPU          int
+	CPUKnown     bool
+	Priority     int
+	PrevStateRaw string
 }
 
 type schedulerHeadCPU struct {
-	CPU           int
-	Thread        ThreadRef
-	StartTs       float64
-	LastEventTs   float64
-	Line          int
-	Priority      int
-	PriorityClass string
+	CPU         int
+	Thread      ThreadRef
+	StartTs     float64
+	LastEventTs float64
+	Line        int
+	Priority    int
 }
 
 // sourceSchedulerHeadCache prevents repeated prefix scans when several trace
@@ -140,10 +145,10 @@ func schedulerHeadSnapshotCost(snapshot *schedulerHeadSnapshot) int64 {
 	}
 	cost := int64(256)
 	for _, state := range snapshot.Threads {
-		cost += 160 + int64(len(state.Thread.Comm)+len(state.PrevStateRaw)+len(state.PriorityClass))
+		cost += 160 + int64(len(state.Thread.Comm)+len(state.PrevStateRaw))
 	}
 	for _, state := range snapshot.CPUs {
-		cost += 128 + int64(len(state.Thread.Comm)+len(state.PriorityClass))
+		cost += 128 + int64(len(state.Thread.Comm))
 	}
 	if snapshot.lifecycle != nil {
 		cost += int64(len(snapshot.lifecycle.seen))*40 + int64(len(snapshot.lifecycle.dead))*40
@@ -341,15 +346,14 @@ func applySchedulerHeadEvent(snapshot *schedulerHeadSnapshot, ev Event) {
 		}
 		targetCPU, targetCPUKnown := eventTargetCPU(ev)
 		snapshot.Threads[ev.WakeePID] = schedulerHeadThread{
-			Thread:        ThreadRef{Comm: firstNonEmpty(ev.WakeeComm, current.Thread.Comm), PID: ev.WakeePID, TGID: tgid},
-			State:         StateRunnable,
-			StartTs:       ev.Ts,
-			LastEventTs:   ev.Ts,
-			Line:          ev.Line,
-			CPU:           targetCPU,
-			CPUKnown:      targetCPUKnown,
-			Priority:      ev.WakeePrio,
-			PriorityClass: classifyTracePriority(TraceFlavorGenericFtrace, ev.WakeePrio),
+			Thread:      ThreadRef{Comm: firstNonEmpty(ev.WakeeComm, current.Thread.Comm), PID: ev.WakeePID, TGID: tgid},
+			State:       StateRunnable,
+			StartTs:     ev.Ts,
+			LastEventTs: ev.Ts,
+			Line:        ev.Line,
+			CPU:         targetCPU,
+			CPUKnown:    targetCPUKnown,
+			Priority:    ev.WakeePrio,
 		}
 	case EventSchedBlockedReason:
 		if ev.WakeePID <= 0 || ev.IOWait <= 0 {
@@ -397,27 +401,25 @@ func applySchedulerHeadEvent(snapshot *schedulerHeadSnapshot, ev Event) {
 			}
 			nextThread.TGID = nextTGID
 			snapshot.Threads[ev.NextPID] = schedulerHeadThread{
-				Thread:        nextThread,
-				State:         StateRunning,
-				StartTs:       ev.Ts,
-				LastEventTs:   ev.Ts,
-				Line:          ev.Line,
-				CPU:           ev.CPU,
-				CPUKnown:      true,
-				Priority:      ev.NextPrio,
-				PriorityClass: classifyTracePriority(TraceFlavorGenericFtrace, ev.NextPrio),
+				Thread:      nextThread,
+				State:       StateRunning,
+				StartTs:     ev.Ts,
+				LastEventTs: ev.Ts,
+				Line:        ev.Line,
+				CPU:         ev.CPU,
+				CPUKnown:    true,
+				Priority:    ev.NextPrio,
 			}
 		}
 		// CPU state includes pid 0: the idle lane is just as important as a
 		// running task for busy/idle carry-in.
 		snapshot.CPUs[ev.CPU] = schedulerHeadCPU{
-			CPU:           ev.CPU,
-			Thread:        nextThread,
-			StartTs:       ev.Ts,
-			LastEventTs:   ev.Ts,
-			Line:          ev.Line,
-			Priority:      ev.NextPrio,
-			PriorityClass: classifyTracePriority(TraceFlavorGenericFtrace, ev.NextPrio),
+			CPU:         ev.CPU,
+			Thread:      nextThread,
+			StartTs:     ev.Ts,
+			LastEventTs: ev.Ts,
+			Line:        ev.Line,
+			Priority:    ev.NextPrio,
 		}
 		if ev.PrevPID > 0 {
 			state := stateFromPrevState(ev.PrevState)
@@ -432,16 +434,15 @@ func applySchedulerHeadEvent(snapshot *schedulerHeadSnapshot, ev Event) {
 				prevTGID = ev.TGID
 			}
 			snapshot.Threads[ev.PrevPID] = schedulerHeadThread{
-				Thread:        ThreadRef{Comm: ev.PrevComm, PID: ev.PrevPID, TGID: prevTGID},
-				State:         state,
-				StartTs:       ev.Ts,
-				LastEventTs:   ev.Ts,
-				Line:          ev.Line,
-				CPU:           ev.CPU,
-				CPUKnown:      true,
-				Priority:      ev.PrevPrio,
-				PriorityClass: classifyTracePriority(TraceFlavorGenericFtrace, ev.PrevPrio),
-				PrevStateRaw:  ev.PrevState,
+				Thread:       ThreadRef{Comm: ev.PrevComm, PID: ev.PrevPID, TGID: prevTGID},
+				State:        state,
+				StartTs:      ev.Ts,
+				LastEventTs:  ev.Ts,
+				Line:         ev.Line,
+				CPU:          ev.CPU,
+				CPUKnown:     true,
+				Priority:     ev.PrevPrio,
+				PrevStateRaw: ev.PrevState,
 			}
 		}
 	}

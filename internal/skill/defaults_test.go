@@ -1057,6 +1057,16 @@ func TestMultiSourceMarker_PerfTriageSkillTeachesIt(t *testing.T) {
 	}
 }
 
+// EVOLUTION RECORD (§29.25 裁定① 2026-07-10, real_trace_campaign_20260705.md):
+// this stale-ban pin (requires 41-159/>159, forbids 41-139/>139) locked in the
+// 5d91b433 boundary flip before any witness existed. The user ruling
+// confirmed 41-159 with production witnesses —
+// customlogs/format_census_berlin.txt (prio 142×756604 / 157×3170 / 159×140 /
+// 140×3212, prio>139 total 763186), customlogs/format_census.txt (VerifyClass
+// record_trace_20260606: 157×36 / 140×21), customlogs/cust_trace_vc_710.txt
+// (prio=53→ohos_rt production verdict) — so the pin now stands on a recorded
+// domain fact. If the boundary is ever re-litigated, update the ledger ruling
+// FIRST, then evolve this pin with a new EVOLUTION RECORD.
 func TestRuntimeTraceSkillsPinHarmonyMicrokernelPriorityBoundary(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)

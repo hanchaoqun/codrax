@@ -157,13 +157,23 @@ func schedulerStateOrderViolationForQuery(idx *Index, q Query, onlyPID int) *sch
 		}
 		return &schedulerOrderViolation{Lane: lane, ID: id, SourcePath: "order_audit_truncated"}
 	}
-	tracker := newSchedulerOrderTracker()
+	// ENG audit #43 (§29.25 处置委托 2026-07-10): the fallback previously ran ONE
+	// combined tracker whose observe() early-returns on the first lane
+	// violation and skips the remaining per-row lane updates — exactly the
+	// CPU-masks-TID shape the split-tracker audit comment above documents. An
+	// irrelevant violation (e.g. rows after q.TimeEnd) corrupted lane state
+	// and masked a later genuine in-window same-lane rollback, so full
+	// single-file indexes and windowed indexes gave divergent verdicts on the
+	// same trace. Run the same complete split-tracker audit as the preserved
+	// lane; the relevance predicate (not input pruning) decides what applies
+	// to this query.
+	cpuTracker, pidTracker := newSchedulerOrderTracker(), newSchedulerOrderTracker()
 	for _, ev := range idx.Events {
-		if !eventLineInWindow(ev, q) {
-			continue
-		}
-		if violation := tracker.observe(ev, onlyPID); schedulerOrderViolationRelevantToQuery(violation, q, onlyPID) {
-			return violation
+		for _, violation := range auditSchedulerOrderEvent(cpuTracker, pidTracker, ev) {
+			if schedulerOrderViolationRelevantToQuery(&violation, q, onlyPID) {
+				copy := violation
+				return &copy
+			}
 		}
 	}
 	return nil

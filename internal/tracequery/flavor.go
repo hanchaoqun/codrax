@@ -240,6 +240,18 @@ func PrioritySemanticsForFlavor(flavor TraceFlavor) string {
 	}
 }
 
+// EVOLUTION RECORD (§29.25 裁定① 2026-07-10, real_trace_campaign_20260705.md):
+// the HarmonyOS RT band was flipped 41-139→41-159 (>159=system_or_kernel) by
+// 5d91b433 without an in-repo witness; the user ruling confirmed 41-159 as the
+// correct boundary and retroactively legalized the flip with production
+// witnesses: customlogs/format_census_berlin.txt (berlin 1104MiB full census —
+// prio 142×756604 / 157×3170 / 159×140 / 140×3212, prio>139 total 763186),
+// customlogs/format_census.txt (VerifyClass record_trace_20260606: 157×36 /
+// 140×21), customlogs/cust_trace_vc_710.txt (prio=53→ohos_rt production
+// verdict, compatible with both bands). Real workloads sit heavily in
+// 140-159; the old 41-139 band misclassified them as system_or_kernel and
+// dropped them from the high-priority pressure account. Do not narrow this
+// band again without a new ruling + witness in the ledger.
 func classifyTracePriority(flavor TraceFlavor, prio int) string {
 	if prio <= 0 {
 		return ""

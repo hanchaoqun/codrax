@@ -82,7 +82,14 @@ func schedulerFieldsValidationFailure(lineNo int, rawType string, ts float64, cp
 	failure := &schedulerRowIntegrityFailure{EventName: rawType, Line: lineNo, Ts: ts, CPU: cpu}
 	addPID := func(raw string) bool {
 		pid, ok := atoiMaybe(raw)
-		if !ok {
+		// ENG audit #47 (§29.25 处置委托 2026-07-10): a parseable NEGATIVE pid is
+		// not a scheduler identity. Kernel ftrace never emits one in these
+		// rows; accepting it recorded nothing (pid>0 guard below), so the row
+		// passed the hard integrity gate while every duration/state consumer
+		// skips pid<=0 roles — the transition silently unbooked, reopening the
+		// zero/absence ambiguity this file's contract forbids. Explicit pid 0
+		// stays valid (idle).
+		if !ok || pid < 0 {
 			return false
 		}
 		if pid > 0 {

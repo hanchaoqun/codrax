@@ -110,14 +110,13 @@ func schedulerLifecycleResetPID(ev Event) (int, bool) {
 	return 0, false
 }
 
-func (t *threadIncarnationTracker) observe(ev Event, onlyPID int) *threadIncarnationConflict {
-	conflicts := t.observeAll(ev, onlyPID)
-	if len(conflicts) == 0 {
-		return nil
-	}
-	return &conflicts[0]
-}
-
+// NOTE (ENG audit #42, §29.25 处置委托 2026-07-10): there is deliberately no
+// first-conflict-only observe() helper. observeAll permanently consumes the
+// lifecycle evidence (delete(t.dead, pid)) for EVERY conflict it emits, so a
+// consumer that keeps only conflicts[0] silently discards siblings whose
+// window relevance may differ — the discarded conflict can never regenerate.
+// Every consumer must iterate the full observeAll slice and apply its own
+// relevance predicate per conflict.
 func (t *threadIncarnationTracker) observeAll(ev Event, onlyPID int) []threadIncarnationConflict {
 	if t == nil {
 		return nil
@@ -246,8 +245,18 @@ func threadIncarnationConflictForQuery(idx *Index, q Query, onlyPID int) *thread
 		if q.LineStart == 0 && q.LineEnd == 0 && q.TimeEnd > 0 && ev.Ts > q.TimeEnd {
 			continue
 		}
-		if conflict := tracker.observe(ev, onlyPID); incarnationBoundaryInsideQuery(conflict, q) {
-			return conflict
+		// ENG audit #42 (§29.25 处置委托 2026-07-10): mirror the ForPIDSet twin —
+		// one physical row can emit several conflicts whose window relevance
+		// diverges (PriorDeadTs differs per conflict while the boundary is
+		// row-shared), and observeAll consumes the lifecycle state for all of
+		// them. Testing only the first conflict masked the relevant sibling
+		// forever and let PID-keyed aggregates merge two task incarnations
+		// with zero caveat.
+		for _, conflict := range tracker.observeAll(ev, onlyPID) {
+			if incarnationBoundaryInsideQuery(&conflict, q) {
+				copy := conflict
+				return &copy
+			}
 		}
 	}
 	return nil

@@ -17,6 +17,26 @@ func rootEvidenceRankSeatKey(root RootEvidence) string {
 	return fmt.Sprintf("%s|%s|%d|%d|%.9f", strings.TrimSpace(root.Type), threadKey(root.Thread), root.LineStart, root.LineEnd, root.DurationMs)
 }
 
+// rootEvidenceDStateTwinFamilyKey is the mutation-invariant seat key for the
+// d_state/io_wait RootEvidence family (ENG audit #65, §29.25 处置委托
+// 2026-07-10). expandChain mutates the D-state twin IN PLACE after
+// construction when a sched_blocked_reason resolves (Type→"io_wait" iff
+// reason.IOWait>0, LineEnd→reason.Line whenever the reason row is found), so
+// the exact rootEvidenceRankSeatKey diverges from the seed minted off the
+// unmutated constructor output and the same physical occurrence seated twice.
+// Thread, LineStart and DurationMs are never touched by that mutation and
+// identify the occurrence; the family fold applies only to the two D-state
+// family type tokens, so no other RootEvidence lane can be over-suppressed.
+// The "dstate_twin" prefix cannot collide with rootEvidenceRankSeatKey (no
+// type token spells it and the field counts differ).
+func rootEvidenceDStateTwinFamilyKey(root RootEvidence) (string, bool) {
+	switch strings.TrimSpace(root.Type) {
+	case "d_state_or_io_wait", "io_wait":
+		return fmt.Sprintf("dstate_twin|%s|%d|%.9f", threadKey(root.Thread), root.LineStart, root.DurationMs), true
+	}
+	return "", false
+}
+
 func rootCauseRankItemIsZeroSeatDisclosure(item RootCauseRankItem) bool {
 	if item.Type == "trace_gap" {
 		return true
