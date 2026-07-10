@@ -29,30 +29,31 @@ type TraceQuery struct {
 }
 
 type traceQueryParams struct {
-	Source               string          `json:"source,omitempty"`
-	Path                 string          `json:"path,omitempty"`
-	View                 string          `json:"view,omitempty"`
-	Thread               string          `json:"thread,omitempty"`
-	PID                  FlexInt         `json:"pid,omitempty"`
-	TimeStart            TraceSecond     `json:"time_start,omitempty"`
-	TimeEnd              TraceSecond     `json:"time_end,omitempty"`
-	LineStart            FlexInt         `json:"line_start,omitempty"`
-	LineEnd              FlexInt         `json:"line_end,omitempty"`
-	EventTypes           TraceEventTypes `json:"event_types,omitempty"`
-	Pattern              string          `json:"pattern,omitempty"`
-	SpanName             string          `json:"span_name,omitempty"`
-	InteractionDirection string          `json:"interaction_direction,omitempty"`
-	RecipeName           string          `json:"recipe_name,omitempty"`
-	MaxDepth             FlexInt         `json:"max_depth,omitempty"`
-	MaxBranches          FlexInt         `json:"max_branches,omitempty"`
-	ViaThread            string          `json:"via_thread,omitempty"`
-	MinDurationMs        FlexFloat       `json:"min_duration_ms,omitempty"`
-	IncludeWindowStats   *FlexBool       `json:"include_window_stats,omitempty"`
-	Limit                FlexInt         `json:"limit,omitempty"`
-	BucketMs             FlexFloat       `json:"bucket_ms,omitempty"`
-	CoreTopology         string          `json:"core_topology,omitempty"`
-	TraceFlavor          string          `json:"trace_flavor,omitempty"`
-	Platform             string          `json:"platform,omitempty"`
+	Source               string           `json:"source,omitempty"`
+	Path                 string           `json:"path,omitempty"`
+	View                 string           `json:"view,omitempty"`
+	Thread               string           `json:"thread,omitempty"`
+	PID                  FlexInt          `json:"pid,omitempty"`
+	TimeStart            TraceSecond      `json:"time_start,omitempty"`
+	TimeEnd              TraceSecond      `json:"time_end,omitempty"`
+	LineStart            FlexInt          `json:"line_start,omitempty"`
+	LineEnd              FlexInt          `json:"line_end,omitempty"`
+	EventTypes           TraceEventTypes  `json:"event_types,omitempty"`
+	TraceMarkActions     TraceMarkActions `json:"trace_mark_actions,omitempty"`
+	Pattern              string           `json:"pattern,omitempty"`
+	SpanName             string           `json:"span_name,omitempty"`
+	InteractionDirection string           `json:"interaction_direction,omitempty"`
+	RecipeName           string           `json:"recipe_name,omitempty"`
+	MaxDepth             FlexInt          `json:"max_depth,omitempty"`
+	MaxBranches          FlexInt          `json:"max_branches,omitempty"`
+	ViaThread            string           `json:"via_thread,omitempty"`
+	MinDurationMs        FlexFloat        `json:"min_duration_ms,omitempty"`
+	IncludeWindowStats   *FlexBool        `json:"include_window_stats,omitempty"`
+	Limit                FlexInt          `json:"limit,omitempty"`
+	BucketMs             FlexFloat        `json:"bucket_ms,omitempty"`
+	CoreTopology         string           `json:"core_topology,omitempty"`
+	TraceFlavor          string           `json:"trace_flavor,omitempty"`
+	Platform             string           `json:"platform,omitempty"`
 }
 
 // traceQueryScopedIndexMaxBytes is the in-memory byte budget for a single,
@@ -127,6 +128,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	    "line_start": {"type":"integer","description":"Optional result line window start for bounded search. On a composite trace this is the index-global virtual line returned by trace_query; trace_artifacts/source_spans provide the physical artifact and local line."},
 	    "line_end": {"type":"integer","description":"Optional result line window end for bounded search. On a composite trace this is the index-global virtual line returned by trace_query; trace_artifacts/source_spans provide the physical artifact and local line."},
 	    "event_types": {"type":"array","items":{"type":"string"},"x-codrax-split-string-array":true,"description":"Optional event filters such as trace_mark, sched_switch, sched_wakeup, sched_blocked_reason, sched_stat, cpu_idle, cpu_frequency, cpu_frequency_limits, cpu_constraint, clock_set_rate, block_rq_issue, block_rq_complete, block_bio_remap, binder_transaction, binder_transaction_received, binder_transaction_alloc_buf, binder_lock, binder_locked, binder_unlock, binder_reply, irq, softirq, ipi, storage, filesystem, file_io, page_cache, android_fs, f2fs, scsi, mmc, storage_latency, io_pressure, perf_sample, power, ability_monitor, xpower, hi_sysevent, workqueue, dma_fence. Official formatter aliases such as sched_wakeup_new, sched_stat_wait, sched_stat_sleep, sched_stat_iowait, sched_stat_blocked, sched_stat_runtime, ipi_raise, ipi_entry, ipi_exit, block_rq_insert, block_getrq, block_bio_queue, block_bio_complete, print, tracing_mark_write_xacct, and xacct_tracing_mark_write are accepted and mapped to the matching structured event type. Use trace_mark for B/E/C/S/F/G/H/N/I marker rows; G/H publish isolated trace_track_spans and N/I publish zero-duration trace_instants, while B/E end rows are unnamed E|<pid> or E, so use span_window rather than E|<pid>|<span_name> searches to prove completion. Use sched_stat/sched_stat_accounting as kernel accounting corroboration for wait/iowait/blocked/runtime, not as a replacement for sched_switch interval timing when both exist. Use ipi/ipi_activity as interrupt/scheduler-reschedule pressure context; ipi_raise target_mask is an instant signal unless paired ipi_entry/exit gives active_ms. Use perf_sample with pattern=<symbol, dso, callchain, event, thread, source, symbolization_status, callchain_status, clock_confidence, or cpu_known> for CPU sampling rows; window_stats.perf_samples summarizes top_symbols/top_dso/top_callchains/top_threads plus perf_quality as supporting execution context, not standalone root-cause proof. Raw fallback rows may have source=raw_perfdata_fallback, symbolization_status=unsymbolized, and callchain_status=ip_only; OpenHarmony hiperf proto rows may have cpu_known=false because sample CPU is unavailable. Result caveats may also carry tracebundle perf/profiler/trace conversion quality provenance such as lost_records/lost_events, lost_sample_records/lost_samples, throttle_records/unthrottle_records, aux_records/aux_bytes, ftrace-plugin structured metadata, profiler plugin metadata, dropped_events, overrun, commit_overrun, overwrite, trace_clock, clock_details, symbol_examples, tracebundle_perf_capability, tracebundle_perf_clock_alignment, tracebundle_trace_provider, tracebundle_trace_db_coverage, tracebundle_trace_coverage, and tracebundle_trace_tool_gate; use them to qualify sample/capture/conversion reliability, coverage, and converter guardrail state, not as direct runtime root causes. Use cpu_constraint/affinity/cpuset to inspect sched_setaffinity, sched_migrate_task, cpuset/cgroup attach, and Harmony/Donghu sched_switch next_info affinity/restricted evidence. Use file_io/page_cache with pattern=<inode or entry_name> for inode-level IO rows. This field also accepts a comma/semicolon separated string, and friendly aliases such as inode_io, pageCache, mm_filemap, cpuSample, perfSamples, topSymbols, callchain, cpuAffinity, schedMigrate, storageLayerLatency, irq_activity, softirq_activity, ipi_activity, sched_stat_accounting, and block_io_by_inode are accepted and mapped to the matching event types."},
+	    "trace_mark_actions": {"type":"array","items":{"type":"string","enum":["B","E","C","S","F","G","H","N","I"],"x-codrax-enum-aliases":{"b":"B","e":"E","c":"C","s":"S","f":"F","g":"G","h":"H","n":"N","i":"I"}},"x-codrax-split-string-array":true,"description":"For view=event_search only: exact closed filter over the parser-validated trace marker action (B/E/C/S/F/G/H/N/I). This is an AND filter with window/line, pattern and pid/thread. event_types may be omitted or exactly [trace_mark]; other/mixed event types fail loud. Unlike pattern, action matching never treats a marker name containing S| or F| as an async endpoint, and malformed marker payloads are not re-admitted by their raw prefix."},
     "pattern": {"type":"string","description":"For event_search, optional case-insensitive literal substring matched against parsed event text, span names, thread labels, scheduler roles, resource fields, and raw-like field text. Use this for frame ids such as \"1917295\", jank ids such as \"jank_frames=7\", exact timestamps, or trace labels such as \"Choreographer#doFrame\"; it is not a regex. Start with one exact token, then add event_types/time/line/thread filters after the first hit."},
     "span_name": {"type":"string","description":"Optional trace span name substring. For span_window, returns matching sync B/E or async S/F span windows; sync B/E end rows do not repeat the span name and appear as E|<pid> or bare E on the same ftrace thread stack. For wakeup_chain/root_cause_rank/evidence_pack without explicit time_start/time_end, a unique matching span derives the selected window."},
     "interaction_direction": {"type":"string","enum":["both","incoming","outgoing"],"x-codrax-enum-style-alias":true,"description":"For interaction_stats: both is default; incoming counts peers waking/calling the target, outgoing counts target waking/calling peers."},
@@ -159,6 +161,18 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&p); err != nil {
 		return failStrictDecodeWithError(t.Name(), time.Now(), err, nil, params)
+	}
+	if err := tracequery.ValidateTraceMarkActionFilter(
+		p.View,
+		parseTraceQueryEventTypes(p.EventTypes.Strings()),
+		parseTraceQueryMarkActions(p.TraceMarkActions.Strings()),
+	); err != nil {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "trace_query rejected trace_mark_actions: " + err.Error(),
+			Timestamp: time.Now(),
+		}, nil
 	}
 	if globalTypes := traceQueryCPUGlobalEventSearchTypes(p); len(globalTypes) > 0 && (p.PID.Int() > 0 || strings.TrimSpace(p.Thread) != "") {
 		return types.ToolResult{
@@ -557,6 +571,7 @@ func traceQueryBuildQuery(ctx *types.BusContext, p traceQueryParams, sourceLabel
 		LineStart:            p.LineStart.Int(),
 		LineEnd:              p.LineEnd.Int(),
 		EventTypes:           parseTraceQueryEventTypes(p.EventTypes.Strings()),
+		TraceMarkActions:     parseTraceQueryMarkActions(p.TraceMarkActions.Strings()),
 		Pattern:              p.Pattern,
 		SpanName:             p.SpanName,
 		InteractionDirection: p.InteractionDirection,
@@ -1180,19 +1195,27 @@ func traceQueryNarrowingSuggestions(q tracequery.Query, reasonCode string) []typ
 		Suggested:  lineWindow,
 		ReasonCode: reasonCode,
 	})
+	if actions := traceQueryMarkActionsParamString(q.TraceMarkActions); actions != "" {
+		out = append(out, types.ToolParamNarrowingSuggestion{
+			Param:      "trace_mark_actions",
+			Priority:   3,
+			Suggested:  actions,
+			ReasonCode: reasonCode,
+		})
+	}
 	eventTypes := traceQueryEventTypesParamString(q.EventTypes)
 	if eventTypes == "" {
 		eventTypes = string(tracequery.EventTraceMark)
 	}
 	out = append(out, types.ToolParamNarrowingSuggestion{
 		Param:      "event_types",
-		Priority:   3,
+		Priority:   4,
 		Suggested:  eventTypes,
 		ReasonCode: reasonCode,
 	})
 	out = append(out, types.ToolParamNarrowingSuggestion{
 		Param:      "limit",
-		Priority:   4,
+		Priority:   5,
 		Suggested:  strconv.Itoa(traceQueryWidthEventSearchDefaultLimit()),
 		ReasonCode: reasonCode,
 	})
@@ -1378,6 +1401,9 @@ func traceQueryRefinementPreferredParams(result tracequery.Result, q tracequery.
 	if eventTypes := traceQueryEventTypesParamString(q.EventTypes); eventTypes != "" {
 		params["event_types"] = eventTypes
 	}
+	if actions := traceQueryMarkActionsParamString(q.TraceMarkActions); actions != "" {
+		params["trace_mark_actions"] = actions
+	}
 	if pattern := strings.TrimSpace(q.Pattern); pattern != "" {
 		params["pattern"] = pattern
 	}
@@ -1492,10 +1518,10 @@ func traceQueryRefinementRequiredFields(result tracequery.Result, q tracequery.Q
 	var fields []string
 	view := traceQueryCanonicalView(result, q)
 	if view == "event_search" {
-		if strings.TrimSpace(q.Pattern) == "" {
+		if strings.TrimSpace(q.Pattern) == "" && len(q.TraceMarkActions) == 0 {
 			fields = append(fields, "pattern")
 		}
-		if len(q.EventTypes) == 0 {
+		if len(q.EventTypes) == 0 && len(q.TraceMarkActions) == 0 {
 			fields = append(fields, "event_types")
 		}
 	}
@@ -1525,6 +1551,19 @@ func traceQueryEventTypesParamString(eventTypes []tracequery.EventType) string {
 	for _, eventType := range eventTypes {
 		if s := strings.TrimSpace(string(eventType)); s != "" {
 			out = append(out, s)
+		}
+	}
+	return strings.Join(out, ",")
+}
+
+func traceQueryMarkActionsParamString(actions []tracequery.TraceMarkAction) string {
+	if len(actions) == 0 {
+		return ""
+	}
+	out := make([]string, 0, len(actions))
+	for _, action := range actions {
+		if token := strings.TrimSpace(string(action)); token != "" {
+			out = append(out, token)
 		}
 	}
 	return strings.Join(out, ",")
@@ -2399,6 +2438,16 @@ func parseTraceQueryEventTypes(raw []string) []tracequery.EventType {
 	return out
 }
 
+func parseTraceQueryMarkActions(raw []string) []tracequery.TraceMarkAction {
+	out := make([]tracequery.TraceMarkAction, 0, len(raw))
+	for _, item := range raw {
+		if item = strings.TrimSpace(item); item != "" {
+			out = append(out, tracequery.TraceMarkAction(item))
+		}
+	}
+	return out
+}
+
 func normalizeTraceQueryEventTypeToken(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -3191,7 +3240,7 @@ func writeTraceWindowSweepSummary(b *strings.Builder, sweep *tracequery.WindowSw
 
 func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel, payloadRef string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "[trace_query params: view=%s source=%s path=%s origin=runtime_artifact artifact_id=%s artifact_kind=trace thread=%s pid=%s line_start=%s line_end=%s time_start=%s time_end=%s pattern=%s span_name=%s interaction_direction=%s recipe_name=%s platform=%s platform_candidate=%s trace_flavor=%s trace_flavor_confidence=%.2f priority_rule=%s payload_ref=%s]\n",
+	fmt.Fprintf(&b, "[trace_query params: view=%s source=%s path=%s origin=runtime_artifact artifact_id=%s artifact_kind=trace thread=%s pid=%s line_start=%s line_end=%s time_start=%s time_end=%s trace_mark_actions=%s pattern=%s span_name=%s interaction_direction=%s recipe_name=%s platform=%s platform_candidate=%s trace_flavor=%s trace_flavor_confidence=%.2f priority_rule=%s payload_ref=%s]\n",
 		firstNonEmptyTraceString(result.View, p.View, "event_search"),
 		sourceLabel,
 		sanitizeForBanner(result.SourcePath),
@@ -3202,6 +3251,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		positiveIntBannerValue(p.LineEnd.Int()),
 		traceSecondBannerValue(p.TimeStart),
 		traceSecondBannerValue(p.TimeEnd),
+		sanitizeForBanner(strings.Join(p.TraceMarkActions.Strings(), ",")),
 		sanitizeForBanner(p.Pattern),
 		sanitizeForBanner(p.SpanName),
 		sanitizeForBanner(p.InteractionDirection),
@@ -9775,18 +9825,11 @@ func traceQueryCPUGlobalEventSearchTypes(p traceQueryParams) []string {
 	if tracequery.CanonicalViewName(p.View) != tracequery.FallbackViewEventSearch {
 		return nil
 	}
-	seen := map[string]bool{}
-	for _, eventType := range parseTraceQueryEventTypes(p.EventTypes.Strings()) {
-		switch eventType {
-		case tracequery.EventCPUFrequency, tracequery.EventCPUFrequencyLimit, tracequery.EventCPUIdle, tracequery.EventClockSetRate:
-			seen[string(eventType)] = true
-		}
+	global := tracequery.CPUGlobalEventSearchTypes(parseTraceQueryEventTypes(p.EventTypes.Strings()))
+	out := make([]string, 0, len(global))
+	for _, eventType := range global {
+		out = append(out, string(eventType))
 	}
-	out := make([]string, 0, len(seen))
-	for eventType := range seen {
-		out = append(out, eventType)
-	}
-	sort.Strings(out)
 	return out
 }
 

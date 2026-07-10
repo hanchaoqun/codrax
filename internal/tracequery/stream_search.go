@@ -46,6 +46,9 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 	info = openedInfo
 	openedIdentity := traceFileIdentityFromInfo(openedInfo)
 
+	if err := ValidateTraceMarkActionFilter(q.View, q.EventTypes, q.TraceMarkActions); err != nil {
+		return Result{}, fmt.Errorf("stream_event_search: %w", err)
+	}
 	q.View = "event_search"
 	q = normalizeQuery(nil, q)
 	typeSet := make(map[EventType]bool, len(q.EventTypes))
@@ -54,6 +57,7 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 			typeSet[typ] = true
 		}
 	}
+	actionSet := traceMarkActionFilterSet(q.TraceMarkActions)
 
 	idx := &Index{Path: path, Size: info.Size(), ModTime: info.ModTime()}
 	artifactSource := singleTraceArtifactSourceWithIdentity(path, openedIdentity, 0, 0)
@@ -147,6 +151,15 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 				}
 			}
 			flavor.observeRawLine(trimmed)
+			// Keep trace-mark integrity auditing independent of the result filter.
+			// In particular, an exact action filter must not hide a malformed S/F
+			// or G/H row merely because its parser-validated SpanAction is empty.
+			// Audit before the pattern prefilter; raw prefixes remain diagnostic
+			// witnesses only and are never re-admitted as typed matches below.
+			if failure := traceMarkValidationFailure(lineNo, trimmed); failure != nil && traceMarkIntegrityFailureRelevantToQuery(*failure, q) {
+				failure.SourcePath = path
+				appendTraceMarkIntegrityFailure(idx, *failure)
+			}
 			if !streamEventSearchRawCandidate(trimmed, lineNo, q) {
 				goto nextLine
 			}
@@ -186,7 +199,7 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 				idx.ParsedKnown++
 			}
 			flavor.observeEvent(ev)
-			if !eventInQuery(ev, q, typeSet) {
+			if !eventInQuery(ev, q, typeSet, actionSet) {
 				goto nextLine
 			}
 			matchedTotal++

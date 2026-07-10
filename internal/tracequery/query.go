@@ -70,6 +70,35 @@ const preferredCoverageWindowMinSeconds = 0.080
 const preferredCoverageWindowMaxSeconds = 0.150
 const parentWindowStrategySeconds = 1.000
 
+func traceMarkActionFilterInvalidResult(idx *Index, q Query, validationErr error) Result {
+	res := Result{
+		View:      CanonicalViewName(q.View),
+		TimeUnit:  "seconds",
+		TimeStart: q.TimeStart,
+		TimeEnd:   q.TimeEnd,
+		Caveats: []string{
+			"trace_mark_action_filter_invalid=true; no trace rows were evaluated; " + validationErr.Error(),
+		},
+	}
+	if idx == nil {
+		return res
+	}
+	res.SourcePath = idx.Path
+	res.TraceArtifacts = append([]TraceArtifactSource(nil), idx.TraceArtifacts...)
+	res.LineCount = idx.LineCount
+	res.ScannedLineCount = idx.ScannedLineCount
+	res.IndexWindowed = idx.Windowed
+	res.IndexTimeStart = idx.IndexTimeStart
+	res.IndexTimeEnd = idx.IndexTimeEnd
+	res.IndexLineStart = idx.IndexLineStart
+	res.IndexLineEnd = idx.IndexLineEnd
+	res.EventCount = len(idx.Events)
+	res.UnparsedLineCount = idx.UnparsedLines
+	res.ParseLinePanics = idx.ParseLinePanics
+	res.ClockRegressions = idx.ClockRegressions
+	return res
+}
+
 func Run(idx *Index, q Query) Result {
 	explicitTimeStart := queryExplicitTimeStart(q)
 	explicitTimeEnd := queryExplicitTimeEnd(q)
@@ -86,6 +115,9 @@ func Run(idx *Index, q Query) Result {
 		strings.TrimSpace(q.ThreadInput) != "" ||
 		len(q.EventTypes) > 0
 	q = normalizeQuery(idx, q)
+	if err := ValidateTraceMarkActionFilter(q.View, q.EventTypes, q.TraceMarkActions); err != nil {
+		return traceMarkActionFilterInvalidResult(idx, q, err)
+	}
 	flavor, confidence, signals, flavorCaveats := resolveTraceFlavor(idx, q)
 	q.TraceFlavor = flavor
 	frameworkSurfaces := detectFrameworkSurfaces(idx, q, TracePlatformAuto, 4)
@@ -453,7 +485,12 @@ func Run(idx *Index, q Query) Result {
 		res.FrameRootCauseBundle = &bundle
 	default:
 		res.View = "event_search"
-		res.Events = EventSearch(idx, q)
+		matchedEvents := 0
+		if len(q.TraceMarkActions) > 0 {
+			res.Events, matchedEvents = eventSearchWithAccounting(idx, q)
+		} else {
+			res.Events = EventSearch(idx, q)
+		}
 		res.EvidencePack = evidenceFromEvents(res.Events)
 		// RFC #71 (§8.2 c4): pre-truncation frequency tier census — nil
 		// unless the chronological display cap actually hid matched
@@ -461,6 +498,19 @@ func Run(idx *Index, q Query) Result {
 		if census := ComputeCPUFrequencyCensus(idx, q, res.Events); census != nil {
 			res.CPUFrequencyCensus = census
 			res.EvidencePack = append([]EvidenceFact{census.EvidenceFact()}, res.EvidencePack...)
+		}
+		if matchedEvents > len(res.Events) {
+			last := res.Events[len(res.Events)-1]
+			res.Compactions = append(res.Compactions, ViewCompaction{
+				View:            FallbackViewEventSearch,
+				Dimension:       CompactionDimensionEvents,
+				Total:           matchedEvents,
+				Emitted:         len(res.Events),
+				LastEmittedTs:   last.Ts,
+				LastEmittedLine: last.Line,
+			})
+			res.Caveats = append(res.Caveats,
+				fmt.Sprintf("event_search_index_compacted=true; matched %d row(s) but returned the first %d chronological match(es) only; omitted rows may contain later trace-mark actions, so do not infer absence without narrowing the query", matchedEvents, len(res.Events)))
 		}
 	}
 	// G1 跨车道对账 (§27.2, 2026-07-09): every view shape that carries BOTH
@@ -537,9 +587,10 @@ func collectResultCompactions(res *Result, q Query) {
 	if res.IPCGraph != nil {
 		res.Compactions = append(res.Compactions, res.IPCGraph.Compactions...)
 	}
-	// Indexed event_search stops scanning at the cap, so the true total is
-	// unknown (Total=0); LastEmittedTs/Line still enable a window split.
-	if res.View == "event_search" && q.Limit > 0 && len(res.Events) >= q.Limit {
+	// Legacy indexed event_search stops scanning at the cap, so its true total
+	// is unknown (Total=0). Exact trace-mark action search installs its counted
+	// compaction before this fallback; never publish a conflicting second ruler.
+	if res.View == "event_search" && q.Limit > 0 && len(res.Events) >= q.Limit && !hasEventSearchCompaction(res.Compactions) {
 		last := res.Events[len(res.Events)-1]
 		res.Compactions = append(res.Compactions, ViewCompaction{
 			View:            "event_search",
@@ -550,6 +601,15 @@ func collectResultCompactions(res *Result, q Query) {
 		})
 	}
 	res.Compactions = dedupeViewCompactions(res.Compactions)
+}
+
+func hasEventSearchCompaction(in []ViewCompaction) bool {
+	for _, compaction := range in {
+		if compaction.View == FallbackViewEventSearch && compaction.Dimension == CompactionDimensionEvents {
+			return true
+		}
+	}
+	return false
 }
 
 func dedupeViewCompactions(in []ViewCompaction) []ViewCompaction {
@@ -871,6 +931,9 @@ func EventSearch(idx *Index, q Query) []EventView {
 	if idx == nil {
 		return nil
 	}
+	if err := ValidateTraceMarkActionFilter(q.View, q.EventTypes, q.TraceMarkActions); err != nil {
+		return nil
+	}
 	q = ensureQueryFlavor(idx, q)
 	typeSet := make(map[EventType]bool, len(q.EventTypes))
 	for _, t := range q.EventTypes {
@@ -878,9 +941,10 @@ func EventSearch(idx *Index, q Query) []EventView {
 			typeSet[t] = true
 		}
 	}
+	actionSet := traceMarkActionFilterSet(q.TraceMarkActions)
 	var events []Event
 	for _, ev := range idx.Events {
-		if !eventInQuery(ev, q, typeSet) {
+		if !eventInQuery(ev, q, typeSet, actionSet) {
 			continue
 		}
 		events = append(events, ev)
@@ -901,11 +965,74 @@ func EventSearch(idx *Index, q Query) []EventView {
 	return out
 }
 
-func eventInQuery(ev Event, q Query, typeSet map[EventType]bool) bool {
+// eventSearchWithAccounting is the indexed twin of StreamEventSearch for the
+// exact trace-mark action lane. It counts the complete matched set while
+// retaining only the earliest limit rows, so both engines publish identical
+// matched/emitted accounting without allocating an unbounded result slice.
+func eventSearchWithAccounting(idx *Index, q Query) ([]EventView, int) {
+	if idx == nil || ValidateTraceMarkActionFilter(q.View, q.EventTypes, q.TraceMarkActions) != nil {
+		return nil, 0
+	}
+	q = ensureQueryFlavor(idx, q)
+	typeSet := make(map[EventType]bool, len(q.EventTypes))
+	for _, eventType := range q.EventTypes {
+		if eventType != "" {
+			typeSet[eventType] = true
+		}
+	}
+	actionSet := traceMarkActionFilterSet(q.TraceMarkActions)
+	matched := 0
+	selected := make([]Event, 0, q.Limit)
+	for _, event := range idx.Events {
+		if !eventInQuery(event, q, typeSet, actionSet) {
+			continue
+		}
+		matched++
+		selected = insertEventChronological(selected, event, q.Limit)
+	}
+	raw, rawIssues := loadRawArtifactLines(idx, selected)
+	out := make([]EventView, 0, len(selected))
+	for _, event := range selected {
+		event = applyPriorityFlavor(event, q.TraceFlavor)
+		view := idx.eventView(event, raw[event.Line])
+		if issue := rawIssues[event.Line]; issue != "" {
+			view.RawUnavailableReason = issue
+		}
+		out = append(out, view)
+	}
+	return out, matched
+}
+
+func insertEventChronological(events []Event, candidate Event, limit int) []Event {
+	if limit <= 0 {
+		return events
+	}
+	position := sort.Search(len(events), func(i int) bool {
+		if events[i].Ts != candidate.Ts {
+			return events[i].Ts > candidate.Ts
+		}
+		return events[i].Line > candidate.Line
+	})
+	if len(events) >= limit && position >= limit {
+		return events
+	}
+	events = append(events, Event{})
+	copy(events[position+1:], events[position:])
+	events[position] = candidate
+	if len(events) > limit {
+		events = events[:limit]
+	}
+	return events
+}
+
+func eventInQuery(ev Event, q Query, typeSet map[EventType]bool, actionSet map[string]bool) bool {
 	if !eventInQueryWindow(ev, q) {
 		return false
 	}
 	if len(typeSet) > 0 && !eventTypeMatches(ev, typeSet) {
+		return false
+	}
+	if len(actionSet) > 0 && (ev.Type != EventTraceMark || !actionSet[ev.SpanAction]) {
 		return false
 	}
 	if strings.TrimSpace(q.Pattern) != "" && !eventMatchesPattern(ev, q.Pattern) {
@@ -18707,6 +18834,7 @@ func crossTypePatternHits(idx *Index, q Query) crossTypeHitSummary {
 			typeSet[t] = true
 		}
 	}
+	actionSet := traceMarkActionFilterSet(q.TraceMarkActions)
 	if len(typeSet) == 0 {
 		return sum
 	}
@@ -18726,7 +18854,7 @@ func crossTypePatternHits(idx *Index, q Query) crossTypeHitSummary {
 			// the zero-match query; only OTHER types are counterfactual hits.
 			continue
 		}
-		if !eventInQuery(ev, q, nil) {
+		if !eventInQuery(ev, q, nil, actionSet) {
 			continue
 		}
 		counts[ev.Type]++

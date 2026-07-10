@@ -146,6 +146,9 @@ func stepParamsEcho(step *Step) string {
 	if len(step.EventTypes) > 0 {
 		parts = append(parts, fmt.Sprintf("event_types=[%s]", strings.Join(step.EventTypes, ",")))
 	}
+	if len(step.TraceMarkActions) > 0 {
+		parts = append(parts, fmt.Sprintf("trace_mark_actions=[%s]", strings.Join(step.TraceMarkActions, ",")))
+	}
 	parts = append(parts, fmt.Sprintf("max_lines=%d", step.EffectiveMaxLines()))
 	if len(parts) == 0 {
 		return "(无)"

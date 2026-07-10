@@ -280,6 +280,9 @@ func stepQuery(step *Step, flavorHint tracequery.TraceFlavor) tracequery.Query {
 	for _, et := range step.EventTypes {
 		q.EventTypes = append(q.EventTypes, tracequery.EventType(et))
 	}
+	for _, action := range step.TraceMarkActions {
+		q.TraceMarkActions = append(q.TraceMarkActions, tracequery.TraceMarkAction(action))
+	}
 	if flavorHint != "" && flavorHint != tracequery.TraceFlavorAuto {
 		q.TraceFlavorHint = flavorHint
 		q.TraceFlavorHintSource = "cli_flag"

@@ -591,6 +591,7 @@ type Query struct {
 	LineStart              int
 	LineEnd                int
 	EventTypes             []EventType
+	TraceMarkActions       []TraceMarkAction
 	Pattern                string
 	SpanName               string
 	FrameWindowAutoDerived bool

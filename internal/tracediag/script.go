@@ -213,18 +213,19 @@ type ScriptOverrides struct {
 // Step is one collection step. V2 adds only the typed pid_from and
 // windows_from bindings to the original §28.12 static field set.
 type Step struct {
-	Label       string       `yaml:"label"`
-	View        string       `yaml:"view"`
-	PID         int          `yaml:"pid"`
-	PIDFrom     string       `yaml:"pid_from"`
-	Thread      string       `yaml:"thread"`
-	Window      string       `yaml:"window"`
-	LineStart   int          `yaml:"line_start"`
-	LineEnd     int          `yaml:"line_end"`
-	Pattern     string       `yaml:"pattern"`
-	EventTypes  []string     `yaml:"event_types"`
-	MaxLines    int          `yaml:"max_lines"`
-	WindowsFrom *WindowsFrom `yaml:"windows_from"`
+	Label            string       `yaml:"label"`
+	View             string       `yaml:"view"`
+	PID              int          `yaml:"pid"`
+	PIDFrom          string       `yaml:"pid_from"`
+	Thread           string       `yaml:"thread"`
+	Window           string       `yaml:"window"`
+	LineStart        int          `yaml:"line_start"`
+	LineEnd          int          `yaml:"line_end"`
+	Pattern          string       `yaml:"pattern"`
+	EventTypes       []string     `yaml:"event_types"`
+	TraceMarkActions []string     `yaml:"trace_mark_actions"`
+	MaxLines         int          `yaml:"max_lines"`
+	WindowsFrom      *WindowsFrom `yaml:"windows_from"`
 
 	// Resolved fields (populated by Validate; not part of the YAML schema).
 	windowStart     float64
@@ -298,7 +299,7 @@ func parseScript(data []byte, overrides ScriptOverrides) (*Script, error) {
 	dec.KnownFields(true)
 	var script Script
 	if err := dec.Decode(&script); err != nil {
-		return nil, fmt.Errorf("tracediag: script decode failed (unknown keys are rejected; v1 fields: version/description/defaults/steps; v2 adds inputs/limits/discoveries/windows_from/pid_from): %w", err)
+		return nil, fmt.Errorf("tracediag: script decode failed (unknown keys are rejected; step fields include event_types/trace_mark_actions; v2 adds inputs/limits/discoveries/windows_from/pid_from): %w", err)
 	}
 	if override := strings.TrimSpace(overrides.Window); override != "" {
 		script.Defaults.Window = override
@@ -538,6 +539,26 @@ func (s *Script) validateStep(i int, step *Step, seen map[string]bool, discoveri
 	for _, et := range step.EventTypes {
 		if !eventTypeSupported(et) {
 			return fmt.Errorf("%s (%s): unknown event type %q; supported: %s", at, step.Label, et, strings.Join(supportedEventTypes, ", "))
+		}
+	}
+	eventTypes := make([]tracequery.EventType, 0, len(step.EventTypes))
+	for _, eventType := range step.EventTypes {
+		eventTypes = append(eventTypes, tracequery.EventType(eventType))
+	}
+	actions := make([]tracequery.TraceMarkAction, 0, len(step.TraceMarkActions))
+	for _, action := range step.TraceMarkActions {
+		actions = append(actions, tracequery.TraceMarkAction(action))
+	}
+	if err := tracequery.ValidateTraceMarkActionFilter(step.View, eventTypes, actions); err != nil {
+		return fmt.Errorf("%s (%s): %w", at, step.Label, err)
+	}
+	if step.View == tracequery.FallbackViewEventSearch && (step.PID > 0 || step.Thread != "") {
+		if global := tracequery.CPUGlobalEventSearchTypes(eventTypes); len(global) > 0 {
+			parts := make([]string, 0, len(global))
+			for _, eventType := range global {
+				parts = append(parts, string(eventType))
+			}
+			return fmt.Errorf("%s (%s): pid/thread cannot be combined with CPU-global event_search types [%s]; the selector filters incidental emitter identity, not CPU-state ownership", at, step.Label, strings.Join(parts, ","))
 		}
 	}
 	// Per-step line cap: step value > defaults value > DefaultStepMaxLines,

@@ -175,12 +175,13 @@ func ComputeCPUFrequencyCensus(idx *Index, q Query, displayed []EventView) *CPUF
 			typeSet[t] = true
 		}
 	}
+	actionSet := traceMarkActionFilterSet(q.TraceMarkActions)
 	acc := newCPUFrequencyCensusAcc(typeSet)
 	if acc == nil {
 		return nil
 	}
 	for _, ev := range idx.Events {
-		if !eventInQuery(ev, q, typeSet) {
+		if !eventInQuery(ev, q, typeSet, actionSet) {
 			continue
 		}
 		acc.observe(ev)

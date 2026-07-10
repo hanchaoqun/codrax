@@ -143,6 +143,85 @@ steps:
 	}
 }
 
+func TestParseScriptTraceMarkActionsClosedFilter(t *testing.T) {
+	valid := `
+version: 1
+steps:
+  - {label: async_rows, view: event_search, trace_mark_actions: [S, F], max_lines: 20}
+`
+	script, err := ParseScript([]byte(valid))
+	if err != nil {
+		t.Fatalf("valid action filter: %v", err)
+	}
+	if got := script.Steps[0].TraceMarkActions; len(got) != 2 || got[0] != "S" || got[1] != "F" {
+		t.Fatalf("trace_mark_actions = %v", got)
+	}
+	invalid := map[string]string{
+		"unknown":      `[X]`,
+		"lowercase":    `[s]`,
+		"duplicate":    `[S, S]`,
+		"wrong view":   `[S]`,
+		"foreign type": `[S]`,
+	}
+	for name, actions := range invalid {
+		view := "event_search"
+		eventTypes := ""
+		if name == "wrong view" {
+			view = "window_stats"
+		}
+		if name == "foreign type" {
+			eventTypes = ", event_types: [sched_switch]"
+		}
+		yamlText := "version: 1\nsteps:\n  - {label: bad, view: " + view + ", trace_mark_actions: " + actions + eventTypes + "}\n"
+		if _, err := ParseScript([]byte(yamlText)); err == nil {
+			t.Errorf("%s action shape must fail loud", name)
+		}
+	}
+	withExactType := `
+version: 1
+steps:
+  - {label: async_rows, view: event_search, event_types: [trace_mark], trace_mark_actions: [S]}
+`
+	if _, err := ParseScript([]byte(withExactType)); err != nil {
+		t.Fatalf("trace_mark + exact action must be valid: %v", err)
+	}
+}
+
+func TestParseScriptRejectsSelectorsOnCPUGlobalEventSearch(t *testing.T) {
+	for name, yamlText := range map[string]string{
+		"inherited pid": `
+version: 1
+defaults: {pid: 20}
+steps:
+  - {label: freq, view: event_search, event_types: [cpu_frequency]}
+`,
+		"thread": `
+version: 1
+steps:
+  - {label: idle, view: event_search, thread: app-20, event_types: [cpu_idle]}
+`,
+		"mixed": `
+version: 1
+steps:
+  - {label: mixed, view: event_search, pid: 20, event_types: [sched_switch, clock_set_rate]}
+`,
+	} {
+		_, err := ParseScript([]byte(yamlText))
+		if err == nil || !strings.Contains(err.Error(), "CPU-global") || !strings.Contains(err.Error(), "incidental emitter") {
+			t.Errorf("%s must fail with CPU ownership guidance, got %v", name, err)
+		}
+	}
+	allowed := `
+version: 1
+steps:
+  - {label: stats, view: window_stats, pid: 20, event_types: [cpu_frequency]}
+  - {label: raw, view: event_search, event_types: [cpu_frequency]}
+`
+	if _, err := ParseScript([]byte(allowed)); err != nil {
+		t.Fatalf("target-oriented compound view and unscoped raw CPU lane must remain valid: %v", err)
+	}
+}
+
 func TestParseScriptVersionAndStructureFailLoud(t *testing.T) {
 	cases := map[string]string{
 		"version 3":             "version: 3\nsteps:\n  - {label: a, view: event_search}\n",

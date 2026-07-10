@@ -312,6 +312,51 @@ steps:
 	}
 }
 
+func TestRunTraceMarkActionsEchoExactRowsAndIntegrity(t *testing.T) {
+	scriptYAML := `
+version: 1
+steps:
+  - label: async_starts
+    view: event_search
+    window: "1.0..1.1"
+    trace_mark_actions: [S]
+    max_lines: 30
+`
+	scriptPath, tracePath, _ := writeRunFixtures(t, scriptYAML)
+	trace := strings.Join([]string{
+		` app-10 (10) [000] .... 1.000000: tracing_mark_write: C|10|counter|1|S|10|`,
+		` app-10 (10) [000] .... 1.010000: tracing_mark_write: S|10|first-async|7`,
+		` app-10 (10) [000] .... 1.020000: tracing_mark_write: S|bad|malformed|8`,
+		` app-10 (10) [000] .... 1.030000: tracing_mark_write: S|10|second-async|9`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	failed, err := Run(nil, Options{ScriptPath: scriptPath, TracePath: tracePath, Now: fixedNow}, &buf)
+	if err != nil || failed != 0 {
+		t.Fatalf("Run(action filter): failed=%d err=%v\n%s", failed, err, buf.String())
+	}
+	report := buf.String()
+	for _, want := range []string{
+		"trace_mark_actions=[S]",
+		"matched=2 emitted=2 compacted=false",
+		"S|10|first-async|7",
+		"S|10|second-async|9",
+		"trace_mark_integrity_degraded=true",
+		"invalid_payload_pid",
+	} {
+		if !strings.Contains(report, want) {
+			t.Errorf("action report missing %q\n%s", want, report)
+		}
+	}
+	for _, forbidden := range []string{"C|10|counter|1|S|10|", "S|bad|malformed|8"} {
+		if strings.Contains(report, forbidden) {
+			t.Errorf("action report re-admitted raw-prefix/malformed row %q\n%s", forbidden, report)
+		}
+	}
+}
+
 // Total report cap: when the whole-report budget is exhausted the writer
 // discloses ONCE, keeps executing every step, and the status summary always
 // lands (自设最强突变: removing the cap or the summary bypass reddens here).
