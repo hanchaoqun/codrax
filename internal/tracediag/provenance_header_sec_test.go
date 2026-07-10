@@ -11,7 +11,7 @@ import (
 // SEC #27 pins: the provenance header identifies the trace/script by
 // basename + size + sha256 — the operator's absolute path (/Users/<name>/…)
 // must never appear in the report, and the digest must reconcile byte-exact
-// with the trace file (playbook trace_sha256.txt cross-check).
+// with the trace file directly from the report artifact.
 func TestProvenanceHeaderSanitizesPathsAndCarriesDigest(t *testing.T) {
 	scriptPath, tracePath, dir := writeRunFixtures(t, runTestScript)
 	var buf bytes.Buffer
@@ -80,14 +80,18 @@ steps:
 		t.Fatalf("failed = %d, want 0\n%s", failed, buf.String())
 	}
 	report := buf.String()
+	sum := sha256.Sum256(mustRead(t, tracePath))
 	if !strings.Contains(report, "trace="+baseName(tracePath)+" primary_size_bytes=") {
 		t.Errorf("v2 report missing basename trace identity:\n%s", report)
+	}
+	if !strings.Contains(report, "primary_sha256="+hex.EncodeToString(sum[:])) {
+		t.Errorf("v2 report missing byte-exact primary digest:\n%s", report)
 	}
 	if !strings.Contains(report, "script="+baseName(scriptPath)+" version=2") {
 		t.Errorf("v2 report missing basename script identity:\n%s", report)
 	}
 	if !strings.Contains(report, "source_fingerprint=sha256:") {
-		t.Errorf("v2 report lost source-universe reconciliation fingerprint:\n%s", report)
+		t.Errorf("v2 report lost source-universe lock fingerprint:\n%s", report)
 	}
 	if strings.Contains(report, dir) {
 		t.Errorf("v2 report leaks the collection machine's absolute path %q:\n%s", dir, report)

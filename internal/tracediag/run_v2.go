@@ -62,6 +62,14 @@ func runV2(ctx context.Context, opts Options, w io.Writer, script *Script, trace
 	if err := sourceVersion.Validate(tracePath); err != nil {
 		return 0, fmt.Errorf("tracediag v2 initial source lock: %w", err)
 	}
+	// The source-universe fingerprint below locks path/size/mtime/inode/ctime
+	// across every discovery and execution stage, but it is intentionally not a
+	// content digest. Carry a byte-exact digest of the primary artifact as a
+	// separate reconciliation authority, matching the v1 report contract.
+	primarySHA256 := traceFileSHA256(tracePath)
+	if err := sourceVersion.Validate(tracePath); err != nil {
+		return 0, fmt.Errorf("tracediag v2 source lock after primary digest: %w", err)
+	}
 	info = lockedInfo
 	discoveries, err := runV2Discoveries(ctx, script, tracePath, flavorHint, sourceVersion)
 	if err != nil {
@@ -80,7 +88,7 @@ func runV2(ctx context.Context, opts Options, w io.Writer, script *Script, trace
 
 	var report bytes.Buffer
 	rw := newReportWriter(&report, totalCap)
-	writeV2ProvenanceHeader(rw, opts, script, tracePath, info, flavorHint, at, sourceVersion, len(instances))
+	writeV2ProvenanceHeader(rw, opts, script, tracePath, primarySHA256, info, flavorHint, at, sourceVersion, len(instances))
 	for i := range discoveries {
 		writeV2DiscoverySection(rw, i+1, len(discoveries), discoveries[i])
 	}

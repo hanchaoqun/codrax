@@ -10,15 +10,17 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
-func writeV2ProvenanceHeader(rw *reportWriter, opts Options, script *Script, tracePath string, info os.FileInfo, flavorHint tracequery.TraceFlavor, at time.Time, sourceVersion tracequery.TraceSourceVersion, expanded int) {
+func writeV2ProvenanceHeader(rw *reportWriter, opts Options, script *Script, tracePath, primarySHA256 string, info os.FileInfo, flavorHint tracequery.TraceFlavor, at time.Time, sourceVersion tracequery.TraceSourceVersion, expanded int) {
 	rw.line("# codrax tracediag 自动采集报告")
 	rw.line(fmt.Sprintf("codrax_version=%s build_time=%s", opts.Version, opts.BuildTime))
 	rw.line(fmt.Sprintf("generated_at=%s", at.Format(time.RFC3339)))
 	// Keep the v2 automatic-collection header on the same round-trip-safe
 	// provenance contract as v1: reports are customer-return artifacts, so
 	// local absolute paths must never leave the collection machine. The source
-	// universe fingerprint below remains the exact reconciliation authority.
-	rw.line(fmt.Sprintf("trace=%s primary_size_bytes=%d source_universe_bytes=%d", filepath.Base(tracePath), info.Size(), sourceVersion.SourceBytes()))
+	// universe fingerprint below remains the multi-stage source-lock authority;
+	// primary_sha256 is the separate byte-exact reconciliation authority. Do
+	// not describe the metadata-derived source fingerprint as a content hash.
+	rw.line(fmt.Sprintf("trace=%s primary_size_bytes=%d primary_sha256=%s source_universe_bytes=%d", filepath.Base(tracePath), info.Size(), primarySHA256, sourceVersion.SourceBytes()))
 	rw.line(fmt.Sprintf("source_fingerprint=%s source_lock=tracequery_source_universe source_lock_status=validated", sourceVersion.Fingerprint()))
 	rw.line(fmt.Sprintf("trace_flavor_hint=%s", string(flavorHint)))
 	rw.line(fmt.Sprintf("script=%s version=%d discoveries=%d logical_steps=%d expanded_instances=%d", filepath.Base(opts.ScriptPath), script.Version, len(script.Discoveries), len(script.Steps), expanded))
