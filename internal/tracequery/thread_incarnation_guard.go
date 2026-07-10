@@ -253,6 +253,44 @@ func threadIncarnationConflictForQuery(idx *Index, q Query, onlyPID int) *thread
 	return nil
 }
 
+// threadIncarnationConflictForPIDSet is the contributor-scoped twin of
+// threadIncarnationConflictForQuery. It is for views whose complete numeric
+// TID dependency set is known before aggregation (for example perf_timeline).
+// An empty set has no numeric identity dependency and is therefore safe. A
+// capped lifecycle audit remains fail-closed for every non-empty set because
+// the omitted conflicts may include one of its contributors.
+func threadIncarnationConflictForPIDSet(idx *Index, q Query, pids map[int]bool) *threadIncarnationConflict {
+	if idx == nil || len(pids) == 0 {
+		return nil
+	}
+	for i := range idx.threadIncarnationFailures {
+		preserved := &idx.threadIncarnationFailures[i]
+		if pids[preserved.PID] && incarnationBoundaryInsideQuery(preserved, q) {
+			copy := *preserved
+			return &copy
+		}
+	}
+	if idx.threadIncarnationFailuresCapped {
+		return &threadIncarnationConflict{Signal: "lifecycle_audit_truncated"}
+	}
+	tracker := newThreadIncarnationTracker()
+	for _, ev := range idx.Events {
+		if q.LineEnd > 0 && ev.Line > q.LineEnd {
+			continue
+		}
+		if q.LineStart == 0 && q.LineEnd == 0 && q.TimeEnd > 0 && ev.Ts > q.TimeEnd {
+			continue
+		}
+		for _, conflict := range tracker.observeAll(ev, 0) {
+			if pids[conflict.PID] && incarnationBoundaryInsideQuery(&conflict, q) {
+				copy := conflict
+				return &copy
+			}
+		}
+	}
+	return nil
+}
+
 // mergeThreadIncarnationFailures preserves a bounded, deterministic union of
 // physical child/file-order proofs and canonical merged-timeline proofs. The
 // former catches poison that timestamp sorting would erase; the latter catches

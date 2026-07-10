@@ -2835,9 +2835,9 @@ type perfTimelineBucketAcc struct {
 
 func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 	q = ensureQueryFlavor(idx, q)
-	start, end, count := perfTimelineWindow(idx, q)
+	start, end, count, contributorPIDs := perfTimelineWindow(idx, q)
 	res := PerfTimelineResult{Window: TimeWindow{StartTs: start, EndTs: end}}
-	if conflict := threadIncarnationConflictForQuery(idx, q, 0); conflict != nil {
+	if conflict := threadIncarnationConflictForPIDSet(idx, q, contributorPIDs); conflict != nil {
 		res.Caveats = append(res.Caveats, "thread_identity_fail_closed=true; "+conflict.reason()+"; PID-keyed perf timeline buckets are omitted because the selected window spans task incarnations")
 		return res
 	}
@@ -2942,9 +2942,10 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 	return res
 }
 
-func perfTimelineWindow(idx *Index, q Query) (float64, float64, int) {
+func perfTimelineWindow(idx *Index, q Query) (float64, float64, int, map[int]bool) {
 	start, end := q.TimeStart, q.TimeEnd
 	count := 0
+	contributorPIDs := map[int]bool{}
 	for _, ev := range idx.Events {
 		if ev.Type != EventPerfSample || !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
 			continue
@@ -2956,6 +2957,9 @@ func perfTimelineWindow(idx *Index, q Query) (float64, float64, int) {
 			continue
 		}
 		count++
+		if pid := perfSampleThread(ev).PID; pid > 0 {
+			contributorPIDs[pid] = true
+		}
 		if start == 0 || ev.Ts < start {
 			start = ev.Ts
 		}
@@ -2969,7 +2973,7 @@ func perfTimelineWindow(idx *Index, q Query) (float64, float64, int) {
 	if end == start && count > 0 {
 		end = start + 0.001
 	}
-	return start, end, count
+	return start, end, count, contributorPIDs
 }
 
 func topWeightedKey(in map[string]int64) string {
