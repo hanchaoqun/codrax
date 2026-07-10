@@ -100,7 +100,7 @@ func TestSemLeadOnChainSemanticFamilySingleSeatCrownedZH(t *testing.T) {
 	if fenceRow == "" || !strings.Contains(fenceRow, "❶") {
 		t.Fatalf("the semantic family fence row must wear the ❶ badge, got %q in:\n%s", fenceRow, md)
 	}
-	if !strings.Contains(md, "确定性优化候选·根因排序#1") {
+	if !strings.Contains(md, "语义优化候选·根因排序#1") {
 		t.Fatalf("行2 must carry the tier word + adopted rank seat:\n%s", md)
 	}
 
@@ -902,7 +902,7 @@ func TestSemLeadBadgeOrdinalConsistencyRealBelowPrimary(t *testing.T) {
 		t.Fatalf("the semantic family row must stay published:\n%s", md)
 	}
 	texBlock := strings.Join(tex, "\n")
-	if !strings.Contains(texBlock, "确定性优化候选") {
+	if !strings.Contains(texBlock, "语义优化候选") {
 		t.Fatalf("the family keeps its tier word (提及地板 carrier):\n%s", texBlock)
 	}
 	m := regexp.MustCompile(`根因排序#(\d+)`).FindStringSubmatch(texBlock)

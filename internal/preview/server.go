@@ -508,11 +508,12 @@ func renderHTMLPage(a pageArgs) string {
   --rank-1-fg: #7c2d12; --rank-1-bg: #ffedd5;
   --rank-2-fg: #1e40af; --rank-2-bg: #dbeafe;
   --rank-3-fg: #5b21b6; --rank-3-bg: #ede9fe;
+  --action-fg: #166534; --action-bg: #ecfdf3; --action-border: #86efac;
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei", Arial, sans-serif;
   --font-mono: "Sarasa Mono SC", "Noto Sans Mono CJK SC", "Source Han Mono SC", ui-monospace, "Cascadia Mono", "Cascadia Code", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Microsoft YaHei UI", "Microsoft YaHei", monospace;
 }
 @media (prefers-color-scheme: dark) {
-  :root { --fg: #e6edf3; --muted: #9aa4b2; --line: #30363d; --code: #161b22; --bg: #0d1117; --error-bg: #2a1212; --error-fg: #ffb4a8; --link: #79c0ff; --focus: #60a5fa; --rank-1-fg: #fed7aa; --rank-1-bg: #7c2d12; --rank-2-fg: #bfdbfe; --rank-2-bg: #1e3a8a; --rank-3-fg: #ddd6fe; --rank-3-bg: #4c1d95; }
+  :root { --fg: #e6edf3; --muted: #9aa4b2; --line: #30363d; --code: #161b22; --bg: #0d1117; --error-bg: #2a1212; --error-fg: #ffb4a8; --link: #79c0ff; --focus: #60a5fa; --rank-1-fg: #fed7aa; --rank-1-bg: #7c2d12; --rank-2-fg: #bfdbfe; --rank-2-bg: #1e3a8a; --rank-3-fg: #ddd6fe; --rank-3-bg: #4c1d95; --action-fg: #bbf7d0; --action-bg: #123524; --action-border: #22c55e; }
 }
 /* CJK-heavy report body: the stack must name CJK faces explicitly —
    without them Windows browsers fall back to SimSun for the zh text,
@@ -548,18 +549,34 @@ pre.trace-projection-tree code { font: inherit; line-height: inherit; white-spac
 pre.trace-projection-tree .trace-cell { display: inline-block; width: 1ch; min-width: 1ch; height: 1em; line-height: 1em; vertical-align: baseline; white-space: pre; }
 pre.trace-projection-tree .trace-cell-0 { width: 0; min-width: 0; }
 pre.trace-projection-tree .trace-cell-2 { width: 2ch; min-width: 2ch; }
-/* Rank chips consume exactly the same two grid cells as the authoritative
-   Markdown token (#N, or circled badge + its spacer). Color and weight add a
-   scan target without changing row width/height; the symbol stack and hidden
-   overflow keep wide fallback ordinals from colliding with state icons. */
+/* Renderer-owned symbols retain a 1ch outer cell computed in the tree's mono
+   grid. The inner glyph uses one monochrome cross-platform fallback stack and
+   optical transforms only; transforms never participate in layout. This
+   normalizes mixed Unicode ink boxes without changing textContent or columns. */
+pre.trace-projection-tree .trace-icon { display: inline-grid; place-items: center; overflow: hidden; vertical-align: baseline; }
+pre.trace-projection-tree .trace-icon-glyph,
+pre.trace-projection-tree .trace-rank-glyph { display: block; line-height: 1; font-family: "Apple Symbols", "Segoe UI Symbol", "Noto Sans Symbols 2", "Symbola", "Arial Unicode MS", sans-serif; font-synthesis: none; font-variant-emoji: text; transform-origin: 50% 50%; }
+pre.trace-projection-tree .trace-icon-glyph { transform: scale(.90) translateY(.02em); }
+pre.trace-projection-tree .trace-icon-running .trace-icon-glyph,
+pre.trace-projection-tree .trace-icon-io .trace-icon-glyph { transform: scale(.82) translateY(.01em); }
+pre.trace-projection-tree .trace-icon-root .trace-icon-glyph,
+pre.trace-projection-tree .trace-icon-sleep .trace-icon-glyph,
+pre.trace-projection-tree .trace-icon-blind .trace-icon-glyph,
+pre.trace-projection-tree .trace-icon-neutral .trace-icon-glyph { transform: scale(.96) translateY(.02em); }
+/* Rank chips consume exactly the same one/two grid cells as their Markdown
+   tokens. Color adds a scan target; clipping prevents fallback overprint. */
 pre.trace-projection-tree .trace-rank-chip,
 pre.trace-projection-tree .trace-rank-ordinal { display: inline-block; height: 1em; line-height: 1em; vertical-align: baseline; white-space: pre; overflow: hidden; border-radius: .22em; font-weight: 750; text-align: center; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+pre.trace-projection-tree .trace-rank-chip { display: inline-grid; place-items: center; }
 pre.trace-projection-tree .trace-rank-width-1 { width: 1ch; min-width: 1ch; }
 pre.trace-projection-tree .trace-rank-width-2 { width: 2ch; min-width: 2ch; }
-pre.trace-projection-tree .trace-rank-chip { font-family: "Segoe UI Symbol", "Noto Sans Symbols 2", "Arial Unicode MS", sans-serif; }
+pre.trace-projection-tree .trace-rank-glyph { transform: scale(.78); }
 pre.trace-projection-tree .trace-rank-1 { color: var(--rank-1-fg); background: var(--rank-1-bg); }
 pre.trace-projection-tree .trace-rank-2 { color: var(--rank-2-fg); background: var(--rank-2-bg); }
 pre.trace-projection-tree .trace-rank-3 { color: var(--rank-3-fg); background: var(--rank-3-bg); }
+pre.trace-projection-tree .trace-action-token { display: inline-block; height: 1em; line-height: 1em; vertical-align: baseline; overflow: hidden; border-radius: .18em; color: var(--action-fg); background: var(--action-bg); font-weight: 750; text-align: center; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+pre.trace-projection-tree .trace-action-width-6 { width: 6ch; min-width: 6ch; }
+pre.trace-projection-tree .trace-action-width-18 { width: 18ch; min-width: 18ch; }
 pre.trace-projection-tree:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 table { border-collapse: collapse; width: max-content; max-width: 100%; overflow: auto; overscroll-behavior-x: contain; display: block; font-size: .925em; line-height: 1.52; }
 th, td { border: 1px solid var(--line); padding: 6px 10px; }
@@ -571,6 +588,12 @@ img, svg { max-width: 100%; height: auto; }
    balanced columns on wide screens; a node's paragraph/list stays together. */
 section.trace-projection-detail,
 section.trace-projection-evidence { margin-top: 2.5em; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--code); font-size: .86rem; line-height: 1.55; }
+/* Action surface: visible before the lossless audit appendix, but restrained
+   enough that TOP rank chips remain the strongest scan anchors. */
+section.trace-action-optimization { margin: 1.45em 0 2em; padding: 12px 14px 14px; border: 1px solid var(--action-border); border-left-width: 4px; border-radius: 9px; background: var(--action-bg); }
+section.trace-action-optimization > h2 { margin: 0 0 .72em; padding-bottom: .4em; border-bottom-color: var(--action-border); color: var(--action-fg); font-size: 1.24rem; }
+section.trace-action-optimization th:first-child,
+section.trace-action-optimization td:first-child { color: var(--action-fg); font-weight: 700; }
 section.trace-projection-detail { column-count: 2; column-gap: 28px; column-rule: 1px solid var(--line); }
 section.trace-projection-detail > h2,
 section.trace-projection-evidence > h2 { margin: 0 0 .75em; padding-bottom: .45em; border-bottom: 1px solid var(--line); font-size: 1.18rem; column-span: all; }
@@ -609,7 +632,7 @@ section.aux h2 { font-size: 1em; color: var(--muted); margin: 0 0 .5em; font-wei
 }
 @page { margin: 12mm; }
 @media print {
-  :root { color-scheme: light; --fg: #111; --muted: #555; --line: #aaa; --code: #f7f7f7; --bg: #fff; }
+  :root { color-scheme: light; --fg: #111; --muted: #555; --line: #aaa; --code: #f7f7f7; --bg: #fff; --rank-1-fg: #7c2d12; --rank-1-bg: #ffedd5; --rank-2-fg: #1e40af; --rank-2-bg: #dbeafe; --rank-3-fg: #5b21b6; --rank-3-bg: #ede9fe; --action-fg: #166534; --action-bg: #ecfdf3; --action-border: #86efac; }
   body { background: #fff; color: #111; font: 10.5pt/1.55 var(--font-sans); }
   main { max-width: none; padding: 0; letter-spacing: 0; }
   .topbar { display: none; }

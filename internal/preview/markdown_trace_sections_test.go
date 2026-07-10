@@ -8,6 +8,14 @@ import (
 func TestRenderMarkdownHTMLWrapsGeneratedTraceAuditChaptersLosslessly(t *testing.T) {
 	markdown := []byte(`# 报告
 
+## 确定性优化点
+
+可直接落地的优化项。
+
+| 优化点 | 耗时 |
+|---|---|
+| VerifyClass | 4.6ms |
+
 ## 因果投影明细(逐节点完整属性) — trace-a
 
 导语 <anonymous>
@@ -30,12 +38,13 @@ func TestRenderMarkdownHTMLWrapsGeneratedTraceAuditChaptersLosslessly(t *testing
 	if err != nil {
 		t.Fatalf("RenderMarkdownHTML: %v", err)
 	}
-	if strings.Count(got, `<section class="trace-projection-detail">`) != 1 ||
+	if strings.Count(got, `<section class="trace-action-optimization">`) != 1 ||
+		strings.Count(got, `<section class="trace-projection-detail">`) != 1 ||
 		strings.Count(got, `<section class="trace-projection-evidence">`) != 1 {
 		t.Fatalf("missing exact audit wrappers:\n%s", got)
 	}
 	for _, preserved := range []string{
-		"导语 &lt;anonymous&gt;", "E1 VerifyClass", "属性 A", "trace-a:10-20", "不应在审计包装内",
+		"可直接落地的优化项", "VerifyClass", "导语 &lt;anonymous&gt;", "E1 VerifyClass", "属性 A", "trace-a:10-20", "不应在审计包装内",
 	} {
 		if !strings.Contains(got, preserved) {
 			t.Fatalf("content %q lost during wrapping:\n%s", preserved, got)
@@ -193,8 +202,9 @@ func TestStandaloneTraceAuditCSSIsCompactResponsiveAndPrintable(t *testing.T) {
 		t.Fatalf("RenderStandaloneMarkdownHTML: %v", err)
 	}
 	for _, want := range []string{
-		"section.trace-projection-detail", "section.trace-projection-evidence",
+		"section.trace-action-optimization", "section.trace-projection-detail", "section.trace-projection-evidence",
 		"column-count: 2", "font-size: .86rem", "column-count: 1", "font-size: 8pt",
+		"border-left-width: 4px", "color: var(--action-fg)",
 		"section.trace-projection-detail > h3 { break-after: avoid-column; break-inside: avoid-column; }",
 	} {
 		if !strings.Contains(page, want) {

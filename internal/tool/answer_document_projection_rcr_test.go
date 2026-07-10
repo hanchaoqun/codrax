@@ -398,7 +398,7 @@ func TestRCRImpactFormTableSingleSource(t *testing.T) {
 	}
 }
 
-func TestRCRRankedSemanticRunningNamesCPUExecutionAndTypedState(t *testing.T) {
+func TestRCRRankedSemanticRunningNamesSemanticIdentityAndTypedState(t *testing.T) {
 	node := types.TraceCausalProjectionNode{
 		Subject: "worker-200", Object: "class_verification", TypeToken: "class_verification",
 		SemanticClass: "class_verification", StateKind: "running",
@@ -407,11 +407,11 @@ func TestRCRRankedSemanticRunningNamesCPUExecutionAndTypedState(t *testing.T) {
 	}
 	row := runtimeTraceProjTreeRow{Node: node, Kind: runtimeTraceProjTreeRowChain, HasData: true, marks: &runtimeTraceProjMarkSet{}}
 	structured, ok := runtimeTraceProjCauseStructuredParts(row, true)
-	if !ok || !strings.Contains(structured.IdentityRow, "CPU执行候选·状态running·根因排序#1") {
+	if !ok || !strings.Contains(structured.IdentityRow, "语义优化候选·状态running·根因排序#1") {
 		t.Fatalf("ranked semantic CPU work must disclose its typed running state beside the seat: %+v", structured)
 	}
-	if strings.Contains(structured.IdentityRow, "算力供给候选") {
-		t.Fatalf("ordinary running work is not a compute-delivery deficit: %q", structured.IdentityRow)
+	if strings.Contains(structured.IdentityRow, "CPU执行候选") || strings.Contains(structured.IdentityRow, "算力供给候选") {
+		t.Fatalf("typed semantic work must not lose its actionable identity to a state/delivery category: %q", structured.IdentityRow)
 	}
 
 	missing := node

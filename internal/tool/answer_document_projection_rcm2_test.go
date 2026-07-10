@@ -140,7 +140,7 @@ func TestRCM2SemanticFamilyFourLineForm(t *testing.T) {
 		t.Fatalf("the source-window share lane must engage (E5 车道)")
 	}
 	// 行2: 身份行 with the background board seat (§24.10 非链背景综合排序道).
-	if !strings.Contains(fence, "确定性优化候选·背景榜位#1·置信中") {
+	if !strings.Contains(fence, "语义优化候选·背景榜位#1·置信中") {
 		t.Fatalf("行2 must carry 类别·背景榜位#N·置信:\n%s", fence)
 	}
 	// 行3: the fifth caliber word with the identity V == 发布值.

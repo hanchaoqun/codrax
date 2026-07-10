@@ -43,21 +43,23 @@ func TestStandaloneHTMLTraceProjectionTreePresentation(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`<pre class="trace-projection-tree" role="region" aria-label="Trace causal projection tree" tabindex="0"><code class="language-text"><span class="trace-cell trace-cell-1">⊚</span>`,
+		`<pre class="trace-projection-tree" role="region" aria-label="Trace causal projection tree" tabindex="0"><code class="language-text"><span class="trace-cell trace-cell-1 trace-icon trace-icon-root"><span class="trace-icon-glyph">⊚</span></span>`,
 		`--font-mono: "Sarasa Mono SC", "Noto Sans Mono CJK SC", "Source Han Mono SC"`,
 		`pre.trace-projection-tree { font-size: .8125rem; line-height: 1.52; white-space: pre; overflow-x: auto;`,
 		`font-variant-ligatures: none`,
 		`font-variant-emoji: text`,
 		`pre.trace-projection-tree .trace-cell { display: inline-block; width: 1ch; min-width: 1ch; height: 1em;`,
 		`pre.trace-projection-tree .trace-cell-2 { width: 2ch; min-width: 2ch; }`,
-		`<span class="trace-rank-chip trace-rank-1 trace-rank-width-1">❶</span><span class="trace-cell trace-cell-1">⚙</span>`,
+		`<span class="trace-rank-chip trace-rank-1 trace-rank-width-1"><span class="trace-rank-glyph">❶</span></span><span class="trace-cell trace-cell-1 trace-icon trace-icon-running"><span class="trace-icon-glyph">⚙</span></span>`,
 		`<span class="trace-rank-ordinal trace-rank-1 trace-rank-width-2">#1</span>`,
 		`pre.trace-projection-tree .trace-rank-chip,`,
 		`height: 1em; line-height: 1em;`,
 		`pre.trace-projection-tree .trace-rank-width-1 { width: 1ch; min-width: 1ch; }`,
 		`pre.trace-projection-tree .trace-rank-width-2 { width: 2ch; min-width: 2ch; }`,
 		`--rank-1-fg: #7c2d12; --rank-1-bg: #ffedd5;`,
-		`font-family: "Segoe UI Symbol", "Noto Sans Symbols 2"`,
+		`font-family: "Apple Symbols", "Segoe UI Symbol", "Noto Sans Symbols 2"`,
+		`pre.trace-projection-tree .trace-icon { display: inline-grid; place-items: center; overflow: hidden;`,
+		`transform: scale(.82) translateY(.01em);`,
 		`--link: #79c0ff; --focus: #60a5fa;`,
 		`@media (max-width: 640px)`,
 		`pre.trace-projection-tree { font-size: 12px; line-height: 1.48; }`,
@@ -67,6 +69,35 @@ func TestStandaloneHTMLTraceProjectionTreePresentation(t *testing.T) {
 		if !strings.Contains(page, want) {
 			t.Fatalf("standalone trace report missing UX contract %q", want)
 		}
+	}
+}
+
+func TestTraceProjectionIconsUseOneCellOpticalBoxes(t *testing.T) {
+	body := "```text\n⊚ app ‹用户关注线程› 满格=窗口7.000ms\n│ ⊚ ☾ ⧖ ⚙ ⛓ ⊗ ⇅ ✦ ↯ ◌ ◦\n```\n"
+	html, err := RenderMarkdownHTML([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, class := range []string{"root", "sleep", "runnable", "running", "io", "lock", "inversion", "optimization", "interrupt", "blind", "neutral"} {
+		if !strings.Contains(html, `trace-icon trace-icon-`+class+`"><span class="trace-icon-glyph">`) {
+			t.Fatalf("renderer-owned icon %q lacks its fixed optical box:\n%s", class, html)
+		}
+	}
+	for _, glyph := range []string{"⊚", "☾", "⧖", "⚙", "⛓", "⊗", "⇅", "✦", "↯", "◌", "◦"} {
+		if strings.Count(html, glyph) != 1 && glyph != "⊚" {
+			t.Fatalf("icon text must remain lossless for %q:\n%s", glyph, html)
+		}
+	}
+}
+
+func TestTraceProjectionOptimizationActionTokenKeepsGridWidth(t *testing.T) {
+	body := "```text\n⊚ app ‹用户关注线程› 满格=窗口7.000ms\n└─语义─ ✦ VerifyClass · 优化点\n```\n"
+	html, err := RenderMarkdownHTML([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(html, `<span class="trace-action-token trace-action-width-6">优化点</span>`) {
+		t.Fatalf("optimization action word must be emphasized at its original width:\n%s", html)
 	}
 }
 

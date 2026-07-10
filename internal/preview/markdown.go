@@ -212,8 +212,19 @@ func writeTraceProjectionGrid(w util.BufWriter, body string) {
 			if strings.HasPrefix(token, "❶") || strings.HasPrefix(token, "❷") || strings.HasPrefix(token, "❸") {
 				kind = "chip"
 			}
-			_, _ = fmt.Fprintf(w, `<span class="trace-rank-%s trace-rank-%d trace-rank-width-%d">%s</span>`,
-				kind, rank, width, stdhtml.EscapeString(token))
+			if kind == "chip" {
+				_, _ = fmt.Fprintf(w, `<span class="trace-rank-%s trace-rank-%d trace-rank-width-%d"><span class="trace-rank-glyph">%s</span></span>`,
+					kind, rank, width, stdhtml.EscapeString(token))
+			} else {
+				_, _ = fmt.Fprintf(w, `<span class="trace-rank-%s trace-rank-%d trace-rank-width-%d">%s</span>`,
+					kind, rank, width, stdhtml.EscapeString(token))
+			}
+			offset += len(token)
+			continue
+		}
+		if token, width, ok := traceProjectionActionToken(body, offset); ok {
+			_, _ = fmt.Fprintf(w, `<span class="trace-action-token trace-action-width-%d">%s</span>`,
+				width, stdhtml.EscapeString(token))
 			offset += len(token)
 			continue
 		}
@@ -236,8 +247,59 @@ func writeTraceProjectionGrid(w util.BufWriter, body string) {
 		if width > 2 {
 			width = 2
 		}
+		if class := traceProjectionIconClass(r); class != "" {
+			_, _ = fmt.Fprintf(w, `<span class="trace-cell trace-cell-1 trace-icon trace-icon-%s"><span class="trace-icon-glyph">%s</span></span>`,
+				class, stdhtml.EscapeString(string(r)))
+			continue
+		}
 		_, _ = fmt.Fprintf(w, `<span class="trace-cell trace-cell-%d">%s</span>`, width, stdhtml.EscapeString(string(r)))
 	}
+}
+
+// traceProjectionIconClass is the renderer-owned one-cell symbol directory.
+// Wrapping only this exact set lets HTML normalize fallback-font ink boxes
+// while keeping the authoritative character, textContent and grid geometry
+// unchanged. Unknown/customer text remains on the ordinary rune path.
+func traceProjectionIconClass(r rune) string {
+	switch r {
+	case '⊚':
+		return "root"
+	case '☾':
+		return "sleep"
+	case '⧖':
+		return "runnable"
+	case '⚙':
+		return "running"
+	case '⛓':
+		return "io"
+	case '⊗':
+		return "lock"
+	case '⇅':
+		return "inversion"
+	case '✦':
+		return "optimization"
+	case '↯':
+		return "interrupt"
+	case '◌':
+		return "blind"
+	case '◦':
+		return "neutral"
+	default:
+		return ""
+	}
+}
+
+// traceProjectionActionToken highlights only the generator's actionable
+// optimization word inside a causal tree. Width is the existing terminal-grid
+// width, so the HTML emphasis cannot move any following metric column.
+func traceProjectionActionToken(body string, offset int) (string, int, bool) {
+	rest := body[offset:]
+	for _, token := range []string{"优化点", "optimization point"} {
+		if strings.HasPrefix(rest, token) {
+			return token, runewidth.StringWidth(token), true
+		}
+	}
+	return "", 0, false
 }
 
 // traceProjectionRankToken recognizes only renderer-authored rank surfaces.

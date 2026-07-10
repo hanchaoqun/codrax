@@ -3,9 +3,10 @@ package preview
 // Runtime-trace reports deliberately put decisions and causal leads before
 // their lossless audit appendix. The appendix is essential, but a long
 // per-node roster should not have the same visual weight as the conclusion.
-// This HTML-only transformer gives two deterministic, generated H2 chapters a
+// This HTML-only transformer gives three deterministic, generated H2 chapters a
 // presentation hook:
 //
+//   - deterministic optimization points: compact actionable decision surface
 //   - causal projection detail: compact two-column audit region on wide screens
 //   - evidence index: compact single-column reference region
 //
@@ -32,6 +33,7 @@ import (
 	"strings"
 
 	"github.com/yuin/goldmark/ast"
+	extensionast "github.com/yuin/goldmark/extension/ast"
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/renderer"
 	"github.com/yuin/goldmark/text"
@@ -42,6 +44,7 @@ type traceAuditSectionClass uint8
 
 const (
 	traceAuditSectionNone traceAuditSectionClass = iota
+	traceAuditSectionOptimization
 	traceAuditSectionDetail
 	traceAuditSectionEvidence
 )
@@ -64,6 +67,8 @@ func (n *traceAuditSectionBlock) className() string {
 		return ""
 	}
 	switch n.Class {
+	case traceAuditSectionOptimization:
+		return "trace-action-optimization"
 	case traceAuditSectionDetail:
 		return "trace-projection-detail"
 	case traceAuditSectionEvidence:
@@ -103,16 +108,19 @@ func (traceAuditSectionTransformer) Transform(doc *ast.Document, reader text.Rea
 		}
 		section := &traceAuditSectionBlock{Class: candidate.class}
 		doc.InsertBefore(doc, heading, section)
-		paragraphs, lists := 0, 0
+		paragraphs, lists, tables := 0, 0, 0
 		for node := ast.Node(heading); node != nil; {
 			next := node.NextSibling()
-			if node != heading && !traceAuditSectionAdmitsChild(candidate.class, node, source, &paragraphs, &lists) {
+			if node != heading && !traceAuditSectionAdmitsChild(candidate.class, node, source, &paragraphs, &lists, &tables) {
 				break
 			}
 			doc.RemoveChild(doc, node)
 			section.AppendChild(section, node)
 			if candidate.class == traceAuditSectionEvidence && lists >= 1 {
 				// The generated evidence body ends at its own bullet list.
+				break
+			}
+			if candidate.class == traceAuditSectionOptimization && tables >= 1 {
 				break
 			}
 			node = next
@@ -166,7 +174,7 @@ func traceAuditTrailingDisclosureParagraph(node ast.Node, source []byte) bool {
 // those stay admitted (复核 R2: the former form consumed EVERYTHING up to the
 // next H1/H2, so a detail chapter without a following evidence block was the
 // report's last H2 and swallowed the trailing disclosures).
-func traceAuditSectionAdmitsChild(class traceAuditSectionClass, node ast.Node, source []byte, paragraphs, lists *int) bool {
+func traceAuditSectionAdmitsChild(class traceAuditSectionClass, node ast.Node, source []byte, paragraphs, lists, tables *int) bool {
 	if nextHeading, ok := node.(*ast.Heading); ok && nextHeading.Level <= 2 {
 		return false
 	}
@@ -176,6 +184,24 @@ func traceAuditSectionAdmitsChild(class traceAuditSectionClass, node ast.Node, s
 	}
 	if traceAuditTrailingDisclosureParagraph(node, source) {
 		return false
+	}
+	if class == traceAuditSectionOptimization {
+		switch node.Kind() {
+		case ast.KindParagraph:
+			if *paragraphs >= 1 || *tables >= 1 {
+				return false
+			}
+			*paragraphs++
+			return true
+		case extensionast.KindTable:
+			if *tables >= 1 {
+				return false
+			}
+			*tables++
+			return true
+		default:
+			return false
+		}
 	}
 	if class != traceAuditSectionEvidence {
 		switch node.(type) {
@@ -204,6 +230,11 @@ func traceAuditSectionAdmitsChild(class traceAuditSectionClass, node ast.Node, s
 }
 
 func traceAuditHeadingClass(title string) traceAuditSectionClass {
+	for _, base := range []string{"确定性优化点", "Deterministic Optimization Points"} {
+		if traceGeneratedHeadingMatches(title, base) {
+			return traceAuditSectionOptimization
+		}
+	}
 	for _, base := range []string{
 		"因果投影明细(逐节点完整属性)",
 		"Causal Projection Detail (full attributes per node)",

@@ -51,7 +51,9 @@ type runtimeTraceProjImpactForm int
 
 const (
 	runtimeTraceProjImpactFormNone runtimeTraceProjImpactForm = iota
-	// ⚙ CPU 执行占用 (a concrete running state / CPU work).
+	// ⚙ 运行占用·算力供给 (running / compute-supply family). The
+	// ranking value is the producer's discounted supply deficit, never the raw
+	// running wall clock; semantic work is classified before this state arm.
 	runtimeTraceProjImpactFormRunning
 	// ☾ 睡眠 (symptom, never a cause category).
 	runtimeTraceProjImpactFormSleep
@@ -97,12 +99,6 @@ type runtimeTraceProjImpactFormSpec struct {
 	// Lock rows override with their precise typed shape word (持锁/阻塞 split).
 	CategoryZH string
 	CategoryEN string
-	// ComputeSupplyCategoryZH/EN is the adjudicated delivery-lane wording for
-	// the Running glyph. A shared glyph does not make ordinary CPU execution
-	// evidence equivalent to a frequency/affinity/supply deficit; the exact
-	// typed delivery gate selects this alternate table cell.
-	ComputeSupplyCategoryZH string
-	ComputeSupplyCategoryEN string
 	// SemanticsZH/EN feed the generated legend entry for the form's glyph mark
 	// (runtimeTraceProjImpactFormLegendEntries). Empty = no generated entry
 	// (the form's glyph legend lives on a pre-existing pinned entry).
@@ -119,8 +115,7 @@ type runtimeTraceProjImpactFormSpec struct {
 func runtimeTraceProjImpactFormSpecs() []runtimeTraceProjImpactFormSpec {
 	return []runtimeTraceProjImpactFormSpec{
 		{Form: runtimeTraceProjImpactFormRunning, Glyph: "⚙",
-			CategoryZH: "CPU执行候选", CategoryEN: "CPU-execution candidate",
-			ComputeSupplyCategoryZH: "算力供给候选", ComputeSupplyCategoryEN: "compute-supply candidate",
+			CategoryZH: "算力供给候选", CategoryEN: "compute-supply candidate",
 			Mark: runtimeTraceProjMarkIconRunning},
 		{Form: runtimeTraceProjImpactFormSleep, Glyph: "☾",
 			Mark: runtimeTraceProjMarkIconSleep},
@@ -149,7 +144,7 @@ func runtimeTraceProjImpactFormSpecs() []runtimeTraceProjImpactFormSpec {
 			SemanticsZH: "优先级反转候选(低优先级依赖/持有资源可能阻塞高优先级)", SemanticsEN: "a priority-inversion candidate (a lower-priority dependency/holder may block a higher-priority waiter)",
 			Mark: runtimeTraceProjMarkIconInversion, GeneratedLegend: true},
 		{Form: runtimeTraceProjImpactFormDeterministicOpt, Glyph: "✦",
-			CategoryZH: "确定性优化候选", CategoryEN: "deterministic-optimization candidate",
+			CategoryZH: "语义优化候选", CategoryEN: "semantic-optimization candidate",
 			Mark: runtimeTraceProjMarkSemanticSpan},
 		{Form: runtimeTraceProjImpactFormInterrupt, Glyph: "↯",
 			CategoryZH: "中断活动候选", CategoryEN: "interrupt-activity candidate",
@@ -290,6 +285,15 @@ func runtimeTraceProjImpactFormForNode(node types.TraceCausalProjectionNode, kin
 	if runtimeTraceCausalProjectionInversionRow(node) {
 		return runtimeTraceProjImpactFormInversion
 	}
+	// A typed semantic-work identity outranks its scheduler state for the row
+	// form: VerifyClass/JIT/Shader is the actionable cause class; running is
+	// how that work executed. The state remains explicitly disclosed beside
+	// the semantic category by runtimeTraceProjCauseSemanticStateIdentity.
+	for _, token := range []string{node.TypeToken, node.Object, node.SemanticClass} {
+		if runtimeTraceProjImpactFormTokenFamily(runtimeTraceCausalProjectionCanonicalNode(token)) == runtimeTraceProjImpactFormDeterministicOpt {
+			return runtimeTraceProjImpactFormDeterministicOpt
+		}
+	}
 	if node.IsSleepState() {
 		return runtimeTraceProjImpactFormSleep
 	}
@@ -370,7 +374,7 @@ func runtimeTraceProjCauseCategoryWord(node types.TraceCausalProjectionNode, kin
 	case runtimeTraceProjImpactFormDeterministicOpt:
 		// RCM-2 (§24.1 类别词族 + §24.10, 2026-07-08): deterministic-
 		// optimization contenders (semantic span families included) speak the
-		// form table's category word on 行2 (确定性优化候选) — the semantic
+		// form table's category word on 行2 (语义优化候选) — the semantic
 		// span-shape cell (语义优化span·<class>) keeps its own tag seat and
 		// never relocates into the identity line. Rank-lane deterministic rows
 		// already resolved here through the generic fallthrough below —
@@ -393,35 +397,12 @@ func runtimeTraceProjCauseCategoryWord(node types.TraceCausalProjectionNode, kin
 		return shape, true
 	}
 	if spec, ok := runtimeTraceProjImpactFormSpecFor(form); ok {
-		if form == runtimeTraceProjImpactFormRunning && runtimeTraceProjComputeSupplyIdentity(node) {
-			if zh {
-				return spec.ComputeSupplyCategoryZH, false
-			}
-			return spec.ComputeSupplyCategoryEN, false
-		}
 		if zh {
 			return spec.CategoryZH, false
 		}
 		return spec.CategoryEN, false
 	}
 	return "", false
-}
-
-// runtimeTraceProjComputeSupplyIdentity is the exact delivery-lane selector
-// within the shared ⚙ form. SupplyFoldComputed is a producer-minted delivery
-// calculation; the four tokens are the closed compute-delivery family. A
-// semantic class that merely ran on CPU does not satisfy this gate.
-func runtimeTraceProjComputeSupplyIdentity(node types.TraceCausalProjectionNode) bool {
-	if node.SupplyFoldComputed {
-		return true
-	}
-	for _, token := range []string{node.TypeToken, node.Object, node.Predicate} {
-		switch runtimeTraceCausalProjectionCanonicalNode(token) {
-		case "compute_supply", "low_frequency", "cpu_frequency_limit", "cpu_affinity_or_cpuset":
-			return true
-		}
-	}
-	return false
 }
 
 // runtimeTraceProjCauseRankConfidence resolves the 行2 榜位/置信 pair: the
