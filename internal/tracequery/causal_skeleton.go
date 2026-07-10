@@ -28,13 +28,17 @@ import (
 // buildCausalSkeleton assembles the RCX③ typed skeleton from the already-built
 // bundle components. Returns nil when there is no target-anchored evidence to
 // skeletonize (an empty spine would be noise, not structure).
-func buildCausalSkeleton(idx *Index, q Query, target ThreadRef, window TimeWindow, blocking *CriticalBlockingResult, chain *ChainResult, supply *SupplyPressureSummary) *CausalSkeleton {
+//
+// §29.27② (COV-4, 2026-07-11): the target timeline decomposition is computed
+// ONCE in the bundle builder (targetWindowTimeline) and shared with the
+// full-window state account — this builder consumes the shared scan.
+func buildCausalSkeleton(targetTimeline TimelineResult, targetTimelineOK bool, target ThreadRef, window TimeWindow, blocking *CriticalBlockingResult, chain *ChainResult, supply *SupplyPressureSummary) *CausalSkeleton {
 	skel := &CausalSkeleton{Target: target, Window: window}
 
 	// Layer 1 — target dominant wait: the TARGET's own window state
 	// decomposition, dominant WAIT lane (F3 rework — see
 	// skeletonTargetStateNode for why rank rows are the wrong source here).
-	if node, ok := skeletonTargetStateNode(idx, q, target, window); ok {
+	if node, ok := skeletonTargetStateNode(targetTimeline, targetTimelineOK, target); ok {
 		skel.Nodes = append(skel.Nodes, node)
 	}
 
@@ -78,22 +82,15 @@ func buildCausalSkeleton(idx *Index, q Query, target ThreadRef, window TimeWindo
 // target's own timeline decomposition is the precise, filter-free source: the
 // layer's semantics ("目标主导等待") are a property of the target's window,
 // not of any candidate row. No fallback — when the target has no measurable
-// wait in the window, the layer is honestly absent.
-func skeletonTargetStateNode(idx *Index, q Query, target ThreadRef, window TimeWindow) (CausalSkeletonNode, bool) {
-	if idx == nil || (target.PID <= 0 && strings.TrimSpace(target.Comm) == "") {
+// wait in the window, the layer is honestly absent. §29.27② (COV-4,
+// 2026-07-11): the timeline scan is the bundle-shared one
+// (targetWindowTimeline) — one scan feeds this layer AND the full-window
+// state account.
+func skeletonTargetStateNode(targetTimeline TimelineResult, targetTimelineOK bool, target ThreadRef) (CausalSkeletonNode, bool) {
+	if !targetTimelineOK {
 		return CausalSkeletonNode{}, false
 	}
-	if window.EndTs <= window.StartTs {
-		return CausalSkeletonNode{}, false
-	}
-	tq := q
-	tq.View = ""
-	tq.PID = target.PID
-	tq.Thread = target.Comm
-	tq.ThreadInput = ""
-	tq.TimeStart = window.StartTs
-	tq.TimeEnd = window.EndTs
-	bd := summarizeThreadStateBreakdown(ThreadTimeline(idx, tq))
+	bd := summarizeThreadStateBreakdown(targetTimeline)
 	if bd == nil {
 		return CausalSkeletonNode{}, false
 	}

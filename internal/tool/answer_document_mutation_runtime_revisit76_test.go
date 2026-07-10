@@ -607,6 +607,9 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// fence — no fence probe; direction A (mark ⇔ legend entry) still
 		// asserts.
 		runtimeTraceProjMarkCoverageLine: {"", ""},
+		// §29.27② (COV-4): the four-state account renders in the LEAD, not the
+		// fence — no fence probe; direction A (mark ⇔ legend entry) asserts.
+		runtimeTraceProjMarkFourStateAccount: {"", ""},
 		// PTV5 PTS: the on-chain overflow fold row's lane word.
 		runtimeTraceProjMarkOnChainOverflowFold: {"链上折叠", "on-chain fold"},
 		// PTV6-C ruling A (#73): the ◇/▒ cross-thread cumulative family word.
@@ -1084,7 +1087,19 @@ func revisit76AssertLegendBidirectional(t *testing.T, name string, projection ty
 		if probe == "" {
 			continue
 		}
-		if emitted := strings.Contains(fence, probe); emitted != rendered {
+		emitted := strings.Contains(fence, probe)
+		if entry.Mark == runtimeTraceProjMarkBadge {
+			// §29.27.1: the badge family is ❶..❺ (glyph follows the seat), so
+			// the fence may emit ANY family member — probe the whole family.
+			emitted = false
+			for r := 1; r <= runtimeTraceProjBadgeTopN; r++ {
+				if strings.Contains(fence, runtimeTraceProjBadgeGlyph(r)) {
+					emitted = true
+					break
+				}
+			}
+		}
+		if emitted != rendered {
 			t.Fatalf("%s: bidirectional violation for mark %d (probe %q): fence emits=%v, legend explains=%v\nfence:\n%s\nlead:\n%s",
 				name, entry.Mark, probe, emitted, rendered, fence, lead)
 		}
@@ -1191,6 +1206,10 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// semantic family's dual-caliber 行3 (链上计入 + 窗口投影合计) —
 		// fixture home: answer_document_projection_dispw1_test.go.
 		{"dispw1_semantic_chain_intersection", dispW1SemanticIntersectionProjection()},
+		// §29.27② (COV-4, 2026-07-11): the four-state coverage account + its
+		// 全窗四态 legend entry on the balanced running-dominant shape
+		// (fixture home: answer_document_projection_cov4_test.go).
+		{"cov4_four_state_account", cov4RunningDominantProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

@@ -2877,7 +2877,14 @@ type FrameRootCauseBundle struct {
 	// writes prose over it (feedback_no_system_backfill). nil when no target/rank
 	// evidence exists to skeletonize.
 	Skeleton *CausalSkeleton `json:"skeleton,omitempty"`
-	Caveats  []string        `json:"caveats,omitempty"`
+	// TargetWindowStates (§29.27 ruling ②, COV-4 2026-07-11): the focused
+	// thread's full-window four-state wall-clock partition (io_wait = the
+	// typed IO refinement inside the D-state wall clock) + the deterministic
+	// running intersection. nil when the target timeline has no measurable
+	// intervals. The display renders the account ONLY when Σ(states) balances
+	// against the window (不平衡拒渲不造数).
+	TargetWindowStates *TargetWindowStateAccount `json:"target_window_states,omitempty"`
+	Caveats            []string                  `json:"caveats,omitempty"`
 
 	windowStats *WindowStats `json:"-"`
 }

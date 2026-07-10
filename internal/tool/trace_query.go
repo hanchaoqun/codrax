@@ -3902,6 +3902,14 @@ func writeTraceFrameRootCauseBundleSummary(b *strings.Builder, bundle *tracequer
 	// adjacent to top_blocking, so the model-facing spine stays inside the
 	// head-24KB anchor zone. Structure only — the model configures the prose.
 	writeTraceFrameBundleSkeleton(b, bundle)
+	// §29.27② (COV-4): the focused thread's full-window state partition rides
+	// the head region so the model sees the four-state wall clock next to the
+	// spine (io_wait is the IO refinement inside the D-state wall clock, never
+	// a fifth addend; total==window only when the timeline covered the window).
+	if account := bundle.TargetWindowStates; account != nil && account.TotalMs > 0 {
+		fmt.Fprintf(b, "- target_window_states %s running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms sleep_io_wait=%.3fms total=%.3fms deterministic_running=%.3fms window=%.6f..%.6f window_ms=%.3f lines=%d-%d\n",
+			traceThreadLabel(account.Thread), account.RunningMs, account.RunnableMs, account.SleepMs, account.DStateMs, account.IOWaitMs, account.SleepIOWaitMs, account.TotalMs, account.DeterministicRunningMs, account.Window.StartTs, account.Window.EndTs, account.WindowMs, account.LineStart, account.LineEnd)
+	}
 	if bundle.WakeupChain != nil {
 		// P0-E CHAIN-PATH (ledger §22.1): per-branch true paths; flattened
 		// walk only for identity-less legacy results.
@@ -5808,6 +5816,57 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			ObservedAt:  at,
 			Confidence:  resolution.Confidence,
 		})
+	}
+
+	// §29.27② (COV-4, 2026-07-11): the focused thread's full-window state
+	// partition — one typed projection-level record per bundle. The compile
+	// admits it only when its selected_window matches the resolved anchor
+	// window; the display renders the four-state account only when Σ(states)
+	// balances the window (不平衡拒渲不造数).
+	if result.FrameRootCauseBundle != nil && result.FrameRootCauseBundle.TargetWindowStates != nil {
+		account := result.FrameRootCauseBundle.TargetWindowStates
+		subject := traceThreadLabel(account.Thread)
+		if strings.TrimSpace(subject) != "" && account.TotalMs > 0 {
+			notes := traceQueryTypedKVNotes([][2]string{
+				{types.TraceNoteKeyRunning, fmt.Sprintf("%.3f", account.RunningMs)},
+				{types.TraceNoteKeyRunnable, fmt.Sprintf("%.3f", account.RunnableMs)},
+				{types.TraceNoteKeySleep, fmt.Sprintf("%.3f", account.SleepMs)},
+				{types.TraceNoteKeyDState, fmt.Sprintf("%.3f", account.DStateMs)},
+				{types.TraceNoteKeyIOWait, fmt.Sprintf("%.3f", account.IOWaitMs)},
+				{types.TraceNoteKeySleepIOWait, fmt.Sprintf("%.3f", account.SleepIOWaitMs)},
+				{types.TraceNoteKeyTotal, fmt.Sprintf("%.3f", account.TotalMs)},
+				{types.TraceNoteKeyDeterministicRunning, fmt.Sprintf("%.3f", account.DeterministicRunningMs)},
+				{types.TraceNoteKeyWindowMS, fmt.Sprintf("%.3f", account.WindowMs)},
+				{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(account.Window)},
+			})
+			out = append(out, types.ObservationRecord{
+				ID:              fmt.Sprintf("trace_query:%s#target_window_states", scope),
+				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:        "trace_query",
+				Role:            types.AnswerAggregateRoleSupportingCoverage,
+				GroundingPolicy: types.ClaimGroundingHard,
+				ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+				SourceRef:       ref,
+				Span: types.ObservationSpan{
+					LineStart: account.LineStart,
+					LineEnd:   account.LineEnd,
+					StartTs:   account.Window.StartTs,
+					EndTs:     account.Window.EndTs,
+				},
+				ClaimKey:  "target_window_states:" + subject,
+				Subject:   subject,
+				Predicate: "target_window_states",
+				Object:    "state_partition",
+				Value:     traceQueryObservationMSValue(account.TotalMs),
+				Unit:      "ms",
+				Summary: fmt.Sprintf("target_window_states %s running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms sleep_io_wait=%.3fms total=%.3fms deterministic_running=%.3fms window=%.6f..%.6f window_ms=%.3f",
+					subject, account.RunningMs, account.RunnableMs, account.SleepMs, account.DStateMs, account.IOWaitMs, account.SleepIOWaitMs, account.TotalMs, account.DeterministicRunningMs, account.Window.StartTs, account.Window.EndTs, account.WindowMs),
+				RichNotes:   notes,
+				SupportRefs: traceQueryObservationSupportRefs(ref, account.LineStart, account.LineEnd),
+				ObservedAt:  at,
+				Confidence:  0.8,
+			})
+		}
 	}
 
 	// BLK §15.C ①: ONE physical lock span publishes exactly ONE observation.

@@ -522,6 +522,13 @@ type threadStateComparisonSite struct {
 // comparison is a drift that must be reviewed against §7.11 B-1 semantics.
 var threadStateComparisonSiteGolden = map[string]string{
 	"cpu_occupancy.go:computeIdleRunnableMismatchMs": "runnable#1",
+	// §29.27② (COV-4, 2026-07-11): the four-state account's deterministic-
+	// running intersection selects the target's RUNNING intervals only —
+	// semantic-span wall clock outside running never counts as 确定性工作.
+	// 复核 A-1 (2026-07-11): + the S-opened selection of the SleepIOWaitMs
+	// refinement (S sleeps pairing iowait>0 blocked_reason markers; the
+	// interval stays S — single attribution, no lane reclassifies).
+	"target_window_state_account.go:buildTargetWindowStateAccount": "running,s_sleep#2",
 	// P0-E §20 merge caliber + §20.2 deficit attribution (2026-07-07):
 	// dominant_state==running is read at the exported effective helper's
 	// §20.2 branch, its rank-lane mirror in rootCauseItemFromCausalImpact

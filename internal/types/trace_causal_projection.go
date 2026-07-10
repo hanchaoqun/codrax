@@ -170,6 +170,37 @@ type TraceCausalProjection struct {
 	// honest duplicate render beats a silent drop). Deduped by EvidenceID
 	// (one record can bucket twice: hop copy + classified copy).
 	AbsorbedChainRows []TraceCausalProjectionNode `json:"absorbed_chain_rows,omitempty"`
+	// TargetStateAccount (§29.27② COV-4, 2026-07-11): the focused thread's
+	// full-window state partition compiled from the bundle's typed
+	// target_window_states record — running + runnable + sleep + D-state
+	// (io_wait = the typed IO refinement inside the D-state wall clock) plus
+	// the deterministic-running intersection (确定性工作, wall clock). The
+	// attach admits ONLY the record whose typed selected_window matches the
+	// resolved anchor window within the F-2 tolerance (禁猜 — a partition
+	// that cannot prove its window makes no window claim). Display renders
+	// the four-state coverage account ONLY when Σ(states) balances against
+	// the analysis window (不平衡拒渲不造数); no gate reads this field.
+	TargetStateAccount *TraceCausalProjectionTargetStateAccount `json:"target_state_account,omitempty"`
+}
+
+// TraceCausalProjectionTargetStateAccount is the §29.27② typed carrier of the
+// focused thread's full-window state partition (see the field doc above).
+type TraceCausalProjectionTargetStateAccount struct {
+	Subject                string  `json:"subject,omitempty"`
+	RunningMS              float64 `json:"running_ms,omitempty"`
+	RunnableMS             float64 `json:"runnable_ms,omitempty"`
+	SleepMS                float64 `json:"sleep_ms,omitempty"`
+	DStateMS               float64 `json:"d_state_ms,omitempty"`
+	IOWaitMS               float64 `json:"io_wait_ms,omitempty"`
+	// SleepIOWaitMS (复核 A-1): the sleep-side IO refinement label value —
+	// already inside SleepMS, never an addend (the Σ identity gate ignores
+	// it); feeds the sleep term's 「其中 IO等待」 clause only.
+	SleepIOWaitMS          float64 `json:"sleep_io_wait_ms,omitempty"`
+	TotalMS                float64 `json:"total_ms,omitempty"`
+	DeterministicRunningMS float64 `json:"deterministic_running_ms,omitempty"`
+	WindowStartTs          float64 `json:"window_start_ts,omitempty"`
+	WindowEndTs            float64 `json:"window_end_ts,omitempty"`
+	EvidenceID             string  `json:"evidence_id,omitempty"`
 }
 
 // TraceCausalProjectionQueryWindow is one distinct query-window endpoint pair
@@ -969,6 +1000,7 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 	capacityTruncated := false
 	occupiersBySubject := map[string]string{}
 	fullWindowStates := map[string]traceCausalProjectionFullWindowState{}
+	var targetStateAccounts []traceCausalProjectionTargetStateCandidate
 	var queryWindows []TraceCausalProjectionQueryWindow
 	queryWindowsTruncated := false
 	for _, record := range records {
@@ -989,6 +1021,16 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 				if summary := traceCausalProjectionOccupierRoster(record.RichNotes); summary != "" {
 					occupiersBySubject[subject] = summary
 				}
+			}
+			continue
+		}
+		// §29.27② (COV-4, 2026-07-11): a target_window_states record is the
+		// focused thread's full-window state partition — a projection-level
+		// side channel, never a node of its own. Only candidates with a
+		// parseable typed selected_window collect (禁猜, F-2 discipline).
+		if strings.TrimSpace(record.Predicate) == "target_window_states" {
+			if candidate, ok := traceCausalProjectionTargetStateCandidateFromRecord(record); ok {
+				targetStateAccounts = append(targetStateAccounts, candidate)
 			}
 			continue
 		}
@@ -1256,6 +1298,11 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 	// the resolved anchor. Runs after the PrimaryRootCause pointer copy and
 	// therefore attaches to the pointer explicitly.
 	traceCausalProjectionAttachFullWindowStateTotals(&out, fullWindowStates)
+	// §29.27② (COV-4): attach the target four-state account AFTER the anchor
+	// window resolution — only the candidate whose typed selected_window
+	// matches the resolved anchor within the F-2 tolerance attaches (ties:
+	// largest TotalMS, deterministic on record order independence).
+	traceCausalProjectionAttachTargetStateAccount(&out, targetStateAccounts)
 	traceCausalProjectionAttachSleepDrilldownTargets(&out, wakeupEdges, wakeupPath)
 	if !out.Active() {
 		return TraceCausalProjection{}
@@ -1937,6 +1984,78 @@ func traceCausalProjectionAttachFullWindowStateTotals(projection *TraceCausalPro
 	if projection.PrimaryRootCause != nil {
 		attachNode(projection.PrimaryRootCause)
 	}
+}
+
+// traceCausalProjectionTargetStateCandidate is one collected
+// target_window_states record (§29.27② COV-4) before the anchor-window
+// admission in traceCausalProjectionAttachTargetStateAccount.
+type traceCausalProjectionTargetStateCandidate struct {
+	Account     TraceCausalProjectionTargetStateAccount
+	WindowStart float64
+	WindowEnd   float64
+}
+
+// traceCausalProjectionTargetStateCandidateFromRecord parses one typed
+// target_window_states record. ok=false when the record has no subject, no
+// positive per-state data, or no parseable selected_window (a partition that
+// cannot state its own window makes no window claim — 禁猜).
+func traceCausalProjectionTargetStateCandidateFromRecord(record ObservationRecord) (traceCausalProjectionTargetStateCandidate, bool) {
+	subject := strings.TrimSpace(record.Subject)
+	if subject == "" {
+		return traceCausalProjectionTargetStateCandidate{}, false
+	}
+	ws, we, ok := traceCausalProjectionSelectedWindowNote(record.RichNotes)
+	if !ok {
+		return traceCausalProjectionTargetStateCandidate{}, false
+	}
+	account := TraceCausalProjectionTargetStateAccount{
+		Subject:                subject,
+		RunningMS:              traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyRunning),
+		RunnableMS:             traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyRunnable),
+		SleepMS:                traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeySleep),
+		DStateMS:               traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyDState),
+		IOWaitMS:               traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyIOWait),
+		SleepIOWaitMS:          traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeySleepIOWait),
+		TotalMS:                traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyTotal),
+		DeterministicRunningMS: traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyDeterministicRunning),
+		WindowStartTs:          ws,
+		WindowEndTs:            we,
+		EvidenceID:             record.ID,
+	}
+	if account.TotalMS <= 0 {
+		return traceCausalProjectionTargetStateCandidate{}, false
+	}
+	return traceCausalProjectionTargetStateCandidate{Account: account, WindowStart: ws, WindowEnd: we}, true
+}
+
+// traceCausalProjectionAttachTargetStateAccount admits the ONE candidate
+// whose typed selected_window matches the resolved anchor window within the
+// F-2 ±1ms tolerance (both endpoints). Ties (same window re-queried) resolve
+// to the largest TotalMS — deterministic on record order independence (RN-12
+// precedent). A projection without an anchor window attaches nothing (禁猜).
+func traceCausalProjectionAttachTargetStateAccount(projection *TraceCausalProjection, candidates []traceCausalProjectionTargetStateCandidate) {
+	if projection == nil || len(candidates) == 0 {
+		return
+	}
+	if projection.WindowStartTs <= 0 || projection.WindowEndTs <= projection.WindowStartTs {
+		return
+	}
+	var chosen *traceCausalProjectionTargetStateCandidate
+	for i := range candidates {
+		candidate := &candidates[i]
+		if math.Abs(candidate.WindowStart-projection.WindowStartTs) > traceCausalProjectionFullWindowSameWindowToleranceS ||
+			math.Abs(candidate.WindowEnd-projection.WindowEndTs) > traceCausalProjectionFullWindowSameWindowToleranceS {
+			continue
+		}
+		if chosen == nil || candidate.Account.TotalMS > chosen.Account.TotalMS {
+			chosen = candidate
+		}
+	}
+	if chosen == nil {
+		return
+	}
+	account := chosen.Account
+	projection.TargetStateAccount = &account
 }
 
 func traceCausalProjectionAttachSleepDrilldownTargets(projection *TraceCausalProjection, edges []traceCausalProjectionWakeupEdge, path []string) {

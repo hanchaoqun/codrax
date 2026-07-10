@@ -79,14 +79,15 @@ func covLeadHuadongProjection() types.TraceCausalProjection {
 	}
 }
 
-// covLeadBadgeOneRow returns the rendered row wearing ❶, nil when absent.
-func covLeadBadgeOneRow(model runtimeTraceProjTreeModel) *runtimeTraceProjTreeRow {
+// covLeadRowBadge returns the Badge of the rendered tree row for subject
+// (0 when the subject has no rendered tree row).
+func covLeadRowBadge(model runtimeTraceProjTreeModel, subject string) int {
 	for i := range model.TreeRows {
-		if model.TreeRows[i].Badge == 1 {
-			return &model.TreeRows[i]
+		if model.TreeRows[i].Node.Subject == subject {
+			return model.TreeRows[i].Badge
 		}
 	}
-	return nil
+	return 0
 }
 
 func TestCOVLeadPrimaryIsBadgeOneRow(t *testing.T) {
@@ -100,19 +101,30 @@ func TestCOVLeadPrimaryIsBadgeOneRow(t *testing.T) {
 	if lead.Subject != "OS_FFRT_3-46792" {
 		t.Fatalf("lead must be the ❶ inversion row, not the target's own symptom row: got %q", lead.Subject)
 	}
-	// 两车道恒等 pin: the primary-lane lead IS the ❶-badged row (same node key).
-	badge := covLeadBadgeOneRow(model)
-	if badge == nil {
-		t.Fatalf("fixture drifted: expected a ❶ badge on the rendered tree")
+	// 两车道恒等 pin — EVOLUTION RECORD (§29.27.1 徽章跟随席位, 2026-07-11):
+	// the badge is the pictograph of each row's PUBLISHED seat, no longer the
+	// board position, so the identity evolves from "lead == the unique ❶ row"
+	// to "the lead row wears its own seat's glyph" (seat #1 here → ❶) plus
+	// "every badge equals its row's published seat" (badge↔seat, never
+	// badge↔election). This fixture deliberately carries colliding #1
+	// ordinals (the multi-board shape) — each keeps its own ❶; the §24.13
+	// window-chip lane disambiguates boards, exactly like the ordinal text.
+	if got := covLeadRowBadge(model, lead.Subject); got != 1 {
+		t.Fatalf("the lead row publishes seat #1 and must wear ❶: got badge %d", got)
 	}
-	if runtimeTraceCausalProjectionNodeKey(*lead) != runtimeTraceCausalProjectionNodeKey(badge.Node) {
-		t.Fatalf("lead (%q) and ❶ (%q) must be the SAME row (两车道恒等):\nlead=%+v\nbadge=%+v",
-			lead.Subject, badge.Node.Subject, lead, badge.Node)
+	for _, row := range model.TreeRows {
+		if row.Badge == 0 {
+			continue
+		}
+		if rank, _ := runtimeTraceProjCauseRankConfidence(row); rank != row.Badge {
+			t.Fatalf("badge %d must equal the row's published seat %d (徽章跟随席位): %+v",
+				row.Badge, rank, row.Node)
+		}
 	}
 	// The conclusion line consumes the same selection.
 	line := runtimeTraceProjConclusionLine(projection, model, true)
 	if !strings.Contains(line, "**主根因:** OS_FFRT_3-46792") {
-		t.Fatalf("conclusion must name the ❶ row:\n%s", line)
+		t.Fatalf("conclusion must name the lead row:\n%s", line)
 	}
 	if strings.Contains(line, "oney-42591") {
 		t.Fatalf("the target's own binder symptom row must not be crowned 主根因 (§24.11 C-1):\n%s", line)
@@ -131,16 +143,23 @@ func TestCOVLeadBoardKeyBeatsWindowLocalOrdinal(t *testing.T) {
 		t.Fatalf("the eff-max rank row must lead across colliding #1 ordinals, got %+v", lead)
 	}
 	// Demoting the inversion row's attribution below the io row flips the
-	// board head AND the badge together — the identity can never split.
+	// board head; EVOLUTION RECORD (§29.27.1, 2026-07-11): the badge follows
+	// the SEAT, not the election — the new lead wears ❶ because its own
+	// published seat is #1, and the demoted row KEEPS its ❶ (its seat did not
+	// change; only the election moved).
 	flipped := covLeadHuadongProjection()
 	flipped.OnChainCauses[0].EffectiveImpactMS = 0.100
 	flipped.OnChainCauses[0].MergedMaxMS = 0.100
 	flippedModel := buildRuntimeTraceProjTreeModel(flipped, nil, true)
 	flippedLead, _ := runtimeTraceProjLeadSelect(flipped, flippedModel)
-	badge := covLeadBadgeOneRow(flippedModel)
-	if flippedLead == nil || badge == nil || flippedLead.Subject != "hmfs_discard-562" ||
-		runtimeTraceCausalProjectionNodeKey(*flippedLead) != runtimeTraceCausalProjectionNodeKey(badge.Node) {
-		t.Fatalf("lead and ❶ must move together to the new eff-max row: lead=%+v badge=%+v", flippedLead, badge)
+	if flippedLead == nil || flippedLead.Subject != "hmfs_discard-562" {
+		t.Fatalf("the election must move to the new eff-max row: lead=%+v", flippedLead)
+	}
+	if got := covLeadRowBadge(flippedModel, "hmfs_discard-562"); got != 1 {
+		t.Fatalf("the new lead publishes seat #1 and must wear ❶: got badge %d", got)
+	}
+	if got := covLeadRowBadge(flippedModel, "OS_FFRT_3-46792"); got != 1 {
+		t.Fatalf("the demoted row keeps its seat #1 and therefore its ❶ (badge follows seat, not election): got badge %d", got)
 	}
 }
 

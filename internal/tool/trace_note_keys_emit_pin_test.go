@@ -298,6 +298,15 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				},
 				Candidates: []tracequery.FrameTargetCandidate{{FrameID: "77"}},
 			},
+			// §29.27② (COV-4): the target_window_states record exercises the
+			// five per-state keys + deterministic_running on the wire.
+			TargetWindowStates: &tracequery.TargetWindowStateAccount{
+				Thread: tracequery.ThreadRef{Comm: "app:ui", PID: 61},
+				Window: window, WindowMs: 1000,
+				RunningMs: 700, RunnableMs: 100, SleepMs: 150, DStateMs: 30, IOWaitMs: 20,
+				SleepIOWaitMs: 40, TotalMs: 1000, DeterministicRunningMs: 120,
+				FragmentCount: 5, LineStart: 1, LineEnd: 9,
+			},
 		},
 		RootCauseRank: &tracequery.RootCauseRankResult{
 			Window: window,

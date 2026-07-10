@@ -140,17 +140,20 @@ func TestTraceProjectionPTV6Specimen1BackgroundRowsLeaveMainTree(t *testing.T) {
 	if depth1 != 1 {
 		t.Fatalf("main tree depth-1 must keep exactly one row, got %d", depth1)
 	}
-	// #11 (标本1 面): exactly one badge in this replay — no same-value ❶❷ pair.
-	badges := 0
+	// EVOLUTION RECORD (§29.27.1 徽章跟随席位, 2026-07-11): every badge in
+	// this replay equals its row's PUBLISHED seat ordinal (the #11 exact-count
+	// pin is retired with the board-position lane — badge count now equals the
+	// count of rendered TOP-5 seats, and a row without a displayed seat stays
+	// bare).
 	for _, rows := range [][]runtimeTraceProjTreeRow{model.TreeRows, model.SelfRows, model.Adjacent, model.Background} {
 		for _, row := range rows {
-			if row.Badge > 0 {
-				badges++
+			if row.Badge == 0 {
+				continue
+			}
+			if rank, _ := runtimeTraceProjCauseRankConfidence(row); rank != row.Badge {
+				t.Fatalf("badge %d must equal the row's published seat %d: %+v", row.Badge, rank, row.Node)
 			}
 		}
-	}
-	if badges != 1 {
-		t.Fatalf("specimen replay must seat exactly one badge, got %d", badges)
 	}
 	// #2 ▒ 单席: the background stanza carries the specimen rows, and no node
 	// key seats in BOTH the chain lane and a stanza.
@@ -233,35 +236,35 @@ func ptv6Specimen2Records() []types.ObservationRecord {
 func TestTraceProjectionPTV6Specimen2BadgesNeverPairSameSubjectSameValue(t *testing.T) {
 	projection := types.TraceCausalProjectionFromObservationRecords(ptv6Specimen2Records())
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
-	var badged []runtimeTraceProjTreeRow
+	// EVOLUTION RECORD (§29.27.1 徽章跟随席位, 2026-07-11): the #11 subject
+	// dedupe is retired — every row that PUBLISHES a TOP-5 seat wears that
+	// seat's glyph, so the ❶ trunk row and its rank#3 成因 child (a distinct
+	// ENGINE seat in this historical specimen) wear ❶/❸ matching their own
+	// 根因排序 text. A cause row without a displayed seat stays bare; the
+	// modern engine's seat exclusivity (§29.19) and rank-twin folds prevent
+	// duplicate same-value seats at the source.
 	var causeRows int
 	for _, row := range model.TreeRows {
-		if row.Badge > 0 {
-			badged = append(badged, row)
+		if rank, _ := runtimeTraceProjCauseRankConfidence(row); row.Badge != 0 || rank > 0 {
+			if row.Badge != rank {
+				t.Fatalf("badge %d must equal the row's published seat %d: %+v", row.Badge, rank, row.Node)
+			}
 		}
 		if row.Kind == runtimeTraceProjTreeRowCause {
 			causeRows++
-			// #11 mutation pin (去 badge 去重必红): the same-subject same-value
-			// 成因 child must never regain its ❷ seat.
-			if row.Badge != 0 {
-				t.Fatalf("same-subject cause row must not seat a badge: %+v", row)
+			if row.Badge != row.Node.Rank {
+				t.Fatalf("the 成因 child wears exactly its own seat's glyph: %+v", row)
 			}
 		}
 	}
 	if causeRows == 0 {
 		t.Fatalf("specimen 2 replay must keep its 成因 child (fixture drift?): %+v", model.TreeRows)
 	}
-	if len(badged) != 1 {
-		t.Fatalf("specimen 2 must seat exactly ❶ (was ❶❷ same-value), got %d badged rows", len(badged))
-	}
-	if badged[0].Kind != runtimeTraceProjTreeRowChain || badged[0].Badge != 1 ||
-		!strings.Contains(badged[0].Node.Subject, "CookieMonsterCl") {
-		t.Fatalf("❶ must sit on the CookieMonsterCl trunk row: %+v", badged[0])
-	}
-	// Fence face: ❶ present, ❷ gone.
+	// Fence face: the trunk ❶ and the child's own ❸ both render; a ❷ (a seat
+	// no row publishes) never appears.
 	fence := runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "❶") || strings.Contains(fence, "❷") {
-		t.Fatalf("specimen 2 fence must render ❶ without a same-value ❷:\n%s", fence)
+	if !strings.Contains(fence, "❶") || !strings.Contains(fence, "❸") || strings.Contains(fence, "❷") {
+		t.Fatalf("specimen 2 fence must render ❶ and ❸ (published seats) and never a phantom ❷:\n%s", fence)
 	}
 	if strings.Contains(fence, "唤醒─") {
 		t.Fatalf("specimen 2 replay must not draw a wake edge anywhere:\n%s", fence)
@@ -296,16 +299,22 @@ func TestPTV6TopBadgesOneSeatPerSubject(t *testing.T) {
 	for i, row := range model.TreeRows {
 		got[fmt.Sprintf("%d:%s", i, row.Node.Subject)] = row.Badge
 	}
-	// MUTATION (去 badge 去重必红): without subject dedupe the same-value
-	// worker-1 cause row takes ❷ and worker-3 loses ❸.
-	want := map[string]int{"0:worker-1": 1, "1:worker-1": 0, "2:worker-2": 2, "3:worker-3": 3}
+	// EVOLUTION RECORD (§29.27.1 徽章跟随席位, 2026-07-11): the PTV6 #11
+	// one-seat-per-subject dedupe is RETIRED with the board-position lane —
+	// each row that PUBLISHES a distinct seat ordinal wears that seat's
+	// glyph (the rows print 根因排序#1 and 根因排序#2, so ❶/❷ match the
+	// text; badge count == displayed seat count, never fewer). The modern
+	// engine folds same-segment rank twins into ONE row (RNB R2 / §29.19
+	// seat exclusivity), so duplicate same-value seats are an engine-side
+	// impossibility, not a display-side patch.
+	want := map[string]int{"0:worker-1": 1, "1:worker-1": 2, "2:worker-2": 3, "3:worker-3": 4}
 	for key, badge := range want {
 		if got[key] != badge {
 			t.Fatalf("badge for %s: got %d want %d (%v)", key, got[key], badge, got)
 		}
 	}
-	// 父行无数据时成因行仍可入选: the data-less parent is no candidate, the
-	// cause row seats the subject's badge.
+	// 数据缺席行不佩戴: a data-less row never wears a badge; the cause row
+	// keeps its own seat's glyph.
 	orphan := runtimeTraceProjTreeModel{
 		Target:   "app-1",
 		WindowMS: 100,
@@ -316,8 +325,8 @@ func TestPTV6TopBadgesOneSeatPerSubject(t *testing.T) {
 	}
 	orphan.TreeRows[0].Node.EffectiveImpactMS = 0
 	runtimeTraceProjAssignTopBadges(&orphan)
-	if orphan.TreeRows[0].Badge != 0 || orphan.TreeRows[1].Badge != 1 {
-		t.Fatalf("with a data-less parent the cause row must seat the badge: %+v", orphan.TreeRows)
+	if orphan.TreeRows[0].Badge != 0 || orphan.TreeRows[1].Badge != 2 {
+		t.Fatalf("data-less rows stay bare; the cause row wears its own seat: %+v", orphan.TreeRows)
 	}
 }
 

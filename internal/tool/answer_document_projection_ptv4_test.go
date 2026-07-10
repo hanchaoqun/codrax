@@ -194,16 +194,27 @@ func ptv4BadgeModel(rank int) runtimeTraceProjTreeModel {
 func TestPTV4TopBadgesFollowTypedRankAndAttribution(t *testing.T) {
 	model := ptv4BadgeModel(1)
 	runtimeTraceProjAssignTopBadges(&model)
-	// Ordering is by EFFECTIVE attribution among ranked rows: worker-3 (40) ❶,
-	// worker-1 (30) ❷, worker-2 (20) ❸; worker-4 (10) unbadged.
+	// EVOLUTION RECORD (§29.27.1 徽章跟随席位, 2026-07-11): the badge is the
+	// pictograph of each row's PUBLISHED seat ordinal (TOP-5), no longer a
+	// display re-sort by effective attribution — the engine already orders
+	// seats by published eff (§29.22.1), and the display re-sort let ❷ land
+	// on seat #4 (vc_710 witness). worker-4 (seat #4) now wears ❹.
 	got := map[string]int{}
 	for _, row := range model.TreeRows {
 		got[row.Node.Subject] = row.Badge
 	}
-	want := map[string]int{"worker-1": 2, "worker-2": 3, "worker-3": 1, "worker-4": 0}
+	want := map[string]int{"worker-1": 1, "worker-2": 2, "worker-3": 3, "worker-4": 4}
 	for subject, badge := range want {
 		if got[subject] != badge {
 			t.Fatalf("badge for %s: got %d want %d (%v)", subject, got[subject], badge, got)
+		}
+	}
+	// TOP-5 bound: a seat past #5 never wears a badge.
+	past := ptv4BadgeModel(6)
+	runtimeTraceProjAssignTopBadges(&past)
+	for _, row := range past.TreeRows {
+		if row.Node.Subject == "worker-1" && row.Badge != 0 {
+			t.Fatalf("seat #6 must not wear a badge (TOP-5 bound): %+v", row.Badge)
 		}
 	}
 	// MUTATION (rank 断连必红): clearing the typed Rank kills the badge — no
@@ -218,15 +229,18 @@ func TestPTV4TopBadgesFollowTypedRankAndAttribution(t *testing.T) {
 			t.Fatalf("rankless rows must never carry a badge: %+v", row.Node.Subject)
 		}
 	}
-	// A zero effective attribution never earns a 根因关注点 badge either.
+	// EVOLUTION RECORD (§29.27.1): a published TOP-5 seat wears its badge even
+	// at zero effective attribution — the row still prints 根因排序#N, and a
+	// bare seat text without its pictograph is exactly the witness disease
+	// (the retired lane's eff>0 filter created seat-text/badge splits).
 	zeroEff := ptv4BadgeModel(1)
 	for i := range zeroEff.TreeRows {
 		zeroEff.TreeRows[i].Node.EffectiveImpactMS = 0
 	}
 	runtimeTraceProjAssignTopBadges(&zeroEff)
 	for _, row := range zeroEff.TreeRows {
-		if row.Badge != 0 {
-			t.Fatalf("zero-attribution rows must not carry a badge: %+v", row.Node.Subject)
+		if row.Badge != row.Node.Rank {
+			t.Fatalf("a published TOP-5 seat keeps its badge at zero attribution: %+v", row.Node.Subject)
 		}
 	}
 	// The badge is an independent token, never a state glyph: the label parts

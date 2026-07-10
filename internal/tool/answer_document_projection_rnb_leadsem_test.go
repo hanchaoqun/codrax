@@ -112,8 +112,11 @@ func TestRNBSameSegmentTwinFoldSiblingChainFormZH(t *testing.T) {
 	}
 	// The rank badge moved onto the kept chain row (typed Rank transfer); the
 	// row is an inversion cause node → ⇅ glyph + the runnable+running 词位.
-	if !strings.Contains(despaced, "❶⇅sysr-8") {
-		t.Fatalf("the kept chain row must wear the transferred rank badge:\n%s", md)
+	// EVOLUTION RECORD (§29.27.1 徽章跟随席位, 2026-07-11): the badge is the
+	// pictograph of the row's PUBLISHED seat (#2 here) — the retired board-
+	// position lane wore ❶ on this #2 seat because it was the only board row.
+	if !strings.Contains(despaced, "❷⇅sysr-8") {
+		t.Fatalf("the kept chain row must wear its seat's badge (❷ for 根因排序#2):\n%s", md)
 	}
 	// 行2 carries the rank row's seat + confidence; 行1 merges its E#.
 	if !strings.Contains(despaced, "优先级反转候选·根因排序#2·置信高") {

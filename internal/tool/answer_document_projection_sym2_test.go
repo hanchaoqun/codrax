@@ -92,9 +92,22 @@ func TestSYM2FlatSelfRunnableCrownedLead(t *testing.T) {
 	if lead == nil || lane != runtimeTraceProjLeadLanePrimary || lead.Subject != "main-6565" || lead.EvidenceID != "e-selfrunnable" {
 		t.Fatalf("§24.17 加冕: the lead must crown the target's own runnable row, got lane=%d lead=%+v", lane, lead)
 	}
-	badge := covLeadBadgeOneRow(model)
-	if badge == nil || badge.Node.EvidenceID != "e-selfrunnable" {
-		t.Fatalf("❶ must follow the same board head, got %+v", badge)
+	// EVOLUTION RECORD (§29.27.1 徽章跟随席位, 2026-07-11): the crowned self
+	// runnable row publishes seat #2 and wears ❷ (badge follows the seat, not
+	// the election); the wait-symptom self row carries a stale Rank=1 in this
+	// fixture but its target_self_state tier is the typed defense arm — it
+	// never wears a badge (负对照, same arm as the board exclusion).
+	for _, row := range model.TreeRows {
+		switch row.Node.EvidenceID {
+		case "e-selfrunnable":
+			if row.Badge != 2 {
+				t.Fatalf("the crowned #2 seat row must wear ❷, got badge %d", row.Badge)
+			}
+		case "e-selfbinder":
+			if row.Badge != 0 {
+				t.Fatalf("the wait-symptom self row must never wear a badge (tier defense): %+v", row)
+			}
+		}
 	}
 	line := runtimeTraceProjConclusionLine(projection, model, true)
 	if !strings.Contains(line, "**主根因:** main-6565") {

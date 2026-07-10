@@ -83,7 +83,7 @@ func TestUXALegendFinalFormsVerbatim(t *testing.T) {
 		runtimeTraceProjMarkIconSleep:               "- `☾/sleep` = 睡眠等待(等事件/等唤醒);睡眠是症状而非根因,根因看它的下钻/唤醒子行。",
 		runtimeTraceProjMarkIconTransit:             "- `◦ 中转` = 唤醒链的中间经过节点,本报告未单独计量其影响。",
 		runtimeTraceProjMarkIconNoDominant:          "- `◦`(数据行) = 该行无主导调度状态;具体影响形态见行内说明或明细。",
-		runtimeTraceProjMarkBadge:                   "- `❶❷❸` = 根因排序前三(依有效归因)。",
+		runtimeTraceProjMarkBadge:                   "- `❶..❺` = 根因排序前五(依有效归因)。",
 		runtimeTraceProjMarkStateLabel:              "- 行内 sleep/runnable/running/iowait/D-state = 该行的主导调度状态。",
 		runtimeTraceProjMarkUndrillable:             "- `⊘链止` = 窗口内无匹配唤醒事件(sched_wakeup),链止于此。",
 		runtimeTraceProjMarkChainDepthChip:          "- `链上L#` = 该行在唤醒链上的层数(与明细「层级」行一致)。",

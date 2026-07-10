@@ -82,10 +82,12 @@ func TestSYMOpendirLeadFallsToNonSelfBoardHead(t *testing.T) {
 	if lead.Subject != "RxComputationT-16612" {
 		t.Fatalf("修后 lead = 非自身榜首 (the inversion row), got %q", lead.Subject)
 	}
-	// ❶ follows the same board (裁定二: 徽章随统一榜).
-	badge := covLeadBadgeOneRow(model)
-	if badge == nil || badge.Node.Subject != "RxComputationT-16612" {
-		t.Fatalf("❶ must land on the non-self board head, got %+v", badge)
+	// EVOLUTION RECORD (§29.27.1 徽章跟随席位, 2026-07-11): the badge is the
+	// row's published seat pictograph — the non-self board head publishes seat
+	// #2 here and wears ❷ (the retired board-position lane wore ❶ on it); no
+	// rendered row wears ❶ because no row publishes seat #1.
+	if got := covLeadRowBadge(model, "RxComputationT-16612"); got != 2 {
+		t.Fatalf("the non-self #2 seat row must wear ❷ (徽章跟随席位), got badge %d", got)
 	}
 	// 自持锁行留树头: the self-lock row keeps its SelfRows seat. EVOLUTION
 	// RECORD (跨批 X1, 2026-07-09): the former 榜位序数照发 assertion (rank#1
@@ -173,9 +175,11 @@ func TestSYMFlatSelfRowExcludedFromBoard(t *testing.T) {
 	if lead == nil || lane != runtimeTraceProjLeadLanePrimary || lead.Subject != "LaunchPoolT1-6712" {
 		t.Fatalf("lead must fall to the non-self board head, got lane=%d lead=%+v", lane, lead)
 	}
-	badge := covLeadBadgeOneRow(model)
-	if badge == nil || badge.Node.Subject != "LaunchPoolT1-6712" {
-		t.Fatalf("❶ must skip the self row (徽章随统一榜), got %+v", badge)
+	// EVOLUTION RECORD (§29.27.1 徽章跟随席位, 2026-07-11): the non-self row
+	// publishes seat #2 and wears ❷ (the retired lane wore ❶ on the board
+	// head); the self symptom row (Rank=0 post-G9 + tier defense) stays bare.
+	if got := covLeadRowBadge(model, "LaunchPoolT1-6712"); got != 2 {
+		t.Fatalf("the non-self #2 seat row must wear ❷ (徽章跟随席位), got badge %d", got)
 	}
 	if selfRow.Badge != 0 {
 		t.Fatalf("the self row never wears a badge: %+v", selfRow)

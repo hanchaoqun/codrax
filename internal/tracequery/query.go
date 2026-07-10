@@ -14053,8 +14053,12 @@ func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 	// RCX③ (§12.3-1 ③): the typed model-facing causal skeleton, built from the
 	// components above so the head region carries a structured spine the model
 	// narrates. F3: the target_state layer reads the target's OWN timeline
-	// decomposition (idx+analysisQ), never rank rows.
-	bundle.Skeleton = buildCausalSkeleton(idx, analysisQ, target, bundle.Window, &blocking, chainPtr, stats.SupplyPressureSummary)
+	// decomposition, never rank rows. §29.27② (COV-4, 2026-07-11): the ONE
+	// timeline scan is shared with the full-window state account (PERF #21
+	// discipline — no second event rescan).
+	targetTimeline, targetTimelineOK := targetWindowTimeline(idx, analysisQ, target, bundle.Window)
+	bundle.TargetWindowStates = buildTargetWindowStateAccount(idx, targetTimeline, targetTimelineOK, target, bundle.Window, &stats)
+	bundle.Skeleton = buildCausalSkeleton(targetTimeline, targetTimelineOK, target, bundle.Window, &blocking, chainPtr, stats.SupplyPressureSummary)
 	bundle.Caveats = append(bundle.Caveats, targetResolution.Caveats...)
 	bundle.Caveats = append(bundle.Caveats, stats.Caveats...)
 	bundle.Caveats = append(bundle.Caveats, frame.Caveats...)

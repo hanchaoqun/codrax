@@ -508,12 +508,14 @@ func renderHTMLPage(a pageArgs) string {
   --rank-1-fg: #7c2d12; --rank-1-bg: #ffedd5;
   --rank-2-fg: #1e40af; --rank-2-bg: #dbeafe;
   --rank-3-fg: #5b21b6; --rank-3-bg: #ede9fe;
+  --rank-4-fg: #14532d; --rank-4-bg: #dcfce7;
+  --rank-5-fg: #9d174d; --rank-5-bg: #fce7f3;
   --action-fg: #166534; --action-bg: #ecfdf3; --action-border: #86efac;
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei", Arial, sans-serif;
   --font-mono: "Sarasa Mono SC", "Noto Sans Mono CJK SC", "Source Han Mono SC", ui-monospace, "Cascadia Mono", "Cascadia Code", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Microsoft YaHei UI", "Microsoft YaHei", monospace;
 }
 @media (prefers-color-scheme: dark) {
-  :root { --fg: #e6edf3; --muted: #9aa4b2; --line: #30363d; --code: #161b22; --bg: #0d1117; --error-bg: #2a1212; --error-fg: #ffb4a8; --link: #79c0ff; --focus: #60a5fa; --rank-1-fg: #fed7aa; --rank-1-bg: #7c2d12; --rank-2-fg: #bfdbfe; --rank-2-bg: #1e3a8a; --rank-3-fg: #ddd6fe; --rank-3-bg: #4c1d95; --action-fg: #bbf7d0; --action-bg: #123524; --action-border: #22c55e; }
+  :root { --fg: #e6edf3; --muted: #9aa4b2; --line: #30363d; --code: #161b22; --bg: #0d1117; --error-bg: #2a1212; --error-fg: #ffb4a8; --link: #79c0ff; --focus: #60a5fa; --rank-1-fg: #fed7aa; --rank-1-bg: #7c2d12; --rank-2-fg: #bfdbfe; --rank-2-bg: #1e3a8a; --rank-3-fg: #ddd6fe; --rank-3-bg: #4c1d95; --rank-4-fg: #bbf7d0; --rank-4-bg: #14532d; --rank-5-fg: #fbcfe8; --rank-5-bg: #831843; --action-fg: #bbf7d0; --action-bg: #123524; --action-border: #22c55e; }
 }
 /* CJK-heavy report body: the stack must name CJK faces explicitly —
    without them Windows browsers fall back to SimSun for the zh text,
@@ -574,6 +576,8 @@ pre.trace-projection-tree .trace-rank-glyph { transform: scale(.78); }
 pre.trace-projection-tree .trace-rank-1 { color: var(--rank-1-fg); background: var(--rank-1-bg); }
 pre.trace-projection-tree .trace-rank-2 { color: var(--rank-2-fg); background: var(--rank-2-bg); }
 pre.trace-projection-tree .trace-rank-3 { color: var(--rank-3-fg); background: var(--rank-3-bg); }
+pre.trace-projection-tree .trace-rank-4 { color: var(--rank-4-fg); background: var(--rank-4-bg); }
+pre.trace-projection-tree .trace-rank-5 { color: var(--rank-5-fg); background: var(--rank-5-bg); }
 pre.trace-projection-tree .trace-action-token { display: inline-block; height: 1em; line-height: 1em; vertical-align: baseline; overflow: hidden; border-radius: .18em; color: var(--action-fg); background: var(--action-bg); font-weight: 750; text-align: center; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 pre.trace-projection-tree .trace-action-width-6 { width: 6ch; min-width: 6ch; }
 pre.trace-projection-tree .trace-action-width-18 { width: 18ch; min-width: 18ch; }
@@ -632,7 +636,7 @@ section.aux h2 { font-size: 1em; color: var(--muted); margin: 0 0 .5em; font-wei
 }
 @page { margin: 12mm; }
 @media print {
-  :root { color-scheme: light; --fg: #111; --muted: #555; --line: #aaa; --code: #f7f7f7; --bg: #fff; --rank-1-fg: #7c2d12; --rank-1-bg: #ffedd5; --rank-2-fg: #1e40af; --rank-2-bg: #dbeafe; --rank-3-fg: #5b21b6; --rank-3-bg: #ede9fe; --action-fg: #166534; --action-bg: #ecfdf3; --action-border: #86efac; }
+  :root { color-scheme: light; --fg: #111; --muted: #555; --line: #aaa; --code: #f7f7f7; --bg: #fff; --rank-1-fg: #7c2d12; --rank-1-bg: #ffedd5; --rank-2-fg: #1e40af; --rank-2-bg: #dbeafe; --rank-3-fg: #5b21b6; --rank-3-bg: #ede9fe; --rank-4-fg: #14532d; --rank-4-bg: #dcfce7; --rank-5-fg: #9d174d; --rank-5-bg: #fce7f3; --action-fg: #166534; --action-bg: #ecfdf3; --action-border: #86efac; }
   body { background: #fff; color: #111; font: 10.5pt/1.55 var(--font-sans); }
   main { max-width: none; padding: 0; letter-spacing: 0; }
   .topbar { display: none; }

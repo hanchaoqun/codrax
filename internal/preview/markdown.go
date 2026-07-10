@@ -209,7 +209,8 @@ func writeTraceProjectionGrid(w util.BufWriter, body string) {
 	for offset := 0; offset < len(body); {
 		if token, rank, width, ok := traceProjectionRankToken(body, offset); ok {
 			kind := "ordinal"
-			if strings.HasPrefix(token, "❶") || strings.HasPrefix(token, "❷") || strings.HasPrefix(token, "❸") {
+			if strings.HasPrefix(token, "❶") || strings.HasPrefix(token, "❷") || strings.HasPrefix(token, "❸") ||
+				strings.HasPrefix(token, "❹") || strings.HasPrefix(token, "❺") {
 				kind = "chip"
 			}
 			if kind == "chip" {
@@ -306,11 +307,12 @@ func traceProjectionActionToken(body string, offset int) (string, int, bool) {
 // A circled badge remains one fixed grid cell and clips its own fallback glyph,
 // preventing it from overprinting the adjacent state icon without consuming
 // label space. The ordinal arm highlights only
-// #1..#3 immediately following the closed zh/en root-cause-rank phrases;
-// arbitrary names and evidence ids are never restyled.
+// #1..#5 immediately following the closed zh/en root-cause-rank phrases;
+// arbitrary names and evidence ids are never restyled. §29.27.1: the badge
+// family is ❶..❺ (TOP-5, badge follows the seat).
 func traceProjectionRankToken(body string, offset int) (string, int, int, bool) {
 	rest := body[offset:]
-	for rank, token := range []string{"❶", "❷", "❸"} {
+	for rank, token := range []string{"❶", "❷", "❸", "❹", "❺"} {
 		if strings.HasPrefix(rest, token) {
 			return token, rank + 1, 1, true
 		}
@@ -319,7 +321,7 @@ func traceProjectionRankToken(body string, offset int) (string, int, int, bool) 
 	if !strings.HasSuffix(previous, "根因排序") && !strings.HasSuffix(previous, "root-cause rank ") {
 		return "", 0, 0, false
 	}
-	for rank := 1; rank <= 3; rank++ {
+	for rank := 1; rank <= 5; rank++ {
 		token := fmt.Sprintf("#%d", rank)
 		if !strings.HasPrefix(rest, token) {
 			continue

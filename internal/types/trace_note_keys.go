@@ -278,12 +278,28 @@ const TraceNoteKeyActualPrefix = "actual_"
 // both golden/pin sets) in the same change — trace_state_kinds.go's header
 // carries the mirror pointer.
 const (
-	TraceNoteKeyDominantState  = "dominant_state"
-	TraceNoteKeyRunning        = "running"
-	TraceNoteKeyRunnable       = "runnable"
-	TraceNoteKeySleep          = "sleep"
-	TraceNoteKeyDState         = "d_state"
-	TraceNoteKeyIOWait         = "io_wait"
+	TraceNoteKeyDominantState = "dominant_state"
+	TraceNoteKeyRunning       = "running"
+	TraceNoteKeyRunnable      = "runnable"
+	TraceNoteKeySleep         = "sleep"
+	TraceNoteKeyDState        = "d_state"
+	TraceNoteKeyIOWait        = "io_wait"
+	// TraceNoteKeySleepIOWait (§29.27② COV-4 复核 A-1, 2026-07-11): the
+	// target_window_states record's sleep-side IO refinement — the wall
+	// clock of S-opened sleep intervals whose wakeup paired an iowait>0
+	// sched_blocked_reason marker (G12 §29.13 Harmony platform IO-wait
+	// form). Already contained in the sleep lane; NEVER an addend. Consumed
+	// by the projection compile into TargetStateAccount.SleepIOWaitMS for
+	// the sleep term's 「其中 IO等待」 label.
+	TraceNoteKeySleepIOWait = "sleep_io_wait"
+	// TraceNoteKeyDeterministicRunning (§29.27② COV-4, 2026-07-11): the
+	// target_window_states record's 确定性工作 lane — the wall-clock union of
+	// the focused thread's own semantic-span intervals ∩ its running
+	// intervals inside the analysis window (engine
+	// TargetWindowStateAccount.DeterministicRunningMs; never a converted
+	// value). Consumed by the projection compile into the typed
+	// TargetStateAccount for the four-state coverage account.
+	TraceNoteKeyDeterministicRunning = "deterministic_running"
 	TraceNoteKeyFragments      = "fragments"
 	TraceNoteKeySwitches       = "switches"
 	TraceNoteKeyMaxSegment     = "max_segment"
@@ -702,11 +718,17 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// 状态族.
 	{TraceNoteKeyDominantState, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyRunnableBelowRTPreempted, "state", TraceNoteCarrierHardConsumer},
-	{TraceNoteKeyRunning, "state", TraceNoteCarrierSoftConsumer},
+	// §29.27② (COV-4, 2026-07-11) EVOLUTION: the five per-state keys are now
+	// ALSO hard-consumed by the projection compile on target_window_states
+	// records (typed TargetStateAccount for the four-state coverage account);
+	// their state_churn / wakeup-aggregate carriers stay display/soft.
+	{TraceNoteKeyRunning, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyRunnable, "state", TraceNoteCarrierHardConsumer},
-	{TraceNoteKeySleep, "state", TraceNoteCarrierSoftConsumer},
-	{TraceNoteKeyDState, "state", TraceNoteCarrierSoftConsumer},
-	{TraceNoteKeyIOWait, "state", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeySleep, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyDState, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyIOWait, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeySleepIOWait, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyDeterministicRunning, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyFragments, "state", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeySwitches, "state", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyMaxSegment, "state", TraceNoteCarrierSoftConsumer},
