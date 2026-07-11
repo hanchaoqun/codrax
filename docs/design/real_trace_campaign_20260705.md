@@ -2258,3 +2258,11 @@ witness=a4 报告(16011/2549)供给 clause「已按大核满频(或接近)运行
 **B3-b1（先行）**：唯一 production caller显式传同一 `traceDBSchedulerAuthority` 与同一 lifecycle-filtered typed Running。subject闭集固定为 positive canonical thread、PID0 kernel thread、exact canonical idle和真正不存在任何canonical/rejected候选的source-only；前3类先过 capture/lifecycle point，source-only只允许非配对inventory且必须有合法显式CPU。`ObservedPublicTID/RejectedPublicTID`、PID conflict、歧义、point失败均不得降级；explicit CPU只能免 Running lookup，不能免 lifecycle。完成后删除 legacy raw Running lookup与相应结构豁免，并以四类身份、cut/poison、CPU四态、source-only paired负对照和唯一调用图机械锁定。
 
 **B3-b2（随后）**：在任何 endpoint 落 sink 前完成 raw 全集审计，用有界 typed stage/freeze把 binder、workqueue、DMA、block与generic storage的坏 exact key局部化为 lane barrier，不可定位key升级family-global；五族key与tracequery单点同构或以跨包parity pin证明。valid→bad→valid不得跨洞铸IPC/时长，无关key与无关family必须存活。两批的格式验收继续遵循§29.45：标准 Donghu 已存在字段必须兼容；其他标准trace格式走独立typed profile，既不因样本缺席删除，也不串profile或补造默认值。
+
+## §29.47 标准 Donghu profile 差分审计立案（2026-07-12，未收账）
+
+**基准边界**：`donghu.ftrace` SHA `e15d3df…` 含27,843 events、14种event；sched_switch 4,670/4,670有next_info，blocked 438/438有delay，page-cache 2,907/2,907为page/pfn/ofs形。该文件证明 Donghu profile 中“存在什么”，不证明其他标准profile中“不允许什么”。CRLF、无systrace header与当前LF+生成header是容器差异；线程名会变化，禁止参加profile判定。hmtrace SQL的keyless `clock_set_rate: <name> <value>`是另一已证标准profile，不能被Donghu keyed形全局替换。
+
+**P0 remaining ftrace payload admission**：direct RMQ 尚未让wakeup/blocked/CPU/print等剩余descriptor经过共同endpoint准入，missing/wrong-wire可被补成合法0，控制字符串可形成伪物理行；structured profiler的strict wire audit同样未覆盖binder/print/IRQ/CPU/wakeup/blocked/F2FS/MMC等全部descriptor，duplicate/walk错误仍有后值覆盖或整plugin失败的风险。B3-b完成后立即开独立P0：每个精确producer descriptor审core/optional的presence、wire、range、唯一性、UTF-8和单物理行，坏sibling局部抑制并计coverage，禁止默认CPU0/prio0/空串，禁止按事件名或线程名猜profile。
+
+**P1两项**：①SQL raw page-cache把页index与byte offset混在一组alias，`index=1`会错误发布为offset 1；应拆Donghu filemap typed tuple并checked `index<<12`后复用共享renderer，其他标准byte-offset profile独立保留。②Golden print有8条真实尾空格marker与28条>300B payload；direct TrimSpace/clamp会造成跨引擎identity漂移。建立marker专用decoder，仅去NUL、保留合法边缘空白/pipe，同时严格守UTF-8、单物理行和容量，tracequery同步。P2为SQL header emitter identity projection披露，P3为删除/诚实化 `%lu/%d` 内核计数占位头。详细施工证据与优先级以trace gap施工账第24项为准。
