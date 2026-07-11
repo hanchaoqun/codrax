@@ -619,7 +619,11 @@ section.trace-projection-evidence li { margin: .2em 0; }
 section.aux { margin-top: 3em; border-top: 1px solid var(--line); padding-top: 12px; }
 section.aux h2 { font-size: 1em; color: var(--muted); margin: 0 0 .5em; font-weight: 600; }
 .aux-src { margin: 1.2em 0 .2em; opacity: .85; font-style: italic; }
-.mermaid { margin: 18px 0; overflow: auto; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+/* Mermaid measures label boxes in a detached container that never sees
+   main's letter-spacing; any inherited tracking renders labels wider than
+   the measured node box and clips the last glyph. Keep spacing at normal
+   inside the diagram so rendered width matches measured width. */
+.mermaid { margin: 18px 0; overflow: auto; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); letter-spacing: normal; }
 .mermaid[data-render-error="true"] { border-color: #d92d20; background: var(--error-bg); }
 .mermaid-error-title { margin: 0 0 10px; color: var(--error-fg); font-weight: 600; }
 .mermaid[data-render-error="true"] pre { margin: 0; background: var(--code); }

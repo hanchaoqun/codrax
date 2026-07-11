@@ -66,6 +66,18 @@ func TestServerRegisterMarkdownRendersMermaidAndEscapesHTML(t *testing.T) {
 		!strings.Contains(html, "Mermaid render failed; raw source is preserved below.") {
 		t.Fatalf("preview page must manually render mermaid with clean fallback:\n%s", html)
 	}
+	// Measured-vs-rendered width parity pin (9056 witness, 2026-07-11):
+	// mermaid computes node-box widths in a detached container that never
+	// inherits main's tracking, so the diagram container must pin
+	// letter-spacing back to normal or every htmlLabel renders wider than
+	// its box and the last glyph clips. Both halves are load-bearing: if
+	// main ever drops its tracking this pair can be retired together.
+	if !strings.Contains(html, "letter-spacing: .02em") {
+		t.Fatalf("main prose tracking gone — retire the mermaid letter-spacing pin pair deliberately, not silently:\n%s", html)
+	}
+	if !strings.Contains(html, ".mermaid { margin: 18px 0; overflow: auto; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); letter-spacing: normal; }") {
+		t.Fatalf("mermaid container must neutralize inherited letter-spacing (label boxes are measured without it):\n%s", html)
+	}
 }
 
 func TestServerRegisterMarkdownAllowsClassDiagramInBrowserMermaid(t *testing.T) {
