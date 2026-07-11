@@ -72,6 +72,8 @@
 
     **B1-b 唯一 typed sync-span authority**：新增 typed `Submit/PoisonExactLane/Finalize` 权威，候选至少携 producer、stable row identity、artifact source、header TID/TGID、canonical ITID（若有）、start/end、两端 CPU、name/depth provenance；callstack sync 与 syscall/AppStartup/static-init 的“当前已接受候选”在 finalize 前零发布，按 artifact source+header TID 完整集审 crossing/identical/containment/adjacent与已知 lane poison，坏 lane原子 fail-close、无关 lane存活。TaskPool 是 S/F，不进入 B/E 栈。对三类 R1b-C producer仅机械接管当前候选的 wire laminar，coverage 必须继续披露其 SQL strict scalar/lifecycle/anti-rescue 尚未验证，不能借机偷跑或结案。
 
+    **B1-b registration 边界补充**：scheduler 阶段的 thread/process registration 当前同样以零时长 B/E 占用 sync wire 栈，且早于 extended 直接入 sorter；中央 arbiter若只接 extended 仍不完整。B1-b 必须把 registration 作为 typed zero-span 纳入同一 phase/order authority，或先迁成经证明不占同步栈的 metadata wire；禁止靠 producer `seq` 白名单排除。artifact source + header TID 是下游物理 stack lane，payload TGID不能替代。
+
     **B1-c 有界 stage/freeze**：typed 候选按 `(lane,start,end,producer,rowid)` 可外排；pass 1完成审计/坏 lane集合，pass 2才向 row sorter发 clean endpoints，禁止首见赢与先发后判。tiny-threshold spill parity、反向物理序、超预算整 sync family fail-close、临时文件无条件清理、coverage 的 peak/spill/temp provenance和生产 caller闭集全部机械化。R1b-C 后续仍单独负责 syscall current/legacy decoder与 SQL `COALESCE/WHERE` 隐藏坏 sibling、static `(ipid,tid)→ITID`唯一性与 lifecycle、AppStartup process generation、TaskPool task-id/join/双端 point；raw/perf/frame/native 与 R2 snapshot均不在 B1 范围。
 
 ## 高 ROI 主队列
