@@ -1,26 +1,28 @@
 # 通用验收快照脚本:window_stats + root_cause_rank + wakeup_chain 三步。
-# 用法(一条命令,零 LLM、纯只读、无需仓库与模型凭据):
-#   codrax --tracediag examples/tracediag/collect_acceptance_snapshot.yaml --trace <你的trace文件> --out acceptance_report.txt
-# 使用前请按你的场景改占位参数(改 defaults 即全部步骤生效):
-#   1) defaults.pid    —— 目标进程 pid(如卡顿应用主进程 pid)
-#   2) defaults.window —— 关注时间窗(秒,"起..止";建议 ≤1s,窗口越窄证据越聚焦)
-# pid 与 thread **二选一**:要按线程采集时,把 pid 行删掉、改用
-#   thread: "comm-pid" 形选择子(引擎 pid 优先会无视 thread,同设会被拒绝执行)。
+# 用法(一条命令,零 LLM、纯只读、无需仓库与模型凭据、**无需编辑本文件**):
+#   codrax --tracediag examples/tracediag/collect_acceptance_snapshot.yaml --trace <trace文件> --trace-window <start_s>..<end_s> --trace-tid <TID> --out acceptance_report.txt
+#   1) --trace-tid    —— 关注线程 TID(报告中的目标线程;三步均按该线程采集)
+#   2) --trace-window —— 关注时间窗(秒,"起..止";建议 ≤1s,窗口越窄证据越聚焦)
+# 漏传任一 flag 会 fail-loud 报错,不会静默采整窗。
 # 每步 max_lines 可按需调整(硬帽 1000,超帽自动夹取并在报告披露)。
 #
-# 行数预算(P3-6:单输出文件≤1000 行,步帽合计≤950):450+250+200=900。
-version: 1
+# 行数预算(P3-6:单输出文件≤1000 行):步帽 450+250+190=890,v2 报告框架另计,
+# 验证最坏 ≤1000(TestShippedScriptsSingleFileBudget 看守)。
+version: 2
 description: "通用验收快照(窗口统计+根因排序+唤醒链)"
-defaults:
-  pid: 12345                       # ← 占位:改成目标 pid(或删掉本行改用 thread)
-  window: "100.000..100.500"       # ← 占位:改成关注窗口(秒)
+inputs:
+  window: required
+  tid: required
 steps:
   - label: window_stats_snapshot
     view: window_stats
+    pid_from: tid
     max_lines: 450
   - label: root_cause_rank_snapshot
     view: root_cause_rank
+    pid_from: tid
     max_lines: 250
   - label: wakeup_chain_snapshot
     view: wakeup_chain
-    max_lines: 200
+    pid_from: tid
+    max_lines: 190
