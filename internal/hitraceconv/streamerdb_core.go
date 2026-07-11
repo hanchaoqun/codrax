@@ -63,10 +63,16 @@ type traceDBThread struct {
 type traceDBThreadIndex struct {
 	ByITID             map[int64]traceDBThread
 	AmbiguousITID      map[int64]bool
+	ThreadIDToITID     map[int64]int64
+	AmbiguousThreadID  map[int64]bool
+	HasThreadIDColumn  bool
 	ByTID              map[int64]traceDBThread
 	ByTIDIncarnation   map[int64][]traceDBThread
 	Processes          map[int64]traceDBProcess
 	AmbiguousIPID      map[int64]bool
+	ProcessIDToIPID    map[int64]int64
+	AmbiguousProcessID map[int64]bool
+	HasProcessIDColumn bool
 	ByProcess          map[int64][]traceDBThread
 	TraceStart         int64
 	RunningTaintedITID map[int64]bool
@@ -166,7 +172,7 @@ func (tdb *traceDB) close() error {
 func (tdb *traceDB) tableExists(ctx context.Context, table string) (bool, error) {
 	var one int
 	err := tdb.db.QueryRowContext(ctx,
-		"SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1 LIMIT 1",
+		"SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1 COLLATE NOCASE LIMIT 1",
 		table,
 	).Scan(&one)
 	if err == sql.ErrNoRows {
@@ -209,7 +215,7 @@ func (tdb *traceDB) columnExists(ctx context.Context, table, column string) (boo
 		return false, err
 	}
 	for _, item := range columns {
-		if item == column {
+		if sqliteASCIIIdentifierEqual(item, column) {
 			return true, nil
 		}
 	}
@@ -245,10 +251,10 @@ func (tdb *traceDB) inspectCoverage(ctx context.Context, family, table string, r
 	}
 	columnSet := make(map[string]bool, len(columns))
 	for _, column := range columns {
-		columnSet[column] = true
+		columnSet[sqliteASCIIIdentifierFold(column)] = true
 	}
 	for _, column := range requiredColumns {
-		if columnSet[column] {
+		if columnSet[sqliteASCIIIdentifierFold(column)] {
 			item.ColumnsPresent = append(item.ColumnsPresent, column)
 		} else {
 			item.ColumnsMissing = append(item.ColumnsMissing, column)
@@ -266,6 +272,20 @@ func (tdb *traceDB) inspectCoverage(ctx context.Context, family, table string, r
 		item.Skipped = "missing required columns: " + strings.Join(item.ColumnsMissing, ",")
 	}
 	return item, nil
+}
+
+func sqliteASCIIIdentifierEqual(left, right string) bool {
+	return sqliteASCIIIdentifierFold(left) == sqliteASCIIIdentifierFold(right)
+}
+
+func sqliteASCIIIdentifierFold(value string) string {
+	bytes := []byte(value)
+	for i, b := range bytes {
+		if b >= 'A' && b <= 'Z' {
+			bytes[i] = b + ('a' - 'A')
+		}
+	}
+	return string(bytes)
 }
 
 func traceDBCoverageRole(family, table string) string {
@@ -287,19 +307,53 @@ func traceDBCoverageRole(family, table string) string {
 
 func (tdb *traceDB) traceStart(ctx context.Context) (int64, TraceDBCoverage, error) {
 	coverage, err := tdb.inspectCoverage(ctx, "resolver", "trace_range", []string{"start_ts"})
+	coverage.FieldSources = map[string]string{
+		"start_ts": "exactly one non-negative SQLite INTEGER row; zero is a valid timestamp",
+	}
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
 		return 0, coverage, err
 	}
-	var start int64
-	err = tdb.db.QueryRowContext(ctx, "SELECT start_ts FROM trace_range LIMIT 1").Scan(&start)
-	if err == sql.ErrNoRows {
-		coverage.Skipped = "empty table"
-		return 0, coverage, nil
-	}
+	rows, err := tdb.db.QueryContext(ctx, "SELECT start_ts FROM trace_range")
 	if err != nil {
 		coverage.Error = err.Error()
 		return 0, coverage, err
 	}
+	defer rows.Close()
+	var value any
+	rowCount := 0
+	for rows.Next() {
+		var raw any
+		if err := rows.Scan(&raw); err != nil {
+			coverage.Error = err.Error()
+			return 0, coverage, err
+		}
+		rowCount++
+		if rowCount == 1 {
+			value = raw
+			continue
+		}
+		// Singleton validity is already disproven. Stop without materializing an
+		// unbounded malformed trace_range table.
+		break
+	}
+	if err := rows.Err(); err != nil {
+		coverage.Error = err.Error()
+		return 0, coverage, err
+	}
+	if rowCount != 1 || coverage.RowsRead != 1 {
+		observed := coverage.RowsRead
+		if rowCount > observed {
+			observed = rowCount
+		}
+		coverage.Skipped = fmt.Sprintf("expected exactly one trace_range row, got %d", observed)
+		return 0, coverage, nil
+	}
+	start, ok := traceDBStrictSQLiteInt(value)
+	if !ok || start < 0 {
+		coverage.Skipped = "trace_range.start_ts rejected: expected non-negative SQLite INTEGER"
+		return 0, coverage, nil
+	}
+	coverage.RowsEmitted = 1
 	return start, coverage, nil
 }
 
@@ -310,123 +364,54 @@ func (tdb *traceDB) loadThreadIndex(ctx context.Context) (traceDBThreadIndex, []
 	if err != nil {
 		return traceDBThreadIndex{}, coverage, err
 	}
-	processCoverage, err := tdb.inspectCoverage(ctx, "resolver", "process", []string{"ipid", "pid", "name"})
+	processCoverage, err := tdb.inspectCoverage(ctx, "resolver", "process", []string{"ipid", "pid"})
 	coverage = append(coverage, processCoverage)
 	if err != nil {
 		return traceDBThreadIndex{}, coverage, err
 	}
-	threadCoverage, err := tdb.inspectCoverage(ctx, "resolver", "thread", []string{"itid", "tid", "ipid", "name", "start_ts", "is_main_thread", "switch_count"})
+	threadCoverage, err := tdb.inspectCoverage(ctx, "resolver", "thread", []string{"itid", "tid", "ipid", "start_ts", "is_main_thread", "switch_count"})
 	coverage = append(coverage, threadCoverage)
 	if err != nil {
 		return traceDBThreadIndex{}, coverage, err
 	}
-	index := traceDBThreadIndex{
-		ByITID:           map[int64]traceDBThread{},
-		AmbiguousITID:    map[int64]bool{},
-		ByTID:            map[int64]traceDBThread{},
-		ByTIDIncarnation: map[int64][]traceDBThread{},
-		Processes:        map[int64]traceDBProcess{},
-		AmbiguousIPID:    map[int64]bool{},
-		ByProcess:        map[int64][]traceDBThread{},
-		TraceStart:       traceStart,
-	}
-	if processCoverage.Found && len(processCoverage.ColumnsMissing) == 0 {
-		// A process name is display metadata, not identity.  Some exporters keep
-		// multiple rows while a process is renamed, so order by typed identity and
-		// the display value instead of relying on rowid insertion history.
-		rows, err := tdb.db.QueryContext(ctx, "SELECT ipid, pid, COALESCE(name, '') FROM process WHERE pid IS NOT NULL ORDER BY ipid, pid, name")
+	index := newTraceDBThreadIndex(traceStart)
+	if processCoverage.Found {
+		index.HasProcessIDColumn, err = tdb.columnExists(ctx, "process", "id")
 		if err != nil {
 			return index, coverage, err
 		}
-		defer rows.Close()
-		for rows.Next() {
-			var item traceDBProcess
-			if err := rows.Scan(&item.IPID, &item.PID, &item.Name); err != nil {
-				return index, coverage, err
-			}
-			if existing, exists := index.Processes[item.IPID]; exists {
-				if existing.PID != item.PID {
-					index.AmbiguousIPID[item.IPID] = true
-				} else {
-					if strings.TrimSpace(item.Name) != "" {
-						existing.Name = item.Name
-					}
-					index.Processes[item.IPID] = existing
-					continue
-				}
-			}
-			index.Processes[item.IPID] = item
+		if index.HasProcessIDColumn {
+			coverage[1].ColumnsPresent = appendTraceDBCoverageColumn(coverage[1].ColumnsPresent, "id")
+			sort.Strings(coverage[1].ColumnsPresent)
 		}
-		if err := rows.Err(); err != nil {
+		coverage[1].FieldSources = map[string]string{
+			"source_profile": map[bool]string{true: "full current profile: process.id/ipid alias parity required", false: "id-less compatibility profile"}[index.HasProcessIDColumn],
+		}
+	}
+	if threadCoverage.Found {
+		index.HasThreadIDColumn, err = tdb.columnExists(ctx, "thread", "id")
+		if err != nil {
+			return index, coverage, err
+		}
+		if index.HasThreadIDColumn {
+			coverage[2].ColumnsPresent = appendTraceDBCoverageColumn(coverage[2].ColumnsPresent, "id")
+			sort.Strings(coverage[2].ColumnsPresent)
+		}
+		coverage[2].FieldSources = map[string]string{
+			"source_profile": map[bool]string{true: "full current profile: thread.id/itid alias parity required", false: "id-less compatibility profile"}[index.HasThreadIDColumn],
+		}
+	}
+	if processCoverage.Found && len(processCoverage.ColumnsMissing) == 0 {
+		if err := tdb.loadStrictProcessIndex(ctx, &index, &coverage[1]); err != nil {
 			return index, coverage, err
 		}
 	}
-	if !threadCoverage.Found || len(threadCoverage.ColumnsMissing) > 0 {
-		return index, coverage, nil
-	}
-	rows, err := tdb.db.QueryContext(ctx, `
-		SELECT itid, tid, COALESCE(ipid, 0), COALESCE(name, ''),
-		       COALESCE(start_ts, ?1), COALESCE(is_main_thread, 0),
-		       COALESCE(switch_count, 0)
-		FROM thread
-		WHERE tid IS NOT NULL AND tid > 0
-		ORDER BY itid, tid, ipid, start_ts, name
-	`, traceStart)
-	if err != nil {
-		return index, coverage, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var mainFlag int64
-		var item traceDBThread
-		if err := rows.Scan(&item.ITID, &item.TID, &item.IPID, &item.Name, &item.StartTS, &mainFlag, &item.SwitchCount); err != nil {
+	if threadCoverage.Found && len(threadCoverage.ColumnsMissing) == 0 {
+		if err := tdb.loadStrictThreadIndex(ctx, &index, &coverage[2]); err != nil {
 			return index, coverage, err
 		}
-		item.IsMainThread = mainFlag != 0
-		if existing, exists := index.ByITID[item.ITID]; exists {
-			if existing.TID == item.TID && existing.IPID == item.IPID && existing.StartTS == item.StartTS {
-				if strings.TrimSpace(item.Name) != "" {
-					existing.Name = item.Name
-				}
-				existing.IsMainThread = existing.IsMainThread || item.IsMainThread
-				if item.SwitchCount > existing.SwitchCount {
-					existing.SwitchCount = item.SwitchCount
-				}
-				index.ByITID[item.ITID] = existing
-				index.ByTID[item.TID] = existing
-				replaceTraceDBThreadByITID(index.ByTIDIncarnation[item.TID], existing)
-				replaceTraceDBThreadByITID(index.ByProcess[item.IPID], existing)
-				continue
-			}
-			index.AmbiguousITID[item.ITID] = true
-		}
-		index.ByITID[item.ITID] = item
-		index.ByTID[item.TID] = item
-		index.ByTIDIncarnation[item.TID] = append(index.ByTIDIncarnation[item.TID], item)
-		index.ByProcess[item.IPID] = append(index.ByProcess[item.IPID], item)
-	}
-	if err := rows.Err(); err != nil {
-		return index, coverage, err
-	}
-	for tid := range index.ByTIDIncarnation {
-		sort.SliceStable(index.ByTIDIncarnation[tid], func(i, j int) bool {
-			left := index.ByTIDIncarnation[tid][i]
-			right := index.ByTIDIncarnation[tid][j]
-			if left.StartTS != right.StartTS {
-				return left.StartTS < right.StartTS
-			}
-			return left.ITID < right.ITID
-		})
 	}
 	return index, coverage, nil
-}
-
-func replaceTraceDBThreadByITID(items []traceDBThread, replacement traceDBThread) {
-	for i := range items {
-		if items[i].ITID == replacement.ITID {
-			items[i] = replacement
-		}
-	}
 }
 
 func (tdb *traceDB) loadArgsets(ctx context.Context) (traceDBArgsetIndex, []TraceDBCoverage, error) {

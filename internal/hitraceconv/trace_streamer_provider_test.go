@@ -905,7 +905,7 @@ func traceStreamerIntegrationDBStatements() []string {
 		"CREATE TABLE irq (ts INT, dur INT, callid INT, cat TEXT, name TEXT, argsetid INT)",
 		"INSERT INTO irq VALUES (1500000, 10000, 4, 'irq', 'uart', 10)",
 		"CREATE TABLE callstack (id INT, ts INT, dur INT, callid INT, name TEXT, cat TEXT, depth INT, cookie INT, itid INT)",
-		"INSERT INTO callstack VALUES (1, 1700000, 40000, 100, 'DoWork', 'slice', 0, NULL, 2)",
+		"INSERT INTO callstack VALUES (1, 1700000, 40000, 2, 'DoWork', 'slice', 0, NULL, 2)",
 	}
 }
 

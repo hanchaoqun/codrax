@@ -56,7 +56,7 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 	coverage, err := tdb.inspectCoverage(ctx, "slice", "callstack", []string{"ts", "dur", "name"})
 	coverage.FieldSources = map[string]string{
 		"cpu":              "all Running thread_state intervals covering an endpoint agree on one valid CPU",
-		"emitter_identity": "callstack.itid when present, otherwise callstack.callid; exact thread.itid join",
+		"emitter_identity": "row-level strict callstack.itid and callstack.callid->audited thread.id/itid profile; both must converge when present",
 		"async_owner":      "exact non-ambiguous process.ipid generation and process.pid",
 		"row_order":        "strict SQLite rowid; optional source id remains provenance only; typed endpoint phase ordering",
 		"async_identity":   "nonzero cookie or chainId; both must agree when both are present",
@@ -164,7 +164,7 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 			coverage.Error = err.Error()
 			return coverage, err
 		}
-		row, reason := prepareTraceDBCallstackRow(index, running, hasID, hasITID, hasFlag, hasDepth,
+		row, reason := prepareTraceDBCallstackRow(index, running, hasID, hasITID, hasCallID, hasFlag, hasDepth,
 			rowIDRaw, sourceIDRaw, tsRaw, durRaw, nameRaw, callIDRaw, itidRaw, flagRaw, cookieRaw, chainIDRaw, depthRaw)
 		if reason != "" {
 			if traceDBCallstackPotentialAsync(flagRaw, cookieRaw, chainIDRaw, hasFlag) {
@@ -263,7 +263,7 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 }
 
 func prepareTraceDBCallstackRow(index traceDBThreadIndex, running map[int64][]traceDBRunningInterval,
-	hasID, hasITID, hasFlag, hasDepth bool,
+	hasID, hasITID, hasCallID, hasFlag, hasDepth bool,
 	rowIDRaw, sourceIDRaw, tsRaw, durRaw, nameRaw, callIDRaw, itidRaw, flagRaw, cookieRaw, chainIDRaw, depthRaw any,
 ) (traceDBCallstackRow, string) {
 	var row traceDBCallstackRow
@@ -286,15 +286,10 @@ func prepareTraceDBCallstackRow(index traceDBThreadIndex, running map[int64][]tr
 		return row, "interval_overflow"
 	}
 	row.End = row.TS + row.Dur
-	if hasITID {
-		if row.EmitterITID, ok = traceDBStrictSQLiteInt(itidRaw); !ok || row.EmitterITID <= 0 {
-			return row, "invalid_emitter_itid"
-		}
-	} else {
-		if row.CallID, ok = traceDBStrictSQLiteInt(callIDRaw); !ok || row.CallID <= 0 {
-			return row, "invalid_callid"
-		}
-		row.EmitterITID = row.CallID
+	var identityReason string
+	row.EmitterITID, row.CallID, identityReason = traceDBResolveCallstackEmitterIdentity(index, hasITID, hasCallID, itidRaw, callIDRaw)
+	if identityReason != "" {
+		return row, identityReason
 	}
 	if row.Name, ok = traceDBCallstackText(nameRaw, false); !ok || !traceDBCallstackMarkerToken(row.Name) {
 		return row, "invalid_name"
@@ -343,7 +338,7 @@ func prepareTraceDBCallstackRow(index traceDBThreadIndex, running map[int64][]tr
 	process, processExists := index.Processes[thread.IPID]
 	row.OwnerIPID = thread.IPID
 	row.TID = thread.TID
-	if !processExists || thread.IPID <= 0 || process.PID <= 0 || process.PID > math.MaxInt32 {
+	if !processExists || thread.IPID < 0 || process.PID <= 0 || process.PID > math.MaxInt32 {
 		return row, "unresolved_owner_process"
 	}
 	row.TGID = process.PID

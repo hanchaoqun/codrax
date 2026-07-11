@@ -412,6 +412,63 @@ func exportTraceDBSchedSwitchFixture(t *testing.T, schedRows []string) (string, 
 	return string(bodyBytes), coverage, index
 }
 
+func TestExportTraceDBThreadRegistrationPreservesZeroStart(t *testing.T) {
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts)",
+		"INSERT INTO trace_range VALUES (100000)",
+		"CREATE TABLE process (ipid, pid, name)",
+		"INSERT INTO process VALUES (1, 100, 'demo')",
+		"CREATE TABLE thread (itid, tid, ipid, name, start_ts, is_main_thread, switch_count)",
+		"INSERT INTO thread VALUES (2, 101, 1, 'zero-start', 0, 0, 1)",
+	})
+	outPath := filepath.Join(t.TempDir(), "zero-start.systrace")
+	_, err := exportTraceDBToSystrace(context.Background(), path, outPath)
+	if err != nil {
+		t.Fatalf("export zero-start registration: %v", err)
+	}
+	bodyBytes, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(bodyBytes)
+	if !strings.Contains(body, "0.000000: task_rename: pid=101") || strings.Contains(body, "0.000100: task_rename: pid=101") {
+		t.Fatalf("valid thread.start_ts=0 was rewritten to trace_range.start_ts:\n%s", body)
+	}
+}
+
+func TestExportTraceDBThreadRegistrationSanitizesDisplayOnlyNames(t *testing.T) {
+	oversized := strings.Repeat("x", maxTraceDBIdentityDisplayBytes+1)
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts)",
+		"INSERT INTO trace_range VALUES (0)",
+		"CREATE TABLE process (ipid, pid, name)",
+		"INSERT INTO process VALUES (1, 100, 'bad process')",
+		"INSERT INTO process VALUES (2, 200, 'control-process')",
+		"CREATE TABLE thread (itid, tid, ipid, name, start_ts, is_main_thread, switch_count)",
+		"INSERT INTO thread VALUES (2, 101, 1, '" + oversized + "', 0, 0, 1)",
+		"INSERT INTO thread VALUES (3, 201, 2, 'control-thread', 0, 0, 1)",
+	})
+	outPath := filepath.Join(t.TempDir(), "display-only-name.systrace")
+	result, err := exportTraceDBToSystrace(context.Background(), path, outPath)
+	if err != nil {
+		t.Fatalf("display-only name must not fail the conversion: %v", err)
+	}
+	assertCoverageEmitted(t, result.Coverage, "metadata", "thread", 6)
+	bodyBytes, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(bodyBytes)
+	for _, want := range []string{"task_rename: pid=101", "task_rename: pid=201", "control-process"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("display sanitizer lost identity or valid sibling %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "bad process") || strings.Contains(body, strings.Repeat("x", 64)) {
+		t.Fatalf("unsafe display name leaked into a physical output line:\n%s", body)
+	}
+}
+
 func assertCoverageEmitted(t *testing.T, coverage []TraceDBCoverage, family, table string, minRows int) {
 	t.Helper()
 	for _, item := range coverage {

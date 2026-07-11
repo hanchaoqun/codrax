@@ -237,6 +237,38 @@ func TestTraceDBCoreLoadsResolvers(t *testing.T) {
 	}
 }
 
+func TestTraceDBThreadIndexRejectsDivergentCurrentAliases(t *testing.T) {
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts INT)",
+		"INSERT INTO trace_range VALUES (0)",
+		"CREATE TABLE process (id INT, ipid INT, pid INT, name TEXT)",
+		"INSERT INTO process VALUES (31, 7, 500, 'demo')",
+		"INSERT INTO process VALUES (8, 8, 600, 'control')",
+		"CREATE TABLE thread (id INT, itid INT, tid INT, ipid INT, name TEXT, start_ts INT, is_main_thread INT, switch_count INT)",
+		"INSERT INTO thread VALUES (41, 9, 501, 7, 'ambiguous-worker', 0, 0, 1)",
+		"INSERT INTO thread VALUES (10, 10, 601, 8, 'control-worker', 0, 0, 1)",
+	})
+	tdb, err := openTraceDB(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tdb.close()
+
+	index, _, err := tdb.loadThreadIndex(context.Background())
+	if err != nil {
+		t.Fatalf("load current identity index: %v", err)
+	}
+	if _, ok := index.ByITID[9]; ok || !index.AmbiguousITID[9] {
+		t.Fatalf("divergent thread.id/itid survived current-profile audit: %+v", index)
+	}
+	if _, ok := index.Processes[7]; ok || !index.AmbiguousIPID[7] {
+		t.Fatalf("divergent process.id/ipid survived current-profile audit: %+v", index)
+	}
+	if control, ok := index.ByITID[10]; !ok || control.TID != 601 || control.IPID != 8 || index.Processes[8].PID != 600 {
+		t.Fatalf("valid current alias sibling was lost: thread=%+v process=%+v index=%+v", control, index.Processes[8], index)
+	}
+}
+
 func TestTraceDBCoreThreadStateRunningCoverage(t *testing.T) {
 	path := createTraceDBFixture(t, []string{
 		"CREATE TABLE thread_state (itid INT, ts INT, dur INT, cpu INT, state TEXT)",

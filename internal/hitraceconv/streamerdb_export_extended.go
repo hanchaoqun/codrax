@@ -501,19 +501,30 @@ func exportTraceDBSyscall(ctx context.Context, tdb *traceDB, sink *traceDBRowSin
 		return coverage, err
 	}
 	defer rows.Close()
+	skipped := map[string]int{}
 	for rows.Next() {
-		var ts, dur, itid int64
-		var num any
-		if err := rows.Scan(&ts, &dur, &num, &itid); err != nil {
+		var ts, dur int64
+		var num, itidRaw any
+		if err := rows.Scan(&ts, &dur, &num, &itidRaw); err != nil {
 			coverage.Error = err.Error()
 			return coverage, err
 		}
-		task, tid, tgid := traceDBThreadLineContext(index, itid)
+		itid, ok := traceDBStrictInternalID(itidRaw)
+		if !ok {
+			skipped["invalid_emitter_itid"]++
+			continue
+		}
+		task, tid, tgid, ok := traceDBResolvedThreadLineContext(index, itid)
+		if !ok {
+			skipped["unresolved_emitter_identity"]++
+			continue
+		}
 		if err := addTraceDBSpanRows(sink, ts, ts+dur, task, tid, tgid, 0, "sys_"+traceDBAnyText(num, "None")); err != nil {
 			return coverage, err
 		}
 		coverage.RowsEmitted += 2
 	}
+	coverage.Skipped = traceDBCountSummary(skipped)
 	return coverage, rows.Err()
 }
 
@@ -532,7 +543,7 @@ func exportTraceDBTaskPool(ctx context.Context, tdb *traceDB, sink *traceDBRowSi
 	}
 	rows, err := tdb.db.QueryContext(ctx, `
 		SELECT tp.task_id, ca.ts, ce.ts, COALESCE(ce.dur, 0),
-		       COALESCE(tp.allocation_itid, 0), COALESCE(tp.execute_itid, 0)
+		       tp.allocation_itid, tp.execute_itid
 		FROM task_pool tp
 		LEFT JOIN callstack ca ON ca.id = tp.allocation_task_row
 		LEFT JOIN callstack ce ON ce.id = tp.execute_task_row
@@ -544,30 +555,55 @@ func exportTraceDBTaskPool(ctx context.Context, tdb *traceDB, sink *traceDBRowSi
 		return coverage, err
 	}
 	defer rows.Close()
+	skipped := map[string]int{}
 	for rows.Next() {
 		var taskID any
 		var allocTS int64
 		var execTS sql.NullInt64
-		var execDur, allocITID, execITID int64
-		if err := rows.Scan(&taskID, &allocTS, &execTS, &execDur, &allocITID, &execITID); err != nil {
+		var execDur int64
+		var allocITIDRaw, execITIDRaw any
+		if err := rows.Scan(&taskID, &allocTS, &execTS, &execDur, &allocITIDRaw, &execITIDRaw); err != nil {
 			coverage.Error = err.Error()
 			return coverage, err
 		}
+		allocITID, allocITIDOK := traceDBStrictInternalID(allocITIDRaw)
+		if !allocITIDOK {
+			skipped["invalid_allocation_itid"]++
+			continue
+		}
+		allocTask, allocTID, allocTGID, allocOK := traceDBResolvedThreadLineContext(index, allocITID)
+		if !allocOK {
+			skipped["unresolved_allocation_identity"]++
+			continue
+		}
+		var execTask string
+		var execTID, execTGID int64
+		if execTS.Valid {
+			execITID, execITIDOK := traceDBStrictInternalID(execITIDRaw)
+			if !execITIDOK {
+				skipped["invalid_execute_itid"]++
+				continue
+			}
+			execTask, execTID, execTGID, execITIDOK = traceDBResolvedThreadLineContext(index, execITID)
+			if !execITIDOK {
+				skipped["unresolved_execute_identity"]++
+				continue
+			}
+		}
 		cookie := traceDBAnyText(taskID, "0")
 		name := "TaskPool-" + cookie
-		task, tid, tgid := traceDBThreadLineContext(index, allocITID)
-		if err := addTraceDBInstantRow(sink, allocTS, task, tid, tgid, 0, fmt.Sprintf("tracing_mark_write: S|%d|%s|%s", tgid, name, cookie)); err != nil {
+		if err := addTraceDBInstantRow(sink, allocTS, allocTask, allocTID, allocTGID, 0, fmt.Sprintf("tracing_mark_write: S|%d|%s|%s", allocTGID, name, cookie)); err != nil {
 			return coverage, err
 		}
 		coverage.RowsEmitted++
 		if execTS.Valid {
-			task, tid, tgid = traceDBThreadLineContext(index, execITID)
-			if err := addTraceDBInstantRow(sink, execTS.Int64+execDur, task, tid, tgid, 0, fmt.Sprintf("tracing_mark_write: F|%d|%s|%s", tgid, name, cookie)); err != nil {
+			if err := addTraceDBInstantRow(sink, execTS.Int64+execDur, execTask, execTID, execTGID, 0, fmt.Sprintf("tracing_mark_write: F|%d|%s|%s", execTGID, name, cookie)); err != nil {
 				return coverage, err
 			}
 			coverage.RowsEmitted++
 		}
 	}
+	coverage.Skipped = traceDBCountSummary(skipped)
 	return coverage, rows.Err()
 }
 
@@ -576,24 +612,36 @@ func exportTraceDBAppStartup(ctx context.Context, tdb *traceDB, sink *traceDBRow
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
 		return coverage, err
 	}
-	rows, err := tdb.db.QueryContext(ctx, "SELECT start_time, end_time, COALESCE(start_name, 0), COALESCE(ipid, 0) FROM app_startup WHERE end_time > start_time ORDER BY start_time")
+	rows, err := tdb.db.QueryContext(ctx, "SELECT start_time, end_time, COALESCE(start_name, 0), ipid FROM app_startup WHERE end_time > start_time ORDER BY start_time")
 	if err != nil {
 		coverage.Error = err.Error()
 		return coverage, err
 	}
 	defer rows.Close()
+	skipped := map[string]int{}
 	for rows.Next() {
-		var start, end, nameID, ipid int64
-		if err := rows.Scan(&start, &end, &nameID, &ipid); err != nil {
+		var start, end, nameID int64
+		var ipidRaw any
+		if err := rows.Scan(&start, &end, &nameID, &ipidRaw); err != nil {
 			coverage.Error = err.Error()
 			return coverage, err
 		}
-		task, tid, tgid := traceDBThreadOrProcessContext(index, 0, ipid, "startup")
+		ipid, ok := traceDBStrictInternalID(ipidRaw)
+		if !ok {
+			skipped["invalid_owner_ipid"]++
+			continue
+		}
+		task, tid, tgid, ok := traceDBResolvedProcessLineContext(index, ipid, "startup")
+		if !ok {
+			skipped["unresolved_owner_process"]++
+			continue
+		}
 		if err := addTraceDBSpanRows(sink, start, end, task, tid, tgid, 0, "AppStartup:"+firstNonEmpty(dict[nameID], "startup")); err != nil {
 			return coverage, err
 		}
 		coverage.RowsEmitted += 2
 	}
+	coverage.Skipped = traceDBCountSummary(skipped)
 	return coverage, rows.Err()
 }
 
@@ -602,7 +650,7 @@ func exportTraceDBStaticInitialize(ctx context.Context, tdb *traceDB, sink *trac
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
 		return coverage, err
 	}
-	rows, err := tdb.db.QueryContext(ctx, "SELECT start_time, end_time, so_name, COALESCE(ipid, 0), COALESCE(tid, 0) FROM static_initalize WHERE end_time > start_time ORDER BY start_time")
+	rows, err := tdb.db.QueryContext(ctx, "SELECT start_time, end_time, so_name, ipid, tid FROM static_initalize WHERE end_time > start_time ORDER BY start_time")
 	if err != nil {
 		coverage.Error = err.Error()
 		return coverage, err
@@ -610,18 +658,24 @@ func exportTraceDBStaticInitialize(ctx context.Context, tdb *traceDB, sink *trac
 	defer rows.Close()
 	skipped := map[string]int{}
 	for rows.Next() {
-		var start, end, ipid, tid int64
-		var so any
-		if err := rows.Scan(&start, &end, &so, &ipid, &tid); err != nil {
+		var start, end int64
+		var so, ipidRaw, tidRaw any
+		if err := rows.Scan(&start, &end, &so, &ipidRaw, &tidRaw); err != nil {
 			coverage.Error = err.Error()
 			return coverage, err
 		}
-		task, _, tgid := traceDBThreadOrProcessContext(index, 0, ipid, "soInit")
-		if tid <= 0 || tid > math.MaxInt32 {
+		ipid, ipidOK := traceDBStrictInternalID(ipidRaw)
+		if !ipidOK {
+			skipped["invalid_owner_ipid"]++
+			continue
+		}
+		tid, tidOK := traceDBStrictPublicID(tidRaw)
+		if !tidOK || tid <= 0 {
 			skipped["invalid_emitter_tid"]++
 			continue
 		}
-		if tgid <= 0 || tgid > math.MaxInt32 {
+		task, _, tgid, processOK := traceDBResolvedProcessLineContext(index, ipid, "soInit")
+		if !processOK {
 			skipped["unresolved_owner_process"]++
 			continue
 		}
@@ -648,7 +702,7 @@ func exportTraceDBProcessMeasures(ctx context.Context, tdb *traceDB, sink *trace
 		return coverage, nil
 	}
 	rows, err := tdb.db.QueryContext(ctx, `
-		SELECT m.ts, m.value, f.name, COALESCE(f.ipid, 0)
+		SELECT m.ts, m.value, f.name, f.ipid
 		FROM process_measure m
 		JOIN process_measure_filter f ON f.id = m.filter_id
 		ORDER BY m.ts
@@ -658,20 +712,31 @@ func exportTraceDBProcessMeasures(ctx context.Context, tdb *traceDB, sink *trace
 		return coverage, err
 	}
 	defer rows.Close()
+	skipped := map[string]int{}
 	for rows.Next() {
-		var ts, ipid int64
-		var value any
+		var ts int64
+		var value, ipidRaw any
 		var name string
-		if err := rows.Scan(&ts, &value, &name, &ipid); err != nil {
+		if err := rows.Scan(&ts, &value, &name, &ipidRaw); err != nil {
 			coverage.Error = err.Error()
 			return coverage, err
 		}
-		task, tid, tgid := traceDBThreadOrProcessContext(index, 0, ipid, "unknown")
+		ipid, ok := traceDBStrictInternalID(ipidRaw)
+		if !ok {
+			skipped["invalid_owner_ipid"]++
+			continue
+		}
+		task, tid, tgid, ok := traceDBResolvedProcessLineContext(index, ipid, "unknown")
+		if !ok {
+			skipped["unresolved_owner_process"]++
+			continue
+		}
 		if err := addTraceDBInstantRow(sink, ts, task, tid, tgid, 0, fmt.Sprintf("tracing_mark_write: C|%d|%s|%s", tgid, name, traceDBAnyText(value, "0"))); err != nil {
 			return coverage, err
 		}
 		coverage.RowsEmitted++
 	}
+	coverage.Skipped = traceDBCountSummary(skipped)
 	return coverage, rows.Err()
 }
 
@@ -871,24 +936,30 @@ func addTraceDBSpanRows(sink *traceDBRowSink, start, end int64, task string, tid
 	return sink.add(finish)
 }
 
-func traceDBThreadLineContext(index traceDBThreadIndex, itid int64) (string, int64, int64) {
-	thread, ok := index.ByITID[itid]
-	if !ok {
-		return "unknown", 0, 0
+func traceDBResolvedThreadLineContext(index traceDBThreadIndex, itid int64) (string, int64, int64, bool) {
+	if itid < 0 || itid > maxTraceDBInternalID || index.AmbiguousITID[itid] {
+		return "", 0, 0, false
 	}
-	process := index.Processes[thread.IPID]
-	return traceDBCommName(thread.Name, "unknown"), thread.TID, firstNonZero(process.PID, thread.TID)
+	thread, ok := index.ByITID[itid]
+	if !ok || thread.TID <= 0 || thread.TID > math.MaxInt32 || index.AmbiguousIPID[thread.IPID] {
+		return "", 0, 0, false
+	}
+	_, _, tgid, ok := traceDBResolvedProcessLineContext(index, thread.IPID, "unknown")
+	if !ok {
+		return "", 0, 0, false
+	}
+	return traceDBCommName(thread.Name, "unknown"), thread.TID, tgid, true
 }
 
-func traceDBThreadOrProcessContext(index traceDBThreadIndex, itid, ipid int64, fallback string) (string, int64, int64) {
-	if itid != 0 {
-		return traceDBThreadLineContext(index, itid)
+func traceDBResolvedProcessLineContext(index traceDBThreadIndex, ipid int64, fallback string) (string, int64, int64, bool) {
+	if ipid < 0 || ipid > maxTraceDBInternalID || index.AmbiguousIPID[ipid] {
+		return "", 0, 0, false
 	}
-	process := index.Processes[ipid]
-	if process.PID != 0 {
-		return traceDBCommName(process.Name, fallback), process.PID, process.PID
+	process, ok := index.Processes[ipid]
+	if !ok || process.PID <= 0 || process.PID > math.MaxInt32 {
+		return "", 0, 0, false
 	}
-	return fallback, 0, 0
+	return traceDBCommName(process.Name, fallback), process.PID, process.PID, true
 }
 
 func traceDBAnyText(value any, fallback string) string {

@@ -144,9 +144,6 @@ func exportTraceDBThreadRegistrations(ctx context.Context, sink *traceDBRowSink,
 			continue
 		}
 		ts := thread.StartTS
-		if ts == 0 {
-			ts = index.TraceStart
-		}
 		task := traceDBCommName(thread.Name, "unknown")
 		processName := traceDBProcessName(index, thread)
 		threadComm := traceDBCommName(thread.Name, "unknown")
@@ -781,7 +778,10 @@ func sortedTraceDBThreads(items map[int64]traceDBThread) []traceDBThread {
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].StartTS == out[j].StartTS {
-			return out[i].TID < out[j].TID
+			if out[i].TID != out[j].TID {
+				return out[i].TID < out[j].TID
+			}
+			return out[i].ITID < out[j].ITID
 		}
 		return out[i].StartTS < out[j].StartTS
 	})
