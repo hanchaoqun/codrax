@@ -54,7 +54,7 @@ func exportTraceDBNativeHook(ctx context.Context, tdb *traceDB, sink *traceDBRow
 		stableSource = "native_hook.id"
 		coverage.ColumnsPresent = appendTraceDBCoverageColumn(coverage.ColumnsPresent, "id")
 		sort.Strings(coverage.ColumnsPresent)
-		duplicateSourceIDs, err = traceDBNativeHookDuplicateSourceIDs(ctx, tdb)
+		duplicateSourceIDs, err = traceDBDuplicateStrictSourceIDs(ctx, tdb, "native_hook", "id")
 		if err != nil {
 			coverage.Error = err.Error()
 			return coverage, err
@@ -239,31 +239,4 @@ func traceDBNativeHookAllocFreeFamily(eventType string) (string, bool) {
 	default:
 		return "", false
 	}
-}
-
-func traceDBNativeHookDuplicateSourceIDs(ctx context.Context, tdb *traceDB) (map[int64]bool, error) {
-	rows, err := tdb.db.QueryContext(ctx, `
-		SELECT id
-		FROM native_hook
-		WHERE typeof(id) = 'integer'
-		GROUP BY id
-		HAVING COUNT(*) > 1
-	`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := map[int64]bool{}
-	for rows.Next() {
-		var raw any
-		if err := rows.Scan(&raw); err != nil {
-			return nil, err
-		}
-		id, ok := traceDBStrictSQLiteInt(raw)
-		if !ok {
-			return nil, fmt.Errorf("native_hook duplicate source id query returned a non-integer")
-		}
-		out[id] = true
-	}
-	return out, rows.Err()
 }

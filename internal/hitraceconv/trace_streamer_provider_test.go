@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -998,7 +999,7 @@ func traceStreamerRootCauseMatrixDBStatements() []string {
 		"INSERT INTO callstack VALUES (1, " + ts(2000000) + ", 200000, 1, 'DoWork', '', NULL, NULL)",
 		"CREATE TABLE native_hook (start_ts INT, end_ts INT, event_type TEXT, heap_size INT, all_heap_size INT, itid INT, ipid INT)",
 		"INSERT INTO native_hook VALUES (" + ts(2300000) + ", " + ts(2310000) + ", 'malloc', 64, 8192, 1, 1)",
-		"CREATE TABLE frame_slice (ts INT, dur INT, type_desc TEXT, vsync INT, flag TEXT, ipid INT, itid INT)",
+		"CREATE TABLE frame_slice (ts INT, dur INT, type_desc TEXT, vsync INT, flag INT, ipid INT, itid INT)",
 		"INSERT INTO frame_slice VALUES (" + ts(2600000) + ", 200000, 'actural', 123, 1, 1, 1)",
 	}
 }
@@ -1039,8 +1040,8 @@ func syntheticRootCauseMatrixSysBinary(t *testing.T) []byte {
 		{EventID: 96, OffsetNS: 2_200_000, Content: syntheticMatrixTraceMarkContent(96, 100, "E|100")},
 		{EventID: 96, OffsetNS: 2_300_000, Content: syntheticMatrixTraceMarkContent(96, 100, "I|100|NativeHook:AllocEvent")},
 		{EventID: 96, OffsetNS: 2_300_000, Content: syntheticMatrixTraceMarkContent(96, 100, "C|100|HeapSize|8192")},
-		{EventID: 96, OffsetNS: 2_600_000, Content: syntheticMatrixTraceMarkContent(96, 100, "B|100|FrameActual-123")},
-		{EventID: 96, OffsetNS: 2_800_000, Content: syntheticMatrixTraceMarkContent(96, 100, "E|100")},
+		{EventID: 96, OffsetNS: 2_600_000, Content: syntheticMatrixTraceMarkContent(96, 100, "S|100|FrameActual-123|hconv-frame-1")},
+		{EventID: 96, OffsetNS: 2_800_000, Content: syntheticMatrixTraceMarkContent(96, 100, "F|100|FrameActual-123|hconv-frame-1")},
 		{EventID: 97, OffsetNS: 3_200_000, Content: syntheticMatrixIRQEntryContent()},
 		{EventID: 98, OffsetNS: 3_300_000, Content: syntheticMatrixIRQExitContent()},
 		{EventID: 99, OffsetNS: 3_400_000, Content: syntheticMatrixSoftIRQContent(99)},
@@ -1496,8 +1497,20 @@ func assertRootCauseEvidenceMatrix(t *testing.T, label string, idx *tracequery.I
 		return ev.Type == tracequery.EventTraceMark && ev.SpanAction == "B" && ev.SpanPID == 100 && ev.SpanName == "DoWork"
 	})
 	assertEventExists(t, label, idx, "FrameActual begin", func(ev tracequery.Event) bool {
-		return ev.Type == tracequery.EventTraceMark && ev.SpanAction == "B" && ev.SpanPID == 100 && ev.SpanName == "FrameActual-123"
+		return ev.Type == tracequery.EventTraceMark && ev.SpanAction == "S" && ev.SpanPID == 100 &&
+			ev.SpanName == "FrameActual-123" && ev.SpanValue == "hconv-frame-1"
 	})
+	assertEventExists(t, label, idx, "FrameActual finish", func(ev tracequery.Event) bool {
+		return ev.Type == tracequery.EventTraceMark && ev.SpanAction == "F" && ev.SpanPID == 100 &&
+			ev.SpanName == "FrameActual-123" && ev.SpanValue == "hconv-frame-1"
+	})
+	frameSpans, frameCaveats := tracequery.FindSpanWindows(idx, tracequery.Query{PID: 100, SpanName: "FrameActual-123"}, 4)
+	if len(frameSpans) != 1 || frameSpans[0].Kind != "async" || frameSpans[0].SpanPID != 100 ||
+		frameSpans[0].Thread.PID != 100 || frameSpans[0].Thread.TGID != 100 ||
+		frameSpans[0].Category != "frame_pacing" || frameSpans[0].Subcategory != "actual" ||
+		math.Abs(frameSpans[0].DurationMs-0.2) > 0.000001 {
+		t.Fatalf("%s FrameActual async span parity mismatch: spans=%+v caveats=%+v", label, frameSpans, frameCaveats)
+	}
 	assertEventExists(t, label, idx, "HeapSize counter", func(ev tracequery.Event) bool {
 		return ev.Type == tracequery.EventTraceMark && ev.SpanAction == "C" && ev.SpanPID == 100 && ev.SpanName == "HeapSize" && ev.SpanValue == "8192"
 	})

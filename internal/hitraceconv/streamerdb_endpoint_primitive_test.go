@@ -131,6 +131,57 @@ func TestTraceDBSpanEndpointsValidateAtomically(t *testing.T) {
 	}
 }
 
+func TestTraceDBAsyncSpanEndpointsValidateAtomically(t *testing.T) {
+	for _, tc := range []struct {
+		name                                string
+		start, end, owner, startCPU, endCPU int64
+		span, cookie                        string
+		reason                              string
+	}{
+		{name: "reverse interval", start: 2, end: 1, owner: 1, span: "work", cookie: "row-1", reason: "invalid_interval"},
+		{name: "missing owner", start: 1, end: 2, owner: 0, span: "work", cookie: "row-1", reason: "invalid_async_owner"},
+		{name: "name injection", start: 1, end: 2, owner: 1, span: "work|fake", cookie: "row-1", reason: "invalid_span_name"},
+		{name: "cookie injection", start: 1, end: 2, owner: 1, span: "work", cookie: "row|fake", reason: "invalid_span_cookie"},
+		{name: "invalid start CPU", start: 1, end: 2, owner: 1, startCPU: -1, span: "work", cookie: "row-1", reason: "invalid_cpu"},
+		{name: "invalid end CPU", start: 1, end: 2, owner: 1, endCPU: -1, span: "work", cookie: "row-1", reason: "invalid_cpu"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sink, err := newTraceDBRowSink(t.TempDir(), 4)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = addTraceDBAsyncSpanRows(sink, tc.start, tc.end, "task", 1, tc.owner, tc.startCPU, tc.endCPU, tc.span, tc.cookie)
+			if reason, ok := traceDBOutputInvariantReason(err); !ok || reason != tc.reason {
+				t.Fatalf("expected %q, got reason=%q typed=%v err=%v", tc.reason, reason, ok, err)
+			}
+			if sink.stats.RowsAccepted != 0 || len(sink.rows) != 0 {
+				t.Fatalf("invalid async span published a partial endpoint: stats=%+v rows=%+v", sink.stats, sink.rows)
+			}
+		})
+	}
+}
+
+func TestTraceDBWireIntervalRepresentableAtMicrosecondBoundary(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		start, end int64
+		want       bool
+	}{
+		{name: "zero duration", start: 0, end: 0, want: false},
+		{name: "sub microsecond same bucket", start: 0, end: 499, want: false},
+		{name: "sub microsecond crosses rounding boundary", start: 499, end: 500, want: false},
+		{name: "999ns crosses rounding boundary", start: 499, end: 1498, want: false},
+		{name: "one microsecond at rounding boundary", start: 499, end: 1499, want: true},
+		{name: "one microsecond aligned", start: 1000, end: 2000, want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := traceDBWireIntervalRepresentable(tc.start, tc.end); got != tc.want {
+				t.Fatalf("traceDBWireIntervalRepresentable(%d,%d)=%v, want %v", tc.start, tc.end, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestTraceDBStaticInitializeIncompleteIdentitySkipsLocally(t *testing.T) {
 	path := createTraceDBFixture(t, []string{
 		"CREATE TABLE trace_range (start_ts INT)",

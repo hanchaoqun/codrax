@@ -490,38 +490,6 @@ func (tdb *traceDB) loadPerfFrames(ctx context.Context) (map[int64][]traceDBPerf
 	return out, coverage, nil
 }
 
-func exportTraceDBFrameSlice(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, index traceDBThreadIndex, _ map[int64][]traceDBRunningInterval, _ map[int64]string) (TraceDBCoverage, error) {
-	coverage, err := tdb.inspectCoverage(ctx, "slice", "frame_slice", []string{"ts", "dur", "type_desc", "vsync", "ipid", "itid"})
-	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
-		return coverage, err
-	}
-	rows, err := tdb.db.QueryContext(ctx, "SELECT ts, dur, COALESCE(type_desc, ''), vsync, COALESCE(ipid, 0), COALESCE(itid, 0) FROM frame_slice WHERE dur > 0 ORDER BY ts")
-	if err != nil {
-		coverage.Error = err.Error()
-		return coverage, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var ts, dur, ipid, itid int64
-		var typ string
-		var vsync any
-		if err := rows.Scan(&ts, &dur, &typ, &vsync, &ipid, &itid); err != nil {
-			coverage.Error = err.Error()
-			return coverage, err
-		}
-		task, tid, tgid := traceDBThreadOrProcessContext(index, itid, ipid, "frame")
-		kind := "Expected"
-		if typ == "actural" {
-			kind = "Actual"
-		}
-		if err := addTraceDBSpanRows(sink, ts, ts+dur, task, tid, tgid, 0, "Frame"+kind+"-"+traceDBAnyText(vsync, "None")); err != nil {
-			return coverage, err
-		}
-		coverage.RowsEmitted += 2
-	}
-	return coverage, rows.Err()
-}
-
 func exportTraceDBDMAFence(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, _ traceDBThreadIndex, _ map[int64][]traceDBRunningInterval, _ map[int64]string) (TraceDBCoverage, error) {
 	coverage, err := tdb.inspectCoverage(ctx, "slice", "dma_fence", []string{"ts", "dur", "cat", "driver", "timeline", "context", "seqno"})
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {

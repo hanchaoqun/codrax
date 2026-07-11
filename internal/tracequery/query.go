@@ -14561,7 +14561,7 @@ func BuildFramePipeline(idx *Index, q Query) FramePipelineResult {
 		res.Items = res.Items[:limit]
 	}
 	if len(res.Items) == 0 {
-		res.Caveats = append(res.Caveats, "no frame/render-like complete B/E trace spans matched the selected filters")
+		res.Caveats = append(res.Caveats, "no complete frame/render-like trace spans matched the selected filters")
 	}
 	res.Caveats = append(res.Caveats, caveats...)
 	return res
@@ -14619,7 +14619,7 @@ func buildFrameTimelineFromPipeline(q Query, frame FramePipelineResult) FrameTim
 	res.Caveats = append(res.Caveats, frame.Caveats...)
 	res.Compactions = append(res.Compactions, frame.Compactions...)
 	if len(res.Items) == 0 {
-		res.Caveats = append(res.Caveats, "no frame timeline items were built; need complete B/E frame-like trace spans")
+		res.Caveats = append(res.Caveats, "no frame timeline items were built; need complete frame-like trace spans")
 	}
 	if len(res.Flows) == 0 && len(res.Items) > 1 {
 		res.Caveats = append(res.Caveats, "frame timeline had items but no flow edges were emitted")
@@ -15158,11 +15158,12 @@ func traceSpanLooksLikeRuntimeCompile(lower string, tokens map[string]bool) bool
 // suffix and exact case are part of the machine shape.
 func converterSyntheticLaneClass(name string) (string, bool) {
 	switch {
-	// db2systrace.py:543-549: frame slices → "Frame{Actual|Expected}-{vsync}"
-	// (B/E pair per frame, vsync is the numeric frame identity). NULL vsync
-	// falls back to the verbatim token "None"
-	// (hitraceconv/streamerdb_export_extended.go:471, traceDBAnyText(vsync,
-	// "None")) — same machine set, matched by exact equality only.
+	// Trace Streamer frame slices → "Frame{Actual|Expected}-{vsync}".  The
+	// hitrace converter emits independent async S/F pairs keyed by the stable
+	// frame_slice row identity; vsync remains display metadata, not pairing
+	// identity. NULL vsync uses the verbatim token "None"
+	// (hitraceconv/streamerdb_export_frame.go) — the same closed machine-name
+	// set, matched by exact equality only.
 	case hasMachineDigitSuffix(name, "FrameActual-"),
 		hasMachineDigitSuffix(name, "FrameExpected-"),
 		name == "FrameActual-None",

@@ -1,6 +1,7 @@
 package hitraceconv
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -33,6 +34,46 @@ func addTraceDBInstantRow(sink *traceDBRowSink, ts int64, task string, tid, tgid
 		return err
 	}
 	return sink.add(row)
+}
+
+func addTraceDBAsyncSpanRows(sink *traceDBRowSink, start, end int64, task string, tid, tgid, startCPU, endCPU int64, name, cookie string) error {
+	if end < start {
+		return &traceDBOutputInvariantError{Reason: "invalid_interval"}
+	}
+	if tgid <= 0 {
+		return &traceDBOutputInvariantError{Reason: "invalid_async_owner"}
+	}
+	if !traceDBCallstackMarkerToken(name) {
+		return &traceDBOutputInvariantError{Reason: "invalid_span_name"}
+	}
+	if !traceDBCallstackMarkerToken(cookie) {
+		return &traceDBOutputInvariantError{Reason: "invalid_span_cookie"}
+	}
+	begin, err := prepareTraceDBRenderedRow(start, sink.stats.RowsAccepted, task, tid, tgid, startCPU,
+		fmt.Sprintf("tracing_mark_write: S|%d|%s|%s", tgid, name, cookie))
+	if err != nil {
+		return err
+	}
+	finish, err := prepareTraceDBRenderedRow(end, sink.stats.RowsAccepted+1, task, tid, tgid, endCPU,
+		fmt.Sprintf("tracing_mark_write: F|%d|%s|%s", tgid, name, cookie))
+	if err != nil {
+		return err
+	}
+	if err := sink.add(begin); err != nil {
+		return err
+	}
+	return sink.add(finish)
+}
+
+// traceDBWireIntervalRepresentable guards the converter's microsecond text
+// boundary. Positive nanosecond intervals below one microsecond, or endpoints
+// that round into the same printed timestamp, must not become zero-duration or
+// materially inflated synthetic spans after a DB -> systrace round-trip.
+func traceDBWireIntervalRepresentable(start, end int64) bool {
+	if start < 0 || end <= start || end-start < 1000 {
+		return false
+	}
+	return roundedTimestampUS(uint64(end)) > roundedTimestampUS(uint64(start))
 }
 
 func prepareTraceDBRenderedRow(tsNS int64, seq int, task string, tid, tgid, cpu int64, body string) (renderedRow, error) {
@@ -85,4 +126,33 @@ func traceDBFormatLine(task string, tid, tgid, cpu, tsNS int64, body string) str
 	task = traceDBCommName(task, "unknown")
 	return fmt.Sprintf("%16s-%-6d (%5d) [%03d] .... %s: %s",
 		task, tid, tgid, cpu, formatTimestamp(uint64(tsNS)), body)
+}
+
+func traceDBDuplicateStrictSourceIDs(ctx context.Context, tdb *traceDB, table, column string) (map[int64]bool, error) {
+	columnExpr := quoteSQLiteIdent(column)
+	query := fmt.Sprintf(`
+		SELECT %s
+		FROM %s
+		WHERE typeof(%s) = 'integer'
+		GROUP BY %s
+		HAVING COUNT(*) > 1
+	`, columnExpr, quoteSQLiteIdent(table), columnExpr, columnExpr)
+	rows, err := tdb.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]bool{}
+	for rows.Next() {
+		var raw any
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		id, ok := traceDBStrictSQLiteInt(raw)
+		if !ok {
+			return nil, fmt.Errorf("%s.%s duplicate source id query returned a non-integer", table, column)
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
 }

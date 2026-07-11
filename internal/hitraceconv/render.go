@@ -373,11 +373,16 @@ func genericFields(ev decodedEvent, content []byte) string {
 func formatTimestamp(ns uint64) string {
 	// Round without adding to ns directly: a valid near-MaxUint64 timestamp
 	// must not wrap merely because the text renderer rounds nanoseconds.
+	us := roundedTimestampUS(ns)
+	return fmt.Sprintf("%5d.%06d", us/1_000_000, us%1_000_000)
+}
+
+func roundedTimestampUS(ns uint64) uint64 {
 	us := ns / 1000
 	if ns%1000 >= 500 {
 		us++
 	}
-	return fmt.Sprintf("%5d.%06d", us/1_000_000, us%1_000_000)
+	return us
 }
 
 func traceFlagsToStr(flags int64, preemptCount int64) string {

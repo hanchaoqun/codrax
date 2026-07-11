@@ -1,9 +1,8 @@
 package tracequery
 
 // §7.11 B-5 pins (docs/design/customer_dead_session_audit_20260703.md):
-// the converter-synthetic lane-name vocabulary (db2systrace.py machine
-// tokens, emitted byte-identically by codrax's own trace-db exporter in
-// internal/hitraceconv/streamerdb_export_extended.go) is soft classification
+// the converter-synthetic lane-name vocabulary (Trace Streamer machine
+// tokens, emitted byte-identically by codrax's own trace-db exporters) is soft classification
 // only — display/suggestion labels via traceSpanCategory. Near-miss
 // human-authored lookalikes must not match, and no hard gate may consume the
 // vocabulary (structural pin below).
@@ -30,8 +29,8 @@ func TestConverterSyntheticLaneClassB5(t *testing.T) {
 		{"AppStartup:OnForeground", "app_startup"}, // db2systrace.py:700-705
 		{"SoInit:libace.so", "so_init"},            // db2systrace.py:719-724
 		// Converter NULL-identity fallbacks are verbatim machine tokens too
-		// (hitraceconv/streamerdb_export_extended.go:471 and :535,
-		// traceDBAnyText(…, "None")); TaskPool's fallback is "0" (:579) and
+		// (hitraceconv/streamerdb_export_frame.go and the syscall exporter);
+		// TaskPool's fallback is "0" and
 		// rides the digit shape ("TaskPool-7" above covers it).
 		{"FrameActual-None", "frame_pacing"},
 		{"FrameExpected-None", "frame_pacing"},
@@ -84,7 +83,7 @@ func TestTraceSpanCategoryConverterLanesB5(t *testing.T) {
 		{"SoInit:libaudio.so", "so_init"},
 		{"SoInit:libfileshare.so", "so_init"},
 		// Converter NULL-identity fallback tokens ride the same lane
-		// (hitraceconv/streamerdb_export_extended.go:471/:535).
+		// (hitraceconv/streamerdb_export_frame.go and the syscall exporter).
 		{"FrameActual-None", "frame_pacing"},
 		{"FrameExpected-None", "frame_pacing"},
 		{"sys_None", "syscall"},
