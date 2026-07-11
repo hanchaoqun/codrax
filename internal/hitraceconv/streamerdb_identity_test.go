@@ -2,7 +2,13 @@ package hitraceconv
 
 import (
 	"context"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -85,7 +91,10 @@ func TestTraceDBIdentityCurrentAliasAndInternalIDBoundaries(t *testing.T) {
 			t.Fatalf("malformed process cohort %d survived strict audit: %+v", ipid, index)
 		}
 	}
-	for _, itid := range []int64{3, 4, 5, 6, 7, 8, 9, 10, 13, 15} {
+	if thread, ok := index.ByITID[7]; !ok || thread.RegistrationHint.Known || thread.RegistrationHint.Tainted {
+		t.Fatalf("NULL thread.start_ts changed canonical identity or became a hard timestamp: %+v", index)
+	}
+	for _, itid := range []int64{3, 4, 5, 6, 8, 9, 10, 13, 15} {
 		if _, ok := index.ByITID[itid]; ok || !index.AmbiguousITID[itid] {
 			t.Fatalf("malformed thread cohort %d survived strict audit: %+v", itid, index)
 		}
@@ -165,6 +174,164 @@ func TestTraceDBIdentityNamesAreOptionalDisplayMetadata(t *testing.T) {
 	}
 	if containsString(coverage[1].ColumnsMissing, "name") || containsString(coverage[2].ColumnsMissing, "name") {
 		t.Fatalf("display-only name was advertised as a hard missing column: %+v", coverage)
+	}
+}
+
+func TestTraceDBLifetimeMetadataNeverPoisonsOrSelectsCanonicalIdentity(t *testing.T) {
+	tests := []struct {
+		name        string
+		value       string
+		wantKnown   bool
+		wantTainted bool
+		wantValue   int64
+	}{
+		{name: "null", value: "NULL"},
+		{name: "zero", value: "0", wantKnown: true},
+		{name: "positive", value: "123", wantKnown: true, wantValue: 123},
+		{name: "numeric text", value: "CAST(123 AS TEXT)", wantTainted: true},
+		{name: "integral real", value: "123.0", wantTainted: true},
+		{name: "blob", value: "x'313233'", wantTainted: true},
+		{name: "negative", value: "-1", wantTainted: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := createTraceDBFixture(t, []string{
+				"CREATE TABLE trace_range (start_ts)",
+				"INSERT INTO trace_range VALUES (10)",
+				"CREATE TABLE process (id, ipid, pid, name, start_ts)",
+				"INSERT INTO process VALUES (1, 1, 100, 'process', " + test.value + ")",
+				"CREATE TABLE thread (id, itid, tid, ipid, name, start_ts, end_ts, is_main_thread, switch_count)",
+				"INSERT INTO thread VALUES (2, 2, 101, 1, 'thread', " + test.value + ", " + test.value + ", 0, 1)",
+			})
+			index, coverage := loadTraceDBIdentityFixture(t, path)
+			process, processOK := index.Processes[1]
+			thread, threadOK := index.ByITID[2]
+			if !processOK || !threadOK || index.AmbiguousIPID[1] || index.AmbiguousITID[2] {
+				t.Fatalf("lifetime metadata changed canonical identity: index=%+v coverage=%+v", index, coverage)
+			}
+			for label, metadata := range map[string]traceDBTimestampMetadata{
+				"process.start": process.RegistrationHint,
+				"thread.start":  thread.RegistrationHint,
+				"thread.end":    thread.ObservedEndHint,
+			} {
+				if metadata.Known != test.wantKnown || metadata.Tainted != test.wantTainted || metadata.Value != test.wantValue {
+					t.Fatalf("%s metadata=%+v, want known=%t tainted=%t value=%d", label, metadata, test.wantKnown, test.wantTainted, test.wantValue)
+				}
+			}
+			if test.wantTainted && (!strings.Contains(coverage[1].Skipped, "metadata ignored for hard identity") ||
+				!strings.Contains(coverage[2].Skipped, "metadata ignored for hard identity")) {
+				t.Fatalf("tainted metadata was not disclosed: %+v", coverage)
+			}
+		})
+	}
+}
+
+func TestTraceDBLifetimeMetadataColumnsAreOptionalAndConflictsAreOrderIndependent(t *testing.T) {
+	load := func(t *testing.T, reverse bool) (traceDBThreadIndex, []TraceDBCoverage) {
+		t.Helper()
+		rows := []string{
+			"INSERT INTO thread VALUES (2, 101, 1, 'first', 10, 20, 0, 1)",
+			"INSERT INTO thread VALUES (2, 101, 1, 'second', NULL, 30, 0, 2)",
+		}
+		statements := []string{
+			"CREATE TABLE trace_range (start_ts)", "INSERT INTO trace_range VALUES (0)",
+			"CREATE TABLE process (ipid, pid, name)", "INSERT INTO process VALUES (1, 100, 'process')",
+			"CREATE TABLE thread (itid, tid, ipid, name, start_ts, end_ts, is_main_thread, switch_count)",
+		}
+		statements = append(statements, orderedTraceDBStatements(rows, reverse)...)
+		return loadTraceDBIdentityFixture(t, createTraceDBFixture(t, statements))
+	}
+	forward, forwardCoverage := load(t, false)
+	reverse, reverseCoverage := load(t, true)
+	if !reflect.DeepEqual(forward, reverse) || forwardCoverage[2].Skipped != reverseCoverage[2].Skipped {
+		t.Fatalf("metadata conflict depends on row order:\nforward=%+v %+v\nreverse=%+v %+v", forward, forwardCoverage, reverse, reverseCoverage)
+	}
+	thread, ok := forward.ByITID[2]
+	if !ok || !thread.RegistrationHint.Tainted || !thread.ObservedEndHint.Tainted || forward.AmbiguousITID[2] {
+		t.Fatalf("metadata conflict poisoned identity or escaped tri-state taint: %+v", forward)
+	}
+
+	missingPath := createTraceDBFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts)", "INSERT INTO trace_range VALUES (0)",
+		"CREATE TABLE process (ipid, pid)", "INSERT INTO process VALUES (1, 100)",
+		"CREATE TABLE thread (itid, tid, ipid, is_main_thread, switch_count)",
+		"INSERT INTO thread VALUES (2, 101, 1, 0, 1)",
+	})
+	missing, coverage := loadTraceDBIdentityFixture(t, missingPath)
+	if _, ok := missing.ByITID[2]; !ok || containsString(coverage[2].ColumnsMissing, "start_ts") || containsString(coverage[2].ColumnsMissing, "end_ts") {
+		t.Fatalf("optional lifetime columns became hard schema requirements: index=%+v coverage=%+v", missing, coverage)
+	}
+}
+
+func TestTraceDBLifetimeMetadataHasNoHardConsumer(t *testing.T) {
+	_, currentFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve test source path")
+	}
+	files, err := filepath.Glob(filepath.Join(filepath.Dir(currentFile), "streamerdb_*.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	allowedRegistrationSelector := map[string]bool{
+		"loadStrictProcessIndex":           true,
+		"loadStrictThreadIndex":            true,
+		"exportTraceDBThreadRegistrations": true,
+		"sortedTraceDBThreads":             true,
+	}
+	allowedObservedEndSelector := map[string]bool{
+		"loadStrictThreadIndex": true,
+	}
+	allowedRegistrationHelperCall := map[string]bool{
+		"exportTraceDBThreadRegistrations": true,
+		"sortedTraceDBThreads":             true,
+	}
+	for _, path := range files {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(body)
+		name := filepath.Base(path)
+		for _, retired := range []string{".StartTS", "ByTIDIncarnation"} {
+			if strings.Contains(text, retired) {
+				t.Fatalf("retired start-based generation authority %q returned in %s", retired, name)
+			}
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), path, body, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, declaration := range file.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok || function.Body == nil {
+				continue
+			}
+			functionName := function.Name.Name
+			ast.Inspect(function.Body, func(node ast.Node) bool {
+				switch item := node.(type) {
+				case *ast.SelectorExpr:
+					switch item.Sel.Name {
+					case "RegistrationHint":
+						if !allowedRegistrationSelector[functionName] {
+							t.Fatalf("registration-only timestamp acquired a consumer in %s.%s", name, functionName)
+						}
+					case "ObservedEndHint":
+						if !allowedObservedEndSelector[functionName] {
+							t.Fatalf("non-authoritative end hint acquired a consumer in %s.%s", name, functionName)
+						}
+					}
+				case *ast.CallExpr:
+					identifier, ok := item.Fun.(*ast.Ident)
+					if ok && identifier.Name == "traceDBRegistrationTimestamp" && !allowedRegistrationHelperCall[functionName] {
+						t.Fatalf("registration helper acquired a non-display caller in %s.%s", name, functionName)
+					}
+				}
+				return true
+			})
+		}
 	}
 }
 
@@ -386,15 +553,10 @@ func orderedTraceDBStatements(items []string, reverse bool) []string {
 
 func assertTraceDBThreadAbsentFromSecondaryIndexes(t *testing.T, index traceDBThreadIndex, itid int64) {
 	t.Helper()
-	for _, item := range index.ByTID {
-		if item.ITID == itid {
-			t.Fatalf("poisoned ITID %d survived ByTID: %+v", itid, index.ByTID)
-		}
-	}
-	for _, items := range index.ByTIDIncarnation {
+	for _, items := range index.ByTIDCandidates {
 		for _, item := range items {
 			if item.ITID == itid {
-				t.Fatalf("poisoned ITID %d survived ByTIDIncarnation: %+v", itid, index.ByTIDIncarnation)
+				t.Fatalf("poisoned ITID %d survived ByTIDCandidates: %+v", itid, index.ByTIDCandidates)
 			}
 		}
 	}

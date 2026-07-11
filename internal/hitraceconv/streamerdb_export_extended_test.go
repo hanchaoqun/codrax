@@ -416,7 +416,7 @@ func TestExportTraceDBPerfSamplesMissingCPUColumnRemainsUnknown(t *testing.T) {
 	}
 }
 
-func TestExportTraceDBPerfSamplesResolveTIDIncarnationAtSampleTime(t *testing.T) {
+func TestExportTraceDBPerfSamplesIgnoreNonAuthoritativeRegistrationHints(t *testing.T) {
 	path := createTraceDBFixture(t, []string{
 		"CREATE TABLE trace_range (start_ts INT)",
 		"INSERT INTO trace_range VALUES (0)",
@@ -451,11 +451,59 @@ func TestExportTraceDBPerfSamplesResolveTIDIncarnationAtSampleTime(t *testing.T)
 	if len(samples) != 2 {
 		t.Fatalf("TID-reuse fixture emitted %d perf samples, want 2: %+v", len(samples), samples)
 	}
-	if samples[0].TGID != 200 || samples[0].PerfFields.Comm != "perf-new" {
-		t.Fatalf("explicit perf process identity was overwritten by the old incarnation: event=%+v fields=%q", samples[0], samples[0].FieldText)
+	if samples[0].TGID != 200 || samples[0].PerfFields.Comm != "new-thread" {
+		t.Fatalf("registration hint rewrote the exact perf process candidate: event=%+v fields=%q", samples[0], samples[0].FieldText)
 	}
 	if samples[1].TGID != 200 || samples[1].PerfFields.Comm != "new-thread" {
-		t.Fatalf("sample-time resolver did not select the new incarnation: %+v", samples[1])
+		t.Fatalf("registration hint changed an otherwise identical hard resolution: %+v", samples[1])
+	}
+}
+
+func TestTraceDBPerfCandidateResolutionDisclosesConflictAndAmbiguity(t *testing.T) {
+	index := newTraceDBThreadIndex(0)
+	index.Processes[1] = traceDBProcess{IPID: 1, PID: 100, Name: "p100"}
+	index.Processes[2] = traceDBProcess{IPID: 2, PID: 200, Name: "p200-a"}
+	index.Processes[3] = traceDBProcess{IPID: 3, PID: 200, Name: "p200-b"}
+	index.ByITID[1] = traceDBThread{ITID: 1, TID: 42, IPID: 1, Name: "trace-old"}
+	index.ByITID[2] = traceDBThread{ITID: 2, TID: 42, IPID: 2, Name: "trace-new-a"}
+	index.ByITID[3] = traceDBThread{ITID: 3, TID: 42, IPID: 3, Name: "trace-new-b"}
+	index.ByITID[4] = traceDBThread{ITID: 4, TID: 43, IPID: 2, Name: "single"}
+	buildTraceDBThreadSecondaryIndexes(&index)
+
+	tests := []struct {
+		name        string
+		tid         int64
+		pid         int64
+		pidKnown    bool
+		wantTask    string
+		wantPID     int64
+		wantTokens  []string
+		forbidToken string
+	}{
+		{name: "pid mismatch", tid: 42, pid: 300, pidKnown: true, wantTask: "perf-source", wantPID: 300,
+			wantTokens: []string{"identity_conflict=true", "identity_conflict_reason=trace_pid_mismatch", "resolution=perf_source_only"}},
+		{name: "same pid multiple canonical candidates", tid: 42, pid: 200, pidKnown: true, wantTask: "perf-source", wantPID: 200,
+			wantTokens: []string{"identity_conflict=true", "identity_conflict_reason=ambiguous_trace_thread", "resolution=perf_source_only"}},
+		{name: "public tid only ambiguous", tid: 42, wantTask: "perf-source", wantPID: 42,
+			wantTokens: []string{"process_id_source=tid_fallback", "identity_conflict_reason=ambiguous_trace_thread", "resolution=perf_source_only"}},
+		{name: "missing canonical candidate", tid: 44, pid: 400, pidKnown: true, wantTask: "perf-source", wantPID: 400, forbidToken: "identity_conflict=true"},
+		{name: "exact pid narrows unique candidate", tid: 43, pid: 200, pidKnown: true, wantTask: "single", wantPID: 200, forbidToken: "identity_conflict=true"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			task, pid, note := traceDBPerfSampleIdentity(index, 123, test.tid, test.pid, test.pidKnown, "perf-source")
+			if task != test.wantTask || pid != test.wantPID {
+				t.Fatalf("resolution=(%q,%d,%q), want task=%q pid=%d", task, pid, note, test.wantTask, test.wantPID)
+			}
+			for _, token := range test.wantTokens {
+				if !strings.Contains(note, token) {
+					t.Fatalf("resolution note %q missing %q", note, token)
+				}
+			}
+			if test.forbidToken != "" && strings.Contains(note, test.forbidToken) {
+				t.Fatalf("resolution note %q unexpectedly contains %q", note, test.forbidToken)
+			}
+		})
 	}
 }
 

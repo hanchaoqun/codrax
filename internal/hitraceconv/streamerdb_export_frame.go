@@ -35,7 +35,7 @@ func exportTraceDBFrameSlice(ctx context.Context, tdb *traceDB, sink *traceDBRow
 		"schema_profile":  "closed profiles: current=id+type+flag; legacy=no id/type plus required flag",
 		"frame_kind":      "closed producer enum: type=0/type_desc=actural or type=1/type_desc=expect; legacy schemas without type retain the same closed type_desc vocabulary",
 		"interval":        "strict integer ts and positive dur with checked signed addition; sub-microsecond or same-rendered-timestamp intervals fail closed",
-		"identity":        "strict frame-row itid/ipid joined to non-ambiguous internal identities, public tid/pid, and known thread/process reuse boundaries; shared resolver scalar hardening remains a separate batch",
+		"identity":        "strict frame-row itid/ipid joined to non-ambiguous canonical identities and public tid/pid; start/end metadata never selects a generation",
 		"header_cpu":      "unique untainted Running witnesses at ts and end_ts-1; CPU 0 is never an unknown fallback; headers preserve endpoint provenance rather than claiming interval-long execution",
 		"wire_pairing":    "atomic async S/F keyed by hconv-frame-<stable_identity>; frame intervals never occupy the shared B/E stack",
 		"frame_flag":      "closed joint enum: Actual requires integer 0/1/3, Expected requires NULL, and integer 2 is always suppressed as erased/do-not-draw",
@@ -192,14 +192,14 @@ func prepareTraceDBFrameSliceRow(index traceDBThreadIndex, running map[int64][]t
 		return frame, "invalid_emitter_itid"
 	}
 	thread, exists := index.ByITID[frame.ITID]
-	if !exists || index.AmbiguousITID[frame.ITID] || thread.TID <= 0 || thread.TID > math.MaxInt32 || thread.StartTS < 0 {
+	if !exists || index.AmbiguousITID[frame.ITID] || thread.TID <= 0 || thread.TID > math.MaxInt32 {
 		return frame, "unresolved_emitter_thread"
 	}
 	if thread.IPID != frame.IPID {
 		return frame, "owner_identity_mismatch"
 	}
-	if !traceDBFrameThreadIncarnationCovers(index, thread, frame.TS, frame.End) {
-		return frame, "outside_emitter_lifetime"
+	if frame.TS < index.TraceStart {
+		return frame, "before_capture_start"
 	}
 	if index.AmbiguousIPID[frame.IPID] {
 		return frame, "ambiguous_owner_process"
@@ -207,9 +207,6 @@ func prepareTraceDBFrameSliceRow(index traceDBThreadIndex, running map[int64][]t
 	process, exists := index.Processes[frame.IPID]
 	if !exists || process.PID <= 0 || process.PID > math.MaxInt32 {
 		return frame, "unresolved_owner_process"
-	}
-	if !traceDBFrameProcessIncarnationCovers(index, frame.IPID, process.PID, frame.TS, frame.End) {
-		return frame, "outside_owner_lifetime"
 	}
 	frame.Task = traceDBCommName(thread.Name, "frame")
 	if _, valid := traceDBCallstackText(thread.Name, true); !valid || !traceDBSinglePhysicalLine(frame.Task, true) {
@@ -277,71 +274,4 @@ func traceDBFrameFlagKind(kind string, flagRaw any) string {
 		return "frame_flag_kind_mismatch"
 	}
 	return ""
-}
-
-func traceDBFrameThreadIncarnationCovers(index traceDBThreadIndex, thread traceDBThread, start, end int64) bool {
-	if start < thread.StartTS || end <= start {
-		return false
-	}
-	latestStart := int64(math.MinInt64)
-	latestCount := 0
-	latestITID := int64(0)
-	for _, candidate := range index.ByTIDIncarnation[thread.TID] {
-		if candidate.StartTS <= start {
-			switch {
-			case candidate.StartTS > latestStart:
-				latestStart = candidate.StartTS
-				latestCount = 1
-				latestITID = candidate.ITID
-			case candidate.StartTS == latestStart:
-				latestCount++
-			}
-		}
-		if candidate.StartTS > start && candidate.StartTS <= end {
-			return false
-		}
-	}
-	return latestCount == 1 && latestITID == thread.ITID
-}
-
-func traceDBFrameProcessIncarnationCovers(index traceDBThreadIndex, ipid, pid, start, end int64) bool {
-	type generation struct {
-		ipid  int64
-		start int64
-	}
-	var generations []generation
-	for candidateIPID, process := range index.Processes {
-		if process.PID != pid || index.AmbiguousIPID[candidateIPID] {
-			continue
-		}
-		generationStart := int64(math.MaxInt64)
-		for _, thread := range index.ByProcess[candidateIPID] {
-			if thread.StartTS >= 0 && thread.StartTS < generationStart {
-				generationStart = thread.StartTS
-			}
-		}
-		if generationStart == math.MaxInt64 {
-			return false
-		}
-		generations = append(generations, generation{ipid: candidateIPID, start: generationStart})
-	}
-	latestStart := int64(math.MinInt64)
-	latestCount := 0
-	latestIPID := int64(0)
-	for _, candidate := range generations {
-		if candidate.start <= start {
-			switch {
-			case candidate.start > latestStart:
-				latestStart = candidate.start
-				latestCount = 1
-				latestIPID = candidate.ipid
-			case candidate.start == latestStart:
-				latestCount++
-			}
-		}
-		if candidate.ipid != ipid && candidate.start > start && candidate.start <= end {
-			return false
-		}
-	}
-	return latestCount == 1 && latestIPID == ipid
 }

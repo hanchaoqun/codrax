@@ -60,10 +60,10 @@ func TestExportTraceDBRawFtraceStrictScalarsCPU0ArgsetsAndTIDReuse(t *testing.T)
 			workqueue = item
 		}
 	}
-	if schema.RowsRead != 10 || schema.RowsEmitted != 4 {
+	if schema.RowsRead != 10 || schema.RowsEmitted != 5 {
 		t.Fatalf("raw schema coverage double-counted or mis-accounted: %+v", schema)
 	}
-	for _, want := range []string{"missing_argset=1", "missing_required_args=1", "invalid_cpu=1", "invalid_itid=1", "identity_conflict_or_ambiguous=1"} {
+	for _, want := range []string{"missing_argset=1", "missing_required_args=1", "invalid_cpu=1", "invalid_itid=1"} {
 		if !strings.Contains(workqueue.Skipped, want) {
 			t.Fatalf("workqueue coverage missing %q: %+v", want, workqueue)
 		}
@@ -79,7 +79,8 @@ func TestExportTraceDBRawFtraceStrictScalarsCPU0ArgsetsAndTIDReuse(t *testing.T)
 	for _, want := range []string{
 		"old-renamed-42     (  100) [000]", // display-name drift does not split hard identity; CPU0 remains explicit
 		"old-renamed-42     (  100) [007]", // missing CPU uses exact running witness
-		"new-name-42     (  200) [008]",    // TID reuse resolves by timestamp+PID, not name
+		"new-name-42     (  200) [008]",    // Exact PID narrows canonical candidates; hint/name do not select a generation.
+		"old-renamed-42     (  100) [008]", // A late timestamp cannot override the row's exact PID with a start_ts heuristic.
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("strict raw output missing %q:\n%s", want, body)
@@ -87,6 +88,41 @@ func TestExportTraceDBRawFtraceStrictScalarsCPU0ArgsetsAndTIDReuse(t *testing.T)
 	}
 	if strings.Contains(body, "[001]") || strings.Contains(body, "2700000") || strings.Contains(body, "2800000") {
 		t.Fatalf("malformed raw rows leaked into output:\n%s", body)
+	}
+}
+
+func TestTraceDBRawExactITIDDominatesReusedPublicTIDCandidates(t *testing.T) {
+	index := newTraceDBThreadIndex(0)
+	index.Processes[1] = traceDBProcess{IPID: 1, PID: 100, Name: "old-process"}
+	index.Processes[2] = traceDBProcess{IPID: 2, PID: 200, Name: "new-process"}
+	index.ByITID[1] = traceDBThread{ITID: 1, TID: 42, IPID: 1, Name: "old-thread"}
+	index.ByITID[2] = traceDBThread{ITID: 2, TID: 42, IPID: 2, Name: "new-thread"}
+	buildTraceDBThreadSecondaryIndexes(&index)
+
+	tests := []struct {
+		name     string
+		raw      traceDBRawEvent
+		wantOK   bool
+		wantTID  int64
+		wantTGID int64
+		wantITID int64
+	}{
+		{name: "exact itid with agreeing tid", raw: traceDBRawEvent{TS: 10, ITID: 2, ITIDKnown: true, TID: 42, TIDKnown: true},
+			wantOK: true, wantTID: 42, wantTGID: 200, wantITID: 2},
+		{name: "exact itid with conflicting tid", raw: traceDBRawEvent{TS: 10, ITID: 2, ITIDKnown: true, TID: 43, TIDKnown: true}},
+		{name: "exact itid with conflicting pid", raw: traceDBRawEvent{TS: 10, ITID: 2, ITIDKnown: true, TID: 42, TIDKnown: true, PID: 100, PIDKnown: true}},
+		{name: "tid only remains ambiguous", raw: traceDBRawEvent{TS: 10, TID: 42, TIDKnown: true}},
+		{name: "exact pid narrows tid only", raw: traceDBRawEvent{TS: 10, TID: 42, TIDKnown: true, PID: 200, PIDKnown: true},
+			wantOK: true, wantTID: 42, wantTGID: 200, wantITID: 2},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, tid, tgid, itid, ok := traceDBRawLineContext(test.raw, index)
+			if ok != test.wantOK || ok && (tid != test.wantTID || tgid != test.wantTGID || itid != test.wantITID) {
+				t.Fatalf("context=(tid=%d tgid=%d itid=%d ok=%t), want (%d,%d,%d,%t)",
+					tid, tgid, itid, ok, test.wantTID, test.wantTGID, test.wantITID, test.wantOK)
+			}
+		})
 	}
 }
 

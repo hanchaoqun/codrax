@@ -438,6 +438,38 @@ func TestExportTraceDBThreadRegistrationPreservesZeroStart(t *testing.T) {
 	}
 }
 
+func TestExportTraceDBThreadRegistrationFallsBackForUnknownOrTaintedHint(t *testing.T) {
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts)",
+		"INSERT INTO trace_range VALUES (100000)",
+		"CREATE TABLE process (ipid, pid, name)",
+		"INSERT INTO process VALUES (1, 100, 'demo')",
+		"CREATE TABLE thread (itid, tid, ipid, name, start_ts, is_main_thread, switch_count)",
+		"INSERT INTO thread VALUES (2, 101, 1, 'null-start', NULL, 0, 1)",
+		"INSERT INTO thread VALUES (3, 102, 1, 'text-start', CAST(0 AS TEXT), 0, 1)",
+	})
+	outPath := filepath.Join(t.TempDir(), "metadata-start.systrace")
+	result, err := exportTraceDBToSystrace(context.Background(), path, outPath)
+	if err != nil {
+		t.Fatalf("export metadata-only thread starts: %v", err)
+	}
+	bodyBytes, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(bodyBytes)
+	for _, tid := range []string{"pid=101", "pid=102"} {
+		if !strings.Contains(body, "0.000100: task_rename: "+tid) {
+			t.Fatalf("unknown/tainted registration hint did not fall back to capture start for %s:\n%s", tid, body)
+		}
+	}
+	for _, item := range result.Coverage {
+		if item.Family == "resolver" && item.Table == "thread" && !strings.Contains(item.Skipped, "metadata ignored for hard identity") {
+			t.Fatalf("tainted registration hint was not disclosed: %+v", item)
+		}
+	}
+}
+
 func TestExportTraceDBThreadRegistrationSanitizesDisplayOnlyNames(t *testing.T) {
 	oversized := strings.Repeat("x", maxTraceDBIdentityDisplayBytes+1)
 	path := createTraceDBFixture(t, []string{

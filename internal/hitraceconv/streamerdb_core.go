@@ -45,19 +45,33 @@ type traceDBArgsetIndex struct {
 }
 
 type traceDBProcess struct {
-	IPID int64
-	PID  int64
-	Name string
+	IPID             int64
+	PID              int64
+	Name             string
+	RegistrationHint traceDBTimestampMetadata
 }
 
 type traceDBThread struct {
-	ITID         int64
-	TID          int64
-	IPID         int64
-	Name         string
-	StartTS      int64
-	IsMainThread bool
-	SwitchCount  int64
+	ITID             int64
+	TID              int64
+	IPID             int64
+	Name             string
+	RegistrationHint traceDBTimestampMetadata
+	ObservedEndHint  traceDBTimestampMetadata
+	IsMainThread     bool
+	SwitchCount      int64
+}
+
+// traceDBTimestampMetadata is deliberately not a lifetime interval. Current
+// Trace Streamer does not populate thread.start_ts on its normal creation
+// paths, process.start_ts is a path-dependent first observation, and
+// thread.end_ts can be overwritten by exit/free and later TID reuse. Keep the
+// tri-state provenance so registration/coverage can be honest without letting
+// these values participate in hard identity or generation selection.
+type traceDBTimestampMetadata struct {
+	Value   int64
+	Known   bool
+	Tainted bool
 }
 
 type traceDBThreadIndex struct {
@@ -66,8 +80,7 @@ type traceDBThreadIndex struct {
 	ThreadIDToITID     map[int64]int64
 	AmbiguousThreadID  map[int64]bool
 	HasThreadIDColumn  bool
-	ByTID              map[int64]traceDBThread
-	ByTIDIncarnation   map[int64][]traceDBThread
+	ByTIDCandidates    map[int64][]traceDBThread
 	Processes          map[int64]traceDBProcess
 	AmbiguousIPID      map[int64]bool
 	ProcessIDToIPID    map[int64]int64
@@ -377,7 +390,7 @@ func (tdb *traceDB) loadThreadIndex(ctx context.Context) (traceDBThreadIndex, []
 	if err != nil {
 		return traceDBThreadIndex{}, coverage, err
 	}
-	threadCoverage, err := tdb.inspectCoverage(ctx, "resolver", "thread", []string{"itid", "tid", "ipid", "start_ts", "is_main_thread", "switch_count"})
+	threadCoverage, err := tdb.inspectCoverage(ctx, "resolver", "thread", []string{"itid", "tid", "ipid", "is_main_thread", "switch_count"})
 	coverage = append(coverage, threadCoverage)
 	if err != nil {
 		return traceDBThreadIndex{}, coverage, err

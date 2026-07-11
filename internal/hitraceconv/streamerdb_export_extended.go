@@ -289,20 +289,23 @@ func traceDBPerfSampleIdentity(index traceDBThreadIndex, ts, tid, pid int64, pid
 	if !pidKnown {
 		resolvedPID = tid
 	}
-	thread, ok := traceDBPerfThreadAt(index, tid, ts, pid, pidKnown)
-	if !ok {
+	thread, resolution := traceDBPerfThreadAt(index, tid, ts, pid, pidKnown)
+	if resolution != traceDBPerfThreadResolved {
 		note := ""
 		if !pidKnown {
 			note = " process_id_source=tid_fallback"
+		}
+		switch resolution {
+		case traceDBPerfThreadPIDConflict:
+			note += " identity_conflict=true identity_conflict_reason=trace_pid_mismatch resolution=perf_source_only"
+		case traceDBPerfThreadAmbiguous:
+			note += " identity_conflict=true identity_conflict_reason=ambiguous_trace_thread resolution=perf_source_only"
 		}
 		return perfTask, resolvedPID, note
 	}
 	process := index.Processes[thread.IPID]
 	tracePID := firstNonZero(process.PID, thread.TID)
 	traceTask := traceDBCommName(thread.Name, "unknown")
-	if pidKnown && tracePID > 0 && tracePID != pid {
-		return perfTask, pid, fmt.Sprintf(" trace_thread_comm=%s trace_thread_pid=%d comm_source=perf_thread identity_conflict=true", quoteTraceValue(traceTask), tracePID)
-	}
 	if !pidKnown {
 		resolvedPID = firstNonZero(tracePID, tid)
 	}
@@ -320,35 +323,47 @@ func traceDBPerfSampleIdentity(index traceDBThreadIndex, ts, tid, pid int64, pid
 	return traceTask, resolvedPID, note
 }
 
-func traceDBPerfThreadAt(index traceDBThreadIndex, tid, ts, pid int64, pidKnown bool) (traceDBThread, bool) {
-	items := index.ByTIDIncarnation[tid]
-	last := len(items) - 1
-	for last >= 0 && items[last].StartTS > ts {
-		last--
-	}
-	if last < 0 {
-		return traceDBThread{}, false
-	}
-	start := items[last].StartTS
-	first := last
-	for first > 0 && items[first-1].StartTS == start {
-		first--
-	}
-	if first == last {
-		return items[last], true
-	}
-	if !pidKnown {
-		return traceDBThread{}, false
-	}
+type traceDBPerfThreadResolution uint8
+
+const (
+	traceDBPerfThreadMissing traceDBPerfThreadResolution = iota
+	traceDBPerfThreadResolved
+	traceDBPerfThreadPIDConflict
+	traceDBPerfThreadAmbiguous
+)
+
+func traceDBPerfThreadAt(index traceDBThreadIndex, tid, _ int64, pid int64, pidKnown bool) (traceDBThread, traceDBPerfThreadResolution) {
+	items := index.ByTIDCandidates[tid]
 	var match traceDBThread
+	candidates := 0
 	matches := 0
-	for i := first; i <= last; i++ {
-		if process := index.Processes[items[i].IPID]; process.PID == pid {
-			match = items[i]
-			matches++
+	for _, item := range items {
+		if index.AmbiguousITID[item.ITID] || index.AmbiguousIPID[item.IPID] {
+			continue
 		}
+		candidates++
+		if pidKnown {
+			process, processKnown := index.Processes[item.IPID]
+			if !processKnown || process.PID != pid {
+				continue
+			}
+		}
+		match = item
+		matches++
 	}
-	return match, matches == 1
+	if matches == 1 {
+		return match, traceDBPerfThreadResolved
+	}
+	if matches > 1 {
+		return traceDBThread{}, traceDBPerfThreadAmbiguous
+	}
+	if pidKnown && candidates > 0 {
+		return traceDBThread{}, traceDBPerfThreadPIDConflict
+	}
+	if candidates > 1 {
+		return traceDBThread{}, traceDBPerfThreadAmbiguous
+	}
+	return traceDBThread{}, traceDBPerfThreadMissing
 }
 
 func traceDBPerfSkipSummary(skipped map[string]int) string {

@@ -80,7 +80,7 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 		schemaCoverage.FieldSources["same_timestamp_order"] = "raw.ts,raw.rowid"
 	}
 	schemaCoverage.FieldSources["header_cpu"] = "raw.cpu when present; otherwise exact untainted thread_state.Running witness"
-	schemaCoverage.FieldSources["header_identity"] = "typed raw.itid/raw.tid/raw.pid plus timestamped thread/process incarnation; names are display-only"
+	schemaCoverage.FieldSources["header_identity"] = "typed raw.itid/raw.tid/raw.pid resolved against canonical candidates; registration hints and names never select a generation"
 	cpuExpr, hasCPU, err := traceDBRawOptionalExpr(ctx, tdb, "raw", "cpu")
 	if err != nil {
 		schemaCoverage.Error = err.Error()
@@ -948,27 +948,32 @@ func traceDBRawLineContext(raw traceDBRawEvent, index traceDBThreadIndex) (strin
 			return "swapper", 0, 0, 0, true
 		}
 		candidate, ok := index.ByITID[raw.ITID]
-		if !ok || index.AmbiguousITID[raw.ITID] || !traceDBRawThreadIdentityValid(candidate) || raw.TS < candidate.StartTS {
+		if !ok || index.AmbiguousITID[raw.ITID] || !traceDBRawThreadIdentityValid(candidate) || raw.TS < index.TraceStart {
 			return "", 0, 0, -1, false
 		}
 		thread, threadKnown = candidate, true
 	}
 	if raw.TIDKnown {
-		if len(index.ByTIDIncarnation[raw.TID]) == 0 {
-			if threadKnown {
+		if threadKnown {
+			// Exact ITID is the stronger identity. Public TID/PID fields may
+			// cross-check it, but a reused TID must not force a second election
+			// that discards the exact row.
+			if raw.TID != thread.TID {
 				return "", 0, 0, -1, false
 			}
+		} else if len(index.ByTIDCandidates[raw.TID]) == 0 {
 			tgid := raw.TID
 			if raw.PIDKnown {
 				tgid = raw.PID
 			}
 			return "<raw>", raw.TID, tgid, -1, true
+		} else {
+			candidate, ok := traceDBRawThreadAt(index, raw.TID, raw.TS, raw.PID, raw.PIDKnown)
+			if !ok {
+				return "", 0, 0, -1, false
+			}
+			thread, threadKnown = candidate, true
 		}
-		candidate, ok := traceDBRawThreadAt(index, raw.TID, raw.TS, raw.PID, raw.PIDKnown)
-		if !ok || (threadKnown && candidate.ITID != thread.ITID) {
-			return "", 0, 0, -1, false
-		}
-		thread, threadKnown = candidate, true
 	}
 	if threadKnown {
 		process, processKnown := index.Processes[thread.IPID]
@@ -999,35 +1004,30 @@ func traceDBRawLineContext(raw traceDBRawEvent, index traceDBThreadIndex) (strin
 func traceDBRawThreadIdentityValid(thread traceDBThread) bool {
 	return thread.ITID > 0 && thread.ITID <= maxTraceDBInternalID &&
 		thread.TID > 0 && thread.TID <= math.MaxInt32 && thread.IPID >= 0 &&
-		thread.IPID <= maxTraceDBInternalID && thread.StartTS >= 0
+		thread.IPID <= maxTraceDBInternalID
 }
 
-func traceDBRawThreadAt(index traceDBThreadIndex, tid, ts, pid int64, pidKnown bool) (traceDBThread, bool) {
-	items := index.ByTIDIncarnation[tid]
-	latestStart := int64(math.MinInt64)
-	var candidates []traceDBThread
+func traceDBRawThreadAt(index traceDBThreadIndex, tid, _ int64, pid int64, pidKnown bool) (traceDBThread, bool) {
+	items := index.ByTIDCandidates[tid]
+	var match traceDBThread
+	matches := 0
 	for _, item := range items {
-		if !traceDBRawThreadIdentityValid(item) || item.StartTS > ts || item.StartTS < latestStart {
+		if !traceDBRawThreadIdentityValid(item) {
 			continue
 		}
-		if item.StartTS > latestStart {
-			latestStart = item.StartTS
-			candidates = candidates[:0]
-		}
-		candidates = append(candidates, item)
-	}
-	if pidKnown {
-		filtered := candidates[:0]
-		for _, item := range candidates {
+		if pidKnown {
 			if process, ok := index.Processes[item.IPID]; ok && process.PID > 0 && process.PID <= math.MaxInt32 &&
 				process.PID == pid && !index.AmbiguousIPID[item.IPID] {
-				filtered = append(filtered, item)
+				match = item
+				matches++
 			}
+			continue
 		}
-		candidates = filtered
+		match = item
+		matches++
 	}
-	if len(candidates) != 1 || index.AmbiguousITID[candidates[0].ITID] {
+	if matches != 1 || index.AmbiguousITID[match.ITID] {
 		return traceDBThread{}, false
 	}
-	return candidates[0], true
+	return match, true
 }

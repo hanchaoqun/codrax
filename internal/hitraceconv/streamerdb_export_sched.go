@@ -143,7 +143,9 @@ func exportTraceDBThreadRegistrations(ctx context.Context, sink *traceDBRowSink,
 		if isMain && thread.SwitchCount <= 0 && !active[thread.ITID] {
 			continue
 		}
-		ts := thread.StartTS
+		// This is display/registration metadata only. It must never be consumed
+		// as a thread birth or generation boundary.
+		ts := traceDBRegistrationTimestamp(thread.RegistrationHint, index.TraceStart)
 		task := traceDBCommName(thread.Name, "unknown")
 		processName := traceDBProcessName(index, thread)
 		threadComm := traceDBCommName(thread.Name, "unknown")
@@ -795,13 +797,15 @@ func sortedTraceDBThreads(items map[int64]traceDBThread) []traceDBThread {
 		out = append(out, item)
 	}
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].StartTS == out[j].StartTS {
+		leftTS := traceDBRegistrationTimestamp(out[i].RegistrationHint, 0)
+		rightTS := traceDBRegistrationTimestamp(out[j].RegistrationHint, 0)
+		if leftTS == rightTS {
 			if out[i].TID != out[j].TID {
 				return out[i].TID < out[j].TID
 			}
 			return out[i].ITID < out[j].ITID
 		}
-		return out[i].StartTS < out[j].StartTS
+		return leftTS < rightTS
 	})
 	return out
 }

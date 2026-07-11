@@ -371,8 +371,8 @@ func TestExportTraceDBFrameSliceSchemaProfilesFailClosed(t *testing.T) {
 	}
 }
 
-func TestExportTraceDBFrameSliceIncarnationAndRunningIntegrity(t *testing.T) {
-	t.Run("tid reuse cuts the old frame generation", func(t *testing.T) {
+func TestExportTraceDBFrameSliceRegistrationHintsAndRunningIntegrity(t *testing.T) {
+	t.Run("thread registration hint does not manufacture a generation cut", func(t *testing.T) {
 		path := createTraceDBFixture(t, []string{
 			"CREATE TABLE trace_range (start_ts INT)",
 			"INSERT INTO trace_range VALUES (0)",
@@ -389,13 +389,13 @@ func TestExportTraceDBFrameSliceIncarnationAndRunningIntegrity(t *testing.T) {
 			"INSERT INTO frame_slice VALUES (2, 50000, 10000, 0, 'actural', 2, 1, 1, 2)",
 		})
 		coverage, _, body, _ := exportTraceDBFrameFixture(t, path, nil)
-		if coverage.RowsEmitted != 2 || !strings.Contains(coverage.Skipped, "outside_emitter_lifetime=1") ||
-			strings.Contains(body, "hconv-frame-1") || !strings.Contains(body, "hconv-frame-2") {
-			t.Fatalf("TID reuse crossed frame generations: coverage=%+v\n%s", coverage, body)
+		if coverage.RowsEmitted != 4 || coverage.Skipped != "" ||
+			!strings.Contains(body, "hconv-frame-1") || !strings.Contains(body, "hconv-frame-2") {
+			t.Fatalf("registration hint was promoted into a thread generation cut: coverage=%+v\n%s", coverage, body)
 		}
 	})
 
-	t.Run("process reuse cuts the old owner generation", func(t *testing.T) {
+	t.Run("process registration hint does not manufacture a generation cut", func(t *testing.T) {
 		path := createTraceDBFixture(t, []string{
 			"CREATE TABLE trace_range (start_ts INT)",
 			"INSERT INTO trace_range VALUES (0)",
@@ -413,9 +413,9 @@ func TestExportTraceDBFrameSliceIncarnationAndRunningIntegrity(t *testing.T) {
 			"INSERT INTO frame_slice VALUES (2, 50000, 10000, 0, 'actural', 2, 1, 2, 2)",
 		})
 		coverage, _, body, _ := exportTraceDBFrameFixture(t, path, nil)
-		if coverage.RowsEmitted != 2 || !strings.Contains(coverage.Skipped, "outside_owner_lifetime=1") ||
-			strings.Contains(body, "hconv-frame-1") || !strings.Contains(body, "hconv-frame-2") {
-			t.Fatalf("PID reuse crossed frame owner generations: coverage=%+v\n%s", coverage, body)
+		if coverage.RowsEmitted != 4 || coverage.Skipped != "" ||
+			!strings.Contains(body, "hconv-frame-1") || !strings.Contains(body, "hconv-frame-2") {
+			t.Fatalf("thread hint was promoted into a process generation cut: coverage=%+v\n%s", coverage, body)
 		}
 	})
 
