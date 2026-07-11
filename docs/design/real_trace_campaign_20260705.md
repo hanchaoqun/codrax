@@ -2142,6 +2142,13 @@ lead 实现额外守住:**EffectiveImpactMS>0 ∧ 非 context_only(6eb633a1 新 
 **⑤HTML 显示修正**:glyph 视觉尺寸远小于字体(57823 witness)——CSS 字号/行高归一;深链 bar 列右漂(54476 witness:L3 行 bar 与上层不对齐)——bar 列全树固定,深层按「缩进封顶12」先例加紧名称截断。
 **待确认项(本批不动)**:◦ 与形态词配对规则(建议:有影响形态词的行戴形态族 glyph,◦ 只留真正无类型词行——glyph 闭集变更待用户点头)。
 **排批**:UXR-1 合批(②③=引擎参赛通道+①④⑤=显示),排 EPUB 落地后(同域 tree.go);eval runner 输出自动归档小项随 HYG-C。
-
 ### §29.36.1 待确认项确认(用户 2026-07-11,条件式同意经主会话论证成立)
 **◦/形态词配对规则确认**:有影响形态词的行戴形态族 glyph(经 typed 形态表映射,严禁词面匹配);◦ 只留真正无类型词的行;形态词在场但闭集无对应 glyph 的形保持 ◦(其"无主导调度状态"宣称仍为真)。**调度态缺失事实不丢**:glyph 让位形态族后,该事实移入行2词面/明细承载(图例"具体影响形态见行内说明"对称改写)。论证要点:glyph 应承载已解析的最强语义,◦+形态词=混合信号(图标说不知道、文字说知道);与图例自身"无类型词的行=未识别影响类型"的暗示自洽。并入 UXR-1 批范围(§29.36⑤ 同批)。
+
+## §29.37 SQL Trace Streamer lifetime A1b-2 收账（2026-07-11，`7baf007f2`）
+
+**唯一证据采集器**：creation、双 terminal 与 callstack/sched/thread-state/syscall/native/frame 六源 activity 已进入同一个 supplied-queryer collector；三类 completeness 共同控制 inferred restart，任一缺失都不得用局部较晚来源铸 cut。active registry 复用同一次物理扫描但保持原 admission/六条 coverage，不再有第二套 producer 或第三次数据扫描。数据 SQL 不做 COUNT 预扫或 WHERE/DISTINCT/COALESCE/CAST/ORDER BY 修复；sched/thread 各两遍是“先收全 terminal、后流式 activity”的必要边界，其余源各一遍。
+
+**边界与规模**：exact/near、ref namespace、callstack 双 claim、idle0/public-TID0、高位 wire、known/unknown capture start、carry-in checked end、t=0、MaxInt64/overflow及四象限均已机械化。activity 流式复杂度为 O(rows log terminals)；可信 creation/terminal cohort 如实保留，malformed point 单独受 65536 预算约束，超限清点并升级 global taint。lifecycle authority summary在完整 tracebundle 中尾置，不改变既有 regular/extended coverage 顺序；tracequery 原 24 条预算不被挤占，并为该唯一 summary 额外保留一席。
+
+**验证与剩余**：focused 多轮、两包 race/包级/vet、全仓测试、diff check与三路独立冻结全绿。A1b-2 关闭；A2 尚未让 scheduler/wakeup/blocked 消费该 index，R1b-B/C、R1c、R2 仍按既定顺序开放，禁止把本节写成 R1b 全结案。
