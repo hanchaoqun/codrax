@@ -194,11 +194,11 @@ func traceDBStrictSignedUint32Projection(value any) (int64, bool) {
 	return raw, true
 }
 
-// raw.id is a stable event identity, not an internal thread identity. Trace
-// Streamer exposes its uint32 value through a signed int32 projection in some
-// schemas, so the complete uint32 domain is valid here: notably -1 is the
-// canonical event ID 4294967295, not the internal-ID missing sentinel.
-func traceDBStrictRawStableIDProjection(value any) (int64, bool) {
+// Stable row/event IDs are not internal thread identities. Trace Streamer
+// exposes several CacheBase uint64 counters through signed int32 projections,
+// so the complete uint32 domain is valid here: notably -1 is canonical stable
+// ID 4294967295, not the internal-ID missing sentinel.
+func traceDBStrictStableUint32Projection(value any) (int64, bool) {
 	raw, ok := traceDBStrictSQLiteInt(value)
 	if !ok || raw < math.MinInt32 || raw > math.MaxUint32 {
 		return 0, false
@@ -207,6 +207,16 @@ func traceDBStrictRawStableIDProjection(value any) (int64, bool) {
 		return raw + (int64(1) << 32), true
 	}
 	return raw, true
+}
+
+func traceDBStableUint32OrderExpr(stableExpr string, projectedUint32 bool) string {
+	if !projectedUint32 {
+		return stableExpr
+	}
+	// SQLite sorts the projected negative int32 half before non-negative IDs.
+	// Normalize only INTEGER storage-class values so valid stable IDs follow
+	// their canonical uint32 order while malformed values stay non-authoritative.
+	return fmt.Sprintf("CASE WHEN typeof(%s)='integer' AND %s < 0 THEN %s + 4294967296 ELSE %s END", stableExpr, stableExpr, stableExpr, stableExpr)
 }
 
 func compactSortedTraceDBInt64(values []int64) []int64 {

@@ -540,12 +540,12 @@ func TestTraceDBRawStableIDUsesFullUint32DomainAndCanonicalOrder(t *testing.T) {
 		math.MaxInt32:  math.MaxInt32,
 		math.MaxUint32: math.MaxUint32,
 	} {
-		if got, ok := traceDBStrictRawStableIDProjection(raw); !ok || got != want {
+		if got, ok := traceDBStrictStableUint32Projection(raw); !ok || got != want {
 			t.Fatalf("raw stable projection raw=%d got=(%d,%t), want=(%d,true)", raw, got, ok, want)
 		}
 	}
 	for _, raw := range []any{int64(math.MinInt32 - 1), int64(math.MaxUint32 + 1), "-1", float64(-1), []byte("-1")} {
-		if got, ok := traceDBStrictRawStableIDProjection(raw); ok {
+		if got, ok := traceDBStrictStableUint32Projection(raw); ok {
 			t.Fatalf("invalid raw stable projection raw=%v became %d", raw, got)
 		}
 	}

@@ -104,7 +104,7 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 		schemaCoverage.Error = err.Error()
 		return []TraceDBCoverage{schemaCoverage}, err
 	}
-	stableOrderExpr := traceDBRawStableOrderExpr(stableExpr, hasSourceID)
+	stableOrderExpr := traceDBStableUint32OrderExpr(stableExpr, hasSourceID)
 	query := fmt.Sprintf(`
 		SELECT %s, ts, name, %s, %s, %s, %s, %s
 		FROM raw
@@ -132,7 +132,7 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 		}
 		var ok bool
 		if hasSourceID {
-			raw.StableID, ok = traceDBStrictRawStableIDProjection(stableIDRaw)
+			raw.StableID, ok = traceDBStrictStableUint32Projection(stableIDRaw)
 		} else {
 			raw.StableID, ok = traceDBStrictSQLiteInt(stableIDRaw)
 		}
@@ -313,7 +313,7 @@ func traceDBRawDuplicateStableIDs(ctx context.Context, tdb *traceDB, stableExpr 
 		}
 		identity, identityOK := traceDBStrictSQLiteInt(identityRaw)
 		if sourceID {
-			identity, identityOK = traceDBStrictRawStableIDProjection(identityRaw)
+			identity, identityOK = traceDBStrictStableUint32Projection(identityRaw)
 		}
 		if !identityOK || identity < 0 {
 			continue
@@ -324,16 +324,6 @@ func traceDBRawDuplicateStableIDs(ctx context.Context, tdb *traceDB, stableExpr 
 		seen[identity] = true
 	}
 	return out, rows.Err()
-}
-
-func traceDBRawStableOrderExpr(stableExpr string, sourceID bool) string {
-	if !sourceID {
-		return stableExpr
-	}
-	// SQLite sorts the projected negative int32 half before non-negative IDs.
-	// Normalize only INTEGER storage-class values so valid raw IDs follow their
-	// canonical uint32 order while malformed values remain non-authoritative.
-	return fmt.Sprintf("CASE WHEN typeof(%s)='integer' AND %s < 0 THEN %s + 4294967296 ELSE %s END", stableExpr, stableExpr, stableExpr, stableExpr)
 }
 
 func traceDBRawCountSkip(items map[string]map[string]int, class, reason string) {

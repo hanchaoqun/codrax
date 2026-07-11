@@ -2,7 +2,6 @@ package hitraceconv
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"math"
 	"sort"
@@ -25,7 +24,13 @@ type traceDBBlockedArg struct {
 type traceDBBlockedArgset struct {
 	Values      map[string]traceDBBlockedArg
 	HasRelevant bool
-	Duplicate   bool
+	Invalid     bool
+}
+
+type traceDBBlockedStableSource struct {
+	Expr            string
+	Label           string
+	ProjectedUint32 bool
 }
 
 type traceDBBlockedStateRow struct {
@@ -63,8 +68,14 @@ type traceDBBlockedBoundaryKey struct {
 }
 
 type traceDBBlockedBoundaryIndex struct {
-	Matches       map[traceDBBlockedBoundaryKey][]traceDBBlockedSchedSlice
-	OverflowITIDs map[int64]bool
+	Matches               map[traceDBBlockedBoundaryKey][]traceDBBlockedSchedSlice
+	OverflowITIDs         map[int64]bool
+	TaintedITIDs          map[int64]bool
+	LowerBoundByITID      map[int64]int64
+	GlobalBarriers        map[int64]bool
+	GlobalLowerBound      int64
+	GlobalLowerBoundKnown bool
+	GlobalTaint           bool
 }
 
 func exportTraceDBBlockedReasons(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, index traceDBThreadIndex) (TraceDBCoverage, error) {
@@ -73,26 +84,27 @@ func exportTraceDBBlockedReasons(ctx context.Context, tdb *traceDB, sink *traceD
 		Table:  "thread_state.arg_setid",
 		Role:   "query_ready_export",
 		FieldSources: map[string]string{
+			"argset":        "shared strict args/data_dict resolver; logical identity=(argset,canonical_key)",
 			"caller":        "args.caller_str|args.caller; modern_4002_safe_token_gate",
 			"caller_raw":    "args.caller_raw|hex_address(args.caller)",
 			"delay":         "args.delay",
 			"header_cpu":    "unique_same_itid_sched_slice.cpu_where_slice.ts+slice.dur==thread_state.ts",
 			"header_thread": "thread_state_subject_projection; original_header_thread_known=false",
 			"iowait":        "args.iowait; io_wait_compat_alias; verified_against_split_D/DK_state_when_present; authoritative_for_other_nonempty_states",
-			"pid":           "thread_state.tid; verified_against_thread.tid_and_optional_args.pid",
+			"pid":           "thread_state.tid; thread_state.tid/pid must exactly match canonical thread/process identity; optional args.pid must match tid",
 			"source":        "thread_state_argset",
 			"timestamp":     "thread_state.ts_projection; original_timestamp_known=false",
 		},
 	}
 
 	threadCoverage, err := tdb.inspectCoverage(ctx, "scheduler.blocked_reason.schema", "thread_state",
-		[]string{"id", "ts", "dur", "itid", "tid", "pid", "state", "arg_setid"})
+		[]string{"ts", "dur", "itid", "tid", "pid", "state", "arg_setid"})
 	if err != nil {
 		coverage.Error = err.Error()
 		return coverage, err
 	}
 	argsCoverage, err := tdb.inspectCoverage(ctx, "scheduler.blocked_reason.schema", "args",
-		[]string{"id", "key", "datatype", "value", "argset"})
+		[]string{"key", "datatype", "value", "argset"})
 	if err != nil {
 		coverage.Error = err.Error()
 		return coverage, err
@@ -117,14 +129,40 @@ func exportTraceDBBlockedReasons(ctx context.Context, tdb *traceDB, sink *traceD
 		coverage.Skipped = traceDBBlockedSchemaSkip(threadCoverage, argsCoverage, dictCoverage, schedCoverage)
 		return coverage, nil
 	}
-
-	argsets, err := loadTraceDBBlockedArgsets(ctx, tdb)
+	stateStable, ok, err := traceDBBlockedStableSourceForTable(ctx, tdb, "thread_state")
 	if err != nil {
 		coverage.Error = err.Error()
 		return coverage, err
 	}
+	if !ok {
+		coverage.FieldSources["stable_identity"] = "unavailable: no thread_state.id and no provable SQLite hidden rowid"
+		coverage.Skipped = "missing thread_state.id and usable SQLite rowid; blocked rows have no stable source identity/order"
+		return coverage, nil
+	}
+	if stateStable.ProjectedUint32 {
+		coverage.ColumnsPresent = appendTraceDBCoverageColumn(coverage.ColumnsPresent, "thread_state.id")
+	}
+	sort.Strings(coverage.ColumnsPresent)
+	coverage.FieldSources["stable_identity"] = stateStable.Label
+	if stateStable.ProjectedUint32 {
+		coverage.FieldSources["same_timestamp_order"] = "thread_state.ts,canonical_uint32(thread_state.id)"
+	} else {
+		coverage.FieldSources["same_timestamp_order"] = "thread_state.ts,thread_state.rowid"
+	}
+	duplicateStateIDs, err := traceDBBlockedDuplicateStableIDs(ctx, tdb, "thread_state", stateStable)
+	if err != nil {
+		coverage.Error = err.Error()
+		return coverage, err
+	}
+
+	sharedArgsets, _, err := tdb.loadArgsets(ctx)
+	if err != nil {
+		coverage.Error = err.Error()
+		return coverage, err
+	}
+	argsets := traceDBBlockedArgsetsFromShared(sharedArgsets)
 	skipped := map[string]int{}
-	prepared, candidateStarts, rowsRead, err := loadTraceDBBlockedCandidates(ctx, tdb, index, argsets, skipped)
+	prepared, candidateStarts, semanticCohorts, rowsRead, err := loadTraceDBBlockedCandidates(ctx, tdb, index, argsets, stateStable, duplicateStateIDs, skipped)
 	coverage.RowsRead = rowsRead
 	if err != nil {
 		coverage.Error = err.Error()
@@ -138,6 +176,14 @@ func exportTraceDBBlockedReasons(ctx context.Context, tdb *traceDB, sink *traceD
 	for _, candidate := range prepared {
 		row := candidate.Row
 		key := traceDBBlockedBoundaryKey{ITID: row.ITID, StateStart: row.TS}
+		if semanticCohorts[key] != 1 {
+			skipped["ambiguous_thread_state_candidate"]++
+			continue
+		}
+		if boundaryReason := traceDBBlockedBoundaryIntegrityReason(boundaries, key); boundaryReason != "" {
+			skipped[boundaryReason]++
+			continue
+		}
 		headerCPU, cpuReason := traceDBBlockedHeaderCPU(boundaries.Matches[key], boundaries.OverflowITIDs[row.ITID])
 		if cpuReason != "" {
 			skipped[cpuReason]++
@@ -155,7 +201,7 @@ func exportTraceDBBlockedReasons(ctx context.Context, tdb *traceDB, sink *traceD
 		body += " header_thread_source=thread_state_subject_projection original_header_thread_known=false"
 		body += " header_cpu_source=exact_prev_sched_slice_boundary source=thread_state_argset"
 		if err := addTraceDBInstantRow(sink, row.TS, traceDBCommName(candidate.Thread.Name, "unknown"), row.TID,
-			firstNonZero(candidate.Process.PID, row.PID, row.TID), headerCPU, body); err != nil {
+			candidate.Process.PID, headerCPU, body); err != nil {
 			return coverage, err
 		}
 		coverage.RowsEmitted++
@@ -164,47 +210,138 @@ func exportTraceDBBlockedReasons(ctx context.Context, tdb *traceDB, sink *traceD
 	return coverage, nil
 }
 
-func loadTraceDBBlockedCandidates(ctx context.Context, tdb *traceDB, index traceDBThreadIndex, argsets map[int64]traceDBBlockedArgset, skipped map[string]int) ([]traceDBPreparedBlockedReason, map[int64]map[int64]bool, int, error) {
+func traceDBBlockedStableSourceForTable(ctx context.Context, tdb *traceDB, table string) (traceDBBlockedStableSource, bool, error) {
+	hasSourceID, err := tdb.columnExists(ctx, table, "id")
+	if err != nil {
+		return traceDBBlockedStableSource{}, false, err
+	}
+	if hasSourceID {
+		return traceDBBlockedStableSource{
+			Expr:            quoteSQLiteIdent("id"),
+			Label:           table + ".id with exact full-uint32 signed-int32 projection",
+			ProjectedUint32: true,
+		}, true, nil
+	}
+	expr, _, err := traceDBHiddenRowIDExpr(ctx, tdb.db, table)
+	if err != nil {
+		return traceDBBlockedStableSource{}, false, nil
+	}
+	return traceDBBlockedStableSource{Expr: expr, Label: table + "." + expr}, true, nil
+}
+
+func traceDBBlockedDecodeStableID(source traceDBBlockedStableSource, raw any) (int64, bool) {
+	if source.ProjectedUint32 {
+		return traceDBStrictStableUint32Projection(raw)
+	}
+	return traceDBStrictSQLiteInt(raw)
+}
+
+func traceDBBlockedStableOrderExpr(source traceDBBlockedStableSource) string {
+	return traceDBStableUint32OrderExpr(source.Expr, source.ProjectedUint32)
+}
+
+func traceDBBlockedDuplicateStableIDs(ctx context.Context, tdb *traceDB, table string, source traceDBBlockedStableSource) (map[int64]bool, error) {
+	duplicates := map[int64]bool{}
+	if !source.ProjectedUint32 {
+		// A proven SQLite hidden rowid is unique by construction. Avoid an O(N)
+		// audit and its matching heap footprint on production-sized state tables.
+		return duplicates, nil
+	}
+	canonical := `CASE WHEN ` + source.Expr + ` < 0 THEN ` + source.Expr + ` + 4294967296 ELSE ` + source.Expr + ` END`
+	rows, err := tdb.db.QueryContext(ctx, `SELECT `+canonical+`, COUNT(*) FROM `+quoteSQLiteIdent(table)+
+		` WHERE typeof(`+source.Expr+`)='integer' AND `+source.Expr+` BETWEEN -2147483648 AND 4294967295`+
+		` GROUP BY `+canonical+` HAVING COUNT(*) > 1`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var identityRaw, countRaw any
+		if err := rows.Scan(&identityRaw, &countRaw); err != nil {
+			return nil, err
+		}
+		identity, identityOK := traceDBStrictSQLiteInt(identityRaw)
+		count, countOK := traceDBStrictSQLiteInt(countRaw)
+		if !identityOK || identity < 0 || identity > math.MaxUint32 || !countOK || count < 2 {
+			return nil, fmt.Errorf("invalid strict duplicate cohort for %s stable identity", table)
+		}
+		duplicates[identity] = true
+	}
+	return duplicates, rows.Err()
+}
+
+func loadTraceDBBlockedCandidates(
+	ctx context.Context,
+	tdb *traceDB,
+	index traceDBThreadIndex,
+	argsets map[int64]traceDBBlockedArgset,
+	stable traceDBBlockedStableSource,
+	duplicateStateIDs map[int64]bool,
+	skipped map[string]int,
+) ([]traceDBPreparedBlockedReason, map[int64]map[int64]bool, map[traceDBBlockedBoundaryKey]int, int, error) {
 	var prepared []traceDBPreparedBlockedReason
 	candidateStarts := map[int64]map[int64]bool{}
+	semanticCohorts := map[traceDBBlockedBoundaryKey]int{}
 	rowsRead := 0
-	rows, err := tdb.db.QueryContext(ctx, `
-		SELECT id, ts, dur, itid, tid, pid, state, arg_setid
-		FROM thread_state
-		WHERE arg_setid IS NOT NULL
-		ORDER BY id
-	`)
+	query := `SELECT ` + stable.Expr + `, ts, dur, itid, tid, pid, state, arg_setid FROM thread_state ORDER BY ts, ` + traceDBBlockedStableOrderExpr(stable)
+	rows, err := tdb.db.QueryContext(ctx, query)
 	if err != nil {
-		return prepared, candidateStarts, rowsRead, err
+		return prepared, candidateStarts, semanticCohorts, rowsRead, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
-			return prepared, candidateStarts, rowsRead, err
+			return prepared, candidateStarts, semanticCohorts, rowsRead, err
 		}
-		var id, ts, dur, itid, tid, pid, argSetID sql.NullInt64
-		var state sql.NullString
-		if err := rows.Scan(&id, &ts, &dur, &itid, &tid, &pid, &state, &argSetID); err != nil {
-			return prepared, candidateStarts, rowsRead, err
+		var idRaw, tsRaw, durRaw, itidRaw, tidRaw, pidRaw, stateRaw, argSetRaw any
+		if err := rows.Scan(&idRaw, &tsRaw, &durRaw, &itidRaw, &tidRaw, &pidRaw, &stateRaw, &argSetRaw); err != nil {
+			return prepared, candidateStarts, semanticCohorts, rowsRead, err
 		}
-		args, argsFound := argsets[argSetID.Int64]
-		_, blockedState := traceDBBlockedStateIOWait(state.String)
-		if !blockedState && !(argsFound && args.HasRelevant) {
+
+		state, stateTextOK := traceDBBlockedStateText(stateRaw)
+		argSetPresent := argSetRaw != nil
+		argSetID, argSetOK := traceDBStrictSQLiteInt(argSetRaw)
+		argSetOK = argSetOK && argSetID >= 0 && argSetID <= maxTraceDBInternalID
+		args, argsFound := argsets[argSetID]
+		_, splitState := traceDBBlockedStateIOWait(state)
+		unsplitState := traceDBBlockedStateUnsplit(state)
+		nearReservedState := traceDBBlockedStateNearReservedToken(state)
+		if !splitState && !nearReservedState && !(unsplitState && argSetPresent) && !(argSetOK && argsFound && args.HasRelevant) {
 			continue
 		}
 		rowsRead++
-		if !id.Valid || !ts.Valid || !dur.Valid || !itid.Valid || !tid.Valid || !pid.Valid ||
-			!state.Valid || !argSetID.Valid || id.Int64 < 0 || ts.Int64 < 0 || dur.Int64 < 0 ||
-			itid.Int64 < 0 || tid.Int64 <= 0 || pid.Int64 < 0 || argSetID.Int64 < 0 ||
-			strings.TrimSpace(state.String) == "" {
+		if cohortITID, ok := traceDBStrictSQLiteInt(itidRaw); ok && cohortITID >= 0 && cohortITID <= maxTraceDBInternalID {
+			if cohortTS, ok := traceDBStrictSQLiteInt(tsRaw); ok && cohortTS >= 0 {
+				semanticCohorts[traceDBBlockedBoundaryKey{ITID: cohortITID, StateStart: cohortTS}]++
+			}
+		}
+
+		stableID, stableOK := traceDBBlockedDecodeStableID(stable, idRaw)
+		ts, tsOK := traceDBStrictSQLiteInt(tsRaw)
+		itid, itidOK := traceDBStrictSQLiteInt(itidRaw)
+		tid, tidOK := traceDBStrictSQLiteInt(tidRaw)
+		pid, pidOK := traceDBStrictSQLiteInt(pidRaw)
+		dur := int64(0)
+		durOK := durRaw == nil
+		if durRaw != nil {
+			dur, durOK = traceDBStrictSQLiteInt(durRaw)
+			durOK = durOK && dur >= 0
+		}
+		if !stableOK || !tsOK || ts < 0 || !durOK || !itidOK || itid < 0 || itid > maxTraceDBInternalID ||
+			!tidOK || tid <= 0 || tid > math.MaxInt32 || !pidOK || pid <= 0 || pid > math.MaxInt32 ||
+			!stateTextOK || nearReservedState || (argSetPresent && !argSetOK) {
 			skipped["invalid_thread_state_metadata"]++
 			continue
 		}
-		row := traceDBBlockedStateRow{
-			ID: id.Int64, TS: ts.Int64, Dur: dur.Int64, ITID: itid.Int64,
-			TID: tid.Int64, PID: pid.Int64, State: state.String, ArgSetID: argSetID.Int64,
+		if duplicateStateIDs[stableID] {
+			skipped["duplicate_source_id"]++
+			continue
 		}
-		if row.TS > math.MaxInt64-row.Dur {
+		row := traceDBBlockedStateRow{
+			ID: stableID, TS: ts, Dur: dur, ITID: itid,
+			TID: tid, PID: pid, State: state, ArgSetID: argSetID,
+		}
+		if durRaw != nil && row.TS > math.MaxInt64-row.Dur {
 			skipped["thread_state_end_overflow"]++
 			continue
 		}
@@ -215,13 +352,17 @@ func loadTraceDBBlockedCandidates(ctx context.Context, tdb *traceDB, index trace
 			skipped["unsplit_blocked_state"]++
 			continue
 		}
+		if !argSetPresent {
+			skipped["missing_argset_rows"]++
+			continue
+		}
 		expectedIOWait, stateOK := traceDBBlockedStateIOWait(row.State)
 		if !argsFound || !args.HasRelevant {
 			skipped["missing_argset_rows"]++
 			continue
 		}
-		if args.Duplicate {
-			skipped["duplicate_blocked_arg"]++
+		if args.Invalid {
+			skipped["invalid_blocked_argset"]++
 			continue
 		}
 		ioWait, reason := traceDBBlockedIOWait(args)
@@ -242,8 +383,12 @@ func loadTraceDBBlockedCandidates(ctx context.Context, tdb *traceDB, index trace
 			skipped["thread_tid_mismatch"]++
 			continue
 		}
-		process := index.Processes[thread.IPID]
-		if process.PID > 0 && row.PID > 0 && process.PID != row.PID {
+		process, processOK := index.Processes[thread.IPID]
+		if !processOK || process.PID <= 0 {
+			skipped["missing_process_identity"]++
+			continue
+		}
+		if process.PID != row.PID {
 			skipped["thread_tgid_mismatch"]++
 			continue
 		}
@@ -259,7 +404,7 @@ func loadTraceDBBlockedCandidates(ctx context.Context, tdb *traceDB, index trace
 			continue
 		}
 		delay, delayPresent, delayValid := traceDBBlockedOptionalInt(args, "delay")
-		if delayPresent && (!delayValid || delay < 0 || delay > math.MaxUint32) {
+		if delayPresent && (!delayValid || delay < 0 || delay > maxTraceDBInternalID) {
 			skipped["invalid_delay_arg"]++
 			continue
 		}
@@ -276,73 +421,55 @@ func loadTraceDBBlockedCandidates(ctx context.Context, tdb *traceDB, index trace
 		starts[row.TS] = true
 	}
 	if err := rows.Err(); err != nil {
-		return prepared, candidateStarts, rowsRead, err
+		return prepared, candidateStarts, semanticCohorts, rowsRead, err
 	}
-	return prepared, candidateStarts, rowsRead, nil
+	return prepared, candidateStarts, semanticCohorts, rowsRead, nil
 }
 
-func loadTraceDBBlockedArgsets(ctx context.Context, tdb *traceDB) (map[int64]traceDBBlockedArgset, error) {
+func traceDBBlockedArgsetsFromShared(shared traceDBArgsetIndex) map[int64]traceDBBlockedArgset {
 	out := map[int64]traceDBBlockedArgset{}
-	rows, err := tdb.db.QueryContext(ctx, `
-		SELECT a.argset, key_dict.data, a.datatype, a.value, value_dict.data
-		FROM args a
-		LEFT JOIN data_dict key_dict ON key_dict.id = a.key
-		LEFT JOIN data_dict value_dict ON value_dict.id = a.value
-		WHERE key_dict.data IN ('iowait', 'io_wait', 'caller', 'caller_str', 'caller_raw', 'delay', 'pid')
-		ORDER BY a.argset, a.id
-	`)
-	if err != nil {
-		return out, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		if err := ctx.Err(); err != nil {
-			return out, err
-		}
-		var argSetID, dataType, numeric sql.NullInt64
-		var key, text sql.NullString
-		if err := rows.Scan(&argSetID, &key, &dataType, &numeric, &text); err != nil {
-			return out, err
-		}
-		if !argSetID.Valid || argSetID.Int64 < 0 || !key.Valid || !traceDBBlockedRelevantArgKey(key.String) {
-			continue
-		}
-		item := out[argSetID.Int64]
-		if item.Values == nil {
-			item.Values = map[string]traceDBBlockedArg{}
-		}
-		item.HasRelevant = true
-		if _, exists := item.Values[key.String]; exists {
-			item.Duplicate = true
-			out[argSetID.Int64] = item
-			continue
-		}
-		arg := traceDBBlockedArg{}
-		if dataType.Valid {
-			arg.DataType = dataType.Int64
-			switch dataType.Int64 {
-			case traceDBArgTypeInt:
-				if numeric.Valid {
-					arg.Int = numeric.Int64
-					arg.Valid = true
-				}
-			case traceDBArgTypeString:
-				if text.Valid {
-					arg.Text = text.String
-					arg.Valid = true
+	keys := []string{"iowait", "io_wait", "caller", "caller_str", "caller_raw", "delay", "pid"}
+	for argSetID := range shared.Present {
+		item := traceDBBlockedArgset{Invalid: shared.Invalid[argSetID]}
+		for _, key := range keys {
+			if shared.InvalidKeys[argSetID][key] {
+				item.HasRelevant = true
+				item.Invalid = true
+			}
+			value, present := shared.Sets[argSetID][key]
+			if !present {
+				continue
+			}
+			item.HasRelevant = true
+			if item.Values == nil {
+				item.Values = map[string]traceDBBlockedArg{}
+			}
+			arg := traceDBBlockedArg{DataType: value.Datatype, Text: value.Text, Valid: value.Valid}
+			if value.Datatype == traceDBArgTypeInt {
+				parsed, err := strconv.ParseInt(value.Text, 10, 64)
+				if err != nil {
+					item.Invalid = true
+					arg.Valid = false
+				} else {
+					arg.Int = parsed
 				}
 			}
+			item.Values[key] = arg
 		}
-		item.Values[key.String] = arg
-		out[argSetID.Int64] = item
+		if item.HasRelevant {
+			out[argSetID] = item
+		}
 	}
-	return out, rows.Err()
+	return out
 }
 
 func loadTraceDBBlockedSchedBoundaries(ctx context.Context, tdb *traceDB, candidateStarts map[int64]map[int64]bool) (traceDBBlockedBoundaryIndex, error) {
 	out := traceDBBlockedBoundaryIndex{
-		Matches:       map[traceDBBlockedBoundaryKey][]traceDBBlockedSchedSlice{},
-		OverflowITIDs: map[int64]bool{},
+		Matches:          map[traceDBBlockedBoundaryKey][]traceDBBlockedSchedSlice{},
+		OverflowITIDs:    map[int64]bool{},
+		TaintedITIDs:     map[int64]bool{},
+		LowerBoundByITID: map[int64]int64{},
+		GlobalBarriers:   map[int64]bool{},
 	}
 	if len(candidateStarts) == 0 {
 		return out, nil
@@ -351,11 +478,7 @@ func loadTraceDBBlockedSchedBoundaries(ctx context.Context, tdb *traceDB, candid
 	// Production traces can have millions of slices; copying that table merely
 	// to recover a small blocked-reason header set would make conversion memory
 	// scale with the trace instead of with the recovered evidence.
-	rows, err := tdb.db.QueryContext(ctx, `
-		SELECT itid, ts, dur, cpu
-		FROM sched_slice
-		WHERE itid IS NOT NULL AND ts IS NOT NULL AND dur IS NOT NULL
-	`)
+	rows, err := tdb.db.QueryContext(ctx, `SELECT itid, ts, dur, cpu FROM sched_slice`)
 	if err != nil {
 		return out, err
 	}
@@ -364,33 +487,94 @@ func loadTraceDBBlockedSchedBoundaries(ctx context.Context, tdb *traceDB, candid
 		if err := ctx.Err(); err != nil {
 			return out, err
 		}
-		var itid, ts, dur, cpu sql.NullInt64
-		if err := rows.Scan(&itid, &ts, &dur, &cpu); err != nil {
+		var itidRaw, tsRaw, durRaw, cpuRaw any
+		if err := rows.Scan(&itidRaw, &tsRaw, &durRaw, &cpuRaw); err != nil {
 			return out, err
 		}
-		if !itid.Valid || !ts.Valid || !dur.Valid || itid.Int64 < 0 || ts.Int64 < 0 || dur.Int64 < 0 {
+		itid, itidOK := traceDBStrictSQLiteInt(itidRaw)
+		itidOK = itidOK && itid >= 0 && itid <= maxTraceDBInternalID
+		ts, tsOK := traceDBStrictSQLiteInt(tsRaw)
+		tsOK = tsOK && ts >= 0
+		dur, durOK := traceDBStrictSQLiteInt(durRaw)
+		durOK = durOK && dur >= 0
+
+		if !itidOK {
+			switch {
+			case !tsOK:
+				out.GlobalTaint = true
+			case durRaw == nil || !durOK:
+				traceDBBlockedSetGlobalLowerBound(&out, ts)
+			case ts <= math.MaxInt64-dur:
+				end := ts + dur
+				for _, starts := range candidateStarts {
+					if starts[end] {
+						out.GlobalBarriers[end] = true
+						break
+					}
+				}
+			}
 			continue
 		}
-		starts, relevantITID := candidateStarts[itid.Int64]
+		starts, relevantITID := candidateStarts[itid]
 		if !relevantITID {
 			continue
 		}
-		if ts.Int64 > math.MaxInt64-dur.Int64 {
-			out.OverflowITIDs[itid.Int64] = true
+		if !tsOK {
+			out.TaintedITIDs[itid] = true
 			continue
 		}
-		end := ts.Int64 + dur.Int64
+		if durRaw == nil || !durOK {
+			traceDBBlockedSetITIDLowerBound(&out, itid, ts)
+			continue
+		}
+		if ts > math.MaxInt64-dur {
+			out.OverflowITIDs[itid] = true
+			continue
+		}
+		end := ts + dur
 		if !starts[end] {
 			continue
 		}
-		item := traceDBBlockedSchedSlice{TS: ts.Int64, Dur: dur.Int64, CPU: -1}
-		if cpu.Valid {
-			item.CPU = cpu.Int64
+		item := traceDBBlockedSchedSlice{TS: ts, Dur: dur, CPU: -1}
+		if cpu, ok := traceDBStrictSQLiteInt(cpuRaw); ok {
+			item.CPU = cpu
 		}
-		key := traceDBBlockedBoundaryKey{ITID: itid.Int64, StateStart: end}
+		key := traceDBBlockedBoundaryKey{ITID: itid, StateStart: end}
 		out.Matches[key] = append(out.Matches[key], item)
 	}
 	return out, rows.Err()
+}
+
+func traceDBBlockedSetITIDLowerBound(index *traceDBBlockedBoundaryIndex, itid, ts int64) {
+	if current, ok := index.LowerBoundByITID[itid]; !ok || ts < current {
+		index.LowerBoundByITID[itid] = ts
+	}
+}
+
+func traceDBBlockedSetGlobalLowerBound(index *traceDBBlockedBoundaryIndex, ts int64) {
+	if !index.GlobalLowerBoundKnown || ts < index.GlobalLowerBound {
+		index.GlobalLowerBound = ts
+		index.GlobalLowerBoundKnown = true
+	}
+}
+
+func traceDBBlockedBoundaryIntegrityReason(index traceDBBlockedBoundaryIndex, key traceDBBlockedBoundaryKey) string {
+	if index.GlobalTaint {
+		return "global_prev_sched_slice_taint"
+	}
+	if index.TaintedITIDs[key.ITID] {
+		return "tainted_prev_sched_slice_lane"
+	}
+	if index.GlobalBarriers[key.StateStart] {
+		return "global_prev_sched_slice_barrier"
+	}
+	if index.GlobalLowerBoundKnown && key.StateStart >= index.GlobalLowerBound {
+		return "global_prev_sched_slice_lower_bound"
+	}
+	if lower, ok := index.LowerBoundByITID[key.ITID]; ok && key.StateStart >= lower {
+		return "prev_sched_slice_lower_bound"
+	}
+	return ""
 }
 
 func traceDBBlockedHeaderCPU(matches []traceDBBlockedSchedSlice, overflow bool) (int64, string) {
@@ -419,8 +603,22 @@ func traceDBBlockedRelevantArgKey(key string) bool {
 	}
 }
 
+func traceDBBlockedStateText(raw any) (string, bool) {
+	state, ok := traceDBStrictArgText(raw, false)
+	return state, ok && len(state) <= 64 && state == strings.TrimSpace(state)
+}
+
+func traceDBBlockedStateNearReservedToken(state string) bool {
+	for _, reserved := range []string{"S", "D", "DK", "D-IO", "D-NIO", "DK-IO", "DK-NIO"} {
+		if state != reserved && strings.EqualFold(strings.TrimSpace(state), reserved) {
+			return true
+		}
+	}
+	return false
+}
+
 func traceDBBlockedStateIOWait(state string) (int64, bool) {
-	switch strings.ToUpper(strings.TrimSpace(state)) {
+	switch state {
 	case "D-IO", "DK-IO":
 		return 1, true
 	case "D-NIO", "DK-NIO":
@@ -431,7 +629,7 @@ func traceDBBlockedStateIOWait(state string) (int64, bool) {
 }
 
 func traceDBBlockedStateUnsplit(state string) bool {
-	switch strings.ToUpper(strings.TrimSpace(state)) {
+	switch state {
 	case "D", "DK":
 		return true
 	default:

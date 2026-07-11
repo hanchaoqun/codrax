@@ -638,7 +638,7 @@ func (tdb *traceDB) loadRawWakeups(ctx context.Context) ([]traceDBRawWakeup, Tra
 		coverage.Error = err.Error()
 		return out, coverage, err
 	}
-	stableOrderExpr := traceDBRawStableOrderExpr(rowIdentity, hasID)
+	stableOrderExpr := traceDBStableUint32OrderExpr(rowIdentity, hasID)
 	rows, err := tdb.db.QueryContext(ctx, `
 		SELECT `+rowIdentity+`, ts, name, cpu, itid
 		FROM raw
@@ -664,7 +664,7 @@ func (tdb *traceDB) loadRawWakeups(ctx context.Context) ([]traceDBRawWakeup, Tra
 		}
 		rowID, rowIDOK := traceDBStrictSQLiteInt(rowIDRaw)
 		if hasID {
-			rowID, rowIDOK = traceDBStrictRawStableIDProjection(rowIDRaw)
+			rowID, rowIDOK = traceDBStrictStableUint32Projection(rowIDRaw)
 		}
 		ts, tsOK := traceDBStrictSQLiteInt(tsRaw)
 		name, nameOK := nameRaw.(string)
