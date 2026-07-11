@@ -109,13 +109,11 @@ func exportTraceDBSchedulerFamilies(ctx context.Context, tdb *traceDB, sink *tra
 	if err != nil {
 		return coverage, err
 	}
-	running, runningIntegrity, runningCoverage, err := tdb.loadRunningIntervals(ctx)
+	running, runningCoverage, err := tdb.loadSchedulerRunningIndex(ctx, authority)
 	coverage = append(coverage, runningCoverage)
 	if err != nil {
 		return coverage, err
 	}
-	index.RunningTaintedITID = runningIntegrity.TaintedITIDs
-	index.RunningGlobalTaint = runningIntegrity.GlobalTaint
 	stageStart = time.Now()
 	wakeupCoverage, err := exportTraceDBWakeups(ctx, tdb, sink, index, rawWakeups, starts, running)
 	traceDBSetCoverageElapsed(&wakeupCoverage, stageStart)
@@ -265,11 +263,12 @@ func exportTraceDBSchedSwitch(ctx context.Context, tdb *traceDB, sink *traceDBRo
 	return coverage, nil
 }
 
-func exportTraceDBWakeups(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, index traceDBThreadIndex, rawWakeups []traceDBRawWakeup, starts traceDBSchedStartIndex, running map[int64][]traceDBRunningInterval) (TraceDBCoverage, error) {
+func exportTraceDBWakeups(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, index traceDBThreadIndex, rawWakeups []traceDBRawWakeup, starts traceDBSchedStartIndex, running traceDBSchedulerRunningIndex) (TraceDBCoverage, error) {
 	coverage, err := tdb.inspectCoverage(ctx, "scheduler", "instant", []string{"ts", "name", "ref", "wakeup_from", "ref_type"})
 	coverage.FieldSources = map[string]string{
 		"header_cpu":                "thread_state.Running.cpu",
 		"priority":                  "field-level optional inference from the first audited sched_slice at/after the wakeup; wire provenance marks it non-exact and hard priority-inversion gates must not consume it",
+		"running_lifecycle":         "scheduler_lifecycle_gated Running index from the same collector authority; emitter CPU requires a half-open generation-valid interval",
 		"raw_identity.sched_waking": "raw.itid==instant.wakeup_from",
 		"raw_identity.sched_wakeup": "producer_shape(raw.itid==instant.ref|instant.wakeup_from)+unique_bipartite_matching",
 		"sched_wakeup_new":          "instant name preserved; pairs against the upstream raw sched_wakeup shape through one closed canonical matching kind",
@@ -357,12 +356,19 @@ func exportTraceDBWakeups(ctx context.Context, tdb *traceDB, sink *traceDBRowSin
 				skipped["missing_waker_thread"]++
 				continue
 			}
-			if index.RunningGlobalTaint || index.RunningTaintedITID[instant.WakeupFrom] {
+			eventCPU, runningStatus := running.lookupCPUAt(instant.WakeupFrom, instant.TS)
+			switch runningStatus {
+			case traceDBSchedulerRunningSourceTainted:
 				skipped["tainted_emitter_running_cpu"]++
 				continue
-			}
-			eventCPU, cpuKnown := traceDBKnownCPUAt(running, instant.WakeupFrom, instant.TS)
-			if !cpuKnown {
+			case traceDBSchedulerRunningLifecycleRejected:
+				skipped["lifecycle_rejected_emitter_running_cpu"]++
+				continue
+			case traceDBSchedulerRunningUnknown:
+				skipped["missing_or_ambiguous_emitter_running_cpu"]++
+				continue
+			case traceDBSchedulerRunningKnown:
+			default:
 				skipped["missing_or_ambiguous_emitter_running_cpu"]++
 				continue
 			}

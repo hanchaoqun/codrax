@@ -650,16 +650,33 @@ func TestExportTraceDBThreadStateResolverWithoutSchedSlice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("export thread_state resolver fixture: %v", err)
 	}
-	assertCoverageEmitted(t, result.Coverage, "resolver", "thread_state", 1)
 	if !coverageHasSkipped(result.Coverage, "scheduler", "sched_slice", "missing table") {
 		t.Fatalf("missing sched_slice should be visible without blocking thread_state resolver: %+v", result.Coverage)
 	}
+	schedulerScope := 0
+	extendedScope := 0
 	for _, item := range result.Coverage {
 		if item.Family == "resolver" && item.Table == "thread_state" {
-			if item.RowsRead != 2 || item.RowsEmitted != 1 {
-				t.Fatalf("thread_state coverage should expose read rows and emitted running windows: %+v", item)
+			switch item.FieldSources["running_consumer_scope"] {
+			case "scheduler_lifecycle_gated":
+				schedulerScope++
+				if item.RowsRead != 2 || item.RowsEmitted != 0 ||
+					!strings.Contains(item.Skipped, "scheduler_lifecycle_authority_complete=false") {
+					t.Fatalf("incomplete scheduler Running authority failed open: %+v", item)
+				}
+			case "extended_legacy_r1b_b_open":
+				extendedScope++
+				if item.RowsRead != 2 || item.RowsEmitted != 1 ||
+					!strings.Contains(item.FieldSources["generation_admission"], "R1b-B") {
+					t.Fatalf("extended legacy Running compatibility changed or was not disclosed: %+v", item)
+				}
+			default:
+				t.Fatalf("thread_state Running coverage lacks a closed consumer scope: %+v", item)
 			}
 		}
+	}
+	if schedulerScope != 1 || extendedScope != 1 {
+		t.Fatalf("thread_state Running consumer scopes scheduler=%d extended=%d: %+v", schedulerScope, extendedScope, result.Coverage)
 	}
 	bodyBytes, err := os.ReadFile(outPath)
 	if err != nil {

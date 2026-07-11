@@ -246,6 +246,9 @@ func TestTraceDBSchedulerRunningIndexTaintsWholeCrossCutLane(t *testing.T) {
 	if _, ok := index.knownCPUAt(1, 85); ok {
 		t.Fatal("one cross-cut Running row did not taint the whole ITID lane")
 	}
+	if _, status := index.lookupCPUAt(1, 85); status != traceDBSchedulerRunningLifecycleRejected {
+		t.Fatalf("cross-cut Running rejection status=%d, want lifecycle rejected", status)
+	}
 	if cpu, ok := index.knownCPUAt(2, 105); !ok || cpu != 2 {
 		t.Fatalf("valid new-generation Running lane lost: cpu=%d ok=%t", cpu, ok)
 	}
@@ -253,7 +256,7 @@ func TestTraceDBSchedulerRunningIndexTaintsWholeCrossCutLane(t *testing.T) {
 		t.Fatalf("canonical idle Running lane lost: cpu=%d ok=%t", cpu, ok)
 	}
 	if coverage.RowsEmitted != 2 || !strings.Contains(coverage.Skipped, "rejected_running_rows=2") ||
-		!strings.Contains(coverage.Skipped, "total_tainted_itid_lanes=1") ||
+		!strings.Contains(coverage.Skipped, "total_rejected_itid_lanes=1") ||
 		coverage.FieldSources["scheduler_lifecycle"] == "" {
 		t.Fatalf("Running lifecycle coverage mismatch: %+v", coverage)
 	}
@@ -269,6 +272,9 @@ func TestTraceDBSchedulerRunningIndexPreservesBaseIntegrity(t *testing.T) {
 		traceDBRunningIntegrity{TaintedITIDs: map[int64]bool{1: true}}, nil)
 	if _, ok := index.knownCPUAt(1, 1); ok {
 		t.Fatal("base Running taint was bypassed")
+	}
+	if _, status := index.lookupCPUAt(1, 1); status != traceDBSchedulerRunningSourceTainted {
+		t.Fatalf("base Running taint status=%d, want source tainted", status)
 	}
 	if cpu, ok := index.knownCPUAt(2, 1); !ok || cpu != 2 {
 		t.Fatalf("unrelated Running lane was connected: cpu=%d ok=%t index=%+v", cpu, ok, index)
@@ -289,8 +295,14 @@ func TestTraceDBSchedulerRunningIndexCompletenessAndEndpointShapes(t *testing.T)
 	if _, ok := index.knownCPUAt(1, 5); ok {
 		t.Fatal("incomplete authority retained a non-idle Running lane")
 	}
+	if _, status := index.lookupCPUAt(1, 5); status != traceDBSchedulerRunningLifecycleRejected {
+		t.Fatalf("incomplete Running authority status=%d, want lifecycle rejected", status)
+	}
 	if cpu, ok := index.knownCPUAt(0, 5); !ok || cpu != 0 {
 		t.Fatalf("incomplete non-idle sources suppressed exact idle Running: cpu=%d ok=%t", cpu, ok)
+	}
+	if cpu, status := index.lookupCPUAt(0, 5); status != traceDBSchedulerRunningKnown || cpu != 0 {
+		t.Fatalf("exact idle Running status=(cpu=%d,status=%d), want known CPU0", cpu, status)
 	}
 
 	endPoison := traceDBSchedulerAuthorityFixture(true, traceDBLifecycleIndex{GlobalPoison: []int64{10}})

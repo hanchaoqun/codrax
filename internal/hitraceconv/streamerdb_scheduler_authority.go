@@ -172,28 +172,50 @@ func (authority traceDBSchedulerAuthority) resolveThreadSubject(itid int64) (tra
 }
 
 type traceDBSchedulerRunningIndex struct {
-	intervals   map[int64][]traceDBRunningInterval
-	taintedITID map[int64]bool
-	globalTaint bool
-	initialized bool
+	intervals             map[int64][]traceDBRunningInterval
+	rejectedITID          map[int64]bool
+	sourceTaintedITID     map[int64]bool
+	lifecycleRejectedITID map[int64]bool
+	sourceGlobalTaint     bool
+	lifecycleGlobalTaint  bool
+	initialized           bool
 }
+
+type traceDBSchedulerRunningLookupStatus uint8
+
+const (
+	traceDBSchedulerRunningUnknown traceDBSchedulerRunningLookupStatus = iota
+	traceDBSchedulerRunningKnown
+	traceDBSchedulerRunningSourceTainted
+	traceDBSchedulerRunningLifecycleRejected
+)
 
 func newTraceDBSchedulerRunningIndex(authority traceDBSchedulerAuthority,
 	intervals map[int64][]traceDBRunningInterval, integrity traceDBRunningIntegrity, coverage *TraceDBCoverage,
 ) traceDBSchedulerRunningIndex {
 	out := traceDBSchedulerRunningIndex{
-		intervals:   map[int64][]traceDBRunningInterval{},
-		taintedITID: map[int64]bool{},
-		globalTaint: integrity.GlobalTaint || authority.lifecycle.GlobalTaint,
-		initialized: authority.initialized,
+		intervals:             map[int64][]traceDBRunningInterval{},
+		rejectedITID:          map[int64]bool{},
+		sourceTaintedITID:     map[int64]bool{},
+		lifecycleRejectedITID: map[int64]bool{},
+		sourceGlobalTaint:     integrity.GlobalTaint,
+		lifecycleGlobalTaint:  authority.lifecycle.GlobalTaint,
+		initialized:           authority.initialized,
 	}
 	for itid := range integrity.TaintedITIDs {
-		out.taintedITID[itid] = true
+		out.sourceTaintedITID[itid] = true
+		out.rejectedITID[itid] = true
 	}
 	rejectedRows := 0
 	for itid, entries := range intervals {
-		if out.globalTaint || out.taintedITID[itid] || itid != 0 && !authority.complete {
-			out.taintedITID[itid] = true
+		if out.sourceGlobalTaint || out.sourceTaintedITID[itid] {
+			out.rejectedITID[itid] = true
+			rejectedRows += len(entries)
+			continue
+		}
+		if out.lifecycleGlobalTaint || !authority.initialized || itid != 0 && !authority.complete {
+			out.lifecycleRejectedITID[itid] = true
+			out.rejectedITID[itid] = true
 			rejectedRows += len(entries)
 			continue
 		}
@@ -206,7 +228,8 @@ func newTraceDBSchedulerRunningIndex(authority traceDBSchedulerAuthority,
 			}
 		}
 		if !laneValid {
-			out.taintedITID[itid] = true
+			out.lifecycleRejectedITID[itid] = true
+			out.rejectedITID[itid] = true
 			rejectedRows += len(entries)
 			continue
 		}
@@ -223,7 +246,8 @@ func newTraceDBSchedulerRunningIndex(authority traceDBSchedulerAuthority,
 				coverage.RowsEmitted = 0
 			}
 			traceDBAppendCoverageSkipped(coverage,
-				fmt.Sprintf("scheduler authority audit: rejected_running_rows=%d total_tainted_itid_lanes=%d", rejectedRows, len(out.taintedITID)))
+				fmt.Sprintf("scheduler authority audit: rejected_running_rows=%d source_tainted_itid_lanes=%d lifecycle_rejected_itid_lanes=%d total_rejected_itid_lanes=%d",
+					rejectedRows, len(out.sourceTaintedITID), len(out.lifecycleRejectedITID), len(out.rejectedITID)))
 		}
 		if !authority.initialized || !authority.complete {
 			traceDBAppendCoverageSkipped(coverage, "scheduler_lifecycle_authority_complete=false")
@@ -233,8 +257,23 @@ func newTraceDBSchedulerRunningIndex(authority traceDBSchedulerAuthority,
 }
 
 func (index traceDBSchedulerRunningIndex) knownCPUAt(itid, timestamp int64) (int64, bool) {
-	if !index.initialized || index.globalTaint || index.taintedITID[itid] {
-		return 0, false
+	cpu, status := index.lookupCPUAt(itid, timestamp)
+	return cpu, status == traceDBSchedulerRunningKnown
+}
+
+func (index traceDBSchedulerRunningIndex) lookupCPUAt(itid, timestamp int64) (int64, traceDBSchedulerRunningLookupStatus) {
+	if !index.initialized {
+		return 0, traceDBSchedulerRunningUnknown
 	}
-	return traceDBKnownCPUAt(index.intervals, itid, timestamp)
+	if index.sourceGlobalTaint || index.sourceTaintedITID[itid] {
+		return 0, traceDBSchedulerRunningSourceTainted
+	}
+	if index.lifecycleGlobalTaint || index.lifecycleRejectedITID[itid] {
+		return 0, traceDBSchedulerRunningLifecycleRejected
+	}
+	cpu, known := traceDBKnownCPUAt(index.intervals, itid, timestamp)
+	if !known {
+		return 0, traceDBSchedulerRunningUnknown
+	}
+	return cpu, traceDBSchedulerRunningKnown
 }

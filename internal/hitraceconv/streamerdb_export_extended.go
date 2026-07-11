@@ -17,7 +17,7 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 	if err != nil {
 		return coverage, err
 	}
-	running, runningIntegrity, runningCoverage, err := tdb.loadRunningIntervals(ctx)
+	running, runningIntegrity, runningCoverage, err := tdb.loadExtendedLegacyRunningIntervals(ctx)
 	coverage = append(coverage, runningCoverage)
 	if err != nil {
 		return coverage, err
