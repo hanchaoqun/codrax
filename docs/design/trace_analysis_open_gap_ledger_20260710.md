@@ -114,6 +114,10 @@
 
     **renderer malformed-core 扩展裁定（施工前追加）**：direct official/generic 的 standard/Harmony sched、clock与page-cache不能只以一个识别字段入场后把缺失核心字段折成0；standard/Harmony switch的七个核心字段、clock name/state、page dev/inode/index/pfn必须在 decoded format+content中完整可用，否则整事件只保留 header/unsupported coverage，禁止发布完整-looking typed payload。`next_info/expeller/cpu_id/page pointer`仍是独立 optional维度，absent只omit，present exact0可发布。structured protobuf不能机械套 wire-presence：proto3 producer会省略合法默认0；应以精确 event field profile把 absent解释为该 schema的默认值，只在 wrong-wire、duplicate、越界时 fail-close核心行或降级optional维度，并把原因计入 coverage。测试必须同时覆盖 direct truncated/missing core、structured wrong-wire/duplicate、合法 default0、无关字段与转换→tracequery roundtrip。
 
+    **structured envelope provenance P0（renderer 复审新发现，下批必修）**：内层 event payload 严格仍不等于整条记录严格。当前 `FtraceCpuDetail.cpu`对 wrong-wire/duplicate 会忽略或 last-wins，可把坏 CPU 铸成 header CPU0；`FtraceEvent.timestamp/tgid/comm/common_fields`同样折叠 absent、wrong-wire 与 duplicate，且 oneof 同时带多个 event payload 会被展开为多条记录。终态要求：CPU 的 proto3 absent 只能按 pinned producer 解为 exact0，present 必须是单一 varint 且在 `0..4095`；event envelope 的 singular scalar/string/message 必须分辨 default omission 与 malformed/ambiguous wire；oneof 每记录只能有一个 payload；PID/TGID/comm 只按 typed envelope 发布，线程名仍仅 display，不参与身份关联。本项不阻塞当前内层 renderer 反伪造小批的独立收敛，但其后优先级高于 counter/B3-b，未闭合前不宣称 structured provenance 全部结案。
+
+    **`next_info` 证据边界（保留项）**：Donghu 文本基准 4,670 条全为六元组，load 中 1,361 条为奇数（故文本闭集不得套用“偶数”限制）；带外置 `cg=` 的 direct profile 按五元组发布。pinned SmartPerf 只证明 field2417/8 是 raw `uint64` 及 MaxUint64 missing sentinel，未给出 affinity/load/group/restricted/expel/cgid 位拆分；`hmtrace@7fb4eaba` 的 Rust/Python `sched_slice`→`sched_switch` 重建又完全丢失 `next_info`，不能作为位布局见证。当前 packed 转换仅保持既有单点 profile 与 direct/structured parity；要宣称位语义外源验证，仍需厂商 tracepoint format/source 或同一事件的 binary↔标准文本成对 witness。
+
     **P2 fidelity 与非触发项**：SQL raw block issue 的 bytes槽当前硬编码0，应消费 strict bytes arg，缺失时明确无声明；SQL page-cache后续可保真 page/pfn；print `0xIP:`前缀与 block dev分隔符只做兼容展示。该 golden 全部 scalar/CPU合法，不能替代 B3-b malformed SQL adversarial fixtures。generic storage typed request、workqueue/DMA/UFS/MMC/SCSI与真实 TID reuse继续等待其他生产 witness。
 
 ## 高 ROI 主队列
