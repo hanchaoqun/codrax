@@ -48,7 +48,7 @@
 
 15. **A1a equal-terminal 接入反例已修已推送（`660cd1702`）**：activity cursor 先二分当前 public-TID lane 的首个 `terminal.ts >= activity.ts`；若 exact 同点则只计已观察，不参与 restart proposal，统一覆盖所有来源且不让各 source 自行跳过 X/Z。机械 pin 直接锁定：同点不同 subject 无 Cut/Poison/Unknown；conflicted terminal 不修改 prior restart 且保留 Unknown；严格 `+1` 的不同 subject 精确重开；严格 `+1` 双 subject 明确形成 Poison/Unknown。focused `-count=50`、race、全 hitraceconv、vet、diff check 与两路冻结均通过。
 
-16. **A1b-1 table-profile decoder 已立账（P0，collector 前置）**：现有 `loadActiveCanonicalThreadIDs` 用 canonical decoder 横扫 sched/thread_state/syscall/native/frame，确定性漏掉 current `syscall.itid` 与 current `frame_slice.itid` 的 signed-int32 高半区。修复须中性化 A1b-0 strict signed helper并建立单一 table profile：sched/thread_state/native canonical；syscall（有 itid 的 current schema）strict signed；frame current=`id+type` strict signed、legacy=`无 id/type` canonical、XOR 非法且不逐行 fallback。active registry先消费该单点 authority；后续 lifecycle collector与 exporter复用，宽松 instant/raw vendor decoder不得混入。
+16. **A1b-1 table-profile decoder 已修已推送（`30c5043a9`）**：中性 `traceDBStrictSignedInt32InternalID` 与单一 `traceDBActivityProfile` 已取代 active registry 的“一把 canonical 横扫”：sched/thread_state/native canonical；syscall strict signed；frame current=`id+type` strict signed、legacy=`无 id/type` canonical、两种 XOR 全表 fail-close。profile 消费调用方 `traceDBQueryer`，frame schema PRAGMA 已有 read-tx pin，后续 collector可在同一 snapshot复用。active idle0 仅 sched/thread_state 保留，其余四源拒并披露；canonical/signed 高位、sentinel、dormant-main 注册、process 不连坐与 coverage均机械 pin。focused `-count=50`、race、全 hitraceconv、vet、全仓、diff check与三路冻结通过。独立 syscall/frame exporter decoder/SQL gap仍开放，未误宣结案。
 
 ## 高 ROI 主队列
 
