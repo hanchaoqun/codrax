@@ -878,20 +878,22 @@ func (opts BuildOptions) cacheKey() string {
 // 29× windowed-build regression on GiB traces). The struct is reused across
 // loop iterations; reset() only clears the memo flags.
 type lineScan struct {
-	lineNo  int
-	line    string
-	m       []string
-	mTried  bool
-	kv      map[string]string
-	kvTried bool
-	ts      float64
-	tsOK    bool
-	tsTried bool
+	lineNo               int
+	line                 string
+	m                    []string
+	mTried               bool
+	kv                   map[string]string
+	kvTried              bool
+	schedSwitchKVFailure string
+	ts                   float64
+	tsOK                 bool
+	tsTried              bool
 }
 
 func (s *lineScan) reset(lineNo int, line string) {
 	s.lineNo, s.line = lineNo, line
 	s.mTried, s.kvTried, s.tsTried = false, false, false
+	s.schedSwitchKVFailure = ""
 }
 
 func (s *lineScan) match() []string {
@@ -902,15 +904,26 @@ func (s *lineScan) match() []string {
 	return s.m
 }
 
-// keyValues returns the parseKV view of the matched fields column. Consumers
-// must treat the map as read-only: it is shared by every audit on this line
-// and by the event parse.
+// keyValues returns the event-specific typed field view of the matched fields
+// column (the strict sched_switch parser, generic parseKV otherwise).
+// Consumers must treat the map as read-only: it is shared by every audit on
+// this line and by the event parse.
 func (s *lineScan) keyValues() map[string]string {
 	if !s.kvTried {
 		s.kvTried = true
 		s.kv = nil
 		if m := s.match(); len(m) != 0 {
-			s.kv = parseKV(strings.TrimSpace(m[7]))
+			fields := strings.TrimSpace(m[7])
+			rawType := strings.TrimSuffix(strings.TrimSpace(m[6]), ":")
+			if rawType == "sched_switch" {
+				// Do not fall back to the generic token scanner on structural
+				// failure. Its context-free matches cannot distinguish a comm's
+				// text from typed scheduler fields, so the scheduler integrity gate
+				// must see an empty map and reject the malformed row instead.
+				s.kv, s.schedSwitchKVFailure = parseSchedSwitchKV(fields)
+			} else {
+				s.kv = parseKV(fields)
+			}
 		}
 	}
 	return s.kv
@@ -2657,13 +2670,14 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 	}
 	switch ev.Type {
 	case EventSchedSwitch:
-		// §7.11 A-2: comm values may contain spaces ("Signal Catcher") —
-		// extract by known-key boundary, generic kv result as fallback.
-		ev.PrevComm = intern.intern(schedCommValue(fields, "prev_comm", kv["prev_comm"]))
+		// The sched_switch-specific structural parser owns both comm values and
+		// the optional suffix. Re-reading them through schedCommValue/parseKV
+		// would reopen key-looking comm text as a second authority.
+		ev.PrevComm = intern.intern(kv["prev_comm"])
 		ev.PrevPID = atoi(kv["prev_pid"])
 		ev.PrevPrio = atoi(kv["prev_prio"])
 		ev.PrevState = intern.intern(kv["prev_state"])
-		ev.NextComm = intern.intern(schedCommValue(fields, "next_comm", kv["next_comm"]))
+		ev.NextComm = intern.intern(kv["next_comm"])
 		ev.NextPID = atoi(kv["next_pid"])
 		ev.NextPrio = atoi(kv["next_prio"])
 		ev.NextInfo = intern.intern(kv["next_info"])
@@ -3566,6 +3580,327 @@ func parseHiSysEventPrintPayload(comm, fields string) (domain, ename string, ok 
 	return domain, ename, true
 }
 
+// parseSchedSwitchKV parses the scheduler core in its producer-defined order.
+// Generic key scanning is intentionally not a fallback: prev_comm/next_comm are
+// unquoted strings and may legally contain spaces plus text such as
+// "next_info=..." or "cg=...". Each REQUIRED core key must have exactly one
+// ASCII-boundary declaration across the whole row; this prevents a valid-
+// looking key sequence in a comm or suffix from hiding the producer's malformed
+// real core. The unique declarations must then form the exact ordered grammar.
+func parseSchedSwitchKV(fields string) (map[string]string, string) {
+	fields = trimASCIIHorizontalSpace(fields)
+	const prevCommPrefix = "prev_comm="
+	const (
+		corePrevComm = iota
+		corePrevPID
+		corePrevPrio
+		corePrevState
+		coreNextComm
+		coreNextPID
+		coreNextPrio
+	)
+	coreKeys := [...]string{"prev_comm", "prev_pid", "prev_prio", "prev_state", "next_comm", "next_pid", "next_prio"}
+	var positions [len(coreKeys)]int
+	for i, key := range coreKeys {
+		position, count := asciiKeyDeclarationPosition(fields, key, 0)
+		if count == 0 {
+			return nil, key + "_missing"
+		}
+		if count > 1 {
+			return nil, key + "_ambiguous"
+		}
+		positions[i] = position
+	}
+	if positions[corePrevComm] != 0 || !strings.HasPrefix(fields, prevCommPrefix) {
+		return nil, "prev_comm_misordered"
+	}
+	if positions[corePrevPID] < len(prevCommPrefix) {
+		return nil, "prev_pid_misordered"
+	}
+
+	prevComm := trimASCIIHorizontalSpace(fields[len(prevCommPrefix):positions[corePrevPID]])
+	prevPIDRaw, next, ok := consumeSchedToken(fields, positions[corePrevPID], "prev_pid=")
+	prevPID, valid := parseCanonicalSchedPID(prevPIDRaw)
+	if !ok || !valid {
+		return nil, "prev_pid_invalid"
+	}
+	if !skipRequiredASCIIHorizontalSpace(fields, &next) || next != positions[corePrevPrio] {
+		return nil, "prev_prio_misordered"
+	}
+	prevPrioRaw, next, ok := consumeSchedToken(fields, positions[corePrevPrio], "prev_prio=")
+	prevPrio, valid := parseCanonicalSchedPriority(prevPrioRaw)
+	if !ok || !valid {
+		return nil, "prev_prio_invalid"
+	}
+	if !skipRequiredASCIIHorizontalSpace(fields, &next) || next != positions[corePrevState] {
+		return nil, "prev_state_misordered"
+	}
+	prevState, next, ok := consumeSchedToken(fields, positions[corePrevState], "prev_state=")
+	if !ok || prevState == "" {
+		return nil, "prev_state_invalid"
+	}
+	if !skipRequiredASCIIHorizontalSpace(fields, &next) || !strings.HasPrefix(fields[next:], "==>") {
+		return nil, "switch_delimiter_missing_or_misordered"
+	}
+	next += len("==>")
+	if next < len(fields) && !isASCIIHorizontalSpace(fields[next]) {
+		return nil, "switch_delimiter_invalid"
+	}
+	if !skipRequiredASCIIHorizontalSpace(fields, &next) || next != positions[coreNextComm] {
+		return nil, "next_comm_misordered"
+	}
+	nextCommFrom := positions[coreNextComm] + len("next_comm=")
+	if positions[coreNextPID] < nextCommFrom {
+		return nil, "next_pid_misordered"
+	}
+	nextComm := trimASCIIHorizontalSpace(fields[nextCommFrom:positions[coreNextPID]])
+
+	nextPIDRaw, next, ok := consumeSchedToken(fields, positions[coreNextPID], "next_pid=")
+	nextPID, valid := parseCanonicalSchedPID(nextPIDRaw)
+	if !ok || !valid {
+		return nil, "next_pid_invalid"
+	}
+	if !skipRequiredASCIIHorizontalSpace(fields, &next) || next != positions[coreNextPrio] {
+		return nil, "next_prio_misordered"
+	}
+	nextPrioRaw, suffixFrom, ok := consumeSchedToken(fields, positions[coreNextPrio], "next_prio=")
+	nextPrio, valid := parseCanonicalSchedPriority(nextPrioRaw)
+	if !ok || !valid {
+		return nil, "next_prio_invalid"
+	}
+	out := map[string]string{
+		"prev_comm":  prevComm,
+		"prev_pid":   strconv.Itoa(prevPID),
+		"prev_prio":  strconv.Itoa(prevPrio),
+		"prev_state": prevState,
+		"next_comm":  nextComm,
+		"next_pid":   strconv.Itoa(nextPID),
+		"next_prio":  strconv.Itoa(nextPrio),
+	}
+	suffixKV, optionalOK, fatalReason := parseSchedSwitchSuffixKV(fields[suffixFrom:])
+	if fatalReason != "" {
+		return nil, fatalReason
+	}
+	if optionalOK {
+		for key, value := range suffixKV {
+			out[key] = value
+		}
+	}
+	return out, ""
+}
+
+// asciiKeyDeclarationPosition counts both the producer's canonical "key=" and
+// malformed legacy-compatible "key <hspace>=" spellings. Only the canonical
+// spelling can pass consumeSchedToken later, but every declaration participates
+// in the uniqueness census so a spaced malformed sibling cannot be hidden in a
+// comm, quoted unknown token, or suffix and leave a false core authoritative.
+func asciiKeyDeclarationPosition(s, key string, from int) (first, count int) {
+	first = -1
+	if from < 0 {
+		from = 0
+	}
+	for cursor := from; cursor <= len(s)-len(key); {
+		rel := strings.Index(s[cursor:], key)
+		if rel < 0 {
+			break
+		}
+		start := cursor + rel
+		after := start + len(key)
+		for after < len(s) && isASCIIHorizontalSpace(s[after]) {
+			after++
+		}
+		if (start == 0 || isASCIIHorizontalSpace(s[start-1])) && after < len(s) && s[after] == '=' {
+			if count == 0 {
+				first = start
+			}
+			count++
+			if count > 1 {
+				return first, count
+			}
+		}
+		cursor = start + 1
+	}
+	return first, count
+}
+
+func consumeSchedToken(s string, from int, prefix string) (string, int, bool) {
+	if from < 0 || from > len(s) || !strings.HasPrefix(s[from:], prefix) {
+		return "", from, false
+	}
+	valueFrom := from + len(prefix)
+	end := valueFrom
+	for end < len(s) && !isASCIIHorizontalSpace(s[end]) {
+		end++
+	}
+	if end == valueFrom {
+		return "", from, false
+	}
+	return s[valueFrom:end], end, true
+}
+
+func skipRequiredASCIIHorizontalSpace(s string, pos *int) bool {
+	if pos == nil || *pos < 0 || *pos >= len(s) || !isASCIIHorizontalSpace(s[*pos]) {
+		return false
+	}
+	for *pos < len(s) && isASCIIHorizontalSpace(s[*pos]) {
+		(*pos)++
+	}
+	return true
+}
+
+func isASCIIHorizontalSpace(b byte) bool {
+	return b == ' ' || b == '\t'
+}
+
+func trimASCIIHorizontalSpace(s string) string {
+	return strings.Trim(s, " \t")
+}
+
+func parseCanonicalSchedPID(raw string) (int, bool) {
+	if raw == "" || !isAllDigits(raw) {
+		return 0, false
+	}
+	value, err := strconv.ParseUint(raw, 10, 31)
+	if err != nil || raw != strconv.FormatUint(value, 10) {
+		return 0, false
+	}
+	return int(value), true
+}
+
+func parseCanonicalSchedPriority(raw string) (int, bool) {
+	if raw == "" {
+		return 0, false
+	}
+	value, err := strconv.ParseInt(raw, 10, 32)
+	if err != nil || raw != strconv.FormatInt(value, 10) {
+		return 0, false
+	}
+	return int(value), true
+}
+
+// parseSchedSwitchSuffixKV keeps next_info and the cg/cgroup alias family as
+// independent optional dimensions. It has a dedicated quote-aware lexer: the
+// generic kvRE is context-free and can reopen key-looking text from an
+// unterminated quote. A syntax-bad suffix contributes no optional metadata,
+// while the independently validated scheduler core remains usable. Duplicate
+// authorities omit only their own family, even when their values agree.
+func parseSchedSwitchSuffixKV(suffix string) (map[string]string, bool, string) {
+	tokens, ok := tokenizeSchedSwitchSuffix(suffix)
+	if !ok {
+		return nil, false, ""
+	}
+	var nextInfo, cgroup string
+	nextInfoCount, cgroupCount := 0, 0
+	for _, token := range tokens {
+		key, rawValue, found := strings.Cut(token, "=")
+		if !found || !isTraceKVKey(key) {
+			return nil, false, ""
+		}
+		value := unwrapSchedSuffixValue(rawValue)
+		switch key {
+		case "next_info":
+			nextInfoCount++
+			if value != "" {
+				nextInfo = value
+			}
+		case "cg", "cgroup":
+			cgroupCount++
+			if value != "" {
+				cgroup = value
+			}
+		case "prev_comm", "prev_pid", "prev_prio", "prev_state", "next_comm", "next_pid", "next_prio":
+			// Core-shaped declarations are not optional suffix fields. If one
+			// appears here, suppress every optional value rather than allowing a
+			// forged next_info/cgroup beside it to acquire typed authority.
+			return nil, false, "core_key_in_suffix"
+		default:
+			if value == "" {
+				return nil, false, ""
+			}
+		}
+	}
+	out := make(map[string]string, 2)
+	if nextInfoCount == 1 && nextInfo != "" {
+		out["next_info"] = nextInfo
+	}
+	if cgroupCount == 1 && cgroup != "" {
+		// Normalize both producer spellings to the pre-existing cg-preferred
+		// consumer key; Event.CGroup remains the sole public typed field.
+		out["cg"] = cgroup
+	}
+	return out, true, ""
+}
+
+func tokenizeSchedSwitchSuffix(s string) ([]string, bool) {
+	s = trimASCIIHorizontalSpace(s)
+	if s == "" {
+		return nil, true
+	}
+	var tokens []string
+	for pos := 0; pos < len(s); {
+		for pos < len(s) && isASCIIHorizontalSpace(s[pos]) {
+			pos++
+		}
+		if pos == len(s) {
+			break
+		}
+		start := pos
+		var quote byte
+		for pos < len(s) {
+			c := s[pos]
+			if quote != 0 {
+				if c == '\\' {
+					if pos+1 >= len(s) {
+						return nil, false
+					}
+					pos += 2
+					continue
+				}
+				if c == quote {
+					quote = 0
+				}
+				pos++
+				continue
+			}
+			switch c {
+			case '\'', '"':
+				quote = c
+				pos++
+			case ' ', '\t':
+				goto tokenDone
+			default:
+				pos++
+			}
+		}
+	tokenDone:
+		if quote != 0 || pos == start {
+			return nil, false
+		}
+		tokens = append(tokens, s[start:pos])
+	}
+	return tokens, true
+}
+
+func isTraceKVKey(key string) bool {
+	if key == "" || !((key[0] >= 'A' && key[0] <= 'Z') || (key[0] >= 'a' && key[0] <= 'z') || key[0] == '_') {
+		return false
+	}
+	for i := 1; i < len(key); i++ {
+		c := key[i]
+		if !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+func unwrapSchedSuffixValue(raw string) string {
+	if len(raw) >= 2 && ((raw[0] == '"' && raw[len(raw)-1] == '"') || (raw[0] == '\'' && raw[len(raw)-1] == '\'')) {
+		raw = raw[1 : len(raw)-1]
+	}
+	return strings.TrimSpace(raw)
+}
+
 func parseKV(fields string) map[string]string {
 	out := make(map[string]string)
 	for _, m := range kvRE.FindAllStringSubmatch(fields, -1) {
@@ -3628,15 +3963,8 @@ func parseSpaceKV(fields string, out map[string]string) {
 }
 
 // schedCommBoundaryKeys is the CLOSED key set that can follow a comm value
-// inside sched_switch / sched_wakeup / sched_waking field text. Comm values
-// are the only unquoted kernel strings that may contain spaces
-// ("Signal Catcher", "Jit thread pool"), so the generic kvRE value pattern
-// ([^ ]+) truncates them at the first space (§7.11 A-2). The comm extractor
-// below extends the value up to the next KNOWN " key=" boundary instead —
-// a precise key set, not any token containing '=', so a weird comm that
-// itself contains '=' never swallows the following key. Everything outside
-// the sched comm fields keeps the generic kvRE: zero blast radius on other
-// event families.
+// inside sched_wakeup / sched_waking field text. sched_switch is deliberately
+// absent: its core and comm values use the strict unique-key parser above.
 var schedCommBoundaryKeys = []string{
 	"prev_comm", "prev_pid", "prev_prio", "prev_state",
 	"next_comm", "next_pid", "next_prio", "next_info",
@@ -3644,10 +3972,9 @@ var schedCommBoundaryKeys = []string{
 	"comm", "pid", "prio", "target_cpu", "dest_cpu", "success",
 }
 
-// schedCommValue extracts the comm value for key from sched event field text
-// by known-key boundary backtracking (§7.11 A-2). fallback is the generic kv
-// extraction: it is returned verbatim when the key is absent, keeping
-// space-free comms byte-identical to the pre-A-2 behavior.
+// schedCommValue preserves the legacy wakeup/waking comm compatibility path.
+// It is intentionally not reused by sched_switch, whose structural parser is
+// the sole authority for both comm values and every typed suffix field.
 func schedCommValue(fields, key, fallback string) string {
 	marker := key + "="
 	start := -1

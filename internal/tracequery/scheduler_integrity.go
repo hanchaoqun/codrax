@@ -82,7 +82,40 @@ func schedulerRowValidationFailureScan(s *lineScan) *schedulerRowIntegrityFailur
 	}
 	ts, _ := s.timestamp()
 	cpu, _ := atoiMaybe(m[4])
-	return schedulerFieldsValidationFailure(s.lineNo, rawType, ts, cpu, s.keyValues())
+	kv := s.keyValues()
+	if rawType == "sched_switch" && s.schedSwitchKVFailure != "" {
+		return &schedulerRowIntegrityFailure{
+			EventName:      rawType,
+			Line:           s.lineNo,
+			Ts:             ts,
+			CPU:            cpu,
+			AffectsAllPIDs: true,
+			Fields:         schedSwitchIntegrityFailureFields(s.schedSwitchKVFailure),
+		}
+	}
+	return schedulerFieldsValidationFailure(s.lineNo, rawType, ts, cpu, kv)
+}
+
+func schedSwitchIntegrityFailureFields(detail string) []string {
+	base := "sched_switch_core"
+	switch {
+	case strings.HasPrefix(detail, "prev_pid"):
+		base = "prev_pid"
+	case strings.HasPrefix(detail, "prev_prio"):
+		base = "prev_prio"
+	case strings.HasPrefix(detail, "prev_state"):
+		base = "prev_state"
+	case strings.HasPrefix(detail, "next_comm"):
+		base = "next_comm"
+	case strings.HasPrefix(detail, "next_pid"):
+		base = "next_pid"
+	case strings.HasPrefix(detail, "next_prio"):
+		base = "next_prio"
+	}
+	if detail == base {
+		return []string{base}
+	}
+	return []string{base, detail}
 }
 
 func schedulerFieldsValidationFailure(lineNo int, rawType string, ts float64, cpu int, kv map[string]string) *schedulerRowIntegrityFailure {
