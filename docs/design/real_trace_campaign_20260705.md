@@ -2145,6 +2145,9 @@ lead 实现额外守住:**EffectiveImpactMS>0 ∧ 非 context_only(6eb633a1 新 
 ### §29.36.1 待确认项确认(用户 2026-07-11,条件式同意经主会话论证成立)
 **◦/形态词配对规则确认**:有影响形态词的行戴形态族 glyph(经 typed 形态表映射,严禁词面匹配);◦ 只留真正无类型词的行;形态词在场但闭集无对应 glyph 的形保持 ◦(其"无主导调度状态"宣称仍为真)。**调度态缺失事实不丢**:glyph 让位形态族后,该事实移入行2词面/明细承载(图例"具体影响形态见行内说明"对称改写)。论证要点:glyph 应承载已解析的最强语义,◦+形态词=混合信号(图标说不知道、文字说知道);与图例自身"无类型词的行=未识别影响类型"的暗示自洽。并入 UXR-1 批范围(§29.36⑤ 同批)。
 
+### §29.36.5 EVOLUTION RECORD(2026-07-11 晚,v5 P0 批):⑤ 的 scale 实现路线退役
+§29.36⑤「HTML glyph 尺寸/行高归一」的裁定目标(记号观感与行字号协调、bar 列全树固定)不变;**实现路线由 per-class transform scale(1.10/1.00/1.15)+overflow 补丁换轨为记号 2ch 信封纯算术**(v5 重-1,用户批准 2026-07-11):glyph+既有伴随空格并为 2ch inline-grid 槽,信封≥最大墨迹,scale 族整族退役(其注释~1.22x 与代码 1.15 的漂移即调参路线终局实锤,复核在案)。例外:❶..❺ 徽章 chip 按 T-6 保持 1ch+scale(.95) 至 P2a 恒4记号场批。bar 列固定臂保留并上移 fence 层(P2a)。禁以「归一已兑现」话术掩盖路线换轨事实——本 RECORD 即账面。
+
 ## §29.37 SQL Trace Streamer lifetime A1b-2 收账（2026-07-11，`7baf007f2`）
 
 **唯一证据采集器**：creation、双 terminal 与 callstack/sched/thread-state/syscall/native/frame 六源 activity 已进入同一个 supplied-queryer collector；三类 completeness 共同控制 inferred restart，任一缺失都不得用局部较晚来源铸 cut。active registry 复用同一次物理扫描但保持原 admission/六条 coverage，不再有第二套 producer 或第三次数据扫描。数据 SQL 不做 COUNT 预扫或 WHERE/DISTINCT/COALESCE/CAST/ORDER BY 修复；sched/thread 各两遍是“先收全 terminal、后流式 activity”的必要边界，其余源各一遍。
@@ -2185,3 +2188,24 @@ witness=a4 报告(16011/2549)供给 clause「已按大核满频(或接近)运行
 **东湖标准 trace 本地验收(donghu.ftrace 3.5MB/233ms 切片,产物 customlogs/donghu_acceptance_20260711/)**:W-2 关账级证据=标准转换产物 caller 规范符号形(kthread_worker_fn+0x14c/0x1ec[devhost.elf]),§29.32 改判坐实;27845 行 unparsed=0(delay= 尾字段/[module] caller 新格式无损);W-8 干净基线=block 198/198 全配对零歧义(op=RCVHS schema_probe),精确同键并发形未现维持 witness 触发;BLIND-1 结构形不在;COV-4 partial 披露真数据工作(subject_checkpoint_missing)。**客户清单收缩至一条**(260M 原件容量点,若有)。增强候选立案:sched_blocked_reason delay= 字段语义消费(阻塞时长直出,免推断;不入本批)。
 
 **开放**:v5 P0→P2c;UXG-1/2/3;EVALFIX-A/B/C;HYG-C;客户侧=260M 原件容量点+cap2 复放(映射表为清单)+新构建东湖 LLM 复放(本地先行);P1-2 裁定点用户可推翻(周期源 sleep 聚合是否豁免回通道1)。
+
+## §29.39 裁定(用户 2026-07-11 晚):「未接入树」词面更名+后批工单池
+**①「链上L#(未接入树)」→「链上L#(父节点未确认)」**(用户提议"未展开父节点"经辨析否决——该词把"关系未证"说成"关系已知未展示",伪造树位承诺;"父节点未确认"保住诚实换掉渲染行话)。执行=UXG-3:三面同词(§24.12 C6 记号)+zh-en 对+图例长句保留互指+pin lockstep;与「深度未解析」保持可区分(深度未解析=无层数;父节点未确认=有层数、挂点未证)。
+**②后批工单池(均已裁定,待排)**:IOFAM-SELF(链上自因 lane IO 三口径一席:互证=donghu E4/E5/E6 同源实锤,block_io 复合分数在链上 lane 禁裸 ms,§29.36③ 家族折叠推广)+DSTATE-REFINE(D-state 词面消费 blocked_reason refinement 精确门:全 iowait=0→D-state/全 1→iowait/混合或不全→合并形;caller 等待对象族(dma_fence 等)入行2 披露候选;裸尾巴「· D-state」发射点归并;witness=donghu CompThread 12/12 iowait=0 dma_fence)+FIN-BIND(成文 skill 标量-主体绑定 directive+危险形示例,witness=41006 第一稿 168ms 误绑;prompt 红线 checklist+eval 复验)+delay= 字段语义消费(增强候选,与 DSTATE-REFINE 同数据源)。
+**②-追加(用户 witness 41006 反转候选行,2026-07-11 晚)**:P2c 增两件——a) 恒等式家族层级化渲染(行3 恒等式/行4 拆解子行与缺口注缩进一级从属;图例 :995 教父子、现渲染拉平=结构不诚实;v5 B.1 F3+mockup :318 已含,升为 P2c 验收面);b) 零信息拆解子行门(逐分量精确判据:原始==计入∧口径==全额→不发该子行;=「退化全额折行2尾」现状规则的逐分量推广;全退化形/单分量形/折算 clamp 形/verbatim 口径词全部不动)。
+**③信息契约豁免裁决规则(用户委托)**:影响扫读四问(分诊/身份/时间类别/因果角色)的信息不得豁免;仅核验用信息许留明细/证据索引;两头不沾的内部账豁免但逐条留案入豁免表,T1 census 引用豁免表(豁免表=承诺面)。
+
+## §29.40 信息契约矩阵收账(2026-07-11 晚;18-agent workflow;13 遗漏+21 豁免全裁决)
+**矩阵终报**=scratchpad/info_contract_report.md(全表+机械化规格);病理三形态:形A 铸而不读/形B wire→Node 断链"发布即坠"/形C 承诺面假指针(假注释:tree.go:251/3281/3493、trace_note_keys.go:430-437、rcr.go:859+tree.go:3682/3690)。
+**13 遗漏批次编成**:UXG-1(三向 tripwire census+注册表 typed 列+假注释清理+OM-6 裁决)→ v5 P2c 搭载(OM-1① 迟到值明细格/OM-4 span 身份行/OM-2 备选)→ **IC-A P0-A 显示尾清账批**(OM-7 DrillStatus 树头披露/OM-8 锁主导降级注记=P1 误导向实锤/OM-9 邻近判据/OM-13 承接注记/OM-1② 恒等式完整修;campaign:1394/:1397 立账族收编宿主)→ **IC-L 锁族批**(OM-2/OM-10 ns 两键+假注释/OM-11 对端状态族+wait_object+peer_chain_* 伴生立案)→ **IC-E 证据索引通道批**(OM-3 边观测入册/OM-5 四态账 E#;需 v5 F10 条款增补)→ **IC-S 状态拆分批**(OM-12,§29.23 成员级论证先行)。每修复批合入必同 commit 翻契约表状态(known_gap→displayed)。
+**14 条待确认豁免主会话裁决(用户委托,准绳=五问框架)**:维持 10(W-2/3/4/5/7/9/10/13/18/19/21,W-7 与 W-9 带升级条件:回访/冷读再现对应追问即升 IC-A;W-18 附可达性探针;W-19 附 bundle 实证条件);收窄 3 全折 IC-A 顺手项(W-12 ⚠实际 行明细补实际段端点/W-14 audit 面补 source token/W-16 链上并入行加共N 计数)。豁免表进 UXG-1 T1 census 引用=承诺面。
+**语料反查**:G-1 过程披露行族(预算触顶/降级/修复环透明度)=框架级缺口,立**裁定议题**非开工项;G-6 账债孤儿以 IC-A/IC-L 收编,落地时 campaign §17-E↔v5 G 节↔矩阵终报三向互挂。
+
+### §29.40.1 裁定(用户 2026-07-11 晚):OM-8 反转×锁=并存披露,非降级替换
+用户裁定原文要义:**锁持有与优先级反转可以并存**——有锁的反转可经"优先级传递"或"解耦锁"两路修复;无锁的反转只能优先级传递。故 Q4-D"锁持有覆盖整段时反转读法降注记"的 IC-A 落地语义修正为**并存事实披露**:行2/明细陈述两个事实(反转关系在场+锁持有覆盖整段;无锁形则反转词面独立成立),不以锁事实否定/替换反转词面;修复方向推理归正文/优化点面(合法建议面),显示面只陈述决定修复空间的事实(禁建议句红线不破)。主会话先前"用户被导向调度修理,实际该修锁"表述作废,以本节为准。PriorityInversionLockDominated 旗语义不变(锁覆盖整段的 typed 事实),仅显示词面按并存形铸。
+
+## §29.41 v5 P0 收账(2026-07-11 晚;HTML 识别与装饰根修+对抗复核 SHIP-WITH-FIXES+修复轮五项)
+**批主体**:①typed fence token(opener=```text trace-causal-projection,首 token 不变,内容行零字节;glamour 原版直测带/不带 token 输出字节相等)+新单源包 internal/tracefence/(树头闭集/token/尺度记号,tool 与 preview 双侧消费——六维审计"五表手抄"病根 fence 面根治);typed 等值硬门先行,旧嗅探降级 legacy fallback(pre-UXR-1 存档头 additive 保全),census 哨兵=引擎 10 头形剥 token 后 fallback 全真。②writeTraceProjectionGrid 五类 run(ASCII 整段/box-drawing per-rune rail/CJK 1-2ch/状态 glyph+伴随空格→2ch inline-grid 信封/█▒░ bar);scale 调参族退役换信封纯算术(§29.36.5 EVOLUTION RECORD);92300 重渲染 span -57%。③档1 装饰:.trace-line hover/区段头 sticky 横向臂/E# 页内锚链(k树↔k明细序数配对,计数不匹配整体退出零装饰=错链比无链更糟)。验收五条全过:⊘ 裸 pre 归零/真机 Chromium 几何 0 裁切/textContent==fence 字节 pin/glamour parity+L1 双 pin/内容行 golden diff 空。
+**复核(SHIP-WITH-FIXES)最坏混排 20 行字节恒等+像素宽==整数列实测;修复轮五项**:F1 徽章 chip 恢复 scale(.95)(T-6 承诺兑现;复核抓到批把徽章一并退役=❶ 右弧多裁 0.5px;chip overflow:hidden 不属"调参终局"适用面;P2a 退役);F2 行盒 1.52 双向勘正(代码不动,注释+设计稿勘注;0.03 差不值重录 font pin);F4 slot-1 补 justify-content:center(Chromium place-items 对溢出网格项不居中实锤,真机 -0.78px/侧,⊘ 压「链」出血减半;字节层伴随空格留 P2a);F5 锚链只对已领 id 序数发链接(merged [E7][E9] 死链灭);F6 legacy 括号集实锤为双 ASCII 重复(全宽臂虚设),改 U+FF08+U+0028 双族+pin。F3=§29.36.5 RECORD(主会话)。突变累计 10 组(批 6+复核 4+修复轮 4 中 FM-4 首次 perl 假突变经 grep 证实后重做)。
+**教训**:①CSS 布局角落(place-items 溢出项/IndexAny 重复字符)必须真机+hexdump 实证,目视与注释都会骗人;②承诺句("与 X 一致")必须逐属性核,checklist 亦是承诺面;③批内注释新写就能漂移(1.55 vs 1.52)——注释里的数字与代码同 pin 或不写数字。
+**开放**:P2a 承接=徽章伴随空格+chip scale 退役+keep-mark 伴随空格+bar 列 fence 层;冷读扫荡(在飞)与 IC 系列批照 §29.40 编成。
