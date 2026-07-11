@@ -79,6 +79,55 @@ func TestCPUInputHeaderAndPerfCPUAreGloballyBounded(t *testing.T) {
 	}
 }
 
+func TestPerfCPUExactMinusOneNoClaimDoesNotMintInvalidWitness(t *testing.T) {
+	intern := newStringInterner()
+	noClaim := `perf-20 (20) [001] .... 1.100000: perf_sample: cpu=-1 cpu_known=false pid=20 tid=20 period=1 sample_kind=unknown`
+	ev, ok := ParseLine(1, noClaim, intern)
+	if !ok || ev.PerfFields == nil || ev.CPU != -1 || ev.CPUInputInvalid || ev.PerfFields.CPUKnown == nil || *ev.PerfFields.CPUKnown {
+		t.Fatalf("exact perf CPU no-claim was not normalized cleanly: %+v", ev)
+	}
+	if failures := cpuInputValidationFailures(1, noClaim); len(failures) != 0 {
+		t.Fatalf("exact perf CPU no-claim minted invalid witness: %+v", failures)
+	}
+	path := filepath.Join(t.TempDir(), "perf_no_claim.systrace")
+	if err := os.WriteFile(path, []byte(noClaim+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	idx, err := BuildIndex(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(idx.Events) != 1 || len(idx.cpuInputIntegrityFailures) != 0 {
+		t.Fatalf("index path converted legal perf no-claim into degradation: events=%+v failures=%+v", idx.Events, idx.cpuInputIntegrityFailures)
+	}
+	placeholder := `perf-20 (20) [000] .... 1.100000: perf_sample: cpu=0 cpu_known=false pid=20 tid=20 period=1 sample_kind=unknown`
+	placeholderEvent, ok := ParseLine(2, placeholder, intern)
+	if !ok || placeholderEvent.CPU != -1 || placeholderEvent.CPUInputInvalid || perfSampleHasKnownCPU(placeholderEvent) {
+		t.Fatalf("cpu_known=false did not scrub a valid transport placeholder: %+v", placeholderEvent)
+	}
+	if failures := cpuInputValidationFailures(2, placeholder); len(failures) != 0 {
+		t.Fatalf("valid numeric transport placeholder was reclassified as malformed CPU: %+v", failures)
+	}
+
+	for _, row := range []string{
+		`perf-20 (20) [001] .... 1.100000: perf_sample: cpu=-1 cpu_known=true pid=20 tid=20 period=1`,
+		`perf-20 (20) [001] .... 1.100000: perf_sample: cpu=-1 cpu_known=FALSE pid=20 tid=20 period=1`,
+		`perf-20 (20) [001] .... 1.100000: perf_sample: cpu=-1 cpu_known=unknown pid=20 tid=20 period=1`,
+		`perf-20 (20) [001] .... 1.100000: perf_sample: cpu=-2 cpu_known=false pid=20 tid=20 period=1`,
+		`perf-20 (20) [001] .... 1.100000: perf_sample: cpu=bad cpu_known=false pid=20 tid=20 period=1`,
+	} {
+		failures := cpuInputValidationFailures(2, row)
+		if len(failures) != 1 || failures[0].Field != "cpu" {
+			t.Fatalf("non-canonical perf CPU no-claim bypassed validation: row=%q failures=%+v", row, failures)
+		}
+	}
+
+	otherFamily := `idle-0 (0) [001] .... 1.100000: cpu_frequency: cpu_id=-1 cpu_known=false state=1200000`
+	if failures := cpuInputValidationFailures(3, otherFamily); len(failures) != 1 || failures[0].Field != "cpu_id" {
+		t.Fatalf("perf-only no-claim exception leaked to another family: %+v", failures)
+	}
+}
+
 func TestCPURangeStrictRejectsCoercionAndBoundsExpansion(t *testing.T) {
 	for _, raw := range []string{"foo", "-1", "3-1", "1--2", "0-4095", "4096"} {
 		if got := parseCPURangeList(raw); len(got) != 0 {

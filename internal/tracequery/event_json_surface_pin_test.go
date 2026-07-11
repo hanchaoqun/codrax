@@ -30,7 +30,7 @@ import (
 // eventSerializableLeafCount pins the number of json-serializable leaf fields
 // reachable from Event (json:"-" fields excluded): the historical flat struct
 // had 140 fields of which 3 were json:"-".
-const eventSerializableLeafCount = 138
+const eventSerializableLeafCount = 145
 
 // eventFillByJSONTag deterministically fills every leaf field reachable from
 // v (allocating anonymous embedded struct pointers) with a value derived ONLY
@@ -272,7 +272,14 @@ const eventJSONGoldenFull = `{
   "perf_aux_size": 7549,
   "perf_callchain": "perf_callchain",
   "perf_source": "perf_source",
+  "perf_thread_identity_known": true,
+  "perf_resolution": "perf_resolution",
+  "perf_lifecycle_unverified": true,
+  "perf_source_pid": 7704,
+  "perf_source_tid": 9644,
+  "perf_source_comm": "perf_source_comm",
   "perf_sample_kind": "perf_sample_kind",
+  "perf_sample_kind_source": "perf_sample_kind_source",
   "perf_symbolization_status": "perf_symbolization_status",
   "perf_clock": "perf_clock",
   "perf_cpu_known": true,
@@ -422,7 +429,14 @@ const eventJSONGoldenView = `{
   "perf_aux_size": 7549,
   "perf_callchain": "perf_callchain",
   "perf_source": "perf_source",
+  "perf_thread_identity_known": true,
+  "perf_resolution": "perf_resolution",
+  "perf_lifecycle_unverified": true,
+  "perf_source_pid": 7704,
+  "perf_source_tid": 9644,
+  "perf_source_comm": "perf_source_comm",
   "perf_sample_kind": "perf_sample_kind",
+  "perf_sample_kind_source": "perf_sample_kind_source",
   "perf_symbolization_status": "perf_symbolization_status",
   "perf_clock": "perf_clock",
   "perf_cpu_known": true,

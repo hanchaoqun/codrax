@@ -1153,8 +1153,8 @@ func eventMatchesPattern(ev Event, pattern string) bool {
 		candidates = append(candidates, pl.Domain, pl.EventName, pl.Metric, pl.Value, pl.Category, pl.SpanTrack)
 	}
 	if pf := ev.PerfFields; pf != nil {
-		candidates = append(candidates, pf.Comm, pf.EventName, pf.Symbol, pf.DSO, pf.IP, pf.Callchain, pf.Source, pf.SymbolizationStatus, pf.Clock, pf.ClockConfidence, pf.CallchainStatus)
-		ints = append(ints, pf.PID, pf.TID)
+		candidates = append(candidates, pf.Comm, pf.EventName, pf.Symbol, pf.DSO, pf.IP, pf.Callchain, pf.Source, pf.Resolution, pf.SourceComm, pf.SampleKindSource, pf.SymbolizationStatus, pf.Clock, pf.ClockConfidence, pf.CallchainStatus)
+		ints = append(ints, pf.PID, pf.TID, pf.SourcePID, pf.SourceTID)
 		int64s = append(int64s, pf.Period)
 	}
 	for _, candidate := range candidates {
@@ -1225,6 +1225,9 @@ func eventMentionsPID(ev Event, pid int) bool {
 	// Tool contract: pid is a thread id.  Process/TGID fields are deliberately
 	// excluded; otherwise two same-name sibling TIDs in one process are merged
 	// by event_search/perf_timeline despite an explicit numeric selector.
+	if ev.Type == EventPerfSample && !perfSampleHasTypedThreadIdentity(ev) {
+		return false
+	}
 	if ev.PID == pid || ev.PrevPID == pid || ev.NextPID == pid || ev.WakeePID == pid {
 		return true
 	}
@@ -1277,7 +1280,7 @@ func eventMentionsThread(ev Event, thread string) bool {
 }
 
 func perfSampleHasTypedThreadIdentity(ev Event) bool {
-	if ev.Type != EventPerfSample {
+	if ev.Type != EventPerfSample || perfSampleIsSourceOnlyIdentity(ev) {
 		return false
 	}
 	if ev.PID > 0 || ev.TGID > 0 || strings.TrimSpace(ev.Comm) != "" {
@@ -2511,6 +2514,10 @@ func computePerfContextFiltered(idx *Index, q Query, max int, filter perfSampleF
 		ctx.TotalPeriod += period
 		quality.add(ev, period)
 		thread := perfSampleThread(ev)
+		cpu := -1
+		if executionCPU, ok := perfSampleOnCPUExecutionCPU(ev); ok {
+			cpu = executionCPU
+		}
 		example := perfSampleExample(ev)
 		addPerfHotspot(bySymbol, firstNonEmpty(pf.Symbol, pf.IP, "unknown"), PerfHotspot{
 			Symbol:              pf.Symbol,
@@ -2519,14 +2526,14 @@ func computePerfContextFiltered(idx *Index, q Query, max int, filter perfSampleF
 			WeightUnit:          weightUnit,
 			Source:              pf.Source,
 			SymbolizationStatus: pf.SymbolizationStatus,
-		}, thread, ev.CPU, ev.Line, period, example, &ctx.TotalPeriod)
+		}, thread, cpu, ev.Line, period, example, &ctx.TotalPeriod)
 		addPerfHotspot(byDSO, firstNonEmpty(pf.DSO, "unknown"), PerfHotspot{
 			DSO:                 pf.DSO,
 			Event:               pf.EventName,
 			WeightUnit:          weightUnit,
 			Source:              pf.Source,
 			SymbolizationStatus: pf.SymbolizationStatus,
-		}, thread, ev.CPU, ev.Line, period, example, &ctx.TotalPeriod)
+		}, thread, cpu, ev.Line, period, example, &ctx.TotalPeriod)
 		addPerfHotspot(byCallchain, firstNonEmpty(pf.Callchain, pf.Symbol, pf.IP, "unknown"), PerfHotspot{
 			Symbol:              pf.Symbol,
 			DSO:                 pf.DSO,
@@ -2535,14 +2542,16 @@ func computePerfContextFiltered(idx *Index, q Query, max int, filter perfSampleF
 			WeightUnit:          weightUnit,
 			Source:              pf.Source,
 			SymbolizationStatus: pf.SymbolizationStatus,
-		}, thread, ev.CPU, ev.Line, period, example, &ctx.TotalPeriod)
+		}, thread, cpu, ev.Line, period, example, &ctx.TotalPeriod)
 		addPerfHotspot(byEvent, firstNonEmpty(pf.EventName, "unknown"), PerfHotspot{
 			Event:               pf.EventName,
 			WeightUnit:          weightUnit,
 			Source:              pf.Source,
 			SymbolizationStatus: pf.SymbolizationStatus,
-		}, thread, ev.CPU, ev.Line, period, example, &ctx.TotalPeriod)
-		addPerfThread(byThread, thread, ev.CPU, ev.Line, period, example, &ctx.TotalPeriod)
+		}, thread, cpu, ev.Line, period, example, &ctx.TotalPeriod)
+		if perfThreadRefHasRosterIdentity(thread) {
+			addPerfThread(byThread, thread, cpu, ev.Line, period, example, &ctx.TotalPeriod)
+		}
 	}
 	if ctx.SampleCount == 0 {
 		return nil
@@ -2566,6 +2575,16 @@ func perfContextForThread(idx *Index, q Query, thread ThreadRef, start, end floa
 	})
 }
 
+func perfContextForExecutionThread(idx *Index, q Query, thread ThreadRef, start, end float64, max int) *PerfContext {
+	if thread.PID <= 0 && strings.TrimSpace(thread.Comm) == "" {
+		return nil
+	}
+	sub := queryForPerfContextWindow(q, start, end)
+	return computePerfContextFiltered(idx, sub, max, func(ev Event) bool {
+		return perfSampleMatchesExecutionThread(ev, thread)
+	})
+}
+
 func perfContextForThreads(idx *Index, q Query, threads map[int]ThreadRef, max int) *PerfContext {
 	if len(threads) == 0 {
 		return nil
@@ -2580,12 +2599,27 @@ func perfContextForThreads(idx *Index, q Query, threads map[int]ThreadRef, max i
 	})
 }
 
+func perfContextForExecutionThreads(idx *Index, q Query, threads map[int]ThreadRef, max int) *PerfContext {
+	if len(threads) == 0 {
+		return nil
+	}
+	return computePerfContextFiltered(idx, q, max, func(ev Event) bool {
+		for _, thread := range threads {
+			if perfSampleMatchesExecutionThread(ev, thread) {
+				return true
+			}
+		}
+		return false
+	})
+}
+
 func perfContextForCPUs(idx *Index, q Query, cpus map[int]bool, max int) *PerfContext {
 	if len(cpus) == 0 {
 		return nil
 	}
 	return computePerfContextFiltered(idx, q, max, func(ev Event) bool {
-		return ev.CPU >= 0 && cpus[ev.CPU]
+		cpu, ok := perfSampleOnCPUExecutionCPU(ev)
+		return ok && cpus[cpu]
 	})
 }
 
@@ -2600,6 +2634,9 @@ func queryForPerfContextWindow(q Query, start, end float64) Query {
 }
 
 func perfSampleMatchesThread(ev Event, thread ThreadRef) bool {
+	if !perfSampleHasTypedThreadIdentity(ev) {
+		return false
+	}
 	pf := ev.PerfFields
 	if pf == nil {
 		pf = &PerfFields{}
@@ -2618,6 +2655,9 @@ func perfSampleMatchesThread(ev Event, thread ThreadRef) bool {
 }
 
 func perfSampleThread(ev Event) ThreadRef {
+	if !perfSampleHasTypedThreadIdentity(ev) {
+		return ThreadRef{}
+	}
 	pf := ev.PerfFields
 	if pf == nil {
 		pf = &PerfFields{}
@@ -2627,6 +2667,10 @@ func perfSampleThread(ev Event) ThreadRef {
 		PID:  firstNonZero(pf.TID, ev.PID),
 		TGID: firstNonZero(pf.PID, ev.TGID),
 	}
+}
+
+func perfThreadRefHasRosterIdentity(thread ThreadRef) bool {
+	return thread.PID > 0 || strings.TrimSpace(thread.Comm) != ""
 }
 
 func firstNonZero(values ...int) int {
@@ -2713,11 +2757,32 @@ func perfSampleExample(ev Event) string {
 	if pf.Source != "" {
 		parts = append(parts, "source="+pf.Source)
 	}
+	if pf.ThreadIdentityKnown != nil {
+		parts = append(parts, fmt.Sprintf("thread_identity_known=%t", *pf.ThreadIdentityKnown))
+	}
+	if pf.Resolution != "" {
+		parts = append(parts, "resolution="+pf.Resolution)
+	}
+	if pf.LifecycleUnverified != nil {
+		parts = append(parts, fmt.Sprintf("lifecycle_unverified=%t", *pf.LifecycleUnverified))
+	}
+	if pf.SourcePID > 0 {
+		parts = append(parts, fmt.Sprintf("perf_source_pid=%d", pf.SourcePID))
+	}
+	if pf.SourceTID > 0 {
+		parts = append(parts, fmt.Sprintf("perf_source_tid=%d", pf.SourceTID))
+	}
+	if pf.SourceComm != "" {
+		parts = append(parts, "perf_source_comm="+pf.SourceComm)
+	}
 	if pf.SymbolizationStatus != "" {
 		parts = append(parts, "symbolization_status="+pf.SymbolizationStatus)
 	}
 	if pf.SampleKind != "" {
 		parts = append(parts, "sample_kind="+pf.SampleKind)
+	}
+	if pf.SampleKindSource != "" {
+		parts = append(parts, "sample_kind_source="+pf.SampleKindSource)
 	}
 	if pf.CallchainStatus != "" {
 		parts = append(parts, "callchain_status="+pf.CallchainStatus)
@@ -2764,7 +2829,7 @@ func (acc *perfQualityAcc) add(ev Event, period int64) {
 	addPerfValueCount(acc.clocks, firstNonEmpty(pf.Clock, "unknown"), period)
 	addPerfValueCount(acc.clockConfidences, firstNonEmpty(pf.ClockConfidence, "unknown"), period)
 	addPerfValueCount(acc.callchainStatuses, firstNonEmpty(pf.CallchainStatus, "unknown"), period)
-	if pf.CPUKnown != nil && *pf.CPUKnown {
+	if perfSampleHasKnownCPU(ev) {
 		acc.cpuKnownCount++
 	} else {
 		acc.cpuUnknownCount++
@@ -2943,7 +3008,8 @@ func addPerfHotspot(bucket map[string]*perfHotspotAcc, key string, item PerfHots
 	if acc.item.Example == "" {
 		acc.item.Example = example
 	}
-	if label := threadLabel(thread); label != "" {
+	if perfThreadRefHasRosterIdentity(thread) {
+		label := threadLabel(thread)
 		acc.threadSet[label] = thread
 	}
 	if cpu >= 0 {
@@ -3145,11 +3211,11 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 		if pf.EventName != "" {
 			acc.events[pf.EventName] += period
 		}
-		if label := threadLabel(perfSampleThread(ev)); label != "" {
-			acc.threadSet[label] = perfSampleThread(ev)
+		if thread := perfSampleThread(ev); perfThreadRefHasRosterIdentity(thread) {
+			acc.threadSet[threadLabel(thread)] = thread
 		}
-		if ev.CPU >= 0 {
-			acc.cpuSet[ev.CPU] = true
+		if cpu, ok := perfSampleOnCPUExecutionCPU(ev); ok {
+			acc.cpuSet[cpu] = true
 		}
 	}
 	keys := make([]int, 0, len(buckets))
@@ -11538,7 +11604,7 @@ func appendRootCauseStatsPerfContexts(idx *Index, q Query, stats WindowStats, it
 		}
 	case "fragmented_running", "running":
 		if item.Thread.PID > 0 || strings.TrimSpace(item.Thread.Comm) != "" {
-			contexts = appendRootCausePerfRoleContext(contexts, "target_running", item.Thread, -1, window, "running-state CPU work", perfContextForThread(idx, q, item.Thread, start, end, 4))
+			contexts = appendRootCausePerfRoleContext(contexts, "target_running", item.Thread, -1, window, "running-state CPU work", perfContextForExecutionThread(idx, q, item.Thread, start, end, 4))
 		}
 	}
 	return contexts
@@ -11566,10 +11632,10 @@ func appendRootCauseRunnableCompetitorPerfContexts(idx *Index, q Query, threads 
 			continue
 		}
 		start, end := rootCauseThreadDurationWindow(window, td)
-		ctx := perfContextForThread(idx, q, td.Thread, start, end, 4)
+		ctx := perfContextForExecutionThread(idx, q, td.Thread, start, end, 4)
 		roleWindow := TimeWindow{StartTs: start, EndTs: end}
 		if ctx == nil && !sameTimeWindow(roleWindow, window) {
-			ctx = perfContextForThread(idx, q, td.Thread, window.StartTs, window.EndTs, 4)
+			ctx = perfContextForExecutionThread(idx, q, td.Thread, window.StartTs, window.EndTs, 4)
 			roleWindow = window
 		}
 		before := len(contexts)
@@ -11621,7 +11687,8 @@ func perfContextForCPU(idx *Index, q Query, cpu int, start, end float64, max int
 	}
 	sub := queryForPerfContextWindow(q, start, end)
 	return computePerfContextFiltered(idx, sub, max, func(ev Event) bool {
-		return ev.CPU == cpu
+		executionCPU, ok := perfSampleOnCPUExecutionCPU(ev)
+		return ok && executionCPU == cpu
 	})
 }
 
@@ -11803,7 +11870,7 @@ type framePerfContexts struct {
 func buildFramePerfContexts(idx *Index, q Query, stats WindowStats, chain *ChainResult, blocking CriticalBlockingResult, target ThreadRef) framePerfContexts {
 	out := framePerfContexts{
 		PerfSamples:       stats.PerfSamples,
-		TargetRunningPerf: perfContextForThread(idx, q, target, q.TimeStart, q.TimeEnd, 6),
+		TargetRunningPerf: perfContextForExecutionThread(idx, q, target, q.TimeStart, q.TimeEnd, 6),
 	}
 	if chain != nil {
 		out.OnChainPerf = perfContextForThreads(idx, q, chainThreadRefs(*chain), 6)
@@ -11812,7 +11879,7 @@ func buildFramePerfContexts(idx *Index, q Query, stats WindowStats, chain *Chain
 	if cpuCtx := perfContextForCPUs(idx, q, sameCPUCompetitorCPUs(stats), 6); cpuCtx != nil {
 		out.SameCPUCompetitorPerf = cpuCtx
 	} else {
-		out.SameCPUCompetitorPerf = perfContextForThreads(idx, q, sameCPUCompetitorThreadRefs(stats), 6)
+		out.SameCPUCompetitorPerf = perfContextForExecutionThreads(idx, q, sameCPUCompetitorThreadRefs(stats), 6)
 	}
 	return out
 }

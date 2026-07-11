@@ -326,7 +326,8 @@ type PluginFields struct {
 }
 
 // PerfFields is the EventPerfSample side table — the single largest block of
-// the historical flat Event (32 fields, ~416 bytes) carried by every
+// the historical flat Event (39 fields after typed SQL-perf provenance was
+// added, ~416 bytes before that addition) carried by every
 // sched_switch of every systrace that had no perf samples at all.
 type PerfFields struct {
 	PID                 int    `json:"perf_pid,omitempty"`
@@ -355,7 +356,14 @@ type PerfFields struct {
 	AuxSize             int64  `json:"perf_aux_size,omitempty"`
 	Callchain           string `json:"perf_callchain,omitempty"`
 	Source              string `json:"perf_source,omitempty"`
+	ThreadIdentityKnown *bool  `json:"perf_thread_identity_known,omitempty"`
+	Resolution          string `json:"perf_resolution,omitempty"`
+	LifecycleUnverified *bool  `json:"perf_lifecycle_unverified,omitempty"`
+	SourcePID           int    `json:"perf_source_pid,omitempty"`
+	SourceTID           int    `json:"perf_source_tid,omitempty"`
+	SourceComm          string `json:"perf_source_comm,omitempty"`
 	SampleKind          string `json:"perf_sample_kind,omitempty"`
+	SampleKindSource    string `json:"perf_sample_kind_source,omitempty"`
 	SymbolizationStatus string `json:"perf_symbolization_status,omitempty"`
 	Clock               string `json:"perf_clock,omitempty"`
 	CPUKnown            *bool  `json:"perf_cpu_known,omitempty"`

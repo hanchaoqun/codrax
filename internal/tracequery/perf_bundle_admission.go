@@ -77,7 +77,7 @@ func applyPerfBundleAdmission(events []Event, capability *traceBundlePerfCapabil
 			scrubPerfSampleThreadIdentity(&ev)
 			summary.ThreadIdentityScrubbed++
 		}
-		if !summary.CPUIdentityProven || (ev.PerfFields.CPUKnown != nil && !*ev.PerfFields.CPUKnown) {
+		if !summary.CPUIdentityProven || !perfSampleHasKnownCPU(ev) {
 			scrubPerfSampleCPUIdentity(&ev)
 			summary.CPUIdentityScrubbed++
 		}
@@ -129,6 +129,7 @@ func scrubPerfSampleThreadIdentity(ev *Event) {
 		ev.PerfFields.PID = 0
 		ev.PerfFields.TID = 0
 		ev.PerfFields.Comm = ""
+		ev.PerfFields.ThreadIdentityKnown = boolPtr(false)
 	}
 }
 

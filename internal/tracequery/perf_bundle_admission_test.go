@@ -1,6 +1,7 @@
 package tracequery
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"os"
@@ -101,17 +102,36 @@ func TestBundlePerfReadySamplesPreserveInventoryButScrubUnprovenIdentity(t *test
 		sample.PerfFields.PID != 0 || sample.PerfFields.TID != 0 || sample.PerfFields.Comm != "" {
 		t.Fatalf("unproven thread identity was retained: %+v", sample)
 	}
+	if sample.PerfFields.ThreadIdentityKnown == nil || *sample.PerfFields.ThreadIdentityKnown || sample.PerfFields.Resolution != "resolved" || sample.PerfFields.LifecycleUnverified == nil || *sample.PerfFields.LifecycleUnverified {
+		t.Fatalf("bundle scrub did not publish an explicit, provenance-preserving thread hard-negative: %+v", sample.PerfFields)
+	}
 	if sample.CPU != -1 || sample.PerfFields.CPUKnown == nil || *sample.PerfFields.CPUKnown {
 		t.Fatalf("unproven CPU identity was retained: %+v", sample)
 	}
-	if got := computePerfContext(idx, Query{TimeStart: 10.0, TimeEnd: 10.4}, 8); got == nil || got.SampleCount != 1 {
+	if got := computePerfContext(idx, Query{TimeStart: 10.0, TimeEnd: 10.4}, 8); got == nil || got.SampleCount != 1 || len(got.TopThreads) != 0 || len(got.TopSymbols) != 1 || len(got.TopSymbols[0].Threads) != 0 {
 		t.Fatalf("anonymous global perf inventory unavailable: %+v", got)
 	}
 	if got := perfContextForThread(idx, Query{}, ThreadRef{PID: 20}, 10.0, 10.4, 8); got != nil {
 		t.Fatalf("anonymous perf sample attached to a TID: %+v", got)
 	}
-	if eventMentionsThread(*sample, "app") {
+	if eventMentionsThread(*sample, "app") || eventMentionsPID(*sample, 20) {
 		t.Fatal("anonymous perf sample resurrected scrubbed identity through raw/text substring matching")
+	}
+	encoded, err := json.Marshal(sample)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var surface map[string]any
+	if err := json.Unmarshal(encoded, &surface); err != nil {
+		t.Fatal(err)
+	}
+	if known, exists := surface["perf_thread_identity_known"]; !exists || known != false {
+		t.Fatalf("JSON did not disclose explicit false thread identity: %s", encoded)
+	}
+	for _, key := range []string{"comm", "pid", "tgid", "perf_pid", "perf_tid", "perf_comm"} {
+		if _, exists := surface[key]; exists {
+			t.Fatalf("JSON revived scrubbed key %q: %s", key, encoded)
+		}
 	}
 	joined := strings.Join(idx.Caveats, "\n")
 	for _, want := range []string{
@@ -156,6 +176,9 @@ func TestBundlePerfKnownCapabilityAdmitsSampleIdentityButNeverSchedulerRows(t *t
 	if sample.PerfFields.CPUKnown == nil || !*sample.PerfFields.CPUKnown {
 		t.Fatalf("valid typed sample CPU was not retained: %+v", sample)
 	}
+	if sample.PerfFields.ThreadIdentityKnown == nil || !*sample.PerfFields.ThreadIdentityKnown || sample.PerfFields.Resolution != "resolved" || sample.PerfFields.LifecycleUnverified == nil || *sample.PerfFields.LifecycleUnverified {
+		t.Fatalf("proved bundle identity provenance drifted: %+v", sample.PerfFields)
+	}
 	if got := perfContextForThread(idx, Query{}, ThreadRef{PID: 20}, 10.0, 10.4, 8); got == nil || got.SampleCount != 1 {
 		t.Fatalf("valid typed sample did not attach to its thread: %+v", got)
 	}
@@ -169,6 +192,60 @@ func TestBundlePerfKnownCapabilityAdmitsSampleIdentityButNeverSchedulerRows(t *t
 		if !strings.Contains(joined, want) {
 			t.Fatalf("missing %q in valid admission disclosure: %s", want, joined)
 		}
+	}
+}
+
+func TestPerfBundleIdentityScrubIsIdempotentForProvenAndUnprovenCapabilities(t *testing.T) {
+	makeEvent := func() Event {
+		known, verified := true, false
+		return Event{
+			Type: EventPerfSample, Comm: "app", PID: 20, TGID: 20, CPU: 1,
+			PerfFields: &PerfFields{
+				PID: 20, TID: 20, Comm: "app", CPUKnown: &known,
+				ThreadIdentityKnown: &known, Resolution: "resolved", LifecycleUnverified: &verified,
+				Symbol: "Hot::work", SampleKind: "on_cpu",
+			},
+		}
+	}
+	for _, tc := range []struct {
+		name       string
+		capability *traceBundlePerfCapability
+		wantKnown  bool
+	}{
+		{
+			name:       "unproven",
+			capability: &traceBundlePerfCapability{TraceQueryReady: true},
+			wantKnown:  false,
+		},
+		{
+			name: "proven",
+			capability: &traceBundlePerfCapability{
+				TraceQueryReady: true, ThreadIdentity: "sample_pid_tid_thread_comm", CPUIdentity: "sample_cpu",
+			},
+			wantKnown: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			events := []Event{makeEvent()}
+			for pass := 0; pass < 2; pass++ {
+				var summary perfBundleAdmissionSummary
+				events, summary = applyPerfBundleAdmission(events, tc.capability)
+				if len(events) != 1 || summary.SharedPerfSamples != 1 {
+					t.Fatalf("pass %d lost sample: events=%+v summary=%+v", pass, events, summary)
+				}
+				pf := events[0].PerfFields
+				if pf == nil || pf.ThreadIdentityKnown == nil || *pf.ThreadIdentityKnown != tc.wantKnown || pf.Resolution != "resolved" || pf.LifecycleUnverified == nil || *pf.LifecycleUnverified {
+					t.Fatalf("pass %d identity state drifted: %+v", pass, pf)
+				}
+				if tc.wantKnown {
+					if !perfSampleHasTypedThreadIdentity(events[0]) || events[0].PID != 20 || pf.TID != 20 {
+						t.Fatalf("pass %d proved identity was scrubbed: %+v", pass, events[0])
+					}
+				} else if perfSampleHasTypedThreadIdentity(events[0]) || events[0].PID != 0 || pf.TID != 0 || eventMentionsPID(events[0], 20) {
+					t.Fatalf("pass %d unproven identity was revived: %+v", pass, events[0])
+				}
+			}
+		})
 	}
 }
 
@@ -214,7 +291,7 @@ func writePerfAdmissionBundle(t *testing.T, capabilityFragment, alignmentFragmen
 	}, "\n")+"\n")
 	writePerfAdmissionFixture(t, perftrace, strings.Join([]string{
 		"app-20 (20) [001] .... 9.500000: sched_switch: prev_comm=app prev_pid=20 prev_prio=120 prev_state=S ==> next_comm=intruder next_pid=99 next_prio=120",
-		"app-20 (20) [001] .... 10.200000: perf_sample: cpu=1 cpu_known=true pid=20 tid=20 thread_comm=app period=100 event=cpu-cycles symbol=Hot::work dso=libhot.so source=fixture",
+		"app-20 (20) [001] .... 10.200000: perf_sample: cpu=1 cpu_known=true pid=20 tid=20 thread_comm=app period=100 event=cpu-cycles symbol=Hot::work dso=libhot.so source=fixture sample_kind=on_cpu thread_identity_known=true resolution=resolved lifecycle_unverified=false",
 	}, "\n")+"\n")
 	manifest := fmt.Sprintf(`{
   "version":"test",

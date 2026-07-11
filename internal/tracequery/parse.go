@@ -2850,7 +2850,9 @@ func populatePerfSampleFields(ev *Event, kv map[string]string, intern *stringInt
 		return
 	}
 	pf := ev.PerfFields
-	if cpu, present, valid, _ := parseTraceCPUScalar(kv["cpu"]); present {
+	if perfSampleCPUIsExplicitNoClaim(kv) {
+		ev.CPU = -1
+	} else if cpu, present, valid, _ := parseTraceCPUScalar(kv["cpu"]); present {
 		if valid {
 			ev.CPU = cpu
 		} else {
@@ -2890,7 +2892,22 @@ func populatePerfSampleFields(ev *Event, kv map[string]string, intern *stringInt
 	pf.AuxSize = atoi64Auto(kv["aux_size"])
 	pf.Callchain = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["callchain"], kv["call_stack"], kv["stack"]), maxPerfCallchainFieldLen))
 	pf.Source = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["source"], kv["producer"]), maxPerfSampleTextFieldLen))
+	if known, ok := perfWireBool(kv["thread_identity_known"]); ok {
+		pf.ThreadIdentityKnown = boolPtr(known)
+	}
+	pf.Resolution = intern.intern(cleanTraceValueBounded(kv["resolution"], maxPerfSampleTextFieldLen))
+	if unverified, ok := perfWireBool(kv["lifecycle_unverified"]); ok {
+		pf.LifecycleUnverified = boolPtr(unverified)
+	}
+	if sourcePID, ok := parseUnsignedTraceInt(kv["perf_source_pid"]); ok {
+		pf.SourcePID = sourcePID
+	}
+	if sourceTID, ok := parseUnsignedTraceInt(kv["perf_source_tid"]); ok {
+		pf.SourceTID = sourceTID
+	}
+	pf.SourceComm = intern.intern(cleanTraceValueBounded(kv["perf_source_comm"], maxPerfSampleTextFieldLen))
 	pf.SampleKind = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["sample_kind"], kv["sample_type"], kv["perf_sample_kind"]), maxPerfSampleTextFieldLen))
+	pf.SampleKindSource = intern.intern(cleanTraceValueBounded(kv["sample_kind_source"], maxPerfSampleTextFieldLen))
 	pf.SymbolizationStatus = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["symbolization_status"], kv["symbol_status"], kv["symbols"]), maxPerfSampleTextFieldLen))
 	pf.Clock = intern.intern(cleanTraceValueBounded(firstNonEmpty(kv["clock"], kv["clockid"]), maxPerfSampleTextFieldLen))
 	if known, ok := boolMaybe(firstNonEmpty(kv["cpu_known"], kv["cpu_valid"], kv["cpu_available"])); ok {
@@ -2914,6 +2931,7 @@ func populatePerfSampleFields(ev *Event, kv map[string]string, intern *stringInt
 	if pf.CallchainStatus == "" {
 		pf.CallchainStatus = intern.intern(defaultPerfCallchainStatus(pf))
 	}
+	normalizePerfSampleClaims(ev)
 }
 
 func defaultPerfSymbolizationStatus(pf *PerfFields) string {

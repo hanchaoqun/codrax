@@ -271,7 +271,9 @@ func cpuInputValidationFailuresScan(s *lineScan) []cpuInputIntegrityFailure {
 		}
 	}
 	if typ == EventPerfSample {
-		addScalar("cpu")
+		if !perfSampleCPUIsExplicitNoClaim(kv) {
+			addScalar("cpu")
+		}
 	}
 	return out
 }
