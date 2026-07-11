@@ -2092,4 +2092,16 @@ lead 实现额外守住:**EffectiveImpactMS>0 ∧ 非 context_only(6eb633a1 新 
 
 **消费面复核收口**：syscall、TaskPool、AppStartup、static-init、process-measure 不再把 malformed/poisoned/unresolved identity 降成 unknown 或 `(0,0)` 发布；合法 sibling 保留，TaskPool 两端身份先完整验证再发布。该收口只关闭 identity globalization，不宣称这些 producer 的 ts/dur scalar、CPU authority、stable row identity 或跨 exporter endpoint pairing 已完成。
 
-**验证与剩余**：identity current/legacy/cross-alias 正反序、source map、二级索引、callstack 双身份、display-only 名称、ID 边界、traceStart singleton/t=0 与五类 consumer 均有机械 pin；验证为 `go test ./internal/hitraceconv -count=1`、`go vet ./internal/hitraceconv`、`go test ./... -count=1`、`git diff --check`。后续仍按 R1a-B → R1b → R1c → R2 推进。
+**验证与剩余**：identity current/legacy/cross-alias 正反序、source map、二级索引、callstack 双身份、display-only 名称、ID 边界、traceStart singleton/t=0 与五类 consumer 均有机械 pin；验证为 `go test ./internal/hitraceconv -count=1`、`go vet ./internal/hitraceconv`、`go test ./... -count=1`、`git diff --check`。R1a-B 已由紧随其后的 §29.33 交付；当前后续顺序为 blocked strict endpoint → R1b → R1c → R2。
+
+## §29.33 SQL Trace Streamer scheduler identity R1a-B 收账（2026-07-11，`e61388803`）
+
+**sched-start 与 active 六源**：`loadSchedStarts` 退役 `COALESCE(priority,120)` 和 SQL 预过滤，所有物理行先按 storage class 审计；同 `(itid,ts)` 只允许完全同值 coalesce，冲突/坏 sibling 形成 point/lane/global barrier，nearest poison 不得跳后。CPU 闭集为 `0..4095`；priority 是 strict signed-int32 且排除 `INT32_MAX` sentinel，`-1`、140、159、160 与 `INT32_MAX-1` 均按原值保留。active registry 的 callstack、sched_slice、thread_state、syscall、native_hook、frame_slice 六源复用 R1a-A canonical identity；CALLSTACK `itid/callid` profile 必须收敛，row-local malformed reference 不再靠 `DISTINCT/WHERE` 被静默吞掉，也不连坐合法 sibling 或 dormant main。
+
+**signed identity 与 raw stable identity 分域**：instant/raw 的 internal ID 是 signed-int32 投影的 canonical uint32，`-1` 仍为 `UINT32_MAX` missing sentinel；`raw.id` 则是完整 uint32 event identity，故 `-1→4294967295` 合法。signed/canonical alias 进入同一 duplicate cohort 整体拒绝，同 timestamp 以 canonical uint32 排序，禁止 SQLite signed order 改写源序。
+
+**wakeup 字段权威**：`sched_wakeup_new` 与 raw `sched_wakeup` 共用一个 canonical pairing kind，但输出事件名不改。缺 next-sched priority 不再丢失已证 wakeup edge；converter 写 `codrax_prio_source=unknown`，有 schedule-time inference 时写 `inferred_next_sched_slice`。`ParserVersion` 升至 v20；Event 用两个 authority bit 保持 688B，并在 EventView/WakeupEdge 显式披露来源。flavor、priority cache、scheduler-head carry、chain relation 与 inversion 等所有 hard consumer 对 inferred/unknown/untrusted 一律取 0；原生无 marker 的 exact wakeup priority 维持既有行为。tracediag RT histogram 同样只计 exact，并单列非确定性三类。
+
+**兼容裁定**：旧 converter 产生、且未写 provenance marker 的 systrace 与原生 exact wakeup 在文本上不可逆区分。当前商用操作是重新转换旧制品；若要原位兼容，必须在 bundle 中保留 converter/version 这个精确信号后统一消费，禁止按路径、文件名或数值形态猜测。
+
+**验证与下一批**：full uint32 边界、`-1/4294967295` alias duplicate、canonical order、140/159 round-trip、unknown edge、inferred/unknown chain 负向、native exact parity、wakeup_new、barrier/taint 与正反行序均有机械 pin。`go test ./internal/hitraceconv ./internal/tracequery ./internal/tool ./internal/tracediag -count=1`、四包 `go vet`、`go test ./... -count=1`、`git diff --check` 全绿，三路独立复审放行。剩余高 ROI 顺序调整为：blocked SQL strict scalar/stable endpoint → R1b lifetime → R1c Running tid/pid → R2 single snapshot；TaskPool/raw active 补源与 sched_slice stable source order在精确信号可证时并入对应批。
