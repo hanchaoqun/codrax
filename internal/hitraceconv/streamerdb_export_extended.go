@@ -490,43 +490,6 @@ func (tdb *traceDB) loadPerfFrames(ctx context.Context) (map[int64][]traceDBPerf
 	return out, coverage, nil
 }
 
-func exportTraceDBDMAFence(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, _ traceDBThreadIndex, _ map[int64][]traceDBRunningInterval, _ map[int64]string) (TraceDBCoverage, error) {
-	coverage, err := tdb.inspectCoverage(ctx, "slice", "dma_fence", []string{"ts", "dur", "cat", "driver", "timeline", "context", "seqno"})
-	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
-		return coverage, err
-	}
-	rows, err := tdb.db.QueryContext(ctx, "SELECT ts, COALESCE(dur, 0), cat, COALESCE(driver, ''), COALESCE(timeline, ''), context, seqno FROM dma_fence ORDER BY ts")
-	if err != nil {
-		coverage.Error = err.Error()
-		return coverage, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var ts, dur int64
-		var cat any
-		var driver, timeline string
-		var contextValue, seqno any
-		if err := rows.Scan(&ts, &dur, &cat, &driver, &timeline, &contextValue, &seqno); err != nil {
-			coverage.Error = err.Error()
-			return coverage, err
-		}
-		catText := traceDBAnyText(cat, "dma_fence")
-		if dur > 0 {
-			if err := addTraceDBSpanRows(sink, ts, ts+dur, "<dma_fence>", 0, 0, 0, fmt.Sprintf("%s:%s:%s", catText, timeline, traceDBAnyText(seqno, "None"))); err != nil {
-				return coverage, err
-			}
-			coverage.RowsEmitted += 2
-			continue
-		}
-		body := fmt.Sprintf("%s: driver=%s timeline=%s context=%s seqno=%s", catText, driver, timeline, traceDBAnyText(contextValue, "None"), traceDBAnyText(seqno, "None"))
-		if err := addTraceDBInstantRow(sink, ts, "<dma_fence>", 0, 0, 0, body); err != nil {
-			return coverage, err
-		}
-		coverage.RowsEmitted++
-	}
-	return coverage, rows.Err()
-}
-
 func exportTraceDBSyscall(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, index traceDBThreadIndex, _ map[int64][]traceDBRunningInterval, _ map[int64]string) (TraceDBCoverage, error) {
 	coverage, err := tdb.inspectCoverage(ctx, "slice", "syscall", []string{"ts", "dur", "syscall_number", "itid"})
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {

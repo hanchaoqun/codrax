@@ -106,6 +106,9 @@ func TestExportTraceDBExtendedFamiliesComprehensiveFixture(t *testing.T) {
 	} {
 		assertCoverageEmitted(t, coverage, key.family, key.table, 1)
 	}
+	if !coverageHasSkipped(coverage, "slice", "dma_fence", "high_level_rows_withheld=2") {
+		t.Fatalf("high-level DMA predecessor deltas must be withheld: %+v", coverage)
+	}
 	outPath := filepath.Join(t.TempDir(), "extended.systrace")
 	out, err := os.OpenFile(outPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
@@ -119,7 +122,7 @@ func TestExportTraceDBExtendedFamiliesComprehensiveFixture(t *testing.T) {
 	if closeErr != nil {
 		t.Fatal(closeErr)
 	}
-	if stats.RowsWritten < 35 || stats.SpillChunks == 0 {
+	if stats.RowsWritten < 32 || stats.SpillChunks == 0 {
 		t.Fatalf("unexpected extended row stats: %+v", stats)
 	}
 	bodyBytes, err := os.ReadFile(outPath)
@@ -132,7 +135,6 @@ func TestExportTraceDBExtendedFamiliesComprehensiveFixture(t *testing.T) {
 		"tracing_mark_write: S|500|AsyncWork|chain-123",
 		"tracing_mark_write: S|500|FrameActual-123|hconv-frame-1",
 		"tracing_mark_write: F|500|FrameActual-123|hconv-frame-1",
-		"dma_fence_signaled: driver=drv timeline=tl context=1 seqno=2",
 		"tracing_mark_write: B|500|sys_64",
 		"tracing_mark_write: S|500|TaskPool-99|99",
 		"tracing_mark_write: B|500|AppStartup:coldStart",
@@ -154,6 +156,9 @@ func TestExportTraceDBExtendedFamiliesComprehensiveFixture(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("extended systrace missing %q:\n%s", want, body)
 		}
+	}
+	if strings.Contains(body, "dma_fence") || strings.Contains(body, "<dma_fence>") {
+		t.Fatalf("high-level DMA rows must not mint CPU0/PID0 endpoints:\n%s", body)
 	}
 	idx, err := tracequery.BuildIndex(context.Background(), outPath)
 	if err != nil {
@@ -520,7 +525,6 @@ func TestExportTraceDBHmtraceComprehensiveFixtureSchema(t *testing.T) {
 		{"counter", "measure_filter", 1},
 		{"counter", "process_measure", 1},
 		{"slice", "frame_slice", 2},
-		{"slice", "dma_fence", 3},
 		{"counter", "network", 2},
 		{"counter", "diskio", 2},
 		{"counter", "cpu_usage", 3},
@@ -537,6 +541,9 @@ func TestExportTraceDBHmtraceComprehensiveFixtureSchema(t *testing.T) {
 	} {
 		assertCoverageEmitted(t, result.Coverage, key.family, key.table, key.min)
 	}
+	if !coverageHasSkipped(result.Coverage, "slice", "dma_fence", "high_level_rows_withheld=2") {
+		t.Fatalf("hmtrace high-level DMA predecessor deltas must be withheld: %+v", result.Coverage)
+	}
 	bodyBytes, err := os.ReadFile(outPath)
 	if err != nil {
 		t.Fatal(err)
@@ -550,7 +557,6 @@ func TestExportTraceDBHmtraceComprehensiveFixtureSchema(t *testing.T) {
 		"cpu_frequency: state=2200000 cpu_id=11",
 		"tracing_mark_write: S|500|FrameActual-123|hconv-frame-1",
 		"tracing_mark_write: F|500|FrameActual-123|hconv-frame-1",
-		"tracing_mark_write: B|0|dma_fence_wait:tl:4",
 		"tracing_mark_write: C|500|pss_kb|2048.0",
 		"print: [I][TEST] hello world",
 		"tracing_mark_write: B|500|AppStartup:coldStart",
@@ -562,6 +568,11 @@ func TestExportTraceDBHmtraceComprehensiveFixtureSchema(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("hmtrace comprehensive systrace missing %q:\n%s", want, body)
 		}
+	}
+	if strings.Contains(body, "tracing_mark_write: B|0|dma_fence") ||
+		strings.Contains(body, "tracing_mark_write: S|0|dma_fence") ||
+		strings.Contains(body, "<dma_fence>") {
+		t.Fatalf("hmtrace high-level DMA row minted a synthetic endpoint:\n%s", body)
 	}
 	idx, err := tracequery.BuildIndex(context.Background(), outPath)
 	if err != nil {
