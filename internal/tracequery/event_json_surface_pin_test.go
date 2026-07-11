@@ -58,10 +58,13 @@ func eventFillByJSONTag(t *testing.T, v reflect.Value) int {
 			continue
 		}
 		tag := strings.Split(f.Tag.Get("json"), ",")[0]
-		if tag != "-" {
-			leaves++
+		if tag == "-" {
+			// Internal typed handoffs are deliberately outside the public Event
+			// JSON contract and therefore outside this serializer-surface fill.
+			continue
 		}
-		if tag == "" || tag == "-" {
+		leaves++
+		if tag == "" {
 			tag = f.Name
 		}
 		seed := int64(crc32.ChecksumIEEE([]byte(tag))%9000 + 1000)

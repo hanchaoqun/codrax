@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const ParserVersion = "tracequery-v21"
+const ParserVersion = "tracequery-v22"
 
 type EventType string
 
@@ -315,16 +315,35 @@ type FileFields struct {
 }
 
 // PluginFields is the rare ability/xpower/hisysevent and extended trace-mark
-// auxiliary side table. EventTraceMark allocates it only for G/H/N rows whose
-// exact Android track_name must survive as a typed field; ordinary B/E/C/S/F/I
-// rows and every scheduler event keep the pointer nil.
+// auxiliary side table. EventTraceMark allocates it for G/H/N rows whose exact
+// Android track_name must survive as a typed field and for C rows whose full
+// admission-time payload verdict must outlive Event.FieldText's 300-byte
+// inventory clamp. Ordinary B/E/S/F/I rows and every scheduler event keep the
+// pointer nil.
 type PluginFields struct {
-	Domain    string `json:"plugin_domain,omitempty"`
-	EventName string `json:"plugin_event_name,omitempty"`
-	Metric    string `json:"plugin_metric,omitempty"`
-	Value     string `json:"plugin_value,omitempty"`
-	Category  string `json:"plugin_category,omitempty"`
-	SpanTrack string `json:"span_track,omitempty"`
+	Domain    string              `json:"plugin_domain,omitempty"`
+	EventName string              `json:"plugin_event_name,omitempty"`
+	Metric    string              `json:"plugin_metric,omitempty"`
+	Value     string              `json:"plugin_value,omitempty"`
+	Category  string              `json:"plugin_category,omitempty"`
+	SpanTrack string              `json:"span_track,omitempty"`
+	Counter   *TraceCounterFields `json:"-"`
+}
+
+// TraceCounterFields is the sparse, internal admission-time C| handoff. It is
+// intentionally absent from Event's historical JSON surface; public counter
+// provenance lives on TraceCounterSummary / TraceCounterDeltaSummary.
+type TraceCounterFields struct {
+	OwnerRaw      string
+	OwnerScope    string
+	Metadata      string
+	OutputLevel   string
+	TagBits       string
+	IssueReason   string
+	NumericValue  float64
+	Parsed        bool
+	NumericValid  bool
+	IdentityValid bool
 }
 
 // PerfFields is the EventPerfSample side table — the single largest block of
@@ -2197,8 +2216,9 @@ type TraceInstantSummary struct {
 
 // TraceCounterDeltaSummary is the numeric aggregation of one exact atrace /
 // Harmony C| counter identity inside the selected window. Counter identity is
-// the verbatim (physical source, payload owner pid, name, trailing track tag)
-// tuple -- never the ftrace row-header tid. Thread retains the historical wire
+// the verbatim (physical source, payload owner pid, logical name) tuple --
+// never the ftrace row-header tid. OpenHarmony's terminal level/tag-bits token
+// is publication metadata, not a track identity. Thread retains the historical wire
 // contract: it is the row-header emitter of the first sample. Payload ownership
 // is carried only by OwnerPID/OwnerScope. A payload pid of zero is an explicit
 // global counter and is distinguished by OwnerScope.
@@ -2209,24 +2229,30 @@ type TraceInstantSummary struct {
 // parsed as authority. A series containing any invalid/non-finite value is
 // omitted from this face and disclosed through CounterQuality instead.
 type TraceCounterDeltaSummary struct {
-	Thread         ThreadRef `json:"thread"`
-	OwnerPID       int       `json:"owner_pid"`
-	OwnerScope     string    `json:"owner_scope"`
-	Name           string    `json:"name,omitempty"`
-	TrailingTag    string    `json:"trailing_tag,omitempty"`
-	SourcePath     string    `json:"source_path,omitempty"`
-	Baseline       string    `json:"baseline"`
-	UnitStatus     string    `json:"unit_status"`
-	Samples        int       `json:"samples,omitempty"`
-	First          float64   `json:"first"`
-	Last           float64   `json:"last"`
-	Min            float64   `json:"min"`
-	Max            float64   `json:"max"`
-	Delta          float64   `json:"delta"`
-	FirstLine      int       `json:"first_line,omitempty"`
-	LastLine       int       `json:"last_line,omitempty"`
-	FirstLocalLine int       `json:"first_local_line,omitempty"`
-	LastLocalLine  int       `json:"last_local_line,omitempty"`
+	Thread     ThreadRef `json:"thread"`
+	OwnerPID   int       `json:"owner_pid"`
+	OwnerScope string    `json:"owner_scope"`
+	Name       string    `json:"name,omitempty"`
+	// TrailingTag is the retained raw OpenHarmony metadata token for wire
+	// compatibility. It is never part of logical series identity. New clients
+	// should consume OutputLevel/TagBits/MetadataStatus.
+	TrailingTag    string  `json:"trailing_tag,omitempty"`
+	OutputLevel    string  `json:"output_level,omitempty"`
+	TagBits        string  `json:"tag_bits,omitempty"`
+	MetadataStatus string  `json:"metadata_status,omitempty"`
+	SourcePath     string  `json:"source_path,omitempty"`
+	Baseline       string  `json:"baseline"`
+	UnitStatus     string  `json:"unit_status"`
+	Samples        int     `json:"samples,omitempty"`
+	First          float64 `json:"first"`
+	Last           float64 `json:"last"`
+	Min            float64 `json:"min"`
+	Max            float64 `json:"max"`
+	Delta          float64 `json:"delta"`
+	FirstLine      int     `json:"first_line,omitempty"`
+	LastLine       int     `json:"last_line,omitempty"`
+	FirstLocalLine int     `json:"first_local_line,omitempty"`
+	LastLocalLine  int     `json:"last_local_line,omitempty"`
 }
 
 // TraceCounterQualitySummary is the bounded fail-loud face for C| rows that
@@ -2268,6 +2294,8 @@ type TraceCounterIssueSample struct {
 	Name        string `json:"name,omitempty"`
 	Value       string `json:"value,omitempty"`
 	TrailingTag string `json:"trailing_tag,omitempty"`
+	OutputLevel string `json:"output_level,omitempty"`
+	TagBits     string `json:"tag_bits,omitempty"`
 }
 
 type TraceCounterSummary struct {
@@ -2280,6 +2308,8 @@ type TraceCounterSummary struct {
 	Name        string    `json:"name,omitempty"`
 	Value       string    `json:"value,omitempty"`
 	TrailingTag string    `json:"trailing_tag,omitempty"`
+	OutputLevel string    `json:"output_level,omitempty"`
+	TagBits     string    `json:"tag_bits,omitempty"`
 	Count       int       `json:"count,omitempty"`
 	Line        int       `json:"line,omitempty"`
 	Ts          float64   `json:"ts,omitempty"`

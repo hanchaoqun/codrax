@@ -3651,20 +3651,26 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 				traceThreadLabel(work.Thread), sanitizeForBanner(work.Category), sanitizeForBanner(work.Name), work.DurationMs, work.LineStart, work.LineEnd, sanitizeForBanner(work.Summary))
 		}
 		for _, counter := range result.WindowStats.TraceCounters {
-			fmt.Fprintf(&b, "- trace_counter %s %q value=%s count=%d line=%d\n",
-				traceThreadLabel(counter.Thread), counter.Name, counter.Value, counter.Count, counter.Line)
+			metadata := ""
+			if counter.TrailingTag != "" {
+				metadata = fmt.Sprintf(" hitrace_metadata=%s output_level=%s tag_bits=%s",
+					sanitizeForBanner(counter.TrailingTag), sanitizeForBanner(counter.OutputLevel), sanitizeForBanner(counter.TagBits))
+			}
+			fmt.Fprintf(&b, "- trace_counter %s %q value=%q%s count=%d line=%d\n",
+				traceThreadLabel(counter.Thread), counter.Name, sanitizeForBanner(counter.Value), metadata, counter.Count, counter.Line)
 		}
 		for _, delta := range result.WindowStats.CounterDeltas {
 			source := filepath.Base(strings.TrimSpace(delta.SourcePath))
 			if source == "." || source == "" {
 				source = "unknown"
 			}
-			tag := ""
+			metadata := ""
 			if delta.TrailingTag != "" {
-				tag = " trailing_tag=" + sanitizeForBanner(delta.TrailingTag)
+				metadata = fmt.Sprintf(" hitrace_metadata=%s output_level=%s tag_bits=%s",
+					sanitizeForBanner(delta.TrailingTag), sanitizeForBanner(delta.OutputLevel), sanitizeForBanner(delta.TagBits))
 			}
-			fmt.Fprintf(&b, "- counter_delta owner_scope=%s owner_pid=%d name=%q%s source=%s baseline=%s unit=%s first=%g last=%g min=%g max=%g delta=%+g samples=%d lines=%d-%d local_lines=%d-%d emitter=%s\n",
-				sanitizeForBanner(delta.OwnerScope), delta.OwnerPID, delta.Name, tag, sanitizeForBanner(source),
+			fmt.Fprintf(&b, "- counter_delta owner_scope=%s owner_pid=%d name=%q%s metadata_status=%s source=%s baseline=%s unit=%s first=%g last=%g min=%g max=%g delta=%+g samples=%d lines=%d-%d local_lines=%d-%d emitter=%s\n",
+				sanitizeForBanner(delta.OwnerScope), delta.OwnerPID, delta.Name, metadata, sanitizeForBanner(delta.MetadataStatus), sanitizeForBanner(source),
 				sanitizeForBanner(delta.Baseline), sanitizeForBanner(delta.UnitStatus), delta.First, delta.Last, delta.Min, delta.Max, delta.Delta,
 				delta.Samples, delta.FirstLine, delta.LastLine, delta.FirstLocalLine, delta.LastLocalLine, traceThreadLabel(delta.Thread))
 		}
@@ -3681,8 +3687,9 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 					if source == "." || source == "" {
 						source = "unknown"
 					}
-					samples = append(samples, fmt.Sprintf("%s:%d(owner=%s,name=%q,value=%q,tag=%s)",
-						sanitizeForBanner(source), sample.LocalLine, sanitizeForBanner(sample.OwnerRaw), sample.Name, sample.Value, sanitizeForBanner(sample.TrailingTag)))
+					samples = append(samples, fmt.Sprintf("%s:%d(owner=%q,name=%q,value=%q,hitrace_metadata=%s,output_level=%s,tag_bits=%s)",
+						sanitizeForBanner(source), sample.LocalLine, sanitizeForBanner(sample.OwnerRaw), sample.Name, sample.Value,
+						sanitizeForBanner(sample.TrailingTag), sanitizeForBanner(sample.OutputLevel), sanitizeForBanner(sample.TagBits)))
 				}
 				fmt.Fprintf(&b, "  counter_issue reason=%s count=%d samples=%s\n",
 					sanitizeForBanner(issue.Reason), issue.Count, strings.Join(samples, ","))

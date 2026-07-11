@@ -6567,7 +6567,7 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 		ownerScope  string
 		name        string
 		value       string
-		trailingTag string
+		metadataRaw string
 		issueReason string
 	}
 	unknownEmitter := traceMarkUnknownEmitterFailureForQuery(idx, q)
@@ -6647,10 +6647,11 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 				continue
 			}
 			// Use the same closed C| parser as CounterDeltas. In particular,
-			// `name |(unit)|value` and trailing Harmony tags must not acquire a
-			// second, contradictory legacy interpretation. Invalid/non-numeric
-			// rows stay in this compatibility inventory; CounterQuality carries
-			// the typed reason and suppresses only derived numeric claims.
+			// Pipe-containing names and terminal OpenHarmony metadata must not
+			// acquire a second, contradictory legacy interpretation. Invalid /
+			// non-numeric rows stay in this compatibility inventory;
+			// CounterQuality carries the typed reason and suppresses only derived
+			// numeric claims.
 			sample := parseTraceCounterSample(ev)
 			name, value := sample.name, sample.valueRaw
 			if name == "" {
@@ -6662,14 +6663,15 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 			key := counterInventoryKey{
 				emitterPID: ev.PID, ownerPID: sample.ownerPID, ownerRaw: sample.ownerRaw,
 				ownerScope: sample.ownerScope, name: name, value: value,
-				trailingTag: sample.trailingTag, issueReason: sample.issueReason,
+				metadataRaw: sample.metadataRaw, issueReason: sample.issueReason,
 			}
 			counter, exists := counters[key]
 			if !exists {
 				counter = TraceCounterSummary{
 					Thread: threadRefFromEvent(ev), OwnerPID: sample.ownerPID,
 					OwnerRaw: sample.ownerRaw, OwnerScope: sample.ownerScope,
-					Name: name, Value: value, TrailingTag: sample.trailingTag,
+					Name: name, Value: value, TrailingTag: sample.metadataRaw,
+					OutputLevel: sample.outputLevel, TagBits: sample.tagBits,
 				}
 			}
 			counter.Count++

@@ -129,6 +129,8 @@ type traceMarkParseResult struct {
 	name          string
 	track         string
 	value         string
+	counter       traceCounterSample
+	counterParsed bool
 	invalidAction traceMarkInvalidAction
 	invalidReason traceMarkInvalidReason
 }
@@ -182,18 +184,61 @@ func parseUnsignedTraceInt(raw string) (int, bool) {
 	return int(n), true
 }
 
-// isTraceMarkSpanInstanceTag is the precise right-boundary token for native
-// B/S/F span endpoints. Production Harmony emitters use I<number> and
-// M<number>; only those two witnessed families may unlock the otherwise
-// ambiguous pipe-containing name grammar. isInstanceTag remains broader for
-// the carved-payload heuristic and legacy E/C compatibility, where a single
-// terminal field cannot accidentally absorb a name/cookie boundary.
-func isTraceMarkSpanInstanceTag(raw string) bool {
-	raw = strings.TrimSpace(raw)
-	if len(raw) < 2 || raw[0] != 'I' && raw[0] != 'M' {
-		return false
+// parseHarmonyTraceMetadata parses the suffix written by OpenHarmony
+// HiTraceMeter: one output-level byte (D/I/C/M) followed by one or two
+// two-decimal-digit tag-bit indexes. The current public tag domain is 0..62;
+// ParseTagBits prefixes option bit 00 or 05 before one other bit, while its
+// ordinary multi-bit scan emits ascending non-option indexes. This token is filtering /
+// provenance metadata; it is not an instance, cookie, or logical track id.
+func parseHarmonyTraceMetadata(raw string) (level, tagBits string, ok bool) {
+	if raw != strings.TrimSpace(raw) {
+		return "", "", false
 	}
-	return isAllDigits(raw[1:])
+	if len(raw) != 3 && len(raw) != 5 {
+		return "", "", false
+	}
+	if !strings.ContainsRune("DICM", rune(raw[0])) || !isAllDigits(raw[1:]) {
+		return "", "", false
+	}
+	first := int(raw[1]-'0')*10 + int(raw[2]-'0')
+	if first > 62 {
+		return "", "", false
+	}
+	if len(raw) == 5 {
+		second := int(raw[3]-'0')*10 + int(raw[4]-'0')
+		if second > 62 || second == first {
+			return "", "", false
+		}
+		switch first {
+		case 0:
+			if second == 5 {
+				return "", "", false
+			}
+		case 5:
+			// COMMERCIAL option prefix + one other bit. 0501 is
+			// producer-reachable even though it is not numerically ascending.
+			if second == 0 {
+				return "", "", false
+			}
+		default:
+			if first >= second {
+				return "", "", false
+			}
+		}
+	}
+	containsCommercialBit := first == 5 || len(raw) == 5 && raw[3:5] == "05"
+	if containsCommercialBit && raw[0] != 'M' {
+		// AddHitraceMeterMarker forces COMMERCIAL-tagged records to level M
+		// before formatting. D05/I05/C05 and any two-pair form containing 05
+		// are not producer-reachable metadata tokens.
+		return "", "", false
+	}
+	return raw[:1], raw[1:], true
+}
+
+func isHarmonyTraceMetadata(raw string) bool {
+	_, _, ok := parseHarmonyTraceMetadata(raw)
+	return ok
 }
 
 // joinTraceMarkEndpointName keeps the producer's opaque name byte shape after
@@ -213,6 +258,24 @@ func joinTraceMarkEndpointName(parts []string) (string, bool) {
 		return "", false
 	}
 	return strings.TrimSpace(strings.Join(parts, "|")), true
+}
+
+// joinTraceCounterName preserves the producer's complete opaque name. Unlike
+// endpoint display normalization, leading/trailing spaces are valid counter
+// identity bytes and must not merge two distinct tracks. Only an all-space
+// joined name is rejected.
+func joinTraceCounterName(parts []string) (string, bool) {
+	hasContent := false
+	for _, part := range parts {
+		if strings.TrimSpace(part) != "" {
+			hasContent = true
+			break
+		}
+	}
+	if !hasContent {
+		return "", false
+	}
+	return strings.Join(parts, "|"), true
 }
 
 // parseTraceMarkValidated is the single post-normalization schema authority.
@@ -241,9 +304,10 @@ func parseTraceMarkValidated(fields string) traceMarkParseResult {
 		switch {
 		case len(parts) == 3:
 			nameParts = parts[2:3]
-		case len(parts) >= 4 && isTraceMarkSpanInstanceTag(parts[len(parts)-1]):
-			// The exact I/M tag is the only safe right boundary when an
-			// opaque span name itself contains pipes or empty components.
+		case len(parts) >= 4 && isHarmonyTraceMetadata(parts[len(parts)-1]):
+			// A final exact OpenHarmony metadata token is the only safe right
+			// boundary in this no-custom-args shape. B customArgs can follow
+			// metadata and require their own unique-boundary parser.
 			nameParts = parts[2 : len(parts)-1]
 			result.value = strings.TrimSpace(parts[len(parts)-1])
 		default:
@@ -273,7 +337,7 @@ func parseTraceMarkValidated(fields string) traceMarkParseResult {
 		result.spanPID = pid
 		if len(parts) == 3 {
 			tag := strings.TrimSpace(parts[2])
-			if tag != "" && !isInstanceTag(tag) {
+			if tag != "" && !isHarmonyTraceMetadata(tag) {
 				return invalid(traceMarkReasonInvalidEndTag)
 			}
 			result.name = tag
@@ -288,8 +352,8 @@ func parseTraceMarkValidated(fields string) traceMarkParseResult {
 		case len(parts) == 4:
 			nameParts = parts[2:3]
 			cookie = strings.TrimSpace(parts[3])
-		case len(parts) >= 5 && isTraceMarkSpanInstanceTag(parts[len(parts)-1]):
-			// Parse from the right: final exact tag, then cookie, with every
+		case len(parts) >= 5 && isHarmonyTraceMetadata(parts[len(parts)-1]):
+			// Parse from the right: final exact metadata, then cookie, with every
 			// middle field retained as the opaque name. Untagged multi-pipe
 			// rows remain ambiguous and fail closed.
 			nameParts = parts[2 : len(parts)-2]
@@ -404,18 +468,14 @@ func parseTraceMarkValidated(fields string) traceMarkParseResult {
 		}
 		result.spanPID, result.name = pid, name
 	case "C":
-		// C is deliberately permissive here. Its inventory row remains visible;
-		// numeric aggregation and identity voting both re-enter the closed schema
-		// in parseTraceCounterSample.
-		if len(parts) >= 2 {
-			result.spanPID, _ = parseUnsignedTraceInt(parts[1])
-		}
-		if len(parts) >= 3 {
-			result.name = strings.TrimSpace(parts[2])
-		}
-		if len(parts) >= 4 {
-			result.value = strings.TrimSpace(parts[3])
-		}
+		// Counter rows remain inventory even when malformed, but their typed
+		// owner/name/value verdict is made exactly once from the complete
+		// payload. ParseLine stores this result before FieldText is clamped.
+		result.counter = parseTraceCounterPayload(fields)
+		result.counterParsed = true
+		result.spanPID = result.counter.ownerPID
+		result.name = result.counter.name
+		result.value = result.counter.valueRaw
 	default:
 		if len(parts) >= 2 {
 			result.spanPID, _ = parseUnsignedTraceInt(parts[1])

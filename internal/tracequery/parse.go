@@ -106,6 +106,9 @@ func eventSideTableBytes(ev *Event) int64 {
 	}
 	if ev.PluginFields != nil {
 		n += int64(unsafe.Sizeof(PluginFields{}))
+		if ev.PluginFields.Counter != nil {
+			n += int64(unsafe.Sizeof(TraceCounterFields{}))
+		}
 	}
 	if ev.PerfFields != nil {
 		n += int64(unsafe.Sizeof(PerfFields{}))
@@ -2653,7 +2656,8 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 	}
 	comm := strings.TrimSpace(m[1])
 	rawType := strings.TrimSuffix(strings.TrimSpace(m[6]), ":")
-	fields := strings.TrimSpace(m[7])
+	rawFields := m[7]
+	fields := strings.TrimSpace(rawFields)
 	ev := Event{
 		Line:      lineNo,
 		Ts:        ts,
@@ -2756,12 +2760,26 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 		ev.ClockName = intern.intern(clockNameForEvent(rawType, fields))
 	case EventTraceMark:
 		parsed := parseTraceMarkValidated(fields)
+		if parsed.counterParsed && traceCounterRawPayloadAtCap(rawFields, normalizeTraceMarkPayload(fields)) {
+			parsed.counter = traceCounterSample{issueReason: "counter_payload_too_long"}
+			parsed.spanPID, parsed.name, parsed.value = 0, "", ""
+		}
 		ev.SpanAction, ev.SpanPID, ev.SpanName, ev.SpanValue = parsed.action, parsed.spanPID, parsed.name, parsed.value
 		ev.SpanAction = intern.intern(ev.SpanAction)
 		ev.SpanName = intern.intern(ev.SpanName)
 		ev.SpanValue = intern.intern(ev.SpanValue)
-		if parsed.track != "" {
+		if parsed.track != "" || parsed.counterParsed {
 			ev.PluginFields = &PluginFields{SpanTrack: intern.intern(parsed.track)}
+		}
+		if parsed.counterParsed {
+			counter := parsed.counter
+			ev.PluginFields.Counter = &TraceCounterFields{
+				OwnerRaw: intern.intern(counter.ownerRaw), OwnerScope: intern.intern(counter.ownerScope),
+				Metadata: intern.intern(counter.metadataRaw), OutputLevel: intern.intern(counter.outputLevel),
+				TagBits: intern.intern(counter.tagBits), IssueReason: intern.intern(counter.issueReason),
+				NumericValue: counter.numericValue, Parsed: true,
+				NumericValid: counter.numericValid, IdentityValid: counter.identityOK,
+			}
 		}
 	case EventBlockIssue, EventBlockComplete:
 		dev, op, sector, length, identityValid := parseBlockRequestValidated(rawType, fields)
