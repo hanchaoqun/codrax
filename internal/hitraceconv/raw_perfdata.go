@@ -1934,8 +1934,8 @@ func writeRawPerfDataPerfTrace(ctx context.Context, w io.Writer, data rawPerfDat
 		if extraFields != "" {
 			extraFields = " " + extraFields
 		}
-		if _, err := fmt.Fprintf(w, "%16s-%-6d (%5d) [%03d] .... %12.6f: perf_sample: cpu=%d cpu_known=%s pid=%d tid=%d thread_comm=%s sample_weight=%d event=%s symbol=%s dso=%s ip=%s callchain=%s source=raw_perfdata_fallback%s symbolization_status=%s clock=perf_data clock_confidence=assumed callchain_status=%s%s%s\n",
-			comm, tid, pid, rawPerfHeaderCPU(cpu), ts, cpu, cpuKnown, pid, tid, quoteTraceValue(comm), sample.Period, quoteTraceValue(eventName), quoteTraceValue(frame.Symbol), quoteTraceValue(frame.DSO), quoteTraceValue(frame.IP), quoteTraceValue(callchain), sampleKindField, symbolizationStatus, callchainStatus, extraFields, parserCaveats); err != nil {
+		if _, err := fmt.Fprintf(w, "%16s-%-5d (%5d) [%03d] .... %12.6f: perf_sample: cpu=%d cpu_known=%s pid=%d tid=%d thread_comm=%s sample_weight=%d event=%s symbol=%s dso=%s ip=%s callchain=%s source=raw_perfdata_fallback%s symbolization_status=%s clock=perf_data clock_confidence=assumed callchain_status=%s%s%s\n",
+			perfTraceHeaderComm(comm), tid, pid, rawPerfHeaderCPU(cpu), ts, cpu, cpuKnown, pid, tid, quoteTraceValue(comm), sample.Period, quoteTraceValue(eventName), quoteTraceValue(frame.Symbol), quoteTraceValue(frame.DSO), quoteTraceValue(frame.IP), quoteTraceValue(callchain), sampleKindField, symbolizationStatus, callchainStatus, extraFields, parserCaveats); err != nil {
 			return err
 		}
 	}

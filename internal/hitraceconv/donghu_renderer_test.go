@@ -520,24 +520,28 @@ func TestDonghuDirectRendererCoreFieldsFailClosed(t *testing.T) {
 		for _, missing := range []string{"prev_comm", "prev_pid", "prev_prio", "prev_state", "next_comm", "next_pid", "next_prio"} {
 			format := donghuStandardSchedSwitchFormat()
 			format.Fields = withoutCleanField(format.Fields, missing)
-			_, known := renderEventLine(renderContext{}, 1_000_000_000, 0, format, donghuStandardSchedSwitchContent(60))
+			content := donghuStandardSchedSwitchContent(60)
+			_, known := renderEventBody(decodeEvent(format, content), content, 0)
 			if known {
 				t.Fatalf("standard sched_switch missing %s must be header-only", missing)
 			}
 		}
 		format := donghuStandardSchedSwitchFormat()
 		format.Fields[1].Type = "unsigned long"
-		if _, known := renderEventLine(renderContext{}, 1_000_000_000, 0, format, donghuStandardSchedSwitchContent(60)); known {
+		content := donghuStandardSchedSwitchContent(60)
+		if _, known := renderEventBody(decodeEvent(format, content), content, 0); known {
 			t.Fatal("numeric prev_comm type must not mint a sched_switch payload")
 		}
 		format = donghuStandardSchedSwitchFormat()
 		format.Fields[2].Type = "char"
-		if _, known := renderEventLine(renderContext{}, 1_000_000_000, 0, format, donghuStandardSchedSwitchContent(60)); known {
+		content = donghuStandardSchedSwitchContent(60)
+		if _, known := renderEventBody(decodeEvent(format, content), content, 0); known {
 			t.Fatal("char-declared prev_pid must not mint a scheduler identity")
 		}
-		content := donghuStandardSchedSwitchContent(60)
+		content = donghuStandardSchedSwitchContent(60)
 		content[8] = '\n'
-		if _, known := renderEventLine(renderContext{}, 1_000_000_000, 0, donghuStandardSchedSwitchFormat(), content); known {
+		format = donghuStandardSchedSwitchFormat()
+		if _, known := renderEventBody(decodeEvent(format, content), content, 0); known {
 			t.Fatal("control-bearing prev_comm must not mint a sched_switch payload")
 		}
 		for _, badCG := range [][]byte{
@@ -571,7 +575,8 @@ func TestDonghuDirectRendererCoreFieldsFailClosed(t *testing.T) {
 		for _, missing := range []string{"pname", "prev_tid", "pprio", "pstate", "nname", "next_tid", "nprio"} {
 			format := donghuHarmonySchedSwitchFormat(eventField{Name: "ninfo[8]", Offset: 60, Size: 8})
 			format.Fields = withoutCleanField(format.Fields, missing)
-			_, known := renderEventLine(renderContext{}, 1_000_000_000, 0, format, donghuHarmonySchedSwitchContent(68))
+			content := donghuHarmonySchedSwitchContent(68)
+			_, known := renderEventBody(decodeEvent(format, content), content, 0)
 			if known {
 				t.Fatalf("Harmony sched_switch missing %s must be header-only", missing)
 			}

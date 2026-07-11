@@ -189,7 +189,7 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 		}
 		return Result{}, err
 	}
-	rows, missing, unknown, first, last, err := renderRows(ctx, input, meta)
+	rows, missing, unknown, suppressed, first, last, err := renderRows(ctx, input, meta)
 	if err != nil {
 		return Result{}, err
 	}
@@ -249,6 +249,9 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 	}
 	if unknown > 0 {
 		result.Caveats = append(result.Caveats, fmt.Sprintf("%d event row(s) lacked an official-compatible renderer and were emitted as header-only rows", unknown))
+	}
+	if suppressed > 0 {
+		result.Caveats = append(result.Caveats, fmt.Sprintf("%d raw ftrace event row(s) had a missing, mistyped, duplicate, or truncated common-field envelope and were suppressed without fabricating an idle/PID0 header", suppressed))
 	}
 	result.Caveats = append(result.Caveats, standaloneCaveats...)
 	normalizeResultCollections(&result)
@@ -401,22 +404,23 @@ func scanMetadata(ctx context.Context, path string, size int64) (*traceMetadata,
 	return meta, nil
 }
 
-func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]renderedRow, int, int, uint64, uint64, error) {
+func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]renderedRow, int, int, int, uint64, uint64, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, 0, 0, 0, 0, err
+		return nil, 0, 0, 0, 0, 0, err
 	}
 	defer f.Close()
 	var rows []renderedRow
 	missing := 0
 	unknown := 0
+	suppressed := 0
 	var first uint64
 	var last uint64
 	seq := 0
 	rc := renderContext{cmdlines: meta.cmdlines, tgids: meta.tgids}
 	for _, seg := range meta.segments {
 		if err := ctx.Err(); err != nil {
-			return nil, 0, 0, 0, 0, err
+			return nil, 0, 0, 0, 0, 0, err
 		}
 		if !isRawTraceSegment(seg.Type, meta.header.CPUNum) {
 			continue
@@ -425,7 +429,7 @@ func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]render
 		// RmqConsumerData pages. Treat a remainder as truncation instead of
 		// silently dropping bytes at the end of the segment.
 		if seg.Size%tracePageSize != 0 {
-			return nil, 0, 0, 0, 0, &BuiltinSysDecodeError{
+			return nil, 0, 0, 0, 0, 0, &BuiltinSysDecodeError{
 				Code:        builtinSysDecodePartialPageSegment,
 				FileType:    meta.header.FileType,
 				SegmentType: seg.Type,
@@ -434,11 +438,11 @@ func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]render
 			}
 		}
 		if _, err := f.Seek(seg.Offset, io.SeekStart); err != nil {
-			return nil, 0, 0, 0, 0, err
+			return nil, 0, 0, 0, 0, 0, err
 		}
 		data := make([]byte, seg.Size)
 		if _, err := io.ReadFull(f, data); err != nil {
-			return nil, 0, 0, 0, 0, err
+			return nil, 0, 0, 0, 0, 0, err
 		}
 		for pageOff := 0; pageOff+tracePageSize <= len(data); pageOff += tracePageSize {
 			page := data[pageOff : pageOff+tracePageSize]
@@ -448,7 +452,7 @@ func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]render
 			}
 			maxBodyLen := len(page) - pageHeaderSize
 			if ph.Length > uint64(maxBodyLen) {
-				return nil, 0, 0, 0, 0, &BuiltinSysDecodeError{
+				return nil, 0, 0, 0, 0, 0, &BuiltinSysDecodeError{
 					Code:        builtinSysDecodePageLength,
 					FileType:    meta.header.FileType,
 					SegmentType: seg.Type,
@@ -459,7 +463,7 @@ func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]render
 			body := page[pageHeaderSize : pageHeaderSize+int(ph.Length)]
 			for off := 0; off < len(body); {
 				if len(body)-off < eventHeaderSize {
-					return nil, 0, 0, 0, 0, &BuiltinSysDecodeError{
+					return nil, 0, 0, 0, 0, 0, &BuiltinSysDecodeError{
 						Code:        builtinSysDecodeTruncatedEventHeader,
 						FileType:    meta.header.FileType,
 						SegmentType: seg.Type,
@@ -478,7 +482,7 @@ func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]render
 				contentEnd := contentStart + int(eh.Size)
 				next := contentStart + eh.AlignedSize
 				if contentEnd > len(body) || next > len(body) {
-					return nil, 0, 0, 0, 0, &BuiltinSysDecodeError{
+					return nil, 0, 0, 0, 0, 0, &BuiltinSysDecodeError{
 						Code:        builtinSysDecodeEventBounds,
 						FileType:    meta.header.FileType,
 						SegmentType: seg.Type,
@@ -488,7 +492,7 @@ func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]render
 				}
 				content := body[contentStart:contentEnd]
 				if len(content) < 2 {
-					return nil, 0, 0, 0, 0, &BuiltinSysDecodeError{
+					return nil, 0, 0, 0, 0, 0, &BuiltinSysDecodeError{
 						Code:        builtinSysDecodeEventBounds,
 						FileType:    meta.header.FileType,
 						SegmentType: seg.Type,
@@ -499,7 +503,7 @@ func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]render
 				eventID := int(binary.LittleEndian.Uint16(content[:2]))
 				offsetNS := uint64(eh.TimestampOffsetNS)
 				if ph.TimestampNS > ^uint64(0)-offsetNS {
-					return nil, 0, 0, 0, 0, &BuiltinSysDecodeError{
+					return nil, 0, 0, 0, 0, 0, &BuiltinSysDecodeError{
 						Code:        builtinSysDecodeTimestampOverflow,
 						FileType:    meta.header.FileType,
 						SegmentType: seg.Type,
@@ -516,10 +520,20 @@ func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]render
 				}
 				line, known := renderEventLine(rc, ts, ph.CPU, format, content)
 				if !known {
-					unknown++
 					line = renderEventHeaderLine(rc, ts, ph.CPU, format, content)
 				}
-				if first == 0 || ts < first {
+				if line == "" {
+					// The format was known, but the raw common-field envelope was
+					// not. Keep the record coverage-only: emitting even a header-only
+					// row here would turn missing/mistyped PID bytes into idle PID 0.
+					suppressed++
+					off = next
+					continue
+				}
+				if !known {
+					unknown++
+				}
+				if len(rows) == 0 || ts < first {
 					first = ts
 				}
 				if ts > last {
@@ -531,7 +545,7 @@ func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]render
 			}
 		}
 	}
-	return rows, missing, unknown, first, last, nil
+	return rows, missing, unknown, suppressed, first, last, nil
 }
 
 func writeRows(w io.Writer, rows []renderedRow) error {

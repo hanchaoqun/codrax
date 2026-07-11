@@ -89,6 +89,41 @@ func TestDonghuRendererStructurePinsSingleAuthorities(t *testing.T) {
 	}
 }
 
+func TestSystraceHeaderPIDColumnCanonicalAcrossEmitters(t *testing.T) {
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := "%16s-%" + "-6d ("
+	canonical := "%16s-%" + "-5d ("
+	canonicalCount := 0
+	perfHeaderClampCount := 0
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		body, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		source := string(body)
+		if strings.Contains(source, legacy) {
+			t.Fatalf("%s reintroduced the non-canonical six-column PID formatter", name)
+		}
+		canonicalCount += strings.Count(source, canonical)
+		perfHeaderClampCount += strings.Count(source, "perfTraceHeaderComm(comm)")
+	}
+	// Direct raw, shared structured/SQL, and four standalone perf emitters
+	// deliberately share the Donghu-compatible PID column shape.
+	if canonicalCount != 6 {
+		t.Fatalf("canonical systrace PID formatter authorities=%d, want 6", canonicalCount)
+	}
+	if perfHeaderClampCount != 4 {
+		t.Fatalf("standalone perf header comm clamps=%d, want 4", perfHeaderClampCount)
+	}
+}
+
 func mustReadRendererSource(t *testing.T, path string) string {
 	t.Helper()
 	body, err := os.ReadFile(path)

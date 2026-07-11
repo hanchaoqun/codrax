@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -77,6 +78,19 @@ func traceDBWireIntervalRepresentable(start, end int64) bool {
 }
 
 func prepareTraceDBRenderedRow(tsNS int64, seq int, task string, tid, tgid, cpu int64, body string) (renderedRow, error) {
+	return prepareTraceDBRenderedRowEnvelope(tsNS, seq, task, tid, tgid, cpu, 0, 0, false, body)
+}
+
+// prepareTraceDBRenderedRowWithTraceFlags is the same validated endpoint
+// primitive with an exact ftrace common_flags/common_preempt_count header.
+// Structured ftrace is the only producer that currently owns those typed
+// values; all SQL exporters stay on prepareTraceDBRenderedRow and therefore
+// retain the explicit zero/default header.
+func prepareTraceDBRenderedRowWithTraceFlags(tsNS int64, seq int, task string, tid, tgid, cpu, flags, preemptCount int64, body string) (renderedRow, error) {
+	return prepareTraceDBRenderedRowEnvelope(tsNS, seq, task, tid, tgid, cpu, flags, preemptCount, true, body)
+}
+
+func prepareTraceDBRenderedRowEnvelope(tsNS int64, seq int, task string, tid, tgid, cpu, flags, preemptCount int64, allowUnknownTGID bool, body string) (renderedRow, error) {
 	if seq < 0 {
 		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_sequence"}
 	}
@@ -92,8 +106,14 @@ func prepareTraceDBRenderedRow(tsNS int64, seq int, task string, tid, tgid, cpu 
 	if tgid < 0 || tgid > math.MaxInt32 {
 		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_tgid"}
 	}
-	if (tid == 0) != (tgid == 0) {
+	if tid == 0 && tgid != 0 || tid != 0 && tgid == 0 && !allowUnknownTGID {
 		return renderedRow{}, &traceDBOutputInvariantError{Reason: "incomplete_header_identity"}
+	}
+	if flags < 0 || flags > math.MaxUint8 {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_trace_flags"}
+	}
+	if preemptCount < 0 || preemptCount > math.MaxUint8 {
+		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_preempt_count"}
 	}
 	if !traceDBSinglePhysicalLine(task, true) {
 		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_task"}
@@ -101,7 +121,7 @@ func prepareTraceDBRenderedRow(tsNS int64, seq int, task string, tid, tgid, cpu 
 	if !traceDBSinglePhysicalLine(body, false) {
 		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_body"}
 	}
-	line := traceDBFormatLine(task, tid, tgid, cpu, tsNS, body)
+	line := traceDBFormatLine(task, tid, tgid, cpu, tsNS, flags, preemptCount, body)
 	if len(line) > maxTraceDBSystraceLineBytes {
 		return renderedRow{}, &traceDBOutputInvariantError{Reason: "line_too_long"}
 	}
@@ -122,10 +142,14 @@ func traceDBSinglePhysicalLine(value string, allowBlank bool) bool {
 
 // traceDBFormatLine is deliberately a pure formatter for a validated
 // envelope. Production callers must go through prepareTraceDBRenderedRow.
-func traceDBFormatLine(task string, tid, tgid, cpu, tsNS int64, body string) string {
+func traceDBFormatLine(task string, tid, tgid, cpu, tsNS, flags, preemptCount int64, body string) string {
 	task = traceDBCommName(task, "unknown")
-	return fmt.Sprintf("%16s-%-6d (%5d) [%03d] .... %s: %s",
-		task, tid, tgid, cpu, formatTimestamp(uint64(tsNS)), body)
+	tgidText := strconv.FormatInt(tgid, 10)
+	if tid != 0 && tgid == 0 {
+		tgidText = "-----"
+	}
+	return fmt.Sprintf("%16s-%-5d (%5s) [%03d] %s %s: %s",
+		task, tid, tgidText, cpu, traceFlagsToStr(flags, preemptCount), formatTimestamp(uint64(tsNS)), body)
 }
 
 func traceDBDuplicateSourceIDs(ctx context.Context, tdb *traceDB, table, column string,

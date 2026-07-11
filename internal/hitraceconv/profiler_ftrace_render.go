@@ -10,13 +10,16 @@ import (
 )
 
 type profilerFtraceEventRecord struct {
-	CPU     int64
-	TSNS    uint64
-	TGID    int64
-	PID     int64
-	Comm    string
-	Field   int
-	Payload []byte
+	CPU                  int64
+	TSNS                 uint64
+	TGID                 int64
+	PID                  int64
+	CommonFlags          int64
+	CommonPreemptCount   int64
+	Comm                 string
+	Field                int
+	Payload              []byte
+	EnvelopeDegradations []string
 }
 
 func renderProfilerFtraceStructuredRows(data []byte, seq *int, sink *traceDBRowSink) (int, []TraceDBCoverage, error) {
@@ -47,17 +50,9 @@ func renderProfilerFtraceStructuredRows(data []byte, seq *int, sink *traceDBRowS
 			}
 			continue
 		}
-		tid := event.PID
-		if tid == 0 {
-			tid = event.TGID
-		}
 		task := firstNonEmpty(event.Comm, "unknown")
-		if event.TSNS > math.MaxInt64 {
-			return rows, profilerFtraceEventRenderCoverageList(coverageByField),
-				&traceDBOutputInvariantError{Reason: "invalid_timestamp"}
-		}
-		row, err := prepareTraceDBRenderedRow(int64(event.TSNS), *seq, task, tid,
-			firstNonZero(event.TGID, tid), event.CPU, name+": "+body)
+		row, err := prepareTraceDBRenderedRowWithTraceFlags(int64(event.TSNS), *seq, task, event.PID,
+			event.TGID, event.CPU, event.CommonFlags, event.CommonPreemptCount, name+": "+body)
 		if err != nil {
 			return rows, profilerFtraceEventRenderCoverageList(coverageByField), err
 		}
@@ -100,82 +95,232 @@ func decodeProfilerFtraceStructuredEvents(data []byte) ([]profilerFtraceEventRec
 
 func decodeProfilerFtraceCPUDetailEvents(data []byte) ([]profilerFtraceEventRecord, error) {
 	var cpu uint64
+	cpuCount := 0
+	cpuWrongWire := false
+	var eventPayloads [][]byte
+	eventWrongWire := 0
 	var out []profilerFtraceEventRecord
 	err := walkProtoFields(data, func(field int, wire int, raw []byte, v uint64) error {
 		switch field {
 		case 1:
-			if wire == 0 {
-				cpu = v
+			cpuCount++
+			if wire != 0 {
+				cpuWrongWire = true
+				break
 			}
+			cpu = v
 		case 2:
-			if wire == 2 {
-				events, err := decodeProfilerFtraceEventRecords(cpu, raw)
-				if err != nil {
-					return err
-				}
-				out = append(out, events...)
+			if wire != 2 {
+				eventWrongWire++
+				break
 			}
+			eventPayloads = append(eventPayloads, raw)
 		}
 		return nil
 	})
-	return out, err
+	if err != nil {
+		return []profilerFtraceEventRecord{{
+			EnvelopeDegradations: []string{"envelope_cpu_detail_malformed_wire"},
+		}}, nil
+	}
+	var cpuDegradations []string
+	switch {
+	case cpuCount > 1:
+		cpuDegradations = append(cpuDegradations, "envelope_cpu_duplicate")
+	case cpuWrongWire:
+		cpuDegradations = append(cpuDegradations, "envelope_cpu_wrong_wire")
+	case cpu > uint64(maxTraceDBCPUIndex):
+		cpuDegradations = append(cpuDegradations, "envelope_cpu_out_of_range")
+	}
+	// FtraceParser and FlowController always call set_cpu. Proto3 omits an
+	// exact zero, so absence is CPU 0 only for this pinned producer profile.
+	for _, raw := range eventPayloads {
+		event, decodeErr := decodeProfilerFtraceEventRecord(cpu, raw)
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		event.EnvelopeDegradations = append(event.EnvelopeDegradations, cpuDegradations...)
+		out = append(out, event)
+	}
+	if len(eventPayloads) == 0 && len(cpuDegradations) > 0 {
+		out = append(out, profilerFtraceEventRecord{EnvelopeDegradations: append([]string(nil), cpuDegradations...)})
+	}
+	if eventWrongWire > 0 {
+		out = append(out, profilerFtraceEventRecord{
+			EnvelopeDegradations: []string{"envelope_event_container_wrong_wire"},
+		})
+	}
+	return out, nil
 }
 
-func decodeProfilerFtraceEventRecords(cpu uint64, data []byte) ([]profilerFtraceEventRecord, error) {
-	base := profilerFtraceEventRecord{CPU: int64(cpu)}
-	type payload struct {
-		field int
-		raw   []byte
-	}
-	var payloads []payload
+type profilerProtoEnvelopeField struct {
+	count     int
+	wrongWire bool
+	uintValue uint64
+	bytes     []byte
+}
+
+func decodeProfilerFtraceEventRecord(cpu uint64, data []byte) (profilerFtraceEventRecord, error) {
+	record := profilerFtraceEventRecord{CPU: int64(cpu)}
+	var timestamp, tgid, comm, common profilerProtoEnvelopeField
+	oneofCount := 0
+	oneofWrongWire := false
 	err := walkProtoFields(data, func(field int, wire int, raw []byte, v uint64) error {
 		switch field {
 		case 1:
-			if wire == 0 {
-				base.TSNS = v
-			}
+			profilerProtoEnvelopeSetUint(&timestamp, wire, v)
 		case 2:
-			if wire == 0 {
-				base.TGID = int64(v)
-			}
+			profilerProtoEnvelopeSetUint(&tgid, wire, v)
 		case 3:
-			if wire == 2 {
-				base.Comm = string(raw)
-			}
+			profilerProtoEnvelopeSetBytes(&comm, wire, raw)
 		case 50:
-			if wire == 2 {
-				base.PID = decodeProfilerFtraceCommonPID(raw)
-			}
+			profilerProtoEnvelopeSetBytes(&common, wire, raw)
 		default:
-			if field >= 100 && wire == 2 {
-				payloads = append(payloads, payload{field: field, raw: raw})
+			if field >= 100 {
+				oneofCount++
+				if wire != 2 {
+					oneofWrongWire = true
+					break
+				}
+				record.Field = field
+				record.Payload = raw
 			}
 		}
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		record.Field = 0
+		record.Payload = nil
+		record.EnvelopeDegradations = []string{"envelope_event_malformed_wire"}
+		return record, nil
 	}
-	out := make([]profilerFtraceEventRecord, 0, len(payloads))
-	for _, item := range payloads {
-		record := base
-		record.Field = item.field
-		record.Payload = item.raw
-		out = append(out, record)
+	if reason := profilerProtoEnvelopeOptionalIssue("envelope_timestamp", timestamp); reason != "" {
+		record.EnvelopeDegradations = append(record.EnvelopeDegradations, reason)
+	} else {
+		record.TSNS = timestamp.uintValue
+		if record.TSNS > math.MaxInt64 {
+			record.EnvelopeDegradations = append(record.EnvelopeDegradations, "envelope_timestamp_out_of_range")
+		}
 	}
-	return out, nil
+	if reason := profilerProtoEnvelopeOptionalIssue("envelope_tgid", tgid); reason != "" {
+		record.EnvelopeDegradations = append(record.EnvelopeDegradations, reason)
+	} else if tgid.uintValue > math.MaxInt32 {
+		record.EnvelopeDegradations = append(record.EnvelopeDegradations, "envelope_tgid_out_of_range")
+	} else {
+		record.TGID = int64(tgid.uintValue)
+	}
+	if reason := profilerProtoEnvelopeOptionalIssue("envelope_comm", comm); reason != "" {
+		record.EnvelopeDegradations = append(record.EnvelopeDegradations, reason)
+	} else {
+		record.Comm = string(comm.bytes)
+		if comm.count == 1 && !traceDBSinglePhysicalLine(record.Comm, true) {
+			record.EnvelopeDegradations = append(record.EnvelopeDegradations, "envelope_comm_invalid")
+		}
+	}
+	if reason := profilerProtoEnvelopeRequiredIssue("envelope_common_fields", common); reason != "" {
+		record.EnvelopeDegradations = append(record.EnvelopeDegradations, reason)
+	} else {
+		pid, flags, preempt, reasons := decodeProfilerFtraceCommonFields(common.bytes)
+		record.PID = pid
+		record.CommonFlags = flags
+		record.CommonPreemptCount = preempt
+		record.EnvelopeDegradations = append(record.EnvelopeDegradations, reasons...)
+	}
+	switch {
+	case oneofCount == 0:
+		record.EnvelopeDegradations = append(record.EnvelopeDegradations, "envelope_oneof_missing")
+	case oneofCount > 1:
+		record.Field = 0
+		record.Payload = nil
+		record.EnvelopeDegradations = append(record.EnvelopeDegradations, "envelope_oneof_multiple")
+	case oneofWrongWire:
+		record.Field = 0
+		record.Payload = nil
+		record.EnvelopeDegradations = append(record.EnvelopeDegradations, "envelope_oneof_wrong_wire")
+	}
+	// Upstream only resolves/sets TGID for a non-idle PID and may honestly
+	// leave it at proto3 zero when the process map has no answer. Preserve that
+	// as the systrace "-----" TGID, never fabricate TGID=TID. The inverse
+	// shape (idle PID with a positive TGID) is not producer-reachable.
+	if record.PID == 0 && record.TGID != 0 {
+		record.EnvelopeDegradations = append(record.EnvelopeDegradations, "envelope_identity_incomplete")
+	}
+	return record, nil
 }
 
-func decodeProfilerFtraceCommonPID(data []byte) int64 {
-	var pid int64
-	_ = walkProtoFields(data, func(field int, wire int, raw []byte, v uint64) error {
-		if field == 4 && wire == 0 {
-			pid = int64(v)
+func profilerProtoEnvelopeSetUint(field *profilerProtoEnvelopeField, wire int, value uint64) {
+	field.count++
+	if wire != 0 {
+		field.wrongWire = true
+		return
+	}
+	field.uintValue = value
+}
+
+func profilerProtoEnvelopeSetBytes(field *profilerProtoEnvelopeField, wire int, value []byte) {
+	field.count++
+	if wire != 2 {
+		field.wrongWire = true
+		return
+	}
+	field.bytes = value
+}
+
+func profilerProtoEnvelopeOptionalIssue(prefix string, field profilerProtoEnvelopeField) string {
+	if field.count > 1 {
+		return prefix + "_duplicate"
+	}
+	if field.wrongWire {
+		return prefix + "_wrong_wire"
+	}
+	return ""
+}
+
+func profilerProtoEnvelopeRequiredIssue(prefix string, field profilerProtoEnvelopeField) string {
+	if field.count == 0 {
+		return prefix + "_missing"
+	}
+	return profilerProtoEnvelopeOptionalIssue(prefix, field)
+}
+
+func decodeProfilerFtraceCommonFields(data []byte) (pid, flags, preempt int64, reasons []string) {
+	var fields [5]profilerProtoEnvelopeField
+	err := walkProtoFields(data, func(field int, wire int, raw []byte, v uint64) error {
+		if field >= 1 && field <= 4 {
+			profilerProtoEnvelopeSetUint(&fields[field], wire, v)
 		}
 		_ = raw
 		return nil
 	})
-	return pid
+	if err != nil {
+		return 0, 0, 0, []string{"envelope_common_fields_malformed_wire"}
+	}
+	for _, item := range []struct {
+		field  int
+		prefix string
+	}{
+		{field: 1, prefix: "envelope_common_type"},
+		{field: 2, prefix: "envelope_common_flags"},
+		{field: 3, prefix: "envelope_common_preempt_count"},
+		{field: 4, prefix: "envelope_common_pid"},
+	} {
+		if reason := profilerProtoEnvelopeOptionalIssue(item.prefix, fields[item.field]); reason != "" {
+			reasons = append(reasons, reason)
+		}
+	}
+	if fields[1].count == 1 && !fields[1].wrongWire && fields[1].uintValue > math.MaxUint16 {
+		reasons = append(reasons, "envelope_common_type_source_width")
+	}
+	if fields[2].uintValue > math.MaxUint8 {
+		reasons = append(reasons, "envelope_common_flags_source_width")
+	}
+	if fields[3].uintValue > math.MaxUint8 {
+		reasons = append(reasons, "envelope_common_preempt_count_source_width")
+	}
+	if fields[4].count == 1 && !fields[4].wrongWire && fields[4].uintValue > math.MaxInt32 {
+		reasons = append(reasons, "envelope_common_pid_out_of_range")
+	}
+	return int64(fields[4].uintValue), int64(fields[2].uintValue), int64(fields[3].uintValue), reasons
 }
 
 func renderProfilerFtraceEventBody(event profilerFtraceEventRecord) (string, string, bool) {
@@ -395,6 +540,9 @@ func protoString(data []byte, field int) string {
 }
 
 func renderProfilerFtraceEventBodyWithAudit(event profilerFtraceEventRecord) (string, string, bool, []string) {
+	if len(event.EnvelopeDegradations) > 0 {
+		return "", "", false, append([]string(nil), event.EnvelopeDegradations...)
+	}
 	coreOK, degradations := profilerFtraceCoreWireAudit(event)
 	if !coreOK {
 		return "", "", false, degradations
@@ -568,6 +716,20 @@ func protoScalarString(data []byte, field int) (string, protoScalarState, string
 func profilerFtraceEventRenderCoverage(coverageByField map[int]*TraceDBCoverage, field int) *TraceDBCoverage {
 	if coverage, ok := coverageByField[field]; ok {
 		return coverage
+	}
+	if field == 0 {
+		coverage := TraceDBCoverage{
+			Family:  "builtin_modern_ftrace:envelope",
+			Table:   "__event_envelope__",
+			Role:    "unsupported_input",
+			Found:   true,
+			Skipped: "malformed or ambiguous structured ftrace event envelope",
+			FieldSources: map[string]string{
+				"schema_profile": "TracePluginResult.ftrace_cpu_detail -> FtraceCpuDetailMsg -> exactly one FtraceEvent oneof payload",
+			},
+		}
+		coverageByField[field] = &coverage
+		return &coverage
 	}
 	desc, ok := profilerFtraceEventDescriptors[field]
 	coverage := TraceDBCoverage{Found: true, Role: "query_ready_export"}

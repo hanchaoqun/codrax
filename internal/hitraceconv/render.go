@@ -35,7 +35,10 @@ type renderContext struct {
 
 func renderEventLine(ctx renderContext, tsNS uint64, cpu int, format eventFormat, content []byte) (string, bool) {
 	ev := decodeEvent(format, content)
-	prefix := renderEventPrefix(ctx, tsNS, cpu, ev)
+	prefix, envelopeOK := renderEventPrefix(ctx, tsNS, cpu, ev)
+	if !envelopeOK {
+		return "", false
+	}
 	body, known := renderEventBody(ev, content, cpu)
 	name := format.Name
 	if name == "" {
@@ -45,35 +48,93 @@ func renderEventLine(ctx renderContext, tsNS uint64, cpu int, format eventFormat
 }
 
 func renderEventHeaderLine(ctx renderContext, tsNS uint64, cpu int, format eventFormat, content []byte) string {
-	return renderEventPrefix(ctx, tsNS, cpu, decodeEvent(format, content))
+	prefix, ok := renderEventPrefix(ctx, tsNS, cpu, decodeEvent(format, content))
+	if !ok {
+		return ""
+	}
+	return prefix
 }
 
-func renderEventPrefix(ctx renderContext, tsNS uint64, cpu int, ev decodedEvent) string {
-	pid := int(intField(ev, "common_pid", false))
+func renderEventPrefix(ctx renderContext, tsNS uint64, cpu int, ev decodedEvent) (string, bool) {
+	pid, flags, preemptCount, ok := decodeDirectFtraceCommonEnvelope(ev)
+	if !ok || !validTraceDBCPUIndex(int64(cpu)) {
+		return "", false
+	}
 	comm := ctx.cmdlines[pid]
 	if pid == 0 {
 		comm = "<idle>"
-	} else if comm == "" {
+	} else if comm == "" || !traceDBSinglePhysicalLine(comm, true) {
 		comm = "<...>"
+	} else {
+		// comm is display-only. Match the shared structured/SQL ftrace
+		// formatter's kernel TASK_COMM_LEN-compatible 15-rune projection;
+		// never let a long or renamed display value alter the typed PID/TGID.
+		comm = traceDBCommName(comm, "<...>")
 	}
 	tgidText := "-----"
-	if tgid, ok := ctx.tgids[pid]; ok {
+	if tgid, found := ctx.tgids[pid]; pid > 0 && found && tgid > 0 && int64(tgid) <= math.MaxInt32 {
 		tgidText = strconv.Itoa(tgid)
 	}
-	flags := traceFlagsToStr(intField(ev, "common_flags", false), intField(ev, "common_preempt_count", false))
-	return fmt.Sprintf("%16s-%-6d (%5s) [%03d] %s %s: ",
-		comm, pid, tgidText, cpu, flags, formatTimestamp(tsNS))
+	return fmt.Sprintf("%16s-%-5d (%5s) [%03d] %s %s: ",
+		comm, pid, tgidText, cpu, traceFlagsToStr(flags, preemptCount), formatTimestamp(tsNS)), true
+}
+
+// decodeDirectFtraceCommonEnvelope is the sole raw-prefix admission point.
+// The RMQ content bytes are not protobuf: a missing, aliased, mistyped,
+// duplicate or truncated common field has no default-value semantics and must
+// never become a plausible CPU0/idle header.
+func decodeDirectFtraceCommonEnvelope(ev decodedEvent) (pid int, flags, preemptCount int64, ok bool) {
+	pidValue, pidOK := directFtraceCommonField(ev, "common_pid", 4, 4, true)
+	flagsValue, flagsOK := directFtraceCommonField(ev, "common_flags", 2, 1, false)
+	preemptValue, preemptOK := directFtraceCommonField(ev, "common_preempt_count", 3, 1, false)
+	if !pidOK || !flagsOK || !preemptOK || pidValue < 0 || pidValue > math.MaxInt32 {
+		return 0, 0, 0, false
+	}
+	return int(pidValue), flagsValue, preemptValue, true
+}
+
+func directFtraceCommonField(ev decodedEvent, name string, offset, size int, signed bool) (int64, bool) {
+	field, raw, ok := uniqueFieldByCleanNames(ev, name)
+	if !ok || field.Name != name || field.Offset != offset || field.Size != size || field.Signed != signed || len(raw) != size {
+		return 0, false
+	}
+	lowerType := strings.ToLower(strings.Join(strings.Fields(field.Type), " "))
+	switch name {
+	case "common_pid":
+		switch lowerType {
+		case "int", "signed int", "int32_t", "__s32", "s32", "pid_t":
+		default:
+			return 0, false
+		}
+	case "common_flags", "common_preempt_count":
+		switch lowerType {
+		case "unsigned char", "uint8_t", "__u8", "u8":
+		default:
+			return 0, false
+		}
+	default:
+		return 0, false
+	}
+	return intFromBytes(raw, signed), true
 }
 
 func decodeEvent(format eventFormat, content []byte) decodedEvent {
 	fields := make(map[string][]byte, len(format.Fields))
 	for _, f := range format.Fields {
-		if f.Offset < 0 || f.Size <= 0 || f.Offset+f.Size > len(content) {
+		start, end, ok := eventFieldBounds(f.Offset, f.Size, len(content))
+		if !ok {
 			continue
 		}
-		fields[f.Name] = content[f.Offset : f.Offset+f.Size]
+		fields[f.Name] = content[start:end]
 	}
 	return decodedEvent{format: format, fields: fields}
+}
+
+func eventFieldBounds(offset, size, limit int) (int, int, bool) {
+	if offset < 0 || size <= 0 || offset > limit || size > limit-offset {
+		return 0, 0, false
+	}
+	return offset, offset + size, true
 }
 
 func renderEventBody(ev decodedEvent, content []byte, cpu int) (string, bool) {
@@ -908,7 +969,12 @@ func dataLocField(f eventField) bool {
 func eventContent(ev decodedEvent) []byte {
 	limit := 0
 	for _, f := range ev.format.Fields {
-		if end := f.Offset + f.Size; end > limit {
+		raw, exists := ev.fields[f.Name]
+		if !exists {
+			continue
+		}
+		_, end, ok := eventFieldBounds(f.Offset, len(raw), tracePageSize)
+		if ok && end > limit {
 			limit = end
 		}
 	}
@@ -917,8 +983,11 @@ func eventContent(ev decodedEvent) []byte {
 	}
 	content := make([]byte, limit)
 	for _, f := range ev.format.Fields {
-		if b := ev.fields[f.Name]; len(b) > 0 && f.Offset >= 0 && f.Offset+len(b) <= len(content) {
-			copy(content[f.Offset:f.Offset+len(b)], b)
+		if b, exists := ev.fields[f.Name]; exists {
+			start, end, ok := eventFieldBounds(f.Offset, len(b), len(content))
+			if ok {
+				copy(content[start:end], b)
+			}
 		}
 	}
 	return content

@@ -911,7 +911,9 @@ func TestRenderHarmonySchedSwitchKeepsNextInfoAndCGroup(t *testing.T) {
 		ID:   10,
 		Name: "sched_switch",
 		Fields: []eventField{
-			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Type: "unsigned char", Name: "common_flags", Offset: 2, Size: 1},
+			{Type: "unsigned char", Name: "common_preempt_count", Offset: 3, Size: 1},
+			{Type: "int", Name: "common_pid", Offset: 4, Size: 4, Signed: true},
 			{Name: "pname[16]", Offset: 8, Size: 16},
 			{Name: "prev_tid", Offset: 24, Size: 4, Signed: true},
 			{Name: "pprio", Offset: 28, Size: 4, Signed: true},
@@ -953,7 +955,9 @@ func TestRenderHarmonySchedSwitchNinfoIncludesCGIDWhenNoCGroup(t *testing.T) {
 		ID:   11,
 		Name: "sched_switch",
 		Fields: []eventField{
-			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Type: "unsigned char", Name: "common_flags", Offset: 2, Size: 1},
+			{Type: "unsigned char", Name: "common_preempt_count", Offset: 3, Size: 1},
+			{Type: "int", Name: "common_pid", Offset: 4, Size: 4, Signed: true},
 			{Name: "pname[16]", Offset: 8, Size: 16},
 			{Name: "prev_tid", Offset: 24, Size: 4, Signed: true},
 			{Name: "pprio", Offset: 28, Size: 4, Signed: true},
@@ -987,7 +991,9 @@ func TestRenderMMFilemapPageCacheUsesNumericFields(t *testing.T) {
 		ID:   30,
 		Name: "mm_filemap_add_to_page_cache",
 		Fields: []eventField{
-			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Type: "unsigned char", Name: "common_flags", Offset: 2, Size: 1},
+			{Type: "unsigned char", Name: "common_preempt_count", Offset: 3, Size: 1},
+			{Type: "int", Name: "common_pid", Offset: 4, Size: 4, Signed: true},
 			{Name: "s_dev", Offset: 8, Size: 8},
 			{Name: "i_ino", Offset: 16, Size: 8},
 			{Name: "index", Offset: 24, Size: 8},
@@ -1016,7 +1022,9 @@ func TestGenericIntegerFieldsDoNotBecomePrintableStrings(t *testing.T) {
 		ID:   31,
 		Name: "vendor_numeric",
 		Fields: []eventField{
-			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Type: "unsigned char", Name: "common_flags", Offset: 2, Size: 1},
+			{Type: "unsigned char", Name: "common_preempt_count", Offset: 3, Size: 1},
+			{Type: "int", Name: "common_pid", Offset: 4, Size: 4, Signed: true},
 			{Name: "pfn", Offset: 8, Size: 4},
 		},
 	}
@@ -1035,7 +1043,9 @@ func TestRenderDataLocStrings(t *testing.T) {
 		ID:   20,
 		Name: "tracing_mark_write",
 		Fields: []eventField{
-			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Type: "unsigned char", Name: "common_flags", Offset: 2, Size: 1},
+			{Type: "unsigned char", Name: "common_preempt_count", Offset: 3, Size: 1},
+			{Type: "int", Name: "common_pid", Offset: 4, Size: 4, Signed: true},
 			{Type: "__data_loc char[]", Name: "buf", Offset: 8, Size: 4},
 		},
 	}
@@ -1056,7 +1066,9 @@ func TestGenericDataLocStringIsPreserved(t *testing.T) {
 		ID:   21,
 		Name: "vendor_dynamic",
 		Fields: []eventField{
-			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Type: "unsigned char", Name: "common_flags", Offset: 2, Size: 1},
+			{Type: "unsigned char", Name: "common_preempt_count", Offset: 3, Size: 1},
+			{Type: "int", Name: "common_pid", Offset: 4, Size: 4, Signed: true},
 			{Type: "__data_loc char[]", Name: "message", Offset: 8, Size: 4},
 		},
 	}
@@ -1113,10 +1125,10 @@ func TestOfficialSystraceLineFormatUsesCommonFlagsAndIdleName(t *testing.T) {
 		ID:   50,
 		Name: "irq_handler_exit",
 		Fields: []eventField{
-			{Name: "common_type", Offset: 0, Size: 2},
-			{Name: "common_flags", Offset: 2, Size: 1},
-			{Name: "common_preempt_count", Offset: 3, Size: 1},
-			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Type: "unsigned short", Name: "common_type", Offset: 0, Size: 2},
+			{Type: "unsigned char", Name: "common_flags", Offset: 2, Size: 1},
+			{Type: "unsigned char", Name: "common_preempt_count", Offset: 3, Size: 1},
+			{Type: "int", Name: "common_pid", Offset: 4, Size: 4, Signed: true},
 			{Name: "irq", Offset: 8, Size: 4, Signed: true},
 			{Name: "ret", Offset: 12, Size: 4, Signed: true},
 		},
@@ -1777,6 +1789,20 @@ func syntheticIOEventFormat() string {
 
 func syntheticFormatBlock(name string, id int, fields []string) []string {
 	out := []string{nameLine(name), fmt.Sprintf("ID: %d", id), "format:"}
+	hasCommonPID := false
+	hasCommonFlags := false
+	hasCommonPreempt := false
+	for _, field := range fields {
+		hasCommonPID = hasCommonPID || strings.Contains(field, " common_pid;")
+		hasCommonFlags = hasCommonFlags || strings.Contains(field, " common_flags;")
+		hasCommonPreempt = hasCommonPreempt || strings.Contains(field, " common_preempt_count;")
+	}
+	if hasCommonPID && !hasCommonFlags && !hasCommonPreempt {
+		out = append(out,
+			syntheticField("unsigned char", "common_flags", 2, 1, false),
+			syntheticField("unsigned char", "common_preempt_count", 3, 1, false),
+		)
+	}
 	out = append(out, fields...)
 	out = append(out, `print fmt: "synthetic"`, "")
 	return out

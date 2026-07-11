@@ -77,10 +77,10 @@ func TestExportTraceDBRawFtraceStrictScalarsCPU0ArgsetsAndTIDReuse(t *testing.T)
 	}
 	body := string(bodyBytes)
 	for _, want := range []string{
-		"old-renamed-42     (  100) [000]", // display-name drift does not split hard identity; CPU0 remains explicit
-		"old-renamed-42     (  100) [007]", // missing CPU uses exact running witness
-		"new-name-42     (  200) [008]",    // Exact PID narrows canonical candidates; hint/name do not select a generation.
-		"old-renamed-42     (  100) [008]", // A late timestamp cannot override the row's exact PID with a start_ts heuristic.
+		"old-renamed-42    (  100) [000]", // display-name drift does not split hard identity; CPU0 remains explicit
+		"old-renamed-42    (  100) [007]", // missing CPU uses exact running witness
+		"new-name-42    (  200) [008]",    // Exact PID narrows canonical candidates; hint/name do not select a generation.
+		"old-renamed-42    (  100) [008]", // A late timestamp cannot override the row's exact PID with a start_ts heuristic.
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("strict raw output missing %q:\n%s", want, body)
