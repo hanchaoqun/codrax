@@ -115,7 +115,7 @@ func exportTraceDBSchedulerFamilies(ctx context.Context, tdb *traceDB, sink *tra
 		return coverage, err
 	}
 	stageStart = time.Now()
-	wakeupCoverage, err := exportTraceDBWakeups(ctx, tdb, sink, index, rawWakeups, starts, running)
+	wakeupCoverage, err := exportTraceDBWakeups(ctx, tdb, sink, authority, rawWakeups, starts, running)
 	traceDBSetCoverageElapsed(&wakeupCoverage, stageStart)
 	coverage = append(coverage, wakeupCoverage)
 	if err != nil {
@@ -263,12 +263,13 @@ func exportTraceDBSchedSwitch(ctx context.Context, tdb *traceDB, sink *traceDBRo
 	return coverage, nil
 }
 
-func exportTraceDBWakeups(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, index traceDBThreadIndex, rawWakeups []traceDBRawWakeup, starts traceDBSchedStartIndex, running traceDBSchedulerRunningIndex) (TraceDBCoverage, error) {
+func exportTraceDBWakeups(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, authority traceDBSchedulerAuthority, rawWakeups []traceDBRawWakeup, starts traceDBSchedStartIndex, running traceDBSchedulerRunningIndex) (TraceDBCoverage, error) {
 	coverage, err := tdb.inspectCoverage(ctx, "scheduler", "instant", []string{"ts", "name", "ref", "wakeup_from", "ref_type"})
 	coverage.FieldSources = map[string]string{
 		"header_cpu":                "thread_state.Running.cpu",
 		"priority":                  "field-level optional inference from the first audited sched_slice at/after the wakeup; wire provenance marks it non-exact and hard priority-inversion gates must not consume it",
 		"running_lifecycle":         "scheduler_lifecycle_gated Running index from the same collector authority; emitter CPU requires a half-open generation-valid interval",
+		"wakeup_endpoints":          "after unique raw/instant matching, wakee and waker each require non-idle thread plus positive-process lifecycle point admission from the same authority",
 		"raw_identity.sched_waking": "raw.itid==instant.wakeup_from",
 		"raw_identity.sched_wakeup": "producer_shape(raw.itid==instant.ref|instant.wakeup_from)+unique_bipartite_matching",
 		"sched_wakeup_new":          "instant name preserved; pairs against the upstream raw sched_wakeup shape through one closed canonical matching kind",
@@ -346,14 +347,34 @@ func exportTraceDBWakeups(ctx context.Context, tdb *traceDB, sink *traceDBRowSin
 		for instantIndex, rawIndex := range matching {
 			instant := instants[instantIndex]
 			raw := raws[rawIndex]
-			woken, wokenOK := index.ByITID[instant.Ref]
-			if !wokenOK {
-				skipped["missing_wakee_thread"]++
+			woken, _, wakeeResolution := authority.resolveThreadSubject(instant.Ref)
+			if wakeeResolution != traceDBSchedulerThreadResolved {
+				if instant.Ref == 0 {
+					skipped["idle_wakee_endpoint_forbidden"]++
+				} else if wakeeResolution == traceDBSchedulerThreadMissing {
+					skipped["missing_wakee_thread"]++
+				} else {
+					skipped["invalid_or_ambiguous_wakee_identity"]++
+				}
 				continue
 			}
-			waker, wakerOK := index.ByITID[instant.WakeupFrom]
-			if !wakerOK {
-				skipped["missing_waker_thread"]++
+			waker, wakerProcess, wakerResolution := authority.resolveThreadSubject(instant.WakeupFrom)
+			if wakerResolution != traceDBSchedulerThreadResolved {
+				if instant.WakeupFrom == 0 {
+					skipped["idle_waker_endpoint_forbidden"]++
+				} else if wakerResolution == traceDBSchedulerThreadMissing {
+					skipped["missing_waker_thread"]++
+				} else {
+					skipped["invalid_or_ambiguous_waker_identity"]++
+				}
+				continue
+			}
+			if !authority.threadPointAllows(instant.Ref, instant.TS) {
+				skipped["lifecycle_rejected_wakee_endpoint"]++
+				continue
+			}
+			if !authority.threadPointAllows(instant.WakeupFrom, instant.TS) {
+				skipped["lifecycle_rejected_waker_endpoint"]++
 				continue
 			}
 			eventCPU, runningStatus := running.lookupCPUAt(instant.WakeupFrom, instant.TS)
@@ -373,7 +394,6 @@ func exportTraceDBWakeups(ctx context.Context, tdb *traceDB, sink *traceDBRowSin
 				continue
 			}
 			targetPrio, priorityKnown := traceDBNextSchedPriority(starts, instant.Ref, instant.TS)
-			wakerProcess := index.Processes[waker.IPID]
 			body := fmt.Sprintf("%s: comm=%s pid=%d target_cpu=%03d codrax_prio_source=unknown",
 				instant.Name, traceDBCommName(woken.Name, "unknown"), woken.TID, raw.TargetCPU)
 			if priorityKnown {

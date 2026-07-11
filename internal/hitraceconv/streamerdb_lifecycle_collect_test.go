@@ -679,6 +679,9 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 		"loadExtendedLegacyRunningIntervals": true,
 		"newTraceDBSchedulerRunningIndex":    true,
 		"lookupCPUAt":                        true,
+		"exportTraceDBWakeups":               true,
+		"resolveThreadSubject":               true,
+		"threadPointAllows":                  true,
 		"queryTraceDBSchedSliceRows":         true,
 		"scanTraceDBSchedSourceRow":          true,
 		"traceDBStrictInternalID":            true,
@@ -690,6 +693,7 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 	}
 	strictScannerAssignments := 0
 	strictSchedStartAssignments := 0
+	wakeupEndpointCalls := map[string]int{}
 	paths, err := filepath.Glob(filepath.Join(dir, "*.go"))
 	if err != nil {
 		t.Fatal(err)
@@ -720,7 +724,7 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 					case "traceDBThreadIndex":
 						if function.Name.Name == "exportTraceDBSchedSwitch" || function.Name.Name == "auditTraceDBSchedSwitchRows" ||
 							function.Name.Name == "scanTraceDBSchedSourceRow" || function.Name.Name == "loadSchedStarts" ||
-							function.Name.Name == "loadSchedulerRunningIndex" {
+							function.Name.Name == "loadSchedulerRunningIndex" || function.Name.Name == "exportTraceDBWakeups" {
 							t.Fatalf("scheduler authority consumer %s accepts a raw thread index", function.Name.Name)
 						}
 					}
@@ -728,7 +732,7 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 			}
 			if function.Name.Name == "exportTraceDBSchedSwitch" || function.Name.Name == "auditTraceDBSchedSwitchRows" ||
 				function.Name.Name == "scanTraceDBSchedSourceRow" || function.Name.Name == "loadSchedStarts" ||
-				function.Name.Name == "loadSchedulerRunningIndex" {
+				function.Name.Name == "loadSchedulerRunningIndex" || function.Name.Name == "exportTraceDBWakeups" {
 				if authorityParams != 1 {
 					t.Fatalf("scheduler consumer %s authority params=%d, want 1", function.Name.Name, authorityParams)
 				}
@@ -770,7 +774,8 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 					}
 				case *ast.SelectorExpr:
 					if (function.Name.Name == "scanTraceDBSchedSourceRow" || function.Name.Name == "loadSchedStarts" ||
-						function.Name.Name == "traceDBNextSchedMeta") && typed.Sel.Name == "identities" {
+						function.Name.Name == "traceDBNextSchedMeta" || function.Name.Name == "exportTraceDBWakeups") &&
+						typed.Sel.Name == "identities" {
 						t.Fatalf("scheduler lifecycle consumer %s reopened raw authority identities", function.Name.Name)
 					}
 					if function.Name.Name == "exportTraceDBWakeups" &&
@@ -791,6 +796,47 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 					if function.Name.Name == "exportTraceDBWakeups" &&
 						(name == "traceDBKnownCPUAt" || name == "traceDBCPUAt") {
 						t.Fatalf("wakeup exporter bypassed typed Running lookup through %s", name)
+					}
+					if function.Name.Name == "exportTraceDBWakeups" &&
+						(name == "resolveThreadSubject" || name == "threadPointAllows") {
+						method, methodOK := typed.Fun.(*ast.SelectorExpr)
+						receiver, receiverOK := func() (*ast.Ident, bool) {
+							if !methodOK {
+								return nil, false
+							}
+							ident, ok := method.X.(*ast.Ident)
+							return ident, ok
+						}()
+						endpoint := func(argument ast.Expr) (string, bool) {
+							selector, ok := argument.(*ast.SelectorExpr)
+							if !ok {
+								return "", false
+							}
+							owner, ok := selector.X.(*ast.Ident)
+							return selector.Sel.Name, ok && owner.Name == "instant"
+						}
+						if !receiverOK || receiver.Name != "authority" || len(typed.Args) == 0 {
+							t.Fatalf("wakeup %s call does not use the shared authority and typed endpoint", name)
+						}
+						field, fieldOK := endpoint(typed.Args[0])
+						if !fieldOK || (field != "Ref" && field != "WakeupFrom") {
+							t.Fatalf("wakeup %s call uses an unexpected endpoint", name)
+						}
+						if name == "resolveThreadSubject" {
+							if len(typed.Args) != 1 {
+								t.Fatalf("wakeup resolve endpoint args=%d, want 1", len(typed.Args))
+							}
+							wakeupEndpointCalls["resolve:"+field]++
+						} else {
+							if len(typed.Args) != 2 {
+								t.Fatalf("wakeup point endpoint args=%d, want 2", len(typed.Args))
+							}
+							timestamp, timestampOK := endpoint(typed.Args[1])
+							if !timestampOK || timestamp != "TS" {
+								t.Fatalf("wakeup point endpoint does not use instant.TS")
+							}
+							wakeupEndpointCalls["point:"+field]++
+						}
 					}
 					if name == "schedulerSubjectFromExactITID" &&
 						(function.Name.Name == "scanTraceDBSchedSourceRow" || function.Name.Name == "loadSchedStarts") {
@@ -833,6 +879,16 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 	assertCallSites("loadExtendedLegacyRunningIntervals", map[string]int{"exportTraceDBExtendedFamilies": 1})
 	assertCallSites("newTraceDBSchedulerRunningIndex", map[string]int{"loadSchedulerRunningIndex": 1})
 	assertCallSites("lookupCPUAt", map[string]int{"exportTraceDBWakeups": 1, "knownCPUAt": 1})
+	assertCallSites("exportTraceDBWakeups", map[string]int{"exportTraceDBSchedulerFamilies": 1})
+	wantWakeupEndpoints := map[string]int{
+		"resolve:Ref":        1,
+		"resolve:WakeupFrom": 1,
+		"point:Ref":          1,
+		"point:WakeupFrom":   1,
+	}
+	if !reflect.DeepEqual(wakeupEndpointCalls, wantWakeupEndpoints) {
+		t.Fatalf("wakeup endpoint gates=%v, want %v", wakeupEndpointCalls, wantWakeupEndpoints)
+	}
 	assertCallSites("queryTraceDBSchedSliceRows", map[string]int{"auditTraceDBSchedSwitchRows": 1, "exportTraceDBSchedSwitch": 1})
 	assertCallSites("scanTraceDBSchedSourceRow", map[string]int{"auditTraceDBSchedSwitchRows": 1, "exportTraceDBSchedSwitch": 1})
 	assertCallSites("schedulerSubjectFromExactITID", map[string]int{"loadSchedStarts": 1, "newTraceDBSchedulerRunningIndex": 1, "scanTraceDBSchedSourceRow": 1})

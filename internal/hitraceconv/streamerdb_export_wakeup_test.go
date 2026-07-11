@@ -76,7 +76,7 @@ func TestTraceDBWakeupLifecycleRejectedRunningCPUSuppressesEdge(t *testing.T) {
 		"INSERT INTO raw VALUES (1, 1000, 'sched_wakeup', 7, 1)",
 		"CREATE TABLE thread_state (itid INT, ts INT, dur INT, cpu INT, state TEXT)",
 		"INSERT INTO thread_state VALUES (2, 900, 200, 2, 'Running')",
-		"INSERT INTO thread_state VALUES (2, 950, 1, 2, 'X')",
+		"INSERT INTO thread_state VALUES (2, 950, 1, 2, ' x ')",
 	})
 	if strings.Contains(body, "sched_wakeup:") {
 		t.Fatalf("lifecycle-invalid emitter Running lane minted a wakeup edge:\n%s", body)
