@@ -394,7 +394,14 @@ type Index struct {
 	// full-artifact scheduler carry-in state.
 	RelationScoped    bool
 	relationScopeTIDs map[int]bool
-	IndexTimeStart    float64
+	// platformSurfaces is the per-trace platform-detection input record
+	// (W-1 修根, platform_surfaces.go): stamped at build time (per-file
+	// anchor record preferred, else this build's own full-parse vote;
+	// composite bundles OR-merge children). Query-time platform resolution
+	// consumes THIS record — never a per-query window/filter-scoped event
+	// subset — so every view of one trace answers with one label.
+	platformSurfaces platformSurfaceScan
+	IndexTimeStart   float64
 	IndexTimeEnd      float64
 	IndexLineStart    int
 	IndexLineEnd      int

@@ -255,9 +255,15 @@ func TestCov4BadgeNegativeGates(t *testing.T) {
 		MergedCount: 3, MergedMaxMS: 2.0, ImpactMS: 2.0, EffectiveImpactMS: 2.0,
 		ChainRelevance: "on_chain", Confidence: 0.5,
 	})
-	// A ◇ stanza seat (the opendir_792 witness shape: the adjacent-lane
-	// rank#5 row sat bare while only the tree #1 wore its badge): the
-	// stanza surface wears its seat's glyph like every other surface.
+	// A ◇ stanza seat with a real engine rank#5.
+	// EVOLUTION RECORD (CLOSE-1 复核 F1, 2026-07-11): the §29.27.1-era
+	// assertion ("the stanza surface wears its seat's glyph like every other
+	// surface") is REFINED — 佩戴 = 有效持席 (§29.30.1 shared valid-seat
+	// gate) and lane-kind legality is a component of seat validity, so the
+	// adjacent/background stanza faces hold no valid seat: no glyph, bare
+	// 「#N」 chip retained, never in the election (a ❶-wearing stanza row
+	// beside a differently-crowned 主根因 was the split the shared gate
+	// kills). Tree-face lanes keep their badges.
 	projection.AdjacentCauses = append(projection.AdjacentCauses, types.TraceCausalProjectionNode{
 		Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "e-adjacent",
 		Subject: "animator-777", Object: "trace_span", TypeToken: "trace_span",
@@ -285,17 +291,22 @@ func TestCov4BadgeNegativeGates(t *testing.T) {
 			}
 		}
 	}
-	// Positive: every TOP-5 seat wears its own ordinal's glyph regardless of
-	// lane/row shape (chain #1 / semantic ✦ #3 / self-cause running #4 /
-	// ◇ stanza #5 — the opendir witness's bare-stanza disease).
-	want := map[string]int{"e-shadowhook": 1, "e-verify": 3, "e-selfrunning": 4, "e-adjacent": 5}
+	// Positive: every TREE-FACE TOP-5 seat wears its own ordinal's glyph
+	// regardless of row shape (chain #1 / semantic ✦ #3 / self-cause running
+	// #4). The ◇ stanza rank#5 row holds NO valid seat post-F1 (lane-kind
+	// arm) — no glyph, bare chip retained.
+	want := map[string]int{"e-shadowhook": 1, "e-verify": 3, "e-selfrunning": 4}
 	for id, seat := range want {
 		if badges[id] != seat {
 			t.Fatalf("badge for %s: got %d want %d (徽章跟随席位, %v)", id, badges[id], seat, badges)
 		}
 	}
-	// The stanza ROW SURFACE wears the glyph too (fence face, not just the
-	// model field): the ◇ row line renders with ❺ before its state glyph.
+	if badges["e-adjacent"] != 0 {
+		t.Fatalf("F1: the ◇ stanza row must not wear a glyph (lane-kind arm): %v", badges)
+	}
+	// Fence face: the ◇ row renders bare (no ❺); its detail block keeps the
+	// bare 「#5」 ordinal chip (裸 chip 保留 — the seat text lane is honest
+	// about the engine rank, the glyph lane is reserved for valid seats).
 	fence := runtimeTraceProjTreeFence(model, true)
 	stanzaLine := ""
 	for _, line := range strings.Split(fence, "\n") {
@@ -303,8 +314,12 @@ func TestCov4BadgeNegativeGates(t *testing.T) {
 			stanzaLine = line
 		}
 	}
-	if stanzaLine == "" || !strings.Contains(stanzaLine, "❺") {
-		t.Fatalf("the ◇ stanza seat row must wear ❺ on the fence face: %q\n%s", stanzaLine, fence)
+	if stanzaLine == "" || strings.Contains(stanzaLine, "❺") {
+		t.Fatalf("the ◇ stanza row must render bare on the fence face (F1): %q\n%s", stanzaLine, fence)
+	}
+	detail := runtimeTraceProjDetailFullText(model, true)
+	if !strings.Contains(detail, "根因排序: #5") {
+		t.Fatalf("the bare #5 ordinal chip must survive on the detail face (裸 chip 保留):\n%s", detail)
 	}
 	// The SELF-ROW SURFACE wears the glyph too (the textup_792 tree-head
 	// seats #2/#3 disease): the target's own #4 running row renders ❹ on its

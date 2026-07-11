@@ -109,8 +109,18 @@ func TestSYM2FlatSelfRunnableCrownedLead(t *testing.T) {
 		}
 	}
 	line := runtimeTraceProjConclusionLine(projection, model, true)
-	if !strings.Contains(line, "**主根因:** main-6565") {
-		t.Fatalf("the conclusion must crown the self runnable row (同文法, no special form):\n%s", line)
+	// EVOLUTION RECORD (§29.30 用户裁定 2026-07-11, ledger
+	// real_trace_campaign_20260705.md): the SYM-2 interim crown wording
+	// (「**主根因:** main-6565 …」 external thread-name form — the "同文法,
+	// no special form" era) is RETIRED. A crowned self-cause row speaks the
+	// 自因成因形 head 「关注线程自身 {state}」 plus its §24.3 category word
+	// (resolving the 78 系 "加冕句成因词" 措辞裁定候选's self half, §29.30
+	// constraint ②) and never wears the external-cause syntax.
+	if !strings.Contains(line, "**主根因:** 关注线程自身 runnable 调度压力候选") {
+		t.Fatalf("the conclusion must crown the self runnable row in the 自因成因形 (§29.30):\n%s", line)
+	}
+	if strings.Contains(line, "**主根因:** main-6565") {
+		t.Fatalf("a self-cause crown must not wear the external thread-name syntax (§29.30 不冒外因句式):\n%s", line)
 	}
 	if strings.Contains(line, "未定位到链上主根因") || strings.Contains(line, "关注线程自身等待/持锁") {
 		t.Fatalf("a crowned self-cause lead must not carry the honest-fallback disclosure:\n%s", line)
@@ -195,6 +205,26 @@ func TestSYM2ZeroDeficitSelfRunningNeverBeatsPositiveCandidate(t *testing.T) {
 	lead, lane := runtimeTraceProjLeadSelect(projection, model)
 	if lead == nil || lane != runtimeTraceProjLeadLanePrimary || lead.EvidenceID != "e-peer" {
 		t.Fatalf("eff=0 参赛值排尾: the positive candidate must win the board head, got lane=%d lead=%+v", lane, lead)
+	}
+	// §29.30.1 ② (2026-07-11): the zero-deficit row's DISPLAY presence is
+	// retained (its tree seat renders with data) while it neither wears a
+	// glyph nor takes the crown (不冕不戴 — the shared valid-seat gate's
+	// eff>0 arm, single implementation with the election board).
+	zeroSeen := false
+	for _, row := range model.TreeRows {
+		if row.Node.EvidenceID != "e-zerorunning" {
+			continue
+		}
+		zeroSeen = true
+		if !row.HasData {
+			t.Fatalf("the zero-deficit row keeps its data-bearing tree seat (参赛显示保留): %+v", row)
+		}
+		if row.Badge != 0 {
+			t.Fatalf("the zero-deficit row must not wear a badge (§29.30.1 不戴): %+v", row)
+		}
+	}
+	if !zeroSeen {
+		t.Fatalf("fixture drifted: the zero-deficit row must still render a tree seat")
 	}
 	// The zero row's own G4 verdict stays the affirmative no-deficit form —
 	// consistent with its zero participation value.

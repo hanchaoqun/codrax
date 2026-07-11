@@ -67,6 +67,11 @@ type traceAnchorSet struct {
 	FlavorConf     float64
 	FlavorSignals  []string
 	flavorObserved bool
+	// PlatformSurfaces is the per-file platform-detection record (W-1 修根,
+	// platform_surfaces.go): written ONCE by a from-0 scan — the same rule
+	// as the flavor — and reused by every later scan of the file, making the
+	// platform label a stable per-file property instead of a per-query vote.
+	PlatformSurfaces platformSurfaceScan
 }
 
 type traceAnchorKey struct {
@@ -92,6 +97,7 @@ func (c *traceAnchorCache) load(key traceAnchorKey) *traceAnchorSet {
 		copied := *set
 		copied.Anchors = append([]traceAnchor(nil), set.Anchors...)
 		copied.FlavorSignals = append([]string(nil), set.FlavorSignals...)
+		copied.PlatformSurfaces = set.PlatformSurfaces.clone()
 		return &copied
 	}
 	return nil
@@ -129,6 +135,13 @@ func (c *traceAnchorCache) store(key traceAnchorKey, set *traceAnchorSet) {
 			existing.FlavorConf = set.FlavorConf
 			existing.FlavorSignals = append([]string(nil), set.FlavorSignals...)
 		}
+		// W-1 修根: the platform record is write-once like the flavor — the
+		// FIRST from-0 determination is THE determination for this file
+		// (upgrading it later would re-open the intra-run label flip the
+		// record exists to kill).
+		if !existing.PlatformSurfaces.Set && set.PlatformSurfaces.Set {
+			existing.PlatformSurfaces = set.PlatformSurfaces.clone()
+		}
 		return
 	}
 	if len(c.order) >= traceAnchorCacheMaxFiles {
@@ -139,6 +152,7 @@ func (c *traceAnchorCache) store(key traceAnchorKey, set *traceAnchorSet) {
 	copied := *set
 	copied.Anchors = append([]traceAnchor(nil), set.Anchors...)
 	copied.FlavorSignals = append([]string(nil), set.FlavorSignals...)
+	copied.PlatformSurfaces = set.PlatformSurfaces.clone()
 	c.items[key] = &copied
 	c.order = append(c.order, key)
 }

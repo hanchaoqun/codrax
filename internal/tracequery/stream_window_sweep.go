@@ -225,6 +225,10 @@ func StreamWindowSweep(ctx context.Context, path string, q Query) (Result, error
 
 	intern := newStringInterner()
 	flavor := newFlavorVote(path)
+	// W-1 修根 (platform_surfaces.go): all parsed events feed the platform
+	// surface vote — same per-file single-authority lane as event_search.
+	platformVote := newPlatformSurfaceVote()
+	reachedEOF := false
 	reader := bufio.NewReaderSize(f, 256*1024)
 	buckets := map[int64]*WindowSweepBucketCounts{}
 	seenTimeWindow := false
@@ -316,6 +320,7 @@ func StreamWindowSweep(ctx context.Context, path string, q Query) (Result, error
 					idx.ParsedKnown++
 				}
 				flavor.observeEvent(ev)
+				platformVote.observe(ev)
 				if ev.Ts <= 0 {
 					goto nextLine
 				}
@@ -343,6 +348,7 @@ func StreamWindowSweep(ctx context.Context, path string, q Query) (Result, error
 	nextLine:
 		if readErr != nil {
 			if readErr == io.EOF {
+				reachedEOF = true
 				if recording {
 					recorder.finishEOF()
 				}
@@ -372,7 +378,18 @@ func StreamWindowSweep(ctx context.Context, path string, q Query) (Result, error
 			recorder.set.FlavorConf = idx.FlavorConfidence
 			recorder.set.FlavorSignals = append([]string(nil), idx.FlavorSignals...)
 		}
+		// W-1 修根 + 复核 F2: complete-coverage from-0 scans only, write-once.
+		if !seeked && !recorder.set.PlatformSurfaces.Set && platformSurfaceMintEligible(q, reachedEOF) {
+			recorder.set.PlatformSurfaces = platformVote.result(false)
+		}
 		anchorCache.store(anchorKey, recorder.set)
+	}
+	if anchorSet != nil && anchorSet.PlatformSurfaces.Set {
+		idx.platformSurfaces = anchorSet.PlatformSurfaces.clone()
+	} else if recorder.set.PlatformSurfaces.Set {
+		idx.platformSurfaces = recorder.set.PlatformSurfaces.clone()
+	} else {
+		idx.platformSurfaces = platformVote.result(!platformSurfaceMintEligible(q, reachedEOF))
 	}
 	idx.TimestampOrder = recorder.set.TimestampOrder
 	if idx.TimestampOrder != TraceTimestampOrderUnknown {
@@ -382,7 +399,7 @@ func StreamWindowSweep(ctx context.Context, path string, q Query) (Result, error
 	idx.TraceArtifacts = []TraceArtifactSource{singleTraceArtifactSourceWithIdentity(path, openedIdentity, idx.LineCount, idx.ParsedKnown)}
 	q.TraceFlavor = flavorValue
 	frameworkSurfaces := detectFrameworkSurfaces(idx, q, TracePlatformAuto, 4)
-	platform, platformCandidate, platformCandidateConfidence, platformCandidateSignals, platformCaveats := resolveTracePlatform(idx, q, flavorValue, frameworkSurfaces, signals)
+	platform, platformCandidate, platformCandidateConfidence, platformCandidateSignals, platformCaveats := resolveTracePlatform(idx, q, flavorValue, idx.platformDetectionSurfaces(), signals)
 
 	// audit #55: the hotspot suggestions consume the same typed regression
 	// signal the result's own caveat is built from (idx.ClockRegressions is

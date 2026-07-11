@@ -1150,6 +1150,11 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 	r := bufio.NewReaderSize(f, 256*1024)
 	intern := newStringInterner()
 	flavor := newFlavorVote(path)
+	// W-1 修根 (platform_surfaces.go): all parsed events feed the platform
+	// surface vote; the per-file anchor record (from-0 write-once) is the
+	// single query-time authority for every view of this trace.
+	platformVote := newPlatformSurfaceVote()
+	buildReachedEOF := false
 	seenTimeWindow := false
 	lastParsedTs := float64(0)
 	schedulerAuditCPU := newSchedulerOrderTracker()
@@ -1317,6 +1322,7 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 					idx.ParsedKnown++
 				}
 				flavor.observeEvent(ev)
+				platformVote.observe(ev)
 				// Relation-scope pruning: keep only events the causal-chain
 				// views actually consume for the target pid + its wakers (plus
 				// all binder rows). Runs before the MaxEvents check so the cap
@@ -1402,6 +1408,9 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 							recorder.set.Flavor, recorder.set.FlavorConf, recorder.set.FlavorSignals = flavor.result()
 							recorder.set.FlavorSet = true
 						}
+						// 复核 F2: a budget-denied scan never reached EOF — its
+						// parsed coverage is incomplete, so it mints NO platform
+						// record (the next eligible complete scan will).
 						anchorCache.store(anchorKey, recorder.set)
 					}
 					return nil, newIndexEventLimitError(path, idx, opts, lineNo, len(idx.Events))
@@ -1437,6 +1446,7 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 	nextLine:
 		if err != nil {
 			if err == io.EOF {
+				buildReachedEOF = true
 				if recording {
 					recorder.finishEOF()
 				}
@@ -1471,7 +1481,24 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 			recorder.set.FlavorConf = idx.FlavorConfidence
 			recorder.set.FlavorSignals = append([]string(nil), idx.FlavorSignals...)
 		}
+		// W-1 修根 + 复核 F2: only a from-0 build with COMPLETE parsed-event
+		// coverage (unwindowed, reached EOF) may mint the per-file record —
+		// once, flavor discipline.
+		if !seeked && !recorder.set.PlatformSurfaces.Set && buildReachedEOF && !opts.windowed() {
+			recorder.set.PlatformSurfaces = platformVote.result(false)
+		}
 		anchorCache.store(anchorKey, recorder.set)
+	}
+	// W-1 修根: stamp the per-trace platform-detection record on the index —
+	// the per-file anchor record is THE authority when present (window/view
+	// independent); a build without one falls back to its own vote, marked
+	// Scoped when the coverage was incomplete (复核 F3 discloses it).
+	if anchorSet != nil && anchorSet.PlatformSurfaces.Set {
+		idx.platformSurfaces = anchorSet.PlatformSurfaces.clone()
+	} else if recorder.set.PlatformSurfaces.Set {
+		idx.platformSurfaces = recorder.set.PlatformSurfaces.clone()
+	} else {
+		idx.platformSurfaces = platformVote.result(!(buildReachedEOF && !opts.windowed() && !seeked))
 	}
 	// Publish only the complete proof. When the cold window scan had no proof,
 	// it continued to EOF and finishEOF filled this value. A warm monotonic
@@ -2431,6 +2458,10 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 				"tracebundle_clock_alignment_applied artifact=%s source_domain=%s canonical_domain=%s formula=canonical_ts=source_ts*%.12g%+.12g",
 				filepath.Base(source.SourcePath), source.TimeDomain, source.CanonicalTimeDomain, slope, offset))
 		}
+		// W-1 修根: the composite's platform-detection record is the union of
+		// its children's per-file records (each a write-once from-0 authority)
+		// — every view of the bundle then answers with one label.
+		idx.platformSurfaces = mergePlatformSurfaceScans(idx.platformSurfaces, child.platformSurfaces)
 		idx.Events = append(idx.Events, child.Events...)
 	}
 	sort.SliceStable(idx.Events, func(i, j int) bool {

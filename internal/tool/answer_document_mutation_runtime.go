@@ -2320,7 +2320,19 @@ func runtimeTraceProjComparePrimaryCell(projection types.TraceCausalProjection, 
 		return "no on-chain primary" + presence + selfNote
 	}
 	name := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(*primary, zh))
+	// §29.30 (2026-07-11): a self-cause crown speaks the SAME head morpheme +
+	// category word as the conclusion line (runtimeTraceProjSelfCauseCrownState
+	// single source — the cell can never name an external thread the
+	// conclusion refused to name). The cell keeps its compact magnitude
+	// grammar.
+	selfState, selfCategory := runtimeTraceProjSelfCauseCrownState(*primary, projection, model, zh)
+	if selfState != "" {
+		name = runtimeTraceProjSelfCauseCrownName(selfState, zh)
+	}
 	cause := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(*primary, zh))
+	if selfState != "" {
+		cause = selfCategory
+	}
 	if primary.IsAggregateMetric() {
 		cause = ""
 	}

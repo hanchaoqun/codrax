@@ -90,10 +90,15 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 	recording := recorder.canExtend(startLine)
 	intern := newStringInterner()
 	flavor := newFlavorVote(path)
+	// W-1 修根 (platform_surfaces.go): every parsed event feeds the platform
+	// surface vote BEFORE the result filter — the detection input must not
+	// drift with event_types/pattern (the witness flip lane).
+	platformVote := newPlatformSurfaceVote()
 	reader := bufio.NewReaderSize(f, 256*1024)
 	seenTimeWindow := false
 	limit := ViewCapacityFor(q.View).ClampLimit(q.Limit)
 	matchedTotal := 0
+	reachedEOF := false
 	lastParsedTs := 0.0
 	// RFC #71 (§8.2 c4): the census accumulates in this same match pass —
 	// the scan already runs past the display limit to count matchedTotal,
@@ -203,6 +208,7 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 				idx.ParsedKnown++
 			}
 			flavor.observeEvent(ev)
+			platformVote.observe(ev)
 			if !eventInQuery(ev, q, typeSet, actionSet) {
 				goto nextLine
 			}
@@ -214,6 +220,7 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 	nextLine:
 		if readErr != nil {
 			if readErr == io.EOF {
+				reachedEOF = true
 				if recording {
 					recorder.finishEOF()
 				}
@@ -237,7 +244,21 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 			recorder.set.FlavorConf = idx.FlavorConfidence
 			recorder.set.FlavorSignals = append([]string(nil), idx.FlavorSignals...)
 		}
+		// W-1 修根 + 复核 F2: only a from-0 scan with COMPLETE parsed-event
+		// coverage (no pattern prefilter / no window, reached EOF) may mint
+		// the per-file record — once, flavor discipline; an ineligible scan
+		// leaves minting to the next eligible one.
+		if !seeked && !recorder.set.PlatformSurfaces.Set && platformSurfaceMintEligible(q, reachedEOF) {
+			recorder.set.PlatformSurfaces = platformVote.result(false)
+		}
 		anchorCache.store(anchorKey, recorder.set)
+	}
+	if anchorSet != nil && anchorSet.PlatformSurfaces.Set {
+		idx.platformSurfaces = anchorSet.PlatformSurfaces.clone()
+	} else if recorder.set.PlatformSurfaces.Set {
+		idx.platformSurfaces = recorder.set.PlatformSurfaces.clone()
+	} else {
+		idx.platformSurfaces = platformVote.result(!platformSurfaceMintEligible(q, reachedEOF))
 	}
 	idx.TimestampOrder = recorder.set.TimestampOrder
 	if idx.TimestampOrder != TraceTimestampOrderUnknown {
@@ -256,7 +277,7 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 		events[i].Event = applyPriorityFlavor(events[i].Event, flavorValue)
 	}
 	frameworkSurfaces := detectFrameworkSurfaces(idx, q, TracePlatformAuto, 4)
-	platform, platformCandidate, platformCandidateConfidence, platformCandidateSignals, platformCaveats := resolveTracePlatform(idx, q, flavorValue, frameworkSurfaces, signals)
+	platform, platformCandidate, platformCandidateConfidence, platformCandidateSignals, platformCaveats := resolveTracePlatform(idx, q, flavorValue, idx.platformDetectionSurfaces(), signals)
 	if platform == TracePlatformDonghu && q.TraceFlavorHintSource == "" && q.TraceFlavorHint != TraceFlavorAndroidAtrace {
 		flavorValue = TraceFlavorHarmonyHitrace
 		q.TraceFlavor = flavorValue
@@ -422,6 +443,10 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 	recording := recorder.canExtend(1)
 	intern := newStringInterner()
 	flavor := newFlavorVote(path)
+	// W-1 修根 (platform_surfaces.go): all parsed events feed the platform
+	// surface vote — same per-file single-authority lane as event_search.
+	platformVote := newPlatformSurfaceVote()
+	reachedEOF := false
 	reader := bufio.NewReaderSize(f, 256*1024)
 	open := map[int]stateChurnOpen{}
 	accs := map[string]*stateChurnAcc{}
@@ -609,6 +634,7 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 				}
 			}
 			flavor.observeEvent(ev)
+			platformVote.observe(ev)
 			switch ev.Type {
 			case EventSchedBlockedReason:
 				if ev.WakeePID > 0 {
@@ -675,6 +701,7 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 	nextLine:
 		if readErr != nil {
 			if readErr == io.EOF {
+				reachedEOF = true
 				if recording {
 					recorder.finishEOF()
 				}
@@ -701,7 +728,18 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 			recorder.set.FlavorConf = idx.FlavorConfidence
 			recorder.set.FlavorSignals = append([]string(nil), idx.FlavorSignals...)
 		}
+		// W-1 修根 + 复核 F2: complete-coverage from-0 scans only, write-once.
+		if !recorder.set.PlatformSurfaces.Set && platformSurfaceMintEligible(q, reachedEOF) {
+			recorder.set.PlatformSurfaces = platformVote.result(false)
+		}
 		anchorCache.store(anchorKey, recorder.set)
+	}
+	if anchorSet != nil && anchorSet.PlatformSurfaces.Set {
+		idx.platformSurfaces = anchorSet.PlatformSurfaces.clone()
+	} else if recorder.set.PlatformSurfaces.Set {
+		idx.platformSurfaces = recorder.set.PlatformSurfaces.clone()
+	} else {
+		idx.platformSurfaces = platformVote.result(!platformSurfaceMintEligible(q, reachedEOF))
 	}
 	idx.TimestampOrder = recorder.set.TimestampOrder
 	if idx.TimestampOrder != TraceTimestampOrderUnknown {
@@ -713,7 +751,7 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 	flavorValue, confidence, signals, flavorCaveats := resolveTraceFlavor(idx, q)
 	q.TraceFlavor = flavorValue
 	frameworkSurfaces := detectFrameworkSurfaces(idx, q, TracePlatformAuto, 4)
-	platform, platformCandidate, platformCandidateConfidence, platformCandidateSignals, platformCaveats := resolveTracePlatform(idx, q, flavorValue, frameworkSurfaces, signals)
+	platform, platformCandidate, platformCandidateConfidence, platformCandidateSignals, platformCaveats := resolveTracePlatform(idx, q, flavorValue, idx.platformDetectionSurfaces(), signals)
 	filterCaveats, selectorRejection := streamStateClusterApplyThreadFilter(q, accs, running, runnable, sleep, dstate, iowait, missingHeadThreads)
 	var stateIntegrityCaveats []string
 	if schedulerViolation != nil {

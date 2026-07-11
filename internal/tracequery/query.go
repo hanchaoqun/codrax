@@ -121,7 +121,7 @@ func Run(idx *Index, q Query) Result {
 	flavor, confidence, signals, flavorCaveats := resolveTraceFlavor(idx, q)
 	q.TraceFlavor = flavor
 	frameworkSurfaces := detectFrameworkSurfaces(idx, q, TracePlatformAuto, 4)
-	platform, platformCandidate, platformCandidateConfidence, platformCandidateSignals, platformCaveats := resolveTracePlatform(idx, q, flavor, frameworkSurfaces, signals)
+	platform, platformCandidate, platformCandidateConfidence, platformCandidateSignals, platformCaveats := resolveTracePlatform(idx, q, flavor, idx.platformDetectionSurfaces(), signals)
 	if platform == TracePlatformDonghu && q.TraceFlavorHintSource == "" && q.TraceFlavorHint != TraceFlavorAndroidAtrace {
 		flavor = TraceFlavorHarmonyHitrace
 		q.TraceFlavor = flavor
@@ -656,7 +656,14 @@ func queryBoundedTimeEnd(q Query) bool {
 	return q.TimeEndSet || q.TimeEnd != 0
 }
 
-func resolveTracePlatform(idx *Index, q Query, flavor TraceFlavor, surfaces []FrameworkSurface, flavorSignals []string) (TracePlatform, string, float64, []string, []string) {
+// resolveTracePlatform resolves the published platform label. W-1 修根
+// (platform_surfaces.go, 2026-07-11): the detection input is the per-trace
+// platformSurfaceScan record — ONE determination per trace consumed by every
+// view — never a per-query window/filter-scoped surface enumeration (the
+// witness flip: event_types=[unknown] matched android comms while
+// [trace_mark]/[workqueue,dma_fence] did not, flipping harmony↔donghu inside
+// one report). Explicit user/tool hints keep their short-circuits.
+func resolveTracePlatform(idx *Index, q Query, flavor TraceFlavor, surfaces platformSurfaceScan, flavorSignals []string) (TracePlatform, string, float64, []string, []string) {
 	if q.TracePlatformHint != "" && q.TracePlatformHint != TracePlatformAuto {
 		return q.TracePlatformHint, "", 0, nil, nil
 	}
@@ -673,10 +680,18 @@ func resolveTracePlatform(idx *Index, q Query, flavor TraceFlavor, surfaces []Fr
 		platform = TracePlatformDonghu
 		caveats = append(caveats, "auto platform candidate mixed_harmony_base was selected from Harmony-base signals plus Android/Harmony framework surfaces; using Harmony/OpenHarmony timestamp and priority semantics")
 	}
+	// 复核 F3 (CLOSE-1, 2026-07-11): when no complete-coverage detection
+	// record exists for this trace (every scan so far was filtered or
+	// windowed), the label was inferred from a PARTIAL basis — disclose it
+	// instead of silently publishing a per-query inference. A complete
+	// record (Set ∧ !Scoped) publishes with zero disclosure.
+	if !surfaces.Set || surfaces.Scoped {
+		caveats = append(caveats, "platform_detection_basis=partial; the platform label was inferred from a filtered or windowed scan of this trace — a complete scan of the file has not confirmed it yet")
+	}
 	return platform, candidate, confidence, signals, caveats
 }
 
-func inferPlatformCandidate(idx *Index, q Query, flavor TraceFlavor, platform TracePlatform, surfaces []FrameworkSurface, flavorSignals []string) (string, float64, []string) {
+func inferPlatformCandidate(idx *Index, q Query, flavor TraceFlavor, platform TracePlatform, surfaces platformSurfaceScan, flavorSignals []string) (string, float64, []string) {
 	if idx == nil {
 		return "", 0, nil
 	}
@@ -690,24 +705,10 @@ func inferPlatformCandidate(idx *Index, q Query, flavor TraceFlavor, platform Tr
 		addSignal(s)
 	}
 	harmonyBase := flavor == TraceFlavorHarmonyHitrace || platform == TracePlatformHarmony || platform == TracePlatformDonghu
-	androidSurface := false
-	harmonySurface := false
-	for _, surface := range surfaces {
-		switch surface.Surface {
-		case "android_framework":
-			if surface.ProcessCount > 0 {
-				androidSurface = true
-				addSignal("surface_android_framework")
-			}
-		case "harmony_framework":
-			if surface.ProcessCount > 0 {
-				harmonySurface = true
-				addSignal("surface_harmony_framework")
-			}
-		}
-		for _, s := range surface.Signals {
-			addSignal(s)
-		}
+	androidSurface := surfaces.Android
+	harmonySurface := surfaces.Harmony
+	for _, s := range surfaces.Signals {
+		addSignal(s)
 	}
 	for _, s := range flavorSignals {
 		if strings.Contains(s, "harmony") || strings.Contains(s, "hitrace") || strings.Contains(s, "ffrt") || strings.Contains(s, "ohos") {

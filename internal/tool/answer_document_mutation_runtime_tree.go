@@ -2383,16 +2383,86 @@ func runtimeTraceProjAssignTopBadges(model *runtimeTraceProjTreeModel) {
 	}
 }
 
-// runtimeTraceProjRowSeatBadgeOrdinal is the §29.27.1 single badge authority:
-// the row's DISPLAYED seat ordinal when it is 1..runtimeTraceProjBadgeTopN,
-// 0 otherwise. Typed fields only.
-func runtimeTraceProjRowSeatBadgeOrdinal(row runtimeTraceProjTreeRow) int {
+// runtimeTraceProjRowValidSeat is the §29.30.1 SINGLE shared "有效持席"
+// (valid-seat) gate consumed by BOTH the badge authority
+// (runtimeTraceProjRowSeatBadgeOrdinal) and the lead-election board
+// (runtimeTraceProjRankBoard) — one implementation, so "❶ on row A while
+// 主根因 crowns row B" and "a zero-impact row crowned" same-page
+// contradictions are impossible by construction (远端同事要求,用户确认
+// 2026-07-11; the board's former second predicate copy is retired into this
+// helper). A seat is valid iff ALL of:
+//   - HasData (rendered data row),
+//   - displayed seat ordinal ∈ 1..runtimeTraceProjBadgeTopN
+//     (runtimeTraceProjCauseRankConfidence — node Rank or the min folded
+//     rank-twin peer, the same resolver 行2 prints),
+//   - EffectiveImpactMS > 0 (zero/negative effective attribution holds no
+//     seat: it neither wears a glyph nor competes for the crown; the bare
+//     「#N」 ordinal chip and the row's tree seat stay untouched),
+//   - not context_only (6eb633a1 typed tier: causal-path evidence, never a
+//     contender — keyed on the tier even for stale positive rank/eff pairs),
+//   - not target_self_state (SYM §24.13: the target's own wait symptom),
+//   - not an on-chain overflow fold roster (PTS: counted roster, no focus).
+// Returns the displayed seat ordinal for badge emission; ok=false → 0.
+func runtimeTraceProjRowValidSeat(row runtimeTraceProjTreeRow) (int, bool) {
 	if !row.HasData || row.Node.OnChainOverflowFold || row.Node.IsTargetSelfStateRow() ||
 		row.Node.IsContextOnlyRow() || row.Node.EffectiveImpactMS <= 0 {
-		return 0
+		return 0, false
+	}
+	// CLOSE-1 复核 F1 (2026-07-11): lane-kind legality is a COMPONENT of seat
+	// validity — the election-legal row kinds (chain/cause/depthless/self/
+	// semantic-on_chain) are decided HERE, so the badge authority and the
+	// election board answer "which rows can hold a valid seat" with one
+	// implementation. Background/adjacent stanza rows and non-chain semantic
+	// rows hold no valid seat even against a stale positive Rank/eff pair:
+	// no glyph (the bare 「#N」 chip stays), no election — a ❶-wearing
+	// stanza row beside a differently-crowned 主根因 is the same-page split
+	// this gate exists to kill.
+	//
+	// EVOLUTION RECORD (§29.27.1 → §29.30.1 精化, CLOSE-1 复核 F1): §29.27.1's
+	// "凡 Rank∈TOP N 的行,无论 lane/行形/渲染面一律佩戴" is REFINED, not
+	// reversed — 佩戴 = 有效持席 (the §29.30.1 valid-seat gate), and lane
+	// legality is a component of seat validity. Tree-face lanes (树内 /
+	// 未接入树 / 下钻 / 自因 / 链上语义 ✦) keep their badges; demoted stanza
+	// faces pair with the honest-fallback crown lanes (§7.30 见背景压力段)
+	// instead of a glyph.
+	switch row.Kind {
+	case runtimeTraceProjTreeRowChain, runtimeTraceProjTreeRowCause, runtimeTraceProjTreeRowDepthless:
+	case runtimeTraceProjTreeRowSelf:
+		// §29.30/§29.30.1: a SelfRows-lane seat is valid only through the
+		// §24.17 self-cause four-family closed set (runnable/running/IO/
+		// D-state). A plain-sleep / binder / lock self row that arrives
+		// WITHOUT its engine symptom tier (stale/legacy persisted form)
+		// holds no seat on either face — barring it from the crown but
+		// letting it wear ❶ would re-open the split above. External
+		// (non-self-lane) sleep/lock rows are untouched.
+		if !runtimeTraceProjSelfCauseFamilyRow(row) {
+			return 0, false
+		}
+	case runtimeTraceProjTreeRowSemantic:
+		// SEM-LEAD (§29.7-2 ①): only an ON-CHAIN semantic row holds a seat
+		// (its engine rank arrived via the twin fold); non-chain semantic
+		// rows keep the background comprehensive board + mention gate
+		// (§23.1 后半) — typed relevance, never a prose judgment.
+		if strings.TrimSpace(row.Node.ChainRelevance) != "on_chain" {
+			return 0, false
+		}
+	default:
+		return 0, false
 	}
 	rank, _ := runtimeTraceProjCauseRankConfidence(row)
 	if rank < 1 || rank > runtimeTraceProjBadgeTopN {
+		return 0, false
+	}
+	return rank, true
+}
+
+// runtimeTraceProjRowSeatBadgeOrdinal is the §29.27.1 single badge authority:
+// the row's DISPLAYED seat ordinal when it holds a valid seat
+// (runtimeTraceProjRowValidSeat — §29.30.1 shared gate), 0 otherwise. Typed
+// fields only.
+func runtimeTraceProjRowSeatBadgeOrdinal(row runtimeTraceProjTreeRow) int {
+	rank, ok := runtimeTraceProjRowValidSeat(row)
+	if !ok {
 		return 0
 	}
 	return rank
@@ -2434,56 +2504,16 @@ func runtimeTraceProjRankBoard(rows []runtimeTraceProjTreeRow) []*runtimeTracePr
 	var board []*runtimeTraceProjTreeRow
 	for i := range rows {
 		row := &rows[i]
-		if !row.HasData || row.Node.Rank <= 0 || row.Node.EffectiveImpactMS <= 0 {
-			continue
-		}
-		// PTS (复核 Low, 2026-07-06): the on-chain overflow fold row is a
-		// counted roster, never a root-cause focus — typed gate, not an
-		// incidental Rank==0 escape (账本"永不"宣称兑现).
-		if row.Node.OnChainOverflowFold {
-			continue
-		}
-		// SYM (§24.13 裁定一, 2026-07-08): the analysis target's own rank rows
-		// (typed tier minted by the engine's tid-first subject==target match)
-		// never seat on the shared board — the lead (board[0]) and the ❶❷❸
-		// badges therefore land on non-self rows by construction. The rows
-		// keep their tree seats. This arm is load-bearing on the FLAT shapes
-		// where the label-routed SelfRows lane cannot engage (cmp_78_01
-		// witness: both sides crowned the target's own binder-wait rank#1 as
-		// 主根因). 跨批 X1 (2026-07-09): the former 榜位照发 clause is retired
-		// — G9 assigns no ordinal to symptom rows (they fail the Rank>0
-		// admission above anyway); the tier arm stays for defense in depth.
-		if row.Node.IsTargetSelfStateRow() {
-			continue
-		}
-		// A context-only row is retained as causal-path evidence, never as a
-		// root-cause contender. Key on the typed tier even for stale persisted
-		// rows that accidentally carry a positive rank/effective pair.
-		if row.Node.IsContextOnlyRow() {
-			continue
-		}
-		switch row.Kind {
-		case runtimeTraceProjTreeRowChain, runtimeTraceProjTreeRowCause, runtimeTraceProjTreeRowDepthless:
-		case runtimeTraceProjTreeRowSemantic:
-			// EVOLUTION RECORD (SEM-LEAD §29.7-2 ①, ledger
-			// real_trace_campaign_20260705.md, 2026-07-10): the semantic ✦
-			// lane used to be structurally locked out of the shared board
-			// (the LEAD-SEM negative pin era: the semantic lane could never
-			// claim board seats / ❶❷❸ / 主根因). Per the user ruling, an
-			// ON-CHAIN semantic row is a customer-verified deterministic
-			// optimization point that MUST compete on equal footing and may
-			// top the board (on-chain 语义类行无条件全权参赛、可登顶) — the
-			// Rank>0 admission above is its engine seat (the folded rank-lane
-			// twin's ordinal), the eff-descending key below is its 有效归因
-			// (= family real total, §29.7-2 ②). Non-chain semantic rows keep
-			// the background comprehensive board + mention gate (§23.1 后半
-			// 不变) and never seat here — precise typed relevance, never a
-			// prose judgment. The tier word 确定性优化候选 identity is
-			// untouched.
-			if strings.TrimSpace(row.Node.ChainRelevance) != "on_chain" {
-				continue
-			}
-		default:
+		// §29.30.1 (2026-07-11) + CLOSE-1 复核 F1: the election admission IS
+		// the badge's valid-seat gate — ONE shared implementation (HasData ∧
+		// displayed seat 1..TopN ∧ EffectiveImpactMS>0 ∧ 非 context_only ∧
+		// 非 target_self_state ∧ 非 overflow fold ∧ lane-kind legality:
+		// chain/cause/depthless/self-四族/semantic-on_chain). The former
+		// inline predicate copies (SYM §24.13 self-state arm / PTS overflow
+		// arm / 6eb633a1 context_only + eff>0 arms / the SEM-LEAD §29.7-2 ①
+		// semantic-on_chain arm and the board's own kind switch) are retired
+		// into runtimeTraceProjRowValidSeat; per-arm rationale lives there.
+		if _, ok := runtimeTraceProjRowValidSeat(*row); !ok {
 			continue
 		}
 		board = append(board, row)
@@ -2572,6 +2602,42 @@ func runtimeTraceProjStableRankBoardIDs(rows []*runtimeTraceProjTreeRow) map[*ru
 		}
 	}
 	return ids
+}
+
+// runtimeTraceProjSelfCauseFamilyRow reports whether a target-self row's
+// typed impact form belongs to the §24.17 self-cause four-family closed set
+// (自因可拆解族: runnable → 调度压力 / running → 算力供给 / IO → IO阻塞 /
+// D-state → D状态) — the families whose root causes are systemic actionable
+// items rather than a peer (§24.17 原则②). The form resolver is the SAME
+// §24.3 typed table the 行2 category word reads
+// (runtimeTraceProjImpactFormForNode — never a prose judgment), so the
+// election arm and the row's own displayed identity cannot drift.
+func runtimeTraceProjSelfCauseFamilyRow(row runtimeTraceProjTreeRow) bool {
+	switch runtimeTraceProjImpactFormForNode(row.Node, row.Kind) {
+	case runtimeTraceProjImpactFormRunning, runtimeTraceProjImpactFormRunnable,
+		runtimeTraceProjImpactFormDState, runtimeTraceProjImpactFormIOBlock:
+		return true
+	}
+	return false
+}
+
+// runtimeTraceProjLeadElectionRows is the §29.30 lead-election population
+// (用户裁定 2026-07-11, 方案 a): every seat-holding row — TreeRows ∪ SelfRows
+// — gated per-row by the shared valid-seat arm inside
+// runtimeTraceProjRankBoard. Before this ruling the population was
+// TreeRows-only, so a self-cause row holding seat #1 wore ❶ (§29.27.1 badge
+// follows the seat) while 主根因 crowned another row — the 序值倒挂 lesson's
+// crown edition. Adjacent/background stanza rows stay out: a demoted
+// candidate keeps the §7.30 裁定1 honest-fallback lanes (见背景压力段), never
+// a crown.
+func runtimeTraceProjLeadElectionRows(model runtimeTraceProjTreeModel) []runtimeTraceProjTreeRow {
+	if len(model.SelfRows) == 0 {
+		return model.TreeRows
+	}
+	rows := make([]runtimeTraceProjTreeRow, 0, len(model.TreeRows)+len(model.SelfRows))
+	rows = append(rows, model.TreeRows...)
+	rows = append(rows, model.SelfRows...)
+	return rows
 }
 
 // runtimeTraceProjBadgeGlyph maps the typed seat ordinal to its badge glyph.
@@ -7867,6 +7933,111 @@ func runtimeTraceProjLeadText(projection types.TraceCausalProjection, model runt
 // runtimeTraceProjConclusionLine is FACT-ONLY: subject, cause, magnitudes and
 // the typed drilldown target. It never emits advice/should-sentences — the
 // system must not ghost-write the user-facing recommendation surface.
+// runtimeTraceProjSelfCrownTargetKey resolves the analysis-target identity
+// for the §29.30 self-cause crown wording from TYPED carriers only: the
+// wakeup-path target (tree render), else the four-state account's subject,
+// else the unanimous subject of the engine's target_self_state stamps (the
+// tid-first subject==target match minted engine-side travels on that tier —
+// the FLAT render has no model.Target, cmp_78 witness shape). "" when no
+// carrier is present or the stamped subjects disagree (absence never
+// guesses).
+func runtimeTraceProjSelfCrownTargetKey(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel) string {
+	if key := runtimeTraceCausalProjectionCanonicalNode(model.Target); key != "" {
+		return key
+	}
+	if account := projection.TargetStateAccount; account != nil {
+		if key := runtimeTraceCausalProjectionCanonicalNode(account.Subject); key != "" {
+			return key
+		}
+	}
+	key := ""
+	for _, rows := range [][]runtimeTraceProjTreeRow{model.TreeRows, model.SelfRows, model.Adjacent, model.Background} {
+		for i := range rows {
+			if !rows[i].Node.IsTargetSelfStateRow() {
+				continue
+			}
+			subject := runtimeTraceCausalProjectionCanonicalNode(rows[i].Node.Subject)
+			if subject == "" {
+				continue
+			}
+			if key == "" {
+				key = subject
+				continue
+			}
+			if key != subject {
+				return "" // ambiguous stamps: never guess an identity
+			}
+		}
+	}
+	return key
+}
+
+// runtimeTraceProjSelfCauseCrownState resolves the crowned node's §24.17
+// self-cause state token + §24.3 family category word for the §29.30 crown
+// wording (自因成因形): the node is the focused thread's OWN row (typed
+// target identity via runtimeTraceProjSelfCrownTargetKey) and its typed
+// impact form belongs to the self-cause four-family closed set. The state
+// vocabulary is the §29.27 four-state account's kernel state words
+// (running/runnable/D-state zh-en 同词; the IO label pair IO等待 / IO wait);
+// the category word is the SAME §24.3 table row the tree 行2 speaks — one
+// typed form resolution mints both (no drift). state=="" → the crown keeps
+// the external-cause sentence byte-identically (外因句式零变).
+func runtimeTraceProjSelfCauseCrownState(primary types.TraceCausalProjectionNode, projection types.TraceCausalProjection, model runtimeTraceProjTreeModel, zh bool) (state, category string) {
+	if primary.IsTargetSelfStateRow() || primary.IsContextOnlyRow() {
+		return "", ""
+	}
+	target := runtimeTraceProjSelfCrownTargetKey(projection, model)
+	if target == "" || runtimeTraceCausalProjectionCanonicalNode(primary.Subject) != target {
+		return "", ""
+	}
+	form := runtimeTraceProjImpactFormForNode(primary, "")
+	switch form {
+	case runtimeTraceProjImpactFormRunning:
+		state = "running"
+	case runtimeTraceProjImpactFormRunnable:
+		state = "runnable"
+	case runtimeTraceProjImpactFormDState:
+		state = "D-state"
+	case runtimeTraceProjImpactFormIOBlock:
+		if zh {
+			state = "IO等待"
+		} else {
+			state = "IO wait"
+		}
+	default:
+		return "", ""
+	}
+	if spec, ok := runtimeTraceProjImpactFormSpecFor(form); ok {
+		if zh {
+			category = spec.CategoryZH
+		} else {
+			category = spec.CategoryEN
+		}
+	}
+	// CLOSE-1 复核捎带 V-2 (2026-07-11): the D family's category word restates
+	// the state token (「D-state D状态候选」/ "D-state D-state candidate" —
+	// the runnable-precedent duplication shape), so the crown keeps the
+	// kernel state word alone. The IO pair stays (等待 vs 阻塞候选 are
+	// distinct morphemes, reviewed and kept); runnable/running categories
+	// are semantically distinct family words.
+	if form == runtimeTraceProjImpactFormDState {
+		category = ""
+	}
+	return state, category
+}
+
+// runtimeTraceProjSelfCauseCrownName is the §29.30 self-cause crown head —
+// the ONE morpheme source shared by the conclusion line and the comparison
+// primary cell (「主根因: 关注线程自身 {state}…」, never the external
+// thread-name form). The 关注线程自身 word is the same self row-kind lane
+// token the detail 位置 cell speaks.
+func runtimeTraceProjSelfCauseCrownName(state string, zh bool) string {
+	if zh {
+		return "关注线程自身 " + state
+	}
+	return "the focused thread itself " + state
+}
+
 func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel, zh bool) string {
 	primary, lane := runtimeTraceProjLeadSelect(projection, model)
 	onChainFallback := lane == runtimeTraceProjLeadLaneOnChainFallback
@@ -7928,6 +8099,39 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 		// The metric semantic name already carries the Object type word.
 		cause = ""
 	}
+	// §29.30 (用户裁定 2026-07-11): a crowned SELF-CAUSE row speaks the 自因成因形
+	// crown — head 「关注线程自身 {state}」 (never the external thread-name
+	// syntax), and, for a running lead whose §29.27 four-state account is
+	// provable, the Tier-A parenthetical decomposition
+	// (确定性工作 X · 供给折算影响 Y · 自身执行 Z — the account running line's
+	// OWN parts, single morpheme+value source; separators stay non-additive,
+	// §7.30 S1 lesson) replaces the cause word + magnitude grammar. Every
+	// non-self crown keeps the external sentence byte-identically (负向 pin:
+	// vc_710 外因主导帧回归).
+	selfState, selfCategory := runtimeTraceProjSelfCauseCrownState(*primary, projection, model, zh)
+	var selfAccountParts []string
+	if selfState != "" {
+		name = runtimeTraceProjSelfCauseCrownName(selfState, zh)
+		// Tier B cause word = the row's own §24.3 category (调度压力候选/…) —
+		// the narrative Object name would restate the state token
+		// (「runnable runnable(runnable_wait)」 duplication form).
+		cause = selfCategory
+		if selfState == "running" {
+			if account := runtimeTraceProjFourStateAccountProvable(projection, model); account != nil {
+				if parts, ok := runtimeTraceProjFourStateRunningParts(account, model, zh); ok && len(parts) > 0 {
+					// 复核观察② (留档, 2026-07-11): when no rendered row carries
+					// the typed supply-fold deficit, the parts builder omits the
+					// 供给折算影响 component — BY THE ACCOUNT LINE'S OWN
+					// absence-never-guesses semantics (runtimeTraceProjFourState
+					// SupplyPointer: no rendered carrier → no converted claim).
+					// The crown reuses the SAME parts, so the two faces cannot
+					// disagree; the omission is the shared refusal, not a crown
+					// fork — acceptable by construction, no extra pointer text.
+					selfAccountParts = parts
+				}
+			}
+		}
+	}
 	// PTV5 C21/C22 (#68 用户裁定 2026-07-05): the headline magnitude carries
 	// its caliber word at the point of reading (链上累计/有效归因/窗口投影/…,
 	// same (a)-table vocabulary), and a periodic source renders its discounted
@@ -7944,7 +8148,12 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 		b.WriteString("**Primary root cause:** ")
 	}
 	b.WriteString(name)
-	if cause != "" {
+	if selfAccountParts != nil {
+		// Tier A (§29.30 constraint ②): the account decomposition IS the
+		// magnitude statement — the cause word and the generic ms grammar
+		// below stay silent (their values would double-speak the parts).
+		b.WriteString("(" + strings.Join(selfAccountParts, " · ") + ")")
+	} else if cause != "" {
 		b.WriteString(" " + cause)
 	}
 	// P0-E 锁车道修3 (§24.9-C F5): a lead whose lock-holder identity is an
@@ -7958,7 +8167,7 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 			b.WriteString(" (holder inferred)")
 		}
 	}
-	if primary.MergedCount > 1 && primary.MergedMaxMS > 0 {
+	if selfAccountParts == nil && primary.MergedCount > 1 && primary.MergedMaxMS > 0 {
 		// V1 (customer revisit 2026-07-03): a ×N aggregate's SUM never publishes
 		// as the headline hard fact — show the per-instance max with the count;
 		// the window share follows the same single-instance value.
@@ -7981,7 +8190,7 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 				b.WriteString(fmt.Sprintf(" (%.0f%% of window)", primary.MergedMaxMS/model.WindowMS*100))
 			}
 		}
-	} else if ms > 0 || msPeriodic {
+	} else if selfAccountParts == nil && (ms > 0 || msPeriodic) {
 		if msWord != "" {
 			b.WriteString(" " + msWord)
 		}
@@ -8041,7 +8250,10 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 			}
 			b.WriteString(word + " " + runtimeTraceProjAttributionEquation(total, components))
 		}
-	} else if clause, _, ok := runtimeTraceProjSupplyFoldClause(*primary, model.WindowMS, zh); ok {
+	} else if clause, _, ok := runtimeTraceProjSupplyFoldClause(*primary, model.WindowMS, zh); ok && selfAccountParts == nil {
+		// Tier A suppression: the 供给折算影响 component inside the account
+		// parenthetical already speaks the fold — the standalone clause would
+		// double-state the same converted figure.
 		if zh {
 			b.WriteString(",")
 		} else {
@@ -8102,13 +8314,30 @@ func runtimeTraceProjLeadPrimary(projection types.TraceCausalProjection, model r
 	if len(roots) == 0 {
 		return nil
 	}
-	if board := runtimeTraceProjRankBoard(model.TreeRows); len(board) > 0 {
+	if board := runtimeTraceProjRankBoard(runtimeTraceProjLeadElectionRows(model)); len(board) > 0 {
 		return &board[0].Node
 	}
 	var best *types.TraceCausalProjectionNode
 	bestValue := 0.0
 	for i := range roots {
 		if roots[i].IsContextOnlyRow() {
+			continue
+		}
+		// §29.30.1 (2026-07-11): a zero-CAP running root — the engine's
+		// supply-fold PUBLISHED a computed zero deficit (typed
+		// SupplyFoldComputed ∧ deficit≤0, the §20.2 authoritative "已按大核
+		// 满频…无供给缺口" verdict) — lost its seat at the shared valid-seat
+		// gate and must not re-crown through this value lane either (远端
+		// 点名负对照: 零 CAP running 不得重新加冕; the crown would contradict
+		// the row's own no-deficit verdict). SCOPE NOTE: the general
+		// "published eff≤0 refuses the crown" arm needs an engine-side typed
+		// effective-published marker — the wire cannot distinguish a
+		// published 0 from an unpublished effective today (the V1 value lane
+		// keeps crowning eff-unpublished ranked roots: supply-fold triple /
+		// lock-holder / witness golden shapes, and the #68 periodic
+		// discounted-zero crown stays a user ruling) — recorded for the
+		// ledger, not silently widened here.
+		if roots[i].Rank > 0 && roots[i].SupplyFoldComputed && roots[i].SupplyFoldDeficitMS <= 0 {
 			continue
 		}
 		if runtimeTraceProjNodeDemotedToBackground(roots[i], model.TrunkLen) {
@@ -8189,7 +8418,7 @@ func runtimeTraceProjLeadSelect(projection types.TraceCausalProjection, model ru
 		// positive attribution, it crowns through the primary lane; every
 		// other empty-primary shape keeps the legacy no-conclusion behavior
 		// byte-identically (fail-open).
-		if board := runtimeTraceProjRankBoard(model.TreeRows); len(board) > 0 &&
+		if board := runtimeTraceProjRankBoard(runtimeTraceProjLeadElectionRows(model)); len(board) > 0 &&
 			board[0].Kind == runtimeTraceProjTreeRowSemantic &&
 			strings.TrimSpace(board[0].Node.ChainRelevance) == "on_chain" &&
 			board[0].Node.EffectiveImpactMS > 0 {
@@ -8713,7 +8942,14 @@ func runtimeTraceProjCoverageVerdictFor(projection types.TraceCausalProjection, 
 // NEVER joins the wall-clock arithmetic (§7.30 S1 负面先例: 排序合成分数以 ms
 // 硬事实发布→四态和 119% — 禁折算值进墙钟百分比). The running residual wears
 // the ruling-verbatim word 自身执行(无确定性可优化工作), never 未归因.
-func runtimeTraceProjFourStateAccountLines(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel, zh bool) []string {
+// runtimeTraceProjFourStateAccountProvable is the SINGLE admission gate of
+// the §29.27 four-state account (extracted for the §29.30 self-cause crown —
+// the crown's Tier-A decomposition consumes the SAME gates, never a second
+// implementation): typed account present, subject == the focused target,
+// account window == projection window (F-2 准入禁猜), and the Σ==窗 identity
+// at DISPLAY precision (复核 B-1: the printed %.3f faces of Σ and the window
+// must be equal — 不平衡拒渲不造数). nil when any gate refuses.
+func runtimeTraceProjFourStateAccountProvable(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel) *types.TraceCausalProjectionTargetStateAccount {
 	account := projection.TargetStateAccount
 	if account == nil || model.WindowMS <= 0 {
 		return nil
@@ -8738,6 +8974,15 @@ func runtimeTraceProjFourStateAccountLines(projection types.TraceCausalProjectio
 	if fmt.Sprintf("%.3f", sum) != fmt.Sprintf("%.3f", model.WindowMS) {
 		return nil // Σ四态 ≠ 窗口(显示精度): the partition is unprovable.
 	}
+	return account
+}
+
+func runtimeTraceProjFourStateAccountLines(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel, zh bool) []string {
+	account := runtimeTraceProjFourStateAccountProvable(projection, model)
+	if account == nil {
+		return nil
+	}
+	sum := account.RunningMS + account.RunnableMS + account.SleepMS + account.DStateMS + account.IOWaitMS
 	model.Marks.mark(runtimeTraceProjMarkFourStateAccount)
 	pct := func(v float64) float64 { return v / model.WindowMS * 100 }
 	dState := account.DStateMS + account.IOWaitMS
@@ -8783,12 +9028,30 @@ func runtimeTraceProjFourStateAccountLines(projection types.TraceCausalProjectio
 // jitter tolerance (component unprovable — refuse the line, keep the
 // partition line).
 func runtimeTraceProjFourStateRunningLine(account *types.TraceCausalProjectionTargetStateAccount, model runtimeTraceProjTreeModel, zh bool) string {
-	if account.RunningMS <= 0 {
+	parts, ok := runtimeTraceProjFourStateRunningParts(account, model, zh)
+	if !ok {
 		return ""
+	}
+	if zh {
+		return fmt.Sprintf("- running %.3fms: %s。", account.RunningMS, strings.Join(parts, " · "))
+	}
+	return fmt.Sprintf("- running %.3fms: %s.", account.RunningMS, strings.Join(parts, " · "))
+}
+
+// runtimeTraceProjFourStateRunningParts builds the running-segment
+// attribution components (确定性工作 / 供给折算影响 / 自身执行) — the SINGLE
+// morpheme+value source shared by the account's running line above and the
+// §29.30 self-cause crown's Tier-A parenthetical (词素取 COV-4 覆盖账闭集,
+// one authority — the crown can never speak values the account line would
+// not). ok=false when running is zero or the deterministic component is
+// unprovable (same refusal the line applied).
+func runtimeTraceProjFourStateRunningParts(account *types.TraceCausalProjectionTargetStateAccount, model runtimeTraceProjTreeModel, zh bool) ([]string, bool) {
+	if account.RunningMS <= 0 {
+		return nil, false
 	}
 	deterministic := account.DeterministicRunningMS
 	if deterministic > account.RunningMS+runtimeTraceProjSymptomOvershootJitterMS {
-		return ""
+		return nil, false
 	}
 	if deterministic > account.RunningMS {
 		deterministic = account.RunningMS // boundary jitter clamps to the partition
@@ -8835,10 +9098,10 @@ func runtimeTraceProjFourStateRunningLine(account *types.TraceCausalProjectionTa
 	}
 	if zh {
 		parts = append(parts, fmt.Sprintf("自身执行(无确定性可优化工作) %.3fms", residual))
-		return fmt.Sprintf("- running %.3fms: %s。", account.RunningMS, strings.Join(parts, " · "))
+	} else {
+		parts = append(parts, fmt.Sprintf("own execution (no deterministic optimizable work) %.3fms", residual))
 	}
-	parts = append(parts, fmt.Sprintf("own execution (no deterministic optimizable work) %.3fms", residual))
-	return fmt.Sprintf("- running %.3fms: %s.", account.RunningMS, strings.Join(parts, " · "))
+	return parts, true
 }
 
 // runtimeTraceProjFourStateSemanticPointer resolves the 确定性工作 component's
