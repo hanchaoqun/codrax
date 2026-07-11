@@ -225,6 +225,7 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 	}
 
 	if !reflect.DeepEqual(callerCounts("threadPointAllows"), map[string]int{
+		"exportTraceDBPerfSamples":      1,
 		"exportTraceDBWakeups":          2,
 		"loadTraceDBBlockedCandidates":  1,
 		"prepareTraceDBCallstackRow":    2,
@@ -242,6 +243,7 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 			callerCounts("threadPointAllows"), callerCounts("threadClosedEndpointAllows"), callerCounts("processClosedEndpointAllows"))
 	}
 	if callerCounts("lookupCPUAt")["prepareTraceDBCallstackRow"] != 2 ||
+		callerCounts("lookupCPUAt")["traceDBResolvePerfSampleCPU"] != 1 ||
 		callerCounts("resolveThreadSubject")["prepareTraceDBCallstackRow"] != 1 ||
 		callerCounts("resolveThreadSubject")["exportTraceDBCallstack"] != 1 ||
 		callerCounts("resolveThreadSubject")["traceDBCallstackExactEmitterCandidates"] != 1 ||

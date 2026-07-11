@@ -24,6 +24,8 @@ func newTraceDBThreadIndex(traceStart int64, traceStartKnown bool) traceDBThread
 		ThreadIDToITID:     map[int64]int64{},
 		AmbiguousThreadID:  map[int64]bool{},
 		ByTIDCandidates:    map[int64][]traceDBThread{},
+		ObservedPublicTID:  map[int64]bool{},
+		RejectedPublicTID:  map[int64]bool{},
 		Processes:          map[int64]traceDBProcess{},
 		AmbiguousIPID:      map[int64]bool{},
 		ProcessIDToIPID:    map[int64]int64{},
@@ -209,6 +211,12 @@ func (tdb *traceDB) loadStrictProcessIndex(ctx context.Context, index *traceDBTh
 }
 
 func (tdb *traceDB) loadStrictThreadIndex(ctx context.Context, index *traceDBThreadIndex, coverage *TraceDBCoverage) error {
+	if index.ObservedPublicTID == nil {
+		index.ObservedPublicTID = map[int64]bool{}
+	}
+	if index.RejectedPublicTID == nil {
+		index.RejectedPublicTID = map[int64]bool{}
+	}
 	hasID := index.HasThreadIDColumn
 	hasName, err := tdb.columnExists(ctx, "thread", "name")
 	if err != nil {
@@ -250,6 +258,7 @@ func (tdb *traceDB) loadStrictThreadIndex(ctx context.Context, index *traceDBThr
 		"canonical_itid":    "thread.itid; strict SQLite INTEGER in 0..UINT32_MAX-1",
 		"owner_ipid":        ownerWireSource + ownerJoinSource,
 		"public_tid":        "thread.tid; strict SQLite INTEGER in 0..MaxInt32",
+		"public_tid_roster": "all strict physical thread.tid values retained separately from the rejected-row subset; audit evidence only, never an alternate resolver",
 		"source_profile":    map[bool]string{true: "full current profile: thread.id must equal thread.itid", false: "id-less compatibility profile: thread.itid is its own source identity"}[hasID],
 		"thread_name":       "display-only string metadata; never part of identity conflict keys",
 		"registration_hint": "optional thread.start_ts tri-state metadata only; current producer normally exposes NULL and it never defines generation",
@@ -283,6 +292,7 @@ func (tdb *traceDB) loadStrictThreadIndex(ctx context.Context, index *traceDBThr
 
 	scannedRows := 0
 	candidateRows := map[int64]int{}
+	candidateTIDsByITID := map[int64]map[int64]bool{}
 	metadataTaintedRows := 0
 	poison := func(sourceID int64, sourceOK bool, itid int64, itidOK bool) {
 		poisonID := func(id int64) {
@@ -311,16 +321,27 @@ func (tdb *traceDB) loadStrictThreadIndex(ctx context.Context, index *traceDBThr
 			sourceID, sourceOK = traceDBStrictInternalID(sourceRaw)
 		}
 		tid, tidOK := traceDBStrictPublicID(tidRaw)
+		if tidOK {
+			index.ObservedPublicTID[tid] = true
+		}
 		ownerIPID, ownerOK := traceDBResolveThreadOwner(index, ownerRaw)
 		mainFlag, mainOK := traceDBStrictSQLiteBool(mainRaw)
 		switchCount, switchOK := traceDBStrictSQLiteInt(switchRaw)
 		if !sourceOK || !itidOK || !tidOK || !ownerOK || !mainOK || !switchOK || switchCount < 0 || switchCount > math.MaxUint32 ||
 			(hasID && sourceID != itid) {
+			if tidOK {
+				index.RejectedPublicTID[tid] = true
+			}
 			poison(sourceID, sourceOK, itid, itidOK)
 			continue
 		}
+		if candidateTIDsByITID[itid] == nil {
+			candidateTIDsByITID[itid] = map[int64]bool{}
+		}
+		candidateTIDsByITID[itid][tid] = true
 		candidateRows[itid]++
 		if index.AmbiguousThreadID[sourceID] || index.AmbiguousITID[itid] {
+			index.RejectedPublicTID[tid] = true
 			continue
 		}
 		registration := traceDBTimestampMetadataFrom(startRaw)
@@ -335,6 +356,8 @@ func (tdb *traceDB) loadStrictThreadIndex(ctx context.Context, index *traceDBThr
 		}
 		if existing, exists := index.ByITID[itid]; exists {
 			if existing.TID != item.TID || existing.IPID != item.IPID {
+				index.RejectedPublicTID[existing.TID] = true
+				index.RejectedPublicTID[item.TID] = true
 				poison(sourceID, true, itid, true)
 				continue
 			}
@@ -350,6 +373,10 @@ func (tdb *traceDB) loadStrictThreadIndex(ctx context.Context, index *traceDBThr
 			index.ByITID[itid] = item
 		}
 		if existing, exists := index.ThreadIDToITID[sourceID]; exists && existing != itid {
+			index.RejectedPublicTID[tid] = true
+			if prior, ok := index.ByITID[existing]; ok {
+				index.RejectedPublicTID[prior.TID] = true
+			}
 			poison(sourceID, true, itid, true)
 			continue
 		}
@@ -365,6 +392,9 @@ func (tdb *traceDB) loadStrictThreadIndex(ctx context.Context, index *traceDBThr
 		}
 	}
 	for itid := range index.AmbiguousITID {
+		for tid := range candidateTIDsByITID[itid] {
+			index.RejectedPublicTID[tid] = true
+		}
 		delete(index.ByITID, itid)
 	}
 	acceptedRows := 0
@@ -382,6 +412,9 @@ func (tdb *traceDB) loadStrictThreadIndex(ctx context.Context, index *traceDBThr
 	if rejected > 0 {
 		notes = append(notes, fmt.Sprintf("%d thread row(s) rejected: strict scalar/identity conflict, unresolved owner, or current id/itid alias divergence; ambiguous_itid=%d ambiguous_thread_id=%d",
 			rejected, len(index.AmbiguousITID), len(index.AmbiguousThreadID)))
+	}
+	if len(index.RejectedPublicTID) > 0 {
+		notes = append(notes, fmt.Sprintf("rejected_public_tid_lanes=%d retained_for_absence_vs_rejection_audit", len(index.RejectedPublicTID)))
 	}
 	metadataTaintedCohorts := 0
 	for _, item := range index.ByITID {

@@ -75,12 +75,18 @@ type traceDBTimestampMetadata struct {
 }
 
 type traceDBThreadIndex struct {
-	ByITID             map[int64]traceDBThread
-	AmbiguousITID      map[int64]bool
-	ThreadIDToITID     map[int64]int64
-	AmbiguousThreadID  map[int64]bool
-	HasThreadIDColumn  bool
-	ByTIDCandidates    map[int64][]traceDBThread
+	ByITID            map[int64]traceDBThread
+	AmbiguousITID     map[int64]bool
+	ThreadIDToITID    map[int64]int64
+	AmbiguousThreadID map[int64]bool
+	HasThreadIDColumn bool
+	ByTIDCandidates   map[int64][]traceDBThread
+	// These rosters are audit evidence, not alternate resolvers. They retain
+	// strict public TIDs from physical thread rows even when another identity
+	// field makes the row fail closed, so downstream consumers can distinguish
+	// a truly absent candidate from one removed by identity auditing.
+	ObservedPublicTID  map[int64]bool
+	RejectedPublicTID  map[int64]bool
 	Processes          map[int64]traceDBProcess
 	AmbiguousIPID      map[int64]bool
 	ProcessIDToIPID    map[int64]int64

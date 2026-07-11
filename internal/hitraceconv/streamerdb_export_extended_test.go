@@ -211,17 +211,23 @@ func TestExportTraceDBPerfSamplesRoundTripToTraceQuery(t *testing.T) {
 		"INSERT INTO thread VALUES (101, 1, 1, 'demo_main', 1, 1, 1000)",
 		"CREATE TABLE thread_state (itid INT, ts INT, dur INT, cpu INT, state TEXT)",
 		"INSERT INTO thread_state VALUES (1, 1000, 2000, 0, 'Running')",
+		"CREATE TABLE instant (ts, name, ref, ref_type)",
+		"CREATE TABLE sched_slice (ts, dur, itid, end_state)",
+		"CREATE TABLE callstack (ts, itid, callid)",
+		"CREATE TABLE syscall (ts, itid)",
+		"CREATE TABLE native_hook (start_ts, itid)",
+		"CREATE TABLE frame_slice (id, type, ts, itid)",
 		"CREATE TABLE perf_thread (thread_id INT, process_id INT, thread_name TEXT)",
 		"CREATE TABLE perf_sample (callchain_id INT, timestamp_trace INT, thread_id INT, event_count INT, cpu_id INT, event_type_id INT)",
-		"CREATE TABLE perf_report (id INT, report_value TEXT)",
+		"CREATE TABLE perf_report (id INT, report_type TEXT, report_value TEXT)",
 		"CREATE TABLE perf_callchain (id INT, callchain_id INT, depth INT, vaddr_in_file INT, offset_to_vaddr INT, ip INT, file_id INT, symbol_id INT, line_number INT)",
 		"CREATE TABLE perf_files (file_id INT, serial_id INT, symbol TEXT, path TEXT)",
 		"CREATE TABLE hmtrace_perf_symbolized_frame (perf_callchain_row_id INT PRIMARY KEY, display_name TEXT NOT NULL, origin_name TEXT NOT NULL, source_file TEXT, source_line INT, source_column INT, symbol_origin TEXT NOT NULL)",
 		"INSERT INTO perf_thread VALUES (101, 101, 'demo_main')",
-		"INSERT INTO perf_report VALUES (9, 'hw-cache-misses')",
+		"INSERT INTO perf_report VALUES (9, 'config_name', 'hw-cache-misses')",
 		"INSERT INTO perf_sample VALUES (88, 2200, 101, 3, 2, 9)",
-		"INSERT INTO perf_callchain VALUES (1001, 88, 0, 16, 16, 16, 1, 1, 55)",
-		"INSERT INTO perf_callchain VALUES (1002, 88, 1, 24, 24, 24, 1, 1, 12)",
+		"INSERT INTO perf_callchain VALUES (1001, 88, 1, 16, 16, 16, 1, 1, 55)",
+		"INSERT INTO perf_callchain VALUES (1002, 88, 0, 24, 24, 24, 1, 1, 12)",
 		"INSERT INTO perf_files VALUES (1, 1, 'raw_leaf', '/system/lib64/libdemo.so')",
 		"INSERT INTO hmtrace_perf_symbolized_frame VALUES (1001, 'runWorkload@entry/src/main/ets/pages/Index.ets:55:28', 'raw_leaf', 'entry/src/main/ets/pages/Index.ets', 55, 28, 'source_map+name_cache')",
 		"INSERT INTO hmtrace_perf_symbolized_frame VALUES (1002, 'main', 'main', 'entry/src/main/ets/pages/Index.ets', 12, 1, 'source_map+name_cache')",
@@ -241,8 +247,10 @@ func TestExportTraceDBPerfSamplesRoundTripToTraceQuery(t *testing.T) {
 	for _, want := range []string{
 		"perf_sample: cpu=2 cpu_known=true pid=101 tid=101",
 		`symbol="runWorkload@entry/src/main/ets/pages/Index.ets:55:28"`,
-		`callchain="runWorkload@entry/src/main/ets/pages/Index.ets:55:28;main"`,
+		`callchain="main;runWorkload@entry/src/main/ets/pages/Index.ets:55:28"`,
 		"source=trace_streamer_db",
+		"symbolization_status=symbolized",
+		"callchain_status=symbolized",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("perf DB systrace missing %q:\n%s", want, body)
@@ -284,11 +292,17 @@ func TestExportTraceDBPerfSamplesPreferTraceThreadComm(t *testing.T) {
 		"INSERT INTO thread VALUES (62642, 7, 1, 's.watch.meetime', 1, 1, 62380000000000)",
 		"CREATE TABLE thread_state (itid INT, ts INT, dur INT, cpu INT, state TEXT)",
 		"INSERT INTO thread_state VALUES (7, 62380027500000, 100000, 1, 'Running')",
+		"CREATE TABLE instant (ts, name, ref, ref_type)",
+		"CREATE TABLE sched_slice (ts, dur, itid, end_state)",
+		"CREATE TABLE callstack (ts, itid, callid)",
+		"CREATE TABLE syscall (ts, itid)",
+		"CREATE TABLE native_hook (start_ts, itid)",
+		"CREATE TABLE frame_slice (id, type, ts, itid)",
 		"CREATE TABLE perf_thread (thread_id INT, process_id INT, thread_name TEXT)",
 		"INSERT INTO perf_thread VALUES (62642, 62642, 'com.huawei.hmos')",
 		"CREATE TABLE perf_sample (callchain_id INT, timestamp_trace INT, thread_id INT, event_count INT, cpu_id INT, event_type_id INT)",
-		"CREATE TABLE perf_report (id INT, report_value TEXT)",
-		"INSERT INTO perf_report VALUES (9, 'hw-cpu-cycles')",
+		"CREATE TABLE perf_report (id INT, report_type TEXT, report_value TEXT)",
+		"INSERT INTO perf_report VALUES (9, 'config_name', 'hw-cpu-cycles')",
 		"CREATE TABLE perf_callchain (callchain_id INT, depth INT, name TEXT, ip INT)",
 		"INSERT INTO perf_callchain VALUES (88, 0, 'appspawn+0xc2f4', 372840035060)",
 		"INSERT INTO perf_sample VALUES (88, 62380027704000, 62642, 1477992, 1, 9)",
@@ -369,9 +383,10 @@ func TestExportTraceDBPerfSamplesStrictScalarsAndCPUThreeState(t *testing.T) {
 	for _, want := range []string{
 		"invalid_timestamp=2",
 		"invalid_thread_id=2",
-		"invalid_callchain_id=2",
-		"invalid_cpu=2",
-		"invalid_process_id=1",
+		"invalid_callchain_id=1",
+		"invalid_cpu=1",
+		"anonymous_cpu_unclaimed=2",
+		"ambiguous_identity=1",
 	} {
 		if !strings.Contains(perfCoverage.Skipped, want) {
 			t.Fatalf("strict perf coverage missing %q: %+v", want, perfCoverage)
@@ -386,8 +401,9 @@ func TestExportTraceDBPerfSamplesStrictScalarsAndCPUThreeState(t *testing.T) {
 		t.Fatalf("strict perf export should contain exactly two canonical samples and no markers:\n%s", body)
 	}
 	for _, want := range []string{
-		"perf_sample: cpu=0 cpu_known=true pid=101 tid=101",
-		"perf_sample: cpu=-1 cpu_known=false pid=101 tid=101",
+		"perf_sample: cpu=0 cpu_known=true pid=0 tid=0 thread_comm=\"\"",
+		"sample_weight=11",
+		"thread_identity_known=false resolution=perf_source_only lifecycle_unverified=true perf_source_tid=101",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("strict perf export missing %q:\n%s", want, body)
@@ -397,25 +413,19 @@ func TestExportTraceDBPerfSamplesStrictScalarsAndCPUThreeState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("tracequery parse strict perf output: %v", err)
 	}
-	known, unknown := 0, 0
+	known := 0
+	seenCPU := map[int]bool{}
 	for _, ev := range idx.Events {
 		if ev.Type != tracequery.EventPerfSample || ev.PerfFields == nil || ev.PerfFields.CPUKnown == nil {
 			continue
 		}
 		if *ev.PerfFields.CPUKnown {
 			known++
-			if ev.CPU != 0 {
-				t.Fatalf("explicit CPU0 was rewritten: %+v", ev)
-			}
-		} else {
-			unknown++
-			if ev.CPU != -1 {
-				t.Fatalf("missing CPU did not remain unknown: %+v", ev)
-			}
+			seenCPU[ev.CPU] = true
 		}
 	}
-	if known != 1 || unknown != 1 {
-		t.Fatalf("CPU three-state round trip mismatch: known=%d unknown=%d events=%+v", known, unknown, idx.Events)
+	if known != 2 || !seenCPU[0] || !seenCPU[1] {
+		t.Fatalf("strict anonymous CPU round trip mismatch: known=%d cpus=%v events=%+v", known, seenCPU, idx.Events)
 	}
 }
 
@@ -429,16 +439,19 @@ func TestExportTraceDBPerfSamplesMissingCPUColumnRemainsUnknown(t *testing.T) {
 		"INSERT INTO perf_sample VALUES (1, 1000, 101, 3)",
 	})
 	outPath := filepath.Join(t.TempDir(), "perf-no-cpu.systrace")
-	if _, err := exportTraceDBToSystrace(context.Background(), path, outPath); err != nil {
+	result, err := exportTraceDBToSystrace(context.Background(), path, outPath)
+	if err != nil {
 		t.Fatalf("export perf DB without CPU column: %v", err)
 	}
-	bodyBytes, err := os.ReadFile(outPath)
-	if err != nil {
-		t.Fatal(err)
+	for _, item := range result.Coverage {
+		if item.Family == "perf" && item.Table == "perf_sample" {
+			if item.RowsEmitted != 0 || !strings.Contains(item.Skipped, "anonymous_cpu_unclaimed=1") {
+				t.Fatalf("missing anonymous CPU did not fail closed: %+v", item)
+			}
+		}
 	}
-	body := string(bodyBytes)
-	if !strings.Contains(body, "perf_sample: cpu=-1 cpu_known=false pid=101 tid=101") || strings.Contains(body, "tracing_mark_write:") {
-		t.Fatalf("missing CPU column acquired a fabricated CPU or marker:\n%s", body)
+	if _, err := os.Stat(outPath); !os.IsNotExist(err) {
+		t.Fatalf("zero-row export unexpectedly materialized a transport CPU: stat err=%v", err)
 	}
 }
 
@@ -452,6 +465,14 @@ func TestExportTraceDBPerfSamplesIgnoreNonAuthoritativeRegistrationHints(t *test
 		"CREATE TABLE thread (tid INT, itid INT, ipid INT, name TEXT, is_main_thread INT, switch_count INT, start_ts INT)",
 		"INSERT INTO thread VALUES (42, 2, 2, 'new-thread', 0, 1, 100000)",
 		"INSERT INTO thread VALUES (42, 1, 1, 'old-thread', 0, 1, 0)",
+		"CREATE TABLE instant (ts, name, ref, ref_type)",
+		"CREATE TABLE thread_state (ts, dur, itid, state, cpu)",
+		"INSERT INTO thread_state VALUES (0, 200000, 2, 'Running', 1)",
+		"CREATE TABLE sched_slice (ts, dur, itid, end_state)",
+		"CREATE TABLE callstack (ts, itid, callid)",
+		"CREATE TABLE syscall (ts, itid)",
+		"CREATE TABLE native_hook (start_ts, itid)",
+		"CREATE TABLE frame_slice (id, type, ts, itid)",
 		"CREATE TABLE perf_thread (thread_id INT, process_id INT, thread_name TEXT)",
 		"INSERT INTO perf_thread VALUES (42, 200, 'perf-new')",
 		"CREATE TABLE perf_sample (callchain_id INT, timestamp_trace INT, thread_id INT, event_count INT, cpu_id INT)",
@@ -497,37 +518,26 @@ func TestTraceDBPerfCandidateResolutionDisclosesConflictAndAmbiguity(t *testing.
 	buildTraceDBThreadSecondaryIndexes(&index)
 
 	tests := []struct {
-		name        string
-		tid         int64
-		pid         int64
-		pidKnown    bool
-		wantTask    string
-		wantPID     int64
-		wantTokens  []string
-		forbidToken string
+		name           string
+		tid            int64
+		pid            int64
+		pidKnown       bool
+		wantResolution traceDBPerfThreadResolution
+		wantTask       string
+		wantPID        int64
 	}{
-		{name: "pid mismatch", tid: 42, pid: 300, pidKnown: true, wantTask: "perf-source", wantPID: 300,
-			wantTokens: []string{"identity_conflict=true", "identity_conflict_reason=trace_pid_mismatch", "resolution=perf_source_only"}},
-		{name: "same pid multiple canonical candidates", tid: 42, pid: 200, pidKnown: true, wantTask: "perf-source", wantPID: 200,
-			wantTokens: []string{"identity_conflict=true", "identity_conflict_reason=ambiguous_trace_thread", "resolution=perf_source_only"}},
-		{name: "public tid only ambiguous", tid: 42, wantTask: "perf-source", wantPID: 42,
-			wantTokens: []string{"process_id_source=tid_fallback", "identity_conflict_reason=ambiguous_trace_thread", "resolution=perf_source_only"}},
-		{name: "missing canonical candidate", tid: 44, pid: 400, pidKnown: true, wantTask: "perf-source", wantPID: 400, forbidToken: "identity_conflict=true"},
-		{name: "exact pid narrows unique candidate", tid: 43, pid: 200, pidKnown: true, wantTask: "single", wantPID: 200, forbidToken: "identity_conflict=true"},
+		{name: "pid mismatch", tid: 42, pid: 300, pidKnown: true, wantResolution: traceDBPerfThreadPIDConflict},
+		{name: "same pid multiple canonical candidates", tid: 42, pid: 200, pidKnown: true, wantResolution: traceDBPerfThreadAmbiguous},
+		{name: "public tid only ambiguous", tid: 42, wantResolution: traceDBPerfThreadAmbiguous},
+		{name: "missing canonical candidate", tid: 44, pid: 400, pidKnown: true, wantResolution: traceDBPerfThreadMissing},
+		{name: "exact pid narrows unique candidate", tid: 43, pid: 200, pidKnown: true, wantResolution: traceDBPerfThreadResolved, wantTask: "single", wantPID: 200},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			task, pid, note := traceDBPerfSampleIdentity(index, 123, test.tid, test.pid, test.pidKnown, "perf-source")
-			if task != test.wantTask || pid != test.wantPID {
-				t.Fatalf("resolution=(%q,%d,%q), want task=%q pid=%d", task, pid, note, test.wantTask, test.wantPID)
-			}
-			for _, token := range test.wantTokens {
-				if !strings.Contains(note, token) {
-					t.Fatalf("resolution note %q missing %q", note, token)
-				}
-			}
-			if test.forbidToken != "" && strings.Contains(note, test.forbidToken) {
-				t.Fatalf("resolution note %q unexpectedly contains %q", note, test.forbidToken)
+			got := traceDBResolvePerfSampleIdentity(index, traceDBPerfThreadCatalog{ByTID: map[int64]traceDBPerfThreadCatalogEntry{}, Tainted: map[int64]bool{}},
+				test.tid, test.pid, test.pidKnown, "perf-source")
+			if got.Resolution != test.wantResolution || got.Task != test.wantTask || got.PID != test.wantPID {
+				t.Fatalf("resolution=%+v, want kind=%v task=%q pid=%d", got, test.wantResolution, test.wantTask, test.wantPID)
 			}
 		})
 	}

@@ -977,6 +977,7 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 		"prepareTraceDBCallstackRow":    2,
 		"prepareTraceDBFrameSliceRow":   2,
 		"prepareTraceDBNativeHookEvent": 1,
+		"traceDBResolvePerfSampleCPU":   1,
 	})
 	assertCallSites("exportTraceDBWakeups", map[string]int{"exportTraceDBSchedulerFamilies": 1})
 	assertCallSites("exportTraceDBBlockedReasons", map[string]int{"exportTraceDBSchedulerFamilies": 1})
@@ -1011,6 +1012,7 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 		"traceDBCallstackExactEmitterCandidates": 1,
 	})
 	assertCallSites("threadPointAllows", map[string]int{
+		"exportTraceDBPerfSamples":      1,
 		"exportTraceDBWakeups":          2,
 		"loadTraceDBBlockedCandidates":  1,
 		"prepareTraceDBCallstackRow":    2,
