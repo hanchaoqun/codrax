@@ -426,21 +426,34 @@ func TestAuditTraceDBSyncSpanLaneDepthAndZeroIdentity(t *testing.T) {
 			Start: start, End: end, Depth: depth, DepthKnown: depthKnown, DepthProvenance: depthProvenance,
 		}
 	}
-	if reason := auditTraceDBSyncSpanLane([]traceDBSyncSpanCandidate{
+	if reason := auditTraceDBSyncSpanLaneForTest(t, []traceDBSyncSpanCandidate{
 		candidate(1, 10, 20, 0, true), candidate(2, 10, 20, 1, true),
 	}); reason != traceDBSyncSpanLaneClean {
 		t.Fatalf("strict depth should disambiguate identical intervals: %d", reason)
 	}
-	if reason := auditTraceDBSyncSpanLane([]traceDBSyncSpanCandidate{
+	if reason := auditTraceDBSyncSpanLaneForTest(t, []traceDBSyncSpanCandidate{
 		candidate(1, 10, 20, 0, true), candidate(2, 11, 19, 0, true),
 	}); reason != traceDBSyncSpanLaneDepthConflict {
 		t.Fatalf("equal-depth overlap was not rejected: %d", reason)
 	}
-	if reason := auditTraceDBSyncSpanLane([]traceDBSyncSpanCandidate{
+	if reason := auditTraceDBSyncSpanLaneForTest(t, []traceDBSyncSpanCandidate{
 		candidate(1, 10, 10, 0, false), candidate(2, 10, 10, 0, false),
 	}); reason != traceDBSyncSpanLaneClean {
 		t.Fatalf("zero spans should not fabricate an active nesting conflict: %d", reason)
 	}
+}
+
+func auditTraceDBSyncSpanLaneForTest(t *testing.T, candidates []traceDBSyncSpanCandidate) traceDBSyncSpanLaneAuditReason {
+	t.Helper()
+	stage := &traceDBSyncSpanStage{options: normalizedTraceDBSyncSpanStageOptions(traceDBSyncSpanStageOptions{})}
+	auditor := traceDBSyncSpanLaneAuditor{stage: stage}
+	auditor.reset()
+	for _, candidate := range candidates {
+		if err := auditor.consume(candidate); err != nil {
+			t.Fatalf("audit typed sync span lane: %v", err)
+		}
+	}
+	return auditor.finalReason()
 }
 
 func TestExportTraceDBCallstackAsyncDoesNotPairAcrossProcessIncarnations(t *testing.T) {

@@ -287,7 +287,7 @@ func traceDBRunSyncSpanBoundaryExporter(t *testing.T, test traceDBSyncSpanBounda
 	items := []TraceDBCoverage{coverage}
 	if addControl {
 		control := traceDBTestSyncSpanCandidate(traceDBSyncSpanProducerRegistration, 99, 100, 100, 2000, 2000, "control")
-		if err := spans.submit(control); err != nil {
+		if err := spans.submit(context.Background(), control); err != nil {
 			t.Fatalf("submit post-%s control: %v", test.name, err)
 		}
 		items = append(items, TraceDBCoverage{Family: "metadata", Table: "thread", Found: true})

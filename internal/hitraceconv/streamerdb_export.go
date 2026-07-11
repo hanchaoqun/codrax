@@ -2,6 +2,7 @@ package hitraceconv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -17,7 +18,7 @@ type traceDBSystraceExport struct {
 	LastTimestampSec  float64
 }
 
-func exportTraceDBToSystrace(ctx context.Context, dbPath, output string) (traceDBSystraceExport, error) {
+func exportTraceDBToSystrace(ctx context.Context, dbPath, output string) (result traceDBSystraceExport, err error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -40,10 +41,15 @@ func exportTraceDBToSystrace(ctx context.Context, dbPath, output string) (traceD
 			sink.cleanup()
 		}
 	}()
-	syncSpans, err := newTraceDBSyncSpanAuthority(output)
+	syncSpans, err := newTraceDBSyncSpanAuthority(ctx, output)
 	if err != nil {
 		return traceDBSystraceExport{}, err
 	}
+	defer func() {
+		if syncSpans.stage != nil && !syncSpans.stage.closed {
+			err = errors.Join(err, syncSpans.cleanup())
+		}
+	}()
 
 	schedulerCoverage, authority, err := exportTraceDBSchedulerFamilies(ctx, tdb, sink, syncSpans)
 	if err != nil {
@@ -100,7 +106,7 @@ func exportTraceDBToSystrace(ctx context.Context, dbPath, output string) (traceD
 		return traceDBSystraceExport{Coverage: coverage}, err
 	}
 	coverage = append(coverage, stats.coverage())
-	result := traceDBSystraceExport{
+	result = traceDBSystraceExport{
 		Artifact: Artifact{
 			Type:      ArtifactSystrace,
 			Path:      output,

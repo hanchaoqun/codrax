@@ -202,7 +202,7 @@ func exportTraceDBThreadRegistrations(ctx context.Context, sink *traceDBRowSink,
 		if !traceDBCallstackMarkerToken(markerName) {
 			markerName = "unknown"
 		}
-		if err := syncSpans.submit(traceDBSyncSpanCandidate{
+		if err := syncSpans.submit(ctx, traceDBSyncSpanCandidate{
 			Producer:           traceDBSyncSpanProducerRegistration,
 			StableKind:         traceDBSyncSpanStableRegistrationITID,
 			StableID:           thread.ITID,

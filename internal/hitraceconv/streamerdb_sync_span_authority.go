@@ -2,10 +2,10 @@ package hitraceconv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 )
@@ -120,16 +120,17 @@ type traceDBSyncSpanProducerStats struct {
 }
 
 type traceDBSyncSpanReport struct {
-	ByProducer       map[traceDBSyncSpanProducer]traceDBSyncSpanProducerStats
-	SubmittedSpans   int
-	EmittedEndpoints int
-	SuppressedSpans  int
-	PoisonedLanes    int
-	CrossingLanes    int
-	IdenticalLanes   int
-	IdentityLanes    int
-	DepthLanes       int
-	DuplicateLanes   int
+	ByProducer             map[traceDBSyncSpanProducer]traceDBSyncSpanProducerStats
+	SubmittedSpans         int
+	EmittedEndpoints       int
+	SuppressedSpans        int
+	PoisonedLanes          int
+	CrossingLanes          int
+	IdenticalLanes         int
+	IdentityLanes          int
+	DepthLanes             int
+	DuplicateLanes         int
+	BudgetFailClosedReason string
 }
 
 type traceDBSyncSpanAuthorityState uint8
@@ -142,18 +143,26 @@ const (
 )
 
 // traceDBSyncSpanAuthority is the sole authority for synthetic B/E rows made
-// from one Trace Streamer SQLite artifact. It intentionally stages in memory;
-// bounded external staging remains the separate B1-c batch.
+// from one Trace Streamer SQLite artifact. Candidate storage and duplicate /
+// poison arbitration are delegated to one bounded typed stage.
 type traceDBSyncSpanAuthority struct {
 	artifactSource string
 	state          traceDBSyncSpanAuthorityState
-	candidates     []traceDBSyncSpanCandidate
-	poisons        []traceDBSyncSpanLanePoison
-	identities     map[traceDBSyncSpanIdentity]traceDBSyncSpanLane
-	duplicateLanes map[traceDBSyncSpanLane]bool
+	stage          *traceDBSyncSpanStage
+	submitted      [traceDBSyncSpanProducerStaticInitialize + 1]int
+	poisoned       [traceDBSyncSpanProducerStaticInitialize + 1]int
+	submittedTotal int
+	poisonedTotal  int
 }
 
-func newTraceDBSyncSpanAuthority(outputArtifact string) (*traceDBSyncSpanAuthority, error) {
+func newTraceDBSyncSpanAuthority(ctx context.Context, outputArtifact string) (*traceDBSyncSpanAuthority, error) {
+	return newTraceDBSyncSpanAuthorityWithOptions(ctx, outputArtifact, traceDBSyncSpanStageOptions{})
+}
+
+func newTraceDBSyncSpanAuthorityWithOptions(ctx context.Context, outputArtifact string, options traceDBSyncSpanStageOptions) (*traceDBSyncSpanAuthority, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	trimmed := strings.TrimSpace(outputArtifact)
 	if trimmed == "" {
 		return nil, &traceDBOutputInvariantError{Reason: "missing_sync_span_artifact_source"}
@@ -162,46 +171,113 @@ func newTraceDBSyncSpanAuthority(outputArtifact string) (*traceDBSyncSpanAuthori
 	if err != nil {
 		return nil, fmt.Errorf("resolve sync span artifact source: %w", err)
 	}
+	stage, err := newTraceDBSyncSpanStage(ctx, options)
+	if err != nil {
+		return nil, err
+	}
 	return &traceDBSyncSpanAuthority{
 		artifactSource: filepath.Clean(abs),
-		identities:     map[traceDBSyncSpanIdentity]traceDBSyncSpanLane{},
-		duplicateLanes: map[traceDBSyncSpanLane]bool{},
+		stage:          stage,
 	}, nil
 }
 
-func (authority *traceDBSyncSpanAuthority) submit(candidate traceDBSyncSpanCandidate) error {
+func (authority *traceDBSyncSpanAuthority) submit(ctx context.Context, candidate traceDBSyncSpanCandidate) error {
 	if authority == nil || authority.state != traceDBSyncSpanAuthorityOpen || authority.artifactSource == "" {
 		return &traceDBOutputInvariantError{Reason: "sync_span_authority_not_open"}
 	}
 	if err := validateTraceDBSyncSpanCandidate(candidate); err != nil {
 		return err
 	}
-	identity := traceDBSyncSpanIdentity{
-		Producer: candidate.Producer, StableKind: candidate.StableKind, StableID: candidate.StableID,
+	if authority.submitted[candidate.Producer] == math.MaxInt || authority.submittedTotal == math.MaxInt {
+		authority.state = traceDBSyncSpanAuthorityFailed
+		return &traceDBOutputInvariantError{Reason: "sync_span_authority_submission_count_overflow"}
 	}
-	lane := traceDBSyncSpanLane{ArtifactSource: authority.artifactSource, HeaderTID: candidate.HeaderTID}
-	if previousLane, exists := authority.identities[identity]; exists {
-		authority.duplicateLanes[previousLane] = true
-		authority.duplicateLanes[lane] = true
-	} else {
-		authority.identities[identity] = lane
+	authority.submitted[candidate.Producer]++
+	authority.submittedTotal++
+	if err := authority.stage.addCandidate(ctx, candidate); err != nil {
+		if _, ok := traceDBSyncSpanPureBudgetReason(err); ok {
+			return nil
+		}
+		authority.state = traceDBSyncSpanAuthorityFailed
+		return err
 	}
-	authority.candidates = append(authority.candidates, candidate)
 	return nil
 }
 
-func (authority *traceDBSyncSpanAuthority) poisonExactLane(poison traceDBSyncSpanLanePoison) error {
+func (authority *traceDBSyncSpanAuthority) poisonExactLane(ctx context.Context, poison traceDBSyncSpanLanePoison) error {
 	if authority == nil || authority.state != traceDBSyncSpanAuthorityOpen || authority.artifactSource == "" {
 		return &traceDBOutputInvariantError{Reason: "sync_span_authority_not_open"}
 	}
+	if err := validateTraceDBSyncSpanLanePoison(poison); err != nil {
+		return err
+	}
+	if authority.poisoned[poison.Producer] == math.MaxInt || authority.poisonedTotal == math.MaxInt {
+		authority.state = traceDBSyncSpanAuthorityFailed
+		return &traceDBOutputInvariantError{Reason: "sync_span_authority_poison_count_overflow"}
+	}
+	authority.poisoned[poison.Producer]++
+	authority.poisonedTotal++
+	if err := authority.stage.addPoison(ctx, poison); err != nil {
+		if _, ok := traceDBSyncSpanPureBudgetReason(err); ok {
+			return nil
+		}
+		authority.state = traceDBSyncSpanAuthorityFailed
+		return err
+	}
+	return nil
+}
+
+func validateTraceDBSyncSpanLanePoison(poison traceDBSyncSpanLanePoison) error {
 	if poison.Producer != traceDBSyncSpanProducerCallstack ||
 		poison.Reason != traceDBSyncSpanLanePoisonRejectedCallstackCandidate ||
 		poison.HeaderTID <= 0 || poison.HeaderTID > math.MaxInt32 ||
 		!poison.CanonicalITIDKnown || poison.CanonicalITID <= 0 || poison.CanonicalITID > maxTraceDBInternalID {
 		return &traceDBOutputInvariantError{Reason: "invalid_sync_span_exact_lane_poison"}
 	}
-	authority.poisons = append(authority.poisons, poison)
 	return nil
+}
+
+func (authority *traceDBSyncSpanAuthority) cleanup() error {
+	if authority == nil || authority.stage == nil {
+		return nil
+	}
+	return authority.stage.cleanup()
+}
+
+func traceDBSyncSpanPureBudgetReason(err error) (string, bool) {
+	reason, ok := traceDBSyncSpanStageBudgetReason(err)
+	if !ok || !traceDBSyncSpanErrorTreeOnlyBudget(err) {
+		return "", false
+	}
+	return reason, true
+}
+
+func traceDBSyncSpanErrorTreeOnlyBudget(err error) bool {
+	if err == nil {
+		return true
+	}
+	var budget *traceDBSyncSpanStageBudgetError
+	if errors.As(err, &budget) {
+		if joined, ok := err.(interface{ Unwrap() []error }); ok {
+			children := joined.Unwrap()
+			if len(children) == 0 {
+				return false
+			}
+			for _, child := range children {
+				if !traceDBSyncSpanErrorTreeOnlyBudget(child) {
+					return false
+				}
+			}
+			return true
+		}
+		if _, direct := err.(*traceDBSyncSpanStageBudgetError); direct {
+			return true
+		}
+		if wrapped, ok := err.(interface{ Unwrap() error }); ok {
+			return traceDBSyncSpanErrorTreeOnlyBudget(wrapped.Unwrap())
+		}
+	}
+	return false
 }
 
 func validateTraceDBSyncSpanCandidate(candidate traceDBSyncSpanCandidate) error {
@@ -340,131 +416,109 @@ func (authority *traceDBSyncSpanAuthority) finalize(ctx context.Context, sink *t
 		FieldSources: map[string]string{
 			"lane_identity":   "exact output artifact source + physical row-header TID; payload TGID, canonical ITID, producer and name never split the B/E stack",
 			"candidate_order": "interval geometry, closed producer/stable kind, canonical/owner identity, exact depth tuple, then stable row identity; name never orders",
-			"publication":     "all governed candidates are frozen and every lane is audited before any synthetic B/E endpoint reaches the row sink",
-			"buffering":       "in-memory complete-set staging; bounded external stage/spill remains open as B1-c",
+			"publication":     "bounded pass 1 freezes and audits every governed lane plus a checksummed bad-lane journal; pass 2 alone may publish clean synthetic B/E endpoints",
+			"buffering":       "hybrid candidate-byte-bounded memory to private indexed SQLite stage with record/temp/active/audit caps; final generic row sorter ROW-SORT-BND remains separately open",
 		},
 	}
 	defer func() {
+		stats := traceDBSyncSpanStageStats{}
+		if authority != nil && authority.stage != nil {
+			stats = authority.stage.snapshotStats()
+			coverage.PeakBuffered = stats.PeakResidentCandidates
+			coverage.SpillChunks = stats.ExternalArtifacts
+			coverage.TempBytes = stats.PeakTempBytes
+			coverage.FieldSources["stage_backend"] = fmt.Sprintf(
+				"%s; peak_candidate_bytes=%d peak_active_depth=%d peak_active_bytes=%d audit_comparisons=%d indexed_lane_plan=%t",
+				stats.Backend, stats.PeakResidentBytes, stats.PeakActiveDepth, stats.PeakActiveBytes,
+				stats.AuditComparisons, stats.LanePlanVerified)
+		}
+		if cleanupErr := authority.cleanup(); cleanupErr != nil {
+			err = errors.Join(err, fmt.Errorf("cleanup sync span stage: %w", cleanupErr))
+		}
 		traceDBSetCoverageElapsed(&coverage, started)
 		if err != nil {
+			if authority != nil {
+				authority.state = traceDBSyncSpanAuthorityFailed
+			}
 			coverage.Error = err.Error()
 		}
 	}()
-	if authority == nil || authority.state != traceDBSyncSpanAuthorityOpen || authority.artifactSource == "" || sink == nil {
+	if authority == nil || authority.state != traceDBSyncSpanAuthorityOpen || authority.artifactSource == "" || authority.stage == nil || sink == nil || ctx == nil {
 		return report, coverage, &traceDBOutputInvariantError{Reason: "sync_span_authority_finalize_state"}
 	}
 	authority.state = traceDBSyncSpanAuthorityFinalizing
-	report.ByProducer = map[traceDBSyncSpanProducer]traceDBSyncSpanProducerStats{}
-	coverage.Found = len(authority.candidates) > 0 || len(authority.poisons) > 0
-	coverage.RowsRead = len(authority.candidates) * 2
-	coverage.PeakBuffered = len(authority.candidates)
-	lanes := map[traceDBSyncSpanLane][]traceDBSyncSpanCandidate{}
-	forced := map[traceDBSyncSpanLane]traceDBSyncSpanLaneAuditReason{}
-	for _, candidate := range authority.candidates {
-		if err := ctx.Err(); err != nil {
-			authority.state = traceDBSyncSpanAuthorityFailed
-			return report, coverage, err
+	report = authority.baseReport()
+	coverage.Found = report.SubmittedSpans > 0 || authority.poisonedTotal > 0
+	if report.SubmittedSpans > math.MaxInt/2 {
+		return report, coverage, &traceDBOutputInvariantError{Reason: "sync_span_authority_coverage_count_overflow"}
+	}
+	coverage.RowsRead = report.SubmittedSpans * 2
+	if reason := authority.stage.budget(); reason != "" {
+		authority.applyBudgetFailClosed(&report, reason)
+		coverage.Skipped = traceDBSyncSpanReportSummary(report)
+		authority.state = traceDBSyncSpanAuthorityFinalized
+		return report, coverage, nil
+	}
+	if sealErr := authority.stage.seal(ctx); sealErr != nil {
+		if reason, ok := traceDBSyncSpanPureBudgetReason(sealErr); ok {
+			authority.applyBudgetFailClosed(&report, reason)
+			coverage.Skipped = traceDBSyncSpanReportSummary(report)
+			authority.state = traceDBSyncSpanAuthorityFinalized
+			return report, coverage, nil
 		}
-		lane := traceDBSyncSpanLane{ArtifactSource: authority.artifactSource, HeaderTID: candidate.HeaderTID}
-		lanes[lane] = append(lanes[lane], candidate)
-		stats := report.ByProducer[candidate.Producer]
-		stats.SubmittedSpans++
-		report.ByProducer[candidate.Producer] = stats
-		report.SubmittedSpans++
+		return report, coverage, sealErr
 	}
-	for _, poison := range authority.poisons {
-		lane := traceDBSyncSpanLane{ArtifactSource: authority.artifactSource, HeaderTID: poison.HeaderTID}
-		forced[lane] = traceDBSyncSpanLaneDeclaredPoison
-		stats := report.ByProducer[poison.Producer]
-		stats.PoisonDeclarations++
-		report.ByProducer[poison.Producer] = stats
+	journal, journalErr := authority.stage.newBadLaneJournal()
+	if journalErr != nil {
+		return report, coverage, journalErr
 	}
-	for lane := range authority.duplicateLanes {
-		if forced[lane] == traceDBSyncSpanLaneClean {
-			forced[lane] = traceDBSyncSpanLaneDuplicateStableIdentity
+	defer func() {
+		if abortErr := journal.abort(); abortErr != nil {
+			err = errors.Join(err, abortErr)
 		}
-	}
-	laneKeys := make([]traceDBSyncSpanLane, 0, len(lanes)+len(forced))
-	seenLane := map[traceDBSyncSpanLane]bool{}
-	for lane := range lanes {
-		seenLane[lane] = true
-		laneKeys = append(laneKeys, lane)
-	}
-	for lane := range forced {
-		if !seenLane[lane] {
-			laneKeys = append(laneKeys, lane)
+	}()
+	cleanSpans, auditErr := authority.auditFrozenLanes(ctx, &report, journal)
+	if auditErr != nil {
+		if reason, ok := traceDBSyncSpanPureBudgetReason(auditErr); ok {
+			authority.applyBudgetFailClosed(&report, reason)
+			coverage.Skipped = traceDBSyncSpanReportSummary(report)
+			authority.state = traceDBSyncSpanAuthorityFinalized
+			return report, coverage, nil
 		}
+		return report, coverage, auditErr
 	}
-	sort.Slice(laneKeys, func(i, j int) bool {
-		if laneKeys[i].ArtifactSource != laneKeys[j].ArtifactSource {
-			return laneKeys[i].ArtifactSource < laneKeys[j].ArtifactSource
+	if journalErr := journal.seal(ctx); journalErr != nil {
+		if reason, ok := traceDBSyncSpanPureBudgetReason(journalErr); ok {
+			authority.applyBudgetFailClosed(&report, reason)
+			coverage.Skipped = traceDBSyncSpanReportSummary(report)
+			authority.state = traceDBSyncSpanAuthorityFinalized
+			return report, coverage, nil
 		}
-		return laneKeys[i].HeaderTID < laneKeys[j].HeaderTID
-	})
-	var clean []traceDBSyncSpanCandidate
-	for _, lane := range laneKeys {
-		forcedReason := forced[lane]
-		auditReason := auditTraceDBSyncSpanLane(lanes[lane])
-		if forcedReason == traceDBSyncSpanLaneClean && auditReason == traceDBSyncSpanLaneClean {
-			clean = append(clean, lanes[lane]...)
+		return report, coverage, journalErr
+	}
+	if sink.stats.RowsAccepted < 0 || cleanSpans > (math.MaxInt-sink.stats.RowsAccepted)/2 {
+		sequenceErr := authority.stage.failBudget(traceDBSyncSpanStageBudgetSequenceCap)
+		reason, _ := traceDBSyncSpanPureBudgetReason(sequenceErr)
+		authority.applyBudgetFailClosed(&report, reason)
+		coverage.Skipped = traceDBSyncSpanReportSummary(report)
+		authority.state = traceDBSyncSpanAuthorityFinalized
+		return report, coverage, nil
+	}
+	emittedByProducer, publishErr := authority.publishFrozenCleanLanes(ctx, sink, journal)
+	if publishErr != nil {
+		return report, coverage, publishErr
+	}
+	for producer := traceDBSyncSpanProducerRegistration; producer <= traceDBSyncSpanProducerStaticInitialize; producer++ {
+		stats, exists := report.ByProducer[producer]
+		if !exists {
 			continue
 		}
-		report.PoisonedLanes++
-		for _, reason := range []traceDBSyncSpanLaneAuditReason{forcedReason, auditReason} {
-			switch reason {
-			case traceDBSyncSpanLaneCrossing:
-				report.CrossingLanes++
-			case traceDBSyncSpanLaneIdenticalUnproven:
-				report.IdenticalLanes++
-			case traceDBSyncSpanLaneIdentityConflict:
-				report.IdentityLanes++
-			case traceDBSyncSpanLaneDepthConflict:
-				report.DepthLanes++
-			case traceDBSyncSpanLaneDuplicateStableIdentity:
-				report.DuplicateLanes++
-			}
-		}
-		for _, candidate := range lanes[lane] {
-			stats := report.ByProducer[candidate.Producer]
-			stats.SuppressedSpans++
-			report.ByProducer[candidate.Producer] = stats
-			report.SuppressedSpans++
-		}
+		stats.EmittedEndpoints = emittedByProducer[producer] * 2
+		report.ByProducer[producer] = stats
+		report.EmittedEndpoints += stats.EmittedEndpoints
 	}
-	endpoints := traceDBSyncSpanEndpoints(clean)
-	prepared := make([]renderedRow, 0, len(endpoints))
-	for i, endpoint := range endpoints {
-		if err := ctx.Err(); err != nil {
-			authority.state = traceDBSyncSpanAuthorityFailed
-			return report, coverage, err
-		}
-		body := fmt.Sprintf("tracing_mark_write: E|%d|", endpoint.Candidate.HeaderTGID)
-		if endpoint.Begin {
-			body = fmt.Sprintf("tracing_mark_write: B|%d|%s", endpoint.Candidate.HeaderTGID, endpoint.Candidate.Name)
-		}
-		cpu := endpoint.Candidate.EndCPU
-		if endpoint.Begin {
-			cpu = endpoint.Candidate.StartCPU
-		}
-		row, renderErr := prepareTraceDBRenderedRow(endpoint.TS, sink.stats.RowsAccepted+i,
-			endpoint.Candidate.Task, endpoint.Candidate.HeaderTID, endpoint.Candidate.HeaderTGID, cpu, body)
-		if renderErr != nil {
-			authority.state = traceDBSyncSpanAuthorityFailed
-			return report, coverage, renderErr
-		}
-		prepared = append(prepared, row)
-	}
-	for _, row := range prepared {
-		if err := sink.add(row); err != nil {
-			authority.state = traceDBSyncSpanAuthorityFailed
-			return report, coverage, err
-		}
-	}
-	for _, candidate := range clean {
-		stats := report.ByProducer[candidate.Producer]
-		stats.EmittedEndpoints += 2
-		report.ByProducer[candidate.Producer] = stats
-		report.EmittedEndpoints += 2
+	if report.EmittedEndpoints != cleanSpans*2 {
+		return report, coverage, &traceDBOutputInvariantError{Reason: "sync_span_stage_endpoint_count_mismatch"}
 	}
 	coverage.RowsEmitted = report.EmittedEndpoints
 	coverage.Skipped = traceDBSyncSpanReportSummary(report)
@@ -472,70 +526,434 @@ func (authority *traceDBSyncSpanAuthority) finalize(ctx context.Context, sink *t
 	return report, coverage, nil
 }
 
-func auditTraceDBSyncSpanLane(candidates []traceDBSyncSpanCandidate) traceDBSyncSpanLaneAuditReason {
-	positive := make([]traceDBSyncSpanCandidate, 0, len(candidates))
-	zero := make([]traceDBSyncSpanCandidate, 0, len(candidates))
-	for _, candidate := range candidates {
-		if candidate.End > candidate.Start {
-			positive = append(positive, candidate)
-		} else {
-			zero = append(zero, candidate)
+func (authority *traceDBSyncSpanAuthority) baseReport() traceDBSyncSpanReport {
+	report := traceDBSyncSpanReport{ByProducer: map[traceDBSyncSpanProducer]traceDBSyncSpanProducerStats{}}
+	for producer := traceDBSyncSpanProducerRegistration; producer <= traceDBSyncSpanProducerStaticInitialize; producer++ {
+		submitted := authority.submitted[producer]
+		poisoned := authority.poisoned[producer]
+		if submitted == 0 && poisoned == 0 {
+			continue
+		}
+		report.ByProducer[producer] = traceDBSyncSpanProducerStats{
+			SubmittedSpans: submitted, PoisonDeclarations: poisoned,
 		}
 	}
-	sort.Slice(positive, func(i, j int) bool { return traceDBSyncSpanCandidateLess(positive[i], positive[j]) })
-	stack := make([]traceDBSyncSpanCandidate, 0, len(positive))
-	for _, candidate := range positive {
-		for len(stack) > 0 && candidate.Start >= stack[len(stack)-1].End {
-			stack = stack[:len(stack)-1]
-		}
-		if len(stack) > 0 && candidate.End > stack[len(stack)-1].End {
-			return traceDBSyncSpanLaneCrossing
-		}
-		for _, open := range stack {
-			if traceDBSyncSpanIdentityConflicts(open, candidate) {
-				return traceDBSyncSpanLaneIdentityConflict
-			}
-			identical := open.Start == candidate.Start && open.End == candidate.End
-			if !identical && traceDBSyncSpanDepthComparable(open, candidate) && open.Depth >= candidate.Depth {
-				return traceDBSyncSpanLaneDepthConflict
-			}
-		}
-		if len(stack) > 0 {
-			parent := stack[len(stack)-1]
-			identical := parent.Start == candidate.Start && parent.End == candidate.End
-			comparableDepth := traceDBSyncSpanDepthComparable(parent, candidate)
-			if identical && (!comparableDepth || parent.Depth == candidate.Depth) {
-				return traceDBSyncSpanLaneIdenticalUnproven
-			}
-		}
-		stack = append(stack, candidate)
+	report.SubmittedSpans = authority.submittedTotal
+	return report
+}
+
+func (authority *traceDBSyncSpanAuthority) applyBudgetFailClosed(report *traceDBSyncSpanReport, reason string) {
+	if report == nil {
+		return
 	}
-	// Zero-duration pairs are atomic and never conflict with each other. At a
-	// positive interval's exact start they publish before B; at its exact end
-	// they publish after E. Strictly inside an open interval, however, their
-	// B/E pair is physically nested and must retain the same proven identity.
-	sort.Slice(zero, func(i, j int) bool { return traceDBSyncSpanCandidateLess(zero[i], zero[j]) })
-	stack = stack[:0]
-	positiveIndex := 0
-	for _, point := range zero {
-		for positiveIndex < len(positive) && positive[positiveIndex].Start < point.Start {
-			candidate := positive[positiveIndex]
-			for len(stack) > 0 && candidate.Start >= stack[len(stack)-1].End {
-				stack = stack[:len(stack)-1]
+	if strings.TrimSpace(reason) == "" {
+		reason = "unknown_budget"
+	}
+	report.BudgetFailClosedReason = reason
+	report.EmittedEndpoints = 0
+	report.SuppressedSpans = report.SubmittedSpans
+	report.PoisonedLanes = 0
+	report.CrossingLanes = 0
+	report.IdenticalLanes = 0
+	report.IdentityLanes = 0
+	report.DepthLanes = 0
+	report.DuplicateLanes = 0
+	for producer, stats := range report.ByProducer {
+		stats.EmittedEndpoints = 0
+		stats.SuppressedSpans = stats.SubmittedSpans
+		report.ByProducer[producer] = stats
+	}
+}
+
+func (authority *traceDBSyncSpanAuthority) auditFrozenLanes(
+	ctx context.Context, report *traceDBSyncSpanReport, journal *traceDBSyncSpanBadLaneJournal,
+) (cleanSpans int, err error) {
+	candidates, err := authority.stage.candidateIterator(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { err = errors.Join(err, candidates.close()) }()
+	forced, err := authority.stage.forcedIterator(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { err = errors.Join(err, forced.close()) }()
+
+	nextCandidate, candidateOK, err := candidates.next(ctx)
+	if err != nil {
+		return 0, err
+	}
+	nextForced, forcedOK, err := forced.next(ctx)
+	if err != nil {
+		return 0, err
+	}
+	var previousCandidate traceDBSyncSpanStagedCandidate
+	havePreviousCandidate := false
+	previousForcedTID := int64(-1)
+	auditor := traceDBSyncSpanLaneAuditor{stage: authority.stage}
+	for candidateOK || forcedOK {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		tid := int64(math.MaxInt64)
+		if candidateOK {
+			tid = nextCandidate.Candidate.HeaderTID
+		}
+		if forcedOK && nextForced.HeaderTID < tid {
+			tid = nextForced.HeaderTID
+		}
+		if tid == math.MaxInt64 {
+			return 0, &traceDBOutputInvariantError{Reason: "sync_span_stage_lane_merge_stalled"}
+		}
+		auditor.reset()
+		var laneCounts [traceDBSyncSpanProducerStaticInitialize + 1]int
+		laneSpans := 0
+		for candidateOK && nextCandidate.Candidate.HeaderTID == tid {
+			if havePreviousCandidate {
+				if traceDBSyncSpanLaneCandidateLess(nextCandidate.Candidate, previousCandidate.Candidate) ||
+					(!traceDBSyncSpanLaneCandidateLess(previousCandidate.Candidate, nextCandidate.Candidate) &&
+						nextCandidate.Ordinal <= previousCandidate.Ordinal) {
+					return 0, &traceDBOutputInvariantError{Reason: "sync_span_stage_candidate_iterator_order"}
+				}
 			}
-			stack = append(stack, candidate)
-			positiveIndex++
-		}
-		for len(stack) > 0 && point.Start >= stack[len(stack)-1].End {
-			stack = stack[:len(stack)-1]
-		}
-		for _, open := range stack {
-			if open.Start < point.Start && point.Start < open.End && traceDBSyncSpanIdentityConflicts(open, point) {
-				return traceDBSyncSpanLaneIdentityConflict
+			previousCandidate = nextCandidate
+			havePreviousCandidate = true
+			laneCounts[nextCandidate.Candidate.Producer]++
+			laneSpans++
+			if err := auditor.consume(nextCandidate.Candidate); err != nil {
+				return 0, err
+			}
+			nextCandidate, candidateOK, err = candidates.next(ctx)
+			if err != nil {
+				return 0, err
 			}
 		}
+		forcedMask := traceDBSyncSpanForcedNone
+		if forcedOK && nextForced.HeaderTID == tid {
+			if nextForced.HeaderTID <= previousForcedTID {
+				return 0, &traceDBOutputInvariantError{Reason: "sync_span_stage_forced_iterator_order"}
+			}
+			previousForcedTID = nextForced.HeaderTID
+			forcedMask = nextForced.Reason
+			nextForced, forcedOK, err = forced.next(ctx)
+			if err != nil {
+				return 0, err
+			}
+		}
+		forcedReason := traceDBSyncSpanForcedAuditReason(forcedMask)
+		auditReason := auditor.finalReason()
+		if forcedReason == traceDBSyncSpanLaneClean && auditReason == traceDBSyncSpanLaneClean {
+			cleanSpans += laneSpans
+			continue
+		}
+		if err := journal.add(ctx, tid); err != nil {
+			return 0, err
+		}
+		report.PoisonedLanes++
+		traceDBCountSyncSpanLaneReason(report, forcedReason)
+		traceDBCountSyncSpanLaneReason(report, auditReason)
+		for producer := traceDBSyncSpanProducerRegistration; producer <= traceDBSyncSpanProducerStaticInitialize; producer++ {
+			count := laneCounts[producer]
+			if count == 0 {
+				continue
+			}
+			stats := report.ByProducer[producer]
+			stats.SuppressedSpans += count
+			report.ByProducer[producer] = stats
+			report.SuppressedSpans += count
+		}
+	}
+	return cleanSpans, nil
+}
+
+func traceDBSyncSpanForcedAuditReason(mask traceDBSyncSpanForcedReason) traceDBSyncSpanLaneAuditReason {
+	if mask&traceDBSyncSpanForcedPoison != 0 {
+		return traceDBSyncSpanLaneDeclaredPoison
+	}
+	if mask&traceDBSyncSpanForcedDuplicate != 0 {
+		return traceDBSyncSpanLaneDuplicateStableIdentity
 	}
 	return traceDBSyncSpanLaneClean
+}
+
+func traceDBCountSyncSpanLaneReason(report *traceDBSyncSpanReport, reason traceDBSyncSpanLaneAuditReason) {
+	switch reason {
+	case traceDBSyncSpanLaneCrossing:
+		report.CrossingLanes++
+	case traceDBSyncSpanLaneIdenticalUnproven:
+		report.IdenticalLanes++
+	case traceDBSyncSpanLaneIdentityConflict:
+		report.IdentityLanes++
+	case traceDBSyncSpanLaneDepthConflict:
+		report.DepthLanes++
+	case traceDBSyncSpanLaneDuplicateStableIdentity:
+		report.DuplicateLanes++
+	}
+}
+
+const traceDBSyncSpanActiveCandidateBytes int64 = 256
+
+type traceDBSyncSpanBoundedCandidateStack struct {
+	stage        *traceDBSyncSpanStage
+	frames       []traceDBSyncSpanCandidate
+	payloadBytes int64
+}
+
+func (stack *traceDBSyncSpanBoundedCandidateStack) reset() {
+	for index := range stack.frames {
+		stack.frames[index] = traceDBSyncSpanCandidate{}
+	}
+	stack.frames = stack.frames[:0]
+	stack.payloadBytes = 0
+}
+
+func (stack *traceDBSyncSpanBoundedCandidateStack) pop() traceDBSyncSpanCandidate {
+	last := len(stack.frames) - 1
+	candidate := stack.frames[last]
+	stack.payloadBytes -= int64(len(candidate.Task)) + int64(len(candidate.Name))
+	stack.frames[last] = traceDBSyncSpanCandidate{}
+	stack.frames = stack.frames[:last]
+	return candidate
+}
+
+func (stack *traceDBSyncSpanBoundedCandidateStack) push(candidate traceDBSyncSpanCandidate) error {
+	depth := len(stack.frames) + 1
+	payloadDelta := int64(len(candidate.Task)) + int64(len(candidate.Name))
+	if stack.payloadBytes > math.MaxInt64-payloadDelta {
+		return stack.stage.failBudget(traceDBSyncSpanStageBudgetActiveByteCap)
+	}
+	nextPayloadBytes := stack.payloadBytes + payloadDelta
+	if depth > cap(stack.frames) {
+		oldCapacity := cap(stack.frames)
+		newCapacity := oldCapacity * 2
+		if newCapacity < 8 {
+			newCapacity = 8
+		}
+		if newCapacity < depth {
+			newCapacity = depth
+		}
+		if newCapacity > stack.stage.options.MaxActiveDepth {
+			newCapacity = stack.stage.options.MaxActiveDepth
+		}
+		maxByBytes64 := stack.stage.options.MaxActiveBytes / traceDBSyncSpanActiveCandidateBytes
+		if maxByBytes64 > math.MaxInt {
+			maxByBytes64 = math.MaxInt
+		}
+		maxByBytes := int(maxByBytes64)
+		if newCapacity > maxByBytes {
+			newCapacity = maxByBytes
+		}
+		if newCapacity < depth {
+			activeBytes, ok := traceDBSyncSpanCheckedActiveBytes(depth, nextPayloadBytes)
+			if !ok {
+				return stack.stage.failBudget(traceDBSyncSpanStageBudgetActiveByteCap)
+			}
+			return stack.stage.noteActive(depth, activeBytes)
+		}
+		transientBytes, ok := traceDBSyncSpanCheckedActiveBytes(oldCapacity+newCapacity, nextPayloadBytes)
+		if !ok {
+			return stack.stage.failBudget(traceDBSyncSpanStageBudgetActiveByteCap)
+		}
+		if err := stack.stage.noteActive(depth, transientBytes); err != nil {
+			return err
+		}
+		grown := make([]traceDBSyncSpanCandidate, len(stack.frames), newCapacity)
+		copy(grown, stack.frames)
+		stack.frames = grown
+	} else {
+		activeBytes, ok := traceDBSyncSpanCheckedActiveBytes(cap(stack.frames), nextPayloadBytes)
+		if !ok {
+			return stack.stage.failBudget(traceDBSyncSpanStageBudgetActiveByteCap)
+		}
+		if err := stack.stage.noteActive(depth, activeBytes); err != nil {
+			return err
+		}
+	}
+	stack.frames = append(stack.frames, candidate)
+	stack.payloadBytes = nextPayloadBytes
+	return nil
+}
+
+func traceDBSyncSpanCheckedActiveBytes(capacity int, payload int64) (int64, bool) {
+	if capacity < 0 || payload < 0 || int64(capacity) > (math.MaxInt64-payload)/traceDBSyncSpanActiveCandidateBytes {
+		return 0, false
+	}
+	return int64(capacity)*traceDBSyncSpanActiveCandidateBytes + payload, true
+}
+
+type traceDBSyncSpanLaneAuditor struct {
+	stage      *traceDBSyncSpanStage
+	stack      traceDBSyncSpanBoundedCandidateStack
+	reason     traceDBSyncSpanLaneAuditReason
+	zeroReason traceDBSyncSpanLaneAuditReason
+}
+
+func (auditor *traceDBSyncSpanLaneAuditor) reset() {
+	auditor.stack.stage = auditor.stage
+	auditor.stack.reset()
+	auditor.reason = traceDBSyncSpanLaneClean
+	auditor.zeroReason = traceDBSyncSpanLaneClean
+}
+
+func (auditor *traceDBSyncSpanLaneAuditor) consume(candidate traceDBSyncSpanCandidate) error {
+	if auditor.reason != traceDBSyncSpanLaneClean {
+		return nil
+	}
+	for len(auditor.stack.frames) > 0 && candidate.Start >= auditor.stack.frames[len(auditor.stack.frames)-1].End {
+		auditor.stack.pop()
+	}
+	if candidate.Start == candidate.End {
+		if auditor.zeroReason != traceDBSyncSpanLaneClean {
+			return nil
+		}
+		for _, open := range auditor.stack.frames {
+			if open.Start >= candidate.Start || candidate.Start >= open.End {
+				continue
+			}
+			if err := auditor.stage.noteAuditComparison(); err != nil {
+				return err
+			}
+			if traceDBSyncSpanIdentityConflicts(open, candidate) {
+				auditor.zeroReason = traceDBSyncSpanLaneIdentityConflict
+				return nil
+			}
+		}
+		return nil
+	}
+	if len(auditor.stack.frames) > 0 && candidate.End > auditor.stack.frames[len(auditor.stack.frames)-1].End {
+		auditor.reason = traceDBSyncSpanLaneCrossing
+		return nil
+	}
+	for _, open := range auditor.stack.frames {
+		if err := auditor.stage.noteAuditComparison(); err != nil {
+			return err
+		}
+		if traceDBSyncSpanIdentityConflicts(open, candidate) {
+			auditor.reason = traceDBSyncSpanLaneIdentityConflict
+			return nil
+		}
+		identical := open.Start == candidate.Start && open.End == candidate.End
+		if !identical && traceDBSyncSpanDepthComparable(open, candidate) && open.Depth >= candidate.Depth {
+			auditor.reason = traceDBSyncSpanLaneDepthConflict
+			return nil
+		}
+	}
+	if len(auditor.stack.frames) > 0 {
+		parent := auditor.stack.frames[len(auditor.stack.frames)-1]
+		identical := parent.Start == candidate.Start && parent.End == candidate.End
+		comparableDepth := traceDBSyncSpanDepthComparable(parent, candidate)
+		if identical && (!comparableDepth || parent.Depth == candidate.Depth) {
+			auditor.reason = traceDBSyncSpanLaneIdenticalUnproven
+			return nil
+		}
+	}
+	return auditor.stack.push(candidate)
+}
+
+func (auditor *traceDBSyncSpanLaneAuditor) finalReason() traceDBSyncSpanLaneAuditReason {
+	if auditor.reason != traceDBSyncSpanLaneClean {
+		return auditor.reason
+	}
+	return auditor.zeroReason
+}
+
+func (authority *traceDBSyncSpanAuthority) publishFrozenCleanLanes(
+	ctx context.Context, sink *traceDBRowSink, journal *traceDBSyncSpanBadLaneJournal,
+) (emitted [traceDBSyncSpanProducerStaticInitialize + 1]int, err error) {
+	candidates, err := authority.stage.candidateIterator(ctx)
+	if err != nil {
+		return emitted, err
+	}
+	defer func() { err = errors.Join(err, candidates.close()) }()
+	badLanes, err := journal.reader(ctx)
+	if err != nil {
+		return emitted, err
+	}
+	defer func() { err = errors.Join(err, badLanes.close()) }()
+	nextBad, badOK, err := badLanes.next(ctx)
+	if err != nil {
+		return emitted, err
+	}
+	nextCandidate, candidateOK, err := candidates.next(ctx)
+	if err != nil {
+		return emitted, err
+	}
+	stack := traceDBSyncSpanBoundedCandidateStack{stage: authority.stage}
+	for candidateOK {
+		tid := nextCandidate.Candidate.HeaderTID
+		for badOK && nextBad < tid {
+			nextBad, badOK, err = badLanes.next(ctx)
+			if err != nil {
+				return emitted, err
+			}
+		}
+		bad := badOK && nextBad == tid
+		stack.reset()
+		for candidateOK && nextCandidate.Candidate.HeaderTID == tid {
+			candidate := nextCandidate.Candidate
+			if !bad {
+				for len(stack.frames) > 0 && stack.frames[len(stack.frames)-1].End <= candidate.Start {
+					if err := traceDBPublishSyncSpanEndpoint(sink, stack.pop(), false); err != nil {
+						return emitted, err
+					}
+				}
+				if candidate.Start == candidate.End {
+					if err := traceDBPublishSyncSpanEndpoint(sink, candidate, true); err != nil {
+						return emitted, err
+					}
+					if err := traceDBPublishSyncSpanEndpoint(sink, candidate, false); err != nil {
+						return emitted, err
+					}
+				} else {
+					if err := traceDBPublishSyncSpanEndpoint(sink, candidate, true); err != nil {
+						return emitted, err
+					}
+					if err := stack.push(candidate); err != nil {
+						return emitted, err
+					}
+				}
+				emitted[candidate.Producer]++
+			}
+			nextCandidate, candidateOK, err = candidates.next(ctx)
+			if err != nil {
+				return emitted, err
+			}
+		}
+		if !bad {
+			for len(stack.frames) > 0 {
+				if err := traceDBPublishSyncSpanEndpoint(sink, stack.pop(), false); err != nil {
+					return emitted, err
+				}
+			}
+		} else {
+			nextBad, badOK, err = badLanes.next(ctx)
+			if err != nil {
+				return emitted, err
+			}
+		}
+	}
+	for badOK {
+		nextBad, badOK, err = badLanes.next(ctx)
+		if err != nil {
+			return emitted, err
+		}
+	}
+	return emitted, nil
+}
+
+func traceDBPublishSyncSpanEndpoint(sink *traceDBRowSink, candidate traceDBSyncSpanCandidate, begin bool) error {
+	ts, cpu := candidate.End, candidate.EndCPU
+	body := fmt.Sprintf("tracing_mark_write: E|%d|", candidate.HeaderTGID)
+	if begin {
+		ts, cpu = candidate.Start, candidate.StartCPU
+		body = fmt.Sprintf("tracing_mark_write: B|%d|%s", candidate.HeaderTGID, candidate.Name)
+	}
+	row, err := prepareTraceDBRenderedRow(ts, sink.stats.RowsAccepted, candidate.Task,
+		candidate.HeaderTID, candidate.HeaderTGID, cpu, body)
+	if err != nil {
+		return err
+	}
+	return sink.add(row)
 }
 
 func traceDBSyncSpanIdentityConflicts(left, right traceDBSyncSpanCandidate) bool {
@@ -550,43 +968,6 @@ func traceDBSyncSpanDepthComparable(left, right traceDBSyncSpanCandidate) bool {
 		left.CanonicalITIDKnown && right.CanonicalITIDKnown && left.CanonicalITID == right.CanonicalITID
 }
 
-func traceDBSyncSpanCandidateLess(left, right traceDBSyncSpanCandidate) bool {
-	if left.Start != right.Start {
-		return left.Start < right.Start
-	}
-	if left.End != right.End {
-		return left.End > right.End
-	}
-	if left.Producer != right.Producer {
-		return left.Producer < right.Producer
-	}
-	if left.StableKind != right.StableKind {
-		return left.StableKind < right.StableKind
-	}
-	if left.CanonicalITIDKnown != right.CanonicalITIDKnown {
-		return left.CanonicalITIDKnown
-	}
-	if left.CanonicalITID != right.CanonicalITID {
-		return left.CanonicalITID < right.CanonicalITID
-	}
-	if left.OwnerIPIDKnown != right.OwnerIPIDKnown {
-		return left.OwnerIPIDKnown
-	}
-	if left.OwnerIPID != right.OwnerIPID {
-		return left.OwnerIPID < right.OwnerIPID
-	}
-	if left.DepthKnown != right.DepthKnown {
-		return left.DepthKnown
-	}
-	if left.DepthProvenance != right.DepthProvenance {
-		return left.DepthProvenance < right.DepthProvenance
-	}
-	if left.Depth != right.Depth {
-		return left.Depth < right.Depth
-	}
-	return traceDBSyncSpanStableLess(left, right)
-}
-
 func traceDBSyncSpanStableLess(left, right traceDBSyncSpanCandidate) bool {
 	if left.Producer != right.Producer {
 		return left.Producer < right.Producer
@@ -597,69 +978,12 @@ func traceDBSyncSpanStableLess(left, right traceDBSyncSpanCandidate) bool {
 	return left.StableID < right.StableID
 }
 
-type traceDBSyncSpanEndpoint struct {
-	Candidate traceDBSyncSpanCandidate
-	TS        int64
-	Begin     bool
-	Zero      bool
-}
-
-func traceDBSyncSpanEndpoints(candidates []traceDBSyncSpanCandidate) []traceDBSyncSpanEndpoint {
-	endpoints := make([]traceDBSyncSpanEndpoint, 0, len(candidates)*2)
-	for _, candidate := range candidates {
-		zero := candidate.Start == candidate.End
-		endpoints = append(endpoints,
-			traceDBSyncSpanEndpoint{Candidate: candidate, TS: candidate.Start, Begin: true, Zero: zero},
-			traceDBSyncSpanEndpoint{Candidate: candidate, TS: candidate.End, Begin: false, Zero: zero},
-		)
-	}
-	sort.SliceStable(endpoints, func(i, j int) bool {
-		left, right := endpoints[i], endpoints[j]
-		if left.TS != right.TS {
-			return left.TS < right.TS
-		}
-		if left.Candidate.HeaderTID != right.Candidate.HeaderTID {
-			return left.Candidate.HeaderTID < right.Candidate.HeaderTID
-		}
-		leftPhase, rightPhase := traceDBSyncSpanEndpointPhase(left), traceDBSyncSpanEndpointPhase(right)
-		if leftPhase != rightPhase {
-			return leftPhase < rightPhase
-		}
-		if left.Zero && right.Zero {
-			if traceDBSyncSpanStableLess(left.Candidate, right.Candidate) {
-				return true
-			}
-			if traceDBSyncSpanStableLess(right.Candidate, left.Candidate) {
-				return false
-			}
-			return left.Begin && !right.Begin
-		}
-		if left.Begin && right.Begin {
-			return traceDBSyncSpanCandidateLess(left.Candidate, right.Candidate)
-		}
-		if !left.Begin && !right.Begin {
-			if left.Candidate.Start != right.Candidate.Start {
-				return left.Candidate.Start > right.Candidate.Start
-			}
-			return traceDBSyncSpanCandidateLess(right.Candidate, left.Candidate)
-		}
-		return left.Begin && !right.Begin
-	})
-	return endpoints
-}
-
-func traceDBSyncSpanEndpointPhase(endpoint traceDBSyncSpanEndpoint) int {
-	if endpoint.Zero {
-		return 1
-	}
-	if !endpoint.Begin {
-		return 0
-	}
-	return 2
-}
-
 func traceDBSyncSpanReportSummary(report traceDBSyncSpanReport) string {
 	counts := map[string]int{}
+	parts := make([]string, 0, 2)
+	if report.BudgetFailClosedReason != "" {
+		parts = append(parts, "sync_family_budget_fail_closed="+report.BudgetFailClosedReason)
+	}
 	if report.SuppressedSpans > 0 {
 		counts["suppressed_spans"] = report.SuppressedSpans
 		counts["suppressed_endpoints"] = report.SuppressedSpans * 2
@@ -682,7 +1006,10 @@ func traceDBSyncSpanReportSummary(report traceDBSyncSpanReport) string {
 	if report.DuplicateLanes > 0 {
 		counts["duplicate_stable_identity_lanes"] = report.DuplicateLanes
 	}
-	return traceDBCountSummary(counts)
+	if summary := traceDBCountSummary(counts); summary != "" {
+		parts = append(parts, summary)
+	}
+	return strings.Join(parts, "; ")
 }
 
 func reconcileTraceDBSyncSpanCoverage(items []TraceDBCoverage, report traceDBSyncSpanReport) error {
@@ -720,6 +1047,10 @@ func reconcileTraceDBSyncSpanCoverage(items []TraceDBCoverage, report traceDBSyn
 		if stats.PoisonDeclarations > 0 {
 			traceDBAppendCoverageSkipped(item, fmt.Sprintf(
 				"sync_span_authority: exact_lane_poison_declarations=%d", stats.PoisonDeclarations))
+		}
+		if report.BudgetFailClosedReason != "" {
+			traceDBAppendCoverageSkipped(item,
+				"sync_span_authority: sync_family_budget_fail_closed="+report.BudgetFailClosedReason)
 		}
 	}
 	return nil

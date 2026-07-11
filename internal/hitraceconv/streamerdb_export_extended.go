@@ -589,7 +589,7 @@ func exportTraceDBSyscall(ctx context.Context, tdb *traceDB, _ *traceDBRowSink, 
 			continue
 		}
 		thread := index.ByITID[itid]
-		if err := syncSpans.submit(traceDBSyncSpanCandidate{
+		if err := syncSpans.submit(ctx, traceDBSyncSpanCandidate{
 			Producer:           traceDBSyncSpanProducerSyscall,
 			StableKind:         traceDBSyncSpanStableSyscallRowID,
 			StableID:           stableID,
@@ -738,7 +738,7 @@ func exportTraceDBAppStartup(ctx context.Context, tdb *traceDB, _ *traceDBRowSin
 			skipped["unresolved_owner_process"]++
 			continue
 		}
-		if err := syncSpans.submit(traceDBSyncSpanCandidate{
+		if err := syncSpans.submit(ctx, traceDBSyncSpanCandidate{
 			Producer:           traceDBSyncSpanProducerAppStartup,
 			StableKind:         traceDBSyncSpanStableAppStartupRowID,
 			StableID:           stableID,
@@ -811,7 +811,7 @@ func exportTraceDBStaticInitialize(ctx context.Context, tdb *traceDB, _ *traceDB
 			skipped["unresolved_owner_process"]++
 			continue
 		}
-		if err := syncSpans.submit(traceDBSyncSpanCandidate{
+		if err := syncSpans.submit(ctx, traceDBSyncSpanCandidate{
 			Producer:           traceDBSyncSpanProducerStaticInitialize,
 			StableKind:         traceDBSyncSpanStableStaticInitializeRowID,
 			StableID:           stableID,

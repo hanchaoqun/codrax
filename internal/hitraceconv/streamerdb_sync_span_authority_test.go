@@ -74,12 +74,12 @@ func renderTraceDBSyncSpanAuthority(t *testing.T, candidates []traceDBSyncSpanCa
 		t.Fatal(err)
 	}
 	for _, candidate := range candidates {
-		if err := authority.submit(candidate); err != nil {
+		if err := authority.submit(context.Background(), candidate); err != nil {
 			t.Fatalf("submit %+v: %v", candidate, err)
 		}
 	}
 	for _, poison := range poisons {
-		if err := authority.poisonExactLane(poison); err != nil {
+		if err := authority.poisonExactLane(context.Background(), poison); err != nil {
 			t.Fatalf("poison %+v: %v", poison, err)
 		}
 	}
@@ -313,7 +313,7 @@ func TestTraceDBSyncSpanAuthorityRejectsGhostIdentityAndForgedDepthProvenance(t 
 			candidate := base
 			test.mutate(&candidate)
 			authority := newTraceDBTestSyncSpanAuthority(t)
-			reason, typed := traceDBOutputInvariantReason(authority.submit(candidate))
+			reason, typed := traceDBOutputInvariantReason(authority.submit(context.Background(), candidate))
 			if !typed || reason != test.reason {
 				t.Fatalf("ghost/forged provenance reason=%q typed=%t want=%q", reason, typed, test.reason)
 			}
@@ -367,7 +367,7 @@ func TestTraceDBSyncSpanAuthorityZeroSpansAreAtomicAndIdleIsTyped(t *testing.T) 
 
 	nonRegistrationIdle := traceDBTestSyncSpanCandidate(traceDBSyncSpanProducerSyscall, 9, 0, 0, 1, 2, "bad-idle")
 	authority := newTraceDBTestSyncSpanAuthority(t)
-	if reason, ok := traceDBOutputInvariantReason(authority.submit(nonRegistrationIdle)); !ok || reason != "unproven_sync_span_idle_subject" {
+	if reason, ok := traceDBOutputInvariantReason(authority.submit(context.Background(), nonRegistrationIdle)); !ok || reason != "unproven_sync_span_idle_subject" {
 		t.Fatalf("default zero borrowed canonical idle authority: reason=%q typed=%t", reason, ok)
 	}
 }
@@ -439,8 +439,9 @@ func TestTraceDBSyncSpanAuthorityStateCoverageAndSpillParity(t *testing.T) {
 		t.Fatalf("row-sink spill threshold changed authority result: large=%+v/%+v small=%+v/%+v",
 			largeReport, largeStats, smallReport, smallStats)
 	}
-	if !strings.Contains(largeCoverage.FieldSources["buffering"], "B1-c") || largeCoverage.SpillChunks != 0 {
-		t.Fatalf("B1-b overclaimed bounded staging: %+v", largeCoverage)
+	if !strings.Contains(largeCoverage.FieldSources["buffering"], "candidate-byte-bounded") ||
+		!strings.Contains(largeCoverage.FieldSources["buffering"], "ROW-SORT-BND") || largeCoverage.SpillChunks != 0 {
+		t.Fatalf("B1-c bounded stage / generic sorter boundary drifted: %+v", largeCoverage)
 	}
 
 	authority := newTraceDBTestSyncSpanAuthority(t)
@@ -448,13 +449,13 @@ func TestTraceDBSyncSpanAuthorityStateCoverageAndSpillParity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := authority.submit(candidates[0]); err != nil {
+	if err := authority.submit(context.Background(), candidates[0]); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := authority.finalize(context.Background(), sink); err != nil {
 		t.Fatal(err)
 	}
-	if reason, ok := traceDBOutputInvariantReason(authority.submit(candidates[1])); !ok || reason != "sync_span_authority_not_open" {
+	if reason, ok := traceDBOutputInvariantReason(authority.submit(context.Background(), candidates[1])); !ok || reason != "sync_span_authority_not_open" {
 		t.Fatalf("late Submit did not fail loud: reason=%q typed=%t", reason, ok)
 	}
 	if _, _, err := authority.finalize(context.Background(), sink); err == nil {

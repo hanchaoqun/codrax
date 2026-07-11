@@ -183,7 +183,7 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 					if resolution != traceDBSchedulerThreadResolved {
 						return fail(&traceDBOutputInvariantError{Reason: "callstack_exact_lane_lost_identity"})
 					}
-					if err := syncSpans.poisonExactLane(traceDBSyncSpanLanePoison{
+					if err := syncSpans.poisonExactLane(ctx, traceDBSyncSpanLanePoison{
 						Producer:           traceDBSyncSpanProducerCallstack,
 						HeaderTID:          thread.TID,
 						CanonicalITID:      itid,
@@ -219,7 +219,7 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 		if row.DepthKnown {
 			depthProvenance = traceDBSyncSpanDepthCallstack
 		}
-		if err := syncSpans.submit(traceDBSyncSpanCandidate{
+		if err := syncSpans.submit(ctx, traceDBSyncSpanCandidate{
 			Producer:           traceDBSyncSpanProducerCallstack,
 			StableKind:         traceDBSyncSpanStableCallstackRowID,
 			StableID:           row.ID,

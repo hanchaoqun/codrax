@@ -13,11 +13,11 @@ import (
 	"testing"
 )
 
-// TestTraceDBSyncSpanAuthorityProductionClosure pins the B1-b production
-// boundary. SQL-derived synchronous B/E rows have one authority, one physical
-// lane identity, and one publication point. Official source-event renderers
-// remain outside that boundary because they reproduce captured wire data rather
-// than synthesize SQL spans.
+// TestTraceDBSyncSpanAuthorityProductionClosure pins the B1-c production
+// boundary. SQL-derived synchronous B/E rows have one authority, one bounded
+// typed stage, one physical lane identity, and one pass-2 publication point.
+// Official source-event renderers remain outside that boundary because they
+// reproduce captured wire data rather than synthesize SQL spans.
 func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 	_, current, _, ok := runtime.Caller(0)
 	if !ok {
@@ -60,6 +60,21 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 			return "", "", false
 		}
 		return ident.Name, selector.Sel.Name, true
+	}
+	var expressionPath func(ast.Expr) string
+	expressionPath = func(expr ast.Expr) string {
+		switch typed := expr.(type) {
+		case *ast.Ident:
+			return typed.Name
+		case *ast.SelectorExpr:
+			prefix := expressionPath(typed.X)
+			if prefix == "" {
+				return ""
+			}
+			return prefix + "." + typed.Sel.Name
+		default:
+			return ""
+		}
 	}
 	callName := func(call *ast.CallExpr) string {
 		switch callee := call.Fun.(type) {
@@ -104,6 +119,7 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 
 	targetCalls := map[string]bool{
 		"newTraceDBSyncSpanAuthority":      true,
+		"newTraceDBSyncSpanStage":          true,
 		"exportTraceDBSchedulerFamilies":   true,
 		"exportTraceDBExtendedFamilies":    true,
 		"exportTraceDBThreadRegistrations": true,
@@ -113,7 +129,18 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 		"exportTraceDBStaticInitialize":    true,
 		"submit":                           true,
 		"poisonExactLane":                  true,
+		"addCandidate":                     true,
+		"addPoison":                        true,
 		"finalize":                         true,
+		"cleanup":                          true,
+		"seal":                             true,
+		"newBadLaneJournal":                true,
+		"auditFrozenLanes":                 true,
+		"publishFrozenCleanLanes":          true,
+		"traceDBPublishSyncSpanEndpoint":   true,
+		"candidateIterator":                true,
+		"forcedIterator":                   true,
+		"reader":                           true,
 		"reconcileTraceDBSyncSpanCoverage": true,
 		"traceDBSyncSpanEndpoints":         true,
 		"prepareTraceDBRenderedRow":        true,
@@ -136,6 +163,7 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 	var authorityType *ast.StructType
 	authorityImports := map[string]bool{}
 	var topRowsAccepted token.Pos
+	var topSyncCleanupDefer token.Pos
 
 	paths, err := filepath.Glob(filepath.Join(dir, "*.go"))
 	if err != nil {
@@ -240,6 +268,24 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 				})
 				ast.Inspect(declaration.Body, func(node ast.Node) bool {
 					switch node := node.(type) {
+					case *ast.DeferStmt:
+						if name != "exportTraceDBToSystrace" {
+							return true
+						}
+						foundCleanup := false
+						ast.Inspect(node.Call, func(child ast.Node) bool {
+							call, ok := child.(*ast.CallExpr)
+							if ok && callName(call) == "cleanup" && expressionPath(call.Fun) == "syncSpans.cleanup" {
+								foundCleanup = true
+							}
+							return true
+						})
+						if foundCleanup {
+							if topSyncCleanupDefer != 0 {
+								t.Fatal("multiple top-level sync authority cleanup defers")
+							}
+							topSyncCleanupDefer = node.Pos()
+						}
 					case *ast.BasicLit:
 						if node.Kind != token.STRING {
 							return true
@@ -325,6 +371,27 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 		}
 		return found
 	}
+	onlyCallOn := func(name, caller, receiverPath string) *ast.CallExpr {
+		t.Helper()
+		var found *ast.CallExpr
+		for _, site := range calls[name] {
+			if site.function != caller {
+				continue
+			}
+			selector, ok := site.call.Fun.(*ast.SelectorExpr)
+			if !ok || expressionPath(selector.X) != receiverPath {
+				continue
+			}
+			if found != nil {
+				t.Fatalf("multiple %s calls on %s in %s", name, receiverPath, caller)
+			}
+			found = site.call
+		}
+		if found == nil {
+			t.Fatalf("missing %s call on %s in %s", name, receiverPath, caller)
+		}
+		return found
+	}
 	countParamType := func(function, want string) int {
 		t.Helper()
 		infos := functions[function]
@@ -383,8 +450,8 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 	finalize := onlyAuthorityCall("finalize", "exportTraceDBToSystrace")
 	reconcile := onlyCall("reconcileTraceDBSyncSpanCoverage", "exportTraceDBToSystrace")
 	writeTo := onlyCall("writeTo", "exportTraceDBToSystrace")
-	if len(constructor.Args) != 1 || !isIdent(constructor.Args[0], "output") {
-		t.Fatal("sync authority artifact source is not the final output artifact")
+	if len(constructor.Args) != 2 || !isIdent(constructor.Args[0], "ctx") || !isIdent(constructor.Args[1], "output") {
+		t.Fatal("sync authority constructor does not use (ctx, final output artifact)")
 	}
 	if len(scheduler.Args) != 4 || !isIdent(scheduler.Args[0], "ctx") || !isIdent(scheduler.Args[1], "tdb") ||
 		!isIdent(scheduler.Args[2], "sink") || !isIdent(scheduler.Args[3], "syncSpans") {
@@ -401,10 +468,11 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 		t.Fatal("sync coverage is not reconciled from the unique finalization report")
 	}
 	if receiverName(writeTo) != "sink" || topRowsAccepted == 0 ||
-		constructor.Pos() >= scheduler.Pos() || scheduler.Pos() >= extended.Pos() || extended.Pos() >= finalize.Pos() ||
+		topSyncCleanupDefer == 0 || constructor.Pos() >= topSyncCleanupDefer || topSyncCleanupDefer >= scheduler.Pos() ||
+		scheduler.Pos() >= extended.Pos() || extended.Pos() >= finalize.Pos() ||
 		finalize.Pos() >= reconcile.Pos() || reconcile.Pos() >= topRowsAccepted || topRowsAccepted >= writeTo.Pos() {
-		t.Fatalf("sync authority order constructor=%d scheduler=%d extended=%d finalize=%d reconcile=%d empty=%d write=%d",
-			constructor.Pos(), scheduler.Pos(), extended.Pos(), finalize.Pos(), reconcile.Pos(), topRowsAccepted, writeTo.Pos())
+		t.Fatalf("sync authority order constructor=%d cleanup_defer=%d scheduler=%d extended=%d finalize=%d reconcile=%d empty=%d write=%d",
+			constructor.Pos(), topSyncCleanupDefer, scheduler.Pos(), extended.Pos(), finalize.Pos(), reconcile.Pos(), topRowsAccepted, writeTo.Pos())
 	}
 	if countParamType("exportTraceDBSchedulerFamilies", "*traceDBSyncSpanAuthority") != 1 ||
 		countParamType("exportTraceDBExtendedFamilies", "*traceDBSyncSpanAuthority") != 1 {
@@ -424,10 +492,10 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 		t.Fatalf("sync span submitters=%v want=%v", authorityCallerCounts("submit"), wantSubmitters)
 	}
 	for _, site := range authorityCalls["submit"] {
-		if receiverName(site.call) != "syncSpans" || len(site.call.Args) != 1 {
-			t.Fatalf("%s submit does not use syncSpans with one candidate", site.function)
+		if receiverName(site.call) != "syncSpans" || len(site.call.Args) != 2 || !isIdent(site.call.Args[0], "ctx") {
+			t.Fatalf("%s submit does not use syncSpans.submit(ctx, candidate)", site.function)
 		}
-		literal, ok := site.call.Args[0].(*ast.CompositeLit)
+		literal, ok := site.call.Args[1].(*ast.CompositeLit)
 		if !ok || compositeTypeName(literal) != "traceDBSyncSpanCandidate" {
 			t.Fatalf("%s submit does not use a typed sync candidate literal", site.function)
 		}
@@ -439,10 +507,10 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 		t.Fatalf("exact lane poison callers=%v", authorityCallerCounts("poisonExactLane"))
 	}
 	poison := onlyAuthorityCall("poisonExactLane", "exportTraceDBCallstack")
-	if receiverName(poison) != "syncSpans" || len(poison.Args) != 1 {
-		t.Fatal("callstack poison does not use the shared syncSpans pointer")
+	if receiverName(poison) != "syncSpans" || len(poison.Args) != 2 || !isIdent(poison.Args[0], "ctx") {
+		t.Fatal("callstack poison does not use syncSpans.poisonExactLane(ctx, poison)")
 	}
-	poisonLiteral, ok := poison.Args[0].(*ast.CompositeLit)
+	poisonLiteral, ok := poison.Args[1].(*ast.CompositeLit)
 	if !ok || compositeTypeName(poisonLiteral) != "traceDBSyncSpanLanePoison" {
 		t.Fatal("callstack poison is not a typed exact-lane declaration")
 	}
@@ -577,11 +645,8 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 	if !reflect.DeepEqual(laneFields, map[string]string{"ArtifactSource": "string", "HeaderTID": "int64"}) {
 		t.Fatalf("sync span physical lane fields=%v", laneFields)
 	}
-	if len(laneLiterals) < 3 {
-		t.Fatalf("sync span lane construction sites=%d, want production submit/finalize sites", len(laneLiterals))
-	}
 	for _, site := range laneLiterals {
-		if site.file != "streamerdb_sync_span_authority.go" {
+		if site.file != "streamerdb_sync_span_authority.go" && site.file != "streamerdb_sync_span_stage.go" {
 			t.Fatalf("sync lane constructed outside authority: %s.%s", site.file, site.function)
 		}
 		keys := map[string]bool{}
@@ -607,7 +672,7 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 	allowedMarkerFunctions := map[string]map[string]bool{
 		"streamerdb_sync_span_authority.go": {
 			"validateTraceDBSyncSpanCandidate": true,
-			"finalize":                         true,
+			"traceDBPublishSyncSpanEndpoint":   true,
 		},
 		"official_render.go": {
 			"renderOfficialOpenHarmonyBody": true,
@@ -624,7 +689,7 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 	}
 	if !reflect.DeepEqual(authorityMarkerFunctions, map[string]bool{
 		"validateTraceDBSyncSpanCandidate": true,
-		"finalize":                         true,
+		"traceDBPublishSyncSpanEndpoint":   true,
 	}) {
 		t.Fatalf("authority B/E marker functions=%v", authorityMarkerFunctions)
 	}
@@ -632,95 +697,193 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 		t.Fatalf("legacy direct SQL B/E helper survived: decls=%d calls=%v", len(functions["addTraceDBSpanRows"]), callerCounts("addTraceDBSpanRows"))
 	}
 
-	// submit may validate envelopes but cannot reach a row sink. finalize freezes
-	// endpoints, prepares every row, and only then publishes through sink.add.
-	submitInfo := onlyMethod("submit", "*traceDBSyncSpanAuthority")
-	finalizeInfo := onlyMethod("finalize", "*traceDBSyncSpanAuthority")
-	if submitInfo.file != "streamerdb_sync_span_authority.go" || finalizeInfo.file != "streamerdb_sync_span_authority.go" {
-		t.Fatal("submit/finalize methods are not uniquely owned by sync span authority")
-	}
-	if countDeclParamType(submitInfo.decl, "*traceDBRowSink") != 0 || countDeclParamType(finalizeInfo.decl, "*traceDBRowSink") != 1 {
-		t.Fatal("submit/finalize row-sink parameter boundary changed")
-	}
-	submitSinkWrites := 0
-	ast.Inspect(submitInfo.decl.Body, func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		name := callName(call)
-		if receiverName(call) == "sink" || name == "addTraceDBInstantRow" || name == "addTraceDBAsyncSpanRows" || name == "prepareTraceDBRenderedRow" {
-			submitSinkWrites++
-		}
-		return true
-	})
-	if submitSinkWrites != 0 {
-		t.Fatalf("submit reaches row rendering/publication %d time(s)", submitSinkWrites)
-	}
-	var endpointBuild, prepareRows, publishRows token.Pos
-	finalizeSinkAdds := 0
-	ast.Inspect(finalizeInfo.decl.Body, func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		switch callName(call) {
-		case "traceDBSyncSpanEndpoints":
-			endpointBuild = call.Pos()
-		case "prepareTraceDBRenderedRow":
-			prepareRows = call.Pos()
-		case "add":
-			if receiverName(call) == "sink" {
-				finalizeSinkAdds++
-				publishRows = call.Pos()
-			}
-		}
-		return true
-	})
-	if finalizeSinkAdds != 1 || endpointBuild == 0 || prepareRows == 0 || publishRows == 0 ||
-		endpointBuild >= prepareRows || prepareRows >= publishRows {
-		t.Fatalf("finalize publication closure endpoints=%d prepare=%d publish=%d sink_adds=%d",
-			endpointBuild, prepareRows, publishRows, finalizeSinkAdds)
-	}
-
-	// B1-b is intentionally in-memory. Any temp file, spill/chunk machinery, or
-	// private row sink here would silently pre-empt the separately audited B1-c.
-	for _, forbiddenImport := range []string{"os", "io", "bufio", "encoding/json", "container/heap"} {
-		if authorityImports[forbiddenImport] {
-			t.Fatalf("sync authority imported B1-c storage package %q", forbiddenImport)
-		}
+	// The authority owns exactly one bounded typed stage and no candidate
+	// collection of its own. That prevents a second in-memory authority from
+	// silently bypassing spill, duplicate arbitration, or the frozen iterators.
+	if !reflect.DeepEqual(callerCounts("newTraceDBSyncSpanStage"), map[string]int{"newTraceDBSyncSpanAuthorityWithOptions": 1}) {
+		t.Fatalf("sync typed stage constructors=%v", callerCounts("newTraceDBSyncSpanStage"))
 	}
 	if authorityType == nil {
 		t.Fatal("traceDBSyncSpanAuthority type not found")
 	}
+	stageFields := 0
 	for _, field := range authorityType.Fields.List {
+		if _, isMap := field.Type.(*ast.MapType); isMap {
+			t.Fatal("sync authority regained a map alongside its bounded stage")
+		}
+		if array, isArray := field.Type.(*ast.ArrayType); isArray && array.Len == nil {
+			t.Fatal("sync authority regained a slice alongside its bounded stage")
+		}
 		for _, name := range field.Names {
-			lower := strings.ToLower(name.Name)
-			if strings.Contains(lower, "spill") || strings.Contains(lower, "temp") || strings.Contains(lower, "chunk") {
-				t.Fatalf("sync authority acquired B1-c field %q", name.Name)
+			if name.Name == "stage" && typeName(field.Type) == "*traceDBSyncSpanStage" {
+				stageFields++
 			}
+		}
+		ast.Inspect(field.Type, func(node ast.Node) bool {
+			ident, ok := node.(*ast.Ident)
+			if ok && (ident.Name == "traceDBSyncSpanCandidate" || ident.Name == "traceDBSyncSpanIdentity" || ident.Name == "traceDBSyncSpanLanePoison") {
+				t.Fatalf("sync authority stores %s outside its bounded stage", ident.Name)
+			}
+			return true
+		})
+	}
+	if stageFields != 1 {
+		t.Fatalf("sync authority typed stage fields=%d, want exactly one", stageFields)
+	}
+	for _, forbiddenImport := range []string{"database/sql", "os", "io", "bufio", "encoding/binary", "hash/crc32"} {
+		if authorityImports[forbiddenImport] {
+			t.Fatalf("sync authority bypasses its typed stage with storage package %q", forbiddenImport)
 		}
 	}
 	for _, forbidden := range []string{"CreateTemp", "MkdirTemp", "flushChunk", "newTraceDBRowSink", "writeTo"} {
 		for _, site := range calls[forbidden] {
 			if site.file == "streamerdb_sync_span_authority.go" {
-				t.Fatalf("sync authority acquired B1-c call %s in %s", forbidden, site.function)
+				t.Fatalf("sync authority bypasses its typed stage via %s in %s", forbidden, site.function)
 			}
 		}
 	}
-	b1cOpen := false
+
+	// submit/poison may validate typed envelopes but cannot reach a row sink.
+	// Both delegate into the authority's sole stage.
+	submitInfo := onlyMethod("submit", "*traceDBSyncSpanAuthority")
+	poisonInfo := onlyMethod("poisonExactLane", "*traceDBSyncSpanAuthority")
+	finalizeInfo := onlyMethod("finalize", "*traceDBSyncSpanAuthority")
+	if submitInfo.file != "streamerdb_sync_span_authority.go" || poisonInfo.file != "streamerdb_sync_span_authority.go" ||
+		finalizeInfo.file != "streamerdb_sync_span_authority.go" {
+		t.Fatal("submit/poison/finalize methods are not uniquely owned by sync span authority")
+	}
+	if countDeclParamType(submitInfo.decl, "*traceDBRowSink") != 0 || countDeclParamType(poisonInfo.decl, "*traceDBRowSink") != 0 ||
+		countDeclParamType(finalizeInfo.decl, "*traceDBRowSink") != 1 {
+		t.Fatal("submit/poison/finalize row-sink parameter boundary changed")
+	}
+	for _, method := range []functionInfo{submitInfo, poisonInfo} {
+		sinkWrites := 0
+		ast.Inspect(method.decl.Body, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			name := callName(call)
+			if receiverName(call) == "sink" || name == "addTraceDBInstantRow" || name == "addTraceDBAsyncSpanRows" ||
+				name == "prepareTraceDBRenderedRow" || name == "traceDBPublishSyncSpanEndpoint" {
+				sinkWrites++
+			}
+			return true
+		})
+		if sinkWrites != 0 {
+			t.Fatalf("%s reaches row rendering/publication %d time(s)", method.decl.Name.Name, sinkWrites)
+		}
+	}
+	if call := onlyCallOn("addCandidate", "submit", "authority.stage"); len(call.Args) != 2 || !isIdent(call.Args[0], "ctx") || !isIdent(call.Args[1], "candidate") {
+		t.Fatal("submit does not delegate its typed candidate to authority.stage")
+	}
+	if call := onlyCallOn("addPoison", "poisonExactLane", "authority.stage"); len(call.Args) != 2 || !isIdent(call.Args[0], "ctx") || !isIdent(call.Args[1], "poison") {
+		t.Fatal("poisonExactLane does not delegate its typed poison to authority.stage")
+	}
+
+	// Finalization is a strict two-pass protocol: freeze the typed stage, audit
+	// all lanes into a journal, seal that journal, then and only then publish.
+	stageSeal := onlyCallOn("seal", "finalize", "authority.stage")
+	newJournal := onlyCallOn("newBadLaneJournal", "finalize", "authority.stage")
+	pass1 := onlyCallOn("auditFrozenLanes", "finalize", "authority")
+	journalSeal := onlyCallOn("seal", "finalize", "journal")
+	pass2 := onlyCallOn("publishFrozenCleanLanes", "finalize", "authority")
+	if len(stageSeal.Args) != 1 || !isIdent(stageSeal.Args[0], "ctx") || len(newJournal.Args) != 0 ||
+		len(pass1.Args) != 3 || !isIdent(pass1.Args[0], "ctx") || !isIdent(pass1.Args[2], "journal") ||
+		len(journalSeal.Args) != 1 || !isIdent(journalSeal.Args[0], "ctx") ||
+		len(pass2.Args) != 3 || !isIdent(pass2.Args[0], "ctx") || !isIdent(pass2.Args[1], "sink") || !isIdent(pass2.Args[2], "journal") {
+		t.Fatal("sync two-pass calls lost their exact ctx/stage/journal/sink handoff")
+	}
+	if !(stageSeal.Pos() < newJournal.Pos() && newJournal.Pos() < pass1.Pos() && pass1.Pos() < journalSeal.Pos() && journalSeal.Pos() < pass2.Pos()) {
+		t.Fatalf("sync two-pass order seal=%d journal=%d pass1=%d journal_seal=%d pass2=%d",
+			stageSeal.Pos(), newJournal.Pos(), pass1.Pos(), journalSeal.Pos(), pass2.Pos())
+	}
+	directFinalizePublication := 0
+	ast.Inspect(finalizeInfo.decl.Body, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		if callName(call) == "prepareTraceDBRenderedRow" || callName(call) == "traceDBPublishSyncSpanEndpoint" ||
+			(callName(call) == "add" && receiverName(call) == "sink") {
+			directFinalizePublication++
+		}
+		return true
+	})
+	if directFinalizePublication != 0 {
+		t.Fatalf("finalize bypasses pass-2 publication %d time(s)", directFinalizePublication)
+	}
+	auditInfo := onlyMethod("auditFrozenLanes", "*traceDBSyncSpanAuthority")
+	publishInfo := onlyMethod("publishFrozenCleanLanes", "*traceDBSyncSpanAuthority")
+	if countDeclParamType(auditInfo.decl, "*traceDBRowSink") != 0 || countDeclParamType(publishInfo.decl, "*traceDBRowSink") != 1 {
+		t.Fatal("pass-1/pass-2 row-sink boundary changed")
+	}
+	if onlyCallOn("candidateIterator", "auditFrozenLanes", "authority.stage") == nil ||
+		onlyCallOn("forcedIterator", "auditFrozenLanes", "authority.stage") == nil ||
+		onlyCallOn("candidateIterator", "publishFrozenCleanLanes", "authority.stage") == nil ||
+		onlyCallOn("reader", "publishFrozenCleanLanes", "journal") == nil {
+		t.Fatal("two-pass iterators no longer consume the sealed typed stage and journal")
+	}
+	endpointPublisherInfos := functions["traceDBPublishSyncSpanEndpoint"]
+	if len(endpointPublisherInfos) != 1 || endpointPublisherInfos[0].file != "streamerdb_sync_span_authority.go" {
+		t.Fatalf("sync endpoint publisher declarations=%v", endpointPublisherInfos)
+	}
+	publisherCalls := callerCounts("traceDBPublishSyncSpanEndpoint")
+	if len(publisherCalls) != 1 || publisherCalls["publishFrozenCleanLanes"] == 0 {
+		t.Fatalf("sync endpoint publisher callers=%v", publisherCalls)
+	}
+	prepareCount, addCount := 0, 0
+	var preparePos, addPos token.Pos
+	ast.Inspect(endpointPublisherInfos[0].decl.Body, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		if callName(call) == "prepareTraceDBRenderedRow" {
+			prepareCount++
+			preparePos = call.Pos()
+		}
+		if callName(call) == "add" && receiverName(call) == "sink" {
+			addCount++
+			addPos = call.Pos()
+		}
+		return true
+	})
+	if prepareCount != 1 || addCount != 1 || preparePos >= addPos {
+		t.Fatalf("pass-2 endpoint publication prepare=%d/%d add=%d/%d", prepareCount, preparePos, addCount, addPos)
+	}
+
+	// B1-c is closed only for the synthetic sync typed stage. The final generic
+	// row sorter remains explicitly open as ROW-SORT-BND, and the legacy SQL
+	// source-admission boundary above remains open as R1b-C.
+	closureFragments := map[string]bool{
+		"bounded pass 1 freezes and audits every governed lane":                false,
+		"pass 2 alone may publish clean synthetic B/E endpoints":               false,
+		"hybrid candidate-byte-bounded memory to private indexed SQLite stage": false,
+		"final generic row sorter ROW-SORT-BND remains separately open":        false,
+	}
 	ast.Inspect(finalizeInfo.decl.Body, func(node ast.Node) bool {
 		literal, ok := node.(*ast.BasicLit)
 		if !ok || literal.Kind != token.STRING {
 			return true
 		}
 		value, err := strconv.Unquote(literal.Value)
-		if err == nil && strings.Contains(value, "bounded external stage/spill remains open as B1-c") {
-			b1cOpen = true
+		if err != nil {
+			return true
+		}
+		if strings.Contains(value, "B1-c") && strings.Contains(strings.ToLower(value), "open") {
+			t.Fatalf("sync authority still discloses B1-c as open: %q", value)
+		}
+		for fragment := range closureFragments {
+			if strings.Contains(value, fragment) {
+				closureFragments[fragment] = true
+			}
 		}
 		return true
 	})
-	if !b1cOpen {
-		t.Fatal("sync authority no longer discloses in-memory staging and open B1-c spill work")
+	for fragment, found := range closureFragments {
+		if !found {
+			t.Fatalf("sync B1-c/ROW-SORT-BND disclosure missing %q", fragment)
+		}
 	}
 }

@@ -121,7 +121,7 @@ func TestTraceDBSpanEndpointsValidateAtomically(t *testing.T) {
 				t.Fatal(err)
 			}
 			syncSpans := newTraceDBTestSyncSpanAuthority(t)
-			err = syncSpans.submit(traceDBSyncSpanCandidate{
+			err = syncSpans.submit(context.Background(), traceDBSyncSpanCandidate{
 				Producer:           traceDBSyncSpanProducerSyscall,
 				StableKind:         traceDBSyncSpanStableSyscallRowID,
 				StableID:           1,

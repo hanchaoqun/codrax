@@ -26,10 +26,15 @@ func addTraceDBTestSyncSpanRows(sink *traceDBRowSink, start, end int64, task str
 
 func newTraceDBTestSyncSpanAuthority(t *testing.T) *traceDBSyncSpanAuthority {
 	t.Helper()
-	authority, err := newTraceDBSyncSpanAuthority(filepath.Join(t.TempDir(), "out.systrace"))
+	authority, err := newTraceDBSyncSpanAuthority(context.Background(), filepath.Join(t.TempDir(), "out.systrace"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		if err := authority.cleanup(); err != nil {
+			t.Errorf("cleanup typed sync span authority: %v", err)
+		}
+	})
 	return authority
 }
 
