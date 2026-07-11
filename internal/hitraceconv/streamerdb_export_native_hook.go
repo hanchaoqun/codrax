@@ -30,34 +30,43 @@ type traceDBNativeHookEvent struct {
 	CPU         int64
 }
 
-func exportTraceDBNativeHook(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, index traceDBThreadIndex, running map[int64][]traceDBRunningInterval, _ map[int64]string) (TraceDBCoverage, error) {
+func exportTraceDBNativeHook(ctx context.Context, tdb *traceDB, sink *traceDBRowSink,
+	authority traceDBSchedulerAuthority, running traceDBSchedulerRunningIndex,
+) (TraceDBCoverage, error) {
 	coverage, err := tdb.inspectCoverage(ctx, "resource", "native_hook", []string{"start_ts", "end_ts", "event_type", "all_heap_size", "itid", "ipid"})
 	coverage.FieldSources = map[string]string{
-		"event_semantics": "start_ts is a resource event instant; nullable end_ts is release metadata, never thread execution duration",
+		"event_semantics": "start_ts is the only emitter lifecycle point; nullable end_ts and any upstream dur derived from it are resource metadata and never enter thread lifecycle or CPU admission",
 		"event_type":      "closed OpenHarmony TraceStreamer 260b028b resource event registry plus exact legacy aliases malloc/free/mmap/munmap",
-		"cpu":             "the unique untainted Running thread_state interval covering start_ts",
-		"identity":        "exact non-ambiguous thread.itid and process.ipid generation",
-		"row_order":       "strict native_hook.id when present; otherwise a provable SQLite hidden rowid",
+		"cpu":             "shared lifecycle-filtered typed Running witness covering exact start_ts",
+		"identity":        "canonical native_hook.itid/ipid joined to an exact positive owner; emitter origin passes the shared thread+process point gate",
+		"row_order":       "signed-int32 native_hook.id row identity when present; otherwise a provable SQLite hidden rowid",
+	}
+	fail := func(cause error) (TraceDBCoverage, error) {
+		if cause != nil {
+			coverage.Error = cause.Error()
+		}
+		return coverage, cause
 	}
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
-		return coverage, err
+		return fail(err)
 	}
 	hasSourceID, err := tdb.columnExists(ctx, "native_hook", "id")
 	if err != nil {
-		return coverage, err
+		return fail(err)
 	}
 	stableExpr := ""
+	stableOrderExpr := ""
 	stableSource := ""
 	duplicateSourceIDs := map[int64]bool{}
 	if hasSourceID {
 		stableExpr = quoteSQLiteIdent("id")
-		stableSource = "native_hook.id"
+		stableOrderExpr = fmt.Sprintf("CASE WHEN %s < 0 THEN 1 ELSE 0 END, %s", stableExpr, stableExpr)
+		stableSource = "native_hook.id signed-int32 projection to uint32 row identity"
 		coverage.ColumnsPresent = appendTraceDBCoverageColumn(coverage.ColumnsPresent, "id")
 		sort.Strings(coverage.ColumnsPresent)
-		duplicateSourceIDs, err = traceDBDuplicateStrictSourceIDs(ctx, tdb, "native_hook", "id")
+		duplicateSourceIDs, err = traceDBDuplicateSourceIDs(ctx, tdb, "native_hook", "id", traceDBActivityITIDSignedInt32.decodeStableRowID)
 		if err != nil {
-			coverage.Error = err.Error()
-			return coverage, err
+			return fail(err)
 		}
 	} else {
 		stableExpr, stableSource, err = traceDBHiddenRowIDExpr(ctx, tdb.db, "native_hook")
@@ -66,30 +75,29 @@ func exportTraceDBNativeHook(ctx context.Context, tdb *traceDB, sink *traceDBRow
 			coverage.Skipped = "stable_row_identity_unavailable=1"
 			return coverage, nil
 		}
+		stableOrderExpr = stableExpr
 	}
 	coverage.FieldSources["row_order"] = stableSource + "; same-timestamp rows retain stable source order"
 	query := fmt.Sprintf(`
 		SELECT %s, start_ts, end_ts, event_type, all_heap_size, itid, ipid
 		FROM native_hook
 		ORDER BY %s
-	`, stableExpr, stableExpr)
+	`, stableExpr, stableOrderExpr)
 	rows, err := tdb.db.QueryContext(ctx, query)
 	if err != nil {
-		coverage.Error = err.Error()
-		return coverage, err
+		return fail(err)
 	}
 	defer rows.Close()
 	skipped := map[string]int{}
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
-			return coverage, err
+			return fail(err)
 		}
 		var stableRaw, startRaw, endRaw, eventTypeRaw, heapRaw, itidRaw, ipidRaw any
 		if err := rows.Scan(&stableRaw, &startRaw, &endRaw, &eventTypeRaw, &heapRaw, &itidRaw, &ipidRaw); err != nil {
-			coverage.Error = err.Error()
-			return coverage, err
+			return fail(err)
 		}
-		event, reason := prepareTraceDBNativeHookEvent(index, running, hasSourceID, duplicateSourceIDs,
+		event, reason := prepareTraceDBNativeHookEvent(authority, running, hasSourceID, duplicateSourceIDs,
 			stableRaw, startRaw, endRaw, eventTypeRaw, heapRaw, itidRaw, ipidRaw)
 		if reason != "" {
 			skipped[reason]++
@@ -98,7 +106,7 @@ func exportTraceDBNativeHook(ctx context.Context, tdb *traceDB, sink *traceDBRow
 		instantName := "NativeHook:" + event.EventType
 		if err := addTraceDBInstantRow(sink, event.TS, event.Task, event.TID, event.TGID, event.CPU,
 			fmt.Sprintf("tracing_mark_write: I|%d|%s", event.TGID, instantName)); err != nil {
-			return coverage, err
+			return fail(err)
 		}
 		coverage.RowsEmitted++
 		if !event.HeapValid {
@@ -107,28 +115,29 @@ func exportTraceDBNativeHook(ctx context.Context, tdb *traceDB, sink *traceDBRow
 		}
 		if err := addTraceDBInstantRow(sink, event.TS, event.Task, event.TID, event.TGID, event.CPU,
 			fmt.Sprintf("tracing_mark_write: C|%d|%s|%s", event.TGID, event.Counter, strconv.FormatInt(event.HeapSize, 10))); err != nil {
-			return coverage, err
+			return fail(err)
 		}
 		coverage.RowsEmitted++
 	}
 	if err := rows.Err(); err != nil {
-		coverage.Error = err.Error()
-		return coverage, err
+		return fail(err)
 	}
 	coverage.Skipped = traceDBCountSummary(skipped)
 	return coverage, nil
 }
 
-func prepareTraceDBNativeHookEvent(index traceDBThreadIndex, running map[int64][]traceDBRunningInterval,
+func prepareTraceDBNativeHookEvent(authority traceDBSchedulerAuthority, running traceDBSchedulerRunningIndex,
 	hasSourceID bool, duplicateSourceIDs map[int64]bool,
 	stableRaw, startRaw, endRaw, eventTypeRaw, heapRaw, itidRaw, ipidRaw any,
 ) (traceDBNativeHookEvent, string) {
 	var event traceDBNativeHookEvent
 	var ok bool
-	if event.StableID, ok = traceDBStrictSQLiteInt(stableRaw); !ok {
-		return event, "invalid_row_identity"
+	if hasSourceID {
+		event.StableID, ok = traceDBActivityITIDSignedInt32.decodeStableRowID(stableRaw)
+	} else {
+		event.StableID, ok = traceDBStrictSQLiteInt(stableRaw)
 	}
-	if hasSourceID && (event.StableID < 0 || event.StableID > maxTraceDBInternalID) {
+	if !ok {
 		return event, "invalid_row_identity"
 	}
 	if duplicateSourceIDs[event.StableID] {
@@ -148,35 +157,37 @@ func prepareTraceDBNativeHookEvent(index traceDBThreadIndex, running map[int64][
 	if event.EventType, event.Counter, ok = traceDBNativeHookEventType(eventTypeRaw); !ok {
 		return event, "invalid_event_type"
 	}
-	if event.EmitterITID, ok = traceDBStrictSQLiteInt(itidRaw); !ok || event.EmitterITID <= 0 || event.EmitterITID > maxTraceDBInternalID {
+	if event.EmitterITID, ok = traceDBStrictInternalID(itidRaw); !ok || event.EmitterITID <= 0 {
 		return event, "invalid_emitter_itid"
 	}
-	if event.OwnerIPID, ok = traceDBStrictSQLiteInt(ipidRaw); !ok || event.OwnerIPID <= 0 || event.OwnerIPID > maxTraceDBInternalID {
+	if event.OwnerIPID, ok = traceDBStrictInternalID(ipidRaw); !ok || event.OwnerIPID <= 0 {
 		return event, "invalid_owner_ipid"
 	}
-	thread, exists := index.ByITID[event.EmitterITID]
-	if !exists || index.AmbiguousITID[event.EmitterITID] || thread.TID <= 0 || thread.TID > math.MaxInt32 {
+	thread, process, resolution := authority.resolveThreadSubject(event.EmitterITID)
+	if resolution != traceDBSchedulerThreadResolved || thread.TID > math.MaxInt32 {
 		return event, "unresolved_emitter_thread"
 	}
 	if thread.IPID != event.OwnerIPID {
 		return event, "owner_identity_mismatch"
 	}
-	if traceDBBeforeCaptureStart(index, event.TS) {
+	if traceDBBeforeCaptureStart(authority.identities, event.TS) {
 		return event, "before_capture_start"
 	}
-	if index.AmbiguousIPID[event.OwnerIPID] {
-		return event, "ambiguous_owner_process"
-	}
-	process, exists := index.Processes[event.OwnerIPID]
-	if !exists || process.PID <= 0 || process.PID > math.MaxInt32 {
+	if process.IPID != event.OwnerIPID || process.PID <= 0 || process.PID > math.MaxInt32 {
 		return event, "unresolved_owner_process"
 	}
-	var runningStatus traceDBExtendedRunningLookupStatus
-	event.CPU, runningStatus = traceDBExtendedRunningCPUAt(index, running, event.EmitterITID, event.TS)
-	if runningStatus == traceDBExtendedRunningSourceTainted {
+	if !authority.threadPointAllows(event.EmitterITID, event.TS) {
+		return event, "lifecycle_rejected_event_origin"
+	}
+	var runningStatus traceDBSchedulerRunningLookupStatus
+	event.CPU, runningStatus = running.lookupCPUAt(event.EmitterITID, event.TS)
+	if runningStatus == traceDBSchedulerRunningSourceTainted {
 		return event, "tainted_running_cpu_witness"
 	}
-	if runningStatus != traceDBExtendedRunningKnown {
+	if runningStatus == traceDBSchedulerRunningLifecycleRejected {
+		return event, "lifecycle_rejected_running_cpu_witness"
+	}
+	if runningStatus != traceDBSchedulerRunningKnown {
 		return event, "unknown_event_cpu"
 	}
 	if _, ok := traceDBCallstackText(thread.Name, true); !ok {

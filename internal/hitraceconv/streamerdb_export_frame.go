@@ -28,33 +28,40 @@ type traceDBFrameSliceRow struct {
 	Cookie   string
 }
 
-func exportTraceDBFrameSlice(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, index traceDBThreadIndex, running map[int64][]traceDBRunningInterval, _ map[int64]string) (TraceDBCoverage, error) {
+func exportTraceDBFrameSlice(ctx context.Context, tdb *traceDB, sink *traceDBRowSink,
+	authority traceDBSchedulerAuthority, running traceDBSchedulerRunningIndex,
+) (TraceDBCoverage, error) {
 	coverage, err := tdb.inspectCoverage(ctx, "slice", "frame_slice", []string{"ts", "dur", "type_desc", "vsync", "flag", "ipid", "itid"})
 	coverage.FieldSources = map[string]string{
 		"stable_identity": "frame_slice.id when present; legacy materialized DBs may use a provable SQLite hidden rowid only when id is absent",
-		"schema_profile":  "closed profiles: current=id+type+flag; legacy=no id/type plus required flag",
+		"schema_profile":  authority.frameProfileSource + "; selected once by the shared lifecycle collector and consumed without per-row fallback",
 		"frame_kind":      "closed producer enum: type=0/type_desc=actural or type=1/type_desc=expect; legacy schemas without type retain the same closed type_desc vocabulary",
 		"interval":        "strict integer ts and positive dur with checked signed addition; sub-microsecond or same-rendered-timestamp intervals fail closed",
-		"identity":        "strict frame-row itid/ipid joined to non-ambiguous canonical identities and public tid/pid; start/end metadata never selects a generation",
-		"header_cpu":      "unique untainted Running witnesses at ts and end_ts-1; CPU 0 is never an unknown fallback; headers preserve endpoint provenance rather than claiming interval-long execution",
+		"identity":        "producer-profile frame-row itid/ipid joined to exact positive canonical identities; physical S/F endpoints require shared thread+process closed-generation admission",
+		"header_cpu":      "shared lifecycle-filtered typed Running witnesses at exact ts and exact checked End=ts+dur; CPU 0 is never an unknown fallback; headers preserve endpoint provenance rather than claiming interval-long execution",
 		"wire_pairing":    "atomic async S/F keyed by hconv-frame-<stable_identity>; frame intervals never occupy the shared B/E stack",
 		"frame_flag":      "closed joint enum: Actual requires integer 0/1/3, Expected requires NULL, and integer 2 is always suppressed as erased/do-not-draw",
+		"vsync":           "NULL is upstream INVALID_UINT32/no-vsync; non-NULL values use the collector-selected current signed-int32 or legacy canonical profile",
+	}
+	fail := func(cause error) (TraceDBCoverage, error) {
+		if cause != nil {
+			coverage.Error = cause.Error()
+		}
+		return coverage, cause
 	}
 	if err != nil || !coverage.Found {
-		return coverage, err
+		return fail(err)
 	}
 	if len(coverage.ColumnsMissing) > 0 {
 		coverage.Skipped = fmt.Sprintf("unsupported_schema_profile=%d; missing_required_columns=%s", coverage.RowsRead, strings.Join(coverage.ColumnsMissing, ","))
 		return coverage, nil
 	}
 
-	hasSourceID, err := tdb.columnExists(ctx, "frame_slice", "id")
-	if err != nil {
-		return coverage, err
-	}
-	hasType, err := tdb.columnExists(ctx, "frame_slice", "type")
-	if err != nil {
-		return coverage, err
+	hasSourceID := authority.frameProfile == traceDBActivityITIDSignedInt32
+	hasType := hasSourceID
+	if authority.frameProfile != traceDBActivityITIDSignedInt32 && authority.frameProfile != traceDBActivityITIDCanonical {
+		coverage.Skipped = fmt.Sprintf("unsupported_schema_profile=%d; collector_profile=%s", coverage.RowsRead, authority.frameProfileSource)
+		return coverage, nil
 	}
 	for column, present := range map[string]bool{"id": hasSourceID, "type": hasType} {
 		if present {
@@ -62,21 +69,17 @@ func exportTraceDBFrameSlice(ctx context.Context, tdb *traceDB, sink *traceDBRow
 		}
 	}
 	sort.Strings(coverage.ColumnsPresent)
-	if hasSourceID != hasType {
-		coverage.Skipped = fmt.Sprintf("unsupported_schema_profile=%d; id_and_type_must_be_both_present_or_both_absent=true", coverage.RowsRead)
-		return coverage, nil
-	}
-
 	stableExpr := ""
+	stableOrderExpr := ""
 	stableSource := ""
 	duplicateSourceIDs := map[int64]bool{}
 	if hasSourceID {
 		stableExpr = quoteSQLiteIdent("id")
-		stableSource = "frame_slice.id"
-		duplicateSourceIDs, err = traceDBDuplicateStrictSourceIDs(ctx, tdb, "frame_slice", "id")
+		stableOrderExpr = fmt.Sprintf("CASE WHEN %s < 0 THEN 1 ELSE 0 END, %s", stableExpr, stableExpr)
+		stableSource = "frame_slice.id signed-int32 projection to uint32 row identity"
+		duplicateSourceIDs, err = traceDBDuplicateSourceIDs(ctx, tdb, "frame_slice", "id", authority.frameProfile.decodeStableRowID)
 		if err != nil {
-			coverage.Error = err.Error()
-			return coverage, err
+			return fail(err)
 		}
 	} else {
 		stableExpr, stableSource, err = traceDBHiddenRowIDExpr(ctx, tdb.db, "frame_slice")
@@ -87,6 +90,7 @@ func exportTraceDBFrameSlice(ctx context.Context, tdb *traceDB, sink *traceDBRow
 			}
 			return coverage, nil
 		}
+		stableOrderExpr = stableExpr
 	}
 	coverage.FieldSources["stable_identity"] = stableSource
 
@@ -98,25 +102,23 @@ func exportTraceDBFrameSlice(ctx context.Context, tdb *traceDB, sink *traceDBRow
 		SELECT %s, ts, dur, %s, type_desc, vsync, %s, ipid, itid
 		FROM frame_slice
 		ORDER BY ts, %s
-	`, stableExpr, typeExpr, quoteSQLiteIdent("flag"), stableExpr)
+	`, stableExpr, typeExpr, quoteSQLiteIdent("flag"), stableOrderExpr)
 	rows, err := tdb.db.QueryContext(ctx, query)
 	if err != nil {
-		coverage.Error = err.Error()
-		return coverage, err
+		return fail(err)
 	}
 	defer rows.Close()
 
 	skipped := map[string]int{}
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
-			return coverage, err
+			return fail(err)
 		}
 		var stableRaw, tsRaw, durRaw, typeRaw, typeDescRaw, vsyncRaw, flagRaw, ipidRaw, itidRaw any
 		if err := rows.Scan(&stableRaw, &tsRaw, &durRaw, &typeRaw, &typeDescRaw, &vsyncRaw, &flagRaw, &ipidRaw, &itidRaw); err != nil {
-			coverage.Error = err.Error()
-			return coverage, err
+			return fail(err)
 		}
-		frame, reason := prepareTraceDBFrameSliceRow(index, running, hasSourceID, hasType, duplicateSourceIDs,
+		frame, reason := prepareTraceDBFrameSliceRow(authority, running, hasSourceID, hasType, duplicateSourceIDs,
 			stableRaw, tsRaw, durRaw, typeRaw, typeDescRaw, vsyncRaw, flagRaw, ipidRaw, itidRaw)
 		if reason != "" {
 			skipped[reason]++
@@ -124,28 +126,29 @@ func exportTraceDBFrameSlice(ctx context.Context, tdb *traceDB, sink *traceDBRow
 		}
 		if err := addTraceDBAsyncSpanRows(sink, frame.TS, frame.End, frame.Task, frame.TID, frame.TGID,
 			frame.StartCPU, frame.EndCPU, frame.Name, frame.Cookie); err != nil {
-			return coverage, err
+			return fail(err)
 		}
 		coverage.RowsEmitted += 2
 	}
 	if err := rows.Err(); err != nil {
-		coverage.Error = err.Error()
-		return coverage, err
+		return fail(err)
 	}
 	coverage.Skipped = traceDBCountSummary(skipped)
 	return coverage, nil
 }
 
-func prepareTraceDBFrameSliceRow(index traceDBThreadIndex, running map[int64][]traceDBRunningInterval,
+func prepareTraceDBFrameSliceRow(authority traceDBSchedulerAuthority, running traceDBSchedulerRunningIndex,
 	hasSourceID, hasType bool, duplicateSourceIDs map[int64]bool,
 	stableRaw, tsRaw, durRaw, typeRaw, typeDescRaw, vsyncRaw, flagRaw, ipidRaw, itidRaw any,
 ) (traceDBFrameSliceRow, string) {
 	var frame traceDBFrameSliceRow
 	var ok bool
-	if frame.StableID, ok = traceDBStrictSQLiteInt(stableRaw); !ok {
-		return frame, "invalid_row_identity"
+	if hasSourceID {
+		frame.StableID, ok = authority.frameProfile.decodeStableRowID(stableRaw)
+	} else {
+		frame.StableID, ok = traceDBStrictSQLiteInt(stableRaw)
 	}
-	if hasSourceID && (frame.StableID < 0 || frame.StableID > maxTraceDBInternalID) {
+	if !ok {
 		return frame, "invalid_row_identity"
 	}
 	if duplicateSourceIDs[frame.StableID] {
@@ -176,8 +179,8 @@ func prepareTraceDBFrameSliceRow(index traceDBThreadIndex, running map[int64][]t
 
 	vsync := "None"
 	if vsyncRaw != nil {
-		value, valid := traceDBStrictSQLiteInt(vsyncRaw)
-		if !valid || value < 0 || value > maxTraceDBInternalID {
+		value, valid := authority.frameProfile.decode(vsyncRaw)
+		if !valid {
 			return frame, "invalid_vsync"
 		}
 		vsync = strconv.FormatInt(value, 10)
@@ -185,46 +188,51 @@ func prepareTraceDBFrameSliceRow(index traceDBThreadIndex, running map[int64][]t
 	frame.Name = "Frame" + kind + "-" + vsync
 	frame.Cookie = "hconv-frame-" + strconv.FormatInt(frame.StableID, 10)
 
-	if frame.IPID, ok = traceDBStrictSQLiteInt(ipidRaw); !ok || frame.IPID <= 0 || frame.IPID > maxTraceDBInternalID {
+	if frame.IPID, ok = authority.frameProfile.decode(ipidRaw); !ok || frame.IPID <= 0 {
 		return frame, "invalid_owner_ipid"
 	}
-	if frame.ITID, ok = traceDBStrictSQLiteInt(itidRaw); !ok || frame.ITID <= 0 || frame.ITID > maxTraceDBInternalID {
+	if frame.ITID, ok = authority.frameProfile.decode(itidRaw); !ok || frame.ITID <= 0 {
 		return frame, "invalid_emitter_itid"
 	}
-	thread, exists := index.ByITID[frame.ITID]
-	if !exists || index.AmbiguousITID[frame.ITID] || thread.TID <= 0 || thread.TID > math.MaxInt32 {
+	thread, process, resolution := authority.resolveThreadSubject(frame.ITID)
+	if resolution != traceDBSchedulerThreadResolved || thread.TID > math.MaxInt32 {
 		return frame, "unresolved_emitter_thread"
 	}
 	if thread.IPID != frame.IPID {
 		return frame, "owner_identity_mismatch"
 	}
-	if traceDBBeforeCaptureStart(index, frame.TS) {
+	if traceDBBeforeCaptureStart(authority.identities, frame.TS) {
 		return frame, "before_capture_start"
 	}
-	if index.AmbiguousIPID[frame.IPID] {
-		return frame, "ambiguous_owner_process"
-	}
-	process, exists := index.Processes[frame.IPID]
-	if !exists || process.PID <= 0 || process.PID > math.MaxInt32 {
+	if process.IPID != frame.IPID || process.PID <= 0 || process.PID > math.MaxInt32 {
 		return frame, "unresolved_owner_process"
+	}
+	if !authority.threadClosedEndpointAllows(frame.ITID, frame.TS, frame.End) {
+		return frame, "lifecycle_rejected_frame_endpoint"
 	}
 	frame.Task = traceDBCommName(thread.Name, "frame")
 	if _, valid := traceDBCallstackText(thread.Name, true); !valid || !traceDBSinglePhysicalLine(frame.Task, true) {
 		return frame, "invalid_emitter_comm"
 	}
-	var runningStatus traceDBExtendedRunningLookupStatus
-	frame.StartCPU, runningStatus = traceDBExtendedRunningCPUAt(index, running, frame.ITID, frame.TS)
-	if runningStatus == traceDBExtendedRunningSourceTainted {
+	var runningStatus traceDBSchedulerRunningLookupStatus
+	frame.StartCPU, runningStatus = running.lookupCPUAt(frame.ITID, frame.TS)
+	if runningStatus == traceDBSchedulerRunningSourceTainted {
 		return frame, "tainted_running_cpu_witness"
 	}
-	if runningStatus != traceDBExtendedRunningKnown {
+	if runningStatus == traceDBSchedulerRunningLifecycleRejected {
+		return frame, "lifecycle_rejected_running_cpu_witness"
+	}
+	if runningStatus != traceDBSchedulerRunningKnown {
 		return frame, "unknown_start_cpu"
 	}
-	frame.EndCPU, runningStatus = traceDBExtendedRunningCPUAt(index, running, frame.ITID, frame.End-1)
-	if runningStatus == traceDBExtendedRunningSourceTainted {
+	frame.EndCPU, runningStatus = running.lookupCPUAt(frame.ITID, frame.End)
+	if runningStatus == traceDBSchedulerRunningSourceTainted {
 		return frame, "tainted_running_cpu_witness"
 	}
-	if runningStatus != traceDBExtendedRunningKnown {
+	if runningStatus == traceDBSchedulerRunningLifecycleRejected {
+		return frame, "lifecycle_rejected_running_cpu_witness"
+	}
+	if runningStatus != traceDBSchedulerRunningKnown {
 		return frame, "unknown_end_cpu"
 	}
 	frame.TID = thread.TID

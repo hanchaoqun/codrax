@@ -95,8 +95,11 @@ func TestExportTraceDBExtendedFamiliesComprehensiveFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	syncSpans := newTraceDBTestSyncSpanAuthority(t)
+	authority := traceDBTestCompleteSchedulerAuthority(index)
+	authority.frameProfile = traceDBActivityITIDCanonical
+	authority.frameProfileSource = "legacy frame_slice no-id/no-type canonical compatibility profile"
 	coverage, err := exportTraceDBExtendedFamilies(context.Background(), tdb, sink,
-		traceDBTestCompleteSchedulerAuthority(index), syncSpans)
+		authority, syncSpans)
 	if err != nil {
 		t.Fatalf("export extended families: %v", err)
 	}
@@ -689,11 +692,11 @@ func TestExportTraceDBCallstackFailsClosedWithoutCompleteLifecycle(t *testing.T)
 					!strings.Contains(item.Skipped, "scheduler_lifecycle_authority_complete=false") {
 					t.Fatalf("incomplete scheduler Running authority failed open: %+v", item)
 				}
-			case "extended_mixed_callstack_gated_legacy_remaining":
+			case "extended_callstack_frame_native_lifecycle_gated_raw_legacy_pending_b3":
 				extendedScope++
 				if item.RowsRead != 2 || item.RowsEmitted != 1 ||
-					!strings.Contains(item.FieldSources["generation_admission"], "callstack derives a lifecycle-gated typed view") ||
-					!strings.Contains(item.FieldSources["generation_admission"], "pending B2/B3") {
+					!strings.Contains(item.FieldSources["generation_admission"], "callstack/frame/native share one lifecycle-gated typed view") ||
+					!strings.Contains(item.FieldSources["generation_admission"], "raw alone remains legacy pending B3") {
 					t.Fatalf("extended mixed Running compatibility changed or was not disclosed: %+v", item)
 				}
 			default:

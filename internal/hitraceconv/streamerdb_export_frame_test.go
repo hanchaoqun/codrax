@@ -35,7 +35,7 @@ func TestExportTraceDBFrameSliceAsyncRoundTrip(t *testing.T) {
 	if coverage.RowsRead != 2 || coverage.RowsEmitted != 4 || coverage.Skipped != "" {
 		t.Fatalf("unexpected frame coverage: %+v", coverage)
 	}
-	if coverage.FieldSources["stable_identity"] != "frame_slice.id" ||
+	if !strings.Contains(coverage.FieldSources["stable_identity"], "frame_slice.id signed-int32 projection") ||
 		!strings.Contains(coverage.FieldSources["wire_pairing"], "async S/F") {
 		t.Fatalf("missing frame provenance: %+v", coverage.FieldSources)
 	}
@@ -182,11 +182,11 @@ func TestExportTraceDBFrameSliceMalformedRowsSkipLocally(t *testing.T) {
 		"INSERT INTO frame_slice VALUES (36, 499, 1000, 0, 'actural', 789, 1, 1, 2)",
 	})
 	coverage, _, body, _ := exportTraceDBFrameFixture(t, path, nil)
-	if coverage.RowsRead != 42 || coverage.RowsEmitted != 6 {
+	if coverage.RowsRead != 42 || coverage.RowsEmitted != 8 {
 		t.Fatalf("malformed siblings changed valid frame accounting: %+v", coverage)
 	}
 	for _, want := range []string{
-		"invalid_row_identity=5",
+		"invalid_row_identity=4",
 		"duplicate_row_identity=2",
 		"invalid_timestamp=3",
 		"invalid_duration=2",
@@ -212,6 +212,8 @@ func TestExportTraceDBFrameSliceMalformedRowsSkipLocally(t *testing.T) {
 	for _, want := range []string{
 		"S|500|FrameActual-None|hconv-frame-1",
 		"F|500|FrameActual-None|hconv-frame-1",
+		"S|500|FrameActual-123|hconv-frame-4294967295",
+		"F|500|FrameActual-123|hconv-frame-4294967295",
 		"S|500|FrameExpected-456|hconv-frame-18",
 		"F|500|FrameExpected-456|hconv-frame-18",
 		"S|500|FrameActual-789|hconv-frame-36",
@@ -346,13 +348,13 @@ func TestExportTraceDBFrameSliceSchemaProfilesFailClosed(t *testing.T) {
 			name:   "id without type",
 			create: "CREATE TABLE frame_slice (id INT, ts INT, dur INT, type_desc TEXT, vsync INT, flag INT, ipid INT, itid INT)",
 			insert: "INSERT INTO frame_slice VALUES (1, 0, 2000, 'actural', 1, 1, 1, 1)",
-			want:   "id_and_type_must_be_both_present_or_both_absent=true",
+			want:   "id_present=true type_present=false",
 		},
 		{
 			name:   "type without id",
 			create: "CREATE TABLE frame_slice (ts INT, dur INT, type INT, type_desc TEXT, vsync INT, flag INT, ipid INT, itid INT)",
 			insert: "INSERT INTO frame_slice VALUES (0, 2000, 0, 'actural', 1, 1, 1, 1)",
-			want:   "id_and_type_must_be_both_present_or_both_absent=true",
+			want:   "id_present=false type_present=true",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -382,7 +384,7 @@ func TestExportTraceDBFrameSliceRegistrationHintsAndRunningIntegrity(t *testing.
 			"INSERT INTO thread VALUES (1, 501, 1, 'old-name', 0, 0, 1)",
 			"INSERT INTO thread VALUES (2, 501, 1, 'new-name', 50000, 0, 1)",
 			"CREATE TABLE thread_state (itid INT, ts INT, dur INT, cpu INT, state TEXT)",
-			"INSERT INTO thread_state VALUES (1, 0, 50000, 2, 'Running')",
+			"INSERT INTO thread_state VALUES (1, 0, 50001, 2, 'Running')",
 			"INSERT INTO thread_state VALUES (2, 50000, 50000, 3, 'Running')",
 			"CREATE TABLE frame_slice (id INT, ts INT, dur INT, type INT, type_desc TEXT, vsync INT, flag INT, ipid INT, itid INT)",
 			"INSERT INTO frame_slice VALUES (1, 40000, 10000, 0, 'actural', 1, 1, 1, 1)",
@@ -406,7 +408,7 @@ func TestExportTraceDBFrameSliceRegistrationHintsAndRunningIntegrity(t *testing.
 			"INSERT INTO thread VALUES (1, 501, 1, 'old-thread', 0, 0, 1)",
 			"INSERT INTO thread VALUES (2, 601, 2, 'new-thread', 50000, 0, 1)",
 			"CREATE TABLE thread_state (itid INT, ts INT, dur INT, cpu INT, state TEXT)",
-			"INSERT INTO thread_state VALUES (1, 0, 50000, 2, 'Running')",
+			"INSERT INTO thread_state VALUES (1, 0, 50001, 2, 'Running')",
 			"INSERT INTO thread_state VALUES (2, 50000, 50000, 3, 'Running')",
 			"CREATE TABLE frame_slice (id INT, ts INT, dur INT, type INT, type_desc TEXT, vsync INT, flag INT, ipid INT, itid INT)",
 			"INSERT INTO frame_slice VALUES (1, 40000, 10000, 0, 'actural', 1, 1, 1, 1)",
@@ -456,13 +458,24 @@ func exportTraceDBFrameFixture(t *testing.T, path string, decorate func(*traceDB
 	if err != nil {
 		t.Fatal(err)
 	}
-	index.RunningTaintedITID = integrity.TaintedITIDs
-	index.RunningGlobalTaint = integrity.GlobalTaint
+	profile, profileSource, err := traceDBActivityProfile(ctx, tdb.db, "frame_slice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority := newTraceDBSchedulerAuthority(index, traceDBLifecycleCollection{
+		FrameProfile:       profile,
+		FrameProfileSource: profileSource,
+		CreationComplete:   true,
+		TerminalComplete:   true,
+		ActivityComplete:   true,
+	})
+	typedRunning := newTraceDBSchedulerRunningIndex(authority, running, integrity, nil)
 	sink, err := newTraceDBRowSink(t.TempDir(), 64)
 	if err != nil {
 		t.Fatal(err)
 	}
-	coverage, err := exportTraceDBFrameSlice(ctx, tdb, sink, index, running, nil)
+	defer sink.cleanup()
+	coverage, err := exportTraceDBFrameSlice(ctx, tdb, sink, authority, typedRunning)
 	if err != nil {
 		t.Fatalf("export frame_slice: %v", err)
 	}

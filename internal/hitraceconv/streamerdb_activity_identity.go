@@ -3,6 +3,7 @@ package hitraceconv
 import (
 	"context"
 	"fmt"
+	"math"
 )
 
 type traceDBActivityITIDProfile uint8
@@ -19,6 +20,31 @@ func (profile traceDBActivityITIDProfile) decode(value any) (int64, bool) {
 		return traceDBStrictInternalID(value)
 	case traceDBActivityITIDSignedInt32:
 		return traceDBStrictSignedInt32InternalID(value)
+	default:
+		return 0, false
+	}
+}
+
+// decodeStableRowID decodes a producer row identity without borrowing the
+// INVALID_UINT32 sentinel rule used by internal identities. In particular,
+// current frame_slice/native_hook can expose the valid uint32 row id
+// 0xffffffff as SQLite INTEGER -1 after their audited int32 projection.
+func (profile traceDBActivityITIDProfile) decodeStableRowID(value any) (int64, bool) {
+	raw, ok := traceDBStrictSQLiteInt(value)
+	if !ok {
+		return 0, false
+	}
+	switch profile {
+	case traceDBActivityITIDCanonical:
+		return raw, raw >= 0 && raw <= math.MaxUint32
+	case traceDBActivityITIDSignedInt32:
+		if raw < math.MinInt32 || raw > math.MaxInt32 {
+			return 0, false
+		}
+		if raw < 0 {
+			return raw + (int64(1) << 32), true
+		}
+		return raw, true
 	default:
 		return 0, false
 	}

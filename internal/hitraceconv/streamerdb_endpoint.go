@@ -128,7 +128,9 @@ func traceDBFormatLine(task string, tid, tgid, cpu, tsNS int64, body string) str
 		task, tid, tgid, cpu, formatTimestamp(uint64(tsNS)), body)
 }
 
-func traceDBDuplicateStrictSourceIDs(ctx context.Context, tdb *traceDB, table, column string) (map[int64]bool, error) {
+func traceDBDuplicateSourceIDs(ctx context.Context, tdb *traceDB, table, column string,
+	decode func(any) (int64, bool),
+) (map[int64]bool, error) {
 	columnExpr := quoteSQLiteIdent(column)
 	query := fmt.Sprintf(`
 		SELECT %s
@@ -148,9 +150,11 @@ func traceDBDuplicateStrictSourceIDs(ctx context.Context, tdb *traceDB, table, c
 		if err := rows.Scan(&raw); err != nil {
 			return nil, err
 		}
-		id, ok := traceDBStrictSQLiteInt(raw)
+		id, ok := decode(raw)
 		if !ok {
-			return nil, fmt.Errorf("%s.%s duplicate source id query returned a non-integer", table, column)
+			// Invalid source identities remain row-local rejects. They do not gain
+			// authority merely because an invalid physical value is duplicated.
+			continue
 		}
 		out[id] = true
 	}

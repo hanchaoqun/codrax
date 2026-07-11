@@ -168,7 +168,7 @@ func TestTraceDBNativeHookRequiresExactCPUAndStableRowIdentity(t *testing.T) {
 			"INSERT INTO native_hook VALUES (7, 0, 10, 'AllocEvent', 100, 2, 1)",
 		})
 		if coverage.RowsEmitted != 2 || coverage.Skipped != "" || !strings.Contains(body, "NativeHook:AllocEvent") ||
-			coverage.FieldSources["row_order"] != "native_hook.id; same-timestamp rows retain stable source order" {
+			!strings.Contains(coverage.FieldSources["row_order"], "native_hook.id signed-int32 projection") {
 			t.Fatalf("strict source id should support a WITHOUT ROWID table: coverage=%+v body=%q", coverage, body)
 		}
 	})
@@ -240,13 +240,18 @@ func exportTraceDBNativeHookFixture(t *testing.T, statements []string) (string, 
 	if err != nil {
 		t.Fatalf("load running intervals: %v", err)
 	}
-	index.RunningTaintedITID = integrity.TaintedITIDs
-	index.RunningGlobalTaint = integrity.GlobalTaint
+	authority := newTraceDBSchedulerAuthority(index, traceDBLifecycleCollection{
+		CreationComplete: true,
+		TerminalComplete: true,
+		ActivityComplete: true,
+	})
+	typedRunning := newTraceDBSchedulerRunningIndex(authority, running, integrity, nil)
 	sink, err := newTraceDBRowSink(t.TempDir(), 8)
 	if err != nil {
 		t.Fatal(err)
 	}
-	coverage, err := exportTraceDBNativeHook(context.Background(), tdb, sink, index, running, nil)
+	defer sink.cleanup()
+	coverage, err := exportTraceDBNativeHook(context.Background(), tdb, sink, authority, typedRunning)
 	if err != nil {
 		t.Fatalf("export native_hook: %v", err)
 	}

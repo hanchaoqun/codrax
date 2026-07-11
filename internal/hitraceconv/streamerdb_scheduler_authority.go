@@ -10,10 +10,12 @@ import (
 // consumer cannot accidentally turn a missing or mismatched authority into a
 // no-cut (therefore allow-all) lifecycle.
 type traceDBSchedulerAuthority struct {
-	identities  traceDBThreadIndex
-	lifecycle   traceDBLifecycleIndex
-	initialized bool
-	complete    bool
+	identities         traceDBThreadIndex
+	lifecycle          traceDBLifecycleIndex
+	frameProfile       traceDBActivityITIDProfile
+	frameProfileSource string
+	initialized        bool
+	complete           bool
 }
 
 // traceDBSchedulerSubject is proof that a scheduler identity came from a
@@ -55,10 +57,12 @@ func (authority traceDBSchedulerAuthority) schedulerSubjectIsExact(subject trace
 
 func newTraceDBSchedulerAuthority(identities traceDBThreadIndex, collection traceDBLifecycleCollection) traceDBSchedulerAuthority {
 	return traceDBSchedulerAuthority{
-		identities:  identities,
-		lifecycle:   collection.Lifecycle,
-		initialized: true,
-		complete:    collection.CreationComplete && collection.TerminalComplete && collection.ActivityComplete,
+		identities:         identities,
+		lifecycle:          collection.Lifecycle,
+		frameProfile:       collection.FrameProfile,
+		frameProfileSource: collection.FrameProfileSource,
+		initialized:        true,
+		complete:           collection.CreationComplete && collection.TerminalComplete && collection.ActivityComplete,
 	}
 }
 

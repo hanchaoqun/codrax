@@ -53,6 +53,7 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 	}
 	targets := map[string]bool{
 		"exportTraceDBCallstack":                   true,
+		"exportTraceDBFrameSlice":                  true,
 		"prepareTraceDBCallstackRow":               true,
 		"newTraceDBSchedulerRunningIndex":          true,
 		"resolveThreadSubject":                     true,
@@ -80,7 +81,7 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 	coverageErrorAssignments := 0
 	exactAsyncKeyRowFields := map[string]bool{}
 	var barrierPopulate, centralPoison, centralSubmit token.Pos
-	var typedBuild, measureDispatch, callstackDispatch, frameList token.Pos
+	var typedBuild, measureDispatch, callstackDispatch, frameDispatch token.Pos
 
 	paths, err := filepath.Glob(filepath.Join(dir, "*.go"))
 	if err != nil {
@@ -131,9 +132,6 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 						if ok && ident.Name == "exportTraceDBCallstack" {
 							callstackCompositeRefs++
 						}
-						if ok && ident.Name == "exportTraceDBFrameSlice" {
-							frameList = ident.Pos()
-						}
 						return true
 					})
 				}
@@ -165,6 +163,8 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 						measureDispatch = call.Pos()
 					case "exportTraceDBCallstack":
 						callstackDispatch = call.Pos()
+					case "exportTraceDBFrameSlice":
+						frameDispatch = call.Pos()
 					}
 				}
 				return true
@@ -204,7 +204,7 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 
 	extendedCall := calls["exportTraceDBCallstack"][0].call
 	if len(extendedCall.Args) != 6 || !isIdent(extendedCall.Args[0], "ctx") || !isIdent(extendedCall.Args[1], "tdb") ||
-		!isIdent(extendedCall.Args[2], "sink") || !isIdent(extendedCall.Args[3], "authority") || !isIdent(extendedCall.Args[4], "callstackRunning") ||
+		!isIdent(extendedCall.Args[2], "sink") || !isIdent(extendedCall.Args[3], "authority") || !isIdent(extendedCall.Args[4], "lifecycleRunning") ||
 		!isIdent(extendedCall.Args[5], "syncSpans") {
 		t.Fatal("extended callstack dispatch does not pass the shared typed authorities")
 	}
@@ -219,19 +219,21 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 		!isIdent(extendedTypedBuild.Args[3], "nil") {
 		t.Fatal("extended callstack Running view is not derived from the shared scan/integrity/authority")
 	}
-	if typedBuild == 0 || measureDispatch == 0 || callstackDispatch == 0 || frameList == 0 ||
-		typedBuild >= callstackDispatch || measureDispatch >= callstackDispatch || callstackDispatch >= frameList {
-		t.Fatalf("extended callstack order typed=%d measure=%d callstack=%d frame=%d", typedBuild, measureDispatch, callstackDispatch, frameList)
+	if typedBuild == 0 || measureDispatch == 0 || callstackDispatch == 0 || frameDispatch == 0 ||
+		typedBuild >= callstackDispatch || measureDispatch >= callstackDispatch || callstackDispatch >= frameDispatch {
+		t.Fatalf("extended callstack order typed=%d measure=%d callstack=%d frame=%d", typedBuild, measureDispatch, callstackDispatch, frameDispatch)
 	}
 
 	if !reflect.DeepEqual(callerCounts("threadPointAllows"), map[string]int{
-		"exportTraceDBWakeups":         2,
-		"loadTraceDBBlockedCandidates": 1,
-		"prepareTraceDBCallstackRow":   2,
-		"schedulerPointAllows":         1,
+		"exportTraceDBWakeups":          2,
+		"loadTraceDBBlockedCandidates":  1,
+		"prepareTraceDBCallstackRow":    2,
+		"prepareTraceDBNativeHookEvent": 1,
+		"schedulerPointAllows":          1,
 	}) || !reflect.DeepEqual(callerCounts("threadClosedEndpointAllows"), map[string]int{
 		"loadTraceDBBlockedSchedBoundaries": 1,
 		"prepareTraceDBCallstackRow":        1,
+		"prepareTraceDBFrameSliceRow":       1,
 		"schedulerNextPointAllows":          1,
 	}) || !reflect.DeepEqual(callerCounts("processClosedEndpointAllows"), map[string]int{
 		"auditTraceDBCallstackAsyncGroup": 1,

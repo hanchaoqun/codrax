@@ -15,6 +15,8 @@ type traceDBLifecycleCollection struct {
 	ActiveITIDs                  map[int64]bool
 	ActiveCoverage               []TraceDBCoverage
 	LifecycleCoverage            []TraceDBCoverage
+	FrameProfile                 traceDBActivityITIDProfile
+	FrameProfileSource           string
 	CreationComplete             bool
 	TerminalComplete             bool
 	ActivityComplete             bool
@@ -100,6 +102,10 @@ func collectTraceDBLifecycle(ctx context.Context, queryer traceDBQueryer, identi
 	}
 	result.ActivityComplete = true
 	for _, spec := range specs {
+		if spec.Table == "frame_slice" {
+			result.FrameProfile = spec.Profile
+			result.FrameProfileSource = spec.ProfileSource
+		}
 		result.ActivityComplete = result.ActivityComplete && spec.Complete
 	}
 

@@ -23,7 +23,7 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 	}
 	index.RunningTaintedITID = runningIntegrity.TaintedITIDs
 	index.RunningGlobalTaint = runningIntegrity.GlobalTaint
-	callstackRunning := newTraceDBSchedulerRunningIndex(authority, running, runningIntegrity, nil)
+	lifecycleRunning := newTraceDBSchedulerRunningIndex(authority, running, runningIntegrity, nil)
 	dict, dictCoverage, err := tdb.loadDataDict(ctx)
 	coverage = append(coverage, dictCoverage)
 	if err != nil {
@@ -51,24 +51,25 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 		return coverage, err
 	}
 	stageStart = time.Now()
-	callstackCoverage, err := exportTraceDBCallstack(ctx, tdb, sink, authority, callstackRunning, syncSpans)
+	callstackCoverage, err := exportTraceDBCallstack(ctx, tdb, sink, authority, lifecycleRunning, syncSpans)
 	traceDBSetCoverageElapsed(&callstackCoverage, stageStart)
 	coverage = append(coverage, callstackCoverage)
 	if err != nil {
 		return coverage, err
 	}
-	preSyncExporters := []func(context.Context, *traceDB, *traceDBRowSink, traceDBThreadIndex, map[int64][]traceDBRunningInterval, map[int64]string) (TraceDBCoverage, error){
-		exportTraceDBFrameSlice,
-		exportTraceDBDMAFence,
+	stageStart = time.Now()
+	frameCoverage, err := exportTraceDBFrameSlice(ctx, tdb, sink, authority, lifecycleRunning)
+	traceDBSetCoverageElapsed(&frameCoverage, stageStart)
+	coverage = append(coverage, frameCoverage)
+	if err != nil {
+		return coverage, err
 	}
-	for _, exporter := range preSyncExporters {
-		stageStart = time.Now()
-		item, err := exporter(ctx, tdb, sink, index, running, dict)
-		traceDBSetCoverageElapsed(&item, stageStart)
-		coverage = append(coverage, item)
-		if err != nil {
-			return coverage, err
-		}
+	stageStart = time.Now()
+	dmaCoverage, err := exportTraceDBDMAFence(ctx, tdb, sink, index, running, dict)
+	traceDBSetCoverageElapsed(&dmaCoverage, stageStart)
+	coverage = append(coverage, dmaCoverage)
+	if err != nil {
+		return coverage, err
 	}
 	stageStart = time.Now()
 	syscallCoverage, err := exportTraceDBSyscall(ctx, tdb, sink, syncSpans, index)
@@ -98,8 +99,14 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 	if err != nil {
 		return coverage, err
 	}
+	stageStart = time.Now()
+	nativeCoverage, err := exportTraceDBNativeHook(ctx, tdb, sink, authority, lifecycleRunning)
+	traceDBSetCoverageElapsed(&nativeCoverage, stageStart)
+	coverage = append(coverage, nativeCoverage)
+	if err != nil {
+		return coverage, err
+	}
 	postSyncExporters := []func(context.Context, *traceDB, *traceDBRowSink, traceDBThreadIndex, map[int64][]traceDBRunningInterval, map[int64]string) (TraceDBCoverage, error){
-		exportTraceDBNativeHook,
 		exportTraceDBProcessMeasures,
 		exportTraceDBNetwork,
 		exportTraceDBDiskIO,

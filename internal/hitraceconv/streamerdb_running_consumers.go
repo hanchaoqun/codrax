@@ -10,10 +10,9 @@ const (
 	traceDBExtendedRunningSourceTainted
 )
 
-// traceDBExtendedRunningCPUAt is the only source-integrity-aware lookup for
-// the extended exporters while their lifecycle migration remains open. A
-// valid sibling interval must not rescue a lane tainted by any malformed
-// potential Running witness.
+// traceDBExtendedRunningCPUAt is the legacy source-integrity-aware lookup kept
+// only for raw ftrace until B3. Lifecycle-aware extended consumers use the
+// shared traceDBSchedulerRunningIndex instead.
 func traceDBExtendedRunningCPUAt(index traceDBThreadIndex, intervals map[int64][]traceDBRunningInterval, itid, timestamp int64) (int64, traceDBExtendedRunningLookupStatus) {
 	if index.RunningGlobalTaint || index.RunningTaintedITID[itid] {
 		return 0, traceDBExtendedRunningSourceTainted
@@ -42,15 +41,16 @@ func (tdb *traceDB) loadSchedulerRunningIndex(ctx context.Context, authority tra
 }
 
 // loadExtendedLegacyRunningIntervals performs the one strict base scan shared
-// by extended exporters. Callstack derives its lifecycle-gated typed view from
-// the returned scan and the caller's authority; frame/native/raw consumers
-// still use the legacy intervals until their own explicit migrations land.
+// by extended exporters. Callstack, frame and native derive one shared
+// lifecycle-gated typed view from the returned scan and caller authority; raw
+// remains the only legacy consumer until B3.
 func (tdb *traceDB) loadExtendedLegacyRunningIntervals(ctx context.Context, identities traceDBThreadIndex) (map[int64][]traceDBRunningInterval, traceDBRunningIntegrity, TraceDBCoverage, error) {
 	intervals, integrity, coverage, err := tdb.loadRunningIntervals(ctx, identities)
 	if coverage.FieldSources == nil {
 		coverage.FieldSources = map[string]string{}
 	}
-	coverage.FieldSources["running_consumer_scope"] = "extended_mixed_callstack_gated_legacy_remaining"
-	coverage.FieldSources["generation_admission"] = "one strict base scan; callstack derives a lifecycle-gated typed view from the same authority and integrity, while frame/native/raw legacy consumers remain pending B2/B3"
+	coverage.FieldSources["running_consumer_scope"] = "extended_callstack_frame_native_lifecycle_gated_raw_legacy_pending_b3"
+	coverage.FieldSources["generation_admission"] = "one strict base scan; callstack/frame/native share one lifecycle-gated typed view from the same authority and integrity; raw alone remains legacy pending B3"
+	coverage.FieldSources["rows_emitted_semantics"] = "strict base Running rows accepted before lifecycle filtering; typed consumer rejections are accounted by each exporter"
 	return intervals, integrity, coverage, err
 }
