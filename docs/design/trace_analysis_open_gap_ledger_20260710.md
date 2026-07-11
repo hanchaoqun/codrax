@@ -46,6 +46,8 @@
 
     **剩余顺序**：syscall/frame 等表的 internal-ID profile 必须按各表 schema 选择 canonical 或 signed projection，禁止一把 decoder 横扫；随后 A1b 六源 timestamped strict collector（callstack/sched/thread_state/syscall/native/frame，禁止只扫 scheduler 导致 cut 延后）；A2 scheduler/wakeup/blocked 消费及 per-CPU lane/Running/priority/blocked closed-boundary 验收；再 R1b-B、R1b-C、R1c→R2。A1a 验证为 focused `-count=100`、focused race、全 hitraceconv、vet、全仓与两路冻结；A1b-0 为 identity `-count=20`、race、全 hitraceconv、vet、全仓与两路冻结。A1a 全仓并发曾使两个 Java fake-JDK probe 恰在 10s 超时，负载退出后独立重跑 2.86s 通过，确认非本批回归。
 
+15. **A1a 接入反例已立账（P0，A1b 前置）**：activity cursor 当前只二分“严格早于 activity 的 terminal”，未先拒绝同点 terminal；`terminal@50 → terminal@70 → activity@70` 会把 70 错当 50 后的 restart，违反“terminal 后严格更晚 activity”合同。修复必须在 kernel 单点处理：任一来源 activity 若与该 public-TID lane 的 exact terminal 同点，只计已观察/active，不参与 restart proposal；不得让各 source 自行识别并跳过 X/Z。机械 pin 覆盖同主体/异主体 terminal、跨来源 activity、物理顺序与后续 activity@71 正常重开。
+
 ## 高 ROI 主队列
 
 | 项 | 当前状态 | 代码 / 测试证据 | 剩余定义（fail-close 与精确能力分开） | 触发 witness / 推荐采集 | ROI / owner batch |
