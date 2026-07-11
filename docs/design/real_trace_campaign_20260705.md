@@ -2267,6 +2267,12 @@ public `0`仍是present claim：positive user的TID/PID 0冲突；PID0 kernel只
 
 **B3-b2（随后）**：在任何 endpoint 落 sink 前完成 raw 全集审计，用有界 typed stage/freeze把 binder、workqueue、DMA、block与generic storage的坏 exact key局部化为 lane barrier，不可定位key升级family-global；五族key与tracequery单点同构或以跨包parity pin证明。valid→bad→valid不得跨洞铸IPC/时长，无关key与无关family必须存活。两批的格式验收继续遵循§29.45：标准 Donghu 已存在字段必须兼容；其他标准trace格式走独立typed profile，既不因样本缺席删除，也不串profile或补造默认值。
 
+### §29.46.2 B3-b2 测绘校准（拆为 B3-b2a/B3-b2b）
+
+只读调用图证明，下游五族配对键目前尚非可直接复用的单点权威：block/generic-storage helper存在零生产caller；workqueue work指针与DMA context/seqno只做数值合法性检查，却以原字符串入key，数值等价异形会分裂lane；Binder按全局transaction ID聚合，没有physical artifact namespace，且receive不被消费，两个同ID send可能复用一条receive。另一个族边界是exact idle：block/storage可保留，Binder/workqueue/DMA必须拒绝并形成barrier。直接在converter另写一份key会固化漂移，故禁止开工。
+
+施工拆分为两个独立推送。**B3-b2a** 先在tracequery建立唯一typed endpoint fingerprint：source是artifact namespace而非payload字段；body key保持既定闭集，work指针及DMA无符号量规范化；Binder以`source+transaction_id`运行有序cohort，一条receive只消费一次，重叠同ID整cohort抑制，顺序复用可恢复；三族idle负门机械化。**B3-b2b** 再建立raw私有有界typed stage，直接消费该fingerprint并在scan后seal/freeze：坏exact key只污染该lane，key/owner不可定位升级family-global，所有 governed endpoint只能从唯一pass-2进入最终sink。generic storage继续使用`layer/base/dev/inode/op/header-TID`粗键，严禁用尚未获生产witness的tag/lba偷偷升级request identity。
+
 ## §29.47 标准 Donghu profile 差分审计立案（2026-07-12，未收账）
 
 **基准边界**：`donghu.ftrace` SHA `e15d3df…` 含27,843 events、14种event；sched_switch 4,670/4,670有next_info，blocked 438/438有delay，page-cache 2,907/2,907为page/pfn/ofs形。该文件证明 Donghu profile 中“存在什么”，不证明其他标准profile中“不允许什么”。CRLF、无systrace header与当前LF+生成header是容器差异；线程名会变化，禁止参加profile判定。hmtrace SQL的keyless `clock_set_rate: <name> <value>`是另一已证标准profile，不能被Donghu keyed形全局替换。
