@@ -219,9 +219,17 @@ func (tdb *traceDB) loadStrictThreadIndex(ctx context.Context, index *traceDBThr
 		coverage.ColumnsPresent = appendTraceDBCoverageColumn(coverage.ColumnsPresent, "end_ts")
 	}
 	sort.Strings(coverage.ColumnsPresent)
+	ownerWireSource := "id-less thread compatibility profile: thread.ipid is canonical internal uint32 in 0..UINT32_MAX-1"
+	if hasID {
+		ownerWireSource = "current thread.ipid strict signed-int32 -> uint32 projection (-1 sentinel rejected)"
+	}
+	ownerJoinSource := "; exact canonical process owner required"
+	if index.HasProcessIDColumn {
+		ownerJoinSource = "; process.id -> canonical process.ipid after full-profile alias audit"
+	}
 	coverage.FieldSources = map[string]string{
 		"canonical_itid":    "thread.itid; strict SQLite INTEGER in 0..UINT32_MAX-1",
-		"owner_ipid":        map[bool]string{true: "thread.ipid -> process.id -> canonical process.ipid after full-profile alias audit", false: "id-less compatibility profile: thread.ipid is canonical"}[index.HasProcessIDColumn],
+		"owner_ipid":        ownerWireSource + ownerJoinSource,
 		"public_tid":        "thread.tid; strict SQLite INTEGER in 0..MaxInt32",
 		"source_profile":    map[bool]string{true: "full current profile: thread.id must equal thread.itid", false: "id-less compatibility profile: thread.itid is its own source identity"}[hasID],
 		"thread_name":       "display-only string metadata; never part of identity conflict keys",
@@ -284,17 +292,7 @@ func (tdb *traceDB) loadStrictThreadIndex(ctx context.Context, index *traceDBThr
 			sourceID, sourceOK = traceDBStrictInternalID(sourceRaw)
 		}
 		tid, tidOK := traceDBStrictPublicID(tidRaw)
-		ownerID, ownerOK := traceDBStrictInternalID(ownerRaw)
-		ownerIPID := ownerID
-		if ownerOK && index.HasProcessIDColumn {
-			ownerIPID, ownerOK = index.ProcessIDToIPID[ownerID]
-			if index.AmbiguousProcessID[ownerID] {
-				ownerOK = false
-			}
-		}
-		if ownerOK && index.AmbiguousIPID[ownerIPID] {
-			ownerOK = false
-		}
+		ownerIPID, ownerOK := traceDBResolveThreadOwner(index, ownerRaw)
 		mainFlag, mainOK := traceDBStrictSQLiteBool(mainRaw)
 		switchCount, switchOK := traceDBStrictSQLiteInt(switchRaw)
 		if !sourceOK || !itidOK || !tidOK || !ownerOK || !mainOK || !switchOK || switchCount < 0 || switchCount > math.MaxUint32 ||
@@ -438,6 +436,47 @@ func traceDBBeforeCaptureStart(index traceDBThreadIndex, timestamp int64) bool {
 func traceDBStrictInternalID(value any) (int64, bool) {
 	id, ok := traceDBStrictSQLiteInt(value)
 	return id, ok && id >= 0 && id <= maxTraceDBInternalID
+}
+
+// traceDBStrictCurrentThreadOwner decodes ThreadTable.ipid. The upstream
+// current producer calls sqlite3_result_int over a uint32 internalPid_, so its
+// exact wire domain is signed int32; -1 is INVALID_UINT32. Positive high-half
+// uint32 values are not accepted without a distinct schema/version signal.
+func traceDBStrictCurrentThreadOwner(value any) (int64, bool) {
+	raw, ok := traceDBStrictSQLiteInt(value)
+	if !ok || raw < math.MinInt32 || raw > math.MaxInt32 || raw == -1 {
+		return 0, false
+	}
+	if raw < 0 {
+		return raw + (int64(1) << 32), true
+	}
+	return raw, true
+}
+
+func traceDBResolveThreadOwner(index *traceDBThreadIndex, value any) (int64, bool) {
+	sourceID, ok := traceDBStrictInternalID(value)
+	if index.HasThreadIDColumn {
+		sourceID, ok = traceDBStrictCurrentThreadOwner(value)
+	}
+	if !ok {
+		return 0, false
+	}
+	ownerIPID := sourceID
+	if index.HasProcessIDColumn {
+		if index.AmbiguousProcessID[sourceID] {
+			return 0, false
+		}
+		var mapped bool
+		ownerIPID, mapped = index.ProcessIDToIPID[sourceID]
+		if !mapped {
+			return 0, false
+		}
+	}
+	if index.AmbiguousIPID[ownerIPID] {
+		return 0, false
+	}
+	process, exists := index.Processes[ownerIPID]
+	return ownerIPID, exists && process.IPID == ownerIPID
 }
 
 func traceDBStrictPublicID(value any) (int64, bool) {

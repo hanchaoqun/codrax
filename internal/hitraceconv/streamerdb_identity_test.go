@@ -32,11 +32,12 @@ func TestTraceDBIdentityCurrentAliasAndInternalIDBoundaries(t *testing.T) {
 		"INSERT INTO process VALUES (12, 12, 2147483647, 'max-pid-process')",
 		"INSERT INTO process VALUES (13, 13, 2147483648, 'overflow-pid-process')",
 		"INSERT INTO process VALUES (14, 14, 140, 'switch-boundary-process')",
+		"INSERT INTO process VALUES (-2, -2, 131, 'projected-process-must-not-pass')",
 		"INSERT INTO process VALUES (-1, -1, 129, 'negative-process')",
 		"INSERT INTO process VALUES (4294967296, 4294967296, 130, 'overflow-process')",
 		"CREATE TABLE thread (id, itid, tid, ipid, name, start_ts, is_main_thread, switch_count)",
 		"INSERT INTO thread VALUES (0, 0, 0, 0, 'swapper', 0, 1, 0)",
-		"INSERT INTO thread VALUES (4294967294, 4294967294, 456, 4294967294, 'max-thread', 0, 0, 1)",
+		"INSERT INTO thread VALUES (4294967294, 4294967294, 456, -2, 'max-thread', 0, 0, 1)",
 		"INSERT INTO thread VALUES (4294967295, 4294967295, 457, 4294967294, 'sentinel-thread', 0, 0, 1)",
 		"INSERT INTO thread VALUES (CAST(1 AS TEXT), CAST(1 AS TEXT), 458, 0, 'text-thread', 0, 0, 1)",
 		"INSERT INTO thread VALUES (2.0, 2.0, 459, 0, 'real-thread', 0, 0, 1)",
@@ -105,6 +106,191 @@ func TestTraceDBIdentityCurrentAliasAndInternalIDBoundaries(t *testing.T) {
 	if len(coverage) != 3 || !strings.Contains(coverage[1].Skipped, "process row(s) rejected") ||
 		!strings.Contains(coverage[2].Skipped, "thread row(s) rejected") {
 		t.Fatalf("strict identity rejections missing from coverage: %+v", coverage)
+	}
+}
+
+func TestTraceDBIdentityCurrentThreadOwnerUsesSignedUint32Projection(t *testing.T) {
+	maxID := maxTraceDBInternalID
+	minHighID := int64(1) << 31
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts)",
+		"INSERT INTO trace_range VALUES (0)",
+		"CREATE TABLE process (id, ipid, pid)",
+		"INSERT INTO process VALUES (4294967294, 4294967294, 100)",
+		"INSERT INTO process VALUES (2147483648, 2147483648, 102)",
+		"INSERT INTO process VALUES (2147483647, 2147483647, 103)",
+		"INSERT INTO process VALUES (1, 1, 101)",
+		"CREATE TABLE thread (id, itid, tid, ipid, is_main_thread, switch_count)",
+		"INSERT INTO thread VALUES (10, 10, 110, -2, 0, 1)",
+		"INSERT INTO thread VALUES (10, 10, 110, -2, 0, 1)",
+		"INSERT INTO thread VALUES (20, 20, 120, -2147483648, 0, 1)",
+		"INSERT INTO thread VALUES (24, 24, 124, 2147483647, 0, 1)",
+		"INSERT INTO thread VALUES (21, 21, 121, 4294967294, 0, 1)",
+		"INSERT INTO thread VALUES (22, 22, 122, 2147483648, 0, 1)",
+		"INSERT INTO thread VALUES (11, 11, 111, 1, 0, 1)",
+		"INSERT INTO thread VALUES (11, 11, 111, -1, 0, 1)",
+		"INSERT INTO thread VALUES (23, 23, 123, -2, 0, 1)",
+		"INSERT INTO thread VALUES (23, 23, 123, CAST(-2 AS TEXT), 0, 1)",
+		"INSERT INTO thread VALUES (25, 25, 125, -2147483649, 0, 1)",
+		"INSERT INTO thread VALUES (26, 26, 126, 4294967295, 0, 1)",
+		"INSERT INTO thread VALUES (27, 27, 127, -2.0, 0, 1)",
+		"INSERT INTO thread VALUES (28, 28, 128, x'FE', 0, 1)",
+		"INSERT INTO thread VALUES (29, 29, 129, NULL, 0, 1)",
+		"INSERT INTO thread VALUES (12, 12, 112, 1, 0, 1)",
+	})
+	index, coverage := loadTraceDBIdentityFixture(t, path)
+	if thread, ok := index.ByITID[10]; !ok || thread.IPID != maxID || index.AmbiguousITID[10] {
+		t.Fatalf("duplicate current signed owner rows did not converge: index=%+v coverage=%+v", index, coverage)
+	}
+	if _, ok := index.ByITID[11]; ok || !index.AmbiguousITID[11] {
+		t.Fatalf("-1 owner sentinel or its valid sibling survived: index=%+v coverage=%+v", index, coverage)
+	}
+	if thread, ok := index.ByITID[20]; !ok || thread.IPID != minHighID {
+		t.Fatalf("current MinInt32 owner projection was rejected: index=%+v coverage=%+v", index, coverage)
+	}
+	if thread, ok := index.ByITID[24]; !ok || thread.IPID != 2147483647 {
+		t.Fatalf("current MaxInt32 owner was rejected: index=%+v coverage=%+v", index, coverage)
+	}
+	for _, itid := range []int64{21, 22, 23, 25, 26, 27, 28, 29} {
+		if _, ok := index.ByITID[itid]; ok || !index.AmbiguousITID[itid] {
+			t.Fatalf("producer-unreachable or non-INTEGER owner survived for itid=%d: index=%+v coverage=%+v", itid, index, coverage)
+		}
+	}
+	if thread, ok := index.ByITID[12]; !ok || thread.IPID != 1 {
+		t.Fatalf("valid control owner was lost: index=%+v coverage=%+v", index, coverage)
+	}
+	if got := index.ByProcess[maxID]; len(got) != 1 || got[0].ITID != 10 {
+		t.Fatalf("projected owner did not reach secondary process index: %+v", got)
+	}
+	wantSource := "current thread.ipid strict signed-int32 -> uint32 projection (-1 sentinel rejected); process.id -> canonical process.ipid after full-profile alias audit"
+	if got := coverage[2].FieldSources["owner_ipid"]; got != wantSource {
+		t.Fatalf("current/current owner provenance=%q, want %q", got, wantSource)
+	}
+}
+
+func TestTraceDBIdentityLegacyThreadOwnerRemainsCanonical(t *testing.T) {
+	maxID := maxTraceDBInternalID
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts)",
+		"INSERT INTO trace_range VALUES (0)",
+		"CREATE TABLE process (ipid, pid)",
+		"INSERT INTO process VALUES (4294967294, 100)",
+		"INSERT INTO process VALUES (1, 101)",
+		"CREATE TABLE thread (itid, tid, ipid, is_main_thread, switch_count)",
+		"INSERT INTO thread VALUES (10, 110, 4294967294, 0, 1)",
+		"INSERT INTO thread VALUES (11, 111, -2, 0, 1)",
+		"INSERT INTO thread VALUES (13, 113, 999, 0, 1)",
+		"INSERT INTO thread VALUES (14, 114, -1, 0, 1)",
+		"INSERT INTO thread VALUES (15, 115, 4294967295, 0, 1)",
+		"INSERT INTO thread VALUES (12, 112, 1, 0, 1)",
+	})
+	index, coverage := loadTraceDBIdentityFixture(t, path)
+	if thread, ok := index.ByITID[10]; !ok || thread.IPID != maxID {
+		t.Fatalf("legacy canonical high owner was rejected: index=%+v coverage=%+v", index, coverage)
+	}
+	for _, itid := range []int64{11, 13, 14, 15} {
+		if _, ok := index.ByITID[itid]; ok || !index.AmbiguousITID[itid] {
+			t.Fatalf("legacy signed/orphan owner survived for itid=%d: index=%+v coverage=%+v", itid, index, coverage)
+		}
+	}
+	if thread, ok := index.ByITID[12]; !ok || thread.IPID != 1 {
+		t.Fatalf("legacy control owner was lost: index=%+v coverage=%+v", index, coverage)
+	}
+	wantSource := "id-less thread compatibility profile: thread.ipid is canonical internal uint32 in 0..UINT32_MAX-1; exact canonical process owner required"
+	if got := coverage[2].FieldSources["owner_ipid"]; got != wantSource {
+		t.Fatalf("legacy/legacy owner provenance=%q, want %q", got, wantSource)
+	}
+}
+
+func TestTraceDBIdentityThreadAndProcessProfilesResolveOwnerOrthogonally(t *testing.T) {
+	maxID := maxTraceDBInternalID
+	t.Run("current thread with legacy process", func(t *testing.T) {
+		path := createTraceDBFixture(t, []string{
+			"CREATE TABLE trace_range (start_ts)", "INSERT INTO trace_range VALUES (0)",
+			"CREATE TABLE process (ipid, pid)", "INSERT INTO process VALUES (4294967294, 100)",
+			"CREATE TABLE thread (id, itid, tid, ipid, is_main_thread, switch_count)",
+			"INSERT INTO thread VALUES (10, 10, 110, -2, 0, 1)",
+			"INSERT INTO thread VALUES (11, 11, 111, 4294967294, 0, 1)",
+		})
+		index, coverage := loadTraceDBIdentityFixture(t, path)
+		if thread, ok := index.ByITID[10]; !ok || thread.IPID != maxID || !index.HasThreadIDColumn || index.HasProcessIDColumn {
+			t.Fatalf("thread wire profile was coupled to process profile: index=%+v coverage=%+v", index, coverage)
+		}
+		if _, ok := index.ByITID[11]; ok || !index.AmbiguousITID[11] {
+			t.Fatalf("current thread accepted legacy canonical high encoding: index=%+v coverage=%+v", index, coverage)
+		}
+		wantSource := "current thread.ipid strict signed-int32 -> uint32 projection (-1 sentinel rejected); exact canonical process owner required"
+		if got := coverage[2].FieldSources["owner_ipid"]; got != wantSource {
+			t.Fatalf("current/legacy owner provenance=%q, want %q", got, wantSource)
+		}
+	})
+
+	t.Run("legacy thread with current process", func(t *testing.T) {
+		path := createTraceDBFixture(t, []string{
+			"CREATE TABLE trace_range (start_ts)", "INSERT INTO trace_range VALUES (0)",
+			"CREATE TABLE process (id, ipid, pid)", "INSERT INTO process VALUES (4294967294, 4294967294, 100)",
+			"CREATE TABLE thread (itid, tid, ipid, is_main_thread, switch_count)",
+			"INSERT INTO thread VALUES (10, 110, 4294967294, 0, 1)",
+			"INSERT INTO thread VALUES (11, 111, -2, 0, 1)",
+		})
+		index, coverage := loadTraceDBIdentityFixture(t, path)
+		if thread, ok := index.ByITID[10]; !ok || thread.IPID != maxID || index.HasThreadIDColumn || !index.HasProcessIDColumn {
+			t.Fatalf("process alias profile was coupled to thread wire profile: index=%+v coverage=%+v", index, coverage)
+		}
+		if _, ok := index.ByITID[11]; ok || !index.AmbiguousITID[11] {
+			t.Fatalf("legacy thread accepted current signed high encoding: index=%+v coverage=%+v", index, coverage)
+		}
+		wantSource := "id-less thread compatibility profile: thread.ipid is canonical internal uint32 in 0..UINT32_MAX-1; process.id -> canonical process.ipid after full-profile alias audit"
+		if got := coverage[2].FieldSources["owner_ipid"]; got != wantSource {
+			t.Fatalf("legacy/current owner provenance=%q, want %q", got, wantSource)
+		}
+	})
+}
+
+func TestTraceDBIdentityProjectedOwnerConflictIsOrderIndependent(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		rows []string
+	}{
+		{name: "different canonical owners", rows: []string{
+			"INSERT INTO thread VALUES (10, 10, 110, -2, 0, 1)",
+			"INSERT INTO thread VALUES (10, 10, 110, -2147483648, 0, 1)",
+		}},
+		{name: "producer unreachable positive sibling", rows: []string{
+			"INSERT INTO thread VALUES (10, 10, 110, -2, 0, 1)",
+			"INSERT INTO thread VALUES (10, 10, 110, 4294967294, 0, 1)",
+		}},
+		{name: "missing owner sentinel sibling", rows: []string{
+			"INSERT INTO thread VALUES (10, 10, 110, 1, 0, 1)",
+			"INSERT INTO thread VALUES (10, 10, 110, -1, 0, 1)",
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			load := func(t *testing.T, reverse bool) (traceDBThreadIndex, []TraceDBCoverage) {
+				t.Helper()
+				statements := []string{
+					"CREATE TABLE trace_range (start_ts)", "INSERT INTO trace_range VALUES (0)",
+					"CREATE TABLE process (id, ipid, pid)",
+					"INSERT INTO process VALUES (4294967294, 4294967294, 100)",
+					"INSERT INTO process VALUES (2147483648, 2147483648, 101)",
+					"INSERT INTO process VALUES (1, 1, 102)",
+					"CREATE TABLE thread (id, itid, tid, ipid, is_main_thread, switch_count)",
+				}
+				statements = append(statements, orderedTraceDBStatements(test.rows, reverse)...)
+				return loadTraceDBIdentityFixture(t, createTraceDBFixture(t, statements))
+			}
+			forward, forwardCoverage := load(t, false)
+			reverse, reverseCoverage := load(t, true)
+			if !reflect.DeepEqual(forward, reverse) || forwardCoverage[2].Skipped != reverseCoverage[2].Skipped {
+				t.Fatalf("projected owner conflict depends on row order:\nforward=%+v %+v\nreverse=%+v %+v", forward, forwardCoverage, reverse, reverseCoverage)
+			}
+			if _, ok := forward.ByITID[10]; ok || !forward.AmbiguousITID[10] || !forward.AmbiguousThreadID[10] {
+				t.Fatalf("conflicting projected owners survived: %+v", forward)
+			}
+			if len(forward.Processes) != 3 || forward.AmbiguousIPID[4294967294] || forward.AmbiguousIPID[2147483648] || forward.AmbiguousIPID[1] {
+				t.Fatalf("thread owner conflict poisoned valid process cohorts: %+v", forward)
+			}
+		})
 	}
 }
 
