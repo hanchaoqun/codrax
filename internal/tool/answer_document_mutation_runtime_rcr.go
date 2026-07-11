@@ -35,6 +35,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -43,7 +44,10 @@ import (
 // is East-Asian-Ambiguous and double-width on CJK terminals, escaping the
 // single-cell rule). Consumed by the header composer, the legend entry and
 // the single-cell width pin — one constant, three surfaces.
-const runtimeTraceProjRootGlyph = "⊚"
+// EVOLUTION RECORD (v5 P0 备-2, 2026-07-11): the byte now lives in
+// internal/tracefence.RootGlyph — the single source shared with the preview
+// classifier's legacy ⊚ arm.
+const runtimeTraceProjRootGlyph = tracefence.RootGlyph
 
 // runtimeTraceProjOffChainDStateGlyph is the ◇/▒ D-state/IO row glyph (UXR-1
 // §29.36②: ⛓ claims chain membership, so off-chain rows wear ⧗ instead).

@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/mattn/go-runewidth"
@@ -4628,7 +4629,13 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("```text\n")
+	// EVOLUTION RECORD (v5 P0 重-3, user ruling 2026-07-11, design
+	// causal_tree_v5_design_20260711.md §C.3): the opener carries the typed
+	// second info token so the HTML preview classifies on a precise signal
+	// instead of content sniffing. First token stays "text" — terminal /
+	// markdown / glamour behavior is byte-identical (parity-pinned); fence
+	// CONTENT lines are untouched.
+	b.WriteString(tracefence.Opener + "\n")
 	windowMode := model.WindowMS > 0
 	denom := model.WindowMS
 	if !windowMode {
@@ -4872,16 +4879,19 @@ func runtimeTraceProjTreeHeaderLabel(model runtimeTraceProjTreeModel, zh bool) s
 	// PTV8-RCR-A §24.3: 🎯 → ⊚ (无亮色 hard rule — the fence's only colored
 	// emoji leaves; the root mark stays single-cell text presentation, shared
 	// constant with the legend + width pin; 复核 F3: EAW-Neutral glyph).
+	// EVOLUTION RECORD (v5 P0 备-2, 2026-07-11): the four provenance chips
+	// moved verbatim into internal/tracefence (shared with the preview
+	// classifier's legacy ⊚ arm — byte-identical output).
 	header := runtimeTraceProjRootGlyph + " " + model.Target
 	switch {
 	case model.RootFocusAnchorOnly && zh:
-		header += " ‹分析锚点线程›"
+		header += " " + tracefence.TargetChipAnchorZH
 	case model.RootFocusAnchorOnly:
-		header += " <analysis anchor thread>"
+		header += " " + tracefence.TargetChipAnchorEN
 	case zh:
-		header += " ‹用户关注线程›"
+		header += " " + tracefence.TargetChipFocusedZH
 	default:
-		header += " <user-focused thread>"
+		header += " " + tracefence.TargetChipFocusedEN
 	}
 	return header
 }
@@ -5233,23 +5243,26 @@ func runtimeTraceProjMidTruncateKeepPid(name string, width int) string {
 // 按层级平铺" render note LEFT the head line (the 树读法 legend's own head
 // clause already teaches it — the head never repeats the legend). The opaque
 // fallback carries no parenthetical: absence never invents a cause.
+// EVOLUTION RECORD (v5 P0 备-2, 2026-07-11): the six banner strings moved
+// verbatim into internal/tracefence — the single source shared with the
+// preview classifier's legacy-fallback whitelist (byte-identical output).
 func runtimeTraceProjFlatFallbackHeader(model runtimeTraceProjTreeModel, zh bool) string {
 	switch {
 	case model.missingWakeup():
 		if zh {
-			return "⊘ 唤醒链无法上溯(窗内无唤醒记录)"
+			return tracefence.FlatHeadMissingWakeupZH
 		}
-		return "⊘ wakeup chain not traceable (no sched_wakeup record in the window)"
+		return tracefence.FlatHeadMissingWakeupEN
 	case model.WakeupChainRecommendedNotRun:
 		if zh {
-			return "⊘ 唤醒链未下钻(本报告未运行 wakeup_chain,可追问补齐)"
+			return tracefence.FlatHeadNotDrilledZH
 		}
-		return "⊘ wakeup chain not drilled (wakeup_chain was not run for this report; ask a follow-up to fill it in)"
+		return tracefence.FlatHeadNotDrilledEN
 	default:
 		if zh {
-			return "⊘ 唤醒链路径未解析"
+			return tracefence.FlatHeadUnresolvedZH
 		}
-		return "⊘ wakeup path unresolved"
+		return tracefence.FlatHeadUnresolvedEN
 	}
 }
 
@@ -5304,17 +5317,20 @@ func runtimeTraceProjHolderSiteCompact(site string, maxRunes int) string {
 	return tailKeep(head + fileLine)
 }
 
+// EVOLUTION RECORD (v5 P0 备-2, 2026-07-11): the 满格= / bar full = markers
+// are composed from internal/tracefence — the same constants the preview
+// classifier's legacy scale-signature arm consumes (byte-identical output).
 func runtimeTraceProjScaleNote(model runtimeTraceProjTreeModel, zh bool) string {
 	if model.WindowMS > 0 {
 		if zh {
-			return fmt.Sprintf("满格=窗口%.3fms", model.WindowMS)
+			return fmt.Sprintf(tracefence.ScaleMarkZH+"窗口%.3fms", model.WindowMS)
 		}
-		return fmt.Sprintf("bar full = window %.3fms", model.WindowMS)
+		return fmt.Sprintf(tracefence.ScaleMarkEN+" window %.3fms", model.WindowMS)
 	}
 	if zh {
-		return fmt.Sprintf("窗口起止未采集·满格=本报告最大%.3fms(回退尺度,不显示占窗%%)", model.BarMaxMS)
+		return fmt.Sprintf("窗口起止未采集·"+tracefence.ScaleMarkZH+"本报告最大%.3fms(回退尺度,不显示占窗%%)", model.BarMaxMS)
 	}
-	return fmt.Sprintf("window bounds not captured; bar full = report max %.3fms (fallback scale, no window %%)", model.BarMaxMS)
+	return fmt.Sprintf("window bounds not captured; "+tracefence.ScaleMarkEN+" report max %.3fms (fallback scale, no window %%)", model.BarMaxMS)
 }
 
 // runtimeTraceProjSelfRowLines renders one self row for the fence. PTV4 T1 →

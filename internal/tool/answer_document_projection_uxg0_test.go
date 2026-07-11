@@ -6,11 +6,16 @@ package tool
 // runtimeTraceProjDetailFullText real output; handwritten forms live only as
 // counterexamples in internal/preview).
 //
-//   - D1: every current-generator fence HEAD form (⊚×4 target heads + ⊘×6
-//     flat banner heads) must classify as a trace-projection tree in the
-//     preview HTML face — the UXR-1 ⊘ rewrite had disconnected the classifier
-//     arm (archived old-wording heads keep an ADDITIVE archive arm, pinned in
-//     internal/preview with an archive-verbatim quote).
+//   - D1 (evolved by v5 P0 重-3/备-2, 2026-07-11): every current-generator
+//     fence HEAD form (⊚×4 target heads + ⊘×6 flat banner heads) must
+//     classify as a trace-projection tree in the preview HTML face — TWICE:
+//     through the typed info-token hard gate (the engine opener), AND through
+//     the DEMOTED legacy content-sniffing fallback (the token-stripped
+//     archive shape) whose whitelist derives from internal/tracefence — the
+//     completeness sentinel 生成器在产头形集 ⊆ fallback 认得的集. Plus the
+//     v5 P0 acceptance ③ byte pin: pre textContent == fence body.
+//     (Pre-UXR-1 old-wording heads keep an ADDITIVE archive arm, pinned in
+//     internal/preview with an archive-verbatim quote.)
 //   - D2: the §29.36.2 ◇ channel ordinal 邻近影响#N / adjacent-impact #N is
 //     chip-styled with the NEUTRAL channel class trace-rank-adjacent (user
 //     ruling: 同样式、中性色区分通道); on-chain 根因排序 #1..#5 keep their
@@ -22,8 +27,10 @@ package tool
 //     邻近影响#N seat line.
 //
 // MUTATION self-checks (recorded in the batch report):
-//   - M-G1 drop the six ⊘ prefixes from isTraceCausalProjectionFence →
-//     TestUXG0FenceHeadsClassifiedByPreview red (⊘ arms);
+//   - M-G1 drop the ⊘-head arm from the preview legacy fallback
+//     (isLegacyTraceCausalProjectionBody) → TestUXG0FenceHeadsClassifiedBy-
+//     Preview red (census arm); drop the typed token from the generator
+//     opener → red (opener pin in uxg0RenderFenceHTML);
 //   - M-G2 drop the 邻近影响/adjacent-impact arm from
 //     traceProjectionRankToken → TestUXG0AdjacentOrdinalChipNeutralClass red;
 //   - M-G3 drop the ⊘ icon-directory entry → the undrillable-box assertion in
@@ -32,25 +39,75 @@ package tool
 //     TestUXG0AdjacentPrimaryTierDetailDemotion red.
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/preview"
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // uxg0RenderFenceHTML pushes one engine-minted fence through the real preview
 // renderer — the same cross-package path the standalone HTML report takes.
+//
+// EVOLUTION RECORD (v5 P0 重-3, 2026-07-11): the opener assertion moved from
+// the bare "```text" to the typed-token form tracefence.Opener — the opener
+// is the ONLY changed fence line (content lines stay byte-identical, pinned
+// by the untouched golden/content assertions across this package).
 func uxg0RenderFenceHTML(t *testing.T, fence string) string {
 	t.Helper()
-	if !strings.HasPrefix(fence, "```text\n") {
-		t.Fatalf("engine fence drifted (no ```text head):\n%s", fence)
+	if !strings.HasPrefix(fence, tracefence.Opener+"\n") {
+		t.Fatalf("engine fence drifted (opener must be %q):\n%s", tracefence.Opener, fence)
 	}
 	html, err := preview.RenderMarkdownHTML([]byte(fence + "\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	return html
+}
+
+// uxg0StripInfoToken removes the typed second info token from an engine
+// fence's opener, minting the ARCHIVE shape (reports rendered between UXR-1
+// and v5 P0) for the legacy-fallback census below.
+func uxg0StripInfoToken(t *testing.T, fence string) string {
+	t.Helper()
+	stripped := strings.Replace(fence, tracefence.Opener+"\n", "```text\n", 1)
+	if stripped == fence {
+		t.Fatalf("fence opener not found for token strip:\n%s", fence)
+	}
+	return stripped
+}
+
+var uxg0TagPattern = regexp.MustCompile(`<[^>]*>`)
+
+// uxg0PreTextContent extracts the projection <pre>'s textContent from the
+// rendered HTML: everything between the fence's <code …> and </code>, tags
+// stripped, entities unescaped. The v5 P0 decoration layer contract is that
+// this equals the fence body BYTES (escaped content never contains a raw
+// '<', so tag stripping is exact).
+func uxg0PreTextContent(t *testing.T, html string) string {
+	t.Helper()
+	start := strings.Index(html, `<pre class="trace-projection-tree"`)
+	if start < 0 {
+		t.Fatalf("no projection pre in rendered HTML:\n%s", html)
+	}
+	rest := html[start:]
+	codeAt := strings.Index(rest, "<code")
+	end := strings.Index(rest, "</code></pre>")
+	if codeAt < 0 || end < 0 || end < codeAt {
+		t.Fatalf("malformed projection pre:\n%s", rest)
+	}
+	inner := rest[codeAt:end]
+	inner = inner[strings.Index(inner, ">")+1:]
+	return htmlUnescapeForTest(uxg0TagPattern.ReplaceAllString(inner, ""))
+}
+
+func htmlUnescapeForTest(s string) string {
+	replacer := strings.NewReplacer(
+		"&lt;", "<", "&gt;", ">", "&#34;", `"`, "&#39;", "'", "&quot;", `"`, "&amp;", "&",
+	)
+	return replacer.Replace(s)
 }
 
 // TestUXG0FenceHeadsClassifiedByPreview — D1: all ten current-generator head
@@ -110,11 +167,33 @@ func TestUXG0FenceHeadsClassifiedByPreview(t *testing.T) {
 			t.Fatalf("%s: head form not classified as a projection tree:\n%s", tc.name, html)
 		}
 		if strings.HasPrefix(tc.head, "⊘") {
-			// D3: the flat banner's ⊘ joins the one-cell optical-box family
-			// (same circled family as ⊚/⊗) on the HTML face.
-			if !strings.Contains(html, `trace-icon trace-icon-undrillable"><span class="trace-icon-glyph">⊘</span>`) {
-				t.Fatalf("%s: ⊘ must wear its one-cell optical box:\n%s", tc.name, html)
+			// D3 (v5 P0 envelope form): the flat banner's ⊘ joins the state-
+			// mark slot family (same circled family as ⊚/⊗) on the HTML face —
+			// with its companion space, one 2ch envelope slot.
+			if !strings.Contains(html, `trace-icon trace-icon-undrillable"><span class="trace-ink">⊘ </span>`) {
+				t.Fatalf("%s: ⊘ must wear its envelope slot:\n%s", tc.name, html)
 			}
+		}
+		// v5 P0 acceptance ③ — textContent == fence body, byte for byte:
+		// the decoration layer may only wrap, never rewrite.
+		fenceBody := strings.TrimPrefix(fence, tracefence.Opener+"\n")
+		fenceBody = strings.TrimSuffix(fenceBody, "```")
+		if got := uxg0PreTextContent(t, html); got != fenceBody {
+			t.Fatalf("%s: HTML textContent drifted from fence bytes\n--- fence body ---\n%q\n--- textContent ---\n%q", tc.name, fenceBody, got)
+		}
+		// v5 P0 completeness sentinel (备-2 census pin): every generator-
+		// emittable head form must ALSO classify through the DEMOTED legacy
+		// content-sniffing fallback — the archive shape (opener without the
+		// typed token) is exactly what reports minted between UXR-1 and v5 P0
+		// carry, and the fallback whitelist is derived from the same
+		// tracefence constants the generator emits. If this arm reddens, the
+		// generator grew a head form the fallback cannot see.
+		archived, err := preview.RenderMarkdownHTML([]byte(uxg0StripInfoToken(t, fence) + "\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(archived, `<pre class="trace-projection-tree"`) {
+			t.Fatalf("%s: archive shape (no typed token) fell out of the legacy fallback:\n%s", tc.name, archived)
 		}
 	}
 }

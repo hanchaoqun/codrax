@@ -37,23 +37,35 @@ func TestStandaloneHTMLPageCJKFontAndSpacing(t *testing.T) {
 }
 
 func TestStandaloneHTMLTraceProjectionTreePresentation(t *testing.T) {
-	// UXG-0 D5 (2026-07-11): the generator emits one space between the seat
-	// badge and the state glyph (❶ ⚙) — the icon box's left overflow budget.
-	projection := "```text\n⊚ render-thread-42 ‹用户关注线程› 满格=窗口16.667ms\n├─下钻─ ❶ ⚙ worker-7 █████░░░░░ 8.000ms 48% [E1]\n│ · 算力供给候选·根因排序#1·置信中\n```\n"
+	// v5 P0 (2026-07-11, causal_tree_v5_design_20260711.md 重-1/重-3/§C.3):
+	// the fence opener carries the typed info token; the state glyph and its
+	// UXG-0 D5 companion space fuse into one 2ch envelope slot; pure-ASCII
+	// stretches collapse into width-pinned runs; the scale transform family
+	// is retired. The badge ❶ keeps its 1ch chip cell until P2a (T-6).
+	projection := "```text trace-causal-projection\n⊚ render-thread-42 ‹用户关注线程› 满格=窗口16.667ms\n├─下钻─ ❶ ⚙ worker-7 █████░░░░░ 8.000ms 48% [E1]\n│ · 算力供给候选·根因排序#1·置信中\n```\n"
 	page, err := RenderStandaloneMarkdownHTML("trace", []byte(projection))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`<pre class="trace-projection-tree" role="region" aria-label="Trace causal projection tree" tabindex="0"><code class="language-text"><span class="trace-cell trace-cell-1 trace-icon trace-icon-root"><span class="trace-icon-glyph">⊚</span></span>`,
+		`<pre class="trace-projection-tree" role="region" aria-label="Trace causal projection tree" tabindex="0"><code class="language-text"><span class="trace-line"><span class="trace-slot trace-icon trace-icon-root"><span class="trace-ink">⊚ </span></span>`,
 		`--font-mono: "Sarasa Mono SC", "Noto Sans Mono CJK SC", "Source Han Mono SC"`,
 		`pre.trace-projection-tree { font-size: .8125rem; line-height: 1.52; white-space: pre; overflow-x: auto;`,
 		`font-variant-ligatures: none`,
 		`font-variant-emoji: text`,
 		`pre.trace-projection-tree .trace-cell { display: inline-block; width: 1ch; min-width: 1ch; height: 1em;`,
 		`pre.trace-projection-tree .trace-cell-2 { width: 2ch; min-width: 2ch; }`,
-		`<span class="trace-rank-chip trace-rank-1 trace-rank-width-1"><span class="trace-rank-glyph">❶</span></span><span class="trace-cell trace-cell-1"> </span><span class="trace-cell trace-cell-1 trace-icon trace-icon-running"><span class="trace-icon-glyph">⚙</span></span>`,
+		// T-6 honest cut: the badge chip keeps its 1ch cell and its companion
+		// space stays a separate 1ch ASCII run until P2a; the state glyph
+		// eats ITS companion space into the 2ch envelope.
+		`<span class="trace-rank-chip trace-rank-1 trace-rank-width-1"><span class="trace-rank-glyph">❶</span></span><span class="trace-run" style="width:1ch"> </span><span class="trace-slot trace-icon trace-icon-running"><span class="trace-ink">⚙ </span></span>`,
 		`<span class="trace-rank-ordinal trace-rank-1 trace-rank-width-2">#1</span>`,
+		// Run segmentation: the ASCII name+bar-gap stretch is ONE pinned run.
+		`<span class="trace-run" style="width:9ch">worker-7 </span>`,
+		// Box-drawing rails stay per-rune 1ch cells with the rail class.
+		`<span class="trace-cell trace-cell-1 trace-rail">├</span><span class="trace-cell trace-cell-1 trace-rail">─</span>`,
+		// Bar blocks stay per-rune 1ch cells with the bar class.
+		`<span class="trace-cell trace-cell-1 trace-bar">█</span>`,
 		`pre.trace-projection-tree .trace-rank-chip,`,
 		`height: 1em; line-height: 1em;`,
 		`pre.trace-projection-tree .trace-rank-width-1 { width: 1ch; min-width: 1ch; }`,
@@ -66,15 +78,27 @@ func TestStandaloneHTMLTraceProjectionTreePresentation(t *testing.T) {
 		`--rank-adjacent-fg: #cbd5e1; --rank-adjacent-bg: #334155;`,
 		`--rank-5-bg: #fce7f3; --rank-adjacent-fg: #334155;`,
 		`pre.trace-projection-tree .trace-rank-adjacent { color: var(--rank-adjacent-fg); background: var(--rank-adjacent-bg); }`,
-		`font-family: "Apple Symbols", "Segoe UI Symbol", "Noto Sans Symbols 2"`,
-		// UXG-0 D4: icon boxes overflow visible (space-neighbor budget);
-		// chips keep hidden (colored pill stays inside its cells).
-		`pre.trace-projection-tree .trace-icon { display: inline-grid; place-items: center; overflow: visible;`,
+		`--font-symbols: "Apple Symbols", "Segoe UI Symbol", "Noto Sans Symbols 2"`,
+		// v5 P0 envelope geometry (重-1): 2ch inline-grid slot, overflow
+		// visible, no explicit slot height; chips keep overflow hidden
+		// (colored pill stays inside its cells).
+		`pre.trace-projection-tree .trace-slot { display: inline-grid; width: 2ch; min-width: 2ch; place-items: center start; overflow: visible;`,
+		// F4 (fix round 2026-07-11): place-items centers only within the grid
+		// AREA; Chromium sizes the auto track to overflowing ink, so the 1ch
+		// slot needs justify-content to center the wider-than-track ink
+		// (真机 -0.78px per side).
+		`pre.trace-projection-tree .trace-slot-1 { width: 1ch; min-width: 1ch; place-items: center; justify-content: center; }`,
+		// F1 (fix round 2026-07-11, v5 T-6): the badge chip keeps its pre-P0
+		// 1ch form INCLUDING the .95 ink shrink until P2a — chips are outside
+		// the retired ICON scale family.
+		`pre.trace-projection-tree .trace-rank-glyph { transform: scale(.95); }`,
+		`pre.trace-projection-tree .trace-ink,`,
+		`pre.trace-projection-tree .trace-run { display: inline-block; height: 1em; line-height: 1em;`,
 		`overflow: hidden; border-radius: .22em;`,
-		// EVOLUTION RECORD (UXR-1 §29.36⑤, 57823 witness 2026-07-11): the
-		// glyph optical scales normalized upward so symbol ink tracks the
-		// row font (was scale(.82) on the running/io pair).
-		`transform: scale(1.00) translateY(.01em);`,
+		// 档1 (T-5): line hover, stanza-head sticky, E# anchor styling.
+		`pre.trace-projection-tree .trace-line:hover {`,
+		`pre.trace-projection-tree .trace-stanza-head { position: sticky; left: 0;`,
+		`pre.trace-projection-tree a.trace-eref {`,
 		`--link: #79c0ff; --focus: #60a5fa;`,
 		`@media (max-width: 640px)`,
 		`pre.trace-projection-tree { font-size: 12px; line-height: 1.48; }`,
@@ -85,24 +109,67 @@ func TestStandaloneHTMLTraceProjectionTreePresentation(t *testing.T) {
 			t.Fatalf("standalone trace report missing UX contract %q", want)
 		}
 	}
+	// 重-1 negative pin (F1-scoped, fix round 2026-07-11): the per-ICON
+	// optical scale family (1.10/1.00/1.15 + translateY) is RETIRED —
+	// envelope geometry, never transform tuning. The ONE allowed transform
+	// is the chip's T-6 .95 (asserted positively above): any second
+	// transform, any translateY, and any resurrection of the retired
+	// .trace-icon-glyph selector are regressions.
+	style := page[strings.Index(page, "<style>"):strings.Index(page, "</style>")]
+	if got := strings.Count(style, "transform: scale("); got != 1 {
+		t.Fatalf("tree CSS must carry exactly the chip's one T-6 scale transform, got %d:\n%s", got, style)
+	}
+	for _, banned := range []string{"translateY(", ".trace-icon-glyph", "transform-origin"} {
+		if strings.Contains(style, banned) {
+			t.Fatalf("retired scale-family CSS resurfaced (%q):\n%s", banned, style)
+		}
+	}
 }
 
-func TestTraceProjectionIconsUseOneCellOpticalBoxes(t *testing.T) {
+func TestTraceProjectionIconsUseEnvelopeSlots(t *testing.T) {
 	// UXG-0 D3 (2026-07-11): ⊘ (链止/flat banner head) joined the directory.
+	// v5 P0 (重-1/T-6): a directory glyph followed by its companion space
+	// renders as ONE 2ch envelope slot whose ink keeps BOTH bytes; a glyph
+	// with no companion space (the line-final ◦ here, and ⊘ inside ⊘链止)
+	// keeps a centered 1ch slot — both overflow:visible, never clipped.
 	body := "```text\n⊚ app ‹用户关注线程› 满格=窗口7.000ms\n│ ⊚ ☾ ⧖ ⚙ ⛓ ⊗ ⊘ ⇅ ✦ ↯ ◌ ◦\n```\n"
 	html, err := RenderMarkdownHTML([]byte(body))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, class := range []string{"root", "sleep", "runnable", "running", "io", "lock", "undrillable", "inversion", "optimization", "interrupt", "blind", "neutral"} {
-		if !strings.Contains(html, `trace-icon trace-icon-`+class+`"><span class="trace-icon-glyph">`) {
-			t.Fatalf("renderer-owned icon %q lacks its fixed optical box:\n%s", class, html)
+	for _, tc := range []struct{ class, glyph string }{
+		{"root", "⊚"}, {"sleep", "☾"}, {"runnable", "⧖"}, {"running", "⚙"},
+		{"io", "⛓"}, {"lock", "⊗"}, {"undrillable", "⊘"}, {"inversion", "⇅"},
+		{"optimization", "✦"}, {"interrupt", "↯"}, {"blind", "◌"},
+	} {
+		want := `<span class="trace-slot trace-icon trace-icon-` + tc.class + `"><span class="trace-ink">` + tc.glyph + ` </span></span>`
+		if !strings.Contains(html, want) {
+			t.Fatalf("glyph %q lacks its 2ch envelope slot (want %q):\n%s", tc.glyph, want, html)
 		}
+	}
+	// The line-final ◦ has no companion space → 1ch standalone slot.
+	if !strings.Contains(html, `<span class="trace-slot trace-slot-1 trace-icon trace-icon-neutral"><span class="trace-ink">◦</span></span>`) {
+		t.Fatalf("space-less glyph must keep a 1ch standalone slot:\n%s", html)
 	}
 	for _, glyph := range []string{"⊚", "☾", "⧖", "⚙", "⛓", "⊗", "⊘", "⇅", "✦", "↯", "◌", "◦"} {
 		if strings.Count(html, glyph) != 1 && glyph != "⊚" {
 			t.Fatalf("icon text must remain lossless for %q:\n%s", glyph, html)
 		}
+	}
+}
+
+// TestTraceProjectionKeepMarkGlyphWithoutSpaceKeepsOneCellSlot pins the T-6
+// boundary case named by the design (§C.3): ⊘ inside the ⊘链止 keep-mark has
+// NO companion space — it must ride the 1ch slot, and the following CJK
+// bytes must stay ordinary grid cells (textContent intact).
+func TestTraceProjectionKeepMarkGlyphWithoutSpaceKeepsOneCellSlot(t *testing.T) {
+	body := "```text trace-causal-projection\n⊚ app ‹用户关注线程› 满格=窗口7.000ms\n│ ◌ 自身 1.000ms 无唤醒记录·⊘链止 [E3]\n```\n"
+	html, err := RenderMarkdownHTML([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(html, `<span class="trace-slot trace-slot-1 trace-icon trace-icon-undrillable"><span class="trace-ink">⊘</span></span><span class="trace-cell trace-cell-2">链</span>`) {
+		t.Fatalf("⊘链止 keep-mark must keep the 1ch slot + ordinary CJK cells:\n%s", html)
 	}
 }
 

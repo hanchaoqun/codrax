@@ -110,6 +110,9 @@ func TestTerminalMarkdownHTMLBlockStaysLiteral(t *testing.T) {
 // renderer styles. It deliberately contains NO single-tilde connector
 // and NO raw-HTML-shaped token — outside the two ruled deviations the
 // shadow pipeline must be byte-identical to stock glamour.
+// v5 P0 (重-3, 2026-07-11): the corpus carries a trace-causal-projection
+// fence so the typed second info token is parity-PROVEN inert on the
+// terminal face (glamour reads only the first info word).
 const terminalParityCorpus = `# Title H1
 
 ## Section H2 标题
@@ -146,6 +149,11 @@ func main() { fmt.Println("hi") }
 
 ` + "```" + `
 plain fence body
+` + "```" + `
+
+` + "```text trace-causal-projection" + `
+⊚ app-42 ‹用户关注线程› 满格=窗口10.000ms
+│ ☾ 自身·sleep 5.000ms 50% [E1]
 ` + "```" + `
 
 Term

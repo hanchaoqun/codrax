@@ -517,6 +517,7 @@ func renderHTMLPage(a pageArgs) string {
   --action-fg: #166534; --action-bg: #ecfdf3; --action-border: #86efac;
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei", Arial, sans-serif;
   --font-mono: "Sarasa Mono SC", "Noto Sans Mono CJK SC", "Source Han Mono SC", ui-monospace, "Cascadia Mono", "Cascadia Code", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Microsoft YaHei UI", "Microsoft YaHei", monospace;
+  --font-symbols: "Apple Symbols", "Segoe UI Symbol", "Noto Sans Symbols 2", "Symbola", "Arial Unicode MS", sans-serif;
 }
 @media (prefers-color-scheme: dark) {
   :root { --fg: #e6edf3; --muted: #9aa4b2; --line: #30363d; --code: #161b22; --bg: #0d1117; --error-bg: #2a1212; --error-fg: #ffb4a8; --link: #79c0ff; --focus: #60a5fa; --rank-1-fg: #fed7aa; --rank-1-bg: #7c2d12; --rank-2-fg: #bfdbfe; --rank-2-bg: #1e3a8a; --rank-3-fg: #ddd6fe; --rank-3-bg: #4c1d95; --rank-4-fg: #bbf7d0; --rank-4-bg: #14532d; --rank-5-fg: #fbcfe8; --rank-5-bg: #831843; --rank-adjacent-fg: #cbd5e1; --rank-adjacent-bg: #334155; --action-fg: #bbf7d0; --action-bg: #123524; --action-border: #22c55e; }
@@ -555,46 +556,70 @@ pre.trace-projection-tree code { font: inherit; line-height: inherit; white-spac
 pre.trace-projection-tree .trace-cell { display: inline-block; width: 1ch; min-width: 1ch; height: 1em; line-height: 1em; vertical-align: baseline; white-space: pre; }
 pre.trace-projection-tree .trace-cell-0 { width: 0; min-width: 0; }
 pre.trace-projection-tree .trace-cell-2 { width: 2ch; min-width: 2ch; }
-/* Renderer-owned symbols retain a 1ch outer cell computed in the tree's mono
-   grid. The inner glyph uses one monochrome cross-platform fallback stack and
-   optical transforms only; transforms never participate in layout. This
-   normalizes mixed Unicode ink boxes without changing textContent or columns.
-   UXG-0 D4 (2026-07-11) overflow budget: icons render overflow VISIBLE — a
-   1ch box clipped symbol ink that is naturally wider than 1ch (⚙/⇅ at
-   scale≥1.0), amputating the glyph. The spill is safe by construction: the
-   generator guarantees every state icon's RIGHT neighbor is a space (the
-   name separator) and, after UXG-0 D5, its LEFT neighbor too (badge+space /
-   edge+space / stanza indent). Numeric accounting per tier — worst spill per
-   side = (scale-1.15 max)/2 x ink<=1em vs a full empty space cell (1ch~=.5em):
-   13px screen (.8125rem): spill <=0.98px vs ~6.5px budget; 12px mobile:
-   <=0.9px vs ~6px; 7.5pt print: <=0.6pt vs ~3.75pt. Shrinking the font or
-   widening to a 2-cell box were both REJECTED (grid geometry is the product).
-   Rank/action chips below deliberately KEEP overflow hidden: their colored
-   pill must stay inside the chip cells. */
-pre.trace-projection-tree .trace-icon { display: inline-grid; place-items: center; overflow: visible; vertical-align: baseline; }
-pre.trace-projection-tree .trace-icon-glyph,
-pre.trace-projection-tree .trace-rank-glyph { display: block; line-height: 1; font-family: "Apple Symbols", "Segoe UI Symbol", "Noto Sans Symbols 2", "Symbola", "Arial Unicode MS", sans-serif; font-synthesis: none; font-variant-emoji: text; transform-origin: 50% 50%; }
-/* UXR-1 §29.36⑤ (57823 witness, 2026-07-11): the symbol-font ink boxes ran
-   visibly SMALLER than the surrounding mono text — the optical scales are
-   normalized upward (~1.22x, per-icon ratios kept) so glyph ink height tracks
-   the row font. Transforms stay layout-inert: columns never move. */
-pre.trace-projection-tree .trace-icon-glyph { transform: scale(1.10) translateY(.02em); }
-pre.trace-projection-tree .trace-icon-running .trace-icon-glyph,
-pre.trace-projection-tree .trace-icon-io .trace-icon-glyph { transform: scale(1.00) translateY(.01em); }
-pre.trace-projection-tree .trace-icon-root .trace-icon-glyph,
-pre.trace-projection-tree .trace-icon-sleep .trace-icon-glyph,
-pre.trace-projection-tree .trace-icon-blind .trace-icon-glyph,
-pre.trace-projection-tree .trace-icon-neutral .trace-icon-glyph { transform: scale(1.15) translateY(.02em); }
+/* v5 P0 mark-envelope model (design causal_tree_v5_design_20260711.md
+   重-1/§C.3/§D-5, user ruling 2026-07-11).
+   EVOLUTION RECORD (supersedes UXR-1 §29.36⑤'s as-built form and the UXG-0
+   D4 overflow-budget patch; ledger real_trace_campaign_20260705.md
+   §29.36⑤/§29.38): the §29.36⑤ "glyph 尺寸/行高归一" goal is now honored by
+   GEOMETRY, not tuning — the per-ICON optical scale family (1.10 / 1.00 /
+   1.15, whose own comment had already drifted to "~1.22x") and the
+   icon-cell overflow spill accounting are RETIRED as a family. (The chip's
+   .95 below is NOT this family's subject — see the T-6 note at its rule.)
+   A state mark and its generator-guaranteed companion space fuse into ONE
+   2ch inline-grid slot; textContent keeps both bytes, columns never move.
+   Sufficiency is arithmetic, not calibration: cell 1ch~=7.2px; line box
+   13px x 1.52 ~= 19.76px (勘正 fix round 2026-07-11: as-built line-height
+   is 1.52, not the design draft's 1.55 — the arithmetic holds either way);
+   envelope 2ch ~= 14.4px >= max measured symbol ink 13.8px; ink height
+   <= 13.8px < line box, so overflow:visible can never touch a neighboring
+   row's ink. No explicit slot height, no vertical-align magic number — the
+   baseline is inherited from the inline box (if a measured offset ever
+   needs correcting, use the derived form -(lineBox-1em)/2 and write out the
+   derivation; bare constants are forbidden). A mark WITHOUT a companion
+   space (⊘ inside the ⊘链止 keep-mark) keeps a 1ch slot with its
+   overflowing ink track centered — place-items centers the item only
+   within its grid AREA, and Chromium sizes the auto track to the ink, so
+   the wider-than-1ch track needs justify-content to sit symmetrically
+   (真机 -0.78px per side) — still overflow:visible, spill stays
+   unclipped. */
+pre.trace-projection-tree .trace-slot { display: inline-grid; width: 2ch; min-width: 2ch; place-items: center start; overflow: visible; vertical-align: baseline; white-space: pre; }
+pre.trace-projection-tree .trace-slot-1 { width: 1ch; min-width: 1ch; place-items: center; justify-content: center; }
+pre.trace-projection-tree .trace-ink,
+pre.trace-projection-tree .trace-rank-glyph { line-height: 1; font-family: var(--font-symbols); font-synthesis: none; font-variant-emoji: text; }
+/* Run segmentation (v5 §C.3 C-9): pure-ASCII runs collapse into ONE span
+   pinned to their whole width (mono ASCII metrics are reliable; ~5x fewer
+   DOM nodes). Box-drawing rails (.trace-rail) and bar blocks (.trace-bar)
+   stay per-rune 1ch .trace-cell cells — fallback fonts draw the U+2500
+   series full-width, so run-level pinning would overlap ink; █▒░ block
+   glyphs are full-cell ink by design (the one physically-correct 1ch mark
+   class). CJK/mixed runes keep per-rune 1/2ch cells. */
+pre.trace-projection-tree .trace-run { display: inline-block; height: 1em; line-height: 1em; vertical-align: baseline; white-space: pre; }
+/* 档1 decorations (v5 §C.3 T-5) — pure CSS/attribute, zero byte changes:
+   per-line hover wash; ◇/▒ stanza heads pinned against the fence's own
+   HORIZONTAL scroll (the pre is the scroll container, so left:0 keeps the
+   section word readable while the columns scroll); E# tokens as in-page
+   anchors to the paired detail/evidence entries. */
+pre.trace-projection-tree .trace-line:hover { background: rgba(127, 127, 127, .14); }
+pre.trace-projection-tree .trace-stanza-head { position: sticky; left: 0; display: inline-block; background: var(--code); }
+pre.trace-projection-tree a.trace-eref { display: inline-block; height: 1em; line-height: 1em; vertical-align: baseline; white-space: pre; color: inherit; text-decoration: underline dotted; text-underline-offset: .18em; }
+pre.trace-projection-tree a.trace-eref:hover { color: var(--link); text-decoration-style: solid; }
 /* Rank chips consume exactly the same one/two grid cells as their Markdown
-   tokens. Color adds a scan target. UXG-0 D4: unlike the .trace-icon family
-   above (overflow visible under the space-neighbor budget), chips KEEP
-   overflow hidden — the rounded colored pill is the chip's meaning surface
-   and must not bleed past its own grid cells onto neighboring text. */
+   tokens. Color adds a scan target. Unlike the .trace-slot envelopes above
+   (overflow visible under the 2ch ink budget), chips KEEP overflow hidden —
+   the rounded colored pill is the chip's meaning surface and must not bleed
+   past its own grid cells onto neighboring text. Badges stay on their 1ch
+   cell until the P2a constant-4 mark-field batch (v5 T-6 honest cut). */
 pre.trace-projection-tree .trace-rank-chip,
 pre.trace-projection-tree .trace-rank-ordinal { display: inline-block; height: 1em; line-height: 1em; vertical-align: baseline; white-space: pre; overflow: hidden; border-radius: .22em; font-weight: 750; text-align: center; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 pre.trace-projection-tree .trace-rank-chip { display: inline-grid; place-items: center; }
 pre.trace-projection-tree .trace-rank-width-1 { width: 1ch; min-width: 1ch; }
 pre.trace-projection-tree .trace-rank-width-2 { width: 2ch; min-width: 2ch; }
+/* v5 T-6 (fix round 2026-07-11): badges are EXCLUDED from the P0 envelope
+   batch — they keep their pre-P0 1ch chip form UNCHANGED, and that form
+   includes this .95 ink shrink. The chip's hidden-overflow pill is not the
+   retired ICON scale family's subject (that ruling ended scale-as-geometry-
+   fix for the envelope marks above). Retire this rule in P2a, when the
+   constant-4 mark field gives badges their own companion space. */
 pre.trace-projection-tree .trace-rank-glyph { transform: scale(.95); }
 pre.trace-projection-tree .trace-rank-1 { color: var(--rank-1-fg); background: var(--rank-1-bg); }
 pre.trace-projection-tree .trace-rank-2 { color: var(--rank-2-fg); background: var(--rank-2-bg); }

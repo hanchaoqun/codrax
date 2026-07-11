@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	stdhtml "html"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/markdownext"
 	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 )
 
 // RenderMarkdownHTML converts markdown into safe HTML for the local
@@ -58,6 +60,10 @@ func RenderMarkdownHTML(markdown []byte) (string, error) {
 				// relocated to the appendix must not remain inside a compact
 				// projection-detail region at its former location.
 				util.Prioritized(traceAuditSectionTransformer{}, 600),
+				// Run after traceAuditSectionTransformer: E# anchor pairing
+				// needs the detail/evidence section wrappers in place
+				// (v5 P0 档1, markdown_trace_anchors.go).
+				util.Prioritized(traceEvidenceAnchorTransformer{}, 700),
 			),
 		),
 		goldmark.WithRendererOptions(
@@ -160,7 +166,7 @@ func (f fencedCodeRenderer) renderFencedCodeBlock(w util.BufWriter, source []byt
 	}
 	_, _ = fmt.Fprint(w, ">")
 	if projectionTree {
-		writeTraceProjectionGrid(w, body)
+		writeTraceProjectionGrid(w, body, traceProjectionAnchorPairing(block))
 	} else {
 		_, _ = fmt.Fprint(w, stdhtml.EscapeString(body))
 	}
@@ -168,36 +174,66 @@ func (f fencedCodeRenderer) renderFencedCodeBlock(w util.BufWriter, source []byt
 	return ast.WalkSkipChildren, nil
 }
 
-// isTraceCausalProjectionFence recognizes only the deterministic ```text
-// shape emitted by runtimeTraceProjTreeFence.  The scale declaration is the
-// second half of the signature: a customer-authored text diagram that happens
-// to begin with the same root glyph must keep ordinary code-block styling.
-// This remains presentation-only; it neither rewrites nor reflows the fence.
+// isTraceCausalProjectionFence recognizes the deterministic tree fence minted
+// by runtimeTraceProjTreeFence (internal/tool).
+//
+// v5 P0 hard gate (重-3, user ruling 2026-07-11, design
+// causal_tree_v5_design_20260711.md §C.3): the generator's opener carries a
+// typed second info token (```text trace-causal-projection); EXACT equality
+// on that token IS the classification — a precise signal, per the CLAUDE.md
+// red line (hard gates read precise signals). Content sniffing is DEMOTED to
+// the legacy fallback below, which exists only so ARCHIVED reports rendered
+// before the token keep their trace-tree presentation.
+// Presentation-only either way: the fence is never rewritten or reflowed.
 func isTraceCausalProjectionFence(info, body string) bool {
 	if !strings.EqualFold(firstInfoToken(info), "text") {
 		return false
 	}
+	if secondInfoToken(info) == tracefence.InfoToken {
+		return true
+	}
+	return isLegacyTraceCausalProjectionBody(body)
+}
+
+// isLegacyTraceCausalProjectionBody is the DEMOTED content-sniffing lane
+// (archive recognition only — new fences classify on the typed info token
+// above). The scale declaration is the second half of the signature: a
+// customer-authored text diagram that happens to begin with the same root
+// glyph must keep ordinary code-block styling.
+//
+// EVOLUTION RECORD (v5 P0 备-2, 2026-07-11, supersedes the UXG-0 D1
+// hand-mirrored list): the whitelist now DERIVES from internal/tracefence —
+// the same constants the generator emits — so the generator-emittable head
+// set and this fallback can never drift apart (census-pinned by the
+// strip-token arm of TestUXG0FenceHeadsClassifiedByPreview, internal/tool).
+// Only the pre-UXR-1 archive heads stay as local literals: they are no
+// longer generator-emittable and exist purely for reports archived before
+// 2026-07-11.
+func isLegacyTraceCausalProjectionBody(body string) bool {
 	first := firstNonEmptyLine(body)
-	hasScale := strings.Contains(body, "满格=") || strings.Contains(body, "bar full =")
+	hasScale := false
+	for _, mark := range tracefence.ScaleNoteMarkers() {
+		if strings.Contains(body, mark) {
+			hasScale = true
+			break
+		}
+	}
 	if !hasScale {
 		return false
 	}
-	if strings.HasPrefix(first, "⊚ ") && (strings.Contains(first, "‹用户关注线程›") || strings.Contains(first, "‹分析锚点线程›") || strings.Contains(first, "<user-focused thread>") || strings.Contains(first, "<analysis anchor thread>")) {
-		return true
+	if strings.HasPrefix(first, tracefence.RootGlyph+" ") {
+		for _, chip := range tracefence.TargetProvenanceChips() {
+			if strings.Contains(first, chip) {
+				return true
+			}
+		}
+	}
+	for _, head := range tracefence.FlatFallbackHeads() {
+		if strings.HasPrefix(first, legacyFlatHeadPrefix(head)) {
+			return true
+		}
 	}
 	for _, prefix := range []string{
-		// UXG-0 D1 (2026-07-11): the UXR-1 §29.36① unified flat banner heads
-		// 「⊘ <短结论>(<短因>)」 — hand-mirrored from the closed constant set in
-		// runtimeTraceProjFlatFallbackHeader (internal/tool/
-		// answer_document_mutation_runtime_tree.go); prefixes stop before the
-		// 短因 parenthetical body so cause-wording evolution cannot silently
-		// unclassify the fence. UXG-1 will single-source this phrase set.
-		"⊘ 唤醒链无法上溯(",
-		"⊘ 唤醒链未下钻(",
-		"⊘ 唤醒链路径未解析",
-		"⊘ wakeup chain not traceable (",
-		"⊘ wakeup chain not drilled (",
-		"⊘ wakeup path unresolved",
 		// Pre-UXR-1 flat heads, kept ADDITIVELY so archived reports rendered
 		// before 2026-07-11 keep their trace-tree presentation.
 		"(睡眠区间在查询窗内无 sched_wakeup 记录",
@@ -214,14 +250,91 @@ func isTraceCausalProjectionFence(info, body string) bool {
 	return false
 }
 
+// legacyFlatHeadPrefix cuts a generator banner head after its first opening
+// parenthesis: archives minted while a 短因 parenthetical wording was
+// evolving keep classifying as long as the 短结论 head is intact — the
+// exact pre-token UXG-0 D1 matching behavior, now derived instead of
+// hand-mirrored. Heads without a parenthetical match whole.
+// F6 (fix round 2026-07-11): the cut set covers BOTH paren families —
+// fullwidth （ U+FF08 and ASCII ( U+0028 (the current closed set spells
+// its parens ASCII; the fullwidth arm future-proofs a zh wording
+// evolution). It was previously spelled as two ASCII parens.
+func legacyFlatHeadPrefix(head string) string {
+	if i := strings.IndexAny(head, "\uff08("); i >= 0 {
+		_, size := utf8.DecodeRuneInString(head[i:])
+		return head[:i+size]
+	}
+	return head
+}
+
+func secondInfoToken(info string) string {
+	fields := strings.FieldsFunc(strings.TrimSpace(info), unicode.IsSpace)
+	if len(fields) < 2 {
+		return ""
+	}
+	return strings.TrimSpace(fields[1])
+}
+
 // writeTraceProjectionGrid makes the HTML face independent of installed CJK
-// monospace fonts. Browser fallback may draw Han, box-drawing and ordinal
-// glyphs from different faces; inline cells pin every rune to the 1/2-column
-// geometry already used by the deterministic tree renderer. The text itself
-// is unchanged and remains copyable/accessibility-visible.
-func writeTraceProjectionGrid(w util.BufWriter, body string) {
-	for offset := 0; offset < len(body); {
-		if token, rank, width, adjacent, ok := traceProjectionRankToken(body, offset); ok {
+// monospace fonts. The text itself is unchanged (textContent == fence bytes)
+// and remains copyable/accessibility-visible.
+//
+// v5 P0 run-segmentation model (design causal_tree_v5_design_20260711.md
+// §C.3/C-9, user ruling 2026-07-11) — decoration granularity is the token
+// run, five classes:
+//
+//  1. pure-ASCII runs   — ONE span pinned to its whole width (mono ASCII
+//     metrics are reliable; collapsing per-rune cells cuts the DOM ~5x);
+//  2. box-drawing rails — per-rune 1ch cells (C-9: fallback fonts draw the
+//     U+2500 series full-width, so run-level pinning would overlap ink);
+//  3. CJK/mixed runes   — per-rune 1/2ch cells (the only reliable answer
+//     when the user's font is not CJK 2:1);
+//  4. state-mark envelope slots — a directory glyph and its generator-
+//     guaranteed companion space fuse into ONE 2ch inline-grid slot
+//     (重-1; T-6 honest cut: only "glyph + existing companion space" pairs;
+//     rank badges ❶..❺ keep their 1ch chip cells until P2a);
+//  5. bar blocks █▒░    — per-rune 1ch cells (block glyphs are full-cell
+//     ink by design, the one physically-correct 1ch mark class).
+//
+// Renderer-authored token surfaces (rank chips / channel ordinals / action
+// words / E# refs) keep their exact grid widths. 档1 decorations (T-5): each
+// physical line wraps in a .trace-line span (newlines stay OUTSIDE the span);
+// ◇/▒ stanza heads add .trace-stanza-head; [E#] tokens become in-page anchor
+// links when the anchor transformer paired this fence with its detail/
+// evidence sections AND the ordinal claimed a target id (F5: unclaimed
+// ordinals stay plain runs — never a dangling link).
+func writeTraceProjectionGrid(w util.BufWriter, body string, anchor *traceAnchorPairing) {
+	for i, line := range strings.Split(body, "\n") {
+		if i > 0 {
+			_, _ = fmt.Fprint(w, "\n")
+		}
+		if line == "" {
+			continue
+		}
+		classes := "trace-line"
+		if strings.HasPrefix(line, "◇ ") || strings.HasPrefix(line, "▒ ") {
+			classes += " trace-stanza-head"
+		}
+		_, _ = fmt.Fprintf(w, `<span class="%s">`, classes)
+		writeTraceProjectionLineRuns(w, line, anchor)
+		_, _ = fmt.Fprint(w, "</span>")
+	}
+}
+
+func writeTraceProjectionLineRuns(w util.BufWriter, line string, anchor *traceAnchorPairing) {
+	var ascii strings.Builder
+	flushASCII := func() {
+		if ascii.Len() == 0 {
+			return
+		}
+		run := ascii.String()
+		_, _ = fmt.Fprintf(w, `<span class="trace-run" style="width:%dch">%s</span>`,
+			len(run), stdhtml.EscapeString(run))
+		ascii.Reset()
+	}
+	for offset := 0; offset < len(line); {
+		if token, rank, width, adjacent, ok := traceProjectionRankToken(line, offset); ok {
+			flushASCII()
 			kind := "ordinal"
 			if strings.HasPrefix(token, "❶") || strings.HasPrefix(token, "❷") || strings.HasPrefix(token, "❸") ||
 				strings.HasPrefix(token, "❹") || strings.HasPrefix(token, "❺") {
@@ -244,24 +357,59 @@ func writeTraceProjectionGrid(w util.BufWriter, body string) {
 			offset += len(token)
 			continue
 		}
-		if token, width, ok := traceProjectionActionToken(body, offset); ok {
+		if token, width, ok := traceProjectionActionToken(line, offset); ok {
+			flushASCII()
 			_, _ = fmt.Fprintf(w, `<span class="trace-action-token trace-action-width-%d">%s</span>`,
 				width, stdhtml.EscapeString(token))
 			offset += len(token)
 			continue
 		}
-		r, size := utf8.DecodeRuneInString(body[offset:])
+		if token, first, ok := traceProjectionEvidenceRefToken(line, offset); ok {
+			flushASCII()
+			if anchor != nil && anchor.claimed[first] {
+				// 档1 E# anchor link (pure-attribute decoration): jumps to the
+				// paired detail stanza / evidence index entry. Only CLAIMED
+				// ordinals link (F5) — every minted href has a real target.
+				_, _ = fmt.Fprintf(w, `<a class="trace-eref" style="width:%dch" href="#%se%d">%s</a>`,
+					len(token), anchor.prefix, first, stdhtml.EscapeString(token))
+			} else {
+				_, _ = fmt.Fprintf(w, `<span class="trace-run" style="width:%dch">%s</span>`,
+					len(token), stdhtml.EscapeString(token))
+			}
+			offset += len(token)
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(line[offset:])
 		if r == utf8.RuneError && size == 0 {
 			break
 		}
-		offset += size
-		switch r {
-		case '\r':
-			continue
-		case '\n':
-			_, _ = fmt.Fprint(w, "\n")
+		if r == '\r' {
+			offset += size
 			continue
 		}
+		if class := traceProjectionIconClass(r); class != "" {
+			flushASCII()
+			if strings.HasPrefix(line[offset+size:], " ") {
+				// 2ch envelope: the mark plus its companion space are ONE slot;
+				// textContent keeps both bytes.
+				_, _ = fmt.Fprintf(w, `<span class="trace-slot trace-icon trace-icon-%s"><span class="trace-ink">%s </span></span>`,
+					class, stdhtml.EscapeString(string(r)))
+				offset += size + 1
+				continue
+			}
+			// No companion space (⊘ inside the ⊘链止 keep-mark): 1ch slot,
+			// centered, overflow stays visible — never clipped.
+			_, _ = fmt.Fprintf(w, `<span class="trace-slot trace-slot-1 trace-icon trace-icon-%s"><span class="trace-ink">%s</span></span>`,
+				class, stdhtml.EscapeString(string(r)))
+			offset += size
+			continue
+		}
+		if r >= 0x20 && r < 0x7f {
+			ascii.WriteByte(byte(r))
+			offset += size
+			continue
+		}
+		flushASCII()
 		width := runewidth.RuneWidth(r)
 		if width < 0 {
 			width = 1
@@ -269,19 +417,88 @@ func writeTraceProjectionGrid(w util.BufWriter, body string) {
 		if width > 2 {
 			width = 2
 		}
-		if class := traceProjectionIconClass(r); class != "" {
-			_, _ = fmt.Fprintf(w, `<span class="trace-cell trace-cell-1 trace-icon trace-icon-%s"><span class="trace-icon-glyph">%s</span></span>`,
-				class, stdhtml.EscapeString(string(r)))
-			continue
+		switch {
+		case r >= 0x2500 && r <= 0x257f:
+			_, _ = fmt.Fprintf(w, `<span class="trace-cell trace-cell-%d trace-rail">%s</span>`, width, stdhtml.EscapeString(string(r)))
+		case r == '█' || r == '▒' || r == '░':
+			_, _ = fmt.Fprintf(w, `<span class="trace-cell trace-cell-%d trace-bar">%s</span>`, width, stdhtml.EscapeString(string(r)))
+		default:
+			_, _ = fmt.Fprintf(w, `<span class="trace-cell trace-cell-%d">%s</span>`, width, stdhtml.EscapeString(string(r)))
 		}
-		_, _ = fmt.Fprintf(w, `<span class="trace-cell trace-cell-%d">%s</span>`, width, stdhtml.EscapeString(string(r)))
+		offset += size
 	}
+	flushASCII()
 }
 
-// traceProjectionIconClass is the renderer-owned one-cell symbol directory.
-// Wrapping only this exact set lets HTML normalize fallback-font ink boxes
-// while keeping the authoritative character, textContent and grid geometry
-// unchanged. Unknown/customer text remains on the ordinary rune path.
+// traceProjectionEvidenceRefToken recognizes the renderer-authored evidence
+// locator token — [E7], the merged_ids form [E8(+6)], and the folded-twin
+// compound [E7(+1)+E8] — an ASCII-only closed grammar. Returns the token and
+// its FIRST evidence ordinal (the anchor target). Anything deviating from
+// the grammar stays on the plain ASCII-run path.
+func traceProjectionEvidenceRefToken(line string, offset int) (string, int, bool) {
+	rest := line[offset:]
+	if !strings.HasPrefix(rest, "[E") {
+		return "", 0, false
+	}
+	i := 2
+	digits := func() (int, bool) {
+		start := i
+		for i < len(rest) && rest[i] >= '0' && rest[i] <= '9' {
+			i++
+		}
+		if i == start {
+			return 0, false
+		}
+		n, err := strconv.Atoi(rest[start:i])
+		if err != nil {
+			return 0, false
+		}
+		return n, true
+	}
+	mergeGroup := func() bool { // optional "(+N)"
+		if i >= len(rest) || rest[i] != '(' {
+			return true
+		}
+		j := i + 1
+		if j >= len(rest) || rest[j] != '+' {
+			return false
+		}
+		j++
+		start := j
+		for j < len(rest) && rest[j] >= '0' && rest[j] <= '9' {
+			j++
+		}
+		if j == start || j >= len(rest) || rest[j] != ')' {
+			return false
+		}
+		i = j + 1
+		return true
+	}
+	first, ok := digits()
+	if !ok || !mergeGroup() {
+		return "", 0, false
+	}
+	for i < len(rest) && rest[i] == '+' {
+		i++
+		if i >= len(rest) || rest[i] != 'E' {
+			return "", 0, false
+		}
+		i++
+		if _, ok := digits(); !ok || !mergeGroup() {
+			return "", 0, false
+		}
+	}
+	if i >= len(rest) || rest[i] != ']' {
+		return "", 0, false
+	}
+	return rest[:i+1], first, true
+}
+
+// traceProjectionIconClass is the renderer-owned state-mark directory.
+// Only this exact set rides the v5 P0 envelope slot (2ch with its companion
+// space, 1ch when standing alone) — the authoritative character, textContent
+// and grid geometry stay unchanged. Unknown/customer text remains on the
+// ordinary rune/run path.
 func traceProjectionIconClass(r rune) string {
 	switch r {
 	case '⊚':
@@ -331,8 +548,8 @@ func traceProjectionIconClass(r rune) string {
 // traceProjectionActionToken highlights only the generator's actionable
 // optimization word inside a causal tree. Width is the existing terminal-grid
 // width, so the HTML emphasis cannot move any following metric column.
-func traceProjectionActionToken(body string, offset int) (string, int, bool) {
-	rest := body[offset:]
+func traceProjectionActionToken(line string, offset int) (string, int, bool) {
+	rest := line[offset:]
 	for _, token := range []string{"优化点", "optimization point"} {
 		if strings.HasPrefix(rest, token) {
 			return token, runewidth.StringWidth(token), true
@@ -358,14 +575,14 @@ func traceProjectionActionToken(body string, offset int) (string, int, bool) {
 // channel-word source; zh chips are word#N, en chips word␣#N). This is the
 // phrase set's third hand copy and the last one allowed: UXG-1 single-sources
 // it.
-func traceProjectionRankToken(body string, offset int) (token string, rank, width int, adjacent, ok bool) {
-	rest := body[offset:]
+func traceProjectionRankToken(line string, offset int) (token string, rank, width int, adjacent, ok bool) {
+	rest := line[offset:]
 	for rank, token := range []string{"❶", "❷", "❸", "❹", "❺"} {
 		if strings.HasPrefix(rest, token) {
 			return token, rank + 1, 1, false, true
 		}
 	}
-	previous := body[:offset]
+	previous := line[:offset]
 	switch {
 	case strings.HasSuffix(previous, "根因排序") || strings.HasSuffix(previous, "root-cause rank "):
 		adjacent = false
