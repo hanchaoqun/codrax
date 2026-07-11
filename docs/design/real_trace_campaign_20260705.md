@@ -2083,3 +2083,13 @@ lead 实现额外守住:**EffectiveImpactMS>0 ∧ 非 context_only(6eb633a1 新 
 **件②(W-1 修根,§29.28② 关账)**:测绘定论=per-query 独立检测输入集差异(流式 event_search 把 idx.Events 重建为匹配子集后才做 framework surface 检测;witness=同报告步骤6/7 harmony vs 步骤8 donghu)。修=per-file 单一权威 platform_surfaces.go(typed vote,settled 双面齐后快路)挂 traceAnchorSet(write-once 与 flavor 同纪律),五扫描道过滤前投票;复核 F2 收:**铸造资格门=无 pattern 预滤∧无 time/line 窗∧扫描达 EOF**(event_types/action 过滤在 parse 后不收窄投票基;budget-denial 出口铸造移除;LRU 驱逐重铸只能来自完整基=翻转形关闭);F3 收:无合格 record 形 typed 披露 platform_detection_basis=partial,有 record 零披露。FrameworkSurfaces 显示 per-query 保留;flavor 车道零触碰。benchmark 零回归(A/B ×3,+0.85% 噪声内)。pin W1×5;突变 4 组。
 **落账项(复核 F4-F7+观察)**:F4 席位∈1..TopN 收进选举门=行为变化(修前裸 Rank>0 无上限;顺带修掉修前"fold 领席行佩章不能登板"潜在分裂=正向收益);F5 stale 非四族自因形 flat/tree 加冕漂移残留(flat 无自因身份载体,结构性;"渲染形状漂移已杀"限定为四族形);F6 自因冠词面 parity=载体条件性(flat 无 stamp/account 载体时按 absence 不猜走外因句式=诚实);观察=vote 弃 PID>0 守卫(设计内放宽)/composite OR-merge 跨设备 bundle 奇异形(有信号披露)/IO 对(等待/阻塞候选)异词素保留。
 **验收(客户新构建)**:同报告多 view platform 标签一致;自因主导帧(vc_710 类)冠句自因形;opendir/textup 徽章=有效持席形。
+
+## §29.32 SQL Trace Streamer identity resolver R1a-A 收账（2026-07-11，`9d52377c2`）
+
+**上游语义与裁定落地**：OpenHarmony SmartPerf `260b028b` 中 process `id/ipid`、thread `id/itid` 均来自同一 `CurrentRow()`；bundled SQL 与 hmtrace consumer 只因 alias parity 才等价。故 current profile 的 divergent alias 不是可翻译映射，而是命名空间不再可证，必须按相关 source/canonical cohort fail-close；legacy compatibility 仅由物理缺失 `id` 列证明，禁止按行失败后回退。
+
+**交付**：shared resolver 对 `trace_range/process/thread` 硬字段统一执行 strict SQLite scalar 与范围审计，保留 internal ID 0、`2^32-2` 与合法 `t=0`，拒绝 `UINT32_MAX` sentinel、TEXT/REAL/BLOB coercion、负数和溢出。current/legacy source map 单点化；poison 同时封闭两个命名空间并在全表审计后重建二级索引，正反行序同判。`callstack.itid` 与非 NULL `callid` 的所有可达解释必须收敛。线程/进程名只作有界单行 display metadata，rename、缺名或不安全名称均不拆硬身份。
+
+**消费面复核收口**：syscall、TaskPool、AppStartup、static-init、process-measure 不再把 malformed/poisoned/unresolved identity 降成 unknown 或 `(0,0)` 发布；合法 sibling 保留，TaskPool 两端身份先完整验证再发布。该收口只关闭 identity globalization，不宣称这些 producer 的 ts/dur scalar、CPU authority、stable row identity 或跨 exporter endpoint pairing 已完成。
+
+**验证与剩余**：identity current/legacy/cross-alias 正反序、source map、二级索引、callstack 双身份、display-only 名称、ID 边界、traceStart singleton/t=0 与五类 consumer 均有机械 pin；验证为 `go test ./internal/hitraceconv -count=1`、`go vet ./internal/hitraceconv`、`go test ./... -count=1`、`git diff --check`。后续仍按 R1a-B → R1b → R1c → R2 推进。
