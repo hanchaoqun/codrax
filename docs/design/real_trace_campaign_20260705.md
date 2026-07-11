@@ -2249,13 +2249,21 @@ witness=a4 报告(16011/2549)供给 clause「已按大核满频(或接近)运行
 
 **转换格式兼容红线（用户 2026-07-12 再确认）**：鸿蒙/东湖转换输出以该标准 Donghu 样本中实际存在的字段、字段顺序、标记、标量和转义为主要兼容基准；存在即可证明的内容必须 byte/semantic compatible。代码中来自其他标准 trace/profile 的合法能力可以保留，但必须由独立 typed producer/profile 选择，禁止串 profile，禁止为了“看齐”补造缺失 CPU0、page0、device、tag 或默认值，也禁止因 Donghu 样本未出现就删除其他标准来源已证明的格式。比较和回归必须按 profile 分层，不能用自由文本、文件名或单个样本缺席充当 hard gate。
 
-**诚实开放的能力残口**：①OpenHarmony app-file 可产生完整 `>1024` 行，而 kernel marker 可能在 1024 截断；终态需要 converter/bundle typed producer provenance。②官方 CountTrace 支持完整 int64；若客户需要超过 float 精确域，新增 decimal-string/int64 wire，不能放宽现有 float 面。③action-lost `0xIP:` carved counter 与 opaque Begin 名称存在字节同形歧义，可能影响 namespace/TID vote；需保留原 action/provenance 后再消歧。④OH B 可带 customArgs，S 可带 category/args，并可叠 chain envelope；不能机械套用 C 的 final-metadata 算法。⑤Event/EventView JSON 当前只是输出 DTO；若未来成为 Index 反灌入口，必须显式序列化 typed counter verdict。下一 trace correctness 批按账本推进 B3-b raw → R1b-C；block/storage request token identity仍等待两端生产 witness。
+**诚实开放的能力残口**：①OpenHarmony app-file 可产生完整 `>1024` 行，而 kernel marker 可能在 1024 截断；终态需要 converter/bundle typed producer provenance。②官方 CountTrace 支持完整 int64；若客户需要超过 float 精确域，新增 decimal-string/int64 wire，不能放宽现有 float 面。③action-lost `0xIP:` carved counter 与 opaque Begin 名称存在字节同形歧义，可能影响 namespace/TID vote；需保留原 action/provenance 后再消歧。④OH B 可带 customArgs，S 可带 category/args，并可叠 chain envelope；不能机械套用 C 的 final-metadata 算法。⑤Event/EventView JSON 当前只是输出 DTO；若未来成为 Index 反灌入口，必须显式序列化 typed counter verdict。下一 trace correctness 批按账本推进 B3-b2 raw complete-set anti-rescue → remaining ftrace payload admission P0 → page/marker fidelity → R1b-C；block/storage request token identity仍等待两端生产 witness。
 
-## §29.46 SQL raw B3-b 施工开账（2026-07-12，未收账）
+## §29.46 SQL raw B3-b 施工开账（2026-07-12，B3-b1 已收账、B3-b2 开放）
 
 **问题不是基础 scalar 重做**：既有 `cbb276f3e/e61388803/8a69cd5e5` 已关闭 raw stable-ID、SQLite scalar、CPU0、argset 与 Running source-taint 基础边界；剩余 correctness 是 raw 仍消费 legacy Running、没有使用 scheduler 同实例 generation authority，以及逐行删坏 endpoint 后可能让前后合法 endpoint 在下游跨洞配对。故 B3-b 分两次独立推送，严禁用第一批完成冒充整项结案。
 
-**B3-b1（先行）**：唯一 production caller显式传同一 `traceDBSchedulerAuthority` 与同一 lifecycle-filtered typed Running。subject闭集固定为 positive canonical thread、PID0 kernel thread、exact canonical idle和真正不存在任何canonical/rejected候选的source-only；前3类先过 capture/lifecycle point，source-only只允许非配对inventory且必须有合法显式CPU。`ObservedPublicTID/RejectedPublicTID`、PID conflict、歧义、point失败均不得降级；explicit CPU只能免 Running lookup，不能免 lifecycle。完成后删除 legacy raw Running lookup与相应结构豁免，并以四类身份、cut/poison、CPU四态、source-only paired负对照和唯一调用图机械锁定。
+**B3-b1（先行）**：唯一 production caller显式传同一 `traceDBSchedulerAuthority` 与同一 lifecycle-filtered typed Running。subject闭集固定为 positive canonical thread、PID0 kernel thread与exact canonical idle；三类均先过 capture/lifecycle point。真正不存在任何canonical/rejected候选的source-only在冻结复核中勘正为coverage-only：没有独立typed inventory/profile前不发布任何标准或私有ftrace wire。`ObservedPublicTID/RejectedPublicTID`、PID conflict、歧义、point失败均不得降级；explicit CPU只能免 Running lookup，不能免 lifecycle。完成后删除 legacy raw Running lookup与相应结构豁免，并以身份/cut/poison、CPU四态、source-only零wire负对照和唯一调用图机械锁定。
+
+### §29.46.1 B3-b1 收账（`40a254c3d`）
+
+唯一production caller现把同一个scheduler authority和已构造的lifecycle-filtered typed Running直接传给raw exporter，旧`traceDBExtendedRunningCPUAt`及其taint字段已从生产树删除。capture lower-bound、canonical subject resolution和thread/process point admission支配两条CPU车道：合法显式CPU（包括CPU0）只免Running lookup，不能绕lifecycle；NULL/缺列CPU只消费typed Running，并把known、source-tainted、lifecycle-rejected、unknown四态分账，invalid explicit CPU禁止fallback。
+
+public `0`仍是present claim：positive user的TID/PID 0冲突；PID0 kernel只接受TID缺失或exact positive TID、PID缺失或0，header投影为`TGID=TID`；idle只接受exact ITID0与零/缺失public claim。TID reuse由canonical candidates和PID精确收窄，identity audit拒绝过的candidate不能伪装成“从未观察”。source-only按pairing-capable、缺CPU、合法显式CPU、invalid CPU分别计coverage，但全部零wire；复核期间曾评估的“PID0 page-cache匿名载体/私有payload前缀”被判定会污染标准profile，已完全撤销且有结构/行为pin证明零残留。
+
+验证完成：focused/结构`-count=20`、focused race`-count=5`、`go test ./internal/hitraceconv ./internal/tracequery -count=1`、`go vet ./...`、`go test ./... -count=1`、gofmt与`git diff --check`全绿；独立B3-b correctness复审为SHIP，独立Donghu profile复审为RELEASE。该提交只关闭subject/lifecycle/CPU车道；B3-b2五族完整集anti-rescue、anonymous raw inventory的独立typed profile与page-cache fidelity继续开放。
 
 **B3-b2（随后）**：在任何 endpoint 落 sink 前完成 raw 全集审计，用有界 typed stage/freeze把 binder、workqueue、DMA、block与generic storage的坏 exact key局部化为 lane barrier，不可定位key升级family-global；五族key与tracequery单点同构或以跨包parity pin证明。valid→bad→valid不得跨洞铸IPC/时长，无关key与无关family必须存活。两批的格式验收继续遵循§29.45：标准 Donghu 已存在字段必须兼容；其他标准trace格式走独立typed profile，既不因样本缺席删除，也不串profile或补造默认值。
 
