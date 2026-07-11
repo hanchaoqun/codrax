@@ -246,7 +246,7 @@ func (tdb *traceDB) loadActiveThreadIDs(ctx context.Context, index traceDBThread
 		return out, coverage, err
 	}
 	for _, table := range []string{"sched_slice", "thread_state", "syscall", "native_hook", "frame_slice"} {
-		item, err := tdb.loadActiveCanonicalThreadIDs(ctx, index, table, out)
+		item, err := tdb.loadActiveTableThreadIDs(ctx, index, table, out)
 		coverage = append(coverage, item)
 		if err != nil {
 			return out, coverage, err
@@ -318,6 +318,10 @@ func (tdb *traceDB) loadActiveCallstackThreadIDs(ctx context.Context, index trac
 			reasons[reason]++
 			continue
 		}
+		if itid == 0 {
+			reasons["idle_pseudo_not_callstack_emitter"]++
+			continue
+		}
 		if !traceDBCanonicalThreadIdentityKnown(index, itid) {
 			reasons["unresolved_canonical_itid"]++
 			continue
@@ -336,14 +340,24 @@ func (tdb *traceDB) loadActiveCallstackThreadIDs(ctx context.Context, index trac
 	return coverage, nil
 }
 
-func (tdb *traceDB) loadActiveCanonicalThreadIDs(ctx context.Context, index traceDBThreadIndex, table string, out map[int64]bool) (TraceDBCoverage, error) {
+func (tdb *traceDB) loadActiveTableThreadIDs(ctx context.Context, index traceDBThreadIndex, table string, out map[int64]bool) (TraceDBCoverage, error) {
 	coverage, err := tdb.inspectCoverage(ctx, "resolver.active_thread", table, []string{"itid"})
-	coverage.FieldSources = map[string]string{
-		"canonical_identity": table + ".itid; strict internal uint32 identity excluding UINT32_MAX sentinel; must exist in the audited thread index",
-		"dedup":              "after strict Go decoding; every physical row is audited without DISTINCT/COALESCE/NULL filtering",
-	}
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
 		return coverage, err
+	}
+	profile, profileSource, err := traceDBActivityProfile(ctx, tdb.db, table)
+	if err != nil {
+		coverage.Error = err.Error()
+		return coverage, err
+	}
+	coverage.FieldSources = map[string]string{
+		"canonical_identity": table + ".itid; " + profile.provenance() + "; nonzero identity must exist in the audited thread index",
+		"dedup":              "after strict Go decoding; every physical row is audited without DISTINCT/COALESCE/NULL filtering",
+		"schema_profile":     profileSource,
+	}
+	if profile == traceDBActivityITIDUnsupported {
+		coverage.Skipped = profileSource
+		return coverage, nil
 	}
 	rows, err := tdb.db.QueryContext(ctx, "SELECT "+quoteSQLiteIdent("itid")+" FROM "+quoteSQLiteIdent(table))
 	if err != nil {
@@ -364,9 +378,13 @@ func (tdb *traceDB) loadActiveCanonicalThreadIDs(ctx context.Context, index trac
 			coverage.Error = err.Error()
 			return coverage, err
 		}
-		itid, ok := traceDBStrictInternalID(raw)
+		itid, ok := profile.decode(raw)
 		if !ok {
 			reasons["invalid_itid"]++
+			continue
+		}
+		if itid == 0 && table != "sched_slice" && table != "thread_state" {
+			reasons["idle_pseudo_not_thread_emitter"]++
 			continue
 		}
 		if !traceDBCanonicalThreadIdentityKnown(index, itid) {

@@ -1,0 +1,69 @@
+package hitraceconv
+
+import (
+	"context"
+	"fmt"
+)
+
+type traceDBActivityITIDProfile uint8
+
+const (
+	traceDBActivityITIDUnsupported traceDBActivityITIDProfile = iota
+	traceDBActivityITIDCanonical
+	traceDBActivityITIDSignedInt32
+)
+
+func (profile traceDBActivityITIDProfile) decode(value any) (int64, bool) {
+	switch profile {
+	case traceDBActivityITIDCanonical:
+		return traceDBStrictInternalID(value)
+	case traceDBActivityITIDSignedInt32:
+		return traceDBStrictSignedInt32InternalID(value)
+	default:
+		return 0, false
+	}
+}
+
+func (profile traceDBActivityITIDProfile) provenance() string {
+	switch profile {
+	case traceDBActivityITIDCanonical:
+		return "strict canonical internal uint32 in 0..UINT32_MAX-1"
+	case traceDBActivityITIDSignedInt32:
+		return "strict signed-int32 projection to internal uint32; -1 sentinel and positive high-half encodings rejected"
+	default:
+		return "unsupported schema profile"
+	}
+}
+
+// traceDBActivityProfile selects the producer-specific wire decoder. It does
+// not inspect row values and never falls back per row: a malformed schema
+// cannot gain authority by choosing whichever interpretation accepts a value.
+func traceDBActivityProfile(ctx context.Context, queryer traceDBQueryer, table string) (traceDBActivityITIDProfile, string, error) {
+	switch table {
+	case "sched_slice", "thread_state", "native_hook":
+		return traceDBActivityITIDCanonical, "canonical producer profile", nil
+	case "syscall":
+		return traceDBActivityITIDSignedInt32, "current syscall.itid signed-int32 producer profile", nil
+	case "frame_slice":
+		columns, err := traceDBColumnNames(ctx, queryer, table)
+		if err != nil {
+			return traceDBActivityITIDUnsupported, "", err
+		}
+		hasID, hasType := false, false
+		for _, column := range columns {
+			hasID = hasID || sqliteASCIIIdentifierEqual(column, "id")
+			hasType = hasType || sqliteASCIIIdentifierEqual(column, "type")
+		}
+		switch {
+		case hasID && hasType:
+			return traceDBActivityITIDSignedInt32, "current frame_slice id+type signed-int32 producer profile", nil
+		case !hasID && !hasType:
+			return traceDBActivityITIDCanonical, "legacy frame_slice no-id/no-type canonical compatibility profile", nil
+		default:
+			return traceDBActivityITIDUnsupported,
+				fmt.Sprintf("unsupported frame_slice schema profile: id_present=%t type_present=%t", hasID, hasType), nil
+		}
+	default:
+		return traceDBActivityITIDUnsupported, "unsupported activity table", nil
+	}
+}

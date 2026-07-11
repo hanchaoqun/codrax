@@ -438,11 +438,10 @@ func traceDBStrictInternalID(value any) (int64, bool) {
 	return id, ok && id >= 0 && id <= maxTraceDBInternalID
 }
 
-// traceDBStrictCurrentThreadOwner decodes ThreadTable.ipid. The upstream
-// current producer calls sqlite3_result_int over a uint32 internalPid_, so its
-// exact wire domain is signed int32; -1 is INVALID_UINT32. Positive high-half
-// uint32 values are not accepted without a distinct schema/version signal.
-func traceDBStrictCurrentThreadOwner(value any) (int64, bool) {
+// traceDBStrictSignedInt32InternalID decodes internal uint32 identities that
+// an audited producer projects through signed int32. -1 is INVALID_UINT32;
+// positive high-half uint32 values require a different explicit profile.
+func traceDBStrictSignedInt32InternalID(value any) (int64, bool) {
 	raw, ok := traceDBStrictSQLiteInt(value)
 	if !ok || raw < math.MinInt32 || raw > math.MaxInt32 || raw == -1 {
 		return 0, false
@@ -456,7 +455,7 @@ func traceDBStrictCurrentThreadOwner(value any) (int64, bool) {
 func traceDBResolveThreadOwner(index *traceDBThreadIndex, value any) (int64, bool) {
 	sourceID, ok := traceDBStrictInternalID(value)
 	if index.HasThreadIDColumn {
-		sourceID, ok = traceDBStrictCurrentThreadOwner(value)
+		sourceID, ok = traceDBStrictSignedInt32InternalID(value)
 	}
 	if !ok {
 		return 0, false

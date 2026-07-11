@@ -2,6 +2,7 @@ package hitraceconv
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"math"
 	"os"
@@ -387,6 +388,199 @@ func TestTraceDBActiveThreadIDsDoNotDependOnSQLiteDistinctStorageClass(t *testin
 		forwardCoverage[1].Skipped != reverseCoverage[1].Skipped {
 		t.Fatalf("active coverage is not order-independent:\nforward=%+v\nreverse=%+v", forwardCoverage, reverseCoverage)
 	}
+}
+
+func TestTraceDBActiveThreadIDsUseTableSpecificWireProfiles(t *testing.T) {
+	t.Run("canonical activity tables keep positive high half", func(t *testing.T) {
+		path := createTraceDBFixture(t, []string{
+			"CREATE TABLE trace_range (start_ts)", "INSERT INTO trace_range VALUES (0)",
+			"CREATE TABLE process (ipid, pid)", "INSERT INTO process VALUES (1, 500)",
+			"CREATE TABLE thread (itid, tid, ipid, is_main_thread, switch_count)",
+			"INSERT INTO thread VALUES (4294967294, 101, 1, 0, 0)",
+			"CREATE TABLE sched_slice (itid)", "INSERT INTO sched_slice VALUES (4294967294)", "INSERT INTO sched_slice VALUES (-2)",
+			"CREATE TABLE thread_state (itid)", "INSERT INTO thread_state VALUES (4294967294)", "INSERT INTO thread_state VALUES (-2)",
+			"CREATE TABLE native_hook (itid)", "INSERT INTO native_hook VALUES (4294967294)", "INSERT INTO native_hook VALUES (-2)",
+		})
+		index, _ := loadTraceDBIdentityFixture(t, path)
+		tdb, err := openTraceDB(context.Background(), path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tdb.close()
+		active, coverage, err := tdb.loadActiveThreadIDs(context.Background(), index)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(active, map[int64]bool{4294967294: true}) {
+			t.Fatalf("canonical high activity identities were over/under accepted: active=%+v coverage=%+v", active, coverage)
+		}
+		for _, table := range []string{"sched_slice", "thread_state", "native_hook"} {
+			item := traceDBCoverageByTable(t, coverage, table)
+			if item.RowsEmitted != 1 || !strings.Contains(item.FieldSources["canonical_identity"], "canonical internal") || item.Skipped == "" {
+				t.Fatalf("%s canonical profile coverage mismatch: %+v", table, item)
+			}
+		}
+	})
+
+	t.Run("current syscall and frame signed projection", func(t *testing.T) {
+		path := createTraceDBFixture(t, []string{
+			"CREATE TABLE trace_range (start_ts)", "INSERT INTO trace_range VALUES (0)",
+			"CREATE TABLE process (id, ipid, pid)", "INSERT INTO process VALUES (1, 1, 500)",
+			"CREATE TABLE thread (id, itid, tid, ipid, is_main_thread, switch_count)",
+			"INSERT INTO thread VALUES (4294967294, 4294967294, 101, 1, 1, 0)",
+			"INSERT INTO thread VALUES (2147483648, 2147483648, 102, 1, 1, 0)",
+			"CREATE TABLE syscall (itid)",
+			"INSERT INTO syscall VALUES (-2)",
+			"INSERT INTO syscall VALUES (2147483648)",
+			"INSERT INTO syscall VALUES (-1)",
+			"INSERT INTO syscall VALUES (0)",
+			"CREATE TABLE frame_slice (id, type, itid)",
+			"INSERT INTO frame_slice VALUES (1, 0, -2)",
+			"INSERT INTO frame_slice VALUES (2, 0, 2147483648)",
+			"INSERT INTO frame_slice VALUES (3, 0, 0)",
+		})
+		index, _ := loadTraceDBIdentityFixture(t, path)
+		tdb, err := openTraceDB(context.Background(), path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tdb.close()
+		active, coverage, err := tdb.loadActiveThreadIDs(context.Background(), index)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(active, map[int64]bool{4294967294: true}) {
+			t.Fatalf("current signed activity identities were over/under accepted: active=%+v coverage=%+v", active, coverage)
+		}
+		for _, table := range []string{"syscall", "frame_slice"} {
+			item := traceDBCoverageByTable(t, coverage, table)
+			if item.RowsEmitted != 1 || !strings.Contains(item.FieldSources["canonical_identity"], "signed-int32") || item.Skipped == "" {
+				t.Fatalf("%s current profile coverage mismatch: %+v", table, item)
+			}
+		}
+		sink, err := newTraceDBRowSink(t.TempDir(), 16)
+		if err != nil {
+			t.Fatal(err)
+		}
+		registration, err := exportTraceDBThreadRegistrations(context.Background(), sink, index, active)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if registration.RowsEmitted != 3 || sink.stats.RowsAccepted != 3 {
+			t.Fatalf("invalid high activity identity registered a dormant main: active=%+v coverage=%+v sink=%+v", active, registration, sink.stats)
+		}
+	})
+
+	t.Run("legacy frame remains canonical", func(t *testing.T) {
+		path := createTraceDBFixture(t, []string{
+			"CREATE TABLE trace_range (start_ts)", "INSERT INTO trace_range VALUES (0)",
+			"CREATE TABLE process (ipid, pid)", "INSERT INTO process VALUES (1, 500)",
+			"CREATE TABLE thread (itid, tid, ipid, is_main_thread, switch_count)",
+			"INSERT INTO thread VALUES (4294967294, 101, 1, 0, 0)",
+			"CREATE TABLE frame_slice (itid)", "INSERT INTO frame_slice VALUES (4294967294)", "INSERT INTO frame_slice VALUES (0)",
+		})
+		index, _ := loadTraceDBIdentityFixture(t, path)
+		tdb, err := openTraceDB(context.Background(), path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tdb.close()
+		tx, err := tdb.db.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		profile, source, err := traceDBActivityProfile(context.Background(), tx, "frame_slice")
+		if rollbackErr := tx.Rollback(); err == nil && rollbackErr != nil {
+			err = rollbackErr
+		}
+		if err != nil || profile != traceDBActivityITIDCanonical || !strings.Contains(source, "legacy") {
+			t.Fatalf("activity profile bypassed supplied read transaction: profile=%v source=%q err=%v", profile, source, err)
+		}
+		active, coverage, err := tdb.loadActiveThreadIDs(context.Background(), index)
+		if err != nil {
+			t.Fatal(err)
+		}
+		item := traceDBCoverageByTable(t, coverage, "frame_slice")
+		if !reflect.DeepEqual(active, map[int64]bool{4294967294: true}) || item.RowsEmitted != 1 ||
+			!strings.Contains(item.FieldSources["schema_profile"], "legacy") || !strings.Contains(item.FieldSources["canonical_identity"], "canonical internal") {
+			t.Fatalf("legacy frame profile was not preserved: active=%+v coverage=%+v", active, item)
+		}
+	})
+
+	for _, ddl := range []string{"CREATE TABLE frame_slice (id, itid)", "CREATE TABLE frame_slice (type, itid)"} {
+		t.Run("frame xor profile never falls back per row "+ddl, func(t *testing.T) {
+			path := createTraceDBFixture(t, []string{
+				"CREATE TABLE trace_range (start_ts)", "INSERT INTO trace_range VALUES (0)",
+				"CREATE TABLE process (ipid, pid)", "INSERT INTO process VALUES (1, 500)",
+				"CREATE TABLE thread (itid, tid, ipid, is_main_thread, switch_count)",
+				"INSERT INTO thread VALUES (10, 101, 1, 0, 0)",
+				ddl, "INSERT INTO frame_slice VALUES (1, 10)",
+			})
+			index, _ := loadTraceDBIdentityFixture(t, path)
+			tdb, err := openTraceDB(context.Background(), path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tdb.close()
+			active, coverage, err := tdb.loadActiveThreadIDs(context.Background(), index)
+			if err != nil {
+				t.Fatal(err)
+			}
+			item := traceDBCoverageByTable(t, coverage, "frame_slice")
+			if len(active) != 0 || item.RowsEmitted != 0 || !strings.Contains(item.Skipped, "unsupported frame_slice schema profile") {
+				t.Fatalf("frame XOR schema gained per-row fallback: active=%+v coverage=%+v", active, item)
+			}
+		})
+	}
+}
+
+func TestTraceDBActiveThreadIDsRestrictIdlePseudoToSchedulerSources(t *testing.T) {
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts)", "INSERT INTO trace_range VALUES (0)",
+		"CREATE TABLE process (ipid, pid)", "INSERT INTO process VALUES (1, 500)",
+		"CREATE TABLE thread (itid, tid, ipid, is_main_thread, switch_count)",
+		"INSERT INTO thread VALUES (10, 101, 1, 0, 0)",
+		"CREATE TABLE callstack (ts, itid)", "INSERT INTO callstack VALUES (1, 0)",
+		"CREATE TABLE sched_slice (itid)", "INSERT INTO sched_slice VALUES (0)",
+		"CREATE TABLE thread_state (itid)", "INSERT INTO thread_state VALUES (0)",
+		"CREATE TABLE syscall (itid)", "INSERT INTO syscall VALUES (0)",
+		"CREATE TABLE native_hook (itid)", "INSERT INTO native_hook VALUES (0)",
+		"CREATE TABLE frame_slice (itid)", "INSERT INTO frame_slice VALUES (0)",
+	})
+	index, _ := loadTraceDBIdentityFixture(t, path)
+	tdb, err := openTraceDB(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tdb.close()
+	active, coverage, err := tdb.loadActiveThreadIDs(context.Background(), index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(active, map[int64]bool{0: true}) {
+		t.Fatalf("idle pseudo escaped scheduler-only active lane: active=%+v coverage=%+v", active, coverage)
+	}
+	for _, table := range []string{"sched_slice", "thread_state"} {
+		if item := traceDBCoverageByTable(t, coverage, table); item.RowsEmitted != 1 || item.Skipped != "" {
+			t.Fatalf("scheduler idle source %s was rejected: %+v", table, item)
+		}
+	}
+	for _, table := range []string{"callstack", "syscall", "native_hook", "frame_slice"} {
+		if item := traceDBCoverageByTable(t, coverage, table); item.RowsEmitted != 0 || !strings.Contains(item.Skipped, "idle_pseudo") {
+			t.Fatalf("non-scheduler idle source %s gained active authority: %+v", table, item)
+		}
+	}
+}
+
+func traceDBCoverageByTable(t *testing.T, coverage []TraceDBCoverage, table string) TraceDBCoverage {
+	t.Helper()
+	for _, item := range coverage {
+		if item.Table == table {
+			return item
+		}
+	}
+	t.Fatalf("missing coverage for table %s: %+v", table, coverage)
+	return TraceDBCoverage{}
 }
 
 func TestTraceDBWakeupPriorityProvenanceAndFieldLevelUnknown(t *testing.T) {
