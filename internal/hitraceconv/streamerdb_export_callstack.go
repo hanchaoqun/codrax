@@ -52,35 +52,43 @@ type traceDBCallstackAsyncKey struct {
 // rows have passed strict scalar, identity, CPU and pairing/laminar audits.
 // A malformed row is never repaired with pid/cpu/cookie zero: those values are
 // valid protocol tokens and would turn missing evidence into fabricated facts.
-func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, index traceDBThreadIndex, running map[int64][]traceDBRunningInterval, _ map[int64]string) (TraceDBCoverage, error) {
+func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowSink,
+	authority traceDBSchedulerAuthority, running traceDBSchedulerRunningIndex,
+) (TraceDBCoverage, error) {
 	coverage, err := tdb.inspectCoverage(ctx, "slice", "callstack", []string{"ts", "dur", "name"})
 	coverage.FieldSources = map[string]string{
-		"cpu":              "all Running thread_state intervals covering an endpoint agree on one valid CPU",
+		"cpu":              "same lifecycle authority filters the strict Running witness lane; every endpoint uses typed source/lifecycle/unknown lookup status",
 		"emitter_identity": "row-level strict callstack.itid and callstack.callid->audited thread.id/itid profile; both must converge when present",
 		"async_owner":      "exact non-ambiguous process.ipid generation and process.pid",
 		"row_order":        "strict SQLite rowid; optional source id remains provenance only; typed endpoint phase ordering",
 		"async_identity":   "nonzero cookie or chainId; both must agree when both are present",
-		"sync_pairing":     "complete per-emitter laminar interval audit before atomic publication",
+		"lifecycle":        "same complete collector authority; sync positive spans require closed thread/process generation, zero spans and async endpoints require exact point admission",
+		"sync_pairing":     "callstack-table-local only; known-emitter rejected sync rows taint every exact candidate lane before complete per-emitter laminar audit and atomic publication; cross-exporter B/E authority remains pending B1-b",
+		"async_generation": "each endpoint is admitted independently; exact rejected owner/name/cookie keys fail closed locally, unplaceable async rows fail the family; a paired task may migrate threads but cannot cross its positive owner-process generation",
 	}
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
+		return coverage, err
+	}
+	fail := func(err error) (TraceDBCoverage, error) {
+		coverage.Error = err.Error()
 		return coverage, err
 	}
 
 	hasITID, err := tdb.columnExists(ctx, "callstack", "itid")
 	if err != nil {
-		return coverage, err
+		return fail(err)
 	}
 	hasID, err := tdb.columnExists(ctx, "callstack", "id")
 	if err != nil {
-		return coverage, err
+		return fail(err)
 	}
 	hasDepth, err := tdb.columnExists(ctx, "callstack", "depth")
 	if err != nil {
-		return coverage, err
+		return fail(err)
 	}
 	hasCallID, err := tdb.columnExists(ctx, "callstack", "callid")
 	if err != nil {
-		return coverage, err
+		return fail(err)
 	}
 	if !hasITID && !hasCallID {
 		coverage.ColumnsMissing = append(coverage.ColumnsMissing, "itid|callid")
@@ -89,15 +97,15 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 	}
 	hasFlag, err := tdb.columnExists(ctx, "callstack", "flag")
 	if err != nil {
-		return coverage, err
+		return fail(err)
 	}
 	hasCookie, err := tdb.columnExists(ctx, "callstack", "cookie")
 	if err != nil {
-		return coverage, err
+		return fail(err)
 	}
 	hasChainID, err := tdb.columnExists(ctx, "callstack", "chainId")
 	if err != nil {
-		return coverage, err
+		return fail(err)
 	}
 	for _, optional := range []struct {
 		name    string
@@ -147,28 +155,37 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 	`, idExpr, callIDExpr, itidExpr, flagExpr, cookieExpr, chainIDExpr, depthExpr)
 	rows, err := tdb.db.QueryContext(ctx, query)
 	if err != nil {
-		coverage.Error = err.Error()
-		return coverage, err
+		return fail(err)
 	}
 	defer rows.Close()
 
 	skipped := map[string]int{}
 	var accepted []traceDBCallstackRow
-	asyncPoisoned := false
+	asyncGlobalPoisoned := false
+	asyncTaintedKeys := map[traceDBCallstackAsyncKey]bool{}
+	syncTaintedITIDs := map[int64]bool{}
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
-			return coverage, err
+			return fail(err)
 		}
 		var rowIDRaw, sourceIDRaw, tsRaw, durRaw, nameRaw, callIDRaw, itidRaw, flagRaw, cookieRaw, chainIDRaw, depthRaw any
 		if err := rows.Scan(&rowIDRaw, &sourceIDRaw, &tsRaw, &durRaw, &nameRaw, &callIDRaw, &itidRaw, &flagRaw, &cookieRaw, &chainIDRaw, &depthRaw); err != nil {
-			coverage.Error = err.Error()
-			return coverage, err
+			return fail(err)
 		}
-		row, reason := prepareTraceDBCallstackRow(index, running, hasID, hasITID, hasCallID, hasFlag, hasDepth,
+		row, reason := prepareTraceDBCallstackRow(authority, running, hasID, hasITID, hasCallID, hasFlag, hasDepth,
 			rowIDRaw, sourceIDRaw, tsRaw, durRaw, nameRaw, callIDRaw, itidRaw, flagRaw, cookieRaw, chainIDRaw, depthRaw)
 		if reason != "" {
 			if traceDBCallstackPotentialAsync(flagRaw, cookieRaw, chainIDRaw, hasFlag) {
-				asyncPoisoned = true
+				if key, exact := traceDBCallstackExactAsyncKey(row); exact {
+					asyncTaintedKeys[key] = true
+				} else {
+					asyncGlobalPoisoned = true
+				}
+			}
+			if traceDBCallstackPotentialSync(flagRaw, hasFlag) {
+				for _, itid := range traceDBCallstackExactEmitterCandidates(authority, hasITID, hasCallID, itidRaw, callIDRaw) {
+					syncTaintedITIDs[itid] = true
+				}
 			}
 			skipped[reason]++
 			continue
@@ -176,8 +193,7 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 		accepted = append(accepted, row)
 	}
 	if err := rows.Err(); err != nil {
-		coverage.Error = err.Error()
-		return coverage, err
+		return fail(err)
 	}
 	syncLanes := map[int64][]traceDBCallstackRow{}
 	asyncGroups := map[traceDBCallstackAsyncKey][]traceDBCallstackRow{}
@@ -193,6 +209,10 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 
 	for _, itid := range sortedTraceDBCallstackLaneIDs(syncLanes) {
 		lane := syncLanes[itid]
+		if syncTaintedITIDs[itid] {
+			skipped["sync_lane_fail_closed"] += len(lane)
+			continue
+		}
 		if reason := auditTraceDBCallstackSyncLane(lane); reason != "" {
 			skipped[reason] += len(lane)
 			continue
@@ -205,12 +225,12 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 			}
 			if err := addTraceDBInstantRow(sink, endpoint.TS, endpoint.Row.Task, endpoint.Row.TID,
 				endpoint.Row.TGID, endpoint.CPU, body); err != nil {
-				return coverage, err
+				return fail(err)
 			}
 			coverage.RowsEmitted++
 		}
 	}
-	if asyncPoisoned {
+	if asyncGlobalPoisoned {
 		for _, group := range asyncGroups {
 			skipped["async_family_fail_closed"] += len(group)
 		}
@@ -236,13 +256,17 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 	})
 	for _, key := range asyncKeys {
 		group := asyncGroups[key]
+		if asyncTaintedKeys[key] {
+			skipped["async_key_fail_closed"] += len(group)
+			continue
+		}
 		sort.SliceStable(group, func(i, j int) bool {
 			if group[i].TS != group[j].TS {
 				return group[i].TS < group[j].TS
 			}
 			return group[i].ID < group[j].ID
 		})
-		if reason := auditTraceDBCallstackAsyncGroup(group); reason != "" {
+		if reason := auditTraceDBCallstackAsyncGroup(authority, group); reason != "" {
 			skipped[reason] += len(group)
 			continue
 		}
@@ -253,7 +277,7 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 			}
 			body := fmt.Sprintf("tracing_mark_write: %s|%d|%s|%s", action, row.TGID, row.Name, row.Cookie)
 			if err := addTraceDBInstantRow(sink, row.TS, row.Task, row.TID, row.TGID, row.StartCPU, body); err != nil {
-				return coverage, err
+				return fail(err)
 			}
 			coverage.RowsEmitted++
 		}
@@ -262,10 +286,11 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 	return coverage, nil
 }
 
-func prepareTraceDBCallstackRow(index traceDBThreadIndex, running map[int64][]traceDBRunningInterval,
+func prepareTraceDBCallstackRow(authority traceDBSchedulerAuthority, running traceDBSchedulerRunningIndex,
 	hasID, hasITID, hasCallID, hasFlag, hasDepth bool,
 	rowIDRaw, sourceIDRaw, tsRaw, durRaw, nameRaw, callIDRaw, itidRaw, flagRaw, cookieRaw, chainIDRaw, depthRaw any,
 ) (traceDBCallstackRow, string) {
+	index := authority.identities
 	var row traceDBCallstackRow
 	var ok bool
 	if row.ID, ok = traceDBStrictSQLiteInt(rowIDRaw); !ok || row.ID <= 0 {
@@ -319,20 +344,16 @@ func prepareTraceDBCallstackRow(index traceDBThreadIndex, running map[int64][]tr
 		}
 		row.DepthKnown = true
 	}
-	thread, exists := index.ByITID[row.EmitterITID]
-	if !exists || index.AmbiguousITID[row.EmitterITID] || thread.TID <= 0 || thread.TID > math.MaxInt32 {
+	thread, process, resolution := authority.resolveThreadSubject(row.EmitterITID)
+	if resolution != traceDBSchedulerThreadResolved || thread.TID <= 0 || thread.TID > math.MaxInt32 {
 		return row, "unresolved_emitter_thread"
 	}
 	if traceDBBeforeCaptureStart(index, row.TS) {
 		return row, "before_capture_start"
 	}
-	if index.AmbiguousIPID[thread.IPID] {
-		return row, "ambiguous_emitter_process"
-	}
-	process, processExists := index.Processes[thread.IPID]
 	row.OwnerIPID = thread.IPID
 	row.TID = thread.TID
-	if !processExists || thread.IPID < 0 || process.PID <= 0 || process.PID > math.MaxInt32 {
+	if thread.IPID < 0 || process.PID <= 0 || process.PID > math.MaxInt32 {
 		return row, "unresolved_owner_process"
 	}
 	row.TGID = process.PID
@@ -343,42 +364,62 @@ func prepareTraceDBCallstackRow(index traceDBThreadIndex, running map[int64][]tr
 		return row, "invalid_emitter_comm"
 	}
 	row.Task = traceDBCommName(thread.Name, "unknown")
-	var runningStatus traceDBExtendedRunningLookupStatus
-	row.StartCPU, runningStatus = traceDBExtendedRunningCPUAt(index, running, row.EmitterITID, row.TS)
-	if runningStatus == traceDBExtendedRunningSourceTainted {
+	if row.Flag == "S" || row.Flag == "C" {
+		cookie, cookiePresent, cookieValid := traceDBCallstackCookie(cookieRaw)
+		if !cookieValid {
+			return row, "invalid_cookie"
+		}
+		chainID, chainPresent, chainValid := traceDBCallstackCookie(chainIDRaw)
+		if !chainValid {
+			return row, "invalid_chain_id"
+		}
+		if cookiePresent && chainPresent && cookie != chainID {
+			return row, "cookie_chain_id_conflict"
+		}
+		row.Cookie = cookie
+		if !cookiePresent {
+			row.Cookie = chainID
+		}
+		if row.Cookie == "" || !traceDBCallstackMarkerToken(row.Cookie) {
+			return row, "missing_async_identity"
+		}
+	}
+	switch {
+	case row.Flag == "S" || row.Flag == "C":
+		if !authority.threadPointAllows(row.EmitterITID, row.TS) {
+			return row, "lifecycle_rejected_async_endpoint"
+		}
+	case row.Dur == 0:
+		if !authority.threadPointAllows(row.EmitterITID, row.TS) {
+			return row, "lifecycle_rejected_sync_point"
+		}
+	case !authority.threadClosedEndpointAllows(row.EmitterITID, row.TS, row.End):
+		return row, "lifecycle_rejected_sync_closed_interval"
+	}
+	var runningStatus traceDBSchedulerRunningLookupStatus
+	row.StartCPU, runningStatus = running.lookupCPUAt(row.EmitterITID, row.TS)
+	if runningStatus == traceDBSchedulerRunningSourceTainted {
 		return row, "tainted_running_cpu_witness"
 	}
-	if runningStatus != traceDBExtendedRunningKnown {
+	if runningStatus == traceDBSchedulerRunningLifecycleRejected {
+		return row, "lifecycle_rejected_running_cpu_witness"
+	}
+	if runningStatus != traceDBSchedulerRunningKnown {
 		return row, "unknown_start_cpu"
 	}
 	row.EndCPU = row.StartCPU
 	if row.Flag == "" || row.Flag == "I" {
-		row.EndCPU, runningStatus = traceDBExtendedRunningCPUAt(index, running, row.EmitterITID, row.End)
-		if runningStatus == traceDBExtendedRunningSourceTainted {
+		row.EndCPU, runningStatus = running.lookupCPUAt(row.EmitterITID, row.End)
+		if runningStatus == traceDBSchedulerRunningSourceTainted {
 			return row, "tainted_running_cpu_witness"
 		}
-		if runningStatus != traceDBExtendedRunningKnown {
+		if runningStatus == traceDBSchedulerRunningLifecycleRejected {
+			return row, "lifecycle_rejected_running_cpu_witness"
+		}
+		if runningStatus != traceDBSchedulerRunningKnown {
 			return row, "unknown_end_cpu"
 		}
 		return row, ""
-	}
-	cookie, cookiePresent, cookieValid := traceDBCallstackCookie(cookieRaw)
-	if !cookieValid {
-		return row, "invalid_cookie"
-	}
-	chainID, chainPresent, chainValid := traceDBCallstackCookie(chainIDRaw)
-	if !chainValid {
-		return row, "invalid_chain_id"
-	}
-	if cookiePresent && chainPresent && cookie != chainID {
-		return row, "cookie_chain_id_conflict"
-	}
-	row.Cookie = cookie
-	if !cookiePresent {
-		row.Cookie = chainID
-	}
-	if row.Cookie == "" || !traceDBCallstackMarkerToken(row.Cookie) {
-		return row, "missing_async_identity"
 	}
 	return row, ""
 }
@@ -423,6 +464,51 @@ func traceDBCallstackPotentialAsync(flagValue, cookieValue, chainIDValue any, ha
 	// async endpoint.  Poisoning the async lane prevents a later valid finish
 	// from bridging across the rejected row and minting a false long span.
 	return true
+}
+
+func traceDBCallstackPotentialSync(flagValue any, hasFlag bool) bool {
+	if !hasFlag {
+		return true
+	}
+	flag, ok := flagValue.(string)
+	if !ok {
+		return true
+	}
+	return flag != "S" && flag != "C"
+}
+
+func traceDBCallstackExactAsyncKey(row traceDBCallstackRow) (traceDBCallstackAsyncKey, bool) {
+	if (row.Flag != "S" && row.Flag != "C") || row.OwnerIPID < 0 || row.TGID <= 0 ||
+		!traceDBCallstackMarkerToken(row.Name) || !traceDBCallstackMarkerToken(row.Cookie) {
+		return traceDBCallstackAsyncKey{}, false
+	}
+	return traceDBCallstackAsyncKey{
+		OwnerIPID: row.OwnerIPID,
+		TGID:      row.TGID,
+		Name:      row.Name,
+		Cookie:    row.Cookie,
+	}, true
+}
+
+func traceDBCallstackExactEmitterCandidates(authority traceDBSchedulerAuthority,
+	hasITID, hasCallID bool, itidRaw, callIDRaw any,
+) []int64 {
+	resolution := traceDBResolveLifecycleCallstackIdentity(authority.identities, hasITID, hasCallID, itidRaw, callIDRaw)
+	seen := map[int64]bool{}
+	var out []int64
+	for _, candidate := range resolution.Candidates {
+		if candidate <= 0 || seen[candidate] {
+			continue
+		}
+		_, process, status := authority.resolveThreadSubject(candidate)
+		if status != traceDBSchedulerThreadResolved || process.PID <= 0 || process.PID > math.MaxInt32 {
+			continue
+		}
+		seen[candidate] = true
+		out = append(out, candidate)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
 }
 
 func traceDBCallstackRawIdentityPresent(value any) bool {
@@ -584,23 +670,27 @@ func traceDBCallstackEndpointPhase(endpoint traceDBCallstackEndpoint) int {
 	return 2
 }
 
-func auditTraceDBCallstackAsyncGroup(rows []traceDBCallstackRow) string {
-	open := false
+func auditTraceDBCallstackAsyncGroup(authority traceDBSchedulerAuthority, rows []traceDBCallstackRow) string {
+	var open *traceDBCallstackRow
 	for _, row := range rows {
 		switch row.Flag {
 		case "S":
-			if open {
+			if open != nil {
 				return "ambiguous_async_cohort"
 			}
-			open = true
+			candidate := row
+			open = &candidate
 		case "C":
-			if !open {
+			if open == nil {
 				return "unpaired_async_finish"
 			}
-			open = false
+			if row.TS > open.TS && !authority.processClosedEndpointAllows(open.OwnerIPID, open.TS, row.TS) {
+				return "lifecycle_rejected_async_process_interval"
+			}
+			open = nil
 		}
 	}
-	if open {
+	if open != nil {
 		return "unpaired_async_start"
 	}
 	return ""

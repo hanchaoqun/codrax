@@ -1,6 +1,9 @@
 package hitraceconv
 
-import "fmt"
+import (
+	"fmt"
+	"math"
+)
 
 // traceDBSchedulerAuthority binds scheduler consumers to one exact identity
 // index and one lifecycle collection. Its zero value rejects every query; a
@@ -90,6 +93,21 @@ func (authority traceDBSchedulerAuthority) threadClosedEndpointAllows(itid, star
 		return false
 	}
 	return process.PID <= 0 || traceDBLifecycleProcessClosedEndpointAllows(authority.lifecycle, authority.identities, process.IPID, start, end)
+}
+
+// processClosedEndpointAllows proves that a positive canonical process owns
+// both physical endpoints and the complete closed interval between them. It
+// deliberately does not constrain a particular thread, so an async task may
+// migrate between threads inside the same process generation.
+func (authority traceDBSchedulerAuthority) processClosedEndpointAllows(ipid, start, end int64) bool {
+	if !authority.initialized || !authority.complete || end <= start || authority.identities.AmbiguousIPID[ipid] {
+		return false
+	}
+	process, ok := authority.identities.Processes[ipid]
+	if !ok || process.IPID != ipid || process.PID <= 0 || process.PID > math.MaxInt32 {
+		return false
+	}
+	return traceDBLifecycleProcessClosedEndpointAllows(authority.lifecycle, authority.identities, ipid, start, end)
 }
 
 func (authority traceDBSchedulerAuthority) schedulerPointAllows(subject traceDBSchedulerSubject, timestamp int64) bool {

@@ -41,16 +41,16 @@ func (tdb *traceDB) loadSchedulerRunningIndex(ctx context.Context, authority tra
 	return newTraceDBSchedulerRunningIndex(authority, intervals, integrity, &coverage), coverage, nil
 }
 
-// loadExtendedLegacyRunningIntervals deliberately preserves the pre-A2
-// extended-export behavior. R1b-B remains open until each extended consumer
-// can share the lifecycle authority without rebuilding it or changing its
-// evidence contract implicitly.
+// loadExtendedLegacyRunningIntervals performs the one strict base scan shared
+// by extended exporters. Callstack derives its lifecycle-gated typed view from
+// the returned scan and the caller's authority; frame/native/raw consumers
+// still use the legacy intervals until their own explicit migrations land.
 func (tdb *traceDB) loadExtendedLegacyRunningIntervals(ctx context.Context, identities traceDBThreadIndex) (map[int64][]traceDBRunningInterval, traceDBRunningIntegrity, TraceDBCoverage, error) {
 	intervals, integrity, coverage, err := tdb.loadRunningIntervals(ctx, identities)
 	if coverage.FieldSources == nil {
 		coverage.FieldSources = map[string]string{}
 	}
-	coverage.FieldSources["running_consumer_scope"] = "extended_legacy_r1b_b_open"
-	coverage.FieldSources["generation_admission"] = "strict scalar and base-integrity admission only; lifecycle migration deferred to R1b-B"
+	coverage.FieldSources["running_consumer_scope"] = "extended_mixed_callstack_gated_legacy_remaining"
+	coverage.FieldSources["generation_admission"] = "one strict base scan; callstack derives a lifecycle-gated typed view from the same authority and integrity, while frame/native/raw legacy consumers remain pending B2/B3"
 	return intervals, integrity, coverage, err
 }

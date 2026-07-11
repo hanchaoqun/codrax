@@ -127,7 +127,7 @@ func TestTraceDBRawExactITIDDominatesReusedPublicTIDCandidates(t *testing.T) {
 }
 
 func TestExportTraceDBRawFtraceRunningTaintBlocksInferenceButNotExplicitCPU(t *testing.T) {
-	path := createTraceDBFixture(t, []string{
+	path := createTraceDBCallstackFixture(t, []string{
 		"CREATE TABLE trace_range (start_ts INT)",
 		"INSERT INTO trace_range VALUES (0)",
 		"CREATE TABLE process (ipid INT, pid INT, name TEXT)",

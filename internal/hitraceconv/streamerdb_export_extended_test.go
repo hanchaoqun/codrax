@@ -24,6 +24,8 @@ func TestExportTraceDBExtendedFamiliesComprehensiveFixture(t *testing.T) {
 		"CREATE TABLE thread_state (itid INT, ts INT, dur INT, cpu INT, state TEXT)",
 		"INSERT INTO thread_state VALUES (2, 900000, 600000, 3, 'Running')",
 		"INSERT INTO thread_state VALUES (2, 1500000, 100000, 3, 'Running')",
+		"INSERT INTO thread_state VALUES (2, 3000000, 200000, 3, 'Running')",
+		"INSERT INTO thread_state VALUES (5, 3150000, 200000, 5, 'Running')",
 		"INSERT INTO thread_state VALUES (2, 3500000, 200000, 3, 'Running')",
 		"CREATE TABLE data_dict (id INT, data TEXT)",
 		"INSERT INTO data_dict VALUES (5, 'coldStart')",
@@ -111,6 +113,18 @@ func TestExportTraceDBExtendedFamiliesComprehensiveFixture(t *testing.T) {
 	} {
 		assertCoverageEmitted(t, coverage, key.family, key.table, 1)
 	}
+	callstackCoverage := 0
+	for _, item := range coverage {
+		if item.Family == "slice" && item.Table == "callstack" {
+			callstackCoverage++
+			if item.RowsEmitted != 8 {
+				t.Fatalf("comprehensive callstack endpoints=%d, want exactly 8: %+v", item.RowsEmitted, item)
+			}
+		}
+	}
+	if callstackCoverage != 1 {
+		t.Fatalf("comprehensive callstack coverage records=%d, want 1: %+v", callstackCoverage, coverage)
+	}
 	if !coverageHasSkipped(coverage, "slice", "dma_fence", "high_level_rows_withheld=2") {
 		t.Fatalf("high-level DMA predecessor deltas must be withheld: %+v", coverage)
 	}
@@ -138,6 +152,8 @@ func TestExportTraceDBExtendedFamiliesComprehensiveFixture(t *testing.T) {
 	for _, want := range []string{
 		"tracing_mark_write: B|500|DoWork",
 		"tracing_mark_write: S|500|AsyncWork|chain-123",
+		"tracing_mark_write: B|500|AllocTask",
+		"tracing_mark_write: B|500|ExecTask",
 		"tracing_mark_write: S|500|FrameActual-123|hconv-frame-1",
 		"tracing_mark_write: F|500|FrameActual-123|hconv-frame-1",
 		"tracing_mark_write: B|500|sys_64",
@@ -513,7 +529,7 @@ func TestTraceDBPerfCandidateResolutionDisclosesConflictAndAmbiguity(t *testing.
 }
 
 func TestExportTraceDBPerfSampleDoesNotCrossPairWithCallstack(t *testing.T) {
-	path := createTraceDBFixture(t, []string{
+	path := createTraceDBCallstackFixture(t, []string{
 		"CREATE TABLE trace_range (start_ts INT)",
 		"INSERT INTO trace_range VALUES (0)",
 		"CREATE TABLE process (pid INT, ipid INT, name TEXT)",
@@ -570,7 +586,7 @@ func TestExportTraceDBHmtraceComprehensiveFixtureSchema(t *testing.T) {
 		min    int
 	}{
 		{"metadata", "thread", 9},
-		{"slice", "callstack", 4},
+		{"slice", "callstack", 8},
 		{"scheduler", "sched_slice", 1},
 		{"scheduler", "instant", 2},
 		{"irq", "irq", 4},
@@ -604,6 +620,8 @@ func TestExportTraceDBHmtraceComprehensiveFixtureSchema(t *testing.T) {
 	body := string(bodyBytes)
 	for _, want := range []string{
 		"tracing_mark_write: B|500|DoWork",
+		"tracing_mark_write: B|500|AllocTask",
+		"tracing_mark_write: B|700|ExecTask",
 		"sched_wakeup: comm=WorkerThread pid=501 prio=42 target_cpu=007",
 		"sched_waking: comm=WorkerThread pid=501 prio=42 target_cpu=008",
 		"softirq_entry: vec=9 [action=RCU]",
@@ -636,7 +654,7 @@ func TestExportTraceDBHmtraceComprehensiveFixtureSchema(t *testing.T) {
 	}
 }
 
-func TestExportTraceDBThreadStateResolverWithoutSchedSlice(t *testing.T) {
+func TestExportTraceDBCallstackFailsClosedWithoutCompleteLifecycle(t *testing.T) {
 	path := createTraceDBFixture(t, []string{
 		"CREATE TABLE trace_range (start_ts INT)",
 		"INSERT INTO trace_range VALUES (100)",
@@ -669,11 +687,12 @@ func TestExportTraceDBThreadStateResolverWithoutSchedSlice(t *testing.T) {
 					!strings.Contains(item.Skipped, "scheduler_lifecycle_authority_complete=false") {
 					t.Fatalf("incomplete scheduler Running authority failed open: %+v", item)
 				}
-			case "extended_legacy_r1b_b_open":
+			case "extended_mixed_callstack_gated_legacy_remaining":
 				extendedScope++
 				if item.RowsRead != 2 || item.RowsEmitted != 1 ||
-					!strings.Contains(item.FieldSources["generation_admission"], "R1b-B") {
-					t.Fatalf("extended legacy Running compatibility changed or was not disclosed: %+v", item)
+					!strings.Contains(item.FieldSources["generation_admission"], "callstack derives a lifecycle-gated typed view") ||
+					!strings.Contains(item.FieldSources["generation_admission"], "pending B2/B3") {
+					t.Fatalf("extended mixed Running compatibility changed or was not disclosed: %+v", item)
 				}
 			default:
 				t.Fatalf("thread_state Running coverage lacks a closed consumer scope: %+v", item)
@@ -688,22 +707,18 @@ func TestExportTraceDBThreadStateResolverWithoutSchedSlice(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(bodyBytes)
-	want := "[007] ....     0.000001: tracing_mark_write: B|500|ThreadStateWork"
-	if !strings.Contains(body, want) {
-		t.Fatalf("callstack span should inherit CPU from thread_state, missing %q:\n%s", want, body)
+	if strings.Contains(body, "ThreadStateWork") ||
+		!coverageHasSkipped(result.Coverage, "slice", "callstack", "lifecycle_rejected_sync_closed_interval=1") {
+		t.Fatalf("incomplete lifecycle authority allowed a callstack span:\n%s\n%+v", body, result.Coverage)
 	}
 	idx, err := tracequery.BuildIndex(context.Background(), outPath)
 	if err != nil {
 		t.Fatalf("tracequery parse thread_state resolver output: %v", err)
 	}
-	traceMarks := 0
 	for _, ev := range idx.Events {
-		if ev.Type == tracequery.EventTraceMark && ev.SpanName == "ThreadStateWork" && ev.CPU == 7 {
-			traceMarks++
+		if ev.Type == tracequery.EventTraceMark && ev.SpanName == "ThreadStateWork" {
+			t.Fatalf("tracequery retained lifecycle-unverified callstack span: %+v", idx.Events)
 		}
-	}
-	if traceMarks == 0 {
-		t.Fatalf("tracequery should retain thread_state-placed callstack span: %+v", idx.Events)
 	}
 }
 
@@ -978,6 +993,8 @@ func hmtraceComprehensiveFixtureStatements() []string {
 		"INSERT INTO thread VALUES (5, 5, 701, 'Waker', 100, 0, 3, 1, 1)",
 		"INSERT INTO thread_state VALUES (1, 900, 1000, 3, 2, 501, 500, 'Running', 0)",
 		"INSERT INTO thread_state VALUES (2, 1400, 200, 4, 5, 701, 700, 'Running', 0)",
+		"INSERT INTO thread_state VALUES (5, 3000, 200, 3, 2, 501, 500, 'Running', 0)",
+		"INSERT INTO thread_state VALUES (6, 3150, 200, 4, 5, 701, 700, 'Running', 0)",
 		"INSERT INTO thread_state VALUES (3, 3500, 200, 3, 2, 501, 500, 'Running', 0)",
 		"INSERT INTO thread_state VALUES (4, 200000, 30000, 11, 2, 501, 500, 'Running', 0)",
 		"INSERT INTO callstack VALUES (1, 1000, 200, 2, '', 'DoWork', 0, NULL, 0, 0, '', '', '', '', '', '', '', '', 0)",

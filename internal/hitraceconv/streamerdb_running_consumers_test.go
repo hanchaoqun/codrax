@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestTraceDBRunningConsumerScopesSeparateSchedulerFromExtendedLegacy(t *testing.T) {
+func TestTraceDBRunningConsumerScopesSeparateSchedulerFromExtendedMixed(t *testing.T) {
 	path := createTraceDBFixture(t, []string{
 		"CREATE TABLE thread_state (itid, ts, dur, cpu, state)",
 		"INSERT INTO thread_state VALUES (1, 90, 11, 1, 'Running')",
@@ -59,9 +59,10 @@ func TestTraceDBRunningConsumerScopesSeparateSchedulerFromExtendedLegacy(t *test
 	if cpu, known := traceDBKnownCPUAt(legacyIntervals, 1, 95); !known || cpu != 1 {
 		t.Fatalf("extended legacy Running unexpectedly adopted scheduler lifecycle gate: cpu=%d known=%t", cpu, known)
 	}
-	if legacyCoverage.FieldSources["running_consumer_scope"] != "extended_legacy_r1b_b_open" ||
-		!strings.Contains(legacyCoverage.FieldSources["generation_admission"], "R1b-B") {
-		t.Fatalf("extended legacy Running scope was not disclosed: %+v", legacyCoverage)
+	if legacyCoverage.FieldSources["running_consumer_scope"] != "extended_mixed_callstack_gated_legacy_remaining" ||
+		!strings.Contains(legacyCoverage.FieldSources["generation_admission"], "callstack derives a lifecycle-gated typed view") ||
+		!strings.Contains(legacyCoverage.FieldSources["generation_admission"], "pending B2/B3") {
+		t.Fatalf("extended mixed Running scope was not disclosed: %+v", legacyCoverage)
 	}
 }
 

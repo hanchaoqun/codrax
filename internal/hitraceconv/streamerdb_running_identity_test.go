@@ -701,7 +701,6 @@ func TestTraceDBRunningIdentityCrossCheckIsStructurallyPinned(t *testing.T) {
 	}
 	if !reflect.DeepEqual(extendedLookupCallers, map[string]int{
 		"exportTraceDBRawFtraceFamilies": 1,
-		"prepareTraceDBCallstackRow":     2,
 		"prepareTraceDBFrameSliceRow":    2,
 		"prepareTraceDBNativeHookEvent":  1,
 	}) {
