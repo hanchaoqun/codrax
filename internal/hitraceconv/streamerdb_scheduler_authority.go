@@ -125,6 +125,23 @@ func (authority traceDBSchedulerAuthority) schedulerSourceIntervalAllows(subject
 		!traceDBLifecycleRangeHasPoint(authority.lifecycle.GlobalPoison, start, end, false)
 }
 
+// schedulerNextPointAllows validates the complete dependency from a query
+// point to its nearest sched start. Exact idle may describe a point but never
+// borrows a closed interval across time; causal wakeup/blocked endpoints have
+// their own non-idle gates.
+func (authority traceDBSchedulerAuthority) schedulerNextPointAllows(subject traceDBSchedulerSubject, query, candidate int64) bool {
+	if candidate < query || !authority.schedulerSubjectIsExact(subject) {
+		return false
+	}
+	if candidate == query {
+		return authority.schedulerPointAllows(subject, candidate)
+	}
+	if subject.itid == 0 {
+		return false
+	}
+	return authority.threadClosedEndpointAllows(subject.itid, query, candidate)
+}
+
 func (authority traceDBSchedulerAuthority) threadSubject(itid int64) (traceDBThread, traceDBProcess, bool) {
 	thread, process, resolution := authority.resolveThreadSubject(itid)
 	return thread, process, resolution == traceDBSchedulerThreadResolved

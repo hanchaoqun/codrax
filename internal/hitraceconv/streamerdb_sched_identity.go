@@ -20,23 +20,27 @@ type traceDBSchedStartValue struct {
 type traceDBSchedStartCohort struct {
 	Values      map[traceDBSchedStartValue]int
 	InvalidRows int
+	Subject     traceDBSchedulerSubject
+	SubjectOK   bool
 }
 
 // loadSchedStarts builds the independent next-run resolver used by wakeup
 // export. A malformed nearest point is retained as an explicit barrier: simply
 // deleting it would let a lookup jump to a later run and assign that later
 // priority to the wrong wakeup.
-func (tdb *traceDB) loadSchedStarts(ctx context.Context, index traceDBThreadIndex) (traceDBSchedStartIndex, TraceDBCoverage, error) {
+func (tdb *traceDB) loadSchedStarts(ctx context.Context, authority traceDBSchedulerAuthority) (traceDBSchedStartIndex, TraceDBCoverage, error) {
 	out := traceDBSchedStartIndex{
 		ByITID:       map[int64][]traceDBSchedStart{},
 		TaintedITIDs: map[int64]bool{},
+		authority:    authority,
 	}
 	coverage, err := tdb.inspectCoverage(ctx, "resolver", "sched_slice", []string{"itid", "ts", "cpu", "priority"})
 	coverage.FieldSources = map[string]string{
 		"canonical_itid": "sched_slice.itid; strict internal uint32 identity excluding UINT32_MAX sentinel; nonzero IDs must exist in the audited thread index",
 		"cohort":         "exact (itid,ts); identical rows coalesce, any scalar/identity disagreement becomes a lookup barrier",
 		"cpu":            "sched_slice.cpu; strict SQLite INTEGER in range 0..4095",
-		"lookup":         "first sched point with ts>=query; poisoned nearest point returns unknown and is never skipped",
+		"lifecycle":      "same collector authority; every scalar-valid cohort requires scheduler point admission and rejection remains a nearest-point barrier",
+		"lookup":         "first sched point with ts>=query; exact-time candidate requires point admission, later candidate requires closed thread and positive-process generation admission; poisoned nearest point returns unknown and is never skipped",
 		"priority":       "sched_slice.priority; strict signed int32 preserving Harmony RT 140..159 and raw values above 159; exact INT32_MAX upstream sentinel rejected",
 		"timestamp":      "sched_slice.ts; non-negative SQLite INTEGER; a known itid with an unplaceable timestamp taints that itid lane",
 	}
@@ -82,24 +86,23 @@ func (tdb *traceDB) loadSchedStarts(ctx context.Context, index traceDBThreadInde
 		key := traceDBSchedStartKey{ITID: itid, TS: ts}
 		cohort := cohorts[key]
 		if cohort == nil {
-			cohort = &traceDBSchedStartCohort{Values: map[traceDBSchedStartValue]int{}}
+			subject, subjectOK := authority.schedulerSubjectFromExactITID(itid, itidOK)
+			cohort = &traceDBSchedStartCohort{
+				Values: map[traceDBSchedStartValue]int{}, Subject: subject, SubjectOK: subjectOK,
+			}
 			cohorts[key] = cohort
 		}
 
 		cpu, cpuOK := traceDBStrictSQLiteInt(cpuRaw)
 		cpuOK = cpuOK && validTraceDBCPUIndex(cpu)
 		priority, priorityOK := traceDBStrictSchedPriority(priorityRaw)
-		identityOK := traceDBCanonicalThreadIdentityKnown(index, itid)
-		if !cpuOK || !priorityOK || !identityOK {
+		if !cpuOK || !priorityOK {
 			cohort.InvalidRows++
 			if !cpuOK {
 				reasons["invalid_cpu"]++
 			}
 			if !priorityOK {
 				reasons["invalid_priority"]++
-			}
-			if !identityOK {
-				reasons["unresolved_itid"]++
 			}
 			continue
 		}
@@ -130,9 +133,14 @@ func (tdb *traceDB) loadSchedStarts(ctx context.Context, index traceDBThreadInde
 			reasons["poisoned_key_cohorts"]++
 			continue
 		}
+		if !cohort.SubjectOK || !authority.schedulerPointAllows(cohort.Subject, key.TS) {
+			out.ByITID[key.ITID] = append(out.ByITID[key.ITID], traceDBSchedStart{TS: key.TS})
+			reasons["lifecycle_rejected_key_cohorts"]++
+			continue
+		}
 		for value, count := range cohort.Values {
 			out.ByITID[key.ITID] = append(out.ByITID[key.ITID], traceDBSchedStart{
-				TS: key.TS, CPU: value.CPU, Priority: value.Priority, Known: true,
+				TS: key.TS, CPU: value.CPU, Priority: value.Priority, Known: true, subject: cohort.Subject,
 			})
 			coverage.RowsEmitted++
 			if count > 1 {
@@ -170,7 +178,11 @@ func traceDBNextSchedMeta(starts traceDBSchedStartIndex, itid, ts int64) (int64,
 	if idx >= len(entries) || !entries[idx].Known {
 		return 0, 0, false
 	}
-	return entries[idx].CPU, entries[idx].Priority, true
+	entry := entries[idx]
+	if entry.subject.itid != itid || !starts.authority.schedulerNextPointAllows(entry.subject, ts, entry.TS) {
+		return 0, 0, false
+	}
+	return entry.CPU, entry.Priority, true
 }
 
 func traceDBStrictSchedPriority(value any) (int64, bool) {

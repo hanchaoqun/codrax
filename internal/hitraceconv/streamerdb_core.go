@@ -111,6 +111,7 @@ type traceDBSchedStart struct {
 	CPU      int64
 	Priority int64
 	Known    bool
+	subject  traceDBSchedulerSubject
 }
 
 type traceDBSchedStartIndex struct {
@@ -118,6 +119,7 @@ type traceDBSchedStartIndex struct {
 	TaintedITIDs   map[int64]bool
 	GlobalBarriers []int64
 	GlobalTaint    bool
+	authority      traceDBSchedulerAuthority
 }
 
 type traceDBRunningInterval struct {

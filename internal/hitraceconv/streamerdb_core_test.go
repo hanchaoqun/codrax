@@ -208,7 +208,7 @@ func TestTraceDBCoreLoadsResolvers(t *testing.T) {
 		rawWakeups[0].TargetCPU != 6 || rawWakeups[0].ITID != 10 {
 		t.Fatalf("typed raw wakeup mismatch coverage=%+v wakeups=%+v", rawCoverage, rawWakeups)
 	}
-	starts, schedCoverage, err := tdb.loadSchedStarts(context.Background(), index)
+	starts, schedCoverage, err := tdb.loadSchedStarts(context.Background(), traceDBTestCompleteSchedulerAuthority(index))
 	if err != nil {
 		t.Fatalf("load sched starts: %v", err)
 	}

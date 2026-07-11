@@ -949,6 +949,10 @@ func traceStreamerSysWakeupParityDBStatements() []string {
 		"INSERT INTO raw VALUES (2942124416000, 'sched_wakeup', 0, 1)",
 		"CREATE TABLE thread_state (itid INT, ts INT, dur INT, cpu INT, state TEXT)",
 		"INSERT INTO thread_state VALUES (1, 2942124415000, 2000, 4, 'Running')",
+		"CREATE TABLE callstack (ts INT, itid INT, callid INT)",
+		"CREATE TABLE syscall (ts INT, itid INT)",
+		"CREATE TABLE native_hook (start_ts INT, itid INT)",
+		"CREATE TABLE frame_slice (ts INT, itid INT)",
 	}
 }
 

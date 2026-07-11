@@ -19,6 +19,12 @@ func traceDBSchedulerAuthorityFixture(complete bool, lifecycle traceDBLifecycleI
 	return newTraceDBSchedulerAuthority(index, collection)
 }
 
+func traceDBTestCompleteSchedulerAuthority(index traceDBThreadIndex) traceDBSchedulerAuthority {
+	return newTraceDBSchedulerAuthority(index, traceDBLifecycleCollection{
+		CreationComplete: true, TerminalComplete: true, ActivityComplete: true,
+	})
+}
+
 func TestTraceDBSchedulerAuthorityThreadAndProcessBoundaries(t *testing.T) {
 	lifecycle := traceDBLifecycleIndex{
 		ByTID: map[int64]traceDBLifecycleLane{

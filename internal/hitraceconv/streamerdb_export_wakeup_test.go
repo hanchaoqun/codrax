@@ -11,8 +11,55 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
-func TestTraceDBWakeupsBerlinMigrationKeepsEmitterAndTargetCPUsDistinct(t *testing.T) {
+func TestTraceDBWakeupLifecycleUnknownPriorityPreservesDependencyEdge(t *testing.T) {
 	body, coverage, index := exportSchedulerFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts INT)",
+		"INSERT INTO trace_range VALUES (900)",
+		"CREATE TABLE process (ipid INT, pid INT, name TEXT)",
+		"INSERT INTO process VALUES (1, 100, 'App')",
+		"INSERT INTO process VALUES (2, 200, 'Worker')",
+		"CREATE TABLE thread (itid INT, tid INT, ipid INT, name TEXT, start_ts INT, is_main_thread INT, switch_count INT)",
+		"INSERT INTO thread VALUES (1, 100, 1, 'app', 900, 1, 1)",
+		"INSERT INTO thread VALUES (2, 200, 2, 'waker', 900, 1, 1)",
+		"CREATE TABLE sched_slice (ts INT, dur INT, cpu INT, end_state TEXT, priority INT, itid INT)",
+		"INSERT INTO sched_slice VALUES (1200, 100, 7, 'R', 42, 1)",
+		"CREATE TABLE instant (ts INT, name TEXT, ref INT, wakeup_from INT, ref_type TEXT, value REAL)",
+		"INSERT INTO instant VALUES (1000, 'sched_wakeup', 1, 2, 'itid', NULL)",
+		"CREATE TABLE raw (id INT, ts INT, name TEXT, cpu INT, itid INT)",
+		"INSERT INTO raw VALUES (1, 1000, 'sched_wakeup', 7, 1)",
+		"CREATE TABLE thread_state (itid INT, ts INT, dur INT, cpu INT, state TEXT)",
+		"INSERT INTO thread_state VALUES (2, 900, 200, 2, 'Running')",
+		"INSERT INTO thread_state VALUES (1, 1100, 1, 7, 'X')",
+		"CREATE TABLE callstack (ts INT, itid INT, callid INT)",
+		"CREATE TABLE syscall (ts INT, itid INT)",
+		"CREATE TABLE native_hook (start_ts INT, itid INT)",
+		"CREATE TABLE frame_slice (ts INT, itid INT)",
+	})
+	if !strings.Contains(body, "sched_wakeup: comm=app pid=100 target_cpu=007 codrax_prio_source=unknown") ||
+		strings.Contains(body, "sched_wakeup: comm=app pid=100 prio=") {
+		t.Fatalf("lifecycle-unknown priority suppressed the edge or minted a priority:\n%s", body)
+	}
+	wakeups := 0
+	for _, event := range index.Events {
+		if event.Type == tracequery.EventSchedWakeup {
+			wakeups++
+			if event.WakeePrioritySource() != tracequery.WakeePrioritySourceUnknown || event.WakeePrio != 0 {
+				t.Fatalf("lifecycle-unknown priority became authoritative after tracequery round trip: %+v", event)
+			}
+		}
+	}
+	if wakeups != 1 {
+		t.Fatalf("lifecycle-unknown priority changed wakeup edge count=%d: %+v", wakeups, index.Events)
+	}
+	item := requireWakeupCoverage(t, coverage)
+	if item.RowsEmitted != 1 || !strings.Contains(item.Skipped, "priority_unknown_edges_preserved=1") ||
+		!strings.Contains(item.Skipped, "wakeup_edges_suppressed=0") {
+		t.Fatalf("field-level priority degradation coverage mismatch: %+v", item)
+	}
+}
+
+func TestTraceDBWakeupsBerlinMigrationKeepsEmitterAndTargetCPUsDistinct(t *testing.T) {
+	body, coverage, index := exportCompleteSchedulerFixture(t, []string{
 		"CREATE TABLE trace_range (start_ts INT)",
 		"INSERT INTO trace_range VALUES (4999000)",
 		"CREATE TABLE process (ipid INT, pid INT, name TEXT)",
@@ -70,7 +117,7 @@ func TestTraceDBWakeupsBerlinMigrationKeepsEmitterAndTargetCPUsDistinct(t *testi
 }
 
 func TestTraceDBWakeupsSameTimestampSameNameUseTypedIdentity(t *testing.T) {
-	body, coverage, _ := exportSchedulerFixture(t, []string{
+	body, coverage, _ := exportCompleteSchedulerFixture(t, []string{
 		"CREATE TABLE trace_range (start_ts INT)",
 		"INSERT INTO trace_range VALUES (900)",
 		"CREATE TABLE process (ipid INT, pid INT, name TEXT)",
@@ -279,6 +326,18 @@ func exportSchedulerFixture(t *testing.T, statements []string) (string, []TraceD
 		t.Fatalf("tracequery scheduler fixture: %v", err)
 	}
 	return string(bodyBytes), coverage, index
+}
+
+func exportCompleteSchedulerFixture(t *testing.T, statements []string) (string, []TraceDBCoverage, *tracequery.Index) {
+	t.Helper()
+	complete := append([]string(nil), statements...)
+	complete = append(complete,
+		"CREATE TABLE callstack (ts INT, itid INT, callid INT)",
+		"CREATE TABLE syscall (ts INT, itid INT)",
+		"CREATE TABLE native_hook (start_ts INT, itid INT)",
+		"CREATE TABLE frame_slice (ts INT, itid INT)",
+	)
+	return exportSchedulerFixture(t, complete)
 }
 
 func requireWakeupCoverage(t *testing.T, coverage []TraceDBCoverage) TraceDBCoverage {

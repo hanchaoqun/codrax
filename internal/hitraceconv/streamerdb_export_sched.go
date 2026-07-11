@@ -104,7 +104,7 @@ func exportTraceDBSchedulerFamilies(ctx context.Context, tdb *traceDB, sink *tra
 	if err != nil {
 		return coverage, err
 	}
-	starts, startsCoverage, err := tdb.loadSchedStarts(ctx, index)
+	starts, startsCoverage, err := tdb.loadSchedStarts(ctx, authority)
 	coverage = append(coverage, startsCoverage)
 	if err != nil {
 		return coverage, err

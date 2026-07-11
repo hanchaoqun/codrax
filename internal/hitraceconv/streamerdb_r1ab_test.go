@@ -50,7 +50,7 @@ func TestTraceDBSchedStartsStrictCohortsAndHarmonyRTPriorities(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	starts, coverage, err := tdb.loadSchedStarts(context.Background(), index)
+	starts, coverage, err := tdb.loadSchedStarts(context.Background(), traceDBTestCompleteSchedulerAuthority(index))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestTraceDBSchedStartPoisonIsANextSliceBarrier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	starts, _, err := tdb.loadSchedStarts(context.Background(), index)
+	starts, _, err := tdb.loadSchedStarts(context.Background(), traceDBTestCompleteSchedulerAuthority(index))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func TestTraceDBSchedStartsAreOrderIndependent(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		starts, coverage, err := tdb.loadSchedStarts(context.Background(), index)
+		starts, coverage, err := tdb.loadSchedStarts(context.Background(), traceDBTestCompleteSchedulerAuthority(index))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -272,7 +272,7 @@ func TestTraceDBSchedStartUnplaceableIdentityAndTimestampTaintsGlobally(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	starts, coverage, err := tdb.loadSchedStarts(context.Background(), index)
+	starts, coverage, err := tdb.loadSchedStarts(context.Background(), traceDBTestCompleteSchedulerAuthority(index))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -618,7 +618,7 @@ func TestTraceDBWakeupPriorityProvenanceAndFieldLevelUnknown(t *testing.T) {
 				"CREATE TABLE thread_state (itid, ts, dur, cpu, state)",
 				"INSERT INTO thread_state VALUES (2, 900, 200, 2, 'Running')",
 			)
-			body, coverage, index := exportSchedulerFixture(t, statements)
+			body, coverage, index := exportCompleteSchedulerFixture(t, statements)
 			item := requireWakeupCoverage(t, coverage)
 			if item.RowsEmitted != 1 || !strings.Contains(body, "codrax_prio_source="+test.wantSource) {
 				t.Fatalf("wakeup priority provenance/edge mismatch: coverage=%+v\n%s", item, body)
@@ -646,7 +646,7 @@ func TestTraceDBWakeupPriorityProvenanceAndFieldLevelUnknown(t *testing.T) {
 }
 
 func TestTraceDBWakeupNewPairsAgainstRawWakeupWithoutRenamingOutput(t *testing.T) {
-	body, coverage, index := exportSchedulerFixture(t, []string{
+	body, coverage, index := exportCompleteSchedulerFixture(t, []string{
 		"CREATE TABLE trace_range (start_ts)", "INSERT INTO trace_range VALUES (900)",
 		"CREATE TABLE process (ipid, pid, name)",
 		"INSERT INTO process VALUES (1, 100, 'App')", "INSERT INTO process VALUES (2, 200, 'Creator')",
@@ -683,7 +683,7 @@ func TestTraceDBWakeupNewPairsAgainstRawWakeupWithoutRenamingOutput(t *testing.T
 func TestTraceDBWakeupSignedUint32ProjectionPreservesHighInternalIDs(t *testing.T) {
 	const targetITID = int64(2147483648)
 	const wakerITID = int64(4294967294)
-	body, coverage, index := exportSchedulerFixture(t, []string{
+	body, coverage, index := exportCompleteSchedulerFixture(t, []string{
 		"CREATE TABLE trace_range (start_ts)", "INSERT INTO trace_range VALUES (0)",
 		"CREATE TABLE process (ipid, pid, name)", "INSERT INTO process VALUES (1, 500, 'HighIDs')",
 		"CREATE TABLE thread (itid, tid, ipid, name, start_ts, is_main_thread, switch_count)",
