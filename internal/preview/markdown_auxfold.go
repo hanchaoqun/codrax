@@ -64,12 +64,13 @@ package preview
 // Blocks with no preceding heading get no label. Labels are
 // presentation-only: they never participate in the dedup key.
 //
-// Closed-set byte forms: the generator emits the markers with an ASCII
-// colon — "树读法:" (answer_document_mutation_runtime_tree.go:6664) and
-// "各列口径:" (answer_document_mutation_runtime.go:981); hex-verified
-// against the customer specimen cust_trace_opendir_792.txt lines 70/155
-// (…e6b395 0x3a / …e5be84 0x3a). The fullwidth-colon variants are also
-// accepted because the §29.9 ruling text writes the markers with "：".
+// Closed-set byte forms: single source = internal/tracefence
+// AuxRefMarkers (UXG-1 M1, 2026-07-12) — the same constants the generator's
+// marker emitters in internal/tool consume (ASCII colon, the engine-actual
+// byte form hex-verified against the customer specimen
+// cust_trace_opendir_792.txt lines 70/155: …e6b395 0x3a / …e5be84 0x3a).
+// The fullwidth-colon variants are DERIVED here (never a second table
+// entry) because the §29.9 ruling text writes the markers with "：".
 // Do NOT add other marker words without a new user ruling (闭集只这
 // 两个起步).
 
@@ -77,6 +78,7 @@ import (
 	stdhtml "html"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/renderer"
@@ -85,12 +87,18 @@ import (
 )
 
 // auxRefMarkers is the exact closed set: the (trimmed) full paragraph
-// text of an aux-reference marker.
-var auxRefMarkers = map[string]bool{
-	"树读法:":  true, // engine-actual form (ASCII colon)
-	"树读法：":  true, // §29.9 ruling wording (fullwidth colon)
-	"各列口径:": true,
-	"各列口径：": true,
+// text of an aux-reference marker. Built from the tracefence single source;
+// each generator marker also admits its fullwidth-colon variant (§29.9
+// ruling wording).
+var auxRefMarkers = buildAuxRefMarkers()
+
+func buildAuxRefMarkers() map[string]bool {
+	out := make(map[string]bool, 2*len(tracefence.AuxRefMarkers()))
+	for _, marker := range tracefence.AuxRefMarkers() {
+		out[marker] = true                              // engine-actual form (ASCII colon)
+		out[strings.TrimSuffix(marker, ":")+"："] = true // ruling wording (fullwidth colon)
+	}
+	return out
 }
 
 const (

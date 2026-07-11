@@ -12299,7 +12299,7 @@ func rootCauseEffectiveImpactMsUncapped(item RootCauseRankItem) float64 {
 	// authoritatively, including zero. Falling through at zero would resurrect
 	// the raw runnable/running/D-IO wall clock under an inversion label even
 	// though the gate proved no inversion-attributable impact.
-	if item.Type == "priority_inversion_candidate" || item.Type == "priority_inversion_runnable_wait" {
+	if rootCauseTypeIsPriorityInversion(item.Type) {
 		return item.EffectiveImpactMs
 	}
 	// The family fold has already applied its typed disjoint/union/MAX ruler
@@ -12887,6 +12887,13 @@ func rootCauseItemFromLockContentionCandidate(q Query, chainThreads map[int]bool
 // row-type family — the causal-impact/aggregate lane (priority_inversion_
 // candidate) AND the RunnableTop lane stamped by
 // applyRunnableTopPriorityInversion (priority_inversion_runnable_wait).
+//
+// UXG-1 M4 (2026-07-12): THE engine-side family single point — the literal
+// token pair may appear together only here and in the causal-token registry
+// rows (source-scan pinned by
+// internal/tool/uxg1_family_predicate_tripwire_test.go; the display-side
+// single point runtimeTracePriorityInversionCandidateType is interlocked with
+// this one through the exported wrapper below).
 func rootCauseTypeIsPriorityInversion(typ string) bool {
 	switch typ {
 	case "priority_inversion_candidate", "priority_inversion_runnable_wait":
@@ -12894,6 +12901,13 @@ func rootCauseTypeIsPriorityInversion(typ string) bool {
 	default:
 		return false
 	}
+}
+
+// RootCauseTypeIsPriorityInversion exposes the inversion row-type family
+// predicate for cross-package consumers and the M4 interlock pin. No token
+// literals here — the family bytes live only at the single point above.
+func RootCauseTypeIsPriorityInversion(typ string) bool {
+	return rootCauseTypeIsPriorityInversion(typ)
 }
 
 // demoteLockDominatedInversionCandidates (Q4-D, ledger §12.1/§12.2 P0-E) —
@@ -13730,11 +13744,16 @@ func rootCauseItemScoreWeight(item RootCauseRankItem) float64 {
 }
 
 func rootCauseTypeWeight(typ string) float64 {
+	// UXG-1 M4: the inversion row-type family reads its ONE predicate — the
+	// literal token pair may appear only at the family single point
+	// (rootCauseTypeIsPriorityInversion; source-scan pinned in
+	// internal/tool/uxg1_family_predicate_tripwire_test.go).
+	if rootCauseTypeIsPriorityInversion(typ) {
+		return 1.35
+	}
 	switch typ {
 	case "io_wait", "d_state_or_io_wait", "binder_wait":
 		return 1.25
-	case "priority_inversion_candidate", "priority_inversion_runnable_wait":
-		return 1.35
 	case "io_pressure":
 		return 1.12
 	case "io_burst_episode":

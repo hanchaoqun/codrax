@@ -336,9 +336,11 @@ func writeTraceProjectionLineRuns(w util.BufWriter, line string, anchor *traceAn
 		if token, rank, width, adjacent, ok := traceProjectionRankToken(line, offset); ok {
 			flushASCII()
 			kind := "ordinal"
-			if strings.HasPrefix(token, "❶") || strings.HasPrefix(token, "❷") || strings.HasPrefix(token, "❸") ||
-				strings.HasPrefix(token, "❹") || strings.HasPrefix(token, "❺") {
-				kind = "chip"
+			for _, badge := range tracefence.BadgeGlyphs() {
+				if strings.HasPrefix(token, badge) {
+					kind = "chip"
+					break
+				}
 			}
 			switch {
 			case kind == "chip":
@@ -494,63 +496,25 @@ func traceProjectionEvidenceRefToken(line string, offset int) (string, int, bool
 	return rest[:i+1], first, true
 }
 
-// traceProjectionIconClass is the renderer-owned state-mark directory.
-// Only this exact set rides the v5 P0 envelope slot (2ch with its companion
-// space, 1ch when standing alone) — the authoritative character, textContent
-// and grid geometry stay unchanged. Unknown/customer text remains on the
-// ordinary rune/run path.
+// traceProjectionIconClass resolves a rune against the single-source
+// state-mark directory (internal/tracefence, UXG-1 M1 — this function was the
+// hand-copied preview mirror of the tool-side §24.3 glyph table until
+// 2026-07-12). Only that exact set rides the v5 P0 envelope slot (2ch with
+// its companion space, 1ch when standing alone) — the authoritative
+// character, textContent and grid geometry stay unchanged. Unknown/customer
+// text remains on the ordinary rune/run path. The UXG-0 D3 exclusions
+// (⚠/◇/▒ deliberately not boxed) are documented on the directory itself.
 func traceProjectionIconClass(r rune) string {
-	switch r {
-	case '⊚':
-		return "root"
-	case '☾':
-		return "sleep"
-	case '⧖':
-		return "runnable"
-	case '⚙':
-		return "running"
-	case '⛓':
-		return "io"
-	case '⧗':
-		// UXR-1 §29.36② (2026-07-11): the off-chain (◇/▒) D-state/IO family
-		// glyph — same optical family as ⛓.
-		return "io"
-	case '⊗':
-		return "lock"
-	case '⊘':
-		// UXG-0 D3 (2026-07-11): the 链止/undrillable mark — flat-fallback
-		// banner head (UXR-1 §29.36①) and the ⊘链止 keep-mark. Same U+2298
-		// circled family and one-cell optical box as ⊚/⊗.
-		return "undrillable"
-	case '⇅':
-		return "inversion"
-	case '✦':
-		return "optimization"
-	case '↯':
-		return "interrupt"
-	case '◌':
-		return "blind"
-	case '◦':
-		return "neutral"
-	default:
-		return ""
-	}
-	// UXG-0 D3 rulings (2026-07-11) — glyphs deliberately NOT in the box this
-	// batch (revisit in UXG-1):
-	//   ⚠ — rides INSIDE composed word tokens (⚠实际Xms, ⚠ caveats); boxing it
-	//       would split a word into cell fragments mid-token.
-	//   ◇ — line-head stanza FIELD mark (◇ 邻近区段 header + legend), not a
-	//       one-cell state icon slot.
-	//   ▒ — line-head stanza field mark AND the background bar-fill character
-	//       (▒▒▒░░… runs); boxing would restyle bar ink.
+	return tracefence.StateMarkClass(r)
 }
 
 // traceProjectionActionToken highlights only the generator's actionable
-// optimization word inside a causal tree. Width is the existing terminal-grid
+// optimization word inside a causal tree (single source:
+// tracefence.ActionTokens, UXG-1 M1). Width is the existing terminal-grid
 // width, so the HTML emphasis cannot move any following metric column.
 func traceProjectionActionToken(line string, offset int) (string, int, bool) {
 	rest := line[offset:]
-	for _, token := range []string{"优化点", "optimization point"} {
+	for _, token := range tracefence.ActionTokens() {
 		if strings.HasPrefix(rest, token) {
 			return token, runewidth.StringWidth(token), true
 		}
@@ -570,23 +534,25 @@ func traceProjectionActionToken(line string, offset int) (string, int, bool) {
 // adjacent-impact #N) is recognized as its own arm — adjacent=true — so the
 // chip keeps the shared ordinal geometry but wears the NEUTRAL channel color
 // (user ruling: 同样式、中性色区分通道) instead of a root-cause rank color.
-// The channel phrases are hand-mirrored from runtimeTraceProjSeatChannelWord
-// (internal/tool/answer_document_mutation_runtime_rcr.go — THE single
-// channel-word source; zh chips are word#N, en chips word␣#N). This is the
-// phrase set's third hand copy and the last one allowed: UXG-1 single-sources
-// it.
+// UXG-1 M1 (2026-07-12): the channel phrases and the badge family now come
+// from internal/tracefence — the same constants runtimeTraceProjSeatChannelWord
+// and runtimeTraceProjBadgeGlyph (internal/tool) consume; the hand copy UXG-0
+// D2 flagged as "the last one allowed" is retired (zh chips are word#N, en
+// chips word␣#N).
 func traceProjectionRankToken(line string, offset int) (token string, rank, width int, adjacent, ok bool) {
 	rest := line[offset:]
-	for rank, token := range []string{"❶", "❷", "❸", "❹", "❺"} {
+	for rank, token := range tracefence.BadgeGlyphs() {
 		if strings.HasPrefix(rest, token) {
 			return token, rank + 1, 1, false, true
 		}
 	}
 	previous := line[:offset]
 	switch {
-	case strings.HasSuffix(previous, "根因排序") || strings.HasSuffix(previous, "root-cause rank "):
+	case strings.HasSuffix(previous, tracefence.SeatChannelChainZH) ||
+		strings.HasSuffix(previous, tracefence.SeatChannelChainEN+" "):
 		adjacent = false
-	case strings.HasSuffix(previous, "邻近影响") || strings.HasSuffix(previous, "adjacent-impact "):
+	case strings.HasSuffix(previous, tracefence.SeatChannelAdjacentZH) ||
+		strings.HasSuffix(previous, tracefence.SeatChannelAdjacentEN+" "):
 		adjacent = true
 	default:
 		return "", 0, 0, false, false

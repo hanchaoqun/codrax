@@ -55,7 +55,10 @@ const runtimeTraceProjRootGlyph = tracefence.RootGlyph
 // width class; NOT the ⛓ U+26D3 class, which is East-Asian-Ambiguous and
 // measures 2 under EastAsianWidth). One constant, two surfaces: the icon
 // resolver and the single-cell/EAW width pin (UXR-1 复核 P2-4).
-const runtimeTraceProjOffChainDStateGlyph = "⧗"
+// EVOLUTION RECORD (UXG-1 M1, 2026-07-12): the byte lives in
+// internal/tracefence — the state-mark directory shared with the preview
+// icon classifier.
+const runtimeTraceProjOffChainDStateGlyph = tracefence.GlyphOffChainDState
 
 // --- §24.3 impact-form table (glyph + category, ONE typed source) -------------
 
@@ -126,52 +129,52 @@ type runtimeTraceProjImpactFormSpec struct {
 // runtimeTraceProjImpactFormSpecs is the exhaustive §24.3 form directory.
 func runtimeTraceProjImpactFormSpecs() []runtimeTraceProjImpactFormSpec {
 	return []runtimeTraceProjImpactFormSpec{
-		{Form: runtimeTraceProjImpactFormRunning, Glyph: "⚙",
+		{Form: runtimeTraceProjImpactFormRunning, Glyph: tracefence.GlyphRunning,
 			CategoryZH: "算力供给候选", CategoryEN: "compute-supply candidate",
 			Mark: runtimeTraceProjMarkIconRunning},
-		{Form: runtimeTraceProjImpactFormSleep, Glyph: "☾",
+		{Form: runtimeTraceProjImpactFormSleep, Glyph: tracefence.GlyphSleep,
 			Mark: runtimeTraceProjMarkIconSleep},
-		{Form: runtimeTraceProjImpactFormIOBlock, Glyph: "⛓",
+		{Form: runtimeTraceProjImpactFormIOBlock, Glyph: tracefence.GlyphIOChain,
 			CategoryZH: "IO阻塞候选", CategoryEN: "IO-blocking candidate",
 			Mark: runtimeTraceProjMarkIconDState},
 		// SYM-2 §24.17 R2 (2026-07-08): the D-state family's OWN table row —
 		// glyph/mark stay on the existing ⛓ D-state icon semantics (legend
 		// entry unchanged), only the 行2 category word splits from IO阻塞候选.
-		{Form: runtimeTraceProjImpactFormDState, Glyph: "⛓",
+		{Form: runtimeTraceProjImpactFormDState, Glyph: tracefence.GlyphIOChain,
 			CategoryZH: "D状态候选", CategoryEN: "D-state candidate",
 			Mark: runtimeTraceProjMarkIconDState},
 		// EVOLUTION RECORD (SYM-2 §24.17 R2, 2026-07-08): 就绪排队候选 →
 		// 调度压力候选 — the runnable family's 行2 word joins the §7.4
 		// ruling-locked demand-side vocabulary (调度压力/需求积压; the ⧖ legend
 		// keeps its state semantics 就绪等待).
-		{Form: runtimeTraceProjImpactFormRunnable, Glyph: "⧖",
+		{Form: runtimeTraceProjImpactFormRunnable, Glyph: tracefence.GlyphRunnable,
 			CategoryZH: "调度压力候选", CategoryEN: "scheduling-pressure candidate",
 			Mark: runtimeTraceProjMarkIconRunnable},
-		{Form: runtimeTraceProjImpactFormLock, Glyph: "⊗",
+		{Form: runtimeTraceProjImpactFormLock, Glyph: tracefence.GlyphLock,
 			CategoryZH: "锁竞争·持锁", CategoryEN: "lock contention · holder",
 			SemanticsZH: "锁竞争(持锁/被锁阻塞)", SemanticsEN: "lock contention (holding / blocked on a lock)",
 			Mark: runtimeTraceProjMarkIconLock, GeneratedLegend: true},
-		{Form: runtimeTraceProjImpactFormInversion, Glyph: "⇅",
+		{Form: runtimeTraceProjImpactFormInversion, Glyph: tracefence.GlyphInversion,
 			CategoryZH: "优先级反转候选", CategoryEN: "priority-inversion candidate",
 			SemanticsZH: "优先级反转候选(低优先级依赖/持有资源可能阻塞高优先级)", SemanticsEN: "a priority-inversion candidate (a lower-priority dependency/holder may block a higher-priority waiter)",
 			Mark: runtimeTraceProjMarkIconInversion, GeneratedLegend: true},
-		{Form: runtimeTraceProjImpactFormDeterministicOpt, Glyph: "✦",
+		{Form: runtimeTraceProjImpactFormDeterministicOpt, Glyph: tracefence.GlyphOptimization,
 			CategoryZH: "语义优化候选", CategoryEN: "semantic-optimization candidate",
 			Mark: runtimeTraceProjMarkSemanticSpan},
-		{Form: runtimeTraceProjImpactFormInterrupt, Glyph: "↯",
+		{Form: runtimeTraceProjImpactFormInterrupt, Glyph: tracefence.GlyphInterrupt,
 			CategoryZH: "中断活动候选", CategoryEN: "interrupt-activity candidate",
 			SemanticsZH: "中断活动(IRQ/IPI/工作队列等)", SemanticsEN: "interrupt activity (IRQ/IPI/workqueue …)",
 			Mark: runtimeTraceProjMarkIconInterrupt, GeneratedLegend: true},
-		{Form: runtimeTraceProjImpactFormBlindSpot, Glyph: "◌",
+		{Form: runtimeTraceProjImpactFormBlindSpot, Glyph: tracefence.GlyphBlindSpot,
 			SemanticsZH: "数据缺失记号(窗内数据缺口,非成因)", SemanticsEN: "a data-gap marker (missing in-window data, not a cause)",
 			Mark: runtimeTraceProjMarkIconBlindSpot, GeneratedLegend: true},
 		// PTV8-RCR-C 复核收尾: binder IPC waits leave the ⛓ IO family — the
 		// category word rides the typelabels binder等待 typed word (+候选 同族
 		// 模式); the glyph borrows ◦ until a dedicated IPC glyph is ruled.
-		{Form: runtimeTraceProjImpactFormBinderWait, Glyph: "◦",
+		{Form: runtimeTraceProjImpactFormBinderWait, Glyph: tracefence.GlyphNeutral,
 			CategoryZH: "binder等待候选", CategoryEN: "binder-wait candidate",
 			Mark: runtimeTraceProjMarkIconNoDominant},
-		{Form: runtimeTraceProjImpactFormFallback, Glyph: "◦",
+		{Form: runtimeTraceProjImpactFormFallback, Glyph: tracefence.GlyphNeutral,
 			Mark: runtimeTraceProjMarkIconNoDominant},
 	}
 }
@@ -473,25 +476,25 @@ func runtimeTraceProjRowOrdinalChannel(row runtimeTraceProjTreeRow) string {
 // the two surfaces (the M3 mutation now bites both). ok=false on the
 // background channel (通道3 无序数).
 //
-// UXG-0 D2 (2026-07-11): the HTML chip classifier traceProjectionRankToken
-// (internal/preview/markdown.go) hand-mirrors these phrases (根因排序#N /
-// 邻近影响#N zh, root-cause rank #N / adjacent-impact #N en) — changing a
-// word here without that arm silently unstyles the chip. UXG-1 single-sources
-// the phrase set.
+// EVOLUTION RECORD (UXG-1 M1, 2026-07-12): the phrase BYTES moved to
+// internal/tracefence — the HTML chip classifier traceProjectionRankToken
+// (internal/preview/markdown.go) reads the same constants, retiring the hand
+// mirror UXG-0 D2 flagged as "the last one allowed" (根因排序#N / 邻近影响#N
+// zh, root-cause rank #N / adjacent-impact #N en).
 func runtimeTraceProjSeatChannelWord(channel string, zh bool) (string, bool) {
 	switch channel {
 	case runtimeTraceProjOrdinalChannelAdjacent:
 		if zh {
-			return "邻近影响", true
+			return tracefence.SeatChannelAdjacentZH, true
 		}
-		return "adjacent-impact", true
+		return tracefence.SeatChannelAdjacentEN, true
 	case runtimeTraceProjOrdinalChannelBackground:
 		return "", false
 	default:
 		if zh {
-			return "根因排序", true
+			return tracefence.SeatChannelChainZH, true
 		}
-		return "root-cause rank", true
+		return tracefence.SeatChannelChainEN, true
 	}
 }
 
@@ -525,16 +528,19 @@ func runtimeTraceProjMentionFloorWord(row runtimeTraceProjTreeRow, zh bool) stri
 	if !row.MentionFloorOnChain {
 		return ""
 	}
+	// UXG-1 M1 (2026-07-12): the action-word head composes from the
+	// tracefence single source (byte-identical) — the preview action-token
+	// classifier emphasizes exactly this head.
 	if row.MentionFloorTopN > 0 {
 		if zh {
-			return fmt.Sprintf("优化点·未入根因排序前%d", row.MentionFloorTopN)
+			return fmt.Sprintf("%s·未入%s前%d", tracefence.ActionWordZH, tracefence.SeatChannelChainZH, row.MentionFloorTopN)
 		}
-		return fmt.Sprintf("optimization point · below the top-%d root-cause board", row.MentionFloorTopN)
+		return fmt.Sprintf("%s · below the top-%d root-cause board", tracefence.ActionWordEN, row.MentionFloorTopN)
 	}
 	if zh {
-		return "优化点·未入根因排序"
+		return tracefence.ActionWordZH + "·未入" + tracefence.SeatChannelChainZH
 	}
-	return "optimization point · not on the root-cause board"
+	return tracefence.ActionWordEN + " · not on the root-cause board"
 }
 
 // runtimeTraceProjCauseRankConfidence resolves the 行2 榜位/置信 pair: the
@@ -856,8 +862,11 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 	//
 	// EVOLUTION RECORD (§29.36.2 supersedes RCM-2 D2/§23.2 E1b chip half): the
 	// 背景榜位#N chip is RETIRED — the background board is unordered for the
-	// reader (口径混杂,序数不可比); BackgroundRank stays a typed INTERNAL filter
-	// for the §23.1 prose mention gate (background_rank<=3), never a chip.
+	// reader (口径混杂,序数不可比). Node.BackgroundRank itself has NO
+	// display-face consumer (§29.40 W-2 exemption): the §23.1 mention
+	// obligation is soft guidance on the LLM face (the background_rank= wire
+	// note emitted by internal/tool/trace_query.go), never a chip and never a
+	// display gate on this field.
 	if chip, ok := runtimeTraceProjSeatChipWord(row, rank, zh); ok {
 		identity = append(identity, chip)
 		// PTV8-RCR-C (§24.13 裁定二后半): the multi-board window tag binds to

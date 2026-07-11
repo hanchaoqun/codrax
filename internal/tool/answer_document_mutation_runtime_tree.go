@@ -249,12 +249,16 @@ type runtimeTraceProjTreeRow struct {
 	// inversion-candidate segment through two lanes (root_cause_rank +
 	// wakeup_causal_impact) and the tree rendered both as sibling/cause rows.
 	// The chain row keeps the tree position/edge semantics; the rank row's
-	// type word / rank badge / confidence ride the fold note, its E# stays
-	// registered on the evidence index, and its numerator-relevant magnitudes
-	// ride the invariance carriers below so the coverage arithmetic is
-	// byte-identical to the two-row render (显示≠归因 red line). Display
-	// grouping only — the projection buckets and the rank funnel are
-	// untouched.
+	// rank badge / confidence transfer into 行2 (runtimeTraceProjCause-
+	// RankConfidence), its E# stays registered on the evidence index, and its
+	// numerator-relevant magnitudes ride the invariance carriers below so the
+	// coverage arithmetic is byte-identical to the two-row render (显示≠归因
+	// red line). TypeWord is carried but currently has NO word-face consumer:
+	// its only reader (the retired fold note) was removed in aabccb6f — the
+	// field stays per the §29.40 OM-6 ruling (A 臂), and its 「链上并入」
+	// word-face arm pends the v5 P2c batch (P2c 词面臂待接; info-contract
+	// census tracks it as known_gap OM-6). Display grouping only — the
+	// projection buckets and the rank funnel are untouched.
 	RankFoldPeers []runtimeTraceProjRankFoldPeer
 	// SelfSymptomFoldPeers carries a target_self_state rank-lane view that was
 	// proven to describe the same focused-thread scheduler-state segment as
@@ -2400,7 +2404,7 @@ func runtimeTraceProjAnnotateFoldRosterRankPointers(model *runtimeTraceProjTreeM
 				if zh {
 					rows[i].Node.MergedSubjects[j] = fmt.Sprintf("%s(见榜位#%d)", raw, seat.rank)
 				} else {
-					rows[i].Node.MergedSubjects[j] = fmt.Sprintf("%s (see root-cause rank #%d)", raw, seat.rank)
+					rows[i].Node.MergedSubjects[j] = fmt.Sprintf("%s (see %s #%d)", raw, tracefence.SeatChannelChainEN, seat.rank)
 				}
 			}
 		}
@@ -2849,20 +2853,15 @@ func runtimeTraceProjLeadElectionRows(model runtimeTraceProjTreeModel) []runtime
 // Empty for rank 0 / out-of-range (badges are seats 1..5 only — §29.27.1 ②:
 // ❹/❺ come from the same U+2776.. dingbat block and East-Asian-width class as
 // ❶❷❸, no new width class).
+// EVOLUTION RECORD (UXG-1 M1, 2026-07-12): the badge bytes live in
+// internal/tracefence.BadgeGlyphs — the single family source shared with the
+// preview chip classifier (traceProjectionRankToken).
 func runtimeTraceProjBadgeGlyph(rank int) string {
-	switch rank {
-	case 1:
-		return "❶"
-	case 2:
-		return "❷"
-	case 3:
-		return "❸"
-	case 4:
-		return "❹"
-	case 5:
-		return "❺"
+	badges := tracefence.BadgeGlyphs()
+	if rank < 1 || rank > len(badges) {
+		return ""
 	}
-	return ""
+	return badges[rank-1]
 }
 
 // runtimeTraceProjSeatOrdinalToken renders a seat ordinal with its §29.27.1
@@ -3278,10 +3277,13 @@ func runtimeTraceProjIOFoldNoteText(peers []runtimeTraceProjIOFoldPeer, zh bool)
 // dominant state, tree position/edge) — and the tree rendered both, as
 // sibling cause rows (cmp_01 E7/E8, opendir E6/E7), a trunk row + cause child
 // (huadong E4/E5) or sibling wake rows (huadong E11/E13). The fold keeps the
-// CHAIN row (树位/边语义) and merges the rank row's type word / rank badge /
-// confidence into a note on it; the rank row's E# stays registered on the
-// evidence index and mirrored in the lossless stanza. Engine work (the P0-E
-// de-double-publish) is untouched — this is the display half.
+// CHAIN row (树位/边语义) and merges the rank row's rank badge / confidence
+// into 行2; the rank row's E# stays registered on the evidence index and
+// mirrored in the lossless stanza. The rank row's TYPE WORD is carried on
+// RankFoldPeers.TypeWord but is not yet worded anywhere (its one-time fold
+// note reader was retired in aabccb6f; §29.40 OM-6 ruling keeps the field —
+// the word-face arm pends v5 P2c). Engine work (the P0-E de-double-publish)
+// is untouched — this is the display half.
 
 // runtimeTraceProjRankFoldPeer is one folded rank-lane view of a segment: the
 // display annotation payload plus the numerator-invariance carriers (the
@@ -3490,9 +3492,11 @@ func runtimeTraceProjFoldSameSegmentLaneTwins(nodes []types.TraceCausalProjectio
 // 「链上·未接入树 ❶⚙ Texture upload(15573)… ×11 [E13]」, one 11-span family
 // on two E# seats). The fold keeps the SEMANTIC row (✦ 词位 = 类名, roster,
 // caliber word — §29.7-2 ④ 行1 类名) and folds the rank row into it: the rank
-// ordinal/tier transfer onto the node, the rank row's E#/type word ride the
-// shared RankFoldPeers carrier (行1 [E#+E#] bracket, detail 根因排序 line,
-// bar-scale/disclosure MAX invariance — the RNB R2 vocabulary verbatim).
+// ordinal/tier transfer onto the node, the rank row's E# rides the shared
+// RankFoldPeers carrier (行1 [E#+E#] bracket, detail 根因排序 line,
+// bar-scale/disclosure MAX invariance — the RNB R2 vocabulary verbatim);
+// the carrier's TypeWord field is stored but word-face-less today (§29.40
+// OM-6 ruling: field kept, 词面臂 pends v5 P2c).
 //
 // B9 production witness (cust_trace_vc_710.txt, 2026-07-10) widened the
 // relevance scope: the same off-chain class_verification family occupied a
@@ -3678,16 +3682,21 @@ func runtimeTraceProjFoldSemanticRankLaneTwinsDetailed(rankNodes []types.TraceCa
 		case "adjacent":
 			// UXR-1 (§29.36.2, 2026-07-11): the adjacent twin's Rank is the
 			// 邻近影响 channel's own ordinal — the survivor adopts it (the chip
-			// printer words it per channel, never as an on-chain seat). The
-			// BackgroundRank mention-gate filter transfers unchanged.
+			// printer words it per channel, never as an on-chain seat).
+			// BackgroundRank transfers as CARRIER preservation only: the field
+			// has no display-face reader (§29.40 W-2 exemption) — the §23.1
+			// mention obligation rides the LLM-face background_rank= wire note
+			// (internal/tool/trace_query.go), not this Node field.
 			sem.Rank = rank.Rank
 			if rank.BackgroundRank > 0 {
 				sem.BackgroundRank = rank.BackgroundRank
 			}
 		default:
 			// Background rows carry no ordinal (通道3 无序数). The folded rank
-			// record remains reachable through RankFoldPeers/E#; the mention
-			// gate keeps reading BackgroundRank.
+			// record remains reachable through RankFoldPeers/E#; BackgroundRank
+			// transfers as carrier preservation for the wire face — no display
+			// consumer reads it (§29.40 W-2; the mention obligation is the
+			// LLM-face background_rank= note, not this field).
 			sem.Rank = 0
 			if rank.BackgroundRank > 0 {
 				sem.BackgroundRank = rank.BackgroundRank
@@ -5421,7 +5430,7 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 			label = "sleep"
 		}
 		row.marks.mark(runtimeTraceProjMarkIconSleep)
-		main = append(main, badge+"☾ "+selfPrefix+label)
+		main = append(main, badge+tracefence.GlyphSleep+" "+selfPrefix+label)
 	} else if name != "" {
 		// NEW-10 (§7.6 记号区规整): every self row leads with exactly one state
 		// glyph (sleep rows already carry ☾) — a constant one-glyph slot keeps
@@ -5524,9 +5533,9 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 		// read as a second unexplained account. Exact typed reason match;
 		// worded rows keep the bare marker byte-identically.
 		row.marks.mark(runtimeTraceProjMarkUndrillable)
-		tag := "⊘链止"
+		tag := tracefence.GlyphUndrillable + "链止"
 		if !zh {
-			tag = "⊘chain ends"
+			tag = tracefence.GlyphUndrillable + "chain ends"
 		}
 		if wordless && strings.TrimSpace(node.UndrillableReason) == "missing_wakeup" {
 			if zh {
@@ -5727,12 +5736,12 @@ func runtimeTraceProjStateIcon(node types.TraceCausalProjectionNode, kind string
 		} else {
 			marks.mark(runtimeTraceProjMarkIconTransit)
 		}
-		return "◦"
+		return tracefence.GlyphNeutral
 	}
 	spec, ok := runtimeTraceProjImpactFormSpecFor(form)
 	if !ok {
 		marks.mark(runtimeTraceProjMarkIconNoDominant)
-		return "◦"
+		return tracefence.GlyphNeutral
 	}
 	// UXR-1 §29.36② (4165 ◇段内戴⛓ 分叉形): the ⛓ glyph visually claims chain
 	// membership, so it renders ONLY on the chain channel — off-chain (◇/▒)
@@ -5745,7 +5754,7 @@ func runtimeTraceProjStateIcon(node types.TraceCausalProjectionNode, kind string
 	// stanza rows, the node's typed relevance elsewhere — mirrored by the
 	// caller-side row channel authority (empty relevance stays chain,
 	// fail-open).
-	if spec.Glyph == "⛓" && runtimeTraceProjIconOffChain(node, kind) {
+	if spec.Glyph == tracefence.GlyphIOChain && runtimeTraceProjIconOffChain(node, kind) {
 		marks.mark(runtimeTraceProjMarkIconDStateOffChain)
 		return runtimeTraceProjOffChainDStateGlyph
 	}
@@ -6797,11 +6806,16 @@ func runtimeTraceProjSubordinatePackedLines(indent string, texts []string) []str
 // words, confidence tiers); it is a display-wrap boundary table only — never
 // a parser and never a gate. Longest-first inside shared prefixes.
 var runtimeTraceProjWrapAtomCompounds = []string{
-	"根因排序#", // fuses with the trailing rank digits (根因排序#9 is one atom)
+	// UXG-1 修复轮 F2 (2026-07-12): the two live ordinal-chip atoms DERIVE
+	// from the tracefence channel words — this table is a byte-form consumer
+	// (a channel-word edit that skipped it would silently un-fuse the chip at
+	// wrap boundaries, the most dangerous drift face). The retired 背景榜位#
+	// entry stays a literal: it matches legacy persisted payload replays only
+	// and has no tracefence row by design (§29.36.2 chip retirement).
+	tracefence.SeatChannelChainZH + "#", // fuses with the trailing rank digits (根因排序#9 is one atom)
 	// UXR-1 (§29.36.2): the adjacent-channel ordinal chip fuses with its
-	// digits like the rank ordinal above (邻近影响#3 is one atom). The retired
-	// 背景榜位# entry stays matched for legacy persisted payload replays only.
-	"邻近影响#",
+	// digits like the rank ordinal above (邻近影响#3 is one atom).
+	tracefence.SeatChannelAdjacentZH + "#",
 	"背景榜位#",
 	"有效归因",
 	"承自归因",
@@ -6886,7 +6900,7 @@ func runtimeTraceProjWrapCompoundAt(runes []rune, i int) (string, int) {
 			continue
 		}
 		n := len(cr)
-		if compound == "根因排序#" || compound == "邻近影响#" || compound == "背景榜位#" {
+		if compound == tracefence.SeatChannelChainZH+"#" || compound == tracefence.SeatChannelAdjacentZH+"#" || compound == "背景榜位#" {
 			for i+n < len(runes) && runes[i+n] >= '0' && runes[i+n] <= '9' {
 				n++
 			}
@@ -7654,9 +7668,9 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 			runtimeTraceCausalProjectionSemanticSpanRow(node)) && shapeCellUsed &&
 			strings.TrimSpace(node.SemanticClass) != "" {
 			if zh {
-				action = "优化点"
+				action = tracefence.ActionWordZH
 			} else {
-				action = "optimize"
+				action = tracefence.ActionWordENShort
 			}
 		}
 		// PTV6-C #6 (#73) + b3 第三标本修 (2026-07-06): a state-restating
@@ -8036,9 +8050,9 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		// PTV4 T4/T5: bare ⊘链止 — the sched_wakeup explanation lives in the
 		// legend's ⊘ entry. MainRow: a T1 Keep 记号.
 		row.marks.mark(runtimeTraceProjMarkUndrillable)
-		text := "⊘链止"
+		text := tracefence.GlyphUndrillable + "链止"
 		if !zh {
-			text = "⊘chain ends"
+			text = tracefence.GlyphUndrillable + "chain ends"
 		}
 		tags = append(tags, runtimeTraceProjTag{Text: text, MainRow: true})
 	}
@@ -8293,7 +8307,7 @@ func runtimeTraceProjLeadText(projection types.TraceCausalProjection, model runt
 			headClause = "- 各行按层级平铺,不构成上下游链。"
 		}
 		lines := []string{
-			"树读法:",
+			tracefence.AuxTreeLegendMarker,
 			headClause,
 			// PTV6-C ruling C (#73, 用户裁定 2026-07-06): the grounding clause
 			// points at the report's own evidence index (which now carries
@@ -11367,7 +11381,7 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 func runtimeTraceProjDetailSeatGlyph(row runtimeTraceProjTreeRow, zh bool) string {
 	switch row.Kind {
 	case runtimeTraceProjTreeRowSemantic:
-		return "✦"
+		return tracefence.GlyphOptimization
 	case runtimeTraceProjTreeRowAdjacent:
 		return "◇"
 	case runtimeTraceProjTreeRowBackground:

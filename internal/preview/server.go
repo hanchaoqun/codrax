@@ -510,9 +510,9 @@ func renderHTMLPage(a pageArgs) string {
   --rank-3-fg: #5b21b6; --rank-3-bg: #ede9fe;
   --rank-4-fg: #14532d; --rank-4-bg: #dcfce7;
   --rank-5-fg: #9d174d; --rank-5-bg: #fce7f3;
-  /* UXG-0 D2 (§29.36.2): ◇ adjacent-impact ordinals share the chip shape but
+  /* UXG-0 D2 (§29.36.2): ◇ adjacent-channel ordinals share the chip shape but
      wear ONE neutral slate-blue pair — a per-rank palette would invite the
-     forbidden cross-channel comparison with 根因排序 colors. */
+     forbidden cross-channel comparison with the root-cause seat colors. */
   --rank-adjacent-fg: #334155; --rank-adjacent-bg: #e2e8f0;
   --action-fg: #166534; --action-bg: #ecfdf3; --action-border: #86efac;
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei", Arial, sans-serif;
@@ -576,7 +576,7 @@ pre.trace-projection-tree .trace-cell-2 { width: 2ch; min-width: 2ch; }
    baseline is inherited from the inline box (if a measured offset ever
    needs correcting, use the derived form -(lineBox-1em)/2 and write out the
    derivation; bare constants are forbidden). A mark WITHOUT a companion
-   space (⊘ inside the ⊘链止 keep-mark) keeps a 1ch slot with its
+   space (the circled mark inside the 链止 keep-mark) keeps a 1ch slot with its
    overflowing ink track centered — place-items centers the item only
    within its grid AREA, and Chromium sizes the auto track to the ink, so
    the wider-than-1ch track needs justify-content to sit symmetrically
@@ -660,7 +660,7 @@ section.trace-projection-detail > table,
 section.trace-projection-detail > pre { break-before: avoid-column; break-inside: avoid-column; }
 section.trace-projection-detail li,
 section.trace-projection-evidence li { margin: .2em 0; }
-/* §29.9 aux-reference appendix ("树读法:"/"各列口径:" blocks, markdown_auxfold.go):
+/* §29.9 aux-reference appendix (the tracefence.AuxRefMarkers blocks, markdown_auxfold.go):
    reference blocks relocate to the document-end 「阅读参考」 appendix;
    the in-place pointer lines and the whole appendix render small and
    muted, visibly subordinate to the main body. */

@@ -19,6 +19,7 @@ import (
 
 	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -5540,7 +5541,9 @@ func traceQueryRootCausePositionWord(tier string, rank int, relevance string) st
 		return fmt.Sprintf("%s row (no rank seat)", tier)
 	}
 	if relevance == "adjacent" {
-		return fmt.Sprintf("%s adjacent-impact #%d", tier, rank)
+		// UXG-1 修复轮 F2 (2026-07-12): the LLM-face position word quotes the
+		// SAME channel word the display chip wears (tracefence single source).
+		return fmt.Sprintf("%s %s #%d", tier, tracefence.SeatChannelAdjacentEN, rank)
 	}
 	return fmt.Sprintf("%s cause #%d", tier, rank)
 }

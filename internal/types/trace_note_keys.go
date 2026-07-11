@@ -414,9 +414,12 @@ const (
 	// P0-E2a counterpart-resolution family (§10 A2 / §11 N8 / §12 Q4-C): the
 	// typed origin of a resolved blocking counterpart, the raw payload owner tid
 	// preserved when a cross-namespace phantom was replaced by a wakeup-edge
-	// fallback, and the wait object of a payload-less blocking span. All
-	// display tier today (the P0-A projection/answer face consumes them, exactly
-	// like the drill_status precedent).
+	// fallback, and the wait object of a payload-less blocking span. Actual
+	// consumer state (UXG-1 假注释勘正, §29.40, 2026-07-12): holder_source and
+	// owner_tid_raw were promoted to hard_consumer node-field read-ins (§24.9-C
+	// F5); peer_source and wait_object remain display_only with NO
+	// deterministic display consumer — wait_object is known_gap OM-11 (明细锁块
+	// 「等待对象」行, host batch IC-L).
 	TraceNoteKeyHolderSource = "holder_source"
 	TraceNoteKeyPeerSource   = "peer_source"
 	TraceNoteKeyOwnerTidRaw  = "owner_tid_raw"
@@ -431,8 +434,12 @@ const (
 	// identity ("tgid=<G> ns_pid=<P> level=process[ comm=<name>]") published
 	// when the container tid could not be mapped to a host thread — the host
 	// tgid is NEVER stuffed into a peer PID (§19 typed-pair pin), it rides
-	// this display note. Both display tier today (P0-A consumes, exactly like
-	// holder_source).
+	// this display note. Actual consumer state (UXG-1 假注释勘正, §29.40 OM-10,
+	// 2026-07-12): both keys are display_only with NO consumer — unlike
+	// holder_source (which really has a compile read-in + Node field + word
+	// face), these two have none of the three; the engine itself records the
+	// value "survives on the display note only" (ns_span_derivation.go). The
+	// 明细持有者来历块 wiring is known_gap OM-10, host batch IC-L.
 	TraceNoteKeyHolderNsUnification = "holder_ns_unification"
 	TraceNoteKeyHolderHostProcess   = "holder_host_process"
 	// P0-E 锁车道修2 (ledger §24.9-C F2, 2026-07-09): the payload hand-off
@@ -709,8 +716,10 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyTargetImpactMS, "impact", TraceNoteCarrierHardConsumer},
 	// inherited_target_blocked_ms (Q4-B, §12.3 ruling 2, P0-E1): the
 	// wakeup-dependency window value an on-chain resource row INHERITS as
-	// annotation-only context — 承自只作注记,永不作硬排序键. Display tier;
-	// the P0-A display batch consumes it for the 承自 note.
+	// annotation-only context — 承自只作注记,永不作硬排序键. Display tier
+	// with NO consumer today (UXG-1 假注释勘正, §29.40, 2026-07-12: the former
+	// "P0-A display batch consumes it" claim never landed) — the 承接目标阻塞
+	// annotation line is known_gap OM-13, host batch IC-A.
 	{"inherited_target_blocked_ms", "impact", TraceNoteCarrierDisplayOnly},
 	{"rank_impact", "impact", TraceNoteCarrierDisplayOnly},
 	{"duration", "impact", TraceNoteCarrierDisplayOnly},
@@ -859,8 +868,9 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// is ALWAYS wakeup_edge when a blocker is named (F2: the hop-2 name is
 	// structurally an inference, never payload-direct); peer_chain_presumptive
 	// is true when the counterpart itself was only wakeup-edge-resolved
-	// (inference on inference). Display tier today; the P0-A projection/answer
-	// face consumes them, exactly like the peer_state / drill_status precedent.
+	// (inference on inference). Display tier with NO projection/answer-face
+	// consumer today (UXG-1 假注释勘正, §29.40, 2026-07-12) — the continuation
+	// direction word face is the OM-11 companion filing, host batch IC-L.
 	{"peer_chain_state", "blocking", TraceNoteCarrierDisplayOnly},
 	{"peer_chain_blocker", "blocking", TraceNoteCarrierDisplayOnly},
 	{"peer_chain_blocker_state", "blocking", TraceNoteCarrierDisplayOnly},
@@ -869,9 +879,12 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// drill_status (RCX① engine side, §12.3 ruling 1, P0-E1): typed drill-debt
 	// verdict for a row's blocking counterpart (drilled /
 	// undrilled_peer_known / peer_unknown), emitted on critical_blocking and
-	// lock-lane root_cause_rank observations. Display tier today; the P0-A
-	// projection/answer-face consumption promotes it to a constant exactly
-	// like the priority_inversion_candidate precedent.
+	// lock-lane root_cause_rank observations. Display tier with NO
+	// projection/answer-face consumer today (UXG-1 假注释勘正, §29.40,
+	// 2026-07-12): only the bundle-head disclosure half landed
+	// (internal/tool/trace_query.go); the 投影头部强制披露 half is known_gap
+	// OM-7, host batch IC-A (promotion to a constant follows the
+	// priority_inversion_candidate precedent when that batch lands).
 	{"drill_status", "blocking", TraceNoteCarrierDisplayOnly},
 
 	// 门控族 (D3).
@@ -889,8 +902,10 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// sum_disjoint_occurrences (member windows pairwise disjoint, wall
 	// additive) or max_overlap_fallback (honest lower bound). Emitted on
 	// wakeup_causal_aggregate observations only when the row is
-	// inversion-TYPED (F2 gate). Display tier today; P0-A parse promotes it
-	// exactly like the priority_inversion_candidate precedent.
+	// inversion-TYPED (F2 gate). Display tier with NO parser today (UXG-1
+	// 期票勘正, 2026-07-12: P0-A shipped without the promotion); a future
+	// promotion would follow the priority_inversion_candidate precedent
+	// (exported constant + compile read-in) — no host batch is scheduled.
 	{"gated_aggregation_caliber", "gating", TraceNoteCarrierDisplayOnly},
 	// PTV5 Q4 (#68 用户裁定 2026-07-05): promoted display_only → hard_consumer
 	// (typed node field read-in).

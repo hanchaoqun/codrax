@@ -32,6 +32,7 @@ package preview
 import (
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/yuin/goldmark/ast"
 	extensionast "github.com/yuin/goldmark/extension/ast"
 	"github.com/yuin/goldmark/parser"
@@ -229,21 +230,23 @@ func traceAuditSectionAdmitsChild(class traceAuditSectionClass, node ast.Node, s
 	}
 }
 
+// traceAuditHeadingClass matches a document H2 against the generated-chapter
+// closed set. Single source: internal/tracefence section-heading table (UXG-1
+// M1, 2026-07-12) — the same constants the generator's title emitters
+// (internal/tool renderV2ListOrTableHeading callers) consume, so the heading
+// words can never fork between the two packages again.
 func traceAuditHeadingClass(title string) traceAuditSectionClass {
-	for _, base := range []string{"确定性优化点", "Deterministic Optimization Points"} {
+	for _, base := range tracefence.SectionOptimizationTitles() {
 		if traceGeneratedHeadingMatches(title, base) {
 			return traceAuditSectionOptimization
 		}
 	}
-	for _, base := range []string{
-		"因果投影明细(逐节点完整属性)",
-		"Causal Projection Detail (full attributes per node)",
-	} {
+	for _, base := range tracefence.SectionDetailTitles() {
 		if traceGeneratedHeadingMatches(title, base) {
 			return traceAuditSectionDetail
 		}
 	}
-	for _, base := range []string{"证据索引", "Evidence Index"} {
+	for _, base := range tracefence.SectionEvidenceTitles() {
 		if traceGeneratedHeadingMatches(title, base) {
 			return traceAuditSectionEvidence
 		}

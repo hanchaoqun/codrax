@@ -21,8 +21,11 @@ import (
 //
 // The verdicts are consumed by the frame-root-cause-bundle head disclosure
 // ("largest impact undrilled", internal/tool/trace_query.go) and published as
-// the drill_status observation note (NKR display tier); projection/answer-face
-// consumption is deferred to the P0-A batch per §12.3 ruling 1.
+// the drill_status observation note (NKR display tier). The
+// projection/answer-face half (树头强制披露行 + 行2 限定词 + 明细对端行) is
+// NOT wired today — it is known_gap OM-7 with host batch IC-A (§29.40,
+// UXG-1 假注释勘正 2026-07-12; the former "deferred to the P0-A batch" note
+// was an unbacked promissory pointer — P0-A shipped without it).
 const (
 	// DrillStatusDrilled — the counterpart is resolved AND a subject==peer
 	// observation exists in this report.

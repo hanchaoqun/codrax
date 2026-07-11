@@ -3,6 +3,8 @@ package preview
 import (
 	"strings"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 )
 
 // Customer ruling 2026-07-09 (79 系回访): the standalone HTML report renders
@@ -130,30 +132,38 @@ func TestTraceProjectionIconsUseEnvelopeSlots(t *testing.T) {
 	// UXG-0 D3 (2026-07-11): ⊘ (链止/flat banner head) joined the directory.
 	// v5 P0 (重-1/T-6): a directory glyph followed by its companion space
 	// renders as ONE 2ch envelope slot whose ink keeps BOTH bytes; a glyph
-	// with no companion space (the line-final ◦ here, and ⊘ inside ⊘链止)
+	// with no companion space (the line-final one here, and ⊘ inside ⊘链止)
 	// keeps a centered 1ch slot — both overflow:visible, never clipped.
-	body := "```text\n⊚ app ‹用户关注线程› 满格=窗口7.000ms\n│ ⊚ ☾ ⧖ ⚙ ⛓ ⊗ ⊘ ⇅ ✦ ↯ ◌ ◦\n```\n"
+	//
+	// UXG-1 M3 (2026-07-12): the glyph roster derives from the tracefence
+	// single-source directory — the SAME table the tool-side §24.3 form
+	// specs and this package's classifier consume — replacing the former
+	// handwritten list. A directory extension is exercised here
+	// automatically; a directory removal fails the build.
+	marks := tracefence.StateMarks()
+	glyphs := make([]string, 0, len(marks))
+	for _, mark := range marks {
+		glyphs = append(glyphs, mark.Glyph)
+	}
+	body := "```text\n⊚ app ‹用户关注线程› 满格=窗口7.000ms\n│ " + strings.Join(glyphs, " ") + "\n```\n"
 	html, err := RenderMarkdownHTML([]byte(body))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, tc := range []struct{ class, glyph string }{
-		{"root", "⊚"}, {"sleep", "☾"}, {"runnable", "⧖"}, {"running", "⚙"},
-		{"io", "⛓"}, {"lock", "⊗"}, {"undrillable", "⊘"}, {"inversion", "⇅"},
-		{"optimization", "✦"}, {"interrupt", "↯"}, {"blind", "◌"},
-	} {
-		want := `<span class="trace-slot trace-icon trace-icon-` + tc.class + `"><span class="trace-ink">` + tc.glyph + ` </span></span>`
+	for _, mark := range marks[:len(marks)-1] {
+		want := `<span class="trace-slot trace-icon trace-icon-` + mark.Class + `"><span class="trace-ink">` + mark.Glyph + ` </span></span>`
 		if !strings.Contains(html, want) {
-			t.Fatalf("glyph %q lacks its 2ch envelope slot (want %q):\n%s", tc.glyph, want, html)
+			t.Fatalf("glyph %q lacks its 2ch envelope slot (want %q):\n%s", mark.Glyph, want, html)
 		}
 	}
-	// The line-final ◦ has no companion space → 1ch standalone slot.
-	if !strings.Contains(html, `<span class="trace-slot trace-slot-1 trace-icon trace-icon-neutral"><span class="trace-ink">◦</span></span>`) {
-		t.Fatalf("space-less glyph must keep a 1ch standalone slot:\n%s", html)
+	// The line-final glyph has no companion space → 1ch standalone slot.
+	last := marks[len(marks)-1]
+	if !strings.Contains(html, `<span class="trace-slot trace-slot-1 trace-icon trace-icon-`+last.Class+`"><span class="trace-ink">`+last.Glyph+`</span></span>`) {
+		t.Fatalf("space-less glyph %q must keep a 1ch standalone slot:\n%s", last.Glyph, html)
 	}
-	for _, glyph := range []string{"⊚", "☾", "⧖", "⚙", "⛓", "⊗", "⊘", "⇅", "✦", "↯", "◌", "◦"} {
-		if strings.Count(html, glyph) != 1 && glyph != "⊚" {
-			t.Fatalf("icon text must remain lossless for %q:\n%s", glyph, html)
+	for _, mark := range marks {
+		if strings.Count(html, mark.Glyph) != 1 && mark.Glyph != tracefence.RootGlyph {
+			t.Fatalf("icon text must remain lossless for %q:\n%s", mark.Glyph, html)
 		}
 	}
 }

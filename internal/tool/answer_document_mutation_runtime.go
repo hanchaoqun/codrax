@@ -12,6 +12,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/reasoninggraph"
 	"github.com/hanchaoqun/codrax/internal/sourceowner"
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -1200,7 +1201,7 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 		// 有效归因定义 = D#29 修正稿 (不引已退役的 gated 词,不写
 		// 「可能小于窗口投影」——cmp_01 E29 反例).
 		lines := []string{
-			"各列口径:",
+			tracefence.AuxColumnGlossaryMarker,
 			"- 窗口投影 = 该节点的状态落在分析窗内的时长;跨线程聚合行按跨线程累计计量(非墙钟,单元格已标注)。",
 			"- 链上累计 = 该节点及其下钻子链沿唤醒链累计到关注线程的投影时长。",
 			"- 有效归因 = 该行计入根因排序的影响时长;与窗口投影不同时,行内口径词(全额/折算/单次最大等)说明取值方式。",
@@ -1342,7 +1343,10 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 	// surface: every item the tree demotes or omits is reachable here whole
 	// (full names carry NO cell caps).
 	if fullText := runtimeTraceProjDetailFullText(model, zh); strings.TrimSpace(fullText) != "" {
-		title := "因果投影明细(逐节点完整属性)"
+		// UXG-1 M1 (2026-07-12): the generated-chapter titles come from the
+		// tracefence single source — the preview section transformer
+		// (traceAuditHeadingClass) matches the same constants.
+		title := tracefence.SectionDetailZH
 		// 复核收窄: the blocks cover every DATA-bearing rendered node; folded
 		// transit hops carry no data row and live on the 省略行 roster — the
 		// intro must not over-promise them. PTV5 C42 (#68): 省略行 roster →
@@ -1352,7 +1356,7 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 		// pointer target.
 		intro := "每个节点一块,给出树和指标表中省略或压缩的全部属性;名称不截断;属性完全相同的同名节点共用一块(标题并列各自编号)。树中折叠的中间线程见树内省略行清单。"
 		if !zh {
-			title = "Causal Projection Detail (full attributes per node)"
+			title = tracefence.SectionDetailEN
 			intro = "One block per node, carrying every attribute the tree or the key-metric table demotes or compresses; names are never truncated; identical same-name nodes share one block (evidence numbers side by side in the heading). Folded transit hops live on the tree's omitted-row roster."
 		}
 		out = append(out, types.AnswerBlock{
@@ -1366,9 +1370,9 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 		})
 	}
 	if intro, items := runtimeTraceProjEvidenceBlockParts(evidence, zh); len(items) > 0 {
-		title := "证据索引"
+		title := tracefence.SectionEvidenceZH
 		if !zh {
-			title = "Evidence Index"
+			title = tracefence.SectionEvidenceEN
 		}
 		// NEW-9 (adversarial re-review 2026-07-04): typed truncation disclosure.
 		// When any trace_query record of THIS artifact carried the producer's
@@ -1629,9 +1633,9 @@ func runtimeTraceProjCompareOverviewBlocks(projections []types.TraceCausalProjec
 	// header: the cell value is runtimeTraceProjDepth1Cumulative's largest
 	// single depth-1 caliber, never a Σ (墙钟不可加和), and the bare header
 	// read as a total.
-	columns := []string{"trace 文件", "主根因(根因排序#1)", "关注线程症状时长", "链上已归因(单项最大)", "背景压力"}
+	columns := []string{"trace 文件", "主根因(" + tracefence.SeatChannelChainZH + "#1)", "关注线程症状时长", "链上已归因(单项最大)", "背景压力"}
 	if !zh {
-		columns = []string{"Trace file", "Primary root cause (root-cause rank #1)", "Focused-thread symptom duration", "On-chain attributed (single largest)", "Background pressure"}
+		columns = []string{"Trace file", "Primary root cause (" + tracefence.SeatChannelChainEN + " #1)", "Focused-thread symptom duration", "On-chain attributed (single largest)", "Background pressure"}
 	}
 	if hasOptimization {
 		if zh {
@@ -3327,14 +3331,14 @@ func runtimeTraceCausalProjectionActionCellWithFamily(node types.TraceCausalProj
 		if zh {
 			if class != "" {
 				class = runtimeTraceCausalProjectionDisplayCauseName(class, true)
-				return "优化点·" + runtimeTraceCausalProjectionCompactCellText(class, 22), ""
+				return tracefence.ActionWordZH + "·" + runtimeTraceCausalProjectionCompactCellText(class, 22), ""
 			}
 			return "确定性优化点", ""
 		}
 		if class != "" {
-			return "optimize·" + runtimeTraceCausalProjectionCompactCellText(class, 22), ""
+			return tracefence.ActionWordENShort + "·" + runtimeTraceCausalProjectionCompactCellText(class, 22), ""
 		}
-		return "optimization point", ""
+		return tracefence.ActionWordEN, ""
 	}
 	if word := runtimeTraceCausalProjectionStateActionWord(stateKind, zh); word != "" {
 		return word, runtimeTraceProjActionJointFamily(stateKind)
@@ -4361,10 +4365,10 @@ func materializeRuntimeTraceSemanticOptimizationBlock(doc *types.AnswerDocumentV
 	// PTV6-C ruling C (#73): the grounding clause points at the report's own
 	// evidence index (trace line/time coordinates) — never the intermediate
 	// trace_query record file.
-	title := "确定性优化点"
+	title := tracefence.SectionOptimizationZH
 	text := "trace 中的确定性语义优化 span(类校验/JIT编译/着色器编译/运行时编译/纹理上传/GC暂停等,来自 typed semantic_class 通道):每行都是可直接落地的优化点;时长与 E# 证据均可经证据索引定位到 trace 行号区间。"
 	if !zh {
-		title = "Deterministic Optimization Points"
+		title = tracefence.SectionOptimizationEN
 		text = "Deterministic semantic optimization spans found in the trace (class verification / JIT / shader compilation / texture upload / explicit GC pauses, from the typed semantic_class lane): each row is a directly actionable optimization point; durations and E# tags resolve to trace line spans via the evidence index."
 	}
 	block := types.AnswerBlock{
@@ -4480,7 +4484,7 @@ func runtimeTraceSemanticOptimizationSkipCaveat(doc *types.AnswerDocumentV2, zh 
 // fallback), and the shared E# evidence tag. CitationRef=-1 on every
 // system-injected row (red-line invariant).
 func runtimeTraceSemanticOptimizationParts(projection types.TraceCausalProjection, evidence *runtimeTraceCausalProjectionEvidenceIndex, zh bool) ([]string, []types.AnswerBlockItem) {
-	columns := []string{"优化点", "类别", "宿主线程", "有效成本", "证据"}
+	columns := []string{tracefence.ActionWordZH, "类别", "宿主线程", "有效成本", "证据"}
 	if !zh {
 		columns = []string{"Optimization point", "Class", "Host thread", "Effective cost", "Evidence"}
 	}
@@ -5992,9 +5996,9 @@ func runtimeTraceNextStepUndrilledHeadlineText(lead types.TraceCausalProjectionN
 	}
 	if lead.Rank > 0 {
 		if zh {
-			quals = append(quals, fmt.Sprintf("根因排序#%d", lead.Rank))
+			quals = append(quals, fmt.Sprintf("%s#%d", tracefence.SeatChannelChainZH, lead.Rank))
 		} else {
-			quals = append(quals, fmt.Sprintf("root-cause rank #%d", lead.Rank))
+			quals = append(quals, fmt.Sprintf("%s #%d", tracefence.SeatChannelChainEN, lead.Rank))
 		}
 	}
 	if artifact != "" {
@@ -6888,6 +6892,13 @@ func runtimeTracePriorityInversionMeasuredRecord(record types.ObservationRecord)
 	return false
 }
 
+// runtimeTracePriorityInversionCandidateType is the DISPLAY-side inversion
+// row-type family single point (UXG-1 M4, 2026-07-12): the literal token pair
+// may appear together only here on the display side — everywhere else calls
+// this predicate. Interlocked with the engine single point
+// (tracequery.RootCauseTypeIsPriorityInversion) by
+// TestUXG1InversionFamilyPredicatesInterlocked; local re-enumeration is
+// intercepted by the source scan in uxg1_family_predicate_tripwire_test.go.
 func runtimeTracePriorityInversionCandidateType(value string) bool {
 	switch strings.TrimSpace(value) {
 	case "priority_inversion_candidate", "priority_inversion_runnable_wait":
