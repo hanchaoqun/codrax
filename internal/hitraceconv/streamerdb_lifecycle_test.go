@@ -138,12 +138,60 @@ func TestTraceDBLifecycleRepeatedTerminalIsNotItselfARebirth(t *testing.T) {
 	builder.addTerminal(1, 50, "X")
 	builder.addTerminal(1, 70, "X")
 	cursor := builder.newActivityCursor()
+	cursor.observe(1, 70)
 	cursor.observe(1, 80)
 	lifecycle := builder.finalize()
 	want := []traceDBLifecycleBoundary{{TS: 80, NewITID: 1, NewIPID: 1}}
 	if !reflect.DeepEqual(lifecycle.ByTID[42].Cuts, want) {
 		t.Fatalf("repeated terminal was treated as activity: cuts=%+v want=%+v", lifecycle.ByTID[42].Cuts, want)
 	}
+}
+
+func TestTraceDBLifecycleEqualTerminalActivitiesNeverBecomeRestarts(t *testing.T) {
+	identities := traceDBLifecycleFixtureIndex()
+
+	t.Run("different subject at exact terminal", func(t *testing.T) {
+		builder := newTraceDBLifecycleBuilder(identities)
+		builder.addTerminal(1, 50, "X")
+		builder.addTerminal(1, 60, "X")
+		cursor := builder.newActivityCursor()
+		cursor.observe(2, 60)
+		lifecycle := builder.finalize()
+		lane := lifecycle.ByTID[42]
+		if len(lane.Cuts) != 0 || len(lane.PoisonPoints) != 0 || len(lane.UnknownStarts) != 0 {
+			t.Fatalf("different-subject activity at terminal became a transition: %+v", lane)
+		}
+	})
+
+	t.Run("conflicted terminal cannot mutate prior proposal", func(t *testing.T) {
+		builder := newTraceDBLifecycleBuilder(identities)
+		builder.addTerminal(1, 50, "X")
+		prior := builder.lane(42).terminalsByTS[50]
+		builder.addTerminal(1, 60, "X")
+		builder.addTerminal(1, 60, "Z")
+		cursor := builder.newActivityCursor()
+		cursor.observe(1, 60)
+		cursor.observe(2, 60)
+		if prior.RestartKnown {
+			t.Fatalf("equal conflicted terminal updated prior restart: %+v", prior)
+		}
+		lane := builder.finalize().ByTID[42]
+		if !reflect.DeepEqual(lane.PoisonPoints, []int64{60}) || !reflect.DeepEqual(lane.UnknownStarts, []int64{60}) {
+			t.Fatalf("conflicted terminal lost its generation invalidation: %+v", lane)
+		}
+	})
+
+	t.Run("strictly later different subject remains valid", func(t *testing.T) {
+		builder := newTraceDBLifecycleBuilder(identities)
+		builder.addTerminal(1, 60, "X")
+		cursor := builder.newActivityCursor()
+		cursor.observe(2, 61)
+		lane := builder.finalize().ByTID[42]
+		want := []traceDBLifecycleBoundary{{TS: 61, NewITID: 2, NewIPID: 2}}
+		if !reflect.DeepEqual(lane.Cuts, want) || len(lane.PoisonPoints) != 0 || len(lane.UnknownStarts) != 0 {
+			t.Fatalf("strictly later different-subject restart was over-suppressed: %+v", lane)
+		}
+	})
 }
 
 func TestTraceDBLifecycleActivityOrderDoesNotChangeEarliestRestart(t *testing.T) {
@@ -346,17 +394,19 @@ func TestTraceDBLifecycleConflictsAndPoisonCannotBeSkipped(t *testing.T) {
 		}
 	})
 
-	t.Run("proposal conflict poisons same-time terminal", func(t *testing.T) {
+	t.Run("proposal conflict after latest terminal stays unknown", func(t *testing.T) {
 		builder := newTraceDBLifecycleBuilder(identities)
 		builder.addTerminal(1, 50, "X")
 		builder.addTerminal(1, 60, "X")
 		cursor := builder.newActivityCursor()
-		cursor.observe(1, 60)
-		cursor.observe(2, 60)
+		cursor.observe(1, 61)
+		cursor.observe(2, 61)
 		cursor.observe(1, 70)
 		lifecycle := builder.finalize()
-		if len(lifecycle.ByTID[42].Cuts) != 0 || traceDBLifecycleThreadPointAllows(lifecycle, identities, 1, 70) {
-			t.Fatalf("same-time poisoned terminal minted a later cut: %+v", lifecycle.ByTID[42])
+		lane := lifecycle.ByTID[42]
+		if len(lane.Cuts) != 0 || !reflect.DeepEqual(lane.PoisonPoints, []int64{61}) ||
+			!reflect.DeepEqual(lane.UnknownStarts, []int64{61}) || traceDBLifecycleThreadPointAllows(lifecycle, identities, 1, 70) {
+			t.Fatalf("conflicted post-terminal candidate minted a later cut: %+v", lane)
 		}
 	})
 }

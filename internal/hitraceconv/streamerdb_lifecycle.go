@@ -257,7 +257,14 @@ func (cursor *traceDBLifecycleActivityCursor) observe(itid, timestamp int64) boo
 	tid := thread.TID
 	activity := traceDBLifecycleBoundary{TS: timestamp, NewITID: thread.ITID, NewIPID: thread.IPID}
 	lane := cursor.builder.lane(tid)
-	position := sort.Search(len(lane.terminals), func(i int) bool { return lane.terminals[i].TS >= activity.TS }) - 1
+	position := sort.Search(len(lane.terminals), func(i int) bool { return lane.terminals[i].TS >= activity.TS })
+	if position < len(lane.terminals) && lane.terminals[position].TS == activity.TS {
+		// A terminal is an exact right boundary, never evidence of a new
+		// generation at the same point. This applies to every activity source,
+		// not only the table that supplied the terminal.
+		return true
+	}
+	position--
 	if position >= 0 && !lane.terminals[position].Conflicted {
 		mergeTraceDBLifecycleRestart(lane.terminals[position], activity)
 	}
