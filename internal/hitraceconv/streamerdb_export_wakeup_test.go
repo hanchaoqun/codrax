@@ -340,7 +340,7 @@ func exportSchedulerFixture(t *testing.T, statements []string) (string, []TraceD
 	if err != nil {
 		t.Fatal(err)
 	}
-	coverage, err := exportTraceDBSchedulerFamilies(context.Background(), tdb, sink)
+	coverage, _, err := exportTraceDBSchedulerFamilies(context.Background(), tdb, sink)
 	if err != nil {
 		t.Fatalf("export scheduler fixture: %v", err)
 	}

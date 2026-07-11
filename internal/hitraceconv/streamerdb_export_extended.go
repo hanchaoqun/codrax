@@ -10,13 +10,12 @@ import (
 	"time"
 )
 
-func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *traceDBRowSink) ([]TraceDBCoverage, error) {
+func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, authority traceDBSchedulerAuthority) ([]TraceDBCoverage, error) {
 	var coverage []TraceDBCoverage
-	index, threadCoverage, err := tdb.loadThreadIndex(ctx)
-	coverage = append(coverage, threadCoverage...)
-	if err != nil {
-		return coverage, err
+	if !authority.initialized {
+		return coverage, fmt.Errorf("extended export requires the shared scheduler authority")
 	}
+	index := authority.identities
 	running, runningIntegrity, runningCoverage, err := tdb.loadExtendedLegacyRunningIntervals(ctx)
 	coverage = append(coverage, runningCoverage)
 	if err != nil {

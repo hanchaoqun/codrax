@@ -88,7 +88,12 @@ func TestExportTraceDBExtendedFamiliesComprehensiveFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	coverage, err := exportTraceDBExtendedFamilies(context.Background(), tdb, sink)
+	index, _, err := tdb.loadThreadIndex(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	coverage, err := exportTraceDBExtendedFamilies(context.Background(), tdb, sink,
+		traceDBTestCompleteSchedulerAuthority(index))
 	if err != nil {
 		t.Fatalf("export extended families: %v", err)
 	}

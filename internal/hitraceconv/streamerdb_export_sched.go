@@ -67,72 +67,83 @@ type traceDBWakeupKey struct {
 	Name string
 }
 
-func exportTraceDBSchedulerFamilies(ctx context.Context, tdb *traceDB, sink *traceDBRowSink) (coverage []TraceDBCoverage, err error) {
+func exportTraceDBSchedulerFamilies(ctx context.Context, tdb *traceDB, sink *traceDBRowSink) (
+	coverage []TraceDBCoverage,
+	authority traceDBSchedulerAuthority,
+	err error,
+) {
 	var lifecycleCoverage []TraceDBCoverage
+	var invalidHandoffAuthority traceDBSchedulerAuthority
 	defer func() {
 		coverage = append(coverage, lifecycleCoverage...)
+		if err != nil {
+			// A scheduler stage failure invalidates the handoff as a whole.
+			// Keep partial coverage for diagnosis, but never expose a reusable
+			// authority to a caller that accidentally ignores the error.
+			authority = invalidHandoffAuthority
+		}
 	}()
 	index, threadCoverage, err := tdb.loadThreadIndex(ctx)
 	coverage = append(coverage, threadCoverage...)
 	if err != nil {
-		return coverage, err
+		return coverage, authority, err
 	}
 	lifecycle, err := collectTraceDBLifecycle(ctx, tdb.db, index)
 	coverage = append(coverage, lifecycle.ActiveCoverage...)
 	lifecycleCoverage = lifecycle.LifecycleCoverage
 	if err != nil {
-		return coverage, err
+		return coverage, authority, err
 	}
-	authority := newTraceDBSchedulerAuthority(index, lifecycle)
+	authority = newTraceDBSchedulerAuthority(index, lifecycle)
 	active := lifecycle.ActiveITIDs
 	stageStart := time.Now()
 	metadataCoverage, err := exportTraceDBThreadRegistrations(ctx, sink, index, active)
 	traceDBSetCoverageElapsed(&metadataCoverage, stageStart)
 	coverage = append(coverage, metadataCoverage)
 	if err != nil {
-		return coverage, err
+		return coverage, authority, err
 	}
 	stageStart = time.Now()
 	schedCoverage, err := exportTraceDBSchedSwitch(ctx, tdb, sink, authority)
 	traceDBSetCoverageElapsed(&schedCoverage, stageStart)
 	coverage = append(coverage, schedCoverage)
 	if err != nil {
-		return coverage, err
+		return coverage, authority, err
 	}
 	rawWakeups, rawCoverage, err := tdb.loadRawWakeups(ctx)
 	coverage = append(coverage, rawCoverage)
 	if err != nil {
-		return coverage, err
+		return coverage, authority, err
 	}
 	starts, startsCoverage, err := tdb.loadSchedStarts(ctx, authority)
 	coverage = append(coverage, startsCoverage)
 	if err != nil {
-		return coverage, err
+		return coverage, authority, err
 	}
 	running, runningCoverage, err := tdb.loadSchedulerRunningIndex(ctx, authority)
 	coverage = append(coverage, runningCoverage)
 	if err != nil {
-		return coverage, err
+		return coverage, authority, err
 	}
 	stageStart = time.Now()
 	wakeupCoverage, err := exportTraceDBWakeups(ctx, tdb, sink, authority, rawWakeups, starts, running)
 	traceDBSetCoverageElapsed(&wakeupCoverage, stageStart)
 	coverage = append(coverage, wakeupCoverage)
 	if err != nil {
-		return coverage, err
+		return coverage, authority, err
 	}
 	stageStart = time.Now()
 	blockedCoverage, err := exportTraceDBBlockedReasons(ctx, tdb, sink, authority)
 	traceDBSetCoverageElapsed(&blockedCoverage, stageStart)
 	coverage = append(coverage, blockedCoverage)
 	if err != nil {
-		return coverage, err
+		return coverage, authority, err
 	}
 	stageStart = time.Now()
 	irqCoverage, err := exportTraceDBIRQ(ctx, tdb, sink)
 	traceDBSetCoverageElapsed(&irqCoverage, stageStart)
 	coverage = append(coverage, irqCoverage)
-	return coverage, err
+	return coverage, authority, err
 }
 
 func exportTraceDBThreadRegistrations(ctx context.Context, sink *traceDBRowSink, index traceDBThreadIndex, active map[int64]bool) (TraceDBCoverage, error) {

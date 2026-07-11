@@ -42,14 +42,14 @@ func exportTraceDBToSystrace(ctx context.Context, dbPath, output string) (traceD
 	}()
 
 	var coverage []TraceDBCoverage
-	schedulerCoverage, err := exportTraceDBSchedulerFamilies(ctx, tdb, sink)
+	schedulerCoverage, authority, err := exportTraceDBSchedulerFamilies(ctx, tdb, sink)
 	if err != nil {
 		coverage = append(coverage, schedulerCoverage...)
 		return traceDBSystraceExport{Coverage: coverage}, err
 	}
 	schedulerCoverage, lifecycleCoverage := splitTraceDBLifecycleCoverage(schedulerCoverage)
 	coverage = append(coverage, schedulerCoverage...)
-	extendedCoverage, err := exportTraceDBExtendedFamilies(ctx, tdb, sink)
+	extendedCoverage, err := exportTraceDBExtendedFamilies(ctx, tdb, sink, authority)
 	coverage = append(coverage, extendedCoverage...)
 	coverage = append(coverage, lifecycleCoverage...)
 	if err != nil {

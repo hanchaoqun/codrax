@@ -61,7 +61,7 @@ func TestExportTraceDBSchedulerFamiliesRoundTripsThroughTraceQuery(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	coverage, err := exportTraceDBSchedulerFamilies(context.Background(), tdb, sink)
+	coverage, _, err := exportTraceDBSchedulerFamilies(context.Background(), tdb, sink)
 	if err != nil {
 		t.Fatalf("export scheduler families: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestExportTraceDBSchedulerFamiliesRecordsMissingTables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	coverage, err := exportTraceDBSchedulerFamilies(context.Background(), tdb, sink)
+	coverage, _, err := exportTraceDBSchedulerFamilies(context.Background(), tdb, sink)
 	if err != nil {
 		t.Fatalf("missing tables should be coverage, not hard failure: %v", err)
 	}
