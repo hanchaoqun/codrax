@@ -554,8 +554,12 @@ func walkProtoFields(data []byte, fn func(field int, wire int, raw []byte, v uin
 			return fmt.Errorf("malformed protobuf field key")
 		}
 		data = data[n:]
-		field := int(key >> 3)
+		fieldNumber := key >> 3
 		wire := int(key & 0x7)
+		if fieldNumber < 1 || fieldNumber > (1<<29)-1 {
+			return fmt.Errorf("invalid protobuf field number %d", fieldNumber)
+		}
+		field := int(fieldNumber)
 		switch wire {
 		case 0:
 			v, n, ok := consumeProtoVarint(data)
@@ -602,7 +606,7 @@ func walkProtoFields(data []byte, fn func(field int, wire int, raw []byte, v uin
 func consumeProtoVarint(data []byte) (uint64, int, bool) {
 	var v uint64
 	for i, b := range data {
-		if i == 10 {
+		if i >= 10 || (i == 9 && b > 1) {
 			return 0, 0, false
 		}
 		v |= uint64(b&0x7f) << (uint(i) * 7)

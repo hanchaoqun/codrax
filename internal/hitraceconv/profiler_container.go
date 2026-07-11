@@ -144,6 +144,7 @@ var profilerFtraceEventDescriptors = map[int]profilerFtraceEventDescriptor{
 	1502: {Field: 1502, Family: "irq", Name: "softirq_entry"},
 	1503: {Field: 1503, Family: "irq", Name: "softirq_exit"},
 	1504: {Field: 1504, Family: "irq", Name: "softirq_raise"},
+	2002: {Field: 2002, Family: "clock", Name: "clock_set_rate"},
 	2003: {Field: 2003, Family: "cpu", Name: "cpu_frequency"},
 	2004: {Field: 2004, Family: "cpu", Name: "cpu_frequency_limits"},
 	2005: {Field: 2005, Family: "cpu", Name: "cpu_idle"},

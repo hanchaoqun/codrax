@@ -8,25 +8,40 @@ import (
 	"strings"
 )
 
-func renderOfficialOpenHarmonyBody(ev decodedEvent, content []byte) (string, bool) {
+func renderOfficialOpenHarmonyBody(ev decodedEvent, content []byte, cpu int) (string, bool) {
 	name := ev.format.Name
 	lowerName := strings.ToLower(name)
 	switch {
 	case name == "sched_switch" && hasCleanField(ev, "prev_comm"):
-		return fmt.Sprintf("prev_comm=%s prev_pid=%d prev_prio=%d prev_state=%s ==> next_comm=%s next_pid=%d next_prio=%d expeller_type=%d",
+		if !standardSchedSwitchCorePresent(ev) {
+			return "", false
+		}
+		body := fmt.Sprintf("prev_comm=%s prev_pid=%d prev_prio=%d prev_state=%s ==> next_comm=%s next_pid=%d next_prio=%d",
 			stringByCleanName(ev, content, "prev_comm"), intByCleanName(ev, "prev_pid", true), intByCleanName(ev, "prev_prio", true),
 			linuxPrevState(uint64(intByCleanName(ev, "prev_state", true))), stringByCleanName(ev, content, "next_comm"),
-			intByCleanName(ev, "next_pid", true), intByCleanName(ev, "next_prio", true), intByCleanName(ev, "expeller_type", false)), true
-	case name == "sched_switch" && hasCleanField(ev, "pname"):
-		body := fmt.Sprintf("prev_comm=%s prev_pid=%d prev_prio=%d prev_state=%s ==> next_comm=%s next_pid=%d next_prio=%d",
-			stringByCleanName(ev, content, "pname"), intByCleanName(ev, "prev_tid", true), intByCleanName(ev, "pprio", true),
-			harmonyPrevState(uint64(intByCleanName(ev, "pstate", false))), stringByCleanName(ev, content, "nname"),
-			intByCleanName(ev, "next_tid", true), intByCleanName(ev, "nprio", true))
-		if hasCleanField(ev, "ninfo") {
-			body += " next_info=" + harmonySchedInfo(ev)
+			intByCleanName(ev, "next_pid", true), intByCleanName(ev, "next_prio", true))
+		// The standard and Harmony sched_switch layouts are both seen in
+		// production. Optional extensions are independent format authorities:
+		// a missing field is not the integer zero.
+		if hasCleanIntegerField(ev, "expeller_type") {
+			body += fmt.Sprintf(" expeller_type=%d", intByCleanName(ev, "expeller_type", false))
 		}
-		if cg := stringByCleanName(ev, content, "cg", "cgroup"); cg != "" {
-			body += " cg=" + cg
+		if extras := schedSwitchHarmonyExtras(ev, content); extras != "" {
+			body += " " + extras
+		}
+		return body, true
+	case name == "sched_switch" && hasCleanField(ev, "pname"):
+		if !harmonySchedSwitchCorePresent(ev) {
+			return "", false
+		}
+		body := fmt.Sprintf("prev_comm=%s prev_pid=%d prev_prio=%d prev_state=%s ==> next_comm=%s next_pid=%d next_prio=%d",
+			firstNonEmpty(stringByCleanName(ev, content, "pname"), idleName(cpu, intByCleanName(ev, "prev_tid", true))),
+			intByCleanName(ev, "prev_tid", true), intByCleanName(ev, "pprio", true),
+			harmonyPrevState(uint64(intByCleanName(ev, "pstate", false))),
+			firstNonEmpty(stringByCleanName(ev, content, "nname"), idleName(cpu, intByCleanName(ev, "next_tid", true))),
+			intByCleanName(ev, "next_tid", true), intByCleanName(ev, "nprio", true))
+		if extras := schedSwitchHarmonyExtras(ev, content); extras != "" {
+			body += " " + extras
 		}
 		return body, true
 	case name == "sched_wakeup" || name == "sched_wakeup_new" || name == "sched_waking":
@@ -57,7 +72,7 @@ func renderOfficialOpenHarmonyBody(ev decodedEvent, content []byte) (string, boo
 		maxFreq := firstNonZero(intByCleanName(ev, "max", false), intByCleanName(ev, "max_freq", false))
 		return fmt.Sprintf("min=%d max=%d cpu_id=%d", minFreq, maxFreq, intByCleanName(ev, "cpu_id", false)), true
 	case name == "clock_set_rate":
-		return fmt.Sprintf("%s state=%d cpu_id=%d", stringByCleanName(ev, content, "name"), intByCleanName(ev, "state", false), intByCleanName(ev, "cpu_id", false)), true
+		return renderClockSetRate(ev, content)
 	case name == "softirq_entry" || name == "softirq_exit" || (strings.Contains(name, "softirq") && hasCleanField(ev, "vec")):
 		vec := intByCleanName(ev, "vec", false)
 		return fmt.Sprintf("vec=%d [action=%s]", vec, softirqAction(vec)), true
