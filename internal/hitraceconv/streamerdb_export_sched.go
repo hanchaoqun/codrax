@@ -11,9 +11,13 @@ import (
 )
 
 type traceDBSchedSlice struct {
-	TS       int64
-	Dur      int64
-	CPU      int64
+	TS  int64
+	Dur int64
+	CPU int64
+	// Preserve the exact internal source identities used by the authority;
+	// never reconstruct them later from display TID/TGID values.
+	ITID     int64
+	IPID     int64
 	EndState string
 	Priority int64
 	TID      int64
@@ -23,6 +27,7 @@ type traceDBSchedSlice struct {
 
 type traceDBSchedSourceRow struct {
 	Slice            traceDBSchedSlice
+	Subject          traceDBSchedulerSubject
 	CPUAssigned      bool
 	CPUInRange       bool
 	CPUAssignmentGap string
@@ -78,6 +83,7 @@ func exportTraceDBSchedulerFamilies(ctx context.Context, tdb *traceDB, sink *tra
 	if err != nil {
 		return coverage, err
 	}
+	authority := newTraceDBSchedulerAuthority(index, lifecycle)
 	active := lifecycle.ActiveITIDs
 	stageStart := time.Now()
 	metadataCoverage, err := exportTraceDBThreadRegistrations(ctx, sink, index, active)
@@ -87,7 +93,7 @@ func exportTraceDBSchedulerFamilies(ctx context.Context, tdb *traceDB, sink *tra
 		return coverage, err
 	}
 	stageStart = time.Now()
-	schedCoverage, err := exportTraceDBSchedSwitch(ctx, tdb, sink, index)
+	schedCoverage, err := exportTraceDBSchedSwitch(ctx, tdb, sink, authority)
 	traceDBSetCoverageElapsed(&schedCoverage, stageStart)
 	coverage = append(coverage, schedCoverage)
 	if err != nil {
@@ -180,22 +186,24 @@ func exportTraceDBThreadRegistrations(ctx context.Context, sink *traceDBRowSink,
 	return coverage, nil
 }
 
-func exportTraceDBSchedSwitch(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, index traceDBThreadIndex) (TraceDBCoverage, error) {
+func exportTraceDBSchedSwitch(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, authority traceDBSchedulerAuthority) (TraceDBCoverage, error) {
 	coverage, err := tdb.inspectCoverage(ctx, "scheduler", "sched_slice", []string{"ts", "dur", "cpu", "end_state", "priority", "itid"})
 	coverage.FieldSources = map[string]string{
 		"boundary_timestamp": "prev_sched_slice.ts+dur; requires exact equality with next_sched_slice.ts",
 		"continuity":         "complete_per_cpu_audit_before_publish; gap_overlap_mid_null_overflow_fail_cpu_lane",
 		"header_cpu":         "sched_slice.cpu; strict SQLite INTEGER in range 0..4095",
+		"lifecycle":          "same collector authority; positive-duration slices, including a final row, require half-open thread and positive-process generation admission; zero-duration and NULL-duration open-tail rows require point admission",
 		"next_identity":      "next_sched_slice.itid->thread.tid/name; canonical itid=0 is swapper; tgid=positive_process.pid_else_thread.tid",
 		"open_tail":          "final sched_slice is retained as an unclosed tail; no synthetic idle close",
 		"prev_identity":      "prev_sched_slice.itid->thread.tid/name; canonical itid=0 is swapper; tgid=positive_process.pid_else_thread.tid",
 		"priority":           "sched_slice.priority; strict signed int32 excluding the upstream INT32_MAX sentinel; Harmony RT 140..159 and raw values above 159 are preserved",
 		"state":              "sched_slice.end_state; nonempty TEXT",
+		"source_identity":    "strict sched_slice.itid canonical scalar projected into an exact scheduler subject; missing/default zero cannot acquire idle authority",
 	}
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
 		return coverage, err
 	}
-	audit, err := auditTraceDBSchedSwitchRows(ctx, tdb, index)
+	audit, err := auditTraceDBSchedSwitchRows(ctx, tdb, authority)
 	if err != nil {
 		coverage.Error = err.Error()
 		return coverage, err
@@ -217,7 +225,7 @@ func exportTraceDBSchedSwitch(ctx context.Context, tdb *traceDB, sink *traceDBRo
 		if err := ctx.Err(); err != nil {
 			return coverage, err
 		}
-		current, err := scanTraceDBSchedSourceRow(rows, index)
+		current, err := scanTraceDBSchedSourceRow(rows, authority)
 		if err != nil {
 			coverage.Error = err.Error()
 			return coverage, err
@@ -514,7 +522,7 @@ func queryTraceDBSchedSliceRows(ctx context.Context, tdb *traceDB) (*sql.Rows, e
 	`)
 }
 
-func auditTraceDBSchedSwitchRows(ctx context.Context, tdb *traceDB, index traceDBThreadIndex) (traceDBSchedAudit, error) {
+func auditTraceDBSchedSwitchRows(ctx context.Context, tdb *traceDB, authority traceDBSchedulerAuthority) (traceDBSchedAudit, error) {
 	audit := traceDBSchedAudit{
 		CPUs:                 map[int64]*traceDBSchedCPUAudit{},
 		UnassignedCPUReasons: map[string]int{},
@@ -529,7 +537,7 @@ func auditTraceDBSchedSwitchRows(ctx context.Context, tdb *traceDB, index traceD
 		if err := ctx.Err(); err != nil {
 			return audit, err
 		}
-		current, err := scanTraceDBSchedSourceRow(rows, index)
+		current, err := scanTraceDBSchedSourceRow(rows, authority)
 		if err != nil {
 			return audit, err
 		}
@@ -588,7 +596,7 @@ func auditTraceDBSchedSwitchRows(ctx context.Context, tdb *traceDB, index traceD
 	return audit, nil
 }
 
-func scanTraceDBSchedSourceRow(rows *sql.Rows, index traceDBThreadIndex) (traceDBSchedSourceRow, error) {
+func scanTraceDBSchedSourceRow(rows *sql.Rows, authority traceDBSchedulerAuthority) (traceDBSchedSourceRow, error) {
 	var rawTS, rawDur, rawCPU, rawState, rawPriority, rawITID any
 	if err := rows.Scan(&rawTS, &rawDur, &rawCPU, &rawState, &rawPriority, &rawITID); err != nil {
 		return traceDBSchedSourceRow{}, err
@@ -637,21 +645,36 @@ func scanTraceDBSchedSourceRow(rows *sql.Rows, index traceDBThreadIndex) (traceD
 		row.ValidationGaps = append(row.ValidationGaps, "invalid_priority")
 	}
 
-	itid, itidOK := traceDBStrictSQLiteInt(rawITID)
-	if !itidOK || itid < 0 || itid > maxTraceDBInternalID {
+	itid, itidOK := traceDBStrictInternalID(rawITID)
+	if !itidOK {
 		row.ValidationGaps = append(row.ValidationGaps, "invalid_itid")
 		return row, nil
 	}
+	subject, subjectOK := authority.schedulerSubjectFromExactITID(itid, itidOK)
+	if !subjectOK {
+		row.ValidationGaps = append(row.ValidationGaps, "invalid_or_ambiguous_scheduler_identity")
+		return row, nil
+	}
+	row.Subject = subject
+	row.Slice.ITID = itid
 	if itid == 0 {
 		// ProcessFilter seeds tidMappingSet_(0, 0): internal thread id 0 is the
 		// one canonical idle/swapper identity even though the thread table omits
 		// it. No other missing itid is eligible for this projection.
 		row.Slice.Name = "swapper"
+		validateTraceDBSchedLifecycle(&row, authority)
 		return row, nil
 	}
-	thread, threadOK := index.ByITID[itid]
-	if !threadOK {
-		row.ValidationGaps = append(row.ValidationGaps, "missing_thread_identity")
+	thread, process, resolution := authority.resolveThreadSubject(itid)
+	if resolution != traceDBSchedulerThreadResolved {
+		switch resolution {
+		case traceDBSchedulerThreadMissing:
+			row.ValidationGaps = append(row.ValidationGaps, "missing_thread_identity")
+		case traceDBSchedulerProcessMissing:
+			row.ValidationGaps = append(row.ValidationGaps, "missing_process_identity")
+		default:
+			row.ValidationGaps = append(row.ValidationGaps, "ambiguous_or_invalid_thread_process_identity")
+		}
 		return row, nil
 	}
 	if thread.TID <= 0 || thread.TID > math.MaxInt32 {
@@ -659,18 +682,42 @@ func scanTraceDBSchedSourceRow(rows *sql.Rows, index traceDBThreadIndex) (traceD
 		return row, nil
 	}
 	row.Slice.TID = thread.TID
+	row.Slice.IPID = thread.IPID
 	row.Slice.Name = thread.Name
 	row.Slice.TGID = thread.TID
-	if process, ok := index.Processes[thread.IPID]; ok {
-		if process.PID < 0 || process.PID > math.MaxInt32 {
-			row.ValidationGaps = append(row.ValidationGaps, "invalid_tgid")
-			return row, nil
-		}
-		if process.PID > 0 {
-			row.Slice.TGID = process.PID
-		}
+	if process.PID > math.MaxInt32 {
+		row.ValidationGaps = append(row.ValidationGaps, "invalid_tgid")
+		return row, nil
 	}
+	if process.PID > 0 {
+		row.Slice.TGID = process.PID
+	}
+	validateTraceDBSchedLifecycle(&row, authority)
 	return row, nil
+}
+
+func validateTraceDBSchedLifecycle(row *traceDBSchedSourceRow, authority traceDBSchedulerAuthority) {
+	if row == nil || !row.TSValid || !row.Subject.exact {
+		return
+	}
+	allowed := false
+	reason := "lifecycle_point_rejected"
+	switch {
+	case row.DurationNull:
+		allowed = authority.schedulerPointAllows(row.Subject, row.Slice.TS)
+	case !row.DurationValid:
+		return
+	case row.Slice.Dur == 0:
+		allowed = authority.schedulerPointAllows(row.Subject, row.Slice.TS)
+	case row.Slice.TS > math.MaxInt64-row.Slice.Dur:
+		return
+	default:
+		allowed = authority.schedulerSourceIntervalAllows(row.Subject, row.Slice.TS, row.Slice.TS+row.Slice.Dur)
+		reason = "lifecycle_half_open_rejected"
+	}
+	if !allowed {
+		row.ValidationGaps = append(row.ValidationGaps, reason)
+	}
 }
 
 func traceDBStrictSQLiteInt(value any) (int64, bool) {

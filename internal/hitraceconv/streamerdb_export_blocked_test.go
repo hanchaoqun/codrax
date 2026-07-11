@@ -363,6 +363,11 @@ func traceDBBlockedFixtureSchema() []string {
 		"INSERT INTO thread VALUES (7, 568, 1, 'blocked-568', 0, 0, 1)",
 		"CREATE TABLE sched_slice (id INT, ts INT, dur INT, cpu INT, itid INT, end_state TEXT, priority INT)",
 		"CREATE TABLE thread_state (id INT, ts INT, dur INT, cpu INT, itid INT, tid INT, pid INT, state TEXT, arg_setid INT)",
+		"CREATE TABLE instant (ts INT, name TEXT, ref INT, wakeup_from INT, ref_type TEXT)",
+		"CREATE TABLE callstack (ts INT, itid INT, callid INT)",
+		"CREATE TABLE syscall (ts INT, itid INT)",
+		"CREATE TABLE native_hook (start_ts INT, itid INT)",
+		"CREATE TABLE frame_slice (ts INT, itid INT)",
 		"CREATE TABLE args (id INT, key INT, datatype INT, value INT, argset INT)",
 		"CREATE TABLE data_dict (id INT, data TEXT)",
 	}

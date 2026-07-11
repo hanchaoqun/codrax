@@ -22,6 +22,16 @@ type traceDBSchedulerSubject struct {
 	exact bool
 }
 
+type traceDBSchedulerThreadResolution uint8
+
+const (
+	traceDBSchedulerThreadInvalid traceDBSchedulerThreadResolution = iota
+	traceDBSchedulerThreadMissing
+	traceDBSchedulerProcessMissing
+	traceDBSchedulerThreadAmbiguous
+	traceDBSchedulerThreadResolved
+)
+
 func (authority traceDBSchedulerAuthority) schedulerSubjectFromExactITID(itid int64, exact bool) (traceDBSchedulerSubject, bool) {
 	subject := traceDBSchedulerSubject{itid: itid, exact: exact}
 	if !authority.schedulerSubjectIsExact(subject) {
@@ -116,18 +126,32 @@ func (authority traceDBSchedulerAuthority) schedulerSourceIntervalAllows(subject
 }
 
 func (authority traceDBSchedulerAuthority) threadSubject(itid int64) (traceDBThread, traceDBProcess, bool) {
-	if itid <= 0 || authority.identities.AmbiguousITID[itid] {
-		return traceDBThread{}, traceDBProcess{}, false
+	thread, process, resolution := authority.resolveThreadSubject(itid)
+	return thread, process, resolution == traceDBSchedulerThreadResolved
+}
+
+func (authority traceDBSchedulerAuthority) resolveThreadSubject(itid int64) (traceDBThread, traceDBProcess, traceDBSchedulerThreadResolution) {
+	if itid <= 0 {
+		return traceDBThread{}, traceDBProcess{}, traceDBSchedulerThreadInvalid
+	}
+	if authority.identities.AmbiguousITID[itid] {
+		return traceDBThread{}, traceDBProcess{}, traceDBSchedulerThreadAmbiguous
 	}
 	thread, ok := authority.identities.ByITID[itid]
-	if !ok || thread.ITID != itid || thread.TID <= 0 || authority.identities.AmbiguousIPID[thread.IPID] {
-		return traceDBThread{}, traceDBProcess{}, false
+	if !ok {
+		return traceDBThread{}, traceDBProcess{}, traceDBSchedulerThreadMissing
+	}
+	if thread.ITID != itid || thread.TID <= 0 || authority.identities.AmbiguousIPID[thread.IPID] {
+		return traceDBThread{}, traceDBProcess{}, traceDBSchedulerThreadAmbiguous
 	}
 	process, ok := authority.identities.Processes[thread.IPID]
-	if !ok || process.IPID != thread.IPID || process.PID < 0 {
-		return traceDBThread{}, traceDBProcess{}, false
+	if !ok {
+		return traceDBThread{}, traceDBProcess{}, traceDBSchedulerProcessMissing
 	}
-	return thread, process, true
+	if process.IPID != thread.IPID || process.PID < 0 {
+		return traceDBThread{}, traceDBProcess{}, traceDBSchedulerThreadAmbiguous
+	}
+	return thread, process, traceDBSchedulerThreadResolved
 }
 
 type traceDBSchedulerRunningIndex struct {

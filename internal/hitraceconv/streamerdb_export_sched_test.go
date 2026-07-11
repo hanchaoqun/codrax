@@ -46,10 +46,10 @@ func TestExportTraceDBSchedulerFamiliesRoundTripsThroughTraceQuery(t *testing.T)
 		"INSERT INTO irq VALUES (1600000, 20000, 6, 'softirq', 'RCU', 20)",
 		"CREATE TABLE thread_state (itid INT, ts INT, dur INT, cpu INT, state TEXT)",
 		"INSERT INTO thread_state VALUES (3, 800000, 200000, 4, 'Running')",
-		"CREATE TABLE callstack (callid INT)",
-		"CREATE TABLE syscall (itid INT)",
-		"CREATE TABLE native_hook (itid INT)",
-		"CREATE TABLE frame_slice (itid INT)",
+		"CREATE TABLE callstack (callid INT, ts INT)",
+		"CREATE TABLE syscall (itid INT, ts INT)",
+		"CREATE TABLE native_hook (itid INT, start_ts INT)",
+		"CREATE TABLE frame_slice (itid INT, ts INT)",
 	})
 
 	tdb, err := openTraceDB(context.Background(), path)
@@ -356,7 +356,131 @@ func TestExportTraceDBSchedSwitchZeroProcessPIDFallsBackToThreadTID(t *testing.T
 	}
 }
 
+func TestExportTraceDBSchedSwitchLifecycleCutSuppressesOnlyAffectedCPULane(t *testing.T) {
+	tests := []struct {
+		name      string
+		lifecycle traceDBLifecycleIndex
+	}{
+		{
+			name: "thread cut only",
+			lifecycle: traceDBLifecycleIndex{ByTID: map[int64]traceDBLifecycleLane{
+				101: {Cuts: []traceDBLifecycleBoundary{{TS: 100, NewITID: 1, NewIPID: 1}}},
+			}},
+		},
+		{
+			name: "process cut only",
+			lifecycle: traceDBLifecycleIndex{ByPID: map[int64]traceDBLifecycleLane{
+				100: {Cuts: []traceDBLifecycleBoundary{{TS: 100, NewITID: 1, NewIPID: 1}}},
+			}},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body, coverage, index := exportTraceDBSchedSwitchFixtureWithLifecycle(t, []string{
+				"INSERT INTO sched_slice VALUES (90, 11, 1, 'S', 40, 1)",
+				"INSERT INTO sched_slice VALUES (101, 10, 1, 'R', 41, 1)",
+				"INSERT INTO sched_slice VALUES (90, 10, 2, 'S', 42, 2)",
+				"INSERT INTO sched_slice VALUES (100, 10, 2, 'R', 43, 2)",
+			}, test.lifecycle, true)
+			if strings.Count(body, "sched_switch:") != 1 || len(index.Events) != 1 || index.Events[0].CPU != 2 {
+				t.Fatalf("lifecycle-invalid CPU lane was not isolated from valid sibling:\n%s\n%+v", body, index.Events)
+			}
+			for _, want := range []string{"rows_suppressed=2", "cpu=001 suppressed_rows=2", "lifecycle_half_open_rejected=1"} {
+				if !strings.Contains(coverage.Skipped, want) {
+					t.Fatalf("sched lifecycle coverage missing %q: %+v", want, coverage)
+				}
+			}
+			if coverage.RowsRead != 4 || coverage.RowsEmitted != 1 || coverage.FieldSources["lifecycle"] == "" ||
+				coverage.FieldSources["source_identity"] == "" {
+				t.Fatalf("sched lifecycle accounting/provenance mismatch: %+v", coverage)
+			}
+			for _, want := range []string{"positive-duration slices, including a final row", "half-open", "zero-duration and NULL-duration open-tail rows"} {
+				if !strings.Contains(coverage.FieldSources["lifecycle"], want) {
+					t.Fatalf("sched lifecycle provenance missing %q: %+v", want, coverage)
+				}
+			}
+		})
+	}
+}
+
+func TestExportTraceDBSchedSwitchLifecycleAlignedCutAndFinalInterval(t *testing.T) {
+	lifecycle := traceDBLifecycleIndex{
+		ByTID: map[int64]traceDBLifecycleLane{
+			101: {Cuts: []traceDBLifecycleBoundary{{TS: 100, NewITID: 1, NewIPID: 1}}},
+		},
+		ByPID: map[int64]traceDBLifecycleLane{
+			100: {Cuts: []traceDBLifecycleBoundary{{TS: 100, NewITID: 1, NewIPID: 1}}},
+		},
+	}
+	body, coverage, _ := exportTraceDBSchedSwitchFixtureWithLifecycle(t, []string{
+		"INSERT INTO sched_slice VALUES (90, 10, 1, 'S', 40, 1)",
+		"INSERT INTO sched_slice VALUES (100, 10, 1, 'R', 41, 1)",
+	}, lifecycle, true)
+	if strings.Count(body, "sched_switch:") != 1 || strings.Contains(coverage.Skipped, "lifecycle_") {
+		t.Fatalf("cut-aligned old end/new start was rejected:\n%s\n%+v", body, coverage)
+	}
+
+	body, coverage, _ = exportTraceDBSchedSwitchFixtureWithLifecycle(t, []string{
+		"INSERT INTO sched_slice VALUES (90, 20, 1, 'S', 40, 1)",
+		"INSERT INTO sched_slice VALUES (90, 10, 2, 'S', 42, 2)",
+		"INSERT INTO sched_slice VALUES (100, NULL, 2, 'R', 43, 2)",
+	}, lifecycle, true)
+	if strings.Count(body, "sched_switch:") != 1 || !strings.Contains(coverage.Skipped, "cpu=001 suppressed_rows=1") ||
+		!strings.Contains(coverage.Skipped, "lifecycle_half_open_rejected=1") {
+		t.Fatalf("final positive-duration slice was treated as a point or poisoned sibling:\n%s\n%+v", body, coverage)
+	}
+}
+
+func TestExportTraceDBSchedSwitchLifecyclePointAndExactIdleRules(t *testing.T) {
+	body, coverage, _ := exportTraceDBSchedSwitchFixtureWithLifecycle(t, []string{
+		"INSERT INTO sched_slice VALUES (100, 10, 1, 'R', 120, 0)",
+		"INSERT INTO sched_slice VALUES (110, NULL, 1, 'R', 120, 0)",
+		"INSERT INTO sched_slice VALUES (100, 10, 2, 'S', 40, 1)",
+		"INSERT INTO sched_slice VALUES (110, NULL, 2, 'R', 41, 1)",
+	}, traceDBLifecycleIndex{}, false)
+	if strings.Count(body, "sched_switch:") != 1 || !strings.Contains(body, "prev_comm=swapper") ||
+		!strings.Contains(coverage.Skipped, "cpu=002 suppressed_rows=2") ||
+		!strings.Contains(coverage.Skipped, "lifecycle_half_open_rejected=1") ||
+		!strings.Contains(coverage.Skipped, "lifecycle_point_rejected=1") {
+		t.Fatalf("incomplete authority did not preserve exact idle and reject non-idle:\n%s\n%+v", body, coverage)
+	}
+
+	_, coverage, _ = exportTraceDBSchedSwitchFixtureWithLifecycle(t, []string{
+		"INSERT INTO sched_slice VALUES (100, 0, 1, 'R', 120, 0)",
+		"INSERT INTO sched_slice VALUES (100, 10, 1, 'R', 120, 0)",
+	}, traceDBLifecycleIndex{GlobalPoison: []int64{100}}, true)
+	if coverage.RowsEmitted != 0 || !strings.Contains(coverage.Skipped, "lifecycle_point_rejected=1") ||
+		!strings.Contains(coverage.Skipped, "lifecycle_half_open_rejected=1") {
+		t.Fatalf("zero/positive-duration idle rows bypassed poisoned start point: %+v", coverage)
+	}
+
+	body, coverage, _ = exportTraceDBSchedSwitchFixtureWithLifecycle(t, []string{
+		"INSERT INTO sched_slice VALUES (90, 20, 1, 'R', 120, 0)",
+		"INSERT INTO sched_slice VALUES (110, 10, 2, 'S', 40, 2)",
+		"INSERT INTO sched_slice VALUES (120, NULL, 2, 'R', 41, 2)",
+	}, traceDBLifecycleIndex{GlobalPoison: []int64{100}}, true)
+	if strings.Count(body, "sched_switch:") != 1 || !strings.Contains(coverage.Skipped, "cpu=001 suppressed_rows=1") ||
+		!strings.Contains(coverage.Skipped, "lifecycle_half_open_rejected=1") {
+		t.Fatalf("positive-duration idle row was downgraded to a start point or poisoned another time range:\n%s\n%+v", body, coverage)
+	}
+
+	_, coverage, _ = exportTraceDBSchedSwitchFixtureWithLifecycle(t, []string{
+		"INSERT INTO sched_slice VALUES (100, NULL, 1, 'R', 120, NULL)",
+		"INSERT INTO sched_slice VALUES (100, NULL, 2, 'R', 120, CAST('0' AS TEXT))",
+		"INSERT INTO sched_slice VALUES (100, NULL, 3, 'R', 120, CAST(0 AS REAL))",
+		"INSERT INTO sched_slice VALUES (100, NULL, 4, 'R', 120, X'00')",
+	}, traceDBLifecycleIndex{}, false)
+	if coverage.RowsEmitted != 0 || !strings.Contains(coverage.Skipped, "rows_suppressed=4") ||
+		!strings.Contains(coverage.Skipped, "invalid_itid=1") {
+		t.Fatalf("non-exact/default zero acquired scheduler idle authority: %+v", coverage)
+	}
+}
+
 func exportTraceDBSchedSwitchFixture(t *testing.T, schedRows []string) (string, TraceDBCoverage, *tracequery.Index) {
+	return exportTraceDBSchedSwitchFixtureWithLifecycle(t, schedRows, traceDBLifecycleIndex{}, true)
+}
+
+func exportTraceDBSchedSwitchFixtureWithLifecycle(t *testing.T, schedRows []string, lifecycle traceDBLifecycleIndex, complete bool) (string, TraceDBCoverage, *tracequery.Index) {
 	t.Helper()
 	statements := []string{
 		"CREATE TABLE trace_range (start_ts INT)",
@@ -369,7 +493,7 @@ func exportTraceDBSchedSwitchFixture(t *testing.T, schedRows []string) (string, 
 		"INSERT INTO thread VALUES (1, 101, 1, 'UserA', 0, 0, 1)",
 		"INSERT INTO thread VALUES (2, 201, 2, 'UserB', 0, 0, 1)",
 		"INSERT INTO thread VALUES (3, 301, 3, 'ZeroTGID', 0, 0, 1)",
-		"CREATE TABLE sched_slice (ts INT, dur INT, cpu INT, end_state TEXT, priority INT, itid INT)",
+		"CREATE TABLE sched_slice (ts INT, dur INT, cpu INT, end_state TEXT, priority INT, itid)",
 	}
 	statements = append(statements, schedRows...)
 	path := createTraceDBFixture(t, statements)
@@ -382,11 +506,14 @@ func exportTraceDBSchedSwitchFixture(t *testing.T, schedRows []string) (string, 
 	if err != nil {
 		t.Fatal(err)
 	}
+	authority := newTraceDBSchedulerAuthority(threadIndex, traceDBLifecycleCollection{
+		Lifecycle: lifecycle, CreationComplete: complete, TerminalComplete: complete, ActivityComplete: complete,
+	})
 	sink, err := newTraceDBRowSink(t.TempDir(), 8)
 	if err != nil {
 		t.Fatal(err)
 	}
-	coverage, err := exportTraceDBSchedSwitch(context.Background(), tdb, sink, threadIndex)
+	coverage, err := exportTraceDBSchedSwitch(context.Background(), tdb, sink, authority)
 	if err != nil {
 		t.Fatalf("export sched switch fixture: %v", err)
 	}

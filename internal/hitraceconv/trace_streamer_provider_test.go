@@ -906,6 +906,9 @@ func traceStreamerIntegrationDBStatements() []string {
 		"INSERT INTO irq VALUES (1500000, 10000, 4, 'irq', 'uart', 10)",
 		"CREATE TABLE callstack (id INT, ts INT, dur INT, callid INT, name TEXT, cat TEXT, depth INT, cookie INT, itid INT)",
 		"INSERT INTO callstack VALUES (1, 1700000, 40000, 2, 'DoWork', 'slice', 0, NULL, 2)",
+		"CREATE TABLE syscall (ts INT, itid INT)",
+		"CREATE TABLE native_hook (start_ts INT, itid INT)",
+		"CREATE TABLE frame_slice (ts INT, itid INT)",
 	}
 }
 
@@ -1001,6 +1004,7 @@ func traceStreamerRootCauseMatrixDBStatements() []string {
 		"INSERT INTO native_hook VALUES (" + ts(2300000) + ", " + ts(2310000) + ", 'malloc', 64, 8192, 1, 1)",
 		"CREATE TABLE frame_slice (ts INT, dur INT, type_desc TEXT, vsync INT, flag INT, ipid INT, itid INT)",
 		"INSERT INTO frame_slice VALUES (" + ts(2600000) + ", 200000, 'actural', 123, 1, 1, 1)",
+		"CREATE TABLE syscall (ts INT, itid INT)",
 	}
 }
 

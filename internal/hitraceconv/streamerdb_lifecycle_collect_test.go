@@ -665,6 +665,167 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 		strings.Contains(string(productionBody), "loadActiveThreadIDs(") {
 		t.Fatalf("production has multiple lifecycle/legacy active authorities:\n%s", productionBody)
 	}
+	type productionSite struct {
+		file     string
+		function string
+	}
+	calls := map[string][]productionSite{}
+	composites := map[string][]productionSite{}
+	targetCalls := map[string]bool{
+		"newTraceDBSchedulerAuthority":  true,
+		"queryTraceDBSchedSliceRows":    true,
+		"scanTraceDBSchedSourceRow":     true,
+		"traceDBStrictInternalID":       true,
+		"schedulerSubjectFromExactITID": true,
+		"schedulerPointAllows":          true,
+		"schedulerSourceIntervalAllows": true,
+		"validateTraceDBSchedLifecycle": true,
+	}
+	strictScannerAssignments := 0
+	paths, err := filepath.Glob(filepath.Join(dir, "*.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range paths {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+		if err != nil {
+			t.Fatalf("parse production file %s: %v", path, err)
+		}
+		for _, declaration := range parsed.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok || function.Body == nil {
+				continue
+			}
+			site := productionSite{file: filepath.Base(path), function: function.Name.Name}
+			authorityParams := 0
+			for _, field := range function.Type.Params.List {
+				if ident, ok := field.Type.(*ast.Ident); ok {
+					switch ident.Name {
+					case "traceDBSchedulerAuthority":
+						authorityParams += len(field.Names)
+					case "traceDBThreadIndex":
+						if function.Name.Name == "exportTraceDBSchedSwitch" || function.Name.Name == "auditTraceDBSchedSwitchRows" ||
+							function.Name.Name == "scanTraceDBSchedSourceRow" {
+							t.Fatalf("scheduler authority consumer %s accepts a raw thread index", function.Name.Name)
+						}
+					}
+				}
+			}
+			if function.Name.Name == "exportTraceDBSchedSwitch" || function.Name.Name == "auditTraceDBSchedSwitchRows" ||
+				function.Name.Name == "scanTraceDBSchedSourceRow" {
+				if authorityParams != 1 {
+					t.Fatalf("scheduler consumer %s authority params=%d, want 1", function.Name.Name, authorityParams)
+				}
+			}
+			ast.Inspect(function.Body, func(node ast.Node) bool {
+				switch typed := node.(type) {
+				case *ast.AssignStmt:
+					if function.Name.Name == "scanTraceDBSchedSourceRow" && typed.Tok == token.DEFINE &&
+						len(typed.Lhs) == 2 && len(typed.Rhs) == 1 {
+						leftITID, leftITIDOK := typed.Lhs[0].(*ast.Ident)
+						leftExact, leftExactOK := typed.Lhs[1].(*ast.Ident)
+						call, callOK := typed.Rhs[0].(*ast.CallExpr)
+						callee, calleeOK := func() (*ast.Ident, bool) {
+							if !callOK {
+								return nil, false
+							}
+							ident, ok := call.Fun.(*ast.Ident)
+							return ident, ok
+						}()
+						argument, argumentOK := func() (*ast.Ident, bool) {
+							if !callOK || len(call.Args) != 1 {
+								return nil, false
+							}
+							ident, ok := call.Args[0].(*ast.Ident)
+							return ident, ok
+						}()
+						if leftITIDOK && leftExactOK && calleeOK && argumentOK && leftITID.Name == "itid" &&
+							leftExact.Name == "itidOK" && callee.Name == "traceDBStrictInternalID" && argument.Name == "rawITID" {
+							strictScannerAssignments++
+						}
+					}
+				case *ast.SelectorExpr:
+					if function.Name.Name == "scanTraceDBSchedSourceRow" && typed.Sel.Name == "identities" {
+						if receiver, ok := typed.X.(*ast.Ident); ok && receiver.Name == "authority" {
+							t.Fatalf("sched scanner reopened raw authority identities")
+						}
+					}
+				case *ast.CallExpr:
+					name := ""
+					switch callee := typed.Fun.(type) {
+					case *ast.Ident:
+						name = callee.Name
+					case *ast.SelectorExpr:
+						name = callee.Sel.Name
+					}
+					if targetCalls[name] {
+						calls[name] = append(calls[name], site)
+					}
+					if name == "schedulerSubjectFromExactITID" && function.Name.Name == "scanTraceDBSchedSourceRow" {
+						if len(typed.Args) != 2 {
+							t.Fatalf("sched scanner subject factory args=%d, want 2", len(typed.Args))
+						}
+						itid, itidOK := typed.Args[0].(*ast.Ident)
+						exact, exactOK := typed.Args[1].(*ast.Ident)
+						if !itidOK || !exactOK || itid.Name != "itid" || exact.Name != "itidOK" {
+							t.Fatalf("sched scanner did not pass the strict decoder bit into subject factory")
+						}
+					}
+				case *ast.CompositeLit:
+					if ident, ok := typed.Type.(*ast.Ident); ok &&
+						(ident.Name == "traceDBSchedulerAuthority" || ident.Name == "traceDBSchedulerSubject") {
+						composites[ident.Name] = append(composites[ident.Name], site)
+					}
+				}
+				return true
+			})
+		}
+	}
+	assertCallSites := func(name string, want map[string]int) {
+		t.Helper()
+		got := map[string]int{}
+		for _, site := range calls[name] {
+			got[site.function]++
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("production call sites for %s=%v, want %v (sites=%+v)", name, got, want, calls[name])
+		}
+	}
+	assertCallSites("newTraceDBSchedulerAuthority", map[string]int{"exportTraceDBSchedulerFamilies": 1})
+	assertCallSites("queryTraceDBSchedSliceRows", map[string]int{"auditTraceDBSchedSwitchRows": 1, "exportTraceDBSchedSwitch": 1})
+	assertCallSites("scanTraceDBSchedSourceRow", map[string]int{"auditTraceDBSchedSwitchRows": 1, "exportTraceDBSchedSwitch": 1})
+	assertCallSites("schedulerSubjectFromExactITID", map[string]int{"newTraceDBSchedulerRunningIndex": 1, "scanTraceDBSchedSourceRow": 1})
+	assertCallSites("schedulerPointAllows", map[string]int{"validateTraceDBSchedLifecycle": 2})
+	assertCallSites("schedulerSourceIntervalAllows", map[string]int{"newTraceDBSchedulerRunningIndex": 1, "validateTraceDBSchedLifecycle": 1})
+	assertCallSites("validateTraceDBSchedLifecycle", map[string]int{"scanTraceDBSchedSourceRow": 2})
+	strictDecoderCalls := 0
+	for _, site := range calls["traceDBStrictInternalID"] {
+		if site.function == "scanTraceDBSchedSourceRow" {
+			strictDecoderCalls++
+		}
+	}
+	if strictDecoderCalls != 1 {
+		t.Fatalf("sched scanner strict ITID decoder calls=%d, want 1", strictDecoderCalls)
+	}
+	if strictScannerAssignments != 1 {
+		t.Fatalf("sched scanner strict ITID decoder assignments=%d, want 1", strictScannerAssignments)
+	}
+	for kind, allowed := range map[string]string{
+		"traceDBSchedulerAuthority": "newTraceDBSchedulerAuthority",
+		"traceDBSchedulerSubject":   "schedulerSubjectFromExactITID",
+	} {
+		if len(composites[kind]) == 0 {
+			t.Fatalf("production %s constructor is missing", kind)
+		}
+		for _, site := range composites[kind] {
+			if site.function != allowed {
+				t.Fatalf("production %s literal escaped %s: %+v", kind, allowed, site)
+			}
+		}
+	}
 	for _, required := range []string{"defer func()", "coverage = append(coverage, lifecycleCoverage...)", "lifecycleCoverage = lifecycle.LifecycleCoverage"} {
 		if !strings.Contains(string(productionBody), required) {
 			t.Fatalf("scheduler early returns can drop lifecycle coverage; missing %q", required)
