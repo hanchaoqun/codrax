@@ -62,10 +62,13 @@ func exportTraceDBCallstackAuthorityFixture(t *testing.T, statements []string, l
 		t.Fatal(err)
 	}
 	defer sink.cleanup()
-	coverage, err := exportTraceDBCallstack(context.Background(), tdb, sink, authority, running)
+	syncSpans := newTraceDBTestSyncSpanAuthority(t)
+	coverage, err := exportTraceDBCallstack(context.Background(), tdb, sink, authority, running, syncSpans)
 	if err != nil {
 		t.Fatalf("export callstack fixture: %v coverage=%+v", err, coverage)
 	}
+	items, _, _ := finalizeTraceDBTestSyncSpans(t, sink, syncSpans, []TraceDBCoverage{coverage})
+	coverage = items[0]
 	rows := append([]renderedRow(nil), sink.rows...)
 	sortRenderedRows(rows)
 	lines := make([]string, 0, len(rows))
@@ -131,7 +134,7 @@ func TestTraceDBCallstackSyncLifecycleBoundaryMatrix(t *testing.T) {
 			if test.name == "clean positive" &&
 				(!strings.Contains(coverage.FieldSources["cpu"], "typed source/lifecycle/unknown") ||
 					!strings.Contains(coverage.FieldSources["lifecycle"], "closed thread/process") ||
-					!strings.Contains(coverage.FieldSources["sync_pairing"], "pending B1-b")) {
+					!strings.Contains(coverage.FieldSources["sync_pairing"], "single cross-producer typed B/E authority")) {
 				t.Fatalf("callstack provenance overclaimed or lost typed authorities: %+v", coverage.FieldSources)
 			}
 			if test.wantEmit == 2 && test.dur == 0 {
@@ -197,7 +200,7 @@ func TestTraceDBCallstackSyncAntiRescueIsLaneLocalAndOrderIndependent(t *testing
 			coverage, body := exportTraceDBCallstackAuthorityFixture(t, statements,
 				traceDBCallstackCutLifecycle(1500, true, true, 2, 2), true, nil)
 			if coverage.RowsEmitted != 2 || !strings.Contains(coverage.Skipped, "lifecycle_rejected_sync_closed_interval=1") ||
-				!strings.Contains(coverage.Skipped, "sync_lane_fail_closed=1") ||
+				!strings.Contains(coverage.Skipped, "sync_span_authority: suppressed_spans=1 suppressed_endpoints=2") ||
 				strings.Contains(body, "same-lane-good") || !strings.Contains(body, "other-lane-good") {
 				t.Fatalf("sync anti-rescue/locality mismatch: coverage=%+v body=%q", coverage, body)
 			}
@@ -222,7 +225,7 @@ func TestTraceDBCallstackUnknownEndCPUCannotBeRescuedOnSameLane(t *testing.T) {
 			)
 			coverage, body := exportTraceDBCallstackAuthorityFixture(t, statements, traceDBLifecycleIndex{}, true, nil)
 			if coverage.RowsEmitted != 2 || !strings.Contains(coverage.Skipped, "unknown_end_cpu=1") ||
-				!strings.Contains(coverage.Skipped, "sync_lane_fail_closed=1") || strings.Contains(body, "same-lane-good") ||
+				!strings.Contains(coverage.Skipped, "sync_span_authority: suppressed_spans=1 suppressed_endpoints=2") || strings.Contains(body, "same-lane-good") ||
 				!strings.Contains(body, "other-lane-good") {
 				t.Fatalf("unknown end CPU rescued a same-lane sibling: coverage=%+v body=%q", coverage, body)
 			}
@@ -277,7 +280,7 @@ func TestTraceDBCallstackMalformedSyncRowsPoisonExactLane(t *testing.T) {
 			)
 			coverage, body := exportTraceDBCallstackAuthorityFixture(t, statements, traceDBLifecycleIndex{}, true, nil)
 			if coverage.RowsEmitted != 2 || !strings.Contains(coverage.Skipped, test.wantReason) ||
-				!strings.Contains(coverage.Skipped, "sync_lane_fail_closed=1") || strings.Contains(body, "same-lane-good") ||
+				!strings.Contains(coverage.Skipped, "sync_span_authority: suppressed_spans=1 suppressed_endpoints=2") || strings.Contains(body, "same-lane-good") ||
 				!strings.Contains(body, "other-lane-good") {
 				t.Fatalf("malformed sync anti-rescue mismatch: coverage=%+v body=%q", coverage, body)
 			}
@@ -302,7 +305,7 @@ func TestTraceDBCallstackSyncBarrierUsesOnlyExactCandidateLanes(t *testing.T) {
 		)
 		coverage, body := exportTraceDBCallstackAuthorityFixture(t, statements, traceDBLifecycleIndex{}, true, nil)
 		if coverage.RowsEmitted != 2 || !strings.Contains(coverage.Skipped, "emitter_identity_mismatch=1") ||
-			!strings.Contains(coverage.Skipped, "sync_lane_fail_closed=2") || strings.Contains(body, "lane-one") ||
+			!strings.Contains(coverage.Skipped, "sync_span_authority: suppressed_spans=2 suppressed_endpoints=4") || strings.Contains(body, "lane-one") ||
 			strings.Contains(body, "lane-two") || !strings.Contains(body, "lane-three") {
 			t.Fatalf("dual exact candidate barrier mismatch: coverage=%+v body=%q", coverage, body)
 		}
@@ -340,7 +343,7 @@ func TestTraceDBCallstackSyncBarrierUsesOnlyExactCandidateLanes(t *testing.T) {
 			)
 			coverage, body := exportTraceDBCallstackAuthorityFixture(t, statements, traceDBLifecycleIndex{}, true, nil)
 			if coverage.RowsEmitted != 2 || !strings.Contains(body, "exact") ||
-				strings.Contains(coverage.Skipped, "sync_lane_fail_closed") {
+				strings.Contains(coverage.Skipped, "sync_span_authority: suppressed_spans") {
 				t.Fatalf("unresolved identity noise affected an exact lane: coverage=%+v body=%q", coverage, body)
 			}
 		})

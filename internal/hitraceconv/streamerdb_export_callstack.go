@@ -34,13 +34,6 @@ type traceDBCallstackRow struct {
 	EndCPU      int64
 }
 
-type traceDBCallstackEndpoint struct {
-	Row   traceDBCallstackRow
-	TS    int64
-	CPU   int64
-	Begin bool
-}
-
 type traceDBCallstackAsyncKey struct {
 	OwnerIPID int64
 	TGID      int64
@@ -53,7 +46,7 @@ type traceDBCallstackAsyncKey struct {
 // A malformed row is never repaired with pid/cpu/cookie zero: those values are
 // valid protocol tokens and would turn missing evidence into fabricated facts.
 func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowSink,
-	authority traceDBSchedulerAuthority, running traceDBSchedulerRunningIndex,
+	authority traceDBSchedulerAuthority, running traceDBSchedulerRunningIndex, syncSpans *traceDBSyncSpanAuthority,
 ) (TraceDBCoverage, error) {
 	coverage, err := tdb.inspectCoverage(ctx, "slice", "callstack", []string{"ts", "dur", "name"})
 	coverage.FieldSources = map[string]string{
@@ -63,7 +56,7 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 		"row_order":        "strict SQLite rowid; optional source id remains provenance only; typed endpoint phase ordering",
 		"async_identity":   "nonzero cookie or chainId; both must agree when both are present",
 		"lifecycle":        "same complete collector authority; sync positive spans require closed thread/process generation, zero spans and async endpoints require exact point admission",
-		"sync_pairing":     "callstack-table-local only; known-emitter rejected sync rows taint every exact candidate lane before complete per-emitter laminar audit and atomic publication; cross-exporter B/E authority remains pending B1-b",
+		"sync_pairing":     "accepted sync rows and exact rejected-lane poison are handed to the single cross-producer typed B/E authority; this exporter never publishes sync endpoints directly",
 		"async_generation": "each endpoint is admitted independently; exact rejected owner/name/cookie keys fail closed locally, unplaceable async rows fail the family; a paired task may migrate threads but cannot cross its positive owner-process generation",
 	}
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
@@ -72,6 +65,9 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 	fail := func(err error) (TraceDBCoverage, error) {
 		coverage.Error = err.Error()
 		return coverage, err
+	}
+	if syncSpans == nil {
+		return fail(&traceDBOutputInvariantError{Reason: "missing_sync_span_authority"})
 	}
 
 	hasITID, err := tdb.columnExists(ctx, "callstack", "itid")
@@ -163,7 +159,6 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 	var accepted []traceDBCallstackRow
 	asyncGlobalPoisoned := false
 	asyncTaintedKeys := map[traceDBCallstackAsyncKey]bool{}
-	syncTaintedITIDs := map[int64]bool{}
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
 			return fail(err)
@@ -184,7 +179,19 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 			}
 			if traceDBCallstackPotentialSync(flagRaw, hasFlag) {
 				for _, itid := range traceDBCallstackExactEmitterCandidates(authority, hasITID, hasCallID, itidRaw, callIDRaw) {
-					syncTaintedITIDs[itid] = true
+					thread, _, resolution := authority.resolveThreadSubject(itid)
+					if resolution != traceDBSchedulerThreadResolved {
+						return fail(&traceDBOutputInvariantError{Reason: "callstack_exact_lane_lost_identity"})
+					}
+					if err := syncSpans.poisonExactLane(traceDBSyncSpanLanePoison{
+						Producer:           traceDBSyncSpanProducerCallstack,
+						HeaderTID:          thread.TID,
+						CanonicalITID:      itid,
+						CanonicalITIDKnown: true,
+						Reason:             traceDBSyncSpanLanePoisonRejectedCallstackCandidate,
+					}); err != nil {
+						return fail(err)
+					}
 				}
 			}
 			skipped[reason]++
@@ -195,7 +202,7 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 	if err := rows.Err(); err != nil {
 		return fail(err)
 	}
-	syncLanes := map[int64][]traceDBCallstackRow{}
+	var syncRows []traceDBCallstackRow
 	asyncGroups := map[traceDBCallstackAsyncKey][]traceDBCallstackRow{}
 	for _, row := range accepted {
 		switch row.Flag {
@@ -203,31 +210,39 @@ func exportTraceDBCallstack(ctx context.Context, tdb *traceDB, sink *traceDBRowS
 			key := traceDBCallstackAsyncKey{OwnerIPID: row.OwnerIPID, TGID: row.TGID, Name: row.Name, Cookie: row.Cookie}
 			asyncGroups[key] = append(asyncGroups[key], row)
 		default:
-			syncLanes[row.EmitterITID] = append(syncLanes[row.EmitterITID], row)
+			syncRows = append(syncRows, row)
 		}
 	}
 
-	for _, itid := range sortedTraceDBCallstackLaneIDs(syncLanes) {
-		lane := syncLanes[itid]
-		if syncTaintedITIDs[itid] {
-			skipped["sync_lane_fail_closed"] += len(lane)
-			continue
+	for _, row := range syncRows {
+		depthProvenance := traceDBSyncSpanDepthUnknown
+		if row.DepthKnown {
+			depthProvenance = traceDBSyncSpanDepthCallstack
 		}
-		if reason := auditTraceDBCallstackSyncLane(lane); reason != "" {
-			skipped[reason] += len(lane)
-			continue
-		}
-		endpoints := traceDBCallstackSyncEndpoints(lane)
-		for _, endpoint := range endpoints {
-			body := fmt.Sprintf("tracing_mark_write: E|%d|", endpoint.Row.TGID)
-			if endpoint.Begin {
-				body = fmt.Sprintf("tracing_mark_write: B|%d|%s", endpoint.Row.TGID, endpoint.Row.Name)
-			}
-			if err := addTraceDBInstantRow(sink, endpoint.TS, endpoint.Row.Task, endpoint.Row.TID,
-				endpoint.Row.TGID, endpoint.CPU, body); err != nil {
-				return fail(err)
-			}
-			coverage.RowsEmitted++
+		if err := syncSpans.submit(traceDBSyncSpanCandidate{
+			Producer:           traceDBSyncSpanProducerCallstack,
+			StableKind:         traceDBSyncSpanStableCallstackRowID,
+			StableID:           row.ID,
+			HeaderTID:          row.TID,
+			HeaderTGID:         row.TGID,
+			CanonicalITID:      row.EmitterITID,
+			CanonicalITIDKnown: true,
+			OwnerIPID:          row.OwnerIPID,
+			OwnerIPIDKnown:     true,
+			Start:              row.TS,
+			End:                row.End,
+			StartCPU:           row.StartCPU,
+			EndCPU:             row.EndCPU,
+			StartCPUProvenance: traceDBSyncSpanCPUCallstackTypedRunning,
+			EndCPUProvenance:   traceDBSyncSpanCPUCallstackTypedRunning,
+			Task:               row.Task,
+			Name:               row.Name,
+			NameProvenance:     traceDBSyncSpanNameCallstack,
+			Depth:              row.Depth,
+			DepthKnown:         row.DepthKnown,
+			DepthProvenance:    depthProvenance,
+		}); err != nil {
+			return fail(err)
 		}
 	}
 	if asyncGlobalPoisoned {
@@ -559,115 +574,6 @@ func traceDBCallstackMarkerToken(value string) bool {
 		}
 	}
 	return true
-}
-
-func sortedTraceDBCallstackLaneIDs(lanes map[int64][]traceDBCallstackRow) []int64 {
-	ids := make([]int64, 0, len(lanes))
-	for id := range lanes {
-		ids = append(ids, id)
-	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
-	return ids
-}
-
-func auditTraceDBCallstackSyncLane(rows []traceDBCallstackRow) string {
-	if len(rows) < 2 {
-		return ""
-	}
-	ordered := append([]traceDBCallstackRow(nil), rows...)
-	sort.SliceStable(ordered, func(i, j int) bool {
-		if ordered[i].TS != ordered[j].TS {
-			return ordered[i].TS < ordered[j].TS
-		}
-		if ordered[i].End != ordered[j].End {
-			return ordered[i].End > ordered[j].End
-		}
-		if ordered[i].DepthKnown && ordered[j].DepthKnown && ordered[i].Depth != ordered[j].Depth {
-			return ordered[i].Depth < ordered[j].Depth
-		}
-		return ordered[i].ID < ordered[j].ID
-	})
-	seenIntervals := make(map[[2]int64]traceDBCallstackRow, len(ordered))
-	for _, row := range ordered {
-		key := [2]int64{row.TS, row.End}
-		if previous, exists := seenIntervals[key]; exists &&
-			(!row.DepthKnown || !previous.DepthKnown || row.Depth == previous.Depth) {
-			return "ambiguous_identical_interval"
-		}
-		seenIntervals[key] = row
-	}
-	stack := make([]traceDBCallstackRow, 0, len(ordered))
-	for _, row := range ordered {
-		for len(stack) > 0 && row.TS >= stack[len(stack)-1].End {
-			stack = stack[:len(stack)-1]
-		}
-		if len(stack) > 0 {
-			parent := stack[len(stack)-1]
-			if row.TS == parent.TS && row.End == parent.End &&
-				(!row.DepthKnown || !parent.DepthKnown || row.Depth == parent.Depth) {
-				return "ambiguous_identical_interval"
-			}
-			if row.End > parent.End {
-				return "crossing_sync_intervals"
-			}
-			if row.DepthKnown && parent.DepthKnown && row.Depth <= parent.Depth {
-				return "non_increasing_sync_depth"
-			}
-		}
-		stack = append(stack, row)
-	}
-	return ""
-}
-
-func traceDBCallstackSyncEndpoints(rows []traceDBCallstackRow) []traceDBCallstackEndpoint {
-	endpoints := make([]traceDBCallstackEndpoint, 0, len(rows)*2)
-	for _, row := range rows {
-		endpoints = append(endpoints,
-			traceDBCallstackEndpoint{Row: row, TS: row.TS, CPU: row.StartCPU, Begin: true},
-			traceDBCallstackEndpoint{Row: row, TS: row.End, CPU: row.EndCPU, Begin: false},
-		)
-	}
-	sort.SliceStable(endpoints, func(i, j int) bool {
-		left, right := endpoints[i], endpoints[j]
-		if left.TS != right.TS {
-			return left.TS < right.TS
-		}
-		leftPhase := traceDBCallstackEndpointPhase(left)
-		rightPhase := traceDBCallstackEndpointPhase(right)
-		if leftPhase != rightPhase {
-			return leftPhase < rightPhase
-		}
-		if left.Begin && right.Begin {
-			if left.Row.DepthKnown && right.Row.DepthKnown && left.Row.Depth != right.Row.Depth {
-				return left.Row.Depth < right.Row.Depth
-			}
-			if left.Row.End != right.Row.End {
-				return left.Row.End > right.Row.End
-			}
-			return left.Row.ID < right.Row.ID
-		}
-		if !left.Begin && !right.Begin {
-			if left.Row.DepthKnown && right.Row.DepthKnown && left.Row.Depth != right.Row.Depth {
-				return left.Row.Depth > right.Row.Depth
-			}
-			if left.Row.TS != right.Row.TS {
-				return left.Row.TS > right.Row.TS
-			}
-			return left.Row.ID > right.Row.ID
-		}
-		return left.Row.ID < right.Row.ID
-	})
-	return endpoints
-}
-
-func traceDBCallstackEndpointPhase(endpoint traceDBCallstackEndpoint) int {
-	if !endpoint.Begin && endpoint.Row.Dur > 0 {
-		return 0
-	}
-	if endpoint.Begin {
-		return 1
-	}
-	return 2
 }
 
 func auditTraceDBCallstackAsyncGroup(authority traceDBSchedulerAuthority, rows []traceDBCallstackRow) string {

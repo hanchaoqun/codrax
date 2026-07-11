@@ -110,12 +110,16 @@ func TestTraceDBExtendedProductionReceivesOneSchedulerAuthority(t *testing.T) {
 				if !ok || callee.Name != "exportTraceDBExtendedFamilies" {
 					return true
 				}
-				if len(typed.Args) != 4 {
-					t.Fatalf("extended handoff args=%d, want 4", len(typed.Args))
+				if len(typed.Args) != 5 {
+					t.Fatalf("extended handoff args=%d, want 5", len(typed.Args))
 				}
 				authority, ok := typed.Args[3].(*ast.Ident)
 				if !ok || authority.Name != "authority" {
 					t.Fatal("extended exporter did not receive the scheduler authority result")
+				}
+				syncSpans, ok := typed.Args[4].(*ast.Ident)
+				if !ok || syncSpans.Name != "syncSpans" {
+					t.Fatal("extended exporter did not receive the shared sync-span authority")
 				}
 				extendedHandoffs++
 			}
@@ -277,7 +281,7 @@ func TestTraceDBExtendedRejectsMissingSharedAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	coverage, err := exportTraceDBExtendedFamilies(context.Background(), tdb, sink, traceDBSchedulerAuthority{})
+	coverage, err := exportTraceDBExtendedFamilies(context.Background(), tdb, sink, traceDBSchedulerAuthority{}, newTraceDBTestSyncSpanAuthority(t))
 	if err == nil || len(coverage) != 0 || sink.stats.RowsAccepted != 0 {
 		t.Fatalf("missing shared authority failed open: coverage=%+v sink=%+v err=%v", coverage, sink.stats, err)
 	}
@@ -300,7 +304,7 @@ func TestTraceDBExtendedUsesHandoffIdentitiesWithoutReload(t *testing.T) {
 		t.Fatal(err)
 	}
 	coverage, err := exportTraceDBExtendedFamilies(context.Background(), tdb, sink,
-		traceDBSchedulerAuthorityFixture(true, traceDBLifecycleIndex{}))
+		traceDBSchedulerAuthorityFixture(true, traceDBLifecycleIndex{}), newTraceDBTestSyncSpanAuthority(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -329,7 +333,7 @@ func TestTraceDBAuthorityHandoffErrorBoundaries(t *testing.T) {
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		_, authority, err := exportTraceDBSchedulerFamilies(ctx, tdb, sink)
+		_, authority, err := exportTraceDBSchedulerFamilies(ctx, tdb, sink, newTraceDBTestSyncSpanAuthority(t))
 		if err == nil || authority.initialized {
 			t.Fatalf("pre-construction failure leaked authority: initialized=%t err=%v", authority.initialized, err)
 		}
@@ -365,7 +369,7 @@ func TestTraceDBAuthorityHandoffErrorBoundaries(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, authority, err := exportTraceDBSchedulerFamilies(context.Background(), tdb, sink)
+		_, authority, err := exportTraceDBSchedulerFamilies(context.Background(), tdb, sink, newTraceDBTestSyncSpanAuthority(t))
 		if err == nil || authority.initialized {
 			t.Fatalf("post-construction failure leaked authority: initialized=%t err=%v", authority.initialized, err)
 		}

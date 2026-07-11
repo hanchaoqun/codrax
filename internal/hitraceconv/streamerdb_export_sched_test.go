@@ -61,10 +61,12 @@ func TestExportTraceDBSchedulerFamiliesRoundTripsThroughTraceQuery(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	coverage, _, err := exportTraceDBSchedulerFamilies(context.Background(), tdb, sink)
+	syncSpans := newTraceDBTestSyncSpanAuthority(t)
+	coverage, _, err := exportTraceDBSchedulerFamilies(context.Background(), tdb, sink, syncSpans)
 	if err != nil {
 		t.Fatalf("export scheduler families: %v", err)
 	}
+	coverage, _, _ = finalizeTraceDBTestSyncSpans(t, sink, syncSpans, coverage)
 	assertCoverageEmitted(t, coverage, "metadata", "thread", 9)
 	assertCoverageEmitted(t, coverage, "scheduler", "sched_slice", 1)
 	assertCoverageEmitted(t, coverage, "scheduler", "instant", 1)
@@ -167,7 +169,7 @@ func TestExportTraceDBSchedulerFamiliesRecordsMissingTables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	coverage, _, err := exportTraceDBSchedulerFamilies(context.Background(), tdb, sink)
+	coverage, _, err := exportTraceDBSchedulerFamilies(context.Background(), tdb, sink, newTraceDBTestSyncSpanAuthority(t))
 	if err != nil {
 		t.Fatalf("missing tables should be coverage, not hard failure: %v", err)
 	}

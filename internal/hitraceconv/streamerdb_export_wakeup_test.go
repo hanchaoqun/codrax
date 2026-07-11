@@ -340,10 +340,12 @@ func exportSchedulerFixture(t *testing.T, statements []string) (string, []TraceD
 	if err != nil {
 		t.Fatal(err)
 	}
-	coverage, _, err := exportTraceDBSchedulerFamilies(context.Background(), tdb, sink)
+	syncSpans := newTraceDBTestSyncSpanAuthority(t)
+	coverage, _, err := exportTraceDBSchedulerFamilies(context.Background(), tdb, sink, syncSpans)
 	if err != nil {
 		t.Fatalf("export scheduler fixture: %v", err)
 	}
+	coverage, _, _ = finalizeTraceDBTestSyncSpans(t, sink, syncSpans, coverage)
 	outPath := filepath.Join(t.TempDir(), "scheduler.systrace")
 	out, err := os.OpenFile(outPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {

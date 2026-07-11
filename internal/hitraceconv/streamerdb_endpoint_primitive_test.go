@@ -120,7 +120,28 @@ func TestTraceDBSpanEndpointsValidateAtomically(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			err = addTraceDBSpanRows(sink, tc.start, tc.end, "task", 1, 1, 0, tc.span)
+			syncSpans := newTraceDBTestSyncSpanAuthority(t)
+			err = syncSpans.submit(traceDBSyncSpanCandidate{
+				Producer:           traceDBSyncSpanProducerSyscall,
+				StableKind:         traceDBSyncSpanStableSyscallRowID,
+				StableID:           1,
+				HeaderTID:          1,
+				HeaderTGID:         1,
+				CanonicalITID:      1,
+				CanonicalITIDKnown: true,
+				OwnerIPID:          1,
+				OwnerIPIDKnown:     true,
+				Start:              tc.start,
+				End:                tc.end,
+				StartCPU:           0,
+				EndCPU:             0,
+				StartCPUProvenance: traceDBSyncSpanCPULegacyUnverified,
+				EndCPUProvenance:   traceDBSyncSpanCPULegacyUnverified,
+				Task:               "task",
+				Name:               tc.span,
+				NameProvenance:     traceDBSyncSpanNameSyscallNumber,
+				DepthProvenance:    traceDBSyncSpanDepthUnknown,
+			})
 			if reason, ok := traceDBOutputInvariantReason(err); !ok || reason != tc.reason {
 				t.Fatalf("expected %q, got reason=%q typed=%v err=%v", tc.reason, reason, ok, err)
 			}
@@ -208,10 +229,13 @@ func TestTraceDBStaticInitializeIncompleteIdentitySkipsLocally(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	coverage, err := exportTraceDBStaticInitialize(context.Background(), tdb, sink, index, nil, nil)
+	syncSpans := newTraceDBTestSyncSpanAuthority(t)
+	coverage, err := exportTraceDBStaticInitialize(context.Background(), tdb, sink, syncSpans, index)
 	if err != nil {
 		t.Fatalf("incomplete producer identity should be a row-local skip: %v", err)
 	}
+	items, _, _ := finalizeTraceDBTestSyncSpans(t, sink, syncSpans, []TraceDBCoverage{coverage})
+	coverage = items[0]
 	if coverage.RowsEmitted != 2 || len(sink.rows) != 2 ||
 		!strings.Contains(coverage.Skipped, "invalid_emitter_tid=1") ||
 		!strings.Contains(coverage.Skipped, "unresolved_owner_process=1") {

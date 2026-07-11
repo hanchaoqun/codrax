@@ -998,6 +998,7 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 		t.Fatalf("blocked endpoint gates=%v, want %v", blockedEndpointCalls, wantBlockedEndpoints)
 	}
 	assertCallSites("resolveThreadSubject", map[string]int{
+		"exportTraceDBCallstack":                 1,
 		"exportTraceDBWakeups":                   2,
 		"loadTraceDBBlockedCandidates":           1,
 		"prepareTraceDBCallstackRow":             1,

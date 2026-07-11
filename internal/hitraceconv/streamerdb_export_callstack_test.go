@@ -277,13 +277,23 @@ func TestExportTraceDBCallstackFailClosesMalformedRowsAndBadLane(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"crossing_sync_intervals=2", "invalid_timestamp=1", "invalid_duration=1",
+		"invalid_timestamp=1", "invalid_duration=1",
 		"invalid_name=1", "missing_async_identity=1", "unknown_flag=1",
 		"cookie_chain_id_conflict=1", "async_family_fail_closed=2",
 	} {
 		if !strings.Contains(callstackCoverage.Skipped, want) {
 			t.Fatalf("callstack coverage missing %q: %+v", want, callstackCoverage)
 		}
+	}
+	foundSyncAudit := false
+	for _, item := range result.Coverage {
+		if item.Family == "integrity" && item.Table == "sync_span_authority" {
+			foundSyncAudit = strings.Contains(item.Skipped, "crossing_lanes=1") &&
+				strings.Contains(item.Skipped, "suppressed_spans=4")
+		}
+	}
+	if !foundSyncAudit {
+		t.Fatalf("central sync authority did not disclose the rejected crossing lane: %+v", result.Coverage)
 	}
 	bodyBytes, err := os.ReadFile(outPath)
 	if err != nil {
@@ -404,24 +414,32 @@ func TestExportTraceDBCallstackMalformedAsyncEndpointPoisonsFamily(t *testing.T)
 	t.Fatal("callstack coverage missing")
 }
 
-func TestAuditTraceDBCallstackSyncLaneDepthAndZeroIdentity(t *testing.T) {
-	if reason := auditTraceDBCallstackSyncLane([]traceDBCallstackRow{
-		{ID: 1, TS: 10, End: 20, Depth: 0, DepthKnown: true},
-		{ID: 2, TS: 10, End: 20, Depth: 1, DepthKnown: true},
-	}); reason != "" {
-		t.Fatalf("strict depth should disambiguate identical intervals: %s", reason)
+func TestAuditTraceDBSyncSpanLaneDepthAndZeroIdentity(t *testing.T) {
+	candidate := func(id, start, end, depth int64, depthKnown bool) traceDBSyncSpanCandidate {
+		depthProvenance := traceDBSyncSpanDepthUnknown
+		if depthKnown {
+			depthProvenance = traceDBSyncSpanDepthCallstack
+		}
+		return traceDBSyncSpanCandidate{
+			Producer: traceDBSyncSpanProducerCallstack, StableKind: traceDBSyncSpanStableCallstackRowID, StableID: id,
+			HeaderTID: 1, HeaderTGID: 1, CanonicalITID: 1, CanonicalITIDKnown: true,
+			Start: start, End: end, Depth: depth, DepthKnown: depthKnown, DepthProvenance: depthProvenance,
+		}
 	}
-	if reason := auditTraceDBCallstackSyncLane([]traceDBCallstackRow{
-		{ID: 1, TS: 10, End: 20, Depth: 0, DepthKnown: true},
-		{ID: 2, TS: 11, End: 19, Depth: 0, DepthKnown: true},
-	}); reason != "non_increasing_sync_depth" {
-		t.Fatalf("equal-depth overlap was not rejected: %s", reason)
+	if reason := auditTraceDBSyncSpanLane([]traceDBSyncSpanCandidate{
+		candidate(1, 10, 20, 0, true), candidate(2, 10, 20, 1, true),
+	}); reason != traceDBSyncSpanLaneClean {
+		t.Fatalf("strict depth should disambiguate identical intervals: %d", reason)
 	}
-	if reason := auditTraceDBCallstackSyncLane([]traceDBCallstackRow{
-		{ID: 1, TS: 10, End: 10},
-		{ID: 2, TS: 10, End: 10},
-	}); reason != "ambiguous_identical_interval" {
-		t.Fatalf("identical zero intervals were not rejected: %s", reason)
+	if reason := auditTraceDBSyncSpanLane([]traceDBSyncSpanCandidate{
+		candidate(1, 10, 20, 0, true), candidate(2, 11, 19, 0, true),
+	}); reason != traceDBSyncSpanLaneDepthConflict {
+		t.Fatalf("equal-depth overlap was not rejected: %d", reason)
+	}
+	if reason := auditTraceDBSyncSpanLane([]traceDBSyncSpanCandidate{
+		candidate(1, 10, 10, 0, false), candidate(2, 10, 10, 0, false),
+	}); reason != traceDBSyncSpanLaneClean {
+		t.Fatalf("zero spans should not fabricate an active nesting conflict: %d", reason)
 	}
 }
 

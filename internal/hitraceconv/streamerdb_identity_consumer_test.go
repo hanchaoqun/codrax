@@ -70,8 +70,9 @@ func TestTraceDBIdentityPoisonNeverGlobalizesThreadOrProcessScopedRows(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
+	syncSpans := newTraceDBTestSyncSpanAuthority(t)
 
-	syscallCoverage, err := exportTraceDBSyscall(context.Background(), tdb, sink, index, nil, nil)
+	syscallCoverage, err := exportTraceDBSyscall(context.Background(), tdb, sink, syncSpans, index)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,11 +80,11 @@ func TestTraceDBIdentityPoisonNeverGlobalizesThreadOrProcessScopedRows(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	startupCoverage, err := exportTraceDBAppStartup(context.Background(), tdb, sink, index, nil, map[int64]string{1: "cold"})
+	startupCoverage, err := exportTraceDBAppStartup(context.Background(), tdb, sink, syncSpans, index, map[int64]string{1: "cold"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	staticCoverage, err := exportTraceDBStaticInitialize(context.Background(), tdb, sink, index, nil, nil)
+	staticCoverage, err := exportTraceDBStaticInitialize(context.Background(), tdb, sink, syncSpans, index)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,6 +92,11 @@ func TestTraceDBIdentityPoisonNeverGlobalizesThreadOrProcessScopedRows(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
+	items, _, _ := finalizeTraceDBTestSyncSpans(t, sink, syncSpans, []TraceDBCoverage{
+		syscallCoverage, taskCoverage, startupCoverage, staticCoverage, measureCoverage,
+	})
+	syscallCoverage, taskCoverage, startupCoverage, staticCoverage, measureCoverage =
+		items[0], items[1], items[2], items[3], items[4]
 
 	if syscallCoverage.RowsEmitted != 2 || !strings.Contains(syscallCoverage.Skipped, "unresolved_emitter_identity=1") ||
 		!strings.Contains(syscallCoverage.Skipped, "invalid_emitter_itid=1") {

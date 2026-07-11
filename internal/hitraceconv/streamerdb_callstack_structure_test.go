@@ -63,8 +63,9 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 		"traceDBResolveLifecycleCallstackIdentity": true,
 		"traceDBCallstackExactEmitterCandidates":   true,
 		"traceDBCallstackExactAsyncKey":            true,
-		"auditTraceDBCallstackSyncLane":            true,
 		"auditTraceDBCallstackAsyncGroup":          true,
+		"submit":                                   true,
+		"poisonExactLane":                          true,
 		"traceDBExtendedRunningCPUAt":              true,
 		"traceDBKnownCPUAt":                        true,
 		"loadRunningIntervals":                     true,
@@ -78,7 +79,7 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 	failCalls := 0
 	coverageErrorAssignments := 0
 	exactAsyncKeyRowFields := map[string]bool{}
-	var barrierPopulate, barrierCheck, syncAudit token.Pos
+	var barrierPopulate, centralPoison, centralSubmit token.Pos
 	var typedBuild, measureDispatch, callstackDispatch, frameList token.Pos
 
 	paths, err := filepath.Glob(filepath.Join(dir, "*.go"))
@@ -106,6 +107,10 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 						functionTypes[function.Name.Name][fieldType.Name] += len(field.Names)
 					case *ast.MapType:
 						functionTypes[function.Name.Name]["map"] += len(field.Names)
+					case *ast.StarExpr:
+						if ident, ok := fieldType.X.(*ast.Ident); ok {
+							functionTypes[function.Name.Name]["*"+ident.Name] += len(field.Names)
+						}
 					}
 				}
 			}
@@ -118,12 +123,6 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 						if isSelector(lhs, "coverage", "Error") {
 							coverageErrorAssignments++
 						}
-					}
-				}
-				if ifStatement, ok := node.(*ast.IfStmt); ok && function.Name.Name == "exportTraceDBCallstack" {
-					if indexExpression, ok := ifStatement.Cond.(*ast.IndexExpr); ok &&
-						isIdent(indexExpression.X, "syncTaintedITIDs") && isIdent(indexExpression.Index, "itid") {
-						barrierCheck = ifStatement.Pos()
 					}
 				}
 				if composite, ok := node.(*ast.CompositeLit); ok && function.Name.Name == "exportTraceDBExtendedFamilies" {
@@ -152,8 +151,11 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 				if function.Name.Name == "exportTraceDBCallstack" && name == "traceDBCallstackExactEmitterCandidates" {
 					barrierPopulate = call.Pos()
 				}
-				if function.Name.Name == "exportTraceDBCallstack" && name == "auditTraceDBCallstackSyncLane" {
-					syncAudit = call.Pos()
+				if function.Name.Name == "exportTraceDBCallstack" && name == "poisonExactLane" {
+					centralPoison = call.Pos()
+				}
+				if function.Name.Name == "exportTraceDBCallstack" && name == "submit" {
+					centralSubmit = call.Pos()
 				}
 				if function.Name.Name == "exportTraceDBExtendedFamilies" {
 					switch name {
@@ -193,14 +195,17 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 	for _, function := range []string{"exportTraceDBCallstack", "prepareTraceDBCallstackRow"} {
 		got := functionTypes[function]
 		if got["traceDBSchedulerAuthority"] != 1 || got["traceDBSchedulerRunningIndex"] != 1 ||
-			got["traceDBThreadIndex"] != 0 || got["map"] != 0 {
+			got["traceDBThreadIndex"] != 0 || got["map"] != 0 ||
+			(function == "exportTraceDBCallstack" && got["*traceDBSyncSpanAuthority"] != 1) ||
+			(function == "prepareTraceDBCallstackRow" && got["*traceDBSyncSpanAuthority"] != 0) {
 			t.Fatalf("%s authority parameter types=%v", function, got)
 		}
 	}
 
 	extendedCall := calls["exportTraceDBCallstack"][0].call
-	if len(extendedCall.Args) != 5 || !isIdent(extendedCall.Args[0], "ctx") || !isIdent(extendedCall.Args[1], "tdb") ||
-		!isIdent(extendedCall.Args[2], "sink") || !isIdent(extendedCall.Args[3], "authority") || !isIdent(extendedCall.Args[4], "callstackRunning") {
+	if len(extendedCall.Args) != 6 || !isIdent(extendedCall.Args[0], "ctx") || !isIdent(extendedCall.Args[1], "tdb") ||
+		!isIdent(extendedCall.Args[2], "sink") || !isIdent(extendedCall.Args[3], "authority") || !isIdent(extendedCall.Args[4], "callstackRunning") ||
+		!isIdent(extendedCall.Args[5], "syncSpans") {
 		t.Fatal("extended callstack dispatch does not pass the shared typed authorities")
 	}
 	var extendedTypedBuild *ast.CallExpr
@@ -236,6 +241,7 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 	}
 	if callerCounts("lookupCPUAt")["prepareTraceDBCallstackRow"] != 2 ||
 		callerCounts("resolveThreadSubject")["prepareTraceDBCallstackRow"] != 1 ||
+		callerCounts("resolveThreadSubject")["exportTraceDBCallstack"] != 1 ||
 		callerCounts("resolveThreadSubject")["traceDBCallstackExactEmitterCandidates"] != 1 ||
 		callerCounts("traceDBResolveLifecycleCallstackIdentity")["traceDBCallstackExactEmitterCandidates"] != 1 {
 		t.Fatalf("callstack typed resolution closure lookup=%v resolve=%v candidate=%v",
@@ -283,11 +289,13 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 			t.Fatalf("callstack reopened forbidden authority %s: %v", forbidden, callerCounts(forbidden))
 		}
 	}
-	if barrierPopulate == 0 || barrierCheck == 0 || syncAudit == 0 || barrierPopulate >= barrierCheck || barrierCheck >= syncAudit {
-		t.Fatalf("sync barrier does not dominate audit: populate=%d check=%d audit=%d", barrierPopulate, barrierCheck, syncAudit)
+	if barrierPopulate == 0 || centralPoison == 0 || centralSubmit == 0 ||
+		barrierPopulate >= centralPoison || centralPoison >= centralSubmit {
+		t.Fatalf("exact rejected-lane poison does not dominate central submission: candidates=%d poison=%d submit=%d",
+			barrierPopulate, centralPoison, centralSubmit)
 	}
-	if failCalls != 13 || coverageErrorAssignments != 1 {
-		t.Fatalf("callstack error chokepoint calls=%d coverage.Error assignments=%d, want 13/1", failCalls, coverageErrorAssignments)
+	if failCalls != 16 || coverageErrorAssignments != 1 {
+		t.Fatalf("callstack error chokepoint calls=%d coverage.Error assignments=%d, want 16/1", failCalls, coverageErrorAssignments)
 	}
 
 	for _, item := range calls["threadPointAllows"] {

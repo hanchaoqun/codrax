@@ -40,21 +40,36 @@ func exportTraceDBToSystrace(ctx context.Context, dbPath, output string) (traceD
 			sink.cleanup()
 		}
 	}()
+	syncSpans, err := newTraceDBSyncSpanAuthority(output)
+	if err != nil {
+		return traceDBSystraceExport{}, err
+	}
 
-	var coverage []TraceDBCoverage
-	schedulerCoverage, authority, err := exportTraceDBSchedulerFamilies(ctx, tdb, sink)
+	schedulerCoverage, authority, err := exportTraceDBSchedulerFamilies(ctx, tdb, sink, syncSpans)
 	if err != nil {
-		coverage = append(coverage, schedulerCoverage...)
+		return traceDBSystraceExport{Coverage: schedulerCoverage}, err
+	}
+	schedulerRegular, lifecycleCoverage := splitTraceDBLifecycleCoverage(schedulerCoverage)
+	extendedCoverage, err := exportTraceDBExtendedFamilies(ctx, tdb, sink, authority, syncSpans)
+	coverage := append(append([]TraceDBCoverage(nil), schedulerRegular...), extendedCoverage...)
+	if err != nil {
+		coverage = append(coverage, lifecycleCoverage...)
 		return traceDBSystraceExport{Coverage: coverage}, err
 	}
-	schedulerCoverage, lifecycleCoverage := splitTraceDBLifecycleCoverage(schedulerCoverage)
-	coverage = append(coverage, schedulerCoverage...)
-	extendedCoverage, err := exportTraceDBExtendedFamilies(ctx, tdb, sink, authority)
-	coverage = append(coverage, extendedCoverage...)
+	syncReport, syncCoverage, err := syncSpans.finalize(ctx, sink)
+	if err != nil {
+		coverage = append(coverage, syncCoverage)
+		coverage = append(coverage, lifecycleCoverage...)
+		return traceDBSystraceExport{Coverage: coverage}, err
+	}
+	if err := reconcileTraceDBSyncSpanCoverage(coverage, syncReport); err != nil {
+		syncCoverage.Error = err.Error()
+		coverage = append(coverage, syncCoverage)
+		coverage = append(coverage, lifecycleCoverage...)
+		return traceDBSystraceExport{Coverage: coverage}, err
+	}
+	coverage = append(coverage, syncCoverage)
 	coverage = append(coverage, lifecycleCoverage...)
-	if err != nil {
-		return traceDBSystraceExport{Coverage: coverage}, err
-	}
 	if sink.stats.RowsAccepted == 0 {
 		coverage = append(coverage, sink.stats.coverage())
 		sink.cleanup()

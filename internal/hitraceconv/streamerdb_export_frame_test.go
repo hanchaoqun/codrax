@@ -28,7 +28,7 @@ func TestExportTraceDBFrameSliceAsyncRoundTrip(t *testing.T) {
 	})
 
 	coverage, outPath, body, idx := exportTraceDBFrameFixture(t, path, func(sink *traceDBRowSink) {
-		if err := addTraceDBSpanRows(sink, 1499000, 1508000, "WorkerThread", 501, 500, 3, "OuterSync"); err != nil {
+		if err := addTraceDBTestSyncSpanRows(sink, 1499000, 1508000, "WorkerThread", 501, 500, 3, "OuterSync"); err != nil {
 			t.Fatalf("add crossing sync control span: %v", err)
 		}
 	})

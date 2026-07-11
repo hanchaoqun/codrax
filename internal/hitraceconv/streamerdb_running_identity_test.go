@@ -664,6 +664,10 @@ func TestTraceDBRunningIdentityCrossCheckIsStructurallyPinned(t *testing.T) {
 					if len(call.Args) != 1 || !isSelector(call.Args[0], "authority", "identities") {
 						t.Fatalf("scheduler idle gate did not use authority.identities")
 					}
+				case name == "traceDBCanonicalIdleIdentityExact" && function.Name.Name == "exportTraceDBThreadRegistrations":
+					if len(call.Args) != 1 || !isIdent(call.Args[0], "index") {
+						t.Fatalf("registration idle gate did not use the shared identity index")
+					}
 				case name == "traceDBCanonicalIdleIdentityExact" && function.Name.Name == "traceDBRunningSubjectClaimReason":
 					if len(call.Args) != 1 || !isIdent(call.Args[0], "identities") {
 						t.Fatalf("Running idle gate did not use loader identities")
@@ -684,6 +688,7 @@ func TestTraceDBRunningIdentityCrossCheckIsStructurallyPinned(t *testing.T) {
 		t.Fatalf("Running loader call graph=%v, want %v", callers, wantCallers)
 	}
 	if !reflect.DeepEqual(canonicalIdleCallers, map[string]int{
+		"exportTraceDBThreadRegistrations": 1,
 		"schedulerSubjectIsExact":          1,
 		"traceDBRunningSubjectClaimReason": 1,
 	}) {

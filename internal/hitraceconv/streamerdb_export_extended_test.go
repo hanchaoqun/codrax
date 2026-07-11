@@ -94,11 +94,13 @@ func TestExportTraceDBExtendedFamiliesComprehensiveFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	syncSpans := newTraceDBTestSyncSpanAuthority(t)
 	coverage, err := exportTraceDBExtendedFamilies(context.Background(), tdb, sink,
-		traceDBTestCompleteSchedulerAuthority(index))
+		traceDBTestCompleteSchedulerAuthority(index), syncSpans)
 	if err != nil {
 		t.Fatalf("export extended families: %v", err)
 	}
+	coverage, _, _ = finalizeTraceDBTestSyncSpans(t, sink, syncSpans, coverage)
 	for _, key := range []struct {
 		family string
 		table  string

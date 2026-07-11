@@ -67,11 +67,14 @@ type traceDBWakeupKey struct {
 	Name string
 }
 
-func exportTraceDBSchedulerFamilies(ctx context.Context, tdb *traceDB, sink *traceDBRowSink) (
+func exportTraceDBSchedulerFamilies(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, syncSpans *traceDBSyncSpanAuthority) (
 	coverage []TraceDBCoverage,
 	authority traceDBSchedulerAuthority,
 	err error,
 ) {
+	if syncSpans == nil {
+		return nil, authority, &traceDBOutputInvariantError{Reason: "missing_sync_span_authority"}
+	}
 	var lifecycleCoverage []TraceDBCoverage
 	var invalidHandoffAuthority traceDBSchedulerAuthority
 	defer func() {
@@ -97,7 +100,7 @@ func exportTraceDBSchedulerFamilies(ctx context.Context, tdb *traceDB, sink *tra
 	authority = newTraceDBSchedulerAuthority(index, lifecycle)
 	active := lifecycle.ActiveITIDs
 	stageStart := time.Now()
-	metadataCoverage, err := exportTraceDBThreadRegistrations(ctx, sink, index, active)
+	metadataCoverage, err := exportTraceDBThreadRegistrations(ctx, sink, syncSpans, index, active)
 	traceDBSetCoverageElapsed(&metadataCoverage, stageStart)
 	coverage = append(coverage, metadataCoverage)
 	if err != nil {
@@ -146,15 +149,20 @@ func exportTraceDBSchedulerFamilies(ctx context.Context, tdb *traceDB, sink *tra
 	return coverage, authority, err
 }
 
-func exportTraceDBThreadRegistrations(ctx context.Context, sink *traceDBRowSink, index traceDBThreadIndex, active map[int64]bool) (TraceDBCoverage, error) {
+func exportTraceDBThreadRegistrations(ctx context.Context, sink *traceDBRowSink, syncSpans *traceDBSyncSpanAuthority, index traceDBThreadIndex, active map[int64]bool) (TraceDBCoverage, error) {
 	coverage := TraceDBCoverage{
 		Family:   "metadata",
 		Table:    "thread",
 		Role:     "query_ready_export",
 		Found:    len(index.ByITID) > 0,
 		RowsRead: len(index.ByITID),
+		FieldSources: map[string]string{
+			"registration_wire": "task_rename publishes immediately; zero-duration B/E is staged in the shared typed sync-span authority",
+			"stable_identity":   "canonical thread ITID; exact canonical idle ITID/TID/TGID zero is admitted only when the shared identity index proves it",
+		},
 	}
 	unknownTimestamps := 0
+	unprovenIdle := 0
 	for _, thread := range sortedTraceDBThreads(index.ByITID) {
 		if err := ctx.Err(); err != nil {
 			return coverage, err
@@ -178,19 +186,53 @@ func exportTraceDBThreadRegistrations(ctx context.Context, sink *traceDBRowSink,
 			threadComm = traceDBCommName(processName, threadComm)
 		}
 		tgid := firstNonZero(process.PID, thread.TID)
-		for _, body := range []string{
-			fmt.Sprintf("task_rename: pid=%d oldcomm=%s newcomm=%s oom_score_adj=0", thread.TID, threadComm, threadComm),
-			fmt.Sprintf("tracing_mark_write: B|%d|%s", tgid, processName),
-			fmt.Sprintf("tracing_mark_write: E|%d|", tgid),
-		} {
-			if err := addTraceDBInstantRow(sink, ts, task, thread.TID, tgid, 0, body); err != nil {
-				return coverage, err
-			}
-			coverage.RowsEmitted++
+		if thread.TID == 0 && (tgid != 0 || thread.ITID != 0 || !traceDBCanonicalIdleIdentityExact(index)) {
+			unprovenIdle++
+			continue
+		}
+		if err := addTraceDBInstantRow(sink, ts, task, thread.TID, tgid, 0,
+			fmt.Sprintf("task_rename: pid=%d oldcomm=%s newcomm=%s oom_score_adj=0", thread.TID, threadComm, threadComm)); err != nil {
+			return coverage, err
+		}
+		coverage.RowsEmitted++
+		markerName := processName
+		if !traceDBCallstackMarkerToken(markerName) {
+			markerName = threadComm
+		}
+		if !traceDBCallstackMarkerToken(markerName) {
+			markerName = "unknown"
+		}
+		if err := syncSpans.submit(traceDBSyncSpanCandidate{
+			Producer:           traceDBSyncSpanProducerRegistration,
+			StableKind:         traceDBSyncSpanStableRegistrationITID,
+			StableID:           thread.ITID,
+			HeaderTID:          thread.TID,
+			HeaderTGID:         tgid,
+			CanonicalITID:      thread.ITID,
+			CanonicalITIDKnown: true,
+			OwnerIPID:          thread.IPID,
+			OwnerIPIDKnown:     true,
+			Start:              ts,
+			End:                ts,
+			StartCPU:           0,
+			EndCPU:             0,
+			StartCPUProvenance: traceDBSyncSpanCPURegistrationMetadata,
+			EndCPUProvenance:   traceDBSyncSpanCPURegistrationMetadata,
+			Task:               task,
+			Name:               markerName,
+			NameProvenance:     traceDBSyncSpanNameRegistration,
+			DepthProvenance:    traceDBSyncSpanDepthUnknown,
+		}); err != nil {
+			return coverage, err
 		}
 	}
 	if unknownTimestamps > 0 {
-		coverage.Skipped = fmt.Sprintf("%d thread registration(s) skipped: no known registration hint or capture start", unknownTimestamps)
+		traceDBAppendCoverageSkipped(&coverage,
+			fmt.Sprintf("%d thread registration(s) skipped: no known registration hint or capture start", unknownTimestamps))
+	}
+	if unprovenIdle > 0 {
+		traceDBAppendCoverageSkipped(&coverage,
+			fmt.Sprintf("unproven_idle_registration=%d", unprovenIdle))
 	}
 	return coverage, nil
 }

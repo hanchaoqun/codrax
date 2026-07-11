@@ -172,10 +172,13 @@ func TestTraceDBActiveThreadIDsUseAuditedCanonicalIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	registrationCoverage, err := exportTraceDBThreadRegistrations(context.Background(), sink, index, active)
+	syncSpans := newTraceDBTestSyncSpanAuthority(t)
+	registrationCoverage, err := exportTraceDBThreadRegistrations(context.Background(), sink, syncSpans, index, active)
 	if err != nil {
 		t.Fatal(err)
 	}
+	items, _, _ := finalizeTraceDBTestSyncSpans(t, sink, syncSpans, []TraceDBCoverage{registrationCoverage})
+	registrationCoverage = items[0]
 	if registrationCoverage.RowsEmitted != (len(want)-1)*3 || sink.stats.RowsAccepted != (len(want)-1)*3 {
 		t.Fatalf("malformed activity reference registered dormant main: active=%+v coverage=%+v sink=%+v", active, registrationCoverage, sink.stats)
 	}
@@ -462,10 +465,13 @@ func TestTraceDBActiveThreadIDsUseTableSpecificWireProfiles(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		registration, err := exportTraceDBThreadRegistrations(context.Background(), sink, index, active)
+		syncSpans := newTraceDBTestSyncSpanAuthority(t)
+		registration, err := exportTraceDBThreadRegistrations(context.Background(), sink, syncSpans, index, active)
 		if err != nil {
 			t.Fatal(err)
 		}
+		items, _, _ := finalizeTraceDBTestSyncSpans(t, sink, syncSpans, []TraceDBCoverage{registration})
+		registration = items[0]
 		if registration.RowsEmitted != 3 || sink.stats.RowsAccepted != 3 {
 			t.Fatalf("invalid high activity identity registered a dormant main: active=%+v coverage=%+v sink=%+v", active, registration, sink.stats)
 		}
