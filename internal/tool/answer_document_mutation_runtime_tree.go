@@ -3471,6 +3471,10 @@ func runtimeTraceProjFoldSemanticRankLaneTwinsDetailed(rankNodes []types.TraceCa
 		}
 		if sem.EffectiveImpactMS <= 0 {
 			sem.EffectiveImpactMS = rank.EffectiveImpactMS
+			// EPUB 复核 INFO: the published marker travels WITH the adopted
+			// value (OR-monotone, same rule as the R1 merge arm) — this was
+			// the last value/marker separation point.
+			sem.EffectiveImpactPublished = sem.EffectiveImpactPublished || rank.EffectiveImpactPublished
 		}
 		if sem.CumulativeImpactMS <= 0 {
 			sem.CumulativeImpactMS = rank.CumulativeImpactMS
@@ -8329,15 +8333,31 @@ func runtimeTraceProjLeadPrimary(projection types.TraceCausalProjection, model r
 		// 满频…无供给缺口" verdict) — lost its seat at the shared valid-seat
 		// gate and must not re-crown through this value lane either (远端
 		// 点名负对照: 零 CAP running 不得重新加冕; the crown would contradict
-		// the row's own no-deficit verdict). SCOPE NOTE: the general
-		// "published eff≤0 refuses the crown" arm needs an engine-side typed
-		// effective-published marker — the wire cannot distinguish a
-		// published 0 from an unpublished effective today (the V1 value lane
-		// keeps crowning eff-unpublished ranked roots: supply-fold triple /
-		// lock-holder / witness golden shapes, and the #68 periodic
-		// discounted-zero crown stays a user ruling) — recorded for the
-		// ledger, not silently widened here.
+		// the row's own no-deficit verdict). This arm stays beside the EPUB
+		// generalization below: it keys on the fold telemetry, so it also
+		// covers eff-UNPUBLISHED zero-CAP forms the marker cannot see.
 		if roots[i].Rank > 0 && roots[i].SupplyFoldComputed && roots[i].SupplyFoldDeficitMS <= 0 {
+			continue
+		}
+		// EPUB (§29.31 立案 → 本批, 2026-07-11): the GENERAL published-eff≤0
+		// refusal arm the former SCOPE NOTE here waited for. The engine
+		// PUBLISHED this root's effective attribution (typed
+		// EffectiveImpactPublished — note presence at the decode single point,
+		// never re-derived from the float64 zero) and it is ≤0: crowning it
+		// would contradict the engine's own published zero, so it neither
+		// crowns nor re-enters through the fallback lanes (RN-3(a) already
+		// hard-gates eff>0). Typed semantic exemptions keep their crowns:
+		//   - PeriodicSource (#68 用户裁定 2026-07-05): a periodic root
+		//     competes with its DISCOUNTED attribution even at exactly 0 and
+		//     the conclusion words 「有效归因 0.000ms(期内节拍已折算)」 —
+		//     the discounted-zero crown IS the load-bearing verdict there;
+		//   - eff-UNPUBLISHED roots (marker false — supply-fold triple /
+		//     lock-holder / witness-golden shapes): the VS2 故意 pin form
+		//     stays byte-identical (the row leads, and the 行3 有效归因 total
+		//     REFUSES to render — 值拒造, never fabricated from components).
+		// Exemptions are typed flags only — never word-face or noisy signals
+		// (架构红线: precise signals for hard gates).
+		if roots[i].EffectiveImpactPublished && roots[i].EffectiveImpactMS <= 0 && !roots[i].PeriodicSource {
 			continue
 		}
 		if runtimeTraceProjNodeDemotedToBackground(roots[i], model.TrunkLen) {

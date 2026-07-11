@@ -366,7 +366,26 @@ type TraceCausalProjectionNode struct {
 	// window. Sourced from the effective_impact_ms / actual_impact_ms rich notes.
 	// Zero when the source row did not expose them (gap c three-column magnitude).
 	EffectiveImpactMS float64 `json:"effective_impact_ms,omitempty"`
-	ActualImpactMS    float64 `json:"actual_impact_ms,omitempty"`
+	// EffectiveImpactPublished (EPUB, §29.31 立案 2026-07-11) is the typed
+	// effective-published marker: true iff the source record PUBLISHED an
+	// effective-attribution rich note (effective_impact_ms / legacy
+	// effective_impact present — the engine prints authoritative zeros
+	// explicitly on the context_only / periodic / causal-impact lanes, while
+	// the positive-only note filters DROP unpublished slots), so a published
+	// 0 is distinguishable from an unpublished (absent) effective. On the
+	// float64 wire both are 0 — exactly the ambiguity this field kills.
+	// INTERNAL typed carrier (no LLM-facing schema/note surface — same class
+	// as the StateKind/Undrillable presentation fields, no R2' six-spot
+	// obligation): minted ONLY at the record decode single point and
+	// propagated by the R1 merge / ×N fold arms; consumers MUST NOT re-derive
+	// it from EffectiveImpactMS==0. Consumed by the V1 rankless lead lane's
+	// generalized published-eff≤0 refusal arm (PeriodicSource stays the #68
+	// 用户裁定 typed exemption). Degraded text re-parse lanes drop zero notes
+	// (positive-only filters), mapping published-0 → unpublished there: the
+	// fail-open direction (a lost marker can only KEEP today's crown, never
+	// refuse one).
+	EffectiveImpactPublished bool    `json:"effective_impact_published,omitempty"`
+	ActualImpactMS           float64 `json:"actual_impact_ms,omitempty"`
 	// SemanticChainProjectedMS (审计 #5/#62, §29.25 处置委托 + §29.26 待主会话
 	// 落账, 2026-07-10) is the engine's exact member∩chain intersection union
 	// of an ON-CHAIN trace_semantic_span record — the ONE participation value
@@ -2605,6 +2624,21 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		node.StateKind = traceCausalProjectionCanonicalStateWord(record.Object)
 	}
 	node.EffectiveImpactMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyEffectiveImpactMS, TraceNoteKeyEffectiveImpact)
+	// EPUB (§29.31): the effective-published marker mints HERE and only here —
+	// note PRESENCE, never the parsed value (an explicit 0.000 is present).
+	// 复核 M1 exemption: the root_evidence: audit family never mints published —
+	// its effective_impact_ms=0.000 is a RANKING-EXCLUSION SENTINEL (see the
+	// trace_query.go root_evidence emit: the reduced-shape wakeup witness
+	// "does not carry CAP/gated/state-union provenance, so only the richer
+	// root_cause_rank/causal-impact lanes may participate in ranking"), not an
+	// authoritative published zero; minting it would let the R1 same-fact OR
+	// arm transplant sentinel authority onto an eff-unpublished ranked
+	// survivor and falsely refuse its crown. Precise typed claim-key prefix —
+	// the same family signal the hop admission gates read
+	// (traceCausalProjectionIsCausalHop / traceCausalProjectionHopOnChain);
+	// the emit side keeps its note untouched (other consumers).
+	node.EffectiveImpactPublished = !strings.HasPrefix(strings.TrimSpace(record.ClaimKey), "root_evidence:") &&
+		traceCausalProjectionRichNoteAnyPresent(record.RichNotes, TraceNoteKeyEffectiveImpactMS, TraceNoteKeyEffectiveImpact)
 	node.ActualImpactMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyActualImpactMS, TraceNoteKeyActualImpact)
 	// 审计 #5/#62 (§29.25 处置委托 + §29.26 待主会话落账, 2026-07-10): the
 	// on-chain semantic-span intersection participation — promoted from the
@@ -2864,6 +2898,19 @@ func traceCausalProjectionRichNoteFirstFloat(notes []string, keys ...string) flo
 		}
 	}
 	return 0
+}
+
+// traceCausalProjectionRichNoteAnyPresent reports whether ANY of the keys is
+// present with a non-empty value — the note-PRESENCE half FirstFloat drops
+// (its positive-only scan cannot tell an explicit 0.000 from an absent note).
+// EPUB (§29.31): the effective-published marker mint reads this.
+func traceCausalProjectionRichNoteAnyPresent(notes []string, keys ...string) bool {
+	for _, key := range keys {
+		if traceCausalProjectionRichNoteValue(notes, key) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // traceCausalProjectionWindow parses a "window" RichNote of the form

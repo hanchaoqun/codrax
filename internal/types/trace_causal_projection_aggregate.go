@@ -346,6 +346,12 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 	// a loser's periodic fields are never copied over. Precise boolean gate.
 	if !survivor.PeriodicSource && survivor.EffectiveImpactMS <= 0 {
 		survivor.EffectiveImpactMS = loser.EffectiveImpactMS
+		// EPUB (§29.31): the published marker follows the fact, OR-monotone —
+		// a positive adopted value is always a published one (decode invariant:
+		// value>0 ⇒ note present), and when both views sit at 0 either view's
+		// authoritative published-0 keeps the merged row published (never
+		// down-graded to "unpublished" by merging with a silent twin).
+		survivor.EffectiveImpactPublished = survivor.EffectiveImpactPublished || loser.EffectiveImpactPublished
 	}
 	if survivor.ActualImpactMS <= 0 {
 		survivor.ActualImpactMS = loser.ActualImpactMS
@@ -1107,17 +1113,40 @@ func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode
 	}
 	if allPeriodic {
 		effective, lateness := 0.0, 0.0
+		published := false
 		for _, idx := range members {
 			effective += nodes[idx].EffectiveImpactMS
 			lateness += nodes[idx].PeriodicLatenessMS
+			// EPUB (§29.31): Σ over published member discounts is itself a
+			// published discount — any published member keeps the fold row
+			// published (OR-monotone, same direction as the R1 merge arm).
+			published = published || nodes[idx].EffectiveImpactPublished
 		}
 		aggregate.EffectiveImpactMS = effective
 		aggregate.PeriodicLatenessMS = lateness
+		aggregate.EffectiveImpactPublished = published
 	} else if aggregate.PeriodicSource {
 		aggregate.PeriodicSource = false
 		aggregate.DetectedPeriodMS = 0
 		aggregate.PeriodicLatenessMS = 0
 		aggregate.EffectiveImpactMS = 0
+		// EPUB (§29.31): this branch is a deliberate UN-publication — the
+		// part-cadence ×N row is "back to raw semantics" and the engine never
+		// published a fold effective for the mixed sum, so the inherited
+		// group-first marker must clear with the inherited discount (a
+		// dangling published-0 here would wrongly refuse the ×N crown).
+		aggregate.EffectiveImpactPublished = false
+	} else {
+		// EPUB 复核 L1 (defense-in-depth): the plain (non-periodic) ×N fold's
+		// effective slot is a group-first INHERITED copy — the engine never
+		// published a fold effective for a plain member sum either (same
+		// argument as the mixed clear above), so the inherited marker clears
+		// unconditionally: a transplanted published-0 seed (the M1 sentinel
+		// family's only remaining path here) must not let the ×N row refuse
+		// the crown downstream. The inherited VALUE stays untouched
+		// (pre-existing group-first behaviour); the only marker consumer
+		// reads published∧eff≤0, so a positive inherited copy is unaffected.
+		aggregate.EffectiveImpactPublished = false
 	}
 	return aggregate
 }
