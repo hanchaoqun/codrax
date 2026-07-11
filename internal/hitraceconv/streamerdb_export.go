@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 )
 
 type traceDBSystraceExport struct {
@@ -42,12 +43,15 @@ func exportTraceDBToSystrace(ctx context.Context, dbPath, output string) (traceD
 
 	var coverage []TraceDBCoverage
 	schedulerCoverage, err := exportTraceDBSchedulerFamilies(ctx, tdb, sink)
-	coverage = append(coverage, schedulerCoverage...)
 	if err != nil {
+		coverage = append(coverage, schedulerCoverage...)
 		return traceDBSystraceExport{Coverage: coverage}, err
 	}
+	schedulerCoverage, lifecycleCoverage := splitTraceDBLifecycleCoverage(schedulerCoverage)
+	coverage = append(coverage, schedulerCoverage...)
 	extendedCoverage, err := exportTraceDBExtendedFamilies(ctx, tdb, sink)
 	coverage = append(coverage, extendedCoverage...)
+	coverage = append(coverage, lifecycleCoverage...)
 	if err != nil {
 		return traceDBSystraceExport{Coverage: coverage}, err
 	}
@@ -100,4 +104,15 @@ func exportTraceDBToSystrace(ctx context.Context, dbPath, output string) (traceD
 		return result, fmt.Errorf("trace DB sorter accepted rows but wrote none")
 	}
 	return result, nil
+}
+
+func splitTraceDBLifecycleCoverage(items []TraceDBCoverage) (regular, lifecycle []TraceDBCoverage) {
+	for _, item := range items {
+		if strings.HasPrefix(item.Family, "resolver.lifecycle") {
+			lifecycle = append(lifecycle, item)
+		} else {
+			regular = append(regular, item)
+		}
+	}
+	return regular, lifecycle
 }

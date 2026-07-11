@@ -2,6 +2,8 @@ package hitraceconv
 
 import "sort"
 
+const maxTraceDBLifecycleMalformedPoints = 1 << 16
+
 // traceDBLifecycleBoundary is a hard, event-backed generation begin.  The
 // public TID/PID is the lane key; NewITID/NewIPID identify the left-closed side
 // of the boundary.  ITID/IPID themselves are canonical row identities, not
@@ -51,11 +53,14 @@ type traceDBLifecycleBuildLane struct {
 }
 
 type traceDBLifecycleBuilder struct {
-	identities   traceDBThreadIndex
-	lanes        map[int64]*traceDBLifecycleBuildLane
-	globalPoison map[int64]bool
-	globalTaint  bool
-	frozen       bool
+	identities                   traceDBThreadIndex
+	lanes                        map[int64]*traceDBLifecycleBuildLane
+	globalPoison                 map[int64]bool
+	globalTaint                  bool
+	malformedPoints              int
+	malformedPointLimit          int
+	malformedPointBudgetExceeded bool
+	frozen                       bool
 }
 
 // A cursor is scoped to one physical activity source. Sources may arrive in
@@ -68,9 +73,10 @@ type traceDBLifecycleActivityCursor struct {
 
 func newTraceDBLifecycleBuilder(identities traceDBThreadIndex) *traceDBLifecycleBuilder {
 	return &traceDBLifecycleBuilder{
-		identities:   identities,
-		lanes:        map[int64]*traceDBLifecycleBuildLane{},
-		globalPoison: map[int64]bool{},
+		identities:          identities,
+		lanes:               map[int64]*traceDBLifecycleBuildLane{},
+		globalPoison:        map[int64]bool{},
+		malformedPointLimit: maxTraceDBLifecycleMalformedPoints,
 	}
 }
 
@@ -164,6 +170,12 @@ func (builder *traceDBLifecycleBuilder) addGlobalPoison(timestamp int64) {
 		builder.globalTaint = true
 		return
 	}
+	if builder.globalTaint || builder.globalPoison[timestamp] {
+		return
+	}
+	if !builder.reserveMalformedPoint() {
+		return
+	}
 	builder.globalPoison[timestamp] = true
 }
 
@@ -176,11 +188,38 @@ func (builder *traceDBLifecycleBuilder) addPoison(tid, timestamp int64) {
 		builder.lane(tid).tainted = true
 		return
 	}
+	if builder.globalTaint {
+		return
+	}
 	lane := builder.lane(tid)
+	if lane.poison[timestamp] {
+		return
+	}
+	if !builder.reserveMalformedPoint() {
+		return
+	}
 	lane.poison[timestamp] = true
 	if terminal := lane.terminalsByTS[timestamp]; terminal != nil {
 		terminal.Conflicted = true
 	}
+}
+
+func (builder *traceDBLifecycleBuilder) reserveMalformedPoint() bool {
+	if builder.globalTaint {
+		return false
+	}
+	if builder.malformedPointLimit <= 0 || builder.malformedPoints >= builder.malformedPointLimit {
+		builder.globalTaint = true
+		builder.malformedPointBudgetExceeded = true
+		builder.malformedPoints = 0
+		builder.globalPoison = map[int64]bool{}
+		for _, lane := range builder.lanes {
+			lane.poison = map[int64]bool{}
+		}
+		return false
+	}
+	builder.malformedPoints++
+	return true
 }
 
 // invalidateGeneration records that the public lane's subject becomes

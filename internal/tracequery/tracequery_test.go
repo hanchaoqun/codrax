@@ -2256,6 +2256,33 @@ func TestTraceBundleCoverageCaveatsAreBounded(t *testing.T) {
 	}
 }
 
+func TestTraceBundleCoverageCaveatsReserveLifecycleAuthorityWithoutDisplacingPrefix(t *testing.T) {
+	rows := make([]traceBundleCoverage, 0, traceBundleCoverageCaveatLimit+2)
+	for i := 0; i < traceBundleCoverageCaveatLimit+1; i++ {
+		rows = append(rows, traceBundleCoverage{Family: "regular", Table: "table_" + strconv.Itoa(i), Found: true})
+	}
+	rows = append(rows, traceBundleCoverage{
+		Family: "resolver.lifecycle", Table: "__authority__", Role: "resolver_index", Found: true,
+		Skipped: "lifecycle_authority_incomplete=activity",
+	})
+	caveats := traceBundleCoverageCaveats("tracebundle_trace_db_coverage", rows)
+	if len(caveats) != traceBundleCoverageCaveatLimit+2 {
+		t.Fatalf("priority coverage bound mismatch: got=%d caveats=%+v", len(caveats), caveats)
+	}
+	for i := 0; i < traceBundleCoverageCaveatLimit; i++ {
+		if !strings.Contains(caveats[i], "table=table_"+strconv.Itoa(i)) {
+			t.Fatalf("priority seat displaced regular prefix at %d: %+v", i, caveats)
+		}
+	}
+	if !strings.Contains(caveats[traceBundleCoverageCaveatLimit], "family=resolver.lifecycle") ||
+		!strings.Contains(caveats[traceBundleCoverageCaveatLimit], "lifecycle_authority_incomplete") {
+		t.Fatalf("lifecycle authority summary did not receive priority seat: %+v", caveats)
+	}
+	if !strings.Contains(caveats[len(caveats)-1], "emitted=24 priority_emitted=1") {
+		t.Fatalf("priority compaction accounting missing: %+v", caveats)
+	}
+}
+
 func TestTraceBundleTraceToolGateCaveatsAreBounded(t *testing.T) {
 	rows := make([]traceBundleTraceToolGate, 0, traceBundleTraceToolGateCaveatLimit+3)
 	for i := 0; i < traceBundleTraceToolGateCaveatLimit+3; i++ {

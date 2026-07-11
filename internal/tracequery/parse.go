@@ -1547,6 +1547,8 @@ type traceBundleFile struct {
 
 const traceBundleCoverageCaveatLimit = 24
 
+const traceBundleCoveragePriorityCaveatLimit = 1
+
 const traceBundleTraceToolGateCaveatLimit = 8
 
 type traceBundleArtifact struct {
@@ -1948,10 +1950,22 @@ func traceBundleCoverageCaveats(prefix string, rows []traceBundleCoverage) []str
 	for i := 0; i < limit; i++ {
 		out = append(out, traceBundleCoverageCaveat(prefix, rows[i]))
 	}
+	priorityEmitted := 0
+	for i := limit; i < len(rows) && priorityEmitted < traceBundleCoveragePriorityCaveatLimit; i++ {
+		if !traceBundleCoveragePriority(rows[i]) {
+			continue
+		}
+		out = append(out, traceBundleCoverageCaveat(prefix, rows[i]))
+		priorityEmitted++
+	}
 	if len(rows) > limit {
-		out = append(out, fmt.Sprintf("%s_compacted total=%d emitted=%d", prefix, len(rows), limit))
+		out = append(out, fmt.Sprintf("%s_compacted total=%d emitted=%d priority_emitted=%d", prefix, len(rows), limit, priorityEmitted))
 	}
 	return out
+}
+
+func traceBundleCoveragePriority(coverage traceBundleCoverage) bool {
+	return coverage.Family == "resolver.lifecycle" && coverage.Table == "__authority__"
 }
 
 func traceBundleCoverageCaveat(prefix string, coverage traceBundleCoverage) string {

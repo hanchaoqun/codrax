@@ -62,18 +62,23 @@ type traceDBWakeupKey struct {
 	Name string
 }
 
-func exportTraceDBSchedulerFamilies(ctx context.Context, tdb *traceDB, sink *traceDBRowSink) ([]TraceDBCoverage, error) {
-	var coverage []TraceDBCoverage
+func exportTraceDBSchedulerFamilies(ctx context.Context, tdb *traceDB, sink *traceDBRowSink) (coverage []TraceDBCoverage, err error) {
+	var lifecycleCoverage []TraceDBCoverage
+	defer func() {
+		coverage = append(coverage, lifecycleCoverage...)
+	}()
 	index, threadCoverage, err := tdb.loadThreadIndex(ctx)
 	coverage = append(coverage, threadCoverage...)
 	if err != nil {
 		return coverage, err
 	}
-	active, activeCoverage, err := tdb.loadActiveThreadIDs(ctx, index)
-	coverage = append(coverage, activeCoverage...)
+	lifecycle, err := collectTraceDBLifecycle(ctx, tdb.db, index)
+	coverage = append(coverage, lifecycle.ActiveCoverage...)
+	lifecycleCoverage = lifecycle.LifecycleCoverage
 	if err != nil {
 		return coverage, err
 	}
+	active := lifecycle.ActiveITIDs
 	stageStart := time.Now()
 	metadataCoverage, err := exportTraceDBThreadRegistrations(ctx, sink, index, active)
 	traceDBSetCoverageElapsed(&metadataCoverage, stageStart)
