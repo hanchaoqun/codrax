@@ -1075,6 +1075,14 @@ func eventMatchesPattern(ev Event, pattern string) bool {
 	if needle == "" {
 		return true
 	}
+	// SQL-perf source-only rows deliberately retain the producer's thread
+	// coordinates as audit payload.  They are not proved trace identities, so
+	// neither the raw field text nor any transport/header thread field may turn
+	// them back into a name/PID-searchable event.  Keep this arm on the same
+	// precise hard-negative predicate used by every typed thread selector.
+	if perfSampleIsSourceOnlyIdentity(ev) {
+		return perfSampleSourceOnlyInventoryMatchesPattern(ev, needle)
+	}
 	candidates := []string{
 		string(ev.Type),
 		ev.Name,
@@ -1177,6 +1185,44 @@ func eventMatchesPattern(ev Event, pattern string) bool {
 	}
 	if ev.Ts != 0 && strings.Contains(fmt.Sprintf("%.6f", ev.Ts), needle) {
 		return true
+	}
+	return false
+}
+
+// perfSampleSourceOnlyInventoryMatchesPattern is the closed searchable surface for
+// an anonymous/source-only perf sample. It intentionally admits only perf
+// workload inventory and provenance/quality dimensions. In particular it
+// must not inspect Event.FieldText, Event.Comm/PID/TGID, PerfFields.Comm/PID/
+// TID, or the perf_source_* audit coordinates.
+//
+// needle is already normalized by eventMatchesPattern. The caller must first
+// establish perfSampleIsSourceOnlyIdentity(ev).
+func perfSampleSourceOnlyInventoryMatchesPattern(ev Event, needle string) bool {
+	pf := ev.PerfFields
+	if pf == nil {
+		return false
+	}
+	candidates := [...]string{
+		string(ev.Type),
+		pf.EventName,
+		pf.Symbol,
+		pf.DSO,
+		pf.IP,
+		pf.Addr,
+		pf.Callchain,
+		pf.Source,
+		pf.Resolution,
+		pf.SampleKind,
+		pf.SampleKindSource,
+		pf.SymbolizationStatus,
+		pf.Clock,
+		pf.ClockConfidence,
+		pf.CallchainStatus,
+	}
+	for _, candidate := range candidates {
+		if strings.Contains(strings.ToLower(candidate), needle) {
+			return true
+		}
 	}
 	return false
 }

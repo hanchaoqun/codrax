@@ -42,8 +42,12 @@ func TestPerfIdentityAndCPUAuthorityCallerClosure(t *testing.T) {
 		"perfSampleHasOnCPUExecutionCoordinate",
 	})
 	assertPerfHelperCallers(t, calls, "perfSampleIsSourceOnlyIdentity", []string{
+		"eventMatchesPattern",
 		"normalizePerfSampleClaims",
 		"perfSampleHasTypedThreadIdentity",
+	})
+	assertPerfHelperCallers(t, calls, "perfSampleSourceOnlyInventoryMatchesPattern", []string{
+		"eventMatchesPattern",
 	})
 	assertPerfHelperCallers(t, calls, "perfSampleHasTypedThreadIdentity", []string{
 		"eventMentionsPID",

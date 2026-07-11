@@ -35,6 +35,33 @@ func TestPerfSourceOnlyNewWireScrubsIdentityButKeepsAuditInventory(t *testing.T)
 	if !eventMatchesPattern(ev, "Hot::work") || !eventMatchesPattern(ev, "libhot.so") {
 		t.Fatal("safe symbol/DSO inventory became unsearchable")
 	}
+	for _, unsafePattern := range []string{
+		"worker",
+		"777",
+		"perf-unverified-777",
+		"thread_comm=worker",
+		"perf_source_tid=777",
+		"cpu=3 cpu_known=true",
+	} {
+		if eventMatchesPattern(ev, unsafePattern) {
+			t.Fatalf("source-only audit/header/raw-field pattern %q revived anonymous identity", unsafePattern)
+		}
+		if got := EventSearch(&Index{Events: []Event{ev}}, Query{Pattern: unsafePattern, EventTypes: []EventType{EventPerfSample}, Limit: 8}); len(got) != 0 {
+			t.Fatalf("event_search revived source-only identity with pattern %q: %+v", unsafePattern, got)
+		}
+	}
+	for _, inventoryPattern := range []string{
+		"Hot::work",
+		"libhot.so",
+		"cpu-cycles",
+		"trace_streamer_db",
+		"perf_source_only",
+		"on_cpu",
+	} {
+		if got := EventSearch(&Index{Events: []Event{ev}}, Query{Pattern: inventoryPattern, EventTypes: []EventType{EventPerfSample}, Limit: 8}); len(got) != 1 {
+			t.Fatalf("safe source-only inventory pattern %q became unsearchable: %+v", inventoryPattern, got)
+		}
+	}
 
 	idx := &Index{Events: []Event{ev}}
 	global := computePerfContext(idx, Query{TimeStart: 9.9, TimeEnd: 10.1}, 8)
@@ -89,6 +116,31 @@ func TestPerfSourceOnlyNewWireScrubsIdentityButKeepsAuditInventory(t *testing.T)
 	}
 }
 
+func TestPerfPatternHardNegativeDoesNotChangeResolvedOrNonPerfSearch(t *testing.T) {
+	known, verified := true, false
+	resolved := Event{
+		Line: 91, Type: EventPerfSample, Comm: "resolved-worker", PID: 777, TGID: 666,
+		FieldText: "raw-resolved-coordinate",
+		PerfFields: &PerfFields{
+			PID: 666, TID: 777, Comm: "resolved-worker",
+			ThreadIdentityKnown: &known, LifecycleUnverified: &verified, Resolution: "resolved",
+			Symbol: "Resolved::hot", DSO: "libresolved.so",
+		},
+	}
+	for _, pattern := range []string{"resolved-worker", "777", "raw-resolved-coordinate"} {
+		if !eventMatchesPattern(resolved, pattern) {
+			t.Fatalf("resolved perf pattern %q regressed", pattern)
+		}
+	}
+
+	nonPerf := Event{Line: 92, Type: EventSchedWakeup, Comm: "ordinary-worker", PID: 888, FieldText: "raw-non-perf-coordinate"}
+	for _, pattern := range []string{"ordinary-worker", "888", "raw-non-perf-coordinate"} {
+		if !eventMatchesPattern(nonPerf, pattern) {
+			t.Fatalf("non-perf pattern %q regressed", pattern)
+		}
+	}
+}
+
 func TestPerfSourceOnlyLegacyWireAndDirectEventsAreHardNegative(t *testing.T) {
 	intern := newStringInterner()
 	legacy, ok := ParseLine(1, `legacy-worker-777 (666) [004] .... 10.000000: perf_sample: cpu=4 cpu_known=true pid=666 tid=777 thread_comm=legacy-worker sample_weight=7 event=cpu-cycles symbol=Legacy::hot dso=liblegacy.so source=trace_streamer_db sample_kind=on_cpu resolution=perf_source_only`, intern)
@@ -106,9 +158,11 @@ func TestPerfSourceOnlyLegacyWireAndDirectEventsAreHardNegative(t *testing.T) {
 	direct := Event{
 		Type: EventPerfSample,
 		Comm: "forged-header", PID: 777, TGID: 666, CPU: 4,
+		FieldText: "raw-direct-coordinate",
 		PerfFields: &PerfFields{
 			PID: 666, TID: 777, Comm: "forged-body", Source: "trace_streamer_db",
 			Resolution: perfSourceOnlyResolution, CPUKnown: &known, SampleKind: "on_cpu",
+			SourcePID: 666, SourceTID: 777, SourceComm: "audit-worker",
 			Symbol: "Direct::hot", DSO: "libdirect.so",
 		},
 	}
@@ -118,6 +172,14 @@ func TestPerfSourceOnlyLegacyWireAndDirectEventsAreHardNegative(t *testing.T) {
 	ctx := computePerfContext(&Index{Events: []Event{direct}}, Query{}, 8)
 	if ctx == nil || len(ctx.TopThreads) != 0 || len(ctx.TopSymbols) != 1 || len(ctx.TopSymbols[0].Threads) != 0 {
 		t.Fatalf("direct source-only Event minted aggregate thread identity: %+v", ctx)
+	}
+	for _, pattern := range []string{"forged-header", "forged-body", "audit-worker", "777", "raw-direct-coordinate"} {
+		if eventMatchesPattern(direct, pattern) {
+			t.Fatalf("direct source-only Event exposed identity pattern %q", pattern)
+		}
+	}
+	if !eventMatchesPattern(direct, "Direct::hot") || !eventMatchesPattern(direct, "libdirect.so") {
+		t.Fatal("direct source-only Event lost safe symbol/DSO inventory")
 	}
 }
 
