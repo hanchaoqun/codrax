@@ -2152,3 +2152,6 @@ lead 实现额外守住:**EffectiveImpactMS>0 ∧ 非 context_only(6eb633a1 新 
 **边界与规模**：exact/near、ref namespace、callstack 双 claim、idle0/public-TID0、高位 wire、known/unknown capture start、carry-in checked end、t=0、MaxInt64/overflow及四象限均已机械化。activity 流式复杂度为 O(rows log terminals)；可信 creation/terminal cohort 如实保留，malformed point 单独受 65536 预算约束，超限清点并升级 global taint。lifecycle authority summary在完整 tracebundle 中尾置，不改变既有 regular/extended coverage 顺序；tracequery 原 24 条预算不被挤占，并为该唯一 summary 额外保留一席。
 
 **验证与剩余**：focused 多轮、两包 race/包级/vet、全仓测试、diff check与三路独立冻结全绿。A1b-2 关闭；A2 尚未让 scheduler/wakeup/blocked 消费该 index，R1b-B/C、R1c、R2 仍按既定顺序开放，禁止把本节写成 R1b 全结案。
+
+### §29.36.2 补充裁定(用户提议 2026-07-11,主会话精化确认):三通道设计取代 §29.36② 两通道
+**链上/邻近/背景各走各的通道**:①根因排序#N(链上)=有效持席门种群,可冕可戴(不变);②**邻近影响#N(◇)**=独立序数通道,同线程墙钟口径内排序,IO 家族聚合席(§29.36③)落此,提及门限量,不冕不戴;③**背景压力(▒)=无序数通道**——口径分组展示(跨线程聚合行与墙钟行分组,组内按量级固定序),§23.1 提及门只作内部筛选不打 chip。**精化理由**:▒ 段口径混杂(4165:跨线程 cpu·ms 聚合与墙钟同段),同一序数序列比较不可比数值=两把尺红线的序数版,故背景不发序数;◇=因果候选(可晋升上链,晋升边界=chain_relevance 单源)vs ▒=环境语境(永不晋升),认识论层级与可行动性均不同。配套不变量:序数 chip 词面必带通道名(根因排序#N/邻近影响#N),禁裸 #N;§29.36② 的"背景影响排序"单通道设计由本节取代。UXR-1 批范围随更新。
