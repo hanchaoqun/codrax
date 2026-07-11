@@ -255,7 +255,7 @@ func TestCov4BadgeNegativeGates(t *testing.T) {
 		MergedCount: 3, MergedMaxMS: 2.0, ImpactMS: 2.0, EffectiveImpactMS: 2.0,
 		ChainRelevance: "on_chain", Confidence: 0.5,
 	})
-	// A ◇ stanza seat with a real engine rank#5.
+	// A ◇ stanza seat with its channel's own ordinal #1.
 	// EVOLUTION RECORD (CLOSE-1 复核 F1, 2026-07-11): the §29.27.1-era
 	// assertion ("the stanza surface wears its seat's glyph like every other
 	// surface") is REFINED — 佩戴 = 有效持席 (§29.30.1 shared valid-seat
@@ -264,10 +264,16 @@ func TestCov4BadgeNegativeGates(t *testing.T) {
 	// 「#N」 chip retained, never in the election (a ❶-wearing stanza row
 	// beside a differently-crowned 主根因 was the split the shared gate
 	// kills). Tree-face lanes keep their badges.
+	// EVOLUTION RECORD (UXR-1 复核 P2-3, 2026-07-11): the former Rank:5 here
+	// was the OLD global-space ordinal form — under §29.36.2 the adjacent
+	// channel numbers its own contiguous 1..K, and a #5 on a one-member ◇
+	// channel is exactly the stale-artifact shape the fail-close drops. The
+	// fixture re-forms to the engine-actual channel ordinal #1 (which also
+	// sharpens the badge negative gate: ❶ is the most tempting glyph).
 	projection.AdjacentCauses = append(projection.AdjacentCauses, types.TraceCausalProjectionNode{
 		Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "e-adjacent",
 		Subject: "animator-777", Object: "trace_span", TypeToken: "trace_span",
-		SpanName: "animator", Predicate: "root_cause_tertiary", Rank: 5, Tier: "tertiary",
+		SpanName: "animator", Predicate: "root_cause_tertiary", Rank: 1, Tier: "tertiary",
 		ImpactMS: 115.196, CumulativeImpactMS: 115.196, EffectiveImpactMS: 115.196,
 		ChainRelevance: "adjacent", Causality: "adjacent_to_wakeup_chain",
 		Confidence: 0.6, LineStart: 31, LineEnd: 39,
@@ -293,8 +299,8 @@ func TestCov4BadgeNegativeGates(t *testing.T) {
 	}
 	// Positive: every TREE-FACE TOP-5 seat wears its own ordinal's glyph
 	// regardless of row shape (chain #1 / semantic ✦ #3 / self-cause running
-	// #4). The ◇ stanza rank#5 row holds NO valid seat post-F1 (lane-kind
-	// arm) — no glyph, bare chip retained.
+	// #4). The ◇ stanza channel-#1 row holds NO valid seat post-F1 (lane-kind
+	// arm + P2-2(b) channel belt) — no glyph, channel chip retained.
 	want := map[string]int{"e-shadowhook": 1, "e-verify": 3, "e-selfrunning": 4}
 	for id, seat := range want {
 		if badges[id] != seat {
@@ -304,9 +310,11 @@ func TestCov4BadgeNegativeGates(t *testing.T) {
 	if badges["e-adjacent"] != 0 {
 		t.Fatalf("F1: the ◇ stanza row must not wear a glyph (lane-kind arm): %v", badges)
 	}
-	// Fence face: the ◇ row renders bare (no ❺); its detail block keeps the
-	// bare 「#5」 ordinal chip (裸 chip 保留 — the seat text lane is honest
-	// about the engine rank, the glyph lane is reserved for valid seats).
+	// Fence face: the ◇ row renders without a glyph (no ❶ despite channel #1).
+	// EVOLUTION RECORD (UXR-1 §29.36.2, 2026-07-11, supersedes the F1 "bare
+	// 「#N」 chip retained" clause): the ◇ seat is the adjacent channel's own
+	// ordinal — the detail face reads 邻近影响 #1, never the on-chain
+	// 根因排序 word and never a bare #N (禁裸 #N / 通道词面).
 	fence := runtimeTraceProjTreeFence(model, true)
 	stanzaLine := ""
 	for _, line := range strings.Split(fence, "\n") {
@@ -314,12 +322,15 @@ func TestCov4BadgeNegativeGates(t *testing.T) {
 			stanzaLine = line
 		}
 	}
-	if stanzaLine == "" || strings.Contains(stanzaLine, "❺") {
-		t.Fatalf("the ◇ stanza row must render bare on the fence face (F1): %q\n%s", stanzaLine, fence)
+	if stanzaLine == "" || strings.Contains(stanzaLine, "❶") {
+		t.Fatalf("the ◇ stanza row must render glyph-less on the fence face (F1): %q\n%s", stanzaLine, fence)
 	}
 	detail := runtimeTraceProjDetailFullText(model, true)
-	if !strings.Contains(detail, "根因排序: #5") {
-		t.Fatalf("the bare #5 ordinal chip must survive on the detail face (裸 chip 保留):\n%s", detail)
+	if strings.Contains(detail, "根因排序: #1·置信中") {
+		t.Fatalf("the ◇ seat must not wear the on-chain 根因排序 word (§29.36.2):\n%s", detail)
+	}
+	if !strings.Contains(detail, "邻近影响: #1") {
+		t.Fatalf("the ◇ seat must read 邻近影响 #1 on the detail face (通道词面):\n%s", detail)
 	}
 	// The SELF-ROW SURFACE wears the glyph too (the textup_792 tree-head
 	// seats #2/#3 disease): the target's own #4 running row renders ❹ on its

@@ -134,8 +134,10 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 	for _, want := range []string{
 		"⊚ oney.hmn.berlin-42591 ‹用户关注线程›",
 		"满格=窗口64.000ms",
-		"└─下钻─ ❶☾ binder:42591_4-42712 · sleep",
-		"├─唤醒─ ❷⚙ RenderService-3021 · 算力供给",
+		// UXG-0 D5 (2026-07-11): one space between the seat badge and the
+		// state glyph (❶ ☾ / ❷ ⚙) — the D4 icon-box overflow budget.
+		"└─下钻─ ❶ ☾ binder:42591_4-42712 · sleep",
+		"├─唤醒─ ❷ ⚙ RenderService-3021 · 算力供给",
 		// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: subordinate
 		// "·" tag lines now pack at most TWO notes per line (structural item
 		// 11) — the packed three-note pins split; the deep-row edge-prefix pin
@@ -146,7 +148,10 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 		"⚠实际52.700ms · [E1]",
 		"⚠实际12.100ms · [E3]",
 		"⊘链止 · [E4(+1)]",
-		"4.700ms   7%  语义优化span·类校验 · [E5]",
+		// UXR-1 §29.36.3 (通道4 提及义务): the seat-less on-chain semantic row
+		// packs the obligation word before its shape word on 行2.
+		"4.700ms   7%  [E5]",
+		"· 优化点·未入根因排序前2 · 语义优化span·类校验",
 		// PTV8-RCR-A EVOLUTION RECORD (§24.1): the ranked ⚙ row is a cause
 		// node — 行1 stays grammar-clean (keep-marks only), 行2 carries the
 		// 算力供给候选 identity, and the ordinary tags pack below.

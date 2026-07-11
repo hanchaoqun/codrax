@@ -510,12 +510,16 @@ func renderHTMLPage(a pageArgs) string {
   --rank-3-fg: #5b21b6; --rank-3-bg: #ede9fe;
   --rank-4-fg: #14532d; --rank-4-bg: #dcfce7;
   --rank-5-fg: #9d174d; --rank-5-bg: #fce7f3;
+  /* UXG-0 D2 (§29.36.2): ◇ adjacent-impact ordinals share the chip shape but
+     wear ONE neutral slate-blue pair — a per-rank palette would invite the
+     forbidden cross-channel comparison with 根因排序 colors. */
+  --rank-adjacent-fg: #334155; --rank-adjacent-bg: #e2e8f0;
   --action-fg: #166534; --action-bg: #ecfdf3; --action-border: #86efac;
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei", Arial, sans-serif;
   --font-mono: "Sarasa Mono SC", "Noto Sans Mono CJK SC", "Source Han Mono SC", ui-monospace, "Cascadia Mono", "Cascadia Code", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Microsoft YaHei UI", "Microsoft YaHei", monospace;
 }
 @media (prefers-color-scheme: dark) {
-  :root { --fg: #e6edf3; --muted: #9aa4b2; --line: #30363d; --code: #161b22; --bg: #0d1117; --error-bg: #2a1212; --error-fg: #ffb4a8; --link: #79c0ff; --focus: #60a5fa; --rank-1-fg: #fed7aa; --rank-1-bg: #7c2d12; --rank-2-fg: #bfdbfe; --rank-2-bg: #1e3a8a; --rank-3-fg: #ddd6fe; --rank-3-bg: #4c1d95; --rank-4-fg: #bbf7d0; --rank-4-bg: #14532d; --rank-5-fg: #fbcfe8; --rank-5-bg: #831843; --action-fg: #bbf7d0; --action-bg: #123524; --action-border: #22c55e; }
+  :root { --fg: #e6edf3; --muted: #9aa4b2; --line: #30363d; --code: #161b22; --bg: #0d1117; --error-bg: #2a1212; --error-fg: #ffb4a8; --link: #79c0ff; --focus: #60a5fa; --rank-1-fg: #fed7aa; --rank-1-bg: #7c2d12; --rank-2-fg: #bfdbfe; --rank-2-bg: #1e3a8a; --rank-3-fg: #ddd6fe; --rank-3-bg: #4c1d95; --rank-4-fg: #bbf7d0; --rank-4-bg: #14532d; --rank-5-fg: #fbcfe8; --rank-5-bg: #831843; --rank-adjacent-fg: #cbd5e1; --rank-adjacent-bg: #334155; --action-fg: #bbf7d0; --action-bg: #123524; --action-border: #22c55e; }
 }
 /* CJK-heavy report body: the stack must name CJK faces explicitly —
    without them Windows browsers fall back to SimSun for the zh text,
@@ -554,30 +558,50 @@ pre.trace-projection-tree .trace-cell-2 { width: 2ch; min-width: 2ch; }
 /* Renderer-owned symbols retain a 1ch outer cell computed in the tree's mono
    grid. The inner glyph uses one monochrome cross-platform fallback stack and
    optical transforms only; transforms never participate in layout. This
-   normalizes mixed Unicode ink boxes without changing textContent or columns. */
-pre.trace-projection-tree .trace-icon { display: inline-grid; place-items: center; overflow: hidden; vertical-align: baseline; }
+   normalizes mixed Unicode ink boxes without changing textContent or columns.
+   UXG-0 D4 (2026-07-11) overflow budget: icons render overflow VISIBLE — a
+   1ch box clipped symbol ink that is naturally wider than 1ch (⚙/⇅ at
+   scale≥1.0), amputating the glyph. The spill is safe by construction: the
+   generator guarantees every state icon's RIGHT neighbor is a space (the
+   name separator) and, after UXG-0 D5, its LEFT neighbor too (badge+space /
+   edge+space / stanza indent). Numeric accounting per tier — worst spill per
+   side = (scale-1.15 max)/2 x ink<=1em vs a full empty space cell (1ch~=.5em):
+   13px screen (.8125rem): spill <=0.98px vs ~6.5px budget; 12px mobile:
+   <=0.9px vs ~6px; 7.5pt print: <=0.6pt vs ~3.75pt. Shrinking the font or
+   widening to a 2-cell box were both REJECTED (grid geometry is the product).
+   Rank/action chips below deliberately KEEP overflow hidden: their colored
+   pill must stay inside the chip cells. */
+pre.trace-projection-tree .trace-icon { display: inline-grid; place-items: center; overflow: visible; vertical-align: baseline; }
 pre.trace-projection-tree .trace-icon-glyph,
 pre.trace-projection-tree .trace-rank-glyph { display: block; line-height: 1; font-family: "Apple Symbols", "Segoe UI Symbol", "Noto Sans Symbols 2", "Symbola", "Arial Unicode MS", sans-serif; font-synthesis: none; font-variant-emoji: text; transform-origin: 50% 50%; }
-pre.trace-projection-tree .trace-icon-glyph { transform: scale(.90) translateY(.02em); }
+/* UXR-1 §29.36⑤ (57823 witness, 2026-07-11): the symbol-font ink boxes ran
+   visibly SMALLER than the surrounding mono text — the optical scales are
+   normalized upward (~1.22x, per-icon ratios kept) so glyph ink height tracks
+   the row font. Transforms stay layout-inert: columns never move. */
+pre.trace-projection-tree .trace-icon-glyph { transform: scale(1.10) translateY(.02em); }
 pre.trace-projection-tree .trace-icon-running .trace-icon-glyph,
-pre.trace-projection-tree .trace-icon-io .trace-icon-glyph { transform: scale(.82) translateY(.01em); }
+pre.trace-projection-tree .trace-icon-io .trace-icon-glyph { transform: scale(1.00) translateY(.01em); }
 pre.trace-projection-tree .trace-icon-root .trace-icon-glyph,
 pre.trace-projection-tree .trace-icon-sleep .trace-icon-glyph,
 pre.trace-projection-tree .trace-icon-blind .trace-icon-glyph,
-pre.trace-projection-tree .trace-icon-neutral .trace-icon-glyph { transform: scale(.96) translateY(.02em); }
+pre.trace-projection-tree .trace-icon-neutral .trace-icon-glyph { transform: scale(1.15) translateY(.02em); }
 /* Rank chips consume exactly the same one/two grid cells as their Markdown
-   tokens. Color adds a scan target; clipping prevents fallback overprint. */
+   tokens. Color adds a scan target. UXG-0 D4: unlike the .trace-icon family
+   above (overflow visible under the space-neighbor budget), chips KEEP
+   overflow hidden — the rounded colored pill is the chip's meaning surface
+   and must not bleed past its own grid cells onto neighboring text. */
 pre.trace-projection-tree .trace-rank-chip,
 pre.trace-projection-tree .trace-rank-ordinal { display: inline-block; height: 1em; line-height: 1em; vertical-align: baseline; white-space: pre; overflow: hidden; border-radius: .22em; font-weight: 750; text-align: center; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 pre.trace-projection-tree .trace-rank-chip { display: inline-grid; place-items: center; }
 pre.trace-projection-tree .trace-rank-width-1 { width: 1ch; min-width: 1ch; }
 pre.trace-projection-tree .trace-rank-width-2 { width: 2ch; min-width: 2ch; }
-pre.trace-projection-tree .trace-rank-glyph { transform: scale(.78); }
+pre.trace-projection-tree .trace-rank-glyph { transform: scale(.95); }
 pre.trace-projection-tree .trace-rank-1 { color: var(--rank-1-fg); background: var(--rank-1-bg); }
 pre.trace-projection-tree .trace-rank-2 { color: var(--rank-2-fg); background: var(--rank-2-bg); }
 pre.trace-projection-tree .trace-rank-3 { color: var(--rank-3-fg); background: var(--rank-3-bg); }
 pre.trace-projection-tree .trace-rank-4 { color: var(--rank-4-fg); background: var(--rank-4-bg); }
 pre.trace-projection-tree .trace-rank-5 { color: var(--rank-5-fg); background: var(--rank-5-bg); }
+pre.trace-projection-tree .trace-rank-adjacent { color: var(--rank-adjacent-fg); background: var(--rank-adjacent-bg); }
 pre.trace-projection-tree .trace-action-token { display: inline-block; height: 1em; line-height: 1em; vertical-align: baseline; overflow: hidden; border-radius: .18em; color: var(--action-fg); background: var(--action-bg); font-weight: 750; text-align: center; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 pre.trace-projection-tree .trace-action-width-6 { width: 6ch; min-width: 6ch; }
 pre.trace-projection-tree .trace-action-width-18 { width: 18ch; min-width: 18ch; }
@@ -640,7 +664,7 @@ section.aux h2 { font-size: 1em; color: var(--muted); margin: 0 0 .5em; font-wei
 }
 @page { margin: 12mm; }
 @media print {
-  :root { color-scheme: light; --fg: #111; --muted: #555; --line: #aaa; --code: #f7f7f7; --bg: #fff; --rank-1-fg: #7c2d12; --rank-1-bg: #ffedd5; --rank-2-fg: #1e40af; --rank-2-bg: #dbeafe; --rank-3-fg: #5b21b6; --rank-3-bg: #ede9fe; --rank-4-fg: #14532d; --rank-4-bg: #dcfce7; --rank-5-fg: #9d174d; --rank-5-bg: #fce7f3; --action-fg: #166534; --action-bg: #ecfdf3; --action-border: #86efac; }
+  :root { color-scheme: light; --fg: #111; --muted: #555; --line: #aaa; --code: #f7f7f7; --bg: #fff; --rank-1-fg: #7c2d12; --rank-1-bg: #ffedd5; --rank-2-fg: #1e40af; --rank-2-bg: #dbeafe; --rank-3-fg: #5b21b6; --rank-3-bg: #ede9fe; --rank-4-fg: #14532d; --rank-4-bg: #dcfce7; --rank-5-fg: #9d174d; --rank-5-bg: #fce7f3; --rank-adjacent-fg: #334155; --rank-adjacent-bg: #e2e8f0; --action-fg: #166534; --action-bg: #ecfdf3; --action-border: #86efac; }
   body { background: #fff; color: #111; font: 10.5pt/1.55 var(--font-sans); }
   main { max-width: none; padding: 0; letter-spacing: 0; }
   .topbar { display: none; }

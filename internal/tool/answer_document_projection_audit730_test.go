@@ -165,7 +165,10 @@ func TestTraceProjection730FlatFallbackNamesMissingWakeupZH(t *testing.T) {
 	}
 	md := audit730Render(t, bus, obs, "")
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 所选窗口→查询窗;——按层级平铺展示 → ;以下各行按层级平铺 (平铺头族)
-	if !strings.Contains(md, "(睡眠区间在查询窗内无 sched_wakeup 记录,唤醒链无法上溯;以下各行按层级平铺)") {
+	// EVOLUTION RECORD (UXR-1 §29.36①, 2026-07-11): the long-sentence banner
+	// compressed to the unified 「⊘ <短结论>(<短因>)」 form; the 按层级平铺
+	// render note left the head (the legend head clause carries it).
+	if !strings.Contains(md, "⊘ 唤醒链无法上溯(窗内无唤醒记录)") {
 		t.Fatalf("flat fallback must name the missing_wakeup cause:\n%s", md)
 	}
 	if strings.Contains(md, "唤醒链路径未解析") {
@@ -189,7 +192,8 @@ func TestTraceProjection730FlatFallbackNamesDrilldownNotRunZH(t *testing.T) {
 	}
 	md := audit730Render(t, bus, obs, "")
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 本轮未执行唤醒链下钻,建议 trace_query view=wakeup_chain——… → 本报告未做唤醒链下钻,…;可追问一次唤醒链分析(wakeup_chain)补齐 (平铺头族)
-	if !strings.Contains(md, "(本报告未做唤醒链下钻,以下各行按层级平铺;可追问一次唤醒链分析(wakeup_chain)补齐)") {
+	// EVOLUTION RECORD (UXR-1 §29.36①): unified ⊘ banner form.
+	if !strings.Contains(md, "⊘ 唤醒链未下钻(本报告未运行 wakeup_chain,可追问补齐)") {
 		t.Fatalf("flat fallback must name the recommended-not-run cause:\n%s", md)
 	}
 	if strings.Contains(md, "唤醒链路径未解析") {
@@ -212,7 +216,8 @@ func TestTraceProjection730FlatFallbackTwoCausesEN(t *testing.T) {
 	}
 	md := audit730Render(t, bus, obs, "en")
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: EN "was not run this round — recommend trace_query view=…; layers rendered flat" → "no wakeup-chain drilldown was run for this report; … ask a follow-up wakeup-chain analysis (wakeup_chain) to fill it in" (平铺头族 EN)
-	if !strings.Contains(md, "(no wakeup-chain drilldown was run for this report; rows below are laid out flat by level — ask a follow-up wakeup-chain analysis (wakeup_chain) to fill it in)") {
+	// EVOLUTION RECORD (UXR-1 §29.36①): unified ⊘ banner form (EN mirror).
+	if !strings.Contains(md, "⊘ wakeup chain not drilled (wakeup_chain was not run for this report; ask a follow-up to fill it in)") {
 		t.Fatalf("EN flat fallback must name the recommended-not-run cause:\n%s", md)
 	}
 	if strings.Contains(md, "wakeup path unresolved") {

@@ -190,6 +190,25 @@ type runtimeTraceProjTreeRow struct {
 	// single-board form and window-less rows stay byte-identical (窗身份
 	// typed, absence never guesses).
 	RankWindowChip string
+	// SeatOrdinalStale (UXR-1 复核 P2-3, 2026-07-11): the row's displayed
+	// ordinal EXCEEDS its own channel's rendered population — a stale
+	// persisted artifact form (an old-engine GLOBAL ordinal note replayed
+	// under the §29.36.2 per-channel spaces would otherwise be re-worded as a
+	// fresh channel ordinal, e.g. global rank=9 rendered 邻近影响#9 on a
+	// one-row ◇ stanza). Fail-close: the seat chip and the detail seat line
+	// drop (symmetric with the background channel's stale-Rank fail-close);
+	// the row itself, its tier and its confidence stay rendered. Stamped once
+	// at model build; display-only — no gate/sort lane reads it.
+	SeatOrdinalStale bool
+	// MentionFloorOnChain / MentionFloorTopN (UXR-1 §29.36.3 通道4 提及义务,
+	// user ruling 2026-07-11): this ✦ row is an ON-CHAIN semantic row WITHOUT
+	// a channel-1 seat — the SEM-LEAD mention floor as an explicit channel
+	// member. Its 行2 speaks the typed obligation word 「优化点·未入根因排序
+	// 前N」 (N = the rendered chain board size; 0 drops the 前N tail). Stamped
+	// once at model build from typed fields (chain relevance + displayed seat)
+	// — never a prose judgment; no gate/sort lane reads it.
+	MentionFloorOnChain bool
+	MentionFloorTopN    int
 	// RecursOnChain marks a trunk row whose canonical subject already appeared
 	// earlier on the rendered chain (target root first, then depth 1..K) — the
 	// small-cycle shape (A→B→A) the ≥6-node cycle detector cannot see (H11,
@@ -518,6 +537,15 @@ const (
 	// LEAD (coverage region), only when Σ(states) balances the window.
 	runtimeTraceProjMarkFourStateAccount
 
+	// UXR-1 §29.36.3 (通道4 提及义务, 2026-07-11): the on-chain semantic
+	// mention-obligation word 优化点·未入根因排序前N — the SEM-LEAD mention
+	// floor as an explicit channel member.
+	runtimeTraceProjMarkSemanticMentionFloor
+	// UXR-1 §29.36② (2026-07-11): ⧗ — the off-chain (◇/▒) D-state/IO form
+	// glyph; ⛓ renders only on the chain channel (glyph/stanza/channel 三面
+	// 同一来源).
+	runtimeTraceProjMarkIconDStateOffChain
+
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
 	runtimeTraceProjMarkCount
@@ -619,17 +647,20 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// PTV6 #1b (v3 §5): the depthless on-chain lane's dedicated edge — the
 		// row never claims a wake/drill relation and never invents a tree
 		// position (NEW-7: the entry renders only when the edge is emitted).
+		// EVOLUTION RECORD (UXR-1 §29.36④, 2026-07-11): both entries follow the
+		// lane-prefix simplification — the edge reads the bare `└─链上─` and the
+		// auxiliary word (深度未解析 / 未接入树) rides the 行2 chip family.
 		{runtimeTraceProjMarkEdgeChainUnresolved, runtimeTraceProjLegendGroupEdge,
-			"- `└─链上·深度未解析─` = 链上项但树位深度未解析:不声称唤醒/下钻关系,不编造树位;该行 [E#] 经证据索引给出 trace 行号区间。",
-			"- `└─on-chain·depth-unresolved─` = an on-chain row whose tree depth is unresolved: no wake/drill relation is claimed and no position is invented; the row's [E#] resolves to trace line spans via the evidence index."},
+			"- `└─链上─`+行注`链上·深度未解析` = 链上项但树位深度未解析:不声称唤醒/下钻关系,不编造树位;该行 [E#] 经证据索引给出 trace 行号区间。",
+			"- `└─on-chain─` + row note `on-chain · depth unresolved` = an on-chain row whose tree depth is unresolved: no wake/drill relation is claimed and no position is invented; the row's [E#] resolves to trace line spans via the evidence index."},
 		// PTV8-RCR-C (§24.12 C6 三面同词, 2026-07-08): the depth-KNOWN sibling
 		// of the entry above — the engine resolved the row's chain layer but no
-		// attach point exists in this tree; the edge, the row chip and the
-		// detail 层级 cell speak ONE word family (the old fork spoke 深度未解析
-		// / 链上L1 / 深度1(未接入链) on one row).
+		// attach point exists in this tree; the row chip and the detail 层级
+		// cell speak ONE word family (the old fork spoke 深度未解析 / 链上L1 /
+		// 深度1(未接入链) on one row).
 		{runtimeTraceProjMarkChainSeatUnattached, runtimeTraceProjLegendGroupEdge,
-			"- `未接入树` = 该行在链上且引擎已给出层数(行注/明细作 链上L#(未接入树),树边作 `└─链上·未接入树─`),但本树内未找到可挂靠的父节点:不声称唤醒/下钻关系,不编造树位。",
-			"- `unattached` = the row is on the chain with an engine-resolved layer (chip/detail read chain L# (unattached), the edge reads `└─on-chain·unattached─`), but no attach point exists in this tree: no wake/drill relation is claimed and no position is invented."},
+			"- `未接入树` = 该行在链上且引擎已给出层数(行注/明细作 链上L#(未接入树)),但本树内未找到可挂靠的父节点:不声称唤醒/下钻关系,不编造树位。",
+			"- `unattached` = the row is on the chain with an engine-resolved layer (chip/detail read chain L# (unattached)), but no attach point exists in this tree: no wake/drill relation is claimed and no position is invented."},
 		// PTV8-RCR-A §24.3: ✦ joins the impact-form closed set as the
 		// deterministic-optimization glyph — the entry names the family.
 		{runtimeTraceProjMarkSemanticSpan, runtimeTraceProjLegendGroupEdge,
@@ -652,8 +683,13 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `⚙/running` = 运行占用(正在 CPU 上执行)。",
 			"- `⚙/running` = executing on a CPU."},
 		{runtimeTraceProjMarkIconDState, runtimeTraceProjLegendGroupMark,
-			"- `⛓/D-state·iowait` = 不可中断等待/IO阻塞。",
-			"- `⛓/D-state·iowait` = an uninterruptible / IO-blocked wait."},
+			"- `⛓/D-state·iowait` = 不可中断等待/IO阻塞(链上行)。",
+			"- `⛓/D-state·iowait` = an uninterruptible / IO-blocked wait (on-chain row)."},
+		// UXR-1 §29.36② (2026-07-11): ⛓ visually claims chain membership, so
+		// the ◇/▒ D-state/IO family wears its own glyph (三面同一来源).
+		{runtimeTraceProjMarkIconDStateOffChain, runtimeTraceProjLegendGroupMark,
+			"- `⧗/D-state·iowait` = 不可中断等待/IO阻塞(◇/▒ 非链上行,与 ⛓ 同族)。",
+			"- `⧗/D-state·iowait` = an uninterruptible / IO-blocked wait (◇/▒ off-chain row, same family as ⛓)."},
 		// PTV8-RCR-B (UXA 域A #11 + 域D #23 本轮/本批→本报告, 2026-07-08).
 		// EVOLUTION RECORD: 「影响行」「本轮」渲染器内部词 → 客户视角「未单独计量」.
 		{runtimeTraceProjMarkIconTransit, runtimeTraceProjLegendGroupMark,
@@ -664,9 +700,14 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// carries the class word (行内不逐行重复).
 		// PTV8-RCR-B (UXA 域A #7, 2026-07-08). EVOLUTION RECORD: 「无主导态」重复
 		// 定义+「(类别词不逐行重复)」渲染器实现注记 → 一句直陈.
+		// EVOLUTION RECORD (UXR-1 §29.36.1, 2026-07-11): 有影响形态词的行戴
+		// 形态族 glyph (typed form table) — ◦ 只留真正无类型词的行, so the
+		// entry now states BOTH halves symmetrically (未识别影响类型 + 无主导
+		// 调度状态; the sched-absence fact stays carried, the glyph carries
+		// the strongest resolved semantics).
 		{runtimeTraceProjMarkIconNoDominant, runtimeTraceProjLegendGroupMark,
-			"- `◦`(数据行) = 该行无主导调度状态;具体影响形态见行内说明或明细。",
-			"- `◦` (data row) = the row has no dominant scheduler state; the concrete impact shape lives in the inline note or the detail table."},
+			"- `◦`(数据行) = 未识别出具体影响类型且无主导调度状态的行;有形态词的行戴各自形态族记号,该行的已知信息见行内说明或明细。",
+			"- `◦` (data row) = a row with no recognized impact type and no dominant scheduler state; rows with a form word wear their form family's glyph — this row's known facts live in the inline note or the detail table."},
 		// PTV5 C01/C24 (#68): badges land on chain/cause/depthless rows — flat
 		// renders included — so the entry does not claim 链上 (CMP-7a: flat
 		// renders never claim on-chain). The sort key is visible per row via
@@ -867,6 +908,12 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkFourStateAccount, runtimeTraceProjLegendGroupCaliber,
 			"- 全窗四态 = 关注线程在分析窗内的墙钟四态分区(running+runnable+sleep+D-state),四态合计=分析窗;百分比以分析窗为分母,与「已归因/未归因」句的等待分母不同基,各项百分比各自取整,合计可±1%;IO等待 = sleep/D-state 内的归因标签,不另加和;「供给折算影响」为折算口径,只作对照,不计入墙钟合计;「自身执行(无确定性可优化工作)」= running 中扣除确定性工作后的残余。",
 			"- Full-window four states = the focused thread's wall-clock partition over the analysis window (running+runnable+sleep+D-state); the four-state total equals the window; percentages use the window denominator (a different base from the attributed/unattributed wait sentence) and round independently, so they may total ±1%; IO wait is an attribution label inside the sleep/D-state wall clock, never a fifth addend; supply-converted impact is a converted caliber for cross-checking only, never added to the wall clock; own execution (no deterministic optimizable work) is the running remainder after deterministic work."},
+		// UXR-1 §29.36.3 (通道4 提及义务, 2026-07-11): the on-chain semantic
+		// mention-obligation seat — the SEM-LEAD 提及地板 as an explicit
+		// channel member (no silent-disappearance path).
+		{runtimeTraceProjMarkSemanticMentionFloor, runtimeTraceProjLegendGroupCaliber,
+			"- `优化点·未入根因排序前N` = 链上语义工作(编译/校验/纹理等确定性可优化点)未进根因排序前N,仍按提及义务列示;其量值不参与排序。",
+			"- `optimization point · below the top-N root-cause board` = on-chain semantic work (deterministic optimizable work such as compile/verify/texture) outside the top-N root-cause board, listed under the mention obligation; its magnitude never joins the ordering."},
 		// PTV5 PTS (#68 用户裁定 2026-07-05): on-chain overflow beyond the bucket
 		// cap folds with a count — never a silent drop.
 		{runtimeTraceProjMarkOnChainOverflowFold, runtimeTraceProjLegendGroupCaliber,
@@ -941,8 +988,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// component rides the 拆解子行, the folded rank row's rank/confidence/
 		// E# rise into 行2/行1). The entries below carry the new grammar.
 		{runtimeTraceProjMarkCauseIdentityRow, runtimeTraceProjLegendGroupCaliber,
-			"- 成因行身份行「类别·根因排序#N·置信」 = 该行参与根因排序的类别、榜位与置信档;同段被 rank 与链两车道各发一行时已合并为一行,rank 行的 E# 并入行尾 [E#+E#],数值不重复计入。",
-			"- A cause row's identity line 「category · root-cause rank #N · confidence」 = the row's ranking category, seat and confidence tier; a segment published on both the rank and the chain lane is already ONE row here, with the rank row's E# merged into the trailing [E#+E#] and no value double-counted."},
+			"- 成因行身份行「类别·根因排序#N·置信」 = 该行参与根因排序的类别、榜位与置信档;「邻近影响#N」为 ◇ 邻近区段自己的独立排序(同线程墙钟口径),与「根因排序#N」不可跨通道比较;▒ 背景行不设榜位。同段被 rank 与链两车道各发一行时已合并为一行,rank 行的 E# 并入行尾 [E#+E#],数值不重复计入。",
+			"- A cause row's identity line 「category · root-cause rank #N · confidence」 = the row's ranking category, seat and confidence tier; 「adjacent-impact #N」 is the ◇ adjacent stanza's OWN independent ordering (same-thread wall-clock caliber), never comparable with 「root-cause rank #N」; ▒ background rows carry no seat. A segment published on both the rank and the chain lane is already ONE row here, with the rank row's E# merged into the trailing [E#+E#] and no value double-counted."},
 		{runtimeTraceProjMarkEffectiveBreakdown, runtimeTraceProjLegendGroupCaliber,
 			"- `有效归因 V = …` 分解行 = 有效归因的构成:各分量按括注口径计入,分量计入之和恒等于 V;其下「分量 原始 → 计入(口径)」子行为逐项拆解。",
 			"- The `attribution V = …` breakdown line = the composition of the effective attribution: each component counts under its parenthesized caliber and the counted parts sum exactly to V; the 「component raw → counted (caliber)」 sub-rows underneath unpack it item by item."},
@@ -978,9 +1025,13 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkCaliberDefaultCapability, runtimeTraceProjLegendGroupCaliber,
 			"- `按默认算力比粗算` = 核类算力差按默认比例计入(同频点:中核=小核×2.3,大核=中核×1.1≈小核×2.53,超大核=大核×1.2≈小核×3.036),非厂商实测算力表。",
 			"- `default capability-ratio estimate` = the core-class capability gap is priced with the default ratios (at one frequency point: middle=small×2.3, big=middle×1.1≈small×2.53, prime=big×1.2≈small×3.036), not a vendor-measured capability table."},
+		// EVOLUTION RECORD (UXR-1 §29.36.4 ①): the entry teaches both row
+		// forms — the caliber-suffix long form and the compressed no-deficit
+		// parenthetical (簇结构不可判,按频率比); the expanded semantics live
+		// here so the row never repeats them.
 		{runtimeTraceProjMarkCaliberFreqOnlyCapability, runtimeTraceProjLegendGroupCaliber,
-			"- `按纯频率比折算` = 簇结构不可判,核类算力差未计入,仅按频率比折算;真实缺口只多不少。",
-			"- `frequency-ratio fold only` = the cluster structure could not be judged, so the core-class capability gap is NOT priced — the fold uses the frequency ratio alone; the true deficit can only be larger."},
+			"- `按纯频率比折算`/`按频率比` = 簇结构不可判,核类算力差未计入,仅按频率比折算(该形下不写核类词);真实缺口只多不少。",
+			"- `frequency-ratio fold only` / `frequency-ratio basis` = the cluster structure could not be judged, so the core-class capability gap is NOT priced — the fold uses the frequency ratio alone (no core-class word in that form); the true deficit can only be larger."},
 		// CAP-2 (§28.4/§28.5, 2026-07-09): the two structure-evidence upgrade
 		// words — each entry names its membership provenance AND keeps the
 		// default-ratio coarseness disclosure (图例单点承载).
@@ -1344,8 +1395,22 @@ func runtimeTraceProjTrunkFoldSameStateOccurrences(main types.TraceCausalProject
 // audited separately (§22.2 教训): a window-less node cannot PROVE domain
 // membership and is rejected (缺窗身份≠可挂靠); a window-less TRUNK leaves the
 // arm inert (absence never manufactures a rejection domain).
+//
+// Relevance arm (UXR-1 复核 P2-2 裁定, 2026-07-11): a typed OFF-chain row
+// (chain_relevance adjacent/background) must never take a Kind="chain"
+// trunk/attach seat — the PRIMARY/rank lane carries no relevance admission
+// gate, so an adjacent-relevance PrimaryRootCauses row whose canonical
+// subject collides with a trunk subject used to hijack the trunk capture and
+// wear ❶ while its chip word said 邻近影响 (the CLOSE-1 same-page identity
+// split). A rejected row stays unconsumed and renders on its OWN channel's
+// stanza seat (the offChainStrays sweep). Empty relevance stays admitted
+// (fail-open, matches the ordinal-channel authority).
 func runtimeTraceProjTrunkDomainAdmit(node types.TraceCausalProjectionNode,
 	electedBranch int, trunkWindowed bool, trunkWS, trunkWE float64) bool {
+	switch strings.TrimSpace(node.ChainRelevance) {
+	case "adjacent", "background":
+		return false
+	}
 	if trunkWindowed {
 		if node.QueryWindowStartTs <= 0 || node.QueryWindowEndTs <= node.QueryWindowStartTs {
 			return false
@@ -1999,7 +2064,6 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// the buckets never carried it) still gets its honest ◇/▒ seat here —
 	// routed by its OWN typed relevance, deduped against every seat already
 	// taken (PTS 永不静默丢; the demote lane's normalization applies).
-	strayLanded := false
 	for _, node := range offChainStrays {
 		key := runtimeTraceCausalProjectionNodeKey(node)
 		if consumed[key] || adjacentSeen[key] || backgroundSeen[key] {
@@ -2021,32 +2085,43 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 			continue
 		}
 		backgroundSeen[key] = true
-		strayLanded = true
 		model.Background = append(model.Background, runtimeTraceProjTreeRow{
 			Node: node, Kind: runtimeTraceProjTreeRowBackground, HasData: true,
 			EvidenceTag: tag,
 		})
 	}
-	if len(demoted) > 0 || strayLanded {
-		sort.SliceStable(model.Background, func(i, j int) bool {
-			return runtimeTraceProjNodeDisplayImpact(model.Background[i].Node) >
-				runtimeTraceProjNodeDisplayImpact(model.Background[j].Node)
-		})
-	}
+	// UXR-1 §29.36.2 (通道3 口径分组, 2026-07-11): the ▒ stanza is an UNORDERED
+	// channel — no ordinals — so its display order is caliber-grouped instead:
+	// cross-thread aggregate rows (typed subject_kind=aggregate_metric; cpu·ms
+	// calibers) group first, wall-clock rows follow, fixed magnitude order
+	// inside each group (两把尺不同组,组内量级可比). Unconditional stable
+	// regroup — the former demote/stray-only magnitude sort is subsumed.
+	sort.SliceStable(model.Background, func(i, j int) bool {
+		ai := model.Background[i].Node.IsAggregateMetric()
+		aj := model.Background[j].Node.IsAggregateMetric()
+		if ai != aj {
+			return ai
+		}
+		return runtimeTraceProjNodeDisplayImpact(model.Background[i].Node) >
+			runtimeTraceProjNodeDisplayImpact(model.Background[j].Node)
+	})
 
 	// RNB R2 / B9: attach every folded rank-lane peer only after ALL four
 	// display populations have been materialized. On-chain pairs attach to the
 	// surviving tree/self row; adjacent/background pairs attach to their sole
-	// stanza row. The peer remains an evidence/detail carrier, but an off-chain
-	// peer has no root-cause-board ordinal: its surviving semantic row carries
-	// BackgroundRank instead. Bar/coverage invariance still reads the peer's
-	// magnitudes exactly as before.
+	// stanza row. The peer remains an evidence/detail carrier. Bar/coverage
+	// invariance still reads the peer's magnitudes exactly as before.
+	//
+	// UXR-1 (§29.36.2, 2026-07-11): an ADJACENT peer's Rank is the 邻近影响
+	// channel's own ordinal — it transfers (the chip printer words it per
+	// channel, so no on-chain claim is possible); only a BACKGROUND peer's
+	// stale ordinal zeroes (通道3 无序数).
 	if len(rankFoldPeers) > 0 {
 		attach := func(rows []runtimeTraceProjTreeRow) {
 			for i := range rows {
 				for _, peer := range rankFoldPeers[runtimeTraceCausalProjectionNodeKey(rows[i].Node)] {
 					peerRank := peer.Rank
-					if lane, ok := runtimeTraceProjSemanticTwinLane(peer); ok && lane != "on_chain" {
+					if lane, ok := runtimeTraceProjSemanticTwinLane(peer); ok && lane == "background" {
 						peerRank = 0
 					}
 					rows[i].RankFoldPeers = append(rows[i].RankFoldPeers, runtimeTraceProjRankFoldPeer{
@@ -2153,13 +2228,62 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 			model.TreeRows[i].DrillTargetRendered = true
 		}
 	}
+	// UXR-1 复核 P2-3: stale-artifact channel ordinals fail-close BEFORE the
+	// window-chip stamp (a stale seat neither wears a window chip nor flips
+	// the report into multi-board mode).
+	runtimeTraceProjStampStaleChannelOrdinals(&model)
 	runtimeTraceProjStampRankWindowChips(&model, zh)
 	// B6 (2026-07-10): when an overflow roster repeats a thread that already
 	// owns a visible rank seat, turn the apparent duplicate into a navigation
 	// pointer ("见榜位#N" / "see root-cause rank #N"). Exact canonical subject + unique
 	// rendered ordinal only; ambiguous same-subject ordinals stay unchanged.
 	runtimeTraceProjAnnotateFoldRosterRankPointers(&model, zh)
+	// UXR-1 §29.36.3 (通道4 提及义务显式化): stamp the mention-obligation seat
+	// on every on-chain semantic row without a channel-1 ordinal.
+	runtimeTraceProjStampSemanticMentionFloor(&model)
 	return model
+}
+
+// runtimeTraceProjStampSemanticMentionFloor (UXR-1 §29.36.3, user ruling
+// 2026-07-11) marks the channel-4 mention-obligation rows: an ON-CHAIN
+// semantic ✦ row without a displayed 根因排序 seat is the SEM-LEAD mention
+// floor's explicit channel member — it renders unconditionally (凡 on_chain
+// 语义行必渲染,无静默消失路径: entering TOP N promotes it to channel 1
+// instead), and its 行2 names the obligation with the rendered chain board
+// size. Typed inputs only (chain relevance token + the same displayed-seat
+// resolver 行2 prints); display wording input, never a gate/sort lane.
+func runtimeTraceProjStampSemanticMentionFloor(model *runtimeTraceProjTreeModel) {
+	topN := 0
+	groups := [][]runtimeTraceProjTreeRow{model.TreeRows, model.SelfRows, model.Adjacent, model.Background}
+	for _, rows := range groups {
+		for i := range rows {
+			if !rows[i].HasData {
+				continue
+			}
+			if runtimeTraceProjRowOrdinalChannel(rows[i]) != runtimeTraceProjOrdinalChannelChain {
+				continue
+			}
+			if rank, _ := runtimeTraceProjCauseRankConfidence(rows[i]); rank > topN {
+				topN = rank
+			}
+		}
+	}
+	for _, rows := range groups {
+		for i := range rows {
+			row := &rows[i]
+			if !row.HasData || row.Kind != runtimeTraceProjTreeRowSemantic {
+				continue
+			}
+			if strings.TrimSpace(row.Node.ChainRelevance) != "on_chain" {
+				continue
+			}
+			if rank, _ := runtimeTraceProjCauseRankConfidence(*row); rank > 0 {
+				continue // channel 1 seat — 可冕可戴, not the obligation lane
+			}
+			row.MentionFloorOnChain = true
+			row.MentionFloorTopN = topN
+		}
+	}
 }
 
 // runtimeTraceProjSelfSymptomTwinIndex proves that a relocated
@@ -2226,6 +2350,13 @@ func runtimeTraceProjAnnotateFoldRosterRankPointers(model *runtimeTraceProjTreeM
 			if !row.HasData || row.Node.OnChainOverflowFold {
 				continue
 			}
+			// UXR-1 (§29.36.2): the roster pointer names a 根因排序 board seat
+			// — only chain-channel ordinals qualify (an adjacent 邻近影响#N is
+			// a different channel's number; pointing "见榜位#N" at it would
+			// cross the 两把尺 boundary the channels exist to keep apart).
+			if runtimeTraceProjRowOrdinalChannel(row) != runtimeTraceProjOrdinalChannelChain {
+				continue
+			}
 			rank, _ := runtimeTraceProjCauseRankConfidence(row)
 			if rank <= 0 {
 				continue
@@ -2279,6 +2410,57 @@ func runtimeTraceProjAnnotateFoldRosterRankPointers(model *runtimeTraceProjTreeM
 	annotate(model.Background)
 }
 
+// runtimeTraceProjStampStaleChannelOrdinals (UXR-1 复核 P2-3, 2026-07-11)
+// fail-closes stale-artifact ordinals on the ◇ adjacent channel: an
+// old-engine note carries a GLOBAL ordinal (pre-§29.36.2 single rankPos
+// space), and replaying it under the per-channel wording would re-mint the
+// old global position as a fresh channel ordinal (global rank=9 rendered
+// 邻近影响#9 on a one-row ◇ stanza = a seat claim the rendered board cannot
+// carry). The background side already fail-closes structurally (通道3 无序数);
+// this pass is the ◇-side symmetric arm: a displayed ordinal EXCEEDING the
+// adjacent channel's MEMBER population is marked stale, and the chip / detail
+// seat line drop (runtimeTraceProjSeatChipWord + the detail face read the
+// flag).
+//
+// Population = channel MEMBERS, not bare rendered rows: display-side folds
+// legitimately collapse several channel members into one rendered row while
+// the survivor ADOPTS a member's ordinal (the §11-N2 occurrence merge keeps
+// the rank member's identity — typed MergedCount; the RNB/B9 rank-twin fold
+// rides RankFoldPeers), so each rendered adjacent row counts its typed
+// member-preserving carriers: max(1, MergedCount) + len(RankFoldPeers).
+// Engine ordinals are contiguous 1..K over channel members (K ≤ population),
+// so a legitimate board — folded or not — is never touched; only an ordinal
+// no member set can account for fail-closes. Chain-channel ordinals are not
+// in scope here (their population spans the engine's cross-board seats; no
+// adjudicated witness form).
+func runtimeTraceProjStampStaleChannelOrdinals(model *runtimeTraceProjTreeModel) {
+	groups := [][]runtimeTraceProjTreeRow{model.TreeRows, model.SelfRows, model.Adjacent, model.Background}
+	population := 0
+	for _, rows := range groups {
+		for i := range rows {
+			if !rows[i].HasData ||
+				runtimeTraceProjRowOrdinalChannel(rows[i]) != runtimeTraceProjOrdinalChannelAdjacent {
+				continue
+			}
+			members := 1
+			if rows[i].Node.MergedCount > 1 {
+				members = rows[i].Node.MergedCount
+			}
+			population += members + len(rows[i].RankFoldPeers)
+		}
+	}
+	for _, rows := range groups {
+		for i := range rows {
+			if runtimeTraceProjRowOrdinalChannel(rows[i]) != runtimeTraceProjOrdinalChannelAdjacent {
+				continue
+			}
+			if rank, _ := runtimeTraceProjCauseRankConfidence(rows[i]); rank > population {
+				rows[i].SeatOrdinalStale = true
+			}
+		}
+	}
+}
+
 // runtimeTraceProjStampRankWindowChips (PTV8-RCR-C, §24.13 裁定二后半,
 // 2026-07-08): when rank seats from TWO OR MORE typed query windows render in
 // one report, every seat ordinal carries its window identity — the bare
@@ -2294,6 +2476,14 @@ func runtimeTraceProjStampRankWindowChips(model *runtimeTraceProjTreeModel, zh b
 	for _, rows := range groups {
 		for i := range rows {
 			if !rows[i].HasData {
+				continue
+			}
+			// UXR-1 (§29.36.2): background rows carry no seat chip (通道3
+			// 无序数) — a stale persisted Rank there neither receives a window
+			// chip nor flips the report into multi-board mode. 复核 P2-3: a
+			// stale-marked channel ordinal is chipless the same way.
+			if runtimeTraceProjRowOrdinalChannel(rows[i]) == runtimeTraceProjOrdinalChannelBackground ||
+				rows[i].SeatOrdinalStale {
 				continue
 			}
 			if rank, _ := runtimeTraceProjCauseRankConfidence(rows[i]); rank <= 0 {
@@ -2312,6 +2502,10 @@ func runtimeTraceProjStampRankWindowChips(model *runtimeTraceProjTreeModel, zh b
 	for _, rows := range groups {
 		for i := range rows {
 			if !rows[i].HasData {
+				continue
+			}
+			if runtimeTraceProjRowOrdinalChannel(rows[i]) == runtimeTraceProjOrdinalChannelBackground ||
+				rows[i].SeatOrdinalStale {
 				continue
 			}
 			if rank, _ := runtimeTraceProjCauseRankConfidence(rows[i]); rank <= 0 {
@@ -2406,6 +2600,16 @@ func runtimeTraceProjAssignTopBadges(model *runtimeTraceProjTreeModel) {
 func runtimeTraceProjRowValidSeat(row runtimeTraceProjTreeRow) (int, bool) {
 	if !row.HasData || row.Node.OnChainOverflowFold || row.Node.IsTargetSelfStateRow() ||
 		row.Node.IsContextOnlyRow() || row.Node.EffectiveImpactMS <= 0 {
+		return 0, false
+	}
+	// UXR-1 复核 P2-2(b) 裁定 (2026-07-11): the CHANNEL belt — badge/crown
+	// only ever follow a CHAIN-channel seat (根因排序#N is the only ordinal
+	// the ❶..❺ glyphs and the 主根因 election picture). A row whose typed
+	// relevance routes it to the ◇/▒ ordinal channels holds no valid seat
+	// here even when a stale persisted Rank>0 leaks onto a tree-lane row
+	// (defense in depth beside the P2-2(a) trunk-admission relevance arm; the
+	// stanza-kind arms below stay as the lane-kind component of the gate).
+	if runtimeTraceProjRowOrdinalChannel(row) != runtimeTraceProjOrdinalChannelChain {
 		return 0, false
 	}
 	// CLOSE-1 复核 F1 (2026-07-11): lane-kind legality is a COMPONENT of seat
@@ -2705,6 +2909,9 @@ func runtimeTraceProjCausalPositionLayerCell(node types.TraceCausalProjectionNod
 // labels unchanged (engine-tier facts on the chain contradict nothing — the
 // single-artifact rank-lead goldens are pinned label-stable), and a consumed
 // background row keeps 主根因 (除非确被结论消费 cuts exactly the other way).
+// UXG-0 D11 (2026-07-11): the same gate covers Kind==Adjacent primary-tier
+// non-lead rows — a ◇ stanza row never prints 主根因(优先处理); it wears the
+// §29.36.2 adjacent channel word instead (audit fact stays on 邻近影响#N).
 func runtimeTraceProjDetailPositionCell(row runtimeTraceProjTreeRow, leadKey string, zh bool) string {
 	node := row.Node
 	// PTV8-RCR-B (UXA 域B #24 / B#3 verify 关注线程 family, 2026-07-08): the
@@ -2720,26 +2927,32 @@ func runtimeTraceProjDetailPositionCell(row runtimeTraceProjTreeRow, leadKey str
 	if node.IsContextOnlyRow() {
 		return runtimeTraceProjDetailPositionMerged(node, zh, row.FlatChain)
 	}
-	if row.Kind == runtimeTraceProjTreeRowBackground && runtimeTraceProjPrimaryTierNode(node) &&
+	if (row.Kind == runtimeTraceProjTreeRowBackground || row.Kind == runtimeTraceProjTreeRowAdjacent) &&
+		runtimeTraceProjPrimaryTierNode(node) &&
 		(leadKey == "" || runtimeTraceCausalProjectionNodeKey(node) != leadKey) {
 		display := node
 		display.Role = types.TraceCausalRoleRootCauseContext
 		if strings.HasPrefix(strings.TrimSpace(display.Predicate), "root_cause_primary") {
 			display.Predicate = "root_cause_context"
 		}
+		// EVOLUTION RECORD (UXR-1 §29.36.2, 2026-07-11): the former
+		// "(根因排序#N)" audit parenthetical on this demoted-background arm is
+		// RETIRED — the background channel carries no ordinal (通道3 无序数),
+		// and a stale persisted Rank must not resurrect the 4165
+		// 根因排序#1-in-▒ contradiction on the detail face either
+		// (三面同一来源: chip, fence and detail all fork on the channel).
+		//
+		// UXG-0 D11 (2026-07-11): the gate covers the ◇ channel too — an
+		// unconsumed primary-tier record rendered in the Adjacent stanza must
+		// not print 主根因(优先处理) beside a conclusion that consumed another
+		// lead; it demotes to its OWN channel word (邻近(参考) / adjacent
+		// (reference), §29.36.2 通道词). The audit fact stays on the channel's
+		// 邻近影响#N seat line — never a resurrected 根因排序 word.
 		display.ChainRelevance = "background"
-		cell := runtimeTraceProjDetailPositionMerged(display, zh, row.FlatChain)
-		if node.Rank > 0 {
-			// 根因族 (UXA 域D #35): rank=N → 根因排序#N on the zh face.
-			// §29.27.1 ③: the seat token carries its ❶..❺ glyph inline
-			// (single token source, 三面记号一致).
-			if zh {
-				cell += fmt.Sprintf("(根因排序%s)", runtimeTraceProjSeatOrdinalToken(node.Rank, row.Badge))
-			} else {
-				cell += fmt.Sprintf(" (root-cause rank %s)", runtimeTraceProjSeatOrdinalToken(node.Rank, row.Badge))
-			}
+		if row.Kind == runtimeTraceProjTreeRowAdjacent {
+			display.ChainRelevance = "adjacent"
 		}
-		return cell
+		return runtimeTraceProjDetailPositionMerged(display, zh, row.FlatChain)
 	}
 	return runtimeTraceProjDetailPositionMerged(node, zh, row.FlatChain)
 }
@@ -2791,7 +3004,10 @@ func runtimeTraceProjDetailPositionMerged(node types.TraceCausalProjectionNode, 
 	case "on-chain":
 		return "on-chain (important)"
 	case "adjacent":
-		return "adjacent (context)"
+		// UXG-0 D11 (2026-07-11). EVOLUTION RECORD: the en parenthetical
+		// aligns with the zh channel word 邻近(参考) — "(context)" drifted
+		// from the 参考 face and forked the §29.36.2 channel word bilingually.
+		return "adjacent (reference)"
 	case "background":
 		return "background (context)"
 	case "support":
@@ -3455,12 +3671,22 @@ func runtimeTraceProjFoldSemanticRankLaneTwinsDetailed(rankNodes []types.TraceCa
 		// above already proved both lanes publish the same participation
 		// value; only absent-on-the-semantic-side account fields adopt.
 		lane, _ := runtimeTraceProjSemanticTwinLane(*sem)
-		if lane == "on_chain" {
+		switch lane {
+		case "on_chain":
 			sem.Rank = rank.Rank
-		} else {
-			// Off-chain rows retain the background-board identity. The folded
-			// rank record remains reachable through RankFoldPeers/E# but must
-			// not turn the surviving semantic row into an on-chain rank seat.
+		case "adjacent":
+			// UXR-1 (§29.36.2, 2026-07-11): the adjacent twin's Rank is the
+			// 邻近影响 channel's own ordinal — the survivor adopts it (the chip
+			// printer words it per channel, never as an on-chain seat). The
+			// BackgroundRank mention-gate filter transfers unchanged.
+			sem.Rank = rank.Rank
+			if rank.BackgroundRank > 0 {
+				sem.BackgroundRank = rank.BackgroundRank
+			}
+		default:
+			// Background rows carry no ordinal (通道3 无序数). The folded rank
+			// record remains reachable through RankFoldPeers/E#; the mention
+			// gate keeps reading BackgroundRank.
 			sem.Rank = 0
 			if rank.BackgroundRank > 0 {
 				sem.BackgroundRank = rank.BackgroundRank
@@ -4455,6 +4681,10 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 			}
 		}
 	} else {
+		// UXR-1 §29.36① (2026-07-11): the unified 「⊘ <短结论>(<短因>)」 banner
+		// wears the existing 无匹配唤醒/链止 closed-set glyph — record its mark
+		// at THIS emission site so the ⊘ legend entry renders with it.
+		model.Marks.mark(runtimeTraceProjMarkUndrillable)
 		flatLine := runtimeTraceProjFlatFallbackHeader(model, zh) + "  " + runtimeTraceProjScaleNote(model, zh)
 		if runewidth.StringWidth(flatLine) > runtimeTraceProjTreeRowMaxWidth {
 			// NEW-10: same wrap as the 🎯 branch — the scale note takes its own
@@ -4661,17 +4891,12 @@ func runtimeTraceProjTreeHeaderLabel(model runtimeTraceProjTreeModel, zh bool) s
 // the name alone instead of the composed label (B1).
 func runtimeTraceProjTreeLabelParts(row runtimeTraceProjTreeRow, zh bool) (string, string) {
 	edge := runtimeTraceProjEdgeLabel(row.Edge, zh)
-	if row.Edge == runtimeTraceProjTreeEdgeChainUnresolved && runtimeTraceProjDepthlessUnattachedRow(row) {
-		// PTV8-RCR-C (§24.12 C6 三面同词): the depth is KNOWN here — an edge
-		// claiming 深度未解析 contradicted the row's own 链上L1 chip. The
-		// unattached family word takes the edge; the layer number stays on the
-		// chip/detail faces (no double-printed L# on one row).
-		if zh {
-			edge = "链上·未接入树─"
-		} else {
-			edge = "on-chain·unattached─"
-		}
-	}
+	// EVOLUTION RECORD (UXR-1 §29.36④, 2026-07-11, supersedes the C6 edge-face
+	// placement): the former 链上·未接入树─ edge rewrite is RETIRED — both
+	// depthless variants render the simplified 链上─ edge (lane 前缀简化), and
+	// the 未接入树 / 深度未解析 auxiliary words live on the 行2 chip + detail
+	// faces only (the C6 word family itself is unchanged — one word, two
+	// remaining faces).
 	if row.Kind == runtimeTraceProjTreeRowDepthless && strings.TrimSpace(row.Parent) == "" {
 		// Flat fallback (no resolved target): a hanging "wakes" edge word would
 		// claim a wake relation with no wakee — render a bare branch instead.
@@ -4715,9 +4940,13 @@ func runtimeTraceProjTreeLabelParts(row runtimeTraceProjTreeRow, zh bool) (strin
 	if glyph := runtimeTraceProjBadgeGlyph(row.Badge); glyph != "" {
 		// PTV4 T6: the TOP-N badge sits right before the state glyph. It is an
 		// independent token, never a state glyph (the one-glyph invariant
-		// counts state icons only).
+		// counts state icons only). UXG-0 D5 (2026-07-11): one space between
+		// badge and state glyph — every state icon's LEFT neighbor is now
+		// constructively a space (the right one always was), which is the
+		// overflow budget the D4 HTML icon boxes spend. Single grid source:
+		// all three faces (terminal/Markdown/HTML) change together.
 		row.marks.mark(runtimeTraceProjMarkBadge)
-		badge = glyph
+		badge = glyph + " "
 	}
 	fixed := runtimeTraceProjTreePrefix(row) + edge + " " + badge +
 		runtimeTraceProjStateIcon(row.Node, row.Kind, row.HasData, row.marks) + " "
@@ -4814,9 +5043,19 @@ func runtimeTraceProjRowMainReserve(row runtimeTraceProjTreeRow, zh bool) int {
 // the #12 guarantee re-spat it below the OwnLine block as a stray sixth line
 // (opendir_78 E4 gap①).
 func runtimeTraceProjRowNameKeepSuffix(row runtimeTraceProjTreeRow, zh bool) string {
-	if !row.HasData || !runtimeTraceProjCauseNodeRow(row) ||
-		!runtimeTraceProjChainUniverseRowKind(row.Kind) {
+	if !row.HasData {
 		return ""
+	}
+	// UXR-1 §29.36④: the ×N同值 chip rides the name tail on EVERY data row —
+	// reserved out of the name budget so a width cut can never eat it (the
+	// chip is grammar, not name; RowName appends it LAST, so it is the
+	// outermost suffix on every arm below).
+	dedup := ""
+	if row.Node.DuplicatePublications > 1 {
+		dedup = " " + runtimeTraceProjDedupFoldTagText(row.Node.DuplicatePublications, zh)
+	}
+	if !runtimeTraceProjCauseNodeRow(row) || !runtimeTraceProjChainUniverseRowKind(row.Kind) {
+		return dedup
 	}
 	xn := ""
 	if runtimeTraceProjCauseEventFoldRow(row) {
@@ -4835,16 +5074,16 @@ func runtimeTraceProjRowNameKeepSuffix(row runtimeTraceProjTreeRow, zh bool) str
 	// 「块设备IO(inode) ×2」 must survive a name squeeze whole (the subject
 	// head mid-truncates instead), exactly like the state-composition words.
 	if word == "" || !(stateWord || runtimeTraceProjFamilyRow(row.Node)) {
-		return xn
+		return xn + dedup
 	}
 	name := runtimeTraceProjRowNameBase(row, zh)
 	switch {
 	case name == word:
-		return word + xn
+		return word + xn + dedup
 	case strings.HasSuffix(name, " · "+word):
-		return " · " + word + xn
+		return " · " + word + xn + dedup
 	}
-	return xn
+	return xn + dedup
 }
 
 // runtimeTraceProjRowNameFitted is THE single name-budget fit (§24.9 G2): the
@@ -4853,6 +5092,16 @@ func runtimeTraceProjRowNameKeepSuffix(row runtimeTraceProjTreeRow, zh bool) str
 // byte-identically. Shared by the width pass and the label composer so the
 // measured column and the rendered label can never drift.
 func runtimeTraceProjRowNameFitted(fixedW int, row runtimeTraceProjTreeRow, name string, zh bool) string {
+	// UXG-0 D5 (2026-07-11): the badge→state-glyph gap is badge geometry, not
+	// name pressure — wearing a seat must never cost the row a name cell (the
+	// opendir E4 lock row lost its adjudicated 行1 cause word 持锁阻塞 to that
+	// off-by-one). The gap cell is refunded HERE — the ONE fit shared by the
+	// width pass and the label composer — so pre-D5 name forms hold and the
+	// measured column still equals the rendered label. The gate is exactly the
+	// emitters' gap condition (a seatless/stale row added no gap).
+	if runtimeTraceProjBadgeGlyph(row.Badge) != "" {
+		fixedW--
+	}
 	reserve := runtimeTraceProjRowMainReserve(row, zh)
 	if keep := runtimeTraceProjRowNameKeepSuffix(row, zh); keep != "" && strings.HasSuffix(name, keep) {
 		head := strings.TrimSuffix(name, keep)
@@ -4976,23 +5225,31 @@ func runtimeTraceProjMidTruncateKeepPid(name string, width int) string {
 // the wakeup-chain drilldown was never executed this round. Both are precise
 // typed signals; the opaque "path unresolved" wording stays only as the last
 // fallback.
+//
+// EVOLUTION RECORD (UXR-1 §29.36①, user ruling 2026-07-11): the 唤醒链不可
+// 上溯类 banner is the unified typed form 「⊘ <短结论>(<短因>)」 — ⊘ reuses
+// the existing "无匹配唤醒,链止" closed-set glyph (zero new glyphs), the long
+// sentence forms (95072 witness) compress to 短结论(短因), and the "以下各行
+// 按层级平铺" render note LEFT the head line (the 树读法 legend's own head
+// clause already teaches it — the head never repeats the legend). The opaque
+// fallback carries no parenthetical: absence never invents a cause.
 func runtimeTraceProjFlatFallbackHeader(model runtimeTraceProjTreeModel, zh bool) string {
 	switch {
 	case model.missingWakeup():
 		if zh {
-			return "(睡眠区间在查询窗内无 sched_wakeup 记录,唤醒链无法上溯;以下各行按层级平铺)"
+			return "⊘ 唤醒链无法上溯(窗内无唤醒记录)"
 		}
-		return "(the sleep interval has no sched_wakeup record in the query window — the wakeup chain cannot be traced upstream; rows below are laid out flat by level)"
+		return "⊘ wakeup chain not traceable (no sched_wakeup record in the window)"
 	case model.WakeupChainRecommendedNotRun:
 		if zh {
-			return "(本报告未做唤醒链下钻,以下各行按层级平铺;可追问一次唤醒链分析(wakeup_chain)补齐)"
+			return "⊘ 唤醒链未下钻(本报告未运行 wakeup_chain,可追问补齐)"
 		}
-		return "(no wakeup-chain drilldown was run for this report; rows below are laid out flat by level — ask a follow-up wakeup-chain analysis (wakeup_chain) to fill it in)"
+		return "⊘ wakeup chain not drilled (wakeup_chain was not run for this report; ask a follow-up to fill it in)"
 	default:
 		if zh {
-			return "(唤醒链路径未解析;以下各行按层级平铺)"
+			return "⊘ 唤醒链路径未解析"
 		}
-		return "(wakeup path unresolved; rows below are laid out flat by level)"
+		return "⊘ wakeup path unresolved"
 	}
 }
 
@@ -5130,6 +5387,8 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 	badge := runtimeTraceProjBadgeGlyph(row.Badge)
 	if badge != "" {
 		row.marks.mark(runtimeTraceProjMarkBadge)
+		// UXG-0 D5: badge→state-glyph gap, same as the tree/stanza emitters.
+		badge += " "
 	}
 	if node.IsSleepState() {
 		// PTV6-C #8 (#73, 标本归因 2026-07-06): the sleep self row speaks the
@@ -5161,9 +5420,13 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 	// RF2b/V4: the duplicate-publication fold (single measurement) and the R2
 	// sum aggregate are independent typed signals with distinct labels (PTV4
 	// T4 ×N 三式: data inline, semantics in the legend's 口径组).
+	// UXR-1 §29.36④: the ×N同值 chip rides the name cell (孤行灭, same form
+	// as the detail table) — main[0] gains the chip; no demoted orphan.
 	if node.DuplicatePublications > 1 {
 		row.marks.mark(runtimeTraceProjMarkMergedDedup)
-		demoted = append(demoted, runtimeTraceProjDedupFoldTagText(node.DuplicatePublications, zh))
+		if len(main) > 0 {
+			main[0] += " " + runtimeTraceProjDedupFoldTagText(node.DuplicatePublications, zh)
+		}
 	}
 	if node.MergedCount > 1 {
 		// §11-N2: the union caliber wears its own form token — the sum form's
@@ -5351,10 +5614,17 @@ func runtimeTraceProjEdgeLabel(edge string, zh bool) string {
 	case runtimeTraceProjTreeEdgeChainUnresolved:
 		// PTV6 #1b (v3 §5): the depthless lane's dedicated edge — never the
 		// default wake word (恢复硬编码唤醒边必红 pin reads this arm).
+		//
+		// EVOLUTION RECORD (UXR-1 §29.36④, 2026-07-11): the 深度未解析 /
+		// 未接入树 auxiliary words LEFT the lane prefix (lane 前缀简化,释放
+		// 关键行宽度) — the edge claims exactly the on-chain membership, and
+		// the auxiliary word rides 行2 through the chain-layer chip family
+		// (链上L#(未接入树) / 链上·深度未解析 — the C6 word family keeps its
+		// chip + detail faces; only the edge face simplified).
 		if zh {
-			return "链上·深度未解析─"
+			return "链上─"
 		}
-		return "on-chain·depth-unresolved─"
+		return "on-chain─"
 	default:
 		if zh {
 			return "唤醒─"
@@ -5377,8 +5647,22 @@ func runtimeTraceProjDepthlessUnattachedRow(row runtimeTraceProjTreeRow) bool {
 // chip site and the 行2 identity builder (§24.9 G3 收编 — two diverging gates
 // could double- or zero-print the layer): chain-lane rows with a resolved
 // depth only; flat renders never claim 链上 (CMP-7a).
+//
+// UXR-1 §29.36④ (2026-07-11): the depth-UNRESOLVED depthless shape joins the
+// gate — its 深度未解析 auxiliary word left the lane prefix (edge simplified
+// to 链上─) and needs its 行2 seat, exactly where the unattached variant's
+// word already lives.
 func runtimeTraceProjChainDepthChipEligible(row runtimeTraceProjTreeRow) bool {
-	return !row.FlatChain && row.Depth > 0 &&
+	if row.FlatChain {
+		return false
+	}
+	if row.Kind == runtimeTraceProjTreeRowDepthless && row.Depth <= 0 {
+		// Depth-unresolved arm: only rows actually drawing the simplified
+		// 链上─ edge relocate the 深度未解析 word here — own-caliber /
+		// overflow-fold depthless rows never claimed it.
+		return row.Edge == runtimeTraceProjTreeEdgeChainUnresolved && !row.Node.OnChainOverflowFold
+	}
+	return row.Depth > 0 &&
 		(row.Kind == runtimeTraceProjTreeRowChain || row.Kind == runtimeTraceProjTreeRowDepthless)
 }
 
@@ -5391,6 +5675,14 @@ func runtimeTraceProjChainDepthChipWord(row runtimeTraceProjTreeRow, zh bool) st
 			return fmt.Sprintf("链上L%d(未接入树)", row.Depth)
 		}
 		return fmt.Sprintf("chain L%d (unattached)", row.Depth)
+	}
+	if row.Kind == runtimeTraceProjTreeRowDepthless && row.Depth <= 0 {
+		// UXR-1 §29.36④: the depth-unresolved word relocated off the lane
+		// prefix onto this 行2 seat (same C6 word family, new face).
+		if zh {
+			return "链上·深度未解析"
+		}
+		return "on-chain · depth unresolved"
 	}
 	if zh {
 		return fmt.Sprintf("链上L%d", row.Depth)
@@ -5426,8 +5718,40 @@ func runtimeTraceProjStateIcon(node types.TraceCausalProjectionNode, kind string
 		marks.mark(runtimeTraceProjMarkIconNoDominant)
 		return "◦"
 	}
+	// UXR-1 §29.36② (4165 ◇段内戴⛓ 分叉形): the ⛓ glyph visually claims chain
+	// membership, so it renders ONLY on the chain channel — off-chain (◇/▒)
+	// D-state/IO rows wear ⧗ (same D-state/IO form family). Width note (复核
+	// P2-4 勘正): ⧗ U+29D7 is EAW-NEUTRAL — 1 cell in both width contexts,
+	// the ⧖ U+29D6 width class; it is NOT the ⛓ width class (⛓ U+26D3 is
+	// East-Asian-Ambiguous). Pinned by the single-cell/EAW loop in
+	// TestRCRImpactFormGlyphsSingleCellNoVS16. glyph / stanza / channel all
+	// fork on the ONE chain-relevance source (三面同一来源): the row Kind for
+	// stanza rows, the node's typed relevance elsewhere — mirrored by the
+	// caller-side row channel authority (empty relevance stays chain,
+	// fail-open).
+	if spec.Glyph == "⛓" && runtimeTraceProjIconOffChain(node, kind) {
+		marks.mark(runtimeTraceProjMarkIconDStateOffChain)
+		return runtimeTraceProjOffChainDStateGlyph
+	}
 	marks.mark(spec.Mark)
 	return spec.Glyph
+}
+
+// runtimeTraceProjIconOffChain reports whether the row the icon renders for
+// sits on a non-chain channel (◇ adjacent / ▒ background) — the stanza Kind
+// first (placement is relevance-derived), the node's typed relevance as the
+// non-stanza mirror. Empty relevance = chain universe (fail-open, matches
+// runtimeTraceProjNodeOrdinalChannel).
+func runtimeTraceProjIconOffChain(node types.TraceCausalProjectionNode, kind string) bool {
+	switch kind {
+	case runtimeTraceProjTreeRowAdjacent, runtimeTraceProjTreeRowBackground:
+		return true
+	}
+	switch strings.TrimSpace(node.ChainRelevance) {
+	case "adjacent", "background":
+		return true
+	}
+	return false
 }
 
 // runtimeTraceProjNoDominantStateRow reports whether a DATA row renders the ◦
@@ -5464,6 +5788,12 @@ func runtimeTraceProjRowName(row runtimeTraceProjTreeRow, zh bool) string {
 		// the 词位 (witness ✦ VerifyClass ×14 / ⛓ 块设备IO(inode) ×2); the
 		// caliber stem rides the value cell, the roster rides the sub-rows.
 		name += fmt.Sprintf(" ×%d", row.Node.FamilyMemberCount)
+	}
+	if row.Node.DuplicatePublications > 1 {
+		// UXR-1 §29.36④ (140554 witness 孤行灭): the ×N同值 chip rides the
+		// 词位 — the same form the detail table prints — instead of a lone
+		// 「· ×2同值」 orphan line; the legend entry keeps the semantics.
+		name += " " + runtimeTraceProjDedupFoldTagText(row.Node.DuplicatePublications, zh)
 	}
 	return name
 }
@@ -6043,7 +6373,8 @@ func runtimeTraceProjStanzaRowFixed(row runtimeTraceProjTreeRow, marks *runtimeT
 		if marks != nil {
 			marks.mark(runtimeTraceProjMarkBadge)
 		}
-		badge = glyph
+		// UXG-0 D5: badge→state-glyph gap, same as the tree/self emitters.
+		badge = glyph + " "
 	}
 	return "    " + badge + runtimeTraceProjStateIcon(row.Node, row.Kind, true, marks) + " "
 }
@@ -6113,6 +6444,12 @@ func runtimeTraceProjApplyCauseWordGuarantee(left string, row runtimeTraceProjTr
 		if tag.OwnLine && strings.Contains(tag.Text, causeWord) {
 			return kept
 		}
+	}
+	// UXR-1 §29.36④ (140554 witness form): when the name cell was cut across
+	// the cause word, the row-2 guarantee copy carries the ×N同值 chip WITH it
+	// (与明细表同形 — the chip belongs to the name wherever the name renders).
+	if row.Node.DuplicatePublications > 1 {
+		causeWord += " " + runtimeTraceProjDedupFoldTagText(row.Node.DuplicatePublications, zh)
 	}
 	return append([]runtimeTraceProjTag{{Text: causeWord}}, kept...)
 }
@@ -6221,6 +6558,32 @@ func runtimeTraceProjRowLineWithMetrics(left string, row runtimeTraceProjTreeRow
 				line += "\n" + cont
 			}
 		}
+		for _, cont := range runtimeTraceProjSubordinatePackedLines(indent, packed) {
+			line += "\n" + cont
+		}
+		return line
+	}
+	// UXR-1 §29.36④ (行2 限定词槽): a Row2 tag pulls EVERY ordinary tag down
+	// with it — 行1 keeps only the metric cells + MainRow keep-marks, and the
+	// subordinate stream packs qualifier-first (emission order already places
+	// the qualifier before its reasons; 裸尾巴/主行中缝变体 both die here).
+	for _, tag := range tags {
+		if !tag.Row2 {
+			continue
+		}
+		var mainTexts, packed []string
+		for _, t := range tags {
+			if t.MainRow {
+				mainTexts = append(mainTexts, t.Text)
+				continue
+			}
+			packed = append(packed, t.Text)
+		}
+		line := left + " " + base
+		if len(mainTexts) > 0 {
+			line += "  " + strings.Join(mainTexts, " · ")
+		}
+		indent := runtimeTraceProjRowContinuationIndent(row)
 		for _, cont := range runtimeTraceProjSubordinatePackedLines(indent, packed) {
 			line += "\n" + cont
 		}
@@ -6419,8 +6782,10 @@ func runtimeTraceProjSubordinatePackedLines(indent string, texts []string) []str
 // a parser and never a gate. Longest-first inside shared prefixes.
 var runtimeTraceProjWrapAtomCompounds = []string{
 	"根因排序#", // fuses with the trailing rank digits (根因排序#9 is one atom)
-	// RCM-2 D2 (§24.21 LAD atom 表收编新口径词): the background board ordinal
-	// fuses with its digits like the rank ordinal above.
+	// UXR-1 (§29.36.2): the adjacent-channel ordinal chip fuses with its
+	// digits like the rank ordinal above (邻近影响#3 is one atom). The retired
+	// 背景榜位# entry stays matched for legacy persisted payload replays only.
+	"邻近影响#",
 	"背景榜位#",
 	"有效归因",
 	"承自归因",
@@ -6434,6 +6799,9 @@ var runtimeTraceProjWrapAtomCompounds = []string{
 	// the 按 head disambiguates each).
 	"按默认算力比粗算",
 	"按纯频率比折算",
+	// UXR-1 §29.36.4 ①: the compressed no-deficit parenthetical's short form
+	// (簇结构不可判,按频率比) — the long form above matches first.
+	"按频率比",
 	// CAP-2 (§28.4/§28.5): the structure-evidence upgrade words and the THERM
 	// press words join the unbreakable set (a wrap must never bisect
 	// 共动分簇/锚点连续推定/受热限压至 mid-claim). Longest-first inside the
@@ -6502,7 +6870,7 @@ func runtimeTraceProjWrapCompoundAt(runes []rune, i int) (string, int) {
 			continue
 		}
 		n := len(cr)
-		if compound == "根因排序#" || compound == "背景榜位#" {
+		if compound == "根因排序#" || compound == "邻近影响#" || compound == "背景榜位#" {
 			for i+n < len(runes) && runes[i+n] >= '0' && runes[i+n] <= '9' {
 				n++
 			}
@@ -6801,6 +7169,15 @@ type runtimeTraceProjTag struct {
 	// any OwnLine tag keeps 行1 grammar-clean: only MainRow keep-marks stay
 	// inline; every ordinary tag demotes.
 	OwnLine bool
+	// Row2 (UXR-1 §29.36④+.4④, user rulings 2026-07-11) marks the 行2
+	// 限定词槽: the participation qualifier (上下文·不参与根因排序 et al.)
+	// NEVER joins 行1 — the witness family showed it mid-value-column, at the
+	// 行1 tail and as a lone orphan line (four position variants). A row
+	// carrying a Row2 tag demotes EVERY ordinary tag with it, packed onto the
+	// subordinate stream with the qualifier FIRST (限定词前、原因后 — the
+	// state word / reason clauses become the qualifier's row-2 followers, so
+	// bare 「· running」 orphan tails cannot exist).
+	Row2 bool
 }
 
 // runtimeTraceProjStateKindLabel is the bar-row state attribution (§7.30
@@ -6982,7 +7359,12 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		if !zh {
 			text = "context · not ranked"
 		}
-		tags = append(tags, runtimeTraceProjTag{Text: text, Seg: 10})
+		// UXR-1 §29.36④+.4④: the participation qualifier owns the 行2
+		// 限定词槽 — Row2 demotes it (and its reason followers) off 行1
+		// unconditionally, killing the four position variants and the bare
+		// 「· running」 orphan tails in one rule. Seg 9 keeps it FIRST on the
+		// packed row-2 stream (限定词前、原因后).
+		tags = append(tags, runtimeTraceProjTag{Text: text, Seg: 9, Row2: true})
 	}
 	// PTV8-RCR-A (§24.1/§24.2): a cause node renders the four-line grammar —
 	// 行2 identity, 行3 「=」breakdown and the 拆解子行 land as OwnLine tags in
@@ -6998,6 +7380,12 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		for _, sub := range structured.SubRows {
 			tags = append(tags, runtimeTraceProjTag{Text: sub, OwnLine: true})
 		}
+	} else if word := runtimeTraceProjMentionFloorWord(row, zh); word != "" {
+		// UXR-1 §29.36.3 (通道4): a seat-less on-chain semantic row without
+		// the cause grammar still names its mention obligation (the cause-row
+		// form carries it inside 行2 — one word source, two seats).
+		row.marks.mark(runtimeTraceProjMarkSemanticMentionFloor)
+		tags = append(tags, runtimeTraceProjTag{Text: word, Seg: 10})
 	}
 	// 裁定4: every bar row states WHAT the duration was (typed StateKind label;
 	// impact-shape value when no state was exposed — never fabricated).
@@ -7127,7 +7515,10 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		capMark, capMarkOK := runtimeTraceProjCapabilityCaliberMarkTopo(node.SupplyFoldCapabilitySource, node.SupplyFoldTopologySource)
 		// CAP 复核 F1: the basis word's legend seat follows the actual
 		// reference cluster (按大核满频 entry vs the demoted-basis entry).
+		// UXR-1 §29.36.4 ② (核类词诚实门): under 簇结构不可判 the class word
+		// never renders, so its legend seat stays off with it (词条-图例双向).
 		refMark := runtimeTraceProjFoldReferenceMark(node.SupplyFoldReferenceClass)
+		refHonest := node.SupplyFoldCapabilitySource != runtimeTraceCapabilitySourceFreqOnly
 		_, refDemoted := runtimeTraceProjFoldReferenceClusterWord(node.SupplyFoldReferenceClass, zh)
 		if structuredOK && mechanismSentence && runtimeTraceCausalProjectionInversionRow(node) {
 			// 复核 FAIL-1 (§24.1补 图例破洞): the clause is suppressed here
@@ -7136,7 +7527,9 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 			// their legend entries wherever they render (the 下界 explanation
 			// is the entry the user personally asked for).
 			if runtimeTraceProjInversionSupplyFoldDetailLine(node, zh) != "" {
-				row.marks.mark(refMark)
+				if refHonest {
+					row.marks.mark(refMark)
+				}
 				row.marks.mark(runtimeTraceProjMarkCaliberLowerBound)
 				if capMarkOK {
 					row.marks.mark(capMark)
@@ -7145,7 +7538,9 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		} else {
 			switch verdict {
 			case runtimeTraceProjSupplyFoldTriple, runtimeTraceProjSupplyFoldWithDemand, runtimeTraceProjSupplyFoldDominant:
-				row.marks.mark(refMark)
+				if refHonest {
+					row.marks.mark(refMark)
+				}
 				row.marks.mark(runtimeTraceProjMarkCaliberLowerBound)
 				if capMarkOK {
 					row.marks.mark(capMark)
@@ -7166,7 +7561,9 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 				// basis form speaks 按大核满频…下界 — its caliber legend
 				// entries follow the words (the no-deficit form keeps none).
 				if node.SupplyFoldDeficitMS > 0 {
-					row.marks.mark(refMark)
+					if refHonest {
+						row.marks.mark(refMark)
+					}
 					row.marks.mark(runtimeTraceProjMarkCaliberLowerBound)
 					if capMarkOK {
 						row.marks.mark(capMark)
@@ -7354,9 +7751,12 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	// RF2b/V4: the duplicate-publication fold (single measurement) and the R2
 	// sum aggregate are independent typed signals with distinct labels (PTV4
 	// T4 ×N 三式 — data inline, semantics in the legend's 口径组).
+	// UXR-1 §29.36④ (140554 witness): the ×N同值 chip RELOCATED onto the 词位
+	// (runtimeTraceProjRowName appends it after the name, same form as the
+	// detail table) — only the mark records here; the standalone Seg-30 tag
+	// that produced lone 「· ×2同值」 orphan lines is retired.
 	if node.DuplicatePublications > 1 {
 		row.marks.mark(runtimeTraceProjMarkMergedDedup)
-		tags = append(tags, runtimeTraceProjTag{Text: runtimeTraceProjDedupFoldTagText(node.DuplicatePublications, zh), Seg: 30})
 	}
 	if node.MergedCount > 1 && !(structuredOK && structured.ConsumedMergedTag) {
 		// PTV8-RCR-A §24.2: on the event form the ×N count already rode 行1
@@ -8325,6 +8725,15 @@ func runtimeTraceProjLeadPrimary(projection types.TraceCausalProjection, model r
 	bestValue := 0.0
 	for i := range roots {
 		if roots[i].IsContextOnlyRow() {
+			continue
+		}
+		// UXR-1 复核 P2-2(b) 裁定 (2026-07-11): 加冕仅链通道行 — a typed
+		// off-chain-relevance root (adjacent/background) never crowns through
+		// the rankless value lane either (the same channel belt the shared
+		// valid-seat gate wears; a PRIMARY-lane row with adjacent relevance is
+		// exactly the P2-2 name-key leak shape). Empty relevance stays on the
+		// chain universe (fail-open, matches the ordinal-channel authority).
+		if runtimeTraceProjNodeOrdinalChannel(roots[i]) != runtimeTraceProjOrdinalChannelChain {
 			continue
 		}
 		// §29.30.1 (2026-07-11): a zero-CAP running root — the engine's
@@ -11173,8 +11582,20 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 		// retired Triple sentence's data half, unified sub-row grammar).
 		if runtimeTraceProjCauseNodeRow(row) {
 			rank, confidence := runtimeTraceProjCauseRankConfidence(row)
+			// UXR-1 (§29.36.2, 2026-07-11): the detail seat line follows the
+			// ordinal CHANNEL — 根因排序 label on the chain channel, 邻近影响 on
+			// the ◇ adjacent channel, and NO seat line on the ▒ background
+			// channel (通道3 无序数; stale Rank falls to the bare 置信 form).
+			// 复核 P2-3: a SeatOrdinalStale ordinal (beyond its channel's
+			// rendered population) falls to the bare 置信 form the same way.
+			// 复核 P3-⑦: the label word comes from the ONE channel-word source
+			// shared with the fence chip (runtimeTraceProjSeatChannelWord).
+			channel := runtimeTraceProjRowOrdinalChannel(row)
+			channelWordZH, channelWorded := runtimeTraceProjSeatChannelWord(channel, true)
+			channelWordEN, _ := runtimeTraceProjSeatChannelWord(channel, false)
+			seated := rank > 0 && channelWorded && !row.SeatOrdinalStale
 			var seat []string
-			if rank > 0 {
+			if seated {
 				// §29.27.1 ③ (三面记号一致): the detail face inlines the seat's
 				// ❶..❺ glyph from the single token source, gated by the row's
 				// Badge (复核 C-1 — same negative gate as the tree face).
@@ -11187,7 +11608,7 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 			}
 			if tier := runtimeTraceProjConfidenceTier(confidence, zh); tier != "" {
 				switch {
-				case rank <= 0:
+				case !seated:
 					// PTV8-RCR-C (§24.12 C11 明细空榜位字段形, 2026-07-08).
 					// EVOLUTION RECORD: an unseated cause node rendered
 					// 「根因排序: 置信中」 — a rank label over a bare confidence
@@ -11213,9 +11634,12 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 				if !zh {
 					sep = " · "
 				}
-				if rank > 0 {
-					add("根因排序", "root-cause rank", strings.Join(seat, sep))
-				} else {
+				switch {
+				case seated:
+					// 复核 P3-⑦: label = the shared channel word (one source,
+					// two faces — the fence chip prints the same word + #N).
+					add(channelWordZH, channelWordEN, strings.Join(seat, sep))
+				default:
 					add("置信", "confidence", strings.Join(seat, sep))
 				}
 			}

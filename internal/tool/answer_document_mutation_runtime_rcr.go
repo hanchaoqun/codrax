@@ -45,6 +45,14 @@ import (
 // the single-cell width pin — one constant, three surfaces.
 const runtimeTraceProjRootGlyph = "⊚"
 
+// runtimeTraceProjOffChainDStateGlyph is the ◇/▒ D-state/IO row glyph (UXR-1
+// §29.36②: ⛓ claims chain membership, so off-chain rows wear ⧗ instead).
+// ⧗ U+29D7 is EAW-Neutral (1 cell in BOTH width contexts — the ⧖ U+29D6
+// width class; NOT the ⛓ U+26D3 class, which is East-Asian-Ambiguous and
+// measures 2 under EastAsianWidth). One constant, two surfaces: the icon
+// resolver and the single-cell/EAW width pin (UXR-1 复核 P2-4).
+const runtimeTraceProjOffChainDStateGlyph = "⧗"
+
 // --- §24.3 impact-form table (glyph + category, ONE typed source) -------------
 
 type runtimeTraceProjImpactForm int
@@ -212,6 +220,13 @@ func runtimeTraceProjImpactFormTokenFamily(token string) runtimeTraceProjImpactF
 		// PTV8-RCR-C 复核收尾: IPC wait-on-peer is its own family (等待症状族)
 		// — never block IO (the C7 lane must say binder等待候选, not IO阻塞候选).
 		return runtimeTraceProjImpactFormBinderWait
+	case "blocking_span":
+		// UXR-1 §29.36.1 (140554 ◦配对 witness): a lock-contention span row
+		// whose BlockingKind never resolved (对端未解析 form) still carries the
+		// 阻塞等待 form word — it wears the lock family glyph via THIS typed
+		// token, never ◦ beside a form word (icon says unknown, text says
+		// blocking = the mixed signal the ruling closed).
+		return runtimeTraceProjImpactFormLock
 	case "irq_burst", "irq_activity", "ipi_activity", "workqueue_activity", "dma_fence_activity":
 		return runtimeTraceProjImpactFormInterrupt
 	case "trace_gap", "missing_wakeup":
@@ -403,6 +418,119 @@ func runtimeTraceProjCauseCategoryWord(node types.TraceCausalProjectionNode, kin
 		return spec.CategoryEN, false
 	}
 	return "", false
+}
+
+// --- UXR-1 §29.36.2/§29.36.3 ordinal channels (user rulings 2026-07-11) ------
+
+// runtimeTraceProjOrdinalChannel values — the display mirror of the engine's
+// rootCauseOrdinalChannel closed set. Glyph lane, stanza membership, chip
+// word and detail seat label all fork on THIS one classifier (三面同一来源).
+const (
+	runtimeTraceProjOrdinalChannelChain      = "chain"      // 通道1 根因排序#N
+	runtimeTraceProjOrdinalChannelAdjacent   = "adjacent"   // 通道2 邻近影响#N
+	runtimeTraceProjOrdinalChannelBackground = "background" // 通道3 无序数
+)
+
+// runtimeTraceProjNodeOrdinalChannel resolves a node's ordinal channel from
+// the typed chain-relevance single source (node.ChainRelevance is already the
+// causality-resolved value from the ONE wire parser). Empty relevance stays
+// on the chain channel — chainless boards carry no relevance and remain ONE
+// caliber-uniform ordinal space (mirrors the engine's fail-open arm).
+func runtimeTraceProjNodeOrdinalChannel(node types.TraceCausalProjectionNode) string {
+	switch strings.TrimSpace(node.ChainRelevance) {
+	case "adjacent":
+		return runtimeTraceProjOrdinalChannelAdjacent
+	case "background":
+		return runtimeTraceProjOrdinalChannelBackground
+	default:
+		return runtimeTraceProjOrdinalChannelChain
+	}
+}
+
+// runtimeTraceProjRowOrdinalChannel is the display-face channel authority for
+// a RENDERED row: a stanza row's channel IS its stanza (the ◇/▒ Kind is the
+// relevance-derived placement, so chip word and stanza can never fork even on
+// stale persisted forms whose bucket and relevance disagree); every other row
+// resolves through the node's typed relevance.
+func runtimeTraceProjRowOrdinalChannel(row runtimeTraceProjTreeRow) string {
+	switch row.Kind {
+	case runtimeTraceProjTreeRowAdjacent:
+		return runtimeTraceProjOrdinalChannelAdjacent
+	case runtimeTraceProjTreeRowBackground:
+		return runtimeTraceProjOrdinalChannelBackground
+	}
+	return runtimeTraceProjNodeOrdinalChannel(row.Node)
+}
+
+// runtimeTraceProjSeatChannelWord is THE single channel-word source (UXR-1
+// 复核 P3-⑦, 2026-07-11): both ordinal-seat display faces — the fence chip
+// (runtimeTraceProjSeatChipWord) and the detail table's seat-line label —
+// consume this ONE constructor, so the channel wording can never fork between
+// the two surfaces (the M3 mutation now bites both). ok=false on the
+// background channel (通道3 无序数).
+//
+// UXG-0 D2 (2026-07-11): the HTML chip classifier traceProjectionRankToken
+// (internal/preview/markdown.go) hand-mirrors these phrases (根因排序#N /
+// 邻近影响#N zh, root-cause rank #N / adjacent-impact #N en) — changing a
+// word here without that arm silently unstyles the chip. UXG-1 single-sources
+// the phrase set.
+func runtimeTraceProjSeatChannelWord(channel string, zh bool) (string, bool) {
+	switch channel {
+	case runtimeTraceProjOrdinalChannelAdjacent:
+		if zh {
+			return "邻近影响", true
+		}
+		return "adjacent-impact", true
+	case runtimeTraceProjOrdinalChannelBackground:
+		return "", false
+	default:
+		if zh {
+			return "根因排序", true
+		}
+		return "root-cause rank", true
+	}
+}
+
+// runtimeTraceProjSeatChipWord renders the channel-worded ordinal chip
+// (§29.36.2 配套不变量: 序数 chip 词面必带通道名,禁裸 #N). ok=false on the
+// background channel — 通道3 无序数: even a stale persisted Rank>0 on a
+// background row never prints a seat chip (the 4165 根因排序#1-in-▒
+// same-page contradiction form is structurally unreachable) — and on a
+// SeatOrdinalStale row (UXR-1 复核 P2-3): an ordinal beyond its own channel's
+// rendered population is a stale-artifact replay and fail-closes symmetrically
+// instead of being re-worded as a fresh channel ordinal.
+func runtimeTraceProjSeatChipWord(row runtimeTraceProjTreeRow, rank int, zh bool) (string, bool) {
+	if rank <= 0 || row.SeatOrdinalStale {
+		return "", false
+	}
+	word, ok := runtimeTraceProjSeatChannelWord(runtimeTraceProjRowOrdinalChannel(row), zh)
+	if !ok {
+		return "", false
+	}
+	if zh {
+		return fmt.Sprintf("%s#%d", word, rank), true
+	}
+	return fmt.Sprintf("%s #%d", word, rank), true
+}
+
+// runtimeTraceProjMentionFloorWord renders the channel-4 mention-obligation
+// word (UXR-1 §29.36.3): "" when the row is not a stamped mention-floor seat.
+// N = the rendered chain board size; a boardless report drops the 前N tail
+// (absence never invents a board).
+func runtimeTraceProjMentionFloorWord(row runtimeTraceProjTreeRow, zh bool) string {
+	if !row.MentionFloorOnChain {
+		return ""
+	}
+	if row.MentionFloorTopN > 0 {
+		if zh {
+			return fmt.Sprintf("优化点·未入根因排序前%d", row.MentionFloorTopN)
+		}
+		return fmt.Sprintf("optimization point · below the top-%d root-cause board", row.MentionFloorTopN)
+	}
+	if zh {
+		return "优化点·未入根因排序"
+	}
+	return "optimization point · not on the root-cause board"
 }
 
 // runtimeTraceProjCauseRankConfidence resolves the 行2 榜位/置信 pair: the
@@ -717,29 +845,29 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		identity = append(identity, state)
 	}
 	rank, confidence := runtimeTraceProjCauseRankConfidence(row)
-	if rank > 0 {
-		if zh {
-			identity = append(identity, fmt.Sprintf("根因排序#%d", rank))
-		} else {
-			identity = append(identity, fmt.Sprintf("root-cause rank #%d", rank))
-		}
+	// UXR-1 (§29.36.2, 2026-07-11): the seat chip is CHANNEL-worded — 根因排序#N
+	// on the chain channel, 邻近影响#N on the ◇ adjacent channel, and NO chip on
+	// the ▒ background channel (通道3 无序数; a stale persisted Rank never
+	// resurrects the 4165 根因排序#1-in-▒ contradiction). 禁裸 #N.
+	//
+	// EVOLUTION RECORD (§29.36.2 supersedes RCM-2 D2/§23.2 E1b chip half): the
+	// 背景榜位#N chip is RETIRED — the background board is unordered for the
+	// reader (口径混杂,序数不可比); BackgroundRank stays a typed INTERNAL filter
+	// for the §23.1 prose mention gate (background_rank<=3), never a chip.
+	if chip, ok := runtimeTraceProjSeatChipWord(row, rank, zh); ok {
+		identity = append(identity, chip)
 		// PTV8-RCR-C (§24.13 裁定二后半): the multi-board window tag binds to
 		// the seat ordinal (根因排序#1·窗X — stamped at model build only when
 		// ≥2 rank boards render; the single-board form carries none).
-		if chip := strings.TrimSpace(row.RankWindowChip); chip != "" {
-			identity = append(identity, chip)
+		if windowChip := strings.TrimSpace(row.RankWindowChip); windowChip != "" {
+			identity = append(identity, windowChip)
 			row.marks.mark(runtimeTraceProjMarkRankSeatWindow)
 		}
-	} else if node.BackgroundRank > 0 {
-		// RCM-2 D2 (§24.10 链上 tier 道与非链背景综合排序道同规, 2026-07-08):
-		// a contender seated on the background comprehensive board wears its
-		// typed seat the way an on-chain seat wears 根因排序#N — never the
-		// on-chain word for an off-chain seat (板别如实).
-		if zh {
-			identity = append(identity, fmt.Sprintf("背景榜位#%d", node.BackgroundRank))
-		} else {
-			identity = append(identity, fmt.Sprintf("background seat #%d", node.BackgroundRank))
-		}
+	} else if word := runtimeTraceProjMentionFloorWord(row, zh); word != "" {
+		// UXR-1 §29.36.3 (通道4): the seat-less on-chain semantic row names
+		// its mention obligation where a seat chip would sit.
+		identity = append(identity, word)
+		row.marks.mark(runtimeTraceProjMarkSemanticMentionFloor)
 	}
 	if tier := runtimeTraceProjConfidenceTier(confidence, zh); tier != "" {
 		if zh {
@@ -876,13 +1004,26 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		// holds by construction (single component, InMS == engine effective).
 		// CAP 复核 F1: the basis word follows the actual reference cluster
 		// (byte-identical for the big-class basis).
+		// UXR-1 §29.36.4 ② (核类词诚实门): 簇结构不可判 (typed freq_only
+		// source) forbids the core-class word on the sub-row caliber too —
+		// 「折算,按大核满频」 beside 「簇结构不可判…」 was the claim-vs-caveat
+		// contradiction form; the class-less 折算,按满频 degrades honestly and
+		// its class-word legend seat stays off with the word.
 		refWord, _ := runtimeTraceProjFoldReferenceClusterWord(node.SupplyFoldReferenceClass, zh)
+		var componentMarks []runtimeTraceProjMark
+		if node.SupplyFoldCapabilitySource == runtimeTraceCapabilitySourceFreqOnly {
+			refWord = ""
+		} else {
+			componentMarks = append(componentMarks, runtimeTraceProjFoldReferenceMark(node.SupplyFoldReferenceClass))
+		}
 		short := "折算,按" + refWord + "满频"
 		if !zh {
 			short = "discounted, at " + refWord + " fmax"
+			if refWord == "" {
+				short = "discounted, at fmax"
+			}
 		}
 		full := short
-		componentMarks := []runtimeTraceProjMark{runtimeTraceProjFoldReferenceMark(node.SupplyFoldReferenceClass)}
 		if node.SupplyFoldUnknownMS > 0 {
 			if zh {
 				full += ",下界"
@@ -1026,12 +1167,19 @@ func runtimeTraceProjInversionSupplyFoldDetailLine(node types.TraceCausalProject
 	// CAP (§26 C3): the caliber parenthesis carries the fold's typed
 	// capability disclosure. 复核 F1: the basis word follows the actual
 	// reference cluster. CAP-2: the wording upgrades on the topology token.
+	// UXR-1 §29.36.4 ② (核类词诚实门): 簇结构不可判 forbids the core-class
+	// word on this face too — the class-less 按满频 form degrades honestly.
 	capSuffix := runtimeTraceProjCapabilityCaliberSuffixTopo(node.SupplyFoldCapabilitySource, node.SupplyFoldTopologySource, zh)
 	refWord, _ := runtimeTraceProjFoldReferenceClusterWord(node.SupplyFoldReferenceClass, zh)
+	refWordEN := refWord + " "
+	if node.SupplyFoldCapabilitySource == runtimeTraceCapabilitySourceFreqOnly {
+		refWord = ""
+		refWordEN = ""
+	}
 	if zh {
 		return fmt.Sprintf("running 原始 %s → 供给折算缺口 %s(折算,按%s满频,下界%s;独立口径,不计入有效归因)",
 			runtimeTraceProjFmtMS(raw), runtimeTraceProjFmtMS(node.SupplyFoldDeficitMS), refWord, capSuffix)
 	}
-	return fmt.Sprintf("running raw %s → supply-fold deficit %s (discounted at %s fmax, lower bound%s; independent caliber, not counted into attribution)",
-		runtimeTraceProjFmtMS(raw), runtimeTraceProjFmtMS(node.SupplyFoldDeficitMS), refWord, capSuffix)
+	return fmt.Sprintf("running raw %s → supply-fold deficit %s (discounted at %sfmax, lower bound%s; independent caliber, not counted into attribution)",
+		runtimeTraceProjFmtMS(raw), runtimeTraceProjFmtMS(node.SupplyFoldDeficitMS), refWordEN, capSuffix)
 }

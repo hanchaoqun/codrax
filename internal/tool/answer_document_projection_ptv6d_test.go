@@ -294,8 +294,10 @@ func TestPTV6DNoDominantChipRetiredIconAndLegendCarry(t *testing.T) {
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 无主导态 →
 	// 该行无主导调度状态 (图例记号族: chip class word 直陈, 行内仍禁词).
 	legend := strings.Join(runtimeTraceProjLegendGroupLines(marks, true), "\n")
-	if !strings.Contains(legend, "`◦`(数据行) = 该行无主导调度状态;具体影响形态见行内说明或明细。") {
-		t.Fatalf("the ◦ legend entry must carry the retired chip's class semantics:\n%s", legend)
+	// EVOLUTION RECORD (UXR-1 §29.36.1): the ◦ entry states both halves
+	// symmetrically (未识别影响类型 + 无主导调度状态).
+	if !strings.Contains(legend, "`◦`(数据行) = 未识别出具体影响类型且无主导调度状态的行;有形态词的行戴各自形态族记号,该行的已知信息见行内说明或明细。") {
+		t.Fatalf("the ◦ legend entry must carry the §29.36.1 symmetric wording:\n%s", legend)
 	}
 }
 
@@ -374,13 +376,22 @@ func TestPTV6DSpecimenReplayLineLedger(t *testing.T) {
 			// ranked rows' 行2 identity lines (类别·根因排序#N·置信); the
 			// retired 候选根因 chip left the inventory, the degenerate
 			// 有效归因 tail gained its (全额) caliber.
-			lines: 30, tree: 1, adjacent: 2, background: 7, beforeLines: 46,
+			// EVOLUTION RECORD (UXR-1 §29.36④): the ×2同值 orphan line merged
+			// into the 行1 词位 — 30 → 29 lines.
+			lines: 29, tree: 1, adjacent: 2, background: 7, beforeLines: 46,
 			evidence: []string{"[E1(+1)]", "[E2]", "[E3]", "[E4]", "[E5]", "[E6]", "[E7]", "[E8(+1)]", "[E9]", "[E10]"},
 			inventory: []string{
 				"runnable", "链上L1", "×2同值", "有效归因 1.661ms(全额)",
 				// SYM-2 §24.17 R2 (2026-07-08): 就绪排队候选 → 调度压力候选.
 				"调度压力候选·根因排序#1·置信高",
-				"IRQ突发·根因排序#4·置信高", "IRQ活动·根因排序#12·置信高", "累计(跨线程)1.997ms",
+				// EVOLUTION RECORD (UXR-1 复核 P2-3, 2026-07-11, supersedes
+				// the batch's initial "persisted ordinals replay as channel-2
+				// numbers" wording): the specimen's #4/#12 are OLD-ENGINE
+				// GLOBAL ordinals — re-wording them as 邻近影响#4/#12 on a
+				// two-member ◇ channel is the stale-artifact false claim the
+				// fail-close kills (ordinal > channel member population →
+				// chip drops; row identity/confidence stay rendered).
+				"IRQ突发·置信高", "IRQ活动·置信高", "累计(跨线程)1.997ms",
 				"IO等待(对端 udk-irq-3-65)", "D-state/iowait(对端未解析)",
 				"IO等待(对端 udk-irq-1-63)", "×2(0.081–1.302ms)取最大",
 				"IO等待(对端 udk-irq-4-67)",

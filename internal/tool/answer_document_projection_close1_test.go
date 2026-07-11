@@ -437,13 +437,29 @@ func TestCLOSE1StanzaLaneStaleRankHoldsNoSeat(t *testing.T) {
 			t.Fatalf("[%s] the on-chain row must crown, got %+v", lane, lead)
 		}
 		// 双面一致: no rendered row wears ❶ (the stale stanza rank never
-		// mints a glyph); the stanza row's bare 「#1」 chip survives on the
-		// detail face.
+		// mints a glyph).
 		if badge1 := close1Badge1Key(model); badge1 != "" {
 			t.Fatalf("[%s] no row may wear ❶ here (stale stanza rank is seatless): %q", lane, badge1)
 		}
-		if !strings.Contains(runtimeTraceProjDetailFullText(model, true), "根因排序: #1") {
-			t.Fatalf("[%s] the bare #1 ordinal chip must survive on the detail face (裸 chip 保留)", lane)
+		// EVOLUTION RECORD (UXR-1 §29.36.2, 2026-07-11, supersedes F1's
+		// "bare 「#N」 chip stays" clause): ordinal chips are channel-worded
+		// (禁裸 #N) — a ◇ adjacent seat reads 邻近影响 #1 (its own independent
+		// channel) and a ▒ background row prints NO seat at all (通道3
+		// 无序数). The F1 core (stanza rank never glyphs, never crowns) is
+		// asserted above unchanged.
+		detail := runtimeTraceProjDetailFullText(model, true)
+		if strings.Contains(detail, "根因排序: #1") {
+			t.Fatalf("[%s] a stanza row must not wear the on-chain 根因排序 chip (§29.36.2 通道词面):\n%s", lane, detail)
+		}
+		switch lane {
+		case "adjacent":
+			if !strings.Contains(detail, "邻近影响: #1") {
+				t.Fatalf("[%s] the ◇ seat must read 邻近影响 #1 on the detail face:\n%s", lane, detail)
+			}
+		case "background":
+			if strings.Contains(detail, "邻近影响: #1") {
+				t.Fatalf("[%s] a ▒ row prints no seat chip (通道3 无序数):\n%s", lane, detail)
+			}
 		}
 	}
 }

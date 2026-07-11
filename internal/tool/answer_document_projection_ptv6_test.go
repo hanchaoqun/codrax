@@ -182,7 +182,9 @@ func TestTraceProjectionPTV6Specimen1BackgroundRowsLeaveMainTree(t *testing.T) {
 	if strings.Contains(fence, "唤醒─") {
 		t.Fatalf("specimen replay must not draw a wake edge anywhere:\n%s", fence)
 	}
-	if !strings.Contains(fence, "下钻─") || !strings.Contains(fence, "CookieMonsterCl") {
+	// UXR-1 §29.36④: the ×2同值 name chip reserve mid-truncates the subject
+	// head (pid tail kept) — probe the surviving identity segments.
+	if !strings.Contains(fence, "下钻─") || !strings.Contains(fence, "-59843") {
 		t.Fatalf("trunk drill row must survive:\n%s", fence)
 	}
 	// Background subjects render only after the ▒ stanza header.
@@ -362,8 +364,13 @@ func TestPTV6DepthlessEdgeWordNeverDefaultsToWake(t *testing.T) {
 		t.Fatalf("depthless row must carry the chain-unresolved edge, got %q", depthless.Edge)
 	}
 	fence := runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "链上·深度未解析─") {
+	// EVOLUTION RECORD (UXR-1 §29.36④, 2026-07-11): the lane prefix simplified
+	// to 链上─; the 深度未解析 auxiliary word rides the 行2 chip family.
+	if !strings.Contains(fence, "链上─") {
 		t.Fatalf("fence must draw the dedicated depthless edge word:\n%s", fence)
+	}
+	if !strings.Contains(fence, "链上·深度未解析") {
+		t.Fatalf("the 深度未解析 auxiliary word must ride 行2:\n%s", fence)
 	}
 	if strings.Contains(fence, "唤醒─") {
 		t.Fatalf("no wake edge may render for a depthless row:\n%s", fence)
@@ -377,7 +384,7 @@ func TestPTV6DepthlessEdgeWordNeverDefaultsToWake(t *testing.T) {
 	}
 	// EN edge word face.
 	enFence := runtimeTraceProjTreeFence(buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), false), false)
-	if !strings.Contains(enFence, "on-chain·depth-unresolved─") || strings.Contains(enFence, "wakes─") {
+	if !strings.Contains(enFence, "on-chain─") || strings.Contains(enFence, "wakes─") {
 		t.Fatalf("EN fence must use the dedicated edge word:\n%s", enFence)
 	}
 }
@@ -442,8 +449,8 @@ func TestPTV6LegendWordingVerbatimPins(t *testing.T) {
 		// intermediate trace_query record to the report's own evidence index
 		// (trace line coordinates).
 		runtimeTraceProjMarkEdgeChainUnresolved: {
-			"- `└─链上·深度未解析─` = 链上项但树位深度未解析:不声称唤醒/下钻关系,不编造树位;该行 [E#] 经证据索引给出 trace 行号区间。",
-			"- `└─on-chain·depth-unresolved─` = an on-chain row whose tree depth is unresolved: no wake/drill relation is claimed and no position is invented; the row's [E#] resolves to trace line spans via the evidence index.",
+			"- `└─链上─`+行注`链上·深度未解析` = 链上项但树位深度未解析:不声称唤醒/下钻关系,不编造树位;该行 [E#] 经证据索引给出 trace 行号区间。",
+			"- `└─on-chain─` + row note `on-chain · depth unresolved` = an on-chain row whose tree depth is unresolved: no wake/drill relation is claimed and no position is invented; the row's [E#] resolves to trace line spans via the evidence index.",
 		},
 	}
 	seen := map[runtimeTraceProjMark]bool{}
@@ -580,7 +587,7 @@ func TestPTV6OffChainPrimaryNeverTakesDepthlessChainLane(t *testing.T) {
 			}
 		}
 		fence := runtimeTraceProjTreeFence(model, true)
-		if strings.Contains(fence, "链上·深度未解析─") || strings.Contains(fence, "唤醒─") {
+		if strings.Contains(fence, "链上─") || strings.Contains(fence, "唤醒─") {
 			t.Fatalf("off-chain primaries must not receive a chain edge word:\n%s", fence)
 		}
 		bgSeats, adjSeats := 0, 0

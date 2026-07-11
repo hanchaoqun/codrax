@@ -341,9 +341,11 @@ func TestSemLeadSemanticRankTwinFoldUnitGuards(t *testing.T) {
 		[]types.TraceCausalProjectionNode{semantic()}); n != 0 || adopted != 1 || !folded {
 		t.Fatalf("the mirror pair must fold (n=%d rank=%d folded=%v)", n, adopted, folded)
 	}
-	// B9 positive control: an exact adjacent pair also folds, but the semantic
-	// survivor keeps the background-board identity and never adopts an
-	// on-chain root-cause ordinal.
+	// B9 positive control: an exact adjacent pair also folds.
+	// EVOLUTION RECORD (UXR-1 §29.36.2, 2026-07-11): the adjacent survivor now
+	// ADOPTS the twin's 邻近影响 channel ordinal (its own channel's number —
+	// the chip printer words it per channel, never as an on-chain seat); the
+	// BackgroundRank mention-gate filter still transfers.
 	r := rank()
 	r.ChainRelevance = "adjacent"
 	r.Causality = "adjacent_to_wakeup_chain"
@@ -353,9 +355,25 @@ func TestSemLeadSemanticRankTwinFoldUnitGuards(t *testing.T) {
 	s.Causality = "adjacent_to_wakeup_chain"
 	outRank, outSem, peers := runtimeTraceProjFoldSemanticRankLaneTwins(
 		[]types.TraceCausalProjectionNode{r}, []types.TraceCausalProjectionNode{s})
-	if len(outRank) != 0 || len(outSem) != 1 || outSem[0].Rank != 0 ||
+	if len(outRank) != 0 || len(outSem) != 1 || outSem[0].Rank != 1 ||
 		outSem[0].BackgroundRank != 2 || len(peers) != 1 {
-		t.Fatalf("an exact adjacent twin must fold onto one background-board semantic seat: rank=%+v sem=%+v peers=%+v",
+		t.Fatalf("an exact adjacent twin must fold onto one 邻近影响-channel semantic seat: rank=%+v sem=%+v peers=%+v",
+			outRank, outSem, peers)
+	}
+	// Background lane control: a background twin folds WITHOUT any ordinal
+	// (通道3 无序数) — stale rank zeroes, mention-gate filter transfers.
+	r = rank()
+	r.ChainRelevance = "background"
+	r.Causality = "background"
+	r.BackgroundRank = 3
+	s = semantic()
+	s.ChainRelevance = "background"
+	s.Causality = "background"
+	outRank, outSem, peers = runtimeTraceProjFoldSemanticRankLaneTwins(
+		[]types.TraceCausalProjectionNode{r}, []types.TraceCausalProjectionNode{s})
+	if len(outRank) != 0 || len(outSem) != 1 || outSem[0].Rank != 0 ||
+		outSem[0].BackgroundRank != 3 || len(peers) != 1 {
+		t.Fatalf("a background twin folds with NO ordinal (§29.36.2 通道3): rank=%+v sem=%+v peers=%+v",
 			outRank, outSem, peers)
 	}
 	// Value mismatch — a different accounting never folds.
@@ -433,7 +451,9 @@ func TestB9CustTraceVC710OffChainClassVerificationTwinSingleSeat(t *testing.T) {
 	rank.EvidenceID = "E32"
 	rank.Predicate = "root_cause_deterministic_optimization"
 	rank.SpanName = ""
-	rank.Rank = 7
+	// UXR-1 (§29.36.2): the engine now numbers adjacent rows on their OWN
+	// 邻近影响 channel — this twin carries the channel-2 ordinal #2.
+	rank.Rank = 2
 	rank.BackgroundRank = 2
 	rank.Tier = "deterministic_optimization"
 
@@ -476,12 +496,16 @@ func TestB9CustTraceVC710OffChainClassVerificationTwinSingleSeat(t *testing.T) {
 			break
 		}
 	}
-	if survivor.Node.Rank != 0 || survivor.Node.BackgroundRank != 2 {
-		t.Fatalf("the off-chain survivor must retain only its background-board identity: %+v", survivor.Node)
+	// EVOLUTION RECORD (UXR-1 §29.36.2, 2026-07-11): the adjacent survivor now
+	// ADOPTS the twin's 邻近影响 channel ordinal (#2) — its own channel's
+	// number, never an on-chain board seat (the chip printer words it per
+	// channel); the BackgroundRank mention-gate filter transfers unchanged.
+	if survivor.Node.Rank != 2 || survivor.Node.BackgroundRank != 2 {
+		t.Fatalf("the adjacent survivor must adopt the 邻近影响 channel ordinal: %+v", survivor.Node)
 	}
-	if len(survivor.RankFoldPeers) != 1 || survivor.RankFoldPeers[0].Rank != 0 ||
+	if len(survivor.RankFoldPeers) != 1 || survivor.RankFoldPeers[0].Rank != 2 ||
 		strings.TrimSpace(survivor.RankFoldPeers[0].EvidenceTag) == "" {
-		t.Fatalf("the folded rank record must remain an evidence carrier without an on-chain ordinal: %+v", survivor.RankFoldPeers)
+		t.Fatalf("the folded rank record must remain an evidence carrier on its own channel: %+v", survivor.RankFoldPeers)
 	}
 
 	detailRows := runtimeTraceProjDetailRows(model)
@@ -492,8 +516,13 @@ func TestB9CustTraceVC710OffChainClassVerificationTwinSingleSeat(t *testing.T) {
 	if strings.Contains(fence, "├─语义─") && strings.Contains(fence, "VerifyClass") {
 		t.Fatalf("off-chain VerifyClass must not render in the causal tree:\n%s", fence)
 	}
-	if !strings.Contains(fence, "邻近区段") || !strings.Contains(fence, "背景榜位#2") {
-		t.Fatalf("the single adjacent seat must keep its background-board identity:\n%s", fence)
+	// EVOLUTION RECORD (UXR-1 §29.36.2): the ◇ seat wears its own channel's
+	// chip 邻近影响#2 — the retired 背景榜位 word must not resurface.
+	if !strings.Contains(fence, "邻近区段") || !strings.Contains(fence, "邻近影响#2") {
+		t.Fatalf("the single adjacent seat must wear its 邻近影响 channel chip:\n%s", fence)
+	}
+	if strings.Contains(fence, "背景榜位") {
+		t.Fatalf("the 背景榜位 chip is retired (§29.36.2):\n%s", fence)
 	}
 	detail := runtimeTraceProjDetailFullText(model, true)
 	if !strings.Contains(detail, "rank行[") || !strings.Contains(detail, "已并入本行,数值不重复计入") {
@@ -544,7 +573,8 @@ func TestSemLeadPartialOverlapSingleSeatDualCaliber(t *testing.T) {
 	// Single seat: exactly one ✦ texture family row, no rank-lane twin row.
 	// Match the semantic edge, icon and localized family label independently:
 	// a ranked semantic seat legitimately inserts the ❶ chip between the edge
-	// and ✦ (`├─语义─ ❶✦`), so adjacency is not part of the invariant.
+	// and ✦ (`├─语义─ ❶ ✦`, UXG-0 D5 badge→glyph gap), so adjacency is not
+	// part of the invariant.
 	fenceRows := 0
 	for _, line := range strings.Split(md, "\n") {
 		if strings.Contains(line, "├─语义─") && strings.Contains(line, "✦") &&
@@ -794,8 +824,16 @@ func TestSemLeadNonChainSemanticFamilyStaysOnBackgroundBoard(t *testing.T) {
 		},
 	}
 	md := audit730Render(t, audit730Bus(""), obs, "")
-	if !strings.Contains(md, "背景榜位#1") {
-		t.Fatalf("the non-chain family keeps its background board seat:\n%s", md)
+	// EVOLUTION RECORD (UXR-1 §29.36.2, 2026-07-11): the 背景榜位#N chip is
+	// RETIRED — a ▒ background family renders NO seat chip at all (通道3
+	// 无序数; BackgroundRank stays the internal §23.1 mention-gate filter).
+	// The control's core (background stays off the board: no ❶, no 主根因)
+	// is asserted below unchanged.
+	if strings.Contains(md, "背景榜位#1") {
+		t.Fatalf("the retired 背景榜位 chip must not render (§29.36.2):\n%s", md)
+	}
+	if !strings.Contains(md, "shader_compile") {
+		t.Fatalf("the non-chain family row must still render:\n%s", md)
 	}
 	for _, line := range strings.Split(md, "\n") {
 		if strings.Contains(line, "shader_compile") && strings.Contains(line, "❶") {

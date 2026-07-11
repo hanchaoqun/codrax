@@ -393,9 +393,15 @@ func TestRuntimeTraceProjDedupFoldLabelDistinctFromSumAggregateLabel(t *testing.
 	// PTV4 T4 (×N 三式): the dedupe form is the bare ×N同值 data token — the
 	// "重复发布/数值不变" semantics live in the legend's 口径组 entry; the sum
 	// form is ×N(a–b). The two forms stay mutually exclusive.
+	// EVOLUTION RECORD (UXR-1 §29.36④, 2026-07-11): the dedupe chip RELOCATED
+	// onto the 词位 (name tail, 与明细表同形) — the tag stream carries it no
+	// longer (孤行灭).
+	if name := runtimeTraceProjRowName(model.Adjacent[0], true); !strings.Contains(name, "×2同值") {
+		t.Fatalf("dedupe row must carry the dedupe-exclusive label on its name: %q", name)
+	}
 	foldTags := joinTags(model.Adjacent[0], true)
-	if !strings.Contains(foldTags, "×2同值") {
-		t.Fatalf("dedupe row must carry the dedupe-exclusive label:\n%s", foldTags)
+	if strings.Contains(foldTags, "×2同值") {
+		t.Fatalf("the standalone ×N同值 tag is retired (§29.36④ 孤行灭):\n%s", foldTags)
 	}
 	if strings.Contains(foldTags, "×2(") {
 		t.Fatalf("dedupe row must not reuse the R2 sum form:\n%s", foldTags)
@@ -407,10 +413,12 @@ func TestRuntimeTraceProjDedupFoldLabelDistinctFromSumAggregateLabel(t *testing.
 	if strings.Contains(sumTags, "同值") {
 		t.Fatalf("upstream R2 aggregate must not claim the dedupe label:\n%s", sumTags)
 	}
-	// EN surfaces fork the same way.
-	enFold := joinTags(model.Adjacent[0], false)
-	if !strings.Contains(enFold, "×2 same-value") || strings.Contains(enFold, "×2(") {
-		t.Fatalf("EN dedupe label wrong:\n%s", enFold)
+	// EN surfaces fork the same way (chip on the name — §29.36④).
+	if enName := runtimeTraceProjRowName(model.Adjacent[0], false); !strings.Contains(enName, "×2 same-value") {
+		t.Fatalf("EN dedupe label wrong: %q", enName)
+	}
+	if enFold := joinTags(model.Adjacent[0], false); strings.Contains(enFold, "×2(") {
+		t.Fatalf("EN dedupe row must not reuse the R2 sum form:\n%s", enFold)
 	}
 	// Detail table mirrors the fork on the node cell (T10 (a): node cell 0).
 	_, rows := runtimeTraceProjDetailTable(model, true)

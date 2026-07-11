@@ -221,7 +221,9 @@ func TestRN13FlatAnchorMismatchHeaderAndNextStepZH(t *testing.T) {
 	// raw source token out of prose (audit faces keep it). Old note — that
 	// wording awaits a user re-ruling).
 	md := audit730Render(t, rncBusWithEntities("", "6565"), rncRunnableRecords(""), "")
-	if !strings.Contains(md, "(唤醒链路径未解析;以下各行按层级平铺)") {
+	// EVOLUTION RECORD (UXR-1 §29.36①): unified ⊘ banner; the 按层级平铺 note
+	// lives on the legend head clause only.
+	if !strings.Contains(md, "⊘ 唤醒链路径未解析") {
 		t.Fatalf("flat header must stay:\n%s", md)
 	}
 	// PTV8-RCR-B 收尾 (UXA 域D #23 漏网, 2026-07-08). EVOLUTION RECORD:

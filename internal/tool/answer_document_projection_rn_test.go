@@ -125,12 +125,15 @@ func TestRNUnconsumedPrimaryTierBackgroundRowDemotesPositionLabel(t *testing.T) 
 	// to 背景(参考) with the rank kept for audit.
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 因果位置·优先级 →
 	// 因果位置 merged cell, 背景 · 支撑参考(rank=1) → 背景(参考)(根因排序#1).
-	// The aggregate pressure row is context-only, so a stale ordinal remains
-	// a bare audit chip and never mints a TOP glyph.
-	// (根因族: (rank=N)→(根因排序#N) zh-only demoted cell); 平铺 row drops the
-	// 重点关注 priority half.
-	if !strings.Contains(full, "- 因果位置: 背景(参考)(根因排序#1)") {
-		t.Fatalf("unconsumed primary-tier background row must demote with its rank note:\n%s", full)
+	// EVOLUTION RECORD (UXR-1 §29.36.2, 2026-07-11): the "(根因排序#1)" audit
+	// parenthetical is RETIRED with the background ordinal channel — a ▒ row
+	// prints NO seat token on any face (通道3 无序数; the demotion label
+	// itself, the core of this pin, is unchanged).
+	if !strings.Contains(full, "- 因果位置: 背景(参考)") {
+		t.Fatalf("unconsumed primary-tier background row must demote:\n%s", full)
+	}
+	if strings.Contains(full, "根因排序#1") {
+		t.Fatalf("a ▒ background row must not print a seat token (§29.36.2 通道3):\n%s", full)
 	}
 	// The consumed flat row keeps the CMP-7a flat position (the conclusion
 	// note, not the position column, carries the fallback semantics).
@@ -145,8 +148,11 @@ func TestRNUnconsumedPrimaryTierBackgroundRowDemotesPositionLabel(t *testing.T) 
 	// EN mirror of the demoted cell (T10 (b) surface).
 	enModel := buildRuntimeTraceProjTreeModel(projection, nil, false)
 	enFull := runtimeTraceProjDetailFullText(enModel, false)
-	if !strings.Contains(enFull, "background (context) (root-cause rank #1)") {
+	if !strings.Contains(enFull, "background (context)") {
 		t.Fatalf("EN demoted cell missing:\n%s", enFull)
+	}
+	if strings.Contains(enFull, "root-cause rank #1") {
+		t.Fatalf("EN ▒ row must not print a seat token (§29.36.2):\n%s", enFull)
 	}
 	for _, banned := range []string{"primary focus", "primary (handle first)"} {
 		if strings.Contains(enFull, banned) {

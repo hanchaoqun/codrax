@@ -11208,6 +11208,10 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	// the absorbed observation remains lossless on res.AbsorbedItems.
 	res.Items = items
 	reconcileExactCrossTypeRankSeats(&res)
+	// UXR-1 §29.36③ (2026-07-11): the ◇ adjacent IO facet family folds into
+	// ONE interval-union seat (成员 absorbed 明细不占席) — after the exact B4
+	// recon, before sort/capacity/ordinals.
+	reconcileAdjacentIOFacetFamilySeats(&res)
 	items = res.Items
 	normalizeRootCauseCumulativeImpact(items)
 	normalizeRootCauseEffectiveImpact(items)
@@ -11567,6 +11571,9 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	// silently resurrect the absorbed cross-type seat, and the dedicated
 	// lossless carrier is rejoined to the same exact engine key.
 	reconcileExactCrossTypeRankSeats(&rank)
+	// UXR-1 §29.36③: idempotent adjacent IO facet family recomputation (the
+	// pass reset-first restores its own absorbed members before refolding).
+	reconcileAdjacentIOFacetFamilySeats(&rank)
 	normalizeRootCauseCumulativeImpact(rank.Items)
 	normalizeRootCauseEffectiveImpact(rank.Items)
 	sortRootCauseRankItems(rank.Items, hasCausalChain)
@@ -13974,13 +13981,48 @@ func stampRunnableSelfBelowRTPreempted(items []RootCauseRankItem, contexts []Run
 // Election slots (tier words), BackgroundRank counting and every
 // score/sort lane are UNTOUCHED — only the ordinal channel moved. The display
 // badge gate is Rank>0, so Rank=0 rows drop their badge by construction.
+//
+// EVOLUTION RECORD (UXR-1, §29.36.2/§29.36.3 user rulings 2026-07-11, ledger
+// real_trace_campaign_20260705.md — 3+1 通道终形): the former SINGLE rankPos
+// ordinal space over every competing row is SPLIT per chain-relevance channel.
+// Witness (real_trace_a5 4165): 根因排序#1/#2 landed on ▒ background rows
+// whose own caliber note says 不计入链上归因 — a same-page contradiction, and
+// the ▒ board mixes cross-thread cpu·ms aggregates with wall-clock rows (两把
+// 尺红线的序数版). Ordinals now allocate per channel, keyed on the SAME typed
+// chain-relevance single source the display stanzas read (chain_relevance /
+// causality wire notes — rootCauseOrdinalChannel; never a prose judgment):
+//   - channel 1 (链上 根因排序#N): on-chain rows only — the CLOSE-1 §29.30.1
+//     valid-seat population keeps consuming exactly this ordinal;
+//   - channel 2 (◇ 邻近影响#N): an INDEPENDENT ordinal space; ordering is the
+//     published-eff sort order restricted to the channel (§29.22.1 序数键==
+//     发布 eff preserved; adjacent rows are same-thread wall-clock caliber);
+//   - channel 3 (▒ 背景): NO ordinal — caliber-grouped display; the §23.1
+//     mention gate (BackgroundRank) stays an internal filter, never a chip;
+//   - channel 4 (提及义务, §29.36.3): not an ordinal channel — an on-chain
+//     semantic row either takes a channel-1 ordinal (TOP N) or renders via
+//     the ✦ mention-floor lane with no ordinal (no silent-disappearance path).
+//
+// The wire carries NO new key: (rank, chain_relevance) jointly denote
+// (channel, ordinal) — both already hard-consumer members of the causal_rank
+// note family; display chip words fork on the relevance (禁裸 #N).
 func assignRootCauseRanksAndTiers(items []RootCauseRankItem) {
 	electionPos := 0
 	backgroundPos := 0
 	rankPos := 0
+	adjacentPos := 0
 	takeOrdinal := func(i int) {
-		rankPos++
-		items[i].Rank = rankPos
+		switch rootCauseOrdinalChannel(items[i]) {
+		case rootCauseOrdinalChannelChain:
+			rankPos++
+			items[i].Rank = rankPos
+		case rootCauseOrdinalChannelAdjacent:
+			adjacentPos++
+			items[i].Rank = adjacentPos
+		default:
+			// §29.36.2 channel 3: background rows publish NO ordinal — the
+			// row stays visible with its tier/eff, but never wears a seat
+			// number (口径混杂板不发序数; election slots untouched).
+		}
 	}
 	for i := range items {
 		items[i].Rank = 0
@@ -14089,6 +14131,46 @@ func rootCauseItemIsOnChain(item RootCauseRankItem) bool {
 		return true
 	}
 	return strings.TrimSpace(item.Causality) == "on_wakeup_chain"
+}
+
+// rootCauseOrdinalChannel values (UXR-1, §29.36.2 三通道裁定 2026-07-11).
+// Closed set — the ordinal allocator switches on it and the display chip
+// word forks on the SAME chain-relevance signal (single source, three faces:
+// glyph lane / stanza membership / ordinal channel).
+const (
+	rootCauseOrdinalChannelChain      = "chain"      // 通道1 根因排序#N
+	rootCauseOrdinalChannelAdjacent   = "adjacent"   // 通道2 邻近影响#N
+	rootCauseOrdinalChannelBackground = "background" // 通道3 无序数
+)
+
+// rootCauseOrdinalChannel resolves a rank row's ordinal-allocation channel
+// from the typed chain-relevance single source (ChainRelevance field, with
+// the same causality fallback the sort lane uses — never a prose judgment).
+//
+// EMPTY relevance stays on the chain channel (fail-open): a chainless trace
+// never runs normalizeRootCauseChainRelevance, so its whole board carries no
+// relevance and remains ONE caliber-uniform ordinal space rendered in the
+// display's chain universe (flat fallback) — robbing it of ordinals would be
+// a §29.36.2 over-reach (the ruling splits the ◇/▒ stanza channels, which
+// only exist as EXPLICIT typed relevance). With a causal chain present the
+// normalize pass stamps every row before sorting, so background rows always
+// reach this switch with their explicit token.
+func rootCauseOrdinalChannel(item RootCauseRankItem) string {
+	if rootCauseItemIsOnChain(item) {
+		return rootCauseOrdinalChannelChain
+	}
+	relevance := strings.TrimSpace(item.ChainRelevance)
+	if relevance == "" {
+		relevance = chainRelevanceFromCausality(item.Causality)
+	}
+	switch relevance {
+	case "adjacent":
+		return rootCauseOrdinalChannelAdjacent
+	case "background":
+		return rootCauseOrdinalChannelBackground
+	default:
+		return rootCauseOrdinalChannelChain
+	}
 }
 
 func rootCauseItemHasDStateOrIO(item RootCauseRankItem) bool {
@@ -18506,7 +18588,13 @@ func evidenceFromRootCauseRank(rank RootCauseRankResult) []EvidenceFact {
 		// G9 (2026-07-09, 复核 P1-2 narrowed): demoted rows (target_self_state
 		// / data_gap) carry no board ordinal — the evidence face says so
 		// instead of fabricating a "#0" seat.
+		// UXR-1 (§29.36.2): the ordinal is channel-scoped — an adjacent row's
+		// seat is the 邻近影响 channel's #N, never the root-cause board's; the
+		// evidence face names the channel so two channels' #1 cannot collide.
 		position := fmt.Sprintf("%s cause #%d", item.Tier, item.Rank)
+		if item.Rank > 0 && rootCauseOrdinalChannel(item) == rootCauseOrdinalChannelAdjacent {
+			position = fmt.Sprintf("%s adjacent-impact #%d", item.Tier, item.Rank)
+		}
 		if item.Rank <= 0 {
 			position = fmt.Sprintf("%s row (no rank seat)", item.Tier)
 		}

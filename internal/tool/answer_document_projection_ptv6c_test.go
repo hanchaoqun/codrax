@@ -171,13 +171,23 @@ func TestPTV6CTypeTokenStateFamilyMapping(t *testing.T) {
 }
 
 func TestPTV6CTypeTokenStateFamilyIconAndShape(t *testing.T) {
+	// EVOLUTION RECORD (UXR-1 §29.36②, 2026-07-11): a ▒-kind D-state/IO row
+	// wears the off-chain family glyph ⧗ (⛓ claims chain membership and stays
+	// chain-channel-only); the CHAIN-kind form keeps ⛓ — both asserted.
 	node := types.TraceCausalProjectionNode{Subject: "t-1", Object: "unknown-thread", TypeToken: "d_state_or_io_wait"}
 	marks := &runtimeTraceProjMarkSet{}
-	if icon := runtimeTraceProjStateIcon(node, runtimeTraceProjTreeRowBackground, true, marks); icon != "⛓" {
-		t.Fatalf("d_state_or_io_wait row icon = %q, want ⛓", icon)
+	if icon := runtimeTraceProjStateIcon(node, runtimeTraceProjTreeRowBackground, true, marks); icon != "⧗" {
+		t.Fatalf("▒ d_state_or_io_wait row icon = %q, want ⧗ (§29.36② 三面同一来源)", icon)
 	}
-	if !marks.has(runtimeTraceProjMarkIconDState) || marks.has(runtimeTraceProjMarkIconNoDominant) {
-		t.Fatalf("icon mark must be the state family, never the ◦ no-dominant sense")
+	if !marks.has(runtimeTraceProjMarkIconDStateOffChain) || marks.has(runtimeTraceProjMarkIconNoDominant) {
+		t.Fatalf("icon mark must be the off-chain D/IO family, never the ◦ no-dominant sense")
+	}
+	chainMarks := &runtimeTraceProjMarkSet{}
+	if icon := runtimeTraceProjStateIcon(node, runtimeTraceProjTreeRowChain, true, chainMarks); icon != "⛓" {
+		t.Fatalf("chain-kind d_state_or_io_wait row icon = %q, want ⛓", icon)
+	}
+	if !chainMarks.has(runtimeTraceProjMarkIconDState) {
+		t.Fatalf("chain-kind icon mark must be the ⛓ state family")
 	}
 	if got := runtimeTraceCausalProjectionImpactShapeCell(node, true); got != "D-state/iowait" {
 		t.Fatalf("shape cell must speak the state family word: %q", got)
@@ -809,8 +819,12 @@ func TestPTV6CSpecimen1KeyRowsAfter(t *testing.T) {
 	// report) — the typed dedupe folds the same-family state tag and the
 	// shorter words promote 链上L1/×2同值 onto the main row; 有效归因 keeps
 	// its subordinate stream slot. 调度等待 双打消失 (b3/PTV7 负向臂 below).
-	if !strings.Contains(fence, "CookieMonsterCl-59843 · runnable ") {
-		t.Fatalf("trunk row must carry the whole canonical cause word on the name cell:\n%s", fence)
+	// EVOLUTION RECORD (UXR-1 §29.36④, 2026-07-11): the ×2同值 chip now rides
+	// the 词位 (name tail, reserved out of the name budget — the subject head
+	// mid-truncates instead, pid tail kept; the detail table keeps the full
+	// name). The cause word stays whole beside the chip.
+	if !strings.Contains(fence, "-59843 · runnable ×2同值") {
+		t.Fatalf("trunk row must carry the whole canonical cause word + ×N同值 chip on the name cell:\n%s", fence)
 	}
 	if strings.Contains(fence, "调度等待") || strings.Contains(fence, "可运行等待") {
 		t.Fatalf("retired zh state/action word resurfaced on the trunk:\n%s", fence)
@@ -823,10 +837,15 @@ func TestPTV6CSpecimen1KeyRowsAfter(t *testing.T) {
 	// the Seg-20 chip. SYM-2 EVOLUTION RECORD (§24.17 R2, 2026-07-08): the
 	// runnable family word 就绪排队候选 → 调度压力候选 (§7.4 demand-side
 	// vocabulary, user ruling verbatim).
+	// EVOLUTION RECORD (UXR-1 §29.36④): the packed 「· ×2同值」 line is
+	// RETIRED — the chip rides the 行1 词位 (asserted above); the identity
+	// line keeps its geometry.
 	if !strings.Contains(fence, "[E1(+1)]") ||
-		!strings.Contains(fence, "调度压力候选·根因排序#1·置信高·链上L1·有效归因 1.661ms(全额)") ||
-		!strings.Contains(fence, "· ×2同值") {
+		!strings.Contains(fence, "调度压力候选·根因排序#1·置信高·链上L1·有效归因 1.661ms(全额)") {
 		t.Fatalf("trunk rows must keep the RCR four-line geometry:\n%s", fence)
+	}
+	if strings.Contains(fence, "· ×2同值") {
+		t.Fatalf("the lone ×2同值 line must not resurface (§29.36④ 孤行灭):\n%s", fence)
 	}
 	// PTV6-D (b): the category words left the row face (legend carries them);
 	// every non-category tag above is still present — 打包非折叠.
@@ -850,7 +869,8 @@ func TestPTV6CSpecimen1KeyRowsAfter(t *testing.T) {
 	}
 	// 关键行三 (▒ 背景): resolved peer 关系形态 + d_state_or_io_wait 状态族
 	// (前: "· udk-irq…-63" 裸词位 + ◦ 无主导态 chip on D状态/IO等待 rows).
-	for _, want := range []string{"IO等待(对端 udk-irq-1-63)", "D-state/iowait(对端未解析)", "⛓ BdAsyncTask #8-59953"} {
+	// UXR-1 §29.36②: ▒ rows wear ⧗ (off-chain D/IO family glyph).
+	for _, want := range []string{"IO等待(对端 udk-irq-1-63)", "D-state/iowait(对端未解析)", "⧗ BdAsyncTask #8-59953"} {
 		if !strings.Contains(fence, want) {
 			t.Fatalf("background stanza missing %q:\n%s", want, fence)
 		}

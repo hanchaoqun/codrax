@@ -139,9 +139,15 @@ func TestRCM2SemanticFamilyFourLineForm(t *testing.T) {
 	if !model.Marks.has(runtimeTraceProjMarkSemanticSourceWindowShare) {
 		t.Fatalf("the source-window share lane must engage (E5 车道)")
 	}
-	// 行2: 身份行 with the background board seat (§24.10 非链背景综合排序道).
-	if !strings.Contains(fence, "语义优化候选·背景榜位#1·置信中") {
-		t.Fatalf("行2 must carry 类别·背景榜位#N·置信:\n%s", fence)
+	// 行2: 身份行 on the ▒ background channel.
+	// EVOLUTION RECORD (UXR-1 §29.36.2, 2026-07-11): the 背景榜位#N chip is
+	// RETIRED — a background family's 行2 speaks 类别·置信 only (通道3 无序数;
+	// BackgroundRank stays the internal §23.1 mention-gate filter).
+	if !strings.Contains(fence, "语义优化候选·置信中") {
+		t.Fatalf("行2 must carry 类别·置信:\n%s", fence)
+	}
+	if strings.Contains(fence, "背景榜位") {
+		t.Fatalf("the retired 背景榜位 chip must not render (§29.36.2):\n%s", fence)
 	}
 	// 行3: the fifth caliber word with the identity V == 发布值.
 	if !strings.Contains(fence, "有效归因 7.124ms = 合计(共14段,同线程)") {
@@ -801,14 +807,21 @@ func TestRCM2BackgroundSeatMintableEndToEnd(t *testing.T) {
 	if node.BackgroundRank != 1 || node.FamilyMemberCount != 2 {
 		t.Fatalf("the typed seat/count must survive the compile: %+v", node)
 	}
-	// Render the production-minted node on the witness tree shell: the 行2
-	// seat and the 行3 family caliber are now end-to-end mintable.
+	// Render the production-minted node on the witness tree shell: the 行3
+	// family caliber is end-to-end mintable; the typed BackgroundRank stays a
+	// parse-through INTERNAL filter.
+	// EVOLUTION RECORD (UXR-1 §29.36.2, 2026-07-11): the 「背景榜位#1」 行2
+	// chip is RETIRED (通道3 无序数) — the F-4 mint-path substance (note emit →
+	// registered parse → typed node field) is asserted above unchanged.
 	projection := rcm2CmpSemanticFamilyProjection()
 	projection.SemanticSpans = []types.TraceCausalProjectionNode{node}
 	_, fence := rcm2RenderFence(t, projection, true)
-	for _, want := range []string{"背景榜位#1", "= 合计(共2段,同线程)", "×2"} {
+	for _, want := range []string{"= 合计(共2段,同线程)", "×2"} {
 		if !strings.Contains(fence, want) {
 			t.Fatalf("the production-minted family must render %q:\n%s", want, fence)
 		}
+	}
+	if strings.Contains(fence, "背景榜位") {
+		t.Fatalf("the retired 背景榜位 chip must not render (§29.36.2):\n%s", fence)
 	}
 }

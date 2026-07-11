@@ -540,7 +540,9 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// PTV6 #1b: the depthless on-chain lane's dedicated edge word (the mark
 		// records only when the edge label actually renders — fold rows and
 		// flat renders suppress the word and record nothing).
-		runtimeTraceProjMarkEdgeChainUnresolved: {"链上·深度未解析─", "on-chain·depth-unresolved─"},
+		// UXR-1 §29.36④: the edge simplified to 链上─; the probe follows the
+		// relocated 行2 word (unique to the depth-unresolved shape).
+		runtimeTraceProjMarkEdgeChainUnresolved: {"链上·深度未解析", "on-chain · depth unresolved"},
 		runtimeTraceProjMarkSemanticSpan:        {"✦", "✦"},
 		runtimeTraceProjMarkIconSleep:           {"☾", "☾"},
 		runtimeTraceProjMarkIconRunnable:        {"⧖", "⧖"},
@@ -610,6 +612,11 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// §29.27② (COV-4): the four-state account renders in the LEAD, not the
 		// fence — no fence probe; direction A (mark ⇔ legend entry) asserts.
 		runtimeTraceProjMarkFourStateAccount: {"", ""},
+		// UXR-1 §29.36.3 (通道4 提及义务): the mention-obligation word head is
+		// unique to the ✦ obligation seat.
+		runtimeTraceProjMarkSemanticMentionFloor: {"优化点·未入根因排序", "optimization point · "},
+		// UXR-1 §29.36②: the off-chain D-state/IO glyph (glyph IS the probe).
+		runtimeTraceProjMarkIconDStateOffChain: {"⧗", "⧗"},
 		// PTV5 PTS: the on-chain overflow fold row's lane word.
 		runtimeTraceProjMarkOnChainOverflowFold: {"链上折叠", "on-chain fold"},
 		// PTV6-C ruling A (#73): the ◇/▒ cross-thread cumulative family word.
@@ -1099,6 +1106,18 @@ func revisit76AssertLegendBidirectional(t *testing.T, name string, projection ty
 				}
 			}
 		}
+		if entry.Mark == runtimeTraceProjMarkCauseIdentityRow {
+			// UXR-1 (§29.36.2): the identity-line seat chip is a CHANNEL
+			// family (根因排序#/邻近影响#) — the fence may emit either member,
+			// and an unseated identity line ends on its 置信 tier instead.
+			second := "邻近影响#"
+			tier := "·置信"
+			if !zh {
+				second = "adjacent-impact #"
+				tier = "confidence "
+			}
+			emitted = emitted || strings.Contains(fence, second) || strings.Contains(fence, tier)
+		}
 		if emitted != rendered {
 			t.Fatalf("%s: bidirectional violation for mark %d (probe %q): fence emits=%v, legend explains=%v\nfence:\n%s\nlead:\n%s",
 				name, entry.Mark, probe, emitted, rendered, fence, lead)
@@ -1210,6 +1229,9 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// 全窗四态 legend entry on the balanced running-dominant shape
 		// (fixture home: answer_document_projection_cov4_test.go).
 		{"cov4_four_state_account", cov4RunningDominantProjection()},
+		// UXR-1 §29.36.3 (通道4 提及义务): an on-chain semantic row without a
+		// channel-1 seat wears the mention-obligation word + legend entry.
+		{"uxr1_mention_floor", revisit76UXR1MentionFloorProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {
@@ -1310,5 +1332,44 @@ func TestPrincipalEnumerationHeaderForksOnChainDescriptionRows(t *testing.T) {
 	}
 	if got := principalEnumerationPrimaryColumnLabel(false, symbolRows); got != "Name" {
 		t.Fatalf("en symbol header mismatch: %q", got)
+	}
+}
+
+// revisit76UXR1MentionFloorProjection (UXR-1 §29.36.3, 2026-07-11): a chain
+// board (rank #1 runnable) plus an ON-CHAIN semantic span WITHOUT a seat —
+// the channel-4 mention-obligation shape (✦ row + 优化点·未入根因排序前N).
+func revisit76UXR1MentionFloorProjection() types.TraceCausalProjection {
+	return types.TraceCausalProjection{
+		WakeupPath:    []string{"worker-9", "app-100"},
+		WindowStartTs: 100.0,
+		WindowEndTs:   100.2,
+		OnChainCauses: []types.TraceCausalProjectionNode{{
+			Role: types.TraceCausalRolePrimaryRootCause, EvidenceID: "uxr1-rank",
+			Subject: "worker-9", Object: "runnable_wait", TypeToken: "runnable_wait",
+			StateKind: "runnable", Predicate: "root_cause_primary",
+			Rank: 1, Tier: "primary", ChainRelevance: "on_chain",
+			Causality: "on_wakeup_chain", ChainDepth: 1,
+			ImpactMS: 12.0, CumulativeImpactMS: 12.0, EffectiveImpactMS: 12.0,
+			LineStart: 10, LineEnd: 20, Confidence: 0.8,
+		}},
+		SemanticSpans: []types.TraceCausalProjectionNode{{
+			Role: types.TraceCausalRoleSemanticSpan, EvidenceID: "uxr1-sem",
+			Subject: "worker-9", Predicate: "trace_semantic_span",
+			Object: "class_verification", SpanName: "VerifyClass demo.App",
+			SemanticClass: "class_verification", ChainRelevance: "on_chain",
+			Causality: "on_wakeup_chain",
+			ImpactMS:  2.4, CumulativeImpactMS: 2.4, EffectiveImpactMS: 2.4,
+			LineStart: 30, LineEnd: 40, Confidence: 0.7,
+		}},
+		// §29.36② glyph fork: a ▒ D-state row wears ⧗ (off-chain family).
+		BackgroundCauses: []types.TraceCausalProjectionNode{{
+			Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "uxr1-bg",
+			Subject: "io-daemon-77", Object: "d_state_or_io_wait",
+			TypeToken: "d_state_or_io_wait", StateKind: "d_sleep",
+			Predicate: "root_cause_context", ChainRelevance: "background",
+			Causality: "background",
+			ImpactMS:  5.0, CumulativeImpactMS: 5.0, EffectiveImpactMS: 5.0,
+			LineStart: 50, LineEnd: 60, Confidence: 0.6,
+		}},
 	}
 }

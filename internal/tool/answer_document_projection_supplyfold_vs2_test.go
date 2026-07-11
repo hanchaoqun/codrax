@@ -171,8 +171,9 @@ func TestSupplyFoldClauseNoDeficitAffirmativeZH(t *testing.T) {
 		"runnable=150.000")
 	md := supplyFoldVS2Render(t, records, "")
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: "已满频满核(或近满),
-	// running 属真实工作量" → "已按大核满频(或接近)运行,无供给缺口,running 为真实工作量" (供给折算族).
-	if !strings.Contains(rn1CollapseContinuations(md), "已按大核满频(或接近)运行,无供给缺口,running 为真实工作量") {
+	// running 属真实工作量" → "已按大核满频(或接近)运行·无供给折算" (供给折算族;
+	// EVOLUTION RECORD UXR-1 §29.36.4 ① 推论链压缩).
+	if !strings.Contains(rn1CollapseContinuations(md), "已按大核满频(或接近)运行·无供给折算") {
 		t.Fatalf("affirmative no-deficit annotation missing:\n%s", md)
 	}
 }

@@ -20,6 +20,15 @@ import (
 // per-occurrence sleep/runnable milliseconds. TargetBlockedMs defaults to the
 // occurrence's own total (the target waited exactly as long as the waker's
 // segment) — tests exercising the blocked-caliber lateness override it.
+//
+// 复核 P1-2 (UXR-1 对抗复核, 2026-07-11): the engine mints CausalImpacts and
+// Nodes IN PAIRS (query.go expandChain — every published impact rides a same
+// -thread same-window ChainNode), and the rank-enrich relevance pass
+// (enrichRootCauseItemsWithChainContext → chainContextForCandidate) stamps
+// on_chain exactly off that node presence. The original hand-built form
+// carried NO Nodes, so every rank row derived from this chain fell to
+// BACKGROUND relevance — a fixture artifact unreachable in production. The
+// paired nodes below are the engine-actual form.
 func buildPeriodicVSyncChain(intervalsMs, sleepMs, runnableMs []float64) ChainResult {
 	base := 4520.100000
 	start := base
@@ -44,6 +53,14 @@ func buildPeriodicVSyncChain(intervalsMs, sleepMs, runnableMs []float64) ChainRe
 			ActualWindow:     TimeWindow{StartTs: start, EndTs: end},
 			LineStart:        100 + i*10,
 			LineEnd:          105 + i*10,
+		})
+		chain.Nodes = append(chain.Nodes, ChainNode{
+			ID:         fmt.Sprintf("vsync-%d", i),
+			Thread:     ThreadRef{PID: 610, Comm: "VSyncGenerator"},
+			Window:     TimeWindow{StartTs: start, EndTs: end},
+			Dominant:   StateSSleep,
+			DurationMs: sleepMs[i],
+			Depth:      1,
 		})
 	}
 	return chain

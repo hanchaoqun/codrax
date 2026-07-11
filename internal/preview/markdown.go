@@ -186,6 +186,20 @@ func isTraceCausalProjectionFence(info, body string) bool {
 		return true
 	}
 	for _, prefix := range []string{
+		// UXG-0 D1 (2026-07-11): the UXR-1 §29.36① unified flat banner heads
+		// 「⊘ <短结论>(<短因>)」 — hand-mirrored from the closed constant set in
+		// runtimeTraceProjFlatFallbackHeader (internal/tool/
+		// answer_document_mutation_runtime_tree.go); prefixes stop before the
+		// 短因 parenthetical body so cause-wording evolution cannot silently
+		// unclassify the fence. UXG-1 will single-source this phrase set.
+		"⊘ 唤醒链无法上溯(",
+		"⊘ 唤醒链未下钻(",
+		"⊘ 唤醒链路径未解析",
+		"⊘ wakeup chain not traceable (",
+		"⊘ wakeup chain not drilled (",
+		"⊘ wakeup path unresolved",
+		// Pre-UXR-1 flat heads, kept ADDITIVELY so archived reports rendered
+		// before 2026-07-11 keep their trace-tree presentation.
 		"(睡眠区间在查询窗内无 sched_wakeup 记录",
 		"(本报告未做唤醒链下钻",
 		"(唤醒链路径未解析",
@@ -207,16 +221,23 @@ func isTraceCausalProjectionFence(info, body string) bool {
 // is unchanged and remains copyable/accessibility-visible.
 func writeTraceProjectionGrid(w util.BufWriter, body string) {
 	for offset := 0; offset < len(body); {
-		if token, rank, width, ok := traceProjectionRankToken(body, offset); ok {
+		if token, rank, width, adjacent, ok := traceProjectionRankToken(body, offset); ok {
 			kind := "ordinal"
 			if strings.HasPrefix(token, "❶") || strings.HasPrefix(token, "❷") || strings.HasPrefix(token, "❸") ||
 				strings.HasPrefix(token, "❹") || strings.HasPrefix(token, "❺") {
 				kind = "chip"
 			}
-			if kind == "chip" {
+			switch {
+			case kind == "chip":
 				_, _ = fmt.Fprintf(w, `<span class="trace-rank-%s trace-rank-%d trace-rank-width-%d"><span class="trace-rank-glyph">%s</span></span>`,
 					kind, rank, width, stdhtml.EscapeString(token))
-			} else {
+			case adjacent:
+				// UXG-0 D2: ◇ channel ordinal — shared chip geometry, neutral
+				// channel color class instead of a per-rank root-cause color
+				// (§29.36.2: ordinals never compare across channels).
+				_, _ = fmt.Fprintf(w, `<span class="trace-rank-%s trace-rank-adjacent trace-rank-width-%d">%s</span>`,
+					kind, width, stdhtml.EscapeString(token))
+			default:
 				_, _ = fmt.Fprintf(w, `<span class="trace-rank-%s trace-rank-%d trace-rank-width-%d">%s</span>`,
 					kind, rank, width, stdhtml.EscapeString(token))
 			}
@@ -273,8 +294,17 @@ func traceProjectionIconClass(r rune) string {
 		return "running"
 	case '⛓':
 		return "io"
+	case '⧗':
+		// UXR-1 §29.36② (2026-07-11): the off-chain (◇/▒) D-state/IO family
+		// glyph — same optical family as ⛓.
+		return "io"
 	case '⊗':
 		return "lock"
+	case '⊘':
+		// UXG-0 D3 (2026-07-11): the 链止/undrillable mark — flat-fallback
+		// banner head (UXR-1 §29.36①) and the ⊘链止 keep-mark. Same U+2298
+		// circled family and one-cell optical box as ⊚/⊗.
+		return "undrillable"
 	case '⇅':
 		return "inversion"
 	case '✦':
@@ -288,6 +318,14 @@ func traceProjectionIconClass(r rune) string {
 	default:
 		return ""
 	}
+	// UXG-0 D3 rulings (2026-07-11) — glyphs deliberately NOT in the box this
+	// batch (revisit in UXG-1):
+	//   ⚠ — rides INSIDE composed word tokens (⚠实际Xms, ⚠ caveats); boxing it
+	//       would split a word into cell fragments mid-token.
+	//   ◇ — line-head stanza FIELD mark (◇ 邻近区段 header + legend), not a
+	//       one-cell state icon slot.
+	//   ▒ — line-head stanza field mark AND the background bar-fill character
+	//       (▒▒▒░░… runs); boxing would restyle bar ink.
 }
 
 // traceProjectionActionToken highlights only the generator's actionable
@@ -307,19 +345,34 @@ func traceProjectionActionToken(body string, offset int) (string, int, bool) {
 // A circled badge remains one fixed grid cell and clips its own fallback glyph,
 // preventing it from overprinting the adjacent state icon without consuming
 // label space. The ordinal arm highlights only
-// #1..#5 immediately following the closed zh/en root-cause-rank phrases;
+// #1..#5 immediately following the closed zh/en channel-worded seat phrases;
 // arbitrary names and evidence ids are never restyled. §29.27.1: the badge
 // family is ❶..❺ (TOP-5, badge follows the seat).
-func traceProjectionRankToken(body string, offset int) (string, int, int, bool) {
+//
+// UXG-0 D2 (2026-07-11): the §29.36.2 ◇ channel ordinal (邻近影响#N /
+// adjacent-impact #N) is recognized as its own arm — adjacent=true — so the
+// chip keeps the shared ordinal geometry but wears the NEUTRAL channel color
+// (user ruling: 同样式、中性色区分通道) instead of a root-cause rank color.
+// The channel phrases are hand-mirrored from runtimeTraceProjSeatChannelWord
+// (internal/tool/answer_document_mutation_runtime_rcr.go — THE single
+// channel-word source; zh chips are word#N, en chips word␣#N). This is the
+// phrase set's third hand copy and the last one allowed: UXG-1 single-sources
+// it.
+func traceProjectionRankToken(body string, offset int) (token string, rank, width int, adjacent, ok bool) {
 	rest := body[offset:]
 	for rank, token := range []string{"❶", "❷", "❸", "❹", "❺"} {
 		if strings.HasPrefix(rest, token) {
-			return token, rank + 1, 1, true
+			return token, rank + 1, 1, false, true
 		}
 	}
 	previous := body[:offset]
-	if !strings.HasSuffix(previous, "根因排序") && !strings.HasSuffix(previous, "root-cause rank ") {
-		return "", 0, 0, false
+	switch {
+	case strings.HasSuffix(previous, "根因排序") || strings.HasSuffix(previous, "root-cause rank "):
+		adjacent = false
+	case strings.HasSuffix(previous, "邻近影响") || strings.HasSuffix(previous, "adjacent-impact "):
+		adjacent = true
+	default:
+		return "", 0, 0, false, false
 	}
 	for rank := 1; rank <= 5; rank++ {
 		token := fmt.Sprintf("#%d", rank)
@@ -329,9 +382,9 @@ func traceProjectionRankToken(body string, offset int) (string, int, int, bool) 
 		if len(rest) > len(token) && rest[len(token)] >= '0' && rest[len(token)] <= '9' {
 			continue
 		}
-		return token, rank, 2, true
+		return token, rank, 2, adjacent, true
 	}
-	return "", 0, 0, false
+	return "", 0, 0, false, false
 }
 
 // rawHTMLLiteralRenderer renders raw-HTML markdown nodes as ESCAPED

@@ -163,8 +163,10 @@ func TestRCRCNoDeficitTwoForms(t *testing.T) {
 	zero.SupplyFoldIdealMS = 2.641
 	zero.EffectiveImpactMS = 0
 	clause, _, ok := runtimeTraceProjSupplyFoldClause(zero, 120, true)
-	if !ok || clause != "已按大核满频(或接近)运行,无供给缺口,running 为真实工作量" {
-		t.Fatalf("deficit==0 must keep the affirmative sentence byte-identically: %q", clause)
+	// EVOLUTION RECORD (UXR-1 §29.36.4 ①): the affirmative implication chain
+	// compressed to 证据+末端结论 (the legend carries the expanded semantics).
+	if !ok || clause != "已按大核满频(或接近)运行·无供给折算" {
+		t.Fatalf("deficit==0 must keep the compressed affirmative form: %q", clause)
 	}
 	// 0 < deficit < 阈 with eff==deficit (§20.2): the counted fork.
 	counted := rcrcRunningDeficitProjection(0).OnChainCauses[0]
@@ -403,8 +405,14 @@ func TestRCRCDepthlessUnattachedThreeFacesOneWord(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(rcrcMultiBoardUnattachedProjection(), newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
 	// Edge face.
-	if !strings.Contains(fence, "链上·未接入树─") {
-		t.Fatalf("the unattached edge word must render:\n%s", fence)
+	// EVOLUTION RECORD (UXR-1 §29.36④, 2026-07-11): the lane prefix
+	// simplified to 链上─ — the 未接入树 auxiliary word lives on the 行2 chip
+	// + detail faces only (the C6 word family keeps two faces).
+	if !strings.Contains(fence, "链上─") {
+		t.Fatalf("the simplified on-chain edge must render:\n%s", fence)
+	}
+	if strings.Contains(fence, "链上·未接入树─") {
+		t.Fatalf("the unattached auxiliary word must leave the lane prefix (§29.36④):\n%s", fence)
 	}
 	// Chip face (行2 of the structured cause row).
 	if !strings.Contains(fence, "链上L2(未接入树)") {
@@ -418,7 +426,7 @@ func TestRCRCDepthlessUnattachedThreeFacesOneWord(t *testing.T) {
 		}
 	}
 	// The depth-KNOWN row never claims 深度未解析 / 未接入链 anywhere.
-	for _, banned := range []string{"深度未解析", "未接入链", "深度2"} {
+	for _, banned := range []string{"链上·深度未解析", "未接入链", "深度2"} {
 		if strings.Contains(fence, banned) || strings.Contains(detail, banned) {
 			t.Fatalf("forked caliber %q resurfaced:\n%s\n%s", banned, fence, detail)
 		}
@@ -430,8 +438,9 @@ func TestRCRCDepthlessUnattachedThreeFacesOneWord(t *testing.T) {
 	zeroDepth.OnChainCauses[1].Predicate = "wakeup_causal_impact"
 	zeroModel := buildRuntimeTraceProjTreeModel(zeroDepth, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	zeroFence := runtimeTraceProjTreeFence(zeroModel, true)
-	if !strings.Contains(zeroFence, "链上·深度未解析─") {
-		t.Fatalf("the depth-0 form must keep 深度未解析:\n%s", zeroFence)
+	// UXR-1 §29.36④: the depth-0 form keeps the 深度未解析 word on 行2.
+	if !strings.Contains(zeroFence, "链上·深度未解析") {
+		t.Fatalf("the depth-0 form must keep 深度未解析 on 行2:\n%s", zeroFence)
 	}
 	if strings.Contains(zeroFence, "未接入树") {
 		t.Fatalf("the depth-0 form must not claim the unattached word:\n%s", zeroFence)

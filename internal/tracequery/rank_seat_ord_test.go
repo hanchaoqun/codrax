@@ -76,25 +76,40 @@ import (
 // assertRankOrdinalsContiguous pins the acceptance criterion (验收判据 2,
 // docs/design/revisit_acceptance_pack_20260709.md): over the published items,
 // the Rank>0 ordinals are exactly 1..K with no holes and no duplicates.
+//
+// EVOLUTION RECORD (UXR-1, §29.36.2 三通道裁定 2026-07-11): contiguity is now
+// PER ORDINAL CHANNEL — the on-chain 根因排序 space and the adjacent 邻近影响
+// space each run 1..K with no holes/duplicates, and background rows carry NO
+// ordinal at all (通道3 无序数). The former single-space form of this helper
+// would read two channels' #1 as a duplicate.
 func assertRankOrdinalsContiguous(t *testing.T, items []RootCauseRankItem) {
 	t.Helper()
-	seen := map[int]bool{}
-	max := 0
+	seen := map[string]map[int]bool{}
+	max := map[string]int{}
 	for _, item := range items {
 		if item.Rank <= 0 {
 			continue
 		}
-		if seen[item.Rank] {
-			t.Fatalf("duplicate rank ordinal #%d: %+v", item.Rank, items)
+		channel := rootCauseOrdinalChannel(item)
+		if channel == rootCauseOrdinalChannelBackground {
+			t.Fatalf("background row carries an ordinal #%d (§29.36.2 通道3 无序数): %+v", item.Rank, item)
 		}
-		seen[item.Rank] = true
-		if item.Rank > max {
-			max = item.Rank
+		if seen[channel] == nil {
+			seen[channel] = map[int]bool{}
+		}
+		if seen[channel][item.Rank] {
+			t.Fatalf("duplicate %s ordinal #%d: %+v", channel, item.Rank, items)
+		}
+		seen[channel][item.Rank] = true
+		if item.Rank > max[channel] {
+			max[channel] = item.Rank
 		}
 	}
-	for i := 1; i <= max; i++ {
-		if !seen[i] {
-			t.Fatalf("rank ordinal hole at #%d (max #%d): %+v", i, max, items)
+	for channel, channelMax := range max {
+		for i := 1; i <= channelMax; i++ {
+			if !seen[channel][i] {
+				t.Fatalf("%s ordinal hole at #%d (max #%d): %+v", channel, i, channelMax, items)
+			}
 		}
 	}
 }
@@ -164,8 +179,17 @@ func TestRunnablePerCPUFamilySingleSeatORD(t *testing.T) {
 	if !strings.Contains(roster, "cpu=2") || !strings.Contains(roster, "cpu=3") {
 		t.Fatalf("family roster must keep the cpu distinguishing keys, got %q", roster)
 	}
-	if row.Rank <= 0 {
-		t.Fatalf("the family contender must hold a board seat, got %+v", row)
+	// EVOLUTION RECORD (UXR-1, §29.36.2 三通道裁定 2026-07-11): this fixture's
+	// family row is chain-relevance BACKGROUND (comp-300 never overlaps the
+	// app-100 chain), so the former "must hold a board seat" assertion evolves
+	// — background rows publish NO ordinal (通道3 无序数). The fold intent this
+	// pin exists for (one thread = ONE contender, never a per-CPU vote split)
+	// is asserted above; the contender still competes as one row with its Σ.
+	if row.Rank != 0 {
+		t.Fatalf("background family row must carry no ordinal (§29.36.2 通道3), got %+v", row)
+	}
+	if rootCauseOrdinalChannel(row) != rootCauseOrdinalChannelBackground {
+		t.Fatalf("fixture drifted: family row expected on the background channel, got %q", rootCauseOrdinalChannel(row))
 	}
 	assertRankOrdinalsContiguous(t, rank.Items)
 }
@@ -384,8 +408,34 @@ func TestPeriodicIntermediateSleepKeepsSeatORD(t *testing.T) {
 	if !near(row.EffectiveImpactMs, 0.105, 0.001) {
 		t.Fatalf("the periodic seat competes with its DISCOUNTED attribution (runnable+lateness), got %+v", row)
 	}
+	// EVOLUTION RECORD 勘正 (UXR-1 对抗复核 P1-2, 2026-07-11): the UXR-1 batch
+	// briefly flipped this pin to Rank==0 with a record claiming a "VS-1
+	// in-period cadence demotion" routed the aggregate to the background
+	// channel — NO such engine mechanism exists. The real mechanism was a
+	// FIXTURE ARTIFACT: buildPeriodicVSyncChain carried CausalImpacts without
+	// their paired ChainNodes, so the relevance enrich
+	// (enrichRootCauseItemsWithChainContext) found no same-thread node and
+	// defaulted the row to BACKGROUND — a production-unreachable form
+	// (query.go expandChain mints CausalImpacts and ChainNodes in pairs), so
+	// the "background periodic source" seat policy is NOT adjudicated here
+	// (escalated to the user; do not pre-answer it in code).
+	//
+	// Engine-actual relevance chain (fixture now carries the paired nodes):
+	// the enrich context resolves ON-CHAIN off the same-thread node overlap
+	// (chainContextForCandidate), then the PRE-EXISTING §12.3-5 typed arm
+	// (rootCauseChainContextForItem via rootCauseItemCanBeDirectOnChain —
+	// sleep_wait is not a direct-on-chain cause type) files the sleep
+	// aggregate on the typed PROXIMITY tier "adjacent". The seat therefore
+	// carries a channel-2 邻近影响 ordinal: Rank>0 is restored — the ORD-D/G9
+	// intent this pin guards (§28.7 周期源保留席位: the typed periodic source
+	// BYPASSES the intermediate-sleep skip and is PUBLISHED with a board
+	// ordinal instead of being swallowed). This pin doubles as the G9
+	// companion pin.
+	if got := rootCauseOrdinalChannel(row); got != rootCauseOrdinalChannelAdjacent {
+		t.Fatalf("engine-actual periodic sleep aggregate rides the typed proximity tier (adjacent channel), got %q: %+v", got, row)
+	}
 	if row.Rank <= 0 {
-		t.Fatalf("the periodic row must carry a board ordinal, got %+v", row)
+		t.Fatalf("ORD-D/G9: the periodic seat must carry a board ordinal (no ordinal-less swallow), got %+v", row)
 	}
 	assertRankOrdinalsContiguous(t, rank.Items)
 

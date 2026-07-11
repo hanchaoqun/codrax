@@ -80,9 +80,11 @@ func TestUXARetiredWordsNeverShipZH(t *testing.T) {
 // bites here).
 func TestUXALegendFinalFormsVerbatim(t *testing.T) {
 	want := map[runtimeTraceProjMark]string{
-		runtimeTraceProjMarkIconSleep:               "- `☾/sleep` = 睡眠等待(等事件/等唤醒);睡眠是症状而非根因,根因看它的下钻/唤醒子行。",
-		runtimeTraceProjMarkIconTransit:             "- `◦ 中转` = 唤醒链的中间经过节点,本报告未单独计量其影响。",
-		runtimeTraceProjMarkIconNoDominant:          "- `◦`(数据行) = 该行无主导调度状态;具体影响形态见行内说明或明细。",
+		runtimeTraceProjMarkIconSleep:   "- `☾/sleep` = 睡眠等待(等事件/等唤醒);睡眠是症状而非根因,根因看它的下钻/唤醒子行。",
+		runtimeTraceProjMarkIconTransit: "- `◦ 中转` = 唤醒链的中间经过节点,本报告未单独计量其影响。",
+		// EVOLUTION RECORD (UXR-1 §29.36.1): ◦ 只留真正无类型词的行 — the
+		// entry states both halves symmetrically.
+		runtimeTraceProjMarkIconNoDominant:          "- `◦`(数据行) = 未识别出具体影响类型且无主导调度状态的行;有形态词的行戴各自形态族记号,该行的已知信息见行内说明或明细。",
 		runtimeTraceProjMarkBadge:                   "- `❶..❺` = 根因排序前五(依有效归因)。",
 		runtimeTraceProjMarkStateLabel:              "- 行内 sleep/runnable/running/iowait/D-state = 该行的主导调度状态。",
 		runtimeTraceProjMarkUndrillable:             "- `⊘链止` = 窗口内无匹配唤醒事件(sched_wakeup),链止于此。",
@@ -558,7 +560,7 @@ func TestUXASupplyFoldFinalWordings(t *testing.T) {
 		SupplyFoldComputed: true, SupplyFoldKnownMS: 10, ImpactMS: 5,
 	}
 	clause, _, ok = runtimeTraceProjSupplyFoldClause(noDeficit, 100, true)
-	if !ok || clause != "已按大核满频(或接近)运行,无供给缺口,running 为真实工作量" {
+	if !ok || clause != "已按大核满频(或接近)运行·无供给折算" {
 		t.Fatalf("no-deficit clause = %q (ok=%v)", clause, ok)
 	}
 	unknown := types.TraceCausalProjectionNode{

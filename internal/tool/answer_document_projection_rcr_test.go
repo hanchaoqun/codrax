@@ -143,7 +143,8 @@ func TestRCRCauseNodeTerminalFormsVerbatim(t *testing.T) {
 	// moved INTO 行2 (类别·根因排序#N·置信·链上L#·[尾]) — the standalone
 	// Seg-20 chip is retired on structured cause nodes.
 	for _, want := range []string{
-		"❶⊗ #RxComputationT-16816 · 持锁阻塞",
+		// UXG-0 D5 (2026-07-11): badge→glyph gap (❶ ⊗).
+		"❶ ⊗ #RxComputationT-16816 · 持锁阻塞",
 		"· 锁竞争·持锁·根因排序#1·置信中·链上L1·有效归因 112.223ms(全额)",
 	} {
 		if !strings.Contains(fence, want) {
@@ -307,7 +308,12 @@ func TestRCRImpactFormGlyphsSingleCellNoVS16(t *testing.T) {
 	// 复核 F3 裁定: the root glyph joins the single-cell loop (it escaped the
 	// form-table pin as a free-standing constant; ⊚ U+229A is EAW-Neutral —
 	// the earlier ◎ U+25CE was Ambiguous and double-width on CJK terminals).
-	rootAndForms := []runtimeTraceProjImpactFormSpec{{Glyph: runtimeTraceProjRootGlyph, Form: -1}}
+	// UXR-1 复核 P2-4: the off-chain D-state/IO glyph ⧗ joins too — it was a
+	// spec-table-external literal (tree.go icon resolver) the loop never saw.
+	rootAndForms := []runtimeTraceProjImpactFormSpec{
+		{Glyph: runtimeTraceProjRootGlyph, Form: -1},
+		{Glyph: runtimeTraceProjOffChainDStateGlyph, Form: -2},
+	}
 	seen := map[string]bool{}
 	for _, spec := range append(rootAndForms, runtimeTraceProjImpactFormSpecs()...) {
 		if spec.Glyph == "" {
@@ -340,10 +346,16 @@ func TestRCRImpactFormGlyphsSingleCellNoVS16(t *testing.T) {
 	// East-Asian-width terminal (the retired ◎ U+25CE was EAW-Ambiguous and
 	// measured 2 there). The pre-RCR marks ⛓/❶/◇/▒ are also Ambiguous but
 	// pre-date this batch (PTV4 pinned) — re-litigating them needs a ruling.
+	// UXR-1 复核 P2-4 勘正: ⧗ U+29D7 is EAW-NEUTRAL (双语境宽1, the ⧖ U+29D6
+	// width class) — the batch's original "与 ⛓ 同宽度类" note was FALSE
+	// (⛓ U+26D3 is Ambiguous); the EAW arm below pins the true class.
 	eaCond := runewidth.NewCondition()
 	eaCond.EastAsianWidth = true
 	if w := eaCond.StringWidth(runtimeTraceProjRootGlyph); w != 1 {
 		t.Fatalf("root glyph %q measures %d cells under EastAsianWidth — pick an EAW-Neutral glyph", runtimeTraceProjRootGlyph, w)
+	}
+	if w := eaCond.StringWidth(runtimeTraceProjOffChainDStateGlyph); w != 1 {
+		t.Fatalf("off-chain D-state glyph %q measures %d cells under EastAsianWidth — must stay EAW-Neutral (⧖ class)", runtimeTraceProjOffChainDStateGlyph, w)
 	}
 	// ⊚ replaced 🎯: the root header and its legend entry carry no emoji.
 	if strings.Contains(runtimeTraceProjTreeHeaderLabel(runtimeTraceProjTreeModel{Target: "t-1"}, true), "🎯") {

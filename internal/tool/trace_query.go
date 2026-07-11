@@ -5528,9 +5528,15 @@ func traceQueryRootCauseTierLabel(rank int) string {
 // (复核 P3-1, 2026-07-09, mirroring the engine's evidenceFromRootCauseRank
 // face): a G9-demoted Rank=0 row states it holds no rank seat instead of
 // fabricating a "#0" ordinal.
-func traceQueryRootCausePositionWord(tier string, rank int) string {
+// UXR-1 (§29.36.2): the ordinal is channel-scoped — an adjacent row's seat
+// belongs to the 邻近影响 channel, so the word names the channel (two
+// channels' #1 must never read as one board).
+func traceQueryRootCausePositionWord(tier string, rank int, relevance string) string {
 	if rank <= 0 {
 		return fmt.Sprintf("%s row (no rank seat)", tier)
+	}
+	if relevance == "adjacent" {
+		return fmt.Sprintf("%s adjacent-impact #%d", tier, rank)
 	}
 	return fmt.Sprintf("%s cause #%d", tier, rank)
 }
@@ -6181,7 +6187,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				Object:          item.Type,
 				Value:           traceQueryObservationMSValue(item.ImpactMs),
 				Unit:            "ms",
-				Summary:         firstNonEmptyTraceString(item.Summary, traceQueryRootCausePositionWord(tier, rank)+" ("+item.Type+")"),
+				Summary:         firstNonEmptyTraceString(item.Summary, traceQueryRootCausePositionWord(tier, rank, traceQueryRootCauseItemRelevance(item))+" ("+item.Type+")"),
 				RichNotes:       notes,
 				SupportRefs:     traceQueryObservationSupportRefs(ref, item.LineStart, item.LineEnd),
 				ObservedAt:      at,

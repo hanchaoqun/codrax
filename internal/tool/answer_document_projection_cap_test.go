@@ -59,8 +59,13 @@ func TestCAPSupplyFoldClauseThreeStateDisclosure(t *testing.T) {
 		t.Fatalf("default-table fold must disclose 按默认算力比粗算:\n%s", got)
 	}
 	// freq_only: the fail-loud disclosure names what was NOT priced.
-	if got := dominant(runtimeTraceCapabilitySourceFreqOnly); !strings.Contains(got, "(按大核满频折算,下界,簇结构不可判,按纯频率比折算)") {
-		t.Fatalf("freq_only fold must disclose 簇结构不可判,按纯频率比折算:\n%s", got)
+	// EVOLUTION RECORD (UXR-1 §29.36.4 ② 核类词诚实门): 簇结构不可判 forbids
+	// the core-class word — the fold basis degrades to the class-less 按满频.
+	if got := dominant(runtimeTraceCapabilitySourceFreqOnly); !strings.Contains(got, "(按满频折算,下界,簇结构不可判,按纯频率比折算)") {
+		t.Fatalf("freq_only fold must disclose 簇结构不可判 without a class word:\n%s", got)
+	}
+	if got := dominant(runtimeTraceCapabilitySourceFreqOnly); strings.Contains(got, "大核") || strings.Contains(got, "小核") {
+		t.Fatalf("§29.36.4 ②: no core-class word under 簇结构不可判:\n%s", got)
 	}
 	// empty (pre-CAP record): byte-stable legacy wording, no capability claim.
 	got := dominant("")
@@ -80,13 +85,20 @@ func TestCAPNoDeficitVerdictCapabilityDisclosure(t *testing.T) {
 	if !ok || !strings.Contains(nearFmax, "接近大核满频,缺口仅 0.186ms(已计入有效归因,按默认算力比粗算)") {
 		t.Fatalf("G4 counted form must carry the capability caliber:\n%s", nearFmax)
 	}
+	// EVOLUTION RECORD (UXR-1 §29.36.4 ① 推论链压缩, a4/2549 witness): the
+	// A⟹B⟹C affirmative sentence compressed to 证据+末端结论+口径括注.
 	affirmative, _, ok := runtimeTraceProjSupplyFoldClause(capClauseNode(0, 2.641, 2.641, 0, 0, runtimeTraceCapabilitySourceDefault), 0, true)
-	if !ok || !strings.Contains(affirmative, "已按大核满频(或接近)运行,无供给缺口,running 为真实工作量(按默认算力比粗算)") {
-		t.Fatalf("affirmative form must carry the capability caliber:\n%s", affirmative)
+	if !ok || !strings.Contains(affirmative, "已按大核满频(或接近)运行·无供给折算(按默认算力比粗算)") {
+		t.Fatalf("affirmative form must carry the compressed claim + capability caliber:\n%s", affirmative)
 	}
+	// §29.36.4 ②: the freq_only affirmative is the ruling's exact compressed
+	// form — no core-class word beside 簇结构不可判.
 	freqOnly, _, ok := runtimeTraceProjSupplyFoldClause(capClauseNode(0, 2.641, 2.641, 0, 0, runtimeTraceCapabilitySourceFreqOnly), 0, true)
-	if !ok || !strings.Contains(freqOnly, "已按大核满频(或接近)运行,无供给缺口,running 为真实工作量(簇结构不可判,按纯频率比折算)") {
-		t.Fatalf("freq_only affirmative must say the class gap was not priced:\n%s", freqOnly)
+	if !ok || !strings.Contains(freqOnly, "满频(或接近)运行·无供给折算(簇结构不可判,按频率比)") {
+		t.Fatalf("freq_only affirmative must speak the §29.36.4 compressed form:\n%s", freqOnly)
+	}
+	if strings.Contains(freqOnly, "大核") {
+		t.Fatalf("§29.36.4 ②: no core-class word under 簇结构不可判:\n%s", freqOnly)
 	}
 }
 
@@ -148,11 +160,17 @@ func TestCAPRunningDeficitArmSubRowCapability(t *testing.T) {
 	// their own legend entry.
 	foModel := buildRuntimeTraceProjTreeModel(capRunningDeficitProjection(runtimeTraceCapabilitySourceFreqOnly), newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	foFence := runtimeTraceProjTreeFence(foModel, true)
-	if !strings.Contains(foFence, "计入 0.186ms(折算,按大核满频,簇结构不可判,按纯频率比折算)") {
+	// EVOLUTION RECORD (UXR-1 §29.36.4 ② 核类词诚实门): the sub-row caliber
+	// drops the core-class word beside 簇结构不可判 (class-less 按满频 form).
+	if !strings.Contains(foFence, "计入 0.186ms(折算,按满频,簇结构不可判,按纯频率比折算)") {
 		t.Fatalf("freq_only sub-row caliber missing:\n%s", foFence)
 	}
+	if strings.Contains(foFence, "按大核满频,簇结构不可判") {
+		t.Fatalf("§29.36.4 ②: no core-class word beside 簇结构不可判:\n%s", foFence)
+	}
 	foLegend := strings.Join(runtimeTraceProjLegendGroupLines(foModel.Marks, true), "\n")
-	if !strings.Contains(foLegend, "- `按纯频率比折算` =") {
+	// EVOLUTION RECORD (UXR-1 §29.36.4 ①): the entry teaches both row forms.
+	if !strings.Contains(foLegend, "- `按纯频率比折算`/`按频率比` =") {
 		t.Fatalf("按纯频率比折算 legend entry must render with the word:\n%s", foLegend)
 	}
 	if strings.Contains(foLegend, "- `按默认算力比粗算` =") {
@@ -241,8 +259,8 @@ func TestCAPDemotedReferenceWording(t *testing.T) {
 	affirmative := capClauseNode(0, 2.641, 2.641, 0, 0, runtimeTraceCapabilitySourceDefault)
 	affirmative.SupplyFoldReferenceClass = "small"
 	sentence, _, ok := runtimeTraceProjSupplyFoldClause(affirmative, 0, true)
-	if !ok || !strings.Contains(sentence, "已按小核满频(或接近)运行,无供给缺口") {
-		t.Fatalf("demoted affirmative must re-base its claim:\n%s", sentence)
+	if !ok || !strings.Contains(sentence, "已按小核满频(或接近)运行·无供给折算") {
+		t.Fatalf("demoted affirmative must re-base its claim (compressed form):\n%s", sentence)
 	}
 	// G1 arm: 行3/子行 caliber words follow the class; the demoted legend seat
 	// renders and the 按大核满频 entry stays off.

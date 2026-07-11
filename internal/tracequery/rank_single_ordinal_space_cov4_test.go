@@ -2,14 +2,18 @@ package tracequery
 
 // rank_single_ordinal_space_cov4_test.go — §29.27 ruling ① (COV-4, ledger
 // docs/design/real_trace_campaign_20260705.md, user ruling 2026-07-11) 同板
-// 查漏 pin: RUNNING-system candidates (converted compute-supply running,
-// on-chain semantic classes) compete in the SAME single ordinal space as
-// wait-chain candidates — one rankPos counter, ordered by published
-// (converted) effective impact, no hidden demotion lane. The only Rank=0
-// classes are the deliberate no-seat signals (data_gap diagnostics and
-// target-self wait symptoms). This is a tripwire: reintroducing a running-
-// only demotion arm (a second ordinal counter, a running filter, or a
-// raw-instead-of-converted running sort key) reds it.
+// 查漏 pin, reworded for §29.36.2 (UXR-1 复核 P3-①): this is the CHAIN
+// channel's population-monotonicity assertion — RUNNING-system candidates
+// (converted compute-supply running, on-chain semantic classes) compete in
+// the SAME channel-1 ordinal space as wait-chain candidates, ordered
+// monotonically by published (converted) effective impact, with no hidden
+// demotion lane INSIDE the on-chain population. The only Rank=0 classes are
+// the deliberate no-seat signals (data_gap diagnostics and target-self wait
+// symptoms). NOTE: since §29.36.2 a second ordinal counter legitimately
+// exists (adjacentPos — the ◇ 邻近影响 channel's own space), so "any second
+// counter" is NOT the tripwire; the tripwire is a running-only demotion arm
+// WITHIN channel 1 (a running filter, a running-specific counter, or a
+// raw-instead-of-converted running sort key) — any of those reds this pin.
 
 import "testing"
 
