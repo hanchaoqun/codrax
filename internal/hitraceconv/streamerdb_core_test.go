@@ -218,11 +218,13 @@ func TestTraceDBCoreLoadsResolvers(t *testing.T) {
 	if cpu, prio, known := traceDBNextSchedMeta(starts, 10, 1000); !known || cpu != 5 || prio != 42 {
 		t.Fatalf("next sched meta mismatch cpu=%d prio=%d known=%t starts=%+v", cpu, prio, known, starts)
 	}
-	intervals, _, stateCoverage, err := tdb.loadRunningIntervals(context.Background())
+	intervals, _, stateCoverage, err := tdb.loadRunningIntervals(context.Background(), index)
 	if err != nil {
 		t.Fatalf("load running intervals: %v", err)
 	}
-	if !stateCoverage.Found || traceDBCPUAt(intervals, 10, 950, 0) != 3 || traceDBCPUAt(intervals, 10, 1300, 0) != 0 {
+	cpu, cpuKnown := traceDBKnownCPUAt(intervals, 10, 950)
+	_, outsideKnown := traceDBKnownCPUAt(intervals, 10, 1300)
+	if !stateCoverage.Found || !cpuKnown || cpu != 3 || outsideKnown {
 		t.Fatalf("running interval mismatch coverage=%+v intervals=%+v", stateCoverage, intervals)
 	}
 	if stateCoverage.RowsRead != 1 || stateCoverage.RowsEmitted != 1 {
@@ -284,7 +286,7 @@ func TestTraceDBCoreThreadStateRunningCoverage(t *testing.T) {
 	}
 	defer tdb.close()
 
-	intervals, integrity, coverage, err := tdb.loadRunningIntervals(context.Background())
+	intervals, integrity, coverage, err := tdb.loadRunningIntervals(context.Background(), newTraceDBThreadIndex(0, true))
 	if err != nil {
 		t.Fatalf("load running intervals: %v", err)
 	}
@@ -294,16 +296,16 @@ func TestTraceDBCoreThreadStateRunningCoverage(t *testing.T) {
 	if !integrity.TaintedITIDs[10] {
 		t.Fatalf("malformed Running rows must taint their itid: %+v", integrity)
 	}
-	if got := traceDBCPUAt(intervals, 10, 950, 0); got != 3 {
-		t.Fatalf("CPU at first running window = %d, want 3", got)
+	if got, known := traceDBKnownCPUAt(intervals, 10, 950); !known || got != 3 {
+		t.Fatalf("CPU at first running window = %d known=%t, want 3/true", got, known)
 	}
-	if got := traceDBCPUAt(intervals, 10, 1350, 0); got != 0 {
+	if got, known := traceDBKnownCPUAt(intervals, 10, 1350); known {
 		t.Fatalf("case-drifted Running token must not become a CPU witness, got %d", got)
 	}
-	if got := traceDBCPUAt(intervals, 10, 1750, 0); got != 0 {
+	if got, known := traceDBKnownCPUAt(intervals, 10, 1750); known {
 		t.Fatalf("zero-duration row must not become a running window, got CPU %d", got)
 	}
-	if got := traceDBCPUAt(intervals, 10, 1950, 0); got != 0 {
+	if got, known := traceDBKnownCPUAt(intervals, 10, 1950); known {
 		t.Fatalf("Runnable row must not become a Running window, got CPU %d", got)
 	}
 	if !traceDBThreadStateIsRunning("Running") || traceDBThreadStateIsRunning(" Running ") ||

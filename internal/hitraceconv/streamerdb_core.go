@@ -717,40 +717,70 @@ func (tdb *traceDB) loadRawWakeups(ctx context.Context) ([]traceDBRawWakeup, Tra
 	return out, coverage, nil
 }
 
-func (tdb *traceDB) loadRunningIntervals(ctx context.Context) (map[int64][]traceDBRunningInterval, traceDBRunningIntegrity, TraceDBCoverage, error) {
+func (tdb *traceDB) loadRunningIntervals(ctx context.Context, identities traceDBThreadIndex) (map[int64][]traceDBRunningInterval, traceDBRunningIntegrity, TraceDBCoverage, error) {
 	coverage, err := tdb.inspectCoverage(ctx, "resolver", "thread_state", []string{"itid", "ts", "dur", "cpu", "state"})
 	out := map[int64][]traceDBRunningInterval{}
 	integrity := traceDBRunningIntegrity{TaintedITIDs: map[int64]bool{}}
 	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
 		return out, integrity, coverage, err
 	}
-	rows, err := tdb.db.QueryContext(ctx, `
-		SELECT itid, ts, dur, cpu, state
-		FROM thread_state
-	`)
-	if err != nil {
+	coverage.FieldSources = map[string]string{
+		"cpu_witness_integrity": "strict thread_state scalar validation; malformed potential Running rows taint the affected itid (or globally when itid is unknown)",
+		"internal_identity":     "thread_state.itid; strict SQLite INTEGER in 0..UINT32_MAX-1; canonical idle conflicts are rejected",
+		"subject_cross_check":   "when thread_state.tid/pid cells carry a public identity, each strict SQLite INTEGER in 0..MaxInt32 must exactly match the canonical thread/process subject for itid; absent columns, NULL cells, and upstream UINT32_MAX missing sentinels make no extra public-identity claim",
+	}
+	fail := func(err error) (map[int64][]traceDBRunningInterval, traceDBRunningIntegrity, TraceDBCoverage, error) {
+		coverage.Error = err.Error()
 		return out, integrity, coverage, err
+	}
+	hasTID, err := tdb.columnExists(ctx, "thread_state", "tid")
+	if err != nil {
+		return fail(err)
+	}
+	hasPID, err := tdb.columnExists(ctx, "thread_state", "pid")
+	if err != nil {
+		return fail(err)
+	}
+	tidExpr := "NULL"
+	if hasTID {
+		tidExpr = quoteSQLiteIdent("tid")
+		coverage.ColumnsPresent = appendTraceDBCoverageColumn(coverage.ColumnsPresent, "tid")
+	}
+	pidExpr := "NULL"
+	if hasPID {
+		pidExpr = quoteSQLiteIdent("pid")
+		coverage.ColumnsPresent = appendTraceDBCoverageColumn(coverage.ColumnsPresent, "pid")
+	}
+	sort.Strings(coverage.ColumnsPresent)
+	rows, err := tdb.db.QueryContext(ctx, `SELECT itid, ts, dur, cpu, state, `+tidExpr+`, `+pidExpr+` FROM thread_state`)
+	if err != nil {
+		return fail(err)
 	}
 	defer rows.Close()
 	invalidRunning := 0
+	invalidReasons := map[string]int{}
 	taintRunningWitness := func(itidRaw any) {
-		itid, itidOK := traceDBStrictSQLiteInt(itidRaw)
-		if itidOK && itid >= 0 && itid <= maxTraceDBInternalID {
+		itid, itidOK := traceDBStrictInternalID(itidRaw)
+		if itidOK {
 			integrity.TaintedITIDs[itid] = true
 		} else {
 			integrity.GlobalTaint = true
 		}
 	}
+	rejectRunning := func(reason string, itidRaw any) {
+		invalidRunning++
+		invalidReasons[reason]++
+		taintRunningWitness(itidRaw)
+	}
 	for rows.Next() {
-		var itidRaw, tsRaw, durRaw, cpuRaw, stateRaw any
+		var itidRaw, tsRaw, durRaw, cpuRaw, stateRaw, tidRaw, pidRaw any
 		var item traceDBRunningInterval
-		if err := rows.Scan(&itidRaw, &tsRaw, &durRaw, &cpuRaw, &stateRaw); err != nil {
-			return out, integrity, coverage, err
+		if err := rows.Scan(&itidRaw, &tsRaw, &durRaw, &cpuRaw, &stateRaw, &tidRaw, &pidRaw); err != nil {
+			return fail(err)
 		}
 		state, stateOK := stateRaw.(string)
 		if !stateOK || strings.TrimSpace(state) == "" {
-			invalidRunning++
-			taintRunningWitness(itidRaw)
+			rejectRunning("invalid_state", itidRaw)
 			continue
 		}
 		if !traceDBThreadStateIsRunning(state) {
@@ -758,16 +788,15 @@ func (tdb *traceDB) loadRunningIntervals(ctx context.Context) (map[int64][]trace
 			// case/whitespace drift that resembles it is an ambiguous potential
 			// CPU witness, not a different state that can be ignored.
 			if strings.EqualFold(strings.TrimSpace(state), "Running") {
-				invalidRunning++
-				taintRunningWitness(itidRaw)
+				rejectRunning("near_running_state", itidRaw)
 			}
 			continue
 		}
-		itid, itidOK := traceDBStrictSQLiteInt(itidRaw)
+		itid, itidOK := traceDBStrictInternalID(itidRaw)
 		item.Start, _ = traceDBStrictSQLiteInt(tsRaw)
 		dur, durOK := traceDBStrictSQLiteInt(durRaw)
 		item.CPU, _ = traceDBStrictSQLiteInt(cpuRaw)
-		valid := itidOK && itid >= 0 && itid <= maxTraceDBInternalID
+		valid := itidOK
 		if _, ok := traceDBStrictSQLiteInt(tsRaw); !ok || item.Start < 0 {
 			valid = false
 		}
@@ -778,8 +807,11 @@ func (tdb *traceDB) loadRunningIntervals(ctx context.Context) (map[int64][]trace
 			valid = false
 		}
 		if !valid {
-			invalidRunning++
-			taintRunningWitness(itidRaw)
+			rejectRunning("invalid_scalar_or_interval", itidRaw)
+			continue
+		}
+		if reason := traceDBRunningSubjectClaimReason(identities, itid, hasTID, tidRaw, hasPID, pidRaw); reason != "" {
+			rejectRunning(reason, itidRaw)
 			continue
 		}
 		item.End = item.Start + dur
@@ -792,8 +824,7 @@ func (tdb *traceDB) loadRunningIntervals(ctx context.Context) (map[int64][]trace
 		coverage.RowsEmitted++
 	}
 	if err := rows.Err(); err != nil {
-		coverage.Error = err.Error()
-		return out, integrity, coverage, err
+		return fail(err)
 	}
 	for itid, entries := range out {
 		sort.SliceStable(entries, func(i, j int) bool {
@@ -815,23 +846,83 @@ func (tdb *traceDB) loadRunningIntervals(ctx context.Context) (map[int64][]trace
 		out[itid] = entries
 	}
 	if invalidRunning > 0 {
-		coverage.Skipped = fmt.Sprintf("%d potential Running thread_state row(s) rejected: invalid state, typed identity, CPU, or time interval; affected CPU witnesses tainted", invalidRunning)
-		coverage.FieldSources = map[string]string{
-			"cpu_witness_integrity": "strict thread_state scalar validation; malformed potential Running rows taint the affected itid (or globally when itid is unknown)",
-		}
+		coverage.Skipped = fmt.Sprintf("%d potential Running thread_state row(s) rejected; affected CPU witnesses tainted: %s",
+			invalidRunning, traceDBCountSummary(invalidReasons))
 	}
 	return out, integrity, coverage, nil
 }
 
-func traceDBThreadStateIsRunning(state string) bool {
-	return state == "Running"
+func traceDBRunningSubjectClaimReason(identities traceDBThreadIndex, itid int64, hasTID bool, tidRaw any, hasPID bool, pidRaw any) string {
+	tid, tidClaimed, tidValid := traceDBRunningPublicIdentityClaim(hasTID, tidRaw)
+	pid, pidClaimed, pidValid := traceDBRunningPublicIdentityClaim(hasPID, pidRaw)
+	if !tidValid {
+		return "invalid_tid_claim"
+	}
+	if !pidValid {
+		return "invalid_pid_claim"
+	}
+	if itid == 0 && !traceDBCanonicalIdleIdentityExact(identities) {
+		return "ambiguous_idle_identity"
+	}
+	if !tidClaimed && !pidClaimed {
+		return ""
+	}
+	if itid == 0 {
+		if tidClaimed && tid != 0 {
+			return "idle_tid_claim_mismatch"
+		}
+		if pidClaimed && pid != 0 {
+			return "idle_pid_claim_mismatch"
+		}
+		return ""
+	}
+	if identities.AmbiguousITID[itid] {
+		return "ambiguous_claim_subject"
+	}
+	thread, ok := identities.ByITID[itid]
+	if !ok || thread.ITID != itid || thread.TID <= 0 || thread.TID > math.MaxInt32 {
+		return "unresolved_claim_subject"
+	}
+	if tidClaimed && tid != thread.TID {
+		return "tid_claim_mismatch"
+	}
+	if !pidClaimed {
+		return ""
+	}
+	if identities.AmbiguousIPID[thread.IPID] {
+		return "ambiguous_claim_process"
+	}
+	process, ok := identities.Processes[thread.IPID]
+	if !ok || process.IPID != thread.IPID || process.PID < 0 || process.PID > math.MaxInt32 {
+		return "unresolved_claim_process"
+	}
+	if pid != process.PID {
+		return "pid_claim_mismatch"
+	}
+	return ""
 }
 
-func traceDBCPUAt(intervals map[int64][]traceDBRunningInterval, itid, ts, defaultCPU int64) int64 {
-	if cpu, ok := traceDBKnownCPUAt(intervals, itid, ts); ok {
-		return cpu
+func traceDBRunningPublicIdentityClaim(hasColumn bool, raw any) (value int64, claimed bool, valid bool) {
+	if !hasColumn || raw == nil {
+		return 0, false, true
 	}
-	return defaultCPU
+	value, valid = traceDBStrictSQLiteInt(raw)
+	if !valid {
+		return 0, false, false
+	}
+	// Trace Streamer initializes unresolved thread_state TID/PID enrichment to
+	// INVALID_UINT32 and exposes the sentinel as INTEGER rather than NULL.
+	if value == maxTraceDBInternalID+1 {
+		return 0, false, true
+	}
+	if value < 0 || value > math.MaxInt32 {
+		return 0, false, false
+	}
+	return value, true, true
+}
+
+func traceDBThreadStateIsRunning(state string) bool {
+	return state == "Running"
 }
 
 // traceDBKnownCPUAt returns a CPU only when every Running interval covering ts

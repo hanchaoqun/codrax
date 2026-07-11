@@ -326,9 +326,6 @@ func prepareTraceDBCallstackRow(index traceDBThreadIndex, running map[int64][]tr
 	if traceDBBeforeCaptureStart(index, row.TS) {
 		return row, "before_capture_start"
 	}
-	if index.RunningGlobalTaint || index.RunningTaintedITID[row.EmitterITID] {
-		return row, "tainted_running_cpu_witness"
-	}
 	if index.AmbiguousIPID[thread.IPID] {
 		return row, "ambiguous_emitter_process"
 	}
@@ -346,12 +343,21 @@ func prepareTraceDBCallstackRow(index traceDBThreadIndex, running map[int64][]tr
 		return row, "invalid_emitter_comm"
 	}
 	row.Task = traceDBCommName(thread.Name, "unknown")
-	if row.StartCPU, ok = traceDBKnownCPUAt(running, row.EmitterITID, row.TS); !ok {
+	var runningStatus traceDBExtendedRunningLookupStatus
+	row.StartCPU, runningStatus = traceDBExtendedRunningCPUAt(index, running, row.EmitterITID, row.TS)
+	if runningStatus == traceDBExtendedRunningSourceTainted {
+		return row, "tainted_running_cpu_witness"
+	}
+	if runningStatus != traceDBExtendedRunningKnown {
 		return row, "unknown_start_cpu"
 	}
 	row.EndCPU = row.StartCPU
 	if row.Flag == "" || row.Flag == "I" {
-		if row.EndCPU, ok = traceDBKnownCPUAt(running, row.EmitterITID, row.End); !ok {
+		row.EndCPU, runningStatus = traceDBExtendedRunningCPUAt(index, running, row.EmitterITID, row.End)
+		if runningStatus == traceDBExtendedRunningSourceTainted {
+			return row, "tainted_running_cpu_witness"
+		}
+		if runningStatus != traceDBExtendedRunningKnown {
 			return row, "unknown_end_cpu"
 		}
 		return row, ""

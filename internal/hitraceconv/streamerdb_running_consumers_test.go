@@ -43,11 +43,11 @@ func TestTraceDBRunningConsumerScopesSeparateSchedulerFromExtendedLegacy(t *test
 		t.Fatalf("scheduler Running scope/accounting mismatch: %+v", schedulerCoverage)
 	}
 
-	baseIntervals, baseIntegrity, baseCoverage, err := tdb.loadRunningIntervals(context.Background())
+	baseIntervals, baseIntegrity, baseCoverage, err := tdb.loadRunningIntervals(context.Background(), authority.identities)
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacyIntervals, legacyIntegrity, legacyCoverage, err := tdb.loadExtendedLegacyRunningIntervals(context.Background())
+	legacyIntervals, legacyIntegrity, legacyCoverage, err := tdb.loadExtendedLegacyRunningIntervals(context.Background(), authority.identities)
 	if err != nil {
 		t.Fatal(err)
 	}

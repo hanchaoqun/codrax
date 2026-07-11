@@ -212,13 +212,19 @@ func prepareTraceDBFrameSliceRow(index traceDBThreadIndex, running map[int64][]t
 	if _, valid := traceDBCallstackText(thread.Name, true); !valid || !traceDBSinglePhysicalLine(frame.Task, true) {
 		return frame, "invalid_emitter_comm"
 	}
-	if index.RunningGlobalTaint || index.RunningTaintedITID[frame.ITID] {
+	var runningStatus traceDBExtendedRunningLookupStatus
+	frame.StartCPU, runningStatus = traceDBExtendedRunningCPUAt(index, running, frame.ITID, frame.TS)
+	if runningStatus == traceDBExtendedRunningSourceTainted {
 		return frame, "tainted_running_cpu_witness"
 	}
-	if frame.StartCPU, ok = traceDBKnownCPUAt(running, frame.ITID, frame.TS); !ok {
+	if runningStatus != traceDBExtendedRunningKnown {
 		return frame, "unknown_start_cpu"
 	}
-	if frame.EndCPU, ok = traceDBKnownCPUAt(running, frame.ITID, frame.End-1); !ok {
+	frame.EndCPU, runningStatus = traceDBExtendedRunningCPUAt(index, running, frame.ITID, frame.End-1)
+	if runningStatus == traceDBExtendedRunningSourceTainted {
+		return frame, "tainted_running_cpu_witness"
+	}
+	if runningStatus != traceDBExtendedRunningKnown {
 		return frame, "unknown_end_cpu"
 	}
 	frame.TID = thread.TID

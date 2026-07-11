@@ -170,6 +170,45 @@ func TestExportTraceDBRawFtraceRunningTaintBlocksInferenceButNotExplicitCPU(t *t
 	}
 }
 
+func TestExportTraceDBRawFtraceConflictingIdleIdentityCannotMintCPU(t *testing.T) {
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts INT)",
+		"INSERT INTO trace_range VALUES (0)",
+		"CREATE TABLE process (ipid INT, pid INT, name TEXT)",
+		"INSERT INTO process VALUES (0, 0, 'kernel')",
+		"CREATE TABLE thread (itid INT, tid INT, ipid INT, name TEXT, start_ts INT, is_main_thread INT, switch_count INT)",
+		"INSERT INTO thread VALUES (0, 0, 0, 'swapper', 0, 0, 1)",
+		"INSERT INTO thread VALUES (0, 1, 0, 'forged-idle', 0, 0, 1)",
+		"CREATE TABLE thread_state (itid, ts, dur, cpu, state, tid, pid)",
+		"INSERT INTO thread_state VALUES (0, 0, 5000000, 7, 'Running', 0, 0)",
+		"CREATE TABLE data_dict (id, data)",
+		"INSERT INTO data_dict VALUES (1, 'work')",
+		"INSERT INTO data_dict VALUES (2, 'function')",
+		"CREATE TABLE args (argset, key, datatype, value)",
+		"INSERT INTO args VALUES (1, 1, 0, 1)",
+		"INSERT INTO args VALUES (1, 2, 0, 2)",
+		"CREATE TABLE raw (id, ts, name, cpu, itid, argsetid)",
+		"INSERT INTO raw VALUES (1, 1000000, 'workqueue_execute_start', NULL, 0, 1)",
+		"INSERT INTO raw VALUES (2, 2000000, 'workqueue_execute_start', 0, 0, 1)",
+	})
+	outPath := filepath.Join(t.TempDir(), "raw-idle-running-taint.systrace")
+	result, err := exportTraceDBToSystrace(context.Background(), path, outPath)
+	if err != nil {
+		t.Fatalf("export conflicting idle fixture: %v", err)
+	}
+	bodyBytes, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(bodyBytes)
+	if strings.Count(body, "workqueue_execute_start:") != 1 || !strings.Contains(body, "[000]") {
+		t.Fatalf("idle identity conflict must block inferred CPU but preserve exact CPU0:\n%s", body)
+	}
+	if !coverageHasSkipped(result.Coverage, "resolver", "thread_state", "ambiguous_idle_identity=1") {
+		t.Fatalf("idle Running identity conflict was not disclosed: %+v", result.Coverage)
+	}
+}
+
 func TestExportTraceDBRawFtracePerKeyPoisonAndWorkqueueEndShape(t *testing.T) {
 	path := createTraceDBFixture(t, []string{
 		"CREATE TABLE data_dict (id, data)",

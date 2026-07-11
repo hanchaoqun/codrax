@@ -171,10 +171,12 @@ func prepareTraceDBNativeHookEvent(index traceDBThreadIndex, running map[int64][
 	if !exists || process.PID <= 0 || process.PID > math.MaxInt32 {
 		return event, "unresolved_owner_process"
 	}
-	if index.RunningGlobalTaint || index.RunningTaintedITID[event.EmitterITID] {
+	var runningStatus traceDBExtendedRunningLookupStatus
+	event.CPU, runningStatus = traceDBExtendedRunningCPUAt(index, running, event.EmitterITID, event.TS)
+	if runningStatus == traceDBExtendedRunningSourceTainted {
 		return event, "tainted_running_cpu_witness"
 	}
-	if event.CPU, ok = traceDBKnownCPUAt(running, event.EmitterITID, event.TS); !ok {
+	if runningStatus != traceDBExtendedRunningKnown {
 		return event, "unknown_event_cpu"
 	}
 	if _, ok := traceDBCallstackText(thread.Name, true); !ok {

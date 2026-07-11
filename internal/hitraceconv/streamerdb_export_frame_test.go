@@ -452,7 +452,7 @@ func exportTraceDBFrameFixture(t *testing.T, path string, decorate func(*traceDB
 	if err != nil {
 		t.Fatal(err)
 	}
-	running, integrity, _, err := tdb.loadRunningIntervals(ctx)
+	running, integrity, _, err := tdb.loadRunningIntervals(ctx, index)
 	if err != nil {
 		t.Fatal(err)
 	}

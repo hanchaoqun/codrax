@@ -205,8 +205,10 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 				continue
 			}
 			raw.CPUKnown = true
-		} else if effectiveITID >= 0 && !index.RunningGlobalTaint && !index.RunningTaintedITID[effectiveITID] {
-			raw.CPU, raw.CPUKnown = traceDBKnownCPUAt(running, effectiveITID, raw.TS)
+		} else if effectiveITID >= 0 {
+			var status traceDBExtendedRunningLookupStatus
+			raw.CPU, status = traceDBExtendedRunningCPUAt(index, running, effectiveITID, raw.TS)
+			raw.CPUKnown = status == traceDBExtendedRunningKnown
 		}
 		if !raw.CPUKnown {
 			traceDBRawCountSkip(classSkipped, class, "unknown_cpu")

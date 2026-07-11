@@ -134,6 +134,26 @@ func TestTraceDBNativeHookRequiresExactCPUAndStableRowIdentity(t *testing.T) {
 		}
 	})
 
+	t.Run("mismatched Running identity taints its CPU lane", func(t *testing.T) {
+		body, coverage, _ := exportTraceDBNativeHookFixture(t, []string{
+			"CREATE TABLE trace_range (start_ts INT)",
+			"INSERT INTO trace_range VALUES (0)",
+			"CREATE TABLE process (ipid INT, pid INT, name TEXT)",
+			"INSERT INTO process VALUES (1, 500, 'app')",
+			"CREATE TABLE thread (itid INT, tid INT, ipid INT, name TEXT, start_ts INT, is_main_thread INT, switch_count INT)",
+			"INSERT INTO thread VALUES (2, 501, 1, 'worker', 0, 0, 1)",
+			"CREATE TABLE thread_state (itid, ts, dur, cpu, state, tid, pid)",
+			"INSERT INTO thread_state VALUES (2, 0, 100, 2, 'Running', 501, 500)",
+			"INSERT INTO thread_state VALUES (2, 10, 10, 2, 'Running', 999, 500)",
+			"CREATE TABLE native_hook (start_ts INT, end_ts INT, event_type TEXT, all_heap_size INT, itid INT, ipid INT)",
+			"INSERT INTO native_hook VALUES (0, 10, 'AllocEvent', 100, 2, 1)",
+		})
+		if strings.Contains(body, "tracing_mark_write:") || coverage.RowsEmitted != 0 ||
+			!strings.Contains(coverage.Skipped, "tainted_running_cpu_witness=1") {
+			t.Fatalf("mismatched Running identity rescued native-hook CPU: coverage=%+v body=%q", coverage, body)
+		}
+	})
+
 	t.Run("source id supports without rowid", func(t *testing.T) {
 		body, coverage, _ := exportTraceDBNativeHookFixture(t, []string{
 			"CREATE TABLE trace_range (start_ts INT)",
@@ -216,7 +236,7 @@ func exportTraceDBNativeHookFixture(t *testing.T, statements []string) (string, 
 	if err != nil {
 		t.Fatalf("load thread index: %v", err)
 	}
-	running, integrity, _, err := tdb.loadRunningIntervals(context.Background())
+	running, integrity, _, err := tdb.loadRunningIntervals(context.Background(), index)
 	if err != nil {
 		t.Fatalf("load running intervals: %v", err)
 	}

@@ -34,6 +34,25 @@ func newTraceDBThreadIndex(traceStart int64, traceStartKnown bool) traceDBThread
 	}
 }
 
+// traceDBCanonicalIdleIdentityExact is the single identity authority for the
+// scheduler's synthetic ITID/IPID zero subject. Missing materialized zero rows
+// are compatible with the producer profile, but an ambiguous or conflicting
+// materialization must never acquire swapper semantics.
+func traceDBCanonicalIdleIdentityExact(index traceDBThreadIndex) bool {
+	if index.AmbiguousITID[0] || index.AmbiguousIPID[0] {
+		return false
+	}
+	if materialized, ok := index.ByITID[0]; ok &&
+		(materialized.ITID != 0 || materialized.TID != 0 || materialized.IPID != 0) {
+		return false
+	}
+	if materialized, ok := index.Processes[0]; ok &&
+		(materialized.IPID != 0 || materialized.PID != 0) {
+		return false
+	}
+	return true
+}
+
 func (tdb *traceDB) loadStrictProcessIndex(ctx context.Context, index *traceDBThreadIndex, coverage *TraceDBCoverage) error {
 	hasID := index.HasProcessIDColumn
 	hasName, err := tdb.columnExists(ctx, "process", "name")

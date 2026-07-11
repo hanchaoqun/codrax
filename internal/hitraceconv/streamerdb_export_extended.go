@@ -16,7 +16,7 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 		return coverage, fmt.Errorf("extended export requires the shared scheduler authority")
 	}
 	index := authority.identities
-	running, runningIntegrity, runningCoverage, err := tdb.loadExtendedLegacyRunningIntervals(ctx)
+	running, runningIntegrity, runningCoverage, err := tdb.loadExtendedLegacyRunningIntervals(ctx, index)
 	coverage = append(coverage, runningCoverage)
 	if err != nil {
 		return coverage, err

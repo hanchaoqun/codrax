@@ -47,18 +47,7 @@ func (authority traceDBSchedulerAuthority) schedulerSubjectIsExact(subject trace
 	if subject.itid != 0 {
 		return true
 	}
-	if authority.identities.AmbiguousITID[0] || authority.identities.AmbiguousIPID[0] {
-		return false
-	}
-	if materialized, ok := authority.identities.ByITID[0]; ok &&
-		(materialized.ITID != 0 || materialized.TID != 0 || materialized.IPID != 0) {
-		return false
-	}
-	if materialized, ok := authority.identities.Processes[0]; ok &&
-		(materialized.IPID != 0 || materialized.PID != 0) {
-		return false
-	}
-	return true
+	return traceDBCanonicalIdleIdentityExact(authority.identities)
 }
 
 func newTraceDBSchedulerAuthority(identities traceDBThreadIndex, collection traceDBLifecycleCollection) traceDBSchedulerAuthority {
