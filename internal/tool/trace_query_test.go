@@ -1281,6 +1281,7 @@ func TestTraceQueryOfficialSystraceEventTypeAliasesNormalize(t *testing.T) {
 		"block_getrq",
 		"block_bio_queue",
 		"block_bio_complete",
+		"block_rq_remap",
 		"print",
 		"tracing_mark_write_xacct",
 		"xacct_tracing_mark_write",
@@ -1295,6 +1296,7 @@ func TestTraceQueryOfficialSystraceEventTypeAliasesNormalize(t *testing.T) {
 		tracequery.EventBlockIssue,
 		tracequery.EventBlockIssue,
 		tracequery.EventBlockComplete,
+		tracequery.EventBlockRemap,
 		tracequery.EventTraceMark,
 		tracequery.EventTraceMark,
 		tracequery.EventTraceMark,
@@ -1789,6 +1791,9 @@ func TestTraceQuerySchemaDocumentsViews(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("trace_query schema/description missing %q:\n%s", want, body)
 		}
+	}
+	if !strings.Contains(body, "block_rq_remap") {
+		t.Fatalf("trace_query schema must document the block_rq_remap compatibility alias:\n%s", body)
 	}
 }
 

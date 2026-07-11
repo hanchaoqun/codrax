@@ -22,12 +22,17 @@ import (
 )
 
 var (
-	ftraceLineRE   = regexp.MustCompile(`^\s*(.+)-(\d+)(?:\s+\(\s*([0-9-]+)\))?\s+\[(\d+)\]\s+\S+\s+([0-9]+(?:\.[0-9]+)?):\s+([A-Za-z0-9_./:-]+):?\s*(.*)$`)
-	kvRE           = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*=\s*("[^"]*"|'[^']*'|[^ ]+)`)
-	blockRequestRE = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(?:(?:\d+)\s+)?\([^)]*\)\s+(\d+)\s+\+\s+(\d+)`)
-	blockSimpleRE  = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\+\s+(\d+)`)
-	blockRemapRE   = regexp.MustCompile(`^(\S+)\s+(\d+)\s+\+\s+(\d+)\s+<-(?:\s+\(([^)]+)\)\s+(\d+))?`)
-	blockErrorRE   = regexp.MustCompile(`\[([^\]]+)\]\s*$`)
+	ftraceLineRE        = regexp.MustCompile(`^\s*(.+)-(\d+)(?:\s+\(\s*([0-9-]+)\))?\s+\[(\d+)\]\s+\S+\s+([0-9]+(?:\.[0-9]+)?):\s+([A-Za-z0-9_./:-]+):?\s*(.*)$`)
+	kvRE                = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*=\s*("[^"]*"|'[^']*'|[^ ]+)`)
+	blockRQIssueRE      = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\([^\r\n)]*\)\s+(\d+)\s+\+\s+(\d+)\s+\[[^\r\n\]]*\]\s*$`)
+	blockRQCompleteRE   = regexp.MustCompile(`^(\S+)\s+(\S+)\s+\([^\r\n)]*\)\s+(\d+)\s+\+\s+(\d+)\s+\[(-?\d+)\]\s*$`)
+	blockBioQueueRE     = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\+\s+(\d+)\s+\[[^\r\n\]]*\]\s*$`)
+	blockBioCompleteRE  = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\+\s+(\d+)\s+\[(-?\d+)\]\s*$`)
+	blockSimpleLegacyRE = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\+\s+(\d+)\s+\[[^\r\n\]]*\]\s*$`)
+	blockRQRemapRE      = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\+\s+(\d+)\s+<-\s+\(([^\r\n)]+)\)\s+(\d+)\s+(\d+)\s*$`)
+	blockBioRemapRE     = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\+\s+(\d+)\s+<-\s+\(([^\r\n)]+)\)\s+(\d+)\s*$`)
+	blockRemapLegacyRE  = regexp.MustCompile(`^(\S+)\s+(\d+)\s+\+\s+(\d+)\s+<-\s+\(([^\r\n)]+)\)\s+(\d+)\s*$`)
+	blockErrorRE        = regexp.MustCompile(`\[([^\]]+)\]\s*$`)
 )
 
 var spaceKVKeys = map[string]struct{}{
@@ -2759,7 +2764,7 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 			ev.PluginFields = &PluginFields{SpanTrack: intern.intern(parsed.track)}
 		}
 	case EventBlockIssue, EventBlockComplete:
-		dev, op, sector, length, identityValid := parseBlockRequestValidated(fields)
+		dev, op, sector, length, identityValid := parseBlockRequestValidated(rawType, fields)
 		bf := &BlockIOFields{
 			Dev:            intern.intern(dev),
 			Op:             intern.intern(op),
@@ -2773,13 +2778,18 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 		}
 		ev.BlockIOFields = bf
 	case EventBlockRemap:
-		dev, sector, length, srcDev, srcSector := parseBlockRemap(fields)
+		remap := parseBlockRemapValidated(rawType, fields)
 		ev.BlockIOFields = &BlockIOFields{
-			Dev:       intern.intern(dev),
-			Sector:    sector,
-			Len:       length,
-			SrcDev:    intern.intern(srcDev),
-			SrcSector: srcSector,
+			Dev:              intern.intern(remap.Dev),
+			Op:               intern.intern(remap.Op),
+			Sector:           remap.Sector,
+			Len:              remap.Len,
+			SrcDev:           intern.intern(remap.SrcDev),
+			SrcSector:        remap.SrcSector,
+			RemapBios:        remap.NrBios,
+			RemapBiosPresent: remap.NrBiosPresent,
+			IdentityParsed:   true,
+			IdentityValid:    remap.Valid,
 		}
 	case EventBinderTransaction:
 		ev.BinderFields = &BinderFields{
@@ -3234,12 +3244,61 @@ func populatePluginFields(ev *Event, rawType string, kv map[string]string, inter
 	pl.Category = intern.intern(firstNonEmpty(kv["category"], kv["level"], kv["tag"], kv["scene"]))
 }
 
-func parseBlockRemap(fields string) (dev string, sector, length int64, srcDev string, srcSector int64) {
-	m := blockRemapRE.FindStringSubmatch(strings.TrimSpace(fields))
-	if len(m) != 6 {
-		return "", 0, 0, "", 0
+type parsedBlockRemap struct {
+	Dev, Op, SrcDev string
+	Sector, Len     int64
+	SrcSector       int64
+	NrBios          int64
+	NrBiosPresent   bool
+	Valid           bool
+}
+
+func parseBlockRemapValidated(rawType, fields string) parsedBlockRemap {
+	trimmed := strings.TrimSpace(fields)
+	switch strings.ToLower(strings.TrimSpace(rawType)) {
+	case "block_rq_remap":
+		if m := blockRQRemapRE.FindStringSubmatch(trimmed); len(m) == 8 {
+			return buildParsedBlockRemap(m[1], m[2], m[3], m[4], m[5], m[6], m[7])
+		}
+	case "block_bio_remap":
+		if m := blockBioRemapRE.FindStringSubmatch(trimmed); len(m) == 7 {
+			return buildParsedBlockRemap(m[1], m[2], m[3], m[4], m[5], m[6], "")
+		}
+		if m := blockRemapLegacyRE.FindStringSubmatch(trimmed); len(m) == 6 {
+			return buildParsedBlockRemap(m[1], "", m[2], m[3], m[4], m[5], "")
+		}
 	}
-	return m[1], atoi64(m[2]), atoi64(m[3]), strings.TrimSpace(m[4]), atoi64(m[5])
+	return parsedBlockRemap{}
+}
+
+func buildParsedBlockRemap(devRaw, op, sectorRaw, lenRaw, srcDevRaw, srcSectorRaw, nrBiosRaw string) parsedBlockRemap {
+	dev, devOK := canonicalBlockDevice(devRaw)
+	srcDev, srcDevOK := canonicalBlockDevice(srcDevRaw)
+	sector, sectorErr := strconv.ParseInt(sectorRaw, 10, 64)
+	length, lengthErr := strconv.ParseInt(lenRaw, 10, 64)
+	srcSector, srcSectorErr := strconv.ParseInt(srcSectorRaw, 10, 64)
+	parsed := parsedBlockRemap{
+		Dev: dev, Op: strings.TrimSpace(op), SrcDev: srcDev,
+		Sector: sector, Len: length, SrcSector: srcSector,
+	}
+	if nrBiosRaw != "" {
+		parsed.NrBiosPresent = true
+		parsed.NrBios, _ = strconv.ParseInt(nrBiosRaw, 10, 64)
+	}
+	parsed.Valid = devOK && srcDevOK && sectorErr == nil && lengthErr == nil && srcSectorErr == nil &&
+		sector >= 0 && length >= 0 && length <= maxBlockSectorCount && srcSector >= 0 &&
+		(parsed.Op == "" || validBlockOperationToken(parsed.Op))
+	if parsed.NrBiosPresent {
+		_, nrErr := strconv.ParseUint(nrBiosRaw, 10, 32)
+		parsed.Valid = parsed.Valid && nrErr == nil
+	}
+	if !parsed.Valid {
+		// IdentityValid is deliberately not part of the public JSON surface.
+		// Therefore an invalid row must not publish partial typed values or a
+		// presence bit that could be mistaken for an exact encoded zero.
+		return parsedBlockRemap{}
+	}
+	return parsed
 }
 
 func parseBlockError(fields string) string {
@@ -3301,7 +3360,7 @@ func classifyEventType(comm, raw, fields string) EventType {
 		return EventCPUFrequency
 	case raw == "block_rq_issue" || raw == "block_rq_insert" || raw == "block_getrq" || raw == "block_bio_queue":
 		return EventBlockIssue
-	case raw == "block_bio_remap":
+	case raw == "block_bio_remap" || raw == "block_rq_remap":
 		return EventBlockRemap
 	case raw == "block_rq_complete" || raw == "block_bio_complete":
 		return EventBlockComplete

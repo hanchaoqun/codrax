@@ -192,10 +192,9 @@ func renderEventBody(ev decodedEvent, content []byte, cpu int) (string, bool) {
 		return renderKV(ev, "state", "cpu_id"), true
 	case "clock_set_rate":
 		return renderClockSetRate(ev, content)
-	case "block_rq_issue", "block_rq_complete":
-		return renderBlockRequest(ev, content), true
-	case "block_bio_remap":
-		return renderBlockRemap(ev), true
+	case "block_rq_issue", "block_rq_insert", "block_rq_complete", "block_rq_remap",
+		"block_bio_queue", "block_bio_complete", "block_bio_remap":
+		return renderDirectBlockEvent(ev, content)
 	case "filemap_set_wb_err":
 		return renderFilemapSetWBErr(ev), true
 	case "mm_filemap_add_to_page_cache", "mm_filemap_delete_from_page_cache":
@@ -469,32 +468,6 @@ func traceDBSingleToken(value string) bool {
 	return true
 }
 
-func renderBlockRequest(ev decodedEvent, content []byte) string {
-	dev := blockDevText(ev, "dev", "dev_t")
-	rwbs := firstNonEmpty(strField(ev, "rwbs[8]"), strField(ev, "rwbs[16]"), strField(ev, "cmd[16]"), "RW")
-	sector := intField(ev, "sector", false)
-	nr := firstNonZero(intField(ev, "nr_sector", false), intField(ev, "nr_bytes", false), intField(ev, "bytes", false))
-	cmd := firstNonEmpty(dataLocStringByCleanName(ev, content, "cmd"), strField(ev, "cmd[16]"), strField(ev, "cmd[32]"))
-	if ev.format.Name == "block_rq_complete" {
-		return fmt.Sprintf("%s %s (%s) %d + %d [%d]", dev, rwbs, cmd, sector, nr, intField(ev, "error", true))
-	}
-	comm := firstNonEmpty(strField(ev, "comm[16]"), strField(ev, "comm[32]"))
-	bytesValue := intField(ev, "bytes", false)
-	return fmt.Sprintf("%s %s %d (%s) %d + %d [%s]", dev, rwbs, bytesValue, cmd, sector, nr, comm)
-}
-
-func renderBlockRemap(ev decodedEvent) string {
-	dev := blockDevText(ev, "dev", "dev_t")
-	sector := intField(ev, "sector", false)
-	nr := firstNonZero(intField(ev, "nr_sector", false), intField(ev, "nr_bytes", false), intField(ev, "bytes", false))
-	oldDev := blockDevText(ev, "old_dev", "from")
-	oldSector := intField(ev, "old_sector", false)
-	if rwbs := firstNonEmpty(strField(ev, "rwbs[8]"), strField(ev, "rwbs[16]")); rwbs != "" {
-		return fmt.Sprintf("%s %s %d + %d <- (%s) %d", dev, rwbs, sector, nr, oldDev, oldSector)
-	}
-	return fmt.Sprintf("%s %d + %d <- (%s) %d", dev, sector, nr, oldDev, oldSector)
-}
-
 func renderFilemapSetWBErr(ev decodedEvent) string {
 	sDev := firstNonZero(intField(ev, "s_dev", false), intField(ev, "dev", false))
 	return fmt.Sprintf("dev=%s ino=0x%x errseq=0x%x",
@@ -674,18 +647,6 @@ func safeOptionalCleanString(ev decodedEvent, content []byte, names ...string) s
 		return ""
 	}
 	return value
-}
-
-func blockDevText(ev decodedEvent, names ...string) string {
-	for _, name := range names {
-		if hasField(ev, name) {
-			return devMajorMinor(intField(ev, name, false), ",")
-		}
-	}
-	if s := strField(ev, "devname[32]"); s != "" {
-		return s
-	}
-	return "0,0"
 }
 
 func devMajorMinor(dev int64, sep string) string {

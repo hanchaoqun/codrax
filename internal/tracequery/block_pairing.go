@@ -17,6 +17,7 @@ const (
 const (
 	blockEndpointFamilyRQ  = "block_rq"
 	blockEndpointFamilyBIO = "block_bio"
+	maxBlockSectorCount    = int64(1<<32 - 1)
 )
 
 // blockLatencyEndpoint is the single closed-set admission gate for elapsed
@@ -50,27 +51,78 @@ func blockLatencyEndpoint(ev Event) (family string, phase blockEndpointPhase, ok
 }
 
 // parseBlockRequestValidated preserves presence independently from the numeric
-// value. ParseInt is deliberately strict: an overflowed decimal cannot become
-// sector 0 or len 0. Sector zero is legal; length must be positive.
-func parseBlockRequestValidated(fields string) (dev, op string, sector, length int64, valid bool) {
+// value and selects one exact event-family profile. In particular, an RQ issue
+// must carry its uint32 byte count while an RQ completion must not; BIO rows use
+// their simple profile. This prevents a malformed body from borrowing another
+// event family's grammar and minting an elapsed-latency endpoint.
+func parseBlockRequestValidated(rawType, fields string) (dev, op string, sector, length int64, valid bool) {
 	trimmed := strings.TrimSpace(fields)
-	m := blockRequestRE.FindStringSubmatch(trimmed)
-	if len(m) != 5 {
-		m = blockSimpleRE.FindStringSubmatch(trimmed)
-	}
-	if len(m) != 5 {
+	var devRaw, opRaw, sectorRaw, lengthRaw string
+	switch strings.ToLower(strings.TrimSpace(rawType)) {
+	case "block_rq_issue":
+		m := blockRQIssueRE.FindStringSubmatch(trimmed)
+		if len(m) != 6 || !blockUnsignedFits(m[3], 32) {
+			return "", "", 0, 0, false
+		}
+		devRaw, opRaw, sectorRaw, lengthRaw = m[1], m[2], m[4], m[5]
+	case "block_rq_complete":
+		m := blockRQCompleteRE.FindStringSubmatch(trimmed)
+		if len(m) != 6 || !blockSignedFits(m[5], 32) {
+			return "", "", 0, 0, false
+		}
+		devRaw, opRaw, sectorRaw, lengthRaw = m[1], m[2], m[3], m[4]
+	case "block_bio_queue":
+		m := blockBioQueueRE.FindStringSubmatch(trimmed)
+		if len(m) != 5 {
+			return "", "", 0, 0, false
+		}
+		devRaw, opRaw, sectorRaw, lengthRaw = m[1], m[2], m[3], m[4]
+	case "block_bio_complete":
+		m := blockBioCompleteRE.FindStringSubmatch(trimmed)
+		if len(m) != 6 || !blockSignedFits(m[5], 32) {
+			return "", "", 0, 0, false
+		}
+		devRaw, opRaw, sectorRaw, lengthRaw = m[1], m[2], m[3], m[4]
+	case "block_rq_insert":
+		// RQ insert is inventory-only. Prefer the modern RQ profile, but keep
+		// the historical simple formatter shape without admitting either as
+		// a latency endpoint.
+		if m := blockRQIssueRE.FindStringSubmatch(trimmed); len(m) == 6 && blockUnsignedFits(m[3], 32) {
+			devRaw, opRaw, sectorRaw, lengthRaw = m[1], m[2], m[4], m[5]
+		} else if m := blockSimpleLegacyRE.FindStringSubmatch(trimmed); len(m) == 5 {
+			devRaw, opRaw, sectorRaw, lengthRaw = m[1], m[2], m[3], m[4]
+		} else {
+			return "", "", 0, 0, false
+		}
+	case "block_getrq":
+		m := blockSimpleLegacyRE.FindStringSubmatch(trimmed)
+		if len(m) != 5 {
+			return "", "", 0, 0, false
+		}
+		devRaw, opRaw, sectorRaw, lengthRaw = m[1], m[2], m[3], m[4]
+	default:
 		return "", "", 0, 0, false
 	}
-	sector, sectorErr := strconv.ParseInt(m[3], 10, 64)
-	length, lengthErr := strconv.ParseInt(m[4], 10, 64)
-	dev = strings.TrimSpace(m[1])
-	op = strings.TrimSpace(m[2])
-	valid = sectorErr == nil && lengthErr == nil && dev != "" && op != "" && sector >= 0 &&
-		((length > 0 && length <= (1<<63-1)/512) || blockOperationAllowsZeroLength(op, sector, length))
+	sector, sectorErr := strconv.ParseInt(sectorRaw, 10, 64)
+	length, lengthErr := strconv.ParseInt(lengthRaw, 10, 64)
+	dev, devOK := canonicalBlockDevice(devRaw)
+	op = strings.TrimSpace(opRaw)
+	valid = sectorErr == nil && lengthErr == nil && devOK && blockDeviceIdentifiesRequest(dev) && validBlockOperationToken(op) && sector >= 0 &&
+		((length > 0 && length <= maxBlockSectorCount) || blockOperationAllowsZeroLength(op, sector, length))
 	if !valid {
 		return dev, op, 0, 0, false
 	}
 	return dev, op, sector, length, true
+}
+
+func blockUnsignedFits(raw string, bits int) bool {
+	_, err := strconv.ParseUint(raw, 10, bits)
+	return err == nil
+}
+
+func blockSignedFits(raw string, bits int) bool {
+	_, err := strconv.ParseInt(raw, 10, bits)
+	return err == nil
 }
 
 func blockRequestIdentityValid(ev Event) bool {
@@ -79,13 +131,66 @@ func blockRequestIdentityValid(ev Event) bool {
 		return false
 	}
 	if blk.IdentityParsed {
-		return blk.IdentityValid && blk.Dev != "" && blk.Op != "" && blk.Sector >= 0 &&
-			((blk.Len > 0 && blk.Len <= (1<<63-1)/512) || blockOperationAllowsZeroLength(blk.Op, blk.Sector, blk.Len))
+		dev, devOK := canonicalBlockDevice(blk.Dev)
+		return blk.IdentityValid && devOK && blockDeviceIdentifiesRequest(dev) && validBlockOperationToken(blk.Op) && blk.Sector >= 0 &&
+			((blk.Len > 0 && blk.Len <= maxBlockSectorCount) || blockOperationAllowsZeroLength(blk.Op, blk.Sector, blk.Len))
 	}
 	// Compatibility lane for manually constructed Events. A zero sector is
 	// accepted because its presence cannot be represented in the old shape.
-	return blk.Dev != "" && blk.Op != "" && blk.Sector >= 0 &&
-		((blk.Len > 0 && blk.Len <= (1<<63-1)/512) || blockOperationAllowsZeroLength(blk.Op, blk.Sector, blk.Len))
+	dev, devOK := canonicalBlockDevice(blk.Dev)
+	return devOK && blockDeviceIdentifiesRequest(dev) && validBlockOperationToken(blk.Op) && blk.Sector >= 0 &&
+		((blk.Len > 0 && blk.Len <= maxBlockSectorCount) || blockOperationAllowsZeroLength(blk.Op, blk.Sector, blk.Len))
+}
+
+func canonicalBlockDevice(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	separator := ","
+	if strings.Count(raw, ",") == 0 && strings.Count(raw, ":") == 1 {
+		separator = ":"
+	} else if strings.Count(raw, ",") != 1 || strings.Count(raw, ":") != 0 {
+		return "", false
+	}
+	parts := strings.Split(raw, separator)
+	if len(parts) != 2 || !blockDecimalDigits(parts[0]) || !blockDecimalDigits(parts[1]) {
+		return "", false
+	}
+	major, majorErr := strconv.ParseUint(parts[0], 10, 32)
+	minor, minorErr := strconv.ParseUint(parts[1], 10, 32)
+	if majorErr != nil || minorErr != nil || major > 0xfff || minor > 0xfffff {
+		return "", false
+	}
+	return fmt.Sprintf("%d,%d", major, minor), true
+}
+
+func blockDecimalDigits(raw string) bool {
+	if raw == "" {
+		return false
+	}
+	for i := 0; i < len(raw); i++ {
+		if raw[i] < '0' || raw[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// Linux publishes dev_t==0 as the exact unnamed/null-device sentinel when a
+// request has no rq_disk. Preserve it in the event inventory, but never let
+// unrelated anonymous requests share it as a physical latency identity.
+func blockDeviceIdentifiesRequest(dev string) bool {
+	return dev != "" && dev != "0,0"
+}
+
+func validBlockOperationToken(op string) bool {
+	if op == "" || op != strings.TrimSpace(op) || len(op) > 32 {
+		return false
+	}
+	for _, r := range op {
+		if !((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z')) {
+			return false
+		}
+	}
+	return true
 }
 
 // blockOperationAllowsZeroLength admits the kernel's exact flush request
@@ -119,9 +224,10 @@ func blockIdentity(ev Event) (blockRequestIdentity, bool) {
 		return blockRequestIdentity{}, false
 	}
 	blk := ev.BlockIOFields
+	dev, _ := canonicalBlockDevice(blk.Dev)
 	return blockRequestIdentity{
 		Family: family,
-		Dev:    blk.Dev,
+		Dev:    dev,
 		Op:     blk.Op,
 		Sector: blk.Sector,
 		Len:    blk.Len,

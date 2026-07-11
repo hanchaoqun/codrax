@@ -283,7 +283,11 @@ func TestGenericStorageClosedPrefixDoesNotPolluteWindow(t *testing.T) {
 	}
 }
 
-func TestBlockTypedTupleKeyCannotCollideOnSlashTokens(t *testing.T) {
+func TestBlockTypedTupleKeyCannotCollideAndInvalidTokensFailClosed(t *testing.T) {
+	if (blockRequestIdentity{Family: "block", Dev: "a/b", Op: "c", Sector: 1, Len: 1}).laneKey() ==
+		(blockRequestIdentity{Family: "block", Dev: "a", Op: "b/c", Sector: 1, Len: 1}).laneKey() {
+		t.Fatal("typed tuple dimensions collapsed through display punctuation")
+	}
 	fields := func(dev, op string) *BlockIOFields {
 		return &BlockIOFields{Dev: dev, Op: op, Sector: 1, Len: 1, IdentityParsed: true, IdentityValid: true}
 	}
@@ -295,8 +299,8 @@ func TestBlockTypedTupleKeyCannotCollideOnSlashTokens(t *testing.T) {
 	if len(stats.IOLatencies) != 0 {
 		t.Fatalf("slash-bearing tuple dimensions collided into a false pair: %+v", stats.IOLatencies)
 	}
-	if !containsSubstring(stats.Caveats, "block_io_pairing_unpaired=true") {
-		t.Fatalf("separate slash-bearing identities were not disclosed as unpaired: %+v", stats.Caveats)
+	if !containsSubstring(stats.Caveats, "block_io_pairing_identity_invalid=true") {
+		t.Fatalf("slash-bearing non-wire identities were not rejected explicitly: %+v", stats.Caveats)
 	}
 }
 

@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const ParserVersion = "tracequery-v20"
+const ParserVersion = "tracequery-v21"
 
 type EventType string
 
@@ -274,13 +274,15 @@ type BinderFields struct {
 
 // BlockIOFields is the block_* event-family side table.
 type BlockIOFields struct {
-	Dev       string `json:"block_dev,omitempty"`
-	Op        string `json:"block_op,omitempty"`
-	Sector    int64  `json:"block_sector,omitempty"`
-	Len       int64  `json:"block_len,omitempty"`
-	Error     string `json:"block_error,omitempty"`
-	SrcDev    string `json:"block_src_dev,omitempty"`
-	SrcSector int64  `json:"block_src_sector,omitempty"`
+	Dev              string `json:"block_dev,omitempty"`
+	Op               string `json:"block_op,omitempty"`
+	Sector           int64  `json:"block_sector,omitempty"`
+	Len              int64  `json:"block_len,omitempty"`
+	Error            string `json:"block_error,omitempty"`
+	SrcDev           string `json:"block_src_dev,omitempty"`
+	SrcSector        int64  `json:"block_src_sector,omitempty"`
+	RemapBios        int64  `json:"block_remap_bios,omitempty"`
+	RemapBiosPresent bool   `json:"block_remap_bios_present,omitempty"`
 	// IdentityParsed distinguishes production parser output from hand-built
 	// compatibility Events. Production block endpoints must carry an explicit,
 	// fully validated dev/op/sector/len tuple; in particular sector=0 is valid,

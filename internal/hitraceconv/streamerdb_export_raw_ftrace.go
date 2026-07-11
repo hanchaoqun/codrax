@@ -214,7 +214,7 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 			traceDBRawCountSkip(classSkipped, class, "unknown_cpu")
 			continue
 		}
-		body, ok := traceDBRenderRawFtrace(raw.Name, args)
+		body, ok := traceDBRenderRawFtrace(raw.Name, args, argsets.InvalidKeys[raw.ArgSetID])
 		if !ok {
 			continue
 		}
@@ -363,7 +363,8 @@ func traceDBRawFtraceClass(name string) string {
 	switch {
 	case strings.HasPrefix(lower, "binder_"):
 		return "binder"
-	case lower == "block_rq_issue" || lower == "block_rq_insert" || lower == "block_rq_complete" || lower == "block_bio_remap" ||
+	case lower == "block_rq_issue" || lower == "block_rq_insert" || lower == "block_rq_complete" || lower == "block_rq_remap" ||
+		lower == "block_bio_queue" || lower == "block_bio_complete" || lower == "block_bio_remap" ||
 		strings.HasPrefix(lower, "ufshcd_") || strings.HasPrefix(lower, "mmc_request_") || strings.HasPrefix(lower, "scsi_dispatch_cmd"):
 		return "block_storage"
 	case strings.HasPrefix(lower, "android_fs_dataread") || strings.HasPrefix(lower, "android_fs_datawrite") ||
@@ -380,15 +381,14 @@ func traceDBRawFtraceClass(name string) string {
 	}
 }
 
-func traceDBRenderRawFtrace(name string, args map[string]traceDBValue) (string, bool) {
+func traceDBRenderRawFtrace(name string, args map[string]traceDBValue, invalidKeys map[string]bool) (string, bool) {
 	lower := strings.ToLower(strings.TrimSpace(name))
 	switch {
 	case strings.HasPrefix(lower, "binder_"):
 		return traceDBRenderRawBinder(name, args)
-	case lower == "block_rq_issue" || lower == "block_rq_insert" || lower == "block_rq_complete":
-		return traceDBRenderRawBlockRequest(name, args), true
-	case lower == "block_bio_remap":
-		return traceDBRenderRawBlockRemap(name, args), true
+	case lower == "block_rq_issue" || lower == "block_rq_insert" || lower == "block_rq_complete" || lower == "block_rq_remap" ||
+		lower == "block_bio_queue" || lower == "block_bio_complete" || lower == "block_bio_remap":
+		return renderTraceDBBlockEvent(name, args, invalidKeys)
 	case strings.HasPrefix(lower, "android_fs_dataread") || strings.HasPrefix(lower, "android_fs_datawrite"):
 		return traceDBRenderRawFileIO(name, args, "bytes"), true
 	case strings.HasPrefix(lower, "f2fs_direct_io") || strings.HasPrefix(lower, "f2fs_sync_file"):
@@ -472,27 +472,10 @@ func traceDBRawRequiredArgs(name string, args map[string]traceDBValue, invalidKe
 			traceDBRawIntegerAlias(args, invalidKeys, true, 1, math.MaxInt64, "transaction", "debug_id", "transaction_id")
 	case "binder_transaction_lock", "binder_lock", "binder_transaction_locked", "binder_locked", "binder_transaction_unlock", "binder_unlock":
 		return require([]string{"tag"}) && traceDBRawWireTextAlias(args, invalidKeys, true, "tag")
-	case "block_rq_issue", "block_rq_insert":
-		return require([]string{"dev", "dev_t"}, []string{"sector", "lba"}, []string{"nr_sector", "nr_sectors", "sectors"}) &&
-			requireAny("rwbs", "rw", "op") && optional([]string{"rwbs", "rw"}, []string{"cmd", "opcode"}, []string{"comm"}) &&
-			traceDBRawDeviceAlias(args, invalidKeys, "dev", "dev_t") && traceDBRawAnyWireText(args, invalidKeys, "rwbs", "rw", "op") &&
-			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "sector", "lba") &&
-			traceDBRawBlockSectorCountValid(args, invalidKeys)
-	case "block_rq_complete":
-		return require([]string{"dev", "dev_t"}, []string{"sector", "lba"}, []string{"nr_sector", "nr_sectors", "sectors"},
-			[]string{"error", "ret", "res"}) && requireAny("rwbs", "rw", "op") &&
-			optional([]string{"rwbs", "rw"}, []string{"cmd", "opcode"}) &&
-			traceDBRawDeviceAlias(args, invalidKeys, "dev", "dev_t") && traceDBRawAnyWireText(args, invalidKeys, "rwbs", "rw", "op") &&
-			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "sector", "lba") &&
-			traceDBRawBlockSectorCountValid(args, invalidKeys) &&
-			traceDBRawIntegerAlias(args, invalidKeys, true, math.MinInt64, math.MaxInt64, "error", "ret", "res")
-	case "block_bio_remap":
-		return require([]string{"dev", "dev_t"}, []string{"sector"}, []string{"nr_sector", "nr_sectors", "sectors"},
-			[]string{"old_dev", "from"}, []string{"old_sector", "from_sector"}) &&
-			traceDBRawDeviceAlias(args, invalidKeys, "dev", "dev_t") && traceDBRawDeviceAlias(args, invalidKeys, "old_dev", "from") &&
-			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "sector") &&
-			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "nr_sector", "nr_sectors", "sectors") &&
-			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "old_sector", "from_sector")
+	case "block_rq_issue", "block_rq_insert", "block_rq_complete", "block_rq_remap",
+		"block_bio_queue", "block_bio_complete", "block_bio_remap":
+		_, ok := decodeTraceDBBlockPayload(lower, args, invalidKeys)
+		return ok
 	case "mmc_request_start":
 		return require([]string{"name", "dev_name"}, []string{"tag"}, []string{"cmd_opcode", "opcode"},
 			[]string{"blocks"}, []string{"block_size"}, []string{"blk_addr", "lba"}) &&
@@ -692,25 +675,6 @@ func traceDBRawDeviceAlias(args map[string]traceDBValue, invalidKeys map[string]
 	return majorErr == nil && minorErr == nil
 }
 
-func traceDBRawBlockSectorCountValid(args map[string]traceDBValue, invalidKeys map[string]bool) bool {
-	if !traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "nr_sector", "nr_sectors", "sectors") {
-		return false
-	}
-	text, ok := traceDBRawValidatedAlias(args, invalidKeys, true, "nr_sector", "nr_sectors", "sectors")
-	if !ok {
-		return false
-	}
-	count, err := strconv.ParseInt(text, 10, 64)
-	if err != nil || count < 0 {
-		return false
-	}
-	if count > 0 {
-		return true
-	}
-	operation := strings.ToUpper(traceDBRawArg(args, "", "rwbs", "rw", "op"))
-	return strings.Contains(operation, "F")
-}
-
 func traceDBRawNonZeroPointer(args map[string]traceDBValue, invalidKeys map[string]bool, names ...string) bool {
 	text, ok := traceDBRawValidatedAlias(args, invalidKeys, true, names...)
 	if !ok {
@@ -772,28 +736,6 @@ func traceDBRenderRawBinder(name string, args map[string]traceDBValue) (string, 
 	default:
 		return "", false
 	}
-}
-
-func traceDBRenderRawBlockRequest(name string, args map[string]traceDBValue) string {
-	dev := traceDBRawDevArg(args, ",", "dev", "dev_t")
-	op := traceDBRawArg(args, "RW", "rwbs", "rw", "op", "cmd")
-	sector := traceDBRawArg(args, "0", "sector", "lba")
-	blocks := traceDBRawArg(args, "0", "nr_sector", "nr_sectors", "sectors", "len", "length", "bytes", "nr_bytes")
-	cmd := traceDBRawArg(args, "", "cmd", "opcode")
-	if strings.EqualFold(name, "block_rq_complete") {
-		errText := traceDBRawArg(args, "0", "error", "ret", "res")
-		return fmt.Sprintf("%s: %s %s (%s) %s + %s [%s]", name, dev, op, cmd, sector, blocks, errText)
-	}
-	return fmt.Sprintf("%s: %s %s 0 (%s) %s + %s [%s]", name, dev, op, cmd, sector, blocks, traceDBRawArg(args, "", "comm"))
-}
-
-func traceDBRenderRawBlockRemap(name string, args map[string]traceDBValue) string {
-	dev := traceDBRawDevArg(args, ",", "dev", "dev_t")
-	sector := traceDBRawArg(args, "0", "sector")
-	blocks := traceDBRawArg(args, "0", "nr_sector", "nr_sectors", "len", "length")
-	oldDev := traceDBRawDevArg(args, ",", "old_dev", "from")
-	oldSector := traceDBRawArg(args, "0", "old_sector", "from_sector")
-	return fmt.Sprintf("%s: %s %s + %s <- (%s) %s", name, dev, sector, blocks, oldDev, oldSector)
 }
 
 func traceDBRenderRawFileIO(name string, args map[string]traceDBValue, sizeKey string) string {

@@ -765,7 +765,7 @@ func TestExportTraceDBRawFtraceRootCauseEvidence(t *testing.T) {
 	for _, want := range []string{
 		"binder_transaction: transaction=42 dest_node=9 dest_proc=500 dest_thread=700 reply=0 flags=0x12 code=0x4",
 		"android_fs_dataread_start: dev=260:136 ino=12345 entry_name=foo.db offset=0 bytes=4096 rw=read",
-		"block_rq_issue: 8,0 R 0 (READ) 128 + 8",
+		"block_rq_issue: 8,0 R 4096 (READ) 128 + 8",
 		"scsi_dispatch_cmd_start: tag=7 dev=8:0 lba=4096 len=8 opcode=READ_10",
 		"mm_filemap_add_to_page_cache: dev=260:136 ino=12345",
 		"workqueue_execute_start: work=0xabc function=0xdef",
@@ -933,6 +933,7 @@ func rawFtraceRootCauseFixtureStatements() []string {
 		addArg(argset, "sector", 128)
 		addArg(argset, "nr_sector", 8)
 	}
+	addArg(300, "bytes", 4096)
 	addRaw(8, 5000, "block_rq_issue", 3, 3, 300)
 	addArg(301, "error", 0)
 	addRaw(9, 9000, "block_rq_complete", 3, 3, 301)

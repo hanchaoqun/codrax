@@ -331,24 +331,9 @@ func renderProfilerFtraceEventBody(event profilerFtraceEventRecord) (string, str
 			protoInt(event.Payload, 5), protoUint(event.Payload, 7), protoUint(event.Payload, 6)), true
 	case 119:
 		return "binder_transaction_received", fmt.Sprintf("transaction=%d", protoInt(event.Payload, 1)), true
-	case 209:
-		return "block_rq_complete", fmt.Sprintf("%s %s (%s) %d + %d [%d]",
-			devMajorMinor(int64(protoUint(event.Payload, 1)), ":"), firstNonEmpty(protoString(event.Payload, 5), "RW"),
-			protoString(event.Payload, 6), protoUint(event.Payload, 2), protoUint(event.Payload, 3), protoInt(event.Payload, 4)), true
-	case 210, 211:
-		name := "block_rq_insert"
-		if event.Field == 211 {
-			name = "block_rq_issue"
-		}
-		return name, fmt.Sprintf("%s %s %d (%s) %d + %d [%s]",
-			devMajorMinor(int64(protoUint(event.Payload, 1)), ":"), firstNonEmpty(protoString(event.Payload, 5), "RW"),
-			protoUint(event.Payload, 4), protoString(event.Payload, 7), protoUint(event.Payload, 2), protoUint(event.Payload, 3),
-			protoString(event.Payload, 6)), true
-	case 212:
-		return "block_rq_remap", fmt.Sprintf("%s %s %d + %d <- (%s) %d",
-			devMajorMinor(int64(protoUint(event.Payload, 1)), ":"), firstNonEmpty(protoString(event.Payload, 7), "RW"),
-			protoUint(event.Payload, 2), protoUint(event.Payload, 3), devMajorMinor(int64(protoUint(event.Payload, 4)), ":"),
-			protoUint(event.Payload, 5)), true
+	case 202, 204, 205, 209, 210, 211, 212:
+		name, body, ok, _ := renderProfilerBlockEvent(event)
+		return name, body, ok
 	case 410:
 		// Field 410 is clk.proto ClkSetRateFormat{name, rate}; unlike the
 		// power event at field 2002 it has no cpu_id. Keep the established
@@ -542,6 +527,9 @@ func protoString(data []byte, field int) string {
 func renderProfilerFtraceEventBodyWithAudit(event profilerFtraceEventRecord) (string, string, bool, []string) {
 	if len(event.EnvelopeDegradations) > 0 {
 		return "", "", false, append([]string(nil), event.EnvelopeDegradations...)
+	}
+	if _, _, blockEvent := blockRenderKindForProfilerField(event.Field); blockEvent {
+		return renderProfilerBlockEvent(event)
 	}
 	coreOK, degradations := profilerFtraceCoreWireAudit(event)
 	if !coreOK {
@@ -737,6 +725,42 @@ func profilerFtraceEventRenderCoverage(coverageByField map[int]*TraceDBCoverage,
 		coverage.Family = "builtin_modern_ftrace:" + desc.Family
 		coverage.Table = desc.Name
 		switch field {
+		case 202:
+			coverage.FieldSources = map[string]string{
+				"schema_profile":   "block.proto BlockBioCompleteFormat{dev=1,sector=2,nr_sector=3,error=4,rwbs=5}",
+				"pairing_identity": "dev+rwbs+sector+nr_sector; error never substitutes",
+				"scalar_presence":  "pinned producer set_* profile: proto3 scalar absence is exact zero; malformed/wrong-wire/duplicate fail closed",
+			}
+		case 204:
+			coverage.FieldSources = map[string]string{
+				"schema_profile":   "block.proto BlockBioQueueFormat{dev=1,sector=2,nr_sector=3,rwbs=4,comm=5}",
+				"pairing_identity": "dev+rwbs+sector+nr_sector; comm never substitutes",
+				"scalar_presence":  "pinned producer set_* profile: proto3 scalar absence is exact zero; malformed/wrong-wire/duplicate fail closed",
+			}
+		case 205:
+			coverage.FieldSources = map[string]string{
+				"schema_profile":   "block.proto BlockBioRemapFormat{dev=1,sector=2,nr_sector=3,old_dev=4,old_sector=5,rwbs=6}",
+				"pairing_identity": "remap inventory only; no other field substitutes",
+				"scalar_presence":  "pinned producer set_* profile: proto3 scalar absence is exact zero; malformed/wrong-wire/duplicate fail closed",
+			}
+		case 209:
+			coverage.FieldSources = map[string]string{
+				"schema_profile":   "block.proto BlockRqCompleteFormat{dev=1,sector=2,nr_sector=3,error=4,rwbs=5,cmd=6}",
+				"pairing_identity": "dev+rwbs+sector+nr_sector; bytes/cmd/comm/error never substitute",
+				"scalar_presence":  "pinned producer set_* profile: proto3 scalar absence is exact zero; malformed/wrong-wire/duplicate fail closed",
+			}
+		case 210, 211:
+			coverage.FieldSources = map[string]string{
+				"schema_profile":   "block.proto BlockRqInsert/IssueFormat{dev=1,sector=2,nr_sector=3,bytes=4,rwbs=5,comm=6,cmd=7}",
+				"pairing_identity": "dev+rwbs+sector+nr_sector; bytes/cmd/comm/error never substitute",
+				"scalar_presence":  "pinned producer set_* profile: proto3 scalar absence is exact zero; malformed/wrong-wire/duplicate fail closed",
+			}
+		case 212:
+			coverage.FieldSources = map[string]string{
+				"schema_profile":   "block.proto BlockRqRemapFormat{dev=1,sector=2,nr_sector=3,old_dev=4,old_sector=5,nr_bios=6,rwbs=7}",
+				"pairing_identity": "remap inventory only; bytes/cmd/comm/error never substitute",
+				"scalar_presence":  "pinned producer set_* profile: proto3 scalar absence is exact zero; malformed/wrong-wire/duplicate fail closed",
+			}
 		case 410:
 			coverage.FieldSources = map[string]string{
 				"schema_profile": "clk.proto ClkSetRateFormat{name=1,rate=2}",

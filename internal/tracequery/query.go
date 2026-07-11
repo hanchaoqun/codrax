@@ -1147,7 +1147,7 @@ func eventMatchesPattern(ev Event, pattern string) bool {
 	}
 	if blk := ev.BlockIOFields; blk != nil {
 		candidates = append(candidates, blk.Dev, blk.Op, blk.Error, blk.SrcDev)
-		int64s = append(int64s, blk.Sector, blk.Len, blk.SrcSector)
+		int64s = append(int64s, blk.Sector, blk.Len, blk.SrcSector, blk.RemapBios)
 	}
 	if rf := ev.ResourceFields; rf != nil {
 		candidates = append(candidates, rf.Path, rf.Op, rf.Address, rf.Callstack)

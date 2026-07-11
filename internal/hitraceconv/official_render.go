@@ -97,10 +97,9 @@ func renderOfficialOpenHarmonyBody(ev decodedEvent, content []byte, cpu int) (st
 			intByCleanName(ev, "ino", false), intByCleanName(ev, "ret", true)), true
 	case strings.HasPrefix(lowerName, "ext4_direct_io"):
 		return renderExt4DirectIO(ev, content), true
-	case name == "block_bio_remap":
-		return renderBlockRemap(ev), true
-	case name == "block_rq_issue" || name == "block_rq_insert" || name == "block_rq_complete":
-		return renderBlockRequest(ev, content), true
+	case name == "block_bio_queue" || name == "block_bio_complete" || name == "block_bio_remap" ||
+		name == "block_rq_remap" || name == "block_rq_issue" || name == "block_rq_insert" || name == "block_rq_complete":
+		return renderDirectBlockEvent(ev, content)
 	case strings.HasPrefix(lowerName, "android_fs_dataread") || strings.HasPrefix(lowerName, "android_fs_datawrite"):
 		return renderAndroidFSIO(ev, content), true
 	case strings.HasPrefix(lowerName, "f2fs_direct_io") || strings.HasPrefix(lowerName, "f2fs_sync_file"):

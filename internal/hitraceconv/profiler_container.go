@@ -131,6 +131,9 @@ type profilerFtraceEventDescriptor struct {
 var profilerFtraceEventDescriptors = map[int]profilerFtraceEventDescriptor{
 	113:  {Field: 113, Family: "binder", Name: "binder_transaction"},
 	119:  {Field: 119, Family: "binder", Name: "binder_transaction_received"},
+	202:  {Field: 202, Family: "block", Name: "block_bio_complete"},
+	204:  {Field: 204, Family: "block", Name: "block_bio_queue"},
+	205:  {Field: 205, Family: "block", Name: "block_bio_remap"},
 	209:  {Field: 209, Family: "block", Name: "block_rq_complete"},
 	210:  {Field: 210, Family: "block", Name: "block_rq_insert"},
 	211:  {Field: 211, Family: "block", Name: "block_rq_issue"},

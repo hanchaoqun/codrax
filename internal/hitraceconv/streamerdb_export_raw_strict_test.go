@@ -376,7 +376,7 @@ func TestTraceDBRawRequiredArgsTypedEndpointMatrix(t *testing.T) {
 
 	block := map[string]traceDBValue{
 		"dev": textValue("8,0"), "rwbs": textValue("R"), "cmd": textValue("READ"),
-		"sector": intValue("128"), "nr_sector": intValue("8"),
+		"sector": intValue("128"), "nr_sector": intValue("8"), "bytes": intValue("4096"),
 	}
 	if !traceDBRawRequiredArgs("block_rq_issue", block, nil) {
 		t.Fatal("typed block request was rejected")
@@ -388,13 +388,14 @@ func TestTraceDBRawRequiredArgsTypedEndpointMatrix(t *testing.T) {
 	}
 	delete(block, "bytes")
 	block["nr_sector"] = intValue("0")
+	block["bytes"] = intValue("0")
 	block["rwbs"] = textValue("FS")
 	if !traceDBRawRequiredArgs("block_rq_issue", block, nil) {
 		t.Fatal("witnessed zero-sector flush request was rejected")
 	}
 	block["rwbs"] = textValue("R")
-	if traceDBRawRequiredArgs("block_rq_issue", block, nil) {
-		t.Fatal("zero-sector non-flush request escaped validation")
+	if !traceDBRawRequiredArgs("block_rq_issue", block, nil) {
+		t.Fatal("typed zero-sector non-flush inventory was rejected by the converter")
 	}
 
 	dma := map[string]traceDBValue{
@@ -406,5 +407,59 @@ func TestTraceDBRawRequiredArgsTypedEndpointMatrix(t *testing.T) {
 	dma["context"] = textValue("1")
 	if traceDBRawRequiredArgs("dma_fence_signaled", dma, nil) {
 		t.Fatal("string dma context escaped integer validation")
+	}
+}
+
+func TestExportTraceDBRawBlockOptionalGrammarFailureIsDisclosed(t *testing.T) {
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts INT)",
+		"INSERT INTO trace_range VALUES (0)",
+		"CREATE TABLE process (ipid INT, pid INT, name TEXT)",
+		"INSERT INTO process VALUES (1, 100, 'demo')",
+		"CREATE TABLE thread (itid INT, tid INT, ipid INT, name TEXT, start_ts INT, is_main_thread INT, switch_count INT)",
+		"INSERT INTO thread VALUES (1, 100, 1, 'io', 0, 1, 1)",
+		"CREATE TABLE data_dict (id, data)",
+		"INSERT INTO data_dict VALUES (1, 'dev')",
+		"INSERT INTO data_dict VALUES (2, 'sector')",
+		"INSERT INTO data_dict VALUES (3, 'nr_sector')",
+		"INSERT INTO data_dict VALUES (4, 'bytes')",
+		"INSERT INTO data_dict VALUES (5, 'rwbs')",
+		"INSERT INTO data_dict VALUES (6, 'cmd')",
+		"INSERT INTO data_dict VALUES (10, '8,0')",
+		"INSERT INTO data_dict VALUES (11, 'R')",
+		"INSERT INTO data_dict VALUES (12, 'READ')",
+		"INSERT INTO data_dict VALUES (13, 'READ) 0 + 1')",
+		"CREATE TABLE args (argset, key, datatype, value)",
+		"INSERT INTO args VALUES (1, 1, 1, 10)",
+		"INSERT INTO args VALUES (1, 2, 0, 128)",
+		"INSERT INTO args VALUES (1, 3, 0, 8)",
+		"INSERT INTO args VALUES (1, 4, 0, 4096)",
+		"INSERT INTO args VALUES (1, 5, 1, 11)",
+		"INSERT INTO args VALUES (1, 6, 1, 12)",
+		"INSERT INTO args VALUES (2, 1, 1, 10)",
+		"INSERT INTO args VALUES (2, 2, 0, 128)",
+		"INSERT INTO args VALUES (2, 3, 0, 8)",
+		"INSERT INTO args VALUES (2, 4, 0, 4096)",
+		"INSERT INTO args VALUES (2, 5, 1, 11)",
+		"INSERT INTO args VALUES (2, 6, 1, 13)",
+		"CREATE TABLE raw (id, ts, name, cpu, itid, argsetid)",
+		"INSERT INTO raw VALUES (1, 1000, 'block_rq_issue', 0, 1, 1)",
+		"INSERT INTO raw VALUES (2, 2000, 'block_rq_issue', 0, 1, 2)",
+	})
+	outPath := filepath.Join(t.TempDir(), "raw-block-optional.systrace")
+	result, err := exportTraceDBToSystrace(context.Background(), path, outPath)
+	if err != nil {
+		t.Fatalf("export strict optional block fixture: %v", err)
+	}
+	bodyBytes, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(bodyBytes)
+	if strings.Count(body, "block_rq_issue:") != 1 || !strings.Contains(body, "8,0 R 4096 (READ) 128 + 8 []") || strings.Contains(body, "READ) 0 + 1") {
+		t.Fatalf("optional block grammar rejection leaked or removed the valid sibling:\n%s", body)
+	}
+	if !coverageHasSkipped(result.Coverage, "raw_ftrace", "block_storage", "missing_required_args=1") {
+		t.Fatalf("optional block grammar rejection was not disclosed: %+v", result.Coverage)
 	}
 }
