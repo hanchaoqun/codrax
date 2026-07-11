@@ -318,9 +318,10 @@ func TestTraceDBBlockedBoundaryScanRetainsOnlyCandidateMatches(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tdb.close()
-	index, err := loadTraceDBBlockedSchedBoundaries(context.Background(), tdb, map[int64]map[int64]bool{
-		1: {1000: true, math.MaxInt64: true},
-	})
+	index, err := loadTraceDBBlockedSchedBoundaries(context.Background(), tdb,
+		traceDBSchedulerAuthorityFixture(true, traceDBLifecycleIndex{}), map[int64]map[int64]bool{
+			1: {1000: true, math.MaxInt64: true},
+		})
 	if err != nil {
 		t.Fatal(err)
 	}

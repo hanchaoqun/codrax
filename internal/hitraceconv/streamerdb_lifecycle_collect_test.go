@@ -680,8 +680,12 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 		"newTraceDBSchedulerRunningIndex":    true,
 		"lookupCPUAt":                        true,
 		"exportTraceDBWakeups":               true,
+		"exportTraceDBBlockedReasons":        true,
+		"loadTraceDBBlockedCandidates":       true,
+		"loadTraceDBBlockedSchedBoundaries":  true,
 		"resolveThreadSubject":               true,
 		"threadPointAllows":                  true,
+		"threadClosedEndpointAllows":         true,
 		"queryTraceDBSchedSliceRows":         true,
 		"scanTraceDBSchedSourceRow":          true,
 		"traceDBStrictInternalID":            true,
@@ -691,9 +695,30 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 		"schedulerSourceIntervalAllows":      true,
 		"validateTraceDBSchedLifecycle":      true,
 	}
+	authorityConsumers := map[string]bool{
+		"exportTraceDBSchedSwitch":          true,
+		"auditTraceDBSchedSwitchRows":       true,
+		"scanTraceDBSchedSourceRow":         true,
+		"loadSchedStarts":                   true,
+		"loadSchedulerRunningIndex":         true,
+		"exportTraceDBWakeups":              true,
+		"exportTraceDBBlockedReasons":       true,
+		"loadTraceDBBlockedCandidates":      true,
+		"loadTraceDBBlockedSchedBoundaries": true,
+	}
+	authorityIdentityConsumers := map[string]bool{
+		"scanTraceDBSchedSourceRow":         true,
+		"loadSchedStarts":                   true,
+		"traceDBNextSchedMeta":              true,
+		"exportTraceDBWakeups":              true,
+		"exportTraceDBBlockedReasons":       true,
+		"loadTraceDBBlockedCandidates":      true,
+		"loadTraceDBBlockedSchedBoundaries": true,
+	}
 	strictScannerAssignments := 0
 	strictSchedStartAssignments := 0
 	wakeupEndpointCalls := map[string]int{}
+	blockedEndpointCalls := map[string]int{}
 	paths, err := filepath.Glob(filepath.Join(dir, "*.go"))
 	if err != nil {
 		t.Fatal(err)
@@ -722,17 +747,13 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 					case "traceDBSchedulerRunningIndex":
 						runningIndexParams += len(field.Names)
 					case "traceDBThreadIndex":
-						if function.Name.Name == "exportTraceDBSchedSwitch" || function.Name.Name == "auditTraceDBSchedSwitchRows" ||
-							function.Name.Name == "scanTraceDBSchedSourceRow" || function.Name.Name == "loadSchedStarts" ||
-							function.Name.Name == "loadSchedulerRunningIndex" || function.Name.Name == "exportTraceDBWakeups" {
+						if authorityConsumers[function.Name.Name] {
 							t.Fatalf("scheduler authority consumer %s accepts a raw thread index", function.Name.Name)
 						}
 					}
 				}
 			}
-			if function.Name.Name == "exportTraceDBSchedSwitch" || function.Name.Name == "auditTraceDBSchedSwitchRows" ||
-				function.Name.Name == "scanTraceDBSchedSourceRow" || function.Name.Name == "loadSchedStarts" ||
-				function.Name.Name == "loadSchedulerRunningIndex" || function.Name.Name == "exportTraceDBWakeups" {
+			if authorityConsumers[function.Name.Name] {
 				if authorityParams != 1 {
 					t.Fatalf("scheduler consumer %s authority params=%d, want 1", function.Name.Name, authorityParams)
 				}
@@ -773,8 +794,7 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 						}
 					}
 				case *ast.SelectorExpr:
-					if (function.Name.Name == "scanTraceDBSchedSourceRow" || function.Name.Name == "loadSchedStarts" ||
-						function.Name.Name == "traceDBNextSchedMeta" || function.Name.Name == "exportTraceDBWakeups") &&
+					if authorityIdentityConsumers[function.Name.Name] &&
 						typed.Sel.Name == "identities" {
 						t.Fatalf("scheduler lifecycle consumer %s reopened raw authority identities", function.Name.Name)
 					}
@@ -792,6 +812,76 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 					}
 					if targetCalls[name] {
 						calls[name] = append(calls[name], site)
+					}
+					if (name == "exportTraceDBBlockedReasons" && function.Name.Name == "exportTraceDBSchedulerFamilies") ||
+						((name == "loadTraceDBBlockedCandidates" || name == "loadTraceDBBlockedSchedBoundaries") &&
+							function.Name.Name == "exportTraceDBBlockedReasons") {
+						argumentPosition := 2
+						if name == "exportTraceDBBlockedReasons" {
+							argumentPosition = 3
+						}
+						if len(typed.Args) <= argumentPosition {
+							t.Fatalf("blocked authority call %s has %d arguments", name, len(typed.Args))
+						}
+						authority, ok := typed.Args[argumentPosition].(*ast.Ident)
+						if !ok || authority.Name != "authority" {
+							t.Fatalf("blocked authority call %s does not pass the shared authority", name)
+						}
+					}
+					if function.Name.Name == "loadTraceDBBlockedCandidates" &&
+						(name == "resolveThreadSubject" || name == "threadPointAllows") {
+						method, methodOK := typed.Fun.(*ast.SelectorExpr)
+						receiver, receiverOK := func() (*ast.Ident, bool) {
+							if !methodOK {
+								return nil, false
+							}
+							ident, ok := method.X.(*ast.Ident)
+							return ident, ok
+						}()
+						rowField := func(argument ast.Expr, field string) bool {
+							selector, ok := argument.(*ast.SelectorExpr)
+							if !ok || selector.Sel.Name != field {
+								return false
+							}
+							owner, ok := selector.X.(*ast.Ident)
+							return ok && owner.Name == "row"
+						}
+						if !receiverOK || receiver.Name != "authority" || len(typed.Args) == 0 ||
+							!rowField(typed.Args[0], "ITID") {
+							t.Fatalf("blocked candidate %s does not use authority with row.ITID", name)
+						}
+						if name == "resolveThreadSubject" {
+							if len(typed.Args) != 1 {
+								t.Fatalf("blocked candidate resolve args=%d, want 1", len(typed.Args))
+							}
+							blockedEndpointCalls["resolve:row.ITID"]++
+						} else {
+							if len(typed.Args) != 2 || !rowField(typed.Args[1], "TS") {
+								t.Fatalf("blocked candidate point does not use row.TS")
+							}
+							blockedEndpointCalls["point:row.ITID,row.TS"]++
+						}
+					}
+					if function.Name.Name == "loadTraceDBBlockedSchedBoundaries" && name == "threadClosedEndpointAllows" {
+						method, methodOK := typed.Fun.(*ast.SelectorExpr)
+						receiver, receiverOK := func() (*ast.Ident, bool) {
+							if !methodOK {
+								return nil, false
+							}
+							ident, ok := method.X.(*ast.Ident)
+							return ident, ok
+						}()
+						want := []string{"itid", "ts", "end"}
+						if !receiverOK || receiver.Name != "authority" || len(typed.Args) != len(want) {
+							t.Fatalf("blocked predecessor closed gate does not use shared authority")
+						}
+						for i, argument := range typed.Args {
+							ident, ok := argument.(*ast.Ident)
+							if !ok || ident.Name != want[i] {
+								t.Fatalf("blocked predecessor closed gate arg %d is not %s", i, want[i])
+							}
+						}
+						blockedEndpointCalls["closed:itid,ts,end"]++
 					}
 					if function.Name.Name == "exportTraceDBWakeups" &&
 						(name == "traceDBKnownCPUAt" || name == "traceDBCPUAt") {
@@ -880,6 +970,9 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 	assertCallSites("newTraceDBSchedulerRunningIndex", map[string]int{"loadSchedulerRunningIndex": 1})
 	assertCallSites("lookupCPUAt", map[string]int{"exportTraceDBWakeups": 1, "knownCPUAt": 1})
 	assertCallSites("exportTraceDBWakeups", map[string]int{"exportTraceDBSchedulerFamilies": 1})
+	assertCallSites("exportTraceDBBlockedReasons", map[string]int{"exportTraceDBSchedulerFamilies": 1})
+	assertCallSites("loadTraceDBBlockedCandidates", map[string]int{"exportTraceDBBlockedReasons": 1})
+	assertCallSites("loadTraceDBBlockedSchedBoundaries", map[string]int{"exportTraceDBBlockedReasons": 1})
 	wantWakeupEndpoints := map[string]int{
 		"resolve:Ref":        1,
 		"resolve:WakeupFrom": 1,
@@ -889,6 +982,29 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 	if !reflect.DeepEqual(wakeupEndpointCalls, wantWakeupEndpoints) {
 		t.Fatalf("wakeup endpoint gates=%v, want %v", wakeupEndpointCalls, wantWakeupEndpoints)
 	}
+	wantBlockedEndpoints := map[string]int{
+		"resolve:row.ITID":      1,
+		"point:row.ITID,row.TS": 1,
+		"closed:itid,ts,end":    1,
+	}
+	if !reflect.DeepEqual(blockedEndpointCalls, wantBlockedEndpoints) {
+		t.Fatalf("blocked endpoint gates=%v, want %v", blockedEndpointCalls, wantBlockedEndpoints)
+	}
+	assertCallSites("resolveThreadSubject", map[string]int{
+		"exportTraceDBWakeups":         2,
+		"loadTraceDBBlockedCandidates": 1,
+		"scanTraceDBSchedSourceRow":    1,
+		"threadSubject":                1,
+	})
+	assertCallSites("threadPointAllows", map[string]int{
+		"exportTraceDBWakeups":         2,
+		"loadTraceDBBlockedCandidates": 1,
+		"schedulerPointAllows":         1,
+	})
+	assertCallSites("threadClosedEndpointAllows", map[string]int{
+		"loadTraceDBBlockedSchedBoundaries": 1,
+		"schedulerNextPointAllows":          1,
+	})
 	assertCallSites("queryTraceDBSchedSliceRows", map[string]int{"auditTraceDBSchedSwitchRows": 1, "exportTraceDBSchedSwitch": 1})
 	assertCallSites("scanTraceDBSchedSourceRow", map[string]int{"auditTraceDBSchedSwitchRows": 1, "exportTraceDBSchedSwitch": 1})
 	assertCallSites("schedulerSubjectFromExactITID", map[string]int{"loadSchedStarts": 1, "newTraceDBSchedulerRunningIndex": 1, "scanTraceDBSchedSourceRow": 1})

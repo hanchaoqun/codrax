@@ -1,6 +1,7 @@
 package hitraceconv
 
 import (
+	"context"
 	"os"
 	"strconv"
 	"strings"
@@ -39,11 +40,13 @@ func TestTraceDBBlockedStrictThreadStateScalarsAndStableIdentity(t *testing.T) {
 		"INSERT INTO thread_state VALUES (18, CAST('18000' AS BLOB), 100, NULL, 1, 562, 500, 'D-IO', 100)",
 		"INSERT INTO thread_state VALUES (x'ff', 19000, 100, NULL, 1, 562, 500, 'D-IO', 100)",
 	)
-	body, coverage, _ := exportSchedulerFixture(t, statements)
+	// This test isolates the blocked-row decoder from the lifecycle collector:
+	// several rows deliberately corrupt lifecycle activity fields. Production
+	// propagation of that collector poison is pinned separately below.
+	body, item := exportTraceDBBlockedStrictFixture(t, statements)
 	if got := strings.Count(body, "sched_blocked_reason: pid=562"); got != 2 {
-		t.Fatalf("strict blocked state rows emitted=%d, want 2 legal siblings:\n%s", got, body)
+		t.Fatalf("strict blocked state rows emitted=%d, want 2 legal siblings:\n%s\ncoverage=%+v", got, body, item)
 	}
-	item := requireBlockedReasonCoverage(t, coverage)
 	if item.RowsRead != 19 || item.RowsEmitted != 2 ||
 		!strings.Contains(item.Skipped, "duplicate_source_id=2") ||
 		!strings.Contains(item.Skipped, "invalid_thread_state_metadata=15") {
@@ -52,6 +55,26 @@ func TestTraceDBBlockedStrictThreadStateScalarsAndStableIdentity(t *testing.T) {
 	if item.FieldSources["stable_identity"] != "thread_state.id with exact full-uint32 signed-int32 projection" ||
 		item.FieldSources["same_timestamp_order"] != "thread_state.ts,canonical_uint32(thread_state.id)" {
 		t.Fatalf("thread_state stable identity provenance missing: %+v", item.FieldSources)
+	}
+}
+
+func TestTraceDBBlockedMalformedLifecycleActivitySuppressesOtherwiseValidCandidate(t *testing.T) {
+	statements := traceDBBlockedStrictFixtureSchema()
+	statements = append(statements, traceDBBlockedStrictArgs(100)...)
+	statements = append(statements,
+		"INSERT INTO sched_slice VALUES (1, 900, 100, 4, 1, 'R', 20)",
+		"INSERT INTO thread_state VALUES (1, 1000, 100, NULL, 1, 562, 500, 'D-IO', 100)",
+		"INSERT INTO thread_state VALUES (2, CAST(2000 AS TEXT), 100, NULL, 1, 562, 500, 'D-IO', 100)",
+	)
+	body, coverage, _ := exportSchedulerFixture(t, statements)
+	if strings.Contains(body, "sched_blocked_reason:") {
+		t.Fatalf("malformed lifecycle activity failed open for a legal sibling:\n%s", body)
+	}
+	item := requireBlockedReasonCoverage(t, coverage)
+	for _, want := range []string{"invalid_thread_state_metadata=1", "lifecycle_rejected_thread_state_candidate=1"} {
+		if !strings.Contains(item.Skipped, want) {
+			t.Fatalf("malformed lifecycle suppression missing %q: %+v", want, item)
+		}
 	}
 }
 
@@ -348,6 +371,7 @@ func TestTraceDBBlockedPublicIdentityAndArgsetZeroBoundaries(t *testing.T) {
 		"INSERT INTO args VALUES (1, 1, 0, 1, 0)",
 		"INSERT INTO args VALUES (2, 2, 1, 3, 0)",
 	}
+	statements = append(statements, traceDBBlockedStrictLifecycleAuthoritySchema()...)
 	body, coverage, _ := exportSchedulerFixture(t, statements)
 	if !strings.Contains(body, "max-thread-2147483647 (2147483647) [4095]") || !strings.Contains(body, "sched_blocked_reason: pid=2147483647") {
 		t.Fatalf("valid public/source/argset/CPU upper and zero boundaries were lost:\n%s", body)
@@ -412,7 +436,7 @@ func TestTraceDBBlockedImplementationBansSQLCoercionAndPrefilterBypass(t *testin
 }
 
 func traceDBBlockedStrictFixtureSchema() []string {
-	return []string{
+	statements := []string{
 		"CREATE TABLE trace_range (start_ts)",
 		"INSERT INTO trace_range VALUES (0)",
 		"CREATE TABLE process (ipid, pid, name)",
@@ -424,6 +448,7 @@ func traceDBBlockedStrictFixtureSchema() []string {
 		"CREATE TABLE args (id, key, datatype, value, argset)",
 		"CREATE TABLE data_dict (id, data)",
 	}
+	return append(statements, traceDBBlockedStrictLifecycleAuthoritySchema()...)
 }
 
 func traceDBBlockedStrictFixtureSchemaWithoutSourceIDs(withoutRowID bool) []string {
@@ -432,7 +457,7 @@ func traceDBBlockedStrictFixtureSchemaWithoutSourceIDs(withoutRowID bool) []stri
 	if withoutRowID {
 		threadState = "CREATE TABLE thread_state (ts INTEGER PRIMARY KEY, dur, cpu, itid, tid, pid, state, arg_setid) WITHOUT ROWID"
 	}
-	return []string{
+	statements := []string{
 		"CREATE TABLE trace_range (start_ts)",
 		"INSERT INTO trace_range VALUES (0)",
 		"CREATE TABLE process (ipid, pid, name)",
@@ -444,6 +469,45 @@ func traceDBBlockedStrictFixtureSchemaWithoutSourceIDs(withoutRowID bool) []stri
 		"CREATE TABLE args (argset, key, datatype, value, PRIMARY KEY (argset, key)) WITHOUT ROWID",
 		"CREATE TABLE data_dict (id PRIMARY KEY, data) WITHOUT ROWID",
 	}
+	return append(statements, traceDBBlockedStrictLifecycleAuthoritySchema()...)
+}
+
+func traceDBBlockedStrictLifecycleAuthoritySchema() []string {
+	return []string{
+		"CREATE TABLE instant (ts, name, ref, ref_type)",
+		"CREATE TABLE callstack (ts, itid, callid)",
+		"CREATE TABLE syscall (ts, itid)",
+		"CREATE TABLE native_hook (start_ts, itid)",
+		"CREATE TABLE frame_slice (id, type, ts, itid)",
+	}
+}
+
+func exportTraceDBBlockedStrictFixture(t *testing.T, statements []string) (string, TraceDBCoverage) {
+	t.Helper()
+	path := createTraceDBFixture(t, statements)
+	tdb, err := openTraceDB(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tdb.close()
+	index, _, err := tdb.loadThreadIndex(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sink, err := newTraceDBRowSink(t.TempDir(), 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coverage, err := exportTraceDBBlockedReasons(context.Background(), tdb, sink,
+		traceDBTestCompleteSchedulerAuthority(index))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body strings.Builder
+	if _, err := sink.writeTo(context.Background(), &body); err != nil {
+		t.Fatal(err)
+	}
+	return body.String(), coverage
 }
 
 func traceDBBlockedStrictArgs(argset int64) []string {

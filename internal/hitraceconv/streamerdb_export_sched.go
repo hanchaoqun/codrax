@@ -122,7 +122,7 @@ func exportTraceDBSchedulerFamilies(ctx context.Context, tdb *traceDB, sink *tra
 		return coverage, err
 	}
 	stageStart = time.Now()
-	blockedCoverage, err := exportTraceDBBlockedReasons(ctx, tdb, sink, index)
+	blockedCoverage, err := exportTraceDBBlockedReasons(ctx, tdb, sink, authority)
 	traceDBSetCoverageElapsed(&blockedCoverage, stageStart)
 	coverage = append(coverage, blockedCoverage)
 	if err != nil {

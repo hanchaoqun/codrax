@@ -69,6 +69,7 @@ type traceDBBlockedBoundaryKey struct {
 
 type traceDBBlockedBoundaryIndex struct {
 	Matches               map[traceDBBlockedBoundaryKey][]traceDBBlockedSchedSlice
+	LifecycleRejected     map[traceDBBlockedBoundaryKey]bool
 	OverflowITIDs         map[int64]bool
 	TaintedITIDs          map[int64]bool
 	LowerBoundByITID      map[int64]int64
@@ -78,7 +79,7 @@ type traceDBBlockedBoundaryIndex struct {
 	GlobalTaint           bool
 }
 
-func exportTraceDBBlockedReasons(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, index traceDBThreadIndex) (TraceDBCoverage, error) {
+func exportTraceDBBlockedReasons(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, authority traceDBSchedulerAuthority) (TraceDBCoverage, error) {
 	coverage := TraceDBCoverage{
 		Family: "scheduler",
 		Table:  "thread_state.arg_setid",
@@ -91,6 +92,7 @@ func exportTraceDBBlockedReasons(ctx context.Context, tdb *traceDB, sink *traceD
 			"header_cpu":    "unique_same_itid_sched_slice.cpu_where_slice.ts+slice.dur==thread_state.ts",
 			"header_thread": "thread_state_subject_projection; original_header_thread_known=false",
 			"iowait":        "args.iowait; io_wait_compat_alias; verified_against_split_D/DK_state_when_present; authoritative_for_other_nonempty_states",
+			"lifecycle":     "same collector authority; blocked candidate requires non-idle thread and positive-process point admission, and its exact predecessor sched_slice requires closed endpoint admission",
 			"pid":           "thread_state.tid; thread_state.tid/pid must exactly match canonical thread/process identity; optional args.pid must match tid",
 			"source":        "thread_state_argset",
 			"timestamp":     "thread_state.ts_projection; original_timestamp_known=false",
@@ -162,13 +164,13 @@ func exportTraceDBBlockedReasons(ctx context.Context, tdb *traceDB, sink *traceD
 	}
 	argsets := traceDBBlockedArgsetsFromShared(sharedArgsets)
 	skipped := map[string]int{}
-	prepared, candidateStarts, semanticCohorts, rowsRead, err := loadTraceDBBlockedCandidates(ctx, tdb, index, argsets, stateStable, duplicateStateIDs, skipped)
+	prepared, candidateStarts, semanticCohorts, rowsRead, err := loadTraceDBBlockedCandidates(ctx, tdb, authority, argsets, stateStable, duplicateStateIDs, skipped)
 	coverage.RowsRead = rowsRead
 	if err != nil {
 		coverage.Error = err.Error()
 		return coverage, err
 	}
-	boundaries, err := loadTraceDBBlockedSchedBoundaries(ctx, tdb, candidateStarts)
+	boundaries, err := loadTraceDBBlockedSchedBoundaries(ctx, tdb, authority, candidateStarts)
 	if err != nil {
 		coverage.Error = err.Error()
 		return coverage, err
@@ -273,7 +275,7 @@ func traceDBBlockedDuplicateStableIDs(ctx context.Context, tdb *traceDB, table s
 func loadTraceDBBlockedCandidates(
 	ctx context.Context,
 	tdb *traceDB,
-	index traceDBThreadIndex,
+	authority traceDBSchedulerAuthority,
 	argsets map[int64]traceDBBlockedArgset,
 	stable traceDBBlockedStableSource,
 	duplicateStateIDs map[int64]bool,
@@ -310,7 +312,7 @@ func loadTraceDBBlockedCandidates(
 			continue
 		}
 		rowsRead++
-		if cohortITID, ok := traceDBStrictSQLiteInt(itidRaw); ok && cohortITID >= 0 && cohortITID <= maxTraceDBInternalID {
+		if cohortITID, ok := traceDBStrictInternalID(itidRaw); ok {
 			if cohortTS, ok := traceDBStrictSQLiteInt(tsRaw); ok && cohortTS >= 0 {
 				semanticCohorts[traceDBBlockedBoundaryKey{ITID: cohortITID, StateStart: cohortTS}]++
 			}
@@ -318,7 +320,7 @@ func loadTraceDBBlockedCandidates(
 
 		stableID, stableOK := traceDBBlockedDecodeStableID(stable, idRaw)
 		ts, tsOK := traceDBStrictSQLiteInt(tsRaw)
-		itid, itidOK := traceDBStrictSQLiteInt(itidRaw)
+		itid, itidOK := traceDBStrictInternalID(itidRaw)
 		tid, tidOK := traceDBStrictSQLiteInt(tidRaw)
 		pid, pidOK := traceDBStrictSQLiteInt(pidRaw)
 		dur := int64(0)
@@ -327,7 +329,7 @@ func loadTraceDBBlockedCandidates(
 			dur, durOK = traceDBStrictSQLiteInt(durRaw)
 			durOK = durOK && dur >= 0
 		}
-		if !stableOK || !tsOK || ts < 0 || !durOK || !itidOK || itid < 0 || itid > maxTraceDBInternalID ||
+		if !stableOK || !tsOK || ts < 0 || !durOK || !itidOK ||
 			!tidOK || tid <= 0 || tid > math.MaxInt32 || !pidOK || pid <= 0 || pid > math.MaxInt32 ||
 			!stateTextOK || nearReservedState || (argSetPresent && !argSetOK) {
 			skipped["invalid_thread_state_metadata"]++
@@ -374,22 +376,33 @@ func loadTraceDBBlockedCandidates(
 			skipped["iowait_state_mismatch"]++
 			continue
 		}
-		thread, ok := index.ByITID[row.ITID]
-		if !ok {
-			skipped["missing_thread_identity"]++
+		thread, process, resolution := authority.resolveThreadSubject(row.ITID)
+		if resolution != traceDBSchedulerThreadResolved {
+			if row.ITID == 0 {
+				skipped["idle_blocked_candidate_forbidden"]++
+			} else if resolution == traceDBSchedulerThreadMissing {
+				skipped["missing_thread_identity"]++
+			} else if resolution == traceDBSchedulerProcessMissing {
+				skipped["missing_process_identity"]++
+			} else {
+				skipped["invalid_or_ambiguous_thread_process_identity"]++
+			}
 			continue
 		}
 		if thread.TID != row.TID {
 			skipped["thread_tid_mismatch"]++
 			continue
 		}
-		process, processOK := index.Processes[thread.IPID]
-		if !processOK || process.PID <= 0 {
+		if process.PID <= 0 {
 			skipped["missing_process_identity"]++
 			continue
 		}
 		if process.PID != row.PID {
 			skipped["thread_tgid_mismatch"]++
+			continue
+		}
+		if !authority.threadPointAllows(row.ITID, row.TS) {
+			skipped["lifecycle_rejected_thread_state_candidate"]++
 			continue
 		}
 		if argPID, present, valid := traceDBBlockedOptionalInt(args, "pid"); present {
@@ -463,13 +476,14 @@ func traceDBBlockedArgsetsFromShared(shared traceDBArgsetIndex) map[int64]traceD
 	return out
 }
 
-func loadTraceDBBlockedSchedBoundaries(ctx context.Context, tdb *traceDB, candidateStarts map[int64]map[int64]bool) (traceDBBlockedBoundaryIndex, error) {
+func loadTraceDBBlockedSchedBoundaries(ctx context.Context, tdb *traceDB, authority traceDBSchedulerAuthority, candidateStarts map[int64]map[int64]bool) (traceDBBlockedBoundaryIndex, error) {
 	out := traceDBBlockedBoundaryIndex{
-		Matches:          map[traceDBBlockedBoundaryKey][]traceDBBlockedSchedSlice{},
-		OverflowITIDs:    map[int64]bool{},
-		TaintedITIDs:     map[int64]bool{},
-		LowerBoundByITID: map[int64]int64{},
-		GlobalBarriers:   map[int64]bool{},
+		Matches:           map[traceDBBlockedBoundaryKey][]traceDBBlockedSchedSlice{},
+		LifecycleRejected: map[traceDBBlockedBoundaryKey]bool{},
+		OverflowITIDs:     map[int64]bool{},
+		TaintedITIDs:      map[int64]bool{},
+		LowerBoundByITID:  map[int64]int64{},
+		GlobalBarriers:    map[int64]bool{},
 	}
 	if len(candidateStarts) == 0 {
 		return out, nil
@@ -491,8 +505,7 @@ func loadTraceDBBlockedSchedBoundaries(ctx context.Context, tdb *traceDB, candid
 		if err := rows.Scan(&itidRaw, &tsRaw, &durRaw, &cpuRaw); err != nil {
 			return out, err
 		}
-		itid, itidOK := traceDBStrictSQLiteInt(itidRaw)
-		itidOK = itidOK && itid >= 0 && itid <= maxTraceDBInternalID
+		itid, itidOK := traceDBStrictInternalID(itidRaw)
 		ts, tsOK := traceDBStrictSQLiteInt(tsRaw)
 		tsOK = tsOK && ts >= 0
 		dur, durOK := traceDBStrictSQLiteInt(durRaw)
@@ -535,11 +548,15 @@ func loadTraceDBBlockedSchedBoundaries(ctx context.Context, tdb *traceDB, candid
 		if !starts[end] {
 			continue
 		}
+		key := traceDBBlockedBoundaryKey{ITID: itid, StateStart: end}
+		if !authority.threadClosedEndpointAllows(itid, ts, end) {
+			out.LifecycleRejected[key] = true
+			continue
+		}
 		item := traceDBBlockedSchedSlice{TS: ts, Dur: dur, CPU: -1}
 		if cpu, ok := traceDBStrictSQLiteInt(cpuRaw); ok {
 			item.CPU = cpu
 		}
-		key := traceDBBlockedBoundaryKey{ITID: itid, StateStart: end}
 		out.Matches[key] = append(out.Matches[key], item)
 	}
 	return out, rows.Err()
@@ -573,6 +590,12 @@ func traceDBBlockedBoundaryIntegrityReason(index traceDBBlockedBoundaryIndex, ke
 	}
 	if lower, ok := index.LowerBoundByITID[key.ITID]; ok && key.StateStart >= lower {
 		return "prev_sched_slice_lower_bound"
+	}
+	// Preserve the pre-lifecycle physical-source diagnosis when both fail.
+	// LifecycleRejected remains a monotonic cohort barrier, but it must not
+	// hide a more fundamental malformed/unknown sched_slice lane.
+	if index.LifecycleRejected[key] {
+		return "lifecycle_rejected_prev_sched_slice_boundary"
 	}
 	return ""
 }
