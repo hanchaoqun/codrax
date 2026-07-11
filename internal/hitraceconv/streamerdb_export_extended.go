@@ -21,8 +21,6 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 	if err != nil {
 		return coverage, err
 	}
-	index.RunningTaintedITID = runningIntegrity.TaintedITIDs
-	index.RunningGlobalTaint = runningIntegrity.GlobalTaint
 	lifecycleRunning := newTraceDBSchedulerRunningIndex(authority, running, runningIntegrity, nil)
 	dict, dictCoverage, err := tdb.loadDataDict(ctx)
 	coverage = append(coverage, dictCoverage)
@@ -37,7 +35,7 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 		return coverage, err
 	}
 	stageStart = time.Now()
-	rawCoverage, err := exportTraceDBRawFtraceFamilies(ctx, tdb, sink, index, running)
+	rawCoverage, err := exportTraceDBRawFtraceFamilies(ctx, tdb, sink, authority, lifecycleRunning)
 	traceDBSetCoverageListElapsed(rawCoverage, stageStart)
 	coverage = append(coverage, rawCoverage...)
 	if err != nil {

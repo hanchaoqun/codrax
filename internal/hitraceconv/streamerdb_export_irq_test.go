@@ -312,7 +312,8 @@ func TestTraceDBIRQRawEndpointNamesRemainUnsupportedNoDuplicate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rawCoverage, err := exportTraceDBRawFtraceFamilies(context.Background(), tdb, sink, traceDBThreadIndex{}, nil)
+	rawCoverage, err := exportTraceDBRawFtraceFamilies(context.Background(), tdb, sink,
+		traceDBSchedulerAuthority{}, traceDBSchedulerRunningIndex{})
 	if err != nil {
 		t.Fatal(err)
 	}

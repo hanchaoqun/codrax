@@ -24,7 +24,26 @@ type traceDBRawEvent struct {
 	ArgSetID  int64
 }
 
-func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, index traceDBThreadIndex, running map[int64][]traceDBRunningInterval) ([]TraceDBCoverage, error) {
+type traceDBRawSubjectKind uint8
+
+const (
+	traceDBRawSubjectInvalid traceDBRawSubjectKind = iota
+	traceDBRawSubjectCanonicalThread
+	traceDBRawSubjectKernelThread
+	traceDBRawSubjectIdle
+)
+
+type traceDBRawSubject struct {
+	Kind traceDBRawSubjectKind
+	Task string
+	TID  int64
+	TGID int64
+	ITID int64
+}
+
+func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *traceDBRowSink,
+	authority traceDBSchedulerAuthority, running traceDBSchedulerRunningIndex,
+) ([]TraceDBCoverage, error) {
 	schemaCoverage, err := tdb.inspectCoverage(ctx, "raw_ftrace", "raw", []string{"ts", "name"})
 	if err != nil || !schemaCoverage.Found || len(schemaCoverage.ColumnsMissing) > 0 {
 		return []TraceDBCoverage{schemaCoverage}, err
@@ -79,8 +98,9 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 	} else {
 		schemaCoverage.FieldSources["same_timestamp_order"] = "raw.ts,raw.rowid"
 	}
-	schemaCoverage.FieldSources["header_cpu"] = "raw.cpu when present; otherwise exact untainted thread_state.Running witness"
-	schemaCoverage.FieldSources["header_identity"] = "typed raw.itid/raw.tid/raw.pid resolved against canonical candidates; registration hints and names never select a generation"
+	schemaCoverage.FieldSources["header_cpu"] = "strict raw.cpu when present; otherwise the same lifecycle-filtered typed Running index used by extended consumers"
+	schemaCoverage.FieldSources["header_identity"] = "typed raw.itid/raw.tid/raw.pid resolved against the shared scheduler authority; canonical subjects require point admission before either CPU branch"
+	schemaCoverage.FieldSources["source_only"] = "never-observed public-TID rows are coverage-only until an independent typed inventory profile exists; standard ftrace headers/payloads are never repurposed to carry anonymous provenance"
 	cpuExpr, hasCPU, err := traceDBRawOptionalExpr(ctx, tdb, "raw", "cpu")
 	if err != nil {
 		schemaCoverage.Error = err.Error()
@@ -185,40 +205,60 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 			traceDBRawCountSkip(classSkipped, class, "invalid_itid")
 			continue
 		}
-		if raw.TID, raw.TIDKnown, ok = traceDBRawOptionalID(tidRaw, hasTID, math.MaxInt32, false); !ok {
+		if raw.TID, raw.TIDKnown, ok = traceDBRawOptionalID(tidRaw, hasTID, math.MaxInt32); !ok {
 			traceDBRawCountSkip(classSkipped, class, "invalid_tid")
 			continue
 		}
-		if raw.PID, raw.PIDKnown, ok = traceDBRawOptionalID(pidRaw, hasPID, math.MaxInt32, false); !ok {
+		if raw.PID, raw.PIDKnown, ok = traceDBRawOptionalID(pidRaw, hasPID, math.MaxInt32); !ok {
 			traceDBRawCountSkip(classSkipped, class, "invalid_pid")
 			continue
 		}
-		task, tid, tgid, effectiveITID, identityOK := traceDBRawLineContext(raw, index)
-		if !identityOK {
-			traceDBRawCountSkip(classSkipped, class, "identity_conflict_or_ambiguous")
+		explicitCPUPresent := hasCPU && cpuRaw != nil
+		explicitCPUValid := false
+		if hasCPU && cpuRaw != nil {
+			raw.CPU, explicitCPUValid = traceDBStrictSQLiteInt(cpuRaw)
+			explicitCPUValid = explicitCPUValid && validTraceDBCPUIndex(raw.CPU)
+		}
+		subject, subjectReason := traceDBResolveRawSubject(raw, authority,
+			explicitCPUPresent, traceDBRawMayFeedPairing(raw.Name))
+		if subjectReason == "source_only_inventory_withheld" && explicitCPUPresent && !explicitCPUValid {
+			// Source-only rows have no lifecycle gate to audit. Preserve the
+			// strict malformed scalar reason instead of hiding it behind the
+			// independent capability-only withholding policy.
+			subjectReason = "invalid_cpu"
+		}
+		if subjectReason != "" {
+			traceDBRawCountSkip(classSkipped, class, subjectReason)
 			continue
 		}
-		if hasCPU && cpuRaw != nil {
-			raw.CPU, ok = traceDBStrictSQLiteInt(cpuRaw)
-			if !ok || !validTraceDBCPUIndex(raw.CPU) {
+		if explicitCPUPresent {
+			if !explicitCPUValid {
 				traceDBRawCountSkip(classSkipped, class, "invalid_cpu")
 				continue
 			}
 			raw.CPUKnown = true
-		} else if effectiveITID >= 0 {
-			var status traceDBExtendedRunningLookupStatus
-			raw.CPU, status = traceDBExtendedRunningCPUAt(index, running, effectiveITID, raw.TS)
-			raw.CPUKnown = status == traceDBExtendedRunningKnown
+		} else {
+			var status traceDBSchedulerRunningLookupStatus
+			raw.CPU, status = running.lookupCPUAt(subject.ITID, raw.TS)
+			switch status {
+			case traceDBSchedulerRunningKnown:
+				raw.CPUKnown = true
+			case traceDBSchedulerRunningSourceTainted:
+				traceDBRawCountSkip(classSkipped, class, "tainted_running_cpu_witness")
+			case traceDBSchedulerRunningLifecycleRejected:
+				traceDBRawCountSkip(classSkipped, class, "lifecycle_rejected_running_cpu_witness")
+			default:
+				traceDBRawCountSkip(classSkipped, class, "unknown_running_cpu_witness")
+			}
 		}
 		if !raw.CPUKnown {
-			traceDBRawCountSkip(classSkipped, class, "unknown_cpu")
 			continue
 		}
 		body, ok := traceDBRenderRawFtrace(raw.Name, args, argsets.InvalidKeys[raw.ArgSetID])
 		if !ok {
 			continue
 		}
-		if err := addTraceDBInstantRow(sink, raw.TS, task, tid, tgid, raw.CPU, body); err != nil {
+		if err := addTraceDBInstantRow(sink, raw.TS, subject.Task, subject.TID, subject.TGID, raw.CPU, body); err != nil {
 			return outCoverage, err
 		}
 		item.RowsEmitted++
@@ -267,16 +307,13 @@ func traceDBRawOptionalExpr(ctx context.Context, tdb *traceDB, table string, nam
 	return traceDBQuoteIdent(name), true, nil
 }
 
-func traceDBRawOptionalID(value any, columnPresent bool, maxValue int64, zeroIsKnown bool) (int64, bool, bool) {
+func traceDBRawOptionalID(value any, columnPresent bool, maxValue int64) (int64, bool, bool) {
 	if !columnPresent || value == nil {
 		return 0, false, true
 	}
 	parsed, ok := traceDBStrictSQLiteInt(value)
 	if !ok || parsed < 0 || parsed > maxValue {
 		return 0, false, false
-	}
-	if parsed == 0 {
-		return 0, zeroIsKnown, true
 	}
 	return parsed, true, true
 }
@@ -881,97 +918,125 @@ func traceDBRawDevArg(args map[string]traceDBValue, sep string, names ...string)
 	return text
 }
 
-func traceDBRawLineContext(raw traceDBRawEvent, index traceDBThreadIndex) (string, int64, int64, int64, bool) {
-	var thread traceDBThread
-	threadKnown := false
+func traceDBRawMayFeedPairing(name string) bool {
+	class := traceDBRawFtraceClass(name)
+	return class != "" && class != "page_cache"
+}
+
+func traceDBResolveRawSubject(raw traceDBRawEvent, authority traceDBSchedulerAuthority,
+	hasExplicitCPU, pairingCapable bool,
+) (traceDBRawSubject, string) {
+	if !authority.initialized {
+		return traceDBRawSubject{}, "missing_scheduler_authority"
+	}
+	if traceDBBeforeCaptureStart(authority.identities, raw.TS) {
+		return traceDBRawSubject{}, "pre_capture_timestamp"
+	}
+	if raw.ITIDKnown && raw.ITID == 0 {
+		if raw.TIDKnown && raw.TID != 0 || raw.PIDKnown && raw.PID != 0 {
+			return traceDBRawSubject{}, "idle_public_identity_conflict"
+		}
+		schedulerSubject, ok := authority.schedulerSubjectFromExactITID(0, true)
+		if !ok || !authority.schedulerPointAllows(schedulerSubject, raw.TS) {
+			return traceDBRawSubject{}, "idle_lifecycle_rejected"
+		}
+		return traceDBRawSubject{Kind: traceDBRawSubjectIdle, Task: "swapper", ITID: 0}, ""
+	}
+
 	if raw.ITIDKnown {
-		if raw.ITID == 0 {
-			if raw.TIDKnown || raw.PIDKnown {
-				return "", 0, 0, -1, false
-			}
-			return "swapper", 0, 0, 0, true
+		thread, process, resolution := authority.resolveThreadSubject(raw.ITID)
+		if resolution != traceDBSchedulerThreadResolved {
+			return traceDBRawSubject{}, "canonical_subject_unresolved"
 		}
-		candidate, ok := index.ByITID[raw.ITID]
-		if !ok || index.AmbiguousITID[raw.ITID] || !traceDBRawThreadIdentityValid(candidate) || traceDBBeforeCaptureStart(index, raw.TS) {
-			return "", 0, 0, -1, false
+		if !traceDBRawPublicClaimsMatch(raw, thread, process) {
+			return traceDBRawSubject{}, "canonical_public_identity_conflict"
 		}
-		thread, threadKnown = candidate, true
+		return traceDBAdmitRawCanonicalSubject(authority, thread, process, raw.TS)
 	}
-	if raw.TIDKnown {
-		if threadKnown {
-			// Exact ITID is the stronger identity. Public TID/PID fields may
-			// cross-check it, but a reused TID must not force a second election
-			// that discards the exact row.
-			if raw.TID != thread.TID {
-				return "", 0, 0, -1, false
-			}
-		} else if len(index.ByTIDCandidates[raw.TID]) == 0 {
-			tgid := raw.TID
-			if raw.PIDKnown {
-				tgid = raw.PID
-			}
-			return "<raw>", raw.TID, tgid, -1, true
-		} else {
-			candidate, ok := traceDBRawThreadAt(index, raw.TID, raw.TS, raw.PID, raw.PIDKnown)
-			if !ok {
-				return "", 0, 0, -1, false
-			}
-			thread, threadKnown = candidate, true
-		}
+
+	if !raw.TIDKnown || raw.TID == 0 {
+		return traceDBRawSubject{}, "missing_thread_identity"
 	}
-	if threadKnown {
-		process, processKnown := index.Processes[thread.IPID]
-		if index.AmbiguousIPID[thread.IPID] {
-			return "", 0, 0, -1, false
-		}
-		if processKnown && (process.PID <= 0 || process.PID > math.MaxInt32) {
-			return "", 0, 0, -1, false
-		}
-		if raw.PIDKnown && (!processKnown || process.PID != raw.PID) {
-			return "", 0, 0, -1, false
-		}
-		tgid := thread.TID
-		if processKnown {
-			tgid = process.PID
-		}
-		name := thread.Name
-		if _, ok := traceDBStrictArgText(name, true); !ok {
-			name = "unknown"
-		}
-		return traceDBCommName(name, "unknown"), thread.TID, tgid, thread.ITID, true
+	if authority.identities.RejectedPublicTID[raw.TID] {
+		return traceDBRawSubject{}, "rejected_public_tid_candidate"
 	}
-	// PID identifies a process, never the emitting thread.  Thread-scoped raw
-	// families must not be projected onto PID-as-TID or pid0/swapper.
-	return "", 0, 0, -1, false
+	items := authority.identities.ByTIDCandidates[raw.TID]
+	if len(items) == 0 {
+		if authority.identities.ObservedPublicTID[raw.TID] {
+			return traceDBRawSubject{}, "rejected_public_tid_candidate"
+		}
+		if pairingCapable {
+			return traceDBRawSubject{}, "source_only_pairing_forbidden"
+		}
+		if !hasExplicitCPU {
+			return traceDBRawSubject{}, "source_only_requires_explicit_cpu"
+		}
+		return traceDBRawSubject{}, "source_only_inventory_withheld"
+	}
+
+	var selectedThread traceDBThread
+	var selectedProcess traceDBProcess
+	matches := 0
+	for _, candidate := range items {
+		thread, process, resolution := authority.resolveThreadSubject(candidate.ITID)
+		if resolution != traceDBSchedulerThreadResolved {
+			continue
+		}
+		if raw.PIDKnown && process.PID != raw.PID {
+			continue
+		}
+		selectedThread = thread
+		selectedProcess = process
+		matches++
+	}
+	if matches == 0 {
+		if raw.PIDKnown {
+			return traceDBRawSubject{}, "canonical_pid_conflict"
+		}
+		return traceDBRawSubject{}, "canonical_subject_unresolved"
+	}
+	if matches != 1 {
+		return traceDBRawSubject{}, "canonical_subject_ambiguous"
+	}
+	return traceDBAdmitRawCanonicalSubject(authority, selectedThread, selectedProcess, raw.TS)
+}
+
+func traceDBAdmitRawCanonicalSubject(authority traceDBSchedulerAuthority, thread traceDBThread,
+	process traceDBProcess, timestamp int64,
+) (traceDBRawSubject, string) {
+	if !traceDBRawThreadIdentityValid(thread) || process.IPID != thread.IPID ||
+		process.PID < 0 || process.PID > math.MaxInt32 {
+		return traceDBRawSubject{}, "canonical_subject_unresolved"
+	}
+	if !authority.threadPointAllows(thread.ITID, timestamp) {
+		return traceDBRawSubject{}, "lifecycle_rejected_subject"
+	}
+	name := thread.Name
+	if _, ok := traceDBStrictArgText(name, true); !ok {
+		name = "unknown"
+	}
+	subject := traceDBRawSubject{
+		Kind: traceDBRawSubjectCanonicalThread, Task: traceDBCommName(name, "unknown"),
+		TID: thread.TID, TGID: process.PID, ITID: thread.ITID,
+	}
+	if process.PID == 0 {
+		subject.Kind = traceDBRawSubjectKernelThread
+		subject.TGID = thread.TID
+	}
+	return subject, ""
+}
+
+func traceDBRawPublicClaimsMatch(raw traceDBRawEvent, thread traceDBThread, process traceDBProcess) bool {
+	if process.PID == 0 {
+		return (!raw.TIDKnown || raw.TID == thread.TID) &&
+			(!raw.PIDKnown || raw.PID == 0)
+	}
+	return (!raw.TIDKnown || raw.TID == thread.TID) &&
+		(!raw.PIDKnown || raw.PID == process.PID)
 }
 
 func traceDBRawThreadIdentityValid(thread traceDBThread) bool {
 	return thread.ITID > 0 && thread.ITID <= maxTraceDBInternalID &&
 		thread.TID > 0 && thread.TID <= math.MaxInt32 && thread.IPID >= 0 &&
 		thread.IPID <= maxTraceDBInternalID
-}
-
-func traceDBRawThreadAt(index traceDBThreadIndex, tid, _ int64, pid int64, pidKnown bool) (traceDBThread, bool) {
-	items := index.ByTIDCandidates[tid]
-	var match traceDBThread
-	matches := 0
-	for _, item := range items {
-		if !traceDBRawThreadIdentityValid(item) {
-			continue
-		}
-		if pidKnown {
-			if process, ok := index.Processes[item.IPID]; ok && process.PID > 0 && process.PID <= math.MaxInt32 &&
-				process.PID == pid && !index.AmbiguousIPID[item.IPID] {
-				match = item
-				matches++
-			}
-			continue
-		}
-		match = item
-		matches++
-	}
-	if matches != 1 || index.AmbiguousITID[match.ITID] {
-		return traceDBThread{}, false
-	}
-	return match, true
 }

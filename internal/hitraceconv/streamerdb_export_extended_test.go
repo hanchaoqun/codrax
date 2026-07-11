@@ -702,12 +702,11 @@ func TestExportTraceDBCallstackFailsClosedWithoutCompleteLifecycle(t *testing.T)
 					!strings.Contains(item.Skipped, "scheduler_lifecycle_authority_complete=false") {
 					t.Fatalf("incomplete scheduler Running authority failed open: %+v", item)
 				}
-			case "extended_callstack_frame_native_lifecycle_gated_raw_legacy_pending_b3":
+			case "extended_all_consumers_lifecycle_gated":
 				extendedScope++
 				if item.RowsRead != 2 || item.RowsEmitted != 1 ||
-					!strings.Contains(item.FieldSources["generation_admission"], "callstack/frame/native share one lifecycle-gated typed view") ||
-					!strings.Contains(item.FieldSources["generation_admission"], "raw alone remains legacy pending B3") {
-					t.Fatalf("extended mixed Running compatibility changed or was not disclosed: %+v", item)
+					!strings.Contains(item.FieldSources["generation_admission"], "perf/raw/callstack/frame/native share one lifecycle-gated typed view") {
+					t.Fatalf("extended shared Running compatibility changed or was not disclosed: %+v", item)
 				}
 			default:
 				t.Fatalf("thread_state Running coverage lacks a closed consumer scope: %+v", item)
@@ -862,6 +861,12 @@ func rawFtraceRootCauseFixtureStatements() []string {
 		"CREATE TABLE data_dict (id INT, data TEXT)",
 		"CREATE TABLE args (argset INT, key INT, datatype INT, value INT)",
 		"CREATE TABLE raw (id INT, ts INT, name TEXT, cpu INT, itid INT, argsetid INT)",
+		"CREATE TABLE instant (ts, name, ref, ref_type)",
+		"CREATE TABLE sched_slice (ts, dur, itid, end_state)",
+		"CREATE TABLE callstack (ts, itid, callid)",
+		"CREATE TABLE syscall (ts, itid)",
+		"CREATE TABLE native_hook (start_ts, itid)",
+		"CREATE TABLE frame_slice (id, type, ts, itid)",
 	}
 	nextDict := 1
 	dict := map[string]int{}

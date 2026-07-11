@@ -8,8 +8,39 @@ import (
 	"testing"
 )
 
+func createTraceDBRawAuthorityFixture(t *testing.T, statements []string) string {
+	t.Helper()
+	out := append([]string(nil), statements...)
+	hasTable := func(name string) bool {
+		needle := "create table " + name + " "
+		for _, statement := range out {
+			if strings.Contains(strings.ToLower(statement), needle) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, schema := range []struct {
+		table string
+		ddl   string
+	}{
+		{table: "instant", ddl: "CREATE TABLE instant (ts, name, ref, ref_type)"},
+		{table: "sched_slice", ddl: "CREATE TABLE sched_slice (ts, dur, itid, end_state)"},
+		{table: "thread_state", ddl: "CREATE TABLE thread_state (itid, ts, dur, cpu, state)"},
+		{table: "callstack", ddl: "CREATE TABLE callstack (ts, itid, callid)"},
+		{table: "syscall", ddl: "CREATE TABLE syscall (ts, itid)"},
+		{table: "native_hook", ddl: "CREATE TABLE native_hook (start_ts, itid)"},
+		{table: "frame_slice", ddl: "CREATE TABLE frame_slice (id, type, ts, itid)"},
+	} {
+		if !hasTable(schema.table) {
+			out = append(out, schema.ddl)
+		}
+	}
+	return createTraceDBFixture(t, out)
+}
+
 func TestExportTraceDBRawFtraceStrictScalarsCPU0ArgsetsAndTIDReuse(t *testing.T) {
-	path := createTraceDBFixture(t, []string{
+	path := createTraceDBRawAuthorityFixture(t, []string{
 		"CREATE TABLE trace_range (start_ts INT)",
 		"INSERT INTO trace_range VALUES (0)",
 		"CREATE TABLE process (ipid INT, pid INT, name TEXT)",
@@ -98,6 +129,7 @@ func TestTraceDBRawExactITIDDominatesReusedPublicTIDCandidates(t *testing.T) {
 	index.ByITID[1] = traceDBThread{ITID: 1, TID: 42, IPID: 1, Name: "old-thread"}
 	index.ByITID[2] = traceDBThread{ITID: 2, TID: 42, IPID: 2, Name: "new-thread"}
 	buildTraceDBThreadSecondaryIndexes(&index)
+	authority := traceDBTestCompleteSchedulerAuthority(index)
 
 	tests := []struct {
 		name     string
@@ -117,10 +149,12 @@ func TestTraceDBRawExactITIDDominatesReusedPublicTIDCandidates(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, tid, tgid, itid, ok := traceDBRawLineContext(test.raw, index)
+			subject, reason := traceDBResolveRawSubject(test.raw, authority, true, true)
+			ok := reason == ""
+			tid, tgid, itid := subject.TID, subject.TGID, subject.ITID
 			if ok != test.wantOK || ok && (tid != test.wantTID || tgid != test.wantTGID || itid != test.wantITID) {
-				t.Fatalf("context=(tid=%d tgid=%d itid=%d ok=%t), want (%d,%d,%d,%t)",
-					tid, tgid, itid, ok, test.wantTID, test.wantTGID, test.wantITID, test.wantOK)
+				t.Fatalf("context=(tid=%d tgid=%d itid=%d ok=%t reason=%q), want (%d,%d,%d,%t)",
+					tid, tgid, itid, ok, reason, test.wantTID, test.wantTGID, test.wantITID, test.wantOK)
 			}
 		})
 	}
@@ -171,7 +205,7 @@ func TestExportTraceDBRawFtraceRunningTaintBlocksInferenceButNotExplicitCPU(t *t
 }
 
 func TestExportTraceDBRawFtraceConflictingIdleIdentityCannotMintCPU(t *testing.T) {
-	path := createTraceDBFixture(t, []string{
+	path := createTraceDBRawAuthorityFixture(t, []string{
 		"CREATE TABLE trace_range (start_ts INT)",
 		"INSERT INTO trace_range VALUES (0)",
 		"CREATE TABLE process (ipid INT, pid INT, name TEXT)",
@@ -196,21 +230,30 @@ func TestExportTraceDBRawFtraceConflictingIdleIdentityCannotMintCPU(t *testing.T
 	if err != nil {
 		t.Fatalf("export conflicting idle fixture: %v", err)
 	}
-	bodyBytes, err := os.ReadFile(outPath)
-	if err != nil {
-		t.Fatal(err)
+	bodyBytes, readErr := os.ReadFile(outPath)
+	if readErr != nil && !os.IsNotExist(readErr) {
+		t.Fatal(readErr)
 	}
-	body := string(bodyBytes)
-	if strings.Count(body, "workqueue_execute_start:") != 1 || !strings.Contains(body, "[000]") {
-		t.Fatalf("idle identity conflict must block inferred CPU but preserve exact CPU0:\n%s", body)
+	if strings.Contains(string(bodyBytes), "workqueue_execute_start:") || result.EventsWritten != 0 {
+		t.Fatalf("conflicting idle identity must block both inferred and explicit CPU rows: events=%d\n%s",
+			result.EventsWritten, bodyBytes)
 	}
 	if !coverageHasSkipped(result.Coverage, "resolver", "thread_state", "ambiguous_idle_identity=1") {
 		t.Fatalf("idle Running identity conflict was not disclosed: %+v", result.Coverage)
 	}
+	if !coverageHasSkipped(result.Coverage, "raw_ftrace", "workqueue", "idle_lifecycle_rejected=2") {
+		t.Fatalf("idle lifecycle rejection was not disclosed: %+v", result.Coverage)
+	}
 }
 
 func TestExportTraceDBRawFtracePerKeyPoisonAndWorkqueueEndShape(t *testing.T) {
-	path := createTraceDBFixture(t, []string{
+	path := createTraceDBRawAuthorityFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts INT)",
+		"INSERT INTO trace_range VALUES (0)",
+		"CREATE TABLE process (ipid INT, pid INT, name TEXT)",
+		"INSERT INTO process VALUES (1, 100, 'demo')",
+		"CREATE TABLE thread (itid INT, tid INT, ipid INT, name TEXT, is_main_thread INT, switch_count INT)",
+		"INSERT INTO thread VALUES (1, 42, 1, 'worker', 0, 1)",
 		"CREATE TABLE data_dict (id, data)",
 		"INSERT INTO data_dict VALUES (1, 'work')",
 		"INSERT INTO data_dict VALUES (2, 'function')",
@@ -268,7 +311,13 @@ func TestExportTraceDBRawFtracePerKeyPoisonAndWorkqueueEndShape(t *testing.T) {
 }
 
 func TestExportTraceDBRawFtraceStableIDOrderAndDuplicatePoison(t *testing.T) {
-	path := createTraceDBFixture(t, []string{
+	path := createTraceDBRawAuthorityFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts INT)",
+		"INSERT INTO trace_range VALUES (0)",
+		"CREATE TABLE process (ipid INT, pid INT, name TEXT)",
+		"INSERT INTO process VALUES (1, 42, 'demo')",
+		"CREATE TABLE thread (itid INT, tid INT, ipid INT, name TEXT, is_main_thread INT, switch_count INT)",
+		"INSERT INTO thread VALUES (1, 42, 1, 'worker', 1, 1)",
 		"CREATE TABLE data_dict (id, data)",
 		"INSERT INTO data_dict VALUES (1, 'work')",
 		"INSERT INTO data_dict VALUES (2, 'function')",
@@ -323,8 +372,14 @@ func TestExportTraceDBRawFtraceStableIDOrderAndDuplicatePoison(t *testing.T) {
 	}
 }
 
-func TestExportTraceDBRawFtraceRequiresThreadIdentityAndSupportsWithoutRowIDArgsets(t *testing.T) {
-	path := createTraceDBFixture(t, []string{
+func TestExportTraceDBRawFtraceRequiresCanonicalThreadIdentityAndSupportsWithoutRowIDArgsets(t *testing.T) {
+	path := createTraceDBRawAuthorityFixture(t, []string{
+		"CREATE TABLE trace_range (start_ts INT)",
+		"INSERT INTO trace_range VALUES (0)",
+		"CREATE TABLE process (ipid INT, pid INT, name TEXT)",
+		"INSERT INTO process VALUES (1, 100, 'demo')",
+		"CREATE TABLE thread (itid INT, tid INT, ipid INT, name TEXT, is_main_thread INT, switch_count INT)",
+		"INSERT INTO thread VALUES (1, 42, 1, 'worker', 1, 1)",
 		"CREATE TABLE data_dict (id INTEGER PRIMARY KEY, data TEXT) WITHOUT ROWID",
 		"INSERT INTO data_dict VALUES (1, 'work')",
 		"INSERT INTO data_dict VALUES (2, 'function')",
@@ -348,10 +403,10 @@ func TestExportTraceDBRawFtraceRequiresThreadIdentityAndSupportsWithoutRowIDArgs
 		t.Fatal(err)
 	}
 	body := string(bodyBytes)
-	if strings.Count(body, "workqueue_execute_start:") != 1 || !strings.Contains(body, "<raw>-42") {
-		t.Fatalf("exact TID fallback or WITHOUT ROWID argsets failed:\n%s", body)
+	if strings.Count(body, "workqueue_execute_start:") != 1 || !strings.Contains(body, "worker-42") {
+		t.Fatalf("canonical TID resolution or WITHOUT ROWID argsets failed:\n%s", body)
 	}
-	for _, want := range []string{"identity_conflict_or_ambiguous=2", "invalid_tid=1", "invalid_pid=1"} {
+	for _, want := range []string{"missing_thread_identity=2", "invalid_tid=1", "invalid_pid=1"} {
 		if !coverageHasSkipped(result.Coverage, "raw_ftrace", "workqueue", want) {
 			t.Fatalf("identity boundary coverage missing %q: %+v", want, result.Coverage)
 		}
@@ -411,7 +466,7 @@ func TestTraceDBRawRequiredArgsTypedEndpointMatrix(t *testing.T) {
 }
 
 func TestExportTraceDBRawBlockOptionalGrammarFailureIsDisclosed(t *testing.T) {
-	path := createTraceDBFixture(t, []string{
+	path := createTraceDBRawAuthorityFixture(t, []string{
 		"CREATE TABLE trace_range (start_ts INT)",
 		"INSERT INTO trace_range VALUES (0)",
 		"CREATE TABLE process (ipid INT, pid INT, name TEXT)",

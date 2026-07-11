@@ -972,12 +972,13 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 		"loadSchedulerRunningIndex":     1,
 	})
 	assertCallSites("lookupCPUAt", map[string]int{
-		"exportTraceDBWakeups":          1,
-		"knownCPUAt":                    1,
-		"prepareTraceDBCallstackRow":    2,
-		"prepareTraceDBFrameSliceRow":   2,
-		"prepareTraceDBNativeHookEvent": 1,
-		"traceDBResolvePerfSampleCPU":   1,
+		"exportTraceDBRawFtraceFamilies": 1,
+		"exportTraceDBWakeups":           1,
+		"knownCPUAt":                     1,
+		"prepareTraceDBCallstackRow":     2,
+		"prepareTraceDBFrameSliceRow":    2,
+		"prepareTraceDBNativeHookEvent":  1,
+		"traceDBResolvePerfSampleCPU":    1,
 	})
 	assertCallSites("exportTraceDBWakeups", map[string]int{"exportTraceDBSchedulerFamilies": 1})
 	assertCallSites("exportTraceDBBlockedReasons", map[string]int{"exportTraceDBSchedulerFamilies": 1})
@@ -1010,14 +1011,16 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 		"scanTraceDBSchedSourceRow":              1,
 		"threadSubject":                          1,
 		"traceDBCallstackExactEmitterCandidates": 1,
+		"traceDBResolveRawSubject":               2,
 	})
 	assertCallSites("threadPointAllows", map[string]int{
-		"exportTraceDBPerfSamples":      1,
-		"exportTraceDBWakeups":          2,
-		"loadTraceDBBlockedCandidates":  1,
-		"prepareTraceDBCallstackRow":    2,
-		"prepareTraceDBNativeHookEvent": 1,
-		"schedulerPointAllows":          1,
+		"exportTraceDBPerfSamples":        1,
+		"exportTraceDBWakeups":            2,
+		"loadTraceDBBlockedCandidates":    1,
+		"prepareTraceDBCallstackRow":      2,
+		"prepareTraceDBNativeHookEvent":   1,
+		"schedulerPointAllows":            1,
+		"traceDBAdmitRawCanonicalSubject": 1,
 	})
 	assertCallSites("threadClosedEndpointAllows", map[string]int{
 		"loadTraceDBBlockedSchedBoundaries": 1,
@@ -1027,8 +1030,8 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 	})
 	assertCallSites("queryTraceDBSchedSliceRows", map[string]int{"auditTraceDBSchedSwitchRows": 1, "exportTraceDBSchedSwitch": 1})
 	assertCallSites("scanTraceDBSchedSourceRow", map[string]int{"auditTraceDBSchedSwitchRows": 1, "exportTraceDBSchedSwitch": 1})
-	assertCallSites("schedulerSubjectFromExactITID", map[string]int{"loadSchedStarts": 1, "newTraceDBSchedulerRunningIndex": 1, "scanTraceDBSchedSourceRow": 1})
-	assertCallSites("schedulerPointAllows", map[string]int{"loadSchedStarts": 1, "schedulerNextPointAllows": 1, "validateTraceDBSchedLifecycle": 2})
+	assertCallSites("schedulerSubjectFromExactITID", map[string]int{"loadSchedStarts": 1, "newTraceDBSchedulerRunningIndex": 1, "scanTraceDBSchedSourceRow": 1, "traceDBResolveRawSubject": 1})
+	assertCallSites("schedulerPointAllows", map[string]int{"loadSchedStarts": 1, "schedulerNextPointAllows": 1, "traceDBResolveRawSubject": 1, "validateTraceDBSchedLifecycle": 2})
 	assertCallSites("schedulerNextPointAllows", map[string]int{"traceDBNextSchedMeta": 1})
 	assertCallSites("schedulerSourceIntervalAllows", map[string]int{"newTraceDBSchedulerRunningIndex": 1, "validateTraceDBSchedLifecycle": 1})
 	assertCallSites("validateTraceDBSchedLifecycle", map[string]int{"scanTraceDBSchedSourceRow": 2})

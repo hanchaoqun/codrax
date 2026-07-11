@@ -225,12 +225,13 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 	}
 
 	if !reflect.DeepEqual(callerCounts("threadPointAllows"), map[string]int{
-		"exportTraceDBPerfSamples":      1,
-		"exportTraceDBWakeups":          2,
-		"loadTraceDBBlockedCandidates":  1,
-		"prepareTraceDBCallstackRow":    2,
-		"prepareTraceDBNativeHookEvent": 1,
-		"schedulerPointAllows":          1,
+		"exportTraceDBPerfSamples":        1,
+		"exportTraceDBWakeups":            2,
+		"loadTraceDBBlockedCandidates":    1,
+		"prepareTraceDBCallstackRow":      2,
+		"prepareTraceDBNativeHookEvent":   1,
+		"schedulerPointAllows":            1,
+		"traceDBAdmitRawCanonicalSubject": 1,
 	}) || !reflect.DeepEqual(callerCounts("threadClosedEndpointAllows"), map[string]int{
 		"loadTraceDBBlockedSchedBoundaries": 1,
 		"prepareTraceDBCallstackRow":        1,

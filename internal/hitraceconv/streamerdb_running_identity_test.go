@@ -376,31 +376,35 @@ func TestTraceDBRunningIdentityTaintCannotBeRescuedInEitherOrder(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			rows := append([]string{}, test.rows...)
 			rows = append(rows, "INSERT INTO thread_state VALUES (4, 10, 20, 4, 'Running', 44, 400)")
-			intervals, integrity, _, identities := traceDBLoadRunningIdentityFixture(t,
+			intervals, integrity, _, _ := traceDBLoadRunningIdentityFixture(t,
 				"CREATE TABLE thread_state (itid, ts, dur, cpu, state, tid, pid)", rows...)
-			identities.RunningTaintedITID = integrity.TaintedITIDs
-			identities.RunningGlobalTaint = integrity.GlobalTaint
-			if _, status := traceDBExtendedRunningCPUAt(identities, intervals, 1, 15); status != traceDBExtendedRunningSourceTainted {
+			typed := traceDBSchedulerRunningIndex{
+				intervals: intervals, sourceTaintedITID: integrity.TaintedITIDs,
+				sourceGlobalTaint: integrity.GlobalTaint, initialized: true,
+			}
+			if _, status := typed.lookupCPUAt(1, 15); status != traceDBSchedulerRunningSourceTainted {
 				t.Fatalf("mismatched sibling rescued lane in %s order: status=%d", test.name, status)
 			}
-			if cpu, status := traceDBExtendedRunningCPUAt(identities, intervals, 4, 15); status != traceDBExtendedRunningKnown || cpu != 4 {
+			if cpu, status := typed.lookupCPUAt(4, 15); status != traceDBSchedulerRunningKnown || cpu != 4 {
 				t.Fatalf("unrelated lane connected in %s order: cpu=%d status=%d", test.name, cpu, status)
 			}
 		})
 	}
 
 	t.Run("unplaceable itid globally taints every lookup", func(t *testing.T) {
-		intervals, integrity, _, identities := traceDBLoadRunningIdentityFixture(t,
+		intervals, integrity, _, _ := traceDBLoadRunningIdentityFixture(t,
 			"CREATE TABLE thread_state (itid, ts, dur, cpu, state, tid, pid)",
 			"INSERT INTO thread_state VALUES (CAST(1 AS TEXT), 10, 20, 1, 'Running', 42, 100)",
 			"INSERT INTO thread_state VALUES (4, 10, 20, 4, 'Running', 44, 400)",
 		)
-		identities.RunningTaintedITID = integrity.TaintedITIDs
-		identities.RunningGlobalTaint = integrity.GlobalTaint
 		if !integrity.GlobalTaint {
 			t.Fatalf("invalid ITID did not taint globally: %+v", integrity)
 		}
-		if _, status := traceDBExtendedRunningCPUAt(identities, intervals, 4, 15); status != traceDBExtendedRunningSourceTainted {
+		typed := traceDBSchedulerRunningIndex{
+			intervals: intervals, sourceTaintedITID: integrity.TaintedITIDs,
+			sourceGlobalTaint: integrity.GlobalTaint, initialized: true,
+		}
+		if _, status := typed.lookupCPUAt(4, 15); status != traceDBSchedulerRunningSourceTainted {
 			t.Fatalf("global poison was rescued by a valid lane: status=%d", status)
 		}
 	})
@@ -697,21 +701,17 @@ func TestTraceDBRunningIdentityCrossCheckIsStructurallyPinned(t *testing.T) {
 	if indexAuthorityAssignments != 1 {
 		t.Fatalf("extended authority-derived index assignments=%d, want 1", indexAuthorityAssignments)
 	}
-	if !reflect.DeepEqual(runningHandoffAssignments, map[string]int{"global": 1, "lane": 1}) ||
-		lastRunningHandoff == 0 || firstExtendedRunningDispatch == 0 || lastRunningHandoff >= firstExtendedRunningDispatch {
-		t.Fatalf("extended Running integrity handoff=%v last=%d first-dispatch=%d", runningHandoffAssignments, lastRunningHandoff, firstExtendedRunningDispatch)
+	if len(runningHandoffAssignments) != 0 || lastRunningHandoff != 0 || firstExtendedRunningDispatch == 0 {
+		t.Fatalf("retired legacy Running handoff=%v last=%d first-dispatch=%d", runningHandoffAssignments, lastRunningHandoff, firstExtendedRunningDispatch)
 	}
-	if !reflect.DeepEqual(extendedGuardSelectors, map[string]int{"RunningGlobalTaint": 1, "RunningTaintedITID": 1}) {
-		t.Fatalf("extended Running lookup source guards=%v", extendedGuardSelectors)
+	if len(extendedGuardSelectors) != 0 {
+		t.Fatalf("retired legacy Running source guards remain=%v", extendedGuardSelectors)
 	}
-	if !reflect.DeepEqual(extendedLookupCallers, map[string]int{
-		"exportTraceDBRawFtraceFamilies": 1,
-	}) {
-		t.Fatalf("extended Running lookup callers=%v", extendedLookupCallers)
+	if len(extendedLookupCallers) != 0 {
+		t.Fatalf("retired legacy Running lookup callers=%v", extendedLookupCallers)
 	}
 	if !reflect.DeepEqual(knownCPUCallers, map[string]int{
-		"lookupCPUAt":                 1,
-		"traceDBExtendedRunningCPUAt": 1,
+		"lookupCPUAt": 1,
 	}) {
 		t.Fatalf("raw Running CPU lookup callers=%v", knownCPUCallers)
 	}

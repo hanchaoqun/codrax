@@ -280,8 +280,8 @@ func TestTraceDBFrameAndNativeAuthoritiesAreStructurallyPinned(t *testing.T) {
 			}
 		}
 	}
-	if !reflect.DeepEqual(callerCounts("traceDBExtendedRunningCPUAt"), map[string]int{"exportTraceDBRawFtraceFamilies": 1}) {
-		t.Fatalf("legacy Running lookup escaped raw-only boundary: %v", callerCounts("traceDBExtendedRunningCPUAt"))
+	if len(callerCounts("traceDBExtendedRunningCPUAt")) != 0 {
+		t.Fatalf("retired legacy Running lookup regained a caller: %v", callerCounts("traceDBExtendedRunningCPUAt"))
 	}
 
 	extendedBuilds := []callSite{}

@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestTraceDBRunningConsumerScopesSeparateSchedulerFromExtendedTypedAndRawLegacy(t *testing.T) {
+func TestTraceDBRunningConsumerScopesUseOneExtendedTypedView(t *testing.T) {
 	path := createTraceDBFixture(t, []string{
 		"CREATE TABLE thread_state (itid, ts, dur, cpu, state)",
 		"INSERT INTO thread_state VALUES (1, 90, 11, 1, 'Running')",
@@ -56,13 +56,13 @@ func TestTraceDBRunningConsumerScopesSeparateSchedulerFromExtendedTypedAndRawLeg
 		t.Fatalf("extended legacy Running facade changed the strict loader: base=%+v %+v %+v legacy=%+v %+v %+v",
 			baseIntervals, baseIntegrity, baseCoverage, legacyIntervals, legacyIntegrity, legacyCoverage)
 	}
-	if cpu, known := traceDBKnownCPUAt(legacyIntervals, 1, 95); !known || cpu != 1 {
-		t.Fatalf("extended legacy Running unexpectedly adopted scheduler lifecycle gate: cpu=%d known=%t", cpu, known)
+	extendedTyped := newTraceDBSchedulerRunningIndex(authority, legacyIntervals, legacyIntegrity, nil)
+	if _, status := extendedTyped.lookupCPUAt(1, 95); status != traceDBSchedulerRunningLifecycleRejected {
+		t.Fatalf("extended typed Running cross-cut status=%d, want lifecycle rejected", status)
 	}
-	if legacyCoverage.FieldSources["running_consumer_scope"] != "extended_callstack_frame_native_lifecycle_gated_raw_legacy_pending_b3" ||
-		!strings.Contains(legacyCoverage.FieldSources["generation_admission"], "callstack/frame/native share one lifecycle-gated typed view") ||
-		!strings.Contains(legacyCoverage.FieldSources["generation_admission"], "raw alone remains legacy pending B3") {
-		t.Fatalf("extended mixed Running scope was not disclosed: %+v", legacyCoverage)
+	if legacyCoverage.FieldSources["running_consumer_scope"] != "extended_all_consumers_lifecycle_gated" ||
+		!strings.Contains(legacyCoverage.FieldSources["generation_admission"], "perf/raw/callstack/frame/native share one lifecycle-gated typed view") {
+		t.Fatalf("extended typed Running scope was not disclosed: %+v", legacyCoverage)
 	}
 }
 

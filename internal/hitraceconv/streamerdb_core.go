@@ -95,8 +95,6 @@ type traceDBThreadIndex struct {
 	ByProcess          map[int64][]traceDBThread
 	TraceStart         int64
 	TraceStartKnown    bool
-	RunningTaintedITID map[int64]bool
-	RunningGlobalTaint bool
 }
 
 type traceDBRunningIntegrity struct {
