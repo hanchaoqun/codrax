@@ -96,6 +96,14 @@ type traceDBSchedStart struct {
 	TS       int64
 	CPU      int64
 	Priority int64
+	Known    bool
+}
+
+type traceDBSchedStartIndex struct {
+	ByITID         map[int64][]traceDBSchedStart
+	TaintedITIDs   map[int64]bool
+	GlobalBarriers []int64
+	GlobalTaint    bool
 }
 
 type traceDBRunningInterval struct {
@@ -625,16 +633,17 @@ func (tdb *traceDB) loadRawWakeups(ctx context.Context) ([]traceDBRawWakeup, Tra
 		coverage.Skipped = "missing raw.id and usable SQLite rowid; wakeup rows have no stable source identity"
 		return out, coverage, nil
 	}
-	duplicateIDs, err := traceDBRawDuplicateStableIDs(ctx, tdb, rowIdentity)
+	duplicateIDs, err := traceDBRawDuplicateStableIDs(ctx, tdb, rowIdentity, hasID)
 	if err != nil {
 		coverage.Error = err.Error()
 		return out, coverage, err
 	}
+	stableOrderExpr := traceDBRawStableOrderExpr(rowIdentity, hasID)
 	rows, err := tdb.db.QueryContext(ctx, `
 		SELECT `+rowIdentity+`, ts, name, cpu, itid
 		FROM raw
 		WHERE name IN ('sched_wakeup', 'sched_waking')
-		ORDER BY ts, `+rowIdentity)
+		ORDER BY ts, `+stableOrderExpr)
 	if err != nil {
 		coverage.Error = err.Error()
 		return out, coverage, err
@@ -654,10 +663,13 @@ func (tdb *traceDB) loadRawWakeups(ctx context.Context) ([]traceDBRawWakeup, Tra
 			return out, coverage, err
 		}
 		rowID, rowIDOK := traceDBStrictSQLiteInt(rowIDRaw)
+		if hasID {
+			rowID, rowIDOK = traceDBStrictRawStableIDProjection(rowIDRaw)
+		}
 		ts, tsOK := traceDBStrictSQLiteInt(tsRaw)
 		name, nameOK := nameRaw.(string)
 		cpu, cpuOK := traceDBStrictSQLiteInt(cpuRaw)
-		itid, itidOK := traceDBStrictSQLiteInt(itidRaw)
+		itid, itidOK := traceDBStrictSignedUint32Projection(itidRaw)
 		if !rowIDOK || rowID < 0 || (!hasID && rowID == 0) || duplicateIDs[rowID] || seenRowIDs[rowID] ||
 			!tsOK || ts < 0 || !nameOK || (name != "sched_wakeup" && name != "sched_waking") ||
 			!cpuOK || !validTraceDBCPUIndex(cpu) || !itidOK || itid < 0 || itid > maxTraceDBInternalID {
@@ -682,55 +694,11 @@ func (tdb *traceDB) loadRawWakeups(ctx context.Context) ([]traceDBRawWakeup, Tra
 		coverage.Skipped = fmt.Sprintf("%d raw wakeup row(s) skipped: invalid or duplicate typed identity/scalar metadata", invalid)
 	}
 	coverage.FieldSources = map[string]string{
-		"stable_identity":      map[bool]string{true: "raw.id", false: "raw.rowid"}[hasID],
-		"same_timestamp_order": "raw.ts then stable identity",
+		"stable_identity":      map[bool]string{true: "raw.id with exact full-uint32 signed-int32 projection", false: "raw.rowid"}[hasID],
+		"thread_identity":      "raw.itid with exact Trace Streamer signed-int32 to canonical uint32 projection; -1 sentinel rejected",
+		"same_timestamp_order": map[bool]string{true: "raw.ts then canonical uint32(raw.id)", false: "raw.ts then raw.rowid"}[hasID],
 	}
 	return out, coverage, nil
-}
-
-func (tdb *traceDB) loadSchedStarts(ctx context.Context) (map[int64][]traceDBSchedStart, TraceDBCoverage, error) {
-	coverage, err := tdb.inspectCoverage(ctx, "resolver", "sched_slice", []string{"itid", "ts", "cpu", "priority"})
-	out := map[int64][]traceDBSchedStart{}
-	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
-		return out, coverage, err
-	}
-	rows, err := tdb.db.QueryContext(ctx, `
-		SELECT itid, ts, cpu, COALESCE(priority, 120)
-		FROM sched_slice
-		WHERE itid IS NOT NULL AND ts IS NOT NULL AND cpu IS NOT NULL
-		ORDER BY itid, ts
-	`)
-	if err != nil {
-		return out, coverage, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var itid int64
-		var item traceDBSchedStart
-		if err := rows.Scan(&itid, &item.TS, &item.CPU, &item.Priority); err != nil {
-			return out, coverage, err
-		}
-		out[itid] = append(out[itid], item)
-	}
-	return out, coverage, rows.Err()
-}
-
-func traceDBNextSchedMeta(starts map[int64][]traceDBSchedStart, itid int64, ts, defaultCPU, defaultPrio int64) (int64, int64) {
-	entries := starts[itid]
-	idx := sort.Search(len(entries), func(i int) bool { return entries[i].TS >= ts })
-	if idx >= len(entries) {
-		return defaultCPU, defaultPrio
-	}
-	return entries[idx].CPU, entries[idx].Priority
-}
-
-func traceDBNextSchedPriority(starts map[int64][]traceDBSchedStart, itid, ts int64) (int64, bool) {
-	entries := starts[itid]
-	idx := sort.Search(len(entries), func(i int) bool { return entries[i].TS >= ts })
-	if idx >= len(entries) || entries[idx].Priority < 0 {
-		return 0, false
-	}
-	return entries[idx].Priority, true
 }
 
 func (tdb *traceDB) loadRunningIntervals(ctx context.Context) (map[int64][]traceDBRunningInterval, traceDBRunningIntegrity, TraceDBCoverage, error) {
@@ -882,50 +850,6 @@ func traceDBKnownCPUAt(intervals map[int64][]traceDBRunningInterval, itid, ts in
 
 func validTraceDBCPUIndex(cpu int64) bool {
 	return cpu >= 0 && cpu <= maxTraceDBCPUIndex
-}
-
-func (tdb *traceDB) loadActiveThreadIDs(ctx context.Context) (map[int64]bool, []TraceDBCoverage, error) {
-	sources := []struct {
-		table  string
-		column string
-	}{
-		{"callstack", "callid"},
-		{"sched_slice", "itid"},
-		{"thread_state", "itid"},
-		{"syscall", "itid"},
-		{"native_hook", "itid"},
-		{"frame_slice", "itid"},
-	}
-	out := map[int64]bool{}
-	var coverage []TraceDBCoverage
-	for _, source := range sources {
-		item, err := tdb.inspectCoverage(ctx, "resolver.active_thread", source.table, []string{source.column})
-		coverage = append(coverage, item)
-		if err != nil {
-			return out, coverage, err
-		}
-		if !item.Found || len(item.ColumnsMissing) > 0 {
-			continue
-		}
-		rows, err := tdb.db.QueryContext(ctx,
-			"SELECT DISTINCT "+quoteSQLiteIdent(source.column)+" FROM "+quoteSQLiteIdent(source.table)+" WHERE "+quoteSQLiteIdent(source.column)+" IS NOT NULL",
-		)
-		if err != nil {
-			return out, coverage, err
-		}
-		for rows.Next() {
-			var itid int64
-			if err := rows.Scan(&itid); err != nil {
-				_ = rows.Close()
-				return out, coverage, err
-			}
-			out[itid] = true
-		}
-		if err := rows.Close(); err != nil {
-			return out, coverage, err
-		}
-	}
-	return out, coverage, nil
 }
 
 func quoteSQLiteIdent(name string) string {

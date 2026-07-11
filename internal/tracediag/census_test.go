@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
 // censusTrace exercises every census face: known sched/power/clock/marker
@@ -340,5 +342,19 @@ func TestFormatCensusHarmonyMicrokernelPriorityBuckets(t *testing.T) {
 	}
 	if c.prioOver159 != 2 {
 		t.Fatalf("only 160/301 may occupy the raw >159 bucket, got %d", c.prioOver159)
+	}
+}
+
+func TestFormatCensusExcludesNonExactWakeupPriorityFromHardBuckets(t *testing.T) {
+	c := newFormatCensusAcc(censusScope{})
+	c.observe(&tracequery.Event{Type: tracequery.EventSchedWakeup, WakeePrio: 159, WakeePrioInferred: true})
+	c.observe(&tracequery.Event{Type: tracequery.EventSchedWakeup, WakeePrio: 159, WakeePrioUnknown: true})
+	c.observe(&tracequery.Event{Type: tracequery.EventSchedWakeup, WakeePrio: 159, WakeePrioInferred: true, WakeePrioUnknown: true})
+	c.observe(&tracequery.Event{Type: tracequery.EventSchedWakeup, WakeePrio: 159})
+	if c.prioMicrokernelRT != 1 || c.prioCounts[159] != 1 {
+		t.Fatalf("non-exact wakeup priority entered exact RT census: histogram=%v rt=%d", c.prioCounts, c.prioMicrokernelRT)
+	}
+	if c.wakeupPrioInferred != 1 || c.wakeupPrioUnknown != 1 || c.wakeupPrioUntrusted != 1 {
+		t.Fatalf("wakeup priority provenance disclosure mismatch: inferred=%d unknown=%d untrusted=%d", c.wakeupPrioInferred, c.wakeupPrioUnknown, c.wakeupPrioUntrusted)
 	}
 }

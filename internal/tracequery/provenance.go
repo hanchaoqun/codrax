@@ -752,7 +752,7 @@ func resolveTraceArtifactSpans(sources []TraceArtifactSource, lineStart, lineEnd
 }
 
 func (idx *Index) eventView(ev Event, raw string) EventView {
-	view := EventView{Event: ev, Raw: raw}
+	view := EventView{Event: ev, WakeePrioSource: ev.WakeePrioritySource(), Raw: raw}
 	spans := idx.ResolveArtifactSpans(ev.Line, ev.Line)
 	if len(spans) != 1 {
 		return view
@@ -772,6 +772,7 @@ func (idx *Index) eventView(ev Event, raw string) EventView {
 func eventViewFromSource(ev Event, raw string, source TraceArtifactSource, localLine int) EventView {
 	view := EventView{
 		Event:               ev,
+		WakeePrioSource:     ev.WakeePrioritySource(),
 		Raw:                 raw,
 		SourcePath:          source.SourcePath,
 		LocalLine:           localLine,

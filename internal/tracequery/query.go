@@ -1083,6 +1083,7 @@ func eventMatchesPattern(ev Event, pattern string) bool {
 		ev.PrevComm,
 		ev.NextComm,
 		ev.WakeeComm,
+		ev.WakeePrioritySource(),
 		ev.PrevState,
 		ev.NextInfo,
 		ev.NextInfoAffinity,
@@ -3712,8 +3713,8 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 				ts:            ev.Ts,
 				line:          ev.Line,
 				cpu:           targetCPU,
-				priority:      ev.WakeePrio,
-				priorityClass: classifyTracePriority(q.TraceFlavor, ev.WakeePrio),
+				priority:      eventWakeePriorityForHardUse(ev),
+				priorityClass: classifyTracePriority(q.TraceFlavor, eventWakeePriorityForHardUse(ev)),
 			}
 			return
 		}
@@ -4023,8 +4024,8 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 							ts:            ev.Ts,
 							line:          ev.Line,
 							cpu:           targetCPU,
-							priority:      ev.WakeePrio,
-							priorityClass: classifyTracePriority(q.TraceFlavor, ev.WakeePrio),
+							priority:      eventWakeePriorityForHardUse(ev),
+							priorityClass: classifyTracePriority(q.TraceFlavor, eventWakeePriorityForHardUse(ev)),
 						}
 					}
 				}
@@ -16723,7 +16724,7 @@ func newChainQueryCache(idx *Index) *chainQueryCache {
 			if ev.WakeePID > 0 {
 				cache.wakeupsByPID[ev.WakeePID] = append(cache.wakeupsByPID[ev.WakeePID], i)
 			}
-			addPriority(ev.WakeePID, ev.WakeePrio)
+			addPriority(ev.WakeePID, eventWakeePriorityForHardUse(ev))
 		case EventSchedBlockedReason:
 			if ev.WakeePID > 0 {
 				cache.blockedByPID[ev.WakeePID] = append(cache.blockedByPID[ev.WakeePID], i)
@@ -16983,8 +16984,8 @@ func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, 
 		childID := expandChain(idx, q, cache, waker, interesting.StartTs, wakeup.Ts, depth+1, targetBlockedMs, visited, res, nodeID, childConsumers, branch)
 		if childID != "" {
 			wakerPrio, wakerClass := cache.priorityNear(q.TraceFlavor, waker, wakeup.Ts)
-			wakeePrio := wakeup.WakeePrio
-			if wakeePrio <= 0 {
+			wakeePrio := eventWakeePriorityForHardUse(*wakeup)
+			if wakeePrio <= 0 && wakeup.WakeePrioritySource() == "" {
 				wakeePrio, _ = cache.priorityNear(q.TraceFlavor, thread, wakeup.Ts)
 			}
 			wakeeClass := classifyTracePriority(q.TraceFlavor, wakeePrio)
@@ -17002,6 +17003,7 @@ func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, 
 				WakerPriorityClass:         wakerClass,
 				WakeePriority:              wakeePrio,
 				WakeePriorityClass:         wakeeClass,
+				WakeePrioritySource:        wakeup.WakeePrioritySource(),
 				PriorityRelation:           relation,
 				PriorityInversionCandidate: relation == "lower_priority_waker",
 				EvidenceLine:               wakeup.Line,
@@ -17416,7 +17418,7 @@ func threadPriorityNear(idx *Index, flavor TraceFlavor, thread ThreadRef, ts flo
 			consider(ev, ev.PrevPID, ev.PrevComm, ev.PrevPrio)
 			consider(ev, ev.NextPID, ev.NextComm, ev.NextPrio)
 		case EventSchedWakeup, EventSchedWaking:
-			consider(ev, ev.WakeePID, ev.WakeeComm, ev.WakeePrio)
+			consider(ev, ev.WakeePID, ev.WakeeComm, eventWakeePriorityForHardUse(ev))
 		}
 	}
 	return bestPrio, classifyTracePriority(flavor, bestPrio)

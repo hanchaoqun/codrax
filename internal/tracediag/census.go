@@ -132,12 +132,15 @@ type formatCensus struct {
 	clockTracksTotal int
 
 	// ④ scheduling domain
-	schedSwitchCount  int
-	prioCounts        map[int]int
-	prioMicrokernelRT int
-	prioOver159       int
-	prevStates        map[string]int
-	nextInfoCount     int
+	schedSwitchCount    int
+	prioCounts          map[int]int
+	prioMicrokernelRT   int
+	prioOver159         int
+	wakeupPrioInferred  int
+	wakeupPrioUnknown   int
+	wakeupPrioUntrusted int
+	prevStates          map[string]int
+	nextInfoCount       int
 
 	// ⑤ FS / IO
 	namePrefixes      []nameCount
@@ -258,7 +261,16 @@ func (c *formatCensus) observe(ev *tracequery.Event) {
 			c.nextInfoCount++
 		}
 	case tracequery.EventSchedWakeup, tracequery.EventSchedWaking:
-		c.countPrio(ev.WakeePrio)
+		switch ev.WakeePrioritySource() {
+		case "":
+			c.countPrio(ev.WakeePrio)
+		case tracequery.WakeePrioritySourceInferredNextSchedSlice:
+			c.wakeupPrioInferred++
+		case tracequery.WakeePrioritySourceUnknown:
+			c.wakeupPrioUnknown++
+		default:
+			c.wakeupPrioUntrusted++
+		}
 	case tracequery.EventCPUFrequency:
 		c.freqCount++
 		if ev.CPUForFieldValid {
@@ -525,6 +537,7 @@ func renderFormatCensus(c *formatCensus, emit func(string)) {
 	emit("- prio 直方(按计数列前 " + fmt.Sprintf("%d", censusPrioCap) + "):" + formatIntHistogram(c.prioCounts, censusPrioCap))
 	emit(fmt.Sprintf("- prio=140..159 (Harmony microkernel RT) 计数=%d", c.prioMicrokernelRT))
 	emit(fmt.Sprintf("- prio>159 计数=%d", c.prioOver159))
+	emit(fmt.Sprintf("- wakeup prio 非确定性字段(不计入直方/RT判定): inferred_next_sched_slice=%d unknown=%d untrusted=%d", c.wakeupPrioInferred, c.wakeupPrioUnknown, c.wakeupPrioUntrusted))
 	emit("- prev_state token 集: " + formatStringHistogram(c.prevStates, censusPrevStateCap))
 
 	emit(fmt.Sprintf("⑤ FS/IO: 事件名前缀谱(共 %d 前缀,列前 %d):", c.namePrefixesTotal, len(c.namePrefixes)))

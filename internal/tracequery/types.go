@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const ParserVersion = "tracequery-v19"
+const ParserVersion = "tracequery-v20"
 
 type EventType string
 
@@ -46,6 +46,11 @@ const (
 	EventWorkqueue          EventType = "workqueue"
 	EventDMAFence           EventType = "dma_fence"
 	EventPerfSample         EventType = "perf_sample"
+)
+
+const (
+	WakeePrioritySourceInferredNextSchedSlice = "inferred_next_sched_slice"
+	WakeePrioritySourceUnknown                = "unknown"
 )
 
 type TracePlatform string
@@ -116,10 +121,15 @@ type Event struct {
 	// CPUInputInvalid is a zero-allocation parse-to-index handoff. The
 	// raw validator is invoked only for marked/rejected rows, keeping the
 	// overwhelmingly common valid parse lane allocation-flat.
-	CPUInputInvalid bool   `json:"-"`
-	ClockName       string `json:"clock_name,omitempty"`
-	Reason          string `json:"reason,omitempty"`
-	IOWait          int    `json:"io_wait,omitempty"`
+	CPUInputInvalid bool `json:"-"`
+	// Two bits encode exact/inferred/unknown/untrusted wakeup-priority
+	// authority. Keep them beside the existing validity bits so they consume
+	// alignment padding rather than adding a string to every scheduler event.
+	WakeePrioInferred bool   `json:"-"`
+	WakeePrioUnknown  bool   `json:"-"`
+	ClockName         string `json:"clock_name,omitempty"`
+	Reason            string `json:"reason,omitempty"`
+	IOWait            int    `json:"io_wait,omitempty"`
 	*SchedStatFields
 	SpanAction string `json:"span_action,omitempty"`
 	SpanPID    int    `json:"span_pid,omitempty"`
@@ -148,6 +158,26 @@ type Event struct {
 	*PerfFields
 
 	FieldText string `json:"field_text,omitempty"`
+}
+
+func eventWakeePriorityForHardUse(ev Event) int {
+	if ev.WakeePrioInferred || ev.WakeePrioUnknown {
+		return 0
+	}
+	return ev.WakeePrio
+}
+
+func (ev Event) WakeePrioritySource() string {
+	switch {
+	case ev.WakeePrioInferred && ev.WakeePrioUnknown:
+		return "untrusted"
+	case ev.WakeePrioInferred:
+		return WakeePrioritySourceInferredNextSchedSlice
+	case ev.WakeePrioUnknown:
+		return WakeePrioritySourceUnknown
+	default:
+		return ""
+	}
 }
 
 // Kind-specific side tables (P4, trace_query_perf_parse_audit_20260703.md).
@@ -402,13 +432,13 @@ type Index struct {
 	// subset — so every view of one trace answers with one label.
 	platformSurfaces platformSurfaceScan
 	IndexTimeStart   float64
-	IndexTimeEnd      float64
-	IndexLineStart    int
-	IndexLineEnd      int
-	Events            []Event
-	FirstTs           float64
-	LastTs            float64
-	ParsedKnown       int
+	IndexTimeEnd     float64
+	IndexLineStart   int
+	IndexLineEnd     int
+	Events           []Event
+	FirstTs          float64
+	LastTs           float64
+	ParsedKnown      int
 	// ParseLinePanics counts lines whose parse panicked (malformed
 	// artifact input is untrusted; one bad line must not kill the
 	// query). ClockRegressions counts events whose timestamp moved
@@ -710,6 +740,7 @@ type FrameworkSurface struct {
 
 type EventView struct {
 	Event
+	WakeePrioSource      string  `json:"wakee_prio_source,omitempty"`
 	Raw                  string  `json:"raw,omitempty"`
 	SourcePath           string  `json:"source_path,omitempty"`
 	LocalLine            int     `json:"local_line,omitempty"`
@@ -3443,6 +3474,7 @@ type WakeupEdge struct {
 	WakerPriorityClass         string    `json:"waker_priority_class,omitempty"`
 	WakeePriority              int       `json:"wakee_priority,omitempty"`
 	WakeePriorityClass         string    `json:"wakee_priority_class,omitempty"`
+	WakeePrioritySource        string    `json:"wakee_priority_source,omitempty"`
 	PriorityRelation           string    `json:"priority_relation,omitempty"`
 	PriorityInversionCandidate bool      `json:"priority_inversion_candidate,omitempty"`
 	EvidenceLine               int       `json:"evidence_line,omitempty"`

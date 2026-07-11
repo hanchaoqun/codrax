@@ -208,15 +208,15 @@ func TestTraceDBCoreLoadsResolvers(t *testing.T) {
 		rawWakeups[0].TargetCPU != 6 || rawWakeups[0].ITID != 10 {
 		t.Fatalf("typed raw wakeup mismatch coverage=%+v wakeups=%+v", rawCoverage, rawWakeups)
 	}
-	starts, schedCoverage, err := tdb.loadSchedStarts(context.Background())
+	starts, schedCoverage, err := tdb.loadSchedStarts(context.Background(), index)
 	if err != nil {
 		t.Fatalf("load sched starts: %v", err)
 	}
 	if !schedCoverage.Found {
 		t.Fatalf("sched coverage missing: %+v", schedCoverage)
 	}
-	if cpu, prio := traceDBNextSchedMeta(starts, 10, 1000, 0, 120); cpu != 5 || prio != 42 {
-		t.Fatalf("next sched meta mismatch cpu=%d prio=%d starts=%+v", cpu, prio, starts)
+	if cpu, prio, known := traceDBNextSchedMeta(starts, 10, 1000); !known || cpu != 5 || prio != 42 {
+		t.Fatalf("next sched meta mismatch cpu=%d prio=%d known=%t starts=%+v", cpu, prio, known, starts)
 	}
 	intervals, _, stateCoverage, err := tdb.loadRunningIntervals(context.Background())
 	if err != nil {
@@ -228,7 +228,7 @@ func TestTraceDBCoreLoadsResolvers(t *testing.T) {
 	if stateCoverage.RowsRead != 1 || stateCoverage.RowsEmitted != 1 {
 		t.Fatalf("running interval coverage should distinguish table rows from emitted windows: %+v", stateCoverage)
 	}
-	active, activeCoverage, err := tdb.loadActiveThreadIDs(context.Background())
+	active, activeCoverage, err := tdb.loadActiveThreadIDs(context.Background(), index)
 	if err != nil {
 		t.Fatalf("load active threads: %v", err)
 	}

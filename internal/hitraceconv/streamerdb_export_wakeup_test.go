@@ -61,7 +61,8 @@ func TestTraceDBWakeupsBerlinMigrationKeepsEmitterAndTargetCPUsDistinct(t *testi
 	}
 	if wakeupCoverage.FieldSources["header_cpu"] != "thread_state.Running.cpu" ||
 		wakeupCoverage.FieldSources["target_cpu"] != "raw.cpu" ||
-		wakeupCoverage.FieldSources["priority"] != "inferred_next_sched_slice" ||
+		!strings.Contains(wakeupCoverage.FieldSources["priority"], "inference") ||
+		!strings.Contains(wakeupCoverage.FieldSources["priority"], "non-exact") ||
 		wakeupCoverage.FieldSources["raw_identity.sched_waking"] != "raw.itid==instant.wakeup_from" ||
 		!strings.Contains(wakeupCoverage.FieldSources["raw_identity.sched_wakeup"], "unique_bipartite_matching") {
 		t.Fatalf("wakeup field provenance missing: %+v", wakeupCoverage)

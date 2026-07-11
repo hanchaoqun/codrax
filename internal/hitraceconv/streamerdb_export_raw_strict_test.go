@@ -241,7 +241,9 @@ func TestExportTraceDBRawFtraceStableIDOrderAndDuplicatePoison(t *testing.T) {
 			t.Fatalf("stable-id coverage missing %q: %+v", want, schema)
 		}
 	}
-	if schema.FieldSources["stable_identity"] != "raw.id" || schema.FieldSources["same_timestamp_order"] != "raw.ts,raw.id" {
+	if schema.FieldSources["stable_identity"] != "raw.id" ||
+		schema.FieldSources["stable_identity_projection"] != "raw.id exact full-uint32 signed-int32 projection" ||
+		schema.FieldSources["same_timestamp_order"] != "raw.ts,canonical_uint32(raw.id)" {
 		t.Fatalf("stable source provenance missing: %+v", schema)
 	}
 }

@@ -63,7 +63,7 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 		outCoverage[0] = schemaCoverage
 		return outCoverage, nil
 	}
-	duplicateStableIDs, err = traceDBRawDuplicateStableIDs(ctx, tdb, stableExpr)
+	duplicateStableIDs, err = traceDBRawDuplicateStableIDs(ctx, tdb, stableExpr, hasSourceID)
 	if err != nil {
 		schemaCoverage.Error = err.Error()
 		outCoverage[0] = schemaCoverage
@@ -73,7 +73,12 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 		schemaCoverage.FieldSources = map[string]string{}
 	}
 	schemaCoverage.FieldSources["stable_identity"] = stableSource
-	schemaCoverage.FieldSources["same_timestamp_order"] = "raw.ts," + stableSource
+	if hasSourceID {
+		schemaCoverage.FieldSources["stable_identity_projection"] = "raw.id exact full-uint32 signed-int32 projection"
+		schemaCoverage.FieldSources["same_timestamp_order"] = "raw.ts,canonical_uint32(raw.id)"
+	} else {
+		schemaCoverage.FieldSources["same_timestamp_order"] = "raw.ts,raw.rowid"
+	}
 	schemaCoverage.FieldSources["header_cpu"] = "raw.cpu when present; otherwise exact untainted thread_state.Running witness"
 	schemaCoverage.FieldSources["header_identity"] = "typed raw.itid/raw.tid/raw.pid plus timestamped thread/process incarnation; names are display-only"
 	cpuExpr, hasCPU, err := traceDBRawOptionalExpr(ctx, tdb, "raw", "cpu")
@@ -99,11 +104,12 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 		schemaCoverage.Error = err.Error()
 		return []TraceDBCoverage{schemaCoverage}, err
 	}
+	stableOrderExpr := traceDBRawStableOrderExpr(stableExpr, hasSourceID)
 	query := fmt.Sprintf(`
 		SELECT %s, ts, name, %s, %s, %s, %s, %s
 		FROM raw
 		ORDER BY ts, %s
-	`, stableExpr, cpuExpr, itidExpr, tidExpr, pidExpr, traceDBQuoteIdent(argsetColumn), stableExpr)
+	`, stableExpr, cpuExpr, itidExpr, tidExpr, pidExpr, traceDBQuoteIdent(argsetColumn), stableOrderExpr)
 	rows, err := tdb.db.QueryContext(ctx, query)
 	if err != nil {
 		schemaCoverage.Error = err.Error()
@@ -125,7 +131,12 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 			return []TraceDBCoverage{schemaCoverage}, err
 		}
 		var ok bool
-		if raw.StableID, ok = traceDBStrictSQLiteInt(stableIDRaw); !ok || raw.StableID < 0 || (!hasSourceID && raw.StableID == 0) {
+		if hasSourceID {
+			raw.StableID, ok = traceDBStrictRawStableIDProjection(stableIDRaw)
+		} else {
+			raw.StableID, ok = traceDBStrictSQLiteInt(stableIDRaw)
+		}
+		if !ok || raw.StableID < 0 || (!hasSourceID && raw.StableID == 0) {
 			schemaSkipped["invalid_stable_id"]++
 			continue
 		}
@@ -170,7 +181,7 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 			traceDBRawCountSkip(classSkipped, class, "missing_required_args")
 			continue
 		}
-		if raw.ITID, raw.ITIDKnown, ok = traceDBRawOptionalID(itidRaw, hasITID, maxTraceDBInternalID, true); !ok {
+		if raw.ITID, raw.ITIDKnown, ok = traceDBRawOptionalInternalID(itidRaw, hasITID); !ok {
 			traceDBRawCountSkip(classSkipped, class, "invalid_itid")
 			continue
 		}
@@ -268,6 +279,17 @@ func traceDBRawOptionalID(value any, columnPresent bool, maxValue int64, zeroIsK
 	return parsed, true, true
 }
 
+func traceDBRawOptionalInternalID(value any, columnPresent bool) (int64, bool, bool) {
+	if !columnPresent || value == nil {
+		return 0, false, true
+	}
+	parsed, ok := traceDBStrictSignedUint32Projection(value)
+	if !ok {
+		return 0, false, false
+	}
+	return parsed, true, true
+}
+
 func traceDBRequireRowID(ctx context.Context, tdb *traceDB, table string) error {
 	rows, err := tdb.db.QueryContext(ctx, "SELECT rowid FROM "+traceDBQuoteIdent(table)+" LIMIT 0")
 	if err != nil {
@@ -276,30 +298,42 @@ func traceDBRequireRowID(ctx context.Context, tdb *traceDB, table string) error 
 	return rows.Close()
 }
 
-func traceDBRawDuplicateStableIDs(ctx context.Context, tdb *traceDB, stableExpr string) (map[int64]bool, error) {
-	rows, err := tdb.db.QueryContext(ctx, `
-		SELECT `+stableExpr+`, COUNT(1)
-		FROM raw
-		GROUP BY `+stableExpr+`
-		HAVING COUNT(1) > 1 OR `+stableExpr+` IS NULL
-	`)
+func traceDBRawDuplicateStableIDs(ctx context.Context, tdb *traceDB, stableExpr string, sourceID bool) (map[int64]bool, error) {
+	rows, err := tdb.db.QueryContext(ctx, `SELECT `+stableExpr+` FROM raw`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := map[int64]bool{}
+	seen := map[int64]bool{}
 	for rows.Next() {
-		var identityRaw, countRaw any
-		if err := rows.Scan(&identityRaw, &countRaw); err != nil {
+		var identityRaw any
+		if err := rows.Scan(&identityRaw); err != nil {
 			return nil, err
 		}
 		identity, identityOK := traceDBStrictSQLiteInt(identityRaw)
-		count, countOK := traceDBStrictSQLiteInt(countRaw)
-		if identityOK && identity >= 0 && countOK && count > 1 {
+		if sourceID {
+			identity, identityOK = traceDBStrictRawStableIDProjection(identityRaw)
+		}
+		if !identityOK || identity < 0 {
+			continue
+		}
+		if seen[identity] {
 			out[identity] = true
 		}
+		seen[identity] = true
 	}
 	return out, rows.Err()
+}
+
+func traceDBRawStableOrderExpr(stableExpr string, sourceID bool) string {
+	if !sourceID {
+		return stableExpr
+	}
+	// SQLite sorts the projected negative int32 half before non-negative IDs.
+	// Normalize only INTEGER storage-class values so valid raw IDs follow their
+	// canonical uint32 order while malformed values remain non-authoritative.
+	return fmt.Sprintf("CASE WHEN typeof(%s)='integer' AND %s < 0 THEN %s + 4294967296 ELSE %s END", stableExpr, stableExpr, stableExpr, stableExpr)
 }
 
 func traceDBRawCountSkip(items map[string]map[string]int, class, reason string) {

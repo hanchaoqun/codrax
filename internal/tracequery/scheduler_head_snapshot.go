@@ -353,7 +353,7 @@ func applySchedulerHeadEvent(snapshot *schedulerHeadSnapshot, ev Event) {
 			Line:        ev.Line,
 			CPU:         targetCPU,
 			CPUKnown:    targetCPUKnown,
-			Priority:    ev.WakeePrio,
+			Priority:    eventWakeePriorityForHardUse(ev),
 		}
 	case EventSchedBlockedReason:
 		if ev.WakeePID <= 0 || ev.IOWait <= 0 {

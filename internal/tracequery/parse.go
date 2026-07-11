@@ -2659,6 +2659,20 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 		ev.WakeeComm = intern.intern(schedCommValue(fields, "comm", kv["comm"]))
 		ev.WakeePID = atoi(kv["pid"])
 		ev.WakeePrio = atoi(kv["prio"])
+		switch source := strings.TrimSpace(kv["codrax_prio_source"]); source {
+		case "":
+		case WakeePrioritySourceInferredNextSchedSlice:
+			ev.WakeePrioInferred = true
+		case WakeePrioritySourceUnknown:
+			ev.WakeePrioUnknown = true
+		default:
+			// Unknown provenance must never regain exact-priority authority.
+			ev.WakeePrioInferred = true
+			ev.WakeePrioUnknown = true
+		}
+		if ev.WakeePrioUnknown && !ev.WakeePrioInferred {
+			ev.WakeePrio = 0
+		}
 		setEventTargetCPU(&ev, kv["target_cpu"])
 	case EventSchedBlockedReason:
 		ev.WakeePID = atoi(kv["pid"])

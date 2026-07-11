@@ -31,7 +31,7 @@ func traceTrackNameFromEvent(ev Event) string {
 		return strings.TrimSpace(plugin.SpanTrack)
 	}
 	// Compatibility fallback for hand-built Events and older cached fixtures.
-	// Production ParserVersion v19 rows take the side-table branch above.
+	// Production ParserVersion v20 rows take the side-table branch above.
 	parts := strings.Split(normalizeTraceMarkPayload(ev.FieldText), "|")
 	if len(parts) < 4 || strings.TrimSpace(parts[0]) != ev.SpanAction {
 		return ""

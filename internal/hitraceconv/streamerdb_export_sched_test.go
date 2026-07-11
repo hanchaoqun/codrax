@@ -125,7 +125,8 @@ func TestExportTraceDBSchedulerFamiliesRoundTripsThroughTraceQuery(t *testing.T)
 			switches = append(switches, ev)
 		}
 	}
-	if len(wakeups) != 1 || wakeups[0].WakeePID != 201 || wakeups[0].CPU != 4 || wakeups[0].TargetCPU != 7 {
+	if len(wakeups) != 1 || wakeups[0].WakeePID != 201 || wakeups[0].CPU != 4 || wakeups[0].TargetCPU != 7 ||
+		wakeups[0].WakeePrioritySource() != "inferred_next_sched_slice" {
 		t.Fatalf("wakeup metadata lost after round trip: %+v", wakeups)
 	}
 	if len(switches) != 1 || switches[0].Ts != 0.0012 || switches[0].CPU != 1 ||
@@ -144,7 +145,8 @@ func TestExportTraceDBSchedulerFamiliesRoundTripsThroughTraceQuery(t *testing.T)
 		if item.Family == "scheduler" && item.Table == "instant" {
 			if item.FieldSources["header_cpu"] != "thread_state.Running.cpu" ||
 				item.FieldSources["target_cpu"] != "raw.cpu" ||
-				item.FieldSources["priority"] != "inferred_next_sched_slice" {
+				!strings.Contains(item.FieldSources["priority"], "inference") ||
+				!strings.Contains(item.FieldSources["priority"], "non-exact") {
 				t.Fatalf("wakeup field provenance missing: %+v", item)
 			}
 		}

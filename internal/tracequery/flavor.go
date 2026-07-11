@@ -293,8 +293,8 @@ func applyPriorityFlavor(ev Event, flavor TraceFlavor) Event {
 	if ev.NextPrio > 0 {
 		ev.NextPrioClass = classifyTracePriority(flavor, ev.NextPrio)
 	}
-	if ev.WakeePrio > 0 {
-		ev.WakeePrioClass = classifyTracePriority(flavor, ev.WakeePrio)
+	if priority := eventWakeePriorityForHardUse(ev); priority > 0 {
+		ev.WakeePrioClass = classifyTracePriority(flavor, priority)
 	}
 	return ev
 }

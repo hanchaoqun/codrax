@@ -165,6 +165,7 @@ func (t *TraceQuery) Description() string {
 	description = strings.Replace(description, "state_churn is an output section/candidate signal, not an independent view; use view=window_stats to inspect it directly or view=root_cause_rank/frame_root_cause_bundle to let it compete with other causes.", "state_churn is an output section/candidate signal, not an independent view; use view=window_stats to inspect it directly or view=root_cause_rank/frame_root_cause_bundle to let it compete with other causes. The state_drilldown rows are the state-first handoff: top_sleep is a ranked Top-N cumulative sleep surface, long top_sleep rows require wakeup_chain/root_cause_rank recursive drilldown, fragmented sleep churn stays visible but non-recursive with thread_timeline/interaction_stats/window_stats follow-up, and fragmented runnable or D/IO waits remain recursive root-cause candidates. Preserve state_drilldown source, recommended_views, chain_required, and recursive flags instead of guessing from prose. Each state_drilldown row also carries window_proportion (fraction 0..1 of the selected window that state consumed) and a significant flag: the top-ranked state is always significant, and lower-ranked states are significant only when they clear the proportion floor; rows with significant=false are kept for coverage completeness but are too small to be worth their own per-layer root-cause drilldown, so prioritize significant=true states for per-layer root-cause analysis.", 1)
 	description = strings.Replace(description, "Once a result reports selected_window, index_windowed, or a concrete line window, keep that same time_start/time_end or line_start/line_end on every follow-up heavy scheduler/resource/root-cause view; thread/pid alone is not enough for large traces.", "Once a result reports selected_window, index_windowed, or a concrete line window, keep that same time_start/time_end or line_start/line_end on every follow-up heavy scheduler/resource/root-cause view; thread/pid alone is not enough for large traces. If a call supplies both a frame/span selector and explicit time_start/time_end, frame_root_cause_bundle preserves the explicit query window and unions it with the frame-derived previous-frame-end..current-frame-end window instead of shrinking to an interior vsync/frame marker; span_window/span_name does the same for a uniquely-matched named span, unioning the explicit window with the matched span's own start/end instead of narrowing to whichever is smaller. For jank/stall root-cause analysis over a broader typed period, prefer frame/span-derived windows or coverage windows around 80-150ms for recipe/root_cause_rank/frame_root_cause_bundle before shrinking further; sub-50ms windows are micro-probes and must not be treated as representative unless the selected frame/span itself is that short. If the task's typed target is a process id, thread id, or thread label, set pid/thread explicitly in the tool call and keep that typed filter on follow-up trace_query calls unless deliberately inspecting a named peer; if omitted and the structured request model exposes exactly one runtime_targets entry, trace_query inherits only that typed pid/thread and reports trace_query_target_inherited, but trace_query does not infer omitted pid/thread values from raw request prose, analyzer entity strings, objective text, or prior summaries. For long transaction/lifecycle windows, preserve the full typed time window as parent coverage; use event_search/span_window/frame_window to discover phase boundaries, then drill into the heaviest phase windows. If a result reports mode=index_event_limit or selected window too dense, do not retry the same parameters; for local jank/stall root-cause views split toward 80-150ms coverage windows first, add line_start/line_end, or use event_search/span_window/event_types to narrow before rerunning the heavy view; shrink below 50ms only as a local micro-probe with a caveat.", 1)
 	description = strings.Replace(description, "Trace markers include B/E/C/S/F rows: event_search rows expose span_action, span_pid, span_name, and span_value; span_window/window_stats trace_spans expose kind=sync|async plus category/subcategory/semantic_class.", "Trace markers include B/E/C/S/F/G/H/N/I rows: event_search preserves their exact raw payload plus span_action/span_pid/span_track/span_name/span_value. G/H ASYNC_FOR_TRACK pairs use payload pid + track_name + cookie and physical source/generation, publish typed track_name as trace_track_spans, and never inherit emitter-thread ownership or enter semantic/root-cause ranking. N/I publish only as zero-duration trace_instants. span_window/window_stats trace_spans remain the separate B/E/S/F kind=sync|async lane with category/subcategory/semantic_class.", 1)
+	description += " wakeup_chain_edge/event_search wakee_prio_source is field-level authority provenance: inferred_next_sched_slice, unknown, or untrusted preserves the exact wakeup dependency but never contributes a priority class, relation, or inversion candidate. Current SQL conversion always emits this marker for non-exact wakeup priority; converted systrace artifacts created before this contract must be reconverted before their unmarked wakeup priority is used as hard inversion evidence, while unmarked native trace wakeup priority retains its producer-exact semantics."
 	description = traceQueryApplyRootCauseClosedMatrixContract(description)
 	description += " " + traceQueryRootCauseClosedMatrixContract
 	return description
@@ -3414,9 +3415,14 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			fmt.Fprintf(&b, "- %s\n", sanitizeForBanner(via.Summary))
 		}
 		for _, edge := range result.WakeupChain.Edges {
-			fmt.Fprintf(&b, "- %s -> %s at %.6f line %d (latency %.3fms) waker_prio=%d/%s wakee_prio=%d/%s relation=%s priority_inversion_candidate=%t\n",
+			prioritySource := ""
+			if edge.WakeePrioritySource != "" {
+				prioritySource = " wakee_prio_source=" + sanitizeForBanner(edge.WakeePrioritySource)
+			}
+			fmt.Fprintf(&b, "- %s -> %s at %.6f line %d (latency %.3fms) waker_prio=%d/%s wakee_prio=%d/%s%s relation=%s priority_inversion_candidate=%t\n",
 				traceThreadLabel(edge.Waker), traceThreadLabel(edge.Wakee), edge.WakeupTs, edge.WakeupLine, edge.LatencyMs,
 				edge.WakerPriority, sanitizeForBanner(edge.WakerPriorityClass), edge.WakeePriority, sanitizeForBanner(edge.WakeePriorityClass),
+				prioritySource,
 				sanitizeForBanner(edge.PriorityRelation), edge.PriorityInversionCandidate)
 		}
 		for _, impact := range result.WakeupChain.CausalImpacts {
@@ -5226,6 +5232,9 @@ func traceEventPriorityDetail(ev tracequery.EventView) string {
 	}
 	if ev.WakeePrio > 0 {
 		parts = append(parts, traceEventPrioField("wakee_prio", ev.WakeePrio, ev.WakeePrioClass))
+	}
+	if ev.WakeePrioSource != "" {
+		parts = append(parts, "wakee_prio_source="+sanitizeForBanner(ev.WakeePrioSource))
 	}
 	if len(parts) == 0 {
 		return ""
@@ -7904,6 +7913,7 @@ func traceQueryTypedWakeupEdgeRichNotes(edge tracequery.WakeupEdge, path string)
 		{"latency", traceQueryObservationMSValue(edge.LatencyMs)},
 		{"waker_priority", traceQueryPriorityPair(edge.WakerPriority, edge.WakerPriorityClass)},
 		{"wakee_priority", traceQueryPriorityPair(edge.WakeePriority, edge.WakeePriorityClass)},
+		{"wakee_priority_source", edge.WakeePrioritySource},
 		{"priority_relation", edge.PriorityRelation},
 		{types.TraceNoteKeyPriorityInversionCandidate, traceQueryTypedBool(edge.PriorityInversionCandidate)},
 	})
@@ -7923,6 +7933,9 @@ func traceQueryWakeupEdgeSummary(edge tracequery.WakeupEdge) string {
 	}
 	if priority := traceQueryPriorityPair(edge.WakeePriority, edge.WakeePriorityClass); priority != "" {
 		parts = append(parts, "wakee_prio="+priority)
+	}
+	if edge.WakeePrioritySource != "" {
+		parts = append(parts, "wakee_prio_source="+edge.WakeePrioritySource)
 	}
 	if edge.PriorityRelation != "" {
 		parts = append(parts, "relation="+edge.PriorityRelation)

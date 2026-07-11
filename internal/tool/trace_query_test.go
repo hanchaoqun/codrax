@@ -1840,6 +1840,20 @@ func TestTraceQueryDescriptionPinsHarmonyMicrokernelPriorityBoundary(t *testing.
 	}
 }
 
+func TestTraceQueryDescriptionPinsWakeupPriorityAuthorityProvenance(t *testing.T) {
+	description := (&TraceQuery{}).Description()
+	for _, want := range []string{
+		"wakee_prio_source is field-level authority provenance",
+		"preserves the exact wakeup dependency but never contributes a priority class, relation, or inversion candidate",
+		"converted systrace artifacts created before this contract must be reconverted",
+		"unmarked native trace wakeup priority retains its producer-exact semantics",
+	} {
+		if !strings.Contains(description, want) {
+			t.Fatalf("trace_query description missing wakeup priority provenance contract %q", want)
+		}
+	}
+}
+
 func TestTraceQuerySchemaDocumentsWakeupChainDefaultDepth(t *testing.T) {
 	body := string((&TraceQuery{}).Parameters())
 	for _, want := range []string{
