@@ -17,7 +17,7 @@ const maxTraceDBIdentityDisplayBytes = 4096
 // translation when they diverge. The id-less compatibility profile uses the
 // canonical internal ID as its own source identity.
 
-func newTraceDBThreadIndex(traceStart int64) traceDBThreadIndex {
+func newTraceDBThreadIndex(traceStart int64, traceStartKnown bool) traceDBThreadIndex {
 	return traceDBThreadIndex{
 		ByITID:             map[int64]traceDBThread{},
 		AmbiguousITID:      map[int64]bool{},
@@ -30,6 +30,7 @@ func newTraceDBThreadIndex(traceStart int64) traceDBThreadIndex {
 		AmbiguousProcessID: map[int64]bool{},
 		ByProcess:          map[int64][]traceDBThread{},
 		TraceStart:         traceStart,
+		TraceStartKnown:    traceStartKnown,
 	}
 }
 
@@ -420,11 +421,18 @@ func traceDBMergeTimestampMetadata(left, right traceDBTimestampMetadata) traceDB
 	return traceDBTimestampMetadata{}
 }
 
-func traceDBRegistrationTimestamp(metadata traceDBTimestampMetadata, traceStart int64) int64 {
+func traceDBRegistrationTimestamp(metadata traceDBTimestampMetadata, traceStart int64, traceStartKnown bool) (int64, bool) {
 	if metadata.Known && !metadata.Tainted {
-		return metadata.Value
+		return metadata.Value, true
 	}
-	return traceStart
+	if traceStartKnown {
+		return traceStart, true
+	}
+	return 0, false
+}
+
+func traceDBBeforeCaptureStart(index traceDBThreadIndex, timestamp int64) bool {
+	return index.TraceStartKnown && timestamp < index.TraceStart
 }
 
 func traceDBStrictInternalID(value any) (int64, bool) {

@@ -134,6 +134,7 @@ func exportTraceDBThreadRegistrations(ctx context.Context, sink *traceDBRowSink,
 		Found:    len(index.ByITID) > 0,
 		RowsRead: len(index.ByITID),
 	}
+	unknownTimestamps := 0
 	for _, thread := range sortedTraceDBThreads(index.ByITID) {
 		if err := ctx.Err(); err != nil {
 			return coverage, err
@@ -145,7 +146,11 @@ func exportTraceDBThreadRegistrations(ctx context.Context, sink *traceDBRowSink,
 		}
 		// This is display/registration metadata only. It must never be consumed
 		// as a thread birth or generation boundary.
-		ts := traceDBRegistrationTimestamp(thread.RegistrationHint, index.TraceStart)
+		ts, timestampKnown := traceDBRegistrationTimestamp(thread.RegistrationHint, index.TraceStart, index.TraceStartKnown)
+		if !timestampKnown {
+			unknownTimestamps++
+			continue
+		}
 		task := traceDBCommName(thread.Name, "unknown")
 		processName := traceDBProcessName(index, thread)
 		threadComm := traceDBCommName(thread.Name, "unknown")
@@ -163,6 +168,9 @@ func exportTraceDBThreadRegistrations(ctx context.Context, sink *traceDBRowSink,
 			}
 			coverage.RowsEmitted++
 		}
+	}
+	if unknownTimestamps > 0 {
+		coverage.Skipped = fmt.Sprintf("%d thread registration(s) skipped: no known registration hint or capture start", unknownTimestamps)
 	}
 	return coverage, nil
 }
@@ -797,15 +805,18 @@ func sortedTraceDBThreads(items map[int64]traceDBThread) []traceDBThread {
 		out = append(out, item)
 	}
 	sort.Slice(out, func(i, j int) bool {
-		leftTS := traceDBRegistrationTimestamp(out[i].RegistrationHint, 0)
-		rightTS := traceDBRegistrationTimestamp(out[j].RegistrationHint, 0)
-		if leftTS == rightTS {
+		leftKnown := out[i].RegistrationHint.Known && !out[i].RegistrationHint.Tainted
+		rightKnown := out[j].RegistrationHint.Known && !out[j].RegistrationHint.Tainted
+		if leftKnown != rightKnown {
+			return leftKnown
+		}
+		if !leftKnown || out[i].RegistrationHint.Value == out[j].RegistrationHint.Value {
 			if out[i].TID != out[j].TID {
 				return out[i].TID < out[j].TID
 			}
 			return out[i].ITID < out[j].ITID
 		}
-		return leftTS < rightTS
+		return out[i].RegistrationHint.Value < out[j].RegistrationHint.Value
 	})
 	return out
 }

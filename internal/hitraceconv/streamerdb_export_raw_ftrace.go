@@ -948,7 +948,7 @@ func traceDBRawLineContext(raw traceDBRawEvent, index traceDBThreadIndex) (strin
 			return "swapper", 0, 0, 0, true
 		}
 		candidate, ok := index.ByITID[raw.ITID]
-		if !ok || index.AmbiguousITID[raw.ITID] || !traceDBRawThreadIdentityValid(candidate) || raw.TS < index.TraceStart {
+		if !ok || index.AmbiguousITID[raw.ITID] || !traceDBRawThreadIdentityValid(candidate) || traceDBBeforeCaptureStart(index, raw.TS) {
 			return "", 0, 0, -1, false
 		}
 		thread, threadKnown = candidate, true

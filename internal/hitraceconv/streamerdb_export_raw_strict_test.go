@@ -92,7 +92,7 @@ func TestExportTraceDBRawFtraceStrictScalarsCPU0ArgsetsAndTIDReuse(t *testing.T)
 }
 
 func TestTraceDBRawExactITIDDominatesReusedPublicTIDCandidates(t *testing.T) {
-	index := newTraceDBThreadIndex(0)
+	index := newTraceDBThreadIndex(0, true)
 	index.Processes[1] = traceDBProcess{IPID: 1, PID: 100, Name: "old-process"}
 	index.Processes[2] = traceDBProcess{IPID: 2, PID: 200, Name: "new-process"}
 	index.ByITID[1] = traceDBThread{ITID: 1, TID: 42, IPID: 1, Name: "old-thread"}

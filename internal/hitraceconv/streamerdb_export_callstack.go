@@ -323,7 +323,7 @@ func prepareTraceDBCallstackRow(index traceDBThreadIndex, running map[int64][]tr
 	if !exists || index.AmbiguousITID[row.EmitterITID] || thread.TID <= 0 || thread.TID > math.MaxInt32 {
 		return row, "unresolved_emitter_thread"
 	}
-	if row.TS < index.TraceStart {
+	if traceDBBeforeCaptureStart(index, row.TS) {
 		return row, "before_capture_start"
 	}
 	if index.RunningGlobalTaint || index.RunningTaintedITID[row.EmitterITID] {

@@ -460,7 +460,7 @@ func TestExportTraceDBPerfSamplesIgnoreNonAuthoritativeRegistrationHints(t *test
 }
 
 func TestTraceDBPerfCandidateResolutionDisclosesConflictAndAmbiguity(t *testing.T) {
-	index := newTraceDBThreadIndex(0)
+	index := newTraceDBThreadIndex(0, true)
 	index.Processes[1] = traceDBProcess{IPID: 1, PID: 100, Name: "p100"}
 	index.Processes[2] = traceDBProcess{IPID: 2, PID: 200, Name: "p200-a"}
 	index.Processes[3] = traceDBProcess{IPID: 3, PID: 200, Name: "p200-b"}

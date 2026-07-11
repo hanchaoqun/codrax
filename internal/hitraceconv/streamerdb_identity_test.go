@@ -285,6 +285,10 @@ func TestTraceDBLifetimeMetadataHasNoHardConsumer(t *testing.T) {
 		"exportTraceDBThreadRegistrations": true,
 		"sortedTraceDBThreads":             true,
 	}
+	allowedTraceStartSelector := map[string]bool{
+		"exportTraceDBThreadRegistrations": true,
+		"traceDBBeforeCaptureStart":        true,
+	}
 	for _, path := range files {
 		if strings.HasSuffix(path, "_test.go") {
 			continue
@@ -322,6 +326,10 @@ func TestTraceDBLifetimeMetadataHasNoHardConsumer(t *testing.T) {
 						if !allowedObservedEndSelector[functionName] {
 							t.Fatalf("non-authoritative end hint acquired a consumer in %s.%s", name, functionName)
 						}
+					case "TraceStart", "TraceStartKnown":
+						if !allowedTraceStartSelector[functionName] {
+							t.Fatalf("capture-start provenance bypassed its single authority in %s.%s", name, functionName)
+						}
 					}
 				case *ast.CallExpr:
 					identifier, ok := item.Fun.(*ast.Ident)
@@ -346,7 +354,7 @@ func TestTraceDBIdentitySchemaDiscoveryUsesSQLiteASCIICaseFolding(t *testing.T) 
 		"INSERT INTO THREAD VALUES (10, 10, 502, 7, 'control', 0, 0, 1)",
 	})
 	index, coverage := loadTraceDBIdentityFixture(t, path)
-	if !index.HasProcessIDColumn || !index.HasThreadIDColumn || index.TraceStart != 0 {
+	if !index.HasProcessIDColumn || !index.HasThreadIDColumn || index.TraceStart != 0 || !index.TraceStartKnown {
 		t.Fatalf("SQLite ASCII-insensitive schema profile was missed: index=%+v coverage=%+v", index, coverage)
 	}
 	if _, ok := index.ByITID[9]; ok || !index.AmbiguousITID[9] || !index.AmbiguousThreadID[41] {
@@ -522,6 +530,13 @@ func TestTraceDBTraceStartStrictSingletonAndType(t *testing.T) {
 				}
 			} else if got != 0 || coverage.RowsEmitted != 0 || coverage.Skipped == "" {
 				t.Fatalf("invalid trace start was accepted: got=%d coverage=%+v", got, coverage)
+			}
+			index, _, err := tdb.loadThreadIndex(context.Background())
+			if err != nil {
+				t.Fatalf("load identity with trace-start provenance: %v", err)
+			}
+			if index.TraceStartKnown != test.wantAccept || index.TraceStart != test.want {
+				t.Fatalf("trace-start provenance=(value=%d known=%t), want (%d,%t)", index.TraceStart, index.TraceStartKnown, test.want, test.wantAccept)
 			}
 		})
 	}

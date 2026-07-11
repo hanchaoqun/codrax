@@ -198,7 +198,7 @@ func prepareTraceDBFrameSliceRow(index traceDBThreadIndex, running map[int64][]t
 	if thread.IPID != frame.IPID {
 		return frame, "owner_identity_mismatch"
 	}
-	if frame.TS < index.TraceStart {
+	if traceDBBeforeCaptureStart(index, frame.TS) {
 		return frame, "before_capture_start"
 	}
 	if index.AmbiguousIPID[frame.IPID] {

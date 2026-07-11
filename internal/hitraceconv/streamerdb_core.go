@@ -88,6 +88,7 @@ type traceDBThreadIndex struct {
 	HasProcessIDColumn bool
 	ByProcess          map[int64][]traceDBThread
 	TraceStart         int64
+	TraceStartKnown    bool
 	RunningTaintedITID map[int64]bool
 	RunningGlobalTaint bool
 }
@@ -395,7 +396,7 @@ func (tdb *traceDB) loadThreadIndex(ctx context.Context) (traceDBThreadIndex, []
 	if err != nil {
 		return traceDBThreadIndex{}, coverage, err
 	}
-	index := newTraceDBThreadIndex(traceStart)
+	index := newTraceDBThreadIndex(traceStart, traceStartCoverage.RowsEmitted == 1 && traceStartCoverage.Skipped == "")
 	if processCoverage.Found {
 		index.HasProcessIDColumn, err = tdb.columnExists(ctx, "process", "id")
 		if err != nil {

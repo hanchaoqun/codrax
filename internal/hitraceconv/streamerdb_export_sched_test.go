@@ -470,6 +470,39 @@ func TestExportTraceDBThreadRegistrationFallsBackForUnknownOrTaintedHint(t *test
 	}
 }
 
+func TestExportTraceDBThreadRegistrationDoesNotSynthesizeUnknownCaptureStart(t *testing.T) {
+	path := createTraceDBFixture(t, []string{
+		"CREATE TABLE process (ipid, pid, name)",
+		"INSERT INTO process VALUES (1, 100, 'demo')",
+		"CREATE TABLE thread (itid, tid, ipid, name, start_ts, is_main_thread, switch_count)",
+		"INSERT INTO thread VALUES (2, 101, 1, 'unknown-start', NULL, 0, 1)",
+	})
+	outPath := filepath.Join(t.TempDir(), "unknown-capture-start.systrace")
+	result, err := exportTraceDBToSystrace(context.Background(), path, outPath)
+	if err != nil {
+		t.Fatalf("export unknown capture start: %v", err)
+	}
+	bodyBytes, err := os.ReadFile(outPath)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if body := string(bodyBytes); strings.Contains(body, "task_rename: pid=101") || strings.Contains(body, "B|100|demo") {
+		t.Fatalf("unknown capture start was synthesized as t=0 registration:\n%s", body)
+	}
+	found := false
+	for _, item := range result.Coverage {
+		if item.Family == "metadata" && item.Table == "thread" {
+			found = true
+			if item.RowsEmitted != 0 || !strings.Contains(item.Skipped, "1 thread registration(s) skipped") {
+				t.Fatalf("unknown registration timestamp was not disclosed: %+v", item)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("missing thread registration coverage: %+v", result.Coverage)
+	}
+}
+
 func TestExportTraceDBThreadRegistrationSanitizesDisplayOnlyNames(t *testing.T) {
 	oversized := strings.Repeat("x", maxTraceDBIdentityDisplayBytes+1)
 	path := createTraceDBFixture(t, []string{

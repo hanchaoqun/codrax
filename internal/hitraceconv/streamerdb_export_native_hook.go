@@ -161,7 +161,7 @@ func prepareTraceDBNativeHookEvent(index traceDBThreadIndex, running map[int64][
 	if thread.IPID != event.OwnerIPID {
 		return event, "owner_identity_mismatch"
 	}
-	if event.TS < index.TraceStart {
+	if traceDBBeforeCaptureStart(index, event.TS) {
 		return event, "before_capture_start"
 	}
 	if index.AmbiguousIPID[event.OwnerIPID] {

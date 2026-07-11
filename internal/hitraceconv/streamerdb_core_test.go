@@ -189,7 +189,7 @@ func TestTraceDBCoreLoadsResolvers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load thread index: %v", err)
 	}
-	if len(coverage) != 3 || index.TraceStart != 100 || index.ByITID[10].TID != 201 || index.Processes[1].PID != 200 {
+	if len(coverage) != 3 || index.TraceStart != 100 || !index.TraceStartKnown || index.ByITID[10].TID != 201 || index.Processes[1].PID != 200 {
 		t.Fatalf("thread index mismatch coverage=%+v index=%+v", coverage, index)
 	}
 	argsets, coverage, err := tdb.loadArgsets(context.Background())
