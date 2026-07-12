@@ -347,6 +347,17 @@ schema witness 有效，但 scheduler head、优先级反转数值和最终显�
 - **witness与诚实声明**：Donghu SHA `e15d3df…`含add 581、delete 2,326，共2,907/27,843（10.44%），2,907/2,907标准wire且`ofs%4096==0`。cust710含155,500 add、118,413 delete，共273,913/1,525,922（17.95%），证明高ROI但采集报告不含binary descriptor。旧客户文本465条裸`page=0`只作输入兼容反证，不能授权继续生成零page。全部客户材料中两类writeback均为0，故writeback只可宣称source-pinned correctness，生产attestation继续开放。
 - **验收矩阵**：覆盖direct四名exact、SQL三名exact、32/64-bit、5.10/6.6、order 0/255/256、每字段missing/wrong type/sign/width/offset/truncate/same+conflicting duplicate/alias/extra/overlap、page/pg注入、dev/index/pfn/ino/errseq/pointer边界与坏row sibling locality；structured 1000/1001 field5 absent/0/255/256/wrong-wire/duplicate且4013/4014保持unsupported。E2E须证明三源page canonical parity、text tuple正负、near/fault零churn、writeback searchable但所有file/page/IO/pair/rank聚合为零、single-line/1MiB终门与唯一registry/decoder/renderer。focused shuffle/race、目标包/全仓test+vet、Donghu 2,907 golden与至少两路独立复审全部RELEASE后，方可提交代码并单独记账。
 
+## 2026-07-12 P0-a3 D page/writeback exact profile 交付结案
+
+本节是D批的最新状态权威，覆盖本账前文所有“D待交付 / D—E开放 / 下一代码批为D”的历史快照。
+
+- **已修已推送 `2f97f92e4`**：direct四名、SQL三名与structured 1000/1001现在汇入唯一source-neutral typed payload和canonical renderer。Direct同时闭合标准四字段common envelope及payload roster/type/sign/width/offset/range，任意`common_vendor`、alias、duplicate、extra、overlap与truncation均fail-close；旧official/SQL broad-prefix和page/IO alias authority已删除。Structured field5只审`order=0..255`，4013/4014继续unsupported；SQL advance继续coverage-only。
+- **page值与显示语义已闭合**：32/64-bit、5.10/6.6 descriptor严格按producer source读取，`dev_t`固定uint32 12:20，`index<=MaxInt64>>12`后checked左移，三源稳定wire均不再伪造`page=0`或显示audit-only order。文本mutation只有byte-exact add/delete且完整tuple通过typed校验才成立；5.10 `%p`只收32/64-bit固定宽度、`ptrval`及有历史正证的legacy `0/0x0`，6.6 inode/PFN十六进制形与Codrax诚实省page形兼容。malformed、fault、case、suffix/near-name只保inventory/search，零churn、零IOPressure、零rank；`ParserVersion`已升至v24，warm full-cache派生窗口保留同一typed authority。
+- **writeback观察边界已闭合**：set/advance是两类独立瞬时错误序列观察，不配对、不做carry-in。Exact行只保`EventFilesystem`、`SubsystemKind=writeback`、filesystem计数和可搜索EventView；专用投影只发布完整可证dev/inode，file指针绝不冒充path/entry。Indexed与streaming event search共用精确负门，不为writeback铸generic EvidencePack；FilesystemResources、FileIO、PageCache、TopIO、storage duration/pairing、IOPressure、IOBurst、BlockIO、evidence-summary与root rank全部为零。Near/start/end/vendor/case名保持unknown searchable inventory。
+- **机械证据**：direct/structured/SQL覆盖exact/near、32/64位、5.10/6.6、common与全部payload字段mutation、数值上下界、order 0/255/256、same-ID坏row局部性、argset carrier/duplicate/alias/extra注入、single-line/1MiB终门及三源canonical parity。Tracequery覆盖三种page文本形、page指针宽度、malformed sibling、warm-cache派生、indexed/streamed search parity、四个virtual IO filter负门及writeback全派生面负对照。
+- **验证全绿**：focused shuffle `×50`；focused race+shuffle `×10`；`go test ./internal/hitraceconv ./internal/tracequery -count=1`；`go vet ./internal/hitraceconv ./internal/tracequery`；`go test ./... -count=1`；`go vet ./...`；`git diff --check`。Donghu SHA `e15d3df…`复放为27,843/27,843 event、14 event names、0 unknown/unparsed/panic/clock regression；add 581 + delete 2,326 = 2,907，2,907/2,907标准shape且`ofs%4096==0`。producer/profile、安全边界与tracequery语义三路独立复审最终均为RELEASE。
+- **诚实能力声明与剩余队列**：cust710的273,913条page行继续只作高ROI文本witness，未升级成binary descriptor attestation；全部客户材料中writeback仍为0，因此该面只宣称source-pinned correctness，生产attestation保持开放。P0-a3当前为 **A/B/C/D已结案，E开放**；下一原子代码批严格为 **E MMC/F2FS/EROFS direct fidelity**。UFS/thermal/regulator、container integrity、generic storage typed request identity、ROW-SORT-BND及R1b-C/R2继续按各自条目开放，不能借D批销项。
+
 ## 统一采集与回访命令
 
 ```bash
