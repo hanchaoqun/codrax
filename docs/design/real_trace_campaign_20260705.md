@@ -2249,9 +2249,9 @@ witness=a4 报告(16011/2549)供给 clause「已按大核满频(或接近)运行
 
 **转换格式兼容红线（用户 2026-07-12 再确认）**：鸿蒙/东湖转换输出以该标准 Donghu 样本中实际存在的字段、字段顺序、标记、标量和转义为主要兼容基准；存在即可证明的内容必须 byte/semantic compatible。代码中来自其他标准 trace/profile 的合法能力可以保留，但必须由独立 typed producer/profile 选择，禁止串 profile，禁止为了“看齐”补造缺失 CPU0、page0、device、tag 或默认值，也禁止因 Donghu 样本未出现就删除其他标准来源已证明的格式。比较和回归必须按 profile 分层，不能用自由文本、文件名或单个样本缺席充当 hard gate。
 
-**诚实开放的能力残口**：①OpenHarmony app-file 可产生完整 `>1024` 行，而 kernel marker 可能在 1024 截断；终态需要 converter/bundle typed producer provenance。②官方 CountTrace 支持完整 int64；若客户需要超过 float 精确域，新增 decimal-string/int64 wire，不能放宽现有 float 面。③action-lost `0xIP:` carved counter 与 opaque Begin 名称存在字节同形歧义，可能影响 namespace/TID vote；需保留原 action/provenance 后再消歧。④OH B 可带 customArgs，S 可带 category/args，并可叠 chain envelope；不能机械套用 C 的 final-metadata 算法。⑤Event/EventView JSON 当前只是输出 DTO；若未来成为 Index 反灌入口，必须显式序列化 typed counter verdict。下一 trace correctness 批按账本推进 B3-b2 raw complete-set anti-rescue → remaining ftrace payload admission P0 → page/marker fidelity → R1b-C；block/storage request token identity仍等待两端生产 witness。
+**诚实开放的能力残口**：①OpenHarmony app-file 可产生完整 `>1024` 行，而 kernel marker 可能在 1024 截断；终态需要 converter/bundle typed producer provenance。②官方 CountTrace 支持完整 int64；若客户需要超过 float 精确域，新增 decimal-string/int64 wire，不能放宽现有 float 面。③action-lost `0xIP:` carved counter 与 opaque Begin 名称存在字节同形歧义，可能影响 namespace/TID vote；需保留原 action/provenance 后再消歧。④OH B 可带 customArgs，S 可带 category/args，并可叠 chain envelope；不能机械套用 C 的 final-metadata 算法。⑤Event/EventView JSON 当前只是输出 DTO；若未来成为 Index 反灌入口，必须显式序列化 typed counter verdict。B3-b2 raw complete-set anti-rescue已由`3d9555cdb`+`a856f1d45`关闭；下一 trace correctness 批按账本推进 remaining ftrace payload admission P0 → page/marker fidelity → R1b-C，block/storage request token identity仍等待两端生产 witness。
 
-## §29.46 SQL raw B3-b 施工开账（2026-07-12，B3-b1 已收账、B3-b2 开放）
+## §29.46 SQL raw B3-b 收账（2026-07-12，B3-b1/B3-b2 均已交付）
 
 **问题不是基础 scalar 重做**：既有 `cbb276f3e/e61388803/8a69cd5e5` 已关闭 raw stable-ID、SQLite scalar、CPU0、argset 与 Running source-taint 基础边界；剩余 correctness 是 raw 仍消费 legacy Running、没有使用 scheduler 同实例 generation authority，以及逐行删坏 endpoint 后可能让前后合法 endpoint 在下游跨洞配对。故 B3-b 分两次独立推送，严禁用第一批完成冒充整项结案。
 
@@ -2272,6 +2272,14 @@ public `0`仍是present claim：positive user的TID/PID 0冲突；PID0 kernel只
 只读调用图证明，下游五族配对键目前尚非可直接复用的单点权威：block/generic-storage helper存在零生产caller；workqueue work指针与DMA context/seqno只做数值合法性检查，却以原字符串入key，数值等价异形会分裂lane；Binder按全局transaction ID聚合，没有physical artifact namespace，且receive不被消费，两个同ID send可能复用一条receive。另一个族边界是exact idle：block/storage可保留，Binder/workqueue/DMA必须拒绝并形成barrier。直接在converter另写一份key会固化漂移，故禁止开工。
 
 施工拆分为两个独立推送。**B3-b2a** 先在tracequery建立唯一typed endpoint fingerprint：source是artifact namespace而非payload字段；body key保持既定闭集，work指针及DMA无符号量规范化；Binder以`source+transaction_id`运行有序cohort，一条receive只消费一次，重叠同ID整cohort抑制，顺序复用可恢复；三族idle负门机械化。**B3-b2b** 再建立raw私有有界typed stage，直接消费该fingerprint并在scan后seal/freeze：坏exact key只污染该lane，key/owner不可定位升级family-global，所有 governed endpoint只能从唯一pass-2进入最终sink。generic storage继续使用`layer/base/dev/inode/op/header-TID`粗键，严禁用尚未获生产witness的tag/lba偷偷升级request identity。
+
+### §29.46.3 B3-b2 收账（fingerprint `3d9555cdb`；SQL freeze `a856f1d45`）
+
+B3-b2a 已建立五族唯一typed fingerprint并关闭Binder receive复用、numeric异形分lane、idle边与windowed topology误配；B3-b2b再让SQL raw无序单遍scan进入私有有界SQLite stage，按stable physical order完成lane/family freeze后才由唯一pass-2发布。exact坏key局部隔离，unknown key/owner升级family；WQ/DMA/storage跨canonical ITID未闭合cohort隔离，Binder/Block保留协议允许的跨emitter。duplicate stable cohort、timestamp rollback、same-ts稳定序与 `valid→bad→valid` 均有E2E pin。
+
+stage硬界为4M physical rows、每family 1M lanes、4GiB temp；两个排序面均由私有索引承担并以query-plan禁止temp B-tree，源库查询机械禁止`ORDER BY`。CRC poison journal按精确字节计费；replay期间用journal实际大小动态收紧SQLite `max_page_count`，每次insert后复核实际组合占用，任何record/page/temp/sequence预算均在首行发布前fail-close。MMC/SCSI signed tag、独立MMC errors、work-only WQ、`fs_dev`、full-uint64 DMA与generic inode wire parity同步关闭。focused×20、race×5、真实SQLite FULL临界用例×50、两包与全仓test/vet、格式/diff检查全绿，两路独立终审RELEASE。
+
+本节只关闭B3-b correctness。`loadArgsets` bounded spill、anonymous raw inventory、compact pairing-topology sidecar、generic block/storage request identity生产witness、remaining ftrace payload admission、page/marker fidelity、R1b-C、R2 snapshot与`ROW-SORT-BND`继续开放；下一最高ROI批为ftrace payload admission P0。
 
 ## §29.47 标准 Donghu profile 差分审计立案（2026-07-12，未收账）
 
