@@ -162,6 +162,10 @@
 
 26. **本地历史 stash 审计已结案并删除（2026-07-12）**：旧 `codex-trace-correctness-p0-before-main-40f38e867` 为 `62fab2dc4894…`，base=`d7adefc777c…`。双路隔离审计确认 35/35 tracked+untracked 文件均由当前 `main` 祖先 `e920a5d8c`（`fix(trace): close correctness P0s and restore causal reports`）承接并被后续提交强化：stash 第三父的 11 个新增文件全部存在，147 个顶层符号与 65 个新增测试名逐项零缺失；tracked patch 新增声明/测试同样零缺失，相关 `tracequery/tool/agent/types` 四包回归全绿。向当前主干三方应用产生 13 个演进冲突且没有任何建议恢复的独立 hunk，故禁止重放；隔离 worktree 已清理，stash 已执行 `git stash drop`，当前 `git stash list` 为空、主工作树 clean。
 
+27. **B3-b2b SQL raw 五族 endpoint stage/freeze 已开批（2026-07-12，代码未交付）**：基线为已吸收远端 STAB-1/ENG-2 的 `0cb5bdc7e`，当前工作树 clean。本批只改 `internal/hitraceconv` raw exporter：scan/pass-1 先完成 stable row、argset、subject/lifecycle、CPU 与 `tracequery.FingerprintPairingEndpoint` typed admission，把可发布 row 放入有界私有 stage；seal 后按 exact physical order 审 Binder/WQ/DMA/Block/generic-storage 完整 endpoint 集，known bad key 只 poison exact lane，recognized 但 key/source/owner 不可定位升级对应 family-global，stage/poison/audit 任一预算命中同样 family-global；唯一 pass-2 才可调用 sink。禁止 consumer 再手拼第二套 key、禁止逐行 `continue` 后立即发布 governed endpoint、禁止用 thread name 或无生产 witness 的 storage tag/LBA 升 hard identity。
+
+    **格式与验收红线**：先机械复核并关闭 SQL MMC/SCSI signed tag（含合法 `-1`）、MMC `ret/cmd_err/data_err` 独立错误、WQ start 仅以 work 作为 hard key且 function 只作 metadata、Android/F2FS `fs_dev` alias parity；每项必须由标准 renderer/tracequery verdict 正负 fixture 证明，不能用 fallback 默认值。五族均覆盖 `valid → rejected same key → valid` 不跨洞、unknown-key family-global、无关 key/family 存活、duplicate stable ID、坏 timestamp/argset/identity/CPU、lifecycle cut、正反物理序、显式 CPU0/typed Running 三态、PID0/idle闭集与 tracequery round-trip 零伪 duration/IPC；结构 pin 锁唯一 caller、共享 scheduler authority/Running、freeze 支配唯一 publisher及所有预算。完成后 focused `-count=20`、race `-count=5`、hitraceconv+tracequery E2E、全仓 test/vet、双路冻结审计，单独提交并立即 push；compact pairing-topology sidecar 仍是下一独立能力批，不与本批混改。
+
 ## 高 ROI 主队列
 
 | 项 | 当前状态 | 代码 / 测试证据 | 剩余定义（fail-close 与精确能力分开） | 触发 witness / 推荐采集 | ROI / owner batch |
