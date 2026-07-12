@@ -111,7 +111,7 @@ func TestBuiltinSysKernelIPIUsesPrintkAndDataLocAuthorities(t *testing.T) {
 		t.Fatal(err)
 	}
 	if result.EventsWritten != 1 || result.UnknownEventCount != 0 || result.MissingFormatCount != 0 ||
-		!strings.Contains(string(body), "ipi_raise: target_mask=0x10 (Rescheduling interrupts)") {
+		!strings.Contains(string(body), "ipi_raise: target_mask=16 (Rescheduling interrupts)") {
 		t.Fatalf("kernel IPI authorities not rendered: result=%+v\n%s", result, body)
 	}
 }

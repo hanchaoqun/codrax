@@ -800,7 +800,7 @@ func ipiRaisePointerCoreCase() struct {
 		ctx     coreDecodeContext
 		want    string
 	}{name: "ipi_raise_kernel_profile", format: format, content: content,
-		ctx: coreDecodeContext{PrintkFormats: map[uint64]string{address: "Rescheduling interrupts"}}, want: "target_mask=0x10 (Rescheduling interrupts)"}
+		ctx: coreDecodeContext{PrintkFormats: map[uint64]string{address: "Rescheduling interrupts"}}, want: "target_mask=16 (Rescheduling interrupts)"}
 }
 
 func ipiRaisePointerZeroCoreCase() struct {
@@ -813,7 +813,7 @@ func ipiRaisePointerZeroCoreCase() struct {
 	test := ipiRaisePointerCoreCase()
 	binary.LittleEndian.PutUint64(test.content[16:24], 0)
 	test.name = "ipi_raise_zero_mask"
-	test.want = "target_mask=0x0 (Rescheduling interrupts)"
+	test.want = "target_mask=0 (Rescheduling interrupts)"
 	return test
 }
 

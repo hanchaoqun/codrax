@@ -577,7 +577,9 @@ func renderCanonicalCorePayload(payload coreRenderPayload) (string, bool) {
 		case "ipi_entry", "ipi_exit":
 			return fmt.Sprintf("(%s)", item.Reason), true
 		case "ipi_raise":
-			return fmt.Sprintf("target_mask=0x%x (%s)", item.TargetMask, item.Reason), true
+			// Pinned OpenHarmony default and 6.6.30 formatters use PRIu64
+			// decimal for target_cpus; Donghu has no IPI row to override it.
+			return fmt.Sprintf("target_mask=%d (%s)", item.TargetMask, item.Reason), true
 		default:
 			return "", false
 		}

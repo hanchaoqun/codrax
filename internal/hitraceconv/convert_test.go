@@ -1309,7 +1309,7 @@ func TestOfficialSubsystemRenderersMatchOpenHarmonyShapes(t *testing.T) {
 		binary.LittleEndian.PutUint64(content[8:16], 0x10)
 		copy(content[16:48], []byte("Rescheduling interrupts\x00"))
 		body, known := renderEventBody(decodeEvent(format, content), content, 0)
-		if !known || body != "target_mask=0x10 (Rescheduling interrupts)" {
+		if !known || body != "target_mask=16 (Rescheduling interrupts)" {
 			t.Fatalf("ipi_raise: known=%v body=%q", known, body)
 		}
 	})
