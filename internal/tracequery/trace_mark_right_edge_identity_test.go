@@ -25,7 +25,8 @@ func TestTraceMarkWireScalarsAreExact(t *testing.T) {
 		{payload: "N|42 |track|point", action: "N", reason: traceMarkReasonInvalidPayloadPID},
 		{payload: "I| 42|point", action: "I", reason: traceMarkReasonInvalidPayloadPID},
 		// An address-prefixed action-present row is still the native strict
-		// lane; only an action-lost literal 0x0 payload may use carved recovery.
+		// lane; only an action-lost literal 0x/0X address arm may use carved
+		// recovery.
 		{payload: "0xabc: B| 42|work", action: "B", reason: traceMarkReasonInvalidPayloadPID},
 	}
 	for _, tc := range invalid {
@@ -67,7 +68,8 @@ func TestTraceMarkOpaqueRightEdgeAndCarvedLane(t *testing.T) {
 		{payload: "N|42|track |point ", action: "N", name: "point ", track: "track "},
 		{payload: "I|42|point ", action: "I", name: "point "},
 		{payload: "0xabc: S|42|addressed |cookie ", action: "S", name: "addressed ", value: "cookie "},
-		// The action-lost 0x0 arm is a separately disclosed compatibility lane:
+		// The action-lost literal 0x-address arm is a separately disclosed
+		// compatibility lane (0x0 is this test's representative):
 		// inferred scalars are canonicalized, but the surviving opaque name edge
 		// must remain byte-exact.
 		{payload: "0x0:  42|carved ", action: "B", name: "carved "},
