@@ -663,11 +663,11 @@ func TestDirectMarkerProductionAuthorityGraph(t *testing.T) {
 	}
 	for name, want := range map[string][]string{
 		"decodeDirectMarkerPayload": {
-			"render.go.renderEventBodyDecision",
+			"render.go.renderEventBodyDecisionWithPair",
 		},
 		"renderCanonicalMarkerPayload": {
 			"profiler_aux_payload.go.renderCanonicalProfilerAuxPayload",
-			"render.go.renderEventBodyDecision",
+			"render.go.renderEventBodyDecisionWithPair",
 		},
 		"normalizeMarkerBuffer": {
 			"marker_payload.go.decodeDirectMarkerPayload",

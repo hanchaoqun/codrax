@@ -158,7 +158,7 @@ func renderOfficialOpenHarmonyBody(ev decodedEvent, content []byte, cpu int) (st
 		return fmt.Sprintf("name=%s (%d-%d)", stringByCleanName(ev, content, "name"), intByCleanName(ev, "min", true), intByCleanName(ev, "max", true)), true
 	case strings.HasPrefix(name, "regulator_"):
 		return fmt.Sprintf("name=%s", stringByCleanName(ev, content, "name")), true
-	case strings.HasPrefix(name, "dma_fence"):
+	case strings.HasPrefix(name, "dma_fence") && !directPairNameGoverned(name):
 		return fmt.Sprintf("driver=%s timeline=%s context=%d seqno=%d", stringByCleanName(ev, content, "driver"),
 			stringByCleanName(ev, content, "timeline"), intByCleanName(ev, "context", false), intByCleanName(ev, "seqno", false)), true
 	case strings.HasPrefix(name, "mmc_request_start"):
@@ -172,7 +172,7 @@ func renderOfficialOpenHarmonyBody(ev decodedEvent, content []byte, cpu int) (st
 	case strings.HasPrefix(name, "rss_stat"):
 		return fmt.Sprintf("mm_id=%d curr=%d member=%d size=%d", intByCleanName(ev, "mm_id", false),
 			intByCleanName(ev, "curr", false), intByCleanName(ev, "member", true), intByCleanName(ev, "size", true)), true
-	case strings.HasPrefix(name, "workqueue_execute"):
+	case strings.HasPrefix(name, "workqueue_execute") && !directPairNameGoverned(name):
 		return fmt.Sprintf("work=0x%x function=0x%x", intByCleanName(ev, "work", false), intByCleanName(ev, "function", false)), true
 	case strings.HasPrefix(name, "thermal_power_allocator_pid"):
 		return fmt.Sprintf("thermal_zone_id=%d err=%d err_integral=%d p=%d i=%d d=%d output=%d",

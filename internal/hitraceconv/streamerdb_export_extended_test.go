@@ -767,7 +767,7 @@ func TestExportTraceDBRawFtraceRootCauseEvidence(t *testing.T) {
 		"block_rq_issue: 8,0 R 4096 (READ) 128 + 8",
 		"scsi_dispatch_cmd_start: tag=7 dev=8:0 lba=4096 len=8 opcode=READ_10",
 		"mm_filemap_add_to_page_cache: dev=260:136 ino=12345",
-		"workqueue_execute_start: work=0xabc function=0xdef",
+		"workqueue_execute_start: work struct 0xabc: function 0xdef",
 		"dma_fence_signaled: driver=drv timeline=tl context=1 seqno=2",
 	} {
 		if !strings.Contains(body, want) {

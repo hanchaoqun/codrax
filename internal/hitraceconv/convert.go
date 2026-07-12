@@ -15,24 +15,30 @@ import (
 const tracePerfAutoFallbackCaveat = "trace+perf auto conversion uses trace_streamer/SQLite first and falls back to built-in raw trace parsing when SQL is unavailable or fails; explicit trace engine modes do not fall back"
 
 type traceMetadata struct {
-	header             fileHeader
-	formats            map[int]eventFormat
-	formatPoisoned     map[int]bool
-	formatConflictRows int
-	printkFormats      map[uint64]string
-	printkPoisoned     map[uint64]bool
-	printkMalformed    int
-	bodyRejectedRows   int
-	bodyRejectReasons  map[string]int
-	cmdlines           map[int]string
-	tgids              map[int]int
-	segments           []segmentMeta
+	header               fileHeader
+	formats              map[int]eventFormat
+	formatPoisoned       map[int]bool
+	formatPoisonFamilies map[int]pairCriticalFormatFamilyMask
+	formatConflictRows   int
+	printkFormats        map[uint64]string
+	printkPoisoned       map[uint64]bool
+	printkMalformed      int
+	bodyRejectedRows     int
+	bodyRejectReasons    map[string]int
+	pairQuarantinedRows  int
+	pairPoisonedLanes    int
+	pairPoisonedFamilies int
+	pairBarrierBudget    bool
+	cmdlines             map[int]string
+	tgids                map[int]int
+	segments             []segmentMeta
 }
 
 type renderedRow struct {
-	tsNS uint64
-	seq  int
-	line string
+	tsNS     uint64
+	seq      int
+	line     string
+	pairKind pairRenderKind
 }
 
 // ConvertFile converts a binary Harmony/OpenHarmony HiTrace capture to a
@@ -196,7 +202,7 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 		}
 		return Result{}, err
 	}
-	rows, missing, unknown, suppressed, first, last, err := renderRows(ctx, input, meta)
+	rows, missing, unknown, suppressed, first, last, err := renderRows(ctx, input, output, meta)
 	if err != nil {
 		return Result{}, err
 	}
@@ -274,6 +280,9 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 	}
 	if meta.bodyRejectedRows > 0 {
 		result.Caveats = append(result.Caveats, fmt.Sprintf("%d governed direct ftrace event row(s) had rejected physical payloads and were kept coverage-only instead of falling back to header-only rows; reasons=%s", meta.bodyRejectedRows, traceDBCountSummary(meta.bodyRejectReasons)))
+	}
+	if meta.pairQuarantinedRows > 0 || meta.pairPoisonedFamilies > 0 || meta.pairPoisonedLanes > 0 {
+		result.Caveats = append(result.Caveats, fmt.Sprintf("direct pair-critical publication completed a full-capture anti-rescue freeze before output: withheld_rows=%d poisoned_lanes=%d poisoned_families=%d budget_fail_closed=%t; rejected Workqueue/DMA endpoints remain coverage-only and cannot be bridged by neighboring rows", meta.pairQuarantinedRows, meta.pairPoisonedLanes, meta.pairPoisonedFamilies, meta.pairBarrierBudget))
 	}
 	result.Caveats = append(result.Caveats, standaloneCaveats...)
 	normalizeResultCollections(&result)
@@ -362,13 +371,14 @@ func scanMetadata(ctx context.Context, path string, size int64) (*traceMetadata,
 		}
 	}
 	meta := &traceMetadata{
-		header:         header,
-		formats:        map[int]eventFormat{},
-		formatPoisoned: map[int]bool{},
-		printkFormats:  map[uint64]string{},
-		printkPoisoned: map[uint64]bool{},
-		cmdlines:       map[int]string{},
-		tgids:          map[int]int{},
+		header:               header,
+		formats:              map[int]eventFormat{},
+		formatPoisoned:       map[int]bool{},
+		formatPoisonFamilies: map[int]pairCriticalFormatFamilyMask{},
+		printkFormats:        map[uint64]string{},
+		printkPoisoned:       map[uint64]bool{},
+		cmdlines:             map[int]string{},
+		tgids:                map[int]int{},
 	}
 	for {
 		if err := ctx.Err(); err != nil {
@@ -405,9 +415,15 @@ func scanMetadata(ctx context.Context, path string, size int64) (*traceMetadata,
 				if err != nil {
 					return nil, err
 				}
-				catalog := eventFormatCatalog{Formats: meta.formats, Poisoned: meta.formatPoisoned}
+				catalog := eventFormatCatalog{
+					Formats:          meta.formats,
+					Poisoned:         meta.formatPoisoned,
+					PoisonedFamilies: meta.formatPoisonFamilies,
+				}
 				mergeEventFormatCatalog(&catalog, formats)
-				meta.formats, meta.formatPoisoned = catalog.Formats, catalog.Poisoned
+				meta.formats = catalog.Formats
+				meta.formatPoisoned = catalog.Poisoned
+				meta.formatPoisonFamilies = catalog.PoisonedFamilies
 			case segmentCmdlines:
 				for pid, comm := range parseCmdlines(data) {
 					meta.cmdlines[pid] = comm
@@ -433,11 +449,19 @@ func scanMetadata(ctx context.Context, path string, size int64) (*traceMetadata,
 	return meta, nil
 }
 
-func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]renderedRow, int, int, int, uint64, uint64, error) {
+func renderRows(ctx context.Context, path, outputPath string, meta *traceMetadata) ([]renderedRow, int, int, int, uint64, uint64, error) {
 	if meta != nil {
 		meta.formatConflictRows = 0
 		meta.bodyRejectedRows = 0
 		meta.bodyRejectReasons = make(map[string]int)
+		meta.pairQuarantinedRows = 0
+		meta.pairPoisonedLanes = 0
+		meta.pairPoisonedFamilies = 0
+		meta.pairBarrierBudget = false
+	}
+	pairBarrier, err := newDirectPairCaptureBarrier(outputPath)
+	if err != nil {
+		return nil, 0, 0, 0, 0, 0, err
 	}
 	f, err := os.Open(path)
 	if err != nil {
@@ -554,6 +578,7 @@ func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]render
 				format, ok := meta.formats[eventID]
 				if !ok {
 					if meta.formatPoisoned[eventID] {
+						pairBarrier.poisonFormatFamilies(meta.formatPoisonFamilies[eventID])
 						meta.formatConflictRows++
 						off = next
 						continue
@@ -562,7 +587,8 @@ func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]render
 					off = next
 					continue
 				}
-				line, admission, reason, envelopeOK := renderEventLineDecision(rc, ts, ph.CPU, format, content)
+				line, admission, reason, envelopeOK, pairAudit := renderEventLineDecisionWithPairAudit(rc, ts, ph.CPU, format, content)
+				pairBarrier.observe(pairAudit)
 				if !envelopeOK || line == "" {
 					// The format was known, but the raw common-field envelope was
 					// not. Keep the record coverage-only: emitting even a header-only
@@ -595,10 +621,29 @@ func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]render
 				if ts > last {
 					last = ts
 				}
-				rows = append(rows, renderedRow{tsNS: ts, seq: seq, line: line})
+				row := renderedRow{tsNS: ts, seq: seq, line: line}
+				if pairAudit.EndpointAdmitted {
+					row.pairKind = pairAudit.Kind
+					pairBarrier.addPublishedRow(seq, pairAudit)
+				}
+				rows = append(rows, row)
 				seq++
 				off = next
 			}
+		}
+	}
+	rows = pairBarrier.filter(rows)
+	meta.pairQuarantinedRows = pairBarrier.poisonedRows
+	meta.pairPoisonedLanes = pairBarrier.poisonedLaneCount()
+	meta.pairPoisonedFamilies = pairBarrier.poisonedFamilyCount()
+	meta.pairBarrierBudget = pairBarrier.budgetFailed
+	first, last = 0, 0
+	for index, row := range rows {
+		if index == 0 || row.tsNS < first {
+			first = row.tsNS
+		}
+		if index == 0 || row.tsNS > last {
+			last = row.tsNS
 		}
 	}
 	return rows, missing, unknown, suppressed, first, last, nil

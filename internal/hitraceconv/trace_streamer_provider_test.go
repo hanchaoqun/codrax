@@ -1189,8 +1189,8 @@ func syntheticRawFtraceRootCauseEventFormat() string {
 	} {
 		lines = append(lines, syntheticFormatBlock(spec.name, spec.id, []string{
 			syntheticField("int", "common_pid", 4, 4, true),
-			syntheticField("unsigned long", "work", 8, 8, false),
-			syntheticField("unsigned long", "function", 16, 8, false),
+			syntheticField("void *", "work", 8, 8, false),
+			syntheticField("void *", "function", 16, 8, false),
 		})...)
 	}
 	lines = append(lines, syntheticFormatBlock("dma_fence_signaled", 114, []string{

@@ -222,7 +222,7 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 		}
 		verdict := traceDBRawPairingVerdict(raw.Name, fingerprintTID, args, invalidKeys, argsKnown)
 		laneKey := ""
-		if key, laneOK := verdict.LaneKey(stage.artifactSource); laneOK {
+		if key, laneOK := pairingEndpointLaneKey(verdict, stage.artifactSource); laneOK {
 			laneKey = key
 		}
 
@@ -553,6 +553,17 @@ func traceDBRawFtraceClass(name string) string {
 }
 
 func traceDBRenderRawFtrace(name string, args map[string]traceDBValue, invalidKeys map[string]bool) (string, bool) {
+	if directPairNameGoverned(name) {
+		payload, ok := traceDBRawPairPayload(name, args, invalidKeys)
+		if !ok {
+			return "", false
+		}
+		body, ok := renderCanonicalPairPayload(payload)
+		if !ok {
+			return "", false
+		}
+		return name + ": " + body, true
+	}
 	lower := strings.ToLower(strings.TrimSpace(name))
 	switch {
 	case strings.HasPrefix(lower, "binder_"):

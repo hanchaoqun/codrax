@@ -326,12 +326,12 @@ func TestExportTraceDBRawFtraceStableIDOrderAndDuplicatePoison(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(bodyBytes)
-	first := strings.Index(body, "work=0x10 function=0x100")
-	second := strings.Index(body, "work=0x20 function=0x200")
+	first := strings.Index(body, "work struct 0x10: function 0x100")
+	second := strings.Index(body, "work struct 0x20: function 0x200")
 	if first < 0 || second < 0 || first >= second {
 		t.Fatalf("same-timestamp raw rows were not ordered by raw.id:\n%s", body)
 	}
-	if strings.Contains(body, "work=0x30") {
+	if strings.Contains(body, "work struct 0x30") {
 		t.Fatalf("duplicate raw.id rows were not poisoned as a cohort:\n%s", body)
 	}
 	var schema TraceDBCoverage

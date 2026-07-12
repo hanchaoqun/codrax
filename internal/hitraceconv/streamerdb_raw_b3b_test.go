@@ -391,11 +391,11 @@ func TestTraceDBRawB3BSharedAuthoritiesAreStructurallyPinned(t *testing.T) {
 	if sites := calls["traceDBPublishFrozenRawRecord"]; len(sites) != 1 || sites[0].function != "publish" {
 		t.Fatalf("frozen raw publisher closure=%+v", sites)
 	}
-	if sites := calls["FingerprintPairingEndpoint"]; len(sites) != 1 || sites[0].function != "traceDBRawPairingVerdict" {
-		t.Fatalf("SQL raw regained a second endpoint fingerprint authority: %+v", sites)
+	if sites := calls["FingerprintPairingEndpoint"]; len(sites) != 1 || sites[0].function != "fingerprintPairingEndpoint" {
+		t.Fatalf("pairing adapters regained a second endpoint fingerprint authority: %+v", sites)
 	}
-	if sites := calls["LaneKey"]; len(sites) != 1 || sites[0].function != "exportTraceDBRawFtraceFamilies" {
-		t.Fatalf("SQL raw lane namespace closure=%+v", sites)
+	if sites := calls["LaneKey"]; len(sites) != 1 || sites[0].function != "pairingEndpointLaneKey" {
+		t.Fatalf("pairing adapters regained a second lane namespace authority: %+v", sites)
 	}
 	pointCalls := 0
 	for _, site := range calls["threadPointAllows"] {

@@ -641,7 +641,7 @@ func TestTraceDBRawStandardEndpointParityRoundTrip(t *testing.T) {
 	for _, want := range []string{
 		"mmc_request_start: mmc0 tag=-1", "mmc_request_done: mmc0 tag=-1 opcode=17 bytes_xfered=4096 ret=-5 cmd_err=-6 data_err=-7",
 		"scsi_dispatch_cmd_start: tag=-1 dev=8:0", "scsi_dispatch_cmd_done: tag=-1 dev=8:0",
-		"workqueue_execute_start: work=0xabc", "workqueue_execute_end: work=0xabc",
+		"workqueue_execute_start: work struct 0xabc", "workqueue_execute_end: work struct 0xabc",
 		"android_fs_dataread_start: dev=8,0 ino=7", "f2fs_direct_io_enter: dev=8,0 ino=9",
 	} {
 		if !strings.Contains(body, want) {
@@ -649,7 +649,7 @@ func TestTraceDBRawStandardEndpointParityRoundTrip(t *testing.T) {
 		}
 	}
 	for _, line := range strings.Split(body, "\n") {
-		if strings.Contains(line, "workqueue_execute_") && strings.Contains(line, "function=") {
+		if strings.Contains(line, "workqueue_execute_") && strings.Contains(line, "function ") {
 			t.Fatalf("work-only WQ endpoint fabricated function metadata: %s", line)
 		}
 	}
@@ -740,12 +740,12 @@ func TestTraceDBRawPairingFreezeFiveFamiliesRejectsRescueAndPreservesSibling(t *
 		t.Fatal(err)
 	}
 	body := string(bodyBytes)
-	for _, forbidden := range []string{"transaction=100", "work=0xa", "context=1", " 100 + 8", "dev=8,0"} {
+	for _, forbidden := range []string{"transaction=100", "work struct 0xa", "context=1", " 100 + 8", "dev=8,0"} {
 		if strings.Contains(body, forbidden) {
 			t.Fatalf("poisoned lane %q survived complete-set freeze:\n%s", forbidden, body)
 		}
 	}
-	for _, want := range []string{"transaction=200", "work=0x14", "context=2", " 200 + 8", "dev=8,1"} {
+	for _, want := range []string{"transaction=200", "work struct 0x14", "context=2", " 200 + 8", "dev=8,1"} {
 		if strings.Count(body, want) != 2 {
 			t.Fatalf("clean sibling %q did not retain both endpoints:\n%s", want, body)
 		}

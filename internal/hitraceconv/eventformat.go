@@ -25,18 +25,46 @@ type eventFormat struct {
 }
 
 type eventFormatCatalog struct {
-	Formats  map[int]eventFormat
-	Poisoned map[int]bool
+	Formats          map[int]eventFormat
+	Poisoned         map[int]bool
+	PoisonedFamilies map[int]pairCriticalFormatFamilyMask
+}
+
+// pairCriticalFormatFamilyMask preserves only recoverable family provenance
+// after an event ID's descriptor authority has been quarantined. It is not a
+// substitute descriptor: no field offsets, endpoint phase, or payload values
+// may be inferred from it.
+type pairCriticalFormatFamilyMask uint8
+
+const (
+	pairCriticalFormatFamilyWorkqueue pairCriticalFormatFamilyMask = 1 << iota
+	pairCriticalFormatFamilyDMAFence
+)
+
+func pairCriticalFormatFamilyForName(name string) pairCriticalFormatFamilyMask {
+	switch name {
+	case "workqueue_execute_start", "workqueue_execute_end":
+		return pairCriticalFormatFamilyWorkqueue
+	case "dma_fence_wait_start", "dma_fence_wait_end":
+		return pairCriticalFormatFamilyDMAFence
+	default:
+		return 0
+	}
 }
 
 var fieldLineRE = regexp.MustCompile(`^field:([^;]+);\s*offset:(\d+);\s*size:(\d+);\s*signed:(\d+)\s*;?\s*$`)
 
 func parseEventFormats(data []byte) (eventFormatCatalog, error) {
-	out := eventFormatCatalog{Formats: make(map[int]eventFormat), Poisoned: make(map[int]bool)}
+	out := eventFormatCatalog{
+		Formats:          make(map[int]eventFormat),
+		Poisoned:         make(map[int]bool),
+		PoisonedFamilies: make(map[int]pairCriticalFormatFamilyMask),
+	}
 	sc := bufio.NewScanner(bytes.NewReader(data))
 	sc.Buffer(make([]byte, 0, 64*1024), 2*1024*1024)
 	cur := eventFormat{ID: -1}
 	ids := make(map[int]bool)
+	identifierFamilies := make(map[int]pairCriticalFormatFamilyMask)
 	seenID := false
 	seenPrintFmt := false
 	fieldNames := make(map[string]bool)
@@ -47,13 +75,14 @@ func parseEventFormats(data []byte) (eventFormatCatalog, error) {
 		}
 		if malformed || (len(ids) > 0 && cur.Name == "") {
 			for id := range ids {
-				poisonEventFormatID(&out, id)
+				poisonEventFormatID(&out, id, identifierFamilies[id])
 			}
 		} else if cur.ID >= 0 && cur.Name != "" {
 			admitEventFormat(&out, cur)
 		}
 		cur = eventFormat{ID: -1}
 		ids = make(map[int]bool)
+		identifierFamilies = make(map[int]pairCriticalFormatFamilyMask)
 		seenID = false
 		seenPrintFmt = false
 		fieldNames = make(map[string]bool)
@@ -74,6 +103,13 @@ func parseEventFormats(data []byte) (eventFormatCatalog, error) {
 			seenID = true
 			if err == nil && id >= 0 {
 				ids[id] = true
+				// An ID observed after a completed print-fmt may be the start
+				// of a nameless descriptor, not another ID owned by cur.Name.
+				// Quarantine it, but do not guess family provenance from the
+				// preceding descriptor's name.
+				if !seenPrintFmt {
+					identifierFamilies[id] |= pairCriticalFormatFamilyForName(cur.Name)
+				}
 				if cur.ID < 0 {
 					cur.ID = id
 				}
@@ -119,7 +155,11 @@ func admitEventFormat(catalog *eventFormatCatalog, candidate eventFormat) {
 	if catalog.Poisoned == nil {
 		catalog.Poisoned = make(map[int]bool)
 	}
+	if catalog.PoisonedFamilies == nil {
+		catalog.PoisonedFamilies = make(map[int]pairCriticalFormatFamilyMask)
+	}
 	if catalog.Poisoned[candidate.ID] {
+		catalog.PoisonedFamilies[candidate.ID] |= pairCriticalFormatFamilyForName(candidate.Name)
 		return
 	}
 	existing, found := catalog.Formats[candidate.ID]
@@ -130,10 +170,10 @@ func admitEventFormat(catalog *eventFormatCatalog, candidate eventFormat) {
 	if eventFormatsEqual(existing, candidate) {
 		return
 	}
-	poisonEventFormatID(catalog, candidate.ID)
+	poisonEventFormatID(catalog, candidate.ID, pairCriticalFormatFamilyForName(candidate.Name))
 }
 
-func poisonEventFormatID(catalog *eventFormatCatalog, id int) {
+func poisonEventFormatID(catalog *eventFormatCatalog, id int, families pairCriticalFormatFamilyMask) {
 	if catalog == nil || id < 0 {
 		return
 	}
@@ -143,8 +183,17 @@ func poisonEventFormatID(catalog *eventFormatCatalog, id int) {
 	if catalog.Poisoned == nil {
 		catalog.Poisoned = make(map[int]bool)
 	}
+	if catalog.PoisonedFamilies == nil {
+		catalog.PoisonedFamilies = make(map[int]pairCriticalFormatFamilyMask)
+	}
+	if existing, ok := catalog.Formats[id]; ok {
+		families |= pairCriticalFormatFamilyForName(existing.Name)
+	}
 	delete(catalog.Formats, id)
 	catalog.Poisoned[id] = true
+	if families != 0 {
+		catalog.PoisonedFamilies[id] |= families
+	}
 }
 
 func mergeEventFormatCatalog(destination *eventFormatCatalog, source eventFormatCatalog) {
@@ -157,13 +206,13 @@ func mergeEventFormatCatalog(destination *eventFormatCatalog, source eventFormat
 	if destination.Poisoned == nil {
 		destination.Poisoned = make(map[int]bool)
 	}
-	for id := range source.Poisoned {
-		poisonEventFormatID(destination, id)
+	if destination.PoisonedFamilies == nil {
+		destination.PoisonedFamilies = make(map[int]pairCriticalFormatFamilyMask)
 	}
-	for id, format := range source.Formats {
-		if destination.Poisoned[id] {
-			continue
-		}
+	for id := range source.Poisoned {
+		poisonEventFormatID(destination, id, source.PoisonedFamilies[id])
+	}
+	for _, format := range source.Formats {
 		admitEventFormat(destination, format)
 	}
 }

@@ -44,25 +44,43 @@ func renderEventLine(ctx renderContext, tsNS uint64, cpu int, format eventFormat
 }
 
 func renderEventLineDecision(ctx renderContext, tsNS uint64, cpu int, format eventFormat, content []byte) (string, bodyAdmission, string, bool) {
+	line, admission, reason, envelopeOK, _ := renderEventLineDecisionWithPairAudit(ctx, tsNS, cpu, format, content)
+	return line, admission, reason, envelopeOK
+}
+
+func renderEventLineDecisionWithPairAudit(ctx renderContext, tsNS uint64, cpu int, format eventFormat, content []byte) (string, bodyAdmission, string, bool, directPairLineAudit) {
 	ev := decodeEvent(format, content)
+	pairPayload, pairAdmission, pairReason := decodeDirectPairPayload(ev, content)
+	pairAudit := newDirectPairLineAudit(ev, pairPayload)
 	prefix, envelopeOK := renderEventPrefix(ctx, tsNS, cpu, ev)
 	if !envelopeOK {
-		return "", bodyUnsupported, "", false
+		return "", bodyUnsupported, "", false, pairAudit
 	}
-	body, admission, reason := renderEventBodyDecision(coreDecodeContext{
+	body, admission, reason := renderEventBodyDecisionWithPair(coreDecodeContext{
 		PrintkFormats:  ctx.printkFormats,
 		PrintkPoisoned: ctx.printkPoisoned,
-	}, ev, content, cpu)
+	}, ev, content, cpu, pairPayload, pairAdmission, pairReason)
+	if pairAudit.Governed {
+		if admission == bodyAdmitted && (!pairAudit.Verdict.KeyKnown || !pairAudit.Verdict.PayloadAdmitted ||
+			!pairAudit.Verdict.EmitterKnown || !pairAudit.Verdict.EmitterAdmitted) {
+			admission, reason = bodyRejected, "pairing_endpoint_rejected"
+		}
+		if admission == bodyAdmitted && !pairPayloadWireParity(pairAudit.Payload, body, pairAudit.HeaderTID, pairAudit.Verdict) {
+			admission, reason = bodyRejected, "pairing_endpoint_wire_parity"
+		}
+	}
 	name := format.Name
 	if name == "" {
 		name = "unknown_event"
 	}
 	line := prefix + name + ": " + body
 	_, coreGoverned := coreRenderKindForName(format.Name)
-	if (coreGoverned || directMarkerNameGoverned(format.Name)) && !traceDBSinglePhysicalLine(line, false) {
-		return line, bodyRejected, "invalid_rendered_line", true
+	if (coreGoverned || directMarkerNameGoverned(format.Name) || directPairNameGoverned(format.Name)) &&
+		!traceDBSinglePhysicalLine(line, false) {
+		return line, bodyRejected, "invalid_rendered_line", true, pairAudit
 	}
-	return line, admission, reason, true
+	pairAudit.EndpointAdmitted = pairAudit.Governed && admission == bodyAdmitted
+	return line, admission, reason, true, pairAudit
 }
 
 func renderEventHeaderLine(ctx renderContext, tsNS uint64, cpu int, format eventFormat, content []byte) string {
@@ -161,6 +179,13 @@ func renderEventBody(ev decodedEvent, content []byte, cpu int) (string, bool) {
 }
 
 func renderEventBodyDecision(ctx coreDecodeContext, ev decodedEvent, content []byte, cpu int) (string, bodyAdmission, string) {
+	pair, pairAdmission, pairReason := decodeDirectPairPayload(ev, content)
+	return renderEventBodyDecisionWithPair(ctx, ev, content, cpu, pair, pairAdmission, pairReason)
+}
+
+func renderEventBodyDecisionWithPair(ctx coreDecodeContext, ev decodedEvent, content []byte, cpu int,
+	pair pairRenderPayload, pairAdmission bodyAdmission, pairReason string,
+) (string, bodyAdmission, string) {
 	payload, admission, reason := decodeDirectCorePayload(ctx, ev, content)
 	switch admission {
 	case bodyAdmitted:
@@ -182,6 +207,16 @@ func renderEventBodyDecision(ctx coreDecodeContext, ev decodedEvent, content []b
 		return body, bodyAdmitted, ""
 	case bodyRejected:
 		return "", bodyRejected, reason
+	}
+	switch pairAdmission {
+	case bodyAdmitted:
+		body, ok := renderCanonicalPairPayload(pair)
+		if !ok {
+			return "", bodyRejected, "invalid_canonical_pair_payload"
+		}
+		return body, bodyAdmitted, ""
+	case bodyRejected:
+		return "", bodyRejected, pairReason
 	}
 	body, known := renderLegacyEventBody(ev, content, cpu)
 	if known {

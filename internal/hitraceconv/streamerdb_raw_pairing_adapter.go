@@ -95,7 +95,7 @@ func traceDBRawPairingVerdict(name string, headerTID int64, args map[string]trac
 			traceDBRawPopulateStoragePairingInput(&input, lower, args, invalidKeys)
 		}
 	}
-	return tracequery.FingerprintPairingEndpoint(input)
+	return fingerprintPairingEndpoint(input)
 }
 
 func traceDBRawAliasPresence(args map[string]traceDBValue, names ...string) bool {
