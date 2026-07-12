@@ -405,6 +405,17 @@ schema witness 有效，但 scheduler head、优先级反转数值和最终显�
 - **冻结验收**：①exact 19逐名正对照与case/near/suffix负对照；②converter unit与完整文件E2E均证明`bodyUnsupported`、零伪body、header-only/unknown计数正确；③tracequery证明EventView/EventSearch保留且所有派生语义面为零，indexed/streaming parity；④结构pin禁止`renderEROFS`和EROFS broad legacy分支复活；⑤focused多轮与race、两目标包test/vet、全仓test/vet、`git diff --check`、Donghu 27,843/27,843零回归及独立复审全部RELEASE。真实trace仍无EROFS正例，所以结案最多声明source-pinned fail-close correctness。
 - **仍不在本批**：官方OH 5.10/Linux 6.6 EROFS typed descriptor能力、generic storage typed request identity、Profiler Session/container integrity、UFS/thermal/regulator、ROW-SORT-BND及R1b-C/R2继续开放；任何一项都不得借E3顺带销项。
 
+## 2026-07-12 P0-a3 E3 EROFS legacy deny 交付结案
+
+本节是E3终态权威，覆盖上一节“恢复施工”的未交付快照。代码提交`c4ddf696f`已独立推送到`main`；本节只记录交付证据和仍开放边界。
+
+- **共享负向权威已闭合**：`EROFSCoverageOnlyNameCandidate`是converter与tracequery共用的唯一名称裁定，严格只读`TrimSpace+ToLower`后的事件名`erofs_`/`z_erofs_`前缀，不扫描payload。Exact 19、case/near/suffix及尚未实现的OH/Linux upstream EROFS名在取得producer-matched descriptor前全部raw-only；`sched_blocked_reason caller=z_erofs...`等正文命中不受影响。`ParserVersion`升为`tracequery-v27`，旧typed缓存不能跨版本复用。
+- **binary direct边界已闭合**：兼容converter的broad-prefix分支与整个`renderEROFS`已删除，包含raw-access `nid/index`伪映射的旧代码不再可达。共享负门位于全部现有exact typed decoder之后、`renderLegacyEventBody`之前，返回`bodyUnsupported`；完整binary E2E固定为19 written、0 missing、19 unknown，只发布短header与header-only caveat，不发布事件名或任何dev/ino/index/nid/size/res伪body。PRINT_FMT manifest保留完整审计项但精确19名降为`header_only/unknown_inventory`；集合相等与duplicate-key pin禁止换名蒙混或恢复`strong/filesystem`。
+- **文本检索与语义归零已闭合**：有名文本行仍以`EventUnknown`进入indexed/streaming EventView和raw search；filesystem/storage typed filter、Subsystem、Resource/FileIO/TopIO、storage duration/pairing、IOPressure/IOBurst、BlockIO、generic EvidencePack、root-rank和pairing-window discovery全部为零。Duration raw/fallback不再把EROFS token当endpoint候选；手工伪造的`EventFilesystem+EROFS`也被所有派生消费者和fingerprint门拒绝，不能绕过parser负门。
+- **机械验证全绿**：converter focused shuffle`×30`、race`×5`、完整包与完整race；tracequery focused`×30`、shuffle`×20`、race`×5`、完整包`×3`与完整race；F2FS/MMC/HMFS/ext4及window-discovery正向回归；两目标包test/vet、`go test ./... -count=1`、`go vet ./...`、`git diff --check`全部通过。Event结构维持688B，稀疏分配tripwire与5万行吞吐基线无门禁失败；三路独立converter/tracequery/Donghu终审均为**RELEASE**。
+- **真实trace与能力声明**：标准Donghu SHA-256=`e15d3dfc7963739c648a3f4f40095cabff19716575949bf38ea02ef732672b25`复放为27,843/27,843 recognized、14 event names、0 EROFS event-column、0 unknown/unparsed/panic/clock regression；报告`/tmp/codrax-e3-donghu-census-audit-20260712.txt`的SHA-256=`aec1a83e7ab9a9a41650e37f897165ff5cbfa89b3e15cc9e2bc4bc35c5a18a5c`，临时路径不作仓内长期证据地址。客户材料与Donghu仍无EROFS生产正例，因此E3只宣称**source-pinned fail-close correctness**，不宣称production attestation。
+- **剩余队列**：P0-a3 A/B/C/D/E1/E2/E3至此结案；官方OH 5.10/Linux 6.6 EROFS descriptor能力继续witness触发。Generic storage typed request identity、Profiler Session/container integrity、UFS/thermal/regulator、ROW-SORT-BND、BLIND-3 counter、R1b-C/R2及账本其余开放项均未被本批改变，须继续按ROI另立原子批。
+
 ## 统一采集与回访命令
 
 ```bash
