@@ -2281,6 +2281,12 @@ stage硬界为4M physical rows、每family 1M lanes、4GiB temp；两个排序�
 
 本节只关闭B3-b correctness。`loadArgsets` bounded spill、anonymous raw inventory、compact pairing-topology sidecar、generic block/storage request identity生产witness、remaining ftrace payload admission、page/marker fidelity、R1b-C、R2 snapshot与`ROW-SORT-BND`继续开放；下一最高ROI批为ftrace payload admission P0。
 
+### §29.46.4 remaining ftrace payload admission P0-a 开账（2026-07-12）
+
+先关闭structured当前支持descriptor的完整wire/duplicate/malformed矩阵，以及direct最关键的sched wake/blocked、CPU、Binder、IRQ/softirq body。实现必须是共享typed payload、两个source decoder、一个canonical renderer；known direct descriptor坏payload局部抑制，不能再降header-only，structured坏sibling不能杀整plugin。OpenHarmony `developtools_profiler@5bc8ef555d53a9fcf3d2d8c1e59595d39d949b01` 的default/6.6.30 proto与generated parser证明这些profile会无条件`set_*`，故仅对应proto3 scalar omission可解释为精确0；direct missing、任何wrong-wire/duplicate/malformed都无默认语义。payload CPU不继承header CPU，线程名display-only，140..159优先级继续合法。
+
+P0-a明确不混direct marker能力、page-cache单位、storage/UFS/I2C/MMC/F2FS/workqueue等剩余direct descriptor；marker尾空格/长行/1024 provenance与page profile仍独立留账。验收固定为逐descriptor对抗fixture、合法0/坏sibling locality、direct↔structured parity、focused/race、包级/全仓test+vet、格式/diff检查和独立冻结，完成后立即推送，再开P0-b。
+
 ## §29.47 标准 Donghu profile 差分审计立案（2026-07-12，未收账）
 
 **基准边界**：`donghu.ftrace` SHA `e15d3df…` 含27,843 events、14种event；sched_switch 4,670/4,670有next_info，blocked 438/438有delay，page-cache 2,907/2,907为page/pfn/ofs形。该文件证明 Donghu profile 中“存在什么”，不证明其他标准profile中“不允许什么”。CRLF、无systrace header与当前LF+生成header是容器差异；线程名会变化，禁止参加profile判定。hmtrace SQL的keyless `clock_set_rate: <name> <value>`是另一已证标准profile，不能被Donghu keyed形全局替换。

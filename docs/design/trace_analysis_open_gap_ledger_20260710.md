@@ -170,6 +170,14 @@
 
     **B3-b2 correctness 结案但不偷报的独立开放项**：`loadArgsets`有界staging/spill、anonymous raw inventory typed profile、compact pairing-topology sidecar、generic block/storage并发request identity生产双端witness、remaining ftrace payload admission P0、page/marker fidelity、R1b-C、R2 single read snapshot与通用`ROW-SORT-BND`均继续留账。下一最高ROI correctness批切到第24项 `HCONV-FTRACE-PAYLOAD-ADMISSION`；上述能力不得借本提交结案。
 
+28. **`HCONV-FTRACE-PAYLOAD-ADMISSION` P0-a 已开批（2026-07-12，代码未交付）**：现存 direct RMQ 已知event虽通过common envelope，但wake/waking/blocked/CPU/Binder/IRQ等body仍用 `intByCleanName`/`firstNonZero`，missing、truncated、wrong-type或duplicate declaration可被折成貌似真实的PID0/prio0/CPU0/zero frequency；已知descriptor body失败又会降成header-only unknown row，仍可能进入下游。structured profiler的envelope、block、clock/sched-switch/page已有strict门，但Binder/print/IRQ/CPU/wakeup/blocked/F2FS/MMC仍由忽略walk error、后值覆盖前值的`protoUint/protoString`读取，坏字符串可让整个plugin在最终row primitive处报错，而不是局部coverage-only。
+
+    **P0-a 架构/范围冻结**：复用block批的单点权威哲学，建立source-neutral typed payload + direct descriptor decoder + structured descriptor decoder + canonical renderer；禁止两个source各手写第二套body语义。direct首批只收最影响因果与资源判断的closed family：`sched_wakeup/sched_wakeup_new/sched_waking`、`sched_blocked_reason`、`cpu_frequency/cpu_frequency_limits/cpu_idle`、Binder transaction/received、IRQ entry/exit与softirq三态；known descriptor的坏payload必须有独立`rejected`状态并局部抑制，严禁回落header-only。CPU payload与header emitter CPU严格独立，alias按physical presence+uniqueness选，精确0保留，missing绝不补0；线程名/comm只作display。
+
+    **structured闭集**：本批把当前descriptor表内所有已支持event补齐singular wire/duplicate/malformed audit（既有block/clock/sched-switch/page门保持），包括Binder、print、IRQ/softirq、CPU、wakeup、blocked、F2FS与MMC。scalar omission只有在pinned generated parser无条件`set_*`的descriptor内才解释为proto3精确默认0；wrong-wire/duplicate/malformed永不降0。signed/unsigned source-width、PID/CPU范围、device/inode与checked arithmetic按字段类型逐项审；字符串至少通过valid UTF-8+single-physical-line，token字段沿用更窄既有门。坏row只记该descriptor coverage并让合法sibling继续，不能杀整plugin。上游正证为OpenHarmony `developtools_profiler@5bc8ef555d53a9fcf3d2d8c1e59595d39d949b01` 的default/6.6.30 proto与generated event parser；当前字段号/类型与仓内descriptor一致。
+
+    **验收与明确留后**：direct与structured各做合法0、missing、wrong-wire/type、duplicate、truncated/malformed、UTF-8/control/newline、坏sibling locality、CPU0/140..159 priority、header/payload CPU mismatch及rename parity；结构pin锁typed decoder→唯一renderer、known-reject不走header-only、structured生产renderer不再调用宽松`protoUint/protoString`读取core；focused×20、race×5、包级/全仓test+vet、gofmt/diff-check及两路独审后立即提交推送。P0-a不关闭direct剩余storage/UFS/I2C/regulator/DMA/MMC/F2FS/workqueue/thermal/EROFS descriptor，也不混direct marker尾空格/长行/1024 producer provenance、page-cache单位/profile、structured扩展B/S args；这些继续由P0-b与page/marker独立批跟踪。
+
 ## 高 ROI 主队列
 
 | 项 | 当前状态 | 代码 / 测试证据 | 剩余定义（fail-close 与精确能力分开） | 触发 witness / 推荐采集 | ROI / owner batch |
