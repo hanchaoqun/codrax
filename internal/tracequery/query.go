@@ -2220,7 +2220,8 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	// stats.CPUFrequencyLimits' strict in-window display caliber.
 	observedFmaxByCPU := windowObservedFmaxByCPU(stats.CPU)
 	stats.ClusterFrequencyCeilings = computeWindowClusterFrequencyCeilings(observedFmaxByCPU, coreByCPU, limitTimelineByCPU, q)
-	stats.RunnableTop, stats.DStateTop, stats.SleepTop, stats.IOWaitTop, stats.CPUPressure = computeOffCPUStats(idx, q, freqTimelineFor, pressure)
+	offCPU := computeOffCPUStats(idx, q, freqTimelineFor, pressure)
+	stats.RunnableTop, stats.DStateTop, stats.SleepTop, stats.IOWaitTop, stats.CPUPressure = offCPU.runnableTop, offCPU.dstateTop, offCPU.sleepTop, offCPU.iowaitTop, offCPU.pressure
 	// CMP-9 (§7.3): per-CPU runnable-wait density = value / wall window.
 	stats.CPUPressure = applyCPUPressureDensity(stats.CPUPressure, queryWindowWallMs(q))
 	applyThreadCoreClasses(stats.TopRunning, coreByCPU)
@@ -2233,7 +2234,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	if schedulerDurationsSafe {
 		stats.CPUConstraints = computeCPUConstraintSummaries(idx, q, coreByCPU, stats.RunnableTop, stats.CPU, 8)
 	}
-	stats.ThreadCPULoad = computeThreadCPULoad(q, stats.TopRunning, stats.RunnableTop, 12)
+	stats.ThreadCPULoad = computeThreadCPULoad(q, stats.TopRunning, stats.RunnableTop, running, offCPU.runnableCensus, 12)
 	windowCatalog := buildThreadCatalog(idx, q)
 	// B-3 (§7.11): tidTgidApplied is true when the span-pid vote actually
 	// backfilled a TGID for some tid in this window's catalog — the process
@@ -3673,15 +3674,15 @@ type offCPUStart struct {
 // (own timeline first, explicit-topology donor fallback) instead of the raw
 // map, so the off-CPU frequency context reads the SAME caliber as the busy
 // loop and the two faces cannot fork on donor-covered CPUs.
-func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, pressure map[int]*cpuPressureAcc) ([]ThreadDuration, []ThreadDuration, []ThreadDuration, []ThreadDuration, []CPUPressureStats) {
+func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, pressure map[int]*cpuPressureAcc) offCPUStatsResult {
 	if idx == nil {
-		return nil, nil, nil, nil, nil
+		return offCPUStatsResult{}
 	}
 	if schedulerStateIntegrityFailureForQuery(idx, q, 0) != nil {
-		return nil, nil, nil, nil, nil
+		return offCPUStatsResult{}
 	}
 	if threadIncarnationConflictForQuery(idx, q, 0) != nil {
-		return nil, nil, nil, nil, nil
+		return offCPUStatsResult{}
 	}
 	blockedReasons := blockedReasonsByPID(idx, q)
 	open := map[int]offCPUStart{}
@@ -3882,7 +3883,29 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 			}
 		}
 	}
-	return topThreadDurations(runnable, 8), topThreadDurations(dstate, 8), topThreadDurations(sleep, 8), topThreadDurations(iowait, 8), buildCPUPressureStats(pressure, 8)
+	// ENG-1 (复核冷读 F2-1, 2026-07-12): the FULL pre-cap runnable census
+	// rides back beside the capped display lists so thread_cpu_load totals
+	// can be true full-window sums (see computeThreadCPULoad).
+	return offCPUStatsResult{
+		runnableTop:    topThreadDurations(runnable, 8),
+		dstateTop:      topThreadDurations(dstate, 8),
+		sleepTop:       topThreadDurations(sleep, 8),
+		iowaitTop:      topThreadDurations(iowait, 8),
+		pressure:       buildCPUPressureStats(pressure, 8),
+		runnableCensus: runnable,
+	}
+}
+
+// offCPUStatsResult carries computeOffCPUStats' capped display lists plus
+// the full pre-cap runnable census (ENG-1: totals never truncate; caps only
+// limit display rows).
+type offCPUStatsResult struct {
+	runnableTop    []ThreadDuration
+	dstateTop      []ThreadDuration
+	sleepTop       []ThreadDuration
+	iowaitTop      []ThreadDuration
+	pressure       []CPUPressureStats
+	runnableCensus map[string]ThreadDuration
 }
 
 func offCPUStateIsIOWait(start offCPUStart, endTs float64, blockedReasons map[int][]Event) bool {
@@ -4642,7 +4665,18 @@ type threadLoadAcc struct {
 	lineEnd    int
 }
 
-func computeThreadCPULoad(q Query, running []ThreadDuration, runnable []ThreadDuration, max int) []ThreadCPULoadSummary {
+// computeThreadCPULoad builds the per-thread load rollup. EVOLUTION RECORD
+// (ENG-1, 复核冷读 F2-1, 2026-07-12): the totals used to be summed from the
+// CAPPED display lists (global top-8 per-(thread,cpu) slices), so a thread
+// whose running fragmented across many CPUs published a partial sum as its
+// total — the donghu witness reported running=132.041ms (cpu12 96.081 +
+// cpu4 35.960, the only two surviving slices) while the full-window all-core
+// truth is 157.248ms. Totals now sum from the FULL pre-cap censuses
+// (runningCensus / runnableCensus); the capped lists decide only the display
+// ROSTER (帽只限逐核行数, never the arithmetic). Display fields (dominant
+// CPU / core class / priority) also read the full census — for a rostered
+// thread its largest slice survived the cap, so those fields are unchanged.
+func computeThreadCPULoad(q Query, running []ThreadDuration, runnable []ThreadDuration, runningCensus, runnableCensus map[string]ThreadDuration, max int) []ThreadCPULoadSummary {
 	accs := map[string]*threadLoadAcc{}
 	ensure := func(thread ThreadRef) *threadLoadAcc {
 		key := threadKey(thread)
@@ -4690,12 +4724,42 @@ func computeThreadCPULoad(q Query, running []ThreadDuration, runnable []ThreadDu
 			acc.lineEnd = td.LineEnd
 		}
 	}
+	// Roster membership: exactly the capped display lists (unchanged cap
+	// semantics). Arithmetic: the full censuses via the rostered-thread
+	// filter below; the legacy capped-list fallback keeps hand-built test
+	// fixtures (which pass nil censuses) byte-identical.
+	roster := map[string]bool{}
 	for _, td := range running {
-		add(td, "running")
+		if td.DurationMs > 0 && (td.Thread.PID > 0 || td.Thread.Comm != "") {
+			roster[threadKey(td.Thread)] = true
+		}
 	}
 	for _, td := range runnable {
-		add(td, "runnable")
+		if td.DurationMs > 0 && (td.Thread.PID > 0 || td.Thread.Comm != "") {
+			roster[threadKey(td.Thread)] = true
+		}
 	}
+	addCensus := func(census map[string]ThreadDuration, capped []ThreadDuration, state string) {
+		if census == nil {
+			for _, td := range capped {
+				add(td, state)
+			}
+			return
+		}
+		keys := make([]string, 0, len(census))
+		for key := range census {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys) // deterministic accumulation order
+		for _, key := range keys {
+			td := census[key]
+			if roster[threadKey(td.Thread)] {
+				add(td, state)
+			}
+		}
+	}
+	addCensus(runningCensus, running, "running")
+	addCensus(runnableCensus, runnable, "runnable")
 	out := make([]ThreadCPULoadSummary, 0, len(accs))
 	for _, acc := range accs {
 		item := acc.item
@@ -10470,7 +10534,11 @@ func attachIPCGraphToChain(idx *Index, q Query, res *ChainResult) {
 	}
 	ipc := BuildIPCGraph(idx, q)
 	res.IPCEdges = ipc.Edges
-	res.BinderWaits = findBinderWaitsForChain(idx, *res, ipc.Edges, ipc.BinderEvents)
+	waits, pacingIdles, writeOffCaveat := findBinderWaitsForChain(idx, *res, ipc.Edges, ipc.BinderEvents)
+	res.BinderWaits, res.PacingIdles = waits, pacingIdles
+	if writeOffCaveat != "" {
+		res.Caveats = append(res.Caveats, writeOffCaveat)
+	}
 	for _, wait := range res.BinderWaits {
 		res.RootEvidence = append(res.RootEvidence, RootEvidence{
 			Type:       "binder_wait",
@@ -10482,24 +10550,56 @@ func attachIPCGraphToChain(idx *Index, q Query, res *ChainResult) {
 			Confidence: wait.Confidence,
 		})
 	}
+	// P9 arm c (§29.42 案1): idle-cadence segments publish on their own
+	// semantic lane — a rank row that never competes (RootCauseTierContextOnly
+	// via the dedicated type arm in assignRootCauseRanksAndTiers). The Type
+	// token is the typed Kind fork (pacing_idle / periodic_idle, 复核 P2-1).
+	for _, p := range res.PacingIdles {
+		res.RootEvidence = append(res.RootEvidence, RootEvidence{
+			Type:       firstNonEmpty(p.Kind, "pacing_idle"),
+			Thread:     p.Thread,
+			DurationMs: p.DurationMs,
+			LineStart:  p.SleepLine,
+			LineEnd:    firstPositive(p.WakeupLine, p.SleepLine),
+			Summary:    p.Summary,
+			Confidence: 0.85,
+		})
+	}
 	res.Caveats = append(res.Caveats, ipc.Caveats...)
 }
 
-func findBinderWaitsForChain(idx *Index, chain ChainResult, edges []IPCEdge, aux []BinderEventSummary) []BinderWaitSummary {
+func findBinderWaitsForChain(idx *Index, chain ChainResult, edges []IPCEdge, aux []BinderEventSummary) ([]BinderWaitSummary, []PacingIdleSummary, string) {
 	if len(chain.Nodes) == 0 || len(edges) == 0 {
-		return nil
+		return nil, nil, ""
 	}
 	var out []BinderWaitSummary
+	var pacing []PacingIdleSummary
 	seen := map[string]bool{}
-	for _, node := range chain.Nodes {
+	// P9 (§29.42 案1 BINDER-MISATTR): the reply-completion / waker-identity /
+	// pacing indexes the three write-off arms read (binder_attribution.go).
+	audit := buildBinderAttributionAudit(idx, chain)
+	writtenOffReply := 0
+	writtenOffWaker := 0
+	for nodeIdx, node := range chain.Nodes {
 		if node.Thread.PID == 0 {
 			continue
 		}
 		if node.Dominant != StateSSleep && node.Dominant != StateDSleep && node.Dominant != StateIOWait {
 			continue
 		}
+		// EVOLUTION RECORD (P9, 2026-07-12): the segment's wakeup edge used to
+		// be resolved per accepted candidate as the FIRST in-window edge; it is
+		// now resolved once per node as the segment-ENDING edge (latest
+		// in-window wakeup) because arm b compares the terminating waker's
+		// process against the attributed peer. Single-wakeup segments are
+		// byte-identical.
+		wakeEdge, hasWake := audit.wakeEdgeByNode[nodeIdx]
+		minted := false
+		var rejectedTxns []int
 		for _, edge := range edges {
 			if edge.Oneway {
+				// Oneway/async transactions are never "the waited-on
+				// transaction" (P9 note ②; flags bit 0x1 covers 0x01/0x11).
 				continue
 			}
 			if edge.Sender.PID != node.Thread.PID {
@@ -10509,6 +10609,15 @@ func findBinderWaitsForChain(idx *Index, chain ChainResult, edges []IPCEdge, aux
 				continue
 			}
 			if node.Window.StartTs-edge.SendTs > 0.100 {
+				continue
+			}
+			// P9 arm a — reply write-off: a transaction whose reply completed
+			// strictly BEFORE the segment start is already finished and cannot
+			// explain this sleep (donghu witness: txn 12145963, reply ~97ms
+			// before the blamed 15.758ms frame-pacing segment).
+			if audit.replyCompletedBeforeSegment(node.Thread.PID, edge.SendTs, node.Window.StartTs) {
+				writtenOffReply++
+				rejectedTxns = append(rejectedTxns, edge.TransactionID)
 				continue
 			}
 			key := fmt.Sprintf("%d/%d/%d", node.Thread.PID, edge.TransactionID, node.EvidenceLine)
@@ -10539,12 +10648,9 @@ func findBinderWaitsForChain(idx *Index, chain ChainResult, edges []IPCEdge, aux
 				DurationMs:        node.DurationMs,
 				Confidence:        confidence,
 			}
-			for _, w := range chain.Edges {
-				if w.Wakee.PID == node.Thread.PID && w.WakeupTs >= node.Window.StartTs && w.WakeupTs <= node.Window.EndTs {
-					wait.WakeupLine = w.WakeupLine
-					wait.WakeupTs = w.WakeupTs
-					break
-				}
+			if hasWake {
+				wait.WakeupLine = wakeEdge.WakeupLine
+				wait.WakeupTs = wakeEdge.WakeupTs
 			}
 			// §11 N8: Android BC_TRANSACTION to a process pool leaves
 			// dest_thread=0, so ipc.go could not name a receiver — recover the
@@ -10572,6 +10678,22 @@ func findBinderWaitsForChain(idx *Index, chain ChainResult, edges []IPCEdge, aux
 				wait.Caveats = append(wait.Caveats, fmt.Sprintf("binder dest_thread %d is not present in this trace and no wakeup edge resolved the counterpart", wait.Peer.PID))
 				wait.Peer = ThreadRef{}
 			}
+			// P9 arm b — peer-process consistency: the segment-ending waker
+			// must belong to the attributed peer's process. A mismatch is a
+			// write-off UNLESS the reply verifiably arrived inside the segment
+			// (genuine wait woken through another thread — attribution stands
+			// with a typed disclosure caveat). Unknown tgids skip the
+			// comparison (precise signals only).
+			if hasWake && wakeEdge.Waker.TGID > 0 && wait.Peer.TGID > 0 && wakeEdge.Waker.TGID != wait.Peer.TGID {
+				if audit.replyInsideSegment(node.Thread.PID, edge.SendTs, node.Window.StartTs, node.Window.EndTs) {
+					wait.Caveats = append(wait.Caveats, fmt.Sprintf("segment-ending waker %s belongs to a different process than binder peer %s; the reply arrived inside the segment, so the binder wait stands with this disclosure", threadLabel(wakeEdge.Waker), threadLabel(wait.Peer)))
+				} else {
+					writtenOffWaker++
+					rejectedTxns = append(rejectedTxns, edge.TransactionID)
+					delete(seen, key)
+					continue
+				}
+			}
 			peer := tracePeerLabel(wait.Peer, edge)
 			wait.Summary = fmt.Sprintf("%s sent synchronous-looking binder transaction", threadLabel(wait.Thread))
 			if edge.TransactionID > 0 {
@@ -10589,7 +10711,33 @@ func findBinderWaitsForChain(idx *Index, chain ChainResult, edges []IPCEdge, aux
 			}
 			wait.Caveats = append(wait.Caveats, binderAuxCaveatsForWait(wait, aux)...)
 			out = append(out, wait)
+			minted = true
 			break
+		}
+		// P9 arm c — idle-cadence rerouting: every binder candidate of this
+		// segment was written off; when the segment reads as idle cadence
+		// (length ≈ one plausible period, typed period evidence), re-mint it
+		// on the pacing_idle / periodic_idle semantic lane (复核 P2-1 fork:
+		// the frame words render only for frame-chain wakers).
+		if !minted && len(rejectedTxns) > 0 && hasWake {
+			if periodMs, source, kind, ok := audit.pacingVerdict(chain, node, wakeEdge); ok {
+				p := PacingIdleSummary{
+					Thread:                 node.Thread,
+					Waker:                  wakeEdge.Waker,
+					WindowStartTs:          node.Window.StartTs,
+					WindowEndTs:            node.Window.EndTs,
+					DurationMs:             node.DurationMs,
+					FramePeriodMs:          periodMs,
+					PeriodSource:           source,
+					Kind:                   kind,
+					SleepLine:              node.EvidenceLine,
+					WakeupLine:             wakeEdge.WakeupLine,
+					WakeupTs:               wakeEdge.WakeupTs,
+					RejectedTransactionIDs: rejectedTxns,
+				}
+				p.Summary = renderPacingIdleSummary(p)
+				pacing = append(pacing, p)
+			}
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -10601,7 +10749,32 @@ func findBinderWaitsForChain(idx *Index, chain ChainResult, edges []IPCEdge, aux
 	if len(out) > 8 {
 		out = out[:8]
 	}
-	return out
+	sort.SliceStable(pacing, func(i, j int) bool {
+		if pacing[i].DurationMs != pacing[j].DurationMs {
+			return pacing[i].DurationMs > pacing[j].DurationMs
+		}
+		return pacing[i].SleepLine < pacing[j].SleepLine
+	})
+	if len(pacing) > 8 {
+		pacing = pacing[:8]
+	}
+	return out, pacing, binderWriteOffCaveat(writtenOffReply, writtenOffWaker)
+}
+
+// binderWriteOffCaveat renders the bounded P9 write-off disclosure appended
+// once per chain (honest accounting, never per-segment noise).
+func binderWriteOffCaveat(writtenOffReply, writtenOffWaker int) string {
+	if writtenOffReply == 0 && writtenOffWaker == 0 {
+		return ""
+	}
+	var parts []string
+	if writtenOffReply > 0 {
+		parts = append(parts, fmt.Sprintf("%d candidate(s) whose reply had already completed before the sleep segment started", writtenOffReply))
+	}
+	if writtenOffWaker > 0 {
+		parts = append(parts, fmt.Sprintf("%d candidate(s) whose segment-ending waker belongs to a different process than the binder peer", writtenOffWaker))
+	}
+	return "binder wait attribution wrote off " + strings.Join(parts, " and ") + "; those sleep segments stay on their scheduler-state lanes (or the frame-pacing idle lane) instead"
 }
 
 func binderAuxCaveatsForWait(wait BinderWaitSummary, aux []BinderEventSummary) []string {
@@ -14072,6 +14245,18 @@ func assignRootCauseRanksAndTiers(items []RootCauseRankItem) {
 			// the typed trace_gap_kind criterion in the follow-up tool batch.
 			// Precise mint-time type token only (single expandChain mint site).
 			items[i].Tier = RootCauseTierDataGap
+			continue
+		}
+		if items[i].Type == "pacing_idle" || items[i].Type == "periodic_idle" {
+			// P9 arm c (§29.42 案1 BINDER-MISATTR, 2026-07-12): an idle-cadence
+			// segment (frame-pacing or generic periodic — 复核 P2-1 fork) is
+			// causal-analysis CONTEXT — the thread waiting for its next tick,
+			// never a cause. The row keeps its display/evidence seat on the
+			// context-only tier, takes no election slot and no rank ordinal.
+			// Precise mint-time type tokens only (single attachIPCGraphToChain
+			// mint site); deliberately placed BEFORE the self-symptom arm so an
+			// upstream node's idle row demotes the same way as the target's own.
+			items[i].Tier = RootCauseTierContextOnly
 			continue
 		}
 		if items[i].SubjectIsAnalysisTarget && rootCauseItemIsTargetWaitSymptomType(items[i]) {

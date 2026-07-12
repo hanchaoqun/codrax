@@ -180,6 +180,18 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 			logBuildAgentContextSubsection(stage, agentName, "typed_relation_probe", sectionStart, "carriers=%d hints=%d", len(carriers), hintCount)
 		}
 
+		// CR-1 件③ (§29.42.2① 单源摘要喂入, 2026-07-12): the dispatch carries
+		// the typed root-cause board summary — authoritative seat order +
+		// per-row effective attribution / caliber / channel / confidence.
+		// FEED-1① (复核, 2026-07-12): fed to the INVESTIGATION stage too —
+		// the 84618 replay's think shows the model builds its own board
+		// during exploration, before the answer-rendering dispatch ever sees
+		// the summary. Empty on runs without seated runtime rank rows.
+		if stage == types.StageFinalize || stage == types.StageExplore {
+			ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(bus, types.ObservationExtractLedgerEvidenceLimit))
+			ac.TraceRootCauseBoard = formatTraceRootCauseBoardFromLedger(ledger)
+		}
+
 		// Collect tool summaries
 		ac.RelevantToolSummaries = extractToolSummaries(bus.ToolResults)
 
@@ -844,6 +856,17 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   SectionMultiRepoActiveSet,
 			Content: mrAdvisory,
+		})
+	}
+
+	// CR-1 件③ (§29.42.2① 单源摘要喂入, 2026-07-12) + FEED-1① (复核,
+	// 2026-07-12): the typed root-cause board summary — input only,
+	// pre-rendered at BuildAgentContext time for the investigation and
+	// answer-rendering stages (an empty string suppresses the section).
+	if (ac.Stage == types.StageFinalize || ac.Stage == types.StageExplore) && strings.TrimSpace(ac.TraceRootCauseBoard) != "" {
+		pc.UserSections = append(pc.UserSections, types.PromptSection{
+			Title:   SectionTraceRootCauseBoard,
+			Content: sanitiseSectionForLLM(ac.TraceRootCauseBoard, ac),
 		})
 	}
 

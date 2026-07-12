@@ -115,9 +115,12 @@ func TestTraceQueryWindowStatsRendersProcessDomainCensus(t *testing.T) {
 		// CJK tail included (its survival proves no mid-caveat truncation).
 		"- process_domain_census_caveat=per-thread running merges the same thread's non-overlapping cross-CPU segments (wall-additive for one thread)",
 		"跨线程合计为 cpu·ms,不可当作墙钟耗时",
-		// Legacy face untouched in the same output: the surviving-roster
-		// rollup keeps reporting exactly the b3 masquerade shape.
-		"- process_cpu_load process=com.baidu.tieba-59566 threads=4 running=6.000ms runnable=14.500ms",
+		// Legacy face keeps the surviving-roster shape (threads=4).
+		// EVOLUTION RECORD (ENG-1, 复核冷读 F2-1, 2026-07-12): the rostered
+		// threads' TOTALS now sum from the full pre-cap census — tb1..tb4's
+		// true running 6+4+3+4=17.0 replaces the pre-ENG-1 partial 6.0 (the
+		// donghu 132.041-vs-157.248 truncate-then-aggregate shape).
+		"- process_cpu_load process=com.baidu.tieba-59566 threads=4 running=17.000ms runnable=14.500ms",
 	} {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("window_stats summary missing %q:\n%s", want, res.Summary)

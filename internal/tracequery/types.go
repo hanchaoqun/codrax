@@ -2143,6 +2143,41 @@ type BinderWaitSummary struct {
 	Caveats           []string `json:"caveats,omitempty"`
 }
 
+// PacingIdleSummary is one P9 arm-c (§29.42 案1 BINDER-MISATTR,
+// docs/design/real_trace_campaign_20260705.md, 2026-07-12) frame-pacing idle
+// segment: a sleep segment whose binder-wait candidates were all written off
+// (reply completed before the segment / waker process ≠ peer process), whose
+// length is within binderPacingFramePeriodToleranceMs of one frame period,
+// and whose segment-ending waker is on the frame-signal (vsync) dispatch
+// chain. Published on its own semantic lane (rank rows carry
+// RootCauseTierContextOnly — never a root-cause contender).
+type PacingIdleSummary struct {
+	Thread        ThreadRef `json:"thread"`
+	Waker         ThreadRef `json:"waker,omitempty"`
+	WindowStartTs float64   `json:"window_start_ts,omitempty"`
+	WindowEndTs   float64   `json:"window_end_ts,omitempty"`
+	DurationMs    float64   `json:"duration_ms,omitempty"`
+	FramePeriodMs float64   `json:"frame_period_ms,omitempty"`
+	// PeriodSource is the typed provenance of FramePeriodMs:
+	// waker_periodic_aggregate (VS-1 PeriodicSource DetectedPeriodMs) or
+	// waker_wakeup_cadence (the waker's consecutive wakeups of this thread
+	// bracketing the segment).
+	PeriodSource string `json:"period_source,omitempty"`
+	// Kind is the typed lane token (复核 P2-1, 2026-07-12): pacing_idle
+	// (frame-chain waker — 帧间空闲 frame wording) or periodic_idle (generic
+	// periodic waker — 周期空闲 wording; the frame promise words never leak
+	// to timer/audio style sources).
+	Kind       string  `json:"kind,omitempty"`
+	SleepLine  int     `json:"sleep_line,omitempty"`
+	WakeupLine int     `json:"wakeup_line,omitempty"`
+	WakeupTs   float64 `json:"wakeup_ts,omitempty"`
+	// RejectedTransactionIDs lists the synchronous binder transactions the
+	// write-off arms rejected for this segment (audit trail — the pre-P9
+	// classifier would have attributed the segment to one of these).
+	RejectedTransactionIDs []int  `json:"rejected_transaction_ids,omitempty"`
+	Summary                string `json:"summary,omitempty"`
+}
+
 type TraceSpanSummary struct {
 	SourcePath string    `json:"source_path,omitempty"`
 	Thread     ThreadRef `json:"thread"`
@@ -3384,7 +3419,11 @@ type ChainResult struct {
 	AggregatedImpactsFold *WakeupCausalAggregateFold `json:"aggregated_impacts_fold,omitempty"`
 	IPCEdges              []IPCEdge                  `json:"ipc_edges,omitempty"`
 	BinderWaits           []BinderWaitSummary        `json:"binder_waits,omitempty"`
-	RootEvidence          []RootEvidence             `json:"root_evidence,omitempty"`
+	// PacingIdles: P9 arm-c frame-pacing idle segments (§29.42 案1) — sleep
+	// segments the binder write-off arms rejected that read as normal
+	// frame-cadence idle. Own semantic lane; never root-cause contenders.
+	PacingIdles  []PacingIdleSummary `json:"pacing_idles,omitempty"`
+	RootEvidence []RootEvidence      `json:"root_evidence,omitempty"`
 	// ViaThread is the RN-14a (§7.9) via verdict, present only when
 	// Query.ViaThread was set: either the via thread is ON a wakeup path to
 	// the target (depth + per-hop latency from existing wakeup edges, zero

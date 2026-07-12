@@ -358,6 +358,15 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 					trace.run("prose_scalar_grounding", func() []types.Violation {
 						return runProseScalarGroundingCheck(docV2, o.busCtx, mut)
 					})...)
+				// CR-1 件②/件⑤ (§29.42.4, 2026-07-12): the prose vocabulary
+				// (P2) + board-order consistency (P3a/P3b) lane — soft only,
+				// one shared latch, one bounded round, never a hard reject,
+				// never a caveat; the advisory-log fallback lives in the
+				// producer.
+				result.Violations = append(result.Violations,
+					trace.run("prose_lexicon_board", func() []types.Violation {
+						return runProseLexiconBoardCheck(docV2, o.busCtx, mut)
+					})...)
 			}
 			if rm := mut.RequestModel(); rm != nil {
 				result.Violations = append(result.Violations,

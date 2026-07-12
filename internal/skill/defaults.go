@@ -513,7 +513,13 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 			},
 			{
 				// SG-N7: window-stats core-number basis obligation — trace-only.
-				Body:      "WINDOW-STATS CORE NUMBERS: every headline number the answer takes from a window statistics observation (a per-state duration, a percentage of a window, a switch/fragment count) must be quoted at the published value and paired with its measurement basis: WHICH window it was measured over (the full query window vs a narrower aligned/occurrence window) and, for a percentage, which denominator produced it. Do NOT carry a number measured over one window onto a differently-sized window as if the bases matched, and do NOT present a value observed over a short aligned window as if it filled the whole query window. When you derive a ratio or a sum yourself, name the published values it was derived from so the figure stays auditable against the evidence rows.",
+				// EVOLUTION RECORD (CR-1 件④ FIN-BIND (c), §29.42 案12,
+				// 2026-07-12): the former "a ratio or a sum yourself" clause
+				// implicitly licensed self-made cross-row duration totals —
+				// the 41006 "about-N-ms" aggregate rode exactly that reading.
+				// The derivation license now covers RATIOS only; duration
+				// totals are governed by NO CROSS-ROW DURATION SUMS below.
+				Body:      "WINDOW-STATS CORE NUMBERS: every headline number the answer takes from a window statistics observation (a per-state duration, a percentage of a window, a switch/fragment count) must be quoted at the published value and paired with its measurement basis: WHICH window it was measured over (the full query window vs a narrower aligned/occurrence window) and, for a percentage, which denominator produced it. Do NOT carry a number measured over one window onto a differently-sized window as if the bases matched, and do NOT present a value observed over a short aligned window as if it filled the whole query window. When you derive a ratio yourself, name the published values it was derived from so the figure stays auditable against the evidence rows; duration totals of your own are governed by the NO CROSS-ROW DURATION SUMS rule.",
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
 			{
@@ -576,7 +582,12 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				// verbatim from an evidence surface, never assembled or
 				// adjusted. Detection half lives in the answer-side PSG
 				// gate (same soft one-round lane + ship-time disclosure).
-				Body:      "PROSE NUMBER GROUNDING: every numeric measurement the prose states (a duration in ms, a percentage, an occurrence count) must be locatable somewhere in the report's evidence surfaces — the measured observation records (the runtime observation supplement), the projection tables, the per-file evidence index, the metric snapshot, a quoted evidence block, or a structured fact carried into the final answer. A number that cannot be located there must be removed from the prose: intermediate values read during the investigation that never entered those final evidence surfaces (a latency, an inode token, an occurrence count, a duration remembered from an earlier view) are prohibited in the body, and naming the view or window they came from does not license them — the reader cannot audit a figure no shipped evidence surface carries. Never invent a replacement number, and when you derive a value yourself (a sum, a ratio, a normalization), name the published values it was derived from so the figure stays auditable. When a sentence names the time window or the thread a number belongs to, that window and thread must be the ones the number's evidence row was published under — bind each figure to its own publishing row; and when comparing across windows, normalize each side by its own window length first, then compare the normalized figures side by side. The same discipline applies to thread identities: a thread named in name-tid form must be copied verbatim from an evidence surface — never assemble, adjust, or recall a thread name or id from memory; when the exact spelling is not on any evidence surface, drop the token or use the published spelling instead.",
+				// EVOLUTION RECORD (复核 P2-3, 2026-07-12): the derivation
+				// license "(a sum, a ratio, a normalization)" narrowed to
+				// "(a ratio or a normalization)" + an explicit pointer to NO
+				// CROSS-ROW DURATION SUMS — the sum word contradicted the
+				// FIN-BIND (c) rule in the same Tier B set.
+				Body:      "PROSE NUMBER GROUNDING: every numeric measurement the prose states (a duration in ms, a percentage, an occurrence count) must be locatable somewhere in the report's evidence surfaces — the measured observation records (the runtime observation supplement), the projection tables, the per-file evidence index, the metric snapshot, a quoted evidence block, or a structured fact carried into the final answer. A number that cannot be located there must be removed from the prose: intermediate values read during the investigation that never entered those final evidence surfaces (a latency, an inode token, an occurrence count, a duration remembered from an earlier view) are prohibited in the body, and naming the view or window they came from does not license them — the reader cannot audit a figure no shipped evidence surface carries. Never invent a replacement number, and when you derive a value yourself (a ratio or a normalization), name the published values it was derived from so the figure stays auditable; duration totals of your own are governed by the NO CROSS-ROW DURATION SUMS rule — never add durations from different rows into a new figure. When a sentence names the time window or the thread a number belongs to, that window and thread must be the ones the number's evidence row was published under — bind each figure to its own publishing row; and when comparing across windows, normalize each side by its own window length first, then compare the normalized figures side by side. The same discipline applies to thread identities: a thread named in name-tid form must be copied verbatim from an evidence surface — never assemble, adjust, or recall a thread name or id from memory; when the exact spelling is not on any evidence surface, drop the token or use the published spelling instead.",
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
 			{
@@ -628,6 +639,72 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				// evidence kind. Soft guidance only (evidence-kind matching
 				// is a noisy signal).
 				Body:      "HOP CITATION-ASSERTION ALIGNMENT: the citation attached to a list item / hop must point at evidence of the SAME kind as that item's own assertion — an item asserting lock contention or priority inversion must not carry an IO-latency row's reference, an item asserting IO blocking must not carry a lock-contention reference, and likewise for every other evidence kind. After assembling the items, re-check each item's citation_ref against what the referenced evidence actually shows before emitting: an off-by-one drift after inserting, removing, or reordering items misattaches EVERY citation that follows the shift. When no same-kind evidence backs an item, leave that item uncited and state the boundary in its text instead of borrowing an adjacent item's reference.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
+			{
+				// FIN-BIND (a): measurement-subject binding — trace-only
+				// (CR-1 件④, §29.42.2② 教学先行,
+				// real_trace_campaign_20260705.md, 2026-07-12; 41006 first
+				// draft witness: a whole-window aggregate published for a
+				// different subject was quoted inside another thread's
+				// cause paragraph). Complements TRACE PRIMARY-CAUSE ENTITY
+				// CONSISTENCY (headline entity) — this clause binds EVERY
+				// prose number to its own published subject.
+				Body:      "MEASUREMENT-SUBJECT BINDING: every duration / percentage you write in prose belongs to the SAME thread or entity its measured evidence row publishes it for. The danger shape: while explaining why one thread waited, quoting a nearby value that was published for a DIFFERENT thread, for a merged family, or for the whole window, as if it were that thread's own number. Before writing a number next to an entity name, re-check which subject the measured row publishes it under; when the value belongs to another subject or to a merged family, either name that owner explicitly beside the number or leave the number out.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+				OnViolation: []types.ViolationKind{
+					types.ViolProseScalarUngrounded,
+				},
+			},
+			{
+				// FIN-BIND (b): root-cause board order — trace-only (CR-1
+				// 件④, §29.42.2②/§29.42.3, 2026-07-12; 41006 witness: prose
+				// stated its own Rank1..5 that violated the ranked ordering
+				// AND its own declared sort key). Complements TRACE
+				// PRIMARY-CAUSE ENTITY CONSISTENCY (which pins the headline
+				// ENTITY): this clause pins the stated ORDER of the whole
+				// cause list, with the same explicit-divergence lane
+				// (conscious-flip: disclosed deviation always allowed).
+				Body:      "ROOT-CAUSE BOARD ORDER: when the prompt carries a runtime-trace root-cause board section, state the ranked causes in THAT order — the board is the single authoritative ordering, and a prose cause list that silently uses a different order (or declares one sort key and lists values that do not follow it) contradicts the report's own evidence pages. When your combined judgment genuinely ranks the causes differently, you may present your own order — but then say explicitly that it differs from the measured ordering and what your judgment is based on; never reorder silently, and never present two different \"number one\" causes in one answer.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+				OnViolation: []types.ViolationKind{
+					types.ViolProseLexiconBoardInconsistent,
+				},
+			},
+			{
+				// FIN-BIND (c): cross-row duration sums — trace-only (CR-1
+				// 件④, §29.42 案12, 2026-07-12; 41006 witness: "约45ms" was
+				// a model-side aggregate no published caliber reproduced).
+				// Complements WINDOW-STATS CORE NUMBERS (which allows a
+				// self-derived ratio with its inputs named): wall-clock
+				// DURATIONS never sum across rows.
+				Body:      "NO CROSS-ROW DURATION SUMS: never add durations from different measured rows or different threads into a new total of your own (wall-clock intervals overlap and double-count — a self-made aggregate fabricates time). Quote each row's own published value, or a total the evidence itself publishes (a merged family row's combined value is such a total). An approximate figure introduced with wording like 'about N ms' must still be one published value, not your own sum. Self-derived RATIOS stay allowed under the core-numbers rule (name the published values they came from); duration totals do not.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+				OnViolation: []types.ViolationKind{
+					types.ViolProseScalarUngrounded,
+				},
+			},
+			{
+				// FIN-BIND (d): channel words per row — trace-only (CR-1
+				// 件④, §29.42 案23, 2026-07-12; witness: prose narrated an
+				// on-chain block-IO row as "background IO noise", reversing
+				// its own published channel). Complements BACKGROUND
+				// AGGREGATE HEADLINE (which forbids promoting background
+				// rows): this is the reverse direction — never DEMOTE an
+				// on-chain row to background wording.
+				Body:      "CHANNEL WORDS PER ROW: describe each measured cause row with the channel its evidence publishes (chain_relevance / causality fields). A row published as on the wakeup/dependency chain is part of the causal chain — never narrate it as background noise or incidental load; a row published as background or adjacent is context — never promote it into the direct chain. When prose and the row's published channel disagree, the published channel wins; if you believe the channel assignment is wrong, say so explicitly as your own assessment instead of silently rewording the row's role.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+				OnViolation: []types.ViolationKind{
+					types.ViolProseLexiconBoardInconsistent,
+				},
+			},
+			{
+				// FIN-BIND (e): inversion×lock coexistence — trace-only
+				// (CR-1 件④ + §29.40.1 user ruling 2026-07-11: 并存披露,
+				// 非降级替换). Fact statements carry BOTH facts; the repair
+				// space they imply belongs to the optimization/next-step
+				// surface.
+				Body:      "PRIORITY-INVERSION AND LOCK-HOLD COEXISTENCE: when the evidence publishes BOTH a priority-inversion relation and a lock-holding fact for the same wait, state both facts — they coexist; neither cancels the other. Do not use the lock fact to deny the inversion wording, and do not hide the lock fact to keep the inversion story clean. The two facts define different repair spaces (a lock-held inversion can be addressed through priority inheritance or through decoupling the lock; a lock-free inversion only through priority/scheduling adjustment) — put that repair-direction reasoning in the optimization / next-step surface, and keep the fact statements themselves plain.",
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
 		},

@@ -1178,4 +1178,21 @@ func init() {
 		// window" escape does not come back). No new evidence needed.
 		FixableByAgents: []AgentName{AgentFinalizer},
 	})
+
+	// CR-1 件②/件⑤ (§29.42.4 user ruling 2026-07-12,
+	// docs/design/real_trace_campaign_20260705.md — 排序一致性车道全线无硬拦):
+	// prose vocabulary (P2) + board-order consistency (P3a/P3b) lane.
+	// SoftByDefault keeps the commercial post-emit default; the bounded
+	// one-round retry is the bus-scoped strict arm in
+	// isStrictViolationForBus paired with the producer's shared one-shot
+	// latch (P2+P3a+P3b — one latch, one round). NO CaveatFamilyID and no
+	// deterministic caveat lane BY RULING: this lane never injects words
+	// into the answer (兜底 = advisory log only; 答案出厂权属于模型).
+	RegisterViolKind(ViolKindSpec{
+		Kind: ViolProseLexiconBoardInconsistent, DefaultSeverity: SeverityMedium, RepairPhase: RepairPhaseConsistency,
+		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
+		Layer:           "answer_oracle",
+		Description:     "CR-1 §29.42: model prose uses an engine-styled snake_case token no evidence surface of this run published, claims two different primary root causes in one document, or names a primary root cause differing from the measured board's #1 seat without disclosing the deviation; the one-shot hint lists each finding — one round, then the answer ships as written.",
+		FixableByAgents: []AgentName{AgentFinalizer},
+	})
 }

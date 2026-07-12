@@ -59,16 +59,23 @@ const (
 	SectionMultiRepoActiveSet    = "Multi-Repo Active Set"
 	SectionToolSourcedValue      = "Tool-Sourced Value"
 	SectionSubjectMatchSummary   = "Subject Match Summary"
-	SectionRawToolOutputs        = "Raw Tool Outputs from the Investigation"
-	SectionKnownFacts            = "Known Facts"
-	SectionAnswerSymbolsAuth     = "Extracted Answer Symbols (authoritative)"
-	SectionAnswerSymbolsFloor    = "Answer Symbols (lower-bound floor, may extend with cited evidence)"
-	SectionEvidencePool          = "Knowledge & Evidence Pool"
-	SectionRelationDossier       = "Relation Dossier (advisory)"
-	SectionUnverifiedLeads       = "Unverified Leads (not for citation)"
-	SectionDataflowFindings      = "Dataflow Findings"
-	SectionHypothesisVerdicts    = "Hypothesis Verdicts"
-	SectionRelevantFiles         = "Relevant Files"
+	// SectionTraceRootCauseBoard (CR-1 件③, §29.42.2① 单源摘要喂入,
+	// docs/design/real_trace_campaign_20260705.md, 2026-07-12): the typed
+	// root-cause board summary injected into the answer-rendering dispatch —
+	// authoritative order, one line per seated row (effective attribution +
+	// caliber + channel + confidence), so the prose never needs to invent a
+	// third ordering or a self-made aggregate.
+	SectionTraceRootCauseBoard = "Runtime Trace Root-Cause Board (authoritative order)"
+	SectionRawToolOutputs      = "Raw Tool Outputs from the Investigation"
+	SectionKnownFacts          = "Known Facts"
+	SectionAnswerSymbolsAuth   = "Extracted Answer Symbols (authoritative)"
+	SectionAnswerSymbolsFloor  = "Answer Symbols (lower-bound floor, may extend with cited evidence)"
+	SectionEvidencePool        = "Knowledge & Evidence Pool"
+	SectionRelationDossier     = "Relation Dossier (advisory)"
+	SectionUnverifiedLeads     = "Unverified Leads (not for citation)"
+	SectionDataflowFindings    = "Dataflow Findings"
+	SectionHypothesisVerdicts  = "Hypothesis Verdicts"
+	SectionRelevantFiles       = "Relevant Files"
 )
 
 // canonicalSystemSectionOrder lists every system-role section title

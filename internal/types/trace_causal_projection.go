@@ -186,12 +186,12 @@ type TraceCausalProjection struct {
 // TraceCausalProjectionTargetStateAccount is the §29.27② typed carrier of the
 // focused thread's full-window state partition (see the field doc above).
 type TraceCausalProjectionTargetStateAccount struct {
-	Subject                string  `json:"subject,omitempty"`
-	RunningMS              float64 `json:"running_ms,omitempty"`
-	RunnableMS             float64 `json:"runnable_ms,omitempty"`
-	SleepMS                float64 `json:"sleep_ms,omitempty"`
-	DStateMS               float64 `json:"d_state_ms,omitempty"`
-	IOWaitMS               float64 `json:"io_wait_ms,omitempty"`
+	Subject    string  `json:"subject,omitempty"`
+	RunningMS  float64 `json:"running_ms,omitempty"`
+	RunnableMS float64 `json:"runnable_ms,omitempty"`
+	SleepMS    float64 `json:"sleep_ms,omitempty"`
+	DStateMS   float64 `json:"d_state_ms,omitempty"`
+	IOWaitMS   float64 `json:"io_wait_ms,omitempty"`
 	// SleepIOWaitMS (复核 A-1): the sleep-side IO refinement label value —
 	// already inside SleepMS, never an addend (the Σ identity gate ignores
 	// it); feeds the sleep term's 「其中 IO等待」 clause only.
@@ -589,6 +589,18 @@ type TraceCausalProjectionNode struct {
 	// when they differ from this node's Object (e.g. the udk-irq peer thread a
 	// same-interval critical_blocking row named) — rendered as an 影响点 note.
 	SecondaryObjects []string `json:"secondary_objects,omitempty"`
+	// IdleCadenceMS / IdleCadenceKind (ENG-2, 复核冷读 CP1-③, 2026-07-12):
+	// the value-bearing idle-cadence annotation surviving the R1 same-fact
+	// merge. When a P9 arm-c typed idle row (pacing_idle / periodic_idle)
+	// folds into a co-located scheduler-state twin, the twin used to carry
+	// the token only in SecondaryObjects — which no display face reads, so
+	// the 帧间空闲 word vanished from the whole report while the audit face
+	// still published it. The absorb records the idle view's ms (one-fact
+	// MAX) and kind here; the ×N same-kind merge SUMS members' annotations;
+	// the tree row renders 「其中 X.XXXms 帧间空闲(等待下一帧)」 with the
+	// matching legend entry.
+	IdleCadenceMS   float64 `json:"idle_cadence_ms,omitempty"`
+	IdleCadenceKind string  `json:"idle_cadence_kind,omitempty"`
 	// PriorityInversionCandidate mirrors the producer's typed
 	// "priority_inversion_candidate=true" rich note (PTV5 Q4, #68 用户裁定
 	// 2026-07-05 — promoted from a display-only note to a typed node field so

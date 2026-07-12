@@ -550,13 +550,18 @@ var threadStateComparisonSiteGolden = map[string]string{
 	"query.go:enrichBlockedReasonIntervalsWithSelection": "d_sleep#1",
 	"query.go:enrichRootCauseRankWithScheduler":          "running,runnable#3",
 	"query.go:enrichStateChurnWithCPUPressure":           "runnable#1",
-	"query.go:findBinderWaitsForChain":                   "s_sleep,d_sleep,io_wait#3",
-	"query.go:interestingIntervals":                      "running#1",
-	"query.go:isFragmentedSleepChurn":                    "s_sleep#1",
-	"query.go:isIntermediateSleepAggregate":              "s_sleep#1",
-	"query.go:isIntermediateSleepImpact":                 "s_sleep#1",
-	"query.go:offCPUIntervalsFromState":                  "runnable#1",
-	"query.go:offCPUStateIsIOWait":                       "d_sleep,io_wait#2",
+	// P9 (§29.42 案1, 2026-07-12): the write-off audit selects the SAME
+	// sleep-family node population findBinderWaitsForChain scans — the two
+	// predicates are deliberately byte-identical (a node the audit skips
+	// could never be a binder-wait candidate).
+	"binder_attribution.go:buildBinderAttributionAudit": "s_sleep,d_sleep,io_wait#3",
+	"query.go:findBinderWaitsForChain":                  "s_sleep,d_sleep,io_wait#3",
+	"query.go:interestingIntervals":                     "running#1",
+	"query.go:isFragmentedSleepChurn":                   "s_sleep#1",
+	"query.go:isIntermediateSleepAggregate":             "s_sleep#1",
+	"query.go:isIntermediateSleepImpact":                "s_sleep#1",
+	"query.go:offCPUIntervalsFromState":                 "runnable#1",
+	"query.go:offCPUStateIsIOWait":                      "d_sleep,io_wait#2",
 	// Formal WindowStats D/IO ownership partitions mutually-exclusive IOWait
 	// and non-IO D-state members before folding one per-thread account.
 	"query.go:rootCauseDIOStateFamilyItems": "io_wait#2",

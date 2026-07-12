@@ -123,6 +123,11 @@ type MutableState struct {
 	// after which the prose-scalar gate never raises again this run.
 	// See MarkProseScalarGroundingHintDelivered.
 	proseScalarHintDelivered bool
+	// proseLexiconBoardHintDelivered is the CR-1 件②/件⑤ (§29.42.4,
+	// 2026-07-12) one-round latch shared by the prose vocabulary arm and
+	// the board-order consistency arms.
+	// See MarkProseLexiconBoardHintDelivered.
+	proseLexiconBoardHintDelivered bool
 	// objective is the raw user question / task description seeded
 	// at orchestrator Run time. Replaces the old one-task TaskList
 	// wrapper — every stage reads this field as the load-bearing
@@ -5424,6 +5429,32 @@ func (m *MutableState) ProseScalarGroundingHintDelivered() bool {
 	return m.proseScalarHintDelivered
 }
 
+// MarkProseLexiconBoardHintDelivered records that a dispatch carrying the
+// CR-1 件②/件⑤ lexicon/board-consistency hint has been observed (§29.42.4,
+// 2026-07-12). ONE shared latch for the vocabulary arm (P2) and both
+// board-order arms (P3a/P3b) — 同一 latch, 不另设: the whole lane gets at
+// most one targeted rewrite round per run, then ships whatever the model
+// maintains (答案出厂权属于模型).
+func (m *MutableState) MarkProseLexiconBoardHintDelivered() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.proseLexiconBoardHintDelivered = true
+}
+
+// ProseLexiconBoardHintDelivered reports whether the lexicon/board hint has
+// already been consumed by a dispatch this run.
+func (m *MutableState) ProseLexiconBoardHintDelivered() bool {
+	if m == nil {
+		return false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.proseLexiconBoardHintDelivered
+}
+
 // SetCompletionGateNote stores a one-line audit note a completion gate wants
 // surfaced on the next ACCEPTED completion summary (e.g. the no-progress
 // denial breaker tripping). Overwrites any previous note.
@@ -7114,6 +7145,15 @@ type AgentContext struct {
 	// perf_triage stage was skipped, or emit_perf_trace failed.
 	// Readers MUST nil-check.
 	PerfTrace *PerfBundle `json:"-"`
+
+	// TraceRootCauseBoard (CR-1 件③, §29.42.2① 单源摘要喂入, ledger
+	// docs/design/real_trace_campaign_20260705.md, 2026-07-12): the
+	// pre-rendered typed root-cause board summary for the answer-rendering
+	// dispatch — authoritative seat order, one line per seated chain/adjacent
+	// row (effective attribution + caliber + channel + confidence). Built at
+	// BuildAgentContext time from the observation ledger; empty when the run
+	// carries no seated runtime root-cause rank observations.
+	TraceRootCauseBoard string `json:"-"`
 
 	// PriorConvHidden gates whether the REPL-assembled Prior
 	// Conversation block is HIDDEN from this agent's user prompt.

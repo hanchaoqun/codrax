@@ -134,6 +134,16 @@ func TestProcessDomainCensusDonghuShapePin(t *testing.T) {
 	// Same-run legacy contrast: the global process face still rolls up ONLY
 	// the surviving display roster (threads=4, the b3 masquerade shape) and
 	// NetworkService stays absent from every global display face.
+	//
+	// EVOLUTION RECORD (ENG-1, 复核冷读 F2-1, 2026-07-12): the ROSTER stays
+	// the display survivors (ThreadCount=4, NetworkService absent — the
+	// census lane remains the only true-population face), but the TOTALS of
+	// rostered threads now sum from the full pre-cap census instead of the
+	// capped display slices: tb1..tb4's true running 6+4+3+4 = 17.0 replaces
+	// the pre-ENG-1 partial 6.0 (only tb1's bucket survived the global top-8
+	// running cut; tb2..tb4 were rostered via runnable with running=0 — the
+	// donghu 132.041-vs-157.248 truncate-then-aggregate shape). Runnable
+	// stays 14.5 (all four buckets were already displayed).
 	var legacy *ProcessCPULoadSummary
 	for i := range stats.ProcessCPULoad {
 		if stats.ProcessCPULoad[i].Process.PID == 59566 {
@@ -146,7 +156,7 @@ func TestProcessDomainCensusDonghuShapePin(t *testing.T) {
 	if legacy.ThreadCount != 4 {
 		t.Fatalf("legacy process_cpu_load ThreadCount = %d, want the surviving-roster 4 (the legacy lane must NOT be rewired to the census)", legacy.ThreadCount)
 	}
-	approxEq(t, "legacy tieba RunningMs", legacy.RunningMs, 6.0)
+	approxEq(t, "legacy tieba RunningMs", legacy.RunningMs, 17.0)
 	approxEq(t, "legacy tieba RunnableWaitMs", legacy.RunnableWaitMs, 14.5)
 	for _, td := range stats.TopRunning {
 		if td.Thread.PID == 60595 {

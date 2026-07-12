@@ -350,6 +350,16 @@ var composerExactFixSkipWhitelist = map[types.ViolationKind]string{
 	// the generic composer fallback is exactly right. One-shot by
 	// design: raised at most once per run.
 	types.ViolProseScalarUngrounded: "uses violation.Repair for fix prose (validator stamps unmatched numerals + cite-or-remove guidance)",
+
+	// CR-1 件②/件⑤ (§29.42.4, 2026-07-12) — prose lexicon + board
+	// consistency. The producer
+	// (orchestrator/prose_lexicon_board_check.go) stamps a complete
+	// Detail (the unpublished tokens / dual-primary / silent-deviation
+	// findings) + Repair (per-item remove-or-replace + disclose-the-
+	// deviation guidance) pair, so the generic composer fallback is
+	// exactly right. One-shot by design: raised at most once per run on
+	// the shared latch.
+	types.ViolProseLexiconBoardInconsistent: "uses violation.Repair for fix prose (validator stamps lexicon/board findings + one-shot rewrite guidance)",
 }
 
 // TestComposer_AllViolationKindsHaveCase enforces P34's

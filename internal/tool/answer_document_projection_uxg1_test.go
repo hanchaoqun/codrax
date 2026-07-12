@@ -424,8 +424,11 @@ var uxg1ToolAuthorityLiteralAllowlist = map[string]map[string]int{
 		// Legend teaching quotes (催化行 725/761-762/920-921/996-997/1005),
 		// layer words (2975-3001), state-action prose (7383), flat-board
 		// fallback phrase (9107), badge legend line (❶..❺), and see-also
-		// chapter references.
-		"根因排序": 13, "邻近影响": 1, "root-cause rank": 3, "adjacent-impact": 1,
+		// chapter references. +1 (2026-07-12, P9 §29.42 案1): the pacing_idle
+		// legend teaching entry's 不计入根因排序 clause — legend prose quoting
+		// the channel word, not a new hand-copied board emitter. +1
+		// (2026-07-12, 复核 P2-1): the periodic_idle fork's twin clause.
+		"根因排序": 15, "邻近影响": 1, "root-cause rank": 3, "adjacent-impact": 1,
 		"优化点": 2, "optimization point": 1, "确定性优化点": 3, "证据索引": 5,
 		"❶": 2, "❺": 2,
 	},

@@ -129,6 +129,14 @@ const (
 	proseScalarThreadSpellingCap = 8192 // evidence thread spelling set size
 	proseScalarThreadScanCap     = 200  // prose thread tokens audited per pass
 	proseScalarSumPairCap        = 16   // reproducing (a, b) pairs audited
+
+	// proseScalarApproxRelTolerance (CR-1 P1 extension, §29.42 §3.2,
+	// 2026-07-12) is the SINGLE-MEANING relative tolerance for explicitly
+	// approximation-marked values (约/≈/~ …): an approx-marked value is a
+	// direct member when a published value lies within 5% of it. Never
+	// borrowed for unmarked values or any other semantic (容差常量禁跨语义
+	// 借用).
+	proseScalarApproxRelTolerance = 0.05
 )
 
 // proseScalarTokenRE captures a decimal numeral immediately followed by an
@@ -180,6 +188,13 @@ type proseScalarToken struct {
 	Pos     int // byte offset of the numeral in its text unit
 	Value   float64
 	Ulp     float64 // one unit in the last written digit
+	// Approx: the numeral is explicitly approximation-marked (约/≈/~/
+	// approximately …) — CR-1 P1 extension (§29.42 §3.2, 2026-07-12): an
+	// approx-marked value gets the RELATIVE direct-member tolerance, and an
+	// approx-marked ms value can no longer be grounded by the pairwise-sum
+	// arm alone (the 案12 自造聚合数 shape: "约45ms" summed across rows —
+	// wall clock never sums across rows).
+	Approx bool
 }
 
 func (t proseScalarToken) percent() bool {
@@ -984,9 +999,57 @@ func extractProseScalarTokens(blockID, text string) []proseScalarToken {
 			Pos:     m[2],
 			Value:   value,
 			Ulp:     proseScalarUlp(raw),
+			Approx:  proseScalarApproxMarked(text, start),
 		})
 	}
 	return out
+}
+
+// proseScalarApproxMarked reports whether the numeral at start is explicitly
+// approximation-marked (约45ms / ≈45ms / ~45ms / "approximately 45ms" …) —
+// the CR-1 P1 extension's precise activation signal (§29.42 §3.2 P1:
+// round-3dp 相等或显式「约」+固定相对误差常量). Verbatim marker lookup in the
+// bytes immediately before the numeral, never a guess.
+func proseScalarApproxMarked(text string, start int) bool {
+	// 复核 P3-2 (2026-07-12): the marker may be separated from the numeral
+	// by a full-width space too (U+3000).
+	prefix := strings.TrimRight(text[:start], " \t　")
+	// Range-notation guard (复核 P3-2): a tilde BETWEEN two numerals is a
+	// range separator (「108~113ms」), never an approximation mark — the 5%
+	// relative band must not mask an out-of-tolerance range endpoint.
+	for _, marker := range []string{"~", "～"} {
+		if strings.HasSuffix(prefix, marker) {
+			before := strings.TrimRight(strings.TrimSuffix(prefix, marker), " \t　")
+			if len(before) > 0 && before[len(before)-1] >= '0' && before[len(before)-1] <= '9' {
+				return false
+			}
+			return true
+		}
+	}
+	for _, marker := range []string{"约", "≈", "接近", "大约", "大概"} {
+		if !strings.HasSuffix(prefix, marker) {
+			continue
+		}
+		if marker == "约" {
+			// Compound-word guard (复核 P3-2): 节约/制约/预约/合约/契约/隐约
+			// — a 约 whose preceding character forms one of these compounds
+			// is ordinary prose, not an approximation mark.
+			before := strings.TrimSuffix(prefix, marker)
+			for _, compound := range []string{"节", "制", "预", "合", "契", "隐"} {
+				if strings.HasSuffix(before, compound) {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	lower := strings.ToLower(prefix)
+	for _, word := range []string{"approximately", "about", "around", "roughly", "circa"} {
+		if strings.HasSuffix(lower, word) {
+			return true
+		}
+	}
+	return false
 }
 
 // extractProseScalarWindowRefs parses the window identities a text unit
@@ -1338,6 +1401,14 @@ func proseScalarTokenGrounding(tok proseScalarToken, evidence proseScalarEvidenc
 	if proseScalarNear(evidence.values, tok.Value, tol) {
 		return proseScalarGroundingVerdict{grounded: true}
 	}
+	// Arm 2b (CR-1 P1 extension, §29.42 §3.2, 2026-07-12) — an explicitly
+	// approximation-marked value accepts a direct member within the fixed
+	// relative tolerance ("约113ms" against the published 111.916 token).
+	// Direct members only — the relative band never widens the recompute /
+	// sum derivation arms.
+	if tok.Approx && proseScalarNear(evidence.values, tok.Value, proseScalarApproxRelTolerance*tok.Value) {
+		return proseScalarGroundingVerdict{grounded: true}
+	}
 	if tok.percent() {
 		// Arm 3 — the evidence carries the same percentage as a 0-1 ratio.
 		if proseScalarNear(evidence.values, tok.Value/100, tol/100) {
@@ -1359,8 +1430,17 @@ func proseScalarTokenGrounding(tok proseScalarToken, evidence proseScalarEvidenc
 	// self-derived total of two published figures is not a fabrication.
 	// The reproducing pairs feed the PSG-2H cross-thread sum extension
 	// (a capped overflow keeps the extension silent, 宁松勿严).
-	if pairs := proseScalarSumPairs(evidence.values, tok.Value, tol); len(pairs) > 0 {
-		return proseScalarGroundingVerdict{grounded: true, sumOnly: true, sumPairs: pairs}
+	//
+	// EVOLUTION RECORD (CR-1 P1 extension, §29.42 案12, 2026-07-12): an
+	// APPROXIMATION-MARKED ms value no longer takes the sum exemption — the
+	// 41006 witness "约45ms/约31ms" was a model-side aggregate no published
+	// caliber could reproduce, and wall clock never sums across rows (禁跨行
+	// 求和, FIN-BIND (c)). Exact self-derived totals of two published
+	// figures (unmarked) keep the exemption byte-identically.
+	if !tok.Approx {
+		if pairs := proseScalarSumPairs(evidence.values, tok.Value, tol); len(pairs) > 0 {
+			return proseScalarGroundingVerdict{grounded: true, sumOnly: true, sumPairs: pairs}
+		}
 	}
 	return proseScalarGroundingVerdict{}
 }

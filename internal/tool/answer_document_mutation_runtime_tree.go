@@ -551,6 +551,16 @@ const (
 	// 同一来源).
 	runtimeTraceProjMarkIconDStateOffChain
 
+	// P9 arm c (§29.42 案1 BINDER-MISATTR, 2026-07-12): the frame-pacing idle
+	// teaching seat — renders whenever a pacing_idle row is in the tree (its
+	// type word 帧间空闲(等待下一帧) rides the typelabels table).
+	runtimeTraceProjMarkPacingIdle
+
+	// 复核 P2-1 (2026-07-12): the generic periodic-idle teaching seat — the
+	// arm-c fork for measured periodic (non-frame) wakers; type word
+	// 周期空闲(等待下一周期信号).
+	runtimeTraceProjMarkPeriodicIdle
+
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
 	runtimeTraceProjMarkCount
@@ -986,6 +996,21 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkTraceGapBelowFloor, runtimeTraceProjLegendGroupMark,
 			"- `窗内无≥阈值等待区间` = 数据盲区判据之二:窗内有调度区间但均低于最小时长阈值,下钻链止。",
 			"- `no in-window wait ≥ floor` = the data blind spot's second criterion: scheduler intervals exist in the window but all sit below the minimum-duration floor; the drill chain ends there."},
+		// P9 arm c (§29.42 案1 BINDER-MISATTR, 2026-07-12): the frame-pacing
+		// idle teaching entry — the pacing_idle row's type word semantics. The
+		// segment is NORMAL frame cadence (length ≈ one frame period, ended by
+		// a frame-signal dispatch-chain waker), never a peer block and never a
+		// root-cause contender.
+		{runtimeTraceProjMarkPacingIdle, runtimeTraceProjLegendGroupMark,
+			"- `帧间空闲(等待下一帧)` = 该睡眠段长≈一个帧周期且由帧信号分发链唤醒终结:线程在等待下一帧信号,属正常帧节拍;不属对端阻塞,不计入根因排序。",
+			"- `pacing_idle (waiting for the next frame)` = the sleep segment's length matches one frame period and it is ended by a frame-signal dispatch-chain waker: the thread is waiting for its next frame tick — normal frame cadence, not a peer block, excluded from root-cause ranking."},
+		// 复核 P2-1 (2026-07-12): the generic periodic fork — the waker is a
+		// measured periodic signal source (timer/audio style) but NOT on the
+		// frame-signal dispatch chain; the frame promise words never render
+		// for it.
+		{runtimeTraceProjMarkPeriodicIdle, runtimeTraceProjLegendGroupMark,
+			"- `周期空闲(等待下一周期信号)` = 该睡眠段长≈唤醒者的实测信号周期:线程在等待下一次周期信号,属正常节拍;不属对端阻塞,不计入根因排序。",
+			"- `periodic_idle (waiting for the next periodic signal)` = the sleep segment's length matches the waker's measured signal period: the thread is waiting for its next periodic signal — normal cadence, not a peer block, excluded from root-cause ranking."},
 		// PTV8-RCR-A (§24.1/§24.2, 2026-07-08). EVOLUTION RECORD: the §21 RNB
 		// R1 `⧖ runnable …gated 分量,不重复计入排序` sub-row entry and the
 		// §21/§22 RNB R2 `同段rank行并入` note entry are RETIRED — the
@@ -2601,6 +2626,7 @@ func runtimeTraceProjAssignTopBadges(model *runtimeTraceProjTreeModel) {
 //     contender — keyed on the tier even for stale positive rank/eff pairs),
 //   - not target_self_state (SYM §24.13: the target's own wait symptom),
 //   - not an on-chain overflow fold roster (PTS: counted roster, no focus).
+//
 // Returns the displayed seat ordinal for badge emission; ok=false → 0.
 func runtimeTraceProjRowValidSeat(row runtimeTraceProjTreeRow) (int, bool) {
 	if !row.HasData || row.Node.OnChainOverflowFold || row.Node.IsTargetSelfStateRow() ||
@@ -5523,6 +5549,14 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 			demoted = append(demoted, "waiting for wakeup in this segment")
 		}
 	}
+	// ENG-2 (复核冷读 CP1-③, 2026-07-12): the absorbed idle reclassification
+	// speaks on the surviving SELF seat too — the donghu 84618 replay's
+	// pacing row folded into the ☾ 自身·sleep twin and the 帧间空闲 word
+	// vanished from every rendered surface.
+	if text, mark, ok := runtimeTraceProjIdleCadenceTag(node, zh); ok {
+		row.marks.mark(mark)
+		demoted = append(demoted, text)
+	}
 	if node.Undrillable() {
 		// PTV5 C06 (#68): bare ⊘链止, matching the tree-row form — the typed
 		// UndrillableReason enum stays off the panel (semantics live in the
@@ -7733,6 +7767,28 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		}
 		row.marks.mark(mark)
 		tags = append(tags, runtimeTraceProjTag{Text: text, Seg: 10})
+	}
+	// P9 arm c (§29.42 案1, 2026-07-12): a pacing_idle row's type word
+	// 帧间空闲(等待下一帧) rides the typelabels table; the mark carries the
+	// teaching legend entry exactly when such a row renders (词条-图例双向).
+	// Exact typed token match — never a substring heuristic. 复核 P2-1: the
+	// generic periodic fork carries its own word + entry the same way.
+	if runtimeTraceProjPacingIdleNode(node) {
+		row.marks.mark(runtimeTraceProjMarkPacingIdle)
+	}
+	if runtimeTraceProjPeriodicIdleNode(node) {
+		row.marks.mark(runtimeTraceProjMarkPeriodicIdle)
+	}
+	// ENG-2 (复核冷读 CP1-③, 2026-07-12): a row that ABSORBED a typed idle
+	// view (the R1 same-fact fold of a pacing_idle/periodic_idle row into
+	// its scheduler-state twin, or the ×N merge carrying such members)
+	// states the annotation inline — 「其中 X.XXXms 帧间空闲(等待下一帧)」 —
+	// so the idle reclassification survives onto the rendered seat instead
+	// of dying in SecondaryObjects. Rows whose OWN token is the idle lane
+	// already speak the cause word and skip the redundant tag.
+	if text, mark, ok := runtimeTraceProjIdleCadenceTag(node, zh); ok {
+		row.marks.mark(mark)
+		tags = append(tags, runtimeTraceProjTag{Text: text, Seg: 33})
 	}
 	// stanzaCumEmitted feeds the ruling-A 折算 discriminator below: when the
 	// cum and effective values BOTH publish on a stanza row with different

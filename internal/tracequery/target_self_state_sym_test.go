@@ -133,9 +133,16 @@ func TestSYM2WaitSymptomClosedSetIsRegistryLane(t *testing.T) {
 	// never prose. 突变自查: re-widening the predicate to全量 subject==target,
 	// mis-assigning a lane in the registry, or hand-listing the wrong family
 	// all bite here.
+	// EVOLUTION RECORD (P9 §29.42 案1, 2026-07-12): pacing_idle joins the
+	// wakeup-chain lane (waiting for the next frame tick), so the lane-derived
+	// predicate is TRUE for it — honest family membership. The SYM demotion
+	// consequence never applies in practice: assignRootCauseRanksAndTiers
+	// demotes every pacing_idle row to RootCauseTierContextOnly through the
+	// dedicated type arm BEFORE the self-symptom arm runs (any subject, not
+	// just the target). Pinned in binder_attribution_p9_test.go.
 	wantWait := map[string]bool{
 		"sleep_wait": true, "fragmented_sleep_wait": true, "missing_wakeup": true,
-		"binder_wait": true, "blocking_span": true,
+		"binder_wait": true, "blocking_span": true, "pacing_idle": true,
 	}
 	for _, token := range CausalTokenUniverse() {
 		spec, _ := CausalTokenSpecFor(token)

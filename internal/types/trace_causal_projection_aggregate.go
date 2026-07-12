@@ -293,6 +293,28 @@ func traceCausalProjectionAbsorbSupplyFold(survivor *TraceCausalProjectionNode, 
 	backfill.backfilled = true
 }
 
+// traceCausalProjectionIdleCadence reads a node's idle-cadence annotation
+// (ENG-2, 2026-07-12): either the carried IdleCadenceMS/Kind pair of an
+// already-annotated node, or the node's OWN typed idle lane (canonical
+// pacing_idle / periodic_idle on the TypeToken→Object→Predicate precedence)
+// valued at its published impact. Exact typed token match only.
+func traceCausalProjectionIdleCadence(node TraceCausalProjectionNode) (float64, string) {
+	if node.IdleCadenceMS > 0 && node.IdleCadenceKind != "" {
+		return node.IdleCadenceMS, node.IdleCadenceKind
+	}
+	for _, token := range []string{node.TypeToken, node.Object, node.Predicate} {
+		switch traceCausalProjectionCanonicalNode(token) {
+		case "pacing_idle", "periodic_idle":
+			ms := node.ImpactMS
+			if ms <= 0 {
+				ms = node.CumulativeImpactMS
+			}
+			return ms, traceCausalProjectionCanonicalNode(token)
+		}
+	}
+	return 0, ""
+}
+
 func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, loser TraceCausalProjectionNode, absorbed map[string]bool, foldBackfill *traceCausalProjectionSupplyFoldBackfill) {
 	appendEvidence := func(id string) {
 		id = strings.TrimSpace(id)
@@ -384,6 +406,19 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 	// the ONE fact — either view observing it marks the merged row.
 	if loser.PriorityInversionCandidate {
 		survivor.PriorityInversionCandidate = true
+	}
+	// ENG-2 (复核冷读 CP1-③, 2026-07-12): an idle-cadence loser (the P9
+	// arm-c pacing_idle / periodic_idle typed lanes) annotates the surviving
+	// seat with its value + kind instead of vanishing into SecondaryObjects.
+	// One-fact MAX (the rank view and the root_evidence witness of the SAME
+	// idle segment both fold here — never summed); kind first-wins.
+	if idleMS, idleKind := traceCausalProjectionIdleCadence(loser); idleMS > 0 {
+		if survivor.IdleCadenceKind == "" {
+			survivor.IdleCadenceKind = idleKind
+		}
+		if idleMS > survivor.IdleCadenceMS {
+			survivor.IdleCadenceMS = idleMS
+		}
 	}
 	// SFD (§15.A display half, user q6 issue 1): the SupplyFold arm — guards
 	// and conflict memory live in the helper (SFD 复核 F1/F4).
@@ -941,6 +976,14 @@ func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode
 			}
 			for _, object := range member.SecondaryObjects {
 				traceCausalProjectionAppendSecondaryObject(&aggregate, object)
+			}
+			// ENG-2: distinct member facts' idle-cadence annotations SUM on
+			// the ×N aggregate (the one-fact MAX lives in the R1 absorb).
+			if ms, kind := traceCausalProjectionIdleCadence(member); ms > 0 {
+				if aggregate.IdleCadenceKind == "" {
+					aggregate.IdleCadenceKind = kind
+				}
+				aggregate.IdleCadenceMS += ms
 			}
 			if member.LineStart > 0 && (aggregate.LineStart <= 0 || member.LineStart < aggregate.LineStart) {
 				aggregate.LineStart = member.LineStart

@@ -43,6 +43,11 @@ func isStrictViolationForBus(v types.Violation, bus *types.BusContext) bool {
 	if proseScalarGroundingStrictViolation(v) {
 		return true
 	}
+	// CR-1 件②/件⑤ (§29.42.4, 2026-07-12): the lexicon/board lane rides the
+	// same one-shot contract — one retry-eligible raise, latched forever.
+	if proseLexiconBoardStrictViolation(v) {
+		return true
+	}
 	return comparisonBucketSectionCoverageViolation(v, bus)
 }
 

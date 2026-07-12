@@ -617,6 +617,12 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		runtimeTraceProjMarkSemanticMentionFloor: {"优化点·未入根因排序", "optimization point · "},
 		// UXR-1 §29.36②: the off-chain D-state/IO glyph (glyph IS the probe).
 		runtimeTraceProjMarkIconDStateOffChain: {"⧗", "⧗"},
+		// P9 arm c (§29.42 案1, 2026-07-12): the frame-pacing idle row's type
+		// word (zh rides the typelabels table; the EN face keeps the raw
+		// token — D2: EN surfaces render tokens verbatim).
+		runtimeTraceProjMarkPacingIdle: {"帧间空闲", "pacing_idle"},
+		// 复核 P2-1 (2026-07-12): the generic periodic fork's type word.
+		runtimeTraceProjMarkPeriodicIdle: {"周期空闲", "periodic_idle"},
 		// PTV5 PTS: the on-chain overflow fold row's lane word.
 		runtimeTraceProjMarkOnChainOverflowFold: {"链上折叠", "on-chain fold"},
 		// PTV6-C ruling A (#73): the ◇/▒ cross-thread cumulative family word.
@@ -985,6 +991,38 @@ func revisit76RichChainProjection() types.TraceCausalProjection {
 	}
 }
 
+// revisit76P9PacingIdleProjection (P9 arm c, §29.42 案1, 2026-07-12) is the
+// frame-pacing idle shape: a written-off binder candidate segment re-minted
+// as a pacing_idle context row (tier context_only, no board seat) beside an
+// ordinary on-chain cause — the donghu 15.758ms/16.738ms witness geometry.
+func revisit76P9PacingIdleProjection() types.TraceCausalProjection {
+	return types.TraceCausalProjection{
+		WakeupPath:    []string{"app-9511", ".ugc.aweme.lite-17267"},
+		WindowStartTs: 13762.894,
+		WindowEndTs:   13763.010,
+		OnChainCauses: []types.TraceCausalProjectionNode{{
+			Role: types.TraceCausalRoleRootCauseContext, Subject: "app-9511",
+			Object: "running_burst", StateKind: "running", ChainRelevance: "on_chain",
+			ImpactMS: 30, Confidence: 0.8,
+		}},
+		AdjacentCauses: []types.TraceCausalProjectionNode{{
+			Role: types.TraceCausalRoleRootCauseContext, Subject: ".ugc.aweme.lite-17267",
+			Object: "pacing_idle", StateKind: "s_sleep", ChainRelevance: "adjacent",
+			Tier:     types.TraceCausalTierContextOnly,
+			ImpactMS: 15.758, Confidence: 0.85,
+		}},
+	}
+}
+
+// revisit76P21PeriodicIdleProjection (复核 P2-1, 2026-07-12) is the generic
+// periodic-idle fork: a measured periodic (non-frame) waker's idle segment —
+// same context seat, its own 周期空闲 word + legend entry.
+func revisit76P21PeriodicIdleProjection() types.TraceCausalProjection {
+	proj := revisit76P9PacingIdleProjection()
+	proj.AdjacentCauses[0].Object = "periodic_idle"
+	return proj
+}
+
 // revisit76FlatUndrillableProjection is the flat ⛔ shape: no ≥2-node wakeup
 // path, one undrillable missing_wakeup sleep row.
 func revisit76FlatUndrillableProjection() types.TraceCausalProjection {
@@ -1169,6 +1207,11 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// DISP-2 G2 (§27.2 措辞按 kind 分形): the no_eligible_wait blind-spot
 		// row's forked disclosure + legend entry (same fixture home).
 		{"disp2_trace_gap_below_floor", ptv7SpnTraceGapBelowFloorProjection()},
+		// P9 arm c (§29.42 案1, 2026-07-12): the frame-pacing idle row's type
+		// word + teaching legend entry.
+		{"p9_pacing_idle", revisit76P9PacingIdleProjection()},
+		// 复核 P2-1 (2026-07-12): the generic periodic fork's word + entry.
+		{"p2_1_periodic_idle", revisit76P21PeriodicIdleProjection()},
 		// DISP-2 G19 (§27.5): the all-zero on-chain fold's one-line note
 		// (same fixture home).
 		{"disp2_all_zero_fold", disp2AllZeroFoldProjection()},

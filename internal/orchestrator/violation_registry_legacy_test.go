@@ -102,6 +102,10 @@ var violRegistryGolden = map[types.ViolationKind]violGoldenRow{
 	// per the commercial post-emit policy; the one-round retry comes from
 	// the bus-scoped strict arm + validator latch, not from this row.
 	"prose_scalar_ungrounded": {"medium", "high", true, true, "finalizer", "answer_oracle", "consistency"},
+	// CR-1 件②/件⑤ (§29.42.4, 2026-07-12): prose vocabulary + board-order
+	// consistency — SoftByDefault, one shared one-round latch, never a hard
+	// reject, never a caveat (advisory log fallback only).
+	"prose_lexicon_board_inconsistent": {"medium", "high", true, true, "finalizer", "answer_oracle", "consistency"},
 }
 
 // TestRegistryGoldenSnapshot pins the full derived routing surface for

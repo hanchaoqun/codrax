@@ -19,6 +19,7 @@ package tool
 // narrative frames stay Chinese per the same ruling.
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
@@ -45,6 +46,16 @@ func runtimeTraceRootCauseTypeZHLabel(token string) string {
 		return "D-state/iowait"
 	case "binder_wait":
 		return "binder等待"
+	case "pacing_idle":
+		// P9 arm c (§29.42 案1, 2026-07-12): frame-pacing idle sleep — the
+		// display word family the ruling fixed (帧间空闲/等待下一帧); the
+		// legend entry teaches the semantics (runtime_tree.go).
+		return "帧间空闲(等待下一帧)"
+	case "periodic_idle":
+		// 复核 P2-1 (2026-07-12): the arm-c generic fork — a measured
+		// periodic (non-frame) waker; the frame promise words never render
+		// on this token.
+		return "周期空闲(等待下一周期信号)"
 	case "io_pressure":
 		return "IO压力"
 	case "io_burst_episode":
@@ -446,6 +457,58 @@ func runtimeTraceProjDiagnosticLaneNode(node types.TraceCausalProjectionNode) bo
 func runtimeTraceProjTraceGapNode(node types.TraceCausalProjectionNode) bool {
 	for _, token := range []string{node.TypeToken, node.Object, node.Predicate} {
 		if runtimeTraceCausalProjectionCanonicalNode(token) == "trace_gap" {
+			return true
+		}
+	}
+	return false
+}
+
+// runtimeTraceProjIdleCadenceTag renders the ENG-2 (复核冷读 CP1-③,
+// 2026-07-12) absorbed idle-cadence annotation for one node: the R1
+// same-fact fold / ×N merge carried a typed pacing_idle / periodic_idle
+// view onto this seat (IdleCadenceMS/Kind), and the seat states it inline —
+// 「其中 X.XXXms 帧间空闲(等待下一帧)」 (EN keeps the raw token, D2
+// discipline) — with the matching teaching legend mark. Rows whose OWN
+// token IS the idle lane already speak the cause word and return ok=false
+// (no redundant tag).
+func runtimeTraceProjIdleCadenceTag(node types.TraceCausalProjectionNode, zh bool) (string, runtimeTraceProjMark, bool) {
+	if node.IdleCadenceMS <= 0 || node.IdleCadenceKind == "" ||
+		runtimeTraceProjPacingIdleNode(node) || runtimeTraceProjPeriodicIdleNode(node) {
+		return "", 0, false
+	}
+	mark := runtimeTraceProjMarkPacingIdle
+	if node.IdleCadenceKind == "periodic_idle" {
+		mark = runtimeTraceProjMarkPeriodicIdle
+	}
+	word := node.IdleCadenceKind
+	if zh {
+		if label := runtimeTraceRootCauseTypeZHLabel(node.IdleCadenceKind); label != "" {
+			word = label
+		}
+		return fmt.Sprintf("其中 %.3fms %s", node.IdleCadenceMS, word), mark, true
+	}
+	return fmt.Sprintf("of which %.3fms %s", node.IdleCadenceMS, word), mark, true
+}
+
+// runtimeTraceProjPeriodicIdleNode is the exact typed token match for the
+// arm-c GENERIC periodic fork (复核 P2-1, 2026-07-12: 显示词=周期空闲(等待
+// 下一周期信号)) — same lane precedence, never a substring heuristic.
+func runtimeTraceProjPeriodicIdleNode(node types.TraceCausalProjectionNode) bool {
+	for _, token := range []string{node.TypeToken, node.Object, node.Predicate} {
+		if runtimeTraceCausalProjectionCanonicalNode(token) == "periodic_idle" {
+			return true
+		}
+	}
+	return false
+}
+
+// runtimeTraceProjPacingIdleNode is the exact typed token match for the P9
+// arm-c frame-pacing idle marker (§29.42 案1, 2026-07-12: 显示词=帧间空闲(
+// 等待下一帧), 图例教学条随行出场) — same lane precedence as the trace_gap
+// predicate above, never a substring heuristic.
+func runtimeTraceProjPacingIdleNode(node types.TraceCausalProjectionNode) bool {
+	for _, token := range []string{node.TypeToken, node.Object, node.Predicate} {
+		if runtimeTraceCausalProjectionCanonicalNode(token) == "pacing_idle" {
 			return true
 		}
 	}

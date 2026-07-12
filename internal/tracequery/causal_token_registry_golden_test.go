@@ -57,6 +57,13 @@ func TestCausalTokenRegistryGoldenSnapshot(t *testing.T) {
 		// ""); the wakeup_chain lane bytes are identical (红线 §7.4/§7.5).
 		"missing_wakeup|wakeup_chain|wall_clock_per_thread|per_thread|row|runtimeTraceRootCauseTypeZHLabel",
 		"monitor_contention|lock_contention|wall_clock_per_thread|per_thread|observation_only|",
+		// P9 arm c (§29.42 案1 BINDER-MISATTR, 2026-07-12): frame-pacing idle
+		// sleep — a written-off binder candidate segment re-minted on its own
+		// semantic lane. Wakeup-chain lane (waiting for the next frame tick),
+		// per-thread wall clock like its sibling sleep tokens; rank rows carry
+		// RootCauseTierContextOnly via a dedicated type arm (never a
+		// contender). zh 帧间空闲(等待下一帧).
+		"pacing_idle|wakeup_chain|wall_clock_per_thread|per_thread|row|runtimeTraceRootCauseTypeZHLabel",
 		"page_cache_churn|memory_pressure|count|per_thread|row|runtimeTraceRootCauseTypeZHLabel",
 		"priority_inversion_candidate|scheduling_demand|wall_clock_per_thread|per_thread|row|runtimeTraceRootCauseTypeZHLabel",
 		"priority_inversion_runnable_wait|scheduling_demand|wall_clock_per_thread|per_thread|row|runtimeTraceRootCauseTypeZHLabel",

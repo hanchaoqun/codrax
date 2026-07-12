@@ -568,8 +568,12 @@ func TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get(answer-document-skill): %v", err)
 	}
-	if len(sk.WorkflowTierB) != 16 {
-		t.Errorf("answer-document-skill should declare 16 Tier B Workflow items; got %d", len(sk.WorkflowTierB))
+	// CR-1 件④ (§29.42.2② FIN-BIND, 2026-07-12): +5 trace-gated prose
+	// disciplines (measurement-subject binding, root-cause board order,
+	// no cross-row duration sums, channel words per row, inversion×lock
+	// coexistence) — 16 → 21.
+	if len(sk.WorkflowTierB) != 21 {
+		t.Errorf("answer-document-skill should declare 21 Tier B Workflow items; got %d", len(sk.WorkflowTierB))
 	}
 	if len(sk.ProhibitionsTierB) != 2 {
 		t.Errorf("answer-document-skill should declare 2 Tier B Prohibitions; got %d", len(sk.ProhibitionsTierB))
@@ -593,6 +597,12 @@ func TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount(t *testing.T) {
 		"TRACE PRIMARY-CAUSE ENTITY CONSISTENCY:",
 		"LOCK-WAIT SITE QUOTATION:",
 		"HOP CITATION-ASSERTION ALIGNMENT:",
+		// CR-1 件④ FIN-BIND group (§29.42.2②/§29.40.1, 2026-07-12).
+		"MEASUREMENT-SUBJECT BINDING:",
+		"ROOT-CAUSE BOARD ORDER:",
+		"NO CROSS-ROW DURATION SUMS:",
+		"CHANNEL WORDS PER ROW:",
+		"PRIORITY-INVERSION AND LOCK-HOLD COEXISTENCE:",
 	}
 	if len(sk.WorkflowTierB) != len(wantWorkflowPrefixes) {
 		t.Fatalf("Tier B count mismatch: want %d, got %d", len(wantWorkflowPrefixes), len(sk.WorkflowTierB))

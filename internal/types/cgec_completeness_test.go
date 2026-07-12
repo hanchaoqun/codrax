@@ -331,6 +331,11 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		// runProseScalarGroundingCheck, dispatched from
 		// contract_check.go in the V2 answer-oracle region.
 		ViolProseScalarUngrounded: true,
+		// CR-1 件②/件⑤ (§29.42.4, 2026-07-12). Producer wired in
+		// orchestrator/prose_lexicon_board_check.go
+		// runProseLexiconBoardCheck, dispatched from contract_check.go
+		// beside the prose-scalar lane.
+		ViolProseLexiconBoardInconsistent: true,
 	}
 	pending := map[ViolationKind]string{
 		ViolFamilyMismatch:                 "P9-C-retired-V1-checkShape (V2 block oracles cover read-mode block contract via runV2BlockOracles)",

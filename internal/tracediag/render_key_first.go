@@ -624,10 +624,17 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	reflect.TypeOf(tracequery.DMAFenceActivity{}):           "c1094517e8c9f158eee1c47dceb51d7a20d6f686a4c07a839d5854e165ed1c1e",
 	reflect.TypeOf(tracequery.RootCauseRankResult{}):        "148735ab082d8b42df67875bccfaa6043e50d7c0f99fada94957aeecfdb3b703",
 	reflect.TypeOf(tracequery.RootCauseRankItem{}):          "3062374b24f82fa46cd5651e33c5a693585626f5b739ab0c3b2beb4ae0322872",
-	reflect.TypeOf(tracequery.ChainResult{}):                "c1d29e136b6ab0297ced271e3dd5a43fc2adf6c38194a2048100ae49cf59d126",
-	reflect.TypeOf(tracequery.WakeupCausalImpact{}):         "625697669c2daac29f2efc46a84d3d372c66924f64e98f82f1134f82762846eb",
-	reflect.TypeOf(tracequery.WakeupCausalAggregate{}):      "e4ed22c7d66ff5724b9e395de5fdb921f3d06fd66e70ff44fba6fcac40a14831",
-	reflect.TypeOf(tracequery.SupplyFoldBasis{}):            "2812909ea9da6b3296c70229002e432dd9ef9153f8912fcdd3ba1012b34be9c4",
+	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
+	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
+	// Key-first adjudication: a slice → structural bulk lane (same as
+	// BinderWaits); no skipped fields (PacingIdleSummary carries no
+	// Caveats/Compactions to dedupe — the write-off disclosure rides
+	// ChainResult.Caveats, which collectNonEventEngineDiagnostics already
+	// reads); no priority override needed.
+	reflect.TypeOf(tracequery.ChainResult{}):           "77bc23ed2ece8b6be7031a48a12833911e11f0cfb28b90d171580a6e5bf11244",
+	reflect.TypeOf(tracequery.WakeupCausalImpact{}):    "625697669c2daac29f2efc46a84d3d372c66924f64e98f82f1134f82762846eb",
+	reflect.TypeOf(tracequery.WakeupCausalAggregate{}): "e4ed22c7d66ff5724b9e395de5fdb921f3d06fd66e70ff44fba6fcac40a14831",
+	reflect.TypeOf(tracequery.SupplyFoldBasis{}):       "2812909ea9da6b3296c70229002e432dd9ef9153f8912fcdd3ba1012b34be9c4",
 }
 
 func detailSchemaFingerprint(typ reflect.Type) (fingerprint, schema string) {

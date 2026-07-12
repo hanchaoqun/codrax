@@ -195,6 +195,23 @@ var causalTokenRegistry = map[string]CausalTokenSpec{
 	// wakeup_chain lane is untouched per 红线 §7.2.1/§7.4/§7.5).
 	"missing_wakeup": {Lane: CausalLaneWakeupChain, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 	"binder_wait":    {Lane: CausalLaneWakeupChain, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
+	// pacing_idle (P9 arm c, §29.42 案1 BINDER-MISATTR, 2026-07-12): a sleep
+	// segment whose binder candidates were written off (reply completed
+	// before the segment / waker process ≠ peer process) and that reads as
+	// frame-pacing idle — length ≈ one frame period, ended by a frame-signal
+	// dispatch-chain waker. Lane adjudication per the §7.4/§7.5 change
+	// protocol: the demand/supply split is untouched (never worded 调度压力
+	// nor 算力); the segment is the thread WAITING to be signalled by the
+	// next frame tick, so it homes on the wakeup-chain lane like its sibling
+	// sleep tokens. It is a measured per-thread wall-clock interval
+	// (additivity/subject identical to sleep_wait). Rank rows of this token
+	// carry RootCauseTierContextOnly through a dedicated type arm in
+	// assignRootCauseRanksAndTiers — 帧间空闲非成因, the row never competes
+	// and never takes a board seat (the SYM lane-derived self-symptom
+	// demotion is deliberately NOT relied on: an upstream node's pacing row
+	// must not compete either). zh display word 帧间空闲(等待下一帧) rides
+	// runtimeTraceRootCauseTypeZHLabel like every sibling.
+	"pacing_idle": {Lane: CausalLaneWakeupChain, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 
 	// ── IO blocking ────────────────────────────────────────────────────────
 	"io_wait":                       {Lane: CausalLaneIOBlocking, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
