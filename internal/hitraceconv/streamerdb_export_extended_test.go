@@ -766,7 +766,7 @@ func TestExportTraceDBRawFtraceRootCauseEvidence(t *testing.T) {
 		"android_fs_dataread_start: dev=260:136 ino=12345 entry_name=foo.db offset=0 bytes=4096 rw=read",
 		"block_rq_issue: 8,0 R 4096 (READ) 128 + 8",
 		"scsi_dispatch_cmd_start: tag=7 dev=8:0 lba=4096 len=8 opcode=READ_10",
-		"mm_filemap_add_to_page_cache: dev=260:136 ino=12345",
+		"mm_filemap_add_to_page_cache: dev 260:136 ino 0x3039 pfn=3062260 ofs=0",
 		"workqueue_execute_start: work struct 0xabc: function 0xdef",
 		"dma_fence_signaled: driver=drv timeline=tl context=1 seqno=2",
 	} {
@@ -923,10 +923,10 @@ func rawFtraceRootCauseFixtureStatements() []string {
 	addRaw(5, 3600, "android_fs_dataread_end", 3, 3, 201)
 
 	for _, argset := range []int{210, 211} {
-		addTextArg(argset, "dev", "260:136")
-		addArg(argset, "ino", 12345)
-		addArg(argset, "offset", 0)
-		addArg(argset, "bytes", 4096)
+		addArg(argset, "s_dev", int64(syntheticDev(260, 136)))
+		addArg(argset, "i_ino", 12345)
+		addArg(argset, "index", 0)
+		addArg(argset, "pfn", 3062260)
 	}
 	addRaw(6, 3900, "mm_filemap_add_to_page_cache", 3, 3, 210)
 	addRaw(7, 4000, "mm_filemap_delete_from_page_cache", 3, 3, 211)

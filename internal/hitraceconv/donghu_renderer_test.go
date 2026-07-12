@@ -135,103 +135,16 @@ func TestDonghuDirectClockSetRateCPURespectsFieldPresence(t *testing.T) {
 	}
 }
 
-func TestDonghuDirectPageCachePointerRespectsFieldPresenceAndUint64(t *testing.T) {
-	tests := []struct {
-		name          string
-		pageFieldName string
-		pageFieldSize int
-		page          uint64
-		want          string
-		contentLength int
-	}{
-		{name: "missing page pointer", contentLength: 40, want: "dev 12:48 ino 0x1234 pfn=77 ofs=4096"},
-		{name: "exact zero pointer", pageFieldName: "pg", pageFieldSize: 8, contentLength: 48, want: "dev 12:48 ino 0x1234 page=0x0 pfn=77 ofs=4096"},
-		{name: "high pg pointer bit pattern", pageFieldName: "pg", pageFieldSize: 8, page: 0xffff000000001234, contentLength: 48, want: "dev 12:48 ino 0x1234 page=0xffff000000001234 pfn=77 ofs=4096"},
-		{name: "high page alias bit pattern", pageFieldName: "page", pageFieldSize: 8, page: 0xffff000000001234, contentLength: 48, want: "dev 12:48 ino 0x1234 page=0xffff000000001234 pfn=77 ofs=4096"},
-		{name: "malformed page width omitted", pageFieldName: "page", pageFieldSize: 3, contentLength: 43, want: "dev 12:48 ino 0x1234 pfn=77 ofs=4096"},
+func TestDonghuDirectPageCacheOmitsUnprovablePagePointer(t *testing.T) {
+	fixture := directPageCacheFixture("mm_filemap_add_to_page_cache", 8, false)
+	body, admission, reason := renderEventBodyDecision(
+		coreDecodeContext{}, decodeEvent(fixture.format, fixture.content), fixture.content, 1,
+	)
+	if admission != bodyAdmitted || reason != "" || body != "dev 12:48 ino 0x1234 pfn=77 ofs=4096" {
+		t.Fatalf("page-cache mismatch: admission=%d reason=%q body=%q", admission, reason, body)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fields := []eventField{
-				{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
-				{Name: "s_dev", Offset: 8, Size: 8},
-				{Name: "i_ino", Offset: 16, Size: 8},
-				{Name: "index", Offset: 24, Size: 8},
-				{Name: "pfn", Offset: 32, Size: 8},
-			}
-			if tt.pageFieldName != "" {
-				fields = append(fields, eventField{Type: "void *", Name: tt.pageFieldName, Offset: 40, Size: tt.pageFieldSize})
-			}
-			content := make([]byte, tt.contentLength)
-			binary.LittleEndian.PutUint64(content[8:16], uint64((12<<20)|48))
-			binary.LittleEndian.PutUint64(content[16:24], 0x1234)
-			binary.LittleEndian.PutUint64(content[24:32], 1)
-			binary.LittleEndian.PutUint64(content[32:40], 77)
-			if tt.pageFieldSize == 8 {
-				binary.LittleEndian.PutUint64(content[40:48], tt.page)
-			} else if tt.pageFieldSize != 0 {
-				content[40] = byte(tt.page)
-			}
-			body, known := renderEventBody(decodeEvent(eventFormat{Name: "mm_filemap_add_to_page_cache", Fields: fields}, content), content, 1)
-			if !known || body != tt.want {
-				t.Fatalf("page-cache mismatch: known=%v got=%q want=%q", known, body, tt.want)
-			}
-		})
-	}
-	dualFields := []eventField{
-		{Name: "s_dev", Offset: 0, Size: 8}, {Name: "i_ino", Offset: 8, Size: 8},
-		{Name: "index", Offset: 16, Size: 8}, {Name: "pfn", Offset: 24, Size: 8},
-		{Name: "pg", Offset: 32, Size: 8}, {Name: "page", Offset: 40, Size: 8},
-	}
-	dualContent := make([]byte, 48)
-	binary.LittleEndian.PutUint64(dualContent[0:8], uint64((12<<20)|48))
-	binary.LittleEndian.PutUint64(dualContent[8:16], 0x1234)
-	binary.LittleEndian.PutUint64(dualContent[16:24], 1)
-	binary.LittleEndian.PutUint64(dualContent[24:32], 77)
-	binary.LittleEndian.PutUint64(dualContent[32:40], 0xffff000000001234)
-	binary.LittleEndian.PutUint64(dualContent[40:48], 0xffff000000001234)
-	body, known := renderEventBody(decodeEvent(eventFormat{Name: "mm_filemap_add_to_page_cache", Fields: dualFields}, dualContent), dualContent, 1)
-	if !known || body != "dev 12:48 ino 0x1234 pfn=77 ofs=4096" {
-		t.Fatalf("dual page aliases must omit only the ambiguous pointer: known=%v body=%q", known, body)
-	}
-
-	coreFields := []eventField{
-		{Type: "dev_t", Name: "s_dev", Offset: 0, Size: 8},
-		{Type: "ino_t", Name: "i_ino", Offset: 8, Size: 8},
-		{Type: "pgoff_t", Name: "index", Offset: 16, Size: 8},
-		{Type: "unsigned long", Name: "pfn", Offset: 24, Size: 8},
-	}
-	coreContent := make([]byte, 32)
-	binary.LittleEndian.PutUint64(coreContent[0:8], math.MaxUint32)
-	binary.LittleEndian.PutUint64(coreContent[8:16], 0x1234)
-	binary.LittleEndian.PutUint64(coreContent[16:24], 1)
-	binary.LittleEndian.PutUint64(coreContent[24:32], 77)
-	if _, known := renderEventBody(decodeEvent(eventFormat{Name: "mm_filemap_add_to_page_cache", Fields: coreFields}, coreContent), coreContent, 1); !known {
-		t.Fatal("dev_t MaxUint32 boundary must remain valid")
-	}
-	overflowDev := append([]byte(nil), coreContent...)
-	binary.LittleEndian.PutUint64(overflowDev[0:8], uint64(math.MaxUint32)+1)
-	if _, known := renderEventBody(decodeEvent(eventFormat{Name: "mm_filemap_add_to_page_cache", Fields: coreFields}, overflowDev), overflowDev, 1); known {
-		t.Fatal("dev_t MaxUint32+1 must fail closed")
-	}
-	for _, alias := range []eventField{
-		{Type: "dev_t", Name: "dev", Offset: 32, Size: 8},
-		{Type: "ino_t", Name: "ino", Offset: 32, Size: 8},
-	} {
-		aliasFields := append(append([]eventField(nil), coreFields...), alias)
-		aliasContent := append(append([]byte(nil), coreContent...), make([]byte, 8)...)
-		binary.LittleEndian.PutUint64(aliasContent[32:40], binary.LittleEndian.Uint64(coreContent[0:8]))
-		if cleanFieldName(alias.Name) == "ino" {
-			binary.LittleEndian.PutUint64(aliasContent[32:40], binary.LittleEndian.Uint64(coreContent[8:16]))
-		}
-		if _, known := renderEventBody(decodeEvent(eventFormat{Name: "mm_filemap_add_to_page_cache", Fields: aliasFields}, aliasContent), aliasContent, 1); known {
-			t.Fatalf("dual core alias %s must fail the whole row", alias.Name)
-		}
-	}
-	truncatedCoreAlias := append(append([]eventField(nil), coreFields...), eventField{Type: "dev_t", Name: "dev", Offset: 100, Size: 8})
-	if _, known := renderEventBody(decodeEvent(eventFormat{Name: "mm_filemap_add_to_page_cache", Fields: truncatedCoreAlias}, coreContent), coreContent, 1); known {
-		t.Fatal("declared truncated core alias must not be rescued")
+	if strings.Contains(body, "page=") || strings.Contains(body, "order=") {
+		t.Fatalf("direct page row exposed an unprovable/undisclosed dimension: %q", body)
 	}
 }
 
@@ -381,11 +294,11 @@ func TestDonghuProfilerPageCacheOmitsUnavailablePagePointer(t *testing.T) {
 		protoVarint(4, uint64((12<<20)|48)),
 	)
 	for _, field := range []int{1000, 1001} {
-		name, body, known := renderProfilerFtraceEventBody(profilerFtraceEventRecord{Field: field, Payload: payload})
+		name, body, known, degradations := renderProfilerFtraceEventBodyWithAudit(profilerFtraceEventRecord{Field: field, Payload: payload})
 		if !known || !strings.HasPrefix(name, "mm_filemap_") {
-			t.Fatalf("profiler page-cache not rendered: field=%d name=%q known=%v", field, name, known)
+			t.Fatalf("profiler page-cache not rendered: field=%d name=%q known=%v degradations=%v", field, name, known, degradations)
 		}
-		if body != "dev 12:48 ino 0x1234 pfn=77 ofs=4096" {
+		if body != "dev 12:48 ino 0x1234 pfn=77 ofs=4096" || len(degradations) != 0 {
 			t.Fatalf("profiler page-cache mismatch: %q", body)
 		}
 	}
@@ -401,7 +314,7 @@ func TestDonghuProfilerPageCacheOmitsUnavailablePagePointer(t *testing.T) {
 			protoVarint(1, 77), protoVarint(2, 0x1234), protoVarint(3, 1), protoVarint(4, uint64(math.MaxUint32)+1),
 		)
 		_, _, known, degradations = renderProfilerFtraceEventBodyWithAudit(profilerFtraceEventRecord{Field: field, Payload: overflowDevPayload})
-		if known || len(degradations) != 1 || degradations[0] != "core_field4_out_of_range" {
+		if known || len(degradations) != 1 || degradations[0] != "filemap_device_invalid" {
 			t.Fatalf("field%d dev_t overflow mismatch: known=%v degradations=%v", field, known, degradations)
 		}
 	}
@@ -758,30 +671,19 @@ func TestDonghuDirectRendererCoreFieldsFailClosed(t *testing.T) {
 	})
 
 	t.Run("page cache tuple", func(t *testing.T) {
-		fields := []eventField{
-			{Name: "s_dev", Offset: 0, Size: 8},
-			{Name: "i_ino", Offset: 8, Size: 8},
-			{Name: "index", Offset: 16, Size: 8},
-			{Name: "pfn", Offset: 24, Size: 8},
-		}
-		content := make([]byte, 32)
+		base := directPageCacheFixture("mm_filemap_add_to_page_cache", 8, false)
+		directFilemapAdmittedBody(t, base)
 		for _, missing := range []string{"s_dev", "i_ino", "index", "pfn"} {
-			format := eventFormat{Name: "mm_filemap_add_to_page_cache", Fields: withoutCleanField(fields, missing)}
-			_, known := renderEventBody(decodeEvent(format, content), content, 0)
-			if known {
-				t.Fatalf("page-cache missing %s must be header-only", missing)
-			}
+			fixture := cloneDirectFilemapFixture(base)
+			fixture.format.Fields = withoutCleanField(fixture.format.Fields, missing)
+			directFilemapAssertRejected(t, fixture)
 		}
-		format := eventFormat{Name: "mm_filemap_add_to_page_cache", Fields: fields}
-		_, known := renderEventBody(decodeEvent(format, content[:30]), content[:30], 0)
-		if known {
-			t.Fatal("truncated page-cache pfn must be header-only")
-		}
-		charIndex := eventFormat{Name: "mm_filemap_add_to_page_cache", Fields: append([]eventField(nil), fields...)}
-		charIndex.Fields[2].Type = "char"
-		if _, known := renderEventBody(decodeEvent(charIndex, content), content, 0); known {
-			t.Fatal("char-declared page index must fail closed")
-		}
+		truncated := cloneDirectFilemapFixture(base)
+		truncated.content = truncated.content[:len(truncated.content)-1]
+		directFilemapAssertRejected(t, truncated)
+		charIndex := cloneDirectFilemapFixture(base)
+		filemapFixtureField(t, &charIndex, "index").Type = "char"
+		directFilemapAssertRejected(t, charIndex)
 	})
 }
 
@@ -915,9 +817,9 @@ func TestDonghuProfilerCoreWireFailuresRejectWholeRow(t *testing.T) {
 		{name: "power state duplicate", field: 2002, data: protoPayload(protoBytes(1, []byte("clk")), protoVarint(2, 2), protoVarint(2, 3)), reason: "core_field2_duplicate"},
 		{name: "sched comm missing", field: 2417, data: protoPayload(protoVarint(2, 100), protoBytes(5, []byte("next"))), reason: "core_field1_missing_or_invalid"},
 		{name: "sched pid wrong wire", field: 2417, data: append(append([]byte(nil), validSched...), protoBytes(2, []byte{1})...), reason: "core_field2_wrong_wire"},
-		{name: "page pfn wrong wire", field: 1000, data: protoPayload(protoBytes(1, []byte{1}), protoVarint(2, 2), protoVarint(3, 3), protoVarint(4, 4)), reason: "core_field1_wrong_wire"},
-		{name: "page inode duplicate", field: 1001, data: protoPayload(protoVarint(1, 1), protoVarint(2, 2), protoVarint(2, 3), protoVarint(3, 3), protoVarint(4, 4)), reason: "core_field2_duplicate"},
-		{name: "page offset overflow", field: 1000, data: protoPayload(protoVarint(1, 1), protoVarint(2, 2), protoVarint(3, (^uint64(0)>>12)+1), protoVarint(4, 4)), reason: "core_field3_out_of_range"},
+		{name: "page pfn wrong wire", field: 1000, data: protoPayload(protoBytes(1, []byte{1}), protoVarint(2, 2), protoVarint(3, 3), protoVarint(4, 4)), reason: "filemap_pfn_invalid"},
+		{name: "page inode duplicate", field: 1001, data: protoPayload(protoVarint(1, 1), protoVarint(2, 2), protoVarint(2, 3), protoVarint(3, 3), protoVarint(4, 4)), reason: "filemap_inode_invalid"},
+		{name: "page offset overflow", field: 1000, data: protoPayload(protoVarint(1, 1), protoVarint(2, 2), protoVarint(3, (uint64(math.MaxInt64)>>12)+1), protoVarint(4, 4)), reason: "filemap_index_invalid"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -941,7 +843,7 @@ func TestDonghuProfilerOptionalDegradationIsCountedInCoverage(t *testing.T) {
 		syntheticTracePluginFtraceEvent(1_100_000_000, 100, 100, "clock", 2002, append(append([]byte(nil), clockBase...), protoBytes(3, []byte{7})...)),
 		syntheticTracePluginFtraceEvent(1_200_000_000, 100, 100, "sched", 2417, append(append([]byte(nil), schedBase...), protoBytes(8, []byte{1})...)),
 		syntheticTracePluginFtraceEvent(1_300_000_000, 100, 100, "page", 1000, protoPayload(
-			protoVarint(1, 1), protoVarint(2, 2), protoVarint(3, (^uint64(0)>>12)+1), protoVarint(4, 4),
+			protoVarint(1, 1), protoVarint(2, 2), protoVarint(3, (uint64(math.MaxInt64)>>12)+1), protoVarint(4, 4),
 		)),
 	)
 	sink, err := newTraceDBRowSink("", 0)
@@ -967,7 +869,7 @@ func TestDonghuProfilerOptionalDegradationIsCountedInCoverage(t *testing.T) {
 	}
 	page := coverageForTable(coverage, "mm_filemap_add_to_page_cache")
 	if page == nil || page.RowsRead != 1 || page.RowsEmitted != 0 ||
-		page.FieldSources["degraded_core_field3_out_of_range_rows"] != "1" || page.Skipped != "core_field3_out_of_range=1" {
+		page.FieldSources["degraded_filemap_index_invalid_rows"] != "1" || page.Skipped != "filemap_index_invalid=1" {
 		t.Fatalf("page overflow coverage mismatch: %+v", page)
 	}
 }

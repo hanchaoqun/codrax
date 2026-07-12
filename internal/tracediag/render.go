@@ -258,10 +258,12 @@ func renderStepBody(step *Step, outcome stepOutcome) stepBody {
 }
 
 // renderEventSearchBody is a dedicated raw-witness renderer. Event search's
-// EvidencePack is a row-for-row projection of Events (apart from structured
-// summaries such as CPUFrequencyCensus), so rendering it after the raw rows
-// doubled the same evidence and pushed the load-bearing caveat/compaction
-// metadata beyond max_lines. This face instead publishes, in priority order:
+// EvidencePack is normally a row-for-row projection of Events (apart from
+// structured summaries such as CPUFrequencyCensus and precise causal-negative
+// observations such as writeback error-sequence rows), so rendering it after
+// the raw rows doubled the same evidence and pushed the load-bearing
+// caveat/compaction metadata beyond max_lines. This face instead publishes,
+// in priority order:
 // result/window metadata, typed compaction + engine caveats, an exact visible
 // raw-row header, then the raw rows. The header also carries the accounting
 // and priority caveat token, so even the minimum generated cap keeps those

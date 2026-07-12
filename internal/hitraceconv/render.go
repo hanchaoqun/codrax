@@ -76,7 +76,7 @@ func renderEventLineDecisionWithPairAudit(ctx renderContext, tsNS uint64, cpu in
 	line := prefix + name + ": " + body
 	_, coreGoverned := coreRenderKindForName(format.Name)
 	if (coreGoverned || directMarkerNameGoverned(format.Name) || directPairNameGoverned(format.Name) ||
-		directBusNameGoverned(format.Name)) &&
+		directBusNameGoverned(format.Name) || directFilemapNameGoverned(format.Name)) &&
 		!traceDBSinglePhysicalLine(line, false) {
 		return line, bodyRejected, "invalid_rendered_line", true, pairAudit
 	}
@@ -230,6 +230,17 @@ func renderEventBodyDecisionWithPair(ctx coreDecodeContext, ev decodedEvent, con
 	case bodyRejected:
 		return "", bodyRejected, reason
 	}
+	filemap, admission, reason := decodeDirectFilemapPayload(ev)
+	switch admission {
+	case bodyAdmitted:
+		body, ok := renderCanonicalFilemapPayload(filemap)
+		if !ok {
+			return "", bodyRejected, "invalid_canonical_filemap_payload"
+		}
+		return body, bodyAdmitted, ""
+	case bodyRejected:
+		return "", bodyRejected, reason
+	}
 	body, known := renderLegacyEventBody(ev, content, cpu)
 	if known {
 		return body, bodyAdmitted, ""
@@ -278,10 +289,6 @@ func renderLegacyEventBody(ev decodedEvent, content []byte, cpu int) (string, bo
 	case "block_rq_issue", "block_rq_insert", "block_rq_complete", "block_rq_remap",
 		"block_bio_queue", "block_bio_complete", "block_bio_remap":
 		return renderDirectBlockEvent(ev, content)
-	case "filemap_set_wb_err":
-		return renderFilemapSetWBErr(ev), true
-	case "mm_filemap_add_to_page_cache", "mm_filemap_delete_from_page_cache":
-		return renderMMFilemapPageCache(ev)
 	case "binder_transaction_alloc_buf", "binder_alloc_buf":
 		return renderKV(ev, "transaction", "debug_id", "data_size", "offsets_size", "extra_buffers_size"), true
 	case "binder_transaction_reply", "binder_reply", "binder_transaction_lock", "binder_lock", "binder_transaction_locked", "binder_locked", "binder_transaction_unlock", "binder_unlock":
@@ -535,57 +542,12 @@ func traceDBSingleToken(value string) bool {
 	return true
 }
 
-func renderFilemapSetWBErr(ev decodedEvent) string {
-	sDev := firstNonZero(intField(ev, "s_dev", false), intField(ev, "dev", false))
-	return fmt.Sprintf("dev=%s ino=0x%x errseq=0x%x",
-		devMajorMinor(sDev, ":"),
-		firstNonZero(intField(ev, "i_ino", false), intField(ev, "ino", false)),
-		intField(ev, "errseq", false))
-}
-
-func renderMMFilemapPageCache(ev decodedEvent) (string, bool) {
-	sDev, devPresent := uniqueUintByCleanName(ev, "s_dev", "dev")
-	ino, inoPresent := uniqueUintByCleanName(ev, "i_ino", "ino")
-	index, indexPresent := uintByCleanName(ev, "index")
-	pfn, pfnPresent := uintByCleanName(ev, "pfn")
-	if !devPresent || sDev > math.MaxUint32 || !inoPresent || !indexPresent || !pfnPresent || index > ^uint64(0)>>12 {
-		return "", false
-	}
-	page, pagePresent := uniqueUintByCleanName(ev, "pg", "page")
-	return renderFilemapPageCacheBody(
-		devMajorMinor(int64(sDev), ":"),
-		ino,
-		page,
-		pagePresent,
-		pfn,
-		index<<12,
-	), true
-}
-
-func renderFilemapPageCacheBody(dev string, ino, page uint64, pagePresent bool, pfn, offset uint64) string {
-	parts := []string{
-		"dev " + dev,
-		fmt.Sprintf("ino 0x%x", ino),
-	}
-	if pagePresent {
-		// page is a kernel pointer-shaped uint64. Keep its full bit pattern;
-		// formatting through int64 would render high addresses with a minus.
-		parts = append(parts, fmt.Sprintf("page=0x%x", page))
-	}
-	parts = append(parts, fmt.Sprintf("pfn=%d", pfn), fmt.Sprintf("ofs=%d", offset))
-	return strings.Join(parts, " ")
-}
-
 func uintByCleanName(ev decodedEvent, names ...string) (uint64, bool) {
 	field, raw, ok := uniqueFieldByCleanNames(ev, names...)
 	if !ok || !numericFieldTypeAllowed(field) {
 		return 0, false
 	}
 	return uintFromSupportedWidth(raw)
-}
-
-func uniqueUintByCleanName(ev decodedEvent, names ...string) (uint64, bool) {
-	return uintByCleanName(ev, names...)
 }
 
 func uintFromSupportedWidth(raw []byte) (uint64, bool) {

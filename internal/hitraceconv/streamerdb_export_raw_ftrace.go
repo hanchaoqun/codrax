@@ -530,6 +530,9 @@ func sortedRawFtraceCoverageKeys(items map[string]*TraceDBCoverage) []string {
 }
 
 func traceDBRawFtraceClass(name string) string {
+	if traceDBFilemapNameGoverned(name) {
+		return "page_cache"
+	}
 	lower := strings.ToLower(strings.TrimSpace(name))
 	switch {
 	case strings.HasPrefix(lower, "binder_"):
@@ -541,8 +544,6 @@ func traceDBRawFtraceClass(name string) string {
 	case strings.HasPrefix(lower, "android_fs_dataread") || strings.HasPrefix(lower, "android_fs_datawrite") ||
 		strings.HasPrefix(lower, "f2fs_direct_io") || strings.HasPrefix(lower, "f2fs_sync_file"):
 		return "file_io"
-	case strings.HasPrefix(lower, "mm_filemap_") || strings.HasPrefix(lower, "filemap_set_wb_err"):
-		return "page_cache"
 	case lower == "workqueue_execute_start" || lower == "workqueue_execute_end":
 		return "workqueue"
 	case strings.HasPrefix(lower, "dma_fence"):
@@ -559,6 +560,17 @@ func traceDBRenderRawFtrace(name string, args map[string]traceDBValue, invalidKe
 			return "", false
 		}
 		body, ok := renderCanonicalPairPayload(payload)
+		if !ok {
+			return "", false
+		}
+		return name + ": " + body, true
+	}
+	if traceDBFilemapNameGoverned(name) {
+		payload, ok := decodeTraceDBFilemapPayload(name, args, invalidKeys)
+		if !ok {
+			return "", false
+		}
+		body, ok := renderCanonicalFilemapPayload(payload)
 		if !ok {
 			return "", false
 		}
@@ -583,8 +595,6 @@ func traceDBRenderRawFtrace(name string, args map[string]traceDBValue, invalidKe
 		return traceDBRenderRawMMCRequestDone(args), true
 	case strings.HasPrefix(lower, "ufshcd_"):
 		return traceDBRenderRawStorageKV(name, args), true
-	case strings.HasPrefix(lower, "mm_filemap_") || strings.HasPrefix(lower, "filemap_set_wb_err"):
-		return traceDBRenderRawPageCache(name, args), true
 	case lower == "workqueue_execute_start" || lower == "workqueue_execute_end":
 		return traceDBRenderRawWorkqueue(name, args), true
 	case strings.HasPrefix(lower, "dma_fence"):
@@ -595,6 +605,10 @@ func traceDBRenderRawFtrace(name string, args map[string]traceDBValue, invalidKe
 }
 
 func traceDBRawRequiredArgs(name string, args map[string]traceDBValue, invalidKeys map[string]bool) bool {
+	if traceDBFilemapNameGoverned(name) {
+		_, ok := decodeTraceDBFilemapPayload(name, args, invalidKeys)
+		return ok
+	}
 	lower := strings.ToLower(strings.TrimSpace(name))
 	require := func(groups ...[]string) bool {
 		for _, names := range groups {
@@ -730,14 +744,6 @@ func traceDBRawRequiredArgs(name string, args map[string]traceDBValue, invalidKe
 			traceDBRawIntegerAlias(args, invalidKeys, false, 0, math.MaxInt64, "len", "length", "bytes", "transfer_len", "size") &&
 			traceDBRawIntegerAlias(args, invalidKeys, false, math.MinInt64, math.MaxInt64, "ret", "res", "error", "err") &&
 			traceDBRawIntegerAlias(args, invalidKeys, false, 0, math.MaxInt64, "latency_us", "duration_us", "time_us", "usecs")
-	case strings.HasPrefix(lower, "mm_filemap_"), strings.HasPrefix(lower, "filemap_set_wb_err"):
-		return require([]string{"dev", "s_dev", "dev_t"}, []string{"ino", "inode", "i_ino"}) &&
-			optional([]string{"entry_name", "name", "file", "filename"}, []string{"offset", "ofs", "pos", "index"},
-				[]string{"bytes", "len", "length", "size"}) &&
-			traceDBRawDeviceAlias(args, invalidKeys, "dev", "s_dev", "dev_t") &&
-			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "ino", "inode", "i_ino") &&
-			traceDBRawIntegerAlias(args, invalidKeys, false, 0, math.MaxInt64, "offset", "ofs", "pos", "index") &&
-			traceDBRawIntegerAlias(args, invalidKeys, false, 0, math.MaxInt64, "bytes", "len", "length", "size")
 	case strings.HasPrefix(lower, "dma_fence"):
 		return require([]string{"driver"}, []string{"timeline"}, []string{"context"}, []string{"seqno"}) &&
 			traceDBRawWireTextAlias(args, invalidKeys, true, "driver") &&
@@ -1014,15 +1020,6 @@ func traceDBRenderRawStorageKV(name string, args map[string]traceDBValue) string
 		parts = appendRawKV(parts, item.key, traceDBRawArg(args, "", item.names...))
 	}
 	return strings.Join(parts, " ")
-}
-
-func traceDBRenderRawPageCache(name string, args map[string]traceDBValue) string {
-	parts := []string{"dev=" + traceDBRawDevArg(args, ":", "dev", "s_dev", "dev_t")}
-	parts = appendRawKV(parts, "ino", traceDBRawArg(args, "", "ino", "inode", "i_ino"))
-	parts = appendRawKV(parts, "entry_name", traceDBRawArg(args, "", "entry_name", "name", "file", "filename"))
-	parts = appendRawKV(parts, "offset", traceDBRawArg(args, "", "offset", "ofs", "pos", "index"))
-	parts = appendRawKV(parts, "bytes", traceDBRawArg(args, "", "bytes", "len", "length", "size"))
-	return name + ": " + strings.Join(parts, " ")
 }
 
 func traceDBRenderRawWorkqueue(name string, args map[string]traceDBValue) string {

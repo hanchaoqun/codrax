@@ -205,10 +205,10 @@ func TestComputeTopIOInodes_CountPriorityOrdering(t *testing.T) {
 // its real event frequency.
 func TestComputeTopIOInodes_PageCacheOnlyInodeRanksByChurn(t *testing.T) {
 	idx := buildTraceIndex(t, "top_io_inode_pagecache.systrace", `
-      OS_FFRT_0-100 (100) [000] .... 10.001000: mm_filemap_add_to_page_cache: dev 260:84 ino 0xpc page=0000000000000000 pfn=1 ofs=0
-      OS_FFRT_0-100 (100) [000] .... 10.001100: mm_filemap_add_to_page_cache: dev 260:84 ino 0xpc page=0000000000000000 pfn=2 ofs=4096
-      OS_FFRT_1-101 (101) [001] .... 10.001200: mm_filemap_add_to_page_cache: dev 260:84 ino 0xpc page=0000000000000000 pfn=3 ofs=8192
-      OS_FFRT_1-101 (101) [001] .... 10.001300: mm_filemap_delete_from_page_cache: dev 260:84 ino 0xpc page=0000000000000000 pfn=3 ofs=8192
+      OS_FFRT_0-100 (100) [000] .... 10.001000: mm_filemap_add_to_page_cache: dev 260:84 ino 0xcc page=0000000000000000 pfn=1 ofs=0
+      OS_FFRT_0-100 (100) [000] .... 10.001100: mm_filemap_add_to_page_cache: dev 260:84 ino 0xcc page=0000000000000000 pfn=2 ofs=4096
+      OS_FFRT_1-101 (101) [001] .... 10.001200: mm_filemap_add_to_page_cache: dev 260:84 ino 0xcc page=0000000000000000 pfn=3 ofs=8192
+      OS_FFRT_1-101 (101) [001] .... 10.001300: mm_filemap_delete_from_page_cache: dev 260:84 ino 0xcc page=0000000000000000 pfn=3 ofs=8192
       app-200 (200) [002] .... 10.002000: android_fs_dataread_start: dev=259:1 ino=0xfa entry_name=small.db offset=0 bytes=64 rw=R
       app-200 (200) [002] .... 10.002100: android_fs_dataread_end: dev=259:1 ino=0xfa bytes=64 ret=64 latency_us=100 rw=R
 	`)
@@ -218,7 +218,7 @@ func TestComputeTopIOInodes_PageCacheOnlyInodeRanksByChurn(t *testing.T) {
 		t.Fatalf("want 2 groups: %+v", top)
 	}
 	pc := top.Groups[0]
-	if pc.Inode != "0xpc" || pc.Count != 4 {
+	if pc.Inode != "0xcc" || pc.Count != 4 {
 		t.Fatalf("page-cache-only inode must rank first by its 4 events: %+v", top.Groups)
 	}
 	if pc.PageCacheAdds != 3 || pc.PageCacheDeletes != 1 || pc.PageCacheChurn != 4 {

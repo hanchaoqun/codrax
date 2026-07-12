@@ -11,12 +11,13 @@ func TestDonghuRendererStructurePinsSingleAuthorities(t *testing.T) {
 	render := mustReadRendererSource(t, "render.go")
 	official := mustReadRendererSource(t, "official_render.go")
 	descriptors := mustReadRendererSource(t, "profiler_container.go")
+	filemap := mustReadRendererSource(t, "filemap_render.go")
 
 	field410 := sourceBetween(t, profiler, "case 410:", "case 2002:")
 	if strings.Contains(field410, `" cpu_id=`) || strings.Contains(field410, "protoScalarUint") {
 		t.Fatalf("field410 ClkSetRate schema must not acquire a CPU dimension:\n%s", field410)
 	}
-	field2002 := sourceBetween(t, profiler, "case 2002:", "case 1000:")
+	field2002 := sourceBetween(t, profiler, "case 2002:", "case 2417:")
 	for _, token := range []string{"protoScalarUint(event.Payload, 3)", "appendClockSetRateCPU"} {
 		if !strings.Contains(field2002, token) {
 			t.Fatalf("field2002 lost %q authority:\n%s", token, field2002)
@@ -42,10 +43,12 @@ func TestDonghuRendererStructurePinsSingleAuthorities(t *testing.T) {
 	if strings.Count(render, "func formatHarmonySchedInfo(") != 1 {
 		t.Fatal("packed next_info must have exactly one text-format authority")
 	}
-	if strings.Count(render, "func renderFilemapPageCacheBody(") != 1 ||
-		!strings.Contains(profiler, "renderFilemapPageCacheBody(") ||
-		!strings.Contains(render, `uniqueUintByCleanName(ev, "pg", "page")`) {
-		t.Fatal("direct/profiler page-cache output must share one formatter")
+	if strings.Count(filemap, "func renderCanonicalFilemapPayload(") != 1 ||
+		!strings.Contains(render, "decodeDirectFilemapPayload(ev)") ||
+		!strings.Contains(profiler, "decodeProfilerFilemapPayload(event)") ||
+		strings.Contains(render, `uniqueUintByCleanName(ev, "pg", "page")`) ||
+		strings.Contains(filemap, "page=0x0") {
+		t.Fatal("direct/profiler page-cache output must share one typed formatter without page-pointer fallback")
 	}
 	if strings.Count(render, "func appendClockSetRateCPU(") != 1 ||
 		!strings.Contains(profiler, "appendClockSetRateCPU") {
@@ -69,10 +72,7 @@ func TestDonghuRendererStructurePinsSingleAuthorities(t *testing.T) {
 	}
 	for _, token := range []string{
 		"func uniqueFieldByCleanNames(",
-		`uniqueUintByCleanName(ev, "s_dev", "dev")`,
-		`uniqueUintByCleanName(ev, "i_ino", "ino")`,
 		"func hasCleanSignedInt32Field(",
-		"sDev > math.MaxUint32",
 		"strictDataLocString(raw, content)",
 		"legacyClockOffsetTypeAllowed(lowerType)",
 		"func traceDBSingleToken(",
@@ -81,10 +81,10 @@ func TestDonghuRendererStructurePinsSingleAuthorities(t *testing.T) {
 			t.Fatalf("renderer lost strict authority %q", token)
 		}
 	}
-	if !strings.Contains(profiler, "core_field3_out_of_range") || !strings.Contains(profiler, "index > ^uint64(0)>>12") {
+	if !strings.Contains(filemap, "math.MaxInt64>>12") || !strings.Contains(filemap, "filemap_index_invalid") {
 		t.Fatal("profiler page offset overflow must fail closed with coverage")
 	}
-	if !strings.Contains(profiler, "core_field4_out_of_range") || !strings.Contains(profiler, "sDev > math.MaxUint32") {
+	if !strings.Contains(filemap, "math.MaxUint32") || !strings.Contains(filemap, "filemap_device_invalid") {
 		t.Fatal("profiler dev_t must retain the pinned uint32 domain")
 	}
 }

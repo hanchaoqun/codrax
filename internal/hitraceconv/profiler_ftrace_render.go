@@ -358,12 +358,6 @@ func renderProfilerFtraceEventBody(event profilerFtraceEventRecord) (string, str
 			parts = appendClockSetRateCPU(parts, cpuID)
 		}
 		return "clock_set_rate", strings.Join(parts, " "), true
-	case 1000:
-		body, ok := renderProfilerFtraceFilemapPageCache(event.Payload)
-		return "mm_filemap_add_to_page_cache", body, ok
-	case 1001:
-		body, ok := renderProfilerFtraceFilemapPageCache(event.Payload)
-		return "mm_filemap_delete_from_page_cache", body, ok
 	case 2417:
 		body := fmt.Sprintf("prev_comm=%s prev_pid=%d prev_prio=%d prev_state=%s ==> next_comm=%s next_pid=%d next_prio=%d",
 			protoString(event.Payload, 1), protoInt(event.Payload, 2), protoInt(event.Payload, 3),
@@ -399,25 +393,6 @@ func safeProfilerBlockedCaller(raw string) (string, bool) {
 		}
 	}
 	return value, true
-}
-
-func renderProfilerFtraceFilemapPageCache(data []byte) (string, bool) {
-	index := protoUint(data, 3)
-	sDev := protoUint(data, 4)
-	if sDev > math.MaxUint32 || index > ^uint64(0)>>12 {
-		return "", false
-	}
-	// The OpenHarmony profiler schema exposes pfn/inode/index/device only; it
-	// has no page pointer. Reuse the direct-ftrace formatter with pagePresent
-	// false so no fabricated zero-valued page token can enter public systrace.
-	return renderFilemapPageCacheBody(
-		devMajorMinor(int64(sDev), ":"),
-		protoUint(data, 2),
-		0,
-		false,
-		protoUint(data, 1),
-		index<<12,
-	), true
 }
 
 func protoUint(data []byte, field int) uint64 {
@@ -480,6 +455,20 @@ func renderProfilerFtraceEventBodyWithAudit(event profilerFtraceEventRecord) (st
 	case bodyRejected:
 		return "", "", false, []string{reason}
 	}
+	filemapPayload, admission, reason := decodeProfilerFilemapPayload(event)
+	switch admission {
+	case bodyAdmitted:
+		body, ok := renderCanonicalFilemapPayload(filemapPayload)
+		if !ok {
+			return "", "", false, []string{"invalid_canonical_filemap_payload"}
+		}
+		if !profilerCanonicalLineValid(event, filemapPayload.Name, body) {
+			return "", "", false, []string{"invalid_canonical_filemap_line"}
+		}
+		return filemapPayload.Name, body, true, nil
+	case bodyRejected:
+		return "", "", false, []string{reason}
+	}
 	if _, _, blockEvent := blockRenderKindForProfilerField(event.Field); blockEvent {
 		return renderProfilerBlockEvent(event)
 	}
@@ -518,8 +507,6 @@ func profilerFtraceCoreWireAudit(event profilerFtraceEventRecord) (bool, []strin
 	case 2417:
 		stringFields = []int{1, 5}
 		scalarFields = []int{2, 3, 4, 6, 7}
-	case 1000, 1001:
-		scalarFields = []int{1, 2, 3, 4}
 	default:
 		return true, nil
 	}
@@ -545,16 +532,6 @@ func profilerFtraceCoreWireAudit(event profilerFtraceEventRecord) (bool, []strin
 		// missing core authority.
 		if state == protoScalarInvalid {
 			reasons = append(reasons, fmt.Sprintf("core_field%d_%s", field, reason))
-		}
-	}
-	if (event.Field == 1000 || event.Field == 1001) && len(reasons) == 0 {
-		index, state, _ := protoScalarUint(event.Payload, 3)
-		if state == protoScalarPresent && index > ^uint64(0)>>12 {
-			reasons = append(reasons, "core_field3_out_of_range")
-		}
-		sDev, state, _ := protoScalarUint(event.Payload, 4)
-		if state == protoScalarPresent && sDev > math.MaxUint32 {
-			reasons = append(reasons, "core_field4_out_of_range")
 		}
 	}
 	if event.Field == 2417 && len(reasons) == 0 {
@@ -744,8 +721,9 @@ func profilerFtraceEventRenderCoverage(coverageByField map[int]*TraceDBCoverage,
 			}
 		case 1000, 1001:
 			coverage.FieldSources = map[string]string{
-				"schema_profile": "filemap proto exposes pfn=1,i_ino=2,index=3,s_dev=4",
+				"schema_profile": "filemap proto exposes pfn=1,i_ino=2,index=3,s_dev=4; 6.6.30 adds order=5 uint32",
 				"page_pointer":   "not present in profiler schema; page token omitted",
+				"order":          "field5 is audited at source range 0..255 and intentionally not displayed or projected as bytes",
 			}
 		case 1109:
 			coverage.FieldSources = map[string]string{

@@ -131,10 +131,6 @@ func renderOfficialOpenHarmonyBody(ev decodedEvent, content []byte, cpu int) (st
 		return renderMMCRequestStart(ev, content), true
 	case strings.HasPrefix(name, "mmc_request_done"):
 		return renderMMCRequestDone(ev, content), true
-	case strings.HasPrefix(name, "file_check_and_advance_wb_err"):
-		return fmt.Sprintf("file=0x%x dev=%s ino=0x%x old=0x%x new=0x%x", intByCleanName(ev, "file", false),
-			devByCleanName(ev, "s_dev", ":"), intByCleanName(ev, "i_ino", false), intByCleanName(ev, "old", false),
-			intByCleanName(ev, "new", false)), true
 	case strings.HasPrefix(name, "rss_stat"):
 		return fmt.Sprintf("mm_id=%d curr=%d member=%d size=%d", intByCleanName(ev, "mm_id", false),
 			intByCleanName(ev, "curr", false), intByCleanName(ev, "member", true), intByCleanName(ev, "size", true)), true

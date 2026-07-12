@@ -432,6 +432,16 @@ func TestConvertFileNoPerfTraceRawFtraceRootCauseParityMatrix(t *testing.T) {
 	if !coverageHasEmitted(sqlResult.TraceCoverage, "trace_cross_validation", "tracequery_build_index", 1) {
 		t.Fatalf("SQL raw-ftrace cross-validation coverage missing: %+v", sqlResult.TraceCoverage)
 	}
+	const canonicalPage = "mm_filemap_add_to_page_cache: dev 260:136 ino 0x3039 pfn=3062260 ofs=0"
+	for label, output := range map[string]string{"built-in": builtinOutput, "sql": sqlOutput} {
+		body, err := os.ReadFile(output)
+		if err != nil {
+			t.Fatalf("read %s parity output: %v", label, err)
+		}
+		if !strings.Contains(string(body), canonicalPage) || strings.Contains(string(body), " page=") {
+			t.Fatalf("%s did not use the source-correct shared filemap wire %q:\n%s", label, canonicalPage, body)
+		}
+	}
 
 	builtinIdx, err := tracequery.BuildIndex(context.Background(), builtinOutput)
 	if err != nil {
@@ -1135,12 +1145,14 @@ func syntheticRawFtraceRootCauseEventFormat() string {
 		{"mm_filemap_delete_from_page_cache", 107},
 	} {
 		lines = append(lines, syntheticFormatBlock(spec.name, spec.id, []string{
+			syntheticField("unsigned short", "common_type", 0, 2, false),
+			syntheticField("unsigned char", "common_flags", 2, 1, false),
+			syntheticField("unsigned char", "common_preempt_count", 3, 1, false),
 			syntheticField("int", "common_pid", 4, 4, true),
-			syntheticField("unsigned long", "s_dev", 8, 8, false),
+			syntheticField("unsigned long", "pfn", 8, 8, false),
 			syntheticField("unsigned long", "i_ino", 16, 8, false),
 			syntheticField("unsigned long", "index", 24, 8, false),
-			syntheticField("unsigned long", "pfn", 32, 8, false),
-			syntheticField("unsigned long", "pg", 40, 8, false),
+			syntheticField("dev_t", "s_dev", 32, 4, false),
 		})...)
 	}
 	for _, spec := range []struct {
@@ -1255,13 +1267,13 @@ func syntheticRawFtraceAndroidFSContent(eventID uint16, done bool) []byte {
 }
 
 func syntheticRawFtracePageCacheContent(eventID uint16, index uint64) []byte {
-	content := make([]byte, 48)
+	content := make([]byte, 36)
 	binary.LittleEndian.PutUint16(content[0:2], eventID)
 	binary.LittleEndian.PutUint32(content[4:8], 800)
-	binary.LittleEndian.PutUint64(content[8:16], syntheticDev(260, 136))
+	binary.LittleEndian.PutUint64(content[8:16], 3062260)
 	binary.LittleEndian.PutUint64(content[16:24], 12345)
 	binary.LittleEndian.PutUint64(content[24:32], index)
-	binary.LittleEndian.PutUint64(content[32:40], 3062260)
+	binary.LittleEndian.PutUint32(content[32:36], uint32(syntheticDev(260, 136)))
 	return content
 }
 

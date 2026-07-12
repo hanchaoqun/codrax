@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const ParserVersion = "tracequery-v23"
+const ParserVersion = "tracequery-v24"
 
 type EventType string
 
@@ -312,6 +312,13 @@ type FileFields struct {
 	RW        string `json:"file_rw,omitempty"`
 	Ret       int64  `json:"file_ret,omitempty"`
 	Size      int64  `json:"file_size,omitempty"`
+
+	// pageCacheMutation is the sole parse-to-aggregate authority for the
+	// mm_filemap add/delete mutation lane.  It is deliberately internal: the
+	// public projection remains the historically stable dev/inode/offset
+	// tuple, while malformed or merely similar event names retain inventory
+	// visibility without acquiring page-cache churn semantics.
+	pageCacheMutation pageCacheMutationKind `json:"-"`
 }
 
 // PluginFields is the rare ability/xpower/hisysevent and extended trace-mark

@@ -2885,6 +2885,22 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 		}
 		ev.ResourceFields = &ResourceFields{}
 		ev.FileFields = &FileFields{}
+		if payload, ok := parsePageCacheMutationPayload(rawType, fields); ok {
+			// The complete source-pinned tuple is the only authority for this
+			// mutation lane.  Bypass the generic key projector so page/pfn,
+			// injected bytes/path aliases and malformed partial tuples cannot
+			// leak into unrelated resource semantics.
+			ev.FileFields.Dev = intern.intern(payload.dev)
+			ev.FileFields.Ino = intern.intern(payload.inode)
+			ev.FileFields.Offset = payload.offset
+			ev.FileFields.pageCacheMutation = payload.kind
+			break
+		}
+		if rawType == pageCacheAddEventName || rawType == pageCacheDeleteEventName {
+			// Exact-but-malformed rows remain EventMemory inventory/search
+			// records with empty typed projections and no mutation authority.
+			break
+		}
 		if !populateResourceFields(&ev, kv, intern) {
 			return Event{}, false
 		}
@@ -2892,6 +2908,10 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 	case EventStorage, EventFilesystem:
 		ev.ResourceFields = &ResourceFields{}
 		ev.FileFields = &FileFields{}
+		if exactWritebackObservationName(rawType) {
+			populateWritebackObservationFields(&ev, fields, intern)
+			break
+		}
 		if !populateResourceFields(&ev, kv, intern) {
 			return Event{}, false
 		}
@@ -3455,7 +3475,7 @@ func classifyEventType(comm, raw, fields string) EventType {
 		return EventUnknown
 	case isStorageEvent(rawLower):
 		return EventStorage
-	case isFilesystemEvent(rawLower):
+	case isFilesystemEvent(raw):
 		return EventFilesystem
 	case isPowerEvent(rawLower):
 		return EventPower
@@ -3570,6 +3590,13 @@ func isStorageEvent(raw string) bool {
 }
 
 func isFilesystemEvent(raw string) bool {
+	// writeback admission is byte-exact.  Lower-casing belongs only to the
+	// established broad filesystem families below; applying it to these two
+	// names would turn case drift into typed filesystem authority.
+	if exactWritebackObservationName(raw) {
+		return true
+	}
+	raw = strings.ToLower(raw)
 	return strings.HasPrefix(raw, "ext4_") ||
 		strings.HasPrefix(raw, "f2fs_") ||
 		// hmfs_ (§28.6 ④, 2026-07-09): the HarmonyOS FS layer (an f2fs
@@ -3584,9 +3611,7 @@ func isFilesystemEvent(raw string) bool {
 		strings.HasPrefix(raw, "z_erofs_") ||
 		strings.HasPrefix(raw, "filesystem") ||
 		strings.HasPrefix(raw, "file_system") ||
-		strings.HasPrefix(raw, "ebpf_file") ||
-		strings.HasPrefix(raw, "file_check_and_advance_wb_err") ||
-		strings.HasPrefix(raw, "filemap_set_wb_err")
+		strings.HasPrefix(raw, "ebpf_file")
 }
 
 func isPowerEvent(raw string) bool {
@@ -4769,9 +4794,9 @@ func fileOperationFromEventName(name string) string {
 		return "direct_io"
 	case strings.Contains(name, "sync_file"):
 		return "sync"
-	case strings.Contains(name, "filemap_add_to_page_cache"):
+	case name == pageCacheAddEventName:
 		return "page_cache_add"
-	case strings.Contains(name, "filemap_delete_from_page_cache"):
+	case name == pageCacheDeleteEventName:
 		return "page_cache_delete"
 	default:
 		return ""

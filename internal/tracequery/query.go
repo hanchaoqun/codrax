@@ -8529,6 +8529,14 @@ func computeMemoryKinds(idx *Index, q Query, max int) []MemoryKindSummary {
 		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) || ev.Type != EventMemory {
 			continue
 		}
+		// Unadmitted mm_filemap names are searchable inventory, not a memory
+		// cause category.  In particular mm_filemap_fault, suffix/case drift and
+		// malformed exact add/delete rows must not regain rank/evidence through
+		// the broad MemoryKind classifier after the typed mutation gate rejects
+		// them.
+		if strings.HasPrefix(strings.ToLower(ev.Name), "mm_filemap_") && pageCacheMutationKindForEvent(ev) == pageCacheMutationNone {
+			continue
+		}
 		kind := firstNonEmpty(ev.MemoryKind, "memory")
 		item := byKind[kind]
 		item.Kind = kind
@@ -8598,6 +8606,12 @@ func sortedCPUFrequencyLimits(in map[int]CPUFrequencyLimit, max int) []CPUFreque
 }
 
 func accumulateSubsystemEvent(byKind map[string]SubsystemEventSummary, ev Event) {
+	// The two writeback rows are searchable EventFilesystem observations with
+	// an explicit SubsystemKind, but they are not causal evidence or an IO
+	// activity family.  Suppress the derived subsystem evidence carrier.
+	if isWritebackObservation(ev) {
+		return
+	}
 	kind := firstNonEmpty(ev.SubsystemKind, subsystemKindForEventType(ev.Type))
 	if kind == "" {
 		return
@@ -8723,6 +8737,9 @@ func accumulateRuntimeResource(bio, filesystem, pageFault map[string]*RuntimeRes
 }
 
 func runtimeResourceKind(ev Event) string {
+	if isWritebackObservation(ev) {
+		return ""
+	}
 	text := strings.ToLower(ev.Name + " " + ev.SubsystemKind + " " + ev.FieldText)
 	switch {
 	case ev.Type == EventStorage && strings.Contains(text, "bio"):
@@ -8860,7 +8877,8 @@ func sortedFileIOSummaries(in map[string]*FileIOSummary, max int) []FileIOSummar
 }
 
 func accumulatePageCache(out map[string]*PageCacheSummary, ev Event) {
-	if !isPageCacheEvent(ev) {
+	kind := pageCacheMutationKindForEvent(ev)
+	if kind == pageCacheMutationNone {
 		return
 	}
 	ff := ev.FileFields
@@ -8892,14 +8910,16 @@ func accumulatePageCache(out map[string]*PageCacheSummary, ev Event) {
 		}
 		out[key] = item
 	}
-	name := strings.ToLower(ev.Name)
-	switch {
-	case strings.Contains(name, "delete_from_page_cache"):
+	switch kind {
+	case pageCacheMutationDelete:
 		item.Deletes++
-	case strings.Contains(name, "add_to_page_cache"):
+	case pageCacheMutationAdd:
 		item.Adds++
 	default:
-		item.Adds++
+		// pageCacheMutationKind is a closed parse-time enum.  Future values
+		// must acquire an explicit accounting ruling instead of defaulting to
+		// an add mutation.
+		return
 	}
 	item.Churn = item.Adds + item.Deletes
 	if ff.Len > 0 {
@@ -19741,6 +19761,13 @@ func evidenceFromIPCGraph(ipc IPCGraphResult) []EvidenceFact {
 func evidenceFromEvents(events []EventView) []EvidenceFact {
 	var out []EvidenceFact
 	for _, ev := range events {
+		// Writeback error-sequence rows are searchable observations, not causal
+		// evidence.  Keep the returned EventView intact while preventing both
+		// indexed and streaming event_search (which share this function) from
+		// minting a generic filesystem EvidenceFact for the same observation.
+		if isWritebackObservation(ev.Event) {
+			continue
+		}
 		out = append(out, EvidenceFact{
 			Subject:    threadLabel(ThreadRef{Comm: ev.Comm, PID: ev.PID, TGID: ev.TGID}),
 			Predicate:  string(ev.Type),
@@ -20339,6 +20366,9 @@ func applyOffsetRange(minOffset, maxOffset *int64, offset int64) {
 }
 
 func isFileIOEvent(ev Event) bool {
+	if isWritebackObservation(ev) {
+		return false
+	}
 	name := strings.ToLower(ev.Name)
 	ff := ev.FileFields
 	if ff == nil || (ff.Ino == "" && ff.Entry == "" && ff.Dev == "") {
@@ -20368,14 +20398,13 @@ func fileIOCountsAsActivity(ev Event) bool {
 }
 
 func isPageCacheEvent(ev Event) bool {
-	name := strings.ToLower(ev.Name)
-	return ev.MemoryKind == "page_cache" ||
-		ev.SubsystemKind == "page_cache" ||
-		strings.Contains(name, "filemap_add_to_page_cache") ||
-		strings.Contains(name, "filemap_delete_from_page_cache")
+	return pageCacheMutationKindForEvent(ev) != pageCacheMutationNone
 }
 
 func isStorageLatencyEvent(ev Event) bool {
+	if isWritebackObservation(ev) {
+		return false
+	}
 	if ev.Type == EventBlockIssue || ev.Type == EventBlockComplete {
 		_, _, endpoint := blockLatencyEndpoint(ev)
 		return endpoint

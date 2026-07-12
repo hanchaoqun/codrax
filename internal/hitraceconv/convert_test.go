@@ -991,29 +991,31 @@ func TestRenderMMFilemapPageCacheUsesNumericFields(t *testing.T) {
 		ID:   30,
 		Name: "mm_filemap_add_to_page_cache",
 		Fields: []eventField{
+			{Type: "unsigned short", Name: "common_type", Offset: 0, Size: 2},
 			{Type: "unsigned char", Name: "common_flags", Offset: 2, Size: 1},
 			{Type: "unsigned char", Name: "common_preempt_count", Offset: 3, Size: 1},
 			{Type: "int", Name: "common_pid", Offset: 4, Size: 4, Signed: true},
-			{Name: "s_dev", Offset: 8, Size: 8},
-			{Name: "i_ino", Offset: 16, Size: 8},
-			{Name: "index", Offset: 24, Size: 8},
-			{Name: "pfn", Offset: 32, Size: 8},
-			{Name: "pg", Offset: 40, Size: 8},
+			{Type: "unsigned long", Name: "pfn", Offset: 8, Size: 8},
+			{Type: "unsigned long", Name: "i_ino", Offset: 16, Size: 8},
+			{Type: "unsigned long", Name: "index", Offset: 24, Size: 8},
+			{Type: "dev_t", Name: "s_dev", Offset: 32, Size: 4},
 		},
 	}
-	content := make([]byte, 48)
+	content := make([]byte, 36)
 	binary.LittleEndian.PutUint32(content[4:8], uint32(100))
-	binary.LittleEndian.PutUint64(content[8:16], uint64((12<<20)|48))
+	binary.LittleEndian.PutUint64(content[8:16], uint64(3062260))
 	binary.LittleEndian.PutUint64(content[16:24], uint64(0x60ffe))
 	binary.LittleEndian.PutUint64(content[24:32], uint64(42))
-	binary.LittleEndian.PutUint64(content[32:40], uint64(3062260))
-	binary.LittleEndian.PutUint64(content[40:48], uint64(0))
+	binary.LittleEndian.PutUint32(content[32:36], uint32((12<<20)|48))
 
 	line, known := renderEventLine(renderContext{cmdlines: map[int]string{100: "worker"}, tgids: map[int]int{100: 100}}, 2_000_000_000, 1, format, content)
-	for _, want := range []string{"dev 12:48", "ino 0x60ffe", "page=0x0", "pfn=3062260", "ofs=172032"} {
+	for _, want := range []string{"dev 12:48", "ino 0x60ffe", "pfn=3062260", "ofs=172032"} {
 		if !known || !strings.Contains(line, want) {
 			t.Fatalf("mm_filemap page cache missing %q: known=%v line=%s", want, known, line)
 		}
+	}
+	if strings.Contains(line, "page=") || strings.Contains(line, "order=") {
+		t.Fatalf("mm_filemap emitted unprovable/undisclosed dimensions: %s", line)
 	}
 }
 
@@ -1736,20 +1738,24 @@ func syntheticIOEventFormat() string {
 		syntheticField("unsigned int", "latency_us", 68, 4, false),
 	})...)
 	lines = append(lines, syntheticFormatBlock("mm_filemap_add_to_page_cache", 82, []string{
+		syntheticField("unsigned short", "common_type", 0, 2, false),
+		syntheticField("unsigned char", "common_flags", 2, 1, false),
+		syntheticField("unsigned char", "common_preempt_count", 3, 1, false),
 		syntheticField("int", "common_pid", 4, 4, true),
-		syntheticField("unsigned long", "s_dev", 8, 8, false),
+		syntheticField("unsigned long", "pfn", 8, 8, false),
 		syntheticField("unsigned long", "i_ino", 16, 8, false),
 		syntheticField("unsigned long", "index", 24, 8, false),
-		syntheticField("unsigned long", "pfn", 32, 8, false),
-		syntheticField("unsigned long", "pg", 40, 8, false),
+		syntheticField("dev_t", "s_dev", 32, 4, false),
 	})...)
 	lines = append(lines, syntheticFormatBlock("mm_filemap_delete_from_page_cache", 83, []string{
+		syntheticField("unsigned short", "common_type", 0, 2, false),
+		syntheticField("unsigned char", "common_flags", 2, 1, false),
+		syntheticField("unsigned char", "common_preempt_count", 3, 1, false),
 		syntheticField("int", "common_pid", 4, 4, true),
-		syntheticField("unsigned long", "s_dev", 8, 8, false),
+		syntheticField("unsigned long", "pfn", 8, 8, false),
 		syntheticField("unsigned long", "i_ino", 16, 8, false),
 		syntheticField("unsigned long", "index", 24, 8, false),
-		syntheticField("unsigned long", "pfn", 32, 8, false),
-		syntheticField("unsigned long", "pg", 40, 8, false),
+		syntheticField("dev_t", "s_dev", 32, 4, false),
 	})...)
 	lines = append(lines, syntheticFormatBlock("f2fs_direct_IO_enter", 84, []string{
 		syntheticField("int", "common_pid", 4, 4, true),
@@ -1920,13 +1926,13 @@ func syntheticSCSIContent(eventID uint16, done bool) []byte {
 }
 
 func syntheticMMFilemapContent(eventID uint16, index uint64) []byte {
-	content := make([]byte, 48)
+	content := make([]byte, 36)
 	binary.LittleEndian.PutUint16(content[0:2], eventID)
 	binary.LittleEndian.PutUint32(content[4:8], 20)
-	binary.LittleEndian.PutUint64(content[8:16], syntheticDev(260, 136))
+	binary.LittleEndian.PutUint64(content[8:16], 3062260)
 	binary.LittleEndian.PutUint64(content[16:24], 0xb9b8e)
 	binary.LittleEndian.PutUint64(content[24:32], index)
-	binary.LittleEndian.PutUint64(content[32:40], 3062260)
+	binary.LittleEndian.PutUint32(content[32:36], uint32(syntheticDev(260, 136)))
 	return content
 }
 

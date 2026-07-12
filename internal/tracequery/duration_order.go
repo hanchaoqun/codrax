@@ -592,7 +592,7 @@ var durationOrderRawTokens = [...]string{
 	"irq_handler_", "softirq_", "ipi_", "sched_wakeup_new:", "sched_switch:",
 	"cpu_frequency:", "cpu_frequency_limits:",
 	"block_rq_issue:", "block_rq_complete:", "block_bio_queue:", "block_bio_complete:", "ufshcd_", "mmc_", "scsi_", "i2c_", "smbus_", "bio_", "ebpf_bio",
-	"f2fs_", "hmfs_", "android_fs_", "ext4_", "erofs_", "z_erofs_", "filesystem", "file_system", "ebpf_file", "file_check_and_advance_wb_err", "filemap_set_wb_err",
+	"f2fs_", "hmfs_", "android_fs_", "ext4_", "erofs_", "z_erofs_", "filesystem", "file_system", "ebpf_file",
 }
 
 func durationOrderRawCandidate(line string) bool {
