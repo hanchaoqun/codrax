@@ -488,8 +488,21 @@ func TestProfilerSessionEmbeddedStandaloneSidecarFailsClosedWithoutReinterpretat
 	}
 	if result.OutputPath != "" || result.EventsWritten != 0 ||
 		!hasTraceDecisionReason(result.TraceDecisions, traceProviderNameBuiltinModern, "profiler_source_integrity_fail_closed") ||
-		!containsString(result.Caveats, "session_embedded_standalone_sidecar_ambiguity") {
+		!containsString(result.Caveats, "session_embedded_standalone_sidecar_ambiguity") ||
+		!coverageTableHasSkipped(result.TraceCoverage, "__container_integrity_barrier__",
+			"profiler_source_fail_closed=session_embedded_standalone_sidecar_ambiguity") {
 		t.Fatalf("embedded sidecar bytes were reinterpreted as Session trace authority: %+v", result)
+	}
+	integrityCoverage := false
+	for _, item := range result.TraceCoverage {
+		if item.Table == "__container_integrity_barrier__" {
+			integrityCoverage = item.FieldSources["failure_class"] == "integrity_ambiguity" &&
+				item.FieldSources["scope"] == "complete_profiler_trace_body"
+		}
+	}
+	if !integrityCoverage || coverageTableHasSkipped(result.TraceCoverage, "__container_resource_barrier__",
+		"session_embedded_standalone_sidecar_ambiguity") {
+		t.Fatalf("embedded sidecar integrity failure was mislabeled as a resource barrier: %+v", result.TraceCoverage)
 	}
 	var sidecar Artifact
 	for _, artifact := range result.Artifacts {

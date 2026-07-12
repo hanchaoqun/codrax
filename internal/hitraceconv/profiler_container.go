@@ -953,6 +953,12 @@ func failCloseProfilerTraceBody(extraction *profilerContainerExtraction, sink *t
 	if strings.TrimSpace(reason) == "" {
 		reason = "unknown_profiler_source_failure"
 	}
+	barrierTable := "__container_resource_barrier__"
+	failureClass := "resource_limit"
+	if reason == "session_embedded_standalone_sidecar_ambiguity" {
+		barrierTable = "__container_integrity_barrier__"
+		failureClass = "integrity_ambiguity"
+	}
 	extraction.SourceFailClosed = true
 	extraction.SourceFailReason = reason
 	extraction.TextRows = 0
@@ -976,7 +982,7 @@ func failCloseProfilerTraceBody(extraction *profilerContainerExtraction, sink *t
 	}
 	extraction.TraceCoverage = append(extraction.TraceCoverage, TraceDBCoverage{
 		Family:   "builtin_modern_profiler",
-		Table:    "__container_resource_barrier__",
+		Table:    barrierTable,
 		Role:     "unsupported_input",
 		Found:    true,
 		RowsRead: stagedRows,
@@ -984,6 +990,7 @@ func failCloseProfilerTraceBody(extraction *profilerContainerExtraction, sink *t
 		FieldSources: map[string]string{
 			"scope":             "complete_profiler_trace_body",
 			"independent_scope": "not_governed_by_trace_body_barrier",
+			"failure_class":     failureClass,
 		},
 	})
 	if sink != nil {
