@@ -15,11 +15,13 @@ import (
 const tracePerfAutoFallbackCaveat = "trace+perf auto conversion uses trace_streamer/SQLite first and falls back to built-in raw trace parsing when SQL is unavailable or fails; explicit trace engine modes do not fall back"
 
 type traceMetadata struct {
-	header   fileHeader
-	formats  map[int]eventFormat
-	cmdlines map[int]string
-	tgids    map[int]int
-	segments []segmentMeta
+	header             fileHeader
+	formats            map[int]eventFormat
+	formatPoisoned     map[int]bool
+	formatConflictRows int
+	cmdlines           map[int]string
+	tgids              map[int]int
+	segments           []segmentMeta
 }
 
 type renderedRow struct {
@@ -253,6 +255,12 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 	if suppressed > 0 {
 		result.Caveats = append(result.Caveats, fmt.Sprintf("%d raw ftrace event row(s) had a missing, mistyped, duplicate, or truncated common-field envelope and were suppressed without fabricating an idle/PID0 header", suppressed))
 	}
+	if len(meta.formatPoisoned) > 0 {
+		result.Caveats = append(result.Caveats, fmt.Sprintf("%d conflicting or malformed raw ftrace event descriptor ID(s) were quarantined for the complete capture; separate exactly equal parsed descriptor blocks are idempotent, but repetition inside one block is malformed and later descriptors cannot rescue a quarantined ID", len(meta.formatPoisoned)))
+	}
+	if meta.formatConflictRows > 0 {
+		result.Caveats = append(result.Caveats, fmt.Sprintf("%d raw ftrace event row(s) referenced a conflicting or malformed descriptor ID and were kept coverage-only instead of being decoded with an ambiguous layout", meta.formatConflictRows))
+	}
 	result.Caveats = append(result.Caveats, standaloneCaveats...)
 	normalizeResultCollections(&result)
 	if bundleArtifact, err := writeTraceBundleWithAllCoverage(input, output, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage); err != nil {
@@ -340,10 +348,11 @@ func scanMetadata(ctx context.Context, path string, size int64) (*traceMetadata,
 		}
 	}
 	meta := &traceMetadata{
-		header:   header,
-		formats:  map[int]eventFormat{},
-		cmdlines: map[int]string{},
-		tgids:    map[int]int{},
+		header:         header,
+		formats:        map[int]eventFormat{},
+		formatPoisoned: map[int]bool{},
+		cmdlines:       map[int]string{},
+		tgids:          map[int]int{},
 	}
 	for {
 		if err := ctx.Err(); err != nil {
@@ -380,9 +389,9 @@ func scanMetadata(ctx context.Context, path string, size int64) (*traceMetadata,
 				if err != nil {
 					return nil, err
 				}
-				for id, format := range formats {
-					meta.formats[id] = format
-				}
+				catalog := eventFormatCatalog{Formats: meta.formats, Poisoned: meta.formatPoisoned}
+				mergeEventFormatCatalog(&catalog, formats)
+				meta.formats, meta.formatPoisoned = catalog.Formats, catalog.Poisoned
 			case segmentCmdlines:
 				for pid, comm := range parseCmdlines(data) {
 					meta.cmdlines[pid] = comm
@@ -398,13 +407,16 @@ func scanMetadata(ctx context.Context, path string, size int64) (*traceMetadata,
 			}
 		}
 	}
-	if len(meta.formats) == 0 {
+	if len(meta.formats) == 0 && len(meta.formatPoisoned) == 0 {
 		return nil, fmt.Errorf("no event format segment found; not a supported binary hitrace file")
 	}
 	return meta, nil
 }
 
 func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]renderedRow, int, int, int, uint64, uint64, error) {
+	if meta != nil {
+		meta.formatConflictRows = 0
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, 0, 0, 0, 0, 0, err
@@ -514,6 +526,11 @@ func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]render
 				ts := ph.TimestampNS + offsetNS
 				format, ok := meta.formats[eventID]
 				if !ok {
+					if meta.formatPoisoned[eventID] {
+						meta.formatConflictRows++
+						off = next
+						continue
+					}
 					missing++
 					off = next
 					continue
