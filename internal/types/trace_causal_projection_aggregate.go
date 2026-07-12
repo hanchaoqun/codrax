@@ -872,6 +872,18 @@ func traceCausalProjectionAggregateSameKind(nodes []TraceCausalProjectionNode) [
 		if strings.TrimSpace(node.Predicate) == "wakeup_causal_aggregate" {
 			key += "\x00wakeup_causal_aggregate"
 		}
+		// CAL-1 件⑤ PACE-ROW (§29.47.4②, 2026-07-12): a cadence-idle segment
+		// (typed pacing_idle / periodic_idle lane, or the R1 survivor that
+		// adopted the idle view's TypeToken) buckets APART from the plain
+		// same-(subject,state) sleep family — the engine already minted the
+		// independent idle row and folding it into the ×N 睡眠 family dilutes
+		// both semantics (等依赖 sleep vs 正常节拍空闲). The idle row stands
+		// alone (or forms its own pure ×N idle family); the ENG-2 「其中 …」
+		// annotation machinery stays as the fold fallback for shapes that
+		// still merge (see traceCausalProjectionAbsorbSameFact).
+		if ms, kind := traceCausalProjectionIdleCadence(node); ms > 0 && kind != "" {
+			key += "\x00idle:" + kind
+		}
 		g, ok := groups[key]
 		if !ok {
 			g = &group{first: i}

@@ -181,8 +181,10 @@ func TestUXG1SeatChipWordsReachHTMLChips(t *testing.T) {
 			if !strings.Contains(html, ordinalClass) {
 				t.Errorf("%s zh=%v: chip word %q did not reach the HTML ordinal class %q:\n%s", tc.kind, zh, chip, ordinalClass, html)
 			}
-			if !strings.Contains(html, `trace-rank-chip trace-rank-1`) {
-				t.Errorf("zh=%v: badge %q did not reach the HTML chip class:\n%s", zh, badge, html)
+			// CAL-1 件⑥a (2026-07-12): the badge and its D5 companion space
+			// ride the 2ch envelope pill (the 1ch chip form is retired).
+			if !strings.Contains(html, `trace-slot trace-rank-pill trace-rank-1`) {
+				t.Errorf("zh=%v: badge %q did not reach the HTML envelope pill class:\n%s", zh, badge, html)
 			}
 		}
 	}
@@ -427,8 +429,13 @@ var uxg1ToolAuthorityLiteralAllowlist = map[string]map[string]int{
 		// chapter references. +1 (2026-07-12, P9 §29.42 案1): the pacing_idle
 		// legend teaching entry's 不计入根因排序 clause — legend prose quoting
 		// the channel word, not a new hand-copied board emitter. +1
-		// (2026-07-12, 复核 P2-1): the periodic_idle fork's twin clause.
-		"根因排序": 15, "邻近影响": 1, "root-cause rank": 3, "adjacent-impact": 1,
+		// (2026-07-12, 复核 P2-1): the periodic_idle fork's twin clause. +2
+		// (2026-07-12, CAL-1 件⑤): the ∿ cadence-idle legend entry's
+		// 不参与根因排序 clause + the pacing 行2 word 节拍吻合·上下文(不参与
+		// 根因排序) — both prose quoting the channel word inside a context
+		// disclaimer, not board emitters. +1 (2026-07-12, V2-P0): the ⌗
+		// 口径旁栏 legend entry's 不参与根因排序 clause (same prose family).
+		"根因排序": 18, "邻近影响": 1, "root-cause rank": 3, "adjacent-impact": 1,
 		"优化点": 2, "optimization point": 1, "确定性优化点": 3, "证据索引": 5,
 		"❶": 2, "❺": 2,
 	},

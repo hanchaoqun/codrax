@@ -7,7 +7,7 @@ package tool
 //     branch dimension — branch ordinals are per-query-window and collide
 //     across windows (huadong_79: W2 hmfs L2 under the W1 touch chain, fake
 //     "唤醒 OS_mmi_EventHdr" edge). Zero-value arm audited separately:
-//     a window-less node on a windowed trunk keeps the honest 未接入树 seat;
+//     a window-less node on a windowed trunk keeps the honest 父节点未确认 seat;
 //     a window-less TRUNK leaves the gate inert (legacy byte-stable).
 //   - G5 (§27.3): trunk same-(thread,dominant-state) occurrences fold into
 //     ONE ×N row (threshold 2 — the self-cause-of-itself edge is a semantic
@@ -90,7 +90,7 @@ func gapbWindowedTrunkProjection() types.TraceCausalProjection {
 
 // huadong_79 复刻 pin: W1 trunk L1/L2 + a W2 node with the SAME branch ordinal
 // and ChainDepth=2 must NOT attach into the tree — it keeps the honest
-// 未接入树 (depthless) seat. The same-window control attaches; the
+// 父节点未确认 (depthless) seat. The same-window control attaches; the
 // window-less node conservatively stays unattached (缺窗身份≠可挂靠).
 func TestGAPBWindowDomainAttach(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(gapbWindowedTrunkProjection(), newRuntimeTraceCausalProjectionEvidenceIndex(), true)
@@ -101,7 +101,7 @@ func TestGAPBWindowDomainAttach(t *testing.T) {
 		parents[row.Node.Subject] = row.Parent
 	}
 	if kinds["hmfs_discard-777"] != runtimeTraceProjTreeRowDepthless {
-		t.Fatalf("the cross-window node must keep the honest 未接入树 seat, got kind %q parent %q",
+		t.Fatalf("the cross-window node must keep the honest 父节点未确认 seat, got kind %q parent %q",
 			kinds["hmfs_discard-777"], parents["hmfs_discard-777"])
 	}
 	if kinds["same-win-666"] != runtimeTraceProjTreeRowChain || parents["same-win-666"] != "OS_mmi_EventHdr-43103" {

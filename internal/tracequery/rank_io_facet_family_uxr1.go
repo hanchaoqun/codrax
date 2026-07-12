@@ -99,6 +99,14 @@ func adjacentIOFacetFamilyGroupKey(item RootCauseRankItem) string {
 		item.StatsWindowStartTs, item.StatsWindowEndTs, rootCauseFamilyFoldLaneKey(item))
 }
 
+// CausalIOFacetFamilyToken exports the closed IO facet family membership —
+// the ONE set the ◇ engine fold below and the IOFAM-SELF display fold
+// (internal/tool, CAL-1 件② 2026-07-12) both consume; a second hand copy of
+// this set is forbidden (§29.38 M-family discipline).
+func CausalIOFacetFamilyToken(token string) bool {
+	return adjacentIOFacetFamilyTypes[token]
+}
+
 func adjacentIOFacetWallClockFacet(typ string) bool {
 	spec, ok := CausalTokenSpecFor(typ)
 	return ok && spec.Additivity == CausalAdditivityWallClockPerThread
@@ -110,8 +118,11 @@ func adjacentIOFacetWallClockFacet(typ string) bool {
 // token (the token lane itself is untouched — 红线 §7.2.1): its value is a
 // composite score over an inode ENVELOPE interval, so it can neither prove
 // connectivity nor account for wall clock. It stays a roster-only member.
+// V2-P0 (2026-07-12): the carve-out now reads the SHARED typed
+// composite-score marker (CausalTokenCaliberSideClass) instead of a local
+// type-name literal — behavior identical, single implementation.
 func adjacentIOFacetUnionFacet(typ string) bool {
-	if typ == "block_io_by_inode" {
+	if CausalTokenCaliberSideClass(typ) != CausalCaliberSideNone {
 		return false
 	}
 	return adjacentIOFacetWallClockFacet(typ)

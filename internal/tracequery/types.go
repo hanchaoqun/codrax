@@ -1636,6 +1636,30 @@ type ThreadDuration struct {
 	LineEnd       int     `json:"line_end,omitempty"`
 	Priority      int     `json:"priority,omitempty"`
 	PriorityClass string  `json:"priority_class,omitempty"`
+	// F-1 segment-truth carriers (CAL-1 修复轮, 冷读 P1, 2026-07-12).
+	// Unexported: in-package verdict input, never serialized. addDuration
+	// accumulates them per aggregation key: segCount = folded segment count,
+	// segMinMs/segMaxMs = TRUE single-segment extrema — the ×N(a–b) range
+	// and the member-roster wording must never present a per-CPU group SUM
+	// as a "段" (donghu E8: "单段 3.774–16.064ms" was 4 group sums over 11
+	// raw segments whose true single-segment max is 3.853ms).
+	segCount int
+	segMinMs float64
+	segMaxMs float64
+
+	// DSTATE-REFINE arm a carriers (CAL-1 件③, §29.39②/§29.47.2, 2026-07-12).
+	// Unexported: in-package verdict input, never serialized. dFamilySegments
+	// counts the D-family segments folded into this duration on the DSTATE
+	// (non-IO) ledger; dFamilyNonIOMarked counts the subset whose
+	// sched_blocked_reason marker was FOUND with iowait=0 (coverage proof —
+	// a segment without a marker can never prove the refined 「D-state」
+	// word); dFamilyCallers collects the distinct semantic caller symbols
+	// (blockedReasonSemanticCaller — dma_fence_default_wait family), capped,
+	// for the 行2 等待对象 disclosure.
+	dFamilySegments    int
+	dFamilyNonIOMarked int
+	dFamilyCallers     []string
+
 	// R5e duration-weighted frequency accumulation over the judged segments
 	// (§7.30.2). Unexported: in-package verdict input, never serialized.
 	// freqWeightKHzMs is Σ(segment_ms × segment weighted kHz); freqKnownMs is
@@ -2542,6 +2566,22 @@ const RootCauseTierDataGap = "data_gap"
 // as supporting evidence; the absorbing row owns the single board seat.
 const RootCauseTierAbsorbed = "absorbed"
 
+// RootCauseTierCaliberSide (V2-P0 行级尺守卫, rank_order_v2_design_20260712.md
+// §6.1 新裁定 A, GREENLIT 2026-07-12): the independent Tier word for
+// count-additivity / composite-score rows on the chain/◇ ordinal channels —
+// the two-scale-ruler red line dropped from channel level to row level. A
+// row wearing it publishes its value under an explicit caliber word
+// (计数当量 / 复合分数, ⌗ 口径旁栏) but carries NO rank ordinal (Rank=0),
+// consumes no candidate capacity, never sorts against wall-clock rows and
+// never wears a badge. Rendering obligation is preserved: the row keeps its
+// channel seat downstream (no silent-disappearance path). Identity = the
+// SHARED registry arm CausalTokenCaliberSideClass (registry typed
+// Additivity==count OR the typed composite-score marker) evaluated on
+// non-background channels only (▒ has no ordinals to guard). Wire token:
+// verbatim in the typed tier note / root_cause_<tier> predicate — the
+// root_cause_primary prefix never matches (target_self_state precedent).
+const RootCauseTierCaliberSide = "caliber_side"
+
 // TraceGapKind* (G2 判据 typed 化, §27.2 + §28.1, 2026-07-09): the PRECISE
 // typed criterion split behind a trace_gap mint. The legacy single wording
 // "窗内无调度数据" over-claimed: the same (thread, window) could carry a
@@ -2605,10 +2645,23 @@ type RootCauseRankItem struct {
 	SleepMs            float64                    `json:"sleep_ms,omitempty"`
 	DStateMs           float64                    `json:"d_state_ms,omitempty"`
 	IOWaitMs           float64                    `json:"io_wait_ms,omitempty"`
-	ImpactMs           float64                    `json:"impact_ms,omitempty"`
-	ProjectedImpactMs  float64                    `json:"projected_impact_ms,omitempty"`
-	CumulativeImpactMs float64                    `json:"cumulative_impact_ms,omitempty"`
-	EffectiveImpactMs  float64                    `json:"effective_impact_ms,omitempty"`
+	// DStateAllNonIOProven (DSTATE-REFINE arm a, CAL-1 件③ §29.39②/§29.47.2,
+	// 2026-07-12): true ONLY when this merged D/IO row's io_wait share is
+	// zero AND every member segment on the D ledger carried a
+	// sched_blocked_reason marker with iowait=0 (blocked_reason 全覆盖∧全0 —
+	// the typed proof behind the refined 「D-state」 display word; a segment
+	// without a marker keeps the honest merged form). Wording input only —
+	// rank/score lanes never read it.
+	DStateAllNonIOProven bool `json:"d_state_all_noniowait,omitempty"`
+	// BlockedReasonCaller (件③ caller 等待对象族): the UNANIMOUS semantic
+	// caller symbol across the row's marked D-ledger segments
+	// (dma_fence_default_wait family); "" when members disagree or none was
+	// marked (absence never guesses). 行2 等待对象 disclosure input.
+	BlockedReasonCaller string  `json:"blocked_reason_caller,omitempty"`
+	ImpactMs            float64 `json:"impact_ms,omitempty"`
+	ProjectedImpactMs   float64 `json:"projected_impact_ms,omitempty"`
+	CumulativeImpactMs  float64 `json:"cumulative_impact_ms,omitempty"`
+	EffectiveImpactMs   float64 `json:"effective_impact_ms,omitempty"`
 	// RankSortBoostedEffectiveMs (SEM-LEAD §29.7-2 ② + 复核 P1-1 修向(a),
 	// ledger real_trace_campaign_20260705.md §29.22, 2026-07-10) is the
 	// ENGINE-INTERNAL boost channel for on-chain semantic span work: the

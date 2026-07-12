@@ -3615,18 +3615,25 @@ func TestRootCauseRankPromotesOnChainIOWhenWakerIsRunning(t *testing.T) {
 		t.Fatalf("the direct wakeup dependency should remain primary/on-chain, got %+v", rank.Items)
 	}
 	// EVOLUTION RECORD (Q4-B §12.3-2 2026-07-06, then §20.2 user ruling
-	// 2026-07-07 — neither a regression): Q4-B first moved the head from the
-	// inherited shape to the largest MEASURED item (the running dependency,
-	// raw wall clock). §20.2 then removed raw running from the attribution
-	// channels entirely — a running row's attribution is its ELIMINABLE
-	// supply-fold deficit, and this fixture has no cpu_frequency data, so
-	// the worker's running attribution is authoritatively ≈0. The on-chain
-	// head is therefore the largest measured ATTRIBUTABLE item: the 111ms
-	// block-IO resource row (which is also what this test's name always
-	// wanted). The running row survives as display context but must never
-	// lead on un-folded raw.
-	if rank.Items[0].Type != "block_io_by_inode" || rootCauseEffectiveImpactMs(rank.Items[0]) < 100 {
+	// 2026-07-07, then V2-P0 行级尺守卫 2026-07-12 — none a regression):
+	// Q4-B first moved the head from the inherited shape to the largest
+	// MEASURED item; §20.2 removed raw running from the attribution channels
+	// (no cpu_frequency data here → the worker's running attribution is
+	// authoritatively ≈0). V2-P0 then took the block_io_by_inode COMPOSITE
+	// SCORE row (BlockMax+StorageMax+MiB — 111 "ms" over a 110ms read) out
+	// of the ordinal space entirely (⌗ 口径旁栏): the on-chain head is now
+	// the WALL-CLOCK measurement of the same physical IO — the 110ms
+	// io_burst_episode row. The composite row survives caliber-worded
+	// (asserted below); raw running still never leads.
+	if rank.Items[0].Type != "io_burst_episode" || rootCauseEffectiveImpactMs(rank.Items[0]) < 100 {
 		t.Fatalf("the largest measured ATTRIBUTABLE on-chain item should lead the rank, got %+v", rank.Items[0])
+	}
+	for _, item := range rank.Items {
+		if item.Type == "block_io_by_inode" && item.ChainRelevance == "on_chain" {
+			if item.Rank != 0 || item.Tier != RootCauseTierCaliberSide {
+				t.Fatalf("V2-P0: the on-chain composite-score row must ride the ⌗ caliber side lane (Rank=0, tier=caliber_side), got %+v", item)
+			}
+		}
 	}
 	for _, item := range rank.Items {
 		if item.Type == "running" && item.Thread.PID == 200 {

@@ -62,6 +62,18 @@ const (
 	GlyphInterrupt      = "↯"
 	GlyphBlindSpot      = "◌"
 	GlyphNeutral        = "◦" // 中转 / 无主导态 / binder-wait borrow (§24.3)
+	// GlyphPacing — CAL-1 件⑥b (2026-07-12; 修复轮 P3-3 勘正): the
+	// cadence-idle row mark (pacing_idle / periodic_idle independent rows,
+	// 件⑤ PACE-ROW). Chosen by mechanical audit: U+223F SINE WAVE is width 1
+	// in BOTH east-asian contexts (non-ambiguous EAW). Honesty note: SOME
+	// circle candidates are EAW-ambiguous (○ U+25CB, ⊙ U+2299) but others
+	// are dual-context width-1 (◉ U+25C9 among them) — the circle family was
+	// rejected on the OTHER three criteria, not on width alone: symbol-font
+	// coverage, 13px legibility, and optical collision with the existing
+	// ◌/◦/⊚ circle marks in this directory. ∿ additionally reads as a
+	// periodic waveform (the row's semantics) and sits in the well-covered
+	// Mathematical Operators block.
+	GlyphPacing = "∿"
 )
 
 // StateMark is one row of the state-mark directory: the glyph byte plus the
@@ -89,6 +101,7 @@ func StateMarks() []StateMark {
 		{GlyphInterrupt, "interrupt"},
 		{GlyphBlindSpot, "blind"},
 		{GlyphNeutral, "neutral"},
+		{GlyphPacing, "pacing"},
 	}
 }
 

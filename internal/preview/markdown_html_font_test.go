@@ -43,7 +43,9 @@ func TestStandaloneHTMLTraceProjectionTreePresentation(t *testing.T) {
 	// the fence opener carries the typed info token; the state glyph and its
 	// UXG-0 D5 companion space fuse into one 2ch envelope slot; pure-ASCII
 	// stretches collapse into width-pinned runs; the scale transform family
-	// is retired. The badge ❶ keeps its 1ch chip cell until P2a (T-6).
+	// is retired. CAL-1 件⑥a (2026-07-12): the badge ❶ and ITS D5 companion
+	// space now fuse into the same 2ch envelope (colored pill at full 2ch,
+	// overflow visible, ink complete) — the 1ch chip + .95 shrink is retired.
 	projection := "```text trace-causal-projection\n⊚ render-thread-42 ‹用户关注线程› 满格=窗口16.667ms\n├─下钻─ ❶ ⚙ worker-7 █████░░░░░ 8.000ms 48% [E1]\n│ · 算力供给候选·根因排序#1·置信中\n```\n"
 	page, err := RenderStandaloneMarkdownHTML("trace", []byte(projection))
 	if err != nil {
@@ -57,10 +59,10 @@ func TestStandaloneHTMLTraceProjectionTreePresentation(t *testing.T) {
 		`font-variant-emoji: text`,
 		`pre.trace-projection-tree .trace-cell { display: inline-block; width: 1ch; min-width: 1ch; height: 1em;`,
 		`pre.trace-projection-tree .trace-cell-2 { width: 2ch; min-width: 2ch; }`,
-		// T-6 honest cut: the badge chip keeps its 1ch cell and its companion
-		// space stays a separate 1ch ASCII run until P2a; the state glyph
-		// eats ITS companion space into the 2ch envelope.
-		`<span class="trace-rank-chip trace-rank-1 trace-rank-width-1"><span class="trace-rank-glyph">❶</span></span><span class="trace-run" style="width:1ch"> </span><span class="trace-slot trace-icon trace-icon-running"><span class="trace-ink">⚙ </span></span>`,
+		// CAL-1 件⑥a (T-6 fulfilled): the badge eats its D5 companion space
+		// into a 2ch envelope pill — same slot geometry as the state glyph
+		// next to it; textContent keeps both bytes.
+		`<span class="trace-slot trace-rank-pill trace-rank-1"><span class="trace-ink">❶ </span></span><span class="trace-slot trace-icon trace-icon-running"><span class="trace-ink">⚙ </span></span>`,
 		`<span class="trace-rank-ordinal trace-rank-1 trace-rank-width-2">#1</span>`,
 		// Run segmentation: the ASCII name+bar-gap stretch is ONE pinned run.
 		`<span class="trace-run" style="width:9ch">worker-7 </span>`,
@@ -68,7 +70,8 @@ func TestStandaloneHTMLTraceProjectionTreePresentation(t *testing.T) {
 		`<span class="trace-cell trace-cell-1 trace-rail">├</span><span class="trace-cell trace-cell-1 trace-rail">─</span>`,
 		// Bar blocks stay per-rune 1ch cells with the bar class.
 		`<span class="trace-cell trace-cell-1 trace-bar">█</span>`,
-		`pre.trace-projection-tree .trace-rank-chip,`,
+		`pre.trace-projection-tree .trace-rank-ordinal {`,
+		`pre.trace-projection-tree .trace-rank-pill { border-radius: .22em; font-weight: 750;`,
 		`height: 1em; line-height: 1em;`,
 		`pre.trace-projection-tree .trace-rank-width-1 { width: 1ch; min-width: 1ch; }`,
 		`pre.trace-projection-tree .trace-rank-width-2 { width: 2ch; min-width: 2ch; }`,
@@ -90,11 +93,11 @@ func TestStandaloneHTMLTraceProjectionTreePresentation(t *testing.T) {
 		// slot needs justify-content to center the wider-than-track ink
 		// (真机 -0.78px per side).
 		`pre.trace-projection-tree .trace-slot-1 { width: 1ch; min-width: 1ch; place-items: center; justify-content: center; }`,
-		// F1 (fix round 2026-07-11, v5 T-6): the badge chip keeps its pre-P0
-		// 1ch form INCLUDING the .95 ink shrink until P2a — chips are outside
-		// the retired ICON scale family.
-		`pre.trace-projection-tree .trace-rank-glyph { transform: scale(.95); }`,
-		`pre.trace-projection-tree .trace-ink,`,
+		// CAL-1 件⑥b: the neutral mark's ink-only optical raise (envelope
+		// treatment — no qualified bigger-ink glyph replacement exists under
+		// the dual-context width-1 rule).
+		`pre.trace-projection-tree .trace-icon-neutral .trace-ink { font-size: 1.2em; }`,
+		`pre.trace-projection-tree .trace-ink {`,
 		`pre.trace-projection-tree .trace-run { display: inline-block; height: 1em; line-height: 1em;`,
 		`overflow: hidden; border-radius: .22em;`,
 		// 档1 (T-5): line hover, stanza-head sticky, E# anchor styling.
@@ -111,17 +114,17 @@ func TestStandaloneHTMLTraceProjectionTreePresentation(t *testing.T) {
 			t.Fatalf("standalone trace report missing UX contract %q", want)
 		}
 	}
-	// 重-1 negative pin (F1-scoped, fix round 2026-07-11): the per-ICON
-	// optical scale family (1.10/1.00/1.15 + translateY) is RETIRED —
-	// envelope geometry, never transform tuning. The ONE allowed transform
-	// is the chip's T-6 .95 (asserted positively above): any second
-	// transform, any translateY, and any resurrection of the retired
-	// .trace-icon-glyph selector are regressions.
+	// 重-1 negative pin (CAL-1 件⑥a tightened, 2026-07-12): the optical scale
+	// family is FULLY retired — envelope geometry, never transform tuning.
+	// The former last member (the badge chip's T-6 .95 ink shrink) retired
+	// with the badge envelope: ANY transform scale, any translateY, any
+	// resurrection of .trace-icon-glyph or the badge chip form
+	// (.trace-rank-chip / .trace-rank-glyph) are regressions.
 	style := page[strings.Index(page, "<style>"):strings.Index(page, "</style>")]
-	if got := strings.Count(style, "transform: scale("); got != 1 {
-		t.Fatalf("tree CSS must carry exactly the chip's one T-6 scale transform, got %d:\n%s", got, style)
+	if got := strings.Count(style, "transform: scale("); got != 0 {
+		t.Fatalf("tree CSS must carry ZERO scale transforms (family retired), got %d:\n%s", got, style)
 	}
-	for _, banned := range []string{"translateY(", ".trace-icon-glyph", "transform-origin"} {
+	for _, banned := range []string{"translateY(", ".trace-icon-glyph", "transform-origin", ".trace-rank-chip", ".trace-rank-glyph"} {
 		if strings.Contains(style, banned) {
 			t.Fatalf("retired scale-family CSS resurfaced (%q):\n%s", banned, style)
 		}
@@ -232,7 +235,7 @@ func TestTraceProjectionRankHighlightIsClosedToSystemRankTokens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(html, `class="trace-rank-chip trace-rank-1 trace-rank-width-1"`) != 1 ||
+	if strings.Count(html, `class="trace-slot trace-rank-pill trace-rank-1"`) != 1 ||
 		strings.Count(html, `class="trace-rank-ordinal trace-rank-2 trace-rank-width-2"`) != 1 {
 		t.Fatalf("closed rank tokens were not highlighted exactly once:\n%s", html)
 	}

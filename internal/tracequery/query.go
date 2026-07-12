@@ -3702,6 +3702,16 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 			td.Thread = start.thread
 		}
 		td.DurationMs += dur
+		// F-1 (修复轮, 2026-07-12): true per-segment stats ride the
+		// aggregation so folds can speak segment truth (never group sums
+		// dressed as 段).
+		td.segCount++
+		if td.segMinMs == 0 || dur < td.segMinMs {
+			td.segMinMs = dur
+		}
+		if dur > td.segMaxMs {
+			td.segMaxMs = dur
+		}
 		td.CPU = start.cpu
 		if freq > 0 {
 			td.Frequency = freq
@@ -3741,6 +3751,41 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 			})
 			accumulateThreadDuration(acc.runnable, start.thread, dur, start.cpu, freq, startTs, endTs, firstPositive(endLine, start.line), start.priority, start.priorityClass)
 		}
+	}
+	// DSTATE-REFINE arm a (件③): stamp the D-ledger coverage verdict onto the
+	// aggregated duration (same key/clamp derivation as addDuration; a
+	// zero-length clamped segment that addDuration dropped is skipped the
+	// same way).
+	markDStateCoverage := func(start offCPUStart, endTs float64, marked bool, caller string) {
+		startTs := start.ts
+		if q.TimeStart > 0 && startTs < q.TimeStart {
+			startTs = q.TimeStart
+		}
+		if q.TimeEnd > 0 && endTs > q.TimeEnd {
+			endTs = q.TimeEnd
+		}
+		if endTs <= startTs {
+			return
+		}
+		key := threadCPUKey(start.thread, start.cpu)
+		td := dstate[key]
+		td.dFamilySegments++
+		if marked {
+			td.dFamilyNonIOMarked++
+		}
+		if caller != "" && caller != "unknown" && len(td.dFamilyCallers) < 4 {
+			seen := false
+			for _, c := range td.dFamilyCallers {
+				if c == caller {
+					seen = true
+					break
+				}
+			}
+			if !seen {
+				td.dFamilyCallers = append(td.dFamilyCallers, caller)
+			}
+		}
+		dstate[key] = td
 	}
 	visit := func(ev Event) {
 		if !eventLineInWindow(ev, q) {
@@ -3785,10 +3830,11 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 				case StateSSleep:
 					addDuration(sleep, start, ev.Ts, ev.Line)
 				case StateDSleep, StateIOWait:
-					if offCPUStateIsIOWait(start, ev.Ts, blockedReasons) {
+					if io, marked, caller := offCPUDStateVerdict(start, ev.Ts, blockedReasons); io {
 						addDuration(iowait, start, ev.Ts, ev.Line)
 					} else {
 						addDuration(dstate, start, ev.Ts, ev.Line)
+						markDStateCoverage(start, ev.Ts, marked, caller)
 					}
 				}
 			}
@@ -3815,10 +3861,11 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 				case StateSSleep:
 					addDuration(sleep, start, ev.Ts, ev.Line)
 				case StateDSleep, StateIOWait:
-					if offCPUStateIsIOWait(start, ev.Ts, blockedReasons) {
+					if io, marked, caller := offCPUDStateVerdict(start, ev.Ts, blockedReasons); io {
 						addDuration(iowait, start, ev.Ts, ev.Line)
 					} else {
 						addDuration(dstate, start, ev.Ts, ev.Line)
+						markDStateCoverage(start, ev.Ts, marked, caller)
 					}
 				}
 				delete(open, ev.NextPID)
@@ -3848,10 +3895,11 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 			case StateSSleep:
 				addDuration(sleep, start, q.TimeEnd, 0)
 			case StateDSleep, StateIOWait:
-				if offCPUStateIsIOWait(start, q.TimeEnd, blockedReasons) {
+				if io, marked, caller := offCPUDStateVerdict(start, q.TimeEnd, blockedReasons); io {
 					addDuration(iowait, start, q.TimeEnd, 0)
 				} else {
 					addDuration(dstate, start, q.TimeEnd, 0)
+					markDStateCoverage(start, q.TimeEnd, marked, caller)
 				}
 			}
 		}
@@ -3882,14 +3930,36 @@ type offCPUStatsResult struct {
 }
 
 func offCPUStateIsIOWait(start offCPUStart, endTs float64, blockedReasons map[int][]Event) bool {
+	io, _, _ := offCPUDStateVerdict(start, endTs, blockedReasons)
+	return io
+}
+
+// offCPUDStateVerdict — DSTATE-REFINE arm a (CAL-1 件③, 2026-07-12): the
+// D-family segment verdict in one lookup — whether the segment is
+// iowait-proven (rides the IOWaitTop ledger), whether a sched_blocked_reason
+// marker COVERED the segment at all (coverage proof for the refined
+// 「D-state」 word — absence of a marker proves nothing), and the marker's
+// semantic caller symbol (the 等待对象族 disclosure; hex/opaque callers were
+// already collapsed to "unknown" by blockedReasonSemanticCaller at parse).
+func offCPUDStateVerdict(start offCPUStart, endTs float64, blockedReasons map[int][]Event) (isIOWait, marked bool, caller string) {
 	if start.state == StateIOWait {
-		return true
+		return true, true, ""
 	}
 	if start.state != StateDSleep {
-		return false
+		return false, false, ""
 	}
-	reason := blockedReasonForInterval(blockedReasons, start.thread, start.ts, endTs)
-	return reason != nil && reason.IOWait > 0
+	// The kernel emits sched_blocked_reason immediately AFTER the wakeup that
+	// ends the D segment — donghu witness: same-ts (keva rows) OR trailing by
+	// ~1µs (CompThread rows 13762.793064→.793065). The lookup end widens by
+	// the ONE established wakeup-match tolerance (wakeupMatchToleranceSec,
+	// 5µs — target_window_state_account.go is the sibling consumer), so a
+	// trailing marker classifies its own segment instead of silently
+	// vanishing (a missed iowait=1 marker left the segment on the D ledger).
+	reason := blockedReasonForInterval(blockedReasons, start.thread, start.ts, endTs+wakeupMatchToleranceSec)
+	if reason == nil {
+		return false, false, ""
+	}
+	return reason.IOWait > 0, true, strings.TrimSpace(reason.Reason)
 }
 
 func BuildSchedulerLatencyStats(idx *Index, q Query) SchedulerLatencyResult {
@@ -11920,11 +11990,19 @@ func rootCauseDIOStateFamilyItems(q Query, stats WindowStats, chainThreads map[i
 			if m.td.DurationMs > strongest.td.DurationMs {
 				strongest = m
 			}
-			if maxMs == 0 || m.td.DurationMs > maxMs {
-				maxMs = m.td.DurationMs
+			// F-1 (冷读 P1): the published a–b range is the TRUE single-
+			// segment range (P8 规格) — the engine holds the per-segment
+			// inventory; group sums must never masquerade as 单段. Members
+			// without the inventory (defensive) fall back to their sum.
+			memberMin, memberMax := m.td.segMinMs, m.td.segMaxMs
+			if m.td.segCount == 0 {
+				memberMin, memberMax = m.td.DurationMs, m.td.DurationMs
 			}
-			if minMs == 0 || m.td.DurationMs < minMs {
-				minMs = m.td.DurationMs
+			if maxMs == 0 || memberMax > maxMs {
+				maxMs = memberMax
+			}
+			if minMs == 0 || (memberMin > 0 && memberMin < minMs) {
+				minMs = memberMin
 			}
 			if m.td.EndTs > m.td.StartTs && (!hasStart || m.td.StartTs < startTs) {
 				startTs = m.td.StartTs
@@ -11936,7 +12014,15 @@ func rootCauseDIOStateFamilyItems(q Query, stats WindowStats, chainThreads map[i
 			applyLineRange(&lineStart, &lineEnd, m.td.LineStart)
 			applyLineRange(&lineStart, &lineEnd, m.td.LineEnd)
 			if len(roster) < rootCauseFamilyRosterCap {
-				roster = append(roster, fmt.Sprintf("%s cpu=%d %.3fms", m.state, m.td.CPU, m.td.DurationMs))
+				// F-1 (冷读 P1, 2026-07-12): a multi-segment member is a
+				// per-CPU group SUM — say so ("合计…(N段)"); only a true
+				// single segment keeps the bare form. 计数当量-precedent:
+				// zh caliber words already live on engine roster faces.
+				if m.td.segCount > 1 {
+					roster = append(roster, fmt.Sprintf("%s cpu=%d 合计%.3fms(%d段)", m.state, m.td.CPU, m.td.DurationMs, m.td.segCount))
+				} else {
+					roster = append(roster, fmt.Sprintf("%s cpu=%d %.3fms", m.state, m.td.CPU, m.td.DurationMs))
+				}
 			}
 		}
 		caliber := RootCauseMemberFoldCaliberSumDisjoint
@@ -11979,6 +12065,42 @@ func rootCauseDIOStateFamilyItems(q Query, stats WindowStats, chainThreads map[i
 		item.StartTs, item.EndTs = startTs, endTs
 		item.DominantState = dominant
 		item.DStateMs, item.IOWaitMs = dStateMs, ioWaitMs
+		// DSTATE-REFINE arm a (件③, 2026-07-12): the refined 「D-state」 proof
+		// + the unanimous caller disclosure — computed ONLY on the exact
+		// sum_disjoint account (the unproven-overlap fallback rewrote the
+		// D/IO split and keeps the honest merged word).
+		if caliber == RootCauseMemberFoldCaliberSumDisjoint && ioWaitMs == 0 && dStateMs > 0 {
+			segments, marked := 0, 0
+			callerUnanimous, callerConflict := "", false
+			for _, m := range members {
+				if m.state != string(StateDSleep) {
+					continue
+				}
+				segments += m.td.dFamilySegments
+				marked += m.td.dFamilyNonIOMarked
+				for _, c := range m.td.dFamilyCallers {
+					// The kernel caller form is symbol+offset[module]
+					// (dma_fence_default_wait+0x74/0x160[sysmgr.elf]) — the
+					// 等待对象 word is the SYMBOL (same symbol at different
+					// offsets is ONE wait object); the offset/module detail
+					// stays on the raw evidence lines.
+					if i := strings.IndexByte(c, '+'); i > 0 {
+						c = c[:i]
+					}
+					if callerUnanimous == "" {
+						callerUnanimous = c
+					} else if callerUnanimous != c {
+						callerConflict = true
+					}
+				}
+			}
+			if segments > 0 && marked == segments {
+				item.DStateAllNonIOProven = true
+				if !callerConflict {
+					item.BlockedReasonCaller = callerUnanimous
+				}
+			}
+		}
 		item.memberSegmentsProducerDisjoint = producerDisjoint
 		item.EffectiveImpactMs = rootCauseEffectiveImpactMs(item)
 		item.Score = item.EffectiveImpactMs * item.Confidence * rootCauseItemScoreWeight(item)
@@ -14684,6 +14806,21 @@ func assignRootCauseRanksAndTiers(items []RootCauseRankItem) {
 			// carries Rank=0 instead of pre-consuming an ordinal the display
 			// never shows (see the function header). Tier semantics unchanged.
 			items[i].Tier = RootCauseTierTargetSelfState
+			continue
+		}
+		if rootCauseOrdinalChannel(items[i]) != rootCauseOrdinalChannelBackground &&
+			CausalTokenCaliberSideClass(items[i].Type) != CausalCaliberSideNone {
+			// V2-P0 行级尺守卫 (rank_order_v2_design_20260712.md §6.1 新裁定 A,
+			// GREENLIT 2026-07-12): count-additivity / composite-score rows never
+			// occupy ordinal space on the chain/◇ channels — a 计数当量 0.600
+			// must not outrank wall-clock 0.198 in one ordinal sequence (4165
+			// 自违序列 witness). The row keeps its channel seat as the ⌗ 口径旁栏
+			// (rendered, caliber-worded, Rank=0, no badge, no election slot);
+			// ▒ background rows are untouched (no ordinals there to guard, and
+			// BackgroundRank above stays as assigned). Typed criterion = the
+			// SHARED registry arm (Additivity==count OR composite-score marker);
+			// the sort/Score lanes never read this arm.
+			items[i].Tier = RootCauseTierCaliberSide
 			continue
 		}
 		if rootCauseEffectiveImpactMs(items[i]) <= 0 {

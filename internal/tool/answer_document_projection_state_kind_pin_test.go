@@ -44,6 +44,9 @@ var runtimeStateKindPinFiles = []string{
 	// classifier (answer_document_mutation_runtime_rcr.go) — the pin follows
 	// the switch to its new site instead of losing coverage.
 	"answer_document_mutation_runtime_rcr.go",
+	// DSTATE-REFINE (CAL-1 件③, 2026-07-12): the arm-c tail-redundancy
+	// predicate switches on StateKind in the typelabels home — scanned.
+	"answer_document_mutation_runtime_typelabels.go",
 }
 
 // runtimeStateKindConsumerAliasLedger: consumer-only case words that are NOT
@@ -82,9 +85,14 @@ var runtimeStateKindSwitchFallthroughLedger = map[string]types.TraceStateKindFal
 		Why:     "PTV4 T4 ◦ 二义拆分: the sleep family is short-circuited by the IsSleepState early return above (☾ rows never render ◦); the switch only lists the remaining non-◦ states — anything else IS the no-dominant-state ◦ sense",
 	},
 	"answer_document_mutation_runtime_rcr.go:runtimeTraceProjImpactFormForNode#1": {
+		Missing: "running,runnable,sleep,s_sleep,sleep_wait,io_wait",
+		Why:     "DSTATE-REFINE arm b (件③, 2026-07-12): the refined-to-iowait gate matches ONLY a D-family dominant state paired with the typed io_wait TypeToken (96728 E14 shape); every other state falls through to the ordinary form ladder below (sleep short-circuited above, running/runnable/io_wait handled by site #2)",
+	},
+	"answer_document_mutation_runtime_rcr.go:runtimeTraceProjImpactFormForNode#2": {
 		Missing: "sleep,s_sleep,sleep_wait",
 		Why:     "PTV8-RCR-A §24.3: the sleep family is short-circuited by the IsSleepState early return above (☾ form); non-state rows fall through to the typed token-family lane, then ◦",
 	},
+
 	"answer_document_mutation_runtime_rcr.go:runtimeTraceProjInversionStateCompositionWord#1": {
 		Missing: "sleep,s_sleep,sleep_wait,d_sleep,d_state,io_wait,uninterruptible_sleep",
 		Why:     "GAP-B G7 词值同源 (§27.3, 2026-07-09): the inversion 行1 word-lane speaks only the two inversion COMPONENT states (runnable/running — the states the gated decomposition accounts); a sleep/D/IO-dominant window projection has no seat in the composition grammar, so the word falls back to the gated composition below (fail-open to legacy, never a fabricated component word)",
@@ -101,7 +109,12 @@ var runtimeStateKindSwitchSiteGolden = map[string]string{
 	// moved into the single-source impact-form classifier (rcr.go) — same
 	// case set, no default arm (the classifier falls through to the typed
 	// token-family lane, then ◦).
-	"answer_document_mutation_runtime_rcr.go:runtimeTraceProjImpactFormForNode#1": "running,runnable,d_sleep,d_state,io_wait,uninterruptible_sleep",
+	"answer_document_mutation_runtime_rcr.go:runtimeTraceProjImpactFormForNode#1": "d_sleep,d_state,uninterruptible_sleep",
+	"answer_document_mutation_runtime_rcr.go:runtimeTraceProjImpactFormForNode#2": "running,runnable,d_sleep,d_state,io_wait,uninterruptible_sleep",
+	// DSTATE-REFINE arm c (件③): the D-family tail-redundancy predicate —
+	// the explicit default arm keeps every non-D/IO state on its
+	// informative tail (96728 E14/E16 witness fork lives in the D family).
+	"answer_document_mutation_runtime_typelabels.go:runtimeTraceProjDFamilyTailRedundant#1": "d_sleep,d_state,io_wait,uninterruptible_sleep|default",
 	// GAP-B G7 (§27.3, 2026-07-09): the 词值同源 window-lane word switch — the
 	// two inversion component states only (fall-through declared above).
 	"answer_document_mutation_runtime_rcr.go:runtimeTraceProjInversionStateCompositionWord#1": "running,runnable",

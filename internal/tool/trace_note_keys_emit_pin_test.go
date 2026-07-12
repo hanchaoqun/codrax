@@ -99,7 +99,7 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 		// gated_cluster_topology beside it.
 		GatedRunnableMs: 1, GatedRunningDeficitMs: 1, GatedCapabilitySource: tracequery.CoreCapabilitySourceDefault,
 		GatedClusterTopology: tracequery.CoreCapabilityTopologyComovement,
-		NextStep: "inspect the waker", NextStepKind: "wakeup_chain",
+		NextStep:             "inspect the waker", NextStepKind: "wakeup_chain",
 		PeriodicSource: true, DetectedPeriodMs: 16.6, LatenessMs: 0.5, EffectivePeriodicImpactMs: 0.5,
 		SupplyFoldBasis: basis, SupplyFoldDeficitMs: 1, SupplyFoldIdealMs: 4,
 		LineStart: 5, LineEnd: 9, Summary: "dep slept before wakeup",
@@ -320,6 +320,9 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				ChainRelevance: "on_chain", ChainDepth: 1, ChainBranch: 1,
 				DominantState: string(tracequery.StateRunnable),
 				RunningMs:     2, RunnableMs: 9, SleepMs: 1, DStateMs: 1, IOWaitMs: 1,
+				// DSTATE-REFINE arm a (件③, 2026-07-12): exercises the
+				// dstate_all_noniowait + blocked_reason_caller contract keys.
+				DStateAllNonIOProven: true, BlockedReasonCaller: "dma_fence_default_wait",
 				GatedRunnableMs: 9, GatedRunningDeficitMs: 2,
 				OverlapMs: 3, EdgeCount: 2,
 				NearestChainThread: tracequery.ThreadRef{Comm: "dep", PID: 21},
@@ -422,13 +425,13 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				// record Summary fallback must render the no-seat form, never
 				// a fabricated "#0" ordinal.
 				Rank: 0, Tier: "data_gap", Type: "trace_gap",
-				Thread:       tracequery.ThreadRef{Comm: "ghost2", PID: 108},
-				Confidence:   0.6,
-				LineStart:    97, LineEnd: 98,
-				Source:       "wakeup_chain",
-				Causality:    "adjacent_to_wakeup_chain",
+				Thread:     tracequery.ThreadRef{Comm: "ghost2", PID: 108},
+				Confidence: 0.6,
+				LineStart:  97, LineEnd: 98,
+				Source:         "wakeup_chain",
+				Causality:      "adjacent_to_wakeup_chain",
 				ChainRelevance: "adjacent",
-				TraceGapKind: tracequery.TraceGapKindNoSchedData,
+				TraceGapKind:   tracequery.TraceGapKindNoSchedData,
 			}},
 		},
 		WakeupChain: &tracequery.ChainResult{

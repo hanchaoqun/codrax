@@ -109,6 +109,15 @@ func TestUXR1ThreeChannelOrdinalSplit4165Shape(t *testing.T) {
 					item.Thread.Comm, item.Rank, item)
 			}
 		case "adjacent":
+			// V2-P0 (行级尺守卫): caliber-side rows are ordinal-less by
+			// design — the wall-clock contenders below keep the obligation.
+			if CausalTokenCaliberSideClass(item.Type) != CausalCaliberSideNone {
+				if item.Rank != 0 || item.Tier != RootCauseTierCaliberSide {
+					t.Fatalf("caliber-side row %s/%s must carry Rank=0 + tier=caliber_side: %+v",
+						item.Thread.Comm, item.Type, item)
+				}
+				continue
+			}
 			if item.Rank <= 0 {
 				t.Fatalf("adjacent contender %s/%s lost its 邻近影响 ordinal: %+v",
 					item.Thread.Comm, item.Type, item)
@@ -116,16 +125,23 @@ func TestUXR1ThreeChannelOrdinalSplit4165Shape(t *testing.T) {
 		}
 	}
 	// Channel-2 ordinal order == published effective descending (§29.22.1).
+	// EVOLUTION RECORD (V2-P0 行级尺守卫, rank_order_v2_design_20260712.md
+	// §6.1 新裁定 A, 2026-07-12): the pre-V2-P0 self-violating sequence —
+	// count 计数当量0.600 at #1 and composite score 0.198 at #2 ABOVE the
+	// wall-clock 0.099/0.091 rows — is exactly the 4165 witness the design
+	// quotes (rank_boards.txt:113 自违序列). Count/composite rows now leave
+	// the ordinal space (⌗ 口径旁栏, rank=0 asserted above) and the
+	// wall-clock contenders renumber contiguously.
 	wantAdjacent := []struct {
 		typ  string
 		rank int
 	}{
-		{"page_cache_churn", 1},
-		{"block_io_by_inode", 2},
-		{"io_latency", 3},
-		{"io_burst_episode", 4},
-		{"io_wait", 5},
-		{"runnable_wait", 6},
+		{"page_cache_churn", 0},
+		{"block_io_by_inode", 0},
+		{"io_latency", 1},
+		{"io_burst_episode", 2},
+		{"io_wait", 3},
+		{"runnable_wait", 4},
 	}
 	for _, want := range wantAdjacent {
 		found := false

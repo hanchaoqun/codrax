@@ -561,10 +561,16 @@ var threadStateComparisonSiteGolden = map[string]string{
 	"query.go:isIntermediateSleepAggregate":             "s_sleep#1",
 	"query.go:isIntermediateSleepImpact":                "s_sleep#1",
 	"query.go:offCPUIntervalsFromState":                 "runnable#1",
-	"query.go:offCPUStateIsIOWait":                      "d_sleep,io_wait#2",
+	// DSTATE-REFINE arm a (CAL-1 件③, 2026-07-12): the D-family segment
+	// verdict moved into offCPUDStateVerdict (one lookup returning
+	// isIOWait + marker coverage + caller); offCPUStateIsIOWait delegates
+	// and no longer compares states itself.
+	"query.go:offCPUDStateVerdict": "d_sleep,io_wait#2",
 	// Formal WindowStats D/IO ownership partitions mutually-exclusive IOWait
 	// and non-IO D-state members before folding one per-thread account.
-	"query.go:rootCauseDIOStateFamilyItems": "io_wait#2",
+	// 件③: the refined-D proof scans the D-ledger members (state==d_sleep)
+	// for coverage/caller aggregation beside the two IOWait partitions.
+	"query.go:rootCauseDIOStateFamilyItems": "d_sleep,io_wait#3",
 	// The closed aggregate effective accessor now owns one former duplicated
 	// running-state branch; the constructor retains only its raw-display case.
 	"query.go:rootCauseItemFromCausalAggregate":           "running#1",

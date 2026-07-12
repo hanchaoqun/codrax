@@ -588,6 +588,14 @@ func rootPreRun(cmd *cobra.Command, args []string) error {
 		// Validation happens in runTraceDiagCLI.
 		return nil
 	}
+	if strings.TrimSpace(flagTraceDiagTrace) != "" {
+		// CAL-1 修复轮 P3-5 (2026-07-12): --trace is the tracediag-mode input
+		// flag ONLY. Without --tracediag the pipeline used to run with NO
+		// runtime attachment at all and silently fall back to repo-source
+		// analysis (two wasted LLM replays in the CAL-1 acceptance run) —
+		// fail loud and point at the pipeline attach flags instead.
+		return fmt.Errorf("--trace requires --tracediag <script.yaml>; to attach a runtime trace to the analysis pipeline use --htrace/--atrace <path>")
+	}
 	if strings.TrimSpace(flagTraceDiagWindow) != "" {
 		return fmt.Errorf("--trace-window requires --tracediag <script.yaml>")
 	}

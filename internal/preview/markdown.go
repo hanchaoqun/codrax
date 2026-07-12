@@ -335,26 +335,39 @@ func writeTraceProjectionLineRuns(w util.BufWriter, line string, anchor *traceAn
 	for offset := 0; offset < len(line); {
 		if token, rank, width, adjacent, ok := traceProjectionRankToken(line, offset); ok {
 			flushASCII()
-			kind := "ordinal"
-			for _, badge := range tracefence.BadgeGlyphs() {
-				if strings.HasPrefix(token, badge) {
-					kind = "chip"
+			badge := false
+			for _, glyph := range tracefence.BadgeGlyphs() {
+				if strings.HasPrefix(token, glyph) {
+					badge = true
 					break
 				}
 			}
 			switch {
-			case kind == "chip":
-				_, _ = fmt.Fprintf(w, `<span class="trace-rank-%s trace-rank-%d trace-rank-width-%d"><span class="trace-rank-glyph">%s</span></span>`,
-					kind, rank, width, stdhtml.EscapeString(token))
+			case badge && strings.HasPrefix(line[offset+len(token):], " "):
+				// CAL-1 件⑥a (2026-07-12, T-6 fulfilled early): the badge and
+				// its UXG-0 D5 companion space fuse into ONE 2ch inline-grid
+				// envelope slot — the same v5 P0 geometry as the state marks.
+				// The colored pill stretches to the full 2ch, overflow stays
+				// visible and the dingbat ink is never clipped; textContent
+				// keeps both bytes.
+				_, _ = fmt.Fprintf(w, `<span class="trace-slot trace-rank-pill trace-rank-%d"><span class="trace-ink">%s </span></span>`,
+					rank, stdhtml.EscapeString(token))
+				offset += len(token) + 1
+				continue
+			case badge:
+				// No companion space (pre-D5 archives): 1ch standalone slot,
+				// centered, overflow visible — the space-less icon fallback.
+				_, _ = fmt.Fprintf(w, `<span class="trace-slot trace-slot-1 trace-rank-pill trace-rank-%d"><span class="trace-ink">%s</span></span>`,
+					rank, stdhtml.EscapeString(token))
 			case adjacent:
 				// UXG-0 D2: ◇ channel ordinal — shared chip geometry, neutral
 				// channel color class instead of a per-rank root-cause color
 				// (§29.36.2: ordinals never compare across channels).
-				_, _ = fmt.Fprintf(w, `<span class="trace-rank-%s trace-rank-adjacent trace-rank-width-%d">%s</span>`,
-					kind, width, stdhtml.EscapeString(token))
+				_, _ = fmt.Fprintf(w, `<span class="trace-rank-ordinal trace-rank-adjacent trace-rank-width-%d">%s</span>`,
+					width, stdhtml.EscapeString(token))
 			default:
-				_, _ = fmt.Fprintf(w, `<span class="trace-rank-%s trace-rank-%d trace-rank-width-%d">%s</span>`,
-					kind, rank, width, stdhtml.EscapeString(token))
+				_, _ = fmt.Fprintf(w, `<span class="trace-rank-ordinal trace-rank-%d trace-rank-width-%d">%s</span>`,
+					rank, width, stdhtml.EscapeString(token))
 			}
 			offset += len(token)
 			continue

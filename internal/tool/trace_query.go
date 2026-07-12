@@ -6165,7 +6165,13 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				provenance = types.ObservationProvenanceArtifactSpan
 				claimKey = "root_cause_absorbed"
 				predicate = "root_cause_absorbed"
-			} else if tier == tracequery.RootCauseTierDataGap || tier == tracequery.RootCauseTierContextOnly {
+			} else if tier == tracequery.RootCauseTierDataGap || tier == tracequery.RootCauseTierContextOnly ||
+				tier == tracequery.RootCauseTierCaliberSide {
+				// V2-P0 (2026-07-12): a ⌗ 口径旁栏 row (count/composite-score
+				// caliber) left the ranking — like the blind-spot/context arms
+				// it is never a principal answer; the typed
+				// root_cause_caliber_side claim/predicate identity is
+				// preserved verbatim.
 				// 复核 P3-2 (2026-07-09): a data blind spot is NEVER a
 				// principal answer — the role/provenance demote UNCONDITIONALLY
 				// (the background arm below requires a foreground root cause,
@@ -6844,6 +6850,12 @@ func traceQueryActualCaliberNote(actualImpact, actualTotal float64) string {
 }
 
 func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) []string {
+	refined := ""
+	if item.DStateAllNonIOProven {
+		// DSTATE-REFINE arm a (件③): boolean note only when the engine minted
+		// the coverage proof (absence never guesses).
+		refined = "true"
+	}
 	return traceQueryTypedKVNotes([][2]string{
 		{types.TraceNoteKeyDominantState, item.DominantState},
 		{types.TraceNoteKeyRunning, traceQueryObservationMSValue(item.RunningMs)},
@@ -6851,6 +6863,8 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 		{types.TraceNoteKeySleep, traceQueryObservationMSValue(item.SleepMs)},
 		{types.TraceNoteKeyDState, traceQueryObservationMSValue(item.DStateMs)},
 		{types.TraceNoteKeyIOWait, traceQueryObservationMSValue(item.IOWaitMs)},
+		{types.TraceNoteKeyDStateRefinedNonIO, refined},
+		{types.TraceNoteKeyBlockedReasonCaller, sanitizeForBanner(item.BlockedReasonCaller)},
 	})
 }
 

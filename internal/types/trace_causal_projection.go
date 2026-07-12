@@ -295,7 +295,7 @@ type TraceCausalProjectionNode struct {
 	// (typed chain_branch note — P0-E CHAIN-PATH, ledger §22.1). The display
 	// tree keys its depth attach to (branch, depth): a node from a DIFFERENT
 	// branch than the elected trunk never fabricates a trunk position (the
-	// fake-L26/L27 family); it keeps its honest 未接入树 seat instead. 0 =
+	// fake-L26/L27 family); it keeps its honest 父节点未确认 seat instead. 0 =
 	// no branch identity (legacy rows keep the pre-P0-E depth attach).
 	ChainBranch        int     `json:"chain_branch,omitempty"`
 	ImpactMS           float64 `json:"impact_ms,omitempty"`
@@ -329,7 +329,7 @@ type TraceCausalProjectionNode struct {
 	// gate reads PRECISE typed endpoints under the ONE shared tolerance
 	// (TraceCausalProjectionSameWindowToleranceS); a node with a ZERO pair on
 	// a windowed trunk cannot PROVE domain membership and conservatively keeps
-	// its honest 未接入树 seat (缺窗身份≠可挂靠 — the lossy zero never passes
+	// its honest 父节点未确认 seat (缺窗身份≠可挂靠 — the lossy zero never passes
 	// the gate in EITHER direction: it neither attaches nor manufactures a
 	// rejection when the trunk itself carries no window identity).
 	QueryWindowStartTs float64 `json:"query_window_start_ts,omitempty"`
@@ -351,6 +351,16 @@ type TraceCausalProjectionNode struct {
 	// sleep rows and drive the sleep-drilldown surface (presentation gaps d/e).
 	// Empty when the source row exposed no dominant_state.
 	StateKind string `json:"state_kind,omitempty"`
+	// DStateRefinedNonIO (DSTATE-REFINE arm a, CAL-1 件③, 2026-07-12): the
+	// engine's typed refined-D proof (dstate_all_noniowait note — io_wait
+	// share zero AND blocked_reason 全覆盖∧全0). Display word gate for the
+	// refined 「D-state」 form on merged d_state_or_io_wait rows; false keeps
+	// the honest 「D-state/iowait」 merged word.
+	DStateRefinedNonIO bool `json:"d_state_refined_non_io,omitempty"`
+	// BlockedReasonCaller (件③): the unanimous blocked_reason semantic caller
+	// (dma_fence_default_wait family) for the 行2 等待对象 disclosure; ""
+	// when absent/conflicting (absence never guesses).
+	BlockedReasonCaller string `json:"blocked_reason_caller,omitempty"`
 	// UndrillableReason is a typed enum (currently only "missing_wakeup") set when
 	// a sleep interval could NOT be resolved to an upstream waker — sourced from a
 	// root_evidence:missing_wakeup observation ("sleep interval has no matching
@@ -943,6 +953,22 @@ const TraceCausalTierContextOnly = "context_only"
 // carries rank fields.
 func (n TraceCausalProjectionNode) IsContextOnlyRow() bool {
 	return strings.TrimSpace(n.Tier) == TraceCausalTierContextOnly
+}
+
+// TraceCausalTierCaliberSide mirrors tracequery.RootCauseTierCaliberSide
+// (V2-P0 行级尺守卫, rank_order_v2_design_20260712.md §6.1 新裁定 A,
+// 2026-07-12): a count-additivity / composite-score row that left the
+// chain/◇ ordinal space — the ⌗ 口径旁栏. The row keeps its channel seat and
+// its evidence/display obligation (no silent-disappearance path), publishes
+// its value under an explicit caliber word, and must never be promoted to a
+// board seat, badge, lead or root-cause candidate even if a stale persisted
+// record carries rank fields.
+const TraceCausalTierCaliberSide = "caliber_side"
+
+// IsCaliberSideRow reports whether this node rides the ⌗ 口径旁栏 (exact
+// typed tier token — thread names, state words and prose never infer it).
+func (n TraceCausalProjectionNode) IsCaliberSideRow() bool {
+	return strings.TrimSpace(n.Tier) == TraceCausalTierCaliberSide
 }
 
 // TraceCausalTierDataGap mirrors tracequery.RootCauseTierDataGap (G2 引擎半场,
@@ -2628,6 +2654,9 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// unconsumed) typed rich notes so the renderer can show the duration triad
 	// and mark sleep symptoms / undrillable sleeps precisely — no prose parsing.
 	node.StateKind = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyDominantState))
+	// DSTATE-REFINE arm a (件③): exact typed boolean + caller symbol.
+	node.DStateRefinedNonIO = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyDStateRefinedNonIO)) == "true"
+	node.BlockedReasonCaller = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyBlockedReasonCaller))
 	if node.StateKind == "" {
 		// Root-cause / hop rows encode the scheduler state as the Object
 		// (sleep_wait / running / io_wait / …). Fall back to it ONLY when it is a

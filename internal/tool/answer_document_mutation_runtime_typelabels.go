@@ -15,7 +15,7 @@ package tool
 // share ONE token set and the Chinese state semantics live solely in the
 // legend's state-icon entries. When a zh label equals its raw token the D4
 // combined form collapses to the bare token (no label（label） echo). Product
-// compound words (优先级反转候选 / 可运行等待反转), caliber words and
+// compound words (优先级反转候选 / 优先级反转·可运行等待), caliber words and
 // narrative frames stay Chinese per the same ruling.
 
 import (
@@ -37,7 +37,7 @@ func runtimeTraceRootCauseTypeZHLabel(token string) string {
 	case "priority_inversion_candidate":
 		return "优先级反转候选"
 	case "priority_inversion_runnable_wait":
-		return "可运行等待反转"
+		return "优先级反转·可运行等待"
 	case "io_latency":
 		return "IO延迟"
 	case "io_wait":
@@ -241,12 +241,31 @@ func runtimeTraceCausalProjectionDisplayCauseName(raw string, zh bool) string {
 // everything else stays on the raw-string cause lane.
 func runtimeTraceCausalProjectionDisplayCauseNameNode(node types.TraceCausalProjectionNode, zh bool) string {
 	if runtimeTraceCausalProjectionUnknownSentinel(node.Object) {
-		return runtimeTraceCausalProjectionUnresolvedPeerText(runtimeTraceCausalProjectionUnresolvedPeerKind(node), zh)
+		return runtimeTraceCausalProjectionUnresolvedPeerText(runtimeTraceCausalProjectionUnresolvedPeerKindNode(node), zh)
 	}
 	if kind := runtimeTraceCausalProjectionResolvedPeerObjectKind(node); kind != "" {
+		if kind == "d_state_or_io_wait" && node.DStateRefinedNonIO {
+			kind = "d_state_refined"
+		}
 		return runtimeTraceCausalProjectionResolvedPeerText(kind, runtimeTraceCausalProjectionDisplayNodeName(strings.TrimSpace(node.Object), zh), zh)
 	}
+	// DSTATE-REFINE arm a (件③): a raw-lane merged cause word consumes the
+	// engine's refined-D proof — 「D-state」 instead of 「D-state/iowait」.
+	if runtimeTraceCausalProjectionCanonicalNode(node.Object) == "d_state_or_io_wait" && node.DStateRefinedNonIO {
+		return runtimeTraceProjStateKindLabel(types.TraceCausalProjectionNode{StateKind: "d_state"}, zh)
+	}
 	return runtimeTraceCausalProjectionDisplayCauseName(node.Object, zh)
+}
+
+// runtimeTraceCausalProjectionUnresolvedPeerKindNode is the node-aware
+// unresolved-peer kind: the raw typed kind refined by the arm-a proof
+// (d_state_or_io_wait → d_state_refined when proven).
+func runtimeTraceCausalProjectionUnresolvedPeerKindNode(node types.TraceCausalProjectionNode) string {
+	kind := runtimeTraceCausalProjectionUnresolvedPeerKind(node)
+	if kind == "d_state_or_io_wait" && node.DStateRefinedNonIO {
+		return "d_state_refined"
+	}
+	return kind
 }
 
 // runtimeTraceCausalProjectionResolvedPeerObjectKind is the single #7 gate
@@ -312,6 +331,52 @@ func runtimeTraceCausalProjectionTypeTokenStateClass(node types.TraceCausalProje
 		return "io_wait"
 	}
 	return ""
+}
+
+// runtimeTraceCausalProjectionRefinedStateClass — DSTATE-REFINE arm a (CAL-1
+// 件③, §29.39②/§29.47.2, 2026-07-12): the node's #3 state-family class after
+// consuming the engine's typed refined-D proof — a merged d_state_or_io_wait
+// class refines to the unambiguous "d_state" when the engine minted
+// DStateRefinedNonIO (io_wait share zero ∧ blocked_reason 全覆盖∧全0); every
+// other class (and every unproven row) passes through verbatim, keeping the
+// honest merged 「D-state/iowait」 word.
+func runtimeTraceCausalProjectionRefinedStateClass(node types.TraceCausalProjectionNode, class string) string {
+	if class == "d_state_or_io_wait" && node.DStateRefinedNonIO {
+		return "d_state"
+	}
+	return class
+}
+
+// runtimeTraceProjDFamilyTailRedundant — DSTATE-REFINE arm c (件③, witness
+// 96728 E14/E16, 2026-07-12): the D-family bare state tail (the 「· D-state」
+// form) is REDUNDANT exactly when the row-1 cause name already speaks the
+// same family word — a raw d_state_or_io_wait / io_wait Object (label
+// D-state/iowait, refined D-state, iowait) or the D-family peer-relation
+// wording (D-state/iowait(对端…)). Rows whose name does NOT speak the state
+// (e.g. the generic 对端线程未解析 wording) keep the informative tail. Typed
+// token/kind comparisons only — never a substring dedupe.
+func runtimeTraceProjDFamilyTailRedundant(node types.TraceCausalProjectionNode) bool {
+	switch strings.TrimSpace(strings.ToLower(node.StateKind)) {
+	case "d_state", "d_sleep", "uninterruptible_sleep", "io_wait":
+	default:
+		return false
+	}
+	switch runtimeTraceCausalProjectionCanonicalNode(node.Object) {
+	case "d_state_or_io_wait", "fragmented_d_state_or_io_wait", "io_wait":
+		// 修复轮 P3-2: the fragmented family token speaks the same merged
+		// word on the name lane (same zh label family) — same redundancy.
+		return true
+	}
+	if runtimeTraceCausalProjectionUnknownSentinel(node.Object) {
+		switch runtimeTraceCausalProjectionUnresolvedPeerKindNode(node) {
+		case "d_state_or_io_wait", "d_state_refined":
+			return true
+		}
+	}
+	if runtimeTraceCausalProjectionResolvedPeerObjectKind(node) == "d_state_or_io_wait" {
+		return true
+	}
+	return false
 }
 
 // runtimeTraceCausalProjectionTypeTokenStateWord renders the #3 state-family
@@ -523,6 +588,54 @@ func runtimeTraceProjPacingIdleNode(node types.TraceCausalProjectionNode) bool {
 		}
 	}
 	return false
+}
+
+// runtimeTraceProjIdleRowKind resolves a row's typed cadence-idle lane
+// (CAL-1 件⑤ PACE-ROW, §29.47.4②, 2026-07-12): the canonical idle token —
+// "pacing_idle" / "periodic_idle" — when the row IS a cadence-idle row
+// (standalone idle rank row, or the R1 same-fact survivor that adopted the
+// idle view's TypeToken), "" otherwise. The token doubles as the typed mint
+// witness for the 行2 「节拍吻合」 word: the engine mints these tokens only
+// after proving the cadence fit (segment length ≈ frame/measured period,
+// waker on the dispatch chain — P9 arm c), so the wordface never outruns
+// the proof.
+// runtimeTraceProjCaliberSideWord renders the ⌗ 口径旁栏 row-2 word (V2-P0,
+// rank_order_v2_design_20260712.md §6.1, 2026-07-12): the value-class word
+// comes from the SHARED registry arm (tracequery.CausalTokenCaliberSideClass
+// — the same single implementation the engine ordinal guard and capacity
+// side-lane consume); a row whose token no longer resolves keeps the generic
+// form (the tier itself is the precise signal).
+func runtimeTraceProjCaliberSideWord(node types.TraceCausalProjectionNode, zh bool) string {
+	class := tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken))
+	if zh {
+		switch class {
+		case tracequery.CausalCaliberSideCount:
+			return "⌗口径旁栏·计数当量(非墙钟,不占序数)"
+		case tracequery.CausalCaliberSideCompositeScore:
+			return "⌗口径旁栏·复合分数(非墙钟,不占序数)"
+		}
+		return "⌗口径旁栏(非墙钟,不占序数)"
+	}
+	// zh-en 同词 for the kernel caliber tokens (the 计数当量 family word
+	// renders byte-identically on both faces — same discipline as the
+	// RCM-2 family legend, probe {"计数当量","计数当量"}).
+	switch class {
+	case tracequery.CausalCaliberSideCount:
+		return "⌗ caliber-side · 计数当量 (count-equivalent, not wall clock, no ordinal)"
+	case tracequery.CausalCaliberSideCompositeScore:
+		return "⌗ caliber-side · 复合分数 (composite score, not wall clock, no ordinal)"
+	}
+	return "⌗ caliber-side (not wall clock, no ordinal)"
+}
+
+func runtimeTraceProjIdleRowKind(node types.TraceCausalProjectionNode) string {
+	if runtimeTraceProjPacingIdleNode(node) {
+		return "pacing_idle"
+	}
+	if runtimeTraceProjPeriodicIdleNode(node) {
+		return "periodic_idle"
+	}
+	return ""
 }
 
 // runtimeTraceProjAllZeroFoldRow identifies the ×N(0.000–0.000) all-zero fold

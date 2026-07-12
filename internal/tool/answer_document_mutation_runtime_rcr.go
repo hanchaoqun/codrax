@@ -78,6 +78,18 @@ const (
 	// family's category word — same glyph (⛓ carries the D-state icon
 	// semantics since PTV4), own 行2 word (D状态候选).
 	runtimeTraceProjImpactFormDState
+	// ⛓ IO等待候选 (DSTATE-REFINE arm b, CAL-1 件③ §29.47.2, 2026-07-12): a
+	// D-family row REFINED to the typed io_wait token (the engine's
+	// blocked_reason iowait proof) — the category word consumes the
+	// refinement instead of the family 「D状态候选」 its dominant D state
+	// would mint (96728 E14 同行三面三说法灭). Same ⛓ glyph family.
+	runtimeTraceProjImpactFormIOWaitRefined
+	// ⛓ D状态/IO候选 (件③ arm b 用户补正, witness 45261 E9, 2026-07-12): the
+	// UNREFINED merged d_state_or_io_wait family row — 行1 speaks the merged
+	// compound (D-state/iowait), so the category word is the mixed compound
+	// too (三面一说); the refined pure-D form keeps 「D状态候选」. Tri-form
+	// final: 全iowait→IO等待候选 / 细化纯D→D状态候选 / 混合或记录不全→本形.
+	runtimeTraceProjImpactFormDStateIOMixed
 	// ⧖ 调度压力 (runnable / scheduler-latency family; §7.4 demand-side word).
 	runtimeTraceProjImpactFormRunnable
 	// ⊗ 锁竞争·持锁 (typed BlockingKind rows).
@@ -142,6 +154,16 @@ func runtimeTraceProjImpactFormSpecs() []runtimeTraceProjImpactFormSpec {
 		// entry unchanged), only the 行2 category word splits from IO阻塞候选.
 		{Form: runtimeTraceProjImpactFormDState, Glyph: tracefence.GlyphIOChain,
 			CategoryZH: "D状态候选", CategoryEN: "D-state candidate",
+			Mark: runtimeTraceProjMarkIconDState},
+		// DSTATE-REFINE arm b (件③, 2026-07-12): the refined-to-iowait row's
+		// own category word (glyph/mark stay on the ⛓ family).
+		{Form: runtimeTraceProjImpactFormIOWaitRefined, Glyph: tracefence.GlyphIOChain,
+			CategoryZH: "IO等待候选", CategoryEN: "IO-wait candidate",
+			Mark: runtimeTraceProjMarkIconDState},
+		// 件③ arm b 用户补正 (2026-07-12): the mixed/unproven merged family's
+		// compound category word (isomorphic with the 行1 merged word).
+		{Form: runtimeTraceProjImpactFormDStateIOMixed, Glyph: tracefence.GlyphIOChain,
+			CategoryZH: "D状态/IO候选", CategoryEN: "D-state/IO candidate",
 			Mark: runtimeTraceProjMarkIconDState},
 		// EVOLUTION RECORD (SYM-2 §24.17 R2, 2026-07-08): 就绪排队候选 →
 		// 调度压力候选 — the runnable family's 行2 word joins the §7.4
@@ -274,6 +296,17 @@ func runtimeTraceProjImpactFormFamilyWord(node types.TraceCausalProjectionNode, 
 		if form == runtimeTraceProjImpactFormNone {
 			continue
 		}
+		// 件③ tri-form (2026-07-12): the merged D/IO family word forks on
+		// the refined-D proof here too (one fork rule, two consumers — the
+		// FormForNode classifier carries the same arm).
+		if form == runtimeTraceProjImpactFormDState {
+			switch runtimeTraceCausalProjectionCanonicalNode(token) {
+			case "d_state_or_io_wait", "fragmented_d_state_or_io_wait":
+				if !node.DStateRefinedNonIO {
+					form = runtimeTraceProjImpactFormDStateIOMixed
+				}
+			}
+		}
 		if form == runtimeTraceProjImpactFormBlindSpot {
 			if zh {
 				return "数据盲区(窗内数据缺口,非成因)"
@@ -318,6 +351,32 @@ func runtimeTraceProjImpactFormForNode(node types.TraceCausalProjectionNode, kin
 	}
 	if node.IsSleepState() {
 		return runtimeTraceProjImpactFormSleep
+	}
+	// DSTATE-REFINE arm b (件③, witness 96728 E14): a row whose TYPE lane was
+	// refined to io_wait while its dominant STATE stayed in the D family
+	// consumes the refinement — 「IO等待候选」, never the D-state family word
+	// the state arm below would mint (类别词消费细化态). Exact typed tokens —
+	// the RAW TypeToken (TypeTokenStateClass deliberately blanks itself when
+	// a StateKind is present, and this shape ALWAYS has the D StateKind).
+	if strings.ToLower(strings.TrimSpace(node.TypeToken)) == "io_wait" {
+		switch strings.TrimSpace(strings.ToLower(node.StateKind)) {
+		case "d_state", "d_sleep", "uninterruptible_sleep":
+			return runtimeTraceProjImpactFormIOWaitRefined
+		}
+	}
+	// 件③ arm b 用户补正 (witness 45261 E9): a MERGED d_state_or_io_wait
+	// family row forks its category on the refined-D proof — proven pure D
+	// keeps 「D状态候选」, mixed/coverage-incomplete speaks the compound
+	// 「D状态/IO候选」 isomorphic with its 行1 merged word (三面一说). Exact
+	// typed family tokens only; single-state D rows fall to the ladder below.
+	for _, token := range []string{node.TypeToken, node.Object} {
+		switch runtimeTraceCausalProjectionCanonicalNode(token) {
+		case "d_state_or_io_wait", "fragmented_d_state_or_io_wait":
+			if node.DStateRefinedNonIO {
+				return runtimeTraceProjImpactFormDState
+			}
+			return runtimeTraceProjImpactFormDStateIOMixed
+		}
 	}
 	switch strings.TrimSpace(strings.ToLower(node.StateKind)) {
 	case "running":
@@ -898,6 +957,16 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		row.marks.mark(runtimeTraceProjMarkChainDepthChip)
 		if runtimeTraceProjDepthlessUnattachedRow(row) {
 			row.marks.mark(runtimeTraceProjMarkChainSeatUnattached)
+		}
+	}
+	// DSTATE-REFINE caller 等待对象族 (件③, witness CompThread 12/12 iowait=0
+	// dma_fence_default_wait): the unanimous blocked_reason semantic caller
+	// discloses on 行2 — engine-minted symbol only (absence never guesses).
+	if caller := strings.TrimSpace(node.BlockedReasonCaller); caller != "" {
+		if zh {
+			identity = append(identity, "等待对象 "+caller)
+		} else {
+			identity = append(identity, "wait object "+caller)
 		}
 	}
 	effectiveWord := "有效归因"

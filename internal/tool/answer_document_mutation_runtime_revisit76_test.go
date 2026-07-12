@@ -135,7 +135,11 @@ func TestTraceProjectionSameSubjectIOCalibersFoldIntoPrimaryRow(t *testing.T) {
 	// PTV5 C09/C16 (#68): zh labels ride the D4 combined form; the longer note
 	// may T3-wrap between tokens, so the pin checks the caliber list and the
 	// evidence roster as two whole substrings (tokens themselves never split).
-	if !strings.Contains(fence, "同段IO另有 IO突发（io_burst_episode） 226.153ms、iowait（io_wait） 112.011/107.672ms 口径;证据") ||
+	// EVOLUTION RECORD (IOFAM-SELF 件②, 2026-07-12): the roster is layered —
+	// each member wears its measuring-layer word (完成端到端/调度等待).
+	if !strings.Contains(fence, "同段IO另有 完成端到端·IO突发（io_burst_episode） 226.153ms") ||
+		!strings.Contains(fence, "调度等待·iowait（io_wait）") ||
+		!strings.Contains(fence, "112.011/107.672ms 口径;证据") ||
 		!strings.Contains(fence, "E2、E3、E4") {
 		t.Fatalf("the folded calibers must surface as ONE note with all evidence ids:\n%s", fence)
 	}
@@ -167,7 +171,7 @@ func TestTraceProjectionIOFoldDetailTableMirrorAndChainAttachedKeepsWake(t *test
 	// PTV4 T10: the caliber-note and relation mirrors live in the (b) vertical
 	// lossless blocks (the (a) key table carries the duration quad only).
 	full := runtimeTraceProjDetailFullText(model, true)
-	if !strings.Contains(full, "同段IO口径: 同段IO另有 IO突发（io_burst_episode） 226.153ms、iowait（io_wait） 112.011/107.672ms 口径") {
+	if !strings.Contains(full, "同段IO口径: 同段IO另有 完成端到端·IO突发（io_burst_episode） 226.153ms、调度等待·iowait（io_wait） 112.011/107.672ms 口径") {
 		t.Fatalf("the lossless surface must mirror the caliber note on the primary block:\n%s", full)
 	}
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 关系 ▸ 影响点: 唤醒 ▸ … → split "- 关系: 唤醒 <parent>" line (明细块)
@@ -330,7 +334,7 @@ func TestTraceProjectionIOFoldNeverCrossesChainLanes(t *testing.T) {
 		depthless("io-own-wait", "io_wait", 107.672, 1250, 1750))
 	model = buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence = runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "同段IO另有 iowait（io_wait） 107.672ms 口径;证据 E4") {
+	if !strings.Contains(fence, "同段IO另有 调度等待·iowait（io_wait） 107.672ms 口径;证据 E4") {
 		t.Fatalf("same-lane depthless calibers must keep folding:\n%s", fence)
 	}
 	if !strings.Contains(fence, "112.011") {
@@ -419,12 +423,13 @@ func TestTraceProjectionCoverageLineExplainsOwnCaliberResidualOverlap(t *testing
 	// NEW-6: the appended clause carries the NEW-3 grouped primary value
 	// (232.428, the fold survivor — never a folded peer's) and its evidence tag
 	// verbatim (E3 = the primary IO row's index entry).
-	if !strings.Contains(line, "未归因中最大 232.428ms 与自身 IO 口径行(E3)重叠解释,未计入链上归因以防双计。") {
+	// 件② E# 并 merged_ids: the fold survivor tag carries the absorbed ids.
+	if !strings.Contains(line, "未归因中最大 232.428ms 与自身 IO 口径行(E3(+3))重叠解释,未计入链上归因以防双计。") {
 		t.Fatalf("coverage line must self-explain the own-caliber residual overlap:\n%s", line)
 	}
 	enModel := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	en := runtimeTraceProjWindowLine(projection, enModel, false)
-	if !strings.Contains(en, "Up to 232.428ms of the residual is co-explained by the own-process IO caliber row (E3); it is excluded from the chain attribution to avoid double counting.") {
+	if !strings.Contains(en, "Up to 232.428ms of the residual is co-explained by the own-process IO caliber row (E3(+3)); it is excluded from the chain attribution to avoid double counting.") {
 		t.Fatalf("en coverage line must mirror the overlap clause:\n%s", en)
 	}
 }
@@ -623,6 +628,11 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		runtimeTraceProjMarkPacingIdle: {"帧间空闲", "pacing_idle"},
 		// 复核 P2-1 (2026-07-12): the generic periodic fork's type word.
 		runtimeTraceProjMarkPeriodicIdle: {"周期空闲", "periodic_idle"},
+		// CAL-1 件⑤/⑥b (2026-07-12): the cadence-idle row glyph (glyph IS
+		// the probe, same as the off-chain D-state icon).
+		runtimeTraceProjMarkIconPacing: {"∿", "∿"},
+		// V2-P0 (2026-07-12): the ⌗ 口径旁栏 disclosure word.
+		runtimeTraceProjMarkCaliberSideRow: {"⌗口径旁栏", "⌗ caliber-side"},
 		// PTV5 PTS: the on-chain overflow fold row's lane word.
 		runtimeTraceProjMarkOnChainOverflowFold: {"链上折叠", "on-chain fold"},
 		// PTV6-C ruling A (#73): the ◇/▒ cross-thread cumulative family word.
@@ -678,7 +688,7 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		runtimeTraceProjMarkEffectiveAttributionTag: {"", ""},
 		// PTV8-RCR-C (§24.12 C6): the depthless unattached 三面同词 family —
 		// the word rides the edge, the L# chip and the detail 层级 cell.
-		runtimeTraceProjMarkChainSeatUnattached: {"未接入树", "unattached"},
+		runtimeTraceProjMarkChainSeatUnattached: {"父节点未确认", "parent unconfirmed"},
 		// PTV8-RCR-C (§24.13 裁定二后半): the multi-board seat window tag
 		// (根因排序#1·窗X–Ys); the zh no-space join / en spaced join tokens.
 		runtimeTraceProjMarkRankSeatWindow: {"·窗", "· window "},
@@ -1275,6 +1285,10 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// UXR-1 §29.36.3 (通道4 提及义务): an on-chain semantic row without a
 		// channel-1 seat wears the mention-obligation word + legend entry.
 		{"uxr1_mention_floor", revisit76UXR1MentionFloorProjection()},
+		// V2-P0 (design §6.1 新裁定 A, 2026-07-12): the ⌗ 口径旁栏 rows
+		// (count + composite-score) + their legend entry (fixture home:
+		// answer_document_projection_v2p0_test.go).
+		{"v2p0_caliber_side", types.TraceCausalProjectionFromObservationRecords(v2p0CaliberRecords())},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

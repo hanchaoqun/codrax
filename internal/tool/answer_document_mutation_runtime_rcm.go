@@ -28,6 +28,7 @@ package tool
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
@@ -65,6 +66,19 @@ func runtimeTraceProjFamilyCaliberWord(node types.TraceCausalProjectionNode, zh 
 		}
 		return fmt.Sprintf("member max (%d segments, overlap not deducted)", n), runtimeTraceProjMarkFamilyMemberMax, true
 	case tracequery.RootCauseMemberFoldCaliberCountSum:
+		// F-7 (冷读, 2026-07-12): the off-chain window cap (engine
+		// backgroundImpactMs, 0.35×窗) can clamp the published seat BELOW the
+		// member Σ — donghu E29: Σ119.100 → 81.616, single member 84.300 >
+		// seat. A clamped seat must not claim the「=计数合计」identity (口径
+		// 区承诺"分量计入之和恒等于 V"): the honest word names the truncation;
+		// the Σ stays on the 原始和 comparison face. Typed check: published
+		// value vs FamilyMemberSumMS beyond the %.3f print tolerance.
+		if runtimeTraceProjFamilyCountSumClamped(node) {
+			if zh {
+				return fmt.Sprintf("计数当量(超上限截断;共%d项,同线程)", n), runtimeTraceProjMarkFamilyCountEquivalent, true
+			}
+			return fmt.Sprintf("count equivalent (capped; %d items, same thread)", n), runtimeTraceProjMarkFamilyCountEquivalent, true
+		}
 		// Count-class members keep the counting-semantics word (D1: count_sum
 		// 形沿用计数语义词) — counts add regardless of interval overlap.
 		if zh {
@@ -73,6 +87,20 @@ func runtimeTraceProjFamilyCaliberWord(node types.TraceCausalProjectionNode, zh 
 		return fmt.Sprintf("count total (%d items, same thread)", n), runtimeTraceProjMarkFamilyCountSum, true
 	}
 	return "", 0, false
+}
+
+// runtimeTraceProjFamilyCountSumClamped — F-7 (冷读 CAL-1 修复轮,
+// 2026-07-12): whether a count-sum family seat's PUBLISHED value diverged
+// from its member Σ (the engine's off-chain 0.35×window cap is the known
+// producer). Exact typed comparison; ok only when the Σ was published.
+func runtimeTraceProjFamilyCountSumClamped(node types.TraceCausalProjectionNode) bool {
+	if strings.TrimSpace(node.FamilyFoldCaliber) != tracequery.RootCauseMemberFoldCaliberCountSum {
+		return false
+	}
+	if node.FamilyMemberSumMS <= 0 {
+		return false
+	}
+	return math.Abs(runtimeTraceProjFamilyPublishedMS(node)-node.FamilyMemberSumMS) > 0.0005
 }
 
 // runtimeTraceProjMarkFamilyCaliber records a family caliber-word mark at a
@@ -101,6 +129,14 @@ func runtimeTraceProjFamilyValuePrefix(node types.TraceCausalProjectionNode, zh 
 	switch strings.TrimSpace(node.FamilyFoldCaliber) {
 	case tracequery.RootCauseMemberFoldCaliberSumDisjoint, tracequery.RootCauseMemberFoldCaliberIntervalUnion,
 		tracequery.RootCauseMemberFoldCaliberCountSum:
+		// F-7: a clamped count seat must not claim the sum stem on 行1
+		// either — the established 计数当量 marker word carries no identity.
+		if runtimeTraceProjFamilyCountSumClamped(node) {
+			if zh {
+				return "计数当量"
+			}
+			return "count equivalent "
+		}
 		if zh {
 			return "合计"
 		}

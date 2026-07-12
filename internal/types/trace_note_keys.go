@@ -292,6 +292,23 @@ const (
 	// by the projection compile into TargetStateAccount.SleepIOWaitMS for
 	// the sleep term's 「其中 IO等待」 label.
 	TraceNoteKeySleepIOWait = "sleep_io_wait"
+	// TraceNoteKeyDStateRefinedNonIO (DSTATE-REFINE arm a, CAL-1 件③
+	// §29.39②/§29.47.2, 2026-07-12): the merged D/IO rank row's typed
+	// refinement proof — "true" ONLY when the row's io_wait share is zero AND
+	// every member segment on the D ledger carried a sched_blocked_reason
+	// marker with iowait=0 (blocked_reason 全覆盖∧全0). Consumed by the
+	// projection compile into TraceCausalProjectionNode.DStateRefinedNonIO —
+	// the display's refined 「D-state」 word gate (coverage-less rows keep the
+	// honest merged 「D-state/iowait」 form).
+	TraceNoteKeyDStateRefinedNonIO = "dstate_all_noniowait"
+	// TraceNoteKeyBlockedReasonCaller (件③ caller 等待对象族, 2026-07-12): the
+	// UNANIMOUS semantic caller symbol of the row's D-ledger blocked_reason
+	// markers (dma_fence_default_wait family; witness CompThread 12/12).
+	// Emitted only when every marked member agrees on ONE caller; consumed by
+	// the projection compile into TraceCausalProjectionNode.BlockedReasonCaller
+	// for the 行2 等待对象 disclosure. Distinct from the lock-lane
+	// wait_object key (different producer lane, different semantics).
+	TraceNoteKeyBlockedReasonCaller = "blocked_reason_caller"
 	// TraceNoteKeyDeterministicRunning (§29.27② COV-4, 2026-07-11): the
 	// target_window_states record's 确定性工作 lane — the wall-clock union of
 	// the focused thread's own semantic-span intervals ∩ its running
@@ -300,15 +317,15 @@ const (
 	// value). Consumed by the projection compile into the typed
 	// TargetStateAccount for the four-state coverage account.
 	TraceNoteKeyDeterministicRunning = "deterministic_running"
-	TraceNoteKeyFragments      = "fragments"
-	TraceNoteKeySwitches       = "switches"
-	TraceNoteKeyMaxSegment     = "max_segment"
-	TraceNoteKeyP95Segment     = "p95_segment"
-	TraceNoteKeyActualRunning  = "actual_running"
-	TraceNoteKeyActualRunnable = "actual_runnable"
-	TraceNoteKeyActualSleep    = "actual_sleep"
-	TraceNoteKeyActualDState   = "actual_d_state"
-	TraceNoteKeyActualIOWait   = "actual_io_wait"
+	TraceNoteKeyFragments            = "fragments"
+	TraceNoteKeySwitches             = "switches"
+	TraceNoteKeyMaxSegment           = "max_segment"
+	TraceNoteKeyP95Segment           = "p95_segment"
+	TraceNoteKeyActualRunning        = "actual_running"
+	TraceNoteKeyActualRunnable       = "actual_runnable"
+	TraceNoteKeyActualSleep          = "actual_sleep"
+	TraceNoteKeyActualDState         = "actual_d_state"
+	TraceNoteKeyActualIOWait         = "actual_io_wait"
 	// TraceNoteKeyRunnableBelowRTPreempted (SYM-2 §24.17 R2, 2026-07-08): the
 	// typed 「优先级低于RT」 disclosure on a SELF runnable-family rank row —
 	// the engine minted it only when the target's own priority class is below
@@ -735,6 +752,8 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyRunnable, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeySleep, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyDState, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyDStateRefinedNonIO, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyBlockedReasonCaller, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyIOWait, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeySleepIOWait, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyDeterministicRunning, "state", TraceNoteCarrierHardConsumer},

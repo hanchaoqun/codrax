@@ -494,7 +494,7 @@ const (
 	runtimeTraceProjMarkEffectiveAttributionTag // 有效归因 词条 (UXA 域A #31: 行内常显 tag 的图例教学点)
 
 	// PTV8-RCR-C (§24.9/§24.12/§24.13, 2026-07-08): two new gated seats.
-	runtimeTraceProjMarkChainSeatUnattached // 链上L#(未接入树) depthless 三面同词 (§24.12 C6)
+	runtimeTraceProjMarkChainSeatUnattached // 链上L#(父节点未确认) depthless 三面同词 (§24.12 C6; CAL-1 件④a 更名,旧词 未接入树)
 	runtimeTraceProjMarkRankSeatWindow      // 根因排序#N·窗X–Ys 多榜窗标 chip (§24.13 裁定二后半)
 
 	// PTV8-LAD (§24.11 维度A / §24.8, 2026-07-08): one new gated seat.
@@ -560,6 +560,18 @@ const (
 	// arm-c fork for measured periodic (non-frame) wakers; type word
 	// 周期空闲(等待下一周期信号).
 	runtimeTraceProjMarkPeriodicIdle
+
+	// CAL-1 件⑤/件⑥b (2026-07-12): the cadence-idle row's dedicated state
+	// icon (glyph bytes single-sourced in tracefence.GlyphPacing) — the
+	// pacing_idle / periodic_idle independent rows lead with it instead of
+	// the neutral transit mark; the legend entry teaches the glyph plus the
+	// 行2 「节拍吻合」 typed mint word.
+	runtimeTraceProjMarkIconPacing
+
+	// V2-P0 ⌗ 口径旁栏 (design §6.1 新裁定 A, 2026-07-12): the caliber-side
+	// row disclosure — count-equivalent / composite-score rows that left the
+	// ordinal space but keep their rendered channel seat.
+	runtimeTraceProjMarkCaliberSideRow
 
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
@@ -664,7 +676,7 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// position (NEW-7: the entry renders only when the edge is emitted).
 		// EVOLUTION RECORD (UXR-1 §29.36④, 2026-07-11): both entries follow the
 		// lane-prefix simplification — the edge reads the bare `└─链上─` and the
-		// auxiliary word (深度未解析 / 未接入树) rides the 行2 chip family.
+		// auxiliary word (深度未解析 / 父节点未确认) rides the 行2 chip family.
 		{runtimeTraceProjMarkEdgeChainUnresolved, runtimeTraceProjLegendGroupEdge,
 			"- `└─链上─`+行注`链上·深度未解析` = 链上项但树位深度未解析:不声称唤醒/下钻关系,不编造树位;该行 [E#] 经证据索引给出 trace 行号区间。",
 			"- `└─on-chain─` + row note `on-chain · depth unresolved` = an on-chain row whose tree depth is unresolved: no wake/drill relation is claimed and no position is invented; the row's [E#] resolves to trace line spans via the evidence index."},
@@ -674,8 +686,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// cell speak ONE word family (the old fork spoke 深度未解析 / 链上L1 /
 		// 深度1(未接入链) on one row).
 		{runtimeTraceProjMarkChainSeatUnattached, runtimeTraceProjLegendGroupEdge,
-			"- `未接入树` = 该行在链上且引擎已给出层数(行注/明细作 链上L#(未接入树)),但本树内未找到可挂靠的父节点:不声称唤醒/下钻关系,不编造树位。",
-			"- `unattached` = the row is on the chain with an engine-resolved layer (chip/detail read chain L# (unattached)), but no attach point exists in this tree: no wake/drill relation is claimed and no position is invented."},
+			"- `父节点未确认` = 该行在链上且引擎已给出层数(行注/明细作 链上L#(父节点未确认)),但本树内未找到可挂靠的父节点:不声称唤醒/下钻关系,不编造树位。",
+			"- `parent unconfirmed` = the row is on the chain with an engine-resolved layer (chip/detail read chain L# (parent unconfirmed)), but no attach point exists in this tree: no wake/drill relation is claimed and no position is invented."},
 		// PTV8-RCR-A §24.3: ✦ joins the impact-form closed set as the
 		// deterministic-optimization glyph — the entry names the family.
 		{runtimeTraceProjMarkSemanticSpan, runtimeTraceProjLegendGroupEdge,
@@ -891,8 +903,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `承自归因` = 该行有效归因承自其所在等待区间,非本行实测。",
 			"- `inherited attribution` = the row's effective attribution is inherited from its enclosing wait interval, not measured on this row."},
 		{runtimeTraceProjMarkIOCaliberNote, runtimeTraceProjLegendGroupCaliber,
-			"- `同段IO另有…口径` = 同一线程同段 IO 的多口径合并显示;数值与证据保留,不重复计入归因。",
-			"- `same-segment IO also measured …` = several calibers of one IO segment folded for display; values and evidence kept, never double counted."},
+			"- `同段IO另有…口径` = 同一线程同段 IO 的多口径合并显示;数值与证据保留,不重复计入归因;席行数值=最大墙钟成员自值(下界),家族总量见成员行。",
+			"- `same-segment IO also measured …` = several calibers of one IO segment folded for display; values and evidence kept, never double counted; the seat value is the largest wall-clock member's own value (a lower bound) — the family total lives on the member lines."},
 		{runtimeTraceProjMarkPeriodicSource, runtimeTraceProjLegendGroupCaliber,
 			"- `周期性信号源` = 该行是固定周期的信号发生器,期内睡眠为正常节拍;有效归因只计 runnable 与信号迟到量,窗口投影保留原始值。",
 			"- `periodic signal source` = this row is a fixed-period signal generator; in-period sleep is normal cadence. Attribution counts only runnable plus signal lateness; the window projection keeps the raw value."},
@@ -1011,6 +1023,18 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkPeriodicIdle, runtimeTraceProjLegendGroupMark,
 			"- `周期空闲(等待下一周期信号)` = 该睡眠段长≈唤醒者的实测信号周期:线程在等待下一次周期信号,属正常节拍;不属对端阻塞,不计入根因排序。",
 			"- `periodic_idle (waiting for the next periodic signal)` = the sleep segment's length matches the waker's measured signal period: the thread is waiting for its next periodic signal — normal cadence, not a peer block, excluded from root-cause ranking."},
+		// CAL-1 件⑤ PACE-ROW + 件⑥b (2026-07-12): the cadence-idle rows'
+		// dedicated glyph (bytes from the tracefence directory) and the 行2
+		// 「节拍吻合」 typed mint word — 节拍吻合 renders only on rows whose
+		// idle token the engine minted under the cadence-fit proof.
+		{runtimeTraceProjMarkIconPacing, runtimeTraceProjLegendGroupMark,
+			"- `" + tracefence.GlyphPacing + "/节拍空闲` = 周期节拍空闲行(帧间空闲/周期空闲):正常节拍等待,上下文行族,不参与根因排序;其行2「节拍吻合」= 段长与实测节拍周期吻合(引擎 typed 铸造条件)。",
+			"- `" + tracefence.GlyphPacing + "/cadence idle` = a cadence-idle row (pacing_idle / periodic_idle): a normal cadence wait in the context-row family, excluded from root-cause ranking; its row-2 「cadence fit」 marks the engine's typed mint condition (segment length matches the measured cadence period)."},
+		// V2-P0 (design §6.1 新裁定 A, 2026-07-12): the ⌗ 口径旁栏 teaching
+		// entry — the two-scale-ruler red line at row level.
+		{runtimeTraceProjMarkCaliberSideRow, runtimeTraceProjLegendGroupMark,
+			"- `⌗口径旁栏` = 计数当量/复合分数类行:该行数值不是墙钟时长(计数当量=按事件计数折算;复合分数=跨单位合成分),不占序数、不参与根因排序、不佩戴徽章;行照常显示并经 [E#] 互链。",
+			"- `⌗ caliber-side` = a count-equivalent / composite-score row: its value is NOT wall-clock time (count equivalent = derived from event counts; composite score = a cross-unit blend); it takes no ordinal, never competes for root-cause ranking and wears no badge — the row still renders with its [E#] links."},
 		// PTV8-RCR-A (§24.1/§24.2, 2026-07-08). EVOLUTION RECORD: the §21 RNB
 		// R1 `⧖ runnable …gated 分量,不重复计入排序` sub-row entry and the
 		// §21/§22 RNB R2 `同段rank行并入` note entry are RETIRED — the
@@ -1411,7 +1435,7 @@ func runtimeTraceProjTrunkFoldSameStateOccurrences(main types.TraceCausalProject
 // whose canonical subject collides with a W1 trunk subject hijacked the trunk
 // main/extra selection through the name-keyed pass, which carried NEITHER
 // gate). A rejected node is simply not consumed — it keeps its honest
-// 未接入树/stanza seat downstream.
+// 父节点未确认/stanza seat downstream.
 //
 // Branch arm (P0-E 复核收尾①, ledger §22.1): on a BRANCH trunk only
 // SAME-BRANCH nodes are domain members — ChainBranch==0 is NOT a legacy pass
@@ -1558,6 +1582,15 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		}
 		chainNodes = append(chainNodes, node)
 	}
+	// 修复轮 P2-3 (冷读 donghu E8/E9, 2026-07-12): the refined-D proof and
+	// the 等待对象 caller propagate across SAME-SEGMENT twin rows (the
+	// existing runtimeTraceProjSameSegmentTwinKey — canonical subject + exact
+	// engine line span) BEFORE any wordface renders: the window_stats fold
+	// row carried 「D-state·等待对象」 while its wakeup_chain twin still spoke
+	// 「D-state/iowait(对端未解析)」 beside it, breaking the 图例「已合并为
+	// 一行」 promise family. The double-seat merge itself stays CR-2 P5 —
+	// only the proof fields sync (one physical set of segments, one proof).
+	runtimeTraceProjPropagateDStateProofToTwins(chainNodes)
 	// NEW-3 (§7.6 回访): fold same-subject same-segment IO calibers into their
 	// max-impact row BEFORE the subject buckets are built, so the peers never
 	// mint sibling tree rows or same-subject cause rows. The fold map is
@@ -1662,7 +1695,7 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// The elected trunk is ONE real branch (typed WakeupPathBranch); a node
 	// measured in a DIFFERENT branch must never fabricate a trunk position off
 	// its same-valued depth (the fake-L26/L27 family's attach half) — it keeps
-	// its honest 未接入树/stanza seat below. rootDepth re-bases engine depths
+	// its honest 父节点未确认/stanza seat below. rootDepth re-bases engine depths
 	// onto the truncated-election trunk (displayed root = engine depth
 	// rootDepth). Nodes WITHOUT branch identity keep the legacy depth attach
 	// byte-identically (absence never guesses a domain). GAP-B G4 (§27.2,
@@ -2657,7 +2690,7 @@ func runtimeTraceProjRowValidSeat(row runtimeTraceProjTreeRow) (int, bool) {
 	// "凡 Rank∈TOP N 的行,无论 lane/行形/渲染面一律佩戴" is REFINED, not
 	// reversed — 佩戴 = 有效持席 (the §29.30.1 valid-seat gate), and lane
 	// legality is a component of seat validity. Tree-face lanes (树内 /
-	// 未接入树 / 下钻 / 自因 / 链上语义 ✦) keep their badges; demoted stanza
+	// 父节点未确认 / 下钻 / 自因 / 链上语义 ✦) keep their badges; demoted stanza
 	// faces pair with the honest-fallback crown lanes (§7.30 见背景压力段)
 	// instead of a glyph.
 	switch row.Kind {
@@ -2850,7 +2883,11 @@ func runtimeTraceProjStableRankBoardIDs(rows []*runtimeTraceProjTreeRow) map[*ru
 func runtimeTraceProjSelfCauseFamilyRow(row runtimeTraceProjTreeRow) bool {
 	switch runtimeTraceProjImpactFormForNode(row.Node, row.Kind) {
 	case runtimeTraceProjImpactFormRunning, runtimeTraceProjImpactFormRunnable,
-		runtimeTraceProjImpactFormDState, runtimeTraceProjImpactFormIOBlock:
+		runtimeTraceProjImpactFormDState, runtimeTraceProjImpactFormIOBlock,
+		// 件③ tri-form (2026-07-12): the mixed/unproven merged family and
+		// the refined-to-iowait rows stay 自因四态 members (same D/IO family
+		// as before the category-word fork).
+		runtimeTraceProjImpactFormDStateIOMixed, runtimeTraceProjImpactFormIOWaitRefined:
 		return true
 	}
 	return false
@@ -3118,16 +3155,61 @@ func runtimeTraceProjNodeDemotedToBackground(node types.TraceCausalProjectionNod
 // --- NEW-3 same-subject same-segment IO caliber fold (§7.6 回访 2026-07-04) ---
 
 // runtimeTraceProjSameSegmentIOToken reports whether the node carries one of
-// the typed IO caliber tokens of the NEW-3 fold set. Exact match on the
+// the typed IO caliber tokens of the fold set. Exact match on the
 // producer's verbatim TypeToken ("type=" rich note) only — never StateKind,
-// never Object prose. io_burst_episode ⊇ io_wait describe the same segment
-// through two calibers; other tokens never enter the fold.
+// never Object prose.
+//
+// EVOLUTION RECORD (IOFAM-SELF, CAL-1 件② §29.47.4①, 2026-07-12): the NEW-3
+// two-caliber pair {io_burst_episode, io_wait} widened to the FULL IO facet
+// family closed set — single source: the ◇ engine family table exported as
+// tracequery.CausalIOFacetFamilyToken (io_wait / io_latency /
+// io_burst_episode / block_io_by_inode / page_cache_churn). The 64414 witness
+// rendered the same physical IO episode as FIVE flat self rows (io_latency
+// 3.670 / block_io 2.694+2.116 / io_wait 1.347+1.248) with THREE ❶ — family
+// members must never each carry a lead seat (徽章单点权威=席行唯一).
 func runtimeTraceProjSameSegmentIOToken(node types.TraceCausalProjectionNode) bool {
-	switch strings.TrimSpace(strings.ToLower(node.TypeToken)) {
-	case "io_burst_episode", "io_wait":
-		return true
+	return tracequery.CausalIOFacetFamilyToken(strings.TrimSpace(strings.ToLower(node.TypeToken)))
+}
+
+// runtimeTraceProjIOFoldWallClockFacet — IOFAM-SELF seat eligibility: only a
+// WALL-CLOCK facet may hold the family seat (the SHARED registry caliber arm
+// decides — composite scores and count facets are roster-only members, 链上
+// lane 禁裸 ms 席位).
+func runtimeTraceProjIOFoldWallClockFacet(node types.TraceCausalProjectionNode) bool {
+	if !runtimeTraceProjSameSegmentIOToken(node) {
+		return false
 	}
-	return false
+	return tracequery.CausalTokenCaliberSideClass(strings.TrimSpace(strings.ToLower(node.TypeToken))) == tracequery.CausalCaliberSideNone
+}
+
+// runtimeTraceProjIOFacetLayerWord — the IOFAM-SELF layered-roster word of a
+// facet token (调度等待 / 完成端到端 / 块设备层 / 页缓存层): which measuring
+// layer produced the member's value. Closed typed set; "" for tokens outside
+// the family (callers keep the bare form).
+func runtimeTraceProjIOFacetLayerWord(token string, zh bool) string {
+	switch strings.TrimSpace(strings.ToLower(token)) {
+	case "io_wait":
+		if zh {
+			return "调度等待"
+		}
+		return "scheduler-wait"
+	case "io_latency", "io_burst_episode":
+		if zh {
+			return "完成端到端"
+		}
+		return "end-to-end"
+	case "block_io_by_inode":
+		if zh {
+			return "块设备层"
+		}
+		return "block-device"
+	case "page_cache_churn":
+		if zh {
+			return "页缓存层"
+		}
+		return "page-cache"
+	}
+	return ""
 }
 
 // runtimeTraceProjFoldSameSubjectIONodes implements the NEW-3 display grouping
@@ -3176,23 +3258,63 @@ func runtimeTraceProjFoldSameSubjectIONodes(nodes []types.TraceCausalProjectionN
 	folded := map[int]bool{}
 	foldPeers := map[string][]types.TraceCausalProjectionNode{}
 	for _, key := range groupOrder {
-		members := groups[key]
-		if len(members) < 2 || !runtimeTraceProjIOMembersPairwiseOverlap(nodes, members) {
+		candidates := groups[key]
+		if len(candidates) < 2 {
 			continue
 		}
-		primary := members[0]
-		for _, idx := range members[1:] {
-			if runtimeTraceProjNodeDisplayImpact(nodes[idx]) > runtimeTraceProjNodeDisplayImpact(nodes[primary]) {
-				primary = idx
-			}
-		}
-		primaryKey := runtimeTraceCausalProjectionNodeKey(nodes[primary])
-		for _, idx := range members {
-			if idx == primary {
+		// 修复轮 P2-2 (复核 overlay 实证, 2026-07-12): the widened family made
+		// the all-pairs overlap gate a GROUP-level veto — one same-subject
+		// page_cache_churn member elsewhere in the window vetoed the whole
+		// group and revived the 64414 flat-row disease. The fold now works
+		// per overlap CONNECTED COMPONENT (interval-union connectivity, the
+		// same 同段 notion as the ◇ engine fold): the veto shrinks to "not in
+		// this component". Fail-closed arms preserved — a member without a
+		// valid line interval joins no component and keeps its own row.
+		for _, members := range runtimeTraceProjIOOverlapComponents(nodes, candidates) {
+			if len(members) < 2 {
 				continue
 			}
-			folded[idx] = true
-			foldPeers[primaryKey] = append(foldPeers[primaryKey], nodes[idx])
+			// IOFAM-SELF (件②): the seat goes to the max-impact WALL-CLOCK
+			// facet — a composite-score/count member may never hold the
+			// family seat on the chain lane (禁裸 ms 席位); a component with
+			// no wall-clock facet fails open (the V2-P0 ⌗ lane already words
+			// those rows honestly).
+			primary := -1
+			for _, idx := range members {
+				if !runtimeTraceProjIOFoldWallClockFacet(nodes[idx]) {
+					continue
+				}
+				if primary < 0 || runtimeTraceProjNodeDisplayImpact(nodes[idx]) > runtimeTraceProjNodeDisplayImpact(nodes[primary]) {
+					primary = idx
+				}
+			}
+			if primary < 0 {
+				continue
+			}
+			primaryKey := runtimeTraceCausalProjectionNodeKey(nodes[primary])
+			absorbed := map[string]bool{runtimeTraceCausalProjectionCanonicalNode(nodes[primary].EvidenceID): true}
+			for _, id := range nodes[primary].MergedEvidenceIDs {
+				absorbed[runtimeTraceCausalProjectionCanonicalNode(id)] = true
+			}
+			for _, idx := range members {
+				if idx == primary {
+					continue
+				}
+				folded[idx] = true
+				foldPeers[primaryKey] = append(foldPeers[primaryKey], nodes[idx])
+				// 件② E# 并 merged_ids: the seat row's [E#(+N)] tag absorbs
+				// the members' evidence identities (the roster note keeps the
+				// precise per-member pointers; index registration unchanged).
+				for _, id := range append([]string{nodes[idx].EvidenceID}, nodes[idx].MergedEvidenceIDs...) {
+					id = strings.TrimSpace(id)
+					canon := runtimeTraceCausalProjectionCanonicalNode(id)
+					if id == "" || absorbed[canon] {
+						continue
+					}
+					absorbed[canon] = true
+					nodes[primary].MergedEvidenceIDs = append(nodes[primary].MergedEvidenceIDs, id)
+				}
+			}
 		}
 	}
 	if len(folded) == 0 {
@@ -3218,24 +3340,48 @@ func runtimeTraceProjChainLane(node types.TraceCausalProjectionNode) int {
 	return node.ChainDepth
 }
 
-// runtimeTraceProjIOMembersPairwiseOverlap is the NEW-3 interval gate: every
-// member must expose a valid 1-based line interval and every PAIR must
-// intersect (the same boolean the strict duplicate fold uses). One
-// non-overlapping pair — two genuinely distinct IO bursts — vetoes the fold.
-func runtimeTraceProjIOMembersPairwiseOverlap(nodes []types.TraceCausalProjectionNode, members []int) bool {
-	for _, idx := range members {
-		if nodes[idx].LineStart <= 0 || nodes[idx].LineEnd < nodes[idx].LineStart {
-			return false
+// runtimeTraceProjIOOverlapComponents — 修复轮 P2-2 (2026-07-12; EVOLUTION
+// RECORD: supersedes the NEW-3 all-pairs gate runtimeTraceProjIOMembers-
+// PairwiseOverlap, whose group-level veto let one distant member unfold the
+// whole family): partitions a candidate set into line-interval overlap
+// CONNECTED COMPONENTS (interval-union connectivity — the same 同段 notion
+// as the ◇ engine fold). Members without a valid 1-based line interval join
+// NO component (fail-closed: they keep their own rows); each component of
+// size ≥2 folds independently.
+func runtimeTraceProjIOOverlapComponents(nodes []types.TraceCausalProjectionNode, candidates []int) [][]int {
+	var valid []int
+	for _, idx := range candidates {
+		if nodes[idx].LineStart > 0 && nodes[idx].LineEnd >= nodes[idx].LineStart {
+			valid = append(valid, idx)
 		}
 	}
-	for i := 0; i < len(members); i++ {
-		for j := i + 1; j < len(members); j++ {
-			if !runtimeTraceProjLineSpansOverlap(nodes[members[i]], nodes[members[j]]) {
-				return false
+	assigned := make([]bool, len(valid))
+	var components [][]int
+	for i := range valid {
+		if assigned[i] {
+			continue
+		}
+		component := []int{valid[i]}
+		assigned[i] = true
+		for grew := true; grew; {
+			grew = false
+			for j := range valid {
+				if assigned[j] {
+					continue
+				}
+				for _, member := range component {
+					if runtimeTraceProjLineSpansOverlap(nodes[member], nodes[valid[j]]) {
+						component = append(component, valid[j])
+						assigned[j] = true
+						grew = true
+						break
+					}
+				}
 			}
 		}
+		components = append(components, component)
 	}
-	return true
+	return components
 }
 
 // runtimeTraceProjIOFoldNoteText renders the NEW-3 caliber note carried by the
@@ -3279,7 +3425,32 @@ func runtimeTraceProjIOFoldNoteText(peers []runtimeTraceProjIOFoldPeer, zh bool)
 				token = label + "（" + g.token + "）"
 			}
 		}
-		parts = append(parts, strings.TrimSpace(token+" "+strings.Join(g.values, "/")+"ms"))
+		// IOFAM-SELF (件② §29.47.4①, 2026-07-12): the roster is LAYERED — each
+		// member wears its measuring-layer word (调度等待/完成端到端/块设备层/
+		// 页缓存层), and non-wall-clock members never print bare ms: the
+		// composite score wears 「(分数,非墙钟)」, the count facet wears the
+		// 计数当量 family word (both from the SHARED registry caliber arm).
+		if layer := runtimeTraceProjIOFacetLayerWord(g.token, zh); layer != "" {
+			token = layer + "·" + token
+		}
+		values := strings.Join(g.values, "/")
+		switch tracequery.CausalTokenCaliberSideClass(strings.TrimSpace(strings.ToLower(g.token))) {
+		case tracequery.CausalCaliberSideCompositeScore:
+			if zh {
+				parts = append(parts, strings.TrimSpace(token+" "+values+"(分数,非墙钟)"))
+			} else {
+				parts = append(parts, strings.TrimSpace(token+" "+values+" (score, not wall clock)"))
+			}
+			continue
+		case tracequery.CausalCaliberSideCount:
+			if zh {
+				parts = append(parts, strings.TrimSpace(token+" 计数当量"+values+"(非墙钟)"))
+			} else {
+				parts = append(parts, strings.TrimSpace(token+" 计数当量"+values+" (count-equivalent, not wall clock)"))
+			}
+			continue
+		}
+		parts = append(parts, strings.TrimSpace(token+" "+values+"ms"))
 	}
 	if zh {
 		text := "同段IO另有 " + strings.Join(parts, "、") + " 口径"
@@ -3355,6 +3526,42 @@ func runtimeTraceProjSameSegmentTwinKey(node types.TraceCausalProjectionNode) st
 	}
 	return runtimeTraceCausalProjectionCanonicalNode(node.Subject) +
 		"\x00" + strconv.Itoa(node.LineStart) + "\x00" + strconv.Itoa(node.LineEnd)
+}
+
+// runtimeTraceProjPropagateDStateProofToTwins — 修复轮 P2-3 (2026-07-12):
+// sync the DSTATE-REFINE proof fields across same-segment twin rows (the
+// SFD-precedent twin key: canonical subject + exact engine line span). The
+// engine mints the proof only on the window_stats D/IO fold row; the
+// wakeup_chain causal-impact twin of the SAME physical segments must speak
+// the same refined wordface (同段词面互斥灭). Proof and caller travel as a
+// unit; rows with their own proof are never overwritten.
+func runtimeTraceProjPropagateDStateProofToTwins(nodes []types.TraceCausalProjectionNode) {
+	proofs := map[string]types.TraceCausalProjectionNode{}
+	for _, node := range nodes {
+		if !node.DStateRefinedNonIO {
+			continue
+		}
+		if key := runtimeTraceProjSameSegmentTwinKey(node); key != "" {
+			proofs[key] = node
+		}
+	}
+	if len(proofs) == 0 {
+		return
+	}
+	for i := range nodes {
+		if nodes[i].DStateRefinedNonIO {
+			continue
+		}
+		key := runtimeTraceProjSameSegmentTwinKey(nodes[i])
+		donor, ok := proofs[key]
+		if !ok {
+			continue
+		}
+		nodes[i].DStateRefinedNonIO = true
+		if nodes[i].BlockedReasonCaller == "" {
+			nodes[i].BlockedReasonCaller = donor.BlockedReasonCaller
+		}
+	}
 }
 
 // runtimeTraceProjRankFoldRankArm / ChainArm classify the two lanes of one
@@ -3515,7 +3722,7 @@ func runtimeTraceProjFoldSameSegmentLaneTwins(nodes []types.TraceCausalProjectio
 // lane row: class word, family roster, caliber) and the root_cause_* rank
 // funnel (rank ordinal, tier, effective attribution) — and the display seated
 // BOTH (792-textup witness: E9 「✦ 纹理上传 ×11 … [E9]」 + E13
-// 「链上·未接入树 ❶⚙ Texture upload(15573)… ×11 [E13]」, one 11-span family
+// 「链上·父节点未确认 ❶⚙ Texture upload(15573)… ×11 [E13]」, one 11-span family
 // on two E# seats). The fold keeps the SEMANTIC row (✦ 词位 = 类名, roster,
 // caliber word — §29.7-2 ④ 行1 类名) and folds the rank row into it: the rank
 // ordinal/tier transfer onto the node, the rank row's E# rides the shared
@@ -4939,7 +5146,7 @@ func runtimeTraceProjTreeLabelParts(row runtimeTraceProjTreeRow, zh bool) (strin
 	// EVOLUTION RECORD (UXR-1 §29.36④, 2026-07-11, supersedes the C6 edge-face
 	// placement): the former 链上·未接入树─ edge rewrite is RETIRED — both
 	// depthless variants render the simplified 链上─ edge (lane 前缀简化), and
-	// the 未接入树 / 深度未解析 auxiliary words live on the 行2 chip + detail
+	// the 父节点未确认 / 深度未解析 auxiliary words live on the 行2 chip + detail
 	// faces only (the C6 word family itself is unchanged — one word, two
 	// remaining faces).
 	if row.Kind == runtimeTraceProjTreeRowDepthless && strings.TrimSpace(row.Parent) == "" {
@@ -5441,7 +5648,29 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 		// UXG-0 D5: badge→state-glyph gap, same as the tree/stanza emitters.
 		badge += " "
 	}
-	if node.IsSleepState() {
+	// CAL-1 件⑤ PACE-ROW (§29.47.4②, 2026-07-12): a typed cadence-idle row
+	// (standalone idle rank row OR the R1 survivor that adopted the idle
+	// view's TypeToken) stands as its OWN self row — 帧间空闲 is semantically
+	// alien to the 等依赖 sleep family and folding them diluted both (the
+	// engine already minted the independent row; the display no longer folds
+	// it in — the ×N family exclusion lives in the R2 group key). Row 1
+	// leads with the dedicated cadence glyph + the idle type word; 行2 mints
+	// 「节拍吻合·上下文(不参与根因排序)」 below.
+	idleKind := runtimeTraceProjIdleRowKind(node)
+	if idleKind != "" {
+		idleName := idleKind
+		if zh {
+			if label := runtimeTraceRootCauseTypeZHLabel(idleKind); label != "" {
+				idleName = label
+			}
+		}
+		if idleKind == "periodic_idle" {
+			row.marks.mark(runtimeTraceProjMarkPeriodicIdle)
+		} else {
+			row.marks.mark(runtimeTraceProjMarkPacingIdle)
+		}
+		main = append(main, badge+runtimeTraceProjStateIcon(node, row.Kind, true, row.marks)+" "+selfPrefix+idleName)
+	} else if node.IsSleepState() {
 		// PTV6-C #8 (#73, 标本归因 2026-07-06): the sleep self row speaks the
 		// 裁定4 StateKindLabel (PTV7: ☾ sleep, the canonical display word)
 		// instead of the raw scheduler token (☾ s_sleep) — the raw token stays
@@ -5511,9 +5740,11 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 		}
 	}
 	// 裁定4 applies to the target's own status rows too (lock_001 customer
-	// report, 2026-07-03); sleep rows keep their dedicated wording below.
-	wordless := !node.IsSleepState()
-	if !node.IsSleepState() {
+	// report, 2026-07-03); sleep rows keep their dedicated wording below;
+	// cadence-idle rows carry their own row-2 word (below) instead of a
+	// state tag.
+	wordless := !node.IsSleepState() && idleKind == ""
+	if !node.IsSleepState() && idleKind == "" {
 		stateTag := runtimeTraceProjStateKindLabel(node, zh)
 		genericShape := false
 		if stateTag == "" || strings.TrimSpace(node.BlockingKind) != "" ||
@@ -5532,7 +5763,17 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 			wordless = false
 		}
 	}
-	if node.IsSleepState() {
+	if idleKind != "" {
+		// CAL-1 件⑤ 行2: the cadence-fit context word — 「节拍吻合」 is the
+		// typed mint-condition wordface (see runtimeTraceProjIdleRowKind);
+		// the context half keeps the row out of ranking wording-wise too
+		// (the tier defense already keeps it seatless).
+		if zh {
+			demoted = append(demoted, "节拍吻合·上下文(不参与根因排序)")
+		} else {
+			demoted = append(demoted, "cadence fit · context (not ranked)")
+		}
+	} else if node.IsSleepState() {
 		// PTV5 C03 (#68): "主要" is a share claim — it renders only when the
 		// sleep projection actually covers ≥50% of the window (precise
 		// ImpactMS-vs-windowMS comparison); smaller shares and windowless
@@ -5549,11 +5790,14 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 			demoted = append(demoted, "waiting for wakeup in this segment")
 		}
 	}
-	// ENG-2 (复核冷读 CP1-③, 2026-07-12): the absorbed idle reclassification
-	// speaks on the surviving SELF seat too — the donghu 84618 replay's
-	// pacing row folded into the ☾ 自身·sleep twin and the 帧间空闲 word
-	// vanished from every rendered surface.
-	if text, mark, ok := runtimeTraceProjIdleCadenceTag(node, zh); ok {
+	// ENG-2 (复核冷读 CP1-③, 2026-07-12) — EVOLUTION RECORD (CAL-1 件⑤,
+	// 2026-07-12): the 「其中 …」 annotation arm is RETIRED as the primary
+	// carrier on self rows and demoted to the FOLD FALLBACK — a typed
+	// cadence-idle row now stands alone (row 1 speaks the idle word, the
+	// annotation would double-speak), so the tag renders only on rows that
+	// still carry an absorbed idle share without the idle row identity
+	// (e.g. a survivor whose own TypeToken blocked the adoption).
+	if text, mark, ok := runtimeTraceProjIdleCadenceTag(node, zh); ok && idleKind == "" {
 		row.marks.mark(mark)
 		demoted = append(demoted, text)
 	}
@@ -5675,10 +5919,10 @@ func runtimeTraceProjEdgeLabel(edge string, zh bool) string {
 		// default wake word (恢复硬编码唤醒边必红 pin reads this arm).
 		//
 		// EVOLUTION RECORD (UXR-1 §29.36④, 2026-07-11): the 深度未解析 /
-		// 未接入树 auxiliary words LEFT the lane prefix (lane 前缀简化,释放
+		// 父节点未确认 auxiliary words LEFT the lane prefix (lane 前缀简化,释放
 		// 关键行宽度) — the edge claims exactly the on-chain membership, and
 		// the auxiliary word rides 行2 through the chain-layer chip family
-		// (链上L#(未接入树) / 链上·深度未解析 — the C6 word family keeps its
+		// (链上L#(父节点未确认) / 链上·深度未解析 — the C6 word family keeps its
 		// chip + detail faces; only the edge face simplified).
 		if zh {
 			return "链上─"
@@ -5696,7 +5940,7 @@ func runtimeTraceProjEdgeLabel(edge string, zh bool) string {
 // is the depth-KNOWN depthless shape: the engine resolved the row's chain
 // layer (Depth>0) but the tree found no attach point. The old three surfaces
 // forked on it (edge 深度未解析 / chip 链上L1 / detail 深度1(未接入链)) —
-// every surface now reads the ONE 未接入树 word family through the helpers
+// every surface now reads the ONE 父节点未确认 word family through the helpers
 // below. Flat renders keep their own header-explained wording (CMP-7a).
 func runtimeTraceProjDepthlessUnattachedRow(row runtimeTraceProjTreeRow) bool {
 	return row.Kind == runtimeTraceProjTreeRowDepthless && row.Depth > 0 && !row.FlatChain
@@ -5731,9 +5975,9 @@ func runtimeTraceProjChainDepthChipEligible(row runtimeTraceProjTreeRow) bool {
 func runtimeTraceProjChainDepthChipWord(row runtimeTraceProjTreeRow, zh bool) string {
 	if runtimeTraceProjDepthlessUnattachedRow(row) {
 		if zh {
-			return fmt.Sprintf("链上L%d(未接入树)", row.Depth)
+			return fmt.Sprintf("链上L%d(父节点未确认)", row.Depth)
 		}
-		return fmt.Sprintf("chain L%d (unattached)", row.Depth)
+		return fmt.Sprintf("chain L%d (parent unconfirmed)", row.Depth)
 	}
 	if row.Kind == runtimeTraceProjTreeRowDepthless && row.Depth <= 0 {
 		// UXR-1 §29.36④: the depth-unresolved word relocated off the lane
@@ -5758,6 +6002,13 @@ func runtimeTraceProjChainDepthChipWord(row runtimeTraceProjTreeRow, zh bool) st
 // no-dominant-state sense (its 2-word inline tag is appended by the tag
 // builder, not here).
 func runtimeTraceProjStateIcon(node types.TraceCausalProjectionNode, kind string, hasData bool, marks *runtimeTraceProjMarkSet) string {
+	// CAL-1 件⑥b (2026-07-12): a typed cadence-idle row wears its dedicated
+	// glyph on every surface — the row's semantic is 正常节拍空闲, not the
+	// underlying sleep state and not a neutral transit hop.
+	if runtimeTraceProjIdleRowKind(node) != "" {
+		marks.mark(runtimeTraceProjMarkIconPacing)
+		return tracefence.GlyphPacing
+	}
 	// PTV8-RCR-A §24.3 (2026-07-08). EVOLUTION RECORD: the glyph now resolves
 	// through the single-source impact-form table (状态 icons kept their
 	// glyphs and marks; lock/inversion/interrupt/blind-spot/IO-event rows left
@@ -7430,6 +7681,20 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		// packed row-2 stream (限定词前、原因后).
 		tags = append(tags, runtimeTraceProjTag{Text: text, Seg: 9, Row2: true})
 	}
+	// V2-P0 ⌗ 口径旁栏 (rank_order_v2_design_20260712.md §6.1 新裁定 A,
+	// 2026-07-12): a caliber-side row names its value class where the
+	// participation qualifier sits — typed tier disclosure (never inferred
+	// from Rank==0), caliber class from the SHARED registry arm.
+	if node.IsCaliberSideRow() {
+		row.marks.mark(runtimeTraceProjMarkCaliberSideRow)
+		// A count-class caliber word speaks 计数当量 — its comparison-form
+		// legend entry (计数当量Xms) rides along (词条-图例双向; typed class,
+		// never a substring probe).
+		if tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)) == tracequery.CausalCaliberSideCount {
+			row.marks.mark(runtimeTraceProjMarkFamilyCountEquivalent)
+		}
+		tags = append(tags, runtimeTraceProjTag{Text: runtimeTraceProjCaliberSideWord(node, zh), Seg: 9, Row2: true})
+	}
 	// PTV8-RCR-A (§24.1/§24.2): a cause node renders the four-line grammar —
 	// 行2 identity, 行3 「=」breakdown and the 拆解子行 land as OwnLine tags in
 	// fixed order; the legacy seats they replace (row-tail shape word, the
@@ -7478,7 +7743,8 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		case runtimeTraceCausalProjectionInversionRow(node):
 			stateTagToken = "priority_inversion_candidate"
 		case runtimeTraceCausalProjectionTypeTokenStateClass(node) != "" &&
-			stateTag == runtimeTraceCausalProjectionTypeTokenStateWord(runtimeTraceCausalProjectionTypeTokenStateClass(node), zh):
+			stateTag == runtimeTraceCausalProjectionTypeTokenStateWord(
+				runtimeTraceCausalProjectionRefinedStateClass(node, runtimeTraceCausalProjectionTypeTokenStateClass(node)), zh):
 			stateTagToken = runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)
 		default:
 			stateTagToken = ""
@@ -7500,6 +7766,11 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 			// PTV8-RCR-A §24.2 行尾形态词撤: the shape word RELOCATED onto the
 			// 行2 category slot (typed branch relocation, never a string
 			// dedupe) — the row tail stays empty.
+		case runtimeTraceProjDFamilyTailRedundant(node):
+			// DSTATE-REFINE arm c (件③, 96728 E14/E16): the D-family bare
+			// tail's emission point merges into the name lane — a row whose
+			// cause name already speaks the family word never re-tags it
+			// (同行三面三说法灭); name-silent rows keep the tail above.
 		default:
 			row.marks.mark(runtimeTraceProjMarkStateLabel)
 			tags = append(tags, runtimeTraceProjTag{Text: stateTag, DedupeToken: stateTagToken, Seg: 10})
@@ -8488,6 +8759,10 @@ func runtimeTraceProjSelfCauseCrownState(primary types.TraceCausalProjectionNode
 		state = "runnable"
 	case runtimeTraceProjImpactFormDState:
 		state = "D-state"
+	case runtimeTraceProjImpactFormDStateIOMixed:
+		// 件③ tri-form: the crown speaks the same merged compound the row
+		// face speaks (三面一说).
+		state = "D-state/iowait"
 	case runtimeTraceProjImpactFormIOBlock:
 		if zh {
 			state = "IO等待"
@@ -8510,7 +8785,8 @@ func runtimeTraceProjSelfCauseCrownState(primary types.TraceCausalProjectionNode
 	// kernel state word alone. The IO pair stays (等待 vs 阻塞候选 are
 	// distinct morphemes, reviewed and kept); runnable/running categories
 	// are semantically distinct family words.
-	if form == runtimeTraceProjImpactFormDState {
+	if form == runtimeTraceProjImpactFormDState || form == runtimeTraceProjImpactFormDStateIOMixed {
+		// 件③: the mixed compound restates its state token the same way.
 		category = ""
 	}
 	return state, category
@@ -8585,6 +8861,15 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 	// D4: the narrative lane uses the 中文（english_token） combined format on
 	// the zh surface (tree rows stay concise zh; the table keeps raw tokens).
 	cause := strings.TrimSpace(runtimeTraceCausalProjectionNarrativeCauseName(primary.Object, zh))
+	// 修复轮 P2-3 crown face (2026-07-12): a crowned refined-D row's cause
+	// word consumes the proof — the merged compound must not resurface on
+	// the 主根因 line beside the refined seat (同段词面互斥灭; the D4 raw
+	// token parenthetical stays for audit fidelity on the zh face).
+	if zh && primary.DStateRefinedNonIO &&
+		runtimeTraceCausalProjectionCanonicalNode(primary.Object) == "d_state_or_io_wait" {
+		cause = runtimeTraceProjStateKindLabel(types.TraceCausalProjectionNode{StateKind: "d_state"}, true) +
+			"（d_state_or_io_wait）"
+	}
 	if primary.IsAggregateMetric() {
 		// The metric semantic name already carries the Object type word.
 		cause = ""
@@ -10562,6 +10847,7 @@ func runtimeTraceProjTargetSelfWaitViewRow(row runtimeTraceProjTreeRow) bool {
 		// SYM-2 §24.17 R2 (2026-07-08): the D-state family split off IOBlock
 		// for its 行2 word only — a D-state wait stays a WAIT view here.
 		case runtimeTraceProjImpactFormIOBlock, runtimeTraceProjImpactFormDState,
+			runtimeTraceProjImpactFormDStateIOMixed, runtimeTraceProjImpactFormIOWaitRefined,
 			runtimeTraceProjImpactFormSleep,
 			runtimeTraceProjImpactFormRunnable, runtimeTraceProjImpactFormBinderWait:
 			return true
@@ -12180,7 +12466,7 @@ func runtimeTraceProjDetailLayerCell(row runtimeTraceProjTreeRow, zh, flat bool)
 			// PTV8-RCR-C (§24.12 C6 三面同词, 2026-07-08). EVOLUTION RECORD:
 			// this cell said 深度1(未接入链) while the row chip said 链上L1 and
 			// the edge said 深度未解析 — three calibers on one row. All three
-			// faces now read the shared 链上L#(未接入树) word.
+			// faces now read the shared 链上L#(父节点未确认) word.
 			return runtimeTraceProjChainDepthChipWord(row, zh)
 		}
 		if zh {
@@ -12300,9 +12586,9 @@ func runtimeTraceProjDetailRelationCell(row runtimeTraceProjTreeRow, zh, flat bo
 		// below the unified 层级 cell.
 		if runtimeTraceProjDepthlessUnattachedRow(row) {
 			if zh {
-				return "链上·未接入树"
+				return "链上·父节点未确认"
 			}
-			return "on-chain · unattached"
+			return "on-chain · parent unconfirmed"
 		}
 		if zh {
 			return "链上·深度未解析"

@@ -271,9 +271,16 @@ func TestDisp2CountFamilyEndToEnd(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
 	t.Logf("count family end-to-end render (zh fence):\n%s", fence)
-	// Tree 行1 value == published value under the 合计 stem.
-	if !strings.Contains(fence, "合计41.671ms") {
-		t.Fatalf("tree 行1 must carry the published value under the 合计 stem:\n%s", fence)
+	// Tree 行1 value == published value. EVOLUTION RECORD (F-7 冷读 CAL-1
+	// 修复轮, 2026-07-12): this fixture IS the clamped shape (published
+	// 41.671 < member Σ 198.300) — the former 「合计41.671ms」 stem claimed a
+	// sum identity that does not hold; the honest 计数当量 stem replaces it
+	// (unclamped count families keep 合计 — TestV2P0CountFamilyClamped…).
+	if !strings.Contains(fence, "计数当量41.671ms") {
+		t.Fatalf("tree 行1 must carry the published value under the honest 计数当量 stem:\n%s", fence)
+	}
+	if strings.Contains(fence, "合计41.671ms") || strings.Contains(fence, "计数合计(共2项") {
+		t.Fatalf("a clamped count seat must not claim the sum identity:\n%s", fence)
 	}
 	// Roster carries the engine 计数当量 marker verbatim.
 	if !strings.Contains(fence, "计数当量133.200ms") {
@@ -310,8 +317,11 @@ func TestDisp2CountFamilyEndToEnd(t *testing.T) {
 	if !strings.Contains(lead, "- `计数当量Xms` = 计数类数值的对照写法:按计数换算的当量毫秒,非墙钟时长,不与时长行相加。") {
 		t.Fatalf("legend must teach the 计数当量 marker:\n%s", lead)
 	}
-	if !strings.Contains(lead, "计数合计") {
-		t.Fatalf("the count caliber word entry must ride along:\n%s", lead)
+	// F-7: the clamped seat prints no 计数合计 word, so its 计数合计 legend
+	// entry must NOT ride (bidirectional discipline) — the 计数当量 teaching
+	// entry above is the row's caliber home.
+	if strings.Contains(lead, "计数合计") {
+		t.Fatalf("a clamped-only render must not teach the unused 计数合计 word:\n%s", lead)
 	}
 }
 

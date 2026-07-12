@@ -309,8 +309,8 @@ func TestPTV6CImpactPointD4CombinedForm(t *testing.T) {
 		// keep the combined audit form; product compounds keep the D4 form.
 		{"runnable", "runnable", "runnable"},
 		{"s_sleep", "sleep（s_sleep）", "s_sleep"},
-		{"priority_inversion_runnable_wait", "可运行等待反转（priority_inversion_runnable_wait）", "priority_inversion_runnable_wait"},
-		{"priority_inversion_runnable_wait/runnable", "可运行等待反转（priority_inversion_runnable_wait）/runnable", "priority_inversion_runnable_wait/runnable"},
+		{"priority_inversion_runnable_wait", "优先级反转·可运行等待（priority_inversion_runnable_wait）", "priority_inversion_runnable_wait"},
+		{"priority_inversion_runnable_wait/runnable", "优先级反转·可运行等待（priority_inversion_runnable_wait）/runnable", "priority_inversion_runnable_wait/runnable"},
 		{"udk-irq-10-90", "udk-irq-10-90", "udk-irq-10-90"}, // unmapped: verbatim, never fabricated
 	}
 	for _, tc := range cases {
@@ -912,7 +912,7 @@ func TestPTV6CSpecimen2KeyRowsAfter(t *testing.T) {
 	if strings.Contains(fence, "反转影响") {
 		t.Fatalf("deleted 反转影响 resurfaced:\n%s", fence)
 	}
-	if !strings.Contains(fence, "影响点 可运行等待反转（priority_inversion_runnable_wait）") {
+	if !strings.Contains(fence, "影响点 优先级反转·可运行等待（priority_inversion_runnable_wait）") {
 		t.Fatalf("影响点 must ride the D4 combined form:\n%s", fence)
 	}
 	// 关键行二 (成因 row): 名称即全词 (PTV7: runnable) → 重复 chip 融掉 (前:

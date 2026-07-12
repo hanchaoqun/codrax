@@ -118,7 +118,7 @@ func TestSemLeadOnChainSemanticFamilySingleSeatCrownedZH(t *testing.T) {
 	}
 	for _, line := range strings.Split(md, "\n") {
 		if strings.Contains(line, "Texture upload") &&
-			(strings.Contains(line, "链上·未接入树") || strings.Contains(line, "链上·深度未解析")) {
+			(strings.Contains(line, "链上·父节点未确认") || strings.Contains(line, "链上·深度未解析")) {
 			t.Fatalf("no unattached rank-lane texture seat may remain: %q", line)
 		}
 	}
@@ -587,7 +587,7 @@ func TestSemLeadPartialOverlapSingleSeatDualCaliber(t *testing.T) {
 	}
 	for _, line := range strings.Split(md, "\n") {
 		if (strings.Contains(line, "纹理上传") || strings.Contains(line, "Texture upload")) &&
-			(strings.Contains(line, "链上·未接入树") || strings.Contains(line, "链上·深度未解析")) {
+			(strings.Contains(line, "链上·父节点未确认") || strings.Contains(line, "链上·深度未解析")) {
 			t.Fatalf("#5: no unattached rank-lane texture seat may remain: %q", line)
 		}
 	}

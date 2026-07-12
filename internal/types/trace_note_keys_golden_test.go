@@ -48,6 +48,8 @@ var traceNoteKeyGoldenRows = []string{
 	"background_rank|causal_rank|soft_consumer",
 	"block_dev|io|display_only",
 	"block_max|io|display_only",
+	// DSTATE-REFINE arm a (CAL-1 件③, 2026-07-12): unanimous caller disclosure.
+	"blocked_reason_caller|state|hard_consumer",
 	"blocking_candidate|blocking|display_only",
 	// BLOCKFROM (§27.4 G13, 2026-07-09): waiter-side blocking call site
 	// ("blocking from <sig>(<file:line>)" payload tail). EVOLUTION RECORD
@@ -102,6 +104,8 @@ var traceNoteKeyGoldenRows = []string{
 	"drill_status|blocking|display_only",
 	"driver|dma_fence|display_only",
 	"dso|perf|soft_consumer",
+	// DSTATE-REFINE arm a (CAL-1 件③, 2026-07-12): the refined-D coverage proof.
+	"dstate_all_noniowait|state|hard_consumer",
 	"duration|impact|display_only",
 	"edge_count|causal_rank|display_only",
 	"edges|chain_path|display_only",

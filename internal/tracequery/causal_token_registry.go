@@ -392,6 +392,54 @@ func CausalTokenFamilyFoldLane(token string) CausalTokenFamilyFold {
 	return causalTokenFamilyFoldLanes[token]
 }
 
+// CausalCaliberSideClass — V2-P0 行级尺守卫 (rank_order_v2_design_20260712.md
+// §6.1 新裁定 A, GREENLIT 2026-07-12): the row-level two-scale-ruler class of
+// a token's published value. Rows whose value is NOT per-thread wall clock
+// (count-derived advisory scalars, composite scores) never occupy ordinal
+// space on the chain/◇ channels — they move to the ⌗ 口径旁栏 (still
+// rendered, caliber-worded, no ordinal, no badge, no sort participation).
+type CausalCaliberSideClass string
+
+const (
+	// CausalCaliberSideNone — ordinary row (wall-clock or governed aggregate);
+	// fully eligible for ordinals.
+	CausalCaliberSideNone CausalCaliberSideClass = ""
+	// CausalCaliberSideCount — registry Additivity==count: a count-derived
+	// advisory scalar (计数当量), not a physical duration even when printed
+	// with an ms suffix.
+	CausalCaliberSideCount CausalCaliberSideClass = "count"
+	// CausalCaliberSideCompositeScore — the published value is a COMPOSITE
+	// SCORE over mixed units (复合分数), not a wall-clock duration. Typed
+	// marker (declared below), replacing the former hardcoded type-name
+	// check in the ◇ facet family fold.
+	CausalCaliberSideCompositeScore CausalCaliberSideClass = "composite_score"
+)
+
+// causalTokenCompositeScoreRows — the typed composite-score row marker
+// (V2-P0 / IOFAM-SELF): block_io_by_inode publishes
+// BlockMax+StorageMax+MiB/1024 (query.go mint site) — a score over an inode
+// envelope, not a duration. Declared beside the registry so a new composite
+// producer must register here (same declaration discipline as the
+// family-fold lanes above).
+var causalTokenCompositeScoreRows = map[string]bool{
+	"block_io_by_inode": true,
+}
+
+// CausalTokenCaliberSideClass resolves a row token's V2-P0 caliber-side
+// class. Exact match on the canonical token; the SHARED arm consumed by the
+// ordinal-assignment guard, the capacity side-lane router, the ◇ facet
+// family's roster split and the display ⌗ wording — one implementation,
+// never a second (design §6.1 共享臂 / R4 单门 discipline).
+func CausalTokenCaliberSideClass(token string) CausalCaliberSideClass {
+	if causalTokenCompositeScoreRows[token] {
+		return CausalCaliberSideCompositeScore
+	}
+	if spec, ok := causalTokenRegistry[token]; ok && spec.Additivity == CausalAdditivityCount {
+		return CausalCaliberSideCount
+	}
+	return CausalCaliberSideNone
+}
+
 // causalRegistryCrossThreadRowExceptions: RowToken tokens whose Additivity is
 // cross_thread_cpu_ms but which are deliberately ABSENT from the two consumer
 // sets (engine rootCauseAggregateMetricTypes + display

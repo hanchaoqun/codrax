@@ -584,8 +584,18 @@ pre.trace-projection-tree .trace-cell-2 { width: 2ch; min-width: 2ch; }
    unclipped. */
 pre.trace-projection-tree .trace-slot { display: inline-grid; width: 2ch; min-width: 2ch; place-items: center start; overflow: visible; vertical-align: baseline; white-space: pre; }
 pre.trace-projection-tree .trace-slot-1 { width: 1ch; min-width: 1ch; place-items: center; justify-content: center; }
-pre.trace-projection-tree .trace-ink,
-pre.trace-projection-tree .trace-rank-glyph { line-height: 1; font-family: var(--font-symbols); font-synthesis: none; font-variant-emoji: text; }
+/* CAL-1 件⑥b (2026-07-12): the neutral mark's ink is the smallest in the
+   directory and reads faint at 13px. The audited bigger-ink replacements
+   (the bullet / filled-circle family) are ALL East-Asian-Ambiguous (width 2
+   in EAW context) and disqualified by the dual-context width-1 rule, so the
+   HTML face compensates optically INSIDE the envelope: ink-only font-size
+   raise, grid geometry untouched (the slot keeps its 2ch/1ch track), still
+   overflow:visible. Arithmetic, not calibration (修复轮 P3-3 勘正): em box
+   13px*1.2 = 15.6px < line box 19.76px (no line growth); the mark's ink
+   budget ~0.6em of the enlarged box = 0.6*15.6 = 9.36px < the 14.4px
+   envelope — spill impossible. */
+pre.trace-projection-tree .trace-icon-neutral .trace-ink { font-size: 1.2em; }
+pre.trace-projection-tree .trace-ink { line-height: 1; font-family: var(--font-symbols); font-synthesis: none; font-variant-emoji: text; }
 /* Run segmentation (v5 §C.3 C-9): pure-ASCII runs collapse into ONE span
    pinned to their whole width (mono ASCII metrics are reliable; ~5x fewer
    DOM nodes). Box-drawing rails (.trace-rail) and bar blocks (.trace-bar)
@@ -603,24 +613,22 @@ pre.trace-projection-tree .trace-line:hover { background: rgba(127, 127, 127, .1
 pre.trace-projection-tree .trace-stanza-head { position: sticky; left: 0; display: inline-block; background: var(--code); }
 pre.trace-projection-tree a.trace-eref { display: inline-block; height: 1em; line-height: 1em; vertical-align: baseline; white-space: pre; color: inherit; text-decoration: underline dotted; text-underline-offset: .18em; }
 pre.trace-projection-tree a.trace-eref:hover { color: var(--link); text-decoration-style: solid; }
-/* Rank chips consume exactly the same one/two grid cells as their Markdown
-   tokens. Color adds a scan target. Unlike the .trace-slot envelopes above
-   (overflow visible under the 2ch ink budget), chips KEEP overflow hidden —
-   the rounded colored pill is the chip's meaning surface and must not bleed
-   past its own grid cells onto neighboring text. Badges stay on their 1ch
-   cell until the P2a constant-4 mark-field batch (v5 T-6 honest cut). */
-pre.trace-projection-tree .trace-rank-chip,
+/* Ordinal chips consume exactly the same two grid cells as their Markdown
+   tokens (#1..#5 after a channel word — pure ASCII, no clipping risk).
+   Color adds a scan target; the rounded colored pill is the chip's meaning
+   surface and must not bleed past its own grid cells onto neighboring text.
+   EVOLUTION RECORD (CAL-1 件⑥a, 2026-07-12 — T-6 fulfilled ahead of the P2a
+   constant-4 mark-field batch): the TOP-5 badge chip form (1ch cell with
+   hidden overflow plus its inner-glyph .95 ink shrink) is RETIRED. UXG-0 D5 already put the badge's companion space in the fence
+   bytes, so the badge now rides the same v5 P0 2ch inline-grid envelope as
+   the state marks (.trace-slot .trace-rank-pill below): colored pill
+   stretched to the full 2ch, overflow visible, dingbat ink complete —
+   geometry, not tuning (the scale family stays retired; do not resurrect
+   scale for badges either). */
 pre.trace-projection-tree .trace-rank-ordinal { display: inline-block; height: 1em; line-height: 1em; vertical-align: baseline; white-space: pre; overflow: hidden; border-radius: .22em; font-weight: 750; text-align: center; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-pre.trace-projection-tree .trace-rank-chip { display: inline-grid; place-items: center; }
 pre.trace-projection-tree .trace-rank-width-1 { width: 1ch; min-width: 1ch; }
 pre.trace-projection-tree .trace-rank-width-2 { width: 2ch; min-width: 2ch; }
-/* v5 T-6 (fix round 2026-07-11): badges are EXCLUDED from the P0 envelope
-   batch — they keep their pre-P0 1ch chip form UNCHANGED, and that form
-   includes this .95 ink shrink. The chip's hidden-overflow pill is not the
-   retired ICON scale family's subject (that ruling ended scale-as-geometry-
-   fix for the envelope marks above). Retire this rule in P2a, when the
-   constant-4 mark field gives badges their own companion space. */
-pre.trace-projection-tree .trace-rank-glyph { transform: scale(.95); }
+pre.trace-projection-tree .trace-rank-pill { border-radius: .22em; font-weight: 750; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 pre.trace-projection-tree .trace-rank-1 { color: var(--rank-1-fg); background: var(--rank-1-bg); }
 pre.trace-projection-tree .trace-rank-2 { color: var(--rank-2-fg); background: var(--rank-2-bg); }
 pre.trace-projection-tree .trace-rank-3 { color: var(--rank-3-fg); background: var(--rank-3-bg); }

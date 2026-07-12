@@ -623,7 +623,12 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	reflect.TypeOf(tracequery.WorkqueueActivity{}):          "ed0cdfade0931978ac0def62cbd7c55d226ec943a4e33a43154e3d09a6e3bb70",
 	reflect.TypeOf(tracequery.DMAFenceActivity{}):           "c1094517e8c9f158eee1c47dceb51d7a20d6f686a4c07a839d5854e165ed1c1e",
 	reflect.TypeOf(tracequery.RootCauseRankResult{}):        "148735ab082d8b42df67875bccfaa6043e50d7c0f99fada94957aeecfdb3b703",
-	reflect.TypeOf(tracequery.RootCauseRankItem{}):          "3062374b24f82fa46cd5651e33c5a693585626f5b739ab0c3b2beb4ae0322872",
+	// DSTATE-REFINE arm a (CAL-1 件③, 2026-07-12) schema review:
+	// RootCauseRankItem gained DStateAllNonIOProven (bool, refined-D proof)
+	// + BlockedReasonCaller (string, unanimous 等待对象 symbol). Key-first
+	// adjudication: both are per-row wording inputs (scalar disclosure lane,
+	// same as DominantState); no skipped fields.
+	reflect.TypeOf(tracequery.RootCauseRankItem{}): "72c8980de06188e61c014a2307a9638c0b5d45de12c5941edfeaef999a5bcd31",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
 	// Key-first adjudication: a slice → structural bulk lane (same as

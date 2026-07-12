@@ -4,7 +4,7 @@ package tool
 // 2026-07-09): the tree's depth attach carries a CHAIN DOMAIN — the elected
 // trunk is ONE real branch, and a node measured in a DIFFERENT branch never
 // fabricates a trunk position off its same-valued depth (the fake-L26/L27
-// family's attach half); it keeps its honest 未接入树 seat. On a truncated
+// family's attach half); it keeps its honest 父节点未确认 seat. On a truncated
 // mid-branch election the attach re-bases engine depths by the elected
 // rootDepth, and trunk rows publish the engine's TRUE depth (chip == detail
 // 层级, §24.12 C6 discipline).
@@ -51,7 +51,7 @@ func itoaToolP0E(n int) string {
 
 // Branch-domain attach: same-branch depth-1 node attaches under the elected
 // trunk; a foreign-branch node of the SAME depth keeps the honest unattached
-// (深度/未接入树) lane instead of a fabricated trunk seat.
+// (深度/父节点未确认) lane instead of a fabricated trunk seat.
 func TestRuntimeTraceProjTreeBranchDomainAttachP0E(t *testing.T) {
 	projection := types.TraceCausalProjection{
 		WakeupPath:       []string{"RSUniRenderThre-1963", "oney.hmn.berlin-42591"},
@@ -94,7 +94,7 @@ func TestRuntimeTraceProjTreeBranchDomainAttachP0E(t *testing.T) {
 // P0-E 复核收尾① EVOLUTION RECORD (对抗复核 REPRO, 2026-07-09 — evolves the
 // former TestRuntimeTraceProjTreeLegacyNodesKeepDepthAttachP0E, bar RAISED):
 // on a BRANCH projection an identity-less (ChainBranch==0) node takes the
-// honest 未接入树 seat instead of the legacy depth attach. Rationale: the
+// honest 父节点未确认 seat instead of the legacy depth attach. Rationale: the
 // engine honestly stamps ChainBranch=0 on CROSS-BRANCH aggregates and the
 // chain_branch note zero-drops, so a display-side 0 conflates "no identity"
 // with "known cross-branch" — the huadong VSync×7 aggregate fake-attached to
@@ -287,7 +287,7 @@ func TestRuntimeTraceProjTreeHuadongEndToEndRealBranchP0E(t *testing.T) {
 		t.Fatalf("no fabricated deep chips may survive:\n%s", fence)
 	}
 	// The foreign-branch VSync rank row keeps an honest unattached seat.
-	if !strings.Contains(fence, "链上L1(未接入树)") {
+	if !strings.Contains(fence, "链上L1(父节点未确认)") {
 		t.Fatalf("foreign-branch VSync row must disclose its unattached seat:\n%s", fence)
 	}
 	for _, row := range model.TreeRows {

@@ -269,22 +269,31 @@ func TestSYM2RunnableBelowRTTailOnIdentityRow(t *testing.T) {
 }
 
 func TestSYM2DStateCategoryWordSplitsOffIOFamily(t *testing.T) {
-	// D-state STATE row → D状态候选, glyph stays ⛓ (既有 D-state 语义).
+	// EVOLUTION RECORD (件③ arm b 用户补正, witness 45261 E9, 2026-07-12):
+	// the UNREFINED merged d_state_or_io_wait row's category is now the
+	// mixed compound 「D状态/IO候选」 isomorphic with its 行1 merged word
+	// (tri-form: 全iowait→IO等待候选 / 细化纯D→D状态候选 / 混合→本形); the
+	// pure 「D状态候选」 word rides the refined-D proof. Glyph stays ⛓.
 	dstate := types.TraceCausalProjectionNode{
 		Subject: "main-6565", Object: "d_state_or_io_wait", TypeToken: "d_state_or_io_wait",
 		StateKind: "d_state", Rank: 1, Tier: "primary", ChainRelevance: "on_chain",
 		ImpactMS: 5.000, CumulativeImpactMS: 5.000, EffectiveImpactMS: 5.000, Confidence: 0.8,
 	}
 	word, _ := runtimeTraceProjCauseCategoryWord(dstate, runtimeTraceProjTreeRowDepthless, true)
-	if word != "D状态候选" {
-		t.Fatalf("D-state 行2 word must be D状态候选 (§24.17): %q", word)
+	if word != "D状态/IO候选" {
+		t.Fatalf("unrefined merged 行2 word must be the mixed compound (件③ tri-form): %q", word)
+	}
+	refined := dstate
+	refined.DStateRefinedNonIO = true
+	if word, _ := runtimeTraceProjCauseCategoryWord(refined, runtimeTraceProjTreeRowDepthless, true); word != "D状态候选" {
+		t.Fatalf("refined pure-D 行2 word must be D状态候选 (§24.17/件③): %q", word)
 	}
 	if glyph := runtimeTraceProjStateIcon(dstate, runtimeTraceProjTreeRowDepthless, true, nil); glyph != "⛓" {
 		t.Fatalf("the D-state glyph stays ⛓ (glyph=⛓ 既有 D-state 语义): %q", glyph)
 	}
-	// Stateless D-token row rides the token family to the same word.
+	// Stateless D-token row rides the token family to the same mixed word.
 	tokenOnly := types.TraceCausalProjectionNode{TypeToken: "d_state_or_io_wait"}
-	if word := runtimeTraceProjImpactFormFamilyWord(tokenOnly, true); word != "D状态候选" {
+	if word := runtimeTraceProjImpactFormFamilyWord(tokenOnly, true); word != "D状态/IO候选" {
 		t.Fatalf("the d_state_or_io_wait token family word: %q", word)
 	}
 	// Controls: IO stays on the IO family word — state row and token row.

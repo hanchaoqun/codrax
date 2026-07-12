@@ -44,6 +44,14 @@ func rootCauseRankItemIsZeroSeatDisclosure(item RootCauseRankItem) bool {
 	if rootCauseEffectiveImpactMs(item) <= 0 {
 		return true
 	}
+	// V2-P0 行级尺守卫 (design §6.1, 2026-07-12): a caliber-side row is
+	// structurally Rank=0 (the ordinal guard in assignRootCauseRanksAndTiers
+	// keys on the same shared registry arm), so it rides the bounded
+	// side-disclosure lane instead of consuming a candidate board seat.
+	if rootCauseOrdinalChannel(item) != rootCauseOrdinalChannelBackground &&
+		CausalTokenCaliberSideClass(item.Type) != CausalCaliberSideNone {
+		return true
+	}
 	return item.SubjectIsAnalysisTarget && rootCauseItemIsTargetWaitSymptomType(item)
 }
 
@@ -59,11 +67,19 @@ func truncateRootCauseRankCandidatesAndSideRows(items []RootCauseRankItem, limit
 	candidates := make([]RootCauseRankItem, 0, len(items))
 	targetSide := make([]RootCauseRankItem, 0, rootCauseRankZeroSeatDisclosureCap)
 	gapSide := make([]RootCauseRankItem, 0, rootCauseRankZeroSeatDisclosureCap)
+	// V2-P0 (design §6.1, 2026-07-12): ⌗ caliber-side rows ride their OWN
+	// bounded sub-lane — routing them into targetSide would crowd the
+	// self-symptom/context disclosures out of the shared cap (donghu witness:
+	// the pacing_idle context row evicted by two IO caliber rows).
+	caliberSide := make([]RootCauseRankItem, 0, rootCauseRankZeroSeatDisclosureCap)
 	for _, item := range items {
 		if rootCauseRankItemIsZeroSeatDisclosure(item) {
 			sideTotal++
 			if item.Type == "trace_gap" {
 				gapSide = append(gapSide, item)
+			} else if rootCauseOrdinalChannel(item) != rootCauseOrdinalChannelBackground &&
+				CausalTokenCaliberSideClass(item.Type) != CausalCaliberSideNone {
+				caliberSide = append(caliberSide, item)
 			} else {
 				targetSide = append(targetSide, item)
 			}
@@ -88,6 +104,10 @@ func truncateRootCauseRankCandidatesAndSideRows(items []RootCauseRankItem, limit
 	} else {
 		gapLimit := min(rootCauseRankZeroSeatDisclosureCap, len(gapSide))
 		side = append(side, gapSide[:gapLimit]...)
+	}
+	if len(caliberSide) > 0 {
+		caliberLimit := min(rootCauseRankZeroSeatDisclosureCap, len(caliberSide))
+		side = append(side, caliberSide[:caliberLimit]...)
 	}
 	sideEmitted = len(side)
 	out = make([]RootCauseRankItem, 0, candidateEmitted+sideEmitted)

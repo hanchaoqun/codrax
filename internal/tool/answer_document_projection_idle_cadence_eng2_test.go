@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -64,7 +65,10 @@ func eng2IdleCadenceRecords(idleToken string) []types.ObservationRecord {
 			Unit:            "ms",
 			Span:            types.ObservationSpan{LineStart: 23091, LineEnd: 24430},
 			RichNotes: []string{
-				"tier=context_only", "impact_ms=15.758",
+				// Engine-actual shape (traceQueryTypedPriorityRichNotes):
+				// rank rows always carry their typed type= note — the R1
+				// survivor adopts it as TypeToken (fixture 取引擎实铸形).
+				"tier=context_only", "type=" + idleToken, "impact_ms=15.758",
 				"cumulative_impact_ms=15.758", "effective_impact_ms=0.000",
 				"chain_relevance=adjacent", "causality=adjacent_to_wakeup_chain",
 			},
@@ -120,32 +124,49 @@ func eng2IdleCadenceFence(t *testing.T, idleToken string, zh bool) string {
 	return runtimeTraceProjTreeFence(eng2IdleCadenceModel(t, idleToken, zh), zh)
 }
 
-// TestENG2IdleCadenceAnnotationSurvivesSameFactFold — the folded seat must
-// SPEAK the idle reclassification: the 「其中 …帧间空闲(等待下一帧)」 tag
-// renders once with the one-fact ms (the rank view and the root_evidence
-// witness of the SAME segment never sum), and the teaching legend entry
-// rides along (词条-图例双向).
-func TestENG2IdleCadenceAnnotationSurvivesSameFactFold(t *testing.T) {
+// TestENG2IdleCadenceIndependentRow — CAL-1 件⑤ PACE-ROW (§29.47.4②,
+// 2026-07-12; EVOLUTION RECORD: supersedes the ENG-2 「其中 …」 annotation
+// pin — the annotation arm is now the fold FALLBACK): the same-fact-merged
+// idle segment stands as its OWN self row — row 1 speaks 帧间空闲(等待下一帧)
+// behind the dedicated cadence glyph, 行2 mints the typed
+// 节拍吻合·上下文(不参与根因排序) word, the 「其中 …」 tag never
+// double-speaks, and the teaching legend marks ride along (词条-图例双向).
+func TestENG2IdleCadenceIndependentRow(t *testing.T) {
 	model := eng2IdleCadenceModel(t, "pacing_idle", true)
 	fence := runtimeTraceProjTreeFence(model, true)
-	if got := strings.Count(fence, "其中 15.758ms 帧间空闲(等待下一帧)"); got != 1 {
-		t.Fatalf("the folded seat must carry the idle-cadence annotation exactly once (one-fact MAX, never summed), got %d:\n%s", got, fence)
+	if got := strings.Count(fence, "自身·帧间空闲(等待下一帧) 15.758ms"); got != 1 {
+		t.Fatalf("the idle segment must stand as ONE independent self row, got %d:\n%s", got, fence)
 	}
-	if !model.Marks.has(runtimeTraceProjMarkPacingIdle) {
-		t.Fatalf("the pacing legend mark must ride with the annotation (词条-图例双向)")
+	if !strings.Contains(fence, tracefence.GlyphPacing+" 自身·帧间空闲(等待下一帧)") {
+		t.Fatalf("the independent idle row must lead with the dedicated cadence glyph:\n%s", fence)
 	}
-	// EN face: raw token verbatim (D2 discipline).
-	if enFence := eng2IdleCadenceFence(t, "pacing_idle", false); !strings.Contains(enFence, "of which 15.758ms pacing_idle") {
-		t.Fatalf("EN folded seat must carry the raw-token annotation:\n%s", enFence)
+	if !strings.Contains(fence, "节拍吻合·上下文(不参与根因排序)") {
+		t.Fatalf("the idle row must carry the typed cadence-fit context word:\n%s", fence)
+	}
+	if strings.Contains(fence, "其中 15.758ms 帧间空闲") {
+		t.Fatalf("the annotation fallback must not double-speak on an independent idle row:\n%s", fence)
+	}
+	if !model.Marks.has(runtimeTraceProjMarkPacingIdle) || !model.Marks.has(runtimeTraceProjMarkIconPacing) {
+		t.Fatalf("the pacing type-word and cadence-glyph legend marks must ride the row (词条-图例双向)")
+	}
+	// EN face: raw token verbatim (D2 discipline) + the EN cadence-fit word.
+	enFence := eng2IdleCadenceFence(t, "pacing_idle", false)
+	if !strings.Contains(enFence, "own·pacing_idle 15.758ms") ||
+		!strings.Contains(enFence, "cadence fit · context (not ranked)") {
+		t.Fatalf("EN independent idle row must speak the raw token + cadence-fit word:\n%s", enFence)
 	}
 }
 
 // TestENG2IdleCadenceAnnotationPeriodicFork — the generic periodic fork's
-// annotation speaks the periodic word, never the frame promise words.
+// independent row speaks the periodic word, never the frame promise words
+// (CAL-1 件⑤: same PACE-ROW form as the pacing lane).
 func TestENG2IdleCadenceAnnotationPeriodicFork(t *testing.T) {
 	fence := eng2IdleCadenceFence(t, "periodic_idle", true)
-	if !strings.Contains(fence, "其中 15.758ms 周期空闲(等待下一周期信号)") {
-		t.Fatalf("the periodic fork must carry the periodic annotation:\n%s", fence)
+	if !strings.Contains(fence, "自身·周期空闲(等待下一周期信号) 15.758ms") {
+		t.Fatalf("the periodic fork must stand as its independent row:\n%s", fence)
+	}
+	if !strings.Contains(fence, "节拍吻合·上下文(不参与根因排序)") {
+		t.Fatalf("the periodic row must carry the typed cadence-fit context word:\n%s", fence)
 	}
 	if strings.Contains(fence, "帧间空闲") {
 		t.Fatalf("the frame promise words must never render for the periodic fork:\n%s", fence)
@@ -175,13 +196,24 @@ func TestENG2IdleCadenceDonghuRealPipelineFamilyFold(t *testing.T) {
 	projection := types.TraceCausalProjectionFromObservationRecords(records)
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
-	if got := strings.Count(fence, "其中 15.758ms 帧间空闲(等待下一帧)"); got != 1 {
-		t.Fatalf("the donghu ×N self-sleep family seat must carry the idle annotation exactly once, got %d:\n%s", got, fence)
+	// CAL-1 件⑤ PACE-ROW (EVOLUTION RECORD, 2026-07-12 — inverts the ENG-2
+	// fold pin): the 15.758ms frame-pacing segment stands as its OWN self row
+	// (one seat, never double-published), OUTSIDE the ×N sleep family; the
+	// 「其中 …」 annotation no longer renders on the family seat (it is the
+	// fold fallback now, and the member left the fold).
+	if got := strings.Count(fence, "自身·帧间空闲(等待下一帧) 15.758ms"); got != 1 {
+		t.Fatalf("the donghu frame-pacing segment must stand as ONE independent self row, got %d:\n%s", got, fence)
 	}
-	// No standalone double seat: the idle rows fold into the family seat
-	// (同源收敛 — the segment must not publish twice).
-	if strings.Contains(fence, "自身·帧间空闲") {
-		t.Fatalf("the idle row must fold into the family seat, never a second standalone seat:\n%s", fence)
+	if !strings.Contains(fence, "节拍吻合·上下文(不参与根因排序)") {
+		t.Fatalf("the donghu pacing row must carry the typed cadence-fit context word:\n%s", fence)
+	}
+	if strings.Contains(fence, "其中 15.758ms 帧间空闲") {
+		t.Fatalf("the family-seat annotation must not double-speak after the member left the fold:\n%s", fence)
+	}
+	// The remaining sleep family must not swallow the pacing member back:
+	// its ×N range top stays BELOW the pacing segment length.
+	if strings.Contains(fence, "–15.758ms)") {
+		t.Fatalf("the ×N sleep family range must exclude the pacing member:\n%s", fence)
 	}
 }
 

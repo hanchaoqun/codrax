@@ -384,8 +384,8 @@ func TestUXR1AdjacentRelevanceNeverTakesChainSeat(t *testing.T) {
 		LineStart: 500, LineEnd: 510, Confidence: 0.7,
 	}
 	projection := types.TraceCausalProjection{
-		WakeupPath:        []string{"ThreadPoolForeg-60555", "NetworkService-60595", "CookieMonsterCl-59843", "com.baidu.tieba-59566"},
-		WindowStartTs:     100.0, WindowEndTs: 100.11494,
+		WakeupPath:    []string{"ThreadPoolForeg-60555", "NetworkService-60595", "CookieMonsterCl-59843", "com.baidu.tieba-59566"},
+		WindowStartTs: 100.0, WindowEndTs: 100.11494,
 		PrimaryRootCauses: []types.TraceCausalProjectionNode{leak},
 		OnChainCauses: []types.TraceCausalProjectionNode{
 			deep("CookieMonsterCl-59843", 1, 42.131, "E-l1"),
@@ -476,7 +476,7 @@ func TestUXR1BlockingSpanWearsLockGlyph(t *testing.T) {
 	}
 }
 
-// TestUXR1LanePrefixSimplified — §29.36④: the 深度未解析/未接入树 auxiliary
+// TestUXR1LanePrefixSimplified — §29.36④: the 深度未解析/父节点未确认 auxiliary
 // words left the lane prefix (链上─), riding the 行2 chip family instead.
 func TestUXR1LanePrefixSimplified(t *testing.T) {
 	projection := types.TraceCausalProjection{
@@ -493,7 +493,7 @@ func TestUXR1LanePrefixSimplified(t *testing.T) {
 	}
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
-	if strings.Contains(fence, "链上·深度未解析─") || strings.Contains(fence, "链上·未接入树─") {
+	if strings.Contains(fence, "链上·深度未解析─") || strings.Contains(fence, "链上·父节点未确认─") {
 		t.Fatalf("the auxiliary words must leave the lane prefix (§29.36④):\n%s", fence)
 	}
 	if !strings.Contains(fence, "链上─") {

@@ -3522,7 +3522,9 @@ func runtimeTraceCausalProjectionImpactShapeCellTyped(node types.TraceCausalProj
 	// ◦ 无主导态 chip stays silent through the same typed class gate).
 	// Display-layer mapping only; the producer's StateKind lane is untouched.
 	if class := runtimeTraceCausalProjectionTypeTokenStateClass(node); class != "" {
-		return runtimeTraceCausalProjectionTypeTokenStateWord(class, zh), false
+		// DSTATE-REFINE arm a (件③): the shape word consumes the typed
+		// refined-D proof (merged class → unambiguous d_state).
+		return runtimeTraceCausalProjectionTypeTokenStateWord(runtimeTraceCausalProjectionRefinedStateClass(node, class), zh), false
 	}
 	// PTV6-D (b) → PTV8-RCR-B (UXA 域B #21, 2026-07-08). EVOLUTION RECORD:
 	// the 「候选影响」 class word shared 候选 with the retired 候选根因 while
@@ -3829,6 +3831,12 @@ func runtimeTraceCausalProjectionUnresolvedPeerText(kind string, zh bool) string
 			return "D-state/iowait(对端未解析)"
 		}
 		return "D-state/iowait (peer unresolved)"
+	case "d_state_refined":
+		// DSTATE-REFINE arm a (件③): the coverage-proven refined form.
+		if zh {
+			return "D-state(对端未解析)"
+		}
+		return "D-state (peer unresolved)"
 	default:
 		if zh {
 			return "对端线程未解析"
@@ -3902,6 +3910,12 @@ func runtimeTraceCausalProjectionResolvedPeerText(kind, peer string, zh bool) st
 			return "D-state/iowait(对端 " + peer + ")"
 		}
 		return "D-state/iowait (peer " + peer + ")"
+	case "d_state_refined":
+		// DSTATE-REFINE arm a (件③, 同形 twin of the unresolved arm).
+		if zh {
+			return "D-state(对端 " + peer + ")"
+		}
+		return "D-state (peer " + peer + ")"
 	case "io_latency":
 		if zh {
 			return "IO等待(对端 " + peer + ")"

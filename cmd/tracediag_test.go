@@ -488,6 +488,20 @@ func TestRootPreRunSkipsInitAppForTraceDiag(t *testing.T) {
 	}
 }
 
+// CAL-1 修复轮 P3-5 (2026-07-12): an orphan --trace used to slip into the
+// LLM pipeline with NO runtime attachment (the pipeline legitimately fell
+// back to repo-source analysis — two wasted acceptance replays). Same
+// fail-loud family as the --trace-window guard, plus the redirect to the
+// pipeline attach flags.
+func TestRootPreRunRejectsTraceWithoutTraceDiag(t *testing.T) {
+	withTraceDiagFlags(t, "", "some.trace", "", "auto")
+	err := rootPreRun(rootCmd, nil)
+	if err == nil || !strings.Contains(err.Error(), "--trace requires --tracediag") ||
+		!strings.Contains(err.Error(), "--htrace/--atrace") {
+		t.Fatalf("orphan --trace must fail before initApp and point at the attach flags, got %v", err)
+	}
+}
+
 func TestRootPreRunRejectsTraceWindowWithoutTraceDiag(t *testing.T) {
 	withTraceDiagFlags(t, "", "", "", "auto")
 	flagTraceDiagWindow = "1.0..2.0"

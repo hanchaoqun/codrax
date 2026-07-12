@@ -22,7 +22,7 @@ package tool
 //        source as the tree 行2 (三面同档).
 //   C5 — 承自归因 gate is the precise eff>cum (the 1.1×–1.8× hop-echo band,
 //        witness bytes 1.107 > 0.875).
-//   C6 — depthless 三面同词 (edge/chip/detail 层级/关系 all speak 未接入树;
+//   C6 — depthless 三面同词 (edge/chip/detail 层级/关系 all speak 父节点未确认;
 //        the depth-0 form keeps 深度未解析 byte-identically).
 //   C7 — 影响形态 never claims 未分类 beside a typed family token
 //        (binder_wait → IO阻塞候选); genuinely word-less rows keep it.
@@ -406,21 +406,21 @@ func TestRCRCDepthlessUnattachedThreeFacesOneWord(t *testing.T) {
 	fence := runtimeTraceProjTreeFence(model, true)
 	// Edge face.
 	// EVOLUTION RECORD (UXR-1 §29.36④, 2026-07-11): the lane prefix
-	// simplified to 链上─ — the 未接入树 auxiliary word lives on the 行2 chip
+	// simplified to 链上─ — the 父节点未确认 auxiliary word lives on the 行2 chip
 	// + detail faces only (the C6 word family keeps two faces).
 	if !strings.Contains(fence, "链上─") {
 		t.Fatalf("the simplified on-chain edge must render:\n%s", fence)
 	}
-	if strings.Contains(fence, "链上·未接入树─") {
+	if strings.Contains(fence, "链上·父节点未确认─") {
 		t.Fatalf("the unattached auxiliary word must leave the lane prefix (§29.36④):\n%s", fence)
 	}
 	// Chip face (行2 of the structured cause row).
-	if !strings.Contains(fence, "链上L2(未接入树)") {
+	if !strings.Contains(fence, "链上L2(父节点未确认)") {
 		t.Fatalf("the 行2 chip must speak the unified word:\n%s", fence)
 	}
 	// Detail faces (层级 + 关系).
 	detail := runtimeTraceProjDetailFullText(model, true)
-	for _, want := range []string{"链上L2(未接入树)", "链上·未接入树"} {
+	for _, want := range []string{"链上L2(父节点未确认)", "链上·父节点未确认"} {
 		if !strings.Contains(detail, want) {
 			t.Fatalf("detail face lost the unified word %q:\n%s", want, detail)
 		}
@@ -442,7 +442,7 @@ func TestRCRCDepthlessUnattachedThreeFacesOneWord(t *testing.T) {
 	if !strings.Contains(zeroFence, "链上·深度未解析") {
 		t.Fatalf("the depth-0 form must keep 深度未解析 on 行2:\n%s", zeroFence)
 	}
-	if strings.Contains(zeroFence, "未接入树") {
+	if strings.Contains(zeroFence, "父节点未确认") {
 		t.Fatalf("the depth-0 form must not claim the unattached word:\n%s", zeroFence)
 	}
 }
