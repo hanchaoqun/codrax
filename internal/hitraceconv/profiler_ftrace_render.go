@@ -337,12 +337,6 @@ func decodeProfilerFtraceCommonFields(data []byte) (pid, flags, preempt int64, r
 
 func renderProfilerFtraceEventBody(event profilerFtraceEventRecord) (string, string, bool) {
 	switch event.Field {
-	case 113:
-		return "binder_transaction", fmt.Sprintf("transaction=%d dest_node=%d dest_proc=%d dest_thread=%d reply=%d flags=0x%x code=0x%x",
-			protoInt(event.Payload, 1), protoInt(event.Payload, 2), protoInt(event.Payload, 3), protoInt(event.Payload, 4),
-			protoInt(event.Payload, 5), protoUint(event.Payload, 7), protoUint(event.Payload, 6)), true
-	case 119:
-		return "binder_transaction_received", fmt.Sprintf("transaction=%d", protoInt(event.Payload, 1)), true
 	case 202, 204, 205, 209, 210, 211, 212:
 		name, body, ok, _ := renderProfilerBlockEvent(event)
 		return name, body, ok
@@ -372,26 +366,6 @@ func renderProfilerFtraceEventBody(event profilerFtraceEventRecord) (string, str
 		return "mm_filemap_delete_from_page_cache", body, ok
 	case 1109:
 		return "print", protoString(event.Payload, 2), true
-	case 1500:
-		return "irq_handler_entry", fmt.Sprintf("irq=%d name=%s", protoInt(event.Payload, 1), protoString(event.Payload, 2)), true
-	case 1501:
-		ret := "unhandled"
-		if protoInt(event.Payload, 2) != 0 {
-			ret = "handled"
-		}
-		return "irq_handler_exit", fmt.Sprintf("irq=%d ret=%s", protoInt(event.Payload, 1), ret), true
-	case 1502:
-		return "softirq_entry", fmt.Sprintf("vec=%d", protoUint(event.Payload, 1)), true
-	case 1503:
-		return "softirq_exit", fmt.Sprintf("vec=%d", protoUint(event.Payload, 1)), true
-	case 1504:
-		return "softirq_raise", fmt.Sprintf("vec=%d", protoUint(event.Payload, 1)), true
-	case 2003:
-		return "cpu_frequency", fmt.Sprintf("state=%d cpu_id=%d", protoUint(event.Payload, 1), protoUint(event.Payload, 2)), true
-	case 2004:
-		return "cpu_frequency_limits", fmt.Sprintf("min=%d max=%d cpu_id=%d", protoUint(event.Payload, 1), protoUint(event.Payload, 2), protoUint(event.Payload, 3)), true
-	case 2005:
-		return "cpu_idle", fmt.Sprintf("state=%d cpu_id=%d", protoUint(event.Payload, 1), protoUint(event.Payload, 2)), true
 	case 2417:
 		body := fmt.Sprintf("prev_comm=%s prev_pid=%d prev_prio=%d prev_state=%s ==> next_comm=%s next_pid=%d next_prio=%d",
 			protoString(event.Payload, 1), protoInt(event.Payload, 2), protoInt(event.Payload, 3),
@@ -408,17 +382,6 @@ func renderProfilerFtraceEventBody(event profilerFtraceEventRecord) (string, str
 			body += " next_info=" + formatHarmonySchedInfo(nextInfo, true)
 		}
 		return "sched_switch", body, true
-	case 2420, 2421, 2422:
-		name := "sched_wakeup"
-		if event.Field == 2421 {
-			name = "sched_wakeup_new"
-		} else if event.Field == 2422 {
-			name = "sched_waking"
-		}
-		return name, fmt.Sprintf("comm=%s pid=%d prio=%d target_cpu=%03d",
-			protoString(event.Payload, 1), protoInt(event.Payload, 2), protoInt(event.Payload, 3), protoInt(event.Payload, 5)), true
-	case 4002:
-		return "sched_blocked_reason", renderProfilerFtraceSchedBlockedReason(event.Payload), true
 	case 4009:
 		return "f2fs_sync_file_enter", renderProfilerFtraceF2FS(event.Payload, false, 2, 5, 0), true
 	case 4010:
@@ -436,35 +399,16 @@ func renderProfilerFtraceEventBody(event profilerFtraceEventRecord) (string, str
 	}
 }
 
-// renderProfilerFtraceSchedBlockedReason preserves two separate authorities:
-// caller_str is the ftrace plugin's symbolized caller and may feed the
-// semantic `caller=` token only when it is a bounded single token; the raw
-// uint64 address is provenance only. When symbolization is absent or unsafe,
-// publishing caller=unknown keeps tracequery's blocked-reason aggregation from
-// fragmenting into one pseudo-reason per address while pid/iowait remain usable.
-func renderProfilerFtraceSchedBlockedReason(data []byte) string {
-	pid := protoInt(data, 1)
-	rawCaller := protoUint(data, 2)
-	ioWait := protoUint(data, 3)
-	caller, symbolized := safeProfilerBlockedCaller(protoString(data, 4))
-	if symbolized {
-		return fmt.Sprintf("pid=%d iowait=%d caller=%s caller_raw=0x%x caller_quality=symbolized",
-			pid, ioWait, caller, rawCaller)
-	}
-	return fmt.Sprintf("pid=%d iowait=%d caller=unknown caller_raw=0x%x caller_quality=opaque",
-		pid, ioWait, rawCaller)
-}
-
 func safeProfilerBlockedCaller(raw string) (string, bool) {
 	value := strings.TrimSpace(raw)
 	if value == "" || value != raw || len(value) > 512 {
 		return "", false
 	}
 	for _, r := range value {
-		// caller= is one systrace key/value token. Whitespace, pipes and
+		// caller= is one systrace key/value token. Whitespace, equals, pipes and
 		// controls would either truncate the parser-visible reason or inject a
 		// second trace field/line, so such payloads fail closed to opaque.
-		if unicode.IsSpace(r) || unicode.IsControl(r) || r == '|' {
+		if unicode.IsSpace(r) || unicode.IsControl(r) || r == '=' || r == '|' {
 			return "", false
 		}
 	}
@@ -539,6 +483,20 @@ func protoString(data []byte, field int) string {
 func renderProfilerFtraceEventBodyWithAudit(event profilerFtraceEventRecord) (string, string, bool, []string) {
 	if len(event.EnvelopeDegradations) > 0 {
 		return "", "", false, append([]string(nil), event.EnvelopeDegradations...)
+	}
+	corePayload, admission, reason, degradations := decodeProfilerCorePayload(event)
+	switch admission {
+	case bodyAdmitted:
+		body, ok := renderCanonicalCorePayload(corePayload)
+		if !ok {
+			return "", "", false, []string{"invalid_canonical_core_payload"}
+		}
+		if !profilerCoreCanonicalLineValid(event, corePayload.Name, body) {
+			return "", "", false, []string{"invalid_canonical_core_line"}
+		}
+		return corePayload.Name, body, true, degradations
+	case bodyRejected:
+		return "", "", false, []string{reason}
 	}
 	if _, _, blockEvent := blockRenderKindForProfilerField(event.Field); blockEvent {
 		return renderProfilerBlockEvent(event)

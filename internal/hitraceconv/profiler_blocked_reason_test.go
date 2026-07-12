@@ -11,7 +11,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
-func TestProfilerStructuredSchedBlockedReasonPreservesCallerQuality(t *testing.T) {
+func TestProfilerStructuredSchedBlockedReasonUsesCanonicalCallerQuality(t *testing.T) {
 	dir := t.TempDir()
 	input := filepath.Join(dir, "blocked-reason.htrace")
 	payload := protoMessage(2,
@@ -54,7 +54,7 @@ func TestProfilerStructuredSchedBlockedReasonPreservesCallerQuality(t *testing.T
 	}
 	text := string(converted)
 	for _, want := range []string{
-		"sched_blocked_reason: pid=562 iowait=1 caller=schedule_timeout+0x10/0x20[kernel] caller_raw=0x41424344 caller_quality=symbolized",
+		"sched_blocked_reason: pid=562 iowait=1 caller=schedule_timeout+0x10/0x20[kernel]",
 		"sched_blocked_reason: pid=563 iowait=0 caller=unknown caller_raw=0x11223344 caller_quality=opaque",
 		"sched_blocked_reason: pid=564 iowait=1 caller=unknown caller_raw=0x55667788 caller_quality=opaque",
 	} {
@@ -64,6 +64,9 @@ func TestProfilerStructuredSchedBlockedReasonPreservesCallerQuality(t *testing.T
 	}
 	if strings.Contains(text, "forged\nsecond-row") || strings.Contains(text, "caller=0x") {
 		t.Fatalf("unsafe/raw caller became semantic caller or injected a line:\n%s", text)
+	}
+	if strings.Contains(text, "caller_quality=symbolized") {
+		t.Fatalf("structured symbolized caller bypassed the shared canonical renderer:\n%s", text)
 	}
 
 	idx, err := tracequery.BuildIndex(context.Background(), result.OutputPath)
