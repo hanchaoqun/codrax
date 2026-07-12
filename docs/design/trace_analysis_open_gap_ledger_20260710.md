@@ -150,6 +150,14 @@
 
     **P2/P3披露项**：Golden证明payload CPU与header emitter CPU大量不同（clock 379/767、frequency 799/830、limits 42/44），SQL当前 projection需在bundle/artifact明确 original identity unknown，禁止猜原header；生成header中的 `%lu/%d` 内核计数占位符应省略或标 converter-generated，不能伪装真实计数。Golden CRLF/无header与当前LF/生成header属于容器差异，不要求字节一致；线程名会变，永不参与profile hard gate。
 
+25. **B3-b2a 五族 pairing fingerprint / complete physical topology 正在施工（2026-07-12，代码未交付）**：施工基线已从 `abbef8d80` 安全快进到远端 `39f1ddea3`，远端 CR-1 / Binder attribution 新提交已先吸收且 `go test ./internal/tracequery -count=1` 通过。本批唯一 hard fingerprint 统一 Binder、workqueue、DMA fence、Block 与 generic storage：source 只作 physical artifact namespace，numeric identity canonicalize；`KeyKnown` 与 `PayloadAdmitted` 分账，已定位但 payload 非法的 row 只 quarantine exact lane，未知 key/owner 才升级 source-family，source unresolved / bounded audit overflow 才整族 fail-close。Binder 使用 `source+transaction` 的有序 cohort，一条 receive 只消费一次；idle Binder/WQ/DMA 不铸边；generic storage 保持既有 coarse key，禁止在无生产两端 witness 时把 tag/LBA 偷升 request identity。standard MMC/SCSI signed tag、独立 error 字段、mixed-case `f2fs_direct_IO_*` 与 dev_t alias parity 属于本批格式验收。
+
+    **本批新增 correctness P0（必须同批或紧随小批关闭，未关闭不得写 RELEASE）**：所有能铸 IPC/elapsed duration 的 pairing topology 必须按完整 `physical source + Line` replay，query time/line 只决定发布/统计，不能先裁掉窗头 carry-in、窗尾 carry-through、窗外同 lane overlap、lifecycle reset 或 malformed endpoint 后把剩余两端“救活”为假 pair。Binder、Block、generic storage、WQ、DMA 五族均补 `valid → outside overlap/malformed → valid`、合法 sequential reuse、跨 source、regressed clock 与 direct/composite parity；storage reset 只清同 source+PID，reset provenance unresolved 时整 generic-storage family fail-close。parser-rejected raw endpoint 即使没有 materialized Event 也必须作为完整 topology barrier 被共享 integrity authority 消费，禁止 consumer 各自另扫第二套。所有 replay index / poison ledger 必须有明确预算，超限 fail-close+caveat，不得无界复制 Event。
+
+    **分批与验证纪律**：当前工作树只允许这一活跃 B3-b2a 批，不把半成品提交；完成后先 focused `-count=20`、race `-count=5`、`go test ./internal/tracequery ./internal/hitraceconv -count=1`、全仓 test/vet、gofmt/diff-check与至少两路独立审计，再提交并立即 push `main`。随后单独更新本条为实际 commit SHA/证据；B3-b2b SQL raw private typed stage/freeze、ftrace parser-rejected Binder/Block/Storage 的任何尚未由本批 raw barrier覆盖的 profile、page/marker fidelity 与 R1b-C 继续开放，不得偷报结案。
+
+26. **本地历史 stash 审计（运维风险，2026-07-12 立账）**：发现一份旧 `codex-trace-correctness-p0-before-main-40f38e867` stash（24 files，约 `+2357/-536`），其 base 已是当前 `main` 祖先，但尚未机械证明全部内容已被后续提交吸收。B3-b2a 推送后必须逐文件/逐 invariant 对照当前主干与提交历史：已等价交付的记录证据后删除 stash；仍有独立有效修改的拆成新小批重放、测试、提交推送。禁止直接 pop 到当前活跃批，也禁止未经证明删除；审计结论必须回写本条，确保重启后不遗忘。
+
 ## 高 ROI 主队列
 
 | 项 | 当前状态 | 代码 / 测试证据 | 剩余定义（fail-close 与精确能力分开） | 触发 witness / 推荐采集 | ROI / owner batch |
