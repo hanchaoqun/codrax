@@ -1,11 +1,20 @@
 package tool
 
 import (
+	"context"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+// donghuWitnessTracePathTool mirrors the tracequery-side ENG-1 pin's witness
+// path (ledger §29.42.5 gold sample); the real-pipeline pin below skips
+// wherever the file is absent.
+const donghuWitnessTracePathTool = "/Users/han/opt/donghu/donghu.ftrace"
 
 // answer_document_projection_idle_cadence_eng2_test.go — ENG-2 pins
 // (复核冷读 CP1-③, 2026-07-12): the P9 arm-c idle reclassification must
@@ -140,5 +149,66 @@ func TestENG2IdleCadenceAnnotationPeriodicFork(t *testing.T) {
 	}
 	if strings.Contains(fence, "帧间空闲") {
 		t.Fatalf("the frame promise words must never render for the periodic fork:\n%s", fence)
+	}
+}
+
+// TestENG2IdleCadenceDonghuRealPipelineFamilyFold — ENG-2 追修 pin (复核冷读
+// CP1-③ 第三折叠机, 2026-07-12): the ENGINE-REAL donghu pipeline (BuildIndex
+// → root_cause_rank → typed observations → projection compile → tree render)
+// must carry the 15.758ms frame-pacing reclassification onto the rendered ×N
+// self-sleep family seat. Pre-fix, the idle rows published under raw
+// sleep/wakeup lines (23091-24430) while the segment's impact record
+// published its evidence span, so the same-fact fold never fired and the
+// standalone idle rows fell off the capped supporting-hop bucket — the whole
+// report carried ZERO 帧间空闲 wording (84618 replay witness). Skip-gated on
+// the witness trace like the ENG-1 pin.
+func TestENG2IdleCadenceDonghuRealPipelineFamilyFold(t *testing.T) {
+	if _, err := os.Stat(donghuWitnessTracePathTool); err != nil {
+		t.Skipf("witness trace unavailable: %v", err)
+	}
+	idx, err := tracequery.BuildIndex(context.Background(), donghuWitnessTracePathTool)
+	if err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	result := tracequery.Run(idx, tracequery.Query{View: "root_cause_rank", PID: 17267, TimeStart: 13762.791708, TimeEnd: 13763.024898})
+	records := traceQueryTypedObservations(result, "donghu.ftrace", "", "", "", time.Now())
+	projection := types.TraceCausalProjectionFromObservationRecords(records)
+	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+	fence := runtimeTraceProjTreeFence(model, true)
+	if got := strings.Count(fence, "其中 15.758ms 帧间空闲(等待下一帧)"); got != 1 {
+		t.Fatalf("the donghu ×N self-sleep family seat must carry the idle annotation exactly once, got %d:\n%s", got, fence)
+	}
+	// No standalone double seat: the idle rows fold into the family seat
+	// (同源收敛 — the segment must not publish twice).
+	if strings.Contains(fence, "自身·帧间空闲") {
+		t.Fatalf("the idle row must fold into the family seat, never a second standalone seat:\n%s", fence)
+	}
+}
+
+// TestENG2IdleCadenceSurvivorAdoptedTypeToken — P2-4 synthetic pin (no
+// witness file): a same-fact SURVIVOR that kept its scheduler-state word
+// (Object=s_sleep) while ADOPTING the folded idle view's TypeToken
+// (pacing_idle) must still speak the annotation — the redundancy exclusion
+// keys on the canonical Object ONLY (the ×8 donghu seat lost its wording to
+// a TypeToken-based exclusion pre-fix). A standalone idle row (Object IS
+// the idle lane) stays excluded: its display word already says it.
+func TestENG2IdleCadenceSurvivorAdoptedTypeToken(t *testing.T) {
+	survivor := types.TraceCausalProjectionNode{
+		Object:          "s_sleep",
+		TypeToken:       "pacing_idle",
+		IdleCadenceMS:   15.758,
+		IdleCadenceKind: "pacing_idle",
+	}
+	tag, mark, ok := runtimeTraceProjIdleCadenceTag(survivor, true)
+	if !ok || !strings.Contains(tag, "帧间空闲") {
+		t.Fatalf("the survivor-adopted-TypeToken shape must carry the idle annotation, got ok=%v tag=%q", ok, tag)
+	}
+	if mark != runtimeTraceProjMarkPacingIdle {
+		t.Fatalf("the pacing legend mark must ride the annotation, got %v", mark)
+	}
+	standalone := survivor
+	standalone.Object = "pacing_idle"
+	if _, _, ok := runtimeTraceProjIdleCadenceTag(standalone, true); ok {
+		t.Fatalf("a standalone idle row must not double-speak the annotation")
 	}
 }

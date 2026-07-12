@@ -106,8 +106,11 @@ func TestProseScalarGrounding_MissRaisesRetryHint(t *testing.T) {
 	if strings.Contains(v.Repair, "source view and time window") {
 		t.Fatalf("Repair must not re-open the view+window escape:\n%s", v.Repair)
 	}
-	if !isStrictViolationForBus(v, bus) {
-		t.Fatalf("the single PSG raise must be retry-eligible via the bus strict arm")
+	// S3' ① (§29.47.1, 2026-07-12): the raise is INFORMATION only — never
+	// strict for the bus, never a repair round; findings surface on the
+	// system cross-check appendix instead.
+	if isStrictViolationForBus(v, bus) {
+		t.Fatalf("S3' ①: the PSG raise must never be strict for the bus")
 	}
 }
 
@@ -484,8 +487,8 @@ func TestProseScalarGrounding_BindingWindowMismatchB3(t *testing.T) {
 		!strings.Contains(v.Repair, "normalize each side by its own window length") {
 		t.Fatalf("Repair must carry the binding + normalize-before-comparing guidance:\n%s", v.Repair)
 	}
-	if !isStrictViolationForBus(v, bus) {
-		t.Fatalf("the binding raise must be retry-eligible via the bus strict arm")
+	if isStrictViolationForBus(v, bus) {
+		t.Fatalf("S3' ①: the binding raise must never be strict for the bus")
 	}
 }
 
@@ -693,8 +696,10 @@ func TestProseScalarGrounding_HuadongFixtureEndToEnd(t *testing.T) {
 	if !strings.Contains(raised[0].Detail, "46.821ms") || !strings.Contains(raised[0].Detail, "48.216ms") {
 		t.Fatalf("the hint must list both unverifiable numerals:\n%s", raised[0].Detail)
 	}
-	if res.Passed {
-		t.Fatalf("the single PSG round must be retry-eligible (Passed=false)")
+	// S3' ① (§29.47.1): a soft-only round PASSES — the first draft ships
+	// with zero repair dispatches; the findings become appendix items.
+	if !res.Passed {
+		t.Fatalf("S3' ①: a soft-only PSG round must pass (zero repair rounds)")
 	}
 
 	// Retry decision publishes the hint (same call the scheduler makes).

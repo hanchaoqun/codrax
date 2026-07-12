@@ -348,21 +348,19 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 			// runtime-trace run, model-authored prose ms/% scalars must
 			// be members of the evidence-face scalar set (aggregate
 			// facts / observation values+notes / projection blocks /
-			// citation quotes) within a loose tolerance. The regex scan
-			// is a noisy signal, so the raise is bounded to ONE retry
-			// round by the validator-side latch; the bus-scoped strict
-			// arm in isStrictViolationForBus makes that single round
-			// retry-eligible. Never a hard reject.
+			// citation quotes) within a loose tolerance. S3' ①
+			// (§29.47.1, 2026-07-12): the raise is INFORMATION only —
+			// never strict for the bus, zero repair rounds; findings
+			// surface on the system cross-check appendix at ship time.
 			if o != nil && o.busCtx != nil {
 				result.Violations = append(result.Violations,
 					trace.run("prose_scalar_grounding", func() []types.Violation {
 						return runProseScalarGroundingCheck(docV2, o.busCtx, mut)
 					})...)
-				// CR-1 件②/件⑤ (§29.42.4, 2026-07-12): the prose vocabulary
-				// (P2) + board-order consistency (P3a/P3b) lane — soft only,
-				// one shared latch, one bounded round, never a hard reject,
-				// never a caveat; the advisory-log fallback lives in the
-				// producer.
+				// CR-1 件②/件⑤ (§29.42.4) prose vocabulary (P2) +
+				// board-order consistency (P3a/P3b) lane — same S3' ①
+				// information-only contract; never a hard reject, never
+				// a caveat, appendix at ship time.
 				result.Violations = append(result.Violations,
 					trace.run("prose_lexicon_board", func() []types.Violation {
 						return runProseLexiconBoardCheck(docV2, o.busCtx, mut)

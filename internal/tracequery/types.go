@@ -2179,6 +2179,13 @@ type PacingIdleSummary struct {
 	SleepLine  int     `json:"sleep_line,omitempty"`
 	WakeupLine int     `json:"wakeup_line,omitempty"`
 	WakeupTs   float64 `json:"wakeup_ts,omitempty"`
+	// EvidenceLineStart/End (ENG-2 追修, 2026-07-12): the segment's causal
+	// impact record's evidence span — the idle row's published coordinates
+	// align to it so the display same-fact fold engages by construction (the
+	// raw sleep/wakeup line pair above stays the audit-honest event locator).
+	// Zero when no impact record measured this exact segment.
+	EvidenceLineStart int `json:"evidence_line_start,omitempty"`
+	EvidenceLineEnd   int `json:"evidence_line_end,omitempty"`
 	// RejectedTransactionIDs lists the synchronous binder transactions the
 	// write-off arms rejected for this segment (audit trail — the pre-P9
 	// classifier would have attributed the segment to one of these).

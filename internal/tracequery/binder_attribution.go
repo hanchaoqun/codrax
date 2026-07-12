@@ -197,6 +197,34 @@ func buildBinderAttributionAudit(idx *Index, chain ChainResult) *binderAttributi
 	return audit
 }
 
+// chainCausalImpactLinesForNode returns the evidence line span of the causal
+// impact record measuring EXACTLY this node's segment (same thread, same
+// branch window — float equality on the shared interval). ENG-2 追修
+// (复核冷读 CP1-③ 第三折叠机, 2026-07-12): the idle-cadence rows mint with
+// the SAME evidence coordinates as the segment's impact record, so the
+// display compile's same-fact fold (subject + %.3f value + line span)
+// engages BY CONSTRUCTION and the idle annotation rides the surviving seat
+// through every downstream fold/cap — the pre-fix rows carried the raw
+// sleep/wakeup line pair while the impact record published its evidence
+// span, so the fold never fired and the standalone idle rows silently fell
+// off the capped supporting-hop bucket.
+func chainCausalImpactLinesForNode(chain ChainResult, node ChainNode) (int, int, bool) {
+	for i := range chain.CausalImpacts {
+		imp := &chain.CausalImpacts[i]
+		if !sameThreadRef(imp.Thread, node.Thread) {
+			continue
+		}
+		if imp.Window.StartTs != node.Window.StartTs || imp.Window.EndTs != node.Window.EndTs {
+			continue
+		}
+		if imp.LineStart <= 0 || imp.LineEnd < imp.LineStart {
+			continue
+		}
+		return imp.LineStart, imp.LineEnd, true
+	}
+	return 0, 0, false
+}
+
 // chainTerminatingWakeEdge returns the wakeup edge that ENDS the node's
 // sleep segment: the latest in-window wakeup of the node's thread.
 func chainTerminatingWakeEdge(chain ChainResult, node ChainNode) (WakeupEdge, bool) {

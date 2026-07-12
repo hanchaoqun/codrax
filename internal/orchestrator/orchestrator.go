@@ -4762,6 +4762,13 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 	// violations, ties to the earliest — instead of blindly shipping
 	// the latest. Bounded at hard cap + 1 entries by construction.
 	var finalizeRepairDraftLedger []finalizeRepairDraftRecord
+	// S3' ④ (§29.47.1): armed ONCE when a finalize-local STRICT repair
+	// round dispatches — the accepted patch draft ships only when strictly
+	// better than the retained FIRST draft; otherwise that draft is
+	// restored, with note + residual strict concerns on the appendix.
+	var repairArbitration *finalizeRepairArbitration
+	var repairArbitrationResiduals []types.Violation
+	repairArbitrationNote := ""
 
 	// lastFallbackFinalizerOnly latches when the previous loop
 	// iteration picked FallbackFinalizerOnly as the fallback target —
@@ -6085,6 +6092,25 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			break
 		}
 
+		// S3' ④ (§29.47.1): a strict repair round reaching an ACCEPT point
+		// ships only when strictly better than the retained FIRST draft;
+		// else that draft restores (发第一稿+附注). Failing rounds bypass.
+		retryViolations := FilterFinalizerRetryRootViolationsForBus(res.Violations, o.busCtx)
+		if repairArbitration != nil && (res.Passed || len(retryViolations) == 0) {
+			arb := repairArbitration
+			repairArbitration = nil
+			if note, restored := o.arbitrateFinalizeRepairDraft(arb, finalizeRepairDraftLedger, out, res.Violations); restored {
+				repairArbitrationNote = note
+				// P2-2: unfixed strict concerns disclose on the appendix.
+				repairArbitrationResiduals = append([]types.Violation(nil), finalizeRepairDraftLedger[arb.record].Violations...)
+				o.finishArbitrationRestoredAnswer(out)
+				logEvidenceUtilization(o, lastFinalize)
+				state.markDone(fin.ID)
+				o.emitNodeEnd(fin.ID, true, "")
+				break
+			}
+		}
+
 		if res.Passed {
 			out.FinalAnswer = o.appendSoftContractCaveatsTracked(out.FinalAnswer, res.Violations)
 			out.FinalAnswer = o.appendSystemCaveatsToAnswer(out.FinalAnswer)
@@ -6109,7 +6135,6 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			o.emitNodeEnd(fin.ID, true, "")
 			break
 		}
-		retryViolations := FilterFinalizerRetryRootViolationsForBus(res.Violations, o.busCtx)
 		if len(retryViolations) == 0 {
 			logging.Info("[orchestrator] contract check produced only soft/non-actionable violation(s); accepting answer without LLM retry")
 			out.FinalAnswer = o.appendSoftContractCaveatsTracked(out.FinalAnswer, res.Violations)
@@ -6485,6 +6510,13 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				}
 				populateRetryState(o.busCtx.Mutable, retryRes, prevAttempt)
 			}
+			// S3' ④: arm ONCE against the retained first draft (baselines
+			// snapshot before ResetForFallback clears the live doc).
+			// Upstream fallbacks never arm: fresh evidence reshapes answers.
+			if repairArbitration == nil && o.busCtx != nil && o.busCtx.Mutable != nil {
+				repairArbitration = armFinalizeRepairArbitration(retryRes.Violations, res.Violations,
+					finalizeRepairDraftLedger, out, o.busCtx.Mutable.AnswerDocumentV2())
+			}
 			state.requeue(fin.ID)
 			if o.busCtx != nil && o.busCtx.Mutable != nil {
 				o.busCtx.Mutable.ResetForFallback(types.FallbackResetTargetFinalizer)
@@ -6617,6 +6649,8 @@ contractFailureBreak:
 			}
 		}
 		if lastFinalize != nil {
+			// S3' ②: appendix first, then string appends (main-exit order).
+			o.attachSystemCrossCheckAppendix(lastFinalize, repairArbitrationNote, repairArbitrationResiduals)
 			lastFinalize.FinalAnswer = appendRuntimeDispatchAdvisoriesToAnswer(lastFinalize.FinalAnswer, runtimeDispatchAdvisories, o.busCtx.Language)
 			// PSG-2H (§29.10-2) deterministic caveat backstop + FRCAP
 			// (§29.12) per-answer repair-round telemetry — same order
@@ -6832,8 +6866,17 @@ contractFailureBreak:
 	}
 
 	if o.strictAnswerReviewEnabledValue() {
-		o.attachFirstDraftReference(lastFinalize, firstFinalizeDraft, firstFinalizeConcerns, firstFinalizeRejectedForRewrite)
+		// S3' ③ 显示面: when the arbitration shipped the FIRST draft the
+		// reference region never duplicates it — the appendix's one-line
+		// note replaces it.
+		if repairArbitrationNote == "" {
+			o.attachFirstDraftReference(lastFinalize, firstFinalizeDraft, firstFinalizeConcerns, firstFinalizeRejectedForRewrite)
+		}
 	}
+	// S3' ② (§29.47.1): mechanical cross-check findings on the SHIPPED
+	// draft render as ONE deterministic appendix block (information lane),
+	// BEFORE the string appends — the attachment path re-renders the answer.
+	o.attachSystemCrossCheckAppendix(lastFinalize, repairArbitrationNote, repairArbitrationResiduals)
 	if lastFinalize != nil {
 		lastFinalize.FinalAnswer = appendRuntimeDispatchAdvisoriesToAnswer(lastFinalize.FinalAnswer, runtimeDispatchAdvisories, o.busCtx.Language)
 		// PSG-2H (§29.10-2) deterministic caveat backstop: when the
@@ -8051,7 +8094,7 @@ func (o *Orchestrator) attachDraftReviewNote(out *agent.StageOutput, title strin
 		Kind:   types.AnswerDisplayAttachmentMarkdown,
 		Title:  title,
 		Body:   body,
-		Source: "orchestrator.strict_review_disabled",
+		Source: types.AnswerDisplayAttachmentSourceDraftReviewNote,
 	})
 }
 

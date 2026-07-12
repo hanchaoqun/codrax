@@ -10934,8 +10934,11 @@ func attachIPCGraphToChain(idx *Index, q Query, res *ChainResult) {
 			Type:       firstNonEmpty(p.Kind, "pacing_idle"),
 			Thread:     p.Thread,
 			DurationMs: p.DurationMs,
-			LineStart:  p.SleepLine,
-			LineEnd:    firstPositive(p.WakeupLine, p.SleepLine),
+			// ENG-2 追修 (2026-07-12): the published span aligns to the
+			// segment's causal impact record (same-fact fold by
+			// construction); the raw sleep/wakeup lines stay on the summary.
+			LineStart:  firstPositive(p.EvidenceLineStart, p.SleepLine),
+			LineEnd:    firstPositive(p.EvidenceLineEnd, p.WakeupLine, p.SleepLine),
 			Summary:    p.Summary,
 			Confidence: 0.85,
 		})
@@ -11109,6 +11112,12 @@ func findBinderWaitsForChain(idx *Index, chain ChainResult, edges []IPCEdge, aux
 					WakeupLine:             wakeEdge.WakeupLine,
 					WakeupTs:               wakeEdge.WakeupTs,
 					RejectedTransactionIDs: rejectedTxns,
+				}
+				// ENG-2 追修 (2026-07-12): publish under the segment's causal
+				// impact evidence span so the display same-fact fold engages
+				// by construction (see chainCausalImpactLinesForNode).
+				if ls, le, ok := chainCausalImpactLinesForNode(chain, node); ok {
+					p.EvidenceLineStart, p.EvidenceLineEnd = ls, le
 				}
 				p.Summary = renderPacingIdleSummary(p)
 				pacing = append(pacing, p)

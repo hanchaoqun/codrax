@@ -25,3 +25,24 @@ const (
 	AnswerDisplayAttachmentMarkdown = "markdown"
 	AnswerDisplayAttachmentText     = "text"
 )
+
+// System-authored attachment sources: bodies the SYSTEM wrote in its own
+// voice (deterministic content), as opposed to preserved MODEL output. The
+// renderer forks the panel lead-in on this typed signal (P2-1, §29.47.1
+// follow-up 2026-07-12: the system cross-check appendix must never be
+// introduced as "模型已生成" content).
+const (
+	AnswerDisplayAttachmentSourceSystemCrossCheck = "orchestrator.system_crosscheck_appendix"
+	AnswerDisplayAttachmentSourceDraftReviewNote  = "orchestrator.strict_review_disabled"
+)
+
+// SystemAuthored reports whether the attachment body is the system's own
+// deterministic content (system voice). Unknown sources default to the
+// model-provenance panel — the incumbent wording for preserved model output.
+func (a AnswerDisplayAttachment) SystemAuthored() bool {
+	switch a.Source {
+	case AnswerDisplayAttachmentSourceSystemCrossCheck, AnswerDisplayAttachmentSourceDraftReviewNote:
+		return true
+	}
+	return false
+}

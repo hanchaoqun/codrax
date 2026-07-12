@@ -72,9 +72,10 @@ import (
 //	  keeps truncated/aliased spellings of a REAL thread silent. The
 //	  pairwise-sum grounding arm gains the matching binding extension
 //	  (witness: a 139.615-class cross-thread sum stated for one thread).
-//	② the single raise stays a FORCED one-round rewrite whose hint names
-//	  every violating token individually with a delete-or-replace
-//	  directive (upgrade of the §25(b) advisory wording).
+//	② the raise names every violating token individually with a
+//	  delete-or-replace directive — since S3' ① (§29.47.1, 2026-07-12)
+//	  it is INFORMATION only: never strict for the bus, zero repair
+//	  rounds; findings surface on the system cross-check appendix.
 //	③ when the forced round is consumed and the SHIPPED document still
 //	  carries unlocatable tokens, a deterministic system-channel caveat
 //	  lists them verbatim (appendProseScalarResidualCaveatToAnswer at
@@ -205,6 +206,40 @@ func (t proseScalarToken) label() string {
 	return t.Raw + t.Unit
 }
 
+// proseScalarResidualAppendixInputs is the S3' ② typed variant of
+// proseScalarResidualFindingLabels: simple unlocatable labels (unmatched
+// numerals + fabricated thread identities) come back as tokens; each
+// binding mismatch comes back whole so the appendix can render its zh/en
+// user face per item.
+func proseScalarResidualAppendixInputs(doc *types.AnswerDocumentV2, bus *types.BusContext, mut *types.MutableState) ([]string, []proseScalarBindingFinding) {
+	if doc == nil || bus == nil || mut == nil {
+		return nil, nil
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(bus, types.ObservationExtractLedgerEvidenceLimit))
+	if !ledger.HasDeterministicRuntimeQueryObservation() {
+		return nil, nil
+	}
+	evidence := buildProseScalarEvidenceSet(doc, mut, ledger)
+	unmatched, misbound, fabricated := scanProseScalarFindings(doc, evidence)
+	seen := map[string]bool{}
+	var tokens []string
+	add := func(label string) {
+		label = strings.TrimSpace(label)
+		if label == "" || seen[label] {
+			return
+		}
+		seen[label] = true
+		tokens = append(tokens, label)
+	}
+	for _, tok := range unmatched {
+		add(tok.label())
+	}
+	for _, f := range fabricated {
+		add(f.label())
+	}
+	return tokens, misbound
+}
+
 // proseScalarWindowRef is one window identity parsed from a text surface:
 // a second-denominated endpoint span and/or a length in ms.
 type proseScalarWindowRef struct {
@@ -257,9 +292,18 @@ type proseScalarEvidenceSet struct {
 }
 
 // proseScalarBindingFinding is one second-arm mismatch, preformatted for
-// the violation detail.
+// the violation detail (entry, English — the LLM/log face) and for the
+// S3' ② system cross-check appendix (entryZH — the zh user face).
 type proseScalarBindingFinding struct {
-	entry string
+	entry   string
+	entryZH string
+}
+
+func (f proseScalarBindingFinding) userReadable(lang string) string {
+	if isChineseLang(lang) && f.entryZH != "" {
+		return f.entryZH
+	}
+	return f.entry
 }
 
 // proseScalarThreadFinding is one PSG-2H fabricated-thread finding: a
@@ -276,8 +320,8 @@ func (f proseScalarThreadFinding) label() string { return f.Raw }
 // returns at most ONE violation naming every unmatched prose scalar
 // (membership arm) and every value the prose binds to a different window /
 // thread than its evidence rows published it under (PSG-2 binding arm);
-// the bus-scoped strict arm (isStrictViolationForBus) makes that single
-// raise retry-eligible for exactly one round.
+// since S3' ① (§29.47.1) the raise is information-only — never strict for
+// the bus, zero repair rounds (appendix at ship time).
 func runProseScalarGroundingCheck(doc *types.AnswerDocumentV2, bus *types.BusContext, mut *types.MutableState) []types.Violation {
 	if doc == nil || bus == nil || mut == nil {
 		return nil
@@ -348,7 +392,7 @@ func runProseScalarGroundingCheck(doc *types.AnswerDocumentV2, bus *types.BusCon
 	return []types.Violation{{
 		Kind:   types.ViolProseScalarUngrounded,
 		Detail: strings.Join(parts, "; and "),
-		Repair: "go through the listed tokens ONE BY ONE — for EACH listed number, either delete it from the prose or replace it with a value exactly as an evidence surface of this report publishes it (never invent a replacement; when a value is one you derived yourself, name the published values it was derived from); for EACH listed thread identity, either delete it or replace it with a thread spelling exactly as an evidence surface publishes it — never assemble or adjust a thread name or id. When a sentence names the time window or the thread a number belongs to, use the window and thread that number's evidence row was published under — restate the number under its own window and thread, or re-read the value for the window you name; when comparing two windows, normalize each side by its own window length before reading them against each other.",
+		Repair: "go through the listed tokens ONE BY ONE — for EACH listed number, either delete it from the prose or replace it with a value exactly as an evidence surface of this report publishes it (never invent a replacement; when a value is one you derived yourself, name the published values it was derived from); for EACH listed thread identity, either delete it or replace it with a thread spelling exactly as an evidence surface publishes it — never assemble or adjust a thread name or id. When a sentence names the time window or the thread a number belongs to, use the window and thread that number's evidence row was published under — restate the number under its own window and thread, or re-read the value for the window you name; when comparing two windows, normalize each side by its own window length before reading them against each other. Apply the fix with the SMALLEST possible edit: change ONLY the blocks named in the finding (by their block id) and keep every other block byte-for-byte identical — prefer emit_answer_document_patch, listing the untouched block ids as unchanged and replacing only the named blocks, over rewriting the whole answer.",
 		Stage:  string(types.StageFinalize),
 		ClusterKey: types.IdentityClusterKey("prose_scalar_ungrounded",
 			"answer_prose_scalars"),
@@ -522,15 +566,6 @@ func retryStateListsProseScalarHint(rs *types.RetryState) bool {
 		}
 	}
 	return false
-}
-
-// proseScalarGroundingStrictViolation is the bus-scoped strict arm consumed
-// by isStrictViolationForBus: the single validator-side raise is
-// retry-eligible (the one-round latch guarantees it cannot recur), so the
-// kind can stay SoftByDefault at the registry layer per the commercial
-// post-emit policy.
-func proseScalarGroundingStrictViolation(v types.Violation) bool {
-	return v.Kind == types.ViolProseScalarUngrounded
 }
 
 // proseScalarSystemEvidenceBlock reports whether a document block is a
@@ -823,7 +858,10 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 						misbound = append(misbound, proseScalarBindingFinding{entry: fmt.Sprintf(
 							"%s (block %q) is published under window %s but the prose binds it to window %s",
 							tok.label(), tok.BlockID, published,
-							proseScalarNearestWindowLabel(sentWindows, tok))})
+							proseScalarNearestWindowLabel(sentWindows, tok)),
+							entryZH: fmt.Sprintf("正文中 %s（块 %s）在证据面发布于窗口 %s，但正文将其表述在窗口 %s 下",
+								tok.label(), tok.BlockID, published,
+								proseScalarNearestWindowLabel(sentWindows, tok))})
 					}
 				}
 				if len(sentThreads) > 0 {
@@ -831,7 +869,10 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 						misbound = append(misbound, proseScalarBindingFinding{entry: fmt.Sprintf(
 							"%s (block %q) is published for thread %s but the prose binds it to thread %s",
 							tok.label(), tok.BlockID, published,
-							proseScalarNearestThreadLabel(sentThreads, tok))})
+							proseScalarNearestThreadLabel(sentThreads, tok)),
+							entryZH: fmt.Sprintf("正文中 %s（块 %s）在证据面发布于线程 %s，但正文将其表述为线程 %s 的数值",
+								tok.label(), tok.BlockID, published,
+								proseScalarNearestThreadLabel(sentThreads, tok))})
 					}
 				}
 				continue
@@ -844,7 +885,10 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 					misbound = append(misbound, proseScalarBindingFinding{entry: fmt.Sprintf(
 						"%s (block %q) recomputes only against window %s but the prose states it for window %s",
 						tok.label(), tok.BlockID, published,
-						proseScalarNearestWindowLabel(sentWindows, tok))})
+						proseScalarNearestWindowLabel(sentWindows, tok)),
+						entryZH: fmt.Sprintf("正文中 %s（块 %s）仅能按窗口 %s 复算，但正文将其表述在窗口 %s 下",
+							tok.label(), tok.BlockID, published,
+							proseScalarNearestWindowLabel(sentWindows, tok))})
 				}
 			}
 			// PSG-2H sum extension (§29.8 witness: a 139.615-class
@@ -857,7 +901,10 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 					misbound = append(misbound, proseScalarBindingFinding{entry: fmt.Sprintf(
 						"%s (block %q) is a sum of values published for thread(s) %s but the prose states it for thread %s",
 						tok.label(), tok.BlockID, published,
-						proseScalarNearestThreadLabel(sentThreads, tok))})
+						proseScalarNearestThreadLabel(sentThreads, tok)),
+						entryZH: fmt.Sprintf("正文中 %s（块 %s）为线程 %s 数值之和，但正文将其表述为线程 %s 的数值",
+							tok.label(), tok.BlockID, published,
+							proseScalarNearestThreadLabel(sentThreads, tok))})
 				}
 			}
 		}

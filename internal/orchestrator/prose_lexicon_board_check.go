@@ -27,14 +27,16 @@ import (
 //     15.758 vs the typed board's #1 D-state 36.757) and silently violated
 //     its own declared ordering key.
 //
-// §29.42.4 final ruling (verbatim duty — 全线无硬拦): every arm here is
-// SOFT-only. One shared one-round latch covers P2+P3a+P3b together (同一
-// latch, 不另设); the single targeted rewrite hint is the whole budget; a
-// second draft that maintains the findings ships EXACTLY as written; this
-// lane never hard-rejects, never loops, and never injects a caveat into the
-// answer (系统不往答案塞话) — the fallback is one advisory log line.
-// 答案出厂权属于模型. Hard gates stay reserved for criteria that hold
-// no matter who is right; none live here.
+// §29.42.4 final ruling (verbatim duty — 全线无硬拦), superseded on the
+// dispatch side by S3' ① (§29.47.1, 2026-07-12 — witnesses 2779/76278):
+// every arm here is INFORMATION-only. The raise is never strict for the
+// bus, dispatches ZERO repair rounds, and surfaces on the system
+// cross-check appendix at ship time (systemCrossCheckAppendix); the latch
+// below survives as a defensive relic for retry surfaces built by OTHER
+// kinds. This lane never hard-rejects, never loops, and never injects a
+// caveat into the answer (系统不往答案塞话). 答案出厂权属于模型. Hard
+// gates stay reserved for criteria that hold no matter who is right;
+// none live here.
 //
 // The P3b deviation arm implements the §29.20 conscious-flip precedent: a
 // deviation from the typed board's #1 seat is fine WHEN DISCLOSED — only the
@@ -104,7 +106,7 @@ func runProseLexiconBoardCheck(doc *types.AnswerDocumentV2, bus *types.BusContex
 	if !ledger.HasDeterministicRuntimeQueryObservation() {
 		return nil
 	}
-	findings := scanProseLexiconBoardFindings(doc, bus, mut, ledger)
+	findings := proseLexiconBoardInternalStrings(scanProseLexiconBoardFindings(doc, bus, mut, ledger))
 	if len(findings) == 0 {
 		return nil
 	}
@@ -121,7 +123,7 @@ func runProseLexiconBoardCheck(doc *types.AnswerDocumentV2, bus *types.BusContex
 	return []types.Violation{{
 		Kind:   types.ViolProseLexiconBoardInconsistent,
 		Detail: strings.Join(listed, "; "),
-		Repair: "go through the listed items ONE BY ONE — for each listed technical token, either remove it or replace it with a term exactly as the measured evidence of this report publishes it (never invent an evidence-styled token); state exactly ONE primary root cause across the whole answer; and when the primary root cause you name differs from the measured root-cause board's #1 row, keep your conclusion but say explicitly that it differs from the measured ordering and what your judgment is based on — never reorder silently. If after review you stand by your wording, keep it — this reminder is delivered once.",
+		Repair: "go through the listed items ONE BY ONE — for each listed technical token, either remove it or replace it with a term exactly as the measured evidence of this report publishes it (never invent an evidence-styled token); state exactly ONE primary root cause across the whole answer; and when the primary root cause you name differs from the measured root-cause board's #1 row, keep your conclusion but say explicitly that it differs from the measured ordering and what your judgment is based on — never reorder silently. If after review you stand by your wording, keep it — this reminder is delivered once. Apply the fix with the SMALLEST possible edit: change ONLY the blocks named in the finding (by their block id) and keep every other block byte-for-byte identical — prefer emit_answer_document_patch, listing the untouched block ids as unchanged and replacing only the named blocks, over rewriting the whole answer.",
 		Stage:  string(types.StageFinalize),
 		ClusterKey: types.IdentityClusterKey("prose_lexicon_board_inconsistent",
 			"answer_prose_lexicon_board"),
@@ -134,17 +136,57 @@ func runProseLexiconBoardCheck(doc *types.AnswerDocumentV2, bus *types.BusContex
 	}}
 }
 
-// scanProseLexiconBoardFindings runs the three arms and returns preformatted
-// finding strings (empty = clean).
-func scanProseLexiconBoardFindings(doc *types.AnswerDocumentV2, bus *types.BusContext, mut *types.MutableState, ledger types.ObservationLedger) []string {
-	var findings []string
+// proseLexiconBoardFinding is one mechanical finding with two rendering
+// faces: internal (the English detail for violations and advisory logs —
+// byte-compatible with the pre-S3' strings) and user-readable (the S3' ②
+// system cross-check appendix wording, §29.47.1 — plain language, never
+// internal machinery vocabulary).
+type proseLexiconBoardFinding struct {
+	internal string
+	userZH   string
+	userEN   string
+}
+
+func (f proseLexiconBoardFinding) userReadable(lang string) string {
+	if isChineseLang(lang) {
+		return f.userZH
+	}
+	return f.userEN
+}
+
+func proseLexiconBoardInternalStrings(findings []proseLexiconBoardFinding) []string {
+	out := make([]string, 0, len(findings))
+	for _, f := range findings {
+		out = append(out, f.internal)
+	}
+	return out
+}
+
+// proseLexiconBoardResidualFindings re-runs the lexicon/board scan against a
+// document (latch-independent) — the S3' appendix's raw verdict input,
+// mirroring proseScalarResidualFindingLabels. Empty on non-trace runs.
+func proseLexiconBoardResidualFindings(doc *types.AnswerDocumentV2, bus *types.BusContext, mut *types.MutableState) []proseLexiconBoardFinding {
+	if doc == nil || bus == nil || mut == nil {
+		return nil
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(bus, types.ObservationExtractLedgerEvidenceLimit))
+	if !ledger.HasDeterministicRuntimeQueryObservation() {
+		return nil
+	}
+	return scanProseLexiconBoardFindings(doc, bus, mut, ledger)
+}
+
+// scanProseLexiconBoardFindings runs the three arms and returns typed
+// findings (empty = clean).
+func scanProseLexiconBoardFindings(doc *types.AnswerDocumentV2, bus *types.BusContext, mut *types.MutableState, ledger types.ObservationLedger) []proseLexiconBoardFinding {
+	var findings []proseLexiconBoardFinding
 	vocabulary := buildProseLexiconVocabulary(doc, bus, mut, ledger)
 	prose := collectModelProseUnits(doc)
 
 	// ── P2 vocabulary arm ────────────────────────────────────────────────
 	scanned := 0
 	seen := map[string]bool{}
-	var unknown []string
+	var unknown, unknownZH []string
 	for _, unit := range prose {
 		for _, token := range proseLexiconTokenRE.FindAllString(unit.text, -1) {
 			if scanned >= proseLexiconTokenScanCap {
@@ -156,10 +198,15 @@ func scanProseLexiconBoardFindings(doc *types.AnswerDocumentV2, bus *types.BusCo
 			}
 			seen[token] = true
 			unknown = append(unknown, fmt.Sprintf("%s (block %q)", token, unit.blockID))
+			unknownZH = append(unknownZH, fmt.Sprintf("%s（块 %s）", token, unit.blockID))
 		}
 	}
 	if len(unknown) > 0 {
-		findings = append(findings, fmt.Sprintf("answer prose uses %d engine-styled token(s) that no evidence surface of this report publishes: %s", len(unknown), strings.Join(capStrings(unknown, proseLexiconFindingCap), ", ")))
+		findings = append(findings, proseLexiconBoardFinding{
+			internal: fmt.Sprintf("answer prose uses %d engine-styled token(s) that no evidence surface of this report publishes: %s", len(unknown), strings.Join(capStrings(unknown, proseLexiconFindingCap), ", ")),
+			userZH:   fmt.Sprintf("正文中的术语 %s 未在本报告证据面出现，可能为改写或笔误", strings.Join(capStrings(unknownZH, proseLexiconFindingCap), "、")),
+			userEN:   fmt.Sprintf("the body's term(s) %s do not appear on this report's evidence surfaces and may be paraphrases or typos", strings.Join(capStrings(unknown, proseLexiconFindingCap), ", ")),
+		})
 	}
 
 	// ── P3a internal-contradiction arm + P3b silent-deviation arm ───────
@@ -178,13 +225,21 @@ func scanProseLexiconBoardFindings(doc *types.AnswerDocumentV2, bus *types.BusCo
 			names = append(names, raw)
 		}
 		sort.Strings(names)
-		findings = append(findings, fmt.Sprintf("answer prose claims %d different entities as THE primary root cause in one document: %s — state exactly one primary", len(distinct), strings.Join(capStrings(names, 4), " vs ")))
+		findings = append(findings, proseLexiconBoardFinding{
+			internal: fmt.Sprintf("answer prose claims %d different entities as THE primary root cause in one document: %s — state exactly one primary", len(distinct), strings.Join(capStrings(names, 4), " vs ")),
+			userZH:   fmt.Sprintf("正文在不同位置分别将 %s 称为首要根因，表述不一致", strings.Join(capStrings(names, 4), " 与 ")),
+			userEN:   fmt.Sprintf("the body names %s each as the primary root cause in different places — the statements are inconsistent", strings.Join(capStrings(names, 4), " and ")),
+		})
 	} else if len(distinct) == 1 {
 		boardSubject, boardTID := typedBoardPrimarySeat(ledger)
 		if boardTID != "" {
 			if _, claimed := distinct[boardTID]; !claimed && !proseCarriesDeviationDisclosure(prose) {
 				for _, raw := range distinct {
-					findings = append(findings, fmt.Sprintf("answer prose names %s as the primary root cause while the measured board's #1 seat is %s, with no wording disclosing the deviation — keep your conclusion but disclose the difference and its basis", raw, boardSubject))
+					findings = append(findings, proseLexiconBoardFinding{
+						internal: fmt.Sprintf("answer prose names %s as the primary root cause while the measured board's #1 seat is %s, with no wording disclosing the deviation — keep your conclusion but disclose the difference and its basis", raw, boardSubject),
+						userZH:   fmt.Sprintf("正文首因（%s）与实测榜 #1（%s）不同，未见披露句", raw, boardSubject),
+						userEN:   fmt.Sprintf("the body's primary cause (%s) differs from the measured board's #1 (%s), with no sentence disclosing the deviation", raw, boardSubject),
+					})
 					break
 				}
 			}
@@ -192,7 +247,7 @@ func scanProseLexiconBoardFindings(doc *types.AnswerDocumentV2, bus *types.BusCo
 	}
 
 	// ── P3-1 declared-sort-key monotonic sub-arm (§29.42.3 P3a 第二子臂) ──
-	if finding := proseDeclaredKeyNonMonotonic(prose); finding != "" {
+	if finding, ok := proseDeclaredKeyNonMonotonic(prose); ok {
 		findings = append(findings, finding)
 	}
 	return findings
@@ -259,6 +314,19 @@ func buildProseLexiconVocabulary(doc *types.AnswerDocumentV2, bus *types.BusCont
 		}
 	}
 	for _, token := range tracequery.CausalTokenUniverse() {
+		vocabulary[token] = true
+	}
+	// S1b (STAB-1, 2026-07-12): standard kernel/ftrace event names are a
+	// closed-set dictionary — the 2779 witness flagged block_rq_issue /
+	// irq_handler_entry / irq_handler_exit, all real kernel event names.
+	for _, name := range tracequery.StandardTraceEventNameUniverse() {
+		vocabulary[name] = true
+	}
+	// S1a (STAB-1, 2026-07-12): every snake_case token greppable in the
+	// attached artifact text is a legal quote (block_rq_issue is IN the
+	// trace). Extracted ONCE per run into a deduped set (the MutableState
+	// cache — 禁全文扫描每次重复).
+	for token := range proseLexiconAttachedArtifactTokens(bus, mut) {
 		vocabulary[token] = true
 	}
 	if rm := mut.RequestModel(); rm != nil {
@@ -336,6 +404,50 @@ func buildProseLexiconVocabulary(doc *types.AnswerDocumentV2, bus *types.BusCont
 	return vocabulary
 }
 
+// proseLexiconAttachedArtifact caps bound the S1a extraction: token set
+// size and scanned bytes (the witness trace is 3.5MB — one bounded pass).
+const (
+	proseLexiconAttachedArtifactTokenCap = 20000
+	proseLexiconAttachedArtifactByteCap  = 8 << 20
+)
+
+// proseLexiconAttachedArtifactTokens returns the attached artifacts'
+// snake_case token set (S1a, STAB-1 2026-07-12), computed AT MOST ONCE per
+// run and cached on MutableState. Nil-safe; empty attachments yield an
+// empty (but cached) set.
+func proseLexiconAttachedArtifactTokens(bus *types.BusContext, mut *types.MutableState) map[string]bool {
+	if bus == nil || mut == nil {
+		return nil
+	}
+	if cached := mut.AttachedArtifactLexicon(); cached != nil {
+		return cached
+	}
+	lexicon := map[string]bool{}
+	scan := func(text string) {
+		if text == "" || len(lexicon) >= proseLexiconAttachedArtifactTokenCap {
+			return
+		}
+		if len(text) > proseLexiconAttachedArtifactByteCap {
+			// Tail-integrity guard (P3-3): the byte cap may cut a token
+			// mid-spelling — trim the partial tail so a truncated spelling
+			// never enters the quotable lexicon.
+			text = strings.TrimRightFunc(text[:proseLexiconAttachedArtifactByteCap], func(r rune) bool {
+				return r == '_' || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+			})
+		}
+		for _, token := range proseLexiconTokenRE.FindAllString(text, -1) {
+			if len(lexicon) >= proseLexiconAttachedArtifactTokenCap {
+				return
+			}
+			lexicon[token] = true
+		}
+	}
+	scan(bus.AttachedHitrace)
+	scan(bus.AttachedLog)
+	mut.SetAttachedArtifactLexicon(lexicon)
+	return lexicon
+}
+
 // prosePrimaryClaim is one superlative primary-cause claim with its nearest
 // thread identity (tid "" = no thread token in the claim's text unit).
 type prosePrimaryClaim struct {
@@ -393,9 +505,9 @@ func collectProsePrimaryClaims(prose []proseTextUnit) []prosePrimaryClaim {
 // 排序/降序/from largest) and then lists ordinal entries whose own ms values
 // INCREASE somewhere down the list contradicts itself — 与谁对无关 (案17:
 // 「按 effective_impact_ms 排序」 with #1 15.758 < the same list's later
-// values). Returns a preformatted finding ("" = consistent). Noisy
-// extraction — soft lane only, same latch.
-func proseDeclaredKeyNonMonotonic(prose []proseTextUnit) string {
+// values). Returns (finding, true) on a contradiction. Noisy extraction —
+// information lane only.
+func proseDeclaredKeyNonMonotonic(prose []proseTextUnit) (proseLexiconBoardFinding, bool) {
 	for _, unit := range prose {
 		if !proseDeclaredSortKeyRE.MatchString(unit.text) {
 			continue
@@ -420,11 +532,15 @@ func proseDeclaredKeyNonMonotonic(prose []proseTextUnit) string {
 		}
 		for i := 1; i < len(values); i++ {
 			if values[i] > values[i-1]+1e-9 {
-				return fmt.Sprintf("answer prose declares a sort key but its own listed values do not follow it (%.3fms is listed before %.3fms in block %q) — either fix the order or restate the key", values[i-1], values[i], unit.blockID)
+				return proseLexiconBoardFinding{
+					internal: fmt.Sprintf("answer prose declares a sort key but its own listed values do not follow it (%.3fms is listed before %.3fms in block %q) — either fix the order or restate the key", values[i-1], values[i], unit.blockID),
+					userZH:   fmt.Sprintf("正文声明了排序，但列表中 %.3fms 排在 %.3fms 之前（块 %s），与所声明的顺序不符", values[i-1], values[i], unit.blockID),
+					userEN:   fmt.Sprintf("the body declares a sort order, yet %.3fms is listed before %.3fms (in %q), which does not follow the declared order", values[i-1], values[i], unit.blockID),
+				}, true
 			}
 		}
 	}
-	return ""
+	return proseLexiconBoardFinding{}, false
 }
 
 // proseCarriesDeviationDisclosure reports whether ANY model prose unit
@@ -480,14 +596,6 @@ func retryStateListsProseLexiconBoardHint(rs *types.RetryState) bool {
 		}
 	}
 	return false
-}
-
-// proseLexiconBoardStrictViolation is the bus-scoped strict arm consumed by
-// isStrictViolationForBus: the single validator-side raise is retry-eligible
-// (the shared one-round latch guarantees it cannot recur), so the kind stays
-// SoftByDefault at the registry layer.
-func proseLexiconBoardStrictViolation(v types.Violation) bool {
-	return v.Kind == types.ViolProseLexiconBoardInconsistent
 }
 
 func capStrings(in []string, limit int) []string {

@@ -631,7 +631,14 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// Caveats/Compactions to dedupe — the write-off disclosure rides
 	// ChainResult.Caveats, which collectNonEventEngineDiagnostics already
 	// reads); no priority override needed.
-	reflect.TypeOf(tracequery.ChainResult{}):           "77bc23ed2ece8b6be7031a48a12833911e11f0cfb28b90d171580a6e5bf11244",
+	reflect.TypeOf(tracequery.ChainResult{}): "77bc23ed2ece8b6be7031a48a12833911e11f0cfb28b90d171580a6e5bf11244",
+	// ENG-2 追修 + P3-4 (2026-07-12) schema review: PacingIdleSummary gained
+	// EvidenceLineStart/End — the segment's causal-impact evidence span the
+	// published row aligns to so the display same-fact fold engages by
+	// construction; the raw SleepLine/WakeupLine pair stays the audit-honest
+	// event locator. Key-first adjudication: two plain int coordinates, no
+	// priority/bulk-lane change, no skipped fields.
+	reflect.TypeOf(tracequery.PacingIdleSummary{}):     "d1cd02ccef0e5974f23ecc1be4a3f0bf72f7c35fc022dbc561479b56e35e8909",
 	reflect.TypeOf(tracequery.WakeupCausalImpact{}):    "625697669c2daac29f2efc46a84d3d372c66924f64e98f82f1134f82762846eb",
 	reflect.TypeOf(tracequery.WakeupCausalAggregate{}): "e4ed22c7d66ff5724b9e395de5fdb921f3d06fd66e70ff44fba6fcac40a14831",
 	reflect.TypeOf(tracequery.SupplyFoldBasis{}):       "2812909ea9da6b3296c70229002e432dd9ef9153f8912fcdd3ba1012b34be9c4",

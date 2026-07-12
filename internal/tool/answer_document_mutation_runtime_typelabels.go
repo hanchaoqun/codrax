@@ -472,8 +472,18 @@ func runtimeTraceProjTraceGapNode(node types.TraceCausalProjectionNode) bool {
 // token IS the idle lane already speak the cause word and return ok=false
 // (no redundant tag).
 func runtimeTraceProjIdleCadenceTag(node types.TraceCausalProjectionNode, zh bool) (string, runtimeTraceProjMark, bool) {
-	if node.IdleCadenceMS <= 0 || node.IdleCadenceKind == "" ||
-		runtimeTraceProjPacingIdleNode(node) || runtimeTraceProjPeriodicIdleNode(node) {
+	if node.IdleCadenceMS <= 0 || node.IdleCadenceKind == "" {
+		return "", 0, false
+	}
+	// Redundancy exclusion keys on the CAUSE-WORD source (canonical Object)
+	// only: a standalone idle row's display word already IS the idle label.
+	// A same-fact SURVIVOR that merely ADOPTED the folded idle view's
+	// TypeToken keeps its own scheduler-state word (e.g. Object=s_sleep), so
+	// TypeToken/Predicate must NOT suppress the annotation (ENG-2 追修,
+	// 2026-07-12 — the ×8 donghu seat carried the adopted token and lost the
+	// wording to this very exclusion).
+	switch runtimeTraceCausalProjectionCanonicalNode(node.Object) {
+	case "pacing_idle", "periodic_idle":
 		return "", 0, false
 	}
 	mark := runtimeTraceProjMarkPacingIdle

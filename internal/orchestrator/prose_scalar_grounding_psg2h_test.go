@@ -60,8 +60,8 @@ func TestPSG2H_FabricatedThreadNameWitness(t *testing.T) {
 	if !strings.Contains(v.Repair, "never assemble or adjust a thread name or id") {
 		t.Fatalf("Repair must carry the per-token thread directive:\n%s", v.Repair)
 	}
-	if !isStrictViolationForBus(v, bus) {
-		t.Fatalf("the single PSG-2H raise must be retry-eligible via the bus strict arm")
+	if isStrictViolationForBus(v, bus) {
+		t.Fatalf("S3' ①: the PSG-2H raise must never be strict for the bus")
 	}
 }
 

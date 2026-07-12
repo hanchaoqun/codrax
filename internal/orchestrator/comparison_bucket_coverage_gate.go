@@ -37,17 +37,13 @@ func isStrictViolationForBus(v types.Violation, bus *types.BusContext) bool {
 	if !isSoftViolationKind(v.Kind) {
 		return true
 	}
-	// PSG §25(b): the prose-scalar gate's single validator-side raise is
-	// retry-eligible; the one-round latch inside the producer guarantees
-	// it can never recur, so this strict arm cannot loop.
-	if proseScalarGroundingStrictViolation(v) {
-		return true
-	}
-	// CR-1 件②/件⑤ (§29.42.4, 2026-07-12): the lexicon/board lane rides the
-	// same one-shot contract — one retry-eligible raise, latched forever.
-	if proseLexiconBoardStrictViolation(v) {
-		return true
-	}
+	// S3' ① (§29.47.1 user ruling, 2026-07-12): the two prose lanes' former
+	// bus-scoped strict arms (PSG §25(b) / lexicon-board §29.42.4 one-shot
+	// promotions) are GONE — soft mechanical findings dispatch ZERO repair
+	// rounds; the first strict-passing draft ships as written and the
+	// findings render on the system cross-check appendix instead
+	// (检测与执行分离: mechanical checks may always look, but only fatal
+	// criteria that hold no matter who is right may block).
 	return comparisonBucketSectionCoverageViolation(v, bus)
 }
 

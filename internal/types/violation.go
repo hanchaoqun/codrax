@@ -981,9 +981,11 @@ const (
 	// round the answer always ships. Never a hard emit-time reject.
 	//
 	// SOFT-by-default at the registry layer (commercial post-emit
-	// policy); the bounded one-round retry comes from the
-	// bus-scoped strict arm in isStrictViolationForBus, mirroring
-	// the comparison-bucket precedent.
+	// policy). S3' ① (§29.47.1 user ruling, 2026-07-12): the raise is
+	// INFORMATION only — never strict for the bus, zero repair rounds;
+	// findings render on the system cross-check appendix at ship time.
+	// Operator promotion via pipeline_contract_strict_kinds remains the
+	// typed escape hatch back to a gating retry.
 	ViolProseScalarUngrounded ViolationKind = "prose_scalar_ungrounded"
 
 	// ViolProseLexiconBoardInconsistent fires on a runtime-trace run when
@@ -996,13 +998,15 @@ const (
 	// deviation disclosure wording (§29.42.3 P3b silent-deviation arm —
 	// conscious-flip 先例: a DISCLOSED deviation always passes).
 	//
-	// CR-1 件②/件⑤ (§29.42.4 user ruling, 2026-07-12 — 全线无硬拦): the
-	// extraction is NOISY, so the kind drives only SOFT guidance — raised
-	// AT MOST ONCE per run on one shared latch (P2+P3a+P3b together,
-	// 同一 latch 不另设), the single hint round is the whole budget, the
-	// second draft ships exactly as the model wrote it, no caveat is ever
-	// injected for this lane (系统不往答案塞话), and the fallback is an
-	// advisory log line. 答案出厂权属于模型.
+	// CR-1 件②/件⑤ (§29.42.4 user ruling, 2026-07-12 — 全线无硬拦),
+	// dispatch side superseded by S3' ① (§29.47.1, 2026-07-12): the
+	// extraction is NOISY, so the kind is INFORMATION only — never strict
+	// for the bus, zero repair rounds, findings render on the system
+	// cross-check appendix in the system's own voice; no caveat is ever
+	// injected into the model's answer body (系统不往答案塞话), and the
+	// fallback is an advisory log line. 答案出厂权属于模型. Operator
+	// promotion via pipeline_contract_strict_kinds remains the typed
+	// escape hatch back to a gating retry.
 	ViolProseLexiconBoardInconsistent ViolationKind = "prose_lexicon_board_inconsistent"
 )
 

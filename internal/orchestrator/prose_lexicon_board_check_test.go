@@ -97,8 +97,14 @@ func TestProseLexiconUnpublishedTokenOneRoundLatch(t *testing.T) {
 		!strings.Contains(v.Repair, "this reminder is delivered once") {
 		t.Fatalf("Repair must carry the one-shot targeted directive:\n%s", v.Repair)
 	}
-	if !isStrictViolationForBus(v, bus) {
-		t.Fatalf("the single raise must be retry-eligible via the bus strict arm")
+	// S3' ① (§29.47.1, 2026-07-12): the raise is INFORMATION only — never
+	// strict for the bus, never a repair round; the findings surface on the
+	// system cross-check appendix instead.
+	if isStrictViolationForBus(v, bus) {
+		t.Fatalf("S3' ①: the lexicon/board raise must never be strict for the bus")
+	}
+	if got := FilterFinalizerRetryRootViolationsForBus([]types.Violation{v}, bus); len(got) != 0 {
+		t.Fatalf("S3' ①: the raise must never become a retry root, got %+v", got)
 	}
 	// Same-attempt recheck stays consistent (latch only sets on dispatch).
 	if got := lexiconBoardViolations(runProseLexiconBoardCheck(doc, bus, mut)); len(got) != 1 {
@@ -238,6 +244,42 @@ func TestProseLexiconToolOutputTokensArePublished(t *testing.T) {
 	}
 }
 
+// TestProseLexiconStandardEventNamesAndAttachedCorpus — S1 (STAB-1,
+// 2026-07-12), the 2779 witness: real kernel event names
+// (block_rq_issue / irq_handler_entry / irq_handler_exit) were flagged as
+// fabricated tokens and the resulting rewrite round DAMAGED the answer.
+// Source b (the closed-set standard event dictionary) clears them without
+// any attachment; source a (the attached trace's own token corpus, cached
+// one-pass extraction) clears vendor tokens greppable in the attachment;
+// a token published NOWHERE still flags (control).
+func TestProseLexiconStandardEventNamesAndAttachedCorpus(t *testing.T) {
+	// Source b: dictionary alone (no attachment).
+	mut := psgTraceMutable(psgTraceRecord("r1", "state_drilldown:x", "1.805"))
+	bus := psgBus(mut)
+	doc := psgProseDoc("窗口内 block_rq_issue 与 irq_handler_entry/irq_handler_exit 事件密集。")
+	if got := lexiconBoardViolations(runProseLexiconBoardCheck(doc, bus, mut)); len(got) != 0 {
+		t.Fatalf("standard kernel event names must never flag (2779 shape), got %+v", got)
+	}
+	// Source a: a vendor token that exists ONLY in the attached trace text.
+	mut2 := psgTraceMutable(psgTraceRecord("r1", "state_drilldown:x", "1.805"))
+	bus2 := psgBus(mut2)
+	bus2.AttachedHitrace = "  tpp-0 (2) [000] .... 1.0: tppmgr_sched_hint: cpu=0 state=2\n"
+	vendor := psgProseDoc("厂商事件 tppmgr_sched_hint 表明调度提示介入。")
+	if got := lexiconBoardViolations(runProseLexiconBoardCheck(vendor, bus2, mut2)); len(got) != 0 {
+		t.Fatalf("attached-trace tokens must never flag, got %+v", got)
+	}
+	if mut2.AttachedArtifactLexicon() == nil {
+		t.Fatalf("the attachment corpus must be cached after the first scan (one-pass discipline)")
+	}
+	// Control: a token published nowhere still flags.
+	mut3 := psgTraceMutable(psgTraceRecord("r1", "state_drilldown:x", "1.805"))
+	bus3 := psgBus(mut3)
+	fabricated := psgProseDoc("类型为 same_priority_dependency。")
+	if got := lexiconBoardViolations(runProseLexiconBoardCheck(fabricated, bus3, mut3)); len(got) != 1 {
+		t.Fatalf("an unpublished token must still flag, got %+v", got)
+	}
+}
+
 // TestProseApproxMarkerBoundaries — P3-2 (复核, 2026-07-12): the 约-marker
 // must not fire through compound words (节约/预约…) or range notation
 // (「108~113ms」), while a full-width-space-separated marker still counts.
@@ -297,5 +339,37 @@ func TestProseLexiconBoardNeverHardRejects(t *testing.T) {
 	}}})
 	if got := lexiconBoardViolations(runProseLexiconBoardCheck(doc, bus, mut)); len(got) != 0 {
 		t.Fatalf("after the single round the lane must be silent forever, got %+v", got)
+	}
+}
+
+// TestSoftRepairHintsCarryMinimalDiffObligation — S2 (STAB-1, 2026-07-12,
+// 2779 witness: the model answered a one-token soft hint with a whole-answer
+// rewrite that came out WORSE than the first draft): both soft lanes' repair
+// hints carry the mechanical smallest-edit directive — named blocks only,
+// every other block byte-for-byte, block-level patch over full rewrite.
+func TestSoftRepairHintsCarryMinimalDiffObligation(t *testing.T) {
+	mut := psgTraceMutable(psgTraceRecord("r1", "state_drilldown:x", "1.805"))
+	bus := psgBus(mut)
+	lex := runProseLexiconBoardCheck(psgProseDoc("类型为 same_priority_dependency。"), bus, mut)
+	if len(lex) != 1 {
+		t.Fatalf("expected one lexicon violation, got %+v", lex)
+	}
+	mut2 := psgTraceMutable(psgTraceRecord("r1", "state_drilldown:x", "38.996"))
+	bus2 := psgBus(mut2)
+	psg := runProseScalarGroundingCheck(psgProseDoc("聚合影响 46.821ms。"), bus2, mut2)
+	if len(psg) != 1 {
+		t.Fatalf("expected one scalar violation, got %+v", psg)
+	}
+	for _, v := range []types.Violation{lex[0], psg[0]} {
+		for _, want := range []string{
+			"SMALLEST possible edit",
+			"change ONLY the blocks named in the finding (by their block id)",
+			"byte-for-byte identical",
+			"prefer emit_answer_document_patch",
+		} {
+			if !strings.Contains(v.Repair, want) {
+				t.Fatalf("%s repair hint missing %q:\n%s", v.Kind, want, v.Repair)
+			}
+		}
 	}
 }

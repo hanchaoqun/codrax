@@ -1171,7 +1171,7 @@ func init() {
 		Kind: ViolProseScalarUngrounded, DefaultSeverity: SeverityMedium, RepairPhase: RepairPhaseConsistency,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer:       "answer_oracle",
-		Description: "PSG §25(b)+PSG-2H §29.10-2: model prose carries an ms/% numeral absent from every evidence surface (aggregate facts / observation values+notes / projection blocks / citation quotes), binds a value to the wrong window/thread, or names a thread identity no evidence surface publishes; the one-shot retry hint lists each violating token.",
+		Description: "PSG §25(b)+PSG-2H §29.10-2, S3' §29.47.1: model prose carries an ms/% numeral absent from every evidence surface (aggregate facts / observation values+notes / projection blocks / citation quotes), binds a value to the wrong window/thread, or names a thread identity no evidence surface publishes; information lane — findings render on the system cross-check appendix, zero repair rounds unless operator-promoted.",
 		// Fix path: prose rewrite only — delete each listed token or
 		// replace it with the value / thread spelling an evidence
 		// surface publishes (the retired "quote the source view and
@@ -1182,12 +1182,12 @@ func init() {
 	// CR-1 件②/件⑤ (§29.42.4 user ruling 2026-07-12,
 	// docs/design/real_trace_campaign_20260705.md — 排序一致性车道全线无硬拦):
 	// prose vocabulary (P2) + board-order consistency (P3a/P3b) lane.
-	// SoftByDefault keeps the commercial post-emit default; the bounded
-	// one-round retry is the bus-scoped strict arm in
-	// isStrictViolationForBus paired with the producer's shared one-shot
-	// latch (P2+P3a+P3b — one latch, one round). NO CaveatFamilyID and no
-	// deterministic caveat lane BY RULING: this lane never injects words
-	// into the answer (兜底 = advisory log only; 答案出厂权属于模型).
+	// SoftByDefault keeps the commercial post-emit default; since S3' ①
+	// (§29.47.1, 2026-07-12) the raise is INFORMATION only — never strict
+	// for the bus, zero repair rounds; findings surface on the system
+	// cross-check appendix (its own voice, never the model's prose). NO
+	// CaveatFamilyID and no deterministic caveat lane BY RULING: this lane
+	// never injects words into the model's answer body (答案出厂权属于模型).
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolProseLexiconBoardInconsistent, DefaultSeverity: SeverityMedium, RepairPhase: RepairPhaseConsistency,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,

@@ -128,6 +128,10 @@ type MutableState struct {
 	// the board-order consistency arms.
 	// See MarkProseLexiconBoardHintDelivered.
 	proseLexiconBoardHintDelivered bool
+	// attachedArtifactLexicon caches the attached-artifact snake_case token
+	// set (S1a, STAB-1 2026-07-12) so the multi-megabyte attachment text is
+	// scanned at most once per run. See AttachedArtifactLexicon.
+	attachedArtifactLexicon map[string]bool
 	// objective is the raw user question / task description seeded
 	// at orchestrator Run time. Replaces the old one-task TaskList
 	// wrapper — every stage reads this field as the load-bearing
@@ -5427,6 +5431,33 @@ func (m *MutableState) ProseScalarGroundingHintDelivered() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.proseScalarHintDelivered
+}
+
+// AttachedArtifactLexicon returns the cached attached-artifact snake_case
+// token set (S1a, STAB-1 2026-07-12), or nil when not yet computed. The
+// EXTRACTION lives with the consumer (the orchestrator's lexicon gate);
+// this store exists so the multi-megabyte attachment text is scanned at
+// most once per run (禁全文扫描每次重复).
+func (m *MutableState) AttachedArtifactLexicon() map[string]bool {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.attachedArtifactLexicon
+}
+
+// SetAttachedArtifactLexicon stores the computed token set (first writer
+// wins — the attachment text is immutable for the run).
+func (m *MutableState) SetAttachedArtifactLexicon(lexicon map[string]bool) {
+	if m == nil || lexicon == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.attachedArtifactLexicon == nil {
+		m.attachedArtifactLexicon = lexicon
+	}
 }
 
 // MarkProseLexiconBoardHintDelivered records that a dispatch carrying the
