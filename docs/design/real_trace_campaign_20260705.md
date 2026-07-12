@@ -2287,7 +2287,7 @@ stage硬界为4M physical rows、每family 1M lanes、4GiB temp；两个排序�
 
 P0-a明确不混direct marker能力、page-cache单位、storage/UFS/I2C/MMC/F2FS/workqueue等剩余direct descriptor；marker尾空格/长行/1024 provenance与page profile仍独立留账。验收固定为逐descriptor对抗fixture、合法0/坏sibling locality、direct↔structured parity、focused/race、包级/全仓test+vet、格式/diff检查和独立冻结，完成后立即推送，再开P0-b。
 
-生产回访追加了两条先行证据：Berlin转换结果存在`caller=0x383435317c45000d`/`0x702e64676f6c6968`等ASCII碎片地址，且direct events_format同ID在段内/跨段均last-wins；先以exact descriptor equality关闭冲突ID整lane，后续重复不得救活。Berlin另有IPI约166万rows，structured漏掉上游fields 1400/1401/1402，必须与IRQ同批补strict contract。`ProfilerPluginData` Name/Data及top-level ftrace detail也纳入wire/unique门，避免payload门前仍由container last-wins。
+用户勘正：Berlin文件是旧转换器产物，只能作为异常触发和规模参考，不能充当格式/字段权威，也不能凭ASCII caller反推原始layout；转换格式继续以标准Donghu已存在内容为主，未出现族按各自独立typed上游schema兼容。descriptor-ID段内/跨段last-wins由当前代码直接证明，故仍先以exact equality关闭冲突ID整lane，后续重复不得救活；structured IPI 1400/1401/1402则依据OpenHarmony官方proto/parser补齐，不以Berlin数量作hard gate。`ProfilerPluginData` Name/Data及top-level ftrace detail也纳入wire/unique门，避免payload门前仍由container last-wins。
 
 ## §29.47 标准 Donghu profile 差分审计立案（2026-07-12，未收账）
 
