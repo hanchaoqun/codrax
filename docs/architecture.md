@@ -134,7 +134,7 @@ analyzer 一次性产出整张 `TaskGraph`（DAG），编排器（`internal/orch
 4. **success criterion 评估**：分派完成后，每个窗口节点的 `SuccessCriteria` 用 `criterion.Eval` 判定。通过 → done；不通过 → requeued，沿 `EdgeValidationFeedback` 边只 requeue 必要的上游 evidence 节点（精细回溯，不重启整个窗口）。
 5. **Stuck 逃生**：validate 节点的 SC 失败时，系统记录 envShape；如果下次失败时 shape 与上次相同（重新调查没带来新证据），系统判定"此路不通"，给所有还是 HypUnknown 的假设注入诚实的 `HypInconclusive` verdict + stuck rationale，标 done 不再 requeue。
 6. **finalize 派发**：所有非 finalize 节点都 done 时分派 finalizer。
-7. **contract check**：finalizer 写出 AnswerDocument 后，系统跑一遍合同检查（typed validators），通过则结束；不通过且预算未耗尽则把违规诊断写进 retry hint，requeue finalize + 所有 done 的 explorer 节点跑一轮 cross-window retry；预算耗尽则在原答案前面 prepend 一条 fail-loud 警告后返回（让用户看见模型最后想说什么）。
+7. **contract check**：finalizer 写出 AnswerDocument 后，系统跑一遍合同检查（typed validators），通过则结束；不通过且预算未耗尽则把违规诊断写进 retry hint，requeue finalize + 所有 done 的 explorer 节点跑一轮 cross-window retry；预算耗尽则在原答案前面 prepend 一条 fail-loud 警告后返回（让用户看见模型最后想说什么）。**软车道例外(§29.47.1,2026-07-12 用户裁定)**:非致命(soft-for-bus)发现零修复轮——第一稿直接出厂,系统机械发现渲染为答案尾部「系统校验附注」独立确定性块(系统自声版面,零发现不渲染;检测与执行分离);仅 strict 窄类(致命)保留单轮修复,且强制 block 级最小 diff patch+仲裁看门(补丁稿不严格更好→按 FRCAP 恢复第一稿+附注披露残留)。operator 可经 codrax.yaml `pipeline_contract_strict_kinds` 促升软 kind(typed escape)。
 
 ### 2.3 写模式：线性 3 节点图
 
