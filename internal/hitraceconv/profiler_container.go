@@ -17,9 +17,11 @@ import (
 )
 
 const (
-	profilerDataTypeProtobuf = uint32(0)
-	profilerSessionJSONTag   = "SessionJSON-"
-	maxProfilerTextLineBytes = 1024 * 1024
+	profilerDataTypeProtobuf      = uint32(0)
+	profilerSessionJSONTag        = "SessionJSON-"
+	maxProfilerTextLineBytes      = 1024 * 1024
+	maxProfilerPluginFrameBytes   = uint64(64 << 20)
+	profilerSessionReaderBufBytes = 256 * 1024
 )
 
 type profilerTraceHeader struct {
@@ -67,6 +69,8 @@ type profilerContainerExtraction struct {
 	StructuredRows     int
 	RejectedMessages   int
 	StandaloneDetected bool
+	SourceFailClosed   bool
+	SourceFailReason   string
 	TraceCoverage      []TraceDBCoverage
 	Caveats            []string
 	textMessages       []profilerTextMessageRows
@@ -77,6 +81,13 @@ type profilerTextMessageRows struct {
 	total int
 	mmc   profilerPairRowCensus
 	f2fs  profilerPairRowCensus
+}
+
+type profilerBoundedPhysicalLine struct {
+	Bytes     []byte
+	Present   bool
+	Oversized bool
+	EOF       bool
 }
 
 type profilerPairPublisherCensus struct {
@@ -345,12 +356,34 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 			sink.cleanup()
 		}
 	}()
-	extracted, err := extractProfilerContainerSystraceRows(ctx, opts.InputPath, inputSize, sink)
+	sessionBodySize, embeddedSessionSidecar := profilerContainerSessionLayout(inputSize, standaloneArtifacts)
+	extracted, err := extractProfilerContainerSystraceRowsWithSessionLimit(
+		ctx, opts.InputPath, inputSize, sessionBodySize, sink)
 	if err != nil {
 		return Result{}, false, err
 	}
 	if !extracted.Detected {
 		return Result{}, false, nil
+	}
+	if extracted.Kind == "openharmony_profiler_session_package" && sessionBodySize < inputSize {
+		extracted.Caveats = append(extracted.Caveats, fmt.Sprintf(
+			"profiler trace-body scan was bounded to byte offset %d before a typed terminal standalone sidecar chain; sidecar bytes were not reinterpreted as SessionJSON text records",
+			sessionBodySize))
+		for index := range extracted.TraceCoverage {
+			item := &extracted.TraceCoverage[index]
+			if item.FieldSources == nil {
+				item.FieldSources = map[string]string{}
+			}
+			item.FieldSources["trace_body_input_bytes"] = strconv.FormatInt(sessionBodySize, 10)
+			item.FieldSources["standalone_sidecar_boundary"] = "contiguous_typed_terminal_artifact_chain"
+		}
+	}
+	if extracted.Kind == "openharmony_profiler_session_package" && embeddedSessionSidecar {
+		extracted.Caveats = append(extracted.Caveats,
+			"profiler Session text view contains a typed non-terminal standalone sidecar range; the complete profiler trace-body source was failed closed before publication so binary sidecar bytes cannot be reinterpreted as Session records")
+		if !extracted.SourceFailClosed {
+			failCloseProfilerTraceBody(&extracted, sink, "session_embedded_standalone_sidecar_ambiguity")
+		}
 	}
 	result := Result{
 		InputPath:          opts.InputPath,
@@ -365,7 +398,7 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 		UnknownEventCount:  extracted.UnsupportedFtrace + extracted.RejectedMessages,
 	}
 	result.Caveats = append(result.Caveats, standaloneCaveats...)
-	if sink.pairKindPoisoned(pairRenderMMC) {
+	if !extracted.SourceFailClosed && sink.pairKindPoisoned(pairRenderMMC) {
 		withheld := sink.withheldPairRowsForKind(pairRenderMMC)
 		if err := reconcileProfilerMMCCoverage(result.TraceCoverage, sink, extracted.pairPublishers); err != nil {
 			return Result{}, true, err
@@ -373,7 +406,7 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 		result.Caveats = append(result.Caveats, fmt.Sprintf("profiler MMC full-capture anti-rescue barrier failed closed before output: withheld_rows=%d; malformed, opaque, or unattributable exact MMC endpoints remain coverage-only%s", withheld, profilerPairBudgetCaveat(sink)))
 		result.TraceCoverage = append(result.TraceCoverage, profilerMMCPairBarrierCoverage(withheld, sink))
 	}
-	if sink.pairKindPoisoned(pairRenderF2FS) {
+	if !extracted.SourceFailClosed && sink.pairKindPoisoned(pairRenderF2FS) {
 		withheld := sink.withheldPairRowsForKind(pairRenderF2FS)
 		if err := reconcileProfilerF2FSCoverage(result.TraceCoverage, sink, extracted.pairPublishers); err != nil {
 			return Result{}, true, err
@@ -422,6 +455,26 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 				Artifact{Type: ArtifactSystrace, Path: output},
 			),
 		)
+	} else if extracted.SourceFailClosed {
+		artifactStatus := "no independent artifact was produced"
+		if len(result.Artifacts) > 0 {
+			artifactStatus = fmt.Sprintf("%d independently produced artifact(s) remain available", len(result.Artifacts))
+		}
+		caveat := fmt.Sprintf(
+			"OpenHarmony profiler/session trace-body was failed closed before publication because %s; suppressed_rows=%d; %s",
+			firstNonEmpty(extracted.SourceFailReason, "profiler_source_failure"), sink.stats.RowsAccepted, artifactStatus)
+		decisionReason := "profiler_source_resource_fail_closed"
+		if extracted.SourceFailReason == "session_embedded_standalone_sidecar_ambiguity" {
+			decisionReason = "profiler_source_integrity_fail_closed"
+		}
+		result.Caveats = append(result.Caveats, caveat)
+		result.TraceDecisions = append(result.TraceDecisions,
+			traceProviderFailure(
+				newTraceProviderDecision(traceProviderStageTraceBody, traceProviderByName(traceProviderNameBuiltinModern), opts, opts.InputPath, output),
+				decisionReason,
+				caveat,
+			),
+		)
 	} else if len(result.Artifacts) == 0 {
 		caveat := "OpenHarmony profiler/session container was detected, but no renderable trace rows or sidecar artifacts were found"
 		result.Caveats = append(result.Caveats, caveat)
@@ -456,7 +509,60 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 	return result, true, nil
 }
 
+func profilerContainerTraceBodySize(inputSize int64, artifacts []Artifact) int64 {
+	size, _ := profilerContainerSessionLayout(inputSize, artifacts)
+	return size
+}
+
+func profilerContainerSessionLayout(inputSize int64, artifacts []Artifact) (int64, bool) {
+	type sourceRange struct {
+		start int64
+		end   int64
+	}
+	var ranges []sourceRange
+	for _, artifact := range artifacts {
+		if artifact.Type != ArtifactPerfData || artifact.SourceOffset < 0 || artifact.SourceBytes <= 0 ||
+			artifact.SourceOffset > math.MaxInt64-artifact.SourceBytes {
+			continue
+		}
+		end := artifact.SourceOffset + artifact.SourceBytes
+		if end > inputSize {
+			continue
+		}
+		ranges = append(ranges, sourceRange{start: artifact.SourceOffset, end: end})
+	}
+	sort.Slice(ranges, func(i, j int) bool {
+		if ranges[i].start == ranges[j].start {
+			return ranges[i].end < ranges[j].end
+		}
+		return ranges[i].start < ranges[j].start
+	})
+	merged := make([]sourceRange, 0, len(ranges))
+	for _, item := range ranges {
+		if len(merged) == 0 || item.start > merged[len(merged)-1].end {
+			merged = append(merged, item)
+			continue
+		}
+		if item.end > merged[len(merged)-1].end {
+			merged[len(merged)-1].end = item.end
+		}
+	}
+	if len(merged) > 0 && merged[len(merged)-1].end == inputSize {
+		return merged[len(merged)-1].start, len(merged) > 1
+	}
+	return inputSize, len(merged) > 0
+}
+
 func extractProfilerContainerSystraceRows(ctx context.Context, path string, inputSize int64, sink *traceDBRowSink) (profilerContainerExtraction, error) {
+	return extractProfilerContainerSystraceRowsWithSessionLimit(ctx, path, inputSize, inputSize, sink)
+}
+
+func extractProfilerContainerSystraceRowsWithSessionLimit(ctx context.Context, path string,
+	inputSize, sessionInputSize int64, sink *traceDBRowSink,
+) (profilerContainerExtraction, error) {
+	if inputSize < 0 || sessionInputSize < 0 || sessionInputSize > inputSize {
+		return profilerContainerExtraction{}, &traceDBOutputInvariantError{Reason: "invalid_profiler_session_input_boundary"}
+	}
 	header, ok, err := readProfilerTraceHeaderAtPath(path, 0, inputSize)
 	if err != nil {
 		return profilerContainerExtraction{}, err
@@ -464,7 +570,7 @@ func extractProfilerContainerSystraceRows(ctx context.Context, path string, inpu
 	if ok && header.DataType == profilerDataTypeProtobuf {
 		return extractProfilerTraceFile(ctx, path, inputSize, header, sink)
 	}
-	session, err := extractProfilerSessionPackage(ctx, path, sink)
+	session, err := extractProfilerSessionPackage(ctx, path, sessionInputSize, sink)
 	if err != nil {
 		return profilerContainerExtraction{}, err
 	}
@@ -475,11 +581,26 @@ func extractProfilerContainerSystraceRows(ctx context.Context, path string, inpu
 }
 
 func extractProfilerTraceFile(ctx context.Context, path string, inputSize int64, header profilerTraceHeader, sink *traceDBRowSink) (profilerContainerExtraction, error) {
+	return extractProfilerTraceFileWithFrameLimit(ctx, path, inputSize, header, sink, maxProfilerPluginFrameBytes)
+}
+
+func extractProfilerTraceFileWithFrameLimit(ctx context.Context, path string, inputSize int64,
+	header profilerTraceHeader, sink *traceDBRowSink, maxFrameBytes uint64,
+) (profilerContainerExtraction, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return profilerContainerExtraction{}, err
 	}
 	defer f.Close()
+	return extractProfilerTraceFileAtWithFrameLimit(ctx, f, inputSize, header, sink, maxFrameBytes)
+}
+
+func extractProfilerTraceFileAtWithFrameLimit(ctx context.Context, reader io.ReaderAt, inputSize int64,
+	header profilerTraceHeader, sink *traceDBRowSink, maxFrameBytes uint64,
+) (profilerContainerExtraction, error) {
+	if reader == nil || maxFrameBytes == 0 || maxFrameBytes > uint64(math.MaxInt) {
+		return profilerContainerExtraction{}, &traceDBOutputInvariantError{Reason: "invalid_profiler_plugin_frame_limit"}
+	}
 	var limit int64
 	out := profilerContainerExtraction{
 		Detected:       true,
@@ -504,18 +625,18 @@ func extractProfilerTraceFile(ctx context.Context, path string, inputSize int64,
 	}
 	off := int64(profilerTraceHeaderSize)
 	seq := 0
-	for off+4 <= limit {
+	for off <= limit-4 {
 		if err := ctx.Err(); err != nil {
 			return profilerContainerExtraction{}, err
 		}
 		var lenBuf [4]byte
-		if _, err := f.ReadAt(lenBuf[:], off); err != nil {
+		if _, err := reader.ReadAt(lenBuf[:], off); err != nil {
 			if errorsIsEOF(err) {
 				break
 			}
 			return profilerContainerExtraction{}, fmt.Errorf("read profiler message length at %d: %w", off, err)
 		}
-		n := int64(binary.LittleEndian.Uint32(lenBuf[:]))
+		n := uint64(binary.LittleEndian.Uint32(lenBuf[:]))
 		if n == 0 {
 			out.Messages++
 			out.RejectedMessages++
@@ -524,17 +645,30 @@ func extractProfilerTraceFile(ctx context.Context, path string, inputSize int64,
 			off += 4
 			continue
 		}
-		if off+4+n > limit {
+		remaining := uint64(limit - off - 4)
+		if n > remaining {
 			out.Messages++
 			out.RejectedMessages++
 			sink.markPairCaptureOpaque(pairRenderMMC)
 			sink.markPairCaptureOpaque(pairRenderF2FS)
-			out.Caveats = append(out.Caveats, fmt.Sprintf("rejected truncated ProfilerPluginData frame at offset %d: declared=%d available=%d; sibling boundary cannot be recovered", off, n, limit-off-4))
+			out.Caveats = append(out.Caveats, fmt.Sprintf("rejected truncated ProfilerPluginData frame at offset %d: declared=%d available=%d; sibling boundary cannot be recovered", off, n, remaining))
 			out.TraceCoverage = append(out.TraceCoverage, profilerRejectedPluginCoverage("plugin_frame_truncated"))
 			break
 		}
-		msg := make([]byte, n)
-		if _, err := f.ReadAt(msg, off+4); err != nil {
+		if n > maxFrameBytes {
+			out.Messages++
+			out.RejectedMessages++
+			out.SourceFailClosed = true
+			out.SourceFailReason = "plugin_frame_size_budget_exceeded"
+			sink.failCloseAllRows()
+			out.Caveats = append(out.Caveats, fmt.Sprintf(
+				"rejected oversized ProfilerPluginData frame at offset %d: declared=%d max=%d; frame body was not read, the complete profiler trace-body source was failed closed before publication, and the unauthenticated container suffix was not scanned",
+				off, n, maxFrameBytes))
+			out.TraceCoverage = append(out.TraceCoverage, profilerPluginFrameBudgetCoverage(n, maxFrameBytes))
+			break
+		}
+		msg := make([]byte, int(n))
+		if _, err := reader.ReadAt(msg, off+4); err != nil {
 			return profilerContainerExtraction{}, fmt.Errorf("read profiler message at %d: %w", off+4, err)
 		}
 		out.Messages++
@@ -599,13 +733,13 @@ func extractProfilerTraceFile(ctx context.Context, path string, inputSize int64,
 							total: rows, mmc: pluginMMCRows(), f2fs: pluginF2FSRows(),
 						})
 						appendPluginCoverage()
-						off += 4 + n
+						off += 4 + int64(n)
 						continue
 					}
 					coverage.Skipped = "ftrace-plugin payload was neither authoritative TracePluginResult protobuf nor a complete strict legacy systrace payload"
 					out.UnsupportedFtrace++
 					appendPluginCoverage()
-					off += 4 + n
+					off += 4 + int64(n)
 					continue
 				}
 
@@ -681,7 +815,7 @@ func extractProfilerTraceFile(ctx context.Context, path string, inputSize int64,
 			out.Caveats = append(out.Caveats, fmt.Sprintf("rejected ProfilerPluginData message at offset %d: %s", off, reason))
 			out.TraceCoverage = append(out.TraceCoverage, profilerRejectedPluginCoverage(reason))
 		}
-		off += 4 + n
+		off += 4 + int64(n)
 	}
 	if remaining := limit - off; remaining > 0 && remaining < 4 {
 		out.RejectedMessages++
@@ -725,10 +859,17 @@ func extractProfilerTraceFile(ctx context.Context, path string, inputSize int64,
 	} else {
 		out.TextPluginMessages -= withheldMessages
 	}
+	if out.SourceFailClosed {
+		failCloseProfilerTraceBody(&out, sink, out.SourceFailReason)
+	}
 	if out.Messages == 0 {
 		out.Caveats = append(out.Caveats, "official profiler header was present, but no length-prefixed ProfilerPluginData messages were readable")
 	}
-	if out.StructuredFtrace > 0 {
+	if out.SourceFailClosed && out.StructuredFtrace > 0 {
+		out.Caveats = append(out.Caveats, fmt.Sprintf(
+			"decoded %d authoritative ftrace-plugin TracePluginResult message(s), but all structured rows were withheld by the profiler trace-body source fail-close",
+			out.StructuredFtrace))
+	} else if out.StructuredFtrace > 0 {
 		out.Caveats = append(out.Caveats, fmt.Sprintf("decoded %d authoritative ftrace-plugin TracePluginResult message(s) and rendered %d structured trace row(s); unsupported or degraded members remain explicit in typed coverage", out.StructuredFtrace, out.StructuredRows))
 	}
 	if out.MalformedFtrace > 0 {
@@ -780,6 +921,73 @@ func profilerRejectedPluginCoverage(reason string) TraceDBCoverage {
 		FieldSources: map[string]string{
 			"schema_profile": "ProfilerPluginData{name=1,status=2,data=3,clock_id=4,tv_sec=5,tv_nsec=6,version=7,sample_interval=8}",
 		},
+	}
+}
+
+func profilerPluginFrameBudgetCoverage(declared, limit uint64) TraceDBCoverage {
+	return TraceDBCoverage{
+		Family:   "builtin_modern_profiler",
+		Table:    "plugin:__rejected__",
+		Role:     "unsupported_input",
+		Found:    true,
+		RowsRead: 1,
+		Skipped:  "plugin_frame_size_budget_exceeded=1",
+		FieldSources: map[string]string{
+			"declared_frame_bytes":            strconv.FormatUint(declared, 10),
+			"max_frame_bytes":                 strconv.FormatUint(limit, 10),
+			"frame_body_uninspected":          "true",
+			"suffix_scan_stopped":             "true",
+			"boundary_recovery_policy":        "disabled_until_lane_specific_header_integrity_is_verified",
+			"profiler_trace_body_fail_closed": "all_rows",
+			"single_object_memory_bound":      "true",
+		},
+	}
+}
+
+func failCloseProfilerTraceBody(extraction *profilerContainerExtraction, sink *traceDBRowSink,
+	reason string,
+) {
+	if extraction == nil {
+		return
+	}
+	if strings.TrimSpace(reason) == "" {
+		reason = "unknown_profiler_source_failure"
+	}
+	extraction.SourceFailClosed = true
+	extraction.SourceFailReason = reason
+	extraction.TextRows = 0
+	extraction.StructuredRows = 0
+	extraction.TextPluginMessages = 0
+	for index := range extraction.TraceCoverage {
+		item := &extraction.TraceCoverage[index]
+		if item.RowsEmitted > 0 {
+			traceDBAppendCoverageSkipped(item,
+				fmt.Sprintf("profiler_source_fail_closed=%s; suppressed_rows=%d", reason, item.RowsEmitted))
+			item.RowsEmitted = 0
+		}
+		if item.FieldSources == nil {
+			item.FieldSources = map[string]string{}
+		}
+		item.FieldSources["profiler_trace_body_source_fail_closed"] = reason
+	}
+	stagedRows := 0
+	if sink != nil {
+		stagedRows = sink.stats.RowsAccepted
+	}
+	extraction.TraceCoverage = append(extraction.TraceCoverage, TraceDBCoverage{
+		Family:   "builtin_modern_profiler",
+		Table:    "__container_resource_barrier__",
+		Role:     "unsupported_input",
+		Found:    true,
+		RowsRead: stagedRows,
+		Skipped:  "profiler_source_fail_closed=" + reason,
+		FieldSources: map[string]string{
+			"scope":             "complete_profiler_trace_body",
+			"independent_scope": "not_governed_by_trace_body_barrier",
+		},
+	})
+	if sink != nil {
+		sink.failCloseAllRows()
 	}
 }
 
@@ -1452,19 +1660,27 @@ func profilerFtraceClockName(id uint64) string {
 	}
 }
 
-func extractProfilerSessionPackage(ctx context.Context, path string, sink *traceDBRowSink) (profilerContainerExtraction, error) {
+func extractProfilerSessionPackage(ctx context.Context, path string, inputSize int64,
+	sink *traceDBRowSink,
+) (profilerContainerExtraction, error) {
+	return extractProfilerSessionPackageWithLineLimit(ctx, path, inputSize, sink, maxProfilerTextLineBytes)
+}
+
+func extractProfilerSessionPackageWithLineLimit(ctx context.Context, path string, inputSize int64,
+	sink *traceDBRowSink, maxLineBytes int,
+) (profilerContainerExtraction, error) {
+	if inputSize < 0 || maxLineBytes <= 0 || maxLineBytes >= math.MaxInt {
+		return profilerContainerExtraction{}, &traceDBOutputInvariantError{Reason: "invalid_profiler_session_line_limit"}
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return profilerContainerExtraction{}, err
 	}
 	defer f.Close()
-	if _, ok, err := profilerSessionJSONMarkerOffset(path, 64*1024); err != nil {
+	if _, ok, err := profilerSessionJSONMarkerOffsetAt(f, inputSize, 64*1024); err != nil {
 		return profilerContainerExtraction{}, err
 	} else if !ok {
 		return profilerContainerExtraction{}, nil
-	}
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return profilerContainerExtraction{}, err
 	}
 	out := profilerContainerExtraction{
 		Detected:       true,
@@ -1481,34 +1697,48 @@ func extractProfilerSessionPackage(ctx context.Context, path string, sink *trace
 		Role:   "query_ready_export",
 		Found:  true,
 	}
-	reader := bufio.NewReaderSize(f, 256*1024)
+	reader := bufio.NewReaderSize(io.NewSectionReader(f, 0, inputSize), profilerSessionReaderBufBytes)
 	if !sink.beginPairRowCensus() {
 		return profilerContainerExtraction{}, &traceDBOutputInvariantError{Reason: "profiler_pair_census_nested"}
 	}
-	for {
-		if err := ctx.Err(); err != nil {
-			return profilerContainerExtraction{}, err
-		}
-		line, readErr := reader.ReadBytes('\n')
-		if len(line) > 0 {
+	oversizedLines := 0
+	_, scanErr := scanProfilerBoundedSessionRecords(ctx, reader, maxLineBytes,
+		func(record profilerBoundedPhysicalLine) (bool, error) {
 			coverage.RowsRead++
-			lineRows, rowErr := addSystraceRowsFromBytes(line, &seq, sink)
+			if record.Oversized {
+				oversizedLines++
+				out.SourceFailClosed = true
+				out.SourceFailReason = "session_line_size_budget_exceeded"
+				sink.failCloseAllRows()
+				return false, nil
+			}
+			lineRows, rowErr := addSystraceRowsFromBytes(record.Bytes, &seq, sink)
 			if rowErr != nil {
-				coverage.Error = rowErr.Error()
-				out.TraceCoverage = append(out.TraceCoverage, coverage)
-				return profilerContainerExtraction{}, rowErr
+				return false, rowErr
 			}
 			coverage.RowsEmitted += lineRows
 			out.TextRows += lineRows
+			return true, nil
+		})
+	if scanErr != nil {
+		coverage.Error = scanErr.Error()
+		out.TraceCoverage = append(out.TraceCoverage, coverage)
+		return profilerContainerExtraction{}, scanErr
+	}
+	if oversizedLines > 0 {
+		out.RejectedMessages += oversizedLines
+		traceDBAppendCoverageSkipped(&coverage,
+			fmt.Sprintf("session_line_size_budget_exceeded=%d", oversizedLines))
+		if coverage.FieldSources == nil {
+			coverage.FieldSources = map[string]string{}
 		}
-		if readErr == io.EOF {
-			break
-		}
-		if readErr != nil {
-			coverage.Error = readErr.Error()
-			out.TraceCoverage = append(out.TraceCoverage, coverage)
-			return profilerContainerExtraction{}, readErr
-		}
+		coverage.FieldSources["max_session_line_bytes"] = strconv.Itoa(maxLineBytes)
+		coverage.FieldSources["oversized_line_reader"] = "bounded_readslice_lf_nul_drain"
+		coverage.FieldSources["profiler_trace_body_fail_closed"] = "all_rows"
+		coverage.FieldSources["suffix_scan_stopped"] = "true"
+		out.Caveats = append(out.Caveats, fmt.Sprintf(
+			"rejected %d profiler SessionJSON LF/NUL-delimited record(s) above the %d-byte resource limit; oversized bytes were drained without retention, suffix scanning stopped, and the complete profiler trace-body source was failed closed before publication",
+			oversizedLines, maxLineBytes))
 	}
 	mmcRows, f2fsRows := sink.endPairRowCensus()
 	stagedMMC := mmcRows.total
@@ -1533,20 +1763,107 @@ func extractProfilerSessionPackage(ctx context.Context, path string, sink *trace
 	} else {
 		out.TextRows -= withheld
 	}
-	if out.TextRows > 0 {
+	if out.SourceFailClosed {
+		// The typed resource caveat above is the sole publication verdict.
+	} else if out.TextRows > 0 {
 		out.Caveats = append(out.Caveats, fmt.Sprintf("extracted %d systrace text row(s) from profiler session package payload", out.TextRows))
 	} else if withheld > 0 {
-		coverage.Skipped = "session pair-critical endpoint rows were staged but withheld by exact-lane or source-family full-capture barriers"
+		traceDBAppendCoverageSkipped(&coverage,
+			"session pair-critical endpoint rows were staged but withheld by exact-lane or source-family full-capture barriers")
 		out.Caveats = append(out.Caveats, fmt.Sprintf("profiler session package staged exact pair-critical rows, but exact-lane or source-family full-capture barriers withheld them before publication: mmc=%d f2fs=%d", withheldMMC, withheldF2FS))
 	} else {
-		coverage.Skipped = "session package did not contain directly renderable systrace text rows"
+		traceDBAppendCoverageSkipped(&coverage,
+			"session package did not contain directly renderable systrace text rows")
 		out.Caveats = append(out.Caveats, "session package did not contain directly renderable systrace text rows; attach extracted sidecars or export ftrace/bytrace text with the official profiler tooling")
 	}
 	out.pairPublishers = append(out.pairPublishers, profilerPairPublisherCensus{
 		coverageIndex: len(out.TraceCoverage), mmc: mmcRows, f2fs: f2fsRows,
 	})
 	out.TraceCoverage = append(out.TraceCoverage, coverage)
+	if out.SourceFailClosed {
+		failCloseProfilerTraceBody(&out, sink, out.SourceFailReason)
+	}
 	return out, nil
+}
+
+func scanProfilerBoundedSessionRecords(ctx context.Context, reader *bufio.Reader, maxBytes int,
+	visit func(profilerBoundedPhysicalLine) (bool, error),
+) (bool, error) {
+	if ctx == nil {
+		return false, &traceDBOutputInvariantError{Reason: "missing_profiler_session_record_context"}
+	}
+	if reader == nil || visit == nil || maxBytes <= 0 || maxBytes >= math.MaxInt {
+		return false, &traceDBOutputInvariantError{Reason: "invalid_profiler_session_record_reader"}
+	}
+	retainedLimit := maxBytes + 1 // One terminal CR is compatible with a CRLF record.
+	var record profilerBoundedPhysicalLine
+	appendPart := func(part []byte) {
+		if record.Oversized {
+			return
+		}
+		if len(part) > retainedLimit-len(record.Bytes) {
+			record.Bytes = nil
+			record.Oversized = true
+			return
+		}
+		record.Bytes = append(record.Bytes, part...)
+	}
+	emit := func(eof bool) (bool, error) {
+		record.Present = true
+		record.EOF = eof
+		record = normalizeProfilerBoundedPhysicalLine(record, maxBytes)
+		keepScanning, err := visit(record)
+		record = profilerBoundedPhysicalLine{}
+		return keepScanning, err
+	}
+	for {
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		fragment, readErr := reader.ReadSlice('\n')
+		start := 0
+		for index, value := range fragment {
+			if value != 0 && value != '\n' {
+				continue
+			}
+			appendPart(fragment[start:index])
+			keepScanning, err := emit(false)
+			if err != nil || !keepScanning {
+				return !keepScanning, err
+			}
+			start = index + 1
+		}
+		appendPart(fragment[start:])
+		switch readErr {
+		case nil, bufio.ErrBufferFull:
+			continue
+		case io.EOF:
+			if len(record.Bytes) > 0 || record.Oversized {
+				keepScanning, err := emit(true)
+				return !keepScanning, err
+			}
+			return false, nil
+		default:
+			return false, readErr
+		}
+	}
+}
+
+func normalizeProfilerBoundedPhysicalLine(line profilerBoundedPhysicalLine,
+	maxBytes int,
+) profilerBoundedPhysicalLine {
+	if line.Oversized {
+		line.Bytes = nil
+		return line
+	}
+	if len(line.Bytes) > 0 && line.Bytes[len(line.Bytes)-1] == '\r' {
+		line.Bytes = line.Bytes[:len(line.Bytes)-1]
+	}
+	if len(line.Bytes) > maxBytes {
+		line.Bytes = nil
+		line.Oversized = true
+	}
+	return line
 }
 
 func profilerSessionJSONMarkerOffset(path string, maxProbe int64) (int64, bool, error) {
@@ -1555,11 +1872,28 @@ func profilerSessionJSONMarkerOffset(path string, maxProbe int64) (int64, bool, 
 		return 0, false, err
 	}
 	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return 0, false, err
+	}
+	return profilerSessionJSONMarkerOffsetAt(f, info.Size(), maxProbe)
+}
+
+func profilerSessionJSONMarkerOffsetAt(reader io.ReaderAt, inputSize, maxProbe int64) (int64, bool, error) {
+	if reader == nil || inputSize <= 0 {
+		return 0, false, nil
+	}
 	if maxProbe <= 0 {
 		maxProbe = 64 * 1024
 	}
-	probe := make([]byte, maxProbe)
-	n, err := f.Read(probe)
+	if maxProbe > inputSize {
+		maxProbe = inputSize
+	}
+	if maxProbe > int64(math.MaxInt) {
+		return 0, false, &traceDBOutputInvariantError{Reason: "invalid_profiler_session_marker_probe"}
+	}
+	probe := make([]byte, int(maxProbe))
+	n, err := reader.ReadAt(probe, 0)
 	if err != nil && err != io.EOF {
 		return 0, false, err
 	}

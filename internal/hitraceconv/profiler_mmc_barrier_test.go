@@ -347,6 +347,7 @@ func TestProfilerSessionMMCBarrierClosesMalformedAndOpaqueHoles(t *testing.T) {
 		name         string
 		hole         string
 		withheldRows int
+		sourceClosed bool
 	}{
 		{
 			name:         "loose malformed exact header",
@@ -357,6 +358,7 @@ func TestProfilerSessionMMCBarrierClosesMalformedAndOpaqueHoles(t *testing.T) {
 			name:         "oversized opaque physical row",
 			hole:         strings.Repeat("x", maxProfilerTextLineBytes+1),
 			withheldRows: 2,
+			sourceClosed: true,
 		},
 		{
 			name:         "negative timestamp exact header",
@@ -380,6 +382,21 @@ func TestProfilerSessionMMCBarrierClosesMalformedAndOpaqueHoles(t *testing.T) {
 			result, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: output, TraceEngine: "builtin"})
 			if err != nil {
 				t.Fatal(err)
+			}
+			if tc.sourceClosed {
+				resourceDecision := false
+				for _, decision := range result.TraceDecisions {
+					resourceDecision = resourceDecision || decision.Reason == "profiler_source_resource_fail_closed"
+				}
+				if result.OutputPath != "" || result.EventsWritten != 0 ||
+					!resourceDecision ||
+					!coverageTableHasSkipped(result.TraceCoverage, "__container_resource_barrier__", "profiler_source_fail_closed=session_line_size_budget_exceeded") {
+					t.Fatalf("oversized Session record did not fail-close the complete profiler trace body: %+v coverage=%+v", result, result.TraceCoverage)
+				}
+				if _, statErr := os.Stat(output); !os.IsNotExist(statErr) {
+					t.Fatalf("source-failed Session unexpectedly created output: stat_err=%v", statErr)
+				}
+				return
 			}
 			body, err := os.ReadFile(output)
 			if err != nil {

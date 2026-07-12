@@ -90,24 +90,29 @@ func TestProfilerContainerUndersizedLengthRetainsTypedProvenance(t *testing.T) {
 }
 
 func TestProfilerContainerTruncatedLengthPrefixIsCoverageOnly(t *testing.T) {
-	line := "worker-7  ( 7) [001] ....  5.000000: tracing_mark_write: B|7|good"
-	body := syntheticProfilerTraceFile(syntheticProfilerPluginData("bytrace_plugin", []byte(line)))
-	body = append(body, 0x01, 0x02)
-	binary.LittleEndian.PutUint64(body[8:16], uint64(len(body)))
-	dir := t.TempDir()
-	input := filepath.Join(dir, "truncated-prefix.htrace")
-	if err := os.WriteFile(input, body, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	result, err := ConvertFile(context.Background(), Options{
-		InputPath: input, OutputPath: filepath.Join(dir, "out.systrace"), TraceEngine: traceEngineBuiltin,
-	})
-	if err != nil {
-		t.Fatalf("convert truncated prefix: %v", err)
-	}
-	if result.EventsWritten != 1 || result.UnknownEventCount != 1 ||
-		!coverageTableHasSkipped(result.TraceCoverage, "__container_envelope__", "plugin_length_prefix_truncated") {
-		t.Fatalf("partial length prefix must be local typed coverage after the valid sibling: result=%+v coverage=%+v", result, result.TraceCoverage)
+	for residual := 1; residual <= 3; residual++ {
+		t.Run(fmt.Sprintf("residual_%d", residual), func(t *testing.T) {
+			line := "worker-7  ( 7) [001] ....  5.000000: tracing_mark_write: B|7|good"
+			body := syntheticProfilerTraceFile(syntheticProfilerPluginData("bytrace_plugin", []byte(line)))
+			body = append(body, bytes.Repeat([]byte{0x01}, residual)...)
+			binary.LittleEndian.PutUint64(body[8:16], uint64(len(body)))
+			dir := t.TempDir()
+			input := filepath.Join(dir, "truncated-prefix.htrace")
+			if err := os.WriteFile(input, body, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			result, err := ConvertFile(context.Background(), Options{
+				InputPath: input, OutputPath: filepath.Join(dir, "out.systrace"), TraceEngine: traceEngineBuiltin,
+			})
+			if err != nil {
+				t.Fatalf("convert truncated prefix: %v", err)
+			}
+			if result.EventsWritten != 1 || result.UnknownEventCount != 1 ||
+				!coverageTableHasSkipped(result.TraceCoverage, "__container_envelope__", "plugin_length_prefix_truncated") {
+				t.Fatalf("%d-byte partial length prefix must be local typed coverage after the valid sibling: result=%+v coverage=%+v",
+					residual, result, result.TraceCoverage)
+			}
+		})
 	}
 }
 

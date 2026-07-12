@@ -71,6 +71,7 @@ type traceDBRowSink struct {
 	pairUniqueLanes      int64
 	pairBudgetFailed     bool
 	pairBudgetFailure    string
+	allRowsFailClosed    bool
 }
 
 type profilerPairRowCensus struct {
@@ -171,6 +172,19 @@ func (s *traceDBRowSink) markPairCaptureOpaque(kind pairRenderKind) {
 	}
 	s.opaque[kind] = true
 	if s.pairRows[kind] > 0 {
+		s.poisonPairKind(kind)
+	}
+}
+
+func (s *traceDBRowSink) failCloseAllRows() {
+	if s == nil {
+		return
+	}
+	s.allRowsFailClosed = true
+	for _, kind := range []pairRenderKind{
+		pairRenderWorkqueue, pairRenderDMAFence, pairRenderMMC, pairRenderF2FS,
+	} {
+		s.opaque[kind] = true
 		s.poisonPairKind(kind)
 	}
 }
@@ -385,6 +399,9 @@ func (s *traceDBRowSink) publishableRows() int {
 	if s == nil {
 		return 0
 	}
+	if s.allRowsFailClosed {
+		return 0
+	}
 	count := s.stats.RowsAccepted - s.withheldPairRows()
 	if count < 0 {
 		return 0
@@ -393,8 +410,9 @@ func (s *traceDBRowSink) publishableRows() int {
 }
 
 func (s *traceDBRowSink) rowPublishable(row renderedRow) bool {
-	return row.pairKind == pairRenderUnknown ||
-		(!s.poisoned[row.pairKind] && (row.pairLane == "" || !s.poisonedLanes[row.pairKind][row.pairLane]))
+	return !s.allRowsFailClosed &&
+		(row.pairKind == pairRenderUnknown ||
+			(!s.poisoned[row.pairKind] && (row.pairLane == "" || !s.poisonedLanes[row.pairKind][row.pairLane])))
 }
 
 func (s *traceDBRowSink) accountWrittenRow(row renderedRow) {
@@ -418,6 +436,10 @@ func (s *traceDBRowSink) writeTo(ctx context.Context, w io.Writer) (stats traceD
 	s.stats.RowsWithheld = s.withheldPairRows()
 	s.stats.FirstTSNS = 0
 	s.stats.LastTSNS = 0
+	if s.allRowsFailClosed {
+		s.stats.RowsWithheld = s.stats.RowsAccepted
+		return s.stats, nil
+	}
 	if len(s.chunks) == 0 {
 		published := s.rows[:0]
 		for _, row := range s.rows {
