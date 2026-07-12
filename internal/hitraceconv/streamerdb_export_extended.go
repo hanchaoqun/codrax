@@ -35,7 +35,7 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 		return coverage, err
 	}
 	stageStart = time.Now()
-	rawCoverage, err := exportTraceDBRawFtraceFamilies(ctx, tdb, sink, authority, lifecycleRunning)
+	rawCoverage, err := exportTraceDBRawFtraceFamilies(ctx, tdb, sink, authority, lifecycleRunning, syncSpans.artifactSource)
 	traceDBSetCoverageListElapsed(rawCoverage, stageStart)
 	coverage = append(coverage, rawCoverage...)
 	if err != nil {

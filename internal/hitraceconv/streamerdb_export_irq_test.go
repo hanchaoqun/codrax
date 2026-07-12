@@ -313,7 +313,7 @@ func TestTraceDBIRQRawEndpointNamesRemainUnsupportedNoDuplicate(t *testing.T) {
 		t.Fatal(err)
 	}
 	rawCoverage, err := exportTraceDBRawFtraceFamilies(context.Background(), tdb, sink,
-		traceDBSchedulerAuthority{}, traceDBSchedulerRunningIndex{})
+		traceDBSchedulerAuthority{}, traceDBSchedulerRunningIndex{}, filepath.Join(t.TempDir(), "irq-raw.ftrace"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -2,6 +2,7 @@ package hitraceconv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -42,8 +43,8 @@ type traceDBRawSubject struct {
 }
 
 func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *traceDBRowSink,
-	authority traceDBSchedulerAuthority, running traceDBSchedulerRunningIndex,
-) ([]TraceDBCoverage, error) {
+	authority traceDBSchedulerAuthority, running traceDBSchedulerRunningIndex, artifactSource string,
+) (result []TraceDBCoverage, resultErr error) {
 	schemaCoverage, err := tdb.inspectCoverage(ctx, "raw_ftrace", "raw", []string{"ts", "name"})
 	if err != nil || !schemaCoverage.Found || len(schemaCoverage.ColumnsMissing) > 0 {
 		return []TraceDBCoverage{schemaCoverage}, err
@@ -73,7 +74,6 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 	}
 	stableExpr := "rowid"
 	stableSource := "raw.rowid"
-	duplicateStableIDs := map[int64]bool{}
 	if hasSourceID {
 		stableExpr = traceDBQuoteIdent("id")
 		stableSource = "raw.id"
@@ -81,12 +81,6 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 		schemaCoverage.Skipped = "missing raw.id and usable SQLite rowid; no stable source identity/order"
 		outCoverage[0] = schemaCoverage
 		return outCoverage, nil
-	}
-	duplicateStableIDs, err = traceDBRawDuplicateStableIDs(ctx, tdb, stableExpr, hasSourceID)
-	if err != nil {
-		schemaCoverage.Error = err.Error()
-		outCoverage[0] = schemaCoverage
-		return outCoverage, err
 	}
 	if schemaCoverage.FieldSources == nil {
 		schemaCoverage.FieldSources = map[string]string{}
@@ -124,12 +118,19 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 		schemaCoverage.Error = err.Error()
 		return []TraceDBCoverage{schemaCoverage}, err
 	}
-	stableOrderExpr := traceDBStableUint32OrderExpr(stableExpr, hasSourceID)
 	query := fmt.Sprintf(`
 		SELECT %s, ts, name, %s, %s, %s, %s, %s
 		FROM raw
-		ORDER BY ts, %s
-	`, stableExpr, cpuExpr, itidExpr, tidExpr, pidExpr, traceDBQuoteIdent(argsetColumn), stableOrderExpr)
+	`, stableExpr, cpuExpr, itidExpr, tidExpr, pidExpr, traceDBQuoteIdent(argsetColumn))
+	stage, err := newTraceDBRawPairingStage(ctx, artifactSource, traceDBRawPairingStageOptions{})
+	if err != nil {
+		schemaCoverage.Error = err.Error()
+		outCoverage[0] = schemaCoverage
+		return outCoverage, err
+	}
+	defer func() {
+		resultErr = errors.Join(resultErr, stage.cleanup())
+	}()
 	rows, err := tdb.db.QueryContext(ctx, query)
 	if err != nil {
 		schemaCoverage.Error = err.Error()
@@ -140,6 +141,7 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 	classSkipped := map[string]map[string]int{}
 	schemaSkipped := map[string]int{}
 	unsupported := TraceDBCoverage{Family: "raw_ftrace", Table: "unsupported", Role: "unsupported_input", Found: true, Skipped: "unsupported raw ftrace event family"}
+	globalStageBudget := ""
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
 			return outCoverage, err
@@ -156,117 +158,249 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 		} else {
 			raw.StableID, ok = traceDBStrictSQLiteInt(stableIDRaw)
 		}
-		if !ok || raw.StableID < 0 || (!hasSourceID && raw.StableID == 0) {
-			schemaSkipped["invalid_stable_id"]++
-			continue
-		}
-		if duplicateStableIDs[raw.StableID] {
-			schemaSkipped["duplicate_source_id"]++
-			continue
-		}
-		if raw.TS, ok = traceDBStrictSQLiteInt(tsRaw); !ok || raw.TS < 0 {
-			schemaSkipped["invalid_timestamp"]++
-			continue
-		}
-		if raw.Name, ok = traceDBStrictArgText(nameRaw, false); !ok || strings.TrimSpace(raw.Name) != raw.Name || strings.ToLower(raw.Name) != raw.Name {
-			schemaSkipped["invalid_event_name"]++
-			continue
+		stableKnown := ok && raw.StableID >= 0 && (hasSourceID || raw.StableID != 0)
+		raw.TS, ok = traceDBStrictSQLiteInt(tsRaw)
+		timestampKnown := ok && raw.TS >= 0
+		raw.Name, ok = traceDBStrictArgText(nameRaw, false)
+		nameKnown := ok && strings.TrimSpace(raw.Name) == raw.Name && strings.ToLower(raw.Name) == raw.Name
+		if !nameKnown {
+			raw.Name = ""
 		}
 		class := traceDBRawFtraceClass(raw.Name)
-		if class == "" {
-			unsupported.RowsRead++
-			continue
+
+		args := map[string]traceDBValue(nil)
+		invalidKeys := map[string]bool(nil)
+		argsKnown := false
+		argsetReason := ""
+		switch {
+		case argsetRaw == nil:
+			argsetReason = "missing_argset"
+		default:
+			raw.ArgSetID, ok = traceDBStrictSQLiteInt(argsetRaw)
+			if !ok || raw.ArgSetID < 0 {
+				argsetReason = "invalid_argset_id"
+			} else if !argsets.Present[raw.ArgSetID] {
+				argsetReason = "missing_argset"
+			} else if argsets.Invalid[raw.ArgSetID] {
+				argsetReason = "invalid_argset"
+			} else {
+				args = argsets.Sets[raw.ArgSetID]
+				invalidKeys = argsets.InvalidKeys[raw.ArgSetID]
+				argsKnown = true
+			}
 		}
-		item := traceDBRawClassCoverage(classCoverage, class)
-		item.RowsRead++
-		if argsetRaw == nil {
-			traceDBRawCountSkip(classSkipped, class, "missing_argset")
-			continue
-		}
-		raw.ArgSetID, ok = traceDBStrictSQLiteInt(argsetRaw)
-		if !ok || raw.ArgSetID < 0 {
-			traceDBRawCountSkip(classSkipped, class, "invalid_argset_id")
-			continue
-		}
-		if !argsets.Present[raw.ArgSetID] {
-			traceDBRawCountSkip(classSkipped, class, "missing_argset")
-			continue
-		}
-		if argsets.Invalid[raw.ArgSetID] {
-			traceDBRawCountSkip(classSkipped, class, "invalid_argset")
-			continue
-		}
-		args := argsets.Sets[raw.ArgSetID]
-		if !traceDBRawRequiredArgs(raw.Name, args, argsets.InvalidKeys[raw.ArgSetID]) {
-			traceDBRawCountSkip(classSkipped, class, "missing_required_args")
-			continue
-		}
+		requiredArgsKnown := argsKnown && traceDBRawRequiredArgs(raw.Name, args, invalidKeys)
+
+		identityScalarsValid := true
+		identityReason := ""
 		if raw.ITID, raw.ITIDKnown, ok = traceDBRawOptionalInternalID(itidRaw, hasITID); !ok {
-			traceDBRawCountSkip(classSkipped, class, "invalid_itid")
-			continue
+			identityScalarsValid, identityReason = false, "invalid_itid"
 		}
 		if raw.TID, raw.TIDKnown, ok = traceDBRawOptionalID(tidRaw, hasTID, math.MaxInt32); !ok {
-			traceDBRawCountSkip(classSkipped, class, "invalid_tid")
-			continue
+			identityScalarsValid = false
+			if identityReason == "" {
+				identityReason = "invalid_tid"
+			}
 		}
 		if raw.PID, raw.PIDKnown, ok = traceDBRawOptionalID(pidRaw, hasPID, math.MaxInt32); !ok {
-			traceDBRawCountSkip(classSkipped, class, "invalid_pid")
-			continue
+			identityScalarsValid = false
+			if identityReason == "" {
+				identityReason = "invalid_pid"
+			}
 		}
 		explicitCPUPresent := hasCPU && cpuRaw != nil
 		explicitCPUValid := false
-		if hasCPU && cpuRaw != nil {
+		if explicitCPUPresent {
 			raw.CPU, explicitCPUValid = traceDBStrictSQLiteInt(cpuRaw)
 			explicitCPUValid = explicitCPUValid && validTraceDBCPUIndex(raw.CPU)
 		}
-		subject, subjectReason := traceDBResolveRawSubject(raw, authority,
-			explicitCPUPresent, traceDBRawMayFeedPairing(raw.Name))
+
+		headerTID, headerOwnerKnown, canonicalITID, canonicalITIDKnown := traceDBRawPairingOwner(raw, authority, identityScalarsValid)
+		fingerprintTID := int64(-1)
+		if headerOwnerKnown {
+			fingerprintTID = headerTID
+		}
+		verdict := traceDBRawPairingVerdict(raw.Name, fingerprintTID, args, invalidKeys, argsKnown)
+		laneKey := ""
+		if key, laneOK := verdict.LaneKey(stage.artifactSource); laneOK {
+			laneKey = key
+		}
+
+		subject := traceDBRawSubject{}
+		subjectReason := identityReason
+		if subjectReason == "" && timestampKnown {
+			subject, subjectReason = traceDBResolveRawSubject(raw, authority,
+				explicitCPUPresent, traceDBRawMayFeedPairing(raw.Name))
+		} else if subjectReason == "" {
+			subjectReason = "invalid_timestamp"
+		}
 		if subjectReason == "source_only_inventory_withheld" && explicitCPUPresent && !explicitCPUValid {
 			// Source-only rows have no lifecycle gate to audit. Preserve the
 			// strict malformed scalar reason instead of hiding it behind the
 			// independent capability-only withholding policy.
 			subjectReason = "invalid_cpu"
 		}
-		if subjectReason != "" {
-			traceDBRawCountSkip(classSkipped, class, subjectReason)
-			continue
-		}
-		if explicitCPUPresent {
-			if !explicitCPUValid {
-				traceDBRawCountSkip(classSkipped, class, "invalid_cpu")
-				continue
+		cpuReason := ""
+		if subjectReason == "" && explicitCPUPresent {
+			if explicitCPUValid {
+				raw.CPUKnown = true
+			} else {
+				cpuReason = "invalid_cpu"
 			}
-			raw.CPUKnown = true
-		} else {
+		} else if subjectReason == "" {
 			var status traceDBSchedulerRunningLookupStatus
 			raw.CPU, status = running.lookupCPUAt(subject.ITID, raw.TS)
 			switch status {
 			case traceDBSchedulerRunningKnown:
 				raw.CPUKnown = true
 			case traceDBSchedulerRunningSourceTainted:
-				traceDBRawCountSkip(classSkipped, class, "tainted_running_cpu_witness")
+				cpuReason = "tainted_running_cpu_witness"
 			case traceDBSchedulerRunningLifecycleRejected:
-				traceDBRawCountSkip(classSkipped, class, "lifecycle_rejected_running_cpu_witness")
+				cpuReason = "lifecycle_rejected_running_cpu_witness"
 			default:
-				traceDBRawCountSkip(classSkipped, class, "unknown_running_cpu_witness")
+				cpuReason = "unknown_running_cpu_witness"
 			}
 		}
-		if !raw.CPUKnown {
-			continue
+
+		body, renderOK := "", false
+		if requiredArgsKnown {
+			body, renderOK = traceDBRenderRawFtrace(raw.Name, args, invalidKeys)
 		}
-		body, ok := traceDBRenderRawFtrace(raw.Name, args, argsets.InvalidKeys[raw.ArgSetID])
-		if !ok {
-			continue
+		endpointAdmitted := !verdict.Recognized || headerOwnerKnown && verdict.KeyKnown &&
+			verdict.PayloadAdmitted && verdict.EmitterKnown && verdict.EmitterAdmitted
+
+		rowReason := ""
+		switch {
+		case argsetReason != "":
+			rowReason = argsetReason
+		case !requiredArgsKnown:
+			rowReason = "missing_required_args"
+		case identityReason != "":
+			rowReason = identityReason
+		case subjectReason != "":
+			rowReason = subjectReason
+		case cpuReason != "":
+			rowReason = cpuReason
+		case !raw.CPUKnown:
+			rowReason = "unknown_running_cpu_witness"
+		case !renderOK:
+			rowReason = "render_rejected"
+		case !endpointAdmitted:
+			rowReason = "pairing_endpoint_rejected"
 		}
-		if err := addTraceDBInstantRow(sink, raw.TS, subject.Task, subject.TID, subject.TGID, raw.CPU, body); err != nil {
-			return outCoverage, err
+
+		publishable := stableKnown && timestampKnown && nameKnown && class != "" && rowReason == ""
+		line := ""
+		if publishable {
+			if verdict.Recognized && !traceDBRawPairingWireParity(raw.Name, body, subject.TID, verdict) {
+				return outCoverage, &traceDBOutputInvariantError{Reason: "raw_pairing_typed_wire_parity_mismatch"}
+			}
+			rendered, renderErr := prepareTraceDBRenderedRow(raw.TS, 0, subject.Task, subject.TID, subject.TGID, raw.CPU, body)
+			if renderErr != nil {
+				return outCoverage, renderErr
+			}
+			line = rendered.line
 		}
-		item.RowsEmitted++
-		schemaCoverage.RowsEmitted++
+
+		observation := traceDBRawPairingObservation{
+			StableID: raw.StableID, StableKnown: stableKnown,
+			Timestamp: raw.TS, TimestampKnown: timestampKnown,
+			Class: class, Line: line, Publishable: publishable,
+			Verdict: verdict, LaneKey: laneKey, HeaderOwnerKnown: headerOwnerKnown,
+			CanonicalITID: canonicalITID, CanonicalITIDKnown: canonicalITIDKnown,
+			EndpointAdmitted: verdict.Recognized && endpointAdmitted && publishable,
+		}
+		if stageErr := stage.add(ctx, observation); stageErr != nil {
+			if reason, budget := traceDBRawPairingStageBudgetReason(stageErr); budget {
+				if reason == traceDBRawPairingBudgetLaneKeyCap {
+					if class != "" {
+						traceDBRawCountSkip(classSkipped, class, "pairing_family_lane_key_cap")
+					}
+				} else if globalStageBudget == "" {
+					globalStageBudget = reason
+				}
+			} else {
+				return outCoverage, stageErr
+			}
+		}
+
+		switch {
+		case !stableKnown:
+			schemaSkipped["invalid_stable_id"]++
+		case !timestampKnown:
+			schemaSkipped["invalid_timestamp"]++
+		case !nameKnown:
+			schemaSkipped["invalid_event_name"]++
+		case class == "":
+			unsupported.RowsRead++
+		default:
+			item := traceDBRawClassCoverage(classCoverage, class)
+			item.RowsRead++
+			if rowReason != "" {
+				traceDBRawCountSkip(classSkipped, class, rowReason)
+			}
+		}
+		if globalStageBudget != "" {
+			// The whole raw publication family is already fail-closed and the
+			// schema preflight carries the total row inventory. Stop decoding the
+			// remaining source rows so an adversarial table cannot turn a precise
+			// resource cap into unbounded post-cap CPU work.
+			break
+		}
 	}
 	if err := rows.Err(); err != nil {
 		schemaCoverage.Error = err.Error()
 		return []TraceDBCoverage{schemaCoverage}, err
+	}
+	if err := rows.Close(); err != nil {
+		schemaCoverage.Error = err.Error()
+		return []TraceDBCoverage{schemaCoverage}, err
+	}
+	schemaCoverage.FieldSources["pairing_complete_set"] = "single canonical output-artifact namespace; unsorted source scan into a bounded private typed stage; private indexed raw.id/rowid physical-order audit; seal/freeze before the sole pass-2 publisher"
+	schemaCoverage.FieldSources["pairing_identity"] = "tracequery.FingerprintPairingEndpoint is the sole family/phase/key authority; thread names and payload source/path never enter hard identity"
+	if globalStageBudget != "" || stage.budgetReason != "" {
+		if globalStageBudget == "" {
+			globalStageBudget = stage.budgetReason
+		}
+		schemaSkipped["pairing_stage_budget_fail_closed_"+globalStageBudget]++
+		schemaCoverage.FieldSources["pairing_stage_backend"] = "private SQLite 0700 workspace/0600 database; raw publication fail-closed before pass 2"
+	} else {
+		sealReport, sealErr := stage.seal(ctx)
+		if sealErr != nil {
+			if reason, budget := traceDBRawPairingStageBudgetReason(sealErr); budget {
+				schemaSkipped["pairing_stage_budget_fail_closed_"+reason]++
+				globalStageBudget = reason
+			} else {
+				return outCoverage, sealErr
+			}
+		} else {
+			emittedByClass := map[string]int{}
+			publishReport, publishErr := stage.publish(ctx, sink, emittedByClass)
+			if publishErr != nil {
+				if reason, budget := traceDBRawPairingStageBudgetReason(publishErr); budget {
+					schemaSkipped["pairing_stage_budget_fail_closed_"+reason]++
+					globalStageBudget = reason
+				} else {
+					return outCoverage, publishErr
+				}
+			} else {
+				for class, count := range emittedByClass {
+					traceDBRawClassCoverage(classCoverage, class).RowsEmitted += count
+					schemaCoverage.RowsEmitted += count
+				}
+				if publishReport.SuppressedRows > 0 {
+					schemaSkipped["pairing_or_duplicate_rows_fail_closed"] = int(publishReport.SuppressedRows)
+				}
+			}
+			if sealReport.DuplicatePhysicalRows > 0 {
+				schemaSkipped["duplicate_source_id"] = int(sealReport.DuplicatePhysicalRows)
+			}
+			schemaCoverage.FieldSources["pairing_stage_backend"] = fmt.Sprintf("private SQLite; peak_temp_bytes=%d; poisoned_lanes=%d; poisoned_families=%d",
+				sealReport.PeakTempBytes, sealReport.PoisonedLanes, sealReport.PoisonedFamilies)
+		}
+	}
+	if globalStageBudget != "" && schemaCoverage.FieldSources["pairing_stage_backend"] == "" {
+		schemaCoverage.FieldSources["pairing_stage_backend"] = "private indexed SQLite stage; complete raw publication fail-closed before the first pass-2 row; reason=" + globalStageBudget
 	}
 	outCoverage[0] = schemaCoverage
 	for _, key := range sortedRawFtraceCoverageKeys(classCoverage) {
@@ -517,44 +651,47 @@ func traceDBRawRequiredArgs(name string, args map[string]traceDBValue, invalidKe
 		return require([]string{"name", "dev_name"}, []string{"tag"}, []string{"cmd_opcode", "opcode"},
 			[]string{"blocks"}, []string{"block_size"}, []string{"blk_addr", "lba"}) &&
 			traceDBRawWireTextAlias(args, invalidKeys, true, "name", "dev_name") &&
-			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "tag") &&
+			traceDBRawIntegerAlias(args, invalidKeys, true, math.MinInt64, math.MaxInt64, "tag") &&
 			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "cmd_opcode", "opcode") &&
 			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "blocks") &&
 			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "block_size") &&
 			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "blk_addr", "lba")
 	case "mmc_request_done":
 		return require([]string{"name", "dev_name"}, []string{"tag"}, []string{"cmd_opcode", "opcode"},
-			[]string{"bytes_xfered", "bytes", "len"}, []string{"ret", "cmd_err", "data_err"}) &&
+			[]string{"bytes_xfered", "bytes", "len"}) && requireAny("ret", "cmd_err", "data_err") &&
+			optional([]string{"ret"}, []string{"cmd_err"}, []string{"data_err"}) &&
 			traceDBRawWireTextAlias(args, invalidKeys, true, "name", "dev_name") &&
-			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "tag") &&
+			traceDBRawIntegerAlias(args, invalidKeys, true, math.MinInt64, math.MaxInt64, "tag") &&
 			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "cmd_opcode", "opcode") &&
 			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "bytes_xfered", "bytes", "len") &&
-			traceDBRawIntegerAlias(args, invalidKeys, true, math.MinInt64, math.MaxInt64, "ret", "cmd_err", "data_err")
+			traceDBRawIntegerAlias(args, invalidKeys, false, math.MinInt64, math.MaxInt64, "ret") &&
+			traceDBRawIntegerAlias(args, invalidKeys, false, math.MinInt64, math.MaxInt64, "cmd_err") &&
+			traceDBRawIntegerAlias(args, invalidKeys, false, math.MinInt64, math.MaxInt64, "data_err")
 	case "workqueue_execute_start":
 		return traceDBRawNonZeroPointer(args, invalidKeys, "work", "addr", "address") &&
-			traceDBRawNonZeroPointer(args, invalidKeys, "function", "func")
+			traceDBRawOptionalNonZeroPointer(args, invalidKeys, "function", "func")
 	case "workqueue_execute_end":
 		return traceDBRawNonZeroPointer(args, invalidKeys, "work", "addr", "address") &&
-			optional([]string{"function", "func"})
+			traceDBRawOptionalNonZeroPointer(args, invalidKeys, "function", "func")
 	}
 	switch {
 	case strings.HasPrefix(lower, "android_fs_dataread"), strings.HasPrefix(lower, "android_fs_datawrite"):
-		return require([]string{"dev", "s_dev", "dev_t"}, []string{"ino", "inode", "i_ino"}, []string{"bytes", "len", "length", "size"}) &&
+		return require([]string{"dev", "s_dev", "fs_dev", "dev_t"}, []string{"ino", "inode", "i_ino"}, []string{"bytes", "len", "length", "size"}) &&
 			optional([]string{"entry_name", "name", "file", "filename"}, []string{"offset", "ofs", "pos", "off"},
 				[]string{"rw", "rwbs", "op", "operation"}, []string{"ret", "res", "error", "err"},
 				[]string{"latency_us", "duration_us", "time_us", "usecs"}) &&
-			traceDBRawDeviceAlias(args, invalidKeys, "dev", "s_dev", "dev_t") &&
+			traceDBRawDeviceAlias(args, invalidKeys, "dev", "s_dev", "fs_dev", "dev_t") &&
 			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "ino", "inode", "i_ino") &&
 			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "bytes", "len", "length", "size") &&
 			traceDBRawIntegerAlias(args, invalidKeys, false, 0, math.MaxInt64, "offset", "ofs", "pos", "off") &&
 			traceDBRawIntegerAlias(args, invalidKeys, false, math.MinInt64, math.MaxInt64, "ret", "res", "error", "err") &&
 			traceDBRawIntegerAlias(args, invalidKeys, false, 0, math.MaxInt64, "latency_us", "duration_us", "time_us", "usecs")
 	case strings.HasPrefix(lower, "f2fs_direct_io"), strings.HasPrefix(lower, "f2fs_sync_file"):
-		return require([]string{"dev", "s_dev", "dev_t"}, []string{"ino", "inode", "i_ino"}) &&
+		return require([]string{"dev", "s_dev", "fs_dev", "dev_t"}, []string{"ino", "inode", "i_ino"}) &&
 			optional([]string{"entry_name", "name", "file", "filename"}, []string{"offset", "ofs", "pos", "off"},
 				[]string{"bytes", "len", "length", "size"}, []string{"rw", "rwbs", "op", "operation"},
 				[]string{"ret", "res", "error", "err"}, []string{"latency_us", "duration_us", "time_us", "usecs"}) &&
-			traceDBRawDeviceAlias(args, invalidKeys, "dev", "s_dev", "dev_t") &&
+			traceDBRawDeviceAlias(args, invalidKeys, "dev", "s_dev", "fs_dev", "dev_t") &&
 			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "ino", "inode", "i_ino") &&
 			traceDBRawIntegerAlias(args, invalidKeys, false, 0, math.MaxInt64, "offset", "ofs", "pos", "off") &&
 			traceDBRawIntegerAlias(args, invalidKeys, false, 0, math.MaxInt64, "bytes", "len", "length", "size") &&
@@ -564,7 +701,7 @@ func traceDBRawRequiredArgs(name string, args map[string]traceDBValue, invalidKe
 		return require([]string{"tag"}, []string{"dev", "sdev", "dev_t"}, []string{"lba", "sector"},
 			[]string{"len", "length", "bytes", "transfer_len"}) && requireAny("opcode", "op", "rw", "rwbs") &&
 			optional([]string{"ret", "res", "error", "err"}, []string{"latency_us", "duration_us", "time_us", "usecs"}) &&
-			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "tag") &&
+			traceDBRawIntegerAlias(args, invalidKeys, true, math.MinInt64, math.MaxInt64, "tag") &&
 			traceDBRawDeviceAlias(args, invalidKeys, "dev", "sdev", "dev_t") &&
 			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "lba", "sector") &&
 			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "len", "length", "bytes", "transfer_len") &&
@@ -594,8 +731,8 @@ func traceDBRawRequiredArgs(name string, args map[string]traceDBValue, invalidKe
 		return require([]string{"driver"}, []string{"timeline"}, []string{"context"}, []string{"seqno"}) &&
 			traceDBRawWireTextAlias(args, invalidKeys, true, "driver") &&
 			traceDBRawWireTextAlias(args, invalidKeys, true, "timeline") &&
-			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "context") &&
-			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "seqno")
+			traceDBRawUnsignedIntegerAlias(args, invalidKeys, true, "context") &&
+			traceDBRawUnsignedIntegerAlias(args, invalidKeys, true, "seqno")
 	}
 	return false
 }
@@ -642,6 +779,20 @@ func traceDBRawIntegerAlias(args map[string]traceDBValue, invalidKeys map[string
 	}
 	value, err := strconv.ParseInt(text, 10, 64)
 	return err == nil && value >= minValue && value <= maxValue
+}
+
+func traceDBRawUnsignedIntegerAlias(args map[string]traceDBValue, invalidKeys map[string]bool, required bool, names ...string) bool {
+	text, ok := traceDBRawValidatedAlias(args, invalidKeys, required, names...)
+	if !ok || text == "" {
+		return ok && !required
+	}
+	for _, name := range names {
+		if value, exists := args[strings.ToLower(strings.TrimSpace(name))]; exists && value.Datatype != 0 {
+			return false
+		}
+	}
+	_, err := strconv.ParseUint(text, 10, 64)
+	return err == nil
 }
 
 func traceDBRawWireTextAlias(args map[string]traceDBValue, invalidKeys map[string]bool, required bool, names ...string) bool {
@@ -732,6 +883,18 @@ func traceDBRawNonZeroPointer(args map[string]traceDBValue, invalidKeys map[stri
 	return err == nil && value > 0
 }
 
+func traceDBRawOptionalNonZeroPointer(args map[string]traceDBValue, invalidKeys map[string]bool, names ...string) bool {
+	if !traceDBRawAliasPresence(args, names...) {
+		for _, name := range names {
+			if invalidKeys[strings.ToLower(strings.TrimSpace(name))] {
+				return false
+			}
+		}
+		return true
+	}
+	return traceDBRawNonZeroPointer(args, invalidKeys, names...)
+}
+
 func traceDBRenderRawBinder(name string, args map[string]traceDBValue) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "binder_transaction":
@@ -777,7 +940,7 @@ func traceDBRenderRawBinder(name string, args map[string]traceDBValue) (string, 
 
 func traceDBRenderRawFileIO(name string, args map[string]traceDBValue, sizeKey string) string {
 	parts := []string{name + ":"}
-	parts = appendRawKV(parts, "dev", traceDBRawDevArg(args, ":", "dev", "s_dev", "dev_t"))
+	parts = appendRawKV(parts, "dev", traceDBRawDevArg(args, ":", "dev", "s_dev", "fs_dev", "dev_t"))
 	parts = appendRawKV(parts, "ino", traceDBRawArg(args, "", "ino", "inode", "i_ino"))
 	parts = appendRawKV(parts, "entry_name", traceDBRawArg(args, "", "entry_name", "name", "file", "filename"))
 	parts = appendRawKV(parts, "offset", traceDBRawArg(args, "", "offset", "ofs", "pos", "off"))
@@ -813,12 +976,14 @@ func traceDBRenderRawMMCRequestStart(args map[string]traceDBValue) string {
 
 func traceDBRenderRawMMCRequestDone(args map[string]traceDBValue) string {
 	name := traceDBRawArg(args, "mmc0", "name", "dev_name")
-	return fmt.Sprintf("mmc_request_done: %s tag=%s opcode=%s bytes_xfered=%s ret=%s",
-		name,
-		traceDBRawArg(args, "0", "tag"),
-		traceDBRawArg(args, "0", "cmd_opcode", "opcode"),
-		traceDBRawArg(args, "0", "bytes_xfered", "bytes", "len"),
-		traceDBRawArg(args, "0", "ret", "cmd_err", "data_err"))
+	parts := []string{fmt.Sprintf("mmc_request_done: %s", name),
+		"tag=" + traceDBRawArg(args, "0", "tag"),
+		"opcode=" + traceDBRawArg(args, "0", "cmd_opcode", "opcode"),
+		"bytes_xfered=" + traceDBRawArg(args, "0", "bytes_xfered", "bytes", "len")}
+	parts = appendRawKV(parts, "ret", traceDBRawArg(args, "", "ret"))
+	parts = appendRawKV(parts, "cmd_err", traceDBRawArg(args, "", "cmd_err"))
+	parts = appendRawKV(parts, "data_err", traceDBRawArg(args, "", "data_err"))
+	return strings.Join(parts, " ")
 }
 
 func traceDBRenderRawStorageKV(name string, args map[string]traceDBValue) string {

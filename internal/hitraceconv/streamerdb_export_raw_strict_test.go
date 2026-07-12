@@ -91,7 +91,7 @@ func TestExportTraceDBRawFtraceStrictScalarsCPU0ArgsetsAndTIDReuse(t *testing.T)
 			workqueue = item
 		}
 	}
-	if schema.RowsRead != 10 || schema.RowsEmitted != 5 {
+	if schema.RowsRead != 10 || schema.RowsEmitted != 0 {
 		t.Fatalf("raw schema coverage double-counted or mis-accounted: %+v", schema)
 	}
 	for _, want := range []string{"missing_argset=1", "missing_required_args=1", "invalid_cpu=1", "invalid_itid=1"} {
@@ -107,18 +107,8 @@ func TestExportTraceDBRawFtraceStrictScalarsCPU0ArgsetsAndTIDReuse(t *testing.T)
 		t.Fatal(err)
 	}
 	body := string(bodyBytes)
-	for _, want := range []string{
-		"old-renamed-42    (  100) [000]", // display-name drift does not split hard identity; CPU0 remains explicit
-		"old-renamed-42    (  100) [007]", // missing CPU uses exact running witness
-		"new-name-42    (  200) [008]",    // Exact PID narrows canonical candidates; hint/name do not select a generation.
-		"old-renamed-42    (  100) [008]", // A late timestamp cannot override the row's exact PID with a start_ts heuristic.
-	} {
-		if !strings.Contains(body, want) {
-			t.Fatalf("strict raw output missing %q:\n%s", want, body)
-		}
-	}
-	if strings.Contains(body, "[001]") || strings.Contains(body, "2700000") || strings.Contains(body, "2800000") {
-		t.Fatalf("malformed raw rows leaked into output:\n%s", body)
+	if strings.Contains(body, "workqueue_execute_") || !strings.Contains(schema.Skipped, "pairing_or_duplicate_rows_fail_closed") {
+		t.Fatalf("unknown-key/malformed WQ rows rescued neighboring endpoints:\ncoverage=%+v\n%s", schema, body)
 	}
 }
 
@@ -193,8 +183,8 @@ func TestExportTraceDBRawFtraceRunningTaintBlocksInferenceButNotExplicitCPU(t *t
 		t.Fatal(err)
 	}
 	body := string(bodyBytes)
-	if strings.Count(body, "workqueue_execute_start:") != 1 || !strings.Contains(body, "[000]") {
-		t.Fatalf("running taint must block inferred CPU but preserve explicit CPU0:\n%s", body)
+	if strings.Contains(body, "workqueue_execute_start:") {
+		t.Fatalf("tainted endpoint was deleted without quarantining its exact WQ lane:\n%s", body)
 	}
 	if strings.Contains(body, "tainted-callstack") {
 		t.Fatalf("callstack consumed a tainted Running CPU witness:\n%s", body)
@@ -290,20 +280,8 @@ func TestExportTraceDBRawFtracePerKeyPoisonAndWorkqueueEndShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(bodyBytes)
-	if strings.Count(body, "workqueue_execute_start:") != 1 ||
-		!strings.Contains(body, "workqueue_execute_start: work=0xabc function=0xdef") {
-		t.Fatalf("unrelated unsupported arg key poisoned a valid workqueue row:\n%s", body)
-	}
-	if strings.Count(body, "workqueue_execute_end:") != 1 {
-		t.Fatalf("work-only execute_end was not preserved:\n%s", body)
-	}
-	for _, line := range strings.Split(body, "\n") {
-		if strings.Contains(line, "workqueue_execute_end:") && strings.Contains(line, "function=") {
-			t.Fatalf("execute_end fabricated an absent function pointer: %s", line)
-		}
-	}
-	if strings.Contains(body, "workqueue_queue_work:") {
-		t.Fatalf("unproven workqueue prefix escaped the closed event set:\n%s", body)
+	if strings.Contains(body, "workqueue_execute_") || strings.Contains(body, "workqueue_queue_work:") {
+		t.Fatalf("unknown/ambiguous WQ hard keys failed to close the governed family:\n%s", body)
 	}
 	if !coverageHasSkipped(result.Coverage, "raw_ftrace", "workqueue", "missing_required_args=3") {
 		t.Fatalf("required-key poison/alias/pointer rejections not disclosed: %+v", result.Coverage)
@@ -328,12 +306,14 @@ func TestExportTraceDBRawFtraceStableIDOrderAndDuplicatePoison(t *testing.T) {
 		"INSERT INTO args VALUES (20, 2, 0, 512)",
 		"INSERT INTO args VALUES (30, 1, 0, 48)",
 		"INSERT INTO args VALUES (30, 2, 0, 768)",
+		"INSERT INTO args VALUES (40, 1, 0, 64)",
+		"INSERT INTO args VALUES (40, 2, 0, 1024)",
 		"CREATE TABLE raw (id, ts, name, cpu, tid, argsetid)",
 		"INSERT INTO raw VALUES (20, 1000, 'workqueue_execute_start', 1, 42, 20)",
 		"INSERT INTO raw VALUES (10, 1000, 'workqueue_execute_start', 1, 42, 10)",
 		"INSERT INTO raw VALUES (30, 1000, 'workqueue_execute_start', 1, 42, 30)",
 		"INSERT INTO raw VALUES (30, 1001, 'workqueue_execute_start', 1, 42, 30)",
-		"INSERT INTO raw VALUES (NULL, 1002, 'workqueue_execute_start', 1, 42, 10)",
+		"INSERT INTO raw VALUES (NULL, 1002, 'workqueue_execute_start', 1, 42, 40)",
 		"INSERT INTO raw VALUES (40, 1003, 'Workqueue_execute_start', 1, 42, 10)",
 	})
 	outPath := filepath.Join(t.TempDir(), "raw-stable-id.systrace")
@@ -403,8 +383,8 @@ func TestExportTraceDBRawFtraceRequiresCanonicalThreadIdentityAndSupportsWithout
 		t.Fatal(err)
 	}
 	body := string(bodyBytes)
-	if strings.Count(body, "workqueue_execute_start:") != 1 || !strings.Contains(body, "worker-42") {
-		t.Fatalf("canonical TID resolution or WITHOUT ROWID argsets failed:\n%s", body)
+	if strings.Contains(body, "workqueue_execute_start:") {
+		t.Fatalf("unknown header owner rescued a canonical sibling in the same WQ family:\n%s", body)
 	}
 	for _, want := range []string{"missing_thread_identity=2", "invalid_tid=1", "invalid_pid=1"} {
 		if !coverageHasSkipped(result.Coverage, "raw_ftrace", "workqueue", want) {
@@ -492,7 +472,7 @@ func TestExportTraceDBRawBlockOptionalGrammarFailureIsDisclosed(t *testing.T) {
 		"INSERT INTO args VALUES (1, 5, 1, 11)",
 		"INSERT INTO args VALUES (1, 6, 1, 12)",
 		"INSERT INTO args VALUES (2, 1, 1, 10)",
-		"INSERT INTO args VALUES (2, 2, 0, 128)",
+		"INSERT INTO args VALUES (2, 2, 0, 129)",
 		"INSERT INTO args VALUES (2, 3, 0, 8)",
 		"INSERT INTO args VALUES (2, 4, 0, 4096)",
 		"INSERT INTO args VALUES (2, 5, 1, 11)",

@@ -118,7 +118,8 @@ func exportTraceDBRawB3BFixture(t *testing.T, statements []string, authority tra
 		t.Fatal(err)
 	}
 	defer sink.cleanup()
-	coverage, err := exportTraceDBRawFtraceFamilies(context.Background(), tdb, sink, authority, running)
+	coverage, err := exportTraceDBRawFtraceFamilies(context.Background(), tdb, sink, authority, running,
+		filepath.Join(t.TempDir(), "raw-b3b.ftrace"))
 	if err != nil {
 		t.Fatalf("export raw B3-b fixture: %v", err)
 	}
@@ -154,14 +155,18 @@ func TestTraceDBRawB3BTypedRunningStatusesAndExplicitCPU0(t *testing.T) {
 		"INSERT INTO data_dict VALUES (2, 'function')",
 		"CREATE TABLE args (argset, key, datatype, value)",
 		"INSERT INTO args VALUES (1, 1, 0, 1)",
-		"INSERT INTO args VALUES (1, 2, 0, 2)",
+		"INSERT INTO args VALUES (2, 1, 0, 2)",
+		"INSERT INTO args VALUES (3, 1, 0, 3)",
+		"INSERT INTO args VALUES (4, 1, 0, 4)",
+		"INSERT INTO args VALUES (5, 1, 0, 5)",
+		"INSERT INTO args VALUES (6, 1, 0, 6)",
 		"CREATE TABLE raw (id, ts, name, cpu, itid, argsetid)",
 		"INSERT INTO raw VALUES (1, 1000, 'workqueue_execute_start', 0, 2, 1)",
-		"INSERT INTO raw VALUES (2, 1001, 'workqueue_execute_start', NULL, 1, 1)",
-		"INSERT INTO raw VALUES (3, 1002, 'workqueue_execute_start', NULL, 2, 1)",
-		"INSERT INTO raw VALUES (4, 1003, 'workqueue_execute_start', NULL, 3, 1)",
-		"INSERT INTO raw VALUES (5, 1004, 'workqueue_execute_start', NULL, 4, 1)",
-		"INSERT INTO raw VALUES (6, 1005, 'workqueue_execute_start', 4096, 1, 1)",
+		"INSERT INTO raw VALUES (2, 1001, 'workqueue_execute_start', NULL, 1, 2)",
+		"INSERT INTO raw VALUES (3, 1002, 'workqueue_execute_start', NULL, 2, 3)",
+		"INSERT INTO raw VALUES (4, 1003, 'workqueue_execute_start', NULL, 3, 4)",
+		"INSERT INTO raw VALUES (5, 1004, 'workqueue_execute_start', NULL, 4, 5)",
+		"INSERT INTO raw VALUES (6, 1005, 'workqueue_execute_start', 4096, 1, 6)",
 	}, authority, running)
 	if strings.Count(body, "workqueue_execute_start:") != 2 || !strings.Contains(body, "[000]") || !strings.Contains(body, "[007]") {
 		t.Fatalf("explicit CPU0 or typed Running known row lost:\n%s", body)
@@ -253,6 +258,14 @@ func TestTraceDBRawB3BSharedAuthoritiesAreStructurallyPinned(t *testing.T) {
 		identifier, ok := expression.(*ast.Ident)
 		return ok && identifier.Name == name
 	}
+	isSelector := func(expression ast.Expr, receiver, name string) bool {
+		selector, ok := expression.(*ast.SelectorExpr)
+		if !ok || selector.Sel.Name != name {
+			return false
+		}
+		identifier, ok := selector.X.(*ast.Ident)
+		return ok && identifier.Name == receiver
+	}
 	_, current, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("resolve test source")
@@ -267,6 +280,7 @@ func TestTraceDBRawB3BSharedAuthoritiesAreStructurallyPinned(t *testing.T) {
 	}
 	calls := map[string][]callSite{}
 	functions := map[string]int{}
+	rawSourceQueries, rawSourceQueryOrders := 0, 0
 	for _, path := range paths {
 		if strings.HasSuffix(path, "_test.go") {
 			continue
@@ -282,6 +296,15 @@ func TestTraceDBRawB3BSharedAuthoritiesAreStructurallyPinned(t *testing.T) {
 			}
 			functions[function.Name.Name]++
 			ast.Inspect(function.Body, func(node ast.Node) bool {
+				if literal, ok := node.(*ast.BasicLit); ok && function.Name.Name == "exportTraceDBRawFtraceFamilies" {
+					upper := strings.ToUpper(literal.Value)
+					if strings.Contains(upper, "SELECT") && strings.Contains(upper, "FROM RAW") {
+						rawSourceQueries++
+						if strings.Contains(upper, "ORDER BY") {
+							rawSourceQueryOrders++
+						}
+					}
+				}
 				call, ok := node.(*ast.CallExpr)
 				if !ok {
 					return true
@@ -300,14 +323,18 @@ func TestTraceDBRawB3BSharedAuthoritiesAreStructurallyPinned(t *testing.T) {
 			})
 		}
 	}
+	if rawSourceQueries != 1 || rawSourceQueryOrders != 0 {
+		t.Fatalf("raw pass-1 source query count=%d ORDER BY count=%d; ordering must remain in the bounded indexed private stage", rawSourceQueries, rawSourceQueryOrders)
+	}
 
 	rawDispatches := calls["exportTraceDBRawFtraceFamilies"]
 	if len(rawDispatches) != 1 || rawDispatches[0].function != "exportTraceDBExtendedFamilies" {
 		t.Fatalf("raw production dispatches=%+v", rawDispatches)
 	}
 	dispatch := rawDispatches[0].call
-	if len(dispatch.Args) != 5 || !isIdentifier(dispatch.Args[0], "ctx") || !isIdentifier(dispatch.Args[1], "tdb") ||
-		!isIdentifier(dispatch.Args[2], "sink") || !isIdentifier(dispatch.Args[3], "authority") || !isIdentifier(dispatch.Args[4], "lifecycleRunning") {
+	if len(dispatch.Args) != 6 || !isIdentifier(dispatch.Args[0], "ctx") || !isIdentifier(dispatch.Args[1], "tdb") ||
+		!isIdentifier(dispatch.Args[2], "sink") || !isIdentifier(dispatch.Args[3], "authority") || !isIdentifier(dispatch.Args[4], "lifecycleRunning") ||
+		!isSelector(dispatch.Args[5], "syncSpans", "artifactSource") {
 		t.Fatal("raw dispatch does not consume the shared scheduler authority and typed Running value")
 	}
 	if functions["traceDBExtendedRunningCPUAt"] != 0 || len(calls["traceDBExtendedRunningCPUAt"]) != 0 {
@@ -321,29 +348,54 @@ func TestTraceDBRawB3BSharedAuthoritiesAreStructurallyPinned(t *testing.T) {
 			}
 		}
 	}
-	if len(calls["traceDBResolveRawSubject"]) != 1 || calls["traceDBResolveRawSubject"][0].function != "exportTraceDBRawFtraceFamilies" ||
-		len(calls["addTraceDBInstantRow"]) == 0 {
-		t.Fatalf("raw point-admission/publication closure resolve=%+v publish=%+v",
-			calls["traceDBResolveRawSubject"], calls["addTraceDBInstantRow"])
+	if len(calls["traceDBResolveRawSubject"]) != 1 || calls["traceDBResolveRawSubject"][0].function != "exportTraceDBRawFtraceFamilies" {
+		t.Fatalf("raw point-admission closure resolve=%+v", calls["traceDBResolveRawSubject"])
 	}
 	resolvePos := calls["traceDBResolveRawSubject"][0].call.Pos()
 	lookupPos := token.NoPos
+	addPos := token.NoPos
+	sealPos := token.NoPos
 	publishPos := token.NoPos
 	for _, site := range calls["lookupCPUAt"] {
 		if site.function == "exportTraceDBRawFtraceFamilies" {
 			lookupPos = site.call.Pos()
 		}
 	}
-	for _, site := range calls["addTraceDBInstantRow"] {
+	for _, site := range calls["add"] {
 		if site.function == "exportTraceDBRawFtraceFamilies" {
-			if publishPos != token.NoPos {
-				t.Fatal("raw exporter regained a second endpoint publisher")
+			if addPos != token.NoPos {
+				t.Fatal("raw exporter regained a second typed-stage submitter")
 			}
+			addPos = site.call.Pos()
+		}
+	}
+	for _, site := range calls["seal"] {
+		if site.function == "exportTraceDBRawFtraceFamilies" {
+			sealPos = site.call.Pos()
+		}
+	}
+	for _, site := range calls["publish"] {
+		if site.function == "exportTraceDBRawFtraceFamilies" {
 			publishPos = site.call.Pos()
 		}
 	}
-	if resolvePos == token.NoPos || lookupPos == token.NoPos || publishPos == token.NoPos || !(resolvePos < lookupPos && lookupPos < publishPos) {
-		t.Fatalf("raw lifecycle/CPU/publication order resolve=%d lookup=%d publish=%d", resolvePos, lookupPos, publishPos)
+	if resolvePos == token.NoPos || lookupPos == token.NoPos || addPos == token.NoPos || sealPos == token.NoPos || publishPos == token.NoPos ||
+		!(resolvePos < lookupPos && lookupPos < addPos && addPos < sealPos && sealPos < publishPos) {
+		t.Fatalf("raw lifecycle/CPU/freeze order resolve=%d lookup=%d add=%d seal=%d publish=%d", resolvePos, lookupPos, addPos, sealPos, publishPos)
+	}
+	for _, site := range calls["addTraceDBInstantRow"] {
+		if site.function == "exportTraceDBRawFtraceFamilies" {
+			t.Fatal("raw pass 1 regained a direct sink publisher")
+		}
+	}
+	if sites := calls["traceDBPublishFrozenRawRecord"]; len(sites) != 1 || sites[0].function != "publish" {
+		t.Fatalf("frozen raw publisher closure=%+v", sites)
+	}
+	if sites := calls["FingerprintPairingEndpoint"]; len(sites) != 1 || sites[0].function != "traceDBRawPairingVerdict" {
+		t.Fatalf("SQL raw regained a second endpoint fingerprint authority: %+v", sites)
+	}
+	if sites := calls["LaneKey"]; len(sites) != 1 || sites[0].function != "exportTraceDBRawFtraceFamilies" {
+		t.Fatalf("SQL raw lane namespace closure=%+v", sites)
 	}
 	pointCalls := 0
 	for _, site := range calls["threadPointAllows"] {
