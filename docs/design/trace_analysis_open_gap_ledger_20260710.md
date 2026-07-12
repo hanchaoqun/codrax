@@ -472,6 +472,16 @@ P1-a1结案后从干净且已与`origin/main`对齐的`3474a2fbb`重新测绘。
 - **P1-a2.1验收矩阵**：纯zero及`valid→many zero→valid`保持合法sibling与排序；zero后truncated/oversized frame维持各自既有分类和stop/fail-close语义；resource fail-close继续归零聚合coverage的`RowsEmitted`且不影响独立sidecar。Runtime pin比较1与1M zero frame时retained diagnostics条目恒定，allocation不得随frame数线性增长；AST固定zero分支不直接append Caveat/Coverage、聚合只在完整extraction首发前发生。Focused/shuffle/race、目标包、全仓test/vet、Donghu零回归与双路独立复审RELEASE后才可提交代码。
 - **明确留后**：P1-a2.1不关闭非zero accepted/rejected frame、动态plugin/coverage/publisher、repeated protobuf、Session空record work、strict-text staging或tracebundle整份JSON峰值。`ROW-SORT-BND`单独治理约64 MiB量级的buffered-line byte门、fixed fan-in leveled merge、temp quota和chunk manifest；在它完成前不得把row sink写成全链资源安全。P1-b、source identity/TOCTOU、standalone cardinality及其它parser资源口均未改变。
 
+## 2026-07-12 HCONV-PROFILER-CONTAINER-INTEGRITY P1-a2.1 交付结案
+
+本节是P1-a2.1终态权威，代码提交`b88cf7958`已独立推送到`main`。只关闭zero-length ProfilerPluginData frame的逐条诊断驻留放大；非zero frame及P1-a2.2至P1-a2.4继续开放。
+
+- **常量驻留census已闭合**：zero分支不再逐frame追加含唯一offset的Caveat/Coverage，只维护checked `uint64 count + int64 firstOffset + int64 lastOffset`三个scalar；frame length buffer移到循环外复用，1、4K、1M zero frame的allocation count与TotalAlloc bytes保持平台容差内常量。extraction收尾只生成一条聚合caveat与一条`plugin:__rejected__` coverage，`Messages/RejectedMessages/RowsRead`精确等于物理zero frame数，`observed_total/first_offset/last_offset/aggregation_policy`完整披露。
+- **边界与失败语义已固定**：每个zero只消费已完整读取的4字节little-endian length prefix并前进到下一frame boundary，不借payload或header.segments恢复。固定`limit`内length-prefix `ReadAt`出现普通error、EOF或UnexpectedEOF都返回失败；取消同样丢弃未发布prefix，禁止包装成功。全frame `Messages`和逐frame `RejectedMessages`在任何增量前受MaxInt门，census `uint64→int`显式检查；不可表示时按`container_counter_overflow`整条Profiler trace-body首发fail-close。
+- **语义parity与anti-rescue**：同一zero body在canonical `segments=2N`、`N`、0与MaxUint32下，rows/census/classification/source-fail state完全一致；header caveat仍可诚实透传不同的未认证原值。`valid→4096 zero→valid`保留两条合法row并按1s/2s排序；zero后truncated维持local typed stop，zero后oversized维持P1-a1整源关闭。`valid prefix→4096 zero→oversized→伪suffix`最终0输出、prefix spill/coverage归零，独立sidecar语义未改变。
+- **机械证据与发布门禁**：AST固定zero branch唯一、无`append`、唯一scalar `observe`，固定census仅含三个scalar字段且只在完整extraction首发前聚合一次；P1-a1的64 MiB gate支配唯一payload allocation/body-read结构pin保持绿色。Focused shuffle`×20`、focused race、`go test ./internal/hitraceconv -count=1`、`go test ./... -count=1`、`go vet ./...`及`git diff --check`全部通过；代码、测试、scope三路独立终审均为**RELEASE**。
+- **标准trace零回归与诚实剩余**：标准Donghu SHA-256=`e15d3dfc7963739c648a3f4f40095cabff19716575949bf38ea02ef732672b25`仍为27,843/27,843 recognized、14 event names、0 unknown/unparsed/panic/clock regression；报告`/tmp/codrax-p1a21-donghu-census-final-20260712.txt`的SHA-256=`3463bdd43ccee1be6568237dde2e1a0ec9691fb46d4d52cb766e24ef00087a40`，仅作本机零回归证据。P1-a2.2的accepted/rejected诊断固定桶、P1-a2.3 repeated protobuf流式化、P1-a2.4 row provenance，以及`ROW-SORT-BND`、P1-b、TOCTOU和其它parser资源口均未销项；不得据此宣称Profiler全链有界。
+
 ## 统一采集与回访命令
 
 ```bash
