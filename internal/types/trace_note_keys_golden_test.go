@@ -37,7 +37,9 @@ var traceNoteKeyGoldenRows = []string{
 	// compile now parses the thread-total caliber into node.ActualTotalMS.
 	"actual_total|impact|hard_consumer",
 	"actual_total_ms|impact|hard_consumer",
-	"actual_window|anchor_window|soft_consumer",
+	// EVOLUTION RECORD (CR-2 P7 + R-P2-2, 2026-07-12): soft→hard — compile
+	// parses the interval into ActualWindowStartTs/EndTs (⚠ containment).
+	"actual_window|anchor_window|hard_consumer",
 	"adds|io|display_only",
 	"advisory_pretriage|ledger_marker|soft_consumer",
 	"allowed_core_classes|cpu_load|display_only",
@@ -45,7 +47,9 @@ var traceNoteKeyGoldenRows = []string{
 	"also_starved|occupancy|display_only",
 	"ambiguous_cohorts|io|display_only",
 	"avg_latency|io|display_only",
-	"background_rank|causal_rank|soft_consumer",
+	// EVOLUTION RECORD (R-P2-2 反向臂首跑, 2026-07-12): soft→hard (compile
+	// parses node.BackgroundRank since DCS §23.1 — column under-reported).
+	"background_rank|causal_rank|hard_consumer",
 	"block_dev|io|display_only",
 	"block_max|io|display_only",
 	// DSTATE-REFINE arm a (CAL-1 件③, 2026-07-12): unanimous caller disclosure.
@@ -356,7 +360,9 @@ var traceNoteKeyGoldenRows = []string{
 	"top_thread|cpu_load|display_only",
 	"top_thread_ms|cpu_load|display_only",
 	"top_threads|io|display_only",
-	"total|impact|soft_consumer",
+	// EVOLUTION RECORD (R-P2-2 反向臂首跑, 2026-07-12): soft→hard (compile
+	// parses node.TotalMS — column under-reported).
+	"total|impact|hard_consumer",
 	"total_latency|io|display_only",
 	// G2 判据 typed 化 (§27.2/§28.1, 2026-07-09): the trace_gap blind-spot
 	// criterion enum (no_sched_data / no_eligible_wait). EVOLUTION RECORD

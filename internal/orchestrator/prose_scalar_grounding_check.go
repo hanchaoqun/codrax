@@ -220,7 +220,7 @@ func proseScalarResidualAppendixInputs(doc *types.AnswerDocumentV2, bus *types.B
 		return nil, nil
 	}
 	evidence := buildProseScalarEvidenceSet(doc, mut, ledger)
-	unmatched, misbound, fabricated := scanProseScalarFindings(doc, evidence)
+	unmatched, misbound, fabricated, advisory := scanProseScalarFindings(doc, evidence)
 	seen := map[string]bool{}
 	var tokens []string
 	add := func(label string) {
@@ -237,7 +237,10 @@ func proseScalarResidualAppendixInputs(doc *types.AnswerDocumentV2, bus *types.B
 	for _, f := range fabricated {
 		add(f.label())
 	}
-	return tokens, misbound
+	// CR-2 组④ F-2③/④ + 修复轮 R-P2-1: the advisory findings (self-sum
+	// disclosures + confidence bindings) ride the appendix face ONLY —
+	// information, never a hint, never a rewrite round (§29.47.1).
+	return tokens, append(misbound, advisory...)
 }
 
 // proseScalarWindowRef is one window identity parsed from a text surface:
@@ -273,6 +276,17 @@ type proseScalarEvidenceRow struct {
 	values  []float64
 	windows []proseScalarWindowRef
 	threads []proseScalarThreadRef
+	// confidences carries the row's published confidence values (CR-2 组④
+	// F-2③, 2026-07-12): the (subject, confidence) binding arm reads them —
+	// the 133933 witness transplanted a rank row's confidence=0.91 onto two
+	// subjects whose own rows published 0.78.
+	confidences []float64
+	// pacing marks a row sourced from a cadence-idle publication (typed
+	// pacing_idle token on the record identity fields) — 修复轮 C-1④
+	// (2026-07-12): a self-sum whose verified component is a pacing segment
+	// discloses 「成分含帧间空闲」 (the pacing carve-out rulings exclude that
+	// time from 阻塞 accounting; a sum silently re-admitting it misleads).
+	pacing bool
 }
 
 // proseScalarEvidenceSet is the numeric membership pool plus the
@@ -345,7 +359,7 @@ func runProseScalarGroundingCheck(doc *types.AnswerDocumentV2, bus *types.BusCon
 		return nil
 	}
 	evidence := buildProseScalarEvidenceSet(doc, mut, ledger)
-	unmatched, misbound, fabricated := scanProseScalarFindings(doc, evidence)
+	unmatched, misbound, fabricated, _ := scanProseScalarFindings(doc, evidence)
 	if len(unmatched) == 0 && len(misbound) == 0 && len(fabricated) == 0 {
 		return nil
 	}
@@ -420,7 +434,7 @@ func proseScalarResidualFindingLabels(doc *types.AnswerDocumentV2, bus *types.Bu
 		return nil
 	}
 	evidence := buildProseScalarEvidenceSet(doc, mut, ledger)
-	unmatched, misbound, fabricated := scanProseScalarFindings(doc, evidence)
+	unmatched, misbound, fabricated, _ := scanProseScalarFindings(doc, evidence)
 	seen := map[string]bool{}
 	var out []string
 	add := func(label string) {
@@ -650,6 +664,11 @@ func buildProseScalarEvidenceSet(doc *types.AnswerDocumentV2, mut *types.Mutable
 			}
 			row.windows = append(row.windows, extractProseScalarWindowRefs(text)...)
 			row.threads = append(row.threads, extractProseScalarThreadRefs(text)...)
+			for _, cref := range extractProseScalarConfidenceRefs(text) {
+				if len(row.confidences) < proseScalarRowValueCap {
+					row.confidences = append(row.confidences, cref.Value)
+				}
+			}
 		}
 		// PSG-2H thread-entity face: every extracted spelling and tid
 		// joins the run-level sets BEFORE the per-row cap truncation, so
@@ -731,7 +750,21 @@ func buildProseScalarEvidenceSet(doc *types.AnswerDocumentV2, mut *types.Mutable
 		texts := []string{record.Value, record.Subject, record.Object, record.Summary, record.RawExcerpt}
 		texts = append(texts, record.RichNotes...)
 		texts = append(texts, record.SurfaceTerms...)
+		// CR-2 组④ F-2③: the record's own typed confidence joins its row
+		// (formatted through the same text extractor — one parse path).
+		if record.Confidence > 0 {
+			texts = append(texts, fmt.Sprintf("confidence=%.2f", record.Confidence))
+		}
+		// 修复轮 C-1④ (2026-07-12): the pacing lane marker — typed identity
+		// tokens on the record only, never a wording heuristic.
+		pacingRow := strings.Contains(record.ClaimKey, "pacing_idle") ||
+			strings.TrimSpace(record.Object) == "pacing_idle" ||
+			strings.TrimSpace(record.Predicate) == "pacing_idle"
+		before := len(set.rows)
 		addRow(texts...)
+		if pacingRow && len(set.rows) > before {
+			set.rows[len(set.rows)-1].pacing = true
+		}
 	}
 	if doc != nil {
 		for _, blk := range doc.Blocks {
@@ -786,10 +819,13 @@ func buildProseScalarEvidenceSet(doc *types.AnswerDocumentV2, mut *types.Mutable
 // spelling and no evidence-face tid (PSG-2H entity arm, §29.10-2 — the
 // dh-irq-bind-4-93 fabrication shape, one character away from the real
 // dh-irq-bind-0-89).
-func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEvidenceSet) (unmatched []proseScalarToken, misbound []proseScalarBindingFinding, fabricated []proseScalarThreadFinding) {
+func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEvidenceSet) (unmatched []proseScalarToken, misbound []proseScalarBindingFinding, fabricated []proseScalarThreadFinding, advisory []proseScalarBindingFinding) {
 	scanned := 0
 	threadScanned := 0
+	confidenceScanned := 0
 	seenFabricated := map[string]bool{}
+	seenConfidence := map[string]bool{}
+	seenSelfSummed := map[string]bool{}
 	scan := func(blockID, text string) {
 		if text == "" {
 			return
@@ -842,6 +878,32 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 				unmatched = append(unmatched, tok)
 				continue
 			}
+			// CR-2 组④ F-2④ + 修复轮 C-1 (2026-07-12): the self-sum
+			// disclosure obligation fires INDEPENDENTLY of the sentence
+			// naming a thread/window (冷读 B3 witness: 「~42.5ms 间接唤醒链
+			// 总阻塞」 names no thread) — a value grounded ONLY as a sum of
+			// published values is disclosed on the appendix face, with its
+			// decomposition row-verified (proseScalarSelfSumDisclosure).
+			// The sum-thread MISMATCH arm below still needs sentence threads
+			// and, when it fires, owns the token's one appendix line.
+			sumMismatch := false
+			if tok.Value != 0 && !tok.percent() && verdict.sumOnly && len(sentThreads) > 0 {
+				if published, bad := proseScalarSumThreadMismatch(evidence.rows, verdict.sumPairs, sentThreads, proseScalarTokenTol(tok)); bad {
+					sumMismatch = true
+					misbound = append(misbound, proseScalarBindingFinding{entry: fmt.Sprintf(
+						"%s (block %q) is a sum of values published for thread(s) %s but the prose states it for thread %s",
+						tok.label(), tok.BlockID, published,
+						proseScalarNearestThreadLabel(sentThreads, tok)),
+						entryZH: fmt.Sprintf("正文中 %s（块 %s）为线程 %s 数值之和，但正文将其表述为线程 %s 的数值",
+							tok.label(), tok.BlockID, published,
+							proseScalarNearestThreadLabel(sentThreads, tok))})
+				}
+			}
+			if tok.Value != 0 && !tok.percent() && verdict.sumOnly && !sumMismatch && len(verdict.sumPairs) > 0 &&
+				len(advisory) < proseScalarDetailListCap && !seenSelfSummed[tok.label()] {
+				seenSelfSummed[tok.label()] = true
+				advisory = append(advisory, proseScalarSelfSumDisclosure(tok, evidence, verdict))
+			}
 			// PSG-2 binding arm: only audited when the unit positively
 			// names a window or a thread (句内无窗/主体 token 时不核 —
 			// membership stays sufficient for unbound sentences).
@@ -864,7 +926,14 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 								proseScalarNearestWindowLabel(sentWindows, tok))})
 					}
 				}
-				if len(sentThreads) > 0 {
+				// 修复轮 C-1② (冷读 C1 witness, 2026-07-12): PERCENT tokens
+				// never enter the thread-binding arm — the carrier match is
+				// unit-blind, so a prose 18.2% matched an 18.283ms running
+				// row and the finding declared the % "published for thread
+				// OS_FFRT_2_0-19627" (a real engine identity quoted onto a
+				// nonsense claim). A ratio has no thread publication of its
+				// own; the % recompute arm below keeps its window audit.
+				if len(sentThreads) > 0 && !tok.percent() {
 					if published, bad := proseScalarThreadBindingMismatch(carriers, sentThreads); bad {
 						misbound = append(misbound, proseScalarBindingFinding{entry: fmt.Sprintf(
 							"%s (block %q) is published for thread %s but the prose binds it to thread %s",
@@ -881,7 +950,7 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 			// percentage in a window-naming sentence must recompute against
 			// a window the sentence names (or against a non-window pair).
 			if tok.percent() && verdict.recomputeOnly && len(sentWindows) > 0 {
-				if published, bad := proseScalarRecomputeWindowMismatch(verdict.denominatorsMS, evidence.windowLengths, sentWindows); bad {
+				if published, bad := proseScalarRecomputeWindowMismatch(verdict.denominatorsMS, evidence.windowLengths, sentWindows, evidence.values, tok.Value, proseScalarTokenTol(tok)); bad {
 					misbound = append(misbound, proseScalarBindingFinding{entry: fmt.Sprintf(
 						"%s (block %q) recomputes only against window %s but the prose states it for window %s",
 						tok.label(), tok.BlockID, published,
@@ -891,22 +960,79 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 							proseScalarNearestWindowLabel(sentWindows, tok))})
 				}
 			}
-			// PSG-2H sum extension (§29.8 witness: a 139.615-class
-			// cross-thread SUM stated for one named thread). A token
-			// grounded ONLY by the pairwise-sum arm, in a thread-naming
-			// sentence, is misbound when EVERY reproducing pair is
-			// positively published for other threads.
-			if !tok.percent() && verdict.sumOnly && len(sentThreads) > 0 {
-				if published, bad := proseScalarSumThreadMismatch(evidence.rows, verdict.sumPairs, sentThreads, proseScalarTokenTol(tok)); bad {
-					misbound = append(misbound, proseScalarBindingFinding{entry: fmt.Sprintf(
-						"%s (block %q) is a sum of values published for thread(s) %s but the prose states it for thread %s",
-						tok.label(), tok.BlockID, published,
-						proseScalarNearestThreadLabel(sentThreads, tok)),
-						entryZH: fmt.Sprintf("正文中 %s（块 %s）为线程 %s 数值之和，但正文将其表述为线程 %s 的数值",
-							tok.label(), tok.BlockID, published,
-							proseScalarNearestThreadLabel(sentThreads, tok))})
+			// PSG-2H sum extension (§29.8) + F-2④ disclosure: both arms
+			// moved ABOVE the sentence-binding guard (修复轮 C-1 — the
+			// disclosure obligation is sentence-shape independent).
+		}
+		// CR-2 组④ F-2③ (2026-07-12) + 修复轮 R-P2-1 (复核 2026-07-12): the
+		// (subject, confidence) binding arm — a prose confidence bound to a
+		// subject none of whose rows publish it, while OTHER rows do (the
+		// 0.91 转贴 form). Precision discipline mirrors the sum arm: every
+		// carrier row must name threads, any tid agreement stays silent,
+		// thread-silent carriers stay silent (宁松勿严). R-P2-1: the finding
+		// is INFORMATION ONLY — it rides the advisory (appendix) slice like
+		// the self-sum arm, never the misbound slice (misbound feeds the
+		// ViolProseScalarUngrounded soft hint, i.e. a rewrite round —
+		// §29.47.1 soft-only zero-rewrite forbids that for this lane).
+		for _, cref := range extractProseScalarConfidenceRefs(text) {
+			if confidenceScanned >= proseScalarConfidenceScanCap || len(sentThreads) == 0 {
+				break
+			}
+			confidenceScanned++
+			nearest := sentThreads[0]
+			for _, tref := range sentThreads[1:] {
+				if proseScalarPosDistance(tref.Pos, cref.Pos) < proseScalarPosDistance(nearest.Pos, cref.Pos) {
+					nearest = tref
 				}
 			}
+			if nearest.TID == "" {
+				continue
+			}
+			dedup := fmt.Sprintf("%.2f@%s", cref.Value, nearest.TID)
+			if seenConfidence[dedup] {
+				continue
+			}
+			var publishing []proseScalarThreadRef
+			agree, silent := false, false
+			carriers := 0
+			for _, row := range evidence.rows {
+				match := false
+				for _, c := range row.confidences {
+					if math.Abs(c-cref.Value) <= 0.005 {
+						match = true
+						break
+					}
+				}
+				if !match {
+					continue
+				}
+				carriers++
+				if len(row.threads) == 0 {
+					silent = true
+					break
+				}
+				for _, tr := range row.threads {
+					if tr.TID == nearest.TID {
+						agree = true
+					}
+				}
+				if len(publishing) < 3 {
+					publishing = append(publishing, row.threads[0])
+				}
+			}
+			if carriers == 0 || silent || agree || len(publishing) == 0 {
+				continue
+			}
+			seenConfidence[dedup] = true
+			names := make([]string, 0, len(publishing))
+			for _, p := range publishing {
+				names = append(names, p.Raw)
+			}
+			advisory = append(advisory, proseScalarBindingFinding{entry: fmt.Sprintf(
+				"confidence %.2f (block %q) is published for thread(s) %s but the prose attaches it to thread %s",
+				cref.Value, blockID, strings.Join(names, " / "), nearest.Raw),
+				entryZH: fmt.Sprintf("正文中 confidence %.2f（块 %s）在证据面发布于线程 %s，但正文将其表述为线程 %s 的置信度",
+					cref.Value, blockID, strings.Join(names, " / "), nearest.Raw)})
 		}
 	}
 	for _, blk := range doc.Blocks {
@@ -928,7 +1054,148 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 			}
 		}
 	}
-	return unmatched, misbound, fabricated
+	return unmatched, misbound, fabricated, advisory
+}
+
+// proseScalarSelfSumDisclosure renders the F-2④ self-sum appendix line with
+// its decomposition PROVEN — 修复轮 C-1 (冷读 C2 witness, 2026-07-12): the
+// former sumPairs[0] rendering printed a coincidental pool pair as the
+// formula (18.259 注为 (0.260+17.999);2.701 的构成真值 1.354+1.347 被
+// (0.122+2.579) 顶替) — a fabricated decomposition on the system's own audit
+// surface. Rules (工单原文):
+//
+//	① a formula renders ONLY from a pair whose BOTH sides carry evidence
+//	  rows, rendered with the exact row-published values (禁近似对);
+//	③ no row-verifiable pair → the line degrades to 「该值未能在证据面复算」
+//	  with NO formula;
+//	④ verified components sourced from a pacing-idle publication, or whose
+//	  carrier subjects are provably disjoint, disclose
+//	  「(成分含帧间空闲/跨主体)」.
+func proseScalarSelfSumDisclosure(tok proseScalarToken, evidence proseScalarEvidenceSet, verdict proseScalarGroundingVerdict) proseScalarBindingFinding {
+	tol := proseScalarTokenTol(tok)
+	for _, pair := range verdict.sumPairs {
+		aRows := proseScalarCarrierRowsForValue(evidence.rows, pair[0], tol)
+		bRows := proseScalarCarrierRowsForValue(evidence.rows, pair[1], tol)
+		if len(aRows) == 0 || len(bRows) == 0 {
+			continue // pool-only side (derived value / capped row): not provable
+		}
+		aVal := proseScalarExactCarrierValue(aRows, pair[0], tol)
+		bVal := proseScalarExactCarrierValue(bRows, pair[1], tol)
+		var qualsEN, qualsZH []string
+		if proseScalarAnyPacingRow(aRows) || proseScalarAnyPacingRow(bRows) {
+			qualsEN = append(qualsEN, "components include frame-pacing idle")
+			qualsZH = append(qualsZH, "成分含帧间空闲")
+		}
+		if proseScalarCarrierSubjectsDisjoint(aRows, bRows) {
+			qualsEN = append(qualsEN, "components span different subjects")
+			qualsZH = append(qualsZH, "跨主体")
+		}
+		suffixEN, suffixZH := "", ""
+		if len(qualsEN) > 0 {
+			suffixEN = " (" + strings.Join(qualsEN, " / ") + ")"
+			suffixZH = "（" + strings.Join(qualsZH, "/") + "）"
+		}
+		return proseScalarBindingFinding{entry: fmt.Sprintf(
+			"%s (block %q) is the sum of published values %.3f + %.3f, not itself an engine-published value%s",
+			tok.label(), tok.BlockID, aVal, bVal, suffixEN),
+			entryZH: fmt.Sprintf("正文中 %s（块 %s）为文中自行加和（%.3f + %.3f），非引擎发布值%s",
+				tok.label(), tok.BlockID, aVal, bVal, suffixZH)}
+	}
+	// ③ degraded form: the value grounded only through unprovable pool pairs
+	// — state the re-derivation failure, never a formula.
+	return proseScalarBindingFinding{entry: fmt.Sprintf(
+		"%s (block %q) could not be re-derived on this report's evidence surfaces",
+		tok.label(), tok.BlockID),
+		entryZH: fmt.Sprintf("正文中 %s（块 %s）未能在证据面复算", tok.label(), tok.BlockID)}
+}
+
+// proseScalarExactCarrierValue returns the carrier rows' own published value
+// nearest the pair side (禁近似对 — the formula prints row values verbatim,
+// never the pool-side arithmetic residue).
+func proseScalarExactCarrierValue(rows []proseScalarEvidenceRow, side, tol float64) float64 {
+	best, bestDist := side, math.Inf(1)
+	for _, row := range rows {
+		for _, v := range row.values {
+			if d := math.Abs(v - side); d <= tol && d < bestDist {
+				best, bestDist = v, d
+			}
+		}
+	}
+	return best
+}
+
+func proseScalarAnyPacingRow(rows []proseScalarEvidenceRow) bool {
+	for _, row := range rows {
+		if row.pacing {
+			return true
+		}
+	}
+	return false
+}
+
+// proseScalarCarrierSubjectsDisjoint asserts the cross-subject qualifier only
+// in the precise all-rows form (sum-thread-mismatch discipline): every carrier
+// row on both sides names threads, and no tid crosses the two sides. Any
+// thread-silent carrier keeps the claim silent (宁松勿严).
+func proseScalarCarrierSubjectsDisjoint(aRows, bRows []proseScalarEvidenceRow) bool {
+	collect := func(rows []proseScalarEvidenceRow) (map[string]bool, bool) {
+		tids := map[string]bool{}
+		for _, row := range rows {
+			if len(row.threads) == 0 {
+				return nil, false
+			}
+			for _, tref := range row.threads {
+				if tref.TID != "" {
+					tids[tref.TID] = true
+				}
+			}
+		}
+		return tids, len(tids) > 0
+	}
+	aTIDs, aOK := collect(aRows)
+	bTIDs, bOK := collect(bRows)
+	if !aOK || !bOK {
+		return false
+	}
+	for tid := range aTIDs {
+		if bTIDs[tid] {
+			return false
+		}
+	}
+	return true
+}
+
+// proseScalarConfidenceScanCap bounds the F-2③ confidence-binding scan.
+const proseScalarConfidenceScanCap = 8
+
+// proseScalarConfidenceRef is one confidence claim parsed from prose.
+type proseScalarConfidenceRef struct {
+	Value float64
+	Pos   int
+}
+
+// proseScalarConfidenceRE finds confidence claims (en token + zh 置信 forms).
+var proseScalarConfidenceRE = regexp.MustCompile(`(?:(?i:confidence)|置信度?)\s*[=为:：]?\s*(1(?:\.0{1,4})?|0\.[0-9]{1,4})`)
+
+// extractProseScalarConfidenceRefs parses confidence claims from one text
+// surface (CR-2 组④ F-2③) — shared by the evidence-row builder and the
+// prose scan, so the two faces cannot diverge in shape.
+func extractProseScalarConfidenceRefs(text string) []proseScalarConfidenceRef {
+	if text == "" {
+		return nil
+	}
+	var out []proseScalarConfidenceRef
+	for _, m := range proseScalarConfidenceRE.FindAllStringSubmatchIndex(text, -1) {
+		if len(out) >= proseScalarConfidenceScanCap {
+			break
+		}
+		v, err := strconv.ParseFloat(text[m[2]:m[3]], 64)
+		if err != nil || v <= 0 || v > 1 {
+			continue
+		}
+		out = append(out, proseScalarConfidenceRef{Value: v, Pos: m[0]})
+	}
+	return out
 }
 
 // proseScalarThreadNameAuditable is the entity-arm noise dampener: the
@@ -1284,7 +1551,7 @@ func proseScalarThreadBindingMismatch(carriers []proseScalarEvidenceRow, sentThr
 // recompute exemption is a cross-window disguise. A single denominator
 // that is not a known window length (an ordinary ratio) keeps the
 // exemption — coincidence pairs stay a sanctioned loose cost (§25.1).
-func proseScalarRecomputeWindowMismatch(denominatorsMS, windowLengths []float64, sentWindows []proseScalarWindowRef) (string, bool) {
+func proseScalarRecomputeWindowMismatch(denominatorsMS, windowLengths []float64, sentWindows []proseScalarWindowRef, values []float64, target, tol float64) (string, bool) {
 	if len(denominatorsMS) == 0 || len(windowLengths) == 0 {
 		return "", false
 	}
@@ -1296,6 +1563,25 @@ func proseScalarRecomputeWindowMismatch(denominatorsMS, windowLengths []float64,
 	}
 	if len(sentLens) == 0 {
 		return "", false
+	}
+	// 修复轮 C-1 伴生 (2026-07-12 复放实锤): the denominator collection is
+	// cap/order-bounded over the ASCENDING pool, so tiny known windows can
+	// exhaust it before the true denominator is reached — the finding then
+	// claimed 「67.4% 仅能按窗口 ≈0ms 复算」 while 157.248/233.190 reproduces
+	// the percent exactly. Before asserting any mismatch, recompute the
+	// percent DIRECTLY against each sentence-named window: a hit means the
+	// sentence's own window explains the number — nothing to disclose.
+	if target > 0 {
+		for _, s := range sentLens {
+			if s <= 0 {
+				continue
+			}
+			lo, hi := s*(target-tol)/100, s*(target+tol)/100
+			idx := sort.SearchFloat64s(values, lo-1e-9)
+			if idx < len(values) && values[idx] <= hi+1e-9 {
+				return "", false
+			}
+		}
 	}
 	published := ""
 	for _, d := range denominatorsMS {

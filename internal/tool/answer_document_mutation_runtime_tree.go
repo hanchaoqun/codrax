@@ -260,6 +260,35 @@ type runtimeTraceProjTreeRow struct {
 	// census tracks it as known_gap OM-6). Display grouping only — the
 	// projection buckets and the rank funnel are untouched.
 	RankFoldPeers []runtimeTraceProjRankFoldPeer
+	// ActualScope is the CR-2 组③ P7 typed scope verdict for this row's actual
+	// channel (runtimeTraceProjActualWindowScope against the model's analysis
+	// window), stamped once at model build — the ⚠/实际 word faces read it so
+	// a value-only overshoot can never mint the 跨出分析窗 claim (冷读案19).
+	// Zero (None) on hand-built rows and rows without an actual overshoot.
+	ActualScope runtimeTraceProjActualScope
+	// SameSegMirrorPeers carries the raw-state (root_evidence lane) copies of
+	// this row's segment folded in by the CR-2 P5 equality arm (§29.42 P5,
+	// witness 14704 E1/E2): E# merges into the bracket, the raw state word
+	// takes the 行2 状态 slot when this row lacks one, and the 行2 wears the
+	// typed 同段镜像 tag. Annotation only — never an ms account.
+	SameSegMirrorPeers []runtimeTraceProjSameSegMirrorPeer
+	// ValueMirrorRef marks this un-merged AGGREGATE-lane row as the µs-equal
+	// value mirror of exactly one ×N merged candidate row (修复轮 C-2/A1,
+	// 冷读 tieba E6/E18, 2026-07-12: one physical five-segment runnable time
+	// published as a ×5 candidate row AND an aggregate reference row — two
+	// bare 23.748ms rows read additively). Carries the candidate row's E#
+	// for the 行2 mirror tag; accounts/values untouched on both rows.
+	ValueMirrorRef string
+	// FamilyMirrorRef / FamilyMirrorSegMin/MaxMS mark this MERGED row as the
+	// same-segment twin of a family row carrying CAL-1 segment truth (CR-2 P5
+	// family arm, F-1 残口: donghu E8/E9 — the critical_blocking ×4 twin's
+	// members are per-CPU group SUMS, so its 「单次 a–b」 claim was false).
+	// Ref = the family row's evidence tag; SegMin/Max = the family's TRUE
+	// single-segment extrema propagated for the twin's honest range wording.
+	// Display wording only; no gate/sort lane reads these.
+	FamilyMirrorRef    string
+	FamilyMirrorSegMin float64
+	FamilyMirrorSegMax float64
 	// SelfSymptomFoldPeers carries a target_self_state rank-lane view that was
 	// proven to describe the same focused-thread scheduler-state segment as
 	// this self row.  The state row remains the sole display/accounting seat;
@@ -319,7 +348,14 @@ type runtimeTraceProjTreeModel struct {
 	Adjacent   []runtimeTraceProjTreeRow
 	Background []runtimeTraceProjTreeRow
 	WindowMS   float64 // >0 = window mode; 0 = fallback (BarMaxMS denominator)
-	BarMaxMS   float64
+	// WindowStartTs/EndTs are the analysis-window endpoints behind WindowMS
+	// (CR-2 组③ P7): the ⚠ containment gate compares a row's typed actual
+	// interval against THESE endpoints — 「实际状态跨出分析窗」 is a claim
+	// about the analysis window, never about the row's own occurrence
+	// sub-window. Zero in fallback mode (no window claim, no ⚠ — RN-2b).
+	WindowStartTs float64
+	WindowEndTs   float64
+	BarMaxMS      float64
 	// TrunkLen is the resolved wakeup-path trunk length (0 = flat mode); it is
 	// the same value the 裁定1 demotion gate ran against, so lead selection can
 	// re-apply exactly that gate instead of a diverging copy.
@@ -573,6 +609,21 @@ const (
 	// ordinal space but keep their rendered channel seat.
 	runtimeTraceProjMarkCaliberSideRow
 
+	// CR-2 组② P5 同段收敛 (§29.42 P5, 2026-07-12): the same-segment mirror
+	// tag — a raw-state copy folded into its richer row (equality arm, 14704
+	// E1/E2) or a merged twin pointing at its source family row (family arm,
+	// donghu E8/E9). Annotation only; values never double-count.
+	runtimeTraceProjMarkSameSegMirror
+
+	// CR-2 组③ P7 (§29.42 P7, 2026-07-12): the episode-scope actual word —
+	// the actual exceeds this row's own occurrence projection but stays
+	// INSIDE the analysis window (the former value-only ⚠ was false here).
+	runtimeTraceProjMarkActualBeyondEpisode
+	// CR-2 组③ P7: the scope-less actual disclosure — the actual value
+	// overshoots but its physical interval was not published, so no window
+	// verdict is claimed (宁漏勿假).
+	runtimeTraceProjMarkActualNoInterval
+
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
 	runtimeTraceProjMarkCount
@@ -757,9 +808,11 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `⊘链止` = 窗口内无匹配唤醒事件(sched_wakeup),链止于此。",
 			"- `⊘chain ends` = no matching wakeup event (sched_wakeup) in the window; the chain ends there."},
 		// PTV8-RCR-B (UXA 域D #33 窗族: 分析窗口→分析窗, 2026-07-08).
+		// CR-2 组③ P7 (2026-07-12): 确证 + 单次成员 — the ⚠ claim now requires
+		// the typed interval verdict, and merged rows disclose the seed caliber.
 		{runtimeTraceProjMarkCrossWindow, runtimeTraceProjLegendGroupMark,
-			"- `⚠实际Xms` = 实际状态跨出分析窗(实际共 X ms),时长条只画窗口内投影。",
-			"- `⚠actual Xms` = the underlying state extends beyond the analysis window (X ms in total); the bar draws only the in-window projection."},
+			"- `⚠实际Xms` = 实际状态区间确证跨出分析窗(实际共 X ms),时长条只画窗口内投影;×N 合并行的实际值为合并种子单次成员(标注 单次成员),非族合计。",
+			"- `⚠actual Xms` = the state's actual interval provably crosses the analysis window (X ms in total); the bar draws only the in-window projection; on a ×N merged row the actual is the merge seed's single member (marked single member), never the family total."},
 		// §21 LEAD-SEM 前置 L1 (cmp_01 A④, 2026-07-07): the value-less fork of
 		// the ⚠ marker — the row is typed cross-window but its actual total was
 		// never captured (ActualImpactMS<=0), so the marker states the fact
@@ -1035,6 +1088,19 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkCaliberSideRow, runtimeTraceProjLegendGroupMark,
 			"- `⌗口径旁栏` = 计数当量/复合分数类行:该行数值不是墙钟时长(计数当量=按事件计数折算;复合分数=跨单位合成分),不占序数、不参与根因排序、不佩戴徽章;行照常显示并经 [E#] 互链。",
 			"- `⌗ caliber-side` = a count-equivalent / composite-score row: its value is NOT wall-clock time (count equivalent = derived from event counts; composite score = a cross-unit blend); it takes no ordinal, never competes for root-cause ranking and wears no badge — the row still renders with its [E#] links."},
+		// CR-2 组② P5 (2026-07-12): the same-segment mirror teaching entry —
+		// one physical segment published on several lanes converges at render.
+		{runtimeTraceProjMarkSameSegMirror, runtimeTraceProjLegendGroupMark,
+			"- `同段镜像` = 同一物理段/同一物理时间在多条通道重复发布:同段同值的裸状态行已并入所指行(其 [E#] 并入行首括号);合并行行2指向同源家族行(该行 ×N(a–b) 为按分组的组合计值区间,单段真值见家族行明细);同值双行形行2互指同一物理时间,两行数值不可相加。",
+			"- `same-seg mirror` = one physical segment / one physical time published on several lanes: the same-value raw-state row is merged into the surviving row (its [E#] joins the bracket); a merged row's row 2 points at its source family row (that row's ×N(a–b) range holds per-group sums — true single-segment extrema live in the family row's detail); on the equal-value two-row form, row 2 cross-references the same physical time and the two rows are never additive."},
+		// CR-2 组③ P7 (2026-07-12): the episode-scope actual word — inside the
+		// analysis window, so deliberately NOT the ⚠ glyph.
+		{runtimeTraceProjMarkActualBeyondEpisode, runtimeTraceProjLegendGroupMark,
+			"- `实际Xms(超出发生段,窗内)` = 实际状态时长超出该行自身的发生段投影,但整段仍在分析窗内(不跨分析窗,故不标 ⚠);时长条只画该行投影;×N 合并行的实际值为合并种子单次成员(括注 ·单次成员),非族合计。",
+			"- `actual X ms (beyond own episode, inside window)` = the state's actual duration exceeds this row's own episode projection while the whole segment stays inside the analysis window (nothing crosses the analysis window, so no ⚠); the bar draws the row projection only; on a ×N merged row the actual is the merge seed's single member (noted single member), never the family total."},
+		{runtimeTraceProjMarkActualNoInterval, runtimeTraceProjLegendGroupMark,
+			"- `实际Xms(区间未发布)` = 该行另有实际状态时长口径,但其物理区间未随数据发布,不作跨窗判定;时长条只画该行投影;×N 合并行的实际值为合并种子单次成员(括注 ·单次成员),非族合计。",
+			"- `actual X ms (interval unpublished)` = the row carries an actual-duration caliber whose physical interval was not published — no window-crossing verdict is claimed; the bar draws the row projection only; on a ×N merged row the actual is the merge seed's single member (noted single member), never the family total."},
 		// PTV8-RCR-A (§24.1/§24.2, 2026-07-08). EVOLUTION RECORD: the §21 RNB
 		// R1 `⧖ runnable …gated 分量,不重复计入排序` sub-row entry and the
 		// §21/§22 RNB R2 `同段rank行并入` note entry are RETIRED — the
@@ -1485,6 +1551,8 @@ func runtimeTraceProjTrunkDomainAdmit(node types.TraceCausalProjectionNode,
 func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evidence *runtimeTraceCausalProjectionEvidenceIndex, zh bool) runtimeTraceProjTreeModel {
 	model := runtimeTraceProjTreeModel{
 		WindowMS:                     projection.WindowDurationMS(),
+		WindowStartTs:                projection.WindowStartTs,
+		WindowEndTs:                  projection.WindowEndTs,
 		WakeupChainRecommendedNotRun: projection.WakeupChainRecommendedNotRun,
 		Marks:                        &runtimeTraceProjMarkSet{},
 	}
@@ -1603,6 +1671,12 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// construction — the fold precedes tree-position assignment). The peers
 	// are re-attached to the surviving row after flatten (evidence + note).
 	chainNodes, rankFoldPeers := runtimeTraceProjFoldSameSegmentLaneTwins(chainNodes)
+	// CR-2 组② P5 equality arm (2026-07-12): the raw-state root_evidence copy
+	// of a fingerprint-equal segment folds into its richer row BEFORE the
+	// subject buckets (same NEW-3 position as the folds above), so the bare
+	// double seat never mints a second row (14704 E1/E2 witness). The peers
+	// re-attach to the surviving row after flatten.
+	chainNodes, sameSegMirrorPeers := runtimeTraceProjFoldSameSegmentContextMirrors(chainNodes)
 	// SEM-LEAD (§29.7-2 ③): the folded on-chain rank twin of a semantic row
 	// rides the SAME RankFoldPeers carrier as the RNB fold — 行1 [E#+E#]
 	// bracket, detail 根因排序 line, bar-scale/disclosure MAX invariance.
@@ -2203,6 +2277,52 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		attach(model.TreeRows)
 		attach(model.Adjacent)
 		attach(model.Background)
+	}
+
+	// CR-2 组② P5 equality arm: attach the folded raw-state mirror copies to
+	// the surviving row (bracket E#, 行2 状态 slot + 同段镜像 tag). Same
+	// post-flatten position as the rank-fold peers above; the evidence tag
+	// registration keeps the mirror observation reachable on the index.
+	if len(sameSegMirrorPeers) > 0 {
+		attach := func(rows []runtimeTraceProjTreeRow) {
+			for i := range rows {
+				for _, peer := range sameSegMirrorPeers[runtimeTraceCausalProjectionNodeKey(rows[i].Node)] {
+					stateWord := ""
+					if rows[i].Node.StateKind == "" {
+						stateWord = strings.TrimSpace(peer.Predicate)
+					}
+					rows[i].SameSegMirrorPeers = append(rows[i].SameSegMirrorPeers, runtimeTraceProjSameSegMirrorPeer{
+						EvidenceTag: runtimeTraceProjEvidenceTag(peer, evidence, zh),
+						StateWord:   stateWord,
+						Valueless:   runtimeTraceProjNodeDisplayImpact(peer) <= 0,
+					})
+				}
+			}
+		}
+		attach(model.SelfRows)
+		attach(model.TreeRows)
+		attach(model.Adjacent)
+		attach(model.Background)
+	}
+
+	// CR-2 组② P5 family arm (F-1 残口, donghu E8/E9): mark a merged
+	// critical_blocking twin whose fingerprint (canonical subject + member
+	// count + µs-equal total) matches a family row carrying CAL-1 segment
+	// truth — the twin's 行2 wears the family-mirror tag and its detail range
+	// speaks the group-sum caliber with the family's true single-segment
+	// extrema (段 inventory 传播到该 lane).
+	runtimeTraceProjMarkFamilyMirrorTwins(&model)
+
+	// 修复轮 C-2/A1: the µs-equal cross-lane value mirror (aggregate row ↔
+	// ×N candidate row) — typed fingerprint, tag-only convergence.
+	runtimeTraceProjMarkValueMirrorTwins(&model)
+
+	// CR-2 组③ P7: stamp every row's typed actual-scope verdict against the
+	// analysis window (one authority, every face reads the stamp).
+	for _, rows := range [][]runtimeTraceProjTreeRow{model.SelfRows, model.TreeRows, model.Adjacent, model.Background} {
+		for i := range rows {
+			rows[i].ActualScope = runtimeTraceProjActualWindowScope(rows[i].Node, model.WindowStartTs, model.WindowEndTs)
+		}
 	}
 
 	// G1 跨车道对账 (§27.2-G1, 2026-07-09): register every engine-absorbed
@@ -3560,6 +3680,316 @@ func runtimeTraceProjPropagateDStateProofToTwins(nodes []types.TraceCausalProjec
 		nodes[i].DStateRefinedNonIO = true
 		if nodes[i].BlockedReasonCaller == "" {
 			nodes[i].BlockedReasonCaller = donor.BlockedReasonCaller
+		}
+	}
+}
+
+// runtimeTraceProjSameSegMirrorPeer carries a raw-state (root_evidence lane)
+// copy of a segment folded into its richer same-segment row — CR-2 组② P5
+// 同段收敛 equality arm (witness 14704 E1/E2: one running segment 54.599ms
+// published as a candidate-lane row AND a bare context row). The peer
+// contributes its evidence id (bracket + index) and, when the surviving row
+// lacks a state word, the raw state word for the 行2 状态 slot. Annotation
+// only — never an ms account.
+type runtimeTraceProjSameSegMirrorPeer struct {
+	EvidenceTag string
+	StateWord   string
+	// Valueless marks a mirror copy that carried no display value of its own
+	// (修复轮 P4-c: the detail wording then says 同段(无独立值) instead of
+	// claiming 同值).
+	Valueless bool
+}
+
+// runtimeTraceProjSameSegMirrorRawArm marks the raw-state lane of the P5
+// equality fold: the reduced-shape root_evidence wakeup witness (typed lane
+// identity = the system-minted observation ID; its Predicate carries the bare
+// state/type token). Merged/fold/seat rows never qualify.
+func runtimeTraceProjSameSegMirrorRawArm(node types.TraceCausalProjectionNode) bool {
+	return strings.Contains(node.EvidenceID, "root_evidence:") &&
+		node.MergedCount <= 1 && !node.OnChainOverflowFold && node.Rank == 0 &&
+		strings.TrimSpace(node.Predicate) != ""
+}
+
+// runtimeTraceProjFoldSameSegmentContextMirrors is the CR-2 组② P5 同段收敛
+// equality arm (ledger §29.42 P5, witness 14704 双席 + CAL-1 修复轮 P2-3 移交,
+// 2026-07-12): a raw-state root_evidence copy of a segment folds into the
+// richer row of the SAME fingerprint. Fingerprint = the SFD same-segment twin
+// key (canonical subject + exact engine line span) PLUS µs-value equality —
+// a raw copy whose display value differs is a different account and never
+// folds (fail-open, 宁两行勿假并).
+//
+// EVOLUTION RECORD (CR-2 P5 vs v5 P1, 2026-07-12): this is the DISPLAY-LAYER
+// forerunner of the v5 P1 engine one-seat-per-segment batch (账本 §29.47.6) —
+// a defensive convergence at render, not a replacement: the engine wire stays
+// untouched, and the engine-side single-seat mint retires this lane's work
+// when it lands. Unlike the RNB rank fold above, the CONTEXT arm is admitted
+// here (the 14704 witness pair is context-tier on both sides); the fold
+// transfers annotation only (E# + raw state word), never an ms account.
+func runtimeTraceProjFoldSameSegmentContextMirrors(nodes []types.TraceCausalProjectionNode) ([]types.TraceCausalProjectionNode, map[string][]types.TraceCausalProjectionNode) {
+	type group struct {
+		rawIdx    []int
+		keeperIdx []int
+	}
+	groups := map[string]*group{}
+	for i, node := range nodes {
+		key := runtimeTraceProjSameSegmentTwinKey(node)
+		if key == "" {
+			continue
+		}
+		g := groups[key]
+		if g == nil {
+			g = &group{}
+			groups[key] = g
+		}
+		if runtimeTraceProjSameSegMirrorRawArm(node) {
+			g.rawIdx = append(g.rawIdx, i)
+		} else if node.MergedCount <= 1 && !node.OnChainOverflowFold {
+			g.keeperIdx = append(g.keeperIdx, i)
+		}
+	}
+	foldInto := map[int]int{} // raw node index -> keeper node index
+	for _, g := range groups {
+		if len(g.rawIdx) != 1 || len(g.keeperIdx) != 1 {
+			continue // ambiguity fails open (SFD donor-conflict rule)
+		}
+		raw, keeper := nodes[g.rawIdx[0]], nodes[g.keeperIdx[0]]
+		// µs-value equality: the raw copy re-publishes the keeper's own
+		// magnitude (14704: both 54.599). Valueless raw copies also fold.
+		rawValue := runtimeTraceProjNodeDisplayImpact(raw)
+		if rawValue > 0 && !runtimeTraceProjRound3Equal(rawValue, runtimeTraceProjNodeDisplayImpact(keeper)) {
+			continue
+		}
+		// State-word consistency: the raw lane's token must be the keeper's
+		// own state (or the keeper carries none and adopts it on 行2).
+		if keeper.StateKind != "" && keeper.StateKind != strings.TrimSpace(raw.Predicate) {
+			continue
+		}
+		// Cross-window veto (SFD F1 mirror).
+		if raw.QueryWindowStartTs > 0 && raw.QueryWindowEndTs > raw.QueryWindowStartTs &&
+			keeper.QueryWindowStartTs > 0 && keeper.QueryWindowEndTs > keeper.QueryWindowStartTs &&
+			(math.Abs(raw.QueryWindowStartTs-keeper.QueryWindowStartTs) > types.TraceCausalProjectionSameWindowToleranceS ||
+				math.Abs(raw.QueryWindowEndTs-keeper.QueryWindowEndTs) > types.TraceCausalProjectionSameWindowToleranceS) {
+			continue
+		}
+		foldInto[g.rawIdx[0]] = g.keeperIdx[0]
+	}
+	if len(foldInto) == 0 {
+		return nodes, nil
+	}
+	dropped := map[int]bool{}
+	rawByKeeperIdx := map[int][]int{}
+	for rawIdx, keeperIdx := range foldInto {
+		dropped[rawIdx] = true
+		rawByKeeperIdx[keeperIdx] = append(rawByKeeperIdx[keeperIdx], rawIdx)
+	}
+	kept := make([]types.TraceCausalProjectionNode, 0, len(nodes))
+	peers := map[string][]types.TraceCausalProjectionNode{}
+	for i, node := range nodes {
+		if dropped[i] {
+			continue
+		}
+		for _, rawIdx := range rawByKeeperIdx[i] {
+			peers[runtimeTraceCausalProjectionNodeKey(node)] = append(
+				peers[runtimeTraceCausalProjectionNodeKey(node)], nodes[rawIdx])
+		}
+		kept = append(kept, node)
+	}
+	return kept, peers
+}
+
+// runtimeTraceProjSameSegMirrorTagTexts builds the 行2 mirror tags (CR-2 组②
+// P5) for BOTH row faces (tree/stanza tags builder + self-row demoted parts):
+// equality arm — the folded raw-state copy's state word takes the 行2 状态
+// slot only when this row carries none (词位取最高车道, the raw word fills a
+// gap, never overrides); family arm — the merged twin points at its source
+// family row. Marks the shared legend entry on emission.
+func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool) []string {
+	var out []string
+	if len(row.SameSegMirrorPeers) > 0 {
+		row.marks.mark(runtimeTraceProjMarkSameSegMirror)
+		word := ""
+		for _, peer := range row.SameSegMirrorPeers {
+			if peer.StateWord != "" {
+				word = peer.StateWord
+				break
+			}
+		}
+		text := "同段镜像已并入"
+		if !zh {
+			text = "same-seg mirror merged"
+		}
+		if word != "" {
+			if zh {
+				text = "状态 " + word + "·" + text
+			} else {
+				text = "state " + word + " · " + text
+			}
+		}
+		out = append(out, text)
+	}
+	if row.FamilyMirrorRef != "" {
+		row.marks.mark(runtimeTraceProjMarkSameSegMirror)
+		text := "同段镜像·与家族行同源"
+		if !zh {
+			text = "same-seg mirror of the family row"
+		}
+		out = append(out, text)
+	}
+	if row.ValueMirrorRef != "" {
+		row.marks.mark(runtimeTraceProjMarkSameSegMirror)
+		text := "同段镜像·与[" + row.ValueMirrorRef + "]同一物理时间,不可相加"
+		if !zh {
+			text = "same-seg mirror · same physical time as [" + row.ValueMirrorRef + "], never additive"
+		}
+		out = append(out, text)
+	}
+	return out
+}
+
+// runtimeTraceProjMarkFamilyMirrorTwins is the CR-2 组② P5 family arm (F-1
+// 残口移交, ledger §29.49; witness donghu 20260712-133933 E8/E9): a MERGED
+// critical_blocking row whose fingerprint — canonical subject + member count +
+// µs-equal total — matches exactly one family row carrying CAL-1 segment truth
+// is the same physical segment set on a second lane. The twin row gains the
+// typed mirror mark and the family's TRUE single-segment extrema (段 inventory
+// 传播到该 lane), so its detail range can stop claiming the per-CPU group sums
+// as 「单次」 segments. Marked ONLY when the family extrema actually differ
+// from the twin's merged range (equal extrema = single-segment groups, the
+// legacy wording is already true — zero touch). Display wording only.
+func runtimeTraceProjMarkFamilyMirrorTwins(model *runtimeTraceProjTreeModel) {
+	type famRef struct {
+		ref              string
+		minMS, maxMS     float64
+		count            int
+		total            float64
+		winStart, winEnd float64
+	}
+	famsBySubject := map[string][]famRef{}
+	lanes := [][]runtimeTraceProjTreeRow{model.SelfRows, model.TreeRows, model.Adjacent, model.Background}
+	for _, rows := range lanes {
+		for i := range rows {
+			node := rows[i].Node
+			if !rows[i].HasData || node.FamilyMemberCount <= 1 ||
+				node.FamilyMemberMinMS <= 0 || node.FamilyMemberMaxMS <= 0 {
+				continue
+			}
+			subject := runtimeTraceCausalProjectionCanonicalNode(node.Subject)
+			if subject == "" {
+				continue
+			}
+			famsBySubject[subject] = append(famsBySubject[subject], famRef{
+				ref:   strings.TrimSpace(rows[i].EvidenceTag),
+				minMS: node.FamilyMemberMinMS, maxMS: node.FamilyMemberMaxMS,
+				count:    node.FamilyMemberCount,
+				total:    runtimeTraceProjNodeDisplayImpact(node),
+				winStart: node.QueryWindowStartTs, winEnd: node.QueryWindowEndTs,
+			})
+		}
+	}
+	if len(famsBySubject) == 0 {
+		return
+	}
+	for _, rows := range lanes {
+		for i := range rows {
+			node := rows[i].Node
+			if !rows[i].HasData || strings.TrimSpace(node.Predicate) != "critical_blocking" ||
+				node.MergedCount <= 1 {
+				continue
+			}
+			var match *famRef
+			ambiguous := false
+			for j, fam := range famsBySubject[runtimeTraceCausalProjectionCanonicalNode(node.Subject)] {
+				if fam.count != node.MergedCount ||
+					!runtimeTraceProjRound3Equal(fam.total, runtimeTraceProjNodeDisplayImpact(node)) {
+					continue
+				}
+				if match != nil {
+					ambiguous = true
+					break
+				}
+				match = &famsBySubject[runtimeTraceCausalProjectionCanonicalNode(node.Subject)][j]
+			}
+			if match == nil || ambiguous {
+				continue // fail-open: no fingerprint, or two candidate sources
+			}
+			// Equal extrema = the groups ARE single segments; the legacy
+			// per-instance wording is already true — zero touch.
+			if runtimeTraceProjRound3Equal(match.minMS, node.MergedMinMS) &&
+				runtimeTraceProjRound3Equal(match.maxMS, node.MergedMaxMS) {
+				continue
+			}
+			// 修复轮 R-P3-3: cross-window re-measurements never mirror (the
+			// same veto every same-segment fold carries — SFD F1 family).
+			if match.winStart > 0 && match.winEnd > match.winStart &&
+				node.QueryWindowStartTs > 0 && node.QueryWindowEndTs > node.QueryWindowStartTs &&
+				(math.Abs(match.winStart-node.QueryWindowStartTs) > types.TraceCausalProjectionSameWindowToleranceS ||
+					math.Abs(match.winEnd-node.QueryWindowEndTs) > types.TraceCausalProjectionSameWindowToleranceS) {
+				continue
+			}
+			rows[i].FamilyMirrorRef = match.ref
+			rows[i].FamilyMirrorSegMin = match.minMS
+			rows[i].FamilyMirrorSegMax = match.maxMS
+		}
+	}
+}
+
+// runtimeTraceProjMarkValueMirrorTwins is the 修复轮 C-2/A1 value-mirror arm
+// (冷读 tieba E6/E18, 2026-07-12): an un-merged AGGREGATE-lane row (predicate
+// wakeup_causal_aggregate) whose fingerprint — canonical subject + state +
+// µs-equal display AND cumulative values + same typed query window — matches
+// exactly ONE ×N merged candidate row is the same physical time published on
+// a second lane (the witness pair shared five segments to the µs). The
+// aggregate row wears the typed mirror tag pointing at the candidate's E#;
+// both rows keep their own values and accountings (the two eff calibers are
+// deliberately different rulers — the tag exists to kill the ADDITIVE
+// reading, never to merge accounts). Ambiguity (0 or ≥2 candidates) and any
+// fingerprint miss fail open to the two-row render.
+func runtimeTraceProjMarkValueMirrorTwins(model *runtimeTraceProjTreeModel) {
+	fingerprint := func(node types.TraceCausalProjectionNode) string {
+		subject := runtimeTraceCausalProjectionCanonicalNode(node.Subject)
+		if subject == "" {
+			return ""
+		}
+		display := runtimeTraceProjNodeDisplayImpact(node)
+		if display <= 0 {
+			return ""
+		}
+		return subject + "\x00" + strings.TrimSpace(node.StateKind) + "\x00" +
+			fmt.Sprintf("%.3f|%.3f|%.3f..%.3f", display, node.CumulativeImpactMS,
+				node.QueryWindowStartTs, node.QueryWindowEndTs)
+	}
+	lanes := [][]runtimeTraceProjTreeRow{model.SelfRows, model.TreeRows, model.Adjacent, model.Background}
+	candidates := map[string][]string{}
+	for _, rows := range lanes {
+		for i := range rows {
+			node := rows[i].Node
+			if !rows[i].HasData || node.MergedCount <= 1 || node.OnChainOverflowFold {
+				continue
+			}
+			if key := fingerprint(node); key != "" {
+				candidates[key] = append(candidates[key], strings.TrimSpace(rows[i].EvidenceTag))
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		return
+	}
+	for _, rows := range lanes {
+		for i := range rows {
+			node := rows[i].Node
+			if !rows[i].HasData || node.MergedCount > 1 ||
+				strings.TrimSpace(node.Predicate) != "wakeup_causal_aggregate" {
+				continue
+			}
+			key := fingerprint(node)
+			if key == "" {
+				continue
+			}
+			refs := candidates[key]
+			if len(refs) != 1 || refs[0] == "" {
+				continue // ambiguity fails open
+			}
+			rows[i].ValueMirrorRef = refs[0]
 		}
 	}
 }
@@ -5801,6 +6231,10 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 		row.marks.mark(mark)
 		demoted = append(demoted, text)
 	}
+	// CR-2 组② P5: the same-segment mirror tags on the self-row face (the
+	// 14704 witness pair is a target self row) — shared wording/mark helper
+	// with the tree/stanza face.
+	demoted = append(demoted, runtimeTraceProjSameSegMirrorTagTexts(row, zh)...)
 	if node.Undrillable() {
 		// PTV5 C06 (#68): bare ⊘链止, matching the tree-row form — the typed
 		// UndrillableReason enum stays off the panel (semantics live in the
@@ -8333,21 +8767,58 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	// NOT print the fake "实际0.000ms" scalar — it demotes to the value-less
 	// ⚠跨窗 marker (precise boolean fork, mirroring the detail table's
 	// existing ActualImpactMS>0 guard). The detail mirror already renders "—".
-	if windowMode && runtimeTraceProjCrossWindow(node) {
-		if node.ActualImpactMS > 0 {
-			row.marks.mark(runtimeTraceProjMarkCrossWindow)
-			text := fmt.Sprintf("⚠实际%.3fms", node.ActualImpactMS)
-			if !zh {
-				text = fmt.Sprintf("⚠actual %.3fms", node.ActualImpactMS)
+	// CR-2 组③ P7 (2026-07-12): the word face forks on the typed interval
+	// verdict — ⚠ only when the actual interval provably leaves the analysis
+	// window; an in-window overshoot speaks the episode word; an interval-less
+	// actual states the dual-basis fact without a scope claim. ×N merged rows
+	// additionally disclose that the value is the merge seed's SINGLE member
+	// actual (F-5: 「实际6.936 < 行值17.442」 read as a paradox without it).
+	if windowMode {
+		// Model-built rows carry the analysis-window verdict stamp; a
+		// zero-value stamp (hand-built rows / direct callers) recomputes with
+		// unknown endpoints — the typed WithinRequestedWindow arm still
+		// resolves, and value-only overshoots degrade to the scope-less
+		// disclosure (never a fabricated ⚠).
+		scope := row.ActualScope
+		if scope == runtimeTraceProjActualScopeNone {
+			scope = runtimeTraceProjActualWindowScope(node, 0, 0)
+		}
+		switch scope {
+		case runtimeTraceProjActualScopeAnalysisWindow:
+			if node.ActualImpactMS > 0 {
+				row.marks.mark(runtimeTraceProjMarkCrossWindow)
+				text := fmt.Sprintf("⚠实际%.3fms%s", node.ActualImpactMS, runtimeTraceProjActualMemberQualifier(node, zh))
+				if !zh {
+					text = fmt.Sprintf("⚠actual %.3fms%s", node.ActualImpactMS, runtimeTraceProjActualMemberQualifier(node, zh))
+				}
+				tags = append(tags, runtimeTraceProjTag{Text: text, MainRow: true})
+			} else {
+				row.marks.mark(runtimeTraceProjMarkCrossWindowNoActual)
+				text := "⚠跨窗"
+				if !zh {
+					text = "⚠cross-window"
+				}
+				tags = append(tags, runtimeTraceProjTag{Text: text, MainRow: true})
 			}
-			tags = append(tags, runtimeTraceProjTag{Text: text, MainRow: true})
-		} else {
-			row.marks.mark(runtimeTraceProjMarkCrossWindowNoActual)
-			text := "⚠跨窗"
+		case runtimeTraceProjActualScopeEpisode:
+			// Unlike ⚠ (a warning Keep mark), the in-window/scope-less actual
+			// disclosures are caliber information — demote-eligible tags, so
+			// the longer word faces never crowd the MainRow essentials.
+			// 修复轮 P4-b: scope word + member qualifier share ONE paren
+			// (「(超出发生段,窗内·单次成员)」, never consecutive parens).
+			row.marks.mark(runtimeTraceProjMarkActualBeyondEpisode)
+			text := fmt.Sprintf("实际%.3fms(%s)", node.ActualImpactMS, runtimeTraceProjActualScopeParen("超出发生段,窗内", node, true))
 			if !zh {
-				text = "⚠cross-window"
+				text = fmt.Sprintf("actual %.3fms (%s)", node.ActualImpactMS, runtimeTraceProjActualScopeParen("beyond own episode, inside window", node, false))
 			}
-			tags = append(tags, runtimeTraceProjTag{Text: text, MainRow: true})
+			tags = append(tags, runtimeTraceProjTag{Text: text, Seg: 33})
+		case runtimeTraceProjActualScopeNoInterval:
+			row.marks.mark(runtimeTraceProjMarkActualNoInterval)
+			text := fmt.Sprintf("实际%.3fms(%s)", node.ActualImpactMS, runtimeTraceProjActualScopeParen("区间未发布", node, true))
+			if !zh {
+				text = fmt.Sprintf("actual %.3fms (%s)", node.ActualImpactMS, runtimeTraceProjActualScopeParen("interval unpublished", node, false))
+			}
+			tags = append(tags, runtimeTraceProjTag{Text: text, Seg: 33})
 		}
 	}
 	// NEW-3: the folded same-segment IO calibers' values and evidence tags live
@@ -8356,6 +8827,11 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	if len(row.IOFoldPeers) > 0 {
 		row.marks.mark(runtimeTraceProjMarkIOCaliberNote)
 		tags = append(tags, runtimeTraceProjTag{Text: runtimeTraceProjIOFoldNoteText(row.IOFoldPeers, zh), Seg: 31})
+	}
+	// CR-2 组② P5 同段收敛 (2026-07-12): the mirror tags (shared helper with
+	// the self-row face — one wording, one mark).
+	for _, text := range runtimeTraceProjSameSegMirrorTagTexts(row, zh) {
+		tags = append(tags, runtimeTraceProjTag{Text: text, Seg: 31})
 	}
 	// PTV8-RCR-A (§24 ③裁定/§24.2, 2026-07-08). EVOLUTION RECORD: the RNB R2
 	// 同段rank行并入 note is RETIRED — the folded rank row's rank/confidence
@@ -8562,8 +9038,99 @@ func runtimeTraceProjSemanticSourceWindowTag(node types.TraceCausalProjectionNod
 //     overwritten and can never match), and suppresses ⚠ outright when the
 //     donor field is absent (宁漏勿假).
 //
+// runtimeTraceProjActualScope is the CR-2 组③ P7 typed scope verdict behind
+// the actual-value word faces (ledger §29.42 P7, witness 冷读案19 「⚠ 词面 11
+// 行全假」 + CAL-1 冷读 F-5, 2026-07-12): the ⚠ glyph's legend promise is
+// 「实际状态跨出分析窗」 — a claim about the ANALYSIS window that the former
+// value-only comparison could not prove (donghu E5: actual 16.433 > projection
+// 15.565 because the segment crossed its own OCCURRENCE sub-window while
+// sitting fully inside the analysis window; the µs endpoints were on the wire
+// all along). The word face now forks on the typed interval:
+//   - AnalysisWindow → ⚠实际Xms (the interval provably leaves the window, or
+//     the engine's own WithinRequestedWindow=false drill marker says so);
+//   - Episode → 实际Xms(超出发生段,窗内) — the actual exceeds this row's own
+//     occurrence projection but stays inside the analysis window;
+//   - NoInterval → 实际Xms(区间未发布) — the dual-basis fact without any
+//     scope claim (宁漏勿假: no interval, no window verdict);
+//   - None → no tag.
+type runtimeTraceProjActualScope int
+
+const (
+	runtimeTraceProjActualScopeNone runtimeTraceProjActualScope = iota
+	runtimeTraceProjActualScopeAnalysisWindow
+	runtimeTraceProjActualScopeEpisode
+	runtimeTraceProjActualScopeNoInterval
+)
+
+// runtimeTraceProjActualContainmentToleranceS is the ⚠ containment slack
+// (修复轮 R-P3-1, 2026-07-12): numerically the shared F-2 endpoint tolerance
+// TODAY, minted under its OWN name because the SEMANTICS differ — this is
+// interval CONTAINMENT slack (how far an actual endpoint may poke past the
+// analysis window before 跨出 is claimed), not same-window equality. A future
+// F-2 re-adjudication must re-decide this value separately.
+const runtimeTraceProjActualContainmentToleranceS = types.TraceCausalProjectionSameWindowToleranceS
+
+// runtimeTraceProjActualWindowScope computes the typed scope verdict. winStart/
+// winEnd are the ANALYSIS-window endpoints (model.WindowStartTs/EndTs); zero
+// endpoints (fallback mode / callers without a window identity) can never
+// prove a crossing, so the verdict degrades to the scope-less disclosure.
+// Containment tolerance = runtimeTraceProjActualContainmentToleranceS.
+func runtimeTraceProjActualWindowScope(node types.TraceCausalProjectionNode, winStart, winEnd float64) runtimeTraceProjActualScope {
+	if node.WithinRequestedWindow != nil && !*node.WithinRequestedWindow {
+		return runtimeTraceProjActualScopeAnalysisWindow // typed engine drill marker
+	}
+	if !runtimeTraceProjCrossWindow(node) {
+		return runtimeTraceProjActualScopeNone
+	}
+	if node.ActualWindowStartTs <= 0 || node.ActualWindowEndTs <= node.ActualWindowStartTs {
+		return runtimeTraceProjActualScopeNoInterval
+	}
+	if winStart <= 0 || winEnd <= winStart {
+		return runtimeTraceProjActualScopeNoInterval // no analysis-window identity to judge against
+	}
+	tol := runtimeTraceProjActualContainmentToleranceS
+	if node.ActualWindowStartTs >= winStart-tol && node.ActualWindowEndTs <= winEnd+tol {
+		return runtimeTraceProjActualScopeEpisode
+	}
+	return runtimeTraceProjActualScopeAnalysisWindow
+}
+
+// runtimeTraceProjActualMemberQualifier is the F-5 merged-row honesty
+// qualifier (CR-2 组③ P7): a ×N merged row's actual travels verbatim from the
+// merge SEED — one member's physical duration beside a SUM row value read as
+// 「实际 < 窗口投影」 paradox (tieba E4: 17.442 行值 vs ⚠实际6.936). "" on
+// unmerged rows (byte-identical legacy face).
+func runtimeTraceProjActualMemberQualifier(node types.TraceCausalProjectionNode, zh bool) string {
+	if node.MergedCount <= 1 {
+		return ""
+	}
+	if zh {
+		return "(单次成员)"
+	}
+	return " (single member)"
+}
+
+// runtimeTraceProjActualScopeParen composes a scope word with the merged-seed
+// member qualifier inside ONE paren (修复轮 P4-b: 「(超出发生段,窗内·单次
+// 成员)」 — the former consecutive-paren form read as two independent chips).
+func runtimeTraceProjActualScopeParen(scopeWord string, node types.TraceCausalProjectionNode, zh bool) string {
+	if node.MergedCount <= 1 {
+		return scopeWord
+	}
+	if zh {
+		return scopeWord + "·单次成员"
+	}
+	return scopeWord + "; single member"
+}
+
 // Rows without a projection keep the chain-total fallback baseline (C00
 // fallback rows), and actual ≤ baseline shapes stay byte-identical.
+//
+// EVOLUTION RECORD (CR-2 组③ P7, 2026-07-12): this predicate is now the VALUE
+// arm only ("the actual exceeds what this row projects") — the ⚠ word face
+// additionally requires the typed interval verdict
+// (runtimeTraceProjActualWindowScope): value-only evidence can no longer mint
+// the 跨出分析窗 claim (冷读案19: 11 rows all false).
 func runtimeTraceProjCrossWindow(node types.TraceCausalProjectionNode) bool {
 	if node.WithinRequestedWindow != nil && !*node.WithinRequestedWindow {
 		return true
@@ -10241,35 +10808,54 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 			// 伪残差 killed on the hop lane too).
 			if runtimeTraceProjTargetSymptomMS(model) <= 0 && attributed > 0 {
 				if hopSleep, hopWinStart, hopWinEnd := runtimeTraceProjHopOnlyTargetSleep(model); hopSleep > 0 && attributed <= hopSleep {
-					// §21 CWD hard gate (precise numeric comparison — the one
-					// signal kind allowed to gate a disclosure FORM): a target
-					// sleep LONGER than the window it is printed next to is a
-					// naked self-contradiction ("目标睡眠 115.902ms" beside
-					// "共 101.000ms"). Such a magnitude must carry its base:
-					// the hop row's own typed query window when it provably
-					// differs from the anchor (F-2 tolerance), else a neutral
-					// beyond-the-window clause (true both for a state crossing
-					// out of the window and for an unknown base — never a
-					// guessed 非关注窗口 claim). hopSleep ≤ window keeps the
-					// legacy wording byte-identically.
-					switch {
-					case hopSleep > model.WindowMS && hopWinStart > 0 && hopWinEnd > hopWinStart &&
-						runtimeTraceProjCoverageWindowBaseMismatch(projection, hopWinStart, hopWinEnd):
+					// CR-2 组③ P7 / F-3 (冷读 F-3, 2026-07-12): the 「X 中 Y
+					// 已由链上解释」 wording claims Y ⊆ X — false when the
+					// chain-explained mass IS the cadence-idle segment PACE-ROW
+					// carved OUT of the sleep family (donghu: 15.758 pacing vs
+					// ×7=35.351 family, disjoint by construction). Precise
+					// signal: a target-self cadence-idle row whose display
+					// value Round3-equals the numerator. The fork states two
+					// separate facts; every other shape keeps the legacy arms
+					// byte-identically.
+					if idleWord, ok := runtimeTraceProjTargetIdleCarveMatch(model, attributed, zh); ok {
 						if zh {
-							fmt.Fprintf(&b, "\n- 关注线程睡眠 %.3fms(取自查询窗 %.3fs → %.3fs,非上句分析窗)中 %.3fms 已由链上解释。", hopSleep, hopWinStart, hopWinEnd, attributed)
+							fmt.Fprintf(&b, "\n- 关注线程睡眠 %.3fms(不含%s);链上解释的 %.3fms 为独立成行的%s段,不在上句睡眠合计内。",
+								hopSleep, idleWord, attributed, idleWord)
 						} else {
-							fmt.Fprintf(&b, "\n- Of the focused thread's %.3fms sleep (from query window %.3fs → %.3fs, not the analysis window above), %.3fms is explained on-chain.", hopSleep, hopWinStart, hopWinEnd, attributed)
+							fmt.Fprintf(&b, "\n- Focused-thread sleep %.3fms (excluding %s); the %.3fms explained on-chain is the separately rendered %s segment, outside the sleep total above.",
+								hopSleep, idleWord, attributed, idleWord)
 						}
-					case hopSleep > model.WindowMS:
-						if zh {
-							fmt.Fprintf(&b, "\n- 关注线程睡眠 %.3fms(该状态时长超出上句分析窗)中 %.3fms 已由链上解释。", hopSleep, attributed)
-						} else {
-							fmt.Fprintf(&b, "\n- Of the focused thread's %.3fms sleep (its state duration extends beyond the analysis window above), %.3fms is explained on-chain.", hopSleep, attributed)
+					} else {
+						// §21 CWD hard gate (precise numeric comparison — the one
+						// signal kind allowed to gate a disclosure FORM): a target
+						// sleep LONGER than the window it is printed next to is a
+						// naked self-contradiction ("目标睡眠 115.902ms" beside
+						// "共 101.000ms"). Such a magnitude must carry its base:
+						// the hop row's own typed query window when it provably
+						// differs from the anchor (F-2 tolerance), else a neutral
+						// beyond-the-window clause (true both for a state crossing
+						// out of the window and for an unknown base — never a
+						// guessed 非关注窗口 claim). hopSleep ≤ window keeps the
+						// legacy wording byte-identically.
+						switch {
+						case hopSleep > model.WindowMS && hopWinStart > 0 && hopWinEnd > hopWinStart &&
+							runtimeTraceProjCoverageWindowBaseMismatch(projection, hopWinStart, hopWinEnd):
+							if zh {
+								fmt.Fprintf(&b, "\n- 关注线程睡眠 %.3fms(取自查询窗 %.3fs → %.3fs,非上句分析窗)中 %.3fms 已由链上解释。", hopSleep, hopWinStart, hopWinEnd, attributed)
+							} else {
+								fmt.Fprintf(&b, "\n- Of the focused thread's %.3fms sleep (from query window %.3fs → %.3fs, not the analysis window above), %.3fms is explained on-chain.", hopSleep, hopWinStart, hopWinEnd, attributed)
+							}
+						case hopSleep > model.WindowMS:
+							if zh {
+								fmt.Fprintf(&b, "\n- 关注线程睡眠 %.3fms(该状态时长超出上句分析窗)中 %.3fms 已由链上解释。", hopSleep, attributed)
+							} else {
+								fmt.Fprintf(&b, "\n- Of the focused thread's %.3fms sleep (its state duration extends beyond the analysis window above), %.3fms is explained on-chain.", hopSleep, attributed)
+							}
+						case zh:
+							fmt.Fprintf(&b, "\n- 关注线程睡眠 %.3fms 中 %.3fms 已由链上解释。", hopSleep, attributed)
+						default:
+							fmt.Fprintf(&b, "\n- Of the focused thread's %.3fms sleep, %.3fms is explained on-chain.", hopSleep, attributed)
 						}
-					case zh:
-						fmt.Fprintf(&b, "\n- 关注线程睡眠 %.3fms 中 %.3fms 已由链上解释。", hopSleep, attributed)
-					default:
-						fmt.Fprintf(&b, "\n- Of the focused thread's %.3fms sleep, %.3fms is explained on-chain.", hopSleep, attributed)
 					}
 				}
 			}
@@ -10680,6 +11266,37 @@ func runtimeTraceProjHopOnlyTargetSleep(model runtimeTraceProjTreeModel) (float6
 		}
 	}
 	return max, winStart, winEnd
+}
+
+// runtimeTraceProjTargetIdleCarveMatch is the F-3 carve detector (CR-2 组③
+// P7, 2026-07-12): a rendered TARGET-SELF cadence-idle row (pacing_idle /
+// periodic_idle — the PACE-ROW carve-out of the sleep family) whose display
+// value Round3-equals the coverage numerator proves the chain-explained mass
+// is the carved segment, NOT a subset of the sleep-family total. Returns the
+// idle row's display word for the reworded sentence; ok=false on every other
+// shape (fail-open to the legacy wording).
+func runtimeTraceProjTargetIdleCarveMatch(model runtimeTraceProjTreeModel, attributed float64, zh bool) (string, bool) {
+	for _, row := range model.SelfRows {
+		kind := runtimeTraceProjIdleRowKind(row.Node)
+		if kind == "" || !row.HasData {
+			continue
+		}
+		if !runtimeTraceProjRound3Equal(runtimeTraceProjNodeDisplayImpact(row.Node), attributed) {
+			continue
+		}
+		word := "帧间空闲"
+		if kind == "periodic_idle" {
+			word = "周期空闲"
+		}
+		if !zh {
+			word = "pacing idle"
+			if kind == "periodic_idle" {
+				word = "periodic idle"
+			}
+		}
+		return word, true
+	}
+	return "", false
 }
 
 // runtimeTraceProjChainDataQueryWindow returns the SINGLE typed query window
@@ -11672,8 +12289,35 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 		}
 		actual := annotated(node.ActualImpactMS)
 		// RN-2b: no anchor window → no ⚠ (same gate as the tree tag).
-		if model.WindowMS > 0 && runtimeTraceProjCrossWindow(node) && node.ActualImpactMS > 0 {
-			actual += " ⚠"
+		// CR-2 组③ P7 (2026-07-12): the cell mirrors the tree tag's typed
+		// scope verdict — ⚠ only on a proven analysis-window crossing; an
+		// in-window overshoot speaks the episode word; interval-less actuals
+		// state so. F-5: a ×N merged row's cell value is the merge seed's
+		// SINGLE member actual — disclosed regardless of scope (the column
+		// definition promises 「该状态的真实完整时长」 and the fold row's
+		// reader otherwise reads it as the family account).
+		if model.WindowMS > 0 && node.ActualImpactMS > 0 {
+			switch row.ActualScope {
+			case runtimeTraceProjActualScopeAnalysisWindow:
+				actual += " ⚠" + runtimeTraceProjActualMemberQualifier(node, zh)
+			case runtimeTraceProjActualScopeEpisode:
+				// 修复轮 P4-b: one paren for scope + member qualifier.
+				if zh {
+					actual += "(" + runtimeTraceProjActualScopeParen("超出发生段,窗内", node, true) + ")"
+				} else {
+					actual += " (" + runtimeTraceProjActualScopeParen("beyond own episode, inside window", node, false) + ")"
+				}
+			case runtimeTraceProjActualScopeNoInterval:
+				if zh {
+					actual += "(" + runtimeTraceProjActualScopeParen("区间未发布", node, true) + ")"
+				} else {
+					actual += " (" + runtimeTraceProjActualScopeParen("interval unpublished", node, false) + ")"
+				}
+			default:
+				actual += runtimeTraceProjActualMemberQualifier(node, zh)
+			}
+		} else if node.ActualImpactMS > 0 && actual != dash {
+			actual += runtimeTraceProjActualMemberQualifier(node, zh)
 		}
 		// PTV8-RCR-C (§24.9 维度A F4 / §24.11 C-4, 2026-07-08). EVOLUTION
 		// RECORD: this column read node.Confidence while the tree 行2 and the
@@ -12190,6 +12834,22 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 				if !zh {
 					form = fmt.Sprintf("%d instances of one thread merged, all without measurable duration", node.MergedCount)
 				}
+			} else if row.FamilyMirrorRef != "" {
+				// CR-2 组② P5 family arm (F-1 残口, donghu E8/E9): the merged
+				// twin's members are the family row's per-CPU group SUMS —
+				// 「单次 a–b」 claimed segments that do not exist (the reader
+				// would hunt a 16ms stall that is really 11 × 2–4ms waits).
+				// The range keeps its own values under the group-sum caliber
+				// word, and the family's true single-segment extrema ride in
+				// (段 inventory 传播).
+				form = fmt.Sprintf("同一线程 %d 次实例合并求和,各成员 %.3f–%.3fms(按CPU分组合计,非单段;单段真值 %.3f–%.3fms 见家族行[%s]明细)",
+					node.MergedCount, node.MergedMinMS, node.MergedMaxMS,
+					row.FamilyMirrorSegMin, row.FamilyMirrorSegMax, row.FamilyMirrorRef)
+				if !zh {
+					form = fmt.Sprintf("%d instances of one thread merged as a SUM, members %.3f–%.3fms each (per-CPU group sums, not single segments; true single-segment range %.3f–%.3fms — see family row [%s])",
+						node.MergedCount, node.MergedMinMS, node.MergedMaxMS,
+						row.FamilyMirrorSegMin, row.FamilyMirrorSegMax, row.FamilyMirrorRef)
+				}
 			} else {
 				// PTV8-RCR-B (UXA 域B #19, 2026-07-08). EVOLUTION RECORD:
 				// 「求和口径」→ 客户话「同一线程 N 次实例合并求和」.
@@ -12248,6 +12908,33 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 					sep = ", "
 				}
 				add("窗来源", "window sources", strings.Join(windows, sep))
+			}
+		}
+		// CR-2 组② P5 equality arm: the folded raw-state mirror copies stay
+		// reachable — the lossless block names each absorbed E# explicitly.
+		if len(row.SameSegMirrorPeers) > 0 {
+			tags := make([]string, 0, len(row.SameSegMirrorPeers))
+			anyValueless := false
+			for _, peer := range row.SameSegMirrorPeers {
+				if peer.Valueless {
+					anyValueless = true
+				}
+				if tag := strings.TrimSpace(peer.EvidenceTag); tag != "" {
+					tags = append(tags, "["+tag+"]")
+				}
+			}
+			if len(tags) > 0 {
+				// 修复轮 P4-c: a valueless mirror never claims 同值 — the
+				// wording says 同段(无独立值) instead.
+				word, wordEN := "同段同值", "same-segment same-value"
+				if anyValueless {
+					word, wordEN = "同段(无独立值)", "same-segment (no independent value)"
+				}
+				line := fmt.Sprintf("裸状态车道%s镜像 %s 已并入本行,数值不重复计入", word, strings.Join(tags, " "))
+				if !zh {
+					line = fmt.Sprintf("raw-state lane %s mirror %s merged into this row; the value is never double-counted", wordEN, strings.Join(tags, " "))
+				}
+				add("同段合并", "same-seg merge", line)
 			}
 		}
 		if node.DuplicatePublications > 1 {

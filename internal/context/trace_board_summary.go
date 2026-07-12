@@ -44,6 +44,11 @@ type traceBoardRow struct {
 	effectiveMS string // preformatted value + caliber source word
 	caliber     string
 	confidence  float64
+	// representativeWindow is the row's FIRST typed occurrence window (CR-2
+	// 组③ P7 / F-4): labeled as one occurrence so the model never pairs the
+	// whole-window total with a single quoted window. "" when the record
+	// published no occurrence windows (absence never guesses).
+	representativeWindow string
 }
 
 // formatTraceRootCauseBoardFromLedger renders the typed board summary, or ""
@@ -71,6 +76,8 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 			tier:       notes[types.TraceNoteKeyTier],
 			caliber:    notes[types.TraceNoteKeyMemberFoldCaliber],
 			confidence: record.Confidence,
+			representativeWindow: traceBoardFirstOccurrenceWindow(
+				notes[types.TraceNoteKeyOccurrenceWindows]),
 		}
 		value, valueWord := traceBoardEffectiveValue(notes)
 		if value == "" {
@@ -94,7 +101,7 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 	sort.SliceStable(chain, func(i, j int) bool { return chain[i].rank < chain[j].rank })
 	sort.SliceStable(adjacent, func(i, j int) bool { return adjacent[i].rank < adjacent[j].rank })
 	var b strings.Builder
-	b.WriteString("The measured root-cause board below is the single authoritative ordering for this run. State root causes in THIS order; if your combined judgment deviates from it, keep the deviation explicit and say what it is based on — never reorder silently. Use these values verbatim (never sum rows together: they are per-thread wall-clock measurements), and describe each row's role with its own channel below — never demote an on-chain row to background noise.\n")
+	b.WriteString("The measured root-cause board below is the single authoritative ordering for this run. State root causes in THIS order; if your combined judgment deviates from it, keep the deviation explicit and say what it is based on — never reorder silently. Use these values verbatim (never sum rows together: they are per-thread wall-clock measurements), and describe each row's role with its own channel below — never demote an on-chain row to background noise. When a row lists representative_window, that window is ONE occurrence among several — the row's value aggregates across the whole query window, so never present the value as the duration of that single window.\n")
 	writeRow := func(row traceBoardRow, channelWord string) {
 		line := fmt.Sprintf("- #%d %s — %s · %s · channel=%s · confidence=%.2f", row.rank, channelWord, firstNonEmptyBoardField(row.subject, "(window-level)"), row.typeToken, row.channel, row.confidence)
 		line += " · " + row.effectiveMS
@@ -103,6 +110,12 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 		}
 		if row.tier != "" {
 			line += " · tier=" + row.tier
+		}
+		if row.representativeWindow != "" {
+			// CR-2 组③ P7 / F-4: the first typed occurrence window, labeled as
+			// one occurrence (the preamble carries the pairing rule) — the
+			// witnessed misread paired the whole-window total with one window.
+			line += " · representative_window=" + row.representativeWindow
 		}
 		b.WriteString(line + "\n")
 	}
@@ -143,6 +156,26 @@ func traceBoardEffectiveValue(notes map[string]string) (value, word string) {
 		return v, "window projection"
 	}
 	return "", ""
+}
+
+// traceBoardFirstOccurrenceWindow extracts the FIRST occurrence window from
+// the typed occurrence_windows note (windows separated by ';' or ','; each
+// window is "start..end") through the shared strict window parser — a
+// malformed head yields "" (never a fabricated window).
+func traceBoardFirstOccurrenceWindow(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	head := raw
+	if cut := strings.IndexAny(head, ";,"); cut >= 0 {
+		head = head[:cut]
+	}
+	head = strings.TrimSpace(head)
+	if _, _, ok := types.TraceCausalProjectionParseWindowValue(head); !ok {
+		return ""
+	}
+	return head
 }
 
 // traceBoardNoteMap parses the record's k=v rich notes (first writer wins —

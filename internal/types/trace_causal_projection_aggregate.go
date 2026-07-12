@@ -377,6 +377,14 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 	}
 	if survivor.ActualImpactMS <= 0 {
 		survivor.ActualImpactMS = loser.ActualImpactMS
+		// CR-2 组③ P7: the actual channel's physical interval travels WITH the
+		// value it bounds (one fact, one carrier pair) — a survivor adopting
+		// the loser's actual must adopt its interval, or the ⚠ containment
+		// gate would judge the value against a foreign/absent window.
+		if survivor.ActualWindowStartTs <= 0 && survivor.ActualWindowEndTs <= 0 {
+			survivor.ActualWindowStartTs = loser.ActualWindowStartTs
+			survivor.ActualWindowEndTs = loser.ActualWindowEndTs
+		}
 	}
 	if survivor.UndrillableReason == "" {
 		survivor.UndrillableReason = loser.UndrillableReason

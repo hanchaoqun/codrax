@@ -652,6 +652,10 @@ func TestRuntimeTraceProjTreeRowWidthCapKeepsPrimaryTagAndEvidence(t *testing.T)
 	warn := row
 	warn.Node.ActualImpactMS = 17.935
 	warn.Node.EffectiveImpactMS = 0
+	// CR-2 组③ P7 (2026-07-12): ⚠ now requires the typed interval verdict —
+	// direct-row fixtures stamp it the way the model build would for a proven
+	// analysis-window crossing (this pin guards MainRow layout mechanics).
+	warn.ActualScope = runtimeTraceProjActualScopeAnalysisWindow
 	warnLine := runtimeTraceProjTreeRowLine(warn, runtimeTraceProjTreeLabelWidth, 199.992, true, true)
 	warnMain := strings.Split(warnLine, "\n")[0]
 	if !strings.Contains(warnMain, "⚠实际17.935ms") {

@@ -89,6 +89,10 @@ func rcrOpendirProjection() types.TraceCausalProjection {
 				StateKind: "running", ChainRelevance: "on_chain", ChainDepth: 1,
 				ImpactMS: 58.919, CumulativeImpactMS: 58.919, EffectiveImpactMS: 37.410,
 				ActualImpactMS: actual, PriorityInversionCandidate: true,
+				// CR-2 组③ P7 (2026-07-12): ⚠ requires the typed interval — the
+				// fixture carries the physical extent that provably leaves the
+				// 33872.289–33872.409 anchor window (pin intent preserved).
+				ActualWindowStartTs: 33872.350, ActualWindowEndTs: 33872.4111,
 				GatedRunnableMS: 20.713, GatedRunningDeficitMS: 16.697, RunnableMS: 20.713,
 				MergedEvidenceIDs: []string{"op-e7-twin"},
 				LineStart:         45689, LineEnd: 79142, Confidence: 0.78},

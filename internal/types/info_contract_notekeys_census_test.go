@@ -27,6 +27,12 @@ package types
 //   4. soft_consumer keys must still be referenced SOMEWHERE in the
 //      engine/display packages (a fully dead soft row reddens; producer
 //      sites can false-green this arm — documented, conservative direction).
+//   5. 反向臂 (修复轮 R-P2-2, 2026-07-12): a soft_consumer key REFERENCED by
+//      the projection-compile files themselves (trace_causal_projection*.go
+//      — the node-field parse home; the ledger re-emission lane elsewhere in
+//      this package never counts) is a de-facto hard consumer and the carrier
+//      column under-reports — red until promoted through the NKR protocol.
+//      首跑实锤: actual_window / background_rank / total 三键即此形。
 
 import (
 	"os"
@@ -133,8 +139,27 @@ func infoContractNoteKeyConstants(t *testing.T) (direct, markerDerived map[strin
 	return direct, markerDerived
 }
 
+// infoContractReadProjectionSources reads ONLY the projection-compile files
+// (trace_causal_projection*.go) — the node-field parse home the 反向臂 scans.
+func infoContractReadProjectionSources(t *testing.T) string {
+	t.Helper()
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	skip := map[string]bool{}
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasPrefix(name, "trace_causal_projection") {
+			skip[name] = true
+		}
+	}
+	return infoContractReadSources(t, ".", skip)
+}
+
 func TestInfoContractNoteKeyCarrierTruth(t *testing.T) {
 	compileSrc := infoContractReadSources(t, ".", map[string]bool{"trace_note_keys.go": true})
+	projectionSrc := infoContractReadProjectionSources(t)
 	broadSrc := compileSrc +
 		infoContractReadSources(t, "../tool", nil) +
 		infoContractReadSources(t, "../tracequery", nil) +
@@ -170,6 +195,10 @@ func TestInfoContractNoteKeyCarrierTruth(t *testing.T) {
 		case TraceNoteCarrierSoftConsumer:
 			if !referenced(broadSrc, row.Key) {
 				t.Errorf("键 %q 注册 soft_consumer 但引擎/显示包零引用(死行)", row.Key)
+			}
+			// 反向臂 (R-P2-2): compile-parsed soft keys under-report.
+			if referencedVia(projectionSrc, row.Key, direct) {
+				t.Errorf("键 %q 注册 soft_consumer 却被投影编译解析(载体列低报——经 NKR 协议升格 hard_consumer 并同步 golden)", row.Key)
 			}
 		}
 	}

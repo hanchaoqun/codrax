@@ -205,6 +205,11 @@ func TestRNCrossWindowMarkerSuppressedWithoutAnchorWindow(t *testing.T) {
 			StateKind: "s_sleep", ChainRelevance: "on_chain",
 			ImpactMS: 30.0, CumulativeImpactMS: 30.0,
 			ActualImpactMS: 80.0, // > baseline*1.001 → numeric cross shape
+			// CR-2 组③ P7 (2026-07-12): the ⚠ word face now requires the typed
+			// interval verdict — the fixture carries the physical interval that
+			// provably leaves the anchor window (100.0–100.2), preserving this
+			// pin's original intent (anchored render keeps ⚠).
+			ActualWindowStartTs: 100.15, ActualWindowEndTs: 100.23,
 		}
 		p := types.TraceCausalProjection{OnChainCauses: []types.TraceCausalProjectionNode{node}}
 		if withWindow {

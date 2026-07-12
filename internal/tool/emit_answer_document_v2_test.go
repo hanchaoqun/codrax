@@ -784,7 +784,7 @@ func TestEmitAnswerDocumentV2_MetricSnapshotWindowBasisZH(t *testing.T) {
 	// is retired (负向臂 below — 回现即红).
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 选定窗→查询窗,
 	// 实际对齐窗→数据实际覆盖 (窗族); share denominator lives in the header paren.
-	for _, want := range []string{"状态时长(括号为占该线程观测时长比例)", "running 3.500ms(41%)", "窗口基准: 查询窗;数据实际覆盖: 影响 6.000ms"} {
+	for _, want := range []string{"状态时长(括号为占该线程观测时长比例)", "running 3.500ms(41%)", "窗口基准: 查询窗;实际状态段跨度(活动切片,非全窗事件覆盖): 影响 6.000ms"} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("snapshot missing window basis %q:\n%s", want, line)
 		}
@@ -841,7 +841,7 @@ func TestEmitAnswerDocumentV2_MetricSnapshotWindowBasisEndpointsZH(t *testing.T)
 	// inline — the intermediate-record pointer is retired.
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 选定窗→查询窗,
 	// 实际对齐窗→数据实际覆盖 (窗族).
-	if !strings.Contains(line, "窗口基准: 查询窗 3679.899s–3681.130s;数据实际覆盖: 影响 6.000ms") {
+	if !strings.Contains(line, "窗口基准: 查询窗 3679.899s–3681.130s;实际状态段跨度(活动切片,非全窗事件覆盖): 影响 6.000ms") {
 		t.Fatalf("snapshot window basis must render the selected-window endpoints:\n%s", line)
 	}
 	if strings.Contains(line, "见原始 trace_query 记录") {
@@ -902,7 +902,7 @@ func TestEmitAnswerDocumentV2_MetricSnapshotEnglishHumanized(t *testing.T) {
 		"switching: 20 switches/21 segments",
 		"longest segment 0.500ms",
 		"p95 segment 0.500ms",
-		"window basis: selected window (actual data coverage: impact 6.000ms)",
+		"window basis: selected window (actual segment span (active slice, not full-window event coverage): impact 6.000ms)",
 	} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("EN snapshot missing %q:\n%s", want, line)

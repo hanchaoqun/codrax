@@ -75,6 +75,28 @@ func TestTraceRootCauseBoardSummaryAuthoritativeOrder(t *testing.T) {
 	}
 }
 
+// CR-2 组③ P7 / F-4 (冷读 F-4, 2026-07-12; witness tieba 20260712-135155
+// prose: 「runnable_wait 窗口 — 34579.568118s–34579.572194s(25.847ms)」 — the
+// whole-window total paired with ONE occurrence window). The board summary
+// labels a row's representative window as one occurrence and teaches the
+// value-window pairing rule (soft data-feeding lane, never a gate).
+func TestTraceRootCauseBoardSummaryLabelsRepresentativeWindow(t *testing.T) {
+	ledger := traceBoardTestLedger()
+	ledger.Records[0].RichNotes = append(ledger.Records[0].RichNotes,
+		"occurrence_windows=34579.568118..34579.572194;34579.579001..34579.581200")
+	summary := formatTraceRootCauseBoardFromLedger(ledger)
+	if !strings.Contains(summary, "representative_window=34579.568118..34579.572194") {
+		t.Fatalf("a row with occurrence windows must label its representative window:\n%s", summary)
+	}
+	if !strings.Contains(summary, "ONE occurrence among several") {
+		t.Fatalf("the preamble must teach the value-window pairing rule:\n%s", summary)
+	}
+	// Rows without occurrence windows stay byte-identical (no fabricated window).
+	if strings.Contains(summary, "keva-1-17437 · sleep_wait · channel=chain · confidence=0.74 · representative_window") {
+		t.Fatalf("windowless rows must not gain a representative window:\n%s", summary)
+	}
+}
+
 func TestTraceRootCauseBoardSummarySilentWithoutTraceObservations(t *testing.T) {
 	ledger := types.ObservationLedger{Records: []types.ObservationRecord{{
 		ID:       "current",

@@ -633,6 +633,12 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		runtimeTraceProjMarkIconPacing: {"∿", "∿"},
 		// V2-P0 (2026-07-12): the ⌗ 口径旁栏 disclosure word.
 		runtimeTraceProjMarkCaliberSideRow: {"⌗口径旁栏", "⌗ caliber-side"},
+		// CR-2 组② P5: the same-segment mirror tag (equality arm 同段镜像已并入
+		// / family arm 同段镜像·与家族行同源 — the probe hits the shared stem).
+		runtimeTraceProjMarkSameSegMirror: {"同段镜像", "same-seg mirror"},
+		// CR-2 组③ P7: the typed actual-scope word faces.
+		runtimeTraceProjMarkActualBeyondEpisode: {"超出发生段,窗内", "beyond own episode, inside window"},
+		runtimeTraceProjMarkActualNoInterval:    {"区间未发布", "interval unpublished"},
 		// PTV5 PTS: the on-chain overflow fold row's lane word.
 		runtimeTraceProjMarkOnChainOverflowFold: {"链上折叠", "on-chain fold"},
 		// PTV6-C ruling A (#73): the ◇/▒ cross-thread cumulative family word.
@@ -1289,6 +1295,15 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// (count + composite-score) + their legend entry (fixture home:
 		// answer_document_projection_v2p0_test.go).
 		{"v2p0_caliber_side", types.TraceCausalProjectionFromObservationRecords(v2p0CaliberRecords())},
+		// CR-2 组② P5 (2026-07-12): the same-segment mirror tag (equality arm,
+		// 14704 双席 shape) + its legend entry (fixture home:
+		// answer_document_projection_cr2_p5_test.go).
+		{"cr2_p5_same_seg_mirror", cr2P5EqualityArmProjection()},
+		// CR-2 组③ P7 (2026-07-12): the typed actual-scope word faces —
+		// in-window overshoot (episode) + interval-less disclosure (fixture
+		// home: answer_document_projection_cr2_p7_test.go).
+		{"cr2_p7_actual_episode", cr2P7Projection(cr2P7Node(16.433, 15.565, 13762.991547, 13763.008274))},
+		{"cr2_p7_actual_no_interval", cr2P7Projection(cr2P7Node(16.433, 15.565, 0, 0))},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

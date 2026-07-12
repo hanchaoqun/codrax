@@ -396,6 +396,18 @@ type TraceCausalProjectionNode struct {
 	// refuse one).
 	EffectiveImpactPublished bool    `json:"effective_impact_published,omitempty"`
 	ActualImpactMS           float64 `json:"actual_impact_ms,omitempty"`
+	// ActualWindowStartTs/EndTs is the physical extent of the underlying
+	// scheduler-state segment behind ActualImpactMS — the producer's typed
+	// actual_window note through the ONE strict window parser (CR-2 组③ P7,
+	// ledger §29.42, 2026-07-12). The ⚠ 词面 gate consumes it: 「实际状态跨出
+	// 分析窗」 may only render when this interval provably leaves the analysis
+	// window (interval containment — a value comparison alone proved false on
+	// 11 rows, 冷读案19: the actual exceeded the row's own OCCURRENCE
+	// sub-window while sitting fully inside the analysis window). Zero when
+	// the producer published no interval (absence never guesses — and never
+	// mints a ⚠).
+	ActualWindowStartTs float64 `json:"actual_window_start_ts,omitempty"`
+	ActualWindowEndTs   float64 `json:"actual_window_end_ts,omitempty"`
 	// SemanticChainProjectedMS (审计 #5/#62, §29.25 处置委托 + §29.26 待主会话
 	// 落账, 2026-07-10) is the engine's exact member∩chain intersection union
 	// of an ON-CHAIN trace_semantic_span record — the ONE participation value
@@ -2681,6 +2693,14 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	node.EffectiveImpactPublished = !strings.HasPrefix(strings.TrimSpace(record.ClaimKey), "root_evidence:") &&
 		traceCausalProjectionRichNoteAnyPresent(record.RichNotes, TraceNoteKeyEffectiveImpactMS, TraceNoteKeyEffectiveImpact)
 	node.ActualImpactMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyActualImpactMS, TraceNoteKeyActualImpact)
+	// CR-2 组③ P7 (2026-07-12): the actual channel's physical interval — the
+	// same strict window parser as every window-valued note (malformed notes
+	// leave the pair zero, never a fabricated interval).
+	if raw := strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyActualWindow)); raw != "" {
+		if start, end, ok := TraceCausalProjectionParseWindowValue(raw); ok {
+			node.ActualWindowStartTs, node.ActualWindowEndTs = start, end
+		}
+	}
 	// 审计 #5/#62 (§29.25 处置委托 + §29.26 待主会话落账, 2026-07-10): the
 	// on-chain semantic-span intersection participation — promoted from the
 	// producer's projected_impact (family) / overlap (single-span) notes,
@@ -3151,12 +3171,41 @@ func traceCausalProjectionLimitNodesOnChainFold(nodes []TraceCausalProjectionNod
 			seatedDataGapSubjects[traceCausalProjectionCanonicalNode(member.Subject)] {
 			continue // G2: the individual stanza seat is the single publication
 		}
+		// CR-2 组① P4 徽章-图例闭合 (§29.42 P4, witness 冷读 F-6 2026-07-12):
+		// a published TOP-5 seat row NEVER folds — the fold roster wears no
+		// badge and takes no ordinal, so folding seat #2 deleted ❷ from every
+		// render surface while the legend kept promising ❶..❺ (donghu
+		// JankManager 16.687ms swallowed by 「其余 7 项(链上折叠)」). 持席行
+		// (typed engine Rank ∈ 1..TopN) is the v5 E.3 永不折叠白名单 realized
+		// at the compile fold: it stays an individual row after the kept
+		// block, and the fold count honestly shrinks (same accounting rule as
+		// the G2 carve-out above).
+		if traceCausalProjectionSeatFoldExempt(member) {
+			kept = append(kept, member)
+			continue
+		}
 		overflow = append(overflow, member)
 	}
 	if len(overflow) == 0 {
 		return kept
 	}
 	return append(kept, traceCausalProjectionOverflowFoldRow(overflow))
+}
+
+// TraceCausalProjectionSeatFoldExemptTopN is the seat population whose rows are
+// exempt from the counted overflow folds — exactly the ❶..❺ badge promise
+// (display parity pinned against runtimeTraceProjBadgeTopN by
+// TestCR2P4SeatExemptTopNMatchesBadgeTopN in internal/tool).
+const TraceCausalProjectionSeatFoldExemptTopN = 5
+
+// traceCausalProjectionSeatFoldExempt reports whether the node holds a
+// published TOP-N root-cause seat (typed engine Rank, precise integer signal —
+// never a score/heuristic): such rows are white-listed out of the overflow
+// folds so the badge/ordinal promise survives the cap (CR-2 P4). Fold rows
+// themselves never qualify (a roster carries no seat by construction).
+func traceCausalProjectionSeatFoldExempt(node TraceCausalProjectionNode) bool {
+	return !node.OnChainOverflowFold &&
+		node.Rank >= 1 && node.Rank <= TraceCausalProjectionSeatFoldExemptTopN
 }
 
 // traceCausalProjectionSeatedDataGapSubjects collects the canonical subjects
@@ -3214,6 +3263,12 @@ func traceCausalProjectionLimitHopsFold(hops, onChain []TraceCausalProjectionNod
 	for _, member := range hops[limit:] {
 		if id := traceCausalProjectionCanonicalNode(member.EvidenceID); id != "" && represented[id] {
 			continue // cross-bucket overlap: already represented on the on-chain surface
+		}
+		// CR-2 组① P4: the hop fold shares the seat white-list — one promise,
+		// one predicate (see traceCausalProjectionLimitNodesOnChainFold).
+		if traceCausalProjectionSeatFoldExempt(member) {
+			kept = append(kept, member)
+			continue
 		}
 		overflow = append(overflow, member)
 	}

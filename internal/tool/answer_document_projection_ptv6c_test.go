@@ -562,15 +562,18 @@ func TestPTV6CAggregateRowsIdleTheCumEffTagFamily(t *testing.T) {
 // window; the state values still inline.
 func TestPTV6CActualWindowInlineStrictParse(t *testing.T) {
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 实际对齐窗 →
-	// 数据实际覆盖 (窗族).
+	// 数据实际覆盖 (窗族). CR-2 组③ P7 (F5-1, 2026-07-12): 数据实际覆盖 →
+	// 实际状态段跨度(活动切片,非全窗事件覆盖) — the note is a segment
+	// envelope, never a data-coverage claim; the strict-parser pin is
+	// unchanged (malformed endpoints still drop, nothing fabricated).
 	record := types.ObservationRecord{
 		RichNotes: []string{"actual_window=3681.2..3679.1", "actual_running=0.987"},
 	}
-	if got := runtimeTraceMetricSnapshotActualInline(record, true); got != "数据实际覆盖: running 0.987ms" {
+	if got := runtimeTraceMetricSnapshotActualInline(record, true); got != "实际状态段跨度(活动切片,非全窗事件覆盖): running 0.987ms" {
 		t.Fatalf("malformed window must drop endpoints only: %q", got)
 	}
 	record.RichNotes[0] = "actual_window=3679.899436..3681.129875"
-	if got := runtimeTraceMetricSnapshotActualInline(record, true); got != "数据实际覆盖 3679.899s–3681.130s: running 0.987ms" {
+	if got := runtimeTraceMetricSnapshotActualInline(record, true); got != "实际状态段跨度 3679.899s–3681.130s(活动切片,非全窗事件覆盖): running 0.987ms" {
 		t.Fatalf("strict-parsed window must inline at %%.3f: %q", got)
 	}
 }

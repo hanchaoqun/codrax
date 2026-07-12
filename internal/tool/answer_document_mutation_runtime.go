@@ -1205,10 +1205,10 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 			"- 窗口投影 = 该节点的状态落在分析窗内的时长;跨线程聚合行按跨线程累计计量(非墙钟,单元格已标注)。",
 			"- 链上累计 = 该节点及其下钻子链沿唤醒链累计到关注线程的投影时长。",
 			"- 有效归因 = 该行计入根因排序的影响时长;与窗口投影不同时,行内口径词(全额/折算/单次最大等)说明取值方式。",
-			"- 实际状态 = 该状态的真实完整时长,可跨出分析窗(此时带 ⚠)。",
+			"- 实际状态 = 该状态的真实完整时长,可跨出分析窗(此时带 ⚠);×N 合并行该列为合并种子单次成员的实际值(标注 单次成员),非族合计。",
 			"- 「—」 = 该列对此节点无值。",
 			"- ⊘ = 窗口内无匹配唤醒事件(sched_wakeup),链止于此(同树内 ⊘链止)。",
-			"- ⚠ = 实际状态跨出分析窗(同树内 ⚠实际Xms)。",
+			"- ⚠ = 实际状态区间确证跨出分析窗(同树内 ⚠实际Xms);仅超出该行自身发生段而未跨分析窗时标注(超出发生段,窗内),区间未随数据发布时标注(区间未发布),均不作跨窗声明。",
 			"- 背景行仅作环境压力证据,不计入链上归因。",
 			"- 本表只列时长与置信;每个节点的类型、因果位置、关系、影响形态、×N 成员清单与完整名称,见下方「因果投影明细」。",
 		}
@@ -1218,10 +1218,10 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 				"- window projection = the duration of the node's state inside the analysis window; cross-thread aggregate rows measure a cross-thread cumulative (not wall clock; cells carry the annotation).",
 				"- chain total = the projected duration this node plus its drill-down sub-chain accumulate toward the focused thread along the wakeup chain.",
 				"- attribution = the impact duration this row contributes to the root-cause ranking; when it differs from the window projection, the row's caliber word (in full / discounted / single max …) says how it was taken.",
-				"- actual state = the state's true full duration; it may extend beyond the analysis window (then marked ⚠).",
+				"- actual state = the state's true full duration; it may extend beyond the analysis window (then marked ⚠); on a ×N merged row this column is the merge seed's single-member actual (marked single member), never the family total.",
 				"- “—” = no value in this column for this node.",
 				"- ⊘ = no matching wakeup event (sched_wakeup) in the window; the chain ends there (same as the tree's ⊘chain-ends mark).",
-				"- ⚠ = the actual state extends beyond the analysis window (same as the tree's ⚠actual mark).",
+				"- ⚠ = the actual interval provably crosses the analysis window (same as the tree's ⚠actual mark); an overshoot beyond the row's own episode that stays inside the window is marked (beyond own episode, inside window), and an unpublished interval is marked (interval unpublished) — neither claims a window crossing.",
 				"- Background rows are context-pressure evidence only, never counted into the chain attribution.",
 				"- This table lists durations and confidence only; each node's type, causal position, relation, impact shape, ×N member roster and full name live in the Causal Projection Detail below.",
 			}
@@ -3073,6 +3073,25 @@ func newRuntimeTraceCausalProjectionEvidenceIndex() *runtimeTraceCausalProjectio
 	return &runtimeTraceCausalProjectionEvidenceIndex{seen: map[string]string{}}
 }
 
+// has reports whether the node already holds an E# — i.e. the tag was
+// allocated by the model walk and therefore EXISTS in the rendered evidence
+// index. 修复轮 D1 (冷读 2026-07-12, donghu r2 witness): the optimization
+// table re-tags spans through the same walk-rebuilt index; a span the walk
+// never rendered would mint a FRESH number past the printed index (「证据
+// E39」 with the index ending at E38 — a dangling pointer on a deterministic
+// surface). Consumers use this to fall back to an inline locator instead.
+func (idx *runtimeTraceCausalProjectionEvidenceIndex) has(node types.TraceCausalProjectionNode) bool {
+	if idx == nil {
+		return false
+	}
+	ref := runtimeTraceCausalProjectionEvidenceRef(node)
+	if strings.TrimSpace(ref) == "" {
+		return false
+	}
+	key := strings.TrimSpace(ref) + "\x00" + runtimeTraceCausalProjectionNodeKey(node)
+	return idx.seen[key] != ""
+}
+
 func (idx *runtimeTraceCausalProjectionEvidenceIndex) add(node types.TraceCausalProjectionNode, zh bool) string {
 	if idx == nil {
 		return ""
@@ -4497,6 +4516,22 @@ func runtimeTraceSemanticOptimizationSkipCaveat(doc *types.AnswerDocumentV2, zh 
 // host thread, effective cost (EffectiveImpactMS with the display-impact
 // fallback), and the shared E# evidence tag. CitationRef=-1 on every
 // system-injected row (red-line invariant).
+// runtimeTraceSemanticSpanInlineLocator renders a span's own trace locator
+// (time window first, line span fallback) for surfaces that must not mint a
+// fresh E# (修复轮 D1). "" when the span carries neither coordinate.
+func runtimeTraceSemanticSpanInlineLocator(span types.TraceCausalProjectionNode, zh bool) string {
+	if span.StartTs > 0 && span.EndTs > span.StartTs {
+		return fmt.Sprintf("[%.3f–%.3fs]", span.StartTs, span.EndTs)
+	}
+	if span.LineStart > 0 && span.LineEnd >= span.LineStart {
+		if zh {
+			return fmt.Sprintf("行 %d–%d", span.LineStart, span.LineEnd)
+		}
+		return fmt.Sprintf("lines %d–%d", span.LineStart, span.LineEnd)
+	}
+	return ""
+}
+
 func runtimeTraceSemanticOptimizationParts(projection types.TraceCausalProjection, evidence *runtimeTraceCausalProjectionEvidenceIndex, zh bool) ([]string, []types.AnswerBlockItem) {
 	columns := []string{tracefence.ActionWordZH, "类别", "宿主线程", "有效成本", "证据"}
 	if !zh {
@@ -4531,7 +4566,17 @@ func runtimeTraceSemanticOptimizationParts(projection types.TraceCausalProjectio
 		if cost > 0 {
 			costCell = fmt.Sprintf("%.3fms", cost)
 		}
-		tag := runtimeTraceProjEvidenceTag(span, evidence, zh)
+		// 修复轮 D1 (冷读 donghu r2 「证据 E39」悬空, 2026-07-12): an E# renders
+		// ONLY when the model walk already allocated it (the tag then exists in
+		// the printed evidence index). A span the walk never rendered falls
+		// back to its own inline trace locator — groundable directly, never a
+		// pointer past the index's last row.
+		tag := ""
+		if evidence.has(span) {
+			tag = runtimeTraceProjEvidenceTag(span, evidence, zh)
+		} else {
+			tag = runtimeTraceSemanticSpanInlineLocator(span, zh)
+		}
 		if tag == "" {
 			tag = dash
 		}
@@ -4944,10 +4989,12 @@ func (c runtimeTraceMetricSnapshotContext) spanMismatchNote(record types.Observa
 	if totalMS <= 0 || totalMS <= windowMS*2 {
 		return ""
 	}
+	// CR-2 组③ P7 (F5-1 word-face family, 2026-07-12): the compared magnitude
+	// is the thread's OBSERVED STATE TOTAL, not a data-coverage span.
 	if zh {
-		return fmt.Sprintf("(数据实际覆盖 %.1fs,远超分析窗,仅供背景参考)", totalMS/1000)
+		return fmt.Sprintf("(该线程观测状态合计 %.1fs,远超分析窗,仅供背景参考)", totalMS/1000)
 	}
-	return fmt.Sprintf(" (actual data coverage %.1fs, far beyond the analysis window — background reference only)", totalMS/1000)
+	return fmt.Sprintf(" (thread observed state total %.1fs, far beyond the analysis window — background reference only)", totalMS/1000)
 }
 
 // runtimeTraceMetricSnapshotObservedSpanMS returns the thread's own observed
@@ -5212,9 +5259,20 @@ func runtimeTraceMetricSnapshotDisplayText(record types.ObservationRecord, zh bo
 		stateEntry("D-state", types.TraceNoteKeyDState),
 		stateEntry("iowait", types.TraceNoteKeyIOWait),
 	}
+	// CR-2 组③ P7 (F5-1, 2026-07-12): a wakeup-lane snapshot row's per-state
+	// durations are CHAIN-EPISODE-scoped (the record measures the thread's
+	// states inside one chain occurrence, not the query window) — the head
+	// must say so, or 「running 0.000ms」 beside 「查询窗 X–Y」 reads as a
+	// full-window statistic (tieba 主线程 witness: episode running 0.000 vs
+	// raw full-window 26.9ms). Precise predicate fork; state_churn records
+	// (true query-window accumulation) keep the legacy head byte-for-byte.
+	episodeScoped := runtimeTraceMetricSnapshotEpisodeScoped(record)
 	var text string
 	if zh {
 		head := "状态时长(括号为占该线程观测时长比例): "
+		if episodeScoped {
+			head = "链上发生段内状态时长(仅统计该链上发生段,非查询窗全量;括号为占该段观测时长比例): "
+		}
 		if dominantEntry != "" {
 			head += "主导 " + dominantEntry + ";"
 		}
@@ -5224,6 +5282,9 @@ func runtimeTraceMetricSnapshotDisplayText(record types.ObservationRecord, zh bo
 			",P95 段长 " + ms(types.TraceNoteKeyP95Segment)
 	} else {
 		head := "state durations (parentheses = share of this thread's observed span): "
+		if episodeScoped {
+			head = "on-chain episode state durations (episode-scoped only, not the full query window; parentheses = share of the episode's observed span): "
+		}
 		if dominantEntry != "" {
 			head += "dominant " + dominantEntry + "; "
 		}
@@ -5257,20 +5318,28 @@ func runtimeTraceMetricSnapshotDisplayText(record types.ObservationRecord, zh bo
 			if endpoints != "" {
 				basis += " " + endpoints
 			}
+			if episodeScoped {
+				// CR-2 组③ P7 (F5-1): the query window is where the chain was
+				// SEARCHED, not what this row's values account for.
+				basis += "(检索范围,非该行统计范围)"
+			}
 			if actual != "" {
 				basis += ";" + actual
 			} else {
-				basis += "(另有按数据实际覆盖统计的数值)"
+				basis += "(另有按实际状态段跨度统计的数值)"
 			}
 		} else {
 			basis = "; window basis: selected window"
 			if endpoints != "" {
 				basis += " " + endpoints
 			}
+			if episodeScoped {
+				basis += " (search scope, not this row's accounting scope)"
+			}
 			if actual != "" {
 				basis += " (" + actual + ")"
 			} else {
-				basis += " (an aligned actual-window caliber also exists)"
+				basis += " (an actual segment-span caliber also exists)"
 			}
 		}
 		text += basis
@@ -5335,17 +5404,55 @@ func runtimeTraceMetricSnapshotActualInline(record types.ObservationRecord, zh b
 		return ""
 	}
 	// PTV8-RCR-B (UXA 域D #15/#33 窗族): 实际对齐窗 → 数据实际覆盖.
-	head := "数据实际覆盖"
+	// EVOLUTION RECORD (CR-2 组③ P7 / F5-1 已立案复现, 2026-07-12): 数据实际
+	// 覆盖 → 实际状态段跨度(活动切片,非全窗事件覆盖). The actual_window note
+	// is the envelope of the scheduler-state segments that fed THIS row —
+	// never a statement about how far the thread's trace data reaches
+	// (donghu CompThread: 「覆盖 13762.988–13763.010」 while raw events span
+	// the whole window; reading it as data coverage was the F5-1 misdirection).
+	head := "实际状态段跨度"
+	caliber := "(活动切片,非全窗事件覆盖)"
 	if !zh {
-		head = "actual data coverage"
+		head = "actual segment span"
+		caliber = " (active slice, not full-window event coverage)"
 	}
 	if window != "" {
 		head += " " + window
 	}
+	head += caliber
 	if len(parts) == 0 {
 		return head
 	}
 	return head + ": " + strings.Join(parts, "/")
+}
+
+// runtimeTraceMetricSnapshotEpisodeScoped reports whether the snapshot record's
+// per-state durations were measured inside ONE chain occurrence (the wakeup
+// lanes) instead of accumulated over the query window (state_churn). Two
+// precise signals (CR-2 组③ P7 / F5-1):
+//   - the wakeup-lane predicates; and
+//   - the actual_window note — the underlying segment envelope is minted
+//     EXCLUSIVELY by the occurrence-scoped wakeup measurement lanes. The
+//     chain-derived rank rows qualify for the snapshot through their summary
+//     tokens while carrying a root_cause_* predicate (donghu replay witness
+//     2026-07-12: the CompThread/JankManager snapshot rows rode that lane and
+//     the predicate arm alone missed them). state_churn rows (true
+//     query-window accumulation) never publish actual_window and keep the
+//     legacy head byte-for-byte; rows with neither signal stay legacy too
+//     (no typed scope proof, no scope claim).
+func runtimeTraceMetricSnapshotEpisodeScoped(record types.ObservationRecord) bool {
+	switch strings.TrimSpace(record.Predicate) {
+	case "wakeup_causal_impact", "wakeup_causal_aggregate":
+		return true
+	case "state_churn":
+		return false
+	}
+	for _, note := range record.RichNotes {
+		if strings.HasPrefix(strings.TrimSpace(note), types.TraceNoteKeyActualWindow+"=") {
+			return true
+		}
+	}
+	return false
 }
 
 // runtimeTraceRecordHasActualWindowValues reports whether the record publishes

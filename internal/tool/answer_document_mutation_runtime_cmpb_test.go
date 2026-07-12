@@ -134,7 +134,7 @@ func TestRuntimeTraceMetricSnapshot_SpanMismatchAnnotation(t *testing.T) {
 		t.Fatalf("expected two snapshot rows, got %+v", items)
 	}
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 观测跨度 → 数据实际覆盖;远超投影窗 → 远超分析窗 (窗族)
-	if !strings.Contains(items[0].Text, "(数据实际覆盖 2.5s,远超分析窗,仅供背景参考)") {
+	if !strings.Contains(items[0].Text, "(该线程观测状态合计 2.5s,远超分析窗,仅供背景参考)") {
 		t.Fatalf("2500ms span vs 1000ms window must carry the mismatch note:\n%s", items[0].Text)
 	}
 	if strings.Contains(items[1].Text, "远超分析窗") {
@@ -294,10 +294,10 @@ func TestRuntimeTraceMetricSnapshotDisplayText_SelectedWindowEndpoints(t *testin
 		},
 	}
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 选定窗 → 查询窗;实际对齐窗 → 数据实际覆盖 (窗族;aligned clause 拆平为 ";" 并列;EN keeps "selected window" + "actual data coverage")
-	if zhText := runtimeTraceMetricSnapshotDisplayText(record, true); !strings.Contains(zhText, "窗口基准: 查询窗 3679.899s–3681.130s;数据实际覆盖: 影响 6.000ms") {
+	if zhText := runtimeTraceMetricSnapshotDisplayText(record, true); !strings.Contains(zhText, "窗口基准: 查询窗 3679.899s–3681.130s;实际状态段跨度(活动切片,非全窗事件覆盖): 影响 6.000ms") {
 		t.Fatalf("ZH snapshot basis must carry the selected-window endpoints:\n%s", zhText)
 	}
-	if enText := runtimeTraceMetricSnapshotDisplayText(record, false); !strings.Contains(enText, "window basis: selected window 3679.899s–3681.130s (actual data coverage: impact 6.000ms)") {
+	if enText := runtimeTraceMetricSnapshotDisplayText(record, false); !strings.Contains(enText, "window basis: selected window 3679.899s–3681.130s (actual segment span (active slice, not full-window event coverage): impact 6.000ms)") {
 		t.Fatalf("EN snapshot basis must carry the selected-window endpoints:\n%s", enText)
 	}
 
@@ -305,14 +305,14 @@ func TestRuntimeTraceMetricSnapshotDisplayText_SelectedWindowEndpoints(t *testin
 	// byte-identical, no fabricated endpoints.
 	record.RichNotes[len(record.RichNotes)-1] = "selected_window=3681.129875..3679.899436"
 	zhText := runtimeTraceMetricSnapshotDisplayText(record, true)
-	if !strings.Contains(zhText, "窗口基准: 查询窗;数据实际覆盖: 影响 6.000ms") {
+	if !strings.Contains(zhText, "窗口基准: 查询窗;实际状态段跨度(活动切片,非全窗事件覆盖): 影响 6.000ms") {
 		t.Fatalf("malformed note must keep the endpoint-less ZH basis wording:\n%s", zhText)
 	}
 	if strings.Contains(zhText, "查询窗 3") {
 		t.Fatalf("malformed note must not render endpoints:\n%s", zhText)
 	}
 	enText := runtimeTraceMetricSnapshotDisplayText(record, false)
-	if !strings.Contains(enText, "window basis: selected window (actual data coverage: impact 6.000ms)") {
+	if !strings.Contains(enText, "window basis: selected window (actual segment span (active slice, not full-window event coverage): impact 6.000ms)") {
 		t.Fatalf("malformed note must keep the endpoint-less EN basis wording:\n%s", enText)
 	}
 }

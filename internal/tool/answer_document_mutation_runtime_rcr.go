@@ -1229,6 +1229,13 @@ func runtimeTraceProjCauseEvidenceRef(row runtimeTraceProjTreeRow) string {
 			ref += "+" + tag
 		}
 	}
+	// CR-2 组② P5 equality arm: the folded raw-state mirror's E# joins the
+	// bracket the same way (the mirror observation stays reachable).
+	for _, peer := range row.SameSegMirrorPeers {
+		if tag := strings.TrimSpace(peer.EvidenceTag); tag != "" {
+			ref += "+" + tag
+		}
+	}
 	return "[" + ref + "]"
 }
 

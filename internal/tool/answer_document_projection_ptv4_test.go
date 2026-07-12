@@ -45,6 +45,10 @@ func TestPTV4MainRowEssentialsSurviveOversizedTags(t *testing.T) {
 		},
 		Kind: runtimeTraceProjTreeRowChain, Edge: runtimeTraceProjTreeEdgeDrill,
 		Depth: 1, HasData: true, EvidenceTag: "E4",
+		// CR-2 组③ P7 (2026-07-12): ⚠ now requires the typed interval verdict —
+		// stamped as the model build would for a proven crossing (this pin
+		// guards MainRow layout mechanics, not the verdict).
+		ActualScope: runtimeTraceProjActualScopeAnalysisWindow,
 	}
 	line := runtimeTraceProjTreeRowLine(row, runtimeTraceProjTreeLabelWidth, 114.940, true, true)
 	lines := strings.Split(line, "\n")

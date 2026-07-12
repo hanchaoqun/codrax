@@ -192,9 +192,13 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"RankQueryWindowStartTs":        {Status: "displayed", Ref: "多榜窗 chip(根因排序#N·窗X)"},
 	"RankQueryWindowEndTs":          {Status: "displayed", Ref: "多榜窗 chip"},
 	"MergedActualDonorCumulativeMS": {Status: "internal_gate", Ref: "W-6 纯判官字段(DISP-3 假⚠ carve-out)"},
-	"DuplicatePublications":         {Status: "displayed", Ref: "行1 ×N同值 + 明细重复发布"},
-	"MergedSubjects":                {Status: "displayed", Ref: "×N 成员清单"},
-	"SecondaryObjects":              {Status: "displayed", Ref: "明细影响点清单"},
+	// CR-2 组③ P7 (2026-07-12): the actual channel's physical interval — the
+	// ⚠/超出发生段/区间未发布 word-face containment judge (never printed raw).
+	"ActualWindowStartTs":   {Status: "internal_gate", Ref: "CR-2 P7 ⚠ 词面区间包含判官(runtimeTraceProjActualWindowScope)"},
+	"ActualWindowEndTs":     {Status: "internal_gate", Ref: "CR-2 P7 ⚠ 词面区间包含判官(runtimeTraceProjActualWindowScope)"},
+	"DuplicatePublications": {Status: "displayed", Ref: "行1 ×N同值 + 明细重复发布"},
+	"MergedSubjects":        {Status: "displayed", Ref: "×N 成员清单"},
+	"SecondaryObjects":      {Status: "displayed", Ref: "明细影响点清单"},
 	// ENG-2 (复核冷读 CP1-③, 2026-07-12): the absorbed idle-cadence
 	// annotation — 「其中 X.XXXms 帧间空闲(等待下一帧)/周期空闲(…)」 on the
 	// surviving seat + the matching teaching legend entry.

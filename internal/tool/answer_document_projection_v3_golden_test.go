@@ -41,7 +41,11 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 	binder := projV3Obs("root-binder", "root_cause_primary", "root_cause_primary:binder",
 		"binder:42591_4-42712", "sleep_wait", "38.400", 38.4, 104233, 104391,
 		"rank=1", "tier=primary", "chain_relevance=on_chain", "causality=on_wakeup_chain", "chain_depth=1",
-		"effective_impact_ms=36.100", "actual_impact_ms=52.700", "dominant_state=s_sleep")
+		"effective_impact_ms=36.100", "actual_impact_ms=52.700", "dominant_state=s_sleep",
+		// CR-2 组③ P7 (2026-07-12): ⚠ requires the typed interval — the golden
+		// records carry the physical extent provably leaving the analysis
+		// window 738291.402–738291.466 (pin intent preserved).
+		"actual_window=738291.400..738291.470")
 	renderSvc := projV3Obs("root-render", "root_cause_primary", "root_cause_primary:render",
 		"RenderService-3021", "compute_supply", "21.300", 21.3, 88120, 88544,
 		"rank=2", "tier=primary", "chain_relevance=on_chain", "causality=on_wakeup_chain", "chain_depth=2",
@@ -60,7 +64,8 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 		projV3Obs("hop-disp", "wakeup_causal_impact", "wakeup_causal_impact:disp",
 			"DispatchQueue-771", "runnable_delay", "9.800", 9.8, 76001, 76310,
 			"chain_relevance=on_chain", "causality=on_wakeup_chain", "chain_depth=3",
-			"actual_impact_ms=12.100", "dominant_state=runnable"),
+			"actual_impact_ms=12.100", "dominant_state=runnable",
+			"actual_window=738291.455..738291.469"), // CR-2 P7: crossing interval (same note as above)
 		projV3Obs("hop-io", "wakeup_causal_impact", "wakeup_causal_impact:io",
 			"IOWorker-8842", "sleep_wait", "6.200", 6.2, 61220, 61377,
 			"chain_relevance=on_chain", "causality=on_wakeup_chain", "chain_depth=4", "dominant_state=s_sleep"),

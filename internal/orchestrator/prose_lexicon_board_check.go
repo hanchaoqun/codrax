@@ -62,12 +62,18 @@ var proseBoardHeadRE = regexp.MustCompile(`根因排序|根因清单|(?i:root[- 
 
 // proseDeclaredSortKeyRE finds a self-declared sort key (P3-1, §29.42.3 P3a
 // second sub-arm — 案17 键自违半边: the prose declares 「按 X 排序/降序」 and
-// then lists values that do not follow it).
-var proseDeclaredSortKeyRE = regexp.MustCompile(`按[^,。;:\n]{1,24}?(?:排序|降序|从大到小)|(?i:sorted by|in descending order)`)
+// then lists values that do not follow it). CR-2 组④ F-2① (2026-07-12):
+// 排列 joins the verb set — the 133933 witness head read 「按
+// effective_attribution 排列」 and the arm never engaged.
+var proseDeclaredSortKeyRE = regexp.MustCompile(`按[^,。;:\n]{1,24}?(?:排序|排列|降序|从大到小)|(?i:sorted by|in descending order)`)
 
 // proseOrdinalMarkRE finds the ordered-list heads the declared-key monotonic
-// check walks (①②…/Rank N).
-var proseOrdinalMarkRE = regexp.MustCompile(`[①②③④⑤⑥⑦⑧⑨]|(?i:rank\s*[0-9])`)
+// check walks (①②…/Rank N). CR-2 组④ F-2① (2026-07-12): the markdown
+// numbered-list heads (line-anchored 「N. 」) and the prose seat chips
+// (「#N」) join the mark set — the 133933 witness board (「3. **#3 app-9511
+// … 21.153 ms**」) used both and the monotone walk saw neither. Adjacent
+// duplicate marks are harmless: value extraction skips empty segments.
+var proseOrdinalMarkRE = regexp.MustCompile(`[①②③④⑤⑥⑦⑧⑨]|#[0-9]{1,2}|(?m:^\s{0,8}[0-9]{1,2}\.\s)|(?i:rank\s*[0-9])`)
 
 // proseOrdinalValueRE captures the first ms value after one ordinal head.
 var proseOrdinalValueRE = regexp.MustCompile(`([0-9]+(?:\.[0-9]+)?)\s*(?:ms|毫秒)`)
@@ -250,7 +256,103 @@ func scanProseLexiconBoardFindings(doc *types.AnswerDocumentV2, bus *types.BusCo
 	if finding, ok := proseDeclaredKeyNonMonotonic(prose); ok {
 		findings = append(findings, finding)
 	}
+
+	// ── CR-2 组④ F-2② board-member identity gate (2026-07-12) ────────────
+	findings = append(findings, proseBoardSeatIdentityFindings(prose, ledger)...)
 	return findings
+}
+
+// proseBoardSeatCap bounds the F-2② findings (one per unseated subject).
+const proseBoardSeatCap = 4
+
+// proseBoardSeatChipRE finds prose seat chips (#N) for the identity gate.
+var proseBoardSeatChipRE = regexp.MustCompile(`#([0-9]{1,2})`)
+
+// proseBoardSeatIdentityFindings is the CR-2 组④ F-2② board-member identity
+// gate (ledger §29.49; witness 133933: prose seated #3 app-9511 / #4
+// DetectViewRect-17679 while the engine board held no such seats — the
+// self-made board rode the engine's own chip grammar and no arm noticed).
+// For every prose seat chip (#N) inside a board-form unit (a 根因排序 head or
+// ≥2 chips), the subject bound to the chip must hold SOME typed board seat;
+// an unseated subject draws one information finding (per subject, capped).
+// 宁松勿严: chip without a nearby thread token, tid-less bindings and
+// seatless typed boards all stay silent.
+func proseBoardSeatIdentityFindings(prose []proseTextUnit, ledger types.ObservationLedger) []proseLexiconBoardFinding {
+	seated := typedBoardSeatTIDs(ledger)
+	if len(seated) == 0 {
+		return nil
+	}
+	var findings []proseLexiconBoardFinding
+	flagged := map[string]bool{}
+	for _, unit := range prose {
+		chips := proseBoardSeatChipRE.FindAllStringSubmatchIndex(unit.text, -1)
+		if len(chips) == 0 {
+			continue
+		}
+		if len(chips) < 2 && !proseBoardHeadRE.MatchString(unit.text) {
+			continue // not a board-form unit
+		}
+		threads := extractProseScalarThreadRefs(unit.text)
+		if len(threads) == 0 {
+			continue
+		}
+		for _, chip := range chips {
+			if len(findings) >= proseBoardSeatCap {
+				return findings
+			}
+			ordinal := unit.text[chip[2]:chip[3]]
+			// The chip's subject: the first thread token starting at/after the
+			// chip, within a short leash (the witness grammar 「#3 app-9511」).
+			var bound *proseScalarThreadRef
+			for i := range threads {
+				if threads[i].Pos >= chip[1] && threads[i].Pos-chip[1] <= 60 {
+					bound = &threads[i]
+					break
+				}
+			}
+			if bound == nil || bound.TID == "" || flagged[bound.TID] {
+				continue
+			}
+			if seated[bound.TID] {
+				continue
+			}
+			flagged[bound.TID] = true
+			findings = append(findings, proseLexiconBoardFinding{
+				internal: fmt.Sprintf("prose board seats #%s onto %s, which holds no seat on the measured board — present measured seats as measured, and mark self-derived rankings as your own analysis", ordinal, bound.Raw),
+				userZH:   fmt.Sprintf("正文榜第%s位（%s）在实测根因榜上无对应席位，或为正文自排名次", ordinal, bound.Raw),
+				userEN:   fmt.Sprintf("the body's board seats #%s onto %s, which holds no seat on the measured board — possibly a self-derived ranking", ordinal, bound.Raw),
+			})
+		}
+	}
+	return findings
+}
+
+// typedBoardSeatTIDs collects the tids of every SEATED typed board row
+// (rank > 0, chain and adjacent channels alike — the identity gate asks
+// "does this subject hold any measured seat", not which one).
+func typedBoardSeatTIDs(ledger types.ObservationLedger) map[string]bool {
+	seated := map[string]bool{}
+	for _, record := range ledger.Records {
+		if record.Producer != "trace_query" || !strings.Contains(record.ID, "#root_cause_rank:") {
+			continue
+		}
+		rank := 0
+		for _, note := range record.RichNotes {
+			if v, ok := strings.CutPrefix(note, types.TraceNoteKeyRank+"="); ok {
+				rank, _ = strconv.Atoi(strings.TrimSpace(v))
+				break
+			}
+		}
+		if rank <= 0 {
+			continue
+		}
+		for _, tref := range extractProseScalarThreadRefs(record.Subject) {
+			if tref.TID != "" {
+				seated[tref.TID] = true
+			}
+		}
+	}
+	return seated
 }
 
 // proseTextUnit is one model-authored prose surface.

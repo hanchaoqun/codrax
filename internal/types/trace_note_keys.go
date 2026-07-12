@@ -623,7 +623,10 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyWindow, "anchor_window", TraceNoteCarrierAnchorWindow},
 	{TraceNoteKeyWindowSource, "anchor_window", TraceNoteCarrierAnchorWindow},
 	{TraceNoteKeyWindowMS, "anchor_window", TraceNoteCarrierSoftConsumer},
-	{TraceNoteKeyActualWindow, "anchor_window", TraceNoteCarrierSoftConsumer},
+	// EVOLUTION RECORD (CR-2 组③ P7 + 修复轮 R-P2-2, 2026-07-12): soft→hard —
+	// the projection compile parses the actual channel's physical interval
+	// into node.ActualWindowStartTs/EndTs (the ⚠ 词面 containment judge).
+	{TraceNoteKeyActualWindow, "anchor_window", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyNearestChainWindow, "anchor_window", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyOccurrenceWindows, "anchor_window", TraceNoteCarrierSoftConsumer},
 	{"window_proportion", "anchor_window", TraceNoteCarrierDisplayOnly},
@@ -631,7 +634,10 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// 因果排名族.
 	{TraceNoteKeyRank, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyTier, "causal_rank", TraceNoteCarrierHardConsumer},
-	{TraceNoteKeyBackgroundRank, "causal_rank", TraceNoteCarrierSoftConsumer},
+	// EVOLUTION RECORD (修复轮 R-P2-2 census 反向臂首跑, 2026-07-12): soft→hard
+	// — the compile has parsed it into node.BackgroundRank since DCS §23.1;
+	// the carrier column under-reported.
+	{TraceNoteKeyBackgroundRank, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyType, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeySource, "causal_rank", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyCausality, "causal_rank", TraceNoteCarrierHardConsumer},
@@ -703,7 +709,10 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyEffectiveImpact, "impact", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyActualImpactMS, "impact", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyActualImpact, "impact", TraceNoteCarrierHardConsumer},
-	{TraceNoteKeyTotal, "impact", TraceNoteCarrierSoftConsumer},
+	// EVOLUTION RECORD (修复轮 R-P2-2 census 反向臂首跑, 2026-07-12): soft→hard
+	// — the compile parses it into node.TotalMS; the carrier column
+	// under-reported.
+	{TraceNoteKeyTotal, "impact", TraceNoteCarrierHardConsumer},
 	// EVOLUTION RECORD (DIAG A2, §28.11-3(b) D-10, 2026-07-09): actual_total /
 	// actual_total_ms promoted soft_consumer → hard_consumer — the projection
 	// compile now parses them into node.ActualTotalMS (the 实际口径 stanza
