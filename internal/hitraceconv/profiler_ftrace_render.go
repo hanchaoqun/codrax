@@ -22,10 +22,17 @@ type profilerFtraceEventRecord struct {
 	EnvelopeDegradations []string
 }
 
+const profilerFtraceCPUDetailEnvelopeField = -1
+
 func renderProfilerFtraceStructuredRows(data []byte, seq *int, sink *traceDBRowSink) (int, []TraceDBCoverage, error) {
-	events, err := decodeProfilerFtraceStructuredEvents(data)
+	return renderProfilerFtraceStructuredResult(decodeProfilerTracePluginResult(data), seq, sink)
+}
+
+func renderProfilerFtraceStructuredResult(result profilerTracePluginResult, seq *int, sink *traceDBRowSink) (int, []TraceDBCoverage, error) {
+	topLevelCoverage := profilerTracePluginResultCoverage(result)
+	events, err := profilerTracePluginResultEvents(result)
 	if err != nil {
-		return 0, nil, err
+		return 0, topLevelCoverage, err
 	}
 	coverageByField := map[int]*TraceDBCoverage{}
 	degradationsByField := map[int]map[string]int{}
@@ -54,10 +61,10 @@ func renderProfilerFtraceStructuredRows(data []byte, seq *int, sink *traceDBRowS
 		row, err := prepareTraceDBRenderedRowWithTraceFlags(int64(event.TSNS), *seq, task, event.PID,
 			event.TGID, event.CPU, event.CommonFlags, event.CommonPreemptCount, name+": "+body)
 		if err != nil {
-			return rows, profilerFtraceEventRenderCoverageList(coverageByField), err
+			return rows, append(topLevelCoverage, profilerFtraceEventRenderCoverageList(coverageByField)...), err
 		}
 		if err := sink.add(row); err != nil {
-			return rows, profilerFtraceEventRenderCoverageList(coverageByField), err
+			return rows, append(topLevelCoverage, profilerFtraceEventRenderCoverageList(coverageByField)...), err
 		}
 		(*seq)++
 		rows++
@@ -73,24 +80,11 @@ func renderProfilerFtraceStructuredRows(data []byte, seq *int, sink *traceDBRowS
 			coverage.FieldSources["degraded_"+reason+"_rows"] = strconv.Itoa(count)
 		}
 	}
-	return rows, profilerFtraceEventRenderCoverageList(coverageByField), nil
+	return rows, append(topLevelCoverage, profilerFtraceEventRenderCoverageList(coverageByField)...), nil
 }
 
 func decodeProfilerFtraceStructuredEvents(data []byte) ([]profilerFtraceEventRecord, error) {
-	var out []profilerFtraceEventRecord
-	err := walkProtoFields(data, func(field int, wire int, raw []byte, v uint64) error {
-		if field != 2 || wire != 2 {
-			return nil
-		}
-		events, err := decodeProfilerFtraceCPUDetailEvents(raw)
-		if err != nil {
-			return err
-		}
-		out = append(out, events...)
-		_ = v
-		return nil
-	})
-	return out, err
+	return profilerTracePluginResultEvents(decodeProfilerTracePluginResult(data))
 }
 
 func decodeProfilerFtraceCPUDetailEvents(data []byte) ([]profilerFtraceEventRecord, error) {
@@ -99,6 +93,8 @@ func decodeProfilerFtraceCPUDetailEvents(data []byte) ([]profilerFtraceEventReco
 	cpuWrongWire := false
 	var eventPayloads [][]byte
 	eventWrongWire := 0
+	overwriteCount := 0
+	overwriteWrongWire := false
 	var out []profilerFtraceEventRecord
 	err := walkProtoFields(data, func(field int, wire int, raw []byte, v uint64) error {
 		switch field {
@@ -115,11 +111,17 @@ func decodeProfilerFtraceCPUDetailEvents(data []byte) ([]profilerFtraceEventReco
 				break
 			}
 			eventPayloads = append(eventPayloads, raw)
+		case 3:
+			overwriteCount++
+			if wire != 0 {
+				overwriteWrongWire = true
+			}
 		}
 		return nil
 	})
 	if err != nil {
 		return []profilerFtraceEventRecord{{
+			Field:                profilerFtraceCPUDetailEnvelopeField,
 			EnvelopeDegradations: []string{"envelope_cpu_detail_malformed_wire"},
 		}}, nil
 	}
@@ -143,11 +145,21 @@ func decodeProfilerFtraceCPUDetailEvents(data []byte) ([]profilerFtraceEventReco
 		out = append(out, event)
 	}
 	if len(eventPayloads) == 0 && len(cpuDegradations) > 0 {
-		out = append(out, profilerFtraceEventRecord{EnvelopeDegradations: append([]string(nil), cpuDegradations...)})
+		out = append(out, profilerFtraceEventRecord{
+			Field:                profilerFtraceCPUDetailEnvelopeField,
+			EnvelopeDegradations: append([]string(nil), cpuDegradations...),
+		})
 	}
 	if eventWrongWire > 0 {
 		out = append(out, profilerFtraceEventRecord{
+			Field:                profilerFtraceCPUDetailEnvelopeField,
 			EnvelopeDegradations: []string{"envelope_event_container_wrong_wire"},
+		})
+	}
+	if overwriteCount > 1 || overwriteWrongWire {
+		out = append(out, profilerFtraceEventRecord{
+			Field:                profilerFtraceCPUDetailEnvelopeField,
+			EnvelopeDegradations: []string{"envelope_overwrite_invalid"},
 		})
 	}
 	return out, nil
@@ -714,6 +726,20 @@ func profilerFtraceEventRenderCoverage(coverageByField map[int]*TraceDBCoverage,
 			Skipped: "malformed or ambiguous structured ftrace event envelope",
 			FieldSources: map[string]string{
 				"schema_profile": "TracePluginResult.ftrace_cpu_detail -> FtraceCpuDetailMsg -> exactly one FtraceEvent oneof payload",
+			},
+		}
+		coverageByField[field] = &coverage
+		return &coverage
+	}
+	if field == profilerFtraceCPUDetailEnvelopeField {
+		coverage := TraceDBCoverage{
+			Family:  "builtin_modern_ftrace:cpu_detail_envelope",
+			Table:   "__cpu_detail_envelope__",
+			Role:    "unsupported_input",
+			Found:   true,
+			Skipped: "malformed or ambiguous FtraceCpuDetailMsg envelope",
+			FieldSources: map[string]string{
+				"schema_profile": "FtraceCpuDetailMsg{cpu=1 singular,event=2 repeated,overwrite=3 singular}",
 			},
 		}
 		coverageByField[field] = &coverage
