@@ -1046,7 +1046,7 @@ func TestRenderDataLocStrings(t *testing.T) {
 			{Type: "unsigned char", Name: "common_flags", Offset: 2, Size: 1},
 			{Type: "unsigned char", Name: "common_preempt_count", Offset: 3, Size: 1},
 			{Type: "int", Name: "common_pid", Offset: 4, Size: 4, Signed: true},
-			{Type: "__data_loc char[]", Name: "buf", Offset: 8, Size: 4},
+			{Type: "__data_loc char[]", Name: "buffer", Offset: 8, Size: 4},
 		},
 	}
 	payload := []byte("B|100|RenderFrame\x00")
@@ -1113,6 +1113,7 @@ func TestOpenHarmonyPrintFmtCoverageManifest(t *testing.T) {
 		"PRINT_FMT_UFSHCD_COMMAND":           "storage",
 		"PRINT_FMT_EROFS_LOOKUP_START":       "filesystem",
 		"PRINT_FMT_TRACING_MARK_WRITE":       "trace_mark",
+		"PRINT_FMT_XACCT_TRACING_MARK_WRITE": "trace_mark",
 	} {
 		if seen[name] != lane {
 			t.Fatalf("coverage manifest lane for %s: got %q want %q", name, seen[name], lane)

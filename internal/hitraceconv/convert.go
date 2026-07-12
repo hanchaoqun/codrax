@@ -273,7 +273,7 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 		result.Caveats = append(result.Caveats, fmt.Sprintf("%d printk_formats line(s) were malformed without a usable address and were ignored", meta.printkMalformed))
 	}
 	if meta.bodyRejectedRows > 0 {
-		result.Caveats = append(result.Caveats, fmt.Sprintf("%d recognized direct ftrace core event row(s) had rejected physical payloads and were kept coverage-only instead of falling back to header-only rows; reasons=%s", meta.bodyRejectedRows, traceDBCountSummary(meta.bodyRejectReasons)))
+		result.Caveats = append(result.Caveats, fmt.Sprintf("%d governed direct ftrace event row(s) had rejected physical payloads and were kept coverage-only instead of falling back to header-only rows; reasons=%s", meta.bodyRejectedRows, traceDBCountSummary(meta.bodyRejectReasons)))
 	}
 	result.Caveats = append(result.Caveats, standaloneCaveats...)
 	normalizeResultCollections(&result)

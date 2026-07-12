@@ -42,6 +42,9 @@ func parseEventFormats(data []byte) (eventFormatCatalog, error) {
 	fieldNames := make(map[string]bool)
 	malformed := false
 	flush := func() {
+		if !malformed && directMarkerNameGoverned(cur.Name) && !directMarkerFormatLayoutValid(cur) {
+			malformed = true
+		}
 		if malformed || (len(ids) > 0 && cur.Name == "") {
 			for id := range ids {
 				poisonEventFormatID(&out, id)
@@ -78,7 +81,7 @@ func parseEventFormats(data []byte) (eventFormatCatalog, error) {
 				malformed = true
 			}
 		case strings.HasPrefix(line, "field:"):
-			f, ok := parseFieldLine(line)
+			f, ok := parseFieldLine(cur.Name, line)
 			if !ok {
 				malformed = true
 				break
@@ -177,7 +180,7 @@ func eventFormatsEqual(left, right eventFormat) bool {
 	return true
 }
 
-func parseFieldLine(line string) (eventField, bool) {
+func parseFieldLine(eventName, line string) (eventField, bool) {
 	m := fieldLineRE.FindStringSubmatch(line)
 	if len(m) != 5 {
 		return eventField{}, false
@@ -190,16 +193,20 @@ func parseFieldLine(line string) (eventField, bool) {
 	offset, err1 := strconv.Atoi(m[2])
 	size, err2 := strconv.Atoi(m[3])
 	signed, err3 := strconv.Atoi(m[4])
-	if err1 != nil || err2 != nil || err3 != nil || offset < 0 || size <= 0 || (signed != 0 && signed != 1) {
+	if err1 != nil || err2 != nil || err3 != nil || offset < 0 || size < 0 || (signed != 0 && signed != 1) {
 		return eventField{}, false
 	}
-	return eventField{
+	field := eventField{
 		Type:   strings.TrimSpace(typeAndName[:pos]),
 		Name:   strings.TrimSpace(typeAndName[pos+1:]),
 		Offset: offset,
 		Size:   size,
 		Signed: signed != 0,
-	}, true
+	}
+	if field.Size == 0 && !directMarkerCStringDescriptorAllowed(eventName, field) {
+		return eventField{}, false
+	}
+	return field, true
 }
 
 func parseCmdlines(data []byte) map[int]string {

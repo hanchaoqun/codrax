@@ -1,0 +1,377 @@
+package hitraceconv
+
+import (
+	"encoding/binary"
+	"math"
+	"sort"
+	"strconv"
+	"strings"
+)
+
+// markerPayload is the source-neutral authority shared by direct ftrace and
+// structured-profiler print/trace-marker bodies. The IP is provenance only:
+// the canonical public body is the producer's marker bytes, never an
+// address-carved reconstruction.
+type markerPayload struct {
+	Buffer    string
+	IP        uint64
+	IPPresent bool
+}
+
+func directMarkerNameGoverned(name string) bool {
+	switch name {
+	case "print", "tracing_mark_write", "tracing_mark_write_xacct", "xacct_tracing_mark_write":
+		return true
+	default:
+		return false
+	}
+}
+
+// directMarkerCStringDescriptorAllowed is deliberately event-aware. A zero
+// sized field is the kernel's special CSTRING tail profile (not an empty fixed
+// field), and only governed marker buf descriptors may use it. decodeEvent
+// continues to ignore size-zero fields; the typed marker decoder reads the raw
+// record tail from the declared offset.
+func directMarkerCStringDescriptorAllowed(eventName string, field eventField) bool {
+	bufferName, ok := directMarkerBufferFieldName(eventName)
+	if !ok || cleanFieldName(field.Name) != bufferName {
+		return false
+	}
+	if field.Name != bufferName && field.Name != bufferName+"[]" {
+		return false
+	}
+	switch normalizeFieldType(field.Type) {
+	case "char", "char[]", "char []":
+		return true
+	default:
+		return false
+	}
+}
+
+func directMarkerBufferFieldName(eventName string) (string, bool) {
+	switch eventName {
+	case "print":
+		return "buf", true
+	case "tracing_mark_write":
+		// OpenHarmony/hmtrace's PRINT_FMT_TRACING_MARK_WRITE names the
+		// physical __data_loc field "buffer". This is an exact producer
+		// profile, not a generic buffer|buf|str alias list.
+		return "buffer", true
+	default:
+		return "", false
+	}
+}
+
+func decodeDirectMarkerPayload(ev decodedEvent, content []byte) (markerPayload, bodyAdmission, string) {
+	if !directMarkerNameGoverned(ev.format.Name) {
+		return markerPayload{}, bodyUnsupported, ""
+	}
+	if !directMarkerDescriptorLayoutValid(ev, content) {
+		return markerPayload{}, bodyRejected, "invalid_marker_descriptor_layout"
+	}
+
+	bufferName, hasBufferProfile := directMarkerBufferFieldName(ev.format.Name)
+	bufferCount := 0
+	if hasBufferProfile {
+		bufferCount = directMarkerDeclarationCount(ev, bufferName)
+	}
+	stringCarrierCount := 0
+	for _, name := range []string{"buf", "buffer", "str", "trace"} {
+		stringCarrierCount += directMarkerDeclarationCount(ev, name)
+	}
+	startCount := directMarkerDeclarationCount(ev, "start")
+	pidCount := directMarkerDeclarationCount(ev, "pid")
+	nameCount := directMarkerDeclarationCount(ev, "name")
+	ipCount := directMarkerDeclarationCount(ev, "ip")
+	legacyCount := startCount + pidCount + nameCount
+
+	switch {
+	case stringCarrierCount > 0:
+		if !hasBufferProfile || bufferCount != 1 || stringCarrierCount != 1 || legacyCount != 0 {
+			return markerPayload{}, bodyRejected, "mixed_or_invalid_marker_profile"
+		}
+		payload := markerPayload{}
+		if ev.format.Name == "print" {
+			if ipCount != 1 {
+				return markerPayload{}, bodyRejected, "missing_or_invalid_marker_ip"
+			}
+			ip, ok := directMarkerIP(ev)
+			if !ok {
+				return markerPayload{}, bodyRejected, "missing_or_invalid_marker_ip"
+			}
+			payload.IP, payload.IPPresent = ip, true
+		} else if ipCount != 0 {
+			return markerPayload{}, bodyRejected, "mixed_or_invalid_marker_profile"
+		}
+		raw, ok := directMarkerStringCarrier(ev, content, bufferName)
+		if !ok {
+			return markerPayload{}, bodyRejected, "missing_or_invalid_marker_buf"
+		}
+		buffer, ok := normalizeMarkerBuffer(raw)
+		if !ok {
+			return markerPayload{}, bodyRejected, "missing_or_invalid_marker_buf"
+		}
+		payload.Buffer = buffer
+		return payload, bodyAdmitted, ""
+
+	case legacyCount > 0:
+		if ev.format.Name == "print" || ipCount != 0 || stringCarrierCount != 0 || startCount != 1 || pidCount != 1 || nameCount != 1 {
+			return markerPayload{}, bodyRejected, "mixed_or_invalid_marker_profile"
+		}
+		start, ok := directMarkerStart(ev)
+		if !ok || (start != 0 && start != 1) {
+			return markerPayload{}, bodyRejected, "missing_or_invalid_marker_start"
+		}
+		pid, ok := directCoreSigned(ev, directWidths(4), "pid")
+		if !ok || pid < 0 || pid > math.MaxInt32 {
+			return markerPayload{}, bodyRejected, "missing_or_invalid_marker_pid"
+		}
+		rawName, ok := directMarkerStringCarrier(ev, content, "name")
+		nameField, _, nameFieldOK := directMarkerDeclaredField(ev, "name")
+		if !ok || !nameFieldOK || nameField.Name != "name[64]" || nameField.Size != 64 {
+			return markerPayload{}, bodyRejected, "missing_or_invalid_marker_name"
+		}
+		name := string(rawName)
+		if !traceDBSinglePhysicalLine(name, start == 0) {
+			return markerPayload{}, bodyRejected, "missing_or_invalid_marker_name"
+		}
+		payload := markerPayload{}
+		if start == 1 {
+			payload.Buffer = "B|" + strconv.FormatInt(pid, 10) + "|" + name
+		} else {
+			payload.Buffer = "E|" + strconv.FormatInt(pid, 10) + "|"
+		}
+		return payload, bodyAdmitted, ""
+
+	default:
+		return markerPayload{}, bodyRejected, "missing_marker_profile"
+	}
+}
+
+func renderCanonicalMarkerPayload(payload markerPayload) (string, bool) {
+	if !traceDBSinglePhysicalLine(payload.Buffer, false) {
+		return "", false
+	}
+	return payload.Buffer, true
+}
+
+func normalizeMarkerBuffer(raw []byte) (string, bool) {
+	value := string(raw)
+	// OpenHarmony's canonical formatter removes at most one terminal LF. A
+	// lone LF remains invalid, as do CR, internal/double LF and all controls.
+	if len(value) > 1 && value[len(value)-1] == '\n' {
+		value = value[:len(value)-1]
+	}
+	if !traceDBSinglePhysicalLine(value, false) {
+		return "", false
+	}
+	return value, true
+}
+
+func directMarkerDeclarationCount(ev decodedEvent, cleanName string) int {
+	count := 0
+	for _, field := range ev.format.Fields {
+		if cleanFieldName(field.Name) == cleanName {
+			count++
+		}
+	}
+	return count
+}
+
+func directMarkerDeclaredField(ev decodedEvent, cleanName string) (eventField, []byte, bool) {
+	var selected eventField
+	count := 0
+	for _, field := range ev.format.Fields {
+		if cleanFieldName(field.Name) != cleanName {
+			continue
+		}
+		selected = field
+		count++
+	}
+	if count != 1 {
+		return eventField{}, nil, false
+	}
+	if selected.Size == 0 {
+		return selected, nil, true
+	}
+	raw, ok := ev.fields[selected.Name]
+	if !ok || len(raw) != selected.Size {
+		return eventField{}, nil, false
+	}
+	return selected, raw, true
+}
+
+func directMarkerDescriptorLayoutValid(ev decodedEvent, content []byte) bool {
+	if !directMarkerFormatLayoutValid(ev.format) {
+		return false
+	}
+	for _, field := range ev.format.Fields {
+		if field.Offset > len(content) {
+			return false
+		}
+		if field.Size == 0 {
+			if field.Offset >= len(content) {
+				return false
+			}
+			continue
+		}
+		if field.Size > len(content)-field.Offset {
+			return false
+		}
+	}
+	return true
+}
+
+func directMarkerFormatLayoutValid(format eventFormat) bool {
+	maxInt := int(^uint(0) >> 1)
+	fixedTail := 0
+	type interval struct {
+		start int
+		end   int
+	}
+	intervals := make([]interval, 0, len(format.Fields))
+	for _, field := range format.Fields {
+		if field.Offset < 0 || field.Size < 0 {
+			return false
+		}
+		if field.Size == 0 {
+			if !directMarkerCStringDescriptorAllowed(format.Name, field) {
+				return false
+			}
+			continue
+		}
+		if field.Offset > maxInt-field.Size {
+			return false
+		}
+		end := field.Offset + field.Size
+		if end > fixedTail {
+			fixedTail = end
+		}
+		intervals = append(intervals, interval{start: field.Offset, end: end})
+	}
+	sort.Slice(intervals, func(left, right int) bool {
+		if intervals[left].start == intervals[right].start {
+			return intervals[left].end < intervals[right].end
+		}
+		return intervals[left].start < intervals[right].start
+	})
+	for index := 1; index < len(intervals); index++ {
+		if intervals[index].start < intervals[index-1].end {
+			return false
+		}
+	}
+	for _, field := range format.Fields {
+		if field.Size == 0 && field.Offset < fixedTail {
+			return false
+		}
+	}
+	return true
+}
+
+func directMarkerFixedTail(ev decodedEvent) (int, bool) {
+	maxInt := int(^uint(0) >> 1)
+	fixedTail := 0
+	for _, field := range ev.format.Fields {
+		if field.Offset < 0 || field.Size < 0 || field.Offset > maxInt-field.Size {
+			return 0, false
+		}
+		if field.Size == 0 {
+			continue
+		}
+		if end := field.Offset + field.Size; end > fixedTail {
+			fixedTail = end
+		}
+	}
+	return fixedTail, true
+}
+
+func directMarkerStringCarrier(ev decodedEvent, content []byte, cleanName string) ([]byte, bool) {
+	field, raw, ok := directMarkerDeclaredField(ev, cleanName)
+	if !ok {
+		return nil, false
+	}
+	// The pinned OpenHarmony parser classifies char/data_loc carriers without
+	// consulting the descriptor's signed bit. Treat signed:0 and signed:1 as
+	// the same byte-string profile; signedness remains a hard gate only for the
+	// numeric start/pid/IP fields below.
+	typeName := normalizeFieldType(field.Type)
+	if typeName == "__data_loc char[]" || typeName == "__data_loc char []" {
+		if field.Name != cleanName || field.Size != 4 || len(raw) != 4 {
+			return nil, false
+		}
+		fixedTail, ok := directMarkerFixedTail(ev)
+		if !ok {
+			return nil, false
+		}
+		location := binary.LittleEndian.Uint32(raw)
+		offset := int(location & 0xffff)
+		length := int(location >> 16)
+		if offset < fixedTail || length <= 0 || offset > len(content) || length > len(content)-offset {
+			return nil, false
+		}
+		source := content[offset : offset+length]
+		if bytesIndexNUL(source) != len(source)-1 {
+			return nil, false
+		}
+		return source[:len(source)-1], true
+	}
+
+	if field.Size == 0 {
+		if !directMarkerCStringDescriptorAllowed(ev.format.Name, field) {
+			return nil, false
+		}
+		fixedTail, ok := directMarkerFixedTail(ev)
+		if !ok || field.Offset < fixedTail || field.Offset >= len(content) {
+			return nil, false
+		}
+		source := content[field.Offset:]
+		nul := bytesIndexNUL(source)
+		if nul < 0 {
+			return nil, false
+		}
+		return source[:nul], true
+	}
+
+	if typeName != "char" || !directMarkerFixedArrayName(field.Name, cleanName, field.Size) || len(raw) != field.Size {
+		return nil, false
+	}
+	nul := bytesIndexNUL(raw)
+	if nul < 0 {
+		return nil, false
+	}
+	return raw[:nul], true
+}
+
+func directMarkerFixedArrayName(rawName, cleanName string, size int) bool {
+	prefix := cleanName + "["
+	if !strings.HasPrefix(rawName, prefix) || !strings.HasSuffix(rawName, "]") {
+		return false
+	}
+	declared, err := strconv.Atoi(rawName[len(prefix) : len(rawName)-1])
+	return err == nil && declared > 0 && declared == size
+}
+
+func directMarkerIP(ev decodedEvent) (uint64, bool) {
+	field, raw, ok := directMarkerDeclaredField(ev, "ip")
+	if !ok || field.Size != len(raw) || !directCoreUnsignedWordTypeWidthAllowed(field, len(raw)) {
+		return 0, false
+	}
+	return uintFromSupportedWidth(raw)
+}
+
+func directMarkerStart(ev decodedEvent) (int64, bool) {
+	field, raw, ok := directMarkerDeclaredField(ev, "start")
+	if !ok || field.Size != 4 || len(raw) != 4 {
+		return 0, false
+	}
+	if field.Signed {
+		if !directCoreSigned32TypeWidthAllowed(field, 4) {
+			return 0, false
+		}
+		return intFromBytes(raw, true), true
+	}
+	if !directCoreUnsigned32TypeWidthAllowed(field, 4) {
+		return 0, false
+	}
+	return int64(binary.LittleEndian.Uint32(raw)), true
+}

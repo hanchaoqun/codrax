@@ -185,24 +185,6 @@ func renderOfficialOpenHarmonyBody(ev decodedEvent, content []byte, cpu int) (st
 			intByCleanName(ev, "total_req_power", false), decimalByteArray(dynamicBytesByCleanName(ev, content, "granted_power", numActors*4)),
 			intByCleanName(ev, "total_granted_power", false), intByCleanName(ev, "power_range", false),
 			intByCleanName(ev, "max_allocatable_power", false), intByCleanName(ev, "current_temp", true), intByCleanName(ev, "delta_temp", true)), true
-	case name == "print":
-		return fmt.Sprintf("0x%x: %s", intByCleanName(ev, "ip", false), stringFromOffset(content, 16)), true
-	case name == "tracing_mark_write" && hasCleanField(ev, "start") && hasCleanField(ev, "pid"):
-		if intByCleanName(ev, "start", false) == 1 {
-			return fmt.Sprintf("B|%d|%s", intByCleanName(ev, "pid", false), stringByCleanName(ev, content, "name")), true
-		}
-		return fmt.Sprintf("E|%d|", intByCleanName(ev, "pid", false)), true
-	case name == "tracing_mark_write":
-		s := stringByCleanName(ev, content, "buffer", "buf", "str")
-		if strings.HasPrefix(s, "E|") && strings.HasSuffix(s, "|") {
-			s = strings.TrimSuffix(s, "|")
-		}
-		return s, true
-	case name == "tracing_mark_write_xacct" || name == "xacct_tracing_mark_write":
-		if intByCleanName(ev, "start", false) == 1 {
-			return fmt.Sprintf("B|%d|%s", intByCleanName(ev, "pid", false), stringByCleanName(ev, content, "name")), true
-		}
-		return fmt.Sprintf("E|%d|", intByCleanName(ev, "pid", false)), true
 	case name == "phase_task_delta":
 		return fmt.Sprintf("comm=%s tid=%d delta_exec=%d deltas={%s}", stringByCleanName(ev, content, "name"),
 			intByCleanName(ev, "tid", false), intByCleanName(ev, "delta_exec", false), stringByCleanName(ev, content, "info")), true

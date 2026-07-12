@@ -667,15 +667,15 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 	}
 
 	// Synthetic SQL B/E wire tokens live only in the authority. The sole
-	// exception is the official OpenHarmony source-event renderer, which renders
+	// exception is the typed direct-ftrace source-event renderer, which renders
 	// captured trace-marker payloads and is not a SQL span producer.
 	allowedMarkerFunctions := map[string]map[string]bool{
 		"streamerdb_sync_span_authority.go": {
 			"validateTraceDBSyncSpanCandidate": true,
 			"traceDBPublishSyncSpanEndpoint":   true,
 		},
-		"official_render.go": {
-			"renderOfficialOpenHarmonyBody": true,
+		"marker_payload.go": {
+			"decodeDirectMarkerPayload": true,
 		},
 	}
 	authorityMarkerFunctions := map[string]bool{}

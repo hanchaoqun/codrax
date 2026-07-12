@@ -1342,7 +1342,7 @@ func syntheticRootCauseMatrixEventFormat() string {
 	})...)
 	lines = append(lines, syntheticFormatBlock("tracing_mark_write", 96, []string{
 		syntheticField("int", "common_pid", 4, 4, true),
-		syntheticField("__data_loc char[]", "buf", 8, 4, false),
+		syntheticField("__data_loc char[]", "buffer", 8, 4, false),
 	})...)
 	lines = append(lines, syntheticFormatBlock("irq_handler_entry", 97, []string{
 		syntheticField("int", "common_pid", 4, 4, true),

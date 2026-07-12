@@ -58,7 +58,8 @@ func renderEventLineDecision(ctx renderContext, tsNS uint64, cpu int, format eve
 		name = "unknown_event"
 	}
 	line := prefix + name + ": " + body
-	if _, governed := coreRenderKindForName(format.Name); governed && !traceDBSinglePhysicalLine(line, false) {
+	_, coreGoverned := coreRenderKindForName(format.Name)
+	if (coreGoverned || directMarkerNameGoverned(format.Name)) && !traceDBSinglePhysicalLine(line, false) {
 		return line, bodyRejected, "invalid_rendered_line", true
 	}
 	return line, admission, reason, true
@@ -171,6 +172,17 @@ func renderEventBodyDecision(ctx coreDecodeContext, ev decodedEvent, content []b
 	case bodyRejected:
 		return "", bodyRejected, reason
 	}
+	marker, admission, reason := decodeDirectMarkerPayload(ev, content)
+	switch admission {
+	case bodyAdmitted:
+		body, ok := renderCanonicalMarkerPayload(marker)
+		if !ok {
+			return "", bodyRejected, "invalid_canonical_marker_payload"
+		}
+		return body, bodyAdmitted, ""
+	case bodyRejected:
+		return "", bodyRejected, reason
+	}
 	body, known := renderLegacyEventBody(ev, content, cpu)
 	if known {
 		return body, bodyAdmitted, ""
@@ -227,10 +239,6 @@ func renderLegacyEventBody(ev decodedEvent, content []byte, cpu int) (string, bo
 		return renderKV(ev, "transaction", "debug_id", "data_size", "offsets_size", "extra_buffers_size"), true
 	case "binder_transaction_reply", "binder_reply", "binder_transaction_lock", "binder_lock", "binder_transaction_locked", "binder_locked", "binder_transaction_unlock", "binder_unlock":
 		return renderKV(ev, "transaction", "debug_id", "tag"), true
-	case "tracing_mark_write", "print":
-		if payload := firstTracePayload(ev, content); payload != "" {
-			return payload, true
-		}
 	}
 	if len(ev.format.Fields) == 0 {
 		return missingFormatPayload(ev.format.ID, content), false
@@ -1056,26 +1064,6 @@ func harmonyPrevState(v uint64) string {
 	default:
 		return "?"
 	}
-}
-
-func firstTracePayload(ev decodedEvent, content []byte) string {
-	for _, name := range []string{"buf", "buf[256]", "str", "str[256]", "trace[256]"} {
-		if s := strField(ev, name); s != "" {
-			return s
-		}
-	}
-	if s := dataLocStringByCleanName(ev, content, "buf", "str", "trace"); s != "" {
-		return s
-	}
-	pos := int(intField(ev, "buf", false) & 0xffff)
-	if pos > 0 && pos < len(content) {
-		b := content[pos:]
-		if i := strings.IndexByte(string(b), 0); i >= 0 {
-			b = b[:i]
-		}
-		return strings.TrimSpace(string(b))
-	}
-	return genericFields(ev, content)
 }
 
 func firstNonEmpty(values ...string) string {

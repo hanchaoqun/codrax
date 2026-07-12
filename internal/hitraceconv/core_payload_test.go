@@ -546,7 +546,7 @@ func TestBuiltinSysKnownCoreRejectNeverFallsBackHeaderOnly(t *testing.T) {
 		t.Fatalf("known reject escaped or sibling was lost: result=%+v\n%s", result, body)
 	}
 	caveats := strings.Join(result.Caveats, "\n")
-	if !strings.Contains(caveats, "1 recognized direct ftrace core event row") ||
+	if !strings.Contains(caveats, "1 governed direct ftrace event row") ||
 		!strings.Contains(caveats, "sched_wakeup_missing_or_invalid_target_cpu=1") {
 		t.Fatalf("known reject coverage missing: %s", caveats)
 	}

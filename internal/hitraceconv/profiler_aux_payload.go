@@ -19,16 +19,10 @@ type profilerAuxPayload struct {
 	Kind         profilerAuxKind
 	Name         string
 	Degradations []string
-	Print        *profilerPrintPayload
+	Print        *markerPayload
 	F2FS         *profilerF2FSPayload
 	MMCStart     *profilerMMCStartPayload
 	MMCDone      *profilerMMCDonePayload
-}
-
-type profilerPrintPayload struct {
-	IP        uint64
-	IPPresent bool
-	Buffer    string
 }
 
 type profilerF2FSKind uint8
@@ -175,15 +169,12 @@ func decodeProfilerAuxPayload(event profilerFtraceEventRecord) (profilerAuxPaylo
 	payload := profilerAuxPayload{Name: descriptor.Name}
 	switch event.Field {
 	case 1109:
-		buffer := string(fields[2].bytesValue)
-		if len(buffer) > 1 && buffer[len(buffer)-1] == '\n' {
-			buffer = buffer[:len(buffer)-1]
-		}
-		if !traceDBSinglePhysicalLine(buffer, false) {
+		buffer, ok := normalizeMarkerBuffer(fields[2].bytesValue)
+		if !ok {
 			return profilerAuxPayload{}, bodyRejected, "missing_or_invalid_print_buf"
 		}
 		payload.Kind = profilerAuxPrint
-		payload.Print = &profilerPrintPayload{
+		payload.Print = &markerPayload{
 			IP: fields[1].uintValue, IPPresent: fields[1].count == 1, Buffer: buffer,
 		}
 	case 4009:
@@ -481,7 +472,7 @@ func renderCanonicalProfilerAuxPayload(payload profilerAuxPayload) (string, bool
 		if payload.Print == nil {
 			return "", false
 		}
-		return payload.Print.Buffer, true
+		return renderCanonicalMarkerPayload(*payload.Print)
 	case profilerAuxF2FS:
 		if payload.F2FS == nil {
 			return "", false
