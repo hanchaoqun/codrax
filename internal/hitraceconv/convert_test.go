@@ -1129,8 +1129,8 @@ func TestOfficialSystraceLineFormatUsesCommonFlagsAndIdleName(t *testing.T) {
 			{Type: "unsigned char", Name: "common_flags", Offset: 2, Size: 1},
 			{Type: "unsigned char", Name: "common_preempt_count", Offset: 3, Size: 1},
 			{Type: "int", Name: "common_pid", Offset: 4, Size: 4, Signed: true},
-			{Name: "irq", Offset: 8, Size: 4, Signed: true},
-			{Name: "ret", Offset: 12, Size: 4, Signed: true},
+			{Type: "int", Name: "irq", Offset: 8, Size: 4, Signed: true},
+			{Type: "int", Name: "ret", Offset: 12, Size: 4, Signed: true},
 		},
 	}
 	content := make([]byte, 16)
@@ -1150,10 +1150,10 @@ func TestOfficialSystraceLineFormatUsesCommonFlagsAndIdleName(t *testing.T) {
 func TestOfficialSubsystemRenderersMatchOpenHarmonyShapes(t *testing.T) {
 	t.Run("cpu_frequency_limits", func(t *testing.T) {
 		format := eventFormat{ID: 60, Name: "cpu_frequency_limits", Fields: []eventField{
-			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
-			{Name: "min_freq", Offset: 8, Size: 4},
-			{Name: "max_freq", Offset: 12, Size: 4},
-			{Name: "cpu_id", Offset: 16, Size: 4},
+			{Type: "int", Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Type: "unsigned int", Name: "min_freq", Offset: 8, Size: 4},
+			{Type: "unsigned int", Name: "max_freq", Offset: 12, Size: 4},
+			{Type: "unsigned int", Name: "cpu_id", Offset: 16, Size: 4},
 		}}
 		content := make([]byte, 20)
 		binary.LittleEndian.PutUint32(content[8:12], 1000000)
@@ -1244,11 +1244,11 @@ func TestOfficialSubsystemRenderersMatchOpenHarmonyShapes(t *testing.T) {
 
 	t.Run("official_sched_wakeup_new", func(t *testing.T) {
 		format := eventFormat{ID: 65, Name: "sched_wakeup_new", Fields: []eventField{
-			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Type: "int", Name: "common_pid", Offset: 4, Size: 4, Signed: true},
 			{Type: "char", Name: "comm[16]", Offset: 8, Size: 16},
-			{Name: "pid", Offset: 24, Size: 4, Signed: true},
-			{Name: "prio", Offset: 28, Size: 4, Signed: true},
-			{Name: "target_cpu", Offset: 32, Size: 4, Signed: true},
+			{Type: "int", Name: "pid", Offset: 24, Size: 4, Signed: true},
+			{Type: "int", Name: "prio", Offset: 28, Size: 4, Signed: true},
+			{Type: "int", Name: "target_cpu", Offset: 32, Size: 4, Signed: true},
 		}}
 		content := make([]byte, 36)
 		binary.LittleEndian.PutUint16(content[0:2], 65)
@@ -1301,8 +1301,8 @@ func TestOfficialSubsystemRenderersMatchOpenHarmonyShapes(t *testing.T) {
 
 	t.Run("official_ipi_raise", func(t *testing.T) {
 		format := eventFormat{ID: 68, Name: "ipi_raise", Fields: []eventField{
-			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
-			{Name: "target_cpus", Offset: 8, Size: 8},
+			{Type: "int", Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Type: "unsigned long", Name: "target_cpus", Offset: 8, Size: 8},
 			{Type: "char", Name: "reason[32]", Offset: 16, Size: 32},
 		}}
 		content := make([]byte, 48)

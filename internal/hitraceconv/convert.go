@@ -19,6 +19,11 @@ type traceMetadata struct {
 	formats            map[int]eventFormat
 	formatPoisoned     map[int]bool
 	formatConflictRows int
+	printkFormats      map[uint64]string
+	printkPoisoned     map[uint64]bool
+	printkMalformed    int
+	bodyRejectedRows   int
+	bodyRejectReasons  map[string]int
 	cmdlines           map[int]string
 	tgids              map[int]int
 	segments           []segmentMeta
@@ -261,6 +266,15 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 	if meta.formatConflictRows > 0 {
 		result.Caveats = append(result.Caveats, fmt.Sprintf("%d raw ftrace event row(s) referenced a conflicting or malformed descriptor ID and were kept coverage-only instead of being decoded with an ambiguous layout", meta.formatConflictRows))
 	}
+	if len(meta.printkPoisoned) > 0 {
+		result.Caveats = append(result.Caveats, fmt.Sprintf("%d conflicting or malformed printk address mapping(s) were quarantined for the complete capture; later mappings cannot rescue a quarantined address", len(meta.printkPoisoned)))
+	}
+	if meta.printkMalformed > 0 {
+		result.Caveats = append(result.Caveats, fmt.Sprintf("%d printk_formats line(s) were malformed without a usable address and were ignored", meta.printkMalformed))
+	}
+	if meta.bodyRejectedRows > 0 {
+		result.Caveats = append(result.Caveats, fmt.Sprintf("%d recognized direct ftrace core event row(s) had rejected physical payloads and were kept coverage-only instead of falling back to header-only rows; reasons=%s", meta.bodyRejectedRows, traceDBCountSummary(meta.bodyRejectReasons)))
+	}
 	result.Caveats = append(result.Caveats, standaloneCaveats...)
 	normalizeResultCollections(&result)
 	if bundleArtifact, err := writeTraceBundleWithAllCoverage(input, output, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage); err != nil {
@@ -351,6 +365,8 @@ func scanMetadata(ctx context.Context, path string, size int64) (*traceMetadata,
 		header:         header,
 		formats:        map[int]eventFormat{},
 		formatPoisoned: map[int]bool{},
+		printkFormats:  map[uint64]string{},
+		printkPoisoned: map[uint64]bool{},
 		cmdlines:       map[int]string{},
 		tgids:          map[int]int{},
 	}
@@ -378,7 +394,7 @@ func scanMetadata(ctx context.Context, path string, size int64) (*traceMetadata,
 		}
 		meta.segments = append(meta.segments, segmentMeta{Type: typ, Size: segSize, Offset: payloadOffset})
 		switch {
-		case typ == segmentEventsFormat || typ == segmentCmdlines || typ == segmentTGIDs:
+		case typ == segmentEventsFormat || typ == segmentCmdlines || typ == segmentTGIDs || typ == segmentPrintk:
 			data := make([]byte, segSize)
 			if _, err := io.ReadFull(f, data); err != nil {
 				return nil, fmt.Errorf("read segment type=%d: %w", typ, err)
@@ -400,6 +416,10 @@ func scanMetadata(ctx context.Context, path string, size int64) (*traceMetadata,
 				for pid, tgid := range parseTGIDs(data) {
 					meta.tgids[pid] = tgid
 				}
+			case segmentPrintk:
+				catalog := printkFormatCatalog{Formats: meta.printkFormats, Poisoned: meta.printkPoisoned, Malformed: meta.printkMalformed}
+				mergePrintkFormatCatalog(&catalog, parsePrintkFormats(data))
+				meta.printkFormats, meta.printkPoisoned, meta.printkMalformed = catalog.Formats, catalog.Poisoned, catalog.Malformed
 			}
 		default:
 			if _, err := f.Seek(int64(segSize), io.SeekCurrent); err != nil {
@@ -416,6 +436,8 @@ func scanMetadata(ctx context.Context, path string, size int64) (*traceMetadata,
 func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]renderedRow, int, int, int, uint64, uint64, error) {
 	if meta != nil {
 		meta.formatConflictRows = 0
+		meta.bodyRejectedRows = 0
+		meta.bodyRejectReasons = make(map[string]int)
 	}
 	f, err := os.Open(path)
 	if err != nil {
@@ -429,7 +451,12 @@ func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]render
 	var first uint64
 	var last uint64
 	seq := 0
-	rc := renderContext{cmdlines: meta.cmdlines, tgids: meta.tgids}
+	rc := renderContext{
+		cmdlines:       meta.cmdlines,
+		tgids:          meta.tgids,
+		printkFormats:  meta.printkFormats,
+		printkPoisoned: meta.printkPoisoned,
+	}
 	for _, seg := range meta.segments {
 		if err := ctx.Err(); err != nil {
 			return nil, 0, 0, 0, 0, 0, err
@@ -535,11 +562,8 @@ func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]render
 					off = next
 					continue
 				}
-				line, known := renderEventLine(rc, ts, ph.CPU, format, content)
-				if !known {
-					line = renderEventHeaderLine(rc, ts, ph.CPU, format, content)
-				}
-				if line == "" {
+				line, admission, reason, envelopeOK := renderEventLineDecision(rc, ts, ph.CPU, format, content)
+				if !envelopeOK || line == "" {
 					// The format was known, but the raw common-field envelope was
 					// not. Keep the record coverage-only: emitting even a header-only
 					// row here would turn missing/mistyped PID bytes into idle PID 0.
@@ -547,7 +571,22 @@ func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]render
 					off = next
 					continue
 				}
-				if !known {
+				if admission == bodyRejected {
+					if reason == "" {
+						reason = "unspecified"
+					}
+					meta.bodyRejectedRows++
+					meta.bodyRejectReasons[format.Name+"_"+reason]++
+					off = next
+					continue
+				}
+				if admission == bodyUnsupported {
+					line = renderEventHeaderLine(rc, ts, ph.CPU, format, content)
+					if line == "" {
+						suppressed++
+						off = next
+						continue
+					}
 					unknown++
 				}
 				if len(rows) == 0 || ts < first {

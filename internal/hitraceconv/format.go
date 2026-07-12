@@ -140,6 +140,12 @@ func isRawTraceSegment(typ uint32, cpuNum int) bool {
 	if typ == segmentRawTrace {
 		return true
 	}
+	// Metadata segment IDs are fixed protocol authorities. On captures with
+	// 27+ CPUs their numeric IDs overlap the legacy per-CPU raw range; metadata
+	// must win or printk/header/kallsyms bytes are mis-decoded as RMQ pages.
+	if isIgnoredSegment(typ) {
+		return false
+	}
 	return typ > segmentRawTrace && typ <= segmentRawTrace+uint32(cpuNum)
 }
 

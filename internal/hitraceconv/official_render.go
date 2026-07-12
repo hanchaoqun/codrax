@@ -44,42 +44,16 @@ func renderOfficialOpenHarmonyBody(ev decodedEvent, content []byte, cpu int) (st
 			body += " " + extras
 		}
 		return body, true
-	case name == "sched_wakeup" || name == "sched_wakeup_new" || name == "sched_waking":
-		return fmt.Sprintf("comm=%s pid=%d prio=%d target_cpu=%03d",
-			firstNonEmpty(stringByCleanName(ev, content, "pname"), stringByCleanName(ev, content, "comm")),
-			intByCleanName(ev, "pid", true), intByCleanName(ev, "prio", true), intByCleanName(ev, "target_cpu", true)), true
-	case name == "sched_blocked_reason":
-		if hasCleanField(ev, "func_name") {
-			return fmt.Sprintf("pid=%d iowait=%d caller=%s+0x%x/0x%x[%s] delay=%d",
-				intByCleanName(ev, "pid", true), intByCleanName(ev, "iowait", false), stringByCleanName(ev, content, "func_name"),
-				intByCleanName(ev, "offset", false), intByCleanName(ev, "size", false), stringByCleanName(ev, content, "mod_name"),
-				intByCleanName(ev, "delay", false)>>10), true
-		}
-		if hasCleanField(ev, "cnode_idx") {
-			return fmt.Sprintf("pid=%d iowait=%d caller=0x%x cnode_idx=%d delay=%d",
-				intByCleanName(ev, "pid", true), intByCleanName(ev, "iowait", false), intByCleanName(ev, "caller", false),
-				intByCleanName(ev, "cnode_idx", false), intByCleanName(ev, "delay", false)>>10), true
-		}
-		return fmt.Sprintf("pid=%d iowait=%d caller=0x%x delay=%d",
-			intByCleanName(ev, "pid", true), firstNonZero(intByCleanName(ev, "io_wait", false), intByCleanName(ev, "iowait", false)),
-			intByCleanName(ev, "caller", false), intByCleanName(ev, "delay", false)>>10), true
 	case strings.HasPrefix(name, "sched_stat_"):
 		return renderSchedStat(ev, content), true
-	case name == "cpu_frequency" || name == "cpu_idle":
-		return fmt.Sprintf("state=%d cpu_id=%d", intByCleanName(ev, "state", false), intByCleanName(ev, "cpu_id", false)), true
-	case name == "cpu_frequency_limits":
-		minFreq := firstNonZero(intByCleanName(ev, "min", false), intByCleanName(ev, "min_freq", false))
-		maxFreq := firstNonZero(intByCleanName(ev, "max", false), intByCleanName(ev, "max_freq", false))
-		return fmt.Sprintf("min=%d max=%d cpu_id=%d", minFreq, maxFreq, intByCleanName(ev, "cpu_id", false)), true
 	case name == "clock_set_rate":
 		return renderClockSetRate(ev, content)
-	case name == "softirq_entry" || name == "softirq_exit" || (strings.Contains(name, "softirq") && hasCleanField(ev, "vec")):
+	case strings.Contains(name, "softirq") && hasCleanField(ev, "vec"):
+		// Preserve the pre-existing non-core vendor compatibility lane. The
+		// three governed exact softirq names are intercepted by the typed core
+		// decoder before this legacy renderer is reachable.
 		vec := intByCleanName(ev, "vec", false)
 		return fmt.Sprintf("vec=%d [action=%s]", vec, softirqAction(vec)), true
-	case name == "ipi_entry" || name == "ipi_exit":
-		return fmt.Sprintf("(%s)", stringByCleanName(ev, content, "reason")), true
-	case name == "ipi_raise":
-		return fmt.Sprintf("target_mask=0x%x (%s)", firstNonZero(intByCleanName(ev, "target_cpus", false), intByCleanName(ev, "target_mask", false)), stringByCleanName(ev, content, "reason")), true
 	case strings.HasPrefix(name, "ext4_da_write_begin"):
 		return fmt.Sprintf("dev %s ino %d pos %d len %d flags %d",
 			devByCleanName(ev, "dev", ","), intByCleanName(ev, "ino", false), intByCleanName(ev, "pos", true),

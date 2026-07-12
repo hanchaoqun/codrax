@@ -29,22 +29,39 @@ type decodedEvent struct {
 }
 
 type renderContext struct {
-	cmdlines map[int]string
-	tgids    map[int]int
+	cmdlines       map[int]string
+	tgids          map[int]int
+	printkFormats  map[uint64]string
+	printkPoisoned map[uint64]bool
 }
 
 func renderEventLine(ctx renderContext, tsNS uint64, cpu int, format eventFormat, content []byte) (string, bool) {
+	line, admission, _, envelopeOK := renderEventLineDecision(ctx, tsNS, cpu, format, content)
+	if !envelopeOK || admission == bodyRejected {
+		return "", false
+	}
+	return line, admission == bodyAdmitted
+}
+
+func renderEventLineDecision(ctx renderContext, tsNS uint64, cpu int, format eventFormat, content []byte) (string, bodyAdmission, string, bool) {
 	ev := decodeEvent(format, content)
 	prefix, envelopeOK := renderEventPrefix(ctx, tsNS, cpu, ev)
 	if !envelopeOK {
-		return "", false
+		return "", bodyUnsupported, "", false
 	}
-	body, known := renderEventBody(ev, content, cpu)
+	body, admission, reason := renderEventBodyDecision(coreDecodeContext{
+		PrintkFormats:  ctx.printkFormats,
+		PrintkPoisoned: ctx.printkPoisoned,
+	}, ev, content, cpu)
 	name := format.Name
 	if name == "" {
 		name = "unknown_event"
 	}
-	return prefix + name + ": " + body, known
+	line := prefix + name + ": " + body
+	if _, governed := coreRenderKindForName(format.Name); governed && !traceDBSinglePhysicalLine(line, false) {
+		return line, bodyRejected, "invalid_rendered_line", true
+	}
+	return line, admission, reason, true
 }
 
 func renderEventHeaderLine(ctx renderContext, tsNS uint64, cpu int, format eventFormat, content []byte) string {
@@ -138,6 +155,30 @@ func eventFieldBounds(offset, size, limit int) (int, int, bool) {
 }
 
 func renderEventBody(ev decodedEvent, content []byte, cpu int) (string, bool) {
+	body, admission, _ := renderEventBodyDecision(coreDecodeContext{}, ev, content, cpu)
+	return body, admission == bodyAdmitted
+}
+
+func renderEventBodyDecision(ctx coreDecodeContext, ev decodedEvent, content []byte, cpu int) (string, bodyAdmission, string) {
+	payload, admission, reason := decodeDirectCorePayload(ctx, ev, content)
+	switch admission {
+	case bodyAdmitted:
+		body, ok := renderCanonicalCorePayload(payload)
+		if !ok {
+			return "", bodyRejected, "invalid_canonical_payload"
+		}
+		return body, bodyAdmitted, ""
+	case bodyRejected:
+		return "", bodyRejected, reason
+	}
+	body, known := renderLegacyEventBody(ev, content, cpu)
+	if known {
+		return body, bodyAdmitted, ""
+	}
+	return body, bodyUnsupported, ""
+}
+
+func renderLegacyEventBody(ev decodedEvent, content []byte, cpu int) (string, bool) {
 	if body, ok := renderOfficialOpenHarmonyBody(ev, content, cpu); ok {
 		return body, true
 	}
@@ -173,23 +214,6 @@ func renderEventBody(ev decodedEvent, content []byte, cpu int) (string, bool) {
 			}
 			return body, true
 		}
-	case "sched_wakeup", "sched_waking":
-		comm := firstNonEmpty(strField(ev, "comm[16]"), strField(ev, "pname[16]"))
-		return fmt.Sprintf("comm=%s pid=%d prio=%d target_cpu=%03d",
-			comm,
-			intField(ev, "pid", true),
-			intField(ev, "prio", true),
-			intField(ev, "target_cpu", true)), true
-	case "sched_blocked_reason":
-		return fmt.Sprintf("pid=%d iowait=%d caller=%s delay=%d",
-			intField(ev, "pid", true),
-			intField(ev, "iowait", false),
-			blockedCaller(ev),
-			intField(ev, "delay", false)>>10), true
-	case "cpu_idle":
-		return renderKV(ev, "state", "cpu_id"), true
-	case "cpu_frequency":
-		return renderKV(ev, "state", "cpu_id"), true
 	case "clock_set_rate":
 		return renderClockSetRate(ev, content)
 	case "block_rq_issue", "block_rq_insert", "block_rq_complete", "block_rq_remap",
@@ -199,22 +223,10 @@ func renderEventBody(ev decodedEvent, content []byte, cpu int) (string, bool) {
 		return renderFilemapSetWBErr(ev), true
 	case "mm_filemap_add_to_page_cache", "mm_filemap_delete_from_page_cache":
 		return renderMMFilemapPageCache(ev)
-	case "binder_transaction":
-		return renderBinderTransaction(ev), true
-	case "binder_transaction_received":
-		return renderKV(ev, "transaction"), true
 	case "binder_transaction_alloc_buf", "binder_alloc_buf":
 		return renderKV(ev, "transaction", "debug_id", "data_size", "offsets_size", "extra_buffers_size"), true
 	case "binder_transaction_reply", "binder_reply", "binder_transaction_lock", "binder_lock", "binder_transaction_locked", "binder_locked", "binder_transaction_unlock", "binder_unlock":
 		return renderKV(ev, "transaction", "debug_id", "tag"), true
-	case "irq_handler_entry":
-		return fmt.Sprintf("irq=%d name=%s", intField(ev, "irq", true), irqName(ev, content)), true
-	case "irq_handler_exit":
-		ret := "unhandled"
-		if intField(ev, "ret", true) != 0 {
-			ret = "handled"
-		}
-		return fmt.Sprintf("irq=%d ret=%s", intField(ev, "irq", true), ret), true
 	case "tracing_mark_write", "print":
 		if payload := firstTracePayload(ev, content); payload != "" {
 			return payload, true
@@ -674,25 +686,6 @@ func renderKV(ev decodedEvent, names ...string) string {
 	return strings.Join(parts, " ")
 }
 
-func renderBinderTransaction(ev decodedEvent) string {
-	var parts []string
-	for _, name := range []string{"transaction", "dest_node", "dest_proc", "dest_thread", "reply"} {
-		if hasField(ev, name) {
-			parts = append(parts, fmt.Sprintf("%s=%d", name, intField(ev, name, false)))
-		}
-	}
-	if hasField(ev, "flags") {
-		parts = append(parts, fmt.Sprintf("flags=0x%x", intField(ev, "flags", false)))
-	}
-	if hasField(ev, "code") {
-		parts = append(parts, fmt.Sprintf("code=0x%x", intField(ev, "code", false)))
-	}
-	if len(parts) == 0 {
-		return genericFields(ev, nil)
-	}
-	return strings.Join(parts, " ")
-}
-
 func genericFields(ev decodedEvent, content []byte) string {
 	var parts []string
 	for _, f := range ev.format.Fields {
@@ -1063,38 +1056,6 @@ func harmonyPrevState(v uint64) string {
 	default:
 		return "?"
 	}
-}
-
-func blockedCaller(ev decodedEvent) string {
-	funcName := strField(ev, "func_name[20]")
-	modName := strField(ev, "mod_name[12]")
-	if funcName != "" {
-		return fmt.Sprintf("%s+0x%x/0x%x[%s]", funcName, intField(ev, "offset", false), intField(ev, "size", false), modName)
-	}
-	if hasField(ev, "caller") {
-		return fmt.Sprintf("0x%x", intField(ev, "caller", false))
-	}
-	return ""
-}
-
-func irqName(ev decodedEvent, content []byte) string {
-	if s := stringByCleanName(ev, content, "name"); s != "" {
-		return s
-	}
-	if s := strField(ev, "name[32]"); s != "" {
-		return s
-	}
-	pos := int(intField(ev, "name", false) & 0xffff)
-	if pos > 0 && pos < len(content) {
-		b := content[pos:]
-		if i := strings.IndexByte(string(b), 0); i >= 0 {
-			b = b[:i]
-		}
-		if s := strings.TrimSpace(string(b)); s != "" {
-			return s
-		}
-	}
-	return ""
 }
 
 func firstTracePayload(ev decodedEvent, content []byte) string {
