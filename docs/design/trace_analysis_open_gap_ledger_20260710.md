@@ -396,6 +396,15 @@ schema witness 有效，但 scheduler head、优先级反转数值和最终显�
 - **验证与真实trace复放**：adversarial/F2FS/window focused `×30`，目标race `×3`，目标包全量test/vet、性能tripwire `×3`（独立复核实测约1.86—1.97×，低于4×门）、`go test ./...`、`go vet ./...`、`git diff --check`全部通过；F2FS exact/soft/window与profiler两路独立终审最终均为**RELEASE**。标准Donghu SHA `e15d3dfc7963739c648a3f4f40095cabff19716575949bf38ea02ef732672b25`最终复放为27,843/27,843 recognized、14 event names、0 unknown/unparsed/panic/clock regression；报告`/tmp/codrax-e2-donghu-census-release-20260712.txt`的SHA-256为`d85633e5508c17ebbf6781fde2adb878fa62dea92548dfd9535a2dfa73bd9cb5`，临时路径不作仓内长期证据地址。
 - **诚实能力声明与后续队列**：Donghu、cust710与当前已审客户IO材料中六个标准F2FS端点仍为0；本批只宣称**source-pinned correctness**，不宣称production attestation。同硬键真实并发的typed request identity、SQL新能力、generic storage request token、UFS及其它storage族仍按生产witness触发。Profiler Session超长单行`ReadBytes`分配和container按声明frame长度分配继续属于独立`HCONV-PROFILER-CONTAINER-INTEGRITY` P1，E2没有偷报整个转换链内存有界。P0-a3当前为 **A/B/C/D/E1/E2已结案，下一原子代码批严格为E3 EROFS legacy deny**。
 
+## 2026-07-12 P0-a3 E3 EROFS legacy deny 恢复施工检查点
+
+本检查点在干净且已与`origin/main`对齐的`ac42bd462`上恢复施工；它只固化E3实施边界，不把未改代码或合成测试写成已交付。代码提交前后的状态与证据须继续分离记录并分别立即推送。
+
+- **单点权威**：converter当前唯一问题入口是`official_render.go`对`erofs_`/`z_erofs_`的broad-prefix legacy renderer；tracequery当前另有filesystem分类、FileIO、duration-order raw candidate与generic storage fallback等宽门。终态必须在converter与tracequery各自设置显式、大小写归一的EROFS semantic deny，删除19名兼容renderer及其`strong/filesystem`能力声明，并移除所有EROFS duration/pairing候选token；禁止只靠“当前恰好分类不到”形成脆弱的结构不可达证明。
+- **保留能力边界**：文本trace中的exact 19名、case/near/suffix仍保留`EventUnknown`原始inventory及indexed/streaming EventSearch；binary direct输入只保已写入行数、unknown/header-only caveat和不含伪造body的header-only coverage。两条来源都不得获得filesystem/storage类型、resource/FileIO、duration/pairing、IOPressure/IOBurst、EvidencePack或root-rank语义。header-only输出不伪称能从丢弃的binary body恢复事件名。
+- **冻结验收**：①exact 19逐名正对照与case/near/suffix负对照；②converter unit与完整文件E2E均证明`bodyUnsupported`、零伪body、header-only/unknown计数正确；③tracequery证明EventView/EventSearch保留且所有派生语义面为零，indexed/streaming parity；④结构pin禁止`renderEROFS`和EROFS broad legacy分支复活；⑤focused多轮与race、两目标包test/vet、全仓test/vet、`git diff --check`、Donghu 27,843/27,843零回归及独立复审全部RELEASE。真实trace仍无EROFS正例，所以结案最多声明source-pinned fail-close correctness。
+- **仍不在本批**：官方OH 5.10/Linux 6.6 EROFS typed descriptor能力、generic storage typed request identity、Profiler Session/container integrity、UFS/thermal/regulator、ROW-SORT-BND及R1b-C/R2继续开放；任何一项都不得借E3顺带销项。
+
 ## 统一采集与回访命令
 
 ```bash
