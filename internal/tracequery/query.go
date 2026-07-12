@@ -8671,6 +8671,9 @@ func accumulateSubsystemEvent(byKind map[string]SubsystemEventSummary, ev Event)
 	if isWritebackObservation(ev) {
 		return
 	}
+	if EROFSCoverageOnlyNameCandidate(ev.Name) {
+		return
+	}
 	// MMC prefix/case/suffix drift and exact-but-malformed payloads remain raw
 	// inventory/search observations. They must not be republished as generic
 	// subsystem evidence after the exact pairing/IO gate rejected them.
@@ -8813,6 +8816,9 @@ func accumulateRuntimeResource(bio, filesystem, pageFault map[string]*RuntimeRes
 
 func runtimeResourceKind(ev Event) string {
 	if isWritebackObservation(ev) {
+		return ""
+	}
+	if EROFSCoverageOnlyNameCandidate(ev.Name) {
 		return ""
 	}
 	if !f2fsSemanticPayloadAdmitted(ev) {
@@ -19943,6 +19949,9 @@ func evidenceFromEvents(events []EventView) []EvidenceFact {
 		if isWritebackObservation(ev.Event) {
 			continue
 		}
+		if EROFSCoverageOnlyNameCandidate(ev.Name) {
+			continue
+		}
 		// MMC near names and exact-name rows whose closed body profile failed
 		// remain searchable inventory. They must not regain semantic authority
 		// through event_search's generic EvidenceFact publisher.
@@ -20553,6 +20562,9 @@ func isFileIOEvent(ev Event) bool {
 	if isWritebackObservation(ev) {
 		return false
 	}
+	if EROFSCoverageOnlyNameCandidate(ev.Name) {
+		return false
+	}
 	if !f2fsSemanticPayloadAdmitted(ev) {
 		return false
 	}
@@ -20567,7 +20579,7 @@ func isFileIOEvent(ev Event) bool {
 	for _, token := range []string{
 		"android_fs_dataread", "android_fs_datawrite", "f2fs_direct_io",
 		"f2fs_sync_file", "f2fs_submit_read_bio", "f2fs_submit_write_bio",
-		"ext4_", "erofs_", "file_system", "filesystem", "ebpf_file",
+		"ext4_", "file_system", "filesystem", "ebpf_file",
 	} {
 		if strings.Contains(name, token) {
 			return true
@@ -20598,6 +20610,9 @@ func isStorageLatencyEvent(ev Event) bool {
 	if isWritebackObservation(ev) {
 		return false
 	}
+	if EROFSCoverageOnlyNameCandidate(ev.Name) {
+		return false
+	}
 	if !f2fsSemanticPayloadAdmitted(ev) {
 		return false
 	}
@@ -20614,6 +20629,9 @@ func isStorageLatencyEvent(ev Event) bool {
 }
 
 func storageLatencyLayer(ev Event) string {
+	if EROFSCoverageOnlyNameCandidate(ev.Name) {
+		return ""
+	}
 	if profile, exact := exactMMCPairingProfile(ev.Name); exact {
 		return profile.Layer
 	}
@@ -20651,6 +20669,9 @@ func storageLatencyLayer(ev Event) string {
 }
 
 func storageLatencyBaseAndPhase(ev Event) (base, phase string) {
+	if EROFSCoverageOnlyNameCandidate(ev.Name) {
+		return "", ""
+	}
 	if family, endpointPhase, endpoint := blockLatencyEndpoint(ev); endpoint {
 		if endpointPhase == blockEndpointStart {
 			return family, "start"

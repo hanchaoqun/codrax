@@ -295,6 +295,13 @@ func renderEventBodyDecisionWithPair(ctx coreDecodeContext, ev decodedEvent, con
 		// authority. Near/case/suffix drift remains header-only inventory.
 		return "", bodyUnsupported, ""
 	}
+	if directEROFSNameCandidate(ev.format.Name) {
+		// No currently supported producer profile proves the binary field
+		// layout for this family. Preserve occurrence coverage as a header-only
+		// row without letting either the compatibility renderer or genericFields
+		// fabricate a plausible semantic body from missing/aliased fields.
+		return "", bodyUnsupported, ""
+	}
 	body, known := renderLegacyEventBody(ev, content, cpu)
 	if known {
 		return body, bodyAdmitted, ""

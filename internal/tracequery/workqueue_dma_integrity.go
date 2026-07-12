@@ -149,7 +149,7 @@ func durationEndpointFallbackCandidate(line string) bool {
 		"binder_transaction", "workqueue_execute_", "dma_fence_wait_",
 		"block_rq_issue", "block_rq_complete", "block_bio_queue", "block_bio_complete",
 		"ufshcd_", "mmc_", "scsi_", "i2c_", "smbus_", "bio_", "ebpf_bio",
-		"f2fs_", "hmfs_", "android_fs_", "ext4_", "erofs_", "z_erofs_",
+		"f2fs_", "hmfs_", "android_fs_", "ext4_",
 		"filesystem", "file_system", "ebpf_file",
 	} {
 		if strings.Contains(line, token) {

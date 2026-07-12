@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -1096,24 +1097,49 @@ func TestOpenHarmonyPrintFmtCoverageManifest(t *testing.T) {
 		t.Fatalf("coverage manifest should contain header + 86 OpenHarmony PRINT_FMT rows, got %d", len(lines))
 	}
 	seen := map[string]string{}
+	expectedEROFS := make(map[string]bool, len(erofsLegacyNames))
+	for _, name := range erofsLegacyNames {
+		expectedEROFS["PRINT_FMT_"+strings.ToUpper(name)] = true
+	}
+	seenEROFS := map[string]bool{}
 	for _, line := range lines[1:] {
 		parts := strings.Split(line, "\t")
 		if len(parts) != 3 {
 			t.Fatalf("bad manifest row %q", line)
 		}
-		if parts[1] != "strong" {
-			t.Fatalf("converter support for %s should be strong after official-format parity work, got %q", parts[0], parts[1])
+		if _, duplicate := seen[parts[0]]; duplicate {
+			t.Fatalf("duplicate coverage manifest key %q", parts[0])
+		}
+		if expectedEROFS[parts[0]] {
+			if parts[1] != "header_only" || parts[2] != "unknown_inventory" {
+				t.Fatalf("unverified EROFS row must remain header-only unknown inventory: %q", line)
+			}
+			seenEROFS[parts[0]] = true
+		} else if strings.Contains(parts[0], "EROFS") {
+			t.Fatalf("unreviewed EROFS manifest key escaped the frozen exact-19 roster: %q", line)
+		} else if parts[1] != "strong" {
+			t.Fatalf("converter support for %s should remain strong, got %q", parts[0], parts[1])
 		}
 		seen[parts[0]] = parts[2]
 		if parts[1] == "" || parts[2] == "" {
 			t.Fatalf("coverage row must declare converter and trace_query support: %q", line)
 		}
 	}
+	if len(seenEROFS) != len(expectedEROFS) {
+		var missing []string
+		for name := range expectedEROFS {
+			if !seenEROFS[name] {
+				missing = append(missing, name)
+			}
+		}
+		sort.Strings(missing)
+		t.Fatalf("EROFS coverage-only roster drifted: got %d want %d missing=%v", len(seenEROFS), len(expectedEROFS), missing)
+	}
 	for name, lane := range map[string]string{
 		"PRINT_FMT_SCHED_SWITCH_HM_NINFO_CG": "sched_switch",
 		"PRINT_FMT_CPU_FREQUENCY_LIMITS":     "cpu_frequency_limits",
 		"PRINT_FMT_UFSHCD_COMMAND":           "storage",
-		"PRINT_FMT_EROFS_LOOKUP_START":       "filesystem",
+		"PRINT_FMT_EROFS_LOOKUP_START":       "unknown_inventory",
 		"PRINT_FMT_TRACING_MARK_WRITE":       "trace_mark",
 		"PRINT_FMT_XACCT_TRACING_MARK_WRITE": "trace_mark",
 	} {

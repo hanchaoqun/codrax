@@ -761,6 +761,9 @@ func encodePairingKey(parts ...string) string {
 }
 
 func genericStoragePairingProfile(name string) (pairingEndpointProfile, bool) {
+	if EROFSCoverageOnlyNameCandidate(name) {
+		return pairingEndpointProfile{}, false
+	}
 	if profile, exact := exactMMCPairingProfile(name); exact {
 		return profile, true
 	}

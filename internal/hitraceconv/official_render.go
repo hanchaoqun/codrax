@@ -144,10 +144,6 @@ func renderOfficialOpenHarmonyBody(ev decodedEvent, content []byte, cpu int) (st
 	case name == "phase_task_delta":
 		return fmt.Sprintf("comm=%s tid=%d delta_exec=%d deltas={%s}", stringByCleanName(ev, content, "name"),
 			intByCleanName(ev, "tid", false), intByCleanName(ev, "delta_exec", false), stringByCleanName(ev, content, "info")), true
-	case strings.HasPrefix(name, "erofs_") || strings.HasPrefix(name, "z_erofs_"):
-		if body, ok := renderEROFS(ev, content); ok {
-			return body, true
-		}
 	}
 	return "", false
 }
@@ -312,41 +308,6 @@ func appendHexIntKV(parts []string, key string, value int64, ok bool) []string {
 func appendHexCleanIntKV(parts []string, key string, ev decodedEvent, signed bool, names ...string) []string {
 	value, ok := firstCleanInt(ev, signed, names...)
 	return appendHexIntKV(parts, key, value, ok)
-}
-
-func renderEROFS(ev decodedEvent, content []byte) (string, bool) {
-	name := ev.format.Name
-	dev := devByCleanName(ev, "dev", ",")
-	devParen := fmt.Sprintf("(%s)", dev)
-	switch {
-	case strings.HasPrefix(name, "erofs_read_enter"):
-		return fmt.Sprintf("dev:%s ino:%d offset:%d size:%d entry_name:%s", dev, intByCleanName(ev, "ino", false), intByCleanName(ev, "off", false), intByCleanName(ev, "size", false), stringByCleanName(ev, content, "name")), true
-	case strings.HasPrefix(name, "erofs_read_exit"):
-		return fmt.Sprintf("dev:%s ino:%d offset:%d size:%d res:%d", dev, intByCleanName(ev, "ino", false), intByCleanName(ev, "off", false), intByCleanName(ev, "size", false), intByCleanName(ev, "res", false)), true
-	case strings.HasPrefix(name, "erofs_read_iter_enter"):
-		return fmt.Sprintf("dev:%s ino:%d offset:%d size:%d", dev, intByCleanName(ev, "ino", false), intByCleanName(ev, "off", false), intByCleanName(ev, "size", false)), true
-	case strings.HasPrefix(name, "erofs_read_iter_exit"):
-		return fmt.Sprintf("dev:%s ino:%d offset:%d size:%d res:%d", dev, intByCleanName(ev, "ino", false), intByCleanName(ev, "off", false), intByCleanName(ev, "size", false), intByCleanName(ev, "res", false)), true
-	case strings.HasPrefix(name, "erofs_readdir"):
-		return fmt.Sprintf("dev:%s, ino:%d, start_pos:%d, end_pos:%d, err:%d", devParen, intByCleanName(ev, "index", false), intByCleanName(ev, "start_pos", false), intByCleanName(ev, "end_pos", false), intByCleanName(ev, "res", false)), true
-	case strings.HasPrefix(name, "erofs_lookup_start"):
-		return fmt.Sprintf("dev:%s, ino:%d, name:%s", devParen, intByCleanName(ev, "index", false), stringByCleanName(ev, content, "name")), true
-	case strings.HasPrefix(name, "erofs_lookup_end"):
-		return fmt.Sprintf("dev:%s, pino:%d, name:%s, ino:%d, err:%d", devParen, intByCleanName(ev, "index", false), stringByCleanName(ev, content, "name"), intByCleanName(ev, "cino", false), intByCleanName(ev, "res", false)), true
-	case strings.HasPrefix(name, "erofs_getattr_enter") || strings.HasPrefix(name, "erofs_getattr_exit"):
-		return fmt.Sprintf("dev:%s, ino:%d, mode:0x%x, size:%d, blocks:%d, linkcnt:%d", devParen, intByCleanName(ev, "index", false), intByCleanName(ev, "mode", false), intByCleanName(ev, "size", false), intByCleanName(ev, "blocks", false), intByCleanName(ev, "nlink", false)), true
-	case strings.HasPrefix(name, "erofs_listxattr_enter"):
-		return fmt.Sprintf("dev:%s, ino:%d, mode:0x%x, xattr_nid:%d, size:%d", devParen, intByCleanName(ev, "index", false), intByCleanName(ev, "mode", false), intByCleanName(ev, "xattr_nid", false), intByCleanName(ev, "size", false)), true
-	case strings.HasPrefix(name, "erofs_listxattr_exit"):
-		return fmt.Sprintf("dev:%s, ino:%d, mode:0x%x, size:%d, blocks:%d, linkcnt:%d, err:%d", devParen, intByCleanName(ev, "index", false), intByCleanName(ev, "mode", false), intByCleanName(ev, "size", false), intByCleanName(ev, "blocks", false), intByCleanName(ev, "nlink", false), intByCleanName(ev, "res", false)), true
-	case strings.HasPrefix(name, "erofs_raw_access_readpages_start") || strings.HasPrefix(name, "z_erofs_vle_normalaccess_readpages_start"):
-		return fmt.Sprintf("index:%d nr_pages:%d nid:%d", intByCleanName(ev, "index", false), intByCleanName(ev, "nr_pages", false), intByCleanName(ev, "nid", false)), true
-	case strings.HasPrefix(name, "erofs_raw_access_readpages_end") || strings.HasPrefix(name, "erofs_read_raw_page_end") || strings.HasPrefix(name, "z_erofs_vle_normalaccess_readpage_end") || strings.HasPrefix(name, "z_erofs_vle_normalaccess_readpages_end"):
-		return fmt.Sprintf("nid:%d res:%d", intByCleanName(ev, "nid", false), intByCleanName(ev, "res", false)), true
-	case strings.HasPrefix(name, "erofs_read_raw_page_start") || strings.HasPrefix(name, "z_erofs_vle_normalaccess_readpage_start"):
-		return fmt.Sprintf("index:%d nid:%d", intByCleanName(ev, "index", false), intByCleanName(ev, "nid", false)), true
-	}
-	return "", false
 }
 
 func intByCleanName(ev decodedEvent, want string, signed bool) int64 {

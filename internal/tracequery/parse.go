@@ -3751,6 +3751,11 @@ func classifyEventType(comm, raw, fields string) EventType {
 	rawLower := strings.ToLower(raw)
 	pairingProfile, exactPairingEndpoint := pairingEndpointProfileForName(raw)
 	switch {
+	case EROFSCoverageOnlyNameCandidate(raw):
+		// EROFS compatibility names have no producer-matched binary descriptor
+		// authority yet. Keep the physical row searchable as EventUnknown; do
+		// not infer filesystem semantics from the prefix or payload shape.
+		return EventUnknown
 	case raw == "sched_switch":
 		return EventSchedSwitch
 	case raw == "sched_wakeup" || raw == "sched_wakeup_new":
@@ -3855,6 +3860,9 @@ func isCPUConstraintEvent(raw string) bool {
 }
 
 func classifySubsystemKind(raw, fields string, typ EventType) string {
+	if EROFSCoverageOnlyNameCandidate(raw) {
+		return ""
+	}
 	text := strings.ToLower(strings.TrimSpace(raw + " " + fields))
 	switch typ {
 	case EventCPUFrequencyLimit:
@@ -3890,8 +3898,6 @@ func classifySubsystemKind(raw, fields string, typ EventType) string {
 			// §28.6 ④: HarmonyOS hmfs (f2fs-derivative) keeps its own honest
 			// subsystem word — never silently relabelled fs_f2fs.
 			return "fs_hmfs"
-		case strings.Contains(text, "erofs"):
-			return "fs_erofs"
 		case strings.Contains(text, "ext4"):
 			return "fs_ext4"
 		case strings.Contains(text, "writeback") || strings.Contains(text, "wb_err"):
@@ -3945,6 +3951,9 @@ func isFilesystemEvent(raw string) bool {
 	if exactWritebackObservationName(raw) {
 		return true
 	}
+	if EROFSCoverageOnlyNameCandidate(raw) {
+		return false
+	}
 	raw = strings.ToLower(raw)
 	return strings.HasPrefix(raw, "ext4_") ||
 		strings.HasPrefix(raw, "f2fs_") ||
@@ -3956,8 +3965,6 @@ func isFilesystemEvent(raw string) bool {
 		// unchanged (generic key-driven parse, same keys as f2fs_*).
 		strings.HasPrefix(raw, "hmfs_") ||
 		strings.HasPrefix(raw, "android_fs_") ||
-		strings.HasPrefix(raw, "erofs_") ||
-		strings.HasPrefix(raw, "z_erofs_") ||
 		strings.HasPrefix(raw, "filesystem") ||
 		strings.HasPrefix(raw, "file_system") ||
 		strings.HasPrefix(raw, "ebpf_file")

@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const ParserVersion = "tracequery-v26"
+const ParserVersion = "tracequery-v27"
 
 type EventType string
 
