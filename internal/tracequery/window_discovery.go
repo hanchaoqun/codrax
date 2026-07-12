@@ -242,6 +242,11 @@ type pairingDiscoveryLane struct {
 	pid             int
 }
 
+type pairingDiscoveryOwner struct {
+	source string
+	pid    int
+}
+
 type pairingWindowDiscovery struct {
 	req                WindowDiscoveryRequest
 	scope              Query
@@ -249,6 +254,8 @@ type pairingWindowDiscovery struct {
 	families           map[WindowDiscoveryFamily]bool
 	stats              map[WindowDiscoveryFamily]*WindowDiscoveryFamilyStats
 	lanes              map[string]*pairingDiscoveryLane
+	laneOwners         map[string]pairingDiscoveryOwner
+	ownerLanes         map[pairingDiscoveryOwner]map[string]struct{}
 	ambiguous          []*WindowDiscoveryCandidate
 	schema             map[WindowDiscoveryFamily]*WindowDiscoveryCandidate
 	endpointCount      int
@@ -390,13 +397,15 @@ func normalizeWindowDiscoveryRequest(in WindowDiscoveryRequest) (WindowDiscovery
 
 func newPairingWindowDiscovery(req WindowDiscoveryRequest, source string) *pairingWindowDiscovery {
 	d := &pairingWindowDiscovery{
-		req:      req,
-		scope:    Query{TimeStart: req.TimeStart, TimeEnd: req.TimeEnd, TimeStartSet: req.TimeStartSet, TimeEndSet: req.TimeEndSet, LineStart: req.LineStart, LineEnd: req.LineEnd},
-		source:   source,
-		families: map[WindowDiscoveryFamily]bool{},
-		stats:    map[WindowDiscoveryFamily]*WindowDiscoveryFamilyStats{},
-		lanes:    map[string]*pairingDiscoveryLane{},
-		schema:   map[WindowDiscoveryFamily]*WindowDiscoveryCandidate{},
+		req:        req,
+		scope:      Query{TimeStart: req.TimeStart, TimeEnd: req.TimeEnd, TimeStartSet: req.TimeStartSet, TimeEndSet: req.TimeEndSet, LineStart: req.LineStart, LineEnd: req.LineEnd},
+		source:     source,
+		families:   map[WindowDiscoveryFamily]bool{},
+		stats:      map[WindowDiscoveryFamily]*WindowDiscoveryFamilyStats{},
+		lanes:      map[string]*pairingDiscoveryLane{},
+		laneOwners: map[string]pairingDiscoveryOwner{},
+		ownerLanes: map[pairingDiscoveryOwner]map[string]struct{}{},
+		schema:     map[WindowDiscoveryFamily]*WindowDiscoveryCandidate{},
 	}
 	for _, family := range req.Families {
 		d.families[family] = true
@@ -427,13 +436,20 @@ func (d *pairingWindowDiscovery) decode(ev Event) (pairingDiscoveryEndpoint, boo
 				return pairingDiscoveryEndpoint{family: WindowDiscoveryFamilyBlock, phase: phaseName}, true
 			}
 			label := fmt.Sprintf("family=%s dev=%s op=%s sector=%d len=%d", family, identity.Dev, identity.Op, identity.Sector, identity.Len)
-			return pairingDiscoveryEndpoint{family: WindowDiscoveryFamilyBlock, phase: phaseName, key: d.source + "\x00" + identity.laneKey(), identity: label, valid: true}, true
+			verdict := fingerprintPairingEvent(ev)
+			key, keyKnown := verdict.LaneKey(d.source)
+			keyKnown = keyKnown && verdict.Family == PairingEndpointBlock && verdict.PayloadAdmitted && verdict.EmitterKnown && verdict.EmitterAdmitted &&
+				((phase == blockEndpointStart && verdict.Phase == PairingEndpointStart) || (phase == blockEndpointDone && verdict.Phase == PairingEndpointDone))
+			return pairingDiscoveryEndpoint{family: WindowDiscoveryFamilyBlock, phase: phaseName, key: key, identity: label, valid: keyKnown}, true
 		}
 	}
 	if d.families[WindowDiscoveryFamilyStorage] {
 		identity, phase, endpoint := genericStorageEndpoint(ev)
 		if endpoint {
-			return pairingDiscoveryEndpoint{family: WindowDiscoveryFamilyStorage, phase: phase, key: d.source + "\x00" + identity.laneKey(), identity: genericStorageIdentityLabel(identity), pid: identity.PID, valid: true}, true
+			verdict := fingerprintPairingEvent(ev)
+			key, valid := verdict.LaneKey(d.source)
+			valid = valid && verdict.Family == PairingEndpointStorage && verdict.PayloadAdmitted && verdict.EmitterKnown && verdict.EmitterAdmitted && PairingEndpointPhase(phase) == verdict.Phase
+			return pairingDiscoveryEndpoint{family: WindowDiscoveryFamilyStorage, phase: phase, key: key, identity: genericStorageIdentityLabel(identity), pid: identity.PID, valid: valid}, true
 		}
 	}
 	return pairingDiscoveryEndpoint{}, false
@@ -488,6 +504,7 @@ func (d *pairingWindowDiscovery) observe(ev Event) bool {
 		}
 		lane = &pairingDiscoveryLane{family: endpoint.family, key: endpoint.key, identity: endpoint.identity, pid: endpoint.pid}
 		d.lanes[endpoint.key] = lane
+		d.addStorageLaneOwner(lane)
 	}
 	lane.endpointCount++
 	if endpoint.phase == "start" {
@@ -516,16 +533,66 @@ func (d *pairingWindowDiscovery) observe(ev Event) bool {
 	if transition.cohortClosed {
 		d.finishClosedLane(lane, transition)
 		delete(d.lanes, endpoint.key)
+		d.dropStorageLaneOwner(endpoint.key)
 	}
 	return true
+}
+
+func (d *pairingWindowDiscovery) addStorageLaneOwner(lane *pairingDiscoveryLane) {
+	if d == nil || lane == nil || lane.family != WindowDiscoveryFamilyStorage || lane.key == "" {
+		return
+	}
+	owner := pairingDiscoveryOwner{source: d.source, pid: lane.pid}
+	if previous, ok := d.laneOwners[lane.key]; ok && previous != owner {
+		d.dropStorageLaneOwner(lane.key)
+	}
+	d.laneOwners[lane.key] = owner
+	keys := d.ownerLanes[owner]
+	if keys == nil {
+		keys = map[string]struct{}{}
+		d.ownerLanes[owner] = keys
+	}
+	keys[lane.key] = struct{}{}
+}
+
+func (d *pairingWindowDiscovery) dropStorageLaneOwner(key string) {
+	if d == nil || key == "" {
+		return
+	}
+	owner, ok := d.laneOwners[key]
+	if !ok {
+		return
+	}
+	delete(d.laneOwners, key)
+	keys := d.ownerLanes[owner]
+	delete(keys, key)
+	if len(keys) == 0 {
+		delete(d.ownerLanes, owner)
+	}
+}
+
+func (d *pairingWindowDiscovery) storageLaneKeys(pid int) []string {
+	if d == nil {
+		return nil
+	}
+	set := d.ownerLanes[pairingDiscoveryOwner{source: d.source, pid: pid}]
+	keys := make([]string, 0, len(set))
+	for key := range set {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func (d *pairingWindowDiscovery) resetStoragePID(pid int, boundary Event) {
 	if pid <= 0 || !d.families[WindowDiscoveryFamilyStorage] {
 		return
 	}
-	for key, lane := range d.lanes {
-		if lane.family != WindowDiscoveryFamilyStorage || lane.pid != pid {
+	for _, key := range d.storageLaneKeys(pid) {
+		lane := d.lanes[key]
+		if lane == nil || lane.family != WindowDiscoveryFamilyStorage || lane.pid != pid {
+			delete(d.lanes, key)
+			d.dropStorageLaneOwner(key)
 			continue
 		}
 		transition := lane.cohort.finishEOF()
@@ -544,6 +611,7 @@ func (d *pairingWindowDiscovery) resetStoragePID(pid int, boundary Event) {
 			d.retainAmbiguous(candidate)
 		}
 		delete(d.lanes, key)
+		d.dropStorageLaneOwner(key)
 	}
 }
 
@@ -767,7 +835,7 @@ func discoveryCandidateLess(a, b *WindowDiscoveryCandidate) bool {
 }
 
 func (d *pairingWindowDiscovery) finalize(shell *Index, version TraceSourceVersion) WindowDiscoveryResult {
-	for _, lane := range d.lanes {
+	for key, lane := range d.lanes {
 		transition := lane.cohort.finishEOF()
 		stats := d.stats[lane.family]
 		if transition.ambiguous {
@@ -782,6 +850,8 @@ func (d *pairingWindowDiscovery) finalize(shell *Index, version TraceSourceVersi
 				d.recordLaneIdentityIssues(lane)
 			}
 		}
+		delete(d.lanes, key)
+		d.dropStorageLaneOwner(key)
 	}
 	pool := append([]*WindowDiscoveryCandidate(nil), d.ambiguous...)
 	for _, family := range []WindowDiscoveryFamily{WindowDiscoveryFamilyBlock, WindowDiscoveryFamilyStorage} {

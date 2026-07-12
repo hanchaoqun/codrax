@@ -2,6 +2,10 @@ package tracequery
 
 import (
 	"context"
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"math"
 	"os"
 	"path/filepath"
@@ -191,6 +195,152 @@ irq-2 (2) [003] .... 1.002000: block_rq_complete: 8,0 R () 123 + 8 [0]
 	}
 	if len(lifecycle.Families) != 1 || lifecycle.Families[0].LifecycleResetLaneCount != 1 || lifecycle.Families[0].ClosedAmbiguousCount != 0 {
 		t.Fatalf("lifecycle accounting = %+v", lifecycle.Families)
+	}
+}
+
+func TestPairingWindowDiscoveryStorageOwnerIndexScopesResetAndPreservesBudgets(t *testing.T) {
+	t.Parallel()
+	storageEvent := func(line int, ts float64, pid int, dev, name string) Event {
+		return Event{
+			Line: line, Ts: ts, PID: pid, Type: EventStorage, Name: name,
+			FieldText: fmt.Sprintf("dev=%s op=read bytes=4096", dev),
+		}
+	}
+	request := pairingDiscoveryRequest(.5, 10)
+	request.Families = []WindowDiscoveryFamily{WindowDiscoveryFamilyStorage}
+	request.EndpointLimit = 128
+	request.ActiveLaneLimit = 64
+	discovery := newPairingWindowDiscovery(request, "/trace/storage-owner-index.systrace")
+	line := 1
+	for pid := 1; pid <= 32; pid++ {
+		if !discovery.observe(storageEvent(line, 1+float64(line)/10000, pid, fmt.Sprintf("12,%d", pid), "scsi_dispatch_cmd_start")) {
+			t.Fatalf("unrelated lane %d unexpectedly exhausted a budget", pid)
+		}
+		line++
+	}
+	for minor := 100; minor < 103; minor++ {
+		if !discovery.observe(storageEvent(line, 1+float64(line)/10000, 40, fmt.Sprintf("12,%d", minor), "scsi_dispatch_cmd_start")) {
+			t.Fatalf("target lane %d unexpectedly exhausted a budget", minor)
+		}
+		line++
+	}
+	targetOwner := pairingDiscoveryOwner{source: discovery.source, pid: 40}
+	if len(discovery.lanes) != 35 || len(discovery.ownerLanes[targetOwner]) != 3 || len(discovery.laneOwners) != 35 {
+		t.Fatalf("storage owner index was not created symmetrically: lanes=%d target=%d reverse=%d", len(discovery.lanes), len(discovery.ownerLanes[targetOwner]), len(discovery.laneOwners))
+	}
+	endpointCount := discovery.endpointCount
+	for i := 0; i < 10_000; i++ {
+		discovery.resetStoragePID(99_999, Event{Line: line + i, Ts: 2})
+	}
+	if discovery.endpointCount != endpointCount || discovery.budgetStopped || len(discovery.lanes) != 35 || len(discovery.ownerLanes[targetOwner]) != 3 {
+		t.Fatalf("unrelated resets changed topology or budget state: endpoints=%d/%d stopped=%t lanes=%d target=%d", discovery.endpointCount, endpointCount, discovery.budgetStopped, len(discovery.lanes), len(discovery.ownerLanes[targetOwner]))
+	}
+	discovery.resetStoragePID(40, Event{Line: line + 10_001, Ts: 2})
+	if len(discovery.lanes) != 32 || len(discovery.ownerLanes[targetOwner]) != 0 || len(discovery.laneOwners) != 32 || discovery.stats[WindowDiscoveryFamilyStorage].LifecycleResetLaneCount != 3 {
+		t.Fatalf("target reset did not remove exactly its indexed lanes: lanes=%d target=%d reverse=%d stats=%+v", len(discovery.lanes), len(discovery.ownerLanes[targetOwner]), len(discovery.laneOwners), discovery.stats[WindowDiscoveryFamilyStorage])
+	}
+	if !discovery.observe(storageEvent(line+10_002, 2.1, 1, "12,1", "scsi_dispatch_cmd_done")) {
+		t.Fatal("legal close unexpectedly stopped discovery")
+	}
+	ownerOne := pairingDiscoveryOwner{source: discovery.source, pid: 1}
+	if len(discovery.ownerLanes[ownerOne]) != 0 || len(discovery.lanes) != 31 || len(discovery.laneOwners) != 31 {
+		t.Fatalf("normal close did not remove its owner index: lanes=%d owner=%d reverse=%d", len(discovery.lanes), len(discovery.ownerLanes[ownerOne]), len(discovery.laneOwners))
+	}
+	discovery.finalize(&Index{LineCount: line + 10_002, LastTs: 2.1}, TraceSourceVersion{})
+	if len(discovery.lanes) != 0 || len(discovery.laneOwners) != 0 || len(discovery.ownerLanes) != 0 {
+		t.Fatalf("EOF did not clear owner indexes: lanes=%d reverse=%d owners=%d", len(discovery.lanes), len(discovery.laneOwners), len(discovery.ownerLanes))
+	}
+
+	t.Run("endpoint budget", func(t *testing.T) {
+		req := request
+		req.EndpointLimit = 2
+		req.ActiveLaneLimit = 8
+		d := newPairingWindowDiscovery(req, "/trace/endpoint-budget.systrace")
+		if !d.observe(storageEvent(1, 1, 1, "12,1", "scsi_dispatch_cmd_start")) || !d.observe(storageEvent(2, 1.1, 2, "12,2", "scsi_dispatch_cmd_start")) {
+			t.Fatal("endpoint budget stopped before its exact limit")
+		}
+		for i := 0; i < 1_000; i++ {
+			d.resetStoragePID(99_999, Event{Line: 3 + i, Ts: 1.2})
+		}
+		if d.observe(storageEvent(1003, 1.3, 3, "12,3", "scsi_dispatch_cmd_start")) || !d.budgetStopped || d.endpointCount != 2 || len(d.lanes) != 2 {
+			t.Fatalf("unrelated resets bypassed endpoint budget: stopped=%t endpoints=%d lanes=%d", d.budgetStopped, d.endpointCount, len(d.lanes))
+		}
+	})
+
+	t.Run("active lane budget", func(t *testing.T) {
+		req := request
+		req.EndpointLimit = 8
+		req.ActiveLaneLimit = 2
+		d := newPairingWindowDiscovery(req, "/trace/active-budget.systrace")
+		if !d.observe(storageEvent(1, 1, 1, "12,1", "scsi_dispatch_cmd_start")) || !d.observe(storageEvent(2, 1.1, 2, "12,2", "scsi_dispatch_cmd_start")) {
+			t.Fatal("active lane budget stopped before its exact limit")
+		}
+		for i := 0; i < 1_000; i++ {
+			d.resetStoragePID(99_999, Event{Line: 3 + i, Ts: 1.2})
+		}
+		if d.observe(storageEvent(1003, 1.3, 3, "12,3", "scsi_dispatch_cmd_start")) || !d.budgetStopped || d.endpointCount != 3 || len(d.lanes) != 2 {
+			t.Fatalf("unrelated resets bypassed active-lane budget: stopped=%t endpoints=%d lanes=%d", d.budgetStopped, d.endpointCount, len(d.lanes))
+		}
+	})
+}
+
+func TestPairingWindowDiscoveryStorageResetUsesOwnerInverseIndex(t *testing.T) {
+	t.Parallel()
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "window_discovery.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	functions := map[string]*ast.FuncDecl{}
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if ok {
+			functions[fn.Name.Name] = fn
+		}
+	}
+	callName := func(call *ast.CallExpr) string {
+		switch fun := call.Fun.(type) {
+		case *ast.Ident:
+			return fun.Name
+		case *ast.SelectorExpr:
+			return fun.Sel.Name
+		default:
+			return ""
+		}
+	}
+	hasCall := func(fn *ast.FuncDecl, name string) bool {
+		found := false
+		if fn != nil {
+			ast.Inspect(fn.Body, func(node ast.Node) bool {
+				if call, ok := node.(*ast.CallExpr); ok && callName(call) == name {
+					found = true
+				}
+				return true
+			})
+		}
+		return found
+	}
+	reset := functions["resetStoragePID"]
+	rangesAllLanes := false
+	if reset != nil {
+		ast.Inspect(reset.Body, func(node ast.Node) bool {
+			rangeStmt, ok := node.(*ast.RangeStmt)
+			if !ok {
+				return true
+			}
+			selector, ok := rangeStmt.X.(*ast.SelectorExpr)
+			if ok && selector.Sel.Name == "lanes" {
+				rangesAllLanes = true
+			}
+			return true
+		})
+	}
+	if reset == nil || rangesAllLanes || !hasCall(reset, "storageLaneKeys") || !hasCall(reset, "dropStorageLaneOwner") ||
+		!hasCall(functions["observe"], "addStorageLaneOwner") || !hasCall(functions["observe"], "dropStorageLaneOwner") ||
+		!hasCall(functions["finalize"], "dropStorageLaneOwner") {
+		t.Fatalf("storage reset lost bounded owner-index maintenance: reset=%t full_scan=%t lookup=%t reset_drop=%t create=%t close=%t eof=%t",
+			reset != nil, rangesAllLanes, hasCall(reset, "storageLaneKeys"), hasCall(reset, "dropStorageLaneOwner"),
+			hasCall(functions["observe"], "addStorageLaneOwner"), hasCall(functions["observe"], "dropStorageLaneOwner"), hasCall(functions["finalize"], "dropStorageLaneOwner"))
 	}
 }
 

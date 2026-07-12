@@ -194,8 +194,8 @@ func TestMalformedWorkqueueAndDMAEndpointFailOnlyAffectedFamily(t *testing.T) {
 				t.Fatalf("fixture must exercise the common monotonic-index path: %v", idx.TimestampOrder)
 			}
 			stats := ComputeWindowStats(idx, Query{TimeStart: 0.9, TimeEnd: 1.1})
-			if !tc.familyGone(stats) || !containsSubstring(stats.Caveats, "duration_pairing_fail_closed=true") || !containsSubstring(stats.Caveats, tc.wantField) {
-				t.Fatalf("malformed exact endpoint must fail only its duration family closed: stats=%+v caveats=%v", stats, stats.Caveats)
+			if !tc.familyGone(stats) || !containsSubstring(stats.Caveats, "duration_pairing_source_fail_closed=true") || !containsSubstring(stats.Caveats, tc.wantField) {
+				t.Fatalf("unkeyable endpoint must fail only its physical-source family closed: stats=%+v caveats=%v", stats, stats.Caveats)
 			}
 			if tc.name == "work missing work" && len(stats.DMAFenceActivity) != 1 {
 				t.Fatalf("workqueue identity failure poisoned independent DMA family: %+v", stats.DMAFenceActivity)
@@ -216,8 +216,8 @@ func TestRawRejectedDurationEndpointFailsFamilyClosed(t *testing.T) {
 		`display-31 (31) [002] .... 1.021000: dma_fence_wait_end: driver=display timeline=present context=7 seqno=9`,
 	}, "\n")+"\n")
 	stats := ComputeWindowStats(idx, Query{TimeStart: 0.9, TimeEnd: 1.1})
-	if len(stats.WorkqueueActivity) != 0 || !containsSubstring(stats.Caveats, "duration_pairing_fail_closed=true") || !containsSubstring(stats.Caveats, "missing_or_invalid=header_cpu") {
-		t.Fatalf("parser-rejected exact endpoint must poison only its duration family: work=%+v caveats=%v", stats.WorkqueueActivity, stats.Caveats)
+	if len(stats.WorkqueueActivity) != 1 || stats.WorkqueueActivity[0].Work != "0xbb" || !containsSubstring(stats.Caveats, "duration_pairing_exact_lane_quarantined=true") || !containsSubstring(stats.Caveats, "missing_or_invalid=header_cpu") {
+		t.Fatalf("parser-rejected non-key metadata must quarantine only its exact lane: work=%+v caveats=%v", stats.WorkqueueActivity, stats.Caveats)
 	}
 	if len(stats.DMAFenceActivity) != 1 || stats.DMAFenceActivity[0].PairedCount != 1 {
 		t.Fatalf("malformed workqueue header poisoned independent DMA family: %+v", stats.DMAFenceActivity)
@@ -249,7 +249,7 @@ func TestUnknownTimestampDurationEndpointCannotBeProvenOutsidePositiveWindow(t *
 		`worker-21 (21) [001] .... 1.020000: workqueue_execute_end: work=0xbb`,
 	}, "\n")+"\n")
 	stats := ComputeWindowStats(idx, Query{TimeStart: 1.0, TimeEnd: 1.1})
-	if len(stats.WorkqueueActivity) != 0 || !containsSubstring(stats.Caveats, "missing_or_invalid=timestamp") {
-		t.Fatalf("unknown endpoint timestamp must remain relevant instead of collapsing to ts=0/window-before: work=%+v caveats=%v", stats.WorkqueueActivity, stats.Caveats)
+	if len(stats.WorkqueueActivity) != 1 || stats.WorkqueueActivity[0].Work != "0xbb" || !containsSubstring(stats.Caveats, "duration_pairing_exact_lane_quarantined=true") || !containsSubstring(stats.Caveats, "missing_or_invalid=timestamp") {
+		t.Fatalf("unknown endpoint timestamp must quarantine its exact lane without deleting a sibling: work=%+v caveats=%v", stats.WorkqueueActivity, stats.Caveats)
 	}
 }

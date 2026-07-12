@@ -20,6 +20,7 @@ const (
 	durationOrderIRQ          durationOrderFamily = "irq"
 	durationOrderSoftIRQ      durationOrderFamily = "softirq"
 	durationOrderIPI          durationOrderFamily = "ipi"
+	durationOrderBinder       durationOrderFamily = "binder"
 	durationOrderWorkqueue    durationOrderFamily = "workqueue"
 	durationOrderDMAFence     durationOrderFamily = "dma_fence"
 	durationOrderBlockIO      durationOrderFamily = "block_io"
@@ -38,6 +39,13 @@ const durationOrderFailureCap = 64
 // into a whole-family order_audit_truncated" false-close class 16× rarer.
 // Overflow keeps the capped fail-close semantics.
 const durationOrderEventScanWitnessCap = 1024
+
+// durationPairingReplayEventBudget bounds every complete physical-topology
+// replay and its temporary source/Line index. It deliberately matches the
+// default in-memory Index event ceiling: ordinary indexes pay no new product
+// regression, while callers that explicitly construct/raise a larger Index
+// get a deterministic family fail-close instead of query-time unbounded maps.
+const durationPairingReplayEventBudget = defaultTraceIndexMaxEvents
 
 // durationOrderViolation is a precise physical-order regression on one typed
 // duration lane. Lane is a bounded, deterministic digest for disclosure; the
@@ -73,8 +81,12 @@ func (v *durationOrderViolation) reason() string {
 		return fmt.Sprintf("duration_lane_timestamp_audit_truncated family=%s; overflow is fail-closed", v.Family)
 	}
 	if v.Issue == "endpoint_parse_incomplete" {
-		reason := fmt.Sprintf("duration_endpoint_parse_incomplete family=%s event=%s missing_or_invalid=%s ts=%.6f line=%d",
-			v.Family, v.EventName, strings.Join(v.Fields, ","), v.CurrentTs, v.Line)
+		ts := fmt.Sprintf("%.6f", v.CurrentTs)
+		if v.TsUnknown {
+			ts = "unknown"
+		}
+		reason := fmt.Sprintf("duration_endpoint_parse_incomplete family=%s event=%s missing_or_invalid=%s ts=%s line=%d",
+			v.Family, v.EventName, strings.Join(v.Fields, ","), ts, v.Line)
 		if v.SourcePath != "" {
 			reason += fmt.Sprintf(" source=%s", v.SourcePath)
 			reason += witnessLocalLineSuffix(v.Line, v.LocalLine)
@@ -135,15 +147,18 @@ type durationOrderObservation struct {
 // every consumer sees the existing order_audit_truncated poison for it.
 const durationOrderTrackerLaneBudget = 65536
 
-// durationOrderTracker follows physical input order. Open/close lanes are
-// forgotten when their typed state machine closes, bounding workqueue/DMA/span
-// memory by concurrent opens rather than capture-wide identity cardinality.
-// Sample lanes (IRQ bursts and counters) retain one timestamp per exact lane,
-// bounded per family by durationOrderTrackerLaneBudget.
+// durationOrderTracker follows physical input order. Open/close topology is
+// forgotten when a state machine closes. The four hard pairing families also
+// retain one bounded last-endpoint timestamp per exact lane, because sequential
+// identity reuse must not hide a cross-cohort physical clock rollback.
 type durationOrderTracker struct {
-	last   map[durationOrderLane]float64
-	depth  map[durationOrderLane]int
-	owners map[durationOrderLane]int
+	last                 map[durationOrderLane]float64
+	depth                map[durationOrderLane]int
+	owners               map[durationOrderLane]int
+	pairingLast          map[durationOrderLane]float64
+	pairingLanes         map[durationOrderFamily]map[durationOrderLane]struct{}
+	pairingHistoryCapped map[durationOrderFamily]bool
+	pairingHistoryBudget int
 	// traceSpanOwners mirrors the open-order stack for trace spans only. Async
 	// S/F lanes are keyed by payload pid/name/cookie and may legitimately hold
 	// starts emitted by several row PIDs; a last-writer owner cannot safely
@@ -162,15 +177,44 @@ type durationOrderTracker struct {
 
 func newDurationOrderTracker() *durationOrderTracker {
 	return &durationOrderTracker{
-		last:            map[durationOrderLane]float64{},
-		depth:           map[durationOrderLane]int{},
-		owners:          map[durationOrderLane]int{},
-		traceSpanOwners: map[durationOrderLane][]int{},
-		familyLanes:     map[durationOrderFamily]map[durationOrderLane]struct{}{},
-		ownerLanes:      map[int]map[durationOrderLane]struct{}{},
-		spanOwnerLanes:  map[int]map[durationOrderLane]int{},
-		capped:          map[durationOrderFamily]bool{},
+		last:                 map[durationOrderLane]float64{},
+		depth:                map[durationOrderLane]int{},
+		owners:               map[durationOrderLane]int{},
+		pairingLast:          map[durationOrderLane]float64{},
+		pairingLanes:         map[durationOrderFamily]map[durationOrderLane]struct{}{},
+		pairingHistoryCapped: map[durationOrderFamily]bool{},
+		pairingHistoryBudget: durationOrderTrackerLaneBudget,
+		traceSpanOwners:      map[durationOrderLane][]int{},
+		familyLanes:          map[durationOrderFamily]map[durationOrderLane]struct{}{},
+		ownerLanes:           map[int]map[durationOrderLane]struct{}{},
+		spanOwnerLanes:       map[int]map[durationOrderLane]int{},
+		capped:               map[durationOrderFamily]bool{},
 	}
+}
+
+func durationFamilyUsesHardPairingLane(family durationOrderFamily) bool {
+	return pairingEndpointFamilyForDuration(family) != ""
+}
+
+func (t *durationOrderTracker) observePairingTimestamp(lane durationOrderLane, ts float64) (previous float64, seen, admitted bool) {
+	if t == nil || !durationFamilyUsesHardPairingLane(lane.family) {
+		return 0, false, true
+	}
+	previous, seen = t.pairingLast[lane]
+	if !seen {
+		set := t.pairingLanes[lane.family]
+		if set == nil {
+			set = map[durationOrderLane]struct{}{}
+			t.pairingLanes[lane.family] = set
+		}
+		if len(set) >= t.pairingHistoryBudget {
+			t.pairingHistoryCapped[lane.family] = true
+			return 0, false, false
+		}
+		set[lane] = struct{}{}
+	}
+	t.pairingLast[lane] = ts
+	return previous, seen, true
 }
 
 func (t *durationOrderTracker) trackLane(lane durationOrderLane) {
@@ -333,7 +377,11 @@ func (t *durationOrderTracker) observeAll(ev Event) []durationOrderViolation {
 		// A malformed duration endpoint makes the affected family unavailable
 		// for the current query. Reset its open state as well, so a later window
 		// cannot attach a valid close to a pre-corruption start.
-		t.resetFamily(failure.Family)
+		if failure.LaneKey != "" {
+			t.clearLane(durationOrderLane{family: failure.Family, key: failure.LaneKey})
+		} else {
+			t.resetFamily(failure.Family)
+		}
 		return []durationOrderViolation{*failure}
 	}
 	observations := durationOrderObservations(ev)
@@ -343,6 +391,16 @@ func (t *durationOrderTracker) observeAll(ev Event) []durationOrderViolation {
 	out := make([]durationOrderViolation, 0, len(observations))
 	for _, observation := range observations {
 		lane := observation.lane
+		pairingPrevious, pairingSeen, pairingAdmitted := t.observePairingTimestamp(lane, ev.Ts)
+		if !pairingAdmitted {
+			continue
+		}
+		if pairingSeen && ev.Ts < pairingPrevious {
+			out = append(out, durationOrderViolation{
+				Family: lane.family, Lane: durationOrderLaneLabel(lane), LaneKey: lane.key,
+				PreviousTs: pairingPrevious, CurrentTs: ev.Ts, Line: ev.Line,
+			})
+		}
 		previous, seen := t.last[lane]
 		// A close without a typed open cannot mint elapsed time, so it also
 		// cannot establish a lane predecessor for a future pair.
@@ -360,7 +418,7 @@ func (t *durationOrderTracker) observeAll(ev Event) []durationOrderViolation {
 			}
 			t.trackLane(lane)
 		}
-		if seen && ev.Ts < previous {
+		if seen && !durationFamilyUsesHardPairingLane(lane.family) && ev.Ts < previous {
 			out = append(out, durationOrderViolation{
 				Family: lane.family, Lane: durationOrderLaneLabel(lane), LaneKey: lane.key,
 				PreviousTs: previous, CurrentTs: ev.Ts, Line: ev.Line,
@@ -401,22 +459,18 @@ func durationOrderObservations(ev Event) []durationOrderObservation {
 	}
 	switch ev.Type {
 	case EventBlockIssue, EventBlockComplete:
-		_, endpointPhase, endpoint := blockLatencyEndpoint(ev)
-		if !endpoint {
+		verdict := fingerprintPairingEvent(ev)
+		if !verdict.Recognized || verdict.Family != PairingEndpointBlock || !verdict.KeyKnown || !verdict.PayloadAdmitted || !verdict.EmitterAdmitted {
 			// block_rq_insert/block_getrq are inventory rows, not elapsed-time
 			// endpoints. The exact raw name gate also prevents rq/bio cross-family
 			// closes despite their shared wire-compatible EventType.
 			return nil
 		}
-		key := blockKey(ev)
-		if key == "" {
-			return nil
-		}
 		phase := durationOrderOpen
-		if endpointPhase == blockEndpointDone {
+		if verdict.Phase == PairingEndpointDone {
 			phase = durationOrderClose
 		}
-		return []durationOrderObservation{{lane: lane(durationOrderBlockIO, key), phase: phase, owner: ev.PID}}
+		return []durationOrderObservation{{lane: lane(durationOrderBlockIO, verdict.SemanticKey), phase: phase, owner: ev.PID}}
 	case EventTraceMark:
 		switch ev.SpanAction {
 		case "B":
@@ -458,26 +512,19 @@ func durationOrderObservations(ev Event) []durationOrderObservation {
 			return []durationOrderObservation{{lane: lane(durationOrderTraceTrack, key), phase: phase, owner: ev.SpanPID}}
 		}
 	case EventWorkqueue:
-		work, function := workqueueExactEndpointFields(ev)
-		base, phaseName := workqueueBaseAndPhase(ev.Name)
-		phase, ok := durationPairPhase(phaseName)
-		if !ok || len(workqueueEndpointMissingFields(ev, work)) > 0 {
+		verdict := fingerprintPairingEvent(ev)
+		phase, ok := durationPairPhase(string(verdict.Phase))
+		if !verdict.Recognized || verdict.Family != PairingEndpointWorkqueue || !verdict.KeyKnown || !verdict.PayloadAdmitted || !verdict.EmitterAdmitted || !ok {
 			return nil
 		}
-		// Function is metadata, not cross-version hard identity: older kernel
-		// execute_end rows may expose only the stable work struct pointer.
-		_ = function
-		key := strings.Join([]string{fmt.Sprintf("%d", ev.PID), work, base}, "\x00")
-		return []durationOrderObservation{{lane: lane(durationOrderWorkqueue, key), phase: phase, owner: ev.PID}}
+		return []durationOrderObservation{{lane: lane(durationOrderWorkqueue, verdict.SemanticKey), phase: phase, owner: ev.PID}}
 	case EventDMAFence:
-		driver, timeline, context, seqno := dmaFenceExactEndpointFields(ev)
-		base, phaseName := dmaFenceBaseAndPhase(ev.Name)
-		phase, ok := durationPairPhase(phaseName)
-		if !ok || len(dmaFenceEndpointMissingFields(ev, driver, timeline, context, seqno)) > 0 {
+		verdict := fingerprintPairingEvent(ev)
+		phase, ok := durationPairPhase(string(verdict.Phase))
+		if !verdict.Recognized || verdict.Family != PairingEndpointDMAFence || !verdict.KeyKnown || !verdict.PayloadAdmitted || !verdict.EmitterAdmitted || !ok {
 			return nil
 		}
-		key := strings.Join([]string{fmt.Sprintf("%d", ev.PID), driver, timeline, context, seqno, base}, "\x00")
-		return []durationOrderObservation{{lane: lane(durationOrderDMAFence, key), phase: phase, owner: ev.PID}}
+		return []durationOrderObservation{{lane: lane(durationOrderDMAFence, verdict.SemanticKey), phase: phase, owner: ev.PID}}
 	case EventIRQ, EventSoftIRQ, EventIPI:
 		family := durationOrderIRQ
 		if ev.Type == EventSoftIRQ {
@@ -497,12 +544,12 @@ func durationOrderObservations(ev Event) []durationOrderObservation {
 		}
 		return []durationOrderObservation{{lane: lane(family, key), phase: durationOrderSample}}
 	case EventStorage, EventFilesystem:
-		identity, phaseName, endpoint := genericStorageEndpoint(ev)
-		phase, ok := durationPairPhase(phaseName)
-		if !endpoint || !ok {
+		verdict := fingerprintPairingEvent(ev)
+		phase, ok := durationPairPhase(string(verdict.Phase))
+		if !verdict.Recognized || verdict.Family != PairingEndpointStorage || !verdict.KeyKnown || !verdict.PayloadAdmitted || !verdict.EmitterAdmitted || !ok {
 			return nil
 		}
-		return []durationOrderObservation{{lane: lane(durationOrderStorage, identity.laneKey()), phase: phase, owner: ev.PID}}
+		return []durationOrderObservation{{lane: lane(durationOrderStorage, verdict.SemanticKey), phase: phase, owner: ev.PID}}
 	case EventCPUFrequency:
 		// Only the exact per-CPU samples consumed by residency, scheduling-
 		// segment weighting and the supply fold participate. Reclassified
@@ -541,7 +588,7 @@ func durationOrderLaneLabel(lane durationOrderLane) string {
 }
 
 var durationOrderRawTokens = [...]string{
-	"tracing_mark_write", ": print:", "workqueue_", "dma_fence",
+	"tracing_mark_write", ": print:", "binder_transaction", "workqueue_", "dma_fence",
 	"irq_handler_", "softirq_", "ipi_", "sched_wakeup_new:", "sched_switch:",
 	"cpu_frequency:", "cpu_frequency_limits:",
 	"block_rq_issue:", "block_rq_complete:", "block_bio_queue:", "block_bio_complete:", "ufshcd_", "mmc_", "scsi_", "i2c_", "smbus_", "bio_", "ebpf_bio",
@@ -587,7 +634,23 @@ func durationOrderFailuresFromEvents(events []Event, q Query, limit int) ([]dura
 			capped[family] = true
 		}
 	}
+	if !durationEventSequenceMonotonic(events) {
+		for family, isCapped := range tracker.pairingHistoryCapped {
+			if isCapped {
+				capped[family] = true
+			}
+		}
+	}
 	return out, capped
+}
+
+func durationEventSequenceMonotonic(events []Event) bool {
+	for i := 1; i < len(events); i++ {
+		if events[i].Ts < events[i-1].Ts {
+			return false
+		}
+	}
+	return true
 }
 
 func appendDurationOrderFailure(idx *Index, failure durationOrderViolation) {
@@ -650,6 +713,14 @@ func durationOrderViolationRelevantToQuery(v *durationOrderViolation, q Query) b
 	if v == nil {
 		return false
 	}
+	// Every hard elapsed-pairing consumer replays complete physical endpoint
+	// topology for every query shape. This includes the parser-rejected raw-row
+	// ledger: such a row has no Event for the consumer to rediscover. Cropping
+	// its rollback/malformed barrier at a line/time boundary can rescue a false
+	// pair, so the integrity witness must have exactly the same complete scope.
+	if durationFamilyUsesHardPairingLane(v.Family) {
+		return true
+	}
 	// Interrupt activity pairs only endpoints retained inside the selected
 	// window; unlike trace-span/workqueue carry-in, an earlier malformed IRQ
 	// endpoint cannot govern a later pair. Keep this poison scoped to the same
@@ -702,6 +773,396 @@ func ensureDurationOrderEventScan(idx *Index) ([]durationOrderViolation, map[dur
 		idx.durationOrderEventScanFailures, idx.durationOrderEventScanCapped = durationOrderFailuresFromEvents(idx.Events, Query{}, durationOrderEventScanWitnessCap)
 	})
 	return idx.durationOrderEventScanFailures, idx.durationOrderEventScanCapped
+}
+
+// durationPairingIntegrity is the source-scoped quarantine view for elapsed
+// endpoint families. A failure with a known hard key invalidates only that
+// physical artifact lane; an unknown key/owner with a known source closes only
+// that source-family. Only unresolved provenance or bounded-audit overflow is
+// the precise signal that requires whole-bundle family fail-close.
+type durationPairingIntegrity struct {
+	family               durationOrderFamily
+	familyGlobal         bool
+	topologyIncomplete   bool
+	poisonedLanes        map[string]bool
+	laneSources          map[string]string
+	poisonedSources      map[string]bool
+	exactWitnesses       int
+	sourceWitnesses      int
+	globalWitnesses      int
+	firstGlobalFailure   *durationOrderViolation
+	firstExactFailure    *durationOrderViolation
+	firstSourceFailure   *durationOrderViolation
+	rejectedEndpointRows int
+	unresolvedSources    int
+	laneBudget           int
+	budgetExceeded       bool
+}
+
+func newDurationPairingIntegrity(family durationOrderFamily) *durationPairingIntegrity {
+	return newDurationPairingIntegrityWithBudget(family, durationOrderTrackerLaneBudget)
+
+}
+
+func newDurationPairingIntegrityWithBudget(family durationOrderFamily, budget int) *durationPairingIntegrity {
+	if budget <= 0 || budget > durationOrderTrackerLaneBudget {
+		budget = durationOrderTrackerLaneBudget
+	}
+	return &durationPairingIntegrity{
+		family: family, poisonedLanes: map[string]bool{}, laneSources: map[string]string{}, poisonedSources: map[string]bool{}, laneBudget: budget,
+	}
+}
+
+func completePhysicalPairingTopology(idx *Index) bool {
+	return idx != nil && (!idx.Windowed || idx.pairingTopologyComplete)
+}
+
+func failDurationPairingTopology(integrity *durationPairingIntegrity) {
+	if integrity == nil {
+		return
+	}
+	integrity.familyGlobal = true
+	integrity.topologyIncomplete = true
+}
+
+func pairingEndpointFamilyForDuration(family durationOrderFamily) PairingEndpointFamily {
+	switch family {
+	case durationOrderBinder:
+		return PairingEndpointBinder
+	case durationOrderWorkqueue:
+		return PairingEndpointWorkqueue
+	case durationOrderDMAFence:
+		return PairingEndpointDMAFence
+	case durationOrderBlockIO:
+		return PairingEndpointBlock
+	case durationOrderStorage:
+		return PairingEndpointStorage
+	default:
+		return ""
+	}
+}
+
+func sourceScopedDurationOrderFailuresFromEvents(idx *Index, q Query, limit int) ([]durationOrderViolation, map[durationOrderFamily]bool) {
+	if idx == nil {
+		return nil, nil
+	}
+	bySource := map[string][]int{}
+	for eventIndex, ev := range idx.Events {
+		source, ok := tracePairingSourceIdentity(idx, ev)
+		if !ok {
+			continue
+		}
+		bySource[source] = append(bySource[source], eventIndex)
+	}
+	out := make([]durationOrderViolation, 0, 8)
+	capped := map[durationOrderFamily]bool{}
+	counts := map[durationOrderFamily]int{}
+	sources := make([]string, 0, len(bySource))
+	for source := range bySource {
+		sources = append(sources, source)
+	}
+	sort.Strings(sources)
+	for _, source := range sources {
+		eventIndexes := bySource[source]
+		sort.SliceStable(eventIndexes, func(i, j int) bool {
+			left, right := idx.Events[eventIndexes[i]], idx.Events[eventIndexes[j]]
+			if left.Line != right.Line {
+				return left.Line < right.Line
+			}
+			return left.Ts < right.Ts
+		})
+		tracker := newDurationOrderTracker()
+		monotonic := true
+		previousTs := 0.0
+		for position, eventIndex := range eventIndexes {
+			ev := idx.Events[eventIndex]
+			if position > 0 && ev.Ts < previousTs {
+				monotonic = false
+			}
+			previousTs = ev.Ts
+			for _, failure := range tracker.observeAll(ev) {
+				if !durationFamilyUsesHardPairingLane(failure.Family) || !durationOrderViolationRelevantToQuery(&failure, q) {
+					continue
+				}
+				if counts[failure.Family] >= limit {
+					capped[failure.Family] = true
+					continue
+				}
+				counts[failure.Family]++
+				failure.SourcePath = source
+				out = append(out, failure)
+			}
+		}
+		for family, value := range tracker.capped {
+			if value && durationFamilyUsesHardPairingLane(family) {
+				capped[family] = true
+			}
+		}
+		if !monotonic {
+			for family, value := range tracker.pairingHistoryCapped {
+				if value {
+					capped[family] = true
+				}
+			}
+		}
+	}
+	return out, capped
+}
+
+func pairingReplayAuditEvent(_ Event, _ Query) bool {
+	// Block/Storage consumers replay complete physical topology for both time
+	// and line queries. Auditing a narrower slice would delete a malformed or
+	// regressed endpoint and let selected rows bridge across it. Known keys
+	// remain lane-local; unknown keys remain source-family fail-close.
+	return true
+}
+
+func durationPairingFailureSource(idx *Index, failure durationOrderViolation) (string, bool) {
+	source := strings.TrimSpace(failure.SourcePath)
+	if source == "" {
+		var ok bool
+		source, ok = tracePairingSourceIdentity(idx, Event{Line: failure.Line})
+		if !ok {
+			return "", false
+		}
+	}
+	if source == "order_audit_truncated" {
+		return "", false
+	}
+	return source, true
+}
+
+func durationPairingFailureLane(idx *Index, failure durationOrderViolation) (string, string, bool) {
+	pairingFamily := pairingEndpointFamilyForDuration(failure.Family)
+	if pairingFamily == "" || failure.LaneKey == "" {
+		return "", "", false
+	}
+	source, ok := durationPairingFailureSource(idx, failure)
+	if !ok {
+		return "", "", false
+	}
+	return encodePairingKey(source, string(pairingFamily), failure.LaneKey), source, true
+}
+
+func (integrity *durationPairingIntegrity) poisonLane(lane, source string) bool {
+	if integrity == nil || lane == "" || source == "" || integrity.familyGlobal || integrity.poisonedSources[source] || integrity.poisonedLanes[lane] {
+		return false
+	}
+	if len(integrity.poisonedLanes)+len(integrity.poisonedSources) >= integrity.laneBudget {
+		integrity.familyGlobal = true
+		integrity.budgetExceeded = true
+		integrity.globalWitnesses++
+		return false
+	}
+	integrity.poisonedLanes[lane] = true
+	integrity.laneSources[lane] = source
+	return true
+}
+
+func (integrity *durationPairingIntegrity) poisonSource(source string) bool {
+	if integrity == nil || source == "" || integrity.familyGlobal || integrity.poisonedSources[source] {
+		return false
+	}
+	for lane, laneSource := range integrity.laneSources {
+		if laneSource == source {
+			delete(integrity.poisonedLanes, lane)
+			delete(integrity.laneSources, lane)
+		}
+	}
+	if len(integrity.poisonedLanes)+len(integrity.poisonedSources) >= integrity.laneBudget {
+		integrity.familyGlobal = true
+		integrity.budgetExceeded = true
+		integrity.globalWitnesses++
+		return false
+	}
+	integrity.poisonedSources[source] = true
+	return true
+}
+
+func applyDurationPairingFailure(idx *Index, integrity *durationPairingIntegrity, failure durationOrderViolation) {
+	if integrity == nil {
+		return
+	}
+	lane, source, ok := durationPairingFailureLane(idx, failure)
+	if ok {
+		if integrity.poisonLane(lane, source) {
+			integrity.exactWitnesses++
+		}
+		if integrity.firstExactFailure == nil {
+			copy := failure
+			integrity.firstExactFailure = &copy
+		}
+		return
+	}
+	if source, sourceOK := durationPairingFailureSource(idx, failure); sourceOK {
+		if integrity.poisonSource(source) {
+			integrity.sourceWitnesses++
+		}
+		if integrity.firstSourceFailure == nil {
+			copy := failure
+			integrity.firstSourceFailure = &copy
+		}
+		return
+	}
+	integrity.familyGlobal = true
+	integrity.globalWitnesses++
+	integrity.unresolvedSources++
+	if integrity.firstGlobalFailure == nil {
+		copy := failure
+		integrity.firstGlobalFailure = &copy
+	}
+}
+
+func durationPairingIntegritiesForQuery(idx *Index, q Query) map[durationOrderFamily]*durationPairingIntegrity {
+	families := []durationOrderFamily{durationOrderWorkqueue, durationOrderDMAFence, durationOrderBlockIO, durationOrderStorage}
+	out := make(map[durationOrderFamily]*durationPairingIntegrity, len(families))
+	for _, family := range families {
+		out[family] = newDurationPairingIntegrity(family)
+	}
+	if idx == nil {
+		return out
+	}
+	if !completePhysicalPairingTopology(idx) {
+		for _, integrity := range out {
+			failDurationPairingTopology(integrity)
+		}
+		return out
+	}
+	if applyDurationPairingReplayBudget(out, len(idx.Events)) {
+		return out
+	}
+	for _, failure := range idx.durationOrderFailures {
+		integrity := out[failure.Family]
+		if integrity != nil && durationOrderViolationRelevantToQuery(&failure, q) {
+			applyDurationPairingFailure(idx, integrity, failure)
+		}
+	}
+	for family, capped := range idx.durationOrderFailuresCapped {
+		if capped && out[family] != nil {
+			out[family].familyGlobal = true
+			out[family].globalWitnesses++
+		}
+	}
+	if idx.TimestampOrder != TraceTimestampOrderMonotonic || idx.LineCount == 0 {
+		failures, capped := sourceScopedDurationOrderFailuresFromEvents(idx, q, durationOrderEventScanWitnessCap)
+		for _, failure := range failures {
+			applyDurationPairingFailure(idx, out[failure.Family], failure)
+		}
+		for family, value := range capped {
+			if value && out[family] != nil {
+				out[family].familyGlobal = true
+				out[family].globalWitnesses++
+			}
+		}
+	}
+	return out
+}
+
+func applyDurationPairingReplayBudget(integrities map[durationOrderFamily]*durationPairingIntegrity, eventCount int) bool {
+	if eventCount >= 0 && eventCount <= durationPairingReplayEventBudget {
+		return false
+	}
+	for _, integrity := range integrities {
+		failDurationPairingReplayBudget(integrity)
+	}
+	return true
+}
+
+func failDurationPairingReplayBudget(integrity *durationPairingIntegrity) {
+	if integrity == nil {
+		return
+	}
+	integrity.familyGlobal = true
+	if !integrity.budgetExceeded {
+		integrity.globalWitnesses++
+	}
+	integrity.budgetExceeded = true
+}
+
+func durationPairingIntegrityForQuery(idx *Index, q Query, family durationOrderFamily) *durationPairingIntegrity {
+	return durationPairingIntegritiesForQuery(idx, q)[family]
+}
+
+func selectedDurationPairingIntegrity(idx *Index, q Query, family durationOrderFamily, provided []*durationPairingIntegrity) *durationPairingIntegrity {
+	if len(provided) > 0 && provided[0] != nil && provided[0].family == family {
+		integrity := provided[0]
+		if idx != nil && !completePhysicalPairingTopology(idx) {
+			failDurationPairingTopology(integrity)
+			return integrity
+		}
+		if idx != nil && len(idx.Events) > durationPairingReplayEventBudget {
+			// Preserve the replay bound even for internal/direct callers that
+			// supply an integrity object rather than the shared production batch.
+			failDurationPairingReplayBudget(integrity)
+		}
+		return integrity
+	}
+	// Compatibility path for direct consumer tests and legacy internal callers.
+	// The production ComputeWindowStats path supplies the shared batch result so
+	// all four pairing families consume one source-aware scan.
+	return durationPairingIntegrityForQuery(idx, q, family)
+}
+
+func (integrity *durationPairingIntegrity) rejectEvent(idx *Index, ev Event, verdict PairingEndpointVerdict) {
+	if integrity == nil {
+		return
+	}
+	integrity.rejectedEndpointRows++
+	wantFamily := pairingEndpointFamilyForDuration(integrity.family)
+	source, sourceOK := tracePairingSourceIdentity(idx, ev)
+	if !sourceOK {
+		integrity.familyGlobal = true
+		integrity.globalWitnesses++
+		integrity.unresolvedSources++
+		return
+	}
+	if !verdict.Recognized || verdict.Family != wantFamily || !verdict.KeyKnown || !verdict.EmitterKnown {
+		if integrity.poisonSource(source) {
+			integrity.sourceWitnesses++
+		}
+		return
+	}
+	lane, laneOK := verdict.LaneKey(source)
+	if !laneOK {
+		integrity.familyGlobal = true
+		integrity.globalWitnesses++
+		return
+	}
+	if integrity.poisonLane(lane, source) {
+		integrity.exactWitnesses++
+	}
+}
+
+func (integrity *durationPairingIntegrity) caveats(outputs string) []string {
+	if integrity == nil {
+		return nil
+	}
+	if integrity.topologyIncomplete {
+		return []string{fmt.Sprintf("duration_pairing_fail_closed=true; family=%s windowed_pairing_topology_incomplete=true; omitted affected output family=%s because this cropped index has no complete physical endpoint topology proof; rebuild without windowed parsing or wait for a bounded pairing-topology sidecar", integrity.family, outputs)}
+	}
+	if integrity.familyGlobal {
+		reason := fmt.Sprintf("family=%s unknown_or_unscoped_witnesses=%d rejected_endpoints=%d budget_exceeded=%t", integrity.family, integrity.globalWitnesses, integrity.rejectedEndpointRows, integrity.budgetExceeded)
+		if integrity.firstGlobalFailure != nil {
+			reason = integrity.firstGlobalFailure.reason()
+		}
+		return []string{fmt.Sprintf("duration_pairing_fail_closed=true; %s; omitted affected output family=%s because an endpoint key/source or bounded audit coverage was not provable", reason, outputs)}
+	}
+	var out []string
+	if len(integrity.poisonedSources) > 0 {
+		reason := "source-scoped endpoint key or owner was not provable"
+		if integrity.firstSourceFailure != nil {
+			reason = integrity.firstSourceFailure.reason()
+		}
+		out = append(out, fmt.Sprintf("duration_pairing_source_fail_closed=true; family=%s sources=%d witnesses=%d; %s; omitted only affected physical-source families from output family=%s", integrity.family, len(integrity.poisonedSources), integrity.sourceWitnesses, reason, outputs))
+	}
+	if len(integrity.poisonedLanes) == 0 {
+		return out
+	}
+	reason := "known hard lane carried a rejected or non-monotonic endpoint"
+	if integrity.firstExactFailure != nil {
+		reason = integrity.firstExactFailure.reason()
+	}
+	return append(out, fmt.Sprintf("duration_pairing_exact_lane_quarantined=true; family=%s lanes=%d witnesses=%d rejected_endpoints=%d; %s; omitted only affected source-scoped hard lanes from output family=%s", integrity.family, len(integrity.poisonedLanes), integrity.exactWitnesses, integrity.rejectedEndpointRows, reason, outputs))
 }
 
 func durationOrderFailuresForQuery(idx *Index, q Query) map[durationOrderFamily]*durationOrderViolation {

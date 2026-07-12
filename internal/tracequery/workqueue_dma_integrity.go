@@ -1,10 +1,8 @@
 package tracequery
 
 import (
-	"math"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 )
 
@@ -13,7 +11,7 @@ import (
 // because the main parser's fully typed ftrace grammar rejected the row.
 // Group indexes intentionally mirror ftraceLineRE: comm, pid, tgid, cpu,
 // timestamp, event, fields.
-var durationEndpointFallbackRE = regexp.MustCompile(`^\s*(.+)-([^\s]+)(?:\s+\(\s*([^\s()]+)\s*\))?\s+\[([^\]]+)\]\s+\S+\s+([^\s:]+):\s+(workqueue_execute_start|workqueue_execute_end|dma_fence_wait_start|dma_fence_wait_end):\s*(.*)$`)
+var durationEndpointFallbackRE = regexp.MustCompile(`^\s*(.+)-([^\s]+)(?:\s+\(\s*([^\s()]+)\s*\))?\s+\[([^\]]+)\]\s+\S+\s+([^\s:]+):\s+([A-Za-z0-9_]+):\s*(.*)$`)
 
 // workqueueEndpointMissingFields and dmaFenceEndpointMissingFields define the
 // minimum exact identities permitted to mint elapsed time. Inventory events
@@ -30,23 +28,8 @@ func workqueueEndpointMissingFields(ev Event, work string) []string {
 }
 
 func validWorkqueuePointerIdentity(raw string) bool {
-	raw = strings.TrimRight(cleanTraceValue(raw), ":")
-	hadHexPrefix := strings.HasPrefix(strings.ToLower(raw), "0x")
-	if hadHexPrefix {
-		raw = raw[2:]
-	}
-	if raw == "" || len(raw) > 16 {
-		return false
-	}
-	// Linux %p renders an unprefixed pointer at the native fixed width. Short
-	// tokens are accepted only with an explicit 0x prefix; otherwise ordinary
-	// words made solely of [a-f] (for example "bad") could masquerade as a
-	// pointer identity.
-	if !hadHexPrefix && len(raw) != 8 && len(raw) != 16 {
-		return false
-	}
-	value, err := strconv.ParseUint(raw, 16, 64)
-	return err == nil && value != 0
+	_, ok := canonicalWorkqueuePointerIdentity(raw)
+	return ok
 }
 
 func dmaFenceEndpointMissingFields(ev Event, driver, timeline, context, seqno string) []string {
@@ -70,36 +53,38 @@ func dmaFenceEndpointMissingFields(ev Event, driver, timeline, context, seqno st
 }
 
 func validUnsignedTraceIdentity(raw string) bool {
-	raw = strings.TrimSpace(raw)
-	if raw == "" || strings.HasPrefix(raw, "+") || strings.HasPrefix(raw, "-") {
-		return false
-	}
-	base := 10
-	if strings.HasPrefix(strings.ToLower(raw), "0x") {
-		base = 16
-		raw = raw[2:]
-		if raw == "" {
-			return false
-		}
-	}
-	_, err := strconv.ParseUint(raw, base, 64)
-	return err == nil
+	_, ok := canonicalUnsignedTraceIdentity(raw)
+	return ok
 }
 
 // Exact duration endpoints use only the upstream tracepoint field names.
 // Wider aliases remain available to inventory/display parsing, but may not
 // satisfy a hard pairing identity.
 func workqueueExactEndpointFields(ev Event) (work, function string) {
-	kv := parseKV(ev.FieldText)
-	work = cleanTraceValue(kv["work"])
-	function = cleanTraceValue(kv["function"])
-	if work == "" {
-		work = workqueuePositionalWorkPointer(ev.FieldText)
+	tokens, lexOK := tokenizePairingKV(ev.FieldText)
+	return workqueueExactEndpointFieldsFromTokens(ev.FieldText, tokens, lexOK)
+}
+
+func workqueueExactEndpointFieldsFromTokens(fieldText string, tokens []pairingKVToken, lexOK bool) (work, function string) {
+	work, workPresent, workValid := strictOptionalPairingAliasTokens(tokens, lexOK, "work")
+	if !workValid {
+		return "", ""
 	}
-	if function == "" {
-		function = valueAfterLabel(ev.FieldText, "function")
+	if !workPresent {
+		work = workqueuePositionalWorkPointer(fieldText)
 	}
-	return strings.TrimRight(cleanTraceValue(work), ":"), cleanTraceValue(function)
+	function, functionPresent, functionValid := strictOptionalPairingAliasTokens(tokens, lexOK, "function")
+	if !functionValid {
+		function = ""
+	} else if !functionPresent {
+		function = valueAfterLabel(fieldText, "function")
+		if strict, ok := strictPairingScalar(function); ok {
+			function = strict
+		} else {
+			function = ""
+		}
+	}
+	return strings.TrimRight(work, ":"), function
 }
 
 func workqueuePositionalWorkPointer(text string) string {
@@ -116,32 +101,70 @@ func workqueuePositionalWorkPointer(text string) string {
 	if rest == "" {
 		return ""
 	}
-	return strings.TrimRight(cleanTraceValue(strings.Fields(rest)[0]), ":")
+	value, ok := strictPairingScalar(strings.Fields(rest)[0])
+	if !ok {
+		return ""
+	}
+	return strings.TrimRight(value, ":")
 }
 
 func dmaFenceExactEndpointFields(ev Event) (driver, timeline, context, seqno string) {
-	kv := parseKV(ev.FieldText)
-	return cleanTraceValue(kv["driver"]), cleanTraceValue(kv["timeline"]), cleanTraceValue(kv["context"]), cleanTraceValue(kv["seqno"])
+	tokens, lexOK := tokenizePairingKV(ev.FieldText)
+	return dmaFenceExactEndpointFieldsFromTokens(tokens, lexOK)
+}
+
+func dmaFenceExactEndpointFieldsFromTokens(tokens []pairingKVToken, lexOK bool) (driver, timeline, context, seqno string) {
+	driver, _, _ = strictOptionalPairingAliasTokens(tokens, lexOK, "driver")
+	timeline, _, _ = strictOptionalPairingAliasTokens(tokens, lexOK, "timeline")
+	context, _, _ = strictOptionalPairingAliasTokens(tokens, lexOK, "context")
+	seqno, _, _ = strictOptionalPairingAliasTokens(tokens, lexOK, "seqno")
+	return driver, timeline, context, seqno
 }
 
 func durationExactEndpointFamily(rawType string) durationOrderFamily {
-	switch strings.TrimSpace(rawType) {
-	case "workqueue_execute_start", "workqueue_execute_end":
-		return durationOrderWorkqueue
-	case "dma_fence_wait_start", "dma_fence_wait_end":
-		return durationOrderDMAFence
-	default:
-		return ""
+	profile, ok := pairingEndpointProfileForName(rawType)
+	if ok {
+		switch profile.Family {
+		case PairingEndpointWorkqueue:
+			return durationOrderWorkqueue
+		case PairingEndpointDMAFence:
+			return durationOrderDMAFence
+		case PairingEndpointBinder:
+			return durationOrderBinder
+		case PairingEndpointBlock:
+			return durationOrderBlockIO
+		}
 	}
+	lowerType := strings.ToLower(strings.TrimSpace(rawType))
+	if isStorageEvent(lowerType) || isFilesystemEvent(lowerType) {
+		profile, ok = genericStoragePairingProfile(rawType)
+	}
+	if ok && profile.Family == PairingEndpointStorage {
+		return durationOrderStorage
+	}
+	return ""
 }
 
 // durationEndpointFallbackCandidate is the O(1) prescreen for the fallback
-// grammar: durationEndpointFallbackRE can only match a line carrying one of
-// the four exact endpoint names, all of which contain one of these two
-// prefixes. Without it every sched/print/fs line matching the wide
-// duration-order token table paid a second full regex (perf audit #21/#22).
+// grammar. Keep this closed to families consumed by the hard elapsed-pairing
+// authority: malformed headers do not match ftraceLineRE, so without this
+// fallback an exact Block/Storage endpoint could disappear before the
+// physical-topology audit sees it. The outer parser already applies the wider
+// durationOrderRawCandidate gate; this narrower check avoids a second full
+// regex for scheduler/interrupt/counter rows.
 func durationEndpointFallbackCandidate(line string) bool {
-	return strings.Contains(line, "workqueue_execute_") || strings.Contains(line, "dma_fence_wait_")
+	for _, token := range [...]string{
+		"binder_transaction", "workqueue_execute_", "dma_fence_wait_",
+		"block_rq_issue", "block_rq_complete", "block_bio_queue", "block_bio_complete",
+		"ufshcd_", "mmc_", "scsi_", "i2c_", "smbus_", "bio_", "ebpf_bio",
+		"f2fs_", "hmfs_", "android_fs_", "ext4_", "erofs_", "z_erofs_",
+		"filesystem", "file_system", "ebpf_file",
+	} {
+		if strings.Contains(line, token) {
+			return true
+		}
+	}
+	return false
 }
 
 func durationEndpointRawMatch(line string) []string {
@@ -183,16 +206,29 @@ func durationEndpointRawValidationFailureScan(s *lineScan) *durationOrderViolati
 	if family == "" {
 		return nil
 	}
+	// A main-grammar Binder row will materialize as an Event even when its
+	// transaction payload is invalid; auditBinderPairing then applies the same
+	// source/exact-lane verdict with physical provenance. Avoid decoding every
+	// valid Binder payload twice on this hot path. If Event admission later
+	// rejects the row, durationEndpointRejectedRowFailureScan performs the raw
+	// decode and records the barrier. Header rows that miss the main grammar
+	// (malformed PID/CPU/timestamp shape) still take the fallback validation
+	// below and cannot disappear.
+	if family == durationOrderBinder && len(s.match()) != 0 {
+		return nil
+	}
 
 	pid, pidOK := parseUnsignedTraceInt(m[2])
 	cpu, cpuPresent, cpuValid, _ := parseTraceCPUScalar(m[4])
 	ts, tsOK := parseTraceTimestampSeconds(m[5])
-	if !tsOK {
-		ts = math.NaN()
-	}
 	ev := Event{PID: pid, CPU: cpu, Type: EventWorkqueue, Name: rawType, FieldText: strings.TrimSpace(m[7])}
+	headerTID := int64(-1)
+	if pidOK {
+		headerTID = int64(pid)
+	}
+	verdict := DecodePairingEndpoint(rawType, ev.FieldText, headerTID)
 	var missing []string
-	if !pidOK || pid <= 0 {
+	if !pidOK || !verdict.EmitterKnown || (verdict.RequiresPositiveEmitter && !verdict.EmitterAdmitted) {
 		missing = append(missing, "pid")
 	}
 	if !cpuPresent || !cpuValid {
@@ -202,6 +238,12 @@ func durationEndpointRawValidationFailureScan(s *lineScan) *durationOrderViolati
 		missing = append(missing, "timestamp")
 	}
 	switch family {
+	case durationOrderBinder:
+		if !verdict.Recognized || !verdict.KeyKnown {
+			missing = append(missing, "canonical_pairing_identity")
+		} else if !verdict.PayloadAdmitted {
+			missing = append(missing, "payload_admission")
+		}
 	case durationOrderWorkqueue:
 		work, _ := workqueueExactEndpointFields(ev)
 		if !validWorkqueuePointerIdentity(work) {
@@ -211,14 +253,24 @@ func durationEndpointRawValidationFailureScan(s *lineScan) *durationOrderViolati
 		ev.Type = EventDMAFence
 		driver, timeline, context, seqno := dmaFenceExactEndpointFields(ev)
 		missing = append(missing, dmaFenceEndpointMissingFields(ev, driver, timeline, context, seqno)...)
+	case durationOrderBlockIO, durationOrderStorage:
+		if !verdict.Recognized || !verdict.KeyKnown {
+			missing = append(missing, "canonical_pairing_identity")
+		} else if !verdict.PayloadAdmitted {
+			missing = append(missing, "payload_admission")
+		}
 	}
 	missing = uniqueSortedStrings(missing)
 	if len(missing) == 0 {
 		return nil
 	}
+	laneKey := ""
+	if verdict.KeyKnown {
+		laneKey = verdict.SemanticKey
+	}
 	return &durationOrderViolation{
-		Family: family, Issue: "endpoint_parse_incomplete", EventName: rawType,
-		Fields: missing, CurrentTs: ts, Line: lineNo,
+		Family: family, LaneKey: laneKey, Issue: "endpoint_parse_incomplete", EventName: rawType,
+		Fields: missing, CurrentTs: ts, TsUnknown: !tsOK, Line: lineNo,
 	}
 }
 
@@ -239,12 +291,18 @@ func durationEndpointRejectedRowFailureScan(s *lineScan) *durationOrderViolation
 		return nil
 	}
 	ts, ok := parseTraceTimestampSeconds(m[5])
-	if !ok {
-		ts = math.NaN()
+	headerTID := int64(-1)
+	if pid, pidOK := parseUnsignedTraceInt(m[2]); pidOK {
+		headerTID = int64(pid)
+	}
+	verdict := DecodePairingEndpoint(rawType, strings.TrimSpace(m[7]), headerTID)
+	laneKey := ""
+	if verdict.KeyKnown {
+		laneKey = verdict.SemanticKey
 	}
 	return &durationOrderViolation{
-		Family: family, Issue: "endpoint_parse_incomplete", EventName: rawType,
-		Fields: []string{"parser_rejected_row"}, CurrentTs: ts, Line: s.lineNo,
+		Family: family, LaneKey: laneKey, Issue: "endpoint_parse_incomplete", EventName: rawType,
+		Fields: []string{"parser_rejected_row"}, CurrentTs: ts, TsUnknown: !ok, Line: s.lineNo,
 	}
 }
 
@@ -296,8 +354,13 @@ func durationEndpointValidationFailureFromEvent(ev Event) *durationOrderViolatio
 	if len(missing) == 0 {
 		return nil
 	}
+	verdict := fingerprintPairingEvent(ev)
+	laneKey := ""
+	if verdict.KeyKnown {
+		laneKey = verdict.SemanticKey
+	}
 	return &durationOrderViolation{
-		Family: family, Issue: "endpoint_parse_incomplete", EventName: strings.TrimSpace(ev.Name),
+		Family: family, LaneKey: laneKey, Issue: "endpoint_parse_incomplete", EventName: strings.TrimSpace(ev.Name),
 		Fields: missing, CurrentTs: ev.Ts, Line: ev.Line,
 	}
 }

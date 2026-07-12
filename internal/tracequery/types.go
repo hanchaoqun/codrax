@@ -447,6 +447,14 @@ type Index struct {
 	LineCount        int
 	ScannedLineCount int
 	Windowed         bool
+	// pairingTopologyComplete is the precise proof that a Windowed index carries
+	// the complete physical endpoint topology required by elapsed/IPC pairing.
+	// Current cropped and derive-from-full builders do not materialize such a
+	// sidecar and therefore leave this false. Non-windowed indexes are complete
+	// by construction and do not consult the bit. A future bounded topology
+	// sidecar may set it only after prefix, tail, source and lifecycle coverage
+	// have all been proven.
+	pairingTopologyComplete bool
 	// RelationScoped is true only when the streamed parser actually pruned
 	// Events to a target/waker relation closure.  It is a precise consumer
 	// gate: global all-thread aggregates must never combine this subset with

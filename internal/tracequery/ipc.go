@@ -55,111 +55,167 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 		}
 	}
 
-	receives := map[int][]Event{}
-	auxByTx := map[int][]BinderEventSummary{}
+	binderAudit := auditBinderPairing(idx, q)
+	res.Caveats = append(res.Caveats, binderAudit.caveats()...)
+	auxByLane := map[string][]BinderEventSummary{}
 	var auxEvents []BinderEventSummary
-	// C2 (2026-07-03): deterministic transact-interface join. Userspace
-	// wraps binder sends in a `transact[Interface:code]` trace-mark span on
-	// the SAME thread, so a single ordered pass tracking each thread's open
-	// transact span names lets the edge carry the interface — a verbatim
-	// span-name join, no prose inference. Iteration order is the composite
-	// contract order: physical file order for a single-file index, canonical
-	// (Ts, Line) order for a composite (parse.go sorts merged children). The
-	// two agree except around clock regressions, where the trace_span poison
-	// gate above has already fail-closed this join (audit #41).
-	openTransact := map[int][]string{}
+	// C2 (2026-07-03, tightened 2026-07-12): deterministic
+	// transact-interface join. Userspace wraps Binder sends in a
+	// `transact[Interface:code]` trace-mark span on the SAME physical-source
+	// thread. Replay is therefore grouped by source and ordered by physical
+	// Line, never by the composite index's canonical timestamp order. A
+	// timestamp rollback poisons only that precise source-thread join lane;
+	// unresolved provenance fail-closes all interface joins while preserving
+	// Binder edges. The joined name remains a verbatim span-name witness, not
+	// a prose inference.
+	type transactSourceThread struct {
+		source string
+		pid    int
+	}
+	openTransact := map[transactSourceThread][]string{}
 	ifaceBySendLine := map[int]string{}
-	for _, ev := range idx.Events {
-		if resetPID, reset := schedulerLifecycleResetPID(ev); reset {
-			delete(openTransact, resetPID)
+	unresolvedInterfaceRows := 0
+	interfaceRowsBySource := map[string][]int{}
+	for eventIndex, ev := range idx.Events {
+		_, lifecycleReset := schedulerLifecycleResetPID(ev)
+		traceStackRelevant := ev.Type == EventTraceMark && (ev.SpanAction == "B" || ev.SpanAction == "E" || traceMarkEventMalformed(ev))
+		if !traceStackRelevant && ev.Type != EventBinderTransaction && !lifecycleReset {
 			continue
 		}
-		if ev.Type == EventTraceMark {
-			if traceMarkEventMalformed(ev) {
-				delete(openTransact, ev.PID)
-				continue
-			}
-			if interfaceJoinFailClosed {
-				continue
-			}
-			switch ev.SpanAction {
-			case "B":
-				if name, ok := transactSpanInterface(ev.SpanName); ok {
-					openTransact[ev.PID] = append(openTransact[ev.PID], name)
-				} else {
-					openTransact[ev.PID] = append(openTransact[ev.PID], "")
-				}
-			case "E":
-				if stack := openTransact[ev.PID]; len(stack) > 0 {
-					openTransact[ev.PID] = stack[:len(stack)-1]
-				}
-			}
+		source, sourceOK := tracePairingSourceIdentity(idx, ev)
+		if !sourceOK {
+			unresolvedInterfaceRows++
 			continue
 		}
-		if ev.Type == EventBinderTransaction {
-			if stack := openTransact[ev.PID]; len(stack) > 0 {
-				for i := len(stack) - 1; i >= 0; i-- {
-					if stack[i] != "" {
-						ifaceBySendLine[ev.Line] = stack[i]
-						break
+		interfaceRowsBySource[source] = append(interfaceRowsBySource[source], eventIndex)
+	}
+	interfaceSources := make([]string, 0, len(interfaceRowsBySource))
+	for source := range interfaceRowsBySource {
+		interfaceSources = append(interfaceSources, source)
+	}
+	sort.Strings(interfaceSources)
+	poisonedInterfaceKeys := map[transactSourceThread]bool{}
+	interfaceTimestampRollbacks := 0
+	for _, source := range interfaceSources {
+		eventIndexes := interfaceRowsBySource[source]
+		sort.SliceStable(eventIndexes, func(i, j int) bool {
+			left, right := idx.Events[eventIndexes[i]], idx.Events[eventIndexes[j]]
+			if left.Line != right.Line {
+				return left.Line < right.Line
+			}
+			return left.Ts < right.Ts
+		})
+		lastTs := map[transactSourceThread]float64{}
+		seenTs := map[transactSourceThread]bool{}
+		for _, eventIndex := range eventIndexes {
+			ev := idx.Events[eventIndex]
+			pid := ev.PID
+			if resetPID, reset := schedulerLifecycleResetPID(ev); reset {
+				pid = resetPID
+			}
+			key := transactSourceThread{source: source, pid: pid}
+			if seenTs[key] && ev.Ts < lastTs[key] {
+				if !poisonedInterfaceKeys[key] {
+					interfaceTimestampRollbacks++
+				}
+				poisonedInterfaceKeys[key] = true
+			}
+			lastTs[key] = ev.Ts
+			seenTs[key] = true
+		}
+		for _, eventIndex := range eventIndexes {
+			ev := idx.Events[eventIndex]
+			if resetPID, reset := schedulerLifecycleResetPID(ev); reset {
+				key := transactSourceThread{source: source, pid: resetPID}
+				delete(openTransact, key)
+				continue
+			}
+			key := transactSourceThread{source: source, pid: ev.PID}
+			if poisonedInterfaceKeys[key] {
+				delete(openTransact, key)
+				continue
+			}
+			if ev.Type == EventTraceMark {
+				if traceMarkEventMalformed(ev) {
+					delete(openTransact, key)
+					continue
+				}
+				if interfaceJoinFailClosed {
+					continue
+				}
+				switch ev.SpanAction {
+				case "B":
+					if name, ok := transactSpanInterface(ev.SpanName); ok {
+						openTransact[key] = append(openTransact[key], name)
+					} else {
+						openTransact[key] = append(openTransact[key], "")
+					}
+				case "E":
+					if stack := openTransact[key]; len(stack) > 0 {
+						openTransact[key] = stack[:len(stack)-1]
+					}
+				}
+				continue
+			}
+			if ev.Type == EventBinderTransaction {
+				if stack := openTransact[key]; len(stack) > 0 {
+					for i := len(stack) - 1; i >= 0; i-- {
+						if stack[i] != "" {
+							ifaceBySendLine[ev.Line] = stack[i]
+							break
+						}
 					}
 				}
 			}
 		}
 	}
+	if interfaceTimestampRollbacks > 0 {
+		res.Caveats = append(res.Caveats, fmt.Sprintf("trace_mark_interface_join_timestamp_regressed=true; source_thread_lanes=%d; Binder edges remain available, but affected transact-span interface joins were omitted because their physical endpoint stream moved backwards in time", interfaceTimestampRollbacks))
+	}
+	if unresolvedInterfaceRows > 0 {
+		ifaceBySendLine = map[int]string{}
+		res.Caveats = append(res.Caveats, fmt.Sprintf("trace_mark_interface_join_provenance_unresolved=true; rows=%d; binder edges remain available, but transact-span interface joins were omitted because relevant rows could not be mapped to exactly one physical source artifact", unresolvedInterfaceRows))
+	}
 	for _, ev := range idx.Events {
-		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
+		if !pairingEventInsideQuery(ev, q) {
 			continue
 		}
-		switch {
-		case ev.Type == EventBinderReceived:
-			if bf := ev.BinderFields; bf != nil && bf.TransactionID > 0 {
-				receives[bf.TransactionID] = append(receives[bf.TransactionID], ev)
-			}
-		case isBinderAuxEventType(ev.Type):
+		if isBinderAuxEventType(ev.Type) {
 			summary := binderEventSummaryFromEvent(ev)
 			if binderEventMentionsQuery(ev, filterQ) {
 				auxEvents = append(auxEvents, summary)
 			}
-			if bf := ev.BinderFields; bf != nil && bf.TransactionID > 0 {
-				auxByTx[bf.TransactionID] = append(auxByTx[bf.TransactionID], summary)
+			if lane, ok := binderAuxPairingLane(idx, ev); ok {
+				auxByLane[lane] = append(auxByLane[lane], summary)
 			}
 		}
 	}
-	for id := range receives {
-		sort.SliceStable(receives[id], func(i, j int) bool {
-			return receives[id][i].Ts < receives[id][j].Ts
-		})
-	}
 
 	unmatchedReceives := 0
-	matchedReceives := map[int]bool{}
 	sendOnly := 0
 	for _, send := range idx.Events {
 		if send.Type != EventBinderTransaction {
 			continue
 		}
-		if !eventLineInWindow(send, q) || !timeInWindow(send.Ts, q) {
+		if !pairingEventInsideQuery(send, q) {
+			continue
+		}
+		laneKey, sendUsable := binderAudit.sendLane(send.Line)
+		if !sendUsable {
 			continue
 		}
 		edge := ipcEdgeFromSend(send)
 		if iface := ifaceBySendLine[send.Line]; iface != "" {
 			edge.Interface = iface
 		}
-		if bf := send.BinderFields; bf != nil && bf.TransactionID > 0 {
-			candidates := receives[bf.TransactionID]
-			if recv, ok := chooseBinderReceive(send, candidates); ok {
-				edge.Receiver = threadRefFromEvent(recv)
-				edge.ReceiveTs = recv.Ts
-				edge.ReceiveLine = recv.Line
-				if recv.Ts >= send.Ts {
-					edge.LatencyMs = (recv.Ts - send.Ts) * 1000
-				}
-				edge.Confidence = 0.92
-				matchedReceives[recv.Line] = true
-			} else if len(candidates) > 0 {
-				edge.Caveats = append(edge.Caveats, "matching binder_transaction_received row(s) precede the send timestamp; temporally impossible matches were rejected")
-			}
+		if recv, ok := binderAudit.matchForSend(send.Line); ok {
+			edge.Receiver = threadRefFromEvent(recv)
+			edge.ReceiveTs = recv.Ts
+			edge.ReceiveLine = recv.Line
+			edge.LatencyMs = (recv.Ts - send.Ts) * 1000
+			edge.Confidence = 0.92
+		} else if binderAudit.receivePrecededSend(send.Line) {
+			edge.Caveats = append(edge.Caveats, "matching binder_transaction_received row(s) precede the send in physical order; temporally impossible matches were rejected")
 		}
 		endpointOnly := false
 		if edge.Receiver.PID == 0 && edge.DestThread > 0 {
@@ -176,7 +232,7 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 		if edge.Oneway {
 			edge.Caveats = append(edge.Caveats, "flags suggest an asynchronous/oneway binder call; do not treat it as blocking without scheduler evidence")
 		}
-		edge.Caveats = append(edge.Caveats, binderAuxCaveatsForEdge(edge, auxByTx)...)
+		edge.Caveats = append(edge.Caveats, binderAuxCaveatsForEdge(edge, auxByLane[laneKey])...)
 		if ipcEdgeMentionsQuery(edge, filterQ) {
 			res.Edges = append(res.Edges, edge)
 			if endpointOnly {
@@ -184,11 +240,12 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 			}
 		}
 	}
-	for _, group := range receives {
-		for _, recv := range group {
-			if !matchedReceives[recv.Line] && binderReceiveMentionsQuery(recv, filterQ) {
-				unmatchedReceives++
-			}
+	for _, recv := range idx.Events {
+		if recv.Type != EventBinderReceived || !pairingEventInsideQuery(recv, q) {
+			continue
+		}
+		if binderAudit.receiveUsable(recv.Line) && !binderAudit.matchedReceives[recv.Line] && binderReceiveMentionsQuery(recv, filterQ) {
+			unmatchedReceives++
 		}
 	}
 	sort.SliceStable(res.Edges, func(i, j int) bool {
@@ -334,12 +391,15 @@ func binderEventMentionsQuery(ev Event, q Query) bool {
 	return strings.EqualFold(strings.TrimSpace(ev.Comm), strings.TrimSpace(q.Thread))
 }
 
-func binderAuxCaveatsForEdge(edge IPCEdge, auxByTx map[int][]BinderEventSummary) []string {
-	if edge.TransactionID <= 0 {
+func binderAuxCaveatsForEdge(edge IPCEdge, auxItems []BinderEventSummary) []string {
+	if edge.TransactionID <= 0 || edge.ReceiveLine <= 0 {
 		return nil
 	}
 	var out []string
-	for _, aux := range auxByTx[edge.TransactionID] {
+	for _, aux := range auxItems {
+		if aux.Line < edge.SendLine || aux.Line > edge.ReceiveLine || aux.Ts < edge.SendTs || aux.Ts > edge.ReceiveTs {
+			continue
+		}
 		switch aux.Type {
 		case EventBinderAllocBuf:
 			out = append(out, fmt.Sprintf("binder alloc buffer row at line %d: data_size=%d offsets_size=%d extra_buffers_size=%d", aux.Line, aux.DataSize, aux.OffsetsSize, aux.ExtraBuffersSize))
@@ -353,18 +413,6 @@ func binderAuxCaveatsForEdge(edge IPCEdge, auxByTx map[int][]BinderEventSummary)
 		}
 	}
 	return out
-}
-
-func chooseBinderReceive(send Event, candidates []Event) (Event, bool) {
-	if len(candidates) == 0 {
-		return Event{}, false
-	}
-	for _, recv := range candidates {
-		if recv.Ts >= send.Ts {
-			return recv, true
-		}
-	}
-	return Event{}, false
 }
 
 func threadRefFromEvent(ev Event) ThreadRef {

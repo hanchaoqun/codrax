@@ -1226,7 +1226,11 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 					appendDurationOrderFailure(idx, *failure)
 					durationEndpointRowFailure = failure
 					if idx.Windowed {
-						durationAudit.resetFamily(failure.Family)
+						if failure.LaneKey != "" {
+							durationAudit.clearLane(durationOrderLane{family: failure.Family, key: failure.LaneKey})
+						} else {
+							durationAudit.resetFamily(failure.Family)
+						}
 					}
 				}
 				// Perf audit #22: the interrupt endpoint validator only ever
@@ -1527,6 +1531,21 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 	idx.TimestampOrder = recorder.set.TimestampOrder
 	if idx.TimestampOrder != TraceTimestampOrderUnknown {
 		idx.ClockRegressions = recorder.set.CoveredClockRegressions
+	}
+	// Closed-lane history is needed only when the complete physical source did
+	// not prove global timestamp monotonicity. A high-cardinality but monotonic
+	// I/O trace must not lose every Block/Storage result merely because it saw
+	// more than the bounded history cardinality.
+	if idx.TimestampOrder != TraceTimestampOrderMonotonic {
+		for family, capped := range durationAudit.pairingHistoryCapped {
+			if !capped {
+				continue
+			}
+			if idx.durationOrderFailuresCapped == nil {
+				idx.durationOrderFailuresCapped = map[durationOrderFamily]bool{}
+			}
+			idx.durationOrderFailuresCapped[family] = true
+		}
 	}
 	idx.RetainedStringBytes = intern.retainedBytes
 	if len(relScopeCaveats) > 0 {
@@ -2428,12 +2447,14 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 			failure.LocalLine = childFailure.Line
 			failure.Line += source.VirtualLineBase
 			failure.SourcePath = source.SourcePath
-			previous, previousOK := source.toCanonicalTsChecked(failure.PreviousTs)
-			current, currentOK := source.toCanonicalTsChecked(failure.CurrentTs)
-			if !previousOK || !currentOK {
-				return nil, fmt.Errorf("trace bundle artifact %s duration rollback boundary is not safely representable in the canonical clock", artifactPath)
+			if !failure.TsUnknown {
+				previous, previousOK := source.toCanonicalTsChecked(failure.PreviousTs)
+				current, currentOK := source.toCanonicalTsChecked(failure.CurrentTs)
+				if !previousOK || !currentOK {
+					return nil, fmt.Errorf("trace bundle artifact %s duration rollback boundary is not safely representable in the canonical clock", artifactPath)
+				}
+				failure.PreviousTs, failure.CurrentTs = previous, current
 			}
-			failure.PreviousTs, failure.CurrentTs = previous, current
 			appendDurationOrderFailure(idx, failure)
 		}
 		if childIdentityCapped {
@@ -2811,7 +2832,7 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 		}
 	case EventBinderTransaction:
 		ev.BinderFields = &BinderFields{
-			TransactionID: atoi(kv["transaction"]),
+			TransactionID: strictBinderTransactionID(fields, false),
 			DestProc:      atoi(kv["dest_proc"]),
 			DestThread:    atoi(kv["dest_thread"]),
 			Reply:         atoi(kv["reply"]),
@@ -2820,12 +2841,12 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 		}
 	case EventBinderReceived:
 		ev.BinderFields = &BinderFields{
-			TransactionID: atoi(firstNonEmpty(kv["transaction"], kv["debug_id"])),
+			TransactionID: strictBinderTransactionID(fields, false),
 			DebugID:       atoi(kv["debug_id"]),
 		}
 	case EventBinderAllocBuf:
 		ev.BinderFields = &BinderFields{
-			TransactionID: atoi(firstNonEmpty(kv["transaction"], kv["debug_id"])),
+			TransactionID: strictBinderTransactionID(fields, true),
 			DebugID:       atoi(kv["debug_id"]),
 			DataSize:      atoi64(kv["data_size"]),
 			OffsetsSize:   atoi64(kv["offsets_size"]),
@@ -2833,7 +2854,7 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 		}
 	case EventBinderLock, EventBinderLocked, EventBinderUnlock, EventBinderReply:
 		ev.BinderFields = &BinderFields{
-			TransactionID: atoi(firstNonEmpty(kv["transaction"], kv["debug_id"])),
+			TransactionID: strictBinderTransactionID(fields, true),
 			DebugID:       atoi(kv["debug_id"]),
 			LockTag:       intern.intern(firstNonEmpty(kv["tag"], kv["lock"], kv["name"], fields)),
 		}
@@ -3346,6 +3367,7 @@ func classifyMemoryKind(raw, fields string) string {
 func classifyEventType(comm, raw, fields string) EventType {
 	raw = strings.TrimSpace(raw)
 	rawLower := strings.ToLower(raw)
+	pairingProfile, exactPairingEndpoint := pairingEndpointProfileForName(raw)
 	switch {
 	case raw == "sched_switch":
 		return EventSchedSwitch
@@ -3376,15 +3398,17 @@ func classifyEventType(comm, raw, fields string) EventType {
 		return EventCPUFrequencyLimit
 	case strings.Contains(rawLower, "cpu") && strings.Contains(rawLower, "freq"):
 		return EventCPUFrequency
-	case raw == "block_rq_issue" || raw == "block_rq_insert" || raw == "block_getrq" || raw == "block_bio_queue":
+	case exactPairingEndpoint && pairingProfile.Family == PairingEndpointBlock && pairingProfile.Phase == PairingEndpointStart:
+		return EventBlockIssue
+	case raw == "block_rq_insert" || raw == "block_getrq":
 		return EventBlockIssue
 	case raw == "block_bio_remap" || raw == "block_rq_remap":
 		return EventBlockRemap
-	case raw == "block_rq_complete" || raw == "block_bio_complete":
+	case exactPairingEndpoint && pairingProfile.Family == PairingEndpointBlock && pairingProfile.Phase == PairingEndpointDone:
 		return EventBlockComplete
-	case raw == "binder_transaction":
+	case exactPairingEndpoint && pairingProfile.Family == PairingEndpointBinder && pairingProfile.Phase == PairingEndpointStart:
 		return EventBinderTransaction
-	case raw == "binder_transaction_received":
+	case exactPairingEndpoint && pairingProfile.Family == PairingEndpointBinder && pairingProfile.Phase == PairingEndpointDone:
 		return EventBinderReceived
 	case raw == "binder_transaction_alloc_buf" || raw == "binder_alloc_buf":
 		return EventBinderAllocBuf
@@ -4450,6 +4474,28 @@ func parseIPITargetCPUs(mask string) []int {
 		}
 	}
 	return out
+}
+
+// strictBinderTransactionID keeps the retained typed payload aligned with the
+// single pairing authority. Endpoint rows require one unambiguous alias;
+// auxiliary metadata may repeat distinct aliases only when their canonical
+// positive transaction values agree. Invalid wire remains inventory with a
+// zero typed ID and can never be made pairable by parseKV's last-value wins.
+func strictBinderTransactionID(fields string, coherentAliases bool) int {
+	var raw string
+	var ok bool
+	if coherentAliases {
+		raw, ok = strictCoherentPairingAlias(fields, "transaction", "debug_id", "transaction_id")
+	} else {
+		raw, ok = strictUniquePairingAlias(fields, "transaction", "debug_id", "transaction_id")
+		if ok {
+			raw, ok = canonicalPositiveDecimalIdentity(raw)
+		}
+	}
+	if !ok {
+		return 0
+	}
+	return atoi(raw)
 }
 
 func atoi(raw string) int {

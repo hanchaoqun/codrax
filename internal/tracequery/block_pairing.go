@@ -26,15 +26,13 @@ const (
 // that decides whether a row is an endpoint and which family it belongs to.
 // Name-less hand-built Events retain the historical rq compatibility lane.
 func blockLatencyEndpoint(ev Event) (family string, phase blockEndpointPhase, ok bool) {
+	if profile, endpoint := pairingEndpointProfileForName(ev.Name); endpoint && profile.Family == PairingEndpointBlock {
+		if profile.Phase == PairingEndpointStart {
+			return profile.SemanticBase, blockEndpointStart, true
+		}
+		return profile.SemanticBase, blockEndpointDone, true
+	}
 	switch strings.ToLower(strings.TrimSpace(ev.Name)) {
-	case "block_rq_issue":
-		return blockEndpointFamilyRQ, blockEndpointStart, true
-	case "block_rq_complete":
-		return blockEndpointFamilyRQ, blockEndpointDone, true
-	case "block_bio_queue":
-		return blockEndpointFamilyBIO, blockEndpointStart, true
-	case "block_bio_complete":
-		return blockEndpointFamilyBIO, blockEndpointDone, true
 	case "block_rq_insert", "block_getrq":
 		return "", 0, false
 	case "":
@@ -56,34 +54,52 @@ func blockLatencyEndpoint(ev Event) (family string, phase blockEndpointPhase, ok
 // their simple profile. This prevents a malformed body from borrowing another
 // event family's grammar and minting an elapsed-latency endpoint.
 func parseBlockRequestValidated(rawType, fields string) (dev, op string, sector, length int64, valid bool) {
+	dev, op, sector, length, keyKnown, admitted := parseBlockRequestFingerprint(rawType, fields)
+	if !keyKnown || !admitted {
+		return dev, op, 0, 0, false
+	}
+	return dev, op, sector, length, true
+}
+
+// parseBlockRequestFingerprint separates a syntactically complete hard key
+// from semantic payload admission. For example `R ... + 0` names one exact
+// lane but is not a real elapsed request; it must quarantine that lane without
+// deleting a valid flush on the same physical source.
+func parseBlockRequestFingerprint(rawType, fields string) (dev, op string, sector, length int64, keyKnown, admitted bool) {
 	trimmed := strings.TrimSpace(fields)
 	var devRaw, opRaw, sectorRaw, lengthRaw string
-	switch strings.ToLower(strings.TrimSpace(rawType)) {
-	case "block_rq_issue":
+	nonKeyAdmitted := true
+	profile, endpoint := pairingEndpointProfileForName(rawType)
+	rawType = strings.TrimSpace(rawType)
+	switch {
+	case endpoint && profile.Family == PairingEndpointBlock && profile.SemanticBase == blockEndpointFamilyRQ && profile.Phase == PairingEndpointStart:
 		m := blockRQIssueRE.FindStringSubmatch(trimmed)
-		if len(m) != 6 || !blockUnsignedFits(m[3], 32) {
-			return "", "", 0, 0, false
+		if len(m) != 6 {
+			return "", "", 0, 0, false, false
 		}
+		nonKeyAdmitted = blockUnsignedFits(m[3], 32)
 		devRaw, opRaw, sectorRaw, lengthRaw = m[1], m[2], m[4], m[5]
-	case "block_rq_complete":
+	case endpoint && profile.Family == PairingEndpointBlock && profile.SemanticBase == blockEndpointFamilyRQ && profile.Phase == PairingEndpointDone:
 		m := blockRQCompleteRE.FindStringSubmatch(trimmed)
-		if len(m) != 6 || !blockSignedFits(m[5], 32) {
-			return "", "", 0, 0, false
+		if len(m) != 6 {
+			return "", "", 0, 0, false, false
 		}
+		nonKeyAdmitted = blockSignedFits(m[5], 32)
 		devRaw, opRaw, sectorRaw, lengthRaw = m[1], m[2], m[3], m[4]
-	case "block_bio_queue":
+	case endpoint && profile.Family == PairingEndpointBlock && profile.SemanticBase == blockEndpointFamilyBIO && profile.Phase == PairingEndpointStart:
 		m := blockBioQueueRE.FindStringSubmatch(trimmed)
 		if len(m) != 5 {
-			return "", "", 0, 0, false
+			return "", "", 0, 0, false, false
 		}
 		devRaw, opRaw, sectorRaw, lengthRaw = m[1], m[2], m[3], m[4]
-	case "block_bio_complete":
+	case endpoint && profile.Family == PairingEndpointBlock && profile.SemanticBase == blockEndpointFamilyBIO && profile.Phase == PairingEndpointDone:
 		m := blockBioCompleteRE.FindStringSubmatch(trimmed)
-		if len(m) != 6 || !blockSignedFits(m[5], 32) {
-			return "", "", 0, 0, false
+		if len(m) != 6 {
+			return "", "", 0, 0, false, false
 		}
+		nonKeyAdmitted = blockSignedFits(m[5], 32)
 		devRaw, opRaw, sectorRaw, lengthRaw = m[1], m[2], m[3], m[4]
-	case "block_rq_insert":
+	case rawType == "block_rq_insert":
 		// RQ insert is inventory-only. Prefer the modern RQ profile, but keep
 		// the historical simple formatter shape without admitting either as
 		// a latency endpoint.
@@ -92,27 +108,27 @@ func parseBlockRequestValidated(rawType, fields string) (dev, op string, sector,
 		} else if m := blockSimpleLegacyRE.FindStringSubmatch(trimmed); len(m) == 5 {
 			devRaw, opRaw, sectorRaw, lengthRaw = m[1], m[2], m[3], m[4]
 		} else {
-			return "", "", 0, 0, false
+			return "", "", 0, 0, false, false
 		}
-	case "block_getrq":
+	case rawType == "block_getrq":
 		m := blockSimpleLegacyRE.FindStringSubmatch(trimmed)
 		if len(m) != 5 {
-			return "", "", 0, 0, false
+			return "", "", 0, 0, false, false
 		}
 		devRaw, opRaw, sectorRaw, lengthRaw = m[1], m[2], m[3], m[4]
 	default:
-		return "", "", 0, 0, false
+		return "", "", 0, 0, false, false
 	}
 	sector, sectorErr := strconv.ParseInt(sectorRaw, 10, 64)
 	length, lengthErr := strconv.ParseInt(lengthRaw, 10, 64)
 	dev, devOK := canonicalBlockDevice(devRaw)
 	op = strings.TrimSpace(opRaw)
-	valid = sectorErr == nil && lengthErr == nil && devOK && blockDeviceIdentifiesRequest(dev) && validBlockOperationToken(op) && sector >= 0 &&
-		((length > 0 && length <= maxBlockSectorCount) || blockOperationAllowsZeroLength(op, sector, length))
-	if !valid {
-		return dev, op, 0, 0, false
+	keyKnown = sectorErr == nil && lengthErr == nil && devOK && blockDeviceIdentifiesRequest(dev) && validBlockOperationToken(op) && sector >= 0 && length >= 0 && length <= maxBlockSectorCount
+	if !keyKnown {
+		return dev, op, 0, 0, false, false
 	}
-	return dev, op, sector, length, true
+	admitted = nonKeyAdmitted && (length > 0 || blockOperationAllowsZeroLength(op, sector, length))
+	return dev, op, sector, length, true, admitted
 }
 
 func blockUnsignedFits(raw string, bits int) bool {
@@ -235,13 +251,13 @@ func blockIdentity(ev Event) (blockRequestIdentity, bool) {
 }
 
 func (id blockRequestIdentity) laneKey() string {
-	return strings.Join([]string{
+	return encodePairingKey(
 		id.Family,
 		id.Dev,
 		id.Op,
 		strconv.FormatInt(id.Sector, 10),
 		strconv.FormatInt(id.Len, 10),
-	}, "\x00")
+	)
 }
 
 // tracePairingSourceIdentity maps the index-global event coordinate back to
@@ -268,24 +284,19 @@ func tracePairingSourceIdentity(idx *Index, ev Event) (string, bool) {
 	return "<compat-index>", true
 }
 
-func blockKey(ev Event) string {
-	identity, ok := blockIdentity(ev)
-	if !ok {
-		return ""
-	}
-	return identity.laneKey()
-}
-
 func blockPairingKey(idx *Index, ev Event) (string, string, bool) {
-	identity := blockKey(ev)
-	if identity == "" {
-		return "", "", false
-	}
 	source, ok := tracePairingSourceIdentity(idx, ev)
 	if !ok {
 		return "", "", false
 	}
-	return source + "\x00" + identity, source, true
+	verdict := fingerprintPairingEvent(ev)
+	if verdict.Family == PairingEndpointBlock && verdict.PayloadAdmitted && verdict.EmitterAdmitted && verdict.KeyKnown {
+		key, keyOK := verdict.LaneKey(source)
+		if keyOK {
+			return key, source, true
+		}
+	}
+	return "", "", false
 }
 
 type blockPairingLane struct {
@@ -305,46 +316,109 @@ type blockPairingResult struct {
 	caveats   []string
 }
 
+// blockPairingReplayIndexes returns the complete endpoint topology in the
+// only order that can prove an elapsed pair: physical source, then physical
+// Line within that source. Composite indexes are canonically timestamp-sorted,
+// so walking idx.Events directly can move a regressed endpoint across another
+// member of its cohort. Query bounds deliberately do not participate here;
+// they gate accounting after the cohort has been adjudicated.
+func blockPairingReplayIndexes(idx *Index) []int {
+	if idx == nil {
+		return nil
+	}
+	bySource := map[string][]int{}
+	for eventIndex, ev := range idx.Events {
+		if _, _, endpoint := blockLatencyEndpoint(ev); !endpoint {
+			continue
+		}
+		source, sourceOK := tracePairingSourceIdentity(idx, ev)
+		if !sourceOK {
+			// The completeness pre-audit fail-closes unresolved provenance
+			// before this replay can publish anything.
+			continue
+		}
+		bySource[source] = append(bySource[source], eventIndex)
+	}
+	sources := make([]string, 0, len(bySource))
+	for source := range bySource {
+		sources = append(sources, source)
+	}
+	sort.Strings(sources)
+	replay := make([]int, 0)
+	for _, source := range sources {
+		indexes := bySource[source]
+		sort.SliceStable(indexes, func(i, j int) bool {
+			left, right := idx.Events[indexes[i]], idx.Events[indexes[j]]
+			if left.Line != right.Line {
+				return left.Line < right.Line
+			}
+			return left.Ts < right.Ts
+		})
+		replay = append(replay, indexes...)
+	}
+	return replay
+}
+
 // computeBlockIOLatencies pairs only exact endpoint families and never assumes
 // FIFO ordering for repeated coarse identities. Once a lane reaches depth two,
 // its whole cohort is ambiguous and emits no duration; the lane recovers only
 // after depth returns to zero.
-func computeBlockIOLatencies(idx *Index, q Query, max int) blockPairingResult {
+func computeBlockIOLatencies(idx *Index, q Query, max int, providedIntegrity ...*durationPairingIntegrity) blockPairingResult {
 	if idx == nil {
 		return blockPairingResult{}
+	}
+	integrity := selectedDurationPairingIntegrity(idx, q, durationOrderBlockIO, providedIntegrity)
+	for _, ev := range idx.Events {
+		if !pairingReplayAuditEvent(ev, q) {
+			continue
+		}
+		if _, _, endpoint := blockLatencyEndpoint(ev); !endpoint {
+			continue
+		}
+		verdict := fingerprintPairingEvent(ev)
+		if verdict.Family != PairingEndpointBlock || !verdict.KeyKnown || !verdict.PayloadAdmitted || !verdict.EmitterAdmitted {
+			integrity.rejectEvent(idx, ev, verdict)
+			continue
+		}
+		if _, sourceOK := tracePairingSourceIdentity(idx, ev); !sourceOK {
+			integrity.rejectEvent(idx, ev, verdict)
+		}
+	}
+	if integrity.familyGlobal {
+		caveats := integrity.caveats("io_latencies/storage_latency_by_layer(block)")
+		if integrity.unresolvedSources > 0 {
+			caveats = append(caveats, fmt.Sprintf("block_io_pairing_provenance_unresolved=true; rows=%d; endpoints without exactly one physical source artifact were excluded", integrity.unresolvedSources))
+		}
+		return blockPairingResult{caveats: caveats}
 	}
 	lanes := map[string]*blockPairingLane{}
 	accs := map[string]*blockPairingAccumulator{}
 	var out blockPairingResult
 	invalidIdentity := 0
 	unresolvedSourceRows := 0
-	for _, ev := range idx.Events {
-		// Line scopes retain their historical exact-row semantics.  Time
-		// scopes replay the complete available prefix/suffix so an already
-		// closed pre-window pair cannot survive as false carry-in and an
-		// interval crossing either boundary can be adjudicated as one cohort.
-		if (q.LineStart > 0 || q.LineEnd > 0) && !eventLineInWindow(ev, q) {
-			continue
-		}
+	for _, eventIndex := range blockPairingReplayIndexes(idx) {
+		ev := idx.Events[eventIndex]
 		family, phase, endpoint := blockLatencyEndpoint(ev)
 		if !endpoint {
 			continue
 		}
-		identity := blockKey(ev)
-		if identity == "" {
+		laneKey, source, keyOK := blockPairingKey(idx, ev)
+		if !keyOK {
 			if pairingEventInsideQuery(ev, q) {
-				invalidIdentity++
+				if _, sourceOK := tracePairingSourceIdentity(idx, ev); sourceOK {
+					invalidIdentity++
+				} else {
+					unresolvedSourceRows++
+				}
 			}
 			continue
 		}
-		source, sourceOK := tracePairingSourceIdentity(idx, ev)
-		if !sourceOK {
-			if pairingEventInsideQuery(ev, q) {
-				unresolvedSourceRows++
-			}
+		if integrity.poisonedSources[source] {
 			continue
 		}
-		laneKey := source + "\x00" + identity
+		if integrity.poisonedLanes[laneKey] {
+			continue
+		}
 		lane := lanes[laneKey]
 		if lane == nil {
 			lane = &blockPairingLane{source: source, family: family}
@@ -409,6 +483,7 @@ func computeBlockIOLatencies(idx *Index, q Query, max int) blockPairingResult {
 	if unpairedStart > 0 || unpairedDone > 0 {
 		out.caveats = append(out.caveats, fmt.Sprintf("block_io_pairing_unpaired=true; unpaired_start=%d unpaired_done=%d; elapsed latency was emitted only for complete exact-family pairs", unpairedStart, unpairedDone))
 	}
+	out.caveats = append(out.caveats, integrity.caveats("io_latencies/storage_latency_by_layer(block)")...)
 	return out
 }
 
@@ -417,7 +492,7 @@ func blockPairingAccumulatorFor(accs map[string]*blockPairingAccumulator, source
 	if blk == nil {
 		blk = &BlockIOFields{}
 	}
-	key := strings.Join([]string{source, family, blk.Dev, blk.Op}, "\x00")
+	key := encodePairingKey(source, family, blk.Dev, blk.Op)
 	if acc := accs[key]; acc != nil {
 		return acc
 	}

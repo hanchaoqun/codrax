@@ -1841,6 +1841,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		return stats
 	}
 	durationFailures := durationOrderFailuresForQuery(idx, q)
+	durationPairingIntegrities := durationPairingIntegritiesForQuery(idx, q)
 	frequencyIntegrity := frequencyOrderIntegrityForQuery(idx, q)
 	stats.Caveats = append(stats.Caveats, frequencyIntegrity.caveats()...)
 	stats.Caveats = append(stats.Caveats, cpuInputIntegrityCaveats(idx, q)...)
@@ -2308,15 +2309,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	if caveat := clusterFreqReuseCaveat(freqDonors.usedPairs(), freqDonors.sourceToken(), freqDonors.primeCPUs(), freqDonors.explicitIgnored()); caveat != "" {
 		stats.Caveats = append(stats.Caveats, caveat)
 	}
-	blockDurationFailure := durationFailures[durationOrderBlockIO]
-	var blockPairing blockPairingResult
-	if blockDurationFailure != nil {
-		stats.Caveats = append(stats.Caveats, durationOrderFailClosedCaveat(blockDurationFailure, "io_latencies/storage_latency_by_layer(block)"))
-	} else {
-		blockPairing = computeBlockIOLatencies(idx, q, 8)
-		stats.IOLatencies = blockPairing.latencies
-		stats.Caveats = append(stats.Caveats, blockPairing.caveats...)
-	}
+	blockPairing := computeBlockIOLatencies(idx, q, 8, durationPairingIntegrities[durationOrderBlockIO])
+	stats.IOLatencies = blockPairing.latencies
+	stats.Caveats = append(stats.Caveats, blockPairing.caveats...)
 	stats.CPUFrequencyLimits = sortedCPUFrequencyLimits(freqLimits, 8)
 	stats.SubsystemEvents = sortedSubsystemEvents(subsystems, 12)
 	// Direct resource/plugin summaries consume only their own accepted
@@ -2366,22 +2361,8 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		stats.TopIOInodes = computeTopIOInodes(fileIO, pageCache, topIOInodeGroupLimit)
 		stats.FileIOByInode = sortedFileIOSummaries(fileIO, 8)
 		stats.PageCacheByInode = sortedPageCacheSummaries(pageCache, 8)
-		storageLatencies, storagePairingCaveats := computeStorageLatencyByLayer(idx, q, blockPairing.summaries, 8)
-		storageDurationFailure := durationFailures[durationOrderStorage]
-		if storageDurationFailure != nil {
-			stats.Caveats = append(stats.Caveats, durationOrderFailClosedCaveat(storageDurationFailure, "storage_latency_by_layer(non_block)"))
-		}
-		// Block request pairing and non-block storage pairing have independent
-		// exact lanes. Keep whichever side remains proven.
-		for _, latency := range storageLatencies {
-			if latency.Layer == "block" && blockDurationFailure != nil {
-				continue
-			}
-			if latency.Layer != "block" && storageDurationFailure != nil {
-				continue
-			}
-			stats.StorageLatencyByLayer = append(stats.StorageLatencyByLayer, latency)
-		}
+		storageLatencies, storagePairingCaveats := computeStorageLatencyByLayer(idx, q, blockPairing.summaries, 8, durationPairingIntegrities[durationOrderStorage])
+		stats.StorageLatencyByLayer = append(stats.StorageLatencyByLayer, storageLatencies...)
 		stats.Caveats = append(stats.Caveats, storagePairingCaveats...)
 	} else {
 		stats.Caveats = append(stats.Caveats, "thread_identity_resource_fail_closed=true; PID-keyed inode/file-IO/page-cache/storage composite aggregates are omitted because the selected window crosses a task-incarnation boundary")
@@ -2442,28 +2423,20 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		stats.Caveats = append(stats.Caveats, tracePairingCaveats...)
 	}
 	workqueueIdentityConflict := threadIncarnationConflictForPIDSet(idx, q, workqueueContributorPIDs)
-	workqueueDurationFailure := durationFailures[durationOrderWorkqueue]
-	if workqueueDurationFailure != nil {
-		stats.Caveats = append(stats.Caveats, durationOrderFailClosedCaveat(workqueueDurationFailure, "workqueue_activity"))
-	}
 	if workqueueIdentityConflict != nil {
 		stats.Caveats = append(stats.Caveats, "thread_identity_workqueue_fail_closed=true; "+workqueueIdentityConflict.reason()+"; workqueue activity is omitted because a contributing PID spans task incarnations")
 	}
-	if workqueueDurationFailure == nil && workqueueIdentityConflict == nil {
-		stats.WorkqueueActivity, tracePairingCaveats = computeWorkqueueActivity(idx, q, 8)
+	if workqueueIdentityConflict == nil {
+		stats.WorkqueueActivity, tracePairingCaveats = computeWorkqueueActivity(idx, q, 8, durationPairingIntegrities[durationOrderWorkqueue])
 		stats.Caveats = append(stats.Caveats, tracePairingCaveats...)
 	}
 
 	dmaIdentityConflict := threadIncarnationConflictForPIDSet(idx, q, dmaFenceContributorPIDs)
-	dmaDurationFailure := durationFailures[durationOrderDMAFence]
-	if dmaDurationFailure != nil {
-		stats.Caveats = append(stats.Caveats, durationOrderFailClosedCaveat(dmaDurationFailure, "dma_fence_activity"))
-	}
 	if dmaIdentityConflict != nil {
 		stats.Caveats = append(stats.Caveats, "thread_identity_dma_fence_fail_closed=true; "+dmaIdentityConflict.reason()+"; DMA fence activity is omitted because a contributing PID spans task incarnations")
 	}
-	if dmaDurationFailure == nil && dmaIdentityConflict == nil {
-		stats.DMAFenceActivity, tracePairingCaveats = computeDMAFenceActivity(idx, q, 8)
+	if dmaIdentityConflict == nil {
+		stats.DMAFenceActivity, tracePairingCaveats = computeDMAFenceActivity(idx, q, 8, durationPairingIntegrities[durationOrderDMAFence])
 		stats.Caveats = append(stats.Caveats, tracePairingCaveats...)
 	}
 	if schedulerDurationsSafe {
@@ -7709,53 +7682,250 @@ func schedStatImpactMs(item SchedStatSummary) float64 {
 	return item.TotalRuntimeMs
 }
 
-type workqueuePairingState struct {
-	depth        int
-	cohortStarts int
-	ambiguous    bool
-	start        Event
+// selectedPairingCohortState keeps complete physical topology separate from
+// query publication. Every endpoint participates in the shared cohort FSM;
+// only selected endpoints contribute Count/unpaired/pair metrics. This makes a
+// carry-in or window-external overlap able to suppress a false pair without
+// importing its endpoint into the selected-window activity roster.
+type selectedPairingCohortState struct {
+	cohort         pairingCohortState
+	startSelected  bool
+	selectedStarts int
+	selectedEvents int
 }
 
-func computeWorkqueueActivity(idx *Index, q Query, max int) ([]WorkqueueActivity, []string) {
+type selectedPairingCohortTransition struct {
+	pairingCohortTransition
+	startSelected  bool
+	doneSelected   bool
+	selectedStarts int
+	selectedEvents int
+}
+
+func (s *selectedPairingCohortState) observeStart(ev Event, selected bool) selectedPairingCohortTransition {
+	if s == nil {
+		return selectedPairingCohortTransition{}
+	}
+	if s.cohort.depth == 0 {
+		s.startSelected = false
+		s.selectedStarts = 0
+		s.selectedEvents = 0
+	}
+	if selected {
+		if s.cohort.depth == 0 {
+			s.startSelected = true
+		}
+		s.selectedStarts++
+		s.selectedEvents++
+	}
+	return selectedPairingCohortTransition{pairingCohortTransition: s.cohort.observeStart(ev)}
+}
+
+func (s *selectedPairingCohortState) observeDone(ev Event, selected bool) selectedPairingCohortTransition {
+	if s == nil {
+		return selectedPairingCohortTransition{}
+	}
+	if selected {
+		s.selectedEvents++
+	}
+	transition := s.cohort.observeDone(ev)
+	out := selectedPairingCohortTransition{
+		pairingCohortTransition: transition,
+		startSelected:           s.startSelected,
+		doneSelected:            selected,
+		selectedStarts:          s.selectedStarts,
+		selectedEvents:          s.selectedEvents,
+	}
+	if transition.cohortClosed || transition.unpairedDone {
+		s.startSelected = false
+		s.selectedStarts = 0
+		s.selectedEvents = 0
+	}
+	return out
+}
+
+func (s *selectedPairingCohortState) finishEOF() selectedPairingCohortTransition {
+	if s == nil {
+		return selectedPairingCohortTransition{}
+	}
+	out := selectedPairingCohortTransition{
+		pairingCohortTransition: s.cohort.finishEOF(),
+		startSelected:           s.startSelected,
+		selectedStarts:          s.selectedStarts,
+		selectedEvents:          s.selectedEvents,
+	}
+	s.startSelected = false
+	s.selectedStarts = 0
+	s.selectedEvents = 0
+	return out
+}
+
+type durationPairingReplayEndpoint struct {
+	eventIndex     int
+	source         string
+	verdict        PairingEndpointVerdict
+	lifecycleReset bool
+	resetPID       int
+	work           string
+	function       string
+	driver         string
+	timeline       string
+	context        string
+	seqno          string
+}
+
+type durationPairingReplayOwner struct {
+	source string
+	pid    int
+}
+
+func addDurationPairingReplayLane(owner durationPairingReplayOwner, key string, laneOwners map[string]durationPairingReplayOwner, ownerLanes map[durationPairingReplayOwner]map[string]struct{}) {
+	laneOwners[key] = owner
+	keys := ownerLanes[owner]
+	if keys == nil {
+		keys = map[string]struct{}{}
+		ownerLanes[owner] = keys
+	}
+	keys[key] = struct{}{}
+}
+
+func dropDurationPairingReplayLane(key string, laneOwners map[string]durationPairingReplayOwner, ownerLanes map[durationPairingReplayOwner]map[string]struct{}) {
+	owner, ok := laneOwners[key]
+	if !ok {
+		return
+	}
+	delete(laneOwners, key)
+	keys := ownerLanes[owner]
+	delete(keys, key)
+	if len(keys) == 0 {
+		delete(ownerLanes, owner)
+	}
+}
+
+func durationPairingReplayOwnerLaneKeys(owner durationPairingReplayOwner, ownerLanes map[durationPairingReplayOwner]map[string]struct{}) []string {
+	set := ownerLanes[owner]
+	keys := make([]string, 0, len(set))
+	for key := range set {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func sortDurationPairingReplayEndpoints(idx *Index, endpoints []durationPairingReplayEndpoint) {
+	sort.SliceStable(endpoints, func(i, j int) bool {
+		if endpoints[i].source != endpoints[j].source {
+			return endpoints[i].source < endpoints[j].source
+		}
+		left, right := idx.Events[endpoints[i].eventIndex], idx.Events[endpoints[j].eventIndex]
+		if left.Line != right.Line {
+			return left.Line < right.Line
+		}
+		return left.Ts < right.Ts
+	})
+}
+
+func pairingEndpointSelected(ev Event, q Query) bool {
+	return pairingEventInsideQuery(ev, q)
+}
+
+func computeWorkqueueActivity(idx *Index, q Query, max int, providedIntegrity ...*durationPairingIntegrity) ([]WorkqueueActivity, []string) {
 	if idx == nil {
 		return nil, nil
 	}
-	accs := map[string]*WorkqueueActivity{}
-	lanes := map[string]*workqueuePairingState{}
-	functionVariants := map[string]map[string]struct{}{}
+	integrity := selectedDurationPairingIntegrity(idx, q, durationOrderWorkqueue, providedIntegrity)
+	if integrity.familyGlobal {
+		caveats := integrity.caveats("workqueue_activity")
+		if integrity.unresolvedSources > 0 {
+			caveats = append(caveats, fmt.Sprintf("workqueue_pairing_provenance_unresolved=true; rows=%d; rows without exactly one physical source artifact were excluded", integrity.unresolvedSources))
+		}
+		return nil, caveats
+	}
+	endpoints := make([]durationPairingReplayEndpoint, 0, 64)
+	relevantPIDs := map[int]bool{}
 	unresolvedSourceRows := 0
 	unresolvedEndpointRows := 0
+	unresolvedLifecycleResets := 0
+	lifecycleResetLanes := 0
 	invalidEndpointRows := 0
 	var invalidSamples []string
-	for _, ev := range idx.Events {
-		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) || ev.Type != EventWorkqueue {
+	// Completeness pre-pass: exact endpoints are audited across the complete
+	// retained topology. Query bounds must not delete a malformed barrier or a
+	// carry-in start before the cohort state machine sees it.
+	for eventIndex, ev := range idx.Events {
+		if ev.Type != EventWorkqueue {
+			continue
+		}
+		if _, phase := workqueueBaseAndPhase(ev.Name); phase == "" {
+			continue
+		}
+		if ev.PID > 0 {
+			relevantPIDs[ev.PID] = true
+		}
+		verdict, decoded := decodePairingEndpointWire(ev.Name, ev.FieldText, int64(ev.PID))
+		work := decoded.work
+		if verdict.Family != PairingEndpointWorkqueue || !verdict.KeyKnown || !verdict.PayloadAdmitted || !verdict.EmitterAdmitted {
+			missing := workqueueEndpointMissingFields(ev, work)
+			if len(missing) == 0 {
+				missing = []string{"canonical_pairing_identity"}
+			}
+			invalidEndpointRows++
+			if len(invalidSamples) < 4 {
+				invalidSamples = append(invalidSamples, fmt.Sprintf("line=%d event=%s missing=%s", ev.Line, ev.Name, strings.Join(missing, ",")))
+			}
+			integrity.rejectEvent(idx, ev, verdict)
 			continue
 		}
 		source, sourceOK := tracePairingSourceIdentity(idx, ev)
 		if !sourceOK {
 			unresolvedSourceRows++
-			if _, phase := workqueueBaseAndPhase(ev.Name); phase != "" {
-				unresolvedEndpointRows++
-			}
+			unresolvedEndpointRows++
+			integrity.rejectEvent(idx, ev, verdict)
 			continue
 		}
-		base, phase := workqueueBaseAndPhase(ev.Name)
-		work, function := workqueueFields(ev)
-		if phase != "" {
-			work, function = workqueueExactEndpointFields(ev)
-		}
-		missing := workqueueEndpointMissingFields(ev, work)
-		if phase != "" && len(missing) > 0 {
-			invalidEndpointRows++
-			if len(invalidSamples) < 4 {
-				invalidSamples = append(invalidSamples, fmt.Sprintf("line=%d event=%s missing=%s", ev.Line, ev.Name, strings.Join(missing, ",")))
+		endpoints = append(endpoints, durationPairingReplayEndpoint{
+			eventIndex: eventIndex, source: source, verdict: verdict,
+			work: decoded.work, function: decoded.function,
+		})
+	}
+	if !integrity.familyGlobal {
+		for eventIndex, ev := range idx.Events {
+			resetPID, reset := schedulerLifecycleResetPID(ev)
+			if !reset || !relevantPIDs[resetPID] {
+				continue
 			}
-			continue
+			source, sourceOK := tracePairingSourceIdentity(idx, ev)
+			if !sourceOK {
+				unresolvedLifecycleResets++
+				integrity.familyGlobal = true
+				integrity.globalWitnesses++
+				integrity.unresolvedSources++
+				continue
+			}
+			endpoints = append(endpoints, durationPairingReplayEndpoint{eventIndex: eventIndex, source: source, lifecycleReset: true, resetPID: resetPID})
 		}
-		key := strings.Join([]string{source, strconv.Itoa(ev.PID), firstNonEmpty(work, "-"), base}, "\x00")
-		if phase == "" {
-			key += "\x00meta\x00" + firstNonEmpty(function, "-")
+	}
+	if integrity.familyGlobal {
+		caveats := integrity.caveats("workqueue_activity")
+		if unresolvedSourceRows > 0 {
+			caveats = append(caveats, fmt.Sprintf("workqueue_pairing_provenance_unresolved=true; rows=%d; rows without exactly one physical source artifact were excluded", unresolvedSourceRows))
 		}
+		if invalidEndpointRows > 0 || unresolvedEndpointRows > 0 {
+			caveats = append(caveats, fmt.Sprintf("workqueue_pairing_invalid_endpoints=true; invalid_endpoints=%d unresolved_source_endpoints=%d samples=[%s]", invalidEndpointRows, unresolvedEndpointRows, strings.Join(invalidSamples, "; ")))
+		}
+		if unresolvedLifecycleResets > 0 {
+			caveats = append(caveats, fmt.Sprintf("workqueue_pairing_lifecycle_reset_provenance_unresolved=true; rows=%d; workqueue elapsed pairing was fail-closed because a relevant task-incarnation reset could not be assigned to exactly one physical source artifact", unresolvedLifecycleResets))
+		}
+		return nil, caveats
+	}
+	sortDurationPairingReplayEndpoints(idx, endpoints)
+	accs := map[string]*WorkqueueActivity{}
+	lanes := map[string]*selectedPairingCohortState{}
+	laneOwners := map[string]durationPairingReplayOwner{}
+	ownerLanes := map[durationPairingReplayOwner]map[string]struct{}{}
+	functionVariants := map[string]map[string]struct{}{}
+	endpointKeys := map[string]bool{}
+	observeSelected := func(ev Event, source, key, work, function string) *WorkqueueActivity {
 		item := accs[key]
 		if item == nil {
 			item = &WorkqueueActivity{
@@ -7791,78 +7961,119 @@ func computeWorkqueueActivity(idx *Index, q Query, max int) ([]WorkqueueActivity
 		if ev.Ts > item.EndTs {
 			item.EndTs = ev.Ts
 		}
-		switch phase {
-		case "start":
-			lane := lanes[key]
-			if lane == nil {
-				lane = &workqueuePairingState{}
-				lanes[key] = lane
-			}
-			if lane.depth == 0 {
-				lane.depth = 1
-				lane.cohortStarts = 1
-				lane.start = ev
-				continue
-			}
-			lane.depth++
-			lane.cohortStarts++
-			if !lane.ambiguous {
-				lane.ambiguous = true
-				item.AmbiguousCohortCount++
-				lane.start = Event{}
-			}
-		case "done":
-			lane := lanes[key]
-			if lane == nil || lane.depth == 0 {
-				item.UnpairedDoneCount++
-				continue
-			}
-			if lane.ambiguous {
-				lane.depth--
-				if lane.depth == 0 {
-					item.PairingSuppressedCount += lane.cohortStarts
-					lane.ambiguous = false
-					lane.cohortStarts = 0
-					lane.start = Event{}
+		return item
+	}
+	accountTransition := func(key string, transition selectedPairingCohortTransition) {
+		if transition.unpairedDone {
+			if transition.doneSelected {
+				if item := accs[key]; item != nil {
+					item.UnpairedDoneCount++
 				}
-				continue
 			}
-			start := lane.start
-			lane.depth = 0
-			lane.cohortStarts = 0
-			lane.start = Event{}
-			if ev.Ts < start.Ts {
+			return
+		}
+		if !transition.cohortClosed || transition.selectedEvents == 0 {
+			return
+		}
+		item := accs[key]
+		if item == nil {
+			return
+		}
+		if transition.ambiguous {
+			item.AmbiguousCohortCount++
+			item.PairingSuppressedCount += transition.selectedStarts
+			return
+		}
+		if transition.startSelected && transition.doneSelected {
+			start, done := transition.pairStart, transition.last
+			if done.Ts < start.Ts {
 				item.PairingSuppressedCount++
-				continue
+				return
 			}
-			dur := (ev.Ts - start.Ts) * 1000
+			dur := (done.Ts - start.Ts) * 1000
 			item.PairedCount++
 			item.DurationMs += dur
 			if dur > item.MaxLatencyMs {
 				item.MaxLatencyMs = dur
 			}
+		} else if transition.startSelected {
+			item.UnpairedStartCount++
+		} else if transition.doneSelected {
+			item.UnpairedDoneCount++
 		}
 	}
-	if invalidEndpointRows > 0 || unresolvedEndpointRows > 0 {
-		var caveats []string
-		if unresolvedSourceRows > 0 {
-			caveats = append(caveats, fmt.Sprintf("workqueue_pairing_provenance_unresolved=true; rows=%d; rows without exactly one physical source artifact were excluded", unresolvedSourceRows))
+	// Inventory-only workqueue rows remain selected-window observations and
+	// never enter elapsed pairing topology.
+	for _, ev := range idx.Events {
+		if !pairingEventInsideQuery(ev, q) || ev.Type != EventWorkqueue {
+			continue
 		}
-		caveats = append(caveats, fmt.Sprintf("workqueue_pairing_fail_closed=true; invalid_endpoints=%d unresolved_source_endpoints=%d samples=[%s]; exact execute endpoints without required PID/work/physical-source identity suppressed the whole duration family", invalidEndpointRows, unresolvedEndpointRows, strings.Join(invalidSamples, "; ")))
-		return nil, caveats
+		base, phase := workqueueBaseAndPhase(ev.Name)
+		if phase != "" {
+			continue
+		}
+		source, sourceOK := tracePairingSourceIdentity(idx, ev)
+		if !sourceOK {
+			unresolvedSourceRows++
+			continue
+		}
+		if integrity.poisonedSources[source] {
+			continue
+		}
+		work, function := workqueueFields(ev)
+		key := encodePairingKey(source, strconv.Itoa(ev.PID), firstNonEmpty(work, "-"), base)
+		key = encodePairingKey(key, "meta", firstNonEmpty(function, "-"))
+		if integrity.poisonedLanes[key] {
+			continue
+		}
+		observeSelected(ev, source, key, work, function)
+	}
+	for _, observation := range endpoints {
+		if observation.lifecycleReset {
+			owner := durationPairingReplayOwner{source: observation.source, pid: observation.resetPID}
+			for _, key := range durationPairingReplayOwnerLaneKeys(owner, ownerLanes) {
+				lane := lanes[key]
+				accountTransition(key, lane.finishEOF())
+				lifecycleResetLanes++
+				delete(lanes, key)
+				dropDurationPairingReplayLane(key, laneOwners, ownerLanes)
+			}
+			continue
+		}
+		ev := idx.Events[observation.eventIndex]
+		key, keyOK := observation.verdict.LaneKey(observation.source)
+		if !keyOK || integrity.poisonedSources[observation.source] || integrity.poisonedLanes[key] {
+			continue
+		}
+		_, phase := workqueueBaseAndPhase(ev.Name)
+		work, function := observation.work, observation.function
+		selected := pairingEndpointSelected(ev, q)
+		if selected {
+			observeSelected(ev, observation.source, key, work, function)
+			endpointKeys[key] = true
+		}
+		lane := lanes[key]
+		if lane == nil {
+			lane = &selectedPairingCohortState{}
+			lanes[key] = lane
+			addDurationPairingReplayLane(durationPairingReplayOwner{source: observation.source, pid: ev.PID}, key, laneOwners, ownerLanes)
+		}
+		var transition selectedPairingCohortTransition
+		if phase == "start" {
+			transition = lane.observeStart(ev, selected)
+		} else {
+			transition = lane.observeDone(ev, selected)
+		}
+		accountTransition(key, transition)
+		if transition.unpairedDone || transition.cohortClosed {
+			delete(lanes, key)
+			dropDurationPairingReplayLane(key, laneOwners, ownerLanes)
+		}
 	}
 	out := make([]WorkqueueActivity, 0, len(accs))
 	var ambiguous, suppressed, unpairedStart, unpairedDone int
 	for key, lane := range lanes {
-		if lane.depth <= 0 {
-			continue
-		}
-		item := accs[key]
-		if lane.ambiguous {
-			item.PairingSuppressedCount += lane.cohortStarts
-		} else {
-			item.UnpairedStartCount++
-		}
+		accountTransition(key, lane.finishEOF())
 	}
 	for _, item := range accs {
 		// Count-only/unpaired rows stay visible with duration=0. A first/last
@@ -7877,7 +8088,7 @@ func computeWorkqueueActivity(idx *Index, q Query, max int) ([]WorkqueueActivity
 	}
 	functionVariantRows := 0
 	for key, variants := range functionVariants {
-		if len(variants) > 1 && strings.HasSuffix(key, "\x00workqueue_execute") {
+		if len(variants) > 1 && endpointKeys[key] {
 			functionVariantRows++
 		}
 	}
@@ -7894,6 +8105,7 @@ func computeWorkqueueActivity(idx *Index, q Query, max int) ([]WorkqueueActivity
 		out = out[:max]
 	}
 	var caveats []string
+	caveats = append(caveats, integrity.caveats("workqueue_activity")...)
 	if unresolvedSourceRows > 0 {
 		caveats = append(caveats, fmt.Sprintf("workqueue_pairing_provenance_unresolved=true; rows=%d; rows without exactly one physical source artifact were excluded", unresolvedSourceRows))
 	}
@@ -7905,6 +8117,12 @@ func computeWorkqueueActivity(idx *Index, q Query, max int) ([]WorkqueueActivity
 	}
 	if functionVariantRows > 0 {
 		caveats = append(caveats, fmt.Sprintf("workqueue_function_variants=true; identities=%d; function=multiple means the same typed work pointer was observed with more than one function label in the selected window", functionVariantRows))
+	}
+	if invalidEndpointRows > 0 || unresolvedEndpointRows > 0 {
+		caveats = append(caveats, fmt.Sprintf("workqueue_pairing_invalid_endpoints=true; invalid_endpoints=%d unresolved_source_endpoints=%d samples=[%s]", invalidEndpointRows, unresolvedEndpointRows, strings.Join(invalidSamples, "; ")))
+	}
+	if lifecycleResetLanes > 0 {
+		caveats = append(caveats, fmt.Sprintf("workqueue_pairing_lifecycle_reset=true; lanes=%d; open workqueue lanes were closed as unpaired at exact task-generation boundaries instead of crossing TID reuse", lifecycleResetLanes))
 	}
 	return out, caveats
 }
@@ -7925,58 +8143,104 @@ func workqueueFields(ev Event) (work, function string) {
 
 func workqueueBaseAndPhase(name string) (base, phase string) {
 	raw := strings.TrimSpace(name)
-	switch raw {
-	case "workqueue_execute_start":
-		return "workqueue_execute", "start"
-	case "workqueue_execute_end":
-		return "workqueue_execute", "done"
+	if profile, ok := pairingEndpointProfileForName(raw); ok && profile.Family == PairingEndpointWorkqueue {
+		return profile.SemanticBase, string(profile.Phase)
 	}
 	return strings.ToLower(raw), ""
 }
 
-type dmaFencePairingState struct {
-	depth        int
-	cohortStarts int
-	ambiguous    bool
-	start        Event
-}
-
-func computeDMAFenceActivity(idx *Index, q Query, max int) ([]DMAFenceActivity, []string) {
+func computeDMAFenceActivity(idx *Index, q Query, max int, providedIntegrity ...*durationPairingIntegrity) ([]DMAFenceActivity, []string) {
 	if idx == nil {
 		return nil, nil
 	}
-	accs := map[string]*DMAFenceActivity{}
-	lanes := map[string]*dmaFencePairingState{}
+	integrity := selectedDurationPairingIntegrity(idx, q, durationOrderDMAFence, providedIntegrity)
+	if integrity.familyGlobal {
+		caveats := integrity.caveats("dma_fence_activity")
+		if integrity.unresolvedSources > 0 {
+			caveats = append(caveats, fmt.Sprintf("dma_fence_pairing_provenance_unresolved=true; rows=%d; rows without exactly one physical source artifact were excluded", integrity.unresolvedSources))
+		}
+		return nil, caveats
+	}
+	endpoints := make([]durationPairingReplayEndpoint, 0, 64)
+	relevantPIDs := map[int]bool{}
 	unresolvedSourceRows := 0
 	unresolvedEndpointRows := 0
+	unresolvedLifecycleResets := 0
+	lifecycleResetLanes := 0
 	invalidEndpointRows := 0
 	var invalidSamples []string
-	for _, ev := range idx.Events {
-		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) || ev.Type != EventDMAFence {
+	for eventIndex, ev := range idx.Events {
+		if ev.Type != EventDMAFence {
+			continue
+		}
+		if _, phase := dmaFenceBaseAndPhase(ev.Name); phase == "" {
+			continue
+		}
+		if ev.PID > 0 {
+			relevantPIDs[ev.PID] = true
+		}
+		verdict, decoded := decodePairingEndpointWire(ev.Name, ev.FieldText, int64(ev.PID))
+		driver, timeline, context, seqno := decoded.driver, decoded.timeline, decoded.context, decoded.seqno
+		if verdict.Family != PairingEndpointDMAFence || !verdict.KeyKnown || !verdict.PayloadAdmitted || !verdict.EmitterAdmitted {
+			missing := dmaFenceEndpointMissingFields(ev, driver, timeline, context, seqno)
+			if len(missing) == 0 {
+				missing = []string{"canonical_pairing_identity"}
+			}
+			invalidEndpointRows++
+			if len(invalidSamples) < 4 {
+				invalidSamples = append(invalidSamples, fmt.Sprintf("line=%d event=%s missing=%s", ev.Line, ev.Name, strings.Join(missing, ",")))
+			}
+			integrity.rejectEvent(idx, ev, verdict)
 			continue
 		}
 		source, sourceOK := tracePairingSourceIdentity(idx, ev)
 		if !sourceOK {
 			unresolvedSourceRows++
-			if _, phase := dmaFenceBaseAndPhase(ev.Name); phase != "" {
-				unresolvedEndpointRows++
-			}
+			unresolvedEndpointRows++
+			integrity.rejectEvent(idx, ev, verdict)
 			continue
 		}
-		base, phase := dmaFenceBaseAndPhase(ev.Name)
-		driver, timeline, context, seqno := dmaFenceFields(ev)
-		if phase != "" {
-			driver, timeline, context, seqno = dmaFenceExactEndpointFields(ev)
-		}
-		missing := dmaFenceEndpointMissingFields(ev, driver, timeline, context, seqno)
-		if phase != "" && len(missing) > 0 {
-			invalidEndpointRows++
-			if len(invalidSamples) < 4 {
-				invalidSamples = append(invalidSamples, fmt.Sprintf("line=%d event=%s missing=%s", ev.Line, ev.Name, strings.Join(missing, ",")))
+		endpoints = append(endpoints, durationPairingReplayEndpoint{
+			eventIndex: eventIndex, source: source, verdict: verdict,
+			driver: decoded.driver, timeline: decoded.timeline, context: decoded.context, seqno: decoded.seqno,
+		})
+	}
+	if !integrity.familyGlobal {
+		for eventIndex, ev := range idx.Events {
+			resetPID, reset := schedulerLifecycleResetPID(ev)
+			if !reset || !relevantPIDs[resetPID] {
+				continue
 			}
-			continue
+			source, sourceOK := tracePairingSourceIdentity(idx, ev)
+			if !sourceOK {
+				unresolvedLifecycleResets++
+				integrity.familyGlobal = true
+				integrity.globalWitnesses++
+				integrity.unresolvedSources++
+				continue
+			}
+			endpoints = append(endpoints, durationPairingReplayEndpoint{eventIndex: eventIndex, source: source, lifecycleReset: true, resetPID: resetPID})
 		}
-		key := strings.Join([]string{source, strconv.Itoa(ev.PID), firstNonEmpty(driver, "-"), firstNonEmpty(timeline, "-"), firstNonEmpty(context, "-"), firstNonEmpty(seqno, "-"), base}, "\x00")
+	}
+	if integrity.familyGlobal {
+		caveats := integrity.caveats("dma_fence_activity")
+		if unresolvedSourceRows > 0 {
+			caveats = append(caveats, fmt.Sprintf("dma_fence_pairing_provenance_unresolved=true; rows=%d; rows without exactly one physical source artifact were excluded", unresolvedSourceRows))
+		}
+		if invalidEndpointRows > 0 || unresolvedEndpointRows > 0 {
+			caveats = append(caveats, fmt.Sprintf("dma_fence_pairing_invalid_endpoints=true; invalid_endpoints=%d unresolved_source_endpoints=%d samples=[%s]", invalidEndpointRows, unresolvedEndpointRows, strings.Join(invalidSamples, "; ")))
+		}
+		if unresolvedLifecycleResets > 0 {
+			caveats = append(caveats, fmt.Sprintf("dma_fence_pairing_lifecycle_reset_provenance_unresolved=true; rows=%d; DMA fence elapsed pairing was fail-closed because a relevant task-incarnation reset could not be assigned to exactly one physical source artifact", unresolvedLifecycleResets))
+		}
+		return nil, caveats
+	}
+	sortDurationPairingReplayEndpoints(idx, endpoints)
+	accs := map[string]*DMAFenceActivity{}
+	lanes := map[string]*selectedPairingCohortState{}
+	laneOwners := map[string]durationPairingReplayOwner{}
+	ownerLanes := map[durationPairingReplayOwner]map[string]struct{}{}
+	observeSelected := func(ev Event, source, key, driver, timeline, context, seqno string) *DMAFenceActivity {
 		item := accs[key]
 		if item == nil {
 			item = &DMAFenceActivity{
@@ -8001,78 +8265,116 @@ func computeDMAFenceActivity(idx *Index, q Query, max int) ([]DMAFenceActivity, 
 		if ev.Ts > item.EndTs {
 			item.EndTs = ev.Ts
 		}
-		switch phase {
-		case "start":
-			lane := lanes[key]
-			if lane == nil {
-				lane = &dmaFencePairingState{}
-				lanes[key] = lane
-			}
-			if lane.depth == 0 {
-				lane.depth = 1
-				lane.cohortStarts = 1
-				lane.start = ev
-				continue
-			}
-			lane.depth++
-			lane.cohortStarts++
-			if !lane.ambiguous {
-				lane.ambiguous = true
-				item.AmbiguousCohortCount++
-				lane.start = Event{}
-			}
-		case "done":
-			lane := lanes[key]
-			if lane == nil || lane.depth == 0 {
-				item.UnpairedDoneCount++
-				continue
-			}
-			if lane.ambiguous {
-				lane.depth--
-				if lane.depth == 0 {
-					item.PairingSuppressedCount += lane.cohortStarts
-					lane.ambiguous = false
-					lane.cohortStarts = 0
-					lane.start = Event{}
+		return item
+	}
+	accountTransition := func(key string, transition selectedPairingCohortTransition) {
+		if transition.unpairedDone {
+			if transition.doneSelected {
+				if item := accs[key]; item != nil {
+					item.UnpairedDoneCount++
 				}
-				continue
 			}
-			start := lane.start
-			lane.depth = 0
-			lane.cohortStarts = 0
-			lane.start = Event{}
-			if ev.Ts < start.Ts {
+			return
+		}
+		if !transition.cohortClosed || transition.selectedEvents == 0 {
+			return
+		}
+		item := accs[key]
+		if item == nil {
+			return
+		}
+		if transition.ambiguous {
+			item.AmbiguousCohortCount++
+			item.PairingSuppressedCount += transition.selectedStarts
+			return
+		}
+		if transition.startSelected && transition.doneSelected {
+			start, done := transition.pairStart, transition.last
+			if done.Ts < start.Ts {
 				item.PairingSuppressedCount++
-				continue
+				return
 			}
-			dur := (ev.Ts - start.Ts) * 1000
+			dur := (done.Ts - start.Ts) * 1000
 			item.PairedCount++
 			item.WaitMs += dur
 			if dur > item.MaxWaitMs {
 				item.MaxWaitMs = dur
 			}
+		} else if transition.startSelected {
+			item.UnpairedStartCount++
+		} else if transition.doneSelected {
+			item.UnpairedDoneCount++
 		}
 	}
-	if invalidEndpointRows > 0 || unresolvedEndpointRows > 0 {
-		var caveats []string
-		if unresolvedSourceRows > 0 {
-			caveats = append(caveats, fmt.Sprintf("dma_fence_pairing_provenance_unresolved=true; rows=%d; rows without exactly one physical source artifact were excluded", unresolvedSourceRows))
+	// Non-endpoint DMA inventory remains query-scoped and cannot mint waits.
+	for _, ev := range idx.Events {
+		if !pairingEventInsideQuery(ev, q) || ev.Type != EventDMAFence {
+			continue
 		}
-		caveats = append(caveats, fmt.Sprintf("dma_fence_pairing_fail_closed=true; invalid_endpoints=%d unresolved_source_endpoints=%d samples=[%s]; exact wait endpoints without required PID/driver/timeline/context/seqno/physical-source identity suppressed the whole duration family", invalidEndpointRows, unresolvedEndpointRows, strings.Join(invalidSamples, "; ")))
-		return nil, caveats
+		base, phase := dmaFenceBaseAndPhase(ev.Name)
+		if phase != "" {
+			continue
+		}
+		source, sourceOK := tracePairingSourceIdentity(idx, ev)
+		if !sourceOK {
+			unresolvedSourceRows++
+			continue
+		}
+		if integrity.poisonedSources[source] {
+			continue
+		}
+		driver, timeline, context, seqno := dmaFenceFields(ev)
+		key := encodePairingKey(source, strconv.Itoa(ev.PID), firstNonEmpty(driver, "-"), firstNonEmpty(timeline, "-"), firstNonEmpty(context, "-"), firstNonEmpty(seqno, "-"), base)
+		if integrity.poisonedLanes[key] {
+			continue
+		}
+		observeSelected(ev, source, key, driver, timeline, context, seqno)
+	}
+	for _, observation := range endpoints {
+		if observation.lifecycleReset {
+			owner := durationPairingReplayOwner{source: observation.source, pid: observation.resetPID}
+			for _, key := range durationPairingReplayOwnerLaneKeys(owner, ownerLanes) {
+				lane := lanes[key]
+				accountTransition(key, lane.finishEOF())
+				lifecycleResetLanes++
+				delete(lanes, key)
+				dropDurationPairingReplayLane(key, laneOwners, ownerLanes)
+			}
+			continue
+		}
+		ev := idx.Events[observation.eventIndex]
+		key, keyOK := observation.verdict.LaneKey(observation.source)
+		if !keyOK || integrity.poisonedSources[observation.source] || integrity.poisonedLanes[key] {
+			continue
+		}
+		_, phase := dmaFenceBaseAndPhase(ev.Name)
+		driver, timeline, context, seqno := observation.driver, observation.timeline, observation.context, observation.seqno
+		selected := pairingEndpointSelected(ev, q)
+		if selected {
+			observeSelected(ev, observation.source, key, driver, timeline, context, seqno)
+		}
+		lane := lanes[key]
+		if lane == nil {
+			lane = &selectedPairingCohortState{}
+			lanes[key] = lane
+			addDurationPairingReplayLane(durationPairingReplayOwner{source: observation.source, pid: ev.PID}, key, laneOwners, ownerLanes)
+		}
+		var transition selectedPairingCohortTransition
+		if phase == "start" {
+			transition = lane.observeStart(ev, selected)
+		} else {
+			transition = lane.observeDone(ev, selected)
+		}
+		accountTransition(key, transition)
+		if transition.unpairedDone || transition.cohortClosed {
+			delete(lanes, key)
+			dropDurationPairingReplayLane(key, laneOwners, ownerLanes)
+		}
 	}
 	out := make([]DMAFenceActivity, 0, len(accs))
 	var ambiguous, suppressed, unpairedStart, unpairedDone int
 	for key, lane := range lanes {
-		if lane.depth <= 0 {
-			continue
-		}
-		item := accs[key]
-		if lane.ambiguous {
-			item.PairingSuppressedCount += lane.cohortStarts
-		} else {
-			item.UnpairedStartCount++
-		}
+		accountTransition(key, lane.finishEOF())
 	}
 	for _, item := range accs {
 		// Count-only/unpaired rows stay visible with wait=0. Only a typed
@@ -8098,6 +8400,7 @@ func computeDMAFenceActivity(idx *Index, q Query, max int) ([]DMAFenceActivity, 
 		out = out[:max]
 	}
 	var caveats []string
+	caveats = append(caveats, integrity.caveats("dma_fence_activity")...)
 	if unresolvedSourceRows > 0 {
 		caveats = append(caveats, fmt.Sprintf("dma_fence_pairing_provenance_unresolved=true; rows=%d; rows without exactly one physical source artifact were excluded", unresolvedSourceRows))
 	}
@@ -8106,6 +8409,12 @@ func computeDMAFenceActivity(idx *Index, q Query, max int) ([]DMAFenceActivity, 
 	}
 	if unpairedStart > 0 || unpairedDone > 0 {
 		caveats = append(caveats, fmt.Sprintf("dma_fence_pairing_unpaired=true; unpaired_start=%d unpaired_done=%d; wait time was emitted only for complete exact wait pairs", unpairedStart, unpairedDone))
+	}
+	if invalidEndpointRows > 0 || unresolvedEndpointRows > 0 {
+		caveats = append(caveats, fmt.Sprintf("dma_fence_pairing_invalid_endpoints=true; invalid_endpoints=%d unresolved_source_endpoints=%d samples=[%s]", invalidEndpointRows, unresolvedEndpointRows, strings.Join(invalidSamples, "; ")))
+	}
+	if lifecycleResetLanes > 0 {
+		caveats = append(caveats, fmt.Sprintf("dma_fence_pairing_lifecycle_reset=true; lanes=%d; open DMA fence lanes were closed as unpaired at exact task-generation boundaries instead of crossing TID reuse", lifecycleResetLanes))
 	}
 	return out, caveats
 }
@@ -8121,11 +8430,8 @@ func dmaFenceFields(ev Event) (driver, timeline, context, seqno string) {
 
 func dmaFenceBaseAndPhase(name string) (base, phase string) {
 	raw := strings.TrimSpace(name)
-	switch raw {
-	case "dma_fence_wait_start":
-		return "dma_fence_wait", "start"
-	case "dma_fence_wait_end":
-		return "dma_fence_wait", "done"
+	if profile, ok := pairingEndpointProfileForName(raw); ok && profile.Family == PairingEndpointDMAFence {
+		return profile.SemanticBase, string(profile.Phase)
 	}
 	return strings.ToLower(raw), ""
 }
@@ -8772,6 +9078,7 @@ type storageLatencyAcc struct {
 
 type storageLatencyLane struct {
 	cohort     pairingCohortState
+	pairingKey string
 	source     string
 	identity   genericStorageIdentity
 	eventCount int
@@ -8780,16 +9087,61 @@ type storageLatencyLane struct {
 	entryName  string
 }
 
-func computeStorageLatencyByLayer(idx *Index, q Query, blockSummaries []StorageLatencySummary, max int) ([]StorageLatencySummary, []string) {
+func computeStorageLatencyByLayer(idx *Index, q Query, blockSummaries []StorageLatencySummary, max int, providedIntegrity ...*durationPairingIntegrity) ([]StorageLatencySummary, []string) {
+	integrity := selectedDurationPairingIntegrity(idx, q, durationOrderStorage, providedIntegrity)
 	accs := map[string]*storageLatencyAcc{}
 	lanes := map[string]*storageLatencyLane{}
+	laneOwners := map[string]durationPairingReplayOwner{}
+	ownerLanes := map[durationPairingReplayOwner]map[string]struct{}{}
 	unresolvedSourceRows := 0
 	lifecycleResetLanes := 0
-	if idx != nil {
-		for _, ev := range idx.Events {
+	unresolvedLifecycleResets := 0
+	var decodedByEvent map[int]genericStoragePairingDecoded
+	if idx != nil && !integrity.familyGlobal {
+		decodedByEvent = make(map[int]genericStoragePairingDecoded)
+		for eventIndex, ev := range idx.Events {
+			if !pairingReplayAuditEvent(ev, q) {
+				continue
+			}
+			decoded := decodeGenericStoragePairingEvent(idx, ev)
+			if !decoded.endpoint {
+				continue
+			}
+			verdict := decoded.verdict
+			if verdict.Family != PairingEndpointStorage || !verdict.KeyKnown || !verdict.PayloadAdmitted || !verdict.EmitterAdmitted {
+				integrity.rejectEvent(idx, ev, verdict)
+				continue
+			}
+			if !decoded.sourceKnown {
+				integrity.rejectEvent(idx, ev, verdict)
+				continue
+			}
+			if decoded.keyAdmitted {
+				decodedByEvent[eventIndex] = decoded
+			}
+		}
+	}
+	replay := genericStorageReplayPlan{}
+	if idx != nil && !integrity.familyGlobal {
+		replay = buildGenericStorageReplayPlan(idx, q)
+		unresolvedLifecycleResets = replay.unresolvedLifecycleResets
+		if unresolvedLifecycleResets > 0 {
+			integrity.familyGlobal = true
+			integrity.globalWitnesses += unresolvedLifecycleResets
+			integrity.unresolvedSources += unresolvedLifecycleResets
+		}
+	}
+	if idx != nil && !integrity.familyGlobal {
+		for _, eventIndex := range replay.eventIndexes {
+			ev := idx.Events[eventIndex]
 			if resetPID, reset := schedulerLifecycleResetPID(ev); reset {
-				for key, lane := range lanes {
-					if lane == nil || lane.identity.PID != resetPID || lane.cohort.depth == 0 {
+				resetSource, _ := tracePairingSourceIdentity(idx, ev)
+				owner := durationPairingReplayOwner{source: resetSource, pid: resetPID}
+				for _, key := range durationPairingReplayOwnerLaneKeys(owner, ownerLanes) {
+					lane := lanes[key]
+					if lane == nil || lane.cohort.depth == 0 {
+						delete(lanes, key)
+						dropDurationPairingReplayLane(key, laneOwners, ownerLanes)
 						continue
 					}
 					transition := lane.cohort.finishEOF()
@@ -8798,27 +9150,32 @@ func computeStorageLatencyByLayer(idx *Index, q Query, blockSummaries []StorageL
 						lifecycleResetLanes++
 					}
 					delete(lanes, key)
+					dropDurationPairingReplayLane(key, laneOwners, ownerLanes)
 				}
 			}
-			if (q.LineStart > 0 || q.LineEnd > 0) && !eventLineInWindow(ev, q) {
-				continue
-			}
-			identity, phase, endpoint := genericStorageEndpoint(ev)
-			if !endpoint {
-				continue
-			}
-			source, sourceOK := tracePairingSourceIdentity(idx, ev)
-			if !sourceOK {
+			decoded, keyOK := decodedByEvent[eventIndex]
+			if !keyOK {
+				_, _, endpoint := genericStorageEndpoint(ev)
+				if !endpoint {
+					continue
+				}
 				if pairingEventInsideQuery(ev, q) {
 					unresolvedSourceRows++
 				}
 				continue
 			}
-			key := source + "\x00" + identity.laneKey()
+			key, source, identity, phase := decoded.key, decoded.source, decoded.identity, decoded.phase
+			if integrity.poisonedSources[source] {
+				continue
+			}
+			if integrity.poisonedLanes[key] {
+				continue
+			}
 			lane := lanes[key]
 			if lane == nil {
-				lane = &storageLatencyLane{source: source, identity: identity}
+				lane = &storageLatencyLane{pairingKey: key, source: source, identity: identity}
 				lanes[key] = lane
+				addDurationPairingReplayLane(durationPairingReplayOwner{source: source, pid: identity.PID}, key, laneOwners, ownerLanes)
 			}
 			if phase == "start" && lane.cohort.depth == 0 {
 				lane.eventCount = 0
@@ -8851,16 +9208,19 @@ func computeStorageLatencyByLayer(idx *Index, q Query, blockSummaries []StorageL
 			// lane, matching the old depth==0 metadata reset.
 			if lane.cohort.depth == 0 {
 				delete(lanes, key)
+				dropDurationPairingReplayLane(key, laneOwners, ownerLanes)
 			}
 		}
 	}
 	out := append(make([]StorageLatencySummary, 0, len(blockSummaries)+len(accs)), blockSummaries...)
 	var ambiguous, suppressed, unpairedStart, unpairedDone int
-	for _, lane := range lanes {
+	for key, lane := range lanes {
 		transition := lane.cohort.finishEOF()
 		if pairingOpenCohortIntersectsIndex(transition.first, idx, q) {
 			accountGenericStorageOpen(accs, lane, transition)
 		}
+		delete(lanes, key)
+		dropDurationPairingReplayLane(key, laneOwners, ownerLanes)
 	}
 	for _, acc := range accs {
 		if acc.item.PairedCount > 0 {
@@ -8889,6 +9249,13 @@ func computeStorageLatencyByLayer(idx *Index, q Query, blockSummaries []StorageL
 		out = out[:max]
 	}
 	var caveats []string
+	caveats = append(caveats, integrity.caveats("storage_latency_by_layer(non_block)")...)
+	if unresolvedEndpoints := integrity.unresolvedSources - unresolvedLifecycleResets; unresolvedEndpoints > 0 {
+		caveats = append(caveats, fmt.Sprintf("storage_latency_pairing_provenance_unresolved=true; rows=%d; endpoints without exactly one physical source artifact were excluded", unresolvedEndpoints))
+	}
+	if unresolvedLifecycleResets > 0 {
+		caveats = append(caveats, fmt.Sprintf("storage_latency_lifecycle_reset_provenance_unresolved=true; rows=%d; generic storage latency pairing was fail-closed because a relevant task-incarnation reset could not be assigned to exactly one physical source artifact", unresolvedLifecycleResets))
+	}
 	if unresolvedSourceRows > 0 {
 		caveats = append(caveats, fmt.Sprintf("storage_latency_pairing_provenance_unresolved=true; rows=%d; endpoints without exactly one physical source artifact were excluded", unresolvedSourceRows))
 	}
@@ -8905,11 +9272,10 @@ func computeStorageLatencyByLayer(idx *Index, q Query, blockSummaries []StorageL
 }
 
 func storageLatencyAccumulatorForIdentity(accs map[string]*storageLatencyAcc, lane *storageLatencyLane, ev Event) *storageLatencyAcc {
-	if lane == nil {
+	if lane == nil || lane.pairingKey == "" {
 		return nil
 	}
-	key := lane.source + "\x00" + lane.identity.laneKey()
-	acc := storageLatencyAccumulator(accs, key, lane.source, lane.identity.Layer, lane.identity.Base, lane.identity.Dev, lane.identity.Op, threadRefFromEvent(ev), ev.Line, ev.Ts, ev.FieldText)
+	acc := storageLatencyAccumulator(accs, lane.pairingKey, lane.source, lane.identity.Layer, lane.identity.Base, lane.identity.Dev, lane.identity.Op, threadRefFromEvent(ev), ev.Line, ev.Ts, ev.FieldText)
 	if acc.item.Inode == "" && lane.inode != "" {
 		acc.item.Inode = lane.inode
 	}
@@ -8943,6 +9309,9 @@ func accountGenericStorageTransition(accs map[string]*storageLatencyAcc, lane *s
 			return
 		}
 		acc := storageLatencyAccumulatorForIdentity(accs, lane, transition.last)
+		if acc == nil {
+			return
+		}
 		acc.item.Count += lane.eventCount
 		acc.item.Bytes += lane.bytes
 		acc.item.UnpairedDoneCount++
@@ -8953,6 +9322,9 @@ func accountGenericStorageTransition(accs map[string]*storageLatencyAcc, lane *s
 		return
 	}
 	acc := storageLatencyAccumulatorForIdentity(accs, lane, transition.first)
+	if acc == nil {
+		return
+	}
 	acc.item.Count += lane.eventCount
 	acc.item.Bytes += lane.bytes
 	observeGenericStorageEnvelope(acc, transition.first, transition.last)
@@ -8978,6 +9350,9 @@ func accountGenericStorageOpen(accs map[string]*storageLatencyAcc, lane *storage
 		return
 	}
 	acc := storageLatencyAccumulatorForIdentity(accs, lane, transition.first)
+	if acc == nil {
+		return
+	}
 	acc.item.Count += lane.eventCount
 	acc.item.Bytes += lane.bytes
 	observeGenericStorageEnvelope(acc, transition.first, transition.last)
@@ -10778,8 +11153,14 @@ func binderWriteOffCaveat(writtenOffReply, writtenOffWaker int) string {
 }
 
 func binderAuxCaveatsForWait(wait BinderWaitSummary, aux []BinderEventSummary) []string {
+	if wait.ReceiveLine <= 0 || wait.SendLine <= 0 {
+		return nil
+	}
 	var out []string
 	for _, item := range aux {
+		if item.Line < wait.SendLine || item.Line > wait.ReceiveLine {
+			continue
+		}
 		if item.Thread.PID > 0 && wait.Thread.PID > 0 && item.Thread.PID != wait.Thread.PID {
 			continue
 		}
