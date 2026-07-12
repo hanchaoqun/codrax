@@ -40,6 +40,7 @@ const (
 	pairCriticalFormatFamilyWorkqueue pairCriticalFormatFamilyMask = 1 << iota
 	pairCriticalFormatFamilyDMAFence
 	pairCriticalFormatFamilyMMC
+	pairCriticalFormatFamilyF2FS
 )
 
 func pairCriticalFormatFamilyForName(name string) pairCriticalFormatFamilyMask {
@@ -50,6 +51,9 @@ func pairCriticalFormatFamilyForName(name string) pairCriticalFormatFamilyMask {
 		return pairCriticalFormatFamilyDMAFence
 	case "mmc_request_start", "mmc_request_done":
 		return pairCriticalFormatFamilyMMC
+	case "f2fs_sync_file_enter", "f2fs_sync_file_exit", "f2fs_direct_IO_enter", "f2fs_direct_IO_exit",
+		"f2fs_write_begin", "f2fs_write_end":
+		return pairCriticalFormatFamilyF2FS
 	default:
 		return 0
 	}

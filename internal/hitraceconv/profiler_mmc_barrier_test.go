@@ -457,6 +457,35 @@ func TestProfilerTextMMCPublishersShareSourceBarrier(t *testing.T) {
 	}
 }
 
+func TestProfilerGenericMalformedTimestampCannotBridgeMMC(t *testing.T) {
+	startPayload, _, _ := decodeDirectMMCPayloadFromFixtureForTest(t, "mmc_request_start")
+	donePayload, _, _ := decodeDirectMMCPayloadFromFixtureForTest(t, "mmc_request_done")
+	startBody, _ := renderCanonicalMMCPayload(startPayload)
+	doneBody, _ := renderCanonicalMMCPayload(donePayload)
+	startLine := "io-100 (100) [002] .... 1.000000: mmc_request_start: " + startBody
+	doneLine := "io-100 (100) [002] .... 1.002000: mmc_request_done: " + doneBody
+	for _, timestamp := range []string{"NaN", "1.2.3", "1e3"} {
+		t.Run(timestamp, func(t *testing.T) {
+			sink, err := newTraceDBRowSink(t.TempDir(), 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer sink.cleanup()
+			seq := 0
+			bad := "io-100 (100) [002] .... " + timestamp + ": mmc_request_done: " + doneBody
+			for _, line := range []string{startLine, bad, doneLine, "other-7 (7) [001] .... 1.003000: print: B|7|Keep"} {
+				if _, err := addSystraceRowsFromBytes([]byte(line+"\n"), &seq, sink); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if !sink.poisoned[pairRenderMMC] || sink.withheldPairRowsForKind(pairRenderMMC) != 2 || sink.publishableRows() != 1 {
+				t.Fatalf("malformed %q MMC endpoint became an invisible bridge: accepted=%d withheld=%d poisoned=%v",
+					timestamp, sink.stats.RowsAccepted, sink.withheldPairRows(), sink.poisoned)
+			}
+		})
+	}
+}
+
 func TestStrictProfilerTextRejectStillPoisonsObservedMMCSource(t *testing.T) {
 	startPayload, _, _ := decodeDirectMMCPayloadFromFixtureForTest(t, "mmc_request_start")
 	donePayload, _, _ := decodeDirectMMCPayloadFromFixtureForTest(t, "mmc_request_done")

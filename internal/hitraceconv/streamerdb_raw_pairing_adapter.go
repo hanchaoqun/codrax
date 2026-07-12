@@ -68,6 +68,14 @@ func traceDBRawPairingOwner(raw traceDBRawEvent, authority traceDBSchedulerAutho
 // exported fingerprint authority. It prepares typed fields only; family,
 // phase, semantic base and hard-key construction remain owned by tracequery.
 func traceDBRawPairingVerdict(name string, headerTID int64, args map[string]traceDBValue, invalidKeys map[string]bool, argsKnown bool) tracequery.PairingEndpointVerdict {
+	// SQL raw F2FS publication is an explicitly deferred capability: the raw
+	// tables have no source-pinned schema/witness for these six producer
+	// profiles.  Keep them unsupported/inventory-only rather than letting the
+	// shared tracequery fingerprint turn a lower-case sync name into a stage
+	// poison or a compatibility argset into a newly claimed producer lane.
+	if directF2FSNameGoverned(name) {
+		return tracequery.PairingEndpointVerdict{}
+	}
 	input := tracequery.PairingEndpointTypedInput{Name: name, HeaderTID: headerTID}
 	if argsKnown {
 		lower := strings.ToLower(strings.TrimSpace(name))
@@ -293,8 +301,7 @@ func traceDBRawPopulateStoragePairingInput(input *tracequery.PairingEndpointType
 			}
 		}
 		input.StorageIdentityKnown = !present || valid
-	case strings.HasPrefix(name, "android_fs_dataread"), strings.HasPrefix(name, "android_fs_datawrite"),
-		strings.HasPrefix(name, "f2fs_direct_io"), strings.HasPrefix(name, "f2fs_sync_file"):
+	case strings.HasPrefix(name, "android_fs_dataread"), strings.HasPrefix(name, "android_fs_datawrite"):
 		input.StorageIdentityKnown = devPresent && devOK && inodePresent && inodeOK && opOK
 	default:
 		identityEvidence := devPresent || inodePresent || opPresent ||

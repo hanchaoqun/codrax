@@ -37,6 +37,20 @@ import (
 // callback cannot retro-apply — the shell's TraceFlavor carries the vote for
 // callers that finish the scan).
 func StreamScan(ctx context.Context, path string, flavorHint TraceFlavor, fn func(Event) bool) (*Index, error) {
+	return streamScan(ctx, path, flavorHint, fn, false)
+}
+
+// streamScanWithPairingAudit is the pairing-window discovery lane. It keeps
+// StreamScan's single read/single parser, but also returns the existing
+// bounded Block/Storage duration-order ledger on the metadata shell. Raw
+// endpoints rejected by ParseLine must remain visible to discovery: otherwise
+// deleting one physical marker could bridge two valid callbacks into a false
+// collection window.
+func streamScanWithPairingAudit(ctx context.Context, path string, flavorHint TraceFlavor, fn func(Event) bool) (*Index, error) {
+	return streamScan(ctx, path, flavorHint, fn, true)
+}
+
+func streamScan(ctx context.Context, path string, flavorHint TraceFlavor, fn func(Event) bool, pairingAudit bool) (*Index, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -77,6 +91,10 @@ func StreamScan(ctx context.Context, path string, flavorHint TraceFlavor, fn fun
 	reader := bufio.NewReaderSize(f, 256*1024)
 	lastParsedTs := 0.0
 	stopped := false
+	var durationAudit *durationOrderTracker
+	if pairingAudit {
+		durationAudit = newDurationOrderTracker()
+	}
 	var scan lineScan
 	for lineNo := 1; !stopped; lineNo++ {
 		if err := ctx.Err(); err != nil {
@@ -88,6 +106,15 @@ func StreamScan(ctx context.Context, path string, flavorHint TraceFlavor, fn fun
 			idx.ScannedLineCount = lineNo
 			trimmed := strings.TrimRight(line, "\r\n")
 			scan.reset(lineNo, trimmed)
+			var rawPairingFailure *durationOrderViolation
+			pairingRawCandidate := pairingAudit && durationOrderRawCandidate(trimmed)
+			if pairingRawCandidate {
+				if failure := durationEndpointRawValidationFailureScan(&scan); failure != nil {
+					if _, _, relevant := pairingDiscoveryFamilyForDuration(failure.Family); relevant {
+						rawPairingFailure = failure
+					}
+				}
+			}
 			// Keep the streaming metadata shell on the same raw trace-mark
 			// integrity contract as BuildIndex. This audit must run before
 			// the parse: malformed endpoint rows with an invalid emitter,
@@ -106,6 +133,19 @@ func StreamScan(ctx context.Context, path string, flavorHint TraceFlavor, fn fun
 			panicsBefore := idx.ParseLinePanics
 			ev, ok := safeParseLineScan(&scan, intern, idx)
 			if !ok {
+				if pairingAudit {
+					failure := rawPairingFailure
+					if failure == nil && pairingRawCandidate {
+						failure = durationEndpointRejectedRowFailureScan(&scan)
+					}
+					if failure != nil {
+						if _, _, relevant := pairingDiscoveryFamilyForDuration(failure.Family); relevant {
+							failure.SourcePath = path
+							failure.Fields = uniqueSortedStrings(append(failure.Fields, "parser_rejected_row"))
+							appendDurationOrderFailure(idx, *failure)
+						}
+					}
+				}
 				if trimmed != "" {
 					if idx.ParseLinePanics == panicsBefore {
 						idx.UnparsedLines++
@@ -132,6 +172,15 @@ func StreamScan(ctx context.Context, path string, flavorHint TraceFlavor, fn fun
 			if ev.Type != EventUnknown {
 				idx.ParsedKnown++
 			}
+			if pairingAudit {
+				for _, failure := range durationAudit.observeAll(ev) {
+					if _, _, relevant := pairingDiscoveryFamilyForDuration(failure.Family); !relevant || failure.Issue == "endpoint_parse_incomplete" {
+						continue
+					}
+					failure.SourcePath = path
+					appendDurationOrderFailure(idx, failure)
+				}
+			}
 			flavor.observeEvent(ev)
 			if applyHint {
 				ev = applyPriorityFlavor(ev, flavorHint)
@@ -150,6 +199,26 @@ func StreamScan(ctx context.Context, path string, flavorHint TraceFlavor, fn fun
 	}
 	if err := validateTraceFileIdentityAfterRead(f, openedIdentity, "stream_scan"); err != nil {
 		return nil, err
+	}
+	if pairingAudit {
+		for family, capped := range durationAudit.capped {
+			if _, _, relevant := pairingDiscoveryFamilyForDuration(family); capped && relevant {
+				if idx.durationOrderFailuresCapped == nil {
+					idx.durationOrderFailuresCapped = map[durationOrderFamily]bool{}
+				}
+				idx.durationOrderFailuresCapped[family] = true
+			}
+		}
+		if idx.ClockRegressions > 0 {
+			for family, capped := range durationAudit.pairingHistoryCapped {
+				if _, _, relevant := pairingDiscoveryFamilyForDuration(family); capped && relevant {
+					if idx.durationOrderFailuresCapped == nil {
+						idx.durationOrderFailuresCapped = map[durationOrderFamily]bool{}
+					}
+					idx.durationOrderFailuresCapped[family] = true
+				}
+			}
+		}
 	}
 	idx.TraceFlavor, idx.FlavorConfidence, idx.FlavorSignals = flavor.result()
 	return idx, nil

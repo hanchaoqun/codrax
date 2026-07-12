@@ -92,11 +92,18 @@ func genericStorageEndpoint(ev Event) (genericStorageIdentity, string, bool) {
 	if ev.Type != EventStorage && ev.Type != EventFilesystem {
 		return genericStorageIdentity{}, "", false
 	}
-	if !isStorageLatencyEvent(ev) {
+	// Endpoint recognition is intentionally independent of semantic payload
+	// admission.  An exact-but-malformed endpoint must still reach the
+	// complete-topology integrity replay; otherwise deleting that row can
+	// bridge a valid start/done pair around it (anti-rescue violation).  Soft
+	// output surfaces continue to use isStorageLatencyEvent, which applies the
+	// stricter payload-admission gate.
+	profile, ok := genericStoragePairingProfile(ev.Name)
+	if !ok || profile.Family != PairingEndpointStorage {
 		return genericStorageIdentity{}, "", false
 	}
-	layer := storageLatencyLayer(ev)
-	base, phase := storageLatencyBaseAndPhase(ev)
+	layer := profile.Layer
+	base, phase := profile.SemanticBase, string(profile.Phase)
 	if layer == "" || base == "" || (phase != "start" && phase != "done") {
 		return genericStorageIdentity{}, "", false
 	}
@@ -122,6 +129,30 @@ func genericStorageEndpoint(ev Event) (genericStorageIdentity, string, bool) {
 		Op:    op,
 		PID:   ev.PID,
 	}, phase, true
+}
+
+// genericStoragePairingScope is the frozen converter-family scope that remains
+// knowable when a malformed exact MMC/F2FS endpoint has no request identity.
+// Direct and structured capture barriers seal each of these families as a
+// unit, so tracequery must do the same: one bad F2FS hard key closes all three
+// F2FS endpoint pairs in that physical source, but not MMC/SCSI. Other generic
+// storage profiles retain the established whole-source fallback.
+func genericStoragePairingScope(name string) (string, bool) {
+	if _, exact := exactF2FSPairingProfile(name); exact {
+		return "f2fs", true
+	}
+	if _, exact := exactMMCPairingProfile(name); exact {
+		return "mmc", true
+	}
+	return "", false
+}
+
+func genericStorageSourceScope(source, name string) (string, bool) {
+	scope, ok := genericStoragePairingScope(name)
+	if !ok || strings.TrimSpace(source) == "" {
+		return "", false
+	}
+	return encodePairingKey(source, scope), true
 }
 
 func genericStoragePairingSemanticKey(id genericStorageIdentity) string {
@@ -209,6 +240,8 @@ func decodeGenericStoragePairingEvent(idx *Index, ev Event) genericStoragePairin
 	admission := genericStorageWireAdmission{}
 	if verdict, mmcAdmission, governed := mmcPairingVerdictFromEvent(ev); governed {
 		out.verdict, admission = verdict, mmcAdmission
+	} else if verdict, f2fsAdmission, governed := f2fsPairingVerdictFromEvent(ev); governed {
+		out.verdict, admission = verdict, f2fsAdmission
 	} else if strings.TrimSpace(ev.FieldText) != "" {
 		var decoded pairingEndpointDecodedFields
 		out.verdict, decoded = decodePairingEndpointWire(ev.Name, ev.FieldText, int64(ev.PID))

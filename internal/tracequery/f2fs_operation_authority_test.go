@@ -14,6 +14,9 @@ func TestFileOperationFromEventNameF2FSWriteAuthority(t *testing.T) {
 		{name: "f2fs_sync_file_enter", want: "sync"},
 		{name: "vendor_f2fs_write_begin", want: ""},
 		{name: "f2fs_write_begin_extra", want: ""},
+		{name: " f2fs_write_begin", want: ""},
+		{name: "f2fs_write_begin ", want: ""},
+		{name: "F2FS_write_begin", want: ""},
 	}
 	for _, test := range tests {
 		test := test

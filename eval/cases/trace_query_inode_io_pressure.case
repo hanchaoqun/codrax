@@ -13,11 +13,11 @@ HTRACE='# tracer: nop
         app-20   (   20) [001] .... 12.001000: android_fs_datawrite_start: dev 260:136 ino 0xb9b8e entry_name=foo.db offset 0 bytes 4096 rw W
         app-20   (   20) [001] .... 12.002000: mm_filemap_add_to_page_cache: dev 260:136 ino 0xb9b8e offset 0
         app-20   (   20) [001] .... 12.003000: android_fs_datawrite_end: dev 260:136 ino 0xb9b8e entry_name=foo.db offset 0 bytes 4096 ret 4096 latency_us=2000 rw W
-        app-20   (   20) [001] .... 12.004000: f2fs_direct_IO_enter: dev=260:136 ino=0xb9b8e offset=4096 len=8192 rw=write
+        app-20   (   20) [001] .... 12.004000: f2fs_direct_IO_enter: dev=260:136 ino=0xb9b8e pos=4096 len=8192 rw=write
         app-20   (   20) [001] .... 12.005000: mm_filemap_delete_from_page_cache: dev 260:136 ino 0xb9b8e offset 0
         app-20   (   20) [001] .... 12.006000: scsi_dispatch_cmd_start: tag=7 dev=12,80 lba=4096 len=8192 opcode=WRITE
         app-20   (   20) [001] .... 12.009500: scsi_dispatch_cmd_done: tag=7 dev=12,80 lba=4096 len=8192 opcode=WRITE ret=0 latency_us=3500
-        app-20   (   20) [001] .... 12.009700: f2fs_direct_IO_exit: dev=260:136 ino=0xb9b8e offset=4096 len=8192 rw=write ret=8192 latency_us=5700
+        app-20   (   20) [001] .... 12.009700: f2fs_direct_IO_exit: dev=260:136 ino=0xb9b8e pos=4096 len=8192 rw=write ret=8192
         app-20   (   20) [001] .... 12.010000: sched_switch: prev_comm=app prev_pid=20 prev_prio=120 prev_state=D ==> next_comm=worker next_pid=30 next_prio=120
      worker-30   (   30) [001] d..3 12.010500: sched_blocked_reason: pid=20 iowait=1 caller=__filemap_fdatawait_range+0x134/0x150
         app-20   (   20) [001] .... 12.011000: block_rq_issue: 12,80 W 4096 + 8 [app]

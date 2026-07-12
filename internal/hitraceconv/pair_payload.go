@@ -11,9 +11,9 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
-// pairRenderKind is the closed direct-RMQ payload family whose exact rows can
-// mint an elapsed Workqueue/DMA observation downstream. Inventory siblings do
-// not enter this registry.
+// pairRenderKind is the closed pair-critical payload family whose exact rows
+// can mint elapsed Workqueue/DMA/MMC/F2FS observations downstream. Inventory
+// siblings do not enter this registry.
 type pairRenderKind uint8
 
 const (
@@ -21,6 +21,7 @@ const (
 	pairRenderWorkqueue
 	pairRenderDMAFence
 	pairRenderMMC
+	pairRenderF2FS
 )
 
 type pairRenderPayload struct {

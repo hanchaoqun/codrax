@@ -1868,8 +1868,8 @@ func TestWindowStatsSummarizesInodeIOPageCacheAndPressure(t *testing.T) {
 	app-20 (20) [001] .... 12.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53
 	app-20 (20) [001] .... 12.001000: android_fs_dataread_start: entry_name=foo.db offset=0 bytes=4096 cmdline=app pid=20 i_size=8192 ino=0xb9b8e
 	app-20 (20) [001] .... 12.001400: android_fs_dataread_end: entry_name=foo.db offset=0 bytes=4096 ret=4096 latency_us=700 ino=0xb9b8e
-	app-20 (20) [001] .... 12.002000: f2fs_direct_IO_enter: dev = 260:136 ino = 0x478e5 pos = 12288 len = 8192 rw = write
-	app-20 (20) [001] .... 12.003000: f2fs_direct_IO_exit: dev = 260:136 ino = 0x478e5 pos = 12288 len = 8192 rw = write ret = 8192
+app-20 (20) [001] .... 12.002000: f2fs_direct_IO_enter: dev=260:136 ino=0x478e5 pos=12288 len=8192 rw=write
+app-20 (20) [001] .... 12.003000: f2fs_direct_IO_exit: dev=260:136 ino=0x478e5 pos=12288 len=8192 rw=write ret=8192
 	app-20 (20) [001] .... 12.003100: mm_filemap_add_to_page_cache: dev 260:136 ino 0xb9b8e page=0000000000000000 pfn=3062260 ofs=0
 	app-20 (20) [001] .... 12.003200: mm_filemap_delete_from_page_cache: dev 260:136 ino 0xb9b8e page=0000000000000000 pfn=3062260 ofs=0
 	app-20 (20) [001] .... 12.004000: scsi_dispatch_cmd_start: dev=12,80 op=read bytes=4096
@@ -4327,8 +4327,8 @@ func TestFrameRootCauseBundleCarriesRichTraceEvidenceAndChainRelevance(t *testin
  threadpool-400 (100) [004] .... 10.002000: tracing_mark_write: B|400|NativeAsyncFileRead inode=0xabc
  threadpool-400 (100) [004] .... 10.002100: android_fs_dataread_start: dev=259:1 ino=0xabc entry_name=foo.db offset=0 bytes=4096 rw=R
  threadpool-400 (100) [004] .... 10.009100: android_fs_dataread_end: dev=259:1 ino=0xabc entry_name=foo.db offset=0 bytes=4096 rw=R ret=4096 latency_us=7000
- threadpool-400 (100) [004] .... 10.009200: f2fs_direct_IO_enter: dev=259:1 ino=0xabc entry_name=foo.db offset=0 len=4096 rw=R
- threadpool-400 (100) [004] .... 10.013500: f2fs_direct_IO_exit: dev=259:1 ino=0xabc entry_name=foo.db offset=0 len=4096 rw=R ret=4096
+ threadpool-400 (100) [004] .... 10.009200: f2fs_direct_IO_enter: dev=259:1 ino=0xabc pos=0 len=4096 rw=read
+ threadpool-400 (100) [004] .... 10.013500: f2fs_direct_IO_exit: dev=259:1 ino=0xabc pos=0 len=4096 rw=read ret=4096
 	threadpool-400 (100) [004] .... 10.013800: tracing_mark_write: E|400
         irq-7 (7) [004] .... 10.003000: irq_handler_entry: irq=17 name=ufs
         irq-7 (7) [004] .... 10.003700: irq_handler_exit: irq=17 name=ufs

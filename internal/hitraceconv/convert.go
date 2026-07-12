@@ -39,6 +39,8 @@ type renderedRow struct {
 	seq            int
 	line           string
 	pairKind       pairRenderKind
+	pairLane       string
+	pairTable      string
 	structuredPair bool
 }
 
@@ -283,7 +285,7 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 		result.Caveats = append(result.Caveats, fmt.Sprintf("%d governed direct ftrace event row(s) had rejected physical payloads and were kept coverage-only instead of falling back to header-only rows; reasons=%s", meta.bodyRejectedRows, traceDBCountSummary(meta.bodyRejectReasons)))
 	}
 	if meta.pairQuarantinedRows > 0 || meta.pairPoisonedFamilies > 0 || meta.pairPoisonedLanes > 0 {
-		result.Caveats = append(result.Caveats, fmt.Sprintf("direct pair-critical publication completed a full-capture anti-rescue freeze before output: withheld_rows=%d poisoned_lanes=%d poisoned_families=%d budget_fail_closed=%t; rejected Workqueue/DMA/MMC endpoints remain coverage-only and cannot be bridged by neighboring rows", meta.pairQuarantinedRows, meta.pairPoisonedLanes, meta.pairPoisonedFamilies, meta.pairBarrierBudget))
+		result.Caveats = append(result.Caveats, fmt.Sprintf("direct pair-critical publication completed a full-capture anti-rescue freeze before output: withheld_rows=%d poisoned_lanes=%d poisoned_families=%d budget_fail_closed=%t; rejected Workqueue/DMA/MMC/F2FS endpoints remain coverage-only and cannot be bridged by neighboring rows", meta.pairQuarantinedRows, meta.pairPoisonedLanes, meta.pairPoisonedFamilies, meta.pairBarrierBudget))
 	}
 	result.Caveats = append(result.Caveats, standaloneCaveats...)
 	normalizeResultCollections(&result)

@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const ParserVersion = "tracequery-v25"
+const ParserVersion = "tracequery-v26"
 
 type EventType string
 
@@ -304,6 +304,9 @@ type ResourceFields struct {
 	// exact MMC request endpoints. ResourceFields is already the sparse side
 	// table for storage rows, so scheduler/core Events pay no size cost.
 	mmcPairing *mmcPairingAdmission `json:"-"`
+	// f2fsPairing is the sole retained exact-body verdict for the six governed
+	// F2FS request endpoints. Display-friendly FileFields never substitutes it.
+	f2fsPairing *f2fsPairingAdmission `json:"-"`
 }
 
 // FileFields is the memory/storage/filesystem file-IO side table.

@@ -541,8 +541,7 @@ func traceDBRawFtraceClass(name string) string {
 		lower == "block_bio_queue" || lower == "block_bio_complete" || lower == "block_bio_remap" ||
 		strings.HasPrefix(lower, "ufshcd_") || strings.HasPrefix(lower, "mmc_request_") || strings.HasPrefix(lower, "scsi_dispatch_cmd"):
 		return "block_storage"
-	case strings.HasPrefix(lower, "android_fs_dataread") || strings.HasPrefix(lower, "android_fs_datawrite") ||
-		strings.HasPrefix(lower, "f2fs_direct_io") || strings.HasPrefix(lower, "f2fs_sync_file"):
+	case strings.HasPrefix(lower, "android_fs_dataread") || strings.HasPrefix(lower, "android_fs_datawrite"):
 		return "file_io"
 	case lower == "workqueue_execute_start" || lower == "workqueue_execute_end":
 		return "workqueue"
@@ -585,8 +584,6 @@ func traceDBRenderRawFtrace(name string, args map[string]traceDBValue, invalidKe
 		return renderTraceDBBlockEvent(name, args, invalidKeys)
 	case strings.HasPrefix(lower, "android_fs_dataread") || strings.HasPrefix(lower, "android_fs_datawrite"):
 		return traceDBRenderRawFileIO(name, args, "bytes"), true
-	case strings.HasPrefix(lower, "f2fs_direct_io") || strings.HasPrefix(lower, "f2fs_sync_file"):
-		return traceDBRenderRawFileIO(name, args, "len"), true
 	case strings.HasPrefix(lower, "scsi_dispatch_cmd"):
 		return traceDBRenderRawSCSI(name, args), true
 	case strings.HasPrefix(lower, "mmc_request_start"):
@@ -709,17 +706,6 @@ func traceDBRawRequiredArgs(name string, args map[string]traceDBValue, invalidKe
 			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "ino", "inode", "i_ino") &&
 			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "bytes", "len", "length", "size") &&
 			traceDBRawIntegerAlias(args, invalidKeys, false, 0, math.MaxInt64, "offset", "ofs", "pos", "off") &&
-			traceDBRawIntegerAlias(args, invalidKeys, false, math.MinInt64, math.MaxInt64, "ret", "res", "error", "err") &&
-			traceDBRawIntegerAlias(args, invalidKeys, false, 0, math.MaxInt64, "latency_us", "duration_us", "time_us", "usecs")
-	case strings.HasPrefix(lower, "f2fs_direct_io"), strings.HasPrefix(lower, "f2fs_sync_file"):
-		return require([]string{"dev", "s_dev", "fs_dev", "dev_t"}, []string{"ino", "inode", "i_ino"}) &&
-			optional([]string{"entry_name", "name", "file", "filename"}, []string{"offset", "ofs", "pos", "off"},
-				[]string{"bytes", "len", "length", "size"}, []string{"rw", "rwbs", "op", "operation"},
-				[]string{"ret", "res", "error", "err"}, []string{"latency_us", "duration_us", "time_us", "usecs"}) &&
-			traceDBRawDeviceAlias(args, invalidKeys, "dev", "s_dev", "fs_dev", "dev_t") &&
-			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "ino", "inode", "i_ino") &&
-			traceDBRawIntegerAlias(args, invalidKeys, false, 0, math.MaxInt64, "offset", "ofs", "pos", "off") &&
-			traceDBRawIntegerAlias(args, invalidKeys, false, 0, math.MaxInt64, "bytes", "len", "length", "size") &&
 			traceDBRawIntegerAlias(args, invalidKeys, false, math.MinInt64, math.MaxInt64, "ret", "res", "error", "err") &&
 			traceDBRawIntegerAlias(args, invalidKeys, false, 0, math.MaxInt64, "latency_us", "duration_us", "time_us", "usecs")
 	case strings.HasPrefix(lower, "scsi_dispatch_cmd"):

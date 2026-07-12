@@ -14,6 +14,7 @@ type profilerFtraceEventRecord struct {
 	TSNS                 uint64
 	TGID                 int64
 	PID                  int64
+	HeaderOwnerKnown     bool
 	CommonFlags          int64
 	CommonPreemptCount   int64
 	Comm                 string
@@ -42,13 +43,23 @@ func renderProfilerFtraceStructuredResult(result profilerTracePluginResult, seq 
 	for _, event := range events {
 		if event.PairCaptureOpaque {
 			sink.markPairCaptureOpaque(pairRenderMMC)
+			sink.markPairCaptureOpaque(pairRenderF2FS)
 		}
 		mmcGoverned := event.Field == 4015 || event.Field == 4016
 		mmcObserved := event.PairFamilies&pairCriticalFormatFamilyMMC != 0
+		f2fsGoverned := event.Field >= 4009 && event.Field <= 4012
+		f2fsObserved := event.PairFamilies&pairCriticalFormatFamilyF2FS != 0
+		f2fsPair := profilerStructuredF2FSPairFamily(event.Field)
+		if f2fsGoverned {
+			_, _, _, f2fsPair = decodeProfilerAuxPayloadWithPairAdmission(event)
+		}
 		if mmcObserved && !mmcGoverned {
 			// Multiple/wrong-wire/late-malformed oneofs can clear Field, but the
 			// exact field number already seen remains precise family provenance.
 			sink.poisonPairKind(pairRenderMMC)
+		}
+		if f2fsObserved && !f2fsGoverned {
+			sink.poisonPairKind(pairRenderF2FS)
 		}
 		coverage := profilerFtraceEventRenderCoverage(coverageByField, event.Field)
 		coverage.RowsRead++
@@ -67,6 +78,11 @@ func renderProfilerFtraceStructuredResult(result profilerTracePluginResult, seq 
 			if mmcGoverned || mmcObserved {
 				sink.poisonPairKind(pairRenderMMC)
 			}
+			if f2fsGoverned {
+				f2fsPair.poison(sink)
+			} else if f2fsObserved {
+				sink.poisonPairKind(pairRenderF2FS)
+			}
 			if coverage.Skipped == "" {
 				coverage.Skipped = "structured ftrace renderer pending"
 			}
@@ -80,10 +96,22 @@ func renderProfilerFtraceStructuredResult(result profilerTracePluginResult, seq 
 		}
 		if mmcGoverned {
 			row.pairKind = pairRenderMMC
+			row.pairTable = name
 			row.structuredPair = true
-			kind, exact, admitted := profilerTextPairAdmission(row.line)
-			if !exact || kind != pairRenderMMC || !admitted {
+			pair := profilerTextPairAdmission(row.line)
+			if !pair.Governed || pair.Kind != pairRenderMMC || !pair.Admitted {
 				sink.poisonPairKind(pairRenderMMC)
+			}
+		}
+		if f2fsGoverned {
+			row.pairKind = pairRenderF2FS
+			row.pairLane = f2fsPair.Lane
+			row.pairTable = name
+			row.structuredPair = true
+			pair := profilerTextPairAdmission(row.line)
+			if !f2fsPair.LaneKnown || !pair.Governed || pair.Kind != pairRenderF2FS ||
+				!pair.Admitted || !pair.LaneKnown || pair.Lane != f2fsPair.Lane {
+				sink.poisonPairKind(pairRenderF2FS)
 			}
 		}
 		if err := sink.add(row); err != nil {
@@ -362,8 +390,9 @@ func decodeProfilerFtraceEventRecord(cpu uint64, data []byte) (profilerFtraceEve
 	if reason := profilerProtoEnvelopeRequiredIssue("envelope_common_fields", common); reason != "" {
 		record.EnvelopeDegradations = append(record.EnvelopeDegradations, reason)
 	} else {
-		pid, flags, preempt, reasons := decodeProfilerFtraceCommonFields(common.bytes)
+		pid, ownerKnown, flags, preempt, reasons := decodeProfilerFtraceCommonFields(common.bytes)
 		record.PID = pid
+		record.HeaderOwnerKnown = ownerKnown
 		record.CommonFlags = flags
 		record.CommonPreemptCount = preempt
 		record.EnvelopeDegradations = append(record.EnvelopeDegradations, reasons...)
@@ -392,6 +421,8 @@ func decodeProfilerFtraceEventRecord(cpu uint64, data []byte) (profilerFtraceEve
 
 func profilerPairFamilyForField(field int) pairCriticalFormatFamilyMask {
 	switch field {
+	case 4009, 4010, 4011, 4012:
+		return pairCriticalFormatFamilyF2FS
 	case 4015, 4016:
 		return pairCriticalFormatFamilyMMC
 	default:
@@ -434,7 +465,7 @@ func profilerProtoEnvelopeRequiredIssue(prefix string, field profilerProtoEnvelo
 	return profilerProtoEnvelopeOptionalIssue(prefix, field)
 }
 
-func decodeProfilerFtraceCommonFields(data []byte) (pid, flags, preempt int64, reasons []string) {
+func decodeProfilerFtraceCommonFields(data []byte) (pid int64, ownerKnown bool, flags, preempt int64, reasons []string) {
 	var fields [5]profilerProtoEnvelopeField
 	err := walkProtoFields(data, func(field int, wire int, raw []byte, v uint64) error {
 		if field >= 1 && field <= 4 {
@@ -444,7 +475,7 @@ func decodeProfilerFtraceCommonFields(data []byte) (pid, flags, preempt int64, r
 		return nil
 	})
 	if err != nil {
-		return 0, 0, 0, []string{"envelope_common_fields_malformed_wire"}
+		return 0, false, 0, 0, []string{"envelope_common_fields_malformed_wire"}
 	}
 	for _, item := range []struct {
 		field  int
@@ -471,7 +502,8 @@ func decodeProfilerFtraceCommonFields(data []byte) (pid, flags, preempt int64, r
 	if fields[4].count == 1 && !fields[4].wrongWire && fields[4].uintValue > math.MaxInt32 {
 		reasons = append(reasons, "envelope_common_pid_out_of_range")
 	}
-	return int64(fields[4].uintValue), int64(fields[2].uintValue), int64(fields[3].uintValue), reasons
+	ownerKnown = fields[4].count <= 1 && !fields[4].wrongWire && fields[4].uintValue <= math.MaxInt32
+	return int64(fields[4].uintValue), ownerKnown, int64(fields[2].uintValue), int64(fields[3].uintValue), reasons
 }
 
 func renderProfilerFtraceEventBody(event profilerFtraceEventRecord) (string, string, bool) {

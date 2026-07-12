@@ -421,7 +421,7 @@ func TestGenericStorageWireProfilesSeparateKeyFromAdmission(t *testing.T) {
 		{name: "android full", event: "android_fs_dataread_start", fields: "dev=8,0 ino=7 bytes=4096 rw=R", wantKey: true, wantPayload: true},
 		{name: "android missing bytes", event: "android_fs_dataread_start", fields: "dev=8,0 ino=7 rw=R", wantKey: true},
 		{name: "android bad inode", event: "android_fs_dataread_start", fields: "dev=8,0 ino=bad bytes=4096 rw=R"},
-		{name: "f2fs fs_dev alias", event: "f2fs_direct_IO_enter", fields: "fs_dev=8,0 ino=7 len=4096 rw=R", wantKey: true, wantPayload: true},
+		{name: "f2fs compatibility alias rejected", event: "f2fs_direct_IO_enter", fields: "fs_dev=8,0 ino=7 len=4096 rw=R"},
 		{name: "f2fs missing inode", event: "f2fs_direct_IO_enter", fields: "dev=8,0 len=4096 rw=R"},
 	}
 	for _, tc := range tests {
@@ -527,7 +527,7 @@ func TestGenericStorageDeviceAliasesShareCanonicalLane(t *testing.T) {
 	}
 	var canonical string
 	for _, alias := range aliases {
-		got := DecodePairingEndpoint("f2fs_direct_IO_enter", alias+" ino=7 len=4096 rw=R", 10)
+		got := DecodePairingEndpoint("android_fs_dataread_start", alias+" ino=7 bytes=4096 rw=R", 10)
 		if !got.KeyKnown || !got.PayloadAdmitted {
 			t.Fatalf("standard device alias was not admitted: alias=%q verdict=%+v", alias, got)
 		}

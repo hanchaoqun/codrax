@@ -262,17 +262,18 @@ func TestDirectPairBarrierBudgetsFailClosedForAllFamilies(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			barrier := newBarrier(t)
 			test.run(barrier)
-			if !barrier.budgetFailed || barrier.poisonedFamilyCount() != 3 {
+			if !barrier.budgetFailed || barrier.poisonedFamilyCount() != 4 {
 				t.Fatalf("budget did not close all pair families: failed=%t kinds=%v", barrier.budgetFailed, barrier.poisonedKinds)
 			}
 			rows := []renderedRow{
 				{seq: 101, pairKind: pairRenderWorkqueue, line: "work"},
 				{seq: 102, pairKind: pairRenderDMAFence, line: "dma"},
 				{seq: 103, pairKind: pairRenderMMC, line: "mmc"},
-				{seq: 104, pairKind: pairRenderUnknown, line: "inventory"},
+				{seq: 104, pairKind: pairRenderF2FS, line: "f2fs"},
+				{seq: 105, pairKind: pairRenderUnknown, line: "inventory"},
 			}
 			filtered := barrier.filter(rows)
-			if len(filtered) != 1 || filtered[0].seq != 104 {
+			if len(filtered) != 1 || filtered[0].seq != 105 {
 				t.Fatalf("budget fail-close leaked pair rows or removed inventory: %+v", filtered)
 			}
 		})
@@ -288,12 +289,13 @@ func TestDirectPairBarrierMissingPublishedRowMappingFailsClosedGlobally(t *testi
 		{seq: 41, pairKind: pairRenderWorkqueue, line: "unmapped-pair"},
 		{seq: 43, pairKind: pairRenderDMAFence, line: "otherwise-mapped-pair"},
 		{seq: 44, pairKind: pairRenderMMC, line: "unmapped-mmc"},
+		{seq: 45, pairKind: pairRenderF2FS, line: "unmapped-f2fs"},
 		{seq: 42, pairKind: pairRenderUnknown, line: "inventory"},
 	}
 	barrier.rows[43] = directPairBarrierRow{kind: pairRenderDMAFence, lane: "known-lane"}
 	filtered := barrier.filter(rows)
-	if len(filtered) != 1 || filtered[0].seq != 42 || barrier.poisonedRows != 3 ||
-		!barrier.budgetFailed || barrier.poisonedFamilyCount() != 3 {
+	if len(filtered) != 1 || filtered[0].seq != 42 || barrier.poisonedRows != 4 ||
+		!barrier.budgetFailed || barrier.poisonedFamilyCount() != 4 {
 		t.Fatalf("missing barrier row mapping did not fail closed globally: filtered=%+v poisoned=%d failed=%t kinds=%v",
 			filtered, barrier.poisonedRows, barrier.budgetFailed, barrier.poisonedKinds)
 	}

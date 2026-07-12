@@ -16,6 +16,25 @@ const (
 	profilerFtracePayloadMalformed
 )
 
+type profilerPairAdmission struct {
+	Kind      pairRenderKind
+	Governed  bool
+	Admitted  bool
+	LaneKnown bool
+	Lane      string
+}
+
+func (a profilerPairAdmission) poison(sink *traceDBRowSink) {
+	if !a.Governed || sink == nil {
+		return
+	}
+	if a.Kind == pairRenderF2FS && a.LaneKnown {
+		sink.poisonPairLane(a.Kind, a.Lane)
+		return
+	}
+	sink.poisonPairKind(a.Kind)
+}
+
 // profilerTracePluginResult is the single top-level TracePluginResult
 // authority shared by metadata summarization and row rendering. Repeated
 // protobuf fields remain repeated; only each occurrence's wire is audited.
@@ -209,8 +228,8 @@ func addStrictSystraceRowsFromBytes(data []byte, seq *int, sink *traceDBRowSink)
 		return 0, false, nil
 	}
 	var staged []renderedRow
-	poisonMMC := false
-	observedMMC := false
+	var rejectedPairs []profilerPairAdmission
+	observed := map[pairRenderKind]bool{}
 	rejected := false
 	for start := 0; start < len(data); {
 		end := start
@@ -231,14 +250,21 @@ func addStrictSystraceRowsFromBytes(data []byte, seq *int, sink *traceDBRowSink)
 			continue
 		}
 		if len(part) > maxProfilerTextLineBytes {
-			_, governed, _ := profilerTextPairCensus(part)
-			observedMMC = observedMMC || governed
+			kind, governed, _ := profilerTextPairCensus(part)
+			if governed {
+				observed[kind] = true
+			}
 			rejected = true
 			continue
 		}
 		line := string(part)
-		kind, governed, admitted := profilerTextPairAdmission(line)
-		observedMMC = observedMMC || governed
+		pair := profilerTextPairAdmission(line)
+		if pair.Governed {
+			observed[pair.Kind] = true
+			if !pair.Admitted {
+				rejectedPairs = append(rejectedPairs, pair)
+			}
+		}
 		if !traceDBSinglePhysicalLine(line, false) {
 			rejected = true
 			continue
@@ -252,22 +278,23 @@ func addStrictSystraceRowsFromBytes(data []byte, seq *int, sink *traceDBRowSink)
 			continue
 		}
 		row := renderedRow{tsNS: ts, line: line}
-		if governed {
-			row.pairKind = kind
-			poisonMMC = poisonMMC || !admitted
+		if pair.Governed {
+			row.pairKind = pair.Kind
+			row.pairLane = pair.Lane
 		}
 		staged = append(staged, row)
 	}
 	if rejected {
-		if observedMMC {
-			sink.poisonPairKind(pairRenderMMC)
+		for kind := range observed {
+			sink.poisonPairKind(kind)
 		}
 		// This is the exact ftrace-plugin compatibility lane. Once the whole
 		// payload fails complete text classification, unread bytes may instead
 		// be a malformed structured envelope. Record delayed opacity even when
 		// no exact text header was recoverable; it suppresses nothing unless the
-		// same physical source actually contains MMC endpoints.
+		// same physical source actually contains MMC or F2FS endpoints.
 		sink.markPairCaptureOpaque(pairRenderMMC)
+		sink.markPairCaptureOpaque(pairRenderF2FS)
 		return 0, false, nil
 	}
 	if len(staged) == 0 {
@@ -276,8 +303,8 @@ func addStrictSystraceRowsFromBytes(data []byte, seq *int, sink *traceDBRowSink)
 	if sink == nil || seq == nil {
 		return 0, false, fmt.Errorf("strict systrace row sink or sequence is nil")
 	}
-	if poisonMMC {
-		sink.poisonPairKind(pairRenderMMC)
+	for _, pair := range rejectedPairs {
+		pair.poison(sink)
 	}
 	for index := range staged {
 		staged[index].seq = *seq
@@ -294,25 +321,43 @@ func addStrictSystraceRowsFromBytes(data []byte, seq *int, sink *traceDBRowSink)
 // rows.  Recognition is byte-exact and the body verdict comes from
 // tracequery's canonical endpoint authority; prose/substrings never guess a
 // family.
-func profilerTextPairAdmission(line string) (pairRenderKind, bool, bool) {
-	if !strings.Contains(line, "mmc_request_start") && !strings.Contains(line, "mmc_request_done") {
-		return pairRenderUnknown, false, false
+func profilerTextPairAdmission(line string) profilerPairAdmission {
+	if !strings.Contains(line, "mmc_request_") && !strings.Contains(line, "f2fs_") {
+		return profilerPairAdmission{}
 	}
 	ev, ok := tracequery.ParseLine(1, line, nil)
 	if ok {
-		if ev.Name != "mmc_request_start" && ev.Name != "mmc_request_done" {
-			return pairRenderUnknown, false, false
+		kind, governed := profilerPairKindForExactName(ev.Name)
+		if !governed {
+			return profilerPairAdmission{}
 		}
 		verdict := tracequery.FingerprintPairingEvent(ev)
 		admitted := verdict.Recognized && verdict.KeyKnown && verdict.PayloadAdmitted &&
 			verdict.EmitterKnown && verdict.EmitterAdmitted
-		return pairRenderMMC, true, admitted
+		return profilerPairAdmission{
+			Kind: kind, Governed: true, Admitted: admitted,
+			LaneKnown: verdict.KeyKnown && verdict.SemanticKey != "", Lane: verdict.SemanticKey,
+		}
 	}
 	name, complete := tracequery.ProbeEventNamePrefix(line)
-	if complete && (name == "mmc_request_start" || name == "mmc_request_done") {
-		return pairRenderMMC, true, false
+	if complete {
+		if kind, governed := profilerPairKindForExactName(name); governed {
+			return profilerPairAdmission{Kind: kind, Governed: true}
+		}
 	}
-	return pairRenderUnknown, false, false
+	return profilerPairAdmission{}
+}
+
+func profilerPairKindForExactName(name string) (pairRenderKind, bool) {
+	switch name {
+	case "mmc_request_start", "mmc_request_done":
+		return pairRenderMMC, true
+	case "f2fs_sync_file_enter", "f2fs_sync_file_exit", "f2fs_direct_IO_enter", "f2fs_direct_IO_exit",
+		"f2fs_write_begin", "f2fs_write_end":
+		return pairRenderF2FS, true
+	default:
+		return pairRenderUnknown, false
+	}
 }
 
 const profilerTextPairHeaderProbeBytes = 4096
@@ -329,8 +374,8 @@ func profilerTextPairCensus(part []byte) (pairRenderKind, bool, bool) {
 	}
 	name, complete := tracequery.ProbeEventNamePrefix(string(probe))
 	if complete {
-		if name == "mmc_request_start" || name == "mmc_request_done" {
-			return pairRenderMMC, true, false
+		if kind, governed := profilerPairKindForExactName(name); governed {
+			return kind, true, false
 		}
 		return pairRenderUnknown, false, false
 	}

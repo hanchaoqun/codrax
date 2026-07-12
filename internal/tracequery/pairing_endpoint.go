@@ -167,6 +167,11 @@ func decodePairingEndpointWire(name, fieldText string, headerTID int64) (Pairing
 			return PairingEndpointVerdict{}, pairingEndpointDecodedFields{}
 		}
 	}
+	if f2fsElapsedPairingNameCandidate(name) {
+		if _, exact := exactF2FSPairingProfile(name); !exact {
+			return PairingEndpointVerdict{}, pairingEndpointDecodedFields{}
+		}
+	}
 	name = strings.TrimSpace(name)
 	fieldText = strings.TrimSpace(fieldText)
 	input := PairingEndpointTypedInput{Name: name, HeaderTID: headerTID}
@@ -203,6 +208,9 @@ func decodePairingEndpointWire(name, fieldText string, headerTID int64) (Pairing
 // typed fingerprint and emitter policy consumed by deterministic adapters.
 func fingerprintPairingEvent(ev Event) PairingEndpointVerdict {
 	if verdict, _, governed := mmcPairingVerdictFromEvent(ev); governed {
+		return verdict
+	}
+	if verdict, _, governed := f2fsPairingVerdictFromEvent(ev); governed {
 		return verdict
 	}
 	if strings.TrimSpace(ev.FieldText) != "" {
@@ -255,6 +263,11 @@ func FingerprintPairingEvent(ev Event) PairingEndpointVerdict {
 func FingerprintPairingEndpoint(input PairingEndpointTypedInput) PairingEndpointVerdict {
 	if mmcPairingNameCandidate(input.Name) {
 		if _, exact := exactMMCPairingProfile(input.Name); !exact {
+			return PairingEndpointVerdict{}
+		}
+	}
+	if f2fsElapsedPairingNameCandidate(input.Name) {
+		if _, exact := exactF2FSPairingProfile(input.Name); !exact {
 			return PairingEndpointVerdict{}
 		}
 	}
@@ -324,7 +337,15 @@ func FingerprintPairingEndpoint(input PairingEndpointTypedInput) PairingEndpoint
 		}
 		verdict.KeyKnown = true
 		verdict.PayloadAdmitted = true
-		if input.StoragePayloadAdmissionKnown {
+		_, exactMMC := exactMMCPairingProfile(input.Name)
+		_, exactF2FS := exactF2FSPairingProfile(input.Name)
+		if (exactMMC || exactF2FS) && !input.StoragePayloadAdmissionKnown {
+			// Source-pinned exact endpoints may expose a proven hard identity
+			// before their non-key body has been audited, but that identity alone
+			// is never a payload witness. Every direct/structured/SQL producer
+			// adapter must explicitly carry its closed-body verdict.
+			verdict.PayloadAdmitted = false
+		} else if input.StoragePayloadAdmissionKnown {
 			verdict.PayloadAdmitted = input.StoragePayloadAdmitted
 		}
 		verdict.SemanticKey = genericStoragePairingSemanticKey(identity)
@@ -347,6 +368,11 @@ func typedGenericStorageIdentity(profile pairingEndpointProfile, input PairingEn
 			Layer: profile.Layer, Base: profile.SemanticBase,
 			Dev: "unknown", Inode: "-", Op: profile.SemanticBase, PID: int(input.HeaderTID),
 		}, true
+	}
+	if profile.Layer == "f2fs" {
+		if _, exact := exactF2FSPairingProfile(input.Name); exact {
+			return f2fsTypedIdentity(profile, input)
+		}
 	}
 	dev, devOK := typedPairingDeviceText(input.StorageDevice, input.StorageDeviceNumber, input.StorageDeviceNumeric)
 	if !devOK {
@@ -741,6 +767,19 @@ func genericStoragePairingProfile(name string) (pairingEndpointProfile, bool) {
 	if mmcPairingNameCandidate(name) {
 		return pairingEndpointProfile{}, false
 	}
+	if profile, exact := exactF2FSPairingProfile(name); exact {
+		return profile, true
+	}
+	if f2fsElapsedPairingNameCandidate(name) {
+		return pairingEndpointProfile{}, false
+	}
+	// F2FS elapsed endpoints are an explicit closed registry. Other legitimate
+	// F2FS observations may remain inventory/soft resource evidence, but no
+	// unregistered prefix/suffix shape may fall back to the generic duration
+	// classifier and mint a pairing lane.
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(name)), "f2fs_") {
+		return pairingEndpointProfile{}, false
+	}
 	typ := classifyEventType("", name, "")
 	if typ != EventStorage && typ != EventFilesystem {
 		return pairingEndpointProfile{}, false
@@ -833,6 +872,9 @@ func genericStorageWireAlias(tokens []pairingKVToken, lexOK bool, aliases ...str
 
 func genericStorageWireAdmissionFor(name, fieldText string, tokens []pairingKVToken, lexOK bool) genericStorageWireAdmission {
 	if admission, governed := mmcStorageWireAdmission(name, fieldText); governed {
+		return admission
+	}
+	if admission, governed := f2fsStorageWireAdmission(name, fieldText); governed {
 		return admission
 	}
 	if admission, ok := genericStorageSpaceWireAdmission(name, fieldText); ok {

@@ -76,6 +76,24 @@ func TestMMCExactWireProfilesRemainSeparateAndPair(t *testing.T) {
 	}
 }
 
+func TestMMCTypedIdentityCannotSubstituteForClosedPayloadAdmission(t *testing.T) {
+	t.Parallel()
+	input := PairingEndpointTypedInput{
+		Name: "mmc_request_start", HeaderTID: 40,
+		StorageIdentityKnown: true, StorageDevice: "mmc0", StorageOperation: "17",
+	}
+	identityOnly := FingerprintPairingEndpoint(input)
+	if !identityOnly.Recognized || !identityOnly.KeyKnown || identityOnly.PayloadAdmitted || identityOnly.SemanticKey == "" {
+		t.Fatalf("typed MMC identity substituted for an unknown closed-body verdict: %+v", identityOnly)
+	}
+	input.StoragePayloadAdmissionKnown = true
+	input.StoragePayloadAdmitted = true
+	admitted := FingerprintPairingEndpoint(input)
+	if !admitted.KeyKnown || !admitted.PayloadAdmitted || admitted.SemanticKey != identityOnly.SemanticKey {
+		t.Fatalf("explicit MMC closed-body verdict did not admit the same lane: identity=%+v admitted=%+v", identityOnly, admitted)
+	}
+}
+
 func TestMMCClosedBodyProfilesRejectCrossProfileAndMalformedShapes(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

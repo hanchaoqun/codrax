@@ -642,11 +642,14 @@ func TestTraceDBRawStandardEndpointParityRoundTrip(t *testing.T) {
 		"mmc_request_start: mmc0 tag=-1", "mmc_request_done: mmc0 tag=-1 opcode=17 bytes_xfered=4096 ret=-5 cmd_err=-6 data_err=-7",
 		"scsi_dispatch_cmd_start: tag=-1 dev=8:0", "scsi_dispatch_cmd_done: tag=-1 dev=8:0",
 		"workqueue_execute_start: work struct 0xabc", "workqueue_execute_end: work struct 0xabc",
-		"android_fs_dataread_start: dev=8,0 ino=7", "f2fs_direct_io_enter: dev=8,0 ino=9",
+		"android_fs_dataread_start: dev=8,0 ino=7",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("standard endpoint output missing %q:\n%s", want, body)
 		}
+	}
+	if strings.Contains(body, "f2fs_direct_io_") || strings.Contains(body, "f2fs_direct_IO_") {
+		t.Fatalf("deferred SQL raw F2FS capability leaked into query-ready output:\n%s", body)
 	}
 	for _, line := range strings.Split(body, "\n") {
 		if strings.Contains(line, "workqueue_execute_") && strings.Contains(line, "function ") {
@@ -665,9 +668,25 @@ func TestTraceDBRawStandardEndpointParityRoundTrip(t *testing.T) {
 	for _, item := range stats.StorageLatencyByLayer {
 		pairedByLayer[item.Layer] += item.PairedCount
 	}
-	for _, layer := range []string{"mmc", "scsi", "android_fs", "f2fs"} {
+	for _, layer := range []string{"mmc", "scsi", "android_fs"} {
 		if pairedByLayer[layer] != 1 {
 			t.Fatalf("storage parity layer %s pairs=%d all=%+v coverage=%+v", layer, pairedByLayer[layer], stats.StorageLatencyByLayer, result.Coverage)
+		}
+	}
+}
+
+func TestTraceDBRawF2FSCapabilityRemainsExplicitlyDeferred(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"f2fs_sync_file_enter", "f2fs_sync_file_exit", "f2fs_direct_IO_enter", "f2fs_direct_IO_exit",
+		"f2fs_write_begin", "f2fs_write_end", "f2fs_direct_io_enter", "F2FS_sync_file_enter",
+	} {
+		if class := traceDBRawFtraceClass(name); class != "" {
+			t.Fatalf("deferred SQL raw F2FS name gained publication class: name=%q class=%q", name, class)
+		}
+		verdict := traceDBRawPairingVerdict(name, 40, map[string]traceDBValue{}, map[string]bool{}, true)
+		if verdict.Recognized || verdict.KeyKnown || verdict.PayloadAdmitted {
+			t.Fatalf("unsupported SQL raw F2FS row entered pairing stage: name=%q verdict=%+v", name, verdict)
 		}
 	}
 }

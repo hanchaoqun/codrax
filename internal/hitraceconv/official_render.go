@@ -75,8 +75,6 @@ func renderOfficialOpenHarmonyBody(ev decodedEvent, content []byte, cpu int) (st
 		return renderDirectBlockEvent(ev, content)
 	case strings.HasPrefix(lowerName, "android_fs_dataread") || strings.HasPrefix(lowerName, "android_fs_datawrite"):
 		return renderAndroidFSIO(ev, content), true
-	case strings.HasPrefix(lowerName, "f2fs_direct_io") || strings.HasPrefix(lowerName, "f2fs_sync_file"):
-		return renderF2FSIO(ev, content), true
 	case strings.HasPrefix(lowerName, "scsi_dispatch_cmd"):
 		return renderSCSIDispatchCmd(ev, content), true
 	case strings.HasPrefix(name, "ufshcd_command"):
@@ -188,18 +186,6 @@ func renderExt4DirectIO(ev decodedEvent, content []byte) string {
 	parts = appendCleanIntKV(parts, "len", ev, false, "len", "length", "bytes", "size")
 	parts = appendStringKV(parts, "rw", traceIORW(ev, content))
 	parts = appendCleanIntKV(parts, "ret", ev, true, "ret", "res", "error", "err")
-	return strings.Join(parts, " ")
-}
-
-func renderF2FSIO(ev decodedEvent, content []byte) string {
-	var parts []string
-	parts = appendStringKV(parts, "dev", traceIODev(ev, content))
-	parts = appendHexCleanIntKV(parts, "ino", ev, false, "ino", "inode", "i_ino")
-	parts = appendCleanIntKV(parts, "offset", ev, true, "offset", "ofs", "pos", "off")
-	parts = appendCleanIntKV(parts, "len", ev, false, "len", "length", "bytes", "size")
-	parts = appendStringKV(parts, "rw", traceIORW(ev, content))
-	parts = appendCleanIntKV(parts, "ret", ev, true, "ret", "res", "error", "err")
-	parts = appendCleanIntKV(parts, "latency_us", ev, false, "latency_us", "duration_us", "time_us", "usecs")
 	return strings.Join(parts, " ")
 }
 

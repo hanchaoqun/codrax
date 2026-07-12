@@ -1,17 +1,9 @@
 package tracequery
 
 import (
-	"regexp"
 	"sort"
 	"strings"
 )
-
-// The fallback keeps the event-column discriminator precise while allowing
-// malformed header identities to be audited instead of disappearing merely
-// because the main parser's fully typed ftrace grammar rejected the row.
-// Group indexes intentionally mirror ftraceLineRE: comm, pid, tgid, cpu,
-// timestamp, event, fields.
-var durationEndpointFallbackRE = regexp.MustCompile(`^\s*(.+)-([^\s]+)(?:\s+\(\s*([^\s()]+)\s*\))?\s+\[([^\]]+)\]\s+\S+\s+([^\s:]+):\s+([A-Za-z0-9_]+):\s*(.*)$`)
 
 // workqueueEndpointMissingFields and dmaFenceEndpointMissingFields define the
 // minimum exact identities permitted to mint elapsed time. Inventory events
@@ -178,11 +170,21 @@ func durationEndpointRawMatchScan(s *lineScan) []string {
 		if durationExactEndpointFamily(strings.TrimSuffix(strings.TrimSpace(match[6]), ":")) != "" {
 			return match
 		}
+		// The main grammar has already identified the one physical top-level
+		// event column. Never run the looser malformed-header fallback over its
+		// body: a print/prose payload may itself quote a complete ftrace line,
+		// and the fallback's permissive header scalars must not reinterpret that
+		// nested text as a second hard pairing endpoint.
+		return nil
 	}
 	if !durationEndpointFallbackCandidate(s.line) {
 		return nil
 	}
-	return durationEndpointFallbackRE.FindStringSubmatch(s.line)
+	// Canonical parsing rejected the physical row. Reuse the same bounded
+	// outer-header locator as the main grammar instead of running a second
+	// global lazy-comm regex: the latter can both cross a malformed outer
+	// print header and mis-split numeric suffixes in real thread names.
+	return loosePhysicalFtraceLine(s.line)
 }
 
 // durationEndpointRawValidationFailure audits the physical row before Event
@@ -304,6 +306,43 @@ func durationEndpointRejectedRowFailureScan(s *lineScan) *durationOrderViolation
 		Family: family, LaneKey: laneKey, Issue: "endpoint_parse_incomplete", EventName: rawType,
 		Fields: []string{"parser_rejected_row"}, CurrentTs: ts, TsUnknown: !ok, Line: s.lineNo,
 	}
+}
+
+// MalformedPairingEndpointProbe is the smallest source-neutral result needed
+// by ingestion adapters that must retain exact endpoint provenance even when
+// their normal ftrace parser rejects the physical row. It intentionally
+// exposes neither duration-order internals nor a family guess: callers must
+// still apply their own exact, closed endpoint-name roster.
+type MalformedPairingEndpointProbe struct {
+	Name        string
+	SemanticKey string
+	KeyKnown    bool
+}
+
+// ProbeMalformedPairingEndpoint reports a precise physical pairing endpoint
+// that failed canonical row admission. The same raw grammar and typed payload
+// decoder used by tracequery's duration-order barrier are the sole authority;
+// prose, substrings, case variants, and near names cannot match the anchored
+// ftrace shape. A normally parseable row is never reported by the rejected-row
+// fallback.
+func ProbeMalformedPairingEndpoint(line string) (MalformedPairingEndpointProbe, bool) {
+	var scan lineScan
+	scan.reset(0, line)
+	failure := durationEndpointRawValidationFailureScan(&scan)
+	if failure == nil {
+		if _, parsed := parseLineScan(&scan, nil); parsed {
+			return MalformedPairingEndpointProbe{}, false
+		}
+		failure = durationEndpointRejectedRowFailureScan(&scan)
+	}
+	if failure == nil || failure.EventName == "" {
+		return MalformedPairingEndpointProbe{}, false
+	}
+	return MalformedPairingEndpointProbe{
+		Name:        failure.EventName,
+		SemanticKey: failure.LaneKey,
+		KeyKnown:    failure.LaneKey != "",
+	}, true
 }
 
 func uniqueSortedStrings(in []string) []string {

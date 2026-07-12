@@ -275,12 +275,43 @@ func TestProfilerAuxProto3DefaultsAndUnionProfileOptionalPresence(t *testing.T) 
 func TestProfilerAuxIntegerSourceBoundsAndSignedEncodings(t *testing.T) {
 	base := profilerAuxCasesByField()
 	uint32Fields := map[int][]int{
-		4009: {4, 6},
+		4009: {6},
 		4011: {4, 5},
 		4012: {4, 5},
 		4015: {1, 4, 5, 8, 9, 12, 13, 16, 17, 18, 21},
 		4016: {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 23},
 	}
+
+	t.Run("f2fs mode source width", func(t *testing.T) {
+		values := profilerAuxCloneValues(base[4009].values)
+		values[4] = profilerAuxVarint(math.MaxUint16)
+		_, admission, reason := decodeProfilerAuxPayload(profilerFtraceEventRecord{Field: 4009, Payload: profilerAuxEncodeValues(values)})
+		if admission != bodyAdmitted || reason != "" {
+			t.Fatalf("umode_t max rejected: admission=%d reason=%q", admission, reason)
+		}
+		values[4] = profilerAuxVarint(uint64(math.MaxUint16) + 1)
+		_, admission, reason = decodeProfilerAuxPayload(profilerFtraceEventRecord{Field: 4009, Payload: profilerAuxEncodeValues(values)})
+		if admission != bodyRejected || reason != profilerAuxFieldReason(4, "out_of_range") {
+			t.Fatalf("umode_t overflow escaped: admission=%d reason=%q", admission, reason)
+		}
+	})
+
+	t.Run("f2fs blocks full source width and wire parity", func(t *testing.T) {
+		values := profilerAuxCloneValues(base[4009].values)
+		values[7] = profilerAuxVarint(math.MaxUint64)
+		payload, admission, reason := decodeProfilerAuxPayload(profilerFtraceEventRecord{Field: 4009, Payload: profilerAuxEncodeValues(values)})
+		if admission != bodyAdmitted || reason != "" {
+			t.Fatalf("blkcnt_t MaxUint64 rejected: admission=%d reason=%q", admission, reason)
+		}
+		body, ok := renderCanonicalProfilerAuxPayload(payload)
+		if !ok || !strings.Contains(body, "i_blocks=18446744073709551615") {
+			t.Fatalf("blkcnt_t MaxUint64 was not rendered losslessly: ok=%t body=%q", ok, body)
+		}
+		endpoint := tracequery.DecodePairingEndpoint("f2fs_sync_file_enter", body, 40)
+		if !endpoint.KeyKnown || !endpoint.PayloadAdmitted {
+			t.Fatalf("blkcnt_t MaxUint64 broke typed/wire parity: %+v body=%q", endpoint, body)
+		}
+	})
 	for eventField, payloadFields := range uint32Fields {
 		for _, payloadField := range payloadFields {
 			t.Run("uint32/"+strconv.Itoa(eventField)+"/"+strconv.Itoa(payloadField), func(t *testing.T) {

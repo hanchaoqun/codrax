@@ -16,23 +16,33 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 	"unsafe"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 var (
-	ftraceLineRE        = regexp.MustCompile(`^\s*(.+)-(\d+)(?:\s+\(\s*([0-9-]+)\))?\s+\[(\d+)\]\s+\S+\s+([0-9]+(?:\.[0-9]+)?):\s+([A-Za-z0-9_./:-]+):?\s*(.*)$`)
-	kvRE                = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*=\s*("[^"]*"|'[^']*'|[^ ]+)`)
-	blockRQIssueRE      = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\([^\r\n)]*\)\s+(\d+)\s+\+\s+(\d+)\s+\[[^\r\n\]]*\]\s*$`)
-	blockRQCompleteRE   = regexp.MustCompile(`^(\S+)\s+(\S+)\s+\([^\r\n)]*\)\s+(\d+)\s+\+\s+(\d+)\s+\[(-?\d+)\]\s*$`)
-	blockBioQueueRE     = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\+\s+(\d+)\s+\[[^\r\n\]]*\]\s*$`)
-	blockBioCompleteRE  = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\+\s+(\d+)\s+\[(-?\d+)\]\s*$`)
-	blockSimpleLegacyRE = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\+\s+(\d+)\s+\[[^\r\n\]]*\]\s*$`)
-	blockRQRemapRE      = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\+\s+(\d+)\s+<-\s+\(([^\r\n)]+)\)\s+(\d+)\s+(\d+)\s*$`)
-	blockBioRemapRE     = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\+\s+(\d+)\s+<-\s+\(([^\r\n)]+)\)\s+(\d+)\s*$`)
-	blockRemapLegacyRE  = regexp.MustCompile(`^(\S+)\s+(\d+)\s+\+\s+(\d+)\s+<-\s+\(([^\r\n)]+)\)\s+(\d+)\s*$`)
-	blockErrorRE        = regexp.MustCompile(`\[([^\]]+)\]\s*$`)
+	ftraceLineRE = regexp.MustCompile(`^\s*(.+)-(\d+)(?:\s+\(\s*([0-9-]+)\))?\s+\[(\d+)\]\s+\S+\s+([0-9]+(?:\.[0-9]+)?):\s+([A-Za-z0-9_./:-]+):?\s*(.*)$`)
+	// Ambiguous rows are resolved by enumerating only -PID delimiters inside
+	// the canonical 15-rune comm prefix. Once the delimiter is fixed, these
+	// tail grammars cannot cross the outer event column into body text.
+	ftraceStrictCanonicalPIDTailRE = regexp.MustCompile(`^-(\d+)(?:\s+\(\s*([0-9-]+)\))?\s+\[(\d+)\]\s+\S+\s+([0-9]+(?:\.[0-9]+)?):\s+([A-Za-z0-9_./:-]+):?\s*(.*)$`)
+	ftraceLooseCanonicalPIDTailRE  = regexp.MustCompile(`^-(\d+)(?:\s+\(\s*([^\s()]+)\s*\))?\s+\[([^\[\]\r\n]+?)\]?\s+\S+\s+([^\s:]+):\s+([^\s:]+):\s*(.*)$`)
+	ftraceLooseAnyPIDTailRE        = regexp.MustCompile(`^-([^\s]+)(?:\s+\(\s*([^\s()]+)\s*\))?\s+\[([^\[\]\r\n]+?)\]?\s+\S+\s+([^\s:]+):\s+([^\s:]+):\s*(.*)$`)
+	// Missing PID keeps only family/header provenance. The bracket candidate
+	// must still follow a non-empty canonical-length comm.
+	ftraceLooseMissingPIDTailRE = regexp.MustCompile(`^\[([^\[\]\r\n]+?)\]?\s+\S+\s+([^\s:]+):\s+([^\s:]+):\s*(.*)$`)
+	kvRE                        = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*=\s*("[^"]*"|'[^']*'|[^ ]+)`)
+	blockRQIssueRE              = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\([^\r\n)]*\)\s+(\d+)\s+\+\s+(\d+)\s+\[[^\r\n\]]*\]\s*$`)
+	blockRQCompleteRE           = regexp.MustCompile(`^(\S+)\s+(\S+)\s+\([^\r\n)]*\)\s+(\d+)\s+\+\s+(\d+)\s+\[(-?\d+)\]\s*$`)
+	blockBioQueueRE             = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\+\s+(\d+)\s+\[[^\r\n\]]*\]\s*$`)
+	blockBioCompleteRE          = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\+\s+(\d+)\s+\[(-?\d+)\]\s*$`)
+	blockSimpleLegacyRE         = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\+\s+(\d+)\s+\[[^\r\n\]]*\]\s*$`)
+	blockRQRemapRE              = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\+\s+(\d+)\s+<-\s+\(([^\r\n)]+)\)\s+(\d+)\s+(\d+)\s*$`)
+	blockBioRemapRE             = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\d+)\s+\+\s+(\d+)\s+<-\s+\(([^\r\n)]+)\)\s+(\d+)\s*$`)
+	blockRemapLegacyRE          = regexp.MustCompile(`^(\S+)\s+(\d+)\s+\+\s+(\d+)\s+<-\s+\(([^\r\n)]+)\)\s+(\d+)\s*$`)
+	blockErrorRE                = regexp.MustCompile(`\[([^\]]+)\]\s*$`)
 )
 
 var spaceKVKeys = map[string]struct{}{
@@ -102,6 +112,9 @@ func eventSideTableBytes(ev *Event) int64 {
 		n += int64(unsafe.Sizeof(ResourceFields{}))
 		if ev.ResourceFields.mmcPairing != nil {
 			n += int64(unsafe.Sizeof(mmcPairingAdmission{}))
+		}
+		if ev.ResourceFields.f2fsPairing != nil {
+			n += int64(unsafe.Sizeof(f2fsPairingAdmission{}))
 		}
 	}
 	if ev.FileFields != nil {
@@ -880,14 +893,275 @@ func (opts BuildOptions) cacheKey() string {
 	return key
 }
 
+// matchFtraceLine keeps the established fast greedy grammar for a common
+// one-header row. Ambiguous rows enumerate -PID candidates only inside the
+// canonical comm domain and elect its rightmost valid delimiter; this finds a
+// real outer header between comm-internal pseudo headers and body-nested
+// headers. A loose twin locates the same delimiter without admitting malformed
+// scalars. Legal ']' and header-like bytes in comm therefore remain data.
+func matchFtraceLine(line string) []string {
+	indexes := matchFtraceLineIndex(line)
+	if len(indexes) == 0 {
+		return nil
+	}
+	match := make([]string, len(indexes)/2)
+	for group := range match {
+		start, end := indexes[group*2], indexes[group*2+1]
+		if start >= 0 && end >= start {
+			match[group] = line[start:end]
+		}
+	}
+	return match
+}
+
+func matchFtraceLineIndex(line string) []int {
+	match := ftraceLineRE.FindStringSubmatchIndex(line)
+	if len(match) < 4 {
+		return match
+	}
+	comm := line[match[2]:match[3]]
+	commAmbiguous := ftraceCommMayContainHeader(comm)
+	headerAmbiguous := hasMultipleWhitespaceBracketCandidates(line)
+	if !commAmbiguous && !headerAmbiguous {
+		return match
+	}
+	if !strings.ContainsAny(comm, "[]") && !headerAmbiguous {
+		// A colon may legitimately occur in comm, including compatibility
+		// producers that exceed TASK_COMM_LEN. Without another whitespace-[CPU]
+		// candidate, no complete earlier/nested header was swallowed; preserve
+		// the greedy/rightmost PID split.
+		return match
+	}
+	strict := boundedPIDFtraceLineIndex(line, ftraceStrictCanonicalPIDTailRE)
+	if len(strict) < 14 {
+		return nil
+	}
+	physical := loosePhysicalFtraceLineIndex(line)
+	if len(physical) >= 14 && physical[12] != strict[12] {
+		// The rightmost canonical comm delimiter leads to a malformed physical
+		// header, while an earlier header-like substring happened to satisfy the
+		// strict grammar. Reject that pseudo event; body candidates are outside
+		// the bounded comm prefix and cannot participate in this election.
+		return nil
+	}
+	return strict
+}
+
+func ftraceCommMayContainHeader(comm string) bool {
+	return strings.ContainsAny(comm, "[]:")
+}
+
+func hasMultipleWhitespaceBracketCandidates(line string) bool {
+	rawCount := 0
+	for index := 1; index < len(line); index++ {
+		if line[index] != '[' || line[index-1] != ' ' && line[index-1] != '\t' {
+			continue
+		}
+		rawCount++
+		if rawCount > 1 {
+			break
+		}
+	}
+	if rawCount <= 1 {
+		return false
+	}
+	structuralCount := 0
+	for index := 1; index < len(line); index++ {
+		if line[index] != '[' || line[index-1] != ' ' && line[index-1] != '\t' {
+			continue
+		}
+		tail := ftraceLooseMissingPIDTailRE.FindStringSubmatchIndex(line[index:])
+		if len(tail) != 10 || tail[0] != 0 || tail[1] != len(line)-index {
+			continue
+		}
+		structuralCount++
+		if structuralCount > 1 {
+			return true
+		}
+	}
+	return false
+}
+
+const ftraceCanonicalCommMaxRunes = 15
+
+func ftraceLineTrimStart(line string) int {
+	start := 0
+	for start < len(line) {
+		switch line[start] {
+		case ' ', '\t', '\r', '\n':
+			start++
+		default:
+			return start
+		}
+	}
+	return start
+}
+
+func ftraceCommByteLimit(line string, start int) int {
+	limit := start
+	for runes := 0; runes < ftraceCanonicalCommMaxRunes && limit < len(line); runes++ {
+		_, width := utf8.DecodeRuneInString(line[limit:])
+		if width <= 0 {
+			width = 1
+		}
+		limit += width
+	}
+	return limit
+}
+
+// boundedPIDFtraceLineIndex enumerates candidate -PID delimiters from the
+// right edge of the canonical comm domain. Fixing the delimiter before
+// parsing the tail is the key invariant: a header-like prefix inside comm is
+// earlier, while an embedded header in body is necessarily outside the 15
+// rune domain. The returned group indexes mirror ftraceLineRE.
+func boundedPIDFtraceLineIndex(line string, tailRE *regexp.Regexp) []int {
+	start := ftraceLineTrimStart(line)
+	limit := ftraceCommByteLimit(line, start)
+	if limit >= len(line) {
+		limit = len(line) - 1
+	}
+	for delimiter := limit; delimiter > start; delimiter-- {
+		if line[delimiter] != '-' {
+			continue
+		}
+		tail := tailRE.FindStringSubmatchIndex(line[delimiter:])
+		if len(tail) != 14 || tail[0] != 0 || tail[1] != len(line)-delimiter {
+			continue
+		}
+		return assemblePIDFtraceLineIndexes(line, start, delimiter, tail)
+	}
+	return nil
+}
+
+// unboundedSafePIDFtraceLineIndex preserves compatibility with producers that
+// publish a comm longer than TASK_COMM_LEN. It is intentionally narrower than
+// the canonical election: only a comm with no header delimiters can qualify.
+// A nested/body candidate necessarily carries the earlier header's brackets
+// or event colon in its comm prefix and is skipped while the scan continues
+// toward the real outer delimiter.
+func unboundedSafePIDFtraceLineIndex(line string, tailRE *regexp.Regexp) []int {
+	start := ftraceLineTrimStart(line)
+	for delimiter := len(line) - 1; delimiter > start; delimiter-- {
+		if line[delimiter] != '-' {
+			continue
+		}
+		tail := tailRE.FindStringSubmatchIndex(line[delimiter:])
+		if len(tail) != 14 || tail[0] != 0 || tail[1] != len(line)-delimiter ||
+			ftraceCommMayContainHeader(line[start:delimiter]) {
+			continue
+		}
+		return assemblePIDFtraceLineIndexes(line, start, delimiter, tail)
+	}
+	return nil
+}
+
+func assemblePIDFtraceLineIndexes(line string, commStart, delimiter int, tail []int) []int {
+	indexes := make([]int, 16)
+	for index := range indexes {
+		indexes[index] = -1
+	}
+	indexes[0], indexes[1] = 0, len(line)
+	indexes[2], indexes[3] = commStart, delimiter
+	for tailGroup := 1; tailGroup <= 6; tailGroup++ {
+		source := tailGroup * 2
+		destination := (tailGroup + 1) * 2
+		if tail[source] >= 0 {
+			indexes[destination] = delimiter + tail[source]
+			indexes[destination+1] = delimiter + tail[source+1]
+		}
+	}
+	return indexes
+}
+
+// loosePhysicalFtraceLineIndex returns the rightmost structurally complete
+// header inside the canonical comm domain without granting scalar or endpoint
+// authority. Event-column position wins globally; canonical PID wins only
+// when candidates reach the same physical column. The permissive and
+// missing-PID arms can only retain family/header provenance when owner identity
+// is unavailable.
+func loosePhysicalFtraceLineIndex(line string) []int {
+	type candidate struct {
+		indexes  []int
+		priority int
+	}
+	candidates := []candidate{
+		{boundedPIDFtraceLineIndex(line, ftraceLooseCanonicalPIDTailRE), 3},
+		{unboundedSafePIDFtraceLineIndex(line, ftraceLooseCanonicalPIDTailRE), 3},
+		{boundedPIDFtraceLineIndex(line, ftraceLooseAnyPIDTailRE), 2},
+		{unboundedSafePIDFtraceLineIndex(line, ftraceLooseAnyPIDTailRE), 2},
+		{boundedMissingPIDFtraceLineIndex(line), 1},
+	}
+	var best candidate
+	for _, current := range candidates {
+		if len(current.indexes) < 14 {
+			continue
+		}
+		if len(best.indexes) < 14 || current.indexes[12] > best.indexes[12] ||
+			current.indexes[12] == best.indexes[12] && current.priority > best.priority {
+			best = current
+		}
+	}
+	return best.indexes
+}
+
+func boundedMissingPIDFtraceLineIndex(line string) []int {
+	start := ftraceLineTrimStart(line)
+	for bracket := len(line) - 1; bracket > start; bracket-- {
+		if line[bracket] != '[' || bracket == 0 || line[bracket-1] != ' ' && line[bracket-1] != '\t' {
+			continue
+		}
+		commEnd := bracket
+		for commEnd > start && (line[commEnd-1] == ' ' || line[commEnd-1] == '\t') {
+			commEnd--
+		}
+		if commEnd <= start || utf8.RuneCountInString(line[start:commEnd]) > ftraceCanonicalCommMaxRunes {
+			continue
+		}
+		tail := ftraceLooseMissingPIDTailRE.FindStringSubmatchIndex(line[bracket:])
+		if len(tail) != 10 || tail[0] != 0 || tail[1] != len(line)-bracket {
+			continue
+		}
+		indexes := make([]int, 16)
+		for index := range indexes {
+			indexes[index] = -1
+		}
+		indexes[0], indexes[1] = 0, len(line)
+		indexes[2], indexes[3] = start, commEnd
+		for tailGroup := 1; tailGroup <= 4; tailGroup++ {
+			source := tailGroup * 2
+			destination := (tailGroup + 3) * 2
+			indexes[destination] = bracket + tail[source]
+			indexes[destination+1] = bracket + tail[source+1]
+		}
+		return indexes
+	}
+	return nil
+}
+
+func loosePhysicalFtraceLine(line string) []string {
+	indexes := loosePhysicalFtraceLineIndex(line)
+	if len(indexes) == 0 {
+		return nil
+	}
+	match := make([]string, len(indexes)/2)
+	for group := range match {
+		start, end := indexes[group*2], indexes[group*2+1]
+		if start >= 0 && end >= start {
+			match[group] = line[start:end]
+		}
+	}
+	return match
+}
+
 // lineScan memoizes the per-line ftrace header analysis shared by the window
 // gate, the anchor recorder, every physical-row integrity audit and the event
-// parse itself. One physical line pays for at most ONE ftraceLineRE match, one
-// parseKV and one Event parse no matter how many consumers inspect it (perf
-// audit #21, §29.25 处置委托 2026-07-10: the five per-line audits used to re-run
-// the full header regex up to 4× and re-parse the same line 2-3×, a measured
-// 29× windowed-build regression on GiB traces). The struct is reused across
-// loop iterations; reset() only clears the memo flags.
+// parse itself. One physical line pays for one primary ftraceLineRE match (and
+// only an embedded-header ambiguity pays bounded comm-tail probes), one parseKV
+// and one Event parse no matter how many consumers inspect it (perf audit #21,
+// §29.25 处置委托 2026-07-10: the five per-line audits used to re-run the full
+// header regex up to 4× and re-parse the same line 2-3×, a measured 29×
+// windowed-build regression on GiB traces). The struct is reused across loop
+// iterations; reset() only clears the memo flags.
 type lineScan struct {
 	lineNo               int
 	line                 string
@@ -910,7 +1184,7 @@ func (s *lineScan) reset(lineNo int, line string) {
 func (s *lineScan) match() []string {
 	if !s.mTried {
 		s.mTried = true
-		s.m = ftraceLineRE.FindStringSubmatch(s.line)
+		s.m = matchFtraceLine(s.line)
 	}
 	return s.m
 }
@@ -2628,7 +2902,7 @@ func parseLineTimestamp(line string) (float64, bool) {
 	// monotonicity proof and anchor seeking.  It therefore uses the exact same
 	// anchored ftrace header grammar as ParseLine.  A timestamp-looking token
 	// in comm/field text must never be promoted into trace time.
-	m := ftraceLineRE.FindStringSubmatch(line)
+	m := matchFtraceLine(line)
 	if len(m) == 0 {
 		return 0, false
 	}
@@ -2651,7 +2925,7 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 // census an oversized line from a bounded prefix without allocating or
 // scanning the entire physical row.
 func ProbeEventNamePrefix(prefix string) (string, bool) {
-	match := ftraceLineRE.FindStringSubmatchIndex(prefix)
+	match := matchFtraceLineIndex(prefix)
 	// Full match plus seven capture groups => 16 indexes. Group 6 is the
 	// event token and occupies indexes 12/13.
 	if len(match) < 16 || match[12] < 0 || match[13] <= match[12] {
@@ -2670,6 +2944,39 @@ func ProbeEventNamePrefix(prefix string) (string, bool) {
 	}
 	name := strings.TrimSuffix(strings.TrimSpace(raw), ":")
 	return name, name != ""
+}
+
+// PhysicalFtraceHeaderProbe is a source-neutral observation of the elected
+// outer physical ftrace header. HeaderKnown is represented by the boolean return;
+// TimestampKnown is separate because malformed timestamp/CPU/PID scalars must
+// still stop body text from being reinterpreted as a second top-level header.
+// This probe grants no endpoint or pairing authority.
+type PhysicalFtraceHeaderProbe struct {
+	EventName      string
+	TimestampNS    uint64
+	TimestampKnown bool
+}
+
+// ProbePhysicalFtraceHeader locates one complete outer header shape using the
+// same bounded comm authority as ParseLine, while tolerating malformed scalar
+// values for quarantine/census adapters. Arbitrary "timestamp:event" prose is
+// rejected because the full comm-PID/TGID/CPU/flags envelope is mandatory.
+func ProbePhysicalFtraceHeader(line string) (PhysicalFtraceHeaderProbe, bool) {
+	match := matchFtraceLine(line)
+	if len(match) == 0 {
+		match = loosePhysicalFtraceLine(line)
+	}
+	if len(match) < 8 {
+		return PhysicalFtraceHeaderProbe{}, false
+	}
+	name := strings.TrimSuffix(strings.TrimSpace(match[6]), ":")
+	if name == "" {
+		return PhysicalFtraceHeaderProbe{}, false
+	}
+	ts, timestampKnown := parseTraceTimestampNanoseconds(match[5])
+	return PhysicalFtraceHeaderProbe{
+		EventName: name, TimestampNS: ts, TimestampKnown: timestampKnown,
+	}, true
 }
 
 // parseLineScan is ParseLine over the shared per-line memo: the header match
@@ -2942,6 +3249,12 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 			ev.ResourceFields.mmcPairing = &mmcPairingAdmission{
 				identityKnown: admission.identityKnown, payloadAdmitted: admission.payloadAdmitted,
 				device: intern.intern(admission.dev), opcode: intern.intern(admission.op),
+			}
+		}
+		if admission, governed := f2fsStorageWireAdmission(rawType, fields); governed {
+			ev.ResourceFields.f2fsPairing = &f2fsPairingAdmission{
+				identityKnown: admission.identityKnown, payloadAdmitted: admission.payloadAdmitted,
+				device: intern.intern(admission.dev), inode: intern.intern(admission.inode), operation: intern.intern(admission.op),
 			}
 		}
 		if exactWritebackObservationName(rawType) {
@@ -4813,10 +5126,20 @@ func normalizeFileRW(raw string) string {
 }
 
 func fileOperationFromEventName(name string) string {
-	name = strings.ToLower(strings.TrimSpace(name))
-	if name == "f2fs_write_begin" || name == "f2fs_write_end" {
-		return "write"
+	if profile, exact := exactF2FSPairingProfile(name); exact {
+		switch profile.SemanticBase {
+		case "f2fs_sync_file":
+			return "sync"
+		case "f2fs_write":
+			return "write"
+		default:
+			return ""
+		}
 	}
+	if F2FSClosedEndpointNameCandidate(name) {
+		return ""
+	}
+	name = strings.ToLower(strings.TrimSpace(name))
 	switch {
 	case strings.Contains(name, "dataread"):
 		return "read"

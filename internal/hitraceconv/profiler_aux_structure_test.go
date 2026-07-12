@@ -128,8 +128,8 @@ func TestProfilerStructuredAuxUsesOneTypedAuthorityBeforeLegacy(t *testing.T) {
 }
 
 func TestProfilerAuxCanonicalRendererPinsTruthfulLabels(t *testing.T) {
-	adapter := mustReadRendererSource(t, "profiler_aux_payload.go")
-	f2fs := sourceBetween(t, adapter, "case profilerAuxF2FS:", "case profilerAuxMMCStart:")
+	adapter := mustReadRendererSource(t, "direct_f2fs_payload.go")
+	f2fs := sourceBetween(t, adapter, "func renderCanonicalF2FSPayload(", "func f2fsRW(")
 	for _, required := range []string{"pino=0x%x", "cp_reason=%d", "pos=%d", "copied=%d", "FlagsPresent"} {
 		if !strings.Contains(f2fs, required) {
 			t.Fatalf("F2FS canonical truth field lost %q", required)
@@ -141,7 +141,8 @@ func TestProfilerAuxCanonicalRendererPinsTruthfulLabels(t *testing.T) {
 		}
 	}
 
-	mmcDoneArm := sourceBetween(t, adapter, "case profilerAuxMMCDone:", "default:")
+	auxAdapter := mustReadRendererSource(t, "profiler_aux_payload.go")
+	mmcDoneArm := sourceBetween(t, auxAdapter, "case profilerAuxMMCDone:", "default:")
 	if !strings.Contains(mmcDoneArm, "renderCanonicalMMCPayload(") {
 		t.Fatal("structured MMC no longer delegates to the source-neutral canonical renderer")
 	}

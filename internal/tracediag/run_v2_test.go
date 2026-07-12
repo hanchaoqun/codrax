@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
 const runV2PairingTrace = `      waker-10   (   10) [000] .... 0.995000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001
@@ -181,6 +183,35 @@ func TestRunV2EmptyDiscoveryBlocksOnlyDependentStep(t *testing.T) {
 	}
 	if strings.Contains(report, "label=raw_io view=event_search instance=1/2") {
 		t.Fatalf("empty dependency fabricated generated instances\n%s", report)
+	}
+}
+
+func TestResolveV2PlanNeverExpandsBudgetStoppedDiscoveryWindows(t *testing.T) {
+	script, err := ParseScript([]byte(runV2Script))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := &tracequery.WindowDiscoveryResult{
+		Complete:      false,
+		BudgetStopped: true,
+		Windows: []tracequery.DiscoveredWindow{{
+			Ordinal: 1, CandidateRank: 1, CandidateWindow: 1,
+			Family: tracequery.WindowDiscoveryFamilyBlock, Kind: "schema_probe", StartTs: 1, EndTs: 1.001,
+		}},
+	}
+	instances, err := resolveV2Plan(script, []v2DiscoveryOutcome{{spec: &script.Discoveries[0], result: stale}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(instances) != 2 {
+		t.Fatalf("budget-stopped stale window expanded the dependent step: %+v", instances)
+	}
+	dependent := instances[1]
+	if dependent.blockedErr == nil || !strings.Contains(dependent.blockedErr.Error(), "dependency_incomplete discovery=io_pairing complete=false budget_stopped=true") {
+		t.Fatalf("budget-stopped dependency was not explicitly blocked: %+v", dependent)
+	}
+	if dependent.step.windowSet || dependent.step.windowOrigin != nil || dependent.step.WindowsFrom == nil {
+		t.Fatalf("budget-stopped dependency inherited stale generated-window provenance: %+v", dependent.step)
 	}
 }
 

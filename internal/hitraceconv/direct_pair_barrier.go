@@ -160,6 +160,9 @@ func (barrier *directPairCaptureBarrier) poisonFormatFamilies(mask pairCriticalF
 	if mask&pairCriticalFormatFamilyMMC != 0 {
 		barrier.poisonedKinds[pairRenderMMC] = true
 	}
+	if mask&pairCriticalFormatFamilyF2FS != 0 {
+		barrier.poisonedKinds[pairRenderF2FS] = true
+	}
 }
 
 func (barrier *directPairCaptureBarrier) filter(rows []renderedRow) []renderedRow {
@@ -169,7 +172,7 @@ func (barrier *directPairCaptureBarrier) filter(rows []renderedRow) []renderedRo
 	// First prove that every pair-critical publisher row is represented by the
 	// frozen barrier. A missing/mismatched mapping is an authority failure: if
 	// it were handled row-locally, the remaining endpoints could still pair
-	// across the invisible physical row. Close both families before emitting
+	// across the invisible physical row. Close every governed family before emitting
 	// any pair row; inventory remains independent.
 	for _, row := range rows {
 		if row.pairKind == pairRenderUnknown || barrier.poisonedKinds[row.pairKind] {
@@ -215,7 +218,7 @@ func (barrier *directPairCaptureBarrier) admitLane(kind pairRenderKind, lane str
 		// The full pair-critical set can no longer be represented. This is a
 		// global proof-budget failure, not merely a busy family: publishing
 		// the other family would turn resource pressure into source-dependent
-		// correctness. Close both families and disclose the budget barrier.
+		// correctness. Close every governed family and disclose the budget barrier.
 		barrier.failBudget()
 		return false
 	}
@@ -229,6 +232,7 @@ func (barrier *directPairCaptureBarrier) failBudget() {
 	barrier.poisonedKinds[pairRenderWorkqueue] = true
 	barrier.poisonedKinds[pairRenderDMAFence] = true
 	barrier.poisonedKinds[pairRenderMMC] = true
+	barrier.poisonedKinds[pairRenderF2FS] = true
 	barrier.seenLanes = nil
 	barrier.poisonedLanes = nil
 }
@@ -238,7 +242,7 @@ func (barrier *directPairCaptureBarrier) poisonedFamilyCount() int {
 		return 0
 	}
 	count := 0
-	for _, kind := range []pairRenderKind{pairRenderWorkqueue, pairRenderDMAFence, pairRenderMMC} {
+	for _, kind := range []pairRenderKind{pairRenderWorkqueue, pairRenderDMAFence, pairRenderMMC, pairRenderF2FS} {
 		if barrier.poisonedKinds[kind] {
 			count++
 		}

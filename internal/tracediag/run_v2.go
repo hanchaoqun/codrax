@@ -225,7 +225,7 @@ func resolveV2Plan(script *Script, discoveries []v2DiscoveryOutcome) ([]v2StepIn
 	generatedWindows := 0
 	for _, outcome := range discoveries {
 		byLabel[outcome.spec.Label] = outcome
-		if outcome.result != nil {
+		if outcome.result != nil && outcome.result.Complete && !outcome.result.BudgetStopped {
 			generatedWindows += len(outcome.result.Windows)
 		}
 	}
@@ -245,6 +245,14 @@ func resolveV2Plan(script *Script, discoveries []v2DiscoveryOutcome) ([]v2StepIn
 		}
 		if outcome.err != nil {
 			instances = append(instances, v2StepInstance{step: logical, logicalOrdinal: i + 1, logicalLabel: logical.Label, instanceOrdinal: 1, instanceCount: 1, blockedErr: fmt.Errorf("dependency_failed discovery=%s: %w", outcome.spec.Label, outcome.err)})
+			continue
+		}
+		if outcome.result != nil && (!outcome.result.Complete || outcome.result.BudgetStopped) {
+			instances = append(instances, v2StepInstance{
+				step: logical, logicalOrdinal: i + 1, logicalLabel: logical.Label, instanceOrdinal: 1, instanceCount: 1,
+				blockedErr: fmt.Errorf("dependency_incomplete discovery=%s complete=%t budget_stopped=%t; no generated window is collectible",
+					outcome.spec.Label, outcome.result.Complete, outcome.result.BudgetStopped),
+			})
 			continue
 		}
 		if outcome.result == nil || len(outcome.result.Windows) == 0 {

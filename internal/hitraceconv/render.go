@@ -56,6 +56,10 @@ func renderEventLineDecisionWithPairAudit(ctx renderContext, tsNS uint64, cpu in
 	if directMMCNameGoverned(format.Name) {
 		pairAudit = directMMCAudit(ev, mmcPayload)
 	}
+	f2fsPayload, _, _ := decodeDirectF2FSPayload(ev)
+	if directF2FSNameGoverned(format.Name) {
+		pairAudit = directF2FSAudit(ev, f2fsPayload)
+	}
 	prefix, envelopeOK := renderEventPrefix(ctx, tsNS, cpu, ev)
 	if !envelopeOK {
 		return "", bodyUnsupported, "", false, pairAudit
@@ -70,12 +74,17 @@ func renderEventLineDecisionWithPairAudit(ctx renderContext, tsNS uint64, cpu in
 				!pairAudit.Verdict.EmitterKnown || !pairAudit.Verdict.EmitterAdmitted ||
 				!directMMCWireParity(mmcPayload, body, pairAudit.Verdict)) {
 			admission, reason = bodyRejected, "pairing_endpoint_rejected"
-		} else if pairAudit.Kind != pairRenderMMC && admission == bodyAdmitted &&
+		} else if pairAudit.Kind == pairRenderF2FS && admission == bodyAdmitted && envelopeOK &&
+			(!pairAudit.Verdict.KeyKnown || !pairAudit.Verdict.PayloadAdmitted ||
+				!pairAudit.Verdict.EmitterKnown || !pairAudit.Verdict.EmitterAdmitted ||
+				!directF2FSWireParity(f2fsPayload, body, pairAudit.Verdict)) {
+			admission, reason = bodyRejected, "pairing_endpoint_rejected"
+		} else if pairAudit.Kind != pairRenderMMC && pairAudit.Kind != pairRenderF2FS && admission == bodyAdmitted &&
 			(!pairAudit.Verdict.KeyKnown || !pairAudit.Verdict.PayloadAdmitted ||
 				!pairAudit.Verdict.EmitterKnown || !pairAudit.Verdict.EmitterAdmitted) {
 			admission, reason = bodyRejected, "pairing_endpoint_rejected"
 		}
-		if pairAudit.Kind != pairRenderMMC && admission == bodyAdmitted &&
+		if pairAudit.Kind != pairRenderMMC && pairAudit.Kind != pairRenderF2FS && admission == bodyAdmitted &&
 			!pairPayloadWireParity(pairAudit.Payload, body, pairAudit.HeaderTID, pairAudit.Verdict) {
 			admission, reason = bodyRejected, "pairing_endpoint_wire_parity"
 		}
@@ -88,7 +97,7 @@ func renderEventLineDecisionWithPairAudit(ctx renderContext, tsNS uint64, cpu in
 	_, coreGoverned := coreRenderKindForName(format.Name)
 	if (coreGoverned || directMarkerNameGoverned(format.Name) || directPairNameGoverned(format.Name) ||
 		directBusNameGoverned(format.Name) || directFilemapNameGoverned(format.Name) ||
-		directMMCNameGoverned(format.Name)) &&
+		directMMCNameGoverned(format.Name) || directF2FSNameGoverned(format.Name)) &&
 		!traceDBSinglePhysicalLine(line, false) {
 		return line, bodyRejected, "invalid_rendered_line", true, pairAudit
 	}
@@ -253,6 +262,17 @@ func renderEventBodyDecisionWithPair(ctx coreDecodeContext, ev decodedEvent, con
 	case bodyRejected:
 		return "", bodyRejected, reason
 	}
+	f2fs, admission, reason := decodeDirectF2FSPayload(ev)
+	switch admission {
+	case bodyAdmitted:
+		body, ok := renderCanonicalF2FSPayload(f2fs)
+		if !ok {
+			return "", bodyRejected, "invalid_canonical_f2fs_payload"
+		}
+		return body, bodyAdmitted, ""
+	case bodyRejected:
+		return "", bodyRejected, reason
+	}
 	mmc, admission, reason := decodeDirectMMCPayload(ev, content)
 	switch admission {
 	case bodyAdmitted:
@@ -268,6 +288,11 @@ func renderEventBodyDecisionWithPair(ctx coreDecodeContext, ev decodedEvent, con
 		// Exact MMC names were handled by the strict decoder above. Prefix,
 		// case, whitespace and suffix drift stays header-only inventory and
 		// must not fall through to the generic legacy KV renderer.
+		return "", bodyUnsupported, ""
+	}
+	if directF2FSNameCandidate(ev.format.Name) {
+		// Only the six byte-exact producer names above can carry F2FS endpoint
+		// authority. Near/case/suffix drift remains header-only inventory.
 		return "", bodyUnsupported, ""
 	}
 	body, known := renderLegacyEventBody(ev, content, cpu)

@@ -398,7 +398,7 @@ func (t *durationOrderTracker) observeAll(ev Event) []durationOrderViolation {
 		if pairingSeen && ev.Ts < pairingPrevious {
 			out = append(out, durationOrderViolation{
 				Family: lane.family, Lane: durationOrderLaneLabel(lane), LaneKey: lane.key,
-				PreviousTs: pairingPrevious, CurrentTs: ev.Ts, Line: ev.Line,
+				EventName: ev.Name, PreviousTs: pairingPrevious, CurrentTs: ev.Ts, Line: ev.Line,
 			})
 		}
 		previous, seen := t.last[lane]
@@ -421,7 +421,7 @@ func (t *durationOrderTracker) observeAll(ev Event) []durationOrderViolation {
 		if seen && !durationFamilyUsesHardPairingLane(lane.family) && ev.Ts < previous {
 			out = append(out, durationOrderViolation{
 				Family: lane.family, Lane: durationOrderLaneLabel(lane), LaneKey: lane.key,
-				PreviousTs: previous, CurrentTs: ev.Ts, Line: ev.Line,
+				EventName: ev.Name, PreviousTs: previous, CurrentTs: ev.Ts, Line: ev.Line,
 			})
 		}
 		switch observation.phase {
@@ -781,12 +781,19 @@ func ensureDurationOrderEventScan(idx *Index) ([]durationOrderViolation, map[dur
 // that source-family. Only unresolved provenance or bounded-audit overflow is
 // the precise signal that requires whole-bundle family fail-close.
 type durationPairingIntegrity struct {
-	family               durationOrderFamily
-	familyGlobal         bool
-	topologyIncomplete   bool
-	poisonedLanes        map[string]bool
-	laneSources          map[string]string
-	poisonedSources      map[string]bool
+	family             durationOrderFamily
+	familyGlobal       bool
+	topologyIncomplete bool
+	poisonedLanes      map[string]bool
+	laneSources        map[string]string
+	laneSourceScopes   map[string]string
+	poisonedSources    map[string]bool
+	// poisonedSourceScopes is used only by the generic-storage integrity.
+	// A malformed exact endpoint whose request key is unknowable still has an
+	// exact layer/base scope; quarantine that source-local scope instead of
+	// suppressing unrelated storage protocols in the same artifact.
+	poisonedSourceScopes map[string]bool
+	sourceScopeSources   map[string]string
 	exactWitnesses       int
 	sourceWitnesses      int
 	globalWitnesses      int
@@ -809,7 +816,8 @@ func newDurationPairingIntegrityWithBudget(family durationOrderFamily, budget in
 		budget = durationOrderTrackerLaneBudget
 	}
 	return &durationPairingIntegrity{
-		family: family, poisonedLanes: map[string]bool{}, laneSources: map[string]string{}, poisonedSources: map[string]bool{}, laneBudget: budget,
+		family: family, poisonedLanes: map[string]bool{}, laneSources: map[string]string{}, laneSourceScopes: map[string]string{}, poisonedSources: map[string]bool{},
+		poisonedSourceScopes: map[string]bool{}, sourceScopeSources: map[string]string{}, laneBudget: budget,
 	}
 }
 
@@ -944,11 +952,18 @@ func durationPairingFailureLane(idx *Index, failure durationOrderViolation) (str
 	return encodePairingKey(source, string(pairingFamily), failure.LaneKey), source, true
 }
 
+func (integrity *durationPairingIntegrity) quarantineCount() int {
+	if integrity == nil {
+		return 0
+	}
+	return len(integrity.poisonedLanes) + len(integrity.poisonedSources) + len(integrity.poisonedSourceScopes)
+}
+
 func (integrity *durationPairingIntegrity) poisonLane(lane, source string) bool {
 	if integrity == nil || lane == "" || source == "" || integrity.familyGlobal || integrity.poisonedSources[source] || integrity.poisonedLanes[lane] {
 		return false
 	}
-	if len(integrity.poisonedLanes)+len(integrity.poisonedSources) >= integrity.laneBudget {
+	if integrity.quarantineCount() >= integrity.laneBudget {
 		integrity.familyGlobal = true
 		integrity.budgetExceeded = true
 		integrity.globalWitnesses++
@@ -959,6 +974,23 @@ func (integrity *durationPairingIntegrity) poisonLane(lane, source string) bool 
 	return true
 }
 
+func (integrity *durationPairingIntegrity) poisonLaneForEvent(lane, source, eventName string) bool {
+	if integrity == nil {
+		return false
+	}
+	if scope, ok := genericStorageSourceScope(source, eventName); ok {
+		if integrity.poisonedSourceScopes[scope] {
+			return false
+		}
+		if !integrity.poisonLane(lane, source) {
+			return false
+		}
+		integrity.laneSourceScopes[lane] = scope
+		return true
+	}
+	return integrity.poisonLane(lane, source)
+}
+
 func (integrity *durationPairingIntegrity) poisonSource(source string) bool {
 	if integrity == nil || source == "" || integrity.familyGlobal || integrity.poisonedSources[source] {
 		return false
@@ -967,9 +999,16 @@ func (integrity *durationPairingIntegrity) poisonSource(source string) bool {
 		if laneSource == source {
 			delete(integrity.poisonedLanes, lane)
 			delete(integrity.laneSources, lane)
+			delete(integrity.laneSourceScopes, lane)
 		}
 	}
-	if len(integrity.poisonedLanes)+len(integrity.poisonedSources) >= integrity.laneBudget {
+	for scope, scopeSource := range integrity.sourceScopeSources {
+		if scopeSource == source {
+			delete(integrity.poisonedSourceScopes, scope)
+			delete(integrity.sourceScopeSources, scope)
+		}
+	}
+	if integrity.quarantineCount() >= integrity.laneBudget {
 		integrity.familyGlobal = true
 		integrity.budgetExceeded = true
 		integrity.globalWitnesses++
@@ -979,13 +1018,64 @@ func (integrity *durationPairingIntegrity) poisonSource(source string) bool {
 	return true
 }
 
+func (integrity *durationPairingIntegrity) poisonStorageSourceScope(source, eventName string) (handled, added bool) {
+	if integrity == nil || integrity.family != durationOrderStorage {
+		return false, false
+	}
+	scope, ok := genericStorageSourceScope(source, eventName)
+	if !ok {
+		return false, false
+	}
+	// Once the exact profile scope is known, repeated witnesses stay handled
+	// by that same scope.  Falling through to poisonSource merely because the
+	// scope was already present would widen the second malformed row into an
+	// unrelated-protocol outage.
+	if integrity.familyGlobal || integrity.poisonedSources[source] || integrity.poisonedSourceScopes[scope] {
+		return true, false
+	}
+	// A source-scope witness dominates every exact lane already quarantined in
+	// that scope. Remove the subordinate entries before applying the bounded
+	// budget so lane->scope replacement consumes one slot rather than
+	// spuriously overflowing at the same cardinality.
+	for lane, laneScope := range integrity.laneSourceScopes {
+		if laneScope == scope {
+			delete(integrity.poisonedLanes, lane)
+			delete(integrity.laneSources, lane)
+			delete(integrity.laneSourceScopes, lane)
+		}
+	}
+	if integrity.quarantineCount() >= integrity.laneBudget {
+		integrity.familyGlobal = true
+		integrity.budgetExceeded = true
+		integrity.globalWitnesses++
+		return true, false
+	}
+	integrity.poisonedSourceScopes[scope] = true
+	integrity.sourceScopeSources[scope] = source
+	return true, true
+}
+
+func (integrity *durationPairingIntegrity) sourcePoisoned(source, eventName string) bool {
+	if integrity == nil {
+		return false
+	}
+	if integrity.familyGlobal || integrity.poisonedSources[source] {
+		return true
+	}
+	if integrity.family != durationOrderStorage {
+		return false
+	}
+	scope, ok := genericStorageSourceScope(source, eventName)
+	return ok && integrity.poisonedSourceScopes[scope]
+}
+
 func applyDurationPairingFailure(idx *Index, integrity *durationPairingIntegrity, failure durationOrderViolation) {
 	if integrity == nil {
 		return
 	}
 	lane, source, ok := durationPairingFailureLane(idx, failure)
 	if ok {
-		if integrity.poisonLane(lane, source) {
+		if integrity.poisonLaneForEvent(lane, source, failure.EventName) {
 			integrity.exactWitnesses++
 		}
 		if integrity.firstExactFailure == nil {
@@ -995,6 +1085,16 @@ func applyDurationPairingFailure(idx *Index, integrity *durationPairingIntegrity
 		return
 	}
 	if source, sourceOK := durationPairingFailureSource(idx, failure); sourceOK {
+		if handled, added := integrity.poisonStorageSourceScope(source, failure.EventName); handled {
+			if added {
+				integrity.sourceWitnesses++
+			}
+			if integrity.firstSourceFailure == nil {
+				copy := failure
+				integrity.firstSourceFailure = &copy
+			}
+			return
+		}
 		if integrity.poisonSource(source) {
 			integrity.sourceWitnesses++
 		}
@@ -1117,6 +1217,12 @@ func (integrity *durationPairingIntegrity) rejectEvent(idx *Index, ev Event, ver
 		return
 	}
 	if !verdict.Recognized || verdict.Family != wantFamily || !verdict.KeyKnown || !verdict.EmitterKnown {
+		if handled, added := integrity.poisonStorageSourceScope(source, ev.Name); handled {
+			if added {
+				integrity.sourceWitnesses++
+			}
+			return
+		}
 		if integrity.poisonSource(source) {
 			integrity.sourceWitnesses++
 		}
@@ -1128,7 +1234,7 @@ func (integrity *durationPairingIntegrity) rejectEvent(idx *Index, ev Event, ver
 		integrity.globalWitnesses++
 		return
 	}
-	if integrity.poisonLane(lane, source) {
+	if integrity.poisonLaneForEvent(lane, source, ev.Name) {
 		integrity.exactWitnesses++
 	}
 }
@@ -1148,12 +1254,12 @@ func (integrity *durationPairingIntegrity) caveats(outputs string) []string {
 		return []string{fmt.Sprintf("duration_pairing_fail_closed=true; %s; omitted affected output family=%s because an endpoint key/source or bounded audit coverage was not provable", reason, outputs)}
 	}
 	var out []string
-	if len(integrity.poisonedSources) > 0 {
+	if len(integrity.poisonedSources) > 0 || len(integrity.poisonedSourceScopes) > 0 {
 		reason := "source-scoped endpoint key or owner was not provable"
 		if integrity.firstSourceFailure != nil {
 			reason = integrity.firstSourceFailure.reason()
 		}
-		out = append(out, fmt.Sprintf("duration_pairing_source_fail_closed=true; family=%s sources=%d witnesses=%d; %s; omitted only affected physical-source families from output family=%s", integrity.family, len(integrity.poisonedSources), integrity.sourceWitnesses, reason, outputs))
+		out = append(out, fmt.Sprintf("duration_pairing_source_fail_closed=true; family=%s sources=%d source_scopes=%d witnesses=%d; %s; omitted only affected physical-source families/scopes from output family=%s", integrity.family, len(integrity.poisonedSources), len(integrity.poisonedSourceScopes), integrity.sourceWitnesses, reason, outputs))
 	}
 	if len(integrity.poisonedLanes) == 0 {
 		return out

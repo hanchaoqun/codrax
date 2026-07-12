@@ -8677,6 +8677,9 @@ func accumulateSubsystemEvent(byKind map[string]SubsystemEventSummary, ev Event)
 	if !mmcSemanticPayloadAdmitted(ev) {
 		return
 	}
+	if !f2fsSemanticPayloadAdmitted(ev) {
+		return
+	}
 	kind := firstNonEmpty(ev.SubsystemKind, subsystemKindForEventType(ev.Type))
 	if kind == "" {
 		return
@@ -8784,7 +8787,14 @@ func accumulateRuntimeResource(bio, filesystem, pageFault map[string]*RuntimeRes
 	if rf.LatencyMs > item.MaxLatencyMs {
 		item.MaxLatencyMs = rf.LatencyMs
 	}
-	item.Bytes += rf.Bytes
+	bytes := rf.Bytes
+	if profile, exact := exactF2FSPairingProfile(ev.Name); exact && profile.Phase != PairingEndpointStart {
+		// F2FS start/done both carry the request length. RuntimeResources is an
+		// aggregate request account, so the completion row must not count the
+		// same bytes a second time; copied/ret remain disclosure only.
+		bytes = 0
+	}
+	item.Bytes = addSaturatedBytes(item.Bytes, bytes)
 	if item.Line == 0 || ev.Line < item.Line {
 		item.Line = ev.Line
 		item.Ts = ev.Ts
@@ -8803,6 +8813,9 @@ func accumulateRuntimeResource(bio, filesystem, pageFault map[string]*RuntimeRes
 
 func runtimeResourceKind(ev Event) string {
 	if isWritebackObservation(ev) {
+		return ""
+	}
+	if !f2fsSemanticPayloadAdmitted(ev) {
 		return ""
 	}
 	text := strings.ToLower(ev.Name + " " + ev.SubsystemKind + " " + ev.FieldText)
@@ -8878,9 +8891,9 @@ func accumulateFileIO(out map[string]*FileIOSummary, ev Event) {
 	if fileIOCountsAsActivity(ev) {
 		item.Count++
 		if ff.Len > 0 {
-			item.Bytes += ff.Len
+			item.Bytes = addSaturatedBytes(item.Bytes, ff.Len)
 		} else if rf.Bytes > 0 {
-			item.Bytes += rf.Bytes
+			item.Bytes = addSaturatedBytes(item.Bytes, rf.Bytes)
 		}
 	} else {
 		item.CompletionCount++
@@ -8988,9 +9001,9 @@ func accumulatePageCache(out map[string]*PageCacheSummary, ev Event) {
 	}
 	item.Churn = item.Adds + item.Deletes
 	if ff.Len > 0 {
-		item.Bytes += ff.Len
+		item.Bytes = addSaturatedBytes(item.Bytes, ff.Len)
 	} else if rf.Bytes > 0 {
-		item.Bytes += rf.Bytes
+		item.Bytes = addSaturatedBytes(item.Bytes, rf.Bytes)
 	}
 	applyOffsetRange(&item.MinOffset, &item.MaxOffset, ff.Offset)
 	applyLineRange(&item.LineStart, &item.LineEnd, ev.Line)
@@ -9139,7 +9152,7 @@ func computeTopIOInodes(fileIO map[string]*FileIOSummary, pageCache map[string]*
 		case "write", "write_bio":
 			acc.item.WriteCount += member.Count
 		}
-		acc.item.Bytes += member.Bytes
+		acc.item.Bytes = addSaturatedBytes(acc.item.Bytes, member.Bytes)
 		if member.MaxLatencyMs > acc.item.MaxLatencyMs {
 			acc.item.MaxLatencyMs = member.MaxLatencyMs
 		}
@@ -9237,7 +9250,8 @@ type storageLatencyLane struct {
 	source     string
 	identity   genericStorageIdentity
 	eventCount int
-	bytes      int64
+	startBytes int64
+	doneBytes  int64
 	inode      string
 	entryName  string
 }
@@ -9320,7 +9334,7 @@ func computeStorageLatencyByLayer(idx *Index, q Query, blockSummaries []StorageL
 				continue
 			}
 			key, source, identity, phase := decoded.key, decoded.source, decoded.identity, decoded.phase
-			if integrity.poisonedSources[source] {
+			if integrity.sourcePoisoned(source, ev.Name) {
 				continue
 			}
 			if integrity.poisonedLanes[key] {
@@ -9334,12 +9348,17 @@ func computeStorageLatencyByLayer(idx *Index, q Query, blockSummaries []StorageL
 			}
 			if phase == "start" && lane.cohort.depth == 0 {
 				lane.eventCount = 0
-				lane.bytes = 0
+				lane.startBytes = 0
+				lane.doneBytes = 0
 				lane.inode = ""
 				lane.entryName = ""
 			}
 			lane.eventCount++
-			lane.bytes += genericStorageEndpointBytes(ev)
+			if phase == "start" {
+				lane.startBytes = addSaturatedBytes(lane.startBytes, genericStorageEndpointBytes(ev))
+			} else {
+				lane.doneBytes = addSaturatedBytes(lane.doneBytes, genericStorageEndpointBytes(ev))
+			}
 			if ff := ev.FileFields; ff != nil {
 				if lane.inode == "" {
 					lane.inode = ff.Ino
@@ -9426,6 +9445,34 @@ func computeStorageLatencyByLayer(idx *Index, q Query, blockSummaries []StorageL
 	return out, caveats
 }
 
+func addSaturatedBytes(total, value int64) int64 {
+	if value <= 0 {
+		return total
+	}
+	if total > math.MaxInt64-value {
+		return math.MaxInt64
+	}
+	return total + value
+}
+
+func genericStorageCohortBytes(lane *storageLatencyLane) int64 {
+	if lane == nil {
+		return 0
+	}
+	// The six exact F2FS endpoints repeat one request length on both sides.
+	// Count that request once. Other generic-storage profiles retain their
+	// established per-physical-endpoint accounting; changing them here would be
+	// an unrelated semantic migration hidden inside the F2FS authority batch.
+	switch lane.identity.Base {
+	case "f2fs_sync_file", "f2fs_direct_io", "f2fs_write":
+		if lane.startBytes >= lane.doneBytes {
+			return lane.startBytes
+		}
+		return lane.doneBytes
+	}
+	return addSaturatedBytes(lane.startBytes, lane.doneBytes)
+}
+
 func storageLatencyAccumulatorForIdentity(accs map[string]*storageLatencyAcc, lane *storageLatencyLane, ev Event) *storageLatencyAcc {
 	if lane == nil || lane.pairingKey == "" {
 		return nil
@@ -9468,7 +9515,7 @@ func accountGenericStorageTransition(accs map[string]*storageLatencyAcc, lane *s
 			return
 		}
 		acc.item.Count += lane.eventCount
-		acc.item.Bytes += lane.bytes
+		acc.item.Bytes = addSaturatedBytes(acc.item.Bytes, genericStorageCohortBytes(lane))
 		acc.item.UnpairedDoneCount++
 		observeGenericStorageEnvelope(acc, transition.last, transition.last)
 		return
@@ -9481,7 +9528,7 @@ func accountGenericStorageTransition(accs map[string]*storageLatencyAcc, lane *s
 		return
 	}
 	acc.item.Count += lane.eventCount
-	acc.item.Bytes += lane.bytes
+	acc.item.Bytes = addSaturatedBytes(acc.item.Bytes, genericStorageCohortBytes(lane))
 	observeGenericStorageEnvelope(acc, transition.first, transition.last)
 	if transition.ambiguous {
 		acc.item.AmbiguousCohortCount++
@@ -9509,7 +9556,7 @@ func accountGenericStorageOpen(accs map[string]*storageLatencyAcc, lane *storage
 		return
 	}
 	acc.item.Count += lane.eventCount
-	acc.item.Bytes += lane.bytes
+	acc.item.Bytes = addSaturatedBytes(acc.item.Bytes, genericStorageCohortBytes(lane))
 	observeGenericStorageEnvelope(acc, transition.first, transition.last)
 	if transition.ambiguous {
 		acc.item.AmbiguousCohortCount++
@@ -9558,7 +9605,7 @@ func computeIOPressureSummary(stats WindowStats) *IOPressureSummary {
 	var fileEvents int
 	var topFile FileIOSummary
 	for _, item := range stats.FileIOByInode {
-		fileBytes += item.Bytes
+		fileBytes = addSaturatedBytes(fileBytes, item.Bytes)
 		fileEvents += fileIOEffectiveEventCount(item)
 		if topFile.Inode == "" || item.Bytes > topFile.Bytes || (item.Bytes == topFile.Bytes && item.Count > topFile.Count) {
 			topFile = item
@@ -9644,7 +9691,12 @@ func computeBlockIOByInode(stats WindowStats, max int) []BlockIOByInodeSummary {
 		if inode == "" && entry == "" {
 			return nil
 		}
-		key := strings.Join([]string{firstNonEmpty(dev, "unknown"), firstNonEmpty(inode, "unknown"), fmt.Sprintf("%d", thread.PID)}, "/")
+		// Pairing identities canonicalize dev_t as major,minor while canonical
+		// F2FS/file rows display major:minor. They are the same physical device;
+		// normalize only the fold key so the storage latency rejoins its inode
+		// row without rewriting the user-visible producer spelling.
+		deviceKey := canonicalGenericStorageDevice(firstNonEmpty(dev, "unknown"))
+		key := strings.Join([]string{deviceKey, firstNonEmpty(inode, "unknown"), fmt.Sprintf("%d", thread.PID)}, "/")
 		acc := accs[key]
 		if acc == nil {
 			acc = &blockInodeAcc{item: BlockIOByInodeSummary{
@@ -9682,7 +9734,7 @@ func computeBlockIOByInode(stats WindowStats, max int) []BlockIOByInodeSummary {
 		if acc == nil {
 			continue
 		}
-		acc.item.FileIOBytes += file.Bytes
+		acc.item.FileIOBytes = addSaturatedBytes(acc.item.FileIOBytes, file.Bytes)
 	}
 	for _, cache := range stats.PageCacheByInode {
 		acc := ensure(cache.Dev, cache.Inode, "", cache.Thread, "page_cache", cache.LineStart, cache.LineEnd, cache.StartTs, cache.EndTs)
@@ -19897,6 +19949,9 @@ func evidenceFromEvents(events []EventView) []EvidenceFact {
 		if mmcPairingNameCandidate(ev.Name) && !mmcSemanticPayloadAdmitted(ev.Event) {
 			continue
 		}
+		if F2FSClosedEndpointNameCandidate(ev.Name) && !f2fsSemanticPayloadAdmitted(ev.Event) {
+			continue
+		}
 		out = append(out, EvidenceFact{
 			Subject:    threadLabel(ThreadRef{Comm: ev.Comm, PID: ev.PID, TGID: ev.TGID}),
 			Predicate:  string(ev.Type),
@@ -20498,6 +20553,9 @@ func isFileIOEvent(ev Event) bool {
 	if isWritebackObservation(ev) {
 		return false
 	}
+	if !f2fsSemanticPayloadAdmitted(ev) {
+		return false
+	}
 	name := strings.ToLower(ev.Name)
 	ff := ev.FileFields
 	if ff == nil || (ff.Ino == "" && ff.Entry == "" && ff.Dev == "") {
@@ -20519,6 +20577,12 @@ func isFileIOEvent(ev Event) bool {
 }
 
 func fileIOCountsAsActivity(ev Event) bool {
+	if profile, exact := exactF2FSPairingProfile(ev.Name); exact {
+		return profile.Phase == PairingEndpointStart && f2fsSemanticPayloadAdmitted(ev)
+	}
+	if F2FSClosedEndpointNameCandidate(ev.Name) {
+		return false
+	}
 	name := strings.ToLower(ev.Name)
 	if strings.HasSuffix(name, "_end") || strings.HasSuffix(name, "_exit") || strings.HasSuffix(name, "_done") {
 		return false
@@ -20532,6 +20596,9 @@ func isPageCacheEvent(ev Event) bool {
 
 func isStorageLatencyEvent(ev Event) bool {
 	if isWritebackObservation(ev) {
+		return false
+	}
+	if !f2fsSemanticPayloadAdmitted(ev) {
 		return false
 	}
 	if ev.Type == EventBlockIssue || ev.Type == EventBlockComplete {
@@ -20551,6 +20618,12 @@ func storageLatencyLayer(ev Event) string {
 		return profile.Layer
 	}
 	if mmcPairingNameCandidate(ev.Name) {
+		return ""
+	}
+	if profile, exact := exactF2FSPairingProfile(ev.Name); exact {
+		return profile.Layer
+	}
+	if f2fsElapsedPairingNameCandidate(ev.Name) {
 		return ""
 	}
 	name := strings.ToLower(ev.Name)
@@ -20588,6 +20661,12 @@ func storageLatencyBaseAndPhase(ev Event) (base, phase string) {
 		return profile.SemanticBase, string(profile.Phase)
 	}
 	if mmcPairingNameCandidate(ev.Name) {
+		return "", ""
+	}
+	if profile, exact := exactF2FSPairingProfile(ev.Name); exact {
+		return profile.SemanticBase, string(profile.Phase)
+	}
+	if f2fsElapsedPairingNameCandidate(ev.Name) {
 		return "", ""
 	}
 	name := strings.ToLower(strings.TrimSpace(ev.Name))

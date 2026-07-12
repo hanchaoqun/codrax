@@ -172,8 +172,10 @@ type WindowDiscoveryCandidate struct {
 	StartEndpoint           *WindowDiscoveryEndpointProvenance `json:"start_endpoint,omitempty"`
 	EndEndpoint             *WindowDiscoveryEndpointProvenance `json:"end_endpoint,omitempty"`
 
-	events  []Event
-	windows []DiscoveredWindow
+	events       []Event
+	windows      []DiscoveredWindow
+	laneKey      string
+	storageScope string
 }
 
 // DiscoveredWindow is the sole typed hand-off from a discovery strategy to a
@@ -240,6 +242,7 @@ type pairingDiscoveryLane struct {
 	lastTs          float64
 	lastTsSet       bool
 	pid             int
+	storageScope    string
 }
 
 type pairingDiscoveryOwner struct {
@@ -247,21 +250,36 @@ type pairingDiscoveryOwner struct {
 	pid    int
 }
 
+type pairingDiscoveryPoisonRecord struct {
+	family WindowDiscoveryFamily
+	scope  string
+	// Rollback diagnostics intentionally retain their candidate once. A later
+	// malformed endpoint on the same lane performs the one required cleanup;
+	// repeated witnesses then stay O(1).
+	stateCleared bool
+}
+
 type pairingWindowDiscovery struct {
-	req                WindowDiscoveryRequest
-	scope              Query
-	source             string
-	families           map[WindowDiscoveryFamily]bool
-	stats              map[WindowDiscoveryFamily]*WindowDiscoveryFamilyStats
-	lanes              map[string]*pairingDiscoveryLane
-	laneOwners         map[string]pairingDiscoveryOwner
-	ownerLanes         map[pairingDiscoveryOwner]map[string]struct{}
-	ambiguous          []*WindowDiscoveryCandidate
-	schema             map[WindowDiscoveryFamily]*WindowDiscoveryCandidate
-	endpointCount      int
-	budgetStopped      bool
-	poolTruncated      bool
-	identityIncomplete bool
+	req                   WindowDiscoveryRequest
+	scope                 Query
+	source                string
+	families              map[WindowDiscoveryFamily]bool
+	stats                 map[WindowDiscoveryFamily]*WindowDiscoveryFamilyStats
+	lanes                 map[string]*pairingDiscoveryLane
+	laneOwners            map[string]pairingDiscoveryOwner
+	ownerLanes            map[pairingDiscoveryOwner]map[string]struct{}
+	poisonedLanes         map[string]pairingDiscoveryPoisonRecord
+	poisonedScopes        map[string]bool
+	poisonedFamilies      map[WindowDiscoveryFamily]bool
+	ambiguous             []*WindowDiscoveryCandidate
+	schema                []*WindowDiscoveryCandidate
+	endpointCount         int
+	budgetStopped         bool
+	poolTruncated         bool
+	identityIncomplete    bool
+	auditFailureCount     int
+	auditCapped           bool
+	quarantineEscalations int
 }
 
 func DiscoverWindows(ctx context.Context, path string, flavorHint TraceFlavor, request WindowDiscoveryRequest) (WindowDiscoveryResult, error) {
@@ -278,7 +296,7 @@ func DiscoverWindows(ctx context.Context, path string, flavorHint TraceFlavor, r
 	switch req.Strategy {
 	case WindowDiscoveryPairingIntegrity:
 		d := newPairingWindowDiscovery(req, canonicalPath)
-		shell, err = StreamScan(ctx, path, flavorHint, func(ev Event) bool { return d.observe(ev) })
+		shell, err = streamScanWithPairingAudit(ctx, path, flavorHint, func(ev Event) bool { return d.observe(ev) })
 		if err == nil {
 			if windowDiscoveryAfterStreamScanHook != nil {
 				windowDiscoveryAfterStreamScanHook()
@@ -397,15 +415,17 @@ func normalizeWindowDiscoveryRequest(in WindowDiscoveryRequest) (WindowDiscovery
 
 func newPairingWindowDiscovery(req WindowDiscoveryRequest, source string) *pairingWindowDiscovery {
 	d := &pairingWindowDiscovery{
-		req:        req,
-		scope:      Query{TimeStart: req.TimeStart, TimeEnd: req.TimeEnd, TimeStartSet: req.TimeStartSet, TimeEndSet: req.TimeEndSet, LineStart: req.LineStart, LineEnd: req.LineEnd},
-		source:     source,
-		families:   map[WindowDiscoveryFamily]bool{},
-		stats:      map[WindowDiscoveryFamily]*WindowDiscoveryFamilyStats{},
-		lanes:      map[string]*pairingDiscoveryLane{},
-		laneOwners: map[string]pairingDiscoveryOwner{},
-		ownerLanes: map[pairingDiscoveryOwner]map[string]struct{}{},
-		schema:     map[WindowDiscoveryFamily]*WindowDiscoveryCandidate{},
+		req:              req,
+		scope:            Query{TimeStart: req.TimeStart, TimeEnd: req.TimeEnd, TimeStartSet: req.TimeStartSet, TimeEndSet: req.TimeEndSet, LineStart: req.LineStart, LineEnd: req.LineEnd},
+		source:           source,
+		families:         map[WindowDiscoveryFamily]bool{},
+		stats:            map[WindowDiscoveryFamily]*WindowDiscoveryFamilyStats{},
+		lanes:            map[string]*pairingDiscoveryLane{},
+		laneOwners:       map[string]pairingDiscoveryOwner{},
+		ownerLanes:       map[pairingDiscoveryOwner]map[string]struct{}{},
+		poisonedLanes:    map[string]pairingDiscoveryPoisonRecord{},
+		poisonedScopes:   map[string]bool{},
+		poisonedFamilies: map[WindowDiscoveryFamily]bool{},
 	}
 	for _, family := range req.Families {
 		d.families[family] = true
@@ -421,35 +441,37 @@ type pairingDiscoveryEndpoint struct {
 	identity string
 	pid      int
 	valid    bool
+	keyKnown bool
+	scope    string
 }
 
 func (d *pairingWindowDiscovery) decode(ev Event) (pairingDiscoveryEndpoint, bool) {
 	if d.families[WindowDiscoveryFamilyBlock] {
 		family, phase, endpoint := blockLatencyEndpoint(ev)
 		if endpoint {
-			identity, valid := blockIdentity(ev)
 			phaseName := "start"
 			if phase == blockEndpointDone {
 				phaseName = "done"
 			}
-			if !valid {
-				return pairingDiscoveryEndpoint{family: WindowDiscoveryFamilyBlock, phase: phaseName}, true
+			label := ""
+			if identity, identityValid := blockIdentity(ev); identityValid {
+				label = fmt.Sprintf("family=%s dev=%s op=%s sector=%d len=%d", family, identity.Dev, identity.Op, identity.Sector, identity.Len)
 			}
-			label := fmt.Sprintf("family=%s dev=%s op=%s sector=%d len=%d", family, identity.Dev, identity.Op, identity.Sector, identity.Len)
 			verdict := fingerprintPairingEvent(ev)
 			key, keyKnown := verdict.LaneKey(d.source)
-			keyKnown = keyKnown && verdict.Family == PairingEndpointBlock && verdict.PayloadAdmitted && verdict.EmitterKnown && verdict.EmitterAdmitted &&
+			valid := keyKnown && verdict.Family == PairingEndpointBlock && verdict.PayloadAdmitted && verdict.EmitterKnown && verdict.EmitterAdmitted &&
 				((phase == blockEndpointStart && verdict.Phase == PairingEndpointStart) || (phase == blockEndpointDone && verdict.Phase == PairingEndpointDone))
-			return pairingDiscoveryEndpoint{family: WindowDiscoveryFamilyBlock, phase: phaseName, key: key, identity: label, valid: keyKnown}, true
+			return pairingDiscoveryEndpoint{family: WindowDiscoveryFamilyBlock, phase: phaseName, key: key, identity: label, valid: valid, keyKnown: keyKnown}, true
 		}
 	}
 	if d.families[WindowDiscoveryFamilyStorage] {
 		identity, phase, endpoint := genericStorageEndpoint(ev)
 		if endpoint {
 			verdict := fingerprintPairingEvent(ev)
-			key, valid := verdict.LaneKey(d.source)
-			valid = valid && verdict.Family == PairingEndpointStorage && verdict.PayloadAdmitted && verdict.EmitterKnown && verdict.EmitterAdmitted && PairingEndpointPhase(phase) == verdict.Phase
-			return pairingDiscoveryEndpoint{family: WindowDiscoveryFamilyStorage, phase: phase, key: key, identity: genericStorageIdentityLabel(identity), pid: identity.PID, valid: valid}, true
+			key, keyKnown := verdict.LaneKey(d.source)
+			valid := keyKnown && verdict.Family == PairingEndpointStorage && verdict.PayloadAdmitted && verdict.EmitterKnown && verdict.EmitterAdmitted && PairingEndpointPhase(phase) == verdict.Phase
+			scope, _ := genericStoragePairingScope(ev.Name)
+			return pairingDiscoveryEndpoint{family: WindowDiscoveryFamilyStorage, phase: phase, key: key, identity: genericStorageIdentityLabel(identity), pid: identity.PID, valid: valid, keyKnown: keyKnown, scope: scope}, true
 		}
 	}
 	return pairingDiscoveryEndpoint{}, false
@@ -484,10 +506,19 @@ func (d *pairingWindowDiscovery) observe(ev Event) bool {
 		}
 	}
 	if !endpoint.valid {
+		// Discovery owns a complete physical endpoint scan. A malformed hard
+		// endpoint is therefore a topology barrier even when the parent query
+		// does not select that row directly: deleting it could bridge a cohort
+		// that does overlap the requested scope.
 		if pairingEventInsideQuery(ev, d.scope) {
 			stats.InvalidIdentityCount++
-			d.identityIncomplete = true
 		}
+		d.identityIncomplete = true
+		d.rejectEndpoint(endpoint)
+		return true
+	}
+	if d.endpointPoisoned(endpoint) {
+		d.identityIncomplete = true
 		return true
 	}
 	lane := d.lanes[endpoint.key]
@@ -502,7 +533,7 @@ func (d *pairingWindowDiscovery) observe(ev Event) bool {
 			d.budgetStopped = true
 			return false
 		}
-		lane = &pairingDiscoveryLane{family: endpoint.family, key: endpoint.key, identity: endpoint.identity, pid: endpoint.pid}
+		lane = &pairingDiscoveryLane{family: endpoint.family, key: endpoint.key, identity: endpoint.identity, pid: endpoint.pid, storageScope: endpoint.scope}
 		d.lanes[endpoint.key] = lane
 		d.addStorageLaneOwner(lane)
 	}
@@ -536,6 +567,242 @@ func (d *pairingWindowDiscovery) observe(ev Event) bool {
 		d.dropStorageLaneOwner(endpoint.key)
 	}
 	return true
+}
+
+func (d *pairingWindowDiscovery) endpointPoisoned(endpoint pairingDiscoveryEndpoint) bool {
+	if d == nil {
+		return true
+	}
+	_, lanePoisoned := d.poisonedLanes[endpoint.key]
+	return d.poisonedFamilies[endpoint.family] || endpoint.key != "" && lanePoisoned || endpoint.scope != "" && d.poisonedScopes[endpoint.scope]
+}
+
+func (d *pairingWindowDiscovery) quarantineBudget() int {
+	if d == nil {
+		return 0
+	}
+	// Reuse the normalized active-lane ceiling: quarantine evidence can never
+	// retain more unique exact identities than the discovery is allowed to
+	// track concurrently, and callers get one deterministic budget knob.
+	budget := d.req.ActiveLaneLimit
+	if budget <= 0 {
+		budget = DefaultWindowDiscoveryActiveLaneLimit
+	}
+	if budget > HardWindowDiscoveryActiveLaneLimit {
+		budget = HardWindowDiscoveryActiveLaneLimit
+	}
+	return budget
+}
+
+func (d *pairingWindowDiscovery) rejectEndpoint(endpoint pairingDiscoveryEndpoint) {
+	if d == nil {
+		return
+	}
+	d.identityIncomplete = true
+	if endpoint.keyKnown && endpoint.key != "" {
+		d.poisonDiscoveryLane(endpoint.key, pairingDiscoveryPoisonRecord{family: endpoint.family, scope: endpoint.scope}, true)
+		return
+	}
+	if endpoint.family == WindowDiscoveryFamilyStorage && endpoint.scope != "" {
+		d.poisonDiscoveryScope(endpoint.family, endpoint.scope)
+		return
+	}
+	d.poisonDiscoveryFamily(endpoint.family)
+}
+
+func (d *pairingWindowDiscovery) poisonDiscoveryLane(key string, record pairingDiscoveryPoisonRecord, removeExactState bool) {
+	if d == nil || key == "" || record.family == "" {
+		return
+	}
+	d.identityIncomplete = true
+	if d.poisonedFamilies[record.family] || record.scope != "" && d.poisonedScopes[record.scope] {
+		return
+	}
+	if existing, exists := d.poisonedLanes[key]; exists {
+		if removeExactState && !existing.stateCleared {
+			d.dropDiscoveryLane(key)
+			d.invalidateDiscoveryCandidates(key, "")
+			existing.stateCleared = true
+			d.poisonedLanes[key] = existing
+		}
+		return
+	}
+	if len(d.poisonedLanes) >= d.quarantineBudget() {
+		d.quarantineEscalations++
+		if record.scope != "" {
+			d.poisonDiscoveryScope(record.family, record.scope)
+		} else {
+			d.poisonDiscoveryFamily(record.family)
+		}
+		return
+	}
+	record.stateCleared = removeExactState
+	d.poisonedLanes[key] = record
+	if removeExactState {
+		d.dropDiscoveryLane(key)
+		d.invalidateDiscoveryCandidates(key, "")
+	}
+}
+
+func (d *pairingWindowDiscovery) poisonDiscoveryScope(family WindowDiscoveryFamily, scope string) {
+	if d == nil || family == "" || scope == "" {
+		return
+	}
+	d.identityIncomplete = true
+	if d.poisonedScopes[scope] {
+		return
+	}
+	d.poisonedScopes[scope] = true
+	for key, lane := range d.lanes {
+		if lane != nil && lane.family == family && lane.storageScope == scope {
+			d.dropDiscoveryLane(key)
+		}
+	}
+	for key, record := range d.poisonedLanes {
+		if record.family == family && record.scope == scope {
+			delete(d.poisonedLanes, key)
+		}
+	}
+	d.invalidateDiscoveryCandidates("", scope)
+}
+
+func (d *pairingWindowDiscovery) poisonDiscoveryFamily(family WindowDiscoveryFamily) {
+	if d == nil || family == "" {
+		return
+	}
+	d.identityIncomplete = true
+	if d.poisonedFamilies[family] {
+		return
+	}
+	d.poisonedFamilies[family] = true
+	for key, lane := range d.lanes {
+		if lane != nil && lane.family == family {
+			d.dropDiscoveryLane(key)
+		}
+	}
+	for key, record := range d.poisonedLanes {
+		if record.family == family {
+			delete(d.poisonedLanes, key)
+		}
+	}
+	d.invalidateDiscoveryFamilyCandidates(family)
+}
+
+func (d *pairingWindowDiscovery) dropDiscoveryLane(key string) {
+	if d == nil || key == "" {
+		return
+	}
+	delete(d.lanes, key)
+	d.dropStorageLaneOwner(key)
+}
+
+func (d *pairingWindowDiscovery) invalidateDiscoveryCandidates(key, scope string) {
+	if d == nil {
+		return
+	}
+	d.schema = filterDiscoveryCandidates(d.schema, func(candidate *WindowDiscoveryCandidate) bool {
+		return key != "" && candidate.laneKey == key || scope != "" && candidate.storageScope == scope
+	})
+	d.ambiguous = filterDiscoveryCandidates(d.ambiguous, func(candidate *WindowDiscoveryCandidate) bool {
+		return key != "" && candidate.laneKey == key || scope != "" && candidate.storageScope == scope
+	})
+}
+
+func (d *pairingWindowDiscovery) invalidateDiscoveryFamilyCandidates(family WindowDiscoveryFamily) {
+	if d == nil || family == "" {
+		return
+	}
+	d.schema = filterDiscoveryCandidates(d.schema, func(candidate *WindowDiscoveryCandidate) bool {
+		return candidate.Family == family
+	})
+	d.ambiguous = filterDiscoveryCandidates(d.ambiguous, func(candidate *WindowDiscoveryCandidate) bool {
+		return candidate.Family == family
+	})
+}
+
+func filterDiscoveryCandidates(candidates []*WindowDiscoveryCandidate, reject func(*WindowDiscoveryCandidate) bool) []*WindowDiscoveryCandidate {
+	kept := candidates[:0]
+	for _, candidate := range candidates {
+		if candidate == nil || reject(candidate) {
+			continue
+		}
+		kept = append(kept, candidate)
+	}
+	return kept
+}
+
+func (d *pairingWindowDiscovery) poisonRecordForLane(key string, family WindowDiscoveryFamily) (pairingDiscoveryPoisonRecord, bool) {
+	if d == nil || key == "" || family == "" {
+		return pairingDiscoveryPoisonRecord{}, false
+	}
+	if record, exists := d.poisonedLanes[key]; exists {
+		return record, record.family == family
+	}
+	var out pairingDiscoveryPoisonRecord
+	found := false
+	merge := func(record pairingDiscoveryPoisonRecord) bool {
+		if record.family == "" || record.family != family {
+			return false
+		}
+		if found && out != record {
+			return false
+		}
+		out, found = record, true
+		return true
+	}
+	if lane := d.lanes[key]; lane != nil && !merge(pairingDiscoveryPoisonRecord{family: lane.family, scope: lane.storageScope}) {
+		return pairingDiscoveryPoisonRecord{}, false
+	}
+	for _, candidates := range [][]*WindowDiscoveryCandidate{d.schema, d.ambiguous} {
+		for _, candidate := range candidates {
+			if candidate == nil || candidate.laneKey != key {
+				continue
+			}
+			if !merge(pairingDiscoveryPoisonRecord{family: candidate.Family, scope: candidate.storageScope}) {
+				return pairingDiscoveryPoisonRecord{}, false
+			}
+		}
+	}
+	return out, found
+}
+
+func (d *pairingWindowDiscovery) markDiscoveryLaneRollback(key string, family WindowDiscoveryFamily) bool {
+	if d == nil || key == "" || family == "" {
+		return false
+	}
+	record, provenanceKnown := d.poisonRecordForLane(key, family)
+	_, poisonRecorded := d.poisonedLanes[key]
+	alreadyRecorded := poisonRecorded
+	if lane := d.lanes[key]; lane != nil {
+		alreadyRecorded = alreadyRecorded || lane.timeInvalid
+		lane.timeInvalid = true
+	}
+	mark := func(candidates []*WindowDiscoveryCandidate) {
+		for _, candidate := range candidates {
+			if candidate == nil || candidate.laneKey != key {
+				continue
+			}
+			if candidate.CollectionBlockedReason == "same_lane_timestamp_rollback" {
+				alreadyRecorded = true
+			}
+			candidate.CollectionComplete = false
+			candidate.FitsSingleWindow = false
+			candidate.RequiredWindowCount = 0
+			candidate.CollectionBlockedReason = "same_lane_timestamp_rollback"
+			candidate.windows = nil
+		}
+	}
+	mark(d.schema)
+	mark(d.ambiguous)
+	if provenanceKnown {
+		d.poisonDiscoveryLane(key, record, false)
+	} else {
+		// A rollback key without an active lane or retained candidate has no
+		// precise scope authority. Whole-family fail-close is safer than minting
+		// an unaccounted poison record with guessed provenance.
+		d.poisonDiscoveryFamily(family)
+	}
+	return alreadyRecorded
 }
 
 func (d *pairingWindowDiscovery) addStorageLaneOwner(lane *pairingDiscoveryLane) {
@@ -633,10 +900,7 @@ func (d *pairingWindowDiscovery) finishClosedLane(lane *pairingDiscoveryLane, tr
 		return
 	}
 	candidate := d.candidateFromLane(lane, transition, "schema_probe", true)
-	current := d.schema[lane.family]
-	if current == nil || discoveryCandidateLess(candidate, current) {
-		d.schema[lane.family] = candidate
-	}
+	d.retainSchema(candidate)
 }
 
 func (d *pairingWindowDiscovery) candidateFromLane(lane *pairingDiscoveryLane, transition pairingCohortTransition, kind string, closed bool) *WindowDiscoveryCandidate {
@@ -661,6 +925,8 @@ func (d *pairingWindowDiscovery) candidateFromLane(lane *pairingDiscoveryLane, t
 		MaxDepth:            lane.maxDepth,
 		Closed:              closed,
 		events:              append([]Event(nil), lane.events...),
+		laneKey:             lane.key,
+		storageScope:        lane.storageScope,
 	}
 	if candidate.CoreEndTs < candidate.CoreStartTs {
 		candidate.CoreStartTs, candidate.CoreEndTs = candidate.CoreEndTs, candidate.CoreStartTs
@@ -790,6 +1056,62 @@ func (d *pairingWindowDiscovery) retainAmbiguous(candidate *WindowDiscoveryCandi
 	}
 }
 
+func (d *pairingWindowDiscovery) retainSchema(candidate *WindowDiscoveryCandidate) {
+	if candidate == nil {
+		return
+	}
+	// A sequential request identity may close many cohorts. One lane needs one
+	// schema witness only: allowing repeat cohorts from a hot lane to consume
+	// the reservoir could evict every other lane in the same converter scope,
+	// after which a late exact-lane poison would erase the whole usable sample.
+	if candidate.laneKey != "" {
+		for index, existing := range d.schema {
+			if existing == nil || existing.laneKey != candidate.laneKey {
+				continue
+			}
+			if discoveryCandidateLess(candidate, existing) {
+				d.schema[index] = candidate
+				sort.SliceStable(d.schema, func(i, j int) bool { return discoveryCandidateLess(d.schema[i], d.schema[j]) })
+			}
+			return
+		}
+	}
+	d.schema = append(d.schema, candidate)
+	sort.SliceStable(d.schema, func(i, j int) bool { return discoveryCandidateLess(d.schema[i], d.schema[j]) })
+	if len(d.schema) > windowDiscoveryCandidatePoolLimit {
+		// Keep one best seat per closed converter scope (F2FS, MMC, and the
+		// generic storage/block bucket) before filling by rank. Without this
+		// reservation, 128 early F2FS pairs could evict every independent SCSI
+		// witness; a late F2FS scope poison would then manufacture zero windows
+		// even though a clean fallback was physically observed.
+		reservedSeats := map[string]bool{}
+		keep := make(map[*WindowDiscoveryCandidate]bool)
+		trimmed := make([]*WindowDiscoveryCandidate, 0, windowDiscoveryCandidatePoolLimit)
+		for _, item := range d.schema {
+			seat := string(item.Family) + "\x00" + item.storageScope
+			if reservedSeats[seat] || len(trimmed) >= windowDiscoveryCandidatePoolLimit {
+				continue
+			}
+			reservedSeats[seat] = true
+			keep[item] = true
+			trimmed = append(trimmed, item)
+		}
+		for _, item := range d.schema {
+			if len(trimmed) >= windowDiscoveryCandidatePoolLimit {
+				break
+			}
+			if keep[item] {
+				continue
+			}
+			keep[item] = true
+			trimmed = append(trimmed, item)
+		}
+		sort.SliceStable(trimmed, func(i, j int) bool { return discoveryCandidateLess(trimmed[i], trimmed[j]) })
+		d.schema = trimmed
+		d.poolTruncated = true
+	}
+}
+
 func discoveryCandidateKindPriority(kind string) int {
 	switch kind {
 	case "ambiguous_closed":
@@ -834,7 +1156,76 @@ func discoveryCandidateLess(a, b *WindowDiscoveryCandidate) bool {
 	return a.IdentityFingerprint < b.IdentityFingerprint
 }
 
+func pairingDiscoveryFamilyForDuration(family durationOrderFamily) (WindowDiscoveryFamily, PairingEndpointFamily, bool) {
+	switch family {
+	case durationOrderBlockIO:
+		return WindowDiscoveryFamilyBlock, PairingEndpointBlock, true
+	case durationOrderStorage:
+		return WindowDiscoveryFamilyStorage, PairingEndpointStorage, true
+	default:
+		return "", "", false
+	}
+}
+
+func (d *pairingWindowDiscovery) consumeDurationPairingAudit(shell *Index) {
+	if d == nil || shell == nil {
+		return
+	}
+	for _, failure := range shell.durationOrderFailures {
+		family, pairingFamily, relevant := pairingDiscoveryFamilyForDuration(failure.Family)
+		if !relevant || !d.families[family] {
+			continue
+		}
+		d.auditFailureCount++
+		d.identityIncomplete = true
+		endpoint := pairingDiscoveryEndpoint{family: family}
+		source := strings.TrimSpace(failure.SourcePath)
+		if source == "" {
+			source = d.source
+		} else {
+			source = canonicalTraceIndexPath(source)
+		}
+		if source != d.source {
+			d.poisonDiscoveryFamily(family)
+			continue
+		}
+		if failure.LaneKey != "" {
+			endpoint.keyKnown = true
+			endpoint.key = encodePairingKey(source, string(pairingFamily), failure.LaneKey)
+		}
+		if failure.Issue != "endpoint_parse_incomplete" && endpoint.keyKnown {
+			if !d.markDiscoveryLaneRollback(endpoint.key, family) {
+				if stats := d.stats[family]; stats != nil {
+					stats.TimestampRollbackCount++
+				}
+			}
+			continue
+		}
+		if stats := d.stats[family]; stats != nil {
+			if failure.Issue == "endpoint_parse_incomplete" {
+				stats.InvalidIdentityCount++
+			} else {
+				stats.TimestampRollbackCount++
+			}
+		}
+		if family == WindowDiscoveryFamilyStorage {
+			endpoint.scope, _ = genericStoragePairingScope(failure.EventName)
+		}
+		d.rejectEndpoint(endpoint)
+	}
+	for durationFamily, capped := range shell.durationOrderFailuresCapped {
+		family, _, relevant := pairingDiscoveryFamilyForDuration(durationFamily)
+		if !capped || !relevant || !d.families[family] {
+			continue
+		}
+		d.auditCapped = true
+		d.identityIncomplete = true
+		d.poisonDiscoveryFamily(family)
+	}
+}
+
 func (d *pairingWindowDiscovery) finalize(shell *Index, version TraceSourceVersion) WindowDiscoveryResult {
+	d.consumeDurationPairingAudit(shell)
 	for key, lane := range d.lanes {
 		transition := lane.cohort.finishEOF()
 		stats := d.stats[lane.family]
@@ -854,12 +1245,23 @@ func (d *pairingWindowDiscovery) finalize(shell *Index, version TraceSourceVersi
 		d.dropStorageLaneOwner(key)
 	}
 	pool := append([]*WindowDiscoveryCandidate(nil), d.ambiguous...)
-	for _, family := range []WindowDiscoveryFamily{WindowDiscoveryFamilyBlock, WindowDiscoveryFamilyStorage} {
-		if candidate := d.schema[family]; candidate != nil {
-			pool = append(pool, candidate)
+	pool = append(pool, d.schema...)
+	sort.SliceStable(pool, func(i, j int) bool { return discoveryCandidateLess(pool[i], pool[j]) })
+	if d.budgetStopped {
+		const reason = "discovery_budget_exceeded_before_full_file_completion"
+		for _, candidate := range pool {
+			if candidate == nil {
+				continue
+			}
+			candidate.Selected = false
+			candidate.CollectionComplete = false
+			candidate.FitsSingleWindow = false
+			candidate.RequiredWindowCount = 0
+			candidate.CollectionBlockedReason = reason
+			candidate.SelectionReason = "not_collectible:" + reason
+			candidate.windows = nil
 		}
 	}
-	sort.SliceStable(pool, func(i, j int) bool { return discoveryCandidateLess(pool[i], pool[j]) })
 	for i, candidate := range pool {
 		candidate.Rank = i + 1
 		for j := range candidate.windows {
@@ -905,7 +1307,7 @@ func (d *pairingWindowDiscovery) finalize(shell *Index, version TraceSourceVersi
 		}
 	}
 	if d.budgetStopped {
-		result.Caveats = append(result.Caveats, fmt.Sprintf("discovery_complete=false; endpoint_or_active_lane_budget_reached endpoints=%d/%d active_lane_limit=%d; no negative absence claim is allowed", d.endpointCount, d.req.EndpointLimit, d.req.ActiveLaneLimit))
+		result.Caveats = append(result.Caveats, fmt.Sprintf("discovery_complete=false; endpoint_or_active_lane_budget_reached endpoints=%d/%d active_lane_limit=%d; no candidate window was published and no negative absence claim is allowed", d.endpointCount, d.req.EndpointLimit, d.req.ActiveLaneLimit))
 	}
 	if !result.ParseComplete {
 		result.Caveats = append(result.Caveats, fmt.Sprintf("parse_complete=false; unparsed_lines=%d parse_panics=%d; zero overlap applies only to the parsed endpoint closed set", result.UnparsedLineCount, result.ParseLinePanics))
@@ -913,8 +1315,15 @@ func (d *pairingWindowDiscovery) finalize(shell *Index, version TraceSourceVersi
 	if !result.IdentityComplete {
 		result.Caveats = append(result.Caveats, "identity_complete=false; malformed identity, lifecycle cut, same-lane timestamp rollback, or cohort roster budget prevented a complete pairing claim")
 	}
+	if d.auditFailureCount > 0 || d.auditCapped {
+		result.Caveats = append(result.Caveats, fmt.Sprintf("physical_pairing_audit_fail_closed=true; failures=%d capped=%t; parser-rejected or physically regressed endpoints cannot be deleted to rescue a discovery pair", d.auditFailureCount, d.auditCapped))
+	}
+	if d.quarantineEscalations > 0 {
+		result.Caveats = append(result.Caveats, fmt.Sprintf("pairing_quarantine_budget_escalated=true; budget=%d escalations=%d retained_exact_lanes=%d poisoned_scopes=%d poisoned_families=%d; unique exact-lane poison overflow was deterministically promoted to its proven scope or family",
+			d.quarantineBudget(), d.quarantineEscalations, len(d.poisonedLanes), len(d.poisonedScopes), len(d.poisonedFamilies)))
+	}
 	if d.poolTruncated {
-		result.Caveats = append(result.Caveats, fmt.Sprintf("candidate_pool_truncated=true; retained_top=%d with stable comparator; lower-ranked candidate detail was omitted", windowDiscoveryCandidatePoolLimit))
+		result.Caveats = append(result.Caveats, fmt.Sprintf("candidate_pool_truncated=true; each ambiguity/schema reservoir retained at most %d candidates with stable comparator and one schema scope seat; lower-ranked candidate detail was omitted", windowDiscoveryCandidatePoolLimit))
 	}
 	if len(result.Windows) == 0 {
 		result.Caveats = append(result.Caveats, "generated_windows=0; no closed candidate with a complete endpoint roster fit the configured bounded fan-out; dependent collection must fail explicit instead of falling back to the parent window")

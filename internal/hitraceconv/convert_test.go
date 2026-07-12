@@ -1361,19 +1361,21 @@ func TestOfficialSubsystemRenderersMatchOpenHarmonyShapes(t *testing.T) {
 	})
 
 	t.Run("f2fs_direct_io", func(t *testing.T) {
-		format := eventFormat{ID: 71, Name: "f2fs_direct_IO_exit", Fields: []eventField{
-			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
-			{Name: "dev", Offset: 8, Size: 8},
-			{Name: "ino", Offset: 16, Size: 8},
-			{Name: "pos", Offset: 24, Size: 8, Signed: true},
-			{Name: "len", Offset: 32, Size: 8},
-			{Name: "rw[8]", Offset: 40, Size: 8},
-			{Name: "ret", Offset: 48, Size: 4, Signed: true},
-			{Name: "latency_us", Offset: 52, Size: 4},
+		format := eventFormat{ID: 71, Name: "f2fs_direct_IO_exit", PrintFmt: directF2FSPrintFmtLiteral(directF2FSProfileDirectIOExit), Fields: []eventField{
+			{Type: "unsigned short", Name: "common_type", Offset: 0, Size: 2},
+			{Type: "unsigned char", Name: "common_flags", Offset: 2, Size: 1},
+			{Type: "unsigned char", Name: "common_preempt_count", Offset: 3, Size: 1},
+			{Type: "int", Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Type: "dev_t", Name: "dev", Offset: 8, Size: 4},
+			{Type: "ino_t", Name: "ino", Offset: 16, Size: 8},
+			{Type: "loff_t", Name: "pos", Offset: 24, Size: 8, Signed: true},
+			{Type: "unsigned long", Name: "len", Offset: 32, Size: 8},
+			{Type: "int", Name: "rw", Offset: 40, Size: 4, Signed: true},
+			{Type: "int", Name: "ret", Offset: 44, Size: 4, Signed: true},
 		}}
 		content := syntheticF2FSContent(71, true)
 		body, known := renderEventBody(decodeEvent(format, content), content, 0)
-		for _, want := range []string{"dev=260:136", "ino=0xb9b8e", "offset=4096", "len=8192", "rw=write", "ret=8192", "latency_us=5700"} {
+		for _, want := range []string{"dev=260:136", "ino=0xb9b8e", "pos=4096", "len=8192", "rw=write", "ret=8192"} {
 			if !known || !strings.Contains(body, want) {
 				t.Fatalf("f2fs body missing %q: known=%v body=%q", want, known, body)
 			}
@@ -1757,26 +1759,33 @@ func syntheticIOEventFormat() string {
 		syntheticField("unsigned long", "index", 24, 8, false),
 		syntheticField("dev_t", "s_dev", 32, 4, false),
 	})...)
-	lines = append(lines, syntheticFormatBlock("f2fs_direct_IO_enter", 84, []string{
+	f2fsEnter := syntheticFormatBlock("f2fs_direct_IO_enter", 84, []string{
+		syntheticField("unsigned short", "common_type", 0, 2, false),
+		syntheticField("unsigned char", "common_flags", 2, 1, false),
+		syntheticField("unsigned char", "common_preempt_count", 3, 1, false),
 		syntheticField("int", "common_pid", 4, 4, true),
-		syntheticField("unsigned long", "dev", 8, 8, false),
-		syntheticField("unsigned long", "ino", 16, 8, false),
-		syntheticField("long", "pos", 24, 8, true),
+		syntheticField("dev_t", "dev", 8, 4, false),
+		syntheticField("ino_t", "ino", 16, 8, false),
+		syntheticField("loff_t", "pos", 24, 8, true),
 		syntheticField("unsigned long", "len", 32, 8, false),
-		syntheticField("char", "rw[8]", 40, 8, false),
-		syntheticField("int", "ret", 48, 4, true),
-		syntheticField("unsigned int", "latency_us", 52, 4, false),
-	})...)
-	lines = append(lines, syntheticFormatBlock("f2fs_direct_IO_exit", 85, []string{
+		syntheticField("int", "rw", 40, 4, true),
+	})
+	f2fsEnter[len(f2fsEnter)-2] = "print fmt: " + directF2FSPrintFmtLiteral(directF2FSProfileDirectIOEnter510)
+	lines = append(lines, f2fsEnter...)
+	f2fsExit := syntheticFormatBlock("f2fs_direct_IO_exit", 85, []string{
+		syntheticField("unsigned short", "common_type", 0, 2, false),
+		syntheticField("unsigned char", "common_flags", 2, 1, false),
+		syntheticField("unsigned char", "common_preempt_count", 3, 1, false),
 		syntheticField("int", "common_pid", 4, 4, true),
-		syntheticField("unsigned long", "dev", 8, 8, false),
-		syntheticField("unsigned long", "ino", 16, 8, false),
-		syntheticField("long", "pos", 24, 8, true),
+		syntheticField("dev_t", "dev", 8, 4, false),
+		syntheticField("ino_t", "ino", 16, 8, false),
+		syntheticField("loff_t", "pos", 24, 8, true),
 		syntheticField("unsigned long", "len", 32, 8, false),
-		syntheticField("char", "rw[8]", 40, 8, false),
-		syntheticField("int", "ret", 48, 4, true),
-		syntheticField("unsigned int", "latency_us", 52, 4, false),
-	})...)
+		syntheticField("int", "rw", 40, 4, true),
+		syntheticField("int", "ret", 44, 4, true),
+	})
+	f2fsExit[len(f2fsExit)-2] = "print fmt: " + directF2FSPrintFmtLiteral(directF2FSProfileDirectIOExit)
+	lines = append(lines, f2fsExit...)
 	lines = append(lines, syntheticFormatBlock("ext4_direct_IO_enter", 86, []string{
 		syntheticField("int", "common_pid", 4, 4, true),
 		syntheticField("unsigned long", "dev", 8, 8, false),
@@ -1880,17 +1889,16 @@ func syntheticAndroidFSContent(eventID uint16, entryName, rw string, done bool) 
 }
 
 func syntheticF2FSContent(eventID uint16, done bool) []byte {
-	content := make([]byte, 56)
+	content := make([]byte, 48)
 	binary.LittleEndian.PutUint16(content[0:2], eventID)
 	binary.LittleEndian.PutUint32(content[4:8], 20)
-	binary.LittleEndian.PutUint64(content[8:16], syntheticDev(260, 136))
+	binary.LittleEndian.PutUint32(content[8:12], uint32(syntheticDev(260, 136)))
 	binary.LittleEndian.PutUint64(content[16:24], 0xb9b8e)
 	binary.LittleEndian.PutUint64(content[24:32], 4096)
 	binary.LittleEndian.PutUint64(content[32:40], 8192)
-	copy(content[40:48], []byte("write"))
+	binary.LittleEndian.PutUint32(content[40:44], 1)
 	if done {
-		binary.LittleEndian.PutUint32(content[48:52], 8192)
-		binary.LittleEndian.PutUint32(content[52:56], 5700)
+		binary.LittleEndian.PutUint32(content[44:48], 8192)
 	}
 	return content
 }
