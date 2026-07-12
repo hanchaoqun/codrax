@@ -28,19 +28,22 @@ func traceTrackNameFromEvent(ev Event) string {
 		return ""
 	}
 	if plugin := ev.PluginFields; plugin != nil && strings.TrimSpace(plugin.SpanTrack) != "" {
-		return strings.TrimSpace(plugin.SpanTrack)
+		return plugin.SpanTrack
 	}
 	// Compatibility fallback for hand-built Events and older cached fixtures.
-	// Production ParserVersion v22 rows take the side-table branch above.
+	// Production ParserVersion v23 rows take the side-table branch above.
 	parts := strings.Split(normalizeTraceMarkPayload(ev.FieldText), "|")
-	if len(parts) < 4 || strings.TrimSpace(parts[0]) != ev.SpanAction {
+	if len(parts) < 4 || parts[0] != ev.SpanAction {
 		return ""
 	}
-	pid, ok := parseUnsignedTraceInt(parts[1])
+	pid, ok := parseExactUnsignedTraceInt(parts[1])
 	if !ok || pid != ev.SpanPID {
 		return ""
 	}
-	return strings.TrimSpace(parts[2])
+	if strings.TrimSpace(parts[2]) == "" {
+		return ""
+	}
+	return parts[2]
 }
 
 func traceTrackPairingKey(source string, ev Event, generation string) (string, bool) {

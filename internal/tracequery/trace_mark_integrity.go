@@ -140,8 +140,7 @@ type traceMarkParseResult struct {
 // used as pairing identity so equivalent numeric spellings cannot split a
 // logical lane; FieldText retains the producer's original payload verbatim.
 func parseATraceTrackCookie(raw string) (string, bool) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
+	if raw == "" || raw != strings.TrimSpace(raw) {
 		return "", false
 	}
 	start := 0
@@ -159,8 +158,7 @@ func parseATraceTrackCookie(raw string) (string, bool) {
 }
 
 func parseATraceExtendedPID(raw string) (int, bool) {
-	raw = strings.TrimSpace(raw)
-	if !isAllDigits(raw) {
+	if raw == "" || raw != strings.TrimSpace(raw) || !isAllDigits(raw) {
 		return 0, false
 	}
 	// AOSP writes pid_t with %d. Keep the typed owner inside signed int32 so
@@ -182,6 +180,17 @@ func parseUnsignedTraceInt(raw string) (int, bool) {
 		return 0, false
 	}
 	return int(n), true
+}
+
+// parseExactUnsignedTraceInt is the wire-identity variant used by marker
+// payloads. Generic ftrace headers historically tolerate envelope whitespace,
+// but a marker scalar sits between literal pipe delimiters: edge whitespace is
+// producer data and must not be silently repaired into another identity.
+func parseExactUnsignedTraceInt(raw string) (int, bool) {
+	if raw == "" || raw != strings.TrimSpace(raw) {
+		return 0, false
+	}
+	return parseUnsignedTraceInt(raw)
 }
 
 // parseHarmonyTraceMetadata parses the suffix written by OpenHarmony
@@ -241,11 +250,10 @@ func isHarmonyTraceMetadata(raw string) bool {
 	return ok
 }
 
-// joinTraceMarkEndpointName keeps the producer's opaque name byte shape after
-// trimming only outer whitespace. Empty pipe-separated components are valid
-// inside a real name (including a trailing empty component before an exact
-// instance tag), but a sequence made entirely of empty/space components is
-// not a name and must fail closed.
+// joinTraceMarkEndpointName keeps the producer's complete opaque name byte
+// shape. Empty pipe-separated components and edge spaces are valid identity
+// bytes, but a sequence made entirely of empty/space components is not a name
+// and must fail closed.
 func joinTraceMarkEndpointName(parts []string) (string, bool) {
 	hasContent := false
 	for _, part := range parts {
@@ -257,7 +265,7 @@ func joinTraceMarkEndpointName(parts []string) (string, bool) {
 	if !hasContent {
 		return "", false
 	}
-	return strings.TrimSpace(strings.Join(parts, "|")), true
+	return strings.Join(parts, "|"), true
 }
 
 // joinTraceCounterName preserves the producer's complete opaque name. Unlike
@@ -289,7 +297,10 @@ func parseTraceMarkValidated(fields string) traceMarkParseResult {
 		return traceMarkParseResult{}
 	}
 	parts := strings.Split(fields, "|")
-	action := strings.TrimSpace(parts[0])
+	// The action is a closed wire scalar. normalizeTraceMarkPayload removes
+	// only the ftrace envelope on the far left; it must not repair bytes inside
+	// this pipe-delimited payload.
+	action := parts[0]
 	result := traceMarkParseResult{action: action}
 	invalid := func(reason traceMarkInvalidReason) traceMarkParseResult {
 		return traceMarkParseResult{
@@ -309,11 +320,11 @@ func parseTraceMarkValidated(fields string) traceMarkParseResult {
 			// boundary in this no-custom-args shape. B customArgs can follow
 			// metadata and require their own unique-boundary parser.
 			nameParts = parts[2 : len(parts)-1]
-			result.value = strings.TrimSpace(parts[len(parts)-1])
+			result.value = parts[len(parts)-1]
 		default:
 			return invalid(traceMarkReasonInvalidArity)
 		}
-		pid, ok := parseUnsignedTraceInt(parts[1])
+		pid, ok := parseExactUnsignedTraceInt(parts[1])
 		if !ok {
 			return invalid(traceMarkReasonInvalidPayloadPID)
 		}
@@ -330,13 +341,13 @@ func parseTraceMarkValidated(fields string) traceMarkParseResult {
 		if len(parts) != 2 && len(parts) != 3 {
 			return invalid(traceMarkReasonInvalidArity)
 		}
-		pid, ok := parseUnsignedTraceInt(parts[1])
+		pid, ok := parseExactUnsignedTraceInt(parts[1])
 		if !ok {
 			return invalid(traceMarkReasonInvalidPayloadPID)
 		}
 		result.spanPID = pid
 		if len(parts) == 3 {
-			tag := strings.TrimSpace(parts[2])
+			tag := parts[2]
 			if tag != "" && !isHarmonyTraceMetadata(tag) {
 				return invalid(traceMarkReasonInvalidEndTag)
 			}
@@ -351,17 +362,17 @@ func parseTraceMarkValidated(fields string) traceMarkParseResult {
 		switch {
 		case len(parts) == 4:
 			nameParts = parts[2:3]
-			cookie = strings.TrimSpace(parts[3])
+			cookie = parts[3]
 		case len(parts) >= 5 && isHarmonyTraceMetadata(parts[len(parts)-1]):
 			// Parse from the right: final exact metadata, then cookie, with every
 			// middle field retained as the opaque name. Untagged multi-pipe
 			// rows remain ambiguous and fail closed.
 			nameParts = parts[2 : len(parts)-2]
-			cookie = strings.TrimSpace(parts[len(parts)-2])
+			cookie = parts[len(parts)-2]
 		default:
 			return invalid(traceMarkReasonInvalidArity)
 		}
-		pid, ok := parseUnsignedTraceInt(parts[1])
+		pid, ok := parseExactUnsignedTraceInt(parts[1])
 		if !ok {
 			return invalid(traceMarkReasonInvalidPayloadPID)
 		}
@@ -372,7 +383,7 @@ func parseTraceMarkValidated(fields string) traceMarkParseResult {
 		if !ok {
 			return invalid(traceMarkReasonEmptyName)
 		}
-		if cookie == "" {
+		if strings.TrimSpace(cookie) == "" {
 			return invalid(traceMarkReasonEmptyCookie)
 		}
 		result.spanPID, result.name, result.value = pid, name, cookie
@@ -390,11 +401,11 @@ func parseTraceMarkValidated(fields string) traceMarkParseResult {
 		if pid == 0 {
 			return invalid(traceMarkReasonPayloadPIDMustBePositive)
 		}
-		track, name := strings.TrimSpace(parts[2]), strings.TrimSpace(parts[3])
-		if track == "" {
+		track, name := parts[2], parts[3]
+		if strings.TrimSpace(track) == "" {
 			return invalid(traceMarkReasonEmptyTrack)
 		}
-		if name == "" {
+		if strings.TrimSpace(name) == "" {
 			return invalid(traceMarkReasonEmptyName)
 		}
 		cookie, ok := parseATraceTrackCookie(parts[4])
@@ -418,8 +429,8 @@ func parseTraceMarkValidated(fields string) traceMarkParseResult {
 		if pid == 0 {
 			return invalid(traceMarkReasonPayloadPIDMustBePositive)
 		}
-		track := strings.TrimSpace(parts[2])
-		if track == "" {
+		track := parts[2]
+		if strings.TrimSpace(track) == "" {
 			return invalid(traceMarkReasonEmptyTrack)
 		}
 		cookie, ok := parseATraceTrackCookie(parts[3])
@@ -442,11 +453,11 @@ func parseTraceMarkValidated(fields string) traceMarkParseResult {
 		if pid == 0 {
 			return invalid(traceMarkReasonPayloadPIDMustBePositive)
 		}
-		track, name := strings.TrimSpace(parts[2]), strings.TrimSpace(parts[3])
-		if track == "" {
+		track, name := parts[2], parts[3]
+		if strings.TrimSpace(track) == "" {
 			return invalid(traceMarkReasonEmptyTrack)
 		}
-		if name == "" {
+		if strings.TrimSpace(name) == "" {
 			return invalid(traceMarkReasonEmptyName)
 		}
 		result.spanPID, result.track, result.name = pid, track, name
@@ -462,8 +473,8 @@ func parseTraceMarkValidated(fields string) traceMarkParseResult {
 		if pid == 0 {
 			return invalid(traceMarkReasonPayloadPIDMustBePositive)
 		}
-		name := strings.TrimSpace(parts[2])
-		if name == "" {
+		name := parts[2]
+		if strings.TrimSpace(name) == "" {
 			return invalid(traceMarkReasonEmptyName)
 		}
 		result.spanPID, result.name = pid, name
@@ -604,7 +615,7 @@ func traceMarkPayloadAndPrefixFromRawCandidate(line string) (string, string, boo
 		if at < 0 {
 			continue
 		}
-		fields := strings.TrimSpace(line[at+len(marker):])
+		fields := trimTraceMarkEnvelopeLeft(line[at+len(marker):])
 		if isTraceMarkPayload(fields) {
 			return fields, line[:at], true
 		}
@@ -669,7 +680,7 @@ func traceMarkValidationFailureScan(s *lineScan) *traceMarkIntegrityFailure {
 		}
 	}
 	rawType := strings.TrimSuffix(strings.TrimSpace(m[6]), ":")
-	fields := strings.TrimSpace(m[7])
+	fields := trimTraceMarkEnvelopeLeft(m[7])
 	if !isPrintFamilyRaw(rawType) || !isTraceMarkPayload(fields) {
 		return nil
 	}

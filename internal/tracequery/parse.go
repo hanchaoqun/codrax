@@ -2679,6 +2679,13 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 	rawType := strings.TrimSuffix(strings.TrimSpace(m[6]), ":")
 	rawFields := m[7]
 	fields := strings.TrimSpace(rawFields)
+	classificationFields := fields
+	if isPrintFamilyRaw(strings.ToLower(rawType)) {
+		// Marker classification and typed admission consume the same full-right
+		// carrier. Generic key/value families retain their historical TrimSpace
+		// view; only the print family owns opaque edge bytes.
+		classificationFields = trimTraceMarkEnvelopeLeft(rawFields)
+	}
 	ev := Event{
 		Line:      lineNo,
 		Ts:        ts,
@@ -2686,11 +2693,11 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 		Comm:      intern.intern(comm),
 		PID:       pid,
 		TGID:      tgid,
-		Type:      classifyEventType(comm, rawType, fields),
+		Type:      classifyEventType(comm, rawType, classificationFields),
 		Name:      intern.intern(rawType),
 		FieldText: intern.intern(clampString(fields, 300)),
 	}
-	ev.SubsystemKind = intern.intern(classifySubsystemKind(rawType, fields, ev.Type))
+	ev.SubsystemKind = intern.intern(classifySubsystemKind(rawType, classificationFields, ev.Type))
 	kv := s.keyValues()
 	if schedulerFieldsValidationFailure(lineNo, rawType, ts, cpu, kv) != nil {
 		// Critical scheduler identities are presence-sensitive. Returning false
@@ -2780,8 +2787,14 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 		setEventCPUForField(&ev, kv["cpu_id"])
 		ev.ClockName = intern.intern(clockNameForEvent(rawType, fields))
 	case EventTraceMark:
-		parsed := parseTraceMarkValidated(fields)
-		if parsed.counterParsed && traceCounterRawPayloadAtCap(rawFields, normalizeTraceMarkPayload(fields)) {
+		// The ftrace envelope consumes delimiter whitespace on the left, but the
+		// payload's right edge remains producer data. Parse the complete marker
+		// before FieldText is bounded, and keep the bounded inventory copy from
+		// the same untrimmed-right bytes so endpoint identities cannot collapse.
+		markerFields := trimTraceMarkEnvelopeLeft(rawFields)
+		ev.FieldText = intern.intern(clampString(markerFields, 300))
+		parsed := parseTraceMarkValidated(markerFields)
+		if parsed.counterParsed && traceCounterRawPayloadAtCap(rawFields, normalizeTraceMarkPayload(markerFields)) {
 			parsed.counter = traceCounterSample{issueReason: "counter_payload_too_long"}
 			parsed.spanPID, parsed.name, parsed.value = 0, "", ""
 		}
@@ -4201,16 +4214,21 @@ func parseTraceMark(fields string) (action string, spanPID int, name, value stri
 }
 
 func normalizeTraceMarkPayload(fields string) string {
-	fields = strings.TrimSpace(fields)
-	if fields == "" {
+	fields = trimTraceMarkEnvelopeLeft(fields)
+	if strings.TrimSpace(fields) == "" {
 		return ""
+	}
+	if fields == "E" {
+		// Bare E is an action scalar, not an opaque name. Canonicalize only this
+		// scalar form; pipe-delimited payloads keep their complete right edge.
+		return "E"
 	}
 	if isDirectTraceMarkPayload(fields) {
 		return fields
 	}
 	if idx := strings.Index(fields, ":"); idx > 0 && idx+1 < len(fields) {
 		prefix := strings.TrimSpace(fields[:idx])
-		payload := strings.TrimSpace(fields[idx+1:])
+		payload := trimTraceMarkEnvelopeLeft(fields[idx+1:])
 		if tracePrintPrefixLooksLikeAddress(prefix) {
 			// Standard address-carved mark: "0x<addr>: B|pid|name" — the payload
 			// still leads with a supported trace-mark action letter; pass it through
@@ -4290,8 +4308,11 @@ func normalizeTraceMarkPayload(fields string) string {
 //     (donghu) contain zero S/F print marks, so this stays out-of-distribution
 //     and unrestored rather than guessed.
 func restoreCarvedTraceMarkPayload(payload string) (string, bool) {
-	payload = strings.TrimSpace(payload)
-	if payload == "" {
+	// Carved restoration is an explicitly lossy compatibility lane: the old
+	// converter already removed the action. Canonicalize only the inferred
+	// action/PID/value/tag scalars; retain the still-present opaque name edge.
+	payload = trimTraceMarkEnvelopeLeft(payload)
+	if strings.TrimSpace(payload) == "" {
 		return "", false
 	}
 	parts := strings.Split(payload, "|")
@@ -4319,12 +4340,12 @@ func restoreCarvedTraceMarkPayload(payload string) (string, bool) {
 			// "<pid>|<tag>" — End carrying only an instance tag, no name
 			// (isomorphic to the native "E|1252|I39" shape). Disclosed tradeoff:
 			// this also captures a Begin whose literal name is tag-shaped ("V8").
-			return "E|" + payload, true
+			return "E|" + pid + "|" + f1, true
 		}
 		// "<pid>|<name>" — Begin with a name and no tag. Disclosed tradeoff:
 		// this also captures a value-less counter ("C|60194|Heap" carved) —
 		// irreducible, see the function comment.
-		return "B|" + payload, true
+		return "B|" + pid + "|" + parts[1], true
 	default:
 		// Three or more fields: "<pid>|<name>|<tail…>".
 		last := strings.TrimSpace(parts[len(parts)-1])
@@ -4337,22 +4358,28 @@ func restoreCarvedTraceMarkPayload(payload string) (string, bool) {
 			// span out of the counter row plus a later unmatched End.
 			for _, mid := range parts[2 : len(parts)-1] {
 				if isAllNumeric(strings.TrimSpace(mid)) {
-					return "C|" + payload, true
+					canonical := append([]string{pid}, parts[1:len(parts)-1]...)
+					canonical = append(canonical, last)
+					return "C|" + strings.Join(canonical, "|"), true
 				}
 			}
 			// "<pid>|<name>|…|<tag>" with no numeric mid-field — Begin; the
 			// trailing tag rides along exactly as native "B|pid|name|I<n>".
-			return "B|" + payload, true
+			canonical := append([]string{pid}, parts[1:len(parts)-1]...)
+			canonical = append(canonical, last)
+			return "B|" + strings.Join(canonical, "|"), true
 		}
 		if isAllNumeric(last) {
 			// "<pid>|<name>|<numeric>" — 4-field counter/cookie form, NOT a
 			// tag. Map to C so the counter-delta path can read the value and
 			// the sync-span stack (B/E only) can never forge a span window.
-			return "C|" + payload, true
+			canonical := append([]string{pid}, parts[1:len(parts)-1]...)
+			canonical = append(canonical, last)
+			return "C|" + strings.Join(canonical, "|"), true
 		}
 		// Any other trailing field: treat the whole tail as a Begin name/payload
 		// (the native parser keeps parts[3:] in value/raw for literal search).
-		return "B|" + payload, true
+		return "B|" + pid + "|" + strings.Join(parts[1:], "|"), true
 	}
 }
 
@@ -4417,7 +4444,7 @@ func isAllNumeric(s string) bool {
 }
 
 func isDirectTraceMarkPayload(fields string) bool {
-	fields = strings.TrimSpace(fields)
+	fields = trimTraceMarkEnvelopeLeft(fields)
 	if fields == "E" {
 		return true
 	}
@@ -4430,6 +4457,13 @@ func isDirectTraceMarkPayload(fields string) bool {
 		strings.HasPrefix(fields, "H|") ||
 		strings.HasPrefix(fields, "N|") ||
 		strings.HasPrefix(fields, "I|")
+}
+
+func trimTraceMarkEnvelopeLeft(raw string) string {
+	// Systrace/ftrace separators are ASCII spaces or tabs. Do not use
+	// TrimSpace: CR/LF, Unicode separators and the payload's right edge are
+	// integrity-relevant bytes and must remain visible to the typed parser.
+	return strings.TrimLeft(raw, " \t")
 }
 
 func tracePrintPrefixLooksLikeAddress(prefix string) bool {
