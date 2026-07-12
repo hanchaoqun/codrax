@@ -160,7 +160,7 @@
 
     **验证与后续分批**：pairing/endpoint/windowed/discovery focused `-count=20`、race `-count=5`、`go test ./internal/tracequery ./internal/hitraceconv -count=1`、两次最终全仓 `go test ./... -count=1`、`go vet ./...`、gofmt/diff-check全绿；两路冻结审计在修掉 raw NaN、Binder raw hole、Storage/discovery reset O(n²)、UFS token swallowing 后均给 RELEASE。B3-b2b SQL raw private typed stage/freeze、上述 compact sidecar、page/marker fidelity 与 R1b-C 继续开放，不得偷报结案。
 
-26. **本地历史 stash 审计（运维风险，2026-07-12 立账）**：发现一份旧 `codex-trace-correctness-p0-before-main-40f38e867` stash（24 files，约 `+2357/-536`），其 base 已是当前 `main` 祖先，但尚未机械证明全部内容已被后续提交吸收。B3-b2a 推送后必须逐文件/逐 invariant 对照当前主干与提交历史：已等价交付的记录证据后删除 stash；仍有独立有效修改的拆成新小批重放、测试、提交推送。禁止直接 pop 到当前活跃批，也禁止未经证明删除；审计结论必须回写本条，确保重启后不遗忘。
+26. **本地历史 stash 审计已结案并删除（2026-07-12）**：旧 `codex-trace-correctness-p0-before-main-40f38e867` 为 `62fab2dc4894…`，base=`d7adefc777c…`。双路隔离审计确认 35/35 tracked+untracked 文件均由当前 `main` 祖先 `e920a5d8c`（`fix(trace): close correctness P0s and restore causal reports`）承接并被后续提交强化：stash 第三父的 11 个新增文件全部存在，147 个顶层符号与 65 个新增测试名逐项零缺失；tracked patch 新增声明/测试同样零缺失，相关 `tracequery/tool/agent/types` 四包回归全绿。向当前主干三方应用产生 13 个演进冲突且没有任何建议恢复的独立 hunk，故禁止重放；隔离 worktree 已清理，stash 已执行 `git stash drop`，当前 `git stash list` 为空、主工作树 clean。
 
 ## 高 ROI 主队列
 
