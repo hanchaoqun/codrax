@@ -20,6 +20,7 @@ const (
 	pairRenderUnknown pairRenderKind = iota
 	pairRenderWorkqueue
 	pairRenderDMAFence
+	pairRenderMMC
 )
 
 type pairRenderPayload struct {

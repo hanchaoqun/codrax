@@ -265,8 +265,11 @@ func traceDBRawPopulateStoragePairingInput(input *tracequery.PairingEndpointType
 	input.StoragePayloadAdmitted = traceDBRawRequiredArgs(name, args, invalidKeys)
 	switch {
 	case name == "mmc_request_start" || name == "mmc_request_done":
-		_, deviceOK := traceDBRawTypedWireText(args, invalidKeys, true, "name", "dev_name")
-		_, opcodeOK := traceDBRawTypedUnsignedInt(args, invalidKeys, true, "cmd_opcode", "opcode")
+		device, deviceOK := traceDBRawTypedWireText(args, invalidKeys, true, "name", "dev_name")
+		opcode, opcodeOK := traceDBRawTypedUnsignedInt(args, invalidKeys, true, "cmd_opcode", "opcode")
+		deviceOK = deviceOK && validProfilerMMCName(device)
+		input.StorageDevice = device
+		input.StorageOperation = strconv.FormatUint(opcode, 10)
 		input.StorageIdentityKnown = deviceOK && opcodeOK
 	case strings.HasPrefix(name, "scsi_"):
 		input.StorageIdentityKnown = devPresent && devOK

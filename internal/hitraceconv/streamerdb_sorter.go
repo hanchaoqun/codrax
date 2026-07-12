@@ -17,6 +17,7 @@ const defaultTraceDBRowSinkThreshold = 200_000
 type traceDBRowSortStats struct {
 	RowsAccepted     int
 	RowsWritten      int
+	RowsWithheld     int
 	PeakBufferedRows int
 	SpillChunks      int
 	TempBytes        int64
@@ -41,19 +42,28 @@ func (s traceDBRowSortStats) coverage() TraceDBCoverage {
 }
 
 type traceDBRowSink struct {
-	threshold int
-	tempDir   string
-	ownDir    string
-	rows      []renderedRow
-	chunks    []string
-	stats     traceDBRowSortStats
+	threshold          int
+	tempDir            string
+	ownDir             string
+	rows               []renderedRow
+	chunks             []string
+	stats              traceDBRowSortStats
+	pairRows           map[pairRenderKind]int
+	poisoned           map[pairRenderKind]bool
+	opaque             map[pairRenderKind]bool
+	structuredPairRows map[pairRenderKind]int
 }
 
 func newTraceDBRowSink(tempDir string, threshold int) (*traceDBRowSink, error) {
 	if threshold <= 0 {
 		threshold = defaultTraceDBRowSinkThreshold
 	}
-	sink := &traceDBRowSink{threshold: threshold, tempDir: tempDir}
+	sink := &traceDBRowSink{
+		threshold: threshold, tempDir: tempDir,
+		pairRows: make(map[pairRenderKind]int), poisoned: make(map[pairRenderKind]bool),
+		opaque:             make(map[pairRenderKind]bool),
+		structuredPairRows: make(map[pairRenderKind]int),
+	}
 	if sink.tempDir == "" {
 		dir, err := os.MkdirTemp("", "codrax-tracedb-sort-*")
 		if err != nil {
@@ -77,6 +87,15 @@ func (s *traceDBRowSink) add(row renderedRow) error {
 	}
 	s.rows = append(s.rows, row)
 	s.stats.RowsAccepted++
+	if row.pairKind != pairRenderUnknown {
+		s.pairRows[row.pairKind]++
+		if s.opaque[row.pairKind] {
+			s.poisoned[row.pairKind] = true
+		}
+		if row.structuredPair {
+			s.structuredPairRows[row.pairKind]++
+		}
+	}
 	if len(s.rows) > s.stats.PeakBufferedRows {
 		s.stats.PeakBufferedRows = len(s.rows)
 	}
@@ -86,6 +105,74 @@ func (s *traceDBRowSink) add(row renderedRow) error {
 	return nil
 }
 
+func (s *traceDBRowSink) markPairCaptureOpaque(kind pairRenderKind) {
+	if s == nil || kind == pairRenderUnknown {
+		return
+	}
+	s.opaque[kind] = true
+	if s.pairRows[kind] > 0 {
+		s.poisoned[kind] = true
+	}
+}
+
+func (s *traceDBRowSink) poisonPairKind(kind pairRenderKind) {
+	if s == nil || kind == pairRenderUnknown {
+		return
+	}
+	s.poisoned[kind] = true
+}
+
+func (s *traceDBRowSink) pairKindPoisoned(kind pairRenderKind) bool {
+	return s != nil && kind != pairRenderUnknown && s.poisoned[kind]
+}
+
+func (s *traceDBRowSink) withheldPairRows() int {
+	if s == nil {
+		return 0
+	}
+	total := 0
+	for kind := range s.poisoned {
+		total += s.pairRows[kind]
+	}
+	return total
+}
+
+func (s *traceDBRowSink) withheldStructuredPairRows() int {
+	if s == nil {
+		return 0
+	}
+	total := 0
+	for kind := range s.poisoned {
+		total += s.structuredPairRows[kind]
+	}
+	return total
+}
+
+func (s *traceDBRowSink) publishableRows() int {
+	if s == nil {
+		return 0
+	}
+	count := s.stats.RowsAccepted - s.withheldPairRows()
+	if count < 0 {
+		return 0
+	}
+	return count
+}
+
+func (s *traceDBRowSink) rowPublishable(row renderedRow) bool {
+	return row.pairKind == pairRenderUnknown || !s.pairKindPoisoned(row.pairKind)
+}
+
+func (s *traceDBRowSink) accountWrittenRow(row renderedRow) {
+	if s.stats.RowsWritten == 0 || row.tsNS < s.stats.FirstTSNS {
+		s.stats.FirstTSNS = row.tsNS
+	}
+	if s.stats.RowsWritten == 0 || row.tsNS > s.stats.LastTSNS {
+		s.stats.LastTSNS = row.tsNS
+	}
+	s.stats.RowsWritten++
+}
+
 func (s *traceDBRowSink) writeTo(ctx context.Context, w io.Writer) (stats traceDBRowSortStats, err error) {
 	start := time.Now()
 	defer func() {
@@ -93,10 +180,25 @@ func (s *traceDBRowSink) writeTo(ctx context.Context, w io.Writer) (stats traceD
 		stats = s.stats
 	}()
 	defer s.cleanup()
+	s.stats.RowsWritten = 0
+	s.stats.RowsWithheld = s.withheldPairRows()
+	s.stats.FirstTSNS = 0
+	s.stats.LastTSNS = 0
 	if len(s.chunks) == 0 {
-		sortRenderedRows(s.rows)
-		err := writeRows(w, s.rows)
-		s.stats.RowsWritten = len(s.rows)
+		published := s.rows[:0]
+		for _, row := range s.rows {
+			if !s.rowPublishable(row) {
+				continue
+			}
+			published = append(published, row)
+		}
+		sortRenderedRows(published)
+		err := writeRows(w, published)
+		if err == nil {
+			for _, row := range published {
+				s.accountWrittenRow(row)
+			}
+		}
 		return s.stats, err
 	}
 	if err := s.flushChunk(); err != nil {
@@ -131,13 +233,15 @@ func (s *traceDBRowSink) writeTo(ctx context.Context, w io.Writer) (stats traceD
 			return s.stats, err
 		}
 		item := heap.Pop(&h).(traceDBRowHeapItem)
-		if _, err := bw.WriteString(item.row.line); err != nil {
-			return s.stats, err
+		if s.rowPublishable(item.row) {
+			if _, err := bw.WriteString(item.row.line); err != nil {
+				return s.stats, err
+			}
+			if err := bw.WriteByte('\n'); err != nil {
+				return s.stats, err
+			}
+			s.accountWrittenRow(item.row)
 		}
-		if err := bw.WriteByte('\n'); err != nil {
-			return s.stats, err
-		}
-		s.stats.RowsWritten++
 		row, ok, err := readers[item.readerIndex].next()
 		if err != nil {
 			return s.stats, err
@@ -165,7 +269,7 @@ func (s *traceDBRowSink) flushChunk() error {
 	bw := bufio.NewWriterSize(f, 256*1024)
 	enc := json.NewEncoder(bw)
 	for _, row := range s.rows {
-		if err := enc.Encode(traceDBChunkRow{TSNS: row.tsNS, Seq: row.seq, Line: row.line}); err != nil {
+		if err := enc.Encode(traceDBChunkRow{TSNS: row.tsNS, Seq: row.seq, Line: row.line, PairKind: row.pairKind}); err != nil {
 			_ = f.Close()
 			_ = os.Remove(path)
 			return err
@@ -212,9 +316,10 @@ func sortRenderedRows(rows []renderedRow) {
 }
 
 type traceDBChunkRow struct {
-	TSNS uint64 `json:"ts_ns"`
-	Seq  int    `json:"seq"`
-	Line string `json:"line"`
+	TSNS     uint64         `json:"ts_ns"`
+	Seq      int            `json:"seq"`
+	Line     string         `json:"line"`
+	PairKind pairRenderKind `json:"pair_kind,omitempty"`
 }
 
 type traceDBChunkReader struct {
@@ -239,7 +344,7 @@ func (r *traceDBChunkReader) next() (renderedRow, bool, error) {
 	if err != nil {
 		return renderedRow{}, false, err
 	}
-	return renderedRow{tsNS: item.TSNS, seq: item.Seq, line: item.Line}, true, nil
+	return renderedRow{tsNS: item.TSNS, seq: item.Seq, line: item.Line, pairKind: item.PairKind}, true, nil
 }
 
 func (r *traceDBChunkReader) close() error {

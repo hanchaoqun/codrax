@@ -20,14 +20,16 @@ const (
 // authority shared by metadata summarization and row rendering. Repeated
 // protobuf fields remain repeated; only each occurrence's wire is audited.
 type profilerTracePluginResult struct {
-	Disposition profilerFtracePayloadDisposition
-	CPUStats    [][]byte
-	CPUDetails  [][]byte
-	Symbols     [][]byte
-	Clocks      [][]byte
-	Versions    [][]byte
-	CommDicts   [][]byte
-	Issues      []string
+	Disposition       profilerFtracePayloadDisposition
+	PairFamilies      pairCriticalFormatFamilyMask
+	PairCaptureOpaque bool
+	CPUStats          [][]byte
+	CPUDetails        [][]byte
+	Symbols           [][]byte
+	Clocks            [][]byte
+	Versions          [][]byte
+	CommDicts         [][]byte
+	Issues            []string
 }
 
 func decodeProfilerTracePluginResult(data []byte) profilerTracePluginResult {
@@ -77,7 +79,12 @@ func decodeProfilerTracePluginResult(data []byte) profilerTracePluginResult {
 			}
 		case 2:
 			length, consumed, valid := consumeProtoVarint(data)
-			if !valid || length > uint64(len(data[consumed:])) {
+			if !valid {
+				malformed = true
+			} else if length > uint64(len(data[consumed:])) {
+				if field == 2 {
+					out.PairFamilies |= profilerPairFamiliesFromCPUDetail(data[consumed:])
+				}
 				malformed = true
 			} else {
 				raw = data[consumed : consumed+int(length)]
@@ -121,6 +128,9 @@ func decodeProfilerTracePluginResult(data []byte) profilerTracePluginResult {
 			out.Issues = append(out.Issues, fmt.Sprintf("envelope_trace_plugin_field%d_wrong_wire", field))
 			continue
 		}
+		if field == 2 {
+			out.PairFamilies |= profilerPairFamiliesFromCPUDetail(raw)
+		}
 		*destination = append(*destination, raw)
 	}
 	if malformed {
@@ -128,6 +138,7 @@ func decodeProfilerTracePluginResult(data []byte) profilerTracePluginResult {
 			return profilerTracePluginResult{Disposition: profilerFtracePayloadNotStructured}
 		}
 		out.Disposition = profilerFtracePayloadMalformed
+		out.PairCaptureOpaque = true
 		out.CPUStats = nil
 		out.CPUDetails = nil
 		out.Symbols = nil
@@ -152,6 +163,13 @@ func decodeProfilerTracePluginResult(data []byte) profilerTracePluginResult {
 func profilerTracePluginResultEvents(result profilerTracePluginResult) ([]profilerFtraceEventRecord, error) {
 	var out []profilerFtraceEventRecord
 	if result.Disposition == profilerFtracePayloadMalformed {
+		if result.PairFamilies != 0 || result.PairCaptureOpaque {
+			out = append(out, profilerFtraceEventRecord{
+				Field: profilerFtraceCPUDetailEnvelopeField, PairFamilies: result.PairFamilies,
+				PairCaptureOpaque:    result.PairCaptureOpaque,
+				EnvelopeDegradations: []string{"envelope_trace_plugin_malformed_wire"},
+			})
+		}
 		return out, nil
 	}
 	for _, raw := range result.CPUDetails {
@@ -191,6 +209,9 @@ func addStrictSystraceRowsFromBytes(data []byte, seq *int, sink *traceDBRowSink)
 		return 0, false, nil
 	}
 	var staged []renderedRow
+	poisonMMC := false
+	observedMMC := false
+	rejected := false
 	for start := 0; start < len(data); {
 		end := start
 		for end < len(data) && data[end] != '\n' {
@@ -210,26 +231,53 @@ func addStrictSystraceRowsFromBytes(data []byte, seq *int, sink *traceDBRowSink)
 			continue
 		}
 		if len(part) > maxProfilerTextLineBytes {
-			return 0, false, nil
+			_, governed, _ := profilerTextPairCensus(part)
+			observedMMC = observedMMC || governed
+			rejected = true
+			continue
 		}
 		line := string(part)
+		kind, governed, admitted := profilerTextPairAdmission(line)
+		observedMMC = observedMMC || governed
 		if !traceDBSinglePhysicalLine(line, false) {
-			return 0, false, nil
+			rejected = true
+			continue
 		}
 		if part[0] == '#' {
 			continue
 		}
 		ts, ok := strictSystraceLineTimestampNS(line)
 		if !ok {
-			return 0, false, nil
+			rejected = true
+			continue
 		}
-		staged = append(staged, renderedRow{tsNS: ts, line: line})
+		row := renderedRow{tsNS: ts, line: line}
+		if governed {
+			row.pairKind = kind
+			poisonMMC = poisonMMC || !admitted
+		}
+		staged = append(staged, row)
+	}
+	if rejected {
+		if observedMMC {
+			sink.poisonPairKind(pairRenderMMC)
+		}
+		// This is the exact ftrace-plugin compatibility lane. Once the whole
+		// payload fails complete text classification, unread bytes may instead
+		// be a malformed structured envelope. Record delayed opacity even when
+		// no exact text header was recoverable; it suppresses nothing unless the
+		// same physical source actually contains MMC endpoints.
+		sink.markPairCaptureOpaque(pairRenderMMC)
+		return 0, false, nil
 	}
 	if len(staged) == 0 {
 		return 0, false, nil
 	}
 	if sink == nil || seq == nil {
 		return 0, false, fmt.Errorf("strict systrace row sink or sequence is nil")
+	}
+	if poisonMMC {
+		sink.poisonPairKind(pairRenderMMC)
 	}
 	for index := range staged {
 		staged[index].seq = *seq
@@ -239,6 +287,54 @@ func addStrictSystraceRowsFromBytes(data []byte, seq *int, sink *traceDBRowSink)
 		(*seq)++
 	}
 	return len(staged), true, nil
+}
+
+// profilerTextPairAdmission is the sole bridge for profiler text compatibility
+// publishers into the same source-wide pair barrier as structured protobuf
+// rows.  Recognition is byte-exact and the body verdict comes from
+// tracequery's canonical endpoint authority; prose/substrings never guess a
+// family.
+func profilerTextPairAdmission(line string) (pairRenderKind, bool, bool) {
+	if !strings.Contains(line, "mmc_request_start") && !strings.Contains(line, "mmc_request_done") {
+		return pairRenderUnknown, false, false
+	}
+	ev, ok := tracequery.ParseLine(1, line, nil)
+	if ok {
+		if ev.Name != "mmc_request_start" && ev.Name != "mmc_request_done" {
+			return pairRenderUnknown, false, false
+		}
+		verdict := tracequery.FingerprintPairingEvent(ev)
+		admitted := verdict.Recognized && verdict.KeyKnown && verdict.PayloadAdmitted &&
+			verdict.EmitterKnown && verdict.EmitterAdmitted
+		return pairRenderMMC, true, admitted
+	}
+	name, complete := tracequery.ProbeEventNamePrefix(line)
+	if complete && (name == "mmc_request_start" || name == "mmc_request_done") {
+		return pairRenderMMC, true, false
+	}
+	return pairRenderUnknown, false, false
+}
+
+const profilerTextPairHeaderProbeBytes = 4096
+
+// profilerTextPairCensus uses at most a bounded header prefix. A complete
+// header provides exact family provenance; an unterminated oversized prefix
+// is marked opaque so a later exact MMC endpoint cannot bridge it.
+func profilerTextPairCensus(part []byte) (pairRenderKind, bool, bool) {
+	probe := part
+	truncated := false
+	if len(probe) > profilerTextPairHeaderProbeBytes {
+		probe = probe[:profilerTextPairHeaderProbeBytes]
+		truncated = true
+	}
+	name, complete := tracequery.ProbeEventNamePrefix(string(probe))
+	if complete {
+		if name == "mmc_request_start" || name == "mmc_request_done" {
+			return pairRenderMMC, true, false
+		}
+		return pairRenderUnknown, false, false
+	}
+	return pairRenderUnknown, false, truncated
 }
 
 func strictSystraceLineTimestampNS(line string) (uint64, bool) {

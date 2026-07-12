@@ -54,56 +54,9 @@ type profilerF2FSPayload struct {
 	Copied       uint32
 }
 
-type profilerMMCStartPayload struct {
-	CmdOpcode    uint32
-	CmdArg       uint32
-	CmdFlags     uint32
-	CmdRetries   uint32
-	StopOpcode   uint32
-	StopArg      uint32
-	StopFlags    uint32
-	StopRetries  uint32
-	SBCOpcode    uint32
-	SBCArg       uint32
-	SBCFlags     uint32
-	SBCRetries   uint32
-	Blocks       uint32
-	BlockAddr    uint32
-	BlockSize    uint32
-	DataFlags    uint32
-	Tag          int64
-	CanRetune    uint32
-	DoingRetune  uint32
-	RetuneNow    uint32
-	NeedRetune   int64
-	HoldRetune   int64
-	RetunePeriod uint32
-	MRQ          uint64
-	Name         string
-}
+type profilerMMCStartPayload = mmcStartPayload
 
-type profilerMMCDonePayload struct {
-	CmdOpcode    uint32
-	CmdErr       int64
-	CmdRetries   uint32
-	StopOpcode   uint32
-	StopErr      int64
-	StopRetries  uint32
-	SBCOpcode    uint32
-	SBCErr       int64
-	SBCRetries   uint32
-	BytesXfered  uint32
-	DataErr      int64
-	Tag          int64
-	CanRetune    uint32
-	DoingRetune  uint32
-	RetuneNow    uint32
-	NeedRetune   int64
-	HoldRetune   int64
-	RetunePeriod uint32
-	MRQ          uint64
-	Name         string
-}
+type profilerMMCDonePayload = mmcDonePayload
 
 const maxProfilerMMCResponseBytes = 4 * 4 // source tracepoint is u32 response[4]
 
@@ -414,6 +367,9 @@ func decodeProfilerMMCStart(fields map[int]profilerCoreProtoField) (profilerMMCS
 		*target.out = value
 	}
 	item.MRQ = profilerCoreUint64(fields[24])
+	if item.MRQ == 0 {
+		return profilerMMCStartPayload{}, "missing_or_invalid_mmc_pointer"
+	}
 	name, valid := profilerCoreString(fields[25])
 	if !valid || !validProfilerMMCName(name) {
 		return profilerMMCStartPayload{}, "missing_or_invalid_mmc_name"
@@ -454,6 +410,9 @@ func decodeProfilerMMCDone(fields map[int]profilerCoreProtoField) (profilerMMCDo
 		*target.out = value
 	}
 	item.MRQ = profilerCoreUint64(fields[22])
+	if item.MRQ == 0 {
+		return profilerMMCDonePayload{}, "missing_or_invalid_mmc_pointer"
+	}
 	name, valid := profilerCoreString(fields[23])
 	if !valid || !validProfilerMMCName(name) {
 		return profilerMMCDonePayload{}, "missing_or_invalid_mmc_name"
@@ -463,7 +422,7 @@ func decodeProfilerMMCDone(fields map[int]profilerCoreProtoField) (profilerMMCDo
 }
 
 func validProfilerMMCName(name string) bool {
-	return traceDBSingleToken(name) && !strings.ContainsAny(name, ":[]")
+	return len(name) <= 256 && traceDBSingleToken(name) && !strings.ContainsAny(name, ":[]=,|'\"")
 }
 
 func renderCanonicalProfilerAuxPayload(payload profilerAuxPayload) (string, bool) {
@@ -502,28 +461,15 @@ func renderCanonicalProfilerAuxPayload(payload profilerAuxPayload) (string, bool
 		if payload.MMCStart == nil {
 			return "", false
 		}
-		item := payload.MMCStart
-		return fmt.Sprintf("%s: start struct mmc_request[0x%x]: cmd_opcode=%d cmd_arg=0x%x cmd_flags=0x%x cmd_retries=%d stop_opcode=%d stop_arg=0x%x stop_flags=0x%x stop_retries=%d sbc_opcode=%d sbc_arg=0x%x sbc_flags=0x%x sbc_retires=%d blocks=%d block_size=%d blk_addr=%d data_flags=0x%x tag=%d can_retune=%d doing_retune=%d retune_now=%d need_retune=%d hold_retune=%d retune_period=%d",
-			item.Name, item.MRQ, item.CmdOpcode, item.CmdArg, item.CmdFlags, item.CmdRetries,
-			item.StopOpcode, item.StopArg, item.StopFlags, item.StopRetries,
-			item.SBCOpcode, item.SBCArg, item.SBCFlags, item.SBCRetries,
-			item.Blocks, item.BlockSize, item.BlockAddr, item.DataFlags, item.Tag,
-			item.CanRetune, item.DoingRetune, item.RetuneNow, item.NeedRetune,
-			item.HoldRetune, item.RetunePeriod), true
+		return renderCanonicalMMCPayload(mmcPayload{Kind: mmcPayloadStart, Name: payload.Name, Start: payload.MMCStart})
 	case profilerAuxMMCDone:
 		if payload.MMCDone == nil {
 			return "", false
 		}
-		item := payload.MMCDone
 		// The pinned producer loses the source u32[4] response shape by
 		// serializing it as NUL-terminated strings. Audit those fields above,
 		// but never rebuild four zero-padded response words from lost bytes.
-		return fmt.Sprintf("%s: end struct mmc_request[0x%x]: cmd_opcode=%d cmd_err=%d cmd_retries=%d stop_opcode=%d stop_err=%d stop_retries=%d sbc_opcode=%d sbc_err=%d sbc_retries=%d bytes_xfered=%d data_err=%d tag=%d can_retune=%d doing_retune=%d retune_now=%d need_retune=%d hold_retune=%d retune_period=%d",
-			item.Name, item.MRQ, item.CmdOpcode, item.CmdErr, item.CmdRetries,
-			item.StopOpcode, item.StopErr, item.StopRetries, item.SBCOpcode, item.SBCErr,
-			item.SBCRetries, item.BytesXfered, item.DataErr, item.Tag, item.CanRetune,
-			item.DoingRetune, item.RetuneNow, item.NeedRetune, item.HoldRetune,
-			item.RetunePeriod), true
+		return renderCanonicalMMCPayload(mmcPayload{Kind: mmcPayloadDone, Name: payload.Name, Done: payload.MMCDone})
 	default:
 		return "", false
 	}

@@ -159,6 +159,14 @@ type pairingEndpointDecodedFields struct {
 // most once and carries the exact decoded display fields beside the verdict so
 // replay never invokes a second hard-field parser.
 func decodePairingEndpointWire(name, fieldText string, headerTID int64) (PairingEndpointVerdict, pairingEndpointDecodedFields) {
+	// MMC is a byte-exact closed endpoint family. Do not let the generic
+	// TrimSpace/lowercase storage compatibility path turn case, whitespace or
+	// suffix drift into a duration endpoint.
+	if mmcPairingNameCandidate(name) {
+		if _, exact := exactMMCPairingProfile(name); !exact {
+			return PairingEndpointVerdict{}, pairingEndpointDecodedFields{}
+		}
+	}
 	name = strings.TrimSpace(name)
 	fieldText = strings.TrimSpace(fieldText)
 	input := PairingEndpointTypedInput{Name: name, HeaderTID: headerTID}
@@ -194,6 +202,9 @@ func decodePairingEndpointWire(name, fieldText string, headerTID int64) (Pairing
 // Block/Storage fixture surface, but still pass through the same exported
 // typed fingerprint and emitter policy consumed by deterministic adapters.
 func fingerprintPairingEvent(ev Event) PairingEndpointVerdict {
+	if verdict, _, governed := mmcPairingVerdictFromEvent(ev); governed {
+		return verdict
+	}
 	if strings.TrimSpace(ev.FieldText) != "" {
 		return DecodePairingEndpoint(ev.Name, ev.FieldText, int64(ev.PID))
 	}
@@ -230,10 +241,23 @@ func fingerprintPairingEvent(ev Event) PairingEndpointVerdict {
 	return DecodePairingEndpoint(name, "", int64(ev.PID))
 }
 
+// FingerprintPairingEvent exposes the same parse-time, full-right-edge
+// endpoint verdict to deterministic converter stages. It does not add a new
+// classifier: exact names, typed side-table admission and emitter policy all
+// remain owned by fingerprintPairingEvent/FingerprintPairingEndpoint.
+func FingerprintPairingEvent(ev Event) PairingEndpointVerdict {
+	return fingerprintPairingEvent(ev)
+}
+
 // FingerprintPairingEndpoint is the typed constructor shared by wire parsing
 // and deterministic converters. It never accepts a caller-supplied family,
 // phase, or semantic base; those remain bound to the exact name registry.
 func FingerprintPairingEndpoint(input PairingEndpointTypedInput) PairingEndpointVerdict {
+	if mmcPairingNameCandidate(input.Name) {
+		if _, exact := exactMMCPairingProfile(input.Name); !exact {
+			return PairingEndpointVerdict{}
+		}
+	}
 	input.Name = strings.TrimSpace(input.Name)
 	profile, ok := pairingEndpointProfileForName(input.Name)
 	if !ok {
@@ -311,10 +335,14 @@ func FingerprintPairingEndpoint(input PairingEndpointTypedInput) PairingEndpoint
 func typedGenericStorageIdentity(profile pairingEndpointProfile, input PairingEndpointTypedInput) (genericStorageIdentity, bool) {
 	name := strings.TrimSpace(input.Name)
 	lowerName := strings.ToLower(name)
-	if strings.HasPrefix(lowerName, "mmc_") {
+	if _, exact := exactMMCPairingProfile(input.Name); exact {
+		if !mmcDeviceToken(input.StorageDevice) || !mmcUnsignedDecimal(input.StorageOperation, 32) {
+			return genericStorageIdentity{}, false
+		}
 		// The current standard wire places the mmc device/opcode/tag
-		// positionally; tracequery does not promote them into the coarse hard
-		// identity. Keep the typed adapter byte-for-byte equivalent.
+		// positionally. Validate them for profile admission, but do not promote
+		// them into the established source/layer/base/PID coarse key pending a
+		// production request-token witness.
 		return genericStorageIdentity{
 			Layer: profile.Layer, Base: profile.SemanticBase,
 			Dev: "unknown", Inode: "-", Op: profile.SemanticBase, PID: int(input.HeaderTID),
@@ -707,6 +735,12 @@ func encodePairingKey(parts ...string) string {
 }
 
 func genericStoragePairingProfile(name string) (pairingEndpointProfile, bool) {
+	if profile, exact := exactMMCPairingProfile(name); exact {
+		return profile, true
+	}
+	if mmcPairingNameCandidate(name) {
+		return pairingEndpointProfile{}, false
+	}
 	typ := classifyEventType("", name, "")
 	if typ != EventStorage && typ != EventFilesystem {
 		return pairingEndpointProfile{}, false
@@ -798,6 +832,9 @@ func genericStorageWireAlias(tokens []pairingKVToken, lexOK bool, aliases ...str
 }
 
 func genericStorageWireAdmissionFor(name, fieldText string, tokens []pairingKVToken, lexOK bool) genericStorageWireAdmission {
+	if admission, governed := mmcStorageWireAdmission(name, fieldText); governed {
+		return admission
+	}
 	if admission, ok := genericStorageSpaceWireAdmission(name, fieldText); ok {
 		return admission
 	}

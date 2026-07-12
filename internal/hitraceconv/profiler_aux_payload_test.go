@@ -219,14 +219,16 @@ func TestProfilerAuxProto3DefaultsAndUnionProfileOptionalPresence(t *testing.T) 
 	assertSame(t, 4010, devAndIno, protoPayload(devAndIno, profilerAuxExplicitZeroFields(3, 4, 5)))
 	assertSame(t, 4011, devAndIno, protoPayload(devAndIno, profilerAuxExplicitZeroFields(3, 4)))
 	assertSame(t, 4012, devAndIno, protoPayload(devAndIno, profilerAuxExplicitZeroFields(3, 4, 5)))
-	assertSame(t, 4015, protoBytes(23, []byte("mmc0")), protoPayload(
+	mmcDoneIdentity := protoPayload(protoVarint(22, 0x1234), protoBytes(23, []byte("mmc0")))
+	assertSame(t, 4015, mmcDoneIdentity, protoPayload(
 		profilerAuxExplicitZeroFields(1, 2), protoBytes(3, nil), profilerAuxExplicitZeroFields(4, 5, 6),
 		protoBytes(7, nil), profilerAuxExplicitZeroFields(8, 9, 10), protoBytes(11, nil),
-		profilerAuxExplicitZeroFields(12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22), protoBytes(23, []byte("mmc0")),
+		profilerAuxExplicitZeroFields(12, 13, 14, 15, 16, 17, 18, 19, 20, 21), mmcDoneIdentity,
 	))
-	assertSame(t, 4016, protoBytes(25, []byte("mmc0")), protoPayload(
-		profilerAuxExplicitZeroFields(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24),
-		protoBytes(25, []byte("mmc0")),
+	mmcStartIdentity := protoPayload(protoVarint(24, 0x1234), protoBytes(25, []byte("mmc0")))
+	assertSame(t, 4016, mmcStartIdentity, protoPayload(
+		profilerAuxExplicitZeroFields(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23),
+		mmcStartIdentity,
 	))
 
 	printAbsent, admission, reason := decodeProfilerAuxPayload(profilerFtraceEventRecord{Field: 1109, Payload: protoBytes(2, []byte("I|7|mark"))})
@@ -488,8 +490,11 @@ func TestProfilerAuxMMCNameGateAndResponseNonAuthority(t *testing.T) {
 			{name: "bracket", value: []byte("mmc[0]")},
 			{name: "equals", value: []byte("mmc=0")},
 			{name: "pipe", value: []byte("mmc|0")},
+			{name: "comma", value: []byte("mmc0,")},
+			{name: "quote", value: []byte("\"mmc0\"")},
 			{name: "newline", value: []byte("mmc0\nnext")},
 			{name: "invalid utf8", value: []byte{0xff}},
+			{name: "over 256 bytes", value: []byte(strings.Repeat("m", 257))},
 		} {
 			t.Run(strconv.Itoa(eventField)+"/"+test.name, func(t *testing.T) {
 				values := profilerAuxCloneValues(base[eventField].values)

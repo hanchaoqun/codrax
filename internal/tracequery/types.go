@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const ParserVersion = "tracequery-v24"
+const ParserVersion = "tracequery-v25"
 
 type EventType string
 
@@ -299,6 +299,11 @@ type ResourceFields struct {
 	Bytes     int64   `json:"resource_bytes,omitempty"`
 	Address   string  `json:"resource_address,omitempty"`
 	Callstack string  `json:"resource_callstack,omitempty"`
+
+	// mmcPairing carries the full-right-edge admission verdict for the two
+	// exact MMC request endpoints. ResourceFields is already the sparse side
+	// table for storage rows, so scheduler/core Events pay no size cost.
+	mmcPairing *mmcPairingAdmission `json:"-"`
 }
 
 // FileFields is the memory/storage/filesystem file-IO side table.

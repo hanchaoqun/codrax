@@ -52,6 +52,10 @@ func renderEventLineDecisionWithPairAudit(ctx renderContext, tsNS uint64, cpu in
 	ev := decodeEvent(format, content)
 	pairPayload, pairAdmission, pairReason := decodeDirectPairPayload(ev, content)
 	pairAudit := newDirectPairLineAudit(ev, pairPayload)
+	mmcPayload, _, _ := decodeDirectMMCPayload(ev, content)
+	if directMMCNameGoverned(format.Name) {
+		pairAudit = directMMCAudit(ev, mmcPayload)
+	}
 	prefix, envelopeOK := renderEventPrefix(ctx, tsNS, cpu, ev)
 	if !envelopeOK {
 		return "", bodyUnsupported, "", false, pairAudit
@@ -61,11 +65,18 @@ func renderEventLineDecisionWithPairAudit(ctx renderContext, tsNS uint64, cpu in
 		PrintkPoisoned: ctx.printkPoisoned,
 	}, ev, content, cpu, pairPayload, pairAdmission, pairReason)
 	if pairAudit.Governed {
-		if admission == bodyAdmitted && (!pairAudit.Verdict.KeyKnown || !pairAudit.Verdict.PayloadAdmitted ||
-			!pairAudit.Verdict.EmitterKnown || !pairAudit.Verdict.EmitterAdmitted) {
+		if pairAudit.Kind == pairRenderMMC && admission == bodyAdmitted && envelopeOK &&
+			(!pairAudit.Verdict.KeyKnown || !pairAudit.Verdict.PayloadAdmitted ||
+				!pairAudit.Verdict.EmitterKnown || !pairAudit.Verdict.EmitterAdmitted ||
+				!directMMCWireParity(mmcPayload, body, pairAudit.Verdict)) {
+			admission, reason = bodyRejected, "pairing_endpoint_rejected"
+		} else if pairAudit.Kind != pairRenderMMC && admission == bodyAdmitted &&
+			(!pairAudit.Verdict.KeyKnown || !pairAudit.Verdict.PayloadAdmitted ||
+				!pairAudit.Verdict.EmitterKnown || !pairAudit.Verdict.EmitterAdmitted) {
 			admission, reason = bodyRejected, "pairing_endpoint_rejected"
 		}
-		if admission == bodyAdmitted && !pairPayloadWireParity(pairAudit.Payload, body, pairAudit.HeaderTID, pairAudit.Verdict) {
+		if pairAudit.Kind != pairRenderMMC && admission == bodyAdmitted &&
+			!pairPayloadWireParity(pairAudit.Payload, body, pairAudit.HeaderTID, pairAudit.Verdict) {
 			admission, reason = bodyRejected, "pairing_endpoint_wire_parity"
 		}
 	}
@@ -76,11 +87,12 @@ func renderEventLineDecisionWithPairAudit(ctx renderContext, tsNS uint64, cpu in
 	line := prefix + name + ": " + body
 	_, coreGoverned := coreRenderKindForName(format.Name)
 	if (coreGoverned || directMarkerNameGoverned(format.Name) || directPairNameGoverned(format.Name) ||
-		directBusNameGoverned(format.Name) || directFilemapNameGoverned(format.Name)) &&
+		directBusNameGoverned(format.Name) || directFilemapNameGoverned(format.Name) ||
+		directMMCNameGoverned(format.Name)) &&
 		!traceDBSinglePhysicalLine(line, false) {
 		return line, bodyRejected, "invalid_rendered_line", true, pairAudit
 	}
-	pairAudit.EndpointAdmitted = pairAudit.Governed && admission == bodyAdmitted
+	pairAudit.EndpointAdmitted = pairAudit.Governed && admission == bodyAdmitted && envelopeOK
 	return line, admission, reason, true, pairAudit
 }
 
@@ -240,6 +252,23 @@ func renderEventBodyDecisionWithPair(ctx coreDecodeContext, ev decodedEvent, con
 		return body, bodyAdmitted, ""
 	case bodyRejected:
 		return "", bodyRejected, reason
+	}
+	mmc, admission, reason := decodeDirectMMCPayload(ev, content)
+	switch admission {
+	case bodyAdmitted:
+		body, ok := renderCanonicalMMCPayload(mmc)
+		if !ok {
+			return "", bodyRejected, "invalid_canonical_mmc_payload"
+		}
+		return body, bodyAdmitted, ""
+	case bodyRejected:
+		return "", bodyRejected, reason
+	}
+	if directMMCNameCandidate(ev.format.Name) {
+		// Exact MMC names were handled by the strict decoder above. Prefix,
+		// case, whitespace and suffix drift stays header-only inventory and
+		// must not fall through to the generic legacy KV renderer.
+		return "", bodyUnsupported, ""
 	}
 	body, known := renderLegacyEventBody(ev, content, cpu)
 	if known {

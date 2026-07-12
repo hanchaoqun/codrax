@@ -39,6 +39,7 @@ type pairCriticalFormatFamilyMask uint8
 const (
 	pairCriticalFormatFamilyWorkqueue pairCriticalFormatFamilyMask = 1 << iota
 	pairCriticalFormatFamilyDMAFence
+	pairCriticalFormatFamilyMMC
 )
 
 func pairCriticalFormatFamilyForName(name string) pairCriticalFormatFamilyMask {
@@ -47,6 +48,8 @@ func pairCriticalFormatFamilyForName(name string) pairCriticalFormatFamilyMask {
 		return pairCriticalFormatFamilyWorkqueue
 	case "dma_fence_wait_start", "dma_fence_wait_end":
 		return pairCriticalFormatFamilyDMAFence
+	case "mmc_request_start", "mmc_request_done":
+		return pairCriticalFormatFamilyMMC
 	default:
 		return 0
 	}

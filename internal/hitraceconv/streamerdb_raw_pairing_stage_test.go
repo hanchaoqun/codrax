@@ -672,6 +672,90 @@ func TestTraceDBRawStandardEndpointParityRoundTrip(t *testing.T) {
 	}
 }
 
+func TestTraceDBRawMMCDeviceClosedScalarTypedWireParity(t *testing.T) {
+	text := func(value string) traceDBValue { return traceDBValue{Valid: true, Text: value, Datatype: 1} }
+	integer := func(value string) traceDBValue { return traceDBValue{Valid: true, Text: value, Datatype: 0} }
+	for _, tc := range []struct {
+		name string
+		args map[string]traceDBValue
+	}{
+		{name: "start", args: map[string]traceDBValue{
+			"name": text("mmc0"), "tag": integer("-1"), "cmd_opcode": integer("17"),
+			"blocks": integer("8"), "block_size": integer("512"), "blk_addr": integer("100"),
+		}},
+		{name: "done", args: map[string]traceDBValue{
+			"name": text("mmc0"), "tag": integer("-1"), "cmd_opcode": integer("17"),
+			"bytes_xfered": integer("4096"), "ret": integer("-5"),
+		}},
+	} {
+		eventName := "mmc_request_" + tc.name
+		if !traceDBRawRequiredArgs(eventName, tc.args, nil) {
+			t.Fatalf("valid compact MMC %s args rejected", tc.name)
+		}
+		verdict := traceDBRawPairingVerdict(eventName, 42, tc.args, nil, true)
+		body, rendered := traceDBRenderRawFtrace(eventName, tc.args, nil)
+		if !rendered || !verdict.Recognized || !verdict.KeyKnown || !verdict.PayloadAdmitted ||
+			!traceDBRawPairingWireParity(eventName, body, 42, verdict) {
+			t.Fatalf("valid compact MMC typed/wire parity failed: verdict=%+v body=%q rendered=%t", verdict, body, rendered)
+		}
+
+		for _, bad := range []string{`"mmc0"`, "mmc0,"} {
+			badArgs := make(map[string]traceDBValue, len(tc.args))
+			for key, value := range tc.args {
+				badArgs[key] = value
+			}
+			badArgs["name"] = text(bad)
+			if traceDBRawRequiredArgs(eventName, badArgs, nil) {
+				t.Fatalf("noncanonical MMC device passed SQL required-arg gate: event=%s device=%q", eventName, bad)
+			}
+			badVerdict := traceDBRawPairingVerdict(eventName, 42, badArgs, nil, true)
+			if !badVerdict.Recognized || badVerdict.KeyKnown || badVerdict.PayloadAdmitted {
+				t.Fatalf("noncanonical MMC device gained typed authority: event=%s device=%q verdict=%+v", eventName, bad, badVerdict)
+			}
+		}
+	}
+}
+
+func TestTraceDBRawBadMMCDeviceStaysCoverageOnlyAndPreservesSibling(t *testing.T) {
+	for _, badDevice := range []string{`"mmc0"`, "mmc0,"} {
+		t.Run(badDevice, func(t *testing.T) {
+			statements := []string{
+				"CREATE TABLE trace_range (start_ts INT)", "INSERT INTO trace_range VALUES (0)",
+				"CREATE TABLE process (ipid INT, pid INT, name TEXT)", "INSERT INTO process VALUES (1,42,'demo')",
+				"CREATE TABLE thread (itid INT, tid INT, ipid INT, name TEXT, is_main_thread INT, switch_count INT)",
+				"INSERT INTO thread VALUES (1,42,1,'worker',1,1)",
+				"CREATE TABLE data_dict (id, data)",
+				"INSERT INTO data_dict VALUES (1,'name')", "INSERT INTO data_dict VALUES (2,'tag')",
+				"INSERT INTO data_dict VALUES (3,'cmd_opcode')", "INSERT INTO data_dict VALUES (4,'blocks')",
+				"INSERT INTO data_dict VALUES (5,'block_size')", "INSERT INTO data_dict VALUES (6,'blk_addr')",
+				"INSERT INTO data_dict VALUES (7,'work')", "INSERT INTO data_dict VALUES (100,'" + strings.ReplaceAll(badDevice, "'", "''") + "')",
+				"CREATE TABLE args (argset, key, datatype, value)",
+				"INSERT INTO args VALUES (1,1,1,100)", "INSERT INTO args VALUES (1,2,0,-1)",
+				"INSERT INTO args VALUES (1,3,0,17)", "INSERT INTO args VALUES (1,4,0,8)",
+				"INSERT INTO args VALUES (1,5,0,512)", "INSERT INTO args VALUES (1,6,0,100)",
+				"INSERT INTO args VALUES (2,7,0,2748)",
+				"CREATE TABLE raw (id, ts, name, cpu, itid, argsetid)",
+				"INSERT INTO raw VALUES (1,1000,'mmc_request_start',0,1,1)",
+				"INSERT INTO raw VALUES (2,2000,'workqueue_execute_start',0,1,2)",
+				"INSERT INTO raw VALUES (3,3000,'workqueue_execute_end',0,1,2)",
+			}
+			path := createTraceDBRawAuthorityFixture(t, statements)
+			outPath := filepath.Join(t.TempDir(), "bad-mmc-device.systrace")
+			if _, err := exportTraceDBToSystrace(context.Background(), path, outPath); err != nil {
+				t.Fatalf("bad MMC device escalated to conversion failure: %v", err)
+			}
+			body, err := os.ReadFile(outPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(body), "mmc_request_start:") ||
+				!strings.Contains(string(body), "workqueue_execute_start:") || !strings.Contains(string(body), "workqueue_execute_end:") {
+				t.Fatalf("bad MMC device leaked or damaged valid sibling:\n%s", body)
+			}
+		})
+	}
+}
+
 func TestTraceDBRawPairingFreezeFiveFamiliesRejectsRescueAndPreservesSibling(t *testing.T) {
 	statements := []string{
 		"CREATE TABLE trace_range (start_ts INT)", "INSERT INTO trace_range VALUES (0)",

@@ -3,6 +3,7 @@ package hitraceconv
 import (
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -37,17 +38,20 @@ type directPairCaptureBarrier struct {
 	budgetFailed    bool
 }
 
-func newDirectPairCaptureBarrier(outputPath string) (*directPairCaptureBarrier, error) {
-	if strings.TrimSpace(outputPath) == "" {
-		return nil, &traceDBOutputInvariantError{Reason: "invalid_direct_pair_output_namespace"}
+func newDirectPairCaptureBarrier(sourcePath string) (*directPairCaptureBarrier, error) {
+	if strings.TrimSpace(sourcePath) == "" {
+		return nil, &traceDBOutputInvariantError{Reason: "invalid_direct_pair_source_namespace"}
 	}
-	abs, err := filepath.Abs(outputPath)
+	abs, err := filepath.Abs(sourcePath)
 	if err != nil {
-		return nil, fmt.Errorf("resolve direct pair output namespace: %w", err)
+		return nil, fmt.Errorf("resolve direct pair source namespace: %w", err)
 	}
 	abs = filepath.Clean(abs)
+	if physical, resolveErr := filepath.EvalSymlinks(abs); resolveErr == nil {
+		abs = filepath.Clean(physical)
+	}
 	if abs == "" || abs == "." {
-		return nil, &traceDBOutputInvariantError{Reason: "invalid_direct_pair_output_namespace"}
+		return nil, &traceDBOutputInvariantError{Reason: "invalid_direct_pair_source_namespace"}
 	}
 	return &directPairCaptureBarrier{
 		source:          abs,
@@ -69,6 +73,23 @@ func (barrier *directPairCaptureBarrier) observe(audit directPairLineAudit) {
 		return
 	}
 	if barrier.poisonedKinds[audit.Kind] {
+		return
+	}
+	if audit.Kind == pairRenderMMC {
+		lane, laneKnown := directMMCLaneKey(audit, barrier.source)
+		if laneKnown && !barrier.admitLane(audit.Kind, lane) {
+			return
+		}
+		if !audit.EndpointAdmitted {
+			if laneKnown {
+				// Header TID is already a deterministic endpoint identity in the
+				// downstream coarse key. It is the finest source-pinned locality
+				// available without promoting unproven MRQ/tag request tokens.
+				barrier.poisonedLanes[lane] = true
+			} else {
+				barrier.poisonedKinds[pairRenderMMC] = true
+			}
+		}
 		return
 	}
 	lane, laneKnown := pairingEndpointLaneKey(audit.Verdict, barrier.source)
@@ -97,6 +118,9 @@ func (barrier *directPairCaptureBarrier) addPublishedRow(seq int, audit directPa
 		return
 	}
 	lane, ok := pairingEndpointLaneKey(audit.Verdict, barrier.source)
+	if audit.Kind == pairRenderMMC {
+		lane, ok = directMMCLaneKey(audit, barrier.source)
+	}
 	if !ok {
 		barrier.failBudget()
 		return
@@ -115,6 +139,13 @@ func (barrier *directPairCaptureBarrier) addPublishedRow(seq int, audit directPa
 	barrier.rows[seq] = directPairBarrierRow{kind: audit.Kind, lane: lane}
 }
 
+func directMMCLaneKey(audit directPairLineAudit, source string) (string, bool) {
+	if !audit.HeaderOwnerKnown || audit.HeaderTID < 0 || source == "" {
+		return "", false
+	}
+	return source + "\x00mmc\x00tid=" + strconv.FormatInt(audit.HeaderTID, 10), true
+}
+
 func (barrier *directPairCaptureBarrier) poisonFormatFamilies(mask pairCriticalFormatFamilyMask) {
 	if barrier == nil || mask == 0 {
 		return
@@ -125,6 +156,9 @@ func (barrier *directPairCaptureBarrier) poisonFormatFamilies(mask pairCriticalF
 	}
 	if mask&pairCriticalFormatFamilyDMAFence != 0 {
 		barrier.poisonedKinds[pairRenderDMAFence] = true
+	}
+	if mask&pairCriticalFormatFamilyMMC != 0 {
+		barrier.poisonedKinds[pairRenderMMC] = true
 	}
 }
 
@@ -194,6 +228,7 @@ func (barrier *directPairCaptureBarrier) failBudget() {
 	barrier.budgetFailed = true
 	barrier.poisonedKinds[pairRenderWorkqueue] = true
 	barrier.poisonedKinds[pairRenderDMAFence] = true
+	barrier.poisonedKinds[pairRenderMMC] = true
 	barrier.seenLanes = nil
 	barrier.poisonedLanes = nil
 }
@@ -203,7 +238,7 @@ func (barrier *directPairCaptureBarrier) poisonedFamilyCount() int {
 		return 0
 	}
 	count := 0
-	for _, kind := range []pairRenderKind{pairRenderWorkqueue, pairRenderDMAFence} {
+	for _, kind := range []pairRenderKind{pairRenderWorkqueue, pairRenderDMAFence, pairRenderMMC} {
 		if barrier.poisonedKinds[kind] {
 			count++
 		}

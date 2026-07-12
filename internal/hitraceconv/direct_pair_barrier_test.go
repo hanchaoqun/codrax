@@ -209,7 +209,7 @@ func TestDirectPairBarrierInvalidOwnerAndPoisonedDescriptorAreNotInvisible(t *te
 	})
 }
 
-func TestDirectPairBarrierBudgetsFailClosedForBothFamilies(t *testing.T) {
+func TestDirectPairBarrierBudgetsFailClosedForAllFamilies(t *testing.T) {
 	newBarrier := func(t *testing.T) *directPairCaptureBarrier {
 		t.Helper()
 		barrier, err := newDirectPairCaptureBarrier(filepath.Join(t.TempDir(), "pair.ftrace"))
@@ -262,16 +262,17 @@ func TestDirectPairBarrierBudgetsFailClosedForBothFamilies(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			barrier := newBarrier(t)
 			test.run(barrier)
-			if !barrier.budgetFailed || barrier.poisonedFamilyCount() != 2 {
-				t.Fatalf("budget did not close both pair families: failed=%t kinds=%v", barrier.budgetFailed, barrier.poisonedKinds)
+			if !barrier.budgetFailed || barrier.poisonedFamilyCount() != 3 {
+				t.Fatalf("budget did not close all pair families: failed=%t kinds=%v", barrier.budgetFailed, barrier.poisonedKinds)
 			}
 			rows := []renderedRow{
 				{seq: 101, pairKind: pairRenderWorkqueue, line: "work"},
 				{seq: 102, pairKind: pairRenderDMAFence, line: "dma"},
-				{seq: 103, pairKind: pairRenderUnknown, line: "inventory"},
+				{seq: 103, pairKind: pairRenderMMC, line: "mmc"},
+				{seq: 104, pairKind: pairRenderUnknown, line: "inventory"},
 			}
 			filtered := barrier.filter(rows)
-			if len(filtered) != 1 || filtered[0].seq != 103 {
+			if len(filtered) != 1 || filtered[0].seq != 104 {
 				t.Fatalf("budget fail-close leaked pair rows or removed inventory: %+v", filtered)
 			}
 		})
@@ -286,18 +287,19 @@ func TestDirectPairBarrierMissingPublishedRowMappingFailsClosedGlobally(t *testi
 	rows := []renderedRow{
 		{seq: 41, pairKind: pairRenderWorkqueue, line: "unmapped-pair"},
 		{seq: 43, pairKind: pairRenderDMAFence, line: "otherwise-mapped-pair"},
+		{seq: 44, pairKind: pairRenderMMC, line: "unmapped-mmc"},
 		{seq: 42, pairKind: pairRenderUnknown, line: "inventory"},
 	}
 	barrier.rows[43] = directPairBarrierRow{kind: pairRenderDMAFence, lane: "known-lane"}
 	filtered := barrier.filter(rows)
-	if len(filtered) != 1 || filtered[0].seq != 42 || barrier.poisonedRows != 2 ||
-		!barrier.budgetFailed || barrier.poisonedFamilyCount() != 2 {
+	if len(filtered) != 1 || filtered[0].seq != 42 || barrier.poisonedRows != 3 ||
+		!barrier.budgetFailed || barrier.poisonedFamilyCount() != 3 {
 		t.Fatalf("missing barrier row mapping did not fail closed globally: filtered=%+v poisoned=%d failed=%t kinds=%v",
 			filtered, barrier.poisonedRows, barrier.budgetFailed, barrier.poisonedKinds)
 	}
 }
 
-func TestDirectPairBarrierSourceNamespaceIsAbsoluteAndOutputScoped(t *testing.T) {
+func TestDirectPairBarrierSourceNamespaceIsAbsoluteAndSourceScoped(t *testing.T) {
 	relative := filepath.Join("relative", "pair-a.ftrace")
 	wantAbsolute, err := filepath.Abs(relative)
 	if err != nil {
@@ -312,7 +314,7 @@ func TestDirectPairBarrierSourceNamespaceIsAbsoluteAndOutputScoped(t *testing.T)
 		t.Fatal(err)
 	}
 	if !filepath.IsAbs(first.source) || first.source != filepath.Clean(wantAbsolute) || first.source == second.source {
-		t.Fatalf("output namespace was not canonical and isolated: first=%q second=%q want=%q", first.source, second.source, filepath.Clean(wantAbsolute))
+		t.Fatalf("source namespace was not canonical and isolated: first=%q second=%q want=%q", first.source, second.source, filepath.Clean(wantAbsolute))
 	}
 
 	audit := directPairAdmittedAudit(t,
@@ -320,15 +322,36 @@ func TestDirectPairBarrierSourceNamespaceIsAbsoluteAndOutputScoped(t *testing.T)
 	firstLane, firstOK := pairingEndpointLaneKey(audit.Verdict, first.source)
 	secondLane, secondOK := pairingEndpointLaneKey(audit.Verdict, second.source)
 	if !firstOK || !secondOK || firstLane == secondLane {
-		t.Fatalf("different output artifacts shared a pair lane: first=%q/%t second=%q/%t", firstLane, firstOK, secondLane, secondOK)
+		t.Fatalf("different source artifacts shared a pair lane: first=%q/%t second=%q/%t", firstLane, firstOK, secondLane, secondOK)
 	}
 
-	for _, output := range []string{"", " \t "} {
-		if barrier, createErr := newDirectPairCaptureBarrier(output); createErr == nil || barrier != nil {
-			t.Fatalf("empty output namespace admitted: output=%q barrier=%+v err=%v", output, barrier, createErr)
-		} else if reason, ok := traceDBOutputInvariantReason(createErr); !ok || reason != "invalid_direct_pair_output_namespace" {
-			t.Fatalf("empty namespace returned wrong typed error: output=%q reason=%q typed=%t err=%v", output, reason, ok, createErr)
+	for _, source := range []string{"", " \t "} {
+		if barrier, createErr := newDirectPairCaptureBarrier(source); createErr == nil || barrier != nil {
+			t.Fatalf("empty source namespace admitted: source=%q barrier=%+v err=%v", source, barrier, createErr)
+		} else if reason, ok := traceDBOutputInvariantReason(createErr); !ok || reason != "invalid_direct_pair_source_namespace" {
+			t.Fatalf("empty namespace returned wrong typed error: source=%q reason=%q typed=%t err=%v", source, reason, ok, createErr)
 		}
+	}
+
+	dir := t.TempDir()
+	realSource := filepath.Join(dir, "real.htrace")
+	linkSource := filepath.Join(dir, "link.htrace")
+	if err := os.WriteFile(realSource, []byte("source"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realSource, linkSource); err != nil {
+		t.Fatal(err)
+	}
+	realBarrier, err := newDirectPairCaptureBarrier(realSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	linkBarrier, err := newDirectPairCaptureBarrier(linkSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if realBarrier.source != linkBarrier.source {
+		t.Fatalf("one physical source split across symlink namespaces: real=%q link=%q", realBarrier.source, linkBarrier.source)
 	}
 }
 

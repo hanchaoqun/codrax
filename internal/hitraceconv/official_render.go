@@ -127,10 +127,6 @@ func renderOfficialOpenHarmonyBody(ev decodedEvent, content []byte, cpu int) (st
 	case strings.HasPrefix(name, "dma_fence") && !directPairNameGoverned(name):
 		return fmt.Sprintf("driver=%s timeline=%s context=%d seqno=%d", stringByCleanName(ev, content, "driver"),
 			stringByCleanName(ev, content, "timeline"), intByCleanName(ev, "context", false), intByCleanName(ev, "seqno", false)), true
-	case strings.HasPrefix(name, "mmc_request_start"):
-		return renderMMCRequestStart(ev, content), true
-	case strings.HasPrefix(name, "mmc_request_done"):
-		return renderMMCRequestDone(ev, content), true
 	case strings.HasPrefix(name, "rss_stat"):
 		return fmt.Sprintf("mm_id=%d curr=%d member=%d size=%d", intByCleanName(ev, "mm_id", false),
 			intByCleanName(ev, "curr", false), intByCleanName(ev, "member", true), intByCleanName(ev, "size", true)), true
@@ -332,35 +328,6 @@ func appendHexCleanIntKV(parts []string, key string, ev decodedEvent, signed boo
 	return appendHexIntKV(parts, key, value, ok)
 }
 
-func renderMMCRequestStart(ev decodedEvent, content []byte) string {
-	return fmt.Sprintf("%s: start struct mmc_request[0x%x]: cmd_opcode=%d cmd_arg=0x%x cmd_flags=0x%x cmd_retries=%d stop_opcode=%d stop_arg=0x%x stop_flags=0x%x stop_retries=%d sbc_opcode=%d sbc_arg=0x%x sbc_flags=0x%x sbc_retires=%d blocks=%d block_size=%d blk_addr=%d data_flags=0x%x tag=%d can_retune=%d doing_retune=%d retune_now=%d need_retune=%d hold_retune=%d retune_period=%d",
-		stringByCleanName(ev, content, "name"), intByCleanName(ev, "mrq", false), intByCleanName(ev, "cmd_opcode", false),
-		intByCleanName(ev, "cmd_arg", false), intByCleanName(ev, "cmd_flags", false), intByCleanName(ev, "cmd_retries", false),
-		intByCleanName(ev, "stop_opcode", false), intByCleanName(ev, "stop_arg", false), intByCleanName(ev, "stop_flags", false),
-		intByCleanName(ev, "stop_retries", false), intByCleanName(ev, "sbc_opcode", false), intByCleanName(ev, "sbc_arg", false),
-		intByCleanName(ev, "sbc_flags", false), intByCleanName(ev, "sbc_retries", false), intByCleanName(ev, "blocks", false),
-		intByCleanName(ev, "blksz", false), intByCleanName(ev, "blk_addr", false), intByCleanName(ev, "data_flags", false),
-		intByCleanName(ev, "tag", true), intByCleanName(ev, "can_retune", false), intByCleanName(ev, "doing_retune", false),
-		intByCleanName(ev, "retune_now", false), intByCleanName(ev, "need_retune", false), intByCleanName(ev, "hold_retune", true),
-		intByCleanName(ev, "retune_period", true))
-}
-
-func renderMMCRequestDone(ev decodedEvent, content []byte) string {
-	cmdResp := fieldBytesByCleanName(ev, "cmd_resp")
-	stopResp := fieldBytesByCleanName(ev, "stop_resp")
-	sbcResp := fieldBytesByCleanName(ev, "sbc_resp")
-	return fmt.Sprintf("%s: end struct mmc_request[0x%x]: cmd_opcode=%d cmd_err=%d cmd_resp=0x%x 0x%x 0x%x 0x%x cmd_retries=%d stop_opcode=%d stop_err=%d stop_resp=0x%x 0x%x 0x%x 0x%x stop_retries=%d sbc_opcode=%d sbc_err=%d sbc_resp=0x%x 0x%x 0x%x 0x%x sbc_retries=%d bytes_xfered=%d data_err=%d tag=%d can_retune=%d doing_retune=%d retune_now=%d need_retune=%d hold_retune=%d retune_period=%d",
-		stringByCleanName(ev, content, "name"), intByCleanName(ev, "mrq", false), intByCleanName(ev, "cmd_opcode", false),
-		intByCleanName(ev, "cmd_err", true), byteAt(cmdResp, 0), byteAt(cmdResp, 1), byteAt(cmdResp, 2), byteAt(cmdResp, 3),
-		intByCleanName(ev, "cmd_retries", false), intByCleanName(ev, "stop_opcode", false), intByCleanName(ev, "stop_err", true),
-		byteAt(stopResp, 0), byteAt(stopResp, 1), byteAt(stopResp, 2), byteAt(stopResp, 3), intByCleanName(ev, "stop_retries", false),
-		intByCleanName(ev, "sbc_opcode", false), intByCleanName(ev, "sbc_err", true), byteAt(sbcResp, 0), byteAt(sbcResp, 1),
-		byteAt(sbcResp, 2), byteAt(sbcResp, 3), intByCleanName(ev, "sbc_retries", false), intByCleanName(ev, "bytes_xfered", false),
-		intByCleanName(ev, "data_err", true), intByCleanName(ev, "tag", true), intByCleanName(ev, "can_retune", false),
-		intByCleanName(ev, "doing_retune", false), intByCleanName(ev, "retune_now", false), intByCleanName(ev, "need_retune", true),
-		intByCleanName(ev, "hold_retune", true), intByCleanName(ev, "retune_period", false))
-}
-
 func renderEROFS(ev decodedEvent, content []byte) (string, bool) {
 	name := ev.format.Name
 	dev := devByCleanName(ev, "dev", ",")
@@ -528,11 +495,4 @@ func decimalByteArray(b []byte) string {
 		parts = append(parts, fmt.Sprintf("%d", v))
 	}
 	return strings.Join(parts, ", ")
-}
-
-func byteAt(b []byte, i int) byte {
-	if i < 0 || i >= len(b) {
-		return 0
-	}
-	return b[i]
 }

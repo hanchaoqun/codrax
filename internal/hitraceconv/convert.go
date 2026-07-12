@@ -35,10 +35,11 @@ type traceMetadata struct {
 }
 
 type renderedRow struct {
-	tsNS     uint64
-	seq      int
-	line     string
-	pairKind pairRenderKind
+	tsNS           uint64
+	seq            int
+	line           string
+	pairKind       pairRenderKind
+	structuredPair bool
 }
 
 // ConvertFile converts a binary Harmony/OpenHarmony HiTrace capture to a
@@ -202,7 +203,7 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 		}
 		return Result{}, err
 	}
-	rows, missing, unknown, suppressed, first, last, err := renderRows(ctx, input, output, meta)
+	rows, missing, unknown, suppressed, first, last, err := renderRows(ctx, input, meta)
 	if err != nil {
 		return Result{}, err
 	}
@@ -282,7 +283,7 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 		result.Caveats = append(result.Caveats, fmt.Sprintf("%d governed direct ftrace event row(s) had rejected physical payloads and were kept coverage-only instead of falling back to header-only rows; reasons=%s", meta.bodyRejectedRows, traceDBCountSummary(meta.bodyRejectReasons)))
 	}
 	if meta.pairQuarantinedRows > 0 || meta.pairPoisonedFamilies > 0 || meta.pairPoisonedLanes > 0 {
-		result.Caveats = append(result.Caveats, fmt.Sprintf("direct pair-critical publication completed a full-capture anti-rescue freeze before output: withheld_rows=%d poisoned_lanes=%d poisoned_families=%d budget_fail_closed=%t; rejected Workqueue/DMA endpoints remain coverage-only and cannot be bridged by neighboring rows", meta.pairQuarantinedRows, meta.pairPoisonedLanes, meta.pairPoisonedFamilies, meta.pairBarrierBudget))
+		result.Caveats = append(result.Caveats, fmt.Sprintf("direct pair-critical publication completed a full-capture anti-rescue freeze before output: withheld_rows=%d poisoned_lanes=%d poisoned_families=%d budget_fail_closed=%t; rejected Workqueue/DMA/MMC endpoints remain coverage-only and cannot be bridged by neighboring rows", meta.pairQuarantinedRows, meta.pairPoisonedLanes, meta.pairPoisonedFamilies, meta.pairBarrierBudget))
 	}
 	result.Caveats = append(result.Caveats, standaloneCaveats...)
 	normalizeResultCollections(&result)
@@ -449,7 +450,7 @@ func scanMetadata(ctx context.Context, path string, size int64) (*traceMetadata,
 	return meta, nil
 }
 
-func renderRows(ctx context.Context, path, outputPath string, meta *traceMetadata) ([]renderedRow, int, int, int, uint64, uint64, error) {
+func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]renderedRow, int, int, int, uint64, uint64, error) {
 	if meta != nil {
 		meta.formatConflictRows = 0
 		meta.bodyRejectedRows = 0
@@ -459,7 +460,7 @@ func renderRows(ctx context.Context, path, outputPath string, meta *traceMetadat
 		meta.pairPoisonedFamilies = 0
 		meta.pairBarrierBudget = false
 	}
-	pairBarrier, err := newDirectPairCaptureBarrier(outputPath)
+	pairBarrier, err := newDirectPairCaptureBarrier(path)
 	if err != nil {
 		return nil, 0, 0, 0, 0, 0, err
 	}

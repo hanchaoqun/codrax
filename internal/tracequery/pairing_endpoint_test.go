@@ -408,7 +408,7 @@ func TestGenericStorageWireProfilesSeparateKeyFromAdmission(t *testing.T) {
 		{name: "scsi bad hard dev", event: "scsi_dispatch_cmd_start", fields: "tag=1 dev=bad lba=1 len=4096 opcode=READ_10"},
 		{name: "mmc positional full", event: "mmc_request_start", fields: "mmc0 tag=1 opcode=17 blocks=8 block_size=512 blk_addr=10", wantKey: true, wantPayload: true},
 		{name: "mmc positional missing mandatory", event: "mmc_request_start", fields: "mmc0 opcode=17", wantKey: true},
-		{name: "mmc kv legacy", event: "mmc_request_start", fields: "dev=mmcblk0 op=read", wantKey: true, wantPayload: true},
+		{name: "mmc unregistered kv compatibility is inventory only", event: "mmc_request_start", fields: "dev=mmcblk0 op=read"},
 		{name: "ufs named device", event: "ufshcd_command_start", fields: "dev=ufs0 tag=1 opcode=READ_10", wantKey: true, wantPayload: true},
 		{name: "ufs absent device", event: "ufshcd_command_start", fields: "tag=1 opcode=READ_10", wantKey: true, wantPayload: true},
 		{name: "ufs malformed nonkey tag", event: "ufshcd_command_start", fields: "tag=bad opcode=READ_10", wantKey: true},

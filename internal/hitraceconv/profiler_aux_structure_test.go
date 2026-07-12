@@ -141,15 +141,24 @@ func TestProfilerAuxCanonicalRendererPinsTruthfulLabels(t *testing.T) {
 		}
 	}
 
-	mmcDone := sourceBetween(t, adapter, "case profilerAuxMMCDone:", "default:")
+	mmcDoneArm := sourceBetween(t, adapter, "case profilerAuxMMCDone:", "default:")
+	if !strings.Contains(mmcDoneArm, "renderCanonicalMMCPayload(") {
+		t.Fatal("structured MMC no longer delegates to the source-neutral canonical renderer")
+	}
+	mmcDone := mustReadRendererSource(t, "direct_mmc_payload.go")
 	for _, required := range []string{"struct mmc_request[0x%x]", "cmd_err=%d", "stop_err=%d", "sbc_err=%d", "data_err=%d"} {
 		if !strings.Contains(mmcDone, required) {
 			t.Fatalf("MMC canonical truth field lost %q", required)
 		}
 	}
-	for _, forbidden := range []string{" ret=", "CmdResponse", "StopResponse", "SBCResponse"} {
+	for _, forbidden := range []string{" ret="} {
 		if strings.Contains(mmcDone, forbidden) {
 			t.Fatalf("MMC canonical renderer exposed fabricated/lossy field %q", forbidden)
+		}
+	}
+	for _, forbidden := range []string{"CmdResponseKnown: true", "StopResponseKnown: true", "SBCResponseKnown: true"} {
+		if strings.Contains(mmcDoneArm, forbidden) {
+			t.Fatalf("structured MMC promoted a lossy response carrier %q", forbidden)
 		}
 	}
 }

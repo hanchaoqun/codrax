@@ -207,7 +207,9 @@ func decodeGenericStoragePairingEvent(idx *Index, ev Event) genericStoragePairin
 	out := genericStoragePairingDecoded{identity: identity, phase: phase, endpoint: true}
 	out.source, out.sourceKnown = tracePairingSourceIdentity(idx, ev)
 	admission := genericStorageWireAdmission{}
-	if strings.TrimSpace(ev.FieldText) != "" {
+	if verdict, mmcAdmission, governed := mmcPairingVerdictFromEvent(ev); governed {
+		out.verdict, admission = verdict, mmcAdmission
+	} else if strings.TrimSpace(ev.FieldText) != "" {
 		var decoded pairingEndpointDecodedFields
 		out.verdict, decoded = decodePairingEndpointWire(ev.Name, ev.FieldText, int64(ev.PID))
 		admission = decoded.storage

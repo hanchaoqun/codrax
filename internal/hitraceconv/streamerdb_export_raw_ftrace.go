@@ -675,7 +675,7 @@ func traceDBRawRequiredArgs(name string, args map[string]traceDBValue, invalidKe
 	case "mmc_request_start":
 		return require([]string{"name", "dev_name"}, []string{"tag"}, []string{"cmd_opcode", "opcode"},
 			[]string{"blocks"}, []string{"block_size"}, []string{"blk_addr", "lba"}) &&
-			traceDBRawWireTextAlias(args, invalidKeys, true, "name", "dev_name") &&
+			traceDBRawMMCDeviceAlias(args, invalidKeys, "name", "dev_name") &&
 			traceDBRawIntegerAlias(args, invalidKeys, true, math.MinInt64, math.MaxInt64, "tag") &&
 			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "cmd_opcode", "opcode") &&
 			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "blocks") &&
@@ -685,7 +685,7 @@ func traceDBRawRequiredArgs(name string, args map[string]traceDBValue, invalidKe
 		return require([]string{"name", "dev_name"}, []string{"tag"}, []string{"cmd_opcode", "opcode"},
 			[]string{"bytes_xfered", "bytes", "len"}) && requireAny("ret", "cmd_err", "data_err") &&
 			optional([]string{"ret"}, []string{"cmd_err"}, []string{"data_err"}) &&
-			traceDBRawWireTextAlias(args, invalidKeys, true, "name", "dev_name") &&
+			traceDBRawMMCDeviceAlias(args, invalidKeys, "name", "dev_name") &&
 			traceDBRawIntegerAlias(args, invalidKeys, true, math.MinInt64, math.MaxInt64, "tag") &&
 			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "cmd_opcode", "opcode") &&
 			traceDBRawIntegerAlias(args, invalidKeys, true, 0, math.MaxInt64, "bytes_xfered", "bytes", "len") &&
@@ -823,6 +823,11 @@ func traceDBRawWireTextAlias(args map[string]traceDBValue, invalidKeys map[strin
 		}
 	}
 	return !strings.ContainsAny(text, " \t\r\n=")
+}
+
+func traceDBRawMMCDeviceAlias(args map[string]traceDBValue, invalidKeys map[string]bool, names ...string) bool {
+	text, ok := traceDBRawValidatedAlias(args, invalidKeys, true, names...)
+	return ok && traceDBRawWireTextAlias(args, invalidKeys, true, names...) && validProfilerMMCName(text)
 }
 
 func traceDBRawAnyWireText(args map[string]traceDBValue, invalidKeys map[string]bool, names ...string) bool {

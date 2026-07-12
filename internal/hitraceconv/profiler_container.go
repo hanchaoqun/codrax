@@ -53,20 +53,21 @@ type profilerPluginDataDecode struct {
 }
 
 type profilerContainerExtraction struct {
-	Detected           bool
-	Kind               string
-	Messages           int
-	PluginMessages     map[string]int
-	StructuredFtrace   int
-	MalformedFtrace    int
-	UnsupportedFtrace  int
-	TextPluginMessages int
-	TextRows           int
-	StructuredRows     int
-	RejectedMessages   int
-	StandaloneDetected bool
-	TraceCoverage      []TraceDBCoverage
-	Caveats            []string
+	Detected            bool
+	Kind                string
+	Messages            int
+	PluginMessages      map[string]int
+	StructuredFtrace    int
+	MalformedFtrace     int
+	UnsupportedFtrace   int
+	TextPluginMessages  int
+	TextOnlyMMCMessages int
+	TextRows            int
+	StructuredRows      int
+	RejectedMessages    int
+	StandaloneDetected  bool
+	TraceCoverage       []TraceDBCoverage
+	Caveats             []string
 }
 
 type profilerFtraceSummary struct {
@@ -194,6 +195,59 @@ func modernRowSorterCoverage(stats traceDBRowSortStats) TraceDBCoverage {
 	return coverage
 }
 
+const profilerCoverageMMCStagedRows = "complete_capture_mmc_rows_staged"
+
+func profilerMMCPairBarrierCoverage(withheld int) TraceDBCoverage {
+	return TraceDBCoverage{
+		Family:   "builtin_modern_ftrace:mmc",
+		Table:    "__complete_capture_barrier__",
+		Role:     "unsupported_input",
+		Found:    true,
+		RowsRead: withheld,
+		Skipped:  "source-scoped MMC endpoint publication failed the profiler full-capture anti-rescue barrier",
+		FieldSources: map[string]string{
+			"scope":         "one profiler container source namespace",
+			"pairing_guard": "all structured field-4015/4016 and text-compatible exact MMC rows are sealed before publication; malformed, opaque, or unattributable physical endpoints close the MMC family",
+		},
+	}
+}
+
+func reconcileProfilerMMCCoverage(items []TraceDBCoverage, withheld int) error {
+	if withheld <= 0 {
+		return nil
+	}
+	accounted := 0
+	for index := range items {
+		item := &items[index]
+		if item.Table == "mmc_request_start" || item.Table == "mmc_request_done" {
+			if item.FieldSources == nil {
+				item.FieldSources = map[string]string{}
+			}
+			item.FieldSources["complete_capture_withheld_rows"] = strconv.Itoa(item.RowsEmitted)
+			item.RowsEmitted = 0
+		}
+		publisher := item.Family == "builtin_modern_profiler" &&
+			(strings.HasPrefix(item.Table, "plugin:") || item.Table == "session:SessionJSON")
+		if !publisher || item.FieldSources == nil {
+			continue
+		}
+		staged, err := strconv.Atoi(item.FieldSources[profilerCoverageMMCStagedRows])
+		if err != nil || staged <= 0 {
+			continue
+		}
+		if staged > item.RowsEmitted {
+			return &traceDBOutputInvariantError{Reason: "profiler_mmc_coverage_exceeds_plugin_rows"}
+		}
+		item.RowsEmitted -= staged
+		item.FieldSources["complete_capture_withheld_rows"] = strconv.Itoa(staged)
+		accounted += staged
+	}
+	if accounted != withheld {
+		return &traceDBOutputInvariantError{Reason: "profiler_mmc_coverage_attribution_mismatch"}
+	}
+	return nil
+}
+
 func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize int64, output string, standaloneArtifacts []Artifact, standaloneCaveats []string, standaloneDecisions []PerfProviderDecision, initialTraceDecisions []TraceProviderDecision, initialTraceDBCoverage []TraceDBCoverage) (Result, bool, error) {
 	sink, err := newTraceDBRowSink("", 0)
 	if err != nil {
@@ -225,7 +279,15 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 		UnknownEventCount:  extracted.UnsupportedFtrace + extracted.RejectedMessages,
 	}
 	result.Caveats = append(result.Caveats, standaloneCaveats...)
-	if sink.stats.RowsAccepted > 0 {
+	if sink.pairKindPoisoned(pairRenderMMC) {
+		withheld := sink.withheldPairRows()
+		if err := reconcileProfilerMMCCoverage(result.TraceCoverage, withheld); err != nil {
+			return Result{}, true, err
+		}
+		result.Caveats = append(result.Caveats, fmt.Sprintf("profiler MMC full-capture anti-rescue barrier failed closed before output: withheld_rows=%d; malformed, opaque, or unattributable exact MMC endpoints remain coverage-only", withheld))
+		result.TraceCoverage = append(result.TraceCoverage, profilerMMCPairBarrierCoverage(withheld))
+	}
+	if sink.publishableRows() > 0 {
 		out, err := os.OpenFile(output, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 		if err != nil {
 			return Result{}, true, err
@@ -371,6 +433,7 @@ func extractProfilerTraceFile(ctx context.Context, path string, inputSize int64,
 		if off+4+n > limit {
 			out.Messages++
 			out.RejectedMessages++
+			sink.markPairCaptureOpaque(pairRenderMMC)
 			out.Caveats = append(out.Caveats, fmt.Sprintf("rejected truncated ProfilerPluginData frame at offset %d: declared=%d available=%d; sibling boundary cannot be recovered", off, n, limit-off-4))
 			out.TraceCoverage = append(out.TraceCoverage, profilerRejectedPluginCoverage("plugin_frame_truncated"))
 			break
@@ -396,26 +459,40 @@ func extractProfilerTraceFile(ctx context.Context, path string, inputSize int64,
 				Found:    true,
 				RowsRead: 1,
 			}
+			mmcRowsBefore := sink.pairRows[pairRenderMMC]
+			pluginMMCRows := func() int { return sink.pairRows[pairRenderMMC] - mmcRowsBefore }
+			appendPluginCoverage := func() {
+				if staged := pluginMMCRows(); staged > 0 {
+					if coverage.FieldSources == nil {
+						coverage.FieldSources = map[string]string{}
+					}
+					coverage.FieldSources[profilerCoverageMMCStagedRows] = strconv.Itoa(staged)
+				}
+				out.TraceCoverage = append(out.TraceCoverage, coverage)
+			}
 			if name == "ftrace-plugin" {
 				authority := decodeProfilerTracePluginResult(plugin.Data)
 				if authority.Disposition == profilerFtracePayloadNotStructured {
 					rows, textPayload, rowErr := addStrictSystraceRowsFromBytes(plugin.Data, &seq, sink)
 					if rowErr != nil {
 						coverage.Error = rowErr.Error()
-						out.TraceCoverage = append(out.TraceCoverage, coverage)
+						appendPluginCoverage()
 						return profilerContainerExtraction{}, rowErr
 					}
 					coverage.RowsEmitted = rows
 					if textPayload {
 						out.TextRows += rows
 						out.TextPluginMessages++
-						out.TraceCoverage = append(out.TraceCoverage, coverage)
+						if rows == pluginMMCRows() {
+							out.TextOnlyMMCMessages++
+						}
+						appendPluginCoverage()
 						off += 4 + n
 						continue
 					}
 					coverage.Skipped = "ftrace-plugin payload was neither authoritative TracePluginResult protobuf nor a complete strict legacy systrace payload"
 					out.UnsupportedFtrace++
-					out.TraceCoverage = append(out.TraceCoverage, coverage)
+					appendPluginCoverage()
 					off += 4 + n
 					continue
 				}
@@ -443,7 +520,7 @@ func extractProfilerTraceFile(ctx context.Context, path string, inputSize int64,
 					if renderErr != nil {
 						coverage.Error = renderErr.Error()
 						out.UnsupportedFtrace++
-						out.TraceCoverage = append(out.TraceCoverage, coverage)
+						appendPluginCoverage()
 						return profilerContainerExtraction{}, renderErr
 					}
 					coverage.RowsEmitted = structuredRows
@@ -458,26 +535,31 @@ func extractProfilerTraceFile(ctx context.Context, path string, inputSize int64,
 			} else if strings.EqualFold(name, "ftrace-plugin") {
 				coverage.Skipped = "non-canonical ftrace-plugin name rejected; structured routing requires exact case-sensitive name=ftrace-plugin"
 				out.UnsupportedFtrace++
+				sink.markPairCaptureOpaque(pairRenderMMC)
 			} else if len(plugin.Data) == 0 {
 				coverage.Skipped = "empty plugin payload"
 			} else {
 				rows, rowErr := addSystraceRowsFromBytes(plugin.Data, &seq, sink)
 				if rowErr != nil {
 					coverage.Error = rowErr.Error()
-					out.TraceCoverage = append(out.TraceCoverage, coverage)
+					appendPluginCoverage()
 					return profilerContainerExtraction{}, rowErr
 				}
 				coverage.RowsEmitted = rows
 				if rows > 0 {
 					out.TextRows += rows
 					out.TextPluginMessages++
+					if rows == pluginMMCRows() {
+						out.TextOnlyMMCMessages++
+					}
 				} else {
 					coverage.Skipped = "plugin payload did not contain systrace-compatible text rows"
 				}
 			}
-			out.TraceCoverage = append(out.TraceCoverage, coverage)
+			appendPluginCoverage()
 		} else {
 			out.RejectedMessages++
+			sink.markPairCaptureOpaque(pairRenderMMC)
 			reason := profilerTracePluginIssueSummary(decoded.Issues)
 			if reason == "" {
 				reason = "plugin_message_rejected"
@@ -491,6 +573,25 @@ func extractProfilerTraceFile(ctx context.Context, path string, inputSize int64,
 		out.RejectedMessages++
 		out.Caveats = append(out.Caveats, fmt.Sprintf("rejected truncated ProfilerPluginData length prefix at offset %d: available=%d", off, remaining))
 		out.TraceCoverage = append(out.TraceCoverage, profilerContainerEnvelopeCoverage("plugin_length_prefix_truncated"))
+	}
+	if sink.pairKindPoisoned(pairRenderMMC) {
+		withheldStructured := sink.withheldStructuredPairRows()
+		withheldText := sink.withheldPairRows() - withheldStructured
+		if withheldStructured > out.StructuredRows {
+			out.StructuredRows = 0
+		} else {
+			out.StructuredRows -= withheldStructured
+		}
+		if withheldText > out.TextRows {
+			out.TextRows = 0
+		} else {
+			out.TextRows -= withheldText
+		}
+		if out.TextOnlyMMCMessages > out.TextPluginMessages {
+			out.TextPluginMessages = 0
+		} else {
+			out.TextPluginMessages -= out.TextOnlyMMCMessages
+		}
 	}
 	if out.Messages == 0 {
 		out.Caveats = append(out.Caveats, "official profiler header was present, but no length-prefixed ProfilerPluginData messages were readable")
@@ -1249,6 +1350,7 @@ func extractProfilerSessionPackage(ctx context.Context, path string, sink *trace
 		Found:  true,
 	}
 	reader := bufio.NewReaderSize(f, 256*1024)
+	mmcRowsBefore := sink.pairRows[pairRenderMMC]
 	for {
 		if err := ctx.Err(); err != nil {
 			return profilerContainerExtraction{}, err
@@ -1274,8 +1376,24 @@ func extractProfilerSessionPackage(ctx context.Context, path string, sink *trace
 			return profilerContainerExtraction{}, readErr
 		}
 	}
+	stagedMMC := sink.pairRows[pairRenderMMC] - mmcRowsBefore
+	if stagedMMC > 0 {
+		coverage.FieldSources = map[string]string{profilerCoverageMMCStagedRows: strconv.Itoa(stagedMMC)}
+	}
+	withheldMMC := 0
+	if sink.pairKindPoisoned(pairRenderMMC) {
+		withheldMMC = stagedMMC
+		if withheldMMC > out.TextRows {
+			out.TextRows = 0
+		} else {
+			out.TextRows -= withheldMMC
+		}
+	}
 	if out.TextRows > 0 {
 		out.Caveats = append(out.Caveats, fmt.Sprintf("extracted %d systrace text row(s) from profiler session package payload", out.TextRows))
+	} else if withheldMMC > 0 {
+		coverage.Skipped = "session MMC endpoint rows were staged but withheld by the source-wide full-capture barrier"
+		out.Caveats = append(out.Caveats, fmt.Sprintf("profiler session package staged %d exact MMC row(s), but the source-wide full-capture barrier withheld them before publication", withheldMMC))
 	} else {
 		coverage.Skipped = "session package did not contain directly renderable systrace text rows"
 		out.Caveats = append(out.Caveats, "session package did not contain directly renderable systrace text rows; attach extracted sidecars or export ftrace/bytrace text with the official profiler tooling")
@@ -1473,21 +1591,52 @@ func addSystraceRowsFromBytes(data []byte, seq *int, sink *traceDBRowSink) (int,
 		} else {
 			start = len(data)
 		}
-		if len(part) == 0 || len(part) > maxProfilerTextLineBytes {
+		if len(part) == 0 {
+			continue
+		}
+		if len(part) > maxProfilerTextLineBytes {
+			if _, governed, opaque := profilerTextPairCensus(part); governed {
+				sink.poisonPairKind(pairRenderMMC)
+			} else if opaque {
+				sink.markPairCaptureOpaque(pairRenderMMC)
+			}
 			continue
 		}
 		line := string(part)
 		if line == "" {
 			continue
 		}
-		ts, ok := systraceLineTimestampNS(line)
-		if !ok {
+		kind, governed, admitted := profilerTextPairAdmission(line)
+		if governed && !admitted {
+			sink.poisonPairKind(kind)
+		}
+		ts, eventName, timestampOK, headerKnown := systraceLineHeader(line)
+		headerMMC := headerKnown && (eventName == "mmc_request_start" || eventName == "mmc_request_done")
+		if !timestampOK {
+			if governed || headerMMC {
+				sink.poisonPairKind(pairRenderMMC)
+			}
+			continue
+		}
+		if !headerKnown {
+			if governed {
+				sink.poisonPairKind(pairRenderMMC)
+			}
 			continue
 		}
 		if sink == nil {
 			return rows, fmt.Errorf("systrace row sink is nil")
 		}
-		if err := sink.add(renderedRow{tsNS: ts, seq: *seq, line: line}); err != nil {
+		row := renderedRow{tsNS: ts, seq: *seq, line: line}
+		if headerMMC {
+			row.pairKind = pairRenderMMC
+			if !governed || kind != pairRenderMMC || !admitted {
+				sink.poisonPairKind(pairRenderMMC)
+			}
+		} else if governed {
+			row.pairKind = kind
+		}
+		if err := sink.add(row); err != nil {
 			return rows, err
 		}
 		(*seq)++
@@ -1496,29 +1645,61 @@ func addSystraceRowsFromBytes(data []byte, seq *int, sink *traceDBRowSink) (int,
 	return rows, nil
 }
 
-func systraceLineTimestampNS(line string) (uint64, bool) {
+func systraceLineHeader(line string) (uint64, string, bool, bool) {
 	for searchFrom := 0; searchFrom < len(line); {
 		colon := strings.Index(line[searchFrom:], ":")
 		if colon < 0 {
-			return 0, false
+			return 0, "", false, false
 		}
 		colon += searchFrom
 		if colon > 0 {
 			prefix := line[:colon]
 			fields := strings.Fields(prefix)
 			if len(fields) > 0 {
-				if ts, err := strconv.ParseFloat(fields[len(fields)-1], 64); err == nil && ts >= 0 {
-					rest := strings.TrimSpace(line[colon+1:])
-					nextColon := strings.Index(rest, ":")
-					if nextColon > 0 && isTraceEventName(rest[:nextColon]) {
-						return uint64(ts * 1e9), true
+				token := fields[len(fields)-1]
+				rest := strings.TrimSpace(line[colon+1:])
+				nextColon := strings.Index(rest, ":")
+				if nextColon > 0 && isTraceEventName(rest[:nextColon]) && profilerTextTimestampLexeme(token) {
+					ts, err := strconv.ParseFloat(token, 64)
+					valid := err == nil && ts >= 0 && !math.IsInf(ts, 0) && !math.IsNaN(ts) && ts <= float64(math.MaxUint64)/1e9
+					if valid {
+						return uint64(ts * 1e9), rest[:nextColon], true, true
 					}
+					return 0, rest[:nextColon], false, true
 				}
 			}
 		}
 		searchFrom = colon + 1
 	}
-	return 0, false
+	return 0, "", false, false
+}
+
+func profilerTextTimestampLexeme(value string) bool {
+	if value == "" {
+		return false
+	}
+	if value[0] == '+' || value[0] == '-' {
+		value = value[1:]
+	}
+	if value == "" {
+		return false
+	}
+	digits, dots := 0, 0
+	for index := 0; index < len(value); index++ {
+		switch value[index] {
+		case '.':
+			dots++
+			if dots > 1 {
+				return false
+			}
+		default:
+			if value[index] < '0' || value[index] > '9' {
+				return false
+			}
+			digits++
+		}
+	}
+	return digits > 0
 }
 
 func isTraceEventName(event string) bool {

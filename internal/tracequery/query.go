@@ -8671,6 +8671,12 @@ func accumulateSubsystemEvent(byKind map[string]SubsystemEventSummary, ev Event)
 	if isWritebackObservation(ev) {
 		return
 	}
+	// MMC prefix/case/suffix drift and exact-but-malformed payloads remain raw
+	// inventory/search observations. They must not be republished as generic
+	// subsystem evidence after the exact pairing/IO gate rejected them.
+	if !mmcSemanticPayloadAdmitted(ev) {
+		return
+	}
 	kind := firstNonEmpty(ev.SubsystemKind, subsystemKindForEventType(ev.Type))
 	if kind == "" {
 		return
@@ -19885,6 +19891,12 @@ func evidenceFromEvents(events []EventView) []EvidenceFact {
 		if isWritebackObservation(ev.Event) {
 			continue
 		}
+		// MMC near names and exact-name rows whose closed body profile failed
+		// remain searchable inventory. They must not regain semantic authority
+		// through event_search's generic EvidenceFact publisher.
+		if mmcPairingNameCandidate(ev.Name) && !mmcSemanticPayloadAdmitted(ev.Event) {
+			continue
+		}
 		out = append(out, EvidenceFact{
 			Subject:    threadLabel(ThreadRef{Comm: ev.Comm, PID: ev.PID, TGID: ev.TGID}),
 			Predicate:  string(ev.Type),
@@ -20535,6 +20547,12 @@ func isStorageLatencyEvent(ev Event) bool {
 }
 
 func storageLatencyLayer(ev Event) string {
+	if profile, exact := exactMMCPairingProfile(ev.Name); exact {
+		return profile.Layer
+	}
+	if mmcPairingNameCandidate(ev.Name) {
+		return ""
+	}
 	name := strings.ToLower(ev.Name)
 	switch {
 	case ev.Type == EventBlockIssue || ev.Type == EventBlockComplete:
@@ -20542,8 +20560,6 @@ func storageLatencyLayer(ev Event) string {
 			return "block"
 		}
 		return ""
-	case strings.HasPrefix(name, "mmc_"):
-		return "mmc"
 	case strings.HasPrefix(name, "scsi_"):
 		return "scsi"
 	case strings.HasPrefix(name, "f2fs_"):
@@ -20567,6 +20583,12 @@ func storageLatencyBaseAndPhase(ev Event) (base, phase string) {
 			return family, "start"
 		}
 		return family, "done"
+	}
+	if profile, exact := exactMMCPairingProfile(ev.Name); exact {
+		return profile.SemanticBase, string(profile.Phase)
+	}
+	if mmcPairingNameCandidate(ev.Name) {
+		return "", ""
 	}
 	name := strings.ToLower(strings.TrimSpace(ev.Name))
 	for _, suffix := range []string{"_start", "_enter", "_begin"} {

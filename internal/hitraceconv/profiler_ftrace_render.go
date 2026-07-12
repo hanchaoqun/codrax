@@ -20,6 +20,8 @@ type profilerFtraceEventRecord struct {
 	Field                int
 	Payload              []byte
 	EnvelopeDegradations []string
+	PairFamilies         pairCriticalFormatFamilyMask
+	PairCaptureOpaque    bool
 }
 
 const profilerFtraceCPUDetailEnvelopeField = -1
@@ -38,6 +40,16 @@ func renderProfilerFtraceStructuredResult(result profilerTracePluginResult, seq 
 	degradationsByField := map[int]map[string]int{}
 	rows := 0
 	for _, event := range events {
+		if event.PairCaptureOpaque {
+			sink.markPairCaptureOpaque(pairRenderMMC)
+		}
+		mmcGoverned := event.Field == 4015 || event.Field == 4016
+		mmcObserved := event.PairFamilies&pairCriticalFormatFamilyMMC != 0
+		if mmcObserved && !mmcGoverned {
+			// Multiple/wrong-wire/late-malformed oneofs can clear Field, but the
+			// exact field number already seen remains precise family provenance.
+			sink.poisonPairKind(pairRenderMMC)
+		}
 		coverage := profilerFtraceEventRenderCoverage(coverageByField, event.Field)
 		coverage.RowsRead++
 		name, body, ok, degradations := renderProfilerFtraceEventBodyWithAudit(event)
@@ -52,6 +64,9 @@ func renderProfilerFtraceStructuredResult(result profilerTracePluginResult, seq 
 			}
 		}
 		if !ok {
+			if mmcGoverned || mmcObserved {
+				sink.poisonPairKind(pairRenderMMC)
+			}
 			if coverage.Skipped == "" {
 				coverage.Skipped = "structured ftrace renderer pending"
 			}
@@ -62,6 +77,14 @@ func renderProfilerFtraceStructuredResult(result profilerTracePluginResult, seq 
 			event.TGID, event.CPU, event.CommonFlags, event.CommonPreemptCount, name+": "+body)
 		if err != nil {
 			return rows, append(topLevelCoverage, profilerFtraceEventRenderCoverageList(coverageByField)...), err
+		}
+		if mmcGoverned {
+			row.pairKind = pairRenderMMC
+			row.structuredPair = true
+			kind, exact, admitted := profilerTextPairAdmission(row.line)
+			if !exact || kind != pairRenderMMC || !admitted {
+				sink.poisonPairKind(pairRenderMMC)
+			}
 		}
 		if err := sink.add(row); err != nil {
 			return rows, append(topLevelCoverage, profilerFtraceEventRenderCoverageList(coverageByField)...), err
@@ -123,6 +146,8 @@ func decodeProfilerFtraceCPUDetailEvents(data []byte) ([]profilerFtraceEventReco
 		return []profilerFtraceEventRecord{{
 			Field:                profilerFtraceCPUDetailEnvelopeField,
 			EnvelopeDegradations: []string{"envelope_cpu_detail_malformed_wire"},
+			PairFamilies:         profilerPairFamiliesFromCPUDetail(data),
+			PairCaptureOpaque:    true,
 		}}, nil
 	}
 	var cpuDegradations []string
@@ -165,6 +190,109 @@ func decodeProfilerFtraceCPUDetailEvents(data []byte) ([]profilerFtraceEventReco
 	return out, nil
 }
 
+func profilerPairFamiliesFromCPUDetail(data []byte) pairCriticalFormatFamilyMask {
+	var families pairCriticalFormatFamilyMask
+	for len(data) > 0 {
+		key, consumed, ok := consumeProtoVarint(data)
+		if !ok {
+			break
+		}
+		data = data[consumed:]
+		fieldNumber := key >> 3
+		if fieldNumber < 1 || fieldNumber > (1<<29)-1 {
+			return families
+		}
+		field, wire := int(fieldNumber), int(key&0x7)
+		switch wire {
+		case 0:
+			_, consumed, ok = consumeProtoVarint(data)
+			if !ok {
+				return families
+			}
+			data = data[consumed:]
+		case 1:
+			if len(data) < 8 {
+				return families
+			}
+			data = data[8:]
+		case 2:
+			length, lengthBytes, valid := consumeProtoVarint(data)
+			if !valid {
+				return families
+			}
+			data = data[lengthBytes:]
+			available := uint64(len(data))
+			payloadLength := length
+			if payloadLength > available {
+				payloadLength = available
+			}
+			if field == 2 {
+				families |= profilerPairFamiliesFromEventPayload(data[:int(payloadLength)])
+			}
+			if length > available {
+				return families
+			}
+			data = data[int(length):]
+		case 5:
+			if len(data) < 4 {
+				return families
+			}
+			data = data[4:]
+		default:
+			return families
+		}
+	}
+	return families
+}
+
+func profilerPairFamiliesFromEventPayload(data []byte) pairCriticalFormatFamilyMask {
+	var families pairCriticalFormatFamilyMask
+	for len(data) > 0 {
+		key, consumed, ok := consumeProtoVarint(data)
+		if !ok {
+			break
+		}
+		data = data[consumed:]
+		fieldNumber := key >> 3
+		if fieldNumber < 1 || fieldNumber > (1<<29)-1 {
+			return families
+		}
+		field, wire := int(fieldNumber), int(key&0x7)
+		families |= profilerPairFamilyForField(field)
+		switch wire {
+		case 0:
+			_, consumed, ok = consumeProtoVarint(data)
+			if !ok {
+				return families
+			}
+			data = data[consumed:]
+		case 1:
+			if len(data) < 8 {
+				return families
+			}
+			data = data[8:]
+		case 2:
+			length, lengthBytes, valid := consumeProtoVarint(data)
+			if !valid {
+				return families
+			}
+			data = data[lengthBytes:]
+			if length > uint64(len(data)) {
+				return families
+			}
+			data = data[int(length):]
+		case 5:
+			if len(data) < 4 {
+				return families
+			}
+			data = data[4:]
+		default:
+			return families
+		}
+	}
+	return families
+}
+
 type profilerProtoEnvelopeField struct {
 	count     int
 	wrongWire bool
@@ -189,6 +317,7 @@ func decodeProfilerFtraceEventRecord(cpu uint64, data []byte) (profilerFtraceEve
 			profilerProtoEnvelopeSetBytes(&common, wire, raw)
 		default:
 			if field >= 100 {
+				record.PairFamilies |= profilerPairFamilyForField(field)
 				oneofCount++
 				if wire != 2 {
 					oneofWrongWire = true
@@ -204,6 +333,7 @@ func decodeProfilerFtraceEventRecord(cpu uint64, data []byte) (profilerFtraceEve
 		record.Field = 0
 		record.Payload = nil
 		record.EnvelopeDegradations = []string{"envelope_event_malformed_wire"}
+		record.PairCaptureOpaque = true
 		return record, nil
 	}
 	if reason := profilerProtoEnvelopeOptionalIssue("envelope_timestamp", timestamp); reason != "" {
@@ -258,6 +388,15 @@ func decodeProfilerFtraceEventRecord(cpu uint64, data []byte) (profilerFtraceEve
 		record.EnvelopeDegradations = append(record.EnvelopeDegradations, "envelope_identity_incomplete")
 	}
 	return record, nil
+}
+
+func profilerPairFamilyForField(field int) pairCriticalFormatFamilyMask {
+	switch field {
+	case 4015, 4016:
+		return pairCriticalFormatFamilyMMC
+	default:
+		return 0
+	}
 }
 
 func profilerProtoEnvelopeSetUint(field *profilerProtoEnvelopeField, wire int, value uint64) {

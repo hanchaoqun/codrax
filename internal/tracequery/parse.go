@@ -100,6 +100,9 @@ func eventSideTableBytes(ev *Event) int64 {
 	}
 	if ev.ResourceFields != nil {
 		n += int64(unsafe.Sizeof(ResourceFields{}))
+		if ev.ResourceFields.mmcPairing != nil {
+			n += int64(unsafe.Sizeof(mmcPairingAdmission{}))
+		}
 	}
 	if ev.FileFields != nil {
 		n += int64(unsafe.Sizeof(FileFields{}))
@@ -2642,6 +2645,33 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 	return parseLineScan(&scan, intern)
 }
 
+// ProbeEventNamePrefix returns the event token only when the supplied prefix
+// contains a complete, structurally anchored ftrace header and a terminated
+// event name. It intentionally does not parse the body. Callers may therefore
+// census an oversized line from a bounded prefix without allocating or
+// scanning the entire physical row.
+func ProbeEventNamePrefix(prefix string) (string, bool) {
+	match := ftraceLineRE.FindStringSubmatchIndex(prefix)
+	// Full match plus seven capture groups => 16 indexes. Group 6 is the
+	// event token and occupies indexes 12/13.
+	if len(match) < 16 || match[12] < 0 || match[13] <= match[12] {
+		return "", false
+	}
+	raw := prefix[match[12]:match[13]]
+	terminated := strings.HasSuffix(raw, ":")
+	if !terminated && match[13] < len(prefix) {
+		switch prefix[match[13]] {
+		case ' ', '\t', '\r', '\n':
+			terminated = true
+		}
+	}
+	if !terminated {
+		return "", false
+	}
+	name := strings.TrimSuffix(strings.TrimSpace(raw), ":")
+	return name, name != ""
+}
+
 // parseLineScan is ParseLine over the shared per-line memo: the header match
 // and parseKV computed by the window gate or any physical-row audit are reused
 // here instead of being recomputed (perf audit #21).
@@ -2908,6 +2938,12 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 	case EventStorage, EventFilesystem:
 		ev.ResourceFields = &ResourceFields{}
 		ev.FileFields = &FileFields{}
+		if admission, governed := mmcStorageWireAdmission(rawType, fields); governed {
+			ev.ResourceFields.mmcPairing = &mmcPairingAdmission{
+				identityKnown: admission.identityKnown, payloadAdmitted: admission.payloadAdmitted,
+				device: intern.intern(admission.dev), opcode: intern.intern(admission.op),
+			}
+		}
 		if exactWritebackObservationName(rawType) {
 			populateWritebackObservationFields(&ev, fields, intern)
 			break
