@@ -320,6 +320,19 @@ schema witness 有效，但 scheduler head、优先级反转数值和最终显�
 - **Structured/SQL边界**：pinned profiler `73d26bb5` 的I2C oneof 1300..1303把write/reply buf只保存成uint32 locator，实际bytes已丢；Codrax本批继续不注册这些descriptor，尤其不能把locator打印成buffer。SMBus oneof不存在。SQL raw没有可信argset/binary carrier witness，继续unsupported；read/result的structured兼容也作为独立P1能力批，不混入direct P0。
 - **验收矩阵**：替换仓内错误的u32/offset28/`__data_loc_buf`/漏左括号fixture；覆盖8名正例、case/near/suffix负例、每字段missing/truncated/wrong type/sign/width/offset、same/conflicting duplicate、alias/extra/overlap、u16/u8/s16边界。I2C覆盖len0、binary NUL、locator before-tail/OOB/len mismatch/short-long carrier及“不补0”；SMBus覆盖protocol 0..8的全部len关系、fixed/data_loc串道、block count、tail不泄漏、invalid direction/protocol及二进制控制字节hex保真。E2E须证明坏row局部抑制、valid sibling留存、near-name不铸generic duration、converter→tracequery只作inventory且零pair/零rank；结构pin固定唯一registry/decoder/renderer、legacy broad prefix零authority、structured/SQL仍fail-close和最终line gate。focused shuffle/race、目标包/全仓test+vet、Donghu零回归及至少两路独立冻结全部RELEASE后，方可提交代码并以独立账本提交记录hash。
 
+## 2026-07-12 P0-a3 C bounded I2C/SMBus 交付结案
+
+本节是C批的最新状态权威，覆盖本账前文所有“C待交付 / C—E开放 / 下一代码批为C”的历史快照。
+
+- **已修已推送 `a3c13dbb5`**：direct Harmony RMQ现在只由一个typed decoder/canonical renderer治理exact八名`i2c_read/write/reply/result`与`smbus_read/write/reply/result`。字段type/sign/offset/size、声明名、duplicate/alias/extra/overlap及完整物理range全部先证后读；旧official broad-prefix补零/clamp/C-string通路已删除，case/near/suffix名不再继承标准总线语义。
+- **I2C payload fidelity已闭合**：write/reply要求u16逻辑len、data_loc高16物理len与其精确相等、低16精确指向fixed tail 24且完整range存在；len0与任意二进制合法，NUL/控制字节不转字符串，截断、前指、OOB、长短不一致均只抑制坏row且不补`00`。read/result保持producer字段宽度和s16符号；u16 0/65535与s16 min/max均有机械pin。
+- **SMBus payload fidelity已闭合**：OH 5.10 `buf[32 + 2]`与现代tracefs `buf[34]`均由精确声明profile接收；固定34-byte carrier必须完整，read不读取/发布未初始化buf，write/reply只发布protocol证明的前缀。protocol 0..8、direction 0/1及write/reply全部长度矩阵均机械闭集，block count上限32；unknown protocol/direction、len关系错、fixed/data_loc串道全部fail-close。canonical hex固定为完整小写`[ab-00-cd]`/`[]`，预分配与最终单物理行/1MiB双重受界。
+- **真实tracefs parser兼容已闭合**：通用字段parser改为识别末端C declarator，保住OH `__u8 buf[32 + 2]`中的空格而不误拆type/name；普通scalar、signed scalar、`__data_loc __u8[] buf`、`void * work`及现代`buf[34]`均有正对照。现代数组形已经过`parseEventFormats → ConvertFile → canonical line`完整E2E，不是手建decoder fixture。
+- **作用域没有扩张**：八名事件只发布storage inventory；converter→tracequery证明零pair、零I/O duration、零IOPressure/IOBurst、零root-rank席位。坏内容只局部抑制，合法同ID sibling存活；descriptor ID冲突仍由既有catalog隔离。Structured profiler 1300..1303与SQL raw仍无本批未证明的发布authority，尤其不会把structured locator伪装为buffer。
+- **机械证据**：exact八名与near/case/suffix负例、每字段missing/truncated/wrong type/sign/width/offset、same/conflicting duplicate、alias/extra/overlap、I2C locator/range/len0/u16极值、SMBus protocol 0..8全矩阵/u8/s16极值/fixed carrier/tail不泄漏/invalid direction与二进制保真均已固定；真实OH 5.10与现代数组声明各有parser/E2E证据。
+- **验证全绿**：focused shuffle `×50`；focused race+shuffle `×10`；`go test ./internal/hitraceconv ./internal/tracequery -count=1`；`go vet ./internal/hitraceconv ./internal/tracequery`；`go test ./... -count=1`；`go vet ./...`；`git diff --check`。Donghu golden SHA `e15d3df…`复放仍为27,843/27,843 event、14 event names、0 unknown/unparsed/panic/clock regression。producer/schema、安全边界、parser回归、真实转换与tracequery作用域等独立复审最终均为RELEASE。
+- **剩余队列**：P0-a3当前为 **A/B/C已结案，D/E开放**；下一代码批严格为 **D page/writeback exact profile**，随后E MMC/F2FS/EROFS direct fidelity。UFS/thermal/regulator、container integrity、generic storage typed request identity及R1b-C/R2仍按各自条目开放，不能借C批销项。
+
 ## 统一采集与回访命令
 
 ```bash
