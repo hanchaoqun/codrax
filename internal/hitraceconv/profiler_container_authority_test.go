@@ -212,7 +212,7 @@ func TestProfilerContainerMalformedStructuredTailHasNoPartialOrTextRescue(t *tes
 	line := "worker-7  ( 7) [001] ....  5.000000: tracing_mark_write: B|7|must-not-leak"
 	validPrefix := protoMessage(2,
 		protoVarint(1, 0),
-		syntheticTracePluginFtraceEvent(5_000_000_000, 7, 7, "worker", 1109, protoBytes(1, []byte(line))),
+		syntheticTracePluginFtraceEvent(5_000_000_000, 7, 7, "worker", 1109, protoBytes(2, []byte(line))),
 	)
 	payload := append(validPrefix, 0x12, 0x80)
 	extracted, sink := extractSyntheticProfilerContainer(t,
@@ -246,7 +246,7 @@ func TestProfilerContainerExactLegacyTextAndStructuredProvenanceStayDistinct(t *
 
 	structured := protoMessage(2,
 		protoVarint(1, 0),
-		syntheticTracePluginFtraceEvent(5_000_000_000, 7, 7, "worker", 1109, protoBytes(1, []byte("B|7|typed"))),
+		syntheticTracePluginFtraceEvent(5_000_000_000, 7, 7, "worker", 1109, protoBytes(2, []byte("B|7|typed"))),
 	)
 	structuredExtracted, structuredSink := extractSyntheticProfilerContainer(t,
 		syntheticProfilerPluginData("ftrace-plugin", structured),
@@ -282,7 +282,7 @@ func TestProfilerContainerMalformedProbeCannotUseCompleteTextOverlap(t *testing.
 func TestProfilerContainerNonCanonicalFtracePluginNameCannotEnterStructuredLane(t *testing.T) {
 	payload := protoMessage(2,
 		protoVarint(1, 0),
-		syntheticTracePluginFtraceEvent(5_000_000_000, 7, 7, "worker", 1109, protoBytes(1, []byte("B|7|typed"))),
+		syntheticTracePluginFtraceEvent(5_000_000_000, 7, 7, "worker", 1109, protoBytes(2, []byte("B|7|typed"))),
 	)
 	extracted, sink := extractSyntheticProfilerContainer(t,
 		syntheticProfilerPluginData("FTRACE-PLUGIN", payload),

@@ -364,8 +364,6 @@ func renderProfilerFtraceEventBody(event profilerFtraceEventRecord) (string, str
 	case 1001:
 		body, ok := renderProfilerFtraceFilemapPageCache(event.Payload)
 		return "mm_filemap_delete_from_page_cache", body, ok
-	case 1109:
-		return "print", protoString(event.Payload, 2), true
 	case 2417:
 		body := fmt.Sprintf("prev_comm=%s prev_pid=%d prev_prio=%d prev_state=%s ==> next_comm=%s next_pid=%d next_prio=%d",
 			protoString(event.Payload, 1), protoInt(event.Payload, 2), protoInt(event.Payload, 3),
@@ -382,18 +380,6 @@ func renderProfilerFtraceEventBody(event profilerFtraceEventRecord) (string, str
 			body += " next_info=" + formatHarmonySchedInfo(nextInfo, true)
 		}
 		return "sched_switch", body, true
-	case 4009:
-		return "f2fs_sync_file_enter", renderProfilerFtraceF2FS(event.Payload, false, 2, 5, 0), true
-	case 4010:
-		return "f2fs_sync_file_exit", renderProfilerFtraceF2FS(event.Payload, true, 2, 0, 5), true
-	case 4011:
-		return "f2fs_write_begin", renderProfilerFtraceF2FS(event.Payload, false, 2, 4, 0), true
-	case 4012:
-		return "f2fs_write_end", renderProfilerFtraceF2FS(event.Payload, false, 2, 4, 0), true
-	case 4015:
-		return "mmc_request_done", fmt.Sprintf("%s tag=%d opcode=%d bytes_xfered=%d ret=%d", protoString(event.Payload, 23), protoInt(event.Payload, 15), protoUint(event.Payload, 1), protoUint(event.Payload, 13), protoInt(event.Payload, 14)), true
-	case 4016:
-		return "mmc_request_start", fmt.Sprintf("%s tag=%d opcode=%d blocks=%d block_size=%d blk_addr=%d", protoString(event.Payload, 25), protoInt(event.Payload, 17), protoUint(event.Payload, 1), protoUint(event.Payload, 13), protoUint(event.Payload, 15), protoUint(event.Payload, 14)), true
 	default:
 		return "", "", false
 	}
@@ -432,24 +418,6 @@ func renderProfilerFtraceFilemapPageCache(data []byte) (string, bool) {
 		protoUint(data, 1),
 		index<<12,
 	), true
-}
-
-func renderProfilerFtraceF2FS(data []byte, includeRet bool, inoField int, lenField int, retField int) string {
-	parts := []string{
-		fmt.Sprintf("dev=%s", devMajorMinor(int64(protoUint(data, 1)), ":")),
-		fmt.Sprintf("ino=0x%x", protoUint(data, inoField)),
-	}
-	if offset := protoUint(data, 3); offset != 0 {
-		parts = append(parts, fmt.Sprintf("offset=%d", offset))
-	}
-	if lenField != 0 {
-		parts = append(parts, fmt.Sprintf("len=%d", protoUint(data, lenField)))
-	}
-	parts = append(parts, "rw=write")
-	if includeRet {
-		parts = append(parts, fmt.Sprintf("ret=%d", protoInt(data, retField)))
-	}
-	return strings.Join(parts, " ")
 }
 
 func protoUint(data []byte, field int) uint64 {
@@ -491,10 +459,24 @@ func renderProfilerFtraceEventBodyWithAudit(event profilerFtraceEventRecord) (st
 		if !ok {
 			return "", "", false, []string{"invalid_canonical_core_payload"}
 		}
-		if !profilerCoreCanonicalLineValid(event, corePayload.Name, body) {
+		if !profilerCanonicalLineValid(event, corePayload.Name, body) {
 			return "", "", false, []string{"invalid_canonical_core_line"}
 		}
 		return corePayload.Name, body, true, degradations
+	case bodyRejected:
+		return "", "", false, []string{reason}
+	}
+	auxPayload, admission, reason := decodeProfilerAuxPayload(event)
+	switch admission {
+	case bodyAdmitted:
+		body, ok := renderCanonicalProfilerAuxPayload(auxPayload)
+		if !ok {
+			return "", "", false, []string{"invalid_canonical_aux_payload"}
+		}
+		if !profilerCanonicalLineValid(event, auxPayload.Name, body) {
+			return "", "", false, []string{"invalid_canonical_aux_line"}
+		}
+		return auxPayload.Name, body, true, append([]string(nil), auxPayload.Degradations...)
 	case bodyRejected:
 		return "", "", false, []string{reason}
 	}
@@ -764,6 +746,47 @@ func profilerFtraceEventRenderCoverage(coverageByField map[int]*TraceDBCoverage,
 			coverage.FieldSources = map[string]string{
 				"schema_profile": "filemap proto exposes pfn=1,i_ino=2,index=3,s_dev=4",
 				"page_pointer":   "not present in profiler schema; page token omitted",
+			}
+		case 1109:
+			coverage.FieldSources = map[string]string{
+				"schema_profile":    "ftrace.proto PrintFormat{ip=1,buf=2}; default tracing_mark_write alias intentionally omits ip",
+				"payload_authority": "field2 buf after at-most-one official trailing-LF normalization; arbitrary safe prose remains valid",
+			}
+		case 4009:
+			coverage.FieldSources = map[string]string{
+				"schema_profile": "f2fs.proto F2fsSyncFileEnterFormat{dev=1,ino=2,pino=3,mode=4,size=5,nlink=6,blocks=7,advise=8}",
+				"operation":      "exact event name; no synthetic rw field",
+				"dev_t":          "field1 uint64 carrier; pinned Linux dev_t is uint32 with 12-bit major/20-bit minor; zero and overflow reject",
+			}
+		case 4010:
+			coverage.FieldSources = map[string]string{
+				"schema_profile": "f2fs.proto F2fsSyncFileExitFormat{dev=1,ino=2,cp_reason=3,datasync=4,ret=5}",
+				"operation":      "exact event name; cp_reason is never projected as offset",
+				"dev_t":          "field1 uint64 carrier; pinned Linux dev_t is uint32 with 12-bit major/20-bit minor; zero and overflow reject",
+			}
+		case 4011:
+			coverage.FieldSources = map[string]string{
+				"schema_profile": "f2fs.proto F2fsWriteBeginFormat{dev=1,ino=2,pos=3,len=4,flags=5}",
+				"flags_presence": "field5 is set by the default parser and never set by 6.6.30; proto3 may omit exact zero, so wire absence is profile-ambiguous and omitted, never defaulted",
+				"operation":      "exact event name; tracequery derives write without a synthetic rw field",
+				"dev_t":          "field1 uint64 carrier; pinned Linux dev_t is uint32 with 12-bit major/20-bit minor; zero and overflow reject",
+			}
+		case 4012:
+			coverage.FieldSources = map[string]string{
+				"schema_profile": "f2fs.proto F2fsWriteEndFormat{dev=1,ino=2,pos=3,len=4,copied=5}",
+				"operation":      "exact event name; tracequery derives write without a synthetic rw field",
+				"dev_t":          "field1 uint64 carrier; pinned Linux dev_t is uint32 with 12-bit major/20-bit minor; zero and overflow reject",
+			}
+		case 4015:
+			coverage.FieldSources = map[string]string{
+				"schema_profile":      "mmc.proto MmcRequestDoneFormat at field 4015 (developtools_profiler 5bc8ef5)",
+				"pairing_identity":    "mrq/tag/request metadata are inventory only; current coarse pairing key remains source/layer/base/emitter",
+				"response_provenance": "cmd/stop/sbc carriers are wire/unique audited and never rendered; source u32[4] content above 16 bytes is field-scoped dropped/degraded because ParseStrField loses the shape",
+			}
+		case 4016:
+			coverage.FieldSources = map[string]string{
+				"schema_profile":   "mmc.proto MmcRequestStartFormat at field 4016 (developtools_profiler 5bc8ef5)",
+				"pairing_identity": "mrq/tag/request metadata are inventory only; current coarse pairing key remains source/layer/base/emitter",
 			}
 		}
 	} else {

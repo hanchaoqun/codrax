@@ -4719,6 +4719,9 @@ func normalizeFileRW(raw string) string {
 
 func fileOperationFromEventName(name string) string {
 	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "f2fs_write_begin" || name == "f2fs_write_end" {
+		return "write"
+	}
 	switch {
 	case strings.Contains(name, "dataread"):
 		return "read"

@@ -357,12 +357,12 @@ func profilerCoreCanonicalLowerHex(value string) bool {
 	return err == nil && strconv.FormatUint(parsed, 16) == value
 }
 
-// profilerCoreCanonicalLineValid keeps a governed malformed event local to
+// profilerCanonicalLineValid keeps a governed malformed event local to
 // its coverage row. The structured row loop uses the same endpoint primitive
 // again with the real sequence number; validating here prevents an unsafe
 // display string or oversized canonical body from turning one source event
 // into a conversion-wide invariant error.
-func profilerCoreCanonicalLineValid(event profilerFtraceEventRecord, name, body string) bool {
+func profilerCanonicalLineValid(event profilerFtraceEventRecord, name, body string) bool {
 	if event.TSNS > math.MaxInt64 {
 		return false
 	}

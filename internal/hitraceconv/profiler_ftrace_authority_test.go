@@ -192,7 +192,7 @@ func TestDecodeProfilerTracePluginResultRetainsRepeatedCPUPages(t *testing.T) {
 
 func TestRenderProfilerTracePluginResultRetainsRepeatedEventsAcrossSameCPUPages(t *testing.T) {
 	event := func(ts uint64, marker string) []byte {
-		return syntheticTracePluginFtraceEvent(ts, 7, 7, "worker", 1109, protoBytes(1, []byte(marker)))
+		return syntheticTracePluginFtraceEvent(ts, 7, 7, "worker", 1109, protoBytes(2, []byte(marker)))
 	}
 	pageA := protoPayload(
 		protoVarint(1, 3),
@@ -337,7 +337,7 @@ func TestProfilerFtraceNestedMetadataRejectsAmbiguousValues(t *testing.T) {
 }
 
 func TestProfilerFtraceCPUDetailMixedSiblingSummaryRenderParity(t *testing.T) {
-	good := syntheticTracePluginFtraceEvent(5_000_000_000, 7, 7, "worker", 1109, protoBytes(1, []byte("B|7|good")))
+	good := syntheticTracePluginFtraceEvent(5_000_000_000, 7, 7, "worker", 1109, protoBytes(2, []byte("B|7|good")))
 	page := protoPayload(
 		protoVarint(1, 3),
 		good,
