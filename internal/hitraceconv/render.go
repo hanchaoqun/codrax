@@ -75,7 +75,8 @@ func renderEventLineDecisionWithPairAudit(ctx renderContext, tsNS uint64, cpu in
 	}
 	line := prefix + name + ": " + body
 	_, coreGoverned := coreRenderKindForName(format.Name)
-	if (coreGoverned || directMarkerNameGoverned(format.Name) || directPairNameGoverned(format.Name)) &&
+	if (coreGoverned || directMarkerNameGoverned(format.Name) || directPairNameGoverned(format.Name) ||
+		directBusNameGoverned(format.Name)) &&
 		!traceDBSinglePhysicalLine(line, false) {
 		return line, bodyRejected, "invalid_rendered_line", true, pairAudit
 	}
@@ -217,6 +218,17 @@ func renderEventBodyDecisionWithPair(ctx coreDecodeContext, ev decodedEvent, con
 		return body, bodyAdmitted, ""
 	case bodyRejected:
 		return "", bodyRejected, pairReason
+	}
+	bus, admission, reason := decodeDirectBusPayload(ev, content)
+	switch admission {
+	case bodyAdmitted:
+		body, ok := renderCanonicalBusPayload(bus)
+		if !ok {
+			return "", bodyRejected, "invalid_canonical_bus_payload"
+		}
+		return body, bodyAdmitted, ""
+	case bodyRejected:
+		return "", bodyRejected, reason
 	}
 	body, known := renderLegacyEventBody(ev, content, cpu)
 	if known {

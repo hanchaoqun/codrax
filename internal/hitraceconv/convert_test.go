@@ -1168,24 +1168,27 @@ func TestOfficialSubsystemRenderersMatchOpenHarmonyShapes(t *testing.T) {
 
 	t.Run("i2c_write_dynamic_array", func(t *testing.T) {
 		format := eventFormat{ID: 61, Name: "i2c_write", Fields: []eventField{
-			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
-			{Name: "adapter_nr", Offset: 8, Size: 4, Signed: true},
-			{Name: "msg_nr", Offset: 12, Size: 4},
-			{Name: "addr", Offset: 16, Size: 4},
-			{Name: "flags", Offset: 20, Size: 4},
-			{Name: "len", Offset: 24, Size: 4},
-			{Type: "__data_loc u8[]", Name: "__data_loc_buf", Offset: 28, Size: 4},
+			{Type: "unsigned short", Name: "common_type", Offset: 0, Size: 2},
+			{Type: "unsigned char", Name: "common_flags", Offset: 2, Size: 1},
+			{Type: "unsigned char", Name: "common_preempt_count", Offset: 3, Size: 1},
+			{Type: "int", Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Type: "int", Name: "adapter_nr", Offset: 8, Size: 4, Signed: true},
+			{Type: "__u16", Name: "msg_nr", Offset: 12, Size: 2},
+			{Type: "__u16", Name: "addr", Offset: 14, Size: 2},
+			{Type: "__u16", Name: "flags", Offset: 16, Size: 2},
+			{Type: "__u16", Name: "len", Offset: 18, Size: 2},
+			{Type: "__data_loc __u8[]", Name: "buf", Offset: 20, Size: 4},
 		}}
-		content := make([]byte, 34)
+		content := make([]byte, 26)
 		binary.LittleEndian.PutUint32(content[8:12], 2)
-		binary.LittleEndian.PutUint32(content[12:16], 3)
-		binary.LittleEndian.PutUint32(content[16:20], 0x5a)
-		binary.LittleEndian.PutUint32(content[20:24], 1)
-		binary.LittleEndian.PutUint32(content[24:28], 2)
-		binary.LittleEndian.PutUint32(content[28:32], uint32((2<<16)|32))
-		copy(content[32:34], []byte{0xab, 0xcd})
+		binary.LittleEndian.PutUint16(content[12:14], 3)
+		binary.LittleEndian.PutUint16(content[14:16], 0x5a)
+		binary.LittleEndian.PutUint16(content[16:18], 1)
+		binary.LittleEndian.PutUint16(content[18:20], 2)
+		binary.LittleEndian.PutUint32(content[20:24], uint32((2<<16)|24))
+		copy(content[24:26], []byte{0xab, 0xcd})
 		body, known := renderEventBody(decodeEvent(format, content), content, 0)
-		if !known || body != "i2c-2 #3 a=05a f=0001 l=2 ab-cd]" {
+		if !known || body != "i2c-2 #3 a=05a f=0001 l=2 [ab-cd]" {
 			t.Fatalf("i2c write: known=%v body=%q", known, body)
 		}
 	})

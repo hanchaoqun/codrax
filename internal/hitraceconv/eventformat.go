@@ -52,7 +52,15 @@ func pairCriticalFormatFamilyForName(name string) pairCriticalFormatFamilyMask {
 	}
 }
 
-var fieldLineRE = regexp.MustCompile(`^field:([^;]+);\s*offset:(\d+);\s*size:(\d+);\s*signed:(\d+)\s*;?\s*$`)
+var (
+	fieldLineRE = regexp.MustCompile(`^field:([^;]+);\s*offset:(\d+);\s*size:(\d+);\s*signed:(\d+)\s*;?\s*$`)
+	// The tracefs array declarator may contain spaces (for example the
+	// OpenHarmony SMBus field `__u8 buf[32 + 2]`). Splitting at the last
+	// whitespace turns that valid declaration into type `__u8 buf[32 +` and
+	// name `2]`. Match the terminal C identifier plus any array suffixes as one
+	// declarator; everything before it remains the exact type spelling.
+	fieldDeclarationRE = regexp.MustCompile(`^(.+?)\s+([A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])*)$`)
+)
 
 func parseEventFormats(data []byte) (eventFormatCatalog, error) {
 	out := eventFormatCatalog{
@@ -235,8 +243,8 @@ func parseFieldLine(eventName, line string) (eventField, bool) {
 		return eventField{}, false
 	}
 	typeAndName := strings.TrimSpace(m[1])
-	pos := strings.LastIndex(typeAndName, " ")
-	if pos <= 0 || pos >= len(typeAndName)-1 {
+	declaration := fieldDeclarationRE.FindStringSubmatch(typeAndName)
+	if len(declaration) != 3 {
 		return eventField{}, false
 	}
 	offset, err1 := strconv.Atoi(m[2])
@@ -246,8 +254,8 @@ func parseFieldLine(eventName, line string) (eventField, bool) {
 		return eventField{}, false
 	}
 	field := eventField{
-		Type:   strings.TrimSpace(typeAndName[:pos]),
-		Name:   strings.TrimSpace(typeAndName[pos+1:]),
+		Type:   strings.TrimSpace(declaration[1]),
+		Name:   strings.TrimSpace(declaration[2]),
 		Offset: offset,
 		Size:   size,
 		Signed: signed != 0,

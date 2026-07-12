@@ -1,7 +1,6 @@
 package hitraceconv
 
 import (
-	"encoding/hex"
 	"fmt"
 	"math/big"
 	"strconv"
@@ -119,39 +118,6 @@ func renderOfficialOpenHarmonyBody(ev decodedEvent, content []byte, cpu int) (st
 				ufsDevState(intByCleanName(ev, "dev_state", true)), ufsLinkState(intByCleanName(ev, "link_state", true)),
 				intByCleanName(ev, "err", true)), true
 		}
-	case strings.HasPrefix(name, "i2c_read"):
-		return fmt.Sprintf("i2c-%d #%d a=%03x f=%04x l=%d", intByCleanName(ev, "adapter_nr", true),
-			intByCleanName(ev, "msg_nr", false), intByCleanName(ev, "addr", false), intByCleanName(ev, "flags", false),
-			intByCleanName(ev, "len", false)), true
-	case strings.HasPrefix(name, "i2c_write") || strings.HasPrefix(name, "i2c_reply"):
-		ln := int(intByCleanName(ev, "len", false))
-		return fmt.Sprintf("i2c-%d #%d a=%03x f=%04x l=%d %s", intByCleanName(ev, "adapter_nr", true),
-			intByCleanName(ev, "msg_nr", false), intByCleanName(ev, "addr", false), intByCleanName(ev, "flags", false),
-			ln, dashHexWithOfficialTrailingBracket(dynamicBytesByCleanName(ev, content, "buf", ln), ln)), true
-	case strings.HasPrefix(name, "i2c_result"):
-		return fmt.Sprintf("i2c-%d n=%d ret=%d", intByCleanName(ev, "adapter_nr", true),
-			intByCleanName(ev, "nr_msgs", false), intByCleanName(ev, "ret", true)), true
-	case strings.HasPrefix(name, "smbus_read"):
-		return fmt.Sprintf("i2c-%d a=%03x f=%04x c=%x %s", intByCleanName(ev, "adapter_nr", true),
-			intByCleanName(ev, "addr", false), intByCleanName(ev, "flags", false), intByCleanName(ev, "command", false),
-			smbusProtocol(intByCleanName(ev, "protocol", false))), true
-	case strings.HasPrefix(name, "smbus_write") || strings.HasPrefix(name, "smbus_reply"):
-		ln := int(intByCleanName(ev, "len", false))
-		buf := stringByCleanName(ev, content, "buf")
-		if buf == "" {
-			buf = dashHexWithOfficialTrailingBracket(dynamicBytesByCleanName(ev, content, "buf", ln), ln)
-		}
-		return fmt.Sprintf("i2c-%d a=%03x f=%04x c=%x %s l=%d %s", intByCleanName(ev, "adapter_nr", true),
-			intByCleanName(ev, "addr", false), intByCleanName(ev, "flags", false), intByCleanName(ev, "command", false),
-			smbusProtocol(intByCleanName(ev, "protocol", false)), ln, buf), true
-	case strings.HasPrefix(name, "smbus_result"):
-		rw := "rd"
-		if intByCleanName(ev, "read_write", false) == 0 {
-			rw = "wr"
-		}
-		return fmt.Sprintf("i2c-%d a=%03x f=%04x c=%x %s %s res=%d", intByCleanName(ev, "adapter_nr", true),
-			intByCleanName(ev, "addr", false), intByCleanName(ev, "flags", false), intByCleanName(ev, "command", false),
-			smbusProtocol(intByCleanName(ev, "protocol", false)), rw, intByCleanName(ev, "res", true)), true
 	case strings.HasPrefix(name, "regulator_set_voltage_complete"):
 		return fmt.Sprintf("name=%s, val=%d", stringByCleanName(ev, content, "name"), intByCleanName(ev, "val", false)), true
 	case strings.HasPrefix(name, "regulator_set_voltage"):
@@ -548,11 +514,6 @@ func ufsClkGatingState(v int64) string {
 	return names[v]
 }
 
-func smbusProtocol(v int64) string {
-	names := map[int64]string{0: "QUICK", 1: "BYTE", 2: "BYTE_DATA", 3: "WORD_DATA", 4: "PROC_CALL", 5: "BLOCK_DATA", 6: "I2C_BLOCK_BROKEN", 7: "BLOCK_PROC_CALL", 8: "I2C_BLOCK_DATA"}
-	return names[v]
-}
-
 func littleEndianBytesHex(b []byte) string {
 	if len(b) == 0 {
 		return "0"
@@ -563,24 +524,6 @@ func littleEndianBytesHex(b []byte) string {
 	}
 	n := new(big.Int).SetBytes(rev)
 	return n.Text(16)
-}
-
-func dashHexWithOfficialTrailingBracket(b []byte, ln int) string {
-	if ln <= 0 {
-		return "]"
-	}
-	if len(b) > ln {
-		b = b[:ln]
-	}
-	parts := make([]string, 0, ln)
-	for i := 0; i < ln; i++ {
-		var v byte
-		if i < len(b) {
-			v = b[i]
-		}
-		parts = append(parts, hex.EncodeToString([]byte{v}))
-	}
-	return strings.Join(parts, "-") + "]"
 }
 
 func decimalByteArray(b []byte) string {

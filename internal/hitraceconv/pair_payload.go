@@ -288,7 +288,7 @@ func newDirectPairLineAudit(ev decodedEvent, payload pairRenderPayload) directPa
 
 func directPairHeaderTID(ev decodedEvent) (int64, bool) {
 	index, field, _, ok := directPairExactField(ev, "common_pid")
-	if !ok || field.Name != "common_pid" || !directPairFieldIsolated(ev, index) {
+	if !ok || field.Name != "common_pid" || !directDescriptorFieldIsolated(ev, index) {
 		return 0, false
 	}
 	value, ok := directFtraceCommonField(ev, "common_pid", 4, 4, true)
@@ -345,7 +345,7 @@ func directPairPointer(ev decodedEvent, name string, expectedOffset, expectedWid
 	index, field, raw, ok := directPairExactField(ev, name)
 	if !ok || field.Offset != expectedOffset || field.Signed || (field.Size != 4 && field.Size != 8) ||
 		(expectedWidth != 0 && field.Size != expectedWidth) || len(raw) != field.Size ||
-		!directPairFieldIsolated(ev, index) {
+		!directDescriptorFieldIsolated(ev, index) {
 		return 0, 0, false
 	}
 	typeName := normalizeFieldType(field.Type)
@@ -359,7 +359,7 @@ func directPairPointer(ev decodedEvent, name string, expectedOffset, expectedWid
 func directPairUint32(ev decodedEvent, name string, expectedOffset int) (uint64, bool) {
 	index, field, raw, ok := directPairExactField(ev, name)
 	if !ok || field.Offset != expectedOffset || field.Signed || field.Size != 4 || len(raw) != 4 ||
-		normalizeFieldType(field.Type) != "unsigned int" || !directPairFieldIsolated(ev, index) {
+		normalizeFieldType(field.Type) != "unsigned int" || !directDescriptorFieldIsolated(ev, index) {
 		return 0, false
 	}
 	return uint64(binary.LittleEndian.Uint32(raw)), true
@@ -370,10 +370,10 @@ func directPairDataLocScalar(ev decodedEvent, content []byte, name string, expec
 	// signed describes the char element profile for __data_loc char[]; the
 	// four physical locator bytes themselves are always decoded as a u32 tuple.
 	if !ok || field.Offset != expectedOffset || field.Size != 4 || len(raw) != 4 ||
-		normalizeFieldType(field.Type) != "__data_loc char[]" || !directPairFieldIsolated(ev, index) {
+		normalizeFieldType(field.Type) != "__data_loc char[]" || !directDescriptorFieldIsolated(ev, index) {
 		return "", directPairByteRange{}, false
 	}
-	fixedTail, ok := directPairFixedTail(ev)
+	fixedTail, ok := directDescriptorFixedTail(ev)
 	if !ok {
 		return "", directPairByteRange{}, false
 	}
@@ -428,43 +428,6 @@ func directPairExactField(ev decodedEvent, name string) (int, eventField, []byte
 		return -1, eventField{}, nil, false
 	}
 	return exactIndex, field, raw, true
-}
-
-func directPairFieldIsolated(ev decodedEvent, selectedIndex int) bool {
-	if selectedIndex < 0 || selectedIndex >= len(ev.format.Fields) {
-		return false
-	}
-	selected := ev.format.Fields[selectedIndex]
-	if selected.Offset < 0 || selected.Size <= 0 || selected.Offset > math.MaxInt-selected.Size {
-		return false
-	}
-	selectedEnd := selected.Offset + selected.Size
-	for index, other := range ev.format.Fields {
-		if index == selectedIndex {
-			continue
-		}
-		if other.Offset < 0 || other.Size <= 0 || other.Offset > math.MaxInt-other.Size {
-			return false
-		}
-		otherEnd := other.Offset + other.Size
-		if selected.Offset < otherEnd && other.Offset < selectedEnd {
-			return false
-		}
-	}
-	return true
-}
-
-func directPairFixedTail(ev decodedEvent) (int, bool) {
-	tail := 0
-	for _, field := range ev.format.Fields {
-		if field.Offset < 0 || field.Size <= 0 || field.Offset > math.MaxInt-field.Size {
-			return 0, false
-		}
-		if end := field.Offset + field.Size; end > tail {
-			tail = end
-		}
-	}
-	return tail, true
 }
 
 func directPairCleanDeclarationCount(ev decodedEvent, name string) int {
