@@ -96,6 +96,32 @@ type profilerPairPublisherCensus struct {
 	f2fs          profilerPairRowCensus
 }
 
+type profilerZeroFrameCensus struct {
+	count       uint64
+	firstOffset int64
+	lastOffset  int64
+}
+
+func (census *profilerZeroFrameCensus) observe(offset int64) bool {
+	if census == nil || census.count == math.MaxUint64 {
+		return false
+	}
+	if census.count == 0 {
+		census.firstOffset = offset
+	}
+	census.count++
+	census.lastOffset = offset
+	return true
+}
+
+func incrementProfilerContainerCounter(counter *int) bool {
+	if counter == nil || *counter == math.MaxInt {
+		return false
+	}
+	*counter++
+	return true
+}
+
 type profilerFtraceSummary struct {
 	Version           string
 	StatsMessages     int
@@ -625,29 +651,44 @@ func extractProfilerTraceFileAtWithFrameLimit(ctx context.Context, reader io.Rea
 	}
 	off := int64(profilerTraceHeaderSize)
 	seq := 0
+	var zeroFrames profilerZeroFrameCensus
+	var lenBuf [4]byte
 	for off <= limit-4 {
 		if err := ctx.Err(); err != nil {
 			return profilerContainerExtraction{}, err
 		}
-		var lenBuf [4]byte
 		if _, err := reader.ReadAt(lenBuf[:], off); err != nil {
-			if errorsIsEOF(err) {
-				break
-			}
 			return profilerContainerExtraction{}, fmt.Errorf("read profiler message length at %d: %w", off, err)
 		}
 		n := uint64(binary.LittleEndian.Uint32(lenBuf[:]))
+		if !incrementProfilerContainerCounter(&out.Messages) {
+			out.SourceFailClosed = true
+			out.SourceFailReason = "container_counter_overflow"
+			sink.failCloseAllRows()
+			break
+		}
+		// Header rejection can seed RejectedMessages independently. Guard the
+		// counter once per physical frame so each branch below may increment it
+		// at most once without duplicating overflow control inside hard gates.
+		if out.RejectedMessages == math.MaxInt {
+			out.SourceFailClosed = true
+			out.SourceFailReason = "container_counter_overflow"
+			sink.failCloseAllRows()
+			break
+		}
 		if n == 0 {
-			out.Messages++
+			if !zeroFrames.observe(off) {
+				out.SourceFailClosed = true
+				out.SourceFailReason = "container_counter_overflow"
+				sink.failCloseAllRows()
+				break
+			}
 			out.RejectedMessages++
-			out.Caveats = append(out.Caveats, fmt.Sprintf("rejected zero-length ProfilerPluginData frame at offset %d; continued at the next framed sibling", off))
-			out.TraceCoverage = append(out.TraceCoverage, profilerRejectedPluginCoverage("plugin_frame_zero_length"))
 			off += 4
 			continue
 		}
 		remaining := uint64(limit - off - 4)
 		if n > remaining {
-			out.Messages++
 			out.RejectedMessages++
 			sink.markPairCaptureOpaque(pairRenderMMC)
 			sink.markPairCaptureOpaque(pairRenderF2FS)
@@ -656,7 +697,6 @@ func extractProfilerTraceFileAtWithFrameLimit(ctx context.Context, reader io.Rea
 			break
 		}
 		if n > maxFrameBytes {
-			out.Messages++
 			out.RejectedMessages++
 			out.SourceFailClosed = true
 			out.SourceFailReason = "plugin_frame_size_budget_exceeded"
@@ -671,7 +711,6 @@ func extractProfilerTraceFileAtWithFrameLimit(ctx context.Context, reader io.Rea
 		if _, err := reader.ReadAt(msg, off+4); err != nil {
 			return profilerContainerExtraction{}, fmt.Errorf("read profiler message at %d: %w", off+4, err)
 		}
-		out.Messages++
 		decoded := parseProfilerPluginData(msg)
 		if decoded.Accepted {
 			plugin := decoded.Plugin
@@ -817,6 +856,11 @@ func extractProfilerTraceFileAtWithFrameLimit(ctx context.Context, reader io.Rea
 		}
 		off += 4 + int64(n)
 	}
+	if !appendProfilerZeroFrameCensus(&out, zeroFrames) {
+		out.SourceFailClosed = true
+		out.SourceFailReason = "container_counter_overflow"
+		sink.failCloseAllRows()
+	}
 	if remaining := limit - off; remaining > 0 && remaining < 4 {
 		out.RejectedMessages++
 		sink.markPairCaptureOpaque(pairRenderMMC)
@@ -879,6 +923,42 @@ func extractProfilerTraceFileAtWithFrameLimit(ctx context.Context, reader io.Rea
 		out.Caveats = append(out.Caveats, fmt.Sprintf("extracted %d systrace text row(s) from %d profiler plugin message(s)", out.TextRows, out.TextPluginMessages))
 	}
 	return out, nil
+}
+
+func appendProfilerZeroFrameCensus(out *profilerContainerExtraction, census profilerZeroFrameCensus) bool {
+	if out == nil || census.count == 0 {
+		return true
+	}
+	count, ok := profilerContainerCountToInt(census.count)
+	if !ok {
+		return false
+	}
+	out.Caveats = append(out.Caveats, fmt.Sprintf(
+		"rejected %d zero-length ProfilerPluginData frame(s); first_offset=%d last_offset=%d; each complete 4-byte prefix advanced to the next frame boundary and remaining siblings, if any, were scanned",
+		census.count, census.firstOffset, census.lastOffset))
+	out.TraceCoverage = append(out.TraceCoverage, TraceDBCoverage{
+		Family:   "builtin_modern_profiler",
+		Table:    "plugin:__rejected__",
+		Role:     "unsupported_input",
+		Found:    true,
+		RowsRead: count,
+		Skipped:  fmt.Sprintf("plugin_frame_zero_length=%d", census.count),
+		FieldSources: map[string]string{
+			"schema_profile":     "ProfilerPluginData{name=1,status=2,data=3,clock_id=4,tv_sec=5,tv_nsec=6,version=7,sample_interval=8}",
+			"aggregation_policy": "exact_count_with_first_last_offset",
+			"first_offset":       strconv.FormatInt(census.firstOffset, 10),
+			"last_offset":        strconv.FormatInt(census.lastOffset, 10),
+			"observed_total":     strconv.FormatUint(census.count, 10),
+		},
+	})
+	return true
+}
+
+func profilerContainerCountToInt(count uint64) (int, bool) {
+	if count > uint64(math.MaxInt) {
+		return 0, false
+	}
+	return int(count), true
 }
 
 func profilerPluginMetadataCaveat(name string, plugin profilerPluginData) string {
@@ -2222,8 +2302,4 @@ func skipProtoField(data []byte, off *int, wire int) bool {
 	default:
 		return false
 	}
-}
-
-func errorsIsEOF(err error) bool {
-	return err == io.EOF || err == io.ErrUnexpectedEOF
 }
