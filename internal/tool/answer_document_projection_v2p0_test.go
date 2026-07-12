@@ -168,3 +168,39 @@ func TestV2P0CaliberSideWordClassFollowsRegistry(t *testing.T) {
 		t.Fatalf("EN face must speak the 计数当量 (count-equivalent) word pair, got %q", got)
 	}
 }
+
+// TestV2P0SingleMemberCountRowTableMarker — CR-3 修复轮 (冷读 F-CR3-9,
+// 2026-07-12; tieba E24 witness): a SINGLE-member count-class ⌗ row keeps
+// its 计数当量 marker on the key-metrics table label too — the ×N family
+// form carries it inside the fold token (×2计数当量), and the degenerate
+// single row used to print a bare 7.200ms into the wall-clock columns.
+func TestV2P0SingleMemberCountRowTableMarker(t *testing.T) {
+	projection := types.TraceCausalProjectionFromObservationRecords(v2p0CaliberRecords())
+	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+	_, rows := runtimeTraceProjDetailTable(model, true)
+	var countLabel, compositeLabel string
+	for _, row := range rows {
+		if len(row.Cells) == 0 {
+			continue
+		}
+		if strings.Contains(row.Cells[0], "页缓存抖动") {
+			countLabel = row.Cells[0]
+		}
+		if strings.Contains(row.Cells[0], "块设备IO(inode)") || strings.Contains(row.Cells[0], "block_io_by_inode") {
+			compositeLabel = row.Cells[0]
+		}
+	}
+	if countLabel == "" {
+		t.Fatalf("count row missing from the table: %+v", rows)
+	}
+	if !strings.Contains(countLabel, "计数当量") {
+		t.Fatalf("the single-member count row keeps its 计数当量 table marker, got %q", countLabel)
+	}
+	if strings.Contains(countLabel, "×") {
+		t.Fatalf("a single row never fabricates a ×N token, got %q", countLabel)
+	}
+	// Composite rows are a separate lane (no witness) — unchanged form.
+	if compositeLabel != "" && strings.Contains(compositeLabel, "计数当量") {
+		t.Fatalf("the composite row must not borrow the count marker, got %q", compositeLabel)
+	}
+}

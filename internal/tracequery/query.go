@@ -2368,6 +2368,10 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		stats.Caveats = append(stats.Caveats, "thread_identity_resource_fail_closed=true; PID-keyed inode/file-IO/page-cache/storage composite aggregates are omitted because the selected window crosses a task-incarnation boundary")
 	}
 	if schedulerDurationsSafe {
+		// CR-3 修复轮 P2 (2026-07-12): fold the FULL accumulator BEFORE the
+		// top-8 truncation (INODE §28.6 precedent) — the P10 residual count
+		// must never be a second aggregation over a truncated inventory.
+		stats.blockedReasonFullByPID = foldBlockedReasonFullByPID(blockedReasons)
 		stats.BlockedReasons = topBlockedReasons(blockedReasons, 8)
 	}
 	var traceMarkCaveats []string
@@ -6193,6 +6197,61 @@ func topThreadDurations(in map[string]ThreadDuration, max int) []ThreadDuration 
 	sort.SliceStable(out, func(i, j int) bool { return out[i].DurationMs > out[j].DurationMs })
 	if max > 0 && len(out) > max {
 		out = out[:max]
+	}
+	return out
+}
+
+// blockedReasonPIDTotal is one pid's FULL-window blocked_reason account
+// (CR-3 修复轮 P2): total marker count plus up to two distinct semantic
+// caller symbols in deterministic (count desc, first line asc) order.
+type blockedReasonPIDTotal struct {
+	count   int
+	callers []string
+}
+
+// foldBlockedReasonFullByPID folds the full (pid, iowait, reason)
+// accumulator into per-pid totals BEFORE any truncation (INODE §28.6
+// discipline). Symbol hygiene mirrors the unanimous-caller lane: '+'
+// offset carve, opaque/hex/unknown never surface a name.
+func foldBlockedReasonFullByPID(in map[string]BlockedReasonSummary) map[int]blockedReasonPIDTotal {
+	byPID := map[int][]BlockedReasonSummary{}
+	for _, s := range in {
+		if s.Thread.PID <= 0 || s.Count <= 0 {
+			continue
+		}
+		byPID[s.Thread.PID] = append(byPID[s.Thread.PID], s)
+	}
+	out := make(map[int]blockedReasonPIDTotal, len(byPID))
+	for pid, rows := range byPID {
+		sort.Slice(rows, func(i, j int) bool {
+			if rows[i].Count != rows[j].Count {
+				return rows[i].Count > rows[j].Count
+			}
+			return rows[i].Line < rows[j].Line
+		})
+		total := blockedReasonPIDTotal{}
+		for _, s := range rows {
+			total.count += s.Count
+			c := s.Reason
+			if i := strings.IndexByte(c, '+'); i > 0 {
+				c = c[:i]
+			}
+			c = strings.TrimSpace(c)
+			if c == "" || c == "unknown" || isPureHexAddressToken(c) {
+				continue
+			}
+			dup := false
+			for _, have := range total.callers {
+				if have == c {
+					dup = true
+					break
+				}
+			}
+			if !dup && len(total.callers) < 2 {
+				total.callers = append(total.callers, c)
+			}
+		}
+		out[pid] = total
 	}
 	return out
 }
@@ -11299,6 +11358,44 @@ func BuildRootCauseRank(idx *Index, q Query) RootCauseRankResult {
 	return attachPerfContextToRootCauseRank(idx, q, rank, stats)
 }
 
+// stampRootCauseProcessIdentity (CR-3 件③ P11, 2026-07-12; 冷读案8 关键角色
+// 裸线程名无 tgid witness): every rank row gains its process attribution —
+// the TGID the trace's second column published for the thread (catalog
+// backfill when the row's ThreadRef missed it) and the owning process comm
+// (the catalog's tgid==tid main-thread entry). Identity enrichment only:
+// values are verbatim catalog facts, rank/score/order untouched. Called
+// from attachPerfContextToRootCauseRank — the ONE shared finalize tail of
+// every rank build lane (Run getRootCause / BuildRootCauseRank /
+// BuildFrameRootCauseBundle); a lane-local stamp would drift (首放实证:
+// the frame-bundle lane shipped bare tgid-less rows while the direct lane
+// was stamped).
+func stampRootCauseProcessIdentity(idx *Index, q Query, rank *RootCauseRankResult) {
+	if idx == nil || rank == nil || (len(rank.Items) == 0 && len(rank.AbsorbedItems) == 0) {
+		return
+	}
+	catalog := buildThreadCatalog(idx, q)
+	stamp := func(items []RootCauseRankItem) {
+		for i := range items {
+			thread := &items[i].Thread
+			if thread.PID <= 0 {
+				continue
+			}
+			if thread.TGID == 0 {
+				if cat := catalog[thread.PID]; cat.TGID > 0 {
+					thread.TGID = cat.TGID
+				}
+			}
+			if thread.TGID > 0 {
+				if proc := catalog[thread.TGID]; strings.TrimSpace(proc.Comm) != "" {
+					items[i].ProcessComm = strings.TrimSpace(proc.Comm)
+				}
+			}
+		}
+	}
+	stamp(rank.Items)
+	stamp(rank.AbsorbedItems)
+}
+
 func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats WindowStats) RootCauseRankResult {
 	res := RootCauseRankResult{
 		Target: chain.Target,
@@ -12121,6 +12218,23 @@ func rootCauseDIOStateFamilyItems(q Query, stats WindowStats, chainThreads map[i
 				}
 			}
 		}
+		// CR-3 件② P10 (2026-07-12): the unconsumed-marker residual. When the
+		// unanimous lane minted NO caller (partial coverage, conflicting or
+		// opaque symbols, or a non-sum_disjoint fold), the window account may
+		// still hold sched_blocked_reason records for this thread — the 冷读
+		// 案7 shape: the root-cause row reads 未解析 while the GPU-fence
+		// marker sits in hand. Mint the typed residual (count + distinct
+		// semantic symbols) so the display can DISCLOSE; never a synthesized
+		// upstream identity, never a rank/score input.
+		// 修复轮 P2 (2026-07-12): the count reads the FULL pre-truncation
+		// accumulator (INODE §28.6 precedent) — the first cut aggregated the
+		// top-8 inventory and said 17 while the window held 19 (冷读直核).
+		if item.BlockedReasonCaller == "" {
+			if total, ok := stats.blockedReasonFullByPID[thread.PID]; ok && total.count > 0 {
+				item.BlockedReasonWindowCount = total.count
+				item.BlockedReasonWindowCaller = strings.Join(total.callers, "/")
+			}
+		}
 		item.memberSegmentsProducerDisjoint = producerDisjoint
 		item.EffectiveImpactMs = rootCauseEffectiveImpactMs(item)
 		item.Score = item.EffectiveImpactMs * item.Confidence * rootCauseItemScoreWeight(item)
@@ -12308,6 +12422,9 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 }
 
 func attachPerfContextToRootCauseRank(idx *Index, q Query, rank RootCauseRankResult, stats WindowStats) RootCauseRankResult {
+	// CR-3 件③ P11: the process-identity stamp rides the shared finalize
+	// tail so EVERY rank lane ships it (see stampRootCauseProcessIdentity).
+	stampRootCauseProcessIdentity(idx, q, &rank)
 	if idx == nil || len(rank.Items) == 0 {
 		return rank
 	}

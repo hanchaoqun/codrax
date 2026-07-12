@@ -83,6 +83,9 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 		RailFamily:            "m3_c#_freq",
 		RailGoverned:          []tracequery.SupplyFoldRailGoverned{{CPU: 12, Rail: "m3_c3_freq"}},
 		ThermalCapKHz:         1850000,
+		// CR-3 件⑥ F-10 (2026-07-12): exercises the thermal_cap_witnessed
+		// contract key.
+		ThermalCapWitnessed: true,
 	}
 	impact := tracequery.WakeupCausalImpact{
 		Thread: tracequery.ThreadRef{Comm: "dep", PID: 21}, Window: window,
@@ -312,8 +315,11 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 			Window: window,
 			Items: []tracequery.RootCauseRankItem{{
 				Rank: 1, Tier: "primary", Type: "runnable_wait", SubjectKind: "thread",
-				Thread:   tracequery.ThreadRef{Comm: "app:ui", PID: 61},
-				ImpactMs: 12, ProjectedImpactMs: 12, CumulativeImpactMs: 14,
+				// CR-3 件③ P11 (2026-07-12): TGID + resolved process comm —
+				// exercises the tgid / process_comm contract keys.
+				Thread:      tracequery.ThreadRef{Comm: "app:ui", PID: 61, TGID: 60},
+				ProcessComm: "app",
+				ImpactMs:    12, ProjectedImpactMs: 12, CumulativeImpactMs: 14,
 				EffectiveImpactMs: 14, TargetImpactMs: 10, ActualImpactMs: 15, ActualTotalMs: 16,
 				ActualStartTs: 0.9, ActualEndTs: 2.05, Score: 0.9, Confidence: 0.85,
 				LineStart: 3, LineEnd: 4, Source: "wakeup_chain", Causality: "on_wakeup_chain",
@@ -352,6 +358,10 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				Thread:   tracequery.ThreadRef{Comm: "lockholder", PID: 103},
 				ImpactMs: 6, CumulativeImpactMs: 6, EffectiveImpactMs: 6,
 				Score: 0.5, Confidence: 0.7,
+				// CR-3 件② P10 (2026-07-12): the unconsumed blocked_reason
+				// residual pair — exercises blocked_reason_window_count /
+				// blocked_reason_window_caller (this row consumed no caller).
+				BlockedReasonWindowCount: 3, BlockedReasonWindowCaller: "gpu_fence_wait",
 				LineStart: 65, LineEnd: 66,
 				Source:    "window_stats.trace_spans.lock_contention",
 				Causality: "on_wakeup_chain", ChainRelevance: "on_chain", ChainDepth: 1,

@@ -628,7 +628,13 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// + BlockedReasonCaller (string, unanimous 等待对象 symbol). Key-first
 	// adjudication: both are per-row wording inputs (scalar disclosure lane,
 	// same as DominantState); no skipped fields.
-	reflect.TypeOf(tracequery.RootCauseRankItem{}): "72c8980de06188e61c014a2307a9638c0b5d45de12c5941edfeaef999a5bcd31",
+	// CR-3 件②/件③ (2026-07-12) schema review: RootCauseRankItem gained
+	// BlockedReasonWindowCount/-Caller (int/string, the unconsumed
+	// sched_blocked_reason residual disclosure pair) + ProcessComm (string,
+	// the owning-process comm beside Thread.TGID). Key-first adjudication:
+	// all three are per-row identity/wording inputs (scalar disclosure
+	// lane, same as BlockedReasonCaller); no skipped fields.
+	reflect.TypeOf(tracequery.RootCauseRankItem{}): "f4a84f1accfb8caab28075783897552e08a58d14c63f38c4d698a5aa5d61c4d8",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
 	// Key-first adjudication: a slice → structural bulk lane (same as
@@ -646,7 +652,12 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	reflect.TypeOf(tracequery.PacingIdleSummary{}):     "d1cd02ccef0e5974f23ecc1be4a3f0bf72f7c35fc022dbc561479b56e35e8909",
 	reflect.TypeOf(tracequery.WakeupCausalImpact{}):    "625697669c2daac29f2efc46a84d3d372c66924f64e98f82f1134f82762846eb",
 	reflect.TypeOf(tracequery.WakeupCausalAggregate{}): "e4ed22c7d66ff5724b9e395de5fdb921f3d06fd66e70ff44fba6fcac40a14831",
-	reflect.TypeOf(tracequery.SupplyFoldBasis{}):       "2812909ea9da6b3296c70229002e432dd9ef9153f8912fcdd3ba1012b34be9c4",
+	// CR-3 件⑥ F-10 (2026-07-12) schema review: SupplyFoldBasis gained
+	// ThermalCapWitnessed (bool, the cap's in-window limits/thermal event
+	// witness — the 受热限压 vs 运行于(限压原因未见证) wording gate).
+	// Key-first adjudication: a wording-input boolean beside its value
+	// (same lane as ThermalCapClusterClass); no skipped fields.
+	reflect.TypeOf(tracequery.SupplyFoldBasis{}): "1f74b0aa78a18e915f778438ffafe773c37626f504ae521a51fcf645f4ea6e7b",
 }
 
 func detailSchemaFingerprint(typ reflect.Type) (fingerprint, schema string) {

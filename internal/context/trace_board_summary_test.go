@@ -27,7 +27,8 @@ func traceBoardTestLedger() types.ObservationLedger {
 	}
 	return types.ObservationLedger{Records: []types.ObservationRecord{
 		rankRecord("trace_query:t#root_cause_rank:1", "CompThread_0-2955", "d_state_or_io_wait",
-			[]string{"rank=1", "tier=primary", "chain_relevance=on_chain", "effective_impact_ms=36.757", "member_fold_caliber=sum_disjoint"}, 0.80),
+			// CR-3 件③ P11: the typed process attribution rides the seat.
+			[]string{"rank=1", "tier=primary", "chain_relevance=on_chain", "effective_impact_ms=36.757", "member_fold_caliber=sum_disjoint", "tgid=2916"}, 0.80),
 		rankRecord("trace_query:t#root_cause_rank:2", "keva-1-17437", "sleep_wait",
 			[]string{"rank=2", "tier=secondary", "chain_relevance=on_chain", "effective_impact_ms=3.399"}, 0.74),
 		// Seatless rows never enter the board summary: the target's own
@@ -58,6 +59,9 @@ func TestTraceRootCauseBoardSummaryAuthoritativeOrder(t *testing.T) {
 		"fold=sum_disjoint",
 		"channel=chain",
 		"confidence=0.80",
+		// CR-3 件③ P11 (冷读案8): the seat's process attribution (tgid) on
+		// the LLM face — bare thread names stay traceable to their process.
+		"tgid=2916",
 		"Adjacent-impact seats",
 		"#1 adjacent seat — adj-5 · running",
 	} {

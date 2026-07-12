@@ -309,6 +309,36 @@ const (
 	// for the 行2 等待对象 disclosure. Distinct from the lock-lane
 	// wait_object key (different producer lane, different semantics).
 	TraceNoteKeyBlockedReasonCaller = "blocked_reason_caller"
+	// TraceNoteKeyBlockedReasonWindowCount / ...WindowCaller (CR-3 件② P10,
+	// 2026-07-12): the UNCONSUMED sched_blocked_reason residual on a D-family
+	// rank row whose unanimous-caller lane minted nothing — the thread's
+	// in-window marker count and the distinct semantic symbols ("/"-joined,
+	// cap 2). Consumed by the projection compile into
+	// TraceCausalProjectionNode.BlockedReasonWindowCount/-Caller for the
+	// 「该行标未解析,但窗内存在 N 条 blocked_reason 记录」 disclosure (冷读
+	// 案7 GPU-fence witness). Absent whenever the row consumed its marker
+	// (blocked_reason_caller) or the window holds none.
+	TraceNoteKeyBlockedReasonWindowCount  = "blocked_reason_window_count"
+	TraceNoteKeyBlockedReasonWindowCaller = "blocked_reason_window_caller"
+	// TraceNoteKeyTGID / TraceNoteKeyProcessComm (CR-3 件③ P11, 2026-07-12;
+	// 冷读案8 关键角色裸线程名无 tgid): the rank row's process attribution —
+	// the TGID the trace's second column published for the thread, plus the
+	// owning process comm resolved from the window thread catalog (tgid==tid
+	// main-thread entry; comm absent when unresolvable — the thread's own
+	// comm never substitutes). Consumed by the projection compile into
+	// TraceCausalProjectionNode.ProcessTGID/ProcessComm (detail identity
+	// 「进程 tgid=G comm=P」 line) and read by the board-summary feed (LLM
+	// seat rows gain tgid=G).
+	TraceNoteKeyTGID        = "tgid"
+	TraceNoteKeyProcessComm = "process_comm"
+	// TraceNoteKeyThermalCapWitnessed (CR-3 件⑥ F-10, 2026-07-12; CR-2 冷读
+	// D5): whether the fold's thermal/policy cap has an IN-WINDOW
+	// cpu_frequency_limits / thermal-rail event witness ("true"/"false",
+	// emitted only beside thermal_cap_khz). Consumed by the projection
+	// compile into TraceCausalProjectionNode.ThermalCapWitnessed — the
+	// display words an unwitnessed press 运行于 X(限压原因未见证) instead of
+	// 受热限压至 X (词面仅当窗内存在 typed 见证).
+	TraceNoteKeyThermalCapWitnessed = "thermal_cap_witnessed"
 	// TraceNoteKeyDeterministicRunning (§29.27② COV-4, 2026-07-11): the
 	// target_window_states record's 确定性工作 lane — the wall-clock union of
 	// the focused thread's own semantic-span intervals ∩ its running
@@ -634,6 +664,9 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// 因果排名族.
 	{TraceNoteKeyRank, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyTier, "causal_rank", TraceNoteCarrierHardConsumer},
+	// CR-3 件③ P11 (2026-07-12): rank-row process attribution pair.
+	{TraceNoteKeyTGID, "causal_rank", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyProcessComm, "causal_rank", TraceNoteCarrierHardConsumer},
 	// EVOLUTION RECORD (修复轮 R-P2-2 census 反向臂首跑, 2026-07-12): soft→hard
 	// — the compile has parsed it into node.BackgroundRank since DCS §23.1;
 	// the carrier column under-reported.
@@ -763,6 +796,9 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyDState, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyDStateRefinedNonIO, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyBlockedReasonCaller, "state", TraceNoteCarrierHardConsumer},
+	// CR-3 件② P10 (2026-07-12): unconsumed blocked_reason residual pair.
+	{TraceNoteKeyBlockedReasonWindowCount, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyBlockedReasonWindowCaller, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyIOWait, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeySleepIOWait, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyDeterministicRunning, "state", TraceNoteCarrierHardConsumer},
@@ -806,6 +842,9 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// thermal_cap_khz (THERM §28.5-T7): typed node-field read-in — the
 	// 窗内该簇受热限压至 X disclosure sentence keys on it.
 	{TraceNoteKeyThermalCapKHz, "supply_fold", TraceNoteCarrierHardConsumer},
+	// CR-3 件⑥ F-10 (2026-07-12): the cap's in-window witness bit — the
+	// 受热限压 vs 运行于(限压原因未见证) wording gate.
+	{TraceNoteKeyThermalCapWitnessed, "supply_fold", TraceNoteCarrierHardConsumer},
 
 	// 占用族 (RN-1) + CMP-9 density.
 	{TraceNoteKeyStarvedRunnableMS, "occupancy", TraceNoteCarrierDisplayOnly},

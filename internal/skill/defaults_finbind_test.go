@@ -150,3 +150,73 @@ func TestFinBindInversionLockCoexistence(t *testing.T) {
 		}
 	}
 }
+
+// --- CR-3 件⑦ extension (2026-07-12): three more trace-gated disciplines ---
+
+// TestFinBindIOLatencyRoleWords — CR-3 件⑦a (CAL-1 冷读 F-9): the
+// initiator's blocked segment and the request's device-side latency are
+// different roles with different values.
+func TestFinBindIOLatencyRoleWords(t *testing.T) {
+	item := finBindTierBItem(t, "IO-LATENCY ROLE WORDS")
+	if !item.AppliesTo.RequiresTrace {
+		t.Fatalf("IO-role rule must be trace-gated: %+v", item.AppliesTo)
+	}
+	for _, want := range []string{
+		"the REQUEST's own latency",
+		"DIFFERENT measurement with its own value",
+		"Never restate one side's value as the other's",
+		"say which side it is",
+	} {
+		if !strings.Contains(item.Body, want) {
+			t.Fatalf("IO-role rule missing %q:\n%s", want, item.Body)
+		}
+	}
+}
+
+// TestFinBindStateDurationCaliberSeparation — CR-3 件⑦b (P6 教学半场): the
+// per-thread state partition respects the window; activity-slice and
+// full-window calibers never mix in one breakdown.
+func TestFinBindStateDurationCaliberSeparation(t *testing.T) {
+	item := finBindTierBItem(t, "STATE-DURATION CALIBER SEPARATION")
+	if !item.AppliesTo.RequiresTrace {
+		t.Fatalf("caliber-separation rule must be trace-gated: %+v", item.AppliesTo)
+	}
+	for _, want := range []string{
+		"can never exceed the analysis window",
+		"DIFFERENT calibers",
+		"never mix calibers inside one per-thread breakdown",
+		"sanity-check that the durations can fit the window together",
+	} {
+		if !strings.Contains(item.Body, want) {
+			t.Fatalf("caliber-separation rule missing %q:\n%s", want, item.Body)
+		}
+	}
+}
+
+// TestFinBindNoSilentSourceFallback — CR-3 件⑦c (§29.47.7): the empty
+// trace result discloses first; the narrowed criteria (both typed
+// conditions) are spoken verbatim, and mixed analysis stays untouched.
+func TestFinBindNoSilentSourceFallback(t *testing.T) {
+	item := finBindTierBItem(t, "NO SILENT SOURCE FALLBACK ON AN EMPTY TRACE RESULT")
+	if !item.AppliesTo.RequiresTrace {
+		t.Fatalf("source-fallback rule must be trace-gated: %+v", item.AppliesTo)
+	}
+	for _, want := range []string{
+		// condition (a): trace-led question ∧ zero root-cause findings.
+		"a runtime trace is attached and the question asks about that trace",
+		"produced ZERO root-cause findings",
+		// condition (b): principal claims rest on source citations alone.
+		"rest on source citations alone",
+		// disclosure-first duty + the non-degradation of mixed analysis.
+		"disclose that FIRST",
+		"An empty trace result is not a source-code question",
+		"Mixed analysis stays normal",
+	} {
+		if !strings.Contains(item.Body, want) {
+			t.Fatalf("source-fallback rule missing %q:\n%s", want, item.Body)
+		}
+	}
+	if len(item.OnViolation) != 0 {
+		t.Fatalf("the source-fallback rule is disclosure teaching — no violation lane: %+v", item.OnViolation)
+	}
+}

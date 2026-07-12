@@ -152,6 +152,14 @@ type SupplyFoldBasis struct {
 	// attribution is unavailable (absence never guesses).
 	ThermalCapKHz          int    `json:"thermal_cap_khz,omitempty"`
 	ThermalCapClusterClass string `json:"thermal_cap_cluster_class,omitempty"`
+	// ThermalCapWitnessed (CR-3 件⑥ F-10, 2026-07-12; CR-2 冷读 D5 witness:
+	// 「受热限压至 1.53GHz」 with zero in-window thermal/limits event — the
+	// cap was a pre-window carry-in governance value): true iff at least one
+	// cpu_frequency_limits sample or thermal-rail sample with an IN-WINDOW
+	// timestamp pressed this cluster. False = the press is real governance
+	// but its cause is unwitnessed inside the window — the display words it
+	// 运行于 X(限压原因未见证) instead of 受热限压至 X. Wording input only.
+	ThermalCapWitnessed bool `json:"thermal_cap_witnessed,omitempty"`
 }
 
 // SupplyFoldRailGoverned is one disclosed rail-governed slice CPU: slices on
@@ -818,15 +826,30 @@ func (c *chainQueryCache) applyThermalCapDisclosure(basis *SupplyFoldBasis, capa
 		return
 	}
 	cap := 0
-	press := func(khz int) {
-		if khz > 0 && (cap == 0 || khz < cap) {
-			cap = khz
+	witnessed := false
+	press := func(sample freqSample) {
+		if sample.khz <= 0 {
+			return
+		}
+		if cap == 0 || sample.khz < cap {
+			cap = sample.khz
+		}
+		// CR-3 件⑥ F-10 (2026-07-12): governedWindowSamples re-timestamps
+		// the pre-window carry-in head to exactly gStart; a strictly-later
+		// timestamp is therefore a REAL in-window limits/thermal event — the
+		// typed witness the 受热限压 wording requires (冷读 D5: a carry-in
+		// cap wore the thermal word with zero in-window event).
+		// 修复轮 P4 (2026-07-12): the witness must itself PRESS — an
+		// in-window sample at (or above) the cluster fmax is a release/
+		// no-op event and never earns the thermal word for a carry-in cap.
+		if sample.ts > gStart && sample.khz < fmax {
+			witnessed = true
 		}
 	}
 	c.buildFreqLimitIndex()
 	for _, cpu := range capability.domains.members[label] {
 		for _, sample := range governedWindowSamples(c.freqLimitByCPU[cpu], gStart, gEnd) {
-			press(sample.khz)
+			press(sample)
 		}
 	}
 	for _, rail := range c.thermalRailTimelines() {
@@ -834,12 +857,13 @@ func (c *chainQueryCache) applyThermalCapDisclosure(basis *SupplyFoldBasis, capa
 			continue
 		}
 		for _, sample := range governedWindowSamples(rail.samples, gStart, gEnd) {
-			press(sample.khz)
+			press(sample)
 		}
 	}
 	if cap > 0 && cap < fmax {
 		basis.ThermalCapKHz = cap
 		basis.ThermalCapClusterClass = capability.classByCluster[label]
+		basis.ThermalCapWitnessed = witnessed
 	}
 }
 

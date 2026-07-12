@@ -707,6 +707,46 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				Body:      "PRIORITY-INVERSION AND LOCK-HOLD COEXISTENCE: when the evidence publishes BOTH a priority-inversion relation and a lock-holding fact for the same wait, state both facts — they coexist; neither cancels the other. Do not use the lock fact to deny the inversion wording, and do not hide the lock fact to keep the inversion story clean. The two facts define different repair spaces (a lock-held inversion can be addressed through priority inheritance or through decoupling the lock; a lock-free inversion only through priority/scheduling adjustment) — put that repair-direction reasoning in the optimization / next-step surface, and keep the fact statements themselves plain.",
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
+			{
+				// FIN-BIND (f): IO-latency role words — trace-only (CR-3
+				// 件⑦a, §29.50 F-9 分诊, 2026-07-12; CAL-1 冷读 F-9 witness:
+				// prose swapped a thread's own sleep segment with the block
+				// request's device-side latency — two near-equal values, two
+				// different roles). Complements MEASUREMENT-SUBJECT BINDING
+				// (which binds a number to its thread): this clause binds a
+				// number to its ROLE within one IO story.
+				Body:      "IO-LATENCY ROLE WORDS: a published IO-latency value is the REQUEST's own latency (from issue to completion — the device/completion side), while the waiting thread's blocked or sleeping segment over the same period is a DIFFERENT measurement with its own value; the two are usually close but never interchangeable. When prose names who initiated an IO and who completed it, keep each value with its own role — the requester's blocked time comes from the requester's row, the request latency from the IO row. Never restate one side's value as the other's, and when only one side is published, say which side it is instead of implying both.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+				OnViolation: []types.ViolationKind{
+					types.ViolProseScalarUngrounded,
+				},
+			},
+			{
+				// FIN-BIND (g): state-duration caliber separation — trace-only
+				// (CR-3 件⑦b = P6 教学半场, §29.42 P6 + §29.50 遗留 B1,
+				// 2026-07-12; witness: prose listed activity-slice values
+				// beside full-window totals for one thread and the set summed
+				// past the window — a physically impossible partition that
+				// flipped the starvation attribution). The mechanical half is
+				// the deterministic conservation cross-check; this clause is
+				// the drafting-side discipline.
+				Body:      "STATE-DURATION CALIBER SEPARATION: one thread's scheduler states partition wall clock — for any single thread, running + runnable + sleep + uninterruptible time together can never exceed the analysis window, and no single state can exceed the window. Values measured over an activity slice (covering only part of the window) and full-window totals are DIFFERENT calibers: never list them side by side as if directly comparable, and never mix calibers inside one per-thread breakdown. Before publishing a per-thread state breakdown, sanity-check that the durations can fit the window together; when they cannot, re-read which rows the values really came from instead of publishing an impossible set.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+				OnViolation: []types.ViolationKind{
+					types.ViolProseScalarUngrounded,
+				},
+			},
+			{
+				// FIN-BIND (h): trace-first disclosure on an empty trace
+				// result — trace-only (CR-3 件⑦c, §29.47.7 立案 2026-07-12;
+				// witness: a trace-led question whose analysis produced zero
+				// root-cause findings shipped a source-code mechanism
+				// narrative in their place). 判据收窄 per the ruling: mixed
+				// analysis where trace observations anchor the answer stays
+				// normal — the rule speaks ONLY to the empty-result shape.
+				Body:      "NO SILENT SOURCE FALLBACK ON AN EMPTY TRACE RESULT: when a runtime trace is attached and the question asks about that trace, but the trace analysis produced ZERO root-cause findings, disclose that FIRST — state plainly that this trace analysis produced no root-cause findings and why (no matching observations in the window, an analysis error, or an exhausted budget), and only then offer whatever else genuinely helps. An empty trace result is not a source-code question: never let source-code mechanism narration silently take the place of the missing trace findings as the answer's principal claims. Mixed analysis stays normal — when trace observations are present and anchor the answer, explaining the implicated source code is welcome; this rule applies only when the principal claims would otherwise rest on source citations alone because the trace lane found nothing.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
 		},
 		// P5-B Tier B prohibitions: 2 items the design classifies
 		// as style-polish (always relevant but lower priority).

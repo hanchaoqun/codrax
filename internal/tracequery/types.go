@@ -977,7 +977,15 @@ type WindowStats struct {
 	IPICount             int                      `json:"ipi_count,omitempty"`
 	IOWaitBlockedCount   int                      `json:"io_wait_blocked_count,omitempty"`
 	BlockedReasons       []BlockedReasonSummary   `json:"blocked_reasons,omitempty"`
-	TraceSpans           []TraceSpanSummary       `json:"trace_spans,omitempty"`
+	// blockedReasonFullByPID (CR-3 修复轮 P2, 2026-07-12): the per-pid FULL
+	// blocked_reason accumulator folded BEFORE the top-8 truncation (INODE
+	// §28.6 precedent — never second-aggregate on truncated inputs; 冷读
+	// 实锤: the ❺ residual said 17 while the window held 19, two buckets
+	// having fallen off the top-8 inventory). Engine-internal computation
+	// structure (unexported = off every wire/JSON face); sole consumer is
+	// the D-family rank residual mint (CR-3 件② P10).
+	blockedReasonFullByPID map[int]blockedReasonPIDTotal
+	TraceSpans             []TraceSpanSummary `json:"trace_spans,omitempty"`
 	// TraceTrackSpans is the isolated Android ASYNC_FOR_TRACK G/H lane. These
 	// spans have logical track ownership, not emitter-thread ownership, and
 	// therefore never feed TraceSpans, semantic classification or root rank.
@@ -2635,6 +2643,13 @@ type RootCauseRankItem struct {
 	// Deterministic typed signal set at construction time.
 	SubjectKind string    `json:"subject_kind,omitempty"`
 	Thread      ThreadRef `json:"thread,omitempty"`
+	// ProcessComm (CR-3 件③ P11, 2026-07-12): the owning PROCESS comm
+	// resolved from the window thread catalog by the row thread's TGID (the
+	// tgid==tid main-thread entry; 冷读案8 裸线程名死指针 witness). "" when
+	// the catalog holds no main-thread comm for the tgid (absence never
+	// guesses — the thread's own comm is NOT a process name). Display /
+	// board-summary identity slot only; rank lanes never read it.
+	ProcessComm string `json:"process_comm,omitempty"`
 	// PhysicalSourcePath is the bundle-local physical artifact identity behind
 	// duration rows. Logical Source (window_stats/semantic/...) describes the
 	// producer lane; this field prevents lookalike intervals from different
@@ -2664,11 +2679,23 @@ type RootCauseRankItem struct {
 	// caller symbol across the row's marked D-ledger segments
 	// (dma_fence_default_wait family); "" when members disagree or none was
 	// marked (absence never guesses). 行2 等待对象 disclosure input.
-	BlockedReasonCaller string  `json:"blocked_reason_caller,omitempty"`
-	ImpactMs            float64 `json:"impact_ms,omitempty"`
-	ProjectedImpactMs   float64 `json:"projected_impact_ms,omitempty"`
-	CumulativeImpactMs  float64 `json:"cumulative_impact_ms,omitempty"`
-	EffectiveImpactMs   float64 `json:"effective_impact_ms,omitempty"`
+	BlockedReasonCaller string `json:"blocked_reason_caller,omitempty"`
+	// BlockedReasonWindowCount / BlockedReasonWindowCaller (CR-3 件② P10,
+	// 2026-07-12): the UNCONSUMED residual — when the unanimous-caller lane
+	// minted nothing, the window may still hold sched_blocked_reason records
+	// for this thread (冷读案7: the root-cause row said 未解析 while the
+	// GPU-fence marker sat in hand). Count = the thread's in-window marker
+	// count from the window account (top-N capped inventory; a thread
+	// outside the cap keeps zero — loose, disclosure-only); caller = the
+	// distinct semantic symbols (cap 2, "/"-joined; "" when all opaque/hex).
+	// Wording input only — rank/score lanes never read them, and rows whose
+	// BlockedReasonCaller already consumed the marker never mint them.
+	BlockedReasonWindowCount  int     `json:"blocked_reason_window_count,omitempty"`
+	BlockedReasonWindowCaller string  `json:"blocked_reason_window_caller,omitempty"`
+	ImpactMs                  float64 `json:"impact_ms,omitempty"`
+	ProjectedImpactMs         float64 `json:"projected_impact_ms,omitempty"`
+	CumulativeImpactMs        float64 `json:"cumulative_impact_ms,omitempty"`
+	EffectiveImpactMs         float64 `json:"effective_impact_ms,omitempty"`
 	// RankSortBoostedEffectiveMs (SEM-LEAD §29.7-2 ② + 复核 P1-1 修向(a),
 	// ledger real_trace_campaign_20260705.md §29.22, 2026-07-10) is the
 	// ENGINE-INTERNAL boost channel for on-chain semantic span work: the

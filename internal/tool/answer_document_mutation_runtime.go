@@ -6138,14 +6138,23 @@ func runtimeTraceNextStepUndrilledHeadlineText(lead types.TraceCausalProjectionN
 			subject += " (" + strings.Join(quals, ", ") + ")"
 		}
 	}
+	// CR-3 件② P10 (2026-07-12, 冷读案7 GPU-fence witness): when the
+	// unresolved row's thread still has UNCONSUMED sched_blocked_reason
+	// markers in the window, the 未解析 wording must not hide the mechanism
+	// marker sitting in hand — append the typed residual disclosure.
+	residualZH, residualEN := "", ""
+	if depthUnresolved && lead.BlockedReasonWindowCount > 0 {
+		residualZH = ",但" + runtimeTraceProjBlockedReasonResidualWord(lead, true)
+		residualEN = ", yet the " + runtimeTraceProjBlockedReasonResidualWord(lead, false)
+	}
 	if zh {
 		if depthUnresolved {
-			return fmt.Sprintf("对主根因 %s%s在其发生窗执行 wakeup_chain / critical_blocking_calls 下钻:该行当前深度未解析,尚无已核实的上游因果", subject, zhTail)
+			return fmt.Sprintf("对主根因 %s%s在其发生窗执行 wakeup_chain / critical_blocking_calls 下钻:该行当前深度未解析,尚无已核实的上游因果%s", subject, zhTail, residualZH)
 		}
 		return fmt.Sprintf("对主根因 %s%s执行 critical_blocking_calls,并调整窗口后重试 wakeup_chain:所选窗口内无匹配唤醒记录,无法继续上溯", subject, zhTail)
 	}
 	if depthUnresolved {
-		return fmt.Sprintf("Drill into the primary root cause %s with wakeup_chain / critical_blocking_calls in its occurrence window: its chain depth is unresolved and no verified upstream cause is attached yet", subject)
+		return fmt.Sprintf("Drill into the primary root cause %s with wakeup_chain / critical_blocking_calls in its occurrence window: its chain depth is unresolved and no verified upstream cause is attached yet%s", subject, residualEN)
 	}
 	return fmt.Sprintf("Run critical_blocking_calls for the primary root cause %s and retry wakeup_chain over an adjusted window: the selected window has no matching wakeup record, so the chain cannot be traced further", subject)
 }

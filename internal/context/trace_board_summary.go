@@ -44,6 +44,9 @@ type traceBoardRow struct {
 	effectiveMS string // preformatted value + caliber source word
 	caliber     string
 	confidence  float64
+	// tgid (CR-3 件③ P11, 2026-07-12; 冷读案8 裸线程名死指针): the seat's
+	// typed process attribution — "" when the record published none.
+	tgid string
 	// representativeWindow is the row's FIRST typed occurrence window (CR-2
 	// 组③ P7 / F-4): labeled as one occurrence so the model never pairs the
 	// whole-window total with a single quoted window. "" when the record
@@ -76,6 +79,7 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 			tier:       notes[types.TraceNoteKeyTier],
 			caliber:    notes[types.TraceNoteKeyMemberFoldCaliber],
 			confidence: record.Confidence,
+			tgid:       strings.TrimSpace(notes[types.TraceNoteKeyTGID]),
 			representativeWindow: traceBoardFirstOccurrenceWindow(
 				notes[types.TraceNoteKeyOccurrenceWindows]),
 		}
@@ -104,6 +108,11 @@ func formatTraceRootCauseBoardFromLedger(ledger types.ObservationLedger) string 
 	b.WriteString("The measured root-cause board below is the single authoritative ordering for this run. State root causes in THIS order; if your combined judgment deviates from it, keep the deviation explicit and say what it is based on — never reorder silently. Use these values verbatim (never sum rows together: they are per-thread wall-clock measurements), and describe each row's role with its own channel below — never demote an on-chain row to background noise. When a row lists representative_window, that window is ONE occurrence among several — the row's value aggregates across the whole query window, so never present the value as the duration of that single window.\n")
 	writeRow := func(row traceBoardRow, channelWord string) {
 		line := fmt.Sprintf("- #%d %s — %s · %s · channel=%s · confidence=%.2f", row.rank, channelWord, firstNonEmptyBoardField(row.subject, "(window-level)"), row.typeToken, row.channel, row.confidence)
+		if row.tgid != "" {
+			// CR-3 件③ P11: the seat's process attribution (tgid) — bare
+			// thread names stay traceable to their process on the LLM face.
+			line += " · tgid=" + row.tgid
+		}
 		line += " · " + row.effectiveMS
 		if row.caliber != "" {
 			line += " · fold=" + row.caliber

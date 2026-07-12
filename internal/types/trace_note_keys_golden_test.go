@@ -54,6 +54,10 @@ var traceNoteKeyGoldenRows = []string{
 	"block_max|io|display_only",
 	// DSTATE-REFINE arm a (CAL-1 件③, 2026-07-12): unanimous caller disclosure.
 	"blocked_reason_caller|state|hard_consumer",
+	// CR-3 件② P10 (2026-07-12): unconsumed blocked_reason residual on the
+	// unresolved D-family row (冷读案7 GPU-fence witness).
+	"blocked_reason_window_caller|state|hard_consumer",
+	"blocked_reason_window_count|state|hard_consumer",
 	"blocking_candidate|blocking|display_only",
 	// BLOCKFROM (§27.4 G13, 2026-07-09): waiter-side blocking call site
 	// ("blocking from <sig>(<file:line>)" payload tail). EVOLUTION RECORD
@@ -253,6 +257,8 @@ var traceNoteKeyGoldenRows = []string{
 	"priority_inversion_gated|gating|display_only",
 	"priority_relation|gating|display_only",
 	"process|cpu_load|display_only",
+	// CR-3 件③ P11 (2026-07-12): rank-row process attribution (冷读案8).
+	"process_comm|causal_rank|hard_consumer",
 	// EVOLUTION RECORD (审计 #5/#62, 2026-07-10): display_only →
 	// hard_consumer — the on-chain semantic FAMILY record's exact
 	// intersection participation (SemanticChainProjectedMS); the rank-lane
@@ -340,10 +346,14 @@ var traceNoteKeyGoldenRows = []string{
 	"target_mask|interrupt|display_only",
 	"target_prio|cpu_load|display_only",
 	"target_priority|cpu_load|display_only",
+	// CR-3 件③ P11 (2026-07-12): rank-row process attribution (冷读案8).
+	"tgid|causal_rank|hard_consumer",
 	"thermal|supply_pressure|display_only",
 	// THERM (§28.5-T7, 2026-07-09): in-window thermal/policy press on the
 	// fold's dominant running cluster (窗内该簇受热限压至 X sentence).
 	"thermal_cap_khz|supply_fold|hard_consumer",
+	// CR-3 件⑥ F-10 (2026-07-12): the cap's in-window witness bit (冷读 D5).
+	"thermal_cap_witnessed|supply_fold|hard_consumer",
 	"thread|cpu_load|display_only",
 	"threads|cpu_load|display_only",
 	"throughput|supply_pressure|display_only",

@@ -5999,6 +5999,15 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				notes = append(notes, fmt.Sprintf("%s=%.3f", types.TraceNoteKeyEffectiveImpactMS, 0.0))
 			}
 			notes = append(notes, traceQueryTypedRootCauseStateRichNotes(item)...)
+			// CR-3 件③ P11 (2026-07-12, 冷读案8): the seat's process
+			// attribution — the trace-published tgid plus the resolved owning
+			// process comm (engine-stamped; absence never guesses).
+			if item.Thread.TGID > 0 {
+				notes = append(notes, fmt.Sprintf("%s=%d", types.TraceNoteKeyTGID, item.Thread.TGID))
+				if pc := strings.TrimSpace(item.ProcessComm); pc != "" {
+					notes = append(notes, types.TraceNoteKeyProcessComm+"="+sanitizeForBanner(pc))
+				}
+			}
 			if item.RunnableBelowRTPreempted {
 				// SYM-2 (§24.17 R2, 2026-07-08): the typed below-RT preemption
 				// disclosure travels to the projection compile for the 行2
@@ -6856,6 +6865,13 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 		// the coverage proof (absence never guesses).
 		refined = "true"
 	}
+	// CR-3 件② P10 (2026-07-12): the unconsumed-marker residual rides only
+	// when the engine minted it (count > 0 ⇔ unanimous lane empty AND the
+	// window holds markers for this thread).
+	windowCount := ""
+	if item.BlockedReasonWindowCount > 0 {
+		windowCount = fmt.Sprintf("%d", item.BlockedReasonWindowCount)
+	}
 	return traceQueryTypedKVNotes([][2]string{
 		{types.TraceNoteKeyDominantState, item.DominantState},
 		{types.TraceNoteKeyRunning, traceQueryObservationMSValue(item.RunningMs)},
@@ -6865,6 +6881,8 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 		{types.TraceNoteKeyIOWait, traceQueryObservationMSValue(item.IOWaitMs)},
 		{types.TraceNoteKeyDStateRefinedNonIO, refined},
 		{types.TraceNoteKeyBlockedReasonCaller, sanitizeForBanner(item.BlockedReasonCaller)},
+		{types.TraceNoteKeyBlockedReasonWindowCount, windowCount},
+		{types.TraceNoteKeyBlockedReasonWindowCaller, sanitizeForBanner(item.BlockedReasonWindowCaller)},
 	})
 }
 
@@ -7232,6 +7250,9 @@ func traceQueryTypedSupplyFoldRichNotes(basis *tracequery.SupplyFoldBasis, defic
 	// 窗内该簇受热限压至 X sentence off this typed value.
 	if basis.ThermalCapKHz > 0 {
 		notes = append(notes, fmt.Sprintf("%s=%d", types.TraceNoteKeyThermalCapKHz, basis.ThermalCapKHz))
+		// CR-3 件⑥ F-10 (2026-07-12): the cap's in-window witness bit rides
+		// beside its value (the 受热限压 wording gate; 冷读 D5).
+		notes = append(notes, fmt.Sprintf("%s=%t", types.TraceNoteKeyThermalCapWitnessed, basis.ThermalCapWitnessed))
 	}
 	// VS-2b (§7.10): fmax ladder provenance — limits (policy authority) vs
 	// observed governance fallback. Zero on aggregates (mixed member windows

@@ -361,6 +361,20 @@ type TraceCausalProjectionNode struct {
 	// (dma_fence_default_wait family) for the 行2 等待对象 disclosure; ""
 	// when absent/conflicting (absence never guesses).
 	BlockedReasonCaller string `json:"blocked_reason_caller,omitempty"`
+	// BlockedReasonWindowCount / BlockedReasonWindowCaller (CR-3 件② P10,
+	// 2026-07-12): the UNCONSUMED sched_blocked_reason residual — set only
+	// when the row consumed no caller yet the window holds markers for its
+	// thread (冷读案7: root-cause row read 未解析 with the GPU-fence marker
+	// in hand). Drives the 「窗内存在 N 条 blocked_reason 记录」 disclosure
+	// on the unresolved word faces; wording input only.
+	BlockedReasonWindowCount  int    `json:"blocked_reason_window_count,omitempty"`
+	BlockedReasonWindowCaller string `json:"blocked_reason_window_caller,omitempty"`
+	// ProcessTGID / ProcessComm (CR-3 件③ P11, 2026-07-12; 冷读案8 关键角色
+	// 裸线程名无 tgid): the row's process attribution — the trace-published
+	// tgid and the resolved owning process comm. Detail identity 「进程
+	// tgid=G comm=P」 line input only.
+	ProcessTGID int    `json:"process_tgid,omitempty"`
+	ProcessComm string `json:"process_comm,omitempty"`
 	// UndrillableReason is a typed enum (currently only "missing_wakeup") set when
 	// a sleep interval could NOT be resolved to an upstream waker — sourced from a
 	// root_evidence:missing_wakeup observation ("sleep interval has no matching
@@ -864,6 +878,10 @@ type TraceCausalProjectionNode struct {
 	// sentence; zero-weight (no number changes), absent when cluster
 	// attribution was unavailable (absence never guesses).
 	ThermalCapKHz int `json:"thermal_cap_khz,omitempty"`
+	// ThermalCapWitnessed (CR-3 件⑥ F-10, 2026-07-12; 冷读 D5): whether the
+	// cap has an IN-WINDOW limits/thermal event witness — the wording gate
+	// between 受热限压至 X and 运行于 X(限压原因未见证).
+	ThermalCapWitnessed bool `json:"thermal_cap_witnessed,omitempty"`
 	// RunnableMS mirrors the node's typed "runnable=" rich note (the row's
 	// own in-window runnable wall clock) — consumed by the §7.10 decision
 	// table's shared RN-1 significance check and the mechanism clause's
@@ -1785,6 +1803,7 @@ type traceCausalProjectionSupplyFoldDonor struct {
 	referenceClass         string
 	topologySource         string
 	thermalCapKHz          int
+	thermalCapWitnessed    bool
 	windowStart, windowEnd float64
 	windowDeclared         bool
 	conflict               bool
@@ -1865,13 +1884,14 @@ func traceCausalProjectionJoinSupplyFoldTwins(projection *TraceCausalProjection)
 			donor := traceCausalProjectionSupplyFoldDonor{
 				deficitMS: node.SupplyFoldDeficitMS, idealMS: node.SupplyFoldIdealMS,
 				knownMS: node.SupplyFoldKnownMS, unknownMS: node.SupplyFoldUnknownMS,
-				capabilitySource: node.SupplyFoldCapabilitySource,
-				referenceClass:   node.SupplyFoldReferenceClass,
-				topologySource:   node.SupplyFoldTopologySource,
-				thermalCapKHz:    node.ThermalCapKHz,
-				windowStart:      node.QueryWindowStartTs,
-				windowEnd:        node.QueryWindowEndTs,
-				windowDeclared:   node.QueryWindowStartTs > 0 && node.QueryWindowEndTs > node.QueryWindowStartTs,
+				capabilitySource:    node.SupplyFoldCapabilitySource,
+				referenceClass:      node.SupplyFoldReferenceClass,
+				topologySource:      node.SupplyFoldTopologySource,
+				thermalCapKHz:       node.ThermalCapKHz,
+				thermalCapWitnessed: node.ThermalCapWitnessed,
+				windowStart:         node.QueryWindowStartTs,
+				windowEnd:           node.QueryWindowEndTs,
+				windowDeclared:      node.QueryWindowStartTs > 0 && node.QueryWindowEndTs > node.QueryWindowStartTs,
 			}
 			if existing, seen := donors[key]; seen {
 				// The same record's cross-bucket copy carries identical values
@@ -1929,6 +1949,7 @@ func traceCausalProjectionJoinSupplyFoldTwins(projection *TraceCausalProjection)
 			node.SupplyFoldReferenceClass = donor.referenceClass
 			node.SupplyFoldTopologySource = donor.topologySource
 			node.ThermalCapKHz = donor.thermalCapKHz
+			node.ThermalCapWitnessed = donor.thermalCapWitnessed
 		}
 	}
 }
@@ -2669,6 +2690,20 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// DSTATE-REFINE arm a (件③): exact typed boolean + caller symbol.
 	node.DStateRefinedNonIO = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyDStateRefinedNonIO)) == "true"
 	node.BlockedReasonCaller = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyBlockedReasonCaller))
+	// CR-3 件② P10: the unconsumed-marker residual pair (int + symbols).
+	if raw := strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyBlockedReasonWindowCount)); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			node.BlockedReasonWindowCount = n
+		}
+	}
+	node.BlockedReasonWindowCaller = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyBlockedReasonWindowCaller))
+	// CR-3 件③ P11: the process attribution pair (tgid + owning comm).
+	if raw := strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyTGID)); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			node.ProcessTGID = n
+		}
+	}
+	node.ProcessComm = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyProcessComm))
 	if node.StateKind == "" {
 		// Root-cause / hop rows encode the scheduler state as the Object
 		// (sleep_wait / running / io_wait / …). Fall back to it ONLY when it is a
@@ -2788,6 +2823,10 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		// THERM in-window press disclosure.
 		node.SupplyFoldTopologySource = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyFoldClusterTopology))
 		node.ThermalCapKHz = traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyThermalCapKHz)
+		// CR-3 件⑥ F-10: the cap's in-window witness bit (冷读 D5) — read
+		// only beside its value.
+		node.ThermalCapWitnessed = node.ThermalCapKHz > 0 &&
+			strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyThermalCapWitnessed)) == "true"
 	}
 	node.RunnableMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyRunnable)
 	// Verbatim typed kind token (see TypeToken doc): lets renderers specialize

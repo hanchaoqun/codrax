@@ -11430,70 +11430,61 @@ func (e *answerDocumentEvaluator) parseOutputV2(ctx *types.AgentContext, docV2 *
 
 func (e *answerDocumentEvaluator) renderAnswerDocumentWithLastMileSupplements(ctx *types.AgentContext, doc *types.AnswerDocumentV2, attachments []types.AnswerDisplayAttachment) string {
 	prose := render.RenderAnswerDocumentWithAttachments(doc, attachments, e.language)
-	if supplement := renderVerifiedStageBindingSupplement(ctx, doc, e.language); strings.TrimSpace(supplement) != "" {
-		if strings.TrimSpace(prose) == "" {
-			prose = strings.TrimSpace(supplement)
-		} else {
-			prose = strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
-		}
-	}
-	if supplement := renderRuntimeAggregateMetricCompactSupplement(ctx, doc, e.language); strings.TrimSpace(supplement) != "" {
-		if strings.TrimSpace(prose) == "" {
-			prose = strings.TrimSpace(supplement)
-		} else {
-			prose = strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
-		}
-	}
-	if supplement := renderTraceQueryObservationSupplement(ctx, doc, e.language); strings.TrimSpace(supplement) != "" {
-		if strings.TrimSpace(prose) == "" {
-			prose = strings.TrimSpace(supplement)
-		} else {
-			prose = strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
-		}
-	}
+	prose = appendAnswerSupplementDeduped(prose, renderVerifiedStageBindingSupplement(ctx, doc, e.language), e.language)
+	prose = appendAnswerSupplementDeduped(prose, renderRuntimeAggregateMetricCompactSupplement(ctx, doc, e.language), e.language)
+	prose = appendAnswerSupplementDeduped(prose, renderTraceQueryObservationSupplement(ctx, doc, e.language), e.language)
 	if supplementDoc := readAuditSupplementDocumentForAnswer(ctx, doc, readAuditSupplementLocalizationAuthority); supplementDoc != nil {
-		if supplement := renderReadLocalizationAuthoritySupplement(ctx, supplementDoc, e.language); strings.TrimSpace(supplement) != "" {
-			if strings.TrimSpace(prose) == "" {
-				prose = strings.TrimSpace(supplement)
-			} else {
-				prose = strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
-			}
-		}
+		prose = appendAnswerSupplementDeduped(prose, renderReadLocalizationAuthoritySupplement(ctx, supplementDoc, e.language), e.language)
 	}
 	if supplementDoc := readAuditSupplementDocumentForAnswer(ctx, doc, readAuditSupplementNavigationCoverage); supplementDoc != nil {
-		if supplement := renderReadNavigationCoverageSupplement(ctx, supplementDoc, e.language); strings.TrimSpace(supplement) != "" {
-			if strings.TrimSpace(prose) == "" {
-				prose = strings.TrimSpace(supplement)
-			} else {
-				prose = strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
-			}
-		}
+		prose = appendAnswerSupplementDeduped(prose, renderReadNavigationCoverageSupplement(ctx, supplementDoc, e.language), e.language)
 	}
 	if supplementDoc := readAuditSupplementDocumentForAnswer(ctx, doc, readAuditSupplementLocalizerFollowup); supplementDoc != nil {
-		if supplement := renderReadLocalizerFollowupSupplement(ctx, supplementDoc, e.language); strings.TrimSpace(supplement) != "" {
-			if strings.TrimSpace(prose) == "" {
-				prose = strings.TrimSpace(supplement)
-			} else {
-				prose = strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
-			}
-		}
+		prose = appendAnswerSupplementDeduped(prose, renderReadLocalizerFollowupSupplement(ctx, supplementDoc, e.language), e.language)
 	}
 	if supplementDoc := readAuditSupplementDocumentForAnswer(ctx, doc, readAuditSupplementOwnerAnchor); supplementDoc != nil {
-		if supplement := renderReadOwnerAnchorSupplement(ctx, supplementDoc, e.language); strings.TrimSpace(supplement) != "" {
-			if strings.TrimSpace(prose) == "" {
-				prose = strings.TrimSpace(supplement)
-			} else {
-				prose = strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
-			}
-		}
+		prose = appendAnswerSupplementDeduped(prose, renderReadOwnerAnchorSupplement(ctx, supplementDoc, e.language), e.language)
 	}
-	if supplement := renderRequestedAnswerDimensionSourceQuoteSupplement(ctx, doc, e.language); strings.TrimSpace(supplement) != "" {
-		if strings.TrimSpace(prose) == "" {
-			return strings.TrimSpace(supplement)
-		}
-		return strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
+	return appendAnswerSupplementDeduped(prose, renderRequestedAnswerDimensionSourceQuoteSupplement(ctx, doc, e.language), e.language)
+}
+
+// answerSupplementDuplicateMinLines is the CR-3 件④ P12 duplicate-block
+// threshold (K, independent named constant): a deterministic supplement
+// spanning MORE than this many lines that is already present verbatim in
+// the assembled answer is a duplicate render — the second copy is
+// suppressed and replaced by the 同上略 note. Short segments never dedup
+// (an incidental substring match must not eat a legitimate supplement).
+const answerSupplementDuplicateMinLines = 8
+
+// appendAnswerSupplementDeduped is the single last-mile supplement append
+// chokepoint (CR-3 件④ P12, 2026-07-12; 冷读 witness: the trace_query
+// observation supplement rendered verbatim twice back-to-back — 行
+// 1185-1235 = 1241-1291). Every deterministic supplement funnels through
+// here; a >K-line segment already present verbatim in the assembled prose
+// renders 「同上略」 instead of a second copy. System surfaces only —
+// model-authored blocks are never rewritten (零重写).
+func appendAnswerSupplementDeduped(prose, supplement, lang string) string {
+	s := strings.TrimSpace(supplement)
+	if s == "" {
+		return prose
 	}
-	return prose
+	if strings.TrimSpace(prose) == "" {
+		return s
+	}
+	if strings.Count(s, "\n")+1 > answerSupplementDuplicateMinLines && strings.Contains(prose, s) {
+		note := "> （同上略：与上文完全相同的系统补充块未再次渲染）"
+		if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh") {
+			note = "> (Same as above, omitted: an identical system supplement block was not rendered again.)"
+		}
+		// 修复轮 P4 (2026-07-12): the note is a system surface too — it
+		// obeys its own gate (a third identical supplement must not stack
+		// a second note).
+		if strings.Contains(prose, note) {
+			return prose
+		}
+		return strings.TrimRight(prose, "\n") + "\n\n---\n\n" + note + "\n"
+	}
+	return strings.TrimRight(prose, "\n") + "\n\n" + s + "\n"
 }
 
 type readAuditSupplementKind string

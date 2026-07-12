@@ -107,6 +107,18 @@ func (o *Orchestrator) collectSystemCrossCheckFindings() []string {
 		}
 		out = append(out, f.userReadable(lang))
 	}
+	// CR-3 件① P6 (2026-07-12): the wall-clock conservation arms — prose
+	// state durations vs the window and vs the published full-window state
+	// partition. Information lane only (§29.42.4 全批软纪律): disclosure
+	// here, never a violation, never a rewrite.
+	wall := proseWallClockConservationFindings(doc, o.busCtx, mut)
+	for i, f := range wall {
+		if i >= systemCrossCheckFindingCap {
+			out = append(out, systemCrossCheckMoreLine(lang, len(wall)-i))
+			break
+		}
+		out = append(out, f.userReadable(lang))
+	}
 	return out
 }
 

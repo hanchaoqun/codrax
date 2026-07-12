@@ -968,6 +968,12 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		} else {
 			identity = append(identity, "wait object "+caller)
 		}
+	} else if node.BlockedReasonWindowCount > 0 {
+		// CR-3 件② P10 (冷读案7 GPU-fence witness, 2026-07-12): the row
+		// consumed no marker, yet the window HOLDS sched_blocked_reason
+		// records for this thread — disclose the unconsumed residual so the
+		// mechanism marker is never silently ignored next to an 未解析 word.
+		identity = append(identity, runtimeTraceProjBlockedReasonResidualWord(node, zh))
 	}
 	effectiveWord := "有效归因"
 	if !zh {
@@ -1271,4 +1277,37 @@ func runtimeTraceProjInversionSupplyFoldDetailLine(node types.TraceCausalProject
 	}
 	return fmt.Sprintf("running raw %s → supply-fold deficit %s (discounted at %sfmax, lower bound%s; independent caliber, not counted into attribution)",
 		runtimeTraceProjFmtMS(raw), runtimeTraceProjFmtMS(node.SupplyFoldDeficitMS), refWordEN, capSuffix)
+}
+
+// runtimeTraceProjBlockedReasonResidualWord renders the CR-3 件② P10
+// unconsumed-marker disclosure (2026-07-12, 冷读案7 GPU-fence witness):
+// the row consumed no blocked_reason caller, yet the window holds markers
+// for its thread — 「窗内存在 N 条 blocked_reason 记录(caller=…,未核销)」.
+// Engine-minted count + symbols only; absence never guesses.
+func runtimeTraceProjBlockedReasonResidualWord(node types.TraceCausalProjectionNode, zh bool) string {
+	caller := strings.TrimSpace(node.BlockedReasonWindowCaller)
+	if zh {
+		if caller != "" {
+			return fmt.Sprintf("窗内存在 %d 条 blocked_reason 记录(caller=%s,未核销)", node.BlockedReasonWindowCount, caller)
+		}
+		return fmt.Sprintf("窗内存在 %d 条 blocked_reason 记录(未核销)", node.BlockedReasonWindowCount)
+	}
+	if caller != "" {
+		return fmt.Sprintf("window holds %d blocked_reason record(s) (caller=%s, unconsumed)", node.BlockedReasonWindowCount, caller)
+	}
+	return fmt.Sprintf("window holds %d blocked_reason record(s) (unconsumed)", node.BlockedReasonWindowCount)
+}
+
+// runtimeTraceProjDetailProcessCell renders the CR-3 件③ P11 process
+// attribution value (「tgid=G comm=P」; comm omitted when the engine could
+// not resolve the owning process comm — the thread's own comm never
+// substitutes). Same value on both language faces (identity tokens).
+func runtimeTraceProjDetailProcessCell(node types.TraceCausalProjectionNode) string {
+	if node.ProcessTGID <= 0 {
+		return ""
+	}
+	if comm := strings.TrimSpace(node.ProcessComm); comm != "" {
+		return fmt.Sprintf("tgid=%d comm=%s", node.ProcessTGID, comm)
+	}
+	return fmt.Sprintf("tgid=%d", node.ProcessTGID)
 }

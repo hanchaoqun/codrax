@@ -94,6 +94,9 @@ func TestCAP2SupplyFoldClauseTopologyUpgrade(t *testing.T) {
 func TestCAP2ThermalCapSentence(t *testing.T) {
 	node := capClauseNode(5, 15, 20, 0, 5, runtimeTraceCapabilitySourceDefault)
 	node.ThermalCapKHz = 1850000
+	// CR-3 件⑥ F-10 (2026-07-12): the 受热限压 word now requires the typed
+	// in-window witness bit beside the cap value.
+	node.ThermalCapWitnessed = true
 	clause, keep, ok := runtimeTraceProjSupplyFoldClause(node, 0, true)
 	if !ok || !strings.Contains(clause, ";窗内该簇受热限压至 1.85GHz") {
 		t.Fatalf("the THERM sentence must append with 数值+单位:\n%s", clause)
@@ -109,15 +112,31 @@ func TestCAP2ThermalCapSentence(t *testing.T) {
 	if !strings.Contains(clause, "供给折算缺口 5.000ms") {
 		t.Fatalf("THERM must not move any number:\n%s", clause)
 	}
+	// CR-3 件⑥ F-10 (CR-2 冷读 D5 witness — 1.53GHz wore the thermal word
+	// with zero in-window event): an UNWITNESSED press states the governed
+	// frequency without the thermal cause claim.
+	node.ThermalCapWitnessed = false
+	unwitnessed, _, ok := runtimeTraceProjSupplyFoldClause(node, 0, true)
+	if !ok || !strings.Contains(unwitnessed, ";窗内该簇运行于 1.85GHz(限压原因未见证)") {
+		t.Fatalf("an unwitnessed press must speak the honest governed-frequency form:\n%s", unwitnessed)
+	}
+	if strings.Contains(unwitnessed, "受热限压") {
+		t.Fatalf("the thermal word requires the in-window witness:\n%s", unwitnessed)
+	}
+	unwitnessedEN, _, _ := runtimeTraceProjSupplyFoldClause(node, 0, false)
+	if !strings.Contains(unwitnessedEN, "; this cluster ran governed at 1.85GHz in-window (cap cause unwitnessed)") {
+		t.Fatalf("EN unwitnessed form missing:\n%s", unwitnessedEN)
+	}
 	// 双向: no typed press, no sentence — byte-identical to the pre-THERM form.
 	node.ThermalCapKHz = 0
 	bare, _, _ := runtimeTraceProjSupplyFoldClause(node, 0, true)
-	if strings.Contains(bare, "热限") {
+	if strings.Contains(bare, "热限") || strings.Contains(bare, "限压") {
 		t.Fatalf("no typed press must render no THERM words:\n%s", bare)
 	}
 	// The sentence rides the affirmative branch too (any fold branch).
 	affirmative := capClauseNode(0, 2.641, 2.641, 0, 0, runtimeTraceCapabilitySourceDefault)
 	affirmative.ThermalCapKHz = 1550000
+	affirmative.ThermalCapWitnessed = true
 	sentence, _, ok := runtimeTraceProjSupplyFoldClause(affirmative, 0, true)
 	if !ok || !strings.Contains(sentence, ";窗内该簇受热限压至 1.55GHz") {
 		t.Fatalf("the THERM sentence must ride every fold branch:\n%s", sentence)

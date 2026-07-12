@@ -159,6 +159,12 @@ type runtimeTraceProjTreeRow struct {
 	Omitted     int
 	CyclePeriod int
 	CycleCount  int
+	// CoverageFragmentSecondary (CR-3 修复轮追加件, 2026-07-12; 56643
+	// witness): among rows sharing (subject, state class, full-window
+	// total), true on every row whose covered fragment is NOT the group
+	// max — the RN-12 coverage tag then speaks 另一片段 instead of the
+	// (now false) 最大片段. Display wording rank only; values untouched.
+	CoverageFragmentSecondary bool
 	// CycleTuple (PTV8-LAD L1, §24.11 维度A) carries the cycle-fold row's
 	// repeating tuple member names IN FULL (整名不截 — the row exists to
 	// disclose exactly these identities; CyclePeriod = len, CycleCount = the
@@ -2424,7 +2430,43 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// UXR-1 §29.36.3 (通道4 提及义务显式化): stamp the mention-obligation seat
 	// on every on-chain semantic row without a channel-1 ordinal.
 	runtimeTraceProjStampSemanticMentionFloor(&model)
+	// CR-3 修复轮追加件 (2026-07-12): rank same-thread coverage fragments so
+	// only the true max wears the 最大片段 word.
+	runtimeTraceProjStampCoverageFragmentRank(&model)
 	return model
+}
+
+// runtimeTraceProjStampCoverageFragmentRank (CR-3 修复轮追加件, 2026-07-12;
+// 56643 witness: NetworkService-60595 的两条链上 runnable 行 7.843/6.754 —
+// 两次独立发生,合法分行 — 从属披露都铸「链上仅覆盖其中最大片段 X」,第二行
+// 宣称为假且同页两行互斥): among rows sharing (subject, state class,
+// full-window total), only the TRUE max covered fragment keeps 最大片段;
+// every other row is stamped secondary and speaks 另一片段. Ties keep the
+// word on every tied max (both ARE largest). Display wording only.
+func runtimeTraceProjStampCoverageFragmentRank(model *runtimeTraceProjTreeModel) {
+	if model == nil {
+		return
+	}
+	key := func(node types.TraceCausalProjectionNode) (string, float64, bool) {
+		full := node.FullWindowStateMS
+		class := types.TraceCausalProjectionStateClass(node.StateKind)
+		covered := runtimeTraceProjNodeDisplayImpact(node)
+		if full <= 0 || strings.TrimSpace(node.FullWindowStateSource) == "" || class == "" || covered <= 0 {
+			return "", 0, false
+		}
+		return strings.TrimSpace(node.Subject) + "|" + string(class) + "|" + strconv.FormatFloat(full, 'f', 3, 64), covered, true
+	}
+	groupMax := map[string]float64{}
+	for i := range model.TreeRows {
+		if k, covered, ok := key(model.TreeRows[i].Node); ok && covered > groupMax[k] {
+			groupMax[k] = covered
+		}
+	}
+	for i := range model.TreeRows {
+		if k, covered, ok := key(model.TreeRows[i].Node); ok && covered < groupMax[k] {
+			model.TreeRows[i].CoverageFragmentSecondary = true
+		}
+	}
 }
 
 // runtimeTraceProjStampSemanticMentionFloor (UXR-1 §29.36.3, user ruling
@@ -8359,7 +8401,7 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	// rows only (the compile side attaches to the chain universe; the stanza
 	// kinds are excluded here as the pinned display gate).
 	if row.Kind != runtimeTraceProjTreeRowAdjacent && row.Kind != runtimeTraceProjTreeRowBackground {
-		if tag, ok := runtimeTraceProjFullWindowCoverageTag(node, zh); ok {
+		if tag, ok := runtimeTraceProjFullWindowCoverageTag(node, zh, row.CoverageFragmentSecondary); ok {
 			tag.Seg = 34
 			tags = append(tags, tag)
 		}
@@ -12198,6 +12240,18 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 		// distinguishing keys live on the (b) family stanza.
 		if token := runtimeTraceProjFamilyTableToken(node, zh); token != "" {
 			name += " " + token
+		} else if node.IsCaliberSideRow() &&
+			tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)) == tracequery.CausalCaliberSideCount {
+			// CR-3 修复轮 (冷读 F-CR3-9, 2026-07-12): a SINGLE-member
+			// count-class ⌗ row keeps its 计数当量 marker on the table face
+			// too — the ×N family form carried it inside the fold token
+			// (×2计数当量), and the degenerate single row silently printed a
+			// bare ms into the wall-clock columns (tieba E24 7.200ms).
+			if zh {
+				name += " 计数当量"
+			} else {
+				name += " count-equivalent"
+			}
 		}
 		if node.Undrillable() {
 			name += " ⊘"
@@ -12507,6 +12561,12 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 		// 完整名称 line was byte-identical to the block heading (same
 		// runtimeTraceProjDetailFullName, no truncation on either) — deleted;
 		// the heading carries the lossless-name promise.
+		// CR-3 件③ P11 (2026-07-12, 冷读案8 裸线程名死指针): the process
+		// attribution slot — the trace-published tgid (+ owning process comm
+		// when resolved) directly under the unchanged identity heading, so a
+		// bare thread name is always traceable to its process. Engine-minted
+		// only; a node without the typed pair renders nothing.
+		add("进程", "process", runtimeTraceProjDetailProcessCell(node))
 		add("层级", "layer", runtimeTraceProjDetailLayerCell(row, zh, flat))
 		add("因果位置", "causal position", runtimeTraceProjDetailPositionCell(row, model.LeadKey, zh))
 		typeToken := runtimeTraceCausalProjectionRawTypeToken(node)
@@ -13043,7 +13103,7 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 		if roster := strings.TrimSpace(node.OccupierSummary); roster != "" {
 			add("同窗占用者", "same-window occupiers", runtimeTraceCausalProjectionMarkdownSafe(runtimeTraceProjOccupierRosterDisplay(roster, zh)+"(cpu·ms)"))
 		}
-		if coverage, ok := runtimeTraceProjFullWindowCoverageTag(node, zh); ok {
+		if coverage, ok := runtimeTraceProjFullWindowCoverageTag(node, zh, row.CoverageFragmentSecondary); ok {
 			add("全窗合计", "full-window total", runtimeTraceCausalProjectionMarkdownSafe(coverage.Text))
 		}
 		// F1 (§22 PTV7-SPN P0): the parsed span name keeps its keyed lossless
@@ -13641,7 +13701,7 @@ func runtimeTraceProjOccupierRosterDisplay(roster string, zh bool) string {
 // a 300ms 关注窗 (an arithmetically impossible claim). Totals without window
 // endpoints never reach this tag (compile-side 禁猜 drop); the endpoint guard
 // here is defensive only.
-func runtimeTraceProjFullWindowCoverageTag(node types.TraceCausalProjectionNode, zh bool) (runtimeTraceProjTag, bool) {
+func runtimeTraceProjFullWindowCoverageTag(node types.TraceCausalProjectionNode, zh, secondary bool) (runtimeTraceProjTag, bool) {
 	full := node.FullWindowStateMS
 	source := strings.TrimSpace(node.FullWindowStateSource)
 	if full <= 0 || source == "" {
@@ -13664,23 +13724,31 @@ func runtimeTraceProjFullWindowCoverageTag(node types.TraceCausalProjectionNode,
 	// the audit faces (system supplement / evidence index) per the §22.2.1
 	// backstop; `source` presence still gates the note (typed provenance).
 	displayClass := class
+	// CR-3 修复轮追加件 (2026-07-12, 56643 witness): only the group-max row
+	// may say 最大片段 — a same-thread sibling covering a SMALLER fragment
+	// speaks 另一片段 (two rows both claiming "largest" were mutually
+	// exclusive on one page). Single-row groups keep the original bytes.
+	fragmentZH, fragmentEN := "链上仅覆盖其中最大片段", "the chain covers only its largest fragment"
+	if secondary {
+		fragmentZH, fragmentEN = "本行覆盖其中另一片段", "this row covers another fragment of it,"
+	}
 	var text string
 	switch {
 	case node.FullWindowStateSameWindow:
-		text = fmt.Sprintf("窗内 %s 合计 %.3fms,链上仅覆盖其中最大片段 %.3fms(%.0f%%)",
-			displayClass, full, covered, covered/full*100)
+		text = fmt.Sprintf("窗内 %s 合计 %.3fms,%s %.3fms(%.0f%%)",
+			displayClass, full, fragmentZH, covered, covered/full*100)
 		if !zh {
-			text = fmt.Sprintf("full-window %s total %.3fms; the chain covers only its largest fragment %.3fms (%.0f%%)",
-				class, full, covered, covered/full*100)
+			text = fmt.Sprintf("full-window %s total %.3fms; %s %.3fms (%.0f%%)",
+				class, full, fragmentEN, covered, covered/full*100)
 		}
 	case node.FullWindowStateWindowStart > 0 && node.FullWindowStateWindowEnd > node.FullWindowStateWindowStart:
-		text = fmt.Sprintf("另一查询窗(%.3fs–%.3fs)内 %s 合计 %.3fms,链上仅覆盖其中最大片段 %.3fms(%.0f%%)",
+		text = fmt.Sprintf("另一查询窗(%.3fs–%.3fs)内 %s 合计 %.3fms,%s %.3fms(%.0f%%)",
 			node.FullWindowStateWindowStart, node.FullWindowStateWindowEnd,
-			displayClass, full, covered, covered/full*100)
+			displayClass, full, fragmentZH, covered, covered/full*100)
 		if !zh {
-			text = fmt.Sprintf("%s total %.3fms in another query window (%.3fs–%.3fs); the chain covers only its largest fragment %.3fms (%.0f%%)",
+			text = fmt.Sprintf("%s total %.3fms in another query window (%.3fs–%.3fs); %s %.3fms (%.0f%%)",
 				class, full, node.FullWindowStateWindowStart, node.FullWindowStateWindowEnd,
-				covered, covered/full*100)
+				fragmentEN, covered, covered/full*100)
 		}
 	default:
 		// Defensive: neither a same-window verdict nor labelable endpoints —

@@ -332,6 +332,9 @@ func addWakeupAggregateSupplyFold(item *WakeupCausalAggregate, impact WakeupCaus
 	if dst.ThermalCapKHz == 0 {
 		dst.ThermalCapKHz = src.ThermalCapKHz
 		dst.ThermalCapClusterClass = src.ThermalCapClusterClass
+		// CR-3 件⑥ F-10: the witness bit travels with its own cap value —
+		// never mixed across donors.
+		dst.ThermalCapWitnessed = src.ThermalCapWitnessed
 	}
 }
 

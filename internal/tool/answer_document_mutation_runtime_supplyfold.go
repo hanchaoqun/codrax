@@ -376,10 +376,23 @@ func runtimeTraceProjSupplyFoldClause(node types.TraceCausalProjectionNode, wind
 	// own sentence — it never changes a number and never denies a neighbour
 	// value (数值+单位; absent field = no sentence, absence never guesses).
 	if node.ThermalCapKHz > 0 {
-		if zh {
-			text += fmt.Sprintf(";窗内该簇受热限压至 %.2fGHz", float64(node.ThermalCapKHz)/1e6)
+		// CR-3 件⑥ F-10 (2026-07-12; CR-2 冷读 D5 witness — a carry-in cap
+		// wore the thermal word with zero in-window event): the 受热限压
+		// wording requires an IN-WINDOW limits/thermal event witness; an
+		// unwitnessed press states the governed frequency without asserting
+		// its cause (数值真实,标签不越权).
+		if node.ThermalCapWitnessed {
+			if zh {
+				text += fmt.Sprintf(";窗内该簇受热限压至 %.2fGHz", float64(node.ThermalCapKHz)/1e6)
+			} else {
+				text += fmt.Sprintf("; a thermal/policy cap pressed this cluster to %.2fGHz in-window", float64(node.ThermalCapKHz)/1e6)
+			}
 		} else {
-			text += fmt.Sprintf("; a thermal/policy cap pressed this cluster to %.2fGHz in-window", float64(node.ThermalCapKHz)/1e6)
+			if zh {
+				text += fmt.Sprintf(";窗内该簇运行于 %.2fGHz(限压原因未见证)", float64(node.ThermalCapKHz)/1e6)
+			} else {
+				text += fmt.Sprintf("; this cluster ran governed at %.2fGHz in-window (cap cause unwitnessed)", float64(node.ThermalCapKHz)/1e6)
+			}
 		}
 	}
 	return text, keep, ok

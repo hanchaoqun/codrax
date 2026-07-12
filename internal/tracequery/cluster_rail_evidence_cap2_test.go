@@ -687,6 +687,11 @@ func TestCAP2ThermalCapDisclosure(t *testing.T) {
 		if basis.ThermalCapKHz != 1850000 || basis.ThermalCapClusterClass != "middle" {
 			t.Fatalf("thermal press must disclose 1850000@middle: %+v", basis)
 		}
+		// CR-3 件⑥ F-10: the rail samples inside the governance window ARE
+		// the in-window witness — the 受热限压 word is earned.
+		if !basis.ThermalCapWitnessed {
+			t.Fatalf("in-window thermal rail samples must mint the witness bit: %+v", basis)
+		}
 	})
 	t.Run("dynamic limits press without any thermal rail", func(t *testing.T) {
 		idx := buildTraceIndex(t, "cap2_therm_limits.systrace", cap2SchedFiller()+cap2SweepLines+cap2LimitsLines+cap2DepBody(0))
@@ -696,6 +701,28 @@ func TestCAP2ThermalCapDisclosure(t *testing.T) {
 		// the window-governing Max 1550000 < the {0,1} fmax 1750000.
 		if dep.SupplyFoldBasis == nil || dep.SupplyFoldBasis.ThermalCapKHz != 1550000 {
 			t.Fatalf("the dynamic limits press must disclose 1550000: %+v", dep.SupplyFoldBasis)
+		}
+		// CR-3 件⑥ F-10 (CR-2 冷读 D5 shape): every limits sample here sits
+		// BEFORE the fold window — a carry-in governance value presses the
+		// cap but earns NO in-window witness (the display words it 运行于
+		// X(限压原因未见证), never 受热限压至 X).
+		if dep.SupplyFoldBasis.ThermalCapWitnessed {
+			t.Fatalf("a pre-window carry-in cap must stay unwitnessed: %+v", dep.SupplyFoldBasis)
+		}
+	})
+	t.Run("修复轮 P4: in-window RELEASE sample earns no witness", func(t *testing.T) {
+		// The carry-in press (1550000 < fmax 1750000) still governs; the
+		// only IN-WINDOW limits sample restores fmax (a release, not a
+		// press) — the thermal word stays unearned.
+		release := "\n       hilogd.pst-647   (  629) [000] .... 15152.005000: cpu_frequency_limits: min=417000 max=1750000 cpu_id=0\n"
+		idx := buildTraceIndex(t, "cap2_therm_release.systrace", cap2SchedFiller()+cap2SweepLines+cap2LimitsLines+release+cap2DepBody(0))
+		chain := BuildWakeupChain(idx, cap2FoldQuery)
+		dep := supplyFoldDepImpact(t, chain)
+		if dep.SupplyFoldBasis == nil || dep.SupplyFoldBasis.ThermalCapKHz != 1550000 {
+			t.Fatalf("the carry-in press must still disclose 1550000: %+v", dep.SupplyFoldBasis)
+		}
+		if dep.SupplyFoldBasis.ThermalCapWitnessed {
+			t.Fatalf("an in-window release-only sample must not mint the witness: %+v", dep.SupplyFoldBasis)
 		}
 	})
 	t.Run("no press, no sentence (双向)", func(t *testing.T) {

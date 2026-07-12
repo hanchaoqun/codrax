@@ -840,6 +840,47 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 			sentWindows = extractProseScalarWindowRefs(text)
 			sentThreads = extractProseScalarThreadRefs(text)
 		}
+		// CR-3 件⑤ (2026-07-12, CR-2 遗留「块级绑定粒度」): binding arms
+		// prefer refs from the SAME SENTENCE as the audited position; the
+		// whole-unit refs remain a fallback, and every finding produced off
+		// the fallback carries the humility qualifier (the 70.338→app-9511
+		// witness: the nearest name in the BLOCK sat in a different
+		// sentence than the value it got bound to).
+		spans := proseSentenceSpans(text)
+		sentenceOf := func(pos int) [2]int {
+			for _, span := range spans {
+				if pos >= span[0] && pos < span[1] {
+					return span
+				}
+			}
+			return [2]int{0, len(text)}
+		}
+		threadsFor := func(pos int) ([]proseScalarThreadRef, bool) {
+			span := sentenceOf(pos)
+			var in []proseScalarThreadRef
+			for _, tref := range sentThreads {
+				if tref.Pos >= span[0] && tref.Pos < span[1] {
+					in = append(in, tref)
+				}
+			}
+			if len(in) > 0 {
+				return in, false
+			}
+			return sentThreads, len(sentThreads) > 0
+		}
+		windowsFor := func(pos int) ([]proseScalarWindowRef, bool) {
+			span := sentenceOf(pos)
+			var in []proseScalarWindowRef
+			for _, wref := range sentWindows {
+				if wref.Pos >= span[0] && wref.Pos < span[1] {
+					in = append(in, wref)
+				}
+			}
+			if len(in) > 0 {
+				return in, false
+			}
+			return sentWindows, len(sentWindows) > 0
+		}
 		// PSG-2H entity arm: audited independently of scalars — the
 		// fabricated-thread witness sentence needs no number nearby.
 		// Activation requires the evidence face to publish at least one
@@ -886,17 +927,19 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 			// decomposition row-verified (proseScalarSelfSumDisclosure).
 			// The sum-thread MISMATCH arm below still needs sentence threads
 			// and, when it fires, owns the token's one appendix line.
+			tokThreads, threadFallback := threadsFor(tok.Pos)
+			tokWindows, windowFallback := windowsFor(tok.Pos)
 			sumMismatch := false
-			if tok.Value != 0 && !tok.percent() && verdict.sumOnly && len(sentThreads) > 0 {
-				if published, bad := proseScalarSumThreadMismatch(evidence.rows, verdict.sumPairs, sentThreads, proseScalarTokenTol(tok)); bad {
+			if tok.Value != 0 && !tok.percent() && verdict.sumOnly && len(tokThreads) > 0 {
+				if published, bad := proseScalarSumThreadMismatch(evidence.rows, verdict.sumPairs, tokThreads, proseScalarTokenTol(tok)); bad {
 					sumMismatch = true
-					misbound = append(misbound, proseScalarBindingFinding{entry: fmt.Sprintf(
+					misbound = append(misbound, proseScalarFindingWithQualifiers(proseScalarBindingFinding{entry: fmt.Sprintf(
 						"%s (block %q) is a sum of values published for thread(s) %s but the prose states it for thread %s",
 						tok.label(), tok.BlockID, published,
-						proseScalarNearestThreadLabel(sentThreads, tok)),
+						proseScalarNearestThreadLabel(tokThreads, tok)),
 						entryZH: fmt.Sprintf("正文中 %s（块 %s）为线程 %s 数值之和，但正文将其表述为线程 %s 的数值",
 							tok.label(), tok.BlockID, published,
-							proseScalarNearestThreadLabel(sentThreads, tok))})
+							proseScalarNearestThreadLabel(tokThreads, tok))}, threadFallback, 0))
 				}
 			}
 			if tok.Value != 0 && !tok.percent() && verdict.sumOnly && !sumMismatch && len(verdict.sumPairs) > 0 &&
@@ -907,23 +950,35 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 			// PSG-2 binding arm: only audited when the unit positively
 			// names a window or a thread (句内无窗/主体 token 时不核 —
 			// membership stays sufficient for unbound sentences).
-			if len(sentWindows) == 0 && len(sentThreads) == 0 {
+			if len(tokWindows) == 0 && len(tokThreads) == 0 {
 				continue
 			}
 			if tok.Value == 0 {
 				continue // zero values carry no measurement claim
 			}
-			carriers := proseScalarCarrierRows(evidence.rows, tok)
+			// CR-3 件⑤ (2026-07-12, 约-值载体归属): a token grounded ONLY by
+			// the approx relative-tolerance arm has no carrier at its own
+			// written value — its carrier is the near-miss published value
+			// (18.259 撞 18.283 形). The binding audit therefore looks up
+			// carriers at the approx band, and every finding for such a
+			// token names the carrier it actually rode.
+			carrierTol := proseScalarTokenTol(tok)
+			approxCarrier := 0.0
+			if verdict.approxOnly {
+				carrierTol = proseScalarApproxRelTolerance * tok.Value
+				approxCarrier = verdict.approxCarrier
+			}
+			carriers := proseScalarCarrierRowsForValue(evidence.rows, tok.Value, carrierTol)
 			if len(carriers) > 0 {
-				if len(sentWindows) > 0 {
-					if published, bad := proseScalarWindowBindingMismatch(carriers, sentWindows); bad {
-						misbound = append(misbound, proseScalarBindingFinding{entry: fmt.Sprintf(
+				if len(tokWindows) > 0 {
+					if published, bad := proseScalarWindowBindingMismatch(carriers, tokWindows); bad {
+						misbound = append(misbound, proseScalarFindingWithQualifiers(proseScalarBindingFinding{entry: fmt.Sprintf(
 							"%s (block %q) is published under window %s but the prose binds it to window %s",
 							tok.label(), tok.BlockID, published,
-							proseScalarNearestWindowLabel(sentWindows, tok)),
+							proseScalarNearestWindowLabel(tokWindows, tok)),
 							entryZH: fmt.Sprintf("正文中 %s（块 %s）在证据面发布于窗口 %s，但正文将其表述在窗口 %s 下",
 								tok.label(), tok.BlockID, published,
-								proseScalarNearestWindowLabel(sentWindows, tok))})
+								proseScalarNearestWindowLabel(tokWindows, tok))}, windowFallback, approxCarrier))
 					}
 				}
 				// 修复轮 C-1② (冷读 C1 witness, 2026-07-12): PERCENT tokens
@@ -933,15 +988,15 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 				// OS_FFRT_2_0-19627" (a real engine identity quoted onto a
 				// nonsense claim). A ratio has no thread publication of its
 				// own; the % recompute arm below keeps its window audit.
-				if len(sentThreads) > 0 && !tok.percent() {
-					if published, bad := proseScalarThreadBindingMismatch(carriers, sentThreads); bad {
-						misbound = append(misbound, proseScalarBindingFinding{entry: fmt.Sprintf(
+				if len(tokThreads) > 0 && !tok.percent() {
+					if published, bad := proseScalarThreadBindingMismatch(carriers, tokThreads); bad {
+						misbound = append(misbound, proseScalarFindingWithQualifiers(proseScalarBindingFinding{entry: fmt.Sprintf(
 							"%s (block %q) is published for thread %s but the prose binds it to thread %s",
 							tok.label(), tok.BlockID, published,
-							proseScalarNearestThreadLabel(sentThreads, tok)),
+							proseScalarNearestThreadLabel(tokThreads, tok)),
 							entryZH: fmt.Sprintf("正文中 %s（块 %s）在证据面发布于线程 %s，但正文将其表述为线程 %s 的数值",
 								tok.label(), tok.BlockID, published,
-								proseScalarNearestThreadLabel(sentThreads, tok))})
+								proseScalarNearestThreadLabel(tokThreads, tok))}, threadFallback, approxCarrier))
 					}
 				}
 				continue
@@ -949,15 +1004,15 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 			// Percent-recompute extension (§24.14 B-3): a self-derived
 			// percentage in a window-naming sentence must recompute against
 			// a window the sentence names (or against a non-window pair).
-			if tok.percent() && verdict.recomputeOnly && len(sentWindows) > 0 {
-				if published, bad := proseScalarRecomputeWindowMismatch(verdict.denominatorsMS, evidence.windowLengths, sentWindows, evidence.values, tok.Value, proseScalarTokenTol(tok)); bad {
-					misbound = append(misbound, proseScalarBindingFinding{entry: fmt.Sprintf(
+			if tok.percent() && verdict.recomputeOnly && len(tokWindows) > 0 {
+				if published, bad := proseScalarRecomputeWindowMismatch(verdict.denominatorsMS, evidence.windowLengths, tokWindows, evidence.values, tok.Value, proseScalarTokenTol(tok)); bad {
+					misbound = append(misbound, proseScalarFindingWithQualifiers(proseScalarBindingFinding{entry: fmt.Sprintf(
 						"%s (block %q) recomputes only against window %s but the prose states it for window %s",
 						tok.label(), tok.BlockID, published,
-						proseScalarNearestWindowLabel(sentWindows, tok)),
+						proseScalarNearestWindowLabel(tokWindows, tok)),
 						entryZH: fmt.Sprintf("正文中 %s（块 %s）仅能按窗口 %s 复算，但正文将其表述在窗口 %s 下",
 							tok.label(), tok.BlockID, published,
-							proseScalarNearestWindowLabel(sentWindows, tok))})
+							proseScalarNearestWindowLabel(tokWindows, tok))}, windowFallback, 0))
 				}
 			}
 			// PSG-2H sum extension (§29.8) + F-2④ disclosure: both arms
@@ -979,8 +1034,12 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 				break
 			}
 			confidenceScanned++
-			nearest := sentThreads[0]
-			for _, tref := range sentThreads[1:] {
+			crefThreads, crefFallback := threadsFor(cref.Pos)
+			if len(crefThreads) == 0 {
+				continue
+			}
+			nearest := crefThreads[0]
+			for _, tref := range crefThreads[1:] {
 				if proseScalarPosDistance(tref.Pos, cref.Pos) < proseScalarPosDistance(nearest.Pos, cref.Pos) {
 					nearest = tref
 				}
@@ -1028,11 +1087,11 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 			for _, p := range publishing {
 				names = append(names, p.Raw)
 			}
-			advisory = append(advisory, proseScalarBindingFinding{entry: fmt.Sprintf(
+			advisory = append(advisory, proseScalarFindingWithQualifiers(proseScalarBindingFinding{entry: fmt.Sprintf(
 				"confidence %.2f (block %q) is published for thread(s) %s but the prose attaches it to thread %s",
 				cref.Value, blockID, strings.Join(names, " / "), nearest.Raw),
 				entryZH: fmt.Sprintf("正文中 confidence %.2f（块 %s）在证据面发布于线程 %s，但正文将其表述为线程 %s 的置信度",
-					cref.Value, blockID, strings.Join(names, " / "), nearest.Raw)})
+					cref.Value, blockID, strings.Join(names, " / "), nearest.Raw)}, crefFallback, 0))
 		}
 	}
 	for _, blk := range doc.Blocks {
@@ -1073,7 +1132,27 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 //	  「(成分含帧间空闲/跨主体)」.
 func proseScalarSelfSumDisclosure(tok proseScalarToken, evidence proseScalarEvidenceSet, verdict proseScalarGroundingVerdict) proseScalarBindingFinding {
 	tol := proseScalarTokenTol(tok)
+	// CR-3 件⑤ 伴生 (donghu 复放实证, 2026-07-12): among row-verifiable
+	// pairs, a pair whose two sides share a carrier THREAD (the physically
+	// plausible same-thread decomposition — 26.488 = 10.424 + 16.064, both
+	// published for one thread's D groups) is preferred over a coincidental
+	// cross-subject pair that merely appears earlier in the ascending pool
+	// (0.044 + 26.444). The disclosure surface is a promise surface: an
+	// arithmetically valid but wrong formula misleads the audit (CR-2 C-1
+	// family lesson).
+	ordered := make([][2]float64, 0, len(verdict.sumPairs))
+	var crossSubject [][2]float64
 	for _, pair := range verdict.sumPairs {
+		aRows := proseScalarCarrierRowsForValue(evidence.rows, pair[0], tol)
+		bRows := proseScalarCarrierRowsForValue(evidence.rows, pair[1], tol)
+		if len(aRows) > 0 && len(bRows) > 0 && proseScalarCarrierSubjectsShareTID(aRows, bRows) {
+			ordered = append(ordered, pair)
+		} else {
+			crossSubject = append(crossSubject, pair)
+		}
+	}
+	ordered = append(ordered, crossSubject...)
+	for _, pair := range ordered {
 		aRows := proseScalarCarrierRowsForValue(evidence.rows, pair[0], tol)
 		bRows := proseScalarCarrierRowsForValue(evidence.rows, pair[1], tol)
 		if len(aRows) == 0 || len(bRows) == 0 {
@@ -1122,6 +1201,28 @@ func proseScalarExactCarrierValue(rows []proseScalarEvidenceRow, side, tol float
 		}
 	}
 	return best
+}
+
+// proseScalarCarrierSubjectsShareTID reports whether some thread tid
+// appears on carriers of BOTH pair sides — the same-thread decomposition
+// preference signal (件⑤ 伴生; loose: any shared tid counts).
+func proseScalarCarrierSubjectsShareTID(aRows, bRows []proseScalarEvidenceRow) bool {
+	aTIDs := map[string]bool{}
+	for _, row := range aRows {
+		for _, tref := range row.threads {
+			if tref.TID != "" {
+				aTIDs[tref.TID] = true
+			}
+		}
+	}
+	for _, row := range bRows {
+		for _, tref := range row.threads {
+			if aTIDs[tref.TID] {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func proseScalarAnyPacingRow(rows []proseScalarEvidenceRow) bool {
@@ -1198,6 +1299,26 @@ func extractProseScalarConfidenceRefs(text string) []proseScalarConfidenceRef {
 	return out
 }
 
+// proseScalarFindingWithQualifiers appends the CR-3 件⑤ humility
+// qualifiers to a disclosure line (2026-07-12):
+//   - blockLevel: the binding rode the whole-block fallback because the
+//     value's own sentence named no thread/window — the nearest name may
+//     belong to a different claim (the 70.338→app-9511 witness);
+//   - approxCarrier: the value was grounded only through the approx
+//     relative-tolerance band, so the carrier is a near-miss published
+//     value, not the written number itself (the 18.259撞18.283 witness).
+func proseScalarFindingWithQualifiers(f proseScalarBindingFinding, blockLevel bool, approxCarrier float64) proseScalarBindingFinding {
+	if blockLevel {
+		f.entry += " (nearest binding within the block; may be imprecise)"
+		f.entryZH += "（块内最近绑定，可能不准）"
+	}
+	if approxCarrier > 0 {
+		f.entry += fmt.Sprintf(" (approximate value; carrier=published %.3f)", approxCarrier)
+		f.entryZH += fmt.Sprintf("（约值，载体=发布值 %.3f）", approxCarrier)
+	}
+	return f
+}
+
 // proseScalarThreadNameAuditable is the entity-arm noise dampener: the
 // name part must either carry a thread-namespace separator (: / . _ <
 // > @) or be at least 4 characters, so short hyphenated technical
@@ -1256,8 +1377,11 @@ func proseScalarSumThreadMismatch(rows []proseScalarEvidenceRow, pairs [][2]floa
 	return published, published != ""
 }
 
-// proseScalarCarrierRowsForValue is the value-keyed variant of
-// proseScalarCarrierRows used by the sum extension.
+// proseScalarCarrierRowsForValue returns the evidence rows that carry a
+// value within tol — the PRECISE half of the binding audit (a scalar and
+// a window/thread token co-occurring on one published row is the
+// provenance signal). Shared by the binding arms (token tolerance; approx
+// band for approx-only tokens, 件⑤) and the sum extension.
 func proseScalarCarrierRowsForValue(rows []proseScalarEvidenceRow, value, tol float64) []proseScalarEvidenceRow {
 	var out []proseScalarEvidenceRow
 	for _, row := range rows {
@@ -1476,24 +1600,6 @@ func proseScalarTokenTol(tok proseScalarToken) float64 {
 		tol = 0.0005
 	}
 	return tol
-}
-
-// proseScalarCarrierRows returns the evidence rows that carry the token's
-// value (within the same tolerance the membership arm uses). This is the
-// PRECISE half of the binding audit: a scalar and a window/thread token
-// co-occurring on one published row is the provenance signal.
-func proseScalarCarrierRows(rows []proseScalarEvidenceRow, tok proseScalarToken) []proseScalarEvidenceRow {
-	tol := proseScalarTokenTol(tok)
-	var out []proseScalarEvidenceRow
-	for _, row := range rows {
-		for _, v := range row.values {
-			if math.Abs(v-tok.Value) <= tol+1e-9 {
-				out = append(out, row)
-				break
-			}
-		}
-	}
-	return out
 }
 
 // proseScalarWindowBindingMismatch asserts a window misbinding ONLY in the
@@ -1716,6 +1822,12 @@ type proseScalarGroundingVerdict struct {
 	denominatorsMS []float64
 	sumOnly        bool
 	sumPairs       [][2]float64
+	// approxOnly marks tokens grounded EXCLUSIVELY by the approx
+	// relative-tolerance arm (Arm 2b); approxCarrier is the published
+	// value the token actually rode — the CR-3 件⑤ carrier-attribution
+	// input (披露句注「约值，载体=…」).
+	approxOnly    bool
+	approxCarrier float64
 }
 
 // proseScalarTokenGrounding runs the tolerance and exemption arms, loosest
@@ -1738,9 +1850,13 @@ func proseScalarTokenGrounding(tok proseScalarToken, evidence proseScalarEvidenc
 	// approximation-marked value accepts a direct member within the fixed
 	// relative tolerance ("约113ms" against the published 111.916 token).
 	// Direct members only — the relative band never widens the recompute /
-	// sum derivation arms.
-	if tok.Approx && proseScalarNear(evidence.values, tok.Value, proseScalarApproxRelTolerance*tok.Value) {
-		return proseScalarGroundingVerdict{grounded: true}
+	// sum derivation arms. CR-3 件⑤: the verdict records the carrier the
+	// token rode (the nearest published value in the band), so disclosure
+	// lines can attribute the approx grounding honestly.
+	if tok.Approx {
+		if carrier, ok := proseScalarNearestValue(evidence.values, tok.Value, proseScalarApproxRelTolerance*tok.Value); ok {
+			return proseScalarGroundingVerdict{grounded: true, approxOnly: true, approxCarrier: carrier}
+		}
 	}
 	if tok.percent() {
 		// Arm 3 — the evidence carries the same percentage as a 0-1 ratio.
@@ -1783,6 +1899,18 @@ func proseScalarTokenGrounding(tok proseScalarToken, evidence proseScalarEvidenc
 func proseScalarNear(values []float64, target, tol float64) bool {
 	idx := sort.SearchFloat64s(values, target-tol)
 	return idx < len(values) && values[idx] <= target+tol+1e-9
+}
+
+// proseScalarNearestValue returns the member of sorted values nearest to
+// target within tol (件⑤ carrier attribution).
+func proseScalarNearestValue(values []float64, target, tol float64) (float64, bool) {
+	best, bestDist, found := 0.0, math.Inf(1), false
+	for idx := sort.SearchFloat64s(values, target-tol); idx < len(values) && values[idx] <= target+tol+1e-9; idx++ {
+		if d := math.Abs(values[idx] - target); d < bestDist {
+			best, bestDist, found = values[idx], d, true
+		}
+	}
+	return best, found
 }
 
 // proseScalarSumPairs collects the reproducing (a, b) pairs (a ≤ b,

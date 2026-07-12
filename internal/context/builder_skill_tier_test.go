@@ -571,9 +571,11 @@ func TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount(t *testing.T) {
 	// CR-1 件④ (§29.42.2② FIN-BIND, 2026-07-12): +5 trace-gated prose
 	// disciplines (measurement-subject binding, root-cause board order,
 	// no cross-row duration sums, channel words per row, inversion×lock
-	// coexistence) — 16 → 21.
-	if len(sk.WorkflowTierB) != 21 {
-		t.Errorf("answer-document-skill should declare 21 Tier B Workflow items; got %d", len(sk.WorkflowTierB))
+	// coexistence) — 16 → 21. CR-3 件⑦ (2026-07-12): +3 (IO-latency role
+	// words, state-duration caliber separation, no silent source fallback
+	// on an empty trace result) — 21 → 24.
+	if len(sk.WorkflowTierB) != 24 {
+		t.Errorf("answer-document-skill should declare 24 Tier B Workflow items; got %d", len(sk.WorkflowTierB))
 	}
 	if len(sk.ProhibitionsTierB) != 2 {
 		t.Errorf("answer-document-skill should declare 2 Tier B Prohibitions; got %d", len(sk.ProhibitionsTierB))
@@ -603,6 +605,10 @@ func TestSkillTierAwareWorkflow_AnswerDocumentSkill_TierBCount(t *testing.T) {
 		"NO CROSS-ROW DURATION SUMS:",
 		"CHANNEL WORDS PER ROW:",
 		"PRIORITY-INVERSION AND LOCK-HOLD COEXISTENCE:",
+		// CR-3 件⑦ FIN-BIND extension (2026-07-12).
+		"IO-LATENCY ROLE WORDS:",
+		"STATE-DURATION CALIBER SEPARATION:",
+		"NO SILENT SOURCE FALLBACK ON AN EMPTY TRACE RESULT:",
 	}
 	if len(sk.WorkflowTierB) != len(wantWorkflowPrefixes) {
 		t.Fatalf("Tier B count mismatch: want %d, got %d", len(wantWorkflowPrefixes), len(sk.WorkflowTierB))
