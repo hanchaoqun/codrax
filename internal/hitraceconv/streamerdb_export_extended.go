@@ -70,7 +70,7 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 		return coverage, err
 	}
 	stageStart = time.Now()
-	syscallCoverage, err := exportTraceDBSyscall(ctx, tdb, sink, syncSpans, index)
+	syscallCoverage, err := exportTraceDBSyscall(ctx, tdb, sink, authority, lifecycleRunning, syncSpans)
 	traceDBSetCoverageElapsed(&syscallCoverage, stageStart)
 	coverage = append(coverage, syscallCoverage)
 	if err != nil {
@@ -150,75 +150,277 @@ func (tdb *traceDB) loadDataDict(ctx context.Context) (map[int64]string, TraceDB
 	return out, coverage, rows.Err()
 }
 
-func exportTraceDBSyscall(ctx context.Context, tdb *traceDB, _ *traceDBRowSink, syncSpans *traceDBSyncSpanAuthority, index traceDBThreadIndex) (TraceDBCoverage, error) {
+type traceDBSyscallRow struct {
+	StableID    int64
+	TS          int64
+	Dur         int64
+	End         int64
+	Number      int64
+	EmitterITID int64
+	OwnerIPID   int64
+	Task        string
+	TID         int64
+	TGID        int64
+	StartCPU    int64
+	EndCPU      int64
+}
+
+func exportTraceDBSyscall(ctx context.Context, tdb *traceDB, _ *traceDBRowSink,
+	authority traceDBSchedulerAuthority, running traceDBSchedulerRunningIndex, syncSpans *traceDBSyncSpanAuthority,
+) (TraceDBCoverage, error) {
 	coverage, err := tdb.inspectCoverage(ctx, "slice", "syscall", []string{"ts", "dur", "syscall_number", "itid"})
 	coverage.FieldSources = map[string]string{
-		"wire_laminar":     "current accepted rows submit typed B/E candidates to the shared authority; no endpoint is published by this exporter",
-		"source_admission": "legacy SQL COALESCE/WHERE, scalar, lifecycle, CPU and anti-rescue correctness remain open as R1b-C",
+		"wire_laminar":      "strict accepted rows submit typed B/E candidates to the single shared authority; rejected rows declare exact-lane or global source poison; no endpoint is published by this exporter",
+		"source_admission":  "full physical-row scan with typeof-pinned bounded INTEGER transport; invalid storage classes remain rejected, with no SQL filtering, coercion, defaulting or per-row identity fallback",
+		"internal_identity": "syscall.itid uses the fixed current signed-int32 producer profile; exact positive public TID/PID and canonical owner mapping are required",
+		"syscall_number":    "current syscall_number uint32 is exposed through a signed-int32 SQLite projection; -1 sentinel and positive high-half encodings are rejected",
+		"lifecycle":         "zero duration uses exact thread/process point admission; positive duration uses closed thread and positive-process generation admission at checked endpoints",
+		"cpu":               "start and exact end independently require lifecycle-filtered typed Running witnesses; CPU 0 and CPU 4095 are valid values, never unknown defaults",
 	}
-	if err != nil || !coverage.Found || len(coverage.ColumnsMissing) > 0 {
-		return coverage, err
-	}
-	stableExpr, stableKnown, err := traceDBSyncSpanHiddenRowID(ctx, tdb, &coverage)
-	if err != nil || !stableKnown {
-		return coverage, err
-	}
-	query := fmt.Sprintf("SELECT %s, ts, COALESCE(dur, 0), syscall_number, itid FROM syscall WHERE dur >= 0 ORDER BY ts, %s", stableExpr, stableExpr)
-	rows, err := tdb.db.QueryContext(ctx, query)
-	if err != nil {
+	fail := func(err error) (TraceDBCoverage, error) {
 		coverage.Error = err.Error()
 		return coverage, err
 	}
+	if err != nil || !coverage.Found {
+		return coverage, err
+	}
+	if syncSpans == nil || !authority.initialized || !running.initialized {
+		return fail(&traceDBOutputInvariantError{Reason: "missing_syscall_source_authority"})
+	}
+	profile, profileSource, err := traceDBActivityProfile(ctx, tdb.db, "syscall")
+	if err != nil {
+		return fail(err)
+	}
+	if profile != traceDBActivityITIDSignedInt32 {
+		return fail(&traceDBOutputInvariantError{Reason: "unsupported_syscall_identity_profile"})
+	}
+	coverage.FieldSources["internal_identity"] = profileSource + "; exact positive public TID/PID and canonical owner mapping are required"
+	poisonRejected := func(itidRaw any) error {
+		itid, itidOK := profile.decode(itidRaw)
+		if itidOK && itid > 0 && !authority.identities.AmbiguousITID[itid] {
+			thread, found := authority.identities.ByITID[itid]
+			if found && thread.ITID == itid && thread.TID > 0 && thread.TID <= math.MaxInt32 {
+				return syncSpans.poisonExactLane(ctx, traceDBSyncSpanLanePoison{
+					Producer:           traceDBSyncSpanProducerSyscall,
+					HeaderTID:          thread.TID,
+					CanonicalITID:      itid,
+					CanonicalITIDKnown: true,
+					Reason:             traceDBSyncSpanLanePoisonRejectedSyscallCandidate,
+				})
+			}
+		}
+		return syncSpans.poisonGlobally(ctx, traceDBSyncSpanGlobalPoison{
+			Producer: traceDBSyncSpanProducerSyscall,
+			Reason:   traceDBSyncSpanGlobalPoisonUnlocalizableSyscallCandidate,
+		})
+	}
+	if len(coverage.ColumnsMissing) > 0 {
+		if coverage.RowsRead == 0 {
+			return coverage, nil
+		}
+		hasITID := false
+		for _, column := range coverage.ColumnsPresent {
+			hasITID = hasITID || column == "itid"
+		}
+		if !hasITID {
+			if err := poisonRejected(nil); err != nil {
+				return fail(err)
+			}
+			traceDBAppendCoverageSkipped(&coverage, "nonempty syscall schema cannot localize rejected rows; global sync source fail-close declared")
+			return coverage, nil
+		}
+		rows, queryErr := tdb.db.QueryContext(ctx, `
+			SELECT typeof(itid), CASE WHEN typeof(itid) = 'integer' THEN itid END
+			FROM syscall
+		`)
+		if queryErr != nil {
+			return fail(queryErr)
+		}
+		defer rows.Close()
+		scanned := 0
+		for rows.Next() {
+			if err := ctx.Err(); err != nil {
+				return fail(err)
+			}
+			var itidTypeRaw, itidValueRaw any
+			if err := rows.Scan(&itidTypeRaw, &itidValueRaw); err != nil {
+				return fail(err)
+			}
+			scanned++
+			itidRaw := traceDBBoundedSQLiteIntegerTransport(itidTypeRaw, itidValueRaw)
+			if err := poisonRejected(itidRaw); err != nil {
+				return fail(err)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			return fail(err)
+		}
+		if scanned != coverage.RowsRead {
+			return fail(&traceDBOutputInvariantError{Reason: "syscall_source_scan_count_mismatch"})
+		}
+		traceDBAppendCoverageSkipped(&coverage,
+			fmt.Sprintf("nonempty syscall schema rejected_rows=%d; shared sync poison declared", scanned))
+		return coverage, nil
+	}
+	stableExpr, stableKnown, err := traceDBSyncSpanHiddenRowID(ctx, tdb, &coverage)
+	if err != nil {
+		return coverage, err
+	}
+	if !stableKnown {
+		if coverage.RowsRead == 0 {
+			return coverage, nil
+		}
+		stableExpr = "NULL"
+	}
+	query := fmt.Sprintf(`
+		SELECT %s,
+		       typeof(ts), CASE WHEN typeof(ts) = 'integer' THEN ts END,
+		       typeof(dur), CASE WHEN typeof(dur) = 'integer' THEN dur END,
+		       typeof(syscall_number), CASE WHEN typeof(syscall_number) = 'integer' THEN syscall_number END,
+		       typeof(itid), CASE WHEN typeof(itid) = 'integer' THEN itid END
+		FROM syscall
+	`, stableExpr)
+	rows, err := tdb.db.QueryContext(ctx, query)
+	if err != nil {
+		return fail(err)
+	}
 	defer rows.Close()
 	skipped := map[string]int{}
+	scanned := 0
 	for rows.Next() {
-		var ts, dur int64
-		var stableRaw, num, itidRaw any
-		if err := rows.Scan(&stableRaw, &ts, &dur, &num, &itidRaw); err != nil {
-			coverage.Error = err.Error()
-			return coverage, err
+		if err := ctx.Err(); err != nil {
+			return fail(err)
 		}
-		itid, ok := traceDBStrictInternalID(itidRaw)
-		if !ok {
-			skipped["invalid_emitter_itid"]++
+		var stableRaw, tsTypeRaw, tsValueRaw, durTypeRaw, durValueRaw any
+		var numberTypeRaw, numberValueRaw, itidTypeRaw, itidValueRaw any
+		if err := rows.Scan(&stableRaw, &tsTypeRaw, &tsValueRaw, &durTypeRaw, &durValueRaw,
+			&numberTypeRaw, &numberValueRaw, &itidTypeRaw, &itidValueRaw); err != nil {
+			return fail(err)
+		}
+		scanned++
+		tsRaw := traceDBBoundedSQLiteIntegerTransport(tsTypeRaw, tsValueRaw)
+		durRaw := traceDBBoundedSQLiteIntegerTransport(durTypeRaw, durValueRaw)
+		numberRaw := traceDBBoundedSQLiteIntegerTransport(numberTypeRaw, numberValueRaw)
+		itidRaw := traceDBBoundedSQLiteIntegerTransport(itidTypeRaw, itidValueRaw)
+		row, reason := prepareTraceDBSyscallRow(authority, running, profile,
+			stableRaw, tsRaw, durRaw, numberRaw, itidRaw)
+		if reason != "" {
+			if err := poisonRejected(itidRaw); err != nil {
+				return fail(err)
+			}
+			skipped[reason]++
 			continue
 		}
-		stableID, stableOK := traceDBStrictSQLiteInt(stableRaw)
-		if !stableOK {
-			return coverage, &traceDBOutputInvariantError{Reason: "invalid_syscall_hidden_rowid"}
-		}
-		task, tid, tgid, ok := traceDBResolvedThreadLineContext(index, itid)
-		if !ok {
-			skipped["unresolved_emitter_identity"]++
-			continue
-		}
-		thread := index.ByITID[itid]
 		if err := syncSpans.submit(ctx, traceDBSyncSpanCandidate{
 			Producer:           traceDBSyncSpanProducerSyscall,
 			StableKind:         traceDBSyncSpanStableSyscallRowID,
-			StableID:           stableID,
-			HeaderTID:          tid,
-			HeaderTGID:         tgid,
-			CanonicalITID:      itid,
+			StableID:           row.StableID,
+			HeaderTID:          row.TID,
+			HeaderTGID:         row.TGID,
+			CanonicalITID:      row.EmitterITID,
 			CanonicalITIDKnown: true,
-			OwnerIPID:          thread.IPID,
+			OwnerIPID:          row.OwnerIPID,
 			OwnerIPIDKnown:     true,
-			Start:              ts,
-			End:                ts + dur,
-			StartCPU:           0,
-			EndCPU:             0,
-			StartCPUProvenance: traceDBSyncSpanCPULegacyUnverified,
-			EndCPUProvenance:   traceDBSyncSpanCPULegacyUnverified,
-			Task:               task,
-			Name:               "sys_" + traceDBAnyText(num, "None"),
+			Start:              row.TS,
+			End:                row.End,
+			StartCPU:           row.StartCPU,
+			EndCPU:             row.EndCPU,
+			StartCPUProvenance: traceDBSyncSpanCPUSyscallTypedRunning,
+			EndCPUProvenance:   traceDBSyncSpanCPUSyscallTypedRunning,
+			Task:               row.Task,
+			Name:               "sys_" + strconv.FormatInt(row.Number, 10),
 			NameProvenance:     traceDBSyncSpanNameSyscallNumber,
 			DepthProvenance:    traceDBSyncSpanDepthUnknown,
 		}); err != nil {
-			return coverage, err
+			return fail(err)
 		}
 	}
-	coverage.Skipped = traceDBCountSummary(skipped)
-	return coverage, rows.Err()
+	if err := rows.Err(); err != nil {
+		return fail(err)
+	}
+	if scanned != coverage.RowsRead {
+		return fail(&traceDBOutputInvariantError{Reason: "syscall_source_scan_count_mismatch"})
+	}
+	traceDBAppendCoverageSkipped(&coverage, traceDBCountSummary(skipped))
+	return coverage, nil
+}
+
+func prepareTraceDBSyscallRow(authority traceDBSchedulerAuthority, running traceDBSchedulerRunningIndex,
+	profile traceDBActivityITIDProfile, stableRaw, tsRaw, durRaw, numberRaw, itidRaw any,
+) (traceDBSyscallRow, string) {
+	var row traceDBSyscallRow
+	var ok bool
+	row.EmitterITID, ok = profile.decode(itidRaw)
+	if !ok || row.EmitterITID <= 0 {
+		return row, "invalid_emitter_itid"
+	}
+	thread, process, resolution := authority.resolveThreadSubject(row.EmitterITID)
+	if resolution != traceDBSchedulerThreadResolved || thread.TID <= 0 || thread.TID > math.MaxInt32 ||
+		thread.IPID < 0 || process.IPID != thread.IPID || process.PID <= 0 || process.PID > math.MaxInt32 {
+		return row, "unresolved_emitter_identity"
+	}
+	row.OwnerIPID = thread.IPID
+	row.TID = thread.TID
+	row.TGID = process.PID
+	row.Task = traceDBCommName(thread.Name, "unknown")
+	row.StableID, ok = traceDBStrictSQLiteInt(stableRaw)
+	if !ok {
+		return row, "invalid_hidden_rowid"
+	}
+	row.TS, ok = traceDBStrictSQLiteInt(tsRaw)
+	if !ok || row.TS < 0 {
+		return row, "invalid_timestamp"
+	}
+	row.Dur, ok = traceDBStrictSQLiteInt(durRaw)
+	if !ok || row.Dur < 0 {
+		return row, "invalid_duration"
+	}
+	// Current Trace Streamer stores syscall_number as uint32_t and exposes it
+	// with sqlite3_result_int, exactly the same signed-int32 projection selected
+	// for this producer's ITID. In particular, -1 remains the UINT32_MAX
+	// sentinel while -2 is the canonical uint32 value 4294967294.
+	row.Number, ok = profile.decode(numberRaw)
+	if !ok {
+		return row, "invalid_syscall_number"
+	}
+	if row.TS > math.MaxInt64-row.Dur {
+		return row, "timestamp_overflow"
+	}
+	row.End = row.TS + row.Dur
+	if traceDBBeforeCaptureStart(authority.identities, row.TS) {
+		return row, "before_capture_start"
+	}
+	if row.Dur == 0 {
+		if !authority.threadPointAllows(row.EmitterITID, row.TS) {
+			return row, "lifecycle_rejected_sync_point"
+		}
+	} else if !authority.threadClosedEndpointAllows(row.EmitterITID, row.TS, row.End) ||
+		!authority.processClosedEndpointAllows(row.OwnerIPID, row.TS, row.End) {
+		return row, "lifecycle_rejected_sync_closed_interval"
+	}
+	var status traceDBSchedulerRunningLookupStatus
+	row.StartCPU, status = running.lookupCPUAt(row.EmitterITID, row.TS)
+	if reason := traceDBSyscallRunningRejection(status, "start"); reason != "" {
+		return row, reason
+	}
+	row.EndCPU, status = running.lookupCPUAt(row.EmitterITID, row.End)
+	if reason := traceDBSyscallRunningRejection(status, "end"); reason != "" {
+		return row, reason
+	}
+	return row, ""
+}
+
+func traceDBSyscallRunningRejection(status traceDBSchedulerRunningLookupStatus, endpoint string) string {
+	switch status {
+	case traceDBSchedulerRunningKnown:
+		return ""
+	case traceDBSchedulerRunningSourceTainted:
+		return "tainted_running_cpu_witness"
+	case traceDBSchedulerRunningLifecycleRejected:
+		return "lifecycle_rejected_running_cpu_witness"
+	default:
+		return "unknown_" + endpoint + "_cpu"
+	}
 }
 
 func exportTraceDBTaskPool(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, index traceDBThreadIndex, _ map[int64][]traceDBRunningInterval, _ map[int64]string) (TraceDBCoverage, error) {

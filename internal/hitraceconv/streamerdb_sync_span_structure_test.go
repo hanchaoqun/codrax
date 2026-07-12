@@ -129,6 +129,7 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 		"exportTraceDBStaticInitialize":    true,
 		"submit":                           true,
 		"poisonExactLane":                  true,
+		"poisonGlobally":                   true,
 		"addCandidate":                     true,
 		"addPoison":                        true,
 		"finalize":                         true,
@@ -503,7 +504,10 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 			t.Fatalf("%s does not accept exactly one sync authority pointer", site.function)
 		}
 	}
-	if !reflect.DeepEqual(authorityCallerCounts("poisonExactLane"), map[string]int{"exportTraceDBCallstack": 1}) {
+	if !reflect.DeepEqual(authorityCallerCounts("poisonExactLane"), map[string]int{
+		"exportTraceDBCallstack": 1,
+		"exportTraceDBSyscall":   1,
+	}) {
 		t.Fatalf("exact lane poison callers=%v", authorityCallerCounts("poisonExactLane"))
 	}
 	poison := onlyAuthorityCall("poisonExactLane", "exportTraceDBCallstack")
@@ -534,6 +538,72 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 		!isIdent(poisonFields["Reason"], "traceDBSyncSpanLanePoisonRejectedCallstackCandidate") {
 		t.Fatalf("callstack poison lost exact typed identity mapping: fields=%v", poisonFields)
 	}
+	syscallPoison := onlyAuthorityCall("poisonExactLane", "exportTraceDBSyscall")
+	if receiverName(syscallPoison) != "syncSpans" || len(syscallPoison.Args) != 2 || !isIdent(syscallPoison.Args[0], "ctx") {
+		t.Fatal("syscall poison does not use syncSpans.poisonExactLane(ctx, poison)")
+	}
+	syscallPoisonLiteral, ok := syscallPoison.Args[1].(*ast.CompositeLit)
+	if !ok || compositeTypeName(syscallPoisonLiteral) != "traceDBSyncSpanLanePoison" {
+		t.Fatal("syscall poison is not a typed exact-lane declaration")
+	}
+	syscallPoisonFields := map[string]ast.Expr{}
+	for _, element := range syscallPoisonLiteral.Elts {
+		pair, pairOK := element.(*ast.KeyValueExpr)
+		if !pairOK {
+			t.Fatal("syscall poison uses an unkeyed field")
+		}
+		key, keyOK := pair.Key.(*ast.Ident)
+		if !keyOK {
+			t.Fatal("syscall poison uses a non-identifier field")
+		}
+		syscallPoisonFields[key.Name] = pair.Value
+	}
+	syscallThreadReceiver, syscallThreadField, syscallThreadOK := selectorParts(syscallPoisonFields["HeaderTID"])
+	if !isIdent(syscallPoisonFields["Producer"], "traceDBSyncSpanProducerSyscall") ||
+		!syscallThreadOK || syscallThreadReceiver != "thread" || syscallThreadField != "TID" ||
+		!isIdent(syscallPoisonFields["CanonicalITID"], "itid") ||
+		!isIdent(syscallPoisonFields["CanonicalITIDKnown"], "true") ||
+		!isIdent(syscallPoisonFields["Reason"], "traceDBSyncSpanLanePoisonRejectedSyscallCandidate") {
+		t.Fatalf("syscall poison lost exact typed identity mapping: fields=%v", syscallPoisonFields)
+	}
+	if !reflect.DeepEqual(authorityCallerCounts("poisonGlobally"), map[string]int{"exportTraceDBSyscall": 1}) {
+		t.Fatalf("global poison callers=%v", authorityCallerCounts("poisonGlobally"))
+	}
+	globalPoison := onlyAuthorityCall("poisonGlobally", "exportTraceDBSyscall")
+	if receiverName(globalPoison) != "syncSpans" || len(globalPoison.Args) != 2 || !isIdent(globalPoison.Args[0], "ctx") {
+		t.Fatal("syscall global poison does not use syncSpans.poisonGlobally(ctx, poison)")
+	}
+	globalPoisonLiteral, ok := globalPoison.Args[1].(*ast.CompositeLit)
+	if !ok || compositeTypeName(globalPoisonLiteral) != "traceDBSyncSpanGlobalPoison" {
+		t.Fatal("syscall global poison is not the shared typed authority declaration")
+	}
+	globalPoisonFields := map[string]ast.Expr{}
+	for _, element := range globalPoisonLiteral.Elts {
+		pair, pairOK := element.(*ast.KeyValueExpr)
+		if !pairOK {
+			t.Fatal("syscall global poison uses an unkeyed field")
+		}
+		key, keyOK := pair.Key.(*ast.Ident)
+		if !keyOK {
+			t.Fatal("syscall global poison uses a non-identifier field")
+		}
+		globalPoisonFields[key.Name] = pair.Value
+	}
+	if len(globalPoisonFields) != 2 ||
+		!isIdent(globalPoisonFields["Producer"], "traceDBSyncSpanProducerSyscall") ||
+		!isIdent(globalPoisonFields["Reason"], "traceDBSyncSpanGlobalPoisonUnlocalizableSyscallCandidate") {
+		t.Fatalf("syscall global poison lost closed producer/reason: %v", globalPoisonFields)
+	}
+	if countParamType("poisonGlobally", "*traceDBRowSink") != 0 {
+		t.Fatal("global poison authority acquired a row sink")
+	}
+	for _, forbidden := range []string{"traceDBPublishSyncSpanEndpoint", "prepareTraceDBRenderedRow", "add", "writeTo"} {
+		for _, site := range calls[forbidden] {
+			if site.function == "poisonGlobally" {
+				t.Fatalf("global poison authority publishes through %s", forbidden)
+			}
+		}
+	}
 
 	// Pin the stage-to-producer handoff as well; this prevents a second pointer
 	// from being substituted after the top-level call appears structurally sound.
@@ -545,7 +615,7 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 	}{
 		{"exportTraceDBThreadRegistrations", "exportTraceDBSchedulerFamilies", 5, 2},
 		{"exportTraceDBCallstack", "exportTraceDBExtendedFamilies", 6, 5},
-		{"exportTraceDBSyscall", "exportTraceDBExtendedFamilies", 5, 3},
+		{"exportTraceDBSyscall", "exportTraceDBExtendedFamilies", 6, 5},
 		{"exportTraceDBAppStartup", "exportTraceDBExtendedFamilies", 6, 3},
 		{"exportTraceDBStaticInitialize", "exportTraceDBExtendedFamilies", 5, 3},
 	}
@@ -582,7 +652,7 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 	// Mechanical B/E takeover must not imply source-admission correctness for
 	// the three legacy SQL producers. Their R1b-C disclosure stays explicit
 	// until that separately scoped batch closes.
-	for _, function := range []string{"exportTraceDBSyscall", "exportTraceDBAppStartup", "exportTraceDBStaticInitialize"} {
+	for _, function := range []string{"exportTraceDBAppStartup", "exportTraceDBStaticInitialize"} {
 		decl := functions[function][0].decl
 		fieldSources := map[string]string{}
 		fieldSourceAssignments := 0
@@ -628,6 +698,38 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 			!strings.Contains(fieldSources["wire_laminar"], "no endpoint is published") {
 			t.Fatalf("%s coverage.FieldSources lost B1-b/R1b-C disclosure: %v", function, fieldSources)
 		}
+	}
+	syscallDecl := functions["exportTraceDBSyscall"][0].decl
+	syscallFieldSources := map[string]string{}
+	ast.Inspect(syscallDecl.Body, func(node ast.Node) bool {
+		assignment, ok := node.(*ast.AssignStmt)
+		if !ok || len(assignment.Lhs) != 1 || len(assignment.Rhs) != 1 {
+			return true
+		}
+		receiver, field, ok := selectorParts(assignment.Lhs[0])
+		if !ok || receiver != "coverage" || field != "FieldSources" {
+			return true
+		}
+		literal, ok := assignment.Rhs[0].(*ast.CompositeLit)
+		if !ok {
+			t.Fatal("syscall coverage.FieldSources is not a literal closed map")
+		}
+		for _, element := range literal.Elts {
+			pair := element.(*ast.KeyValueExpr)
+			key, keyErr := strconv.Unquote(pair.Key.(*ast.BasicLit).Value)
+			value, valueErr := strconv.Unquote(pair.Value.(*ast.BasicLit).Value)
+			if keyErr != nil || valueErr != nil {
+				t.Fatal("syscall coverage.FieldSources contains invalid strings")
+			}
+			syscallFieldSources[key] = value
+		}
+		return false
+	})
+	if !strings.Contains(syscallFieldSources["source_admission"], "bounded INTEGER transport") ||
+		!strings.Contains(syscallFieldSources["wire_laminar"], "single shared authority") ||
+		!strings.Contains(syscallFieldSources["wire_laminar"], "no endpoint is published") ||
+		strings.Contains(syscallFieldSources["source_admission"], "remain open") {
+		t.Fatalf("syscall C1 closure provenance missing: %v", syscallFieldSources)
 	}
 
 	// The physical stack key is exactly artifact source + row-header TID. It has

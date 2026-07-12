@@ -20,9 +20,9 @@ func TestTraceDBIdentityPoisonNeverGlobalizesThreadOrProcessScopedRows(t *testin
 		"INSERT INTO thread VALUES (11, 11, 511, 31, 'source-owner-interpretation', 0, 0, 1)",
 		"INSERT INTO thread VALUES (10, 10, 601, 8, 'control-thread', 0, 0, 1)",
 		"CREATE TABLE syscall (ts, dur, syscall_number, itid)",
-		"INSERT INTO syscall VALUES (1000, 1000, 1, 9)",
 		"INSERT INTO syscall VALUES (3000, 1000, 2, 10)",
-		"INSERT INTO syscall VALUES (4500, 1000, 3, CAST(10 AS TEXT))",
+		"CREATE TABLE thread_state (itid, ts, dur, cpu, state)",
+		"INSERT INTO thread_state VALUES (10, 0, 5000, 3, 'Running')",
 		"CREATE TABLE callstack (id, ts, dur)",
 		"INSERT INTO callstack VALUES (100, 5000, 0)",
 		"INSERT INTO callstack VALUES (101, 6000, 1000)",
@@ -71,8 +71,16 @@ func TestTraceDBIdentityPoisonNeverGlobalizesThreadOrProcessScopedRows(t *testin
 		t.Fatal(err)
 	}
 	syncSpans := newTraceDBTestSyncSpanAuthority(t)
+	intervals, integrity, _, err := tdb.loadRunningIntervals(context.Background(), index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority := newTraceDBSchedulerAuthority(index, traceDBLifecycleCollection{
+		CreationComplete: true, TerminalComplete: true, ActivityComplete: true,
+	})
+	running := newTraceDBSchedulerRunningIndex(authority, intervals, integrity, nil)
 
-	syscallCoverage, err := exportTraceDBSyscall(context.Background(), tdb, sink, syncSpans, index)
+	syscallCoverage, err := exportTraceDBSyscall(context.Background(), tdb, sink, authority, running, syncSpans)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,8 +106,7 @@ func TestTraceDBIdentityPoisonNeverGlobalizesThreadOrProcessScopedRows(t *testin
 	syscallCoverage, taskCoverage, startupCoverage, staticCoverage, measureCoverage =
 		items[0], items[1], items[2], items[3], items[4]
 
-	if syscallCoverage.RowsEmitted != 2 || !strings.Contains(syscallCoverage.Skipped, "unresolved_emitter_identity=1") ||
-		!strings.Contains(syscallCoverage.Skipped, "invalid_emitter_itid=1") {
+	if syscallCoverage.RowsEmitted != 2 || syscallCoverage.Skipped != "" {
 		t.Fatalf("syscall identity fail-close mismatch: %+v", syscallCoverage)
 	}
 	if taskCoverage.RowsEmitted != 2 || !strings.Contains(taskCoverage.Skipped, "unresolved_allocation_identity=1") ||

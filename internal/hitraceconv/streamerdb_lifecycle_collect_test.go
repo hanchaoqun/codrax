@@ -485,6 +485,35 @@ type traceDBLifecycleCountingQueryer struct {
 	dataQueries []string
 }
 
+func TestTraceDBLifecycleBoundedIntegerTransportClosed(t *testing.T) {
+	value := int64(42)
+	for _, test := range []struct {
+		name    string
+		typeRaw any
+		value   any
+		want    any
+	}{
+		{name: "exact integer", typeRaw: "integer", value: value, want: value},
+		{name: "null", typeRaw: "null", value: nil, want: nil},
+		{name: "text", typeRaw: "text", value: "42", want: nil},
+		{name: "real", typeRaw: "real", value: 42.0, want: nil},
+		{name: "blob", typeRaw: "blob", value: []byte{42}, want: nil},
+		{name: "non-string verdict", typeRaw: []byte("integer"), value: value, want: nil},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := traceDBBoundedSQLiteIntegerTransport(test.typeRaw, test.value); !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("bounded transport got=%#v want=%#v", got, test.want)
+			}
+		})
+	}
+	if got := traceDBLifecycleBoundedIntegerProjection(false, "ts"); got != "NULL, NULL" {
+		t.Fatalf("absent bounded projection=%q", got)
+	}
+	if got := traceDBLifecycleBoundedIntegerProjection(true, `t"s`); got != `typeof("t""s"), CASE WHEN typeof("t""s") = 'integer' THEN "t""s" END` {
+		t.Fatalf("bounded projection quoting drifted: %q", got)
+	}
+}
+
 func (queryer *traceDBLifecycleCountingQueryer) recordDataQuery(query string) {
 	upper := strings.ToUpper(strings.TrimSpace(query))
 	if strings.HasPrefix(upper, "SELECT") && strings.Contains(upper, " FROM ") &&
@@ -596,6 +625,7 @@ func TestTraceDBLifecycleCollectorUsesSuppliedReadTransactionAndBoundedScans(t *
 	}
 
 	counts := map[string]int{}
+	var syscallQueries []string
 	for _, query := range counting.dataQueries {
 		upper := strings.ToUpper(query)
 		for _, forbidden := range []string{" WHERE ", "DISTINCT", "COALESCE", "CAST(", "COUNT(", " ORDER BY "} {
@@ -606,12 +636,19 @@ func TestTraceDBLifecycleCollectorUsesSuppliedReadTransactionAndBoundedScans(t *
 		for _, table := range []string{"instant", "thread_state", "sched_slice", "callstack", "syscall", "native_hook", "frame_slice"} {
 			if strings.Contains(query, `FROM "`+table+`"`) {
 				counts[table]++
+				if table == "syscall" {
+					syscallQueries = append(syscallQueries, strings.Join(strings.Fields(query), " "))
+				}
 			}
 		}
 	}
 	wantCounts := map[string]int{"instant": 1, "thread_state": 2, "sched_slice": 2, "callstack": 1, "syscall": 1, "native_hook": 1, "frame_slice": 1}
 	if !reflect.DeepEqual(counts, wantCounts) {
 		t.Fatalf("collector scan count reopened a legacy third pass: got=%+v want=%+v queries=%+v", counts, wantCounts, counting.dataQueries)
+	}
+	wantSyscallQuery := `SELECT typeof("ts"), CASE WHEN typeof("ts") = 'integer' THEN "ts" END, typeof("itid"), CASE WHEN typeof("itid") = 'integer' THEN "itid" END FROM "syscall"`
+	if !reflect.DeepEqual(syscallQueries, []string{wantSyscallQuery}) {
+		t.Fatalf("syscall lifecycle scan lost bounded physical-row SQL: got=%q want=%q", syscallQueries, wantSyscallQuery)
 	}
 }
 
@@ -672,28 +709,30 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 	calls := map[string][]productionSite{}
 	composites := map[string][]productionSite{}
 	targetCalls := map[string]bool{
-		"newTraceDBSchedulerAuthority":       true,
-		"loadSchedStarts":                    true,
-		"loadRunningIntervals":               true,
-		"loadSchedulerRunningIndex":          true,
-		"loadExtendedLegacyRunningIntervals": true,
-		"newTraceDBSchedulerRunningIndex":    true,
-		"lookupCPUAt":                        true,
-		"exportTraceDBWakeups":               true,
-		"exportTraceDBBlockedReasons":        true,
-		"loadTraceDBBlockedCandidates":       true,
-		"loadTraceDBBlockedSchedBoundaries":  true,
-		"resolveThreadSubject":               true,
-		"threadPointAllows":                  true,
-		"threadClosedEndpointAllows":         true,
-		"queryTraceDBSchedSliceRows":         true,
-		"scanTraceDBSchedSourceRow":          true,
-		"traceDBStrictInternalID":            true,
-		"schedulerSubjectFromExactITID":      true,
-		"schedulerPointAllows":               true,
-		"schedulerNextPointAllows":           true,
-		"schedulerSourceIntervalAllows":      true,
-		"validateTraceDBSchedLifecycle":      true,
+		"newTraceDBSchedulerAuthority":             true,
+		"loadSchedStarts":                          true,
+		"loadRunningIntervals":                     true,
+		"loadSchedulerRunningIndex":                true,
+		"loadExtendedLegacyRunningIntervals":       true,
+		"newTraceDBSchedulerRunningIndex":          true,
+		"lookupCPUAt":                              true,
+		"exportTraceDBWakeups":                     true,
+		"exportTraceDBBlockedReasons":              true,
+		"loadTraceDBBlockedCandidates":             true,
+		"loadTraceDBBlockedSchedBoundaries":        true,
+		"resolveThreadSubject":                     true,
+		"threadPointAllows":                        true,
+		"threadClosedEndpointAllows":               true,
+		"queryTraceDBSchedSliceRows":               true,
+		"scanTraceDBSchedSourceRow":                true,
+		"traceDBStrictInternalID":                  true,
+		"schedulerSubjectFromExactITID":            true,
+		"schedulerPointAllows":                     true,
+		"schedulerNextPointAllows":                 true,
+		"schedulerSourceIntervalAllows":            true,
+		"validateTraceDBSchedLifecycle":            true,
+		"traceDBLifecycleBoundedIntegerProjection": true,
+		"traceDBBoundedSQLiteIntegerTransport":     true,
 	}
 	authorityConsumers := map[string]bool{
 		"exportTraceDBSchedSwitch":          true,
@@ -978,6 +1017,7 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 		"prepareTraceDBCallstackRow":     2,
 		"prepareTraceDBFrameSliceRow":    2,
 		"prepareTraceDBNativeHookEvent":  1,
+		"prepareTraceDBSyscallRow":       2,
 		"traceDBResolvePerfSampleCPU":    1,
 	})
 	assertCallSites("exportTraceDBWakeups", map[string]int{"exportTraceDBSchedulerFamilies": 1})
@@ -1008,6 +1048,7 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 		"prepareTraceDBCallstackRow":             1,
 		"prepareTraceDBFrameSliceRow":            1,
 		"prepareTraceDBNativeHookEvent":          1,
+		"prepareTraceDBSyscallRow":               1,
 		"scanTraceDBSchedSourceRow":              1,
 		"threadSubject":                          1,
 		"traceDBCallstackExactEmitterCandidates": 1,
@@ -1020,6 +1061,7 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 		"loadTraceDBBlockedCandidates":    1,
 		"prepareTraceDBCallstackRow":      2,
 		"prepareTraceDBNativeHookEvent":   1,
+		"prepareTraceDBSyscallRow":        1,
 		"schedulerPointAllows":            1,
 		"traceDBAdmitRawCanonicalSubject": 1,
 	})
@@ -1027,6 +1069,7 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 		"loadTraceDBBlockedSchedBoundaries": 1,
 		"prepareTraceDBCallstackRow":        1,
 		"prepareTraceDBFrameSliceRow":       1,
+		"prepareTraceDBSyscallRow":          1,
 		"schedulerNextPointAllows":          1,
 	})
 	assertCallSites("queryTraceDBSchedSliceRows", map[string]int{"auditTraceDBSchedSwitchRows": 1, "exportTraceDBSchedSwitch": 1})
@@ -1036,6 +1079,11 @@ func TestTraceDBLifecycleCollectorSQLAndProductionAuthorityAreStructurallyPinned
 	assertCallSites("schedulerNextPointAllows", map[string]int{"traceDBNextSchedMeta": 1})
 	assertCallSites("schedulerSourceIntervalAllows", map[string]int{"newTraceDBSchedulerRunningIndex": 1, "validateTraceDBSchedLifecycle": 1})
 	assertCallSites("validateTraceDBSchedLifecycle", map[string]int{"scanTraceDBSchedSourceRow": 2})
+	assertCallSites("traceDBLifecycleBoundedIntegerProjection", map[string]int{"scanTraceDBTableActivity": 2})
+	assertCallSites("traceDBBoundedSQLiteIntegerTransport", map[string]int{
+		"exportTraceDBSyscall":     5,
+		"scanTraceDBTableActivity": 2,
+	})
 	strictDecoderCalls := 0
 	for _, site := range calls["traceDBStrictInternalID"] {
 		if site.function == "scanTraceDBSchedSourceRow" {

@@ -230,15 +230,18 @@ func TestTraceDBCallstackLifecycleAuthorityIsStructurallyPinned(t *testing.T) {
 		"loadTraceDBBlockedCandidates":    1,
 		"prepareTraceDBCallstackRow":      2,
 		"prepareTraceDBNativeHookEvent":   1,
+		"prepareTraceDBSyscallRow":        1,
 		"schedulerPointAllows":            1,
 		"traceDBAdmitRawCanonicalSubject": 1,
 	}) || !reflect.DeepEqual(callerCounts("threadClosedEndpointAllows"), map[string]int{
 		"loadTraceDBBlockedSchedBoundaries": 1,
 		"prepareTraceDBCallstackRow":        1,
 		"prepareTraceDBFrameSliceRow":       1,
+		"prepareTraceDBSyscallRow":          1,
 		"schedulerNextPointAllows":          1,
 	}) || !reflect.DeepEqual(callerCounts("processClosedEndpointAllows"), map[string]int{
 		"auditTraceDBCallstackAsyncGroup": 1,
+		"prepareTraceDBSyscallRow":        1,
 	}) {
 		t.Fatalf("callstack lifecycle call closure point=%v closed=%v process=%v",
 			callerCounts("threadPointAllows"), callerCounts("threadClosedEndpointAllows"), callerCounts("processClosedEndpointAllows"))

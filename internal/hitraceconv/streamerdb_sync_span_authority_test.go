@@ -3,7 +3,9 @@ package hitraceconv
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -43,8 +45,8 @@ func traceDBTestSyncSpanCandidate(producer traceDBSyncSpanProducer, stableID, ti
 	case traceDBSyncSpanProducerSyscall:
 		candidate.StableKind = traceDBSyncSpanStableSyscallRowID
 		candidate.StartCPU, candidate.EndCPU = 0, 0
-		candidate.StartCPUProvenance = traceDBSyncSpanCPULegacyUnverified
-		candidate.EndCPUProvenance = traceDBSyncSpanCPULegacyUnverified
+		candidate.StartCPUProvenance = traceDBSyncSpanCPUSyscallTypedRunning
+		candidate.EndCPUProvenance = traceDBSyncSpanCPUSyscallTypedRunning
 		candidate.NameProvenance = traceDBSyncSpanNameSyscallNumber
 	case traceDBSyncSpanProducerAppStartup:
 		candidate.StableKind = traceDBSyncSpanStableAppStartupRowID
@@ -62,6 +64,186 @@ func traceDBTestSyncSpanCandidate(producer traceDBSyncSpanProducer, stableID, ti
 		candidate.NameProvenance = traceDBSyncSpanNameStaticObject
 	}
 	return candidate
+}
+
+func TestTraceDBSyncSpanGlobalSourcePoisonIsConstantStateAndKeepsBudgetDisclosure(t *testing.T) {
+	ctx := context.Background()
+	authority, err := newTraceDBSyncSpanAuthorityWithOptions(ctx, filepath.Join(t.TempDir(), "out.systrace"),
+		traceDBSyncSpanStageOptions{MaxRecords: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer authority.cleanup()
+	for _, candidate := range []traceDBSyncSpanCandidate{
+		traceDBTestSyncSpanCandidate(traceDBSyncSpanProducerCallstack, 1, 101, 100, 1000, 1100, "first"),
+		traceDBTestSyncSpanCandidate(traceDBSyncSpanProducerCallstack, 2, 202, 200, 1200, 1300, "second"),
+	} {
+		if err := authority.submit(ctx, candidate); err != nil {
+			t.Fatalf("submit global/budget candidate: %v", err)
+		}
+	}
+	poison := traceDBSyncSpanGlobalPoison{
+		Producer: traceDBSyncSpanProducerSyscall,
+		Reason:   traceDBSyncSpanGlobalPoisonUnlocalizableSyscallCandidate,
+	}
+	if err := authority.poisonGlobally(ctx, poison); err != nil {
+		t.Fatal(err)
+	}
+	if err := authority.poisonGlobally(ctx, poison); err != nil {
+		t.Fatal(err)
+	}
+	sink, err := newTraceDBRowSink(t.TempDir(), 128)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+	report, coverage, err := authority.finalize(ctx, sink)
+	if err != nil {
+		t.Fatalf("finalize global/budget poison: %v coverage=%+v", err, coverage)
+	}
+	if !report.GlobalPoisoned || report.SourceFailClosedReason != "unlocalizable_syscall_candidate" ||
+		report.BudgetFailClosedReason != traceDBSyncSpanStageBudgetRecordCap || report.SubmittedSpans != 2 ||
+		report.SuppressedSpans != 2 || report.EmittedEndpoints != 0 || report.PoisonedLanes != 0 ||
+		report.ByProducer[traceDBSyncSpanProducerSyscall].GlobalPoisonDeclarations != 1 ||
+		!strings.Contains(coverage.Skipped, "sync_family_source_fail_closed=unlocalizable_syscall_candidate") ||
+		!strings.Contains(coverage.Skipped, "sync_family_budget_fail_closed=record_cap") {
+		t.Fatalf("global source/budget disclosure drifted: report=%+v coverage=%+v", report, coverage)
+	}
+	items := []TraceDBCoverage{
+		{Family: "slice", Table: "callstack", Found: true},
+		{Family: "slice", Table: "syscall", Found: true},
+	}
+	if err := reconcileTraceDBSyncSpanCoverage(items, report); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(items[0].Skipped, "suppressed_spans=2") ||
+		!strings.Contains(items[0].Skipped, "sync_family_source_fail_closed=unlocalizable_syscall_candidate") ||
+		!strings.Contains(items[0].Skipped, "sync_family_budget_fail_closed=record_cap") ||
+		!strings.Contains(items[1].Skipped, "global_poison_declarations=1") {
+		t.Fatalf("global poison reconciliation lost split accounting: %+v", items)
+	}
+}
+
+func TestTraceDBSyncSpanSyscallClosedEnumsRejectMismatch(t *testing.T) {
+	baseline := traceDBTestSyncSpanCandidate(traceDBSyncSpanProducerSyscall, 1, 101, 100, 1000, 1100, "sys_9")
+	cpuProvenances := []traceDBSyncSpanCPUProvenance{
+		traceDBSyncSpanCPUUnknown,
+		traceDBSyncSpanCPURegistrationMetadata,
+		traceDBSyncSpanCPUCallstackTypedRunning,
+		traceDBSyncSpanCPUSyscallTypedRunning,
+		traceDBSyncSpanCPULegacyUnverified,
+		traceDBSyncSpanCPUProvenance(uint8(traceDBSyncSpanCPULegacyUnverified) + 1),
+	}
+	for _, provenance := range cpuProvenances {
+		start := baseline
+		start.StartCPUProvenance = provenance
+		startAccepted := validateTraceDBSyncSpanCandidate(start) == nil
+		if startAccepted != (provenance == traceDBSyncSpanCPUSyscallTypedRunning) {
+			t.Fatalf("syscall start CPU provenance=%d accepted=%t", provenance, startAccepted)
+		}
+		end := baseline
+		end.EndCPUProvenance = provenance
+		endAccepted := validateTraceDBSyncSpanCandidate(end) == nil
+		if endAccepted != (provenance == traceDBSyncSpanCPUSyscallTypedRunning) {
+			t.Fatalf("syscall end CPU provenance=%d accepted=%t", provenance, endAccepted)
+		}
+	}
+
+	ctx := context.Background()
+	authority := newTraceDBTestSyncSpanAuthority(t)
+	exactBase := traceDBSyncSpanLanePoison{
+		Producer: traceDBSyncSpanProducerSyscall, HeaderTID: 101,
+		CanonicalITID: 1, CanonicalITIDKnown: true,
+		Reason: traceDBSyncSpanLanePoisonRejectedSyscallCandidate,
+	}
+	exactProducers := []traceDBSyncSpanProducer{
+		traceDBSyncSpanProducerUnknown, traceDBSyncSpanProducerRegistration, traceDBSyncSpanProducerCallstack,
+		traceDBSyncSpanProducerSyscall, traceDBSyncSpanProducerAppStartup, traceDBSyncSpanProducerStaticInitialize,
+		traceDBSyncSpanProducer(traceDBSyncSpanProducerStaticInitialize + 1),
+	}
+	exactReasons := []traceDBSyncSpanLanePoisonReason{
+		traceDBSyncSpanLanePoisonUnknown, traceDBSyncSpanLanePoisonRejectedCallstackCandidate,
+		traceDBSyncSpanLanePoisonRejectedSyscallCandidate,
+		traceDBSyncSpanLanePoisonReason(traceDBSyncSpanLanePoisonRejectedSyscallCandidate + 1),
+	}
+	for _, producer := range exactProducers {
+		for _, reason := range exactReasons {
+			poison := exactBase
+			poison.Producer, poison.Reason = producer, reason
+			accepted := validateTraceDBSyncSpanLanePoison(poison) == nil
+			want := producer == traceDBSyncSpanProducerCallstack && reason == traceDBSyncSpanLanePoisonRejectedCallstackCandidate ||
+				producer == traceDBSyncSpanProducerSyscall && reason == traceDBSyncSpanLanePoisonRejectedSyscallCandidate
+			if accepted != want {
+				t.Fatalf("exact poison producer=%d reason=%d accepted=%t want=%t", producer, reason, accepted, want)
+			}
+		}
+	}
+	invalidExact := exactBase
+	invalidExact.Producer = traceDBSyncSpanProducerAppStartup
+	if err := authority.poisonExactLane(ctx, invalidExact); err == nil {
+		t.Fatal("exact poison method accepted a closed-enum mismatch")
+	}
+	if authority.poisonedTotal != 0 || authority.stage.records != 0 {
+		t.Fatalf("rejected exact poison mutated authority: poisoned=%d records=%d", authority.poisonedTotal, authority.stage.records)
+	}
+	if err := authority.poisonExactLane(ctx, exactBase); err != nil {
+		t.Fatalf("valid syscall exact poison rejected: %v", err)
+	}
+	if authority.poisonedTotal != 1 || authority.stage.records != 1 {
+		t.Fatalf("valid exact poison not recorded once: poisoned=%d records=%d", authority.poisonedTotal, authority.stage.records)
+	}
+
+	globalReasons := []traceDBSyncSpanGlobalPoisonReason{
+		traceDBSyncSpanGlobalPoisonUnknown, traceDBSyncSpanGlobalPoisonUnlocalizableSyscallCandidate,
+		traceDBSyncSpanGlobalPoisonReason(traceDBSyncSpanGlobalPoisonUnlocalizableSyscallCandidate + 1),
+	}
+	for _, producer := range exactProducers {
+		for _, reason := range globalReasons {
+			poison := traceDBSyncSpanGlobalPoison{Producer: producer, Reason: reason}
+			accepted := validateTraceDBSyncSpanGlobalPoison(poison) == nil
+			want := producer == traceDBSyncSpanProducerSyscall && reason == traceDBSyncSpanGlobalPoisonUnlocalizableSyscallCandidate
+			if accepted != want {
+				t.Fatalf("global poison producer=%d reason=%d accepted=%t want=%t", producer, reason, accepted, want)
+			}
+		}
+	}
+	invalidGlobal := traceDBSyncSpanGlobalPoison{
+		Producer: traceDBSyncSpanProducerAppStartup,
+		Reason:   traceDBSyncSpanGlobalPoisonUnlocalizableSyscallCandidate,
+	}
+	if err := authority.poisonGlobally(ctx, invalidGlobal); err == nil {
+		t.Fatal("global poison method accepted a closed-enum mismatch")
+	}
+	if authority.globalPoisonedTotal != 0 || authority.poisonedTotal != 1 || authority.stage.records != 1 {
+		t.Fatalf("rejected global poison mutated authority: global=%+v poisoned=%d records=%d",
+			authority.globalPoisoned, authority.poisonedTotal, authority.stage.records)
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	validGlobal := traceDBSyncSpanGlobalPoison{
+		Producer: traceDBSyncSpanProducerSyscall,
+		Reason:   traceDBSyncSpanGlobalPoisonUnlocalizableSyscallCandidate,
+	}
+	if err := authority.poisonGlobally(canceled, validGlobal); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled global poison error=%v, want context.Canceled", err)
+	}
+	if authority.globalPoisonedTotal != 0 {
+		t.Fatal("cancelled global poison mutated authority")
+	}
+	if err := authority.poisonGlobally(ctx, validGlobal); err != nil {
+		t.Fatalf("valid global poison rejected: %v", err)
+	}
+	sink, err := newTraceDBRowSink(t.TempDir(), 128)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+	if _, _, err := authority.finalize(ctx, sink); err != nil {
+		t.Fatal(err)
+	}
+	if err := authority.poisonGlobally(ctx, validGlobal); err == nil || authority.globalPoisonedTotal != 1 {
+		t.Fatalf("finalized authority accepted or mutated global poison: err=%v total=%d", err, authority.globalPoisonedTotal)
+	}
 }
 
 func renderTraceDBSyncSpanAuthority(t *testing.T, candidates []traceDBSyncSpanCandidate,

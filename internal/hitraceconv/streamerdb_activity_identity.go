@@ -14,6 +14,18 @@ const (
 	traceDBActivityITIDSignedInt32
 )
 
+// traceDBBoundedSQLiteIntegerTransport consumes the closed typeof() verdict
+// that guarded a SQL CASE projection. Non-INTEGER cells never cross the driver
+// boundary as their potentially unbounded TEXT/BLOB payload; nil is only a
+// rejection token for Go admission and is never accepted as a default value.
+func traceDBBoundedSQLiteIntegerTransport(typeRaw, valueRaw any) any {
+	typeName, ok := typeRaw.(string)
+	if !ok || typeName != "integer" {
+		return nil
+	}
+	return valueRaw
+}
+
 func (profile traceDBActivityITIDProfile) decode(value any) (int64, bool) {
 	switch profile {
 	case traceDBActivityITIDCanonical:

@@ -422,6 +422,9 @@ func inspectTraceDBTableActivity(ctx context.Context, queryer traceDBQueryer, ta
 		"timestamp":          table + "." + timestampColumn + " strict non-negative SQLite INTEGER",
 		"physical_rows":      "every row audited without SQL repair or deduplication",
 	}
+	if table == "syscall" {
+		lifecycle.FieldSources["physical_rows"] = "every row audited through typeof-pinned bounded INTEGER transport; non-INTEGER payload bytes are withheld before the Go driver boundary and remain rejected"
+	}
 	if !spec.Complete {
 		if spec.Profile == traceDBActivityITIDUnsupported {
 			traceDBAppendCoverageSkipped(&lifecycle, spec.ProfileSource)
@@ -612,8 +615,14 @@ func scanTraceDBTableActivity(ctx context.Context, queryer traceDBQueryer, build
 	if !activeCoverage.Found {
 		return activeCoverage, lifecycleCoverage, localActive, nil
 	}
+	boundedSyscallTransport := spec.Table == "syscall"
 	query := fmt.Sprintf("SELECT %s, %s FROM %s",
 		traceDBOptionalColumnExpr(spec.HasTimestamp, spec.TimestampColumn), traceDBOptionalColumnExpr(spec.HasITID, "itid"), quoteSQLiteIdent(spec.Table))
+	if boundedSyscallTransport {
+		query = fmt.Sprintf("SELECT %s, %s FROM %s",
+			traceDBLifecycleBoundedIntegerProjection(spec.HasTimestamp, spec.TimestampColumn),
+			traceDBLifecycleBoundedIntegerProjection(spec.HasITID, "itid"), quoteSQLiteIdent(spec.Table))
+	}
 	rows, err := queryer.QueryContext(ctx, query)
 	if err != nil {
 		activeCoverage.Error = err.Error()
@@ -637,7 +646,16 @@ func scanTraceDBTableActivity(ctx context.Context, queryer traceDBQueryer, build
 		activeCoverage.RowsRead++
 		lifecycleCoverage.RowsRead++
 		var tsRaw, itidRaw any
-		if err := rows.Scan(&tsRaw, &itidRaw); err != nil {
+		if boundedSyscallTransport {
+			var tsTypeRaw, tsValueRaw, itidTypeRaw, itidValueRaw any
+			if err := rows.Scan(&tsTypeRaw, &tsValueRaw, &itidTypeRaw, &itidValueRaw); err != nil {
+				activeCoverage.Error = err.Error()
+				lifecycleCoverage.Error = err.Error()
+				return activeCoverage, lifecycleCoverage, localActive, err
+			}
+			tsRaw = traceDBBoundedSQLiteIntegerTransport(tsTypeRaw, tsValueRaw)
+			itidRaw = traceDBBoundedSQLiteIntegerTransport(itidTypeRaw, itidValueRaw)
+		} else if err := rows.Scan(&tsRaw, &itidRaw); err != nil {
 			activeCoverage.Error = err.Error()
 			lifecycleCoverage.Error = err.Error()
 			return activeCoverage, lifecycleCoverage, localActive, err
@@ -705,6 +723,14 @@ func scanTraceDBTableActivity(ctx context.Context, queryer traceDBQueryer, build
 	}
 	traceDBAppendCoverageReasons(&lifecycleCoverage, "activity audit", lifecycleReasons)
 	return activeCoverage, lifecycleCoverage, localActive, nil
+}
+
+func traceDBLifecycleBoundedIntegerProjection(present bool, column string) string {
+	if !present {
+		return "NULL, NULL"
+	}
+	quoted := quoteSQLiteIdent(column)
+	return fmt.Sprintf("typeof(%s), CASE WHEN typeof(%s) = 'integer' THEN %s END", quoted, quoted, quoted)
 }
 
 func traceDBResolveLifecycleCallstackIdentity(index traceDBThreadIndex, hasITID, hasCallID bool, itidRaw, callIDRaw any) traceDBLifecycleIdentityResolution {

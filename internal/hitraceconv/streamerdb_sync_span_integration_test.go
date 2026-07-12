@@ -116,7 +116,7 @@ func TestTraceDBSyncSpanCrossProducerCrossingSuppressesWholePhysicalLane(t *test
 		if hasSuppression != check.suppressed {
 			t.Fatalf("%s/%s suppression=%t want %t: %+v", check.family, check.table, hasSuppression, check.suppressed, coverage)
 		}
-		if (check.table == "syscall" || check.table == "app_startup" || check.table == "static_initalize") &&
+		if (check.table == "app_startup" || check.table == "static_initalize") &&
 			!strings.Contains(coverage.FieldSources["source_admission"], "R1b-C") {
 			t.Fatalf("%s/%s no longer exposes the open R1b-C source-admission gap: %+v",
 				check.family, check.table, coverage)
@@ -172,7 +172,7 @@ func TestTraceDBSyncSpanLegalCrossProducerNestingAndAdjacentRoundTrip(t *testing
 }
 
 type traceDBSyncSpanBoundaryExporter func(context.Context, *traceDB, *traceDBRowSink,
-	*traceDBSyncSpanAuthority, traceDBThreadIndex) (TraceDBCoverage, error)
+	traceDBSchedulerAuthority, traceDBSchedulerRunningIndex, *traceDBSyncSpanAuthority, traceDBThreadIndex) (TraceDBCoverage, error)
 
 type traceDBSyncSpanBoundaryCase struct {
 	name          string
@@ -205,8 +205,8 @@ func traceDBSyncSpanBoundaryCases() []traceDBSyncSpanBoundaryCase {
 			createWithout: "CREATE TABLE syscall (id INTEGER PRIMARY KEY, ts INT, dur INT, syscall_number INT, itid INT) WITHOUT ROWID",
 			withoutRow:    "INSERT INTO syscall VALUES (1, 1000000, 100000, 31, 1)",
 			wantTokens:    []string{"B|100|sys_11", "B|100|sys_12", "B|100|sys_13"},
-			export: func(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, spans *traceDBSyncSpanAuthority, index traceDBThreadIndex) (TraceDBCoverage, error) {
-				return exportTraceDBSyscall(ctx, tdb, sink, spans, index)
+			export: func(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, authority traceDBSchedulerAuthority, running traceDBSchedulerRunningIndex, spans *traceDBSyncSpanAuthority, _ traceDBThreadIndex) (TraceDBCoverage, error) {
+				return exportTraceDBSyscall(ctx, tdb, sink, authority, running, spans)
 			},
 		},
 		{
@@ -224,7 +224,7 @@ func traceDBSyncSpanBoundaryCases() []traceDBSyncSpanBoundaryCase {
 			createWithout: "CREATE TABLE app_startup (id INTEGER PRIMARY KEY, start_time INT, end_time INT, start_name INT, ipid INT) WITHOUT ROWID",
 			withoutRow:    "INSERT INTO app_startup VALUES (1, 1000000, 1100000, 31, 1)",
 			wantTokens:    []string{"B|100|AppStartup:name-11", "B|100|AppStartup:name-12", "B|100|AppStartup:name-13"},
-			export: func(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, spans *traceDBSyncSpanAuthority, index traceDBThreadIndex) (TraceDBCoverage, error) {
+			export: func(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, _ traceDBSchedulerAuthority, _ traceDBSchedulerRunningIndex, spans *traceDBSyncSpanAuthority, index traceDBThreadIndex) (TraceDBCoverage, error) {
 				return exportTraceDBAppStartup(ctx, tdb, sink, spans, index, map[int64]string{
 					11: "name-11", 12: "name-12", 13: "name-13", 21: "shadow", 31: "without",
 				})
@@ -245,7 +245,7 @@ func traceDBSyncSpanBoundaryCases() []traceDBSyncSpanBoundaryCase {
 			createWithout: "CREATE TABLE static_initalize (id INTEGER PRIMARY KEY, start_time INT, end_time INT, so_name TEXT, ipid INT, tid INT) WITHOUT ROWID",
 			withoutRow:    "INSERT INTO static_initalize VALUES (1, 1000000, 1100000, 'lib31.so', 1, 100)",
 			wantTokens:    []string{"B|100|SoInit:lib11.so", "B|100|SoInit:lib12.so", "B|100|SoInit:lib13.so"},
-			export: func(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, spans *traceDBSyncSpanAuthority, index traceDBThreadIndex) (TraceDBCoverage, error) {
+			export: func(ctx context.Context, tdb *traceDB, sink *traceDBRowSink, _ traceDBSchedulerAuthority, _ traceDBSchedulerRunningIndex, spans *traceDBSyncSpanAuthority, index traceDBThreadIndex) (TraceDBCoverage, error) {
 				return exportTraceDBStaticInitialize(ctx, tdb, sink, spans, index)
 			},
 		},
@@ -263,6 +263,8 @@ func traceDBRunSyncSpanBoundaryExporter(t *testing.T, test traceDBSyncSpanBounda
 		"INSERT INTO process VALUES (1, 100, 'app')",
 		"CREATE TABLE thread (itid, tid, ipid, name, start_ts, is_main_thread, switch_count)",
 		"INSERT INTO thread VALUES (1, 100, 1, 'app-main', 0, 1, 1)",
+		"CREATE TABLE thread_state (itid, ts, dur, cpu, state)",
+		"INSERT INTO thread_state VALUES (1, 0, 10000000, 1, 'Running')",
 	}
 	path := createTraceDBFixture(t, append(base, statements...))
 	tdb, err := openTraceDB(context.Background(), path)
@@ -279,8 +281,16 @@ func traceDBRunSyncSpanBoundaryExporter(t *testing.T, test traceDBSyncSpanBounda
 		t.Fatal(err)
 	}
 	defer sink.cleanup()
+	intervals, integrity, _, err := tdb.loadRunningIntervals(context.Background(), index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority := newTraceDBSchedulerAuthority(index, traceDBLifecycleCollection{
+		CreationComplete: true, TerminalComplete: true, ActivityComplete: true,
+	})
+	running := newTraceDBSchedulerRunningIndex(authority, intervals, integrity, nil)
 	spans := newTraceDBTestSyncSpanAuthority(t)
-	coverage, err := test.export(context.Background(), tdb, sink, spans, index)
+	coverage, err := test.export(context.Background(), tdb, sink, authority, running, spans, index)
 	if err != nil {
 		t.Fatalf("export %s hidden-rowid fixture: %v coverage=%+v", test.name, err, coverage)
 	}
@@ -340,6 +350,16 @@ func TestTraceDBSyncSpanHiddenRowIDBoundaries(t *testing.T) {
 			}
 			t.Run(test.name+"/without-rowid-"+label, func(t *testing.T) {
 				coverage, report, body := traceDBRunSyncSpanBoundaryExporter(t, test, statements, true)
+				if test.name == "syscall" && nonempty {
+					if coverage.Error != "" || coverage.RowsRead != 1 || coverage.RowsEmitted != 0 ||
+						report.SubmittedSpans != 1 || report.EmittedEndpoints != 0 || report.PoisonedLanes != 1 || body != "" ||
+						!strings.Contains(coverage.Skipped, "stable_row_identity_unavailable=1") ||
+						!strings.Contains(coverage.Skipped, "exact_lane_poison_declarations=1") {
+						t.Fatalf("syscall WITHOUT ROWID did not fail close its exact physical lane: coverage=%+v report=%+v body=%q",
+							coverage, report, body)
+					}
+					return
+				}
 				if coverage.Error != "" || coverage.RowsEmitted != 0 || report.SubmittedSpans != 1 || report.EmittedEndpoints != 2 ||
 					!strings.Contains(body, "B|100|control") {
 					t.Fatalf("%s WITHOUT ROWID %s dragged authority: coverage=%+v report=%+v body=%q", test.name, label, coverage, report, body)

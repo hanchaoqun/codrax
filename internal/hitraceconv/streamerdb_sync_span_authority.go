@@ -52,6 +52,7 @@ const (
 	traceDBSyncSpanCPUUnknown traceDBSyncSpanCPUProvenance = iota
 	traceDBSyncSpanCPURegistrationMetadata
 	traceDBSyncSpanCPUCallstackTypedRunning
+	traceDBSyncSpanCPUSyscallTypedRunning
 	traceDBSyncSpanCPULegacyUnverified
 )
 
@@ -102,6 +103,7 @@ type traceDBSyncSpanLanePoisonReason uint8
 const (
 	traceDBSyncSpanLanePoisonUnknown traceDBSyncSpanLanePoisonReason = iota
 	traceDBSyncSpanLanePoisonRejectedCallstackCandidate
+	traceDBSyncSpanLanePoisonRejectedSyscallCandidate
 )
 
 type traceDBSyncSpanLanePoison struct {
@@ -112,11 +114,24 @@ type traceDBSyncSpanLanePoison struct {
 	Reason             traceDBSyncSpanLanePoisonReason
 }
 
+type traceDBSyncSpanGlobalPoisonReason uint8
+
+const (
+	traceDBSyncSpanGlobalPoisonUnknown traceDBSyncSpanGlobalPoisonReason = iota
+	traceDBSyncSpanGlobalPoisonUnlocalizableSyscallCandidate
+)
+
+type traceDBSyncSpanGlobalPoison struct {
+	Producer traceDBSyncSpanProducer
+	Reason   traceDBSyncSpanGlobalPoisonReason
+}
+
 type traceDBSyncSpanProducerStats struct {
-	SubmittedSpans     int
-	EmittedEndpoints   int
-	SuppressedSpans    int
-	PoisonDeclarations int
+	SubmittedSpans           int
+	EmittedEndpoints         int
+	SuppressedSpans          int
+	PoisonDeclarations       int
+	GlobalPoisonDeclarations int
 }
 
 type traceDBSyncSpanReport struct {
@@ -131,6 +146,8 @@ type traceDBSyncSpanReport struct {
 	DepthLanes             int
 	DuplicateLanes         int
 	BudgetFailClosedReason string
+	SourceFailClosedReason string
+	GlobalPoisoned         bool
 }
 
 type traceDBSyncSpanAuthorityState uint8
@@ -146,13 +163,15 @@ const (
 // from one Trace Streamer SQLite artifact. Candidate storage and duplicate /
 // poison arbitration are delegated to one bounded typed stage.
 type traceDBSyncSpanAuthority struct {
-	artifactSource string
-	state          traceDBSyncSpanAuthorityState
-	stage          *traceDBSyncSpanStage
-	submitted      [traceDBSyncSpanProducerStaticInitialize + 1]int
-	poisoned       [traceDBSyncSpanProducerStaticInitialize + 1]int
-	submittedTotal int
-	poisonedTotal  int
+	artifactSource      string
+	state               traceDBSyncSpanAuthorityState
+	stage               *traceDBSyncSpanStage
+	submitted           [traceDBSyncSpanProducerStaticInitialize + 1]int
+	poisoned            [traceDBSyncSpanProducerStaticInitialize + 1]int
+	globalPoisoned      [traceDBSyncSpanProducerStaticInitialize + 1]bool
+	submittedTotal      int
+	poisonedTotal       int
+	globalPoisonedTotal int
 }
 
 func newTraceDBSyncSpanAuthority(ctx context.Context, outputArtifact string) (*traceDBSyncSpanAuthority, error) {
@@ -228,11 +247,46 @@ func (authority *traceDBSyncSpanAuthority) poisonExactLane(ctx context.Context, 
 }
 
 func validateTraceDBSyncSpanLanePoison(poison traceDBSyncSpanLanePoison) error {
-	if poison.Producer != traceDBSyncSpanProducerCallstack ||
-		poison.Reason != traceDBSyncSpanLanePoisonRejectedCallstackCandidate ||
-		poison.HeaderTID <= 0 || poison.HeaderTID > math.MaxInt32 ||
+	closedReason := poison.Producer == traceDBSyncSpanProducerCallstack &&
+		poison.Reason == traceDBSyncSpanLanePoisonRejectedCallstackCandidate ||
+		poison.Producer == traceDBSyncSpanProducerSyscall &&
+			poison.Reason == traceDBSyncSpanLanePoisonRejectedSyscallCandidate
+	if !closedReason || poison.HeaderTID <= 0 || poison.HeaderTID > math.MaxInt32 ||
 		!poison.CanonicalITIDKnown || poison.CanonicalITID <= 0 || poison.CanonicalITID > maxTraceDBInternalID {
 		return &traceDBOutputInvariantError{Reason: "invalid_sync_span_exact_lane_poison"}
+	}
+	return nil
+}
+
+// poisonGlobally records a source-admission failure whose physical B/E lane
+// cannot be proven. It is deliberately constant-state and idempotent per
+// producer: an untrusted table cannot grow an in-memory diagnostic ledger.
+// Finalize remains the sole publication point and suppresses every governed
+// B/E candidate while leaving S/F/I/C producers outside this authority alive.
+func (authority *traceDBSyncSpanAuthority) poisonGlobally(ctx context.Context, poison traceDBSyncSpanGlobalPoison) error {
+	if authority == nil || authority.state != traceDBSyncSpanAuthorityOpen || authority.artifactSource == "" {
+		return &traceDBOutputInvariantError{Reason: "sync_span_authority_not_open"}
+	}
+	if ctx == nil {
+		return &traceDBOutputInvariantError{Reason: "missing_sync_span_global_poison_context"}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := validateTraceDBSyncSpanGlobalPoison(poison); err != nil {
+		return err
+	}
+	if !authority.globalPoisoned[poison.Producer] {
+		authority.globalPoisoned[poison.Producer] = true
+		authority.globalPoisonedTotal++
+	}
+	return nil
+}
+
+func validateTraceDBSyncSpanGlobalPoison(poison traceDBSyncSpanGlobalPoison) error {
+	if poison.Producer != traceDBSyncSpanProducerSyscall ||
+		poison.Reason != traceDBSyncSpanGlobalPoisonUnlocalizableSyscallCandidate {
+		return &traceDBOutputInvariantError{Reason: "invalid_sync_span_global_poison"}
 	}
 	return nil
 }
@@ -371,8 +425,8 @@ func traceDBSyncSpanCandidateProvenanceMatches(candidate traceDBSyncSpanCandidat
 			candidate.OwnerIPIDKnown &&
 			!candidate.DepthKnown &&
 			candidate.NameProvenance == traceDBSyncSpanNameSyscallNumber &&
-			candidate.StartCPUProvenance == traceDBSyncSpanCPULegacyUnverified &&
-			candidate.EndCPUProvenance == traceDBSyncSpanCPULegacyUnverified &&
+			candidate.StartCPUProvenance == traceDBSyncSpanCPUSyscallTypedRunning &&
+			candidate.EndCPUProvenance == traceDBSyncSpanCPUSyscallTypedRunning &&
 			candidate.CanonicalITIDKnown && candidate.CanonicalITID > 0
 	case traceDBSyncSpanProducerAppStartup:
 		return candidate.StableKind == traceDBSyncSpanStableAppStartupRowID &&
@@ -448,11 +502,20 @@ func (authority *traceDBSyncSpanAuthority) finalize(ctx context.Context, sink *t
 	}
 	authority.state = traceDBSyncSpanAuthorityFinalizing
 	report = authority.baseReport()
-	coverage.Found = report.SubmittedSpans > 0 || authority.poisonedTotal > 0
+	coverage.Found = report.SubmittedSpans > 0 || authority.poisonedTotal > 0 || authority.globalPoisonedTotal > 0
 	if report.SubmittedSpans > math.MaxInt/2 {
 		return report, coverage, &traceDBOutputInvariantError{Reason: "sync_span_authority_coverage_count_overflow"}
 	}
 	coverage.RowsRead = report.SubmittedSpans * 2
+	if report.GlobalPoisoned {
+		authority.applySourceFailClosed(&report, "unlocalizable_syscall_candidate")
+		if reason := authority.stage.budget(); reason != "" {
+			report.BudgetFailClosedReason = reason
+		}
+		coverage.Skipped = traceDBSyncSpanReportSummary(report)
+		authority.state = traceDBSyncSpanAuthorityFinalized
+		return report, coverage, nil
+	}
 	if reason := authority.stage.budget(); reason != "" {
 		authority.applyBudgetFailClosed(&report, reason)
 		coverage.Skipped = traceDBSyncSpanReportSummary(report)
@@ -531,15 +594,40 @@ func (authority *traceDBSyncSpanAuthority) baseReport() traceDBSyncSpanReport {
 	for producer := traceDBSyncSpanProducerRegistration; producer <= traceDBSyncSpanProducerStaticInitialize; producer++ {
 		submitted := authority.submitted[producer]
 		poisoned := authority.poisoned[producer]
-		if submitted == 0 && poisoned == 0 {
+		globalPoisoned := authority.globalPoisoned[producer]
+		if submitted == 0 && poisoned == 0 && !globalPoisoned {
 			continue
+		}
+		globalDeclarations := 0
+		if globalPoisoned {
+			globalDeclarations = 1
 		}
 		report.ByProducer[producer] = traceDBSyncSpanProducerStats{
 			SubmittedSpans: submitted, PoisonDeclarations: poisoned,
+			GlobalPoisonDeclarations: globalDeclarations,
 		}
 	}
 	report.SubmittedSpans = authority.submittedTotal
+	report.GlobalPoisoned = authority.globalPoisonedTotal > 0
 	return report
+}
+
+func (authority *traceDBSyncSpanAuthority) applySourceFailClosed(report *traceDBSyncSpanReport, reason string) {
+	if report == nil {
+		return
+	}
+	if strings.TrimSpace(reason) == "" {
+		reason = "unknown_source"
+	}
+	report.SourceFailClosedReason = reason
+	report.GlobalPoisoned = true
+	report.EmittedEndpoints = 0
+	report.SuppressedSpans = report.SubmittedSpans
+	for producer, stats := range report.ByProducer {
+		stats.EmittedEndpoints = 0
+		stats.SuppressedSpans = stats.SubmittedSpans
+		report.ByProducer[producer] = stats
+	}
 }
 
 func (authority *traceDBSyncSpanAuthority) applyBudgetFailClosed(report *traceDBSyncSpanReport, reason string) {
@@ -984,6 +1072,9 @@ func traceDBSyncSpanReportSummary(report traceDBSyncSpanReport) string {
 	if report.BudgetFailClosedReason != "" {
 		parts = append(parts, "sync_family_budget_fail_closed="+report.BudgetFailClosedReason)
 	}
+	if report.SourceFailClosedReason != "" {
+		parts = append(parts, "sync_family_source_fail_closed="+report.SourceFailClosedReason)
+	}
 	if report.SuppressedSpans > 0 {
 		counts["suppressed_spans"] = report.SuppressedSpans
 		counts["suppressed_endpoints"] = report.SuppressedSpans * 2
@@ -1014,7 +1105,7 @@ func traceDBSyncSpanReportSummary(report traceDBSyncSpanReport) string {
 
 func reconcileTraceDBSyncSpanCoverage(items []TraceDBCoverage, report traceDBSyncSpanReport) error {
 	for producer, stats := range report.ByProducer {
-		if stats.SubmittedSpans == 0 && stats.PoisonDeclarations == 0 {
+		if stats.SubmittedSpans == 0 && stats.PoisonDeclarations == 0 && stats.GlobalPoisonDeclarations == 0 {
 			continue
 		}
 		family, table, ok := traceDBSyncSpanProducerCoverageKey(producer)
@@ -1047,6 +1138,14 @@ func reconcileTraceDBSyncSpanCoverage(items []TraceDBCoverage, report traceDBSyn
 		if stats.PoisonDeclarations > 0 {
 			traceDBAppendCoverageSkipped(item, fmt.Sprintf(
 				"sync_span_authority: exact_lane_poison_declarations=%d", stats.PoisonDeclarations))
+		}
+		if stats.GlobalPoisonDeclarations > 0 {
+			traceDBAppendCoverageSkipped(item, fmt.Sprintf(
+				"sync_span_authority: global_poison_declarations=%d", stats.GlobalPoisonDeclarations))
+		}
+		if report.SourceFailClosedReason != "" {
+			traceDBAppendCoverageSkipped(item,
+				"sync_span_authority: sync_family_source_fail_closed="+report.SourceFailClosedReason)
 		}
 		if report.BudgetFailClosedReason != "" {
 			traceDBAppendCoverageSkipped(item,
