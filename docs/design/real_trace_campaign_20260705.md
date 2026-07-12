@@ -2291,6 +2291,8 @@ P0-a明确不混direct marker能力、page-cache单位、storage/UFS/I2C/MMC/F2F
 
 P0-a0 descriptor authority 已由 `6f9637068` 修复并推送：同段/跨段完整相等block幂等，任何同ID冲突或可辨畸形永久quarantine且不可被后续clean救活；duplicate ID/print/clean-field、bad field/signed/name、reserved-key空白和grammar注入均有机械pin。关联raw row仅计coverage、不进入missing/unknown或header-only发布；sibling locality与all-poison标准header/caveat均有E2E。focused×20、race×5、包级/全仓test+vet与两路独立RELEASE完成（压力复核focused×100/race×20）。该批未关闭body payload：下一小批仍为direct typed decoder + known-reject，再推进structured descriptor闭集。
 
+P0-a1 direct core body 小批已冻结、代码未交付：closed family为wake/waking、blocked、CPU freq/limits/idle、Binder tx/received、IRQ/softirq/IPI。实现必须是source-neutral typed payload + direct decoder +唯一canonical renderer，并把production verdict拆成`unsupported/admitted/rejected`；known-family坏body只能局部拒绝并按闭集原因披露，不能再回落header-only。PID/CPU/source width/signedness/alias/string均从物理descriptor与raw bounds精确判定，CPU0和priority 140..159保真，payload CPU不继承header CPU，线程名仅display。Donghu实际存在族做golden，缺席族按OpenHarmony pinned schema，不以Berlin旧转换文本裁格式。本批不改structured/marker/page/storage；提交推送后再让structured decoder消费同一typed payload。
+
 ## §29.47 标准 Donghu profile 差分审计立案（2026-07-12，未收账）
 
 **基准边界**：`donghu.ftrace` SHA `e15d3df…` 含27,843 events、14种event；sched_switch 4,670/4,670有next_info，blocked 438/438有delay，page-cache 2,907/2,907为page/pfn/ofs形。该文件证明 Donghu profile 中“存在什么”，不证明其他标准profile中“不允许什么”。CRLF、无systrace header与当前LF+生成header是容器差异；线程名会变化，禁止参加profile判定。hmtrace SQL的keyless `clock_set_rate: <name> <value>`是另一已证标准profile，不能被Donghu keyed形全局替换。
