@@ -296,6 +296,17 @@ schema witness 有效，但 scheduler head、优先级反转数值和最终显�
 | **G12：D-state/io-burst 同值双席疑案** | **结案** | hmfs 行实际是零时长 `S + iowait marker`，与 14.272ms 有值成员不是同一物理 D-state 段；旧显示把 valueless member 复写成组值。 | 当前 `MergedValuelessCount` 显示修复与真实 witness 一致，不再按物理双计立案。 |
 | **IO request identity / B5/B7/C10/C12/C13/C16** | **继续 witness 触发** | 本批 block 37/37 唯一配对、无 ambiguous cohort，也没有稳定 `rq/request_id/bio/cookie/tag` token；其它项没有最终 HTML/E# 或多窗/typed object 证明。 | 保持 fail-close/现状，不以“未采到”冒充“不存在”，触发条件仍按上表和采集手册执行。 |
 
+## 2026-07-12 P0-a3 B direct pair-critical 结案勘正
+
+本节是 Workqueue/DMA direct RMQ 批次的最新状态权威，覆盖本账前文所有“B 待交付 / B—E 开放 / 下一代码批为 B”的历史快照。
+
+- **已修已推送 `74cc0c010`**：唯一 direct pair typed decoder/canonical renderer只治理 exact `workqueue_execute_start/end`、`dma_fence_wait_start/end`。Workqueue current 32/64-bit profile要求完整同宽 `work:void * + function:void *`，Linux v5.4 legacy end只由 exact work-only roster与精确`"work struct %p", REC->work` PrintFmt正向识别；坏 current function严禁降级。DMA只在四个hard tuple字段、两个`__data_loc char[]`动态scalar及range互斥全部证明后一次性提交key provenance，`context/seqno`保持u32的0与MaxUint32；重叠动态字节不得制造伪lane。
+- **complete-capture correctness 已闭合**：已知exact endpoint在任何common envelope、CPU、body或descriptor `continue`前进入同一发布前barrier；descriptor冲突保留所有可恢复exact family，匿名descriptor不猜。坏metadata且owner+hard key可证时只毒exact lane；`addr/address`硬键别名、未知owner/key及DMA overlap关闭对应family；seal后统一过滤，clean sibling、另一family和non-endpoint inventory保留。observation、published-row、lane-key预算或publisher映射不完整均视为barrier自身证明失败，Workqueue/DMA两族全局fail-close并通过`budget_fail_closed=true`披露。
+- **单点权威与既有合同保持**：direct与SQL raw通过唯一hitraceconv wrapper调用`tracequery.FingerprintPairingEndpoint`和`LaneKey`；不以TID、comm、ordinal伪造direct generation。SQL既有Workqueue function-optional和uint64 DMA适配合同不被direct ABI收窄；canonical WQ wire对齐`work struct 0x…[: function 0x…]`，DMA固定为`driver=… timeline=… context=%u seqno=%u`；完整行仍受单物理行/1MiB终门约束。
+- **机械证据**：字段missing/wrong sign/type/width/truncated/same+conflicting duplicate/alias/overlap、32/64-bit高位指针、legacy正负profile、DMA 0/MaxUint32、data_loc bounds/NUL/UTF-8/control/256/257边界全部有pin；E2E覆盖坏endpoint跨洞反救援、lane/family locality、坏owner/common envelope、poisoned descriptor、namespace、三类预算和converter→tracequery每族恰一pair。
+- **验证全绿**：focused shuffle `×50`；focused race+shuffle `×10`；`go test ./internal/hitraceconv ./internal/tracequery -count=1`；`go vet ./internal/hitraceconv ./internal/tracequery`；`go test ./... -count=1`；`go vet ./...`；`git diff --check`。Donghu golden SHA `e15d3df…`复放仍为27,843/27,843 event、14 event names、0 unknown/unparsed/panic/clock regression。三路独立descriptor/barrier、pair payload、DMA全链冻结最终均为RELEASE。
+- **剩余队列**：P0-a3 当前为 **A/B已结案，C—E开放**；下一代码批严格为 **C bounded I2C/SMBus**，随后D page/writeback、E MMC/F2FS/EROFS。UFS/thermal/regulator、container integrity、generic storage typed request identity及R1b-C/R2仍按各自条目开放，不能借本批销项。
+
 ## 统一采集与回访命令
 
 ```bash
