@@ -416,6 +416,16 @@ schema witness 有效，但 scheduler head、优先级反转数值和最终显�
 - **真实trace与能力声明**：标准Donghu SHA-256=`e15d3dfc7963739c648a3f4f40095cabff19716575949bf38ea02ef732672b25`复放为27,843/27,843 recognized、14 event names、0 EROFS event-column、0 unknown/unparsed/panic/clock regression；报告`/tmp/codrax-e3-donghu-census-audit-20260712.txt`的SHA-256=`aec1a83e7ab9a9a41650e37f897165ff5cbfa89b3e15cc9e2bc4bc35c5a18a5c`，临时路径不作仓内长期证据地址。客户材料与Donghu仍无EROFS生产正例，因此E3只宣称**source-pinned fail-close correctness**，不宣称production attestation。
 - **剩余队列**：P0-a3 A/B/C/D/E1/E2/E3至此结案；官方OH 5.10/Linux 6.6 EROFS descriptor能力继续witness触发。Generic storage typed request identity、Profiler Session/container integrity、UFS/thermal/regulator、ROW-SORT-BND、R1b-C/R2及账本其余开放项均未被本批改变，须继续按ROI另立原子批。**状态勘正**：BLIND-3 Harmony counter已由`539b9be05`实现、`3b6884f32`结案，不属于剩余队列；禁止因本段历史误列重复施工。
 
+## 2026-07-12 R1b-C1 SQL Syscall source admission 施工冻结
+
+本批从干净且已与`origin/main`对齐的`9289d9861`开始；只关闭`syscall`单族的source admission，不把中央B/E authority、其它legacy exporter或资源规模批重新混为一批。代码交付前本节保持“施工冻结”，不得写成已完成。
+
+- **已证伪造通路**：当前`exportTraceDBSyscall`以`COALESCE(dur,0)`把NULL时长铸成零长B/E，以`WHERE dur>=0`在Go审计前删除负值/畸形physical sibling；`ts/dur`直接扫入`int64`可接受SQLite可转换storage class，`syscall_number`可被`traceDBAnyText`默认成`None`，ITID又错用canonical decoder而不是已确立的syscall signed-int32 producer profile。`ts+dur`未checked，thread/positive-process closed generation未校验，Start/End CPU固定0且标`LegacyUnverified`。坏row被SQL过滤/逐行continue后，同header TID或跨producer的合法B/E仍可穿洞发布，构成anti-rescue违规和静默错根因面。
+- **唯一实施范围**：extended stage把已存在的同实例`traceDBSchedulerAuthority`与同一次构造的`lifecycleRunning`显式交给syscall exporter；全物理行扫描，查询中禁止`WHERE/COALESCE/CAST`和按值修复。Stable rowid沿既有signed hidden-rowid闭集；`ts/dur/syscall_number/itid`逐物理SQLite scalar strict审计，`ts,dur>=0`且checked end。Syscall ITID固定signed-int32 profile，要求exact ITID、positive canonical thread/process owner；显式`dur=0`走point admission，`dur>0`走thread+process physical closed endpoint，`end==cut`拒绝。Start与exact End分别只消费typed Running，CPU0/4095保真，unknown/source-taint/lifecycle-reject绝不补0。
+- **anti-rescue与单点发布**：可定位exact ITID/header TID的坏syscall row必须向现有shared sync authority声明同physical lane poison；owner/lane不可定位的exact syscall row升级常数状态的global sync fail-close。不得新建第二套B/E stage、局部栈或文本后审；所有row/poison先于既有`Finalize`首发完成，合法candidate仍只submit既有bounded hybrid stage，跨producer同物理lane同判。无关lane与S/F/I/C非sync发布面保持存活。
+- **冻结验收矩阵**：①NULL/TEXT/REAL/BLOB逐字段、负ts/dur、overflow/MaxInt64、显式`t=0/dur=0`、syscall number无默认；②signed ITID高半区正例与`-1`sentinel/正high-half/ambiguous/idle/PID0负例，hidden rowid `-1/0/1`、shadow rowid与WITHOUT ROWID；③旧/新代、cut@start/end、cross/future/same-identity cut、thread/process/global poison与rename parity；④两端CPU0/4095、迁CPU、missing/source-taint/lifecycle-reject；⑤`valid→bad→valid`同lane正反物理序、未知lane全sync fail-close、无关lane/跨producer正负对照；⑥memory/SQLite stage与tiny-promotion parity、tracequery round-trip、AST pin无syscall SQL过滤/修复旁路且唯一publisher。Focused/shuffle`×20`、race`×5`、包级与全仓test/vet、diff-check、Donghu零回归及至少两路独立冻结全部RELEASE后才可提交代码。
+- **严禁混入与后续顺序**：AppStartup、static-init、TaskPool、process-measure、R2 snapshot、ROW-SORT-BND、`loadArgsets`、Profiler container、storage request identity均不在C1。R1b-C后续暂按TaskPool→static-init→AppStartup→process-measure逐族复审。Profiler allocation safety是独立P1高ROI（Session无界`ReadBytes`与frame按不受信u32分配），排在C1后；typed storage request identity继续等待生产双端token witness，BLIND-3不得重开。
+
 ## 统一采集与回访命令
 
 ```bash
