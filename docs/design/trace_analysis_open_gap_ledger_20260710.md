@@ -540,6 +540,15 @@ B终态不变，但按单点权威拆成B1-a/B1-b/B2，任一子批不得提前�
 
 **B2原子批校准**：B2按B2-a/B2-b两次代码推送，任一子批不得提前关闭B2或P1-a2.2。**B2-a**先落39槽RowsRead/RowsEmitted固定聚合、unknown单桶、container frame-local typed degraded verdict、structured exact event field/slot sink记账与pair coverage index核销，关闭修前红例及逐framecoverage驻留；degradation在该批只允许由renderer分支直接赋固定source-class enum并把legacy exact reason放入固定K8显示样例，硬门只认typed class/bool，不解析任何coverage文本。**B2-b**再把`EnvelopeDegradations`、core/aux/block/filemap/generic wire audit与bodyRejected全调用图替换为exact closed issue enum+受限`PayloadField`，由`label(eventField)`单向生成兼容文本，非法kind/field组合fail-close并用direct golden证明标签不漂；只有B2-b完成后才可按上节验收矩阵关闭B2。该拆分优先收住有生产可达witness的pair错扣与资源增长，同时不把source-class census冒充最终精确reason权威。
 
+### P1-a2.2-B2-a fixed event slot与typed pair核销交付结案
+
+代码提交`8eb0517b1`已独立推送到`main`；本节关闭structured event coverage逐frame驻留、unknown动态table、container字符串反推outcome及Table跨structured/text错扣，只完成B2-a，B2-b exact reason producer迁移与B2/P1-a2.2总项继续开放。
+
+- **39槽固定聚合已落地**：36个descriptor slot与event-envelope、cpu-detail-envelope、unknown共39个固定槽，每槽checked RowsRead/RowsEmitted、source-class occurrence/affected-frame census及K8 reason样例，retained batch/ledger/index无map/slice。container每个TracePluginResult只merge一次typed batch并直接读取`batch.degraded()`，不再逐frameappend coverage，也删除`profilerFtraceCoverageHasSkipped`硬门。known field终态各至多一条coverage；field 410/2002即使同名也分槽并披露独立event field/schema；unknown只发布固定`__unknown_event_field__`与稳定field-ID K8样例。direct renderer严格保留legacy per-call `event_field:<id>`、Skipped与字段账，不被container聚合形态改写。
+- **exact structured pair provenance与错扣根治**：structured pair row双向强制携带合法MMC 4015/4016或F2FS 4009..4012 exact field，text/non-structured禁止携带；provenance经spill JSON往返并在读回再次校验。sink按kind+field+lane记录structured totals，family/lane/budget fail-close均保留exact field scalar并释放从属lane proof state。event coverage终态index按slot固定记录，reconcile仅用exact field/index扣structured withheld并验证其和等于`sink.withheldStructured`；旧eventTables/`withheldPairRowsForTable`扫描已从硬核销路径删除，outer publisher仍独立验证`accounted==withheld`。修前红例structured lane A存活、同Table text lane B被poison在structured-first/text-first两序均得到event=1/plugin=0，不再双扣。
+- **机械证据与验证**：单ledger百万observation保持一槽且RowsRead/RowsEmitted精确；36 known各唯一，1/4096 clean/degraded shape恒定，32 distinct unknown正反序K8字节一致、4096同unknown occurrence/affected精确，field 0/-1分槽，degraded后clean frame-local outcome不污染。100%负向覆盖text冒充、structured缺field、kind/field mismatch、field/lane MaxInt前置失败无mutation、budget fail-close及spill roundtrip；既有MMC/F2FS lane/family/multi-publisher/barrier E2E随目标包通过。source fail-close先物化event coverage再统一RowsEmitted归零并补source provenance。Focused shuffle`×20`、focused race、`go test ./internal/hitraceconv -count=1`、`go vet ./internal/hitraceconv`、`go test ./... -count=1`、`go vet ./...`、gofmt与diff-check全绿；代码、对抗、测试三路独立终审均为**RELEASE**。
+- **诚实剩余**：B2-b仍须把当前`Kind+bounded legacy reason sample`升级为producer全链exact closed issue enum+受限PayloadField并证明direct label parity，故B2与P1-a2.2尚未结案。a2.3 repeated protobuf、a2.4 `pairPublishers/textMessages`、`ROW-SORT-BND`、P1-b、TOCTOU及Profiler全链有界声明全部继续开放。
+
 ## 统一采集与回访命令
 
 ```bash
