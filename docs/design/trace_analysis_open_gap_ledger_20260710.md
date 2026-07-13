@@ -538,6 +538,8 @@ B终态不变，但按单点权威拆成B1-a/B1-b/B2，任一子批不得提前�
 - **验收矩阵**：36 known各自唯一、410/2002分槽、1/4096同field clean/degraded恒定shape、单ledger百万observation精确计数、mixed clean/可发布降级/拒绝、degraded后clean frame-local outcome、32 distinct unknown正反序稳定K8及unknown单桶、field 0/-1分槽、direct/container parity均须有正负pin。pair必须覆盖正常MMC/F2FS、late poison、多publisher、lane-local poison、family-global poison及修前红例“structured A存活+同Table text B withheld”，精确核对event/plugin/barrier/StructuredRows/TextRows/sink publishable五账；合法structured prefix+oversized source须证明所有event/plugin RowsEmitted终态为0且保留RowsRead/typed reason/source marker。overflow/坏index/过量withheld必须checked fail-close。AST锁定ledger无map/slice、unknown table常量、container不解析coverage文本、不逐frameappend、reconcile不再出现eventTables/`withheldPairRowsForTable`、structured row exact slot与410/2002异槽。
 - **明确留后**：B2完成才可关闭P1-a2.2的structured diagnostics子项；P1-a2.3仍负责raw/event repeated protobuf两遍验证+流式callback，P1-a2.4仍负责固定宽度row provenance并删除逐frame publishers/messages。B2不得借fixed event ledger宣称单frame decode峰值、全链row provenance、`ROW-SORT-BND`、P1-b或Profiler全链有界已经关闭。
 
+**B2原子批校准**：B2按B2-a/B2-b两次代码推送，任一子批不得提前关闭B2或P1-a2.2。**B2-a**先落39槽RowsRead/RowsEmitted固定聚合、unknown单桶、container frame-local typed degraded verdict、structured exact event field/slot sink记账与pair coverage index核销，关闭修前红例及逐framecoverage驻留；degradation在该批只允许由renderer分支直接赋固定source-class enum并把legacy exact reason放入固定K8显示样例，硬门只认typed class/bool，不解析任何coverage文本。**B2-b**再把`EnvelopeDegradations`、core/aux/block/filemap/generic wire audit与bodyRejected全调用图替换为exact closed issue enum+受限`PayloadField`，由`label(eventField)`单向生成兼容文本，非法kind/field组合fail-close并用direct golden证明标签不漂；只有B2-b完成后才可按上节验收矩阵关闭B2。该拆分优先收住有生产可达witness的pair错扣与资源增长，同时不把source-class census冒充最终精确reason权威。
+
 ## 统一采集与回访命令
 
 ```bash
