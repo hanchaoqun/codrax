@@ -105,8 +105,14 @@ func Run(idx *Index, q Query) Result {
 	if !explicitTimeStart && !explicitTimeEnd && strings.TrimSpace(q.Pattern) != "" {
 		q.FrameWindowAutoDerived = true
 	}
-	boundedWindowOrSelector := queryBoundedTimeStart(q) ||
-		queryBoundedTimeEnd(q) ||
+	// Freeze caller-provided boundedness before normalizeQuery fills missing
+	// endpoints from index metadata.  A derived default is useful for view
+	// execution but is not proof that the caller supplied a state-account
+	// window; explicit [0,x] remains distinguishable through TimeStartSet.
+	stateAccountTimeStartBounded := queryBoundedTimeStart(q)
+	stateAccountTimeEndBounded := queryBoundedTimeEnd(q)
+	boundedWindowOrSelector := stateAccountTimeStartBounded ||
+		stateAccountTimeEndBounded ||
 		q.LineStart != 0 ||
 		q.LineEnd != 0 ||
 		strings.TrimSpace(q.SpanName) != "" ||
@@ -564,11 +570,15 @@ func Run(idx *Index, q Query) Result {
 	// only on non-bundle runs.
 	if res.TargetWindowStates == nil && (q.PID > 0 || strings.TrimSpace(q.Thread) != "") &&
 		(res.FrameRootCauseBundle == nil || res.FrameRootCauseBundle.TargetWindowStates == nil) {
-		if q.TimeEnd > q.TimeStart && q.TimeStart > 0 {
+		if stateAccountTimeStartBounded && stateAccountTimeEndBounded && q.TimeEnd > q.TimeStart {
 			target := ThreadRef{PID: q.PID, Comm: strings.TrimSpace(q.Thread)}
 			window := TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}
 			tl, ok := targetWindowTimeline(idx, q, target, window)
-			res.TargetWindowStates = buildTargetWindowStateAccount(idx, tl, ok, target, window, res.WindowStats)
+			// targetWindowTimeline resolves a name-only selector to one precise
+			// scheduler TID (or fails closed).  Carry that resolved identity into
+			// every refinement; the raw selector's PID=0/comm is only an input
+			// hint and may be stale after a thread rename.
+			res.TargetWindowStates = buildTargetWindowStateAccount(idx, tl, ok, tl.Thread, window, res.WindowStats)
 		}
 	}
 	return res
