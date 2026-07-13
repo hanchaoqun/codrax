@@ -464,6 +464,29 @@ func TestRunTraceDiagCLIConflictingFlagsFailLoud(t *testing.T) {
 	}
 }
 
+// OUT-1 修复轮 F1 (2026-07-12): --report-md/--report-html are pipeline-mode
+// output flags — tracediag produces no final-answer transcript, so the
+// requested report file would silently never appear. Same P2-3 contract as
+// --plan-out: a deterministic CLI refuses the ambiguity instead of silently
+// ignoring the flag.
+func TestRunTraceDiagCLIRejectsExplicitReportFlags(t *testing.T) {
+	scriptPath, tracePath, _ := writeTraceDiagCmdFixtures(t)
+	withTraceDiagFlags(t, scriptPath, tracePath, "", "auto")
+	oldMD, oldHTML := flagReportMD, flagReportHTML
+	t.Cleanup(func() { flagReportMD, flagReportHTML = oldMD, oldHTML })
+	flagReportMD, flagReportHTML = "r.md", "r.html"
+	var buf bytes.Buffer
+	err := runTraceDiagCLI(nil, &buf, nil)
+	if err == nil {
+		t.Fatal("--report-md/--report-html under --tracediag must fail loud")
+	}
+	for _, want := range []string{"--report-md", "--report-html", "cannot be combined"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("conflict error must name %q, got %v", want, err)
+		}
+	}
+}
+
 func TestTraceDiagInertLogFlagsDetection(t *testing.T) {
 	oldLevel, oldStdout := flagLogLevel, flagLogStdout
 	t.Cleanup(func() { flagLogLevel, flagLogStdout = oldLevel, oldStdout })

@@ -79,10 +79,34 @@ func Write(a Args) string {
 // rendering. Retention is counted by markdown dumps: pruning an old .md removes
 // its .html sibling, and orphaned canonical .html dumps are cleaned on the same
 // sweep.
+//
+// When explicit report targets are registered (SetExplicitReport, CLI
+// --report-md / --report-html), the SAME composed body is additionally
+// written to those exact paths. The default-dir dump above is unchanged by
+// their presence — unless ExplicitReport.SuppressDefaultDir is set
+// (output_dump_enabled=false + explicit CLI request), in which case only
+// the explicit paths write and the returned Result stays empty so callers
+// treat the default dump as disabled.
 func WriteResult(a Args) Result {
-	if a.Dir == "" {
+	explicit := explicitReportSnapshot()
+	writeDefault := a.Dir != "" && !explicit.SuppressDefaultDir
+	if !writeDefault && !explicit.hasTarget() {
 		return Result{}
 	}
+	body := BuildBody(a)
+	var result Result
+	if writeDefault {
+		result = writeDefaultDump(a, body)
+	}
+	writeExplicitReportCopies(explicit, body)
+	return result
+}
+
+// writeDefaultDump is the historical default-directory dump: mkdir, prune
+// retention, write the canonical <timestamp>-<pid>.md, then its .html
+// sibling. body is the already-composed BuildBody product shared with any
+// explicit report copies.
+func writeDefaultDump(a Args, body string) Result {
 	if err := os.MkdirAll(a.Dir, 0o755); err != nil {
 		logging.Warning("[output_dump] mkdir %s failed: %v", a.Dir, err)
 		return Result{}
@@ -90,7 +114,6 @@ func WriteResult(a Args) Result {
 	PruneDir(a.Dir, a.Max)
 	name := FileName(a.Now, a.PID)
 	path := filepath.Join(a.Dir, name)
-	body := BuildBody(a)
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		logging.Warning("[output_dump] write %s failed: %v", path, err)
 		return Result{}

@@ -761,6 +761,8 @@ var compatLongFlagNames = map[string]struct{}{
 	"auto-apply":                {},
 	"plan-out":                  {},
 	"plan-file":                 {},
+	"report-md":                 {},
+	"report-html":               {},
 	"data-resume":               {},
 	"auto-init-repo":            {},
 	"allow-scaffold":            {},
@@ -821,6 +823,13 @@ func rootRun(cmd *cobra.Command, args []string) error {
 		defer app.mcpRegistry.Close()
 	}
 	if strings.TrimSpace(flagWriteAudit) != "" {
+		// OUT-1 修复轮 F2 (2026-07-12): the audit lane prints typed audit
+		// JSON and never produces a final-answer transcript — a requested
+		// --report-md/--report-html file would silently never appear. Same
+		// refuse-the-ambiguity contract as the tracediag conflict list.
+		if conflicts := explicitReportFlagConflicts(); len(conflicts) > 0 {
+			return fmt.Errorf("--write-audit is a standalone audit mode and cannot be combined with: %s", strings.Join(conflicts, ", "))
+		}
 		return runWriteAuditCLI(flagWriteAudit, cmd.OutOrStdout())
 	}
 
@@ -886,6 +895,15 @@ func rootRun(cmd *cobra.Command, args []string) error {
 				logging.Info("[cmd] %s mode hydrated request from plan file (no --request given)", mode)
 			}
 		}
+	}
+
+	// OUT-1 (§29.55.1): explicit final-answer report outputs. Resolve and
+	// arm before dispatch so a REPL launch with either flag set fails loud
+	// here, and so the orchestrator dump hook is armed even when
+	// output_dump_enabled=false (explicit CLI path overrides the default
+	// dump gate without re-enabling the default dump).
+	if err := configureExplicitReportOutputs(request); err != nil {
+		return err
 	}
 
 	if request == "" {
@@ -1596,6 +1614,10 @@ func resolveUserModeAndWritePhase(in modeResolutionInputs) (repl.UserMode, types
 // or written to a file. The REPL owns the glamour rendering step via
 // its own RenderResult callback.
 func runSingleShot(_ *cobra.Command, request string) error {
+	// OUT-1: report the fate of --report-md/--report-html on every exit
+	// path (including the data/operation lanes and pipeline errors, which
+	// produce no final-answer transcript and therefore no report copy).
+	defer printExplicitReportStatus()
 	logging.Info("starting pipeline for request: %s", request)
 	configureSingleShotColor()
 	app.renderer.SetOutput(os.Stderr)

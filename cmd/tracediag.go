@@ -119,6 +119,10 @@ func traceDiagConflictingFlags(args []string) []string {
 		len(flagAttachAtrace) > 0 || strings.TrimSpace(flagAttachAtraceText) != "" {
 		conflicts = append(conflicts, "--htrace/--atrace (use --trace for tracediag)")
 	}
+	// OUT-1 修复轮 F1 (2026-07-12): tracediag produces no final-answer
+	// transcript, so a requested --report-md/--report-html file would
+	// silently never appear (use --out for the tracediag report).
+	conflicts = append(conflicts, explicitReportFlagConflicts()...)
 	return conflicts
 }
 
