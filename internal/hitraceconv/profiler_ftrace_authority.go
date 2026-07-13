@@ -1,14 +1,11 @@
 package hitraceconv
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"math"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
@@ -406,14 +403,23 @@ type profilerStrictSystracePayloadStage struct {
 }
 
 func stageProfilerStrictSystracePayload(data []byte) profilerStrictSystracePayloadStage {
+	stage, _ := stageProfilerStrictSystracePayloadContext(context.Background(), data)
+	return stage
+}
+
+func stageProfilerStrictSystracePayloadContext(ctx context.Context, data []byte) (profilerStrictSystracePayloadStage, error) {
 	var stage profilerStrictSystracePayloadStage
-	stage.scan = scanProfilerStrictSystracePayload(data, func(row renderedRow, pair profilerPairAdmission) {
+	scan, err := scanProfilerStrictSystracePayloadContext(ctx, data, func(row renderedRow, pair profilerPairAdmission) {
 		if pair.Governed && !pair.Admitted {
 			stage.rejectedPairs = append(stage.rejectedPairs, pair)
 		}
 		stage.rows = append(stage.rows, row)
 	})
-	return stage
+	if err != nil {
+		return profilerStrictSystracePayloadStage{}, err
+	}
+	stage.scan = scan
+	return stage, nil
 }
 
 func addProfilerStrictSystraceStage(stage profilerStrictSystracePayloadStage, seq *int, sink *traceDBRowSink) (int, bool, error) {
@@ -471,19 +477,54 @@ type profilerStrictSystracePayloadScan struct {
 // separate authority. Callers may stage candidate rows, but may publish none
 // when any physical fragment fails the complete-text gate.
 func scanProfilerStrictSystracePayload(data []byte, visit func(renderedRow, profilerPairAdmission)) profilerStrictSystracePayloadScan {
+	scan, _ := scanProfilerStrictSystracePayloadContext(context.Background(), data, visit)
+	return scan
+}
+
+func scanProfilerStrictSystracePayloadContext(ctx context.Context, data []byte,
+	visit func(renderedRow, profilerPairAdmission),
+) (profilerStrictSystracePayloadScan, error) {
 	var scan profilerStrictSystracePayloadScan
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return scan, err
+	}
+	processed := uint64(0)
+	pending := uint64(0)
 	for start := 0; start < len(data); {
 		end := start
 		for end < len(data) && data[end] != '\n' {
 			end++
+			pending++
+			if pending == profilerContextByteCheckpointBytes {
+				if err := profilerByteContextCheckpoint(ctx, &processed, pending); err != nil {
+					return profilerStrictSystracePayloadScan{}, err
+				}
+				pending = 0
+			}
 		}
 		part := data[start:end]
 		if len(part) > 0 && part[len(part)-1] == '\r' {
 			part = part[:len(part)-1]
 		}
-		part = bytes.Trim(part, " ")
+		if len(part) > 0 && (part[0] == ' ' || part[len(part)-1] == ' ') {
+			var trimErr error
+			part, trimErr = profilerTrimASCIISpacesBytesContext(ctx, part)
+			if trimErr != nil {
+				return profilerStrictSystracePayloadScan{}, trimErr
+			}
+		}
 		if end < len(data) {
 			start = end + 1
+			pending++
+			if pending == profilerContextByteCheckpointBytes {
+				if err := profilerByteContextCheckpoint(ctx, &processed, pending); err != nil {
+					return profilerStrictSystracePayloadScan{}, err
+				}
+				pending = 0
+			}
 		} else {
 			start = len(data)
 		}
@@ -496,21 +537,37 @@ func scanProfilerStrictSystracePayload(data []byte, visit func(renderedRow, prof
 		// comments are preamble; invalid/oversized comments still reject the
 		// strict payload, but must do so before any endpoint census can mint
 		// provenance.
-		if profilerTextCommentPrefix(part) {
-			if len(part) > maxProfilerTextLineBytes || !profilerTextPhysicalRunesSafe(part) {
+		commentPrefix := part[0] == '#'
+		if part[0] == '\t' {
+			var commentErr error
+			commentPrefix, commentErr = profilerTextCommentPrefixContext(ctx, part)
+			if commentErr != nil {
+				return profilerStrictSystracePayloadScan{}, commentErr
+			}
+		}
+		if commentPrefix {
+			physical, err := profilerPhysicalRunesSafeBytesContext(ctx, part)
+			if err != nil {
+				return profilerStrictSystracePayloadScan{}, err
+			}
+			if len(part) > maxProfilerTextLineBytes || !physical {
 				scan.rejected = true
 			}
 			continue
 		}
 		if len(part) > maxProfilerTextLineBytes {
 			kind, governed, _ := profilerTextPairCensus(part)
+			physical, err := profilerPhysicalRunesSafeBytesContext(ctx, part)
+			if err != nil {
+				return profilerStrictSystracePayloadScan{}, err
+			}
 			if !scan.originDecided {
 				scan.originDecided = true
 				// A bounded exact governed endpoint is itself precise text
 				// provenance after the comment namespace has been excluded. This
 				// keeps an oversized endpoint with an unsafe suffix from becoming
 				// an invisible hole, while anonymous unsafe bytes remain non-text.
-				if profilerTextPhysicalRunesSafe(part) {
+				if physical {
 					scan.originText, _ = profilerTextPhysicalHeaderCensus(part)
 				} else {
 					_, scan.originText = profilerTextLeadingPairCensus(part)
@@ -522,8 +579,10 @@ func scanProfilerStrictSystracePayload(data []byte, visit func(renderedRow, prof
 			scan.rejected = true
 			continue
 		}
-		line := string(part)
-		physicalLine := traceDBSinglePhysicalLine(line, false)
+		physicalLine, err := profilerSinglePhysicalLineBytesContext(ctx, part, false)
+		if err != nil {
+			return profilerStrictSystracePayloadScan{}, err
+		}
 		if !physicalLine {
 			// A non-comment row can remain precise endpoint provenance even when
 			// a trailing control/invalid rune makes the complete row unpublishable.
@@ -539,6 +598,10 @@ func scanProfilerStrictSystracePayload(data []byte, visit func(renderedRow, prof
 			}
 			scan.rejected = true
 			continue
+		}
+		line, err := profilerCloneBytesStringContext(ctx, part)
+		if err != nil {
+			return profilerStrictSystracePayloadScan{}, err
 		}
 		if !scan.originDecided {
 			scan.originDecided = true
@@ -569,8 +632,17 @@ func scanProfilerStrictSystracePayload(data []byte, visit func(renderedRow, prof
 		if visit != nil && scan.originText {
 			visit(row, pair)
 		}
+		if err := ctx.Err(); err != nil {
+			return profilerStrictSystracePayloadScan{}, err
+		}
 	}
-	return scan
+	if err := profilerByteContextCheckpoint(ctx, &processed, pending); err != nil {
+		return profilerStrictSystracePayloadScan{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return profilerStrictSystracePayloadScan{}, err
+	}
+	return scan, nil
 }
 
 // profilerTextCommentPrefix is a classification-only negative gate. Leading
@@ -579,31 +651,36 @@ func scanProfilerStrictSystracePayload(data []byte, visit func(renderedRow, prof
 // whitespace-tolerant header regex. The rune validator still rejects that
 // payload, and no other control character is skipped.
 func profilerTextCommentPrefix(data []byte) bool {
-	for len(data) > 0 && (data[0] == ' ' || data[0] == '\t') {
-		data = data[1:]
-	}
-	return len(data) > 0 && data[0] == '#'
+	found, _ := profilerTextCommentPrefixContext(context.Background(), data)
+	return found
 }
 
-// profilerTextPhysicalRunesSafe is the uncapped physical-rune gate used to
-// decide whether a general oversized row may elect text origin.
-// traceDBSinglePhysicalLine intentionally includes the publication cap, so it
-// cannot distinguish an oversized but otherwise physical row from one
-// containing control separators. Exact malformed endpoint provenance uses the
-// narrower leading-header probe instead. This helper mirrors the normal
-// UTF-8/control/Zl/Zp rules without making any size or blankness decision.
-func profilerTextPhysicalRunesSafe(data []byte) bool {
-	if !utf8.Valid(data) {
-		return false
+func profilerTextCommentPrefixContext(ctx context.Context, data []byte) (bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	for len(data) > 0 {
-		r, width := utf8.DecodeRune(data)
-		if width <= 0 || unicode.IsControl(r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
-			return false
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	processed := uint64(0)
+	pending := uint64(0)
+	for len(data) > 0 && (data[0] == ' ' || data[0] == '\t') {
+		data = data[1:]
+		pending++
+		if pending == profilerContextByteCheckpointBytes {
+			if err := profilerByteContextCheckpoint(ctx, &processed, pending); err != nil {
+				return false, err
+			}
+			pending = 0
 		}
-		data = data[width:]
 	}
-	return true
+	if err := profilerByteContextCheckpoint(ctx, &processed, pending); err != nil {
+		return false, err
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	return len(data) > 0 && data[0] == '#', nil
 }
 
 // profilerTextPairNormalizationCollision detects only a precise parser-shape

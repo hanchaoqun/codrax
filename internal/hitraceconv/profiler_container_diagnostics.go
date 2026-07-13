@@ -7,6 +7,7 @@ package hitraceconv
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -278,15 +279,94 @@ type profilerStableSampleSet struct {
 }
 
 func (samples *profilerStableSampleSet) observe(domain string, raw []byte) {
+	_ = samples.observeContext(context.Background(), domain, raw)
+}
+
+func (samples *profilerStableSampleSet) observeContext(ctx context.Context, domain string, raw []byte) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if samples == nil {
-		return
+		return nil
 	}
 	hash := sha256.New()
-	_, _ = hash.Write([]byte(domain))
+	processed := uint64(0)
+	for start := 0; start < len(domain); {
+		end := min(start+profilerContextByteCheckpointBytes, len(domain))
+		if err := profilerByteContextCheckpoint(ctx, &processed, uint64(end-start)); err != nil {
+			return err
+		}
+		_, _ = hash.Write([]byte(domain[start:end]))
+		start = end
+	}
+	if err := profilerByteContextCheckpoint(ctx, &processed, 1); err != nil {
+		return err
+	}
 	_, _ = hash.Write([]byte{0})
-	_, _ = hash.Write(raw)
+	for start := 0; start < len(raw); {
+		end := min(start+profilerContextByteCheckpointBytes, len(raw))
+		if err := profilerByteContextCheckpoint(ctx, &processed, uint64(end-start)); err != nil {
+			return err
+		}
+		_, _ = hash.Write(raw[start:end])
+		start = end
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	var digest [sha256.Size]byte
 	copy(digest[:], hash.Sum(nil))
+	prefixLen := min(len(raw), profilerDiagnosticPrefixBytes)
+	samples.insertDigest(digest, uint64(len(raw)), raw[:prefixLen])
+	return nil
+}
+
+func (samples *profilerStableSampleSet) observeStringContext(ctx context.Context, domain, raw string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if samples == nil {
+		return nil
+	}
+	hash := sha256.New()
+	processed := uint64(0)
+	for start := 0; start < len(domain); {
+		end := min(start+profilerContextByteCheckpointBytes, len(domain))
+		if err := profilerByteContextCheckpoint(ctx, &processed, uint64(end-start)); err != nil {
+			return err
+		}
+		_, _ = hash.Write([]byte(domain[start:end]))
+		start = end
+	}
+	if err := profilerByteContextCheckpoint(ctx, &processed, 1); err != nil {
+		return err
+	}
+	_, _ = hash.Write([]byte{0})
+	for start := 0; start < len(raw); {
+		end := min(start+profilerContextByteCheckpointBytes, len(raw))
+		if err := profilerByteContextCheckpoint(ctx, &processed, uint64(end-start)); err != nil {
+			return err
+		}
+		_, _ = hash.Write([]byte(raw[start:end]))
+		start = end
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	var digest [sha256.Size]byte
+	copy(digest[:], hash.Sum(nil))
+	prefixLen := min(len(raw), profilerDiagnosticPrefixBytes)
+	samples.insertDigest(digest, uint64(len(raw)), []byte(raw[:prefixLen]))
+	return nil
+}
+
+func (samples *profilerStableSampleSet) insertDigest(digest [sha256.Size]byte, inputLen uint64, prefix []byte) {
 	used := int(samples.Used)
 	insert := used
 	for index := 0; index < used; index++ {
@@ -309,9 +389,9 @@ func (samples *profilerStableSampleSet) observe(domain string, raw []byte) {
 	for index := used - 1; index > insert; index-- {
 		samples.Items[index] = samples.Items[index-1]
 	}
-	item := profilerDiagnosticSample{Digest: digest, InputLen: uint64(len(raw))}
-	prefixLen := min(len(raw), profilerDiagnosticPrefixBytes)
-	copy(item.Prefix[:], raw[:prefixLen])
+	item := profilerDiagnosticSample{Digest: digest, InputLen: inputLen}
+	prefixLen := min(len(prefix), profilerDiagnosticPrefixBytes)
+	copy(item.Prefix[:], prefix[:prefixLen])
 	item.PrefixLen = uint8(prefixLen)
 	samples.Items[insert] = item
 }
@@ -357,89 +437,109 @@ type profilerPluginMetadataCensus struct {
 }
 
 func (census *profilerPluginMetadataCensus) observe(route profilerPluginRoute, plugin profilerPluginData) bool {
+	ok, _ := census.observeContext(context.Background(), route, plugin)
+	return ok
+}
+
+func (census *profilerPluginMetadataCensus) observeContext(ctx context.Context, route profilerPluginRoute,
+	plugin profilerPluginData,
+) (bool, error) {
 	if census == nil {
-		return false
+		return false, nil
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	next := *census
 	payloadBytes := uint64(len(plugin.Data))
-	if census.PayloadCount == 0 {
-		census.PayloadMin = payloadBytes
+	if next.PayloadCount == 0 {
+		next.PayloadMin = payloadBytes
 	}
-	if !checkedProfilerUint64AddTo(&census.PayloadCount, 1) ||
-		!checkedProfilerUint64AddTo(&census.PayloadTotal, payloadBytes) {
-		return false
+	if !checkedProfilerUint64AddTo(&next.PayloadCount, 1) ||
+		!checkedProfilerUint64AddTo(&next.PayloadTotal, payloadBytes) {
+		return false, nil
 	}
-	if payloadBytes < census.PayloadMin {
-		census.PayloadMin = payloadBytes
+	if payloadBytes < next.PayloadMin {
+		next.PayloadMin = payloadBytes
 	}
-	if payloadBytes > census.PayloadMax {
-		census.PayloadMax = payloadBytes
+	if payloadBytes > next.PayloadMax {
+		next.PayloadMax = payloadBytes
 	}
 	if plugin.StatusPresent {
-		if census.StatusPresent == 0 {
-			census.StatusMin, census.StatusMax = plugin.Status, plugin.Status
+		if next.StatusPresent == 0 {
+			next.StatusMin, next.StatusMax = plugin.Status, plugin.Status
 		}
-		if !checkedProfilerUint64AddTo(&census.StatusPresent, 1) {
-			return false
+		if !checkedProfilerUint64AddTo(&next.StatusPresent, 1) {
+			return false, nil
 		}
-		if plugin.Status < census.StatusMin {
-			census.StatusMin = plugin.Status
+		if plugin.Status < next.StatusMin {
+			next.StatusMin = plugin.Status
 		}
-		if plugin.Status > census.StatusMax {
-			census.StatusMax = plugin.Status
+		if plugin.Status > next.StatusMax {
+			next.StatusMax = plugin.Status
 		}
 	}
 	if plugin.ClockIDAmbiguous {
-		if !checkedProfilerUint64AddTo(&census.ClockAmbiguous, 1) {
-			return false
+		if !checkedProfilerUint64AddTo(&next.ClockAmbiguous, 1) {
+			return false, nil
 		}
 	} else if plugin.ClockIDPresent {
-		if plugin.ClockID >= uint64(len(census.ClockIDs)) ||
-			!checkedProfilerUint64AddTo(&census.ClockPresent, 1) ||
-			!checkedProfilerUint64AddTo(&census.ClockIDs[plugin.ClockID], 1) {
-			return false
+		if plugin.ClockID >= uint64(len(next.ClockIDs)) ||
+			!checkedProfilerUint64AddTo(&next.ClockPresent, 1) ||
+			!checkedProfilerUint64AddTo(&next.ClockIDs[plugin.ClockID], 1) {
+			return false, nil
 		}
 	}
 	timePresent := plugin.TvSecPresent || plugin.TvNsecPresent
 	if plugin.TimeTupleAmbiguous {
-		if !checkedProfilerUint64AddTo(&census.TimeAmbiguous, 1) {
-			return false
+		if !checkedProfilerUint64AddTo(&next.TimeAmbiguous, 1) {
+			return false, nil
 		}
 	} else if timePresent {
-		if census.TimePresent == 0 {
-			census.TimeMinSec, census.TimeMaxSec = plugin.TvSec, plugin.TvSec
-			census.TimeMinNsec, census.TimeMaxNsec = plugin.TvNsec, plugin.TvNsec
+		if next.TimePresent == 0 {
+			next.TimeMinSec, next.TimeMaxSec = plugin.TvSec, plugin.TvSec
+			next.TimeMinNsec, next.TimeMaxNsec = plugin.TvNsec, plugin.TvNsec
 		}
-		if !checkedProfilerUint64AddTo(&census.TimePresent, 1) {
-			return false
+		if !checkedProfilerUint64AddTo(&next.TimePresent, 1) {
+			return false, nil
 		}
-		if profilerTimeTupleLess(plugin.TvSec, plugin.TvNsec, census.TimeMinSec, census.TimeMinNsec) {
-			census.TimeMinSec, census.TimeMinNsec = plugin.TvSec, plugin.TvNsec
+		if profilerTimeTupleLess(plugin.TvSec, plugin.TvNsec, next.TimeMinSec, next.TimeMinNsec) {
+			next.TimeMinSec, next.TimeMinNsec = plugin.TvSec, plugin.TvNsec
 		}
-		if profilerTimeTupleLess(census.TimeMaxSec, census.TimeMaxNsec, plugin.TvSec, plugin.TvNsec) {
-			census.TimeMaxSec, census.TimeMaxNsec = plugin.TvSec, plugin.TvNsec
+		if profilerTimeTupleLess(next.TimeMaxSec, next.TimeMaxNsec, plugin.TvSec, plugin.TvNsec) {
+			next.TimeMaxSec, next.TimeMaxNsec = plugin.TvSec, plugin.TvNsec
 		}
 	}
 	if plugin.VersionPresent {
-		if !checkedProfilerUint64AddTo(&census.VersionPresent, 1) {
-			return false
+		if !checkedProfilerUint64AddTo(&next.VersionPresent, 1) {
+			return false, nil
 		}
-		census.VersionSamples.observe("profiler-version:"+route.pluginKey(), []byte(plugin.Version))
+		if err := next.VersionSamples.observeStringContext(ctx, "profiler-version:"+route.pluginKey(), plugin.Version); err != nil {
+			return false, err
+		}
 	}
 	if plugin.SampleIntervalPresent {
-		if census.SamplePresent == 0 {
-			census.SampleMin, census.SampleMax = plugin.SampleInterval, plugin.SampleInterval
+		if next.SamplePresent == 0 {
+			next.SampleMin, next.SampleMax = plugin.SampleInterval, plugin.SampleInterval
 		}
-		if !checkedProfilerUint64AddTo(&census.SamplePresent, 1) {
-			return false
+		if !checkedProfilerUint64AddTo(&next.SamplePresent, 1) {
+			return false, nil
 		}
-		if plugin.SampleInterval < census.SampleMin {
-			census.SampleMin = plugin.SampleInterval
+		if plugin.SampleInterval < next.SampleMin {
+			next.SampleMin = plugin.SampleInterval
 		}
-		if plugin.SampleInterval > census.SampleMax {
-			census.SampleMax = plugin.SampleInterval
+		if plugin.SampleInterval > next.SampleMax {
+			next.SampleMax = plugin.SampleInterval
 		}
 	}
-	return true
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	*census = next
+	return true, nil
 }
 
 func profilerTimeTupleLess(leftSec, leftNsec, rightSec, rightNsec uint64) bool {
@@ -508,75 +608,117 @@ func (ledger *profilerContainerDiagnosticLedger) observeFtraceFrame(summary *pro
 	return true
 }
 
-func (ledger *profilerContainerDiagnosticLedger) ensurePluginCoverage(out *profilerContainerExtraction, route profilerPluginRoute) (int, bool) {
-	if ledger == nil || out == nil || route >= profilerPluginRouteCount {
-		return -1, false
-	}
-	bucket := &ledger.Buckets[route]
-	if bucket.CoverageIndex >= 0 {
-		return bucket.CoverageIndex, true
-	}
-	role := "query_ready_export"
-	if route == profilerPluginRouteNoncanonicalFtrace {
-		role = "unsupported_input"
-	}
-	bucket.CoverageIndex = len(out.TraceCoverage)
-	out.TraceCoverage = append(out.TraceCoverage, TraceDBCoverage{
-		Family: "builtin_modern_profiler", Table: route.coverageTable(), Role: role, Found: true,
-	})
-	return bucket.CoverageIndex, true
-}
-
 func (ledger *profilerContainerDiagnosticLedger) observeAccepted(out *profilerContainerExtraction,
 	route profilerPluginRoute, rawName string, plugin profilerPluginData, issues profilerPluginIssueCensus,
 	offset int64, outcome profilerPluginOutcome, rowsEmitted int, staged profilerPairCensusSet,
 ) (int, bool) {
-	index, ok := ledger.ensurePluginCoverage(out, route)
-	if !ok || outcome >= profilerPluginOutcomeCount || rowsEmitted < 0 {
-		return -1, false
+	index, ok, _ := ledger.observeAcceptedContext(context.Background(), out, route, rawName, plugin, issues,
+		offset, outcome, rowsEmitted, staged)
+	return index, ok
+}
+
+func (ledger *profilerContainerDiagnosticLedger) observeAcceptedContext(ctx context.Context,
+	out *profilerContainerExtraction, route profilerPluginRoute, rawName string, plugin profilerPluginData,
+	issues profilerPluginIssueCensus, offset int64, outcome profilerPluginOutcome, rowsEmitted int,
+	staged profilerPairCensusSet,
+) (int, bool, error) {
+	if ledger == nil || out == nil || route >= profilerPluginRouteCount ||
+		outcome >= profilerPluginOutcomeCount || rowsEmitted < 0 {
+		return -1, false, nil
 	}
-	bucket := &ledger.Buckets[route]
-	if !bucket.Observed {
-		bucket.Observed = true
-		bucket.FirstOffset = offset
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	bucket.LastOffset = offset
-	if !checkedProfilerUint64AddTo(&bucket.Messages, 1) ||
-		!checkedProfilerUint64AddTo(&bucket.Outcomes[outcome], 1) ||
-		!bucket.Issues.merge(issues) || !bucket.Metadata.observe(route, plugin) {
-		return -1, false
+	if err := ctx.Err(); err != nil {
+		return -1, false, err
+	}
+
+	nextBucket := ledger.Buckets[route]
+	index := nextBucket.CoverageIndex
+	newCoverage := index < 0
+	var nextCoverage TraceDBCoverage
+	if newCoverage {
+		if len(out.TraceCoverage) == math.MaxInt {
+			return -1, false, nil
+		}
+		index = len(out.TraceCoverage)
+		nextBucket.CoverageIndex = index
+		role := "query_ready_export"
+		if route == profilerPluginRouteNoncanonicalFtrace {
+			role = "unsupported_input"
+		}
+		nextCoverage = TraceDBCoverage{
+			Family: "builtin_modern_profiler", Table: route.coverageTable(), Role: role, Found: true,
+		}
+	} else {
+		if index >= len(out.TraceCoverage) {
+			return -1, false, nil
+		}
+		nextCoverage = out.TraceCoverage[index]
+	}
+	if !nextBucket.Observed {
+		nextBucket.Observed = true
+		nextBucket.FirstOffset = offset
+	}
+	nextBucket.LastOffset = offset
+	if !checkedProfilerUint64AddTo(&nextBucket.Messages, 1) ||
+		!checkedProfilerUint64AddTo(&nextBucket.Outcomes[outcome], 1) ||
+		!nextBucket.Issues.merge(issues) {
+		return -1, false, nil
+	}
+	metadataOK, metadataErr := nextBucket.Metadata.observeContext(ctx, route, plugin)
+	if metadataErr != nil {
+		return -1, false, metadataErr
+	}
+	if !metadataOK {
+		return -1, false, nil
 	}
 	for _, kind := range profilerCaptureKinds {
-		if staged[kind].total < 0 || !checkedProfilerIntAddTo(&bucket.Staged[kind].total, staged[kind].total) {
-			return -1, false
+		if staged[kind].total < 0 || !checkedProfilerIntAddTo(&nextBucket.Staged[kind].total, staged[kind].total) {
+			return -1, false, nil
 		}
 	}
 	if !issues.empty() {
-		if bucket.DegradedFrames == 0 {
-			bucket.FirstDegradedOffset = offset
+		if nextBucket.DegradedFrames == 0 {
+			nextBucket.FirstDegradedOffset = offset
 		}
-		if !checkedProfilerUint64AddTo(&bucket.DegradedFrames, 1) {
-			return -1, false
+		if !checkedProfilerUint64AddTo(&nextBucket.DegradedFrames, 1) {
+			return -1, false, nil
 		}
-		bucket.LastDegradedOffset = offset
+		nextBucket.LastDegradedOffset = offset
 	}
 	if route == profilerPluginRouteNoncanonicalFtrace || route == profilerPluginRouteOtherText {
-		bucket.NameSamples.observe("profiler-name:"+route.pluginKey(), []byte(rawName))
+		if err := nextBucket.NameSamples.observeStringContext(ctx, "profiler-name:"+route.pluginKey(), rawName); err != nil {
+			return -1, false, err
+		}
 	}
-	if !checkedProfilerIntAddTo(&out.TraceCoverage[index].RowsRead, 1) ||
-		!checkedProfilerIntAddTo(&out.TraceCoverage[index].RowsEmitted, rowsEmitted) {
-		return -1, false
+	if !checkedProfilerIntAddTo(&nextCoverage.RowsRead, 1) ||
+		!checkedProfilerIntAddTo(&nextCoverage.RowsEmitted, rowsEmitted) {
+		return -1, false, nil
 	}
 	key := route.pluginKey()
+	count := 0
+	if out.PluginMessages != nil {
+		count = out.PluginMessages[key]
+	}
+	if !checkedProfilerIntAddTo(&count, 1) {
+		return -1, false, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return -1, false, err
+	}
+
 	if out.PluginMessages == nil {
 		out.PluginMessages = map[string]int{}
 	}
-	count := out.PluginMessages[key]
-	if !checkedProfilerIntAddTo(&count, 1) {
-		return -1, false
+	if newCoverage {
+		out.TraceCoverage = append(out.TraceCoverage, nextCoverage)
+	} else {
+		out.TraceCoverage[index] = nextCoverage
 	}
+	ledger.Buckets[route] = nextBucket
 	out.PluginMessages[key] = count
-	return index, true
+	return index, true, nil
 }
 
 func (ledger *profilerContainerDiagnosticLedger) observeRejected(out *profilerContainerExtraction,

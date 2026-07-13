@@ -975,7 +975,10 @@ frames:
 		if _, err := reader.ReadAt(msg, off+4); err != nil {
 			return profilerContainerExtraction{}, fmt.Errorf("read profiler message at %d: %w", off+4, err)
 		}
-		decoded := parseProfilerPluginData(msg)
+		decoded, decodeErr := parseProfilerPluginDataContext(ctx, msg)
+		if decodeErr != nil {
+			return profilerContainerExtraction{}, decodeErr
+		}
 		if decoded.IssueOverflow {
 			profilerContainerCounterFailClose(&out, sink)
 			break frames
@@ -992,38 +995,44 @@ frames:
 				return profilerContainerExtraction{}, &traceDBOutputInvariantError{Reason: "profiler_pair_census_nested"}
 			}
 			textMessageRows := 0
-			appendPluginCoverage := func() bool {
+			appendPluginCoverage := func() (bool, error) {
 				staged := sink.endPairRowCensus()
-				coverageIndex, ok := diagnostics.observeAccepted(&out, route, name, plugin, decoded.IssueCensus,
+				if profilerPairCensusSetHasRows(staged) {
+					if len(out.pairPublishers) == math.MaxInt || textMessageRows > 0 && len(out.textMessages) == math.MaxInt {
+						return false, nil
+					}
+				}
+				coverageIndex, ok, observeErr := diagnostics.observeAcceptedContext(ctx, &out, route, name, plugin, decoded.IssueCensus,
 					off, outcome, coverage.RowsEmitted, staged)
+				if observeErr != nil {
+					return false, observeErr
+				}
 				if !ok {
-					return false
+					return false, nil
 				}
 				if profilerPairCensusSetHasRows(staged) {
-					if len(out.pairPublishers) == math.MaxInt {
-						return false
-					}
 					out.pairPublishers = append(out.pairPublishers, profilerPairPublisherCensus{
 						coverageIndex: coverageIndex, staged: staged,
 					})
 					if textMessageRows > 0 {
-						if len(out.textMessages) == math.MaxInt {
-							return false
-						}
 						out.textMessages = append(out.textMessages, profilerTextMessageRows{
 							total: textMessageRows, staged: staged,
 						})
 					}
 				}
-				return true
+				return true, nil
 			}
 			if route == profilerPluginRouteExactFtrace {
-				strictStage := stageProfilerStrictSystracePayload(plugin.Data)
+				strictStage, strictStageErr := stageProfilerStrictSystracePayloadContext(ctx, plugin.Data)
+				if strictStageErr != nil {
+					_ = sink.endPairRowCensus()
+					return profilerContainerExtraction{}, strictStageErr
+				}
 				if strictStage.scan.originText {
 					rows, textPayload, rowErr := addProfilerStrictSystraceStage(strictStage, &seq, sink)
 					if rowErr != nil {
 						coverage.Error = rowErr.Error()
-						_ = appendPluginCoverage()
+						_ = sink.endPairRowCensus()
 						return profilerContainerExtraction{}, rowErr
 					}
 					coverage.RowsEmitted = rows
@@ -1035,7 +1044,11 @@ frames:
 							profilerContainerCounterFailClose(&out, sink)
 							break frames
 						}
-						if !appendPluginCoverage() {
+						coverageOK, coverageErr := appendPluginCoverage()
+						if coverageErr != nil {
+							return profilerContainerExtraction{}, coverageErr
+						}
+						if !coverageOK {
 							profilerContainerCounterFailClose(&out, sink)
 							break frames
 						}
@@ -1048,7 +1061,11 @@ frames:
 						profilerContainerCounterFailClose(&out, sink)
 						break frames
 					}
-					if !appendPluginCoverage() {
+					coverageOK, coverageErr := appendPluginCoverage()
+					if coverageErr != nil {
+						return profilerContainerExtraction{}, coverageErr
+					}
+					if !coverageOK {
 						profilerContainerCounterFailClose(&out, sink)
 						break frames
 					}
@@ -1074,7 +1091,11 @@ frames:
 						profilerContainerCounterFailClose(&out, sink)
 						break frames
 					}
-					if !appendPluginCoverage() {
+					coverageOK, coverageErr := appendPluginCoverage()
+					if coverageErr != nil {
+						return profilerContainerExtraction{}, coverageErr
+					}
+					if !coverageOK {
 						profilerContainerCounterFailClose(&out, sink)
 						break frames
 					}
@@ -1100,7 +1121,7 @@ frames:
 				structuredRows, eventBatch, summary, ok, renderErr := renderProfilerFtraceStructuredResultForContainerFusedContext(ctx, authority, &seq, sink)
 				if renderErr != nil {
 					coverage.Error = renderErr.Error()
-					_ = appendPluginCoverage()
+					_ = sink.endPairRowCensus()
 					return profilerContainerExtraction{}, renderErr
 				}
 				if !diagnostics.observeFtraceFrame(&summary, ok, eventBatch, off) {
@@ -1125,6 +1146,11 @@ frames:
 					}
 				}
 			} else if route == profilerPluginRouteNoncanonicalFtrace {
+				blockOpaque, probeErr := profilerPayloadContainsExactBlockEndpointContext(ctx, plugin.Data)
+				if probeErr != nil {
+					_ = sink.endPairRowCensus()
+					return profilerContainerExtraction{}, probeErr
+				}
 				outcome = profilerPluginOutcomeNoncanonicalFtrace
 				if !checkedProfilerIntAddTo(&out.UnsupportedFtrace, 1) {
 					_ = sink.endPairRowCensus()
@@ -1133,7 +1159,7 @@ frames:
 				}
 				sink.markPairCaptureOpaque(pairRenderMMC)
 				sink.markPairCaptureOpaque(pairRenderF2FS)
-				if profilerPayloadContainsExactBlockEndpoint(plugin.Data) {
+				if blockOpaque {
 					sink.markPairCaptureOpaque(pairRenderBlock)
 				}
 			} else if len(plugin.Data) == 0 {
@@ -1142,7 +1168,7 @@ frames:
 				rows, rowErr := addSystraceRowsFromBytes(plugin.Data, &seq, sink)
 				if rowErr != nil {
 					coverage.Error = rowErr.Error()
-					_ = appendPluginCoverage()
+					_ = sink.endPairRowCensus()
 					return profilerContainerExtraction{}, rowErr
 				}
 				coverage.RowsEmitted = rows
@@ -1158,15 +1184,23 @@ frames:
 					outcome = profilerPluginOutcomeNoTextRows
 				}
 			}
-			if !appendPluginCoverage() {
+			coverageOK, coverageErr := appendPluginCoverage()
+			if coverageErr != nil {
+				return profilerContainerExtraction{}, coverageErr
+			}
+			if !coverageOK {
 				profilerContainerCounterFailClose(&out, sink)
 				break frames
 			}
 		} else {
+			blockOpaque, probeErr := profilerRejectedPluginFrameContainsExactBlockEndpointContext(ctx, msg)
+			if probeErr != nil {
+				return profilerContainerExtraction{}, probeErr
+			}
 			out.RejectedMessages++
 			sink.markPairCaptureOpaque(pairRenderMMC)
 			sink.markPairCaptureOpaque(pairRenderF2FS)
-			if profilerRejectedPluginFrameContainsExactBlockEndpoint(msg) {
+			if blockOpaque {
 				sink.markPairCaptureOpaque(pairRenderBlock)
 			}
 			if !diagnostics.observeRejected(&out, decoded.IssueCensus, off) {
@@ -2498,7 +2532,15 @@ func readProfilerTraceHeaderAt(r io.ReaderAt, off int64, fileSize int64) (profil
 }
 
 func parseProfilerPluginData(data []byte) profilerPluginDataDecode {
+	decoded, _ := parseProfilerPluginDataContext(context.Background(), data)
+	return decoded
+}
+
+func parseProfilerPluginDataContext(ctx context.Context, data []byte) (profilerPluginDataDecode, error) {
 	var decoded profilerPluginDataDecode
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	var counts [9]int
 	var valid [9]bool
 	var uintValues [9]uint64
@@ -2509,7 +2551,7 @@ func parseProfilerPluginData(data []byte) profilerPluginDataDecode {
 		}
 	}
 
-	err := walkProtoFields(data, func(field int, wire int, raw []byte, value uint64) error {
+	err := walkProfilerProtoFieldsContext(ctx, data, func(field int, wire int, raw []byte, value uint64) error {
 		if field < 1 || field > 8 {
 			return nil
 		}
@@ -2536,6 +2578,12 @@ func parseProfilerPluginData(data []byte) profilerPluginDataDecode {
 		return nil
 	})
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return profilerPluginDataDecode{}, err
+		}
+		if _, invariant := traceDBOutputInvariantReason(err); invariant {
+			return profilerPluginDataDecode{}, err
+		}
 		observeIssue(profilerPluginIssueMalformedWire, 1)
 	}
 	for field := 1; field <= 8; field++ {
@@ -2553,11 +2601,17 @@ func parseProfilerPluginData(data []byte) profilerPluginDataDecode {
 		if counts[1] == 0 {
 			observeIssue(profilerPluginIssueNameMissing, 1)
 		}
-	} else if name := string(byteValues[1]); !traceDBSingleToken(name) {
+	} else if validName, validateErr := profilerSingleTokenBytesContext(ctx, byteValues[1]); validateErr != nil {
+		return profilerPluginDataDecode{}, validateErr
+	} else if !validName {
 		hardRejected = true
 		valid[1] = false
 		observeIssue(profilerPluginIssueNameInvalid, 1)
 	} else {
+		name, cloneErr := profilerCloneBytesStringContext(ctx, byteValues[1])
+		if cloneErr != nil {
+			return profilerPluginDataDecode{}, cloneErr
+		}
 		decoded.Plugin.Name = name
 	}
 	if counts[3] > 1 || counts[3] == 1 && !valid[3] {
@@ -2598,11 +2652,18 @@ func parseProfilerPluginData(data []byte) profilerPluginDataDecode {
 		}
 	}
 	if counts[7] == 1 && valid[7] {
-		version := string(byteValues[7])
-		if !traceDBSinglePhysicalLine(version, true) {
+		versionValid, validateErr := profilerSinglePhysicalLineBytesContext(ctx, byteValues[7], true)
+		if validateErr != nil {
+			return profilerPluginDataDecode{}, validateErr
+		}
+		if !versionValid {
 			valid[7] = false
 			observeIssue(profilerPluginIssueVersionInvalid, 1)
 		} else {
+			version, cloneErr := profilerCloneBytesStringContext(ctx, byteValues[7])
+			if cloneErr != nil {
+				return profilerPluginDataDecode{}, cloneErr
+			}
 			decoded.Plugin.Version = version
 			decoded.Plugin.VersionPresent = true
 		}
@@ -2619,12 +2680,15 @@ func parseProfilerPluginData(data []byte) profilerPluginDataDecode {
 	decoded.Plugin.ClockIDAmbiguous = counts[4] > 0 && (counts[4] != 1 || !valid[4])
 	decoded.Plugin.TimeTupleAmbiguous = counts[5] > 0 && (counts[5] != 1 || !valid[5]) ||
 		counts[6] > 0 && (counts[6] != 1 || !valid[6])
+	if err := ctx.Err(); err != nil {
+		return profilerPluginDataDecode{}, err
+	}
 	if hardRejected || decoded.IssueOverflow {
 		decoded.Plugin = profilerPluginData{}
-		return decoded
+		return decoded, nil
 	}
 	decoded.Accepted = true
-	return decoded
+	return decoded, nil
 }
 
 // profilerPayloadContainsExactBlockEndpoint is a provenance probe, not a text
@@ -2634,18 +2698,29 @@ func parseProfilerPluginData(data []byte) profilerPluginDataDecode {
 // later embedded headers. Exact endpoint identity is proven separately. When
 // text origin is absent, only typed PairFamilies can prove structured Block.
 func profilerPayloadContainsExactBlockEndpoint(data []byte) bool {
-	scan := scanProfilerStrictSystracePayload(data, nil)
+	found, _ := profilerPayloadContainsExactBlockEndpointContext(context.Background(), data)
+	return found
+}
+
+func profilerPayloadContainsExactBlockEndpointContext(ctx context.Context, data []byte) (bool, error) {
+	scan, err := scanProfilerStrictSystracePayloadContext(ctx, data, nil)
+	if err != nil {
+		return false, err
+	}
 	if scan.originText {
 		// Complete strict text wins even when its leading task bytes also form a
 		// syntactically complete TracePluginResult. A rejected text payload still
 		// retains exact Block provenance when its first physical row established
 		// the origin (malformed scalar or a later bad fragment).
-		return scan.observed[pairRenderBlock]
+		return scan.observed[pairRenderBlock], nil
 	}
 	// Without a first-row text origin, later header-looking bytes are metadata.
 	// Only the typed structured family authority may then close Block.
-	authority := decodeProfilerTracePluginResult(data)
-	return authority.PairFamilies&pairCriticalFormatFamilyBlock != 0
+	authority, err := decodeProfilerTracePluginResultContext(ctx, data)
+	if err != nil {
+		return false, err
+	}
+	return authority.PairFamilies&pairCriticalFormatFamilyBlock != 0, nil
 }
 
 // profilerRejectedPluginFrameContainsExactBlockEndpoint recovers only precise
@@ -2655,14 +2730,34 @@ func profilerPayloadContainsExactBlockEndpoint(data []byte) bool {
 // never searched as text. A later outer decode failure does not erase an exact
 // Block endpoint already proven inside a complete data field.
 func profilerRejectedPluginFrameContainsExactBlockEndpoint(frame []byte) bool {
+	found, _ := profilerRejectedPluginFrameContainsExactBlockEndpointContext(context.Background(), frame)
+	return found
+}
+
+func profilerRejectedPluginFrameContainsExactBlockEndpointContext(ctx context.Context, frame []byte) (bool, error) {
 	found := false
-	_ = walkProtoFields(frame, func(field int, wire int, raw []byte, _ uint64) error {
-		if !found && field == 3 && wire == 2 && profilerPayloadContainsExactBlockEndpoint(raw) {
-			found = true
+	walkErr := walkProfilerProtoFieldsContext(ctx, frame, func(field int, wire int, raw []byte, _ uint64) error {
+		if !found && field == 3 && wire == 2 {
+			block, probeErr := profilerPayloadContainsExactBlockEndpointContext(ctx, raw)
+			if probeErr != nil {
+				return probeErr
+			}
+			found = block
 		}
 		return nil
 	})
-	return found
+	if errors.Is(walkErr, context.Canceled) || errors.Is(walkErr, context.DeadlineExceeded) {
+		return false, walkErr
+	}
+	if _, invariant := traceDBOutputInvariantReason(walkErr); invariant {
+		return false, walkErr
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	// Malformed outer protobuf retains the legacy "best complete field-3
+	// prefix" provenance contract; only request/invariant errors abort it.
+	return found, nil
 }
 
 func addSystraceRowsFromBytes(data []byte, seq *int, sink *traceDBRowSink) (int, error) {

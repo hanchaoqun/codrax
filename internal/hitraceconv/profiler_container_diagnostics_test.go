@@ -422,13 +422,16 @@ func TestProfilerOuterDiagnosticLedgerHasNoDynamicRetainedCollections(t *testing
 	if !reflect.DeepEqual(pluginKeys, wantPluginKeys) {
 		t.Fatalf("outer plugin route key closed set drifted: got=%v want=%v", pluginKeys, wantPluginKeys)
 	}
-	ensureFound, coverageIndexAssignments, coverageAppends := false, 0, 0
+	prospectiveFound, coverageIndexAssignments, coverageAppends := false, 0, 0
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Name.Name != "ensurePluginCoverage" {
+		if ok && fn.Name.Name == "ensurePluginCoverage" {
+			t.Fatal("context-free mutating plugin coverage authority was reintroduced")
+		}
+		if !ok || fn.Name.Name != "observeAcceptedContext" {
 			continue
 		}
-		ensureFound = true
+		prospectiveFound = true
 		ast.Inspect(fn.Body, func(node ast.Node) bool {
 			if assign, ok := node.(*ast.AssignStmt); ok {
 				for _, lhs := range assign.Lhs {
@@ -447,14 +450,14 @@ func TestProfilerOuterDiagnosticLedgerHasNoDynamicRetainedCollections(t *testing
 				}
 			}
 			if selector, ok := call.Fun.(*ast.SelectorExpr); ok && selector.Sel.Name == "Slice" {
-				t.Fatalf("ensurePluginCoverage must never sort/reorder stable coverage indices")
+				t.Fatalf("observeAcceptedContext must never sort/reorder stable coverage indices")
 			}
 			return true
 		})
 	}
-	if !ensureFound || coverageIndexAssignments != 1 || coverageAppends != 1 {
-		t.Fatalf("stable plugin coverage ensure drifted: found=%t index_assignments=%d appends=%d",
-			ensureFound, coverageIndexAssignments, coverageAppends)
+	if !prospectiveFound || coverageIndexAssignments != 1 || coverageAppends != 1 {
+		t.Fatalf("stable plugin coverage transaction drifted: found=%t index_assignments=%d appends=%d",
+			prospectiveFound, coverageIndexAssignments, coverageAppends)
 	}
 
 	containerFile, err := parser.ParseFile(token.NewFileSet(), "profiler_container.go", nil, 0)
