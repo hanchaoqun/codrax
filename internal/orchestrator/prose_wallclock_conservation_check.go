@@ -167,10 +167,17 @@ const proseWallClockMainThreadDesignator = "主线程"
 // proseWallClockAccount is one parsed target_window_states record — the
 // typed full-window state partition of one thread.
 type proseWallClockAccount struct {
-	subject  string
-	tid      string
-	dims     map[proseWallClockDimension]float64
-	sleepIO  float64
+	subject string
+	tid     string
+	dims    map[proseWallClockDimension]float64
+	sleepIO float64
+	// ioWait (修复轮 件4, 2026-07-13): the account's OWN io_wait lane — the
+	// target_window_states partition is really FIVE states (donghu 常态
+	// io_wait>0), so the partition-fact decomposition must list it or its Σ
+	// self-verification breaks on every io_wait>0 account. Additive field:
+	// the P6 conservation arms deliberately do not consume it (their Σ arm
+	// keeps the four partition dims + union comparator design).
+	ioWait   float64
 	totalMS  float64
 	windowMS float64
 	// mainThread (修复轮 P3①): the subject is PROVEN a main thread — some
@@ -398,6 +405,7 @@ func proseWallClockAccountsFromLedger(ledger types.ObservationLedger) []proseWal
 				proseWallClockDimDState:   proseWallClockNoteFloat(record.RichNotes, types.TraceNoteKeyDState),
 			},
 			sleepIO:  proseWallClockNoteFloat(record.RichNotes, types.TraceNoteKeySleepIOWait),
+			ioWait:   proseWallClockNoteFloat(record.RichNotes, types.TraceNoteKeyIOWait),
 			totalMS:  proseWallClockNoteFloat(record.RichNotes, types.TraceNoteKeyTotal),
 			windowMS: proseWallClockNoteFloat(record.RichNotes, types.TraceNoteKeyWindowMS),
 		}

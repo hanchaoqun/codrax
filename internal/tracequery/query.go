@@ -1154,7 +1154,7 @@ func eventMatchesPattern(ev Event, pattern string) bool {
 		ev.FrequencyMin,
 		ev.FrequencyMax,
 		ev.CPUForField,
-		ev.IOWait,
+		int(ev.IOWait),
 		ev.IRQID,
 	}
 	var int64s []int64
@@ -2025,9 +2025,16 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			key := fmt.Sprintf("%d/%d/%s", ev.WakeePID, ev.IOWait, ev.Reason)
 			br := blockedReasons[key]
 			br.Thread = resolveBlockedReasonThread(idx, ev)
-			br.IOWait = ev.IOWait
+			br.IOWait = int(ev.IOWait)
 			br.Reason = ev.Reason
 			br.Count++
+			if ev.BlockedDelay > 0 {
+				// 件1 census 根修 (2026-07-13): Σ of the vendor delay fields
+				// plus how many rows carried one (Σms publishes only when
+				// every row did — 宁缺勿假).
+				br.DelayTotal += int64(ev.BlockedDelay)
+				br.DelayCount++
+			}
 			if br.Line == 0 || ev.Line < br.Line {
 				br.Line = ev.Line
 				br.Ts = ev.Ts
@@ -2444,6 +2451,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		// must never be a second aggregation over a truncated inventory.
 		stats.blockedReasonFullByPID = foldBlockedReasonFullByPID(blockedReasons)
 		stats.BlockedReasons = topBlockedReasons(blockedReasons, 8)
+		// 件1 census 根修 (2026-07-13): the wire-face per-pid census also
+		// folds the FULL accumulator (never the top-8 view above).
+		stats.BlockedReasonCensus, stats.BlockedReasonCensusOverflow = buildBlockedReasonCensus(blockedReasons, blockedReasonCensusPIDCap, blockedReasonCensusCallerCap)
 	}
 	var traceMarkCaveats []string
 	if schedulerDurationsSafe {
@@ -6397,18 +6407,57 @@ func topThreadDurations(in map[string]ThreadDuration, max int) []ThreadDuration 
 	return out
 }
 
+// blockedReasonCensusPIDCap / blockedReasonCensusCallerCap bound the census
+// WIRE face (件1, 2026-07-13). The fold itself is always the FULL
+// accumulator; the caps only trim the published lists, each with an
+// explicit overflow count (never a silent drop).
+const (
+	blockedReasonCensusPIDCap    = 16
+	blockedReasonCensusCallerCap = 8
+)
+
+// blockedReasonCallerTotal is one pid's per-caller full-window account
+// (件1 census 根修): 符号×count×Σdelay off the full accumulator. delayTotal
+// keeps the RAW vendor units (µs); delayCount says how many of the rows
+// carried a delay field at all.
+type blockedReasonCallerTotal struct {
+	symbol     string
+	count      int
+	delayTotal int64
+	delayCount int
+	firstLine  int
+}
+
 // blockedReasonPIDTotal is one pid's FULL-window blocked_reason account
-// (CR-3 修复轮 P2): total marker count plus up to two distinct semantic
-// caller symbols in deterministic (count desc, first line asc) order.
+// (CR-3 修复轮 P2; 件1 extends it to the per-caller full enumeration).
 type blockedReasonPIDTotal struct {
 	count   int
-	callers []string
+	thread  ThreadRef
+	callers []blockedReasonCallerTotal
+}
+
+// callerNames returns up to max distinct usable symbol names in the fold's
+// deterministic order (the legacy ≤2-name residual lane keeps its shape).
+func (t blockedReasonPIDTotal) callerNames(max int) []string {
+	var out []string
+	for _, c := range t.callers {
+		if c.symbol == "unknown" {
+			continue
+		}
+		out = append(out, c.symbol)
+		if len(out) >= max {
+			break
+		}
+	}
+	return out
 }
 
 // foldBlockedReasonFullByPID folds the full (pid, iowait, reason)
-// accumulator into per-pid totals BEFORE any truncation (INODE §28.6
-// discipline). Symbol hygiene mirrors the unanimous-caller lane: '+'
-// offset carve, opaque/hex/unknown never surface a name.
+// accumulator into per-pid PER-CALLER totals BEFORE any truncation (INODE
+// §28.6 discipline). Symbol hygiene mirrors the unanimous-caller lane: '+'
+// offset carve; opaque/hex/unknown rows keep their COUNT under the explicit
+// "unknown" bucket (the per-caller counts always sum to the pid total) but
+// never surface a fabricated name.
 func foldBlockedReasonFullByPID(in map[string]BlockedReasonSummary) map[int]blockedReasonPIDTotal {
 	byPID := map[int][]BlockedReasonSummary{}
 	for _, s := range in {
@@ -6425,7 +6474,8 @@ func foldBlockedReasonFullByPID(in map[string]BlockedReasonSummary) map[int]bloc
 			}
 			return rows[i].Line < rows[j].Line
 		})
-		total := blockedReasonPIDTotal{}
+		total := blockedReasonPIDTotal{thread: rows[0].Thread}
+		bySymbol := map[string]int{}
 		for _, s := range rows {
 			total.count += s.Count
 			c := s.Reason
@@ -6433,23 +6483,87 @@ func foldBlockedReasonFullByPID(in map[string]BlockedReasonSummary) map[int]bloc
 				c = c[:i]
 			}
 			c = strings.TrimSpace(c)
-			if c == "" || c == "unknown" || isPureHexAddressToken(c) {
+			if c == "" || strings.EqualFold(c, "unknown") || isPureHexAddressToken(c) {
+				c = "unknown"
+			}
+			if idx, ok := bySymbol[c]; ok {
+				total.callers[idx].count += s.Count
+				total.callers[idx].delayTotal += s.DelayTotal
+				total.callers[idx].delayCount += s.DelayCount
+				if s.Line > 0 && (total.callers[idx].firstLine == 0 || s.Line < total.callers[idx].firstLine) {
+					total.callers[idx].firstLine = s.Line
+				}
 				continue
 			}
-			dup := false
-			for _, have := range total.callers {
-				if have == c {
-					dup = true
-					break
-				}
-			}
-			if !dup && len(total.callers) < 2 {
-				total.callers = append(total.callers, c)
-			}
+			bySymbol[c] = len(total.callers)
+			total.callers = append(total.callers, blockedReasonCallerTotal{
+				symbol:     c,
+				count:      s.Count,
+				delayTotal: s.DelayTotal,
+				delayCount: s.DelayCount,
+				firstLine:  s.Line,
+			})
 		}
+		// Deterministic per-caller order: count desc, first line asc,
+		// symbol asc (the row sort above is per raw bucket; offsets of one
+		// symbol merge here, so re-sort on the merged totals).
+		sort.SliceStable(total.callers, func(i, j int) bool {
+			if total.callers[i].count != total.callers[j].count {
+				return total.callers[i].count > total.callers[j].count
+			}
+			if total.callers[i].firstLine != total.callers[j].firstLine {
+				return total.callers[i].firstLine < total.callers[j].firstLine
+			}
+			return total.callers[i].symbol < total.callers[j].symbol
+		})
 		out[pid] = total
 	}
 	return out
+}
+
+// buildBlockedReasonCensus renders the wire-face per-pid census from the
+// FULL accumulator (件1 census 根修): top pidCap pids by count (tie: pid
+// asc), per-pid callers bounded at callerCap with an explicit overflow
+// count. Σms publishes per caller only when EVERY row of that caller
+// carried a vendor delay field (µs→ms; partial coverage keeps count only).
+func buildBlockedReasonCensus(in map[string]BlockedReasonSummary, pidCap, callerCap int) ([]BlockedReasonPIDCensus, int) {
+	full := foldBlockedReasonFullByPID(in)
+	if len(full) == 0 {
+		return nil, 0
+	}
+	pids := make([]int, 0, len(full))
+	for pid := range full {
+		pids = append(pids, pid)
+	}
+	sort.Slice(pids, func(i, j int) bool {
+		if full[pids[i]].count != full[pids[j]].count {
+			return full[pids[i]].count > full[pids[j]].count
+		}
+		return pids[i] < pids[j]
+	})
+	overflow := 0
+	if pidCap > 0 && len(pids) > pidCap {
+		overflow = len(pids) - pidCap
+		pids = pids[:pidCap]
+	}
+	out := make([]BlockedReasonPIDCensus, 0, len(pids))
+	for _, pid := range pids {
+		total := full[pid]
+		row := BlockedReasonPIDCensus{Thread: total.thread, Count: total.count}
+		for _, c := range total.callers {
+			if callerCap > 0 && len(row.Callers) >= callerCap {
+				row.CallerOverflow = len(total.callers) - callerCap
+				break
+			}
+			entry := BlockedReasonCensusCaller{Caller: c.symbol, Count: c.count}
+			if c.delayCount == c.count && c.delayTotal > 0 {
+				entry.DelayTotalMs = float64(c.delayTotal) / 1000.0
+			}
+			row.Callers = append(row.Callers, entry)
+		}
+		out = append(out, row)
+	}
+	return out, overflow
 }
 
 func topBlockedReasons(in map[string]BlockedReasonSummary, max int) []BlockedReasonSummary {
@@ -12689,7 +12803,7 @@ func mintRootCauseDIOStateSeat(q Query, stats WindowStats, hasCausalChain, produ
 		if item.BlockedReasonCaller == "" && !unprovenRemainder {
 			if total, ok := stats.blockedReasonFullByPID[thread.PID]; ok && total.count > 0 {
 				item.BlockedReasonWindowCount = total.count
-				item.BlockedReasonWindowCaller = strings.Join(total.callers, "/")
+				item.BlockedReasonWindowCaller = strings.Join(total.callerNames(2), "/")
 			}
 		}
 		item.memberSegmentsProducerDisjoint = producerDisjoint

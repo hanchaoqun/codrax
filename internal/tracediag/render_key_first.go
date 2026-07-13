@@ -625,7 +625,13 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// disclosure lane beside the capped top lists; the family seats already
 	// carry the full census account). Key-first adjudication: plain scalar
 	// fields, no skipped fields, no priority override.
-	reflect.TypeOf(tracequery.WindowStats{}):                "ef12760c0bb56fbe2d5cda72527990f43499e326e0e7c0671d3081df1c33a757",
+	// 件1 census 根修 (修复轮, 2026-07-13) schema review: WindowStats gained
+	// BlockedReasonCensus (bounded per-pid per-caller 符号×count×Σms rows,
+	// full-accumulator sourced) + BlockedReasonCensusOverflow (pid-cap
+	// disclosure scalar). Key-first adjudication: small typed detail rows
+	// with explicit overflow scalars — no bulk lane, no dup channel, no
+	// priority override; hash re-pinned after review.
+	reflect.TypeOf(tracequery.WindowStats{}):                "d5baa758950ca25167c64d2e0e82ccef172ca9f9c4aa15fd0c1ccd3d0d20b38a",
 	reflect.TypeOf(tracequery.TimelineResult{}):             "ec28f82b56a2e1b64cdfde5e0b6a4769886b32df15dc7a99250ec0da16dacc3a",
 	reflect.TypeOf(tracequery.TraceCounterQualitySummary{}): "e3bead6ff4a3c2e7f9d24487c5905f3594b219505afc106d95af9cfd9c552c2d",
 	reflect.TypeOf(tracequery.PerfQualitySummary{}):         "72c447267958bb72db82ab1e807135761cbea3caf60bf09f040a8f451476972a",

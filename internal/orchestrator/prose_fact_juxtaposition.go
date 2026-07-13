@@ -21,7 +21,7 @@ import (
 //	presence trigger — a thread name / CPU id / numeric token APPEARS in
 //	  the model prose (pure token presence, zero semantic understanding);
 //	fact listing — the appendix lists that entity's system TYPED facts
-//	  (「<线程>:typed 席位=… · typed 等待对象=… · 窗内四态=…」), and the
+//	  (「<线程>:typed 席位=… · typed 等待对象=… · 窗内五态=…」), and the
 //	  READER juxtaposes them against the prose. Over-selection is harmless:
 //	  listing more true facts is never wrong.
 //
@@ -48,9 +48,12 @@ import (
 //     DetectViewRect → fact lines carry 「typed 席位=无」 vs the seated
 //     rows' 「typed 席位=#N(有效归因 …)」.
 const (
-	proseFactThreadCap   = 6
-	proseFactCPUCap      = 3
-	proseFactEquationCap = 4
+	proseFactThreadCap = 6
+	proseFactCPUCap    = 3
+	// proseFactPartitionCap bounds the FACT-REL arm-a four-state partition
+	// facts (§29.55.4 F2, 2026-07-13).
+	proseFactPartitionCap = 3
+	proseFactEquationCap  = 4
 	// proseFactEquationBaseTol: honest last-digit rounding of each printed
 	// operand never trips the arithmetic check (per-numeral half-ulps sum,
 	// floored here). Own named constant (容差常量禁跨语义借用).
@@ -100,6 +103,14 @@ type proseFactSeat struct {
 	effectiveMS float64
 	hasEff      bool
 	memberCount int
+	// causeSymbol / unprovenRemainder (FACT-REL arm b, §29.55.4 R2-F1
+	// claim-of-absence, 2026-07-13): the seat's typed cause word and the
+	// §29.50.5 cause-unproven remainder marker ride the roster chip, so the
+	// seat list itself is the counter-face a coverage/absence sentence can
+	// be juxtaposed against (tieba witness: prose closed with 「未证实的原因
+	// 不存在」 while the report seated a 10.433ms 原因未证 remainder).
+	causeSymbol       string
+	unprovenRemainder bool
 }
 
 func (f proseFactThreadFacts) richness() int {
@@ -157,6 +168,14 @@ func proseFactJuxtapositionFindings(doc *types.AnswerDocumentV2, bus *types.BusC
 			entryZH: fmt.Sprintf("typed 事实:本 trace 窗内 sched_wakeup 的 target_cpu 字段疑退化(%d 条全 0),按 target_cpu 归账的 per-CPU 口径不可靠",
 				total),
 		})
+	}
+
+	// ── FACT-REL arm a (§29.55.4 F2, 2026-07-13): same-unit multi-state
+	// presence → the thread's typed state account with the mutual-exclusion
+	// partition fact (pure presence trigger + typed listing; the reader
+	// juxtaposes — no relation reading of the prose).
+	for _, f := range proseFactStatePartitionFindings(prose, facts) {
+		add(f)
 	}
 
 	// ── per-thread fact lines (presence-triggered) ───────────────────────
@@ -252,6 +271,10 @@ func buildProseFactEvidence(ledger types.ObservationLedger) (map[string]*proseFa
 				if n, ok := proseFactNoteInt(notes, types.TraceNoteKeyMemberCount); ok && n > 1 {
 					seat.memberCount = n
 				}
+				// FACT-REL arm b (§29.55.4, 2026-07-13): the seat's typed
+				// cause word / cause-unproven remainder marker.
+				seat.causeSymbol = strings.TrimSpace(proseWallClockNoteValue(notes, types.TraceNoteKeyBlockedReasonCaller))
+				seat.unprovenRemainder = strings.TrimSpace(proseWallClockNoteValue(notes, types.TraceNoteKeyDStateCauseUnprovenRemainder)) == "true"
 				// Identical republications collapse (the same board row may
 				// reach the ledger through several result channels);
 				// distinct-value twins (two query windows' boards) stay —
@@ -263,13 +286,22 @@ func buildProseFactEvidence(ledger types.ObservationLedger) (map[string]*proseFa
 						break
 					}
 				}
-				if !dup && len(f.seats) < 4 {
+				// FACT-REL arm b: the cause-unproven remainder seat is the
+				// claim-of-absence counter-face — it never falls to the
+				// roster capacity cap.
+				if !dup && (len(f.seats) < 4 || seat.unprovenRemainder) {
 					f.seats = append(f.seats, seat)
 				}
 			}
 			if record.Confidence > 0 {
 				f.confidences = append(f.confidences, record.Confidence)
 			}
+			// 修复轮 件3 (复核 P1-2, 2026-07-13): the former arm-a FALLBACK
+			// (rank-note state dims) is retired — rank state notes drift
+			// semantically per row kind (per-CPU bucket / churn / impact-
+			// segment Σ), so a cross-row per-dim MAX is a chimera wearing a
+			// 「typed 事实」 label. The partition fact now renders ONLY from
+			// the target_window_states account (宁缺勿假).
 		}
 		// blocked_reason waiting-object account.
 		if v := proseWallClockNoteValue(notes, types.TraceNoteKeyBlockedReasonCaller); v != "" {
@@ -334,11 +366,10 @@ func buildProseFactEvidence(ledger types.ObservationLedger) (map[string]*proseFa
 	return facts, freqByCPU, freqSeen
 }
 
-// proseFactPresentThreads returns the tids of evidence-face threads whose
-// spelling (strict name-tid token, or a loose single-digit-tail name that
-// resolves to exactly ONE evidence thread by name part) appears in the
-// model prose. Pure token presence — no claim reading.
-func proseFactPresentThreads(prose []proseTextUnit, facts map[string]*proseFactThreadFacts) []string {
+// proseFactNameIndex maps evidence thread NAME parts to their tids (with the
+// leading-'.' trimmed twin the prose extractor cannot start a token with:
+// .ugc.aweme.lite-17267 → prose "ugc.aweme.lite-17267").
+func proseFactNameIndex(facts map[string]*proseFactThreadFacts) map[string]map[string]bool {
 	nameToTIDs := map[string]map[string]bool{}
 	for tid, f := range facts {
 		if dash := strings.LastIndexByte(f.subject, '-'); dash > 0 {
@@ -347,9 +378,6 @@ func proseFactPresentThreads(prose []proseTextUnit, facts map[string]*proseFactT
 				nameToTIDs[name] = map[string]bool{}
 			}
 			nameToTIDs[name][tid] = true
-			// The evidence spelling may carry a leading '.' the prose
-			// extractor cannot start a token with (.ugc.aweme.lite-17267 →
-			// prose "ugc.aweme.lite-17267").
 			if trimmed := strings.TrimLeft(name, "."); trimmed != name && trimmed != "" {
 				if nameToTIDs[trimmed] == nil {
 					nameToTIDs[trimmed] = map[string]bool{}
@@ -358,27 +386,46 @@ func proseFactPresentThreads(prose []proseTextUnit, facts map[string]*proseFactT
 			}
 		}
 	}
+	return nameToTIDs
+}
+
+// proseFactThreadsInText returns the evidence tids whose spelling (strict
+// name-tid token, or a loose single-digit-tail name that resolves to exactly
+// ONE evidence thread by name part) appears in ONE text unit. Pure token
+// presence — no claim reading.
+func proseFactThreadsInText(text string, facts map[string]*proseFactThreadFacts, nameToTIDs map[string]map[string]bool) map[string]bool {
 	present := map[string]bool{}
-	for _, unit := range prose {
-		for _, tref := range extractProseScalarThreadRefs(unit.text) {
-			if _, ok := facts[tref.TID]; ok {
-				present[tref.TID] = true
+	for _, tref := range extractProseScalarThreadRefs(text) {
+		if _, ok := facts[tref.TID]; ok {
+			present[tref.TID] = true
+		}
+	}
+	// Loose names (single-digit tails: keva-3) resolve by name part when
+	// unambiguous.
+	for _, m := range proseScalarLooseThreadRE.FindAllString(text, -1) {
+		for _, cand := range append([]string{m}, strings.Split(m, "/")...) {
+			dash := strings.LastIndexByte(cand, '-')
+			if dash <= 0 || len(cand)-dash-1 >= 2 {
+				continue
+			}
+			if tids := nameToTIDs[cand]; len(tids) == 1 {
+				for tid := range tids {
+					present[tid] = true
+				}
 			}
 		}
-		// Loose names (single-digit tails: keva-3) resolve by name part when
-		// unambiguous.
-		for _, m := range proseScalarLooseThreadRE.FindAllString(unit.text, -1) {
-			for _, cand := range append([]string{m}, strings.Split(m, "/")...) {
-				dash := strings.LastIndexByte(cand, '-')
-				if dash <= 0 || len(cand)-dash-1 >= 2 {
-					continue
-				}
-				if tids := nameToTIDs[cand]; len(tids) == 1 {
-					for tid := range tids {
-						present[tid] = true
-					}
-				}
-			}
+	}
+	return present
+}
+
+// proseFactPresentThreads returns the tids of evidence-face threads whose
+// spelling appears anywhere in the model prose.
+func proseFactPresentThreads(prose []proseTextUnit, facts map[string]*proseFactThreadFacts) []string {
+	nameToTIDs := proseFactNameIndex(facts)
+	present := map[string]bool{}
+	for _, unit := range prose {
+		for tid := range proseFactThreadsInText(unit.text, facts, nameToTIDs) {
+			present[tid] = true
 		}
 	}
 	out := make([]string, 0, len(present))
@@ -441,15 +488,29 @@ func proseFactThreadLine(f *proseFactThreadFacts) (string, string) {
 		for _, seat := range f.seats {
 			z := fmt.Sprintf("#%d", seat.rank)
 			e := fmt.Sprintf("#%d", seat.rank)
+			var dz, de []string
 			if seat.hasEff {
-				z += fmt.Sprintf("(有效归因 %.3fms", seat.effectiveMS)
-				e += fmt.Sprintf(" (effective %.3fms", seat.effectiveMS)
-				if seat.memberCount > 1 {
-					z += fmt.Sprintf(",成员共%d", seat.memberCount)
-					e += fmt.Sprintf(", %d members", seat.memberCount)
-				}
-				z += ")"
-				e += ")"
+				dz = append(dz, fmt.Sprintf("有效归因 %.3fms", seat.effectiveMS))
+				de = append(de, fmt.Sprintf("effective %.3fms", seat.effectiveMS))
+			}
+			if seat.memberCount > 1 {
+				dz = append(dz, fmt.Sprintf("成员共%d", seat.memberCount))
+				de = append(de, fmt.Sprintf("%d members", seat.memberCount))
+			}
+			// FACT-REL arm b (§29.55.4 R2-F1, 2026-07-13): the seat's typed
+			// cause word and the honest cause-unproven remainder marker ride
+			// the roster chip (claim-of-absence counter-face).
+			if seat.causeSymbol != "" {
+				dz = append(dz, "等待对象="+seat.causeSymbol)
+				de = append(de, "cause="+seat.causeSymbol)
+			}
+			if seat.unprovenRemainder {
+				dz = append(dz, "原因未证")
+				de = append(de, "cause unproven")
+			}
+			if len(dz) > 0 {
+				z += "(" + strings.Join(dz, ",") + ")"
+				e += " (" + strings.Join(de, ", ") + ")"
 			}
 			pz = append(pz, z)
 			pe = append(pe, e)
@@ -486,12 +547,16 @@ func proseFactThreadLine(f *proseFactThreadFacts) (string, string) {
 		en = append(en, "typed lock role="+roleEN+ownerEN)
 	}
 	if f.account != nil {
-		zh = append(zh, fmt.Sprintf("窗内四态 running %.3f/runnable %.3f/sleep %.3f/D-state %.3fms",
+		// 件D (2026-07-13): ONE five-lane wording family — the thread fact
+		// line and the partition fact speak the same 五态 form (io_wait
+		// listed unconditionally, 0.000 stays honest zero); the old 四态/
+		// 五态 twin wordings were a third-wording-family seed.
+		zh = append(zh, fmt.Sprintf("窗内五态 running %.3f/runnable %.3f/sleep %.3f/D-state %.3f/io_wait %.3fms",
 			f.account.dims[proseWallClockDimRunning], f.account.dims[proseWallClockDimRunnable],
-			f.account.dims[proseWallClockDimSleep], f.account.dims[proseWallClockDimDState]))
-		en = append(en, fmt.Sprintf("in-window four-state running %.3f/runnable %.3f/sleep %.3f/D-state %.3fms",
+			f.account.dims[proseWallClockDimSleep], f.account.dims[proseWallClockDimDState], f.account.ioWait))
+		en = append(en, fmt.Sprintf("in-window five-state running %.3f/runnable %.3f/sleep %.3f/D-state %.3f/io_wait %.3fms",
 			f.account.dims[proseWallClockDimRunning], f.account.dims[proseWallClockDimRunnable],
-			f.account.dims[proseWallClockDimSleep], f.account.dims[proseWallClockDimDState]))
+			f.account.dims[proseWallClockDimSleep], f.account.dims[proseWallClockDimDState], f.account.ioWait))
 	}
 	if f.tgid != "" {
 		zh = append(zh, "tgid="+f.tgid)
@@ -590,6 +655,122 @@ func proseFactWakeupDegradation(bus *types.BusContext, mut *types.MutableState) 
 		}
 	}
 	return 0, false
+}
+
+// proseFactStatePartitionFindings — FACT-REL arm a (§29.55.4 F2 互斥状态
+// 包含关系编造 + R2-F1, 2026-07-13). PRESENCE trigger only: one prose unit
+// carries a thread token AND ≥2 distinct state-valued tokens (a scheduler-
+// state keyword within the wall-clock keyword gap before an ms numeral —
+// the same battle-tested token resolver as the P6 lane, zero relation
+// reading). The appendix then lists that thread's typed state account with
+// the mutual-exclusion partition fact, decomposed with the actual values
+// (附注自证义务: the Σ equation prints real addends and the real computed
+// sum). §29.53.2 discipline: the system never reads WHAT relation the prose
+// claimed — listing the typed partition is harmless under correct prose.
+func proseFactStatePartitionFindings(prose []proseTextUnit, facts map[string]*proseFactThreadFacts) []proseScalarBindingFinding {
+	var out []proseScalarBindingFinding
+	nameToTIDs := proseFactNameIndex(facts)
+	emitted := map[string]bool{}
+	for _, unit := range prose {
+		if len(out) >= proseFactPartitionCap {
+			break
+		}
+		if len(proseFactUnitStateValueDims(unit)) < 2 {
+			continue
+		}
+		tids := make([]string, 0, 4)
+		for tid := range proseFactThreadsInText(unit.text, facts, nameToTIDs) {
+			tids = append(tids, tid)
+		}
+		sort.Strings(tids)
+		for _, tid := range tids {
+			if emitted[tid] || len(out) >= proseFactPartitionCap {
+				continue
+			}
+			zh, en := proseFactPartitionFact(facts[tid])
+			if zh == "" {
+				continue
+			}
+			emitted[tid] = true
+			out = append(out, proseScalarBindingFinding{entry: en, entryZH: zh})
+		}
+	}
+	return out
+}
+
+// proseFactUnitStateValueDims returns the DISTINCT scheduler-state
+// dimensions of the unit's state-valued tokens (state keyword within the
+// bounded gap before a positive ms numeral — token-level presence only).
+func proseFactUnitStateValueDims(unit proseTextUnit) map[proseWallClockDimension]bool {
+	toks := extractProseScalarTokens(unit.blockID, unit.text)
+	if len(toks) == 0 {
+		return nil
+	}
+	cpuContext := proseWallClockSentenceHasCPUContext(unit.text)
+	dims := map[proseWallClockDimension]bool{}
+	for _, tok := range toks {
+		if tok.percent() || tok.Value <= 0 {
+			continue
+		}
+		if dim, ok := proseWallClockClaimDimension(unit.text, tok.Pos, cpuContext); ok {
+			dims[dim] = true
+		}
+	}
+	return dims
+}
+
+// proseFactPartitionBalanceTolMS / proseFactPartitionBalanceTolRel — 件4
+// (2026-07-13) balance gate for the partition fact's Σ=窗长 identity claim.
+// Own named constants (容差常量禁跨语义借用): last-digit rounding of five
+// printed %.3f lanes plus honest window-edge clipping stay inside; anything
+// beyond drops the identity claim (回退措辞), never the value listing.
+const (
+	proseFactPartitionBalanceTolMS  = 0.01
+	proseFactPartitionBalanceTolRel = 0.001
+)
+
+// proseFactPartitionFact renders one thread's typed state account with the
+// mutual-exclusion partition fact (zh, en). 件3 (复核 P1-2, 2026-07-13):
+// ONLY the target_window_states account form remains — rank-note state dims
+// drift semantically per row kind, so the former fallback minted chimera
+// accounts (宁缺勿假: no account → no partition fact). 件4: the account is a
+// FIVE-state partition (io_wait is its own lane); the Σ decomposition lists
+// all five actual values, and the Σ=窗长 identity claim is gated on the
+// balance actually holding (unbalanced → same listing, no identity claim).
+func proseFactPartitionFact(f *proseFactThreadFacts) (string, string) {
+	if f == nil || f.subject == "" || f.account == nil {
+		return "", ""
+	}
+	a := f.account
+	r := a.dims[proseWallClockDimRunning]
+	q := a.dims[proseWallClockDimRunnable]
+	s := a.dims[proseWallClockDimSleep]
+	d := a.dims[proseWallClockDimDState]
+	io := a.ioWait
+	sum := r + q + s + d + io
+	head := fmt.Sprintf("typed 事实:%s — 窗内五态账 running %.3f/runnable %.3f/sleep %.3f/D-state %.3f/io_wait %.3fms · 五态为互斥分区,同一时刻仅居一态,不存在包含关系",
+		f.subject, r, q, s, d, io)
+	headEN := fmt.Sprintf("typed fact: %s — in-window five-state account running %.3f/runnable %.3f/sleep %.3f/D-state %.3f/io_wait %.3fms · the five states are a mutually exclusive partition — one state at any instant, none contains another",
+		f.subject, r, q, s, d, io)
+	diff := sum - a.windowMS
+	if diff < 0 {
+		diff = -diff
+	}
+	tol := proseFactPartitionBalanceTolMS + a.windowMS*proseFactPartitionBalanceTolRel
+	if a.windowMS > 0 && diff <= tol {
+		// Balanced: the Σ=窗长 identity claim ships with its decomposed
+		// actual addends (附注自证义务).
+		zh := head + fmt.Sprintf("(Σ=%.3f+%.3f+%.3f+%.3f+%.3f=%.3fms,窗长 %.3fms)",
+			r, q, s, d, io, sum, a.windowMS)
+		en := headEN + fmt.Sprintf(" (Σ=%.3f+%.3f+%.3f+%.3f+%.3f=%.3fms, window %.3fms)",
+			r, q, s, d, io, sum, a.windowMS)
+		return zh, en
+	}
+	// Unbalanced (or windowless): list the actual Σ and the window side by
+	// side WITHOUT the identity claim (回退措辞 — the reader sees both).
+	zh := head + fmt.Sprintf("(Σ五态=%.3fms;窗长 %.3fms)", sum, a.windowMS)
+	en := headEN + fmt.Sprintf(" (Σ five states=%.3fms; window %.3fms)", sum, a.windowMS)
+	return zh, en
 }
 
 // --- small helpers -------------------------------------------------------------

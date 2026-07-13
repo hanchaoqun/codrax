@@ -7186,6 +7186,16 @@ type AgentContext struct {
 	// carries no seated runtime root-cause rank observations.
 	TraceRootCauseBoard string `json:"-"`
 
+	// TraceWaitEvidence (EVID-BR 件①, §29.55.4 F1/R2-F3, ledger
+	// docs/design/real_trace_campaign_20260705.md, 2026-07-13): the
+	// pre-rendered typed kernel wait-object (sched_blocked_reason caller
+	// symbols, per-caller count × Σms verbatim) + wakeup-source
+	// (sched_wakeup waker/wakee/timestamp edges) evidence summary for the
+	// investigation and answer-rendering dispatches. Built at
+	// BuildAgentContext time from the observation ledger; empty when the
+	// run carries no such typed observations.
+	TraceWaitEvidence string `json:"-"`
+
 	// PriorConvHidden gates whether the REPL-assembled Prior
 	// Conversation block is HIDDEN from this agent's user prompt.
 	// The orchestrator resolves the flag from AgentSettings.

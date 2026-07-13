@@ -125,6 +125,17 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 		SleepTop:  []tracequery.ThreadDuration{{Thread: tracequery.ThreadRef{Comm: "sleeper", PID: 33}, DurationMs: 9, LineStart: 17, LineEnd: 18}},
 		DStateTop: []tracequery.ThreadDuration{{Thread: tracequery.ThreadRef{Comm: "dwait", PID: 34}, DurationMs: 8, LineStart: 19, LineEnd: 20}},
 		IOWaitTop: []tracequery.ThreadDuration{{Thread: tracequery.ThreadRef{Comm: "iowait", PID: 35}, DurationMs: 7, LineStart: 21, LineEnd: 22}},
+		// 件1 census 根修 (2026-07-13): the pid-keyed per-caller census pair
+		// (blocked_reason_census + its caller-overflow note).
+		BlockedReasonCensus: []tracequery.BlockedReasonPIDCensus{{
+			Thread: tracequery.ThreadRef{Comm: "dwait", PID: 34},
+			Count:  5,
+			Callers: []tracequery.BlockedReasonCensusCaller{
+				{Caller: "dma_fence_default_wait", Count: 4, DelayTotalMs: 3.2},
+				{Caller: "hmfs_read", Count: 1},
+			},
+			CallerOverflow: 1,
+		}},
 		CPUOccupancy: &tracequery.CPUOccupancyStats{
 			WindowMs: 1000,
 			TopThreads: []tracequery.CPUOccupancyThread{

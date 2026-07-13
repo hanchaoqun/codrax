@@ -30,7 +30,7 @@ import (
 // eventSerializableLeafCount pins the number of json-serializable leaf fields
 // reachable from Event (json:"-" fields excluded): the historical flat struct
 // had 140 fields of which 3 were json:"-".
-const eventSerializableLeafCount = 147
+const eventSerializableLeafCount = 148
 
 // eventFillByJSONTag deterministically fills every leaf field reachable from
 // v (allocating anonymous embedded struct pointers) with a value derived ONLY
@@ -191,6 +191,7 @@ const eventJSONGoldenFull = `{
   "clock_name": "clock_name",
   "reason": "reason",
   "io_wait": 7972,
+  "blocked_delay": 8975,
   "sched_stat_kind": "sched_stat_kind",
   "sched_stat_comm": "sched_stat_comm",
   "sched_stat_pid": 9416,
@@ -350,6 +351,7 @@ const eventJSONGoldenView = `{
   "clock_name": "clock_name",
   "reason": "reason",
   "io_wait": 7972,
+  "blocked_delay": 8975,
   "sched_stat_kind": "sched_stat_kind",
   "sched_stat_comm": "sched_stat_comm",
   "sched_stat_pid": 9416,

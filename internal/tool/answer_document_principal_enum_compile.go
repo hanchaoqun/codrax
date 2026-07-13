@@ -2084,6 +2084,23 @@ func stripPrincipalEnumerationParentheticalQualifiers(label string) string {
 func buildPrincipalEnumerationRowsBlock(doc *types.AnswerDocumentV2, set types.EnumerationDisplaySet, rows []types.EnumerationDisplayRow, zh bool, mode principalEnumerationSupplementMode) types.AnswerBlock {
 	blockSet := set
 	blockSet.Rows = append([]types.EnumerationDisplayRow(nil), rows...)
+	// 件2 backfill 借壳修 (复核 E1-F3, 2026-07-13): the system-voiced
+	// supplement block must speak ONLY its own typed template — member value
+	// tokens + typed facts. A runtime member string is the MODEL's sentence
+	// (value-verified, template-unverified); copying it under the
+	// 「系统按已验证证据补充…」 title lends system authority to the model's
+	// claim wording (witness: the waker report's system table restated the
+	// model's 「嵌入 s_sleep …区间」 claim-of-absence variant verbatim).
+	// Value/typed tokens survive; narrative clauses never do. Model-authored
+	// carriers elsewhere are untouched (this rewrites the SYSTEM face only).
+	for i := range blockSet.Rows {
+		if !principalEnumerationRowHasOrigin(blockSet.Rows[i], types.AnswerEvidenceOriginRuntimeArtifact) {
+			continue
+		}
+		blockSet.Rows[i].Member = principalEnumerationRuntimeSystemLabel(blockSet.Rows[i].Member)
+		blockSet.Rows[i].DisplayLabel = principalEnumerationRuntimeSystemLabel(blockSet.Rows[i].DisplayLabel)
+		blockSet.Rows[i].Note = principalEnumerationRuntimeSystemLabel(blockSet.Rows[i].Note)
+	}
 	shape := principalEnumerationTableShapeForSet(blockSet, nil)
 	block := types.AnswerBlock{
 		ID:                  uniqueAnswerBlockID(doc, "principal_enum_"+sanitizeEnumerationBlockID(set.ID)),
@@ -2596,6 +2613,55 @@ func principalEnumerationRowsBlockTitle(set types.EnumerationDisplaySet, rows []
 		return fmt.Sprintf("系统按已验证证据补充成员：%s（%d）", label, len(rows))
 	}
 	return fmt.Sprintf("System-verified member supplement: %s (%d)", label, len(rows))
+}
+
+// principalEnumerationRuntimeTypedTokenRE — 件A 权属模型终态 (复核 P2-2
+// 根修, 2026-07-13): the system supplement label is cast ONLY from
+// typed-shaped witness tokens — k=v pairs, thread name-tid tokens,
+// symbol+offset[module] callers, underscore identifiers, numerals with
+// units/ranges, the closed scheduler-state vocabulary, and the →/@ joiners
+// between them. NO sentence text of ANY language survives (the first cut's
+// Han-gate let English claim sentences through whole — language smuggling);
+// a pure narrative member (any language) falls to the neutral locator
+// pointer.
+var principalEnumerationRuntimeTypedTokenRE = regexp.MustCompile(
+	`[A-Za-z_][A-Za-z0-9_.]*=[A-Za-z0-9_.,:/~×%\[\]#@+-]+` + // k=v
+		`|[A-Za-z_<#.][A-Za-z0-9_.:/<>@#-]*-[0-9]{1,7}` + // thread name-tid
+		`|[A-Za-z_][A-Za-z0-9_]*\+0x[0-9a-fA-F]+(?:/0x[0-9a-fA-F]+)?(?:\[[^\]]+\])?` + // symbol+offset[module]
+		`|[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+` + // underscore identifier
+		`|[0-9]+(?:\.[0-9]+)?(?:-[0-9]+(?:\.[0-9]+)?)?(?:ms|µs|us|ns|kHz|MHz|GHz|Hz|s|%)?` + // value / range / unit
+		`|\b(?:running|runnable|sleep|iowait|binder)\b` + // closed state vocabulary
+		`|→|@`)
+
+// principalEnumerationRuntimeSystemLabel renders one runtime supplement
+// row's SYSTEM-voiced surface from typed-shaped tokens only (件A). Empty
+// extraction falls back to a neutral locator pointer (the row's typed
+// location cell still renders).
+func principalEnumerationRuntimeSystemLabel(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
+	}
+	tokens := principalEnumerationRuntimeTypedTokenRE.FindAllString(text, -1)
+	// Trim joiner tokens at the ends and require at least one substantive
+	// token (joiners alone carry nothing).
+	substantive := false
+	for _, tok := range tokens {
+		if tok != "→" && tok != "@" {
+			substantive = true
+			break
+		}
+	}
+	if !substantive {
+		return "(见定位)"
+	}
+	for len(tokens) > 0 && (tokens[0] == "→" || tokens[0] == "@") {
+		tokens = tokens[1:]
+	}
+	for len(tokens) > 0 && (tokens[len(tokens)-1] == "→" || tokens[len(tokens)-1] == "@") {
+		tokens = tokens[:len(tokens)-1]
+	}
+	return strings.Join(tokens, " ")
 }
 
 type principalEnumerationTableShape struct {

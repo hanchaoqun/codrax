@@ -190,6 +190,20 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		if stage == types.StageFinalize || stage == types.StageExplore {
 			ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(bus, types.ObservationExtractLedgerEvidenceLimit))
 			ac.TraceRootCauseBoard = formatTraceRootCauseBoardFromLedger(ledger)
+			// EVID-BR 件① (§29.55.4 F1/R2-F3, 2026-07-13): the typed kernel
+			// wait-object + wakeup-source evidence rides the same two
+			// dispatches from the same compiled ledger (donghu 四跑四答案 /
+			// waker inversion 11-of-11 — the appendix saw the truth, the
+			// model face never did). Tool results (this turn's + the accepted
+			// investigation's) contribute the pid-keyed blocked_reason
+			// census rows (符号×count).
+			censusResults := append([]types.ToolResult(nil), bus.ToolResults...)
+			if bus.Mutable != nil {
+				if ta := bus.Mutable.TurnAArtifacts(); ta != nil {
+					censusResults = append(censusResults, ta.ToolResults...)
+				}
+			}
+			ac.TraceWaitEvidence = formatTraceWaitWakeEvidenceFromLedger(ledger, censusResults)
 		}
 
 		// Collect tool summaries
@@ -867,6 +881,16 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   SectionTraceRootCauseBoard,
 			Content: sanitiseSectionForLLM(ac.TraceRootCauseBoard, ac),
+		})
+	}
+
+	// EVID-BR 件① (§29.55.4 F1/R2-F3, 2026-07-13): the typed kernel
+	// wait-object + wakeup-source evidence — input only, same two stages as
+	// the board summary (an empty string suppresses the section).
+	if (ac.Stage == types.StageFinalize || ac.Stage == types.StageExplore) && strings.TrimSpace(ac.TraceWaitEvidence) != "" {
+		pc.UserSections = append(pc.UserSections, types.PromptSection{
+			Title:   SectionTraceWaitEvidence,
+			Content: sanitiseSectionForLLM(ac.TraceWaitEvidence, ac),
 		})
 	}
 

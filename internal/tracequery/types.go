@@ -129,7 +129,16 @@ type Event struct {
 	WakeePrioUnknown  bool   `json:"-"`
 	ClockName         string `json:"clock_name,omitempty"`
 	Reason            string `json:"reason,omitempty"`
-	IOWait            int    `json:"io_wait,omitempty"`
+	// IOWait is int32 so the BlockedDelay pair below shares the former
+	// 8-byte int slot (P4 core-size ratchet: the Event core must not grow;
+	// iowait is a 0/1 flag domain).
+	IOWait int32 `json:"io_wait,omitempty"`
+	// BlockedDelay (件1 census 根修, 2026-07-13): the sched_blocked_reason
+	// row's vendor delay field, RAW as printed (HarmonyOS prints µs; the
+	// mainline format carries no delay → 0; int32 caps at ~35.8min of µs —
+	// far above any kernel block delay). Only the blocked_reason census
+	// consumes it; absence never guesses.
+	BlockedDelay int32 `json:"blocked_delay,omitempty"`
 	*SchedStatFields
 	SpanAction string `json:"span_action,omitempty"`
 	SpanPID    int    `json:"span_pid,omitempty"`
@@ -1003,6 +1012,16 @@ type WindowStats struct {
 	IPICount             int                      `json:"ipi_count,omitempty"`
 	IOWaitBlockedCount   int                      `json:"io_wait_blocked_count,omitempty"`
 	BlockedReasons       []BlockedReasonSummary   `json:"blocked_reasons,omitempty"`
+	// BlockedReasonCensus (件1 census 根修, 2026-07-13): the per-pid FULL
+	// blocked_reason census on the wire face — per-caller 符号×count×Σms off
+	// the full pre-truncation accumulator (never the top-8 display view),
+	// bounded per-pid with an explicit caller-overflow count. The typed
+	// observation lane and the model evidence feed consume THIS; the top-8
+	// BlockedReasons view above stays a display face.
+	BlockedReasonCensus []BlockedReasonPIDCensus `json:"blocked_reason_census,omitempty"`
+	// BlockedReasonCensusOverflow is the number of pids beyond the census
+	// pid cap (their records stay counted in BlockedReasonCount).
+	BlockedReasonCensusOverflow int `json:"blocked_reason_census_overflow,omitempty"`
 	// blockedReasonFullByPID (CR-3 修复轮 P2, 2026-07-12): the per-pid FULL
 	// blocked_reason accumulator folded BEFORE the top-8 truncation (INODE
 	// §28.6 precedent — never second-aggregate on truncated inputs; 冷读
@@ -1507,6 +1526,36 @@ type BlockedReasonSummary struct {
 	Count  int       `json:"count,omitempty"`
 	Line   int       `json:"line,omitempty"`
 	Ts     float64   `json:"ts,omitempty"`
+	// DelayTotal / DelayCount (件1 census 根修, 2026-07-13): Σ of the rows'
+	// RAW vendor delay fields (µs on HarmonyOS) and how many rows carried
+	// one — the census publishes Σms only when every row did (宁缺勿假).
+	DelayTotal int64 `json:"delay_total,omitempty"`
+	DelayCount int   `json:"delay_count,omitempty"`
+}
+
+// BlockedReasonCensusCaller is ONE caller symbol's full-window account for
+// one thread (件1 census 根修, 2026-07-13): 符号×count×Σms off the FULL
+// pre-truncation accumulator (INODE §28.6 discipline). DelayTotalMs is
+// published only when EVERY row of this caller carried a vendor delay field
+// (µs→ms); partial delay coverage keeps the count and omits the Σ.
+type BlockedReasonCensusCaller struct {
+	Caller       string  `json:"caller"`
+	Count        int     `json:"count"`
+	DelayTotalMs float64 `json:"delay_total_ms,omitempty"`
+}
+
+// BlockedReasonPIDCensus is one thread's full-window blocked_reason census:
+// the kernel's own record of what THIS pid was waiting on (keyed by the
+// row's pid field, never by the trace line a record happens to print on).
+type BlockedReasonPIDCensus struct {
+	Thread ThreadRef `json:"thread"`
+	// Count is the pid's TOTAL in-window blocked_reason record count (the
+	// per-caller counts below sum to it when CallerOverflow is 0).
+	Count   int                         `json:"count"`
+	Callers []BlockedReasonCensusCaller `json:"callers,omitempty"`
+	// CallerOverflow is the number of DISTINCT caller symbols beyond the
+	// per-pid caller cap (their record counts stay inside Count).
+	CallerOverflow int `json:"caller_overflow,omitempty"`
 }
 
 type CPUStats struct {

@@ -54,6 +54,11 @@ var traceNoteKeyGoldenRows = []string{
 	"block_max|io|display_only",
 	// DSTATE-REFINE arm a (CAL-1 件③, 2026-07-12): unanimous caller disclosure.
 	"blocked_reason_caller|state|hard_consumer",
+	// 件1 census 根修 (修复轮, 2026-07-13): pid-keyed per-caller full census
+	// (符号×count×Σms) + its caller-overflow count; the model evidence feed
+	// consumes both deterministically.
+	"blocked_reason_census|state|soft_consumer",
+	"blocked_reason_census_overflow|state|soft_consumer",
 	// CR-3 件② P10 (2026-07-12): unconsumed blocked_reason residual on the
 	// unresolved D-family row (冷读案7 GPU-fence witness).
 	"blocked_reason_window_caller|state|hard_consumer",

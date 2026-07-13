@@ -155,7 +155,7 @@ func TestCR4Fact_FourStateAccountLine(t *testing.T) {
 	var hit string
 	for _, f := range facts {
 		zh := f.userReadable("zh")
-		if strings.Contains(zh, "17267") && strings.Contains(zh, "窗内四态") {
+		if strings.Contains(zh, "17267") && strings.Contains(zh, "窗内五态") {
 			hit = zh
 		}
 	}

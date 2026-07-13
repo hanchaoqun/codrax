@@ -3596,6 +3596,14 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		for _, br := range result.WindowStats.BlockedReasons {
 			fmt.Fprintf(&b, "- blocked_reason %s iowait=%d count=%d line=%d caller=%s\n", traceThreadLabel(br.Thread), br.IOWait, br.Count, br.Line, br.Reason)
 		}
+		// 件1 census 根修 (2026-07-13): the pid-keyed FULL census face (the
+		// rows above are a top-8 display view with per-offset buckets).
+		for _, c := range result.WindowStats.BlockedReasonCensus {
+			fmt.Fprintf(&b, "- blocked_reason_census %s total=%d callers=%s\n", traceThreadLabel(c.Thread), c.Count, traceQueryBlockedReasonCensusValue(c))
+		}
+		if result.WindowStats.BlockedReasonCensusOverflow > 0 {
+			fmt.Fprintf(&b, "- blocked_reason_census_overflow pids=%d (beyond the census pid cap)\n", result.WindowStats.BlockedReasonCensusOverflow)
+		}
 		for _, io := range result.WindowStats.IOLatencies {
 			fmt.Fprintf(&b, "- io_latency dev=%s op=%s sector=%d len=%d duration=%.3fms issue=%s complete=%s source=%s lines=%d-%d\n",
 				io.Dev, io.Op, io.Sector, io.Len, io.DurationMs, traceThreadLabel(io.IssueThread), traceThreadLabel(io.CompleteThread), traceQuerySourceBasename(io.SourcePath), io.IssueLine, io.CompleteLine)
@@ -8191,6 +8199,70 @@ func traceQueryTypedRunnableOccupancyObservations(stats tracequery.WindowStats, 
 	}}
 }
 
+// traceQueryBlockedReasonCensusValue renders one census row's per-caller
+// entries: "sym×N(Σx.xxxms)" joined by "/" (Σms only when the engine
+// published it — every row of that caller carried a vendor delay field).
+func traceQueryBlockedReasonCensusValue(c tracequery.BlockedReasonPIDCensus) string {
+	parts := make([]string, 0, len(c.Callers))
+	for _, caller := range c.Callers {
+		entry := fmt.Sprintf("%s×%d", sanitizeForBanner(caller.Caller), caller.Count)
+		if caller.DelayTotalMs > 0 {
+			entry += fmt.Sprintf("(Σ%.3fms)", caller.DelayTotalMs)
+		}
+		parts = append(parts, entry)
+	}
+	return strings.Join(parts, "/")
+}
+
+// traceQueryTypedBlockedReasonCensusObservations mints one typed record per
+// census row (件1, 2026-07-13). Value = the pid's total in-window record
+// count; the per-caller enumeration rides the typed census note.
+func traceQueryTypedBlockedReasonCensusObservations(stats tracequery.WindowStats, ref types.ObservationSourceRef, scope, at string) []types.ObservationRecord {
+	var out []types.ObservationRecord
+	for i, c := range stats.BlockedReasonCensus {
+		if i >= traceQueryWidthTypedFamilyRowCap() {
+			break
+		}
+		thread := traceThreadLabel(c.Thread)
+		if strings.TrimSpace(thread) == "" || c.Count <= 0 {
+			continue
+		}
+		census := traceQueryBlockedReasonCensusValue(c)
+		if census == "" {
+			continue
+		}
+		overflow := ""
+		if c.CallerOverflow > 0 {
+			overflow = fmt.Sprintf("%d", c.CallerOverflow)
+		}
+		notes := traceQueryTypedKVNotes([][2]string{
+			{types.TraceNoteKeyBlockedReasonCensus, census},
+			{types.TraceNoteKeyBlockedReasonCensusOverflow, overflow},
+			{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(stats.Window)},
+		})
+		out = append(out, types.ObservationRecord{
+			ID:              fmt.Sprintf("trace_query:%s#blocked_reason_census:%d", scope, i+1),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingHard,
+			ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+			SourceRef:       ref,
+			ClaimKey:        "blocked_reason_census:" + thread,
+			Subject:         thread,
+			Predicate:       "blocked_reason_census",
+			Object:          "blocked_reason",
+			Value:           fmt.Sprintf("%d", c.Count),
+			Summary:         fmt.Sprintf("blocked_reason_census %s total=%d callers=%s", thread, c.Count, census),
+			RichNotes:       notes,
+			SupportRefs:     traceQueryObservationSupportRefs(ref, 0, 0),
+			ObservedAt:      at,
+			Confidence:      0.85,
+		})
+	}
+	return out
+}
+
 func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref types.ObservationSourceRef, scope, at string) []types.ObservationRecord {
 	var out []types.ObservationRecord
 
@@ -8199,6 +8271,11 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 	out = append(out, traceQueryTypedThreadDurationObservations(stats.SleepTop, stats.Window, ref, scope, at, "top_sleep", "sleep_wait", "sleep", "selected-window sleep before wakeup", 0.76)...)
 	out = append(out, traceQueryTypedThreadDurationObservations(stats.DStateTop, stats.Window, ref, scope, at, "top_d_state", "d_state_or_io_wait", "d_state", "selected-window non-IO D-state wait", 0.80)...)
 	out = append(out, traceQueryTypedThreadDurationObservations(stats.IOWaitTop, stats.Window, ref, scope, at, "top_io_wait", "io_wait", "io_wait", "selected-window IO wait", 0.82)...)
+	// 件1 census 根修 (2026-07-13): the pid-keyed blocked_reason census —
+	// per-caller 符号×count×Σms off the FULL accumulator — reaches the
+	// ledger so the model evidence feed never re-derives it from truncated
+	// display faces (复核实锤: top-8 view + blob preview truncation).
+	out = append(out, traceQueryTypedBlockedReasonCensusObservations(stats, ref, scope, at)...)
 	// RN-1 (§7.9): significant runnable starvation gets its same-window
 	// occupier attribution published as a ledger observation — without it the
 	// customer's runnable-dominant report (FFRT runnable 2528ms of a 3000ms

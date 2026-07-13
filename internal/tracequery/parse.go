@@ -3078,8 +3078,15 @@ func parseLineScan(s *lineScan, intern *stringInterner) (Event, bool) {
 		setEventTargetCPU(&ev, kv["target_cpu"])
 	case EventSchedBlockedReason:
 		ev.WakeePID = atoi(kv["pid"])
-		ev.IOWait = atoi(kv["iowait"])
+		ev.IOWait = int32(atoi(kv["iowait"]))
 		ev.Reason = intern.intern(blockedReasonSemanticCaller(kv))
+		// 件1 census 根修 (2026-07-13): the vendor delay field, RAW as
+		// printed (absent on mainline format → 0; negative/overflowing
+		// values never enter — the int32 slot is a core-size ratchet
+		// measure, see the Event field comment).
+		if delay := atoi64(kv["delay"]); delay > 0 && delay <= 1<<31-1 {
+			ev.BlockedDelay = int32(delay)
+		}
 	case EventSchedStat:
 		ev.SchedStatFields = &SchedStatFields{
 			Kind:    intern.intern(strings.TrimPrefix(strings.ToLower(rawType), "sched_stat_")),

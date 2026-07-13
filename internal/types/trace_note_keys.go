@@ -320,6 +320,18 @@ const (
 	// (blocked_reason_caller) or the window holds none.
 	TraceNoteKeyBlockedReasonWindowCount  = "blocked_reason_window_count"
 	TraceNoteKeyBlockedReasonWindowCaller = "blocked_reason_window_caller"
+	// TraceNoteKeyBlockedReasonCensus / ...CensusOverflow (件1 census 根修,
+	// 修复轮 2026-07-13): ONE thread's pid-keyed full-window blocked_reason
+	// census — per-caller 符号×count×Σms entries "sym×N(Σx.xxxms)" joined by
+	// "/" (Σms only when every row of the caller carried a vendor delay
+	// field), off the FULL pre-truncation accumulator (never the top-8
+	// display view — 复核实锤: the old model-face census read the display
+	// truncation and under-reported split-offset symbols). The overflow key
+	// carries the count of DISTINCT caller symbols beyond the per-pid cap.
+	// Consumed deterministically by the model evidence feed
+	// (internal/context wait-object summary).
+	TraceNoteKeyBlockedReasonCensus         = "blocked_reason_census"
+	TraceNoteKeyBlockedReasonCensusOverflow = "blocked_reason_census_overflow"
 	// TraceNoteKeyDStateCauseUnprovenRemainder (§29.50.5 证明分区, v5 P1 批
 	// 件②, 2026-07-13): "true" ONLY on the honest-remainder D/IO seat — the
 	// unproven fragments of a thread whose other fragments proved a concrete
@@ -808,6 +820,11 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// CR-3 件② P10 (2026-07-12): unconsumed blocked_reason residual pair.
 	{TraceNoteKeyBlockedReasonWindowCount, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyBlockedReasonWindowCaller, "state", TraceNoteCarrierHardConsumer},
+	// 件1 census 根修 (2026-07-13): pid-keyed per-caller census pair — the
+	// model evidence feed (internal/context wait-object summary) is the
+	// consumer; a miss is a feed omission, never a gate (soft lane).
+	{TraceNoteKeyBlockedReasonCensus, "state", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyBlockedReasonCensusOverflow, "state", TraceNoteCarrierSoftConsumer},
 	// §29.50.5 (v5 P1 批 件②, 2026-07-13): proof-partition honest remainder.
 	{TraceNoteKeyDStateCauseUnprovenRemainder, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyIOWait, "state", TraceNoteCarrierHardConsumer},
