@@ -301,6 +301,25 @@ func profilerProtoContextCheckpoint(ctx context.Context, checkpoint *uint64) err
 	return nil
 }
 
+func walkProfilerProtoFieldsContext(ctx context.Context, data []byte, visit func(field int, wire int, raw []byte, value uint64) error) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	checkpoint := uint64(0)
+	return walkProtoFields(data, func(field int, wire int, raw []byte, value uint64) error {
+		if err := profilerProtoContextCheckpoint(ctx, &checkpoint); err != nil {
+			return err
+		}
+		if visit != nil {
+			return visit(field, wire, raw, value)
+		}
+		return nil
+	})
+}
+
 func profilerTracePluginResultEvents(result profilerTracePluginResult) ([]profilerFtraceEventRecord, error) {
 	return profilerTracePluginResultEventsContext(context.Background(), result)
 }

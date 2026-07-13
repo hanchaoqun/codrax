@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -245,10 +246,10 @@ type profilerFtraceCPUTotals struct {
 }
 
 type profilerFtraceCPUStats struct {
-	Status   uint64
-	Clock    string
-	PerCPU   []profilerFtracePerCPUStats
-	HasStats bool
+	Status            uint64
+	Clock             string
+	payload           []byte
+	PerCPUOccurrences uint64
 }
 
 type profilerFtracePerCPUStats struct {
@@ -1518,8 +1519,14 @@ func decodeProfilerFtraceSummaryResultContext(ctx context.Context, result profil
 	err := visitProfilerTracePluginResult(ctx, result, func(field int, raw []byte) error {
 		switch field {
 		case 1:
-			stats, err := decodeProfilerFtraceCPUStats(raw)
+			stats, err := decodeProfilerFtraceCPUStatsContext(ctx, raw)
 			if err != nil {
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					return err
+				}
+				if _, invariant := traceDBOutputInvariantReason(err); invariant {
+					return err
+				}
 				if !summary.Issues.observe(profilerFtraceSummaryIssueCPUStatsMalformed, 1) {
 					summary.IssueOverflow = true
 				}
@@ -1534,7 +1541,7 @@ func decodeProfilerFtraceSummaryResultContext(ctx context.Context, result profil
 			} else {
 				summary.StartStats++
 			}
-			for _, cpu := range stats.PerCPU {
+			return visitProfilerFtracePerCPUStats(ctx, stats, func(cpu profilerFtracePerCPUStats) error {
 				summary.StatsCPUs[cpu.CPU] = true
 				if stats.Status == 1 {
 					summary.EndTotalsSeen = true
@@ -1555,7 +1562,8 @@ func decodeProfilerFtraceSummaryResultContext(ctx context.Context, result profil
 						}
 					}
 				}
-			}
+				return nil
+			})
 		case 2:
 			detail, err := decodeProfilerFtraceCPUDetail(raw)
 			if err != nil {
@@ -1642,10 +1650,14 @@ func decodeProfilerFtraceSummaryResultContext(ctx context.Context, result profil
 }
 
 func decodeProfilerFtraceCPUStats(data []byte) (profilerFtraceCPUStats, error) {
+	return decodeProfilerFtraceCPUStatsContext(context.Background(), data)
+}
+
+func decodeProfilerFtraceCPUStatsContext(ctx context.Context, data []byte) (profilerFtraceCPUStats, error) {
 	var stats profilerFtraceCPUStats
 	statusCount, clockCount := 0, 0
 	statusWrongWire, clockWrongWire, perCPUWrongWire := false, false, false
-	err := walkProtoFields(data, func(field int, wire int, raw []byte, v uint64) error {
+	err := walkProfilerProtoFieldsContext(ctx, data, func(field int, wire int, raw []byte, v uint64) error {
 		switch field {
 		case 1:
 			statusCount++
@@ -1659,12 +1671,13 @@ func decodeProfilerFtraceCPUStats(data []byte) (profilerFtraceCPUStats, error) {
 				perCPUWrongWire = true
 				return nil
 			}
-			perCPU, err := decodeProfilerFtracePerCPUStats(raw)
-			if err != nil {
+			if stats.PerCPUOccurrences == math.MaxUint64 {
+				return &traceDBOutputInvariantError{Reason: "profiler_cpu_stats_per_cpu_census_overflow"}
+			}
+			stats.PerCPUOccurrences++
+			if _, err := decodeProfilerFtracePerCPUStatsContext(ctx, raw); err != nil {
 				return err
 			}
-			stats.HasStats = true
-			stats.PerCPU = append(stats.PerCPU, perCPU)
 		case 3:
 			clockCount++
 			if wire == 2 {
@@ -1687,15 +1700,20 @@ func decodeProfilerFtraceCPUStats(data []byte) (profilerFtraceCPUStats, error) {
 	if clockCount > 1 || clockWrongWire || clockCount == 1 && !traceDBSingleToken(stats.Clock) {
 		return stats, fmt.Errorf("invalid FtraceCpuStatsMsg trace_clock field")
 	}
-	return stats, err
+	stats.payload = data
+	return stats, nil
 }
 
 func decodeProfilerFtracePerCPUStats(data []byte) (profilerFtracePerCPUStats, error) {
+	return decodeProfilerFtracePerCPUStatsContext(context.Background(), data)
+}
+
+func decodeProfilerFtracePerCPUStatsContext(ctx context.Context, data []byte) (profilerFtracePerCPUStats, error) {
 	var stats profilerFtracePerCPUStats
 	var counts [10]int
 	var wrongWire [10]bool
 	var rawValues [10]uint64
-	err := walkProtoFields(data, func(field int, wire int, raw []byte, v uint64) error {
+	err := walkProfilerProtoFieldsContext(ctx, data, func(field int, wire int, raw []byte, v uint64) error {
 		if field < 1 || field > 9 {
 			return nil
 		}
@@ -1748,6 +1766,45 @@ func decodeProfilerFtracePerCPUStats(data []byte) (profilerFtracePerCPUStats, er
 		}
 	}
 	return stats, err
+}
+
+func visitProfilerFtracePerCPUStats(ctx context.Context, stats profilerFtraceCPUStats, visit func(profilerFtracePerCPUStats) error) error {
+	var observed uint64
+	var callbackErr error
+	err := walkProfilerProtoFieldsContext(ctx, stats.payload, func(field int, wire int, raw []byte, _ uint64) error {
+		if field != 2 || wire != 2 {
+			return nil
+		}
+		if observed == math.MaxUint64 {
+			return &traceDBOutputInvariantError{Reason: "profiler_cpu_stats_visitor_census_overflow"}
+		}
+		observed++
+		perCPU, decodeErr := decodeProfilerFtracePerCPUStatsContext(ctx, raw)
+		if decodeErr != nil {
+			if errors.Is(decodeErr, context.Canceled) || errors.Is(decodeErr, context.DeadlineExceeded) {
+				return decodeErr
+			}
+			return &traceDBOutputInvariantError{Reason: "profiler_cpu_stats_visitor_parse_drift"}
+		}
+		if visit != nil {
+			callbackErr = visit(perCPU)
+			return callbackErr
+		}
+		return nil
+	})
+	if err != nil {
+		if callbackErr != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
+		if _, invariant := traceDBOutputInvariantReason(err); invariant {
+			return err
+		}
+		return &traceDBOutputInvariantError{Reason: "profiler_cpu_stats_visitor_parse_drift"}
+	}
+	if observed != stats.PerCPUOccurrences {
+		return &traceDBOutputInvariantError{Reason: "profiler_cpu_stats_visitor_census_drift"}
+	}
+	return nil
 }
 
 func decodeProfilerFtraceCPUDetail(data []byte) (profilerFtraceCPUDetail, error) {
