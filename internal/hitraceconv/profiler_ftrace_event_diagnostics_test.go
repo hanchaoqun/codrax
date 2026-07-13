@@ -63,6 +63,41 @@ func TestProfilerEventDiagnosticsMillionObservationsUseOneFixedSlot(t *testing.T
 	}
 }
 
+func TestProfilerEventExactIssueMillionOccurrencesKeepOneAffectedFrame(t *testing.T) {
+	const observations = 1_000_000
+	issue, ok := profilerFtraceEventIssueFromLegacy(2003, profilerFtraceEventDegradationCorePayload,
+		"core_field1_wrong_wire")
+	if !ok {
+		t.Fatal("fixture exact issue rejected")
+	}
+	var first profilerFtraceEventBatchCensus
+	for index := 0; index < observations; index++ {
+		if !first.observeRead(2003) || !first.observeIssues(2003, false, []profilerFtraceEventIssue{issue}) {
+			t.Fatalf("exact issue batch overflowed at %d", index)
+		}
+	}
+	var ledger profilerFtraceEventDiagnosticLedger
+	if !ledger.merge(first) {
+		t.Fatal("merge million exact issues")
+	}
+	var second profilerFtraceEventBatchCensus
+	if !second.observeRead(2003) || !second.observeIssues(2003, false, []profilerFtraceEventIssue{issue}) || !ledger.merge(second) {
+		t.Fatal("merge second affected frame")
+	}
+	out := profilerContainerExtraction{}
+	if !ledger.materialize(&out) {
+		t.Fatal("materialize exact issue ledger")
+	}
+	coverage, entries := profilerEventCoverageByField(out, 2003)
+	if entries != 1 || coverage.RowsRead != observations+1 || coverage.RowsEmitted != 0 ||
+		coverage.FieldSources["degraded_core_field1_wrong_wire_occurrences"] != "1000001" ||
+		coverage.FieldSources["degraded_core_field1_wrong_wire_affected_frames"] != "2" ||
+		coverage.FieldSources["degraded_core_payload_occurrences"] != "1000001" ||
+		coverage.FieldSources["degraded_core_payload_affected_frames"] != "2" {
+		t.Fatalf("exact issue occurrence/affected units drifted: entries=%d coverage=%+v", entries, coverage)
+	}
+}
+
 func TestProfilerEventAllKnownDescriptorsMaterializeOnce(t *testing.T) {
 	var batch profilerFtraceEventBatchCensus
 	for _, descriptor := range profilerFtraceEventDescriptorList {
@@ -166,12 +201,11 @@ func TestProfilerEventUnknownFieldsUseOneStableBucket(t *testing.T) {
 }
 
 func TestProfilerEventAffectedFrameCountIsNotDegradationOccurrenceCount(t *testing.T) {
-	degradation := []profilerFtraceEventDegradation{{
-		Kind: profilerFtraceEventDegradationUnmappedField, Reason: "unmapped structured ftrace event field",
-	}}
 	var batch profilerFtraceEventBatchCensus
 	for _, field := range []int{9_998, 9_999} {
-		if !batch.observeRead(field) || !batch.observeDegradations(field, degradation) {
+		issue, ok := profilerFtraceEventIssueFromLegacy(field, profilerFtraceEventDegradationUnmappedField,
+			"unmapped structured ftrace event field")
+		if !ok || !batch.observeRead(field) || !batch.observeIssues(field, false, []profilerFtraceEventIssue{issue}) {
 			t.Fatalf("observe degraded field %d", field)
 		}
 	}
@@ -190,15 +224,48 @@ func TestProfilerEventAffectedFrameCountIsNotDegradationOccurrenceCount(t *testi
 	}
 }
 
+func TestProfilerEventSameClassExactIssuesKeepClassAffectedFrameUnion(t *testing.T) {
+	first, ok := profilerFtraceEventIssueFromLegacy(113, profilerFtraceEventDegradationCorePayload,
+		"core_field1_wrong_wire")
+	if !ok {
+		t.Fatal("fixture first exact issue rejected")
+	}
+	second, ok := profilerFtraceEventIssueFromLegacy(113, profilerFtraceEventDegradationCorePayload,
+		"core_field2_duplicate")
+	if !ok {
+		t.Fatal("fixture second exact issue rejected")
+	}
+	var ledger profilerFtraceEventDiagnosticLedger
+	for frame := 0; frame < 2; frame++ {
+		var batch profilerFtraceEventBatchCensus
+		if !batch.observeRead(113) || !batch.observeIssues(113, false, []profilerFtraceEventIssue{first, second}) ||
+			!ledger.merge(batch) {
+			t.Fatalf("merge exact issue frame %d", frame)
+		}
+	}
+	out := profilerContainerExtraction{}
+	if !ledger.materialize(&out) {
+		t.Fatal("materialize same-class exact issues")
+	}
+	coverage, entries := profilerEventCoverageByField(out, 113)
+	if entries != 1 || coverage.FieldSources["degraded_core_field1_wrong_wire_occurrences"] != "2" ||
+		coverage.FieldSources["degraded_core_field1_wrong_wire_affected_frames"] != "2" ||
+		coverage.FieldSources["degraded_core_field2_duplicate_occurrences"] != "2" ||
+		coverage.FieldSources["degraded_core_field2_duplicate_affected_frames"] != "2" ||
+		coverage.FieldSources["degraded_core_payload_occurrences"] != "4" ||
+		coverage.FieldSources["degraded_core_payload_affected_frames"] != "2" {
+		t.Fatalf("same-class exact/class affected union drifted: entries=%d coverage=%+v", entries, coverage)
+	}
+}
+
 func TestProfilerEventEnvelopeSlotsRemainSeparate(t *testing.T) {
 	var batch profilerFtraceEventBatchCensus
 	for field, reason := range map[int]string{
 		0:                                    "envelope_oneof_missing",
 		profilerFtraceCPUDetailEnvelopeField: "envelope_cpu_detail_malformed_wire",
 	} {
-		if !batch.observeRead(field) || !batch.observeDegradations(field, []profilerFtraceEventDegradation{{
-			Kind: profilerFtraceEventDegradationEnvelope, Reason: reason,
-		}}) {
+		issue, ok := profilerFtraceEventIssueFromLegacy(field, profilerFtraceEventDegradationEnvelope, reason)
+		if !ok || !batch.observeRead(field) || !batch.observeIssues(field, false, []profilerFtraceEventIssue{issue}) {
 			t.Fatalf("observe envelope field %d", field)
 		}
 	}
@@ -273,6 +340,41 @@ func TestProfilerEventCoverageMaterializesBeforeSourceFailClose(t *testing.T) {
 	}
 }
 
+func TestProfilerEventHardIssueMaterializesBeforeSourceFailClose(t *testing.T) {
+	payload := syntheticProfilerEventResult(2003,
+		protoPayload(protoBytes(1, []byte("wrong-wire")), protoVarint(2, 0)))
+	prefix := syntheticProfilerPluginData("ftrace-plugin", payload)
+	maxFrame := uint64(len(prefix) + 16)
+	oversized := make([]byte, int(maxFrame+1))
+	body := profilerResourceTraceFile(
+		profilerResourceFrame{declared: uint32(len(prefix)), payload: prefix},
+		profilerResourceFrame{declared: uint32(len(oversized)), payload: oversized},
+	)
+	extracted, sink := extractProfilerResourceTraceFile(t, body, maxFrame)
+	defer sink.cleanup()
+	coverage, entries := profilerEventCoverageByField(extracted, 2003)
+	if !extracted.SourceFailClosed || entries != 1 || coverage.RowsRead != 1 || coverage.RowsEmitted != 0 ||
+		coverage.FieldSources["degraded_core_field1_wrong_wire_occurrences"] != "1" ||
+		coverage.FieldSources["degraded_core_field1_wrong_wire_affected_frames"] != "1" ||
+		coverage.FieldSources["profiler_trace_body_source_fail_closed"] != "plugin_frame_size_budget_exceeded" {
+		t.Fatalf("typed hard issue lost before source fail-close: extracted=%+v coverage=%+v", extracted, coverage)
+	}
+}
+
+func TestProfilerEventIssueCountCorruptionFailsClosedWithoutPanic(t *testing.T) {
+	corrupt := profilerFtraceEventSlotCensus{RowsRead: 1, IssueCount: profilerFtraceEventIssuesPerSlot + 1}
+	batch := profilerFtraceEventBatchCensus{}
+	batch.Slots[profilerFtraceEventSlot(2003)] = corrupt
+	var ledger profilerFtraceEventDiagnosticLedger
+	if ledger.merge(batch) {
+		t.Fatal("corrupt batch issue count merged")
+	}
+	ledger.Slots[profilerFtraceEventSlot(2003)] = corrupt
+	if ledger.materialize(&profilerContainerExtraction{}) {
+		t.Fatal("corrupt ledger issue count materialized")
+	}
+}
+
 func TestProfilerEventDiagnosticStructurePin(t *testing.T) {
 	if len(profilerFtraceEventDescriptorList) != 36 || profilerFtraceEventSlotCount != 39 ||
 		profilerFtraceEventSlot(410) == profilerFtraceEventSlot(2002) {
@@ -284,42 +386,76 @@ func TestProfilerEventDiagnosticStructurePin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	issues, err := parser.ParseFile(token.NewFileSet(), "profiler_ftrace_event_issue.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	targets := map[string]bool{
+		"profilerFtraceEventIssue":            false,
+		"profilerFtraceEventIssueCensus":      false,
 		"profilerFtraceEventSlotCensus":       false,
 		"profilerFtraceEventBatchCensus":      false,
 		"profilerFtraceEventDiagnosticLedger": false,
 		"profilerFtraceEventCoverageIndexes":  false,
 	}
-	for _, declaration := range diagnostics.Decls {
-		gen, ok := declaration.(*ast.GenDecl)
-		if !ok {
-			continue
-		}
-		for _, spec := range gen.Specs {
-			typeSpec, ok := spec.(*ast.TypeSpec)
+	for _, parsed := range []*ast.File{diagnostics, issues} {
+		for _, declaration := range parsed.Decls {
+			gen, ok := declaration.(*ast.GenDecl)
 			if !ok {
 				continue
 			}
-			if _, ok := targets[typeSpec.Name.Name]; !ok {
-				continue
-			}
-			targets[typeSpec.Name.Name] = true
-			ast.Inspect(typeSpec.Type, func(node ast.Node) bool {
-				switch value := node.(type) {
-				case *ast.MapType:
-					t.Fatalf("%s regained retained map", typeSpec.Name.Name)
-				case *ast.ArrayType:
-					if value.Len == nil {
-						t.Fatalf("%s regained retained slice", typeSpec.Name.Name)
+			for _, spec := range gen.Specs {
+				typeSpec, ok := spec.(*ast.TypeSpec)
+				if !ok {
+					continue
+				}
+				if _, ok := targets[typeSpec.Name.Name]; !ok {
+					continue
+				}
+				targets[typeSpec.Name.Name] = true
+				if structType, ok := typeSpec.Type.(*ast.StructType); ok {
+					for _, field := range structType.Fields.List {
+						for _, name := range field.Names {
+							switch name.Name {
+							case "Reason", "ReasonSamples", "Degradations":
+								t.Fatalf("%s regained legacy %s authority", typeSpec.Name.Name, name.Name)
+							}
+						}
 					}
 				}
-				return true
-			})
+				ast.Inspect(typeSpec.Type, func(node ast.Node) bool {
+					switch value := node.(type) {
+					case *ast.MapType:
+						t.Fatalf("%s regained retained map", typeSpec.Name.Name)
+					case *ast.ArrayType:
+						if value.Len == nil {
+							t.Fatalf("%s regained retained slice", typeSpec.Name.Name)
+						}
+					case *ast.Ident:
+						if value.Name == "string" {
+							t.Fatalf("%s regained retained string authority", typeSpec.Name.Name)
+						}
+					}
+					return true
+				})
+			}
 		}
 	}
 	for target, found := range targets {
 		if !found {
 			t.Fatalf("event diagnostic type pin target missing: %s", target)
+		}
+	}
+	for _, parsed := range []*ast.File{diagnostics, issues} {
+		for _, declaration := range parsed.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok {
+				continue
+			}
+			switch function.Name.Name {
+			case "observeDegradations", "profilerFtraceEventDegradations":
+				t.Fatalf("legacy event degradation helper returned: %s", function.Name.Name)
+			}
 		}
 	}
 

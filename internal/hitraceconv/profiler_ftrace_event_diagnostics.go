@@ -15,6 +15,11 @@ const (
 	profilerFtraceCPUDetailEnvelopeSlot
 	profilerFtraceUnknownEventSlot
 	profilerFtraceEventSlotCount
+	// Protobuf field numbers are limited to 29 bits. This representative is
+	// used only to validate/label exact issues after distinct unknown IDs have
+	// been compacted into the fixed unknown slot; it is never published as an
+	// observed field identity.
+	profilerFtraceUnknownEventAggregateField = 1<<29 - 1
 )
 
 type profilerFtraceEventDegradationKind uint8
@@ -27,6 +32,7 @@ const (
 	profilerFtraceEventDegradationAuxDisplay
 	profilerFtraceEventDegradationFilemapPayload
 	profilerFtraceEventDegradationBlockPayload
+	profilerFtraceEventDegradationBlockDisplay
 	profilerFtraceEventDegradationWireAudit
 	profilerFtraceEventDegradationFieldAudit
 	profilerFtraceEventDegradationUnmappedField
@@ -49,6 +55,8 @@ func (kind profilerFtraceEventDegradationKind) label() string {
 		return "filemap_payload"
 	case profilerFtraceEventDegradationBlockPayload:
 		return "block_payload"
+	case profilerFtraceEventDegradationBlockDisplay:
+		return "block_display"
 	case profilerFtraceEventDegradationWireAudit:
 		return "wire_audit"
 	case profilerFtraceEventDegradationFieldAudit:
@@ -60,25 +68,24 @@ func (kind profilerFtraceEventDegradationKind) label() string {
 	}
 }
 
-type profilerFtraceEventDegradation struct {
-	Kind   profilerFtraceEventDegradationKind
-	Reason string
-}
+// The largest closed per-event issue universe is MMC request-start: 25 wire
+// duplicates + 25 wrong-wire fields + 23 range fields plus whole-payload and
+// semantic failures. Keep one fixed slot for every legal tuple with headroom;
+// this is a schema bound, not a runtime budget that valid input may exhaust.
+const profilerFtraceEventIssuesPerSlot = 128
 
-func profilerFtraceEventDegradations(kind profilerFtraceEventDegradationKind, reasons []string) []profilerFtraceEventDegradation {
-	out := make([]profilerFtraceEventDegradation, 0, len(reasons))
-	for _, reason := range reasons {
-		out = append(out, profilerFtraceEventDegradation{Kind: kind, Reason: reason})
-	}
-	return out
+type profilerFtraceEventIssueCensus struct {
+	Issue          profilerFtraceEventIssue
+	Occurrences    uint64
+	AffectedFrames uint64
 }
 
 type profilerFtraceEventSlotCensus struct {
-	RowsRead       uint64
-	RowsEmitted    uint64
-	Occurrences    [profilerFtraceEventDegradationKindCount]uint64
-	AffectedFrames [profilerFtraceEventDegradationKindCount]uint64
-	ReasonSamples  profilerStableSampleSet
+	RowsRead            uint64
+	RowsEmitted         uint64
+	IssueCount          uint8
+	Issues              [profilerFtraceEventIssuesPerSlot]profilerFtraceEventIssueCensus
+	ClassAffectedFrames [profilerFtraceEventDegradationKindCount]uint64
 }
 
 type profilerFtraceEventBatchCensus struct {
@@ -113,38 +120,103 @@ func (batch *profilerFtraceEventBatchCensus) observeEmitted(field int) bool {
 	return true
 }
 
-func (batch *profilerFtraceEventBatchCensus) observeDegradations(field int, degradations []profilerFtraceEventDegradation) bool {
+func (batch *profilerFtraceEventBatchCensus) observeIssues(field int, publishable bool, issues []profilerFtraceEventIssue) bool {
 	if batch == nil || batch.Overflow {
 		return false
 	}
 	slotIndex := profilerFtraceEventSlot(field)
 	slot := &batch.Slots[slotIndex]
-	for _, degradation := range degradations {
-		if degradation.Kind >= profilerFtraceEventDegradationKindCount || strings.TrimSpace(degradation.Reason) == "" {
+	if !profilerFtraceEventIssueVerdictValid(field, publishable, issues) {
+		batch.Overflow = true
+		return false
+	}
+	var observedClass [profilerFtraceEventDegradationKindCount]bool
+	for _, issue := range issues {
+		class := issue.sourceClass()
+		if class >= profilerFtraceEventDegradationKindCount {
 			batch.Overflow = true
 			return false
 		}
-		kindIndex := int(degradation.Kind)
-		firstForFrame := slot.Occurrences[kindIndex] == 0
-		if !checkedProfilerUint64AddTo(&slot.Occurrences[kindIndex], 1) {
+		observedClass[int(class)] = true
+		index, found := profilerFtraceEventIssueCensusIndex(slot, issue)
+		if !found {
+			if int(slot.IssueCount) >= len(slot.Issues) {
+				batch.Overflow = true
+				return false
+			}
+			used := int(slot.IssueCount)
+			copy(slot.Issues[index+1:used+1], slot.Issues[index:used])
+			slot.Issues[index] = profilerFtraceEventIssueCensus{Issue: issue}
+			slot.IssueCount++
+		}
+		census := &slot.Issues[index]
+		firstForFrame := census.Occurrences == 0
+		if !checkedProfilerUint64AddTo(&census.Occurrences, 1) {
 			batch.Overflow = true
 			return false
 		}
-		if firstForFrame && !checkedProfilerUint64AddTo(&slot.AffectedFrames[kindIndex], 1) {
+		if firstForFrame && !checkedProfilerUint64AddTo(&census.AffectedFrames, 1) {
 			batch.Overflow = true
 			return false
 		}
-		slot.ReasonSamples.observe("profiler-ftrace-event-reason:"+strconv.Itoa(slotIndex), []byte(degradation.Reason))
+	}
+	for class, observed := range observedClass {
+		if observed && slot.ClassAffectedFrames[class] == 0 &&
+			!checkedProfilerUint64AddTo(&slot.ClassAffectedFrames[class], 1) {
+			batch.Overflow = true
+			return false
+		}
 	}
 	return true
 }
 
+func profilerFtraceEventIssueVerdictValid(field int, publishable bool, issues []profilerFtraceEventIssue) bool {
+	_, known := profilerFtraceEventDescriptors[field]
+	if publishable && !known || !publishable && len(issues) == 0 {
+		return false
+	}
+	unknownSlot := profilerFtraceEventSlot(field) == profilerFtraceUnknownEventSlot
+	unmappedSeen := false
+	for _, issue := range issues {
+		if unknownSlot {
+			switch {
+			case issue.Kind == profilerFtraceEventIssueUnmappedField:
+				unmappedSeen = true
+			case issue.sourceClass() != profilerFtraceEventDegradationEnvelope:
+				return false
+			}
+		}
+		if !issue.validFor(field) || publishable != (issue.Severity == profilerFtraceEventIssueAdmittedDisplay) {
+			return false
+		}
+	}
+	return !unknownSlot || unmappedSeen
+}
+
+func profilerFtraceEventIssueCensusIndex(slot *profilerFtraceEventSlotCensus, issue profilerFtraceEventIssue) (int, bool) {
+	if slot == nil {
+		return 0, false
+	}
+	used := int(slot.IssueCount)
+	if used > len(slot.Issues) {
+		return len(slot.Issues), false
+	}
+	for index := 0; index < used; index++ {
+		comparison := slot.Issues[index].Issue.compare(issue)
+		if comparison == 0 {
+			return index, true
+		}
+		if comparison > 0 {
+			return index, false
+		}
+	}
+	return used, false
+}
+
 func (batch profilerFtraceEventBatchCensus) degraded() bool {
 	for _, slot := range batch.Slots {
-		for _, count := range slot.Occurrences {
-			if count > 0 {
-				return true
-			}
+		if slot.IssueCount > 0 {
+			return true
 		}
 	}
 	return false
@@ -162,17 +234,35 @@ func (ledger *profilerFtraceEventDiagnosticLedger) merge(batch profilerFtraceEve
 	for slotIndex := range ledger.Slots {
 		target := &ledger.Slots[slotIndex]
 		source := batch.Slots[slotIndex]
+		if int(source.IssueCount) > len(source.Issues) || int(target.IssueCount) > len(target.Issues) {
+			return false
+		}
 		if !checkedProfilerUint64AddTo(&target.RowsRead, source.RowsRead) ||
 			!checkedProfilerUint64AddTo(&target.RowsEmitted, source.RowsEmitted) {
 			return false
 		}
-		for kindIndex := range target.Occurrences {
-			if !checkedProfilerUint64AddTo(&target.Occurrences[kindIndex], source.Occurrences[kindIndex]) ||
-				!checkedProfilerUint64AddTo(&target.AffectedFrames[kindIndex], source.AffectedFrames[kindIndex]) {
+		for sourceIndex := 0; sourceIndex < int(source.IssueCount); sourceIndex++ {
+			item := source.Issues[sourceIndex]
+			index, found := profilerFtraceEventIssueCensusIndex(target, item.Issue)
+			if !found {
+				if int(target.IssueCount) >= len(target.Issues) {
+					return false
+				}
+				used := int(target.IssueCount)
+				copy(target.Issues[index+1:used+1], target.Issues[index:used])
+				target.Issues[index] = profilerFtraceEventIssueCensus{Issue: item.Issue}
+				target.IssueCount++
+			}
+			if !checkedProfilerUint64AddTo(&target.Issues[index].Occurrences, item.Occurrences) ||
+				!checkedProfilerUint64AddTo(&target.Issues[index].AffectedFrames, item.AffectedFrames) {
 				return false
 			}
 		}
-		mergeProfilerStableSampleSet(&target.ReasonSamples, source.ReasonSamples)
+		for class := range target.ClassAffectedFrames {
+			if !checkedProfilerUint64AddTo(&target.ClassAffectedFrames[class], source.ClassAffectedFrames[class]) {
+				return false
+			}
+		}
 	}
 	mergeProfilerStableSampleSet(&ledger.UnknownFieldSamples, batch.UnknownFieldSamples)
 	return true
@@ -265,21 +355,40 @@ func (ledger *profilerFtraceEventDiagnosticLedger) materialize(out *profilerCont
 		}
 		coverage.RowsRead = rowsRead
 		coverage.RowsEmitted = rowsEmitted
-		coverage.Skipped = profilerFtraceEventDegradationSummary(census)
+		issueField := field
+		if slotIndex == profilerFtraceUnknownEventSlot {
+			issueField = profilerFtraceUnknownEventAggregateField
+		}
+		classOccurrences, classAffected, reasonSamples, valid := profilerFtraceEventIssueSummaryCensus(issueField, census)
+		if !valid {
+			return false
+		}
+		coverage.Skipped = profilerFtraceEventDegradationSummary(issueField, census, classOccurrences, reasonSamples)
 		for kind := profilerFtraceEventDegradationKind(0); kind < profilerFtraceEventDegradationKindCount; kind++ {
 			index := int(kind)
-			if census.Occurrences[index] == 0 {
+			if classOccurrences[index] == 0 {
 				continue
 			}
 			prefix := "degraded_" + kind.label()
-			coverage.FieldSources[prefix+"_occurrences"] = strconv.FormatUint(census.Occurrences[index], 10)
-			coverage.FieldSources[prefix+"_affected_frames"] = strconv.FormatUint(census.AffectedFrames[index], 10)
+			coverage.FieldSources[prefix+"_occurrences"] = strconv.FormatUint(classOccurrences[index], 10)
+			coverage.FieldSources[prefix+"_affected_frames"] = strconv.FormatUint(classAffected[index], 10)
 		}
-		if census.ReasonSamples.Used > 0 {
-			coverage.FieldSources["degradation_reason_samples"] = census.ReasonSamples.render()
+		if reasonSamples.Used > 0 {
+			coverage.FieldSources["degradation_reason_samples"] = reasonSamples.render()
 			coverage.FieldSources["degradation_reason_sample_policy"] = "sha256_min_k8_domain_separated_prefix96_bounded_examples"
 		}
-		if reason, count, exact := profilerFtraceSingleExactReason(census); exact && traceDBSingleToken(reason) {
+		for issueIndex := 0; issueIndex < int(census.IssueCount); issueIndex++ {
+			item := census.Issues[issueIndex]
+			reason, labelOK := item.Issue.label(issueField)
+			if !labelOK || item.Occurrences == 0 || item.AffectedFrames == 0 || item.AffectedFrames > item.Occurrences {
+				return false
+			}
+			if traceDBSingleToken(reason) {
+				coverage.FieldSources["degraded_"+reason+"_occurrences"] = strconv.FormatUint(item.Occurrences, 10)
+				coverage.FieldSources["degraded_"+reason+"_affected_frames"] = strconv.FormatUint(item.AffectedFrames, 10)
+			}
+		}
+		if reason, count, exact := profilerFtraceSingleExactReason(issueField, census); exact && traceDBSingleToken(reason) {
 			coverage.FieldSources["degraded_"+reason+"_rows"] = strconv.FormatUint(count, 10)
 		}
 		out.profilerEventCoverage.Present[slotIndex] = true
@@ -289,36 +398,64 @@ func (ledger *profilerFtraceEventDiagnosticLedger) materialize(out *profilerCont
 	return true
 }
 
-func profilerFtraceEventDegradationSummary(census profilerFtraceEventSlotCensus) string {
+func profilerFtraceEventIssueSummaryCensus(field int, census profilerFtraceEventSlotCensus) (
+	[profilerFtraceEventDegradationKindCount]uint64,
+	[profilerFtraceEventDegradationKindCount]uint64,
+	profilerStableSampleSet,
+	bool,
+) {
+	var occurrences [profilerFtraceEventDegradationKindCount]uint64
+	affected := census.ClassAffectedFrames
+	var samples profilerStableSampleSet
+	if int(census.IssueCount) > len(census.Issues) {
+		return occurrences, affected, samples, false
+	}
+	for index := 0; index < int(census.IssueCount); index++ {
+		item := census.Issues[index]
+		class := item.Issue.sourceClass()
+		label, ok := item.Issue.label(field)
+		if !ok || class >= profilerFtraceEventDegradationKindCount || item.Occurrences == 0 ||
+			item.AffectedFrames == 0 || item.AffectedFrames > item.Occurrences ||
+			!checkedProfilerUint64AddTo(&occurrences[int(class)], item.Occurrences) {
+			return occurrences, affected, samples, false
+		}
+		samples.observe("profiler-ftrace-event-reason:"+strconv.Itoa(profilerFtraceEventSlot(field)), []byte(label))
+	}
+	for class := range affected {
+		if affected[class] > occurrences[class] {
+			return occurrences, affected, samples, false
+		}
+	}
+	return occurrences, affected, samples, true
+}
+
+func profilerFtraceEventDegradationSummary(field int, census profilerFtraceEventSlotCensus,
+	occurrences [profilerFtraceEventDegradationKindCount]uint64, reasonSamples profilerStableSampleSet,
+) string {
 	parts := make([]string, 0, profilerFtraceEventDegradationKindCount+1)
 	for kind := profilerFtraceEventDegradationKind(0); kind < profilerFtraceEventDegradationKindCount; kind++ {
-		if count := census.Occurrences[int(kind)]; count > 0 {
+		if count := occurrences[int(kind)]; count > 0 {
 			parts = append(parts, fmt.Sprintf("%s=%d", kind.label(), count))
 		}
 	}
-	if reason, count, exact := profilerFtraceSingleExactReason(census); exact {
+	if reason, count, exact := profilerFtraceSingleExactReason(field, census); exact {
 		parts = append(parts, fmt.Sprintf("%s=%d", reason, count))
-	} else if census.ReasonSamples.Used > 0 {
-		parts = append(parts, "reason_samples="+census.ReasonSamples.render())
+	} else if reasonSamples.Used > 0 {
+		parts = append(parts, "reason_samples="+reasonSamples.render())
 	}
 	return strings.Join(parts, ",")
 }
 
-func profilerFtraceSingleExactReason(census profilerFtraceEventSlotCensus) (string, uint64, bool) {
-	if census.ReasonSamples.Used != 1 {
+func profilerFtraceSingleExactReason(field int, census profilerFtraceEventSlotCensus) (string, uint64, bool) {
+	if census.IssueCount != 1 || int(census.IssueCount) > len(census.Issues) {
 		return "", 0, false
 	}
-	item := census.ReasonSamples.Items[0]
-	if item.InputLen != uint64(item.PrefixLen) {
+	item := census.Issues[0]
+	reason, ok := item.Issue.label(field)
+	if !ok || item.Occurrences == 0 {
 		return "", 0, false
 	}
-	var total uint64
-	for _, count := range census.Occurrences {
-		if !checkedProfilerUint64AddTo(&total, count) {
-			return "", 0, false
-		}
-	}
-	return strings.ToValidUTF8(string(item.Prefix[:item.PrefixLen]), "�"), total, total > 0
+	return reason, item.Occurrences, true
 }
 
 func profilerFtraceEventSlot(field int) int {

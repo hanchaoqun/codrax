@@ -105,10 +105,17 @@ func renderProfilerFtraceStructuredResultWithEnvelopeCoverage(result profilerTra
 				}
 			}
 		} else {
-			var degradations []profilerFtraceEventDegradation
-			name, body, ok, degradations = renderProfilerFtraceEventBodyWithTypedAudit(event)
-			if len(degradations) > 0 && !batch.observeDegradations(event.Field, degradations) {
-				return rows, topLevelCoverage, &traceDBOutputInvariantError{Reason: "profiler_event_batch_degradation_overflow"}
+			var issues []profilerFtraceEventIssue
+			var auditErr error
+			name, body, ok, issues, auditErr = renderProfilerFtraceEventBodyWithTypedAudit(event)
+			if auditErr != nil {
+				return rows, topLevelCoverage, auditErr
+			}
+			if !profilerFtraceEventIssueVerdictValid(event.Field, ok, issues) {
+				return rows, topLevelCoverage, &traceDBOutputInvariantError{Reason: "profiler_event_issue_verdict_invalid"}
+			}
+			if len(issues) > 0 && !batch.observeIssues(event.Field, ok, issues) {
+				return rows, topLevelCoverage, &traceDBOutputInvariantError{Reason: "profiler_event_issue_census_overflow"}
 			}
 		}
 		if !ok {
@@ -714,35 +721,62 @@ func renderProfilerFtraceEventBodyWithAudit(event profilerFtraceEventRecord) (st
 // B2-a assigns a closed source class at the renderer branch boundary. Exact
 // legacy reason labels remain bounded display samples until B2-b replaces the
 // producer call graph with exact Kind+PayloadField issues.
-func renderProfilerFtraceEventBodyWithTypedAudit(event profilerFtraceEventRecord) (string, string, bool, []profilerFtraceEventDegradation) {
+func renderProfilerFtraceEventBodyWithTypedAudit(event profilerFtraceEventRecord) (string, string, bool, []profilerFtraceEventIssue, error) {
 	name, body, ok, reasons := renderProfilerFtraceEventBodyWithAudit(event)
-	kind := profilerFtraceEventDegradationFieldAudit
+	legacySource := profilerFtraceEventDegradationFieldAudit
 	switch {
 	case len(event.EnvelopeDegradations) > 0:
-		kind = profilerFtraceEventDegradationEnvelope
+		legacySource = profilerFtraceEventDegradationEnvelope
 	case profilerStructuredCoreSchemas[event.Field] != nil:
-		kind = profilerFtraceEventDegradationCorePayload
+		legacySource = profilerFtraceEventDegradationCorePayload
 	case profilerStructuredAuxSchemas[event.Field] != nil:
-		kind = profilerFtraceEventDegradationAuxPayload
+		legacySource = profilerFtraceEventDegradationAuxPayload
 	case event.Field == 1000 || event.Field == 1001:
-		kind = profilerFtraceEventDegradationFilemapPayload
+		legacySource = profilerFtraceEventDegradationFilemapPayload
 	default:
 		if _, _, block := blockRenderKindForProfilerField(event.Field); block {
-			kind = profilerFtraceEventDegradationBlockPayload
+			legacySource = profilerFtraceEventDegradationBlockPayload
 		} else if _, known := profilerFtraceEventDescriptors[event.Field]; known {
-			kind = profilerFtraceEventDegradationWireAudit
+			legacySource = profilerFtraceEventDegradationWireAudit
 		} else {
-			kind = profilerFtraceEventDegradationUnmappedField
+			legacySource = profilerFtraceEventDegradationUnmappedField
 		}
+	}
+	if profilerFtraceEventSlot(event.Field) == profilerFtraceUnknownEventSlot {
+		if event.Field < 100 || event.Field > profilerFtraceUnknownEventAggregateField {
+			return "", "", false, nil, &traceDBOutputInvariantError{Reason: "profiler_event_field_domain_invalid"}
+		}
+		// Preserve exact envelope issues: their typed Kind+PayloadField does not
+		// depend on the compacted unknown field ID. Unmapped identity is appended
+		// below as the mandatory dominant hard issue for the unknown slot.
+		name, body, ok = "", "", false
 	}
 	if !ok && len(reasons) == 0 {
-		if kind == profilerFtraceEventDegradationUnmappedField {
+		if profilerFtraceEventSlot(event.Field) == profilerFtraceUnknownEventSlot {
+			// The mandatory unmapped issue is appended after any envelope issues.
+		} else if legacySource == profilerFtraceEventDegradationUnmappedField {
 			reasons = []string{"unmapped structured ftrace event field"}
 		} else {
-			reasons = []string{"structured_renderer_missing_typed_reason"}
+			return "", "", false, nil, &traceDBOutputInvariantError{Reason: "profiler_event_missing_typed_issue"}
 		}
 	}
-	return name, body, ok, profilerFtraceEventDegradations(kind, reasons)
+	issues := make([]profilerFtraceEventIssue, 0, len(reasons))
+	for _, reason := range reasons {
+		issue, valid := profilerFtraceEventIssueFromLegacy(event.Field, legacySource, reason)
+		if !valid {
+			return "", "", false, nil, &traceDBOutputInvariantError{Reason: "profiler_event_legacy_issue_unmapped"}
+		}
+		issues = append(issues, issue)
+	}
+	if profilerFtraceEventSlot(event.Field) == profilerFtraceUnknownEventSlot {
+		unmapped, valid := profilerFtraceEventIssueFromLegacy(event.Field,
+			profilerFtraceEventDegradationUnmappedField, "unmapped structured ftrace event field")
+		if !valid {
+			return "", "", false, nil, &traceDBOutputInvariantError{Reason: "profiler_event_unmapped_issue_invalid"}
+		}
+		issues = append(issues, unmapped)
+	}
+	return name, body, ok, issues, nil
 }
 
 func profilerFtraceCoreWireAudit(event profilerFtraceEventRecord) (bool, []string) {
