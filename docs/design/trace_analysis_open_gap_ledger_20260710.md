@@ -633,6 +633,13 @@ generic代码提交`8f5aee619`已独立推送到`main`；连同先行的envelope
 
 **明确留后**：本施工冻结不等于交付，B2-b5、B2-b、B2与P1-a2.2继续开放，直至上述代码、闭集和总矩阵全部验证并以独立提交推送。a2.3/a2.4、`ROW-SORT-BND`、P1-b、TOCTOU、compact pairing sidecar、generic block/storage typed request identity witness及Profiler全链有界声明均不受本批改变。
 
+### HCONV-BLOCK-CAPTURE：structured/direct block complete-capture anti-rescue（新发现P0，开放）
+
+2026-07-13 B2-b5对抗审计确认：现有complete-capture barrier的closed `pairRenderKind`/format-family只覆盖Workqueue、DMA、MMC、F2FS；SQL raw block已由B3-b2 stage保护，但structured 202/204/205/209..212与direct RMQ block不进入同构block barrier。故坏descriptor/envelope/payload/canonical block endpoint被converter局部拒绝后，输出文本仍可能把洞前start与洞后done按现有粗硬键救配成伪duration；coverage/caveat不是配对硬门，不能阻止该通路。B2-b5只负责typed诊断与坏行局部化，结案时必须继续明确本项开放，不能用健康sibling存活冒充block anti-rescue已经闭合。
+
+- **基础barrier与更强identity分离**：近期高ROI批先按tracequery现有单点同构硬键`RQ|BIO family + dev + op + sector + nr_sector`建立source-local complete-capture barrier，block跨context故不得把PID/comm混入key。key和source provenance可信的坏端点隔离exact lane；endpoint可识别但key、oneof或source provenance不可定位时升级该source的block family；unique-lane/budget不能证明有界时同样family fail-close。所有候选、poison与opaque状态必须在该source任何block endpoint首发前seal，禁止逐行continue后发布邻居。更强request/tag/cookie/queue identity仍要求production双端witness，不得借基础barrier伪报已获得并发同硬键消歧能力。
+- **验收冻结**：structured与direct分别覆盖`valid start → rejected same-key endpoint → valid done`零pair、unrelated-key真pair存活、正反物理顺序、known-key exact lane、unknown-key/source family-global、opaque oneof/descriptor洞、预算溢出零block publication、SQL既有barrier parity及tracequery E2E零伪duration；普通非block sibling及MMC/F2FS不连坐。barrier必须复用`tracequery.FingerprintPairingEndpoint`或以跨包byte-exact parity pin证明同一硬键，首发前freeze、固定预算与coverage withheld守恒均须机械化。本项在B2-b5之后按高ROI独立开批、提交和推送。
+
 ### P1-a2.2-B2-b1 closed bridge与exact ledger交付结案
 
 账本校准提交`c2c3f50fc`与代码提交`0ade13c13`已按顺序推送到`main`；本节只关闭B2-b1临时strict bridge与exact fixed census，不提前关闭B2-b、B2或P1-a2.2。bridge必须在B2-b2..b5逐producer typed化完成后删除，不能成为长期双权威。
