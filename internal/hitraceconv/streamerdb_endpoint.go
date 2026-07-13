@@ -6,9 +6,6 @@ import (
 	"fmt"
 	"math"
 	"strconv"
-	"strings"
-	"unicode"
-	"unicode/utf8"
 )
 
 const maxTraceDBSystraceLineBytes = 1 << 20
@@ -87,10 +84,28 @@ func prepareTraceDBRenderedRow(tsNS int64, seq int, task string, tid, tgid, cpu 
 // values; all SQL exporters stay on prepareTraceDBRenderedRow and therefore
 // retain the explicit zero/default header.
 func prepareTraceDBRenderedRowWithTraceFlags(tsNS int64, seq int, task string, tid, tgid, cpu, flags, preemptCount int64, body string) (renderedRow, error) {
-	return prepareTraceDBRenderedRowEnvelope(tsNS, seq, task, tid, tgid, cpu, flags, preemptCount, true, body)
+	return prepareTraceDBRenderedRowWithTraceFlagsContext(context.Background(), tsNS, seq, task, tid, tgid, cpu, flags, preemptCount, body)
+}
+
+func prepareTraceDBRenderedRowWithTraceFlagsContext(ctx context.Context, tsNS int64, seq int, task string,
+	tid, tgid, cpu, flags, preemptCount int64, body string,
+) (renderedRow, error) {
+	return prepareTraceDBRenderedRowEnvelopeContext(ctx, tsNS, seq, task, tid, tgid, cpu, flags, preemptCount, true, body)
 }
 
 func prepareTraceDBRenderedRowEnvelope(tsNS int64, seq int, task string, tid, tgid, cpu, flags, preemptCount int64, allowUnknownTGID bool, body string) (renderedRow, error) {
+	return prepareTraceDBRenderedRowEnvelopeContext(context.Background(), tsNS, seq, task, tid, tgid, cpu, flags, preemptCount, allowUnknownTGID, body)
+}
+
+func prepareTraceDBRenderedRowEnvelopeContext(ctx context.Context, tsNS int64, seq int, task string,
+	tid, tgid, cpu, flags, preemptCount int64, allowUnknownTGID bool, body string,
+) (renderedRow, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return renderedRow{}, err
+	}
 	if seq < 0 {
 		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_sequence"}
 	}
@@ -115,13 +130,24 @@ func prepareTraceDBRenderedRowEnvelope(tsNS int64, seq int, task string, tid, tg
 	if preemptCount < 0 || preemptCount > math.MaxUint8 {
 		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_preempt_count"}
 	}
-	if !traceDBSinglePhysicalLine(task, true) {
+	taskValid, err := profilerSinglePhysicalLineStringContext(ctx, task, true)
+	if err != nil {
+		return renderedRow{}, err
+	}
+	if !taskValid {
 		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_task"}
 	}
-	if !traceDBSinglePhysicalLine(body, false) {
+	bodyValid, err := profilerSinglePhysicalLineStringContext(ctx, body, false)
+	if err != nil {
+		return renderedRow{}, err
+	}
+	if !bodyValid {
 		return renderedRow{}, &traceDBOutputInvariantError{Reason: "invalid_body"}
 	}
 	line := traceDBFormatLine(task, tid, tgid, cpu, tsNS, flags, preemptCount, body)
+	if err := ctx.Err(); err != nil {
+		return renderedRow{}, err
+	}
 	if len(line) > maxTraceDBSystraceLineBytes {
 		return renderedRow{}, &traceDBOutputInvariantError{Reason: "line_too_long"}
 	}
@@ -129,15 +155,8 @@ func prepareTraceDBRenderedRowEnvelope(tsNS int64, seq int, task string, tid, tg
 }
 
 func traceDBSinglePhysicalLine(value string, allowBlank bool) bool {
-	if len(value) > maxTraceDBSystraceLineBytes || !utf8.ValidString(value) || (!allowBlank && strings.TrimSpace(value) == "") {
-		return false
-	}
-	for _, r := range value {
-		if unicode.IsControl(r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
-			return false
-		}
-	}
-	return true
+	valid, _ := profilerSinglePhysicalLineStringContext(context.Background(), value, allowBlank)
+	return valid
 }
 
 // traceDBFormatLine is deliberately a pure formatter for a validated

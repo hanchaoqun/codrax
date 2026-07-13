@@ -83,6 +83,54 @@ func TestPrepareTraceDBRenderedRowStrictBoundaries(t *testing.T) {
 	}
 }
 
+func TestPrepareTraceDBRenderedRowWithTraceFlagsContextParityAndCancellation(t *testing.T) {
+	args := struct {
+		tsNS, tid, tgid, cpu, flags, preempt int64
+		seq                                  int
+		task, body                           string
+	}{
+		tsNS: 1_000, seq: 7, task: "worker", tid: 10, tgid: 10, cpu: 2,
+		flags: 0x0d, preempt: 2, body: "print: " + strings.Repeat("x", 4*profilerContextByteCheckpointBytes+31),
+	}
+	legacy, legacyErr := prepareTraceDBRenderedRowWithTraceFlags(args.tsNS, args.seq, args.task,
+		args.tid, args.tgid, args.cpu, args.flags, args.preempt, args.body)
+	background, backgroundErr := prepareTraceDBRenderedRowWithTraceFlagsContext(context.Background(), args.tsNS, args.seq,
+		args.task, args.tid, args.tgid, args.cpu, args.flags, args.preempt, args.body)
+	nilContext, nilErr := prepareTraceDBRenderedRowWithTraceFlagsContext(nil, args.tsNS, args.seq,
+		args.task, args.tid, args.tgid, args.cpu, args.flags, args.preempt, args.body)
+	if legacyErr != nil || backgroundErr != nil || nilErr != nil || legacy != background || legacy != nilContext {
+		t.Fatalf("row endpoint parity legacy=(%+v,%v) background=(%+v,%v) nil=(%+v,%v)",
+			legacy, legacyErr, background, backgroundErr, nilContext, nilErr)
+	}
+
+	calibration := &profilerByteCancelAfterPollContext{Context: context.Background()}
+	if _, err := prepareTraceDBRenderedRowWithTraceFlagsContext(calibration, args.tsNS, args.seq,
+		args.task, args.tid, args.tgid, args.cpu, args.flags, args.preempt, args.body); err != nil || calibration.polls < 5 {
+		t.Fatalf("row endpoint cancellation calibration polls=%d err=%v", calibration.polls, err)
+	}
+	for _, test := range []struct {
+		name     string
+		cancelAt int
+		want     error
+	}{
+		{name: "pre-canceled", cancelAt: 1, want: context.Canceled},
+		{name: "mid-body", cancelAt: max(2, calibration.polls/2), want: context.DeadlineExceeded},
+		{name: "final-check", cancelAt: calibration.polls, want: context.Canceled},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := &profilerByteCancelAfterPollContext{
+				Context: context.Background(), cancelAt: test.cancelAt, err: test.want,
+			}
+			row, err := prepareTraceDBRenderedRowWithTraceFlagsContext(ctx, args.tsNS, args.seq,
+				args.task, args.tid, args.tgid, args.cpu, args.flags, args.preempt, args.body)
+			if row != (renderedRow{}) || err != test.want || ctx.polls != test.cancelAt {
+				t.Fatalf("row endpoint cancellation row=%+v polls=%d/%d err=%T %v want=%v",
+					row, ctx.polls, test.cancelAt, err, err, test.want)
+			}
+		})
+	}
+}
+
 func TestTraceDBEndpointRejectionDoesNotMutateSink(t *testing.T) {
 	sink, err := newTraceDBRowSink(t.TempDir(), 2)
 	if err != nil {

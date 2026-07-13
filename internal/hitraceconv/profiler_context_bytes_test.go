@@ -125,6 +125,60 @@ func TestProfilerByteValidatorsMatchStringAuthorities(t *testing.T) {
 	}
 }
 
+func TestProfilerStringValidatorsMatchByteAuthorities(t *testing.T) {
+	inputs := []string{
+		"", "value", " value", "value ", "   ", "a=b", "a|b", "a\tb", "a\nb",
+		"时钟", "a\u00a0b", "\u3000", "a\u2028b", "a\u2029b",
+		string([]byte{0xff, 0, 0xfe}),
+		strings.Repeat("x", maxTraceDBSystraceLineBytes),
+		strings.Repeat("x", maxTraceDBSystraceLineBytes+1),
+	}
+	for _, raw := range inputs {
+		for _, allowBlank := range []bool{false, true} {
+			fromBytes, bytesErr := profilerSinglePhysicalLineBytesContext(context.Background(), []byte(raw), allowBlank)
+			fromString, stringErr := profilerSinglePhysicalLineStringContext(context.Background(), raw, allowBlank)
+			if bytesErr != nil || stringErr != nil || fromString != fromBytes || fromString != traceDBSinglePhysicalLine(raw, allowBlank) {
+				t.Fatalf("physical parity bytes=%d blank=%t got=(%t,%v) bytes=(%t,%v) legacy=%t",
+					len(raw), allowBlank, fromString, stringErr, fromBytes, bytesErr, traceDBSinglePhysicalLine(raw, allowBlank))
+			}
+		}
+		fromBytes, bytesErr := profilerSingleTokenBytesContext(context.Background(), []byte(raw))
+		fromString, stringErr := profilerSingleTokenStringContext(context.Background(), raw)
+		if bytesErr != nil || stringErr != nil || fromString != fromBytes || fromString != traceDBSingleToken(raw) {
+			t.Fatalf("token parity bytes=%d got=(%t,%v) bytes=(%t,%v) legacy=%t",
+				len(raw), fromString, stringErr, fromBytes, bytesErr, traceDBSingleToken(raw))
+		}
+	}
+}
+
+func TestProfilerStringValidatorsCancellationIdentity(t *testing.T) {
+	raw := strings.Repeat("x", 4*profilerContextByteCheckpointBytes+31)
+	for _, test := range []struct {
+		name string
+		run  func(context.Context) (bool, error)
+	}{
+		{name: "physical", run: func(ctx context.Context) (bool, error) {
+			return profilerSinglePhysicalLineStringContext(ctx, raw, false)
+		}},
+		{name: "token", run: func(ctx context.Context) (bool, error) {
+			return profilerSingleTokenStringContext(ctx, raw)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			for _, want := range []error{context.Canceled, context.DeadlineExceeded} {
+				ctx := &profilerByteCancelAfterPollContext{
+					Context: context.Background(), cancelAt: 4, err: want,
+				}
+				valid, err := test.run(ctx)
+				if valid || err != want || ctx.polls != ctx.cancelAt {
+					t.Fatalf("string validator cancellation valid=%t polls=%d/%d err=%T %v want=%v",
+						valid, ctx.polls, ctx.cancelAt, err, err, want)
+				}
+			}
+		})
+	}
+}
+
 func TestProfilerByteValidatorsCoverUnicodeRuneSemantics(t *testing.T) {
 	for r := rune(0); r <= utf8.MaxRune; r += 997 {
 		raw := []byte(string(r))

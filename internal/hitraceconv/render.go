@@ -1,6 +1,7 @@
 package hitraceconv
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -614,15 +615,8 @@ func strictNULTerminatedString(raw []byte, requireNUL bool) (string, bool) {
 // and cgroup labels occupy one token; accepting whitespace, '=' or '|' would
 // let source text mint sibling typed fields when tracequery reparses the row.
 func traceDBSingleToken(value string) bool {
-	if value == "" || value != strings.TrimSpace(value) || !traceDBSinglePhysicalLine(value, false) {
-		return false
-	}
-	for _, r := range value {
-		if unicode.IsSpace(r) || r == '=' || r == '|' {
-			return false
-		}
-	}
-	return true
+	valid, _ := profilerSingleTokenStringContext(context.Background(), value)
+	return valid
 }
 
 func uintByCleanName(ev decodedEvent, names ...string) (uint64, bool) {

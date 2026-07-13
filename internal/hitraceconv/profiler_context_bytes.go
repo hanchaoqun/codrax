@@ -75,6 +75,25 @@ func profilerSinglePhysicalLineBytesContext(ctx context.Context, raw []byte, all
 	return allowBlank || !facts.allSpace, nil
 }
 
+// profilerSinglePhysicalLineStringContext is the zero-copy string adapter for
+// the same physical-rune authority used by byte-backed protobuf fields.
+func profilerSinglePhysicalLineStringContext(ctx context.Context, raw string, allowBlank bool) (bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if len(raw) > maxTraceDBSystraceLineBytes {
+		return false, nil
+	}
+	facts, valid, err := profilerPhysicalRuneFactsStringContext(ctx, raw)
+	if err != nil || !valid {
+		return false, err
+	}
+	return allowBlank || !facts.allSpace, nil
+}
+
 // profilerSingleTokenBytesContext is byte-for-byte equivalent to
 // traceDBSingleToken. In particular, every Unicode whitespace rune and the
 // public key/value separators '=' and '|' are forbidden.
@@ -89,6 +108,25 @@ func profilerSingleTokenBytesContext(ctx context.Context, raw []byte) (bool, err
 		return false, nil
 	}
 	facts, valid, err := profilerPhysicalRuneFactsBytesContext(ctx, raw)
+	if err != nil || !valid {
+		return false, err
+	}
+	return !facts.allSpace && facts.tokenSafe, nil
+}
+
+// profilerSingleTokenStringContext is the zero-copy string adapter for the
+// same token authority used by byte-backed protobuf fields.
+func profilerSingleTokenStringContext(ctx context.Context, raw string) (bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if len(raw) == 0 || len(raw) > maxTraceDBSystraceLineBytes {
+		return false, nil
+	}
+	facts, valid, err := profilerPhysicalRuneFactsStringContext(ctx, raw)
 	if err != nil || !valid {
 		return false, err
 	}
@@ -166,18 +204,36 @@ func profilerTrimASCIISpacesBytesContext(ctx context.Context, raw []byte) ([]byt
 }
 
 func profilerPhysicalRuneFactsBytesContext(ctx context.Context, raw []byte) (profilerPhysicalRuneFacts, bool, error) {
+	return profilerPhysicalRuneFactsContext(ctx, len(raw), func(offset int) (rune, int) {
+		return utf8.DecodeRune(raw[offset:])
+	})
+}
+
+func profilerPhysicalRuneFactsStringContext(ctx context.Context, raw string) (profilerPhysicalRuneFacts, bool, error) {
+	return profilerPhysicalRuneFactsContext(ctx, len(raw), func(offset int) (rune, int) {
+		return utf8.DecodeRuneInString(raw[offset:])
+	})
+}
+
+func profilerPhysicalRuneFactsContext(ctx context.Context, length int, decode func(int) (rune, int)) (profilerPhysicalRuneFacts, bool, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if err := ctx.Err(); err != nil {
 		return profilerPhysicalRuneFacts{}, false, err
 	}
+	if length < 0 || decode == nil {
+		return profilerPhysicalRuneFacts{}, false, &traceDBOutputInvariantError{Reason: "profiler_physical_rune_source_invalid"}
+	}
 	facts := profilerPhysicalRuneFacts{allSpace: true, tokenSafe: true}
 	nextCheckpoint := profilerContextByteCheckpointBytes
-	for offset := 0; offset < len(raw); {
-		r, width := utf8.DecodeRune(raw[offset:])
+	for offset := 0; offset < length; {
+		r, width := decode(offset)
 		if r == utf8.RuneError && width == 1 {
 			return profilerPhysicalRuneFacts{}, false, nil
+		}
+		if width <= 0 || width > length-offset {
+			return profilerPhysicalRuneFacts{}, false, &traceDBOutputInvariantError{Reason: "profiler_physical_rune_width_invalid"}
 		}
 		offset += width
 		if offset >= nextCheckpoint {
