@@ -425,6 +425,236 @@ func TestTraceWaitEvidence_UnprovenRemainderFact(t *testing.T) {
 	}
 }
 
+// TestTraceWaitEvidence_WakeCensusCounts — WAKE-CENSUS (§29.58, 2026-07-13):
+// with typed wakeup_edge_census records on the ledger the count lane mints
+// from the census values VERBATIM (whole-inventory caliber + sched_wakeup
+// direction pin + complete-list absence property), takes the per-pair MAX
+// across republications, and the PROSE-RC ① fallback lane (observed-edges-
+// only caliber) stays silent. PRC-F1 witness: the model invented
+//「OS_IPC_14_34911 ×4」for a pair whose only raw edge ran the OPPOSITE
+// direction — the census count (12 vs the 3 fed edge rows) plus the absence
+// sentence close both fabrication directions.
+func TestTraceWaitEvidence_WakeCensusCounts(t *testing.T) {
+	ledger := traceWaitTestLedger()
+	ledger.Records = append(ledger.Records,
+		// 修复轮 件4 (P3-1): the STALE lower count arrives FIRST — with the
+		// low-count-LAST order the pinned ×12 was satisfiable by a first-wins
+		// mutant too (M4 存活); this order splits MAX from first-wins
+		// (first-wins reads ×9 here and reds).
+		traceWaitTestRecord("trace_query:t#wakeup_edge_census:1b", "gpu-token-id4-2931", "CompThread_0-2955", "wakeup_edge_census", "9",
+			types.TraceNoteKeyWakeupEdgeCensusFirstTs+"=13762.801234",
+			types.TraceNoteKeyWakeupEdgeCensusLastTs+"=13762.955555"),
+		// The engine census: 12 measured edges while only 3 edge rows were fed.
+		traceWaitTestRecord("trace_query:t#wakeup_edge_census:1", "gpu-token-id4-2931", "CompThread_0-2955", "wakeup_edge_census", "12",
+			types.TraceNoteKeyWakeupEdgeCensusFirstTs+"=13762.801234",
+			types.TraceNoteKeyWakeupEdgeCensusLastTs+"=13762.998765"),
+		traceWaitTestRecord("trace_query:t#wakeup_edge_census:2", "binder:642_10-1385", "gpu-token-id4-2931", "wakeup_edge_census", "1",
+			types.TraceNoteKeyWakeupEdgeCensusFirstTs+"=13762.800001",
+			types.TraceNoteKeyWakeupEdgeCensusLastTs+"=13762.800001"),
+	)
+	summary := formatTraceWaitWakeEvidenceFromLedger(ledger, nil)
+	for _, want := range []string{
+		"Measured wakeup-edge counts per waker (full-inventory census:",
+		// Census values verbatim — ×12 (MAX over the stale ×9 that arrived
+		// FIRST), never the 3-row re-count of the fed edge list.
+		"- gpu-token-id4-2931 → CompThread_0-2955 ×12 measured wakeup edge(s) (first at 13762.801234, last at 13762.998765)",
+		"- binder:642_10-1385 → gpu-token-id4-2931 ×1 measured wakeup edge(s)",
+		// Direction pin (PRC-F1 方向假) + absence property (PRC-F1 造数);
+		// 件2 (P2-1) narrowed descriptive half = exactly the census caliber
+		// (bundle runs hold engine-measured edges that published no per-pair
+		// count, so the whole-run zero-edges form over-claimed); normative
+		// half unchanged.
+		"never reverse a pair's direction",
+		"These pairs are the COMPLETE list of per-pair counted waker → wakee pairs from the wakeup-chain analyses above",
+		"was never measured with a per-pair count here",
+		"never report a wakeup count for an absent pair",
+		// WC-F1: the scope label closes the invented-kernel-mechanism lane.
+		"An absence here reflects only the measured set's scope — it is not a kernel scheduling behavior and needs no mechanism explanation.",
+		// Honest caliber: measured edges only, the raw trace may hold more.
+		"the raw trace may still hold wakeups outside the measured set",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("census count lane missing %q:\n%s", want, summary)
+		}
+	}
+	// 件2 negative pin: the retired whole-run zero-edges claim never returns.
+	if strings.Contains(summary, "ZERO measured wakeup edges in this run") {
+		t.Fatalf("the whole-run zero-edges over-claim must stay retired:\n%s", summary)
+	}
+	// The fallback lane's caliber label must NOT co-render with the census.
+	for _, banned := range []string{
+		"observed wakeup edge(s)",
+		"each count tallies ALL measured wakeup-edge records of this run",
+	} {
+		if strings.Contains(summary, banned) {
+			t.Fatalf("the fallback count lane must stay silent when census records exist, found %q:\n%s", banned, summary)
+		}
+	}
+	// count desc: ×12 precedes ×1.
+	big := strings.Index(summary, "×12 measured wakeup edge(s)")
+	small := strings.Index(summary, "×1 measured wakeup edge(s)")
+	if big < 0 || small < 0 || big > small {
+		t.Fatalf("census count lines must order count-desc:\n%s", summary)
+	}
+	// The stale republication's window bounds must not survive (whole-entry MAX).
+	if strings.Contains(summary, "13762.955555") {
+		t.Fatalf("a stale lower-count republication must not contribute its window bounds:\n%s", summary)
+	}
+}
+
+// TestTraceWaitEvidence_WakeCensusOverflow — a census pair-cap overflow
+// (typed notes) suppresses the complete-list sentence and mints the named
+// unlisted remainder instead — absence claims only on complete enumerations.
+func TestTraceWaitEvidence_WakeCensusOverflow(t *testing.T) {
+	ledger := traceWaitTestLedger()
+	ledger.Records = append(ledger.Records,
+		traceWaitTestRecord("trace_query:t#wakeup_edge_census:1", "gpu-token-id4-2931", "CompThread_0-2955", "wakeup_edge_census", "12",
+			types.TraceNoteKeyWakeupEdgeCensusFirstTs+"=13762.801234",
+			types.TraceNoteKeyWakeupEdgeCensusLastTs+"=13762.998765",
+			types.TraceNoteKeyWakeupEdgeCensusOverflowPairs+"=3",
+			types.TraceNoteKeyWakeupEdgeCensusOverflowEdges+"=7"),
+	)
+	summary := formatTraceWaitWakeEvidenceFromLedger(ledger, nil)
+	if !strings.Contains(summary, "- (+3 more waker → wakee pair(s) carrying 7 more measured wakeup edge(s) are not listed here — their per-pair counts are unpublished, so never guess or invent a count for an unlisted pair)") {
+		t.Fatalf("census overflow must mint the named unlisted remainder:\n%s", summary)
+	}
+	if strings.Contains(summary, "COMPLETE list of per-pair counted waker → wakee pairs") {
+		t.Fatalf("an overflowing census must never claim completeness:\n%s", summary)
+	}
+}
+
+// TestTraceWaitEvidence_WakeCensusListingCapFoldsIntoRemainder — a
+// multi-query census union past the listing cap trims deterministically and
+// folds the trimmed pairs (with their KNOWN counts) into the named
+// remainder; completeness is not claimed.
+func TestTraceWaitEvidence_WakeCensusListingCapFoldsIntoRemainder(t *testing.T) {
+	ledger := types.ObservationLedger{}
+	// 18 pairs against the listing cap of 16: the two lowest-order tie pairs
+	// (waker-q, waker-r) fall to the remainder, carrying 2×2 edges.
+	for i := 0; i < 18; i++ {
+		waker := fmt.Sprintf("waker-%c", 'a'+i)
+		ledger.Records = append(ledger.Records,
+			traceWaitTestRecord(fmt.Sprintf("trace_query:t#wakeup_edge_census:%d", i+1), waker, "wakee-1", "wakeup_edge_census", "2",
+				types.TraceNoteKeyWakeupEdgeCensusFirstTs+"=13762.000001",
+				types.TraceNoteKeyWakeupEdgeCensusLastTs+"=13762.900009"))
+	}
+	summary := formatTraceWaitWakeEvidenceFromLedger(ledger, nil)
+	for _, want := range []string{
+		"- waker-a → wakee-1 ×2 measured wakeup edge(s)",
+		"- waker-p → wakee-1 ×2 measured wakeup edge(s)",
+		"- (+2 more waker → wakee pair(s) carrying 4 more measured wakeup edge(s) are not listed here",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("census listing-cap fold missing %q:\n%s", want, summary)
+		}
+	}
+	for _, banned := range []string{
+		"- waker-q → wakee-1",
+		"- waker-r → wakee-1",
+		"COMPLETE list of per-pair counted waker → wakee pairs",
+	} {
+		if strings.Contains(summary, banned) {
+			t.Fatalf("pairs past the listing cap must fall to the remainder without a completeness claim, found %q:\n%s", banned, summary)
+		}
+	}
+}
+
+// TestTraceWaitEvidence_WakeCensusScopeUnionOverflow — 修复轮 件3 (P2-2):
+// overflow disclosures are per-RESULT facts. Within ONE result scope a
+// republication MAX-collapses (numeric remainder stays exact); across TWO
+// result scopes the numbers are not soundly combinable, so the remainder
+// line de-numberizes instead of minting a definite-looking union number.
+func TestTraceWaitEvidence_WakeCensusScopeUnionOverflow(t *testing.T) {
+	// Single scope, republished overflow 3/7 twice → MAX, never 6/14.
+	single := types.ObservationLedger{Records: []types.ObservationRecord{
+		traceWaitTestRecord("trace_query:a#wakeup_edge_census:1", "waker-a", "wakee-1", "wakeup_edge_census", "2",
+			types.TraceNoteKeyWakeupEdgeCensusOverflowPairs+"=3",
+			types.TraceNoteKeyWakeupEdgeCensusOverflowEdges+"=7"),
+		traceWaitTestRecord("trace_query:a#wakeup_edge_census:1", "waker-a", "wakee-1", "wakeup_edge_census", "2",
+			types.TraceNoteKeyWakeupEdgeCensusOverflowPairs+"=3",
+			types.TraceNoteKeyWakeupEdgeCensusOverflowEdges+"=7"),
+	}}
+	summary := formatTraceWaitWakeEvidenceFromLedger(single, nil)
+	if !strings.Contains(summary, "- (+3 more waker → wakee pair(s) carrying 7 more measured wakeup edge(s) are not listed here") {
+		t.Fatalf("single-scope republication must keep the exact MAX remainder (3/7):\n%s", summary)
+	}
+	// Two scopes, each with its own overflow → the union remainder carries
+	// no arithmetic; the normative half stays.
+	multi := types.ObservationLedger{Records: []types.ObservationRecord{
+		traceWaitTestRecord("trace_query:a#wakeup_edge_census:1", "waker-a", "wakee-1", "wakeup_edge_census", "2",
+			types.TraceNoteKeyWakeupEdgeCensusOverflowPairs+"=3",
+			types.TraceNoteKeyWakeupEdgeCensusOverflowEdges+"=7"),
+		traceWaitTestRecord("trace_query:b#wakeup_edge_census:1", "waker-b", "wakee-2", "wakeup_edge_census", "4",
+			types.TraceNoteKeyWakeupEdgeCensusOverflowPairs+"=2",
+			types.TraceNoteKeyWakeupEdgeCensusOverflowEdges+"=5"),
+	}}
+	summary = formatTraceWaitWakeEvidenceFromLedger(multi, nil)
+	if !strings.Contains(summary, "- (additional measured waker → wakee pairs beyond those listed exist across the combined analyses — their per-pair counts are unpublished, so never guess or invent a count for an unlisted pair)") {
+		t.Fatalf("a multi-scope union must de-numberize its remainder:\n%s", summary)
+	}
+	for _, banned := range []string{
+		"more waker → wakee pair(s) carrying", // any definite union number
+		"COMPLETE list of per-pair counted waker → wakee pairs",
+	} {
+		if strings.Contains(summary, banned) {
+			t.Fatalf("multi-scope union must neither number the remainder nor claim completeness, found %q:\n%s", banned, summary)
+		}
+	}
+}
+
+// TestTraceWaitEvidence_WakeCensusBundleMixedAbsenceCaliber — 修复轮 件2
+// (P2-1): bundle-mixed witness shape — the ledger holds a wakeup_chain PATH
+// record naming a pair (engine-measured inside a frame_root_cause_bundle)
+// that published neither an edge record nor a census count. The absence
+// sentence must claim exactly the census caliber (never "zero measured
+// wakeup edges in this run" — the model holds engine-measured pairs beyond
+// the counted set), while the normative never-report half stays.
+func TestTraceWaitEvidence_WakeCensusBundleMixedAbsenceCaliber(t *testing.T) {
+	ledger := traceWaitTestLedger()
+	ledger.Records = append(ledger.Records,
+		// Complete census (zero overflow) for ONE pair …
+		traceWaitTestRecord("trace_query:t#wakeup_edge_census:1", "gpu-token-id4-2931", "CompThread_0-2955", "wakeup_edge_census", "12",
+			types.TraceNoteKeyWakeupEdgeCensusFirstTs+"=13762.801234",
+			types.TraceNoteKeyWakeupEdgeCensusLastTs+"=13762.998765"),
+		// … while a bundle path record names ANOTHER measured pair with no
+		// per-pair count anywhere.
+		traceWaitTestRecord("trace_query:t#wakeup_chain:path:1", "CompThread_0-2955", "RSUniRenderThre-2188 -> CompThread_0-2955", "wakeup_chain", "",
+			"branch=1"),
+	)
+	summary := formatTraceWaitWakeEvidenceFromLedger(ledger, nil)
+	for _, want := range []string{
+		"These pairs are the COMPLETE list of per-pair counted waker → wakee pairs from the wakeup-chain analyses above",
+		"was never measured with a per-pair count here",
+		"never report a wakeup count for an absent pair",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("bundle-mixed absence sentence missing %q:\n%s", want, summary)
+		}
+	}
+	if strings.Contains(summary, "ZERO measured wakeup edges in this run") {
+		t.Fatalf("the whole-run zero-edges claim over-claims against bundle-measured pairs:\n%s", summary)
+	}
+}
+
+// TestTraceWaitEvidence_WakeCensusFallbackSelfAdmits — with NO census record
+// on the ledger the count lane keeps the PROSE-RC ① observed-edges-only
+// caliber verbatim (降级自认) and never borrows the census wording.
+func TestTraceWaitEvidence_WakeCensusFallbackSelfAdmits(t *testing.T) {
+	summary := formatTraceWaitWakeEvidenceFromLedger(traceWaitTestLedger(), nil)
+	if !strings.Contains(summary, "they count observed wakeup edges only") {
+		t.Fatalf("the fallback lane must keep its observed-edges-only caliber label:\n%s", summary)
+	}
+	for _, banned := range []string{
+		"full-inventory census",
+		"measured wakeup edge(s) (first at",
+		"COMPLETE list of per-pair counted waker → wakee pairs",
+	} {
+		if strings.Contains(summary, banned) {
+			t.Fatalf("census-lane wording must not render without census records, found %q:\n%s", banned, summary)
+		}
+	}
+}
+
 // TestBuildPromptContext_TraceWaitEvidenceSection — the summary rides the
 // investigation and answer-rendering dispatches only (same stage gate as the
 // CR-1 board summary).

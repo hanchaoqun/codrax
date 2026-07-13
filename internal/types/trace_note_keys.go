@@ -332,6 +332,22 @@ const (
 	// (internal/context wait-object summary).
 	TraceNoteKeyBlockedReasonCensus         = "blocked_reason_census"
 	TraceNoteKeyBlockedReasonCensusOverflow = "blocked_reason_census_overflow"
+	// TraceNoteKeyWakeupEdgeCensus* (WAKE-CENSUS §29.58, 2026-07-13): the
+	// per-(waker → wakee) wakeup-edge census notes riding each typed
+	// wakeup_edge_census record (Subject=waker, Object=wakee, Value=count).
+	// The count folds over the engine's FULL pre-cap edge set — the per-edge
+	// wakeup_chain_edge rows are row-capped, so counts re-derived from them
+	// are silent lower bounds (PRC-F1 witness: the model invented
+	//「OS_IPC_14_34911 ×4」for a pair whose only raw edge ran the opposite
+	// direction). First/last carry the pair's observed wakeup timestamp
+	// bounds; the overflow pair carries the census pair-cap trim (distinct
+	// pairs + their deduplicated edges beyond the listed rows; absent ⇔ 0 ⇔
+	// the pair enumeration is complete). Consumed deterministically by the
+	// model evidence feed (internal/context wait-object summary).
+	TraceNoteKeyWakeupEdgeCensusFirstTs       = "wakeup_edge_census_first_ts"
+	TraceNoteKeyWakeupEdgeCensusLastTs        = "wakeup_edge_census_last_ts"
+	TraceNoteKeyWakeupEdgeCensusOverflowPairs = "wakeup_edge_census_overflow_pairs"
+	TraceNoteKeyWakeupEdgeCensusOverflowEdges = "wakeup_edge_census_overflow_edges"
 	// TraceNoteKeyDStateCauseUnprovenRemainder (§29.50.5 证明分区, v5 P1 批
 	// 件②, 2026-07-13): "true" ONLY on the honest-remainder D/IO seat — the
 	// unproven fragments of a thread whose other fragments proved a concrete
@@ -1052,6 +1068,14 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{"latency", "chain_path", TraceNoteCarrierDisplayOnly},
 	{"waker_priority", "chain_path", TraceNoteCarrierDisplayOnly},
 	{"wakee_priority", "chain_path", TraceNoteCarrierDisplayOnly},
+	// WAKE-CENSUS (§29.58, 2026-07-13): per-pair whole-inventory wakeup-edge
+	// census notes — the model evidence feed (internal/context wait-object
+	// summary) is the consumer; a miss is a feed omission, never a gate
+	// (soft lane, blocked_reason_census 同构).
+	{TraceNoteKeyWakeupEdgeCensusFirstTs, "chain_path", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyWakeupEdgeCensusLastTs, "chain_path", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyWakeupEdgeCensusOverflowPairs, "chain_path", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyWakeupEdgeCensusOverflowEdges, "chain_path", TraceNoteCarrierSoftConsumer},
 
 	// 负载/约束族 (cpu load & affinity).
 	{"thread", "cpu_load", TraceNoteCarrierDisplayOnly},

@@ -478,6 +478,16 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				WakeePriority: 20, WakeePriorityClass: "cfs",
 				PriorityRelation: "waker_higher", PriorityInversionCandidate: true,
 			}},
+			// WAKE-CENSUS (§29.58): the per-pair whole-inventory census with a
+			// non-zero pair-cap overflow, so all four wakeup_edge_census_*
+			// contract keys are exercised by the emit pin.
+			WakeupEdgeCensus: []tracequery.WakeupEdgeCensusPair{{
+				Waker: tracequery.ThreadRef{Comm: "dep", PID: 21},
+				Wakee: tracequery.ThreadRef{Comm: "app:ui", PID: 61},
+				Count: 3, FirstTs: 1.024, LastTs: 1.9,
+			}},
+			WakeupEdgeCensusOverflowPairs: 1,
+			WakeupEdgeCensusOverflowEdges: 2,
 			// PTV5 PTS (#68): the impact list overflows the per-family wire cap
 			// so the fold record (folded_rows/folded_min_ms/folded_max_ms/
 			// folded_subjects contract keys) is exercised by the fixture.

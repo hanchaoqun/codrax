@@ -3695,6 +3695,22 @@ type ChainResult struct {
 	// frame-cadence idle. Own semantic lane; never root-cause contenders.
 	PacingIdles  []PacingIdleSummary `json:"pacing_idles,omitempty"`
 	RootEvidence []RootEvidence      `json:"root_evidence,omitempty"`
+	// WakeupEdgeCensus (WAKE-CENSUS, ledger §29.58 立案, 2026-07-13): the
+	// bounded per-(waker → wakee) census folded over this result's FULL edge
+	// set BEFORE any publication row cap (禁截断库存二次聚合 — the typed
+	// per-family row cap bounds the per-edge observation rows, so per-pair
+	// counts re-derived from that face are silent lower bounds; PRC-F1
+	// witness: the model then invented「OS_IPC_14_34911 ×4」for a pair whose
+	// only raw edge ran the OPPOSITE direction). Rows order deterministically
+	// (count desc + typed tie keys) and the pair cap discloses its overflow
+	// explicitly — blocked_reason_census 同构 (§29.57 件1).
+	WakeupEdgeCensus []WakeupEdgeCensusPair `json:"wakeup_edge_census,omitempty"`
+	// WakeupEdgeCensusOverflowPairs / ...OverflowEdges disclose the census
+	// pair-cap trim: how many distinct pairs, carrying how many deduplicated
+	// edges, exist beyond the listed census rows. 0/0 ⇔ the census pair
+	// enumeration is complete for this result.
+	WakeupEdgeCensusOverflowPairs int `json:"wakeup_edge_census_overflow_pairs,omitempty"`
+	WakeupEdgeCensusOverflowEdges int `json:"wakeup_edge_census_overflow_edges,omitempty"`
 	// ViaThread is the RN-14a (§7.9) via verdict, present only when
 	// Query.ViaThread was set: either the via thread is ON a wakeup path to
 	// the target (depth + per-hop latency from existing wakeup edges, zero
@@ -3832,6 +3848,21 @@ type WakeupEdge struct {
 	// (they share one branch by construction — edges never cross branches).
 	// 0 = legacy fixture (P0-E CHAIN-PATH, ledger §22.1).
 	Branch int `json:"branch,omitempty"`
+}
+
+// WakeupEdgeCensusPair is ONE (waker → wakee) pair's whole-inventory account
+// for a wakeup_chain result (WAKE-CENSUS §29.58, 2026-07-13). Count counts
+// every engine-minted wakeup edge of the pair in the result's FULL edge set
+// (identical physical republications — the same sched_wakeup row observed by
+// two branch expansions — count once); FirstTs/LastTs bound the pair's
+// observed wakeup timestamps. The direction is the sched_wakeup row's own
+// waker → wakee direction, verbatim — never inferred, never reversed.
+type WakeupEdgeCensusPair struct {
+	Waker   ThreadRef `json:"waker"`
+	Wakee   ThreadRef `json:"wakee"`
+	Count   int       `json:"count"`
+	FirstTs float64   `json:"first_ts,omitempty"`
+	LastTs  float64   `json:"last_ts,omitempty"`
 }
 
 type WakeupCausalImpact struct {

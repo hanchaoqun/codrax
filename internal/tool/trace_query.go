@@ -3430,6 +3430,18 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 				prioritySource,
 				sanitizeForBanner(edge.PriorityRelation), edge.PriorityInversionCandidate)
 		}
+		// WAKE-CENSUS (§29.58): the per-pair whole-inventory counts on the
+		// query-time face too (blocked_reason_census banner 同构) — each count
+		// covers EVERY measured edge of the pair in this result, so a reader
+		// never re-counts the edge rows above.
+		for _, pair := range result.WakeupChain.WakeupEdgeCensus {
+			fmt.Fprintf(&b, "- wakeup_edge_census %s -> %s count=%d first=%.6f last=%.6f\n",
+				traceThreadLabel(pair.Waker), traceThreadLabel(pair.Wakee), pair.Count, pair.FirstTs, pair.LastTs)
+		}
+		if result.WakeupChain.WakeupEdgeCensusOverflowPairs > 0 {
+			fmt.Fprintf(&b, "- wakeup_edge_census_overflow pairs=%d edges=%d (beyond the census pair cap)\n",
+				result.WakeupChain.WakeupEdgeCensusOverflowPairs, result.WakeupChain.WakeupEdgeCensusOverflowEdges)
+		}
 		for _, impact := range result.WakeupChain.CausalImpacts {
 			projection := traceQueryProjectedActualFields(impact.ProjectedImpactMs, impact.ProjectedTotalMs, impact.ActualImpactMs, impact.ActualTotalMs, impact.ActualWindow.StartTs, impact.ActualWindow.EndTs)
 			fmt.Fprintf(&b, "- causal_impact thread=%s depth=%d causality=%s dominant_state=%s impact=%.3fms total=%.3fms target_impact=%.3fms%s fragments=%d switches=%d max_segment=%.3fms p95_segment=%.3fms running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms prio=%d/%s target_prio=%d/%s priority_relation=%s priority_inversion_candidate=%t lines=%d-%d — %s\n",
@@ -6402,6 +6414,95 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				SupportRefs: traceQueryObservationSupportRefs(ref, edge.WakeupLine, edge.WakeupLine),
 				ObservedAt:  at,
 				Confidence:  0.82,
+			})
+		}
+		// WAKE-CENSUS (ledger §29.58, 2026-07-13): the engine's per-(waker →
+		// wakee) census — counts folded over the FULL pre-cap edge set —
+		// publishes one typed record per pair. The per-edge rows above stop at
+		// the typed family row cap, so re-counting them yields silent lower
+		// bounds (PRC-F1: the model then invented counts for pairs it never
+		// saw). This face is row-capped too: pairs trimmed HERE fold into the
+		// disclosed overflow so the overflow notes never under-report — and
+		// (修复轮 件5, P3-2) the trim carries the SAME target-wakee immunity
+		// as the engine pair cap: a config-lowered row cap otherwise
+		// re-evicts the anchor's own waker pairs order-blind (the donghu
+		// shape the engine immunity closed). Target pairs ALL survive (their
+		// population is bounded by the branch expansion); remaining seats
+		// fill in census order; evictions fold into the disclosed overflow.
+		wakeCensus := result.WakeupChain.WakeupEdgeCensus
+		wakeCensusListed := wakeCensus
+		wakeCensusOverflowPairs := result.WakeupChain.WakeupEdgeCensusOverflowPairs
+		wakeCensusOverflowEdges := result.WakeupChain.WakeupEdgeCensusOverflowEdges
+		if rowCap := traceQueryWidthTypedFamilyRowCap(); len(wakeCensus) > rowCap {
+			chainTarget := result.WakeupChain.Target
+			isTargetPair := func(pair tracequery.WakeupEdgeCensusPair) bool {
+				if chainTarget.PID > 0 {
+					return pair.Wakee.PID == chainTarget.PID
+				}
+				return chainTarget.Comm != "" && pair.Wakee.Comm == chainTarget.Comm
+			}
+			targetRows := 0
+			for _, pair := range wakeCensus {
+				if isTargetPair(pair) {
+					targetRows++
+				}
+			}
+			seats := rowCap
+			if targetRows > seats {
+				seats = targetRows
+			}
+			kept := make([]tracequery.WakeupEdgeCensusPair, 0, seats)
+			fillSeats := seats - targetRows
+			for _, pair := range wakeCensus {
+				if isTargetPair(pair) {
+					kept = append(kept, pair)
+					continue
+				}
+				if fillSeats > 0 {
+					kept = append(kept, pair)
+					fillSeats--
+					continue
+				}
+				wakeCensusOverflowPairs++
+				wakeCensusOverflowEdges += pair.Count
+			}
+			wakeCensusListed = kept
+		}
+		for i, pair := range wakeCensusListed {
+			waker := traceThreadLabel(pair.Waker)
+			wakee := traceThreadLabel(pair.Wakee)
+			if (strings.TrimSpace(waker) == "" && strings.TrimSpace(wakee) == "") || pair.Count <= 0 {
+				continue
+			}
+			out = append(out, types.ObservationRecord{
+				ID:              fmt.Sprintf("trace_query:%s#wakeup_edge_census:%d", scope, i+1),
+				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:        "trace_query",
+				Role:            types.AnswerAggregateRoleSupportingCoverage,
+				GroundingPolicy: types.ClaimGroundingHard,
+				ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+				SourceRef:       ref,
+				Span: types.ObservationSpan{
+					StartTs: pair.FirstTs,
+					EndTs:   pair.LastTs,
+				},
+				ClaimKey:  fmt.Sprintf("wakeup_edge_census:%s->%s", waker, wakee),
+				Subject:   waker,
+				Predicate: "wakeup_edge_census",
+				Object:    wakee,
+				Value:     fmt.Sprintf("%d", pair.Count),
+				Summary: fmt.Sprintf("wakeup_edge_census %s -> %s count=%d (every measured wakeup edge of this pair in this result, including edges beyond the published edge rows) first=%.6f last=%.6f",
+					waker, wakee, pair.Count, pair.FirstTs, pair.LastTs),
+				RichNotes: traceQueryTypedKVNotes([][2]string{
+					{types.TraceNoteKeyWakeupEdgeCensusFirstTs, traceQueryTimestampValue(pair.FirstTs)},
+					{types.TraceNoteKeyWakeupEdgeCensusLastTs, traceQueryTimestampValue(pair.LastTs)},
+					{types.TraceNoteKeyWakeupEdgeCensusOverflowPairs, traceQueryTypedCount(wakeCensusOverflowPairs)},
+					{types.TraceNoteKeyWakeupEdgeCensusOverflowEdges, traceQueryTypedCount(wakeCensusOverflowEdges)},
+					{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(result.WakeupChain.Window)},
+				}),
+				SupportRefs: traceQueryObservationSupportRefs(ref, 0, 0),
+				ObservedAt:  at,
+				Confidence:  0.85,
 			})
 		}
 		for i, impact := range result.WakeupChain.CausalImpacts {

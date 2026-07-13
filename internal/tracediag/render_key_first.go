@@ -664,7 +664,17 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// Caveats/Compactions to dedupe — the write-off disclosure rides
 	// ChainResult.Caveats, which collectNonEventEngineDiagnostics already
 	// reads); no priority override needed.
-	reflect.TypeOf(tracequery.ChainResult{}): "77bc23ed2ece8b6be7031a48a12833911e11f0cfb28b90d171580a6e5bf11244",
+	// WAKE-CENSUS (§29.58, 修复轮 件1 2026-07-13) schema review: ChainResult
+	// gained WakeupEdgeCensus (bounded per-(waker→wakee) count+first/last-ts
+	// rows, FULL pre-cap edge-set sourced) + WakeupEdgeCensusOverflowPairs/
+	// -Edges (pair-cap disclosure scalars). Key-first adjudication — the
+	// WindowStats blocked_reason census precedent verbatim: small typed
+	// detail rows with explicit overflow scalars — no bulk lane, no dup
+	// channel, no priority override; hash re-pinned after review. 教训入注:
+	// this pin is the R2' 第 7 处 for census-shaped engine fields — the
+	// blocked_reason census batch walked it, the WAKE-CENSUS main batch
+	// missed it until this tripwire fired (工作清单缺项, not a schema doubt).
+	reflect.TypeOf(tracequery.ChainResult{}): "7acd830b8504baae094c3d2d8f12f7151abf47339dd68ec0bb214b1c316c5f40",
 	// ENG-2 追修 + P3-4 (2026-07-12) schema review: PacingIdleSummary gained
 	// EvidenceLineStart/End — the segment's causal-impact evidence span the
 	// published row aligns to so the display same-fact fold engages by

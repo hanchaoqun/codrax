@@ -49,6 +49,30 @@ package context
 // account, not a characterization of any prose, §29.53.2 边界内); ③ the
 // census lead carries the engine's own total record count verbatim
 // (record value of the census observation) as a directly quotable total.
+//
+// WAKE-CENSUS (§29.58 立案, 2026-07-13): the per-waker count lane's PRIMARY
+// source is now the engine's typed wakeup_edge_census records — per-pair
+// counts folded over the FULL pre-cap edge set of each wakeup_chain result
+// (count = record Value, first/last ts + overflow via typed notes; per-pair
+// MAX across republications, blocked_reason census 同款纪律). The old
+// PROSE-RC ① aggregation over the minted edge records stays as the FALLBACK
+// lane ONLY (no census record reached the ledger — an older result shape),
+// keeping its observed-edges-only caliber label verbatim (降级自认). With
+// census the caliber upgrades to the whole-inventory form, the pair
+// direction is pinned to the sched_wakeup source truth, and a complete
+// enumeration (zero overflow) states the absence property outright — the
+// PRC-F1 witness invented「OS_IPC_14_34911 ×4」for a pair whose only raw
+// edge ran the OPPOSITE direction and was never fed.
+//
+// 修复轮 (复核 SHIP-WITH-FIXES, 2026-07-13): 件2 — the absence sentence's
+// descriptive half claims exactly the census caliber ("never measured with
+// a per-pair count here"), never a whole-run zero-edges claim (bundle runs
+// hold engine-measured edges that publish no per-pair count), plus the
+// WC-F1 scope label (an absence is data coverage, never kernel behavior);
+// 件3 — overflow disclosures group by record-ID scope: MAX within one
+// result scope, and a multi-scope union DE-NUMBERIZES its remainder line
+// instead of minting a definite-looking unsound sum; 件4 — the per-pair MAX
+// pin is order-adversarial (the stale lower count arrives first).
 
 import (
 	"fmt"
@@ -72,6 +96,11 @@ const (
 	// observed-edge count fact lines; edges left uncovered by the listed
 	// count lines are disclosed as a named remainder (帽外具名余数).
 	traceWaitEvidenceWakerCountCap = 8
+	// traceWaitEvidenceCensusPairCap (WAKE-CENSUS §29.58) bounds the census
+	// count lines. It matches the engine's own census pair cap, so a single
+	// wakeup_chain result always lists whole; only multi-query unions can
+	// trim, and the trim folds into the named remainder (never silent).
+	traceWaitEvidenceCensusPairCap = 16
 )
 
 // traceWaitCallerFact is one thread's published wait-object fact: the
@@ -176,6 +205,25 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 	var edges []wakeupEdge
 	seenEdges := map[string]bool{}
 	censusFromNotes := false
+	// WAKE-CENSUS (§29.58): per-(waker → wakee) whole-inventory counts from
+	// the engine's typed wakeup_edge_census records. Per-pair MAX across
+	// republications — the whole entry (count + first/last ts) travels
+	// together from ONE record, never stitched across publications.
+	type wakerCensusFact struct {
+		waker, wakee, first, last string
+		count                     int
+	}
+	wakeCensus := map[string]*wakerCensusFact{}
+	var wakeCensusOrder []string
+	// 修复轮 件3 (2026-07-13): overflow disclosures are per-RESULT facts — a
+	// whole-ledger MAX across DIFFERENT results minted a definite-looking but
+	// unsound union number. Group by the record-ID scope (the ID prefix
+	// before '#', one per published result): MAX within a scope collapses
+	// republication; across scopes the numbers are not soundly combinable,
+	// so a multi-scope union de-numberizes the remainder line instead.
+	wakeCensusOverflowPairsByScope := map[string]int{}
+	wakeCensusOverflowEdgesByScope := map[string]int{}
+	wakeCensusScopes := map[string]bool{}
 	for _, record := range ledger.Records {
 		if !types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
 			continue
@@ -197,6 +245,49 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 			edge := wakeupEdge{waker: subject, wakee: wakee, ts: ts, latency: strings.TrimSpace(notes["latency"])}
 			edge.tsValue, _ = strconv.ParseFloat(ts, 64)
 			edges = append(edges, edge)
+			continue
+		}
+		// ── WAKE-CENSUS (§29.58): per-pair whole-inventory counts ──────────
+		if strings.TrimSpace(record.Predicate) == "wakeup_edge_census" {
+			wakee := strings.TrimSpace(record.Object)
+			count, err := strconv.Atoi(strings.TrimSpace(record.Value))
+			if subject == "" || wakee == "" || err != nil || count <= 0 {
+				continue
+			}
+			key := subject + "\x00" + wakee
+			entry, ok := wakeCensus[key]
+			if !ok {
+				wakeCensus[key] = &wakerCensusFact{
+					waker: subject, wakee: wakee, count: count,
+					first: strings.TrimSpace(notes[types.TraceNoteKeyWakeupEdgeCensusFirstTs]),
+					last:  strings.TrimSpace(notes[types.TraceNoteKeyWakeupEdgeCensusLastTs]),
+				}
+				wakeCensusOrder = append(wakeCensusOrder, key)
+			} else if count > entry.count {
+				// MAX across republications — replace the WHOLE entry.
+				entry.count = count
+				entry.first = strings.TrimSpace(notes[types.TraceNoteKeyWakeupEdgeCensusFirstTs])
+				entry.last = strings.TrimSpace(notes[types.TraceNoteKeyWakeupEdgeCensusLastTs])
+			}
+			// Overflow disclosures ride every census record of a result; MAX
+			// within the record's result scope (absence ⇔ 0 ⇔ complete
+			// enumeration for that result) — 件3: never MAX-folded across
+			// different results.
+			scope := record.ID
+			if cut := strings.Index(scope, "#"); cut >= 0 {
+				scope = scope[:cut]
+			}
+			wakeCensusScopes[scope] = true
+			if raw := strings.TrimSpace(notes[types.TraceNoteKeyWakeupEdgeCensusOverflowPairs]); raw != "" {
+				if n, err := strconv.Atoi(raw); err == nil && n > wakeCensusOverflowPairsByScope[scope] {
+					wakeCensusOverflowPairsByScope[scope] = n
+				}
+			}
+			if raw := strings.TrimSpace(notes[types.TraceNoteKeyWakeupEdgeCensusOverflowEdges]); raw != "" {
+				if n, err := strconv.Atoi(raw); err == nil && n > wakeCensusOverflowEdgesByScope[scope] {
+					wakeCensusOverflowEdgesByScope[scope] = n
+				}
+			}
 			continue
 		}
 		if subject == "" {
@@ -345,7 +436,7 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 			subjects = append(subjects, s)
 		}
 	}
-	if len(subjects) == 0 && len(edges) == 0 {
+	if len(subjects) == 0 && len(edges) == 0 && len(wakeCensusOrder) == 0 {
 		return ""
 	}
 	sort.SliceStable(subjects, func(i, j int) bool {
@@ -522,7 +613,72 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 		if edgeOverflow > 0 {
 			b.WriteString(fmt.Sprintf("- (+%d more wakeup edges; head and tail of the window are sampled above)\n", edgeOverflow))
 		}
-		// ── PROSE-RC ①: per-waker observed-edge count facts ────────────────
+	}
+	if len(wakeCensusOrder) > 0 {
+		// ── WAKE-CENSUS (§29.58) count lane: the engine's whole-inventory
+		// per-pair census. Counts fold over each wakeup_chain result's FULL
+		// edge set BEFORE any publication cap, so they are exact totals —
+		// never lower bounds — and a complete enumeration (zero overflow)
+		// carries the absence property outright (PRC-F1: never invent a
+		// count for a pair that was never measured).
+		entries := make([]*wakerCensusFact, 0, len(wakeCensusOrder))
+		for _, key := range wakeCensusOrder {
+			entries = append(entries, wakeCensus[key])
+		}
+		sort.SliceStable(entries, func(i, j int) bool {
+			if entries[i].count != entries[j].count {
+				return entries[i].count > entries[j].count
+			}
+			if entries[i].waker != entries[j].waker {
+				return entries[i].waker < entries[j].waker
+			}
+			return entries[i].wakee < entries[j].wakee
+		})
+		listed := entries
+		// 件3: overflow numbers are exact only within ONE result scope (MAX
+		// collapses republication). A multi-scope union keeps the remainder
+		// but drops the arithmetic — no definite-looking unsound number.
+		singleScope := len(wakeCensusScopes) <= 1
+		unlistedPairs, unlistedEdges := 0, 0
+		for scope := range wakeCensusScopes {
+			unlistedPairs += wakeCensusOverflowPairsByScope[scope]
+			unlistedEdges += wakeCensusOverflowEdgesByScope[scope]
+		}
+		if len(entries) > traceWaitEvidenceCensusPairCap {
+			for _, entry := range entries[traceWaitEvidenceCensusPairCap:] {
+				unlistedPairs++
+				unlistedEdges += entry.count
+			}
+			listed = entries[:traceWaitEvidenceCensusPairCap]
+		}
+		b.WriteString("Measured wakeup-edge counts per waker (full-inventory census: each count below is the measured total of wakeup edges for that waker → wakee pair across its query's whole analysis window, counted over every measured edge — not just the rows listed above; quote these counts verbatim and never re-count rows yourself. Each arrow keeps the sched_wakeup record's own waker → wakee direction — never reverse a pair's direction. These counts cover measured wakeup edges only, so the raw trace may still hold wakeups outside the measured set):\n")
+		for _, entry := range listed {
+			line := fmt.Sprintf("- %s → %s ×%d measured wakeup edge(s)", entry.waker, entry.wakee, entry.count)
+			if entry.first != "" && entry.last != "" {
+				line += fmt.Sprintf(" (first at %s, last at %s)", entry.first, entry.last)
+			}
+			b.WriteString(line + "\n")
+		}
+		switch {
+		case unlistedPairs > 0 && singleScope:
+			b.WriteString(fmt.Sprintf("- (+%d more waker → wakee pair(s) carrying %d more measured wakeup edge(s) are not listed here — their per-pair counts are unpublished, so never guess or invent a count for an unlisted pair)\n", unlistedPairs, unlistedEdges))
+		case unlistedPairs > 0:
+			// Multi-result union: the per-result remainders do not add into
+			// one sound number — state the remainder without arithmetic.
+			b.WriteString("- (additional measured waker → wakee pairs beyond those listed exist across the combined analyses — their per-pair counts are unpublished, so never guess or invent a count for an unlisted pair)\n")
+		default:
+			// 件2 (P2-1): the descriptive half claims exactly the census
+			// caliber — a bundle run can hold engine-measured edges that
+			// published no per-pair count, so "ZERO measured wakeup edges in
+			// this run" over-claimed. The normative half is unchanged.
+			// WC-F1: absence is a data-coverage fact about the measured set's
+			// scope — the closing label blocks the invented-kernel-mechanism
+			// explanation lane (the census never states kernel behavior).
+			b.WriteString("- These pairs are the COMPLETE list of per-pair counted waker → wakee pairs from the wakeup-chain analyses above: a pair absent from this list was never measured with a per-pair count here, so never report a wakeup count for an absent pair. An absence here reflects only the measured set's scope — it is not a kernel scheduling behavior and needs no mechanism explanation.\n")
+		}
+	} else if len(edges) > 0 {
+		// ── PROSE-RC ①: per-waker observed-edge count facts — FALLBACK lane
+		// only (no wakeup_edge_census record reached the ledger; 降级自认).
 		// Aggregated over the FULL deduplicated edge inventory (including
 		// edges past the row cap above — the witness summary self-counted
 		// "8×" against its own 12-row list). Caliber discipline: these are

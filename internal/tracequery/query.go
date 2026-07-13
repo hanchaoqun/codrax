@@ -10479,6 +10479,9 @@ func buildWakeupChainWithCache(idx *Index, q Query, cache *chainQueryCache) Chai
 		targetBlockedMs := (q.TimeEnd - q.TimeStart) * 1000
 		expandChain(idx, q, cache, target, q.TimeStart, q.TimeEnd, 0, targetBlockedMs, visited, &res, "", nil, 1)
 		res.AggregatedImpacts = aggregateWakeupCausalImpacts(&res)
+		// WAKE-CENSUS (§29.58): fold the FULL surviving edge set — after every
+		// expansion pass, before publication caps ever see the edges.
+		attachWakeupEdgeCensus(&res)
 		attachIPCGraphToChain(idx, q, &res)
 		attachChainViaThreadReport(viaRaw, &res)
 		return res
@@ -10490,6 +10493,9 @@ func buildWakeupChainWithCache(idx *Index, q Query, cache *chainQueryCache) Chai
 	}
 	expandViaImmuneBranches(idx, q, cache, target, targetTimeline.Intervals, branches, qualifyingBranches, viaRaw, &res)
 	res.AggregatedImpacts = aggregateWakeupCausalImpacts(&res)
+	// WAKE-CENSUS (§29.58): fold the FULL surviving edge set — after the
+	// via-immune pass (its rollbacks already removed non-kept expansions).
+	attachWakeupEdgeCensus(&res)
 	attachIPCGraphToChain(idx, q, &res)
 	attachChainViaThreadReport(viaRaw, &res)
 	return res

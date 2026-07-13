@@ -2518,3 +2518,8 @@ wakeup_chain 引擎唯一铸边点在 expandChain 的 `case StateSSleep:` 臂(fi
 
 ### §29.61.1 用户裁定(2026-07-13):SELF-SEM 采纳——目标自身确定性语义 span 窗内入链上通道
 用户裁定原文要义:目标自身(的确定性语义 span)如果在用户提及的窗内,按道理应该算作链上——合理。**落地形**:①精确门=SubjectIsAnalysisTarget ∧ 确定性语义类闭集 ∧ span 在查询窗内(自身 running 段内);②入链上通道=参赛主席位家族(SYM-2 自因族先例延伸),词面佩「自身·确定性优化」族,**不铸唤醒边不宣称跨线程关系**(链上=通道/宇宙身份,非 wakeup 边宣称);③§23.1 道别红线对**非目标线程零改动**(其保护 witness=他进程 span,结构不同,红线原文不动);④与 SELF-LANE(§29.58.3)互补:自身确定性语义 span 升链上通道后自然离开 ◇ 显示区,残余非链自身行按 SELF-LANE 归位自身段。**witness 验收**:客户案(根因XX-VerifyClass)VerifyClass 预期=根因排序#2+❷ 徽章;随 ELIM-1 批实施(§29.61 b 已提优先级),cust710 复放清单同验。
+
+## §29.62 WAKE-CENSUS 批收账(2026-07-13;§29.58 立案实施+修复轮五件;双关全过)
+**交付**:引擎 `buildWakeupEdgeCensus` 在**全量边集 pre-cap** 铸 per-(waker,wakee) census(count+首末 ts+sched_wakeup 真方向 verbatim;挂接点在链展开全部路径之后=截断二次聚合结构不可犯;pair 帽 16+双溢出,target-wakee 对帽免疫引擎+tool 双面);tool 发射 `wakeup_edge_census` 观测+4 note key(R2' 全走,**第 7 处=tracediag ChainResult schema pin,首轮漏、修复轮补,教训:census 形引擎字段的 R2' 清单含 tracediag pin**);context 主源 census+full-inventory 口径词+方向 pin 句+**缺席性质句收窄至 census 口径**(bundle 混跑下「ZERO in this run」过强被复核抓获,修「was never measured with a per-pair count here」)+WC-F1 恒真标签(「absence=测量集范围,非内核行为,无需机制解释」);union 溢出多 scope 去数字化(可错定数类整体灭)。
+**双关**:复核 SHIP-WITH-FIXES 五件全落(挂接点 5 路径核/免疫账/零位移/假 pin 双查真);冷读=**PRC-F1 三向封 3/3 消退**(造数/方向反/未喂入),R3B census 与 raw 逐对全等(×7 首末 ts 行级核真),缺席句误读零实例;新报仅 WC-F1(P3,已就地修)。**冷读终判:唤醒者题族残余 prose 病灶根供给源收敛到唯一缺口=D 退出边不在测量集(§29.58.4 WAKE-CENSUS-D)——落地后该题族有望首次 prose 全绿。**
+**遗留**:P3-3 census 导语口径微调(可选,已被 measured…only+尾句围住);census 铸造 dispatch 依赖续档;WAKE-CENSUS-D 排 ELIM-1+SELF-SEM 合并引擎批。

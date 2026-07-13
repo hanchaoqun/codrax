@@ -396,6 +396,12 @@ var traceNoteKeyGoldenRows = []string{
 	"waiters|blocking|hard_consumer",
 	"wakee_priority|chain_path|display_only",
 	"waker_priority|chain_path|display_only",
+	// WAKE-CENSUS (§29.58, 2026-07-13): per-pair whole-inventory wakeup-edge
+	// census (count folds pre-cap; overflow discloses the pair-cap trim).
+	"wakeup_edge_census_first_ts|chain_path|soft_consumer",
+	"wakeup_edge_census_last_ts|chain_path|soft_consumer",
+	"wakeup_edge_census_overflow_edges|chain_path|soft_consumer",
+	"wakeup_edge_census_overflow_pairs|chain_path|soft_consumer",
 	"wakeup_ts|chain_path|display_only",
 	"weight_unit|perf|display_only",
 	"window|anchor_window|anchor_window",
