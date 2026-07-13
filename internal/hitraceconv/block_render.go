@@ -79,6 +79,44 @@ func blockRenderKindForName(name string) (blockRenderKind, bool) {
 	}
 }
 
+// directBlockRenderKindForName is the byte-exact raw-RMQ descriptor registry.
+// SQL compatibility owns its own normalized adapter; case, whitespace and
+// suffix drift in an events_format name are inventory, never direct authority.
+func directBlockRenderKindForName(name string) (blockRenderKind, bool) {
+	switch name {
+	case "block_bio_complete":
+		return blockRenderBioComplete, true
+	case "block_bio_queue":
+		return blockRenderBioQueue, true
+	case "block_bio_remap":
+		return blockRenderBioRemap, true
+	case "block_rq_complete":
+		return blockRenderRQComplete, true
+	case "block_rq_insert":
+		return blockRenderRQInsert, true
+	case "block_rq_issue":
+		return blockRenderRQIssue, true
+	case "block_rq_remap":
+		return blockRenderRQRemap, true
+	default:
+		return 0, false
+	}
+}
+
+func directBlockNameGoverned(name string) bool {
+	_, ok := directBlockRenderKindForName(name)
+	return ok
+}
+
+func directBlockPairEndpointName(name string) bool {
+	switch name {
+	case "block_bio_complete", "block_bio_queue", "block_rq_complete", "block_rq_issue":
+		return true
+	default:
+		return false
+	}
+}
+
 func blockRenderKindForProfilerField(field int) (blockRenderKind, string, bool) {
 	switch field {
 	case 202:
@@ -129,23 +167,39 @@ func renderCanonicalBlockPayload(payload blockRenderPayload) string {
 	}
 }
 
-func renderDirectBlockEvent(ev decodedEvent, content []byte) (string, bool) {
-	payload, _, ok := decodeDirectBlockPayload(ev, content)
-	if !ok {
-		return "", false
-	}
-	return renderCanonicalBlockPayload(payload), true
+type directBlockDecodeDecision struct {
+	Payload       blockRenderPayload
+	Degradations  []string
+	Admission     bodyAdmission
+	Reason        string
+	IdentityKnown bool
+	Governed      bool
 }
 
 // decodeDirectBlockPayload is deliberately presence-sensitive. Unlike proto3,
 // an absent raw field is not an encoded zero. Aliases are accepted only as one
 // unique physical authority, and byte counts never substitute for sectors.
 func decodeDirectBlockPayload(ev decodedEvent, content []byte) (blockRenderPayload, []string, bool) {
-	kind, ok := blockRenderKindForName(ev.format.Name)
+	decision := decodeDirectBlockPayloadDecision(ev, content)
+	return decision.Payload, decision.Degradations, decision.Admission == bodyAdmitted
+}
+
+func decodeDirectBlockPayloadDecision(ev decodedEvent, content []byte) directBlockDecodeDecision {
+	kind, ok := directBlockRenderKindForName(ev.format.Name)
 	if !ok {
-		return blockRenderPayload{}, nil, false
+		return directBlockDecodeDecision{Admission: bodyUnsupported}
 	}
 	payload := blockRenderPayload{kind: kind}
+	reject := func(reasons []string, identityKnown bool) directBlockDecodeDecision {
+		reason := "direct_block_payload_rejected"
+		if len(reasons) > 0 && reasons[0] != "" {
+			reason = reasons[0]
+		}
+		return directBlockDecodeDecision{
+			Payload: payload, Degradations: reasons, Admission: bodyRejected,
+			Reason: reason, IdentityKnown: identityKnown, Governed: true,
+		}
+	}
 
 	readUint := func(label string, max uint64, widths []int, names ...string) (uint64, bool, []string) {
 		value, reason, valid := directBlockUint(ev, label, max, widths, names...)
@@ -156,69 +210,92 @@ func decodeDirectBlockPayload(ev decodedEvent, content []byte) (blockRenderPaylo
 	}
 	dev, valid, reasons := readUint("dev", math.MaxUint32, []int{4, 8}, "dev", "dev_t")
 	if !valid {
-		return payload, reasons, false
+		return reject(reasons, false)
 	}
 	payload.dev = uint32(dev)
 	sector, valid, reasons := readUint("sector", math.MaxInt64, []int{8}, "sector", "lba")
 	if !valid {
-		return payload, reasons, false
+		return reject(reasons, false)
 	}
 	payload.sector = sector
 	nrSector, valid, reasons := readUint("nr_sector", math.MaxUint32, []int{4}, "nr_sector", "nr_sectors", "sectors")
 	if !valid {
-		return payload, reasons, false
+		return reject(reasons, false)
 	}
 	payload.nrSector = uint32(nrSector)
 	rwbs, reason, valid := directBlockString(ev, content, true, "rwbs", "rw", "op")
 	if !valid {
-		return payload, []string{reason}, false
+		return reject([]string{reason}, false)
 	}
-	if !validBlockRWBS(rwbs) {
-		return payload, []string{"direct_rwbs_missing_or_invalid"}, false
+	if !validBlockRWBS(rwbs.value) {
+		return reject([]string{"direct_rwbs_missing_or_invalid"}, false)
 	}
-	payload.rwbs = rwbs
+	payload.rwbs = rwbs.value
+	identityKnown := true
 
 	switch kind {
 	case blockRenderBioComplete, blockRenderRQComplete:
 		errorCode, reason, valid := directBlockInt32(ev, "error", "error", "ret", "res")
 		if !valid {
-			return payload, []string{reason}, false
+			return reject([]string{reason}, identityKnown)
 		}
 		payload.errorCode = errorCode
 	case blockRenderRQInsert, blockRenderRQIssue:
 		bytesValue, valid, reasons := readUint("bytes", math.MaxUint32, []int{4}, "bytes")
 		if !valid {
-			return payload, reasons, false
+			return reject(reasons, identityKnown)
 		}
 		payload.bytes = uint32(bytesValue)
 	case blockRenderRQRemap, blockRenderBioRemap:
 		oldDev, valid, reasons := readUint("old_dev", math.MaxUint32, []int{4, 8}, "old_dev", "from")
 		if !valid {
-			return payload, reasons, false
+			return reject(reasons, identityKnown)
 		}
 		payload.oldDev = uint32(oldDev)
 		oldSector, valid, reasons := readUint("old_sector", math.MaxInt64, []int{8}, "old_sector", "from_sector")
 		if !valid {
-			return payload, reasons, false
+			return reject(reasons, identityKnown)
 		}
 		payload.oldSector = oldSector
 		if kind == blockRenderRQRemap {
 			nrBios, valid, reasons := readUint("nr_bios", math.MaxUint32, []int{4}, "nr_bios")
 			if !valid {
-				return payload, reasons, false
+				return reject(reasons, identityKnown)
 			}
 			payload.nrBios = uint32(nrBios)
 		}
 	}
 
-	var degradations []string
+	var (
+		cmdValue, commValue directBlockStringValue
+		degradations        []string
+	)
 	if kind == blockRenderRQComplete || kind == blockRenderRQInsert || kind == blockRenderRQIssue {
-		payload.cmd, degradations = directBlockOptionalDisplay(ev, content, "cmd", ')', degradations, "cmd")
+		cmdValue, degradations = directBlockOptionalDisplay(ev, content, "cmd", ')', degradations, "cmd")
 	}
 	if kind == blockRenderBioQueue || kind == blockRenderRQInsert || kind == blockRenderRQIssue {
-		payload.comm, degradations = directBlockOptionalDisplay(ev, content, "comm", ']', degradations, "comm")
+		commValue, degradations = directBlockOptionalDisplay(ev, content, "comm", ']', degradations, "comm")
 	}
-	return payload, degradations, true
+	// A __data_loc hard-key witness is authoritative only when its target bytes
+	// are not simultaneously claimed by another admitted dynamic field. Merely
+	// reparsing the canonical text cannot detect that physical aliasing.
+	if directBlockRangesOverlap(rwbs.dynamicRange, cmdValue.dynamicRange) ||
+		directBlockRangesOverlap(rwbs.dynamicRange, commValue.dynamicRange) {
+		return reject([]string{"direct_rwbs_dynamic_overlap"}, false)
+	}
+	// cmd/comm are display-only. Ambiguity confined to those fields degrades the
+	// presentation but must not erase an otherwise exact request identity.
+	if directBlockRangesOverlap(cmdValue.dynamicRange, commValue.dynamicRange) {
+		cmdValue.value = ""
+		commValue.value = ""
+		degradations = append(degradations, "direct_cmd_dynamic_overlap", "direct_comm_dynamic_overlap")
+	}
+	payload.cmd = cmdValue.value
+	payload.comm = commValue.value
+	return directBlockDecodeDecision{
+		Payload: payload, Degradations: degradations, Admission: bodyAdmitted,
+		IdentityKnown: identityKnown, Governed: true,
+	}
 }
 
 func directBlockUint(ev decodedEvent, label string, max uint64, widths []int, names ...string) (uint64, string, bool) {
@@ -275,10 +352,12 @@ func directBlockInt32(ev decodedEvent, label string, names ...string) (int32, st
 
 func directBlockField(ev decodedEvent, label string, names ...string) (eventField, []byte, string, bool) {
 	count := 0
+	selectedIndex := -1
 	var selected eventField
-	for _, field := range ev.format.Fields {
+	for index, field := range ev.format.Fields {
 		if cleanNameIn(cleanFieldName(field.Name), names) {
 			selected = field
+			selectedIndex = index
 			count++
 		}
 	}
@@ -287,6 +366,9 @@ func directBlockField(ev decodedEvent, label string, names ...string) (eventFiel
 		return eventField{}, nil, "direct_" + label + "_missing_field", false
 	case count > 1:
 		return eventField{}, nil, "direct_" + label + "_duplicate_alias", false
+	}
+	if !directDescriptorFieldIsolated(ev, selectedIndex) {
+		return eventField{}, nil, "direct_" + label + "_overlapping_field", false
 	}
 	raw, present := ev.fields[selected.Name]
 	if !present || len(raw) != selected.Size {
@@ -297,7 +379,8 @@ func directBlockField(ev decodedEvent, label string, names ...string) (eventFiel
 
 func blockDirectNumericTypeAllowed(field eventField) bool {
 	lowerType := normalizeFieldType(field.Type)
-	if lowerType == "" || !numericFieldTypeAllowed(field) || strings.ContainsAny(lowerType, "*[]") {
+	if lowerType == "" || !numericFieldTypeAllowed(field) || strings.ContainsAny(lowerType, "*[]") ||
+		strings.ContainsAny(field.Name, "[]") {
 		return false
 	}
 	for _, denied := range []string{"struct ", "union ", "enum ", "float", "double", "bool", "__data_loc", "__rel_loc"} {
@@ -308,66 +391,85 @@ func blockDirectNumericTypeAllowed(field eventField) bool {
 	return true
 }
 
-func directBlockString(ev decodedEvent, content []byte, required bool, names ...string) (string, string, bool) {
+type directBlockStringValue struct {
+	value        string
+	dynamicRange directPairByteRange
+}
+
+func directBlockString(ev decodedEvent, content []byte, required bool, names ...string) (directBlockStringValue, string, bool) {
 	label := names[0]
 	count := 0
+	selectedIndex := -1
 	var selected eventField
-	for _, field := range ev.format.Fields {
+	for index, field := range ev.format.Fields {
 		if cleanNameIn(cleanFieldName(field.Name), names) {
 			selected = field
+			selectedIndex = index
 			count++
 		}
 	}
 	if count == 0 {
 		if required {
-			return "", "direct_" + label + "_missing_field", false
+			return directBlockStringValue{}, "direct_" + label + "_missing_field", false
 		}
-		return "", "", true
+		return directBlockStringValue{}, "", true
 	}
 	if count > 1 {
-		return "", "direct_" + label + "_duplicate_alias", false
+		return directBlockStringValue{}, "direct_" + label + "_duplicate_alias", false
+	}
+	if !directDescriptorFieldIsolated(ev, selectedIndex) {
+		return directBlockStringValue{}, "direct_" + label + "_overlapping_field", false
 	}
 	raw, present := ev.fields[selected.Name]
 	if !present || len(raw) != selected.Size {
-		return "", "direct_" + label + "_truncated_field", false
+		return directBlockStringValue{}, "direct_" + label + "_truncated_field", false
 	}
 	lowerType := normalizeFieldType(selected.Type)
 	isDataLoc := lowerType == "__data_loc char[]"
 	if !isDataLoc && !directBlockFixedCharArray(selected) {
-		return "", "direct_" + label + "_wrong_type", false
+		return directBlockStringValue{}, "direct_" + label + "_wrong_type", false
 	}
-	var value string
+	decoded := directBlockStringValue{}
 	if isDataLoc {
 		if selected.Size != 4 || len(raw) != 4 {
-			return "", "direct_" + label + "_wrong_width", false
+			return directBlockStringValue{}, "direct_" + label + "_wrong_width", false
+		}
+		fixedTail, ok := directDescriptorFixedTail(ev)
+		if !ok {
+			return directBlockStringValue{}, "direct_" + label + "_invalid_descriptor", false
 		}
 		loc := binary.LittleEndian.Uint32(raw)
 		offset := int(loc & 0xffff)
 		length := int(loc >> 16)
-		if offset <= 0 || length <= 0 || offset > len(content) || length > len(content)-offset {
-			return "", "direct_" + label + "_truncated_field", false
+		if offset < fixedTail || length <= 0 || offset > len(content) || length > len(content)-offset {
+			return directBlockStringValue{}, "direct_" + label + "_truncated_field", false
 		}
 		stringRaw := content[offset : offset+length]
-		nul := bytesIndexNUL(stringRaw)
-		if nul < 0 {
-			return "", "direct_" + label + "_truncated_field", false
+		decoded.dynamicRange = directPairByteRange{start: offset, end: offset + length}
+		if stringRaw[len(stringRaw)-1] != 0 || bytesIndexNUL(stringRaw[:len(stringRaw)-1]) >= 0 {
+			return decoded, "direct_" + label + "_truncated_field", false
 		}
-		value = string(stringRaw[:nul])
+		decoded.value = string(stringRaw[:len(stringRaw)-1])
 	} else {
 		if selected.Size <= 0 {
-			return "", "direct_" + label + "_wrong_width", false
+			return directBlockStringValue{}, "direct_" + label + "_wrong_width", false
 		}
 		nul := bytesIndexNUL(raw)
 		if nul < 0 {
-			return "", "direct_" + label + "_truncated_field", false
+			return directBlockStringValue{}, "direct_" + label + "_truncated_field", false
 		}
 		raw = raw[:nul]
-		value = string(raw)
+		decoded.value = string(raw)
 	}
-	if !utf8.ValidString(value) || !traceDBSinglePhysicalLine(value, true) || value != strings.TrimSpace(value) {
-		return "", "direct_" + label + "_invalid_string", false
+	if !utf8.ValidString(decoded.value) || !traceDBSinglePhysicalLine(decoded.value, true) ||
+		decoded.value != strings.TrimSpace(decoded.value) {
+		return decoded, "direct_" + label + "_invalid_string", false
 	}
-	return value, "", true
+	return decoded, "", true
+}
+
+func directBlockRangesOverlap(left, right directPairByteRange) bool {
+	return left.end > left.start && right.end > right.start && left.start < right.end && right.start < left.end
 }
 
 func directBlockFixedCharArray(field eventField) bool {
@@ -387,13 +489,15 @@ func directBlockFixedCharArray(field eventField) bool {
 	return err == nil && width == field.Size
 }
 
-func directBlockOptionalDisplay(ev decodedEvent, content []byte, label string, forbidden rune, degradations []string, names ...string) (string, []string) {
+func directBlockOptionalDisplay(ev decodedEvent, content []byte, label string, forbidden rune, degradations []string, names ...string) (directBlockStringValue, []string) {
 	value, reason, ok := directBlockString(ev, content, false, names...)
 	if !ok {
-		return "", append(degradations, reason)
+		value.value = ""
+		return value, append(degradations, reason)
 	}
-	if value != "" && strings.ContainsRune(value, forbidden) {
-		return "", append(degradations, "direct_"+label+"_unsafe_omitted")
+	if value.value != "" && strings.ContainsRune(value.value, forbidden) {
+		value.value = ""
+		return value, append(degradations, "direct_"+label+"_unsafe_omitted")
 	}
 	return value, degradations
 }

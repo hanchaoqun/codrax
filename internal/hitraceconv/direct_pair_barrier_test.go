@@ -209,34 +209,42 @@ func TestDirectPairBarrierInvalidOwnerAndPoisonedDescriptorAreNotInvisible(t *te
 	})
 }
 
-func TestDirectPairBarrierBudgetsFailClosedForAllFamilies(t *testing.T) {
+func TestDirectPairBarrierLegacyBudgetsAndSharedAuthorityHaveDistinctScopes(t *testing.T) {
 	newBarrier := func(t *testing.T) *directPairCaptureBarrier {
 		t.Helper()
 		barrier, err := newDirectPairCaptureBarrier(filepath.Join(t.TempDir(), "pair.ftrace"))
 		if err != nil {
 			t.Fatal(err)
 		}
-		barrier.maxObservations = 10
+		barrier.legacyProof.maxObservations = 10
+		barrier.blockProof.maxObservations = 10
 		barrier.maxRows = 10
-		barrier.maxLaneKeys = 10
+		barrier.legacyProof.maxLaneKeys = 10
+		barrier.blockProof.maxLaneKeys = 10
 		return barrier
 	}
 	workA := directPairAdmittedAudit(t,
 		directPairWorkqueueFixture("workqueue_execute_start", 8, true, 0xaaa, 0x111))
 	workB := directPairAdmittedAudit(t,
 		directPairWorkqueueFixture("workqueue_execute_start", 8, true, 0xbbb, 0x222))
+	block := directBlockAdmittedAudit(t, "block_rq_issue", 100, directBlockFixtureValues{
+		dev: 8 << 20, sector: 123, nrSector: 8, bytes: 4096, rwbs: "R", comm: "io", cmd: "READ",
+	})
 
 	tests := []struct {
-		name string
-		run  func(*directPairCaptureBarrier)
+		name         string
+		run          func(*directPairCaptureBarrier)
+		wantFamilies int
+		wantShared   bool
 	}{
 		{
 			name: "observation cap",
 			run: func(barrier *directPairCaptureBarrier) {
-				barrier.maxObservations = 1
+				barrier.legacyProof.maxObservations = 1
 				barrier.observe(workA)
 				barrier.observe(workA)
 			},
+			wantFamilies: 4,
 		},
 		{
 			name: "published row cap",
@@ -247,14 +255,17 @@ func TestDirectPairBarrierBudgetsFailClosedForAllFamilies(t *testing.T) {
 				barrier.observe(workA)
 				barrier.addPublishedRow(2, workA)
 			},
+			wantFamilies: 5,
+			wantShared:   true,
 		},
 		{
 			name: "lane key cap",
 			run: func(barrier *directPairCaptureBarrier) {
-				barrier.maxLaneKeys = 1
+				barrier.legacyProof.maxLaneKeys = 1
 				barrier.observe(workA)
 				barrier.observe(workB)
 			},
+			wantFamilies: 4,
 		},
 	}
 
@@ -262,19 +273,94 @@ func TestDirectPairBarrierBudgetsFailClosedForAllFamilies(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			barrier := newBarrier(t)
 			test.run(barrier)
-			if !barrier.budgetFailed || barrier.poisonedFamilyCount() != 4 {
-				t.Fatalf("budget did not close all pair families: failed=%t kinds=%v", barrier.budgetFailed, barrier.poisonedKinds)
+			barrier.observe(block)
+			barrier.addPublishedRow(106, block)
+			if barrier.poisonedFamilyCount() != test.wantFamilies || (barrier.authorityFailure != "") != test.wantShared {
+				t.Fatalf("budget/authority scope mismatch: legacy=%q shared=%q kinds=%v",
+					barrier.legacyProof.failureReason, barrier.authorityFailure, barrier.poisonedKinds)
 			}
 			rows := []renderedRow{
 				{seq: 101, pairKind: pairRenderWorkqueue, line: "work"},
 				{seq: 102, pairKind: pairRenderDMAFence, line: "dma"},
 				{seq: 103, pairKind: pairRenderMMC, line: "mmc"},
 				{seq: 104, pairKind: pairRenderF2FS, line: "f2fs"},
+				{seq: 106, pairKind: pairRenderBlock, line: "block"},
 				{seq: 105, pairKind: pairRenderUnknown, line: "inventory"},
 			}
 			filtered := barrier.filter(rows)
-			if len(filtered) != 1 || filtered[0].seq != 105 {
-				t.Fatalf("budget fail-close leaked pair rows or removed inventory: %+v", filtered)
+			if report := barrier.report(); report.BlockObserved != 1 {
+				t.Fatalf("Block input census stopped after an independent domain/authority failure: %+v", report)
+			}
+			if test.wantShared {
+				if len(filtered) != 1 || filtered[0].seq != 105 {
+					t.Fatalf("shared authority fail-close leaked pair rows or removed inventory: %+v", filtered)
+				}
+			} else if len(filtered) != 2 || filtered[0].seq != 106 || filtered[1].seq != 105 {
+				t.Fatalf("legacy budget did not preserve Block and inventory: %+v", filtered)
+			}
+		})
+	}
+}
+
+func TestDirectPairBarrierBlockProofBudgetDoesNotCloseLegacyDomain(t *testing.T) {
+	work := directPairAdmittedAudit(t,
+		directPairWorkqueueFixture("workqueue_execute_start", 8, true, 0xaaa, 0x111))
+	blockA := directBlockAdmittedAudit(t, "block_rq_issue", 100, directBlockFixtureValues{
+		dev: 8 << 20, sector: 123, nrSector: 8, bytes: 4096, rwbs: "R", comm: "io", cmd: "READ",
+	})
+	blockB := directBlockAdmittedAudit(t, "block_rq_issue", 2, directBlockFixtureValues{
+		dev: 8 << 20, sector: 456, nrSector: 8, bytes: 4096, rwbs: "R", comm: "io", cmd: "READ",
+	})
+	for _, test := range []struct {
+		name string
+		run  func(*directPairCaptureBarrier)
+		want string
+	}{
+		{
+			name: "observation cap",
+			run: func(barrier *directPairCaptureBarrier) {
+				barrier.blockProof.maxObservations = 1
+				barrier.observe(blockA)
+				barrier.observe(blockA)
+			},
+			want: "observation_cap",
+		},
+		{
+			name: "lane key cap",
+			run: func(barrier *directPairCaptureBarrier) {
+				barrier.blockProof.maxLaneKeys = 1
+				barrier.observe(blockA)
+				barrier.observe(blockB)
+			},
+			want: "lane_key_cap",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			barrier, err := newDirectPairCaptureBarrier(filepath.Join(t.TempDir(), "pair.ftrace"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			barrier.legacyProof.maxObservations = 10
+			barrier.legacyProof.maxLaneKeys = 10
+			barrier.blockProof.maxObservations = 10
+			barrier.blockProof.maxLaneKeys = 10
+			barrier.maxRows = 10
+			test.run(barrier)
+			barrier.observe(work)
+			barrier.addPublishedRow(401, work)
+			barrier.addPublishedRow(402, blockA)
+			rows := barrier.filter([]renderedRow{
+				{seq: 401, pairKind: pairRenderWorkqueue, line: "work"},
+				{seq: 402, pairKind: pairRenderBlock, line: "block"},
+			})
+			if err := barrier.validateAccounting(rows); err != nil {
+				t.Fatal(err)
+			}
+			report := barrier.report()
+			if len(rows) != 1 || rows[0].seq != 401 || report.BlockBudgetReason != test.want ||
+				report.LegacyBudgetReason != "" || report.SharedAuthorityReason != "" ||
+				!barrier.poisonedKinds[pairRenderBlock] || barrier.poisonedKinds[pairRenderWorkqueue] {
+				t.Fatalf("Block budget crossed proof domains: rows=%+v report=%+v kinds=%v", rows, report, barrier.poisonedKinds)
 			}
 		})
 	}
@@ -290,14 +376,15 @@ func TestDirectPairBarrierMissingPublishedRowMappingFailsClosedGlobally(t *testi
 		{seq: 43, pairKind: pairRenderDMAFence, line: "otherwise-mapped-pair"},
 		{seq: 44, pairKind: pairRenderMMC, line: "unmapped-mmc"},
 		{seq: 45, pairKind: pairRenderF2FS, line: "unmapped-f2fs"},
+		{seq: 46, pairKind: pairRenderBlock, line: "unmapped-block"},
 		{seq: 42, pairKind: pairRenderUnknown, line: "inventory"},
 	}
 	barrier.rows[43] = directPairBarrierRow{kind: pairRenderDMAFence, lane: "known-lane"}
 	filtered := barrier.filter(rows)
-	if len(filtered) != 1 || filtered[0].seq != 42 || barrier.poisonedRows != 4 ||
-		!barrier.budgetFailed || barrier.poisonedFamilyCount() != 4 {
+	if len(filtered) != 1 || filtered[0].seq != 42 || barrier.poisonedRows != 5 ||
+		barrier.authorityFailure == "" || barrier.poisonedFamilyCount() != 5 {
 		t.Fatalf("missing barrier row mapping did not fail closed globally: filtered=%+v poisoned=%d failed=%t kinds=%v",
-			filtered, barrier.poisonedRows, barrier.budgetFailed, barrier.poisonedKinds)
+			filtered, barrier.poisonedRows, barrier.authorityFailure != "", barrier.poisonedKinds)
 	}
 }
 
@@ -371,6 +458,33 @@ func directPairAdmittedAudit(t *testing.T, fixture directPairTestFixture) direct
 	}
 	audit.EndpointAdmitted = true
 	return audit
+}
+
+func directBlockAdmittedAudit(t *testing.T, name string, tid int32, values directBlockFixtureValues) directPairLineAudit {
+	t.Helper()
+	fixture := directBlockPairFixture(name, tid, values)
+	ev := decodeEvent(fixture.format, fixture.content)
+	decision := decodeDirectBlockPayloadDecision(ev, fixture.content)
+	if decision.Admission != bodyAdmitted || !decision.IdentityKnown {
+		t.Fatalf("seed block admission=%d identity=%t reason=%q", decision.Admission, decision.IdentityKnown, decision.Reason)
+	}
+	audit := newDirectBlockLineAudit(ev, decision)
+	if !audit.Governed || !audit.HeaderOwnerKnown || !audit.Verdict.KeyKnown ||
+		!audit.Verdict.PayloadAdmitted || !audit.Verdict.EmitterAdmitted ||
+		!directBlockVerdictProfileExact(audit.BlockPayload, audit.Verdict) {
+		t.Fatalf("seed block audit incomplete: %+v", audit)
+	}
+	audit.EndpointAdmitted = true
+	return audit
+}
+
+func shiftedEventFields(fields []eventField, delta int) []eventField {
+	out := make([]eventField, len(fields))
+	copy(out, fields)
+	for index := range out {
+		out[index].Offset += delta
+	}
+	return out
 }
 
 type directPairFormatSpec struct {

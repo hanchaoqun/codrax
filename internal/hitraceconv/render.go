@@ -52,6 +52,10 @@ func renderEventLineDecisionWithPairAudit(ctx renderContext, tsNS uint64, cpu in
 	ev := decodeEvent(format, content)
 	pairPayload, pairAdmission, pairReason := decodeDirectPairPayload(ev, content)
 	pairAudit := newDirectPairLineAudit(ev, pairPayload)
+	blockDecision := decodeDirectBlockPayloadDecision(ev, content)
+	if directBlockPairEndpointName(format.Name) {
+		pairAudit = newDirectBlockLineAudit(ev, blockDecision)
+	}
 	mmcPayload, _, _ := decodeDirectMMCPayload(ev, content)
 	if directMMCNameGoverned(format.Name) {
 		pairAudit = directMMCAudit(ev, mmcPayload)
@@ -67,9 +71,15 @@ func renderEventLineDecisionWithPairAudit(ctx renderContext, tsNS uint64, cpu in
 	body, admission, reason := renderEventBodyDecisionWithPair(coreDecodeContext{
 		PrintkFormats:  ctx.printkFormats,
 		PrintkPoisoned: ctx.printkPoisoned,
-	}, ev, content, cpu, pairPayload, pairAdmission, pairReason)
+	}, ev, content, cpu, pairPayload, pairAdmission, pairReason, blockDecision)
 	if pairAudit.Governed {
-		if pairAudit.Kind == pairRenderMMC && admission == bodyAdmitted && envelopeOK &&
+		if pairAudit.Kind == pairRenderBlock && admission == bodyAdmitted && envelopeOK &&
+			(!directBlockVerdictProfileExact(pairAudit.BlockPayload, pairAudit.Verdict) ||
+				!pairAudit.HeaderOwnerKnown || !pairAudit.Verdict.KeyKnown || !pairAudit.Verdict.PayloadAdmitted ||
+				!pairAudit.Verdict.EmitterKnown || !pairAudit.Verdict.EmitterAdmitted ||
+				!directBlockWireParity(pairAudit.BlockPayload, format.Name, body, pairAudit.HeaderTID, pairAudit.Verdict)) {
+			admission, reason = bodyRejected, "pairing_endpoint_rejected"
+		} else if pairAudit.Kind == pairRenderMMC && admission == bodyAdmitted && envelopeOK &&
 			(!pairAudit.Verdict.KeyKnown || !pairAudit.Verdict.PayloadAdmitted ||
 				!pairAudit.Verdict.EmitterKnown || !pairAudit.Verdict.EmitterAdmitted ||
 				!directMMCWireParity(mmcPayload, body, pairAudit.Verdict)) {
@@ -79,12 +89,12 @@ func renderEventLineDecisionWithPairAudit(ctx renderContext, tsNS uint64, cpu in
 				!pairAudit.Verdict.EmitterKnown || !pairAudit.Verdict.EmitterAdmitted ||
 				!directF2FSWireParity(f2fsPayload, body, pairAudit.Verdict)) {
 			admission, reason = bodyRejected, "pairing_endpoint_rejected"
-		} else if pairAudit.Kind != pairRenderMMC && pairAudit.Kind != pairRenderF2FS && admission == bodyAdmitted &&
+		} else if pairAudit.Kind != pairRenderBlock && pairAudit.Kind != pairRenderMMC && pairAudit.Kind != pairRenderF2FS && admission == bodyAdmitted &&
 			(!pairAudit.Verdict.KeyKnown || !pairAudit.Verdict.PayloadAdmitted ||
 				!pairAudit.Verdict.EmitterKnown || !pairAudit.Verdict.EmitterAdmitted) {
 			admission, reason = bodyRejected, "pairing_endpoint_rejected"
 		}
-		if pairAudit.Kind != pairRenderMMC && pairAudit.Kind != pairRenderF2FS && admission == bodyAdmitted &&
+		if pairAudit.Kind != pairRenderBlock && pairAudit.Kind != pairRenderMMC && pairAudit.Kind != pairRenderF2FS && admission == bodyAdmitted &&
 			!pairPayloadWireParity(pairAudit.Payload, body, pairAudit.HeaderTID, pairAudit.Verdict) {
 			admission, reason = bodyRejected, "pairing_endpoint_wire_parity"
 		}
@@ -97,7 +107,7 @@ func renderEventLineDecisionWithPairAudit(ctx renderContext, tsNS uint64, cpu in
 	_, coreGoverned := coreRenderKindForName(format.Name)
 	if (coreGoverned || directMarkerNameGoverned(format.Name) || directPairNameGoverned(format.Name) ||
 		directBusNameGoverned(format.Name) || directFilemapNameGoverned(format.Name) ||
-		directMMCNameGoverned(format.Name) || directF2FSNameGoverned(format.Name)) &&
+		directMMCNameGoverned(format.Name) || directF2FSNameGoverned(format.Name) || directBlockNameGoverned(format.Name)) &&
 		!traceDBSinglePhysicalLine(line, false) {
 		return line, bodyRejected, "invalid_rendered_line", true, pairAudit
 	}
@@ -202,11 +212,12 @@ func renderEventBody(ev decodedEvent, content []byte, cpu int) (string, bool) {
 
 func renderEventBodyDecision(ctx coreDecodeContext, ev decodedEvent, content []byte, cpu int) (string, bodyAdmission, string) {
 	pair, pairAdmission, pairReason := decodeDirectPairPayload(ev, content)
-	return renderEventBodyDecisionWithPair(ctx, ev, content, cpu, pair, pairAdmission, pairReason)
+	block := decodeDirectBlockPayloadDecision(ev, content)
+	return renderEventBodyDecisionWithPair(ctx, ev, content, cpu, pair, pairAdmission, pairReason, block)
 }
 
 func renderEventBodyDecisionWithPair(ctx coreDecodeContext, ev decodedEvent, content []byte, cpu int,
-	pair pairRenderPayload, pairAdmission bodyAdmission, pairReason string,
+	pair pairRenderPayload, pairAdmission bodyAdmission, pairReason string, block directBlockDecodeDecision,
 ) (string, bodyAdmission, string) {
 	payload, admission, reason := decodeDirectCorePayload(ctx, ev, content)
 	switch admission {
@@ -239,6 +250,20 @@ func renderEventBodyDecisionWithPair(ctx coreDecodeContext, ev decodedEvent, con
 		return body, bodyAdmitted, ""
 	case bodyRejected:
 		return "", bodyRejected, pairReason
+	}
+	if block.Governed {
+		switch block.Admission {
+		case bodyAdmitted:
+			body := renderCanonicalBlockPayload(block.Payload)
+			if body == "" {
+				return "", bodyRejected, "invalid_canonical_block_payload"
+			}
+			return body, bodyAdmitted, ""
+		case bodyRejected:
+			return "", bodyRejected, block.Reason
+		default:
+			return "", bodyRejected, "invalid_direct_block_admission"
+		}
 	}
 	bus, admission, reason := decodeDirectBusPayload(ev, content)
 	switch admission {
@@ -347,9 +372,6 @@ func renderLegacyEventBody(ev decodedEvent, content []byte, cpu int) (string, bo
 		}
 	case "clock_set_rate":
 		return renderClockSetRate(ev, content)
-	case "block_rq_issue", "block_rq_insert", "block_rq_complete", "block_rq_remap",
-		"block_bio_queue", "block_bio_complete", "block_bio_remap":
-		return renderDirectBlockEvent(ev, content)
 	case "binder_transaction_alloc_buf", "binder_alloc_buf":
 		return renderKV(ev, "transaction", "debug_id", "data_size", "offsets_size", "extra_buffers_size"), true
 	case "binder_transaction_reply", "binder_reply", "binder_transaction_lock", "binder_lock", "binder_transaction_locked", "binder_locked", "binder_transaction_unlock", "binder_unlock":

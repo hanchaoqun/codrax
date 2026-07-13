@@ -2,6 +2,7 @@ package hitraceconv
 
 import (
 	"fmt"
+	"math"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -17,25 +18,52 @@ type directPairBarrierRow struct {
 	lane string
 }
 
+type directPairProofDomain struct {
+	maxObservations int64
+	maxLaneKeys     int64
+	observations    int64
+	laneKeys        int64
+	failureReason   string
+}
+
+type directPairLaneClock struct {
+	seq  int
+	tsNS uint64
+}
+
+type directPairBarrierReport struct {
+	WithheldRows          int
+	PoisonedLanes         int
+	PoisonedFamilies      int
+	BlockObserved         int64
+	BlockRowsStaged       int
+	BlockRowsWithheld     int
+	LegacyBudgetReason    string
+	BlockBudgetReason     string
+	SharedAuthorityReason string
+}
+
 // directPairCaptureBarrier sees the complete direct RMQ endpoint set before a
 // single pair-critical row becomes public. It is intentionally narrower than
 // the SQL stage: direct RMQ has no canonical ITID/generation authority, so this
 // barrier closes only physical bad-row holes and leaves TID reuse to
 // tracequery's lifecycle/incarnation authority.
 type directPairCaptureBarrier struct {
-	source          string
-	maxObservations int64
-	maxLaneKeys     int64
-	maxRows         int64
-	observations    int64
-	laneKeys        int64
-	poisonedKinds   map[pairRenderKind]bool
-	poisonedLanes   map[string]bool
-	seenLanes       map[pairRenderKind]map[string]struct{}
-	rows            map[int]directPairBarrierRow
-	poisonedRows    int
-	poisonedFormats int
-	budgetFailed    bool
+	source           string
+	maxRows          int64
+	legacyProof      directPairProofDomain
+	blockProof       directPairProofDomain
+	blockObserved    int64
+	poisonedKinds    map[pairRenderKind]bool
+	poisonedLanes    map[pairRenderKind]map[string]bool
+	seenLanes        map[pairRenderKind]map[string]struct{}
+	blockLaneClocks  map[string]directPairLaneClock
+	rows             map[int]directPairBarrierRow
+	stagedRows       map[pairRenderKind]int
+	withheldRows     map[pairRenderKind]int
+	poisonedRows     int
+	poisonedFormats  int
+	authorityFailure string
 }
 
 func newDirectPairCaptureBarrier(sourcePath string) (*directPairCaptureBarrier, error) {
@@ -54,12 +82,17 @@ func newDirectPairCaptureBarrier(sourcePath string) (*directPairCaptureBarrier, 
 		return nil, &traceDBOutputInvariantError{Reason: "invalid_direct_pair_source_namespace"}
 	}
 	return &directPairCaptureBarrier{
-		source:          abs,
-		maxObservations: directPairBarrierMaxObservations,
-		maxLaneKeys:     directPairBarrierMaxLaneKeys,
-		maxRows:         directPairBarrierMaxObservations,
-		poisonedKinds:   map[pairRenderKind]bool{}, poisonedLanes: map[string]bool{},
-		seenLanes: map[pairRenderKind]map[string]struct{}{}, rows: map[int]directPairBarrierRow{},
+		source:  abs,
+		maxRows: directPairBarrierMaxObservations,
+		legacyProof: directPairProofDomain{
+			maxObservations: directPairBarrierMaxObservations, maxLaneKeys: directPairBarrierMaxLaneKeys,
+		},
+		blockProof: directPairProofDomain{
+			maxObservations: directPairBarrierMaxObservations, maxLaneKeys: directPairBarrierMaxLaneKeys,
+		},
+		poisonedKinds: map[pairRenderKind]bool{}, poisonedLanes: map[pairRenderKind]map[string]bool{},
+		seenLanes: map[pairRenderKind]map[string]struct{}{}, blockLaneClocks: map[string]directPairLaneClock{},
+		rows: map[int]directPairBarrierRow{}, stagedRows: map[pairRenderKind]int{}, withheldRows: map[pairRenderKind]int{},
 	}, nil
 }
 
@@ -67,9 +100,10 @@ func (barrier *directPairCaptureBarrier) observe(audit directPairLineAudit) {
 	if barrier == nil || !audit.Governed {
 		return
 	}
-	barrier.observations++
-	if barrier.observations > barrier.maxObservations {
-		barrier.failBudget()
+	if audit.Kind == pairRenderBlock && !barrier.countBlockObservation() {
+		return
+	}
+	if !barrier.observeProofDomain(audit.Kind) {
 		return
 	}
 	if barrier.poisonedKinds[audit.Kind] {
@@ -85,7 +119,7 @@ func (barrier *directPairCaptureBarrier) observe(audit directPairLineAudit) {
 				// Header TID is already a deterministic endpoint identity in the
 				// downstream coarse key. It is the finest source-pinned locality
 				// available without promoting unproven MRQ/tag request tokens.
-				barrier.poisonedLanes[lane] = true
+				barrier.poisonLane(audit.Kind, lane)
 			} else {
 				barrier.poisonedKinds[pairRenderMMC] = true
 			}
@@ -101,17 +135,37 @@ func (barrier *directPairCaptureBarrier) observe(audit directPairLineAudit) {
 	if audit.EndpointAdmitted {
 		return
 	}
-	if audit.HeaderOwnerKnown && audit.Verdict.KeyKnown && laneKnown {
-		barrier.poisonedLanes[lane] = true
+	if audit.HeaderOwnerKnown && audit.Verdict.EmitterKnown && audit.Verdict.KeyKnown && laneKnown {
+		barrier.poisonLane(audit.Kind, lane)
 		return
 	}
 	barrier.poisonedKinds[audit.Kind] = true
 }
 
+func (barrier *directPairCaptureBarrier) countBlockObservation() bool {
+	if barrier == nil {
+		return false
+	}
+	if barrier.blockObserved == math.MaxInt64 {
+		barrier.failAuthority("block_observation_counter_overflow")
+		return false
+	}
+	barrier.blockObserved++
+	return true
+}
+
+// addPublishedRow is retained for focused barrier fixtures whose synthetic
+// sequence is also their monotonic clock. Production must call the timestamped
+// choke point below with the physical RMQ timestamp.
 func (barrier *directPairCaptureBarrier) addPublishedRow(seq int, audit directPairLineAudit) {
+	barrier.addPublishedRowAt(seq, uint64(seq), audit)
+}
+
+func (barrier *directPairCaptureBarrier) addPublishedRowAt(seq int, tsNS uint64, audit directPairLineAudit) {
 	if barrier == nil || !audit.Governed || !audit.EndpointAdmitted || seq < 0 {
 		return
 	}
+	barrier.stagedRows[audit.Kind]++
 	if barrier.poisonedKinds[audit.Kind] {
 		// Freeze will suppress this whole family; retaining per-row mappings
 		// would spend proof budget without adding any locality guarantee.
@@ -122,21 +176,62 @@ func (barrier *directPairCaptureBarrier) addPublishedRow(seq int, audit directPa
 		lane, ok = directMMCLaneKey(audit, barrier.source)
 	}
 	if !ok {
-		barrier.failBudget()
+		barrier.failAuthority("published_row_lane_missing")
 		return
 	}
-	if barrier.budgetFailed {
+	if barrier.authorityFailure != "" {
 		return
 	}
 	if int64(len(barrier.rows)) >= barrier.maxRows {
-		barrier.failBudget()
+		barrier.failAuthority("shared_row_capacity")
 		return
 	}
 	if _, exists := barrier.rows[seq]; exists {
-		barrier.failBudget()
+		barrier.failAuthority("duplicate_published_seq")
 		return
 	}
 	barrier.rows[seq] = directPairBarrierRow{kind: audit.Kind, lane: lane}
+	if audit.Kind == pairRenderBlock {
+		if previous, found := barrier.blockLaneClocks[lane]; found {
+			if seq <= previous.seq {
+				barrier.failAuthority("block_physical_sequence_regression")
+				return
+			}
+			if tsNS < previous.tsNS {
+				barrier.poisonLane(pairRenderBlock, lane)
+			}
+		}
+		barrier.blockLaneClocks[lane] = directPairLaneClock{seq: seq, tsNS: tsNS}
+	}
+}
+
+func (barrier *directPairCaptureBarrier) observeProofDomain(kind pairRenderKind) bool {
+	if barrier == nil || barrier.authorityFailure != "" {
+		return false
+	}
+	domain := &barrier.legacyProof
+	if kind == pairRenderBlock {
+		domain = &barrier.blockProof
+	}
+	if domain.failureReason != "" {
+		return false
+	}
+	domain.observations++
+	if domain.observations > domain.maxObservations {
+		barrier.failProofDomain(kind, "observation_cap")
+		return false
+	}
+	return true
+}
+
+func (barrier *directPairCaptureBarrier) poisonLane(kind pairRenderKind, lane string) {
+	if barrier == nil || kind == pairRenderUnknown || lane == "" || barrier.poisonedKinds[kind] {
+		return
+	}
+	if barrier.poisonedLanes[kind] == nil {
+		barrier.poisonedLanes[kind] = map[string]bool{}
+	}
+	barrier.poisonedLanes[kind][lane] = true
 }
 
 func directMMCLaneKey(audit directPairLineAudit, source string) (string, bool) {
@@ -163,6 +258,12 @@ func (barrier *directPairCaptureBarrier) poisonFormatFamilies(mask pairCriticalF
 	if mask&pairCriticalFormatFamilyF2FS != 0 {
 		barrier.poisonedKinds[pairRenderF2FS] = true
 	}
+	if mask&pairCriticalFormatFamilyBlock != 0 {
+		if barrier.countBlockObservation() {
+			barrier.observeProofDomain(pairRenderBlock)
+		}
+		barrier.poisonedKinds[pairRenderBlock] = true
+	}
 }
 
 func (barrier *directPairCaptureBarrier) filter(rows []renderedRow) []renderedRow {
@@ -180,7 +281,7 @@ func (barrier *directPairCaptureBarrier) filter(rows []renderedRow) []renderedRo
 		}
 		pair, ok := barrier.rows[row.seq]
 		if !ok || pair.kind != row.pairKind || pair.lane == "" {
-			barrier.failBudget()
+			barrier.failAuthority("published_row_mapping_mismatch")
 			break
 		}
 	}
@@ -191,9 +292,10 @@ func (barrier *directPairCaptureBarrier) filter(rows []renderedRow) []renderedRo
 			continue
 		}
 		pair, laneKnown := barrier.rows[row.seq]
-		if barrier.budgetFailed || barrier.poisonedKinds[row.pairKind] || !laneKnown ||
-			pair.kind != row.pairKind || barrier.poisonedLanes[pair.lane] {
+		if barrier.authorityFailure != "" || barrier.poisonedKinds[row.pairKind] || !laneKnown ||
+			pair.kind != row.pairKind || barrier.poisonedLanes[row.pairKind][pair.lane] {
 			barrier.poisonedRows++
+			barrier.withheldRows[row.pairKind]++
 			continue
 		}
 		out = append(out, row)
@@ -214,27 +316,61 @@ func (barrier *directPairCaptureBarrier) admitLane(kind pairRenderKind, lane str
 	if _, found := items[lane]; found {
 		return true
 	}
-	if barrier.laneKeys >= barrier.maxLaneKeys {
-		// The full pair-critical set can no longer be represented. This is a
-		// global proof-budget failure, not merely a busy family: publishing
-		// the other family would turn resource pressure into source-dependent
-		// correctness. Close every governed family and disclose the budget barrier.
-		barrier.failBudget()
+	domain := &barrier.legacyProof
+	if kind == pairRenderBlock {
+		domain = &barrier.blockProof
+	}
+	if domain.failureReason != "" {
+		return false
+	}
+	if domain.laneKeys >= domain.maxLaneKeys {
+		barrier.failProofDomain(kind, "lane_key_cap")
 		return false
 	}
 	items[lane] = struct{}{}
-	barrier.laneKeys++
+	domain.laneKeys++
 	return true
 }
 
-func (barrier *directPairCaptureBarrier) failBudget() {
-	barrier.budgetFailed = true
-	barrier.poisonedKinds[pairRenderWorkqueue] = true
-	barrier.poisonedKinds[pairRenderDMAFence] = true
-	barrier.poisonedKinds[pairRenderMMC] = true
-	barrier.poisonedKinds[pairRenderF2FS] = true
+func (barrier *directPairCaptureBarrier) failProofDomain(kind pairRenderKind, reason string) {
+	if barrier == nil || reason == "" {
+		return
+	}
+	if kind == pairRenderBlock {
+		if barrier.blockProof.failureReason == "" {
+			barrier.blockProof.failureReason = reason
+		}
+		barrier.poisonedKinds[pairRenderBlock] = true
+		delete(barrier.seenLanes, pairRenderBlock)
+		delete(barrier.poisonedLanes, pairRenderBlock)
+		barrier.blockLaneClocks = nil
+		return
+	}
+	if barrier.legacyProof.failureReason == "" {
+		barrier.legacyProof.failureReason = reason
+	}
+	for _, legacyKind := range []pairRenderKind{pairRenderWorkqueue, pairRenderDMAFence, pairRenderMMC, pairRenderF2FS} {
+		barrier.poisonedKinds[legacyKind] = true
+		delete(barrier.seenLanes, legacyKind)
+		delete(barrier.poisonedLanes, legacyKind)
+	}
+}
+
+func (barrier *directPairCaptureBarrier) failAuthority(reason string) {
+	if barrier == nil || reason == "" {
+		return
+	}
+	if barrier.authorityFailure == "" {
+		barrier.authorityFailure = reason
+	}
+	for _, kind := range []pairRenderKind{
+		pairRenderWorkqueue, pairRenderDMAFence, pairRenderMMC, pairRenderF2FS, pairRenderBlock,
+	} {
+		barrier.poisonedKinds[kind] = true
+	}
 	barrier.seenLanes = nil
 	barrier.poisonedLanes = nil
+	barrier.blockLaneClocks = nil
 }
 
 func (barrier *directPairCaptureBarrier) poisonedFamilyCount() int {
@@ -242,7 +378,7 @@ func (barrier *directPairCaptureBarrier) poisonedFamilyCount() int {
 		return 0
 	}
 	count := 0
-	for _, kind := range []pairRenderKind{pairRenderWorkqueue, pairRenderDMAFence, pairRenderMMC, pairRenderF2FS} {
+	for _, kind := range []pairRenderKind{pairRenderWorkqueue, pairRenderDMAFence, pairRenderMMC, pairRenderF2FS, pairRenderBlock} {
 		if barrier.poisonedKinds[kind] {
 			count++
 		}
@@ -254,5 +390,60 @@ func (barrier *directPairCaptureBarrier) poisonedLaneCount() int {
 	if barrier == nil {
 		return 0
 	}
-	return len(barrier.poisonedLanes)
+	total := 0
+	for _, lanes := range barrier.poisonedLanes {
+		total += len(lanes)
+	}
+	return total
+}
+
+func (barrier *directPairCaptureBarrier) report() directPairBarrierReport {
+	if barrier == nil {
+		return directPairBarrierReport{}
+	}
+	return directPairBarrierReport{
+		WithheldRows: barrier.poisonedRows, PoisonedLanes: barrier.poisonedLaneCount(),
+		PoisonedFamilies: barrier.poisonedFamilyCount(), BlockObserved: barrier.blockObserved,
+		BlockRowsStaged: barrier.stagedRows[pairRenderBlock], BlockRowsWithheld: barrier.withheldRows[pairRenderBlock],
+		LegacyBudgetReason: barrier.legacyProof.failureReason,
+		BlockBudgetReason:  barrier.blockProof.failureReason, SharedAuthorityReason: barrier.authorityFailure,
+	}
+}
+
+// validateAccounting is the last private-stage invariant before ConvertFile
+// can sort rows or create an output artifact. Pair rows are accepted exactly
+// once at addPublishedRowAt; freeze may only move them from staged to withheld.
+func (barrier *directPairCaptureBarrier) validateAccounting(rows []renderedRow) error {
+	if barrier == nil {
+		return &traceDBOutputInvariantError{Reason: "direct_pair_barrier_missing"}
+	}
+	stagedTotal := 0
+	withheldTotal := 0
+	for _, kind := range []pairRenderKind{
+		pairRenderWorkqueue, pairRenderDMAFence, pairRenderMMC, pairRenderF2FS, pairRenderBlock,
+	} {
+		staged := barrier.stagedRows[kind]
+		withheld := barrier.withheldRows[kind]
+		if staged < 0 || withheld < 0 || withheld > staged {
+			return &traceDBOutputInvariantError{Reason: "direct_pair_barrier_withheld_exceeds_staged"}
+		}
+		stagedTotal += staged
+		withheldTotal += withheld
+	}
+	if withheldTotal != barrier.poisonedRows {
+		return &traceDBOutputInvariantError{Reason: "direct_pair_barrier_withheld_account_mismatch"}
+	}
+	published := 0
+	for _, row := range rows {
+		if row.pairKind != pairRenderUnknown {
+			published++
+		}
+	}
+	if published != stagedTotal-withheldTotal {
+		return &traceDBOutputInvariantError{Reason: "direct_pair_barrier_published_account_mismatch"}
+	}
+	if barrier.blockObserved < int64(barrier.stagedRows[pairRenderBlock]) {
+		return &traceDBOutputInvariantError{Reason: "direct_block_barrier_observation_account_mismatch"}
+	}
+	return nil
 }

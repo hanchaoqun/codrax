@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -29,6 +30,7 @@ type traceMetadata struct {
 	pairPoisonedLanes    int
 	pairPoisonedFamilies int
 	pairBarrierBudget    bool
+	pairBarrierReport    directPairBarrierReport
 	cmdlines             map[int]string
 	tgids                map[int]int
 	segments             []segmentMeta
@@ -289,7 +291,23 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 		result.Caveats = append(result.Caveats, fmt.Sprintf("%d governed direct ftrace event row(s) had rejected physical payloads and were kept coverage-only instead of falling back to header-only rows; reasons=%s", meta.bodyRejectedRows, traceDBCountSummary(meta.bodyRejectReasons)))
 	}
 	if meta.pairQuarantinedRows > 0 || meta.pairPoisonedFamilies > 0 || meta.pairPoisonedLanes > 0 {
-		result.Caveats = append(result.Caveats, fmt.Sprintf("direct pair-critical publication completed a full-capture anti-rescue freeze before output: withheld_rows=%d poisoned_lanes=%d poisoned_families=%d budget_fail_closed=%t; rejected Workqueue/DMA/MMC/F2FS endpoints remain coverage-only and cannot be bridged by neighboring rows", meta.pairQuarantinedRows, meta.pairPoisonedLanes, meta.pairPoisonedFamilies, meta.pairBarrierBudget))
+		report := meta.pairBarrierReport
+		result.Caveats = append(result.Caveats, fmt.Sprintf("direct pair-critical publication completed a full-capture anti-rescue freeze before output: withheld_rows=%d poisoned_lanes=%d poisoned_families=%d budget_fail_closed=%t legacy_budget_reason=%s block_budget_reason=%s shared_authority_reason=%s; rejected Workqueue/DMA/MMC/F2FS/Block endpoints remain coverage-only and cannot be bridged by neighboring rows",
+			meta.pairQuarantinedRows, meta.pairPoisonedLanes, meta.pairPoisonedFamilies, meta.pairBarrierBudget,
+			firstNonEmpty(report.LegacyBudgetReason, "none"), firstNonEmpty(report.BlockBudgetReason, "none"),
+			firstNonEmpty(report.SharedAuthorityReason, "none")))
+	}
+	if report := meta.pairBarrierReport; report.BlockObserved > 0 {
+		emitted := report.BlockRowsStaged - report.BlockRowsWithheld
+		fields := map[string]string{
+			"scope": "source_local", "proof_domain": "block", "rows_staged": strconv.Itoa(report.BlockRowsStaged),
+			"rows_withheld": strconv.Itoa(report.BlockRowsWithheld), "budget_reason": firstNonEmpty(report.BlockBudgetReason, "none"),
+			"shared_authority_reason": firstNonEmpty(report.SharedAuthorityReason, "none"),
+		}
+		result.TraceCoverage = append(result.TraceCoverage, TraceDBCoverage{
+			Family: "builtin_raw_ftrace:block_capture", Table: "__complete_capture_barrier__", Role: "unsupported_input",
+			Found: true, RowsRead: int(report.BlockObserved), RowsEmitted: emitted, FieldSources: fields,
+		})
 	}
 	result.Caveats = append(result.Caveats, standaloneCaveats...)
 	normalizeResultCollections(&result)
@@ -465,6 +483,7 @@ func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]render
 		meta.pairPoisonedLanes = 0
 		meta.pairPoisonedFamilies = 0
 		meta.pairBarrierBudget = false
+		meta.pairBarrierReport = directPairBarrierReport{}
 	}
 	pairBarrier, err := newDirectPairCaptureBarrier(path)
 	if err != nil {
@@ -631,7 +650,7 @@ func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]render
 				row := renderedRow{tsNS: ts, seq: seq, line: line}
 				if pairAudit.EndpointAdmitted {
 					row.pairKind = pairAudit.Kind
-					pairBarrier.addPublishedRow(seq, pairAudit)
+					pairBarrier.addPublishedRowAt(seq, ts, pairAudit)
 				}
 				rows = append(rows, row)
 				seq++
@@ -640,10 +659,15 @@ func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]render
 		}
 	}
 	rows = pairBarrier.filter(rows)
-	meta.pairQuarantinedRows = pairBarrier.poisonedRows
-	meta.pairPoisonedLanes = pairBarrier.poisonedLaneCount()
-	meta.pairPoisonedFamilies = pairBarrier.poisonedFamilyCount()
-	meta.pairBarrierBudget = pairBarrier.budgetFailed
+	if err := pairBarrier.validateAccounting(rows); err != nil {
+		return nil, 0, 0, 0, 0, 0, err
+	}
+	report := pairBarrier.report()
+	meta.pairBarrierReport = report
+	meta.pairQuarantinedRows = report.WithheldRows
+	meta.pairPoisonedLanes = report.PoisonedLanes
+	meta.pairPoisonedFamilies = report.PoisonedFamilies
+	meta.pairBarrierBudget = report.LegacyBudgetReason != "" || report.BlockBudgetReason != "" || report.SharedAuthorityReason != ""
 	first, last = 0, 0
 	for index, row := range rows {
 		if index == 0 || row.tsNS < first {

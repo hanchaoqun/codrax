@@ -16,6 +16,7 @@ func TestBlockRendererUsesOneTypedAuthorityWithoutDefaultFallbacks(t *testing.T)
 		"type blockRenderPayload struct",
 		"func renderCanonicalBlockPayload(",
 		"func decodeDirectBlockPayload(",
+		"func decodeDirectBlockPayloadDecision(",
 		"func decodeProfilerBlockPayloadWithTypedAudit(",
 		"func renderProfilerFtraceBlockEventWithTypedAudit(",
 		"func decodeTraceDBBlockPayload(",
@@ -29,8 +30,10 @@ func TestBlockRendererUsesOneTypedAuthorityWithoutDefaultFallbacks(t *testing.T)
 		!strings.Contains(block, "Issues [profilerFtraceBlockIssuesPerEvent]profilerFtraceEventIssue") {
 		t.Fatal("structured block fields no longer flow through one fixed-state typed audit")
 	}
-	if !strings.Contains(render, "return renderDirectBlockEvent(ev, content)") ||
-		!strings.Contains(official, "return renderDirectBlockEvent(ev, content)") ||
+	if strings.Count(render, "blockDecision := decodeDirectBlockPayloadDecision(ev, content)") != 1 ||
+		strings.Count(render, "block := decodeDirectBlockPayloadDecision(ev, content)") != 1 ||
+		!strings.Contains(render, "newDirectBlockLineAudit(ev, blockDecision)") ||
+		!strings.Contains(render, "renderCanonicalBlockPayload(block.Payload)") ||
 		strings.Count(profiler, "renderProfilerFtraceBlockEventWithTypedAudit(event)") != 1 ||
 		!strings.Contains(streamer, "return renderTraceDBBlockEvent(name, args, invalidKeys)") {
 		t.Fatal("a direct, structured, or SQL block lane bypasses the shared typed authority")
@@ -47,6 +50,7 @@ func TestBlockRendererUsesOneTypedAuthorityWithoutDefaultFallbacks(t *testing.T)
 		`"nr_sector", "nr_sectors", "sectors", "len", "length", "bytes", "nr_bytes"`,
 		"func decodeProfilerBlockPayload(",
 		"func renderProfilerBlockEvent(",
+		"func renderDirectBlockEvent(",
 		"protoScalarUint(",
 		"protoScalarString(",
 		`fmt.Sprintf("core_field`,
@@ -55,5 +59,16 @@ func TestBlockRendererUsesOneTypedAuthorityWithoutDefaultFallbacks(t *testing.T)
 		if strings.Contains(block+render+official+profiler+streamer, forbidden) {
 			t.Fatalf("block renderer reintroduced a fabricated fallback/second implementation: %q", forbidden)
 		}
+	}
+	for _, legacyCase := range []string{
+		`case "block_rq_issue", "block_rq_insert", "block_rq_complete", "block_rq_remap"`,
+		`case "block_bio_queue", "block_bio_complete", "block_bio_remap"`,
+	} {
+		if strings.Contains(render+official, legacyCase) {
+			t.Fatalf("direct block fallback case reintroduced outside the typed authority: %q", legacyCase)
+		}
+	}
+	if strings.Contains(official, "block_rq_") || strings.Contains(official, "block_bio_") {
+		t.Fatal("official compatibility renderer reintroduced a direct block fallback")
 	}
 }

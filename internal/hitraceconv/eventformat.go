@@ -41,6 +41,7 @@ const (
 	pairCriticalFormatFamilyDMAFence
 	pairCriticalFormatFamilyMMC
 	pairCriticalFormatFamilyF2FS
+	pairCriticalFormatFamilyBlock
 )
 
 func pairCriticalFormatFamilyForName(name string) pairCriticalFormatFamilyMask {
@@ -54,6 +55,8 @@ func pairCriticalFormatFamilyForName(name string) pairCriticalFormatFamilyMask {
 	case "f2fs_sync_file_enter", "f2fs_sync_file_exit", "f2fs_direct_IO_enter", "f2fs_direct_IO_exit",
 		"f2fs_write_begin", "f2fs_write_end":
 		return pairCriticalFormatFamilyF2FS
+	case "block_bio_queue", "block_bio_complete", "block_rq_issue", "block_rq_complete":
+		return pairCriticalFormatFamilyBlock
 	default:
 		return 0
 	}
@@ -104,11 +107,12 @@ func parseEventFormats(data []byte) (eventFormatCatalog, error) {
 		malformed = false
 	}
 	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
+		rawLine := sc.Text()
+		line := strings.TrimSpace(rawLine)
 		switch {
 		case strings.HasPrefix(line, "name:"):
 			flush()
-			cur.Name = strings.TrimSpace(strings.TrimPrefix(line, "name:"))
+			cur.Name = parseEventFormatName(rawLine)
 			malformed = cur.Name == ""
 		case strings.HasPrefix(line, "ID:"):
 			id, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "ID:")))
@@ -158,6 +162,22 @@ func parseEventFormats(data []byte) (eventFormatCatalog, error) {
 	}
 	flush()
 	return out, nil
+}
+
+// parseEventFormatName removes only the tracefs syntax separator. Event names
+// themselves remain byte-exact so case or extra horizontal whitespace cannot
+// be normalized into a pair-critical endpoint. A terminal CR belongs to the
+// CRLF line ending rather than to the descriptor value.
+func parseEventFormatName(rawLine string) string {
+	line := strings.TrimLeft(strings.TrimSuffix(rawLine, "\r"), " \t")
+	if !strings.HasPrefix(line, "name:") {
+		return ""
+	}
+	name := strings.TrimPrefix(line, "name:")
+	if len(name) > 0 && (name[0] == ' ' || name[0] == '\t') {
+		name = name[1:]
+	}
+	return name
 }
 
 func admitEventFormat(catalog *eventFormatCatalog, candidate eventFormat) {

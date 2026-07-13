@@ -12,8 +12,8 @@ import (
 )
 
 // pairRenderKind is the closed pair-critical payload family whose exact rows
-// can mint elapsed Workqueue/DMA/MMC/F2FS observations downstream. Inventory
-// siblings do not enter this registry.
+// can mint elapsed Workqueue/DMA/MMC/F2FS/Block observations downstream.
+// Inventory siblings do not enter this registry.
 type pairRenderKind uint8
 
 const (
@@ -22,6 +22,7 @@ const (
 	pairRenderDMAFence
 	pairRenderMMC
 	pairRenderF2FS
+	pairRenderBlock
 )
 
 type pairRenderPayload struct {
@@ -262,10 +263,63 @@ type directPairLineAudit struct {
 	Governed         bool
 	Kind             pairRenderKind
 	Payload          pairRenderPayload
+	BlockPayload     blockRenderPayload
 	HeaderTID        int64
 	HeaderOwnerKnown bool
 	Verdict          tracequery.PairingEndpointVerdict
 	EndpointAdmitted bool
+}
+
+func newDirectBlockLineAudit(ev decodedEvent, decision directBlockDecodeDecision) directPairLineAudit {
+	if !directBlockPairEndpointName(ev.format.Name) {
+		return directPairLineAudit{}
+	}
+	headerTID, ownerKnown := directPairHeaderTID(ev)
+	fingerprintTID := int64(-1)
+	if ownerKnown {
+		fingerprintTID = headerTID
+	}
+	payload := decision.Payload
+	verdict := fingerprintPairingEndpoint(tracequery.PairingEndpointTypedInput{
+		Name:                       ev.format.Name,
+		HeaderTID:                  fingerprintTID,
+		BlockIdentityKnown:         decision.IdentityKnown,
+		BlockPayloadAdmissionKnown: true,
+		BlockPayloadAdmitted:       decision.Admission == bodyAdmitted,
+		BlockDeviceNumber:          uint64(payload.dev),
+		BlockDeviceNumeric:         decision.IdentityKnown,
+		BlockOperation:             payload.rwbs,
+		BlockSector:                int64(payload.sector),
+		BlockLength:                int64(payload.nrSector),
+	})
+	return directPairLineAudit{
+		Governed: true, Kind: pairRenderBlock, BlockPayload: payload,
+		HeaderTID: headerTID, HeaderOwnerKnown: ownerKnown, Verdict: verdict,
+	}
+}
+
+func directBlockWireParity(payload blockRenderPayload, name, body string, headerTID int64, typed tracequery.PairingEndpointVerdict) bool {
+	wire := tracequery.DecodePairingEndpoint(name, body, headerTID)
+	return directBlockVerdictProfileExact(payload, typed) && directBlockVerdictProfileExact(payload, wire) &&
+		wire.Recognized == typed.Recognized && wire.KeyKnown == typed.KeyKnown &&
+		wire.PayloadAdmitted == typed.PayloadAdmitted && wire.Family == typed.Family &&
+		wire.Phase == typed.Phase && wire.SemanticKey == typed.SemanticKey &&
+		wire.EmitterKnown == typed.EmitterKnown && wire.EmitterAdmitted == typed.EmitterAdmitted &&
+		wire.RequiresPositiveEmitter == typed.RequiresPositiveEmitter && wire.IdleAllowed == typed.IdleAllowed &&
+		payload.kind != 0
+}
+
+func directBlockVerdictProfileExact(payload blockRenderPayload, verdict tracequery.PairingEndpointVerdict) bool {
+	expectedPhase := tracequery.PairingEndpointPhase("")
+	switch payload.kind {
+	case blockRenderBioQueue, blockRenderRQIssue:
+		expectedPhase = tracequery.PairingEndpointStart
+	case blockRenderBioComplete, blockRenderRQComplete:
+		expectedPhase = tracequery.PairingEndpointDone
+	default:
+		return false
+	}
+	return verdict.Recognized && verdict.Family == tracequery.PairingEndpointBlock && verdict.Phase == expectedPhase
 }
 
 func newDirectPairLineAudit(ev decodedEvent, payload pairRenderPayload) directPairLineAudit {
