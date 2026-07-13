@@ -633,6 +633,17 @@ generic代码提交`8f5aee619`已独立推送到`main`；连同先行的envelope
 
 **明确留后**：本施工冻结不等于交付，B2-b5、B2-b、B2与P1-a2.2继续开放，直至上述代码、闭集和总矩阵全部验证并以独立提交推送。a2.3/a2.4、`ROW-SORT-BND`、P1-b、TOCTOU、compact pairing sidecar、generic block/storage typed request identity witness及Profiler全链有界声明均不受本批改变。
 
+### P1-a2.2-B2-b5 block producer typed化与P1-a2.2交付结案
+
+代码提交`246ec754a`已在同步远端最新`main`后独立推送。本节关闭B2-b5，并在复核B2-a、B2-b1..b5总矩阵后同步关闭B2-b、B2与P1-a2.2；不关闭P1-a2总项或Profiler全链有界声明。
+
+- **structured block唯一typed权威已落地**：202/204/205/209..212共用固定`[8]`field state的一次`walkProtoFields`与capacity-2 checked issue set，按framing/localized/completed-hard/range-semantic/display/canonical六臂fail-close。raw producer与legal constructor逐tuple双向闭合为183，逐event为`21/22/25/26/30/30/29`；15个block kind全部有真实wire witness，分解为whole 7、known hard malformed/wrong/duplicate各37、range 30、RWBS semantic 7、display 24、canonical 4。全局finite issue universe校准为1814，最大单event仍为105<128；202/205/212继续无canonical source权限。
+- **归属、支配与局部性已机械化**：坏key、field0、非法field及unknown坏尾只铸sole whole；known hard endpoint即使non-terminal malformed仍精确localized；完整扫描按schema field序且不受物理正反wire序影响，endpoint保持`malformed > wrong > duplicate`，随后为range、RWBS semantic，六个display endpoint分别固定`malformed > wrong > duplicate > unsafe`并按comm→cmd累积。任意hard支配display，真实有效envelope下的210/211 cap+1证明canonical sole hard替换既有display issue；count/zero-tail/event/kind/payload/severity/order/duplicate/endpoint/cross-arm/overflow及prospective失败无mutation均有负pin。
+- **最终行边界与健康邻居守恒**：204/209/210/211的精确1MiB与cap+1均走真实合成`.htrace` container；前者`RowsRead=1/RowsEmitted=1`，后者只局部拒对应event、`RowsRead=1/RowsEmitted=0`且conversion error为nil。坏/健康block sibling正反序均只保留健康行；坏block夹在真实MMC/F2FS start/done之间不poison、不withhold，sink发布5/5且tracequery回读MMC/F2FS各恰配对一次。此证据只证明B2-b5局部拒行不误伤既有pair family，**不**证明block自身complete-capture anti-rescue已关闭。
+- **反向bridge已删除且全包防回归**：production已删除`profilerFtraceEventIssueFromLegacy`、`profilerFtraceEventParameterizedToken`、全部`string→IssueKind` map及`protoUint/protoInt/protoString/protoScalar*`；fixed label只保留唯一`IssueKind→string`单向权威，compat入口严格为一次typed调用加一次label适配。package-wide AST动态扫描全部production `.go`，机械禁止旧符号、`map[string]profilerFtraceEventIssueKind`、text输入反向铸issue/kind及typed入口回流compat `WithAudit`，direct raw source-specific reason不受误伤。
+- **验证与终审**：在最新远端主线基座上，focused shuffle`×20`、focused race`×3`、`go test ./internal/hitraceconv -count=1`、`go vet ./internal/hitraceconv`、`go test ./... -count=1`、`go vet ./...`、gofmt与diff-check全绿；生产代码、测试证明及对抗审计独立终审均为**RELEASE**。
+- **诚实剩余**：`HCONV-BLOCK-CAPTURE`仍是紧接的P0；structured/direct block坏endpoint尚可能被洞前后健康行跨洞救配，本批没有建立block complete-capture barrier，更没有获得并发同硬键的typed request identity。P1-a2.3 repeated protobuf流式化、P1-a2.4 compact pairing/row provenance、`ROW-SORT-BND`、P1-b、TOCTOU及Profiler全链有界声明继续开放。
+
 ### HCONV-BLOCK-CAPTURE：structured/direct block complete-capture anti-rescue（新发现P0，开放）
 
 2026-07-13 B2-b5对抗审计确认：现有complete-capture barrier的closed `pairRenderKind`/format-family只覆盖Workqueue、DMA、MMC、F2FS；SQL raw block已由B3-b2 stage保护，但structured 202/204/205/209..212与direct RMQ block不进入同构block barrier。故坏descriptor/envelope/payload/canonical block endpoint被converter局部拒绝后，输出文本仍可能把洞前start与洞后done按现有粗硬键救配成伪duration；coverage/caveat不是配对硬门，不能阻止该通路。B2-b5只负责typed诊断与坏行局部化，结案时必须继续明确本项开放，不能用健康sibling存活冒充block anti-rescue已经闭合。
