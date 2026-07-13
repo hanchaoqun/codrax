@@ -362,7 +362,11 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				// residual pair — exercises blocked_reason_window_count /
 				// blocked_reason_window_caller (this row consumed no caller).
 				BlockedReasonWindowCount: 3, BlockedReasonWindowCaller: "gpu_fence_wait",
-				LineStart: 65, LineEnd: 66,
+				// §29.50.5 (v5 P1 批 件②, 2026-07-13): the proof-partition
+				// honest-remainder marker — exercises
+				// dstate_cause_unproven_remainder.
+				DStateCauseUnprovenRemainder: true,
+				LineStart:                    65, LineEnd: 66,
 				Source:    "window_stats.trace_spans.lock_contention",
 				Causality: "on_wakeup_chain", ChainRelevance: "on_chain", ChainDepth: 1,
 				BlockingKind: "monitor_contention",

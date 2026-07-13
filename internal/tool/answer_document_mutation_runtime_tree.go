@@ -357,6 +357,15 @@ type runtimeTraceProjTreeRow struct {
 	// adjudicates its dedicated arm.
 	AccountRelRef  string
 	AccountRelOwn  string
+	// AccountRelDisjoint (修复轮三 R2-F2, 冷读 witness tieba E4↔E25,
+	// 2026-07-13): the pair's typed occurrence hulls are PROVABLY disjoint
+	// (hull-disjoint ⇒ member-disjoint, precise) — the sentence speaks
+	// 「物理时间不相交」 instead of the overlap template (SMR 行级判定必须
+	// 论证成员级可达性; an unconditional 重叠 claim on partition-sibling
+	// seats was false). Hull overlap or missing ts stays the existing
+	// overlap wording (hull noise cannot prove member overlap — fail-open
+	// to the current template, 禁量化重叠 ms unchanged).
+	AccountRelDisjoint bool
 	AccountRelPeer string
 	// OccurrenceSeries* (WO-B1, SMR-1 批 SMR-S8/S10/S11, 2026-07-12): the
 	// B-type same-identity multi-occurrence short note — typed provably
@@ -1230,7 +1239,7 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `non-additive pointer` = two seats of one thread's one state family share the same physical time: 「component of [E#] / already contains [E#] / member of [E#]」 marks the subset/containment/membership relation (typed judgment: addition identity / µs-identical member value / structural sub-account); the two seats must never be summed — each keeps its own account."},
 		// WO-C1 (SMR-1 批, 2026-07-12): the account-relation sentence entry.
 		{runtimeTraceProjMarkAccountRelation, runtimeTraceProjLegendGroupMark,
-			"- `账目关系` = 同线程同状态族的两行来自两套账目体系(覆盖集不同,物理时间重叠):行内句标出双方口径自述与互指 [E#];两行数值不可相加、不可直较,双行均为诚实账目(W-A 不同账目绝不折)。",
+			"- `账目关系` = 同线程同状态族的两行来自两套账目体系(覆盖集不同;物理时间重叠或不相交,行内句按 typed 区间推导如实标注):行内句标出双方口径自述与互指 [E#];两行数值不可直较,双行均为诚实账目(W-A 不同账目绝不折)。",
 			"- `account relation` = two rows of one thread's one state family come from two accounting systems (different coverage sets, overlapping physical time): the inline sentence names both calibers and cross-references [E#]; the two values are neither additive nor directly comparable — both rows are honest accounts (W-A: different accounts never fold)."},
 		// WO-B1 (SMR-1 批, 2026-07-12): the occurrence-series note entry.
 		{runtimeTraceProjMarkOccurrenceSeries, runtimeTraceProjLegendGroupMark,
@@ -4433,11 +4442,23 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 	// 互指 only; 禁「同段」字面, 禁覆盖方向暗示, 禁量化重叠 ms (S6 vnote 三禁令).
 	if row.AccountRelRef != "" {
 		row.marks.mark(runtimeTraceProjMarkAccountRelation)
+		// 修复轮三 R2-F2: the overlap/disjoint claim is DERIVED (typed hull
+		// disjointness), never an unconditional template; the disjoint form
+		// adds no additive invitation (账目自识别句保留 — 跨账目体系与其它行
+		// 仍有双计面).
 		text := "与[" + row.AccountRelRef + "]同线程同状态族·物理时间重叠(不可相加);两套账目覆盖集不同:本行=" +
 			row.AccountRelOwn + ",[" + row.AccountRelRef + "]=" + row.AccountRelPeer
+		if row.AccountRelDisjoint {
+			text = "与[" + row.AccountRelRef + "]同线程同状态族·物理时间不相交;两套账目覆盖集不同:本行=" +
+				row.AccountRelOwn + ",[" + row.AccountRelRef + "]=" + row.AccountRelPeer
+		}
 		if !zh {
 			text = "same thread, same state family as [" + row.AccountRelRef + "] · physical time overlaps (never additive); two accounting systems with different coverage sets: this row = " +
 				row.AccountRelOwn + ", [" + row.AccountRelRef + "] = " + row.AccountRelPeer
+			if row.AccountRelDisjoint {
+				text = "same thread, same state family as [" + row.AccountRelRef + "] · physical time disjoint; two accounting systems with different coverage sets: this row = " +
+					row.AccountRelOwn + ", [" + row.AccountRelRef + "] = " + row.AccountRelPeer
+			}
 		}
 		out = append(out, text)
 	}
@@ -4742,6 +4763,22 @@ func runtimeTraceProjFoldSameSegmentLaneTwins(nodes []types.TraceCausalProjectio
 				if strings.TrimSpace(node.Tier) == "" {
 					node.Tier = nodes[rankIdx].Tier
 				}
+			}
+			// §29.50.5 (v5 P1 批 件②, 2026-07-13): the folded rank twin's
+			// typed D/IO proof family travels with the surviving chain node —
+			// one physical set of segments, one proof (the P2-3 propagation
+			// only syncs rows that BOTH still render; the fold survivor must
+			// not lose the 等待对象 / 原因未证 word inputs). OR-monotone
+			// booleans, empty-slot caller, residual pair moves as a pair.
+			rankTwin := nodes[rankIdx]
+			node.DStateRefinedNonIO = node.DStateRefinedNonIO || rankTwin.DStateRefinedNonIO
+			node.DStateCauseUnprovenRemainder = node.DStateCauseUnprovenRemainder || rankTwin.DStateCauseUnprovenRemainder
+			if node.BlockedReasonCaller == "" {
+				node.BlockedReasonCaller = rankTwin.BlockedReasonCaller
+			}
+			if node.BlockedReasonWindowCount == 0 && rankTwin.BlockedReasonWindowCount > 0 {
+				node.BlockedReasonWindowCount = rankTwin.BlockedReasonWindowCount
+				node.BlockedReasonWindowCaller = rankTwin.BlockedReasonWindowCaller
 			}
 			peers[runtimeTraceCausalProjectionNodeKey(node)] = append(
 				peers[runtimeTraceCausalProjectionNodeKey(node)], nodes[rankIdx])
@@ -6830,6 +6867,18 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 			row.marks.mark(runtimeTraceProjMarkStateLabel)
 			demoted = append(demoted, stateTag)
 			wordless = false
+		}
+	}
+	// 修复轮二 件B (2026-07-13): the proven wait object discloses on the D/IO
+	// self row inline — with no rank-family seat in the ledger this row is
+	// the ONLY carrier of the refined proof, and the 等待对象 word must not
+	// depend on the dispatch shape (same engine-typed symbol as the rcr
+	// identity line; absent = absent).
+	if caller := strings.TrimSpace(node.BlockedReasonCaller); caller != "" {
+		if zh {
+			demoted = append(demoted, "等待对象 "+caller)
+		} else {
+			demoted = append(demoted, "wait object "+caller)
 		}
 	}
 	if idleKind != "" {

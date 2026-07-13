@@ -70,15 +70,59 @@ import (
 )
 
 // criticalBlockingRankFamilyReconTypes is the adjudicated cross-lane type
-// mapping: critical_blocking wire token → rank-lane family token. §27.2-G1
-// scopes the ruling to the exact io_latency↔io_latency pair (both lanes mint
-// from the SAME stats.IOLatencies entries, so member identity is provable);
-// every other same-source pair (d_state_or_io_wait↔block_io_by_inode etc.)
-// lacks a row-level witness and MUST NOT be added without a new adjudication
-// — the universe pin (TestG1ReconTypeUniversePinned) forces that
-// conversation, §28.8 教训⑥ 机械化.
-var criticalBlockingRankFamilyReconTypes = map[string]string{
-	"io_latency": "io_latency",
+// mapping: critical_blocking wire token → rank-lane family tokens. §27.2-G1
+// scoped the original ruling to the exact io_latency↔io_latency pair (both
+// lanes mint from the SAME stats.IOLatencies entries, so member identity is
+// provable); every other same-source pair MUST NOT be added without a new
+// adjudication — the universe pin (TestG1ReconTypeUniversePinned) forces
+// that conversation, §28.8 教训⑥ 机械化.
+//
+// EVOLUTION RECORD (CASE-1, §29.52 独立立案 → v5 P1 批, 2026-07-13): the
+// universe grew its SECOND adjudicated pair set — {d_state_or_io_wait,
+// io_wait}². Both lanes mint from the SAME stats.DStateTop/IOWaitTop
+// per-(thread,cpu) ledger groups (rank lane: rootCauseDIOStateFamilyItems,
+// one family contender per thread; chain lane:
+// buildCriticalBlockingCallsFromStats, one candidate per group), so member
+// identity is provable by same-source floats — the row-level witnesses the
+// original ruling waited for ("stay OUT · 立账观察") arrived as SMR-S7 +
+// S4-TPF + the 42729 E9↔E15 critical↔critical pair (reports
+// 31693/42729/45903, smr_audit_report_20260712 CASE-1). The family token
+// flips to "io_wait" when dStateMs==0 (the query.go io_wait arm — CASE-1
+// gap (c)), so all four token combinations are adjudicated together.
+// Membership for these pairs is the SAME-SOURCE identity ONLY (see
+// criticalBlockingRankFamilyReconSameSourceOnly) — G1 明拒 hull containment
+// on per-(thread,cpu) group intervals. Every OTHER same-source pair
+// (…↔block_io_by_inode etc.) still lacks a witness and stays OUT.
+var criticalBlockingRankFamilyReconTypes = map[string][]string{
+	"io_latency":         {"io_latency"},
+	"d_state_or_io_wait": {"d_state_or_io_wait", "io_wait"},
+	"io_wait":            {"d_state_or_io_wait", "io_wait"},
+}
+
+// criticalBlockingRankFamilyReconSameSourceOnly reports whether the critical
+// type's membership arm is the CASE-1 same-source identity ONLY: exact float
+// interval equality AND exact float value equality against the family's
+// validated member inventory (both lanes copy the same ThreadDuration
+// floats). The D/IO ledger groups are per-(thread,cpu) segment HULLS (the
+// 42729 witness held 10 discontinuous segments in one io_wait cpu=3 group)
+// — union containment would admit non-members through hull gaps, exactly
+// the noisy-membership shape G1 rejects; the io_latency pair keeps its
+// original two-pass membership (exact member, then union containment over
+// true per-IO intervals) byte-identically.
+func criticalBlockingRankFamilyReconSameSourceOnly(criticalType string) bool {
+	return criticalType != "io_latency"
+}
+
+// criticalBlockingReconInterval returns the typed interval identity the
+// reconciliation proves membership with: io_latency rows publish their true
+// per-IO [StartTs,EndTs] (the original §27.2-G1 wire); the D/IO rows carry
+// their group HULL engine-internally only (reconStartTs/reconEndTs — CASE-1
+// gap (a), 修复轮 h1 ∿ 回归: the hull must never reach the published wire).
+func criticalBlockingReconInterval(item CriticalBlockingCandidate) (float64, float64) {
+	if item.StartTs > 0 && item.EndTs > item.StartTs {
+		return item.StartTs, item.EndTs
+	}
+	return item.reconStartTs, item.reconEndTs
 }
 
 // rankFamilyReconKey renders the canonical G1 family identity BOTH sides
@@ -195,12 +239,20 @@ func reconcileCriticalBlockingWithRankFamilies(rank *RootCauseRankResult, blocki
 	}
 	for i := range blocking.Items {
 		item := &blocking.Items[i]
-		rankType, adjudicated := criticalBlockingRankFamilyReconTypes[item.Type]
+		famTypes, adjudicated := criticalBlockingRankFamilyReconTypes[item.Type]
 		if !adjudicated {
 			continue // exact-token universe only — never a substring/lane guess
 		}
-		if item.StartTs <= 0 || item.EndTs <= item.StartTs {
+		reconStart, reconEnd := criticalBlockingReconInterval(*item)
+		if reconStart <= 0 || reconEnd <= reconStart {
 			continue // no typed interval identity → membership unprovable → keep both rows
+		}
+		// CASE-1 membership arm split: the D/IO pairs prove membership by
+		// same-source identity ONLY (single pass) — no union containment.
+		sameSourceOnly := criticalBlockingRankFamilyReconSameSourceOnly(item.Type)
+		passes := 2
+		if sameSourceOnly {
+			passes = 1
 		}
 		// Deterministic family election: first pass prefers a family holding a
 		// member interval EXACTLY equal to this row's interval (both lanes copy
@@ -216,10 +268,17 @@ func reconcileCriticalBlockingWithRankFamilies(rank *RootCauseRankResult, blocki
 		// deterministic first-match then absorbs into a same-(thread,type,
 		// window) family either way.
 		matched := -1
-		for pass := 0; pass < 2 && matched < 0; pass++ {
+		for pass := 0; pass < passes && matched < 0; pass++ {
 			for j := range rank.Items {
 				fam := &rank.Items[j]
-				if !rankFamilyReconEligibleFamily(*fam, rankType) {
+				eligible := false
+				for _, famType := range famTypes {
+					if rankFamilyReconEligibleFamily(*fam, famType) {
+						eligible = true
+						break
+					}
+				}
+				if !eligible {
 					continue
 				}
 				if threadKey(fam.Thread) != threadKey(item.Thread) {
@@ -238,15 +297,25 @@ func reconcileCriticalBlockingWithRankFamilies(rank *RootCauseRankResult, blocki
 				if pass == 0 {
 					exact := false
 					for _, iv := range fam.familyMemberIntervals {
-						if iv.start == item.StartTs && iv.end == item.EndTs {
-							exact = true
-							break
+						if iv.start != reconStart || iv.end != reconEnd {
+							continue
 						}
+						// CASE-1 µs value-identity dimension (same-source
+						// pairs only): both lanes copy one ThreadDuration's
+						// DurationMs, so a true member matches EXACTLY; a
+						// valueless inventory entry (legacy/foreign) is
+						// unprovable and fails open. io_latency keeps the
+						// original interval-only exact arm byte-identically.
+						if sameSourceOnly && (iv.valueMs <= 0 || iv.valueMs != item.DurationMs) {
+							continue
+						}
+						exact = true
+						break
 					}
 					if !exact {
 						continue
 					}
-				} else if !rankFamilyReconIntervalInsideUnion(item.StartTs, item.EndTs, fam.familyMemberIntervals) {
+				} else if !rankFamilyReconIntervalInsideUnion(reconStart, reconEnd, fam.familyMemberIntervals) {
 					continue
 				}
 				matched = j
@@ -259,8 +328,11 @@ func reconcileCriticalBlockingWithRankFamilies(rank *RootCauseRankResult, blocki
 		fam := &rank.Items[matched]
 		// P2-a: the key's lane dimension comes from the MATCHED family's own
 		// 道别 (the same helper its fold key used) — single mint point, both
-		// sides consistent by construction.
-		key := rankFamilyReconKey(rankType, fam.Thread, rootCauseFamilyFoldLaneKey(*fam),
+		// sides consistent by construction. The type dimension is the MATCHED
+		// family's own token (== the critical token on the io_latency pair;
+		// the CASE-1 pairs join cross-token, e.g. io_wait chain rows into a
+		// mixed d_state_or_io_wait family).
+		key := rankFamilyReconKey(fam.Type, fam.Thread, rootCauseFamilyFoldLaneKey(*fam),
 			TimeWindow{StartTs: fam.StatsWindowStartTs, EndTs: fam.StatsWindowEndTs})
 		fam.RankFamilyKey = key
 		fam.AbsorbedChainRows++

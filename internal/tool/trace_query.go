@@ -3584,6 +3584,15 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		for _, td := range result.WindowStats.IOWaitTop {
 			fmt.Fprintf(&b, "- top_io_wait %s %.3fms %s%s lines=%d-%d\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), traceThreadDurationLocation(td), td.LineStart, td.LineEnd)
 		}
+		// 修复轮二 件A (2026-07-13): per-lane cap-overflow disclosure — the top
+		// lists are a display cap, and the evicted remainder must be visible
+		// on the same face (the family seats already carry the full account).
+		if result.WindowStats.DStateTopOverflowGroups > 0 {
+			fmt.Fprintf(&b, "- top_d_state_overflow groups=%d total=%.3fms (beyond the display cap; D/IO family seats carry the full per-thread account)\n", result.WindowStats.DStateTopOverflowGroups, result.WindowStats.DStateTopOverflowMs)
+		}
+		if result.WindowStats.IOWaitTopOverflowGroups > 0 {
+			fmt.Fprintf(&b, "- top_io_wait_overflow groups=%d total=%.3fms (beyond the display cap; D/IO family seats carry the full per-thread account)\n", result.WindowStats.IOWaitTopOverflowGroups, result.WindowStats.IOWaitTopOverflowMs)
+		}
 		for _, br := range result.WindowStats.BlockedReasons {
 			fmt.Fprintf(&b, "- blocked_reason %s iowait=%d count=%d line=%d caller=%s\n", traceThreadLabel(br.Thread), br.IOWait, br.Count, br.Line, br.Reason)
 		}
@@ -6905,6 +6914,12 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 	if item.BlockedReasonWindowCount > 0 {
 		windowCount = fmt.Sprintf("%d", item.BlockedReasonWindowCount)
 	}
+	// §29.50.5 (v5 P1 批 件②, 2026-07-13): the proof-partition honest
+	// remainder marker — boolean note only when the engine minted it.
+	remainder := ""
+	if item.DStateCauseUnprovenRemainder {
+		remainder = "true"
+	}
 	return traceQueryTypedKVNotes([][2]string{
 		{types.TraceNoteKeyDominantState, item.DominantState},
 		{types.TraceNoteKeyRunning, traceQueryObservationMSValue(item.RunningMs)},
@@ -6916,6 +6931,7 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 		{types.TraceNoteKeyBlockedReasonCaller, sanitizeForBanner(item.BlockedReasonCaller)},
 		{types.TraceNoteKeyBlockedReasonWindowCount, windowCount},
 		{types.TraceNoteKeyBlockedReasonWindowCaller, sanitizeForBanner(item.BlockedReasonWindowCaller)},
+		{types.TraceNoteKeyDStateCauseUnprovenRemainder, remainder},
 	})
 }
 
@@ -7665,6 +7681,12 @@ func traceQueryTypedCriticalBlockingRichNotes(item tracequery.CriticalBlockingCa
 		// the observation itself keeps publishing, 观测照发不删).
 		{types.TraceNoteKeyAbsorbedByRankFamily, traceQueryTypedBool(item.AbsorbedByRankFamily)},
 		{types.TraceNoteKeyAbsorbedInto, item.AbsorbedIntoFamily},
+		// 修复轮二 件B (2026-07-13): the per-group refined-D proof + unanimous
+		// wait object on the chain-lane D/IO rows — the display's refined
+		// word donor for rank-family-less dispatch shapes (existing
+		// registered keys; absent when unproven, absence never proves).
+		{types.TraceNoteKeyDStateRefinedNonIO, traceQueryTypedBool(item.DStateAllNonIOProvenGroup())},
+		{types.TraceNoteKeyBlockedReasonCaller, sanitizeForBanner(item.UnanimousCauseSymbol())},
 		{"flags", item.Flags},
 		{"oneway", traceQueryTypedBoolPtr(item.Oneway)},
 		{"sync_like", traceQueryTypedBoolPtr(item.SyncLike)},
@@ -9420,6 +9442,21 @@ func traceQueryTypedThreadDurationObservations(items []tracequery.ThreadDuration
 		if strings.TrimSpace(thread) == "" || td.DurationMs <= 0 {
 			continue
 		}
+		// 修复轮二 件B (2026-07-13; h2 banned-word HEAD parity 实录): the
+		// per-GROUP refined-D proof and the unanimous wait-object symbol ride
+		// the window_stats face records themselves, so the refined 「D-state」
+		// word no longer depends on a rank-family row reaching the ledger
+		// (dispatch 无关化). EXISTING registered keys, engine-typed accessors
+		// only; absent on any coverage gap (absence never proves) and on the
+		// non-D/IO duration families.
+		refined := ""
+		if state == "d_state" && td.DStateAllNonIOProvenGroup() {
+			refined = "true"
+		}
+		caller := ""
+		if state == "d_state" || state == "io_wait" {
+			caller = td.UnanimousCauseSymbol()
+		}
 		notes := traceQueryTypedKVNotes([][2]string{
 			{"state", state},
 			{"duration", traceQueryObservationMSValue(td.DurationMs)},
@@ -9428,6 +9465,8 @@ func traceQueryTypedThreadDurationObservations(items []tracequery.ThreadDuration
 			{"core_class", td.CoreClass},
 			{"freq", traceQueryTypedCount(td.Frequency)},
 			{"priority", traceQueryPriorityPair(td.Priority, td.PriorityClass)},
+			{types.TraceNoteKeyDStateRefinedNonIO, refined},
+			{types.TraceNoteKeyBlockedReasonCaller, sanitizeForBanner(caller)},
 			// F-2 (统一复核 2026-07-04, NEW-8 pattern): the row's own `window`
 			// above is the thread-state segment; the selected QUERY window
 			// travels via the same typed note as every other selected-window

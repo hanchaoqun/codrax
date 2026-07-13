@@ -655,3 +655,72 @@ func TestSMR1A1SelfBinderIdleRowDoesNotBlockSeatCensus(t *testing.T) {
 		t.Fatalf("the idle row must not block the sleep-seat census (5200 形)")
 	}
 }
+
+// --- 修复轮三 R2-F2: derived overlap/disjoint claim (tieba E4↔E25 冷读
+// witness, 2026-07-13): the pair-class-(2) sentence's 「物理时间重叠」 was an
+// unconditional template — for a partition-sibling pair whose typed hulls
+// are disjoint (the tieba remainder [34579.531..586] vs the hmfs_get_dnode
+// seat [34579.4869..4872]) the claim was FALSE. The claim is now DERIVED:
+// provably-disjoint hulls speak 「物理时间不相交」 (no additive invitation,
+// account self-identifications preserved); overlap/missing-ts pairs keep
+// the existing overlap template verbatim (fail-open — hull overlap cannot
+// prove member overlap; 禁量化重叠 ms unchanged).
+// MUTATION self-check: dropping the derivation (unconditional template)
+// reds TestSMR1C1DisjointPairSpeaksDisjointWord; loosening it to fire on
+// overlapping hulls reds TestSMR1C1FamilyChainAccountSentenceKeepsOverlapWord.
+
+func smr1C1DisjointPairProjection() types.TraceCausalProjection {
+	projection := smr1C1FamilyChainProjection()
+	for i := range projection.OnChainCauses {
+		node := &projection.OnChainCauses[i]
+		switch node.EvidenceID {
+		case "e15":
+			// The tieba E4 remainder shape: 3-member family seat, late hull.
+			node.ImpactMS, node.CumulativeImpactMS = 10.433, 10.433
+			node.FamilyMemberCount = 3
+			node.StartTs, node.EndTs = 34579.531242, 34579.585906
+		case "e12":
+			// The tieba E25 shape: single proven-cause seat, early hull —
+			// provably disjoint from the remainder's hull.
+			node.ImpactMS, node.CumulativeImpactMS = 0.171, 0.171
+			node.StartTs, node.EndTs = 34579.486987, 34579.487158
+		}
+	}
+	return projection
+}
+
+func TestSMR1C1DisjointPairSpeaksDisjointWord(t *testing.T) {
+	model := buildRuntimeTraceProjTreeModel(smr1C1DisjointPairProjection(), newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+	fence := runtimeTraceProjTreeFence(model, true)
+	var family *runtimeTraceProjTreeRow
+	for i := range model.TreeRows {
+		if model.TreeRows[i].Node.EvidenceID == "e15" {
+			family = &model.TreeRows[i]
+		}
+	}
+	if family == nil || family.AccountRelRef == "" {
+		t.Fatalf("the account pair must still mint (改词保双席):\n%s", fence)
+	}
+	if !family.AccountRelDisjoint {
+		t.Fatalf("typed disjoint hulls must derive the disjoint verdict: %+v", family.Node)
+	}
+	if !strings.Contains(fence, "物理时间不相交;两套账目覆盖集不同:本行=") {
+		t.Fatalf("the disjoint pair must speak 不相交 (never the overlap template):\n%s", fence)
+	}
+	if strings.Contains(fence, "物理时间重叠(不可相加);两套账目覆盖集不同:本行=按状态类互斥归账") {
+		t.Fatalf("the false overlap claim must not survive on the disjoint pair:\n%s", fence)
+	}
+}
+
+// The ts-less legacy pair (the original fixture) keeps the overlap template
+// verbatim — absence of interval identity never claims disjointness.
+func TestSMR1C1FamilyChainAccountSentenceKeepsOverlapWord(t *testing.T) {
+	model := buildRuntimeTraceProjTreeModel(smr1C1FamilyChainProjection(), newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+	fence := runtimeTraceProjTreeFence(model, true)
+	if !strings.Contains(fence, "物理时间重叠(不可相加);两套账目覆盖集不同:本行=") {
+		t.Fatalf("the unprovable pair keeps the overlap template:\n%s", fence)
+	}
+	if strings.Contains(fence, "物理时间不相交") {
+		t.Fatalf("no disjoint claim may mint without typed proof:\n%s", fence)
+	}
+}

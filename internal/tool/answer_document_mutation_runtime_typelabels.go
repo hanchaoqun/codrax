@@ -240,21 +240,35 @@ func runtimeTraceCausalProjectionDisplayCauseName(raw string, zh bool) string {
 // boundary io_latency ∉ state family is pinned, so PTV7 leaves it);
 // everything else stays on the raw-string cause lane.
 func runtimeTraceCausalProjectionDisplayCauseNameNode(node types.TraceCausalProjectionNode, zh bool) string {
+	// §29.50.5 (v5 P1 批 件②, 2026-07-13): the honest-remainder qualifier —
+	// the typed engine marker is the ONE precise gate (it mints only on the
+	// D/IO remainder seat beside sibling cause seat(s)), so every cause-word
+	// arm of a remainder row wears it: 「D-state(原因未证)」 /
+	// 「D-state/iowait(原因未证)」 forms per the §29.50.5 ruling.
+	qualify := func(word string) string {
+		if !node.DStateCauseUnprovenRemainder || strings.TrimSpace(word) == "" {
+			return word
+		}
+		if zh {
+			return word + "(原因未证)"
+		}
+		return word + " (cause unproven)"
+	}
 	if runtimeTraceCausalProjectionUnknownSentinel(node.Object) {
-		return runtimeTraceCausalProjectionUnresolvedPeerText(runtimeTraceCausalProjectionUnresolvedPeerKindNode(node), zh)
+		return qualify(runtimeTraceCausalProjectionUnresolvedPeerText(runtimeTraceCausalProjectionUnresolvedPeerKindNode(node), zh))
 	}
 	if kind := runtimeTraceCausalProjectionResolvedPeerObjectKind(node); kind != "" {
 		if kind == "d_state_or_io_wait" && node.DStateRefinedNonIO {
 			kind = "d_state_refined"
 		}
-		return runtimeTraceCausalProjectionResolvedPeerText(kind, runtimeTraceCausalProjectionDisplayNodeName(strings.TrimSpace(node.Object), zh), zh)
+		return qualify(runtimeTraceCausalProjectionResolvedPeerText(kind, runtimeTraceCausalProjectionDisplayNodeName(strings.TrimSpace(node.Object), zh), zh))
 	}
 	// DSTATE-REFINE arm a (件③): a raw-lane merged cause word consumes the
 	// engine's refined-D proof — 「D-state」 instead of 「D-state/iowait」.
 	if runtimeTraceCausalProjectionCanonicalNode(node.Object) == "d_state_or_io_wait" && node.DStateRefinedNonIO {
-		return runtimeTraceProjStateKindLabel(types.TraceCausalProjectionNode{StateKind: "d_state"}, zh)
+		return qualify(runtimeTraceProjStateKindLabel(types.TraceCausalProjectionNode{StateKind: "d_state"}, zh))
 	}
-	return runtimeTraceCausalProjectionDisplayCauseName(node.Object, zh)
+	return qualify(runtimeTraceCausalProjectionDisplayCauseName(node.Object, zh))
 }
 
 // runtimeTraceCausalProjectionUnresolvedPeerKindNode is the node-aware

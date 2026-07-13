@@ -320,6 +320,15 @@ const (
 	// (blocked_reason_caller) or the window holds none.
 	TraceNoteKeyBlockedReasonWindowCount  = "blocked_reason_window_count"
 	TraceNoteKeyBlockedReasonWindowCaller = "blocked_reason_window_caller"
+	// TraceNoteKeyDStateCauseUnprovenRemainder (§29.50.5 证明分区, v5 P1 批
+	// 件②, 2026-07-13): "true" ONLY on the honest-remainder D/IO seat — the
+	// unproven fragments of a thread whose other fragments proved a concrete
+	// wait object and were carved into sibling cause seat(s) (逐片段证明门;
+	// 绝不灌根因席). Consumed by the projection compile into
+	// TraceCausalProjectionNode.DStateCauseUnprovenRemainder — the display's
+	// 「D-state(原因未证)」 remainder word gate. A thread with no cause seat
+	// never emits it (a lone generic seat is not a remainder).
+	TraceNoteKeyDStateCauseUnprovenRemainder = "dstate_cause_unproven_remainder"
 	// TraceNoteKeyTGID / TraceNoteKeyProcessComm (CR-3 件③ P11, 2026-07-12;
 	// 冷读案8 关键角色裸线程名无 tgid): the rank row's process attribution —
 	// the TGID the trace's second column published for the thread, plus the
@@ -799,6 +808,8 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// CR-3 件② P10 (2026-07-12): unconsumed blocked_reason residual pair.
 	{TraceNoteKeyBlockedReasonWindowCount, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyBlockedReasonWindowCaller, "state", TraceNoteCarrierHardConsumer},
+	// §29.50.5 (v5 P1 批 件②, 2026-07-13): proof-partition honest remainder.
+	{TraceNoteKeyDStateCauseUnprovenRemainder, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyIOWait, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeySleepIOWait, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyDeterministicRunning, "state", TraceNoteCarrierHardConsumer},

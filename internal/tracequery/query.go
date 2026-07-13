@@ -2278,6 +2278,22 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	stats.ClusterFrequencyCeilings = computeWindowClusterFrequencyCeilings(observedFmaxByCPU, coreByCPU, limitTimelineByCPU, q)
 	offCPU := computeOffCPUStats(idx, q, freqTimelineFor, pressure)
 	stats.RunnableTop, stats.DStateTop, stats.SleepTop, stats.IOWaitTop, stats.CPUPressure = offCPU.runnableTop, offCPU.dstateTop, offCPU.sleepTop, offCPU.iowaitTop, offCPU.pressure
+	// 修复轮二 件A (2026-07-13): the D/IO family seats mint from the FULL
+	// census (帽外泄漏修根 — tieba 60555 witness: fscache cause seat 4.739 vs
+	// provable 7.386, hmfs_get_dnode 0.171 seatless); the capped top lists
+	// stay the board display, with the per-lane overflow disclosed
+	// explicitly (groups beyond the cap + their total ms — same-source
+	// floats, subtraction-free: summed once over the census keys outside
+	// the kept set).
+	stats.dstateCensus, stats.iowaitCensus = offCPU.dstateCensus, offCPU.iowaitCensus
+	stats.DStateTopOverflowGroups, stats.DStateTopOverflowMs = threadDurationCapOverflow(offCPU.dstateCensus, stats.DStateTop)
+	stats.IOWaitTopOverflowGroups, stats.IOWaitTopOverflowMs = threadDurationCapOverflow(offCPU.iowaitCensus, stats.IOWaitTop)
+	if stats.DStateTopOverflowGroups > 0 {
+		stats.Caveats = append(stats.Caveats, fmt.Sprintf("top_d_state shows %d of %d (thread,cpu) groups; %d group(s) totalling %.3fms sit beyond the display cap — the D/IO family seats carry the full per-thread account", len(stats.DStateTop), len(stats.DStateTop)+stats.DStateTopOverflowGroups, stats.DStateTopOverflowGroups, stats.DStateTopOverflowMs))
+	}
+	if stats.IOWaitTopOverflowGroups > 0 {
+		stats.Caveats = append(stats.Caveats, fmt.Sprintf("top_io_wait shows %d of %d (thread,cpu) groups; %d group(s) totalling %.3fms sit beyond the display cap — the D/IO family seats carry the full per-thread account", len(stats.IOWaitTop), len(stats.IOWaitTop)+stats.IOWaitTopOverflowGroups, stats.IOWaitTopOverflowGroups, stats.IOWaitTopOverflowMs))
+	}
 	// CMP-9 (§7.3): per-CPU runnable-wait density = value / wall window.
 	stats.CPUPressure = applyCPUPressureDensity(stats.CPUPressure, queryWindowWallMs(q))
 	applyThreadCoreClasses(stats.TopRunning, coreByCPU)
@@ -3741,7 +3757,18 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 			}
 		}
 	}
-	addDuration := func(bucket map[string]ThreadDuration, start offCPUStart, endTs float64, endLine int) {
+	// §29.50.5 证明分区 (v5 P1 批 件②, 2026-07-13; 修复轮 h1 ∿ 回归): the
+	// D/IO segments accumulate a per-PROVEN-wait-object SLICE inventory on
+	// their (thread,cpu) ledger group (逐片段证明门 — a fragment joins a cause
+	// slice only when ITS OWN typed sched_blocked_reason marker names the
+	// semantic symbol; "" = the unproven slice). The GROUP KEY itself is
+	// untouched — keying the ledger on the cause inflated the capped
+	// DStateTop/IOWaitTop entry counts and downstream wire caps evicted
+	// unrelated rows (the pacing ∿ seat). The runnable/sleep buckets never
+	// track slices (hypothesis lanes never partition — 假设永不并). Segment
+	// sums are unchanged; §29.19 sum_disjoint semantics carry through per
+	// slice.
+	addDurationCause := func(bucket map[string]ThreadDuration, start offCPUStart, endTs float64, endLine int, cause string, trackSlices bool) {
 		startTs := start.ts
 		if q.TimeStart > 0 && startTs < q.TimeStart {
 			startTs = q.TimeStart
@@ -3756,6 +3783,33 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 		freq := frequencyAt(freqTimelineFor(start.cpu), startTs)
 		key := threadCPUKey(start.thread, start.cpu)
 		td := bucket[key]
+		if trackSlices {
+			if td.causeSlices == nil {
+				td.causeSlices = map[string]offCPUCauseSlice{}
+			}
+			slice := td.causeSlices[cause]
+			slice.durMs += dur
+			slice.segCount++
+			if slice.segMinMs == 0 || dur < slice.segMinMs {
+				slice.segMinMs = dur
+			}
+			if dur > slice.segMaxMs {
+				slice.segMaxMs = dur
+			}
+			if slice.startTs == 0 || startTs < slice.startTs {
+				slice.startTs = startTs
+			}
+			if endTs > slice.endTs {
+				slice.endTs = endTs
+			}
+			if slice.lineStart == 0 || (start.line > 0 && start.line < slice.lineStart) {
+				slice.lineStart = start.line
+			}
+			if line := firstPositive(endLine, start.line); line > slice.lineEnd {
+				slice.lineEnd = line
+			}
+			td.causeSlices[cause] = slice
+		}
 		firstSegment := td.DurationMs <= 0
 		if td.Thread.PID == 0 || endTs > td.EndTs || (endTs == td.EndTs && threadDisplayLess(start.thread, td.Thread)) {
 			td.Thread = start.thread
@@ -3810,6 +3864,9 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 			})
 			accumulateThreadDuration(acc.runnable, start.thread, dur, start.cpu, freq, startTs, endTs, firstPositive(endLine, start.line), start.priority, start.priorityClass)
 		}
+	}
+	addDuration := func(bucket map[string]ThreadDuration, start offCPUStart, endTs float64, endLine int) {
+		addDurationCause(bucket, start, endTs, endLine, "", false)
 	}
 	// DSTATE-REFINE arm a (件③): stamp the D-ledger coverage verdict onto the
 	// aggregated duration (same key/clamp derivation as addDuration; a
@@ -3890,9 +3947,13 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 					addDuration(sleep, start, ev.Ts, ev.Line)
 				case StateDSleep, StateIOWait:
 					if io, marked, caller := offCPUDStateVerdict(start, ev.Ts, blockedReasons); io {
-						addDuration(iowait, start, ev.Ts, ev.Line)
+						addDurationCause(iowait, start, ev.Ts, ev.Line, offCPUCauseSymbol(caller), true)
 					} else {
-						addDuration(dstate, start, ev.Ts, ev.Line)
+						cause := ""
+						if marked {
+							cause = offCPUCauseSymbol(caller)
+						}
+						addDurationCause(dstate, start, ev.Ts, ev.Line, cause, true)
 						markDStateCoverage(start, ev.Ts, marked, caller)
 					}
 				}
@@ -3921,9 +3982,13 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 					addDuration(sleep, start, ev.Ts, ev.Line)
 				case StateDSleep, StateIOWait:
 					if io, marked, caller := offCPUDStateVerdict(start, ev.Ts, blockedReasons); io {
-						addDuration(iowait, start, ev.Ts, ev.Line)
+						addDurationCause(iowait, start, ev.Ts, ev.Line, offCPUCauseSymbol(caller), true)
 					} else {
-						addDuration(dstate, start, ev.Ts, ev.Line)
+						cause := ""
+						if marked {
+							cause = offCPUCauseSymbol(caller)
+						}
+						addDurationCause(dstate, start, ev.Ts, ev.Line, cause, true)
 						markDStateCoverage(start, ev.Ts, marked, caller)
 					}
 				}
@@ -3955,9 +4020,13 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 				addDuration(sleep, start, q.TimeEnd, 0)
 			case StateDSleep, StateIOWait:
 				if io, marked, caller := offCPUDStateVerdict(start, q.TimeEnd, blockedReasons); io {
-					addDuration(iowait, start, q.TimeEnd, 0)
+					addDurationCause(iowait, start, q.TimeEnd, 0, offCPUCauseSymbol(caller), true)
 				} else {
-					addDuration(dstate, start, q.TimeEnd, 0)
+					cause := ""
+					if marked {
+						cause = offCPUCauseSymbol(caller)
+					}
+					addDurationCause(dstate, start, q.TimeEnd, 0, cause, true)
 					markDStateCoverage(start, q.TimeEnd, marked, caller)
 				}
 			}
@@ -3973,6 +4042,13 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 		iowaitTop:      topThreadDurations(iowait, 8),
 		pressure:       buildCPUPressureStats(pressure, 8),
 		runnableCensus: runnable,
+		// 修复轮二 件A (ENG-1 补完, 2026-07-13): the FULL pre-cap D/IO census
+		// rides back beside the capped display lists so the formal family
+		// seats can carry true full-window accounts (see
+		// rootCauseDIOStateFamilyItems) and the board face can disclose the
+		// per-lane cap overflow honestly.
+		dstateCensus: dstate,
+		iowaitCensus: iowait,
 	}
 }
 
@@ -3986,6 +4062,8 @@ type offCPUStatsResult struct {
 	iowaitTop      []ThreadDuration
 	pressure       []CPUPressureStats
 	runnableCensus map[string]ThreadDuration
+	dstateCensus   map[string]ThreadDuration
+	iowaitCensus   map[string]ThreadDuration
 }
 
 func offCPUStateIsIOWait(start offCPUStart, endTs float64, blockedReasons map[int][]Event) bool {
@@ -4000,6 +4078,23 @@ func offCPUStateIsIOWait(start offCPUStart, endTs float64, blockedReasons map[in
 // 「D-state」 word — absence of a marker proves nothing), and the marker's
 // semantic caller symbol (the 等待对象族 disclosure; hex/opaque callers were
 // already collapsed to "unknown" by blockedReasonSemanticCaller at parse).
+// offCPUCauseSymbol reduces a sched_blocked_reason caller to its semantic
+// wait-object symbol (§29.50.5 逐片段证明门, v5 P1 批 件②): the symbol before
+// '+' — same symbol at different offsets is ONE wait object (the offset/
+// module detail stays on the raw evidence lines). ""/unknown → no proof
+// (absence never guesses). Single mint point for the partition key AND the
+// cause-seat 等待对象 word.
+func offCPUCauseSymbol(caller string) string {
+	c := strings.TrimSpace(caller)
+	if c == "" || c == "unknown" {
+		return ""
+	}
+	if i := strings.IndexByte(c, '+'); i > 0 {
+		c = c[:i]
+	}
+	return c
+}
+
 func offCPUDStateVerdict(start offCPUStart, endTs float64, blockedReasons map[int][]Event) (isIOWait, marked bool, caller string) {
 	if start.state == StateIOWait {
 		return true, true, ""
@@ -6244,12 +6339,58 @@ func renderStateDrilldownStep(step StateDrilldownStep) string {
 		strings.Join(step.RecommendedViews, ","), step.ChainRequired, step.Recursive, step.WindowProportion, step.Significant, step.LineStart, step.LineEnd)
 }
 
+// threadDurationCapOverflow reports how many census groups sit beyond the
+// capped display list plus their summed account (修复轮二 件A, 2026-07-13).
+// Kept-set identity = the exact (thread,cpu) accumulation key; the overflow
+// total sums each evicted group's own float ONCE (never census−top
+// subtraction, never a re-aggregation of kept values).
+func threadDurationCapOverflow(census map[string]ThreadDuration, top []ThreadDuration) (int, float64) {
+	if len(census) <= len(top) {
+		return 0, 0
+	}
+	kept := make(map[string]bool, len(top))
+	for _, td := range top {
+		kept[threadCPUKey(td.Thread, td.CPU)] = true
+	}
+	groups, total := 0, 0.0
+	for key, td := range census {
+		if kept[key] {
+			continue
+		}
+		groups++
+		total += td.DurationMs
+	}
+	return groups, total
+}
+
 func topThreadDurations(in map[string]ThreadDuration, max int) []ThreadDuration {
 	out := make([]ThreadDuration, 0, len(in))
 	for _, td := range in {
 		out = append(out, td)
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].DurationMs > out[j].DurationMs })
+	// 修复轮二 件A (DET 纪律, 2026-07-13): the stable sort used to preserve
+	// MAP order among equal durations — a tie was elected by map iteration
+	// (the DET-1 disease class). Typed constant tie chain instead; the family
+	// mint reuses THIS comparator uncapped (单一值源), so member order and
+	// the display top lists can never diverge.
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].DurationMs != out[j].DurationMs {
+			return out[i].DurationMs > out[j].DurationMs
+		}
+		if out[i].LineStart != out[j].LineStart {
+			return out[i].LineStart < out[j].LineStart
+		}
+		if out[i].Thread.PID != out[j].Thread.PID {
+			return out[i].Thread.PID < out[j].Thread.PID
+		}
+		if out[i].CPU != out[j].CPU {
+			return out[i].CPU < out[j].CPU
+		}
+		// 修复轮三 F6: pid==0 kernel-thread groups (comm-keyed identities)
+		// can tie on every scalar above — the comm key closes the last
+		// map-order fallback.
+		return out[i].Thread.Comm < out[j].Thread.Comm
+	})
 	if max > 0 && len(out) > max {
 		out = out[:max]
 	}
@@ -9841,9 +9982,17 @@ func computeBlockIOByInode(stats WindowStats, max int) []BlockIOByInodeSummary {
 		applyLineRange(&acc.item.LineStart, &acc.item.LineEnd, io.IssueLine)
 		applyLineRange(&acc.item.LineStart, &acc.item.LineEnd, io.CompleteLine)
 	}
+	// DET-1: the output walk is sorted-key too (a map-order walk fed the
+	// stable sort a random tie order), and the sort's tie chain ends on the
+	// typed constant (dev,inode) identity — never map order.
+	outKeys := make([]string, 0, len(accs))
+	for key := range accs {
+		outKeys = append(outKeys, key)
+	}
+	sort.Strings(outKeys)
 	out := make([]BlockIOByInodeSummary, 0, len(accs))
-	for _, acc := range accs {
-		item := acc.item
+	for _, key := range outKeys {
+		item := accs[key].item
 		if item.BlockMaxLatencyMs > 0 || item.StorageMaxLatencyMs > 0 {
 			item.Confidence = 0.76
 		} else if item.FileIOBytes > 0 || item.PageCacheChurn > 0 {
@@ -9861,7 +10010,13 @@ func computeBlockIOByInode(stats WindowStats, max int) []BlockIOByInodeSummary {
 		if scoreI != scoreJ {
 			return scoreI > scoreJ
 		}
-		return out[i].LineStart < out[j].LineStart
+		if out[i].LineStart != out[j].LineStart {
+			return out[i].LineStart < out[j].LineStart
+		}
+		if out[i].Dev != out[j].Dev {
+			return out[i].Dev < out[j].Dev
+		}
+		return out[i].Inode < out[j].Inode
 	})
 	if max > 0 && len(out) > max {
 		out = out[:max]
@@ -9870,10 +10025,24 @@ func computeBlockIOByInode(stats WindowStats, max int) []BlockIOByInodeSummary {
 }
 
 func nearestBlockInodeForThread(accs map[string]*blockInodeAcc, thread ThreadRef, start, end float64) *blockInodeAcc {
+	// DET-1 (v5 P1 批 追加件, 2026-07-13; 噪音从源头消除): the election walks
+	// the accumulator map in SORTED-KEY order, so a distance TIE lands on the
+	// same typed constant key (dev+inode) every run — the former map-order
+	// walk flipped the storage_max/block_max attribution between inodes
+	// run-to-run (donghu 0x14088d↔0x25a01 witness) and the caliber_side
+	// member election / io_burst top-8 census / a rank tertiary subject
+	// flipped with it. 帽/选举前确定性次序; tie-break = the sorted walk itself
+	// (first key wins under strict `<`), never map order.
+	keys := make([]string, 0, len(accs))
+	for key := range accs {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
 	var best *blockInodeAcc
 	bestDistance := 0.0
 	found := false
-	for _, acc := range accs {
+	for _, key := range keys {
+		acc := accs[key]
 		if thread.PID > 0 && acc.item.Thread.PID > 0 && thread.PID != acc.item.Thread.PID {
 			continue
 		}
@@ -12172,12 +12341,55 @@ func rootEvidenceStateOwnedByWindowStats(root RootEvidence, stats WindowStats) b
 // and IO fragments from splitting their vote and gives StateChurn one formal
 // account to reconcile. The upstream Top8-per-lane capacity remains disclosed
 // separately; this helper never claims unseen members.
-func rootCauseDIOStateFamilyItems(q Query, stats WindowStats, chainThreads map[int]bool, hasCausalChain, producerDisjoint bool) []RootCauseRankItem {
-	type member struct {
-		state string
-		td    ThreadDuration
+// dioStateFamilyMember is one accounting member feeding a formal D/IO
+// blocking seat (state = the owning ledger's state token). A member is
+// either the WHOLE (thread,cpu) ledger group (wholeTd — the pre-§29.50.5
+// shape, byte-stable accounting straight off the ThreadDuration) or ONE
+// proof-partition SLICE of an internally-split group (§29.50.5 逐片段证明门:
+// the group held fragments proving different wait objects). The slice-view
+// fields are the member's own accounting either way.
+type dioStateFamilyMember struct {
+	state string
+	td    ThreadDuration
+	cause string
+	// slice view (whole-td members copy the group fields verbatim).
+	durMs     float64
+	segCount  int
+	segMinMs  float64
+	segMaxMs  float64
+	startTs   float64
+	endTs     float64
+	lineStart int
+	lineEnd   int
+	wholeTd   bool
+}
+
+// dioStateMemberFromTd builds the whole-group member (pre-§29.50.5 accounting
+// verbatim; cause = the group's single proven wait object, or "").
+func dioStateMemberFromTd(state string, td ThreadDuration, cause string) dioStateFamilyMember {
+	return dioStateFamilyMember{
+		state: state, td: td, cause: cause, wholeTd: true,
+		durMs: td.DurationMs, segCount: td.segCount,
+		segMinMs: td.segMinMs, segMaxMs: td.segMaxMs,
+		startTs: td.StartTs, endTs: td.EndTs,
+		lineStart: td.LineStart, lineEnd: td.LineEnd,
 	}
-	groups := map[string][]member{}
+}
+
+// dioStateMemberFromSlice builds one proof-partition slice member of an
+// internally-split group.
+func dioStateMemberFromSlice(state string, td ThreadDuration, cause string, slice offCPUCauseSlice) dioStateFamilyMember {
+	return dioStateFamilyMember{
+		state: state, td: td, cause: cause,
+		durMs: slice.durMs, segCount: slice.segCount,
+		segMinMs: slice.segMinMs, segMaxMs: slice.segMaxMs,
+		startTs: slice.startTs, endTs: slice.endTs,
+		lineStart: slice.lineStart, lineEnd: slice.lineEnd,
+	}
+}
+
+func rootCauseDIOStateFamilyItems(q Query, stats WindowStats, chainThreads map[int]bool, hasCausalChain, producerDisjoint bool) []RootCauseRankItem {
+	groups := map[string][]dioStateFamilyMember{}
 	threads := map[string]ThreadRef{}
 	var order []string
 	add := func(state string, td ThreadDuration) {
@@ -12188,51 +12400,153 @@ func rootCauseDIOStateFamilyItems(q Query, stats WindowStats, chainThreads map[i
 		if _, ok := groups[key]; !ok {
 			order = append(order, key)
 		}
-		groups[key] = append(groups[key], member{state: state, td: td})
+		// §29.50.5: a group whose slice inventory holds ONE cause key is
+		// whole (accounting verbatim off the group — the pre-partition
+		// shape, incl. CASE-1 same-source floats); an internally-split
+		// group contributes one member per slice (deterministic order:
+		// sorted keys, "" first). The unproven-overlap fallback
+		// (producerDisjoint=false) never partitions — the lower-bound
+		// election needs whole groups (宁漏勿猜).
+		if !producerDisjoint || len(td.causeSlices) <= 1 {
+			cause := ""
+			if producerDisjoint {
+				for c := range td.causeSlices {
+					cause = c
+				}
+			}
+			groups[key] = append(groups[key], dioStateMemberFromTd(state, td, cause))
+		} else {
+			causes := make([]string, 0, len(td.causeSlices))
+			for c := range td.causeSlices {
+				causes = append(causes, c)
+			}
+			sort.Strings(causes)
+			for _, c := range causes {
+				groups[key] = append(groups[key], dioStateMemberFromSlice(state, td, c, td.causeSlices[c]))
+			}
+		}
 		current := threads[key]
 		if current.PID == 0 || threadDisplayLess(td.Thread, current) {
 			threads[key] = td.Thread
 		}
 	}
-	for _, td := range stats.IOWaitTop {
+	// 修复轮二 件A (2026-07-13): the formal family accounts read the FULL
+	// pre-cap census — 席位按全量账铸值 (tieba 60555 witness: the capped
+	// basis under-reported the fscache cause seat 4.739 vs provable 7.386
+	// and left hmfs_get_dnode 0.171 seatless). Selection reuses the display
+	// lists' OWN comparator uncapped (topThreadDurations — 单一值源: when
+	// nothing is evicted the member sequence is byte-identical to the
+	// pre-census mint). A WindowStats built without the census (legacy
+	// fixtures/direct literals) fails open to the capped lists verbatim.
+	ioMembers := stats.IOWaitTop
+	if stats.iowaitCensus != nil {
+		ioMembers = topThreadDurations(stats.iowaitCensus, len(stats.iowaitCensus))
+	}
+	dMembers := stats.DStateTop
+	if stats.dstateCensus != nil {
+		dMembers = topThreadDurations(stats.dstateCensus, len(stats.dstateCensus))
+	}
+	for _, td := range ioMembers {
 		add(string(StateIOWait), td)
 	}
-	for _, td := range stats.DStateTop {
+	for _, td := range dMembers {
 		add(string(StateDSleep), td)
 	}
 
 	out := make([]RootCauseRankItem, 0, len(order))
 	for _, key := range order {
-		members := groups[key]
-		if len(members) == 0 {
+		allMembers := groups[key]
+		if len(allMembers) == 0 {
 			continue
 		}
 		thread := threads[key]
 		onChain := threadInSet(chainThreads, thread)
+		// §29.50.5 证明分区 (v5 P1 批 件②, 2026-07-13): the participation
+		// aggregation key refines to (thread, state family, root-cause
+		// identity). Fragments whose typed markers proved a wait object were
+		// ledger-grouped under that cause (addDurationCause) — each proven
+		// cause mints its OWN seat (跨 token 合并: D and iowait fragments of
+		// one wait object join ONE seat); the unproven fragments keep the
+		// generic seat, wearing the honest-remainder marker when a sibling
+		// cause seat exists (绝不灌根因席). The unproven-overlap fallback
+		// (producerDisjoint=false) never partitions — the lower-bound
+		// election needs the whole member set (宁漏勿猜).
+		partitions := map[string][]dioStateFamilyMember{}
+		var partOrder []string
+		if producerDisjoint {
+			for _, m := range allMembers {
+				c := m.cause
+				if _, ok := partitions[c]; !ok {
+					partOrder = append(partOrder, c)
+				}
+				partitions[c] = append(partitions[c], m)
+			}
+		} else {
+			partitions[""] = allMembers
+			partOrder = []string{""}
+		}
+		hasCauseSeat := false
+		for _, c := range partOrder {
+			if c != "" {
+				hasCauseSeat = true
+			}
+		}
+		for _, cause := range partOrder {
+			members := partitions[cause]
+			if len(members) == 0 {
+				continue
+			}
+			out = append(out, mintRootCauseDIOStateSeat(q, stats, hasCausalChain, producerDisjoint,
+				thread, onChain, members, cause, cause == "" && hasCauseSeat))
+		}
+	}
+	return out
+}
+
+// mintRootCauseDIOStateSeat mints ONE formal D/IO blocking seat from the
+// given proof partition of a thread's ledger groups (§29.50.5; the whole
+// pre-partition body of rootCauseDIOStateFamilyItems, factored per seat).
+// cause != "" ⇒ every fragment proved that wait object (the seat carries it
+// as BlockedReasonCaller); unprovenRemainder ⇒ the generic seat sits beside
+// ≥1 sibling cause seat and wears the typed honest-remainder marker.
+func mintRootCauseDIOStateSeat(q Query, stats WindowStats, hasCausalChain, producerDisjoint bool,
+	thread ThreadRef, onChain bool, members []dioStateFamilyMember,
+	cause string, unprovenRemainder bool) RootCauseRankItem {
+	{
 		total, dStateMs, ioWaitMs := 0.0, 0.0, 0.0
 		maxMs, minMs := 0.0, 0.0
 		startTs, endTs := 0.0, 0.0
 		hasStart := false
 		lineStart, lineEnd := 0, 0
 		var roster []string
+		// CASE-1 gap (b) (§29.52 立案, v5 P1 批, 2026-07-13): the validated
+		// per-member inventory (same-source interval + value floats per
+		// member) — the G1 cross-lane reconciliation's eligibility gate and
+		// same-source identity input. Engine-internal, never serialized
+		// (same carrier as the io_latency family fold). Whole-td members
+		// carry the exact ThreadDuration floats the chain lane copies; slice
+		// members carry slice extents (an internally-split group's chain twin
+		// carries the WHOLE-group floats, so absorption fails open there —
+		// honest dual beats wrong absorption).
+		var memberIntervals []foldInterval
 		strongest := members[0]
 		for _, m := range members {
-			total += m.td.DurationMs
+			total += m.durMs
 			if m.state == string(StateIOWait) {
-				ioWaitMs += m.td.DurationMs
+				ioWaitMs += m.durMs
 			} else {
-				dStateMs += m.td.DurationMs
+				dStateMs += m.durMs
 			}
-			if m.td.DurationMs > strongest.td.DurationMs {
+			if m.durMs > strongest.durMs {
 				strongest = m
 			}
 			// F-1 (冷读 P1): the published a–b range is the TRUE single-
 			// segment range (P8 规格) — the engine holds the per-segment
 			// inventory; group sums must never masquerade as 单段. Members
 			// without the inventory (defensive) fall back to their sum.
-			memberMin, memberMax := m.td.segMinMs, m.td.segMaxMs
-			if m.td.segCount == 0 {
-				memberMin, memberMax = m.td.DurationMs, m.td.DurationMs
+			memberMin, memberMax := m.segMinMs, m.segMaxMs
+			if m.segCount == 0 {
+				memberMin, memberMax = m.durMs, m.durMs
 			}
 			if maxMs == 0 || memberMax > maxMs {
 				maxMs = memberMax
@@ -12240,24 +12554,28 @@ func rootCauseDIOStateFamilyItems(q Query, stats WindowStats, chainThreads map[i
 			if minMs == 0 || (memberMin > 0 && memberMin < minMs) {
 				minMs = memberMin
 			}
-			if m.td.EndTs > m.td.StartTs && (!hasStart || m.td.StartTs < startTs) {
-				startTs = m.td.StartTs
+			if m.endTs > m.startTs && (!hasStart || m.startTs < startTs) {
+				startTs = m.startTs
 				hasStart = true
 			}
-			if m.td.EndTs > endTs {
-				endTs = m.td.EndTs
+			if m.endTs > endTs {
+				endTs = m.endTs
 			}
-			applyLineRange(&lineStart, &lineEnd, m.td.LineStart)
-			applyLineRange(&lineStart, &lineEnd, m.td.LineEnd)
+			if m.endTs > m.startTs {
+				memberIntervals = append(memberIntervals,
+					foldInterval{start: m.startTs, end: m.endTs, valueMs: m.durMs})
+			}
+			applyLineRange(&lineStart, &lineEnd, m.lineStart)
+			applyLineRange(&lineStart, &lineEnd, m.lineEnd)
 			if len(roster) < rootCauseFamilyRosterCap {
 				// F-1 (冷读 P1, 2026-07-12): a multi-segment member is a
 				// per-CPU group SUM — say so ("合计…(N段)"); only a true
 				// single segment keeps the bare form. 计数当量-precedent:
 				// zh caliber words already live on engine roster faces.
-				if m.td.segCount > 1 {
-					roster = append(roster, fmt.Sprintf("%s cpu=%d 合计%.3fms(%d段)", m.state, m.td.CPU, m.td.DurationMs, m.td.segCount))
+				if m.segCount > 1 {
+					roster = append(roster, fmt.Sprintf("%s cpu=%d 合计%.3fms(%d段)", m.state, m.td.CPU, m.durMs, m.segCount))
 				} else {
-					roster = append(roster, fmt.Sprintf("%s cpu=%d %.3fms", m.state, m.td.CPU, m.td.DurationMs))
+					roster = append(roster, fmt.Sprintf("%s cpu=%d %.3fms", m.state, m.td.CPU, m.durMs))
 				}
 			}
 		}
@@ -12267,7 +12585,7 @@ func rootCauseDIOStateFamilyItems(q Query, stats WindowStats, chainThreads map[i
 			// Clock regression removes the producer disjointness proof. Publish
 			// the strongest exact member as an honest lower bound, never Σ.
 			memberSum = total
-			total = strongest.td.DurationMs
+			total = strongest.durMs
 			dStateMs, ioWaitMs = 0, 0
 			if strongest.state == string(StateIOWait) {
 				ioWaitMs = total
@@ -12309,7 +12627,10 @@ func rootCauseDIOStateFamilyItems(q Query, stats WindowStats, chainThreads map[i
 			segments, marked := 0, 0
 			callerUnanimous, callerConflict := "", false
 			for _, m := range members {
-				if m.state != string(StateDSleep) {
+				if m.state != string(StateDSleep) || !m.wholeTd {
+					// §29.50.5: coverage counters live on the WHOLE group; a
+					// slice member of a split group cannot re-prove them
+					// (its cause identity is stamped directly below).
 					continue
 				}
 				segments += m.td.dFamilySegments
@@ -12317,12 +12638,9 @@ func rootCauseDIOStateFamilyItems(q Query, stats WindowStats, chainThreads map[i
 				for _, c := range m.td.dFamilyCallers {
 					// The kernel caller form is symbol+offset[module]
 					// (dma_fence_default_wait+0x74/0x160[sysmgr.elf]) — the
-					// 等待对象 word is the SYMBOL (same symbol at different
-					// offsets is ONE wait object); the offset/module detail
-					// stays on the raw evidence lines.
-					if i := strings.IndexByte(c, '+'); i > 0 {
-						c = c[:i]
-					}
+					// 等待对象 word is the SYMBOL (same wait object across
+					// offsets; single reducer = offCPUCauseSymbol, 件②).
+					c = offCPUCauseSymbol(c)
 					if callerUnanimous == "" {
 						callerUnanimous = c
 					} else if callerUnanimous != c {
@@ -12337,6 +12655,24 @@ func rootCauseDIOStateFamilyItems(q Query, stats WindowStats, chainThreads map[i
 				}
 			}
 		}
+		// §29.50.5 (v5 P1 批 件②): a proof-partition cause seat carries its
+		// proven wait object regardless of the D/IO mix — 跨 token 合并: the
+		// mixed D+iowait cause seat keeps the merged type token AND the
+		// 等待对象 caller word (the refined non-IO proof above stays the
+		// pure-D arm's business); every fragment in this partition proved the
+		// symbol at the ledger (addDurationCause), so this is never a guess.
+		if cause != "" && item.BlockedReasonCaller == "" {
+			item.BlockedReasonCaller = cause
+		}
+		if cause != "" && caliber == RootCauseMemberFoldCaliberSumDisjoint &&
+			ioWaitMs == 0 && dStateMs > 0 && !item.DStateAllNonIOProven {
+			// A pure-D cause partition is refined-proven BY CONSTRUCTION:
+			// the D-bucket cause slices only mint from fragments whose own
+			// iowait=0 marker named the symbol (the whole-group coverage
+			// counters are unreachable on slice members).
+			item.DStateAllNonIOProven = true
+		}
+		item.DStateCauseUnprovenRemainder = unprovenRemainder
 		// CR-3 件② P10 (2026-07-12): the unconsumed-marker residual. When the
 		// unanimous lane minted NO caller (partial coverage, conflicting or
 		// opaque symbols, or a non-sum_disjoint fold), the window account may
@@ -12348,7 +12684,9 @@ func rootCauseDIOStateFamilyItems(q Query, stats WindowStats, chainThreads map[i
 		// 修复轮 P2 (2026-07-12): the count reads the FULL pre-truncation
 		// accumulator (INODE §28.6 precedent) — the first cut aggregated the
 		// top-8 inventory and said 17 while the window held 19 (冷读直核).
-		if item.BlockedReasonCaller == "" {
+		// 件② guard: the honest remainder beside a sibling cause seat never
+		// re-discloses markers the sibling already consumed (双说防线).
+		if item.BlockedReasonCaller == "" && !unprovenRemainder {
 			if total, ok := stats.blockedReasonFullByPID[thread.PID]; ok && total.count > 0 {
 				item.BlockedReasonWindowCount = total.count
 				item.BlockedReasonWindowCaller = strings.Join(total.callers, "/")
@@ -12363,10 +12701,10 @@ func rootCauseDIOStateFamilyItems(q Query, stats WindowStats, chainThreads map[i
 			item.MemberMaxMs, item.MemberMinMs = maxMs, minMs
 			item.MemberFoldCaliber = caliber
 			item.MemberSumMs = memberSum
+			item.familyMemberIntervals = memberIntervals
 		}
-		out = append(out, item)
+		return item
 	}
-	return out
 }
 
 func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency SchedulerLatencyResult, stats WindowStats, chain ChainResult) RootCauseRankResult {
@@ -16690,26 +17028,49 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 			})
 		}
 	}
+	// CASE-1 gap (a) (§29.52 立案, v5 P1 批, 2026-07-13; 修复轮 h1 ∿ 回归):
+	// the D/IO chain-lane candidates carry their typed per-(thread,cpu)
+	// group interval ENGINE-INTERNALLY (reconStartTs/reconEndTs) — the
+	// same-source floats the G1 cross-lane reconciliation proves membership
+	// against (the recon hard-skips interval-less rows; before this the
+	// whole D/IO pair set was structurally unreachable). The interval is a
+	// segment HULL and deliberately stays OFF the published StartTs/EndTs
+	// wire: publishing it let the projection's span-overlap fold arms fire
+	// on hull noise (the h1 ∿ pacing seat regression) and a hull is NOT an
+	// occurrence segment (a 发生段 word minted from it would be false) —
+	// the same hull-noise reasoning the CASE-1 ruling used to reject
+	// containment membership. Identity carriage only: score/sort read
+	// DurationMs·Confidence unchanged; the published wire is byte-identical
+	// to pre-CASE-1.
 	for _, td := range stats.DStateTop {
 		add(CriticalBlockingCandidate{
-			Type:       "d_state_or_io_wait",
-			Thread:     td.Thread,
-			DurationMs: td.DurationMs,
-			LineStart:  td.LineStart,
-			LineEnd:    td.LineEnd,
-			Confidence: 0.80,
-			Summary:    fmt.Sprintf("%s spent %.3fms in non-IO D-state wait%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)),
+			Type:         "d_state_or_io_wait",
+			Thread:       td.Thread,
+			DurationMs:   td.DurationMs,
+			reconStartTs: td.StartTs,
+			reconEndTs:   td.EndTs,
+			LineStart:    td.LineStart,
+			LineEnd:      td.LineEnd,
+			Confidence:   0.80,
+			// 修复轮二 件B: the per-group proof rides the chain-lane candidate
+			// from the SAME ThreadDuration donor the family seats read.
+			proofRefined: td.DStateAllNonIOProvenGroup(),
+			proofCaller:  td.UnanimousCauseSymbol(),
+			Summary:      fmt.Sprintf("%s spent %.3fms in non-IO D-state wait%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)),
 		})
 	}
 	for _, td := range stats.IOWaitTop {
 		add(CriticalBlockingCandidate{
-			Type:       "io_wait",
-			Thread:     td.Thread,
-			DurationMs: td.DurationMs,
-			LineStart:  td.LineStart,
-			LineEnd:    td.LineEnd,
-			Confidence: 0.84,
-			Summary:    fmt.Sprintf("%s spent %.3fms in scheduler IO wait%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)),
+			Type:         "io_wait",
+			Thread:       td.Thread,
+			DurationMs:   td.DurationMs,
+			reconStartTs: td.StartTs,
+			reconEndTs:   td.EndTs,
+			LineStart:    td.LineStart,
+			LineEnd:      td.LineEnd,
+			Confidence:   0.84,
+			proofCaller:  td.UnanimousCauseSymbol(),
+			Summary:      fmt.Sprintf("%s spent %.3fms in scheduler IO wait%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)),
 		})
 	}
 	// P2-3 (Q4-F root fold): the span lane arrives pre-folded — dual print

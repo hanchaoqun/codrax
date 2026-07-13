@@ -570,7 +570,11 @@ var threadStateComparisonSiteGolden = map[string]string{
 	// and non-IO D-state members before folding one per-thread account.
 	// 件③: the refined-D proof scans the D-ledger members (state==d_sleep)
 	// for coverage/caller aggregation beside the two IOWait partitions.
-	"query.go:rootCauseDIOStateFamilyItems": "d_sleep,io_wait#3",
+	// §29.50.5 (v5 P1 批 件②, 2026-07-13): the per-seat mint body factored
+	// into mintRootCauseDIOStateSeat so one thread can mint cause seats +
+	// remainder — the three comparisons moved with it verbatim (the outer
+	// grouping in rootCauseDIOStateFamilyItems no longer compares states).
+	"query.go:mintRootCauseDIOStateSeat": "d_sleep,io_wait#3",
 	// The closed aggregate effective accessor now owns one former duplicated
 	// running-state branch; the constructor retains only its raw-display case.
 	"query.go:rootCauseItemFromCausalAggregate":           "running#1",

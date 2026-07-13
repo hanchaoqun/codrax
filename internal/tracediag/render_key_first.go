@@ -618,8 +618,14 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// path keeps its own copy, so no run ever carries two). Generic detail
 	// rendering (small typed account, no bulk lane, no dup channel) — same
 	// treatment as the bundle copy; hash re-pinned after review.
-	reflect.TypeOf(tracequery.Result{}):                     "7b9d88f0f8d28c4b39d5587ae867b1bd0ba323e0055eaeb3397d51eb2604837a",
-	reflect.TypeOf(tracequery.WindowStats{}):                "1347e623ef12e6024068e0cb1f97256ed747f364515f3aeaf0f0d35ca68d357e",
+	reflect.TypeOf(tracequery.Result{}): "7b9d88f0f8d28c4b39d5587ae867b1bd0ba323e0055eaeb3397d51eb2604837a",
+	// 修复轮二 件A (2026-07-13) schema review: WindowStats gained the
+	// per-lane cap-overflow disclosure quartet
+	// (DStateTopOverflowGroups/-Ms, IOWaitTopOverflowGroups/-Ms — scalar
+	// disclosure lane beside the capped top lists; the family seats already
+	// carry the full census account). Key-first adjudication: plain scalar
+	// fields, no skipped fields, no priority override.
+	reflect.TypeOf(tracequery.WindowStats{}):                "ef12760c0bb56fbe2d5cda72527990f43499e326e0e7c0671d3081df1c33a757",
 	reflect.TypeOf(tracequery.TimelineResult{}):             "ec28f82b56a2e1b64cdfde5e0b6a4769886b32df15dc7a99250ec0da16dacc3a",
 	reflect.TypeOf(tracequery.TraceCounterQualitySummary{}): "e3bead6ff4a3c2e7f9d24487c5905f3594b219505afc106d95af9cfd9c552c2d",
 	reflect.TypeOf(tracequery.PerfQualitySummary{}):         "72c447267958bb72db82ab1e807135761cbea3caf60bf09f040a8f451476972a",
@@ -639,7 +645,12 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// the owning-process comm beside Thread.TGID). Key-first adjudication:
 	// all three are per-row identity/wording inputs (scalar disclosure
 	// lane, same as BlockedReasonCaller); no skipped fields.
-	reflect.TypeOf(tracequery.RootCauseRankItem{}): "f4a84f1accfb8caab28075783897552e08a58d14c63f38c4d698a5aa5d61c4d8",
+	// §29.50.5 证明分区 (v5 P1 批 件②, 2026-07-13) schema review:
+	// RootCauseRankItem gained DStateCauseUnprovenRemainder (bool, the
+	// honest-remainder D/IO seat marker beside sibling cause seats).
+	// Key-first adjudication: per-row wording input (scalar disclosure
+	// lane, same as DStateAllNonIOProven); no skipped fields.
+	reflect.TypeOf(tracequery.RootCauseRankItem{}): "48c206a21e6f4d1195a67ddbf5dd2278d98fd99b967ebe8ca13e36a6208e40dd",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
 	// Key-first adjudication: a slice → structural bulk lane (same as

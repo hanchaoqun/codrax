@@ -114,6 +114,8 @@ var traceNoteKeyGoldenRows = []string{
 	"dso|perf|soft_consumer",
 	// DSTATE-REFINE arm a (CAL-1 件③, 2026-07-12): the refined-D coverage proof.
 	"dstate_all_noniowait|state|hard_consumer",
+	// §29.50.5 (v5 P1 批 件②, 2026-07-13): proof-partition honest remainder.
+	"dstate_cause_unproven_remainder|state|hard_consumer",
 	"duration|impact|display_only",
 	"edge_count|causal_rank|display_only",
 	"edges|chain_path|display_only",

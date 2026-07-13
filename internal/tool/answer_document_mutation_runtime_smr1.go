@@ -87,6 +87,18 @@ func runtimeTraceProjSMR1StateFamily(node types.TraceCausalProjectionNode) strin
 	return ""
 }
 
+// runtimeTraceProjSMR1HullsDisjointProven (修复轮三 R2-F2) reports whether
+// two rows' typed occurrence hulls are PROVABLY disjoint: both carry valid
+// [StartTs,EndTs] and the intervals do not intersect. Hull disjointness ⇒
+// member disjointness (precise); anything else (overlap, missing ts) is
+// unprovable and returns false (fail-open to the existing overlap wording).
+func runtimeTraceProjSMR1HullsDisjointProven(a, b types.TraceCausalProjectionNode) bool {
+	if a.StartTs <= 0 || a.EndTs <= a.StartTs || b.StartTs <= 0 || b.EndTs <= b.StartTs {
+		return false
+	}
+	return a.EndTs <= b.StartTs || b.EndTs <= a.StartTs
+}
+
 // runtimeTraceProjSMR1WindowsCompatible — the SFD F1 cross-window veto shared
 // by every SMR-1 arm: two valid-but-different typed query windows are two
 // measurements and never relate; absence never vetoes (and never proves).
@@ -792,11 +804,20 @@ func runtimeTraceProjMarkAccountRelations(model *runtimeTraceProjTreeModel, zh b
 			continue
 		}
 		famCaliber, chainCaliber := runtimeTraceProjSMR1AccountCaliber(family, zh), runtimeTraceProjSMR1AccountCaliber(best, zh)
+		// 修复轮三 R2-F2 (tieba E4↔E25 冷读 witness): typed hull disjointness
+		// derives the sentence's overlap/disjoint claim — hull-disjoint ⇒
+		// member-disjoint (precise, e.g. a partition-sibling pair whose
+		// fragments never coexist); overlap/missing ts keeps the existing
+		// overlap template (fail-open — hull overlap cannot prove member
+		// overlap, and 禁量化重叠 ms stands).
+		disjoint := runtimeTraceProjSMR1HullsDisjointProven(fn, best.Node)
 		family.AccountRelRef, family.AccountRelOwn, family.AccountRelPeer =
 			strings.TrimSpace(best.EvidenceTag), famCaliber, chainCaliber
+		family.AccountRelDisjoint = disjoint
 		if best.AccountRelRef == "" {
 			best.AccountRelRef, best.AccountRelOwn, best.AccountRelPeer =
 				strings.TrimSpace(family.EvidenceTag), chainCaliber, famCaliber
+			best.AccountRelDisjoint = disjoint
 		}
 	}
 }

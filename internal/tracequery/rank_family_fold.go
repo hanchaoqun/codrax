@@ -50,6 +50,14 @@ import (
 
 type foldInterval struct {
 	start, end float64
+	// valueMs is the SAME-SOURCE published account of the member this
+	// interval was copied from (CASE-1, §29.52 立案, 2026-07-13) — the µs
+	// value-identity dimension of the D/IO cross-lane reconciliation, whose
+	// per-(thread,cpu) group intervals are segment HULLS (G1 明拒 hull
+	// containment; membership is exact same-source float identity instead).
+	// Zero = no value carrier (legacy inventories): the value-gated arms
+	// fail OPEN (never absorb). The interval-union algebra ignores it.
+	valueMs float64
 }
 
 // foldIntervalUnionWithDisjoint returns the sorted, non-overlapping union of valid
@@ -649,6 +657,7 @@ func foldSameThreadTypeRankFamilies(q Query, hasCausalChain bool, items []RootCa
 		window         string
 		source         string
 		physicalSource string
+		cause          string
 	}
 	groups := map[familyKey][]int{}
 	var order []familyKey
@@ -670,6 +679,13 @@ func foldSameThreadTypeRankFamilies(q Query, hasCausalChain bool, items []RootCa
 			// source string, so no existing merge splits.
 			source:         items[i].Source,
 			physicalSource: items[i].PhysicalSourcePath,
+			// §29.50.5 (v5 P1 批 件②, 2026-07-13): the root-cause-identity
+			// dimension of the participation key — a proven cause seat and
+			// its honest-remainder sibling are DIFFERENT accounts and must
+			// never re-merge here (聚合键=(线程,状态族,根因身份); 绝不灌根
+			// 因席). Rows without a proven wait object keep "" (no split of
+			// any pre-§29.50.5 merge).
+			cause: strings.TrimSpace(items[i].BlockedReasonCaller),
 		}
 		if len(groups[key]) == 0 {
 			order = append(order, key)

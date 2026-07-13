@@ -770,7 +770,7 @@ type Result struct {
 	// (体积小账; the bundle copy stays authoritative when both exist). nil
 	// when no target/window or the timeline has no measurable intervals
 	// (absence never fabricates zeros).
-	TargetWindowStates *TargetWindowStateAccount `json:"target_window_states,omitempty"`
+	TargetWindowStates          *TargetWindowStateAccount `json:"target_window_states,omitempty"`
 	InteractionStats            *InteractionStatsResult `json:"interaction_stats,omitempty"`
 	PerfStats                   *PerfContext            `json:"perf_stats,omitempty"`
 	PerfTimeline                *PerfTimelineResult     `json:"perf_timeline,omitempty"`
@@ -964,6 +964,15 @@ type WindowStats struct {
 	// Their same-thread sum is the complete D/IO blocking account.
 	DStateTop            []ThreadDuration         `json:"d_state_top,omitempty"`
 	IOWaitTop            []ThreadDuration         `json:"io_wait_top,omitempty"`
+	// DStateTopOverflow*/IOWaitTopOverflow* (修复轮二 件A, 2026-07-13): the
+	// per-lane cap-overflow disclosure — how many (thread,cpu) census groups
+	// sit beyond the top-8 display list and their summed account. Disclosure
+	// only (the family seats already carry the full account); zero = nothing
+	// evicted.
+	DStateTopOverflowGroups int     `json:"d_state_top_overflow_groups,omitempty"`
+	DStateTopOverflowMs     float64 `json:"d_state_top_overflow_ms,omitempty"`
+	IOWaitTopOverflowGroups int     `json:"io_wait_top_overflow_groups,omitempty"`
+	IOWaitTopOverflowMs     float64 `json:"io_wait_top_overflow_ms,omitempty"`
 	CPUPressure          []CPUPressureStats       `json:"cpu_pressure,omitempty"`
 	CPUConstraints       []CPUConstraintSummary   `json:"cpu_constraints,omitempty"`
 	ThreadCPULoad        []ThreadCPULoadSummary   `json:"thread_cpu_load,omitempty"`
@@ -1002,6 +1011,14 @@ type WindowStats struct {
 	// structure (unexported = off every wire/JSON face); sole consumer is
 	// the D-family rank residual mint (CR-3 件② P10).
 	blockedReasonFullByPID map[int]blockedReasonPIDTotal
+	// dstateCensus/iowaitCensus (修复轮二 件A, 2026-07-13). Unexported:
+	// in-package verdict input, never serialized — the FULL pre-cap
+	// per-(thread,cpu) D/IO ledgers behind the capped top lists
+	// (runnableCensus/ENG-1 precedent). The formal family seats mint from
+	// THESE (全量账铸席); nil on legacy/direct-literal WindowStats, where the
+	// mint fails open to the capped lists verbatim.
+	dstateCensus map[string]ThreadDuration
+	iowaitCensus map[string]ThreadDuration
 	TraceSpans             []TraceSpanSummary `json:"trace_spans,omitempty"`
 	// TraceTrackSpans is the isolated Android ASYNC_FOR_TRACK G/H lane. These
 	// spans have logical track ownership, not emitter-thread ownership, and
@@ -1653,6 +1670,52 @@ type CoreClassStats struct {
 	ComputeSupplySignal     string  `json:"compute_supply_signal,omitempty"`
 }
 
+// offCPUCauseSlice is ONE proof partition slice of a D/IO ledger group's
+// segments (§29.50.5 逐片段证明门, v5 P1 批 件②): every fragment summed here
+// carried the SAME typed wait-object proof (or none, on the "" slice). The
+// accounting mirrors the group's own F-1 segment-truth carriers so a slice
+// can mint an honest seat (true single-segment extrema, extents, lines).
+// DStateAllNonIOProvenGroup / UnanimousCauseSymbol (修复轮二 件B): the
+// chain-lane candidate's per-group proof surface (mint-stamped from the SAME
+// ThreadDuration donor the family seats read — 单一值源).
+func (c CriticalBlockingCandidate) DStateAllNonIOProvenGroup() bool { return c.proofRefined }
+func (c CriticalBlockingCandidate) UnanimousCauseSymbol() string    { return c.proofCaller }
+
+// DStateAllNonIOProvenGroup (修复轮二 件B, 2026-07-13) reports whether EVERY
+// segment folded into this D-ledger group carried a sched_blocked_reason
+// marker with iowait=0 (the per-GROUP refined-D proof — the record-level
+// donor the display's refined 「D-state」 word consumes when no rank-family
+// row reached the ledger; dispatch 无关化). False on non-D groups and on any
+// coverage gap (absence never proves).
+func (td ThreadDuration) DStateAllNonIOProvenGroup() bool {
+	return td.dFamilySegments > 0 && td.dFamilyNonIOMarked == td.dFamilySegments
+}
+
+// UnanimousCauseSymbol (修复轮二 件B) returns the ONE proven wait-object
+// symbol when every fragment of this group proved the same cause (exactly
+// one cause slice, non-empty key); "" otherwise (partial coverage, conflict,
+// or no slice inventory — absence never guesses).
+func (td ThreadDuration) UnanimousCauseSymbol() string {
+	if len(td.causeSlices) != 1 {
+		return ""
+	}
+	for cause := range td.causeSlices {
+		return cause
+	}
+	return ""
+}
+
+type offCPUCauseSlice struct {
+	durMs     float64
+	segCount  int
+	segMinMs  float64
+	segMaxMs  float64
+	startTs   float64
+	endTs     float64
+	lineStart int
+	lineEnd   int
+}
+
 type ThreadDuration struct {
 	Thread     ThreadRef `json:"thread"`
 	DurationMs float64   `json:"duration_ms"`
@@ -1691,6 +1754,18 @@ type ThreadDuration struct {
 	dFamilySegments    int
 	dFamilyNonIOMarked int
 	dFamilyCallers     []string
+	// causeSlices (§29.50.5 证明分区, v5 P1 批 件②, 2026-07-13). Unexported:
+	// in-package verdict input, never serialized. The per-PROVEN-wait-object
+	// slice accounting of this D/IO ledger group's segments (key = semantic
+	// caller symbol via offCPUCauseSymbol; "" = the unproven slice). The
+	// LEDGER GROUPING itself stays (thread,cpu) — 修复轮 (h1 ∿ 回归, 2026-07-13):
+	// keying the ledger on the cause inflated the top-8 DStateTop/IOWaitTop
+	// entry counts and the downstream wire caps evicted unrelated rows (the
+	// pacing ∿ seat lost its record to a root_evidence capacity cut) — so
+	// the proof partition consumes THESE slices at the family-mint layer
+	// instead. Populated only on the D/IO buckets (bounded rows); nil on
+	// runnable/sleep.
+	causeSlices map[string]offCPUCauseSlice
 
 	// R5e duration-weighted frequency accumulation over the judged segments
 	// (§7.30.2). Unexported: in-package verdict input, never serialized.
@@ -2707,12 +2782,21 @@ type RootCauseRankItem struct {
 	// distinct semantic symbols (cap 2, "/"-joined; "" when all opaque/hex).
 	// Wording input only — rank/score lanes never read them, and rows whose
 	// BlockedReasonCaller already consumed the marker never mint them.
-	BlockedReasonWindowCount  int     `json:"blocked_reason_window_count,omitempty"`
-	BlockedReasonWindowCaller string  `json:"blocked_reason_window_caller,omitempty"`
-	ImpactMs                  float64 `json:"impact_ms,omitempty"`
-	ProjectedImpactMs         float64 `json:"projected_impact_ms,omitempty"`
-	CumulativeImpactMs        float64 `json:"cumulative_impact_ms,omitempty"`
-	EffectiveImpactMs         float64 `json:"effective_impact_ms,omitempty"`
+	BlockedReasonWindowCount  int    `json:"blocked_reason_window_count,omitempty"`
+	BlockedReasonWindowCaller string `json:"blocked_reason_window_caller,omitempty"`
+	// DStateCauseUnprovenRemainder (§29.50.5 证明分区, v5 P1 批 件②,
+	// 2026-07-13): true ONLY on the honest-remainder D/IO seat — the
+	// unproven fragments of a thread whose OTHER fragments proved a concrete
+	// wait object and were carved into sibling cause seat(s) (逐片段证明门:
+	// 未证片段留通用 (线程,类型) 席; 绝不灌根因席). Drives the
+	// 「D-state(原因未证)」 display form. A thread with no cause seat never
+	// wears it (a lone generic seat is not a remainder). Wording input only
+	// — rank/score lanes never read it.
+	DStateCauseUnprovenRemainder bool    `json:"d_state_cause_unproven_remainder,omitempty"`
+	ImpactMs                     float64 `json:"impact_ms,omitempty"`
+	ProjectedImpactMs            float64 `json:"projected_impact_ms,omitempty"`
+	CumulativeImpactMs           float64 `json:"cumulative_impact_ms,omitempty"`
+	EffectiveImpactMs            float64 `json:"effective_impact_ms,omitempty"`
 	// RankSortBoostedEffectiveMs (SEM-LEAD §29.7-2 ② + 复核 P1-1 修向(a),
 	// ledger real_trace_campaign_20260705.md §29.22, 2026-07-10) is the
 	// ENGINE-INTERNAL boost channel for on-chain semantic span work: the
@@ -3435,6 +3519,25 @@ type CriticalBlockingCandidate struct {
 	// never a display-side label re-derivation. Absent family row → both stay
 	// zero and rendering is byte-identical (负向保护).
 	AbsorbedByRankFamily bool    `json:"absorbed_by_rank_family,omitempty"`
+	// reconStartTs/reconEndTs (CASE-1 gap (a), §29.52 → v5 P1 批, 2026-07-13;
+	// 修复轮 h1 ∿ 回归). Unexported: engine-internal recon identity only —
+	// the D/IO rows' per-(thread,cpu) group interval (same-source floats
+	// copied from the ThreadDuration the rank family also copies). It is a
+	// segment HULL, deliberately NOT the published StartTs/EndTs (a hull is
+	// not an occurrence segment, and publishing it made the projection's
+	// span-overlap fold arms fire on hull noise). Read exclusively by
+	// reconcileCriticalBlockingWithRankFamilies via
+	// criticalBlockingReconInterval.
+	reconStartTs float64
+	reconEndTs   float64
+	// proofRefined/proofCaller (修复轮二 件B, 2026-07-13). Unexported:
+	// engine-internal per-GROUP proof carriage for the D/IO chain-lane
+	// candidates (same accessors as the ThreadDuration donor) — the display
+	// merged-word gate consumes them through the observation notes, so the
+	// refined 「D-state」 word survives the rank-family-less dispatch shapes
+	// whose only D seats are these rows.
+	proofRefined bool
+	proofCaller  string
 	AbsorbedIntoFamily   string  `json:"absorbed_into,omitempty"`
 	LineStart            int     `json:"line_start,omitempty"`
 	LineEnd              int     `json:"line_end,omitempty"`

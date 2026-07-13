@@ -104,39 +104,97 @@ func dstateRefineTwoSegmentTrace(t *testing.T, marker1, marker2 string) *Index {
 	return buildTraceIndex(t, "dstate_refine_two.systrace", rows)
 }
 
-// TestDStateRefinePartialCoverageWithholdsProof — 修复轮 P2-1(a) 假 pin 实锤
-// 消: TWO D segments, only ONE carries a marker → 全覆盖门 (marked ==
-// segments) must WITHHOLD the proof even though every seen marker is
-// iowait=0 (the unmarked segment could still be IO wait).
+// TestDStateRefinePartialCoverageWithholdsProof — 修复轮 P2-1(a):
+// TWO D segments, only ONE carries a marker.
+//
+// EVOLUTION RECORD (§29.50.5 证明分区, v5 P1 批 件②, 2026-07-13): the
+// original pin asserted the SINGLE merged seat withholds proof + caller
+// under partial coverage. The proof partition now carves the proven
+// fragment into its own cause seat, so the assertion migrates WITHOUT
+// weakening: the original intent — an unmarked fragment must never
+// underwrite a proof claim — is enforced per fragment: the cause seat holds
+// EXACTLY the marked fragment's account (never the thread total), and the
+// unmarked fragment sits on the honest remainder with no proof, no caller,
+// wearing the typed 原因未证 marker.
 func TestDStateRefinePartialCoverageWithholdsProof(t *testing.T) {
 	idx := dstateRefineTwoSegmentTrace(t,
 		"       peer-300 (300) [003] .... 3.049500: sched_blocked_reason: pid=200 iowait=0 caller=dma_fence_default_wait+0x74/0x160[sysmgr.elf] delay=842\n",
 		"")
 	rank := BuildRootCauseRank(idx, Query{PID: 100, TimeStart: 3.0, TimeEnd: 3.120, MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
-	row := dstateRefineFindMergedRow(t, rank)
-	if row.DStateAllNonIOProven {
-		t.Fatalf("one unmarked D segment must withhold the refined proof (partial coverage): %+v", row)
+	var cause, remainder *RootCauseRankItem
+	for i := range rank.Items {
+		item := &rank.Items[i]
+		if item.Thread.PID != 200 || item.Type != "d_state_or_io_wait" ||
+			!strings.HasPrefix(item.Source, "window_stats") {
+			continue
+		}
+		if item.BlockedReasonCaller != "" {
+			cause = item
+		} else {
+			remainder = item
+		}
 	}
-	if row.BlockedReasonCaller != "" {
-		t.Fatalf("partial coverage must not disclose a caller either, got %q", row.BlockedReasonCaller)
+	if cause == nil || remainder == nil {
+		t.Fatalf("partial coverage must partition into cause seat + remainder: %+v", rank.Items)
+	}
+	if cause.BlockedReasonCaller != "dma_fence_default_wait" || !cause.DStateAllNonIOProven {
+		t.Fatalf("the cause seat carries exactly its proven fragment's proof: %+v", *cause)
+	}
+	if math.Abs(cause.CumulativeImpactMs-39.5) > 1e-6 {
+		t.Fatalf("the cause seat must hold ONLY the marked fragment (39.5ms), got %.6f", cause.CumulativeImpactMs)
+	}
+	if remainder.DStateAllNonIOProven || remainder.BlockedReasonCaller != "" {
+		t.Fatalf("the unmarked fragment must never underwrite a proof: %+v", *remainder)
+	}
+	if !remainder.DStateCauseUnprovenRemainder {
+		t.Fatalf("the remainder must wear the typed 原因未证 marker: %+v", *remainder)
+	}
+	if math.Abs(remainder.CumulativeImpactMs-20.0) > 1e-6 {
+		t.Fatalf("the remainder holds exactly the unmarked fragment (20ms), got %.6f", remainder.CumulativeImpactMs)
 	}
 }
 
 // TestDStateRefineCallerConflictKeepsProofDropsCaller — 修复轮 P2-1(b): both
-// segments marked iowait=0 but with DIFFERENT semantic callers → the proof
-// still mints (coverage is complete and all-non-IO) while the 等待对象 word
-// is withheld (no unanimous symbol; absence never fabricates one).
+// segments marked iowait=0 but with DIFFERENT semantic callers.
+//
+// EVOLUTION RECORD (§29.50.5 证明分区, v5 P1 批 件②, 2026-07-13): the
+// original pin asserted the single merged seat keeps the proof but withholds
+// the 等待对象 word (no unanimous symbol). The partition now mints one seat
+// per proven wait object; the original intent — never fabricate ONE symbol
+// over conflicting fragments — migrates without weakening: no seat claims a
+// symbol its own fragments did not prove, and each seat's account is exactly
+// its own fragment's.
 func TestDStateRefineCallerConflictKeepsProofDropsCaller(t *testing.T) {
 	idx := dstateRefineTwoSegmentTrace(t,
 		"       peer-300 (300) [003] .... 3.049500: sched_blocked_reason: pid=200 iowait=0 caller=dma_fence_default_wait+0x74/0x160[sysmgr.elf] delay=842\n",
 		"       peer-300 (300) [003] .... 3.080000: sched_blocked_reason: pid=200 iowait=0 caller=kthread_worker_fn+0x14c/0x1ec[devhost.elf] delay=100\n")
 	rank := BuildRootCauseRank(idx, Query{PID: 100, TimeStart: 3.0, TimeEnd: 3.120, MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
-	row := dstateRefineFindMergedRow(t, rank)
-	if !row.DStateAllNonIOProven {
-		t.Fatalf("full non-IO coverage with conflicting callers must still prove the refined form: %+v", row)
+	byCaller := map[string]*RootCauseRankItem{}
+	for i := range rank.Items {
+		item := &rank.Items[i]
+		if item.Thread.PID == 200 && item.Type == "d_state_or_io_wait" &&
+			strings.HasPrefix(item.Source, "window_stats") {
+			if _, dup := byCaller[item.BlockedReasonCaller]; dup {
+				t.Fatalf("duplicate seat for caller %q: %+v", item.BlockedReasonCaller, rank.Items)
+			}
+			byCaller[item.BlockedReasonCaller] = item
+		}
 	}
-	if row.BlockedReasonCaller != "" {
-		t.Fatalf("conflicting callers must withhold the 等待对象 word, got %q", row.BlockedReasonCaller)
+	dma, kthread := byCaller["dma_fence_default_wait"], byCaller["kthread_worker_fn"]
+	if dma == nil || kthread == nil || len(byCaller) != 2 {
+		t.Fatalf("conflicting callers must mint one seat per proven wait object: %+v", rank.Items)
+	}
+	if math.Abs(dma.CumulativeImpactMs-39.5) > 1e-6 || math.Abs(kthread.CumulativeImpactMs-20.0) > 1e-6 {
+		t.Fatalf("each seat holds exactly its own fragment, got dma=%.6f kthread=%.6f",
+			dma.CumulativeImpactMs, kthread.CumulativeImpactMs)
+	}
+	for _, seat := range byCaller {
+		if !seat.DStateAllNonIOProven {
+			t.Fatalf("each fully-marked pure-D seat keeps the refined proof: %+v", *seat)
+		}
+		if seat.DStateCauseUnprovenRemainder {
+			t.Fatalf("cause seats never wear the remainder marker: %+v", *seat)
+		}
 	}
 }
 

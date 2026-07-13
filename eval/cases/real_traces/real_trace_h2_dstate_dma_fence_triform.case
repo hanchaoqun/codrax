@@ -34,12 +34,36 @@
 #     also holds 13 pid=357 kthread_worker_fn rows EMITTED on CompThread's
 #     context lines); the typed juxtaposition lane must still carry
 #     dma_fence_default_w — that lane, not prose, is the delivery bar.
+# EVOLUTION RECORD (修复轮二 件B, 2026-07-13): the banned 「自身·D-state/iowait」
+# and the refined 「自身·D-state 36.757ms」/「等待对象 dma_fence_default_w」
+# assertions are now DISPATCH-INDEPENDENT hard oracles. Deterministic HEAD
+# parity 实录 (2026-07-13): under rank-family-less dispatch shapes (e.g.
+# window_stats+wakeup_chain+critical_blocking_calls) the banned merged word
+# rendered BYTE-IDENTICALLY on clean main HEAD and on the v5 P1 tree — the
+# refined word's only proof donor was a rank/bundle-family row, so the oracle
+# was reachable-FAIL by model dispatch alone — 8 consecutive dispatch-FAIL
+# runs on 2026-07-12/13 (sweeps/replays 223306, 224215-r1/r2, 230637-r1/r2,
+# 000353-r1/r2/r3); the case HAD passed under the old regex when the model's
+# dispatch carried the donor lanes (e.g. 210400-r1, 2026-07-12), so this is
+# dispatch reachability, not a never-passing oracle. 件B sinks the per-group proof (dstate_all_noniowait +
+# blocked_reason_caller) onto the window_stats/critical_blocking face records
+# themselves (pins: answer_document_projection_proof_donor_b_test.go), so any
+# dispatch whose ledger holds D-face NODES (critical/rank family records)
+# mints the refined word; the merged word survives ONLY as the honest
+# no-donor form (negative pin). The refined regex covers BOTH engine-true
+# refined forms — the rank seat 「自身·D-state 36.757ms」 and the ×4 fold row
+# 「自身·D-state(对端未解析) 36.757ms」 (trace truth: the wait peer IS
+# unresolved on that row; the form still hard-rejects every /iowait merged
+# word via the banned assertion). The 4次(...)
+# member-fold face still requires the raw ×4 fold row (critical/stats family
+# in the ledger) — dispatch shapes that only run thread_timeline/event_search
+# render no tree D seats at all and legitimately fail this case.
 ID="real_trace_h2_dstate_dma_fence_triform"
 NAME="real trace donghu — dma_fence refined pure-D form"
 QUESTION="只分析这份 trace，不分析代码。请分析 CompThread_0-2955 在 13762.791708s 到 13763.024898s 窗口内的等待情况：它有没有进入过不可中断等待（D 状态）？内核记录的等待对象是什么，一共发生了几次，总量有多大？"
 HTRACE_FILE="eval/fixtures/real_traces/donghu.ftrace"
 EXPECT_CONTAINS="dma_fence_default_w 36.757 4次(3.774~16.064ms)"
-EXPECT_MATCHES_REGEX="自身·D-state 36\\.757ms
+EXPECT_MATCHES_REGEX="自身·D-state(\\(对端未解析\\))? 36\\.757ms
 等待对象[ =]dma_fence_default_w"
 EXPECT_NOT_CONTAINS="IO等待候选 D状态/IO候选 自身·D-state/iowait still_present not_enough_evidence"
 EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

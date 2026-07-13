@@ -18,12 +18,19 @@
 #     measuring-layer word: 块设备层·块设备IO(inode) with the composite score
 #     marked (综合评分,非墙钟) — never bare wall-clock ms. 口径旁栏 legend:
 #     composite/count rows take no ordinal and no badge.
-#   · CONDITIONAL (soft, 2026-07-12 two-run witness): the 完成端到端 layer
-#     word rides only when the engine mints a SECOND wall-clock facet member
-#     (io_burst_episode/io_latency) into the merged segment — present in run
-#     205424 (E4(+2), block_io 2.694), absent in run 210400 (E4(+1),
-#     block_io 2.405); member census varies with the model's trace_query
-#     dispatch pattern, so it must not be hard-required.
+#   · CONDITIONAL (soft; EVOLUTION RECORD DET-1, v5 P1 批 2026-07-13, closes
+#     the §29.55④ 悬案): the original two-run witness (完成端到端 present in
+#     run 205424 with block_io 2.694, absent in run 210400 with block_io
+#     2.405) was the DET-1 map-order election jitter — the nearest-inode
+#     election now walks sorted keys, so the engine DETERMINISTICALLY elects
+#     the 0x14088d/2.694 member and the 2.405-absent form is unreachable on
+#     identical dispatch (pinned by TestDET1TypedObservationsDeterministic).
+#     The word remains dispatch-dependent structurally (it mints only when a
+#     rank/bundle-family view runs — dispatch sweep 2026-07-13: present under
+#     root_cause_rank/frame_root_cause_bundle dispatches, absent under
+#     window_stats-only), and the model's dispatch pattern stays its own —
+#     so the oracle stays soft, but any run that carries the io-facet seat
+#     must now show the 完成端到端 member (恒在 given the seat).
 #   · NOTE (trace truth, 2026-07-12 verified): pid 17267 has ZERO iowait=1
 #     sched_blocked_reason rows in this window (its 39 blocked_reason rows
 #     are all iowait=0 fscache_page_get_an page-cache waits; the iowait=1

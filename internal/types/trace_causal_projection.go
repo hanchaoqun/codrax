@@ -369,6 +369,12 @@ type TraceCausalProjectionNode struct {
 	// on the unresolved word faces; wording input only.
 	BlockedReasonWindowCount  int    `json:"blocked_reason_window_count,omitempty"`
 	BlockedReasonWindowCaller string `json:"blocked_reason_window_caller,omitempty"`
+	// DStateCauseUnprovenRemainder (§29.50.5 证明分区, v5 P1 批 件②,
+	// 2026-07-13): the row is the honest-remainder D/IO seat — its fragments
+	// proved NO wait object while sibling cause seat(s) of the same thread
+	// carried theirs. Drives the 「D-state(原因未证)」 display qualifier;
+	// wording input only (no gate, score or sort lane reads it).
+	DStateCauseUnprovenRemainder bool `json:"d_state_cause_unproven_remainder,omitempty"`
 	// ProcessTGID / ProcessComm (CR-3 件③ P11, 2026-07-12; 冷读案8 关键角色
 	// 裸线程名无 tgid): the row's process attribution — the trace-published
 	// tgid and the resolved owning process comm. Detail identity 「进程
@@ -2725,6 +2731,8 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		}
 	}
 	node.BlockedReasonWindowCaller = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyBlockedReasonWindowCaller))
+	// §29.50.5 (v5 P1 批 件②): the proof-partition honest-remainder marker.
+	node.DStateCauseUnprovenRemainder = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyDStateCauseUnprovenRemainder)) == "true"
 	// CR-3 件③ P11: the process attribution pair (tgid + owning comm).
 	if raw := strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyTGID)); raw != "" {
 		if n, err := strconv.Atoi(raw); err == nil && n > 0 {

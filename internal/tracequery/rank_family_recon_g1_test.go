@@ -381,27 +381,65 @@ func TestG1ReconLaneSplitFamiliesDistinctKeysP2a(t *testing.T) {
 }
 
 // TestG1ReconTypeUniversePinned is the §28.8 教训⑥ mechanical universe pin:
-// the adjudicated cross-lane type map is EXACTLY {io_latency: io_latency},
+// the adjudicated cross-lane type map holds EXACTLY the adjudicated pairs,
 // and both sides must stay registered row tokens with the source side
 // family-foldable (the recon presupposes a family row can exist). Extending
 // the map requires a new adjudication — this pin forces that conversation.
+//
+// EVOLUTION RECORD (CASE-1, §29.52 独立立案 → v5 P1 批, 2026-07-13): the
+// universe was EXACTLY {io_latency: io_latency} (§27.2-G1). The row-level
+// witnesses the original ruling waited for arrived (SMR-S7 + S4-TPF + 42729
+// E9↔E15; reports 31693/42729/45903, smr_audit_report_20260712 CASE-1), so
+// the SECOND adjudicated pair set {d_state_or_io_wait, io_wait}² joined
+// through THIS authority channel — both lanes mint from the same
+// stats.DStateTop/IOWaitTop ledger groups; the family token flips to
+// io_wait when dStateMs==0 (gap (c)), so all four combinations enter
+// together. The D/IO pairs use the same-source-identity membership arm
+// (exact interval + exact value; hull containment forbidden —
+// rank_family_recon_case1_test.go pins the split); io_latency membership is
+// unchanged. Every other pair still requires a new adjudication here.
 func TestG1ReconTypeUniversePinned(t *testing.T) {
-	if len(criticalBlockingRankFamilyReconTypes) != 1 {
-		t.Fatalf("recon type universe must hold exactly the adjudicated pair, got %v", criticalBlockingRankFamilyReconTypes)
+	if len(criticalBlockingRankFamilyReconTypes) != 3 {
+		t.Fatalf("recon type universe must hold exactly the adjudicated pairs, got %v", criticalBlockingRankFamilyReconTypes)
 	}
-	if criticalBlockingRankFamilyReconTypes["io_latency"] != "io_latency" {
-		t.Fatalf("adjudicated pair is io_latency↔io_latency, got %v", criticalBlockingRankFamilyReconTypes)
+	wantUniverse := map[string][]string{
+		"io_latency":         {"io_latency"},
+		"d_state_or_io_wait": {"d_state_or_io_wait", "io_wait"},
+		"io_wait":            {"d_state_or_io_wait", "io_wait"},
 	}
-	for from, to := range criticalBlockingRankFamilyReconTypes {
-		for _, token := range []string{from, to} {
-			spec, ok := CausalTokenSpecFor(token)
-			if !ok || !spec.RowToken {
-				t.Fatalf("recon token %q must be a registered row token", token)
+	for from, wantTos := range wantUniverse {
+		tos, ok := criticalBlockingRankFamilyReconTypes[from]
+		if !ok || len(tos) != len(wantTos) {
+			t.Fatalf("adjudicated universe drifted for %q: want %v got %v", from, wantTos, tos)
+		}
+		for k, to := range wantTos {
+			if tos[k] != to {
+				t.Fatalf("adjudicated universe drifted for %q: want %v got %v", from, wantTos, tos)
 			}
 		}
-		if CausalTokenFamilyFoldLane(to) != CausalFamilyFoldSameThreadType {
-			t.Fatalf("recon target %q must be same-thread-type family-foldable (a family row must be mintable)", to)
+	}
+	for from, tos := range criticalBlockingRankFamilyReconTypes {
+		for _, to := range tos {
+			for _, token := range []string{from, to} {
+				spec, ok := CausalTokenSpecFor(token)
+				if !ok || !spec.RowToken {
+					t.Fatalf("recon token %q must be a registered row token", token)
+				}
+			}
+			if CausalTokenFamilyFoldLane(to) != CausalFamilyFoldSameThreadType {
+				t.Fatalf("recon target %q must be same-thread-type family-foldable (a family row must be mintable)", to)
+			}
 		}
+	}
+	// The membership arm split itself is part of the adjudication: io_latency
+	// keeps two-pass membership, every same-source D/IO pair is
+	// same-source-identity only.
+	if criticalBlockingRankFamilyReconSameSourceOnly("io_latency") {
+		t.Fatal("io_latency must keep the original two-pass membership")
+	}
+	if !criticalBlockingRankFamilyReconSameSourceOnly("d_state_or_io_wait") ||
+		!criticalBlockingRankFamilyReconSameSourceOnly("io_wait") {
+		t.Fatal("the D/IO pairs must use the same-source-identity membership arm")
 	}
 }
 

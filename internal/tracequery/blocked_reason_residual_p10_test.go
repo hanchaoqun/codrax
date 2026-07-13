@@ -10,26 +10,52 @@ package tracequery
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 )
 
 // TestBlockedReasonResidualMintedOnPartialCoverage — two D segments, only
-// one marked: the unanimous lane withholds the caller (P2-1 pin), so the
-// residual pair must surface the marker that IS in hand.
+// one marked.
+//
+// EVOLUTION RECORD (§29.50.5 证明分区, v5 P1 批 件②, 2026-07-13): the
+// original pin asserted the SINGLE merged seat surfaces the in-hand marker
+// through the residual pair (the unanimous lane withheld the caller under
+// partial coverage). The proof partition now CONSUMES that marker into its
+// own cause seat — the 等待对象 word rides the seat — so the residual's
+// purpose (a marker in hand never silently vanishes) is met by the cause
+// seat itself, and the honest remainder must NOT re-disclose the consumed
+// marker (双说防线: blockedReasonFullByPID counts every window marker
+// including consumed ones; a remainder count would double-speak the
+// sibling's word). The unmatched/opaque residual shapes stay pinned below.
 func TestBlockedReasonResidualMintedOnPartialCoverage(t *testing.T) {
 	idx := dstateRefineTwoSegmentTrace(t,
 		"       peer-300 (300) [003] .... 3.049500: sched_blocked_reason: pid=200 iowait=0 caller=dma_fence_default_wait+0x74/0x160[sysmgr.elf] delay=842\n",
 		"")
 	rank := BuildRootCauseRank(idx, Query{PID: 100, TimeStart: 3.0, TimeEnd: 3.120, MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
-	row := dstateRefineFindMergedRow(t, rank)
-	if row.BlockedReasonCaller != "" {
-		t.Fatalf("partial coverage must withhold the unanimous caller: %+v", row)
+	var cause, remainder *RootCauseRankItem
+	for i := range rank.Items {
+		item := &rank.Items[i]
+		if item.Thread.PID != 200 || item.Type != "d_state_or_io_wait" ||
+			!strings.HasPrefix(item.Source, "window_stats") {
+			continue
+		}
+		if item.BlockedReasonCaller != "" {
+			cause = item
+		} else {
+			remainder = item
+		}
 	}
-	if row.BlockedReasonWindowCount != 1 {
-		t.Fatalf("the in-window marker must surface as the unconsumed residual, got count=%d (%+v)", row.BlockedReasonWindowCount, row)
+	if cause == nil || remainder == nil {
+		t.Fatalf("partial coverage must partition into cause seat + remainder: %+v", rank.Items)
 	}
-	if row.BlockedReasonWindowCaller != "dma_fence_default_wait" {
-		t.Fatalf("the residual must carry the semantic symbol, got %q", row.BlockedReasonWindowCaller)
+	if cause.BlockedReasonCaller != "dma_fence_default_wait" {
+		t.Fatalf("the in-hand marker is consumed by the cause seat's word, got %q", cause.BlockedReasonCaller)
+	}
+	if cause.BlockedReasonWindowCount != 0 || cause.BlockedReasonWindowCaller != "" {
+		t.Fatalf("a consumed marker must not double-surface as residual on the cause seat: %+v", *cause)
+	}
+	if remainder.BlockedReasonWindowCount != 0 || remainder.BlockedReasonWindowCaller != "" {
+		t.Fatalf("the remainder must not re-disclose the sibling-consumed marker: %+v", *remainder)
 	}
 }
 
@@ -96,18 +122,24 @@ func TestBlockedReasonResidualCountsBeyondTopEightInventory(t *testing.T) {
 			noise += fmt.Sprintf("       peer-300 (300) [003] .... 3.0801%d%d: sched_blocked_reason: pid=%d iowait=0 caller=noise_wait_%d+0x10/0x20 delay=10\n", i, j, 900+i, i)
 		}
 	}
-	// Both pid-200 markers sit on real D-segment endpoints (a marker in the
-	// middle of a running slice poisons the family — separate guard); their
-	// CONFLICTING callers withhold the unanimous lane, so the residual
-	// mints, and both single-count buckets fall below the eight count-2
-	// noise buckets.
+	// EVOLUTION RECORD (§29.50.5 证明分区, v5 P1 批 件②, 2026-07-13): the
+	// original fixture put both pid-200 markers ON D-segment endpoints with
+	// conflicting callers — the proof partition now consumes those into two
+	// cause seats, so the residual shape migrated to the still-reachable
+	// UNMATCHED-marker form: both markers sit ~200µs past the segment-end
+	// match tolerance (in-window, matched to NO segment), so no cause
+	// partitions, the unanimous lane stays empty, and the residual must
+	// still count them from the FULL pre-truncation accumulator (the
+	// original intent, unweakened) with the symbol pair in (count, line)
+	// order.
 	idx := dstateRefineTwoSegmentTrace(t,
-		"       peer-300 (300) [003] .... 3.049500: sched_blocked_reason: pid=200 iowait=0 caller=dma_fence_default_wait+0x74/0x160[sysmgr.elf] delay=842\n",
-		"       peer-300 (300) [003] .... 3.080000: sched_blocked_reason: pid=200 iowait=0 caller=hmfs_read+0x20/0x40 delay=11\n"+noise)
+		"       peer-300 (300) [003] .... 3.049700: sched_blocked_reason: pid=200 iowait=0 caller=dma_fence_default_wait+0x74/0x160[sysmgr.elf] delay=842\n"+
+			"       peer-300 (300) [003] .... 3.049800: sched_blocked_reason: pid=200 iowait=0 caller=hmfs_read+0x20/0x40 delay=11\n",
+		noise)
 	rank := BuildRootCauseRank(idx, Query{PID: 100, TimeStart: 3.0, TimeEnd: 3.120, MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
 	row := dstateRefineFindMergedRow(t, rank)
 	if row.BlockedReasonCaller != "" {
-		t.Fatalf("fixture drifted: conflicting callers must withhold the unanimous lane, got %q", row.BlockedReasonCaller)
+		t.Fatalf("fixture drifted: unmatched markers must leave the unanimous lane empty, got %q", row.BlockedReasonCaller)
 	}
 	// Fixture sanity: the pid-200 buckets must actually be OUTSIDE the
 	// published top-8 inventory (each count 1 vs eight count-2 buckets).

@@ -367,6 +367,23 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 	if survivor.SubjectKind == "" {
 		survivor.SubjectKind = loser.SubjectKind
 	}
+	// §29.50.5 / DSTATE-REFINE proof family (v5 P1 批 件②, 2026-07-13): the
+	// merged views describe ONE physical set of segments, so the typed D/IO
+	// proof fields follow the fact — the 修复轮 P2-3 twin propagation
+	// precedent lifted to the compile merge (the single-member remainder
+	// seat's value equals its chain twin's, so R1 folds them and the
+	// survivor must keep the 「(原因未证)」/等待对象 word inputs).
+	// OR-monotone booleans; empty-slot caller fill; the residual pair moves
+	// as a pair (count+symbols are one disclosure).
+	survivor.DStateRefinedNonIO = survivor.DStateRefinedNonIO || loser.DStateRefinedNonIO
+	survivor.DStateCauseUnprovenRemainder = survivor.DStateCauseUnprovenRemainder || loser.DStateCauseUnprovenRemainder
+	if survivor.BlockedReasonCaller == "" {
+		survivor.BlockedReasonCaller = loser.BlockedReasonCaller
+	}
+	if survivor.BlockedReasonWindowCount == 0 && loser.BlockedReasonWindowCount > 0 {
+		survivor.BlockedReasonWindowCount = loser.BlockedReasonWindowCount
+		survivor.BlockedReasonWindowCaller = loser.BlockedReasonWindowCaller
+	}
 	// VS-1 F6(b) (adversarial review 2026-07-04): a periodic-source survivor's
 	// EffectiveImpactMS is the AUTHORITATIVE discounted attribution even at
 	// exactly 0 (pure in-period cadence) — the merged twin is the raw-lane
@@ -1140,6 +1157,14 @@ func traceCausalProjectionAggregateSameKind(nodes []TraceCausalProjectionNode) [
 // re-derivation) can never drift between the two thresholds.
 func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode, first int, members []int) TraceCausalProjectionNode {
 	aggregate := nodes[first]
+	// 修复轮二 件B (2026-07-13): the ×N family's refined-D proof is the AND
+	// over its members — DISTINCT facts, so one unproven member keeps the
+	// honest merged 「D-state/iowait」 word (the R1 same-fact absorb keeps OR:
+	// one fact, one proof); the 等待对象 word rides only when every member
+	// carries the seed's exact symbol (unanimity, absence never guesses).
+	refinedAll := aggregate.DStateRefinedNonIO
+	callerUnanimous := strings.TrimSpace(aggregate.BlockedReasonCaller)
+	callerConflict := false
 	var sum, minMS, maxMS float64
 	valuelessRows := 0
 	// DISP-3 (§29.8 P2-⑧ E22 窗标回归): the rank ordinal's own window identity
@@ -1182,6 +1207,10 @@ func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode
 			maxMS = display
 		}
 		if idx != first {
+			refinedAll = refinedAll && member.DStateRefinedNonIO
+			if strings.TrimSpace(member.BlockedReasonCaller) != callerUnanimous {
+				callerConflict = true
+			}
 			id := strings.TrimSpace(member.EvidenceID)
 			if id != "" && !absorbed[traceCausalProjectionCanonicalNode(id)] {
 				absorbed[traceCausalProjectionCanonicalNode(id)] = true
@@ -1409,6 +1438,10 @@ func traceCausalProjectionMergeSameKindMembers(nodes []TraceCausalProjectionNode
 		// (pre-existing group-first behaviour); the only marker consumer
 		// reads published∧eff≤0, so a positive inherited copy is unaffected.
 		aggregate.EffectiveImpactPublished = false
+	}
+	aggregate.DStateRefinedNonIO = refinedAll
+	if callerConflict {
+		aggregate.BlockedReasonCaller = ""
 	}
 	return aggregate
 }
