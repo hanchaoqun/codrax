@@ -2,7 +2,10 @@ package hitraceconv
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -41,29 +44,53 @@ func (a profilerPairAdmission) poison(sink *traceDBRowSink) {
 	sink.poisonPairKind(a.Kind)
 }
 
+const profilerTracePluginResultMaxField = 8
+
 // profilerTracePluginResult is the single top-level TracePluginResult
-// authority shared by metadata summarization and row rendering. Repeated
-// protobuf fields remain repeated; only each occurrence's wire is audited.
+// authority shared by metadata summarization and row rendering. The first
+// pass retains one bounded view of the physical payload plus fixed-width
+// census/provenance only. Repeated values are consumed by the checked second
+// pass visitor below; keeping per-occurrence slice headers here would let a
+// legal short-record frame amplify before the bounded row sink is reached.
 type profilerTracePluginResult struct {
-	Disposition       profilerFtracePayloadDisposition
-	PairFamilies      pairCriticalFormatFamilyMask
-	PairCaptureOpaque bool
-	CPUStats          [][]byte
-	CPUDetails        [][]byte
-	Symbols           [][]byte
-	Clocks            [][]byte
-	Versions          [][]byte
-	CommDicts         [][]byte
-	Issues            profilerTracePluginIssueCensus
-	IssueOverflow     bool
+	Disposition        profilerFtracePayloadDisposition
+	PairFamilies       pairCriticalFormatFamilyMask
+	PairCaptureOpaque  bool
+	payload            []byte
+	KnownOccurrences   [profilerTracePluginResultMaxField + 1]uint64
+	PayloadOccurrences [profilerTracePluginResultMaxField + 1]uint64
+	VersionOccurrences uint64
+	Issues             profilerTracePluginIssueCensus
+	IssueOverflow      bool
 }
 
 func decodeProfilerTracePluginResult(data []byte) profilerTracePluginResult {
+	result, err := decodeProfilerTracePluginResultContext(context.Background(), data)
+	if err != nil {
+		// A background context cannot be cancelled. Keep the compatibility
+		// wrapper fail-closed if that invariant is ever violated.
+		return profilerTracePluginResult{
+			Disposition:       profilerFtracePayloadMalformed,
+			PairCaptureOpaque: true,
+			IssueOverflow:     true,
+		}
+	}
+	return result
+}
+
+func decodeProfilerTracePluginResultContext(ctx context.Context, payload []byte) (profilerTracePluginResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	var out profilerTracePluginResult
+	data := payload
 	recognized := false
-	versionOccurrences := 0
 	malformed := false
+	checkpoint := uint64(0)
 	for len(data) > 0 {
+		if err := profilerProtoContextCheckpoint(ctx, &checkpoint); err != nil {
+			return profilerTracePluginResult{}, err
+		}
 		key, n, ok := consumeProtoVarint(data)
 		if !ok {
 			malformed = true
@@ -82,8 +109,15 @@ func decodeProfilerTracePluginResult(data []byte) profilerTracePluginResult {
 			// Attribute a truncated or unsupported-wire field to the official
 			// envelope as soon as its complete key identifies a known member.
 			recognized = true
+			if out.KnownOccurrences[field] == math.MaxUint64 {
+				return profilerTracePluginResult{}, &traceDBOutputInvariantError{Reason: "profiler_trace_plugin_known_field_census_overflow"}
+			}
+			out.KnownOccurrences[field]++
 			if field == 7 {
-				versionOccurrences++
+				if out.VersionOccurrences == math.MaxUint64 {
+					return profilerTracePluginResult{}, &traceDBOutputInvariantError{Reason: "profiler_trace_plugin_version_census_overflow"}
+				}
+				out.VersionOccurrences++
 			}
 		}
 
@@ -109,7 +143,11 @@ func decodeProfilerTracePluginResult(data []byte) profilerTracePluginResult {
 				malformed = true
 			} else if length > uint64(len(data[consumed:])) {
 				if field == 2 {
-					out.PairFamilies |= profilerPairFamiliesFromCPUDetail(data[consumed:])
+					families, familyErr := profilerPairFamiliesFromCPUDetailContext(ctx, data[consumed:])
+					if familyErr != nil {
+						return profilerTracePluginResult{}, familyErr
+					}
+					out.PairFamilies |= families
 				}
 				malformed = true
 			} else {
@@ -133,23 +171,6 @@ func decodeProfilerTracePluginResult(data []byte) profilerTracePluginResult {
 			continue
 		}
 
-		var destination *[][]byte
-		switch field {
-		case 1:
-			destination = &out.CPUStats
-		case 2:
-			destination = &out.CPUDetails
-		case 5:
-			destination = &out.Symbols
-		case 6:
-			destination = &out.Clocks
-		case 7:
-			destination = &out.Versions
-		case 8:
-			destination = &out.CommDicts
-		default:
-			continue
-		}
 		if wire != 2 {
 			if kind, ok := profilerTracePluginWrongWireIssue(field); !ok || !out.Issues.observe(kind, 1) {
 				out.IssueOverflow = true
@@ -157,42 +178,134 @@ func decodeProfilerTracePluginResult(data []byte) profilerTracePluginResult {
 			continue
 		}
 		if field == 2 {
-			out.PairFamilies |= profilerPairFamiliesFromCPUDetail(raw)
+			families, familyErr := profilerPairFamiliesFromCPUDetailContext(ctx, raw)
+			if familyErr != nil {
+				return profilerTracePluginResult{}, familyErr
+			}
+			out.PairFamilies |= families
 		}
-		*destination = append(*destination, raw)
+		if out.PayloadOccurrences[field] == math.MaxUint64 {
+			return profilerTracePluginResult{}, &traceDBOutputInvariantError{Reason: "profiler_trace_plugin_field_census_overflow"}
+		}
+		out.PayloadOccurrences[field]++
 	}
 	if malformed {
 		if !recognized {
-			return profilerTracePluginResult{Disposition: profilerFtracePayloadNotStructured}
+			return profilerTracePluginResult{Disposition: profilerFtracePayloadNotStructured}, nil
 		}
 		out.Disposition = profilerFtracePayloadMalformed
 		out.PairCaptureOpaque = true
-		out.CPUStats = nil
-		out.CPUDetails = nil
-		out.Symbols = nil
-		out.Clocks = nil
-		out.Versions = nil
-		out.CommDicts = nil
+		out.payload = nil
+		out.KnownOccurrences = [profilerTracePluginResultMaxField + 1]uint64{}
+		out.PayloadOccurrences = [profilerTracePluginResultMaxField + 1]uint64{}
+		out.VersionOccurrences = 0
 		if !out.Issues.observe(profilerTracePluginIssueMalformedWire, 1) {
 			out.IssueOverflow = true
 		}
-		return out
+		return out, nil
 	}
 	if !recognized {
 		out.Disposition = profilerFtracePayloadNotStructured
-		return out
+		return out, nil
 	}
-	if versionOccurrences > 1 {
-		if !out.Issues.observeVersionDuplicate(uint64(versionOccurrences - 1)) {
+	if out.VersionOccurrences > 1 {
+		if !out.Issues.observeVersionDuplicate(out.VersionOccurrences - 1) {
 			out.IssueOverflow = true
 		}
-		out.Versions = nil
 	}
 	out.Disposition = profilerFtracePayloadStructured
-	return out
+	out.payload = payload
+	return out, nil
+}
+
+type profilerTracePluginResultVisitor func(field int, raw []byte) error
+
+// visitProfilerTracePluginResult is the only repeated top-level value lane.
+// It runs only after the authority pass reached EOF and verifies that the
+// immutable payload still matches the first pass census.
+func visitProfilerTracePluginResult(ctx context.Context, result profilerTracePluginResult, visit profilerTracePluginResultVisitor) error {
+	if result.Disposition != profilerFtracePayloadStructured {
+		return nil
+	}
+	if result.VersionOccurrences != result.KnownOccurrences[7] {
+		return &traceDBOutputInvariantError{Reason: "profiler_trace_plugin_version_census_drift"}
+	}
+	for _, field := range [...]int{1, 2, 5, 6, 7, 8} {
+		if result.PayloadOccurrences[field] > result.KnownOccurrences[field] {
+			return &traceDBOutputInvariantError{Reason: "profiler_trace_plugin_payload_census_invalid"}
+		}
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var knownObserved [profilerTracePluginResultMaxField + 1]uint64
+	var payloadObserved [profilerTracePluginResultMaxField + 1]uint64
+	var callbackErr error
+	checkpoint := uint64(0)
+	err := walkProtoFields(result.payload, func(field int, wire int, raw []byte, _ uint64) error {
+		if err := profilerProtoContextCheckpoint(ctx, &checkpoint); err != nil {
+			return err
+		}
+		if field < 1 || field > profilerTracePluginResultMaxField ||
+			(field != 1 && field != 2 && field != 5 && field != 6 && field != 7 && field != 8) {
+			return nil
+		}
+		if knownObserved[field] == math.MaxUint64 {
+			return &traceDBOutputInvariantError{Reason: "profiler_trace_plugin_visitor_census_overflow"}
+		}
+		knownObserved[field]++
+		if wire != 2 {
+			return nil
+		}
+		if payloadObserved[field] == math.MaxUint64 {
+			return &traceDBOutputInvariantError{Reason: "profiler_trace_plugin_visitor_payload_census_overflow"}
+		}
+		payloadObserved[field]++
+		if field == 7 && result.VersionOccurrences != 1 {
+			return nil
+		}
+		if visit != nil {
+			callbackErr = visit(field, raw)
+			return callbackErr
+		}
+		return nil
+	})
+	if err != nil {
+		if callbackErr != nil {
+			return callbackErr
+		}
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
+		return &traceDBOutputInvariantError{Reason: "profiler_trace_plugin_visitor_parse_drift"}
+	}
+	if knownObserved != result.KnownOccurrences || payloadObserved != result.PayloadOccurrences {
+		return &traceDBOutputInvariantError{Reason: "profiler_trace_plugin_visitor_census_drift"}
+	}
+	return nil
+}
+
+func profilerProtoContextCheckpoint(ctx context.Context, checkpoint *uint64) error {
+	if ctx == nil {
+		return nil
+	}
+	if checkpoint == nil {
+		return &traceDBOutputInvariantError{Reason: "profiler_proto_checkpoint_nil"}
+	}
+	(*checkpoint)++
+	// Poll the first occurrence and then every 256 occurrences. This bounds
+	// cancellation latency without adding a channel select to every tiny field.
+	if *checkpoint == 1 || *checkpoint&255 == 0 {
+		return ctx.Err()
+	}
+	return nil
 }
 
 func profilerTracePluginResultEvents(result profilerTracePluginResult) ([]profilerFtraceEventRecord, error) {
+	return profilerTracePluginResultEventsContext(context.Background(), result)
+}
+
+func profilerTracePluginResultEventsContext(ctx context.Context, result profilerTracePluginResult) ([]profilerFtraceEventRecord, error) {
 	var out []profilerFtraceEventRecord
 	if result.Disposition == profilerFtracePayloadMalformed {
 		if result.PairFamilies != 0 || result.PairCaptureOpaque {
@@ -207,14 +320,18 @@ func profilerTracePluginResultEvents(result profilerTracePluginResult) ([]profil
 		}
 		return out, nil
 	}
-	for _, raw := range result.CPUDetails {
+	err := visitProfilerTracePluginResult(ctx, result, func(field int, raw []byte) error {
+		if field != 2 {
+			return nil
+		}
 		events, err := decodeProfilerFtraceCPUDetailEvents(raw)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		out = append(out, events...)
-	}
-	return out, nil
+		return nil
+	})
+	return out, err
 }
 
 func profilerTracePluginResultCoverage(result profilerTracePluginResult) []TraceDBCoverage {

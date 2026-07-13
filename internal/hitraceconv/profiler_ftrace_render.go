@@ -1,6 +1,7 @@
 package hitraceconv
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -80,7 +81,7 @@ func renderProfilerFtraceStructuredRows(data []byte, seq *int, sink *traceDBRowS
 }
 
 func renderProfilerFtraceStructuredResult(result profilerTracePluginResult, seq *int, sink *traceDBRowSink) (int, []TraceDBCoverage, error) {
-	return renderProfilerFtraceStructuredResultWithEnvelopeCoverage(result, seq, sink, true, nil)
+	return renderProfilerFtraceStructuredResultWithEnvelopeCoverageContext(context.Background(), result, seq, sink, true, nil)
 }
 
 // The TraceFile container owns one cross-frame envelope diagnostic ledger.
@@ -88,17 +89,25 @@ func renderProfilerFtraceStructuredResult(result profilerTracePluginResult, seq 
 // container path suppresses only that duplicate top-level row and leaves all
 // typed event coverage and pair behavior byte-for-byte shared.
 func renderProfilerFtraceStructuredResultForContainer(result profilerTracePluginResult, seq *int, sink *traceDBRowSink) (int, profilerFtraceEventBatchCensus, error) {
+	return renderProfilerFtraceStructuredResultForContainerContext(context.Background(), result, seq, sink)
+}
+
+func renderProfilerFtraceStructuredResultForContainerContext(ctx context.Context, result profilerTracePluginResult, seq *int, sink *traceDBRowSink) (int, profilerFtraceEventBatchCensus, error) {
 	var batch profilerFtraceEventBatchCensus
-	rows, _, err := renderProfilerFtraceStructuredResultWithEnvelopeCoverage(result, seq, sink, false, &batch)
+	rows, _, err := renderProfilerFtraceStructuredResultWithEnvelopeCoverageContext(ctx, result, seq, sink, false, &batch)
 	return rows, batch, err
 }
 
 func renderProfilerFtraceStructuredResultWithEnvelopeCoverage(result profilerTracePluginResult, seq *int, sink *traceDBRowSink, includeEnvelopeCoverage bool, batch *profilerFtraceEventBatchCensus) (int, []TraceDBCoverage, error) {
+	return renderProfilerFtraceStructuredResultWithEnvelopeCoverageContext(context.Background(), result, seq, sink, includeEnvelopeCoverage, batch)
+}
+
+func renderProfilerFtraceStructuredResultWithEnvelopeCoverageContext(ctx context.Context, result profilerTracePluginResult, seq *int, sink *traceDBRowSink, includeEnvelopeCoverage bool, batch *profilerFtraceEventBatchCensus) (int, []TraceDBCoverage, error) {
 	var topLevelCoverage []TraceDBCoverage
 	if includeEnvelopeCoverage {
 		topLevelCoverage = profilerTracePluginResultCoverage(result)
 	}
-	events, err := profilerTracePluginResultEvents(result)
+	events, err := profilerTracePluginResultEventsContext(ctx, result)
 	if err != nil {
 		return 0, topLevelCoverage, err
 	}
@@ -369,8 +378,17 @@ func decodeProfilerFtraceCPUDetailEvents(data []byte) ([]profilerFtraceEventReco
 }
 
 func profilerPairFamiliesFromCPUDetail(data []byte) pairCriticalFormatFamilyMask {
+	families, _ := profilerPairFamiliesFromCPUDetailContext(context.Background(), data)
+	return families
+}
+
+func profilerPairFamiliesFromCPUDetailContext(ctx context.Context, data []byte) (pairCriticalFormatFamilyMask, error) {
 	var families pairCriticalFormatFamilyMask
+	checkpoint := uint64(0)
 	for len(data) > 0 {
+		if err := profilerProtoContextCheckpoint(ctx, &checkpoint); err != nil {
+			return families, err
+		}
 		key, consumed, ok := consumeProtoVarint(data)
 		if !ok {
 			break
@@ -378,25 +396,25 @@ func profilerPairFamiliesFromCPUDetail(data []byte) pairCriticalFormatFamilyMask
 		data = data[consumed:]
 		fieldNumber := key >> 3
 		if fieldNumber < 1 || fieldNumber > (1<<29)-1 {
-			return families
+			return families, nil
 		}
 		field, wire := int(fieldNumber), int(key&0x7)
 		switch wire {
 		case 0:
 			_, consumed, ok = consumeProtoVarint(data)
 			if !ok {
-				return families
+				return families, nil
 			}
 			data = data[consumed:]
 		case 1:
 			if len(data) < 8 {
-				return families
+				return families, nil
 			}
 			data = data[8:]
 		case 2:
 			length, lengthBytes, valid := consumeProtoVarint(data)
 			if !valid {
-				return families
+				return families, nil
 			}
 			data = data[lengthBytes:]
 			available := uint64(len(data))
@@ -405,27 +423,40 @@ func profilerPairFamiliesFromCPUDetail(data []byte) pairCriticalFormatFamilyMask
 				payloadLength = available
 			}
 			if field == 2 {
-				families |= profilerPairFamiliesFromEventPayload(data[:int(payloadLength)])
+				eventFamilies, err := profilerPairFamiliesFromEventPayloadContext(ctx, data[:int(payloadLength)])
+				if err != nil {
+					return families, err
+				}
+				families |= eventFamilies
 			}
 			if length > available {
-				return families
+				return families, nil
 			}
 			data = data[int(length):]
 		case 5:
 			if len(data) < 4 {
-				return families
+				return families, nil
 			}
 			data = data[4:]
 		default:
-			return families
+			return families, nil
 		}
 	}
-	return families
+	return families, nil
 }
 
 func profilerPairFamiliesFromEventPayload(data []byte) pairCriticalFormatFamilyMask {
+	families, _ := profilerPairFamiliesFromEventPayloadContext(context.Background(), data)
+	return families
+}
+
+func profilerPairFamiliesFromEventPayloadContext(ctx context.Context, data []byte) (pairCriticalFormatFamilyMask, error) {
 	var families pairCriticalFormatFamilyMask
+	checkpoint := uint64(0)
 	for len(data) > 0 {
+		if err := profilerProtoContextCheckpoint(ctx, &checkpoint); err != nil {
+			return families, err
+		}
 		key, consumed, ok := consumeProtoVarint(data)
 		if !ok {
 			break
@@ -433,7 +464,7 @@ func profilerPairFamiliesFromEventPayload(data []byte) pairCriticalFormatFamilyM
 		data = data[consumed:]
 		fieldNumber := key >> 3
 		if fieldNumber < 1 || fieldNumber > (1<<29)-1 {
-			return families
+			return families, nil
 		}
 		field, wire := int(fieldNumber), int(key&0x7)
 		families |= profilerPairFamilyForField(field)
@@ -441,34 +472,34 @@ func profilerPairFamiliesFromEventPayload(data []byte) pairCriticalFormatFamilyM
 		case 0:
 			_, consumed, ok = consumeProtoVarint(data)
 			if !ok {
-				return families
+				return families, nil
 			}
 			data = data[consumed:]
 		case 1:
 			if len(data) < 8 {
-				return families
+				return families, nil
 			}
 			data = data[8:]
 		case 2:
 			length, lengthBytes, valid := consumeProtoVarint(data)
 			if !valid {
-				return families
+				return families, nil
 			}
 			data = data[lengthBytes:]
 			if length > uint64(len(data)) {
-				return families
+				return families, nil
 			}
 			data = data[int(length):]
 		case 5:
 			if len(data) < 4 {
-				return families
+				return families, nil
 			}
 			data = data[4:]
 		default:
-			return families
+			return families, nil
 		}
 	}
-	return families
+	return families, nil
 }
 
 type profilerProtoEnvelopeField struct {

@@ -2,10 +2,151 @@ package hitraceconv
 
 import (
 	"bytes"
+	"context"
+	"errors"
+	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 )
+
+func TestProfilerTracePluginResultVisitorPreservesPhysicalOrderAndCheckedCensus(t *testing.T) {
+	payload := protoPayload(
+		protoBytes(1, []byte("stats-a")),
+		protoVarint(2, 7),
+		protoBytes(5, []byte("symbol-a")),
+		protoBytes(2, []byte("detail-a")),
+		protoBytes(8, []byte("comm-a")),
+	)
+	result, err := decodeProfilerTracePluginResultContext(context.Background(), payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.KnownOccurrences[2] != 2 || result.PayloadOccurrences[2] != 1 ||
+		result.Issues.Occurrences[profilerTracePluginIssueField2WrongWire] != 1 {
+		t.Fatalf("first-pass fixed census drifted: %+v", result)
+	}
+	var order []string
+	err = visitProfilerTracePluginResult(context.Background(), result, func(field int, raw []byte) error {
+		order = append(order, fmt.Sprintf("%d=%s", field, raw))
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"1=stats-a", "5=symbol-a", "2=detail-a", "8=comm-a"}
+	if !reflect.DeepEqual(order, want) {
+		t.Fatalf("visitor lost physical wire order: got=%v want=%v", order, want)
+	}
+
+	callbackErr := errors.New("visitor stopped")
+	if err := visitProfilerTracePluginResult(context.Background(), result, func(int, []byte) error {
+		return callbackErr
+	}); !errors.Is(err, callbackErr) {
+		t.Fatalf("callback error identity must survive: %v", err)
+	}
+
+	tampered := result
+	tampered.payload = protoBytes(1, []byte("stats-a"))
+	if err := visitProfilerTracePluginResult(context.Background(), tampered, nil); err == nil {
+		t.Fatal("second-pass census drift must fail as an internal invariant")
+	} else if reason, ok := traceDBOutputInvariantReason(err); !ok || reason != "profiler_trace_plugin_visitor_census_drift" {
+		t.Fatalf("unexpected census-drift verdict: %v", err)
+	}
+}
+
+func TestProfilerTracePluginResultContextCancellationIdentity(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := decodeProfilerTracePluginResultContext(ctx, protoBytes(2, []byte{})); !errors.Is(err, context.Canceled) {
+		t.Fatalf("authority cancellation identity lost: %v", err)
+	}
+	result := decodeProfilerTracePluginResult(protoBytes(2, []byte{}))
+	if err := visitProfilerTracePluginResult(ctx, result, nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("visitor cancellation identity lost: %v", err)
+	}
+}
+
+func TestProfilerTracePluginResultRepeatedFieldWrongWireDoesNotStarveSibling(t *testing.T) {
+	for _, field := range []int{1, 2, 5, 6, 8} {
+		t.Run(strconv.Itoa(field), func(t *testing.T) {
+			legal := []byte{byte(field), 0xa5}
+			result := decodeProfilerTracePluginResult(protoPayload(
+				protoVarint(field, 1),
+				protoBytes(field, legal),
+			))
+			kind, ok := profilerTracePluginWrongWireIssue(field)
+			if !ok || result.KnownOccurrences[field] != 2 || result.PayloadOccurrences[field] != 1 ||
+				result.Issues.Occurrences[kind] != 1 {
+				t.Fatalf("field %d fixed census drifted: %+v", field, result)
+			}
+			var visited [][]byte
+			if err := visitProfilerTracePluginResult(context.Background(), result, func(observed int, raw []byte) error {
+				if observed == field {
+					visited = append(visited, append([]byte(nil), raw...))
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if len(visited) != 1 || !bytes.Equal(visited[0], legal) {
+				t.Fatalf("field %d legal sibling was starved: %x", field, visited)
+			}
+		})
+	}
+}
+
+func TestProfilerTracePluginResultVersionAuthorityIsCentralized(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload []byte
+		want    int
+	}{
+		{name: "unique", payload: protoBytes(7, []byte("v1")), want: 1},
+		{name: "two legal", payload: protoPayload(protoBytes(7, []byte("v1")), protoBytes(7, []byte("v2")))},
+		{name: "legal and wrong wire", payload: protoPayload(protoBytes(7, []byte("v1")), protoVarint(7, 1))},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := decodeProfilerTracePluginResult(test.payload)
+			visited := 0
+			if err := visitProfilerTracePluginResult(context.Background(), result, func(field int, _ []byte) error {
+				if field == 7 {
+					visited++
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if visited != test.want {
+				t.Fatalf("field7 authority leaked an ambiguous value: visited=%d want=%d result=%+v", visited, test.want, result)
+			}
+		})
+	}
+}
+
+func TestProfilerTracePluginResultVisitorCancelsDuringRepeatedWalk(t *testing.T) {
+	const occurrences = 2_000
+	payload := bytes.Repeat(protoBytes(5, nil), occurrences)
+	result := decodeProfilerTracePluginResult(payload)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	visited := 0
+	err := visitProfilerTracePluginResult(ctx, result, func(int, []byte) error {
+		visited++
+		if visited == 300 {
+			cancel()
+		}
+		return nil
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("running cancellation identity lost: visited=%d err=%v", visited, err)
+	}
+	if visited < 300 || visited > 300+255 {
+		t.Fatalf("running cancellation did not stop the repeated walk: visited=%d", visited)
+	}
+}
 
 func TestParseProfilerPluginDataHardRouteFieldsFailClosed(t *testing.T) {
 	bodyA := []byte("body-a")
@@ -178,8 +319,9 @@ func TestDecodeProfilerTracePluginResultRetainsRepeatedCPUPages(t *testing.T) {
 	if result.Disposition != profilerFtracePayloadStructured {
 		t.Fatalf("two legal CPU-detail occurrences must remain structured: %+v", result)
 	}
-	if len(result.CPUDetails) != 2 || !bytes.Equal(result.CPUDetails[0], pageA) || !bytes.Equal(result.CPUDetails[1], pageB) {
-		t.Fatalf("repeated same-CPU pages must be retained in wire order: %+v", result.CPUDetails)
+	details := profilerTracePluginPayloadsForTest(t, result, 2)
+	if len(details) != 2 || !bytes.Equal(details[0], pageA) || !bytes.Equal(details[1], pageB) {
+		t.Fatalf("repeated same-CPU pages must be visited in wire order: %x", details)
 	}
 	summary, recognized, err := decodeProfilerFtraceSummaryResult(result)
 	if err != nil || !recognized {
@@ -232,7 +374,8 @@ func TestDecodeProfilerTracePluginResultWrongWireDoesNotStarveLegalSibling(t *te
 		protoBytes(2, page),
 	))
 
-	if result.Disposition != profilerFtracePayloadStructured || len(result.CPUDetails) != 1 || !bytes.Equal(result.CPUDetails[0], page) {
+	details := profilerTracePluginPayloadsForTest(t, result, 2)
+	if result.Disposition != profilerFtracePayloadStructured || len(details) != 1 || !bytes.Equal(details[0], page) {
 		t.Fatalf("wrong-wire occurrence must not erase a legal repeated sibling: %+v", result)
 	}
 	if !profilerTracePluginIssuePresent(result.Issues, "envelope_trace_plugin_field2_wrong_wire") {
@@ -249,8 +392,8 @@ func TestDecodeProfilerTracePluginResultInvalidVersionDuplicateIsNotAuthoritativ
 	if result.Disposition != profilerFtracePayloadStructured {
 		t.Fatalf("version damage is local envelope degradation: %+v", result)
 	}
-	if len(result.Versions) != 0 {
-		t.Fatalf("a valid+wrong-wire duplicate cannot publish a chosen version: %q", result.Versions)
+	if result.VersionOccurrences != 2 {
+		t.Fatalf("a valid+wrong-wire duplicate must retain the fixed occurrence census: %+v", result)
 	}
 	for _, issue := range []string{
 		"envelope_trace_plugin_field7_wrong_wire",
@@ -270,8 +413,8 @@ func TestDecodeProfilerTracePluginResultMalformedTailClearsPartialAuthority(t *t
 	if result.Disposition != profilerFtracePayloadMalformed {
 		t.Fatalf("known structured prefix plus malformed tail must stay typed-malformed: %+v", result)
 	}
-	if len(result.CPUStats) != 0 || len(result.CPUDetails) != 0 || len(result.Symbols) != 0 ||
-		len(result.Clocks) != 0 || len(result.Versions) != 0 || len(result.CommDicts) != 0 {
+	if result.payload != nil || result.KnownOccurrences != [profilerTracePluginResultMaxField + 1]uint64{} ||
+		result.PayloadOccurrences != [profilerTracePluginResultMaxField + 1]uint64{} {
 		t.Fatalf("malformed envelope must not retain partial typed authority: %+v", result)
 	}
 	if !profilerTracePluginIssuePresent(result.Issues, "envelope_trace_plugin_malformed_wire") {

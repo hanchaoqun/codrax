@@ -2,13 +2,45 @@ package hitraceconv
 
 import (
 	"bytes"
+	"context"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
 )
+
+func TestProfilerTracePluginResultMillionLegalOccurrencesRetainFixedShape(t *testing.T) {
+	const occurrences = 1_000_000
+	payload := bytes.Repeat(protoBytes(5, nil), occurrences)
+	result, err := decodeProfilerTracePluginResultContext(context.Background(), payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Disposition != profilerFtracePayloadStructured ||
+		result.KnownOccurrences[5] != occurrences || result.PayloadOccurrences[5] != occurrences ||
+		len(result.payload) != len(payload) {
+		t.Fatalf("million-occurrence authority census drifted: %+v", result)
+	}
+	if err := visitProfilerTracePluginResult(context.Background(), result, nil); err != nil {
+		t.Fatalf("million-occurrence checked replay: %v", err)
+	}
+
+	typ := reflect.TypeOf(result)
+	for index := 0; index < typ.NumField(); index++ {
+		field := typ.Field(index)
+		switch field.Type.Kind() {
+		case reflect.Map:
+			t.Fatalf("authority retains dynamic map field %s", field.Name)
+		case reflect.Slice:
+			if field.Name != "payload" || field.Type.Elem().Kind() != reflect.Uint8 {
+				t.Fatalf("authority retains repeated slice field %s %s", field.Name, field.Type)
+			}
+		}
+	}
+}
 
 func profilerInnerCoverage(extracted profilerContainerExtraction, family, table string) (TraceDBCoverage, int) {
 	var found TraceDBCoverage
@@ -29,8 +61,9 @@ func TestProfilerInnerEnvelopeWrongWireStormUsesFixedCensus(t *testing.T) {
 	payload := append([]byte(nil), bytes.Repeat(wrongWire, occurrences)...)
 	payload = append(payload, protoBytes(2, legalDetail)...)
 	result := decodeProfilerTracePluginResult(payload)
+	details := profilerTracePluginPayloadsForTest(t, result, 2)
 	if result.Disposition != profilerFtracePayloadStructured || result.IssueOverflow ||
-		len(result.CPUDetails) != 1 || !bytes.Equal(result.CPUDetails[0], legalDetail) ||
+		len(details) != 1 || !bytes.Equal(details[0], legalDetail) ||
 		result.Issues.Occurrences[profilerTracePluginIssueField2WrongWire] != occurrences ||
 		result.Issues.AffectedFrames[profilerTracePluginIssueField2WrongWire] != 1 {
 		t.Fatalf("envelope wrong-wire storm census/starvation drifted: %+v", result)
@@ -77,7 +110,7 @@ func TestProfilerInnerEnvelopeVersionDuplicateUnits(t *testing.T) {
 	const occurrences = 1_000
 	version := protoBytes(7, []byte("trace-plugin-v1"))
 	result := decodeProfilerTracePluginResult(bytes.Repeat(version, occurrences))
-	if result.Disposition != profilerFtracePayloadStructured || result.IssueOverflow || len(result.Versions) != 0 ||
+	if result.Disposition != profilerFtracePayloadStructured || result.IssueOverflow || result.VersionOccurrences != occurrences ||
 		result.Issues.Occurrences[profilerTracePluginIssueVersionDuplicate] != 1 ||
 		result.Issues.AffectedFrames[profilerTracePluginIssueVersionDuplicate] != 1 ||
 		result.Issues.VersionDuplicateExcess != occurrences-1 {

@@ -1048,7 +1048,11 @@ frames:
 					continue
 				}
 
-				authority := decodeProfilerTracePluginResult(plugin.Data)
+				authority, authorityErr := decodeProfilerTracePluginResultContext(ctx, plugin.Data)
+				if authorityErr != nil {
+					_ = sink.endPairRowCensus()
+					return profilerContainerExtraction{}, authorityErr
+				}
 				if authority.IssueOverflow || !diagnostics.FtraceEnvelope.observe(authority.Issues, off) {
 					_ = sink.endPairRowCensus()
 					profilerContainerCounterFailClose(&out, sink)
@@ -1085,16 +1089,10 @@ frames:
 						break frames
 					}
 				}
-				summary, ok, summaryErr := decodeProfilerFtraceSummaryResult(authority)
+				summary, ok, summaryErr := decodeProfilerFtraceSummaryResultContext(ctx, authority)
 				if summaryErr != nil {
-					out.Caveats = append(out.Caveats, fmt.Sprintf("ftrace-plugin structured metadata parse failed: %v", summaryErr))
-					coverage.Error = summaryErr.Error()
-					outcome = profilerPluginOutcomeStructuredDegraded
-					if !checkedProfilerIntAddTo(&out.UnsupportedFtrace, 1) {
-						_ = sink.endPairRowCensus()
-						profilerContainerCounterFailClose(&out, sink)
-						break frames
-					}
+					_ = sink.endPairRowCensus()
+					return profilerContainerExtraction{}, summaryErr
 				} else {
 					if ok {
 						if summary.IssueOverflow || !diagnostics.FtraceSummary.observe(summary, off) {
@@ -1103,7 +1101,7 @@ frames:
 							break frames
 						}
 					}
-					structuredRows, eventBatch, renderErr := renderProfilerFtraceStructuredResultForContainer(authority, &seq, sink)
+					structuredRows, eventBatch, renderErr := renderProfilerFtraceStructuredResultForContainerContext(ctx, authority, &seq, sink)
 					if renderErr != nil {
 						coverage.Error = renderErr.Error()
 						_ = appendPluginCoverage()
@@ -1497,6 +1495,10 @@ func decodeProfilerFtraceSummary(data []byte) (profilerFtraceSummary, bool, erro
 }
 
 func decodeProfilerFtraceSummaryResult(result profilerTracePluginResult) (profilerFtraceSummary, bool, error) {
+	return decodeProfilerFtraceSummaryResultContext(context.Background(), result)
+}
+
+func decodeProfilerFtraceSummaryResultContext(ctx context.Context, result profilerTracePluginResult) (profilerFtraceSummary, bool, error) {
 	summary := profilerFtraceSummary{
 		TraceClocks:       map[string]int{},
 		StatsCPUs:         map[uint64]bool{},
@@ -1513,123 +1515,128 @@ func decodeProfilerFtraceSummaryResult(result profilerTracePluginResult) (profil
 		return summary, false, nil
 	}
 	summary.recognizedMessage = true
-	for _, raw := range result.CPUStats {
-		stats, err := decodeProfilerFtraceCPUStats(raw)
-		if err != nil {
-			if !summary.Issues.observe(profilerFtraceSummaryIssueCPUStatsMalformed, 1) {
-				summary.IssueOverflow = true
+	err := visitProfilerTracePluginResult(ctx, result, func(field int, raw []byte) error {
+		switch field {
+		case 1:
+			stats, err := decodeProfilerFtraceCPUStats(raw)
+			if err != nil {
+				if !summary.Issues.observe(profilerFtraceSummaryIssueCPUStatsMalformed, 1) {
+					summary.IssueOverflow = true
+				}
+				return nil
 			}
-			continue
-		}
-		summary.StatsMessages++
-		if stats.Clock != "" {
-			summary.TraceClocks[stats.Clock]++
-		}
-		if stats.Status == 1 {
-			summary.EndStats++
-		} else {
-			summary.StartStats++
-		}
-		for _, cpu := range stats.PerCPU {
-			summary.StatsCPUs[cpu.CPU] = true
+			summary.StatsMessages++
+			if stats.Clock != "" {
+				summary.TraceClocks[stats.Clock]++
+			}
 			if stats.Status == 1 {
-				summary.EndTotalsSeen = true
-				if summary.EndTotalsValid && !summary.EndTotals.add(cpu) {
-					summary.EndTotalsValid = false
-					summary.EndTotals = profilerFtraceCPUTotals{}
-					if !summary.Issues.observe(profilerFtraceSummaryIssueEndStatsOverflow, 1) {
-						summary.IssueOverflow = true
-					}
-				}
+				summary.EndStats++
 			} else {
-				summary.StartTotalsSeen = true
-				if summary.StartTotalsValid && !summary.StartTotals.add(cpu) {
-					summary.StartTotalsValid = false
-					summary.StartTotals = profilerFtraceCPUTotals{}
-					if !summary.Issues.observe(profilerFtraceSummaryIssueStartStatsOverflow, 1) {
-						summary.IssueOverflow = true
+				summary.StartStats++
+			}
+			for _, cpu := range stats.PerCPU {
+				summary.StatsCPUs[cpu.CPU] = true
+				if stats.Status == 1 {
+					summary.EndTotalsSeen = true
+					if summary.EndTotalsValid && !summary.EndTotals.add(cpu) {
+						summary.EndTotalsValid = false
+						summary.EndTotals = profilerFtraceCPUTotals{}
+						if !summary.Issues.observe(profilerFtraceSummaryIssueEndStatsOverflow, 1) {
+							summary.IssueOverflow = true
+						}
+					}
+				} else {
+					summary.StartTotalsSeen = true
+					if summary.StartTotalsValid && !summary.StartTotals.add(cpu) {
+						summary.StartTotalsValid = false
+						summary.StartTotals = profilerFtraceCPUTotals{}
+						if !summary.Issues.observe(profilerFtraceSummaryIssueStartStatsOverflow, 1) {
+							summary.IssueOverflow = true
+						}
 					}
 				}
 			}
-		}
-	}
-	for _, raw := range result.CPUDetails {
-		detail, err := decodeProfilerFtraceCPUDetail(raw)
-		if err != nil {
-			continue
-		}
-		summary.DetailMessages++
-		summary.DetailCPUs[detail.CPU] = true
-		summary.DetailEventCount += detail.EventCount
-		if !detail.OverwriteValid {
-			summary.DetailOverwriteOK = false
-			summary.DetailOverwrite = 0
-		} else if summary.DetailOverwriteOK {
-			if next, ok := checkedProfilerUint64Add(summary.DetailOverwrite, detail.Overwrite); ok {
-				summary.DetailOverwrite = next
-			} else {
+		case 2:
+			detail, err := decodeProfilerFtraceCPUDetail(raw)
+			if err != nil {
+				return nil
+			}
+			summary.DetailMessages++
+			summary.DetailCPUs[detail.CPU] = true
+			summary.DetailEventCount += detail.EventCount
+			if !detail.OverwriteValid {
 				summary.DetailOverwriteOK = false
 				summary.DetailOverwrite = 0
-				if !summary.Issues.observe(profilerFtraceSummaryIssueDetailOverwriteOverflow, 1) {
+			} else if summary.DetailOverwriteOK {
+				if next, ok := checkedProfilerUint64Add(summary.DetailOverwrite, detail.Overwrite); ok {
+					summary.DetailOverwrite = next
+				} else {
+					summary.DetailOverwriteOK = false
+					summary.DetailOverwrite = 0
+					if !summary.Issues.observe(profilerFtraceSummaryIssueDetailOverwriteOverflow, 1) {
+						summary.IssueOverflow = true
+					}
+				}
+			}
+			for eventField, count := range detail.EventFieldCounts {
+				summary.EventFieldCounts[eventField] += count
+			}
+		case 5:
+			symbol, err := decodeProfilerFtraceSymbolDetail(raw)
+			if err != nil {
+				if !summary.Issues.observe(profilerFtraceSummaryIssueSymbolMalformed, 1) {
+					summary.IssueOverflow = true
+				}
+				return nil
+			}
+			summary.SymbolCount++
+			if symbol.Name != "" {
+				if len(summary.SymbolExamples) < 5 {
+					if symbol.Addr != 0 {
+						summary.SymbolExamples = append(summary.SymbolExamples, fmt.Sprintf("0x%x=%s", symbol.Addr, symbol.Name))
+					} else {
+						summary.SymbolExamples = append(summary.SymbolExamples, symbol.Name)
+					}
+				} else {
+					summary.SymbolTruncated = true
+				}
+			}
+		case 6:
+			clock, err := decodeProfilerFtraceClockDetail(raw)
+			if err != nil {
+				if !summary.Issues.observe(profilerFtraceSummaryIssueClockMalformed, 1) {
+					summary.IssueOverflow = true
+				}
+				return nil
+			}
+			if label := profilerFtraceClockDetailLabel(clock); label != "" {
+				summary.ClockDetailCount++
+				if len(summary.ClockDetails) < 8 {
+					summary.ClockDetails = append(summary.ClockDetails, label)
+				} else {
+					summary.ClockTruncated = true
+				}
+			}
+		case 7:
+			if result.VersionOccurrences != 1 {
+				return nil
+			}
+			if traceDBSinglePhysicalLine(string(raw), true) {
+				summary.Version = string(raw)
+			} else if !summary.Issues.observe(profilerFtraceSummaryIssueVersionInvalid, 1) {
+				summary.IssueOverflow = true
+			}
+		case 8:
+			if err := decodeProfilerFtraceCommDict(raw); err != nil {
+				if !summary.Issues.observe(profilerFtraceSummaryIssueCommMalformed, 1) {
 					summary.IssueOverflow = true
 				}
 			}
 		}
-		for eventField, count := range detail.EventFieldCounts {
-			summary.EventFieldCounts[eventField] += count
-		}
-	}
-	for _, raw := range result.Symbols {
-		symbol, err := decodeProfilerFtraceSymbolDetail(raw)
-		if err != nil {
-			if !summary.Issues.observe(profilerFtraceSummaryIssueSymbolMalformed, 1) {
-				summary.IssueOverflow = true
-			}
-			continue
-		}
-		summary.SymbolCount++
-		if symbol.Name != "" {
-			if len(summary.SymbolExamples) < 5 {
-				if symbol.Addr != 0 {
-					summary.SymbolExamples = append(summary.SymbolExamples, fmt.Sprintf("0x%x=%s", symbol.Addr, symbol.Name))
-				} else {
-					summary.SymbolExamples = append(summary.SymbolExamples, symbol.Name)
-				}
-			} else {
-				summary.SymbolTruncated = true
-			}
-		}
-	}
-	for _, raw := range result.Clocks {
-		clock, err := decodeProfilerFtraceClockDetail(raw)
-		if err != nil {
-			if !summary.Issues.observe(profilerFtraceSummaryIssueClockMalformed, 1) {
-				summary.IssueOverflow = true
-			}
-			continue
-		}
-		if label := profilerFtraceClockDetailLabel(clock); label != "" {
-			summary.ClockDetailCount++
-			if len(summary.ClockDetails) < 8 {
-				summary.ClockDetails = append(summary.ClockDetails, label)
-			} else {
-				summary.ClockTruncated = true
-			}
-		}
-	}
-	for _, raw := range result.CommDicts {
-		if err := decodeProfilerFtraceCommDict(raw); err != nil {
-			if !summary.Issues.observe(profilerFtraceSummaryIssueCommMalformed, 1) {
-				summary.IssueOverflow = true
-			}
-		}
-	}
-	if len(result.Versions) == 1 && traceDBSinglePhysicalLine(string(result.Versions[0]), true) {
-		summary.Version = string(result.Versions[0])
-	} else if len(result.Versions) == 1 {
-		if !summary.Issues.observe(profilerFtraceSummaryIssueVersionInvalid, 1) {
-			summary.IssueOverflow = true
-		}
+		return nil
+	})
+	if err != nil {
+		return summary, false, err
 	}
 	return summary, summary.recognizedMessage, nil
 }

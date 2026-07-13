@@ -218,17 +218,14 @@ func TestStructuredF2FSUnknownOwnerClosesFamilyInsteadOfGuessingLane(t *testing.
 	}
 	defer sink.cleanup()
 	seq := 0
-	result := profilerTracePluginResult{
-		Disposition: profilerFtracePayloadStructured,
-		CPUDetails: [][]byte{protoPayload(
-			protoVarint(1, 2),
-			protoMessage(2, protoPayload(
-				protoVarint(1, 1_000), protoVarint(2, 40), protoBytes(3, []byte("f2fs")),
-				protoMessage(50, protoPayload(protoVarint(4, 40), protoVarint(4, 40))),
-				protoMessage(4012, profilerAuxEncodeValues(cases[4012].values)),
-			)),
-		)},
-	}
+	result := decodeProfilerTracePluginResult(protoMessage(2, protoPayload(
+		protoVarint(1, 2),
+		protoMessage(2, protoPayload(
+			protoVarint(1, 1_000), protoVarint(2, 40), protoBytes(3, []byte("f2fs")),
+			protoMessage(50, protoPayload(protoVarint(4, 40), protoVarint(4, 40))),
+			protoMessage(4012, profilerAuxEncodeValues(cases[4012].values)),
+		)),
+	)))
 	if rows, _, renderErr := renderProfilerFtraceStructuredResult(result, &seq, sink); renderErr != nil || rows != 0 {
 		t.Fatalf("unknown-owner fixture verdict rows=%d err=%v", rows, renderErr)
 	}
