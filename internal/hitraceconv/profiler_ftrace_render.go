@@ -107,10 +107,6 @@ func renderProfilerFtraceStructuredResultWithEnvelopeCoverageContext(ctx context
 	if includeEnvelopeCoverage {
 		topLevelCoverage = profilerTracePluginResultCoverage(result)
 	}
-	events, err := profilerTracePluginResultEventsContext(ctx, result)
-	if err != nil {
-		return 0, topLevelCoverage, err
-	}
 	var coverageByField map[int]*TraceDBCoverage
 	var degradationsByField map[int]map[string]int
 	if batch == nil {
@@ -118,7 +114,7 @@ func renderProfilerFtraceStructuredResultWithEnvelopeCoverageContext(ctx context
 		degradationsByField = map[int]map[string]int{}
 	}
 	rows := 0
-	for _, event := range events {
+	renderEvent := func(event profilerFtraceEventRecord) error {
 		if event.PairCaptureOpaque {
 			sink.markPairCaptureOpaque(pairRenderMMC)
 			sink.markPairCaptureOpaque(pairRenderF2FS)
@@ -149,7 +145,7 @@ func renderProfilerFtraceStructuredResultWithEnvelopeCoverageContext(ctx context
 			coverage = profilerFtraceEventRenderCoverage(coverageByField, event.Field)
 			coverage.RowsRead++
 		} else if !batch.observeRead(event.Field) {
-			return rows, topLevelCoverage, &traceDBOutputInvariantError{Reason: "profiler_event_batch_counter_overflow"}
+			return &traceDBOutputInvariantError{Reason: "profiler_event_batch_counter_overflow"}
 		}
 		var name, body string
 		var ok bool
@@ -158,15 +154,15 @@ func renderProfilerFtraceStructuredResultWithEnvelopeCoverageContext(ctx context
 		var auditErr error
 		name, body, ok, issues, typedPair, auditErr = renderProfilerFtraceEventBodyWithTypedAuditAndPair(event)
 		if auditErr != nil {
-			return rows, topLevelCoverage, auditErr
+			return auditErr
 		}
 		if !profilerFtraceEventIssueVerdictValid(event.Field, ok, issues) {
-			return rows, topLevelCoverage, &traceDBOutputInvariantError{Reason: "profiler_event_issue_verdict_invalid"}
+			return &traceDBOutputInvariantError{Reason: "profiler_event_issue_verdict_invalid"}
 		}
 		if batch == nil {
 			labels, labelsOK := profilerFtraceEventIssueLabels(event.Field, issues)
 			if !labelsOK {
-				return rows, topLevelCoverage, &traceDBOutputInvariantError{Reason: "profiler_event_issue_label_invalid"}
+				return &traceDBOutputInvariantError{Reason: "profiler_event_issue_label_invalid"}
 			}
 			degradations := make([]string, 0, len(labels))
 			for index, label := range labels {
@@ -190,7 +186,7 @@ func renderProfilerFtraceStructuredResultWithEnvelopeCoverageContext(ctx context
 			}
 		} else {
 			if len(issues) > 0 && !batch.observeIssues(event.Field, ok, issues) {
-				return rows, topLevelCoverage, &traceDBOutputInvariantError{Reason: "profiler_event_issue_census_overflow"}
+				return &traceDBOutputInvariantError{Reason: "profiler_event_issue_census_overflow"}
 			}
 		}
 		if !ok {
@@ -210,13 +206,13 @@ func renderProfilerFtraceStructuredResultWithEnvelopeCoverageContext(ctx context
 			if coverage != nil && coverage.Skipped == "" {
 				coverage.Skipped = "structured ftrace renderer pending"
 			}
-			continue
+			return nil
 		}
 		task := firstNonEmpty(event.Comm, "unknown")
 		row, err := prepareTraceDBRenderedRowWithTraceFlags(int64(event.TSNS), *seq, task, event.PID,
 			event.TGID, event.CPU, event.CommonFlags, event.CommonPreemptCount, name+": "+body)
 		if err != nil {
-			return rows, append(topLevelCoverage, profilerFtraceEventRenderCoverageList(coverageByField)...), err
+			return err
 		}
 		if mmcGoverned {
 			row.pairKind = pairRenderMMC
@@ -254,15 +250,19 @@ func renderProfilerFtraceStructuredResultWithEnvelopeCoverageContext(ctx context
 			}
 		}
 		if err := sink.add(row); err != nil {
-			return rows, append(topLevelCoverage, profilerFtraceEventRenderCoverageList(coverageByField)...), err
+			return err
 		}
 		(*seq)++
 		rows++
 		if coverage != nil {
 			coverage.RowsEmitted++
 		} else if !batch.observeEmitted(event.Field) {
-			return rows, topLevelCoverage, &traceDBOutputInvariantError{Reason: "profiler_event_batch_emitted_counter_overflow"}
+			return &traceDBOutputInvariantError{Reason: "profiler_event_batch_emitted_counter_overflow"}
 		}
+		return nil
+	}
+	if err := visitProfilerTracePluginResultEventsContext(ctx, result, renderEvent); err != nil {
+		return rows, append(topLevelCoverage, profilerFtraceEventRenderCoverageList(coverageByField)...), err
 	}
 	for field, counts := range degradationsByField {
 		coverage := profilerFtraceEventRenderCoverage(coverageByField, field)
@@ -275,14 +275,6 @@ func renderProfilerFtraceStructuredResultWithEnvelopeCoverageContext(ctx context
 		}
 	}
 	return rows, append(topLevelCoverage, profilerFtraceEventRenderCoverageList(coverageByField)...), nil
-}
-
-func decodeProfilerFtraceStructuredEvents(data []byte) ([]profilerFtraceEventRecord, error) {
-	return profilerTracePluginResultEvents(decodeProfilerTracePluginResult(data))
-}
-
-func decodeProfilerFtraceCPUDetailEvents(data []byte) ([]profilerFtraceEventRecord, error) {
-	return decodeProfilerFtraceCPUDetailEventsContext(context.Background(), data)
 }
 
 type profilerFtraceCPUDetailAuthority struct {
@@ -376,6 +368,12 @@ func (authority profilerFtraceCPUDetailAuthority) cpuIssue() (profilerFtraceEven
 }
 
 func visitProfilerFtraceCPUDetailEvents(ctx context.Context, authority profilerFtraceCPUDetailAuthority, visit func(profilerFtraceEventRecord) error) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	callback := func(record profilerFtraceEventRecord) error {
 		if visit != nil {
 			return visit(record)
@@ -471,19 +469,6 @@ func visitProfilerFtraceCPUDetailEvents(ctx context.Context, authority profilerF
 		}
 	}
 	return nil
-}
-
-func decodeProfilerFtraceCPUDetailEventsContext(ctx context.Context, data []byte) ([]profilerFtraceEventRecord, error) {
-	authority, err := auditProfilerFtraceCPUDetail(ctx, data)
-	if err != nil {
-		return nil, err
-	}
-	var out []profilerFtraceEventRecord
-	err = visitProfilerFtraceCPUDetailEvents(ctx, authority, func(record profilerFtraceEventRecord) error {
-		out = append(out, record)
-		return nil
-	})
-	return out, err
 }
 
 func profilerPairFamiliesFromCPUDetail(data []byte) pairCriticalFormatFamilyMask {

@@ -14,6 +14,19 @@ type profilerCancelAfterPollContext struct {
 	cancelAt int
 }
 
+type profilerCancelAtSeqContext struct {
+	context.Context
+	seq      *int
+	cancelAt int
+}
+
+func (ctx *profilerCancelAtSeqContext) Err() error {
+	if ctx.seq != nil && *ctx.seq >= ctx.cancelAt {
+		return context.Canceled
+	}
+	return nil
+}
+
 func (ctx *profilerCancelAfterPollContext) Err() error {
 	ctx.polls++
 	if ctx.polls >= ctx.cancelAt {
@@ -209,5 +222,65 @@ func TestProfilerFtraceCPUDetailCancelsInsideOneLargeEventEnvelope(t *testing.T)
 	})
 	if !errors.Is(err, context.Canceled) || visited != 0 || ctx.polls < ctx.cancelAt {
 		t.Fatalf("large event envelope cancellation drifted: polls=%d visited=%d err=%v", ctx.polls, visited, err)
+	}
+}
+
+func TestProfilerFtraceRendererStreamsEventsAndReturnsCancellation(t *testing.T) {
+	var detail bytes.Buffer
+	detail.Write(protoVarint(1, 1))
+	for index := 0; index < 100; index++ {
+		detail.Write(syntheticTracePluginFtraceEvent(
+			uint64(1_000+index), 7, 7, "worker", 1109,
+			protoBytes(2, []byte("B|7|work")),
+		))
+	}
+	result := decodeProfilerTracePluginResult(protoBytes(2, detail.Bytes()))
+	sink, err := newTraceDBRowSink(t.TempDir(), 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+	seq := 0
+	ctx := &profilerCancelAtSeqContext{Context: context.Background(), seq: &seq, cancelAt: 10}
+	rows, _, err := renderProfilerFtraceStructuredResultWithEnvelopeCoverageContext(ctx, result, &seq, sink, true, nil)
+	if !errors.Is(err, context.Canceled) || rows != 10 || seq != 10 || sink.stats.RowsAccepted != 10 {
+		t.Fatalf("streaming renderer cancellation drifted: rows=%d seq=%d accepted=%d err=%v", rows, seq, sink.stats.RowsAccepted, err)
+	}
+}
+
+func TestProfilerFtraceMalformedSyntheticHonorsPreCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	callbackCount := 0
+	authority := profilerFtraceCPUDetailAuthority{Malformed: true, PairFamilies: pairCriticalFormatFamilyF2FS}
+	if err := visitProfilerFtraceCPUDetailEvents(ctx, authority, func(profilerFtraceEventRecord) error {
+		callbackCount++
+		return nil
+	}); !errors.Is(err, context.Canceled) || callbackCount != 0 {
+		t.Fatalf("malformed detail ignored pre-cancel: callbacks=%d err=%v", callbackCount, err)
+	}
+
+	result := profilerTracePluginResult{
+		Disposition:       profilerFtracePayloadMalformed,
+		PairFamilies:      pairCriticalFormatFamilyF2FS,
+		PairCaptureOpaque: true,
+	}
+	if err := visitProfilerTracePluginResultEventsContext(ctx, result, func(profilerFtraceEventRecord) error {
+		callbackCount++
+		return nil
+	}); !errors.Is(err, context.Canceled) || callbackCount != 0 {
+		t.Fatalf("malformed top result ignored pre-cancel: callbacks=%d err=%v", callbackCount, err)
+	}
+
+	sink, err := newTraceDBRowSink(t.TempDir(), 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+	seq := 0
+	rows, _, err := renderProfilerFtraceStructuredResultWithEnvelopeCoverageContext(ctx, result, &seq, sink, true, nil)
+	if !errors.Is(err, context.Canceled) || rows != 0 || seq != 0 || sink.stats.RowsAccepted != 0 ||
+		sink.pairKindPoisoned(pairRenderF2FS) {
+		t.Fatalf("pre-canceled malformed renderer mutated output: rows=%d seq=%d sink=%+v err=%v", rows, seq, sink.stats, err)
 	}
 }

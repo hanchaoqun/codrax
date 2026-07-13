@@ -391,7 +391,7 @@ func TestProfilerFtraceEnvelopeProducerTypedStructurePinned(t *testing.T) {
 		!strings.Contains(record, "[profilerFtraceEnvelopeIssuesPerEvent]profilerFtraceEventIssue") {
 		t.Fatalf("event envelope issue set is not fixed-cardinality:\n%s", record)
 	}
-	producer := sourceBetween(t, renderer, "func decodeProfilerFtraceCPUDetailEvents(", "func renderProfilerFtraceEventBody(")
+	producer := sourceBetween(t, renderer, "type profilerFtraceCPUDetailAuthority struct {", "func profilerPairFamiliesFromCPUDetail(")
 	for _, forbidden := range []string{
 		"[]string", "prefix string", `"envelope_"`, "profilerFtraceEventIssueFromLegacy(",
 	} {
@@ -399,10 +399,18 @@ func TestProfilerFtraceEnvelopeProducerTypedStructurePinned(t *testing.T) {
 			t.Fatalf("typed envelope producer restored %q:\n%s", forbidden, producer)
 		}
 	}
-	directLoop := sourceBetween(t, renderer, "func renderProfilerFtraceStructuredResultWithEnvelopeCoverage(", "func decodeProfilerFtraceStructuredEvents(")
+	directLoop := sourceBetween(t, renderer, "func renderProfilerFtraceStructuredResultWithEnvelopeCoverageContext(", "type profilerFtraceCPUDetailAuthority struct {")
 	if !strings.Contains(directLoop, "renderProfilerFtraceEventBodyWithTypedAuditAndPair(event)") ||
 		strings.Contains(directLoop, "renderProfilerFtraceEventBodyWithAudit(event)") {
 		t.Fatalf("direct structured entry bypasses typed invariant path:\n%s", directLoop)
+	}
+	for _, file := range []string{"profiler_ftrace_authority.go", "profiler_ftrace_render.go"} {
+		source := mustReadRendererSource(t, file)
+		for _, forbidden := range []string{"[]profilerFtraceEventRecord", "eventPayloads", "profilerTracePluginResultEventsContext"} {
+			if strings.Contains(source, forbidden) {
+				t.Fatalf("%s restored total event materializer %q", file, forbidden)
+			}
+		}
 	}
 }
 
