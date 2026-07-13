@@ -509,6 +509,15 @@ B终态不变，但按单点权威拆成B1-a/B1-b/B2，任一子批不得提前�
 
 **B1-b**再治理`profilerFtraceSummary.Issues`及逐framesummary Caveat/metadata coverage；snapshot型stats禁止跨message求和伪造，采用精确message/issue counters+固定稳定summary样例或等价typed聚合，必须保留现有version/clock/stats/event/symbol等披露且有截断说明。**B2**最后按typed event field聚合known descriptor唯一coverage，unknown field归一个固定桶+K8 field-id样例；degradation必须从typed reason enum/closed counter生成，严禁反解析`Skipped/Error`人类字符串。B1-a结案时B1-b/B2、a2.3/a2.4及全链有界声明仍全部开放。
 
+### P1-a2.2-B1-a TracePluginResult envelope固定诊断交付结案
+
+代码提交`caa4b7e02`已独立推送到`main`；本节只关闭exact ftrace structured lane的TracePluginResult envelope issue/caveat/coverage逐frame驻留，不提前关闭B1-b、B2或P1-a2.2总项。
+
+- **固定envelope权威已落地**：field 1/2/5/6/7/8 wrong-wire、malformed wire与version duplicate改为闭集enum+定长occurrence/affected-frame census，version duplicate excess另列checked scalar；合法repeated raw sibling、原始Disposition、malformed清typed authority、`PairCaptureOpaque/PairFamilies`及event renderer保持原语义。单frame百万次field2 wrong-wire仍完整保留同frame合法CPU detail sibling，精确披露`occurrence=1000000/affected_frames=1`，不再按occurrence保留字符串。
+- **容器唯一物化且计数等价**：每个physical frame只把typed census并入固定ledger，终态只生成一条`__trace_plugin_envelope__` coverage与一条聚合caveat，记录degraded frames、first/last offset及各reason账；direct renderer仍保留既有单result coverage兼容面。容器改用不重复物化envelope coverage的专用wrapper，并以typed `authorityDegraded`保持改前`structured_degraded`、`UnsupportedFtrace`与outer bucket outcome语义等价，不反解析`Skipped/Error`。source fail-close先物化诊断，再由统一路径把RowsEmitted归零并写入source failure provenance。
+- **机械证据与验证**：1/4096同reason frame证明返回对象只有唯一coverage/caveat，RowsRead、degraded/affected与outer outcome精确且`pairPublishers/textMessages`均为零；version 1000 occurrences证明duplicate issue=1、affected=1、excess=999；malformed与source fail-close正负pin继续覆盖清权、pair capture及归零。AST锁定result不恢复`[]Issues`、decoder不按issue append、固定ledger不含map/slice、container不回退逐frameenvelope coverage或direct renderer。Focused shuffle`×20`、focused race、`go test ./internal/hitraceconv -count=1`、`go vet ./internal/hitraceconv`、`go test ./... -count=1`、`go vet ./...`、gofmt与diff-check全绿；代码、对抗、测试三路独立终审均为**RELEASE**。
+- **诚实剩余**：B1-b仍需固定`profilerFtraceSummary.Issues`及summary Caveat/metadata coverage，且snapshot stats不得跨message求和；B2仍需按typed event field聚合known/unknown coverage并修正pair event typed provenance。P1-a2.3 repeated protobuf流式化、P1-a2.4 row provenance以及`ROW-SORT-BND`、P1-b、TOCTOU等原冻结边界全部继续开放，不得宣称Profiler全链有界。
+
 ## 统一采集与回访命令
 
 ```bash
