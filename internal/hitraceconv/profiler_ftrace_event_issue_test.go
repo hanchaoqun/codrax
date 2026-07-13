@@ -344,9 +344,8 @@ func TestProfilerFtraceEventIssueFixedPayloadFieldGolden(t *testing.T) {
 	check(113, profilerFtraceEventDegradationCorePayload, 5, "invalid_reply")
 	check(2420, profilerFtraceEventDegradationCorePayload, 5, "missing_or_invalid_target_cpu")
 
-	check(4015, profilerFtraceEventDegradationAuxPayload, 0,
-		"aux_payload_malformed_wire", "invalid_canonical_aux_line")
-	check(4009, profilerFtraceEventDegradationAuxPayload, 0, "invalid_f2fs_payload_range")
+	check(4015, profilerFtraceEventDegradationAuxPayload, 0, "aux_payload_malformed_wire")
+	check(1109, profilerFtraceEventDegradationAuxPayload, 0, "invalid_canonical_aux_line")
 	check(4009, profilerFtraceEventDegradationAuxPayload, 1, "missing_or_invalid_f2fs_dev")
 	check(1109, profilerFtraceEventDegradationAuxPayload, 2, "missing_or_invalid_print_buf")
 	check(4009, profilerFtraceEventDegradationAuxPayload, 2, "missing_or_invalid_f2fs_ino")
@@ -360,7 +359,7 @@ func TestProfilerFtraceEventIssueFixedPayloadFieldGolden(t *testing.T) {
 	check(1000, profilerFtraceEventDegradationFilemapPayload, 3, "filemap_index_invalid")
 	check(1000, profilerFtraceEventDegradationFilemapPayload, 4, "filemap_device_invalid")
 	check(1000, profilerFtraceEventDegradationFilemapPayload, 5, "filemap_order_invalid")
-	check(1000, profilerFtraceEventDegradationFilemapPayload, 0, "invalid_canonical_filemap_line")
+	check(1000, profilerFtraceEventDegradationFilemapPayload, 0, "filemap_payload_malformed_wire")
 
 	blockDisplay := []string{"comm_malformed_wire", "comm_wrong_wire", "comm_duplicate", "comm_unsafe_omitted"}
 	check(204, profilerFtraceEventDegradationBlockPayload, 5, blockDisplay...)
@@ -593,7 +592,7 @@ func TestProfilerFtraceEnvelopeProducerTypedStructurePinned(t *testing.T) {
 		}
 	}
 	directLoop := sourceBetween(t, renderer, "func renderProfilerFtraceStructuredResultWithEnvelopeCoverage(", "func decodeProfilerFtraceStructuredEvents(")
-	if !strings.Contains(directLoop, "renderProfilerFtraceEventBodyWithTypedAudit(event)") ||
+	if !strings.Contains(directLoop, "renderProfilerFtraceEventBodyWithTypedAuditAndPair(event)") ||
 		strings.Contains(directLoop, "renderProfilerFtraceEventBodyWithAudit(event)") {
 		t.Fatalf("direct structured entry bypasses typed invariant path:\n%s", directLoop)
 	}
@@ -663,6 +662,7 @@ func TestProfilerFtraceEventIssueFiniteUniverseRoundTripsAndFitsFixedCensus(t *t
 	labels := map[string]profilerFtraceEventIssue{}
 	total := 0
 	maxPerEvent := 0
+	maxPerEventField := 0
 	for _, eventField := range eventFields {
 		perEvent := 0
 		for kind := profilerFtraceEventIssueKind(0); kind < profilerFtraceEventIssueKindCount; kind++ {
@@ -710,6 +710,7 @@ func TestProfilerFtraceEventIssueFiniteUniverseRoundTripsAndFitsFixedCensus(t *t
 		}
 		if perEvent > maxPerEvent {
 			maxPerEvent = perEvent
+			maxPerEventField = eventField
 		}
 	}
 	for kind, seen := range seenKinds {
@@ -719,8 +720,8 @@ func TestProfilerFtraceEventIssueFiniteUniverseRoundTripsAndFitsFixedCensus(t *t
 	}
 	// Literal totals pin schema expansion and force an explicit census-capacity
 	// review. Update only with the independent event/payload golden matrices.
-	if total != 1_813 || maxPerEvent != 106 {
-		t.Fatalf("finite issue universe drifted: total=%d want=1813 max_per_event=%d want=106", total, maxPerEvent)
+	if total != 1_803 || maxPerEvent != 105 {
+		t.Fatalf("finite issue universe drifted: total=%d want=1803 max_per_event=%d field=%d want=105", total, maxPerEvent, maxPerEventField)
 	}
 }
 

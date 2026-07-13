@@ -68,7 +68,7 @@ func TestDonghuRendererStructurePinsSingleAuthorities(t *testing.T) {
 	}
 	if strings.Count(filemap, "func renderCanonicalFilemapPayload(") != 1 ||
 		!strings.Contains(render, "decodeDirectFilemapPayload(ev)") ||
-		!strings.Contains(profiler, "decodeProfilerFilemapPayload(event)") ||
+		!strings.Contains(profiler, "renderProfilerFtraceFilemapEventWithTypedAudit(event)") ||
 		strings.Contains(render, `uniqueUintByCleanName(ev, "pg", "page")`) ||
 		strings.Contains(filemap, "page=0x0") {
 		t.Fatal("direct/profiler page-cache output must share one typed formatter without page-pointer fallback")
@@ -104,10 +104,12 @@ func TestDonghuRendererStructurePinsSingleAuthorities(t *testing.T) {
 			t.Fatalf("renderer lost strict authority %q", token)
 		}
 	}
-	if !strings.Contains(filemap, "math.MaxInt64>>12") || !strings.Contains(filemap, "filemap_index_invalid") {
+	if !strings.Contains(filemap, "math.MaxInt64 >> 12") ||
+		!strings.Contains(filemap, "profilerFtraceEventIssueFilemapIndexInvalid") {
 		t.Fatal("profiler page offset overflow must fail closed with coverage")
 	}
-	if !strings.Contains(filemap, "math.MaxUint32") || !strings.Contains(filemap, "filemap_device_invalid") {
+	if !strings.Contains(filemap, "math.MaxUint32") ||
+		!strings.Contains(filemap, "profilerFtraceEventIssueFilemapDeviceInvalid") {
 		t.Fatal("profiler dev_t must retain the pinned uint32 domain")
 	}
 }

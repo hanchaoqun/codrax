@@ -115,10 +115,6 @@ func renderProfilerFtraceStructuredResultWithEnvelopeCoverage(result profilerTra
 		mmcObserved := event.PairFamilies&pairCriticalFormatFamilyMMC != 0
 		f2fsGoverned := event.Field >= 4009 && event.Field <= 4012
 		f2fsObserved := event.PairFamilies&pairCriticalFormatFamilyF2FS != 0
-		f2fsPair := profilerStructuredF2FSPairFamily(event.Field)
-		if f2fsGoverned {
-			_, _, _, f2fsPair = decodeProfilerAuxPayloadWithPairAdmission(event)
-		}
 		if mmcObserved && !mmcGoverned {
 			// Multiple/wrong-wire/late-malformed oneofs can clear Field, but the
 			// exact field number already seen remains precise family provenance.
@@ -137,8 +133,9 @@ func renderProfilerFtraceStructuredResultWithEnvelopeCoverage(result profilerTra
 		var name, body string
 		var ok bool
 		var issues []profilerFtraceEventIssue
+		var f2fsPair profilerPairAdmission
 		var auditErr error
-		name, body, ok, issues, auditErr = renderProfilerFtraceEventBodyWithTypedAudit(event)
+		name, body, ok, issues, f2fsPair, auditErr = renderProfilerFtraceEventBodyWithTypedAuditAndPair(event)
 		if auditErr != nil {
 			return rows, topLevelCoverage, auditErr
 		}
@@ -769,33 +766,31 @@ func renderProfilerFtraceEventBodyWithAudit(event profilerFtraceEventRecord) (st
 		}
 		return name, body, ok, labels
 	}
-	auxPayload, admission, reason := decodeProfilerAuxPayload(event)
-	switch admission {
-	case bodyAdmitted:
-		body, ok := renderCanonicalProfilerAuxPayload(auxPayload)
-		if !ok {
-			return "", "", false, []string{"invalid_canonical_aux_payload"}
+	if name, body, ok, issues, _, handled, auxErr := renderProfilerFtraceAuxEventWithTypedAudit(event); handled {
+		if auxErr != nil {
+			return "", "", false, nil
 		}
-		if !profilerCanonicalLineValid(event, auxPayload.Name, body) {
-			return "", "", false, []string{"invalid_canonical_aux_line"}
+		labels, labelsOK := profilerFtraceEventIssueLabels(event.Field, issues)
+		if !labelsOK {
+			return "", "", false, nil
 		}
-		return auxPayload.Name, body, true, append([]string(nil), auxPayload.Degradations...)
-	case bodyRejected:
-		return "", "", false, []string{reason}
+		return name, body, ok, labels
 	}
-	filemapPayload, admission, reason := decodeProfilerFilemapPayload(event)
-	switch admission {
-	case bodyAdmitted:
-		body, ok := renderCanonicalFilemapPayload(filemapPayload)
-		if !ok {
-			return "", "", false, []string{"invalid_canonical_filemap_payload"}
+	if profilerStructuredAuxSchemas[event.Field] != nil {
+		return "", "", false, nil
+	}
+	if name, body, ok, issues, handled, filemapErr := renderProfilerFtraceFilemapEventWithTypedAudit(event); handled {
+		if filemapErr != nil {
+			return "", "", false, nil
 		}
-		if !profilerCanonicalLineValid(event, filemapPayload.Name, body) {
-			return "", "", false, []string{"invalid_canonical_filemap_line"}
+		labels, labelsOK := profilerFtraceEventIssueLabels(event.Field, issues)
+		if !labelsOK {
+			return "", "", false, nil
 		}
-		return filemapPayload.Name, body, true, nil
-	case bodyRejected:
-		return "", "", false, []string{reason}
+		return name, body, ok, labels
+	}
+	if event.Field == 1000 || event.Field == 1001 {
+		return "", "", false, nil
 	}
 	if _, _, blockEvent := blockRenderKindForProfilerField(event.Field); blockEvent {
 		return renderProfilerBlockEvent(event)
@@ -818,52 +813,78 @@ func renderProfilerFtraceEventBodyWithAudit(event profilerFtraceEventRecord) (st
 // through the exact typed arm below; the strict legacy bridge remains only for
 // producer families whose typed migration is not complete yet.
 func renderProfilerFtraceEventBodyWithTypedAudit(event profilerFtraceEventRecord) (string, string, bool, []profilerFtraceEventIssue, error) {
+	name, body, ok, issues, _, err := renderProfilerFtraceEventBodyWithTypedAuditAndPair(event)
+	return name, body, ok, issues, err
+}
+
+func renderProfilerFtraceEventBodyWithTypedAuditAndPair(event profilerFtraceEventRecord) (
+	string, string, bool, []profilerFtraceEventIssue, profilerPairAdmission, error,
+) {
+	pair := profilerStructuredF2FSPairFamily(event.Field)
+	var auxResult profilerFtraceAuxTypedResult
+	auxDecoded := false
+	if profilerStructuredAuxSchemas[event.Field] != nil {
+		var auxErr error
+		auxResult, auxErr = decodeProfilerAuxPayloadWithTypedAudit(event)
+		pair, auxDecoded = auxResult.Pair, true
+		if auxErr != nil {
+			return "", "", false, nil, pair, auxErr
+		}
+		if !auxResult.Handled {
+			return "", "", false, nil, pair,
+				&traceDBOutputInvariantError{Reason: "profiler_aux_typed_renderer_unhandled"}
+		}
+	}
 	envelopeIssues, envelopeErr := event.checkedEnvelopeIssues()
 	if envelopeErr != nil {
-		return "", "", false, nil, envelopeErr
+		return "", "", false, nil, pair, envelopeErr
 	}
 	if len(envelopeIssues) > 0 {
 		issues := append([]profilerFtraceEventIssue(nil), envelopeIssues...)
 		if profilerFtraceEventSlot(event.Field) == profilerFtraceUnknownEventSlot {
 			if event.Field < 100 || event.Field > profilerFtraceUnknownEventAggregateField {
-				return "", "", false, nil, &traceDBOutputInvariantError{Reason: "profiler_event_field_domain_invalid"}
+				return "", "", false, nil, pair, &traceDBOutputInvariantError{Reason: "profiler_event_field_domain_invalid"}
 			}
 			unmapped, valid := profilerFtraceEventFixedIssue(event.Field, profilerFtraceEventIssueUnmappedField)
 			if !valid {
-				return "", "", false, nil, &traceDBOutputInvariantError{Reason: "profiler_event_unmapped_issue_invalid"}
+				return "", "", false, nil, pair, &traceDBOutputInvariantError{Reason: "profiler_event_unmapped_issue_invalid"}
 			}
 			issues = append(issues, unmapped)
 		}
-		return "", "", false, issues, nil
+		return "", "", false, issues, pair, nil
 	}
 	if name, body, ok, issues, handled, coreErr := renderProfilerFtraceCoreEventWithTypedAudit(event); handled {
-		return name, body, ok, issues, coreErr
+		return name, body, ok, issues, pair, coreErr
 	}
 	if profilerStructuredCoreSchemas[event.Field] != nil {
-		return "", "", false, nil, &traceDBOutputInvariantError{Reason: "profiler_core_typed_renderer_unhandled"}
+		return "", "", false, nil, pair, &traceDBOutputInvariantError{Reason: "profiler_core_typed_renderer_unhandled"}
+	}
+	if auxDecoded {
+		name, body, ok, issues, auxErr := finalizeProfilerFtraceAuxEventWithTypedAudit(event, auxResult)
+		return name, body, ok, issues, pair, auxErr
+	}
+	if name, body, ok, issues, handled, filemapErr := renderProfilerFtraceFilemapEventWithTypedAudit(event); handled {
+		return name, body, ok, issues, pair, filemapErr
+	}
+	if event.Field == 1000 || event.Field == 1001 {
+		return "", "", false, nil, pair,
+			&traceDBOutputInvariantError{Reason: "profiler_filemap_typed_renderer_unhandled"}
 	}
 	if name, body, ok, issues, handled, genericErr := renderProfilerFtraceGenericEventWithTypedAudit(event); handled {
-		return name, body, ok, issues, genericErr
+		return name, body, ok, issues, pair, genericErr
 	}
 	name, body, ok, reasons := renderProfilerFtraceEventBodyWithAudit(event)
 	legacySource := profilerFtraceEventDegradationFieldAudit
-	switch {
-	case profilerStructuredAuxSchemas[event.Field] != nil:
-		legacySource = profilerFtraceEventDegradationAuxPayload
-	case event.Field == 1000 || event.Field == 1001:
-		legacySource = profilerFtraceEventDegradationFilemapPayload
-	default:
-		if _, _, block := blockRenderKindForProfilerField(event.Field); block {
-			legacySource = profilerFtraceEventDegradationBlockPayload
-		} else if _, known := profilerFtraceEventDescriptors[event.Field]; known {
-			legacySource = profilerFtraceEventDegradationWireAudit
-		} else {
-			legacySource = profilerFtraceEventDegradationUnmappedField
-		}
+	if _, _, block := blockRenderKindForProfilerField(event.Field); block {
+		legacySource = profilerFtraceEventDegradationBlockPayload
+	} else if _, known := profilerFtraceEventDescriptors[event.Field]; known {
+		legacySource = profilerFtraceEventDegradationWireAudit
+	} else {
+		legacySource = profilerFtraceEventDegradationUnmappedField
 	}
 	if profilerFtraceEventSlot(event.Field) == profilerFtraceUnknownEventSlot {
 		if event.Field < 100 || event.Field > profilerFtraceUnknownEventAggregateField {
-			return "", "", false, nil, &traceDBOutputInvariantError{Reason: "profiler_event_field_domain_invalid"}
+			return "", "", false, nil, pair, &traceDBOutputInvariantError{Reason: "profiler_event_field_domain_invalid"}
 		}
 		// Preserve exact envelope issues: their typed Kind+PayloadField does not
 		// depend on the compacted unknown field ID. Unmapped identity is appended
@@ -876,14 +897,14 @@ func renderProfilerFtraceEventBodyWithTypedAudit(event profilerFtraceEventRecord
 		} else if legacySource == profilerFtraceEventDegradationUnmappedField {
 			reasons = []string{"unmapped structured ftrace event field"}
 		} else {
-			return "", "", false, nil, &traceDBOutputInvariantError{Reason: "profiler_event_missing_typed_issue"}
+			return "", "", false, nil, pair, &traceDBOutputInvariantError{Reason: "profiler_event_missing_typed_issue"}
 		}
 	}
 	issues := make([]profilerFtraceEventIssue, 0, len(reasons))
 	for _, reason := range reasons {
 		issue, valid := profilerFtraceEventIssueFromLegacy(event.Field, legacySource, reason)
 		if !valid {
-			return "", "", false, nil, &traceDBOutputInvariantError{Reason: "profiler_event_legacy_issue_unmapped"}
+			return "", "", false, nil, pair, &traceDBOutputInvariantError{Reason: "profiler_event_legacy_issue_unmapped"}
 		}
 		issues = append(issues, issue)
 	}
@@ -891,11 +912,11 @@ func renderProfilerFtraceEventBodyWithTypedAudit(event profilerFtraceEventRecord
 		unmapped, valid := profilerFtraceEventIssueFromLegacy(event.Field,
 			profilerFtraceEventDegradationUnmappedField, "unmapped structured ftrace event field")
 		if !valid {
-			return "", "", false, nil, &traceDBOutputInvariantError{Reason: "profiler_event_unmapped_issue_invalid"}
+			return "", "", false, nil, pair, &traceDBOutputInvariantError{Reason: "profiler_event_unmapped_issue_invalid"}
 		}
 		issues = append(issues, unmapped)
 	}
-	return name, body, ok, issues, nil
+	return name, body, ok, issues, pair, nil
 }
 
 const profilerFtraceGenericIssuesPerEvent = 7

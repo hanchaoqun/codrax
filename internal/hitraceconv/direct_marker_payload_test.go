@@ -671,7 +671,7 @@ func TestDirectMarkerProductionAuthorityGraph(t *testing.T) {
 		},
 		"normalizeMarkerBuffer": {
 			"marker_payload.go.decodeDirectMarkerPayload",
-			"profiler_aux_payload.go.decodeProfilerAuxPayload",
+			"profiler_aux_payload.go.decodeProfilerAuxPayloadWithTypedAudit",
 		},
 	} {
 		sort.Strings(calls[name])

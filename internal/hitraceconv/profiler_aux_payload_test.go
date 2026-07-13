@@ -138,7 +138,7 @@ func TestProfilerAuxPayloadMatrixUsesTypedCanonicalRenderer(t *testing.T) {
 	}
 }
 
-func TestProfilerAuxAll73KnownFieldsRejectWrongWireAndDuplicates(t *testing.T) {
+func TestProfilerAuxAll73KnownFieldsAuditWrongWireAndDuplicates(t *testing.T) {
 	fieldCount := 0
 	for _, test := range profilerAuxTestCases() {
 		schema := profilerStructuredAuxSchemas[test.field]
@@ -162,6 +162,16 @@ func TestProfilerAuxAll73KnownFieldsRejectWrongWireAndDuplicates(t *testing.T) {
 				t.Run(test.name+"/field"+strconv.Itoa(field)+"/"+mutation.name, func(t *testing.T) {
 					data := append(profilerAuxEncodeValues(test.values), mutation.extra...)
 					payload, admission, reason := decodeProfilerAuxPayload(profilerFtraceEventRecord{Field: test.field, Payload: data})
+					if profilerFtraceAuxResponseField(test.field, field) {
+						if admission != bodyAdmitted || reason != "" || payload.Kind != profilerAuxMMCDone {
+							t.Fatalf("response display field rejected: admission=%d reason=%q payload=%+v", admission, reason, payload)
+						}
+						name, body, known, degradations := renderProfilerFtraceEventBodyWithAudit(profilerFtraceEventRecord{Field: test.field, Payload: data})
+						if !known || name != "mmc_request_done" || body == "" || len(degradations) != 1 || degradations[0] != mutation.reason {
+							t.Fatalf("response display audit drifted: known=%t name=%q body=%q degradations=%v", known, name, body, degradations)
+						}
+						return
+					}
 					if admission != bodyRejected || reason != mutation.reason || !reflect.DeepEqual(payload, profilerAuxPayload{}) {
 						t.Fatalf("admission=%d reason=%q want=%q partial=%+v", admission, reason, mutation.reason, payload)
 					}
@@ -561,13 +571,13 @@ func TestProfilerAuxMMCNameGateAndResponseNonAuthority(t *testing.T) {
 		values := profilerAuxCloneValues(done.values)
 		values[field] = profilerAuxTestValue{wire: 2, bytes: []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}}
 		withinProfile, admission, reason := decodeProfilerAuxPayload(profilerFtraceEventRecord{Field: 4015, Payload: profilerAuxEncodeValues(values)})
-		if admission != bodyAdmitted || reason != "" || len(withinProfile.Degradations) != 0 {
+		if admission != bodyAdmitted || reason != "" {
 			t.Fatalf("16-byte binary response field%d rejected/degraded: payload=%+v admission=%d reason=%q", field, withinProfile, admission, reason)
 		}
 		values[field] = profilerAuxTestValue{wire: 2, bytes: make([]byte, maxProfilerMMCResponseBytes+1)}
 		outOfProfile, admission, reason := decodeProfilerAuxPayload(profilerFtraceEventRecord{Field: 4015, Payload: profilerAuxEncodeValues(values)})
 		wantDegradation := fmt.Sprintf("drop_response_field%d_out_of_source_profile", field)
-		if admission != bodyAdmitted || reason != "" || !reflect.DeepEqual(outOfProfile.Degradations, []string{wantDegradation}) {
+		if admission != bodyAdmitted || reason != "" {
 			t.Fatalf("17-byte response field%d did not remain admitted with field-scoped degradation: payload=%+v admission=%d reason=%q", field, outOfProfile, admission, reason)
 		}
 		withinBody, withinOK := renderCanonicalProfilerAuxPayload(withinProfile)

@@ -2,6 +2,7 @@ package hitraceconv
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -346,43 +347,342 @@ func decodeTraceDBFilemapPayload(name string, args map[string]traceDBValue,
 	return payload, true
 }
 
-func decodeProfilerFilemapPayload(event profilerFtraceEventRecord) (filemapRenderPayload, bodyAdmission, string) {
-	name := ""
-	kind := filemapRenderUnknown
-	switch event.Field {
+const profilerFtraceFilemapIssuesPerEvent = 1
+
+// profilerFtraceFilemapIssueSet preserves the filemap producer contract: one
+// malformed page-cache event publishes exactly one dominant hard diagnostic.
+// Keeping this a fixed checked container makes capacity and zero-tail
+// invariants independent of slices supplied by callers or future adapters.
+type profilerFtraceFilemapIssueSet struct {
+	Count  uint8
+	Issues [profilerFtraceFilemapIssuesPerEvent]profilerFtraceEventIssue
+}
+
+func (set *profilerFtraceFilemapIssueSet) validate(eventField int) error {
+	if set == nil || int(set.Count) > len(set.Issues) {
+		return &traceDBOutputInvariantError{Reason: "profiler_filemap_issue_count_invalid"}
+	}
+	if eventField != 1000 && eventField != 1001 {
+		return &traceDBOutputInvariantError{Reason: "profiler_filemap_issue_schema_invalid"}
+	}
+	for index, issue := range set.Issues {
+		if index >= int(set.Count) {
+			if issue != (profilerFtraceEventIssue{}) {
+				return &traceDBOutputInvariantError{Reason: "profiler_filemap_issue_count_invalid"}
+			}
+			continue
+		}
+		if issue.Kind < profilerFtraceEventIssueFilemapPayloadMalformedWire ||
+			issue.Kind > profilerFtraceEventIssueFilemapOrderInvalid ||
+			!issue.validFor(eventField) || issue.Severity != profilerFtraceEventIssueHardReject ||
+			issue.Severity != issue.expectedSeverity() {
+			return &traceDBOutputInvariantError{Reason: "profiler_filemap_issue_schema_invalid"}
+		}
+	}
+	return nil
+}
+
+func (set *profilerFtraceFilemapIssueSet) add(eventField int, issue profilerFtraceEventIssue) error {
+	if err := set.validate(eventField); err != nil {
+		return err
+	}
+	if issue.Kind < profilerFtraceEventIssueFilemapPayloadMalformedWire ||
+		issue.Kind > profilerFtraceEventIssueFilemapOrderInvalid ||
+		!issue.validFor(eventField) || issue.Severity != profilerFtraceEventIssueHardReject ||
+		issue.Severity != issue.expectedSeverity() {
+		return &traceDBOutputInvariantError{Reason: "profiler_filemap_issue_schema_invalid"}
+	}
+	for index := 0; index < int(set.Count); index++ {
+		if set.Issues[index] == issue {
+			return &traceDBOutputInvariantError{Reason: "profiler_filemap_issue_duplicate"}
+		}
+	}
+	if int(set.Count) == len(set.Issues) {
+		return &traceDBOutputInvariantError{Reason: "profiler_filemap_issue_overflow"}
+	}
+	candidate := *set
+	candidate.Issues[int(candidate.Count)] = issue
+	candidate.Count++
+	if err := candidate.validate(eventField); err != nil {
+		return err
+	}
+	*set = candidate
+	return nil
+}
+
+func (set *profilerFtraceFilemapIssueSet) addFixed(eventField int, kind profilerFtraceEventIssueKind) error {
+	issue, ok := profilerFtraceEventFixedIssue(eventField, kind)
+	if !ok {
+		return &traceDBOutputInvariantError{Reason: "profiler_filemap_issue_schema_invalid"}
+	}
+	return set.add(eventField, issue)
+}
+
+func (set *profilerFtraceFilemapIssueSet) checked(eventField int) ([]profilerFtraceEventIssue, error) {
+	if err := set.validate(eventField); err != nil {
+		return nil, err
+	}
+	return append([]profilerFtraceEventIssue(nil), set.Issues[:int(set.Count)]...), nil
+}
+
+type profilerFilemapProtoField struct {
+	Count     uint8 // saturates at two: absent, singular, or duplicate
+	WrongWire bool
+	Malformed bool
+	UintValue uint64
+}
+
+func profilerFilemapExpectedDescriptor(eventField int) (string, filemapRenderKind, bool) {
+	switch eventField {
 	case 1000:
-		name, kind = "mm_filemap_add_to_page_cache", filemapRenderPageAdd
+		return "mm_filemap_add_to_page_cache", filemapRenderPageAdd, true
 	case 1001:
-		name, kind = "mm_filemap_delete_from_page_cache", filemapRenderPageDelete
+		return "mm_filemap_delete_from_page_cache", filemapRenderPageDelete, true
 	default:
+		return "", filemapRenderUnknown, false
+	}
+}
+
+// validateProfilerFilemapDescriptor keeps the generated event descriptor an
+// internal invariant. Raw protobuf bytes can select neither a different event
+// name nor a different page-cache semantic kind.
+func validateProfilerFilemapDescriptor(eventField int, descriptor profilerFtraceEventDescriptor, present bool) (string, filemapRenderKind, error) {
+	expectedName, expectedKind, governed := profilerFilemapExpectedDescriptor(eventField)
+	if !governed {
+		return "", filemapRenderUnknown,
+			&traceDBOutputInvariantError{Reason: "profiler_filemap_descriptor_domain_invalid"}
+	}
+	if !present {
+		return "", filemapRenderUnknown,
+			&traceDBOutputInvariantError{Reason: "missing_filemap_descriptor"}
+	}
+	if descriptor.Field != eventField {
+		return "", filemapRenderUnknown,
+			&traceDBOutputInvariantError{Reason: "mismatched_filemap_descriptor_field"}
+	}
+	if descriptor.Family != "filemap" {
+		return "", filemapRenderUnknown,
+			&traceDBOutputInvariantError{Reason: "mismatched_filemap_descriptor_family"}
+	}
+	if descriptor.Name != expectedName {
+		return "", filemapRenderUnknown,
+			&traceDBOutputInvariantError{Reason: "mismatched_filemap_descriptor_name"}
+	}
+	kind, known := filemapRenderKindForName(descriptor.Name)
+	if !known || kind != expectedKind {
+		return "", filemapRenderUnknown,
+			&traceDBOutputInvariantError{Reason: "invalid_filemap_descriptor_kind"}
+	}
+	return descriptor.Name, kind, nil
+}
+
+func profilerFilemapIssueKindForField(payloadField int) (profilerFtraceEventIssueKind, bool) {
+	switch payloadField {
+	case 1:
+		return profilerFtraceEventIssueFilemapPFNInvalid, true
+	case 2:
+		return profilerFtraceEventIssueFilemapInodeInvalid, true
+	case 3:
+		return profilerFtraceEventIssueFilemapIndexInvalid, true
+	case 4:
+		return profilerFtraceEventIssueFilemapDeviceInvalid, true
+	case 5:
+		return profilerFtraceEventIssueFilemapOrderInvalid, true
+	default:
+		return profilerFtraceEventIssueKindCount, false
+	}
+}
+
+// decodeProfilerFilemapPayloadWithTypedAudit is the single structured
+// filemap parser. All five scalar endpoints are observed in one wire walk;
+// diagnostics are selected afterward in schema order, independent of source
+// order. A malformed known endpoint remains local, while a malformed key or
+// unknown endpoint rejects the whole payload because no hard field identity
+// can be proven for it.
+func decodeProfilerFilemapPayloadWithTypedAudit(event profilerFtraceEventRecord) (
+	filemapRenderPayload, bodyAdmission, profilerFtraceFilemapIssueSet, bool, error,
+) {
+	if _, _, governed := profilerFilemapExpectedDescriptor(event.Field); !governed {
+		return filemapRenderPayload{}, bodyUnsupported, profilerFtraceFilemapIssueSet{}, false, nil
+	}
+	descriptor, present := profilerFtraceEventDescriptors[event.Field]
+	name, kind, descriptorErr := validateProfilerFilemapDescriptor(event.Field, descriptor, present)
+	if descriptorErr != nil {
+		return filemapRenderPayload{}, bodyRejected, profilerFtraceFilemapIssueSet{}, true, descriptorErr
+	}
+	reject := func(issueKind profilerFtraceEventIssueKind) (
+		filemapRenderPayload, bodyAdmission, profilerFtraceFilemapIssueSet, bool, error,
+	) {
+		var set profilerFtraceFilemapIssueSet
+		err := set.addFixed(event.Field, issueKind)
+		return filemapRenderPayload{}, bodyRejected, set, true, err
+	}
+
+	var fields [6]profilerFilemapProtoField
+	walkErr := walkProtoFields(event.Payload, func(payloadField int, wire int, _ []byte, value uint64) error {
+		if payloadField < 1 || payloadField > 5 {
+			return nil
+		}
+		field := &fields[payloadField]
+		if field.Count < 2 {
+			field.Count++
+		}
+		if wire != 0 {
+			field.WrongWire = true
+			return nil
+		}
+		field.UintValue = value
+		return nil
+	})
+	if walkErr != nil {
+		var decodeErr *protoFieldDecodeError
+		if !errors.As(walkErr, &decodeErr) {
+			return filemapRenderPayload{}, bodyRejected, profilerFtraceFilemapIssueSet{}, true,
+				&traceDBOutputInvariantError{Reason: "profiler_filemap_wire_error_untyped"}
+		}
+		_, knownEndpoint := profilerFilemapIssueKindForField(decodeErr.Field)
+		localized := decodeErr.FieldKnown && knownEndpoint &&
+			(decodeErr.Failure == protoFieldDecodeMalformedValue ||
+				decodeErr.Failure == protoFieldDecodeUnsupportedWire)
+		if localized {
+			// Preserve schema-first precedence over complete hard failures
+			// already observed before this structural endpoint. Fields beyond
+			// the malformed boundary remain unknown and mint no facts.
+			fields[decodeErr.Field].Malformed = true
+		} else {
+			return reject(profilerFtraceEventIssueFilemapPayloadMalformedWire)
+		}
+	}
+
+	// Completed-scan structural failures dominate all numeric range checks.
+	for payloadField := 1; payloadField <= 5; payloadField++ {
+		field := fields[payloadField]
+		if field.Malformed || field.WrongWire || field.Count > 1 {
+			issueKind, _ := profilerFilemapIssueKindForField(payloadField)
+			return reject(issueKind)
+		}
+	}
+	limits := [6]uint64{
+		0,
+		math.MaxUint64,
+		math.MaxUint64,
+		uint64(math.MaxInt64 >> 12),
+		math.MaxUint32,
+		math.MaxUint8,
+	}
+	for payloadField := 1; payloadField <= 5; payloadField++ {
+		if fields[payloadField].UintValue > limits[payloadField] {
+			issueKind, _ := profilerFilemapIssueKindForField(payloadField)
+			return reject(issueKind)
+		}
+	}
+
+	payload := filemapRenderPayload{
+		Kind: kind, Name: name,
+		PFN: fields[1].UintValue, Inode: fields[2].UintValue,
+		Index: fields[3].UintValue, Dev: uint32(fields[4].UintValue),
+	}
+	if fields[5].Count == 1 {
+		payload.Order, payload.OrderPresent = uint8(fields[5].UintValue), true
+	}
+	return payload, bodyAdmitted, profilerFtraceFilemapIssueSet{}, true, nil
+}
+
+// renderProfilerFtraceFilemapEventWithTypedAudit is the single typed
+// parse/render authority for structured page-cache events. Canonical render
+// failures are internal invariants: every source-controlled value has already
+// been reduced to a bounded numeric payload.
+func renderProfilerFtraceFilemapEventWithTypedAudit(event profilerFtraceEventRecord) (
+	name, body string, ok bool, issues []profilerFtraceEventIssue, handled bool, err error,
+) {
+	payload, admission, set, handled, err := decodeProfilerFilemapPayloadWithTypedAudit(event)
+	if !handled || err != nil {
+		return "", "", false, nil, handled, err
+	}
+	name, body, ok, issues, err = finalizeProfilerFtraceFilemapEventWithTypedAudit(event, payload, admission, set)
+	return name, body, ok, issues, true, err
+}
+
+func finalizeProfilerFtraceFilemapEventWithTypedAudit(
+	event profilerFtraceEventRecord,
+	payload filemapRenderPayload,
+	admission bodyAdmission,
+	set profilerFtraceFilemapIssueSet,
+) (name, body string, ok bool, issues []profilerFtraceEventIssue, err error) {
+	// Set corruption dominates source verdicts and canonical rendering.
+	issues, err = set.checked(event.Field)
+	if err != nil {
+		return "", "", false, nil, err
+	}
+	descriptor, present := profilerFtraceEventDescriptors[event.Field]
+	expectedName, expectedKind, descriptorErr := validateProfilerFilemapDescriptor(event.Field, descriptor, present)
+	if descriptorErr != nil {
+		return "", "", false, nil, descriptorErr
+	}
+	switch admission {
+	case bodyRejected:
+		if payload != (filemapRenderPayload{}) || len(issues) != 1 ||
+			issues[0].Severity != profilerFtraceEventIssueHardReject {
+			return "", "", false, nil,
+				&traceDBOutputInvariantError{Reason: "profiler_filemap_rejected_verdict_invalid"}
+		}
+		return "", "", false, issues, nil
+	case bodyAdmitted:
+		if len(issues) != 0 || payload.Name != expectedName || payload.Kind != expectedKind {
+			return "", "", false, nil,
+				&traceDBOutputInvariantError{Reason: "profiler_filemap_admitted_verdict_invalid"}
+		}
+		body, rendered := renderCanonicalFilemapPayload(payload)
+		if !rendered {
+			return "", "", false, nil,
+				&traceDBOutputInvariantError{Reason: "invalid_canonical_filemap_payload"}
+		}
+		if !profilerCanonicalLineValid(event, payload.Name, body) {
+			return "", "", false, nil,
+				&traceDBOutputInvariantError{Reason: "invalid_canonical_filemap_line"}
+		}
+		return payload.Name, body, true, nil, nil
+	default:
+		return "", "", false, nil,
+			&traceDBOutputInvariantError{Reason: "profiler_filemap_admission_invalid"}
+	}
+}
+
+// decodeProfilerFilemapPayload is the legacy compatibility adapter. It only
+// projects the typed verdict to the historical single-label surface; parsing
+// and issue selection remain exclusively in the typed producer above.
+func decodeProfilerFilemapPayload(event profilerFtraceEventRecord) (filemapRenderPayload, bodyAdmission, string) {
+	payload, admission, set, handled, err := decodeProfilerFilemapPayloadWithTypedAudit(event)
+	if !handled {
 		return filemapRenderPayload{}, bodyUnsupported, ""
 	}
-	payload := filemapRenderPayload{Kind: kind, Name: name}
-	read := func(field int, max uint64) (uint64, bool) {
-		value, state, _ := protoScalarUint(event.Payload, field)
-		return value, state != protoScalarInvalid && value <= max
+	if err != nil {
+		if reason, ok := traceDBOutputInvariantReason(err); ok {
+			return filemapRenderPayload{}, bodyRejected, reason
+		}
+		return filemapRenderPayload{}, bodyRejected, "profiler_filemap_typed_audit_failed"
 	}
-	var ok bool
-	if payload.PFN, ok = read(1, math.MaxUint64); !ok {
-		return payload, bodyRejected, "filemap_pfn_invalid"
+	issues, err := set.checked(event.Field)
+	if err != nil {
+		return filemapRenderPayload{}, bodyRejected, "profiler_filemap_typed_issue_invalid"
 	}
-	if payload.Inode, ok = read(2, math.MaxUint64); !ok {
-		return payload, bodyRejected, "filemap_inode_invalid"
+	labels, labelsOK := profilerFtraceEventIssueLabels(event.Field, issues)
+	if !labelsOK {
+		return filemapRenderPayload{}, bodyRejected, "profiler_filemap_typed_issue_invalid"
 	}
-	if payload.Index, ok = read(3, uint64(math.MaxInt64>>12)); !ok {
-		return payload, bodyRejected, "filemap_index_invalid"
+	switch admission {
+	case bodyRejected:
+		if payload != (filemapRenderPayload{}) || len(labels) != 1 ||
+			len(issues) != 1 || issues[0].Severity != profilerFtraceEventIssueHardReject {
+			return filemapRenderPayload{}, bodyRejected, "profiler_filemap_typed_issue_invalid"
+		}
+		return filemapRenderPayload{}, bodyRejected, labels[0]
+	case bodyAdmitted:
+		if len(labels) != 0 {
+			return filemapRenderPayload{}, bodyRejected, "profiler_filemap_typed_issue_invalid"
+		}
+		return payload, bodyAdmitted, ""
+	default:
+		return filemapRenderPayload{}, bodyRejected, "profiler_filemap_typed_admission_invalid"
 	}
-	dev, ok := read(4, math.MaxUint32)
-	if !ok {
-		return payload, bodyRejected, "filemap_device_invalid"
-	}
-	payload.Dev = uint32(dev)
-	order, state, _ := protoScalarUint(event.Payload, 5)
-	if state == protoScalarInvalid || order > math.MaxUint8 {
-		return payload, bodyRejected, "filemap_order_invalid"
-	}
-	if state == protoScalarPresent {
-		payload.Order, payload.OrderPresent = uint8(order), true
-	}
-	return payload, bodyAdmitted, ""
 }

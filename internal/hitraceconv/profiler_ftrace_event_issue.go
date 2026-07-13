@@ -93,22 +93,23 @@ const (
 	profilerFtraceEventIssueAuxPayloadMalformedWire
 	profilerFtraceEventIssueAuxFieldWrongWire
 	profilerFtraceEventIssueAuxFieldDuplicate
+	profilerFtraceEventIssueAuxResponseWrongWire
+	profilerFtraceEventIssueAuxResponseDuplicate
 	profilerFtraceEventIssueAuxFieldOutOfRange
 	profilerFtraceEventIssueAuxMissingOrInvalidPrintBuf
 	profilerFtraceEventIssueAuxMissingOrInvalidF2FSDev
 	profilerFtraceEventIssueAuxMissingOrInvalidF2FSIno
-	profilerFtraceEventIssueAuxInvalidF2FSPayloadRange
 	profilerFtraceEventIssueAuxMissingOrInvalidMMCPointer
 	profilerFtraceEventIssueAuxMissingOrInvalidMMCName
 	profilerFtraceEventIssueAuxDropResponseOutOfSourceProfile
 	profilerFtraceEventIssueAuxInvalidCanonicalLine
 
+	profilerFtraceEventIssueFilemapPayloadMalformedWire
 	profilerFtraceEventIssueFilemapPFNInvalid
 	profilerFtraceEventIssueFilemapInodeInvalid
 	profilerFtraceEventIssueFilemapIndexInvalid
 	profilerFtraceEventIssueFilemapDeviceInvalid
 	profilerFtraceEventIssueFilemapOrderInvalid
-	profilerFtraceEventIssueFilemapInvalidCanonicalLine
 
 	profilerFtraceEventIssueBlockFieldMalformedWire
 	profilerFtraceEventIssueBlockFieldWrongWire
@@ -238,6 +239,20 @@ func profilerFtraceEventIssueFromLegacy(eventField int, legacySource profilerFtr
 		}
 		return set(kind)
 	case profilerFtraceEventDegradationAuxPayload:
+		if field, suffix, ok := profilerFtraceEventParameterizedToken(token, "core_field"); ok &&
+			eventField == 4015 && (field == 3 || field == 7 || field == 11) {
+			switch suffix {
+			case "wrong_wire":
+				issue.Kind = profilerFtraceEventIssueAuxResponseWrongWire
+			case "duplicate":
+				issue.Kind = profilerFtraceEventIssueAuxResponseDuplicate
+			default:
+				return profilerFtraceEventIssue{}, false
+			}
+			issue.PayloadField = field
+			issue.Severity = profilerFtraceEventIssueAdmittedDisplay
+			return issue, issue.validFor(eventField)
+		}
 		if parsed, ok := fieldIssue("core_field", map[string]profilerFtraceEventIssueKind{
 			"wrong_wire":   profilerFtraceEventIssueAuxFieldWrongWire,
 			"duplicate":    profilerFtraceEventIssueAuxFieldDuplicate,
@@ -362,9 +377,8 @@ func profilerFtraceEventIssueFixedPayloadField(kind profilerFtraceEventIssueKind
 		profilerFtraceEventIssueCoreInvalidLimitsOrder,
 		profilerFtraceEventIssueCoreInvalidCanonicalLine,
 		profilerFtraceEventIssueAuxPayloadMalformedWire,
-		profilerFtraceEventIssueAuxInvalidF2FSPayloadRange,
 		profilerFtraceEventIssueAuxInvalidCanonicalLine,
-		profilerFtraceEventIssueFilemapInvalidCanonicalLine,
+		profilerFtraceEventIssueFilemapPayloadMalformedWire,
 		profilerFtraceEventIssueWirePayloadMalformedWire,
 		profilerFtraceEventIssueWireInvalidCanonicalLine,
 		profilerFtraceEventIssueUnmappedField:
@@ -529,7 +543,7 @@ func (issue profilerFtraceEventIssue) validFor(eventField int) bool {
 		return issue.validCore(eventField)
 	case issue.Kind >= profilerFtraceEventIssueAuxPayloadMalformedWire && issue.Kind <= profilerFtraceEventIssueAuxInvalidCanonicalLine:
 		return issue.validAux(eventField)
-	case issue.Kind >= profilerFtraceEventIssueFilemapPFNInvalid && issue.Kind <= profilerFtraceEventIssueFilemapInvalidCanonicalLine:
+	case issue.Kind >= profilerFtraceEventIssueFilemapPayloadMalformedWire && issue.Kind <= profilerFtraceEventIssueFilemapOrderInvalid:
 		return eventField == 1000 || eventField == 1001
 	case issue.Kind >= profilerFtraceEventIssueBlockFieldMalformedWire && issue.Kind <= profilerFtraceEventIssueBlockCmdUnsafeOmitted:
 		return issue.validBlock(eventField)
@@ -548,6 +562,7 @@ func profilerFtraceEventIssueParameterizedKind(kind profilerFtraceEventIssueKind
 	case profilerFtraceEventIssueCoreFieldWrongWire, profilerFtraceEventIssueCoreFieldDuplicate,
 		profilerFtraceEventIssueCoreFieldOutOfRange,
 		profilerFtraceEventIssueAuxFieldWrongWire, profilerFtraceEventIssueAuxFieldDuplicate,
+		profilerFtraceEventIssueAuxResponseWrongWire, profilerFtraceEventIssueAuxResponseDuplicate,
 		profilerFtraceEventIssueAuxFieldOutOfRange, profilerFtraceEventIssueAuxDropResponseOutOfSourceProfile,
 		profilerFtraceEventIssueBlockFieldMalformedWire, profilerFtraceEventIssueBlockFieldWrongWire,
 		profilerFtraceEventIssueBlockFieldDuplicate, profilerFtraceEventIssueBlockFieldOutOfRange,
@@ -630,31 +645,34 @@ func (issue profilerFtraceEventIssue) validAux(eventField int) bool {
 		return false
 	}
 	switch issue.Kind {
-	case profilerFtraceEventIssueAuxFieldWrongWire, profilerFtraceEventIssueAuxFieldDuplicate,
-		profilerFtraceEventIssueAuxFieldOutOfRange:
+	case profilerFtraceEventIssueAuxFieldWrongWire, profilerFtraceEventIssueAuxFieldDuplicate:
 		_, known := schema[int(issue.PayloadField)]
-		if !known {
-			return false
-		}
-		if issue.Kind != profilerFtraceEventIssueAuxFieldOutOfRange {
-			return true
-		}
+		return known && !profilerFtraceAuxResponseField(eventField, int(issue.PayloadField))
+	case profilerFtraceEventIssueAuxFieldOutOfRange:
 		return profilerFtraceAuxRangeFieldKnown(eventField, int(issue.PayloadField))
-	case profilerFtraceEventIssueAuxDropResponseOutOfSourceProfile:
+	case profilerFtraceEventIssueAuxResponseWrongWire, profilerFtraceEventIssueAuxResponseDuplicate,
+		profilerFtraceEventIssueAuxDropResponseOutOfSourceProfile:
 		return eventField == 4015 && (issue.PayloadField == 3 || issue.PayloadField == 7 || issue.PayloadField == 11)
 	default:
 	}
 	switch issue.Kind {
+	case profilerFtraceEventIssueAuxPayloadMalformedWire:
+		return true
+	case profilerFtraceEventIssueAuxInvalidCanonicalLine:
+		return eventField == 1109
 	case profilerFtraceEventIssueAuxMissingOrInvalidPrintBuf:
 		return eventField == 1109
-	case profilerFtraceEventIssueAuxMissingOrInvalidF2FSDev, profilerFtraceEventIssueAuxMissingOrInvalidF2FSIno,
-		profilerFtraceEventIssueAuxInvalidF2FSPayloadRange:
+	case profilerFtraceEventIssueAuxMissingOrInvalidF2FSDev, profilerFtraceEventIssueAuxMissingOrInvalidF2FSIno:
 		return eventField >= 4009 && eventField <= 4012
 	case profilerFtraceEventIssueAuxMissingOrInvalidMMCPointer, profilerFtraceEventIssueAuxMissingOrInvalidMMCName:
 		return eventField == 4015 || eventField == 4016
 	default:
-		return true
+		return false
 	}
+}
+
+func profilerFtraceAuxResponseField(eventField, payloadField int) bool {
+	return eventField == 4015 && (payloadField == 3 || payloadField == 7 || payloadField == 11)
 }
 
 func profilerFtraceAuxRangeFieldKnown(eventField, payloadField int) bool {
@@ -785,6 +803,7 @@ func (issue profilerFtraceEventIssue) expectedSeverity() profilerFtraceEventIssu
 
 func profilerFtraceEventIssueDisplayKind(kind profilerFtraceEventIssueKind) bool {
 	return (kind >= profilerFtraceEventIssueCoreDisplayCommWrongWire && kind <= profilerFtraceEventIssueCoreDisplayCallerStrInvalid) ||
+		kind == profilerFtraceEventIssueAuxResponseWrongWire || kind == profilerFtraceEventIssueAuxResponseDuplicate ||
 		kind == profilerFtraceEventIssueAuxDropResponseOutOfSourceProfile
 }
 
@@ -798,11 +817,11 @@ func (issue profilerFtraceEventIssue) sourceClass() profilerFtraceEventDegradati
 		}
 		return profilerFtraceEventDegradationCorePayload
 	case issue.Kind >= profilerFtraceEventIssueAuxPayloadMalformedWire && issue.Kind <= profilerFtraceEventIssueAuxInvalidCanonicalLine:
-		if issue.Kind == profilerFtraceEventIssueAuxDropResponseOutOfSourceProfile {
+		if profilerFtraceEventIssueDisplayKind(issue.Kind) {
 			return profilerFtraceEventDegradationAuxDisplay
 		}
 		return profilerFtraceEventDegradationAuxPayload
-	case issue.Kind >= profilerFtraceEventIssueFilemapPFNInvalid && issue.Kind <= profilerFtraceEventIssueFilemapInvalidCanonicalLine:
+	case issue.Kind >= profilerFtraceEventIssueFilemapPayloadMalformedWire && issue.Kind <= profilerFtraceEventIssueFilemapOrderInvalid:
 		return profilerFtraceEventDegradationFilemapPayload
 	case issue.Kind >= profilerFtraceEventIssueBlockFieldMalformedWire && issue.Kind <= profilerFtraceEventIssueBlockFieldMissingOrInvalid:
 		return profilerFtraceEventDegradationBlockPayload
@@ -832,9 +851,11 @@ func (issue profilerFtraceEventIssue) label(eventField int) (string, bool) {
 	field := strconv.Itoa(int(issue.PayloadField))
 	switch issue.Kind {
 	case profilerFtraceEventIssueCoreFieldWrongWire, profilerFtraceEventIssueAuxFieldWrongWire,
+		profilerFtraceEventIssueAuxResponseWrongWire,
 		profilerFtraceEventIssueBlockFieldWrongWire, profilerFtraceEventIssueWireFieldWrongWire:
 		return "core_field" + field + "_wrong_wire", true
 	case profilerFtraceEventIssueCoreFieldDuplicate, profilerFtraceEventIssueAuxFieldDuplicate,
+		profilerFtraceEventIssueAuxResponseDuplicate,
 		profilerFtraceEventIssueBlockFieldDuplicate, profilerFtraceEventIssueWireFieldDuplicate:
 		return "core_field" + field + "_duplicate", true
 	case profilerFtraceEventIssueCoreFieldOutOfRange, profilerFtraceEventIssueAuxFieldOutOfRange,
@@ -925,19 +946,18 @@ var profilerFtraceAuxLegacyKinds = map[string]profilerFtraceEventIssueKind{
 	"missing_or_invalid_print_buf":   profilerFtraceEventIssueAuxMissingOrInvalidPrintBuf,
 	"missing_or_invalid_f2fs_dev":    profilerFtraceEventIssueAuxMissingOrInvalidF2FSDev,
 	"missing_or_invalid_f2fs_ino":    profilerFtraceEventIssueAuxMissingOrInvalidF2FSIno,
-	"invalid_f2fs_payload_range":     profilerFtraceEventIssueAuxInvalidF2FSPayloadRange,
 	"missing_or_invalid_mmc_pointer": profilerFtraceEventIssueAuxMissingOrInvalidMMCPointer,
 	"missing_or_invalid_mmc_name":    profilerFtraceEventIssueAuxMissingOrInvalidMMCName,
 	"invalid_canonical_aux_line":     profilerFtraceEventIssueAuxInvalidCanonicalLine,
 }
 
 var profilerFtraceFilemapLegacyKinds = map[string]profilerFtraceEventIssueKind{
+	"filemap_payload_malformed_wire": profilerFtraceEventIssueFilemapPayloadMalformedWire,
 	"filemap_pfn_invalid":            profilerFtraceEventIssueFilemapPFNInvalid,
 	"filemap_inode_invalid":          profilerFtraceEventIssueFilemapInodeInvalid,
 	"filemap_index_invalid":          profilerFtraceEventIssueFilemapIndexInvalid,
 	"filemap_device_invalid":         profilerFtraceEventIssueFilemapDeviceInvalid,
 	"filemap_order_invalid":          profilerFtraceEventIssueFilemapOrderInvalid,
-	"invalid_canonical_filemap_line": profilerFtraceEventIssueFilemapInvalidCanonicalLine,
 }
 
 var profilerFtraceBlockDisplayLegacyKinds = map[string]profilerFtraceEventIssueKind{

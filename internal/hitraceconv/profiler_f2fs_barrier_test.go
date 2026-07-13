@@ -104,6 +104,60 @@ func TestStructuredF2FSKnownNonKeyFailureQuarantinesOnlyExactLaneAcrossSpill(t *
 	}
 }
 
+func TestStructuredF2FSTerminalNonKeyMalformedQuarantinesOnlyExactLaneAcrossSpill(t *testing.T) {
+	cases := profilerAuxCasesByField()
+	laneAStart := profilerAuxCloneValues(cases[4011].values)
+	laneADone := profilerAuxCloneValues(cases[4012].values)
+	laneBStart := profilerAuxCloneValues(cases[4011].values)
+	laneBDone := profilerAuxCloneValues(cases[4012].values)
+	laneBStart[2] = profilerAuxVarint(0x5678)
+	laneBDone[2] = profilerAuxVarint(0x5678)
+	badLaneA := profilerAuxCloneValues(laneADone)
+	delete(badLaneA, 4)
+	badPayload := profilerAuxEncodeValues(badLaneA)
+	badPayload = append(badPayload, byte(4<<3), 0x80)
+	badDetail := protoPayload(protoVarint(1, 2),
+		syntheticTracePluginFtraceEvent(3_000, 40, 40, "f2fs", 4012, badPayload))
+	badMessage := protoMessage(2, badDetail)
+
+	sink, err := newTraceDBRowSink(t.TempDir(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+	seq := 0
+	for _, message := range [][]byte{
+		profilerF2FSTestStructuredMessage(4011, laneAStart, 1_000),
+		profilerF2FSTestStructuredMessage(4011, laneBStart, 2_000),
+		badMessage,
+		profilerF2FSTestStructuredMessage(4012, laneADone, 4_000),
+		profilerF2FSTestStructuredMessage(4012, laneBDone, 5_000),
+	} {
+		if _, _, renderErr := renderProfilerFtraceStructuredRows(message, &seq, sink); renderErr != nil {
+			t.Fatal(renderErr)
+		}
+	}
+	if sink.poisoned[pairRenderF2FS] || len(sink.poisonedLanes[pairRenderF2FS]) != 1 ||
+		sink.withheldPairRowsForKind(pairRenderF2FS) != 2 ||
+		sink.withheldStructuredPairRowsForKind(pairRenderF2FS) != 2 || sink.publishableRows() != 2 ||
+		len(sink.chunks) == 0 {
+		t.Fatalf("terminal non-key damage escaped exact-lane spill quarantine: accepted=%d withheld=%d publishable=%d family=%v lanes=%v chunks=%d",
+			sink.stats.RowsAccepted, sink.withheldPairRowsForKind(pairRenderF2FS), sink.publishableRows(),
+			sink.poisoned, sink.poisonedLanes, len(sink.chunks))
+	}
+	var out bytes.Buffer
+	stats, err := sink.writeTo(context.Background(), &out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	if stats.RowsAccepted != 4 || stats.RowsWritten != 2 || stats.RowsWithheld != 2 ||
+		strings.Contains(text, "ino=0x1234") || !strings.Contains(text, "ino=0x5678") ||
+		!strings.Contains(text, "f2fs_write_begin:") || !strings.Contains(text, "f2fs_write_end:") {
+		t.Fatalf("terminal non-key exact-lane spill filtering drifted: stats=%+v\n%s", stats, text)
+	}
+}
+
 func TestStructuredF2FSFamilyProvenanceSurvivesAmbiguousAndMalformedEnvelopes(t *testing.T) {
 	cases := profilerAuxCasesByField()
 	payload := profilerAuxEncodeValues(cases[4012].values)

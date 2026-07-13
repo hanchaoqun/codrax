@@ -68,10 +68,10 @@ func (kind profilerFtraceEventDegradationKind) label() string {
 	}
 }
 
-// The largest closed per-event issue universe is MMC request-start: 25 wire
-// duplicates + 25 wrong-wire fields + 23 range fields plus whole-payload and
-// semantic failures. Keep one fixed slot for every legal tuple with headroom;
-// this is a schema bound, not a runtime budget that valid input may exhaust.
+// The largest closed per-event issue universe is MMC request-start: its 76 aux
+// payload tuples plus 29 envelope tuples total 105. Keep one fixed slot for
+// every legal tuple with headroom; this is a schema bound, not a runtime budget
+// that valid input may exhaust.
 const profilerFtraceEventIssuesPerSlot = 128
 
 type profilerFtraceEventIssueCensus struct {

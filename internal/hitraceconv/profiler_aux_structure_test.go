@@ -78,6 +78,8 @@ func TestProfilerStructuredAuxUsesOneTypedAuthorityBeforeLegacy(t *testing.T) {
 
 	for _, token := range []string{
 		"func decodeProfilerAuxPayload(",
+		"func decodeProfilerAuxPayloadWithTypedAudit(",
+		"func renderProfilerFtraceAuxEventWithTypedAudit(",
 		"func renderCanonicalProfilerAuxPayload(",
 		"var profilerStructuredAuxSchemas",
 	} {
@@ -90,8 +92,15 @@ func TestProfilerStructuredAuxUsesOneTypedAuthorityBeforeLegacy(t *testing.T) {
 			t.Fatalf("strict aux adapter calls permissive legacy reader %q", forbidden)
 		}
 	}
-	if !strings.Contains(adapter, "for field := 1; field <= maxField; field++") {
+	if strings.Count(adapter, "walkProtoFields(event.Payload") != 1 ||
+		!strings.Contains(adapter, "var fields [26]profilerCoreProtoField") ||
+		!strings.Contains(adapter, "for payloadField := 1; payloadField <= 25; payloadField++") {
 		t.Fatal("aux wire audit no longer reaches the MMC field23/25 tail")
+	}
+	for _, forbidden := range []string{"profilerCoreFieldWireReason(", `fmt.Sprintf("core_field`, "[]string"} {
+		if strings.Contains(adapter, forbidden) {
+			t.Fatalf("typed aux producer restored dynamic/string authority %q", forbidden)
+		}
 	}
 
 	legacy := sourceBetween(t, profiler, "func renderProfilerFtraceEventBody(", "func safeProfilerBlockedCaller(")
@@ -112,18 +121,25 @@ func TestProfilerStructuredAuxUsesOneTypedAuthorityBeforeLegacy(t *testing.T) {
 
 	audit := sourceBetween(t, profiler, "func renderProfilerFtraceEventBodyWithAudit(", "func renderProfilerFtraceEventBodyWithTypedAudit(")
 	coreAt := strings.Index(audit, "renderProfilerFtraceCoreEventWithTypedAudit(event)")
-	auxAt := strings.Index(audit, "decodeProfilerAuxPayload(event)")
+	auxAt := strings.Index(audit, "renderProfilerFtraceAuxEventWithTypedAudit(event)")
+	filemapAt := strings.Index(audit, "renderProfilerFtraceFilemapEventWithTypedAudit(event)")
 	blockAt := strings.Index(audit, "blockRenderKindForProfilerField(event.Field)")
 	genericAt := strings.Index(audit, "renderProfilerFtraceGenericEventWithTypedAudit(event)")
-	if coreAt < 0 || auxAt < 0 || blockAt < 0 || genericAt < 0 || !(coreAt < auxAt && auxAt < blockAt && blockAt < genericAt) {
-		t.Fatalf("typed renderer order drifted: core=%d aux=%d block=%d generic=%d", coreAt, auxAt, blockAt, genericAt)
+	if coreAt < 0 || auxAt < 0 || filemapAt < 0 || blockAt < 0 || genericAt < 0 ||
+		!(coreAt < auxAt && auxAt < filemapAt && filemapAt < blockAt && blockAt < genericAt) {
+		t.Fatalf("typed renderer order drifted: core=%d aux=%d filemap=%d block=%d generic=%d", coreAt, auxAt, filemapAt, blockAt, genericAt)
 	}
-	auxArm := sourceBetween(t, audit, "decodeProfilerAuxPayload(event)", "if _, _, blockEvent")
-	if !strings.Contains(auxArm, "case bodyRejected:") || !strings.Contains(auxArm, "return") ||
-		!strings.Contains(auxArm, "renderCanonicalProfilerAuxPayload(auxPayload)") ||
-		!strings.Contains(auxArm, "profilerCanonicalLineValid(event, auxPayload.Name, body)") ||
-		!strings.Contains(auxArm, "auxPayload.Degradations") {
+	auxArm := sourceBetween(t, audit, "renderProfilerFtraceAuxEventWithTypedAudit(event)", "renderProfilerFtraceFilemapEventWithTypedAudit(event)")
+	if !strings.Contains(auxArm, "profilerFtraceEventIssueLabels(event.Field, issues)") ||
+		!strings.Contains(auxArm, "profilerStructuredAuxSchemas[event.Field]") {
 		t.Fatal("governed aux rejection/render/line-cap choke point can fall through")
+	}
+	typed := sourceBetween(t, profiler, "func renderProfilerFtraceEventBodyWithTypedAuditAndPair(", "const profilerFtraceGenericIssuesPerEvent")
+	if strings.Count(typed, "decodeProfilerAuxPayloadWithTypedAudit(event)") != 1 ||
+		!strings.Contains(typed, "finalizeProfilerFtraceAuxEventWithTypedAudit(event, auxResult)") ||
+		strings.Contains(typed, "profilerFtraceEventDegradationAuxPayload") ||
+		strings.Contains(typed, "profilerFtraceEventDegradationFilemapPayload") {
+		t.Fatal("typed aux/filemap path restored duplicate decode or reverse legacy bridge")
 	}
 }
 
