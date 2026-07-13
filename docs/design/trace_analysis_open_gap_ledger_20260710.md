@@ -587,6 +587,16 @@ generic代码提交`8f5aee619`已独立推送到`main`；连同先行的envelope
 
 **明确留后**：B2-b4 aux/filemap与B2-b5 block/全调用图bridge删除仍开放；只有b4/b5完成后才可关闭B2-b/B2/P1-a2.2。a2.3/a2.4、`ROW-SORT-BND`、P1-b、TOCTOU、compact pairing sidecar、generic block/storage typed request identity witness及Profiler全链有界声明均不受本批改变。
 
+### P1-a2.2-B2-b3 core producer typed化交付结案
+
+代码提交`2cf082f36`已独立推送到`main`；施工冻结与reachability勘正分别由`2166478ee`/`3f25bb947`先行推送。本节只关闭B2-b3，不提前关闭B2-b/B2/P1-a2.2。
+
+- **唯一typed core咽喉已落地**：17个structured-core event改为固定`[8]` field state单次`walkProtoFields`，count饱和到2；payload framing失败sole whole reject，完整扫描后继续保持schema field升序、单endpoint wrong-wire>duplicate及各event原semantic首错顺序。capacity-1 checked set只接受合法core event/kind/payload/severity，prospective copy通过count/tail/schema/duplicate校验后才commit；typed set与admission先于renderer/canonical验证，内部腐化不能被source canonical issue遮蔽。descriptor missing/mismatch/bad-name、unhandled dispatch与canonical payload renderer失败全部转`traceDBOutputInvariantError`。
+- **生产逆桥已切断且兼容面不漂**：typed入口按envelope→core typed→generic→legacy aux/filemap/block顺序，governed core若未handled立即内部fail-close；legacy-source switch已无core分支。direct入口调用同一family helper后仅做`Issue→label`单向适配，不与typed入口互调，故无递归；旧`decodeProfilerCorePayload`仅是现有测试/迁移期兼容薄壳。aux仍依赖的map/string helper原样保留到B2-b4，direct raw ftrace继续只共享source-neutral canonical renderer。
+- **exact source闭集已机械化**：raw producer witness与`validFor` constructor逐tuple双向相等为163，29个core issue kind全可达，field113最大25；全局finite issue universe由1826校准为1813且max-per-event仍106<128。canonical-line只允许1400/1401/1402 reason及1500 IRQ name四个真实无界source string，四者各有精确1MiB/cap+1 pin；其余13个旧组合、超长header comm与timestamp overflow均不能冒充core canonical。2420..2422 field1五种comm和4002 field4三种caller issue严格是`AdmittedDisplay`，hard wire/semantic始终支配display；Harmony priority 140/159/301及负值、proto3 absent/default与unknown future field兼容保持。
+- **验证与独立终审**：17 clean golden、163 raw/direct/container parity、canonical坏行健康sibling局部存活、whole/hard/semantic/display occurrence/affected/Rows守恒、正反wire序、count/tail/foreign/event/payload/severity/cross-arm腐化与失败无mutation均有机械pin。focused shuffle×20、修复后race×3、目标包全量、`go test ./... -count=1`、`go vet ./...`、gofmt/diff-check全绿；代码复审先发现并关闭“corrupt set被canonical遮蔽”HOLD，最终代码/测试/对抗三路均为**RELEASE**。
+- **诚实剩余**：B2-b4 aux/filemap producer typed化与B2-b5 block producer typed化、block canonical局部拒行、全调用图legacy bridge/string producer删除继续开放；只有b4/b5完成并复核总矩阵后才可关闭B2-b/B2/P1-a2.2。a2.3/a2.4、`ROW-SORT-BND`、P1-b、TOCTOU、compact pairing sidecar、generic block/storage typed request identity witness及Profiler全链有界声明均未由本批改变。
+
 ### P1-a2.2-B2-b1 closed bridge与exact ledger交付结案
 
 账本校准提交`c2c3f50fc`与代码提交`0ade13c13`已按顺序推送到`main`；本节只关闭B2-b1临时strict bridge与exact fixed census，不提前关闭B2-b、B2或P1-a2.2。bridge必须在B2-b2..b5逐producer typed化完成后删除，不能成为长期双权威。
