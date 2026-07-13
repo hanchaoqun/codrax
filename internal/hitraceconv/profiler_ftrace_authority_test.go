@@ -88,8 +88,8 @@ func TestParseProfilerPluginDataHardRouteFieldsFailClosed(t *testing.T) {
 			if !reflect.DeepEqual(decoded.Plugin, profilerPluginData{}) {
 				t.Fatalf("rejected message must not retain a partial route: %+v", decoded.Plugin)
 			}
-			if !profilerAuthorityIssuePresent(decoded.Issues, test.issue) {
-				t.Fatalf("missing issue %q in %v", test.issue, decoded.Issues)
+			if !profilerPluginIssuePresent(decoded.IssueCensus, test.issue) {
+				t.Fatalf("missing issue %q in %s", test.issue, decoded.IssueCensus.summary())
 			}
 		})
 	}
@@ -159,8 +159,8 @@ func TestParseProfilerPluginDataMetadataDamageDoesNotChangeRoute(t *testing.T) {
 				t.Fatalf("metadata damage changed the hard route: %+v", decoded.Plugin)
 			}
 			for _, issue := range test.issues {
-				if !profilerAuthorityIssuePresent(decoded.Issues, issue) {
-					t.Fatalf("missing issue %q in %v", issue, decoded.Issues)
+				if !profilerPluginIssuePresent(decoded.IssueCensus, issue) {
+					t.Fatalf("missing issue %q in %s", issue, decoded.IssueCensus.summary())
 				}
 			}
 		})
@@ -453,7 +453,7 @@ func TestProfilerPluginMetadataNeverDefaultsDamagedTimingTuple(t *testing.T) {
 			}
 			caveat := profilerPluginMetadataCaveat(decoded.Plugin.Name, decoded.Plugin)
 			if strings.Contains(caveat, "clock_id=") || strings.Contains(caveat, "tv=") {
-				t.Fatalf("damaged timing fields must not be presented as proto3 defaults: %s issues=%v", caveat, decoded.Issues)
+				t.Fatalf("damaged timing fields must not be presented as proto3 defaults: %s issues=%s", caveat, decoded.IssueCensus.summary())
 			}
 		})
 	}
@@ -590,6 +590,15 @@ func profilerAuthorityIssuePresent(issues []string, want string) bool {
 	for _, issue := range issues {
 		if issue == want {
 			return true
+		}
+	}
+	return false
+}
+
+func profilerPluginIssuePresent(census profilerPluginIssueCensus, want string) bool {
+	for kind := profilerPluginIssueKind(0); kind < profilerPluginIssueKindCount; kind++ {
+		if kind.label() == want {
+			return census.Occurrences[int(kind)] > 0
 		}
 	}
 	return false

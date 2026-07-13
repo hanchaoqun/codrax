@@ -805,10 +805,19 @@ func TestProfilerOversizedFrameStopsWithoutTrustingPrefixSiblingAndFailClosesSou
 		t.Fatalf("oversized frame escaped source fail-close: accepted=%d publishable=%d fail_closed=%t",
 			sink.stats.RowsAccepted, sink.publishableRows(), sink.allRowsFailClosed)
 	}
+	bucketFailClosed := false
 	for _, item := range extracted.TraceCoverage {
 		if item.Family == "builtin_modern_profiler" && item.RowsEmitted != 0 {
 			t.Fatalf("source-failed frame retained emitted-row authority: %+v", item)
 		}
+		if item.Family == "builtin_modern_profiler" && item.Table == "plugin:bytrace_plugin" &&
+			item.RowsRead == 1 && item.FieldSources["observed_messages"] == "1" &&
+			item.FieldSources["profiler_trace_body_source_fail_closed"] == "plugin_frame_size_budget_exceeded" {
+			bucketFailClosed = true
+		}
+	}
+	if !bucketFailClosed {
+		t.Fatalf("source fail-close did not preserve and zero the fixed plugin bucket audit: %+v", extracted.TraceCoverage)
 	}
 	var output bytes.Buffer
 	stats, err := sink.writeTo(context.Background(), &output)

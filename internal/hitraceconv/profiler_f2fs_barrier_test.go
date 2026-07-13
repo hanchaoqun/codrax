@@ -239,7 +239,7 @@ func TestProfilerContainerF2FSCaptureCoverageMatchesPublishedRows(t *testing.T) 
 		if item.Family == "builtin_modern_profiler" && item.Table == "plugin:ftrace-plugin" {
 			pluginEmitted += item.RowsEmitted
 		}
-		if item.Family == "builtin_modern_profiler" && item.Table == "plugin:other-plugin" {
+		if item.Family == "builtin_modern_profiler" && item.Table == "plugin:__other_text__" {
 			otherEmitted += item.RowsEmitted
 		}
 		switch item.Table {
@@ -928,7 +928,7 @@ func TestProfilerMixedTextMessageUsesIndependentF2FSAndMMCCaptureScopes(t *testi
 			}
 			pluginRows := -1
 			for _, item := range result.TraceCoverage {
-				if item.Family == "builtin_modern_profiler" && item.Table == "plugin:other-plugin" {
+				if item.Family == "builtin_modern_profiler" && item.Table == "plugin:__other_text__" {
 					pluginRows = item.RowsEmitted
 				}
 			}

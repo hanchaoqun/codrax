@@ -208,7 +208,7 @@ func TestProfilerContainerMMCCaptureCoverageMatchesPublishedRows(t *testing.T) {
 		if item.Family == "builtin_modern_profiler" && item.Table == "plugin:ftrace-plugin" {
 			pluginEmitted += item.RowsEmitted
 		}
-		if item.Family == "builtin_modern_profiler" && item.Table == "plugin:other-plugin" {
+		if item.Family == "builtin_modern_profiler" && item.Table == "plugin:__other_text__" {
 			otherPluginEmitted += item.RowsEmitted
 		}
 		switch item.Table {
@@ -277,7 +277,7 @@ func TestProfilerOuterContainerOpacityCannotBridgeMMC(t *testing.T) {
 	}
 }
 
-func TestProfilerTextMMCCoverageIsAttributedPerPlugin(t *testing.T) {
+func TestProfilerTextMMCCoverageIsAttributedToAggregateBucket(t *testing.T) {
 	startPayload, _, _ := decodeDirectMMCPayloadFromFixtureForTest(t, "mmc_request_start")
 	donePayload, _, _ := decodeDirectMMCPayloadFromFixtureForTest(t, "mmc_request_done")
 	startBody, _ := renderCanonicalMMCPayload(startPayload)
@@ -310,27 +310,19 @@ func TestProfilerTextMMCCoverageIsAttributedPerPlugin(t *testing.T) {
 		!strings.Contains(string(body), "print: B|7|Other") || !strings.Contains(string(body), "print: B|8|Keep") {
 		t.Fatalf("text MMC barrier output mismatch: result=%+v\n%s", result, body)
 	}
-	want := map[string]int{
-		"plugin:other-plugin":     1,
-		"plugin:mmc-start-plugin": 0,
-		"plugin:mmc-mixed-plugin": 1,
-		"plugin:mmc-done-plugin":  0,
-	}
+	otherRows, otherRead := -1, -1
 	barrierRows := -1
 	for _, item := range result.TraceCoverage {
-		if expected, found := want[item.Table]; found {
-			if item.RowsEmitted != expected {
-				t.Fatalf("plugin coverage attribution drifted for %s: got=%d want=%d item=%+v", item.Table, item.RowsEmitted, expected, item)
-			}
-			delete(want, item.Table)
+		if item.Table == "plugin:__other_text__" {
+			otherRows, otherRead = item.RowsEmitted, item.RowsRead
 		}
 		if item.Table == "__complete_capture_barrier__" {
 			barrierRows = item.RowsRead
 		}
 	}
 	joined := strings.Join(result.Caveats, "\n")
-	if len(want) != 0 || barrierRows != 3 || !strings.Contains(joined, "extracted 2 systrace text row(s) from 2 profiler plugin message(s)") {
-		t.Fatalf("text MMC coverage/counter ledger mismatch: missing=%v barrier=%d\n%s\n%+v", want, barrierRows, joined, result.TraceCoverage)
+	if otherRows != 2 || otherRead != 4 || barrierRows != 3 || !strings.Contains(joined, "extracted 2 systrace text row(s) from 2 profiler plugin message(s)") {
+		t.Fatalf("text MMC aggregate coverage/counter ledger mismatch: rows=%d read=%d barrier=%d\n%s\n%+v", otherRows, otherRead, barrierRows, joined, result.TraceCoverage)
 	}
 }
 

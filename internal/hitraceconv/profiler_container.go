@@ -35,25 +35,29 @@ type profilerTraceHeader struct {
 }
 
 type profilerPluginData struct {
-	Name               string
-	Status             uint32
-	Data               []byte
-	ClockID            uint64
-	ClockIDPresent     bool
-	ClockIDAmbiguous   bool
-	TvSec              uint64
-	TvSecPresent       bool
-	TvNsec             uint64
-	TvNsecPresent      bool
-	TimeTupleAmbiguous bool
-	Version            string
-	SampleInterval     uint32
+	Name                  string
+	Status                uint32
+	StatusPresent         bool
+	Data                  []byte
+	ClockID               uint64
+	ClockIDPresent        bool
+	ClockIDAmbiguous      bool
+	TvSec                 uint64
+	TvSecPresent          bool
+	TvNsec                uint64
+	TvNsecPresent         bool
+	TimeTupleAmbiguous    bool
+	Version               string
+	VersionPresent        bool
+	SampleInterval        uint32
+	SampleIntervalPresent bool
 }
 
 type profilerPluginDataDecode struct {
-	Plugin   profilerPluginData
-	Accepted bool
-	Issues   []string
+	Plugin        profilerPluginData
+	Accepted      bool
+	IssueCensus   profilerPluginIssueCensus
+	IssueOverflow bool
 }
 
 type profilerContainerExtraction struct {
@@ -120,6 +124,16 @@ func incrementProfilerContainerCounter(counter *int) bool {
 	}
 	*counter++
 	return true
+}
+
+func profilerContainerCounterFailClose(out *profilerContainerExtraction, sink *traceDBRowSink) {
+	if out != nil {
+		out.SourceFailClosed = true
+		out.SourceFailReason = "container_counter_overflow"
+	}
+	if sink != nil {
+		sink.failCloseAllRows()
+	}
 }
 
 type profilerFtraceSummary struct {
@@ -353,17 +367,23 @@ func reconcileProfilerPairCoverage(items []TraceDBCoverage, sink *traceDBRowSink
 		if item.FieldSources == nil {
 			item.FieldSources = map[string]string{}
 		}
-		staged, err := strconv.Atoi(item.FieldSources[stagedKey])
-		if err != nil || staged < count || count > item.RowsEmitted {
+		stagedRaw, err := strconv.ParseUint(item.FieldSources[stagedKey], 10, 64)
+		if err != nil || stagedRaw > uint64(math.MaxInt) || int(stagedRaw) < count || count > item.RowsEmitted {
 			return &traceDBOutputInvariantError{Reason: "profiler_" + family + "_coverage_exceeds_plugin_rows"}
 		}
 		item.RowsEmitted -= count
 		withheldTotal := count
-		if existing, parseErr := strconv.Atoi(item.FieldSources["complete_capture_withheld_rows"]); parseErr == nil && existing > 0 {
-			withheldTotal += existing
+		if existingRaw, present := item.FieldSources["complete_capture_withheld_rows"]; present {
+			existing, parseErr := strconv.ParseUint(existingRaw, 10, 64)
+			if parseErr != nil || existing > uint64(math.MaxInt) ||
+				!checkedProfilerIntAddTo(&withheldTotal, int(existing)) {
+				return &traceDBOutputInvariantError{Reason: "profiler_" + family + "_coverage_withheld_counter_overflow"}
+			}
 		}
 		item.FieldSources["complete_capture_withheld_rows"] = strconv.Itoa(withheldTotal)
-		accounted += count
+		if !checkedProfilerIntAddTo(&accounted, count) {
+			return &traceDBOutputInvariantError{Reason: "profiler_" + family + "_coverage_accounted_counter_overflow"}
+		}
 	}
 	if accounted != withheld {
 		return &traceDBOutputInvariantError{Reason: "profiler_" + family + "_coverage_attribution_mismatch"}
@@ -652,7 +672,9 @@ func extractProfilerTraceFileAtWithFrameLimit(ctx context.Context, reader io.Rea
 	off := int64(profilerTraceHeaderSize)
 	seq := 0
 	var zeroFrames profilerZeroFrameCensus
+	diagnostics := newProfilerContainerDiagnosticLedger()
 	var lenBuf [4]byte
+frames:
 	for off <= limit-4 {
 		if err := ctx.Err(); err != nil {
 			return profilerContainerExtraction{}, err
@@ -712,80 +734,100 @@ func extractProfilerTraceFileAtWithFrameLimit(ctx context.Context, reader io.Rea
 			return profilerContainerExtraction{}, fmt.Errorf("read profiler message at %d: %w", off+4, err)
 		}
 		decoded := parseProfilerPluginData(msg)
+		if decoded.IssueOverflow {
+			profilerContainerCounterFailClose(&out, sink)
+			break frames
+		}
 		if decoded.Accepted {
 			plugin := decoded.Plugin
 			name := firstNonEmpty(plugin.Name, "unknown-plugin")
-			out.PluginMessages[name]++
-			out.Caveats = append(out.Caveats, profilerPluginMetadataCaveat(name, plugin))
-			if len(decoded.Issues) > 0 {
-				out.Caveats = append(out.Caveats, fmt.Sprintf("profiler plugin %s metadata degraded: %s", name, profilerTracePluginIssueSummary(decoded.Issues)))
-			}
+			route := classifyProfilerPluginRoute(name)
+			outcome := profilerPluginOutcomeNoTextRows
 			coverage := TraceDBCoverage{
-				Family:   "builtin_modern_profiler",
-				Table:    "plugin:" + name,
-				Role:     "query_ready_export",
-				Found:    true,
 				RowsRead: 1,
 			}
 			if !sink.beginPairRowCensus() {
 				return profilerContainerExtraction{}, &traceDBOutputInvariantError{Reason: "profiler_pair_census_nested"}
 			}
-			pluginMMCRows := func() profilerPairRowCensus {
-				return sink.currentPairRowCensus(pairRenderMMC)
-			}
-			pluginF2FSRows := func() profilerPairRowCensus {
-				return sink.currentPairRowCensus(pairRenderF2FS)
-			}
-			appendPluginCoverage := func() {
+			textMessageRows := 0
+			appendPluginCoverage := func() bool {
 				mmcRows, f2fsRows := sink.endPairRowCensus()
-				if staged := mmcRows.total; staged > 0 {
-					if coverage.FieldSources == nil {
-						coverage.FieldSources = map[string]string{}
-					}
-					coverage.FieldSources[profilerCoverageMMCStagedRows] = strconv.Itoa(staged)
+				coverageIndex, ok := diagnostics.observeAccepted(&out, route, name, plugin, decoded.IssueCensus,
+					off, outcome, coverage.RowsEmitted, mmcRows, f2fsRows)
+				if !ok {
+					return false
 				}
-				if staged := f2fsRows.total; staged > 0 {
-					if coverage.FieldSources == nil {
-						coverage.FieldSources = map[string]string{}
+				if mmcRows.total > 0 || f2fsRows.total > 0 {
+					if len(out.pairPublishers) == math.MaxInt {
+						return false
 					}
-					coverage.FieldSources[profilerCoverageF2FSStagedRows] = strconv.Itoa(staged)
+					out.pairPublishers = append(out.pairPublishers, profilerPairPublisherCensus{
+						coverageIndex: coverageIndex, mmc: mmcRows, f2fs: f2fsRows,
+					})
+					if textMessageRows > 0 {
+						if len(out.textMessages) == math.MaxInt {
+							return false
+						}
+						out.textMessages = append(out.textMessages, profilerTextMessageRows{
+							total: textMessageRows, mmc: mmcRows, f2fs: f2fsRows,
+						})
+					}
 				}
-				out.pairPublishers = append(out.pairPublishers, profilerPairPublisherCensus{
-					coverageIndex: len(out.TraceCoverage), mmc: mmcRows, f2fs: f2fsRows,
-				})
-				out.TraceCoverage = append(out.TraceCoverage, coverage)
+				return true
 			}
-			if name == "ftrace-plugin" {
+			if route == profilerPluginRouteExactFtrace {
 				authority := decodeProfilerTracePluginResult(plugin.Data)
 				if authority.Disposition == profilerFtracePayloadNotStructured {
 					rows, textPayload, rowErr := addStrictSystraceRowsFromBytes(plugin.Data, &seq, sink)
 					if rowErr != nil {
 						coverage.Error = rowErr.Error()
-						appendPluginCoverage()
+						_ = appendPluginCoverage()
 						return profilerContainerExtraction{}, rowErr
 					}
 					coverage.RowsEmitted = rows
 					if textPayload {
-						out.TextRows += rows
-						out.TextPluginMessages++
-						out.textMessages = append(out.textMessages, profilerTextMessageRows{
-							total: rows, mmc: pluginMMCRows(), f2fs: pluginF2FSRows(),
-						})
-						appendPluginCoverage()
+						outcome = profilerPluginOutcomeStrictText
+						textMessageRows = rows
+						if !checkedProfilerIntAddTo(&out.TextRows, rows) || !checkedProfilerIntAddTo(&out.TextPluginMessages, 1) {
+							_, _ = sink.endPairRowCensus()
+							profilerContainerCounterFailClose(&out, sink)
+							break frames
+						}
+						if !appendPluginCoverage() {
+							profilerContainerCounterFailClose(&out, sink)
+							break frames
+						}
 						off += 4 + int64(n)
 						continue
 					}
-					coverage.Skipped = "ftrace-plugin payload was neither authoritative TracePluginResult protobuf nor a complete strict legacy systrace payload"
-					out.UnsupportedFtrace++
-					appendPluginCoverage()
+					outcome = profilerPluginOutcomeUnsupportedFtrace
+					if !checkedProfilerIntAddTo(&out.UnsupportedFtrace, 1) {
+						_, _ = sink.endPairRowCensus()
+						profilerContainerCounterFailClose(&out, sink)
+						break frames
+					}
+					if !appendPluginCoverage() {
+						profilerContainerCounterFailClose(&out, sink)
+						break frames
+					}
 					off += 4 + int64(n)
 					continue
 				}
 
 				if authority.Disposition == profilerFtracePayloadStructured {
-					out.StructuredFtrace++
+					outcome = profilerPluginOutcomeStructured
+					if !checkedProfilerIntAddTo(&out.StructuredFtrace, 1) {
+						_, _ = sink.endPairRowCensus()
+						profilerContainerCounterFailClose(&out, sink)
+						break frames
+					}
 				} else {
-					out.MalformedFtrace++
+					outcome = profilerPluginOutcomeMalformed
+					if !checkedProfilerIntAddTo(&out.MalformedFtrace, 1) {
+						_, _ = sink.endPairRowCensus()
+						profilerContainerCounterFailClose(&out, sink)
+						break frames
+					}
 				}
 				if issueSummary := profilerTracePluginIssueSummary(authority.Issues); issueSummary != "" {
 					out.Caveats = append(out.Caveats, "ftrace-plugin TracePluginResult degraded: "+issueSummary)
@@ -794,7 +836,12 @@ func extractProfilerTraceFileAtWithFrameLimit(ctx context.Context, reader io.Rea
 				if summaryErr != nil {
 					out.Caveats = append(out.Caveats, fmt.Sprintf("ftrace-plugin structured metadata parse failed: %v", summaryErr))
 					coverage.Error = summaryErr.Error()
-					out.UnsupportedFtrace++
+					outcome = profilerPluginOutcomeStructuredDegraded
+					if !checkedProfilerIntAddTo(&out.UnsupportedFtrace, 1) {
+						_, _ = sink.endPairRowCensus()
+						profilerContainerCounterFailClose(&out, sink)
+						break frames
+					}
 				} else {
 					if ok {
 						out.Caveats = append(out.Caveats, profilerFtraceSummaryCaveat(summary))
@@ -804,76 +851,96 @@ func extractProfilerTraceFileAtWithFrameLimit(ctx context.Context, reader io.Rea
 					out.TraceCoverage = append(out.TraceCoverage, structuredCoverage...)
 					if renderErr != nil {
 						coverage.Error = renderErr.Error()
-						out.UnsupportedFtrace++
-						appendPluginCoverage()
+						_ = appendPluginCoverage()
 						return profilerContainerExtraction{}, renderErr
 					}
 					coverage.RowsEmitted = structuredRows
-					if structuredRows > 0 {
-						out.StructuredRows += structuredRows
+					if !checkedProfilerIntAddTo(&out.StructuredRows, structuredRows) {
+						_, _ = sink.endPairRowCensus()
+						profilerContainerCounterFailClose(&out, sink)
+						break frames
 					}
 					if ok && len(summary.Issues) > 0 || profilerFtraceCoverageHasSkipped(structuredCoverage) || ok && structuredRows == 0 && summary.DetailEventCount > 0 {
-						coverage.Skipped = "structured ftrace renderer partial"
-						out.UnsupportedFtrace++
+						if outcome != profilerPluginOutcomeMalformed {
+							outcome = profilerPluginOutcomeStructuredDegraded
+						}
+						if !checkedProfilerIntAddTo(&out.UnsupportedFtrace, 1) {
+							_, _ = sink.endPairRowCensus()
+							profilerContainerCounterFailClose(&out, sink)
+							break frames
+						}
 					}
 				}
-			} else if strings.EqualFold(name, "ftrace-plugin") {
-				coverage.Skipped = "non-canonical ftrace-plugin name rejected; structured routing requires exact case-sensitive name=ftrace-plugin"
-				out.UnsupportedFtrace++
+			} else if route == profilerPluginRouteNoncanonicalFtrace {
+				outcome = profilerPluginOutcomeNoncanonicalFtrace
+				if !checkedProfilerIntAddTo(&out.UnsupportedFtrace, 1) {
+					_, _ = sink.endPairRowCensus()
+					profilerContainerCounterFailClose(&out, sink)
+					break frames
+				}
 				sink.markPairCaptureOpaque(pairRenderMMC)
 				sink.markPairCaptureOpaque(pairRenderF2FS)
 			} else if len(plugin.Data) == 0 {
-				coverage.Skipped = "empty plugin payload"
+				outcome = profilerPluginOutcomeEmptyPayload
 			} else {
 				rows, rowErr := addSystraceRowsFromBytes(plugin.Data, &seq, sink)
 				if rowErr != nil {
 					coverage.Error = rowErr.Error()
-					appendPluginCoverage()
+					_ = appendPluginCoverage()
 					return profilerContainerExtraction{}, rowErr
 				}
 				coverage.RowsEmitted = rows
 				if rows > 0 {
-					out.TextRows += rows
-					out.TextPluginMessages++
-					out.textMessages = append(out.textMessages, profilerTextMessageRows{
-						total: rows, mmc: pluginMMCRows(), f2fs: pluginF2FSRows(),
-					})
+					outcome = profilerPluginOutcomeTextRows
+					textMessageRows = rows
+					if !checkedProfilerIntAddTo(&out.TextRows, rows) || !checkedProfilerIntAddTo(&out.TextPluginMessages, 1) {
+						_, _ = sink.endPairRowCensus()
+						profilerContainerCounterFailClose(&out, sink)
+						break frames
+					}
 				} else {
-					coverage.Skipped = "plugin payload did not contain systrace-compatible text rows"
+					outcome = profilerPluginOutcomeNoTextRows
 				}
 			}
-			appendPluginCoverage()
+			if !appendPluginCoverage() {
+				profilerContainerCounterFailClose(&out, sink)
+				break frames
+			}
 		} else {
 			out.RejectedMessages++
 			sink.markPairCaptureOpaque(pairRenderMMC)
 			sink.markPairCaptureOpaque(pairRenderF2FS)
-			reason := profilerTracePluginIssueSummary(decoded.Issues)
-			if reason == "" {
-				reason = "plugin_message_rejected"
+			if !diagnostics.observeRejected(&out, decoded.IssueCensus, off) {
+				profilerContainerCounterFailClose(&out, sink)
+				break frames
 			}
-			out.Caveats = append(out.Caveats, fmt.Sprintf("rejected ProfilerPluginData message at offset %d: %s", off, reason))
-			out.TraceCoverage = append(out.TraceCoverage, profilerRejectedPluginCoverage(reason))
 		}
 		off += 4 + int64(n)
 	}
 	if !appendProfilerZeroFrameCensus(&out, zeroFrames) {
-		out.SourceFailClosed = true
-		out.SourceFailReason = "container_counter_overflow"
-		sink.failCloseAllRows()
+		profilerContainerCounterFailClose(&out, sink)
 	}
 	if remaining := limit - off; remaining > 0 && remaining < 4 {
-		out.RejectedMessages++
+		if !incrementProfilerContainerCounter(&out.RejectedMessages) {
+			profilerContainerCounterFailClose(&out, sink)
+		}
 		sink.markPairCaptureOpaque(pairRenderMMC)
 		sink.markPairCaptureOpaque(pairRenderF2FS)
 		out.Caveats = append(out.Caveats, fmt.Sprintf("rejected truncated ProfilerPluginData length prefix at offset %d: available=%d", off, remaining))
 		out.TraceCoverage = append(out.TraceCoverage, profilerContainerEnvelopeCoverage("plugin_length_prefix_truncated"))
 	}
+	if !diagnostics.materialize(&out) {
+		profilerContainerCounterFailClose(&out, sink)
+	}
 	withheldStructured := 0
 	withheldText := 0
 	for _, kind := range []pairRenderKind{pairRenderMMC, pairRenderF2FS} {
 		structured := sink.withheldStructuredPairRowsForKind(kind)
-		withheldStructured += structured
-		withheldText += sink.withheldPairRowsForKind(kind) - structured
+		if !checkedProfilerIntAddTo(&withheldStructured, structured) ||
+			!checkedProfilerIntAddTo(&withheldText, sink.withheldPairRowsForKind(kind)-structured) {
+			profilerContainerCounterFailClose(&out, sink)
+			break
+		}
 	}
 	if withheldStructured > out.StructuredRows {
 		out.StructuredRows = 0
@@ -895,7 +962,10 @@ func extractProfilerTraceFileAtWithFrameLimit(ctx context.Context, reader io.Rea
 			publishable -= sink.withheldPairRowsFromCensus(pairRenderF2FS, message.f2fs)
 		}
 		if publishable <= 0 {
-			withheldMessages++
+			if !checkedProfilerIntAddTo(&withheldMessages, 1) {
+				profilerContainerCounterFailClose(&out, sink)
+				break
+			}
 		}
 	}
 	if withheldMessages > out.TextPluginMessages {
@@ -2030,6 +2100,11 @@ func parseProfilerPluginData(data []byte) profilerPluginDataDecode {
 	var valid [9]bool
 	var uintValues [9]uint64
 	var byteValues [9][]byte
+	observeIssue := func(kind profilerPluginIssueKind, delta uint64) {
+		if !decoded.IssueCensus.observe(kind, delta) {
+			decoded.IssueOverflow = true
+		}
+	}
 
 	err := walkProtoFields(data, func(field int, wire int, raw []byte, value uint64) error {
 		if field < 1 || field > 8 {
@@ -2041,7 +2116,9 @@ func parseProfilerPluginData(data []byte) profilerPluginDataDecode {
 			expectedWire = 2
 		}
 		if wire != expectedWire {
-			decoded.Issues = append(decoded.Issues, fmt.Sprintf("plugin_field%d_wrong_wire", field))
+			if kind, ok := profilerPluginWrongWireIssue(field); ok {
+				observeIssue(kind, 1)
+			}
 			return nil
 		}
 		if counts[field] > 1 {
@@ -2056,11 +2133,13 @@ func parseProfilerPluginData(data []byte) profilerPluginDataDecode {
 		return nil
 	})
 	if err != nil {
-		decoded.Issues = append(decoded.Issues, "plugin_message_malformed_wire")
+		observeIssue(profilerPluginIssueMalformedWire, 1)
 	}
 	for field := 1; field <= 8; field++ {
 		if counts[field] > 1 {
-			decoded.Issues = append(decoded.Issues, fmt.Sprintf("plugin_field%d_duplicate", field))
+			if !decoded.IssueCensus.observeDuplicate(field, uint64(counts[field]-1)) {
+				decoded.IssueOverflow = true
+			}
 			valid[field] = false
 		}
 	}
@@ -2069,12 +2148,12 @@ func parseProfilerPluginData(data []byte) profilerPluginDataDecode {
 	if counts[1] != 1 || !valid[1] {
 		hardRejected = true
 		if counts[1] == 0 {
-			decoded.Issues = append(decoded.Issues, "plugin_name_missing")
+			observeIssue(profilerPluginIssueNameMissing, 1)
 		}
 	} else if name := string(byteValues[1]); !traceDBSingleToken(name) {
 		hardRejected = true
 		valid[1] = false
-		decoded.Issues = append(decoded.Issues, "plugin_name_invalid")
+		observeIssue(profilerPluginIssueNameInvalid, 1)
 	} else {
 		decoded.Plugin.Name = name
 	}
@@ -2087,15 +2166,16 @@ func parseProfilerPluginData(data []byte) profilerPluginDataDecode {
 	if counts[2] == 1 && valid[2] {
 		if uintValues[2] > uint64(^uint32(0)) {
 			valid[2] = false
-			decoded.Issues = append(decoded.Issues, "plugin_status_out_of_range")
+			observeIssue(profilerPluginIssueStatusOutOfRange, 1)
 		} else {
 			decoded.Plugin.Status = uint32(uintValues[2])
+			decoded.Plugin.StatusPresent = true
 		}
 	}
 	if counts[4] == 1 && valid[4] {
 		if uintValues[4] > 11 {
 			valid[4] = false
-			decoded.Issues = append(decoded.Issues, "plugin_clock_id_out_of_range")
+			observeIssue(profilerPluginIssueClockIDOutOfRange, 1)
 		} else {
 			decoded.Plugin.ClockID = uintValues[4]
 			decoded.Plugin.ClockIDPresent = true
@@ -2108,7 +2188,7 @@ func parseProfilerPluginData(data []byte) profilerPluginDataDecode {
 	if counts[6] == 1 && valid[6] {
 		if uintValues[6] >= 1e9 {
 			valid[6] = false
-			decoded.Issues = append(decoded.Issues, "plugin_tv_nsec_out_of_range")
+			observeIssue(profilerPluginIssueTVNsecOutOfRange, 1)
 		} else {
 			decoded.Plugin.TvNsec = uintValues[6]
 			decoded.Plugin.TvNsecPresent = true
@@ -2118,24 +2198,25 @@ func parseProfilerPluginData(data []byte) profilerPluginDataDecode {
 		version := string(byteValues[7])
 		if !traceDBSinglePhysicalLine(version, true) {
 			valid[7] = false
-			decoded.Issues = append(decoded.Issues, "plugin_version_invalid")
+			observeIssue(profilerPluginIssueVersionInvalid, 1)
 		} else {
 			decoded.Plugin.Version = version
+			decoded.Plugin.VersionPresent = true
 		}
 	}
 	if counts[8] == 1 && valid[8] {
 		if uintValues[8] > uint64(^uint32(0)) {
 			valid[8] = false
-			decoded.Issues = append(decoded.Issues, "plugin_sample_interval_out_of_range")
+			observeIssue(profilerPluginIssueSampleIntervalOutOfRange, 1)
 		} else {
 			decoded.Plugin.SampleInterval = uint32(uintValues[8])
+			decoded.Plugin.SampleIntervalPresent = true
 		}
 	}
 	decoded.Plugin.ClockIDAmbiguous = counts[4] > 0 && (counts[4] != 1 || !valid[4])
 	decoded.Plugin.TimeTupleAmbiguous = counts[5] > 0 && (counts[5] != 1 || !valid[5]) ||
 		counts[6] > 0 && (counts[6] != 1 || !valid[6])
-
-	if hardRejected {
+	if hardRejected || decoded.IssueOverflow {
 		decoded.Plugin = profilerPluginData{}
 		return decoded
 	}
