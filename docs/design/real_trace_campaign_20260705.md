@@ -2395,3 +2395,11 @@ io_wait 族行行1 裸名(`ThreadPoolForeg-60555 █ 13.418ms`),iowait 掉行2�
 **冷读关**:证据面 µs 级全中、已铸指针零指错、前批面零回归;未收敛四对漏铸→修复轮扩臂全落(E13↔E7/E8 和恒等互指/E9↔E14 显示臂待 CASE-1(b) 库存/E21·E26 镜像注+谦逊注/板级警示「席位合计 120.528 超窗 114.940:物理时间可重叠,不可直接相加」live);C1 误对修(同覆盖检);**新 P0=「全程 s_sleep/未发生 running」全称断言 vs trace running 157.2ms(67%)**——燃料修:四态账常态发布(目标锚定+有界窗恒发布);检测臂(全称状态断言 grounding)=CR-4;132.041 排查=无车道逃逸,模型跨口径自加(96.081 cpu·ms+35.960 per-CPU)=CR-4。
 **修复轮十五件**其余:P2-2 折叠池跨口径穿透(typed 双 lane tag+wire-fold 池谦逊注 fallback)/P2-3 必要性否决/P3 群(type-lane 宽度/D3 负向/四守卫独立 pin/B1 窗键/G1 口径注)。
 **交付判定(冷读)**:tieba 可交付(板级警示已补);donghu 退回(证据面准,prose 全称断言反转=CR-4 靶)。**遗留→CR-4**:全称状态断言门/R3 幽灵 PI 席(21.153/0.91)/「同进程组」定语/132.041 跨口径缝合;E9↔E14 产线落地+wire-fold Σ typed 化=CASE-1/3;B1 时间戳 en-dash=WF-xn。
+
+### §29.53.1 SMR-1 四态账 resolved-target correctness 热修冻结（2026-07-13）
+
+远端`4f57e9804`把四态账扩到所有target-anchored bounded non-bundle run后，对抗复核发现两条同一常态发布臂的确定性漏账。第一，name-only selector会由`targetWindowTimeline→ThreadTimeline→resolveThreadSelection`解析成唯一positive TID并写入`TimelineResult.Thread`，但caller随后仍把原始`ThreadRef{PID:q.PID,Comm:q.Thread}`传给`buildTargetWindowStateAccount`；当`q.PID=0`时，`SleepIOWaitMs`的blocked_reason matcher无法按`WakeePID`命中，`DeterministicRunningMs`也退化成comm匹配并在线程改名后漏掉同TID语义span。第二，常态臂以`q.TimeStart>0`判断窗口，错误排除显式`TimeStartSet=true`的`[0,x]`合法窗口。
+
+- **唯一修复范围**：timeline是该臂已经执行且完成identity resolution的单点权威；builder必须消费同一次`tl.Thread`，禁止从原始selector重建第二身份。窗口资格复用既有`queryBoundedTimeStart/queryBoundedTimeEnd` typed helper并仍要求`End>Start`，显式零起点合法，未设置的隐式`0`不能借数值同形进入。bundle臂、timeline扫描、五状态partition、G12 single-attribution及SMR折叠/报告层均不改。
+- **验收矩阵**：name-only唯一命中且线程中途rename时，常态账Thread保持positive TID，S+iowait marker仍进入`SleepIOWaitMs` refinement，semantic-span∩running仍按TID计入`DeterministicRunningMs`；同名多TID继续fail-close，PID selector与bundle arm字节/数值不变。`[0,x]`在start/end flags显式设置时发布，缺start flag、缺end flag、`End<=Start`均不发布。结构pin锁定常态臂builder的target实参只来自`tl.Thread`且窗口只读两typed helper；focused/shuffle/race、四相关包、全仓test/vet及独立复审RELEASE后单独提交推送。
+- **不偷报**：本热修只关闭SMR-1新常态四态账的identity/window admission漏口；CR-4全称状态断言、P1-a2.2至a2.4、ROW-SORT-BND、P1-b及账本其它开放项不因本批结案。
