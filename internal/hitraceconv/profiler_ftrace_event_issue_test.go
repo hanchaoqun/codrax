@@ -2,6 +2,8 @@ package hitraceconv
 
 import (
 	"fmt"
+	"math"
+	"strings"
 	"testing"
 )
 
@@ -471,22 +473,126 @@ func TestProfilerFtraceEventIssueCannotBeRelabeledOrSeverityFlipped(t *testing.T
 	}
 }
 
-func TestProfilerFtraceEventTypedChokeFailsUnknownLegacyButDirectStaysCompatible(t *testing.T) {
-	event := profilerFtraceEventRecord{
-		Field:                2003,
-		EnvelopeDegradations: []string{"future_envelope_reason"},
+func TestProfilerFtraceEventTypedEnvelopeFailsClosedWithoutStringFallback(t *testing.T) {
+	event := profilerFtraceEventRecord{Field: 2003, EnvelopeIssueCount: 1}
+	event.EnvelopeIssues[0] = profilerFtraceEventIssue{
+		Kind: profilerFtraceEventIssueKindCount, Severity: profilerFtraceEventIssueHardReject,
 	}
-	if _, _, ok, reasons := renderProfilerFtraceEventBodyWithAudit(event); ok ||
-		len(reasons) != 1 || reasons[0] != "future_envelope_reason" {
-		t.Fatalf("direct compatibility lane changed: ok=%t reasons=%v", ok, reasons)
+	if _, _, ok, reasons := renderProfilerFtraceEventBodyWithAudit(event); ok || len(reasons) != 0 {
+		t.Fatalf("invalid typed envelope escaped direct fail-close: ok=%t reasons=%v", ok, reasons)
 	}
 	_, _, ok, issues, err := renderProfilerFtraceEventBodyWithTypedAudit(event)
 	if ok || len(issues) != 0 || err == nil {
-		t.Fatalf("typed choke admitted unknown legacy issue: ok=%t issues=%+v err=%v", ok, issues, err)
+		t.Fatalf("typed choke admitted invalid envelope issue: ok=%t issues=%+v err=%v", ok, issues, err)
 	}
 	invariant, typed := err.(*traceDBOutputInvariantError)
-	if !typed || invariant.Reason != "profiler_event_legacy_issue_unmapped" {
+	if !typed || invariant.Reason != "profiler_event_envelope_issue_invalid" {
 		t.Fatalf("typed choke error=%T %v", err, err)
+	}
+}
+
+func TestProfilerFtraceEnvelopeIssueSetIsCheckedAndCapacityExact(t *testing.T) {
+	const (
+		maxCPUIssues            = 1
+		maxTimestampIssues      = 1
+		maxTGIDOrIdentityIssues = 1
+		maxCommIssues           = 1
+		maxCommonFieldIssues    = 4
+		maxOneofIssues          = 1
+	)
+	if independentMax := maxCPUIssues + maxTimestampIssues + maxTGIDOrIdentityIssues +
+		maxCommIssues + maxCommonFieldIssues + maxOneofIssues; independentMax != profilerFtraceEnvelopeIssuesPerEvent {
+		t.Fatalf("envelope capacity=%d independent dimensional maximum=%d",
+			profilerFtraceEnvelopeIssuesPerEvent, independentMax)
+	}
+	common := protoMessage(50, protoPayload(
+		protoVarint(1, 1), protoVarint(1, 2),
+		protoVarint(2, 0), protoVarint(2, math.MaxUint8+1),
+		protoVarint(3, 0), protoVarint(3, math.MaxUint8+1),
+		protoBytes(4, []byte{1}),
+	))
+	eventRaw := testProfilerFtraceEnvelopeEvent(
+		protoVarint(1, 1), protoVarint(1, 2),
+		protoVarint(2, 100), protoVarint(2, 101),
+		protoBytes(3, []byte("first")), protoBytes(3, []byte("second")),
+		common,
+		protoMessage(1501, protoPayload(protoVarint(1, 7), protoVarint(2, 1))),
+		protoMessage(1500, protoPayload(protoVarint(1, 8), protoBytes(2, []byte("timer")))),
+	)
+	detail := protoPayload(protoVarint(1, 1), protoVarint(1, 2), protoMessage(2, eventRaw))
+	records, err := decodeProfilerFtraceCPUDetailEvents(detail)
+	if err != nil || len(records) != 1 {
+		t.Fatalf("decode max issue set: records=%+v err=%v", records, err)
+	}
+	record := records[0]
+	issues, err := record.checkedEnvelopeIssues()
+	if err != nil || len(issues) != profilerFtraceEnvelopeIssuesPerEvent || int(record.EnvelopeIssueCount) != len(record.EnvelopeIssues) {
+		t.Fatalf("max issue set drifted: count=%d issues=%+v err=%v capacity=%d",
+			record.EnvelopeIssueCount, issues, err, len(record.EnvelopeIssues))
+	}
+	err = record.appendEnvelopeIssue(profilerFtraceEventIssueEnvelopeTimestampWrongWire)
+	invariant, invariantOK := err.(*traceDBOutputInvariantError)
+	if err == nil || !invariantOK || invariant.Reason != "profiler_event_envelope_issue_overflow" {
+		t.Fatalf("capacity overflow did not fail closed: %T %v", err, err)
+	}
+
+	duplicate := profilerFtraceEventRecord{Field: 2003}
+	if err := duplicate.appendEnvelopeIssue(profilerFtraceEventIssueEnvelopeCommInvalid); err != nil {
+		t.Fatal(err)
+	}
+	err = duplicate.appendEnvelopeIssue(profilerFtraceEventIssueEnvelopeCommInvalid)
+	invariant, invariantOK = err.(*traceDBOutputInvariantError)
+	if err == nil || !invariantOK || invariant.Reason != "profiler_event_envelope_issue_duplicate" {
+		t.Fatalf("duplicate issue did not fail closed: %T %v", err, err)
+	}
+
+	corruptCount := profilerFtraceEventRecord{Field: 2003, EnvelopeIssueCount: profilerFtraceEnvelopeIssuesPerEvent + 1}
+	_, err = corruptCount.checkedEnvelopeIssues()
+	invariant, invariantOK = err.(*traceDBOutputInvariantError)
+	if err == nil || !invariantOK || invariant.Reason != "profiler_event_envelope_issue_count_invalid" {
+		t.Fatalf("corrupt count did not fail closed: %T %v", err, err)
+	}
+	foreign, ok := profilerFtraceEventFixedIssue(2003, profilerFtraceEventIssueCoreMissingOrInvalidState)
+	if !ok {
+		t.Fatal("fixture: core issue")
+	}
+	foreignRecord := profilerFtraceEventRecord{Field: 2003, EnvelopeIssueCount: 1}
+	foreignRecord.EnvelopeIssues[0] = foreign
+	_, err = foreignRecord.checkedEnvelopeIssues()
+	invariant, invariantOK = err.(*traceDBOutputInvariantError)
+	if err == nil || !invariantOK || invariant.Reason != "profiler_event_envelope_issue_invalid" {
+		t.Fatalf("foreign source entered envelope set: %T %v", err, err)
+	}
+}
+
+func TestProfilerFtraceEnvelopeProducerTypedStructurePinned(t *testing.T) {
+	for _, file := range []string{
+		"profiler_ftrace_render.go", "profiler_ftrace_authority.go", "profiler_container.go",
+	} {
+		source := mustReadRendererSource(t, file)
+		if strings.Contains(source, "EnvelopeDegradations") {
+			t.Fatalf("%s restored dynamic envelope reason retention", file)
+		}
+	}
+	renderer := mustReadRendererSource(t, "profiler_ftrace_render.go")
+	record := sourceBetween(t, renderer, "type profilerFtraceEventRecord struct {", "func (record *profilerFtraceEventRecord) appendEnvelopeIssue(")
+	if strings.Contains(record, "[]profilerFtraceEventIssue") ||
+		!strings.Contains(record, "EnvelopeIssueCount uint8") ||
+		!strings.Contains(record, "[profilerFtraceEnvelopeIssuesPerEvent]profilerFtraceEventIssue") {
+		t.Fatalf("event envelope issue set is not fixed-cardinality:\n%s", record)
+	}
+	producer := sourceBetween(t, renderer, "func decodeProfilerFtraceCPUDetailEvents(", "func renderProfilerFtraceEventBody(")
+	for _, forbidden := range []string{
+		"[]string", "prefix string", `"envelope_"`, "profilerFtraceEventIssueFromLegacy(",
+	} {
+		if strings.Contains(producer, forbidden) {
+			t.Fatalf("typed envelope producer restored %q:\n%s", forbidden, producer)
+		}
+	}
+	directLoop := sourceBetween(t, renderer, "func renderProfilerFtraceStructuredResultWithEnvelopeCoverage(", "func decodeProfilerFtraceStructuredEvents(")
+	if !strings.Contains(directLoop, "renderProfilerFtraceEventBodyWithTypedAudit(event)") ||
+		strings.Contains(directLoop, "renderProfilerFtraceEventBodyWithAudit(event)") {
+		t.Fatalf("direct structured entry bypasses typed invariant path:\n%s", directLoop)
 	}
 }
 
@@ -503,9 +609,9 @@ func TestProfilerFtraceEventTypedChokeRejectsOutOfProtobufFieldDomain(t *testing
 }
 
 func TestProfilerFtraceEventUnknownRetainsEnvelopeAndUnmappedIssuesInFixedBucket(t *testing.T) {
-	event := profilerFtraceEventRecord{
-		Field:                9_999,
-		EnvelopeDegradations: []string{"envelope_cpu_duplicate"},
+	event := profilerFtraceEventRecord{Field: 9_999}
+	if err := event.appendEnvelopeIssue(profilerFtraceEventIssueEnvelopeCPUDuplicate); err != nil {
+		t.Fatalf("fixture: append envelope issue: %v", err)
 	}
 	if _, _, ok, reasons := renderProfilerFtraceEventBodyWithAudit(event); ok ||
 		len(reasons) != 1 || reasons[0] != "envelope_cpu_duplicate" {

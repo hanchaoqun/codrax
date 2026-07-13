@@ -190,11 +190,14 @@ func profilerTracePluginResultEvents(result profilerTracePluginResult) ([]profil
 	var out []profilerFtraceEventRecord
 	if result.Disposition == profilerFtracePayloadMalformed {
 		if result.PairFamilies != 0 || result.PairCaptureOpaque {
-			out = append(out, profilerFtraceEventRecord{
+			record := profilerFtraceEventRecord{
 				Field: profilerFtraceCPUDetailEnvelopeField, PairFamilies: result.PairFamilies,
-				PairCaptureOpaque:    result.PairCaptureOpaque,
-				EnvelopeDegradations: []string{"envelope_trace_plugin_malformed_wire"},
-			})
+				PairCaptureOpaque: result.PairCaptureOpaque,
+			}
+			if issueErr := record.appendEnvelopeIssue(profilerFtraceEventIssueEnvelopeTracePluginMalformedWire); issueErr != nil {
+				return nil, issueErr
+			}
+			out = append(out, record)
 		}
 		return out, nil
 	}

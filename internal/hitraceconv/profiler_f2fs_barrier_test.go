@@ -188,7 +188,7 @@ func TestStructuredF2FSExplicitUnknownOwnerCannotBeReconstructedFromPID(t *testi
 	event := profilerFtraceEventRecord{
 		Field: 4012, PID: 40, HeaderOwnerKnown: false,
 		Payload: profilerAuxEncodeValues(cases[4012].values),
-		// Explicitly no EnvelopeDegradations: absence of diagnostics is not an
+		// Explicitly no typed envelope issues: absence of diagnostics is not an
 		// owner witness and must not revive the prior PID fallback.
 	}
 	_, admission, reason, pair := decodeProfilerAuxPayloadWithPairAdmission(event)

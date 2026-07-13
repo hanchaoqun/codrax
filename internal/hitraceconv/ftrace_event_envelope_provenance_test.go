@@ -11,6 +11,125 @@ import (
 	"testing"
 )
 
+var profilerFtraceEventEnvelopeProducerKinds = []profilerFtraceEventIssueKind{
+	profilerFtraceEventIssueEnvelopeTimestampWrongWire,
+	profilerFtraceEventIssueEnvelopeTimestampDuplicate,
+	profilerFtraceEventIssueEnvelopeTimestampOutOfRange,
+	profilerFtraceEventIssueEnvelopeTGIDWrongWire,
+	profilerFtraceEventIssueEnvelopeTGIDDuplicate,
+	profilerFtraceEventIssueEnvelopeTGIDOutOfRange,
+	profilerFtraceEventIssueEnvelopeCommWrongWire,
+	profilerFtraceEventIssueEnvelopeCommDuplicate,
+	profilerFtraceEventIssueEnvelopeCommInvalid,
+	profilerFtraceEventIssueEnvelopeCommonFieldsMissing,
+	profilerFtraceEventIssueEnvelopeCommonFieldsWrongWire,
+	profilerFtraceEventIssueEnvelopeCommonFieldsDuplicate,
+	profilerFtraceEventIssueEnvelopeCommonPIDWrongWire,
+	profilerFtraceEventIssueEnvelopeCommonPIDDuplicate,
+	profilerFtraceEventIssueEnvelopeCommonPIDOutOfRange,
+	profilerFtraceEventIssueEnvelopeCommonTypeSourceWidth,
+	profilerFtraceEventIssueEnvelopeCommonFlagsSourceWidth,
+	profilerFtraceEventIssueEnvelopeCommonPreemptCountSourceWidth,
+	profilerFtraceEventIssueEnvelopeCommonFieldsMalformedWire,
+	profilerFtraceEventIssueEnvelopeOneofMissing,
+	profilerFtraceEventIssueEnvelopeOneofWrongWire,
+	profilerFtraceEventIssueEnvelopeOneofMultiple,
+}
+
+var profilerFtraceCPUEnvelopeProducerKinds = []profilerFtraceEventIssueKind{
+	profilerFtraceEventIssueEnvelopeCPUWrongWire,
+	profilerFtraceEventIssueEnvelopeCPUDuplicate,
+	profilerFtraceEventIssueEnvelopeCPUOutOfRange,
+}
+
+var profilerFtraceRemainingEnvelopeProducerKinds = []profilerFtraceEventIssueKind{
+	profilerFtraceEventIssueEnvelopeEventMalformedWire,
+	profilerFtraceEventIssueEnvelopeCPUDetailMalformedWire,
+	profilerFtraceEventIssueEnvelopeEventContainerWrongWire,
+	profilerFtraceEventIssueEnvelopeOverwriteInvalid,
+	profilerFtraceEventIssueEnvelopeTracePluginMalformedWire,
+	profilerFtraceEventIssueEnvelopeCommonTypeDuplicate,
+	profilerFtraceEventIssueEnvelopeCommonTypeWrongWire,
+	profilerFtraceEventIssueEnvelopeCommonFlagsDuplicate,
+	profilerFtraceEventIssueEnvelopeCommonFlagsWrongWire,
+	profilerFtraceEventIssueEnvelopeCommonPreemptCountDuplicate,
+	profilerFtraceEventIssueEnvelopeCommonPreemptCountWrongWire,
+	profilerFtraceEventIssueEnvelopeIdentityIncomplete,
+}
+
+func requireProfilerFtraceProducerKindCoverage(t *testing.T, seen map[profilerFtraceEventIssueKind]bool,
+	want []profilerFtraceEventIssueKind) {
+	t.Helper()
+	if len(seen) != len(want) {
+		t.Fatalf("producer kind coverage size=%d want=%d seen=%v", len(seen), len(want), seen)
+	}
+	for _, kind := range want {
+		if !seen[kind] {
+			t.Fatalf("producer kind %d has no raw fixture", kind)
+		}
+	}
+}
+
+func TestProfilerFtraceEnvelopeProducerCatalogIsClosed(t *testing.T) {
+	seen := [profilerFtraceEventIssueEnvelopeIdentityIncomplete + 1]bool{}
+	for _, catalog := range [][]profilerFtraceEventIssueKind{
+		profilerFtraceEventEnvelopeProducerKinds,
+		profilerFtraceCPUEnvelopeProducerKinds,
+		profilerFtraceRemainingEnvelopeProducerKinds,
+	} {
+		for _, kind := range catalog {
+			if kind > profilerFtraceEventIssueEnvelopeIdentityIncomplete || seen[kind] {
+				t.Fatalf("invalid or duplicate envelope producer kind %d", kind)
+			}
+			seen[kind] = true
+		}
+	}
+	for kind, present := range seen {
+		if !present {
+			t.Fatalf("envelope producer kind %d is missing from raw-fixture catalog", kind)
+		}
+	}
+}
+
+func profilerFtraceEnvelopeLabelsForTest(t *testing.T, record *profilerFtraceEventRecord) []string {
+	t.Helper()
+	issues, err := record.checkedEnvelopeIssues()
+	if err != nil {
+		t.Fatalf("invalid typed envelope issues: %v", err)
+	}
+	labels, ok := profilerFtraceEventIssueLabels(record.Field, issues)
+	if !ok {
+		t.Fatalf("typed envelope issues have no compatibility labels: %+v", issues)
+	}
+	return labels
+}
+
+func requireProfilerFtraceEnvelopeIssueForTest(t *testing.T, record *profilerFtraceEventRecord,
+	kind profilerFtraceEventIssueKind, label string) {
+	t.Helper()
+	want, ok := profilerFtraceEventFixedIssue(record.Field, kind)
+	if !ok {
+		t.Fatalf("fixture has invalid envelope kind/event: field=%d kind=%d", record.Field, kind)
+	}
+	issues, err := record.checkedEnvelopeIssues()
+	if err != nil {
+		t.Fatalf("invalid typed envelope issues: %v", err)
+	}
+	found := false
+	for _, issue := range issues {
+		if issue == want {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("typed issues=%+v, want=%+v", issues, want)
+	}
+	if labels := profilerFtraceEnvelopeLabelsForTest(t, record); !stringSliceContains(labels, label) {
+		t.Fatalf("typed envelope labels=%v, want %q", labels, label)
+	}
+}
+
 func TestProfilerFtraceEnvelopePreservesCPUFlagsPreemptAndUnknownTGID(t *testing.T) {
 	knownTGID := testProfilerFtraceEnvelopeEvent(
 		protoVarint(1, 0),
@@ -73,45 +192,50 @@ func TestProfilerFtraceEnvelopeRejectsAmbiguousWireAndKeepsSibling(t *testing.T)
 		name   string
 		event  []byte
 		reason string
+		kind   profilerFtraceEventIssueKind
 	}{
-		{name: "timestamp wrong wire", event: testProfilerFtraceEnvelopeEvent(protoBytes(1, []byte{1}), protoVarint(2, 100), protoBytes(3, []byte("x")), validCommon, validPayload), reason: "envelope_timestamp_wrong_wire"},
-		{name: "timestamp duplicate", event: testProfilerFtraceEnvelopeEvent(protoPayload(protoVarint(1, 1), protoVarint(1, 2)), protoVarint(2, 100), protoBytes(3, []byte("x")), validCommon, validPayload), reason: "envelope_timestamp_duplicate"},
-		{name: "timestamp output overflow", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, math.MaxUint64), protoVarint(2, 100), protoBytes(3, []byte("x")), validCommon, validPayload), reason: "envelope_timestamp_out_of_range"},
-		{name: "tgid wrong wire", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoBytes(2, []byte{1}), protoBytes(3, []byte("x")), validCommon, validPayload), reason: "envelope_tgid_wrong_wire"},
-		{name: "tgid duplicate", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoPayload(protoVarint(2, 100), protoVarint(2, 101)), protoBytes(3, []byte("x")), validCommon, validPayload), reason: "envelope_tgid_duplicate"},
-		{name: "tgid out of range", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoVarint(2, math.MaxInt32+1), protoBytes(3, []byte("x")), validCommon, validPayload), reason: "envelope_tgid_out_of_range"},
-		{name: "comm wrong wire", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoVarint(2, 100), protoVarint(3, 1), validCommon, validPayload), reason: "envelope_comm_wrong_wire"},
-		{name: "comm duplicate", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoVarint(2, 100), protoPayload(protoBytes(3, []byte("a")), protoBytes(3, []byte("b"))), validCommon, validPayload), reason: "envelope_comm_duplicate"},
-		{name: "comm physical line injection", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoVarint(2, 100), protoBytes(3, []byte("a\nb")), validCommon, validPayload), reason: "envelope_comm_invalid"},
-		{name: "common missing", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), nil, nil, nil, validPayload), reason: "envelope_common_fields_missing"},
-		{name: "common wrong wire", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), nil, nil, protoVarint(50, 1), validPayload), reason: "envelope_common_fields_wrong_wire"},
-		{name: "common duplicate", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), nil, nil, protoPayload(validCommon, validCommon), validPayload), reason: "envelope_common_fields_duplicate"},
-		{name: "common pid wrong wire", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoVarint(2, 100), nil, protoMessage(50, protoBytes(4, []byte{1})), validPayload), reason: "envelope_common_pid_wrong_wire"},
-		{name: "common pid duplicate", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoVarint(2, 100), nil, protoMessage(50, protoPayload(protoVarint(4, 100), protoVarint(4, 101))), validPayload), reason: "envelope_common_pid_duplicate"},
-		{name: "common pid out of range", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoVarint(2, 100), nil, protoMessage(50, protoVarint(4, math.MaxInt32+1)), validPayload), reason: "envelope_common_pid_out_of_range"},
-		{name: "common type source width", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoVarint(2, 100), nil, testProfilerCommonFields(math.MaxUint16+1, 0, 0, 100), validPayload), reason: "envelope_common_type_source_width"},
-		{name: "common flags source width", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoVarint(2, 100), nil, testProfilerCommonFields(1, math.MaxUint8+1, 0, 100), validPayload), reason: "envelope_common_flags_source_width"},
-		{name: "common preempt source width", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoVarint(2, 100), nil, testProfilerCommonFields(1, 0, math.MaxUint8+1, 100), validPayload), reason: "envelope_common_preempt_count_source_width"},
-		{name: "common malformed", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), nil, nil, protoMessage(50, []byte{0x80}), validPayload), reason: "envelope_common_fields_malformed_wire"},
-		{name: "oneof missing", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoVarint(2, 100), nil, validCommon), reason: "envelope_oneof_missing"},
-		{name: "oneof wrong wire", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoVarint(2, 100), nil, validCommon, protoVarint(1501, 1)), reason: "envelope_oneof_wrong_wire"},
-		{name: "oneof multiple types", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoVarint(2, 100), nil, validCommon, validPayload, protoMessage(1500, protoVarint(1, 8))), reason: "envelope_oneof_multiple"},
-		{name: "oneof duplicate same type", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoVarint(2, 100), nil, validCommon, validPayload, validPayload), reason: "envelope_oneof_multiple"},
+		{name: "timestamp wrong wire", event: testProfilerFtraceEnvelopeEvent(protoBytes(1, []byte{1}), protoVarint(2, 100), protoBytes(3, []byte("x")), validCommon, validPayload), reason: "envelope_timestamp_wrong_wire", kind: profilerFtraceEventIssueEnvelopeTimestampWrongWire},
+		{name: "timestamp duplicate", event: testProfilerFtraceEnvelopeEvent(protoPayload(protoVarint(1, 1), protoVarint(1, 2)), protoVarint(2, 100), protoBytes(3, []byte("x")), validCommon, validPayload), reason: "envelope_timestamp_duplicate", kind: profilerFtraceEventIssueEnvelopeTimestampDuplicate},
+		{name: "timestamp output overflow", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, math.MaxUint64), protoVarint(2, 100), protoBytes(3, []byte("x")), validCommon, validPayload), reason: "envelope_timestamp_out_of_range", kind: profilerFtraceEventIssueEnvelopeTimestampOutOfRange},
+		{name: "tgid wrong wire", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoBytes(2, []byte{1}), protoBytes(3, []byte("x")), validCommon, validPayload), reason: "envelope_tgid_wrong_wire", kind: profilerFtraceEventIssueEnvelopeTGIDWrongWire},
+		{name: "tgid duplicate", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoPayload(protoVarint(2, 100), protoVarint(2, 101)), protoBytes(3, []byte("x")), validCommon, validPayload), reason: "envelope_tgid_duplicate", kind: profilerFtraceEventIssueEnvelopeTGIDDuplicate},
+		{name: "tgid out of range", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoVarint(2, math.MaxInt32+1), protoBytes(3, []byte("x")), validCommon, validPayload), reason: "envelope_tgid_out_of_range", kind: profilerFtraceEventIssueEnvelopeTGIDOutOfRange},
+		{name: "comm wrong wire", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoVarint(2, 100), protoVarint(3, 1), validCommon, validPayload), reason: "envelope_comm_wrong_wire", kind: profilerFtraceEventIssueEnvelopeCommWrongWire},
+		{name: "comm duplicate", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoVarint(2, 100), protoPayload(protoBytes(3, []byte("a")), protoBytes(3, []byte("b"))), validCommon, validPayload), reason: "envelope_comm_duplicate", kind: profilerFtraceEventIssueEnvelopeCommDuplicate},
+		{name: "comm physical line injection", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoVarint(2, 100), protoBytes(3, []byte("a\nb")), validCommon, validPayload), reason: "envelope_comm_invalid", kind: profilerFtraceEventIssueEnvelopeCommInvalid},
+		{name: "common missing", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), nil, nil, nil, validPayload), reason: "envelope_common_fields_missing", kind: profilerFtraceEventIssueEnvelopeCommonFieldsMissing},
+		{name: "common wrong wire", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), nil, nil, protoVarint(50, 1), validPayload), reason: "envelope_common_fields_wrong_wire", kind: profilerFtraceEventIssueEnvelopeCommonFieldsWrongWire},
+		{name: "common duplicate", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), nil, nil, protoPayload(validCommon, validCommon), validPayload), reason: "envelope_common_fields_duplicate", kind: profilerFtraceEventIssueEnvelopeCommonFieldsDuplicate},
+		{name: "common pid wrong wire", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoVarint(2, 100), nil, protoMessage(50, protoBytes(4, []byte{1})), validPayload), reason: "envelope_common_pid_wrong_wire", kind: profilerFtraceEventIssueEnvelopeCommonPIDWrongWire},
+		{name: "common pid duplicate", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoVarint(2, 100), nil, protoMessage(50, protoPayload(protoVarint(4, 100), protoVarint(4, 101))), validPayload), reason: "envelope_common_pid_duplicate", kind: profilerFtraceEventIssueEnvelopeCommonPIDDuplicate},
+		{name: "common pid out of range", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoVarint(2, 100), nil, protoMessage(50, protoVarint(4, math.MaxInt32+1)), validPayload), reason: "envelope_common_pid_out_of_range", kind: profilerFtraceEventIssueEnvelopeCommonPIDOutOfRange},
+		{name: "common type source width", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoVarint(2, 100), nil, testProfilerCommonFields(math.MaxUint16+1, 0, 0, 100), validPayload), reason: "envelope_common_type_source_width", kind: profilerFtraceEventIssueEnvelopeCommonTypeSourceWidth},
+		{name: "common flags source width", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoVarint(2, 100), nil, testProfilerCommonFields(1, math.MaxUint8+1, 0, 100), validPayload), reason: "envelope_common_flags_source_width", kind: profilerFtraceEventIssueEnvelopeCommonFlagsSourceWidth},
+		{name: "common preempt source width", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoVarint(2, 100), nil, testProfilerCommonFields(1, 0, math.MaxUint8+1, 100), validPayload), reason: "envelope_common_preempt_count_source_width", kind: profilerFtraceEventIssueEnvelopeCommonPreemptCountSourceWidth},
+		{name: "common malformed", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), nil, nil, protoMessage(50, []byte{0x80}), validPayload), reason: "envelope_common_fields_malformed_wire", kind: profilerFtraceEventIssueEnvelopeCommonFieldsMalformedWire},
+		{name: "oneof missing", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoVarint(2, 100), nil, validCommon), reason: "envelope_oneof_missing", kind: profilerFtraceEventIssueEnvelopeOneofMissing},
+		{name: "oneof wrong wire", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoVarint(2, 100), nil, validCommon, protoVarint(1501, 1)), reason: "envelope_oneof_wrong_wire", kind: profilerFtraceEventIssueEnvelopeOneofWrongWire},
+		{name: "oneof multiple types", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoVarint(2, 100), nil, validCommon, validPayload, protoMessage(1500, protoVarint(1, 8))), reason: "envelope_oneof_multiple", kind: profilerFtraceEventIssueEnvelopeOneofMultiple},
+		{name: "oneof duplicate same type", event: testProfilerFtraceEnvelopeEvent(protoVarint(1, 1), protoVarint(2, 100), nil, validCommon, validPayload, validPayload), reason: "envelope_oneof_multiple", kind: profilerFtraceEventIssueEnvelopeOneofMultiple},
 	}
+	seenKinds := map[profilerFtraceEventIssueKind]bool{}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			record, err := decodeProfilerFtraceEventRecord(0, tt.event)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !stringSliceContains(record.EnvelopeDegradations, tt.reason) {
-				t.Fatalf("degradations=%v, want %q", record.EnvelopeDegradations, tt.reason)
+			requireProfilerFtraceEnvelopeIssueForTest(t, &record, tt.kind, tt.reason)
+			if tt.kind == profilerFtraceEventIssueEnvelopeOneofMissing && !record.PairCaptureOpaque {
+				t.Fatal("oneof-missing event did not close pair provenance")
 			}
 			if _, _, known, got := renderProfilerFtraceEventBodyWithAudit(record); known || !stringSliceContains(got, tt.reason) {
 				t.Fatalf("invalid envelope escaped body audit: known=%v degradations=%v", known, got)
 			}
+			seenKinds[tt.kind] = true
 		})
 	}
+	requireProfilerFtraceProducerKindCoverage(t, seenKinds, profilerFtraceEventEnvelopeProducerKinds)
 
 	invalid := testProfilerFtraceEnvelopeEvent(
 		protoVarint(1, 500), protoVarint(2, 100), protoBytes(3, []byte("bad")), validCommon,
@@ -149,16 +273,18 @@ func TestProfilerFtraceCPUEnvelopeStrictPresenceAndOrdering(t *testing.T) {
 		detail  []byte
 		cpu     int64
 		reason  string
+		kind    profilerFtraceEventIssueKind
 		records int
 	}{
 		{name: "absent is exact zero", detail: protoMessage(2, event), cpu: 0, records: 1},
 		{name: "explicit zero", detail: protoPayload(protoVarint(1, 0), protoMessage(2, event)), cpu: 0, records: 1},
 		{name: "event before maximum cpu", detail: protoPayload(protoMessage(2, event), protoVarint(1, uint64(maxTraceDBCPUIndex))), cpu: maxTraceDBCPUIndex, records: 1},
-		{name: "wrong wire", detail: protoPayload(protoBytes(1, []byte{1}), protoMessage(2, event)), reason: "envelope_cpu_wrong_wire", records: 1},
-		{name: "duplicate", detail: protoPayload(protoVarint(1, 1), protoVarint(1, 2), protoMessage(2, event)), reason: "envelope_cpu_duplicate", records: 1},
-		{name: "out of range", detail: protoPayload(protoVarint(1, uint64(maxTraceDBCPUIndex+1)), protoMessage(2, event)), reason: "envelope_cpu_out_of_range", records: 1},
-		{name: "invalid cpu without event remains auditable", detail: protoVarint(1, uint64(maxTraceDBCPUIndex+1)), reason: "envelope_cpu_out_of_range", records: 1},
+		{name: "wrong wire", detail: protoPayload(protoBytes(1, []byte{1}), protoMessage(2, event)), reason: "envelope_cpu_wrong_wire", kind: profilerFtraceEventIssueEnvelopeCPUWrongWire, records: 1},
+		{name: "duplicate", detail: protoPayload(protoVarint(1, 1), protoVarint(1, 2), protoMessage(2, event)), reason: "envelope_cpu_duplicate", kind: profilerFtraceEventIssueEnvelopeCPUDuplicate, records: 1},
+		{name: "out of range", detail: protoPayload(protoVarint(1, uint64(maxTraceDBCPUIndex+1)), protoMessage(2, event)), reason: "envelope_cpu_out_of_range", kind: profilerFtraceEventIssueEnvelopeCPUOutOfRange, records: 1},
+		{name: "invalid cpu without event remains auditable", detail: protoVarint(1, uint64(maxTraceDBCPUIndex+1)), reason: "envelope_cpu_out_of_range", kind: profilerFtraceEventIssueEnvelopeCPUOutOfRange, records: 1},
 	}
+	seenKinds := map[profilerFtraceEventIssueKind]bool{}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			records, err := decodeProfilerFtraceCPUDetailEvents(tt.detail)
@@ -166,13 +292,315 @@ func TestProfilerFtraceCPUEnvelopeStrictPresenceAndOrdering(t *testing.T) {
 				t.Fatalf("records=%+v err=%v", records, err)
 			}
 			if tt.reason == "" {
-				if records[0].CPU != tt.cpu || len(records[0].EnvelopeDegradations) != 0 {
+				if records[0].CPU != tt.cpu || records[0].EnvelopeIssueCount != 0 {
 					t.Fatalf("valid CPU profile changed: %+v", records[0])
 				}
-			} else if !stringSliceContains(records[0].EnvelopeDegradations, tt.reason) {
-				t.Fatalf("CPU degradation=%v want=%q", records[0].EnvelopeDegradations, tt.reason)
+			} else {
+				requireProfilerFtraceEnvelopeIssueForTest(t, &records[0], tt.kind, tt.reason)
+				seenKinds[tt.kind] = true
 			}
 		})
+	}
+	requireProfilerFtraceProducerKindCoverage(t, seenKinds, profilerFtraceCPUEnvelopeProducerKinds)
+}
+
+func TestProfilerFtraceEnvelopeRemainingTypedProducers(t *testing.T) {
+	validPayload := protoMessage(1501, protoPayload(protoVarint(1, 7), protoVarint(2, 1)))
+	common := func(parts ...[]byte) []byte {
+		return protoPayload(parts...)
+	}
+	eventWithCommon := func(fields []byte, tgid uint64) profilerFtraceEventRecord {
+		raw := testProfilerFtraceEnvelopeEvent(
+			protoVarint(1, 1), protoVarint(2, tgid), protoBytes(3, []byte("worker")),
+			protoMessage(50, fields), validPayload,
+		)
+		record, err := decodeProfilerFtraceEventRecord(0, raw)
+		if err != nil {
+			t.Fatalf("decode event: %v", err)
+		}
+		return record
+	}
+	tests := []struct {
+		name   string
+		record func() profilerFtraceEventRecord
+		kind   profilerFtraceEventIssueKind
+		label  string
+		opaque bool
+	}{
+		{
+			name: "event malformed", kind: profilerFtraceEventIssueEnvelopeEventMalformedWire,
+			label: "envelope_event_malformed_wire", opaque: true,
+			record: func() profilerFtraceEventRecord {
+				record, err := decodeProfilerFtraceEventRecord(0, []byte{0x80})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return record
+			},
+		},
+		{
+			name: "cpu detail malformed", kind: profilerFtraceEventIssueEnvelopeCPUDetailMalformedWire,
+			label: "envelope_cpu_detail_malformed_wire", opaque: true,
+			record: func() profilerFtraceEventRecord {
+				records, err := decodeProfilerFtraceCPUDetailEvents([]byte{0x80})
+				if err != nil || len(records) != 1 {
+					t.Fatalf("records=%+v err=%v", records, err)
+				}
+				return records[0]
+			},
+		},
+		{
+			name: "event container wrong wire", kind: profilerFtraceEventIssueEnvelopeEventContainerWrongWire,
+			label: "envelope_event_container_wrong_wire", opaque: true,
+			record: func() profilerFtraceEventRecord {
+				records, err := decodeProfilerFtraceCPUDetailEvents(protoVarint(2, 1))
+				if err != nil || len(records) != 1 {
+					t.Fatalf("records=%+v err=%v", records, err)
+				}
+				return records[0]
+			},
+		},
+		{
+			name: "overwrite invalid", kind: profilerFtraceEventIssueEnvelopeOverwriteInvalid,
+			label: "envelope_overwrite_invalid",
+			record: func() profilerFtraceEventRecord {
+				records, err := decodeProfilerFtraceCPUDetailEvents(protoPayload(protoVarint(3, 1), protoVarint(3, 0)))
+				if err != nil || len(records) != 1 {
+					t.Fatalf("records=%+v err=%v", records, err)
+				}
+				return records[0]
+			},
+		},
+		{
+			name: "trace plugin malformed", kind: profilerFtraceEventIssueEnvelopeTracePluginMalformedWire,
+			label: "envelope_trace_plugin_malformed_wire", opaque: true,
+			record: func() profilerFtraceEventRecord {
+				records, err := profilerTracePluginResultEvents(profilerTracePluginResult{
+					Disposition: profilerFtracePayloadMalformed, PairCaptureOpaque: true,
+				})
+				if err != nil || len(records) != 1 {
+					t.Fatalf("records=%+v err=%v", records, err)
+				}
+				return records[0]
+			},
+		},
+		{
+			name: "common type duplicate", kind: profilerFtraceEventIssueEnvelopeCommonTypeDuplicate,
+			label: "envelope_common_type_duplicate",
+			record: func() profilerFtraceEventRecord {
+				return eventWithCommon(common(protoVarint(1, 1), protoVarint(1, 2), protoVarint(2, 0), protoVarint(3, 0), protoVarint(4, 100)), 100)
+			},
+		},
+		{
+			name: "common type wrong wire", kind: profilerFtraceEventIssueEnvelopeCommonTypeWrongWire,
+			label: "envelope_common_type_wrong_wire",
+			record: func() profilerFtraceEventRecord {
+				return eventWithCommon(common(protoBytes(1, []byte{1}), protoVarint(2, 0), protoVarint(3, 0), protoVarint(4, 100)), 100)
+			},
+		},
+		{
+			name: "common flags duplicate", kind: profilerFtraceEventIssueEnvelopeCommonFlagsDuplicate,
+			label: "envelope_common_flags_duplicate",
+			record: func() profilerFtraceEventRecord {
+				return eventWithCommon(common(protoVarint(1, 1), protoVarint(2, 0), protoVarint(2, 1), protoVarint(3, 0), protoVarint(4, 100)), 100)
+			},
+		},
+		{
+			name: "common flags wrong wire", kind: profilerFtraceEventIssueEnvelopeCommonFlagsWrongWire,
+			label: "envelope_common_flags_wrong_wire",
+			record: func() profilerFtraceEventRecord {
+				return eventWithCommon(common(protoVarint(1, 1), protoBytes(2, []byte{1}), protoVarint(3, 0), protoVarint(4, 100)), 100)
+			},
+		},
+		{
+			name: "common preempt duplicate", kind: profilerFtraceEventIssueEnvelopeCommonPreemptCountDuplicate,
+			label: "envelope_common_preempt_count_duplicate",
+			record: func() profilerFtraceEventRecord {
+				return eventWithCommon(common(protoVarint(1, 1), protoVarint(2, 0), protoVarint(3, 0), protoVarint(3, 1), protoVarint(4, 100)), 100)
+			},
+		},
+		{
+			name: "common preempt wrong wire", kind: profilerFtraceEventIssueEnvelopeCommonPreemptCountWrongWire,
+			label: "envelope_common_preempt_count_wrong_wire",
+			record: func() profilerFtraceEventRecord {
+				return eventWithCommon(common(protoVarint(1, 1), protoVarint(2, 0), protoBytes(3, []byte{1}), protoVarint(4, 100)), 100)
+			},
+		},
+		{
+			name: "identity incomplete", kind: profilerFtraceEventIssueEnvelopeIdentityIncomplete,
+			label: "envelope_identity_incomplete",
+			record: func() profilerFtraceEventRecord {
+				return eventWithCommon(common(protoVarint(1, 1), protoVarint(2, 0), protoVarint(3, 0), protoVarint(4, 0)), 100)
+			},
+		},
+	}
+	seenKinds := map[profilerFtraceEventIssueKind]bool{}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			record := test.record()
+			requireProfilerFtraceEnvelopeIssueForTest(t, &record, test.kind, test.label)
+			if record.PairCaptureOpaque != test.opaque {
+				t.Fatalf("opaque=%t want=%t record=%+v", record.PairCaptureOpaque, test.opaque, record)
+			}
+			seenKinds[test.kind] = true
+		})
+	}
+	requireProfilerFtraceProducerKindCoverage(t, seenKinds, profilerFtraceRemainingEnvelopeProducerKinds)
+}
+
+func TestProfilerFtraceEnvelopeDoesNotAttributeAmbiguousValues(t *testing.T) {
+	validPayload := protoMessage(1501, protoPayload(protoVarint(1, 7), protoVarint(2, 1)))
+	decode := func(common []byte) profilerFtraceEventRecord {
+		t.Helper()
+		record, err := decodeProfilerFtraceEventRecord(0, testProfilerFtraceEnvelopeEvent(
+			protoVarint(1, 1), protoVarint(2, 100), protoBytes(3, []byte("worker")), common, validPayload,
+		))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return record
+	}
+	hasKind := func(record *profilerFtraceEventRecord, kind profilerFtraceEventIssueKind) bool {
+		issues, err := record.checkedEnvelopeIssues()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, issue := range issues {
+			if issue.Kind == kind {
+				return true
+			}
+		}
+		return false
+	}
+
+	flagsDuplicate := decode(protoMessage(50, protoPayload(
+		protoVarint(1, 1), protoVarint(2, 0), protoVarint(2, math.MaxUint8+1),
+		protoVarint(3, 0), protoVarint(4, 100),
+	)))
+	if !hasKind(&flagsDuplicate, profilerFtraceEventIssueEnvelopeCommonFlagsDuplicate) ||
+		hasKind(&flagsDuplicate, profilerFtraceEventIssueEnvelopeCommonFlagsSourceWidth) {
+		t.Fatalf("ambiguous flags value minted width evidence: %+v", flagsDuplicate)
+	}
+	preemptDuplicate := decode(protoMessage(50, protoPayload(
+		protoVarint(1, 1), protoVarint(2, 0),
+		protoVarint(3, 0), protoVarint(3, math.MaxUint8+1), protoVarint(4, 100),
+	)))
+	if !hasKind(&preemptDuplicate, profilerFtraceEventIssueEnvelopeCommonPreemptCountDuplicate) ||
+		hasKind(&preemptDuplicate, profilerFtraceEventIssueEnvelopeCommonPreemptCountSourceWidth) {
+		t.Fatalf("ambiguous preempt value minted width evidence: %+v", preemptDuplicate)
+	}
+	missingCommon := decode(nil)
+	if !hasKind(&missingCommon, profilerFtraceEventIssueEnvelopeCommonFieldsMissing) ||
+		hasKind(&missingCommon, profilerFtraceEventIssueEnvelopeIdentityIncomplete) {
+		t.Fatalf("unknown common owner minted identity evidence: %+v", missingCommon)
+	}
+	wrongPID := decode(protoMessage(50, protoPayload(
+		protoVarint(1, 1), protoVarint(2, 0), protoVarint(3, 0), protoBytes(4, []byte{1}),
+	)))
+	if !hasKind(&wrongPID, profilerFtraceEventIssueEnvelopeCommonPIDWrongWire) || wrongPID.HeaderOwnerKnown ||
+		hasKind(&wrongPID, profilerFtraceEventIssueEnvelopeIdentityIncomplete) {
+		t.Fatalf("unknown PID minted identity evidence: %+v", wrongPID)
+	}
+}
+
+func TestProfilerFtraceOpaqueEnvelopeHoleCannotBridgePairFamilies(t *testing.T) {
+	cases := profilerAuxCasesByField()
+	oneofMissing := func() []byte {
+		event := testProfilerFtraceEnvelopeEvent(
+			protoVarint(1, 2_000), protoVarint(2, 40), protoBytes(3, []byte("hole")),
+			testProfilerCommonFields(0, 0, 0, 40),
+		)
+		return protoMessage(2, protoPayload(protoVarint(1, 2), protoMessage(2, event)))
+	}
+	eventContainerWrongWire := func() []byte {
+		return protoMessage(2, protoPayload(protoVarint(1, 2), protoVarint(2, 1)))
+	}
+	tests := []struct {
+		name        string
+		kind        pairRenderKind
+		start, done func() []byte
+	}{
+		{
+			name: "mmc", kind: pairRenderMMC,
+			start: func() []byte { return profilerMMCTestStructuredMessage(4016, cases[4016].values, 1_000) },
+			done:  func() []byte { return profilerMMCTestStructuredMessage(4015, cases[4015].values, 3_000) },
+		},
+		{
+			name: "f2fs", kind: pairRenderF2FS,
+			start: func() []byte { return profilerF2FSTestStructuredMessage(4011, cases[4011].values, 1_000) },
+			done:  func() []byte { return profilerF2FSTestStructuredMessage(4012, cases[4012].values, 3_000) },
+		},
+	}
+	for _, test := range tests {
+		for _, hole := range []struct {
+			name string
+			data func() []byte
+		}{
+			{name: "oneof_missing", data: oneofMissing},
+			{name: "event_container_wrong_wire", data: eventContainerWrongWire},
+		} {
+			t.Run(test.name+"/"+hole.name, func(t *testing.T) {
+				sink, err := newTraceDBRowSink(t.TempDir(), 8)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer sink.cleanup()
+				seq := 0
+				for _, payload := range [][]byte{test.start(), hole.data(), test.done()} {
+					if _, _, renderErr := renderProfilerFtraceStructuredRows(payload, &seq, sink); renderErr != nil {
+						t.Fatal(renderErr)
+					}
+				}
+				if !sink.pairKindPoisoned(test.kind) || sink.withheldPairRowsForKind(test.kind) != 2 || sink.publishableRows() != 0 {
+					t.Fatalf("opaque hole bridged %s pair: poisoned=%v withheld=%d publishable=%d",
+						test.name, sink.poisoned, sink.withheldPairRowsForKind(test.kind), sink.publishableRows())
+				}
+			})
+		}
+	}
+}
+
+func TestProfilerFtraceEnvelopeTypedCensusTraversesContainer(t *testing.T) {
+	knownEvent := testProfilerFtraceEnvelopeEvent(
+		protoVarint(1, 1), protoVarint(1, 2), protoVarint(2, 7), protoBytes(3, []byte("known")),
+		testProfilerCommonFields(0, 0, 0, 7),
+		protoMessage(1501, protoPayload(protoVarint(1, 7), protoVarint(2, 1))),
+	)
+	knownResult := protoMessage(2, protoPayload(protoVarint(1, 0), protoMessage(2, knownEvent)))
+	cpuDetailResult := protoMessage(2, protoPayload(protoVarint(1, 0), protoVarint(2, 1)))
+	unknownEvent := testProfilerFtraceEnvelopeEvent(
+		protoVarint(1, 3), protoVarint(2, 8), protoBytes(3, []byte("unknown")),
+		testProfilerCommonFields(0, 0, 0, 8), protoMessage(9_999, protoVarint(1, 1)),
+	)
+	unknownResult := protoMessage(2, protoPayload(
+		protoVarint(1, 1), protoVarint(1, 2), protoMessage(2, unknownEvent),
+	))
+	extracted, sink := extractSyntheticProfilerContainer(t,
+		syntheticProfilerPluginData("ftrace-plugin", knownResult),
+		syntheticProfilerPluginData("ftrace-plugin", cpuDetailResult),
+		syntheticProfilerPluginData("ftrace-plugin", unknownResult),
+	)
+	defer sink.cleanup()
+
+	known, knownEntries := profilerEventCoverageByField(extracted, 1501)
+	if knownEntries != 1 || known.RowsRead != 1 || known.RowsEmitted != 0 ||
+		known.FieldSources["degraded_envelope_timestamp_duplicate_occurrences"] != "1" ||
+		known.FieldSources["degraded_envelope_timestamp_duplicate_affected_frames"] != "1" {
+		t.Fatalf("known envelope typed census drifted: entries=%d coverage=%+v", knownEntries, known)
+	}
+	detail, detailEntries := profilerEventCoverageByField(extracted, profilerFtraceCPUDetailEnvelopeField)
+	if detailEntries != 1 || detail.RowsRead != 1 || detail.RowsEmitted != 0 ||
+		detail.FieldSources["degraded_envelope_event_container_wrong_wire_occurrences"] != "1" ||
+		detail.FieldSources["degraded_envelope_event_container_wrong_wire_affected_frames"] != "1" {
+		t.Fatalf("CPU-detail envelope typed census drifted: entries=%d coverage=%+v", detailEntries, detail)
+	}
+	unknown, unknownEntries := profilerUnknownEventCoverage(extracted)
+	if unknownEntries != 1 || unknown.RowsRead != 1 || unknown.RowsEmitted != 0 ||
+		unknown.FieldSources["degraded_envelope_cpu_duplicate_occurrences"] != "1" ||
+		unknown.FieldSources["degraded_envelope_cpu_duplicate_affected_frames"] != "1" ||
+		unknown.FieldSources["degraded_unmapped_field_occurrences"] != "1" ||
+		unknown.FieldSources["degraded_unmapped_field_affected_frames"] != "1" {
+		t.Fatalf("unknown envelope/unmapped typed census drifted: entries=%d coverage=%+v", unknownEntries, unknown)
 	}
 }
 

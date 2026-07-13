@@ -147,6 +147,47 @@ type profilerFtraceEventIssue struct {
 	Severity     profilerFtraceEventIssueSeverity
 }
 
+// profilerFtraceEventFixedIssue is the only constructor for issues whose
+// payload field is fixed by the closed issue vocabulary. Producers name the
+// semantic kind; this constructor derives both PayloadField and Severity and
+// rejects any event/kind combination outside the exact schema.
+func profilerFtraceEventFixedIssue(eventField int, kind profilerFtraceEventIssueKind) (profilerFtraceEventIssue, bool) {
+	payloadField, ok := profilerFtraceEventIssueFixedPayloadField(kind, eventField)
+	if !ok || profilerFtraceEventIssueParameterizedKind(kind) {
+		return profilerFtraceEventIssue{}, false
+	}
+	issue := profilerFtraceEventIssue{Kind: kind, PayloadField: payloadField}
+	issue.Severity = issue.expectedSeverity()
+	return issue, issue.validFor(eventField)
+}
+
+// profilerFtraceEventPayloadIssue is the only constructor for parameterized
+// protobuf-field issues. The integer boundary is checked before narrowing to
+// the wire-sized PayloadField representation.
+func profilerFtraceEventPayloadIssue(eventField int, kind profilerFtraceEventIssueKind, payloadField int) (profilerFtraceEventIssue, bool) {
+	if payloadField < 1 || payloadField > 255 || !profilerFtraceEventIssueParameterizedKind(kind) {
+		return profilerFtraceEventIssue{}, false
+	}
+	issue := profilerFtraceEventIssue{Kind: kind, PayloadField: uint8(payloadField)}
+	issue.Severity = issue.expectedSeverity()
+	return issue, issue.validFor(eventField)
+}
+
+// profilerFtraceEventIssueLabels is the sole typed-to-legacy display adapter.
+// Detection must never consume these labels; a malformed typed issue fails
+// closed instead of creating a second string authority.
+func profilerFtraceEventIssueLabels(eventField int, issues []profilerFtraceEventIssue) ([]string, bool) {
+	labels := make([]string, 0, len(issues))
+	for _, issue := range issues {
+		label, ok := issue.label(eventField)
+		if !ok {
+			return nil, false
+		}
+		labels = append(labels, label)
+	}
+	return labels, true
+}
+
 func profilerFtraceEventIssueFromLegacy(eventField int, legacySource profilerFtraceEventDegradationKind, token string) (profilerFtraceEventIssue, bool) {
 	issue := profilerFtraceEventIssue{Severity: profilerFtraceEventIssueHardReject}
 	set := func(kind profilerFtraceEventIssueKind) (profilerFtraceEventIssue, bool) {

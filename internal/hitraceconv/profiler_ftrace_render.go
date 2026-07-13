@@ -10,22 +10,66 @@ import (
 )
 
 type profilerFtraceEventRecord struct {
-	CPU                  int64
-	TSNS                 uint64
-	TGID                 int64
-	PID                  int64
-	HeaderOwnerKnown     bool
-	CommonFlags          int64
-	CommonPreemptCount   int64
-	Comm                 string
-	Field                int
-	Payload              []byte
-	EnvelopeDegradations []string
-	PairFamilies         pairCriticalFormatFamilyMask
-	PairCaptureOpaque    bool
+	CPU                int64
+	TSNS               uint64
+	TGID               int64
+	PID                int64
+	HeaderOwnerKnown   bool
+	CommonFlags        int64
+	CommonPreemptCount int64
+	Comm               string
+	Field              int
+	Payload            []byte
+	EnvelopeIssueCount uint8
+	EnvelopeIssues     [profilerFtraceEnvelopeIssuesPerEvent]profilerFtraceEventIssue
+	PairFamilies       pairCriticalFormatFamilyMask
+	PairCaptureOpaque  bool
 }
 
 const profilerFtraceCPUDetailEnvelopeField = -1
+const profilerFtraceEnvelopeIssuesPerEvent = 9
+
+func (record *profilerFtraceEventRecord) appendEnvelopeIssue(kind profilerFtraceEventIssueKind) error {
+	if record == nil || kind > profilerFtraceEventIssueEnvelopeIdentityIncomplete {
+		return &traceDBOutputInvariantError{Reason: "profiler_event_envelope_issue_kind_invalid"}
+	}
+	issue, ok := profilerFtraceEventFixedIssue(record.Field, kind)
+	if !ok {
+		return &traceDBOutputInvariantError{Reason: "profiler_event_envelope_issue_schema_invalid"}
+	}
+	if int(record.EnvelopeIssueCount) > len(record.EnvelopeIssues) {
+		return &traceDBOutputInvariantError{Reason: "profiler_event_envelope_issue_count_invalid"}
+	}
+	for index := 0; index < int(record.EnvelopeIssueCount); index++ {
+		if record.EnvelopeIssues[index] == issue {
+			return &traceDBOutputInvariantError{Reason: "profiler_event_envelope_issue_duplicate"}
+		}
+	}
+	if int(record.EnvelopeIssueCount) == len(record.EnvelopeIssues) {
+		return &traceDBOutputInvariantError{Reason: "profiler_event_envelope_issue_overflow"}
+	}
+	record.EnvelopeIssues[int(record.EnvelopeIssueCount)] = issue
+	record.EnvelopeIssueCount++
+	return nil
+}
+
+func (record *profilerFtraceEventRecord) checkedEnvelopeIssues() ([]profilerFtraceEventIssue, error) {
+	if record == nil || int(record.EnvelopeIssueCount) > len(record.EnvelopeIssues) {
+		return nil, &traceDBOutputInvariantError{Reason: "profiler_event_envelope_issue_count_invalid"}
+	}
+	issues := record.EnvelopeIssues[:int(record.EnvelopeIssueCount)]
+	for index, issue := range issues {
+		if issue.sourceClass() != profilerFtraceEventDegradationEnvelope || !issue.validFor(record.Field) {
+			return nil, &traceDBOutputInvariantError{Reason: "profiler_event_envelope_issue_invalid"}
+		}
+		for prior := 0; prior < index; prior++ {
+			if issues[prior] == issue {
+				return nil, &traceDBOutputInvariantError{Reason: "profiler_event_envelope_issue_duplicate"}
+			}
+		}
+	}
+	return issues, nil
+}
 
 func renderProfilerFtraceStructuredRows(data []byte, seq *int, sink *traceDBRowSink) (int, []TraceDBCoverage, error) {
 	return renderProfilerFtraceStructuredResult(decodeProfilerTracePluginResult(data), seq, sink)
@@ -91,9 +135,30 @@ func renderProfilerFtraceStructuredResultWithEnvelopeCoverage(result profilerTra
 		}
 		var name, body string
 		var ok bool
+		var issues []profilerFtraceEventIssue
+		var auditErr error
+		name, body, ok, issues, auditErr = renderProfilerFtraceEventBodyWithTypedAudit(event)
+		if auditErr != nil {
+			return rows, topLevelCoverage, auditErr
+		}
+		if !profilerFtraceEventIssueVerdictValid(event.Field, ok, issues) {
+			return rows, topLevelCoverage, &traceDBOutputInvariantError{Reason: "profiler_event_issue_verdict_invalid"}
+		}
 		if batch == nil {
-			var degradations []string
-			name, body, ok, degradations = renderProfilerFtraceEventBodyWithAudit(event)
+			labels, labelsOK := profilerFtraceEventIssueLabels(event.Field, issues)
+			if !labelsOK {
+				return rows, topLevelCoverage, &traceDBOutputInvariantError{Reason: "profiler_event_issue_label_invalid"}
+			}
+			degradations := make([]string, 0, len(labels))
+			for index, label := range labels {
+				// Direct unknown-event coverage historically uses its fixed table
+				// description rather than a counted degradation token. Keep that
+				// display shape while the typed Unmapped issue remains authoritative
+				// for the container census and verdict.
+				if issues[index].Kind != profilerFtraceEventIssueUnmappedField {
+					degradations = append(degradations, label)
+				}
+			}
 			if len(degradations) > 0 {
 				counts := degradationsByField[event.Field]
 				if counts == nil {
@@ -105,15 +170,6 @@ func renderProfilerFtraceStructuredResultWithEnvelopeCoverage(result profilerTra
 				}
 			}
 		} else {
-			var issues []profilerFtraceEventIssue
-			var auditErr error
-			name, body, ok, issues, auditErr = renderProfilerFtraceEventBodyWithTypedAudit(event)
-			if auditErr != nil {
-				return rows, topLevelCoverage, auditErr
-			}
-			if !profilerFtraceEventIssueVerdictValid(event.Field, ok, issues) {
-				return rows, topLevelCoverage, &traceDBOutputInvariantError{Reason: "profiler_event_issue_verdict_invalid"}
-			}
 			if len(issues) > 0 && !batch.observeIssues(event.Field, ok, issues) {
 				return rows, topLevelCoverage, &traceDBOutputInvariantError{Reason: "profiler_event_issue_census_overflow"}
 			}
@@ -221,21 +277,27 @@ func decodeProfilerFtraceCPUDetailEvents(data []byte) ([]profilerFtraceEventReco
 		return nil
 	})
 	if err != nil {
-		return []profilerFtraceEventRecord{{
-			Field:                profilerFtraceCPUDetailEnvelopeField,
-			EnvelopeDegradations: []string{"envelope_cpu_detail_malformed_wire"},
-			PairFamilies:         profilerPairFamiliesFromCPUDetail(data),
-			PairCaptureOpaque:    true,
-		}}, nil
+		record := profilerFtraceEventRecord{
+			Field:             profilerFtraceCPUDetailEnvelopeField,
+			PairFamilies:      profilerPairFamiliesFromCPUDetail(data),
+			PairCaptureOpaque: true,
+		}
+		if issueErr := record.appendEnvelopeIssue(profilerFtraceEventIssueEnvelopeCPUDetailMalformedWire); issueErr != nil {
+			return nil, issueErr
+		}
+		return []profilerFtraceEventRecord{record}, nil
 	}
-	var cpuDegradations []string
+	var cpuIssueKind profilerFtraceEventIssueKind
+	cpuIssuePresent := true
 	switch {
 	case cpuCount > 1:
-		cpuDegradations = append(cpuDegradations, "envelope_cpu_duplicate")
+		cpuIssueKind = profilerFtraceEventIssueEnvelopeCPUDuplicate
 	case cpuWrongWire:
-		cpuDegradations = append(cpuDegradations, "envelope_cpu_wrong_wire")
+		cpuIssueKind = profilerFtraceEventIssueEnvelopeCPUWrongWire
 	case cpu > uint64(maxTraceDBCPUIndex):
-		cpuDegradations = append(cpuDegradations, "envelope_cpu_out_of_range")
+		cpuIssueKind = profilerFtraceEventIssueEnvelopeCPUOutOfRange
+	default:
+		cpuIssuePresent = false
 	}
 	// FtraceParser and FlowController always call set_cpu. Proto3 omits an
 	// exact zero, so absence is CPU 0 only for this pinned producer profile.
@@ -244,26 +306,36 @@ func decodeProfilerFtraceCPUDetailEvents(data []byte) ([]profilerFtraceEventReco
 		if decodeErr != nil {
 			return nil, decodeErr
 		}
-		event.EnvelopeDegradations = append(event.EnvelopeDegradations, cpuDegradations...)
+		if cpuIssuePresent {
+			if issueErr := event.appendEnvelopeIssue(cpuIssueKind); issueErr != nil {
+				return nil, issueErr
+			}
+		}
 		out = append(out, event)
 	}
-	if len(eventPayloads) == 0 && len(cpuDegradations) > 0 {
-		out = append(out, profilerFtraceEventRecord{
-			Field:                profilerFtraceCPUDetailEnvelopeField,
-			EnvelopeDegradations: append([]string(nil), cpuDegradations...),
-		})
+	if len(eventPayloads) == 0 && cpuIssuePresent {
+		record := profilerFtraceEventRecord{Field: profilerFtraceCPUDetailEnvelopeField}
+		if issueErr := record.appendEnvelopeIssue(cpuIssueKind); issueErr != nil {
+			return nil, issueErr
+		}
+		out = append(out, record)
 	}
 	if eventWrongWire > 0 {
-		out = append(out, profilerFtraceEventRecord{
-			Field:                profilerFtraceCPUDetailEnvelopeField,
-			EnvelopeDegradations: []string{"envelope_event_container_wrong_wire"},
-		})
+		record := profilerFtraceEventRecord{
+			Field:             profilerFtraceCPUDetailEnvelopeField,
+			PairCaptureOpaque: true,
+		}
+		if issueErr := record.appendEnvelopeIssue(profilerFtraceEventIssueEnvelopeEventContainerWrongWire); issueErr != nil {
+			return nil, issueErr
+		}
+		out = append(out, record)
 	}
 	if overwriteCount > 1 || overwriteWrongWire {
-		out = append(out, profilerFtraceEventRecord{
-			Field:                profilerFtraceCPUDetailEnvelopeField,
-			EnvelopeDegradations: []string{"envelope_overwrite_invalid"},
-		})
+		record := profilerFtraceEventRecord{Field: profilerFtraceCPUDetailEnvelopeField}
+		if issueErr := record.appendEnvelopeIssue(profilerFtraceEventIssueEnvelopeOverwriteInvalid); issueErr != nil {
+			return nil, issueErr
+		}
+		out = append(out, record)
 	}
 	return out, nil
 }
@@ -410,61 +482,102 @@ func decodeProfilerFtraceEventRecord(cpu uint64, data []byte) (profilerFtraceEve
 	if err != nil {
 		record.Field = 0
 		record.Payload = nil
-		record.EnvelopeDegradations = []string{"envelope_event_malformed_wire"}
 		record.PairCaptureOpaque = true
+		if issueErr := record.appendEnvelopeIssue(profilerFtraceEventIssueEnvelopeEventMalformedWire); issueErr != nil {
+			return profilerFtraceEventRecord{}, issueErr
+		}
 		return record, nil
 	}
-	if reason := profilerProtoEnvelopeOptionalIssue("envelope_timestamp", timestamp); reason != "" {
-		record.EnvelopeDegradations = append(record.EnvelopeDegradations, reason)
+	var oneofIssueKind profilerFtraceEventIssueKind
+	oneofIssuePresent := true
+	switch {
+	case oneofCount == 0:
+		record.Field = 0
+		record.Payload = nil
+		record.PairCaptureOpaque = true
+		oneofIssueKind = profilerFtraceEventIssueEnvelopeOneofMissing
+	case oneofCount > 1:
+		record.Field = 0
+		record.Payload = nil
+		oneofIssueKind = profilerFtraceEventIssueEnvelopeOneofMultiple
+	case oneofWrongWire:
+		record.Field = 0
+		record.Payload = nil
+		oneofIssueKind = profilerFtraceEventIssueEnvelopeOneofWrongWire
+	default:
+		oneofIssuePresent = false
+	}
+	if kind, present := profilerProtoEnvelopeOptionalIssueKind(timestamp,
+		profilerFtraceEventIssueEnvelopeTimestampDuplicate,
+		profilerFtraceEventIssueEnvelopeTimestampWrongWire); present {
+		if issueErr := record.appendEnvelopeIssue(kind); issueErr != nil {
+			return profilerFtraceEventRecord{}, issueErr
+		}
 	} else {
 		record.TSNS = timestamp.uintValue
 		if record.TSNS > math.MaxInt64 {
-			record.EnvelopeDegradations = append(record.EnvelopeDegradations, "envelope_timestamp_out_of_range")
+			if issueErr := record.appendEnvelopeIssue(profilerFtraceEventIssueEnvelopeTimestampOutOfRange); issueErr != nil {
+				return profilerFtraceEventRecord{}, issueErr
+			}
 		}
 	}
-	if reason := profilerProtoEnvelopeOptionalIssue("envelope_tgid", tgid); reason != "" {
-		record.EnvelopeDegradations = append(record.EnvelopeDegradations, reason)
+	if kind, present := profilerProtoEnvelopeOptionalIssueKind(tgid,
+		profilerFtraceEventIssueEnvelopeTGIDDuplicate,
+		profilerFtraceEventIssueEnvelopeTGIDWrongWire); present {
+		if issueErr := record.appendEnvelopeIssue(kind); issueErr != nil {
+			return profilerFtraceEventRecord{}, issueErr
+		}
 	} else if tgid.uintValue > math.MaxInt32 {
-		record.EnvelopeDegradations = append(record.EnvelopeDegradations, "envelope_tgid_out_of_range")
+		if issueErr := record.appendEnvelopeIssue(profilerFtraceEventIssueEnvelopeTGIDOutOfRange); issueErr != nil {
+			return profilerFtraceEventRecord{}, issueErr
+		}
 	} else {
 		record.TGID = int64(tgid.uintValue)
 	}
-	if reason := profilerProtoEnvelopeOptionalIssue("envelope_comm", comm); reason != "" {
-		record.EnvelopeDegradations = append(record.EnvelopeDegradations, reason)
+	if kind, present := profilerProtoEnvelopeOptionalIssueKind(comm,
+		profilerFtraceEventIssueEnvelopeCommDuplicate,
+		profilerFtraceEventIssueEnvelopeCommWrongWire); present {
+		if issueErr := record.appendEnvelopeIssue(kind); issueErr != nil {
+			return profilerFtraceEventRecord{}, issueErr
+		}
 	} else {
 		record.Comm = string(comm.bytes)
 		if comm.count == 1 && !traceDBSinglePhysicalLine(record.Comm, true) {
-			record.EnvelopeDegradations = append(record.EnvelopeDegradations, "envelope_comm_invalid")
+			if issueErr := record.appendEnvelopeIssue(profilerFtraceEventIssueEnvelopeCommInvalid); issueErr != nil {
+				return profilerFtraceEventRecord{}, issueErr
+			}
 		}
 	}
-	if reason := profilerProtoEnvelopeRequiredIssue("envelope_common_fields", common); reason != "" {
-		record.EnvelopeDegradations = append(record.EnvelopeDegradations, reason)
+	if kind, present := profilerProtoEnvelopeRequiredIssueKind(common,
+		profilerFtraceEventIssueEnvelopeCommonFieldsMissing,
+		profilerFtraceEventIssueEnvelopeCommonFieldsDuplicate,
+		profilerFtraceEventIssueEnvelopeCommonFieldsWrongWire); present {
+		if issueErr := record.appendEnvelopeIssue(kind); issueErr != nil {
+			return profilerFtraceEventRecord{}, issueErr
+		}
 	} else {
-		pid, ownerKnown, flags, preempt, reasons := decodeProfilerFtraceCommonFields(common.bytes)
+		pid, ownerKnown, flags, preempt, commonErr := decodeProfilerFtraceCommonFields(&record, common.bytes)
+		if commonErr != nil {
+			return profilerFtraceEventRecord{}, commonErr
+		}
 		record.PID = pid
 		record.HeaderOwnerKnown = ownerKnown
 		record.CommonFlags = flags
 		record.CommonPreemptCount = preempt
-		record.EnvelopeDegradations = append(record.EnvelopeDegradations, reasons...)
 	}
-	switch {
-	case oneofCount == 0:
-		record.EnvelopeDegradations = append(record.EnvelopeDegradations, "envelope_oneof_missing")
-	case oneofCount > 1:
-		record.Field = 0
-		record.Payload = nil
-		record.EnvelopeDegradations = append(record.EnvelopeDegradations, "envelope_oneof_multiple")
-	case oneofWrongWire:
-		record.Field = 0
-		record.Payload = nil
-		record.EnvelopeDegradations = append(record.EnvelopeDegradations, "envelope_oneof_wrong_wire")
+	if oneofIssuePresent {
+		if issueErr := record.appendEnvelopeIssue(oneofIssueKind); issueErr != nil {
+			return profilerFtraceEventRecord{}, issueErr
+		}
 	}
 	// Upstream only resolves/sets TGID for a non-idle PID and may honestly
 	// leave it at proto3 zero when the process map has no answer. Preserve that
 	// as the systrace "-----" TGID, never fabricate TGID=TID. The inverse
 	// shape (idle PID with a positive TGID) is not producer-reachable.
-	if record.PID == 0 && record.TGID != 0 {
-		record.EnvelopeDegradations = append(record.EnvelopeDegradations, "envelope_identity_incomplete")
+	if record.HeaderOwnerKnown && record.PID == 0 && record.TGID != 0 {
+		if issueErr := record.appendEnvelopeIssue(profilerFtraceEventIssueEnvelopeIdentityIncomplete); issueErr != nil {
+			return profilerFtraceEventRecord{}, issueErr
+		}
 	}
 	return record, nil
 }
@@ -498,62 +611,83 @@ func profilerProtoEnvelopeSetBytes(field *profilerProtoEnvelopeField, wire int, 
 	field.bytes = value
 }
 
-func profilerProtoEnvelopeOptionalIssue(prefix string, field profilerProtoEnvelopeField) string {
+func profilerProtoEnvelopeOptionalIssueKind(field profilerProtoEnvelopeField,
+	duplicateKind, wrongWireKind profilerFtraceEventIssueKind) (profilerFtraceEventIssueKind, bool) {
 	if field.count > 1 {
-		return prefix + "_duplicate"
+		return duplicateKind, true
 	}
 	if field.wrongWire {
-		return prefix + "_wrong_wire"
+		return wrongWireKind, true
 	}
-	return ""
+	return 0, false
 }
 
-func profilerProtoEnvelopeRequiredIssue(prefix string, field profilerProtoEnvelopeField) string {
+func profilerProtoEnvelopeRequiredIssueKind(field profilerProtoEnvelopeField,
+	missingKind, duplicateKind, wrongWireKind profilerFtraceEventIssueKind) (profilerFtraceEventIssueKind, bool) {
 	if field.count == 0 {
-		return prefix + "_missing"
+		return missingKind, true
 	}
-	return profilerProtoEnvelopeOptionalIssue(prefix, field)
+	return profilerProtoEnvelopeOptionalIssueKind(field, duplicateKind, wrongWireKind)
 }
 
-func decodeProfilerFtraceCommonFields(data []byte) (pid int64, ownerKnown bool, flags, preempt int64, reasons []string) {
+func decodeProfilerFtraceCommonFields(record *profilerFtraceEventRecord, data []byte) (pid int64, ownerKnown bool,
+	flags, preempt int64, err error) {
+	if record == nil {
+		return 0, false, 0, 0, &traceDBOutputInvariantError{Reason: "profiler_event_common_record_nil"}
+	}
 	var fields [5]profilerProtoEnvelopeField
-	err := walkProtoFields(data, func(field int, wire int, raw []byte, v uint64) error {
+	walkErr := walkProtoFields(data, func(field int, wire int, raw []byte, v uint64) error {
 		if field >= 1 && field <= 4 {
 			profilerProtoEnvelopeSetUint(&fields[field], wire, v)
 		}
 		_ = raw
 		return nil
 	})
-	if err != nil {
-		return 0, false, 0, 0, []string{"envelope_common_fields_malformed_wire"}
+	appendIssue := func(kind profilerFtraceEventIssueKind) bool {
+		return record.appendEnvelopeIssue(kind) == nil
+	}
+	if walkErr != nil {
+		if !appendIssue(profilerFtraceEventIssueEnvelopeCommonFieldsMalformedWire) {
+			return 0, false, 0, 0, &traceDBOutputInvariantError{Reason: "profiler_event_common_issue_schema_invalid"}
+		}
+		return 0, false, 0, 0, nil
 	}
 	for _, item := range []struct {
-		field  int
-		prefix string
+		field         int
+		duplicateKind profilerFtraceEventIssueKind
+		wrongWireKind profilerFtraceEventIssueKind
 	}{
-		{field: 1, prefix: "envelope_common_type"},
-		{field: 2, prefix: "envelope_common_flags"},
-		{field: 3, prefix: "envelope_common_preempt_count"},
-		{field: 4, prefix: "envelope_common_pid"},
+		{field: 1, duplicateKind: profilerFtraceEventIssueEnvelopeCommonTypeDuplicate, wrongWireKind: profilerFtraceEventIssueEnvelopeCommonTypeWrongWire},
+		{field: 2, duplicateKind: profilerFtraceEventIssueEnvelopeCommonFlagsDuplicate, wrongWireKind: profilerFtraceEventIssueEnvelopeCommonFlagsWrongWire},
+		{field: 3, duplicateKind: profilerFtraceEventIssueEnvelopeCommonPreemptCountDuplicate, wrongWireKind: profilerFtraceEventIssueEnvelopeCommonPreemptCountWrongWire},
+		{field: 4, duplicateKind: profilerFtraceEventIssueEnvelopeCommonPIDDuplicate, wrongWireKind: profilerFtraceEventIssueEnvelopeCommonPIDWrongWire},
 	} {
-		if reason := profilerProtoEnvelopeOptionalIssue(item.prefix, fields[item.field]); reason != "" {
-			reasons = append(reasons, reason)
+		if kind, present := profilerProtoEnvelopeOptionalIssueKind(fields[item.field], item.duplicateKind, item.wrongWireKind); present && !appendIssue(kind) {
+			return 0, false, 0, 0, &traceDBOutputInvariantError{Reason: "profiler_event_common_issue_schema_invalid"}
 		}
 	}
 	if fields[1].count == 1 && !fields[1].wrongWire && fields[1].uintValue > math.MaxUint16 {
-		reasons = append(reasons, "envelope_common_type_source_width")
+		if !appendIssue(profilerFtraceEventIssueEnvelopeCommonTypeSourceWidth) {
+			return 0, false, 0, 0, &traceDBOutputInvariantError{Reason: "profiler_event_common_issue_schema_invalid"}
+		}
 	}
-	if fields[2].uintValue > math.MaxUint8 {
-		reasons = append(reasons, "envelope_common_flags_source_width")
+	if fields[2].count == 1 && !fields[2].wrongWire && fields[2].uintValue > math.MaxUint8 {
+		if !appendIssue(profilerFtraceEventIssueEnvelopeCommonFlagsSourceWidth) {
+			return 0, false, 0, 0, &traceDBOutputInvariantError{Reason: "profiler_event_common_issue_schema_invalid"}
+		}
 	}
-	if fields[3].uintValue > math.MaxUint8 {
-		reasons = append(reasons, "envelope_common_preempt_count_source_width")
+	if fields[3].count == 1 && !fields[3].wrongWire && fields[3].uintValue > math.MaxUint8 {
+		if !appendIssue(profilerFtraceEventIssueEnvelopeCommonPreemptCountSourceWidth) {
+			return 0, false, 0, 0, &traceDBOutputInvariantError{Reason: "profiler_event_common_issue_schema_invalid"}
+		}
 	}
 	if fields[4].count == 1 && !fields[4].wrongWire && fields[4].uintValue > math.MaxInt32 {
-		reasons = append(reasons, "envelope_common_pid_out_of_range")
+		if !appendIssue(profilerFtraceEventIssueEnvelopeCommonPIDOutOfRange) {
+			return 0, false, 0, 0, &traceDBOutputInvariantError{Reason: "profiler_event_common_issue_schema_invalid"}
+		}
 	}
 	ownerKnown = fields[4].count <= 1 && !fields[4].wrongWire && fields[4].uintValue <= math.MaxInt32
-	return int64(fields[4].uintValue), ownerKnown, int64(fields[2].uintValue), int64(fields[3].uintValue), reasons
+	return int64(fields[4].uintValue), ownerKnown, int64(fields[2].uintValue), int64(fields[3].uintValue), nil
 }
 
 func renderProfilerFtraceEventBody(event profilerFtraceEventRecord) (string, string, bool) {
@@ -645,8 +779,16 @@ func protoString(data []byte, field int) string {
 }
 
 func renderProfilerFtraceEventBodyWithAudit(event profilerFtraceEventRecord) (string, string, bool, []string) {
-	if len(event.EnvelopeDegradations) > 0 {
-		return "", "", false, append([]string(nil), event.EnvelopeDegradations...)
+	envelopeIssues, envelopeErr := event.checkedEnvelopeIssues()
+	if envelopeErr != nil {
+		return "", "", false, nil
+	}
+	if len(envelopeIssues) > 0 {
+		labels, valid := profilerFtraceEventIssueLabels(event.Field, envelopeIssues)
+		if !valid {
+			return "", "", false, nil
+		}
+		return "", "", false, labels
 	}
 	corePayload, admission, reason, degradations := decodeProfilerCorePayload(event)
 	switch admission {
@@ -718,15 +860,31 @@ func renderProfilerFtraceEventBodyWithAudit(event profilerFtraceEventRecord) (st
 	return name, body, ok, degradations
 }
 
-// B2-a assigns a closed source class at the renderer branch boundary. Exact
-// legacy reason labels remain bounded display samples until B2-b replaces the
-// producer call graph with exact Kind+PayloadField issues.
+// B2-b migrates producer families one at a time. Envelope issues already enter
+// through the exact typed arm below; the strict legacy bridge remains only for
+// producer families whose typed migration is not complete yet.
 func renderProfilerFtraceEventBodyWithTypedAudit(event profilerFtraceEventRecord) (string, string, bool, []profilerFtraceEventIssue, error) {
+	envelopeIssues, envelopeErr := event.checkedEnvelopeIssues()
+	if envelopeErr != nil {
+		return "", "", false, nil, envelopeErr
+	}
+	if len(envelopeIssues) > 0 {
+		issues := append([]profilerFtraceEventIssue(nil), envelopeIssues...)
+		if profilerFtraceEventSlot(event.Field) == profilerFtraceUnknownEventSlot {
+			if event.Field < 100 || event.Field > profilerFtraceUnknownEventAggregateField {
+				return "", "", false, nil, &traceDBOutputInvariantError{Reason: "profiler_event_field_domain_invalid"}
+			}
+			unmapped, valid := profilerFtraceEventFixedIssue(event.Field, profilerFtraceEventIssueUnmappedField)
+			if !valid {
+				return "", "", false, nil, &traceDBOutputInvariantError{Reason: "profiler_event_unmapped_issue_invalid"}
+			}
+			issues = append(issues, unmapped)
+		}
+		return "", "", false, issues, nil
+	}
 	name, body, ok, reasons := renderProfilerFtraceEventBodyWithAudit(event)
 	legacySource := profilerFtraceEventDegradationFieldAudit
 	switch {
-	case len(event.EnvelopeDegradations) > 0:
-		legacySource = profilerFtraceEventDegradationEnvelope
 	case profilerStructuredCoreSchemas[event.Field] != nil:
 		legacySource = profilerFtraceEventDegradationCorePayload
 	case profilerStructuredAuxSchemas[event.Field] != nil:

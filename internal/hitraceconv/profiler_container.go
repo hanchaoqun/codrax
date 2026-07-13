@@ -1543,8 +1543,16 @@ func decodeProfilerFtraceEventFields(data []byte) ([]int, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(record.EnvelopeDegradations) > 0 {
-		return nil, fmt.Errorf("invalid FtraceEvent envelope: %s", strings.Join(record.EnvelopeDegradations, ","))
+	envelopeIssues, issueErr := record.checkedEnvelopeIssues()
+	if issueErr != nil {
+		return nil, issueErr
+	}
+	if len(envelopeIssues) > 0 {
+		labels, ok := profilerFtraceEventIssueLabels(record.Field, envelopeIssues)
+		if !ok {
+			return nil, &traceDBOutputInvariantError{Reason: "profiler_event_envelope_issue_invalid"}
+		}
+		return nil, fmt.Errorf("invalid FtraceEvent envelope: %s", strings.Join(labels, ","))
 	}
 	return []int{record.Field}, nil
 }
