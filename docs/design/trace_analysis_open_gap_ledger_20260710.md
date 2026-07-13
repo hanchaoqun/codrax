@@ -713,7 +713,7 @@ direct RMQ子批`348ed8709`与structured/text/container子批`00ab87a62`均在�
 - **验证证据**：`go test ./internal/hitraceconv ./internal/tracequery ./internal/repl -count=1`、sorter focused shuffle`×30`、三包focused race+shuffle`×5`、`go vet ./internal/hitraceconv ./internal/tracequery ./internal/repl`、`go test ./... -count=1`、`go vet ./...`、gofmt与`git diff --check`均通过；实现/测试/资源/对抗独立终审为**RELEASE**。标准Donghu输入SHA-256仍为`e15d3dfc7963739c648a3f4f40095cabff19716575949bf38ea02ef732672b25`，本批复放27,843/27,843 recognized、14 event names、0 unknown/unparsed/panic/clock regression；临时报告`/tmp/codrax-row-sort-bnd-donghu-census-20260713.txt`的SHA-256为`66282c719ef15c3cd0b14029139e3b42b291e53d56c54528a788c8172840447`，不作仓内长期地址。
 - **诚实边界**：64MiB仅是owned row-buffer retained口径，不包含pair maps；单个认证reader仍允许一条至多24MiB physical JSONL record，fan-in阶段的reader buffer峰值属于独立有界口径。通用输入/sidecar TOCTOU、tracebundle整份JSON峰值、P1-a2.3 repeated protobuf、P1-a2.4 compact row provenance、P1-b与Profiler全链有界声明继续开放；generic storage request token能力仍等待生产双端witness。
 
-## 2026-07-13 TRACE-CONVERT-ROUTE-HELP 客户紧急回访（已测绘，施工中）
+## 2026-07-13 TRACE-CONVERT-ROUTE-HELP 客户紧急回访（已交付并推送；`b01196bda`）
 
 客户执行`codrax trace convert --input record_trace_20260710005300@18895-212105468.sys`时收到`built-in sys decoder rejected input: code=unsupported_file_type file_type=54 segment_type=0 offset=0`，随后提示只有`file_type=0`才需要`trace_streamer`，但发行物按产品声明已内置`trace_streamer`且实际没有进入该车道。该回访先按**确定性路由/发行发现缺口**立案，不能把`file_type=54`直接猜成任何producer profile；施工必须先测清文件探测、内置binary/resource发现、provider选择、built-in拒绝与trace_streamer fallback的单点控制流，证明是提前终止、发现失败还是能力矩阵刻意拒绝，再依证修复。验收至少覆盖客户同构`file_type=54`最小fixture、`0/1/54/unknown/truncated`负矩阵、内置/显式/缺失trace_streamer、退出码与无半成品输出。
 
@@ -724,6 +724,16 @@ direct RMQ子批`348ed8709`与structured/text/container子批`00ab87a62`均在�
 **施工前测绘勘正（2026-07-13）**：当前`ConvertFile`的`auto`控制流名义上已经先调用`maybeRunTraceStreamerAuto`，客户失败并非“built-in静态排在streamer前”。确定性根因是普通`go build`及Makefile/release配方从未启用仅由`embed_streamer` tag装载的已提交payload，导致产品二进制默认是silent slim；同时`BuildTraceToolStatus`与执行路径各自重新发现/选择provider，status会在streamer未发现时提前把`SelectedEngine`改写成builtin，第一车道unavailable/execute/DB-normalize失败又只存在于局部`Decision/Caveat`，后续builtin失败返回`Result{}, err`时将其全部丢失。built-in的`readFileHeader`还只做12字节读取、不校验`magic=0x0ace`和`version=1`便先解释byte 2，因此任意同构字节都可能被伪报成`file_type=54`。Help侧复现了顶层无转换示例、`trace`层信息不足、`convert`被约40个继承全局flag淹没、反引号触发pflag错误metavar，以及utility早退使`--cache-dir`/yaml cache配置未送入内嵌解压缓存等问题。
 
 **入口口径勘正**：代码与历史审计均未发现第二个顶层`--convert-*`转换flag；不得为迎合文字预期而把附件flag`--htrace`改造成有副作用的隐式转换入口。权威CLI形态是`codrax trace convert --input ...`及其本地flags，交互形态是`/htrace convert ...`（`/atrace convert`别名）。本批所谓“通过flag触发”特指`trace convert`下的`--input/--output/--trace-engine/...`参数形态；三层CLI help和REPL concise/full/convert help必须同时可发现并共享同一语义。验收还需覆盖默认内嵌与显式`slim_streamer`、静态musl诚实边界、typed双失败、strict header、utility cache优先级、NoArgs/互斥/路径碰撞和全路径无半成品输出。
+
+### TRACE-CONVERT-ROUTE-HELP 交付结案（2026-07-13；`b01196bda`）
+
+- **单点路由已闭合**：status与execution共同消费typed provider plan；`auto`的有序车道恒为`trace_streamer→builtin`，不会再被header sniff提前截断。显式`trace_streamer`/`builtin`均为单车道且不互相降级；typed standalone perf输入进入独立`direct_perf`车道，status与execution共享同一个trace-only option blocker。公开`Fallback`只描述auto实际发生的第二车道，不再把显式builtin误标为fallback。
+- **发行发现已闭合**：普通linux-amd64/windows-amd64构建默认只内嵌本平台经manifest/hash验证的payload；发现优先级固定为显式flag、环境变量、Codrax可执行/包目录、验证后的内嵌层、PATH、已知安装目录。`slim_streamer`是明确的external-only opt-out；musl static配方强制保留该tag，旧可覆盖`STATIC_TAGS`直接fail loud；Darwin与未批准架构诚实要求外部工具。
+- **严格输入与双失败证据已闭合**：builtin header按12字节边界、`magic→version→file_type`顺序验证，保留EOF/UnexpectedEOF cause；`0/1/54/255`与0..11字节矩阵已pin。auto第一车道失败且builtin也失败时返回有界typed composite，保留第一车道source/path/stage/code/cause和builtin concrete error；取消/超时保持原identity且不合成。`file_type=54`仍不被静态白名单化，是否支持只由真实trace_streamer执行结果证明。
+- **文件事务与provenance已闭合**：systrace、perftrace、bundle、retained DB及`.ohos.ts`都进入creator-identity ledger，写入使用`O_EXCL`或全平台atomic no-replace，close/stat/regular/identity/size seal后才提交Result。硬错误与取消回滚本次创建的全部路径，外部竞态owner保持identity/bytes/mode；retained pair先发布companion、最后以DB作commit marker。默认DB只在0700私有staging存在并清理，只有`--keep-trace-db`/`--trace-db-output`的nil-error完整或typed partial结果可保留。内嵌cache同样no-replace、拒绝symlink/corrupt/mismatched owner且不chmod既存target。
+- **Help与配置隔离已闭合**：root/`trace`/`trace convert`三层help和REPL concise/full/convert入口均能发现权威命令与默认路由；完整`trace convert`/REPL convert help单点拥有分组flags、互斥关系、DB保留语义和static边界。反引号metavar问题已清除，`NoArgs`已pin。utility启动只投影`cache_dir/lang`，保持code<YAML<CLI优先级；无关pipeline/write/MCP字段的类型错误不再阻断确定性转换，owned字段类型或YAML语法错误仍fail loud。
+- **验证证据**：default与`slim_streamer`下`go test ./internal/hitraceconv ./cmd ./internal/repl -count=1`全绿；release/cancellation/cache/publication focused race全绿；Linux/Windows amd64 default/slim `go test -c`全绿；重放远端`611b980ed`与`534df0310`后`go test ./... -count=1`、`go vet ./...`、gofmt、`git diff --check`全绿。实现/API/事务/跨平台/对抗独立终审均为**RELEASE**。
+- **诚实留后**：不支持hardlink的非Windows文件系统会安全fail loud；若未来把威胁模型扩到恶意同父目录纳秒级替换，cleanup可再升级dirfd/unlinkat；embedded cache root当前是startup-only配置。上述均不重新打开本客户阻断。代表性真实`file_type=54`兼容性与新增解析字段仍由客户脱敏witness/上游格式证据驱动，不凭路由修复宣称。
 
 ## 统一采集与回访命令
 

@@ -379,7 +379,8 @@ codrax --atrace /tmp/atrace.txt -r "ListView 滑动卡顿哪里出问题?"
 codrax --htrace /tmp/perfetto.txt -r "..."
 
 # 二进制 HiTrace 需要先手动转换;不会自动附加
-# 默认 auto:有 trace_streamer 就优先走 SQL;没有 trace_streamer 或 SQL 失败就回退到内置 raw trace 解析
+# 默认 auto 的有序路由固定为 trace_streamer→builtin；第一车道不可用或 SQL 失败才披露后回退
+# linux-amd64/windows-amd64 普通发行包默认内嵌本平台 payload；musl static、macOS 和其他架构需外部工具
 # 显式 --trace-engine=trace_streamer 或 --trace-engine=builtin 时,不会退化到另一个引擎
 codrax trace convert --trace-tools-status
 codrax trace convert --input /tmp/capture.htrace.bin
@@ -420,7 +421,9 @@ REPL 内也可以先看 trace 转换工具和 sys parity gate 状态:
   · next: /htrace /tmp/capture.htrace.bin.systrace
 ```
 
-如果没有指定输出文件,默认写到 `<原文件名>.systrace`。如果目标文件已存在,codrax 会拒绝覆盖,提示先删除旧文件或重新指定输出路径。trace body 有两个转换引擎,但一次只会运行一个:`auto` 模式下如果发现 `trace_streamer` 就优先走 SQL;如果未发现 `trace_streamer`,或 SQL 执行/导出失败,会回退到 Codrax 内置 raw trace 解析器。显式 `--trace-engine=trace_streamer` 要求 SQL 工具可用且不会退到内置解析;显式 `--trace-engine=builtin` 只走内置解析,不会尝试 SQL。转换命令不会默认附加到当前会话;需要继续分析时,按下面两种方式之一把转换产物交给分析流程。
+如果没有指定输出文件,默认写到 `<原文件名>.systrace`。如果目标文件已存在,codrax 会拒绝覆盖,提示先删除旧文件或重新指定输出路径。`auto` 的有序车道固定为 `trace_streamer→builtin`:先尝试 SQL;只有第一车道确实不可用,或执行/导出/归一化失败时,才会在结果中保留第一车道证据并回退到 Codrax 内置 raw trace 解析器。显式 `--trace-engine=trace_streamer` 要求 SQL 工具可用且不会退到内置解析;显式 `--trace-engine=builtin` 只走内置解析,不会尝试 SQL。普通 linux-amd64 和 windows-amd64 发行包默认只内嵌本平台经过 manifest/hash 校验的 `trace_streamer`;完全静态 musl 发行包、macOS 和其他未批准架构需要用 `--trace-streamer`、`CODRAX_TRACE_STREAMER` 或安装路径提供兼容工具。转换命令不会默认附加到当前会话;需要继续分析时,按下面两种方式之一把转换产物交给分析流程。
+
+`trace_streamer` 的发现顺序固定为:显式 `--trace-streamer`、`CODRAX_TRACE_STREAMER`、Codrax 可执行文件/发行包目录、校验通过的内嵌 payload、`PATH`、已知 OpenHarmony/SmartPerf/hmtrace 安装位置。工具状态中的 `requested_engine`、`ordered_route`、`first_lane`、`preflight_engine` 和 `execution_blocker` 描述的是执行前计划;即使第一车道不可用,`auto` 的 `first_lane` 仍是 `trace_streamer`。实际尝试、成功和 fallback 以转换结果中的 `trace_provider_decision` 为准。
 
 ### 转换后如何分析 trace + perf 混合文件
 
@@ -428,7 +431,7 @@ OpenHarmony / HarmonyOS 的 HiProfiler 文件可能同时带 ftrace/bytrace 文�
 
 trace+perf htrace 在 auto 下优先走 `trace_streamer`/SQLite 导出。DB 导出成功后,Codrax 会把 DB 中的调度、callstack、频点、IO、日志等 trace body 行写入文本 `.systrace`;如果 DB 里存在 `perf_sample` / `perf_callchain` 行,这些 query-ready sample 行也会写入同一个 `.systrace`,并带 `source=trace_streamer_db`、`clock=trace_streamer_db`、`clock_confidence=calibrated` 作为 CPU sample 主证据。此时不会再额外生成重复 `.perftrace`,也不会落二进制 raw `.perf.data` sidecar。只有当 `trace_streamer` 不存在、SQL 失败、DB 中没有 query-ready perf sample,或输入本身是 standalone perf.data 时,auto 才会用官方 `hiperf` / Android simpleperf 或 Codrax raw fallback 生成 `.perftrace`。显式 `--trace-engine=trace_streamer` 不会退化;显式 `--trace-engine=builtin` 不会尝试 SQL。
 
-`trace.db` 是 trace_streamer 导出的 SQLite 中间库,`trace.db.ohos.ts` 是 trace_streamer 可能在 DB 旁边生成的辅助 sidecar。默认转换成功后二者都会留在临时目录并被清理;只有显式传 `--keep-trace-db` 或 `--trace-db-output` 时才会保留,用于调试 SQL 导出或给开发者复核。
+`trace.db` 是 trace_streamer 导出的 SQLite 中间库,`trace.db.ohos.ts` 是 trace_streamer 可能在 DB 旁边生成的辅助 sidecar。默认情况下二者只存在于权限为 0700 的私有暂存目录,事务结束前即清理,不会作为结果路径泄露。只有显式传 `--keep-trace-db` 或 `--trace-db-output` 时才会保留,用于调试 SQL 导出或给开发者复核。保留时先发布 companion、最后以 DB 作为成对提交标记;任一目标已存在、发生取消或后续 bundle 写入失败都会安全失败并回滚本次创建的文件,不会覆盖外部文件或留下半对产物。
 
 `trace_db_coverage` 中 `role=resolver_index` 的行表示 SQL 表已被读取用于 thread/process/callstack/sched_slice 等 join 或索引解析,预期不直接输出 systrace/perftrace 文本行,所以 `rows_emitted=0` 不是解析失败。真正的文本产物会以 `role=systrace_text_output` 或具体 event family 的 `role=query_ready_export` 呈现;若表缺失、字段缺失或 SQL/trace_query 校验异常,才会通过 `skipped` / `error` 明确暴露。
 
@@ -490,7 +493,7 @@ codrax trace convert --perf-tools-status --lang en
 输出会列出 trace body 和 perf sample 两部分:
 
 - `trace_provider[official_trace_db/trace_streamer_db]`: 是否找到 `trace_streamer`, 以及来源/路径/检查命令
-- `trace_provider[builtin_modern/codrax_builtin_modern_profiler]`: 内置纯 trace 转换器边界;trace+perf 不会走这个 fallback
+- `trace_provider[builtin_modern/codrax_builtin_modern_profiler]`: 内置 raw trace 转换器边界;`auto` 在 SQL 不可用或失败时可让 pure-trace 与 trace+perf 都进入该 fallback,显式 `builtin` 则直接进入且不标为 fallback
 - `trace_gate[sys_binary_parity_gate/no_perf_sys_binary_parity]`: 不带 perf 的 `.sys` 内置转换 parity 证据是否已经满足
 - `official_harmony[openharmony_hiperf]`: 是否找到 OpenHarmony `hiperf_host` / `hiperf`
 - `official_android[android_simpleperf_report_sample]`: 是否找到 Android simpleperf `report_sample.py`

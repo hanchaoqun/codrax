@@ -4,6 +4,26 @@ Date: 2026-06-22
 
 Reference: https://gitcode.com/diting/hmtrace/tree/main
 
+## 2026-07-13 Runtime Contract Addendum (`b01196bda`)
+
+The implemented runtime contract is now stricter than several historical
+planning paragraphs below. `auto` always owns the ordered
+`trace_streamer→builtin` plan; availability changes preflight selection, not
+the declared first lane. Explicit engines never cross-fallback. Standard
+linux-amd64/windows-amd64 builds carry one verified matching payload by
+default, while `slim_streamer` (mandatory for musl-static), Darwin, and
+unsupported architectures use external discovery.
+
+The embedded cache and every customer-visible conversion artifact are
+fail-atomic and no-replace. Existing symlinks, corrupt cache entries, and
+racing mismatched owners fail loud without mutation. Trace DBs and `.ohos.ts`
+companions stay private/transient unless retention is explicitly requested;
+for a retained pair the companion is published first and the DB is the final
+commit marker. Built-in header validation is strict (`magic`, then version,
+then file type), and an auto double failure preserves typed evidence from both
+providers. These rules, the CLI/REPL help contract, and the release matrix are
+closed in `b01196bda`; older "opt-in embed" wording below is historical.
+
 ## Goal
 
 Modern Harmony/OpenHarmony `.htrace` conversion must follow the same high-coverage
@@ -136,7 +156,7 @@ explicit built-in sys binary parser.
 .htrace / perf.data
   -> engine selection
       -> trace_streamer DB engine       default trace-body engine
-      -> built-in modern/sys parser     explicit trace-only engine
+      -> built-in modern/sys parser     explicit singleton or disclosed auto fallback
       -> raw perf.data parser           perf-only fallback
   -> exporters
       -> systrace text
@@ -165,11 +185,14 @@ Then a Codrax DB exporter reads the generated SQLite database and emits:
   legitimately have `rows_emitted=0`, while text-producing exporters use
   `query_ready_export`, `systrace_text_output`, or `perftrace_text_output`.
 
-### Built-in Parser: Explicit Trace-Only Engine
+### Built-in Parser: Explicit Singleton or Disclosed Auto Fallback
 
-The built-in parser should be selectable only for trace-only conversion. It
-should be redesigned around modern profiler payloads and the same semantic event
-families exported from the DB engine:
+The built-in parser is selected directly only by explicit `builtin`, or as the
+recorded second lane after `trace_streamer` is unavailable or fails in `auto`.
+For trace+perf input it produces the trace body; the independent official/raw
+perf sidecar lane produces fallback samples when SQL did not export query-ready
+perf rows. The parser is organized around modern profiler payloads and the same
+semantic event families exported from the DB engine:
 
 - profiler session/package metadata
 - ftrace plugin metadata and structured event payloads
@@ -187,11 +210,12 @@ so downstream `trace_query` sees one schema regardless of the engine.
 
 ### Built-in Sys Binary Parser: Parity-Gated Lane
 
-The current `SEGMENT_EVENTS_FORMAT` + raw trace page parser is kept only as an
-explicit built-in engine for the existing no-perf Harmony/Donghu `.sys` binary
-capability. It must emit the same systrace fields and tracebundle provenance as
-the DB exporter, and it must be covered by round-trip tests. It can be removed
-after these gates pass:
+The current `SEGMENT_EVENTS_FORMAT` + raw trace page parser is kept as the
+explicit built-in singleton and as the disclosed second lane of `auto` for the
+existing Harmony/Donghu `.sys` capability. Modern-profiler containers use the
+separate built-in parser described above. The sys parser must emit the same
+systrace fields and tracebundle provenance as the DB exporter, and it must be
+covered by round-trip tests. It can be removed after these gates pass:
 
 - `trace_streamer` DB engine accepts representative no-perf `.sys` captures.
 - DB exporter emits all event families currently rendered by the sys binary
@@ -199,8 +223,10 @@ after these gates pass:
 - Generated systrace round-trips through `trace_query` with no loss in scheduler,
   wakeup, CPU, binder, IRQ, and IO evidence used by root-cause analysis.
 - User-facing output and tracebundle provenance make the engine selection
-  explicit. Parity tests may run both engines, but production conversion must
-  not run both or silently fall back between them.
+  explicit. Parity tests may run both engines independently. Production must
+  not publish dual-success trace bodies or silently change engines; `auto` may
+  attempt the built-in second lane only after recording the unavailable or
+  failed trace_streamer first lane.
 
 Do not keep a second public schema for raw segment field offsets. While the sys
 binary lane exists, it is a compatibility implementation detail behind stable

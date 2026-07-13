@@ -8,6 +8,36 @@ Source design:
 External reference:
 https://gitcode.com/diting/hmtrace/tree/main
 
+## 2026-07-13 Authoritative Delivery Addendum (`b01196bda`)
+
+This addendum supersedes the historical current-state snapshots and the older
+"opt-in `embed_streamer`" packaging text later in this plan:
+
+- `auto` has one typed ordered plan: `trace_streamer` first, then the built-in
+  decoder only as a disclosed fallback. Explicit `trace_streamer` and
+  `builtin` are singleton lanes; typed standalone perf input is a separate
+  `direct_perf` route.
+- Native linux-amd64 and windows-amd64 builds embed only their audited matching
+  payload by default. `slim_streamer` is the explicit external-only build; all
+  musl-static recipes force it. Darwin and unsupported architectures require a
+  compatible external `trace_streamer`.
+- Discovery order is explicit option, `CODRAX_TRACE_STREAMER`, Codrax
+  executable/package directory, verified embedded payload, `PATH`, then known
+  OpenHarmony/SmartPerf/hmtrace locations.
+- DBs are transient by default. Only `--keep-trace-db` or
+  `--trace-db-output` may commit a retained DB and optional `.ohos.ts`
+  companion. All public artifacts use creator-identity transactions and
+  no-replace publication; hard errors and cancellation roll back owned files.
+- The canonical CLI is `codrax trace convert --input ...`; REPL aliases are
+  `/htrace convert` and `/atrace convert`. Root, `trace`, conversion, and REPL
+  help all expose the canonical entry and default route; the full conversion
+  help owns the flags, retention, mutual-exclusion, and static-build boundary.
+
+The exact delivery and validation ledger is
+`docs/design/trace_analysis_open_gap_ledger_20260710.md ::
+TRACE-CONVERT-ROUTE-HELP`. Historical batch notes below remain useful audit
+history but are not the current packaging contract.
+
 ## Current-State Audit
 
 Inspected current `main` before implementation.
@@ -2298,11 +2328,19 @@ After sys binary parity/retirement work, also run any eval cases covering:
 
 ## Open Risks
 
-- trace_streamer redistribution/package size. External discovery lands first;
-  embedded binary selection is deferred because the binary is too large for the
-  current product package, even though manifest/hash/version governance code is
-  present for a future explicit product decision.
+- trace_streamer redistribution/package size is now an active release-governance
+  concern, not a deferred selection decision. Standard linux-amd64 and
+  windows-amd64 artifacts embed only their audited matching payload; musl
+  static and explicit `slim_streamer` builds remain external-only, as do Darwin
+  and unsupported architectures. Future upstream payload upgrades must update
+  the manifest/hash/version evidence and rerun the cross-platform release
+  matrix before publication.
 - trace_streamer `.sys` parity. Until this is proven, the built-in sys binary
   parser remains a guarded capability rather than dead compatibility code.
-- Existing local worktree has unrelated untracked eval summary files. Batch
-  commits must stage only files touched by this delivery stream.
+- Non-Windows no-replace publication requires a hardlink-capable filesystem and
+  otherwise fails loud. Cleanup is creator-identity checked but remains
+  path-based; a future threat model that admits hostile replacement of the
+  parent directory itself should move cleanup to `dirfd`/`unlinkat`.
+- The embedded cache root is startup-only configuration. Runtime mutation would
+  require synchronization rather than reuse of the current process-global
+  initialization contract.
