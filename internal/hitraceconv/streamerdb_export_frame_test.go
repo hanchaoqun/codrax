@@ -487,7 +487,7 @@ func exportTraceDBFrameFixture(t *testing.T, path string, decorate func(*traceDB
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, writeErr := sink.writeTo(ctx, out)
+	_, writeErr := sink.prepareAndWriteForTest(ctx, out)
 	closeErr := out.Close()
 	if writeErr != nil {
 		t.Fatalf("write frame systrace: %v", writeErr)

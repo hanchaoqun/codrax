@@ -955,14 +955,16 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 		t.Fatalf("pass-2 endpoint publication prepare=%d/%d add=%d/%d", prepareCount, preparePos, addCount, addPos)
 	}
 
-	// B1-c is closed only for the synthetic sync typed stage. The final generic
-	// row sorter remains explicitly open as ROW-SORT-BND, and the legacy SQL
+	// B1-c is closed for the synthetic sync typed stage, and ROW-SORT-BND is
+	// closed independently for the final generic row sorter. The legacy SQL
 	// source-admission boundary above remains open as R1b-C.
 	closureFragments := map[string]bool{
 		"bounded pass 1 freezes and audits every governed lane":                false,
 		"pass 2 alone may publish clean synthetic B/E endpoints":               false,
 		"hybrid candidate-byte-bounded memory to private indexed SQLite stage": false,
-		"final generic row sorter ROW-SORT-BND remains separately open":        false,
+		"final generic row sorter bounded at %d retained bytes/%d rows":        false,
+		"%d input runs/%d run FDs":                                             false,
+		"%d active/%d live temp bytes":                                         false,
 	}
 	ast.Inspect(finalizeInfo.decl.Body, func(node ast.Node) bool {
 		literal, ok := node.(*ast.BasicLit)
@@ -973,8 +975,9 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 		if err != nil {
 			return true
 		}
-		if strings.Contains(value, "B1-c") && strings.Contains(strings.ToLower(value), "open") {
-			t.Fatalf("sync authority still discloses B1-c as open: %q", value)
+		if (strings.Contains(value, "B1-c") || strings.Contains(value, "ROW-SORT-BND")) &&
+			strings.Contains(strings.ToLower(value), "open") {
+			t.Fatalf("sync authority still discloses a closed boundedness batch as open: %q", value)
 		}
 		for fragment := range closureFragments {
 			if strings.Contains(value, fragment) {

@@ -140,7 +140,7 @@ func TestProfilerBlockCanonicalRejectIsSiblingLocalAndPairNeutralInBothOrders(t 
 			}
 
 			var out bytes.Buffer
-			stats, writeErr := sink.writeTo(context.Background(), &out)
+			stats, writeErr := sink.prepareAndWriteForTest(context.Background(), &out)
 			if writeErr != nil {
 				t.Fatal(writeErr)
 			}

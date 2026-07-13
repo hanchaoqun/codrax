@@ -504,7 +504,7 @@ func exportTraceDBBlockedStrictFixture(t *testing.T, statements []string) (strin
 		t.Fatal(err)
 	}
 	var body strings.Builder
-	if _, err := sink.writeTo(context.Background(), &body); err != nil {
+	if _, err := sink.prepareAndWriteForTest(context.Background(), &body); err != nil {
 		t.Fatal(err)
 	}
 	return body.String(), coverage

@@ -138,7 +138,7 @@ func TestProfilerZeroFramesPreserveValidSiblingsAndOrdering(t *testing.T) {
 		t.Fatalf("zero-frame siblings drifted: extracted=%+v coverage=%+v sink=%+v", extracted, coverage, sink.stats)
 	}
 	var output bytes.Buffer
-	stats, err := sink.writeTo(context.Background(), &output)
+	stats, err := sink.prepareAndWriteForTest(context.Background(), &output)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +273,7 @@ func TestProfilerZeroCensusAndValidPrefixAreSuppressedByOversizedFrame(t *testin
 			extracted, zeroCoverage, sink.stats)
 	}
 	var output bytes.Buffer
-	stats, err := sink.writeTo(context.Background(), &output)
+	stats, err := sink.prepareAndWriteForTest(context.Background(), &output)
 	if err != nil {
 		t.Fatal(err)
 	}

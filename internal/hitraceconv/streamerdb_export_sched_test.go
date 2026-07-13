@@ -77,7 +77,7 @@ func TestExportTraceDBSchedulerFamiliesRoundTripsThroughTraceQuery(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	stats, writeErr := sink.writeTo(context.Background(), out)
+	stats, writeErr := sink.prepareAndWriteForTest(context.Background(), out)
 	closeErr := out.Close()
 	if writeErr != nil {
 		t.Fatalf("write sorted rows: %v", writeErr)
@@ -524,7 +524,7 @@ func exportTraceDBSchedSwitchFixtureWithLifecycle(t *testing.T, schedRows []stri
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, writeErr := sink.writeTo(context.Background(), out)
+	_, writeErr := sink.prepareAndWriteForTest(context.Background(), out)
 	closeErr := out.Close()
 	if writeErr != nil {
 		t.Fatal(writeErr)

@@ -265,16 +265,16 @@ func renderTraceDBSyncSpanAuthority(t *testing.T, candidates []traceDBSyncSpanCa
 			t.Fatalf("poison %+v: %v", poison, err)
 		}
 	}
-	if sink.stats.RowsAccepted != 0 || len(sink.rows) != 0 || len(sink.chunks) != 0 {
+	if sink.stats.RowsAccepted != 0 || len(sink.rows) != 0 || len(sink.runs) != 0 {
 		t.Fatalf("Submit/Poison published before Finalize: stats=%+v rows=%d chunks=%d",
-			sink.stats, len(sink.rows), len(sink.chunks))
+			sink.stats, len(sink.rows), len(sink.runs))
 	}
 	report, coverage, err := authority.finalize(context.Background(), sink)
 	if err != nil {
 		t.Fatalf("finalize: %v coverage=%+v", err, coverage)
 	}
 	var out bytes.Buffer
-	stats, err := sink.writeTo(context.Background(), &out)
+	stats, err := sink.prepareAndWriteForTest(context.Background(), &out)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -617,12 +617,13 @@ func TestTraceDBSyncSpanAuthorityStateCoverageAndSpillParity(t *testing.T) {
 	largeReport, largeCoverage, largeBody, largeStats := renderTraceDBSyncSpanAuthority(t, candidates, nil, 128)
 	smallReport, smallCoverage, smallBody, smallStats := renderTraceDBSyncSpanAuthority(t, candidates, nil, 1)
 	if largeBody != smallBody || !reflect.DeepEqual(largeReport, smallReport) ||
-		largeCoverage.RowsEmitted != smallCoverage.RowsEmitted || largeStats.SpillChunks != 0 || smallStats.SpillChunks == 0 {
+		largeCoverage.RowsEmitted != smallCoverage.RowsEmitted || largeStats.SpillChunks != 1 || smallStats.SpillChunks <= 1 {
 		t.Fatalf("row-sink spill threshold changed authority result: large=%+v/%+v small=%+v/%+v",
 			largeReport, largeStats, smallReport, smallStats)
 	}
 	if !strings.Contains(largeCoverage.FieldSources["buffering"], "candidate-byte-bounded") ||
-		!strings.Contains(largeCoverage.FieldSources["buffering"], "ROW-SORT-BND") || largeCoverage.SpillChunks != 0 {
+		!strings.Contains(largeCoverage.FieldSources["buffering"], "final generic row sorter bounded") ||
+		strings.Contains(largeCoverage.FieldSources["buffering"], "remains separately open") || largeCoverage.SpillChunks != 0 {
 		t.Fatalf("B1-c bounded stage / generic sorter boundary drifted: %+v", largeCoverage)
 	}
 

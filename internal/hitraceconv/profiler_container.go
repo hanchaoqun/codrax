@@ -547,15 +547,18 @@ func reconcileProfilerPairCoverage(items []TraceDBCoverage, sink *traceDBRowSink
 	return nil
 }
 
-func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize int64, output string, standaloneArtifacts []Artifact, standaloneCaveats []string, standaloneDecisions []PerfProviderDecision, initialTraceDecisions []TraceProviderDecision, initialTraceDBCoverage []TraceDBCoverage) (Result, bool, error) {
+func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize int64, output string, standaloneArtifacts []Artifact, standaloneCaveats []string, standaloneDecisions []PerfProviderDecision, initialTraceDecisions []TraceProviderDecision, initialTraceDBCoverage []TraceDBCoverage) (result Result, detected bool, err error) {
 	sink, err := newTraceDBRowSink("", 0)
 	if err != nil {
 		return Result{}, false, err
 	}
+	if err := sink.bindContext(ctx); err != nil {
+		return Result{}, false, traceDBJoinPreservingSingle(err, sink.cleanup())
+	}
 	sinkClosed := false
 	defer func() {
 		if !sinkClosed {
-			sink.cleanup()
+			err = traceDBJoinPreservingSingle(err, sink.cleanup())
 		}
 	}()
 	if err := sink.openProfilerCapture(opts.InputPath); err != nil {
@@ -595,13 +598,13 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 			return Result{}, true, err
 		}
 	}
-	if err := sink.sealProfilerCapture(); err != nil {
+	if err := sink.sealProfilerCaptureContext(ctx); err != nil {
 		return Result{}, true, err
 	}
 	if err := applyProfilerCaptureSourceFailure(&extracted, sink); err != nil {
 		return Result{}, true, err
 	}
-	result := Result{
+	result = Result{
 		InputPath:          opts.InputPath,
 		InputBytes:         inputSize,
 		Artifacts:          append([]Artifact(nil), standaloneArtifacts...),
@@ -642,27 +645,45 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 	if err != nil {
 		return Result{}, true, err
 	}
+	if publishableRows == 0 {
+		// sealProfilerCaptureContext has already prepared the sink. Close the
+		// public Accepted=Written+Withheld ledger explicitly because this lane
+		// intentionally creates no output artifact and therefore skips writeTo.
+		if err := sink.accountPreparedNoPublication(); err != nil {
+			return Result{}, true, err
+		}
+		// No writer exists to own normal sorter cleanup. Complete it before the
+		// zero-output coverage is copied into Result or persisted in the bundle,
+		// so current_live_temp_bytes describes returned state rather than stale
+		// pre-cleanup storage.
+		if err := sink.cleanup(); err != nil {
+			return Result{}, true, err
+		}
+		sinkClosed = true
+	}
 	if publishableRows > 0 {
 		out, err := os.OpenFile(output, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 		if err != nil {
 			return Result{}, true, err
 		}
 		stats, writeErr := sink.writeTo(ctx, out)
-		sinkClosed = true
 		closeErr := out.Close()
+		writeErr = traceDBJoinPreservingSingle(writeErr, sink.cleanup())
+		stats = sink.stats
+		sinkClosed = true
 		if writeErr != nil {
-			_ = os.Remove(output)
+			writeErr = traceDBJoinPreservingSingle(writeErr, closeErr, os.Remove(output))
 			result.TraceCoverage = append(result.TraceCoverage, modernRowSorterCoverage(stats))
 			return Result{}, true, writeErr
 		}
 		if closeErr != nil {
-			_ = os.Remove(output)
+			closeErr = traceDBJoinPreservingSingle(closeErr, os.Remove(output))
 			result.TraceCoverage = append(result.TraceCoverage, modernRowSorterCoverage(stats))
 			return Result{}, true, closeErr
 		}
 		info, err := os.Stat(output)
 		if err != nil {
-			return Result{}, true, err
+			return Result{}, true, traceDBJoinPreservingSingle(err, os.Remove(output))
 		}
 		result.TraceCoverage = append(result.TraceCoverage, modernRowSorterCoverage(stats))
 		result.OutputPath = output
@@ -724,7 +745,7 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 			),
 		)
 	}
-	if sink.stats.RowsAccepted == 0 {
+	if publishableRows == 0 {
 		result.TraceCoverage = append(result.TraceCoverage, modernRowSorterCoverage(sink.stats))
 	}
 	normalizeResultCollections(&result)

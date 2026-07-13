@@ -351,7 +351,7 @@ func exportSchedulerFixture(t *testing.T, statements []string) (string, []TraceD
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, writeErr := sink.writeTo(context.Background(), out)
+	_, writeErr := sink.prepareAndWriteForTest(context.Background(), out)
 	closeErr := out.Close()
 	if writeErr != nil {
 		t.Fatalf("write scheduler fixture: %v", writeErr)

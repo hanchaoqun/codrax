@@ -92,13 +92,13 @@ func TestTraceDBEndpointRejectionDoesNotMutateSink(t *testing.T) {
 	if err := addTraceDBInstantRow(sink, -1, "task", 1, 1, 0, "print: bad"); err == nil {
 		t.Fatal("negative timestamp should be rejected")
 	}
-	if sink.stats != before || len(sink.rows) != 0 || len(sink.chunks) != 0 {
-		t.Fatalf("rejected endpoint mutated sink: before=%+v after=%+v rows=%d chunks=%d", before, sink.stats, len(sink.rows), len(sink.chunks))
+	if sink.stats != before || len(sink.rows) != 0 || len(sink.runs) != 0 {
+		t.Fatalf("rejected endpoint mutated sink: before=%+v after=%+v rows=%d runs=%d", before, sink.stats, len(sink.rows), len(sink.runs))
 	}
 	if err := sink.add(renderedRow{tsNS: 1, seq: 0, line: "forged\nsecond-line"}); err == nil {
 		t.Fatal("sink must retain a final single-physical-line defense")
 	}
-	if sink.stats != before || len(sink.rows) != 0 || len(sink.chunks) != 0 {
+	if sink.stats != before || len(sink.rows) != 0 || len(sink.runs) != 0 {
 		t.Fatalf("rejected rendered row mutated sink: before=%+v after=%+v", before, sink.stats)
 	}
 }
@@ -256,7 +256,7 @@ func TestTraceDBEndpointZeroTimeRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, writeErr := sink.writeTo(context.Background(), out)
+	_, writeErr := sink.prepareAndWriteForTest(context.Background(), out)
 	closeErr := out.Close()
 	if writeErr != nil {
 		t.Fatal(writeErr)

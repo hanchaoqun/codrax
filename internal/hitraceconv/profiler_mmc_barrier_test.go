@@ -33,12 +33,12 @@ func TestStructuredMMCBarrierSealsAcrossMessagesAndSpill(t *testing.T) {
 		}
 	}
 	if !sink.pairKindPoisoned(pairRenderMMC) || sink.withheldPairRows() != 2 ||
-		sink.withheldStructuredPairRows() != 2 || sink.publishableRows() != 1 || len(sink.chunks) == 0 {
+		sink.withheldStructuredPairRows() != 2 || sink.publishableRows() != 1 || len(sink.runs) == 0 {
 		t.Fatalf("structured stage did not retain source-wide spill barrier: accepted=%d withheld=%d structured=%d publishable=%d chunks=%d poisoned=%v",
-			sink.stats.RowsAccepted, sink.withheldPairRows(), sink.withheldStructuredPairRows(), sink.publishableRows(), len(sink.chunks), sink.poisoned)
+			sink.stats.RowsAccepted, sink.withheldPairRows(), sink.withheldStructuredPairRows(), sink.publishableRows(), len(sink.runs), sink.poisoned)
 	}
 	var out bytes.Buffer
-	stats, err := sink.writeTo(context.Background(), &out)
+	stats, err := sink.prepareAndWriteForTest(context.Background(), &out)
 	if err != nil {
 		t.Fatal(err)
 	}

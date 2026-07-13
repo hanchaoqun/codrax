@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"go/ast"
 	"go/parser"
@@ -293,7 +294,7 @@ func TestProfilerSessionLineBudgetFailClosesSourceAndStopsSuffix(t *testing.T) {
 		}
 	}
 	var output bytes.Buffer
-	stats, err := sink.writeTo(context.Background(), &output)
+	stats, err := sink.prepareAndWriteForTest(context.Background(), &output)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +329,7 @@ func TestProfilerSessionLFAndNULDelimiterParity(t *testing.T) {
 				t.Fatal(err)
 			}
 			var output bytes.Buffer
-			stats, err := sink.writeTo(context.Background(), &output)
+			stats, err := sink.prepareAndWriteForTest(context.Background(), &output)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -373,7 +374,7 @@ func TestProfilerSessionNULOversizeFailClosesSourceAndStopsSuffix(t *testing.T) 
 			extracted, sink.stats)
 	}
 	var output bytes.Buffer
-	stats, err := sink.writeTo(context.Background(), &output)
+	stats, err := sink.prepareAndWriteForTest(context.Background(), &output)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -400,14 +401,17 @@ func TestProfilerSourceFailCloseSuppressesSpilledChunksBeforeHeader(t *testing.T
 			t.Fatal(err)
 		}
 	}
-	if len(sink.chunks) == 0 || sink.stats.SpillChunks == 0 {
+	if len(sink.runs) == 0 || sink.stats.SpillChunks == 0 {
 		sink.cleanup()
-		t.Fatalf("spill fixture did not create persisted chunks: stats=%+v chunks=%v", sink.stats, sink.chunks)
+		t.Fatalf("spill fixture did not create persisted runs: stats=%+v runs=%v", sink.stats, sink.runs)
 	}
-	chunkPaths := append([]string(nil), sink.chunks...)
+	runPaths := make([]string, len(sink.runs))
+	for index, run := range sink.runs {
+		runPaths[index] = run.path
+	}
 	sink.failCloseAllRows()
 	var output bytes.Buffer
-	stats, err := sink.writeTo(context.Background(), &output)
+	stats, err := sink.prepareAndWriteForTest(context.Background(), &output)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -415,7 +419,7 @@ func TestProfilerSourceFailCloseSuppressesSpilledChunksBeforeHeader(t *testing.T
 		stats.FirstTSNS != 0 || stats.LastTSNS != 0 {
 		t.Fatalf("source fail-close leaked a spill header or row: stats=%+v output=%q", stats, output.String())
 	}
-	for _, path := range chunkPaths {
+	for _, path := range runPaths {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatalf("source fail-close did not clean spill chunk %s: err=%v", path, err)
 		}
@@ -448,6 +452,38 @@ func TestProfilerSessionResourceFailClosePreservesTerminalStandaloneSidecar(t *t
 		!hasTraceDecisionReason(result.TraceDecisions, traceProviderNameBuiltinModern, "profiler_source_resource_fail_closed") {
 		t.Fatalf("resource-failed Session claimed trace-body publication: %+v", result)
 	}
+	assertCleanSorterCoverage := func(label string, items []TraceDBCoverage) {
+		t.Helper()
+		matches := 0
+		for _, item := range items {
+			if item.Family != "builtin_modern_profiler" || item.Table != "__systrace_rows__" {
+				continue
+			}
+			matches++
+			if item.RowsRead != 1 || item.RowsEmitted != 0 || item.SpillChunks != 1 ||
+				item.CurrentLiveTempBytes != 0 || item.PeakLiveTempBytes == 0 {
+				t.Fatalf("%s retained stale zero-output sorter state: %+v", label, item)
+			}
+		}
+		if matches != 1 {
+			t.Fatalf("%s sorter coverage count=%d want=1: %+v", label, matches, items)
+		}
+	}
+	assertCleanSorterCoverage("result", result.TraceCoverage)
+	if result.BundlePath == "" {
+		t.Fatalf("resource-failed Session lost trace bundle: %+v", result)
+	}
+	bundle, err := os.ReadFile(result.BundlePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var bundleMeta struct {
+		TraceCoverage []TraceDBCoverage `json:"trace_coverage"`
+	}
+	if err := json.Unmarshal(bundle, &bundleMeta); err != nil {
+		t.Fatalf("decode zero-output trace bundle: %v", err)
+	}
+	assertCleanSorterCoverage("bundle", bundleMeta.TraceCoverage)
 	var sidecar Artifact
 	for _, artifact := range result.Artifacts {
 		if artifact.Type == ArtifactPerfData {
@@ -555,7 +591,7 @@ func TestProfilerSessionInputSizeExcludesAppendedSuffix(t *testing.T) {
 		t.Fatal(err)
 	}
 	var output bytes.Buffer
-	stats, err := sink.writeTo(context.Background(), &output)
+	stats, err := sink.prepareAndWriteForTest(context.Background(), &output)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -820,7 +856,7 @@ func TestProfilerOversizedFrameStopsWithoutTrustingPrefixSiblingAndFailClosesSou
 		t.Fatalf("source fail-close did not preserve and zero the fixed plugin bucket audit: %+v", extracted.TraceCoverage)
 	}
 	var output bytes.Buffer
-	stats, err := sink.writeTo(context.Background(), &output)
+	stats, err := sink.prepareAndWriteForTest(context.Background(), &output)
 	if err != nil {
 		t.Fatal(err)
 	}

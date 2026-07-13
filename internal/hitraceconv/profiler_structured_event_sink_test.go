@@ -200,17 +200,21 @@ func TestProfilerStructuredEventFieldSurvivesSpillAndFiltering(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if len(sink.chunks) != 3 {
-		t.Fatalf("threshold-one sink did not spill every row: chunks=%d", len(sink.chunks))
+	if len(sink.runs) != 3 {
+		t.Fatalf("threshold-one sink did not spill every row: runs=%d", len(sink.runs))
 	}
-	reader, err := openTraceDBChunkReader(sink.chunks[0])
+	reader, err := sink.openAuthenticatedRunReader(sink.runs[0])
 	if err != nil {
 		t.Fatal(err)
 	}
-	spilled, ok, readErr := reader.next()
+	record, ok, readErr := reader.next(context.Background())
+	_, more, eofErr := reader.next(context.Background())
 	closeErr := reader.close()
-	if readErr != nil || closeErr != nil || !ok || !spilled.structuredPair || spilled.profilerEventField != 4011 {
-		t.Fatalf("spilled typed provenance drifted: row=%+v ok=%t read=%v close=%v", spilled, ok, readErr, closeErr)
+	spilled := record.row
+	if readErr != nil || eofErr != nil || closeErr != nil || !ok || more ||
+		!spilled.structuredPair || spilled.profilerEventField != 4011 {
+		t.Fatalf("spilled typed provenance drifted: row=%+v ok=%t more=%t read=%v eof=%v close=%v",
+			spilled, ok, more, readErr, eofErr, closeErr)
 	}
 
 	sink.poisonPairLane(pairRenderF2FS, "drop")
@@ -218,7 +222,7 @@ func TestProfilerStructuredEventFieldSurvivesSpillAndFiltering(t *testing.T) {
 		t.Fatalf("spilled exact field withheld=%d want=1", got)
 	}
 	var out bytes.Buffer
-	stats, err := sink.writeTo(context.Background(), &out)
+	stats, err := sink.prepareAndWriteForTest(context.Background(), &out)
 	if err != nil {
 		t.Fatal(err)
 	}

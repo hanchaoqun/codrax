@@ -1865,7 +1865,10 @@ type traceBundleFile struct {
 
 const traceBundleCoverageCaveatLimit = 24
 
-const traceBundleCoveragePriorityCaveatLimit = 1
+// Keep one deterministic extra seat for each closed priority class when the
+// source-order prefix is compacted. The classes are deliberately exact typed
+// identities: fuzzy family/table matches must never gain a disclosure seat.
+const traceBundleCoveragePriorityCaveatLimit = 2
 
 const traceBundleTraceToolGateCaveatLimit = 8
 
@@ -1933,20 +1936,26 @@ type traceBundleTraceDecision struct {
 }
 
 type traceBundleCoverage struct {
-	Family         string   `json:"family,omitempty"`
-	Table          string   `json:"table,omitempty"`
-	Role           string   `json:"role,omitempty"`
-	Found          bool     `json:"found"`
-	ColumnsPresent []string `json:"columns_present,omitempty"`
-	ColumnsMissing []string `json:"columns_missing,omitempty"`
-	RowsRead       int      `json:"rows_read,omitempty"`
-	RowsEmitted    int      `json:"rows_emitted,omitempty"`
-	PeakBuffered   int      `json:"peak_buffered_rows,omitempty"`
-	SpillChunks    int      `json:"spill_chunks,omitempty"`
-	TempBytes      int64    `json:"temp_bytes,omitempty"`
-	ElapsedUS      int64    `json:"elapsed_us,omitempty"`
-	Skipped        string   `json:"skipped,omitempty"`
-	Error          string   `json:"error,omitempty"`
+	Family               string            `json:"family,omitempty"`
+	Table                string            `json:"table,omitempty"`
+	Role                 string            `json:"role,omitempty"`
+	Found                bool              `json:"found"`
+	FieldSources         map[string]string `json:"field_sources,omitempty"`
+	ColumnsPresent       []string          `json:"columns_present,omitempty"`
+	ColumnsMissing       []string          `json:"columns_missing,omitempty"`
+	RowsRead             int               `json:"rows_read,omitempty"`
+	RowsEmitted          int               `json:"rows_emitted,omitempty"`
+	PeakBuffered         int               `json:"peak_buffered_rows,omitempty"`
+	PeakBufferedBytes    uint64            `json:"peak_buffered_bytes,omitempty"`
+	SpillChunks          int               `json:"spill_chunks,omitempty"`
+	TempBytes            int64             `json:"temp_bytes,omitempty"`
+	CurrentLiveTempBytes uint64            `json:"current_live_temp_bytes,omitempty"`
+	PeakLiveTempBytes    uint64            `json:"peak_live_temp_bytes,omitempty"`
+	PeakOpenRunFDs       int               `json:"peak_open_run_fds,omitempty"`
+	MergePasses          int               `json:"merge_passes,omitempty"`
+	ElapsedUS            int64             `json:"elapsed_us,omitempty"`
+	Skipped              string            `json:"skipped,omitempty"`
+	Error                string            `json:"error,omitempty"`
 }
 
 type traceBundleTraceToolGate struct {
@@ -2264,16 +2273,25 @@ func traceBundleCoverageCaveats(prefix string, rows []traceBundleCoverage) []str
 	if len(rows) < limit {
 		limit = len(rows)
 	}
-	out := make([]string, 0, limit+1)
+	out := make([]string, 0, limit+traceBundleCoveragePriorityCaveatLimit+1)
+	prioritySeen := make(map[string]struct{}, traceBundleCoveragePriorityCaveatLimit)
 	for i := 0; i < limit; i++ {
 		out = append(out, traceBundleCoverageCaveat(prefix, rows[i]))
+		if class := traceBundleCoveragePriorityClass(rows[i]); class != "" {
+			prioritySeen[class] = struct{}{}
+		}
 	}
 	priorityEmitted := 0
 	for i := limit; i < len(rows) && priorityEmitted < traceBundleCoveragePriorityCaveatLimit; i++ {
-		if !traceBundleCoveragePriority(rows[i]) {
+		class := traceBundleCoveragePriorityClass(rows[i])
+		if class == "" {
+			continue
+		}
+		if _, exists := prioritySeen[class]; exists {
 			continue
 		}
 		out = append(out, traceBundleCoverageCaveat(prefix, rows[i]))
+		prioritySeen[class] = struct{}{}
 		priorityEmitted++
 	}
 	if len(rows) > limit {
@@ -2283,7 +2301,18 @@ func traceBundleCoverageCaveats(prefix string, rows []traceBundleCoverage) []str
 }
 
 func traceBundleCoveragePriority(coverage traceBundleCoverage) bool {
-	return coverage.Family == "resolver.lifecycle" && coverage.Table == "__authority__"
+	return traceBundleCoveragePriorityClass(coverage) != ""
+}
+
+func traceBundleCoveragePriorityClass(coverage traceBundleCoverage) string {
+	if coverage.Family == "resolver.lifecycle" && coverage.Table == "__authority__" {
+		return "resolver_lifecycle_authority"
+	}
+	if coverage.Table == "__systrace_rows__" && coverage.Role == "systrace_text_output" &&
+		(coverage.Family == "sorter" || coverage.Family == "builtin_modern_profiler") {
+		return "systrace_row_sorter"
+	}
+	return ""
 }
 
 func traceBundleCoverageCaveat(prefix string, coverage traceBundleCoverage) string {
@@ -2304,6 +2333,12 @@ func traceBundleCoverageCaveat(prefix string, coverage traceBundleCoverage) stri
 			parts = append(parts, fmt.Sprintf("%s=%d", key, value))
 		}
 	}
+	appendUint64 := func(key string, value uint64, includeZero bool) {
+		if value != 0 || includeZero {
+			parts = append(parts, fmt.Sprintf("%s=%d", key, value))
+		}
+	}
+	rowSorter := traceBundleCoveragePriorityClass(coverage) == "systrace_row_sorter"
 	appendKV("family", coverage.Family)
 	appendKV("table", coverage.Table)
 	appendKV("role", coverage.Role)
@@ -2311,14 +2346,51 @@ func traceBundleCoverageCaveat(prefix string, coverage traceBundleCoverage) stri
 	appendInt("rows_read", coverage.RowsRead)
 	appendInt("rows_emitted", coverage.RowsEmitted)
 	appendInt("peak_buffered_rows", coverage.PeakBuffered)
+	appendUint64("peak_buffered_bytes", coverage.PeakBufferedBytes, rowSorter)
 	appendInt("spill_chunks", coverage.SpillChunks)
 	appendInt64("temp_bytes", coverage.TempBytes)
+	appendUint64("current_live_temp_bytes", coverage.CurrentLiveTempBytes, rowSorter)
+	appendUint64("peak_live_temp_bytes", coverage.PeakLiveTempBytes, rowSorter)
+	if coverage.PeakOpenRunFDs != 0 || rowSorter {
+		parts = append(parts, fmt.Sprintf("peak_open_run_fds=%d", coverage.PeakOpenRunFDs))
+	}
+	if coverage.MergePasses != 0 || rowSorter {
+		parts = append(parts, fmt.Sprintf("merge_passes=%d", coverage.MergePasses))
+	}
 	appendInt64("elapsed_us", coverage.ElapsedUS)
+	appendKV("field_sources", traceBundleCompactFieldSources(coverage.FieldSources, 8))
 	appendKV("columns_missing", traceBundleCompactList(coverage.ColumnsMissing, 8))
 	appendKV("columns_present", traceBundleCompactList(coverage.ColumnsPresent, 8))
 	appendKV("skipped", coverage.Skipped)
 	appendKV("error", coverage.Error)
 	return strings.Join(parts, " ")
+}
+
+func traceBundleCompactFieldSources(values map[string]string, limit int) string {
+	if len(values) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	if limit > 0 && len(keys) > limit {
+		keys = keys[:limit]
+	}
+	compacted := make([]string, 0, len(keys)+1)
+	for _, key := range keys {
+		compactKey := traceBundleCompactValue(key)
+		compactValue := traceBundleCompactValue(values[key])
+		if compactKey == "" || compactValue == "" {
+			continue
+		}
+		compacted = append(compacted, compactKey+":"+compactValue)
+	}
+	if limit > 0 && len(values) > limit {
+		compacted = append(compacted, fmt.Sprintf("+%d", len(values)-limit))
+	}
+	return strings.Join(compacted, ",")
 }
 
 func traceBundleClockAlignmentCaveat(alignment traceBundlePerfClockAlignment) string {

@@ -561,7 +561,7 @@ func TestProfilerTextPayloadUsesBoundedSorter(t *testing.T) {
 		t.Fatalf("expected bounded sorter extraction with spill: extracted=%+v stats=%+v", extracted, sink.stats)
 	}
 	var out bytes.Buffer
-	stats, err := sink.writeTo(context.Background(), &out)
+	stats, err := sink.prepareAndWriteForTest(context.Background(), &out)
 	if err != nil {
 		t.Fatalf("write sorted rows: %v", err)
 	}

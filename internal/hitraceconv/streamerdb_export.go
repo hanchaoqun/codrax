@@ -2,7 +2,6 @@ package hitraceconv
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -35,11 +34,31 @@ func exportTraceDBToSystrace(ctx context.Context, dbPath, output string) (result
 	if err != nil {
 		return traceDBSystraceExport{}, err
 	}
+	if err := sink.bindContext(ctx); err != nil {
+		return traceDBSystraceExport{}, traceDBJoinPreservingSingle(err, sink.cleanup())
+	}
 	sinkClosed := false
 	defer func() {
 		if !sinkClosed {
-			sink.cleanup()
+			err = traceDBJoinPreservingSingle(err, sink.cleanup())
 		}
+		for index, item := range result.Coverage {
+			if item.Family == "sorter" && item.Table == "__systrace_rows__" {
+				refreshed := sink.stats.coverage()
+				if refreshed.Error == "" {
+					refreshed.Error = item.Error
+				}
+				result.Coverage[index] = refreshed
+				return
+			}
+		}
+		if sink.stats.FailureReason == "" {
+			return
+		}
+		// add-triggered spill/quota failures can abort a family exporter before
+		// the normal sorter-coverage append point. Preserve that fixed typed
+		// reason after cleanup has refreshed CurrentLiveTempBytes.
+		result.Coverage = append(result.Coverage, sink.stats.coverage())
 	}()
 	syncSpans, err := newTraceDBSyncSpanAuthority(ctx, output)
 	if err != nil {
@@ -47,7 +66,7 @@ func exportTraceDBToSystrace(ctx context.Context, dbPath, output string) (result
 	}
 	defer func() {
 		if syncSpans.stage != nil && !syncSpans.stage.closed {
-			err = errors.Join(err, syncSpans.cleanup())
+			err = traceDBJoinPreservingSingle(err, syncSpans.cleanup())
 		}
 	}()
 
@@ -78,9 +97,20 @@ func exportTraceDBToSystrace(ctx context.Context, dbPath, output string) (result
 	coverage = append(coverage, lifecycleCoverage...)
 	if sink.stats.RowsAccepted == 0 {
 		coverage = append(coverage, sink.stats.coverage())
-		sink.cleanup()
+		cleanupErr := sink.cleanup()
 		sinkClosed = true
-		return traceDBSystraceExport{Coverage: coverage}, nil
+		return traceDBSystraceExport{Coverage: coverage}, cleanupErr
+	}
+	if err := sink.prepareForPublication(ctx); err != nil {
+		sorterCoverage := sink.stats.coverage()
+		if sorterCoverage.Error == "" {
+			sorterCoverage.Error = "trace_row_sort_preflight_failed"
+			if reason, ok := traceDBOutputInvariantReason(err); ok {
+				sorterCoverage.Error = reason
+			}
+		}
+		coverage = append(coverage, sorterCoverage)
+		return traceDBSystraceExport{Coverage: coverage}, err
 	}
 
 	out, err := os.OpenFile(output, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
@@ -88,22 +118,24 @@ func exportTraceDBToSystrace(ctx context.Context, dbPath, output string) (result
 		return traceDBSystraceExport{Coverage: coverage}, err
 	}
 	stats, writeErr := sink.writeTo(ctx, out)
-	sinkClosed = true
 	closeErr := out.Close()
+	writeErr = traceDBJoinPreservingSingle(writeErr, sink.cleanup())
+	stats = sink.stats
+	sinkClosed = true
 	if writeErr != nil {
-		_ = os.Remove(output)
+		writeErr = traceDBJoinPreservingSingle(writeErr, closeErr, os.Remove(output))
 		coverage = append(coverage, stats.coverage())
 		return traceDBSystraceExport{Coverage: coverage}, writeErr
 	}
 	if closeErr != nil {
-		_ = os.Remove(output)
+		closeErr = traceDBJoinPreservingSingle(closeErr, os.Remove(output))
 		coverage = append(coverage, stats.coverage())
 		return traceDBSystraceExport{Coverage: coverage}, closeErr
 	}
 	info, err := os.Stat(output)
 	if err != nil {
 		coverage = append(coverage, stats.coverage())
-		return traceDBSystraceExport{Coverage: coverage}, err
+		return traceDBSystraceExport{Coverage: coverage}, traceDBJoinPreservingSingle(err, os.Remove(output))
 	}
 	coverage = append(coverage, stats.coverage())
 	result = traceDBSystraceExport{
@@ -122,7 +154,10 @@ func exportTraceDBToSystrace(ctx context.Context, dbPath, output string) (result
 	}
 	result.TraceCoverage = append(result.TraceCoverage, validateSystraceWithTraceQuery(ctx, output))
 	if result.EventsWritten == 0 {
-		return result, fmt.Errorf("trace DB sorter accepted rows but wrote none")
+		removeErr := os.Remove(output)
+		result.Artifact = Artifact{}
+		result.OutputBytes = 0
+		return result, traceDBJoinPreservingSingle(fmt.Errorf("trace DB sorter accepted rows but wrote none"), removeErr)
 	}
 	return result, nil
 }

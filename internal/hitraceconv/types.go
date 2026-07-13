@@ -108,21 +108,26 @@ type TraceProviderDecision struct {
 }
 
 type TraceDBCoverage struct {
-	Family         string            `json:"family,omitempty"`
-	Table          string            `json:"table"`
-	Role           string            `json:"role,omitempty"`
-	Found          bool              `json:"found"`
-	FieldSources   map[string]string `json:"field_sources,omitempty"`
-	ColumnsPresent []string          `json:"columns_present,omitempty"`
-	ColumnsMissing []string          `json:"columns_missing,omitempty"`
-	RowsRead       int               `json:"rows_read,omitempty"`
-	RowsEmitted    int               `json:"rows_emitted,omitempty"`
-	PeakBuffered   int               `json:"peak_buffered_rows,omitempty"`
-	SpillChunks    int               `json:"spill_chunks,omitempty"`
-	TempBytes      int64             `json:"temp_bytes,omitempty"`
-	ElapsedUS      int64             `json:"elapsed_us,omitempty"`
-	Skipped        string            `json:"skipped,omitempty"`
-	Error          string            `json:"error,omitempty"`
+	Family               string            `json:"family,omitempty"`
+	Table                string            `json:"table"`
+	Role                 string            `json:"role,omitempty"`
+	Found                bool              `json:"found"`
+	FieldSources         map[string]string `json:"field_sources,omitempty"`
+	ColumnsPresent       []string          `json:"columns_present,omitempty"`
+	ColumnsMissing       []string          `json:"columns_missing,omitempty"`
+	RowsRead             int               `json:"rows_read,omitempty"`
+	RowsEmitted          int               `json:"rows_emitted,omitempty"`
+	PeakBuffered         int               `json:"peak_buffered_rows,omitempty"`
+	PeakBufferedBytes    uint64            `json:"peak_buffered_bytes,omitempty"`
+	SpillChunks          int               `json:"spill_chunks,omitempty"`
+	TempBytes            int64             `json:"temp_bytes,omitempty"`
+	CurrentLiveTempBytes uint64            `json:"current_live_temp_bytes,omitempty"`
+	PeakLiveTempBytes    uint64            `json:"peak_live_temp_bytes,omitempty"`
+	PeakOpenRunFDs       int               `json:"peak_open_run_fds,omitempty"`
+	MergePasses          int               `json:"merge_passes,omitempty"`
+	ElapsedUS            int64             `json:"elapsed_us,omitempty"`
+	Skipped              string            `json:"skipped,omitempty"`
+	Error                string            `json:"error,omitempty"`
 }
 
 type PerfClockAlignment struct {

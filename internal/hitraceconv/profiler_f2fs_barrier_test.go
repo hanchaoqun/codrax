@@ -35,12 +35,12 @@ func TestStructuredF2FSBarrierSealsAcrossMessagesSpillAndOtherFamilies(t *testin
 	}
 	if !sink.pairKindPoisoned(pairRenderF2FS) || sink.pairKindPoisoned(pairRenderMMC) ||
 		sink.withheldPairRowsForKind(pairRenderF2FS) != 2 || sink.withheldStructuredPairRowsForKind(pairRenderF2FS) != 2 ||
-		sink.publishableRows() != 3 || len(sink.chunks) == 0 {
+		sink.publishableRows() != 3 || len(sink.runs) == 0 {
 		t.Fatalf("structured F2FS stage isolation drifted: accepted=%d f2fs_withheld=%d publishable=%d chunks=%d poisoned=%v",
-			sink.stats.RowsAccepted, sink.withheldPairRowsForKind(pairRenderF2FS), sink.publishableRows(), len(sink.chunks), sink.poisoned)
+			sink.stats.RowsAccepted, sink.withheldPairRowsForKind(pairRenderF2FS), sink.publishableRows(), len(sink.runs), sink.poisoned)
 	}
 	var out bytes.Buffer
-	stats, err := sink.writeTo(context.Background(), &out)
+	stats, err := sink.prepareAndWriteForTest(context.Background(), &out)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,12 +86,12 @@ func TestStructuredF2FSKnownNonKeyFailureQuarantinesOnlyExactLaneAcrossSpill(t *
 	if sink.poisoned[pairRenderF2FS] || len(sink.poisonedLanes[pairRenderF2FS]) != 1 ||
 		sink.pairKindPoisoned(pairRenderMMC) || sink.withheldPairRowsForKind(pairRenderF2FS) != 2 ||
 		sink.withheldStructuredPairRowsForKind(pairRenderF2FS) != 2 || sink.publishableRows() != 5 ||
-		len(sink.chunks) == 0 {
+		len(sink.runs) == 0 {
 		t.Fatalf("known F2FS non-key failure escaped exact-lane spill quarantine: accepted=%d withheld=%d publishable=%d family=%v lanes=%v chunks=%d",
-			sink.stats.RowsAccepted, sink.withheldPairRowsForKind(pairRenderF2FS), sink.publishableRows(), sink.poisoned, sink.poisonedLanes, len(sink.chunks))
+			sink.stats.RowsAccepted, sink.withheldPairRowsForKind(pairRenderF2FS), sink.publishableRows(), sink.poisoned, sink.poisonedLanes, len(sink.runs))
 	}
 	var out bytes.Buffer
-	stats, err := sink.writeTo(context.Background(), &out)
+	stats, err := sink.prepareAndWriteForTest(context.Background(), &out)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,13 +140,13 @@ func TestStructuredF2FSTerminalNonKeyMalformedQuarantinesOnlyExactLaneAcrossSpil
 	if sink.poisoned[pairRenderF2FS] || len(sink.poisonedLanes[pairRenderF2FS]) != 1 ||
 		sink.withheldPairRowsForKind(pairRenderF2FS) != 2 ||
 		sink.withheldStructuredPairRowsForKind(pairRenderF2FS) != 2 || sink.publishableRows() != 2 ||
-		len(sink.chunks) == 0 {
+		len(sink.runs) == 0 {
 		t.Fatalf("terminal non-key damage escaped exact-lane spill quarantine: accepted=%d withheld=%d publishable=%d family=%v lanes=%v chunks=%d",
 			sink.stats.RowsAccepted, sink.withheldPairRowsForKind(pairRenderF2FS), sink.publishableRows(),
-			sink.poisoned, sink.poisonedLanes, len(sink.chunks))
+			sink.poisoned, sink.poisonedLanes, len(sink.runs))
 	}
 	var out bytes.Buffer
-	stats, err := sink.writeTo(context.Background(), &out)
+	stats, err := sink.prepareAndWriteForTest(context.Background(), &out)
 	if err != nil {
 		t.Fatal(err)
 	}

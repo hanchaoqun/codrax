@@ -260,7 +260,7 @@ func exportTraceDBNativeHookFixture(t *testing.T, statements []string) (string, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, writeErr := sink.writeTo(context.Background(), out)
+	_, writeErr := sink.prepareAndWriteForTest(context.Background(), out)
 	closeErr := out.Close()
 	if writeErr != nil {
 		t.Fatalf("write native-hook output: %v", writeErr)

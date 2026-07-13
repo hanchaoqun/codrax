@@ -2146,7 +2146,8 @@ func TestBuildIndexTraceBundleMergesSystraceAndPerftrace(t *testing.T) {
   ],
   "trace_db_coverage": [
     {"family": "scheduler", "table": "sched_slice", "found": true, "columns_present": ["ts", "dur", "cpu", "itid", "end_state"], "rows_read": 2, "rows_emitted": 2, "elapsed_us": 1234},
-    {"family": "trace_marker", "table": "instant", "found": false, "columns_missing": ["ts", "name"], "skipped": "table_missing"}
+    {"family": "trace_marker", "table": "instant", "found": false, "columns_missing": ["ts", "name"], "skipped": "table_missing"},
+    {"family": "sorter", "table": "__systrace_rows__", "role": "systrace_text_output", "found": true, "field_sources": {"temp_limits": "4294967296_active_bytes+8589934592_live_bytes", "row_buffer_limits": "67108864_bytes+200000_rows", "merge_limits": "32_input_runs+33_total_run_fds"}, "rows_read": 2, "rows_emitted": 2, "peak_buffered_rows": 2, "peak_buffered_bytes": 768, "spill_chunks": 1, "temp_bytes": 2048, "current_live_temp_bytes": 0, "peak_live_temp_bytes": 2048, "peak_open_run_fds": 2, "merge_passes": 1, "elapsed_us": 321}
   ],
 	  "trace_coverage": [
 	    {"family": "trace_cross_validation", "table": "tracequery_build_index", "found": true, "rows_read": 2, "rows_emitted": 2, "elapsed_us": 5678}
@@ -2196,6 +2197,13 @@ func TestBuildIndexTraceBundleMergesSystraceAndPerftrace(t *testing.T) {
 		"tracebundle_trace_db_coverage family=scheduler table=sched_slice",
 		"elapsed_us=1234",
 		"tracebundle_trace_db_coverage family=trace_marker table=instant found=false",
+		"tracebundle_trace_db_coverage family=sorter table=__systrace_rows__ role=systrace_text_output",
+		"peak_buffered_bytes=768",
+		"current_live_temp_bytes=0",
+		"peak_live_temp_bytes=2048",
+		"peak_open_run_fds=2",
+		"merge_passes=1",
+		"field_sources=merge_limits:32_input_runs+33_total_run_fds,row_buffer_limits:67108864_bytes+200000_rows,temp_limits:4294967296_active_bytes+8589934592_live_bytes",
 		"tracebundle_trace_coverage family=trace_cross_validation table=tracequery_build_index",
 		"elapsed_us=5678",
 		"tracebundle_trace_tool_gate name=no_perf_sys_binary_parity",
@@ -2280,6 +2288,67 @@ func TestTraceBundleCoverageCaveatsReserveLifecycleAuthorityWithoutDisplacingPre
 	}
 	if !strings.Contains(caveats[len(caveats)-1], "emitted=24 priority_emitted=1") {
 		t.Fatalf("priority compaction accounting missing: %+v", caveats)
+	}
+}
+
+func TestTraceBundleCoverageCaveatsReserveExactSorterAndLifecycleSeats(t *testing.T) {
+	rows := make([]traceBundleCoverage, 0, traceBundleCoverageCaveatLimit+7)
+	for i := 0; i < traceBundleCoverageCaveatLimit; i++ {
+		rows = append(rows, traceBundleCoverage{Family: "regular", Table: "table_" + strconv.Itoa(i), Found: true})
+	}
+	rows = append(rows,
+		traceBundleCoverage{Family: "sorter_v2", Table: "__systrace_rows__", Role: "systrace_text_output", Found: true},
+		traceBundleCoverage{Family: "sorter", Table: "__systrace_rows___", Role: "systrace_text_output", Found: true},
+		traceBundleCoverage{Family: "builtin_modern_profiler_extra", Table: "__systrace_rows__", Role: "systrace_text_output", Found: true},
+		traceBundleCoverage{Family: "builtin_modern_profiler", Table: "__systrace_rows__", Role: "systrace_text_output_v2", Found: true},
+		traceBundleCoverage{
+			Family: "builtin_modern_profiler", Table: "__systrace_rows__", Role: "systrace_text_output", Found: true,
+			PeakBufferedBytes: 1024, CurrentLiveTempBytes: 0, PeakLiveTempBytes: 4096, PeakOpenRunFDs: 3, MergePasses: 2,
+		},
+		traceBundleCoverage{Family: "resolver.lifecycle", Table: "__authority__", Role: "resolver_index", Found: true},
+	)
+
+	caveats := traceBundleCoverageCaveats("tracebundle_trace_db_coverage", rows)
+	if len(caveats) != traceBundleCoverageCaveatLimit+traceBundleCoveragePriorityCaveatLimit+1 {
+		t.Fatalf("priority coverage bound mismatch: got=%d caveats=%+v", len(caveats), caveats)
+	}
+	joined := strings.Join(caveats, "\n")
+	for _, absent := range []string{"family=sorter_v2", "table=__systrace_rows___", "family=builtin_modern_profiler_extra", "role=systrace_text_output_v2"} {
+		if strings.Contains(joined, absent) {
+			t.Fatalf("fuzzy sorter identity gained a priority seat via %q:\n%s", absent, joined)
+		}
+	}
+	for _, want := range []string{
+		"family=builtin_modern_profiler table=__systrace_rows__ role=systrace_text_output",
+		"current_live_temp_bytes=0",
+		"family=resolver.lifecycle table=__authority__",
+		"priority_emitted=2",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("priority coverage missing %q:\n%s", want, joined)
+		}
+	}
+}
+
+func TestTraceBundleCoveragePriorityUsesClosedSorterIdentity(t *testing.T) {
+	tests := []struct {
+		name     string
+		coverage traceBundleCoverage
+		want     bool
+	}{
+		{name: "sql sorter", coverage: traceBundleCoverage{Family: "sorter", Table: "__systrace_rows__", Role: "systrace_text_output"}, want: true},
+		{name: "profiler sorter", coverage: traceBundleCoverage{Family: "builtin_modern_profiler", Table: "__systrace_rows__", Role: "systrace_text_output"}, want: true},
+		{name: "similar family", coverage: traceBundleCoverage{Family: "sorter_v2", Table: "__systrace_rows__", Role: "systrace_text_output"}},
+		{name: "similar profiler family", coverage: traceBundleCoverage{Family: "builtin_modern_profiler_extra", Table: "__systrace_rows__", Role: "systrace_text_output"}},
+		{name: "similar table", coverage: traceBundleCoverage{Family: "sorter", Table: "__systrace_rows___", Role: "systrace_text_output"}},
+		{name: "similar role", coverage: traceBundleCoverage{Family: "sorter", Table: "__systrace_rows__", Role: "systrace_text_output_v2"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := traceBundleCoveragePriority(test.coverage); got != test.want {
+				t.Fatalf("priority=%t want=%t coverage=%+v", got, test.want, test.coverage)
+			}
+		})
 	}
 }
 

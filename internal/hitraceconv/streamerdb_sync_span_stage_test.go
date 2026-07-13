@@ -68,7 +68,7 @@ func renderTraceDBSyncSpanStageCase(t *testing.T, options traceDBSyncSpanStageOp
 		t.Fatalf("second staged authority cleanup was not idempotent: %v", err)
 	}
 	var output bytes.Buffer
-	if _, err := sink.writeTo(context.Background(), &output); err != nil {
+	if _, err := sink.prepareAndWriteForTest(context.Background(), &output); err != nil {
 		t.Fatalf("write staged sync-span rows: %v", err)
 	}
 	return traceDBSyncSpanStageCaseResult{

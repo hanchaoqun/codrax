@@ -54,9 +54,9 @@ func TestProfilerPairObservationBudgetFailsBothFamiliesBeforeSpillPublication(t 
 		t.Fatalf("scalar/table/census accounting drifted after map release: totals=%v tables=%v mmc=%+v f2fs=%+v",
 			sink.pairRows, sink.pairTableTotals, mmcCensus, f2fsCensus)
 	}
-	if sink.stats.RowsAccepted != 4 || sink.publishableRows() != 1 || len(sink.chunks) == 0 {
+	if sink.stats.RowsAccepted != 4 || sink.publishableRows() != 1 || len(sink.runs) == 0 {
 		t.Fatalf("budget barrier damaged spill/non-pair accounting: stats=%+v publishable=%d chunks=%d",
-			sink.stats, sink.publishableRows(), len(sink.chunks))
+			sink.stats, sink.publishableRows(), len(sink.runs))
 	}
 	coverage := profilerF2FSPairBarrierCoverage(2, sink)
 	if coverage.FieldSources["budget_fail_closed"] != "true" || coverage.FieldSources["budget_failure"] != "observations" ||
@@ -93,7 +93,7 @@ func TestProfilerPairObservationBudgetFailsBothFamiliesBeforeSpillPublication(t 
 		t.Fatalf("publisher RowsRead/RowsEmitted reconciliation did not account once: %+v", ledger[0])
 	}
 	var out bytes.Buffer
-	stats, err := sink.writeTo(context.Background(), &out)
+	stats, err := sink.prepareAndWriteForTest(context.Background(), &out)
 	if err != nil {
 		t.Fatal(err)
 	}

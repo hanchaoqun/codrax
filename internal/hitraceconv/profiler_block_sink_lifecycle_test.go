@@ -26,7 +26,11 @@ func TestProfilerCaptureSourceNamespaceResolvesPhysicalSymlink(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(sink.cleanup)
+		t.Cleanup(func() {
+			if err := sink.cleanup(); err != nil {
+				t.Errorf("cleanup row sink: %v", err)
+			}
+		})
 		if err := sink.openProfilerCapture(path); err != nil {
 			t.Fatal(err)
 		}
@@ -75,7 +79,7 @@ func TestProfilerCaptureLifecycleRequiresSealAndRejectsPostSealMutation(t *testi
 			t.Fatal(err)
 		}
 		var output bytes.Buffer
-		stats, err := sink.writeTo(context.Background(), &output)
+		stats, err := sink.prepareAndWriteForTest(context.Background(), &output)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -225,7 +229,7 @@ func TestProfilerBlockPhysicalLaneClockAuditedBeforeSort(t *testing.T) {
 			t.Fatalf("physical rollback quarantine scope drifted: poisoned=%v lanes=%v", sink.poisoned, sink.poisonedLanes)
 		}
 		var output bytes.Buffer
-		stats, err := sink.writeTo(context.Background(), &output)
+		stats, err := sink.prepareAndWriteForTest(context.Background(), &output)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -1283,6 +1283,75 @@ func TestHtraceConvertCoverageMsgsFollowLanguage(t *testing.T) {
 	}
 }
 
+func TestHtraceConvertCoverageMsgsPrioritizesExactSorterResourceProof(t *testing.T) {
+	coverage := make([]hitraceconv.TraceDBCoverage, 0, 9)
+	for i := 0; i < 5; i++ {
+		coverage = append(coverage, hitraceconv.TraceDBCoverage{
+			Family: "regular", Table: fmt.Sprintf("table_%d", i), Role: "query_ready_export", RowsRead: 1, RowsEmitted: 1,
+		})
+	}
+	coverage = append(coverage,
+		hitraceconv.TraceDBCoverage{Family: "sorter_v2", Table: "__systrace_rows__", Role: "systrace_text_output"},
+		hitraceconv.TraceDBCoverage{Family: "sorter", Table: "__systrace_rows___", Role: "systrace_text_output"},
+		hitraceconv.TraceDBCoverage{Family: "builtin_modern_profiler", Table: "__systrace_rows__", Role: "systrace_text_output_v2"},
+		hitraceconv.TraceDBCoverage{
+			Family: "builtin_modern_profiler", Table: "__systrace_rows__", Role: "systrace_text_output",
+			RowsRead: 11, RowsEmitted: 10,
+			FieldSources: map[string]string{
+				"row_buffer_limits": "67108864_bytes+200000_rows",
+				"merge_limits":      "32_input_runs+33_total_run_fds",
+				"temp_limits":       "4294967296_active_bytes+8589934592_live_bytes",
+			},
+			PeakBuffered: 7, PeakBufferedBytes: 4096, SpillChunks: 2, TempBytes: 8192,
+			CurrentLiveTempBytes: 0, PeakLiveTempBytes: 6144, PeakOpenRunFDs: 3, MergePasses: 2,
+		},
+	)
+
+	zh := strings.Join(htraceConvertCoverageMsgs("zh", "trace_coverage", coverage), "\n")
+	for _, want := range []string{
+		"trace_coverage[8]：",
+		"族=builtin_modern_profiler",
+		"行缓冲上限=67108864_bytes+200000_rows",
+		"归并上限=32_input_runs+33_total_run_fds",
+		"临时存储上限=4294967296_active_bytes+8589934592_live_bytes",
+		"缓冲峰值行=7",
+		"缓冲峰值字节=4096",
+		"累计临时写入字节=8192",
+		"当前存活临时字节=0",
+		"存活临时字节峰值=6144",
+		"打开run文件峰值=3",
+		"归并轮次=2",
+	} {
+		if !strings.Contains(zh, want) {
+			t.Fatalf("zh sorter coverage missing %q:\n%s", want, zh)
+		}
+	}
+	for _, absent := range []string{"族=sorter_v2", "表=__systrace_rows___", "用途=systrace_text_output_v2"} {
+		if strings.Contains(zh, absent) {
+			t.Fatalf("fuzzy sorter identity gained a detail seat via %q:\n%s", absent, zh)
+		}
+	}
+
+	en := strings.Join(htraceConvertCoverageMsgs("en", "trace_coverage", coverage), "\n")
+	for _, want := range []string{
+		"trace_coverage[8]:",
+		"row_buffer_limits=67108864_bytes+200000_rows",
+		"peak_buffered_bytes=4096",
+		"cumulative_temp_bytes=8192",
+		"current_live_temp_bytes=0",
+		"peak_live_temp_bytes=6144",
+		"peak_open_run_fds=3",
+		"merge_passes=2",
+	} {
+		if !strings.Contains(en, want) {
+			t.Fatalf("en sorter coverage missing %q:\n%s", want, en)
+		}
+	}
+	if strings.Contains(en, " temp_bytes=") {
+		t.Fatalf("cumulative TempBytes was mislabeled as a live-footprint gauge:\n%s", en)
+	}
+}
+
 func TestHtraceConvertProgressMsgUsesTerminalMessages(t *testing.T) {
 	event := hitraceconv.ProgressEvent{
 		Stage:   "trace_streamer_export",

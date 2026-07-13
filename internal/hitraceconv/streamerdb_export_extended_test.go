@@ -139,7 +139,7 @@ func TestExportTraceDBExtendedFamiliesComprehensiveFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stats, writeErr := sink.writeTo(context.Background(), out)
+	stats, writeErr := sink.prepareAndWriteForTest(context.Background(), out)
 	closeErr := out.Close()
 	if writeErr != nil {
 		t.Fatalf("write extended systrace: %v", writeErr)

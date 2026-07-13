@@ -471,7 +471,11 @@ func (authority *traceDBSyncSpanAuthority) finalize(ctx context.Context, sink *t
 			"lane_identity":   "exact output artifact source + physical row-header TID; payload TGID, canonical ITID, producer and name never split the B/E stack",
 			"candidate_order": "interval geometry, closed producer/stable kind, canonical/owner identity, exact depth tuple, then stable row identity; name never orders",
 			"publication":     "bounded pass 1 freezes and audits every governed lane plus a checksummed bad-lane journal; pass 2 alone may publish clean synthetic B/E endpoints",
-			"buffering":       "hybrid candidate-byte-bounded memory to private indexed SQLite stage with record/temp/active/audit caps; final generic row sorter ROW-SORT-BND remains separately open",
+			"buffering": fmt.Sprintf(
+				"hybrid candidate-byte-bounded memory to private indexed SQLite stage with record/temp/active/audit caps; final generic row sorter bounded at %d retained bytes/%d rows, %d input runs/%d run FDs, %d active/%d live temp bytes",
+				defaultTraceDBRowBufferBytes, defaultTraceDBRowSinkThreshold,
+				defaultTraceDBRowMergeFanIn, defaultTraceDBRowMergeFanIn+1,
+				defaultTraceDBActiveTempBytes, defaultTraceDBLiveTempBytes),
 		},
 	}
 	defer func() {

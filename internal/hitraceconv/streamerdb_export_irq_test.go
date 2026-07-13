@@ -322,7 +322,7 @@ func TestTraceDBIRQRawEndpointNamesRemainUnsupportedNoDuplicate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, writeErr := sink.writeTo(context.Background(), out)
+	_, writeErr := sink.prepareAndWriteForTest(context.Background(), out)
 	closeErr := out.Close()
 	if writeErr != nil {
 		t.Fatal(writeErr)
@@ -394,7 +394,7 @@ func exportTraceDBIRQFixture(t *testing.T, statements []string) (string, TraceDB
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, writeErr := sink.writeTo(context.Background(), out)
+	_, writeErr := sink.prepareAndWriteForTest(context.Background(), out)
 	closeErr := out.Close()
 	if writeErr != nil {
 		t.Fatal(writeErr)

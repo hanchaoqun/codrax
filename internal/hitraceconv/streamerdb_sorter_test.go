@@ -27,11 +27,11 @@ func TestTraceDBRowSinkWritesInMemoryRowsSorted(t *testing.T) {
 		}
 	}
 	var out bytes.Buffer
-	stats, err := sink.writeTo(context.Background(), &out)
+	stats, err := sink.prepareAndWriteForTest(context.Background(), &out)
 	if err != nil {
 		t.Fatalf("write rows: %v", err)
 	}
-	if stats.SpillChunks != 0 || stats.RowsWritten != 3 || stats.PeakBufferedRows != 3 {
+	if stats.SpillChunks != 1 || stats.RowsWritten != 3 || stats.PeakBufferedRows != 3 {
 		t.Fatalf("unexpected in-memory stats: %+v", stats)
 	}
 	if stats.ElapsedUS <= 0 {
@@ -64,12 +64,15 @@ func TestTraceDBRowSinkSpillsMergesAndCleansChunks(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if len(sink.chunks) == 0 {
-		t.Fatal("expected forced spill chunks before write")
+	if len(sink.runs) == 0 {
+		t.Fatal("expected forced spill runs before write")
 	}
-	chunks := append([]string(nil), sink.chunks...)
+	runPaths := make([]string, len(sink.runs))
+	for index, run := range sink.runs {
+		runPaths[index] = run.path
+	}
 	var out bytes.Buffer
-	stats, err := sink.writeTo(context.Background(), &out)
+	stats, err := sink.prepareAndWriteForTest(context.Background(), &out)
 	if err != nil {
 		t.Fatalf("write spilled rows: %v", err)
 	}
@@ -88,7 +91,7 @@ func TestTraceDBRowSinkSpillsMergesAndCleansChunks(t *testing.T) {
 		}
 		last = pos
 	}
-	for _, path := range chunks {
+	for _, path := range runPaths {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatalf("chunk %s should be cleaned, stat err=%v", path, err)
 		}
@@ -109,12 +112,15 @@ func TestTraceDBRowSinkCleansChunksOnWriteError(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	chunks := append([]string(nil), sink.chunks...)
-	_, err = sink.writeTo(context.Background(), failingWriter{})
+	runPaths := make([]string, len(sink.runs))
+	for index, run := range sink.runs {
+		runPaths[index] = run.path
+	}
+	_, err = sink.prepareAndWriteForTest(context.Background(), failingWriter{})
 	if err == nil {
 		t.Fatal("expected write failure")
 	}
-	for _, path := range chunks {
+	for _, path := range runPaths {
 		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
 			t.Fatalf("chunk %s should be cleaned after failure, stat err=%v", path, statErr)
 		}
@@ -142,7 +148,7 @@ func TestTraceDBRowSinkOutputRoundTripsThroughTraceQuery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stats, writeErr := sink.writeTo(context.Background(), out)
+	stats, writeErr := sink.prepareAndWriteForTest(context.Background(), out)
 	closeErr := out.Close()
 	if writeErr != nil {
 		t.Fatalf("write trace: %v", writeErr)

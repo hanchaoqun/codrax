@@ -31,7 +31,7 @@ func profilerBlockMalformedEventMessage(field, wire int, trailing []byte) []byte
 func writeProfilerBlockSinkForStats(t *testing.T, sink *traceDBRowSink) (string, traceDBRowSortStats) {
 	t.Helper()
 	var out bytes.Buffer
-	stats, err := sink.writeTo(context.Background(), &out)
+	stats, err := sink.prepareAndWriteForTest(context.Background(), &out)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,10 +64,10 @@ func TestStructuredBlockExactLaneBarrierKeepsUnrelatedLaneAcrossSpill(t *testing
 		}
 	}
 	if sink.poisoned[pairRenderBlock] || len(sink.poisonedLanes[pairRenderBlock]) != 1 ||
-		sink.withheldPairRowsForKind(pairRenderBlock) != 2 || sink.publishableRows() != 2 || len(sink.chunks) == 0 {
+		sink.withheldPairRowsForKind(pairRenderBlock) != 2 || sink.publishableRows() != 2 || len(sink.runs) == 0 {
 		t.Fatalf("Block exact-lane barrier drifted: accepted=%d withheld=%d publishable=%d family=%v lanes=%v chunks=%d",
 			sink.stats.RowsAccepted, sink.withheldPairRowsForKind(pairRenderBlock), sink.publishableRows(),
-			sink.poisoned, sink.poisonedLanes, len(sink.chunks))
+			sink.poisoned, sink.poisonedLanes, len(sink.runs))
 	}
 	text, stats := writeProfilerBlockSinkForStats(t, sink)
 	if stats.RowsAccepted != 4 || stats.RowsWritten != 2 || stats.RowsWithheld != 2 ||

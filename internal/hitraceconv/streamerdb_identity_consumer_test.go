@@ -133,7 +133,7 @@ func TestTraceDBIdentityPoisonNeverGlobalizesThreadOrProcessScopedRows(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, writeErr := sink.writeTo(context.Background(), out)
+	_, writeErr := sink.prepareAndWriteForTest(context.Background(), out)
 	closeErr := out.Close()
 	if writeErr != nil {
 		t.Fatal(writeErr)

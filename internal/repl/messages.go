@@ -3674,12 +3674,9 @@ func htraceConvertCoverageMsgs(lang, label string, coverage []hitraceconv.TraceD
 	} else {
 		lines = append(lines, formatN(lang, "%s: %d item(s), emitted=%d, skipped=%d", label, len(coverage), emitted, skipped))
 	}
-	limit := len(coverage)
-	if limit > 5 {
-		limit = 5
-	}
-	for i := 0; i < limit; i++ {
+	for _, i := range htraceConvertCoverageDetailIndexes(coverage) {
 		item := coverage[i]
+		rowSorter := htraceConvertRowSorterCoverage(item)
 		details := []string{
 			htraceConvertCoverageKV(lang, "family", item.Family),
 			htraceConvertCoverageKV(lang, "table", item.Table),
@@ -3691,6 +3688,37 @@ func htraceConvertCoverageMsgs(lang, label string, coverage []hitraceconv.TraceD
 			htraceConvertCoverageKV(lang, "rows_read", fmt.Sprintf("%d", item.RowsRead)),
 			htraceConvertCoverageKV(lang, "rows_emitted", fmt.Sprintf("%d", item.RowsEmitted)),
 		)
+		for _, limitKey := range []string{"row_buffer_limits", "merge_limits", "temp_limits"} {
+			if value := strings.TrimSpace(item.FieldSources[limitKey]); value != "" {
+				details = append(details, htraceConvertCoverageKV(lang, limitKey, value))
+			}
+		}
+		if item.PeakBuffered > 0 || rowSorter {
+			details = append(details, htraceConvertCoverageKV(lang, "peak_buffered_rows", fmt.Sprintf("%d", item.PeakBuffered)))
+		}
+		if item.PeakBufferedBytes > 0 || rowSorter {
+			details = append(details, htraceConvertCoverageKV(lang, "peak_buffered_bytes", fmt.Sprintf("%d", item.PeakBufferedBytes)))
+		}
+		if item.SpillChunks > 0 || rowSorter {
+			details = append(details, htraceConvertCoverageKV(lang, "spill_chunks", fmt.Sprintf("%d", item.SpillChunks)))
+		}
+		if item.TempBytes > 0 || rowSorter {
+			// TempBytes is cumulative write volume. Keep it lexically distinct
+			// from the current/peak live-footprint gauges below.
+			details = append(details, htraceConvertCoverageKV(lang, "cumulative_temp_bytes", fmt.Sprintf("%d", item.TempBytes)))
+		}
+		if item.CurrentLiveTempBytes > 0 || rowSorter {
+			details = append(details, htraceConvertCoverageKV(lang, "current_live_temp_bytes", fmt.Sprintf("%d", item.CurrentLiveTempBytes)))
+		}
+		if item.PeakLiveTempBytes > 0 || rowSorter {
+			details = append(details, htraceConvertCoverageKV(lang, "peak_live_temp_bytes", fmt.Sprintf("%d", item.PeakLiveTempBytes)))
+		}
+		if item.PeakOpenRunFDs > 0 || rowSorter {
+			details = append(details, htraceConvertCoverageKV(lang, "peak_open_run_fds", fmt.Sprintf("%d", item.PeakOpenRunFDs)))
+		}
+		if item.MergePasses > 0 || rowSorter {
+			details = append(details, htraceConvertCoverageKV(lang, "merge_passes", fmt.Sprintf("%d", item.MergePasses)))
+		}
 		if item.ElapsedUS > 0 {
 			details = append(details, htraceConvertCoverageKV(lang, "elapsed_us", fmt.Sprintf("%d", item.ElapsedUS)))
 		}
@@ -3707,6 +3735,29 @@ func htraceConvertCoverageMsgs(lang, label string, coverage []hitraceconv.TraceD
 		}
 	}
 	return lines
+}
+
+func htraceConvertCoverageDetailIndexes(coverage []hitraceconv.TraceDBCoverage) []int {
+	limit := len(coverage)
+	if limit > 5 {
+		limit = 5
+	}
+	indexes := make([]int, 0, limit+1)
+	for i := 0; i < limit; i++ {
+		indexes = append(indexes, i)
+	}
+	for i := limit; i < len(coverage); i++ {
+		if htraceConvertRowSorterCoverage(coverage[i]) {
+			indexes = append(indexes, i)
+			break
+		}
+	}
+	return indexes
+}
+
+func htraceConvertRowSorterCoverage(coverage hitraceconv.TraceDBCoverage) bool {
+	return coverage.Table == "__systrace_rows__" && coverage.Role == "systrace_text_output" &&
+		(coverage.Family == "sorter" || coverage.Family == "builtin_modern_profiler")
 }
 
 func htraceConvertCoverageRoleLabel(lang, role string) string {
@@ -3756,6 +3807,28 @@ func htraceConvertCoverageKV(lang, key, value string) string {
 			key = "输出行"
 		case "elapsed_us":
 			key = "耗时us"
+		case "row_buffer_limits":
+			key = "行缓冲上限"
+		case "merge_limits":
+			key = "归并上限"
+		case "temp_limits":
+			key = "临时存储上限"
+		case "peak_buffered_rows":
+			key = "缓冲峰值行"
+		case "peak_buffered_bytes":
+			key = "缓冲峰值字节"
+		case "spill_chunks":
+			key = "落盘段数"
+		case "cumulative_temp_bytes":
+			key = "累计临时写入字节"
+		case "current_live_temp_bytes":
+			key = "当前存活临时字节"
+		case "peak_live_temp_bytes":
+			key = "存活临时字节峰值"
+		case "peak_open_run_fds":
+			key = "打开run文件峰值"
+		case "merge_passes":
+			key = "归并轮次"
 		case "skipped":
 			key = "跳过原因"
 		case "error":

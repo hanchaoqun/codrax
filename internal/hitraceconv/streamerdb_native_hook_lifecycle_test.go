@@ -552,7 +552,7 @@ func exportTraceDBNativeHookB2Fixture(t *testing.T, statements []string, lifecyc
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, writeErr := sink.writeTo(ctx, out)
+	_, writeErr := sink.prepareAndWriteForTest(ctx, out)
 	closeErr := out.Close()
 	if writeErr != nil {
 		t.Fatalf("write native B2 fixture: %v", writeErr)
