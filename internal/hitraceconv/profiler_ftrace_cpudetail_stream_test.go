@@ -102,8 +102,8 @@ func TestProfilerFtraceCPUDetailSummaryDropsBadCPUDetailButKeepsTopSiblings(t *t
 		t.Fatalf("summary recognized=%t err=%v", recognized, err)
 	}
 	if summary.DetailMessages != 2 || summary.DetailEventCount != 2 ||
-		len(summary.DetailCPUs) != 2 || !summary.DetailCPUs[0] || !summary.DetailCPUs[3] || summary.DetailCPUs[2] ||
-		summary.EventFieldCounts[1109] != 2 {
+		summary.DetailCPUs.count() != 2 || !summary.DetailCPUs.contains(0) || !summary.DetailCPUs.contains(3) || summary.DetailCPUs.contains(2) ||
+		profilerSummaryKnownEventCountForTest(t, summary, 1109) != 2 {
 		t.Fatalf("bad CPU detail polluted summary or starved siblings: %+v", summary)
 	}
 }

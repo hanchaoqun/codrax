@@ -207,33 +207,38 @@ func profilerContainerCounterFailClose(out *profilerContainerExtraction, sink *t
 }
 
 type profilerFtraceSummary struct {
-	Version           string
-	StatsMessages     int
-	StartStats        int
-	EndStats          int
-	TraceClocks       map[string]int
-	StatsCPUs         map[uint64]bool
-	StartTotals       profilerFtraceCPUTotals
-	EndTotals         profilerFtraceCPUTotals
-	StartTotalsSeen   bool
-	EndTotalsSeen     bool
-	StartTotalsValid  bool
-	EndTotalsValid    bool
-	DetailMessages    int
-	DetailCPUs        map[uint64]bool
-	DetailEventCount  int
-	DetailOverwrite   uint64
-	DetailOverwriteOK bool
-	SymbolCount       int
-	SymbolExamples    []string
-	SymbolTruncated   bool
-	ClockDetailCount  int
-	ClockDetails      []string
-	ClockTruncated    bool
-	EventFieldCounts  map[int]int
-	Issues            profilerFtraceSummaryIssueCensus
-	IssueOverflow     bool
-	recognizedMessage bool
+	VersionObservations      uint64
+	VersionSamples           profilerStableSampleSet
+	StatsMessages            uint64
+	StartStats               uint64
+	EndStats                 uint64
+	TraceClockObserved       uint64
+	TraceClockSamples        profilerStableSampleSet
+	StatsCPUs                profilerSummaryCPUSet
+	StartTotals              profilerFtraceCPUTotals
+	EndTotals                profilerFtraceCPUTotals
+	StartTotalsSeen          bool
+	EndTotalsSeen            bool
+	StartTotalsValid         bool
+	EndTotalsValid           bool
+	DetailMessages           uint64
+	DetailCPUs               profilerSummaryCPUSet
+	DetailEventCount         uint64
+	DetailOverwrite          uint64
+	DetailOverwriteOK        bool
+	SymbolCount              uint64
+	SymbolNamedCount         uint64
+	SymbolSamples            profilerStableSampleSet
+	SymbolTruncated          bool
+	ClockDetailCount         uint64
+	ClockDetailSamples       profilerStableSampleSet
+	ClockTruncated           bool
+	KnownEventCounts         [len(profilerFtraceEventDescriptorList)]uint64
+	UnknownEventCount        uint64
+	UnknownEventFieldSamples profilerStableSampleSet
+	Issues                   profilerFtraceSummaryIssueCensus
+	IssueOverflow            bool
+	recognizedMessage        bool
 }
 
 type profilerFtraceCPUTotals struct {
@@ -263,11 +268,13 @@ type profilerFtracePerCPUStats struct {
 }
 
 type profilerFtraceCPUDetail struct {
-	CPU              uint64
-	EventCount       int
-	EventFieldCounts map[int]int
-	Overwrite        uint64
-	OverwriteValid   bool
+	CPU                      uint64
+	EventCount               uint64
+	KnownEventCounts         [len(profilerFtraceEventDescriptorList)]uint64
+	UnknownEventCount        uint64
+	UnknownEventFieldSamples profilerStableSampleSet
+	Overwrite                uint64
+	OverwriteValid           bool
 }
 
 type profilerFtraceSymbolDetail struct {
@@ -1096,7 +1103,7 @@ frames:
 					return profilerContainerExtraction{}, summaryErr
 				} else {
 					if ok {
-						if summary.IssueOverflow || !diagnostics.FtraceSummary.observe(summary, off) {
+						if summary.IssueOverflow || !diagnostics.FtraceSummary.observe(&summary, off) {
 							_ = sink.endPairRowCensus()
 							profilerContainerCounterFailClose(&out, sink)
 							break frames
@@ -1501,10 +1508,6 @@ func decodeProfilerFtraceSummaryResult(result profilerTracePluginResult) (profil
 
 func decodeProfilerFtraceSummaryResultContext(ctx context.Context, result profilerTracePluginResult) (profilerFtraceSummary, bool, error) {
 	summary := profilerFtraceSummary{
-		TraceClocks:       map[string]int{},
-		StatsCPUs:         map[uint64]bool{},
-		DetailCPUs:        map[uint64]bool{},
-		EventFieldCounts:  map[int]int{},
 		StartTotalsValid:  true,
 		EndTotalsValid:    true,
 		DetailOverwriteOK: true,
@@ -1532,17 +1535,28 @@ func decodeProfilerFtraceSummaryResultContext(ctx context.Context, result profil
 				}
 				return nil
 			}
-			summary.StatsMessages++
+			if !checkedProfilerUint64AddTo(&summary.StatsMessages, 1) {
+				return &traceDBOutputInvariantError{Reason: "profiler_summary_stats_messages_overflow"}
+			}
 			if stats.Clock != "" {
-				summary.TraceClocks[stats.Clock]++
+				if !checkedProfilerUint64AddTo(&summary.TraceClockObserved, 1) {
+					return &traceDBOutputInvariantError{Reason: "profiler_summary_trace_clock_overflow"}
+				}
+				summary.TraceClockSamples.observe("profiler-ftrace-summary-trace-clock", []byte(stats.Clock))
 			}
 			if stats.Status == 1 {
-				summary.EndStats++
+				if !checkedProfilerUint64AddTo(&summary.EndStats, 1) {
+					return &traceDBOutputInvariantError{Reason: "profiler_summary_end_stats_overflow"}
+				}
 			} else {
-				summary.StartStats++
+				if !checkedProfilerUint64AddTo(&summary.StartStats, 1) {
+					return &traceDBOutputInvariantError{Reason: "profiler_summary_start_stats_overflow"}
+				}
 			}
 			return visitProfilerFtracePerCPUStats(ctx, stats, func(cpu profilerFtracePerCPUStats) error {
-				summary.StatsCPUs[cpu.CPU] = true
+				if !summary.StatsCPUs.observe(cpu.CPU) {
+					return &traceDBOutputInvariantError{Reason: "profiler_summary_stats_cpu_out_of_range"}
+				}
 				if stats.Status == 1 {
 					summary.EndTotalsSeen = true
 					if summary.EndTotalsValid && !summary.EndTotals.add(cpu) {
@@ -1575,9 +1589,11 @@ func decodeProfilerFtraceSummaryResultContext(ctx context.Context, result profil
 				}
 				return nil
 			}
-			summary.DetailMessages++
-			summary.DetailCPUs[detail.CPU] = true
-			summary.DetailEventCount += detail.EventCount
+			if !checkedProfilerUint64AddTo(&summary.DetailMessages, 1) ||
+				!checkedProfilerUint64AddTo(&summary.DetailEventCount, detail.EventCount) ||
+				!summary.DetailCPUs.observe(detail.CPU) {
+				return &traceDBOutputInvariantError{Reason: "profiler_summary_detail_counter_invalid"}
+			}
 			if !detail.OverwriteValid {
 				summary.DetailOverwriteOK = false
 				summary.DetailOverwrite = 0
@@ -1592,9 +1608,15 @@ func decodeProfilerFtraceSummaryResultContext(ctx context.Context, result profil
 					}
 				}
 			}
-			for eventField, count := range detail.EventFieldCounts {
-				summary.EventFieldCounts[eventField] += count
+			for index, count := range detail.KnownEventCounts {
+				if !checkedProfilerUint64AddTo(&summary.KnownEventCounts[index], count) {
+					return &traceDBOutputInvariantError{Reason: "profiler_summary_known_event_count_overflow"}
+				}
 			}
+			if !checkedProfilerUint64AddTo(&summary.UnknownEventCount, detail.UnknownEventCount) {
+				return &traceDBOutputInvariantError{Reason: "profiler_summary_unknown_event_count_overflow"}
+			}
+			mergeProfilerStableSampleSet(&summary.UnknownEventFieldSamples, detail.UnknownEventFieldSamples)
 		case 5:
 			symbol, err := decodeProfilerFtraceSymbolDetail(raw)
 			if err != nil {
@@ -1603,15 +1625,19 @@ func decodeProfilerFtraceSummaryResultContext(ctx context.Context, result profil
 				}
 				return nil
 			}
-			summary.SymbolCount++
+			if !checkedProfilerUint64AddTo(&summary.SymbolCount, 1) {
+				return &traceDBOutputInvariantError{Reason: "profiler_summary_symbol_count_overflow"}
+			}
 			if symbol.Name != "" {
-				if len(summary.SymbolExamples) < 5 {
-					if symbol.Addr != 0 {
-						summary.SymbolExamples = append(summary.SymbolExamples, fmt.Sprintf("0x%x=%s", symbol.Addr, symbol.Name))
-					} else {
-						summary.SymbolExamples = append(summary.SymbolExamples, symbol.Name)
-					}
-				} else {
+				if !checkedProfilerUint64AddTo(&summary.SymbolNamedCount, 1) {
+					return &traceDBOutputInvariantError{Reason: "profiler_summary_named_symbol_count_overflow"}
+				}
+				label := symbol.Name
+				if symbol.Addr != 0 {
+					label = fmt.Sprintf("0x%x=%s", symbol.Addr, symbol.Name)
+				}
+				summary.SymbolSamples.observe("profiler-ftrace-summary-symbol", []byte(label))
+				if summary.SymbolNamedCount > profilerDiagnosticSampleLimit {
 					summary.SymbolTruncated = true
 				}
 			}
@@ -1624,10 +1650,11 @@ func decodeProfilerFtraceSummaryResultContext(ctx context.Context, result profil
 				return nil
 			}
 			if label := profilerFtraceClockDetailLabel(clock); label != "" {
-				summary.ClockDetailCount++
-				if len(summary.ClockDetails) < 8 {
-					summary.ClockDetails = append(summary.ClockDetails, label)
-				} else {
+				if !checkedProfilerUint64AddTo(&summary.ClockDetailCount, 1) {
+					return &traceDBOutputInvariantError{Reason: "profiler_summary_clock_detail_count_overflow"}
+				}
+				summary.ClockDetailSamples.observe("profiler-ftrace-summary-clock-detail", []byte(label))
+				if summary.ClockDetailCount > profilerDiagnosticSampleLimit {
 					summary.ClockTruncated = true
 				}
 			}
@@ -1636,7 +1663,10 @@ func decodeProfilerFtraceSummaryResultContext(ctx context.Context, result profil
 				return nil
 			}
 			if traceDBSinglePhysicalLine(string(raw), true) {
-				summary.Version = string(raw)
+				if len(raw) > 0 {
+					summary.VersionObservations = 1
+					summary.VersionSamples.observe("profiler-ftrace-summary-version", raw)
+				}
 			} else if !summary.Issues.observe(profilerFtraceSummaryIssueVersionInvalid, 1) {
 				summary.IssueOverflow = true
 			}
@@ -1818,7 +1848,7 @@ func decodeProfilerFtraceCPUDetail(data []byte) (profilerFtraceCPUDetail, error)
 }
 
 func decodeProfilerFtraceCPUDetailContext(ctx context.Context, data []byte) (profilerFtraceCPUDetail, error) {
-	detail := profilerFtraceCPUDetail{EventFieldCounts: map[int]int{}, OverwriteValid: true}
+	detail := profilerFtraceCPUDetail{OverwriteValid: true}
 	authority, err := auditProfilerFtraceCPUDetail(ctx, data)
 	if err != nil {
 		return detail, err
@@ -1852,14 +1882,22 @@ func decodeProfilerFtraceCPUDetailContext(ctx context.Context, data []byte) (pro
 		if len(issues) > 0 {
 			return nil
 		}
-		if detail.EventCount == math.MaxInt {
+		if detail.EventCount == math.MaxUint64 {
 			return &traceDBOutputInvariantError{Reason: "profiler_cpu_detail_summary_event_count_overflow"}
 		}
 		detail.EventCount++
-		if detail.EventFieldCounts[record.Field] == math.MaxInt {
-			return &traceDBOutputInvariantError{Reason: "profiler_cpu_detail_summary_field_count_overflow"}
+		if slot, ok := profilerFtraceEventDescriptorSlot(record.Field); ok {
+			if detail.KnownEventCounts[slot] == math.MaxUint64 {
+				return &traceDBOutputInvariantError{Reason: "profiler_cpu_detail_summary_field_count_overflow"}
+			}
+			detail.KnownEventCounts[slot]++
+			return nil
 		}
-		detail.EventFieldCounts[record.Field]++
+		if detail.UnknownEventCount == math.MaxUint64 {
+			return &traceDBOutputInvariantError{Reason: "profiler_cpu_detail_summary_unknown_count_overflow"}
+		}
+		detail.UnknownEventCount++
+		detail.UnknownEventFieldSamples.observe("profiler-ftrace-summary-unknown-event-field", []byte(strconv.Itoa(record.Field)))
 		return nil
 	})
 	return detail, err
@@ -2046,70 +2084,15 @@ func checkedProfilerUint64Add(left, right uint64) (uint64, bool) {
 }
 
 func profilerFtraceSummaryCaveat(summary profilerFtraceSummary) string {
-	var parts []string
-	if summary.Version != "" {
-		parts = append(parts, "version="+summary.Version)
+	var ledger profilerFtraceSummaryDiagnosticLedger
+	if !ledger.observe(&summary, 0) {
+		return "ftrace-plugin structured metadata: unavailable"
 	}
-	parts = append(parts, fmt.Sprintf("stats_messages=%d", summary.StatsMessages))
-	if summary.StartStats != 0 || summary.EndStats != 0 {
-		parts = append(parts, fmt.Sprintf("stats_start=%d", summary.StartStats))
-		parts = append(parts, fmt.Sprintf("stats_end=%d", summary.EndStats))
+	caveat, ok := ledger.caveat()
+	if !ok {
+		return "ftrace-plugin structured metadata: unavailable"
 	}
-	if len(summary.TraceClocks) > 0 {
-		parts = append(parts, "trace_clock="+joinStringCounts(summary.TraceClocks))
-	}
-	if len(summary.StatsCPUs) > 0 {
-		totals := summary.StartTotals
-		totalsValid := summary.StartTotalsValid
-		label := "observed"
-		if summary.EndTotalsSeen {
-			totals = summary.EndTotals
-			totalsValid = summary.EndTotalsValid
-			label = "end"
-		} else if !summary.StartTotalsSeen {
-			totalsValid = false
-		}
-		parts = append(parts, fmt.Sprintf("stats_cpus=%d", len(summary.StatsCPUs)))
-		if totalsValid {
-			parts = append(parts, fmt.Sprintf("%s_entries=%d", label, totals.Entries))
-			parts = append(parts, fmt.Sprintf("%s_dropped=%d", label, totals.DroppedEvents))
-			parts = append(parts, fmt.Sprintf("%s_overrun=%d", label, totals.Overrun))
-			parts = append(parts, fmt.Sprintf("%s_commit_overrun=%d", label, totals.CommitOverrun))
-			parts = append(parts, fmt.Sprintf("%s_read=%d", label, totals.ReadEvents))
-			parts = append(parts, fmt.Sprintf("%s_bytes=%d", label, totals.Bytes))
-		}
-	}
-	if summary.DetailMessages > 0 {
-		parts = append(parts, fmt.Sprintf("detail_messages=%d", summary.DetailMessages))
-		parts = append(parts, fmt.Sprintf("detail_cpus=%d", len(summary.DetailCPUs)))
-		parts = append(parts, fmt.Sprintf("structured_event_records=%d", summary.DetailEventCount))
-		if summary.DetailOverwriteOK {
-			parts = append(parts, fmt.Sprintf("detail_overwrite=%d", summary.DetailOverwrite))
-		}
-	}
-	if len(summary.EventFieldCounts) > 0 {
-		parts = append(parts, "event_families="+joinStringCounts(profilerFtraceEventFamilyCounts(summary.EventFieldCounts)))
-		parts = append(parts, "event_names="+joinStringCounts(profilerFtraceEventNameCounts(summary.EventFieldCounts)))
-	}
-	if summary.SymbolCount > 0 {
-		parts = append(parts, fmt.Sprintf("symbols=%d", summary.SymbolCount))
-		if len(summary.SymbolExamples) > 0 {
-			parts = append(parts, "symbol_examples="+strings.Join(summary.SymbolExamples, ","))
-		}
-		if summary.SymbolTruncated {
-			parts = append(parts, "symbol_examples_truncated=true")
-		}
-	}
-	if len(summary.ClockDetails) > 0 {
-		parts = append(parts, "clock_details="+strings.Join(summary.ClockDetails, ","))
-	}
-	if summary.ClockTruncated {
-		parts = append(parts, "clock_details_truncated=true")
-	}
-	if issueSummary := summary.Issues.summary(); issueSummary != "" {
-		parts = append(parts, "degraded="+issueSummary)
-	}
-	return "ftrace-plugin structured metadata: " + strings.Join(parts, "; ")
+	return caveat
 }
 
 func profilerFtraceSummaryCoverage(summary profilerFtraceSummary) []TraceDBCoverage {
@@ -2137,49 +2120,6 @@ func profilerFtraceSummaryCoverage(summary profilerFtraceSummary) []TraceDBCover
 		Skipped:      summary.Issues.summary(),
 		FieldSources: fields,
 	}}
-}
-
-func profilerFtraceEventFamilyCounts(counts map[int]int) map[string]int {
-	out := map[string]int{}
-	for field, count := range counts {
-		desc, ok := profilerFtraceEventDescriptors[field]
-		if !ok {
-			out["unknown"] += count
-			continue
-		}
-		out[desc.Family] += count
-	}
-	return out
-}
-
-func profilerFtraceEventNameCounts(counts map[int]int) map[string]int {
-	out := map[string]int{}
-	for field, count := range counts {
-		desc, ok := profilerFtraceEventDescriptors[field]
-		if !ok {
-			out[fmt.Sprintf("event_field_%d", field)] += count
-			continue
-		}
-		out[desc.Name] += count
-	}
-	return out
-}
-
-func joinStringCounts(values map[string]int) string {
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	parts := make([]string, 0, len(keys))
-	for _, key := range keys {
-		if values[key] == 1 {
-			parts = append(parts, key)
-		} else {
-			parts = append(parts, fmt.Sprintf("%s:%d", key, values[key]))
-		}
-	}
-	return strings.Join(parts, ",")
 }
 
 func profilerFtraceClockDetailLabel(clock profilerFtraceClockDetail) string {

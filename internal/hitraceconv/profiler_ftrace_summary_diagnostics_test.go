@@ -40,7 +40,7 @@ func TestProfilerSummaryIssueStormUsesFixedCensus(t *testing.T) {
 	payload := bytes.Repeat(malformedStats, occurrences)
 	payload = append(payload, protoBytes(7, []byte("trace-plugin-v1"))...)
 	summary, recognized, err := decodeProfilerFtraceSummary(payload)
-	if err != nil || !recognized || summary.IssueOverflow || summary.Version != "trace-plugin-v1" ||
+	if err != nil || !recognized || summary.IssueOverflow || summary.VersionObservations != 1 || summary.VersionSamples.Used != 1 ||
 		summary.Issues.Occurrences[profilerFtraceSummaryIssueCPUStatsMalformed] != occurrences ||
 		summary.Issues.AffectedFrames[profilerFtraceSummaryIssueCPUStatsMalformed] != 1 {
 		t.Fatalf("summary issue storm census or legal sibling drifted: recognized=%t err=%v summary=%+v", recognized, err, summary)
@@ -268,25 +268,38 @@ func TestProfilerSummaryDiagnosticStructurePin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	summaryPinned, frameLoopPinned := false, false
+	containerTypes := map[string]bool{
+		"profilerFtraceSummary":   false,
+		"profilerFtraceCPUDetail": false,
+	}
+	frameLoopPinned := false
 	for _, declaration := range container.Decls {
 		switch typed := declaration.(type) {
 		case *ast.GenDecl:
 			for _, spec := range typed.Specs {
 				typeSpec, ok := spec.(*ast.TypeSpec)
-				if !ok || typeSpec.Name.Name != "profilerFtraceSummary" {
+				if !ok {
 					continue
 				}
-				summaryPinned = true
-				for _, field := range typeSpec.Type.(*ast.StructType).Fields.List {
-					for _, name := range field.Names {
-						if name.Name == "Issues" {
-							if array, ok := field.Type.(*ast.ArrayType); ok && array.Len == nil {
-								t.Fatal("profilerFtraceSummary regained []Issues retention")
-							}
+				if _, tracked := containerTypes[typeSpec.Name.Name]; !tracked {
+					continue
+				}
+				containerTypes[typeSpec.Name.Name] = true
+				ast.Inspect(typeSpec.Type, func(node ast.Node) bool {
+					switch value := node.(type) {
+					case *ast.MapType:
+						t.Fatalf("%s regained retained map", typeSpec.Name.Name)
+					case *ast.ArrayType:
+						if value.Len == nil {
+							t.Fatalf("%s regained retained slice", typeSpec.Name.Name)
+						}
+					case *ast.Ident:
+						if value.Name == "string" {
+							t.Fatalf("%s regained retained dynamic string", typeSpec.Name.Name)
 						}
 					}
-				}
+					return true
+				})
 			}
 		case *ast.FuncDecl:
 			if typed.Name.Name != "extractProfilerTraceFileAtWithFrameLimit" {
@@ -321,8 +334,13 @@ func TestProfilerSummaryDiagnosticStructurePin(t *testing.T) {
 			}
 		}
 	}
-	if !summaryPinned || !frameLoopPinned {
-		t.Fatalf("summary structure pin targets missing: summary=%t frame_loop=%t", summaryPinned, frameLoopPinned)
+	if !frameLoopPinned {
+		t.Fatal("summary frame-loop structure pin target missing")
+	}
+	for target, found := range containerTypes {
+		if !found {
+			t.Fatalf("summary structure pin target missing: %s", target)
+		}
 	}
 
 	diagnostics, err := parser.ParseFile(token.NewFileSet(), "profiler_ftrace_summary_diagnostics.go", nil, 0)

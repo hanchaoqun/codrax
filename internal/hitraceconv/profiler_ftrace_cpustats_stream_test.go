@@ -49,7 +49,7 @@ func TestProfilerFtraceCPUStatsInvalidOccurrenceIsAtomic(t *testing.T) {
 				t.Fatalf("summary recognized=%t err=%v", recognized, err)
 			}
 			if summary.StatsMessages != 2 || summary.StartStats != 2 || summary.EndStats != 0 ||
-				len(summary.StatsCPUs) != 2 || !summary.StatsCPUs[0] || !summary.StatsCPUs[2] || summary.StatsCPUs[1] ||
+				summary.StatsCPUs.count() != 2 || !summary.StatsCPUs.contains(0) || !summary.StatsCPUs.contains(2) || summary.StatsCPUs.contains(1) ||
 				!summary.StartTotalsSeen || !summary.StartTotalsValid || summary.StartTotals.Entries != 4 {
 				t.Fatalf("invalid CPUStats occurrence leaked a validated prefix: %+v", summary)
 			}

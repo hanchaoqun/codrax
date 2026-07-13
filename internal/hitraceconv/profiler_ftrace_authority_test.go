@@ -327,7 +327,7 @@ func TestDecodeProfilerTracePluginResultRetainsRepeatedCPUPages(t *testing.T) {
 	if err != nil || !recognized {
 		t.Fatalf("summarize repeated CPU pages: recognized=%t err=%v", recognized, err)
 	}
-	if summary.DetailMessages != 2 || len(summary.DetailCPUs) != 1 || !summary.DetailCPUs[3] {
+	if summary.DetailMessages != 2 || summary.DetailCPUs.count() != 1 || !summary.DetailCPUs.contains(3) {
 		t.Fatalf("same CPU may legally span multiple detail pages: %+v", summary)
 	}
 }
@@ -494,7 +494,7 @@ func TestProfilerFtraceCPUDetailMixedSiblingSummaryRenderParity(t *testing.T) {
 	if err != nil || !recognized {
 		t.Fatalf("summarize mixed CPU-detail page: recognized=%t err=%v", recognized, err)
 	}
-	if summary.DetailMessages != 1 || summary.DetailEventCount != 1 || summary.EventFieldCounts[1109] != 1 || summary.DetailOverwriteOK {
+	if summary.DetailMessages != 1 || summary.DetailEventCount != 1 || profilerSummaryKnownEventCountForTest(t, summary, 1109) != 1 || summary.DetailOverwriteOK {
 		t.Fatalf("summary must retain only the legal repeated event and suppress ambiguous overwrite: %+v", summary)
 	}
 	sink, err := newTraceDBRowSink("", 128)

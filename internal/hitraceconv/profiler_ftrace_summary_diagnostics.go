@@ -208,6 +208,20 @@ func (set profilerSummaryCPUSet) count() int {
 	return total
 }
 
+func (set profilerSummaryCPUSet) contains(cpu uint64) bool {
+	return cpu <= uint64(maxTraceDBCPUIndex) && set[cpu/64]&(uint64(1)<<(cpu%64)) != 0
+}
+
+func (set *profilerSummaryCPUSet) merge(other profilerSummaryCPUSet) bool {
+	if set == nil {
+		return false
+	}
+	for index := range set {
+		set[index] |= other[index]
+	}
+	return true
+}
+
 type profilerFtraceSummaryDiagnosticLedger struct {
 	Frames              uint64
 	FirstOffset         int64
@@ -245,10 +259,19 @@ type profilerFtraceSummaryDiagnosticLedger struct {
 	ClockTruncatedFrames  uint64
 }
 
-func (ledger *profilerFtraceSummaryDiagnosticLedger) observe(summary profilerFtraceSummary, offset int64) bool {
-	if ledger == nil || !summary.recognizedMessage || summary.IssueOverflow {
+func (ledger *profilerFtraceSummaryDiagnosticLedger) observe(summary *profilerFtraceSummary, offset int64) bool {
+	if ledger == nil || summary == nil || !summary.recognizedMessage || summary.IssueOverflow {
 		return false
 	}
+	next := *ledger
+	if !next.observeInPlace(summary, offset) {
+		return false
+	}
+	*ledger = next
+	return true
+}
+
+func (ledger *profilerFtraceSummaryDiagnosticLedger) observeInPlace(summary *profilerFtraceSummary, offset int64) bool {
 	if ledger.Frames == 0 {
 		ledger.FirstOffset = offset
 	}
@@ -265,31 +288,25 @@ func (ledger *profilerFtraceSummaryDiagnosticLedger) observe(summary profilerFtr
 		}
 		ledger.LastDegradedOffset = offset
 	}
-	if summary.Version != "" {
-		if !checkedProfilerUint64AddTo(&ledger.VersionObservations, 1) {
+	if summary.VersionObservations > 0 {
+		if !checkedProfilerUint64AddTo(&ledger.VersionObservations, summary.VersionObservations) {
 			return false
 		}
-		ledger.VersionSamples.observe("profiler-ftrace-summary-version", []byte(summary.Version))
+		mergeProfilerStableSampleSet(&ledger.VersionSamples, summary.VersionSamples)
 	}
-	if !profilerSummaryAddInt(&ledger.StatsMessages, summary.StatsMessages) ||
-		!profilerSummaryAddInt(&ledger.StartStats, summary.StartStats) ||
-		!profilerSummaryAddInt(&ledger.EndStats, summary.EndStats) ||
-		!profilerSummaryAddInt(&ledger.DetailMessages, summary.DetailMessages) ||
-		!profilerSummaryAddInt(&ledger.DetailEventCount, summary.DetailEventCount) ||
-		!profilerSummaryAddInt(&ledger.SymbolCount, summary.SymbolCount) ||
-		!profilerSummaryAddInt(&ledger.ClockDetailCount, summary.ClockDetailCount) {
+	if !checkedProfilerUint64AddTo(&ledger.StatsMessages, summary.StatsMessages) ||
+		!checkedProfilerUint64AddTo(&ledger.StartStats, summary.StartStats) ||
+		!checkedProfilerUint64AddTo(&ledger.EndStats, summary.EndStats) ||
+		!checkedProfilerUint64AddTo(&ledger.DetailMessages, summary.DetailMessages) ||
+		!checkedProfilerUint64AddTo(&ledger.DetailEventCount, summary.DetailEventCount) ||
+		!checkedProfilerUint64AddTo(&ledger.SymbolCount, summary.SymbolCount) ||
+		!checkedProfilerUint64AddTo(&ledger.ClockDetailCount, summary.ClockDetailCount) ||
+		!checkedProfilerUint64AddTo(&ledger.TraceClockObserved, summary.TraceClockObserved) {
 		return false
 	}
-	for clock, count := range summary.TraceClocks {
-		if !profilerSummaryAddInt(&ledger.TraceClockObserved, count) {
-			return false
-		}
-		ledger.TraceClockSamples.observe("profiler-ftrace-summary-trace-clock", []byte(clock))
-	}
-	for cpu := range summary.StatsCPUs {
-		if !ledger.StatsCPUs.observe(cpu) {
-			return false
-		}
+	mergeProfilerStableSampleSet(&ledger.TraceClockSamples, summary.TraceClockSamples)
+	if !ledger.StatsCPUs.merge(summary.StatsCPUs) {
+		return false
 	}
 	if summary.StartTotalsSeen && summary.StartTotalsValid && !ledger.StartTotals.observe(summary.StartTotals) {
 		return false
@@ -297,10 +314,8 @@ func (ledger *profilerFtraceSummaryDiagnosticLedger) observe(summary profilerFtr
 	if summary.EndTotalsSeen && summary.EndTotalsValid && !ledger.EndTotals.observe(summary.EndTotals) {
 		return false
 	}
-	for cpu := range summary.DetailCPUs {
-		if !ledger.DetailCPUs.observe(cpu) {
-			return false
-		}
+	if !ledger.DetailCPUs.merge(summary.DetailCPUs) {
+		return false
 	}
 	if summary.DetailMessages > 0 {
 		if summary.DetailOverwriteOK {
@@ -311,38 +326,24 @@ func (ledger *profilerFtraceSummaryDiagnosticLedger) observe(summary profilerFtr
 			return false
 		}
 	}
-	for field, count := range summary.EventFieldCounts {
-		if count < 0 {
+	for slot, count := range summary.KnownEventCounts {
+		if !checkedProfilerUint64AddTo(&ledger.KnownEventCounts[slot], count) {
 			return false
 		}
-		if slot, ok := profilerFtraceEventDescriptorSlot(field); ok {
-			if !profilerSummaryAddInt(&ledger.KnownEventCounts[slot], count) {
-				return false
-			}
-			continue
-		}
-		if !profilerSummaryAddInt(&ledger.UnknownEventCount, count) {
-			return false
-		}
-		ledger.UnknownEventFieldSamples.observe("profiler-ftrace-summary-unknown-event-field", []byte(strconv.Itoa(field)))
 	}
-	for _, sample := range summary.SymbolExamples {
-		ledger.SymbolSamples.observe("profiler-ftrace-summary-symbol", []byte(sample))
+	if !checkedProfilerUint64AddTo(&ledger.UnknownEventCount, summary.UnknownEventCount) {
+		return false
 	}
+	mergeProfilerStableSampleSet(&ledger.UnknownEventFieldSamples, summary.UnknownEventFieldSamples)
+	mergeProfilerStableSampleSet(&ledger.SymbolSamples, summary.SymbolSamples)
 	if summary.SymbolTruncated && !checkedProfilerUint64AddTo(&ledger.SymbolTruncatedFrames, 1) {
 		return false
 	}
-	for _, sample := range summary.ClockDetails {
-		ledger.ClockDetailSamples.observe("profiler-ftrace-summary-clock-detail", []byte(sample))
-	}
+	mergeProfilerStableSampleSet(&ledger.ClockDetailSamples, summary.ClockDetailSamples)
 	if summary.ClockTruncated && !checkedProfilerUint64AddTo(&ledger.ClockTruncatedFrames, 1) {
 		return false
 	}
 	return true
-}
-
-func profilerSummaryAddInt(target *uint64, value int) bool {
-	return value >= 0 && checkedProfilerUint64AddTo(target, uint64(value))
 }
 
 func profilerFtraceEventDescriptorSlot(field int) (int, bool) {

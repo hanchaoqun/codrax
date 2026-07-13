@@ -44,3 +44,12 @@ func decodeProfilerFtraceCPUDetailEvents(data []byte) ([]profilerFtraceEventReco
 	})
 	return out, err
 }
+
+func profilerSummaryKnownEventCountForTest(t *testing.T, summary profilerFtraceSummary, field int) uint64 {
+	t.Helper()
+	slot, ok := profilerFtraceEventDescriptorSlot(field)
+	if !ok {
+		t.Fatalf("event field %d is not in the known descriptor table", field)
+	}
+	return summary.KnownEventCounts[slot]
+}
