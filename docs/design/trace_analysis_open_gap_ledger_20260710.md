@@ -567,6 +567,15 @@ B终态不变，但按单点权威拆成B1-a/B1-b/B2，任一子批不得提前�
 
 **B2-b2 envelope/common中间交付**：代码提交`7d0bae5cf`已独立推送到`main`，只关闭本子批的CPU-detail/event-envelope/common-fields producer string权威，不提前关闭B2-b2。`EnvelopeDegradations`已删除，producer只经fixed constructor写入容量9的checked typed set；flags/preempt source-width只认singular+valid值，identity-incomplete只认`HeaderOwnerKnown`，拒绝从duplicate/wrong/missing默认值铸造假证据。37个envelope kind由三组raw fixture做唯一闭集，known event、CPU-detail及unknown+envelope走真实container核对occurrence/affected/RowsEmitted守恒；oneof-missing与event-container-wrong-wire均设opaque并由MMC/F2FS start→洞→end证明不可跨洞假配。direct入口同样先过typed invariant，再由唯一label适配保持兼容。目标包、全仓test/vet、focused race与独立复审均为RELEASE；generic 410/2002/2417 typed单次扫描、whole-payload/canonical-line issue仍是B2-b2剩余HOLD。
 
+### P1-a2.2-B2-b2 envelope/generic wire producer typed化交付结案
+
+generic代码提交`8f5aee619`已独立推送到`main`；连同先行的envelope/common提交`7d0bae5cf`，本节只关闭B2-b2，不提前关闭B2-b、B2或P1-a2.2。
+
+- **单扫描typed endpoint权威已落地**：410/2002/2417共享唯一`[9]field state`扫描，producer不再调用`protoScalar*`/`protoUint|Int|String`重扫，也不经legacy reason反向bridge。`walkProtoFields`内部失败增加typed failure/field/terminal provenance，既有错误文本与callback error identity逐字兼容；坏key、非法field及unknown endpoint framing只铸sole whole-payload hard，已知hard endpoint结构损坏在扫描边界立即sole exact返回，不再把未扫描字段伪造成missing/default；CPU field3与next-info field8只有可证明终止于物理payload尾且hard权威完整时才进入`AdmittedDisplay`，否则whole-payload fail-close。410 field3始终是forward-compatible unknown，四种CPU issue constructor与tampered tuple均不能获得field410权限。
+- **裁定顺序、集合代数与局部canonical已机械化**：malformed>wrong-wire>duplicate>semantic，required string先于scalar，2417 range只在完整hard audit清洁后执行；hard/display、whole/canonical、localized malformed、completed-scan hard、range、display形成五个互斥arm。容量7的fixed set验证whole/canonical与localized malformed sole、每endpoint至多一issue、同severity、display至多一项；`add`只在prospective副本通过全集合验证后commit，所有正反序冲突均证明失败无mutation。最终body复用`profilerCanonicalLineValid`；精确1MiB行合法、cap+1仅拒当前event并铸sole`WireInvalidCanonicalLine`，同frame健康sibling继续发布，不扩大成conversion-wide`line_too_long`。
+- **闭集证据与验证**：声明式raw producer表精确覆盖54个合法tuple（11 hard endpoint×malformed/wrong/duplicate=33、range=4、required string=4、CPU=4、next-info=3、whole/canonical=6），field410 no-CPU、hard/display双序、whole支配、ambiguous optional tail、前置hard截断、七hard最大集、issue count/foreign/severity/tail/endpoint/arm腐化及direct typed→label parity均有正负pin；finite issue universe由1820显式更新为1826，最大单event仍106<128。`go test ./internal/hitraceconv -count=1`、`go vet ./internal/hitraceconv`、focused race、`go test ./... -count=1`、`go vet ./...`、gofmt与diff-check全绿，两路独立终审均为**RELEASE**。
+- **诚实剩余**：B2-b3 core、B2-b4 aux/filemap、B2-b5 block/全调用图收口与temporary legacy bridge删除继续开放；只有b3..b5全部完成并复核B2总矩阵后，才可关闭B2-b/B2/P1-a2.2。a2.3/a2.4、`ROW-SORT-BND`、P1-b、TOCTOU及Profiler全链有界声明均未由本批改变。
+
 ### P1-a2.2-B2-b1 closed bridge与exact ledger交付结案
 
 账本校准提交`c2c3f50fc`与代码提交`0ade13c13`已按顺序推送到`main`；本节只关闭B2-b1临时strict bridge与exact fixed census，不提前关闭B2-b、B2或P1-a2.2。bridge必须在B2-b2..b5逐producer typed化完成后删除，不能成为长期双权威。
