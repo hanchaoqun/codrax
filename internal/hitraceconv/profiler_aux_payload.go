@@ -1,6 +1,7 @@
 package hitraceconv
 
 import (
+	"context"
 	"errors"
 	"math"
 	"strings"
@@ -174,35 +175,84 @@ func (result *profilerFtraceAuxTypedResult) rejectPayload(eventField int, kind p
 }
 
 func decodeProfilerAuxPayloadWithTypedAudit(event profilerFtraceEventRecord) (profilerFtraceAuxTypedResult, error) {
-	result := profilerFtraceAuxTypedResult{Admission: bodyUnsupported, Pair: profilerStructuredF2FSPairFamily(event.Field)}
+	return decodeProfilerAuxPayloadWithTypedAuditContext(context.Background(), event)
+}
+
+func decodeProfilerAuxPayloadWithTypedAuditContext(ctx context.Context, event profilerFtraceEventRecord) (profilerFtraceAuxTypedResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	schema, governed := profilerStructuredAuxSchemas[event.Field]
+	zeroVerdict := profilerFtraceAuxTypedResult{Handled: governed}
+	if err := ctx.Err(); err != nil {
+		return zeroVerdict, err
+	}
+	result := profilerFtraceAuxTypedResult{Admission: bodyUnsupported, Pair: profilerStructuredF2FSPairFamily(event.Field)}
+	failInvariant := func(reason string) (profilerFtraceAuxTypedResult, error) {
+		if err := ctx.Err(); err != nil {
+			return zeroVerdict, err
+		}
+		return zeroVerdict, &traceDBOutputInvariantError{Reason: reason}
+	}
+	rejectFixed := func(kind profilerFtraceEventIssueKind) (profilerFtraceAuxTypedResult, error) {
+		if err := ctx.Err(); err != nil {
+			return zeroVerdict, err
+		}
+		candidate := result
+		if err := candidate.rejectFixed(event.Field, kind); err != nil {
+			return zeroVerdict, err
+		}
+		if err := ctx.Err(); err != nil {
+			return zeroVerdict, err
+		}
+		return candidate, nil
+	}
+	rejectPayload := func(kind profilerFtraceEventIssueKind, payloadField int) (profilerFtraceAuxTypedResult, error) {
+		if err := ctx.Err(); err != nil {
+			return zeroVerdict, err
+		}
+		candidate := result
+		if err := candidate.rejectPayload(event.Field, kind, payloadField); err != nil {
+			return zeroVerdict, err
+		}
+		if err := ctx.Err(); err != nil {
+			return zeroVerdict, err
+		}
+		return candidate, nil
+	}
 	if !governed {
+		if err := ctx.Err(); err != nil {
+			return zeroVerdict, err
+		}
 		return result, nil
 	}
 	result.Handled = true
 	descriptor, ok := profilerFtraceEventDescriptors[event.Field]
 	if !ok {
-		return result, &traceDBOutputInvariantError{Reason: "missing_aux_descriptor"}
+		return failInvariant("missing_aux_descriptor")
 	}
 	if descriptor.Field != event.Field {
-		return result, &traceDBOutputInvariantError{Reason: "mismatched_aux_descriptor_field"}
+		return failInvariant("mismatched_aux_descriptor_field")
 	}
 	expectedName, ok := profilerAuxDescriptorName(event.Field)
 	if !ok || descriptor.Name != expectedName {
-		return result, &traceDBOutputInvariantError{Reason: "mismatched_aux_descriptor_name"}
+		return failInvariant("mismatched_aux_descriptor_name")
 	}
 	expectedFamily, ok := profilerAuxDescriptorFamily(event.Field)
 	if !ok || descriptor.Family != expectedFamily {
-		return result, &traceDBOutputInvariantError{Reason: "mismatched_aux_descriptor_family"}
+		return failInvariant("mismatched_aux_descriptor_family")
 	}
 	for payloadField, expectedWire := range schema {
 		if payloadField < 1 || payloadField > 25 || (expectedWire != 0 && expectedWire != 2) {
-			return result, &traceDBOutputInvariantError{Reason: "profiler_aux_schema_invalid"}
+			return failInvariant("profiler_aux_schema_invalid")
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return zeroVerdict, err
 	}
 
 	var fields [26]profilerCoreProtoField
-	walkErr := walkProtoFields(event.Payload, func(payloadField int, wire int, raw []byte, value uint64) error {
+	walkErr := walkProfilerProtoFieldsContext(ctx, event.Payload, func(payloadField int, wire int, raw []byte, value uint64) error {
 		expectedWire, known := schema[payloadField]
 		if !known {
 			return nil
@@ -222,24 +272,36 @@ func decodeProfilerAuxPayloadWithTypedAudit(event profilerFtraceEventRecord) (pr
 		}
 		return nil
 	})
+	if err := ctx.Err(); err != nil {
+		return zeroVerdict, err
+	}
+	if _, invariant := traceDBOutputInvariantReason(walkErr); walkErr != nil && invariant {
+		return zeroVerdict, walkErr
+	}
 	result.Pair = profilerStructuredF2FSPairIdentity(event, descriptor.Name, &fields, walkErr)
+	if err := ctx.Err(); err != nil {
+		return zeroVerdict, err
+	}
 	if walkErr != nil {
 		var decodeErr *protoFieldDecodeError
 		if !errors.As(walkErr, &decodeErr) {
-			return result, &traceDBOutputInvariantError{Reason: "profiler_aux_wire_error_untyped"}
+			return failInvariant("profiler_aux_wire_error_untyped")
 		}
-		return result, result.rejectFixed(event.Field, profilerFtraceEventIssueAuxPayloadMalformedWire)
+		return rejectFixed(profilerFtraceEventIssueAuxPayloadMalformedWire)
 	}
 
 	for payloadField := 1; payloadField <= 25; payloadField++ {
+		if err := ctx.Err(); err != nil {
+			return zeroVerdict, err
+		}
 		if _, expected := schema[payloadField]; !expected || profilerFtraceAuxResponseField(event.Field, payloadField) {
 			continue
 		}
 		switch {
 		case fields[payloadField].wrongWire:
-			return result, result.rejectPayload(event.Field, profilerFtraceEventIssueAuxFieldWrongWire, payloadField)
+			return rejectPayload(profilerFtraceEventIssueAuxFieldWrongWire, payloadField)
 		case fields[payloadField].count > 1:
-			return result, result.rejectPayload(event.Field, profilerFtraceEventIssueAuxFieldDuplicate, payloadField)
+			return rejectPayload(profilerFtraceEventIssueAuxFieldDuplicate, payloadField)
 		}
 	}
 
@@ -249,9 +311,12 @@ func decodeProfilerAuxPayloadWithTypedAudit(event profilerFtraceEventRecord) (pr
 	semanticFailed := false
 	switch event.Field {
 	case 1109:
-		buffer, valid := normalizeMarkerBuffer(fields[2].bytesValue)
+		buffer, valid, err := normalizeMarkerBufferContext(ctx, fields[2].bytesValue)
+		if err != nil {
+			return zeroVerdict, err
+		}
 		if !valid {
-			return result, result.rejectFixed(event.Field, profilerFtraceEventIssueAuxMissingOrInvalidPrintBuf)
+			return rejectFixed(profilerFtraceEventIssueAuxMissingOrInvalidPrintBuf)
 		}
 		payload.Kind = profilerAuxPrint
 		payload.Print = &markerPayload{IP: fields[1].uintValue, IPPresent: fields[1].count == 1, Buffer: buffer}
@@ -276,32 +341,44 @@ func decodeProfilerAuxPayloadWithTypedAudit(event profilerFtraceEventRecord) (pr
 		item.Name = descriptor.Name
 		payload.Kind, payload.F2FS = profilerAuxF2FS, &item
 	case 4015:
-		item, kind, field, failed := decodeProfilerMMCDone(&fields)
+		item, kind, field, failed, err := decodeProfilerMMCDoneContext(ctx, &fields)
+		if err != nil {
+			return zeroVerdict, err
+		}
 		semanticKind, semanticField, semanticFailed = kind, field, failed
 		payload.Kind, payload.MMCDone = profilerAuxMMCDone, &item
 	case 4016:
-		item, kind, field, failed := decodeProfilerMMCStart(&fields)
+		item, kind, field, failed, err := decodeProfilerMMCStartContext(ctx, &fields)
+		if err != nil {
+			return zeroVerdict, err
+		}
 		semanticKind, semanticField, semanticFailed = kind, field, failed
 		payload.Kind, payload.MMCStart = profilerAuxMMCStart, &item
 	default:
-		return result, &traceDBOutputInvariantError{Reason: "unhandled_aux_descriptor"}
+		return failInvariant("unhandled_aux_descriptor")
+	}
+	if err := ctx.Err(); err != nil {
+		return zeroVerdict, err
 	}
 	if semanticFailed {
 		if semanticField > 0 {
-			return result, result.rejectPayload(event.Field, semanticKind, semanticField)
+			return rejectPayload(semanticKind, semanticField)
 		}
-		return result, result.rejectFixed(event.Field, semanticKind)
+		return rejectFixed(semanticKind)
 	}
 	if payload.F2FS != nil {
 		finalizeF2FSPayloadAdmission(payload.F2FS)
 		if !payload.F2FS.IdentityKnown || !payload.F2FS.PayloadAdmitted {
-			return result, &traceDBOutputInvariantError{Reason: "invalid_f2fs_payload_range"}
+			return failInvariant("invalid_f2fs_payload_range")
 		}
 	}
 
 	var set profilerFtraceAuxIssueSet
 	if event.Field == 4015 {
 		for _, payloadField := range [...]int{3, 7, 11} {
+			if err := ctx.Err(); err != nil {
+				return zeroVerdict, err
+			}
 			kind := profilerFtraceEventIssueKindCount
 			switch {
 			case fields[payloadField].wrongWire:
@@ -313,13 +390,16 @@ func decodeProfilerAuxPayloadWithTypedAudit(event profilerFtraceEventRecord) (pr
 			}
 			if kind != profilerFtraceEventIssueKindCount {
 				if err := set.addPayload(event.Field, kind, payloadField); err != nil {
-					return result, err
+					return zeroVerdict, err
 				}
 			}
 		}
 	}
 	result.Payload, result.Admission, result.Issues = payload, bodyAdmitted, set
 	result.Pair.Admitted = !result.Pair.Governed || result.Pair.LaneKnown
+	if err := ctx.Err(); err != nil {
+		return zeroVerdict, err
+	}
 	return result, nil
 }
 
@@ -611,6 +691,31 @@ func decodeProfilerF2FSWriteEnd(fields *[26]profilerCoreProtoField) (
 func decodeProfilerMMCStart(fields *[26]profilerCoreProtoField) (
 	profilerMMCStartPayload, profilerFtraceEventIssueKind, int, bool,
 ) {
+	item, kind, field, failed, _ := decodeProfilerMMCStartContext(context.Background(), fields)
+	return item, kind, field, failed
+}
+
+func decodeProfilerMMCStartContext(ctx context.Context, fields *[26]profilerCoreProtoField) (
+	profilerMMCStartPayload, profilerFtraceEventIssueKind, int, bool, error,
+) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return profilerMMCStartPayload{}, profilerFtraceEventIssueKindCount, 0, false, err
+	}
+	if fields == nil {
+		return profilerMMCStartPayload{}, profilerFtraceEventIssueKindCount, 0, false,
+			&traceDBOutputInvariantError{Reason: "profiler_aux_mmc_start_fields_nil"}
+	}
+	sourceFailure := func(kind profilerFtraceEventIssueKind, field int) (
+		profilerMMCStartPayload, profilerFtraceEventIssueKind, int, bool, error,
+	) {
+		if err := ctx.Err(); err != nil {
+			return profilerMMCStartPayload{}, profilerFtraceEventIssueKindCount, 0, false, err
+		}
+		return profilerMMCStartPayload{}, kind, field, true, nil
+	}
 	var item profilerMMCStartPayload
 	uintTargets := []struct {
 		field int
@@ -625,7 +730,7 @@ func decodeProfilerMMCStart(fields *[26]profilerCoreProtoField) (
 	for _, target := range uintTargets {
 		value, valid := profilerAuxUint32(fields, target.field)
 		if !valid {
-			return profilerMMCStartPayload{}, profilerFtraceEventIssueAuxFieldOutOfRange, target.field, true
+			return sourceFailure(profilerFtraceEventIssueAuxFieldOutOfRange, target.field)
 		}
 		*target.out = value
 	}
@@ -636,25 +741,56 @@ func decodeProfilerMMCStart(fields *[26]profilerCoreProtoField) (
 	for _, target := range intTargets {
 		value, valid := profilerAuxDecodedInt32(fields, target.field)
 		if !valid {
-			return profilerMMCStartPayload{}, profilerFtraceEventIssueAuxFieldOutOfRange, target.field, true
+			return sourceFailure(profilerFtraceEventIssueAuxFieldOutOfRange, target.field)
 		}
 		*target.out = value
 	}
 	item.MRQ = profilerCoreUint64(fields[24])
 	if item.MRQ == 0 {
-		return profilerMMCStartPayload{}, profilerFtraceEventIssueAuxMissingOrInvalidMMCPointer, 0, true
+		return sourceFailure(profilerFtraceEventIssueAuxMissingOrInvalidMMCPointer, 0)
 	}
-	name, valid := profilerCoreString(fields[25])
-	if !valid || !validProfilerMMCName(name) {
-		return profilerMMCStartPayload{}, profilerFtraceEventIssueAuxMissingOrInvalidMMCName, 0, true
+	name, valid, err := decodeProfilerMMCNameContext(ctx, fields[25])
+	if err != nil {
+		return profilerMMCStartPayload{}, profilerFtraceEventIssueKindCount, 0, false, err
+	}
+	if !valid {
+		return sourceFailure(profilerFtraceEventIssueAuxMissingOrInvalidMMCName, 0)
 	}
 	item.Name = name
-	return item, profilerFtraceEventIssueKindCount, 0, false
+	if err := ctx.Err(); err != nil {
+		return profilerMMCStartPayload{}, profilerFtraceEventIssueKindCount, 0, false, err
+	}
+	return item, profilerFtraceEventIssueKindCount, 0, false, nil
 }
 
 func decodeProfilerMMCDone(fields *[26]profilerCoreProtoField) (
 	profilerMMCDonePayload, profilerFtraceEventIssueKind, int, bool,
 ) {
+	item, kind, field, failed, _ := decodeProfilerMMCDoneContext(context.Background(), fields)
+	return item, kind, field, failed
+}
+
+func decodeProfilerMMCDoneContext(ctx context.Context, fields *[26]profilerCoreProtoField) (
+	profilerMMCDonePayload, profilerFtraceEventIssueKind, int, bool, error,
+) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return profilerMMCDonePayload{}, profilerFtraceEventIssueKindCount, 0, false, err
+	}
+	if fields == nil {
+		return profilerMMCDonePayload{}, profilerFtraceEventIssueKindCount, 0, false,
+			&traceDBOutputInvariantError{Reason: "profiler_aux_mmc_done_fields_nil"}
+	}
+	sourceFailure := func(kind profilerFtraceEventIssueKind, field int) (
+		profilerMMCDonePayload, profilerFtraceEventIssueKind, int, bool, error,
+	) {
+		if err := ctx.Err(); err != nil {
+			return profilerMMCDonePayload{}, profilerFtraceEventIssueKindCount, 0, false, err
+		}
+		return profilerMMCDonePayload{}, kind, field, true, nil
+	}
 	var item profilerMMCDonePayload
 	uintTargets := []struct {
 		field int
@@ -667,7 +803,7 @@ func decodeProfilerMMCDone(fields *[26]profilerCoreProtoField) (
 	for _, target := range uintTargets {
 		value, valid := profilerAuxUint32(fields, target.field)
 		if !valid {
-			return profilerMMCDonePayload{}, profilerFtraceEventIssueAuxFieldOutOfRange, target.field, true
+			return sourceFailure(profilerFtraceEventIssueAuxFieldOutOfRange, target.field)
 		}
 		*target.out = value
 	}
@@ -681,20 +817,68 @@ func decodeProfilerMMCDone(fields *[26]profilerCoreProtoField) (
 	for _, target := range intTargets {
 		value, valid := profilerAuxDecodedInt32(fields, target.field)
 		if !valid {
-			return profilerMMCDonePayload{}, profilerFtraceEventIssueAuxFieldOutOfRange, target.field, true
+			return sourceFailure(profilerFtraceEventIssueAuxFieldOutOfRange, target.field)
 		}
 		*target.out = value
 	}
 	item.MRQ = profilerCoreUint64(fields[22])
 	if item.MRQ == 0 {
-		return profilerMMCDonePayload{}, profilerFtraceEventIssueAuxMissingOrInvalidMMCPointer, 0, true
+		return sourceFailure(profilerFtraceEventIssueAuxMissingOrInvalidMMCPointer, 0)
 	}
-	name, valid := profilerCoreString(fields[23])
-	if !valid || !validProfilerMMCName(name) {
-		return profilerMMCDonePayload{}, profilerFtraceEventIssueAuxMissingOrInvalidMMCName, 0, true
+	name, valid, err := decodeProfilerMMCNameContext(ctx, fields[23])
+	if err != nil {
+		return profilerMMCDonePayload{}, profilerFtraceEventIssueKindCount, 0, false, err
+	}
+	if !valid {
+		return sourceFailure(profilerFtraceEventIssueAuxMissingOrInvalidMMCName, 0)
 	}
 	item.Name = name
-	return item, profilerFtraceEventIssueKindCount, 0, false
+	if err := ctx.Err(); err != nil {
+		return profilerMMCDonePayload{}, profilerFtraceEventIssueKindCount, 0, false, err
+	}
+	return item, profilerFtraceEventIssueKindCount, 0, false, nil
+}
+
+func decodeProfilerMMCNameContext(ctx context.Context, field profilerCoreProtoField) (string, bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", false, err
+	}
+	if field.count != 1 || field.wrongWire || len(field.bytesValue) > 256 {
+		if err := ctx.Err(); err != nil {
+			return "", false, err
+		}
+		return "", false, nil
+	}
+	valid, err := profilerSingleTokenBytesContext(ctx, field.bytesValue)
+	if err != nil {
+		return "", false, err
+	}
+	if !valid {
+		if err := ctx.Err(); err != nil {
+			return "", false, err
+		}
+		return "", false, nil
+	}
+	for _, value := range field.bytesValue {
+		switch value {
+		case ':', '[', ']', ',', '\'', '"':
+			if err := ctx.Err(); err != nil {
+				return "", false, err
+			}
+			return "", false, nil
+		}
+	}
+	name, err := profilerCloneBytesStringContext(ctx, field.bytesValue)
+	if err != nil {
+		return "", false, err
+	}
+	if err := ctx.Err(); err != nil {
+		return "", false, err
+	}
+	return name, true, nil
 }
 
 func validProfilerMMCName(name string) bool {
@@ -702,33 +886,50 @@ func validProfilerMMCName(name string) bool {
 }
 
 func renderCanonicalProfilerAuxPayload(payload profilerAuxPayload) (string, bool) {
+	body, valid, err := renderCanonicalProfilerAuxPayloadContext(context.Background(), payload)
+	return body, valid && err == nil
+}
+
+func renderCanonicalProfilerAuxPayloadContext(ctx context.Context, payload profilerAuxPayload) (string, bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", false, err
+	}
+	var body string
+	var valid bool
 	switch payload.Kind {
 	case profilerAuxPrint:
 		if payload.Print == nil {
-			return "", false
+			return "", false, nil
 		}
-		return renderCanonicalMarkerPayload(*payload.Print)
+		return renderCanonicalMarkerPayloadContext(ctx, *payload.Print)
 	case profilerAuxF2FS:
 		if payload.F2FS == nil {
-			return "", false
+			return "", false, nil
 		}
-		return renderCanonicalF2FSPayload(*payload.F2FS)
+		body, valid = renderCanonicalF2FSPayload(*payload.F2FS)
 	case profilerAuxMMCStart:
 		if payload.MMCStart == nil {
-			return "", false
+			return "", false, nil
 		}
-		return renderCanonicalMMCPayload(mmcPayload{Kind: mmcPayloadStart, Name: payload.Name, Start: payload.MMCStart})
+		body, valid = renderCanonicalMMCPayload(mmcPayload{Kind: mmcPayloadStart, Name: payload.Name, Start: payload.MMCStart})
 	case profilerAuxMMCDone:
 		if payload.MMCDone == nil {
-			return "", false
+			return "", false, nil
 		}
 		// The pinned producer loses the source u32[4] response shape by
 		// serializing it as NUL-terminated strings. Audit those fields above,
 		// but never rebuild four zero-padded response words from lost bytes.
-		return renderCanonicalMMCPayload(mmcPayload{Kind: mmcPayloadDone, Name: payload.Name, Done: payload.MMCDone})
+		body, valid = renderCanonicalMMCPayload(mmcPayload{Kind: mmcPayloadDone, Name: payload.Name, Done: payload.MMCDone})
 	default:
-		return "", false
+		return "", false, nil
 	}
+	if err := ctx.Err(); err != nil {
+		return "", false, err
+	}
+	return body, valid, nil
 }
 
 // renderProfilerFtraceAuxEventWithTypedAudit is the single structured-aux
@@ -738,11 +939,34 @@ func renderProfilerFtraceAuxEventWithTypedAudit(event profilerFtraceEventRecord)
 	name, body string, ok bool, issues []profilerFtraceEventIssue,
 	pair profilerPairAdmission, handled bool, err error,
 ) {
-	result, err := decodeProfilerAuxPayloadWithTypedAudit(event)
-	if !result.Handled || err != nil {
-		return "", "", false, nil, result.Pair, result.Handled, err
+	return renderProfilerFtraceAuxEventWithTypedAuditContext(context.Background(), event)
+}
+
+func renderProfilerFtraceAuxEventWithTypedAuditContext(ctx context.Context, event profilerFtraceEventRecord) (
+	name, body string, ok bool, issues []profilerFtraceEventIssue,
+	pair profilerPairAdmission, handled bool, err error,
+) {
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	name, body, ok, issues, err = finalizeProfilerFtraceAuxEventWithTypedAudit(event, result)
+	governed := profilerStructuredAuxSchemas[event.Field] != nil
+	if err := ctx.Err(); err != nil {
+		return "", "", false, nil, profilerPairAdmission{}, governed, err
+	}
+	result, err := decodeProfilerAuxPayloadWithTypedAuditContext(ctx, event)
+	if err != nil {
+		return "", "", false, nil, profilerPairAdmission{}, result.Handled, err
+	}
+	if !result.Handled {
+		return "", "", false, nil, result.Pair, false, nil
+	}
+	name, body, ok, issues, err = finalizeProfilerFtraceAuxEventWithTypedAuditContext(ctx, event, result)
+	if err != nil {
+		return "", "", false, nil, profilerPairAdmission{}, true, err
+	}
+	if err := ctx.Err(); err != nil {
+		return "", "", false, nil, profilerPairAdmission{}, true, err
+	}
 	return name, body, ok, issues, result.Pair, true, err
 }
 
@@ -750,9 +974,38 @@ func finalizeProfilerFtraceAuxEventWithTypedAudit(
 	event profilerFtraceEventRecord,
 	result profilerFtraceAuxTypedResult,
 ) (name, body string, ok bool, issues []profilerFtraceEventIssue, err error) {
+	return finalizeProfilerFtraceAuxEventWithTypedAuditContext(context.Background(), event, result)
+}
+
+func finalizeProfilerFtraceAuxEventWithTypedAuditContext(
+	ctx context.Context,
+	event profilerFtraceEventRecord,
+	result profilerFtraceAuxTypedResult,
+) (name, body string, ok bool, issues []profilerFtraceEventIssue, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", "", false, nil, err
+	}
+	defer func() {
+		if err != nil {
+			return
+		}
+		if contextErr := ctx.Err(); contextErr != nil {
+			name = ""
+			body = ""
+			ok = false
+			issues = nil
+			err = contextErr
+		}
+	}()
 	// Typed-set corruption must dominate source verdicts and canonical checks.
 	issues, err = result.Issues.checked(event.Field)
 	if err != nil {
+		return "", "", false, nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return "", "", false, nil, err
 	}
 	if !result.Handled {
@@ -770,20 +1023,33 @@ func finalizeProfilerFtraceAuxEventWithTypedAudit(
 			return "", "", false, nil,
 				&traceDBOutputInvariantError{Reason: "profiler_aux_rejected_verdict_invalid"}
 		}
+		if err := ctx.Err(); err != nil {
+			return "", "", false, nil, err
+		}
 		return "", "", false, issues, nil
 	case bodyAdmitted:
 		for _, issue := range issues {
+			if err := ctx.Err(); err != nil {
+				return "", "", false, nil, err
+			}
 			if issue.Severity != profilerFtraceEventIssueAdmittedDisplay {
 				return "", "", false, nil,
 					&traceDBOutputInvariantError{Reason: "profiler_aux_admitted_verdict_invalid"}
 			}
 		}
-		body, rendered := renderCanonicalProfilerAuxPayload(result.Payload)
+		body, rendered, renderErr := renderCanonicalProfilerAuxPayloadContext(ctx, result.Payload)
+		if renderErr != nil {
+			return "", "", false, nil, renderErr
+		}
 		if !rendered {
 			return "", "", false, nil,
 				&traceDBOutputInvariantError{Reason: "invalid_canonical_aux_payload"}
 		}
-		if !profilerCanonicalLineValid(event, result.Payload.Name, body) {
+		canonicalValid, canonicalErr := profilerCanonicalLineValidContext(ctx, event, result.Payload.Name, body)
+		if canonicalErr != nil {
+			return "", "", false, nil, canonicalErr
+		}
+		if !canonicalValid {
 			if event.Field != 1109 {
 				return "", "", false, nil,
 					&traceDBOutputInvariantError{Reason: "invalid_canonical_aux_line"}
@@ -793,7 +1059,13 @@ func finalizeProfilerFtraceAuxEventWithTypedAudit(
 				return "", "", false, nil, err
 			}
 			issues, err = canonical.checked(event.Field)
+			if err == nil {
+				err = ctx.Err()
+			}
 			return "", "", false, issues, err
+		}
+		if err := ctx.Err(); err != nil {
+			return "", "", false, nil, err
 		}
 		return result.Payload.Name, body, true, issues, nil
 	default:

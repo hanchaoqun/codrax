@@ -1,6 +1,7 @@
 package hitraceconv
 
 import (
+	"context"
 	"encoding/binary"
 	"math"
 	"sort"
@@ -149,23 +150,69 @@ func decodeDirectMarkerPayload(ev decodedEvent, content []byte) (markerPayload, 
 }
 
 func renderCanonicalMarkerPayload(payload markerPayload) (string, bool) {
-	if !traceDBSinglePhysicalLine(payload.Buffer, false) {
-		return "", false
+	value, valid, err := renderCanonicalMarkerPayloadContext(context.Background(), payload)
+	return value, valid && err == nil
+}
+
+func renderCanonicalMarkerPayloadContext(ctx context.Context, payload markerPayload) (string, bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	return payload.Buffer, true
+	if err := ctx.Err(); err != nil {
+		return "", false, err
+	}
+	valid, err := profilerSinglePhysicalLineStringContext(ctx, payload.Buffer, false)
+	if err != nil {
+		return "", false, err
+	}
+	if !valid {
+		if err := ctx.Err(); err != nil {
+			return "", false, err
+		}
+		return "", false, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return "", false, err
+	}
+	return payload.Buffer, true, nil
 }
 
 func normalizeMarkerBuffer(raw []byte) (string, bool) {
-	value := string(raw)
+	value, valid, err := normalizeMarkerBufferContext(context.Background(), raw)
+	return value, valid && err == nil
+}
+
+func normalizeMarkerBufferContext(ctx context.Context, raw []byte) (string, bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", false, err
+	}
+	value := raw
 	// OpenHarmony's canonical formatter removes at most one terminal LF. A
 	// lone LF remains invalid, as do CR, internal/double LF and all controls.
 	if len(value) > 1 && value[len(value)-1] == '\n' {
 		value = value[:len(value)-1]
 	}
-	if !traceDBSinglePhysicalLine(value, false) {
-		return "", false
+	valid, err := profilerSinglePhysicalLineBytesContext(ctx, value, false)
+	if err != nil {
+		return "", false, err
 	}
-	return value, true
+	if err := ctx.Err(); err != nil {
+		return "", false, err
+	}
+	if !valid {
+		return "", false, nil
+	}
+	cloned, err := profilerCloneBytesStringContext(ctx, value)
+	if err != nil {
+		return "", false, err
+	}
+	if err := ctx.Err(); err != nil {
+		return "", false, err
+	}
+	return cloned, true, nil
 }
 
 func directMarkerDeclarationCount(ev decodedEvent, cleanName string) int {

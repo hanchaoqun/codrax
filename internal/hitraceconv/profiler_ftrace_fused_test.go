@@ -373,6 +373,7 @@ type profilerCancelInsideFusedDetailContext struct {
 	context.Context
 	polls    int
 	cancelAt int
+	err      error
 }
 
 func (ctx *profilerCancelInsideFusedDetailContext) Err() error {
@@ -386,6 +387,9 @@ func (ctx *profilerCancelInsideFusedDetailContext) Err() error {
 		if strings.HasSuffix(frame.Function, ".consumeProfilerFtraceCPUDetailAuthorityContext") {
 			ctx.polls++
 			if ctx.polls >= ctx.cancelAt {
+				if ctx.err != nil {
+					return ctx.err
+				}
 				return context.Canceled
 			}
 			break
@@ -414,55 +418,75 @@ func profilerFusedCancellationFixture(events int) []byte {
 }
 
 func TestProfilerFtraceFusedMidstreamCancellationLeavesNoCustomerArtifact(t *testing.T) {
-	const cancelAt = 80
+	// The typed-event Context authority intentionally adds several governed
+	// polls per event. Keep this probe past the first committed event while
+	// still stopping deep inside the 2,048-event frame.
+	const cancelAt = 512
 	body := profilerFusedCancellationFixture(2_048)
-	dir := t.TempDir()
-	input := filepath.Join(dir, "midstream.htrace")
-	output := filepath.Join(dir, "midstream.systrace")
-	if err := os.WriteFile(input, body, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	info, err := os.Stat(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	header, ok, err := readProfilerTraceHeaderAtPath(input, 0, info.Size())
-	if err != nil || !ok {
-		t.Fatalf("read profiler cancellation fixture: ok=%t err=%v", ok, err)
-	}
+	for _, want := range []error{context.Canceled, context.DeadlineExceeded} {
+		t.Run(strings.TrimPrefix(want.Error(), "context "), func(t *testing.T) {
+			dir := t.TempDir()
+			input := filepath.Join(dir, "midstream.htrace")
+			output := filepath.Join(dir, "midstream.systrace")
+			if err := os.WriteFile(input, body, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			before, err := os.Stat(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			header, ok, err := readProfilerTraceHeaderAtPath(input, 0, before.Size())
+			if err != nil || !ok {
+				t.Fatalf("read profiler cancellation fixture: ok=%t err=%v", ok, err)
+			}
 
-	probeSink, err := newTraceDBRowSink(t.TempDir(), 128)
-	if err != nil {
-		t.Fatal(err)
-	}
-	probeCtx := &profilerCancelInsideFusedDetailContext{Context: context.Background(), cancelAt: cancelAt}
-	_, probeErr := extractProfilerTraceFileWithFrameLimit(probeCtx, input, info.Size(), header, probeSink, maxProfilerPluginFrameBytes)
-	accepted := probeSink.stats.RowsAccepted
-	cleanupErr := probeSink.cleanup()
-	if !errors.Is(probeErr, context.Canceled) || cleanupErr != nil || accepted == 0 || accepted >= 2_048 || probeCtx.polls < cancelAt {
-		t.Fatalf("cancellation probe did not stop after a staged prefix: accepted=%d polls=%d err=%v cleanup=%v",
-			accepted, probeCtx.polls, probeErr, cleanupErr)
-	}
+			probeSink, err := newTraceDBRowSink(t.TempDir(), 128)
+			if err != nil {
+				t.Fatal(err)
+			}
+			probeCtx := &profilerCancelInsideFusedDetailContext{
+				Context: context.Background(), cancelAt: cancelAt, err: want,
+			}
+			_, probeErr := extractProfilerTraceFileWithFrameLimit(
+				probeCtx, input, before.Size(), header, probeSink, maxProfilerPluginFrameBytes)
+			accepted := probeSink.stats.RowsAccepted
+			cleanupErr := probeSink.cleanup()
+			if probeErr != want || cleanupErr != nil || accepted == 0 || accepted >= 2_048 || probeCtx.polls < cancelAt {
+				t.Fatalf("cancellation probe did not stop after a staged prefix: accepted=%d polls=%d err=%T %v cleanup=%v",
+					accepted, probeCtx.polls, probeErr, probeErr, cleanupErr)
+			}
 
-	convertCtx := &profilerCancelInsideFusedDetailContext{Context: context.Background(), cancelAt: cancelAt}
-	result, convertErr := ConvertFile(convertCtx, Options{
-		InputPath: input, OutputPath: output, TraceEngine: traceEngineBuiltin,
-	})
-	if !errors.Is(convertErr, context.Canceled) || result.OutputPath != "" || convertCtx.polls < cancelAt {
-		t.Fatalf("midstream conversion cancellation identity/result drifted: polls=%d result=%+v err=%v",
-			convertCtx.polls, result, convertErr)
-	}
-	if _, err := os.Lstat(output); !os.IsNotExist(err) {
-		t.Fatalf("canceled conversion left customer output: %v", err)
-	}
-	if got, err := os.ReadFile(input); err != nil || !bytes.Equal(got, body) {
-		t.Fatalf("canceled conversion changed protected input: equal=%t err=%v", bytes.Equal(got, body), err)
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 1 || entries[0].Name() != filepath.Base(input) {
-		t.Fatalf("canceled conversion left customer-visible artifacts: %+v", entries)
+			convertCtx := &profilerCancelInsideFusedDetailContext{
+				Context: context.Background(), cancelAt: cancelAt, err: want,
+			}
+			result, convertErr := ConvertFile(convertCtx, Options{
+				InputPath: input, OutputPath: output, TraceEngine: traceEngineBuiltin,
+			})
+			if convertErr != want || !reflect.DeepEqual(result, Result{}) || convertCtx.polls < cancelAt {
+				t.Fatalf("midstream conversion cancellation identity/result drifted: polls=%d result=%+v err=%T %v",
+					convertCtx.polls, result, convertErr, convertErr)
+			}
+			if _, err := os.Lstat(output); !os.IsNotExist(err) {
+				t.Fatalf("canceled conversion left customer output: %v", err)
+			}
+			after, err := os.Stat(input)
+			if err != nil {
+				t.Fatalf("stat protected input after cancellation: %v", err)
+			}
+			if !os.SameFile(before, after) || after.Mode() != before.Mode() || after.Size() != before.Size() {
+				t.Fatalf("canceled conversion changed input identity/mode/size: same=%t before=(%v,%d) after=(%v,%d)",
+					os.SameFile(before, after), before.Mode(), before.Size(), after.Mode(), after.Size())
+			}
+			if got, err := os.ReadFile(input); err != nil || !bytes.Equal(got, body) {
+				t.Fatalf("canceled conversion changed protected input bytes: equal=%t err=%v", bytes.Equal(got, body), err)
+			}
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(entries) != 1 || entries[0].Name() != filepath.Base(input) {
+				t.Fatalf("canceled conversion left customer-visible artifacts: %+v", entries)
+			}
+		})
 	}
 }

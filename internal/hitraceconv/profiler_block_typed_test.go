@@ -715,7 +715,7 @@ func TestProfilerBlockTypedSingleWalkAndNoDynamicReasonAST(t *testing.T) {
 	var decode *ast.FuncDecl
 	for _, declaration := range file.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
-		if ok && function.Name.Name == "decodeProfilerBlockPayloadWithTypedAuditInto" {
+		if ok && function.Name.Name == "decodeProfilerBlockPayloadWithTypedAuditIntoContext" {
 			decode = function
 			break
 		}
@@ -733,7 +733,7 @@ func TestProfilerBlockTypedSingleWalkAndNoDynamicReasonAST(t *testing.T) {
 		switch callee := call.Fun.(type) {
 		case *ast.Ident:
 			switch callee.Name {
-			case "walkProtoFields":
+			case "walkProfilerProtoFieldsContext":
 				walkCalls++
 			case "protoScalarUint", "protoScalarString", "profilerFtraceEventIssueFromLegacy":
 				forbidden[callee.Name]++

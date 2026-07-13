@@ -400,9 +400,45 @@ func TestProfilerFtraceEnvelopeProducerTypedStructurePinned(t *testing.T) {
 		}
 	}
 	directLoop := sourceBetween(t, renderer, "func renderProfilerFtraceStructuredResultWithEnvelopeCoverageContext(", "type profilerFtraceCPUDetailAuthority struct {")
-	if !strings.Contains(directLoop, "renderProfilerFtraceEventBodyWithTypedAuditAndPair(event)") ||
+	if strings.Count(directLoop, "renderProfilerFtraceEventBodyWithTypedAuditAndPairContext(ctx, event)") != 1 ||
+		strings.Contains(directLoop, "renderProfilerFtraceEventBodyWithTypedAuditAndPair(event)") ||
 		strings.Contains(directLoop, "renderProfilerFtraceEventBodyWithAudit(event)") {
 		t.Fatalf("direct structured entry bypasses typed invariant path:\n%s", directLoop)
+	}
+	for token, want := range map[string]int{
+		"var pairDelta traceDBProfilerEventDelta":                           1,
+		"stageProfilerFtraceEventBatchDeltaContext(ctx, batch, event.Field": 2,
+		"sink.commitProfilerEventDeltaContext(ctx, pairDelta)":              1,
+		"sink.addProfilerEventContext(ctx, row, pairDelta)":                 1,
+		"batchDelta.commit()":                                               2,
+	} {
+		if count := strings.Count(directLoop, token); count != want {
+			t.Fatalf("structured event transaction token %q count=%d want=%d", token, count, want)
+		}
+	}
+	for _, forbidden := range []string{
+		"sink.add(row)",
+		"sink.markPairCaptureOpaque(",
+		"sink.poisonPairKind(",
+		"sink.poisonPairLane(",
+		"batch.observeRead(",
+		"batch.observeIssues(",
+		"batch.observeEmitted(",
+	} {
+		if strings.Contains(directLoop, forbidden) {
+			t.Fatalf("structured production mutated published ledger outside the staged Context transaction %q", forbidden)
+		}
+	}
+	rejectedStageAt := strings.Index(directLoop, "stageProfilerFtraceEventBatchDeltaContext(ctx, batch, event.Field, ok, issues, false)")
+	rejectedSinkAt := strings.Index(directLoop, "sink.commitProfilerEventDeltaContext(ctx, pairDelta)")
+	rejectedCommitAt := strings.Index(directLoop, "batchDelta.commit()")
+	emittedStageAt := strings.Index(directLoop, "stageProfilerFtraceEventBatchDeltaContext(ctx, batch, event.Field, ok, issues, true)")
+	emittedSinkAt := strings.Index(directLoop, "sink.addProfilerEventContext(ctx, row, pairDelta)")
+	emittedCommitRel := strings.Index(directLoop[emittedSinkAt:], "batchDelta.commit()")
+	if rejectedStageAt < 0 || rejectedSinkAt <= rejectedStageAt || rejectedCommitAt <= rejectedSinkAt ||
+		emittedStageAt <= rejectedCommitAt || emittedSinkAt <= emittedStageAt || emittedCommitRel < 0 {
+		t.Fatalf("structured event prospective/commit order drifted: rejected_stage=%d sink=%d commit=%d emitted_stage=%d sink=%d commit_rel=%d",
+			rejectedStageAt, rejectedSinkAt, rejectedCommitAt, emittedStageAt, emittedSinkAt, emittedCommitRel)
 	}
 	for _, file := range []string{"profiler_ftrace_authority.go", "profiler_ftrace_render.go"} {
 		source := mustReadRendererSource(t, file)

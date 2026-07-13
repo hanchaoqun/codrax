@@ -1390,10 +1390,12 @@ func TestTraceDBRowSorterStructureForbidsFullCohortAndAllRunReaderAllocation(t *
 		return found
 	}
 	allowedLineConsumers := map[string]bool{
-		"traceDBSinglePhysicalLine": true,
-		"Clone":                     true,
-		"len":                       true,
-		"WriteString":               true,
+		"traceDBSinglePhysicalLine":               true,
+		"profilerSinglePhysicalLineStringContext": true,
+		"profilerCloneStringContext":              true,
+		"Clone":                                   true,
+		"len":                                     true,
+		"WriteString":                             true,
 	}
 	ast.Inspect(parsed, func(node ast.Node) bool {
 		call, ok := node.(*ast.CallExpr)

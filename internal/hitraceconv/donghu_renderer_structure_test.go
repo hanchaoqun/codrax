@@ -23,8 +23,9 @@ func TestDonghuRendererStructurePinsSingleAuthorities(t *testing.T) {
 			t.Fatalf("field2002 lost %q authority:\n%s", token, field2002)
 		}
 	}
-	generic := sourceBetween(t, profiler, "func renderProfilerFtraceGenericEventWithTypedAudit(", "func profilerFtraceEventRenderCoverage(")
-	if strings.Count(generic, "walkProtoFields(event.Payload") != 1 {
+	generic := sourceBetween(t, profiler, "func renderProfilerFtraceGenericEventWithTypedAuditContext(", "func profilerFtraceEventRenderCoverage(")
+	if strings.Count(generic, "walkProfilerProtoFieldsContext(ctx, event.Payload") != 1 ||
+		strings.Contains(generic, "walkProtoFields(event.Payload") {
 		t.Fatal("generic 410/2002/2417 producer must parse its payload exactly once")
 	}
 	for _, required := range []string{
@@ -52,24 +53,30 @@ func TestDonghuRendererStructurePinsSingleAuthorities(t *testing.T) {
 	if strings.Contains(profiler, "page=0x0") {
 		t.Fatal("profiler renderer must not contain a fabricated page pointer literal")
 	}
+	consumer := sourceBetween(t, profiler, "func renderProfilerFtraceStructuredResultConsumerContext(", "func safeProfilerBlockedCaller(")
 	for _, token := range []string{
-		"renderProfilerFtraceEventBodyWithTypedAuditAndPair(event)",
+		"renderProfilerFtraceEventBodyWithTypedAuditAndPairContext(ctx, event)",
 		"profilerFtraceEventIssueLabels(event.Field, issues)",
 		"degradationsByField",
 		"degraded_",
 		"traceDBCountSummary(counts)",
 	} {
-		if !strings.Contains(profiler, token) {
+		if !strings.Contains(consumer, token) {
 			t.Fatalf("profiler coverage/audit path lost %q", token)
 		}
+	}
+	if strings.Contains(consumer, "renderProfilerFtraceEventBodyWithTypedAuditAndPair(event)") {
+		t.Fatal("structured production consumer bypassed the Context typed authority")
 	}
 
 	if strings.Count(render, "func formatHarmonySchedInfo(") != 1 {
 		t.Fatal("packed next_info must have exactly one text-format authority")
 	}
+	typed := sourceBetween(t, profiler, "func renderProfilerFtraceEventBodyWithTypedAuditAndPairContext(", "const profilerFtraceGenericIssuesPerEvent")
 	if strings.Count(filemap, "func renderCanonicalFilemapPayload(") != 1 ||
 		!strings.Contains(render, "decodeDirectFilemapPayload(ev)") ||
-		!strings.Contains(profiler, "renderProfilerFtraceFilemapEventWithTypedAudit(event)") ||
+		strings.Count(typed, "renderProfilerFtraceFilemapEventWithTypedAuditContext(ctx, event)") != 1 ||
+		strings.Contains(typed, "renderProfilerFtraceFilemapEventWithTypedAudit(event)") ||
 		strings.Contains(render, `uniqueUintByCleanName(ev, "pg", "page")`) ||
 		strings.Contains(filemap, "page=0x0") {
 		t.Fatal("direct/profiler page-cache output must share one typed formatter without page-pointer fallback")

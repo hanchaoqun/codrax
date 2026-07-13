@@ -1,9 +1,13 @@
 package hitraceconv
 
 import (
+	"context"
+	"errors"
 	"math"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 type profilerCoreProtoField struct {
@@ -120,51 +124,77 @@ func (set *profilerFtraceCoreIssueSet) checked(eventField int) ([]profilerFtrace
 	return append([]profilerFtraceEventIssue(nil), set.Issues[:int(set.Count)]...), nil
 }
 
+// decodeProfilerCorePayloadWithTypedAudit is the Background compatibility
+// adapter. The Context variant below is the sole structured-core parser.
 func decodeProfilerCorePayloadWithTypedAudit(event profilerFtraceEventRecord) (
 	coreRenderPayload, bodyAdmission, profilerFtraceCoreIssueSet, bool, error,
 ) {
+	return decodeProfilerCorePayloadWithTypedAuditContext(context.Background(), event)
+}
+
+// decodeProfilerCorePayloadWithTypedAuditContext observes every governed
+// endpoint in one cancellable wire walk and publishes issues only afterward.
+func decodeProfilerCorePayloadWithTypedAuditContext(ctx context.Context, event profilerFtraceEventRecord) (
+	coreRenderPayload, bodyAdmission, profilerFtraceCoreIssueSet, bool, error,
+) {
 	schema, governed := profilerStructuredCoreSchemas[event.Field]
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return coreRenderPayload{}, bodyUnsupported, profilerFtraceCoreIssueSet{}, governed, err
+	}
 	if !governed {
 		return coreRenderPayload{}, bodyUnsupported, profilerFtraceCoreIssueSet{}, false, nil
 	}
 	rejectFixed := func(kind profilerFtraceEventIssueKind) (
 		coreRenderPayload, bodyAdmission, profilerFtraceCoreIssueSet, bool, error,
 	) {
+		if err := ctx.Err(); err != nil {
+			return coreRenderPayload{}, bodyUnsupported, profilerFtraceCoreIssueSet{}, true, err
+		}
 		var set profilerFtraceCoreIssueSet
-		err := set.addFixed(event.Field, kind)
-		return coreRenderPayload{}, bodyRejected, set, true, err
+		if err := set.addFixed(event.Field, kind); err != nil {
+			return coreRenderPayload{}, bodyUnsupported, profilerFtraceCoreIssueSet{}, true, err
+		}
+		return coreRenderPayload{}, bodyRejected, set, true, nil
 	}
 	rejectPayload := func(kind profilerFtraceEventIssueKind, payloadField int) (
 		coreRenderPayload, bodyAdmission, profilerFtraceCoreIssueSet, bool, error,
 	) {
+		if err := ctx.Err(); err != nil {
+			return coreRenderPayload{}, bodyUnsupported, profilerFtraceCoreIssueSet{}, true, err
+		}
 		var set profilerFtraceCoreIssueSet
-		err := set.addPayload(event.Field, kind, payloadField)
-		return coreRenderPayload{}, bodyRejected, set, true, err
+		if err := set.addPayload(event.Field, kind, payloadField); err != nil {
+			return coreRenderPayload{}, bodyUnsupported, profilerFtraceCoreIssueSet{}, true, err
+		}
+		return coreRenderPayload{}, bodyRejected, set, true, nil
 	}
 
 	descriptor, ok := profilerFtraceEventDescriptors[event.Field]
 	if !ok {
-		return coreRenderPayload{}, bodyRejected, profilerFtraceCoreIssueSet{}, true,
+		return coreRenderPayload{}, bodyUnsupported, profilerFtraceCoreIssueSet{}, true,
 			&traceDBOutputInvariantError{Reason: "missing_core_descriptor"}
 	}
 	if descriptor.Field != event.Field {
-		return coreRenderPayload{}, bodyRejected, profilerFtraceCoreIssueSet{}, true,
+		return coreRenderPayload{}, bodyUnsupported, profilerFtraceCoreIssueSet{}, true,
 			&traceDBOutputInvariantError{Reason: "mismatched_core_descriptor_field"}
 	}
 	kind, ok := coreRenderKindForName(descriptor.Name)
 	if !ok {
-		return coreRenderPayload{}, bodyRejected, profilerFtraceCoreIssueSet{}, true,
+		return coreRenderPayload{}, bodyUnsupported, profilerFtraceCoreIssueSet{}, true,
 			&traceDBOutputInvariantError{Reason: "invalid_core_descriptor_name"}
 	}
 	for payloadField, expectedWire := range schema {
 		if payloadField < 1 || payloadField > 7 || (expectedWire != 0 && expectedWire != 2) {
-			return coreRenderPayload{}, bodyRejected, profilerFtraceCoreIssueSet{}, true,
+			return coreRenderPayload{}, bodyUnsupported, profilerFtraceCoreIssueSet{}, true,
 				&traceDBOutputInvariantError{Reason: "profiler_core_schema_invalid"}
 		}
 	}
 
 	var fields [8]profilerCoreProtoField
-	if err := walkProtoFields(event.Payload, func(payloadField int, wire int, raw []byte, value uint64) error {
+	if err := walkProfilerProtoFieldsContext(ctx, event.Payload, func(payloadField int, wire int, raw []byte, value uint64) error {
 		expectedWire, known := schema[payloadField]
 		if !known {
 			return nil
@@ -184,6 +214,12 @@ func decodeProfilerCorePayloadWithTypedAudit(event profilerFtraceEventRecord) (
 		}
 		return nil
 	}); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return coreRenderPayload{}, bodyUnsupported, profilerFtraceCoreIssueSet{}, true, err
+		}
+		if _, invariant := traceDBOutputInvariantReason(err); invariant {
+			return coreRenderPayload{}, bodyUnsupported, profilerFtraceCoreIssueSet{}, true, err
+		}
 		return rejectFixed(profilerFtraceEventIssueCorePayloadMalformedWire)
 	}
 	for field := 1; field <= 7; field++ {
@@ -239,14 +275,20 @@ func decodeProfilerCorePayloadWithTypedAudit(event profilerFtraceEventRecord) (
 		}
 		payload.Binder = &coreBinderPayload{Transaction: transaction, Received: true}
 	case 1400, 1401:
-		reason, valid := profilerCoreString(fields[1])
-		if !valid || !validCoreIPIReason(reason) {
+		reason, valid, stringErr := profilerCoreReasonContext(ctx, fields[1])
+		if stringErr != nil {
+			return coreRenderPayload{}, bodyUnsupported, profilerFtraceCoreIssueSet{}, true, stringErr
+		}
+		if !valid {
 			return rejectFixed(profilerFtraceEventIssueCoreMissingOrInvalidReason)
 		}
 		payload.Interrupt = &coreInterruptPayload{Reason: reason}
 	case 1402:
-		reason, valid := profilerCoreString(fields[2])
-		if !valid || !validCoreIPIReason(reason) {
+		reason, valid, stringErr := profilerCoreReasonContext(ctx, fields[2])
+		if stringErr != nil {
+			return coreRenderPayload{}, bodyUnsupported, profilerFtraceCoreIssueSet{}, true, stringErr
+		}
+		if !valid {
 			return rejectFixed(profilerFtraceEventIssueCoreMissingOrInvalidReason)
 		}
 		payload.Interrupt = &coreInterruptPayload{TargetMask: profilerCoreUint64(fields[1]), Reason: reason}
@@ -255,8 +297,11 @@ func decodeProfilerCorePayloadWithTypedAudit(event profilerFtraceEventRecord) (
 		if !valid || irq < 0 {
 			return rejectFixed(profilerFtraceEventIssueCoreMissingOrInvalidIRQ)
 		}
-		name, valid := profilerCoreString(fields[2])
-		if !valid || !traceDBSingleToken(name) {
+		name, valid, stringErr := profilerCoreTokenStringContext(ctx, fields[2])
+		if stringErr != nil {
+			return coreRenderPayload{}, bodyUnsupported, profilerFtraceCoreIssueSet{}, true, stringErr
+		}
+		if !valid {
 			return rejectFixed(profilerFtraceEventIssueCoreMissingOrInvalidIRQName)
 		}
 		payload.Interrupt = &coreInterruptPayload{IRQ: irq, IRQName: name}
@@ -301,14 +346,14 @@ func decodeProfilerCorePayloadWithTypedAudit(event profilerFtraceEventRecord) (
 		}
 		payload.CPU = &coreCPUPayload{Min: minFreq, Max: maxFreq, CPUID: cpuID, IsLimits: true}
 	case 2420, 2421, 2422:
-		comm, issueKind, issuePresent := profilerCoreDisplayComm(fields[1])
+		comm, issueKind, issuePresent, displayErr := profilerCoreDisplayCommContext(ctx, fields[1])
+		if displayErr != nil {
+			return coreRenderPayload{}, bodyUnsupported, profilerFtraceCoreIssueSet{}, true, displayErr
+		}
 		switch {
 		case issuePresent:
-		case comm == "" || comm != strings.TrimSpace(comm) ||
-			!traceDBSinglePhysicalLine(comm, false) || strings.ContainsAny(comm, "=|"):
+		case comm == "":
 			issueKind, issuePresent = profilerFtraceEventIssueCoreDisplayCommUnavailable, true
-		case len(comm) > maxProfilerWakeCommBytes:
-			issueKind, issuePresent = profilerFtraceEventIssueCoreDisplayCommOutOfProfile, true
 		}
 		if issuePresent {
 			comm = "<...>"
@@ -343,7 +388,10 @@ func decodeProfilerCorePayloadWithTypedAudit(event profilerFtraceEventRecord) (
 			return rejectFixed(profilerFtraceEventIssueCoreMissingOrInvalidIOWait)
 		}
 		blocked := coreBlockedPayload{PID: pid, CallerRaw: profilerCoreUint64(fields[2]), IOWait: ioWait}
-		caller, issueKind, issuePresent := profilerCoreDisplayCaller(fields[4])
+		caller, issueKind, issuePresent, displayErr := profilerCoreDisplayCallerContext(ctx, fields[4])
+		if displayErr != nil {
+			return coreRenderPayload{}, bodyUnsupported, profilerFtraceCoreIssueSet{}, true, displayErr
+		}
 		if caller != "" {
 			if safe, symbolized := safeProfilerStructuredBlockedCaller(caller); symbolized {
 				blocked.Caller, blocked.CallerSymbolized = safe, true
@@ -354,16 +402,22 @@ func decodeProfilerCorePayloadWithTypedAudit(event profilerFtraceEventRecord) (
 		if issuePresent {
 			displayKind, displayPresent = issueKind, true
 		}
+		if err := ctx.Err(); err != nil {
+			return coreRenderPayload{}, bodyUnsupported, profilerFtraceCoreIssueSet{}, true, err
+		}
 		payload.Blocked = &blocked
 	default:
-		return coreRenderPayload{}, bodyRejected, profilerFtraceCoreIssueSet{}, true,
+		return coreRenderPayload{}, bodyUnsupported, profilerFtraceCoreIssueSet{}, true,
 			&traceDBOutputInvariantError{Reason: "unhandled_core_descriptor"}
 	}
 	var set profilerFtraceCoreIssueSet
 	if displayPresent {
 		if err := set.addFixed(event.Field, displayKind); err != nil {
-			return coreRenderPayload{}, bodyRejected, profilerFtraceCoreIssueSet{}, true, err
+			return coreRenderPayload{}, bodyUnsupported, profilerFtraceCoreIssueSet{}, true, err
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return coreRenderPayload{}, bodyUnsupported, profilerFtraceCoreIssueSet{}, true, err
 	}
 	return payload, bodyAdmitted, set, true, nil
 }
@@ -400,49 +454,149 @@ func decodeProfilerCorePayload(event profilerFtraceEventRecord) (coreRenderPaylo
 }
 
 func profilerCoreDisplayComm(field profilerCoreProtoField) (string, profilerFtraceEventIssueKind, bool) {
+	value, kind, present, _ := profilerCoreDisplayCommContext(context.Background(), field)
+	return value, kind, present
+}
+
+func profilerCoreDisplayCommContext(ctx context.Context, field profilerCoreProtoField) (
+	string, profilerFtraceEventIssueKind, bool, error,
+) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", profilerFtraceEventIssueKindCount, false, err
+	}
 	switch {
 	case field.wrongWire:
-		return "", profilerFtraceEventIssueCoreDisplayCommWrongWire, true
+		return "", profilerFtraceEventIssueCoreDisplayCommWrongWire, true, nil
 	case field.count > 1:
-		return "", profilerFtraceEventIssueCoreDisplayCommDuplicate, true
+		return "", profilerFtraceEventIssueCoreDisplayCommDuplicate, true, nil
 	case field.count == 0:
-		return "", profilerFtraceEventIssueKindCount, false
+		return "", profilerFtraceEventIssueKindCount, false, nil
 	}
-	value := string(field.bytesValue)
-	if !traceDBSinglePhysicalLine(value, true) {
-		return "", profilerFtraceEventIssueCoreDisplayCommInvalid, true
+	valid, err := profilerSinglePhysicalLineBytesContext(ctx, field.bytesValue, true)
+	if err != nil {
+		return "", profilerFtraceEventIssueKindCount, false, err
 	}
-	return value, profilerFtraceEventIssueKindCount, false
+	if !valid {
+		return "", profilerFtraceEventIssueCoreDisplayCommInvalid, true, nil
+	}
+	available, err := profilerCoreWakeCommBytesValidContext(ctx, field.bytesValue)
+	if err != nil {
+		return "", profilerFtraceEventIssueKindCount, false, err
+	}
+	if !available {
+		return "", profilerFtraceEventIssueCoreDisplayCommUnavailable, true, nil
+	}
+	if len(field.bytesValue) > maxProfilerWakeCommBytes {
+		return "", profilerFtraceEventIssueCoreDisplayCommOutOfProfile, true, nil
+	}
+	value, err := profilerCloneBytesStringContext(ctx, field.bytesValue)
+	if err != nil {
+		return "", profilerFtraceEventIssueKindCount, false, err
+	}
+	return value, profilerFtraceEventIssueKindCount, false, nil
 }
 
 func profilerCoreDisplayCaller(field profilerCoreProtoField) (string, profilerFtraceEventIssueKind, bool) {
-	switch {
-	case field.wrongWire:
-		return "", profilerFtraceEventIssueCoreDisplayCallerStrWrongWire, true
-	case field.count > 1:
-		return "", profilerFtraceEventIssueCoreDisplayCallerStrDuplicate, true
-	case field.count == 0:
-		return "", profilerFtraceEventIssueKindCount, false
-	}
-	value := string(field.bytesValue)
-	if !traceDBSinglePhysicalLine(value, true) {
-		return "", profilerFtraceEventIssueCoreDisplayCallerStrInvalid, true
-	}
-	return value, profilerFtraceEventIssueKindCount, false
+	value, kind, present, _ := profilerCoreDisplayCallerContext(context.Background(), field)
+	return value, kind, present
 }
 
-// renderProfilerFtraceCoreEventWithTypedAudit is the single structured-core
-// parse/render authority shared by the typed production path and the direct
-// compatibility adapter. Internal renderer/schema failures remain typed
-// invariants; only source-reachable payload and line failures become issues.
+func profilerCoreDisplayCallerContext(ctx context.Context, field profilerCoreProtoField) (
+	string, profilerFtraceEventIssueKind, bool, error,
+) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", profilerFtraceEventIssueKindCount, false, err
+	}
+	switch {
+	case field.wrongWire:
+		return "", profilerFtraceEventIssueCoreDisplayCallerStrWrongWire, true, nil
+	case field.count > 1:
+		return "", profilerFtraceEventIssueCoreDisplayCallerStrDuplicate, true, nil
+	case field.count == 0:
+		return "", profilerFtraceEventIssueKindCount, false, nil
+	}
+	valid, err := profilerSinglePhysicalLineBytesContext(ctx, field.bytesValue, true)
+	if err != nil {
+		return "", profilerFtraceEventIssueKindCount, false, err
+	}
+	if !valid {
+		return "", profilerFtraceEventIssueCoreDisplayCallerStrInvalid, true, nil
+	}
+	if len(field.bytesValue) > 512 {
+		return "", profilerFtraceEventIssueCoreDisplayCallerStrInvalid, true, nil
+	}
+	value, err := profilerCloneBytesStringContext(ctx, field.bytesValue)
+	if err != nil {
+		return "", profilerFtraceEventIssueKindCount, false, err
+	}
+	return value, profilerFtraceEventIssueKindCount, false, nil
+}
+
+func profilerCoreWakeCommBytesValidContext(ctx context.Context, raw []byte) (bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if len(raw) == 0 {
+		return false, nil
+	}
+	first, firstWidth := utf8.DecodeRune(raw)
+	last, lastWidth := utf8.DecodeLastRune(raw)
+	if firstWidth <= 0 || lastWidth <= 0 {
+		return false, &traceDBOutputInvariantError{Reason: "profiler_core_comm_rune_width_invalid"}
+	}
+	if unicode.IsSpace(first) || unicode.IsSpace(last) {
+		return false, nil
+	}
+	processed := uint64(0)
+	for start := 0; start < len(raw); {
+		end := min(start+profilerContextByteCheckpointBytes, len(raw))
+		if err := profilerByteContextCheckpoint(ctx, &processed, uint64(end-start)); err != nil {
+			return false, err
+		}
+		for _, value := range raw[start:end] {
+			if value == '=' || value == '|' {
+				return false, nil
+			}
+		}
+		start = end
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// renderProfilerFtraceCoreEventWithTypedAudit is the Background compatibility
+// adapter over the Context parse/render authority below.
 func renderProfilerFtraceCoreEventWithTypedAudit(event profilerFtraceEventRecord) (
 	name, body string, ok bool, issues []profilerFtraceEventIssue, handled bool, err error,
 ) {
-	payload, admission, set, handled, err := decodeProfilerCorePayloadWithTypedAudit(event)
+	return renderProfilerFtraceCoreEventWithTypedAuditContext(context.Background(), event)
+}
+
+func renderProfilerFtraceCoreEventWithTypedAuditContext(ctx context.Context, event profilerFtraceEventRecord) (
+	name, body string, ok bool, issues []profilerFtraceEventIssue, handled bool, err error,
+) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	payload, admission, set, handled, err := decodeProfilerCorePayloadWithTypedAuditContext(ctx, event)
 	if !handled || err != nil {
 		return "", "", false, nil, handled, err
 	}
-	name, body, ok, issues, err = finalizeProfilerFtraceCoreEventWithTypedAudit(event, payload, admission, set)
+	name, body, ok, issues, err = finalizeProfilerFtraceCoreEventWithTypedAuditContext(ctx, event, payload, admission, set)
+	if err != nil {
+		return "", "", false, nil, true, err
+	}
 	return name, body, ok, issues, true, err
 }
 
@@ -452,6 +606,27 @@ func finalizeProfilerFtraceCoreEventWithTypedAudit(
 	admission bodyAdmission,
 	set profilerFtraceCoreIssueSet,
 ) (name, body string, ok bool, issues []profilerFtraceEventIssue, err error) {
+	return finalizeProfilerFtraceCoreEventWithTypedAuditContext(
+		context.Background(), event, payload, admission, set,
+	)
+}
+
+// finalizeProfilerFtraceCoreEventWithTypedAuditContext is the sole
+// structured-core finalizer. Internal renderer/schema failures remain typed
+// invariants; only source-reachable payload and line failures become issues.
+func finalizeProfilerFtraceCoreEventWithTypedAuditContext(
+	ctx context.Context,
+	event profilerFtraceEventRecord,
+	payload coreRenderPayload,
+	admission bodyAdmission,
+	set profilerFtraceCoreIssueSet,
+) (name, body string, ok bool, issues []profilerFtraceEventIssue, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", "", false, nil, err
+	}
 	// Typed-set corruption must dominate every source verdict, including a
 	// simultaneous canonical-line failure. Validate before rendering anything.
 	issues, err = set.checked(event.Field)
@@ -465,6 +640,9 @@ func finalizeProfilerFtraceCoreEventWithTypedAudit(
 			return "", "", false, nil,
 				&traceDBOutputInvariantError{Reason: "profiler_core_rejected_verdict_invalid"}
 		}
+		if err := ctx.Err(); err != nil {
+			return "", "", false, nil, err
+		}
 		return "", "", false, issues, nil
 	case bodyAdmitted:
 		if len(issues) > 0 && issues[0].Severity != profilerFtraceEventIssueAdmittedDisplay {
@@ -472,17 +650,30 @@ func finalizeProfilerFtraceCoreEventWithTypedAudit(
 				&traceDBOutputInvariantError{Reason: "profiler_core_admitted_verdict_invalid"}
 		}
 		body, rendered := renderCanonicalCorePayload(payload)
+		if err := ctx.Err(); err != nil {
+			return "", "", false, nil, err
+		}
 		if !rendered {
 			return "", "", false, nil,
 				&traceDBOutputInvariantError{Reason: "invalid_canonical_core_payload"}
 		}
-		if !profilerCanonicalLineValid(event, payload.Name, body) {
+		canonicalValid, canonicalErr := profilerCanonicalLineValidContext(ctx, event, payload.Name, body)
+		if canonicalErr != nil {
+			return "", "", false, nil, canonicalErr
+		}
+		if !canonicalValid {
+			if err := ctx.Err(); err != nil {
+				return "", "", false, nil, err
+			}
 			var canonical profilerFtraceCoreIssueSet
 			if err := canonical.addFixed(event.Field, profilerFtraceEventIssueCoreInvalidCanonicalLine); err != nil {
 				return "", "", false, nil, err
 			}
 			issues, err = canonical.checked(event.Field)
 			return "", "", false, issues, err
+		}
+		if err := ctx.Err(); err != nil {
+			return "", "", false, nil, err
 		}
 		return payload.Name, body, true, issues, nil
 	default:
@@ -512,14 +703,120 @@ func profilerCoreUint64(field profilerCoreProtoField) uint64 {
 }
 
 func profilerCoreString(field profilerCoreProtoField) (string, bool) {
+	value, valid, _ := profilerCoreStringContext(context.Background(), field)
+	return value, valid
+}
+
+func profilerCoreStringContext(ctx context.Context, field profilerCoreProtoField) (string, bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", false, err
+	}
 	if field.count == 0 {
-		return "", true
+		return "", true, nil
 	}
 	if field.wrongWire || field.count > 1 {
-		return "", false
+		return "", false, nil
 	}
-	value := string(field.bytesValue)
-	return value, traceDBSinglePhysicalLine(value, true)
+	valid, err := profilerSinglePhysicalLineBytesContext(ctx, field.bytesValue, true)
+	if err != nil || !valid {
+		return "", false, err
+	}
+	value, err := profilerCloneBytesStringContext(ctx, field.bytesValue)
+	if err != nil {
+		return "", false, err
+	}
+	return value, true, nil
+}
+
+func profilerCoreReasonContext(ctx context.Context, field profilerCoreProtoField) (string, bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", false, err
+	}
+	if field.count == 0 || field.wrongWire || field.count > 1 {
+		return "", false, nil
+	}
+	physical, err := profilerSinglePhysicalLineBytesContext(ctx, field.bytesValue, true)
+	if err != nil || !physical {
+		return "", false, err
+	}
+	valid, err := validProfilerCoreIPIReasonBytesContext(ctx, field.bytesValue)
+	if err != nil || !valid {
+		return "", false, err
+	}
+	value, err := profilerCloneBytesStringContext(ctx, field.bytesValue)
+	if err != nil {
+		return "", false, err
+	}
+	return value, true, nil
+}
+
+func profilerCoreTokenStringContext(ctx context.Context, field profilerCoreProtoField) (string, bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", false, err
+	}
+	if field.count == 0 || field.wrongWire || field.count > 1 {
+		return "", false, nil
+	}
+	valid, err := profilerSingleTokenBytesContext(ctx, field.bytesValue)
+	if err != nil || !valid {
+		return "", false, err
+	}
+	value, err := profilerCloneBytesStringContext(ctx, field.bytesValue)
+	if err != nil {
+		return "", false, err
+	}
+	return value, true, nil
+}
+
+func validProfilerCoreIPIReasonBytesContext(ctx context.Context, raw []byte) (bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if len(raw) == 0 {
+		return false, nil
+	}
+	first, firstWidth := utf8.DecodeRune(raw)
+	last, lastWidth := utf8.DecodeLastRune(raw)
+	if firstWidth <= 0 || lastWidth <= 0 {
+		return false, &traceDBOutputInvariantError{Reason: "profiler_core_reason_rune_width_invalid"}
+	}
+	if unicode.IsSpace(first) || unicode.IsSpace(last) {
+		return false, nil
+	}
+	nextCheckpoint := profilerContextByteCheckpointBytes
+	for offset := 0; offset < len(raw); {
+		if offset >= nextCheckpoint {
+			if err := ctx.Err(); err != nil {
+				return false, err
+			}
+			nextCheckpoint = (offset/profilerContextByteCheckpointBytes + 1) * profilerContextByteCheckpointBytes
+		}
+		r, width := utf8.DecodeRune(raw[offset:])
+		if width <= 0 || width > len(raw)-offset {
+			return false, &traceDBOutputInvariantError{Reason: "profiler_core_reason_rune_width_invalid"}
+		}
+		offset += width
+		switch r {
+		case '\\', '"', '(', ')', '=', '|':
+			return false, nil
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // safeProfilerStructuredBlockedCaller admits only the exact caller_str shape
@@ -571,13 +868,6 @@ func profilerCoreCanonicalLowerHex(value string) bool {
 // display string or oversized canonical body from turning one source event
 // into a conversion-wide invariant error.
 func profilerCanonicalLineValid(event profilerFtraceEventRecord, name, body string) bool {
-	if event.TSNS > math.MaxInt64 {
-		return false
-	}
-	task := firstNonEmpty(event.Comm, "unknown")
-	_, err := prepareTraceDBRenderedRowWithTraceFlags(
-		int64(event.TSNS), 0, task, event.PID, event.TGID, event.CPU,
-		event.CommonFlags, event.CommonPreemptCount, name+": "+body,
-	)
-	return err == nil
+	valid, _ := profilerCanonicalLineValidContext(context.Background(), event, name, body)
+	return valid
 }

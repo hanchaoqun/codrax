@@ -19,6 +19,7 @@ func TestBlockRendererUsesOneTypedAuthorityWithoutDefaultFallbacks(t *testing.T)
 		"func decodeDirectBlockPayloadDecision(",
 		"func decodeProfilerBlockPayloadWithTypedAudit(",
 		"func decodeProfilerBlockPayloadWithTypedAuditInto(",
+		"func decodeProfilerBlockPayloadWithTypedAuditIntoContext(",
 		"func renderProfilerFtraceBlockEventWithTypedAudit(",
 		"func decodeTraceDBBlockPayload(",
 	} {
@@ -26,7 +27,8 @@ func TestBlockRendererUsesOneTypedAuthorityWithoutDefaultFallbacks(t *testing.T)
 			t.Fatalf("block single authority lost %q", token)
 		}
 	}
-	if strings.Count(block, "walkProtoFields(event.Payload") != 1 ||
+	if strings.Count(block, "walkProfilerProtoFieldsContext(ctx, event.Payload") != 1 ||
+		strings.Contains(block, "walkProtoFields(event.Payload") ||
 		!strings.Contains(block, "var fields [8]profilerFtraceBlockFieldState") ||
 		!strings.Contains(block, "Issues [profilerFtraceBlockIssuesPerEvent]profilerFtraceEventIssue") {
 		t.Fatal("structured block fields no longer flow through one fixed-state typed audit")
@@ -35,8 +37,8 @@ func TestBlockRendererUsesOneTypedAuthorityWithoutDefaultFallbacks(t *testing.T)
 		strings.Count(render, "block := decodeDirectBlockPayloadDecision(ev, content)") != 1 ||
 		!strings.Contains(render, "newDirectBlockLineAudit(ev, blockDecision)") ||
 		!strings.Contains(render, "renderCanonicalBlockPayload(block.Payload)") ||
-		strings.Count(profiler, "decodeProfilerBlockPayloadWithTypedAuditInto(event, &pair)") != 1 ||
-		strings.Count(profiler, "finalizeProfilerFtraceBlockEventWithTypedAudit(event, blockPayload, blockAdmission, blockIssues)") != 1 ||
+		strings.Count(profiler, "decodeProfilerBlockPayloadWithTypedAuditIntoContext(ctx, event, &pair)") != 1 ||
+		strings.Count(profiler, "finalizeProfilerFtraceBlockEventWithTypedAuditContext(ctx, event, blockPayload, blockAdmission, blockIssues)") != 1 ||
 		!strings.Contains(streamer, "return renderTraceDBBlockEvent(name, args, invalidKeys)") {
 		t.Fatal("a direct, structured, or SQL block lane bypasses the shared typed authority")
 	}

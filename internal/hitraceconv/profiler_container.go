@@ -2037,6 +2037,11 @@ func consumeProfilerFtraceCPUDetailAuthorityContext(ctx context.Context, authori
 		return nil
 	}
 	return visitProfilerFtraceCPUDetailEvents(ctx, authority, func(record profilerFtraceEventRecord) error {
+		if ctx != nil {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
 		if detail != nil {
 			if err := detail.observeSummaryEvent(record); err != nil {
 				return err

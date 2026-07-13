@@ -1,6 +1,7 @@
 package hitraceconv
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -493,33 +494,50 @@ func profilerFilemapIssueKindForField(payloadField int) (profilerFtraceEventIssu
 	}
 }
 
-// decodeProfilerFilemapPayloadWithTypedAudit is the single structured
-// filemap parser. All five scalar endpoints are observed in one wire walk;
-// diagnostics are selected afterward in schema order, independent of source
-// order. A malformed known endpoint remains local, while a malformed key or
-// unknown endpoint rejects the whole payload because no hard field identity
-// can be proven for it.
+// decodeProfilerFilemapPayloadWithTypedAudit is the Background compatibility
+// adapter over the Context parser below.
 func decodeProfilerFilemapPayloadWithTypedAudit(event profilerFtraceEventRecord) (
 	filemapRenderPayload, bodyAdmission, profilerFtraceFilemapIssueSet, bool, error,
 ) {
-	if _, _, governed := profilerFilemapExpectedDescriptor(event.Field); !governed {
+	return decodeProfilerFilemapPayloadWithTypedAuditContext(context.Background(), event)
+}
+
+// decodeProfilerFilemapPayloadWithTypedAuditContext observes all five scalar
+// endpoints in one cancellable wire walk. Diagnostics are selected afterward
+// in schema order; an ordinary malformed endpoint remains source-local.
+func decodeProfilerFilemapPayloadWithTypedAuditContext(ctx context.Context, event profilerFtraceEventRecord) (
+	filemapRenderPayload, bodyAdmission, profilerFtraceFilemapIssueSet, bool, error,
+) {
+	_, _, governed := profilerFilemapExpectedDescriptor(event.Field)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return filemapRenderPayload{}, bodyUnsupported, profilerFtraceFilemapIssueSet{}, governed, err
+	}
+	if !governed {
 		return filemapRenderPayload{}, bodyUnsupported, profilerFtraceFilemapIssueSet{}, false, nil
 	}
 	descriptor, present := profilerFtraceEventDescriptors[event.Field]
 	name, kind, descriptorErr := validateProfilerFilemapDescriptor(event.Field, descriptor, present)
 	if descriptorErr != nil {
-		return filemapRenderPayload{}, bodyRejected, profilerFtraceFilemapIssueSet{}, true, descriptorErr
+		return filemapRenderPayload{}, bodyUnsupported, profilerFtraceFilemapIssueSet{}, true, descriptorErr
 	}
 	reject := func(issueKind profilerFtraceEventIssueKind) (
 		filemapRenderPayload, bodyAdmission, profilerFtraceFilemapIssueSet, bool, error,
 	) {
+		if err := ctx.Err(); err != nil {
+			return filemapRenderPayload{}, bodyUnsupported, profilerFtraceFilemapIssueSet{}, true, err
+		}
 		var set profilerFtraceFilemapIssueSet
-		err := set.addFixed(event.Field, issueKind)
-		return filemapRenderPayload{}, bodyRejected, set, true, err
+		if err := set.addFixed(event.Field, issueKind); err != nil {
+			return filemapRenderPayload{}, bodyUnsupported, profilerFtraceFilemapIssueSet{}, true, err
+		}
+		return filemapRenderPayload{}, bodyRejected, set, true, nil
 	}
 
 	var fields [6]profilerFilemapProtoField
-	walkErr := walkProtoFields(event.Payload, func(payloadField int, wire int, _ []byte, value uint64) error {
+	walkErr := walkProfilerProtoFieldsContext(ctx, event.Payload, func(payloadField int, wire int, _ []byte, value uint64) error {
 		if payloadField < 1 || payloadField > 5 {
 			return nil
 		}
@@ -535,9 +553,15 @@ func decodeProfilerFilemapPayloadWithTypedAudit(event profilerFtraceEventRecord)
 		return nil
 	})
 	if walkErr != nil {
+		if errors.Is(walkErr, context.Canceled) || errors.Is(walkErr, context.DeadlineExceeded) {
+			return filemapRenderPayload{}, bodyUnsupported, profilerFtraceFilemapIssueSet{}, true, walkErr
+		}
+		if _, invariant := traceDBOutputInvariantReason(walkErr); invariant {
+			return filemapRenderPayload{}, bodyUnsupported, profilerFtraceFilemapIssueSet{}, true, walkErr
+		}
 		var decodeErr *protoFieldDecodeError
 		if !errors.As(walkErr, &decodeErr) {
-			return filemapRenderPayload{}, bodyRejected, profilerFtraceFilemapIssueSet{}, true,
+			return filemapRenderPayload{}, bodyUnsupported, profilerFtraceFilemapIssueSet{}, true,
 				&traceDBOutputInvariantError{Reason: "profiler_filemap_wire_error_untyped"}
 		}
 		_, knownEndpoint := profilerFilemapIssueKindForField(decodeErr.Field)
@@ -585,21 +609,36 @@ func decodeProfilerFilemapPayloadWithTypedAudit(event profilerFtraceEventRecord)
 	if fields[5].Count == 1 {
 		payload.Order, payload.OrderPresent = uint8(fields[5].UintValue), true
 	}
+	if err := ctx.Err(); err != nil {
+		return filemapRenderPayload{}, bodyUnsupported, profilerFtraceFilemapIssueSet{}, true, err
+	}
 	return payload, bodyAdmitted, profilerFtraceFilemapIssueSet{}, true, nil
 }
 
-// renderProfilerFtraceFilemapEventWithTypedAudit is the single typed
-// parse/render authority for structured page-cache events. Canonical render
-// failures are internal invariants: every source-controlled value has already
-// been reduced to a bounded numeric payload.
+// renderProfilerFtraceFilemapEventWithTypedAudit is the Background
+// compatibility adapter over the Context parse/render authority below.
 func renderProfilerFtraceFilemapEventWithTypedAudit(event profilerFtraceEventRecord) (
 	name, body string, ok bool, issues []profilerFtraceEventIssue, handled bool, err error,
 ) {
-	payload, admission, set, handled, err := decodeProfilerFilemapPayloadWithTypedAudit(event)
+	return renderProfilerFtraceFilemapEventWithTypedAuditContext(context.Background(), event)
+}
+
+func renderProfilerFtraceFilemapEventWithTypedAuditContext(ctx context.Context, event profilerFtraceEventRecord) (
+	name, body string, ok bool, issues []profilerFtraceEventIssue, handled bool, err error,
+) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	payload, admission, set, handled, err := decodeProfilerFilemapPayloadWithTypedAuditContext(ctx, event)
 	if !handled || err != nil {
 		return "", "", false, nil, handled, err
 	}
-	name, body, ok, issues, err = finalizeProfilerFtraceFilemapEventWithTypedAudit(event, payload, admission, set)
+	name, body, ok, issues, err = finalizeProfilerFtraceFilemapEventWithTypedAuditContext(
+		ctx, event, payload, admission, set,
+	)
+	if err != nil {
+		return "", "", false, nil, true, err
+	}
 	return name, body, ok, issues, true, err
 }
 
@@ -609,6 +648,27 @@ func finalizeProfilerFtraceFilemapEventWithTypedAudit(
 	admission bodyAdmission,
 	set profilerFtraceFilemapIssueSet,
 ) (name, body string, ok bool, issues []profilerFtraceEventIssue, err error) {
+	return finalizeProfilerFtraceFilemapEventWithTypedAuditContext(
+		context.Background(), event, payload, admission, set,
+	)
+}
+
+// finalizeProfilerFtraceFilemapEventWithTypedAuditContext is the sole typed
+// page-cache finalizer. Canonical failures are internal invariants because all
+// source-controlled endpoints have already been reduced to bounded scalars.
+func finalizeProfilerFtraceFilemapEventWithTypedAuditContext(
+	ctx context.Context,
+	event profilerFtraceEventRecord,
+	payload filemapRenderPayload,
+	admission bodyAdmission,
+	set profilerFtraceFilemapIssueSet,
+) (name, body string, ok bool, issues []profilerFtraceEventIssue, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", "", false, nil, err
+	}
 	// Set corruption dominates source verdicts and canonical rendering.
 	issues, err = set.checked(event.Field)
 	if err != nil {
@@ -626,6 +686,9 @@ func finalizeProfilerFtraceFilemapEventWithTypedAudit(
 			return "", "", false, nil,
 				&traceDBOutputInvariantError{Reason: "profiler_filemap_rejected_verdict_invalid"}
 		}
+		if err := ctx.Err(); err != nil {
+			return "", "", false, nil, err
+		}
 		return "", "", false, issues, nil
 	case bodyAdmitted:
 		if len(issues) != 0 || payload.Name != expectedName || payload.Kind != expectedKind {
@@ -633,13 +696,26 @@ func finalizeProfilerFtraceFilemapEventWithTypedAudit(
 				&traceDBOutputInvariantError{Reason: "profiler_filemap_admitted_verdict_invalid"}
 		}
 		body, rendered := renderCanonicalFilemapPayload(payload)
+		if err := ctx.Err(); err != nil {
+			return "", "", false, nil, err
+		}
 		if !rendered {
 			return "", "", false, nil,
 				&traceDBOutputInvariantError{Reason: "invalid_canonical_filemap_payload"}
 		}
-		if !profilerCanonicalLineValid(event, payload.Name, body) {
+		canonicalValid, canonicalErr := profilerCanonicalLineValidContext(ctx, event, payload.Name, body)
+		if canonicalErr != nil {
+			return "", "", false, nil, canonicalErr
+		}
+		if !canonicalValid {
+			if err := ctx.Err(); err != nil {
+				return "", "", false, nil, err
+			}
 			return "", "", false, nil,
 				&traceDBOutputInvariantError{Reason: "invalid_canonical_filemap_line"}
+		}
+		if err := ctx.Err(); err != nil {
+			return "", "", false, nil, err
 		}
 		return payload.Name, body, true, nil, nil
 	default:

@@ -1,12 +1,14 @@
 package hitraceconv
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"math"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
@@ -726,7 +728,72 @@ type profilerFtraceBlockFieldState struct {
 	WrongWire   bool
 	Malformed   bool
 	UintValue   uint64
+	RawValue    []byte
 	StringValue string
+}
+
+// profilerBlockRWBSBytesContext applies the common byte-backed token gate
+// before the source-neutral block operation grammar. The protobuf view stays
+// byte-backed until the value is known to be safe for pair/render publication.
+func profilerBlockRWBSBytesContext(ctx context.Context, raw []byte) (bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	valid, err := profilerSingleTokenBytesContext(ctx, raw)
+	if err != nil || !valid || len(raw) > 32 {
+		return false, err
+	}
+	for _, value := range raw {
+		if (value < 'A' || value > 'Z') && (value < 'a' || value > 'z') {
+			return false, nil
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// profilerBlockDisplayBytesContext preserves the historical display omission
+// grammar without constructing a string for rejected evidence. The shared
+// physical-line scanner owns UTF-8/control/line and size validation; this
+// adapter adds exact strings.TrimSpace edge parity plus the formatter-specific
+// closing delimiter check.
+func profilerBlockDisplayBytesContext(ctx context.Context, raw []byte, forbidden byte) (bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	valid, err := profilerSinglePhysicalLineBytesContext(ctx, raw, true)
+	if err != nil || !valid {
+		return false, err
+	}
+	if len(raw) > 0 {
+		first, firstWidth := utf8.DecodeRune(raw)
+		last, lastWidth := utf8.DecodeLastRune(raw)
+		if firstWidth <= 0 || lastWidth <= 0 {
+			return false, &traceDBOutputInvariantError{Reason: "profiler_block_display_rune_width_invalid"}
+		}
+		if unicode.IsSpace(first) || unicode.IsSpace(last) {
+			return false, nil
+		}
+	}
+	processed := uint64(0)
+	for start := 0; start < len(raw); {
+		end := min(start+profilerContextByteCheckpointBytes, len(raw))
+		if err := profilerByteContextCheckpoint(ctx, &processed, uint64(end-start)); err != nil {
+			return false, err
+		}
+		for _, value := range raw[start:end] {
+			if value == forbidden {
+				return false, nil
+			}
+		}
+		start = end
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func profilerFtraceBlockFieldSchema(eventField, payloadField int) (profilerFtraceBlockFieldRole, int, bool) {
@@ -1009,15 +1076,50 @@ func profilerStructuredBlockPairAdmission(
 	return pair
 }
 
-// decodeProfilerBlockPayloadWithTypedAuditInto is the single structured block
-// payload authority. Every known endpoint is observed during one wire walk;
-// diagnostics and the optional pair sidecar are derived from that same walk.
-func decodeProfilerBlockPayloadWithTypedAuditInto(event profilerFtraceEventRecord, pairOut *profilerPairAdmission) (
-	blockRenderPayload, bodyAdmission, profilerFtraceBlockIssueSet, bool, error,
+// decodeProfilerBlockPayloadWithTypedAuditIntoContext is the single structured
+// block payload authority. Every known endpoint is observed during one bounded
+// wire walk; diagnostics and the optional pair sidecar are derived from that
+// same byte-backed state. pairOut is a prospective transaction: cancellation,
+// deadline and invariant errors preserve the caller's prior value, while one
+// ordinary source verdict publishes the complete sidecar exactly once.
+func decodeProfilerBlockPayloadWithTypedAuditIntoContext(
+	ctx context.Context,
+	event profilerFtraceEventRecord,
+	pairOut *profilerPairAdmission,
+) (
+	payloadResult blockRenderPayload,
+	admissionResult bodyAdmission,
+	setResult profilerFtraceBlockIssueSet,
+	handledResult bool,
+	errResult error,
 ) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	kind, canonicalName, governed := blockRenderKindForProfilerField(event.Field)
-	if pairOut != nil {
-		*pairOut = profilerStructuredBlockPairFamily(event.Field)
+	prospectivePair := profilerStructuredBlockPairFamily(event.Field)
+	defer func() {
+		if errResult != nil {
+			payloadResult = blockRenderPayload{}
+			admissionResult = bodyUnsupported
+			setResult = profilerFtraceBlockIssueSet{}
+			handledResult = governed
+			return
+		}
+		if err := ctx.Err(); err != nil {
+			payloadResult = blockRenderPayload{}
+			admissionResult = bodyUnsupported
+			setResult = profilerFtraceBlockIssueSet{}
+			handledResult = governed
+			errResult = err
+			return
+		}
+		if pairOut != nil {
+			*pairOut = prospectivePair
+		}
+	}()
+	if err := ctx.Err(); err != nil {
+		return blockRenderPayload{}, bodyUnsupported, profilerFtraceBlockIssueSet{}, governed, err
 	}
 	if !governed {
 		return blockRenderPayload{}, bodyUnsupported, profilerFtraceBlockIssueSet{}, false, nil
@@ -1053,7 +1155,7 @@ func decodeProfilerBlockPayloadWithTypedAuditInto(event profilerFtraceEventRecor
 	}
 
 	var fields [8]profilerFtraceBlockFieldState
-	walkErr := walkProtoFields(event.Payload, func(payloadField int, wire int, raw []byte, value uint64) error {
+	walkErr := walkProfilerProtoFieldsContext(ctx, event.Payload, func(payloadField int, wire int, raw []byte, value uint64) error {
 		role, expectedWire, known := profilerFtraceBlockFieldSchema(event.Field, payloadField)
 		if !known {
 			return nil
@@ -1067,15 +1169,43 @@ func decodeProfilerBlockPayloadWithTypedAuditInto(event profilerFtraceEventRecor
 			return nil
 		}
 		if role == profilerFtraceBlockFieldRWBS || profilerFtraceBlockDisplayRole(role) {
-			state.StringValue = string(raw)
+			state.RawValue = raw
 		} else {
 			state.UintValue = value
 		}
 		return nil
 	})
-	if pairOut != nil {
-		*pairOut = profilerStructuredBlockPairAdmission(event, canonicalName, fields, walkErr, false)
+	if errors.Is(walkErr, context.Canceled) || errors.Is(walkErr, context.DeadlineExceeded) {
+		return blockRenderPayload{}, bodyUnsupported, profilerFtraceBlockIssueSet{}, true, walkErr
 	}
+	if _, invariant := traceDBOutputInvariantReason(walkErr); walkErr != nil && invariant {
+		return blockRenderPayload{}, bodyUnsupported, profilerFtraceBlockIssueSet{}, true, walkErr
+	}
+	// Pair identity consumes the same validated RWBS clone as rendering. It is
+	// prepared before source-error classification so a display-only malformed
+	// tail preserves the historical hard-key pairing verdict.
+	for payloadField := 1; payloadField <= 7; payloadField++ {
+		role, expectedWire, known := profilerFtraceBlockFieldSchema(event.Field, payloadField)
+		if !known || role != profilerFtraceBlockFieldRWBS {
+			continue
+		}
+		state := &fields[payloadField]
+		if expectedWire != 2 || state.Count != 1 || state.WrongWire || state.Malformed {
+			continue
+		}
+		valid, err := profilerBlockRWBSBytesContext(ctx, state.RawValue)
+		if err != nil {
+			return blockRenderPayload{}, bodyUnsupported, profilerFtraceBlockIssueSet{}, false, err
+		}
+		if !valid {
+			continue
+		}
+		state.StringValue, err = profilerCloneBytesStringContext(ctx, state.RawValue)
+		if err != nil {
+			return blockRenderPayload{}, bodyUnsupported, profilerFtraceBlockIssueSet{}, false, err
+		}
+	}
+	prospectivePair = profilerStructuredBlockPairAdmission(event, canonicalName, fields, walkErr, false)
 	if walkErr != nil {
 		var decodeErr *protoFieldDecodeError
 		if !errors.As(walkErr, &decodeErr) {
@@ -1175,8 +1305,8 @@ func decodeProfilerBlockPayloadWithTypedAuditInto(event profilerFtraceEventRecor
 		if !known || !profilerFtraceBlockDisplayRole(role) {
 			continue
 		}
-		state := fields[payloadField]
-		value := state.StringValue
+		state := &fields[payloadField]
+		value := ""
 		var issueKind profilerFtraceEventIssueKind
 		issuePresent := true
 		switch role {
@@ -1188,13 +1318,23 @@ func decodeProfilerBlockPayloadWithTypedAuditInto(event profilerFtraceEventRecor
 				issueKind = profilerFtraceEventIssueBlockCommWrongWire
 			case state.Count > 1:
 				issueKind = profilerFtraceEventIssueBlockCommDuplicate
-			case value != "" && (value != strings.TrimSpace(value) || !traceDBSinglePhysicalLine(value, true) || strings.ContainsRune(value, ']')):
-				issueKind = profilerFtraceEventIssueBlockCommUnsafeOmitted
 			default:
-				issuePresent = false
-			}
-			if issuePresent {
-				value = ""
+				valid, err := profilerBlockDisplayBytesContext(ctx, state.RawValue, ']')
+				if err != nil {
+					return blockRenderPayload{}, bodyUnsupported, profilerFtraceBlockIssueSet{}, false, err
+				}
+				if !valid {
+					issueKind = profilerFtraceEventIssueBlockCommUnsafeOmitted
+				} else if state.Count == 1 {
+					value, err = profilerCloneBytesStringContext(ctx, state.RawValue)
+					if err != nil {
+						return blockRenderPayload{}, bodyUnsupported, profilerFtraceBlockIssueSet{}, false, err
+					}
+					state.StringValue = value
+					issuePresent = false
+				} else {
+					issuePresent = false
+				}
 			}
 			payload.comm = value
 		case profilerFtraceBlockFieldCmd:
@@ -1205,13 +1345,23 @@ func decodeProfilerBlockPayloadWithTypedAuditInto(event profilerFtraceEventRecor
 				issueKind = profilerFtraceEventIssueBlockCmdWrongWire
 			case state.Count > 1:
 				issueKind = profilerFtraceEventIssueBlockCmdDuplicate
-			case value != "" && (value != strings.TrimSpace(value) || !traceDBSinglePhysicalLine(value, true) || strings.ContainsRune(value, ')')):
-				issueKind = profilerFtraceEventIssueBlockCmdUnsafeOmitted
 			default:
-				issuePresent = false
-			}
-			if issuePresent {
-				value = ""
+				valid, err := profilerBlockDisplayBytesContext(ctx, state.RawValue, ')')
+				if err != nil {
+					return blockRenderPayload{}, bodyUnsupported, profilerFtraceBlockIssueSet{}, false, err
+				}
+				if !valid {
+					issueKind = profilerFtraceEventIssueBlockCmdUnsafeOmitted
+				} else if state.Count == 1 {
+					value, err = profilerCloneBytesStringContext(ctx, state.RawValue)
+					if err != nil {
+						return blockRenderPayload{}, bodyUnsupported, profilerFtraceBlockIssueSet{}, false, err
+					}
+					state.StringValue = value
+					issuePresent = false
+				} else {
+					issuePresent = false
+				}
 			}
 			payload.cmd = value
 		}
@@ -1221,29 +1371,52 @@ func decodeProfilerBlockPayloadWithTypedAuditInto(event profilerFtraceEventRecor
 			}
 		}
 	}
-	if pairOut != nil {
-		*pairOut = profilerStructuredBlockPairAdmission(event, canonicalName, fields, walkErr, true)
-	}
+	prospectivePair = profilerStructuredBlockPairAdmission(event, canonicalName, fields, walkErr, true)
 	return payload, bodyAdmitted, set, true, nil
 }
 
+// decodeProfilerBlockPayloadWithTypedAuditInto preserves the pre-Context local
+// API. Context-aware production callers use the authority above directly.
+func decodeProfilerBlockPayloadWithTypedAuditInto(event profilerFtraceEventRecord, pairOut *profilerPairAdmission) (
+	blockRenderPayload, bodyAdmission, profilerFtraceBlockIssueSet, bool, error,
+) {
+	return decodeProfilerBlockPayloadWithTypedAuditIntoContext(context.Background(), event, pairOut)
+}
+
 // decodeProfilerBlockPayloadWithTypedAudit preserves the local renderer API;
-// production pairing uses the Into variant so rendering and admission still
-// share exactly one protobuf walk.
+// production pairing uses the IntoContext variant so rendering and admission
+// still share exactly one protobuf walk.
 func decodeProfilerBlockPayloadWithTypedAudit(event profilerFtraceEventRecord) (
 	blockRenderPayload, bodyAdmission, profilerFtraceBlockIssueSet, bool, error,
 ) {
-	return decodeProfilerBlockPayloadWithTypedAuditInto(event, nil)
+	return decodeProfilerBlockPayloadWithTypedAuditIntoContext(context.Background(), event, nil)
 }
 
 func renderProfilerFtraceBlockEventWithTypedAudit(event profilerFtraceEventRecord) (
 	name, body string, ok bool, issues []profilerFtraceEventIssue, handled bool, err error,
 ) {
-	payload, admission, set, handled, err := decodeProfilerBlockPayloadWithTypedAudit(event)
+	return renderProfilerFtraceBlockEventWithTypedAuditContext(context.Background(), event)
+}
+
+func renderProfilerFtraceBlockEventWithTypedAuditContext(ctx context.Context, event profilerFtraceEventRecord) (
+	name, body string, ok bool, issues []profilerFtraceEventIssue, handled bool, err error,
+) {
+	_, _, governed := blockRenderKindForProfilerField(event.Field)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		// Route ownership is a schema fact, not a successfully decoded value.
+		// Preserve it across governed cancellation so callers cannot fall
+		// through to a second renderer after this authority stopped.
+		return "", "", false, nil, governed, err
+	}
+	payload, admission, set, handled, err :=
+		decodeProfilerBlockPayloadWithTypedAuditIntoContext(ctx, event, nil)
 	if !handled || err != nil {
 		return "", "", false, nil, handled, err
 	}
-	name, body, ok, issues, err = finalizeProfilerFtraceBlockEventWithTypedAudit(event, payload, admission, set)
+	name, body, ok, issues, err = finalizeProfilerFtraceBlockEventWithTypedAuditContext(ctx, event, payload, admission, set)
 	return name, body, ok, issues, true, err
 }
 
@@ -1253,6 +1426,36 @@ func finalizeProfilerFtraceBlockEventWithTypedAudit(
 	admission bodyAdmission,
 	set profilerFtraceBlockIssueSet,
 ) (name, body string, ok bool, issues []profilerFtraceEventIssue, err error) {
+	return finalizeProfilerFtraceBlockEventWithTypedAuditContext(
+		context.Background(), event, payload, admission, set,
+	)
+}
+
+func finalizeProfilerFtraceBlockEventWithTypedAuditContext(
+	ctx context.Context,
+	event profilerFtraceEventRecord,
+	payload blockRenderPayload,
+	admission bodyAdmission,
+	set profilerFtraceBlockIssueSet,
+) (name, body string, ok bool, issues []profilerFtraceEventIssue, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", "", false, nil, err
+	}
+	defer func() {
+		if err != nil {
+			return
+		}
+		if contextErr := ctx.Err(); contextErr != nil {
+			name = ""
+			body = ""
+			ok = false
+			issues = nil
+			err = contextErr
+		}
+	}()
 	issues, err = set.checked(event.Field)
 	if err != nil {
 		return "", "", false, nil, err
@@ -1282,7 +1485,11 @@ func finalizeProfilerFtraceBlockEventWithTypedAudit(
 			return "", "", false, nil,
 				&traceDBOutputInvariantError{Reason: "invalid_canonical_block_payload"}
 		}
-		if !profilerCanonicalLineValid(event, canonicalName, body) {
+		canonicalValid, canonicalErr := profilerCanonicalLineValidContext(ctx, event, canonicalName, body)
+		if canonicalErr != nil {
+			return "", "", false, nil, canonicalErr
+		}
+		if !canonicalValid {
 			var canonical profilerFtraceBlockIssueSet
 			if err := canonical.addFixed(event.Field, profilerFtraceEventIssueBlockInvalidCanonicalLine); err != nil {
 				return "", "", false, nil, err

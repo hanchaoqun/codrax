@@ -560,22 +560,37 @@ func TestProfilerFilemapTypedUnsupportedAndSingleWalkStructure(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(source)
-	decodeStart := strings.Index(text, "func decodeProfilerFilemapPayloadWithTypedAudit(")
-	renderStart := strings.Index(text, "func renderProfilerFtraceFilemapEventWithTypedAudit(")
+	decodeCompatStart := strings.Index(text, "func decodeProfilerFilemapPayloadWithTypedAudit(")
+	decodeStart := strings.Index(text, "func decodeProfilerFilemapPayloadWithTypedAuditContext(")
+	renderCompatStart := strings.Index(text, "func renderProfilerFtraceFilemapEventWithTypedAudit(")
+	renderStart := strings.Index(text, "func renderProfilerFtraceFilemapEventWithTypedAuditContext(")
+	finalizeStart := strings.Index(text, "func finalizeProfilerFtraceFilemapEventWithTypedAudit(")
 	adapterStart := strings.Index(text, "func decodeProfilerFilemapPayload(event")
-	if decodeStart < 0 || renderStart <= decodeStart || adapterStart <= renderStart {
+	if decodeCompatStart < 0 || decodeStart <= decodeCompatStart || renderCompatStart <= decodeStart ||
+		renderStart <= renderCompatStart || finalizeStart <= renderStart || adapterStart <= finalizeStart {
 		t.Fatal("filemap typed producer boundaries missing")
 	}
-	decode := text[decodeStart:renderStart]
-	render := text[renderStart:adapterStart]
+	decodeCompat := text[decodeCompatStart:decodeStart]
+	decode := text[decodeStart:renderCompatStart]
+	renderCompat := text[renderCompatStart:renderStart]
+	render := text[renderStart:finalizeStart]
 	adapter := text[adapterStart:]
-	if strings.Count(decode, "walkProtoFields(event.Payload") != 1 ||
+	if strings.Count(decodeCompat, "decodeProfilerFilemapPayloadWithTypedAuditContext(context.Background(), event)") != 1 {
+		t.Fatal("filemap decode compatibility entry is not a Background-only Context adapter")
+	}
+	if strings.Count(decode, "walkProfilerProtoFieldsContext(ctx, event.Payload") != 1 ||
+		strings.Contains(decode, "walkProtoFields(event.Payload") ||
 		!strings.Contains(decode, "var fields [6]profilerFilemapProtoField") ||
 		strings.Contains(decode, "protoScalarUint(") {
 		t.Fatal("filemap typed producer is not one fixed-[6] wire walk")
 	}
-	if strings.Count(render, "decodeProfilerFilemapPayloadWithTypedAudit(event)") != 1 ||
-		!strings.Contains(render, "finalizeProfilerFtraceFilemapEventWithTypedAudit(") {
+	if strings.Count(renderCompat, "renderProfilerFtraceFilemapEventWithTypedAuditContext(context.Background(), event)") != 1 {
+		t.Fatal("filemap render compatibility entry is not a Background-only Context adapter")
+	}
+	if strings.Count(render, "decodeProfilerFilemapPayloadWithTypedAuditContext(ctx, event)") != 1 ||
+		!strings.Contains(render, "finalizeProfilerFtraceFilemapEventWithTypedAuditContext(") ||
+		strings.Contains(render, "decodeProfilerFilemapPayloadWithTypedAudit(event)") ||
+		strings.Contains(render, "finalizeProfilerFtraceFilemapEventWithTypedAudit(event") {
 		t.Fatal("filemap typed renderer is not the sole parse/finalize authority")
 	}
 	if strings.Count(adapter, "decodeProfilerFilemapPayloadWithTypedAudit(event)") != 1 ||
@@ -592,7 +607,7 @@ func TestProfilerFilemapTypedUnsupportedAndSingleWalkStructure(t *testing.T) {
 	}
 	entry := string(entrySource)
 	compatStart := strings.Index(entry, "func renderProfilerFtraceEventBodyWithAudit(")
-	typedStart := strings.Index(entry, "func renderProfilerFtraceEventBodyWithTypedAuditAndPair(")
+	typedStart := strings.Index(entry, "func renderProfilerFtraceEventBodyWithTypedAuditAndPairContext(")
 	genericStart := strings.Index(entry, "const profilerFtraceGenericIssuesPerEvent")
 	if compatStart < 0 || typedStart <= compatStart || genericStart <= typedStart {
 		t.Fatal("profiler typed/compat entry boundaries missing")
@@ -604,13 +619,14 @@ func TestProfilerFilemapTypedUnsupportedAndSingleWalkStructure(t *testing.T) {
 		strings.Contains(compatEntry, "renderProfilerFtraceFilemapEventWithTypedAudit(event)") {
 		t.Fatal("compat entry is not one typed-call-to-label adapter")
 	}
-	filemapAt := strings.Index(typedEntry, "renderProfilerFtraceFilemapEventWithTypedAudit(event)")
-	genericAt := strings.Index(typedEntry, "renderProfilerFtraceGenericEventWithTypedAudit(event)")
-	if strings.Count(typedEntry, "renderProfilerFtraceFilemapEventWithTypedAudit(event)") != 1 ||
+	filemapAt := strings.Index(typedEntry, "renderProfilerFtraceFilemapEventWithTypedAuditContext(ctx, event)")
+	genericAt := strings.Index(typedEntry, "renderProfilerFtraceGenericEventWithTypedAuditContext(ctx, event)")
+	if strings.Count(typedEntry, "renderProfilerFtraceFilemapEventWithTypedAuditContext(ctx, event)") != 1 ||
 		filemapAt < 0 || genericAt < 0 || filemapAt >= genericAt {
 		t.Fatal("typed entry lost direct filemap typed precedence")
 	}
-	if strings.Contains(typedEntry[:genericAt], "decodeProfilerFilemapPayload(event)") {
+	if strings.Contains(typedEntry[:genericAt], "decodeProfilerFilemapPayload(event)") ||
+		strings.Contains(typedEntry[:genericAt], "renderProfilerFtraceFilemapEventWithTypedAudit(event)") {
 		t.Fatal("typed entry regained legacy filemap parser authority")
 	}
 	legacyAt := strings.Index(typedEntry, "renderProfilerFtraceEventBodyWithAudit(event)")

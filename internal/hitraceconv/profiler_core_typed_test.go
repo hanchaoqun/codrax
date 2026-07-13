@@ -852,8 +852,9 @@ func TestProfilerCoreTypedProductionBypassesLegacyReasonBridge(t *testing.T) {
 	adapter := mustReadRendererSource(t, "profiler_core_payload.go")
 	renderer := mustReadRendererSource(t, "profiler_ftrace_render.go")
 	typedDecode := sourceBetween(t, adapter,
-		"func decodeProfilerCorePayloadWithTypedAudit(", "func decodeProfilerCorePayload(")
-	if strings.Count(typedDecode, "walkProtoFields(event.Payload") != 1 ||
+		"func decodeProfilerCorePayloadWithTypedAuditContext(", "func decodeProfilerCorePayload(")
+	if strings.Count(typedDecode, "walkProfilerProtoFieldsContext(ctx, event.Payload") != 1 ||
+		strings.Contains(typedDecode, "walkProtoFields(event.Payload") ||
 		!strings.Contains(typedDecode, "var fields [8]profilerCoreProtoField") ||
 		!strings.Contains(typedDecode, "set.addFixed(event.Field") ||
 		!strings.Contains(typedDecode, "set.addPayload(event.Field") {
@@ -862,6 +863,7 @@ func TestProfilerCoreTypedProductionBypassesLegacyReasonBridge(t *testing.T) {
 	for _, forbidden := range []string{
 		`fmt.Sprintf("core_field`, `"display_" +`, "[]string", ".Error()",
 		"profilerFtraceEventIssueFromLegacy(", "decodeProfilerCorePayload(event)",
+		"decodeProfilerCorePayloadWithTypedAudit(event)",
 	} {
 		if strings.Contains(typedDecode, forbidden) {
 			t.Fatalf("typed core producer restored dynamic/legacy authority %q:\n%s", forbidden, typedDecode)
@@ -871,11 +873,17 @@ func TestProfilerCoreTypedProductionBypassesLegacyReasonBridge(t *testing.T) {
 		!strings.Contains(adapter, "Issues [profilerFtraceCoreIssuesPerEvent]profilerFtraceEventIssue") {
 		t.Fatal("typed core issue set is not fixed capacity one")
 	}
+	decodeCompat := sourceBetween(t, adapter,
+		"func decodeProfilerCorePayloadWithTypedAudit(", "func decodeProfilerCorePayloadWithTypedAuditContext(")
+	if strings.Count(decodeCompat, "decodeProfilerCorePayloadWithTypedAuditContext(context.Background(), event)") != 1 {
+		t.Fatal("core decode compatibility entry is not a Background-only adapter over the Context authority")
+	}
 
 	coreRender := sourceBetween(t, adapter,
-		"func renderProfilerFtraceCoreEventWithTypedAudit(", "func profilerCoreDisplayField(")
-	if !strings.Contains(coreRender, "decodeProfilerCorePayloadWithTypedAudit(event)") ||
+		"func renderProfilerFtraceCoreEventWithTypedAuditContext(", "func finalizeProfilerFtraceCoreEventWithTypedAudit(")
+	if strings.Count(coreRender, "decodeProfilerCorePayloadWithTypedAuditContext(ctx, event)") != 1 ||
 		strings.Contains(coreRender, "decodeProfilerCorePayload(event)") ||
+		strings.Contains(coreRender, "decodeProfilerCorePayloadWithTypedAudit(event)") ||
 		strings.Contains(coreRender, "profilerFtraceEventIssueFromLegacy(") {
 		t.Fatalf("typed core render choke restored legacy decode/bridge:\n%s", coreRender)
 	}
@@ -891,18 +899,19 @@ func TestProfilerCoreTypedProductionBypassesLegacyReasonBridge(t *testing.T) {
 	}
 
 	typedEntry := sourceBetween(t, renderer,
-		"func renderProfilerFtraceEventBodyWithTypedAuditAndPair(", "const profilerFtraceGenericIssuesPerEvent")
-	coreAt := strings.Index(typedEntry, "renderProfilerFtraceCoreEventWithTypedAudit(event)")
-	genericAt := strings.Index(typedEntry, "renderProfilerFtraceGenericEventWithTypedAudit(event)")
+		"func renderProfilerFtraceEventBodyWithTypedAuditAndPairContext(", "const profilerFtraceGenericIssuesPerEvent")
+	coreAt := strings.Index(typedEntry, "renderProfilerFtraceCoreEventWithTypedAuditContext(ctx, event)")
+	genericAt := strings.Index(typedEntry, "renderProfilerFtraceGenericEventWithTypedAuditContext(ctx, event)")
 	legacyAt := strings.Index(typedEntry, "renderProfilerFtraceEventBodyWithAudit(event)")
 	if coreAt < 0 || genericAt < 0 || legacyAt >= 0 || coreAt >= genericAt {
 		t.Fatalf("typed entry order drifted: core=%d generic=%d legacy=%d", coreAt, genericAt, legacyAt)
 	}
 	coreArm := sourceBetween(t, typedEntry,
-		"renderProfilerFtraceCoreEventWithTypedAudit(event)",
-		"renderProfilerFtraceGenericEventWithTypedAudit(event)")
+		"renderProfilerFtraceCoreEventWithTypedAuditContext(ctx, event)",
+		"renderProfilerFtraceGenericEventWithTypedAuditContext(ctx, event)")
 	if strings.Contains(coreArm, "profilerFtraceEventIssueFromLegacy(") ||
-		strings.Contains(coreArm, "renderProfilerFtraceEventBodyWithAudit(event)") {
+		strings.Contains(coreArm, "renderProfilerFtraceEventBodyWithAudit(event)") ||
+		strings.Contains(coreArm, "renderProfilerFtraceCoreEventWithTypedAudit(event)") {
 		t.Fatalf("production core arm still enters the reverse bridge:\n%s", coreArm)
 	}
 }

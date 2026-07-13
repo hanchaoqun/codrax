@@ -160,6 +160,66 @@ func profilerCloneBytesStringContext(ctx context.Context, raw []byte) (string, e
 	return clone.String(), nil
 }
 
+// profilerCloneStringContext is the zero-copy-input sibling used when a
+// validated rendered row must detach from a potentially much larger backing
+// string before entering the bounded sorter.
+func profilerCloneStringContext(ctx context.Context, raw string) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	var clone strings.Builder
+	clone.Grow(len(raw))
+	processed := uint64(0)
+	for start := 0; start < len(raw); {
+		end := min(start+profilerContextByteCheckpointBytes, len(raw))
+		if err := profilerByteContextCheckpoint(ctx, &processed, uint64(end-start)); err != nil {
+			return "", err
+		}
+		_, _ = clone.WriteString(raw[start:end])
+		start = end
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	return clone.String(), nil
+}
+
+// profilerUTF8StringValidContext preserves utf8.ValidString's exact grammar
+// while bounding cancellation latency for sorter-only lane/table metadata.
+// Unlike the physical-line validator, controls and whitespace remain legal.
+func profilerUTF8StringValidContext(ctx context.Context, raw string) (bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	nextCheckpoint := profilerContextByteCheckpointBytes
+	for offset := 0; offset < len(raw); {
+		r, width := utf8.DecodeRuneInString(raw[offset:])
+		if r == utf8.RuneError && width == 1 {
+			return false, nil
+		}
+		if width <= 0 || width > len(raw)-offset {
+			return false, &traceDBOutputInvariantError{Reason: "profiler_utf8_string_width_invalid"}
+		}
+		offset += width
+		if offset >= nextCheckpoint {
+			if err := ctx.Err(); err != nil {
+				return false, err
+			}
+			nextCheckpoint = (offset/profilerContextByteCheckpointBytes + 1) * profilerContextByteCheckpointBytes
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // profilerTrimASCIISpacesBytesContext mirrors bytes.Trim(raw, " ") without
 // allowing a single all-space physical row to bypass the shared byte-work
 // cancellation bound. The returned view always aliases raw; no evidence bytes

@@ -599,10 +599,12 @@ func TestDirectMarkerSingleAuthorityStructure(t *testing.T) {
 
 func TestDirectMarkerProductionAuthorityGraph(t *testing.T) {
 	targets := map[string]bool{
-		"decodeDirectMarkerPayload":    true,
-		"renderCanonicalMarkerPayload": true,
-		"normalizeMarkerBuffer":        true,
-		"firstTracePayload":            true,
+		"decodeDirectMarkerPayload":           true,
+		"renderCanonicalMarkerPayload":        true,
+		"renderCanonicalMarkerPayloadContext": true,
+		"normalizeMarkerBuffer":               true,
+		"normalizeMarkerBufferContext":        true,
+		"firstTracePayload":                   true,
 	}
 	definitions := map[string][]string{}
 	calls := map[string][]string{}
@@ -653,7 +655,13 @@ func TestDirectMarkerProductionAuthorityGraph(t *testing.T) {
 			})
 		}
 	}
-	for _, name := range []string{"decodeDirectMarkerPayload", "renderCanonicalMarkerPayload", "normalizeMarkerBuffer"} {
+	for _, name := range []string{
+		"decodeDirectMarkerPayload",
+		"renderCanonicalMarkerPayload",
+		"renderCanonicalMarkerPayloadContext",
+		"normalizeMarkerBuffer",
+		"normalizeMarkerBufferContext",
+	} {
 		if len(definitions[name]) != 1 {
 			t.Fatalf("%s definitions=%v", name, definitions[name])
 		}
@@ -666,12 +674,18 @@ func TestDirectMarkerProductionAuthorityGraph(t *testing.T) {
 			"render.go.renderEventBodyDecisionWithPair",
 		},
 		"renderCanonicalMarkerPayload": {
-			"profiler_aux_payload.go.renderCanonicalProfilerAuxPayload",
 			"render.go.renderEventBodyDecisionWithPair",
+		},
+		"renderCanonicalMarkerPayloadContext": {
+			"marker_payload.go.renderCanonicalMarkerPayload",
+			"profiler_aux_payload.go.renderCanonicalProfilerAuxPayloadContext",
 		},
 		"normalizeMarkerBuffer": {
 			"marker_payload.go.decodeDirectMarkerPayload",
-			"profiler_aux_payload.go.decodeProfilerAuxPayloadWithTypedAudit",
+		},
+		"normalizeMarkerBufferContext": {
+			"marker_payload.go.normalizeMarkerBuffer",
+			"profiler_aux_payload.go.decodeProfilerAuxPayloadWithTypedAuditContext",
 		},
 	} {
 		sort.Strings(calls[name])

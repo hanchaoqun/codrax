@@ -306,6 +306,36 @@ type profilerPairRowMapping struct {
 	profilerEventField int
 }
 
+// traceDBProfilerEventDelta is the fixed-width pair proof mutation staged by
+// one structured FtraceEvent. The renderer may build it freely, but only the
+// sorter event transaction applies it after every cancellable validation,
+// allocation, and completed-prefix spill has succeeded.
+type traceDBProfilerEventDelta struct {
+	opaqueKinds [pairRenderKindCount]bool
+	poisonKinds [pairRenderKindCount]bool
+	poisonLanes [pairRenderKindCount]string
+}
+
+func (delta traceDBProfilerEventDelta) apply(sink *traceDBRowSink) {
+	if sink == nil {
+		return
+	}
+	for kind := pairRenderKind(1); kind < pairRenderKindCount; kind++ {
+		if delta.opaqueKinds[kind] {
+			sink.markPairCaptureOpaque(kind)
+		}
+	}
+	for kind := pairRenderKind(1); kind < pairRenderKindCount; kind++ {
+		if delta.poisonKinds[kind] {
+			sink.poisonPairKind(kind)
+			continue
+		}
+		if lane := delta.poisonLanes[kind]; lane != "" {
+			sink.poisonPairLane(kind, lane)
+		}
+	}
+}
+
 type profilerCaptureLifecycle uint8
 
 const (
@@ -545,7 +575,71 @@ func (s *traceDBRowSink) recordProfilerCaptureBreach(reason string) {
 	s.allRowsFailClosed = true
 }
 
-func (s *traceDBRowSink) add(row renderedRow) (result error) {
+func (s *traceDBRowSink) add(row renderedRow) error {
+	ctx := context.Background()
+	if s != nil && s.operationContext != nil {
+		ctx = s.operationContext
+	}
+	return s.addContext(ctx, row, nil, false)
+}
+
+// addProfilerEventContext defers a threshold-triggered spill until the next
+// event (or the consumer tail). That makes the current event's linearization
+// point the final ctx poll immediately before its fixed pair delta and row
+// accounting commit; no cancellable I/O remains after that point.
+func (s *traceDBRowSink) addProfilerEventContext(ctx context.Context, row renderedRow, delta traceDBProfilerEventDelta) error {
+	return s.addContext(ctx, row, &delta, true)
+}
+
+func (s *traceDBRowSink) commitProfilerEventDeltaContext(ctx context.Context, delta traceDBProfilerEventDelta) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if s == nil {
+		return &traceDBOutputInvariantError{Reason: "trace_row_sink_missing"}
+	}
+	if !s.profilerMutationAllowed("profiler_capture_event_delta_after_seal") {
+		reason := s.captureBreach
+		if reason == "" {
+			reason = "trace_row_sink_add_after_prepare"
+		}
+		return &traceDBOutputInvariantError{Reason: reason}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	delta.apply(s)
+	return nil
+}
+
+func (s *traceDBRowSink) flushTriggeredProfilerEventContext(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if s == nil {
+		return &traceDBOutputInvariantError{Reason: "trace_row_sink_missing"}
+	}
+	if len(s.rows) < s.threshold && s.bufferedBytes < s.options.bufferBytes {
+		return nil
+	}
+	return s.flushChunkWithContext(ctx)
+}
+
+func (s *traceDBRowSink) addContext(ctx context.Context, row renderedRow, eventDelta *traceDBProfilerEventDelta,
+	deferTriggeredFlush bool,
+) (result error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if s == nil {
 		return &traceDBOutputInvariantError{Reason: "trace_row_sink_missing"}
 	}
@@ -557,7 +651,16 @@ func (s *traceDBRowSink) add(row renderedRow) (result error) {
 		}
 		return &traceDBOutputInvariantError{Reason: reason}
 	}
-	if !traceDBSinglePhysicalLine(row.line, false) {
+	if deferTriggeredFlush && (len(s.rows) >= s.threshold || s.bufferedBytes >= s.options.bufferBytes) {
+		if err := s.flushChunkWithContext(ctx); err != nil {
+			return err
+		}
+	}
+	lineValid, err := profilerSinglePhysicalLineStringContext(ctx, row.line, false)
+	if err != nil {
+		return err
+	}
+	if !lineValid {
 		return &traceDBOutputInvariantError{Reason: "invalid_rendered_line"}
 	}
 	if !profilerPairKindValid(row.pairKind) {
@@ -569,15 +672,34 @@ func (s *traceDBRowSink) add(row renderedRow) (result error) {
 	if err := s.validateActivePairRowCapacity(row); err != nil {
 		return err
 	}
-	if len(row.pairLane) > maxTraceDBSystraceLineBytes || len(row.pairTable) > maxTraceDBSystraceLineBytes ||
-		!utf8.ValidString(row.pairLane) || !utf8.ValidString(row.pairTable) {
+	if len(row.pairLane) > maxTraceDBSystraceLineBytes || len(row.pairTable) > maxTraceDBSystraceLineBytes {
+		return &traceDBOutputInvariantError{Reason: "trace_row_sort_metadata_too_large"}
+	}
+	laneValid, err := profilerUTF8StringValidContext(ctx, row.pairLane)
+	if err != nil {
+		return err
+	}
+	tableValid, err := profilerUTF8StringValidContext(ctx, row.pairTable)
+	if err != nil {
+		return err
+	}
+	if !laneValid || !tableValid {
 		return &traceDBOutputInvariantError{Reason: "trace_row_sort_metadata_too_large"}
 	}
 	// Own the exact bytes charged below. Substrings from a much larger source
 	// buffer must not retain that backing allocation outside the checked budget.
-	row.line = strings.Clone(row.line)
-	row.pairLane = strings.Clone(row.pairLane)
-	row.pairTable = strings.Clone(row.pairTable)
+	row.line, err = profilerCloneStringContext(ctx, row.line)
+	if err != nil {
+		return err
+	}
+	row.pairLane, err = profilerCloneStringContext(ctx, row.pairLane)
+	if err != nil {
+		return err
+	}
+	row.pairTable, err = profilerCloneStringContext(ctx, row.pairTable)
+	if err != nil {
+		return err
+	}
 	rowBytes, ok := traceDBRenderedRowRetainedBytes(row)
 	if !ok || s.stats.RowsAccepted == math.MaxInt || s.nextIngestOrdinal == math.MaxUint64 {
 		return &traceDBOutputInvariantError{Reason: "trace_row_sort_buffer_accounting_overflow"}
@@ -587,7 +709,7 @@ func (s *traceDBRowSink) add(row renderedRow) (result error) {
 		return &traceDBOutputInvariantError{Reason: "trace_row_sort_buffer_accounting_overflow"}
 	}
 	if len(s.rows) > 0 && projectedBytes > s.options.bufferBytes {
-		if err := s.flushChunk(); err != nil {
+		if err := s.flushChunkWithContext(ctx); err != nil {
 			return err
 		}
 		projectedBytes = rowBytes
@@ -607,6 +729,12 @@ func (s *traceDBRowSink) add(row renderedRow) (result error) {
 	nextBufferedRows := len(s.rows) + 1
 	if err := s.ensureBufferedCapacity(nextBufferedRows); err != nil {
 		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if eventDelta != nil {
+		eventDelta.apply(s)
 	}
 	if row.pairKind != pairRenderUnknown {
 		s.auditProfilerPairPhysicalRow(row)
@@ -684,8 +812,8 @@ func (s *traceDBRowSink) add(row renderedRow) (result error) {
 	if s.bufferedBytes > s.stats.PeakBufferedBytes {
 		s.stats.PeakBufferedBytes = s.bufferedBytes
 	}
-	if len(s.rows) >= s.threshold || s.bufferedBytes >= s.options.bufferBytes {
-		return s.flushChunk()
+	if !deferTriggeredFlush && (len(s.rows) >= s.threshold || s.bufferedBytes >= s.options.bufferBytes) {
+		return s.flushChunkWithContext(ctx)
 	}
 	return nil
 }
@@ -1828,13 +1956,23 @@ func (s *traceDBRowSink) flushChunk() (result error) {
 	if s == nil || s.operationContext == nil {
 		return &traceDBOutputInvariantError{Reason: "trace_row_sort_context_missing"}
 	}
+	return s.flushChunkWithContext(s.operationContext)
+}
+
+func (s *traceDBRowSink) flushChunkWithContext(ctx context.Context) (result error) {
+	if s == nil {
+		return &traceDBOutputInvariantError{Reason: "trace_row_sink_missing"}
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	started := time.Now()
 	defer func() {
 		if elapsedErr := s.accumulateElapsed(started); elapsedErr != nil {
 			result = traceDBJoinPreservingSingle(result, elapsedErr)
 		}
 	}()
-	return s.flushChunkContext(s.operationContext)
+	return s.flushChunkContext(ctx)
 }
 
 type traceDBBufferedRunRow struct {
@@ -2020,12 +2158,12 @@ func (s *traceDBRowSink) openManifestRun(manifest traceDBRunManifest) (*os.File,
 
 func (s *traceDBRowSink) discardPendingRun(file *os.File, path string, reserved uint64, primary error) error {
 	if file != nil {
-		primary = errors.Join(primary, s.closeRunFile(file, path))
+		primary = traceDBJoinPreservingSingle(primary, s.closeRunFile(file, path))
 	}
 	removeErr := s.removeArtifact(path)
-	primary = errors.Join(primary, removeErr)
+	primary = traceDBJoinPreservingSingle(primary, removeErr)
 	if removeErr == nil {
-		primary = errors.Join(primary, s.releasePendingRun(reserved))
+		primary = traceDBJoinPreservingSingle(primary, s.releasePendingRun(reserved))
 	}
 	return primary
 }
@@ -2120,6 +2258,9 @@ func (s *traceDBRowSink) flushChunkContext(ctx context.Context) error {
 	}
 	var chunkDigest [sha256.Size]byte
 	copy(chunkDigest[:], digest.Sum(nil))
+	if err := ctx.Err(); err != nil {
+		return s.discardPendingRun(nil, path, encodedSize, err)
+	}
 	manifest := traceDBRunManifest{
 		path: path, size: encodedSize, rowCount: uint64(len(s.rows)), digest: chunkDigest,
 		level: 0, ordinal: s.nextRunOrdinal,

@@ -79,8 +79,12 @@ func TestProfilerStructuredAuxUsesOneTypedAuthorityBeforeLegacy(t *testing.T) {
 	for _, token := range []string{
 		"func decodeProfilerAuxPayload(",
 		"func decodeProfilerAuxPayloadWithTypedAudit(",
+		"func decodeProfilerAuxPayloadWithTypedAuditContext(",
 		"func renderProfilerFtraceAuxEventWithTypedAudit(",
+		"func renderProfilerFtraceAuxEventWithTypedAuditContext(",
 		"func renderCanonicalProfilerAuxPayload(",
+		"func renderCanonicalProfilerAuxPayloadContext(",
+		"func finalizeProfilerFtraceAuxEventWithTypedAuditContext(",
 		"var profilerStructuredAuxSchemas",
 	} {
 		if strings.Count(adapter, token) != 1 {
@@ -92,7 +96,8 @@ func TestProfilerStructuredAuxUsesOneTypedAuthorityBeforeLegacy(t *testing.T) {
 			t.Fatalf("strict aux adapter calls permissive legacy reader %q", forbidden)
 		}
 	}
-	if strings.Count(adapter, "walkProtoFields(event.Payload") != 1 ||
+	if strings.Count(adapter, "walkProfilerProtoFieldsContext(ctx, event.Payload") != 1 ||
+		strings.Contains(adapter, "walkProtoFields(event.Payload") ||
 		!strings.Contains(adapter, "var fields [26]profilerCoreProtoField") ||
 		!strings.Contains(adapter, "for payloadField := 1; payloadField <= 25; payloadField++") {
 		t.Fatal("aux wire audit no longer reaches the MMC field23/25 tail")
@@ -135,22 +140,37 @@ func TestProfilerStructuredAuxUsesOneTypedAuthorityBeforeLegacy(t *testing.T) {
 			t.Fatalf("compatibility audit restored a producer authority %q", forbidden)
 		}
 	}
-	typed := sourceBetween(t, profiler, "func renderProfilerFtraceEventBodyWithTypedAuditAndPair(", "const profilerFtraceGenericIssuesPerEvent")
-	coreAt := strings.Index(typed, "renderProfilerFtraceCoreEventWithTypedAudit(event)")
-	auxAt := strings.Index(typed, "finalizeProfilerFtraceAuxEventWithTypedAudit(event, auxResult)")
-	filemapAt := strings.Index(typed, "renderProfilerFtraceFilemapEventWithTypedAudit(event)")
-	blockDecodeAt := strings.Index(typed, "decodeProfilerBlockPayloadWithTypedAuditInto(event, &pair)")
-	blockAt := strings.Index(typed, "finalizeProfilerFtraceBlockEventWithTypedAudit(event, blockPayload, blockAdmission, blockIssues)")
-	genericAt := strings.Index(typed, "renderProfilerFtraceGenericEventWithTypedAudit(event)")
-	if blockDecodeAt < 0 || coreAt < 0 || auxAt < 0 || filemapAt < 0 || blockAt < 0 || genericAt < 0 ||
-		!(coreAt < auxAt && auxAt < filemapAt && filemapAt < blockAt && blockAt < genericAt) {
-		t.Fatalf("typed renderer order drifted: block_decode=%d core=%d aux=%d filemap=%d block=%d generic=%d", blockDecodeAt, coreAt, auxAt, filemapAt, blockAt, genericAt)
+	typed := sourceBetween(t, profiler, "func renderProfilerFtraceEventBodyWithTypedAuditAndPairContext(", "const profilerFtraceGenericIssuesPerEvent")
+	blockDecodeAt := strings.Index(typed, "decodeProfilerBlockPayloadWithTypedAuditIntoContext(ctx, event, &pair)")
+	auxDecodeAt := strings.Index(typed, "decodeProfilerAuxPayloadWithTypedAuditContext(ctx, event)")
+	coreAt := strings.Index(typed, "renderProfilerFtraceCoreEventWithTypedAuditContext(ctx, event)")
+	auxAt := strings.Index(typed, "finalizeProfilerFtraceAuxEventWithTypedAuditContext(ctx, event, auxResult)")
+	filemapAt := strings.Index(typed, "renderProfilerFtraceFilemapEventWithTypedAuditContext(ctx, event)")
+	blockAt := strings.Index(typed, "finalizeProfilerFtraceBlockEventWithTypedAuditContext(ctx, event, blockPayload, blockAdmission, blockIssues)")
+	genericAt := strings.Index(typed, "renderProfilerFtraceGenericEventWithTypedAuditContext(ctx, event)")
+	if blockDecodeAt < 0 || auxDecodeAt < 0 || coreAt < 0 || auxAt < 0 || filemapAt < 0 || blockAt < 0 || genericAt < 0 ||
+		!(blockDecodeAt < auxDecodeAt && auxDecodeAt < coreAt && coreAt < auxAt && auxAt < filemapAt && filemapAt < blockAt && blockAt < genericAt) {
+		t.Fatalf("typed Context renderer order drifted: block_decode=%d aux_decode=%d core=%d aux=%d filemap=%d block=%d generic=%d",
+			blockDecodeAt, auxDecodeAt, coreAt, auxAt, filemapAt, blockAt, genericAt)
 	}
-	if strings.Count(typed, "decodeProfilerAuxPayloadWithTypedAudit(event)") != 1 ||
-		!strings.Contains(typed, "finalizeProfilerFtraceAuxEventWithTypedAudit(event, auxResult)") ||
+	if strings.Count(typed, "decodeProfilerAuxPayloadWithTypedAuditContext(ctx, event)") != 1 ||
+		strings.Count(typed, "finalizeProfilerFtraceAuxEventWithTypedAuditContext(ctx, event, auxResult)") != 1 ||
 		strings.Contains(typed, "profilerFtraceEventDegradationAuxPayload") ||
 		strings.Contains(typed, "profilerFtraceEventDegradationFilemapPayload") {
 		t.Fatal("typed aux/filemap path restored duplicate decode or reverse legacy bridge")
+	}
+	for _, legacyCall := range []string{
+		"decodeProfilerBlockPayloadWithTypedAuditInto(event, &pair)",
+		"decodeProfilerAuxPayloadWithTypedAudit(event)",
+		"renderProfilerFtraceCoreEventWithTypedAudit(event)",
+		"finalizeProfilerFtraceAuxEventWithTypedAudit(event, auxResult)",
+		"renderProfilerFtraceFilemapEventWithTypedAudit(event)",
+		"finalizeProfilerFtraceBlockEventWithTypedAudit(event, blockPayload, blockAdmission, blockIssues)",
+		"renderProfilerFtraceGenericEventWithTypedAudit(event)",
+	} {
+		if strings.Contains(typed, legacyCall) {
+			t.Fatalf("typed Context production path bypassed through legacy adapter %q", legacyCall)
+		}
 	}
 }
 
