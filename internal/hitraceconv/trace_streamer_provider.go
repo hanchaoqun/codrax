@@ -2,10 +2,12 @@ package hitraceconv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -18,31 +20,46 @@ type traceStreamerExportResult struct {
 	Coverage          []TraceDBCoverage
 	TraceCoverage     []TraceDBCoverage
 	Caveats           []string
-	Cleanup           func()
 	Ran               bool
 	EventsWritten     int
 	OutputBytes       int64
 	FirstTimestampSec float64
 	LastTimestampSec  float64
+	FailureStage      string
+	FailureCode       string
+	Cause             error
 }
 
-func convertTraceStreamerOnly(ctx context.Context, opts Options, input string, inputBytes int64, output string) (Result, error) {
+func convertTraceStreamerOnly(ctx context.Context, opts Options, plan traceProviderPlan, input string, inputBytes int64, output string, ledger *conversionFileLedger) (Result, error) {
 	if err := ensureOutputDoesNotExist(output); err != nil {
 		return Result{}, err
 	}
-	export, err := runTraceStreamerExport(ctx, opts, input, output, true)
+	retainDB := opts.KeepTraceDB || strings.TrimSpace(opts.TraceDBOutputPath) != ""
+	export, err := runTraceStreamerExport(ctx, opts, plan.TraceStreamer, input, output, opts.KeepTraceDB, ledger)
 	if err != nil {
 		return Result{}, err
+	}
+	if retainDB && (export.Artifact.Path == "" || !artifactPathExists(export.Artifact.Path)) {
+		if export.Decision.Caveat != "" {
+			return Result{}, traceStreamerExportFailureError(export)
+		}
+		return Result{}, fmt.Errorf("trace_streamer did not produce a trace DB artifact")
+	}
+	if export.SystraceArtifact.Path == "" && !retainDB {
+		if export.Decision.Caveat != "" {
+			return Result{}, traceStreamerExportFailureError(export)
+		}
+		return Result{}, fmt.Errorf("trace_streamer did not produce query-ready systrace rows")
 	}
 	standaloneExtractOpts := standaloneExtractOptions{GeneratePerfTrace: true}
 	if export.SystraceArtifact.Path != "" && traceDBCoverageHasPerfSamples(export.Coverage) {
 		standaloneExtractOpts.GeneratePerfTrace = false
 		standaloneExtractOpts.PrimaryPerfSource = "trace_streamer DB perf_sample rows in systrace"
 	}
-	standaloneArtifacts, standaloneCaveats, standaloneDecisions, err := extractStandaloneArtifactsWithOptions(ctx, opts, inputBytes, output, standaloneExtractOpts)
+	standaloneArtifacts, standaloneCaveats, standaloneDecisions, err := extractStandaloneArtifactsWithOptionsAndLedger(ctx, opts, inputBytes, output, standaloneExtractOpts, ledger)
 	if err != nil {
 		if export.SystraceArtifact.Path != "" {
-			_ = os.Remove(export.SystraceArtifact.Path)
+			err = traceDBJoinPreservingSingle(err, ledger.removeOwnedPath(export.SystraceArtifact.Path))
 		}
 		return Result{}, err
 	}
@@ -50,13 +67,9 @@ func convertTraceStreamerOnly(ctx context.Context, opts Options, input string, i
 	if export.SystraceArtifact.Path != "" {
 		artifacts = append([]Artifact{export.SystraceArtifact}, artifacts...)
 	}
-	if export.Artifact.Path == "" {
-		if export.Decision.Caveat != "" {
-			return Result{}, fmt.Errorf("%s", export.Decision.Caveat)
-		}
-		return Result{}, fmt.Errorf("trace_streamer did not produce a trace DB artifact")
+	if retainDB {
+		artifacts = append(artifacts, export.Artifact)
 	}
-	artifacts = append(artifacts, export.Artifact)
 	caveats := append([]string(nil), export.Caveats...)
 	caveats = append(caveats, standaloneCaveats...)
 	result := Result{
@@ -77,7 +90,7 @@ func convertTraceStreamerOnly(ctx context.Context, opts Options, input string, i
 		UnknownEventCount:  0,
 	}
 	normalizeResultCollections(&result)
-	if bundleArtifact, err := writeTraceBundleWithAllCoverage(input, result.OutputPath, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage); err != nil {
+	if bundleArtifact, err := writeTraceBundleWithAllCoverageAndLedger(input, result.OutputPath, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage, ledger); err != nil {
 		return Result{}, err
 	} else if bundleArtifact.Path != "" {
 		result.BundlePath = bundleArtifact.Path
@@ -87,19 +100,11 @@ func convertTraceStreamerOnly(ctx context.Context, opts Options, input string, i
 	return result, nil
 }
 
-func maybeRunTraceStreamerAuto(ctx context.Context, opts Options, input string, inputBytes int64, output string) (traceStreamerExportResult, error) {
-	if selectedTraceEngineMode(opts.TraceEngine) != traceEngineTraceStreamer {
+func maybeRunTraceStreamerAuto(ctx context.Context, opts Options, plan traceProviderPlan, input string, inputBytes int64, output string, hasTracePerfSidecar bool, ledger *conversionFileLedger) (traceStreamerExportResult, error) {
+	if !plan.includesEngine(traceEngineTraceStreamer) {
 		return traceStreamerExportResult{}, nil
 	}
-	status, err := BuildTraceToolStatus(opts)
-	if err != nil {
-		return traceStreamerExportResult{}, err
-	}
-	hasTracePerfSidecar, err := inputContainsStandalonePerfSidecar(ctx, input, inputBytes)
-	if err != nil {
-		return traceStreamerExportResult{}, err
-	}
-	if !status.TraceStreamer.Available {
+	if !plan.TraceStreamer.Available {
 		caveat := "trace_streamer was not discovered; selected SQL trace conversion cannot produce systrace"
 		if isAutoTraceEngineMode(opts.TraceEngine) {
 			if hasTracePerfSidecar {
@@ -114,73 +119,109 @@ func maybeRunTraceStreamerAuto(ctx context.Context, opts Options, input string, 
 			"trace_streamer_unavailable",
 			caveat,
 		)
-		return traceStreamerExportResult{Decision: decision, Caveats: []string{caveat}}, nil
+		cause := fmt.Errorf("trace_streamer provider is unavailable from source %q path %q", plan.TraceStreamer.Source, plan.TraceStreamer.Path)
+		return traceStreamerExportResult{
+			Decision:     decision,
+			Caveats:      traceStreamerFailureCaveats(plan.TraceStreamer, caveat),
+			FailureStage: "trace_streamer_discovery",
+			FailureCode:  "trace_streamer_unavailable",
+			Cause:        cause,
+		}, nil
 	}
-	return runTraceStreamerExport(ctx, opts, input, output, opts.KeepTraceDB)
+	return runTraceStreamerExport(ctx, opts, plan.TraceStreamer, input, output, opts.KeepTraceDB, ledger)
 }
 
-func runTraceStreamerExport(ctx context.Context, opts Options, input, output string, keepDB bool) (traceStreamerExportResult, error) {
+func runTraceStreamerExport(ctx context.Context, opts Options, lane traceProviderLanePlan, input, output string, keepDB bool, ledger *conversionFileLedger) (traceStreamerExportResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
-	}
-	status, err := BuildTraceToolStatus(opts)
-	if err != nil {
-		return traceStreamerExportResult{}, err
 	}
 	decision := newTraceProviderDecision(traceProviderStageTraceBody, traceProviderByName(traceProviderNameTraceStreamer), opts, input, output)
 	decision.Selected = true
 	decision.Attempted = true
-	if !status.TraceStreamer.Available || strings.TrimSpace(status.TraceStreamer.Path) == "" {
+	if !lane.Available || strings.TrimSpace(lane.Path) == "" {
+		cause := fmt.Errorf("trace_streamer is not available; run codrax trace convert --trace-tools-status or pass --trace-streamer /path/to/trace_streamer")
 		return traceStreamerExportResult{
 			Decision: traceProviderFailure(decision, "trace_streamer_unavailable", "trace_streamer engine was selected but trace_streamer is not available"),
-			Ran:      false,
-		}, fmt.Errorf("trace_streamer is not available; run codrax trace convert --trace-tools-status or pass --trace-streamer /path/to/trace_streamer")
-	}
-	dbPath, cleanup, err := traceStreamerDBPath(opts, input, output, keepDB)
-	if err != nil {
-		return traceStreamerExportResult{}, err
-	}
-	if err := ensureOutputDoesNotExist(dbPath); err != nil {
-		if cleanup != nil {
-			cleanup()
-		}
-		return traceStreamerExportResult{}, err
-	}
-	cmd := buildTraceStreamerExportCommand(ctx, status.TraceStreamer.Path, input, dbPath, opts.TraceStreamerSoDirs)
-	combined, runErr := runCommandWithProgress(opts, cmd, "trace_streamer_export", "running trace_streamer SQLite DB export")
-	if runErr != nil {
-		if cleanup != nil {
-			cleanup()
-		}
-		caveat := fmt.Sprintf("trace_streamer DB export failed (%s)%s", runErr, boundedCommandOutput(combined))
-		return traceStreamerExportResult{
-			Decision: traceProviderFailure(decision, "trace_streamer_failed", caveat),
-			Caveats:  []string{caveat},
-			Ran:      true,
+			Caveats:  traceStreamerFailureCaveats(lane, "trace_streamer engine was selected but trace_streamer is not available"),
+			Ran:      false, FailureStage: "trace_streamer_discovery", FailureCode: "trace_streamer_unavailable", Cause: cause,
 		}, nil
 	}
-	info, statErr := os.Stat(dbPath)
-	if statErr != nil {
-		if cleanup != nil {
-			cleanup()
+	dbTarget, err := prepareTraceStreamerDBTarget(opts, input, output, keepDB)
+	if err != nil {
+		return traceStreamerExportResult{}, fmt.Errorf("prepare trace_streamer DB staging path: %w", err)
+	}
+	cleanup := dbTarget.Cleanup
+	dbPath := dbTarget.StagingPath
+	cmd := buildTraceStreamerExportCommand(ctx, lane.Path, input, dbPath, opts.TraceStreamerSoDirs)
+	combined, runErr := runCommandWithProgress(opts, cmd, "trace_streamer_export", "running trace_streamer SQLite DB export")
+	if runErr != nil {
+		cleanupErr := cleanupTraceStreamerDBTarget(cleanup)
+		cleanup = nil
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return traceStreamerExportResult{}, traceDBJoinPreservingSingle(ctxErr, cleanupErr)
 		}
+		caveat := fmt.Sprintf("trace_streamer DB export failed (%s)%s", runErr, boundedCommandOutput(combined))
+		if cleanupErr != nil {
+			return traceStreamerExportResult{}, traceDBJoinPreservingSingle(traceStreamerProviderAttemptError("trace_streamer_export", "trace_streamer_failed", caveat, runErr), cleanupErr)
+		}
+		return traceStreamerExportResult{
+			Decision: traceProviderFailure(decision, "trace_streamer_failed", caveat),
+			Caveats:  traceStreamerFailureCaveats(lane, caveat),
+			Ran:      true, FailureStage: "trace_streamer_export", FailureCode: "trace_streamer_failed", Cause: runErr,
+		}, nil
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		cleanupErr := cleanupTraceStreamerDBTarget(cleanup)
+		cleanup = nil
+		return traceStreamerExportResult{}, traceDBJoinPreservingSingle(ctxErr, cleanupErr)
+	}
+	info, statErr := os.Lstat(dbPath)
+	if statErr != nil {
+		if cleanupErr := cleanupTraceStreamerDBTarget(cleanup); cleanupErr != nil {
+			caveat := fmt.Sprintf("trace_streamer DB export completed but output DB is not readable: %v", statErr)
+			return traceStreamerExportResult{}, traceDBJoinPreservingSingle(traceStreamerProviderAttemptError("trace_db_validate", "trace_db_missing", caveat, statErr), cleanupErr)
+		}
+		cleanup = nil
 		caveat := fmt.Sprintf("trace_streamer DB export completed but output DB is not readable: %v", statErr)
 		return traceStreamerExportResult{
 			Decision: traceProviderFailure(decision, "trace_db_missing", caveat),
-			Caveats:  []string{caveat},
-			Ran:      true,
+			Caveats:  traceStreamerFailureCaveats(lane, caveat),
+			Ran:      true, FailureStage: "trace_db_validate", FailureCode: "trace_db_missing", Cause: statErr,
+		}, nil
+	}
+	if !info.Mode().IsRegular() {
+		caveat := fmt.Sprintf("trace_streamer DB export completed but staging output is not a regular file: mode=%s", info.Mode())
+		if cleanupErr := cleanupTraceStreamerDBTarget(cleanup); cleanupErr != nil {
+			return traceStreamerExportResult{}, traceDBJoinPreservingSingle(traceStreamerProviderAttemptError("trace_db_validate", "trace_db_not_regular", caveat, errors.New(caveat)), cleanupErr)
+		}
+		cleanup = nil
+		return traceStreamerExportResult{
+			Decision: traceProviderFailure(decision, "trace_db_not_regular", caveat),
+			Caveats:  traceStreamerFailureCaveats(lane, caveat),
+			Ran:      true, FailureStage: "trace_db_validate", FailureCode: "trace_db_not_regular", Cause: errors.New(caveat),
 		}, nil
 	}
 	if info.Size() == 0 {
-		if cleanup != nil {
-			cleanup()
-		}
 		caveat := "trace_streamer DB export completed but output DB is empty"
+		if cleanupErr := cleanupTraceStreamerDBTarget(cleanup); cleanupErr != nil {
+			return traceStreamerExportResult{}, traceDBJoinPreservingSingle(traceStreamerProviderAttemptError("trace_db_validate", "trace_db_empty", caveat, errors.New(caveat)), cleanupErr)
+		}
+		cleanup = nil
 		return traceStreamerExportResult{
 			Decision: traceProviderFailure(decision, "trace_db_empty", caveat),
-			Caveats:  []string{caveat},
-			Ran:      true,
+			Caveats:  traceStreamerFailureCaveats(lane, caveat),
+			Ran:      true, FailureStage: "trace_db_validate", FailureCode: "trace_db_empty", Cause: errors.New(caveat),
 		}, nil
+	}
+	if dbTarget.Retained {
+		if err := publishStagedTraceDB(dbTarget, info, ledger); err != nil {
+			return traceStreamerExportResult{}, traceDBJoinPreservingSingle(fmt.Errorf("publish retained trace_streamer DB: %w", err), cleanupTraceStreamerDBTarget(cleanup))
+		}
+		dbPath = dbTarget.FinalPath
+		if err := cleanupTraceStreamerDBTarget(cleanup); err != nil {
+			return traceStreamerExportResult{}, fmt.Errorf("cleanup trace_streamer DB staging after publish: %w", err)
+		}
+		cleanup = nil
 	}
 	dbArtifact := Artifact{
 		Type:      ArtifactTraceDB,
@@ -189,52 +230,84 @@ func runTraceStreamerExport(ctx context.Context, opts Options, input, output str
 		Converter: traceStreamerConverter,
 		Caveats:   []string{"trace_streamer SQLite DB preserved as conversion provenance"},
 	}
+	if companion := dbPath + ".ohos.ts"; artifactPathExists(companion) {
+		dbArtifact.Caveats = append(dbArtifact.Caveats, "timestamp_companion="+companion)
+	}
 	normalizeStart := progressStarted(opts, "trace_db_normalize", "normalizing trace_streamer SQLite DB to systrace", dbPath, output)
-	systraceExport, systraceErr := exportTraceDBToSystrace(ctx, dbPath, output)
+	systraceExport, systraceErr := exportTraceDBToSystraceWithLedger(ctx, dbPath, output, ledger)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		cleanupErr := cleanupTraceStreamerDBTarget(cleanup)
+		cleanup = nil
+		return traceStreamerExportResult{}, traceDBJoinPreservingSingle(ctxErr, cleanupErr)
+	}
 	if systraceErr != nil {
 		progressFinished(opts, "trace_db_normalize", "trace_streamer SQLite DB normalization failed", dbPath, output, normalizeStart, ProgressStatusFailed)
-		if cleanup != nil && !keepDB {
-			cleanup()
+		if cleanup != nil {
+			if cleanupErr := cleanupTraceStreamerDBTarget(cleanup); cleanupErr != nil {
+				caveat := fmt.Sprintf("trace_streamer DB export succeeded, but Codrax could not normalize the DB to systrace: %v", systraceErr)
+				return traceStreamerExportResult{}, traceDBJoinPreservingSingle(traceStreamerProviderAttemptError("trace_db_normalize", "trace_db_normalize_failed", caveat, systraceErr), cleanupErr)
+			}
 			cleanup = nil
+			dbArtifact = Artifact{}
 		}
 		caveat := fmt.Sprintf("trace_streamer DB export succeeded, but Codrax could not normalize the DB to systrace: %v", systraceErr)
+		failureDecision := traceProviderFailure(
+			decision,
+			"trace_db_normalize_failed",
+			caveat,
+		)
+		if dbTarget.Retained {
+			failureDecision.DBPath = dbPath
+		}
 		return traceStreamerExportResult{
-			Artifact: dbArtifact,
-			Decision: traceProviderFailure(
-				decision,
-				"trace_db_normalize_failed",
-				caveat,
-			),
+			Artifact:      dbArtifact,
+			Decision:      failureDecision,
 			Coverage:      systraceExport.Coverage,
 			TraceCoverage: systraceExport.TraceCoverage,
-			Caveats:       []string{caveat},
-			Cleanup:       cleanup,
-			Ran:           true,
+			Caveats:       traceStreamerFailureCaveats(lane, caveat),
+			Ran:           true, FailureStage: "trace_db_normalize", FailureCode: "trace_db_normalize_failed", Cause: systraceErr,
 		}, nil
 	}
 	if systraceExport.Artifact.Path == "" {
 		progressFinished(opts, "trace_db_normalize", "trace_streamer SQLite DB normalization produced no systrace rows", dbPath, output, normalizeStart, ProgressStatusFailed)
-		if cleanup != nil && !keepDB {
-			cleanup()
+		if cleanup != nil {
+			if cleanupErr := cleanupTraceStreamerDBTarget(cleanup); cleanupErr != nil {
+				caveat := "trace_streamer DB export succeeded, but no systrace-compatible rows were emitted; inspect trace_db_coverage for missing or empty tables"
+				return traceStreamerExportResult{}, traceDBJoinPreservingSingle(traceStreamerProviderAttemptError("trace_db_normalize", "trace_db_no_rows", caveat, errors.New(caveat)), cleanupErr)
+			}
 			cleanup = nil
+			dbArtifact = Artifact{}
 		}
 		caveat := "trace_streamer DB export succeeded, but no systrace-compatible rows were emitted; inspect trace_db_coverage for missing or empty tables"
+		failureDecision := traceProviderFailure(
+			decision,
+			"trace_db_no_rows",
+			caveat,
+		)
+		if dbTarget.Retained {
+			failureDecision.DBPath = dbPath
+		}
 		return traceStreamerExportResult{
-			Artifact: dbArtifact,
-			Decision: traceProviderFailure(
-				decision,
-				"trace_db_no_rows",
-				caveat,
-			),
+			Artifact:      dbArtifact,
+			Decision:      failureDecision,
 			Coverage:      systraceExport.Coverage,
 			TraceCoverage: systraceExport.TraceCoverage,
-			Caveats:       []string{caveat},
-			Cleanup:       cleanup,
-			Ran:           true,
+			Caveats:       traceStreamerFailureCaveats(lane, caveat),
+			Ran:           true, FailureStage: "trace_db_normalize", FailureCode: "trace_db_no_rows", Cause: errors.New(caveat),
 		}, nil
 	}
 	progressFinished(opts, "trace_db_normalize", "normalized trace_streamer SQLite DB to systrace", dbPath, output, normalizeStart, ProgressStatusComplete)
+	if cleanup != nil {
+		if err := cleanupTraceStreamerDBTarget(cleanup); err != nil {
+			return traceStreamerExportResult{}, err
+		}
+		cleanup = nil
+		dbArtifact = Artifact{}
+	}
 	success := traceProviderSuccess(decision, systraceExport.Artifact)
+	if caveats := dedupeStrings(lane.Caveats); len(caveats) > 0 {
+		success.Caveat = strings.Join(caveats, " | ")
+	}
 	if keepDB || strings.TrimSpace(opts.TraceDBOutputPath) != "" {
 		success.DBPath = dbPath
 	}
@@ -244,8 +317,7 @@ func runTraceStreamerExport(ctx context.Context, opts Options, input, output str
 		Decision:          success,
 		Coverage:          systraceExport.Coverage,
 		TraceCoverage:     systraceExport.TraceCoverage,
-		Caveats:           []string{"trace_streamer DB export succeeded and was normalized to systrace for trace_query"},
-		Cleanup:           cleanup,
+		Caveats:           dedupeStrings(append(append([]string(nil), lane.Caveats...), "trace_streamer DB export succeeded and was normalized to systrace for trace_query")),
 		Ran:               true,
 		EventsWritten:     systraceExport.EventsWritten,
 		OutputBytes:       systraceExport.OutputBytes,
@@ -254,21 +326,171 @@ func runTraceStreamerExport(ctx context.Context, opts Options, input, output str
 	}, nil
 }
 
-func traceStreamerDBPath(opts Options, input, output string, keepDB bool) (string, func(), error) {
-	if path := strings.TrimSpace(opts.TraceDBOutputPath); path != "" {
-		return path, nil, nil
+func traceStreamerExportFailureError(export traceStreamerExportResult) error {
+	caveat := strings.TrimSpace(export.Decision.Caveat)
+	var failure error
+	if export.Cause == nil {
+		failure = errors.New(firstNonEmpty(caveat, "trace_streamer conversion failed"))
+	} else if caveat == "" || caveat == export.Cause.Error() {
+		failure = export.Cause
+	} else {
+		failure = fmt.Errorf("%s: %w", caveat, export.Cause)
 	}
-	if keepDB {
-		return traceSidecarBase(input, output) + ".trace.db", nil, nil
+	if rolledBackDB := strings.TrimSpace(export.Decision.DBPath); rolledBackDB != "" {
+		return fmt.Errorf("rolled_back_db=%q: %w", rolledBackDB, failure)
 	}
-	dir, err := os.MkdirTemp("", "codrax-trace-streamer-*")
+	return failure
+}
+
+func traceStreamerProviderAttemptError(stage, code, caveat string, cause error) error {
+	message := fmt.Sprintf("trace_streamer provider failed: stage=%s code=%s caveat=%s", stage, code, strconv.Quote(caveat))
+	if cause == nil {
+		return errors.New(message)
+	}
+	return fmt.Errorf("%s: %w", message, cause)
+}
+
+func traceStreamerFailureCaveats(lane traceProviderLanePlan, primary string) []string {
+	caveats := append([]string(nil), lane.Caveats...)
+	caveats = append(caveats, fmt.Sprintf("trace_streamer provider resolution: source=%s path=%s available=%t",
+		firstNonEmpty(strings.TrimSpace(lane.Source), "unknown"), firstNonEmpty(strings.TrimSpace(lane.Path), "none"), lane.Available))
+	caveats = append(caveats, primary)
+	return dedupeStrings(caveats)
+}
+
+type traceStreamerDBTarget struct {
+	StagingPath string
+	FinalPath   string
+	Retained    bool
+	Cleanup     func() error
+}
+
+func prepareTraceStreamerDBTarget(opts Options, input, output string, keepDB bool) (traceStreamerDBTarget, error) {
+	finalPath := strings.TrimSpace(opts.TraceDBOutputPath)
+	if finalPath == "" && keepDB {
+		finalPath = traceSidecarBase(input, output) + ".trace.db"
+	}
+	parent := ""
+	if finalPath != "" {
+		if _, err := os.Lstat(finalPath); err == nil {
+			return traceStreamerDBTarget{}, fmt.Errorf("output file already exists: %s (delete it first or specify a different trace DB output path)", finalPath)
+		} else if !os.IsNotExist(err) {
+			return traceStreamerDBTarget{}, fmt.Errorf("check trace DB output path %s: %w", finalPath, err)
+		}
+		companionPath := finalPath + ".ohos.ts"
+		if _, err := os.Lstat(companionPath); err == nil {
+			return traceStreamerDBTarget{}, fmt.Errorf("trace DB companion output already exists: %s", companionPath)
+		} else if !os.IsNotExist(err) {
+			return traceStreamerDBTarget{}, fmt.Errorf("check trace DB companion output path %s: %w", companionPath, err)
+		}
+		parent = filepath.Dir(finalPath)
+		parentInfo, err := os.Stat(parent)
+		if err != nil {
+			return traceStreamerDBTarget{}, fmt.Errorf("inspect trace DB output directory %s: %w", parent, err)
+		}
+		if !parentInfo.IsDir() {
+			return traceStreamerDBTarget{}, fmt.Errorf("trace DB output parent is not a directory: %s", parent)
+		}
+	}
+	var (
+		stagingDir string
+		err        error
+	)
+	if parent != "" {
+		stagingDir, err = os.MkdirTemp(parent, ".codrax-trace-db-*")
+	} else {
+		stagingDir, err = os.MkdirTemp("", "codrax-trace-streamer-*")
+	}
 	if err != nil {
-		return "", nil, err
+		return traceStreamerDBTarget{}, err
 	}
-	cleanup := func() {
-		_ = os.RemoveAll(dir)
+	stagingInfo, err := os.Lstat(stagingDir)
+	if err != nil {
+		return traceStreamerDBTarget{}, err
 	}
-	return filepath.Join(dir, "trace_streamer_export.db"), cleanup, nil
+	if !stagingInfo.IsDir() || stagingInfo.Mode().Perm() != 0o700 {
+		primary := fmt.Errorf("trace DB staging path is not a private directory: %s mode=%s", stagingDir, stagingInfo.Mode())
+		if stagingInfo.IsDir() {
+			return traceStreamerDBTarget{}, traceDBJoinPreservingSingle(primary, removeOwnedConversionDir(stagingDir, stagingInfo))
+		}
+		return traceStreamerDBTarget{}, primary
+	}
+	cleanup := func() error { return removeOwnedConversionDir(stagingDir, stagingInfo) }
+	return traceStreamerDBTarget{
+		StagingPath: filepath.Join(stagingDir, "trace_streamer_export.db"),
+		FinalPath:   finalPath,
+		Retained:    finalPath != "",
+		Cleanup:     cleanup,
+	}, nil
+}
+
+func cleanupTraceStreamerDBTarget(cleanup func() error) error {
+	if cleanup == nil {
+		return nil
+	}
+	return cleanup()
+}
+
+func publishStagedTraceDB(target traceStreamerDBTarget, stagingInfo os.FileInfo, ledger *conversionFileLedger) error {
+	if !target.Retained || strings.TrimSpace(target.FinalPath) == "" {
+		return nil
+	}
+	if stagingInfo == nil || !stagingInfo.Mode().IsRegular() || stagingInfo.Size() <= 0 {
+		return fmt.Errorf("trace DB staging file is not a non-empty regular file")
+	}
+	companionStaging := target.StagingPath + ".ohos.ts"
+	var companionInfo os.FileInfo
+	if info, err := os.Lstat(companionStaging); err == nil {
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("trace DB timestamp companion is not a regular file: %s", companionStaging)
+		}
+		companionInfo = info
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("inspect trace DB timestamp companion %s: %w", companionStaging, err)
+	}
+	// Publish the optional timestamp companion first and the DB last. The DB is
+	// the public commit marker: observers can never see a newly published DB
+	// while its conversion-owned companion is still absent. Every publication
+	// uses an atomic no-replace primitive, so a racing external owner is never
+	// overwritten.
+	if companionInfo != nil {
+		if err := publishStagedTraceRegularFile(companionStaging, target.FinalPath+".ohos.ts", companionInfo, ledger); err != nil {
+			return fmt.Errorf("publish trace DB timestamp companion: %w", err)
+		}
+	}
+	if err := publishStagedTraceRegularFile(target.StagingPath, target.FinalPath, stagingInfo, ledger); err != nil {
+		if companionInfo != nil {
+			return traceDBJoinPreservingSingle(err, ledger.removeOwnedPath(target.FinalPath+".ohos.ts"))
+		}
+		return err
+	}
+	return nil
+}
+
+func publishStagedTraceRegularFile(stagingPath, finalPath string, stagingInfo os.FileInfo, ledger *conversionFileLedger) error {
+	stagingMoved, err := publishConversionFileNoReplace(stagingPath, finalPath)
+	if err != nil {
+		return err
+	}
+	if err := ledger.recordIdentity(finalPath, stagingInfo); err != nil {
+		return traceDBJoinPreservingSingle(err, removeOwnedConversionPath(finalPath, stagingInfo))
+	}
+	finalInfo, err := os.Lstat(finalPath)
+	if err != nil {
+		return err
+	}
+	if !finalInfo.Mode().IsRegular() || !os.SameFile(stagingInfo, finalInfo) || finalInfo.Size() != stagingInfo.Size() {
+		return fmt.Errorf("published trace DB failed identity/regular-file validation: %s", finalPath)
+	}
+	if err := ledger.sealOwnedPath(finalPath, finalInfo.Size()); err != nil {
+		return err
+	}
+	if !stagingMoved {
+		if err := removeOwnedConversionPath(stagingPath, stagingInfo); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func buildTraceStreamerExportCommand(ctx context.Context, traceStreamer, input, dbPath string, soDirs []string) *exec.Cmd {

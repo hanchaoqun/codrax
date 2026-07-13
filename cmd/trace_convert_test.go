@@ -250,8 +250,10 @@ func TestTraceConvertResultLinesIncludeProviderDecisions(t *testing.T) {
 
 func TestTraceConvertTraceToolStatusLines(t *testing.T) {
 	status := hitraceconv.TraceToolStatus{
-		EngineMode:     "auto",
-		SelectedEngine: "trace_streamer",
+		RequestedEngine: "auto",
+		PreflightEngine: "trace_streamer",
+		FirstLane:       "trace_streamer",
+		OrderedRoute:    []string{"trace_streamer", "builtin"},
 		TraceStreamer: hitraceconv.TraceToolProviderStatus{
 			Name:            "trace_streamer_db",
 			Kind:            "official_trace_db",
@@ -288,13 +290,13 @@ func TestTraceConvertTraceToolStatusLines(t *testing.T) {
 		Caveats: []string{"auto trace engine discovered trace_streamer; conversion will use SQL first and fall back to the built-in raw trace parser if SQL execution or normalization fails"},
 	}
 	en := strings.Join(traceConvertTraceToolStatusLines("en", status), "\n")
-	for _, want := range []string{"trace_engine: auto", "selected_engine: trace_streamer", "trace_provider[official_trace_db/trace_streamer_db]", "state=available", "/tmp/trace_streamer", "aux_check=so_dir=/symbols", "docs=https://gitcode.com/diting/hmtrace/tree/main", "trace_provider[builtin_modern/codrax_builtin_modern_profiler]", "trace_gate[sys_binary_parity_gate/no_perf_sys_binary_parity]", "state=pending_representative_fixture", "fixture_manifests=0", "built-in sys binary parser remains an explicit guarded lane"} {
+	for _, want := range []string{"requested_engine: auto", "ordered_route: trace_streamer -> builtin", "first_lane: trace_streamer", "preflight_engine: trace_streamer", "actual_engine: authoritative in post-conversion trace_provider_decision", "trace_provider[official_trace_db/trace_streamer_db]", "state=available", "/tmp/trace_streamer", "aux_check=so_dir=/symbols", "docs=https://gitcode.com/diting/hmtrace/tree/main", "trace_provider[builtin_modern/codrax_builtin_modern_profiler]", "trace_gate[sys_binary_parity_gate/no_perf_sys_binary_parity]", "state=pending_representative_fixture", "fixture_manifests=0", "built-in sys binary parser remains an explicit guarded lane"} {
 		if !strings.Contains(en, want) {
 			t.Fatalf("trace status lines missing %q:\n%s", want, en)
 		}
 	}
 	zh := strings.Join(traceConvertTraceToolStatusLines("zh", status), "\n")
-	for _, want := range []string{"trace 解析引擎：auto", "当前选择：trace_streamer", "状态=可用", "来源=已配置 trace_streamer", "辅助检查=so_dir=/symbols", "文档=https://gitcode.com/diting/hmtrace/tree/main", "注意=trace_streamer DB export 是 trace+perf htrace 的优先 trace body 路径", "trace_gate[sys_binary_parity_gate/no_perf_sys_binary_parity]", "状态=等待代表性fixture", "fixture清单=0", "尚未提交可再分发的真实代表性 no-perf .sys fixture", "提示：auto trace 引擎已发现 trace_streamer"} {
+	for _, want := range []string{"请求引擎：auto", "有序路由：trace_streamer → builtin", "首车道：trace_streamer", "预检引擎：trace_streamer", "实际引擎：以转换后的 trace_provider_decision 为准", "状态=可用", "来源=已配置 trace_streamer", "辅助检查=so_dir=/symbols", "文档=https://gitcode.com/diting/hmtrace/tree/main", "注意=trace_streamer DB export 是 trace+perf htrace 的优先 trace body 路径", "trace_gate[sys_binary_parity_gate/no_perf_sys_binary_parity]", "状态=等待代表性fixture", "fixture清单=0", "尚未提交可再分发的真实代表性 no-perf .sys fixture", "提示：auto trace 引擎已发现 trace_streamer"} {
 		if !strings.Contains(zh, want) {
 			t.Fatalf("zh trace status lines missing %q:\n%s", want, zh)
 		}
@@ -308,8 +310,10 @@ func TestTraceConvertTraceToolStatusLines(t *testing.T) {
 
 func TestTraceConvertTraceToolStatusLinesIncludeInputClassification(t *testing.T) {
 	status := hitraceconv.TraceToolStatus{
-		EngineMode:          "auto",
-		SelectedEngine:      "builtin",
+		RequestedEngine:     "auto",
+		PreflightEngine:     "builtin",
+		FirstLane:           "trace_streamer",
+		OrderedRoute:        []string{"trace_streamer", "builtin"},
 		InputPath:           "capture.htrace",
 		InputInspected:      true,
 		InputKind:           "trace_perf",
@@ -319,13 +323,13 @@ func TestTraceConvertTraceToolStatusLinesIncludeInputClassification(t *testing.T
 		},
 	}
 	en := strings.Join(traceConvertTraceToolStatusLines("en", status), "\n")
-	for _, want := range []string{"trace_input: path=capture.htrace", "kind=trace_perf", "inspected=true", "has_perf_sidecar=true", "selected_engine: builtin", "standalone perf fallback"} {
+	for _, want := range []string{"trace_input: path=capture.htrace", "kind=trace_perf", "inspected=true", "has_perf_sidecar=true", "requested_engine: auto", "ordered_route: trace_streamer -> builtin", "first_lane: trace_streamer", "preflight_engine: builtin (reason=trace_streamer_unavailable)", "standalone perf fallback"} {
 		if !strings.Contains(en, want) {
 			t.Fatalf("trace status input classification missing %q:\n%s", want, en)
 		}
 	}
 	zh := strings.Join(traceConvertTraceToolStatusLines("zh", status), "\n")
-	for _, want := range []string{"trace 输入：路径=capture.htrace", "类型=trace+perf", "已检查=true", "包含perf=true", "当前选择：builtin", "已检查输入包含独立 perf sidecar"} {
+	for _, want := range []string{"trace 输入：路径=capture.htrace", "类型=trace+perf", "已检查=true", "包含perf=true", "请求引擎：auto", "有序路由：trace_streamer → builtin", "首车道：trace_streamer", "预检引擎：builtin（原因=trace_streamer不可用）", "已检查输入包含独立 perf sidecar"} {
 		if !strings.Contains(zh, want) {
 			t.Fatalf("zh trace status input classification missing %q:\n%s", want, zh)
 		}
@@ -334,6 +338,54 @@ func TestTraceConvertTraceToolStatusLinesIncludeInputClassification(t *testing.T
 		if strings.Contains(zh, leak) {
 			t.Fatalf("zh trace status leaked English %q:\n%s", leak, zh)
 		}
+	}
+}
+
+func TestTraceConvertTraceToolStatusLinesExposeExecutionBlocker(t *testing.T) {
+	blocker := "direct perf input has no trace body and cannot be combined with trace-only option(s) --trace-streamer"
+	status := hitraceconv.TraceToolStatus{
+		RequestedEngine:  "auto",
+		OrderedRoute:     []string{"direct_perf"},
+		FirstLane:        "direct_perf",
+		PreflightEngine:  "direct_perf",
+		ExecutionBlocker: blocker,
+		Caveats: []string{
+			"trace provider route is not applicable because the inspected input is a typed standalone perf capture with no trace body",
+			"execution_blocked: " + blocker,
+		},
+		TraceStreamer: hitraceconv.TraceToolProviderStatus{Kind: "official_trace_db", Name: "trace_streamer_db", InstallCommand: "must not render"},
+		BuiltinModern: hitraceconv.TraceToolProviderStatus{Kind: "builtin_modern", Name: "codrax_builtin_modern_profiler", InstallCommand: "must not render"},
+	}
+	en := strings.Join(traceConvertTraceToolStatusLines("en", status), "\n")
+	if !strings.Contains(en, "execution_blocker: "+blocker) || strings.Count(en, blocker) != 1 {
+		t.Fatalf("English status did not expose exactly one explicit execution blocker:\n%s", en)
+	}
+	for _, want := range []string{"trace_provider[official_trace_db/trace_streamer_db]: state=not_applicable", "trace_provider[builtin_modern/codrax_builtin_modern_profiler]: state=not_applicable"} {
+		if !strings.Contains(en, want) {
+			t.Fatalf("direct-perf provider status missing %q:\n%s", want, en)
+		}
+	}
+	if strings.Contains(en, "state=missing") || strings.Contains(en, "install=must not render") {
+		t.Fatalf("direct-perf status falsely advertised a trace provider dependency gap:\n%s", en)
+	}
+	zh := strings.Join(traceConvertTraceToolStatusLines("zh", status), "\n")
+	for _, want := range []string{"执行阻断：", "direct perf 输入不包含 trace body", "--trace-streamer"} {
+		if !strings.Contains(zh, want) {
+			t.Fatalf("Chinese status execution blocker missing %q:\n%s", want, zh)
+		}
+	}
+	if strings.Contains(zh, "direct perf input has no trace body") || strings.Contains(zh, "trace provider route is not applicable") || strings.Count(zh, "执行阻断：") != 1 || strings.Contains(zh, "execution_blocker") || strings.Contains(zh, "状态=缺失") || strings.Contains(zh, "安装=must not render") {
+		t.Fatalf("Chinese status leaked/duplicated execution blocker:\n%s", zh)
+	}
+}
+
+func TestTraceConvertTraceMessageZhKeepsSoDirHintSpecific(t *testing.T) {
+	got := traceConvertTraceMessageZh("so_dirs=not_configured; pass --trace-streamer-so-dir /path/to/so when native symbol reload is needed")
+	if !strings.Contains(got, "未配置 so_dir") || !strings.Contains(got, "--trace-streamer-so-dir") {
+		t.Fatalf("so-dir auxiliary check was swallowed by the generic trace_streamer install hint: %q", got)
+	}
+	if strings.Contains(got, "CODRAX_TRACE_STREAMER") {
+		t.Fatalf("so-dir auxiliary check was mislabeled as binary discovery guidance: %q", got)
 	}
 }
 
@@ -395,6 +447,8 @@ func TestTraceConvertPerfToolStatusLines(t *testing.T) {
 }
 
 func TestTraceConvertPerfToolsStatusIncludesTraceStreamerStatus(t *testing.T) {
+	langFlag := traceConvertCmd.Flag("lang")
+	oldLangChanged := langFlag.Changed
 	oldInput := traceConvertInput
 	oldOutput := traceConvertOutput
 	oldFlavor := traceConvertFlavor
@@ -434,6 +488,7 @@ func TestTraceConvertPerfToolsStatusIncludesTraceStreamerStatus(t *testing.T) {
 		traceConvertKeepTraceDB = oldKeepTraceDB
 		traceConvertTraceStreamerSoDirs = oldTraceStreamerSoDirs
 		flagLang = oldFlagLang
+		langFlag.Changed = oldLangChanged
 		traceConvertCmd.SetOut(nil)
 	})
 
@@ -456,6 +511,7 @@ func TestTraceConvertPerfToolsStatusIncludesTraceStreamerStatus(t *testing.T) {
 	traceConvertKeepTraceDB = false
 	traceConvertTraceStreamerSoDirs = nil
 	flagLang = "en"
+	langFlag.Changed = true
 	t.Setenv("CODRAX_TRACE_STREAMER", "")
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
@@ -472,7 +528,8 @@ func TestTraceConvertPerfToolsStatusIncludesTraceStreamerStatus(t *testing.T) {
 	got := out.String()
 	for _, want := range []string{
 		"trace_provider[official_trace_db/trace_streamer_db]",
-		"trace_engine: auto",
+		"requested_engine: auto",
+		"first_lane: trace_streamer",
 		"perf_parser: auto",
 		"raw_fallback",
 	} {

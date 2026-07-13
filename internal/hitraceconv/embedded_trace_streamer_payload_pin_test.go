@@ -1,4 +1,4 @@
-//go:build embed_streamer && ((windows && amd64) || (linux && amd64))
+//go:build !slim_streamer && ((windows && amd64) || (linux && amd64))
 
 package hitraceconv
 
@@ -7,20 +7,17 @@ import (
 	"testing"
 )
 
-// Payload pin for embed_streamer builds on bundled platforms: the
-// compiled binary must carry exactly the host platform's payload, the
-// per-platform manifest must survive the shared schema validation, and
-// the embedded bytes must match the manifest's sha256 + size_bytes
-// attestation. This is the compile-level half of the per-platform
-// distribution ruling (windows builds embed only the windows binary,
-// linux builds only the linux binary).
-func TestEmbedStreamerBuildCarriesHostPlatformPayload(t *testing.T) {
+// Payload pin for default builds on bundled platforms: the compiled
+// binary must carry exactly the host platform's payload, the manifest
+// must survive shared schema validation, and the bytes must match its
+// sha256 + size_bytes attestation. slim_streamer is the only opt-out.
+func TestDefaultBuildCarriesHostPlatformPayload(t *testing.T) {
 	if !embeddedTraceStreamerTagEnabled {
-		t.Fatal("embed_streamer build must enable the embedded payload tier")
+		t.Fatal("default bundled-platform build must enable the embedded payload tier")
 	}
 	fsys := embeddedTraceStreamerAssetsFS()
 	if fsys == nil {
-		t.Fatal("embed_streamer build on a bundled platform must expose the embedded assets FS")
+		t.Fatal("default bundled-platform build must expose the embedded assets FS")
 	}
 	manifest, err := loadEmbeddedTraceStreamerManifestFS(fsys)
 	if err != nil {

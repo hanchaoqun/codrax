@@ -1,11 +1,17 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+	"gopkg.in/yaml.v3"
 
 	"github.com/hanchaoqun/codrax/internal/hitraceconv"
 )
@@ -34,6 +40,14 @@ var (
 var traceCmd = &cobra.Command{
 	Use:   "trace",
 	Short: "Runtime trace utilities",
+	Long: `Deterministic runtime-trace utilities.
+
+Trace conversion is an explicit artifact-writing utility. It never modifies
+repository source files and never invokes an LLM. In auto mode Codrax uses a
+platform-matched bundled or configured trace_streamer first, then uses the
+built-in decoder only as a disclosed fallback.`,
+	Example: `  codrax trace convert --input capture.sys
+  codrax trace convert --trace-tools-status`,
 }
 
 var traceConvertCmd = &cobra.Command{
@@ -45,24 +59,37 @@ later analyze with --htrace, /htrace, and trace_query. When perf sidecars are
 present, the bundle preserves the systrace + perftrace pair so trace_query can
 correlate scheduler/running evidence with CPU samples.
 
-Perf sample conversion uses a two-engine strategy. In --perf-parser=auto,
-Codrax prefers official OpenHarmony hiperf or Android simpleperf adapters for
-symbolized output, then falls back to its built-in raw perf.data parser when
-possible. Use --trace-tools-status to inspect trace_streamer discovery and
-trace-engine selection. Use --perf-tools-status to inspect the full conversion
-toolchain: trace_streamer/trace engine plus perf tools, selected parser, raw
-fallback status, and install hints. Use
---perf-parser=official to require official tooling or --perf-parser=raw for the
-built-in fallback only. Trace body conversion defaults to --trace-engine=auto:
-when trace_streamer is discovered, Codrax uses SQL first; if trace_streamer is
-absent or SQL execution/export fails, auto falls back to the built-in raw trace
-parser. Explicit trace_streamer or builtin modes do not degrade to another
-trace engine.
+Trace body conversion defaults to --trace-engine=auto. Auto always attempts a
+platform-matched bundled or configured trace_streamer/SQL provider first. It
+uses the built-in raw decoder only as a disclosed fallback when trace_streamer
+is unavailable or its conversion fails. Explicit trace_streamer and builtin
+modes are isolated and never degrade to the other engine. Fully static
+Linux/musl and unsupported-platform distributions do not claim the bundled
+glibc payload is executable; configure an external trace_streamer there.
+
+Perf sidecar conversion independently prefers official OpenHarmony hiperf or
+Android simpleperf adapters for symbolized output, then uses the built-in raw
+perf.data fallback when possible. The status flags report the preflight
+provider plan; actual execution is reported after conversion.
 
 The command is intentionally manual and does not attach the generated file.
 When --output is omitted, Codrax writes <input>.systrace. Existing output files
 are never overwritten; delete the file first or choose another output path.`,
+	Example: `  # Recommended: trace_streamer first, disclosed built-in fallback
+  codrax trace convert --input capture.sys
+
+  # Select an output path or inspect provider selection
+  codrax trace convert --input capture.sys --output capture.systrace
+  codrax trace convert --input capture.sys --trace-tools-status
+
+  # Advanced explicit providers (no cross-engine fallback)
+  codrax trace convert --input capture.sys --trace-engine=trace_streamer --trace-streamer /opt/trace_streamer
+  codrax trace convert --input capture.sys --trace-engine=builtin`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if _, err := configureTraceConvertUtilityRuntime(cmd); err != nil {
+			return err
+		}
 		input := strings.TrimSpace(traceConvertInput)
 		opts := hitraceconv.Options{
 			InputPath:              input,
@@ -110,6 +137,9 @@ are never overwritten; delete the file first or choose another output path.`,
 		if input == "" {
 			return fmt.Errorf("--input is required")
 		}
+		if err := hitraceconv.ValidateOptions(opts); err != nil {
+			return err
+		}
 		result, err := hitraceconv.ConvertFile(cmd.Context(), opts)
 		if err != nil {
 			return err
@@ -127,41 +157,233 @@ are never overwritten; delete the file first or choose another output path.`,
 	},
 }
 
+type traceHelpFlagGroup struct {
+	title string
+	names []string
+}
+
+var traceConvertHelpFlagGroups = []traceHelpFlagGroup{
+	{title: "Input and output", names: []string{"input", "output", "flavor"}},
+	{title: "Trace engine", names: []string{"trace-engine", "trace-streamer", "trace-streamer-so-dir", "trace-db-output", "keep-trace-db"}},
+	{title: "Perf sidecars", names: []string{"hiperf-host", "hiperf-symbol-dir", "simpleperf-report-sample", "simpleperf-python", "simpleperf-symfs", "simpleperf-kallsyms", "perf-parser", "no-perftrace"}},
+	{title: "Diagnostics", names: []string{"trace-tools-status", "perf-tools-status"}},
+	{title: "Common", names: []string{"lang", "cache-dir", "help"}},
+}
+
+type traceConvertUtilityRuntime struct {
+	cacheRoot string
+	lang      string
+}
+
+// traceConvertUtilitySettings is deliberately a narrow projection. Trace
+// conversion is independent of providers, repositories, write mode, and the
+// LLM pipeline; malformed values for those unrelated settings must not block a
+// deterministic utility command. YAML syntax and the two fields consumed here
+// remain strict and fail loud.
+type traceConvertUtilitySettings struct {
+	CacheDir *string `yaml:"cache_dir"`
+	Lang     *string `yaml:"lang"`
+}
+
+// configureTraceConvertUtilityRuntime applies the same code-default < YAML <
+// explicit CLI precedence used by initApp, but reads only cache_dir and lang.
+// Relative YAML cache paths are runtimeAnchor-anchored; an explicit relative
+// --cache-dir remains verbatim, matching full initApp's long-standing CLI
+// override semantics. Trace conversion must remain provider/repository/logger
+// independent.
+func configureTraceConvertUtilityRuntime(command *cobra.Command) (traceConvertUtilityRuntime, error) {
+	resolved := traceConvertUtilityRuntime{lang: defaultLang}
+	settings := locateRuntimeSettings(executableDir())
+	runtimeSettings, err := loadTraceConvertUtilitySettings(settings)
+	if err != nil {
+		return traceConvertUtilityRuntime{}, err
+	}
+	if runtimeSettings != nil {
+		if runtimeSettings.CacheDir != nil {
+			resolved.cacheRoot = strings.TrimSpace(*runtimeSettings.CacheDir)
+		}
+		if runtimeSettings.Lang != nil {
+			resolved.lang = strings.TrimSpace(*runtimeSettings.Lang)
+		}
+		if resolved.cacheRoot != "" {
+			runtimeAnchor, err := filepath.Abs(runtimeAnchorDir)
+			if err != nil {
+				return traceConvertUtilityRuntime{}, fmt.Errorf("resolve trace conversion runtime anchor: %w", err)
+			}
+			resolved.cacheRoot = anchorPath(runtimeAnchor, resolved.cacheRoot)
+		}
+	}
+	if flag := command.Flag("cache-dir"); flag != nil && flag.Changed {
+		resolved.cacheRoot = strings.TrimSpace(flagCacheDir)
+	}
+	if flag := command.Flag("lang"); flag != nil && flag.Changed {
+		resolved.lang = strings.TrimSpace(flagLang)
+	} else {
+		flagLang = resolved.lang
+	}
+	hitraceconv.SetEmbeddedTraceStreamerCacheRoot(resolved.cacheRoot)
+	return resolved, nil
+}
+
+func loadTraceConvertUtilitySettings(location runtimeSettingsLocation) (*traceConvertUtilitySettings, error) {
+	if location.path == "" {
+		return nil, nil
+	}
+	body, err := os.ReadFile(location.path)
+	if os.IsNotExist(err) && !location.explicit {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to load runtime settings from %s: %w", location.path, err)
+	}
+	var settings traceConvertUtilitySettings
+	decoder := yaml.NewDecoder(strings.NewReader(string(body)))
+	if err := decoder.Decode(&settings); err != nil && !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("failed to load trace conversion settings projection from %s: %w", location.path, err)
+	}
+	return &settings, nil
+}
+
+func traceUtilityHelp(command *cobra.Command, _ []string) {
+	out := command.OutOrStdout()
+	if strings.TrimSpace(command.Long) != "" {
+		fmt.Fprintln(out, command.Long)
+	} else {
+		fmt.Fprintln(out, command.Short)
+	}
+	usage := command.UseLine()
+	if command.HasAvailableSubCommands() {
+		usage = command.CommandPath() + " [command]"
+	}
+	fmt.Fprintf(out, "\nUsage:\n  %s\n", usage)
+	if command.HasAvailableSubCommands() {
+		fmt.Fprintln(out, "\nCommands:")
+		for _, child := range command.Commands() {
+			if child.IsAvailableCommand() || child.Name() == "help" {
+				fmt.Fprintf(out, "  %-12s %s\n", child.Name(), child.Short)
+			}
+		}
+	}
+	if strings.TrimSpace(command.Example) != "" {
+		fmt.Fprintf(out, "\nExamples:\n%s\n", command.Example)
+	}
+	renderTraceHelpFlagGroups(command, []traceHelpFlagGroup{{
+		title: "Common",
+		names: []string{"lang", "cache-dir", "help"},
+	}})
+}
+
+func traceConvertHelp(command *cobra.Command, _ []string) {
+	out := command.OutOrStdout()
+	fmt.Fprintln(out, command.Long)
+	fmt.Fprintf(out, "\nUsage:\n  %s\n", command.UseLine())
+	if strings.TrimSpace(command.Example) != "" {
+		fmt.Fprintf(out, "\nExamples:\n%s\n", command.Example)
+	}
+	renderTraceHelpFlagGroups(command, traceConvertHelpFlagGroups)
+}
+
+func renderTraceHelpFlagGroups(command *cobra.Command, groups []traceHelpFlagGroup) {
+	command.InitDefaultHelpFlag()
+	out := command.OutOrStdout()
+	for _, group := range groups {
+		flags := pflag.NewFlagSet(group.title, pflag.ContinueOnError)
+		flags.SortFlags = false
+		for _, name := range group.names {
+			flag := command.Flag(name)
+			if flag == nil {
+				continue
+			}
+			clone := *flag
+			flags.AddFlag(&clone)
+		}
+		if !flags.HasFlags() {
+			continue
+		}
+		fmt.Fprintf(out, "\n%s:\n%s", group.title, flags.FlagUsagesWrapped(100))
+	}
+}
+
 func traceConvertTraceToolStatusLines(lang string, status hitraceconv.TraceToolStatus) []string {
 	if traceConvertUseZh(lang) {
 		lines := []string{
-			fmt.Sprintf("trace 解析引擎：%s", status.EngineMode),
-			fmt.Sprintf("当前选择：%s", status.SelectedEngine),
+			fmt.Sprintf("请求引擎：%s", status.RequestedEngine),
+			fmt.Sprintf("有序路由：%s", strings.Join(status.OrderedRoute, " → ")),
+			fmt.Sprintf("首车道：%s", status.FirstLane),
+			"预检引擎：" + traceConvertPreflightEngine("zh", status),
+			"实际引擎：以转换后的 trace_provider_decision 为准",
+		}
+		if blocker := strings.TrimSpace(status.ExecutionBlocker); blocker != "" {
+			lines = append(lines, "执行阻断："+hitraceconv.LocalizeConvertMessage("zh", blocker))
 		}
 		if inputLine := traceConvertTraceInputLine("zh", status); inputLine != "" {
 			lines = append(lines, inputLine)
 		}
-		lines = append(lines, traceConvertTraceProviderLine("zh", status.TraceStreamer))
-		lines = append(lines, traceConvertTraceProviderLine("zh", status.BuiltinModern))
+		lines = append(lines, traceConvertStatusProviderLine("zh", status, status.TraceStreamer))
+		lines = append(lines, traceConvertStatusProviderLine("zh", status, status.BuiltinModern))
 		if gateLine := traceConvertTraceGateLine("zh", status.SysBinaryParity); gateLine != "" {
 			lines = append(lines, gateLine)
 		}
 		for _, caveat := range status.Caveats {
+			if traceConvertDuplicatesExecutionBlocker(caveat, status.ExecutionBlocker) {
+				continue
+			}
 			lines = append(lines, "提示："+traceConvertTraceMessageZh(caveat))
 		}
 		return lines
 	}
 	lines := []string{
-		fmt.Sprintf("trace_engine: %s", status.EngineMode),
-		fmt.Sprintf("selected_engine: %s", status.SelectedEngine),
+		fmt.Sprintf("requested_engine: %s", status.RequestedEngine),
+		fmt.Sprintf("ordered_route: %s", strings.Join(status.OrderedRoute, " -> ")),
+		fmt.Sprintf("first_lane: %s", status.FirstLane),
+		"preflight_engine: " + traceConvertPreflightEngine("en", status),
+		"actual_engine: authoritative in post-conversion trace_provider_decision",
+	}
+	if blocker := strings.TrimSpace(status.ExecutionBlocker); blocker != "" {
+		lines = append(lines, "execution_blocker: "+blocker)
 	}
 	if inputLine := traceConvertTraceInputLine("en", status); inputLine != "" {
 		lines = append(lines, inputLine)
 	}
-	lines = append(lines, traceConvertTraceProviderLine("en", status.TraceStreamer))
-	lines = append(lines, traceConvertTraceProviderLine("en", status.BuiltinModern))
+	lines = append(lines, traceConvertStatusProviderLine("en", status, status.TraceStreamer))
+	lines = append(lines, traceConvertStatusProviderLine("en", status, status.BuiltinModern))
 	if gateLine := traceConvertTraceGateLine("en", status.SysBinaryParity); gateLine != "" {
 		lines = append(lines, gateLine)
 	}
 	for _, caveat := range status.Caveats {
+		if traceConvertDuplicatesExecutionBlocker(caveat, status.ExecutionBlocker) {
+			continue
+		}
 		lines = append(lines, "caveat: "+caveat)
 	}
 	return lines
+}
+
+func traceConvertDuplicatesExecutionBlocker(caveat, blocker string) bool {
+	blocker = strings.TrimSpace(blocker)
+	return blocker != "" && strings.TrimSpace(caveat) == "execution_blocked: "+blocker
+}
+
+func traceConvertStatusProviderLine(lang string, status hitraceconv.TraceToolStatus, provider hitraceconv.TraceToolProviderStatus) string {
+	if status.FirstLane != "direct_perf" {
+		return traceConvertTraceProviderLine(lang, provider)
+	}
+	prefix := fmt.Sprintf("trace_provider[%s/%s]", provider.Kind, provider.Name)
+	if traceConvertUseZh(lang) {
+		return prefix + "：状态=不适用 原因=typed direct perf 输入没有 trace body"
+	}
+	return prefix + ": state=not_applicable reason=typed_direct_perf_input_has_no_trace_body"
+}
+
+func traceConvertPreflightEngine(lang string, status hitraceconv.TraceToolStatus) string {
+	engine := status.PreflightEngine
+	if status.RequestedEngine == "auto" && engine == "builtin" && status.FirstLane == "trace_streamer" && !status.TraceStreamer.Available {
+		if traceConvertUseZh(lang) {
+			return engine + "（原因=trace_streamer不可用）"
+		}
+		return engine + " (reason=trace_streamer_unavailable)"
+	}
+	return engine
 }
 
 func traceConvertTraceInputLine(lang string, status hitraceconv.TraceToolStatus) string {
@@ -402,7 +624,7 @@ func traceConvertTraceMessageZh(message string) string {
 		return "未发现 trace_streamer；当前显式选择的 SQL trace 转换无法生成 systrace"
 	case strings.Contains(lower, "trace_streamer engine was selected but"):
 		return "已选择 trace_streamer 引擎，但 trace_streamer 当前不可用"
-	case strings.Contains(lower, "embedded trace_streamer is not usable"), strings.Contains(lower, "embed_streamer build tag"):
+	case strings.Contains(lower, "embedded trace_streamer"):
 		// Single shared mapping next to the English producer; do not
 		// inline a copy here (verbatim-wording drift class).
 		return hitraceconv.LocalizeEmbeddedTraceStreamerCaveatZh(trimmed)
@@ -428,12 +650,14 @@ func traceConvertTraceMessageZh(message string) string {
 		return "内置 modern parser 是需要显式选择的纯 trace 引擎"
 	case strings.Contains(lower, "built into codrax"):
 		return "Codrax 内置；支持 modern profiler/session 文本载荷和 sys binary 转换；auto 下 trace_streamer 不可用或失败时可作为 raw trace 兜底"
+	case strings.Contains(lower, "so_dirs=not_configured"):
+		return "未配置 so_dir；native 符号 reload 需要时可传 --trace-streamer-so-dir /path/to/so"
+	case strings.Contains(lower, "trace provider route is not applicable because the inspected input is a typed standalone perf capture with no trace body"):
+		return hitraceconv.LocalizeConvertMessage("zh", trimmed)
 	case strings.Contains(lower, "pass --trace-streamer"):
 		return "传 --trace-streamer /path/to/trace_streamer 或设置 CODRAX_TRACE_STREAMER；确认可运行 trace_streamer --help，并支持 trace_streamer <input> -e <output.db>"
 	case strings.Contains(lower, "install openharmony/smartperf trace_streamer"):
 		return "安装 OpenHarmony/SmartPerf trace_streamer，或把对应平台的 trace_streamer 放在 Codrax 二进制同目录或 trace_streamer/<platform>/ 下"
-	case strings.Contains(lower, "so_dirs=not_configured"):
-		return "未配置 so_dir；native 符号 reload 需要时可传 --trace-streamer-so-dir /path/to/so"
 	case strings.Contains(lower, "configured path is not readable"):
 		return strings.Replace(trimmed, "configured path is not readable", "配置路径不可读", 1)
 	case strings.Contains(lower, "configured path is a directory"):
@@ -1334,14 +1558,16 @@ func init() {
 	traceConvertCmd.Flags().StringVar(&traceConvertSPSymfs, "simpleperf-symfs", "", "symfs directory passed to simpleperf report_sample.py --symfs")
 	traceConvertCmd.Flags().StringVar(&traceConvertSPKallsyms, "simpleperf-kallsyms", "", "kallsyms file passed to simpleperf report_sample.py --kallsyms")
 	traceConvertCmd.Flags().StringVar(&traceConvertTraceEngine, "trace-engine", "auto", "trace body conversion engine: auto, trace_streamer, or builtin; auto uses trace_streamer SQL first and falls back to built-in raw parsing when SQL is unavailable or fails")
-	traceConvertCmd.Flags().StringVar(&traceConvertTraceStreamer, "trace-streamer", "", "OpenHarmony/SmartPerf trace_streamer executable used to export .htrace/perf.data into SQLite DB")
-	traceConvertCmd.Flags().StringVar(&traceConvertTraceDBOutput, "trace-db-output", "", "trace_streamer SQLite DB output path; default is derived from --output or input when DB export is enabled")
-	traceConvertCmd.Flags().BoolVar(&traceConvertKeepTraceDB, "keep-trace-db", false, "debug only: keep generated trace_streamer SQLite DB and tool sidecars instead of cleaning temporary files")
+	traceConvertCmd.Flags().StringVar(&traceConvertTraceStreamer, "trace-streamer", "", "OpenHarmony/SmartPerf trace_streamer executable used to export binary .sys/.htrace/perf.data captures into SQLite DB")
+	traceConvertCmd.Flags().StringVar(&traceConvertTraceDBOutput, "trace-db-output", "", "explicit retained trace_streamer SQLite DB path; without this flag or --keep-trace-db the DB and .ohos.ts companion are temporary")
+	traceConvertCmd.Flags().BoolVar(&traceConvertKeepTraceDB, "keep-trace-db", false, "retain the trace_streamer SQLite DB at its derived sidecar path together with any .ohos.ts timestamp companion")
 	traceConvertCmd.Flags().StringSliceVar(&traceConvertTraceStreamerSoDirs, "trace-streamer-so-dir", nil, "native .so directories passed through to trace_streamer for symbol reload; repeat or comma-separate values")
 	traceConvertCmd.Flags().StringVar(&traceConvertPerfParser, "perf-parser", "auto", "perf.data parser strategy: auto uses official hiperf/simpleperf first then raw fallback; official disables raw fallback; raw uses Codrax raw perf.data fallback only")
 	traceConvertCmd.Flags().BoolVar(&traceConvertNoPerfTrace, "no-perftrace", false, "preserve perf.data sidecars without generating .perftrace")
 	traceConvertCmd.Flags().BoolVar(&traceConvertTraceToolsStatus, "trace-tools-status", false, "print trace_streamer discovery, trace engine selection, DB export readiness, and install hints")
 	traceConvertCmd.Flags().BoolVar(&traceConvertToolsStatus, "perf-tools-status", false, "print trace_streamer/trace-engine status plus discovered official perf tools, raw fallback availability, selected parser strategy, and install hints")
+	traceCmd.SetHelpFunc(traceUtilityHelp)
+	traceConvertCmd.SetHelpFunc(traceConvertHelp)
 	traceCmd.AddCommand(traceConvertCmd)
 	rootCmd.AddCommand(traceCmd)
 }

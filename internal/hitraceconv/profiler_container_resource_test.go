@@ -1201,7 +1201,7 @@ func TestProfilerContainerResourceStructurePinned(t *testing.T) {
 			gatePos, gateEnd, bodyReadPositions)
 	}
 
-	publisher := functions["tryConvertProfilerContainer"]
+	publisher := functions["tryConvertProfilerContainerWithLedger"]
 	extractCalls := callSites(publisher, "extractProfilerContainerSystraceRowsWithSessionLimit")
 	openCalls := callSites(publisher, "OpenFile")
 	writeCalls := callSites(publisher, "writeTo")
@@ -1220,7 +1220,7 @@ func TestProfilerContainerResourceStructurePinned(t *testing.T) {
 			writeOwners[functionName] = len(calls)
 		}
 	}
-	if len(writeOwners) != 1 || writeOwners["tryConvertProfilerContainer"] != 1 {
+	if len(writeOwners) != 1 || writeOwners["tryConvertProfilerContainerWithLedger"] != 1 {
 		t.Fatalf("profiler trace-body publication authority is no longer unique: %+v", writeOwners)
 	}
 	for _, functionName := range []string{"extractProfilerTraceFileAtWithFrameLimit", "extractProfilerSessionPackageWithLineLimit"} {

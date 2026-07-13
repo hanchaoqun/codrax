@@ -29,6 +29,21 @@ MUSL_CC      ?= musl-gcc
 WSL_GOPROXY  ?= https://proxy.golang.org,direct
 WSL_GOSUMDB  ?= sum.golang.org
 
+# Ordinary supported-platform builds embed the platform-matched
+# trace_streamer payload by default. The upstream Linux payload is a
+# dynamically linked glibc executable and cannot truthfully be bundled into
+# the fully static musl distribution, so every musl-static recipe opts out.
+# Add project-specific static build tags only through STATIC_EXTRA_TAGS; the
+# required slim_streamer base cannot be removed. The old fully-overridable
+# STATIC_TAGS variable is rejected fail-loud because `STATIC_TAGS=my_tag`
+# would silently re-embed the glibc executable into a musl-static artifact.
+ifneq ($(origin STATIC_TAGS),undefined)
+  $(error STATIC_TAGS is unsafe and no longer supported; use STATIC_EXTRA_TAGS=<comma-separated-extra-tags> (slim_streamer is always retained))
+endif
+comma             := ,
+STATIC_EXTRA_TAGS ?=
+STATIC_BUILD_TAGS := slim_streamer$(if $(strip $(STATIC_EXTRA_TAGS)),$(comma)$(strip $(STATIC_EXTRA_TAGS)))
+
 # CGO_CFLAGS injection silences gcc/clang/musl-gcc warnings from the
 # vendored tree-sitter parser packages. Specifically, tree-sitter-lua
 # parser.c embeds a literal `"\0"` string at index 254 (parser-
@@ -189,7 +204,7 @@ else
 static: static-native
 
 static-native:
-	CGO_ENABLED=1 CC=$(MUSL_CC) GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -ldflags '-linkmode external -extldflags "-static" $(LD_VERSION) $(LDFLAGS)' -o $(BINARY) .
+	CGO_ENABLED=1 CC=$(MUSL_CC) GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -tags '$(STATIC_BUILD_TAGS)' -ldflags '-linkmode external -extldflags "-static" $(LD_VERSION) $(LDFLAGS)' -o $(BINARY) .
 endif
 
 # ---------------------------------------------------------------------------
@@ -244,7 +259,7 @@ ifeq ($(HOST_OS),windows)
 release: clean-dist
 	New-Item -ItemType Directory -Force dist | Out-Null
 	$$env:CGO_ENABLED='1'; & $(GO) build $(GOFLAGS) -ldflags '$(LD_VERSION) $(LDFLAGS)' -o dist/$(BINARY)-windows-amd64.exe .
-	& wsl bash -lc "set -euo pipefail; command -v $(MUSL_CC) >/dev/null 2>&1 || { echo 'musl-gcc not found in WSL; install musl-tools first.'; exit 1; }; cd '$(WSL_REPO)' && export GOPROXY='$(WSL_GOPROXY)' GOSUMDB='$(WSL_GOSUMDB)' && CGO_ENABLED=1 CC=$(MUSL_CC) GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -ldflags '-linkmode external -extldflags `"-static`" $(LD_VERSION) $(LDFLAGS)' -o dist/$(BINARY)-linux-amd64 ."
+	& wsl bash -lc "set -euo pipefail; command -v $(MUSL_CC) >/dev/null 2>&1 || { echo 'musl-gcc not found in WSL; install musl-tools first.'; exit 1; }; cd '$(WSL_REPO)' && export GOPROXY='$(WSL_GOPROXY)' GOSUMDB='$(WSL_GOSUMDB)' && CGO_ENABLED=1 CC=$(MUSL_CC) GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -tags '$(STATIC_BUILD_TAGS)' -ldflags '-linkmode external -extldflags `"-static`" $(LD_VERSION) $(LDFLAGS)' -o dist/$(BINARY)-linux-amd64 ."
 	Write-Host 'Skipped Darwin artifacts on Windows host.'
 	Get-ChildItem dist
 else ifeq ($(HOST_KIND),darwin)
@@ -260,7 +275,7 @@ release: clean-dist
 	CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 $(GO) build $(GOFLAGS) -ldflags '$(LD_VERSION) $(LDFLAGS)' -o dist/$(BINARY)-darwin-amd64 .
 	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 $(GO) build $(GOFLAGS) -ldflags '$(LD_VERSION) $(LDFLAGS)' -o dist/$(BINARY)-darwin-arm64 .
 	@if command -v $(MUSL_CC) >/dev/null 2>&1; then \
-		CGO_ENABLED=1 CC=$(MUSL_CC) GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -ldflags '-linkmode external -extldflags "-static" $(LD_VERSION) $(LDFLAGS)' -o dist/$(BINARY)-linux-amd64 . ; \
+		CGO_ENABLED=1 CC=$(MUSL_CC) GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -tags '$(STATIC_BUILD_TAGS)' -ldflags '-linkmode external -extldflags "-static" $(LD_VERSION) $(LDFLAGS)' -o dist/$(BINARY)-linux-amd64 . ; \
 	else \
 		echo "skip dist/$(BINARY)-linux-amd64: $(MUSL_CC) not found (brew install FiloSottile/musl-cross/musl-cross to enable)" >&2 ; \
 	fi
@@ -273,7 +288,7 @@ release: clean-dist
 else
 release: clean-dist
 	@mkdir -p dist
-	CGO_ENABLED=1 CC=$(MUSL_CC) GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -ldflags '-linkmode external -extldflags "-static" $(LD_VERSION) $(LDFLAGS)' -o dist/$(BINARY)-linux-amd64 .
+	CGO_ENABLED=1 CC=$(MUSL_CC) GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -tags '$(STATIC_BUILD_TAGS)' -ldflags '-linkmode external -extldflags "-static" $(LD_VERSION) $(LDFLAGS)' -o dist/$(BINARY)-linux-amd64 .
 	-CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 $(GO) build $(GOFLAGS) -ldflags '$(LD_VERSION) $(LDFLAGS)' -o dist/$(BINARY)-darwin-amd64 .
 	-CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 $(GO) build $(GOFLAGS) -ldflags '$(LD_VERSION) $(LDFLAGS)' -o dist/$(BINARY)-darwin-arm64 .
 	-CGO_ENABLED=1 GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc $(GO) build $(GOFLAGS) -ldflags '$(LD_VERSION) $(LDFLAGS)' -o dist/$(BINARY)-windows-amd64.exe .
@@ -503,6 +518,12 @@ help:
 	@echo "  clean              Remove build artifacts"
 	@echo "  info               Show build environment"
 	@echo "  help               Show this help"
+	@echo ""
+	@echo "Trace conversion packaging:"
+	@echo "  - Supported native Linux/Windows amd64 builds embed trace_streamer by default."
+	@echo "  - Fully static Linux/musl artifacts use the slim_streamer tag because the upstream Linux payload requires glibc; configure an external trace_streamer."
+	@echo "  - Add static-only project tags with STATIC_EXTRA_TAGS=tag1,tag2; slim_streamer cannot be removed."
+	@echo "  - macOS and unsupported architectures require a compatible external trace_streamer."
 	@echo ""
 	@echo "Windows notes:"
 	@echo "  - Native build/test use PowerShell recipes."

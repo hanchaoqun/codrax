@@ -1,8 +1,8 @@
 package hitraceconv
 
-// No build tag: the lockstep pin runs in slim and embed_streamer test
-// passes alike, because the wording pair (English producers + Chinese
-// mapping) is always compiled.
+// No build tag: the lockstep pin runs in default and slim_streamer test
+// passes alike because the English producer and Chinese mapping are
+// always compiled.
 
 import (
 	"path"
@@ -17,28 +17,28 @@ import (
 // mapping — makes at least one assertion here go red instead of
 // silently degrading to English passthrough in the CLI/REPL.
 func TestEmbeddedTraceStreamerZhLocalizationLockstep(t *testing.T) {
-	// (1) Unbundled-platform gap: production formatter (the payload stub
-	// for non-bundled embed_streamer builds emits exactly this).
+	// (1) Default unbundled-platform gap from the production formatter.
 	gap := EmbeddedTraceStreamerPlatformGapMessage("darwin", "arm64")
 	zhGap := LocalizeEmbeddedTraceStreamerCaveatZh(gap)
 	if zhGap == gap {
 		t.Fatalf("zh mapping did not fire on the production gap wording — English producer and Chinese mapping drifted apart:\n%s", gap)
 	}
 	for _, want := range []string{
-		"embed_streamer 构建已启用内嵌 trace_streamer",
+		"默认内嵌 trace_streamer 层",
 		"darwin/arm64",
-		"首批仅内嵌 linux-amd64 与 windows-amd64",
-		"外部 trace_streamer",
+		"未内嵌 darwin/arm64 平台 payload",
+		"配置外部 trace_streamer",
+		"slim_streamer 会显式禁用内嵌 payload",
 	} {
 		if !strings.Contains(zhGap, want) {
 			t.Fatalf("translated gap caveat missing %q:\n%s", want, zhGap)
 		}
 	}
 	for _, leftover := range []string{
-		"payload is enabled",
-		"no binary is bundled",
-		"first wave bundles",
-		"install or configure",
+		"has no bundled payload",
+		"configure an external",
+		"install a distribution",
+		"explicitly disables embedded payloads",
 	} {
 		if strings.Contains(zhGap, leftover) {
 			t.Fatalf("English fragment %q survived translation (partial replace = wording drift):\n%s", leftover, zhGap)
@@ -74,6 +74,37 @@ func TestEmbeddedTraceStreamerZhLocalizationLockstep(t *testing.T) {
 	zhSrc := LocalizeEmbeddedTraceStreamerSourceZh(src)
 	if zhSrc == src || !strings.Contains(zhSrc, "内嵌 trace_streamer 7fb4eab") {
 		t.Fatalf("source label translation failed: %q -> %q", src, zhSrc)
+	}
+
+	// (4) Failure provenance is produced by the shared typed lane
+	// formatter. It is a user-visible caveat in CLI/REPL failure paths,
+	// so the embedded source label and all surrounding field labels must
+	// remain localized as one unit.
+	resolutionCaveats := traceStreamerFailureCaveats(traceProviderLanePlan{
+		Path:      "/tmp/embedded/trace_streamer",
+		Source:    src,
+		Available: true,
+	}, "conversion failed")
+	var resolution string
+	for _, caveat := range resolutionCaveats {
+		if strings.Contains(caveat, "trace_streamer provider resolution:") {
+			resolution = caveat
+			break
+		}
+	}
+	if resolution == "" {
+		t.Fatalf("production failure caveats did not include provider resolution: %v", resolutionCaveats)
+	}
+	zhResolution := LocalizeConvertMessage("zh", resolution)
+	for _, want := range []string{"trace_streamer 提供方解析：", "来源=内嵌 trace_streamer 7fb4eab", "路径=/tmp/embedded/trace_streamer", "可用=是"} {
+		if !strings.Contains(zhResolution, want) {
+			t.Fatalf("translated provider resolution missing %q:\n%s", want, zhResolution)
+		}
+	}
+	for _, leftover := range []string{"provider resolution:", "source=", " path=", " available=", "embedded trace_streamer"} {
+		if strings.Contains(zhResolution, leftover) {
+			t.Fatalf("English provider-resolution fragment %q survived translation:\n%s", leftover, zhResolution)
+		}
 	}
 
 	// Foreign inputs pass through untouched — the shared mapping owns

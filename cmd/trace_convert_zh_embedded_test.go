@@ -15,7 +15,7 @@ import (
 // silently passing English through.
 func TestTraceConvertZhDelegatesEmbeddedTraceStreamerWording(t *testing.T) {
 	gap := hitraceconv.EmbeddedTraceStreamerPlatformGapMessage("darwin", "arm64")
-	if got := traceConvertTraceMessageZh(gap); got == gap || !strings.Contains(got, "embed_streamer 构建已启用内嵌 trace_streamer") || strings.Contains(got, "no binary is bundled") {
+	if got := traceConvertTraceMessageZh(gap); got == gap || !strings.Contains(got, "默认内嵌 trace_streamer 层") || !strings.Contains(got, "slim_streamer 会显式禁用内嵌 payload") || strings.Contains(got, "has no bundled payload") {
 		t.Fatalf("gap caveat not localized through shared mapping:\nin:  %s\nout: %s", gap, got)
 	}
 	notUsable := hitraceconv.EmbeddedTraceStreamerNotUsableMessage(errors.New("sha256 mismatch"))

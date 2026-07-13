@@ -2816,6 +2816,7 @@ func helpLines(lang string) []string {
 			helpCommandLine(lang, "/mode"),
 			helpCommandLine(lang, "/log"),
 			helpCommandLine(lang, "/htrace"),
+			helpSubcommandLine(lang, "/htrace", htraceConvertSubcommandSyntax),
 			helpCommandLine(lang, "/history"),
 			helpCommandLine(lang, "/clear"),
 			helpCommandLine(lang, "/exit"),
@@ -2831,6 +2832,7 @@ func helpLines(lang string) []string {
 		helpCommandLine(lang, "/mode"),
 		helpCommandLine(lang, "/log"),
 		helpCommandLine(lang, "/htrace"),
+		helpSubcommandLine(lang, "/htrace", htraceConvertSubcommandSyntax),
 		helpCommandLine(lang, "/history"),
 		helpCommandLine(lang, "/clear"),
 		helpCommandLine(lang, "/exit"),
@@ -2846,6 +2848,19 @@ func helpCommandLine(lang, name string) string {
 		return "  " + name
 	}
 	return "  " + name + "  " + cmd.Help(lang)
+}
+
+func helpSubcommandLine(lang, parent, syntax string) string {
+	command, ok := slashCommandByName(parent)
+	if !ok {
+		return "  " + parent + " " + syntax
+	}
+	for _, subcommand := range command.Subs {
+		if subcommand.Name == syntax {
+			return "  " + parent + " " + syntax + "  " + subcommand.Help(lang)
+		}
+	}
+	return "  " + parent + " " + syntax
 }
 
 // helpLinesAll auto-generates /help all's bilingual output from the
@@ -3231,10 +3246,11 @@ func htraceUsage(lang string) string {
 }
 
 func htraceConvertUsage(lang string) string {
+	header := "/htrace " + htraceConvertSubcommandSyntax
 	if isZh(lang) {
-		return "/htrace convert [--trace-engine=trace_streamer|builtin|auto] [--keep-trace-db] [--trace-db-output <path>] <binary-hitrace> [output.systrace]\n将二进制 Harmony/OpenHarmony HiTrace 手动转换为文本 systrace 和 tracebundle；不会自动附加。省略输出路径时默认写 <input>.systrace；若文件已存在，请先删除或指定新输出路径。默认 auto：发现 trace_streamer 时优先走 SQL；未发现 trace_streamer 或 SQL 执行/导出失败时，回退到内置 raw trace 解析。显式 trace_streamer 或 builtin 模式不会退化到另一个引擎。trace_streamer 的 SQLite DB 和 .ohos.ts 辅助文件默认作为临时文件清理；只有调试时传 --keep-trace-db 或 --trace-db-output <path> 才保留。可先运行 /htrace tools-status 或 codrax trace convert --trace-tools-status 查看 trace_streamer/trace engine 状态；若需一条命令看完整转换工具状态，运行 codrax trace convert --perf-tools-status，它会同时列出 trace_streamer/trace engine、官方 perf 工具与 raw fallback。"
+		return header + "\nopts: --trace-engine=trace_streamer|builtin|auto；--keep-trace-db；--trace-db-output <path>。\n将二进制 Harmony/OpenHarmony HiTrace 手动转换为文本 systrace 和 tracebundle；不会自动附加。省略输出路径时默认写 <input>.systrace；若文件已存在，请先删除或指定新输出路径。默认 auto 始终优先尝试 bundled/configured trace_streamer SQL，再把内置 raw trace 解析作为有披露的 fallback。显式 trace_streamer 或 builtin 模式不会退化到另一个引擎；builtin 不能与 DB 保留选项组合。普通受支持平台构建内置匹配平台的 trace_streamer；Linux/musl 静态包和不支持的平台需要外部 trace_streamer。trace_streamer 的 SQLite DB 与 .ohos.ts 时间 companion 默认作为临时文件清理；--keep-trace-db 按派生 sidecar 路径保留二者，--trace-db-output <path> 按显式路径保留。可先运行 /htrace tools-status 或 codrax trace convert --trace-tools-status 查看 trace_streamer/trace engine 状态；若需一条命令看完整转换工具状态，运行 codrax trace convert --perf-tools-status，它会同时列出 trace_streamer/trace engine、官方 perf 工具与 raw fallback。"
 	}
-	return "/htrace convert [--trace-engine=trace_streamer|builtin|auto] [--keep-trace-db] [--trace-db-output <path>] <binary-hitrace> [output.systrace]\nConvert a binary Harmony/OpenHarmony HiTrace file to text systrace plus tracebundle; this does not attach the output automatically. When output is omitted, Codrax writes <input>.systrace; if it already exists, delete it first or choose another output path. Auto mode uses trace_streamer/SQL first when trace_streamer is discovered, then falls back to the built-in raw trace parser when trace_streamer is absent or SQL execution/export fails. Explicit trace_streamer or builtin modes do not degrade to another engine. trace_streamer SQLite DB and .ohos.ts helper files are cleaned as temporary files by default; pass --keep-trace-db or --trace-db-output <path> only when debugging the SQL export. Run /htrace tools-status or codrax trace convert --trace-tools-status to inspect trace_streamer/trace-engine status. Run codrax trace convert --perf-tools-status for the full conversion toolchain status: trace_streamer/trace engine plus official perf adapters and raw fallback."
+	return header + "\nopts: --trace-engine=trace_streamer|builtin|auto; --keep-trace-db; --trace-db-output <path>.\nConvert a binary Harmony/OpenHarmony HiTrace file to text systrace plus tracebundle; this does not attach the output automatically. When output is omitted, Codrax writes <input>.systrace; if it already exists, delete it first or choose another output path. Auto always attempts bundled/configured trace_streamer SQL first and keeps the built-in raw decoder as a disclosed fallback. Explicit trace_streamer or builtin modes do not degrade to another engine; builtin cannot be combined with DB-retention options. Normal supported-platform builds bundle a platform-matched trace_streamer; Linux/musl static and unsupported-platform builds require an external trace_streamer. The trace_streamer SQLite DB and .ohos.ts timestamp companion are temporary by default; --keep-trace-db retains both at the derived sidecar path, while --trace-db-output <path> retains them at the explicit path. Run /htrace tools-status or codrax trace convert --trace-tools-status to inspect trace_streamer/trace-engine status. Run codrax trace convert --perf-tools-status for the full conversion toolchain status: trace_streamer/trace engine plus official perf adapters and raw fallback."
 }
 
 func htraceToolsStatusUsage(lang string) string {
@@ -3254,32 +3270,77 @@ func htraceToolsStatusFailedMsg(lang string, err error) string {
 func htraceToolsStatusMsgs(lang string, status hitraceconv.TraceToolStatus) []string {
 	if isZh(lang) {
 		lines := []string{
-			formatN(lang, "trace 解析引擎：%s", status.EngineMode),
-			formatN(lang, "当前选择：%s", status.SelectedEngine),
+			formatN(lang, "请求引擎：%s", status.RequestedEngine),
+			formatN(lang, "有序路由：%s", strings.Join(status.OrderedRoute, " → ")),
+			formatN(lang, "首车道：%s", status.FirstLane),
+			"预检引擎：" + htraceToolsPreflightEngine(lang, status),
+			"实际引擎：以转换后的 trace_provider_decision 为准",
 		}
-		lines = append(lines, htraceToolsProviderMsg(lang, status.TraceStreamer))
-		lines = append(lines, htraceToolsProviderMsg(lang, status.BuiltinModern))
+		if blocker := strings.TrimSpace(status.ExecutionBlocker); blocker != "" {
+			lines = append(lines, "执行阻断："+hitraceconv.LocalizeConvertMessage("zh", blocker))
+		}
+		lines = append(lines, htraceToolsStatusProviderMsg(lang, status, status.TraceStreamer))
+		lines = append(lines, htraceToolsStatusProviderMsg(lang, status, status.BuiltinModern))
 		if line := htraceToolsGateMsg(lang, status.SysBinaryParity); line != "" {
 			lines = append(lines, line)
 		}
 		for _, caveat := range status.Caveats {
+			if htraceToolsDuplicatesExecutionBlocker(caveat, status.ExecutionBlocker) {
+				continue
+			}
 			lines = append(lines, formatN(lang, "提示：%s", htraceToolsMessageZh(caveat)))
 		}
 		return lines
 	}
 	lines := []string{
-		formatN(lang, "trace_engine: %s", status.EngineMode),
-		formatN(lang, "selected_engine: %s", status.SelectedEngine),
+		formatN(lang, "requested_engine: %s", status.RequestedEngine),
+		formatN(lang, "ordered_route: %s", strings.Join(status.OrderedRoute, " -> ")),
+		formatN(lang, "first_lane: %s", status.FirstLane),
+		"preflight_engine: " + htraceToolsPreflightEngine(lang, status),
+		"actual_engine: authoritative in post-conversion trace_provider_decision",
 	}
-	lines = append(lines, htraceToolsProviderMsg(lang, status.TraceStreamer))
-	lines = append(lines, htraceToolsProviderMsg(lang, status.BuiltinModern))
+	if blocker := strings.TrimSpace(status.ExecutionBlocker); blocker != "" {
+		lines = append(lines, "execution_blocker: "+blocker)
+	}
+	lines = append(lines, htraceToolsStatusProviderMsg(lang, status, status.TraceStreamer))
+	lines = append(lines, htraceToolsStatusProviderMsg(lang, status, status.BuiltinModern))
 	if line := htraceToolsGateMsg(lang, status.SysBinaryParity); line != "" {
 		lines = append(lines, line)
 	}
 	for _, caveat := range status.Caveats {
+		if htraceToolsDuplicatesExecutionBlocker(caveat, status.ExecutionBlocker) {
+			continue
+		}
 		lines = append(lines, "caveat: "+caveat)
 	}
 	return lines
+}
+
+func htraceToolsDuplicatesExecutionBlocker(caveat, blocker string) bool {
+	blocker = strings.TrimSpace(blocker)
+	return blocker != "" && strings.TrimSpace(caveat) == "execution_blocked: "+blocker
+}
+
+func htraceToolsStatusProviderMsg(lang string, status hitraceconv.TraceToolStatus, provider hitraceconv.TraceToolProviderStatus) string {
+	if status.FirstLane != "direct_perf" {
+		return htraceToolsProviderMsg(lang, provider)
+	}
+	prefix := formatN(lang, "trace_provider[%s/%s]", provider.Kind, provider.Name)
+	if isZh(lang) {
+		return prefix + "：状态=不适用 原因=typed direct perf 输入没有 trace body"
+	}
+	return prefix + ": state=not_applicable reason=typed_direct_perf_input_has_no_trace_body"
+}
+
+func htraceToolsPreflightEngine(lang string, status hitraceconv.TraceToolStatus) string {
+	engine := status.PreflightEngine
+	if status.RequestedEngine == "auto" && engine == "builtin" && status.FirstLane == "trace_streamer" && !status.TraceStreamer.Available {
+		if isZh(lang) {
+			return engine + "（原因=trace_streamer不可用）"
+		}
+		return engine + " (reason=trace_streamer_unavailable)"
+	}
+	return engine
 }
 
 func htraceToolsProviderMsg(lang string, provider hitraceconv.TraceToolProviderStatus) string {
@@ -3448,7 +3509,9 @@ func htraceToolsMessageZh(message string) string {
 		return "auto trace 引擎未发现 trace_streamer；已检查输入包含独立 perf sidecar，因此会使用内置 raw trace 解析和 standalone perf 兜底"
 	case strings.Contains(lower, "so_dirs=not_configured"):
 		return "未配置 so_dir；native 符号 reload 需要时可传 --trace-streamer-so-dir /path/to/so"
-	case strings.Contains(lower, "embedded trace_streamer is not usable"), strings.Contains(lower, "embed_streamer build tag"):
+	case strings.Contains(lower, "trace provider route is not applicable because the inspected input is a typed standalone perf capture with no trace body"):
+		return hitraceconv.LocalizeConvertMessage("zh", trimmed)
+	case strings.Contains(lower, "embedded trace_streamer"):
 		// Single shared mapping next to the English producer; do not
 		// inline a copy here (verbatim-wording drift class).
 		return hitraceconv.LocalizeEmbeddedTraceStreamerCaveatZh(trimmed)
@@ -3488,6 +3551,95 @@ func htraceConvertCaveatMsg(lang, caveat string) string {
 		return formatN(lang, "hitrace 转换提示：%s\n", hitraceconv.LocalizeConvertMessage(lang, caveat))
 	}
 	return formatN(lang, "hitrace convert caveat: %s\n", caveat)
+}
+
+func htraceConvertTraceProviderDecisionMsgs(lang string, decisions []hitraceconv.TraceProviderDecision) []string {
+	lines := make([]string, 0, len(decisions))
+	for _, decision := range decisions {
+		details := []string{
+			htraceConvertDecisionKV(lang, "selected", htraceConvertBoolValue(lang, decision.Selected)),
+			htraceConvertDecisionKV(lang, "attempted", htraceConvertBoolValue(lang, decision.Attempted)),
+			htraceConvertDecisionKV(lang, "succeeded", htraceConvertBoolValue(lang, decision.Succeeded)),
+			htraceConvertDecisionKV(lang, "fallback", htraceConvertBoolValue(lang, decision.Fallback)),
+			htraceConvertDecisionKV(lang, "trace_query_ready", htraceConvertBoolValue(lang, decision.TraceQueryReady)),
+		}
+		if decision.Stage != "" {
+			details = append(details, htraceConvertDecisionKV(lang, "stage", decision.Stage))
+		}
+		if decision.EngineMode != "" {
+			details = append(details, htraceConvertDecisionKV(lang, "engine", decision.EngineMode))
+		}
+		if decision.OutputPath != "" {
+			details = append(details, htraceConvertDecisionKV(lang, "output", decision.OutputPath))
+		}
+		if decision.DBPath != "" {
+			details = append(details, htraceConvertDecisionKV(lang, "db", decision.DBPath))
+		}
+		if decision.ArtifactPath != "" {
+			details = append(details, htraceConvertDecisionKV(lang, "artifact", decision.ArtifactPath))
+		}
+		if decision.Reason != "" {
+			details = append(details, htraceConvertDecisionKV(lang, "reason", decision.Reason))
+		}
+		if decision.Caveat != "" {
+			details = append(details, htraceConvertDecisionKV(lang, "caveat", hitraceconv.LocalizeConvertMessage(lang, decision.Caveat)))
+		}
+		prefix := formatN(lang, "trace_provider_decision[%s/%s]", decision.ProviderKind, decision.ProviderName)
+		separator := ": "
+		if isZh(lang) {
+			separator = "："
+		}
+		lines = append(lines, prefix+separator+strings.Join(details, " "))
+	}
+	return lines
+}
+
+func htraceConvertDecisionKV(lang, key, value string) string {
+	if isZh(lang) {
+		key = htraceConvertDecisionKeyZh(key)
+	}
+	return key + "=" + value
+}
+
+func htraceConvertBoolValue(lang string, value bool) string {
+	if !isZh(lang) {
+		return formatN(lang, "%t", value)
+	}
+	if value {
+		return "是"
+	}
+	return "否"
+}
+
+func htraceConvertDecisionKeyZh(key string) string {
+	switch key {
+	case "selected":
+		return "已选择"
+	case "attempted":
+		return "已尝试"
+	case "succeeded":
+		return "已成功"
+	case "fallback":
+		return "回退路径"
+	case "trace_query_ready":
+		return "可供trace_query消费"
+	case "stage":
+		return "阶段"
+	case "engine":
+		return "引擎"
+	case "output":
+		return "输出"
+	case "db":
+		return "DB"
+	case "artifact":
+		return "artifact"
+	case "reason":
+		return "原因"
+	case "caveat":
+		return "提示"
+	default:
+		return key
+	}
 }
 
 func htraceConvertProgressMsg(lang string, event hitraceconv.ProgressEvent) string {

@@ -171,12 +171,14 @@ func slashSubNeedsArg(syntax string) bool {
 	return strings.Contains(syntax, "<") || strings.Contains(syntax, "[")
 }
 
+const htraceConvertSubcommandSyntax = "convert [opts] <binary> [out.systrace]"
+
 // slashCommands is the canonical /help table. Order is significant:
 // helpLines (messages.go) inserts a "── Write-mode commands ──"
 // header before the first entry that isWriteModeCommand classifies
 // as write-mode, then renders every subsequent entry under that
 // header. To prevent non-write commands from being mis-grouped, ALL
-// non-write commands MUST appear ABOVE the first write entry. The
+// non-write commands MUST appear ABOVE the first write entry.
 // 2026-05-08 ordering audit fixed a regression where /branch /cancel
 // /env /mermaid /repos /version /exit /quit had drifted below the
 // /mode boundary and rendered under the write-mode header.
@@ -216,7 +218,7 @@ var slashCommands = []slashCommand{
 		Subs: []slashSubcommand{
 			{"<path>", "load file as the attached trace", "以指定文件为附加 trace"},
 			{"append <path>", "append <path> to the existing attached trace", "追加 <path> 到已有附加 trace"},
-			{"convert [opts] <binary> [out.systrace]", "convert binary Harmony/OpenHarmony HiTrace to text systrace; opts include --trace-engine, --keep-trace-db, --trace-db-output",
+			{htraceConvertSubcommandSyntax, "convert binary Harmony/OpenHarmony HiTrace to text systrace; opts include --trace-engine, --keep-trace-db, --trace-db-output",
 				"把二进制 Harmony/OpenHarmony HiTrace 转成文本 systrace; opts 支持 --trace-engine、--keep-trace-db、--trace-db-output"},
 			{"tools-status", "inspect trace_streamer, trace engine, and sys parity gate status",
 				"查看 trace_streamer、trace engine 和 sys parity gate 状态"},

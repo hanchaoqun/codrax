@@ -264,18 +264,17 @@ func validatePerfParserMode(mode string) error {
 	}
 }
 
-func maybeConvertRawPerfData(ctx context.Context, opts Options, perfPath, perfTracePath string) (Artifact, string, error) {
+func maybeConvertRawPerfData(ctx context.Context, opts Options, perfPath, perfTracePath string, ledger *conversionFileLedger) (Artifact, string, error) {
 	if !rawPerfParserAllowed(opts) {
 		return Artifact{}, "raw perf.data fallback disabled by perf parser mode", nil
 	}
 	if err := ensureOutputDoesNotExist(perfTracePath); err != nil {
 		return Artifact{}, "", err
 	}
-	if err := convertRawPerfDataFileToPerfTrace(ctx, perfPath, perfTracePath, opts.Progress); err != nil {
-		_ = os.Remove(perfTracePath)
+	if err := convertRawPerfDataFileToPerfTraceWithLedger(ctx, perfPath, perfTracePath, opts.Progress, ledger); err != nil {
 		return Artifact{}, fmt.Sprintf("raw perf.data fallback could not parse %q (%v); .perftrace was not generated", perfPath, err), nil
 	}
-	info, err := os.Stat(perfTracePath)
+	info, err := os.Lstat(perfTracePath)
 	if err != nil {
 		return Artifact{}, "", err
 	}
@@ -291,7 +290,7 @@ func maybeConvertRawPerfData(ctx context.Context, opts Options, perfPath, perfTr
 	}, "", nil
 }
 
-func maybeConvertRawPerfDataWithDecision(ctx context.Context, opts Options, perfPath, perfTracePath, prior, stage string, inputFormat perfInputFormat, fallback bool) (Artifact, string, []PerfProviderDecision, error) {
+func maybeConvertRawPerfDataWithDecision(ctx context.Context, opts Options, perfPath, perfTracePath, prior, stage string, inputFormat perfInputFormat, fallback bool, ledger *conversionFileLedger) (Artifact, string, []PerfProviderDecision, error) {
 	if inputFormat == perfInputUnknown {
 		inputFormat = detectPerfInputFormat(perfPath)
 	}
@@ -313,7 +312,7 @@ func maybeConvertRawPerfDataWithDecision(ctx context.Context, opts Options, perf
 		decision = perfProviderSkipped(decision, true, "unsupported_input_format", caveat)
 		return Artifact{}, caveat, []PerfProviderDecision{decision}, nil
 	}
-	artifact, caveat, err := maybeConvertRawPerfData(ctx, opts, perfPath, perfTracePath)
+	artifact, caveat, err := maybeConvertRawPerfData(ctx, opts, perfPath, perfTracePath, ledger)
 	if err != nil {
 		decision = perfProviderFailure(decision, "raw_parser_error", err.Error())
 		return artifact, caveat, []PerfProviderDecision{decision}, err
@@ -333,10 +332,18 @@ func maybeConvertRawPerfDataWithDecision(ctx context.Context, opts Options, perf
 }
 
 func ConvertRawPerfDataFileToPerfTrace(ctx context.Context, inputPath, outputPath string) error {
-	return convertRawPerfDataFileToPerfTrace(ctx, inputPath, outputPath, nil)
+	return runConversionFileTransaction(ctx, inputPath, func(ledger *conversionFileLedger) error {
+		return convertRawPerfDataFileToPerfTraceWithLedger(ctx, inputPath, outputPath, nil, ledger)
+	})
 }
 
 func convertRawPerfDataFileToPerfTrace(ctx context.Context, inputPath, outputPath string, progress ProgressFunc) error {
+	return runConversionFileTransaction(ctx, inputPath, func(ledger *conversionFileLedger) error {
+		return convertRawPerfDataFileToPerfTraceWithLedger(ctx, inputPath, outputPath, progress, ledger)
+	})
+}
+
+func convertRawPerfDataFileToPerfTraceWithLedger(ctx context.Context, inputPath, outputPath string, progress ProgressFunc, ledger *conversionFileLedger) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -391,7 +398,7 @@ func convertRawPerfDataFileToPerfTrace(ctx context.Context, inputPath, outputPat
 	if err := ensureOutputDoesNotExist(outputPath); err != nil {
 		return err
 	}
-	out, err := os.OpenFile(outputPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	out, err := openOwnedConversionFile(outputPath, ledger)
 	if err != nil {
 		return err
 	}
@@ -409,51 +416,20 @@ func convertRawPerfDataFileToPerfTrace(ctx context.Context, inputPath, outputPat
 	w := bufio.NewWriter(out)
 	writeErr := writeRawPerfDataPerfTrace(ctx, w, data)
 	flushErr := w.Flush()
-	closeErr := out.Close()
-	if writeErr != nil {
-		_ = os.Remove(outputPath)
+	_, finishErr := finishOwnedConversionFile(outputPath, out, ledger, true, writeErr, flushErr)
+	if finishErr != nil {
 		if progress != nil {
 			progress(ProgressEvent{
 				Stage:      "perftrace_write",
 				Status:     ProgressStatusFailed,
-				Message:    "perftrace text write failed",
+				Message:    "perftrace text publication failed",
 				Path:       inputPath,
 				OutputPath: outputPath,
 				Records:    len(data.Samples),
 				Elapsed:    time.Since(writeStart),
 			})
 		}
-		return writeErr
-	}
-	if flushErr != nil {
-		_ = os.Remove(outputPath)
-		if progress != nil {
-			progress(ProgressEvent{
-				Stage:      "perftrace_write",
-				Status:     ProgressStatusFailed,
-				Message:    "perftrace text flush failed",
-				Path:       inputPath,
-				OutputPath: outputPath,
-				Records:    len(data.Samples),
-				Elapsed:    time.Since(writeStart),
-			})
-		}
-		return flushErr
-	}
-	if closeErr != nil {
-		_ = os.Remove(outputPath)
-		if progress != nil {
-			progress(ProgressEvent{
-				Stage:      "perftrace_write",
-				Status:     ProgressStatusFailed,
-				Message:    "perftrace text close failed",
-				Path:       inputPath,
-				OutputPath: outputPath,
-				Records:    len(data.Samples),
-				Elapsed:    time.Since(writeStart),
-			})
-		}
-		return closeErr
+		return finishErr
 	}
 	if progress != nil {
 		progress(ProgressEvent{

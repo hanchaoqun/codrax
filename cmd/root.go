@@ -552,11 +552,17 @@ var app appContext
 var rootCmd = &cobra.Command{
 	Use:   "codrax [request]",
 	Short: "AI-powered code analysis and implementation pipeline",
-	Long: `Codrax is a read-only code analysis tool with a 6-layer, 4-agent
-pipeline (analyze → explore → extract → finalize).
+	Long: `Codrax runs a read-only code-analysis pipeline with 6 layers and 4
+agents (analyze → explore → extract → finalize).
 
 When invoked with a request, runs the pipeline once and exits.
 When invoked with no arguments, enters interactive REPL mode.
+
+Trace conversion (deterministic utility; writes only new output artifacts):
+  codrax trace convert --input <binary-trace> [--output <text.systrace>]
+uses trace_streamer first in auto mode and reports any disclosed fallback.
+Run codrax trace convert --help for conversion-only flags. Repository source
+files remain untouched; existing output artifacts are never overwritten.
 
 Trace diagnostic collection (deterministic, zero LLM):
   codrax --tracediag <script.yaml> --trace <trace-file> [--trace-window <start..end>] [--trace-tid <tid>] [--out report.txt]
@@ -642,7 +648,7 @@ func init() {
 	f.StringVar(&flagLogLevel, "log-level", defaultLogLevel, "log level: error|warning|info|debug")
 	f.BoolVar(&flagLogStdout, "log-stdout", false, "also mirror logs to stdout")
 	f.StringVar(&flagMemoryDir, "memory-dir", "", "directory for conversation memory")
-	f.StringVar(&flagCacheDir, "cache-dir", "", "base directory for repo map caches (empty = ~/.codrax/cache; %USERPROFILE%\\.codrax\\cache on Windows)")
+	f.StringVar(&flagCacheDir, "cache-dir", "", "base runtime cache directory for repo maps and embedded trace_streamer extraction (empty = ~/.codrax/cache; %USERPROFILE%\\.codrax\\cache on Windows)")
 	f.StringVar(&flagLang, "lang", defaultLang, "default response language (zh/en/...); 'off' to disable")
 	f.StringVar(&flagColor, "color", "auto", "color mode for diff rendering: auto (TTY-detect, default) | always | never. NO_COLOR env always forces never.")
 	f.BoolVar(&flagEvalDisableGitHistory, "eval-disable-git-history", false, "eval-only: disable git history tools for fair benchmarks; default false")
@@ -665,9 +671,9 @@ func init() {
 	f.IntVar(&flagMaxRetries, "pipeline-max-retries", 0, "override max consecutive failures per stage; 0 = inherit from codrax.yaml")
 	f.IntVar(&flagMaxStageVisits, "pipeline-max-stage-visits", 0, "override max entries per stage per Run; 0 = inherit from codrax.yaml")
 	f.IntVar(&flagMaxPrescanRounds, "max-prescan-rounds", 0, "override analyzer prescan budget rounds (codrax.yaml :: analysis_max_prescan_rounds); 0 = inherit from yaml/default. Multi-topic questions still get a +1 bump on top, capped at agent_prescan_rounds_ceil (default 4).")
-	f.StringArrayVar(&flagAttachLog, "log", nil, "attach a runtime log excerpt (panic / exception / traceback) from a file path, or '-' for stdin. Repeatable: --log a.log --log b.log attaches both, joined with `# codrax-source: <path>` headers so the LLM can distinguish boundaries. Total bytes capped by codrax.yaml :: log_attach_max_bytes.")
+	f.StringArrayVar(&flagAttachLog, "log", nil, "attach a runtime log excerpt (panic / exception / traceback) from a file path, or '-' for stdin. Repeatable: --log a.log --log b.log attaches both, joined with '# codrax-source: <path>' headers so the LLM can distinguish boundaries. Total bytes capped by codrax.yaml :: log_attach_max_bytes.")
 	f.StringVar(&flagAttachLogText, "log-text", "", "inline runtime log excerpt (mutually exclusive with --log); for scripted / piped usage")
-	f.StringArrayVar(&flagAttachHitrace, "htrace", nil, "attach an ftrace-compatible trace from file path (or '-' for stdin). Covers HarmonyOS `hdc shell hitrace`, Android `adb shell atrace`, systrace, perfetto text dumps, perftrace CPU sample text, and tracebundle metadata. Repeatable: --htrace a.trace --htrace b.trace. --atrace is an alias.")
+	f.StringArrayVar(&flagAttachHitrace, "htrace", nil, "attach an ftrace-compatible trace from file path (or '-' for stdin). Covers HarmonyOS 'hdc shell hitrace', Android 'adb shell atrace', systrace, perfetto text dumps, perftrace CPU sample text, and tracebundle metadata. Repeatable: --htrace a.trace --htrace b.trace. --atrace is an alias.")
 	f.StringVar(&flagAttachHitraceText, "htrace-text", "", "inline trace payload (mutually exclusive with --htrace)")
 	// --atrace / --atrace-text: Android-flavored aliases. Backed by
 	// the same channel as --htrace; the merge in loadAttachedTrace
@@ -677,7 +683,7 @@ func init() {
 	f.StringVar(&flagAttachAtraceText, "atrace-text", "", "alias of --htrace-text (inline trace payload)")
 	f.StringVar(&flagLogSourcePrefix, "log-source-prefix", "", "strip this path prefix from C/C++ stack-frame files before repo lookup (override for build-machine absolute paths)")
 	f.BoolVar(&flagChitchatClassifier, "chitchat-classifier", false, "enable/disable the auto chit-chat classifier for this run (overrides codrax.yaml :: chitchat_classifier_enabled when passed; no-op when omitted)")
-	f.BoolVar(&flagMermaidRender, "mermaid-render", false, "single-shot only: render ```mermaid``` fences as aligned ASCII for terminal viewing. Default false ships raw Mermaid source so output piped to file / markdown viewer / mermaid-cli stays authoritative. REPL renders unconditionally regardless of this flag.")
+	f.BoolVar(&flagMermaidRender, "mermaid-render", false, "single-shot only: render mermaid code fences as aligned ASCII for terminal viewing. Default false ships raw Mermaid source so output piped to file / markdown viewer / mermaid-cli stays authoritative. REPL renders unconditionally regardless of this flag.")
 	// B6 (block_only_carrier.md, 2026-05-03) — V2 carrier per-run override.
 	// auto = follow yaml pipeline_emit_v2_default (default true at B6).
 	// on = force V2 carrier; off = force V1 (rollback). Removed at B8-T7.
@@ -697,7 +703,7 @@ func init() {
 	f.StringVar(&flagTraceDiagFlavor, "trace-flavor", "auto", "tracediag: trace flavor hint: auto|harmony_hitrace|android_atrace|generic_ftrace (strict; unknown values fail)")
 	f.StringVar(&flagTraceDiagWindow, "trace-window", "", "tracediag: typed <start_s>..<end_s> override for script defaults.window (required by automatic pairing templates); explicit per-step/discovery windows remain unchanged")
 	f.StringVar(&flagTraceDiagTID, "trace-tid", "", "tracediag: positive target TID injected only into v2 steps declaring pid_from: tid; the CLI input does not alter unbound steps")
-	f.BoolVar(&flagAutoInitRepo, "auto-init-repo", false, "authorize codrax to run `git init` + empty initial commit when the target dir is bare (yaml: write_auto_init_repo)")
+	f.BoolVar(&flagAutoInitRepo, "auto-init-repo", false, "authorize codrax to run 'git init' + empty initial commit when the target dir is bare (yaml: write_auto_init_repo)")
 	f.BoolVar(&flagScaffold, "allow-scaffold", false, "authorize the planner to invent files for a 0-source-file target dir (from-scratch project creation; yaml: write_scaffold_enabled). Required IN ADDITION TO --auto-init-repo for empty-dir runs.")
 
 	rootCmd.AddCommand(versionCmd)
@@ -2295,6 +2301,47 @@ func runREPL(_ *cobra.Command) error {
 // initApp implements the 3-tier config precedence and initializes all
 // subsystems. It runs as PersistentPreRunE so it executes before any
 // subcommand, including the implicit root run.
+type runtimeSettingsLocation struct {
+	path     string
+	explicit bool
+	legacy   string
+}
+
+// locateRuntimeSettings is the single lookup authority shared by the full
+// application bootstrap and provider-free utility commands. Callers decide
+// how much of the selected settings file they need; the lookup order itself
+// must not drift between those lanes.
+func locateRuntimeSettings(exeDir string) runtimeSettingsLocation {
+	if path := strings.TrimSpace(os.Getenv("CODRAX_SETTINGS")); path != "" {
+		return runtimeSettingsLocation{path: path, explicit: true}
+	}
+	type candidate struct {
+		path   string
+		legacy bool
+	}
+	var candidates []candidate
+	if exeDir != "" {
+		candidates = append(candidates,
+			candidate{filepath.Join(exeDir, "codrax.yaml"), false},
+			candidate{filepath.Join(exeDir, "codrax", "codrax.yaml"), false},
+			candidate{filepath.Join(exeDir, "config", "codrax.yaml"), true},
+			candidate{filepath.Join(exeDir, "..", "config", "codrax.yaml"), true},
+		)
+	}
+	candidates = append(candidates, candidate{"config/codrax.yaml", true})
+	for _, item := range candidates {
+		if _, err := os.Stat(item.path); err != nil {
+			continue
+		}
+		location := runtimeSettingsLocation{path: item.path}
+		if item.legacy {
+			location.legacy = item.path
+		}
+		return location
+	}
+	return runtimeSettingsLocation{}
+}
+
 func initApp(cmd *cobra.Command, args []string) error {
 	// Skip init for utility subcommands that do not need providers,
 	// repo discovery, memory, or orchestrator state.
@@ -2317,37 +2364,10 @@ func initApp(cmd *cobra.Command, args []string) error {
 	// warning is emitted after logger init so operators see exactly
 	// which file needs to move.
 	exeDir := executableDir()
-	settingsPath := ""
-	settingsExplicit := false
-	legacySettingsPath := ""
-	if p := os.Getenv("CODRAX_SETTINGS"); p != "" {
-		settingsPath = p
-		settingsExplicit = true
-	} else {
-		type candidate struct {
-			path   string
-			legacy bool
-		}
-		var candidates []candidate
-		if exeDir != "" {
-			candidates = append(candidates,
-				candidate{filepath.Join(exeDir, "codrax.yaml"), false},
-				candidate{filepath.Join(exeDir, "codrax", "codrax.yaml"), false},
-				candidate{filepath.Join(exeDir, "config", "codrax.yaml"), true},
-				candidate{filepath.Join(exeDir, "..", "config", "codrax.yaml"), true},
-			)
-		}
-		candidates = append(candidates, candidate{"config/codrax.yaml", true})
-		for _, c := range candidates {
-			if _, err := os.Stat(c.path); err == nil {
-				settingsPath = c.path
-				if c.legacy {
-					legacySettingsPath = c.path
-				}
-				break
-			}
-		}
-	}
+	settingsLocation := locateRuntimeSettings(exeDir)
+	settingsPath := settingsLocation.path
+	settingsExplicit := settingsLocation.explicit
+	legacySettingsPath := settingsLocation.legacy
 
 	// --- Anchor resolution ---
 	//

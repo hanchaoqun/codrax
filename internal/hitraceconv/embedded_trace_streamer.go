@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -23,7 +24,7 @@ const (
 // per-platform payload directory under embedded_trace_streamer/
 // carrying its own manifest.json plus exactly one binary, and each
 // platform build embeds only its own directory (see the
-// embedded_trace_streamer_payload_*.go embed_streamer stubs).
+// embedded_trace_streamer_payload_*.go default-distribution stubs).
 // darwin is intentionally absent from the first wave: the reference
 // hmtrace darwin-aarch64 asset is a mislabeled x86_64 Mach-O.
 // Growing this set requires an explicit ruling; the repository guard
@@ -64,27 +65,25 @@ type embeddedTraceStreamerResolution struct {
 	CacheReused bool
 }
 
-// Build-tag state. Slim builds (no -tags embed_streamer) keep the
-// defaults: no assets, tag disabled, discovery stays external-only and
-// resolveEmbeddedTraceStreamerTool is silent. The embed_streamer
-// payload stubs (embedded_trace_streamer_payload_*.go) flip
-// embeddedTraceStreamerTagEnabled and either install the platform
-// embed.FS or record an explicit platform-gap reason so an
-// embed_streamer build on a non-bundled platform reports structured
-// unavailability instead of silently degrading.
+// Build-tag state. Default builds enable the embedded discovery tier: a
+// platform payload stub either installs its embed.FS or records a structured
+// platform gap. The explicit slim_streamer tag opts out, keeps these defaults,
+// and leaves discovery external-only and silent.
 var (
 	embeddedTraceStreamerAssetsFS    = func() fs.FS { return nil }
 	embeddedTraceStreamerTagEnabled  = false
 	embeddedTraceStreamerPlatformGap = ""
+	// Test seam for the Windows no-replace publication primitive. Production
+	// always points at publishConversionFileNoReplace.
+	embeddedTraceStreamerCachePublishNoReplace = publishConversionFileNoReplace
 )
 
-// resolveEmbeddedTraceStreamerTool is the lowest-priority tier of the
-// trace_streamer discovery chain. It runs only after explicit option,
-// CODRAX_TRACE_STREAMER, executable-directory, PATH, and known-location
-// discovery all missed, so a hit on any earlier tier never triggers an
-// extraction. Extraction failures are fail-loud caveats: the caller
-// surfaces them as structured tool status and conversion falls back to
-// the built-in parser lane exactly as when no tool was discovered.
+// resolveEmbeddedTraceStreamerTool backs the verified embedded tier after
+// explicit option, environment, and executable-directory providers and before
+// ambient PATH/known-location discovery. Extraction failures are typed caveats
+// which survive a later ambient-provider success; an unsupported-platform gap
+// is reported only when no ambient provider takes over. slim_streamer keeps the
+// tier silent and external-only.
 func resolveEmbeddedTraceStreamerTool() (string, string, []string) {
 	fsys := embeddedTraceStreamerAssetsFS()
 	if fsys == nil {
@@ -93,14 +92,14 @@ func resolveEmbeddedTraceStreamerTool() (string, string, []string) {
 		}
 		gap := strings.TrimSpace(embeddedTraceStreamerPlatformGap)
 		if gap == "" {
-			// Defensive-only fallback: every embed_streamer payload stub
+			// Defensive-only fallback: every default embedded payload stub
 			// either installs an assets FS or sets the platform-gap
 			// message, so this branch is unreachable in real builds. The
 			// zh caveat mapping (LocalizeEmbeddedTraceStreamerCaveatZh)
 			// intentionally does not cover this wording; if it ever
 			// surfaces it passes through in English — the desired loud
 			// signal that a payload stub broke its contract.
-			gap = fmt.Sprintf("embedded trace_streamer payload is enabled by the embed_streamer build tag but exposes no assets for %s/%s", runtime.GOOS, runtime.GOARCH)
+			gap = EmbeddedTraceStreamerPlatformGapMessage(runtime.GOOS, runtime.GOARCH)
 		}
 		return "", "", []string{gap}
 	}
@@ -121,7 +120,7 @@ func EmbeddedTraceStreamerNotUsableMessage(err error) string {
 
 // EmbeddedTraceStreamerPlatformGapMessage is the single production
 // source of the unbundled-platform wording: the payload stub for
-// non-bundled embed_streamer builds emits exactly this sentence, and
+// default builds on a non-bundled platform emit exactly this sentence, and
 // LocalizeEmbeddedTraceStreamerCaveatZh below carries its verbatim
 // Chinese mapping. English producer and Chinese mapping deliberately
 // live side by side in one file, and
@@ -130,7 +129,7 @@ func EmbeddedTraceStreamerNotUsableMessage(err error) string {
 // either side alone turns that pin red.
 func EmbeddedTraceStreamerPlatformGapMessage(goos, goarch string) string {
 	return fmt.Sprintf(
-		"embedded trace_streamer payload is enabled by the embed_streamer build tag but no binary is bundled for %s/%s; the first wave bundles linux-amd64 and windows-amd64 only, so install or configure an external trace_streamer",
+		"default embedded trace_streamer tier has no bundled payload for platform %s/%s; configure an external trace_streamer or install a distribution with that platform payload (slim_streamer explicitly disables embedded payloads)",
 		goos, goarch,
 	)
 }
@@ -161,9 +160,17 @@ func LocalizeEmbeddedTraceStreamerCaveatZh(message string) string {
 	switch {
 	case strings.Contains(lower, "embedded trace_streamer is not usable"):
 		return strings.Replace(trimmed, "embedded trace_streamer is not usable", "内嵌 trace_streamer 不可用", 1)
-	case strings.Contains(lower, "embed_streamer build tag"):
-		out := strings.Replace(trimmed, "embedded trace_streamer payload is enabled by the embed_streamer build tag but no binary is bundled for ", "embed_streamer 构建已启用内嵌 trace_streamer，但未内嵌 ", 1)
-		return strings.Replace(out, "; the first wave bundles linux-amd64 and windows-amd64 only, so install or configure an external trace_streamer", " 平台的二进制；首批仅内嵌 linux-amd64 与 windows-amd64，请安装或配置外部 trace_streamer", 1)
+	case strings.Contains(lower, "default embedded trace_streamer tier has no bundled payload for platform "):
+		platform := strings.TrimPrefix(trimmed, "default embedded trace_streamer tier has no bundled payload for platform ")
+		platform = strings.TrimSuffix(platform, "; configure an external trace_streamer or install a distribution with that platform payload (slim_streamer explicitly disables embedded payloads)")
+		return fmt.Sprintf("默认内嵌 trace_streamer 层未内嵌 %s 平台 payload；请配置外部 trace_streamer 或安装含该平台 payload 的发行包（slim_streamer 会显式禁用内嵌 payload）", platform)
+	case strings.Contains(lower, "trace_streamer provider resolution:") && strings.Contains(lower, "embedded trace_streamer"):
+		out := strings.Replace(trimmed, "trace_streamer provider resolution:", "trace_streamer 提供方解析：", 1)
+		out = strings.Replace(out, "source=", "来源=", 1)
+		out = strings.Replace(out, " path=", " 路径=", 1)
+		out = strings.Replace(out, " available=true", " 可用=是", 1)
+		out = strings.Replace(out, " available=false", " 可用=否", 1)
+		return LocalizeEmbeddedTraceStreamerSourceZh(out)
 	default:
 		return trimmed
 	}
@@ -193,10 +200,11 @@ func extractEmbeddedTraceStreamer(fsys fs.FS, cacheRoot string) (embeddedTraceSt
 		cacheRoot = embeddedTraceStreamerCacheRoot()
 	}
 	target := embeddedTraceStreamerCachePath(cacheRoot, manifest, platform, cleanPath)
-	if err := verifyEmbeddedTraceStreamerFileHash(target, platform.SHA256); err == nil {
-		if err := chmodEmbeddedTraceStreamer(target, platform.GOOS); err != nil {
-			return embeddedTraceStreamerResolution{}, err
-		}
+	match, err := embeddedTraceStreamerCacheTargetMatches(target, platform.SHA256, platform.SizeBytes, platform.GOOS)
+	if err != nil {
+		return embeddedTraceStreamerResolution{}, err
+	}
+	if match {
 		return embeddedTraceStreamerResolution{
 			Path:        target,
 			Source:      embeddedTraceStreamerSource(manifest),
@@ -208,8 +216,10 @@ func extractEmbeddedTraceStreamer(fsys fs.FS, cacheRoot string) (embeddedTraceSt
 	if err := writeEmbeddedTraceStreamerCache(target, body, platform.GOOS); err != nil {
 		return embeddedTraceStreamerResolution{}, err
 	}
-	if err := verifyEmbeddedTraceStreamerFileHash(target, platform.SHA256); err != nil {
+	if match, err := embeddedTraceStreamerCacheTargetMatches(target, platform.SHA256, platform.SizeBytes, platform.GOOS); err != nil {
 		return embeddedTraceStreamerResolution{}, err
+	} else if !match {
+		return embeddedTraceStreamerResolution{}, fmt.Errorf("embedded trace_streamer cache publication did not produce a verified target: %s", target)
 	}
 	return embeddedTraceStreamerResolution{
 		Path:     target,
@@ -399,49 +409,138 @@ func verifyEmbeddedTraceStreamerFileHash(filePath, want string) error {
 	if want == "" {
 		return fmt.Errorf("sha256 is required for %s", filePath)
 	}
-	body, err := os.ReadFile(filePath)
+	before, err := os.Lstat(filePath)
 	if err != nil {
 		return err
 	}
-	got := embeddedTraceStreamerSHA256(body)
+	if !before.Mode().IsRegular() {
+		return fmt.Errorf("embedded trace_streamer file is not a regular file: %s mode=%s", filePath, before.Mode())
+	}
+	file, err := os.Open(filePath)
+	if err != nil {
+		return err
+	}
+	hash := sha256.New()
+	_, copyErr := io.Copy(hash, file)
+	opened, statErr := file.Stat()
+	closeErr := file.Close()
+	if err := traceDBJoinPreservingSingle(copyErr, statErr, closeErr); err != nil {
+		return err
+	}
+	if opened == nil || !opened.Mode().IsRegular() || !os.SameFile(before, opened) {
+		return fmt.Errorf("embedded trace_streamer file changed identity while hashing: %s", filePath)
+	}
+	after, err := os.Lstat(filePath)
+	if err != nil {
+		return err
+	}
+	if !after.Mode().IsRegular() || !os.SameFile(before, after) || after.Size() != opened.Size() {
+		return fmt.Errorf("embedded trace_streamer file changed identity while hashing: %s", filePath)
+	}
+	got := hex.EncodeToString(hash.Sum(nil))
 	if got != want {
 		return fmt.Errorf("sha256 mismatch for %s: got %s want %s", filePath, got, want)
 	}
 	return nil
 }
 
-func writeEmbeddedTraceStreamerCache(target string, body []byte, goos string) error {
+func writeEmbeddedTraceStreamerCache(target string, body []byte, goos string) (err error) {
 	dir := filepath.Dir(target)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
+	}
+	want := embeddedTraceStreamerSHA256(body)
+	if match, err := embeddedTraceStreamerCacheTargetMatches(target, want, int64(len(body)), goos); err != nil {
+		return err
+	} else if match {
+		return nil
 	}
 	tmp, err := os.CreateTemp(dir, ".trace_streamer-*")
 	if err != nil {
 		return err
 	}
 	tmpPath := tmp.Name()
+	tmpInfo, err := tmp.Stat()
+	if err != nil {
+		return traceDBJoinPreservingSingle(err, rollbackOpenConversionFile(tmpPath, tmp))
+	}
 	defer func() {
-		_ = os.Remove(tmpPath)
+		err = traceDBJoinPreservingSingle(err, removeOwnedConversionPath(tmpPath, tmpInfo))
 	}()
-	if _, err := tmp.Write(body); err != nil {
-		_ = tmp.Close()
-		return err
+	written, err := tmp.Write(body)
+	if err == nil && written != len(body) {
+		err = io.ErrShortWrite
+	}
+	if err != nil {
+		return traceDBJoinPreservingSingle(err, tmp.Close())
+	}
+	if goos != "windows" {
+		if err := tmp.Chmod(0o755); err != nil {
+			return traceDBJoinPreservingSingle(err, tmp.Close())
+		}
+	}
+	if err := tmp.Sync(); err != nil {
+		return traceDBJoinPreservingSingle(err, tmp.Close())
 	}
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := chmodEmbeddedTraceStreamer(tmpPath, goos); err != nil {
+	tmpFinalInfo, err := os.Lstat(tmpPath)
+	if err != nil {
 		return err
 	}
-	_ = os.Remove(target)
-	return os.Rename(tmpPath, target)
+	if !tmpFinalInfo.Mode().IsRegular() || !os.SameFile(tmpInfo, tmpFinalInfo) || tmpFinalInfo.Size() != int64(len(body)) {
+		return fmt.Errorf("embedded trace_streamer cache staging failed identity/size validation: %s", tmpPath)
+	}
+	if err := verifyEmbeddedTraceStreamerFileHash(tmpPath, want); err != nil {
+		return err
+	}
+	if _, err := embeddedTraceStreamerCachePublishNoReplace(tmpPath, target); err != nil {
+		if match, verifyErr := embeddedTraceStreamerCacheTargetMatches(target, want, int64(len(body)), goos); verifyErr == nil && match {
+			return nil
+		} else if verifyErr != nil {
+			return fmt.Errorf("embedded trace_streamer cache publication collision at %s: %w", target, verifyErr)
+		}
+		return err
+	}
+	published, err := os.Lstat(target)
+	if err != nil {
+		return err
+	}
+	if !published.Mode().IsRegular() || !os.SameFile(tmpInfo, published) {
+		return fmt.Errorf("embedded trace_streamer cache target changed identity during publication: %s", target)
+	}
+	match, err := embeddedTraceStreamerCacheTargetMatches(target, want, int64(len(body)), goos)
+	if err != nil {
+		return traceDBJoinPreservingSingle(err, removeOwnedConversionPath(target, tmpInfo))
+	}
+	if !match {
+		return traceDBJoinPreservingSingle(fmt.Errorf("embedded trace_streamer cache publication failed hash/size validation: %s", target), removeOwnedConversionPath(target, tmpInfo))
+	}
+	return nil
 }
 
-func chmodEmbeddedTraceStreamer(filePath, goos string) error {
-	if goos == "windows" {
-		return nil
+func embeddedTraceStreamerCacheTargetMatches(target, want string, size int64, goos string) (bool, error) {
+	info, err := os.Lstat(target)
+	if os.IsNotExist(err) {
+		return false, nil
 	}
-	return os.Chmod(filePath, 0o755)
+	if err != nil {
+		return false, err
+	}
+	if !info.Mode().IsRegular() {
+		return false, fmt.Errorf("embedded trace_streamer cache target is not a regular file: %s", target)
+	}
+	if info.Size() != size {
+		return false, fmt.Errorf("embedded trace_streamer cache target size mismatch: %s got=%d want=%d", target, info.Size(), size)
+	}
+	if goos != "windows" && runtime.GOOS != "windows" && info.Mode()&0o111 == 0 {
+		return false, fmt.Errorf("embedded trace_streamer cache target is not executable: %s mode=%s", target, info.Mode())
+	}
+	if err := verifyEmbeddedTraceStreamerFileHash(target, want); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func embeddedTraceStreamerCachePath(cacheRoot string, manifest embeddedTraceStreamerManifest, platform embeddedTraceStreamerPlatform, cleanAssetPath string) string {

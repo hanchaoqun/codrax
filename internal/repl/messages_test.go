@@ -767,7 +767,10 @@ func TestHelpLines_DefaultConciseFullDiscoverable(t *testing.T) {
 			if !strings.Contains(concise, "Auto Pilot") {
 				t.Errorf("%s: concise help should describe the write Auto Pilot path; got:\n%s", lang, concise)
 			}
-			for _, hidden := range []string{"/htrace convert [opts] <binary> [out.systrace]", "/htrace tools-status", "/plan clear --all", "/merge --include-failed"} {
+			if !strings.Contains(concise, "/htrace "+htraceConvertSubcommandSyntax) {
+				t.Errorf("%s: concise help should surface trace conversion; got:\n%s", lang, concise)
+			}
+			for _, hidden := range []string{"/htrace tools-status", "/plan clear --all", "/merge --include-failed"} {
 				if strings.Contains(concise, hidden) {
 					t.Errorf("%s: concise help should hide advanced subcommand %q; got:\n%s", lang, hidden, concise)
 				}
@@ -848,8 +851,8 @@ func TestHandleSlashHelpAllRendersFullTable(t *testing.T) {
 
 	r.handleSlash("/help")
 	concise := out.String()
-	if strings.Contains(concise, "/htrace convert [opts] <binary> [out.systrace]") {
-		t.Fatalf("/help should be concise by default; got:\n%s", concise)
+	if !strings.Contains(concise, "/htrace "+htraceConvertSubcommandSyntax) {
+		t.Fatalf("/help should surface trace conversion in concise help; got:\n%s", concise)
 	}
 	if strings.Contains(concise, "/htrace tools-status") {
 		t.Fatalf("/help should keep tools-status in full help only; got:\n%s", concise)
@@ -1369,6 +1372,90 @@ func TestHtraceConvertProgressMsgUsesTerminalMessages(t *testing.T) {
 	if !strings.Contains(en, "status=complete") ||
 		!strings.Contains(en, "message=completed trace_streamer SQLite DB export") {
 		t.Fatalf("en progress complete message malformed:\n%s", en)
+	}
+}
+
+func TestHtraceConvertTraceProviderDecisionMsgsMatchCLIContract(t *testing.T) {
+	decisions := []hitraceconv.TraceProviderDecision{{
+		Stage:           "trace_body",
+		ProviderKind:    "official_trace_db",
+		ProviderName:    "trace_streamer_db",
+		OutputPath:      "capture.systrace",
+		DBPath:          "capture.trace.db",
+		EngineMode:      "auto",
+		Selected:        true,
+		Attempted:       true,
+		Succeeded:       true,
+		TraceQueryReady: true,
+		ArtifactPath:    "capture.systrace",
+		Reason:          "trace_streamer_export_succeeded",
+		Caveat:          hitraceconv.EmbeddedTraceStreamerPlatformGapMessage("darwin", "arm64"),
+	}}
+
+	en := strings.Join(htraceConvertTraceProviderDecisionMsgs("en", decisions), "\n")
+	for _, want := range []string{
+		"trace_provider_decision[official_trace_db/trace_streamer_db]:",
+		"selected=true", "attempted=true", "succeeded=true", "fallback=false",
+		"trace_query_ready=true", "stage=trace_body", "engine=auto",
+		"output=capture.systrace", "db=capture.trace.db",
+		"artifact=capture.systrace", "reason=trace_streamer_export_succeeded",
+		"caveat=default embedded trace_streamer tier has no bundled payload for platform darwin/arm64",
+	} {
+		if !strings.Contains(en, want) {
+			t.Fatalf("English REPL decision is missing CLI parity field %q:\n%s", want, en)
+		}
+	}
+
+	zh := strings.Join(htraceConvertTraceProviderDecisionMsgs("zh", decisions), "\n")
+	for _, want := range []string{
+		"trace_provider_decision[official_trace_db/trace_streamer_db]：",
+		"已选择=是", "已尝试=是", "已成功=是", "回退路径=否",
+		"可供trace_query消费=是", "阶段=trace_body", "引擎=auto",
+		"输出=capture.systrace", "DB=capture.trace.db",
+		"artifact=capture.systrace", "原因=trace_streamer_export_succeeded",
+		"提示=默认内嵌 trace_streamer 层未内嵌 darwin/arm64 平台 payload",
+	} {
+		if !strings.Contains(zh, want) {
+			t.Fatalf("Chinese REPL decision is missing CLI parity field %q:\n%s", want, zh)
+		}
+	}
+}
+
+func TestHtraceToolsStatusMsgsExposeExecutionBlockerLikeCLI(t *testing.T) {
+	blocker := "direct perf input has no trace body and cannot be combined with trace-only option(s) --trace-streamer"
+	status := hitraceconv.TraceToolStatus{
+		RequestedEngine:  "auto",
+		OrderedRoute:     []string{"direct_perf"},
+		FirstLane:        "direct_perf",
+		PreflightEngine:  "direct_perf",
+		ExecutionBlocker: blocker,
+		Caveats: []string{
+			"trace provider route is not applicable because the inspected input is a typed standalone perf capture with no trace body",
+			"execution_blocked: " + blocker,
+		},
+		TraceStreamer: hitraceconv.TraceToolProviderStatus{Kind: "official_trace_db", Name: "trace_streamer_db", InstallCommand: "must not render"},
+		BuiltinModern: hitraceconv.TraceToolProviderStatus{Kind: "builtin_modern", Name: "codrax_builtin_modern_profiler", InstallCommand: "must not render"},
+	}
+	en := strings.Join(htraceToolsStatusMsgs("en", status), "\n")
+	if !strings.Contains(en, "execution_blocker: "+blocker) || strings.Count(en, blocker) != 1 {
+		t.Fatalf("English REPL status did not expose exactly one explicit execution blocker:\n%s", en)
+	}
+	for _, want := range []string{"trace_provider[official_trace_db/trace_streamer_db]: state=not_applicable", "trace_provider[builtin_modern/codrax_builtin_modern_profiler]: state=not_applicable"} {
+		if !strings.Contains(en, want) {
+			t.Fatalf("direct-perf REPL provider status missing %q:\n%s", want, en)
+		}
+	}
+	if strings.Contains(en, "state=missing") || strings.Contains(en, "install=must not render") {
+		t.Fatalf("direct-perf REPL status falsely advertised a trace provider dependency gap:\n%s", en)
+	}
+	zh := strings.Join(htraceToolsStatusMsgs("zh", status), "\n")
+	for _, want := range []string{"执行阻断：", "direct perf 输入不包含 trace body", "--trace-streamer"} {
+		if !strings.Contains(zh, want) {
+			t.Fatalf("Chinese REPL status execution blocker missing %q:\n%s", want, zh)
+		}
+	}
+	if strings.Contains(zh, "direct perf input has no trace body") || strings.Contains(zh, "trace provider route is not applicable") || strings.Count(zh, "执行阻断：") != 1 || strings.Contains(zh, "execution_blocker") || strings.Contains(zh, "状态=缺失") || strings.Contains(zh, "安装=must not render") {
+		t.Fatalf("Chinese REPL status leaked/duplicated execution blocker:\n%s", zh)
 	}
 }
 

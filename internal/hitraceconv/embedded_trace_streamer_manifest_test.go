@@ -1,6 +1,7 @@
 package hitraceconv
 
 import (
+	"bytes"
 	"encoding/json"
 	"io/fs"
 	"os"
@@ -19,14 +20,14 @@ import (
 //
 //	windows-amd64/trace_streamer.exe 27,586,048
 //	linux-amd64/trace_streamer       12,703,088
-//	windows-amd64/manifest.json             971
-//	linux-amd64/manifest.json             1,095
+//	windows-amd64/manifest.json           1,056
+//	linux-amd64/manifest.json             1,180
 //
 // Any change — new platform payloads, binary upgrades, manifest edits —
 // MUST go through an explicit ruling and update this baseline in the
 // same commit. This is the anti-drift ratchet: nobody quietly grows the
 // release payload without the number changing here.
-const embeddedTraceStreamerPayloadRatchetBytes int64 = 40291202
+const embeddedTraceStreamerPayloadRatchetBytes int64 = 40291372
 
 func TestEmbeddedTraceStreamerDirectoryRequiresManifest(t *testing.T) {
 	info, err := os.Stat(embeddedTraceStreamerDir)
@@ -64,6 +65,12 @@ func TestEmbeddedTraceStreamerDirectoryRequiresManifest(t *testing.T) {
 		}
 		if len(manifest.Platforms) != 1 {
 			t.Fatalf("per-platform manifest %s must declare exactly one platform, got %d", name, len(manifest.Platforms))
+		}
+		approval := strings.ToLower(strings.TrimSpace(manifest.ApprovalRef))
+		for _, required := range []string{"by default", "slim_streamer", "external-only opt-out"} {
+			if !strings.Contains(approval, required) {
+				t.Fatalf("platform manifest %s approval_ref lacks default-embed distribution term %q: %q", name, required, manifest.ApprovalRef)
+			}
 		}
 		platform := manifest.Platforms[0]
 		if got := strings.TrimSpace(platform.GOOS) + "-" + strings.TrimSpace(platform.GOARCH); got != name {
@@ -303,7 +310,7 @@ func TestEmbeddedTraceStreamerRuntimeExtraction(t *testing.T) {
 	}
 }
 
-func TestEmbeddedTraceStreamerRuntimeExtractionReplacesCorruptedCache(t *testing.T) {
+func TestEmbeddedTraceStreamerRuntimeExtractionRejectsCorruptedCacheWithoutReplacement(t *testing.T) {
 	binaryRel := path.Join(runtime.GOOS+"-"+runtime.GOARCH, traceStreamerBinaryName())
 	binaryBody := []byte("embedded-trace-streamer-binary")
 	manifest := embeddedTraceStreamerTestManifest(binaryRel, binaryBody)
@@ -314,21 +321,29 @@ func TestEmbeddedTraceStreamerRuntimeExtractionReplacesCorruptedCache(t *testing
 	if err != nil {
 		t.Fatalf("extract embedded trace_streamer: %v", err)
 	}
-	if err := os.WriteFile(first.Path, []byte("corrupted-cache-bytes"), 0o755); err != nil {
+	corrupt := append([]byte(nil), binaryBody...)
+	corrupt[0] ^= 0xff // preserve size so the hash boundary is exercised.
+	if err := os.WriteFile(first.Path, corrupt, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	second, err := extractEmbeddedTraceStreamer(fsys, cacheRoot)
+	before, err := os.Lstat(first.Path)
 	if err != nil {
-		t.Fatalf("re-extract over corrupted cache: %v", err)
+		t.Fatal(err)
 	}
-	if second.CacheReused {
-		t.Fatalf("corrupted cache must be re-extracted, not reused: %+v", second)
+	_, err = extractEmbeddedTraceStreamer(fsys, cacheRoot)
+	if err == nil || !strings.Contains(err.Error(), "sha256 mismatch") {
+		t.Fatalf("corrupted cache did not fail loud at the hash boundary: %v", err)
 	}
-	if second.Path != first.Path {
-		t.Fatalf("re-extraction must land on the same deterministic path, first=%s second=%s", first.Path, second.Path)
+	after, err := os.Lstat(first.Path)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := verifyEmbeddedTraceStreamerFileHash(second.Path, embeddedTraceStreamerSHA256(binaryBody)); err != nil {
-		t.Fatalf("re-extracted binary hash mismatch: %v", err)
+	got, err := os.ReadFile(first.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(before, after) || !bytes.Equal(got, corrupt) {
+		t.Fatalf("corrupted cache was overwritten: same_identity=%t got=%q want=%q", os.SameFile(before, after), got, corrupt)
 	}
 }
 
@@ -387,10 +402,10 @@ func withEmbeddedTraceStreamerState(t *testing.T, fsys fs.FS, tagEnabled bool, p
 	})
 }
 
-// Pins the unfrozen Batch 9B contract: with every external tier starved,
-// an embed_streamer build selects the embedded payload as the final
+// Pins the default-embed contract: with every external tier starved, a
+// supported-platform build selects its embedded payload as the final
 // discovery tier and auto conversion proceeds on trace_streamer.
-func TestTraceToolStatusSelectsEmbeddedTraceStreamerAsLastResort(t *testing.T) {
+func TestTraceToolStatusSelectsVerifiedEmbeddedTraceStreamerBeforeAmbientTiers(t *testing.T) {
 	binaryRel := path.Join(runtime.GOOS+"-"+runtime.GOARCH, traceStreamerBinaryName())
 	binaryBody := []byte("#!/bin/sh\nexit 0\n")
 	manifest := embeddedTraceStreamerTestManifest(binaryRel, binaryBody)
@@ -403,7 +418,7 @@ func TestTraceToolStatusSelectsEmbeddedTraceStreamerAsLastResort(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !status.TraceStreamer.Available {
-		t.Fatalf("embedded trace_streamer should be selected as last resort: %+v", status.TraceStreamer)
+		t.Fatalf("verified embedded trace_streamer should be selected as the distribution tier: %+v", status.TraceStreamer)
 	}
 	if !strings.Contains(status.TraceStreamer.Source, "embedded trace_streamer") {
 		t.Fatalf("source should identify embedded trace_streamer: %q", status.TraceStreamer.Source)
@@ -416,18 +431,22 @@ func TestTraceToolStatusSelectsEmbeddedTraceStreamerAsLastResort(t *testing.T) {
 	}
 }
 
-// Pins tier ordering: any earlier external tier hit resolves without
-// even touching the embedded assets, so no extraction runs.
-func TestResolveTraceStreamerToolExternalTiersWinWithoutExtraction(t *testing.T) {
+// Pins tier ordering: explicit and environment overrides resolve without
+// touching embedded assets. Ambient PATH is considered only after the verified
+// distribution tier reports a normal unsupported-platform gap.
+func TestResolveTraceStreamerToolOverridesBeatEmbeddedAndPATHFollowsGap(t *testing.T) {
 	starveExternalTraceStreamerDiscovery(t)
 	calls := 0
 	oldAssets := embeddedTraceStreamerAssetsFS
 	oldTag := embeddedTraceStreamerTagEnabled
+	oldGap := embeddedTraceStreamerPlatformGap
 	embeddedTraceStreamerAssetsFS = func() fs.FS { calls++; return nil }
 	embeddedTraceStreamerTagEnabled = true
+	embeddedTraceStreamerPlatformGap = EmbeddedTraceStreamerPlatformGapMessage(runtime.GOOS, runtime.GOARCH)
 	t.Cleanup(func() {
 		embeddedTraceStreamerAssetsFS = oldAssets
 		embeddedTraceStreamerTagEnabled = oldTag
+		embeddedTraceStreamerPlatformGap = oldGap
 	})
 
 	toolDir := t.TempDir()
@@ -443,13 +462,16 @@ func TestResolveTraceStreamerToolExternalTiersWinWithoutExtraction(t *testing.T)
 	if path, source, caveats := resolveTraceStreamerToolWithCaveats(Options{}); path != tool || source != "CODRAX_TRACE_STREAMER" || len(caveats) != 0 {
 		t.Fatalf("env tier should win: path=%q source=%q caveats=%v", path, source, caveats)
 	}
+	if calls != 0 {
+		t.Fatalf("override tiers consulted embedded assets %d times", calls)
+	}
 	t.Setenv("CODRAX_TRACE_STREAMER", "")
 	t.Setenv("PATH", toolDir)
 	if path, source, caveats := resolveTraceStreamerToolWithCaveats(Options{}); path == "" || !strings.Contains(source, "on PATH") || len(caveats) != 0 {
-		t.Fatalf("PATH tier should win: path=%q source=%q caveats=%v", path, source, caveats)
+		t.Fatalf("PATH should follow a normal embedded platform gap without inheriting its caveat: path=%q source=%q caveats=%v", path, source, caveats)
 	}
-	if calls != 0 {
-		t.Fatalf("embedded assets consulted %d times while an external tier hit; embedded must stay untouched", calls)
+	if calls != 1 {
+		t.Fatalf("PATH resolution consulted embedded assets %d times, want exactly one prior distribution-tier check", calls)
 	}
 }
 
@@ -481,11 +503,10 @@ func TestTraceToolStatusReportsEmbeddedExtractionFailureLoudly(t *testing.T) {
 	}
 }
 
-// Pins the unbundled-platform contract: an embed_streamer build on a
-// platform outside the first wave reports an explicit structured gap
-// instead of silently acting like a slim build.
+// Pins the default unbundled-platform contract: a platform outside the
+// first wave reports a structured gap unless slim_streamer was selected.
 func TestTraceToolStatusReportsUnbundledPlatformGap(t *testing.T) {
-	gap := "embedded trace_streamer payload is enabled by the embed_streamer build tag but no binary is bundled for test/gap; the first wave bundles linux-amd64 and windows-amd64 only, so install or configure an external trace_streamer"
+	gap := EmbeddedTraceStreamerPlatformGapMessage("test", "gap")
 	withEmbeddedTraceStreamerState(t, nil, true, gap)
 	starveExternalTraceStreamerDiscovery(t)
 

@@ -16,7 +16,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
-func TestConvertFileTraceStreamerExplicitProducesSystraceTraceDBBundle(t *testing.T) {
+func TestConvertFileTraceStreamerExplicitProducesSystraceWithTransientDBBundle(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake trace_streamer shell fixture uses /bin/sh")
 	}
@@ -58,17 +58,29 @@ func TestConvertFileTraceStreamerExplicitProducesSystraceTraceDBBundle(t *testin
 	if systrace.Path != output || systrace.Bytes == 0 || !strings.Contains(systrace.Converter, "trace-streamer-db") {
 		t.Fatalf("missing systrace artifact: %+v artifacts=%+v", systrace, result.Artifacts)
 	}
-	if db.Path != strings.TrimSuffix(output, defaultOutputSuffix)+".trace.db" || db.Bytes == 0 {
-		t.Fatalf("missing trace DB artifact: %+v artifacts=%+v", db, result.Artifacts)
+	if db.Path != "" {
+		t.Fatalf("default explicit conversion must keep its staging DB transient: %+v artifacts=%+v", db, result.Artifacts)
 	}
 	args, err := os.ReadFile(argsLog)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{input, "-e", db.Path, "--So_dir", filepath.Join(dir, "symbols")} {
-		if !strings.Contains(string(args), want) {
-			t.Fatalf("trace_streamer args missing %q:\n%s", want, args)
-		}
+	argLines := strings.Split(strings.TrimSpace(string(args)), "\n")
+	if len(argLines) != 5 || argLines[0] != input || argLines[1] != "-e" ||
+		argLines[3] != "--So_dir" || argLines[4] != filepath.Join(dir, "symbols") {
+		t.Fatalf("unexpected trace_streamer args: %#v", argLines)
+	}
+	stagingDB := argLines[2]
+	if filepath.Base(stagingDB) != "trace_streamer_export.db" ||
+		!strings.HasPrefix(filepath.Base(filepath.Dir(stagingDB)), "codrax-trace-streamer-") {
+		t.Fatalf("default DB must use a private transient staging directory, got %q", stagingDB)
+	}
+	if _, statErr := os.Lstat(stagingDB); !os.IsNotExist(statErr) {
+		t.Fatalf("successful conversion leaked transient DB %s: %v", stagingDB, statErr)
+	}
+	defaultRetainedDB := strings.TrimSuffix(output, defaultOutputSuffix) + ".trace.db"
+	if _, statErr := os.Lstat(defaultRetainedDB); !os.IsNotExist(statErr) {
+		t.Fatalf("explicit engine without a retention option created %s: %v", defaultRetainedDB, statErr)
 	}
 	idx, err := tracequery.BuildIndex(context.Background(), output)
 	if err != nil {
@@ -81,10 +93,13 @@ func TestConvertFileTraceStreamerExplicitProducesSystraceTraceDBBundle(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"type": "systrace"`, `"type": "trace_db"`, `"trace_provider_decisions"`, `"provider_name": "trace_streamer_db"`, `"trace_query_ready": true`, `"trace_db_coverage"`} {
+	for _, want := range []string{`"type": "systrace"`, `"trace_provider_decisions"`, `"provider_name": "trace_streamer_db"`, `"trace_query_ready": true`, `"trace_db_coverage"`} {
 		if !strings.Contains(string(bundle), want) {
 			t.Fatalf("bundle missing %q:\n%s", want, bundle)
 		}
+	}
+	if strings.Contains(string(bundle), `"type": "trace_db"`) {
+		t.Fatalf("transient DB must not be published as an artifact:\n%s", bundle)
 	}
 	var parsed struct {
 		Coverage      []TraceDBCoverage `json:"trace_db_coverage"`
@@ -478,6 +493,7 @@ func TestConvertFileTraceStreamerExplicitNoRowsProducesPartialBundle(t *testing.
 		OutputPath:        output,
 		TraceEngine:       "trace_streamer",
 		TraceStreamerPath: traceStreamer,
+		KeepTraceDB:       true,
 	})
 	if err != nil {
 		t.Fatalf("convert trace_streamer no-row DB: %v", err)
@@ -490,6 +506,10 @@ func TestConvertFileTraceStreamerExplicitNoRowsProducesPartialBundle(t *testing.
 	}
 	if !hasArtifact(result.Artifacts, ArtifactTraceDB) || hasArtifact(result.Artifacts, ArtifactSystrace) {
 		t.Fatalf("partial bundle should preserve DB only: %+v", result.Artifacts)
+	}
+	wantDB := strings.TrimSuffix(output, defaultOutputSuffix) + ".trace.db"
+	if !artifactPathExists(wantDB) {
+		t.Fatalf("--keep-trace-db partial result did not retain %s: %+v", wantDB, result.Artifacts)
 	}
 	if !hasTraceDecisionReason(result.TraceDecisions, traceProviderNameTraceStreamer, "trace_db_no_rows") {
 		t.Fatalf("no-row decision missing: %+v", result.TraceDecisions)

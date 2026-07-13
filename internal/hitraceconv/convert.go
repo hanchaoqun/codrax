@@ -52,18 +52,18 @@ type renderedRow struct {
 
 // ConvertFile converts a binary Harmony/OpenHarmony HiTrace capture to a
 // ftrace/systrace-compatible text file. It never overwrites the output path.
-func ConvertFile(ctx context.Context, opts Options) (Result, error) {
+func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return Result{}, err
 	}
 	input := strings.TrimSpace(opts.InputPath)
 	if input == "" {
 		return Result{}, fmt.Errorf("input path is required")
 	}
-	if err := validatePerfParserMode(opts.PerfParser); err != nil {
-		return Result{}, err
-	}
-	if err := validateTraceEngineMode(opts.TraceEngine); err != nil {
+	if err := ValidateOptions(opts); err != nil {
 		return Result{}, err
 	}
 	output := strings.TrimSpace(opts.OutputPath)
@@ -74,22 +74,76 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if normalizeTraceEngineMode(opts.TraceEngine) == traceEngineTraceStreamer {
-		return convertTraceStreamerOnly(ctx, opts, input, info.Size(), output)
-	}
-	if result, ok, err := maybeConvertDirectSimpleperfPerfData(ctx, opts, input, info.Size(), output); ok || err != nil {
-		return result, err
-	}
-	if err := ensureOutputDoesNotExist(output); err != nil {
+	ledger, err := newConversionFileLedger(input)
+	if err != nil {
 		return Result{}, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			err = joinConversionCleanupError(err, ledger)
+		}
+	}()
+	commit := func(completed Result, completionErr error) (Result, error) {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return Result{}, ctxErr
+		}
+		if completionErr == nil {
+			if validateErr := ledger.validateOwnedPaths(); validateErr != nil {
+				return Result{}, validateErr
+			}
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return Result{}, ctxErr
+			}
+			committed = true
+		}
+		return completed, completionErr
+	}
+	mode := requestedTraceEngineMode(opts.TraceEngine)
+	directPerf := traceInputUsesDirectPerfRoute(opts)
+	if directPerf {
+		directPlan, err := buildTraceProviderPlanWithInput(opts, false, true)
+		if err != nil {
+			return Result{}, err
+		}
+		if directPlan.ExecutionBlocker != "" {
+			return Result{}, errors.New(directPlan.ExecutionBlocker)
+		}
+		if err := preflightTracePublicationPaths(opts, input, output, false); err != nil {
+			return Result{}, err
+		}
+		if !directPlan.DirectPerf || directPlan.PreflightEngine != traceEngineDirectPerf {
+			return Result{}, fmt.Errorf("typed trace provider plan did not select the direct perf route")
+		}
+		if result, ok, err := maybeConvertDirectSimpleperfPerfData(ctx, opts, directPlan, input, info.Size(), output, ledger); ok || err != nil {
+			if err != nil {
+				return result, err
+			}
+			return commit(result, nil)
+		}
+		return Result{}, fmt.Errorf("direct perf input classification was not consumed by the perf conversion lane")
+	}
+	if err := preflightTracePublicationPaths(opts, input, output, true); err != nil {
+		return Result{}, err
+	}
+	plan, err := buildTraceProviderPlanWithInput(opts, false, directPerf)
+	if err != nil {
+		return Result{}, err
+	}
+	if mode == traceEngineTraceStreamer {
+		converted, convertErr := convertTraceStreamerOnly(ctx, opts, plan, input, info.Size(), output, ledger)
+		return commit(converted, convertErr)
 	}
 	hasTracePerfSidecar, err := inputContainsStandalonePerfSidecar(ctx, input, info.Size())
 	if err != nil {
 		return Result{}, err
 	}
-	traceStreamerExport, err := maybeRunTraceStreamerAuto(ctx, opts, input, info.Size(), output)
+	traceStreamerExport, err := maybeRunTraceStreamerAuto(ctx, opts, plan, input, info.Size(), output, hasTracePerfSidecar, ledger)
 	if err != nil {
 		return Result{}, err
+	}
+	wrapFallbackFailure := func(fallback error) error {
+		return traceProviderFallbackFailure(plan, traceStreamerExport, fallback)
 	}
 	var initialArtifacts []Artifact
 	var initialCaveats []string
@@ -106,22 +160,17 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 		(hasTracePerfSidecar && traceStreamerExport.Artifact.Path != "" && traceStreamerExport.SystraceArtifact.Path == "")
 	if traceStreamerExport.Artifact.Path != "" && keepTraceDBArtifact && artifactPathExists(traceStreamerExport.Artifact.Path) {
 		initialArtifacts = append(initialArtifacts, traceStreamerExport.Artifact)
-	} else if traceStreamerExport.Cleanup != nil {
-		defer traceStreamerExport.Cleanup()
 	}
 	standaloneExtractOpts := standaloneExtractOptions{GeneratePerfTrace: true}
 	if traceStreamerExport.SystraceArtifact.Path != "" && traceDBCoverageHasPerfSamples(initialTraceDBCoverage) {
 		standaloneExtractOpts.GeneratePerfTrace = false
 		standaloneExtractOpts.PrimaryPerfSource = "trace_streamer DB perf_sample rows embedded in systrace"
 	}
-	standaloneArtifacts, standaloneCaveats, standaloneDecisions, err := extractStandaloneArtifactsWithOptions(ctx, opts, info.Size(), output, standaloneExtractOpts)
+	extractedStandaloneArtifacts, standaloneCaveats, standaloneDecisions, err := extractStandaloneArtifactsWithOptionsAndLedger(ctx, opts, info.Size(), output, standaloneExtractOpts, ledger)
 	if err != nil {
-		if traceStreamerExport.SystraceArtifact.Path != "" {
-			_ = os.Remove(traceStreamerExport.SystraceArtifact.Path)
-		}
-		return Result{}, err
+		return Result{}, wrapFallbackFailure(err)
 	}
-	standaloneArtifacts = append(initialArtifacts, standaloneArtifacts...)
+	standaloneArtifacts := append(initialArtifacts, extractedStandaloneArtifacts...)
 	standaloneCaveats = append(initialCaveats, standaloneCaveats...)
 	if traceStreamerExport.SystraceArtifact.Path != "" {
 		result := Result{
@@ -142,16 +191,16 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 			UnknownEventCount:  0,
 		}
 		normalizeResultCollections(&result)
-		if bundleArtifact, err := writeTraceBundleWithAllCoverage(input, result.OutputPath, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage); err != nil {
-			return Result{}, err
+		if bundleArtifact, err := writeTraceBundleWithAllCoverageAndLedger(input, result.OutputPath, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage, ledger); err != nil {
+			return Result{}, wrapFallbackFailure(err)
 		} else if bundleArtifact.Path != "" {
 			result.BundlePath = bundleArtifact.Path
 			result.Artifacts = append(result.Artifacts, bundleArtifact)
 		}
 		normalizeResultCollections(&result)
-		return result, nil
+		return commit(result, nil)
 	}
-	if traceStreamerSelectionShouldStopBuiltinFallback(opts, traceStreamerExport) {
+	if traceStreamerSelectionShouldStopBuiltinFallback(plan, traceStreamerExport) {
 		result := Result{
 			InputPath:         input,
 			InputBytes:        info.Size(),
@@ -165,21 +214,25 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 		result.Artifacts = append(initialArtifacts, result.Artifacts...)
 		result.Caveats = append(result.Caveats, "systrace output was not produced because selected trace_streamer/SQLite trace conversion did not produce trace_query-ready rows; pass --trace-engine=builtin to use the built-in trace-only converter")
 		normalizeResultCollections(&result)
-		if bundleArtifact, err := writeTraceBundleWithAllCoverage(input, output, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage); err != nil {
+		if bundleArtifact, err := writeTraceBundleWithAllCoverageAndLedger(input, output, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage, ledger); err != nil {
 			return Result{}, err
 		} else if bundleArtifact.Path != "" {
 			result.BundlePath = bundleArtifact.Path
 			result.Artifacts = append(result.Artifacts, bundleArtifact)
 		}
 		normalizeResultCollections(&result)
-		return result, nil
+		return commit(result, nil)
 	}
-	if result, ok, err := tryConvertProfilerContainer(ctx, opts, info.Size(), output, standaloneArtifacts, standaloneCaveats, standaloneDecisions, initialTraceDecisions, initialTraceDBCoverage); ok || err != nil {
-		return result, err
+	if result, ok, err := tryConvertProfilerContainerWithLedger(ctx, opts, info.Size(), output, standaloneArtifacts, standaloneCaveats, standaloneDecisions, initialTraceDecisions, initialTraceDBCoverage, ledger); ok || err != nil {
+		if err != nil {
+			return result, wrapFallbackFailure(err)
+		}
+		return commit(result, nil)
 	}
 	meta, err := scanMetadata(ctx, input, info.Size())
 	if err != nil {
-		if len(standaloneArtifacts) > 0 {
+		fallbackErr := traceProviderFallbackFailure(plan, traceStreamerExport, err)
+		if hasAnalyzableStandaloneSidecar(standaloneArtifacts) {
 			fallbackCaveat := builtinTraceBodyFallbackFailureCaveat(input, info.Size(), standaloneArtifacts, err)
 			result := Result{
 				InputPath:  input,
@@ -190,7 +243,7 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 				TraceDecisions: append(initialTraceDecisions,
 					traceProviderFailure(
 						newTraceProviderDecision(traceProviderStageTraceBody, traceProviderByName(traceProviderNameBuiltinSys), opts, input, output),
-						"no_renderable_trace_body",
+						builtinTraceBodyFailureReason(err),
 						fallbackCaveat,
 					),
 				),
@@ -200,20 +253,20 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 				TraceCoverage:   append([]TraceDBCoverage(nil), initialTraceCoverage...),
 			}
 			normalizeResultCollections(&result)
-			if bundleArtifact, bundleErr := writeTraceBundleWithAllCoverage(input, "", result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage); bundleErr != nil {
-				return Result{}, bundleErr
+			if bundleArtifact, bundleErr := writeTraceBundleWithAllCoverageAndLedger(input, "", result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage, ledger); bundleErr != nil {
+				return Result{}, wrapFallbackFailure(errors.Join(err, bundleErr))
 			} else if bundleArtifact.Path != "" {
 				result.BundlePath = bundleArtifact.Path
 				result.Artifacts = append(result.Artifacts, bundleArtifact)
 			}
 			normalizeResultCollections(&result)
-			return result, nil
+			return commit(result, nil)
 		}
-		return Result{}, err
+		return Result{}, fallbackErr
 	}
 	rows, missing, unknown, suppressed, first, last, err := renderRows(ctx, input, meta)
 	if err != nil {
-		return Result{}, err
+		return Result{}, wrapFallbackFailure(err)
 	}
 	sort.SliceStable(rows, func(i, j int) bool {
 		if rows[i].tsNS == rows[j].tsNS {
@@ -221,25 +274,35 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 		}
 		return rows[i].tsNS < rows[j].tsNS
 	})
+	if err := ctx.Err(); err != nil {
+		return Result{}, wrapFallbackFailure(err)
+	}
 	out, err := os.OpenFile(output, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
-		return Result{}, err
+		return Result{}, wrapFallbackFailure(err)
+	}
+	if err := ledger.recordOpenFile(output, out); err != nil {
+		return Result{}, wrapFallbackFailure(traceDBJoinPreservingSingle(err, rollbackOpenConversionFile(output, out)))
 	}
 	writeErr := writeRows(out, rows)
 	closeErr := out.Close()
 	if writeErr != nil {
-		_ = os.Remove(output)
-		return Result{}, writeErr
+		return Result{}, wrapFallbackFailure(traceDBJoinPreservingSingle(writeErr, closeErr, ledger.removeOwnedPath(output)))
 	}
 	if closeErr != nil {
-		_ = os.Remove(output)
-		return Result{}, closeErr
+		return Result{}, wrapFallbackFailure(traceDBJoinPreservingSingle(closeErr, ledger.removeOwnedPath(output)))
 	}
-	outInfo, err := os.Stat(output)
+	outInfo, err := os.Lstat(output)
 	if err != nil {
-		return Result{}, err
+		return Result{}, wrapFallbackFailure(err)
 	}
-	result := Result{
+	if !outInfo.Mode().IsRegular() || !ledger.ownsPathIdentity(output, outInfo) || (len(rows) > 0 && outInfo.Size() <= 0) {
+		return Result{}, wrapFallbackFailure(fmt.Errorf("systrace publication failed identity/regular-file validation: %s", output))
+	}
+	if err := ledger.sealOwnedPath(output, outInfo.Size()); err != nil {
+		return Result{}, wrapFallbackFailure(err)
+	}
+	result = Result{
 		InputPath:   input,
 		OutputPath:  output,
 		InputBytes:  info.Size(),
@@ -311,14 +374,14 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 	}
 	result.Caveats = append(result.Caveats, standaloneCaveats...)
 	normalizeResultCollections(&result)
-	if bundleArtifact, err := writeTraceBundleWithAllCoverage(input, output, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage); err != nil {
-		return Result{}, err
+	if bundleArtifact, err := writeTraceBundleWithAllCoverageAndLedger(input, output, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage, ledger); err != nil {
+		return Result{}, wrapFallbackFailure(err)
 	} else if bundleArtifact.Path != "" {
 		result.BundlePath = bundleArtifact.Path
 		result.Artifacts = append(result.Artifacts, bundleArtifact)
 	}
 	normalizeResultCollections(&result)
-	return result, nil
+	return commit(result, nil)
 }
 
 func builtinTraceBodyFallbackFailureCaveat(input string, inputSize int64, artifacts []Artifact, err error) string {
@@ -371,14 +434,54 @@ func traceDBCoverageHasPerfSamples(coverage []TraceDBCoverage) bool {
 	return false
 }
 
-func traceStreamerSelectionShouldStopBuiltinFallback(opts Options, traceStreamerExport traceStreamerExportResult) bool {
-	if selectedTraceEngineMode(opts.TraceEngine) != traceEngineTraceStreamer {
-		return false
+func traceStreamerSelectionShouldStopBuiltinFallback(plan traceProviderPlan, traceStreamerExport traceStreamerExportResult) bool {
+	return plan.includesEngine(traceEngineTraceStreamer) && !plan.allowsBuiltinFallback()
+}
+
+func traceProviderFallbackFailure(plan traceProviderPlan, first traceStreamerExportResult, fallback error) error {
+	if errors.Is(fallback, context.Canceled) || errors.Is(fallback, context.DeadlineExceeded) {
+		return fallback
 	}
-	return !isAutoTraceEngineMode(opts.TraceEngine)
+	if !plan.allowsBuiltinFallback() || first.Decision.ProviderName == "" || first.Decision.Succeeded || strings.TrimSpace(first.Decision.Reason) == "" {
+		return fallback
+	}
+	firstDecision := first.Decision
+	rolledBackDB := strings.TrimSpace(firstDecision.DBPath)
+	firstDecision.DBPath = ""
+	return &TraceProviderFallbackError{
+		FirstDecision: firstDecision,
+		FirstSource:   plan.TraceStreamer.Source,
+		FirstPath:     plan.TraceStreamer.Path,
+		FirstStage:    first.FailureStage,
+		FirstCode:     first.FailureCode,
+		FirstCaveats:  append([]string(nil), first.Caveats...),
+		FirstCause:    first.Cause,
+		RolledBackDB:  rolledBackDB,
+		Fallback:      fallback,
+	}
+}
+
+func builtinTraceBodyFailureReason(err error) string {
+	var decodeErr *BuiltinSysDecodeError
+	if errors.As(err, &decodeErr) && strings.TrimSpace(decodeErr.Code) != "" {
+		return "builtin_sys_decode_" + decodeErr.Code
+	}
+	return "no_renderable_trace_body"
+}
+
+func hasAnalyzableStandaloneSidecar(artifacts []Artifact) bool {
+	for _, artifact := range artifacts {
+		if artifact.Type == ArtifactPerfTrace && strings.TrimSpace(artifact.Path) != "" && artifactPathExists(artifact.Path) {
+			return true
+		}
+	}
+	return false
 }
 
 func scanMetadata(ctx context.Context, path string, size int64) (*traceMetadata, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -388,10 +491,30 @@ func scanMetadata(ctx context.Context, path string, size int64) (*traceMetadata,
 	if err != nil {
 		return nil, err
 	}
+	if header.Magic != harmonyRMQMagic {
+		return nil, &BuiltinSysDecodeError{
+			Code:   builtinSysDecodeInvalidMagic,
+			Magic:  header.Magic,
+			Offset: 0,
+			Detail: fmt.Sprintf("the built-in Harmony RMQ decoder requires magic=0x%04x", harmonyRMQMagic),
+		}
+	}
+	if header.Version != harmonyRMQVersion {
+		return nil, &BuiltinSysDecodeError{
+			Code:    builtinSysDecodeUnsupportedVersion,
+			Magic:   header.Magic,
+			Version: header.Version,
+			Offset:  4,
+			Detail:  fmt.Sprintf("the built-in Harmony RMQ decoder supports version=%d only", harmonyRMQVersion),
+		}
+	}
 	if header.FileType != harmonyRMQFileType {
 		return nil, &BuiltinSysDecodeError{
 			Code:     builtinSysDecodeUnsupportedFileType,
+			Magic:    header.Magic,
+			Version:  header.Version,
 			FileType: header.FileType,
+			Offset:   2,
 			Detail:   "the built-in decoder supports Harmony RMQ file_type=1 only; OpenHarmony/Linux file_type=0 requires trace_streamer",
 		}
 	}

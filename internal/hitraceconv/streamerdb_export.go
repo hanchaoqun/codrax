@@ -18,6 +18,33 @@ type traceDBSystraceExport struct {
 }
 
 func exportTraceDBToSystrace(ctx context.Context, dbPath, output string) (result traceDBSystraceExport, err error) {
+	ledger, err := newConversionFileLedger(dbPath)
+	if err != nil {
+		return traceDBSystraceExport{}, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			err = joinConversionCleanupError(err, ledger)
+		}
+	}()
+	result, err = exportTraceDBToSystraceWithLedger(ctx, dbPath, output, ledger)
+	if err == nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return traceDBSystraceExport{}, ctxErr
+		}
+		if validateErr := ledger.validateOwnedPaths(); validateErr != nil {
+			return traceDBSystraceExport{}, validateErr
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return traceDBSystraceExport{}, ctxErr
+		}
+		committed = true
+	}
+	return result, err
+}
+
+func exportTraceDBToSystraceWithLedger(ctx context.Context, dbPath, output string, ledger *conversionFileLedger) (result traceDBSystraceExport, err error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -117,25 +144,37 @@ func exportTraceDBToSystrace(ctx context.Context, dbPath, output string) (result
 	if err != nil {
 		return traceDBSystraceExport{Coverage: coverage}, err
 	}
+	if err := ledger.recordOpenFile(output, out); err != nil {
+		return traceDBSystraceExport{Coverage: coverage}, traceDBJoinPreservingSingle(err, rollbackOpenConversionFile(output, out))
+	}
 	stats, writeErr := sink.writeTo(ctx, out)
 	closeErr := out.Close()
 	writeErr = traceDBJoinPreservingSingle(writeErr, sink.cleanup())
 	stats = sink.stats
 	sinkClosed = true
 	if writeErr != nil {
-		writeErr = traceDBJoinPreservingSingle(writeErr, closeErr, os.Remove(output))
+		writeErr = traceDBJoinPreservingSingle(writeErr, closeErr, ledger.removeOwnedPath(output))
 		coverage = append(coverage, stats.coverage())
 		return traceDBSystraceExport{Coverage: coverage}, writeErr
 	}
 	if closeErr != nil {
-		closeErr = traceDBJoinPreservingSingle(closeErr, os.Remove(output))
+		closeErr = traceDBJoinPreservingSingle(closeErr, ledger.removeOwnedPath(output))
 		coverage = append(coverage, stats.coverage())
 		return traceDBSystraceExport{Coverage: coverage}, closeErr
 	}
-	info, err := os.Stat(output)
+	info, err := os.Lstat(output)
 	if err != nil {
 		coverage = append(coverage, stats.coverage())
-		return traceDBSystraceExport{Coverage: coverage}, traceDBJoinPreservingSingle(err, os.Remove(output))
+		return traceDBSystraceExport{Coverage: coverage}, traceDBJoinPreservingSingle(err, ledger.removeOwnedPath(output))
+	}
+	if !info.Mode().IsRegular() || !ledger.ownsPathIdentity(output, info) || (stats.RowsWritten > 0 && info.Size() <= 0) {
+		err := fmt.Errorf("trace_streamer systrace publication failed identity/regular-file validation: %s", output)
+		coverage = append(coverage, stats.coverage())
+		return traceDBSystraceExport{Coverage: coverage}, traceDBJoinPreservingSingle(err, ledger.removeOwnedPath(output))
+	}
+	if err := ledger.sealOwnedPath(output, info.Size()); err != nil {
+		coverage = append(coverage, stats.coverage())
+		return traceDBSystraceExport{Coverage: coverage}, traceDBJoinPreservingSingle(err, ledger.removeOwnedPath(output))
 	}
 	coverage = append(coverage, stats.coverage())
 	result = traceDBSystraceExport{
@@ -154,7 +193,7 @@ func exportTraceDBToSystrace(ctx context.Context, dbPath, output string) (result
 	}
 	result.TraceCoverage = append(result.TraceCoverage, validateSystraceWithTraceQuery(ctx, output))
 	if result.EventsWritten == 0 {
-		removeErr := os.Remove(output)
+		removeErr := ledger.removeOwnedPath(output)
 		result.Artifact = Artifact{}
 		result.OutputBytes = 0
 		return result, traceDBJoinPreservingSingle(fmt.Errorf("trace DB sorter accepted rows but wrote none"), removeErr)

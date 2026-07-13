@@ -72,14 +72,14 @@ type simpleperfProtoData struct {
 	ContextSwitches []simpleperfProtoContextSwitch
 }
 
-func maybeConvertSimpleperfProtoWithDecision(ctx context.Context, opts Options, perfPath, perfTracePath string, stage string) (Artifact, string, []PerfProviderDecision, error) {
+func maybeConvertSimpleperfProtoWithDecision(ctx context.Context, opts Options, perfPath, perfTracePath string, stage string, ledger *conversionFileLedger) (Artifact, string, []PerfProviderDecision, error) {
 	decision := newPerfProviderDecision(stage, perfProviderByName(perfProviderNameSimpleperfProto), opts, perfPath, perfInputSimpleperfReportProto, perfTracePath)
-	if err := ConvertSimpleperfProtoFileToPerfTrace(ctx, perfPath, perfTracePath); err != nil {
+	if err := convertSimpleperfProtoFileToPerfTraceWithLedger(ctx, perfPath, perfTracePath, ledger); err != nil {
 		caveat := fmt.Sprintf("Android SIMPLEPERF report-sample proto could not be converted (%v)", err)
 		decision = perfProviderFailure(decision, "official_proto_unreadable", caveat)
 		return Artifact{}, caveat, []PerfProviderDecision{decision}, nil
 	}
-	info, err := os.Stat(perfTracePath)
+	info, err := os.Lstat(perfTracePath)
 	if err != nil {
 		return Artifact{}, "", []PerfProviderDecision{decision}, err
 	}
@@ -98,6 +98,12 @@ func maybeConvertSimpleperfProtoWithDecision(ctx context.Context, opts Options, 
 }
 
 func ConvertSimpleperfProtoFileToPerfTrace(ctx context.Context, inputPath, outputPath string) error {
+	return runConversionFileTransaction(ctx, inputPath, func(ledger *conversionFileLedger) error {
+		return convertSimpleperfProtoFileToPerfTraceWithLedger(ctx, inputPath, outputPath, ledger)
+	})
+}
+
+func convertSimpleperfProtoFileToPerfTraceWithLedger(ctx context.Context, inputPath, outputPath string, ledger *conversionFileLedger) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -111,27 +117,15 @@ func ConvertSimpleperfProtoFileToPerfTrace(ctx context.Context, inputPath, outpu
 	if err := ensureOutputDoesNotExist(outputPath); err != nil {
 		return err
 	}
-	out, err := os.OpenFile(outputPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	out, err := openOwnedConversionFile(outputPath, ledger)
 	if err != nil {
 		return err
 	}
 	w := bufio.NewWriter(out)
 	writeErr := writeSimpleperfProtoPerfTrace(ctx, w, data)
 	flushErr := w.Flush()
-	closeErr := out.Close()
-	if writeErr != nil {
-		_ = os.Remove(outputPath)
-		return writeErr
-	}
-	if flushErr != nil {
-		_ = os.Remove(outputPath)
-		return flushErr
-	}
-	if closeErr != nil {
-		_ = os.Remove(outputPath)
-		return closeErr
-	}
-	return nil
+	_, err = finishOwnedConversionFile(outputPath, out, ledger, true, writeErr, flushErr)
+	return err
 }
 
 func readSimpleperfProtoFile(ctx context.Context, path string) (simpleperfProtoData, error) {

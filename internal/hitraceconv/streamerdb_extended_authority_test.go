@@ -36,7 +36,7 @@ func TestTraceDBExtendedProductionReceivesOneSchedulerAuthority(t *testing.T) {
 	schedulerErrorGuarded := false
 	for _, declaration := range exportFile.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Name.Name != "exportTraceDBToSystrace" || function.Body == nil {
+		if !ok || function.Name.Name != "exportTraceDBToSystraceWithLedger" || function.Body == nil {
 			continue
 		}
 		for i, statement := range function.Body.List {
@@ -259,7 +259,7 @@ func TestTraceDBExtendedProductionReceivesOneSchedulerAuthority(t *testing.T) {
 		}
 	}
 	wantCallers := map[string]map[string]int{
-		"exportTraceDBExtendedFamilies": {"exportTraceDBToSystrace": 1},
+		"exportTraceDBExtendedFamilies": {"exportTraceDBToSystraceWithLedger": 1},
 		"loadThreadIndex":               {"exportTraceDBSchedulerFamilies": 1},
 		"collectTraceDBLifecycle":       {"exportTraceDBSchedulerFamilies": 1, "loadActiveThreadIDs": 1},
 		"newTraceDBSchedulerAuthority":  {"exportTraceDBSchedulerFamilies": 1},

@@ -11353,6 +11353,10 @@ func (r *REPL) handleHitraceConvert(args string) {
 	opts.Progress = func(event hitraceconv.ProgressEvent) {
 		r.info(htraceConvertProgressMsg(r.language, event))
 	}
+	if err := hitraceconv.ValidateOptions(opts); err != nil {
+		r.errorf("%s\n", htraceConvertFailedMsg(r.language, err))
+		return
+	}
 	result, err := r.hitraceConvert(context.Background(), opts)
 	if err != nil {
 		r.errorf("%s\n", htraceConvertFailedMsg(r.language, err))
@@ -11369,6 +11373,9 @@ func (r *REPL) handleHitraceConvert(args string) {
 		r.info(line)
 	}
 	for _, line := range htraceConvertCoverageMsgs(r.language, "trace_db_coverage", result.TraceDBCoverage) {
+		r.info(line)
+	}
+	for _, line := range htraceConvertTraceProviderDecisionMsgs(r.language, result.TraceDecisions) {
 		r.info(line)
 	}
 	if len(result.Caveats) > 0 {

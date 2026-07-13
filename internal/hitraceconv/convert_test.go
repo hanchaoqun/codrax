@@ -291,7 +291,11 @@ func TestConvertFileExtractsStandaloneHiperfDataAndBundle(t *testing.T) {
 	}
 
 	output := filepath.Join(dir, "out.systrace")
-	result, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: output})
+	result, err := ConvertFile(context.Background(), Options{
+		InputPath:         input,
+		OutputPath:        output,
+		TraceStreamerPath: filepath.Join(dir, "missing-trace_streamer"),
+	})
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}
@@ -334,7 +338,7 @@ func TestConvertFileExtractsStandaloneHiperfDataAndBundle(t *testing.T) {
 	}
 }
 
-func TestConvertFileReturnsStandalonePerfArtifactWithoutSystraceContainer(t *testing.T) {
+func TestConvertFileRejectsUnanalyzableStandalonePerfArtifactWithoutTraceBody(t *testing.T) {
 	dir := t.TempDir()
 	input := filepath.Join(dir, "perf-only.htrace")
 	perfPayload := []byte("ONLY-PERF-DATA")
@@ -342,41 +346,44 @@ func TestConvertFileReturnsStandalonePerfArtifactWithoutSystraceContainer(t *tes
 		t.Fatal(err)
 	}
 
-	result, err := ConvertFile(context.Background(), Options{InputPath: input})
-	if err != nil {
-		t.Fatalf("convert should return extracted sidecar instead of failing outright: %v", err)
+	result, err := ConvertFile(context.Background(), Options{
+		InputPath:         input,
+		TraceStreamerPath: filepath.Join(dir, "missing-trace_streamer"),
+	})
+	if err == nil {
+		t.Fatalf("opaque standalone bytes without a trace body or normalized perftrace must fail: %+v", result)
 	}
-	if result.OutputPath != "" || result.EventsWritten != 0 {
-		t.Fatalf("standalone-only input should not claim systrace output: %+v", result)
+	var fallbackErr *TraceProviderFallbackError
+	if !errors.As(err, &fallbackErr) {
+		t.Fatalf("failure must preserve both provider lanes, got %T: %v", err, err)
 	}
-	if result.BundlePath == "" {
-		t.Fatalf("standalone-only conversion should emit a bundle: %+v", result)
-	}
-	var perf Artifact
-	for _, artifact := range result.Artifacts {
-		if artifact.Type == ArtifactPerfData {
-			perf = artifact
-			break
+	for _, want := range []string{"first_provider=\"trace_streamer_db\"", "trace_streamer_unavailable", "fallback:", "invalid_magic"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("composite failure missing %q: %v", want, err)
 		}
 	}
-	if perf.Path == "" {
-		t.Fatalf("missing perf_data artifact: %+v", result.Artifacts)
+	if result.InputPath != "" || result.OutputPath != "" || result.BundlePath != "" ||
+		len(result.Artifacts) != 0 || len(result.TraceDecisions) != 0 || len(result.Caveats) != 0 {
+		t.Fatalf("failed conversion must not publish a partial result: %+v", result)
 	}
-	gotPayload, err := os.ReadFile(perf.Path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(gotPayload, perfPayload) {
-		t.Fatalf("perf payload mismatch: got %q want %q", gotPayload, perfPayload)
-	}
-	for _, want := range []string{
-		"input starts with OpenHarmony profiler standalone perf sidecar",
-		"rather than a trace body",
-		"built-in sys parser rejected the fallback probe",
+	base := traceSidecarBase(input, DefaultOutputPath(input))
+	for _, path := range []string{
+		DefaultOutputPath(input),
+		base + ".perf.data",
+		base + ".perftrace",
+		base + ".tracebundle.json",
 	} {
-		if !containsString(result.Caveats, want) {
-			t.Fatalf("partial conversion should explain %q: %+v", want, result.Caveats)
+		if _, statErr := os.Lstat(path); !os.IsNotExist(statErr) {
+			t.Fatalf("failed conversion leaked output %s: %v", path, statErr)
 		}
+	}
+	gotInput, readErr := os.ReadFile(input)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	wantInput := syntheticStandaloneProfilerBlock(profilerDataTypeHiperf, "hiperf-plugin", "1.0", perfPayload)
+	if !bytes.Equal(gotInput, wantInput) {
+		t.Fatal("failed conversion modified its input")
 	}
 }
 

@@ -3,7 +3,7 @@
   "upstream_ref": "7fb4eabae01f310beccecf339403aca4e9660131",
   "version": "hmtrace assets snapshot 7fb4eab (2026-07-02); trace_streamer binary does not self-declare a version string, verify with `trace_streamer --version` on the target platform",
   "license_id": "Apache-2.0",
-  "approval_ref": "HED-59 user ruling 2026-07-05: per-platform embedded distribution behind the embed_streamer build tag; first wave windows-amd64 + linux-amd64; darwin excluded because the reference darwin-aarch64 asset is a mislabeled x86_64 Mach-O",
+  "approval_ref": "HED-59 user ruling 2026-07-05 plus trace_streamer-first distribution ruling 2026-07-13: linux-amd64 and windows-amd64 embed one matching platform payload by default; slim_streamer is the explicit external-only opt-out; darwin remains unbundled because the reference darwin-aarch64 asset is a mislabeled x86_64 Mach-O",
   "platforms": [
     {
       "goos": "linux",

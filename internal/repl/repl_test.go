@@ -232,11 +232,14 @@ func TestHitraceConvertHelpAliases(t *testing.T) {
 			r.handleHitraceCmd(input)
 
 			got := out.String()
-			if !strings.Contains(got, "/htrace convert [--trace-engine=trace_streamer|builtin|auto] [--keep-trace-db] [--trace-db-output <path>] <binary-hitrace> [output.systrace]") {
+			if !strings.Contains(got, "/htrace "+htraceConvertSubcommandSyntax) ||
+				!strings.Contains(got, "--trace-engine=trace_streamer|builtin|auto") ||
+				!strings.Contains(got, "--keep-trace-db") ||
+				!strings.Contains(got, "--trace-db-output <path>") {
 				t.Fatalf("help alias did not print convert usage; got:\n%s", got)
 			}
-			if !strings.Contains(got, "Auto mode uses trace_streamer/SQL first") ||
-				!strings.Contains(got, "falls back to the built-in raw trace parser") ||
+			if !strings.Contains(got, "Auto always attempts bundled/configured trace_streamer SQL first") ||
+				!strings.Contains(got, "built-in raw decoder as a disclosed fallback") ||
 				!strings.Contains(got, "Explicit trace_streamer or builtin modes do not degrade") ||
 				!strings.Contains(got, "--keep-trace-db") ||
 				!strings.Contains(got, "--trace-db-output") {
@@ -263,8 +266,11 @@ func TestHitraceToolsStatusShowsGateAndDoesNotMutateAttachment(t *testing.T) {
 
 	got := out.String()
 	for _, want := range []string{
-		"trace_engine: auto",
-		"selected_engine:",
+		"requested_engine: auto",
+		"ordered_route: trace_streamer -> builtin",
+		"first_lane: trace_streamer",
+		"preflight_engine:",
+		"actual_engine: authoritative in post-conversion trace_provider_decision",
 		"trace_provider[official_trace_db/trace_streamer_db]",
 		"trace_provider[builtin_modern/codrax_builtin_modern_profiler]",
 		"trace_gate[sys_binary_parity_gate/no_perf_sys_binary_parity]",
@@ -292,7 +298,11 @@ func TestHitraceToolsStatusChineseLocalizesGate(t *testing.T) {
 
 	got := out.String()
 	for _, want := range []string{
-		"trace 解析引擎：auto",
+		"请求引擎：auto",
+		"有序路由：trace_streamer → builtin",
+		"首车道：trace_streamer",
+		"预检引擎：",
+		"实际引擎：以转换后的 trace_provider_decision 为准",
 		"trace_gate[sys_binary_parity_gate/no_perf_sys_binary_parity]",
 		"状态=等待代表性fixture",
 		"尚未提交可再分发的真实代表性 no-perf .sys fixture",
@@ -345,6 +355,8 @@ func TestHitraceConvertPassesTraceEngineOption(t *testing.T) {
 				OutputPath:    opts.OutputPath,
 				EventsWritten: 1,
 				TraceDecisions: []hitraceconv.TraceProviderDecision{{
+					Stage:           "trace_body",
+					ProviderKind:    "builtin_modern",
 					ProviderName:    "codrax_builtin_sys_binary",
 					EngineMode:      opts.TraceEngine,
 					Selected:        true,
@@ -370,6 +382,20 @@ func TestHitraceConvertPassesTraceEngineOption(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "hitrace convert progress: stage=trace_db_normalize status=started") {
 		t.Fatalf("conversion progress not rendered:\n%s", out.String())
+	}
+	for _, want := range []string{
+		"trace_provider_decision[builtin_modern/codrax_builtin_sys_binary]",
+		"selected=true",
+		"attempted=true",
+		"succeeded=true",
+		"fallback=false",
+		"trace_query_ready=true",
+		"stage=trace_body",
+		"engine=builtin",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("REPL trace_provider_decision missing %q:\n%s", want, out.String())
+		}
 	}
 }
 
@@ -444,6 +470,66 @@ func TestHitraceConvertRejectsMalformedTraceEngineBeforeConversion(t *testing.T)
 		!strings.Contains(out.String(), "--keep-trace-db") ||
 		!strings.Contains(out.String(), "--trace-db-output") {
 		t.Fatalf("malformed trace-engine should show convert usage:\n%s", out.String())
+	}
+}
+
+func TestHitraceConvertHelpAndParserShareTheSupportedOptionSurface(t *testing.T) {
+	for _, lang := range []string{"zh", "en"} {
+		usage := htraceConvertUsage(lang)
+		if !strings.HasPrefix(usage, "/htrace "+htraceConvertSubcommandSyntax+"\n") {
+			t.Fatalf("%s usage drifted from canonical slash metadata: %q", lang, usage)
+		}
+		for _, option := range []string{"--trace-engine", "--keep-trace-db", "--trace-db-output"} {
+			if !strings.Contains(usage, option) {
+				t.Fatalf("%s usage omitted parser-supported option %s: %s", lang, option, usage)
+			}
+		}
+	}
+	for name, fields := range map[string][]string{
+		"engine":    {"--trace-engine=trace_streamer", "in.sys"},
+		"keep DB":   {"--keep-trace-db", "in.sys"},
+		"DB output": {"--trace-db-output", "out.db", "in.sys"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parseHitraceConvertArgs(fields); err != nil {
+				t.Fatalf("help-advertised option rejected by parser: %v", err)
+			}
+		})
+	}
+	if _, err := parseHitraceConvertArgs([]string{"--trace-streamer", "/tmp/tool", "in.sys"}); err == nil {
+		t.Fatal("REPL parser silently accepted the CLI-only --trace-streamer option")
+	}
+}
+
+func TestHitraceConvertRejectsBuiltinStreamerConflictBeforeExecutor(t *testing.T) {
+	store, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	var out bytes.Buffer
+	calls := 0
+	r := New(Config{
+		Runner:   stubRunner{},
+		Store:    store,
+		Render:   renderNothing,
+		RepoRoot: ".",
+		Branch:   "main",
+		In:       strings.NewReader(""),
+		Out:      &out,
+		Language: "en",
+		HitraceConvert: func(_ context.Context, opts hitraceconv.Options) (hitraceconv.Result, error) {
+			calls++
+			return hitraceconv.Result{}, nil
+		},
+	})
+
+	r.handleHitraceCmd("/htrace convert --trace-engine=builtin --keep-trace-db input.htrace out.systrace")
+
+	if calls != 0 {
+		t.Fatalf("builtin/streamer-only conflict reached converter, calls=%d", calls)
+	}
+	if !strings.Contains(out.String(), "cannot be combined with --keep-trace-db") {
+		t.Fatalf("shared option authority was not surfaced to the REPL user:\n%s", out.String())
 	}
 }
 

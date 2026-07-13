@@ -23,6 +23,18 @@ func localizeConvertMessageZh(message string) string {
 	lower := strings.ToLower(trimmed)
 	var perfDataCount, perfTraceCount, officialCount, rawCount int
 	switch {
+	case strings.Contains(lower, "embedded trace_streamer"):
+		return LocalizeEmbeddedTraceStreamerCaveatZh(trimmed)
+	case strings.HasPrefix(lower, "execution_blocked:"):
+		reason := strings.TrimSpace(trimmed[len("execution_blocked:"):])
+		return "执行阻断：" + localizeConvertMessageZh(reason)
+	case strings.HasPrefix(lower, "direct perf input has no trace body and cannot be combined with trace-only option(s)"):
+		const marker = "trace-only option(s)"
+		index := strings.Index(lower, marker)
+		options := strings.TrimSpace(trimmed[index+len(marker):])
+		return "direct perf 输入不包含 trace body，不能与仅适用于 trace 的选项组合：" + options
+	case strings.Contains(lower, "trace provider route is not applicable because the inspected input is a typed standalone perf capture with no trace body"):
+		return "已检查的输入是没有 trace body 的 typed standalone perf capture，因此 trace provider 路由不适用"
 	case scanConvertMessage(trimmed, "extracted %d HIPERF_DATA standalone perf.data artifact(s) and generated %d normalized .perftrace artifact(s) through Codrax raw perf.data fallback", &perfDataCount, &perfTraceCount) == 2:
 		return fmt.Sprintf("已抽取 %d 个 HIPERF_DATA standalone perf.data artifact，并通过 Codrax raw perf.data fallback 生成 %d 个标准化 .perftrace artifact", perfDataCount, perfTraceCount)
 	case scanConvertMessage(trimmed, "extracted %d HIPERF_DATA standalone perf.data artifact(s) and generated %d normalized .perftrace artifact(s) through the official perf adapter", &perfDataCount, &perfTraceCount) == 2:

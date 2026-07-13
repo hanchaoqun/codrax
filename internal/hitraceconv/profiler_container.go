@@ -548,6 +548,24 @@ func reconcileProfilerPairCoverage(items []TraceDBCoverage, sink *traceDBRowSink
 }
 
 func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize int64, output string, standaloneArtifacts []Artifact, standaloneCaveats []string, standaloneDecisions []PerfProviderDecision, initialTraceDecisions []TraceProviderDecision, initialTraceDBCoverage []TraceDBCoverage) (result Result, detected bool, err error) {
+	ledger, err := newConversionFileLedger(opts.InputPath)
+	if err != nil {
+		return Result{}, false, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			err = joinConversionCleanupError(err, ledger)
+		}
+	}()
+	result, detected, err = tryConvertProfilerContainerWithLedger(ctx, opts, inputSize, output, standaloneArtifacts, standaloneCaveats, standaloneDecisions, initialTraceDecisions, initialTraceDBCoverage, ledger)
+	if err == nil {
+		committed = true
+	}
+	return result, detected, err
+}
+
+func tryConvertProfilerContainerWithLedger(ctx context.Context, opts Options, inputSize int64, output string, standaloneArtifacts []Artifact, standaloneCaveats []string, standaloneDecisions []PerfProviderDecision, initialTraceDecisions []TraceProviderDecision, initialTraceDBCoverage []TraceDBCoverage, ledger *conversionFileLedger) (result Result, detected bool, err error) {
 	sink, err := newTraceDBRowSink("", 0)
 	if err != nil {
 		return Result{}, false, err
@@ -662,9 +680,15 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 		sinkClosed = true
 	}
 	if publishableRows > 0 {
+		if err := ctx.Err(); err != nil {
+			return Result{}, true, err
+		}
 		out, err := os.OpenFile(output, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 		if err != nil {
 			return Result{}, true, err
+		}
+		if err := ledger.recordOpenFile(output, out); err != nil {
+			return Result{}, true, traceDBJoinPreservingSingle(err, rollbackOpenConversionFile(output, out))
 		}
 		stats, writeErr := sink.writeTo(ctx, out)
 		closeErr := out.Close()
@@ -672,18 +696,24 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 		stats = sink.stats
 		sinkClosed = true
 		if writeErr != nil {
-			writeErr = traceDBJoinPreservingSingle(writeErr, closeErr, os.Remove(output))
+			writeErr = traceDBJoinPreservingSingle(writeErr, closeErr, ledger.removeOwnedPath(output))
 			result.TraceCoverage = append(result.TraceCoverage, modernRowSorterCoverage(stats))
 			return Result{}, true, writeErr
 		}
 		if closeErr != nil {
-			closeErr = traceDBJoinPreservingSingle(closeErr, os.Remove(output))
+			closeErr = traceDBJoinPreservingSingle(closeErr, ledger.removeOwnedPath(output))
 			result.TraceCoverage = append(result.TraceCoverage, modernRowSorterCoverage(stats))
 			return Result{}, true, closeErr
 		}
-		info, err := os.Stat(output)
+		info, err := os.Lstat(output)
 		if err != nil {
-			return Result{}, true, traceDBJoinPreservingSingle(err, os.Remove(output))
+			return Result{}, true, traceDBJoinPreservingSingle(err, ledger.removeOwnedPath(output))
+		}
+		if !info.Mode().IsRegular() || !ledger.ownsPathIdentity(output, info) || (stats.RowsWritten > 0 && info.Size() <= 0) {
+			return Result{}, true, traceDBJoinPreservingSingle(fmt.Errorf("profiler systrace publication failed identity/regular-file validation: %s", output), ledger.removeOwnedPath(output))
+		}
+		if err := ledger.sealOwnedPath(output, info.Size()); err != nil {
+			return Result{}, true, err
 		}
 		result.TraceCoverage = append(result.TraceCoverage, modernRowSorterCoverage(stats))
 		result.OutputPath = output
@@ -749,7 +779,7 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 		result.TraceCoverage = append(result.TraceCoverage, modernRowSorterCoverage(sink.stats))
 	}
 	normalizeResultCollections(&result)
-	if bundleArtifact, err := writeTraceBundleWithAllCoverage(opts.InputPath, result.OutputPath, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage); err != nil {
+	if bundleArtifact, err := writeTraceBundleWithAllCoverageAndLedger(opts.InputPath, result.OutputPath, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage, ledger); err != nil {
 		return Result{}, true, err
 	} else if bundleArtifact.Path != "" {
 		result.BundlePath = bundleArtifact.Path

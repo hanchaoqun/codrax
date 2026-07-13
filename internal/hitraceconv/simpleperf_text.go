@@ -38,14 +38,17 @@ type simpleperfFrame struct {
 	DSO    string
 }
 
-func maybeConvertDirectSimpleperfPerfData(ctx context.Context, opts Options, input string, inputBytes int64, outputPath string) (Result, bool, error) {
+func maybeConvertDirectSimpleperfPerfData(ctx context.Context, opts Options, plan traceProviderPlan, input string, inputBytes int64, outputPath string, ledger *conversionFileLedger) (Result, bool, error) {
+	if !plan.DirectPerf || plan.PreflightEngine != traceEngineDirectPerf {
+		return Result{}, false, nil
+	}
 	inputFormat := detectPerfInputFormat(input)
 	if !simpleperfDirectRequested(inputFormat) {
 		return Result{}, false, nil
 	}
 	base := traceSidecarBase(input, outputPath)
 	perfTracePath := base + ".perftrace"
-	perfTrace, caveat, decisions, err := maybeConvertSimpleperfPerfData(ctx, opts, input, perfTracePath, inputFormat, perfProviderStageDirectInput)
+	perfTrace, caveat, decisions, err := maybeConvertSimpleperfPerfData(ctx, opts, input, perfTracePath, inputFormat, perfProviderStageDirectInput, ledger)
 	if err != nil {
 		return Result{}, true, err
 	}
@@ -63,6 +66,14 @@ func maybeConvertDirectSimpleperfPerfData(ctx context.Context, opts Options, inp
 			Caveats:   []string{"input perf.data preserved; normalized .perftrace is the trace_query CPU-sample artifact"},
 		}},
 		ProviderDecisions: decisions,
+		TraceDecisions: []TraceProviderDecision{
+			traceProviderSkipped(
+				newTraceProviderDecision(traceProviderStageTraceBody, traceProviderByName(traceProviderNameDirectPerf), opts, input, ""),
+				false,
+				"direct_perf_input",
+				"trace provider route is not applicable because the input is a typed standalone perf capture with no trace body",
+			),
+		},
 	}
 	if perfTrace.Path != "" {
 		result.Artifacts = append(result.Artifacts, perfTrace)
@@ -71,7 +82,7 @@ func maybeConvertDirectSimpleperfPerfData(ctx context.Context, opts Options, inp
 		result.Artifacts[0].Caveats = append(result.Artifacts[0].Caveats, "official simpleperf adapter did not produce .perftrace")
 	}
 	normalizeResultCollections(&result)
-	if bundleArtifact, err := writeTraceBundle(input, "", result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions); err != nil {
+	if bundleArtifact, err := writeTraceBundleWithLedger(input, "", result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, ledger); err != nil {
 		return Result{}, true, err
 	} else if bundleArtifact.Path != "" {
 		result.BundlePath = bundleArtifact.Path
@@ -88,7 +99,7 @@ func simpleperfDirectRequested(inputFormat perfInputFormat) bool {
 	return false
 }
 
-func maybeConvertSimpleperfPerfData(ctx context.Context, opts Options, perfPath, perfTracePath string, inputFormat perfInputFormat, stage string) (Artifact, string, []PerfProviderDecision, error) {
+func maybeConvertSimpleperfPerfData(ctx context.Context, opts Options, perfPath, perfTracePath string, inputFormat perfInputFormat, stage string, ledger *conversionFileLedger) (artifact Artifact, caveat string, decisions []PerfProviderDecision, err error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -99,7 +110,7 @@ func maybeConvertSimpleperfPerfData(ctx context.Context, opts Options, perfPath,
 		return Artifact{}, caveat, []PerfProviderDecision{decision}, nil
 	}
 	if inputFormat == perfInputSimpleperfReportProto && !rawPerfParserRequired(opts) {
-		return maybeConvertSimpleperfProtoWithDecision(ctx, opts, perfPath, perfTracePath, stage)
+		return maybeConvertSimpleperfProtoWithDecision(ctx, opts, perfPath, perfTracePath, stage, ledger)
 	}
 	if rawPerfParserRequired(opts) {
 		if inputFormat != perfInputLinuxPerfData {
@@ -108,30 +119,35 @@ func maybeConvertSimpleperfPerfData(ctx context.Context, opts Options, perfPath,
 			decision = perfProviderSkipped(decision, true, "unsupported_input_format", caveat)
 			return Artifact{}, caveat, []PerfProviderDecision{decision}, nil
 		}
-		return maybeConvertRawPerfDataWithDecision(ctx, opts, perfPath, perfTracePath, "", stage, inputFormat, false)
+		return maybeConvertRawPerfDataWithDecision(ctx, opts, perfPath, perfTracePath, "", stage, inputFormat, false, ledger)
 	}
 	officialDecision := newPerfProviderDecision(stage, perfProviderByName(perfProviderNameSimpleperfText), opts, perfPath, inputFormat, perfTracePath)
 	tool, python, source := resolveSimpleperfReportTool(opts)
 	if tool == "" {
 		caveat := "perf data preserved; no official simpleperf report_sample.py adapter was configured or found"
 		officialDecision = perfProviderSkipped(officialDecision, true, "official_tool_unavailable", caveat)
-		artifact, rawCaveat, rawDecisions, err := maybeRawPerfFallbackForSimpleperf(ctx, opts, perfPath, perfTracePath, inputFormat, caveat, stage)
+		artifact, rawCaveat, rawDecisions, err := maybeRawPerfFallbackForSimpleperf(ctx, opts, perfPath, perfTracePath, inputFormat, caveat, stage, ledger)
 		return artifact, rawCaveat, append([]PerfProviderDecision{officialDecision}, rawDecisions...), err
 	}
 	if err := ensureOutputDoesNotExist(perfTracePath); err != nil {
 		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
 	}
-	reportFile, err := os.CreateTemp(filepath.Dir(perfTracePath), "."+filepath.Base(perfTracePath)+".*.simpleperf.txt")
+	reportDir, err := os.MkdirTemp(filepath.Dir(perfTracePath), "."+filepath.Base(perfTracePath)+".*.simpleperf")
 	if err != nil {
 		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
 	}
-	reportPath := reportFile.Name()
-	if err := reportFile.Close(); err != nil {
-		_ = os.Remove(reportPath)
-		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
+	reportDirInfo, err := os.Lstat(reportDir)
+	if err != nil || !reportDirInfo.IsDir() || reportDirInfo.Mode().Perm() != 0o700 {
+		cleanupErr := removeOwnedConversionDir(reportDir, reportDirInfo)
+		if err == nil {
+			err = fmt.Errorf("simpleperf staging path is not a private directory: %s mode=%s", reportDir, reportDirInfo.Mode())
+		}
+		return Artifact{}, "", []PerfProviderDecision{officialDecision}, traceDBJoinPreservingSingle(err, cleanupErr)
 	}
-	_ = os.Remove(reportPath)
-	defer os.Remove(reportPath)
+	defer func() {
+		err = traceDBJoinPreservingSingle(err, removeOwnedConversionDir(reportDir, reportDirInfo))
+	}()
+	reportPath := filepath.Join(reportDir, "report_sample.txt")
 
 	args := []string{"-i", perfPath, "-o", reportPath}
 	if symfs := strings.TrimSpace(opts.SimpleperfSymfsDir); symfs != "" {
@@ -154,21 +170,30 @@ func maybeConvertSimpleperfPerfData(ctx context.Context, opts Options, perfPath,
 	if runErr != nil {
 		caveat := fmt.Sprintf("official simpleperf adapter %q failed (%s)%s", tool, runErr, boundedCommandOutput(output))
 		officialDecision = perfProviderFailure(officialDecision, "official_adapter_failed", caveat)
-		artifact, rawCaveat, rawDecisions, err := maybeRawPerfFallbackForSimpleperf(ctx, opts, perfPath, perfTracePath, inputFormat, caveat, stage)
+		artifact, rawCaveat, rawDecisions, err := maybeRawPerfFallbackForSimpleperf(ctx, opts, perfPath, perfTracePath, inputFormat, caveat, stage, ledger)
 		return artifact, rawCaveat, append([]PerfProviderDecision{officialDecision}, rawDecisions...), err
 	}
-	if err := ConvertSimpleperfReportFileToPerfTrace(ctx, reportPath, perfTracePath); err != nil {
-		_ = os.Remove(perfTracePath)
+	reportInfo, err := os.Lstat(reportPath)
+	if err != nil || !reportInfo.Mode().IsRegular() {
+		if err == nil {
+			err = fmt.Errorf("official simpleperf adapter produced a non-regular report: %s", reportPath)
+		}
 		caveat := fmt.Sprintf("official simpleperf adapter %q produced unreadable report (%v)", tool, err)
 		officialDecision = perfProviderFailure(officialDecision, "official_output_unreadable", caveat)
-		artifact, rawCaveat, rawDecisions, err := maybeRawPerfFallbackForSimpleperf(ctx, opts, perfPath, perfTracePath, inputFormat, caveat, stage)
+		artifact, rawCaveat, rawDecisions, fallbackErr := maybeRawPerfFallbackForSimpleperf(ctx, opts, perfPath, perfTracePath, inputFormat, caveat, stage, ledger)
+		return artifact, rawCaveat, append([]PerfProviderDecision{officialDecision}, rawDecisions...), fallbackErr
+	}
+	if err := convertSimpleperfReportFileToPerfTraceWithLedger(ctx, reportPath, perfTracePath, ledger); err != nil {
+		caveat := fmt.Sprintf("official simpleperf adapter %q produced unreadable report (%v)", tool, err)
+		officialDecision = perfProviderFailure(officialDecision, "official_output_unreadable", caveat)
+		artifact, rawCaveat, rawDecisions, err := maybeRawPerfFallbackForSimpleperf(ctx, opts, perfPath, perfTracePath, inputFormat, caveat, stage, ledger)
 		return artifact, rawCaveat, append([]PerfProviderDecision{officialDecision}, rawDecisions...), err
 	}
-	info, err := os.Stat(perfTracePath)
+	info, err := os.Lstat(perfTracePath)
 	if err != nil {
 		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
 	}
-	artifact := Artifact{
+	artifact = Artifact{
 		Type:      ArtifactPerfTrace,
 		Path:      perfTracePath,
 		Bytes:     info.Size(),
@@ -182,9 +207,9 @@ func maybeConvertSimpleperfPerfData(ctx context.Context, opts Options, perfPath,
 	return artifact, "", []PerfProviderDecision{officialDecision}, nil
 }
 
-func maybeRawPerfFallbackForSimpleperf(ctx context.Context, opts Options, perfPath, perfTracePath string, inputFormat perfInputFormat, prior string, stage string) (Artifact, string, []PerfProviderDecision, error) {
+func maybeRawPerfFallbackForSimpleperf(ctx context.Context, opts Options, perfPath, perfTracePath string, inputFormat perfInputFormat, prior string, stage string, ledger *conversionFileLedger) (Artifact, string, []PerfProviderDecision, error) {
 	if inputFormat == perfInputLinuxPerfData {
-		return maybeRawPerfFallback(ctx, opts, perfPath, perfTracePath, prior, stage, inputFormat)
+		return maybeRawPerfFallback(ctx, opts, perfPath, perfTracePath, prior, stage, inputFormat, ledger)
 	}
 	decision := newPerfProviderDecision(stage, perfProviderByName(perfProviderNameRawFallback), opts, perfPath, inputFormat, perfTracePath)
 	if !rawPerfParserAllowed(opts) {
@@ -272,6 +297,12 @@ func resolveSimpleperfPython(opts Options, script string) string {
 }
 
 func ConvertSimpleperfReportFileToPerfTrace(ctx context.Context, inputPath, outputPath string) error {
+	return runConversionFileTransaction(ctx, inputPath, func(ledger *conversionFileLedger) error {
+		return convertSimpleperfReportFileToPerfTraceWithLedger(ctx, inputPath, outputPath, ledger)
+	})
+}
+
+func convertSimpleperfReportFileToPerfTraceWithLedger(ctx context.Context, inputPath, outputPath string, ledger *conversionFileLedger) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -290,27 +321,15 @@ func ConvertSimpleperfReportFileToPerfTrace(ctx context.Context, inputPath, outp
 	if err := ensureOutputDoesNotExist(outputPath); err != nil {
 		return err
 	}
-	out, err := os.OpenFile(outputPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	out, err := openOwnedConversionFile(outputPath, ledger)
 	if err != nil {
 		return err
 	}
 	w := bufio.NewWriter(out)
 	writeErr := writeSimpleperfPerfTrace(ctx, w, samples)
 	flushErr := w.Flush()
-	closeErr := out.Close()
-	if writeErr != nil {
-		_ = os.Remove(outputPath)
-		return writeErr
-	}
-	if flushErr != nil {
-		_ = os.Remove(outputPath)
-		return flushErr
-	}
-	if closeErr != nil {
-		_ = os.Remove(outputPath)
-		return closeErr
-	}
-	return nil
+	_, err = finishOwnedConversionFile(outputPath, out, ledger, true, writeErr, flushErr)
+	return err
 }
 
 func parseSimpleperfReport(ctx context.Context, r io.Reader) ([]simpleperfSample, error) {

@@ -13,6 +13,14 @@ import (
 var traceStreamerExecutablePath = os.Executable
 
 type TraceToolStatus struct {
+	RequestedEngine  string
+	OrderedRoute     []string
+	FirstLane        string
+	PreflightEngine  string
+	ExecutionBlocker string
+	// EngineMode and SelectedEngine are compatibility aliases for older
+	// consumers. They mean requested and preflight respectively; actual runtime
+	// execution/fallback is reported only by Result.TraceDecisions.
 	EngineMode           string
 	SelectedEngine       string
 	InputPath            string
@@ -64,6 +72,85 @@ const (
 
 var traceSysParityManifestGlob = defaultTraceSysParityManifestGlob
 
+func buildTraceProviderPlan(opts Options, inspectUnselected bool) (traceProviderPlan, error) {
+	return buildTraceProviderPlanWithInput(opts, inspectUnselected, traceInputUsesDirectPerfRoute(opts))
+}
+
+func buildTraceProviderPlanWithInput(opts Options, inspectUnselected bool, directPerf bool) (traceProviderPlan, error) {
+	if err := validateTraceEngineMode(opts.TraceEngine); err != nil {
+		return traceProviderPlan{}, err
+	}
+	mode := requestedTraceEngineMode(opts.TraceEngine)
+	plan := traceProviderPlan{
+		RequestedEngine: mode,
+		TraceStreamer: traceProviderLanePlan{
+			Engine:   traceEngineTraceStreamer,
+			Provider: traceProviderByName(traceProviderNameTraceStreamer),
+		},
+		Builtin: traceProviderLanePlan{
+			Engine:    traceEngineBuiltin,
+			Provider:  traceProviderByName(traceProviderNameBuiltinModern),
+			Available: true,
+			Source:    "built-in",
+		},
+	}
+	if directPerf && mode != traceEngineTraceStreamer {
+		if err := validateDirectPerfTraceOptions(opts); err != nil {
+			plan.ExecutionBlocker = err.Error()
+		}
+		plan.DirectPerf = true
+		plan.OrderedEngines = []string{traceEngineDirectPerf}
+		plan.PreflightEngine = traceEngineDirectPerf
+		return plan, nil
+	}
+	if mode != traceEngineBuiltin || inspectUnselected {
+		plan.TraceStreamer = resolveTraceStreamerLanePlan(opts, plan.TraceStreamer)
+	}
+	switch mode {
+	case traceEngineAuto:
+		plan.OrderedEngines = []string{traceEngineTraceStreamer, traceEngineBuiltin}
+		if plan.TraceStreamer.Available {
+			plan.PreflightEngine = traceEngineTraceStreamer
+			plan.TraceStreamer.Selected = true
+		} else {
+			plan.PreflightEngine = traceEngineBuiltin
+			plan.Builtin.Selected = true
+		}
+	case traceEngineTraceStreamer:
+		plan.OrderedEngines = []string{traceEngineTraceStreamer}
+		plan.PreflightEngine = traceEngineTraceStreamer
+		plan.TraceStreamer.Selected = true
+	case traceEngineBuiltin:
+		plan.OrderedEngines = []string{traceEngineBuiltin}
+		plan.PreflightEngine = traceEngineBuiltin
+		plan.Builtin.Selected = true
+	}
+	return plan, nil
+}
+
+func resolveTraceStreamerLanePlan(opts Options, lane traceProviderLanePlan) traceProviderLanePlan {
+	path, source, caveats := resolveTraceStreamerToolWithCaveats(opts)
+	lane.Path = path
+	lane.Source = source
+	if strings.TrimSpace(lane.Source) == "" {
+		lane.Source = "unresolved"
+		for _, caveat := range caveats {
+			lower := strings.ToLower(caveat)
+			switch {
+			case strings.Contains(lower, "default embedded trace_streamer tier has no bundled payload"):
+				lane.Source = "embedded_default_gap"
+			case strings.Contains(lower, "embedded trace_streamer is not usable"):
+				lane.Source = "embedded_integrity_failure"
+			}
+		}
+	}
+	lane.Caveats = append([]string(nil), caveats...)
+	probe := TraceToolProviderStatus{}
+	lane.Available = traceToolPathUsable(path, &probe)
+	lane.Caveats = append(lane.Caveats, probe.Caveats...)
+	return lane
+}
+
 func defaultTraceSysParityManifestGlob() ([]string, error) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
@@ -74,15 +161,19 @@ func defaultTraceSysParityManifestGlob() ([]string, error) {
 }
 
 func BuildTraceToolStatus(opts Options) (TraceToolStatus, error) {
-	if err := validateTraceEngineMode(opts.TraceEngine); err != nil {
+	plan, err := buildTraceProviderPlan(opts, true)
+	if err != nil {
 		return TraceToolStatus{}, err
 	}
-	mode := requestedTraceEngineMode(opts.TraceEngine)
-	selected := selectedTraceEngineMode(opts.TraceEngine)
 	status := TraceToolStatus{
-		EngineMode:      mode,
-		SelectedEngine:  selected,
-		SysBinaryParity: buildSysBinaryParityGateStatus(),
+		RequestedEngine:  plan.RequestedEngine,
+		OrderedRoute:     append([]string(nil), plan.OrderedEngines...),
+		FirstLane:        plan.OrderedEngines[0],
+		PreflightEngine:  plan.PreflightEngine,
+		ExecutionBlocker: plan.ExecutionBlocker,
+		EngineMode:       plan.RequestedEngine,
+		SelectedEngine:   plan.PreflightEngine,
+		SysBinaryParity:  buildSysBinaryParityGateStatus(),
 		TraceStreamer: TraceToolProviderStatus{
 			Name:            traceProviderNameTraceStreamer,
 			Kind:            traceProviderKindOfficialDB,
@@ -104,19 +195,15 @@ func BuildTraceToolStatus(opts Options) (TraceToolStatus, error) {
 			Caveats:        []string{"built-in modern/sys parser is selected explicitly with --trace-engine=builtin or used by auto after trace_streamer is unavailable/fails; explicit trace_streamer mode does not fall back"},
 		},
 	}
-	if tool, source, caveats := resolveTraceStreamerToolWithCaveats(opts); tool != "" || len(caveats) > 0 {
-		status.TraceStreamer.Caveats = append(status.TraceStreamer.Caveats, caveats...)
-		status.TraceStreamer.Path = tool
-		status.TraceStreamer.Source = source
-		status.TraceStreamer.Available = traceToolPathUsable(tool, &status.TraceStreamer)
-	}
+	status.TraceStreamer.Caveats = append(status.TraceStreamer.Caveats, plan.TraceStreamer.Caveats...)
+	status.TraceStreamer.Path = plan.TraceStreamer.Path
+	status.TraceStreamer.Source = plan.TraceStreamer.Source
+	status.TraceStreamer.Available = plan.TraceStreamer.Available
 	inspectTraceToolStatusInput(&status, opts)
-	switch selected {
+	switch plan.OrderedEngines[0] {
 	case traceEngineTraceStreamer:
-		status.SelectedEngine = traceEngineTraceStreamer
 		if !status.TraceStreamer.Available {
-			if mode == traceEngineAuto {
-				status.SelectedEngine = traceEngineBuiltin
+			if plan.RequestedEngine == traceEngineAuto {
 				if status.InputHasPerfSidecar {
 					status.Caveats = append(status.Caveats, "auto trace engine did not discover trace_streamer; inspected input contains a standalone perf sidecar, so conversion will use built-in raw trace parsing and standalone perf fallback")
 				} else {
@@ -126,14 +213,18 @@ func BuildTraceToolStatus(opts Options) (TraceToolStatus, error) {
 				status.Caveats = append(status.Caveats, "trace_streamer engine was selected but trace_streamer is not available")
 			}
 		} else {
-			if mode == traceEngineAuto {
+			if plan.RequestedEngine == traceEngineAuto {
 				status.Caveats = append(status.Caveats, "auto trace engine discovered trace_streamer; conversion will use SQL first and fall back to the built-in raw trace parser if SQL execution or normalization fails")
 			} else {
 				status.Caveats = append(status.Caveats, "trace_streamer is explicitly selected; conversion uses SQL only and SQL execution failure will not fall back to the built-in parser")
 			}
 		}
 	case traceEngineBuiltin:
-		status.SelectedEngine = traceEngineBuiltin
+	case traceEngineDirectPerf:
+		status.Caveats = append(status.Caveats, "trace provider route is not applicable because the inspected input is a typed standalone perf capture with no trace body")
+		if plan.ExecutionBlocker != "" {
+			status.Caveats = append(status.Caveats, "execution_blocked: "+plan.ExecutionBlocker)
+		}
 	}
 	return status, nil
 }
@@ -178,6 +269,11 @@ func inspectTraceToolStatusInput(status *TraceToolStatus, opts Options) {
 		status.Caveats = append(status.Caveats, fmt.Sprintf("trace input could not be inspected: %v", err))
 		return
 	}
+	if simpleperfDirectRequested(detectPerfInputFormat(input)) {
+		status.InputInspected = true
+		status.InputKind = "direct_perf"
+		return
+	}
 	hasPerf, err := inputContainsStandalonePerfSidecar(context.Background(), input, info.Size())
 	status.InputInspected = true
 	status.InputHasPerfSidecar = hasPerf
@@ -210,22 +306,40 @@ func resolveTraceStreamerToolWithCaveats(opts Options) (string, string, []string
 			return candidate, "codrax executable directory", nil
 		}
 	}
+	embeddedPath, embeddedSource, embeddedCaveats := resolveEmbeddedTraceStreamerTool()
+	if strings.TrimSpace(embeddedPath) != "" {
+		return embeddedPath, embeddedSource, embeddedCaveats
+	}
+	persistentEmbeddedCaveats := embeddedIntegrityCaveats(embeddedCaveats)
 	if path, err := exec.LookPath(traceStreamerBinaryName()); err == nil && strings.TrimSpace(path) != "" {
-		return path, traceStreamerBinaryName() + " on PATH", nil
+		return path, traceStreamerBinaryName() + " on PATH", persistentEmbeddedCaveats
 	}
 	for _, candidate := range traceStreamerKnownLocationCandidates() {
 		if path := firstUsableTraceStreamerCandidate(candidate); path != "" {
-			return path, "known OpenHarmony/SmartPerf/hmtrace location", nil
+			return path, "known OpenHarmony/SmartPerf/hmtrace location", persistentEmbeddedCaveats
 		}
 	}
-	// Lowest-priority tier: embedded payload (embed_streamer builds
-	// only). Reached only when every external tier above missed, so an
-	// external hit never triggers extraction. Slim builds return
-	// silently here; embed_streamer builds either extract-and-cache the
-	// bundled binary or fail loud with a structured caveat (extraction
-	// error or unbundled-platform gap) and leave conversion to the
-	// same built-in fallback lane as an undiscovered tool.
-	return resolveEmbeddedTraceStreamerTool()
+	if len(embeddedCaveats) > 0 {
+		source := "embedded_integrity_failure"
+		for _, caveat := range embeddedCaveats {
+			if strings.Contains(strings.ToLower(caveat), "default embedded trace_streamer tier has no bundled payload") {
+				source = "embedded_default_gap"
+				break
+			}
+		}
+		return "", source, embeddedCaveats
+	}
+	return "", "unresolved", nil
+}
+
+func embeddedIntegrityCaveats(caveats []string) []string {
+	var out []string
+	for _, caveat := range caveats {
+		if strings.Contains(strings.ToLower(caveat), "embedded trace_streamer is not usable") {
+			out = append(out, caveat)
+		}
+	}
+	return dedupeStrings(out)
 }
 
 func traceStreamerCodraxBinaryDirCandidates() []string {

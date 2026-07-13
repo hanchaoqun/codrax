@@ -66,6 +66,18 @@ func extractStandaloneArtifacts(ctx context.Context, opts Options, inputSize int
 }
 
 func extractStandaloneArtifactsWithOptions(ctx context.Context, opts Options, inputSize int64, outputPath string, extractOpts standaloneExtractOptions) ([]Artifact, []string, []PerfProviderDecision, error) {
+	ledger, err := newConversionFileLedger(opts.InputPath)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	artifacts, caveats, decisions, err := extractStandaloneArtifactsWithOptionsAndLedger(ctx, opts, inputSize, outputPath, extractOpts, ledger)
+	if err != nil {
+		err = joinConversionCleanupError(err, ledger)
+	}
+	return artifacts, caveats, decisions, err
+}
+
+func extractStandaloneArtifactsWithOptionsAndLedger(ctx context.Context, opts Options, inputSize int64, outputPath string, extractOpts standaloneExtractOptions, ledger *conversionFileLedger) ([]Artifact, []string, []PerfProviderDecision, error) {
 	input := strings.TrimSpace(opts.InputPath)
 	segments, err := findStandaloneSegments(ctx, input, inputSize)
 	if err != nil {
@@ -110,7 +122,7 @@ func extractStandaloneArtifactsWithOptions(ctx context.Context, opts Options, in
 		if err := ensureOutputDoesNotExist(outPath); err != nil {
 			return artifacts, caveats, decisions, err
 		}
-		n, err := copyRangeToFile(in, seg.Offset+profilerStandalonePayloadBase, seg.Length-profilerStandalonePayloadBase, outPath)
+		n, err := copyRangeToFileWithLedger(in, seg.Offset+profilerStandalonePayloadBase, seg.Length-profilerStandalonePayloadBase, outPath, ledger)
 		if err != nil {
 			return artifacts, caveats, decisions, err
 		}
@@ -127,7 +139,7 @@ func extractStandaloneArtifactsWithOptions(ctx context.Context, opts Options, in
 			Perf:          perfCapabilityForRawPerfDataArtifact(detectPerfInputFormat(outPath)),
 		}
 		perfTracePath := numberedSidecarPath(base, perfOrdinal, ".perftrace")
-		perfTrace, caveat, providerDecisions, err := maybeConvertHiperfPerfData(ctx, opts, outPath, perfTracePath)
+		perfTrace, caveat, providerDecisions, err := maybeConvertHiperfPerfData(ctx, opts, outPath, perfTracePath, ledger)
 		decisions = append(decisions, providerDecisions...)
 		if err != nil {
 			return artifacts, caveats, decisions, err
@@ -293,7 +305,11 @@ func readStandaloneSegmentAt(f *os.File, off int64, fileSize int64) (standaloneS
 }
 
 func writeTraceBundle(input, outputPath string, artifacts []Artifact, caveats []string, decisions []PerfProviderDecision, traceDecisions []TraceProviderDecision) (Artifact, error) {
-	return writeTraceBundleWithCoverage(input, outputPath, artifacts, caveats, decisions, traceDecisions, nil)
+	return writeTraceBundleWithLedger(input, outputPath, artifacts, caveats, decisions, traceDecisions, nil)
+}
+
+func writeTraceBundleWithLedger(input, outputPath string, artifacts []Artifact, caveats []string, decisions []PerfProviderDecision, traceDecisions []TraceProviderDecision, ledger *conversionFileLedger) (Artifact, error) {
+	return writeTraceBundleWithAllCoverageAndGatesAndLedger(input, outputPath, artifacts, caveats, decisions, traceDecisions, nil, nil, traceToolGatesForBundle(), ledger)
 }
 
 func writeTraceBundleWithCoverage(input, outputPath string, artifacts []Artifact, caveats []string, decisions []PerfProviderDecision, traceDecisions []TraceProviderDecision, coverage []TraceDBCoverage) (Artifact, error) {
@@ -301,10 +317,18 @@ func writeTraceBundleWithCoverage(input, outputPath string, artifacts []Artifact
 }
 
 func writeTraceBundleWithAllCoverage(input, outputPath string, artifacts []Artifact, caveats []string, decisions []PerfProviderDecision, traceDecisions []TraceProviderDecision, dbCoverage []TraceDBCoverage, traceCoverage []TraceDBCoverage) (Artifact, error) {
-	return writeTraceBundleWithAllCoverageAndGates(input, outputPath, artifacts, caveats, decisions, traceDecisions, dbCoverage, traceCoverage, traceToolGatesForBundle(Options{InputPath: input}))
+	return writeTraceBundleWithAllCoverageAndLedger(input, outputPath, artifacts, caveats, decisions, traceDecisions, dbCoverage, traceCoverage, nil)
+}
+
+func writeTraceBundleWithAllCoverageAndLedger(input, outputPath string, artifacts []Artifact, caveats []string, decisions []PerfProviderDecision, traceDecisions []TraceProviderDecision, dbCoverage []TraceDBCoverage, traceCoverage []TraceDBCoverage, ledger *conversionFileLedger) (Artifact, error) {
+	return writeTraceBundleWithAllCoverageAndGatesAndLedger(input, outputPath, artifacts, caveats, decisions, traceDecisions, dbCoverage, traceCoverage, traceToolGatesForBundle(), ledger)
 }
 
 func writeTraceBundleWithAllCoverageAndGates(input, outputPath string, artifacts []Artifact, caveats []string, decisions []PerfProviderDecision, traceDecisions []TraceProviderDecision, dbCoverage []TraceDBCoverage, traceCoverage []TraceDBCoverage, traceToolGates []TraceToolGateStatus) (Artifact, error) {
+	return writeTraceBundleWithAllCoverageAndGatesAndLedger(input, outputPath, artifacts, caveats, decisions, traceDecisions, dbCoverage, traceCoverage, traceToolGates, nil)
+}
+
+func writeTraceBundleWithAllCoverageAndGatesAndLedger(input, outputPath string, artifacts []Artifact, caveats []string, decisions []PerfProviderDecision, traceDecisions []TraceProviderDecision, dbCoverage []TraceDBCoverage, traceCoverage []TraceDBCoverage, traceToolGates []TraceToolGateStatus, ledger *conversionFileLedger) (artifact Artifact, err error) {
 	artifacts = dedupeArtifacts(artifacts)
 	caveats = dedupeStrings(caveats)
 	if len(artifacts) == 0 {
@@ -314,9 +338,6 @@ func writeTraceBundleWithAllCoverageAndGates(input, outputPath string, artifacts
 	}
 	base := traceSidecarBase(input, outputPath)
 	path := base + ".tracebundle.json"
-	if err := ensureOutputDoesNotExist(path); err != nil {
-		return Artifact{}, err
-	}
 	meta := traceBundleMetadata{
 		Version:             converterVersion,
 		InputPath:           input,
@@ -335,25 +356,66 @@ func writeTraceBundleWithAllCoverageAndGates(input, outputPath string, artifacts
 		return Artifact{}, err
 	}
 	body = append(body, '\n')
-	if err := os.WriteFile(path, body, 0o644); err != nil {
-		return Artifact{}, err
+	ownedLedger := ledger == nil
+	if ownedLedger {
+		ledger, err = newConversionFileLedger(input)
+		if err != nil {
+			return Artifact{}, err
+		}
 	}
-	info, err := os.Stat(path)
+	committed := false
+	defer func() {
+		if ownedLedger && !committed {
+			err = joinConversionCleanupError(err, ledger)
+		}
+	}()
+	out, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
+		if os.IsExist(err) {
+			return Artifact{}, fmt.Errorf("output file already exists: %s (delete it first or specify a different output path)", path)
+		}
 		return Artifact{}, err
 	}
+	if err := ledger.recordOpenFile(path, out); err != nil {
+		return Artifact{}, traceDBJoinPreservingSingle(err, rollbackOpenConversionFile(path, out))
+	}
+	written, writeErr := out.Write(body)
+	if writeErr == nil && written != len(body) {
+		writeErr = io.ErrShortWrite
+	}
+	closeErr := out.Close()
+	if writeErr != nil {
+		return Artifact{}, traceDBJoinPreservingSingle(writeErr, closeErr)
+	}
+	if closeErr != nil {
+		return Artifact{}, closeErr
+	}
+	info, statErr := os.Lstat(path)
+	if statErr != nil {
+		return Artifact{}, statErr
+	}
+	if !info.Mode().IsRegular() {
+		return Artifact{}, fmt.Errorf("tracebundle publication is not a regular file: %s", path)
+	}
+	if !ledger.ownsPathIdentity(path, info) {
+		return Artifact{}, fmt.Errorf("tracebundle path changed identity during publication: %s", path)
+	}
+	if info.Size() != int64(len(body)) {
+		return Artifact{}, fmt.Errorf("tracebundle publication size mismatch: path=%s got=%d want=%d", path, info.Size(), len(body))
+	}
+	if err := ledger.sealOwnedPath(path, info.Size()); err != nil {
+		return Artifact{}, err
+	}
+	committed = true
 	return Artifact{Type: ArtifactTraceBundle, Path: path, Bytes: info.Size(), Converter: converterVersion}, nil
 }
 
-func traceToolGatesForBundle(opts Options) []TraceToolGateStatus {
-	status, err := BuildTraceToolStatus(opts)
-	if err != nil {
-		return []TraceToolGateStatus{buildSysBinaryParityGateStatus()}
-	}
-	if strings.TrimSpace(status.SysBinaryParity.Name) == "" {
+func traceToolGatesForBundle() []TraceToolGateStatus {
+	gate := buildSysBinaryParityGateStatus()
+	if strings.TrimSpace(gate.Name) == "" {
 		return nil
 	}
-	return []TraceToolGateStatus{status.SysBinaryParity}
+	return []TraceToolGateStatus{gate}
 }
 
 func traceBundleSystracePath(outputPath string, artifacts []Artifact) string {
@@ -424,7 +486,7 @@ func numberedSidecarPath(base string, ordinal int, suffix string) string {
 }
 
 func ensureOutputDoesNotExist(path string) error {
-	if _, err := os.Stat(path); err == nil {
+	if _, err := os.Lstat(path); err == nil {
 		return fmt.Errorf("output file already exists: %s (delete it first or specify a different output path)", path)
 	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("check output path %s: %w", path, err)
@@ -433,19 +495,46 @@ func ensureOutputDoesNotExist(path string) error {
 }
 
 func copyRangeToFile(in *os.File, off, length int64, outPath string) (int64, error) {
+	ledger, err := newConversionFileLedger()
+	if err != nil {
+		return 0, err
+	}
+	written, err := copyRangeToFileWithLedger(in, off, length, outPath, ledger)
+	if err != nil {
+		err = joinConversionCleanupError(err, ledger)
+	}
+	return written, err
+}
+
+func copyRangeToFileWithLedger(in *os.File, off, length int64, outPath string, ledger *conversionFileLedger) (int64, error) {
 	out, err := os.OpenFile(outPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
 		return 0, err
 	}
+	if err := ledger.recordOpenFile(outPath, out); err != nil {
+		return 0, traceDBJoinPreservingSingle(err, rollbackOpenConversionFile(outPath, out))
+	}
 	written, copyErr := io.Copy(out, io.NewSectionReader(in, off, length))
+	if copyErr == nil && written != length {
+		copyErr = io.ErrUnexpectedEOF
+	}
 	closeErr := out.Close()
 	if copyErr != nil {
-		_ = os.Remove(outPath)
-		return written, copyErr
+		return written, traceDBJoinPreservingSingle(copyErr, closeErr, ledger.removeOwnedPath(outPath))
 	}
 	if closeErr != nil {
-		_ = os.Remove(outPath)
-		return written, closeErr
+		return written, traceDBJoinPreservingSingle(closeErr, ledger.removeOwnedPath(outPath))
+	}
+	info, err := os.Lstat(outPath)
+	if err != nil {
+		return written, traceDBJoinPreservingSingle(err, ledger.removeOwnedPath(outPath))
+	}
+	if !info.Mode().IsRegular() || !ledger.ownsPathIdentity(outPath, info) || info.Size() != length {
+		err := fmt.Errorf("standalone sidecar publication failed identity/size validation: path=%s got=%d want=%d", outPath, info.Size(), length)
+		return written, traceDBJoinPreservingSingle(err, ledger.removeOwnedPath(outPath))
+	}
+	if err := ledger.sealOwnedPath(outPath, info.Size()); err != nil {
+		return written, traceDBJoinPreservingSingle(err, ledger.removeOwnedPath(outPath))
 	}
 	return written, nil
 }
