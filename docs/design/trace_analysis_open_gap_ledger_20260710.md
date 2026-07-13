@@ -702,6 +702,12 @@ direct RMQ子批`348ed8709`与structured/text/container子批`00ab87a62`均在�
 - **冻结验收矩阵**：①byte门`cap-1/cap/cap+1`、低row数大行、单个max-line、metadata与checked overflow；②`fanIn-1/fanIn/fanIn+1/>fanIn²` one-row runs、open-counter及低RLIMIT subprocess；③active/live temp exact cap与`+1`覆盖leaf、intermediate及pending output；④create至cleanup全故障点、取消、无orphan/unregistered run；⑤ordinary+Block/MMC/F2FS跨多层merge的mapping、poison、withheld与账目parity，以及tamper/delete/truncate/digest/duplicate/mapping drift的sealed/inactive双车道；⑥同`tsNS+seq`重复ordinary rows跨memory/leaf/level逐字节stable parity；⑦focused shuffle至少`×30`、race至少`×5`、hitraceconv+tracequery包级test/vet、全仓test/vet、gofmt/diff-check及标准Donghu golden。结构pin必须禁止`make(readers, len(allRuns))`、sorter line反解析、byte gate后置、quota后置、`OpenFile`先于preflight与cleanup错误丢弃；实现/资源/对抗至少三路独立复审全为RELEASE后才可提交推送。
 - **明确留后与后续顺序**：本批不关闭P1-a2.3 repeated protobuf两遍验证+流式callback、P1-a2.4 compact pairing/row provenance、`pairPublishers/textMessages`、tracebundle JSON峰值、input source identity/TOCTOU、P1-b header/SHA/segments、R1b-C、R2、`loadArgsets` bounded staging或Profiler全链有界声明。无production witness项的后续默认顺序为P1-a2.3→P1-a2.4；P1-b须先完成input source identity/TOCTOU单点化。block/storage typed request identity继续只由production双端witness触发。
 
+## 2026-07-13 TRACE-CONVERT-ROUTE-HELP 客户紧急回访（待施工）
+
+客户执行`codrax trace convert --input record_trace_20260710005300@18895-212105468.sys`时收到`built-in sys decoder rejected input: code=unsupported_file_type file_type=54 segment_type=0 offset=0`，随后提示只有`file_type=0`才需要`trace_streamer`，但发行物按产品声明已内置`trace_streamer`且实际没有进入该车道。该回访先按**确定性路由/发行发现缺口**立案，不能把`file_type=54`直接猜成任何producer profile；施工必须先测清文件探测、内置binary/resource发现、provider选择、built-in拒绝与trace_streamer fallback的单点控制流，证明是提前终止、发现失败还是能力矩阵刻意拒绝，再依证修复。验收至少覆盖客户同构`file_type=54`最小fixture、`0/1/54/unknown/truncated`负矩阵、内置/显式/缺失trace_streamer、退出码与无半成品输出。
+
+同一原子批补齐并整理CLI发现面：`codrax trace convert`子命令与通过flag触发trace转换的入口必须都出现在对应`help`，命令、flag、默认值、互斥关系、输入/输出示例和fallback说明使用同一单点定义生成，禁止两份手写表继续漂移；顶层help保持常用入口优先、进阶项分组，子命令help给完整转换参数。该批排在当前已冻结并施工中的`ROW-SORT-BND`代码提交之后立即执行，独立验证、独立提交并推送`main`，不得混入sorter提交或借此声称支持未经证明的`.sys file_type=54`语义。
+
 ## 统一采集与回访命令
 
 ```bash
