@@ -710,7 +710,7 @@ func TestConvertFileKeepsUnknownStructuredFtraceAsCoverageOnly(t *testing.T) {
 	if err := json.Unmarshal(bundle, &meta); err != nil {
 		t.Fatalf("decode tracebundle: %v", err)
 	}
-	if !coverageHasSkipped(meta.TraceCoverage, "builtin_modern_ftrace:unknown", "event_field:9999", "unmapped structured ftrace event field") {
+	if !coverageHasSkipped(meta.TraceCoverage, "builtin_modern_ftrace:unknown", "__unknown_event_field__", "unmapped structured ftrace event field") {
 		t.Fatalf("unknown structured ftrace coverage should name unmapped field: %+v", meta.TraceCoverage)
 	}
 	if strings.Contains(string(bundle), `"type": "systrace"`) {

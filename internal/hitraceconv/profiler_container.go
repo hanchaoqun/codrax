@@ -61,24 +61,25 @@ type profilerPluginDataDecode struct {
 }
 
 type profilerContainerExtraction struct {
-	Detected           bool
-	Kind               string
-	Messages           int
-	PluginMessages     map[string]int
-	StructuredFtrace   int
-	MalformedFtrace    int
-	UnsupportedFtrace  int
-	TextPluginMessages int
-	TextRows           int
-	StructuredRows     int
-	RejectedMessages   int
-	StandaloneDetected bool
-	SourceFailClosed   bool
-	SourceFailReason   string
-	TraceCoverage      []TraceDBCoverage
-	Caveats            []string
-	textMessages       []profilerTextMessageRows
-	pairPublishers     []profilerPairPublisherCensus
+	Detected              bool
+	Kind                  string
+	Messages              int
+	PluginMessages        map[string]int
+	StructuredFtrace      int
+	MalformedFtrace       int
+	UnsupportedFtrace     int
+	TextPluginMessages    int
+	TextRows              int
+	StructuredRows        int
+	RejectedMessages      int
+	StandaloneDetected    bool
+	SourceFailClosed      bool
+	SourceFailReason      string
+	TraceCoverage         []TraceDBCoverage
+	Caveats               []string
+	textMessages          []profilerTextMessageRows
+	pairPublishers        []profilerPairPublisherCensus
+	profilerEventCoverage profilerFtraceEventCoverageIndexes
 }
 
 type profilerTextMessageRows struct {
@@ -328,41 +329,43 @@ func profilerPairBudgetCaveat(sink *traceDBRowSink) string {
 		sink.pairUniqueLanes, sink.pairLaneLimit)
 }
 
-func reconcileProfilerMMCCoverage(items []TraceDBCoverage, sink *traceDBRowSink, publishers []profilerPairPublisherCensus) error {
-	return reconcileProfilerPairCoverage(items, sink, publishers, pairRenderMMC, profilerCoverageMMCStagedRows,
-		map[string]bool{"mmc_request_start": true, "mmc_request_done": true}, "mmc")
+func reconcileProfilerMMCCoverage(items []TraceDBCoverage, sink *traceDBRowSink, publishers []profilerPairPublisherCensus, eventIndexes profilerFtraceEventCoverageIndexes) error {
+	return reconcileProfilerPairCoverage(items, sink, publishers, eventIndexes,
+		pairRenderMMC, profilerCoverageMMCStagedRows, "mmc")
 }
 
-func reconcileProfilerF2FSCoverage(items []TraceDBCoverage, sink *traceDBRowSink, publishers []profilerPairPublisherCensus) error {
-	return reconcileProfilerPairCoverage(items, sink, publishers, pairRenderF2FS, profilerCoverageF2FSStagedRows, map[string]bool{
-		"f2fs_sync_file_enter": true, "f2fs_sync_file_exit": true,
-		"f2fs_direct_IO_enter": true, "f2fs_direct_IO_exit": true,
-		"f2fs_write_begin": true, "f2fs_write_end": true,
-	}, "f2fs")
+func reconcileProfilerF2FSCoverage(items []TraceDBCoverage, sink *traceDBRowSink, publishers []profilerPairPublisherCensus, eventIndexes profilerFtraceEventCoverageIndexes) error {
+	return reconcileProfilerPairCoverage(items, sink, publishers, eventIndexes,
+		pairRenderF2FS, profilerCoverageF2FSStagedRows, "f2fs")
 }
 
-func reconcileProfilerPairCoverage(items []TraceDBCoverage, sink *traceDBRowSink, publishers []profilerPairPublisherCensus, kind pairRenderKind, stagedKey string, eventTables map[string]bool, family string) error {
+func reconcileProfilerPairCoverage(items []TraceDBCoverage, sink *traceDBRowSink, publishers []profilerPairPublisherCensus, eventIndexes profilerFtraceEventCoverageIndexes, kind pairRenderKind, stagedKey string, family string) error {
 	withheld := sink.withheldPairRowsForKind(kind)
 	if withheld <= 0 {
 		return nil
 	}
-	remainingByTable := make(map[string]int)
-	for table := range eventTables {
-		remainingByTable[table] = sink.withheldPairRowsForTable(kind, table)
-	}
-	for index := range items {
-		item := &items[index]
-		if eventTables[item.Table] {
-			count := min(item.RowsEmitted, remainingByTable[item.Table])
-			if count > 0 {
-				if item.FieldSources == nil {
-					item.FieldSources = map[string]string{}
-				}
-				item.FieldSources["complete_capture_withheld_rows"] = strconv.Itoa(count)
-				item.RowsEmitted -= count
-				remainingByTable[item.Table] -= count
-			}
+	structuredAccounted := 0
+	for _, field := range profilerStructuredPairEventFields(kind) {
+		count := sink.withheldStructuredPairRowsForEventField(kind, field)
+		if count <= 0 {
+			continue
 		}
+		coverageIndex, present := eventIndexes.coverageIndexForField(field)
+		if !present || coverageIndex < 0 || coverageIndex >= len(items) || count > items[coverageIndex].RowsEmitted {
+			return &traceDBOutputInvariantError{Reason: "profiler_" + family + "_structured_event_coverage_index_invalid"}
+		}
+		item := &items[coverageIndex]
+		if item.FieldSources == nil {
+			item.FieldSources = map[string]string{}
+		}
+		item.FieldSources["complete_capture_withheld_rows"] = strconv.Itoa(count)
+		item.RowsEmitted -= count
+		if !checkedProfilerIntAddTo(&structuredAccounted, count) {
+			return &traceDBOutputInvariantError{Reason: "profiler_" + family + "_structured_event_accounted_counter_overflow"}
+		}
+	}
+	if structuredAccounted != sink.withheldStructuredPairRowsForKind(kind) {
+		return &traceDBOutputInvariantError{Reason: "profiler_" + family + "_structured_event_attribution_mismatch"}
 	}
 	accounted := 0
 	for _, publisher := range publishers {
@@ -403,6 +406,17 @@ func reconcileProfilerPairCoverage(items []TraceDBCoverage, sink *traceDBRowSink
 		return &traceDBOutputInvariantError{Reason: "profiler_" + family + "_coverage_attribution_mismatch"}
 	}
 	return nil
+}
+
+func profilerStructuredPairEventFields(kind pairRenderKind) []int {
+	switch kind {
+	case pairRenderMMC:
+		return []int{4015, 4016}
+	case pairRenderF2FS:
+		return []int{4009, 4010, 4011, 4012}
+	default:
+		return nil
+	}
 }
 
 func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize int64, output string, standaloneArtifacts []Artifact, standaloneCaveats []string, standaloneDecisions []PerfProviderDecision, initialTraceDecisions []TraceProviderDecision, initialTraceDBCoverage []TraceDBCoverage) (Result, bool, error) {
@@ -460,7 +474,7 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 	result.Caveats = append(result.Caveats, standaloneCaveats...)
 	if !extracted.SourceFailClosed && sink.pairKindPoisoned(pairRenderMMC) {
 		withheld := sink.withheldPairRowsForKind(pairRenderMMC)
-		if err := reconcileProfilerMMCCoverage(result.TraceCoverage, sink, extracted.pairPublishers); err != nil {
+		if err := reconcileProfilerMMCCoverage(result.TraceCoverage, sink, extracted.pairPublishers, extracted.profilerEventCoverage); err != nil {
 			return Result{}, true, err
 		}
 		result.Caveats = append(result.Caveats, fmt.Sprintf("profiler MMC full-capture anti-rescue barrier failed closed before output: withheld_rows=%d; malformed, opaque, or unattributable exact MMC endpoints remain coverage-only%s", withheld, profilerPairBudgetCaveat(sink)))
@@ -468,7 +482,7 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 	}
 	if !extracted.SourceFailClosed && sink.pairKindPoisoned(pairRenderF2FS) {
 		withheld := sink.withheldPairRowsForKind(pairRenderF2FS)
-		if err := reconcileProfilerF2FSCoverage(result.TraceCoverage, sink, extracted.pairPublishers); err != nil {
+		if err := reconcileProfilerF2FSCoverage(result.TraceCoverage, sink, extracted.pairPublishers, extracted.profilerEventCoverage); err != nil {
 			return Result{}, true, err
 		}
 		result.Caveats = append(result.Caveats, fmt.Sprintf("profiler F2FS full-capture anti-rescue barrier failed closed before output: withheld_rows=%d; known-key failures remain exact-lane coverage-only, while malformed, opaque, or unattributable F2FS endpoints close the source-local family%s", withheld, profilerPairBudgetCaveat(sink)))
@@ -867,8 +881,7 @@ frames:
 							break frames
 						}
 					}
-					structuredRows, structuredCoverage, renderErr := renderProfilerFtraceStructuredResultForContainer(authority, &seq, sink)
-					out.TraceCoverage = append(out.TraceCoverage, structuredCoverage...)
+					structuredRows, eventBatch, renderErr := renderProfilerFtraceStructuredResultForContainer(authority, &seq, sink)
 					if renderErr != nil {
 						coverage.Error = renderErr.Error()
 						_ = appendPluginCoverage()
@@ -880,7 +893,12 @@ frames:
 						profilerContainerCounterFailClose(&out, sink)
 						break frames
 					}
-					if authorityDegraded || ok && !summary.Issues.empty() || profilerFtraceCoverageHasSkipped(structuredCoverage) || ok && structuredRows == 0 && summary.DetailEventCount > 0 {
+					if !diagnostics.FtraceEvents.merge(eventBatch) {
+						_, _ = sink.endPairRowCensus()
+						profilerContainerCounterFailClose(&out, sink)
+						break frames
+					}
+					if authorityDegraded || ok && !summary.Issues.empty() || eventBatch.degraded() || ok && structuredRows == 0 && summary.DetailEventCount > 0 {
 						if outcome != profilerPluginOutcomeMalformed {
 							outcome = profilerPluginOutcomeStructuredDegraded
 						}

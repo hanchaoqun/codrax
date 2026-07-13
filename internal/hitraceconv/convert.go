@@ -42,6 +42,10 @@ type renderedRow struct {
 	pairLane       string
 	pairTable      string
 	structuredPair bool
+	// profilerEventField is the exact FtraceEvent oneof field which produced a
+	// structured pair-critical row. Text-compatible and all other rows leave it
+	// zero; the row sink rejects a non-structured row carrying this provenance.
+	profilerEventField int
 }
 
 // ConvertFile converts a binary Harmony/OpenHarmony HiTrace capture to a

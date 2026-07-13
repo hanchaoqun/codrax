@@ -32,18 +32,20 @@ func renderProfilerFtraceStructuredRows(data []byte, seq *int, sink *traceDBRowS
 }
 
 func renderProfilerFtraceStructuredResult(result profilerTracePluginResult, seq *int, sink *traceDBRowSink) (int, []TraceDBCoverage, error) {
-	return renderProfilerFtraceStructuredResultWithEnvelopeCoverage(result, seq, sink, true)
+	return renderProfilerFtraceStructuredResultWithEnvelopeCoverage(result, seq, sink, true, nil)
 }
 
 // The TraceFile container owns one cross-frame envelope diagnostic ledger.
 // Direct renderer callers retain the compatibility coverage above; the
 // container path suppresses only that duplicate top-level row and leaves all
 // typed event coverage and pair behavior byte-for-byte shared.
-func renderProfilerFtraceStructuredResultForContainer(result profilerTracePluginResult, seq *int, sink *traceDBRowSink) (int, []TraceDBCoverage, error) {
-	return renderProfilerFtraceStructuredResultWithEnvelopeCoverage(result, seq, sink, false)
+func renderProfilerFtraceStructuredResultForContainer(result profilerTracePluginResult, seq *int, sink *traceDBRowSink) (int, profilerFtraceEventBatchCensus, error) {
+	var batch profilerFtraceEventBatchCensus
+	rows, _, err := renderProfilerFtraceStructuredResultWithEnvelopeCoverage(result, seq, sink, false, &batch)
+	return rows, batch, err
 }
 
-func renderProfilerFtraceStructuredResultWithEnvelopeCoverage(result profilerTracePluginResult, seq *int, sink *traceDBRowSink, includeEnvelopeCoverage bool) (int, []TraceDBCoverage, error) {
+func renderProfilerFtraceStructuredResultWithEnvelopeCoverage(result profilerTracePluginResult, seq *int, sink *traceDBRowSink, includeEnvelopeCoverage bool, batch *profilerFtraceEventBatchCensus) (int, []TraceDBCoverage, error) {
 	var topLevelCoverage []TraceDBCoverage
 	if includeEnvelopeCoverage {
 		topLevelCoverage = profilerTracePluginResultCoverage(result)
@@ -52,8 +54,12 @@ func renderProfilerFtraceStructuredResultWithEnvelopeCoverage(result profilerTra
 	if err != nil {
 		return 0, topLevelCoverage, err
 	}
-	coverageByField := map[int]*TraceDBCoverage{}
-	degradationsByField := map[int]map[string]int{}
+	var coverageByField map[int]*TraceDBCoverage
+	var degradationsByField map[int]map[string]int
+	if batch == nil {
+		coverageByField = map[int]*TraceDBCoverage{}
+		degradationsByField = map[int]map[string]int{}
+	}
 	rows := 0
 	for _, event := range events {
 		if event.PairCaptureOpaque {
@@ -76,17 +82,33 @@ func renderProfilerFtraceStructuredResultWithEnvelopeCoverage(result profilerTra
 		if f2fsObserved && !f2fsGoverned {
 			sink.poisonPairKind(pairRenderF2FS)
 		}
-		coverage := profilerFtraceEventRenderCoverage(coverageByField, event.Field)
-		coverage.RowsRead++
-		name, body, ok, degradations := renderProfilerFtraceEventBodyWithAudit(event)
-		if len(degradations) > 0 {
-			counts := degradationsByField[event.Field]
-			if counts == nil {
-				counts = map[string]int{}
-				degradationsByField[event.Field] = counts
+		var coverage *TraceDBCoverage
+		if batch == nil {
+			coverage = profilerFtraceEventRenderCoverage(coverageByField, event.Field)
+			coverage.RowsRead++
+		} else if !batch.observeRead(event.Field) {
+			return rows, topLevelCoverage, &traceDBOutputInvariantError{Reason: "profiler_event_batch_counter_overflow"}
+		}
+		var name, body string
+		var ok bool
+		if batch == nil {
+			var degradations []string
+			name, body, ok, degradations = renderProfilerFtraceEventBodyWithAudit(event)
+			if len(degradations) > 0 {
+				counts := degradationsByField[event.Field]
+				if counts == nil {
+					counts = map[string]int{}
+					degradationsByField[event.Field] = counts
+				}
+				for _, reason := range degradations {
+					counts[reason]++
+				}
 			}
-			for _, reason := range degradations {
-				counts[reason]++
+		} else {
+			var degradations []profilerFtraceEventDegradation
+			name, body, ok, degradations = renderProfilerFtraceEventBodyWithTypedAudit(event)
+			if len(degradations) > 0 && !batch.observeDegradations(event.Field, degradations) {
+				return rows, topLevelCoverage, &traceDBOutputInvariantError{Reason: "profiler_event_batch_degradation_overflow"}
 			}
 		}
 		if !ok {
@@ -98,7 +120,7 @@ func renderProfilerFtraceStructuredResultWithEnvelopeCoverage(result profilerTra
 			} else if f2fsObserved {
 				sink.poisonPairKind(pairRenderF2FS)
 			}
-			if coverage.Skipped == "" {
+			if coverage != nil && coverage.Skipped == "" {
 				coverage.Skipped = "structured ftrace renderer pending"
 			}
 			continue
@@ -113,6 +135,7 @@ func renderProfilerFtraceStructuredResultWithEnvelopeCoverage(result profilerTra
 			row.pairKind = pairRenderMMC
 			row.pairTable = name
 			row.structuredPair = true
+			row.profilerEventField = event.Field
 			pair := profilerTextPairAdmission(row.line)
 			if !pair.Governed || pair.Kind != pairRenderMMC || !pair.Admitted {
 				sink.poisonPairKind(pairRenderMMC)
@@ -123,6 +146,7 @@ func renderProfilerFtraceStructuredResultWithEnvelopeCoverage(result profilerTra
 			row.pairLane = f2fsPair.Lane
 			row.pairTable = name
 			row.structuredPair = true
+			row.profilerEventField = event.Field
 			pair := profilerTextPairAdmission(row.line)
 			if !f2fsPair.LaneKnown || !pair.Governed || pair.Kind != pairRenderF2FS ||
 				!pair.Admitted || !pair.LaneKnown || pair.Lane != f2fsPair.Lane {
@@ -134,7 +158,11 @@ func renderProfilerFtraceStructuredResultWithEnvelopeCoverage(result profilerTra
 		}
 		(*seq)++
 		rows++
-		coverage.RowsEmitted++
+		if coverage != nil {
+			coverage.RowsEmitted++
+		} else if !batch.observeEmitted(event.Field) {
+			return rows, topLevelCoverage, &traceDBOutputInvariantError{Reason: "profiler_event_batch_emitted_counter_overflow"}
+		}
 	}
 	for field, counts := range degradationsByField {
 		coverage := profilerFtraceEventRenderCoverage(coverageByField, field)
@@ -683,6 +711,40 @@ func renderProfilerFtraceEventBodyWithAudit(event profilerFtraceEventRecord) (st
 	return name, body, ok, degradations
 }
 
+// B2-a assigns a closed source class at the renderer branch boundary. Exact
+// legacy reason labels remain bounded display samples until B2-b replaces the
+// producer call graph with exact Kind+PayloadField issues.
+func renderProfilerFtraceEventBodyWithTypedAudit(event profilerFtraceEventRecord) (string, string, bool, []profilerFtraceEventDegradation) {
+	name, body, ok, reasons := renderProfilerFtraceEventBodyWithAudit(event)
+	kind := profilerFtraceEventDegradationFieldAudit
+	switch {
+	case len(event.EnvelopeDegradations) > 0:
+		kind = profilerFtraceEventDegradationEnvelope
+	case profilerStructuredCoreSchemas[event.Field] != nil:
+		kind = profilerFtraceEventDegradationCorePayload
+	case profilerStructuredAuxSchemas[event.Field] != nil:
+		kind = profilerFtraceEventDegradationAuxPayload
+	case event.Field == 1000 || event.Field == 1001:
+		kind = profilerFtraceEventDegradationFilemapPayload
+	default:
+		if _, _, block := blockRenderKindForProfilerField(event.Field); block {
+			kind = profilerFtraceEventDegradationBlockPayload
+		} else if _, known := profilerFtraceEventDescriptors[event.Field]; known {
+			kind = profilerFtraceEventDegradationWireAudit
+		} else {
+			kind = profilerFtraceEventDegradationUnmappedField
+		}
+	}
+	if !ok && len(reasons) == 0 {
+		if kind == profilerFtraceEventDegradationUnmappedField {
+			reasons = []string{"unmapped structured ftrace event field"}
+		} else {
+			reasons = []string{"structured_renderer_missing_typed_reason"}
+		}
+	}
+	return name, body, ok, profilerFtraceEventDegradations(kind, reasons)
+}
+
 func profilerFtraceCoreWireAudit(event profilerFtraceEventRecord) (bool, []string) {
 	var stringFields []int
 	var scalarFields []int
@@ -974,13 +1036,4 @@ func profilerFtraceEventRenderCoverageList(coverageByField map[int]*TraceDBCover
 		out = append(out, *coverageByField[field])
 	}
 	return out
-}
-
-func profilerFtraceCoverageHasSkipped(coverage []TraceDBCoverage) bool {
-	for _, item := range coverage {
-		if strings.TrimSpace(item.Skipped) != "" {
-			return true
-		}
-	}
-	return false
 }

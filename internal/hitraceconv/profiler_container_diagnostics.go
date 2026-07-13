@@ -477,6 +477,7 @@ type profilerContainerDiagnosticLedger struct {
 	Rejected       profilerRejectedFrameCensus
 	FtraceEnvelope profilerFtraceEnvelopeDiagnosticLedger
 	FtraceSummary  profilerFtraceSummaryDiagnosticLedger
+	FtraceEvents   profilerFtraceEventDiagnosticLedger
 	Materialized   bool
 }
 
@@ -654,7 +655,8 @@ func (ledger *profilerContainerDiagnosticLedger) materialize(out *profilerContai
 			"rejected %d complete ProfilerPluginData message(s); first_offset=%d last_offset=%d; reasons=%s",
 			rejected.Frames, rejected.FirstOffset, rejected.LastOffset, coverage.Skipped))
 	}
-	return ledger.FtraceEnvelope.materialize(out) && ledger.FtraceSummary.materialize(out)
+	return ledger.FtraceEnvelope.materialize(out) && ledger.FtraceSummary.materialize(out) &&
+		ledger.FtraceEvents.materialize(out)
 }
 
 func profilerPluginBucketSkippedSummary(bucket profilerPluginBucketCensus) string {

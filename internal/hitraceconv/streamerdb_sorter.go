@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"os"
 	"sort"
 	"time"
@@ -64,6 +65,8 @@ type traceDBRowSink struct {
 	opaque               map[pairRenderKind]bool
 	structuredPairRows   map[pairRenderKind]int
 	structuredLaneRows   map[pairRenderKind]map[string]int
+	structuredEventRows  map[pairRenderKind]map[int]int
+	structuredEventLanes map[pairRenderKind]map[int]map[string]int
 	activePairCensus     map[pairRenderKind]*profilerPairRowCensus
 	pairObservationLimit int64
 	pairLaneLimit        int64
@@ -92,6 +95,8 @@ func newTraceDBRowSink(tempDir string, threshold int) (*traceDBRowSink, error) {
 		opaque:               make(map[pairRenderKind]bool),
 		structuredPairRows:   make(map[pairRenderKind]int),
 		structuredLaneRows:   make(map[pairRenderKind]map[string]int),
+		structuredEventRows:  make(map[pairRenderKind]map[int]int),
+		structuredEventLanes: make(map[pairRenderKind]map[int]map[string]int),
 		pairObservationLimit: profilerPairBarrierMaxObservations,
 		pairLaneLimit:        profilerPairBarrierMaxLaneKeys,
 	}
@@ -109,6 +114,18 @@ func newTraceDBRowSink(tempDir string, threshold int) (*traceDBRowSink, error) {
 func (s *traceDBRowSink) add(row renderedRow) error {
 	if !traceDBSinglePhysicalLine(row.line, false) {
 		return &traceDBOutputInvariantError{Reason: "invalid_rendered_line"}
+	}
+	if err := validateProfilerEventFieldProvenance(row); err != nil {
+		return err
+	}
+	if row.profilerEventField != 0 {
+		if s.structuredEventRows[row.pairKind][row.profilerEventField] == math.MaxInt {
+			return &traceDBOutputInvariantError{Reason: "profiler_structured_event_counter_overflow"}
+		}
+		if row.pairLane != "" &&
+			s.structuredEventLanes[row.pairKind][row.profilerEventField][row.pairLane] == math.MaxInt {
+			return &traceDBOutputInvariantError{Reason: "profiler_structured_event_lane_counter_overflow"}
+		}
 	}
 	if s.stats.RowsAccepted == 0 || row.tsNS < s.stats.FirstTSNS {
 		s.stats.FirstTSNS = row.tsNS
@@ -155,6 +172,21 @@ func (s *traceDBRowSink) add(row renderedRow) error {
 				}
 				s.structuredLaneRows[row.pairKind][row.pairLane]++
 			}
+			if row.profilerEventField != 0 {
+				if s.structuredEventRows[row.pairKind] == nil {
+					s.structuredEventRows[row.pairKind] = make(map[int]int)
+				}
+				s.structuredEventRows[row.pairKind][row.profilerEventField]++
+				if trackLane && row.pairLane != "" {
+					if s.structuredEventLanes[row.pairKind] == nil {
+						s.structuredEventLanes[row.pairKind] = make(map[int]map[string]int)
+					}
+					if s.structuredEventLanes[row.pairKind][row.profilerEventField] == nil {
+						s.structuredEventLanes[row.pairKind][row.profilerEventField] = make(map[string]int)
+					}
+					s.structuredEventLanes[row.pairKind][row.profilerEventField][row.pairLane]++
+				}
+			}
 		}
 	}
 	if len(s.rows) > s.stats.PeakBufferedRows {
@@ -162,6 +194,33 @@ func (s *traceDBRowSink) add(row renderedRow) error {
 	}
 	if len(s.rows) >= s.threshold {
 		return s.flushChunk()
+	}
+	return nil
+}
+
+func profilerStructuredPairEventField(kind pairRenderKind, field int) bool {
+	switch kind {
+	case pairRenderMMC:
+		return field == 4015 || field == 4016
+	case pairRenderF2FS:
+		return field >= 4009 && field <= 4012
+	default:
+		return false
+	}
+}
+
+func validateProfilerEventFieldProvenance(row renderedRow) error {
+	if row.profilerEventField == 0 {
+		if row.structuredPair {
+			return &traceDBOutputInvariantError{Reason: "profiler_structured_pair_missing_event_field"}
+		}
+		return nil
+	}
+	if !row.structuredPair {
+		return &traceDBOutputInvariantError{Reason: "profiler_event_field_without_structured_pair"}
+	}
+	if !profilerStructuredPairEventField(row.pairKind, row.profilerEventField) {
+		return &traceDBOutputInvariantError{Reason: "profiler_event_field_pair_kind_mismatch"}
 	}
 	return nil
 }
@@ -201,6 +260,7 @@ func (s *traceDBRowSink) poisonPairKind(kind pairRenderKind) {
 		s.pairTableRows[kind] = nil
 		s.poisonedLanes[kind] = nil
 		s.structuredLaneRows[kind] = nil
+		s.structuredEventLanes[kind] = nil
 		if census := s.activePairCensus[kind]; census != nil {
 			census.byLane = nil
 		}
@@ -321,6 +381,31 @@ func (s *traceDBRowSink) withheldStructuredPairRowsForKind(kind pairRenderKind) 
 		}
 	}
 	return total
+}
+
+// withheldStructuredPairRowsForEventField reports only structured profiler
+// rows from one exact FtraceEvent field. Text-compatible rows may share the
+// same rendered event name, but cannot enter this typed accounting lane.
+func (s *traceDBRowSink) withheldStructuredPairRowsForEventField(kind pairRenderKind, field int) int {
+	if s == nil || !profilerStructuredPairEventField(kind, field) {
+		return 0
+	}
+	totalForField := s.structuredEventRows[kind][field]
+	if s.poisoned[kind] {
+		return totalForField
+	}
+	withheld := 0
+	for lane, count := range s.structuredEventLanes[kind][field] {
+		if !s.poisonedLanes[kind][lane] {
+			continue
+		}
+		if !checkedProfilerIntAddTo(&withheld, count) {
+			// Counts are disjoint subsets of totalForField, so this is reachable
+			// only after internal state corruption. Fail closed for this field.
+			return totalForField
+		}
+	}
+	return withheld
 }
 
 func (s *traceDBRowSink) beginPairRowCensus() bool {
@@ -528,6 +613,7 @@ func (s *traceDBRowSink) flushChunk() error {
 		if err := enc.Encode(traceDBChunkRow{
 			TSNS: row.tsNS, Seq: row.seq, Line: row.line, PairKind: row.pairKind,
 			PairLane: row.pairLane, PairTable: row.pairTable, StructuredPair: row.structuredPair,
+			ProfilerEventField: row.profilerEventField,
 		}); err != nil {
 			_ = f.Close()
 			_ = os.Remove(path)
@@ -575,13 +661,14 @@ func sortRenderedRows(rows []renderedRow) {
 }
 
 type traceDBChunkRow struct {
-	TSNS           uint64         `json:"ts_ns"`
-	Seq            int            `json:"seq"`
-	Line           string         `json:"line"`
-	PairKind       pairRenderKind `json:"pair_kind,omitempty"`
-	PairLane       string         `json:"pair_lane,omitempty"`
-	PairTable      string         `json:"pair_table,omitempty"`
-	StructuredPair bool           `json:"structured_pair,omitempty"`
+	TSNS               uint64         `json:"ts_ns"`
+	Seq                int            `json:"seq"`
+	Line               string         `json:"line"`
+	PairKind           pairRenderKind `json:"pair_kind,omitempty"`
+	PairLane           string         `json:"pair_lane,omitempty"`
+	PairTable          string         `json:"pair_table,omitempty"`
+	StructuredPair     bool           `json:"structured_pair,omitempty"`
+	ProfilerEventField int            `json:"profiler_event_field,omitempty"`
 }
 
 type traceDBChunkReader struct {
@@ -606,10 +693,15 @@ func (r *traceDBChunkReader) next() (renderedRow, bool, error) {
 	if err != nil {
 		return renderedRow{}, false, err
 	}
-	return renderedRow{
+	row := renderedRow{
 		tsNS: item.TSNS, seq: item.Seq, line: item.Line, pairKind: item.PairKind,
 		pairLane: item.PairLane, pairTable: item.PairTable, structuredPair: item.StructuredPair,
-	}, true, nil
+		profilerEventField: item.ProfilerEventField,
+	}
+	if err := validateProfilerEventFieldProvenance(row); err != nil {
+		return renderedRow{}, false, err
+	}
+	return row, true, nil
 }
 
 func (r *traceDBChunkReader) close() error {

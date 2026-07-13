@@ -20,11 +20,11 @@ func TestProfilerPairObservationBudgetFailsBothFamiliesBeforeSpillPublication(t 
 		t.Fatal("pair census did not start")
 	}
 	rows := []renderedRow{
-		{tsNS: 1, seq: 1, line: "f2fs-start", pairKind: pairRenderF2FS, pairLane: "f2fs-a", pairTable: "f2fs_write_begin", structuredPair: true},
-		{tsNS: 2, seq: 2, line: "mmc-start", pairKind: pairRenderMMC, pairLane: "mmc-a", pairTable: "mmc_request_start", structuredPair: true},
+		{tsNS: 1, seq: 1, line: "f2fs-start", pairKind: pairRenderF2FS, pairLane: "f2fs-a", pairTable: "f2fs_write_begin", structuredPair: true, profilerEventField: 4011},
+		{tsNS: 2, seq: 2, line: "mmc-start", pairKind: pairRenderMMC, pairLane: "mmc-a", pairTable: "mmc_request_start", structuredPair: true, profilerEventField: 4016},
 		// cap+1 is accepted into scalar publication accounting, but it cannot
 		// extend proof state and closes both critical families before output.
-		{tsNS: 3, seq: 3, line: "f2fs-done", pairKind: pairRenderF2FS, pairLane: "f2fs-a", pairTable: "f2fs_write_end", structuredPair: true},
+		{tsNS: 3, seq: 3, line: "f2fs-done", pairKind: pairRenderF2FS, pairLane: "f2fs-a", pairTable: "f2fs_write_end", structuredPair: true, profilerEventField: 4012},
 		{tsNS: 4, seq: 4, line: "print-keep"},
 	}
 	for _, row := range rows {
@@ -71,10 +71,16 @@ func TestProfilerPairObservationBudgetFailsBothFamiliesBeforeSpillPublication(t 
 		{Table: "mmc_request_start", RowsRead: 1, RowsEmitted: 1},
 	}
 	publishers := []profilerPairPublisherCensus{{coverageIndex: 0, mmc: mmcCensus, f2fs: f2fsCensus}}
-	if err := reconcileProfilerMMCCoverage(ledger, sink, publishers); err != nil {
+	var eventIndexes profilerFtraceEventCoverageIndexes
+	for field, index := range map[int]int{4011: 1, 4012: 2, 4016: 3} {
+		slot := profilerFtraceEventSlot(field)
+		eventIndexes.Present[slot] = true
+		eventIndexes.Index[slot] = index
+	}
+	if err := reconcileProfilerMMCCoverage(ledger, sink, publishers, eventIndexes); err != nil {
 		t.Fatal(err)
 	}
-	if err := reconcileProfilerF2FSCoverage(ledger, sink, publishers); err != nil {
+	if err := reconcileProfilerF2FSCoverage(ledger, sink, publishers, eventIndexes); err != nil {
 		t.Fatal(err)
 	}
 	for index, item := range ledger {
