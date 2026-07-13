@@ -288,7 +288,7 @@ type runtimeTraceProjTreeRow struct {
 	// FamilyMirrorRef / FamilyMirrorSegMin/MaxMS mark this MERGED row as the
 	// same-segment twin of a family row carrying CAL-1 segment truth (CR-2 P5
 	// family arm, F-1 残口: donghu E8/E9 — the critical_blocking ×4 twin's
-	// members are per-CPU group SUMS, so its 「单次 a–b」 claim was false).
+	// members are per-CPU group SUMS, so its 「单次 a~b」 claim was false).
 	// Ref = the family row's evidence tag; SegMin/Max = the family's TRUE
 	// single-segment extrema propagated for the twin's honest range wording.
 	// Display wording only; no gate/sort lane reads these.
@@ -321,12 +321,114 @@ type runtimeTraceProjTreeRow struct {
 	// tokens all lossless. Attached once per family key (deterministic first
 	// rendered family row).
 	AbsorbedChainPeers []runtimeTraceProjAbsorbedChainPeer
+	// NonAdditiveRef / NonAdditiveKind (WO-A1, SMR-1 批, smr_audit_report §④,
+	// 2026-07-12) is the unified「不可相加/包含」cross-seat pointer arm — the
+	// §29.50.1 过渡候选反向指针 generalized to three carriers (self seat /
+	// aggregate↔member / cross-lane addition identity). Typed judgment only
+	// (registry state family + µs value relations); the word face is minted by
+	// the ONE template (runtimeTraceProjSameSegMirrorTagTexts). 过渡臂退役条件:
+	// the v5 P1 engine-side one-seat-per-segment mint covers the carrier —
+	// when it lands, this display pointer retires with the P5 display folds
+	// (same EVOLUTION contract as runtimeTraceProjFoldSameSegmentContextMirrors).
+	NonAdditiveRef  string
+	NonAdditiveKind runtimeTraceProjNonAdditiveKind
+	// MergedTwinMirrorRef (WO-D3 短期臂, SMR-1 批 S3-TPF/S8-TPF, 2026-07-12)
+	// marks this ×N MERGED row as the same-source twin of exactly one OTHER
+	// ×N merged row with the identical member fingerprint (µs display + count
+	// + member extrema + query window) — the double-merged shape all three
+	// pre-SMR mirror arms structurally missed. Mutual (both rows point);
+	// tag-only, accounts untouched. 退役条件: v5 P1 engine one-seat mint.
+	MergedTwinMirrorRef string
+	// BranchTwinFoldPeers (WO-D2/D4, SMR-1 批 S2-TPF/SMR-S4, 2026-07-12)
+	// carries the flat「父节点未确认」aggregate copy folded into this
+	// trunk-attached aggregate (typed full-equality fingerprint: subject +
+	// state + ×N count + member extrema + display + query window; trunk keeps
+	// the seat = 已解析链位信息严格更多). The peer's E# joins the bracket and
+	// its diverging effective-attribution caliber is disclosed VERBATIM
+	// (eff 双列 — D4: fold must dual-list both occurrence accounts).
+	BranchTwinFoldPeers []runtimeTraceProjBranchTwinFoldPeer
+	// AccountRelRef / AccountRelOwn / AccountRelPeer (WO-C1, SMR-1 批
+	// SMR-S6/S15/S1-TPF 过渡, 2026-07-12): the C-type account-relation
+	// sentence — W-A's「双行存续」ruling gains its missing reason half. Three
+	// prohibitions (S6 vnote): never「同段」, never a coverage-direction pair
+	// (全窗 vs 发生段 hints an ≥ that is FALSE on the witness), never a
+	// quantified overlap ms (cross-lane ts inventory unbuilt — typed
+	// unprovable). 过渡: the S1-TPF pair keeps this sentence until CASE-3
+	// adjudicates its dedicated arm.
+	AccountRelRef  string
+	AccountRelOwn  string
+	AccountRelPeer string
+	// OccurrenceSeries* (WO-B1, SMR-1 批 SMR-S8/S10/S11, 2026-07-12): the
+	// B-type same-identity multi-occurrence short note — typed provably
+	// DISJOINT same-(thread, state, object, type, window) single rows carry
+	// their own occurrence interval, the sibling refs and the series total
+	// (disjoint same-identity segments are the ONE legitimately additive
+	// shape; §29.50.4③ 合计参赛指针 — the total rides the pointer word since
+	// no clean total seat exists to point at, 禁虚指 E#). 改词保双席: the
+	// note never removes a seat.
+	OccurrenceSeriesRefs    []string
+	OccurrenceSeriesTotalMS float64
+	OccurrenceSeriesCount   int
+	// CoverageMergedTwinCount (WO-A1 词面统一 复放追修, 96717 E12/E15 形,
+	// 2026-07-12): this UNMERGED row's covered value is typed-provably an
+	// engine-side ×N total — its same-span W-A twin is a MergedCount>1 row
+	// with the µs-identical display, or a same-(subject,state) occurrence
+	// series' additive total µs-equals it. The RN-12 coverage word then
+	// speaks 链上覆盖合计(×N) instead of the false single-fragment claim.
+	// Display wording input only.
+	CoverageMergedTwinCount int
+	// OverflowProjectionRef (P2-2 跨口径穿透, 2026-07-13): the resolved E# of
+	// the rendered row whose account the pool's contents PROJECT (typed
+	// Node.OverflowProjectionEvidenceID resolved post-build). Wording input
+	// only — 「同一物理时间的口径投影·与[E#]不可相加」.
+	OverflowProjectionRef string
+	// OverflowProjectionHumble (P2-2 谦逊注 fallback, 2026-07-13; 29424 复放:
+	// the WIRE-side fold (folded_* notes) publishes min/max but no Σ, so the
+	// cross-caliber projection identity is typed-UNREACHABLE there — the
+	// coordinator's fallback is an advisory humble note, never a hard tag):
+	// true when the ref-less fold's subject also holds rendered same-family
+	// seats. SOFT wording only (heuristic gate is legal for soft guidance);
+	// names NO specific E# (an unprovable pointer would be 指错). Typed-sum
+	// reachability (folded_sum note / CASE-1 组值库存) retires this arm.
+	OverflowProjectionHumble bool
+	// OverflowMirrorRefs (WO-D1③ 多引用 tag, SMR-1 批 SMR-S9, 2026-07-12):
+	// the resolved E# tags of the rendered rows whose physical time the
+	// overflow fold's headline re-publishes (typed
+	// Node.OverflowMirrorEvidenceIDs resolved post-build). Wording input only.
+	OverflowMirrorRefs []string
 	// marks is the NEW-7 emission collector for this render pass. The fence
 	// renderer stamps model.Marks onto its per-row COPIES right before calling
 	// the row-render helpers, so every mark is recorded AT the emission site
 	// (nil-safe: width-pass rows and test-constructed rows carry nil and record
 	// nothing). Never set by the model builder.
 	marks *runtimeTraceProjMarkSet
+}
+
+// runtimeTraceProjNonAdditiveKind is the WO-A1 pointer's typed direction word
+// selector — the word face forks on it inside the ONE template function.
+type runtimeTraceProjNonAdditiveKind int
+
+const (
+	runtimeTraceProjNonAdditiveNone runtimeTraceProjNonAdditiveKind = iota
+	// runtimeTraceProjNonAdditiveComponent — this row's account is a typed
+	// COMPONENT of [ref]'s account (addition identity X=Y+Z with a typed
+	// complement, or the structural binder⊂sleep self carve).
+	runtimeTraceProjNonAdditiveComponent
+	// runtimeTraceProjNonAdditiveContains — the symmetric high-seat face:
+	// this row's account already CONTAINS [ref]'s.
+	runtimeTraceProjNonAdditiveContains
+	// runtimeTraceProjNonAdditiveMember — this single-occurrence row's value
+	// is µs-identical to a member of [ref]'s ×N aggregate (derivable member
+	// multiset) — the aggregate already counts it.
+	runtimeTraceProjNonAdditiveMember
+)
+
+// runtimeTraceProjBranchTwinFoldPeer is one folded flat aggregate copy: its
+// registered evidence tag plus the diverging eff caliber for the dual-listing
+// disclosure (zero when the peer published none — absence never invents).
+type runtimeTraceProjBranchTwinFoldPeer struct {
+	EvidenceTag       string
+	EffectiveImpactMS float64
 }
 
 // runtimeTraceProjIOFoldPeer is one folded same-segment IO caliber: the raw
@@ -349,6 +451,13 @@ type runtimeTraceProjAbsorbedChainPeer struct {
 
 type runtimeTraceProjTreeModel struct {
 	Target     string
+	// RankBoardEffSumMS (冷读扩臂④ 板级警示, SMR-1 修复轮 2026-07-13): the
+	// Σ of the rank-seated rows' effective attributions when it EXCEEDS the
+	// analysis-window length (typed precise: only over-window mints the
+	// field; 96717 复放: 七席 Σ=120.528ms > 窗 114.940ms with no board-level
+	// sentence). Drives ONE tree-head line 「席位间物理时间可重叠,不可直接
+	// 相加」; never a gate/sort input. 0 = silent (within window).
+	RankBoardEffSumMS float64
 	TreeRows   []runtimeTraceProjTreeRow // trunk + attached (flattened, render order)
 	SelfRows   []runtimeTraceProjTreeRow // target's own state rows (under root)
 	Adjacent   []runtimeTraceProjTreeRow
@@ -488,11 +597,11 @@ const (
 	runtimeTraceProjMarkChainDepthChip                                        // 链上L# chain-depth chip (PTV4 T9)
 	runtimeTraceProjMarkOmitted                                               // …省略N节点… long-trunk fold row (PTV4 T8 roster)
 	runtimeTraceProjMarkBarScale                                              // bar full-scale caliber line (PTV4 T7 口径组)
-	runtimeTraceProjMarkMergedSum                                             // ×N(a–b) same-kind SUM aggregate (PTV4 T4 ×N 三式)
+	runtimeTraceProjMarkMergedSum                                             // ×N(a~b) same-kind SUM aggregate (PTV4 T4 ×N 三式)
 	runtimeTraceProjMarkMergedDedup                                           // ×N同值 duplicate-publication fold (PTV4 T4 ×N 三式)
-	runtimeTraceProjMarkMergedMax                                             // ×N(a–b)取最大 cross-thread fold (PTV4 T4 ×N 三式)
-	runtimeTraceProjMarkMergedUnion                                           // ×N(a–b)union cross-query-window union caliber (§11-N2, ×N 第四式)
-	runtimeTraceProjMarkMergedWindowMax                                       // ×N(a–b)跨窗取最大 overlapping-query-window MAX caliber (§21 CWD, ×N 第五式)
+	runtimeTraceProjMarkMergedMax                                             // ×N(a~b)取最大 cross-thread fold (PTV4 T4 ×N 三式)
+	runtimeTraceProjMarkMergedUnion                                           // ×N(a~b)union cross-query-window union caliber (§11-N2, ×N 第四式)
+	runtimeTraceProjMarkMergedWindowMax                                       // ×N(a~b)跨窗取最大 overlapping-query-window MAX caliber (§21 CWD, ×N 第五式)
 	runtimeTraceProjMarkMergedMultiWindowNoShare                              // ×N 多窗合并行不显示占窗% (§21.1 CWD-2 ①, huadong E19)
 	runtimeTraceProjMarkOverWindowShare                                       // 占窗>100% multi-CPU/multi-span cumulative share (PTV4 T4)
 	runtimeTraceProjMarkWholeWindowIdle                                       // 整窗等待 whole-window idle annotation (PTV4 T4)
@@ -629,6 +738,21 @@ const (
 	// overshoots but its physical interval was not published, so no window
 	// verdict is claimed (宁漏勿假).
 	runtimeTraceProjMarkActualNoInterval
+
+	// WO-A1 (SMR-1 批, smr_audit_report §④, 2026-07-12): the unified
+	// 「不可相加/包含」cross-seat pointer word family (为…组成部分 / 已含 /
+	// 为…成员) — typed judgment, one template, three carriers.
+	runtimeTraceProjMarkNonAdditivePointer
+
+	// WO-C1 (SMR-1 批, 2026-07-12): the C-type account-relation sentence —
+	// same thread, same state family, two account systems with differing
+	// coverage sets (W-A 双行存续 + 理由句).
+	runtimeTraceProjMarkAccountRelation
+
+	// WO-B1 (SMR-1 批, 2026-07-12): the B-type occurrence-series short note —
+	// disjoint same-identity occurrences carry their interval, sibling refs
+	// and the series total.
+	runtimeTraceProjMarkOccurrenceSeries
 
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
@@ -864,8 +988,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- 时长条:窗口未采集,满格 = 本报告最大时长(不显示占窗百分比);多窗合并行的时长条只作相对量级(见其专项条目)。",
 			"- Bars: no window captured — full scale = this report's largest duration (no window percentages); multi-window merged rows' bars are relative scale only (see their dedicated entry)."},
 		{runtimeTraceProjMarkMergedSum, runtimeTraceProjLegendGroupCaliber,
-			"- `×N(a–b)` = 同一(线程,原因)的 N 次实例合并,数值为总和,a–b 为单次范围。",
-			"- `×N(a–b)` = N instances of one (thread, cause) merged; the value is the SUM, a–b the per-instance range."},
+			"- `×N(a~b)` = 同一(线程,原因)的 N 次实例合并,数值为总和,a~b 为单次范围。",
+			"- `×N(a~b)` = N instances of one (thread, cause) merged; the value is the SUM, a~b the per-instance range."},
 		// PTV6-B (聚合幻影修复, 2026-07-06): the entry discloses the near-lane
 		// boundary-resampling drift and the max caliber (verbatim pin
 		// TestPTV6LegendWordingVerbatimPins; the row tag token ×N同值 未动).
@@ -879,8 +1003,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// 实现词、「不可加和,不求和」同义反复 → 先原因后做法;canonical 词
 		// 「墙钟跨线程不可加和」三面同词(域B #11 REVISE 基准).
 		{runtimeTraceProjMarkMergedMax, runtimeTraceProjLegendGroupCaliber,
-			"- `×N(a–b)取最大` = N 个线程的同类行合并为一行;墙钟跨线程不可加和,数值取其中最大一项,a–b 为单项范围。",
-			"- `×N(a–b) max` = same-kind rows from N threads merged into one; wall clock never sums across threads, so the value is the largest member, a–b the per-member range."},
+			"- `×N(a~b)取最大` = N 个线程的同类行合并为一行;墙钟跨线程不可加和,数值取其中最大一项,a~b 为单项范围。",
+			"- `×N(a~b) max` = same-kind rows from N threads merged into one; wall clock never sums across threads, so the value is the largest member, a~b the per-member range."},
 		// RCM-2 (§24.12 维度A ③ verbatim, 2026-07-08): the FIFTH caliber word.
 		// MANDATED ADJACENCY: this entry sits IMMEDIATELY AFTER the ×N取最大
 		// cross-thread entry above — the two must read side by side so
@@ -912,13 +1036,13 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `计数当量Xms` = 计数类数值的对照写法:按计数换算的当量毫秒,非墙钟时长,不与时长行相加。",
 			"- `计数当量Xms` (count-equivalent X ms) = the comparison form of a count-class magnitude: count-derived equivalent milliseconds, not wall-clock duration; never added to duration rows."},
 		// §11-N2 (2026-07-06, real_trace_campaign ledger): the cross-query-window
-		// union caliber gets its own form token — the plain ×N(a–b) entry claims
+		// union caliber gets its own form token — the plain ×N(a~b) entry claims
 		// "数值为总和" and must stay truthful, so a union row NEVER wears the sum
 		// form (NEW-7: this entry renders exactly when a union row is emitted).
 		// The raw Σ and the window-source roster live in the (b) lossless block.
 		{runtimeTraceProjMarkMergedUnion, runtimeTraceProjLegendGroupCaliber,
-			"- `×N(a–b)union` = 跨查询窗重叠段不重复计:N 次实例来自不同查询窗且时间重叠,数值为区间并集投影(非求和),a–b 为单次范围;原始和与窗来源见明细。",
-			"- `×N(a–b)union` = cross-query-window overlap counted once: the N instances come from DIFFERENT query windows and overlap in time; the value is the interval-union projection (never the SUM), a–b the per-instance range; the raw sum and the window sources live in the detail blocks."},
+			"- `×N(a~b)union` = 跨查询窗重叠段不重复计:N 次实例来自不同查询窗且时间重叠,数值为区间并集投影(非求和),a~b 为单次范围;原始和与窗来源见明细。",
+			"- `×N(a~b)union` = cross-query-window overlap counted once: the N instances come from DIFFERENT query windows and overlap in time; the value is the interval-union projection (never the SUM), a~b the per-instance range; the raw sum and the window sources live in the detail blocks."},
 		// §21 CWD (cmp_01 revisit 2026-07-07): the overlapping-query-window MAX
 		// caliber gets its own form token (×N 第五式) — the sum entry claims
 		// 数值为总和 and the union entry claims per-segment deduction; a MAX
@@ -926,8 +1050,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// PTV8-RCR-B (UXA 域D #33 窗族: 重叠窗→互相重叠的查询窗; 无损块→明细,
 		// 2026-07-08).
 		{runtimeTraceProjMarkMergedWindowMax, runtimeTraceProjLegendGroupCaliber,
-			"- `×N(a–b)跨窗取最大` = N 次实例来自互相重叠的查询窗,互相重叠的查询窗量值不可求和且重叠段无法逐段核销,数值取成员最大(以该成员自身查询窗为基),a–b 为单次范围;原始和与窗来源见明细。",
-			"- `×N(a–b) cross-window max` = the N instances come from OVERLAPPING query windows: overlapping-window magnitudes never sum and the overlap cannot be deducted per segment, so the value is the member MAX (normalized over that member's own query window), a–b the per-instance range; the raw sum and the window sources live in the detail blocks."},
+			"- `×N(a~b)跨窗取最大` = N 次实例来自互相重叠的查询窗,互相重叠的查询窗量值不可求和且重叠段无法逐段核销,数值取成员最大(以该成员自身查询窗为基),a~b 为单次范围;原始和与窗来源见明细。",
+			"- `×N(a~b) cross-window max` = the N instances come from OVERLAPPING query windows: overlapping-window magnitudes never sum and the overlap cannot be deducted per segment, so the value is the member MAX (normalized over that member's own query window), a~b the per-instance range; the raw sum and the window sources live in the detail blocks."},
 		// §21.1 CWD-2 ① (huadong_01 revisit E19 witness, 2026-07-07): a merged
 		// ×N row whose members span multiple query windows renders NO anchor-
 		// window share — this entry says why the % cell is absent on exactly
@@ -962,7 +1086,7 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `承自归因` = 该行有效归因承自其所在等待区间,非本行实测。",
 			"- `inherited attribution` = the row's effective attribution is inherited from its enclosing wait interval, not measured on this row."},
 		{runtimeTraceProjMarkIOCaliberNote, runtimeTraceProjLegendGroupCaliber,
-			"- `同段IO另有…口径` = 同一线程同段 IO 的多口径合并显示;数值与证据保留,不重复计入归因;席行数值=最大墙钟成员自值(下界),家族总量见成员行。",
+			"- `同段IO另有…等口径` = 同一线程同段 IO 的多口径合并显示;数值与证据保留,不重复计入归因;席行数值=最大墙钟成员自值(下界),家族总量见成员行。",
 			"- `same-segment IO also measured …` = several calibers of one IO segment folded for display; values and evidence kept, never double counted; the seat value is the largest wall-clock member's own value (a lower bound) — the family total lives on the member lines."},
 		{runtimeTraceProjMarkPeriodicSource, runtimeTraceProjLegendGroupCaliber,
 			"- `周期性信号源` = 该行是固定周期的信号发生器,期内睡眠为正常节拍;有效归因只计 runnable 与信号迟到量,窗口投影保留原始值。",
@@ -1014,12 +1138,12 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `窗内无有效时长` = 该折叠行全部成员在窗内均无可计量时长,不作取最大声明;逐成员与证据见明细与证据索引。",
 			"- `no in-window effective duration` = every member of that fold carries no measurable in-window duration, so no member-MAX claim is made; members and evidence live in the detail blocks and the evidence index."},
 		// G12-ENG (§29.1, 2026-07-09): the MIXED fold's honest range wording —
-		// the legacy ×N(a–b) claim over every member fabricated the huadong_79
+		// the legacy ×N(a~b) claim over every member fabricated the huadong_79
 		// E23 "×2 both at 14.272ms" same-value double from one valued member
 		// plus one zero-duration marker aggregate.
 		{runtimeTraceProjMarkValuelessFoldMembers, runtimeTraceProjLegendGroupCaliber,
-			"- `无时长值` = 该合并/折叠行中无可计量时长的成员;不参与取最大与 a–b 范围,仅计入成员数(「全部无时长值」=所有成员均无);逐成员见明细与证据索引。",
-			"- `without measurable duration` = members of that merged/fold row carrying no measurable duration; they never join the member-MAX or the a–b range and only count toward the member total (\"all without measurable duration\" = every member); members live in the detail blocks and the evidence index."},
+			"- `无时长值` = 该合并/折叠行中无可计量时长的成员;不参与取最大与 a~b 范围,仅计入成员数(「全部无时长值」=所有成员均无);逐成员见明细与证据索引。",
+			"- `without measurable duration` = members of that merged/fold row carrying no measurable duration; they never join the member-MAX or the a~b range and only count toward the member total (\"all without measurable duration\" = every member); members live in the detail blocks and the evidence index."},
 		// PTV6-C ruling A (#73, 用户裁定 2026-07-06): 有效归因/链上累计 belong to
 		// the chain universe — a ◇/▒ stanza row shows the same data under the
 		// cross-thread cumulative family word.
@@ -1092,13 +1216,26 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// V2-P0 (design §6.1 新裁定 A, 2026-07-12): the ⌗ 口径旁栏 teaching
 		// entry — the two-scale-ruler red line at row level.
 		{runtimeTraceProjMarkCaliberSideRow, runtimeTraceProjLegendGroupMark,
-			"- `⌗口径旁栏` = 计数当量/复合分数类行:该行数值不是墙钟时长(计数当量=按事件计数折算;复合分数=跨单位合成分),不占序数、不参与根因排序、不佩戴徽章;行照常显示并经 [E#] 互链。",
+			"- `⌗口径旁栏` = 计数当量/综合评分类行:该行数值不是墙钟时长(计数当量=按事件计数折算;综合评分=跨单位合成分),不占序数、不参与根因排序、不佩戴徽章;行照常显示并经 [E#] 互链。",
 			"- `⌗ caliber-side` = a count-equivalent / composite-score row: its value is NOT wall-clock time (count equivalent = derived from event counts; composite score = a cross-unit blend); it takes no ordinal, never competes for root-cause ranking and wears no badge — the row still renders with its [E#] links."},
 		// CR-2 组② P5 (2026-07-12): the same-segment mirror teaching entry —
 		// one physical segment published on several lanes converges at render.
 		{runtimeTraceProjMarkSameSegMirror, runtimeTraceProjLegendGroupMark,
-			"- `同段镜像` = 同一物理段/同一物理时间在多条通道重复发布:同段同值的裸状态行已并入所指行(其 [E#] 并入行首括号);合并行行2指向同源家族行(该行 ×N(a–b) 为按分组的组合计值区间,单段真值见家族行明细);同值双行形行2互指同一物理时间,两行数值不可相加。",
-			"- `same-seg mirror` = one physical segment / one physical time published on several lanes: the same-value raw-state row is merged into the surviving row (its [E#] joins the bracket); a merged row's row 2 points at its source family row (that row's ×N(a–b) range holds per-group sums — true single-segment extrema live in the family row's detail); on the equal-value two-row form, row 2 cross-references the same physical time and the two rows are never additive."},
+			"- `同段镜像` = 同一物理段/同一物理时间在多条通道重复发布:同段同值的裸状态行已并入所指行(其 [E#] 并入行首括号);合并行行2指向同源家族行(该行 ×N(a~b) 为按分组的组合计值区间,单段真值见家族行明细);同值双行形行2互指同一物理时间,两行数值不可相加。",
+			"- `same-seg mirror` = one physical segment / one physical time published on several lanes: the same-value raw-state row is merged into the surviving row (its [E#] joins the bracket); a merged row's row 2 points at its source family row (that row's ×N(a~b) range holds per-group sums — true single-segment extrema live in the family row's detail); on the equal-value two-row form, row 2 cross-references the same physical time and the two rows are never additive."},
+		// WO-A1 (SMR-1 批, 2026-07-12): the non-additive pointer teaching entry
+		// — one physical time on two seats must never be summed by the reader.
+		{runtimeTraceProjMarkNonAdditivePointer, runtimeTraceProjLegendGroupMark,
+			"- `不可相加指针` = 同线程同状态族的两席共享同一段物理时间:「为[E#]的组成部分/已含[E#]/为[E#]成员」标注从属·包含·成员关系(typed 判定:加法恒等式/成员值 µs 全等/结构性子账),两席数值不可相加;各席账目照发。",
+			"- `non-additive pointer` = two seats of one thread's one state family share the same physical time: 「component of [E#] / already contains [E#] / member of [E#]」 marks the subset/containment/membership relation (typed judgment: addition identity / µs-identical member value / structural sub-account); the two seats must never be summed — each keeps its own account."},
+		// WO-C1 (SMR-1 批, 2026-07-12): the account-relation sentence entry.
+		{runtimeTraceProjMarkAccountRelation, runtimeTraceProjLegendGroupMark,
+			"- `账目关系` = 同线程同状态族的两行来自两套账目体系(覆盖集不同,物理时间重叠):行内句标出双方口径自述与互指 [E#];两行数值不可相加、不可直较,双行均为诚实账目(W-A 不同账目绝不折)。",
+			"- `account relation` = two rows of one thread's one state family come from two accounting systems (different coverage sets, overlapping physical time): the inline sentence names both calibers and cross-references [E#]; the two values are neither additive nor directly comparable — both rows are honest accounts (W-A: different accounts never fold)."},
+		// WO-B1 (SMR-1 批, 2026-07-12): the occurrence-series note entry.
+		{runtimeTraceProjMarkOccurrenceSeries, runtimeTraceProjLegendGroupMark,
+			"- `发生段` = 同(线程,状态,对端)的多次独立发生各占一行:行内给出本次发生的墙钟区间与其余次的 [E#] 互指;各段不相交(typed 区间证明),故给出可相加的合计值。",
+			"- `occurrence segment` = independent occurrences of one (thread, state, counterpart) identity each keep a row: the note states this occurrence's wall-clock interval and cross-references the sibling [E#]s; the segments are provably disjoint (typed intervals), so the additive series total is stated."},
 		// CR-2 组③ P7 (2026-07-12): the episode-scope actual word — inside the
 		// analysis window, so deliberately NOT the ⚠ glyph.
 		{runtimeTraceProjMarkActualBeyondEpisode, runtimeTraceProjLegendGroupMark,
@@ -1175,8 +1312,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `按小核满频折算/按中核满频折算/按超大核满频折算` = 折算基准与算力系数取自标注类簇(同簇同源):大核簇窗内无频点治理数据,基准改取有治理数据的最高类簇;数值不按大核满频。",
 			"- `folded at small-cluster/middle-cluster/prime-cluster fmax` = the fold basis and its capability coefficient come from the named cluster (same-cluster pair): the big cluster had no window-governing frequency data, so the basis moved to the highest class that has it; the value is NOT a big-cluster-fmax fold."},
 		{runtimeTraceProjMarkCaliberSingleMax, runtimeTraceProjLegendGroupCaliber,
-			"- `单次最大(a–b,共N次)` = 合并的 N 次实例中取单次最大者计入有效归因,a–b 为单次范围;行1 的 ×N 与数值为合并计数与合并投影。",
-			"- `single max (a–b, of N)` = of the N merged instances, the single largest one counts into the attribution, a–b is the per-instance range; the ×N and the value on line 1 are the merged count and the merged projection."},
+			"- `单次最大(a~b,共N次)` = 合并的 N 次实例中取单次最大者计入有效归因,a~b 为单次范围;行1 的 ×N 与数值为合并计数与合并投影。",
+			"- `single max (a~b, of N)` = of the N merged instances, the single largest one counts into the attribution, a~b is the per-instance range; the ×N and the value on line 1 are the merged count and the merged projection."},
 	}
 	return append(catalog, runtimeTraceProjImpactFormLegendEntries()...)
 }
@@ -1470,7 +1607,7 @@ func runtimeTraceProjTrunkSameStateOccurrencePair(main, extra types.TraceCausalP
 
 // runtimeTraceProjTrunkFoldSameStateOccurrences (GAP-B G5, §27.3, 2026-07-09)
 // folds a trunk subject's same-(thread, dominant-state) occurrence rows into
-// its main row as the established R2 ×N form (SUM value + per-instance a–b
+// its main row as the established R2 ×N form (SUM value + per-instance a~b
 // range, via the ONE types-side merge authority). WHY THRESHOLD 2 while the R2
 // aggregation pass keeps ≥3: rendering a thread's second same-state occurrence
 // as its own "├─成因─" child claims the thread CAUSED ITSELF (semantic error —
@@ -1671,6 +1808,34 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// re-attached to the surviving primary's row after flatten (its row Kind —
 	// self or tree — is only known then).
 	chainNodes, ioFoldPeers := runtimeTraceProjFoldSameSubjectIONodes(chainNodes)
+	// WO-N1 (SMR-1 批 SMR-S13, smr_audit_report §②, 2026-07-12): the NEW-3
+	// same-segment IO fold reaches the ◇/▒ direct-mint lanes too — critical
+	// rows minted straight into the adjacent/background stanzas escaped the
+	// chainNodes-only fold (8411 witness: ▒ E23 io family beside ▒ E24 whose
+	// wall clock sits inside it, additive read ≈4.23ms double-count). Per-lane
+	// fold only (chain↔stanza pairs stay the D3 mutual-tag arm's business);
+	// the wall-clock connectivity gate (see runtimeTraceProjIOOverlapComponents)
+	// keeps the disjoint E25 shape独立行 by construction.
+	if len(adjacentCauses) > 1 {
+		var peers map[string][]types.TraceCausalProjectionNode
+		adjacentCauses, peers = runtimeTraceProjFoldSameSubjectIONodes(adjacentCauses)
+		for key, nodes := range peers {
+			if ioFoldPeers == nil {
+				ioFoldPeers = map[string][]types.TraceCausalProjectionNode{}
+			}
+			ioFoldPeers[key] = append(ioFoldPeers[key], nodes...)
+		}
+	}
+	if len(backgroundCauses) > 1 {
+		var peers map[string][]types.TraceCausalProjectionNode
+		backgroundCauses, peers = runtimeTraceProjFoldSameSubjectIONodes(backgroundCauses)
+		for key, nodes := range peers {
+			if ioFoldPeers == nil {
+				ioFoldPeers = map[string][]types.TraceCausalProjectionNode{}
+			}
+			ioFoldPeers[key] = append(ioFoldPeers[key], nodes...)
+		}
+	}
 	// RNB R2 (§21/§22, 2026-07-07): fold the rank-lane twin of a same-segment
 	// pair into its chain-lane node BEFORE the subject buckets, so the rank
 	// twin never mints a sibling/cause tree row (成因形与兄弟形 both covered by
@@ -1683,6 +1848,15 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// double seat never mints a second row (14704 E1/E2 witness). The peers
 	// re-attach to the surviving row after flatten.
 	chainNodes, sameSegMirrorPeers := runtimeTraceProjFoldSameSegmentContextMirrors(chainNodes)
+	// WO-D2/D4 (SMR-1 批 S2-TPF/SMR-S4, 2026-07-12): the trunk/flat
+	// same-source ×N aggregate pair folds BEFORE the subject buckets too —
+	// the flat 父节点未确认 copy of one physical aggregate never mints its
+	// second seat (56643 E5/E19 witness). Same trunk-domain gate inputs the
+	// depth attach consumes below.
+	chainNodes, branchTwinPeers := runtimeTraceProjFoldBranchTwinAggregates(chainNodes,
+		projection.WakeupPathBranch,
+		projection.WakeupPathQueryWindowStartTs > 0 && projection.WakeupPathQueryWindowEndTs > projection.WakeupPathQueryWindowStartTs,
+		projection.WakeupPathQueryWindowStartTs, projection.WakeupPathQueryWindowEndTs)
 	// SEM-LEAD (§29.7-2 ③): the folded on-chain rank twin of a semantic row
 	// rides the SAME RankFoldPeers carrier as the RNB fold — 行1 [E#+E#]
 	// bracket, detail 根因排序 line, bar-scale/disclosure MAX invariance.
@@ -2154,11 +2328,61 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// future lane that double-casts one node into both surfaces renders it
 	// once, on the chain (the stanza copy is the duplicate; the (a) table's
 	// 双席 declaration follows the actual seats and drops with it).
+	// WO-G1 (SMR-1 批 SMR-S12a, smr_audit_report §②, 2026-07-12): G2 双发布
+	// 去重扩臂 — the existing G2 arm covers the「◇席 vs 溢出折叠」pair; this
+	// adds the「树链止 vs ◇席」pair.
+	//
+	// Drop 口径 (P3 修复轮落档, 2026-07-13): the suppressed stanza copy is a
+	// VALUELESS marker of the SAME single-minted fact (one expandChain
+	// nil-interesting mint per thread) — the kept chain seat carries the full
+	// typed criterion word, and the 91869 witness copies carry no E# of their
+	// own, so nothing is silently lost; a copy WITH its own evidence id keeps
+	// its index registration through the raw observation store (evidence is
+	// never seat-gated). 零静默消失 holds: the fact stays disclosed on the
+	// surviving seat. The expandChain nil-interesting arm mints
+	// ONE trace_gap fact per thread, but the root_evidence chain copy AND the
+	// rank-lane ◇ copy both seated (91869 double-◌ witness, two mutually
+	// exclusive reason words on one page). The chain-stop seat wins (the 链止
+	// position carries the fact); a stanza trace_gap copy of the SAME subject
+	// and a compatible query window never seats a second ◌. Different query
+	// windows keep both seats (two facts). Precise typed inputs only.
+	chainGapSeated := map[string][]types.TraceCausalProjectionNode{}
+	for _, rows := range [][]runtimeTraceProjTreeRow{model.SelfRows, model.TreeRows} {
+		for _, r := range rows {
+			if !r.HasData || !runtimeTraceProjTraceGapNode(r.Node) {
+				continue
+			}
+			subject := runtimeTraceCausalProjectionCanonicalNode(r.Node.Subject)
+			if subject == "" {
+				continue
+			}
+			chainGapSeated[subject] = append(chainGapSeated[subject], r.Node)
+		}
+	}
+	gapSeatDuplicate := func(node types.TraceCausalProjectionNode) bool {
+		if !runtimeTraceProjTraceGapNode(node) {
+			return false
+		}
+		for _, seated := range chainGapSeated[runtimeTraceCausalProjectionCanonicalNode(node.Subject)] {
+			sw, se := seated.QueryWindowStartTs, seated.QueryWindowEndTs
+			nw, ne := node.QueryWindowStartTs, node.QueryWindowEndTs
+			if sw > 0 && se > sw && nw > 0 && ne > nw &&
+				(math.Abs(sw-nw) > types.TraceCausalProjectionSameWindowToleranceS ||
+					math.Abs(se-ne) > types.TraceCausalProjectionSameWindowToleranceS) {
+				continue // distinct query windows = two facts, both honest seats
+			}
+			return true
+		}
+		return false
+	}
 	adjacentSeen := map[string]bool{}
 	for _, node := range runtimeTraceProjAdjacentNodesForDisplay(adjacentCauses) {
 		key := runtimeTraceCausalProjectionNodeKey(node)
 		if consumed[key] {
 			continue
+		}
+		if gapSeatDuplicate(node) {
+			continue // WO-G1: 树链止 seat already speaks this thread's gap fact
 		}
 		adjacentSeen[key] = true
 		model.Adjacent = append(model.Adjacent, runtimeTraceProjTreeRow{
@@ -2171,6 +2395,9 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		key := runtimeTraceCausalProjectionNodeKey(node)
 		if consumed[key] {
 			continue // PTV6 #2: chain seat wins — no 链/▒ double seat
+		}
+		if gapSeatDuplicate(node) {
+			continue // WO-G1: 树链止 seat already speaks this thread's gap fact
 		}
 		backgroundSeen[key] = true
 		model.Background = append(model.Background, runtimeTraceProjTreeRow{
@@ -2212,6 +2439,9 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		if consumed[key] || adjacentSeen[key] || backgroundSeen[key] {
 			continue
 		}
+		if gapSeatDuplicate(node) {
+			continue // WO-G1: 树链止 seat already speaks this thread's gap fact
+		}
 		tag := runtimeTraceProjEvidenceTag(node, evidence, zh)
 		if node.Role == types.TraceCausalRolePrimaryRootCause || node.Role == types.TraceCausalRoleCausalHop {
 			node.Role = types.TraceCausalRoleRootCauseContext
@@ -2248,6 +2478,29 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		return runtimeTraceProjNodeDisplayImpact(model.Background[i].Node) >
 			runtimeTraceProjNodeDisplayImpact(model.Background[j].Node)
 	})
+
+	// WO-N1 (SMR-1 批, 2026-07-12): the stanza-lane NEW-3 folds attach only
+	// AFTER the ◇/▒ populations exist (the 收尾 P1 dead-code lesson — the
+	// post-flatten attach above ran on empty stanza slices). The caliber note
+	// is the folded peers' only display carrier on these faces too.
+	if len(ioFoldPeers) > 0 {
+		attachIOFold := func(rows []runtimeTraceProjTreeRow) {
+			for i := range rows {
+				if len(rows[i].IOFoldPeers) > 0 {
+					continue // chain/self faces attached above
+				}
+				for _, peer := range ioFoldPeers[runtimeTraceCausalProjectionNodeKey(rows[i].Node)] {
+					rows[i].IOFoldPeers = append(rows[i].IOFoldPeers, runtimeTraceProjIOFoldPeer{
+						Token:       strings.TrimSpace(peer.TypeToken),
+						ImpactMS:    runtimeTraceProjNodeDisplayImpact(peer),
+						EvidenceTag: runtimeTraceProjEvidenceTag(peer, evidence, zh),
+					})
+				}
+			}
+		}
+		attachIOFold(model.Adjacent)
+		attachIOFold(model.Background)
+	}
 
 	// RNB R2 / B9: attach every folded rank-lane peer only after ALL four
 	// display populations have been materialized. On-chain pairs attach to the
@@ -2311,6 +2564,26 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		attach(model.Background)
 	}
 
+	// WO-D2/D4: attach the folded flat aggregate copies (E# into the bracket,
+	// eff caliber dual-listed on 行2) — same post-flatten position as the
+	// mirror peers above.
+	if len(branchTwinPeers) > 0 {
+		attach := func(rows []runtimeTraceProjTreeRow) {
+			for i := range rows {
+				for _, peer := range branchTwinPeers[runtimeTraceCausalProjectionNodeKey(rows[i].Node)] {
+					rows[i].BranchTwinFoldPeers = append(rows[i].BranchTwinFoldPeers, runtimeTraceProjBranchTwinFoldPeer{
+						EvidenceTag:       runtimeTraceProjEvidenceTag(peer, evidence, zh),
+						EffectiveImpactMS: peer.EffectiveImpactMS,
+					})
+				}
+			}
+		}
+		attach(model.SelfRows)
+		attach(model.TreeRows)
+		attach(model.Adjacent)
+		attach(model.Background)
+	}
+
 	// CR-2 组② P5 family arm (F-1 残口, donghu E8/E9): mark a merged
 	// critical_blocking twin whose fingerprint (canonical subject + member
 	// count + µs-equal total) matches a family row carrying CAL-1 segment
@@ -2322,6 +2595,20 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// 修复轮 C-2/A1: the µs-equal cross-lane value mirror (aggregate row ↔
 	// ×N candidate row) — typed fingerprint, tag-only convergence.
 	runtimeTraceProjMarkValueMirrorTwins(&model)
+
+	// SMR-1 批 relation passes (2026-07-12) — order matters (四臂判定互斥,
+	// 矩阵判型即路由): D3 double-merged twins first (equality shapes), then
+	// the A1 non-additive pointers (containment/membership), then the C1
+	// account sentences (different-account leftovers), then the B1 disjoint
+	// occurrence notes.
+	runtimeTraceProjMarkMergedTwinMirrors(&model)
+	runtimeTraceProjMarkNonAdditivePointers(&model)
+	runtimeTraceProjMarkAccountRelations(&model, zh)
+	runtimeTraceProjStampOccurrenceSeries(&model)
+	runtimeTraceProjMarkSeriesAggregateSeats(&model)
+	runtimeTraceProjResolveOverflowMirrorRefs(&model)
+	runtimeTraceProjStampOverflowSeriesMirrors(&model)
+	runtimeTraceProjResolveOverflowProjectionRefs(&model)
 
 	// CR-2 组③ P7: stamp every row's typed actual-scope verdict against the
 	// analysis window (one authority, every face reads the stamp).
@@ -2433,6 +2720,28 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// CR-3 修复轮追加件 (2026-07-12): rank same-thread coverage fragments so
 	// only the true max wears the 最大片段 word.
 	runtimeTraceProjStampCoverageFragmentRank(&model)
+	// 冷读扩臂④ (SMR-1 修复轮, 2026-07-13): the board-level over-window sum.
+	if model.WindowMS > 0 {
+		sum := 0.0
+		seen := map[string]bool{}
+		for _, rows := range [][]runtimeTraceProjTreeRow{model.SelfRows, model.TreeRows, model.Adjacent, model.Background} {
+			for i := range rows {
+				node := rows[i].Node
+				if !rows[i].HasData || node.Rank <= 0 || node.EffectiveImpactMS <= 0 {
+					continue
+				}
+				key := runtimeTraceCausalProjectionNodeKey(node)
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				sum += node.EffectiveImpactMS
+			}
+		}
+		if sum > model.WindowMS {
+			model.RankBoardEffSumMS = sum
+		}
+	}
 	return model
 }
 
@@ -2465,6 +2774,68 @@ func runtimeTraceProjStampCoverageFragmentRank(model *runtimeTraceProjTreeModel)
 	for i := range model.TreeRows {
 		if k, covered, ok := key(model.TreeRows[i].Node); ok && covered < groupMax[k] {
 			model.TreeRows[i].CoverageFragmentSecondary = true
+		}
+	}
+	// WO-A1 词面统一 复放追修 (96717 E12/E15 形, 2026-07-12): an UNMERGED rank
+	// row whose covered value is typed-provably an engine ×N total must not
+	// claim 最大片段 either. Two precise linkages:
+	//   (a) its same-span W-A twin is a MergedCount>1 row with the µs-equal
+	//       display (the rank lane republished the merged occurrence sum);
+	//   (b) a same-(subject, state class) occurrence series' additive total
+	//       µs-equals it (the rank seat IS the 合计参赛 seat of the series).
+	mergedTwinBySpan := map[string]int{}
+	for i := range model.TreeRows {
+		node := model.TreeRows[i].Node
+		if node.MergedCount <= 1 {
+			continue
+		}
+		if k := runtimeTraceProjSameSegmentTwinKey(node); k != "" {
+			mergedTwinBySpan[k+"\x00"+fmt.Sprintf("%.3f", runtimeTraceProjNodeDisplayImpact(node))] = node.MergedCount
+		}
+	}
+	type seriesRef struct {
+		subject string
+		class   string
+		total   float64
+		count   int
+	}
+	var series []seriesRef
+	for _, rows := range [][]runtimeTraceProjTreeRow{model.SelfRows, model.TreeRows} {
+		for i := range rows {
+			if rows[i].OccurrenceSeriesCount < 2 || rows[i].OccurrenceSeriesTotalMS <= 0 {
+				continue
+			}
+			series = append(series, seriesRef{
+				subject: runtimeTraceCausalProjectionCanonicalNode(rows[i].Node.Subject),
+				class:   types.TraceCausalProjectionStateClass(rows[i].Node.StateKind),
+				total:   rows[i].OccurrenceSeriesTotalMS,
+				count:   rows[i].OccurrenceSeriesCount,
+			})
+		}
+	}
+	for i := range model.TreeRows {
+		node := model.TreeRows[i].Node
+		if node.MergedCount > 1 || node.FullWindowStateMS <= 0 {
+			continue
+		}
+		display := runtimeTraceProjNodeDisplayImpact(node)
+		if display <= 0 {
+			continue
+		}
+		if k := runtimeTraceProjSameSegmentTwinKey(node); k != "" {
+			if n := mergedTwinBySpan[k+"\x00"+fmt.Sprintf("%.3f", display)]; n > 1 {
+				model.TreeRows[i].CoverageMergedTwinCount = n
+				continue
+			}
+		}
+		subject := runtimeTraceCausalProjectionCanonicalNode(node.Subject)
+		class := types.TraceCausalProjectionStateClass(node.StateKind)
+		for _, sr := range series {
+			if sr.subject == subject && sr.class == class &&
+				math.Abs(sr.total-display) < types.TraceCausalProjectionSameValueTieMS {
+				model.TreeRows[i].CoverageMergedTwinCount = sr.count
+				break
+			}
 		}
 	}
 }
@@ -3505,15 +3876,23 @@ func runtimeTraceProjChainLane(node types.TraceCausalProjectionNode) int {
 // runtimeTraceProjIOOverlapComponents — 修复轮 P2-2 (2026-07-12; EVOLUTION
 // RECORD: supersedes the NEW-3 all-pairs gate runtimeTraceProjIOMembers-
 // PairwiseOverlap, whose group-level veto let one distant member unfold the
-// whole family): partitions a candidate set into line-interval overlap
-// CONNECTED COMPONENTS (interval-union connectivity — the same 同段 notion
-// as the ◇ engine fold). Members without a valid 1-based line interval join
-// NO component (fail-closed: they keep their own rows); each component of
-// size ≥2 folds independently.
+// whole family): partitions a candidate set into overlap CONNECTED COMPONENTS
+// (interval-union connectivity — the same 同段 notion as the ◇ engine fold);
+// each component of size ≥2 folds independently.
+//
+// EVOLUTION RECORD (WO-N1, SMR-1 批 SMR-S13, smr_audit_report §②,
+// 2026-07-12): the connectivity edge is now the members' WALL-CLOCK segment
+// overlap (typed StartTs/EndTs), never row-number/line-interval containment —
+// 席位行号包络连通判被禁 (the vnote 实锤: an ×N family row's LINE envelope
+// 4600–15029 swallowed the wall-clock-DISJOINT E25 at lines 13814–14292 in
+// row-number space; 56643 E10 stamped 2.411 as「同段」the same way). A member
+// without a valid wall-clock interval joins NO component (fail-closed: it
+// keeps its own row — absence never proves 同段). E25-class disjoint members
+// therefore stay independent rows by construction (保留独立行).
 func runtimeTraceProjIOOverlapComponents(nodes []types.TraceCausalProjectionNode, candidates []int) [][]int {
 	var valid []int
 	for _, idx := range candidates {
-		if nodes[idx].LineStart > 0 && nodes[idx].LineEnd >= nodes[idx].LineStart {
+		if nodes[idx].StartTs > 0 && nodes[idx].EndTs > nodes[idx].StartTs {
 			valid = append(valid, idx)
 		}
 	}
@@ -3532,7 +3911,7 @@ func runtimeTraceProjIOOverlapComponents(nodes []types.TraceCausalProjectionNode
 					continue
 				}
 				for _, member := range component {
-					if runtimeTraceProjLineSpansOverlap(nodes[member], nodes[valid[j]]) {
+					if runtimeTraceProjTimeSpansOverlap(nodes[member], nodes[valid[j]]) {
 						component = append(component, valid[j])
 						assigned[j] = true
 						grew = true
@@ -3590,7 +3969,8 @@ func runtimeTraceProjIOFoldNoteText(peers []runtimeTraceProjIOFoldPeer, zh bool)
 		// IOFAM-SELF (件② §29.47.4①, 2026-07-12): the roster is LAYERED — each
 		// member wears its measuring-layer word (调度等待/完成端到端/块设备层/
 		// 页缓存层), and non-wall-clock members never print bare ms: the
-		// composite score wears 「(分数,非墙钟)」, the count facet wears the
+		// composite score wears 「(综合评分,非墙钟)」 (微词面① 2026-07-12:
+		// 「分数」首读 fraction 歧义), the count facet wears the
 		// 计数当量 family word (both from the SHARED registry caliber arm).
 		if layer := runtimeTraceProjIOFacetLayerWord(g.token, zh); layer != "" {
 			token = layer + "·" + token
@@ -3599,7 +3979,7 @@ func runtimeTraceProjIOFoldNoteText(peers []runtimeTraceProjIOFoldPeer, zh bool)
 		switch tracequery.CausalTokenCaliberSideClass(strings.TrimSpace(strings.ToLower(g.token))) {
 		case tracequery.CausalCaliberSideCompositeScore:
 			if zh {
-				parts = append(parts, strings.TrimSpace(token+" "+values+"(分数,非墙钟)"))
+				parts = append(parts, strings.TrimSpace(token+" "+values+"(综合评分,非墙钟)"))
 			} else {
 				parts = append(parts, strings.TrimSpace(token+" "+values+" (score, not wall clock)"))
 			}
@@ -3615,7 +3995,10 @@ func runtimeTraceProjIOFoldNoteText(peers []runtimeTraceProjIOFoldPeer, zh bool)
 		parts = append(parts, strings.TrimSpace(token+" "+values+"ms"))
 	}
 	if zh {
-		text := "同段IO另有 " + strings.Join(parts, "、") + " 口径"
+		// 微词面② (用户裁定 2026-07-12): the trailing 「口径」 dangled like a
+		// broken sentence after a T3 wrap — 「等口径」 reads whole on its own
+		// line (minimal change; the legend entry stays the semantics home).
+		text := "同段IO另有 " + strings.Join(parts, "、") + " 等口径"
 		if len(tags) > 0 {
 			text += ";证据 " + strings.Join(tags, "、")
 		}
@@ -3815,6 +4198,79 @@ func runtimeTraceProjFoldSameSegmentContextMirrors(nodes []types.TraceCausalProj
 		}
 		foldInto[g.rawIdx[0]] = g.keeperIdx[0]
 	}
+	// P2-3 必要性否决 (SMR-1 修复轮, 2026-07-13): the raw copy's line interval
+	// must sit INSIDE the keeper's line envelope — a NECESSITY veto, not a
+	// sufficiency proof (行号包络禁令 bans envelope containment as PROOF of
+	// 同段; using it as a negative gate only rejects impossible memberships).
+	//
+	// WO-D1① (SMR-1 批 SMR-S2, smr_audit_report §②, 2026-07-12; 25846 witness:
+	// the root_evidence lane re-published each member SEGMENT of the ×3 sleep
+	// seat as its own bare row — E1 105.794 ×3 beside E3 80.751 / E5 16.164 /
+	// E6 8.879, a five-seat table summing to 292.3ms vs 真值 105.8): the
+	// equality arm's keeper gate (MergedCount ≤ 1 + exact span) structurally
+	// missed MERGED keepers — 既有 twin 臂全部因指纹过严整体逃逸. The member
+	// arm folds a raw root_evidence copy into the ×N keeper when the raw's
+	// value is µs-IDENTICAL to a losslessly DERIVABLE member value of the
+	// keeper (成员盘存隶属 by µs identity — 禁行号包络连通判) and the state
+	// families agree (registry lanes, never word faces). ◌ missing_wakeup /
+	// trace_gap raws never fold here (their honesty seats are WO-A1(member)/
+	// WO-G1's business — the ⊘链止 face must stay). 按 P5 先例只迁注记 —
+	// annotation only, never an ms account.
+	for i, node := range nodes {
+		if _, done := foldInto[i]; done || !runtimeTraceProjSameSegMirrorRawArm(node) {
+			continue
+		}
+		if node.Undrillable() || runtimeTraceProjTraceGapNode(node) ||
+			runtimeTraceCausalProjectionCanonicalNode(node.Predicate) == "missing_wakeup" {
+			continue
+		}
+		rawValue := runtimeTraceProjNodeDisplayImpact(node)
+		if rawValue <= 0 {
+			continue
+		}
+		rawFamily := runtimeTraceProjSMR1StateFamily(node)
+		if rawFamily == "" {
+			continue
+		}
+		keeper, ambiguous := -1, false
+		for j := range nodes {
+			if j == i || nodes[j].MergedCount <= 1 || nodes[j].OnChainOverflowFold {
+				continue
+			}
+			if runtimeTraceCausalProjectionCanonicalNode(nodes[j].Subject) !=
+				runtimeTraceCausalProjectionCanonicalNode(node.Subject) {
+				continue
+			}
+			if runtimeTraceProjSMR1StateFamily(nodes[j]) != rawFamily {
+				continue
+			}
+			if !runtimeTraceProjSMR1WindowsCompatible(node, nodes[j]) {
+				continue
+			}
+			if !runtimeTraceProjSMR1LineWithinEnvelope(node, nodes[j]) {
+				continue // P2-3: outside the keeper's envelope = impossible membership
+			}
+			hit := false
+			for _, member := range runtimeTraceProjSMR1MergedMemberValues(nodes[j]) {
+				if runtimeTraceProjSMR1ValuesEqual(rawValue, member) {
+					hit = true
+					break
+				}
+			}
+			if !hit {
+				continue
+			}
+			if keeper >= 0 {
+				ambiguous = true
+				break
+			}
+			keeper = j
+		}
+		if keeper < 0 || ambiguous {
+			continue // fail-open: the honest extra row beats a guessed fold
+		}
+		foldInto[i] = keeper
+	}
 	if len(foldInto) == 0 {
 		return nodes, nil
 	}
@@ -3882,6 +4338,121 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 		text := "同段镜像·与[" + row.ValueMirrorRef + "]同一物理时间,不可相加"
 		if !zh {
 			text = "same-seg mirror · same physical time as [" + row.ValueMirrorRef + "], never additive"
+		}
+		out = append(out, text)
+	}
+	// WO-D1③ 多引用 tag (SMR-1 批 SMR-S9, 2026-07-12; 31552 E25): the
+	// overflow fold's headline re-publishes the combined physical time of the
+	// referenced rendered rows — same 同段镜像 lexicon, multi-ref form.
+	if len(row.OverflowMirrorRefs) > 0 {
+		row.marks.mark(runtimeTraceProjMarkSameSegMirror)
+		text := "同段镜像·取最大值与[" + strings.Join(row.OverflowMirrorRefs, "]+[") + "]同一物理时间,不可相加"
+		if !zh {
+			text = "same-seg mirror · the max re-publishes the physical time of [" + strings.Join(row.OverflowMirrorRefs, "]+[") + "], never additive"
+		}
+		out = append(out, text)
+	}
+	// P2-2 跨口径穿透 (SMR-1 修复轮, 2026-07-13): the pool projects a rendered
+	// row's account through another caliber — same 同段镜像 lexicon family.
+	if row.OverflowProjectionRef != "" {
+		row.marks.mark(runtimeTraceProjMarkSameSegMirror)
+		text := "同段镜像·同一物理时间的口径投影·与[" + row.OverflowProjectionRef + "]不可相加"
+		if !zh {
+			text = "same-seg mirror · caliber projection of the same physical time · never additive with [" + row.OverflowProjectionRef + "]"
+		}
+		out = append(out, text)
+	}
+	// P2-2 谦逊注 (soft advisory, unmarked — heuristic gate is legal for soft
+	// wording only; the typed lanes above own the hard tags).
+	if row.OverflowProjectionHumble {
+		text := "折叠成员线程另有已渲染席位,墙钟可能重叠,勿与之直加"
+		if !zh {
+			text = "the folded members' thread also holds rendered seats; wall clocks may overlap — do not add across"
+		}
+		out = append(out, text)
+	}
+	// WO-D3 短期臂 (SMR-1 批 S3-TPF, 2026-07-12): the double-merged twin pair
+	// wears mutual mirror tags (同段镜像 lexicon — same legend promise).
+	if row.MergedTwinMirrorRef != "" {
+		row.marks.mark(runtimeTraceProjMarkSameSegMirror)
+		text := "同段镜像·与[" + row.MergedTwinMirrorRef + "]同源,不可相加"
+		if !zh {
+			text = "same-seg mirror · same source as [" + row.MergedTwinMirrorRef + "], never additive"
+		}
+		out = append(out, text)
+	}
+	// WO-D2/D4 (SMR-1 批 S2-TPF/SMR-S4, 2026-07-12): the folded flat aggregate
+	// disclosure — E# joined the bracket; the diverging eff caliber dual-lists
+	// VERBATIM (值不重计,证据照发).
+	for _, peer := range row.BranchTwinFoldPeers {
+		row.marks.mark(runtimeTraceProjMarkSameSegMirror)
+		text := "同源聚合已并入[" + peer.EvidenceTag + "](父节点未确认份,同一物理时间不重复计入)"
+		if peer.EffectiveImpactMS > 0 {
+			text = fmt.Sprintf("同源聚合已并入[%s](父节点未确认份,同一物理时间不重复计入;该份有效归因口径 %.3fms 与本行分列)",
+				peer.EvidenceTag, peer.EffectiveImpactMS)
+		}
+		if !zh {
+			text = "same-source aggregate merged [" + peer.EvidenceTag + "] (parent-unconfirmed copy, same physical time, not re-counted)"
+			if peer.EffectiveImpactMS > 0 {
+				text = fmt.Sprintf("same-source aggregate merged [%s] (parent-unconfirmed copy, same physical time, not re-counted; its effective caliber %.3fms listed beside this row's)",
+					peer.EvidenceTag, peer.EffectiveImpactMS)
+			}
+		}
+		out = append(out, text)
+	}
+	// WO-A1 (SMR-1 批, §④ 词面单源, 2026-07-12): the non-additive pointer —
+	// ONE template, direction word forks on the typed kind. 禁逐处手写.
+	if row.NonAdditiveRef != "" && row.NonAdditiveKind != runtimeTraceProjNonAdditiveNone {
+		row.marks.mark(runtimeTraceProjMarkNonAdditivePointer)
+		// One stable family head 「不可相加·」/"non-additive · " keeps the
+		// word face bidirectionally probeable (legend ⇔ fence contract) and
+		// distinct from the mirror family's trailing ",不可相加".
+		var text string
+		switch row.NonAdditiveKind {
+		case runtimeTraceProjNonAdditiveComponent:
+			text = "不可相加·为[" + row.NonAdditiveRef + "]的组成部分"
+			if !zh {
+				text = "non-additive · component of [" + row.NonAdditiveRef + "]"
+			}
+		case runtimeTraceProjNonAdditiveContains:
+			text = "不可相加·已含[" + row.NonAdditiveRef + "]"
+			if !zh {
+				text = "non-additive · already contains [" + row.NonAdditiveRef + "]"
+			}
+		case runtimeTraceProjNonAdditiveMember:
+			text = "不可相加·为[" + row.NonAdditiveRef + "]成员"
+			if !zh {
+				text = "non-additive · member of [" + row.NonAdditiveRef + "]"
+			}
+		}
+		if text != "" {
+			out = append(out, text)
+		}
+	}
+	// WO-C1 (SMR-1 批, 2026-07-12): the account-relation sentence — 口径自述 +
+	// 互指 only; 禁「同段」字面, 禁覆盖方向暗示, 禁量化重叠 ms (S6 vnote 三禁令).
+	if row.AccountRelRef != "" {
+		row.marks.mark(runtimeTraceProjMarkAccountRelation)
+		text := "与[" + row.AccountRelRef + "]同线程同状态族·物理时间重叠(不可相加);两套账目覆盖集不同:本行=" +
+			row.AccountRelOwn + ",[" + row.AccountRelRef + "]=" + row.AccountRelPeer
+		if !zh {
+			text = "same thread, same state family as [" + row.AccountRelRef + "] · physical time overlaps (never additive); two accounting systems with different coverage sets: this row = " +
+				row.AccountRelOwn + ", [" + row.AccountRelRef + "] = " + row.AccountRelPeer
+		}
+		out = append(out, text)
+	}
+	// WO-B1 (SMR-1 批, 2026-07-12): the occurrence-series short note — the
+	// interval identifies the occurrence (preferred over 第N次 ordinals, S10
+	// vnote), the sibling refs cross-link, and the series total rides the
+	// pointer word itself (§29.50.4③; 禁虚指 E# — no clean total seat exists).
+	if len(row.OccurrenceSeriesRefs) > 0 && row.Node.StartTs > 0 && row.Node.EndTs > row.Node.StartTs {
+		row.marks.mark(runtimeTraceProjMarkOccurrenceSeries)
+		refs := strings.Join(row.OccurrenceSeriesRefs, "]+[")
+		text := fmt.Sprintf("发生段 %.6fs–%.6fs·与[%s]不相交(共%d段,合计 %.3fms)",
+			row.Node.StartTs, row.Node.EndTs, refs, row.OccurrenceSeriesCount, row.OccurrenceSeriesTotalMS)
+		if !zh {
+			text = fmt.Sprintf("occurrence %.6fs–%.6fs · disjoint from [%s] (%d segments, series total %.3fms)",
+				row.Node.StartTs, row.Node.EndTs, refs, row.OccurrenceSeriesCount, row.OccurrenceSeriesTotalMS)
 		}
 		out = append(out, text)
 	}
@@ -5778,7 +6349,13 @@ func runtimeTraceProjRowNameKeepSuffix(row runtimeTraceProjTreeRow, zh bool) str
 	if row.Node.DuplicatePublications > 1 {
 		dedup = " " + runtimeTraceProjDedupFoldTagText(row.Node.DuplicatePublications, zh)
 	}
-	if !runtimeTraceProjCauseNodeRow(row) || !runtimeTraceProjChainUniverseRowKind(row.Kind) {
+	// 76684 行1 修 (SMR-1 批, 2026-07-12): the generic-unresolved shape's
+	// state word joins the keep lane even on rank-less rows — the shared
+	// label column otherwise truncated 「 · iowait」 off 行1 and the #12
+	// guarantee could only re-add it as a demotable tag (the witness lost the
+	// state word to 行2 while the peer word held 行1).
+	if (!runtimeTraceProjCauseNodeRow(row) && runtimeTraceProjGenericUnresolvedStateNameWord(row.Node, zh) == "") ||
+		!runtimeTraceProjChainUniverseRowKind(row.Kind) {
 		return dedup
 	}
 	xn := ""
@@ -6166,7 +6743,15 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 	} else {
 		main = append(main, badge+runtimeTraceProjStateIcon(node, row.Kind, true, row.marks)+" "+selfOnly)
 	}
-	if v := runtimeTraceProjNodeDisplayImpact(node); v > 0 {
+	// WO-D1① 无值披露臂 (SMR-1 批 SMR-S2 ◌ 带值行, 2026-07-12; 25846 E4:
+	// the missing_wakeup ◌ row re-carried a sleep member's 80.751ms as what
+	// read like a fourth account): an undrillable self row whose value is a
+	// PROVEN member of another seat (WO-A1 member pointer) keeps its ⊘链止
+	// honesty seat but drops the duplicated ms from 行1 — the value lives in
+	// the referenced seat's account and the 不可相加·为[E#]成员 tag says so
+	// (吸收=佩记号, 数值不重计; the observation itself stays lossless).
+	if v := runtimeTraceProjNodeDisplayImpact(node); v > 0 &&
+		!(node.Undrillable() && row.NonAdditiveKind == runtimeTraceProjNonAdditiveMember) {
 		main = append(main, fmt.Sprintf("%.3fms", v))
 	}
 	// RF2b/V4: the duplicate-publication fold (single measurement) and the R2
@@ -6197,7 +6782,7 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 			}
 			demoted = append(demoted, runtimeTraceProjMergedCrossWindowMaxTagText(node, zh))
 		} else {
-			// G12-ENG 复核 P2-2: the all-valueless R2 row wears NO ×N(a–b) sum
+			// G12-ENG 复核 P2-2: the all-valueless R2 row wears NO ×N(a~b) sum
 			// notation (nothing summed), so the sum legend entry must not
 			// render for it — same fork discipline as the G19 all-zero fold.
 			if runtimeTraceProjMergedAllValueless(node) {
@@ -6562,7 +7147,7 @@ func runtimeTraceProjNoDominantStateRow(node types.TraceCausalProjectionNode, ki
 }
 
 // runtimeTraceProjRowName wraps the base name with the §24.2 event-form ×N
-// count (×N 上移行1): the merged count joins 行1's 词位 while the (a–b) range
+// count (×N 上移行1): the merged count joins 行1's 词位 while the (a~b) range
 // and the 单次最大 caliber ride 行3. Same typed gate as the structured
 // builder (one helper, no drift).
 func runtimeTraceProjRowName(row runtimeTraceProjTreeRow, zh bool) string {
@@ -6660,6 +7245,12 @@ func runtimeTraceProjRowNameBase(row runtimeTraceProjTreeRow, zh bool) string {
 		runtimeTraceProjCauseNodeRow(row) {
 		object = word
 	}
+	// 76684 行1 形态词回退修 (SMR-1 批, 2026-07-12): the generic unresolved
+	// shape names 「主体 · <state label>」 — 状态词永在行1; the peer word rides
+	// its own tag (see the tags builder + the EVOLUTION RECORD on the helper).
+	if word := runtimeTraceProjGenericUnresolvedStateNameWord(node, zh); word != "" {
+		object = word
+	}
 	if row.Kind == runtimeTraceProjTreeRowCause {
 		// Same-subject cause decomposition: the subject is already the parent
 		// trunk row; show only the cause word.
@@ -6740,7 +7331,7 @@ func runtimeTraceProjCrossThreadCumTagText(v float64, zh bool) string {
 // runtimeTraceProjDedupFoldTagText is the dedupe-exclusive ×N label (RF2b,
 // adversarial review 2026-07-03): a duplicate-publication row's ms is ONE
 // measurement that was published N times, so it must never share the R2
-// sum-aggregate form ×N(a–b). PTV4 T4 (×N 三式): the row keeps only the data
+// sum-aggregate form ×N(a~b). PTV4 T4 (×N 三式): the row keeps only the data
 // token — the "重复发布/数值不变" semantics live in the legend's 口径组 entry.
 // Callers fork on the typed Node.DuplicatePublications count.
 func runtimeTraceProjDedupFoldTagText(count int, zh bool) string {
@@ -6773,7 +7364,7 @@ func runtimeTraceProjMergedSumTagText(node types.TraceCausalProjectionNode, zh b
 		}
 		return fmt.Sprintf("×%d (%d valued %s, %d without measurable duration)", node.MergedCount, valued, runtimeTraceProjMergedRangeText(node), valueless)
 	}
-	return fmt.Sprintf("×%d(%.3f–%.3fms)", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+	return fmt.Sprintf("×%d(%.3f~%.3fms)", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
 }
 
 // runtimeTraceProjMergedUnionTagText is the §11-N2 cross-query-window union
@@ -6783,7 +7374,7 @@ func runtimeTraceProjMergedSumTagText(node types.TraceCausalProjectionNode, zh b
 // block. All-valued rows stay language-neutral (numbers + the ASCII form
 // token), like the SUM form. Callers fork on the typed
 // Node.MergedIntervalUnion flag — a union row must NEVER wear the plain
-// ×N(a–b) sum form (its legend entry claims 数值为总和).
+// ×N(a~b) sum form (its legend entry claims 数值为总和).
 //
 // G12-ENG 复核 P2-1 连带: the mixed shape binds the range to the VALUED
 // members (same E23-class honesty as the max/sum/CWD tags — the fence and the
@@ -6795,7 +7386,7 @@ func runtimeTraceProjMergedUnionTagText(node types.TraceCausalProjectionNode, zh
 		}
 		return fmt.Sprintf("×%d (%d valued %s, %d without measurable duration) union", node.MergedCount, valued, runtimeTraceProjMergedRangeText(node), valueless)
 	}
-	return fmt.Sprintf("×%d(%.3f–%.3fms)union", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+	return fmt.Sprintf("×%d(%.3f~%.3fms)union", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
 }
 
 // runtimeTraceProjMergedAllValueless is the standalone all-zero R2 shape's
@@ -6834,9 +7425,9 @@ func runtimeTraceProjMergedPerInstanceText(node types.TraceCausalProjectionNode,
 		return fmt.Sprintf("%d valued member(s) each %s, %d without measurable duration", valued, runtimeTraceProjMergedRangeText(node), valueless)
 	}
 	if zh {
-		return fmt.Sprintf("单次 %.3f–%.3fms", node.MergedMinMS, node.MergedMaxMS)
+		return fmt.Sprintf("单次 %.3f~%.3fms", node.MergedMinMS, node.MergedMaxMS)
 	}
-	return fmt.Sprintf("each %.3f–%.3fms", node.MergedMinMS, node.MergedMaxMS)
+	return fmt.Sprintf("each %.3f~%.3fms", node.MergedMinMS, node.MergedMaxMS)
 }
 
 // runtimeTraceProjMergedMaxTagText is the R3 cross-thread fold's inline data
@@ -6857,9 +7448,9 @@ func runtimeTraceProjMergedMaxTagText(node types.TraceCausalProjectionNode, zh b
 		return fmt.Sprintf("×%d (%d valued %s, %d without measurable duration) max", node.MergedCount, valued, runtimeTraceProjMergedRangeText(node), valueless)
 	}
 	if zh {
-		return fmt.Sprintf("×%d(%.3f–%.3fms)取最大", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+		return fmt.Sprintf("×%d(%.3f~%.3fms)取最大", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
 	}
-	return fmt.Sprintf("×%d(%.3f–%.3fms) max", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+	return fmt.Sprintf("×%d(%.3f~%.3fms) max", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
 }
 
 // runtimeTraceProjMergedValuedSplit splits a merged row's member count into
@@ -6874,12 +7465,12 @@ func runtimeTraceProjMergedValuedSplit(node types.TraceCausalProjectionNode) (va
 
 // runtimeTraceProjMergedRangeText renders the valued members' display range:
 // the single value when the range is degenerate (one valued member, or
-// min == max), the a–b form otherwise. Numbers + units only.
+// min == max), the a~b form otherwise. Numbers + units only.
 func runtimeTraceProjMergedRangeText(node types.TraceCausalProjectionNode) string {
 	if node.MergedMinMS == node.MergedMaxMS {
 		return fmt.Sprintf("%.3fms", node.MergedMaxMS)
 	}
-	return fmt.Sprintf("%.3f–%.3fms", node.MergedMinMS, node.MergedMaxMS)
+	return fmt.Sprintf("%.3f~%.3fms", node.MergedMinMS, node.MergedMaxMS)
 }
 
 // runtimeTraceProjAllZeroFoldNoteText is the DISP-2 G19 one-line note for the
@@ -6906,7 +7497,7 @@ func runtimeTraceProjAllZeroFoldNoteText(node types.TraceCausalProjectionNode, z
 // range + the cross-window-max form suffix. The 不求和/窗基 semantics live in
 // the legend's 口径组 entry; the raw Σ and the window-source roster live in
 // the (b) lossless block. Callers fork on the typed Node.MergedCrossWindowMax
-// flag — a MAX row must never wear the plain ×N(a–b) sum form (its legend
+// flag — a MAX row must never wear the plain ×N(a~b) sum form (its legend
 // entry claims 数值为总和) nor the union form (per-segment deduction).
 func runtimeTraceProjMergedCrossWindowMaxTagText(node types.TraceCausalProjectionNode, zh bool) string {
 	// G12-ENG (§29.1): same mixed-fold honesty as the ×N取最大 tag — the
@@ -6918,9 +7509,9 @@ func runtimeTraceProjMergedCrossWindowMaxTagText(node types.TraceCausalProjectio
 		return fmt.Sprintf("×%d (%d valued %s, %d without measurable duration) cross-window max", node.MergedCount, valued, runtimeTraceProjMergedRangeText(node), valueless)
 	}
 	if zh {
-		return fmt.Sprintf("×%d(%.3f–%.3fms)跨窗取最大", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+		return fmt.Sprintf("×%d(%.3f~%.3fms)跨窗取最大", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
 	}
-	return fmt.Sprintf("×%d(%.3f–%.3fms) cross-window max", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+	return fmt.Sprintf("×%d(%.3f~%.3fms) cross-window max", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
 }
 
 // runtimeTraceProjMultiWindowMergedRow is the §21.1 CWD-2 ① typed key
@@ -7193,6 +7784,18 @@ func runtimeTraceProjRowCauseWordToken(row runtimeTraceProjTreeRow, zh bool) (st
 	if word := runtimeTraceProjInversionStateCompositionWord(node); word != "" &&
 		runtimeTraceProjCauseNodeRow(row) {
 		return word, "priority_inversion_candidate"
+	}
+	// 76684 行1 修: mirror the generic-unresolved state 词位 override — the
+	// guarantee protects the state word the row actually renders. P3 (修复轮
+	// 2026-07-13, 2609 形宽度): the type-lane form parks the state on
+	// TypeToken (StateKind empty) — the dedupe token follows the SAME typed
+	// lane the word came from, so the #6 near-synonym dedupe can still match.
+	if word := runtimeTraceProjGenericUnresolvedStateNameWord(node, zh); word != "" {
+		token := runtimeTraceCausalProjectionCanonicalNode(node.StateKind)
+		if token == "" {
+			token = runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)
+		}
+		return word, token
 	}
 	return strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(node, zh)),
 		runtimeTraceCausalProjectionCauseDisplayToken(node)
@@ -8175,7 +8778,7 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	// 行2 identity, 行3 「=」breakdown and the 拆解子行 land as OwnLine tags in
 	// fixed order; the legacy seats they replace (row-tail shape word, the
 	// mechanism sentence on inversion nodes, the plain 有效归因X tag, the
-	// ×N(a–b) tag on event-form rows) are suppressed via the typed flags below.
+	// ×N(a~b) tag on event-form rows) are suppressed via the typed flags below.
 	structured, structuredOK := runtimeTraceProjCauseStructuredParts(row, zh)
 	if structuredOK {
 		tags = append(tags, runtimeTraceProjTag{Text: structured.IdentityRow, OwnLine: true})
@@ -8247,10 +8850,25 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 			// tail's emission point merges into the name lane — a row whose
 			// cause name already speaks the family word never re-tags it
 			// (同行三面三说法灭); name-silent rows keep the tail above.
+		case runtimeTraceProjGenericUnresolvedStateNameWord(node, zh) != "":
+			// 76684 行1 修 (SMR-1 批, 2026-07-12): the generic-unresolved
+			// name now speaks the state word in 行1 — re-tagging it here
+			// would double-speak (same discipline as the D-family arm above).
 		default:
 			row.marks.mark(runtimeTraceProjMarkStateLabel)
 			tags = append(tags, runtimeTraceProjTag{Text: stateTag, DedupeToken: stateTagToken, Seg: 10})
 		}
+	}
+	// 76684 行1 修 (SMR-1 批, 2026-07-12): the unresolved-peer FACT keeps its
+	// own demotable carrier when the name slot switched to the state word —
+	// 「对端线程未解析」 rides the tag rail (行尾记号位或行2, per the WO) so
+	// the honest sentinel disclosure never vanishes (零省略).
+	if runtimeTraceProjGenericUnresolvedStateNameWord(node, zh) != "" {
+		text := "对端线程未解析"
+		if !zh {
+			text = "unresolved wait peer"
+		}
+		tags = append(tags, runtimeTraceProjTag{Text: text, Seg: 11})
 	}
 	// V3 (customer revisit 2026-07-03): a background row whose projection covers
 	// ≥99% of the window — without exceeding it — waited out the whole window.
@@ -8401,7 +9019,7 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	// rows only (the compile side attaches to the chain universe; the stanza
 	// kinds are excluded here as the pinned display gate).
 	if row.Kind != runtimeTraceProjTreeRowAdjacent && row.Kind != runtimeTraceProjTreeRowBackground {
-		if tag, ok := runtimeTraceProjFullWindowCoverageTag(node, zh, row.CoverageFragmentSecondary); ok {
+		if tag, ok := runtimeTraceProjFullWindowCoverageTag(node, zh, row.CoverageFragmentSecondary, row.CoverageMergedTwinCount); ok {
 			tag.Seg = 34
 			tags = append(tags, tag)
 		}
@@ -8593,7 +9211,7 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	}
 	if node.MergedCount > 1 && !(structuredOK && structured.ConsumedMergedTag) {
 		// PTV8-RCR-A §24.2: on the event form the ×N count already rode 行1
-		// and the (a–b,共N次) range rides 行3 — the legacy inline tag stays off.
+		// and the (a~b,共N次) range rides 行3 — the legacy inline tag stays off.
 		var text string
 		if runtimeTraceProjSubjectlessFoldRow(node) && runtimeTraceProjAllZeroFoldRow(node) {
 			// EVOLUTION RECORD (DISP-2 G19, §27.5, 2026-07-09): the all-zero
@@ -8635,7 +9253,7 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		} else {
 			// G12-ENG 复核 P2-2: mixed/all-zero R2 sum rows render the
 			// 无时长值 family word — same legend contract. The all-valueless
-			// row wears NO ×N(a–b) sum notation (nothing summed), so the sum
+			// row wears NO ×N(a~b) sum notation (nothing summed), so the sum
 			// legend entry must not render for it (G19 fork discipline).
 			if runtimeTraceProjMergedAllValueless(node) {
 				row.marks.mark(runtimeTraceProjMarkValuelessFoldMembers)
@@ -8758,7 +9376,7 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 				//     数值 — the (a)-table legend clause already teaches it);
 				//   - a ×N merged row whose effective IS the per-instance MAX:
 				//     the §24.2 行3 equation verbatim (有效归因 V = 单次最大
-				//     (a–b,共N次)) — the caliber word and its legend entry are
+				//     (a~b,共N次)) — the caliber word and its legend entry are
 				//     the existing closed-set pair, no new vocabulary;
 				//   - residual (rank-seated, effective ≠ both): the bare
 				//     有效归因 word — true by the word's own definition for a
@@ -8774,10 +9392,10 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 					runtimeTraceProjRound3Equal(node.EffectiveImpactMS, node.MergedMaxMS):
 					row.marks.mark(runtimeTraceProjMarkCaliberSingleMax)
 					row.marks.mark(runtimeTraceProjMarkEffectiveAttributionTag)
-					text := fmt.Sprintf("有效归因 %.3fms = 单次最大(%.3f–%.3fms,共%d次)",
+					text := fmt.Sprintf("有效归因 %.3fms = 单次最大(%.3f~%.3fms,共%d次)",
 						node.EffectiveImpactMS, node.MergedMinMS, node.MergedMaxMS, node.MergedCount)
 					if !zh {
-						text = fmt.Sprintf("attribution %.3fms = single max (%.3f–%.3fms, of %d)",
+						text = fmt.Sprintf("attribution %.3fms = single max (%.3f~%.3fms, of %d)",
 							node.EffectiveImpactMS, node.MergedMinMS, node.MergedMaxMS, node.MergedCount)
 					}
 					tags = append(tags, runtimeTraceProjTag{Text: text, Seg: 33})
@@ -10920,6 +11538,20 @@ func runtimeTraceProjWindowLine(projection types.TraceCausalProjection, model ru
 		// "- " line — the header's three facts no longer glue into one run-on.
 		b.WriteString("\n- " + note)
 	}
+	// 冷读扩臂④ 板级警示 (SMR-1 修复轮, 2026-07-13): when the rank seats'
+	// effective attributions Σ exceeds the window length, one honest board
+	// sentence — the seats' physical times overlap and never sum (typed
+	// precise: the field mints only on over-window, so within-window reports
+	// stay byte-identical).
+	if model.RankBoardEffSumMS > 0 && model.WindowMS > 0 {
+		if zh {
+			b.WriteString(fmt.Sprintf("\n- 各根因席位有效归因合计 %.3fms 超过窗长 %.3fms:席位间物理时间可重叠,不可直接相加。",
+				model.RankBoardEffSumMS, model.WindowMS))
+		} else {
+			b.WriteString(fmt.Sprintf("\n- The rank seats' effective attributions sum to %.3fms, exceeding the %.3fms window: the seats' physical times can overlap and must not be added.",
+				model.RankBoardEffSumMS, model.WindowMS))
+		}
+	}
 	// R2 双窗关系行: when a user-requested window was derivable from the typed
 	// entity pair and the projection window is a small sub-window of it (strict
 	// numeric comparison: projection < 50% of the user window), say explicitly
@@ -12069,7 +12701,7 @@ type runtimeTraceProjDetailTableLegendFlags struct {
 	multiSeat   bool
 	// mergedUnion (§11-N2): a union-caliber ×N row is on the table. It is a
 	// SEPARATE flag so a union row never raises mergedSum — the (a)-table's
-	// gated "×N(a–b) = 数值为总和" line must never gloss a union value; the
+	// gated "×N(a~b) = 数值为总和" line must never gloss a union value; the
 	// union form's semantics ride the tree legend entry and the (b) lossless
 	// block (原始和 + 窗来源).
 	mergedUnion bool
@@ -12773,9 +13405,9 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 			caliber += runtimeTraceProjFamilySumDetailNote(node, zh)
 			if node.FamilyMemberMaxMS > 0 {
 				if zh {
-					caliber += fmt.Sprintf(";单段 %.3f–%.3fms", node.FamilyMemberMinMS, node.FamilyMemberMaxMS)
+					caliber += fmt.Sprintf(";单段 %.3f~%.3fms", node.FamilyMemberMinMS, node.FamilyMemberMaxMS)
 				} else {
-					caliber += fmt.Sprintf("; each %.3f–%.3fms", node.FamilyMemberMinMS, node.FamilyMemberMaxMS)
+					caliber += fmt.Sprintf("; each %.3f~%.3fms", node.FamilyMemberMinMS, node.FamilyMemberMaxMS)
 				}
 			}
 			add("家族合并", "family fold", runtimeTraceCausalProjectionMarkdownSafe(caliber))
@@ -12842,7 +13474,7 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 			} else if runtimeTraceProjSubjectlessFoldRow(node) {
 				// PTV8-RCR-B (UXA 域B #20, 2026-07-08). EVOLUTION RECORD:
 				// 「取最大口径…不求和」→ canonical 墙钟跨线程不可加和 (三面同词).
-				// G12-ENG (§29.1, 2026-07-09): the MIXED fold binds 「各 a–b ms」
+				// G12-ENG (§29.1, 2026-07-09): the MIXED fold binds 「各 a~b ms」
 				// to the VALUED members only — the legacy form claimed the range
 				// over every member and fabricated the huadong_79 E23 same-value
 				// double (one real 14.272ms member beside a zero-duration
@@ -12853,9 +13485,9 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 						form = fmt.Sprintf("×%d cross-thread fold, member MAX (wall clock never sums across threads), %d valued member(s) each %s, %d without measurable duration", node.MergedCount, valued, runtimeTraceProjMergedRangeText(node), valueless)
 					}
 				} else {
-					form = fmt.Sprintf("×%d 跨线程折叠取最大(墙钟跨线程不可加和),各 %.3f–%.3fms", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+					form = fmt.Sprintf("×%d 跨线程折叠取最大(墙钟跨线程不可加和),各 %.3f~%.3fms", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
 					if !zh {
-						form = fmt.Sprintf("×%d cross-thread fold, member MAX (wall clock never sums across threads), each %.3f–%.3fms", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
+						form = fmt.Sprintf("×%d cross-thread fold, member MAX (wall clock never sums across threads), each %.3f~%.3fms", node.MergedCount, node.MergedMinMS, node.MergedMaxMS)
 					}
 				}
 			} else if node.MergedIntervalUnion {
@@ -12897,16 +13529,16 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 			} else if row.FamilyMirrorRef != "" {
 				// CR-2 组② P5 family arm (F-1 残口, donghu E8/E9): the merged
 				// twin's members are the family row's per-CPU group SUMS —
-				// 「单次 a–b」 claimed segments that do not exist (the reader
+				// 「单次 a~b」 claimed segments that do not exist (the reader
 				// would hunt a 16ms stall that is really 11 × 2–4ms waits).
 				// The range keeps its own values under the group-sum caliber
 				// word, and the family's true single-segment extrema ride in
 				// (段 inventory 传播).
-				form = fmt.Sprintf("同一线程 %d 次实例合并求和,各成员 %.3f–%.3fms(按CPU分组合计,非单段;单段真值 %.3f–%.3fms 见家族行[%s]明细)",
+				form = fmt.Sprintf("同一线程 %d 次实例合并求和,各成员 %.3f~%.3fms(按CPU分组合计,非单段;单段真值 %.3f~%.3fms 见家族行[%s]明细)",
 					node.MergedCount, node.MergedMinMS, node.MergedMaxMS,
 					row.FamilyMirrorSegMin, row.FamilyMirrorSegMax, row.FamilyMirrorRef)
 				if !zh {
-					form = fmt.Sprintf("%d instances of one thread merged as a SUM, members %.3f–%.3fms each (per-CPU group sums, not single segments; true single-segment range %.3f–%.3fms — see family row [%s])",
+					form = fmt.Sprintf("%d instances of one thread merged as a SUM, members %.3f~%.3fms each (per-CPU group sums, not single segments; true single-segment range %.3f~%.3fms — see family row [%s])",
 						node.MergedCount, node.MergedMinMS, node.MergedMaxMS,
 						row.FamilyMirrorSegMin, row.FamilyMirrorSegMax, row.FamilyMirrorRef)
 				}
@@ -13103,7 +13735,7 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 		if roster := strings.TrimSpace(node.OccupierSummary); roster != "" {
 			add("同窗占用者", "same-window occupiers", runtimeTraceCausalProjectionMarkdownSafe(runtimeTraceProjOccupierRosterDisplay(roster, zh)+"(cpu·ms)"))
 		}
-		if coverage, ok := runtimeTraceProjFullWindowCoverageTag(node, zh, row.CoverageFragmentSecondary); ok {
+		if coverage, ok := runtimeTraceProjFullWindowCoverageTag(node, zh, row.CoverageFragmentSecondary, row.CoverageMergedTwinCount); ok {
 			add("全窗合计", "full-window total", runtimeTraceCausalProjectionMarkdownSafe(coverage.Text))
 		}
 		// F1 (§22 PTV7-SPN P0): the parsed span name keeps its keyed lossless
@@ -13614,7 +14246,7 @@ func runtimeTraceProjEvidenceCoordinateTail(entry runtimeTraceCausalProjectionEv
 	if grouped {
 		// PTV8-RCR-B (UXA 域C #7, 2026-07-08). EVOLUTION RECORD: grouped mode
 		// repeated the 49-char basename three times right after the intro
-		// declared it — the coordinate joins the 定位 field instead ("[a–b s],
+		// declared it — the coordinate joins the 定位 field instead ("[a~b s],
 		// 行 X–Y"); non-grouped keeps the 详见 tail verbatim (裁定措辞载体).
 		if zh {
 			return ",行 " + rangeDisplay
@@ -13701,7 +14333,7 @@ func runtimeTraceProjOccupierRosterDisplay(roster string, zh bool) string {
 // a 300ms 关注窗 (an arithmetically impossible claim). Totals without window
 // endpoints never reach this tag (compile-side 禁猜 drop); the endpoint guard
 // here is defensive only.
-func runtimeTraceProjFullWindowCoverageTag(node types.TraceCausalProjectionNode, zh, secondary bool) (runtimeTraceProjTag, bool) {
+func runtimeTraceProjFullWindowCoverageTag(node types.TraceCausalProjectionNode, zh, secondary bool, mergedTwinCount int) (runtimeTraceProjTag, bool) {
 	full := node.FullWindowStateMS
 	source := strings.TrimSpace(node.FullWindowStateSource)
 	if full <= 0 || source == "" {
@@ -13728,9 +14360,28 @@ func runtimeTraceProjFullWindowCoverageTag(node types.TraceCausalProjectionNode,
 	// may say 最大片段 — a same-thread sibling covering a SMALLER fragment
 	// speaks 另一片段 (two rows both claiming "largest" were mutually
 	// exclusive on one page). Single-row groups keep the original bytes.
+	//
+	// WO-A1 词面统一 (SMR-1 批 SMR-S14 残余, smr_audit_report §②, 2026-07-12):
+	// an ×N MERGED row's covered value is the member SUM, so 「最大片段」 on it
+	// is a false single-fragment claim (56643 E7/E11: "最大片段 19.933ms(77%)"
+	// where 19.933 = ×3 合计 and the largest single fragment is 8.307) — the
+	// merged form speaks 「链上覆盖合计(×N)」 instead. Unmerged rows keep the
+	// pinned bytes.
 	fragmentZH, fragmentEN := "链上仅覆盖其中最大片段", "the chain covers only its largest fragment"
 	if secondary {
 		fragmentZH, fragmentEN = "本行覆盖其中另一片段", "this row covers another fragment of it,"
+	}
+	mergedN := node.MergedCount
+	if mergedN <= 1 && mergedTwinCount > 1 {
+		mergedN = mergedTwinCount // 96717 追修: engine ×N total on an unmerged rank twin
+	}
+	if mergedN > 1 {
+		fragmentZH = fmt.Sprintf("链上覆盖合计(×%d)", mergedN)
+		fragmentEN = fmt.Sprintf("the chain covers a ×%d total of", mergedN)
+		if secondary {
+			fragmentZH = fmt.Sprintf("本行覆盖其中另一部分·合计(×%d)", mergedN)
+			fragmentEN = fmt.Sprintf("this row covers another ×%d total slice of it,", mergedN)
+		}
 	}
 	var text string
 	switch {

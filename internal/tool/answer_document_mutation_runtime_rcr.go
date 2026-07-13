@@ -1143,10 +1143,10 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		// §24.2 event-class form: ×N moves onto 行1, the (a–b,共N次) range and
 		// the 单次最大 caliber ride 行3. Identity: V == 单次最大 (typed check).
 		if zh {
-			out.Breakdown = fmt.Sprintf("%s %s = 单次最大(%.3f–%.3fms,共%d次)",
+			out.Breakdown = fmt.Sprintf("%s %s = 单次最大(%.3f~%.3fms,共%d次)",
 				effectiveWord, runtimeTraceProjFmtMS(effective), node.MergedMinMS, node.MergedMaxMS, node.MergedCount)
 		} else {
-			out.Breakdown = fmt.Sprintf("%s %s = single max (%.3f–%.3fms, of %d)",
+			out.Breakdown = fmt.Sprintf("%s %s = single max (%.3f~%.3fms, of %d)",
 				effectiveWord, runtimeTraceProjFmtMS(effective), node.MergedMinMS, node.MergedMaxMS, node.MergedCount)
 		}
 		row.marks.mark(runtimeTraceProjMarkEffectiveBreakdown)
@@ -1238,6 +1238,14 @@ func runtimeTraceProjCauseEvidenceRef(row runtimeTraceProjTreeRow) string {
 	// CR-2 组② P5 equality arm: the folded raw-state mirror's E# joins the
 	// bracket the same way (the mirror observation stays reachable).
 	for _, peer := range row.SameSegMirrorPeers {
+		if tag := strings.TrimSpace(peer.EvidenceTag); tag != "" {
+			ref += "+" + tag
+		}
+	}
+	// WO-D2/D4 (SMR-1 批, 2026-07-12): the folded flat aggregate copy's E#
+	// joins the bracket the same way (零静默消失 — the folded observation
+	// stays reachable through the index).
+	for _, peer := range row.BranchTwinFoldPeers {
 		if tag := strings.TrimSpace(peer.EvidenceTag); tag != "" {
 			ref += "+" + tag
 		}

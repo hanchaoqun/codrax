@@ -613,7 +613,12 @@ func renderStringSet(values map[string]bool, limit int) string {
 // duplication and bulk-lane semantics are reviewed instead of inheriting an
 // accidental declaration-order default.
 var nonEventPrioritySchemaPins = map[reflect.Type]string{
-	reflect.TypeOf(tracequery.Result{}):                     "05dd81090fe34e19e78dcf43b1a2e1f109adefc0a0f99d3d5229318cc4fce312",
+	// §29.27② 常态发布 (SMR-1 修复轮 引擎件①, 2026-07-13): Result gained the
+	// top-level TargetWindowStates slot (non-bundle runs only — the bundle
+	// path keeps its own copy, so no run ever carries two). Generic detail
+	// rendering (small typed account, no bulk lane, no dup channel) — same
+	// treatment as the bundle copy; hash re-pinned after review.
+	reflect.TypeOf(tracequery.Result{}):                     "7b9d88f0f8d28c4b39d5587ae867b1bd0ba323e0055eaeb3397d51eb2604837a",
 	reflect.TypeOf(tracequery.WindowStats{}):                "1347e623ef12e6024068e0cb1f97256ed747f364515f3aeaf0f0d35ca68d357e",
 	reflect.TypeOf(tracequery.TimelineResult{}):             "ec28f82b56a2e1b64cdfde5e0b6a4769886b32df15dc7a99250ec0da16dacc3a",
 	reflect.TypeOf(tracequery.TraceCounterQualitySummary{}): "e3bead6ff4a3c2e7f9d24487c5905f3594b219505afc106d95af9cfd9c552c2d",

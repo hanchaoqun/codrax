@@ -9,7 +9,7 @@ import (
 
 // §11-N2 display pins (real_trace_campaign_20260705.md; F-1 复核吸收
 // 2026-07-06): a cross-query-window union ×N row must never wear the SUM
-// caliber's clothes on ANY surface — its own ×N(a–b)union form token in the
+// caliber's clothes on ANY surface — its own ×N(a~b)union form token in the
 // fence and the (a)-table name cell, its own NEW-7 legend entry, and a
 // lossless-block ×N 明细 line that names the union caliber, the raw Σ and
 // the member window sources. Non-union renders stay byte-identical.
@@ -52,17 +52,17 @@ func TestN2UnionRowWearsUnionFormOnEverySurface(t *testing.T) {
 		lead := runtimeTraceProjLeadText(projection, model, lang, zh)
 		lossless := runtimeTraceProjDetailFullText(model, zh)
 
-		if !strings.Contains(fence, "×4(14.550–104.127ms)union") {
+		if !strings.Contains(fence, "×4(14.550~104.127ms)union") {
 			t.Fatalf("zh=%v: fence must carry the union form token:\n%s", zh, fence)
 		}
 		// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 见无损块 →
 		// 见明细 / "lossless block" → "detail blocks" (legend tail; sum entry
 		// unchanged).
-		unionEntry := "- `×N(a–b)union` = 跨查询窗重叠段不重复计:N 次实例来自不同查询窗且时间重叠,数值为区间并集投影(非求和),a–b 为单次范围;原始和与窗来源见明细。"
-		sumEntry := "- `×N(a–b)` = 同一(线程,原因)的 N 次实例合并,数值为总和,a–b 为单次范围。"
+		unionEntry := "- `×N(a~b)union` = 跨查询窗重叠段不重复计:N 次实例来自不同查询窗且时间重叠,数值为区间并集投影(非求和),a~b 为单次范围;原始和与窗来源见明细。"
+		sumEntry := "- `×N(a~b)` = 同一(线程,原因)的 N 次实例合并,数值为总和,a~b 为单次范围。"
 		if !zh {
-			unionEntry = "- `×N(a–b)union` = cross-query-window overlap counted once: the N instances come from DIFFERENT query windows and overlap in time; the value is the interval-union projection (never the SUM), a–b the per-instance range; the raw sum and the window sources live in the detail blocks."
-			sumEntry = "- `×N(a–b)` = N instances of one (thread, cause) merged; the value is the SUM, a–b the per-instance range."
+			unionEntry = "- `×N(a~b)union` = cross-query-window overlap counted once: the N instances come from DIFFERENT query windows and overlap in time; the value is the interval-union projection (never the SUM), a~b the per-instance range; the raw sum and the window sources live in the detail blocks."
+			sumEntry = "- `×N(a~b)` = N instances of one (thread, cause) merged; the value is the SUM, a~b the per-instance range."
 		}
 		if !strings.Contains(lead, unionEntry) {
 			t.Fatalf("zh=%v: union legend entry missing (NEW-7 verbatim pin):\n%s", zh, lead)
@@ -70,10 +70,10 @@ func TestN2UnionRowWearsUnionFormOnEverySurface(t *testing.T) {
 		if strings.Contains(lead, sumEntry) {
 			t.Fatalf("zh=%v: the SUM legend entry must NOT render for a union-only tree (口径谎言): %s", zh, lead)
 		}
-		wantDetail := "×4 union 口径(2 窗重叠段不重复计),原始和 183.940ms 供对照,单次 14.550–104.127ms"
+		wantDetail := "×4 union 口径(2 窗重叠段不重复计),原始和 183.940ms 供对照,单次 14.550~104.127ms"
 		wantWindows := "3680.569–3682.819s、3680.800–3681.001s"
 		if !zh {
-			wantDetail = "×4 union caliber (overlap across 2 windows counted once), raw sum 183.940ms for cross-checking, each 14.550–104.127ms"
+			wantDetail = "×4 union caliber (overlap across 2 windows counted once), raw sum 183.940ms for cross-checking, each 14.550~104.127ms"
 			wantWindows = "3680.569–3682.819s, 3680.800–3681.001s"
 		}
 		if !strings.Contains(lossless, wantDetail) {
@@ -87,7 +87,7 @@ func TestN2UnionRowWearsUnionFormOnEverySurface(t *testing.T) {
 		}
 		// (a)-table: the name cell wears the union token, and the gated legend
 		// flags fork — a union row must NOT raise mergedSum (the runtime.go
-		// gated line "×N(a–b) = 数值为总和" must never gloss a union value).
+		// gated line "×N(a~b) = 数值为总和" must never gloss a union value).
 		_, rows := runtimeTraceProjDetailTable(model, zh)
 		tokenSeen := false
 		for _, row := range rows {
@@ -106,7 +106,7 @@ func TestN2UnionRowWearsUnionFormOnEverySurface(t *testing.T) {
 }
 
 // TestN2UnionLegendBidirectional runs the NEW-7 two-way contract on the union
-// shape: the ×N(a–b)union legend entry renders exactly when the union mark is
+// shape: the ×N(a~b)union legend entry renders exactly when the union mark is
 // emitted, and the ")union" fence probe appears exactly when the entry does.
 func TestN2UnionLegendBidirectional(t *testing.T) {
 	marks := revisit76AssertLegendBidirectional(t, "n2_union_zh", n2UnionProjection(), true)
@@ -130,7 +130,7 @@ func TestN2UnionLegendBidirectional(t *testing.T) {
 // windows is now display-ACTIVE in exactly three adjudicated ways — the
 // anchor-window % cell is suppressed (绝不跨窗分子÷单锚窗分母打 %), its
 // legend entry renders, and the lossless block grows the 窗来源 roster. The
-// SUM value, the ×N(a–b) form token and the 求和口径 wording stay
+// SUM value, the ×N(a~b) form token and the 求和口径 wording stay
 // byte-identical (disjoint windows are a LEGAL sum; only the %-face was the
 // bug). Single-window / windowless rows keep full byte-identity as the
 // inertness control.
@@ -185,7 +185,7 @@ func TestN2NonUnionRendersByteIdentical(t *testing.T) {
 		// form + 求和口径 wording, and grows the 窗来源 roster.
 		multi := buildRuntimeTraceProjTreeModel(build(2), newRuntimeTraceCausalProjectionEvidenceIndex(), zh)
 		fence := runtimeTraceProjTreeFence(multi, zh)
-		if !strings.Contains(fence, "×3(5.000–20.000ms)") || strings.Contains(fence, ")union") {
+		if !strings.Contains(fence, "×3(5.000~20.000ms)") || strings.Contains(fence, ")union") {
 			t.Fatalf("zh=%v: multi-window sum row must keep the plain sum form: %s", zh, fence)
 		}
 		if !strings.Contains(fence, "35.000ms") || strings.Contains(fence, "4%") {
@@ -197,7 +197,7 @@ func TestN2NonUnionRendersByteIdentical(t *testing.T) {
 		lossless := runtimeTraceProjDetailFullText(multi, zh)
 		// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: ×N 求和口径 →
 		// 同一线程 N 次实例合并求和 (客户话 sum caliber).
-		if zh && !strings.Contains(lossless, "同一线程 3 次实例合并求和,单次 5.000–20.000ms") {
+		if zh && !strings.Contains(lossless, "同一线程 3 次实例合并求和,单次 5.000~20.000ms") {
 			t.Fatalf("sum row lossless caliber wording drifted:\n%s", lossless)
 		}
 		if zh && !strings.Contains(lossless, "窗来源") {

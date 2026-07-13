@@ -155,12 +155,12 @@ func TestRCRCauseNodeTerminalFormsVerbatim(t *testing.T) {
 			t.Fatalf("E4 lock terminal form missing %q:\n%s", want, fence)
 		}
 	}
-	// E5 IO event-class node — ×N on 行1, the (a–b,共N次) range + 单次最大
+	// E5 IO event-class node — ×N on 行1, the (a~b,共N次) range + 单次最大
 	// caliber on 行3, the 影响点 roster as its own list line.
 	for _, want := range []string{
 		"⛓ IO延迟 ×6",
 		"· IO阻塞候选·根因排序#4·置信高",
-		"· 有效归因 0.568ms = 单次最大(0.374–0.568ms,共6次)",
+		"· 有效归因 0.568ms = 单次最大(0.374~0.568ms,共6次)",
 		"· 影响点 udk-irq-10-90/udk-irq-2-77/udk-irq-6-84",
 	} {
 		if !strings.Contains(fence, want) {
@@ -458,7 +458,7 @@ func TestRCRCaliberLegendEntriesOnDemand(t *testing.T) {
 	// 拆解子行) but no supply-fold clause → no 按大核满频/下界 entries.
 	_, model := rcrOpendirFence(t, true)
 	legend := strings.Join(runtimeTraceProjLegendGroupLines(model.Marks, true), "\n")
-	for _, want := range []string{"- `全额` =", "- `折算,按下游消费核` =", "- `单次最大(a–b,共N次)` ="} {
+	for _, want := range []string{"- `全额` =", "- `折算,按下游消费核` =", "- `单次最大(a~b,共N次)` ="} {
 		if !strings.Contains(legend, want) {
 			t.Fatalf("caliber legend entry %q must render on demand:\n%s", want, legend)
 		}
@@ -488,7 +488,7 @@ func TestRCRCaliberLegendEntriesOnDemand(t *testing.T) {
 	if strings.Contains(foldLegend, "折算未计大核单周期优势") {
 		t.Fatalf("the retired pre-CAP 下界 half-sentence must never render (§26 C3 negative pin):\n%s", foldLegend)
 	}
-	for _, absent := range []string{"- `单次最大(a–b,共N次)` =", "- `折算,按下游消费核` ="} {
+	for _, absent := range []string{"- `单次最大(a~b,共N次)` =", "- `折算,按下游消费核` ="} {
 		if strings.Contains(foldLegend, absent) {
 			t.Fatalf("caliber legend entry %q must stay off this shape:\n%s", absent, foldLegend)
 		}

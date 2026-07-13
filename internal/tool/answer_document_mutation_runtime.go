@@ -1278,16 +1278,16 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 					if flags.mergedSum {
 						// PTV8-RCR-B (UXA 域B 漏审 S3): the 同一(线程,原因)
 						// scope clause matches the tree's sum entry (同词).
-						parts = append(parts, "×N(a–b) = 同一(线程,原因)的 N 次实例合并,数值为总和")
+						parts = append(parts, "×N(a~b) = 同一(线程,原因)的 N 次实例合并,数值为总和")
 					}
 					if flags.mergedMax {
 						// PTV8-RCR-B (UXA 域B #11 REVISE): canonical 墙钟跨线程不可加和.
-						parts = append(parts, "×N(a–b)取最大 = 跨线程折叠,数值取成员最大(墙钟跨线程不可加和)")
+						parts = append(parts, "×N(a~b)取最大 = 跨线程折叠,数值取成员最大(墙钟跨线程不可加和)")
 					}
 					if flags.mergedWindowMax {
 						// §21 CWD: the cross-window MAX form gets its own gated
 						// line — the sum line's 数值为总和 must never gloss it.
-						parts = append(parts, "×N(a–b)跨窗取最大 = 查询窗互相重叠,数值取成员最大(互相重叠的查询窗量值不可求和)")
+						parts = append(parts, "×N(a~b)跨窗取最大 = 查询窗互相重叠,数值取成员最大(互相重叠的查询窗量值不可求和)")
 					}
 					if flags.mergedDedup {
 						parts = append(parts, "×N同值 = 同一测量重复发布,数值即那一次")
@@ -1295,13 +1295,13 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 					lines = append(lines, "- "+strings.Join(parts, ";")+"。")
 				} else {
 					if flags.mergedSum {
-						parts = append(parts, "×N(a–b) = N merged instances, the value is the SUM")
+						parts = append(parts, "×N(a~b) = N merged instances, the value is the SUM")
 					}
 					if flags.mergedMax {
-						parts = append(parts, "×N(a–b) max = cross-thread fold, the value is the member MAX (wall clock never sums)")
+						parts = append(parts, "×N(a~b) max = cross-thread fold, the value is the member MAX (wall clock never sums)")
 					}
 					if flags.mergedWindowMax {
-						parts = append(parts, "×N(a–b) cross-window max = overlapping query windows, the value is the member MAX (overlapping-window magnitudes never sum)")
+						parts = append(parts, "×N(a~b) cross-window max = overlapping query windows, the value is the member MAX (overlapping-window magnitudes never sum)")
 					}
 					if flags.mergedDedup {
 						parts = append(parts, "×N same-value = one measurement published N times, the value IS that one")
@@ -4148,11 +4148,13 @@ func runtimeTraceCausalProjectionMarkdownSafe(raw string) string {
 	if raw == "" {
 		return ""
 	}
-	replacer := strings.NewReplacer(
-		"~~", "\\~\\~",
-		"~", "\\~",
-	)
-	return replacer.Replace(raw)
+	// EVOLUTION RECORD (WF-range 用户裁定, SMR-1 批 2026-07-12): the SINGLE
+	// tilde is no longer escaped — "~" is the adjudicated VALUE-RANGE glyph
+	// (×3(4.426~6.768ms); the en-dash misread as minus in arithmetic-dense
+	// reports), and both render faces already treat a single "~" as literal
+	// (min-run-2 strikethrough ruling 2026-07-05, internal/render +
+	// internal/markdownext). Double "~~" keeps its GFM escape.
+	return strings.ReplaceAll(raw, "~~", "\\~\\~")
 }
 
 func runtimeTraceCausalProjectionEvidenceRef(node types.TraceCausalProjectionNode) string {

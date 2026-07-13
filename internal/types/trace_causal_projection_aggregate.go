@@ -110,6 +110,15 @@ func traceCausalProjectionAggregateForPresentation(out *TraceCausalProjection) {
 	out.AdjacentCauses = traceCausalProjectionDedupDuplicatePublications(out.AdjacentCauses)
 	out.BackgroundCauses = traceCausalProjectionDedupDuplicatePublications(out.BackgroundCauses)
 	out.SupportingHops = traceCausalProjectionDedupDuplicatePublications(out.SupportingHops)
+	// WO-G2 (SMR-1 批 SMR-S12b, smr_audit_report §②, 2026-07-12): zero-value
+	// instant markers fold into their enclosing valued row as valueless members
+	// (§29.13 无时长值成员披露 same-lane execution) — runs between V4 and R2 so
+	// the marker never seats and never perturbs the ×N sum.
+	out.PrimaryRootCauses = traceCausalProjectionFoldZeroValueMarkerRows(out.PrimaryRootCauses)
+	out.OnChainCauses = traceCausalProjectionFoldZeroValueMarkerRows(out.OnChainCauses)
+	out.AdjacentCauses = traceCausalProjectionFoldZeroValueMarkerRows(out.AdjacentCauses)
+	out.BackgroundCauses = traceCausalProjectionFoldZeroValueMarkerRows(out.BackgroundCauses)
+	out.SupportingHops = traceCausalProjectionFoldZeroValueMarkerRows(out.SupportingHops)
 	out.PrimaryRootCauses = traceCausalProjectionAggregateSameKind(out.PrimaryRootCauses)
 	out.OnChainCauses = traceCausalProjectionAggregateSameKind(out.OnChainCauses)
 	out.AdjacentCauses = traceCausalProjectionAggregateSameKind(out.AdjacentCauses)
@@ -701,11 +710,35 @@ func traceCausalProjectionSameDuplicatePublication(a, b TraceCausalProjectionNod
 		return false
 	}
 	if traceCausalProjectionCanonicalNode(a.Subject) != traceCausalProjectionCanonicalNode(b.Subject) ||
-		traceCausalProjectionCanonicalNode(a.Object) != traceCausalProjectionCanonicalNode(b.Object) ||
-		traceCausalProjectionCanonicalNode(a.TypeToken) != traceCausalProjectionCanonicalNode(b.TypeToken) {
+		traceCausalProjectionCanonicalNode(a.Object) != traceCausalProjectionCanonicalNode(b.Object) {
 		return false
 	}
 	sameValue := a.ImpactMS > 0 && a.ImpactMS == b.ImpactMS
+	if tokenA, tokenB := traceCausalProjectionCanonicalNode(a.TypeToken),
+		traceCausalProjectionCanonicalNode(b.TypeToken); tokenA != tokenB {
+		// WO-D3 根修臂 (SMR-1 批 S3-TPF, smr_audit_report §②, 2026-07-12): the
+		// typed-token completeness fork — one lane publishes the observation
+		// WITH its typed token, the other lane re-publishes the same
+		// measurement token-less (42729 E9/E15、62930 E9/E19: 13.418 ×3 twice,
+		// word faces 「对端线程未解析·iowait」 vs 「D-state/iowait(对端未解析)」
+		// forked purely by token completeness). EXACT lane only, and only the
+		// single-side-absence shape: exact float value equality + same subject
+		// + the same SENTINEL object + one side token-absent = one measurement
+		// (去重先于合并 — folding here, pre-R2, is the root fix; a typed FAMILY
+		// key merge is FORBIDDEN — vnote 实证: ×N is a SUM, a family-key merge
+		// would double-book the twin publications into ×6). Two DIFFERENT
+		// non-empty tokens stay two accounts; the 9µs near-lane strict ruling
+		// (sentinel exclusion) is untouched — this arm never enters the near
+		// lane. Retirement condition (过渡臂): the v5 P1 engine-side
+		// one-seat-per-segment mint covers this shape at the source; when it
+		// lands, this relaxation reduces to dead code and retires with the
+		// display twin-mirror arm (runtimeTraceProjMarkMergedTwinMirrors).
+		oneSideAbsent := (tokenA == "") != (tokenB == "")
+		sentinelObject := !traceCausalProjectionKnownSubject(a.Object)
+		if !(oneSideAbsent && sentinelObject && sameValue) {
+			return false
+		}
+	}
 	// Near lane (PTV6 批② #4): the ≤3% band additionally requires the shared
 	// Object to be a REAL identity — the unknown-thread/unknown sentinel and
 	// empty objects are excluded through the same precise helper R3 keys on.
@@ -817,6 +850,172 @@ func traceCausalProjectionAbsorbDuplicatePublication(survivor *TraceCausalProjec
 	for _, id := range dup.MergedEvidenceIDs {
 		appendID(id)
 	}
+	// WO-D3 根修臂 (SMR-1 批 S3-TPF, 2026-07-12): when the exact-lane
+	// single-side token-absence relaxation folded the pair, the survivor keeps
+	// the RICHER identity (词位取最高车道 — the typed token and its state word
+	// must not be lost to scan order; the token-less copy carried none).
+	if strings.TrimSpace(survivor.TypeToken) == "" && strings.TrimSpace(dup.TypeToken) != "" {
+		survivor.TypeToken = dup.TypeToken
+		if strings.TrimSpace(survivor.StateKind) == "" {
+			survivor.StateKind = dup.StateKind
+		}
+	}
+}
+
+// --- WO-G2: zero-value instant-marker fold ----------------------------------
+
+// traceCausalProjectionZeroValueMarkerInstantToleranceS is the µs-scale
+// containment tolerance of the WO-G2 marker fold (seconds): the wake-instant
+// marker's timestamp must sit inside (or on the boundary of) the valued row's
+// own occurrence segment. 2µs — same magnitude class as the µs-precision
+// timestamps themselves, far below any segment length that mints a row.
+const traceCausalProjectionZeroValueMarkerInstantToleranceS = 0.000002
+
+// traceCausalProjectionZeroValueMarkerRow reports whether node is a zero-value
+// INSTANT marker (WO-G2, SMR-S12b — 42728 E3/E4、E9/E10 witnesses): a
+// wake-instant record (StartTs == EndTs, e.g. sched_blocked_reason markers)
+// carrying no measurable account of its own. trace_gap diagnostics are NOT
+// markers (they carry their own ◌ seat semantics — WO-G1's lane); merged /
+// fold / semantic rows never qualify.
+func traceCausalProjectionZeroValueMarkerRow(node TraceCausalProjectionNode) bool {
+	if node.ImpactMS > 0 || node.CumulativeImpactMS > 0 ||
+		node.EffectiveImpactMS > 0 || node.ActualImpactMS > 0 {
+		return false
+	}
+	if node.MergedCount > 1 || node.DuplicatePublications > 1 ||
+		node.OnChainOverflowFold || node.FamilyMemberCount > 0 ||
+		strings.TrimSpace(node.SemanticClass) != "" {
+		return false
+	}
+	for _, token := range []string{node.TypeToken, node.Object, node.Predicate} {
+		if traceCausalProjectionCanonicalNode(token) == "trace_gap" {
+			return false
+		}
+	}
+	if node.StartTs <= 0 || node.EndTs < node.StartTs {
+		return false
+	}
+	return node.EndTs-node.StartTs <= traceCausalProjectionZeroValueMarkerInstantToleranceS
+}
+
+// traceCausalProjectionFoldZeroValueMarkerRows (WO-G2, SMR-1 批 SMR-S12b,
+// smr_audit_report §②, 2026-07-12; 42728 witness: E3(+1) 0.091ms iowait valued
+// row beside E4 0.000ms same-subject same-object marker seat — the zero-value
+// seat implies yet another wait account): a zero-value instant marker whose
+// timestamp sits INSIDE exactly one same-(canonical subject, canonical object)
+// valued row's own occurrence segment is the wake-instant marker of THAT
+// segment, not a second account. It folds into the valued row as a VALUELESS
+// member — the §29.13 无时长值成员披露 lane (target form = the same page's
+// E8(+2) 「×3(有值2项…,1项无时长值)」precedent): MergedValuelessCount counts
+// it, its E# joins the bracket, and NO ms value moves (吸收=佩记号,数值不重计).
+// 禁裸删席 (zero-silent-disappearance): the fold is the only removal path —
+// evidence stays registered through MergedEvidenceIDs. Ambiguity (0 or ≥2
+// enclosing valued rows), missing timestamps, or an incompatible query window
+// fail open to the two-seat render. Mechanism kinship: CR-3 P10
+// blocked_reason 消费义务 + §29.13 — an existing lane reaching the marker
+// shape, never a second mechanism.
+func traceCausalProjectionFoldZeroValueMarkerRows(nodes []TraceCausalProjectionNode) []TraceCausalProjectionNode {
+	if len(nodes) < 2 {
+		return nodes
+	}
+	dropped := map[int]bool{}
+	for i := range nodes {
+		if !traceCausalProjectionZeroValueMarkerRow(nodes[i]) {
+			continue
+		}
+		marker := nodes[i]
+		subject := traceCausalProjectionCanonicalNode(marker.Subject)
+		object := traceCausalProjectionCanonicalNode(marker.Object)
+		if subject == "" {
+			continue
+		}
+		host := -1
+		ambiguous := false
+		for j := range nodes {
+			if j == i || dropped[j] {
+				continue
+			}
+			candidate := nodes[j]
+			if candidate.ImpactMS <= 0 && candidate.CumulativeImpactMS <= 0 {
+				continue // valueless hosts never absorb (no account to disclose on)
+			}
+			if traceCausalProjectionCanonicalNode(candidate.Subject) != subject ||
+				traceCausalProjectionCanonicalNode(candidate.Object) != object {
+				continue
+			}
+			if candidate.StartTs <= 0 || candidate.EndTs <= candidate.StartTs {
+				continue // no occurrence segment = no containment proof (fail-open)
+			}
+			tol := traceCausalProjectionZeroValueMarkerInstantToleranceS
+			if marker.StartTs < candidate.StartTs-tol || marker.StartTs > candidate.EndTs+tol {
+				continue
+			}
+			// Cross-window re-measurements never fold (SFD F1 family veto).
+			if traceCausalProjectionIntervalValid(marker.QueryWindowStartTs, marker.QueryWindowEndTs) &&
+				traceCausalProjectionIntervalValid(candidate.QueryWindowStartTs, candidate.QueryWindowEndTs) &&
+				(math.Abs(marker.QueryWindowStartTs-candidate.QueryWindowStartTs) > TraceCausalProjectionSameWindowToleranceS ||
+					math.Abs(marker.QueryWindowEndTs-candidate.QueryWindowEndTs) > TraceCausalProjectionSameWindowToleranceS) {
+				continue
+			}
+			if host >= 0 {
+				ambiguous = true
+				break
+			}
+			host = j
+		}
+		if host < 0 || ambiguous {
+			continue // fail-open: the honest two-seat render beats a guessed fold
+		}
+		h := &nodes[host]
+		display := h.ImpactMS
+		if display <= 0 {
+			display = h.CumulativeImpactMS
+		}
+		if h.MergedCount <= 1 {
+			h.MergedCount = 2
+			// Min/max range over POSITIVE displays only (G12-ENG §29.1) — the
+			// single valued member is both extrema.
+			h.MergedMinMS = display
+			h.MergedMaxMS = display
+		} else {
+			h.MergedCount++
+		}
+		h.MergedValuelessCount++
+		absorbed := map[string]bool{traceCausalProjectionCanonicalNode(h.EvidenceID): true}
+		for _, id := range h.MergedEvidenceIDs {
+			absorbed[traceCausalProjectionCanonicalNode(id)] = true
+		}
+		appendID := func(raw string) {
+			raw = strings.TrimSpace(raw)
+			if raw == "" || absorbed[traceCausalProjectionCanonicalNode(raw)] {
+				return
+			}
+			absorbed[traceCausalProjectionCanonicalNode(raw)] = true
+			h.MergedEvidenceIDs = append(h.MergedEvidenceIDs, raw)
+		}
+		appendID(marker.EvidenceID)
+		for _, id := range marker.MergedEvidenceIDs {
+			appendID(id)
+		}
+		if marker.LineStart > 0 && (h.LineStart <= 0 || marker.LineStart < h.LineStart) {
+			h.LineStart = marker.LineStart
+		}
+		if marker.LineEnd > h.LineEnd {
+			h.LineEnd = marker.LineEnd
+		}
+		dropped[i] = true
+	}
+	if len(dropped) == 0 {
+		return nodes
+	}
+	out := make([]TraceCausalProjectionNode, 0, len(nodes)-len(dropped))
+	for i, node := range nodes {
+		if dropped[i] {
+			continue
+		}
+		out = append(out, node)
+	}
+	return out
 }
 
 // --- R2: same-kind ×N aggregation -------------------------------------------

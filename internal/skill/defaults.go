@@ -160,6 +160,18 @@ func RegisterDefaults(r *Registry) {
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},
 			{
+				// WO-P1 (SMR-1 批 S9-AWEME, smr_audit_report §②, 2026-07-12):
+				// the answer-body IO type word forked across runs and against
+				// the evidence face (io_latency vs io_burst_episode naming ONE
+				// physical IO) — soft guidance only (正文榜 is the model's
+				// prose face; 精确信号红线禁硬卡). Authority order mirrors the
+				// engine's io-facet lead election (io_wait > io_latency >
+				// io_burst_episode); consistency is observed via eval, never a
+				// hard gate.
+				Body:      "TRACE IO TYPE-WORD SINGLE SOURCE: when the answer body names an IO cause, use ONE IO type word per physical IO episode, taken from the evidence row the sentence cites (its typed `type` field): io_wait for the scheduler-wait account, io_latency for the end-to-end completion account, io_burst_episode for the burst-episode account. When one episode was measured by several calibers, lead with io_wait when present, else io_latency, else io_burst_episode; name the other calibers only as alternative measurements of the same time — never as additional causes and never added together. Keep the same type word for the same episode everywhere in one answer: the body wording must match the cited evidence row's own type word.",
+				AppliesTo: AppliesToFilter{RequiresTrace: true},
+			},
+			{
 				Body:      "PERF SAMPLE PROVENANCE: preserve trace_query perf sample `source` and `symbolization_status` in final markdown/html reports. `raw_perfdata_fallback` / `unsymbolized` rows are useful for time/thread/DSO/IP correlation but lower confidence than official hiperf/simpleperf symbolized output.",
 				AppliesTo: AppliesToFilter{RequiresTrace: true},
 			},

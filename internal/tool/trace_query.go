@@ -5824,6 +5824,16 @@ func traceQueryWriteOccurrenceRows(b *strings.Builder, label string, rank int, t
 // into ledger-ready observation rows. idScope is appended to the per-result
 // namespace so multi-window results (one ToolResult carrying several bounded
 // child runs) keep distinct row IDs.
+// traceQueryTargetWindowStatesAccount resolves the run's four-state account —
+// the frame-bundle copy first (authoritative anchor-window form), else the
+// §29.27② 常态发布 top-level copy (SMR-1 修复轮 引擎件①).
+func traceQueryTargetWindowStatesAccount(result tracequery.Result) *tracequery.TargetWindowStateAccount {
+	if result.FrameRootCauseBundle != nil && result.FrameRootCauseBundle.TargetWindowStates != nil {
+		return result.FrameRootCauseBundle.TargetWindowStates
+	}
+	return result.TargetWindowStates
+}
+
 func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadRef, rawRef, idScope string, observedAt time.Time) []types.ObservationRecord {
 	ref := traceQueryObservationSourceRef(result, sourceLabel, payloadRef, rawRef)
 	scope := traceQueryObservationScope(result, payloadRef, rawRef)
@@ -5888,13 +5898,14 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 		})
 	}
 
-	// §29.27② (COV-4, 2026-07-11): the focused thread's full-window state
-	// partition — one typed projection-level record per bundle. The compile
-	// admits it only when its selected_window matches the resolved anchor
-	// window; the display renders the four-state account only when Σ(states)
-	// balances the window (不平衡拒渲不造数).
-	if result.FrameRootCauseBundle != nil && result.FrameRootCauseBundle.TargetWindowStates != nil {
-		account := result.FrameRootCauseBundle.TargetWindowStates
+	// §29.27② (COV-4, 2026-07-11) + 常态发布 (SMR-1 修复轮 引擎件①,
+	// 2026-07-13): the focused thread's full-window state partition — one
+	// typed projection-level record per run (bundle copy authoritative,
+	// generic target-anchored runs publish through Result.TargetWindowStates).
+	// The compile admits it only when its selected_window matches the
+	// resolved anchor window; the display renders the four-state account only
+	// when Σ(states) balances the window (不平衡拒渲不造数).
+	if account := traceQueryTargetWindowStatesAccount(result); account != nil {
 		subject := traceThreadLabel(account.Thread)
 		if strings.TrimSpace(subject) != "" && account.TotalMs > 0 {
 			notes := traceQueryTypedKVNotes([][2]string{
@@ -6209,18 +6220,21 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				GroundingPolicy: grounding,
 				ProvenanceLane:  provenance,
 				SourceRef:       ref,
-				Span:            types.ObservationSpan{LineStart: item.LineStart, LineEnd: item.LineEnd},
-				ClaimKey:        claimKey,
-				Subject:         traceThreadLabel(item.Thread),
-				Predicate:       predicate,
-				Object:          item.Type,
-				Value:           traceQueryObservationMSValue(item.ImpactMs),
-				Unit:            "ms",
-				Summary:         firstNonEmptyTraceString(item.Summary, traceQueryRootCausePositionWord(tier, rank, traceQueryRootCauseItemRelevance(item))+" ("+item.Type+")"),
-				RichNotes:       notes,
-				SupportRefs:     traceQueryObservationSupportRefs(ref, item.LineStart, item.LineEnd),
-				ObservedAt:      at,
-				Confidence:      item.Confidence,
+				// P1-1 (SMR-1 修复轮, 2026-07-13): same wall-clock span emission
+				// as the critical lane above (typed item fields, no re-derivation).
+				Span: types.ObservationSpan{LineStart: item.LineStart, LineEnd: item.LineEnd,
+					StartTs: item.StartTs, EndTs: item.EndTs},
+				ClaimKey:    claimKey,
+				Subject:     traceThreadLabel(item.Thread),
+				Predicate:   predicate,
+				Object:      item.Type,
+				Value:       traceQueryObservationMSValue(item.ImpactMs),
+				Unit:        "ms",
+				Summary:     firstNonEmptyTraceString(item.Summary, traceQueryRootCausePositionWord(tier, rank, traceQueryRootCauseItemRelevance(item))+" ("+item.Type+")"),
+				RichNotes:   notes,
+				SupportRefs: traceQueryObservationSupportRefs(ref, item.LineStart, item.LineEnd),
+				ObservedAt:  at,
+				Confidence:  item.Confidence,
 			})
 		}
 	}
@@ -6480,6 +6494,22 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			if strings.TrimSpace(root.Type) == "" && strings.TrimSpace(root.Summary) == "" {
 				continue
 			}
+			// WO-G1 (SMR-1 批 SMR-S12a, smr_audit_report §②, 2026-07-12): the
+			// typed TraceGapKind reaches the CHAIN lane too. The root_evidence
+			// trace_gap copy used to drop the engine's precise criterion
+			// (RootEvidence.GapKind — single mint at the expandChain
+			// nil-interesting arm), so the display tree's chain-stop ◌ fell
+			// back to the no_sched_data wording BESIDE a valued row (52774
+			// false-claim witness). Same note key as the rank lane (G2 显示
+			// 半场) — an existing signal reaching one more lane, never a second
+			// mechanism. Absence stays absent (legacy replays keep fail-open).
+			rootNotes := []string{
+				types.TraceNoteKeyTier + "=" + tracequery.RootCauseTierContextOnly,
+				types.TraceNoteKeyEffectiveImpactMS + "=0.000",
+			}
+			if root.Type == "trace_gap" && strings.TrimSpace(root.GapKind) != "" {
+				rootNotes = append(rootNotes, types.TraceNoteKeyTraceGapKind+"="+strings.TrimSpace(root.GapKind))
+			}
 			out = append(out, types.ObservationRecord{
 				ID:              fmt.Sprintf("trace_query:%s#root_evidence:%d", scope, i+1),
 				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
@@ -6498,10 +6528,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// RootEvidence is a lossless, reduced-shape wakeup witness. It does
 				// not carry CAP/gated/state-union provenance, so only the richer
 				// root_cause_rank/causal-impact lanes may participate in ranking.
-				RichNotes: []string{
-					types.TraceNoteKeyTier + "=" + tracequery.RootCauseTierContextOnly,
-					types.TraceNoteKeyEffectiveImpactMS + "=0.000",
-				},
+				RichNotes:   rootNotes,
 				SupportRefs: traceQueryObservationSupportRefs(ref, root.LineStart, root.LineEnd),
 				ObservedAt:  at,
 				Confidence:  root.Confidence,
@@ -6534,14 +6561,20 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				GroundingPolicy: types.ClaimGroundingHard,
 				ProvenanceLane:  types.ObservationProvenanceObservedDirectCause,
 				SourceRef:       ref,
-				Span:            types.ObservationSpan{LineStart: item.LineStart, LineEnd: item.LineEnd},
-				ClaimKey:        "critical_blocking:" + item.Type,
-				Subject:         traceThreadLabel(item.Thread),
-				Predicate:       "critical_blocking",
-				Object:          firstNonEmptyTraceString(traceThreadLabel(item.Peer), item.Type),
-				Value:           traceQueryObservationMSValue(item.DurationMs),
-				Unit:            "ms",
-				Summary:         item.Summary,
+				// P1-1 (SMR-1 修复轮, 2026-07-13): the row's own typed wall-clock
+				// segment rides the span — the display-side NEW-3/G2/B1 arms
+				// judge on StartTs/EndTs (行号包络连通判被禁), and the emission
+				// dropping them starved every wall-clock gate in production
+				// (8411/64414 形折叠面 + S9-AWEME 一席回退 + G2 marker 折).
+				Span: types.ObservationSpan{LineStart: item.LineStart, LineEnd: item.LineEnd,
+					StartTs: item.StartTs, EndTs: item.EndTs},
+				ClaimKey:  "critical_blocking:" + item.Type,
+				Subject:   traceThreadLabel(item.Thread),
+				Predicate: "critical_blocking",
+				Object:    firstNonEmptyTraceString(traceThreadLabel(item.Peer), item.Type),
+				Value:     traceQueryObservationMSValue(item.DurationMs),
+				Unit:      "ms",
+				Summary:   item.Summary,
 				// NEW-8 (账本 §7.6): blocking rows are selected-window surfaces
 				// too — carry the typed selected_window note (view window =
 				// q.TimeStart/TimeEnd) so window-basis displays can name the

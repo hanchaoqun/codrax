@@ -18,7 +18,7 @@ package tool
 //   累计(跨线程)词值 — the fallback stanza word never lands on a single-thread
 //        stanza row (huadong_792 E22 / cmp_792 proj2 E23 / textup_792 E15-E17);
 //        the ×N-merged rank shape speaks the §24.2 行3 equation
-//        (有效归因 V = 单次最大(a–b,共N次)); the multi-thread R3 fold keeps
+//        (有效归因 V = 单次最大(a~b,共N次)); the multi-thread R3 fold keeps
 //        累计(跨线程) byte-identically.
 //   E19 跨窗折叠漏拒% — an on-chain overflow fold whose members straddle query
 //        windows suppresses the 占窗% (huadong_792 E19 "24%"); single-window
@@ -325,7 +325,7 @@ func TestDisp3SingleThreadStanzaCaliberWord(t *testing.T) {
 	}
 	// The ×N-merged rank shape speaks the §24.2 行3 equation with the existing
 	// closed-set caliber word (huadong_792 E22 repaired form).
-	if !strings.Contains(fence, "有效归因 9.169ms = 单次最大(8.611–9.169ms,共2次)") {
+	if !strings.Contains(fence, "有效归因 9.169ms = 单次最大(8.611~9.169ms,共2次)") {
 		t.Fatalf("merged single-thread stanza rank row must speak the 单次最大 equation:\n%s", fence)
 	}
 	// equal-value single-thread stanza row: no second tag (the main number is
@@ -339,7 +339,7 @@ func TestDisp3SingleThreadStanzaCaliberWord(t *testing.T) {
 	}
 	// Legend entries follow the words that rendered.
 	lead := runtimeTraceProjLeadText(projection, model, "zh", true)
-	if !strings.Contains(lead, "`单次最大(a–b,共N次)`") {
+	if !strings.Contains(lead, "`单次最大(a~b,共N次)`") {
 		t.Fatalf("the 单次最大 legend entry must ride the equation:\n%s", lead)
 	}
 }

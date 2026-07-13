@@ -10,6 +10,7 @@ package tracequery
 
 import (
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -150,5 +151,30 @@ func TestCov4SleepIOWaitRefinementG12Platform(t *testing.T) {
 		if td.Thread.PID == 562 {
 			t.Fatalf("IOWaitTop must stay unchanged (G12 zero-change): %+v", td)
 		}
+	}
+}
+
+// §29.27② 常态发布 pin (SMR-1 修复轮 引擎件①, 2026-07-13; 冷读 F-0 放大器:
+// the 40422 non-bundle run had no four-state account and the prose「全程
+// s_sleep」inversion sailed past): a target-anchored bounded-window
+// root_cause_rank run publishes Result.TargetWindowStates.
+func TestTargetWindowStatesPublishesOnRankView(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("        app-100 (100) [001] .... 9.990000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52\n")
+	b.WriteString("        app-100 (100) [001] .... 10.020000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120\n")
+	b.WriteString("        dep-200 (100) [000] .... 10.079900: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001\n")
+	b.WriteString("        app-100 (100) [001] .... 10.080000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52\n")
+	b.WriteString("        app-100 (100) [001] .... 10.110000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120\n")
+	idx := buildTraceIndex(t, "cov4_publish_rank.systrace", b.String())
+	res := Run(idx, Query{View: "root_cause_rank", PID: 100, TimeStart: 10.0, TimeEnd: 10.1})
+	if res.TargetWindowStates == nil {
+		t.Fatalf("target-anchored rank run must publish the four-state account (常态发布)")
+	}
+	if res.TargetWindowStates.TotalMs <= 0 {
+		t.Fatalf("account must carry the measured partition: %+v", res.TargetWindowStates)
+	}
+	// Non-target runs stay silent (absence never fabricates).
+	if bare := Run(idx, Query{View: "window_stats", TimeStart: 10.0, TimeEnd: 10.1}); bare.TargetWindowStates != nil {
+		t.Fatalf("a run without a target thread must not fabricate an account")
 	}
 }

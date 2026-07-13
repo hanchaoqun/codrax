@@ -6,7 +6,7 @@ package tool
 // The huadong_79_01 E23 witness: an on-chain overflow fold of ONE real
 // 14.272ms member (the target's ×5 binder-wait aggregate) plus ONE
 // zero-duration member (hmfs_discard's ×4 blocked_reason marker aggregate)
-// rendered "×2(14.272–14.272ms)取最大" — the min–max ranged over positive
+// rendered "×2(14.272~14.272ms)取最大" — the min–max ranged over positive
 // displays only while ×N counted every member, fabricating a second 14.272ms
 // observation under the valueless member's subject. The customer read it as
 // same-segment double attribution and audited the raw trace (g12_report.txt).
@@ -71,7 +71,7 @@ func TestG12MixedFoldHonestRangeFaces(t *testing.T) {
 		t.Fatalf("the mixed fold must bind the range to the valued member only:\n%s", fence)
 	}
 	// The fabricated legacy claim — both members wearing the max — must be gone.
-	if strings.Contains(fence, "×2(14.272–14.272ms)取最大") {
+	if strings.Contains(fence, "×2(14.272~14.272ms)取最大") {
 		t.Fatalf("the fabricated ×2 same-value form must not render on a mixed fold:\n%s", fence)
 	}
 	// Legend: the 无时长值 entry teaches the wording exactly when it renders
@@ -86,7 +86,7 @@ func TestG12MixedFoldHonestRangeFaces(t *testing.T) {
 	if !strings.Contains(detail, "×2 跨线程折叠取最大(墙钟跨线程不可加和),有值1项各 14.272ms,另1项无时长值") {
 		t.Fatalf("(b) block must mirror the honest mixed form:\n%s", detail)
 	}
-	if strings.Contains(detail, "各 14.272–14.272ms") {
+	if strings.Contains(detail, "各 14.272~14.272ms") {
 		t.Fatalf("(b) block must not claim the range over every member:\n%s", detail)
 	}
 	// EN face.
@@ -107,7 +107,7 @@ func TestG12MixedFoldMutationRevert(t *testing.T) {
 	honest := runtimeTraceProjMergedMaxTagText(node, true)
 	node.MergedValuelessCount = 0 // the reverted-arm simulation
 	legacy := runtimeTraceProjMergedMaxTagText(node, true)
-	if legacy != "×2(14.272–14.272ms)取最大" {
+	if legacy != "×2(14.272~14.272ms)取最大" {
 		t.Fatalf("mutation witness drifted — expected the legacy fabricated form, got %q", legacy)
 	}
 	if honest == legacy {
@@ -125,10 +125,10 @@ func TestG12AllValuedFoldByteIdentity(t *testing.T) {
 	node := g12MixedFoldNode()
 	node.MergedValuelessCount = 0
 	node.MergedMinMS = 1.843
-	if got := runtimeTraceProjMergedMaxTagText(node, true); got != "×2(1.843–14.272ms)取最大" {
+	if got := runtimeTraceProjMergedMaxTagText(node, true); got != "×2(1.843~14.272ms)取最大" {
 		t.Fatalf("all-valued zh tag must stay byte-identical: %q", got)
 	}
-	if got := runtimeTraceProjMergedMaxTagText(node, false); got != "×2(1.843–14.272ms) max" {
+	if got := runtimeTraceProjMergedMaxTagText(node, false); got != "×2(1.843~14.272ms) max" {
 		t.Fatalf("all-valued en tag must stay byte-identical: %q", got)
 	}
 	projection := g12MixedFoldProjection()
@@ -136,7 +136,7 @@ func TestG12AllValuedFoldByteIdentity(t *testing.T) {
 	projection.OnChainCauses[1].MergedMinMS = 1.843
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "×2(1.843–14.272ms)取最大") {
+	if !strings.Contains(fence, "×2(1.843~14.272ms)取最大") {
 		t.Fatalf("all-valued fold keeps the legacy form:\n%s", fence)
 	}
 	if strings.Contains(fence, "无时长值") {
@@ -171,11 +171,11 @@ func g12MixedCWDProjection() types.TraceCausalProjection {
 // binds the range to the valued members, the 无时长值 legend entry rides along
 // (词条-图例双向契约 — the P1-1 lesion was the missing mark on the
 // RowMetricParts CWD arm), and the (b) ×N 明细 line says the SAME split (the
-// P2-1 lesion was (b) claiming 单次 a–b over every member on the same row).
+// P2-1 lesion was (b) claiming 单次 a~b over every member on the same row).
 func TestG12MixedCWDFoldFaces(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(g12MixedCWDProjection(), newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "×3(有值2项 20.000–60.000ms,1项无时长值)跨窗取最大") {
+	if !strings.Contains(fence, "×3(有值2项 20.000~60.000ms,1项无时长值)跨窗取最大") {
 		t.Fatalf("mixed CWD fence tag must bind the range to valued members:\n%s", fence)
 	}
 	marks := revisit76AssertLegendBidirectional(t, "g12_mixed_cwd_zh", g12MixedCWDProjection(), true)
@@ -184,10 +184,10 @@ func TestG12MixedCWDFoldFaces(t *testing.T) {
 	}
 	revisit76AssertLegendBidirectional(t, "g12_mixed_cwd_en", g12MixedCWDProjection(), false)
 	detail := runtimeTraceProjDetailFullText(model, true)
-	if !strings.Contains(detail, "原始和 80.000ms 供对照,有值2项单次 20.000–60.000ms,另1项无时长值") {
+	if !strings.Contains(detail, "原始和 80.000ms 供对照,有值2项单次 20.000~60.000ms,另1项无时长值") {
 		t.Fatalf("(b) CWD arm must carry the valued split (P2-1):\n%s", detail)
 	}
-	if strings.Contains(detail, "供对照,单次 20.000–60.000ms") {
+	if strings.Contains(detail, "供对照,单次 20.000~60.000ms") {
 		t.Fatalf("(b) CWD arm must not claim the range over every member:\n%s", detail)
 	}
 }
@@ -201,32 +201,32 @@ func TestG12MixedUnionAndSumDetailFaces(t *testing.T) {
 	union.MergedCrossWindowMax = false
 	union.MergedIntervalUnion = true
 	union.EvidenceID = "g12-union-ev"
-	if got := runtimeTraceProjMergedUnionTagText(union, true); got != "×3(有值2项 20.000–60.000ms,1项无时长值)union" {
+	if got := runtimeTraceProjMergedUnionTagText(union, true); got != "×3(有值2项 20.000~60.000ms,1项无时长值)union" {
 		t.Fatalf("mixed union tag must carry the valued split: %q", got)
 	}
-	if got := runtimeTraceProjMergedPerInstanceText(union, true); got != "有值2项单次 20.000–60.000ms,另1项无时长值" {
+	if got := runtimeTraceProjMergedPerInstanceText(union, true); got != "有值2项单次 20.000~60.000ms,另1项无时长值" {
 		t.Fatalf("mixed per-instance segment must carry the valued split: %q", got)
 	}
 	sum := g12MixedCWDNode()
 	sum.MergedCrossWindowMax = false
 	sum.MergedQueryWindows = nil
-	if got := runtimeTraceProjMergedSumTagText(sum, true); got != "×3(有值2项 20.000–60.000ms,1项无时长值)" {
+	if got := runtimeTraceProjMergedSumTagText(sum, true); got != "×3(有值2项 20.000~60.000ms,1项无时长值)" {
 		t.Fatalf("mixed sum tag must carry the valued split (P2-2①): %q", got)
 	}
 	// 负向: all-valued rows keep the legacy neutral forms byte-identically.
 	sum.MergedValuelessCount = 0
-	if got := runtimeTraceProjMergedSumTagText(sum, true); got != "×3(20.000–60.000ms)" {
+	if got := runtimeTraceProjMergedSumTagText(sum, true); got != "×3(20.000~60.000ms)" {
 		t.Fatalf("all-valued sum tag must stay byte-identical: %q", got)
 	}
 	union.MergedValuelessCount = 0
-	if got := runtimeTraceProjMergedUnionTagText(union, false); got != "×3(20.000–60.000ms)union" {
+	if got := runtimeTraceProjMergedUnionTagText(union, false); got != "×3(20.000~60.000ms)union" {
 		t.Fatalf("all-valued union tag must stay byte-identical: %q", got)
 	}
 }
 
 // g12StandaloneAllZeroR2Projection is the 复核 P2-2② witness shape: the hmfs
 // ×4 zero-duration blocked_reason R2 aggregate rendered STANDALONE (no
-// overflow) — previously ×4(0.000–0.000ms) + (b) 单次 0.000–0.000ms 伪值.
+// overflow) — previously ×4(0.000~0.000ms) + (b) 单次 0.000~0.000ms 伪值.
 func g12StandaloneAllZeroR2Projection() types.TraceCausalProjection {
 	return types.TraceCausalProjection{
 		WakeupPath:    []string{"hmfs_discard-26-562", "oney.hmn.berlin-42591"},
@@ -262,7 +262,7 @@ func TestG12StandaloneAllZeroR2Faces(t *testing.T) {
 	if !strings.Contains(detail, "同一线程 4 次实例合并,全部无时长值") {
 		t.Fatalf("(b) sum arm must speak the honest all-zero form:\n%s", detail)
 	}
-	if strings.Contains(detail, "单次 0.000–0.000ms") {
+	if strings.Contains(detail, "单次 0.000~0.000ms") {
 		t.Fatalf("(b) sum arm must not mint the 0.000 pseudo range:\n%s", detail)
 	}
 	marks := revisit76AssertLegendBidirectional(t, "g12_all_zero_r2_zh", g12StandaloneAllZeroR2Projection(), true)

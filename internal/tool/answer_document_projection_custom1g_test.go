@@ -276,9 +276,9 @@ func TestRuntimeTraceProjBackgroundFoldRowShowsMaxFormNotSumForm(t *testing.T) {
 		joined = append(joined, tag.Text)
 	}
 	flat := strings.Join(joined, " · ")
-	// PTV4 T4 (×N 三式): the max form is the ×N(a–b)取最大 data token — the
+	// PTV4 T4 (×N 三式): the max form is the ×N(a~b)取最大 data token — the
 	// 不求和 semantics live in the legend's 口径组 entry.
-	if !strings.Contains(flat, "×6(99.500–101.000ms)取最大") {
+	if !strings.Contains(flat, "×6(99.500~101.000ms)取最大") {
 		t.Fatalf("fold row must declare the max form:\n%s", flat)
 	}
 	if strings.Contains(flat, "单次") {
@@ -298,7 +298,7 @@ func TestRuntimeTraceProjBackgroundFoldRowShowsMaxFormNotSumForm(t *testing.T) {
 	for _, tag := range sumTags {
 		sumFlat = append(sumFlat, tag.Text)
 	}
-	if !strings.Contains(strings.Join(sumFlat, " · "), "×6(99.500–101.000ms)") {
+	if !strings.Contains(strings.Join(sumFlat, " · "), "×6(99.500~101.000ms)") {
 		t.Fatalf("subject-bearing aggregate must keep the sum form: %v", sumFlat)
 	}
 	if strings.Contains(strings.Join(sumFlat, " · "), "取最大") {
@@ -322,14 +322,14 @@ func TestRuntimeTraceProjDetailTableFoldRowKeepsRoster(t *testing.T) {
 	// PTV4 T10 (a): the node cell carries the max-form data token; the FULL
 	// member roster lives in the (b) blocks' ×N 明细 line (更无损: the roster
 	// is no longer subject to the name-cell cap).
-	if cell := rows[0].Cells[0]; !strings.Contains(cell, "×6(99.500–101.000ms)取最大") {
+	if cell := rows[0].Cells[0]; !strings.Contains(cell, "×6(99.500~101.000ms)取最大") {
 		t.Fatalf("fold cell must carry the max-form count: %q", cell)
 	}
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: ×6 取最大口径(…,不求和)
 	// → ×6 跨线程折叠取最大(墙钟跨线程不可加和) (×N 明细族); 成员: → 成员(共6,列4):
 	// (截断 roster 自报账).
 	full := runtimeTraceProjDetailFullText(model, true)
-	if !strings.Contains(full, "×6 跨线程折叠取最大(墙钟跨线程不可加和),各 99.500–101.000ms;成员(共6,列4): a-1、b-2、c-3、d-4 等") {
+	if !strings.Contains(full, "×6 跨线程折叠取最大(墙钟跨线程不可加和),各 99.500~101.000ms;成员(共6,列4): a-1、b-2、c-3、d-4 等") {
 		t.Fatalf("(b) blocks must carry the full member roster:\n%s", full)
 	}
 	if enFull := runtimeTraceProjDetailFullText(model, false); !strings.Contains(enFull, "members (6 total, 4 listed): a-1, b-2, c-3, d-4, …") {

@@ -80,7 +80,7 @@ func cwd2E19Projection(windows int) types.TraceCausalProjection {
 
 // cwd2MultiWindowSumProjection is the representative multi-window SUM shape
 // for the NEW-7 bidirectional legend harness (probe-compatible merged values:
-// the MergedSum probe token is the verbatim ×3(10.000–30.000ms)).
+// the MergedSum probe token is the verbatim ×3(10.000~30.000ms)).
 func cwd2MultiWindowSumProjection() types.TraceCausalProjection {
 	return types.TraceCausalProjection{
 		WindowStartTs: 100.000,
@@ -118,7 +118,7 @@ func TestCWD2E19MultiWindowSumSuppressesAnchorShare(t *testing.T) {
 		if !strings.Contains(fence, "63.831ms") {
 			t.Fatalf("zh=%v: the ms cell must survive:\n%s", zh, fence)
 		}
-		if !strings.Contains(fence, "×14(1.035–6.357ms)") || strings.Contains(fence, ")union") || strings.Contains(fence, "跨窗取最大") {
+		if !strings.Contains(fence, "×14(1.035~6.357ms)") || strings.Contains(fence, ")union") || strings.Contains(fence, "跨窗取最大") {
 			t.Fatalf("zh=%v: the row must keep the plain ×N SUM form:\n%s", zh, fence)
 		}
 		if !strings.Contains(fence, "█") {
@@ -142,7 +142,7 @@ func TestCWD2E19MultiWindowSumSuppressesAnchorShare(t *testing.T) {
 			t.Fatalf("zh=%v: the no-share legend entry must render:\n%s", zh, lead)
 		}
 		lossless := runtimeTraceProjDetailFullText(multi, zh)
-		if zh && !strings.Contains(lossless, "同一线程 14 次实例合并求和,单次 1.035–6.357ms") {
+		if zh && !strings.Contains(lossless, "同一线程 14 次实例合并求和,单次 1.035~6.357ms") {
 			t.Fatalf("the SUM caliber wording must stay (disjoint windows are a legal sum):\n%s", lossless)
 		}
 		if !strings.Contains(lossless, "6793222.700–6793222.801s") || !strings.Contains(lossless, "6793224.895–6793224.996s") {

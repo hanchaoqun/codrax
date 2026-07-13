@@ -223,11 +223,13 @@ func TestExploreSkill_TraceQueryGuidanceIsTraceGated(t *testing.T) {
 		!strings.Contains(sk.Workflow[0], "repo_map") {
 		t.Fatalf("generic source breadth scan should remain the first always-rendered item:\n%s", sk.Workflow[0])
 	}
-	if len(sk.WorkflowTierB) < 4 {
+	if len(sk.WorkflowTierB) < 5 {
 		t.Fatalf("explore-skill should carry trace guidance in WorkflowTierB: %#v", sk.WorkflowTierB)
 	}
-	traceTier := strings.Join([]string{sk.WorkflowTierB[0].Body, sk.WorkflowTierB[1].Body, sk.WorkflowTierB[2].Body, sk.WorkflowTierB[3].Body}, "\n")
-	for i := 0; i < 4; i++ {
+	// WO-P1 (SMR-1 批, 2026-07-12): the IO type-word single-source directive
+	// joined the trace tier at index 3 (before PERF SAMPLE PROVENANCE).
+	traceTier := strings.Join([]string{sk.WorkflowTierB[0].Body, sk.WorkflowTierB[1].Body, sk.WorkflowTierB[2].Body, sk.WorkflowTierB[3].Body, sk.WorkflowTierB[4].Body}, "\n")
+	for i := 0; i < 5; i++ {
 		if !sk.WorkflowTierB[i].AppliesTo.RequiresTrace {
 			t.Fatalf("trace workflow item %d must be gated by RequiresTrace: %+v", i, sk.WorkflowTierB[i].AppliesTo)
 		}
@@ -277,6 +279,12 @@ func TestExploreSkill_TraceQueryGuidanceIsTraceGated(t *testing.T) {
 		"member_roster",
 		"combined window-projection total",
 		"background_rank<=3",
+		// WO-P1 (SMR-1 批 S9-AWEME): the IO type-word single-source soft
+		// directive (答案侧一致性走 eval 观察, 本 pin 只保指令在场).
+		"TRACE IO TYPE-WORD SINGLE SOURCE",
+		"ONE IO type word per physical IO episode",
+		"lead with io_wait when present, else io_latency, else io_burst_episode",
+		"never as additional causes and never added together",
 		"PERF SAMPLE PROVENANCE",
 	} {
 		if !strings.Contains(traceTier, want) {

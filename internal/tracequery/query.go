@@ -554,6 +554,23 @@ func Run(idx *Index, q Query) Result {
 	}
 	attachEvidenceFactProvenance(res.EvidencePack, res.TraceArtifacts)
 	collectResultCompactions(&res, q)
+	// §29.27② 常态发布 (SMR-1 修复轮 引擎件①, 2026-07-13): every
+	// target-anchored bounded-window run publishes the four-state account.
+	// The frame-bundle copy stays the authority when present (same builder,
+	// same scan discipline); the generic arm reuses the ONE shared timeline
+	// helper — no second event rescan beyond the target's own timeline.
+	// Exactly ONE copy per run (dup-lane discipline the tracediag schema pin
+	// reviews): the bundle path keeps its own slot; the top-level slot fills
+	// only on non-bundle runs.
+	if res.TargetWindowStates == nil && (q.PID > 0 || strings.TrimSpace(q.Thread) != "") &&
+		(res.FrameRootCauseBundle == nil || res.FrameRootCauseBundle.TargetWindowStates == nil) {
+		if q.TimeEnd > q.TimeStart && q.TimeStart > 0 {
+			target := ThreadRef{PID: q.PID, Comm: strings.TrimSpace(q.Thread)}
+			window := TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}
+			tl, ok := targetWindowTimeline(idx, q, target, window)
+			res.TargetWindowStates = buildTargetWindowStateAccount(idx, tl, ok, target, window, res.WindowStats)
+		}
+	}
 	return res
 }
 

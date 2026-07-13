@@ -150,7 +150,7 @@ func TestPTV6DSelfRowPrefixFillAndPacking(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("fitting self row must stay a single line, got %d: %q", len(lines), lines)
 	}
-	for _, want := range []string{"☾ 自身·sleep", "25.806ms", "×2同值", "×3(1.000–12.000ms)", "[E1]"} {
+	for _, want := range []string{"☾ 自身·sleep", "25.806ms", "×2同值", "×3(1.000~12.000ms)", "[E1]"} {
 		if !strings.Contains(lines[0], want) {
 			t.Fatalf("self row lost part %q: %q", want, lines[0])
 		}
@@ -393,7 +393,7 @@ func TestPTV6DSpecimenReplayLineLedger(t *testing.T) {
 				// chip drops; row identity/confidence stay rendered).
 				"IRQ突发·置信高", "IRQ活动·置信高", "累计(跨线程)1.997ms",
 				"IO等待(对端 udk-irq-3-65)", "D-state/iowait(对端未解析)",
-				"IO等待(对端 udk-irq-1-63)", "×2(0.081–1.302ms)取最大",
+				"IO等待(对端 udk-irq-1-63)", "×2(0.081~1.302ms)取最大",
 				"IO等待(对端 udk-irq-4-67)",
 			},
 		},

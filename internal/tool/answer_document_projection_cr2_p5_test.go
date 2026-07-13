@@ -11,7 +11,7 @@ import (
 // 20260712-131531 E1/E2 — one running segment 54.599ms/55% published as a
 // candidate-lane row AND a bare raw-state (root_evidence, context_only) row;
 // donghu 20260712-133933 E8/E9 — the critical_blocking ×4 twin of the D-state
-// family row re-publishing the same segments with a fake 「单次 3.774–16.064ms」
+// family row re-publishing the same segments with a fake 「单次 3.774~16.064ms」
 // per-instance claim (F-1 残口移交)。 Display-layer forerunner of the v5 P1
 // engine one-seat-per-segment batch (EVOLUTION RECORD in the fold lane): the
 // engine wire is untouched — fingerprint-equal rows converge at render.
@@ -130,17 +130,17 @@ func cr2P5FamilyMirrorProjection() types.TraceCausalProjection {
 
 // donghu E8/E9 形 pin (F-1 残口): the merged critical_blocking twin of a family
 // row wears the typed mirror mark, and its per-instance range speaks the
-// group-sum truth (段 inventory 传播) instead of the fake 「单次 a–b」.
+// group-sum truth (段 inventory 传播) instead of the fake 「单次 a~b」.
 func TestCR2P5FamilyMirrorTwinRangeHonesty(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(cr2P5FamilyMirrorProjection(), newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	detail := runtimeTraceProjDetailFullText(model, true)
-	if strings.Contains(detail, "单次 3.774–16.064ms") {
+	if strings.Contains(detail, "单次 3.774~16.064ms") {
 		t.Fatalf("the twin's per-instance claim is per-CPU group sums, not single segments — 「单次」 must not render:\n%s", detail)
 	}
-	if !strings.Contains(detail, "各成员 3.774–16.064ms(按CPU分组合计,非单段") {
+	if !strings.Contains(detail, "各成员 3.774~16.064ms(按CPU分组合计,非单段") {
 		t.Fatalf("the twin must disclose the group-sum caliber of its member range:\n%s", detail)
 	}
-	if !strings.Contains(detail, "单段真值 2.197–3.853ms") {
+	if !strings.Contains(detail, "单段真值 2.197~3.853ms") {
 		t.Fatalf("the family row's segment truth must propagate to the twin lane:\n%s", detail)
 	}
 	fence := runtimeTraceProjTreeFence(model, true)

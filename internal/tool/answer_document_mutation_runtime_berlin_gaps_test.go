@@ -392,7 +392,7 @@ func TestRuntimeTraceProjDedupFoldLabelDistinctFromSumAggregateLabel(t *testing.
 	}
 	// PTV4 T4 (×N 三式): the dedupe form is the bare ×N同值 data token — the
 	// "重复发布/数值不变" semantics live in the legend's 口径组 entry; the sum
-	// form is ×N(a–b). The two forms stay mutually exclusive.
+	// form is ×N(a~b). The two forms stay mutually exclusive.
 	// EVOLUTION RECORD (UXR-1 §29.36④, 2026-07-11): the dedupe chip RELOCATED
 	// onto the 词位 (name tail, 与明细表同形) — the tag stream carries it no
 	// longer (孤行灭).
@@ -407,7 +407,7 @@ func TestRuntimeTraceProjDedupFoldLabelDistinctFromSumAggregateLabel(t *testing.
 		t.Fatalf("dedupe row must not reuse the R2 sum form:\n%s", foldTags)
 	}
 	sumTags := joinTags(model.Adjacent[1], true)
-	if !strings.Contains(sumTags, "×3(20.000–40.000ms)") {
+	if !strings.Contains(sumTags, "×3(20.000~40.000ms)") {
 		t.Fatalf("upstream R2 aggregate must keep the sum form:\n%s", sumTags)
 	}
 	if strings.Contains(sumTags, "同值") {
@@ -434,7 +434,7 @@ func TestRuntimeTraceProjDedupFoldLabelDistinctFromSumAggregateLabel(t *testing.
 	if !strings.Contains(foldCell, "×2同值") || strings.Contains(foldCell, "×2(") {
 		t.Fatalf("detail table dedupe cell must use the dedupe label: %q", foldCell)
 	}
-	if !strings.Contains(sumCell, "×3(20.000–40.000ms)") || strings.Contains(sumCell, "同值") {
+	if !strings.Contains(sumCell, "×3(20.000~40.000ms)") || strings.Contains(sumCell, "同值") {
 		t.Fatalf("detail table sum cell must keep the range form: %q", sumCell)
 	}
 }

@@ -185,8 +185,8 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"DrilldownRelation":             {Status: "known_gap", Ref: "OM-3"},
 	"MergedEvidenceIDs":             {Status: "displayed", Ref: "证据索引 E#(+N)"},
 	"MergedCount":                   {Status: "displayed", Ref: "行1 ×N 五式"},
-	"MergedMinMS":                   {Status: "displayed", Ref: "×N(a–b) 区间"},
-	"MergedMaxMS":                   {Status: "displayed", Ref: "×N(a–b) 区间"},
+	"MergedMinMS":                   {Status: "displayed", Ref: "×N(a~b) 区间"},
+	"MergedMaxMS":                   {Status: "displayed", Ref: "×N(a~b) 区间"},
 	"MergedValuelessCount":          {Status: "displayed", Ref: "×N 明细(值缺席成员)"},
 	"MergedIntervalUnion":           {Status: "displayed", Ref: "×N union 口径"},
 	"MergedSumMS":                   {Status: "displayed", Ref: "×N SUM 口径"},
@@ -256,6 +256,10 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"GatedTopologySource":         {Status: "displayed", Ref: "gated 簇拓扑词面 fork"},
 	"ThermalCapKHz":               {Status: "displayed", Ref: "热限压披露句"},
 	"RunnableMS":                  {Status: "displayed", Ref: "行2 机制句量级(RN-1 显著性门)"},
+	"DStateSplitMS":               {Status: "displayed", Ref: "WO-A1 加法恒等式判定输入(不可相加指针词面)"},
+	"IOWaitSplitMS":               {Status: "displayed", Ref: "WO-A1 加法恒等式判定输入(不可相加指针词面)"},
+	"OverflowMirrorEvidenceIDs":   {Status: "displayed", Ref: "WO-D1③ 折叠池 headline 多引用镜像 tag"},
+	"OverflowProjectionEvidenceID": {Status: "displayed", Ref: "P2-2 折叠池跨口径投影 tag"},
 	"FullWindowStateMS":           {Status: "displayed", Ref: "行2 全窗合计 tag + 明细全窗合计行"},
 	"FullWindowStateSource":       {Status: "displayed", Ref: "全窗合计来源词"},
 	"FullWindowStateWindowStart":  {Status: "displayed", Ref: "全窗合计窗标"},
@@ -467,6 +471,8 @@ var infoContractDisplayAuthorityFiles = []string{
 	"answer_document_mutation_runtime_typelabels.go",
 	"answer_document_mutation_runtime_supplyfold.go",
 	"answer_document_mutation_runtime_rcm.go",
+	// SMR-1 批 (2026-07-12): the relation-arm passes (WO-A1/D2/D3/C1/B1).
+	"answer_document_mutation_runtime_smr1.go",
 }
 
 func readDisplayAuthoritySources(t *testing.T) string {

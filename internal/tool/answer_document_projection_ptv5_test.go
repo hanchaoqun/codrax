@@ -518,14 +518,14 @@ func TestPTV5GatedDetailLegendRows(t *testing.T) {
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: N 次合并/墙钟
 	// 不求和 → 同一(线程,原因)的 N 次实例合并/墙钟跨线程不可加和 (口径族,
 	// canonical 三面同词).
-	if !strings.Contains(detail.Text, "- ×N(a–b) = 同一(线程,原因)的 N 次实例合并,数值为总和;×N(a–b)取最大 = 跨线程折叠,数值取成员最大(墙钟跨线程不可加和);×N同值 = 同一测量重复发布,数值即那一次。") {
+	if !strings.Contains(detail.Text, "- ×N(a~b) = 同一(线程,原因)的 N 次实例合并,数值为总和;×N(a~b)取最大 = 跨线程折叠,数值取成员最大(墙钟跨线程不可加和);×N同值 = 同一测量重复发布,数值即那一次。") {
 		t.Fatalf("×N legend row must list the present forms:\n%s", detail.Text)
 	}
 	// 突变形态: a plain projection carries neither gated row.
 	plain := runtimeTraceCausalProjectionCluster(revisit76FlatUndrillableProjection(), "zh", runtimeTraceProjUserFocus{})
 	for i := range plain {
 		if strings.HasSuffix(plain[i].ID, "_detail") {
-			if strings.Contains(plain[i].Text, "×N(a–b)") || strings.Contains(plain[i].Text, "双席") {
+			if strings.Contains(plain[i].Text, "×N(a~b)") || strings.Contains(plain[i].Text, "双席") {
 				t.Fatalf("plain tables must not grow the gated legend rows:\n%s", plain[i].Text)
 			}
 		}

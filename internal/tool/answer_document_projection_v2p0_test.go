@@ -95,7 +95,7 @@ func TestV2P0CaliberSideRowsRenderWithoutOrdinals(t *testing.T) {
 	if !strings.Contains(fence, "⌗口径旁栏·计数当量(非墙钟,不占序数)") {
 		t.Fatalf("the count row must speak the ⌗ count-equivalent caliber word:\n%s", fence)
 	}
-	if !strings.Contains(fence, "⌗口径旁栏·复合分数(非墙钟,不占序数)") {
+	if !strings.Contains(fence, "⌗口径旁栏·综合评分(非墙钟,不占序数)") {
 		t.Fatalf("the composite-score row must speak the ⌗ composite caliber word:\n%s", fence)
 	}
 	if !model.Marks.has(runtimeTraceProjMarkCaliberSideRow) {
@@ -155,8 +155,8 @@ func TestV2P0CaliberSideWordClassFollowsRegistry(t *testing.T) {
 		t.Fatalf("blocked_reason (registry count additivity) must speak 计数当量, got %q", got)
 	}
 	composite := types.TraceCausalProjectionNode{TypeToken: "block_io_by_inode"}
-	if got := runtimeTraceProjCaliberSideWord(composite, true); !strings.Contains(got, "复合分数") {
-		t.Fatalf("block_io_by_inode (typed composite marker) must speak 复合分数, got %q", got)
+	if got := runtimeTraceProjCaliberSideWord(composite, true); !strings.Contains(got, "综合评分") {
+		t.Fatalf("block_io_by_inode (typed composite marker) must speak 综合评分 (微词面① 2026-07-12: 「分数」首读 fraction 歧义), got %q", got)
 	}
 	unknown := types.TraceCausalProjectionNode{}
 	if got := runtimeTraceProjCaliberSideWord(unknown, true); !strings.Contains(got, "⌗口径旁栏(") {

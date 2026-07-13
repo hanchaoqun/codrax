@@ -158,14 +158,14 @@ func TestRN12CoverageTagUnit(t *testing.T) {
 		FullWindowStateWindowStart: 100.0, FullWindowStateWindowEnd: 103.0,
 		FullWindowStateSameWindow: true,
 	}
-	tag, ok := runtimeTraceProjFullWindowCoverageTag(node, true, false)
+	tag, ok := runtimeTraceProjFullWindowCoverageTag(node, true, false, 0)
 	if !ok || tag.Text != "窗内 runnable 合计 2528.721ms,链上仅覆盖其中最大片段 635.981ms(25%)" {
 		t.Fatalf("zh coverage tag wrong: ok=%t %q", ok, tag.Text)
 	}
 	if tag.MainRow {
 		t.Fatalf("coverage tag must be demotable (subordinate-line lane), not a MainRow mark: %+v", tag)
 	}
-	if en, ok := runtimeTraceProjFullWindowCoverageTag(node, false, false); !ok ||
+	if en, ok := runtimeTraceProjFullWindowCoverageTag(node, false, false, 0); !ok ||
 		en.Text != "full-window runnable total 2528.721ms; the chain covers only its largest fragment 635.981ms (25%)" {
 		t.Fatalf("en coverage tag wrong: %q", en.Text)
 	}
@@ -173,11 +173,11 @@ func TestRN12CoverageTagUnit(t *testing.T) {
 	cross := node
 	cross.FullWindowStateSameWindow = false
 	cross.FullWindowStateWindowStart, cross.FullWindowStateWindowEnd = 831.0, 834.0
-	if tag, ok := runtimeTraceProjFullWindowCoverageTag(cross, true, false); !ok ||
+	if tag, ok := runtimeTraceProjFullWindowCoverageTag(cross, true, false, 0); !ok ||
 		tag.Text != "另一查询窗(831.000s–834.000s)内 runnable 合计 2528.721ms,链上仅覆盖其中最大片段 635.981ms(25%)" {
 		t.Fatalf("zh cross-window tag wrong: %q", tag.Text)
 	}
-	if tag, ok := runtimeTraceProjFullWindowCoverageTag(cross, false, false); !ok ||
+	if tag, ok := runtimeTraceProjFullWindowCoverageTag(cross, false, false, 0); !ok ||
 		tag.Text != "runnable total 2528.721ms in another query window (831.000s–834.000s); the chain covers only its largest fragment 635.981ms (25%)" {
 		t.Fatalf("en cross-window tag wrong: %q", tag.Text)
 	}
@@ -185,11 +185,11 @@ func TestRN12CoverageTagUnit(t *testing.T) {
 	// (a window claim would be a guess).
 	windowless := cross
 	windowless.FullWindowStateWindowStart, windowless.FullWindowStateWindowEnd = 0, 0
-	if _, ok := runtimeTraceProjFullWindowCoverageTag(windowless, true, false); ok {
+	if _, ok := runtimeTraceProjFullWindowCoverageTag(windowless, true, false, 0); ok {
 		t.Fatalf("labeled wording without endpoints must not build a tag")
 	}
 	node.FullWindowStateMS = 0
-	if _, ok := runtimeTraceProjFullWindowCoverageTag(node, true, false); ok {
+	if _, ok := runtimeTraceProjFullWindowCoverageTag(node, true, false, 0); ok {
 		t.Fatalf("zero typed field must not build a tag")
 	}
 	sleep := types.TraceCausalProjectionNode{
@@ -198,7 +198,7 @@ func TestRN12CoverageTagUnit(t *testing.T) {
 		FullWindowStateWindowStart: 100.0, FullWindowStateWindowEnd: 103.0,
 		FullWindowStateSameWindow: true,
 	}
-	if tag, ok := runtimeTraceProjFullWindowCoverageTag(sleep, true, false); !ok ||
+	if tag, ok := runtimeTraceProjFullWindowCoverageTag(sleep, true, false, 0); !ok ||
 		tag.Text != "窗内 sleep 合计 800.000ms,链上仅覆盖其中最大片段 120.000ms(15%)" {
 		t.Fatalf("sleep-class tag wrong: %q", tag.Text)
 	}

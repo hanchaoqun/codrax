@@ -15,7 +15,7 @@ package types
 //       no duration exists — conf 0.82, the fold's min confidence).
 // The fold's min–max has always ranged over POSITIVE member displays only
 // while MergedCount counted every member, so the render claimed
-// "×2(14.272–14.272ms)取最大" — fabricating a second 14.272ms observation
+// "×2(14.272~14.272ms)取最大" — fabricating a second 14.272ms observation
 // under hmfs_discard's subject and triggering the customer-site raw-trace
 // audit (g12_report.txt: zero prev_state=D over the whole region).
 //
@@ -190,7 +190,7 @@ func TestG12OverflowFoldE23AssemblyReproduction(t *testing.T) {
 		t.Fatalf("fold min-confidence stays the blocked_reason lane's 0.82: %.2f", fold.Confidence)
 	}
 	// THE FIX (修前红): the zero-duration member is typed-counted, so the
-	// render can stop claiming "×2 each 14.272–14.272ms" — the fabricated
+	// render can stop claiming "×2 each 14.272~14.272ms" — the fabricated
 	// same-segment double that sent the customer to a raw-trace audit.
 	if fold.MergedValuelessCount != 1 {
 		t.Fatalf("the ×4 zero-duration blocked_reason aggregate must count as ONE valueless member, got %d", fold.MergedValuelessCount)

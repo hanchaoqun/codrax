@@ -90,7 +90,7 @@ func TestTraceProjectionLegendWakeDirectionUnambiguous(t *testing.T) {
 // --- NEW-3: same-subject IO caliber fold -------------------------------------
 
 func revisit76IONode(id, subject, token string, impact float64, lineStart, lineEnd int) types.TraceCausalProjectionNode {
-	return types.TraceCausalProjectionNode{
+	node := types.TraceCausalProjectionNode{
 		Role:               types.TraceCausalRoleRootCauseContext,
 		EvidenceID:         id,
 		Subject:            subject,
@@ -105,6 +105,17 @@ func revisit76IONode(id, subject, token string, impact float64, lineStart, lineE
 		SupportRefs:        []string{fmt.Sprintf("6.0B138_3900.sys.systrace:%d-%d", lineStart, lineEnd)},
 		Confidence:         0.8,
 	}
+	// WO-N1 (SMR-1 批, 2026-07-12) + P1-1 (修复轮 2026-07-13): the NEW-3
+	// connectivity gate reads the members' WALL-CLOCK segments (行号包络连通
+	// 判被禁), and the PRODUCTION lanes emit item.StartTs/EndTs on the
+	// ObservationSpan — the fixture ts pair models that real emission
+	// (derived from the same line geometry so the witness overlap relations
+	// hold).
+	if lineStart > 0 && lineEnd >= lineStart {
+		node.StartTs = 100.0 + float64(lineStart)*1e-5
+		node.EndTs = 100.0 + float64(lineEnd)*1e-5
+	}
+	return node
 }
 
 // revisit76IOProjection mirrors the 6.0 revisit shape: 🎯 main-21538, and the
@@ -139,7 +150,7 @@ func TestTraceProjectionSameSubjectIOCalibersFoldIntoPrimaryRow(t *testing.T) {
 	// each member wears its measuring-layer word (完成端到端/调度等待).
 	if !strings.Contains(fence, "同段IO另有 完成端到端·IO突发（io_burst_episode） 226.153ms") ||
 		!strings.Contains(fence, "调度等待·iowait（io_wait）") ||
-		!strings.Contains(fence, "112.011/107.672ms 口径;证据") ||
+		!strings.Contains(fence, "112.011/107.672ms 等口径;证据") ||
 		!strings.Contains(fence, "E2、E3、E4") {
 		t.Fatalf("the folded calibers must surface as ONE note with all evidence ids:\n%s", fence)
 	}
@@ -171,7 +182,7 @@ func TestTraceProjectionIOFoldDetailTableMirrorAndChainAttachedKeepsWake(t *test
 	// PTV4 T10: the caliber-note and relation mirrors live in the (b) vertical
 	// lossless blocks (the (a) key table carries the duration quad only).
 	full := runtimeTraceProjDetailFullText(model, true)
-	if !strings.Contains(full, "同段IO口径: 同段IO另有 完成端到端·IO突发（io_burst_episode） 226.153ms、调度等待·iowait（io_wait） 112.011/107.672ms 口径") {
+	if !strings.Contains(full, "同段IO口径: 同段IO另有 完成端到端·IO突发（io_burst_episode） 226.153ms、调度等待·iowait（io_wait） 112.011/107.672ms 等口径") {
 		t.Fatalf("the lossless surface must mirror the caliber note on the primary block:\n%s", full)
 	}
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 关系 ▸ 影响点: 唤醒 ▸ … → split "- 关系: 唤醒 <parent>" line (明细块)
@@ -334,7 +345,7 @@ func TestTraceProjectionIOFoldNeverCrossesChainLanes(t *testing.T) {
 		depthless("io-own-wait", "io_wait", 107.672, 1250, 1750))
 	model = buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence = runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "同段IO另有 调度等待·iowait（io_wait） 107.672ms 口径;证据 E4") {
+	if !strings.Contains(fence, "同段IO另有 调度等待·iowait（io_wait） 107.672ms 等口径;证据 E4") {
 		t.Fatalf("same-lane depthless calibers must keep folding:\n%s", fence)
 	}
 	if !strings.Contains(fence, "112.011") {
@@ -579,7 +590,7 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// sum probe is the ptv4 fixture's VERBATIM sum token (language-neutral
 		// by design) — deleting the sum-tag emission now reds this probe
 		// instead of staying green (复核给定的突变形态).
-		runtimeTraceProjMarkMergedSum:   {"×3(10.000–30.000ms)", "×3(10.000–30.000ms)"},
+		runtimeTraceProjMarkMergedSum:   {"×3(10.000~30.000ms)", "×3(10.000~30.000ms)"},
 		runtimeTraceProjMarkMergedDedup: {"同值", "same-value"},
 		// §21 CWD disambiguation (same discipline as the verbatim sum probe
 		// above): the bare "取最大" is a substring of the cross-window form's
@@ -636,6 +647,11 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// CR-2 组② P5: the same-segment mirror tag (equality arm 同段镜像已并入
 		// / family arm 同段镜像·与家族行同源 — the probe hits the shared stem).
 		runtimeTraceProjMarkSameSegMirror: {"同段镜像", "same-seg mirror"},
+		// SMR-1 批 (2026-07-12): the three relation-word families (heads are
+		// deliberately unique vs the mirror family's trailing ",不可相加").
+		runtimeTraceProjMarkNonAdditivePointer: {"不可相加·", "non-additive · "},
+		runtimeTraceProjMarkAccountRelation:    {"两套账目覆盖集不同", "accounting"},
+		runtimeTraceProjMarkOccurrenceSeries:   {"不相交(共", "disjoint from ["},
 		// CR-2 组③ P7: the typed actual-scope word faces.
 		runtimeTraceProjMarkActualBeyondEpisode: {"超出发生段,窗内", "beyond own episode, inside window"},
 		runtimeTraceProjMarkActualNoInterval:    {"区间未发布", "interval unpublished"},
@@ -732,7 +748,7 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// 窗内无调度数据 form, so the two probes stay disjoint.
 		runtimeTraceProjMarkTraceGapBelowFloor: {"窗内无≥阈值等待区间", "no in-window wait ≥ floor"},
 		// DISP-2 G19 (§27.5): the all-zero fold row's one-line note (the
-		// ×N(0.000–0.000ms)取最大 claim is retired on that shape).
+		// ×N(0.000~0.000ms)取最大 claim is retired on that shape).
 		runtimeTraceProjMarkAllZeroFoldNote: {"窗内无有效时长", "no in-window effective duration"},
 		// DISP-2 / GAP-A P3-6: the 计数当量 marker rides the count family's
 		// roster sub-rows (engine-real roster entries carry it verbatim on
@@ -1304,6 +1320,12 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// home: answer_document_projection_cr2_p7_test.go).
 		{"cr2_p7_actual_episode", cr2P7Projection(cr2P7Node(16.433, 15.565, 13762.991547, 13763.008274))},
 		{"cr2_p7_actual_no_interval", cr2P7Projection(cr2P7Node(16.433, 15.565, 0, 0))},
+		// SMR-1 批 (2026-07-12): the three relation-word families + their
+		// legend entries (fixture homes:
+		// answer_document_projection_smr1_relations_test.go).
+		{"smr1_a1_non_additive_pointer", smr1A1SelfBinderProjection()},
+		{"smr1_c1_account_relation", smr1C1FamilyChainProjection()},
+		{"smr1_b1_occurrence_series", smr1B1OccurrenceProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

@@ -8,7 +8,7 @@ package tool
 //       trace_gap_kind enum (no_eligible_wait → 窗内无≥阈值等待区间·链止 with
 //       its own legend entry; no_sched_data/absent keep the 2026-07-07 用户
 //       措辞裁定 wording byte-identically).
-//   G19 全零折叠行一行注 — the ×N(0.000–0.000ms)取最大 claim is retired on the
+//   G19 全零折叠行一行注 — the ×N(0.000~0.000ms)取最大 claim is retired on the
 //       all-zero shape; the honest 窗内无有效时长 note renders on the fence tag
 //       AND the (a) table token (shared helper), value-bearing folds keep the
 //       ×N取最大 form byte-identically.

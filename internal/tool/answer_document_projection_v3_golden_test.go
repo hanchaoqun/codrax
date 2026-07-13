@@ -326,7 +326,7 @@ func TestTraceProjectionV3GoldenAwemeShapeAggregated(t *testing.T) {
 	}
 	// R1+R2: io_latency renders as ONE ×3 aggregate with the udk-irq peers kept
 	// (merged range + impact points live on the lossless detail row after C4b).
-	for _, want := range []string{"×3(0.499–0.568ms)", "udk-irq-10-90", "IO延迟", "- 类型: io_latency"} {
+	for _, want := range []string{"×3(0.499~0.568ms)", "udk-irq-10-90", "IO延迟", "- 类型: io_latency"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("aweme golden missing io_latency aggregation %q:\n%s", want, md)
 		}

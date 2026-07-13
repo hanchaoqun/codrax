@@ -888,6 +888,17 @@ type TraceCausalProjectionNode struct {
 	// "调度压力 runnable Y ms" magnitude. 0 when the source row did not
 	// expose the per-state split.
 	RunnableMS float64 `json:"runnable_ms,omitempty"`
+	// DStateSplitMS / IOWaitSplitMS mirror the node's typed "d_state=" /
+	// "io_wait=" rich notes (the rank row's own per-state split — the SAME
+	// already-emitted notes the RunnableMS lane consumes, one more decoded
+	// consumer, never a new signal). WO-A1 (SMR-1 批 SMR-S5, smr_audit_report
+	// §④判定(b), 2026-07-12): the addition-identity arm's typed complement —
+	// a chain d/io rank seat publishing X = d_state + io_wait beside the
+	// same thread's d_state trunk aggregate Y where |X−(D+IO)|≤tie ∧ Y≈D
+	// proves Y ⊂ X (31693 E4/E11: 17.819 = 17.442 + 0.377). Display wording
+	// input only; 0 when the source row did not expose the split.
+	DStateSplitMS float64 `json:"d_state_split_ms,omitempty"`
+	IOWaitSplitMS float64 `json:"io_wait_split_ms,omitempty"`
 	// FullWindowStateMS / FullWindowStateSource carry the RN-12 (§7.9,
 	// cust_runnable 2026-07-04) full-window coverage cross-reference: the SAME
 	// ledger published a full-window per-state total for this node's exact
@@ -919,6 +930,22 @@ type TraceCausalProjectionNode struct {
 	FullWindowStateWindowStart float64 `json:"full_window_state_window_start,omitempty"`
 	FullWindowStateWindowEnd   float64 `json:"full_window_state_window_end,omitempty"`
 	FullWindowStateSameWindow  bool    `json:"full_window_state_same_window,omitempty"`
+	// OverflowMirrorEvidenceIDs (WO-D1③ 多引用 tag arm, SMR-1 批 SMR-S9,
+	// 2026-07-12; 31552 E25 witness): set ONLY on an OnChainOverflowFold row
+	// whose headline (取最大) member is an ×N aggregate whose derivable member
+	// values each µs-match a distinct RENDERED same-(subject,state) row — the
+	// matched kept rows' evidence ids, so the display stamps 「同段镜像·与
+	// [E#]+[E#]同一物理时间,不可相加」 on the headline. Tag-only (the pool row
+	// and its count stay honest); no gate/sort lane reads it.
+	OverflowMirrorEvidenceIDs []string `json:"overflow_mirror_evidence_ids,omitempty"`
+	// OverflowProjectionEvidenceID (P2-2 跨口径穿透, SMR-1 修复轮 2026-07-13;
+	// 冷读 F-4/F-5: tieba E21 members {4.558,6.325,6.936} are E11's three
+	// occurrence PROJECTIONS — Σ=17.819=E11 µs-exact; donghu E26 headline
+	// 3.183 = E13's published EffectiveImpactMS µs-exact — cross-CALIBER
+	// re-publications the display-value fingerprint cannot see): the rendered
+	// row whose account the pool's contents project. Tag-only (「同一物理时间
+	// 的口径投影·与[E#]不可相加」); the pool row and its count stay honest.
+	OverflowProjectionEvidenceID string `json:"overflow_projection_evidence_id,omitempty"`
 }
 
 // TraceCausalProjectionStateClass maps a typed scheduler-state token to its
@@ -1376,7 +1403,8 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 	// member + ◇ row" twice. Seat-conditioned (never unconditional): a
 	// blind-spot row with NO individual seat still folds — zero silent drops.
 	out.OnChainCauses = traceCausalProjectionLimitNodesOnChainFold(out.OnChainCauses, traceCausalProjectionOnChainLimit,
-		traceCausalProjectionSeatedDataGapSubjects(out.AdjacentCauses, out.BackgroundCauses))
+		traceCausalProjectionSeatedDataGapSubjects(out.AdjacentCauses, out.BackgroundCauses),
+		out.PrimaryRootCauses, out.SupportingHops)
 	// RN-1 (§7.9): attach the same-window occupier roster to runnable nodes
 	// (exact Subject match + typed runnable StateKind) after aggregation so
 	// merged nodes carry it too, and before the PrimaryRootCause pointer copy.
@@ -2829,6 +2857,10 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 			strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyThermalCapWitnessed)) == "true"
 	}
 	node.RunnableMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyRunnable)
+	// WO-A1 (SMR-1 批, 2026-07-12): the d/io per-state split — the same
+	// already-emitted note family as RunnableMS above, one more consumer.
+	node.DStateSplitMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyDState)
+	node.IOWaitSplitMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyIOWait)
 	// Verbatim typed kind token (see TypeToken doc): lets renderers specialize
 	// the unresolved-peer wording for blocking_span / d_state_or_io_wait rows.
 	node.TypeToken = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyType))
@@ -3199,7 +3231,13 @@ func traceCausalProjectionSelectSemanticSpans(nodes []TraceCausalProjectionNode,
 // (thread, kind wording, evidence, disclosure) — dropping the fold copy loses
 // nothing the seat does not state better. Members WITHOUT a seat keep folding
 // (PTS 永不静默丢).
-func traceCausalProjectionLimitNodesOnChainFold(nodes []TraceCausalProjectionNode, limit int, seatedDataGapSubjects map[string]bool) []TraceCausalProjectionNode {
+// WO-D1③ host domain (96717/2609 复放追修, 2026-07-12): the flat
+// re-publication's RENDERED host can live in a SIBLING chain-universe bucket
+// (the 42.131 trunk sleep hop sits in SupportingHops while its flat copy
+// overflows the on-chain cap) — extraHosts passes the other rendered buckets
+// as additional absorption hosts (mutated in place: the E# joins that row's
+// bracket).
+func traceCausalProjectionLimitNodesOnChainFold(nodes []TraceCausalProjectionNode, limit int, seatedDataGapSubjects map[string]bool, extraHosts ...[]TraceCausalProjectionNode) []TraceCausalProjectionNode {
 	if limit <= 0 || len(nodes) == 0 || len(nodes) <= limit {
 		return traceCausalProjectionLimitNodes(nodes, limit)
 	}
@@ -3223,12 +3261,279 @@ func traceCausalProjectionLimitNodesOnChainFold(nodes []TraceCausalProjectionNod
 			kept = append(kept, member)
 			continue
 		}
+		// WO-D1③ 归属检 (SMR-1 批 SMR-S9, smr_audit_report §②, 2026-07-12;
+		// witnesses 42729 E18(+5) / 56643 E20(+5): the「其余N项(链上折叠)」
+		// headline republished an already-RENDERED row's value to the µs
+		// (42.131 ×3发) and drew an extra 37% ghost bar — the value-mirror
+		// display arm is structurally unreachable for MergedCount>1 fold
+		// rows, so the membership check runs HERE, before the pool seats).
+		// A pool candidate whose value-mirror fingerprint (canonical subject
+		// + state + µs display AND cumulative + query window — the SAME
+		// fingerprint the display arm keys on, one more consumer, never a
+		// second mechanism) matches exactly ONE kept row is that row's flat
+		// re-publication: it absorbs into the kept row (E# joins the merged
+		// ids — evidence stays reachable, 零静默消失) and the fold count
+		// honestly shrinks. Ambiguity (≥2 kept matches) fails open into the
+		// pool. 禁用裸成员盘存重叠判 — only the FULL µs fingerprint absorbs
+		// (a loose overlap would swallow C-type different accounts, W-A).
+		if host, ok := traceCausalProjectionOverflowMirrorHostRef(kept, extraHosts, member); ok {
+			absorbed := map[string]bool{traceCausalProjectionCanonicalNode(host.EvidenceID): true}
+			for _, id := range host.MergedEvidenceIDs {
+				absorbed[traceCausalProjectionCanonicalNode(id)] = true
+			}
+			for _, id := range append([]string{member.EvidenceID}, member.MergedEvidenceIDs...) {
+				if id = strings.TrimSpace(id); id != "" && !absorbed[traceCausalProjectionCanonicalNode(id)] {
+					absorbed[traceCausalProjectionCanonicalNode(id)] = true
+					host.MergedEvidenceIDs = append(host.MergedEvidenceIDs, id)
+				}
+			}
+			continue
+		}
 		overflow = append(overflow, member)
 	}
 	if len(overflow) == 0 {
 		return kept
 	}
-	return append(kept, traceCausalProjectionOverflowFoldRow(overflow))
+	fold := traceCausalProjectionOverflowFoldRow(overflow)
+	// WO-D1③ 多引用 tag arm (31552 E25 shape): the pool's headline (取最大)
+	// member can itself be an ×N aggregate whose DERIVABLE member values each
+	// µs-match a rendered same-(subject,state) row (E25 20.816 = E5 15.565 +
+	// E10 5.251 to the µs) — the headline then re-publishes their combined
+	// physical time. The fold row carries the matched kept rows' evidence ids
+	// so the display can stamp「同段镜像·与[E5]+[E10]同一物理时间,不可相加」
+	// on the headline (tag-only; the pool row and its count stay honest).
+	if ids := traceCausalProjectionOverflowHeadlineMirrorIDsAcross(kept, extraHosts, overflow); len(ids) > 0 {
+		fold.OverflowMirrorEvidenceIDs = ids
+	} else {
+		rendered := append([]TraceCausalProjectionNode(nil), kept...)
+		for _, group := range extraHosts {
+			rendered = append(rendered, group...)
+		}
+		fold.OverflowProjectionEvidenceID = traceCausalProjectionOverflowProjectionMirrorID(rendered, overflow)
+	}
+	return append(kept, fold)
+}
+
+// traceCausalProjectionOverflowMirrorHostRef finds the UNIQUE rendered row
+// (kept bucket first, then the sibling chain-universe buckets) whose
+// value-mirror fingerprint matches the pool candidate — ambiguity across ALL
+// groups fails open.
+func traceCausalProjectionOverflowMirrorHostRef(kept []TraceCausalProjectionNode, extras [][]TraceCausalProjectionNode, member TraceCausalProjectionNode) (*TraceCausalProjectionNode, bool) {
+	// Every host matching the member ALREADY shares the FULL value-mirror
+	// fingerprint (subject + state + µs display AND cumulative + window) by
+	// the match predicate — under the established fingerprint semantics
+	// (ValueMirror arm: this fingerprint = 同一物理时间), multiple matched
+	// hosts are the same physical time on several lanes, never an ambiguity.
+	// The FIRST rendered host takes the absorption (8869 复放: the on-chain +
+	// hops copies of one trunk row; 14047 复放: the trunk hop + its
+	// value-mirror aggregate twin — both stalls were this over-conservative
+	// fail-open re-seating the ghost headline).
+	for _, group := range append([][]TraceCausalProjectionNode{kept}, extras...) {
+		for i := range group {
+			if traceCausalProjectionOverflowMirrorHostMatch(group[i], member) {
+				return &group[i], true
+			}
+		}
+	}
+	return nil, false
+}
+
+// traceCausalProjectionOverflowProjectionMirrorID (P2-2 跨口径穿透, SMR-1
+// 修复轮 2026-07-13) resolves the pool's cross-caliber projection host among
+// the rendered rows. Two µs-precise lanes (occurrence_windows inventory is
+// not display-reachable, so the identities ARE the typed proof):
+//   (a) Σ(pool member displays, all one canonical subject) µs-equals a
+//       rendered same-subject row's display — the pool re-publishes that
+//       row's occurrence projections (tieba E21 → E11);
+//   (b) the pool headline µs-equals a rendered same-subject row's PUBLISHED
+//       effective attribution — the eff caliber re-issued as a pool value
+//       (donghu E26 → E13).
+// Ambiguity (≥2 hosts) or any miss returns "" (fail-open, no tag).
+func traceCausalProjectionOverflowProjectionMirrorID(rendered, overflow []TraceCausalProjectionNode) string {
+	if len(overflow) == 0 {
+		return ""
+	}
+	subject := traceCausalProjectionCanonicalNode(overflow[0].Subject)
+	sameSubject := subject != "" && traceCausalProjectionKnownSubject(overflow[0].Subject)
+	sum, maxDisplay := 0.0, 0.0
+	for _, member := range overflow {
+		if traceCausalProjectionCanonicalNode(member.Subject) != subject {
+			sameSubject = false
+		}
+		display := member.ImpactMS
+		if display <= 0 {
+			display = member.CumulativeImpactMS
+		}
+		sum += display
+		if display > maxDisplay {
+			maxDisplay = display
+		}
+	}
+	host, count := "", 0
+	consider := func(id string) {
+		if id == "" {
+			return
+		}
+		if host == traceCausalProjectionCanonicalNode(id) {
+			return
+		}
+		host = traceCausalProjectionCanonicalNode(id)
+		count++
+	}
+	for i := range rendered {
+		node := rendered[i]
+		if node.OnChainOverflowFold || traceCausalProjectionCanonicalNode(node.Subject) == "" {
+			continue
+		}
+		display := node.ImpactMS
+		if display <= 0 {
+			display = node.CumulativeImpactMS
+		}
+		if sameSubject && traceCausalProjectionCanonicalNode(node.Subject) == subject &&
+			sum > 0 && display > 0 && math.Abs(sum-display) < TraceCausalProjectionSameValueTieMS {
+			consider(node.EvidenceID) // lane (a)
+			continue
+		}
+		if maxDisplay > 0 && node.EffectiveImpactMS > 0 &&
+			traceCausalProjectionCanonicalNode(node.Subject) == subject &&
+			math.Abs(maxDisplay-node.EffectiveImpactMS) < TraceCausalProjectionSameValueTieMS {
+			consider(node.EvidenceID) // lane (b)
+		}
+	}
+	if count != 1 {
+		return ""
+	}
+	return host
+}
+
+// traceCausalProjectionOverflowHeadlineMirrorIDsAcross is the multi-bucket
+// form of the headline multi-ref arm (rendered rows = kept + siblings).
+func traceCausalProjectionOverflowHeadlineMirrorIDsAcross(kept []TraceCausalProjectionNode, extras [][]TraceCausalProjectionNode, overflow []TraceCausalProjectionNode) []string {
+	rendered := append([]TraceCausalProjectionNode(nil), kept...)
+	for _, group := range extras {
+		rendered = append(rendered, group...)
+	}
+	return traceCausalProjectionOverflowHeadlineMirrorIDs(rendered, overflow)
+}
+
+// traceCausalProjectionOverflowMirrorHostMatch is the WO-D1③ absorption
+// fingerprint (value-mirror 同款). Precise signals only: canonical subject +
+// trimmed state + µs-equal display AND cumulative + compatible typed query
+// window.
+func traceCausalProjectionOverflowMirrorHostMatch(candidate, member TraceCausalProjectionNode) bool {
+	display := member.ImpactMS
+	if display <= 0 {
+		display = member.CumulativeImpactMS
+	}
+	if display <= 0 {
+		return false
+	}
+	subject := traceCausalProjectionCanonicalNode(member.Subject)
+	if subject == "" || !traceCausalProjectionKnownSubject(member.Subject) {
+		return false
+	}
+	if candidate.OnChainOverflowFold {
+		return false
+	}
+	if traceCausalProjectionCanonicalNode(candidate.Subject) != subject ||
+		strings.TrimSpace(candidate.StateKind) != strings.TrimSpace(member.StateKind) {
+		return false
+	}
+	hostDisplay := candidate.ImpactMS
+	if hostDisplay <= 0 {
+		hostDisplay = candidate.CumulativeImpactMS
+	}
+	if math.Abs(hostDisplay-display) >= TraceCausalProjectionSameValueTieMS ||
+		math.Abs(candidate.CumulativeImpactMS-member.CumulativeImpactMS) >= TraceCausalProjectionSameValueTieMS {
+		return false
+	}
+	if traceCausalProjectionIntervalValid(member.QueryWindowStartTs, member.QueryWindowEndTs) &&
+		traceCausalProjectionIntervalValid(candidate.QueryWindowStartTs, candidate.QueryWindowEndTs) &&
+		(math.Abs(member.QueryWindowStartTs-candidate.QueryWindowStartTs) > TraceCausalProjectionSameWindowToleranceS ||
+			math.Abs(member.QueryWindowEndTs-candidate.QueryWindowEndTs) > TraceCausalProjectionSameWindowToleranceS) {
+		return false
+	}
+	return true
+}
+
+// traceCausalProjectionOverflowHeadlineMirrorIDs resolves the WO-D1③
+// multi-reference arm: when the pool's MAX (headline) member is an ×N
+// aggregate whose losslessly derivable member values EACH µs-match a distinct
+// kept same-(subject, state) row, the matched kept rows' evidence ids are
+// returned in member-value order. Any unmatched member, an underivable
+// multiset, or a sub-2 aggregate returns nil (fail-open, no tag).
+func traceCausalProjectionOverflowHeadlineMirrorIDs(kept, overflow []TraceCausalProjectionNode) []string {
+	maxIdx, maxDisplay := -1, 0.0
+	for i := range overflow {
+		display := overflow[i].ImpactMS
+		if display <= 0 {
+			display = overflow[i].CumulativeImpactMS
+		}
+		if display > maxDisplay {
+			maxIdx, maxDisplay = i, display
+		}
+	}
+	if maxIdx < 0 {
+		return nil
+	}
+	head := overflow[maxIdx]
+	if head.MergedCount < 2 || head.MergedMinMS <= 0 || head.MergedMaxMS < head.MergedMinMS ||
+		head.MergedValuelessCount > 0 {
+		return nil
+	}
+	var members []float64
+	switch head.MergedCount {
+	case 2:
+		members = []float64{head.MergedMinMS, head.MergedMaxMS}
+	case 3:
+		sum := head.MergedSumMS
+		if sum <= 0 && !head.MergedIntervalUnion && !head.MergedCrossWindowMax {
+			sum = head.ImpactMS
+		}
+		middle := sum - head.MergedMinMS - head.MergedMaxMS
+		if middle <= 0 {
+			return nil
+		}
+		members = []float64{head.MergedMinMS, middle, head.MergedMaxMS}
+	default:
+		return nil // >3 members are not losslessly derivable — fail open
+	}
+	subject := traceCausalProjectionCanonicalNode(head.Subject)
+	if subject == "" || !traceCausalProjectionKnownSubject(head.Subject) {
+		return nil
+	}
+	var ids []string
+	used := map[int]bool{}
+	for _, value := range members {
+		matched := -1
+		for i := range kept {
+			if used[i] || kept[i].OnChainOverflowFold {
+				continue
+			}
+			if traceCausalProjectionCanonicalNode(kept[i].Subject) != subject ||
+				strings.TrimSpace(kept[i].StateKind) != strings.TrimSpace(head.StateKind) {
+				continue
+			}
+			display := kept[i].ImpactMS
+			if display <= 0 {
+				display = kept[i].CumulativeImpactMS
+			}
+			if math.Abs(display-value) < TraceCausalProjectionSameValueTieMS {
+				matched = i
+				break
+			}
+		}
+		if matched < 0 {
+			return nil // every derived member must be a rendered row (full proof)
+		}
+		used[matched] = true
+		if id := strings.TrimSpace(kept[matched].EvidenceID); id != "" {
+			ids = append(ids, id)
+		} else {
+			return nil
+		}
+	}
+	return ids
 }
 
 // TraceCausalProjectionSeatFoldExemptTopN is the seat population whose rows are
@@ -3309,12 +3614,39 @@ func traceCausalProjectionLimitHopsFold(hops, onChain []TraceCausalProjectionNod
 			kept = append(kept, member)
 			continue
 		}
+		// WO-D1③ (SMR-1 批 SMR-S9, 2026-07-12; 23245 复放实锤: the flat
+		// 42.131 re-publication reached the HOPS overflow on this run's bucket
+		// placement and re-seated the 37% ghost headline): the hop fold runs
+		// the SAME absorption arm as the on-chain fold — a member whose full
+		// value-mirror fingerprint matches a rendered host (kept hops or the
+		// on-chain bucket) absorbs into it (E# joins the bracket) and the pool
+		// honestly shrinks. One predicate, two call sites (never a fork).
+		if host, ok := traceCausalProjectionOverflowMirrorHostRef(kept, [][]TraceCausalProjectionNode{onChain}, member); ok {
+			absorbed := map[string]bool{traceCausalProjectionCanonicalNode(host.EvidenceID): true}
+			for _, id := range host.MergedEvidenceIDs {
+				absorbed[traceCausalProjectionCanonicalNode(id)] = true
+			}
+			for _, id := range append([]string{member.EvidenceID}, member.MergedEvidenceIDs...) {
+				if id = strings.TrimSpace(id); id != "" && !absorbed[traceCausalProjectionCanonicalNode(id)] {
+					absorbed[traceCausalProjectionCanonicalNode(id)] = true
+					host.MergedEvidenceIDs = append(host.MergedEvidenceIDs, id)
+				}
+			}
+			continue
+		}
 		overflow = append(overflow, member)
 	}
 	if len(overflow) == 0 {
 		return kept
 	}
-	return append(kept, traceCausalProjectionOverflowFoldRow(overflow))
+	fold := traceCausalProjectionOverflowFoldRow(overflow)
+	if ids := traceCausalProjectionOverflowHeadlineMirrorIDsAcross(kept, [][]TraceCausalProjectionNode{onChain}, overflow); len(ids) > 0 {
+		fold.OverflowMirrorEvidenceIDs = ids
+	} else {
+		rendered := append(append([]TraceCausalProjectionNode(nil), kept...), onChain...)
+		fold.OverflowProjectionEvidenceID = traceCausalProjectionOverflowProjectionMirrorID(rendered, overflow)
+	}
+	return append(kept, fold)
 }
 
 // traceCausalProjectionOverflowFoldRow builds the counted subjectless fold row

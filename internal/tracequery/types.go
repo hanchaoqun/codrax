@@ -762,6 +762,15 @@ type Result struct {
 	CriticalBlocking            *CriticalBlockingResult `json:"critical_blocking_calls,omitempty"`
 	RootCauseRank               *RootCauseRankResult    `json:"root_cause_rank,omitempty"`
 	FrameRootCauseBundle        *FrameRootCauseBundle   `json:"frame_root_cause_bundle,omitempty"`
+	// TargetWindowStates (§29.27② 常态发布, SMR-1 修复轮 引擎件① 2026-07-13;
+	// 冷读 F-0 放大器: the 40422 non-bundle run had NO four-state account, so
+	// the prose「全程 s_sleep」inversion had no typed counter-face): the
+	// focused thread's four-state window partition publishes on EVERY
+	// target-anchored bounded-window run — not only the frame-bundle path
+	// (体积小账; the bundle copy stays authoritative when both exist). nil
+	// when no target/window or the timeline has no measurable intervals
+	// (absence never fabricates zeros).
+	TargetWindowStates *TargetWindowStateAccount `json:"target_window_states,omitempty"`
 	InteractionStats            *InteractionStatsResult `json:"interaction_stats,omitempty"`
 	PerfStats                   *PerfContext            `json:"perf_stats,omitempty"`
 	PerfTimeline                *PerfTimelineResult     `json:"perf_timeline,omitempty"`

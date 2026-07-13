@@ -347,6 +347,46 @@ func runtimeTraceCausalProjectionRefinedStateClass(node types.TraceCausalProject
 	return class
 }
 
+// runtimeTraceProjGenericUnresolvedStateNameWord — 76684 行1 形态词回退修
+// (SMR-1 批 coordinator witness, 2026-07-12): the GENERIC unresolved-peer
+// shape (unknown-thread sentinel Object + NO typed peer kind) used to put
+// 「对端线程未解析」 in the row-1 name slot; with the wide CJK word the shared
+// label column truncated the name to the bare subject, the #12 cause-word
+// guarantee relocated 「对端线程未解析」 to the FIRST row tag, and width
+// pressure demoted the STATE word (iowait) to 行2 — 行1 lost its 三要素 state
+// word (违 PTV4 行1 三要素/零省略; 96728 对照形 kept 「主体 · iowait」).
+//
+// EVOLUTION RECORD (回退定位): the 96728 control renders the state word in
+// 行1 because its Object lane carried the raw state token; the regression
+// entered when the unresolved-peer rows' Object moved to the honest
+// unknown-thread SENTINEL (CR-3 件② P10 era, blocked_reason 消费义务/诚实
+// 哨兵批) — the generic peer word then took the name slot and the
+// truncation+guarantee interplay pushed the state word off 行1. Fix: the
+// row-1 name speaks 「主体 · <state label>」 (状态词永在行1); the
+// unresolved-peer fact keeps its own demotable tag (行尾/行2 — WO 允许).
+// Typed gates only: sentinel Object + empty typed peer kind + a real
+// StateKind label. Kind-carrying forms (D-state/iowait(对端未解析)) already
+// speak the state family in 行1 and stay byte-identical.
+func runtimeTraceProjGenericUnresolvedStateNameWord(node types.TraceCausalProjectionNode, zh bool) string {
+	if !runtimeTraceCausalProjectionUnknownSentinel(node.Object) {
+		return ""
+	}
+	if runtimeTraceCausalProjectionUnresolvedPeerKindNode(node) != "" {
+		return ""
+	}
+	if label := strings.TrimSpace(runtimeTraceProjStateKindLabel(node, zh)); label != "" {
+		return label
+	}
+	// 2609 复放复核 (2026-07-12): the live shape parks the state on the TYPE
+	// lane (StateKind empty, TypeToken=io_wait) — the SAME typed table the
+	// shape cell reads (#3 state family), one more consumer.
+	if class := runtimeTraceCausalProjectionTypeTokenStateClass(node); class != "" {
+		return strings.TrimSpace(runtimeTraceCausalProjectionTypeTokenStateWord(
+			runtimeTraceCausalProjectionRefinedStateClass(node, class), zh))
+	}
+	return ""
+}
+
 // runtimeTraceProjDFamilyTailRedundant — DSTATE-REFINE arm c (件③, witness
 // 96728 E14/E16, 2026-07-12): the D-family bare state tail (the 「· D-state」
 // form) is REDUNDANT exactly when the row-1 cause name already speaks the
@@ -612,7 +652,7 @@ func runtimeTraceProjCaliberSideWord(node types.TraceCausalProjectionNode, zh bo
 		case tracequery.CausalCaliberSideCount:
 			return "⌗口径旁栏·计数当量(非墙钟,不占序数)"
 		case tracequery.CausalCaliberSideCompositeScore:
-			return "⌗口径旁栏·复合分数(非墙钟,不占序数)"
+			return "⌗口径旁栏·综合评分(非墙钟,不占序数)"
 		}
 		return "⌗口径旁栏(非墙钟,不占序数)"
 	}
@@ -623,7 +663,7 @@ func runtimeTraceProjCaliberSideWord(node types.TraceCausalProjectionNode, zh bo
 	case tracequery.CausalCaliberSideCount:
 		return "⌗ caliber-side · 计数当量 (count-equivalent, not wall clock, no ordinal)"
 	case tracequery.CausalCaliberSideCompositeScore:
-		return "⌗ caliber-side · 复合分数 (composite score, not wall clock, no ordinal)"
+		return "⌗ caliber-side · 综合评分 (composite score, not wall clock, no ordinal)"
 	}
 	return "⌗ caliber-side (not wall clock, no ordinal)"
 }

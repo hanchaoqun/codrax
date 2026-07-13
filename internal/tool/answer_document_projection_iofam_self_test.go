@@ -37,6 +37,21 @@ func iofamSelfNode(id, typ string, impact float64, lineStart, lineEnd int) types
 	}
 }
 
+// iofamSelfTsNode carries the row's own wall-clock segment exactly as the
+// PRODUCTION emissions do since P1-1 (SMR-1 修复轮 2026-07-13: the
+// critical_blocking/rank lanes emit item.StartTs/EndTs on the
+// ObservationSpan) — the fixture ts pair is derived from the same line
+// geometry so the witness shape's overlap relations hold; it models the real
+// emission, not a synthetic stand-in.
+func iofamSelfTsNode(id, typ string, impact float64, lineStart, lineEnd int) types.TraceCausalProjectionNode {
+	node := iofamSelfNode(id, typ, impact, lineStart, lineEnd)
+	if lineStart > 0 && lineEnd >= lineStart {
+		node.StartTs = 13762.0 + float64(lineStart)*1e-5
+		node.EndTs = 13762.0 + float64(lineEnd)*1e-5
+	}
+	return node
+}
+
 // iofamSelfProjection mirrors the 64414 witness geometry: five overlapping
 // same-subject IO facet rows on the chain lane (wall-clock io_latency /
 // io_wait ×2 + composite block_io ×2).
@@ -46,11 +61,11 @@ func iofamSelfProjection() types.TraceCausalProjection {
 		WindowStartTs: 13762.791708,
 		WindowEndTs:   13763.024898,
 		OnChainCauses: []types.TraceCausalProjectionNode{
-			iofamSelfNode("iofam-lat", "io_latency", 3.670, 8188, 9936),
-			iofamSelfNode("iofam-blk1", "block_io_by_inode", 2.694, 8200, 9900),
-			iofamSelfNode("iofam-blk2", "block_io_by_inode", 2.116, 8300, 9800),
-			iofamSelfNode("iofam-wait1", "io_wait", 1.347, 8400, 9700),
-			iofamSelfNode("iofam-wait2", "io_wait", 1.248, 8500, 9600),
+			iofamSelfTsNode("iofam-lat", "io_latency", 3.670, 8188, 9936),
+			iofamSelfTsNode("iofam-blk1", "block_io_by_inode", 2.694, 8200, 9900),
+			iofamSelfTsNode("iofam-blk2", "block_io_by_inode", 2.116, 8300, 9800),
+			iofamSelfTsNode("iofam-wait1", "io_wait", 1.347, 8400, 9700),
+			iofamSelfTsNode("iofam-wait2", "io_wait", 1.248, 8500, 9600),
 		},
 	}
 }
@@ -77,7 +92,7 @@ func TestIOFAMSelfFiveFacetsOneSeatLayeredRoster(t *testing.T) {
 	// T3-wrap at atom boundaries, so the pins run over the whitespace-folded
 	// fence (rail/indent bytes removed).
 	folded := strings.NewReplacer("\n", "", "│", "", " ", "").Replace(fence)
-	if !strings.Contains(folded, "块设备层·块设备IO(inode)（block_io_by_inode）2.694/2.116(分数,非墙钟)") {
+	if !strings.Contains(folded, "块设备层·块设备IO(inode)（block_io_by_inode）2.694/2.116(综合评分,非墙钟)") {
 		t.Fatalf("the composite members must ride the 块设备层 roster with the 分数,非墙钟 disclosure:\n%s", fence)
 	}
 	if !strings.Contains(folded, "调度等待·iowait（io_wait）1.347/1.248ms") {
@@ -108,10 +123,10 @@ func TestIOFAMSelfNonOverlappingMemberNoLongerVetoesGroup(t *testing.T) {
 		WindowStartTs: 13762.791708,
 		WindowEndTs:   13763.024898,
 		OnChainCauses: []types.TraceCausalProjectionNode{
-			iofamSelfNode("iofam-lat", "io_latency", 3.670, 8188, 9936),
-			iofamSelfNode("iofam-wait", "io_wait", 1.347, 8400, 9700),
+			iofamSelfTsNode("iofam-lat", "io_latency", 3.670, 8188, 9936),
+			iofamSelfTsNode("iofam-wait", "io_wait", 1.347, 8400, 9700),
 			// The distant churn member: valid lines, zero overlap with the pair.
-			iofamSelfNode("iofam-churn", "page_cache_churn", 0.600, 20000, 20100),
+			iofamSelfTsNode("iofam-churn", "page_cache_churn", 0.600, 20000, 20100),
 		},
 	}
 	evidence := newRuntimeTraceCausalProjectionEvidenceIndex()
@@ -134,12 +149,12 @@ func TestIOFAMSelfNonOverlappingMemberNoLongerVetoesGroup(t *testing.T) {
 // arm: a member without a valid line interval joins no component (keeps its
 // own row) while the valid overlapping pair still folds.
 func TestIOFAMSelfInvalidIntervalMemberStaysStandalone(t *testing.T) {
-	invalid := iofamSelfNode("iofam-noline", "io_burst_episode", 2.222, 0, 0)
+	invalid := iofamSelfTsNode("iofam-noline", "io_burst_episode", 2.222, 0, 0)
 	projection := types.TraceCausalProjection{
 		WakeupPath: []string{"udk-irq-12-92", ".ugc.aweme.lite-17267"},
 		OnChainCauses: []types.TraceCausalProjectionNode{
-			iofamSelfNode("iofam-lat", "io_latency", 3.670, 8188, 9936),
-			iofamSelfNode("iofam-wait", "io_wait", 1.347, 8400, 9700),
+			iofamSelfTsNode("iofam-lat", "io_latency", 3.670, 8188, 9936),
+			iofamSelfTsNode("iofam-wait", "io_wait", 1.347, 8400, 9700),
 			invalid,
 		},
 	}
@@ -162,8 +177,8 @@ func TestIOFAMSelfCompositeOnlyGroupFailsOpen(t *testing.T) {
 	projection := types.TraceCausalProjection{
 		WakeupPath: []string{"udk-irq-12-92", ".ugc.aweme.lite-17267"},
 		OnChainCauses: []types.TraceCausalProjectionNode{
-			iofamSelfNode("iofam-blk1", "block_io_by_inode", 2.694, 8200, 9900),
-			iofamSelfNode("iofam-blk2", "block_io_by_inode", 2.116, 8300, 9800),
+			iofamSelfTsNode("iofam-blk1", "block_io_by_inode", 2.694, 8200, 9900),
+			iofamSelfTsNode("iofam-blk2", "block_io_by_inode", 2.116, 8300, 9800),
 		},
 	}
 	fence := runtimeTraceProjTreeFence(buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true), true)

@@ -8,7 +8,7 @@ package types
 //     numbered per query window, so the display attach domain needs the
 //     window dimension the compile side must carry.
 //   - G5 (§27.3): TraceCausalProjectionMergeOccurrenceRows shares the ONE R2
-//     merge authority (SUM + a–b range + lossless MergedEvidenceIDs) for the
+//     merge authority (SUM + a~b range + lossless MergedEvidenceIDs) for the
 //     display trunk's ×2 same-(thread,state) occurrence fold.
 //
 // MUTATION self-checks:
@@ -73,7 +73,7 @@ func TestGAPBWakeupPathWindowAbsenceStaysZero(t *testing.T) {
 }
 
 // G5: the exported occurrence merge is the SAME R2 authority — SUM value,
-// per-instance a–b range, MergedCount, lossless MergedEvidenceIDs, line/ts
+// per-instance a~b range, MergedCount, lossless MergedEvidenceIDs, line/ts
 // envelope, best rank, min confidence. Threshold policy (2 vs the R2 pass's
 // ≥3) belongs to the CALLER; the field semantics must be one implementation.
 func TestGAPBMergeOccurrenceRowsSharesR2Authority(t *testing.T) {
