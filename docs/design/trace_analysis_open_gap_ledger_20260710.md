@@ -503,6 +503,12 @@ P1-a1结案后从干净且已与`origin/main`对齐的`3474a2fbb`重新测绘。
 - **机械证据与验证**：accepted与same-reason rejected分别覆盖1/4K/1M恒定Caveat/Coverage/key/provenance shape；4K distinct name及32 distinct version正反序样例完全一致；单frame 1M wrong-wire得到`occurrence=1M/affected=1/duplicate=1/excess=999999`且无按occurrence字符串驻留；四route、clean/empty/no-row、canonical structured/malformed/strict legacy、mixed metadata/issue、共享publisher index/staged、source fail-close均有正负pin。AST锁定retained ledger无map/slice、outer parser无append、四route key闭集、ensure唯一index赋值+唯一append且不排序、raw name/reason不直接驱动frame-loop诊断append。Focused shuffle`×20`、focused race、`go test ./internal/hitraceconv -count=1`、`go vet ./internal/hitraceconv`、`go test ./... -count=1`、`go vet ./...`、gofmt与diff-check全绿；标准Donghu本地golden相关真实trace测试随全仓通过，代码/对抗/测试三路独立终审均为**RELEASE**。
 - **诚实剩余**：exact ftrace structured lane仍逐message增长TracePluginResult/summary issue、summary Caveat及metadata/event coverage，动态unknown`event_field:<id>`也尚未归固定桶，这些是紧接的P1-a2.2-B。a2.3 repeated protobuf、a2.4 row provenance以及`ROW-SORT-BND`、P1-b、TOCTOU等冻结节列出的边界全部继续开放。
 
+### P1-a2.2-B施工校准：envelope→summary→event coverage三次原子推送
+
+B终态不变，但按单点权威拆成B1-a/B1-b/B2，任一子批不得提前关闭P1-a2.2。**B1-a**只把`profilerTracePluginResult.Issues []string`换成固定envelope enum census（known field 1/2/5/6/7/8 wrong-wire occurrence/affected frame、malformed、version duplicate affected/excess），并把逐frame`TracePluginResult degraded` Caveat与`__trace_plugin_envelope__` coverage聚成终态各一条；RowsRead保持issue occurrence口径，原始Disposition、合法repeated raw siblings、malformed清authority、PairCaptureOpaque/PairFamilies和event renderer全不改。单frame1M wrong-wire与4K同reason frame必须证明fixed retained state、精确occurrence/affected、合法sibling不饿死、唯一coverage/caveat且outer bucket/outcome守恒；source fail-close仍在B1-a物化后统一归零。
+
+**B1-b**再治理`profilerFtraceSummary.Issues`及逐framesummary Caveat/metadata coverage；snapshot型stats禁止跨message求和伪造，采用精确message/issue counters+固定稳定summary样例或等价typed聚合，必须保留现有version/clock/stats/event/symbol等披露且有截断说明。**B2**最后按typed event field聚合known descriptor唯一coverage，unknown field归一个固定桶+K8 field-id样例；degradation必须从typed reason enum/closed counter生成，严禁反解析`Skipped/Error`人类字符串。B1-a结案时B1-b/B2、a2.3/a2.4及全链有界声明仍全部开放。
+
 ## 统一采集与回访命令
 
 ```bash
