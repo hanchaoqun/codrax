@@ -282,99 +282,208 @@ func decodeProfilerFtraceStructuredEvents(data []byte) ([]profilerFtraceEventRec
 }
 
 func decodeProfilerFtraceCPUDetailEvents(data []byte) ([]profilerFtraceEventRecord, error) {
-	var cpu uint64
-	cpuCount := 0
-	cpuWrongWire := false
-	var eventPayloads [][]byte
-	eventWrongWire := 0
-	overwriteCount := 0
-	overwriteWrongWire := false
-	var out []profilerFtraceEventRecord
-	err := walkProtoFields(data, func(field int, wire int, raw []byte, v uint64) error {
+	return decodeProfilerFtraceCPUDetailEventsContext(context.Background(), data)
+}
+
+type profilerFtraceCPUDetailAuthority struct {
+	Malformed               bool
+	CPU                     uint64
+	CPUOccurrences          uint64
+	CPUWrongWire            bool
+	EventOccurrences        uint64
+	EventPayloadOccurrences uint64
+	EventWrongWire          uint64
+	Overwrite               uint64
+	OverwriteOccurrences    uint64
+	OverwriteWrongWire      bool
+	PairFamilies            pairCriticalFormatFamilyMask
+	payload                 []byte
+}
+
+func auditProfilerFtraceCPUDetail(ctx context.Context, data []byte) (profilerFtraceCPUDetailAuthority, error) {
+	var authority profilerFtraceCPUDetailAuthority
+	err := walkProfilerProtoFieldsContext(ctx, data, func(field int, wire int, _ []byte, value uint64) error {
 		switch field {
 		case 1:
-			cpuCount++
-			if wire != 0 {
-				cpuWrongWire = true
-				break
+			if authority.CPUOccurrences == math.MaxUint64 {
+				return &traceDBOutputInvariantError{Reason: "profiler_cpu_detail_cpu_census_overflow"}
 			}
-			cpu = v
+			authority.CPUOccurrences++
+			if wire != 0 {
+				authority.CPUWrongWire = true
+				return nil
+			}
+			authority.CPU = value
 		case 2:
+			if authority.EventOccurrences == math.MaxUint64 {
+				return &traceDBOutputInvariantError{Reason: "profiler_cpu_detail_event_census_overflow"}
+			}
+			authority.EventOccurrences++
 			if wire != 2 {
-				eventWrongWire++
-				break
+				if authority.EventWrongWire == math.MaxUint64 {
+					return &traceDBOutputInvariantError{Reason: "profiler_cpu_detail_event_wrong_wire_census_overflow"}
+				}
+				authority.EventWrongWire++
+				return nil
 			}
-			eventPayloads = append(eventPayloads, raw)
+			if authority.EventPayloadOccurrences == math.MaxUint64 {
+				return &traceDBOutputInvariantError{Reason: "profiler_cpu_detail_event_payload_census_overflow"}
+			}
+			authority.EventPayloadOccurrences++
 		case 3:
-			overwriteCount++
-			if wire != 0 {
-				overwriteWrongWire = true
+			if authority.OverwriteOccurrences == math.MaxUint64 {
+				return &traceDBOutputInvariantError{Reason: "profiler_cpu_detail_overwrite_census_overflow"}
 			}
+			authority.OverwriteOccurrences++
+			if wire != 0 {
+				authority.OverwriteWrongWire = true
+				return nil
+			}
+			authority.Overwrite = value
 		}
 		return nil
 	})
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return profilerFtraceCPUDetailAuthority{}, err
+		}
+		if _, invariant := traceDBOutputInvariantReason(err); invariant {
+			return profilerFtraceCPUDetailAuthority{}, err
+		}
+		families, familyErr := profilerPairFamiliesFromCPUDetailContext(ctx, data)
+		if familyErr != nil {
+			return profilerFtraceCPUDetailAuthority{}, familyErr
+		}
+		return profilerFtraceCPUDetailAuthority{
+			Malformed: true, PairFamilies: families,
+		}, nil
+	}
+	authority.payload = data
+	return authority, nil
+}
+
+func (authority profilerFtraceCPUDetailAuthority) cpuIssue() (profilerFtraceEventIssueKind, bool) {
+	switch {
+	case authority.CPUOccurrences > 1:
+		return profilerFtraceEventIssueEnvelopeCPUDuplicate, true
+	case authority.CPUWrongWire:
+		return profilerFtraceEventIssueEnvelopeCPUWrongWire, true
+	case authority.CPU > uint64(maxTraceDBCPUIndex):
+		return profilerFtraceEventIssueEnvelopeCPUOutOfRange, true
+	default:
+		return 0, false
+	}
+}
+
+func visitProfilerFtraceCPUDetailEvents(ctx context.Context, authority profilerFtraceCPUDetailAuthority, visit func(profilerFtraceEventRecord) error) error {
+	callback := func(record profilerFtraceEventRecord) error {
+		if visit != nil {
+			return visit(record)
+		}
+		return nil
+	}
+	if authority.Malformed {
 		record := profilerFtraceEventRecord{
 			Field:             profilerFtraceCPUDetailEnvelopeField,
-			PairFamilies:      profilerPairFamiliesFromCPUDetail(data),
+			PairFamilies:      authority.PairFamilies,
 			PairCaptureOpaque: true,
 		}
-		if issueErr := record.appendEnvelopeIssue(profilerFtraceEventIssueEnvelopeCPUDetailMalformedWire); issueErr != nil {
-			return nil, issueErr
+		if err := record.appendEnvelopeIssue(profilerFtraceEventIssueEnvelopeCPUDetailMalformedWire); err != nil {
+			return err
 		}
-		return []profilerFtraceEventRecord{record}, nil
+		return callback(record)
 	}
-	var cpuIssueKind profilerFtraceEventIssueKind
-	cpuIssuePresent := true
-	switch {
-	case cpuCount > 1:
-		cpuIssueKind = profilerFtraceEventIssueEnvelopeCPUDuplicate
-	case cpuWrongWire:
-		cpuIssueKind = profilerFtraceEventIssueEnvelopeCPUWrongWire
-	case cpu > uint64(maxTraceDBCPUIndex):
-		cpuIssueKind = profilerFtraceEventIssueEnvelopeCPUOutOfRange
-	default:
-		cpuIssuePresent = false
+	if authority.EventPayloadOccurrences > authority.EventOccurrences ||
+		authority.EventWrongWire != authority.EventOccurrences-authority.EventPayloadOccurrences {
+		return &traceDBOutputInvariantError{Reason: "profiler_cpu_detail_event_census_invalid"}
 	}
-	// FtraceParser and FlowController always call set_cpu. Proto3 omits an
-	// exact zero, so absence is CPU 0 only for this pinned producer profile.
-	for _, raw := range eventPayloads {
-		event, decodeErr := decodeProfilerFtraceEventRecord(cpu, raw)
+
+	cpuIssue, cpuIssuePresent := authority.cpuIssue()
+	var eventObserved, eventPayloadObserved uint64
+	var callbackErr error
+	err := walkProfilerProtoFieldsContext(ctx, authority.payload, func(field int, wire int, raw []byte, _ uint64) error {
+		if field != 2 {
+			return nil
+		}
+		if eventObserved == math.MaxUint64 {
+			return &traceDBOutputInvariantError{Reason: "profiler_cpu_detail_visitor_event_census_overflow"}
+		}
+		eventObserved++
+		if wire != 2 {
+			return nil
+		}
+		if eventPayloadObserved == math.MaxUint64 {
+			return &traceDBOutputInvariantError{Reason: "profiler_cpu_detail_visitor_payload_census_overflow"}
+		}
+		eventPayloadObserved++
+		event, decodeErr := decodeProfilerFtraceEventRecordContext(ctx, authority.CPU, raw)
 		if decodeErr != nil {
-			return nil, decodeErr
+			return decodeErr
 		}
 		if cpuIssuePresent {
-			if issueErr := event.appendEnvelopeIssue(cpuIssueKind); issueErr != nil {
-				return nil, issueErr
+			if issueErr := event.appendEnvelopeIssue(cpuIssue); issueErr != nil {
+				return issueErr
 			}
 		}
-		out = append(out, event)
-	}
-	if len(eventPayloads) == 0 && cpuIssuePresent {
-		record := profilerFtraceEventRecord{Field: profilerFtraceCPUDetailEnvelopeField}
-		if issueErr := record.appendEnvelopeIssue(cpuIssueKind); issueErr != nil {
-			return nil, issueErr
+		callbackErr = callback(event)
+		return callbackErr
+	})
+	if err != nil {
+		if callbackErr != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return err
 		}
-		out = append(out, record)
+		if _, invariant := traceDBOutputInvariantReason(err); invariant {
+			return err
+		}
+		return &traceDBOutputInvariantError{Reason: "profiler_cpu_detail_visitor_parse_drift"}
 	}
-	if eventWrongWire > 0 {
+	if eventObserved != authority.EventOccurrences || eventPayloadObserved != authority.EventPayloadOccurrences {
+		return &traceDBOutputInvariantError{Reason: "profiler_cpu_detail_visitor_census_drift"}
+	}
+	if eventPayloadObserved == 0 && cpuIssuePresent {
+		record := profilerFtraceEventRecord{Field: profilerFtraceCPUDetailEnvelopeField}
+		if err := record.appendEnvelopeIssue(cpuIssue); err != nil {
+			return err
+		}
+		if err := callback(record); err != nil {
+			return err
+		}
+	}
+	if authority.EventWrongWire > 0 {
 		record := profilerFtraceEventRecord{
 			Field:             profilerFtraceCPUDetailEnvelopeField,
 			PairCaptureOpaque: true,
 		}
-		if issueErr := record.appendEnvelopeIssue(profilerFtraceEventIssueEnvelopeEventContainerWrongWire); issueErr != nil {
-			return nil, issueErr
+		if err := record.appendEnvelopeIssue(profilerFtraceEventIssueEnvelopeEventContainerWrongWire); err != nil {
+			return err
 		}
-		out = append(out, record)
+		if err := callback(record); err != nil {
+			return err
+		}
 	}
-	if overwriteCount > 1 || overwriteWrongWire {
+	if authority.OverwriteOccurrences > 1 || authority.OverwriteWrongWire {
 		record := profilerFtraceEventRecord{Field: profilerFtraceCPUDetailEnvelopeField}
-		if issueErr := record.appendEnvelopeIssue(profilerFtraceEventIssueEnvelopeOverwriteInvalid); issueErr != nil {
-			return nil, issueErr
+		if err := record.appendEnvelopeIssue(profilerFtraceEventIssueEnvelopeOverwriteInvalid); err != nil {
+			return err
 		}
-		out = append(out, record)
+		if err := callback(record); err != nil {
+			return err
+		}
 	}
-	return out, nil
+	return nil
+}
+
+func decodeProfilerFtraceCPUDetailEventsContext(ctx context.Context, data []byte) ([]profilerFtraceEventRecord, error) {
+	authority, err := auditProfilerFtraceCPUDetail(ctx, data)
+	if err != nil {
+		return nil, err
+	}
+	var out []profilerFtraceEventRecord
+	err = visitProfilerFtraceCPUDetailEvents(ctx, authority, func(record profilerFtraceEventRecord) error {
+		out = append(out, record)
+		return nil
+	})
+	return out, err
 }
 
 func profilerPairFamiliesFromCPUDetail(data []byte) pairCriticalFormatFamilyMask {
@@ -510,11 +619,15 @@ type profilerProtoEnvelopeField struct {
 }
 
 func decodeProfilerFtraceEventRecord(cpu uint64, data []byte) (profilerFtraceEventRecord, error) {
+	return decodeProfilerFtraceEventRecordContext(context.Background(), cpu, data)
+}
+
+func decodeProfilerFtraceEventRecordContext(ctx context.Context, cpu uint64, data []byte) (profilerFtraceEventRecord, error) {
 	record := profilerFtraceEventRecord{CPU: int64(cpu)}
 	var timestamp, tgid, comm, common profilerProtoEnvelopeField
 	oneofCount := 0
 	oneofWrongWire := false
-	err := walkProtoFields(data, func(field int, wire int, raw []byte, v uint64) error {
+	err := walkProfilerProtoFieldsContext(ctx, data, func(field int, wire int, raw []byte, v uint64) error {
 		switch field {
 		case 1:
 			profilerProtoEnvelopeSetUint(&timestamp, wire, v)
@@ -539,6 +652,12 @@ func decodeProfilerFtraceEventRecord(cpu uint64, data []byte) (profilerFtraceEve
 		return nil
 	})
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return profilerFtraceEventRecord{}, err
+		}
+		if _, invariant := traceDBOutputInvariantReason(err); invariant {
+			return profilerFtraceEventRecord{}, err
+		}
 		var decodeErr *protoFieldDecodeError
 		if errors.As(err, &decodeErr) && decodeErr.FieldKnown {
 			// A complete oneof key is precise family provenance even when its
@@ -622,7 +741,7 @@ func decodeProfilerFtraceEventRecord(cpu uint64, data []byte) (profilerFtraceEve
 			return profilerFtraceEventRecord{}, issueErr
 		}
 	} else {
-		pid, ownerKnown, ownerPresent, flags, preempt, commonErr := decodeProfilerFtraceCommonFields(&record, common.bytes)
+		pid, ownerKnown, ownerPresent, flags, preempt, commonErr := decodeProfilerFtraceCommonFieldsContext(ctx, &record, common.bytes)
 		if commonErr != nil {
 			return profilerFtraceEventRecord{}, commonErr
 		}
@@ -701,11 +820,16 @@ func profilerProtoEnvelopeRequiredIssueKind(field profilerProtoEnvelopeField,
 
 func decodeProfilerFtraceCommonFields(record *profilerFtraceEventRecord, data []byte) (pid int64, ownerKnown, ownerPresent bool,
 	flags, preempt int64, err error) {
+	return decodeProfilerFtraceCommonFieldsContext(context.Background(), record, data)
+}
+
+func decodeProfilerFtraceCommonFieldsContext(ctx context.Context, record *profilerFtraceEventRecord, data []byte) (pid int64, ownerKnown, ownerPresent bool,
+	flags, preempt int64, err error) {
 	if record == nil {
 		return 0, false, false, 0, 0, &traceDBOutputInvariantError{Reason: "profiler_event_common_record_nil"}
 	}
 	var fields [5]profilerProtoEnvelopeField
-	walkErr := walkProtoFields(data, func(field int, wire int, raw []byte, v uint64) error {
+	walkErr := walkProfilerProtoFieldsContext(ctx, data, func(field int, wire int, raw []byte, v uint64) error {
 		if field >= 1 && field <= 4 {
 			profilerProtoEnvelopeSetUint(&fields[field], wire, v)
 		}
@@ -716,6 +840,12 @@ func decodeProfilerFtraceCommonFields(record *profilerFtraceEventRecord, data []
 		return record.appendEnvelopeIssue(kind) == nil
 	}
 	if walkErr != nil {
+		if errors.Is(walkErr, context.Canceled) || errors.Is(walkErr, context.DeadlineExceeded) {
+			return 0, false, false, 0, 0, walkErr
+		}
+		if _, invariant := traceDBOutputInvariantReason(walkErr); invariant {
+			return 0, false, false, 0, 0, walkErr
+		}
 		if !appendIssue(profilerFtraceEventIssueEnvelopeCommonFieldsMalformedWire) {
 			return 0, false, false, 0, 0, &traceDBOutputInvariantError{Reason: "profiler_event_common_issue_schema_invalid"}
 		}

@@ -343,7 +343,7 @@ func profilerTracePluginResultEventsContext(ctx context.Context, result profiler
 		if field != 2 {
 			return nil
 		}
-		events, err := decodeProfilerFtraceCPUDetailEvents(raw)
+		events, err := decodeProfilerFtraceCPUDetailEventsContext(ctx, raw)
 		if err != nil {
 			return err
 		}

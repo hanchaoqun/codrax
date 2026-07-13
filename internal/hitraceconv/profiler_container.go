@@ -1565,8 +1565,14 @@ func decodeProfilerFtraceSummaryResultContext(ctx context.Context, result profil
 				return nil
 			})
 		case 2:
-			detail, err := decodeProfilerFtraceCPUDetail(raw)
+			detail, err := decodeProfilerFtraceCPUDetailContext(ctx, raw)
 			if err != nil {
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					return err
+				}
+				if _, invariant := traceDBOutputInvariantReason(err); invariant {
+					return err
+				}
 				return nil
 			}
 			summary.DetailMessages++
@@ -1808,78 +1814,55 @@ func visitProfilerFtracePerCPUStats(ctx context.Context, stats profilerFtraceCPU
 }
 
 func decodeProfilerFtraceCPUDetail(data []byte) (profilerFtraceCPUDetail, error) {
+	return decodeProfilerFtraceCPUDetailContext(context.Background(), data)
+}
+
+func decodeProfilerFtraceCPUDetailContext(ctx context.Context, data []byte) (profilerFtraceCPUDetail, error) {
 	detail := profilerFtraceCPUDetail{EventFieldCounts: map[int]int{}, OverwriteValid: true}
-	cpuCount := 0
-	cpuWrongWire := false
-	overwriteCount := 0
-	overwriteWrongWire := false
-	err := walkProtoFields(data, func(field int, wire int, raw []byte, v uint64) error {
-		switch field {
-		case 1:
-			cpuCount++
-			if wire == 0 {
-				detail.CPU = v
-			} else {
-				cpuWrongWire = true
-			}
-		case 2:
-			if wire == 2 {
-				fields, err := decodeProfilerFtraceEventFields(raw)
-				if err != nil {
-					return nil
-				}
-				detail.EventCount++
-				for _, eventField := range fields {
-					detail.EventFieldCounts[eventField]++
-				}
-			}
-		case 3:
-			overwriteCount++
-			if wire == 0 {
-				detail.Overwrite = v
-			} else {
-				overwriteWrongWire = true
-			}
-		}
-		_ = raw
-		return nil
-	})
+	authority, err := auditProfilerFtraceCPUDetail(ctx, data)
 	if err != nil {
 		return detail, err
 	}
-	if cpuCount > 1 {
+	if authority.Malformed {
+		return detail, fmt.Errorf("malformed FtraceCpuDetailMsg wire")
+	}
+	if authority.CPUOccurrences > 1 {
 		return detail, fmt.Errorf("duplicate FtraceCpuDetailMsg cpu field")
 	}
-	if cpuWrongWire {
+	if authority.CPUWrongWire {
 		return detail, fmt.Errorf("wrong-wire FtraceCpuDetailMsg cpu field")
 	}
-	if overwriteCount > 1 || overwriteWrongWire {
+	if authority.CPU > uint64(maxTraceDBCPUIndex) {
+		return detail, fmt.Errorf("out-of-range FtraceCpuDetailMsg cpu field")
+	}
+	detail.CPU = authority.CPU
+	detail.Overwrite = authority.Overwrite
+	if authority.OverwriteOccurrences > 1 || authority.OverwriteWrongWire {
 		detail.Overwrite = 0
 		detail.OverwriteValid = false
 	}
-	if detail.CPU > uint64(maxTraceDBCPUIndex) {
-		return detail, fmt.Errorf("out-of-range FtraceCpuDetailMsg cpu field")
-	}
-	return detail, err
-}
-
-func decodeProfilerFtraceEventFields(data []byte) ([]int, error) {
-	record, err := decodeProfilerFtraceEventRecord(0, data)
-	if err != nil {
-		return nil, err
-	}
-	envelopeIssues, issueErr := record.checkedEnvelopeIssues()
-	if issueErr != nil {
-		return nil, issueErr
-	}
-	if len(envelopeIssues) > 0 {
-		labels, ok := profilerFtraceEventIssueLabels(record.Field, envelopeIssues)
-		if !ok {
-			return nil, &traceDBOutputInvariantError{Reason: "profiler_event_envelope_issue_invalid"}
+	err = visitProfilerFtraceCPUDetailEvents(ctx, authority, func(record profilerFtraceEventRecord) error {
+		if record.Field == profilerFtraceCPUDetailEnvelopeField {
+			return nil
 		}
-		return nil, fmt.Errorf("invalid FtraceEvent envelope: %s", strings.Join(labels, ","))
-	}
-	return []int{record.Field}, nil
+		issues, issueErr := record.checkedEnvelopeIssues()
+		if issueErr != nil {
+			return issueErr
+		}
+		if len(issues) > 0 {
+			return nil
+		}
+		if detail.EventCount == math.MaxInt {
+			return &traceDBOutputInvariantError{Reason: "profiler_cpu_detail_summary_event_count_overflow"}
+		}
+		detail.EventCount++
+		if detail.EventFieldCounts[record.Field] == math.MaxInt {
+			return &traceDBOutputInvariantError{Reason: "profiler_cpu_detail_summary_field_count_overflow"}
+		}
+		detail.EventFieldCounts[record.Field]++
+		return nil
+	})
+	return detail, err
 }
 
 func decodeProfilerFtraceSymbolDetail(data []byte) (profilerFtraceSymbolDetail, error) {
