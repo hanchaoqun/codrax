@@ -1097,44 +1097,31 @@ frames:
 						break frames
 					}
 				}
-				summary, ok, summaryErr := decodeProfilerFtraceSummaryResultContext(ctx, authority)
-				if summaryErr != nil {
+				structuredRows, eventBatch, summary, ok, renderErr := renderProfilerFtraceStructuredResultForContainerFusedContext(ctx, authority, &seq, sink)
+				if renderErr != nil {
+					coverage.Error = renderErr.Error()
+					_ = appendPluginCoverage()
+					return profilerContainerExtraction{}, renderErr
+				}
+				if !diagnostics.observeFtraceFrame(&summary, ok, eventBatch, off) {
 					_ = sink.endPairRowCensus()
-					return profilerContainerExtraction{}, summaryErr
-				} else {
-					if ok {
-						if summary.IssueOverflow || !diagnostics.FtraceSummary.observe(&summary, off) {
-							_ = sink.endPairRowCensus()
-							profilerContainerCounterFailClose(&out, sink)
-							break frames
-						}
+					profilerContainerCounterFailClose(&out, sink)
+					break frames
+				}
+				coverage.RowsEmitted = structuredRows
+				if !checkedProfilerIntAddTo(&out.StructuredRows, structuredRows) {
+					_ = sink.endPairRowCensus()
+					profilerContainerCounterFailClose(&out, sink)
+					break frames
+				}
+				if authorityDegraded || ok && !summary.Issues.empty() || eventBatch.degraded() || ok && structuredRows == 0 && summary.DetailEventCount > 0 {
+					if outcome != profilerPluginOutcomeMalformed {
+						outcome = profilerPluginOutcomeStructuredDegraded
 					}
-					structuredRows, eventBatch, renderErr := renderProfilerFtraceStructuredResultForContainerContext(ctx, authority, &seq, sink)
-					if renderErr != nil {
-						coverage.Error = renderErr.Error()
-						_ = appendPluginCoverage()
-						return profilerContainerExtraction{}, renderErr
-					}
-					coverage.RowsEmitted = structuredRows
-					if !checkedProfilerIntAddTo(&out.StructuredRows, structuredRows) {
+					if !checkedProfilerIntAddTo(&out.UnsupportedFtrace, 1) {
 						_ = sink.endPairRowCensus()
 						profilerContainerCounterFailClose(&out, sink)
 						break frames
-					}
-					if !diagnostics.FtraceEvents.merge(eventBatch) {
-						_ = sink.endPairRowCensus()
-						profilerContainerCounterFailClose(&out, sink)
-						break frames
-					}
-					if authorityDegraded || ok && !summary.Issues.empty() || eventBatch.degraded() || ok && structuredRows == 0 && summary.DetailEventCount > 0 {
-						if outcome != profilerPluginOutcomeMalformed {
-							outcome = profilerPluginOutcomeStructuredDegraded
-						}
-						if !checkedProfilerIntAddTo(&out.UnsupportedFtrace, 1) {
-							_ = sink.endPairRowCensus()
-							profilerContainerCounterFailClose(&out, sink)
-							break frames
-						}
 					}
 				}
 			} else if route == profilerPluginRouteNoncanonicalFtrace {
@@ -1507,19 +1494,41 @@ func decodeProfilerFtraceSummaryResult(result profilerTracePluginResult) (profil
 }
 
 func decodeProfilerFtraceSummaryResultContext(ctx context.Context, result profilerTracePluginResult) (profilerFtraceSummary, bool, error) {
+	return consumeProfilerTracePluginResultContext(ctx, result, true, nil)
+}
+
+func consumeProfilerTracePluginResultContext(ctx context.Context, result profilerTracePluginResult, summarize bool,
+	visitEvent func(profilerFtraceEventRecord) error,
+) (profilerFtraceSummary, bool, error) {
 	summary := profilerFtraceSummary{
 		StartTotalsValid:  true,
 		EndTotalsValid:    true,
 		DetailOverwriteOK: true,
 	}
+	if visitEvent != nil {
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		if err := ctx.Err(); err != nil {
+			return summary, false, err
+		}
+	}
 	if result.Disposition == profilerFtracePayloadNotStructured {
 		return summary, false, nil
 	}
 	if result.Disposition == profilerFtracePayloadMalformed {
+		if visitEvent != nil {
+			if err := visitProfilerTracePluginMalformedResult(result, visitEvent); err != nil {
+				return summary, false, err
+			}
+		}
 		return summary, false, nil
 	}
-	summary.recognizedMessage = true
+	summary.recognizedMessage = summarize
 	err := visitProfilerTracePluginResult(ctx, result, func(field int, raw []byte) error {
+		if !summarize && field != 2 {
+			return nil
+		}
 		switch field {
 		case 1:
 			stats, err := decodeProfilerFtraceCPUStatsContext(ctx, raw)
@@ -1579,44 +1588,32 @@ func decodeProfilerFtraceSummaryResultContext(ctx context.Context, result profil
 				return nil
 			})
 		case 2:
-			detail, err := decodeProfilerFtraceCPUDetailContext(ctx, raw)
+			authority, err := auditProfilerFtraceCPUDetail(ctx, raw)
 			if err != nil {
-				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-					return err
+				return err
+			}
+			var detail profilerFtraceCPUDetail
+			var detailSummary *profilerFtraceCPUDetail
+			if summarize {
+				_, cpuInvalid := authority.cpuIssue()
+				if !authority.Malformed && !cpuInvalid {
+					candidate, summaryErr := newProfilerFtraceCPUDetailSummary(authority)
+					if summaryErr != nil {
+						return &traceDBOutputInvariantError{Reason: "profiler_cpu_detail_summary_authority_drift"}
+					}
+					detail = candidate
+					detailSummary = &detail
 				}
-				if _, invariant := traceDBOutputInvariantReason(err); invariant {
-					return err
-				}
+			}
+			if detailSummary == nil && visitEvent == nil {
 				return nil
 			}
-			if !checkedProfilerUint64AddTo(&summary.DetailMessages, 1) ||
-				!checkedProfilerUint64AddTo(&summary.DetailEventCount, detail.EventCount) ||
-				!summary.DetailCPUs.observe(detail.CPU) {
-				return &traceDBOutputInvariantError{Reason: "profiler_summary_detail_counter_invalid"}
+			if err := consumeProfilerFtraceCPUDetailAuthorityContext(ctx, authority, detailSummary, visitEvent); err != nil {
+				return err
 			}
-			if !detail.OverwriteValid {
-				summary.DetailOverwriteOK = false
-				summary.DetailOverwrite = 0
-			} else if summary.DetailOverwriteOK {
-				if next, ok := checkedProfilerUint64Add(summary.DetailOverwrite, detail.Overwrite); ok {
-					summary.DetailOverwrite = next
-				} else {
-					summary.DetailOverwriteOK = false
-					summary.DetailOverwrite = 0
-					if !summary.Issues.observe(profilerFtraceSummaryIssueDetailOverwriteOverflow, 1) {
-						summary.IssueOverflow = true
-					}
-				}
+			if detailSummary != nil {
+				return summary.observeCPUDetail(*detailSummary)
 			}
-			for index, count := range detail.KnownEventCounts {
-				if !checkedProfilerUint64AddTo(&summary.KnownEventCounts[index], count) {
-					return &traceDBOutputInvariantError{Reason: "profiler_summary_known_event_count_overflow"}
-				}
-			}
-			if !checkedProfilerUint64AddTo(&summary.UnknownEventCount, detail.UnknownEventCount) {
-				return &traceDBOutputInvariantError{Reason: "profiler_summary_unknown_event_count_overflow"}
-			}
-			mergeProfilerStableSampleSet(&summary.UnknownEventFieldSamples, detail.UnknownEventFieldSamples)
 		case 5:
 			symbol, err := decodeProfilerFtraceSymbolDetail(raw)
 			if err != nil {
@@ -1683,6 +1680,41 @@ func decodeProfilerFtraceSummaryResultContext(ctx context.Context, result profil
 		return summary, false, err
 	}
 	return summary, summary.recognizedMessage, nil
+}
+
+func (summary *profilerFtraceSummary) observeCPUDetail(detail profilerFtraceCPUDetail) error {
+	if summary == nil {
+		return &traceDBOutputInvariantError{Reason: "profiler_summary_detail_target_nil"}
+	}
+	if !checkedProfilerUint64AddTo(&summary.DetailMessages, 1) ||
+		!checkedProfilerUint64AddTo(&summary.DetailEventCount, detail.EventCount) ||
+		!summary.DetailCPUs.observe(detail.CPU) {
+		return &traceDBOutputInvariantError{Reason: "profiler_summary_detail_counter_invalid"}
+	}
+	if !detail.OverwriteValid {
+		summary.DetailOverwriteOK = false
+		summary.DetailOverwrite = 0
+	} else if summary.DetailOverwriteOK {
+		if next, ok := checkedProfilerUint64Add(summary.DetailOverwrite, detail.Overwrite); ok {
+			summary.DetailOverwrite = next
+		} else {
+			summary.DetailOverwriteOK = false
+			summary.DetailOverwrite = 0
+			if !summary.Issues.observe(profilerFtraceSummaryIssueDetailOverwriteOverflow, 1) {
+				summary.IssueOverflow = true
+			}
+		}
+	}
+	for index, count := range detail.KnownEventCounts {
+		if !checkedProfilerUint64AddTo(&summary.KnownEventCounts[index], count) {
+			return &traceDBOutputInvariantError{Reason: "profiler_summary_known_event_count_overflow"}
+		}
+	}
+	if !checkedProfilerUint64AddTo(&summary.UnknownEventCount, detail.UnknownEventCount) {
+		return &traceDBOutputInvariantError{Reason: "profiler_summary_unknown_event_count_overflow"}
+	}
+	mergeProfilerStableSampleSet(&summary.UnknownEventFieldSamples, detail.UnknownEventFieldSamples)
+	return nil
 }
 
 func decodeProfilerFtraceCPUStats(data []byte) (profilerFtraceCPUStats, error) {
@@ -1848,11 +1880,20 @@ func decodeProfilerFtraceCPUDetail(data []byte) (profilerFtraceCPUDetail, error)
 }
 
 func decodeProfilerFtraceCPUDetailContext(ctx context.Context, data []byte) (profilerFtraceCPUDetail, error) {
-	detail := profilerFtraceCPUDetail{OverwriteValid: true}
 	authority, err := auditProfilerFtraceCPUDetail(ctx, data)
+	if err != nil {
+		return profilerFtraceCPUDetail{}, err
+	}
+	detail, err := newProfilerFtraceCPUDetailSummary(authority)
 	if err != nil {
 		return detail, err
 	}
+	err = consumeProfilerFtraceCPUDetailAuthorityContext(ctx, authority, &detail, nil)
+	return detail, err
+}
+
+func newProfilerFtraceCPUDetailSummary(authority profilerFtraceCPUDetailAuthority) (profilerFtraceCPUDetail, error) {
+	detail := profilerFtraceCPUDetail{OverwriteValid: true}
 	if authority.Malformed {
 		return detail, fmt.Errorf("malformed FtraceCpuDetailMsg wire")
 	}
@@ -1871,36 +1912,53 @@ func decodeProfilerFtraceCPUDetailContext(ctx context.Context, data []byte) (pro
 		detail.Overwrite = 0
 		detail.OverwriteValid = false
 	}
-	err = visitProfilerFtraceCPUDetailEvents(ctx, authority, func(record profilerFtraceEventRecord) error {
-		if record.Field == profilerFtraceCPUDetailEnvelopeField {
-			return nil
+	return detail, nil
+}
+
+func (detail *profilerFtraceCPUDetail) observeSummaryEvent(record profilerFtraceEventRecord) error {
+	if detail == nil || record.Field == profilerFtraceCPUDetailEnvelopeField {
+		return nil
+	}
+	issues, err := record.checkedEnvelopeIssues()
+	if err != nil {
+		return err
+	}
+	if len(issues) > 0 {
+		return nil
+	}
+	if !checkedProfilerUint64AddTo(&detail.EventCount, 1) {
+		return &traceDBOutputInvariantError{Reason: "profiler_cpu_detail_summary_event_count_overflow"}
+	}
+	if slot, ok := profilerFtraceEventDescriptorSlot(record.Field); ok {
+		if !checkedProfilerUint64AddTo(&detail.KnownEventCounts[slot], 1) {
+			return &traceDBOutputInvariantError{Reason: "profiler_cpu_detail_summary_field_count_overflow"}
 		}
-		issues, issueErr := record.checkedEnvelopeIssues()
-		if issueErr != nil {
-			return issueErr
-		}
-		if len(issues) > 0 {
-			return nil
-		}
-		if detail.EventCount == math.MaxUint64 {
-			return &traceDBOutputInvariantError{Reason: "profiler_cpu_detail_summary_event_count_overflow"}
-		}
-		detail.EventCount++
-		if slot, ok := profilerFtraceEventDescriptorSlot(record.Field); ok {
-			if detail.KnownEventCounts[slot] == math.MaxUint64 {
-				return &traceDBOutputInvariantError{Reason: "profiler_cpu_detail_summary_field_count_overflow"}
+		return nil
+	}
+	if !checkedProfilerUint64AddTo(&detail.UnknownEventCount, 1) {
+		return &traceDBOutputInvariantError{Reason: "profiler_cpu_detail_summary_unknown_count_overflow"}
+	}
+	detail.UnknownEventFieldSamples.observe("profiler-ftrace-summary-unknown-event-field", []byte(strconv.Itoa(record.Field)))
+	return nil
+}
+
+func consumeProfilerFtraceCPUDetailAuthorityContext(ctx context.Context, authority profilerFtraceCPUDetailAuthority,
+	detail *profilerFtraceCPUDetail, visit func(profilerFtraceEventRecord) error,
+) error {
+	if detail == nil && visit == nil {
+		return nil
+	}
+	return visitProfilerFtraceCPUDetailEvents(ctx, authority, func(record profilerFtraceEventRecord) error {
+		if detail != nil {
+			if err := detail.observeSummaryEvent(record); err != nil {
+				return err
 			}
-			detail.KnownEventCounts[slot]++
-			return nil
 		}
-		if detail.UnknownEventCount == math.MaxUint64 {
-			return &traceDBOutputInvariantError{Reason: "profiler_cpu_detail_summary_unknown_count_overflow"}
+		if visit != nil {
+			return visit(record)
 		}
-		detail.UnknownEventCount++
-		detail.UnknownEventFieldSamples.observe("profiler-ftrace-summary-unknown-event-field", []byte(strconv.Itoa(record.Field)))
 		return nil
 	})
-	return detail, err
 }
 
 func decodeProfilerFtraceSymbolDetail(data []byte) (profilerFtraceSymbolDetail, error) {

@@ -306,7 +306,8 @@ func TestProfilerSummaryDiagnosticStructurePin(t *testing.T) {
 				continue
 			}
 			frameLoopPinned = true
-			observes := 0
+			fusedCalls := 0
+			frameCommits := 0
 			ast.Inspect(typed.Body, func(node ast.Node) bool {
 				call, ok := node.(*ast.CallExpr)
 				if !ok {
@@ -318,19 +319,21 @@ func TestProfilerSummaryDiagnosticStructurePin(t *testing.T) {
 					name = fun.Name
 				case *ast.SelectorExpr:
 					name = fun.Sel.Name
-					if name == "observe" {
-						if owner, ok := fun.X.(*ast.SelectorExpr); ok && owner.Sel.Name == "FtraceSummary" {
-							observes++
-						}
+					if name == "observeFtraceFrame" {
+						frameCommits++
 					}
 				}
-				if name == "profilerFtraceSummaryCaveat" || name == "profilerFtraceSummaryCoverage" {
+				if name == "renderProfilerFtraceStructuredResultForContainerFusedContext" {
+					fusedCalls++
+				}
+				if name == "profilerFtraceSummaryCaveat" || name == "profilerFtraceSummaryCoverage" ||
+					name == "decodeProfilerFtraceSummaryResultContext" || name == "renderProfilerFtraceStructuredResultForContainerContext" {
 					t.Fatalf("container frame loop regained per-frame summary publisher %s", name)
 				}
 				return true
 			})
-			if observes != 1 {
-				t.Fatalf("container must have one typed summary observation, got %d", observes)
+			if fusedCalls != 1 || frameCommits != 1 {
+				t.Fatalf("container must have one fused pass and one atomic frame commit, got fused=%d commits=%d", fusedCalls, frameCommits)
 			}
 		}
 	}

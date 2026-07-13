@@ -328,19 +328,7 @@ func visitProfilerTracePluginResultEventsContext(ctx context.Context, result pro
 		return err
 	}
 	if result.Disposition == profilerFtracePayloadMalformed {
-		if result.PairFamilies != 0 || result.PairCaptureOpaque {
-			record := profilerFtraceEventRecord{
-				Field: profilerFtraceCPUDetailEnvelopeField, PairFamilies: result.PairFamilies,
-				PairCaptureOpaque: result.PairCaptureOpaque,
-			}
-			if issueErr := record.appendEnvelopeIssue(profilerFtraceEventIssueEnvelopeTracePluginMalformedWire); issueErr != nil {
-				return issueErr
-			}
-			if visit != nil {
-				return visit(record)
-			}
-		}
-		return nil
+		return visitProfilerTracePluginMalformedResult(result, visit)
 	}
 	return visitProfilerTracePluginResult(ctx, result, func(field int, raw []byte) error {
 		if field != 2 {
@@ -352,6 +340,23 @@ func visitProfilerTracePluginResultEventsContext(ctx context.Context, result pro
 		}
 		return visitProfilerFtraceCPUDetailEvents(ctx, authority, visit)
 	})
+}
+
+func visitProfilerTracePluginMalformedResult(result profilerTracePluginResult, visit func(profilerFtraceEventRecord) error) error {
+	if result.PairFamilies == 0 && !result.PairCaptureOpaque {
+		return nil
+	}
+	record := profilerFtraceEventRecord{
+		Field: profilerFtraceCPUDetailEnvelopeField, PairFamilies: result.PairFamilies,
+		PairCaptureOpaque: result.PairCaptureOpaque,
+	}
+	if err := record.appendEnvelopeIssue(profilerFtraceEventIssueEnvelopeTracePluginMalformedWire); err != nil {
+		return err
+	}
+	if visit != nil {
+		return visit(record)
+	}
+	return nil
 }
 
 func profilerTracePluginResultCoverage(result profilerTracePluginResult) []TraceDBCoverage {

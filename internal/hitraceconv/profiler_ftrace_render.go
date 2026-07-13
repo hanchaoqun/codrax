@@ -98,11 +98,26 @@ func renderProfilerFtraceStructuredResultForContainerContext(ctx context.Context
 	return rows, batch, err
 }
 
+func renderProfilerFtraceStructuredResultForContainerFusedContext(ctx context.Context, result profilerTracePluginResult,
+	seq *int, sink *traceDBRowSink,
+) (int, profilerFtraceEventBatchCensus, profilerFtraceSummary, bool, error) {
+	var batch profilerFtraceEventBatchCensus
+	rows, _, summary, recognized, err := renderProfilerFtraceStructuredResultConsumerContext(ctx, result, seq, sink, false, &batch, true)
+	return rows, batch, summary, recognized, err
+}
+
 func renderProfilerFtraceStructuredResultWithEnvelopeCoverage(result profilerTracePluginResult, seq *int, sink *traceDBRowSink, includeEnvelopeCoverage bool, batch *profilerFtraceEventBatchCensus) (int, []TraceDBCoverage, error) {
 	return renderProfilerFtraceStructuredResultWithEnvelopeCoverageContext(context.Background(), result, seq, sink, includeEnvelopeCoverage, batch)
 }
 
 func renderProfilerFtraceStructuredResultWithEnvelopeCoverageContext(ctx context.Context, result profilerTracePluginResult, seq *int, sink *traceDBRowSink, includeEnvelopeCoverage bool, batch *profilerFtraceEventBatchCensus) (int, []TraceDBCoverage, error) {
+	rows, coverage, _, _, err := renderProfilerFtraceStructuredResultConsumerContext(ctx, result, seq, sink, includeEnvelopeCoverage, batch, false)
+	return rows, coverage, err
+}
+
+func renderProfilerFtraceStructuredResultConsumerContext(ctx context.Context, result profilerTracePluginResult, seq *int,
+	sink *traceDBRowSink, includeEnvelopeCoverage bool, batch *profilerFtraceEventBatchCensus, summarize bool,
+) (int, []TraceDBCoverage, profilerFtraceSummary, bool, error) {
 	var topLevelCoverage []TraceDBCoverage
 	if includeEnvelopeCoverage {
 		topLevelCoverage = profilerTracePluginResultCoverage(result)
@@ -261,8 +276,9 @@ func renderProfilerFtraceStructuredResultWithEnvelopeCoverageContext(ctx context
 		}
 		return nil
 	}
-	if err := visitProfilerTracePluginResultEventsContext(ctx, result, renderEvent); err != nil {
-		return rows, append(topLevelCoverage, profilerFtraceEventRenderCoverageList(coverageByField)...), err
+	summary, recognized, err := consumeProfilerTracePluginResultContext(ctx, result, summarize, renderEvent)
+	if err != nil {
+		return rows, append(topLevelCoverage, profilerFtraceEventRenderCoverageList(coverageByField)...), summary, false, err
 	}
 	for field, counts := range degradationsByField {
 		coverage := profilerFtraceEventRenderCoverage(coverageByField, field)
@@ -274,7 +290,7 @@ func renderProfilerFtraceStructuredResultWithEnvelopeCoverageContext(ctx context
 			coverage.FieldSources["degraded_"+reason+"_rows"] = strconv.Itoa(count)
 		}
 	}
-	return rows, append(topLevelCoverage, profilerFtraceEventRenderCoverageList(coverageByField)...), nil
+	return rows, append(topLevelCoverage, profilerFtraceEventRenderCoverageList(coverageByField)...), summary, recognized, nil
 }
 
 type profilerFtraceCPUDetailAuthority struct {

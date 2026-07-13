@@ -489,6 +489,25 @@ func newProfilerContainerDiagnosticLedger() profilerContainerDiagnosticLedger {
 	return ledger
 }
 
+func (ledger *profilerContainerDiagnosticLedger) observeFtraceFrame(summary *profilerFtraceSummary, recognized bool,
+	events profilerFtraceEventBatchCensus, offset int64,
+) bool {
+	if ledger == nil || recognized && (summary == nil || summary.IssueOverflow) {
+		return false
+	}
+	nextSummary := ledger.FtraceSummary
+	nextEvents := ledger.FtraceEvents
+	if recognized && !nextSummary.observe(summary, offset) {
+		return false
+	}
+	if !nextEvents.merge(events) {
+		return false
+	}
+	ledger.FtraceSummary = nextSummary
+	ledger.FtraceEvents = nextEvents
+	return true
+}
+
 func (ledger *profilerContainerDiagnosticLedger) ensurePluginCoverage(out *profilerContainerExtraction, route profilerPluginRoute) (int, bool) {
 	if ledger == nil || out == nil || route >= profilerPluginRouteCount {
 		return -1, false
