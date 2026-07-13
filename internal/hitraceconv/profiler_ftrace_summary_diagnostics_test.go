@@ -319,7 +319,7 @@ func TestProfilerSummaryDiagnosticStructurePin(t *testing.T) {
 					name = fun.Name
 				case *ast.SelectorExpr:
 					name = fun.Sel.Name
-					if name == "observeFtraceFrame" {
+					if name == "observeFtraceFrameContext" {
 						frameCommits++
 					}
 				}
@@ -333,7 +333,7 @@ func TestProfilerSummaryDiagnosticStructurePin(t *testing.T) {
 				return true
 			})
 			if fusedCalls != 1 || frameCommits != 1 {
-				t.Fatalf("container must have one fused pass and one atomic frame commit, got fused=%d commits=%d", fusedCalls, frameCommits)
+				t.Fatalf("container must have one fused pass and one Context-aware atomic frame commit, got fused=%d commits=%d", fusedCalls, frameCommits)
 			}
 		}
 	}

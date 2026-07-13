@@ -1124,7 +1124,12 @@ frames:
 					_ = sink.endPairRowCensus()
 					return profilerContainerExtraction{}, renderErr
 				}
-				if !diagnostics.observeFtraceFrame(&summary, ok, eventBatch, off) {
+				frameObserved, observeErr := diagnostics.observeFtraceFrameContext(ctx, &summary, ok, eventBatch, off)
+				if observeErr != nil {
+					_ = sink.endPairRowCensus()
+					return profilerContainerExtraction{}, observeErr
+				}
+				if !frameObserved {
 					_ = sink.endPairRowCensus()
 					profilerContainerCounterFailClose(&out, sink)
 					break frames
@@ -1539,22 +1544,26 @@ func consumeProfilerTracePluginResultContext(ctx context.Context, result profile
 		EndTotalsValid:    true,
 		DetailOverwriteOK: true,
 	}
-	if visitEvent != nil {
-		if ctx == nil {
-			ctx = context.Background()
-		}
-		if err := ctx.Err(); err != nil {
-			return summary, false, err
-		}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return profilerFtraceSummary{}, false, err
 	}
 	if result.Disposition == profilerFtracePayloadNotStructured {
+		if err := ctx.Err(); err != nil {
+			return profilerFtraceSummary{}, false, err
+		}
 		return summary, false, nil
 	}
 	if result.Disposition == profilerFtracePayloadMalformed {
 		if visitEvent != nil {
 			if err := visitProfilerTracePluginMalformedResult(result, visitEvent); err != nil {
-				return summary, false, err
+				return profilerFtraceSummary{}, false, err
 			}
+		}
+		if err := ctx.Err(); err != nil {
+			return profilerFtraceSummary{}, false, err
 		}
 		return summary, false, nil
 	}
@@ -1567,16 +1576,7 @@ func consumeProfilerTracePluginResultContext(ctx context.Context, result profile
 		case 1:
 			stats, err := decodeProfilerFtraceCPUStatsContext(ctx, raw)
 			if err != nil {
-				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-					return err
-				}
-				if _, invariant := traceDBOutputInvariantReason(err); invariant {
-					return err
-				}
-				if !summary.Issues.observe(profilerFtraceSummaryIssueCPUStatsMalformed, 1) {
-					summary.IssueOverflow = true
-				}
-				return nil
+				return summary.observeDecodeIssue(profilerFtraceSummaryIssueCPUStatsMalformed, err)
 			}
 			if !checkedProfilerUint64AddTo(&summary.StatsMessages, 1) {
 				return &traceDBOutputInvariantError{Reason: "profiler_summary_stats_messages_overflow"}
@@ -1585,7 +1585,10 @@ func consumeProfilerTracePluginResultContext(ctx context.Context, result profile
 				if !checkedProfilerUint64AddTo(&summary.TraceClockObserved, 1) {
 					return &traceDBOutputInvariantError{Reason: "profiler_summary_trace_clock_overflow"}
 				}
-				summary.TraceClockSamples.observe("profiler-ftrace-summary-trace-clock", []byte(stats.Clock))
+				if err := summary.TraceClockSamples.observeStringContext(ctx,
+					"profiler-ftrace-summary-trace-clock", stats.Clock); err != nil {
+					return err
+				}
 			}
 			if stats.Status == 1 {
 				if !checkedProfilerUint64AddTo(&summary.EndStats, 1) {
@@ -1649,12 +1652,9 @@ func consumeProfilerTracePluginResultContext(ctx context.Context, result profile
 				return summary.observeCPUDetail(*detailSummary)
 			}
 		case 5:
-			symbol, err := decodeProfilerFtraceSymbolDetail(raw)
+			symbol, err := decodeProfilerFtraceSymbolDetailContext(ctx, raw)
 			if err != nil {
-				if !summary.Issues.observe(profilerFtraceSummaryIssueSymbolMalformed, 1) {
-					summary.IssueOverflow = true
-				}
-				return nil
+				return summary.observeDecodeIssue(profilerFtraceSummaryIssueSymbolMalformed, err)
 			}
 			if !checkedProfilerUint64AddTo(&summary.SymbolCount, 1) {
 				return &traceDBOutputInvariantError{Reason: "profiler_summary_symbol_count_overflow"}
@@ -1663,28 +1663,34 @@ func consumeProfilerTracePluginResultContext(ctx context.Context, result profile
 				if !checkedProfilerUint64AddTo(&summary.SymbolNamedCount, 1) {
 					return &traceDBOutputInvariantError{Reason: "profiler_summary_named_symbol_count_overflow"}
 				}
-				label := symbol.Name
+				var sampleErr error
 				if symbol.Addr != 0 {
-					label = fmt.Sprintf("0x%x=%s", symbol.Addr, symbol.Name)
+					sampleErr = summary.SymbolSamples.observeStringPartsContext(ctx,
+						"profiler-ftrace-summary-symbol", "0x", strconv.FormatUint(symbol.Addr, 16), "=", symbol.Name)
+				} else {
+					sampleErr = summary.SymbolSamples.observeStringContext(ctx,
+						"profiler-ftrace-summary-symbol", symbol.Name)
 				}
-				summary.SymbolSamples.observe("profiler-ftrace-summary-symbol", []byte(label))
+				if sampleErr != nil {
+					return sampleErr
+				}
 				if summary.SymbolNamedCount > profilerDiagnosticSampleLimit {
 					summary.SymbolTruncated = true
 				}
 			}
 		case 6:
-			clock, err := decodeProfilerFtraceClockDetail(raw)
+			clock, err := decodeProfilerFtraceClockDetailContext(ctx, raw)
 			if err != nil {
-				if !summary.Issues.observe(profilerFtraceSummaryIssueClockMalformed, 1) {
-					summary.IssueOverflow = true
-				}
-				return nil
+				return summary.observeDecodeIssue(profilerFtraceSummaryIssueClockMalformed, err)
 			}
 			if label := profilerFtraceClockDetailLabel(clock); label != "" {
 				if !checkedProfilerUint64AddTo(&summary.ClockDetailCount, 1) {
 					return &traceDBOutputInvariantError{Reason: "profiler_summary_clock_detail_count_overflow"}
 				}
-				summary.ClockDetailSamples.observe("profiler-ftrace-summary-clock-detail", []byte(label))
+				if err := summary.ClockDetailSamples.observeStringContext(ctx,
+					"profiler-ftrace-summary-clock-detail", label); err != nil {
+					return err
+				}
 				if summary.ClockDetailCount > profilerDiagnosticSampleLimit {
 					summary.ClockTruncated = true
 				}
@@ -1693,27 +1699,51 @@ func consumeProfilerTracePluginResultContext(ctx context.Context, result profile
 			if result.VersionOccurrences != 1 {
 				return nil
 			}
-			if traceDBSinglePhysicalLine(string(raw), true) {
+			validVersion, err := profilerSinglePhysicalLineBytesContext(ctx, raw, true)
+			if err != nil {
+				return err
+			}
+			if validVersion {
 				if len(raw) > 0 {
 					summary.VersionObservations = 1
-					summary.VersionSamples.observe("profiler-ftrace-summary-version", raw)
+					if err := summary.VersionSamples.observeContext(ctx,
+						"profiler-ftrace-summary-version", raw); err != nil {
+						return err
+					}
 				}
 			} else if !summary.Issues.observe(profilerFtraceSummaryIssueVersionInvalid, 1) {
 				summary.IssueOverflow = true
 			}
 		case 8:
-			if err := decodeProfilerFtraceCommDict(raw); err != nil {
-				if !summary.Issues.observe(profilerFtraceSummaryIssueCommMalformed, 1) {
-					summary.IssueOverflow = true
-				}
+			if err := decodeProfilerFtraceCommDictContext(ctx, raw); err != nil {
+				return summary.observeDecodeIssue(profilerFtraceSummaryIssueCommMalformed, err)
 			}
 		}
 		return nil
 	})
 	if err != nil {
-		return summary, false, err
+		return profilerFtraceSummary{}, false, err
+	}
+	if err := ctx.Err(); err != nil {
+		return profilerFtraceSummary{}, false, err
 	}
 	return summary, summary.recognizedMessage, nil
+}
+
+func (summary *profilerFtraceSummary) observeDecodeIssue(kind profilerFtraceSummaryIssueKind, err error) error {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	if _, invariant := traceDBOutputInvariantReason(err); invariant {
+		return err
+	}
+	if summary == nil || err == nil {
+		return &traceDBOutputInvariantError{Reason: "profiler_summary_decode_issue_invalid"}
+	}
+	if !summary.Issues.observe(kind, 1) {
+		summary.IssueOverflow = true
+	}
+	return nil
 }
 
 func (summary *profilerFtraceSummary) observeCPUDetail(detail profilerFtraceCPUDetail) error {
@@ -1756,7 +1786,11 @@ func decodeProfilerFtraceCPUStats(data []byte) (profilerFtraceCPUStats, error) {
 }
 
 func decodeProfilerFtraceCPUStatsContext(ctx context.Context, data []byte) (profilerFtraceCPUStats, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	var stats profilerFtraceCPUStats
+	var clockRaw []byte
 	statusCount, clockCount := 0, 0
 	statusWrongWire, clockWrongWire, perCPUWrongWire := false, false, false
 	err := walkProfilerProtoFieldsContext(ctx, data, func(field int, wire int, raw []byte, v uint64) error {
@@ -1783,7 +1817,7 @@ func decodeProfilerFtraceCPUStatsContext(ctx context.Context, data []byte) (prof
 		case 3:
 			clockCount++
 			if wire == 2 {
-				stats.Clock = string(raw)
+				clockRaw = raw
 			} else {
 				clockWrongWire = true
 			}
@@ -1791,16 +1825,36 @@ func decodeProfilerFtraceCPUStatsContext(ctx context.Context, data []byte) (prof
 		return nil
 	})
 	if err != nil {
-		return stats, err
+		return profilerFtraceCPUStats{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return profilerFtraceCPUStats{}, err
 	}
 	if statusCount > 1 || statusWrongWire || stats.Status > 1 {
-		return stats, fmt.Errorf("invalid FtraceCpuStatsMsg status field")
+		return profilerFtraceCPUStats{}, fmt.Errorf("invalid FtraceCpuStatsMsg status field")
 	}
 	if perCPUWrongWire {
-		return stats, fmt.Errorf("wrong-wire FtraceCpuStatsMsg per_cpu_stats field")
+		return profilerFtraceCPUStats{}, fmt.Errorf("wrong-wire FtraceCpuStatsMsg per_cpu_stats field")
 	}
-	if clockCount > 1 || clockWrongWire || clockCount == 1 && !traceDBSingleToken(stats.Clock) {
-		return stats, fmt.Errorf("invalid FtraceCpuStatsMsg trace_clock field")
+	if clockCount > 1 || clockWrongWire {
+		return profilerFtraceCPUStats{}, fmt.Errorf("invalid FtraceCpuStatsMsg trace_clock field")
+	}
+	if clockCount == 1 {
+		validClock, validateErr := profilerSingleTokenBytesContext(ctx, clockRaw)
+		if validateErr != nil {
+			return profilerFtraceCPUStats{}, validateErr
+		}
+		if !validClock {
+			return profilerFtraceCPUStats{}, fmt.Errorf("invalid FtraceCpuStatsMsg trace_clock field")
+		}
+		clock, cloneErr := profilerCloneBytesStringContext(ctx, clockRaw)
+		if cloneErr != nil {
+			return profilerFtraceCPUStats{}, cloneErr
+		}
+		stats.Clock = clock
+	}
+	if err := ctx.Err(); err != nil {
+		return profilerFtraceCPUStats{}, err
 	}
 	stats.payload = data
 	return stats, nil
@@ -1996,10 +2050,18 @@ func consumeProfilerFtraceCPUDetailAuthorityContext(ctx context.Context, authori
 }
 
 func decodeProfilerFtraceSymbolDetail(data []byte) (profilerFtraceSymbolDetail, error) {
+	return decodeProfilerFtraceSymbolDetailContext(context.Background(), data)
+}
+
+func decodeProfilerFtraceSymbolDetailContext(ctx context.Context, data []byte) (profilerFtraceSymbolDetail, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	var symbol profilerFtraceSymbolDetail
+	var nameRaw []byte
 	addrCount, nameCount := 0, 0
 	addrWrongWire, nameWrongWire := false, false
-	err := walkProtoFields(data, func(field int, wire int, raw []byte, v uint64) error {
+	err := walkProfilerProtoFieldsContext(ctx, data, func(field int, wire int, raw []byte, v uint64) error {
 		switch field {
 		case 1:
 			addrCount++
@@ -2011,7 +2073,7 @@ func decodeProfilerFtraceSymbolDetail(data []byte) (profilerFtraceSymbolDetail, 
 		case 2:
 			nameCount++
 			if wire == 2 {
-				symbol.Name = string(raw)
+				nameRaw = raw
 			} else {
 				nameWrongWire = true
 			}
@@ -2019,20 +2081,46 @@ func decodeProfilerFtraceSymbolDetail(data []byte) (profilerFtraceSymbolDetail, 
 		return nil
 	})
 	if err != nil {
-		return symbol, err
+		return profilerFtraceSymbolDetail{}, err
 	}
-	if addrCount > 1 || addrWrongWire || nameCount > 1 || nameWrongWire ||
-		nameCount == 1 && !traceDBSinglePhysicalLine(symbol.Name, true) {
-		return symbol, fmt.Errorf("invalid SymbolsDetailMsg field")
+	if err := ctx.Err(); err != nil {
+		return profilerFtraceSymbolDetail{}, err
 	}
-	return symbol, err
+	if addrCount > 1 || addrWrongWire || nameCount > 1 || nameWrongWire {
+		return profilerFtraceSymbolDetail{}, fmt.Errorf("invalid SymbolsDetailMsg field")
+	}
+	if nameCount == 1 {
+		validName, validateErr := profilerSinglePhysicalLineBytesContext(ctx, nameRaw, true)
+		if validateErr != nil {
+			return profilerFtraceSymbolDetail{}, validateErr
+		}
+		if !validName {
+			return profilerFtraceSymbolDetail{}, fmt.Errorf("invalid SymbolsDetailMsg field")
+		}
+		name, cloneErr := profilerCloneBytesStringContext(ctx, nameRaw)
+		if cloneErr != nil {
+			return profilerFtraceSymbolDetail{}, cloneErr
+		}
+		symbol.Name = name
+	}
+	if err := ctx.Err(); err != nil {
+		return profilerFtraceSymbolDetail{}, err
+	}
+	return symbol, nil
 }
 
 func decodeProfilerFtraceClockDetail(data []byte) (profilerFtraceClockDetail, error) {
+	return decodeProfilerFtraceClockDetailContext(context.Background(), data)
+}
+
+func decodeProfilerFtraceClockDetailContext(ctx context.Context, data []byte) (profilerFtraceClockDetail, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	var clock profilerFtraceClockDetail
 	idCount, timeCount, resCount := 0, 0, 0
 	idWrongWire, timeWrongWire, resWrongWire := false, false, false
-	err := walkProtoFields(data, func(field int, wire int, raw []byte, v uint64) error {
+	err := walkProfilerProtoFieldsContext(ctx, data, func(field int, wire int, raw []byte, v uint64) error {
 		switch field {
 		case 1:
 			idCount++
@@ -2044,7 +2132,7 @@ func decodeProfilerFtraceClockDetail(data []byte) (profilerFtraceClockDetail, er
 		case 2:
 			timeCount++
 			if wire == 2 {
-				sec, nsec, err := decodeProfilerFtraceTimeSpec(raw)
+				sec, nsec, err := decodeProfilerFtraceTimeSpecContext(ctx, raw)
 				if err != nil {
 					return err
 				}
@@ -2055,7 +2143,7 @@ func decodeProfilerFtraceClockDetail(data []byte) (profilerFtraceClockDetail, er
 		case 3:
 			resCount++
 			if wire == 2 {
-				sec, nsec, err := decodeProfilerFtraceTimeSpec(raw)
+				sec, nsec, err := decodeProfilerFtraceTimeSpecContext(ctx, raw)
 				if err != nil {
 					return err
 				}
@@ -2067,19 +2155,29 @@ func decodeProfilerFtraceClockDetail(data []byte) (profilerFtraceClockDetail, er
 		return nil
 	})
 	if err != nil {
-		return clock, err
+		return profilerFtraceClockDetail{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return profilerFtraceClockDetail{}, err
 	}
 	if idCount > 1 || idWrongWire || clock.ID > 6 || timeCount > 1 || timeWrongWire || resCount > 1 || resWrongWire {
-		return clock, fmt.Errorf("invalid ClockDetailMsg field")
+		return profilerFtraceClockDetail{}, fmt.Errorf("invalid ClockDetailMsg field")
 	}
-	return clock, err
+	return clock, nil
 }
 
 func decodeProfilerFtraceTimeSpec(data []byte) (uint64, uint64, error) {
+	return decodeProfilerFtraceTimeSpecContext(context.Background(), data)
+}
+
+func decodeProfilerFtraceTimeSpecContext(ctx context.Context, data []byte) (uint64, uint64, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	var sec, nsec uint64
 	secCount, nsecCount := 0, 0
 	secWrongWire, nsecWrongWire := false, false
-	err := walkProtoFields(data, func(field int, wire int, raw []byte, v uint64) error {
+	err := walkProfilerProtoFieldsContext(ctx, data, func(field int, wire int, raw []byte, v uint64) error {
 		switch field {
 		case 1:
 			secCount++
@@ -2102,19 +2200,29 @@ func decodeProfilerFtraceTimeSpec(data []byte) (uint64, uint64, error) {
 	if err != nil {
 		return 0, 0, err
 	}
+	if err := ctx.Err(); err != nil {
+		return 0, 0, err
+	}
 	if secCount > 1 || secWrongWire || sec > uint64(^uint32(0)) ||
 		nsecCount > 1 || nsecWrongWire || nsec > uint64(^uint32(0)) || nsec >= 1e9 {
 		return 0, 0, fmt.Errorf("invalid ClockDetailMsg TimeSpec field")
 	}
-	return sec, nsec, err
+	return sec, nsec, nil
 }
 
 func decodeProfilerFtraceCommDict(data []byte) error {
+	return decodeProfilerFtraceCommDictContext(context.Background(), data)
+}
+
+func decodeProfilerFtraceCommDictContext(ctx context.Context, data []byte) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	tidCount, commCount := 0, 0
 	tidWrongWire, commWrongWire := false, false
 	var tid uint64
-	var comm string
-	err := walkProtoFields(data, func(field int, wire int, raw []byte, value uint64) error {
+	var commRaw []byte
+	err := walkProfilerProtoFieldsContext(ctx, data, func(field int, wire int, raw []byte, value uint64) error {
 		switch field {
 		case 1:
 			tidCount++
@@ -2126,7 +2234,7 @@ func decodeProfilerFtraceCommDict(data []byte) error {
 		case 2:
 			commCount++
 			if wire == 2 {
-				comm = string(raw)
+				commRaw = raw
 			} else {
 				commWrongWire = true
 			}
@@ -2136,9 +2244,24 @@ func decodeProfilerFtraceCommDict(data []byte) error {
 	if err != nil {
 		return err
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if tidCount > 1 || tidWrongWire || tidCount == 1 && uint64(int64(int32(tid))) != tid ||
-		commCount > 1 || commWrongWire || commCount == 1 && !traceDBSinglePhysicalLine(comm, true) {
+		commCount > 1 || commWrongWire {
 		return fmt.Errorf("invalid CommDictMsg field")
+	}
+	if commCount == 1 {
+		validComm, validateErr := profilerSinglePhysicalLineBytesContext(ctx, commRaw, true)
+		if validateErr != nil {
+			return validateErr
+		}
+		if !validComm {
+			return fmt.Errorf("invalid CommDictMsg field")
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	return nil
 }

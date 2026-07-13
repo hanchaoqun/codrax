@@ -325,6 +325,14 @@ func (samples *profilerStableSampleSet) observeContext(ctx context.Context, doma
 }
 
 func (samples *profilerStableSampleSet) observeStringContext(ctx context.Context, domain, raw string) error {
+	return samples.observeStringPartsContext(ctx, domain, raw)
+}
+
+// observeStringPartsContext hashes a logical concatenation without first
+// materializing it. This keeps labels such as "0x<addr>=<symbol>" byte-for-byte
+// compatible with the legacy sample digest while bounding cancellation work
+// and avoiding a second copy of a maximum-sized metadata string.
+func (samples *profilerStableSampleSet) observeStringPartsContext(ctx context.Context, domain string, parts ...string) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -348,21 +356,37 @@ func (samples *profilerStableSampleSet) observeStringContext(ctx context.Context
 		return err
 	}
 	_, _ = hash.Write([]byte{0})
-	for start := 0; start < len(raw); {
-		end := min(start+profilerContextByteCheckpointBytes, len(raw))
-		if err := profilerByteContextCheckpoint(ctx, &processed, uint64(end-start)); err != nil {
-			return err
+	inputLen := uint64(0)
+	var prefix [profilerDiagnosticPrefixBytes]byte
+	prefixLen := 0
+	for partIndex, raw := range parts {
+		if partIndex > 0 && partIndex&255 == 0 {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 		}
-		_, _ = hash.Write([]byte(raw[start:end]))
-		start = end
+		if uint64(len(raw)) > math.MaxUint64-inputLen {
+			return &traceDBOutputInvariantError{Reason: "profiler_sample_input_length_overflow"}
+		}
+		inputLen += uint64(len(raw))
+		if prefixLen < len(prefix) {
+			prefixLen += copy(prefix[prefixLen:], raw)
+		}
+		for start := 0; start < len(raw); {
+			end := min(start+profilerContextByteCheckpointBytes, len(raw))
+			if err := profilerByteContextCheckpoint(ctx, &processed, uint64(end-start)); err != nil {
+				return err
+			}
+			_, _ = hash.Write([]byte(raw[start:end]))
+			start = end
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	var digest [sha256.Size]byte
 	copy(digest[:], hash.Sum(nil))
-	prefixLen := min(len(raw), profilerDiagnosticPrefixBytes)
-	samples.insertDigest(digest, uint64(len(raw)), []byte(raw[:prefixLen]))
+	samples.insertDigest(digest, inputLen, prefix[:prefixLen])
 	return nil
 }
 
@@ -592,20 +616,36 @@ func newProfilerContainerDiagnosticLedger() profilerContainerDiagnosticLedger {
 func (ledger *profilerContainerDiagnosticLedger) observeFtraceFrame(summary *profilerFtraceSummary, recognized bool,
 	events profilerFtraceEventBatchCensus, offset int64,
 ) bool {
+	ok, _ := ledger.observeFtraceFrameContext(context.Background(), summary, recognized, events, offset)
+	return ok
+}
+
+func (ledger *profilerContainerDiagnosticLedger) observeFtraceFrameContext(ctx context.Context,
+	summary *profilerFtraceSummary, recognized bool, events profilerFtraceEventBatchCensus, offset int64,
+) (bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	if ledger == nil || recognized && (summary == nil || summary.IssueOverflow) {
-		return false
+		return false, nil
 	}
 	nextSummary := ledger.FtraceSummary
 	nextEvents := ledger.FtraceEvents
 	if recognized && !nextSummary.observe(summary, offset) {
-		return false
+		return false, nil
 	}
 	if !nextEvents.merge(events) {
-		return false
+		return false, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
 	}
 	ledger.FtraceSummary = nextSummary
 	ledger.FtraceEvents = nextEvents
-	return true
+	return true, nil
 }
 
 func (ledger *profilerContainerDiagnosticLedger) observeAccepted(out *profilerContainerExtraction,

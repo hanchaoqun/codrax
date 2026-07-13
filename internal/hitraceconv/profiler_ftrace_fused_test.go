@@ -299,6 +299,32 @@ func TestProfilerFtraceFrameLedgerCommitIsAtomicAcrossSummaryAndEvents(t *testin
 	}
 }
 
+func TestProfilerFtraceFrameLedgerCancellationIsAtomicAcrossSummaryAndEvents(t *testing.T) {
+	ledger := newProfilerContainerDiagnosticLedger()
+	ledger.FtraceSummary.Frames = 7
+	ledger.FtraceEvents.Slots[profilerFtraceEventSlot(1109)].RowsRead = 11
+	summary := profilerFtraceSummary{
+		recognizedMessage: true,
+		StartTotalsValid:  true,
+		EndTotalsValid:    true,
+		DetailOverwriteOK: true,
+		DetailMessages:    1,
+	}
+	var batch profilerFtraceEventBatchCensus
+	batch.Slots[profilerFtraceEventSlot(1109)].RowsRead = 1
+	before := ledger
+	ctx := &profilerByteCancelAfterPollContext{
+		Context: context.Background(), cancelAt: 2, err: context.DeadlineExceeded,
+	}
+	ok, err := ledger.observeFtraceFrameContext(ctx, &summary, true, batch, 44)
+	if ok || !errors.Is(err, context.DeadlineExceeded) || ctx.polls != ctx.cancelAt {
+		t.Fatalf("frame cancellation result=(%t,%v) polls=%d", ok, err, ctx.polls)
+	}
+	if !reflect.DeepEqual(ledger, before) {
+		t.Fatalf("canceled cross-ledger observation mutated state:\nbefore=%+v\nafter=%+v", before, ledger)
+	}
+}
+
 func TestProfilerFtraceFusedStructurePin(t *testing.T) {
 	container := mustReadRendererSource(t, "profiler_container.go")
 	processor := sourceBetween(t, container,

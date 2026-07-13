@@ -305,6 +305,37 @@ func TestProfilerStableSampleObserveStringContextMatchesBytes(t *testing.T) {
 	}
 }
 
+func TestProfilerStableSampleObserveStringPartsContextMatchesLogicalBytes(t *testing.T) {
+	large := strings.Repeat("n", maxTraceDBSystraceLineBytes)
+	tests := []struct {
+		name   string
+		domain string
+		parts  []string
+	}{
+		{name: "no parts", domain: "empty"},
+		{name: "empty parts", domain: "empty-parts", parts: []string{"", "", ""}},
+		{name: "symbol", domain: "profiler-ftrace-summary-symbol", parts: []string{"0x", "abc", "=", "VerifyClass"}},
+		{name: "utf8 split", domain: "utf8", parts: []string{"时", "钟", "-", "值"}},
+		{name: "large symbol", domain: "profiler-ftrace-summary-symbol", parts: []string{"0x", "ffffffff", "=", large}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			logical := strings.Join(test.parts, "")
+			var got, want profilerStableSampleSet
+			if err := got.observeStringPartsContext(context.Background(), test.domain, test.parts...); err != nil {
+				t.Fatalf("parts sample: %v", err)
+			}
+			if err := want.observeContext(context.Background(), test.domain, []byte(logical)); err != nil {
+				t.Fatalf("logical bytes sample: %v", err)
+			}
+			if got != want {
+				t.Fatalf("parts/bytes parity drift parts=%d logical=%d\ngot=%+v\nwant=%+v",
+					len(test.parts), len(logical), got, want)
+			}
+		})
+	}
+}
+
 func TestProfilerStableSampleObserveContextCancellationIsAtomic(t *testing.T) {
 	var samples profilerStableSampleSet
 	samples.observe("seed", []byte("existing"))
@@ -347,6 +378,21 @@ func TestProfilerStableSampleObserveContextCancellationIsAtomic(t *testing.T) {
 	}
 	if err := samples.observeStringContext(stringMidCtx, "new", string(large)); !errors.Is(err, context.Canceled) || samples != before || stringMidCtx.polls != stringMidCtx.cancelAt {
 		t.Fatalf("string mid cancellation err=%v mutated=%v polls=%d", err, samples != before, stringMidCtx.polls)
+	}
+
+	partsMidCtx := &profilerByteCancelAfterPollContext{
+		Context: context.Background(), cancelAt: 4, err: context.DeadlineExceeded,
+	}
+	if err := samples.observeStringPartsContext(partsMidCtx, "new", "0x", "abc", "=", string(large)); !errors.Is(err, context.DeadlineExceeded) || samples != before || partsMidCtx.polls != partsMidCtx.cancelAt {
+		t.Fatalf("parts mid cancellation err=%v mutated=%v polls=%d", err, samples != before, partsMidCtx.polls)
+	}
+
+	emptyParts := make([]string, 257)
+	partsOccurrenceCtx := &profilerByteCancelAfterPollContext{
+		Context: context.Background(), cancelAt: 3, err: context.Canceled,
+	}
+	if err := samples.observeStringPartsContext(partsOccurrenceCtx, "new", emptyParts...); !errors.Is(err, context.Canceled) || samples != before || partsOccurrenceCtx.polls != partsOccurrenceCtx.cancelAt {
+		t.Fatalf("parts occurrence cancellation err=%v mutated=%v polls=%d", err, samples != before, partsOccurrenceCtx.polls)
 	}
 }
 
