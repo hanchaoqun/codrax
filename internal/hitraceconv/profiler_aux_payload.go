@@ -380,7 +380,7 @@ func decodeProfilerAuxPayloadWithPairAdmission(event profilerFtraceEventRecord) 
 }
 
 func profilerStructuredF2FSPairFamily(field int) profilerPairAdmission {
-	if field >= 4009 && field <= 4012 {
+	if profilerStructuredPairEventField(pairRenderF2FS, field) {
 		return profilerPairAdmission{Kind: pairRenderF2FS, Governed: true}
 	}
 	return profilerPairAdmission{}

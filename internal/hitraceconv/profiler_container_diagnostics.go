@@ -459,8 +459,7 @@ type profilerPluginBucketCensus struct {
 	LastDegradedOffset  int64
 	Metadata            profilerPluginMetadataCensus
 	NameSamples         profilerStableSampleSet
-	StagedMMC           uint64
-	StagedF2FS          uint64
+	Staged              profilerPairCensusSet
 }
 
 type profilerRejectedFrameCensus struct {
@@ -511,7 +510,7 @@ func (ledger *profilerContainerDiagnosticLedger) ensurePluginCoverage(out *profi
 
 func (ledger *profilerContainerDiagnosticLedger) observeAccepted(out *profilerContainerExtraction,
 	route profilerPluginRoute, rawName string, plugin profilerPluginData, issues profilerPluginIssueCensus,
-	offset int64, outcome profilerPluginOutcome, rowsEmitted int, mmcRows, f2fsRows profilerPairRowCensus,
+	offset int64, outcome profilerPluginOutcome, rowsEmitted int, staged profilerPairCensusSet,
 ) (int, bool) {
 	index, ok := ledger.ensurePluginCoverage(out, route)
 	if !ok || outcome >= profilerPluginOutcomeCount || rowsEmitted < 0 {
@@ -525,10 +524,13 @@ func (ledger *profilerContainerDiagnosticLedger) observeAccepted(out *profilerCo
 	bucket.LastOffset = offset
 	if !checkedProfilerUint64AddTo(&bucket.Messages, 1) ||
 		!checkedProfilerUint64AddTo(&bucket.Outcomes[outcome], 1) ||
-		!bucket.Issues.merge(issues) || !bucket.Metadata.observe(route, plugin) ||
-		!checkedProfilerUint64AddTo(&bucket.StagedMMC, uint64(mmcRows.total)) ||
-		!checkedProfilerUint64AddTo(&bucket.StagedF2FS, uint64(f2fsRows.total)) {
+		!bucket.Issues.merge(issues) || !bucket.Metadata.observe(route, plugin) {
 		return -1, false
+	}
+	for _, kind := range profilerCaptureKinds {
+		if staged[kind].total < 0 || !checkedProfilerIntAddTo(&bucket.Staged[kind].total, staged[kind].total) {
+			return -1, false
+		}
 	}
 	if !issues.empty() {
 		if bucket.DegradedFrames == 0 {
@@ -611,11 +613,10 @@ func (ledger *profilerContainerDiagnosticLedger) materialize(out *profilerContai
 				fields["outcome_"+outcome.label()+"_frames"] = strconv.FormatUint(count, 10)
 			}
 		}
-		if bucket.StagedMMC > 0 {
-			fields[profilerCoverageMMCStagedRows] = strconv.FormatUint(bucket.StagedMMC, 10)
-		}
-		if bucket.StagedF2FS > 0 {
-			fields[profilerCoverageF2FSStagedRows] = strconv.FormatUint(bucket.StagedF2FS, 10)
+		for _, kind := range profilerCaptureKinds {
+			if bucket.Staged[kind].total > 0 {
+				fields[profilerCoverageStagedRowsKey(kind)] = strconv.Itoa(bucket.Staged[kind].total)
+			}
 		}
 		bucket.Issues.appendFieldSources(fields)
 		if bucket.DegradedFrames > 0 {

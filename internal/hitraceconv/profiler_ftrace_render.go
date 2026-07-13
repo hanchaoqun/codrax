@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
 type profilerFtraceEventRecord struct {
@@ -16,6 +18,7 @@ type profilerFtraceEventRecord struct {
 	TGID               int64
 	PID                int64
 	HeaderOwnerKnown   bool
+	HeaderOwnerPresent bool
 	CommonFlags        int64
 	CommonPreemptCount int64
 	Comm               string
@@ -110,11 +113,17 @@ func renderProfilerFtraceStructuredResultWithEnvelopeCoverage(result profilerTra
 		if event.PairCaptureOpaque {
 			sink.markPairCaptureOpaque(pairRenderMMC)
 			sink.markPairCaptureOpaque(pairRenderF2FS)
+			if event.PairFamilies&pairCriticalFormatFamilyBlock != 0 {
+				sink.markPairCaptureOpaque(pairRenderBlock)
+			}
 		}
-		mmcGoverned := event.Field == 4015 || event.Field == 4016
+		mmcGoverned := profilerStructuredPairEventField(pairRenderMMC, event.Field)
 		mmcObserved := event.PairFamilies&pairCriticalFormatFamilyMMC != 0
-		f2fsGoverned := event.Field >= 4009 && event.Field <= 4012
+		f2fsGoverned := profilerStructuredPairEventField(pairRenderF2FS, event.Field)
 		f2fsObserved := event.PairFamilies&pairCriticalFormatFamilyF2FS != 0
+		blockPair := profilerStructuredBlockPairFamily(event.Field)
+		blockGoverned := blockPair.Governed
+		blockObserved := event.PairFamilies&pairCriticalFormatFamilyBlock != 0
 		if mmcObserved && !mmcGoverned {
 			// Multiple/wrong-wire/late-malformed oneofs can clear Field, but the
 			// exact field number already seen remains precise family provenance.
@@ -122,6 +131,9 @@ func renderProfilerFtraceStructuredResultWithEnvelopeCoverage(result profilerTra
 		}
 		if f2fsObserved && !f2fsGoverned {
 			sink.poisonPairKind(pairRenderF2FS)
+		}
+		if blockObserved && !blockGoverned {
+			sink.poisonPairKind(pairRenderBlock)
 		}
 		var coverage *TraceDBCoverage
 		if batch == nil {
@@ -133,9 +145,9 @@ func renderProfilerFtraceStructuredResultWithEnvelopeCoverage(result profilerTra
 		var name, body string
 		var ok bool
 		var issues []profilerFtraceEventIssue
-		var f2fsPair profilerPairAdmission
+		var typedPair profilerPairAdmission
 		var auditErr error
-		name, body, ok, issues, f2fsPair, auditErr = renderProfilerFtraceEventBodyWithTypedAuditAndPair(event)
+		name, body, ok, issues, typedPair, auditErr = renderProfilerFtraceEventBodyWithTypedAuditAndPair(event)
 		if auditErr != nil {
 			return rows, topLevelCoverage, auditErr
 		}
@@ -177,9 +189,14 @@ func renderProfilerFtraceStructuredResultWithEnvelopeCoverage(result profilerTra
 				sink.poisonPairKind(pairRenderMMC)
 			}
 			if f2fsGoverned {
-				f2fsPair.poison(sink)
+				typedPair.poison(sink)
 			} else if f2fsObserved {
 				sink.poisonPairKind(pairRenderF2FS)
+			}
+			if blockGoverned {
+				typedPair.poison(sink)
+			} else if blockObserved {
+				sink.poisonPairKind(pairRenderBlock)
 			}
 			if coverage != nil && coverage.Skipped == "" {
 				coverage.Skipped = "structured ftrace renderer pending"
@@ -204,14 +221,27 @@ func renderProfilerFtraceStructuredResultWithEnvelopeCoverage(result profilerTra
 		}
 		if f2fsGoverned {
 			row.pairKind = pairRenderF2FS
-			row.pairLane = f2fsPair.Lane
+			row.pairLane = typedPair.Lane
 			row.pairTable = name
 			row.structuredPair = true
 			row.profilerEventField = event.Field
 			pair := profilerTextPairAdmission(row.line)
-			if !f2fsPair.LaneKnown || !pair.Governed || pair.Kind != pairRenderF2FS ||
-				!pair.Admitted || !pair.LaneKnown || pair.Lane != f2fsPair.Lane {
+			if !typedPair.LaneKnown || !pair.Governed || pair.Kind != pairRenderF2FS ||
+				!pair.Admitted || !pair.LaneKnown || pair.Lane != typedPair.Lane {
 				sink.poisonPairKind(pairRenderF2FS)
+			}
+		}
+		if blockGoverned {
+			row.pairKind = pairRenderBlock
+			row.pairLane = typedPair.Lane
+			row.pairTable = name
+			row.structuredPair = true
+			row.profilerEventField = event.Field
+			wireVerdict := tracequery.DecodePairingEndpoint(name, body, event.PID)
+			if !typedPair.LaneKnown || !typedPair.HeaderOwnerKnown || wireVerdict != typedPair.Verdict {
+				sink.poisonPairKind(pairRenderBlock)
+			} else if !typedPair.Admitted {
+				typedPair.poison(sink)
 			}
 		}
 		if err := sink.add(row); err != nil {
@@ -478,6 +508,13 @@ func decodeProfilerFtraceEventRecord(cpu uint64, data []byte) (profilerFtraceEve
 		return nil
 	})
 	if err != nil {
+		var decodeErr *protoFieldDecodeError
+		if errors.As(err, &decodeErr) && decodeErr.FieldKnown {
+			// A complete oneof key is precise family provenance even when its
+			// value is truncated/unsupported and the callback never ran. The
+			// closed mapper deliberately excludes Block inventory fields.
+			record.PairFamilies |= profilerPairFamilyForField(decodeErr.Field)
+		}
 		record.Field = 0
 		record.Payload = nil
 		record.PairCaptureOpaque = true
@@ -554,12 +591,13 @@ func decodeProfilerFtraceEventRecord(cpu uint64, data []byte) (profilerFtraceEve
 			return profilerFtraceEventRecord{}, issueErr
 		}
 	} else {
-		pid, ownerKnown, flags, preempt, commonErr := decodeProfilerFtraceCommonFields(&record, common.bytes)
+		pid, ownerKnown, ownerPresent, flags, preempt, commonErr := decodeProfilerFtraceCommonFields(&record, common.bytes)
 		if commonErr != nil {
 			return profilerFtraceEventRecord{}, commonErr
 		}
 		record.PID = pid
 		record.HeaderOwnerKnown = ownerKnown
+		record.HeaderOwnerPresent = ownerPresent
 		record.CommonFlags = flags
 		record.CommonPreemptCount = preempt
 	}
@@ -581,11 +619,13 @@ func decodeProfilerFtraceEventRecord(cpu uint64, data []byte) (profilerFtraceEve
 }
 
 func profilerPairFamilyForField(field int) pairCriticalFormatFamilyMask {
-	switch field {
-	case 4009, 4010, 4011, 4012:
+	switch {
+	case profilerStructuredPairEventField(pairRenderF2FS, field):
 		return pairCriticalFormatFamilyF2FS
-	case 4015, 4016:
+	case profilerStructuredPairEventField(pairRenderMMC, field):
 		return pairCriticalFormatFamilyMMC
+	case profilerStructuredPairEventField(pairRenderBlock, field):
+		return pairCriticalFormatFamilyBlock
 	default:
 		return 0
 	}
@@ -628,10 +668,10 @@ func profilerProtoEnvelopeRequiredIssueKind(field profilerProtoEnvelopeField,
 	return profilerProtoEnvelopeOptionalIssueKind(field, duplicateKind, wrongWireKind)
 }
 
-func decodeProfilerFtraceCommonFields(record *profilerFtraceEventRecord, data []byte) (pid int64, ownerKnown bool,
+func decodeProfilerFtraceCommonFields(record *profilerFtraceEventRecord, data []byte) (pid int64, ownerKnown, ownerPresent bool,
 	flags, preempt int64, err error) {
 	if record == nil {
-		return 0, false, 0, 0, &traceDBOutputInvariantError{Reason: "profiler_event_common_record_nil"}
+		return 0, false, false, 0, 0, &traceDBOutputInvariantError{Reason: "profiler_event_common_record_nil"}
 	}
 	var fields [5]profilerProtoEnvelopeField
 	walkErr := walkProtoFields(data, func(field int, wire int, raw []byte, v uint64) error {
@@ -646,9 +686,9 @@ func decodeProfilerFtraceCommonFields(record *profilerFtraceEventRecord, data []
 	}
 	if walkErr != nil {
 		if !appendIssue(profilerFtraceEventIssueEnvelopeCommonFieldsMalformedWire) {
-			return 0, false, 0, 0, &traceDBOutputInvariantError{Reason: "profiler_event_common_issue_schema_invalid"}
+			return 0, false, false, 0, 0, &traceDBOutputInvariantError{Reason: "profiler_event_common_issue_schema_invalid"}
 		}
-		return 0, false, 0, 0, nil
+		return 0, false, false, 0, 0, nil
 	}
 	for _, item := range []struct {
 		field         int
@@ -661,31 +701,32 @@ func decodeProfilerFtraceCommonFields(record *profilerFtraceEventRecord, data []
 		{field: 4, duplicateKind: profilerFtraceEventIssueEnvelopeCommonPIDDuplicate, wrongWireKind: profilerFtraceEventIssueEnvelopeCommonPIDWrongWire},
 	} {
 		if kind, present := profilerProtoEnvelopeOptionalIssueKind(fields[item.field], item.duplicateKind, item.wrongWireKind); present && !appendIssue(kind) {
-			return 0, false, 0, 0, &traceDBOutputInvariantError{Reason: "profiler_event_common_issue_schema_invalid"}
+			return 0, false, false, 0, 0, &traceDBOutputInvariantError{Reason: "profiler_event_common_issue_schema_invalid"}
 		}
 	}
 	if fields[1].count == 1 && !fields[1].wrongWire && fields[1].uintValue > math.MaxUint16 {
 		if !appendIssue(profilerFtraceEventIssueEnvelopeCommonTypeSourceWidth) {
-			return 0, false, 0, 0, &traceDBOutputInvariantError{Reason: "profiler_event_common_issue_schema_invalid"}
+			return 0, false, false, 0, 0, &traceDBOutputInvariantError{Reason: "profiler_event_common_issue_schema_invalid"}
 		}
 	}
 	if fields[2].count == 1 && !fields[2].wrongWire && fields[2].uintValue > math.MaxUint8 {
 		if !appendIssue(profilerFtraceEventIssueEnvelopeCommonFlagsSourceWidth) {
-			return 0, false, 0, 0, &traceDBOutputInvariantError{Reason: "profiler_event_common_issue_schema_invalid"}
+			return 0, false, false, 0, 0, &traceDBOutputInvariantError{Reason: "profiler_event_common_issue_schema_invalid"}
 		}
 	}
 	if fields[3].count == 1 && !fields[3].wrongWire && fields[3].uintValue > math.MaxUint8 {
 		if !appendIssue(profilerFtraceEventIssueEnvelopeCommonPreemptCountSourceWidth) {
-			return 0, false, 0, 0, &traceDBOutputInvariantError{Reason: "profiler_event_common_issue_schema_invalid"}
+			return 0, false, false, 0, 0, &traceDBOutputInvariantError{Reason: "profiler_event_common_issue_schema_invalid"}
 		}
 	}
 	if fields[4].count == 1 && !fields[4].wrongWire && fields[4].uintValue > math.MaxInt32 {
 		if !appendIssue(profilerFtraceEventIssueEnvelopeCommonPIDOutOfRange) {
-			return 0, false, 0, 0, &traceDBOutputInvariantError{Reason: "profiler_event_common_issue_schema_invalid"}
+			return 0, false, false, 0, 0, &traceDBOutputInvariantError{Reason: "profiler_event_common_issue_schema_invalid"}
 		}
 	}
 	ownerKnown = fields[4].count <= 1 && !fields[4].wrongWire && fields[4].uintValue <= math.MaxInt32
-	return int64(fields[4].uintValue), ownerKnown, int64(fields[2].uintValue), int64(fields[3].uintValue), nil
+	ownerPresent = fields[4].count == 1 && !fields[4].wrongWire
+	return int64(fields[4].uintValue), ownerKnown, ownerPresent, int64(fields[2].uintValue), int64(fields[3].uintValue), nil
 }
 
 func renderProfilerFtraceEventBody(event profilerFtraceEventRecord) (string, string, bool) {
@@ -750,6 +791,18 @@ func renderProfilerFtraceEventBodyWithTypedAuditAndPair(event profilerFtraceEven
 	string, string, bool, []profilerFtraceEventIssue, profilerPairAdmission, error,
 ) {
 	pair := profilerStructuredF2FSPairFamily(event.Field)
+	var blockPayload blockRenderPayload
+	var blockAdmission bodyAdmission
+	var blockIssues profilerFtraceBlockIssueSet
+	blockHandled := false
+	if _, _, blockGoverned := blockRenderKindForProfilerField(event.Field); blockGoverned {
+		var blockErr error
+		blockPayload, blockAdmission, blockIssues, blockHandled, blockErr =
+			decodeProfilerBlockPayloadWithTypedAuditInto(event, &pair)
+		if blockErr != nil {
+			return "", "", false, nil, pair, blockErr
+		}
+	}
 	var auxResult profilerFtraceAuxTypedResult
 	auxDecoded := false
 	if profilerStructuredAuxSchemas[event.Field] != nil {
@@ -799,8 +852,10 @@ func renderProfilerFtraceEventBodyWithTypedAuditAndPair(event profilerFtraceEven
 		return "", "", false, nil, pair,
 			&traceDBOutputInvariantError{Reason: "profiler_filemap_typed_renderer_unhandled"}
 	}
-	if name, body, ok, issues, handled, blockErr := renderProfilerFtraceBlockEventWithTypedAudit(event); handled {
-		return name, body, ok, issues, pair, blockErr
+	if blockHandled {
+		name, body, ok, issues, blockFinalizeErr :=
+			finalizeProfilerFtraceBlockEventWithTypedAudit(event, blockPayload, blockAdmission, blockIssues)
+		return name, body, ok, issues, pair, blockFinalizeErr
 	}
 	if _, _, block := blockRenderKindForProfilerField(event.Field); block {
 		return "", "", false, nil, pair,

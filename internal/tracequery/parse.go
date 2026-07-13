@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 	"unsafe"
 
@@ -2946,15 +2947,82 @@ func ProbeEventNamePrefix(prefix string) (string, bool) {
 	return name, name != ""
 }
 
+// ProbeExactEventNamePrefix is the hard-endpoint variant of
+// ProbeEventNamePrefix. It requires the event column's physical trailing ':';
+// whitespace termination or a missing delimiter remains useful inventory but
+// cannot open a pairing lane.
+func ProbeExactEventNamePrefix(prefix string) (string, bool) {
+	match := matchFtraceLineIndex(prefix)
+	if len(match) == 0 {
+		match = loosePhysicalFtraceLineIndex(prefix)
+	}
+	name, _, ok := exactEventNameFromPrefixMatch(prefix, match)
+	return name, ok
+}
+
+// ProbeLeadingExactEventNamePrefix is the physical-origin variant used when a
+// bounded prefix must retain an exact endpoint despite an unsafe/oversized body
+// suffix. The header itself must begin at byte zero after ASCII spaces only and
+// contain no UTF-8 control/Zl/Zp bytes. This rejects a loose rightmost header
+// embedded behind protobuf/NUL metadata without requiring the body tail to be
+// publishable.
+func ProbeLeadingExactEventNamePrefix(prefix string) (string, bool) {
+	match := matchFtraceLineIndex(prefix)
+	if len(match) == 0 {
+		match = loosePhysicalFtraceLineIndex(prefix)
+	}
+	name, headerEnd, ok := exactEventNameFromPrefixMatch(prefix, match)
+	if !ok || len(match) < 4 || match[2] < 0 || headerEnd <= match[2] {
+		return "", false
+	}
+	commStart := 0
+	for commStart < len(prefix) && prefix[commStart] == ' ' {
+		commStart++
+	}
+	if match[2] != commStart || !utf8.ValidString(prefix[:headerEnd]) {
+		return "", false
+	}
+	for _, r := range prefix[:headerEnd] {
+		if unicode.IsControl(r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
+			return "", false
+		}
+	}
+	return name, true
+}
+
+func exactEventNameFromPrefixMatch(prefix string, match []int) (name string, headerEnd int, ok bool) {
+	if len(match) < 16 || match[12] < 0 || match[13] <= match[12] {
+		return "", 0, false
+	}
+	raw := prefix[match[12]:match[13]]
+	if strings.HasSuffix(raw, ":") {
+		name = strings.TrimSuffix(raw, ":")
+		headerEnd = match[13]
+	} else if match[13] < len(prefix) && prefix[match[13]] == ':' {
+		// The loose physical grammar keeps the delimiter outside group 6 so
+		// malformed scalar rows retain only header/family provenance.
+		name = raw
+		headerEnd = match[13] + 1
+	} else {
+		return "", 0, false
+	}
+	if name == "" || name != strings.TrimSpace(name) {
+		return "", 0, false
+	}
+	return name, headerEnd, true
+}
+
 // PhysicalFtraceHeaderProbe is a source-neutral observation of the elected
 // outer physical ftrace header. HeaderKnown is represented by the boolean return;
-// TimestampKnown is separate because malformed timestamp/CPU/PID scalars must
+// TimestampKnown and OwnerKnown are separate because malformed timestamp/CPU/PID scalars must
 // still stop body text from being reinterpreted as a second top-level header.
 // This probe grants no endpoint or pairing authority.
 type PhysicalFtraceHeaderProbe struct {
 	EventName      string
 	TimestampNS    uint64
 	TimestampKnown bool
+	HeaderTID      int64
+	OwnerKnown     bool
 }
 
 // ProbePhysicalFtraceHeader locates one complete outer header shape using the
@@ -2974,8 +3042,16 @@ func ProbePhysicalFtraceHeader(line string) (PhysicalFtraceHeaderProbe, bool) {
 		return PhysicalFtraceHeaderProbe{}, false
 	}
 	ts, timestampKnown := parseTraceTimestampNanoseconds(match[5])
+	pid, ownerKnown := parseUnsignedTraceInt(match[2])
+	if ownerKnown && pid > math.MaxInt32 {
+		ownerKnown = false
+	}
+	if !ownerKnown {
+		pid = 0
+	}
 	return PhysicalFtraceHeaderProbe{
 		EventName: name, TimestampNS: ts, TimestampKnown: timestampKnown,
+		HeaderTID: int64(pid), OwnerKnown: ownerKnown,
 	}, true
 }
 

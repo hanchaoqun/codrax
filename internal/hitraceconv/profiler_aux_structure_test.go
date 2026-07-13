@@ -139,11 +139,12 @@ func TestProfilerStructuredAuxUsesOneTypedAuthorityBeforeLegacy(t *testing.T) {
 	coreAt := strings.Index(typed, "renderProfilerFtraceCoreEventWithTypedAudit(event)")
 	auxAt := strings.Index(typed, "finalizeProfilerFtraceAuxEventWithTypedAudit(event, auxResult)")
 	filemapAt := strings.Index(typed, "renderProfilerFtraceFilemapEventWithTypedAudit(event)")
-	blockAt := strings.Index(typed, "renderProfilerFtraceBlockEventWithTypedAudit(event)")
+	blockDecodeAt := strings.Index(typed, "decodeProfilerBlockPayloadWithTypedAuditInto(event, &pair)")
+	blockAt := strings.Index(typed, "finalizeProfilerFtraceBlockEventWithTypedAudit(event, blockPayload, blockAdmission, blockIssues)")
 	genericAt := strings.Index(typed, "renderProfilerFtraceGenericEventWithTypedAudit(event)")
-	if coreAt < 0 || auxAt < 0 || filemapAt < 0 || blockAt < 0 || genericAt < 0 ||
+	if blockDecodeAt < 0 || coreAt < 0 || auxAt < 0 || filemapAt < 0 || blockAt < 0 || genericAt < 0 ||
 		!(coreAt < auxAt && auxAt < filemapAt && filemapAt < blockAt && blockAt < genericAt) {
-		t.Fatalf("typed renderer order drifted: core=%d aux=%d filemap=%d block=%d generic=%d", coreAt, auxAt, filemapAt, blockAt, genericAt)
+		t.Fatalf("typed renderer order drifted: block_decode=%d core=%d aux=%d filemap=%d block=%d generic=%d", blockDecodeAt, coreAt, auxAt, filemapAt, blockAt, genericAt)
 	}
 	if strings.Count(typed, "decodeProfilerAuxPayloadWithTypedAudit(event)") != 1 ||
 		!strings.Contains(typed, "finalizeProfilerFtraceAuxEventWithTypedAudit(event, auxResult)") ||

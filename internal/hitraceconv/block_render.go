@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
 // blockRenderPayload is the sole source-neutral authority used to render the
@@ -901,13 +903,122 @@ func (set *profilerFtraceBlockIssueSet) checked(eventField int) ([]profilerFtrac
 	return append([]profilerFtraceEventIssue(nil), set.Issues[:int(set.Count)]...), nil
 }
 
-// decodeProfilerBlockPayloadWithTypedAudit is the single structured block
+func profilerStructuredBlockPairFamily(eventField int) profilerPairAdmission {
+	if profilerStructuredPairEventField(pairRenderBlock, eventField) {
+		return profilerPairAdmission{Kind: pairRenderBlock, Governed: true}
+	}
+	return profilerPairAdmission{}
+}
+
+func profilerFtraceBlockPairKeyRole(role profilerFtraceBlockFieldRole) bool {
+	switch role {
+	case profilerFtraceBlockFieldDev, profilerFtraceBlockFieldSector,
+		profilerFtraceBlockFieldNRSector, profilerFtraceBlockFieldRWBS:
+		return true
+	default:
+		return false
+	}
+}
+
+// profilerStructuredBlockPairAdmission derives the elapsed-request identity
+// from the very same fixed field-state populated by the renderer's one wire
+// walk. Rendering intentionally preserves the producer's proto3 absent->zero
+// compatibility, but absence is never a pairing witness: all four hard-key
+// fields and the physical common_pid must be explicitly singular.
+func profilerStructuredBlockPairAdmission(
+	event profilerFtraceEventRecord,
+	canonicalName string,
+	fields [8]profilerFtraceBlockFieldState,
+	walkErr error,
+	payloadAdmitted bool,
+) profilerPairAdmission {
+	pair := profilerStructuredBlockPairFamily(event.Field)
+	if !pair.Governed {
+		return pair
+	}
+
+	hardKeySafe := true
+	if walkErr != nil {
+		var decodeErr *protoFieldDecodeError
+		if !errors.As(walkErr, &decodeErr) || !decodeErr.Terminal || !decodeErr.FieldKnown {
+			hardKeySafe = false
+		} else if role, _, known := profilerFtraceBlockFieldSchema(event.Field, decodeErr.Field); known && profilerFtraceBlockPairKeyRole(role) {
+			hardKeySafe = false
+		}
+	}
+
+	var dev, sector, nrSector uint64
+	var rwbs string
+	for payloadField := 1; payloadField <= 7 && hardKeySafe; payloadField++ {
+		role, expectedWire, known := profilerFtraceBlockFieldSchema(event.Field, payloadField)
+		if !known || !profilerFtraceBlockPairKeyRole(role) {
+			continue
+		}
+		state := fields[payloadField]
+		if state.Count != 1 || state.WrongWire || state.Malformed {
+			hardKeySafe = false
+			break
+		}
+		switch role {
+		case profilerFtraceBlockFieldDev:
+			if expectedWire != 0 || state.UintValue > math.MaxUint32 {
+				hardKeySafe = false
+			} else {
+				dev = state.UintValue
+			}
+		case profilerFtraceBlockFieldSector:
+			if expectedWire != 0 || state.UintValue > math.MaxInt64 {
+				hardKeySafe = false
+			} else {
+				sector = state.UintValue
+			}
+		case profilerFtraceBlockFieldNRSector:
+			if expectedWire != 0 || state.UintValue > math.MaxUint32 {
+				hardKeySafe = false
+			} else {
+				nrSector = state.UintValue
+			}
+		case profilerFtraceBlockFieldRWBS:
+			if expectedWire != 2 || !validBlockRWBS(state.StringValue) {
+				hardKeySafe = false
+			} else {
+				rwbs = state.StringValue
+			}
+		}
+	}
+
+	headerTID := int64(-1)
+	pair.HeaderOwnerKnown = event.HeaderOwnerKnown && event.HeaderOwnerPresent &&
+		event.PID >= 0 && event.PID <= math.MaxInt32
+	if pair.HeaderOwnerKnown {
+		headerTID = event.PID
+	}
+	pair.Verdict = fingerprintPairingEndpoint(tracequery.PairingEndpointTypedInput{
+		Name: canonicalName, HeaderTID: headerTID,
+		BlockIdentityKnown: hardKeySafe, BlockPayloadAdmissionKnown: true,
+		BlockPayloadAdmitted: payloadAdmitted,
+		BlockDeviceNumber:    dev, BlockDeviceNumeric: hardKeySafe,
+		BlockOperation: rwbs, BlockSector: int64(sector), BlockLength: int64(nrSector),
+	})
+	pair.LaneKnown = pair.HeaderOwnerKnown && pair.Verdict.KeyKnown &&
+		pair.Verdict.EmitterKnown && pair.Verdict.SemanticKey != ""
+	if pair.LaneKnown {
+		pair.Lane = pair.Verdict.SemanticKey
+	}
+	pair.Admitted = pair.LaneKnown && pair.Verdict.PayloadAdmitted && pair.Verdict.EmitterAdmitted
+	return pair
+}
+
+// decodeProfilerBlockPayloadWithTypedAuditInto is the single structured block
 // payload authority. Every known endpoint is observed during one wire walk;
-// diagnostics are emitted only through the checked fixed-capacity issue set.
-func decodeProfilerBlockPayloadWithTypedAudit(event profilerFtraceEventRecord) (
+// diagnostics and the optional pair sidecar are derived from that same walk.
+func decodeProfilerBlockPayloadWithTypedAuditInto(event profilerFtraceEventRecord, pairOut *profilerPairAdmission) (
 	blockRenderPayload, bodyAdmission, profilerFtraceBlockIssueSet, bool, error,
 ) {
 	kind, canonicalName, governed := blockRenderKindForProfilerField(event.Field)
+	if pairOut != nil {
+		*pairOut = profilerStructuredBlockPairFamily(event.Field)
+	}
 	if !governed {
 		return blockRenderPayload{}, bodyUnsupported, profilerFtraceBlockIssueSet{}, false, nil
 	}
@@ -962,6 +1073,9 @@ func decodeProfilerBlockPayloadWithTypedAudit(event profilerFtraceEventRecord) (
 		}
 		return nil
 	})
+	if pairOut != nil {
+		*pairOut = profilerStructuredBlockPairAdmission(event, canonicalName, fields, walkErr, false)
+	}
 	if walkErr != nil {
 		var decodeErr *protoFieldDecodeError
 		if !errors.As(walkErr, &decodeErr) {
@@ -1107,7 +1221,19 @@ func decodeProfilerBlockPayloadWithTypedAudit(event profilerFtraceEventRecord) (
 			}
 		}
 	}
+	if pairOut != nil {
+		*pairOut = profilerStructuredBlockPairAdmission(event, canonicalName, fields, walkErr, true)
+	}
 	return payload, bodyAdmitted, set, true, nil
+}
+
+// decodeProfilerBlockPayloadWithTypedAudit preserves the local renderer API;
+// production pairing uses the Into variant so rendering and admission still
+// share exactly one protobuf walk.
+func decodeProfilerBlockPayloadWithTypedAudit(event profilerFtraceEventRecord) (
+	blockRenderPayload, bodyAdmission, profilerFtraceBlockIssueSet, bool, error,
+) {
+	return decodeProfilerBlockPayloadWithTypedAuditInto(event, nil)
 }
 
 func renderProfilerFtraceBlockEventWithTypedAudit(event profilerFtraceEventRecord) (

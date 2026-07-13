@@ -32,7 +32,7 @@ type profilerBlockTypedTuple struct {
 
 func profilerBlockTypedRecord(eventField int, payload []byte) profilerFtraceEventRecord {
 	return profilerFtraceEventRecord{
-		CPU: 2, TSNS: 1_000, TGID: 40, PID: 40, HeaderOwnerKnown: true,
+		CPU: 2, TSNS: 1_000, TGID: 40, PID: 40, HeaderOwnerKnown: true, HeaderOwnerPresent: true,
 		Comm: "block-test", Field: eventField, Payload: payload,
 	}
 }
@@ -678,14 +678,28 @@ func TestProfilerBlockTypedCanonicalBoundaryAllReachableAndContainerLocality(t *
 				item.event, entries, coverage)
 		}
 	}
-	if extracted.SourceFailClosed || extracted.StructuredRows != 4 || sink.publishableRows() != 4 || len(sink.rows) != 4 {
-		t.Fatalf("bad block canonical rows contaminated siblings: extracted=%+v sink=%+v rows=%+v",
-			extracted, sink.stats, sink.rows)
+	// Canonical cap+1 is a hard endpoint hole. The new complete-capture
+	// barrier must therefore quarantine the healthy row on the same RQ/BIO
+	// lane; inventory-only rq_insert remains publishable.
+	if extracted.SourceFailClosed || extracted.StructuredRows != 1 || sink.publishableRows() != 1 ||
+		len(sink.rows) != 4 || sink.poisoned[pairRenderBlock] || len(sink.poisonedLanes[pairRenderBlock]) != 2 {
+		t.Fatalf("canonical Block hole did not isolate pair lanes and retain inventory: extracted=%+v sink=%+v rows=%+v lanes=%v",
+			extracted, sink.stats, sink.rows, sink.poisonedLanes)
 	}
+	published := 0
 	for _, row := range sink.rows {
 		if !strings.Contains(row.line, "healthy") {
 			t.Fatalf("non-healthy block row survived local rejection: %q", row.line)
 		}
+		if sink.rowPublishable(row) {
+			published++
+			if !strings.Contains(row.line, "block_rq_insert:") {
+				t.Fatalf("pair endpoint survived its canonical capture hole: %q", row.line)
+			}
+		}
+	}
+	if published != 1 {
+		t.Fatalf("publishable inventory count=%d rows=%+v", published, sink.rows)
 	}
 }
 
@@ -701,7 +715,7 @@ func TestProfilerBlockTypedSingleWalkAndNoDynamicReasonAST(t *testing.T) {
 	var decode *ast.FuncDecl
 	for _, declaration := range file.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
-		if ok && function.Name.Name == "decodeProfilerBlockPayloadWithTypedAudit" {
+		if ok && function.Name.Name == "decodeProfilerBlockPayloadWithTypedAuditInto" {
 			decode = function
 			break
 		}

@@ -166,8 +166,8 @@ func TestProfilerStructuredEventBudgetFailCloseRetainsExactFieldTotals(t *testin
 		t.Fatal(err)
 	}
 	defer sink.cleanup()
-	sink.pairObservationLimit = 1
-	sink.pairLaneLimit = 8
+	sink.legacyPairProof.maxObservations = 1
+	sink.legacyPairProof.maxLaneKeys = 8
 	for _, row := range []renderedRow{
 		profilerStructuredEventTestRow(1, pairRenderF2FS, 4011, "lane", "begin"),
 		profilerStructuredEventTestRow(2, pairRenderF2FS, 4012, "lane", "end"),
@@ -176,12 +176,12 @@ func TestProfilerStructuredEventBudgetFailCloseRetainsExactFieldTotals(t *testin
 			t.Fatal(err)
 		}
 	}
-	if !sink.pairBudgetFailed || !sink.poisoned[pairRenderF2FS] || !sink.poisoned[pairRenderMMC] ||
+	if sink.legacyPairProof.failureReason == "" || !sink.poisoned[pairRenderF2FS] || !sink.poisoned[pairRenderMMC] ||
 		sink.structuredEventLanes[pairRenderF2FS] != nil ||
 		sink.withheldStructuredPairRowsForEventField(pairRenderF2FS, 4011) != 1 ||
 		sink.withheldStructuredPairRowsForEventField(pairRenderF2FS, 4012) != 1 {
 		t.Fatalf("budget fail-close lost exact event totals: failed=%t poisoned=%v totals=%v lanes=%v",
-			sink.pairBudgetFailed, sink.poisoned, sink.structuredEventRows, sink.structuredEventLanes)
+			sink.legacyPairProof.failureReason != "", sink.poisoned, sink.structuredEventRows, sink.structuredEventLanes)
 	}
 }
 

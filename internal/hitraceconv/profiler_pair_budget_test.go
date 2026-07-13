@@ -14,8 +14,8 @@ func TestProfilerPairObservationBudgetFailsBothFamiliesBeforeSpillPublication(t 
 		t.Fatal(err)
 	}
 	defer sink.cleanup()
-	sink.pairObservationLimit = 2
-	sink.pairLaneLimit = 10
+	sink.legacyPairProof.maxObservations = 2
+	sink.legacyPairProof.maxLaneKeys = 10
 	if !sink.beginPairRowCensus() {
 		t.Fatal("pair census did not start")
 	}
@@ -32,11 +32,12 @@ func TestProfilerPairObservationBudgetFailsBothFamiliesBeforeSpillPublication(t 
 			t.Fatal(err)
 		}
 	}
-	mmcCensus, f2fsCensus := sink.endPairRowCensus()
-	if !sink.pairBudgetFailed || sink.pairBudgetFailure != "observations" || sink.pairObservations != 2 ||
+	staged := sink.endPairRowCensus()
+	mmcCensus, f2fsCensus := staged[pairRenderMMC], staged[pairRenderF2FS]
+	if sink.legacyPairProof.failureReason != "observations" || sink.legacyPairProof.observations != 2 ||
 		!sink.poisoned[pairRenderMMC] || !sink.poisoned[pairRenderF2FS] {
 		t.Fatalf("observation cap did not fail closed globally: failed=%t reason=%q observations=%d poisoned=%v",
-			sink.pairBudgetFailed, sink.pairBudgetFailure, sink.pairObservations, sink.poisoned)
+			sink.legacyPairProof.failureReason != "", sink.legacyPairProof.failureReason, sink.legacyPairProof.observations, sink.poisoned)
 	}
 	if len(sink.pairLaneRows[pairRenderMMC]) != 0 || len(sink.pairLaneRows[pairRenderF2FS]) != 0 ||
 		len(sink.pairTableRows[pairRenderMMC]) != 0 || len(sink.pairTableRows[pairRenderF2FS]) != 0 ||
@@ -59,8 +60,8 @@ func TestProfilerPairObservationBudgetFailsBothFamiliesBeforeSpillPublication(t 
 	}
 	coverage := profilerF2FSPairBarrierCoverage(2, sink)
 	if coverage.FieldSources["budget_fail_closed"] != "true" || coverage.FieldSources["budget_failure"] != "observations" ||
-		!strings.Contains(profilerPairBudgetCaveat(sink), "budget_fail_closed=true reason=observations") {
-		t.Fatalf("budget failure was not disclosed in coverage/caveat: coverage=%+v caveat=%q", coverage, profilerPairBudgetCaveat(sink))
+		!strings.Contains(profilerPairBudgetCaveat(sink, pairRenderF2FS), "budget_fail_closed=true reason=observations") {
+		t.Fatalf("budget failure was not disclosed in coverage/caveat: coverage=%+v caveat=%q", coverage, profilerPairBudgetCaveat(sink, pairRenderF2FS))
 	}
 	ledger := []TraceDBCoverage{
 		{Family: "builtin_modern_profiler", Table: "plugin:ftrace-plugin", RowsRead: 1, RowsEmitted: 3, FieldSources: map[string]string{
@@ -70,7 +71,7 @@ func TestProfilerPairObservationBudgetFailsBothFamiliesBeforeSpillPublication(t 
 		{Table: "f2fs_write_end", RowsRead: 1, RowsEmitted: 1},
 		{Table: "mmc_request_start", RowsRead: 1, RowsEmitted: 1},
 	}
-	publishers := []profilerPairPublisherCensus{{coverageIndex: 0, mmc: mmcCensus, f2fs: f2fsCensus}}
+	publishers := []profilerPairPublisherCensus{{coverageIndex: 0, staged: staged}}
 	var eventIndexes profilerFtraceEventCoverageIndexes
 	for field, index := range map[int]int{4011: 1, 4012: 2, 4016: 3} {
 		slot := profilerFtraceEventSlot(field)
@@ -108,16 +109,16 @@ func TestProfilerPairLaneBudgetCountsInvalidOnlyPoisonAndFailsBothFamilies(t *te
 		t.Fatal(err)
 	}
 	defer sink.cleanup()
-	sink.pairObservationLimit = 10
-	sink.pairLaneLimit = 2
+	sink.legacyPairProof.maxObservations = 10
+	sink.legacyPairProof.maxLaneKeys = 2
 	sink.poisonPairLane(pairRenderF2FS, "f2fs-a")
 	sink.poisonPairLane(pairRenderF2FS, "f2fs-b")
 	sink.poisonPairLane(pairRenderF2FS, "f2fs-cap-plus-one")
-	if !sink.pairBudgetFailed || sink.pairBudgetFailure != "lane_keys" || sink.pairUniqueLanes != 2 ||
-		sink.pairObservations != 3 || !sink.poisoned[pairRenderMMC] || !sink.poisoned[pairRenderF2FS] ||
+	if sink.legacyPairProof.failureReason != "lane_keys" || sink.legacyPairProof.laneKeys != 2 ||
+		sink.legacyPairProof.observations != 3 || !sink.poisoned[pairRenderMMC] || !sink.poisoned[pairRenderF2FS] ||
 		len(sink.poisonedLanes[pairRenderMMC]) != 0 || len(sink.poisonedLanes[pairRenderF2FS]) != 0 {
 		t.Fatalf("invalid-only lane cap did not release maps/fail both families: observations=%d lanes=%d failed=%t reason=%q poisoned=%v lane_maps=%v",
-			sink.pairObservations, sink.pairUniqueLanes, sink.pairBudgetFailed, sink.pairBudgetFailure, sink.poisoned, sink.poisonedLanes)
+			sink.legacyPairProof.observations, sink.legacyPairProof.laneKeys, sink.legacyPairProof.failureReason != "", sink.legacyPairProof.failureReason, sink.poisoned, sink.poisonedLanes)
 	}
 	if err := sink.add(renderedRow{tsNS: 1, seq: 1, line: "print-survives-invalid-only-cap"}); err != nil {
 		t.Fatal(err)
@@ -149,11 +150,11 @@ func TestProfilerPairFamilyPoisonStopsAllLaterLaneMapGrowth(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if sink.pairObservations != 1 || sink.pairUniqueLanes != 1 || len(sink.pairLaneRows[pairRenderF2FS]) != 0 ||
+	if sink.legacyPairProof.observations != 1 || sink.legacyPairProof.laneKeys != 1 || len(sink.pairLaneRows[pairRenderF2FS]) != 0 ||
 		len(sink.pairTableRows[pairRenderF2FS]) != 0 || len(sink.poisonedLanes[pairRenderF2FS]) != 0 ||
 		sink.pairRows[pairRenderF2FS] != 65 || sink.pairTableTotals[pairRenderF2FS]["f2fs_write_end"] != 64 {
 		t.Fatalf("family poison continued growing subordinate maps or lost scalar totals: observations=%d lanes=%d laneRows=%v tableRows=%v totals=%v",
-			sink.pairObservations, sink.pairUniqueLanes, sink.pairLaneRows, sink.pairTableRows, sink.pairTableTotals)
+			sink.legacyPairProof.observations, sink.legacyPairProof.laneKeys, sink.pairLaneRows, sink.pairTableRows, sink.pairTableTotals)
 	}
 }
 

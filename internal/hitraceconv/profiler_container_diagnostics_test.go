@@ -135,7 +135,8 @@ func TestProfilerOuterExactFtraceOutcomeMatrix(t *testing.T) {
 		syntheticTracePluginFtraceEvent(5_000_000_000, 7, 7, "worker", 1109, protoBytes(2, []byte("B|7|typed"))),
 	)
 	strict := []byte("worker-7 (7) [001] .... 5.000000: tracing_mark_write: B|7|legacy")
-	malformed := []byte("*worker-7 (7) [001] .... 5.000000: tracing_mark_write: B|7|overlap")
+	strictOverlap := []byte("*worker-7 (7) [001] .... 5.000000: tracing_mark_write: B|7|overlap")
+	malformed := append(protoBytes(5, []byte{1, 2, 3}), 0)
 	for _, test := range []struct {
 		name           string
 		payload        []byte
@@ -148,7 +149,8 @@ func TestProfilerOuterExactFtraceOutcomeMatrix(t *testing.T) {
 		structuredRows int
 	}{
 		{name: "structured", payload: structured, outcomeField: "outcome_structured_frames", structured: 1, structuredRows: 1},
-		{name: "malformed", payload: malformed, outcomeField: "outcome_malformed_frames", malformed: 1, unsupported: 1},
+		{name: "malformed structured", payload: malformed, outcomeField: "outcome_malformed_frames", malformed: 1, unsupported: 1},
+		{name: "strict protobuf overlap", payload: strictOverlap, outcomeField: "outcome_strict_legacy_text_frames", textMessages: 1, textRows: 1},
 		{name: "strict legacy", payload: strict, outcomeField: "outcome_strict_legacy_text_frames", textMessages: 1, textRows: 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {

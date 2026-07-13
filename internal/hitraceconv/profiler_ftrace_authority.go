@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
@@ -22,13 +24,17 @@ type profilerPairAdmission struct {
 	Admitted  bool
 	LaneKnown bool
 	Lane      string
+	// HeaderOwnerKnown records the precise physical emitter proof separately
+	// from the semantic key; idle TID 0 is known, malformed/absent is not.
+	HeaderOwnerKnown bool
+	Verdict          tracequery.PairingEndpointVerdict
 }
 
 func (a profilerPairAdmission) poison(sink *traceDBRowSink) {
 	if !a.Governed || sink == nil {
 		return
 	}
-	if a.Kind == pairRenderF2FS && a.LaneKnown {
+	if (a.Kind == pairRenderF2FS || a.Kind == pairRenderBlock) && a.LaneKnown {
 		sink.poisonPairLane(a.Kind, a.Lane)
 		return
 	}
@@ -238,19 +244,92 @@ func profilerTracePluginResultCoverage(result profilerTracePluginResult) []Trace
 	}}
 }
 
-// addStrictSystraceRowsFromBytes is the compatibility lane for an exact
-// ftrace-plugin payload that is demonstrably not TracePluginResult protobuf.
-// It stages the complete payload first: one non-comment malformed fragment
-// rejects text classification, so embedded protobuf strings cannot mint a
-// partial text row.
+// addStrictSystraceRowsFromBytes is the whole-payload physical-text
+// compatibility lane for an exact ftrace-plugin. Text origin may outrank an
+// overlapping protobuf grammar; source election is separate from exact pair
+// admission. All rows are staged first, so one malformed fragment prevents
+// partial publication while an origin-proven exact endpoint retains capture
+// provenance.
 func addStrictSystraceRowsFromBytes(data []byte, seq *int, sink *traceDBRowSink) (int, bool, error) {
 	if len(data) == 0 {
 		return 0, false, nil
 	}
-	var staged []renderedRow
-	var rejectedPairs []profilerPairAdmission
-	observed := map[pairRenderKind]bool{}
-	rejected := false
+	return addProfilerStrictSystraceStage(stageProfilerStrictSystracePayload(data), seq, sink)
+}
+
+type profilerStrictSystracePayloadStage struct {
+	scan          profilerStrictSystracePayloadScan
+	rows          []renderedRow
+	rejectedPairs []profilerPairAdmission
+}
+
+func stageProfilerStrictSystracePayload(data []byte) profilerStrictSystracePayloadStage {
+	var stage profilerStrictSystracePayloadStage
+	stage.scan = scanProfilerStrictSystracePayload(data, func(row renderedRow, pair profilerPairAdmission) {
+		if pair.Governed && !pair.Admitted {
+			stage.rejectedPairs = append(stage.rejectedPairs, pair)
+		}
+		stage.rows = append(stage.rows, row)
+	})
+	return stage
+}
+
+func addProfilerStrictSystraceStage(stage profilerStrictSystracePayloadStage, seq *int, sink *traceDBRowSink) (int, bool, error) {
+	if stage.scan.rejected {
+		if sink == nil {
+			return 0, false, fmt.Errorf("strict systrace row sink is nil")
+		}
+		for _, kind := range profilerCaptureKinds {
+			if stage.scan.observed[kind] && (kind != pairRenderBlock || stage.scan.originText) {
+				sink.poisonPairKind(kind)
+			}
+		}
+		// This is the exact ftrace-plugin compatibility lane. Once the whole
+		// payload fails complete text classification, unread bytes may instead
+		// be a malformed structured envelope. Record delayed opacity even when
+		// no exact text header was recoverable; it suppresses nothing unless the
+		// same physical source actually contains MMC or F2FS endpoints.
+		sink.markPairCaptureOpaque(pairRenderMMC)
+		sink.markPairCaptureOpaque(pairRenderF2FS)
+		if stage.scan.originText && stage.scan.observed[pairRenderBlock] {
+			sink.markPairCaptureOpaque(pairRenderBlock)
+		}
+		return 0, false, nil
+	}
+	if len(stage.rows) == 0 {
+		return 0, false, nil
+	}
+	if sink == nil || seq == nil {
+		return 0, false, fmt.Errorf("strict systrace row sink or sequence is nil")
+	}
+	for _, pair := range stage.rejectedPairs {
+		pair.poison(sink)
+	}
+	for index := range stage.rows {
+		stage.rows[index].seq = *seq
+		if err := sink.add(stage.rows[index]); err != nil {
+			return index, true, err
+		}
+		(*seq)++
+	}
+	return len(stage.rows), true, nil
+}
+
+type profilerStrictSystracePayloadScan struct {
+	observed      [pairRenderKindCount]bool
+	rejected      bool
+	originDecided bool
+	originText    bool
+}
+
+// scanProfilerStrictSystracePayload is the shared, non-publishing authority
+// for strict legacy text classification. The first non-empty, non-comment
+// physical header elects origin once; comments are only a preamble and later
+// headers cannot rescue anonymous metadata. Exact endpoint admission remains a
+// separate authority. Callers may stage candidate rows, but may publish none
+// when any physical fragment fails the complete-text gate.
+func scanProfilerStrictSystracePayload(data []byte, visit func(renderedRow, profilerPairAdmission)) profilerStrictSystracePayloadScan {
+	var scan profilerStrictSystracePayloadScan
 	for start := 0; start < len(data); {
 		end := start
 		for end < len(data) && data[end] != '\n' {
@@ -269,32 +348,75 @@ func addStrictSystraceRowsFromBytes(data []byte, seq *int, sink *traceDBRowSink)
 		if len(part) == 0 {
 			continue
 		}
+		// A leading '#' owns the compatibility comment namespace. It can
+		// never be an ftrace task prefix or pair endpoint, even when the bytes
+		// after it happen to form a complete physical Block header. Valid
+		// comments are preamble; invalid/oversized comments still reject the
+		// strict payload, but must do so before any endpoint census can mint
+		// provenance.
+		if profilerTextCommentPrefix(part) {
+			if len(part) > maxProfilerTextLineBytes || !profilerTextPhysicalRunesSafe(part) {
+				scan.rejected = true
+			}
+			continue
+		}
 		if len(part) > maxProfilerTextLineBytes {
 			kind, governed, _ := profilerTextPairCensus(part)
-			if governed {
-				observed[kind] = true
+			if !scan.originDecided {
+				scan.originDecided = true
+				// A bounded exact governed endpoint is itself precise text
+				// provenance after the comment namespace has been excluded. This
+				// keeps an oversized endpoint with an unsafe suffix from becoming
+				// an invisible hole, while anonymous unsafe bytes remain non-text.
+				if profilerTextPhysicalRunesSafe(part) {
+					scan.originText, _ = profilerTextPhysicalHeaderCensus(part)
+				} else {
+					_, scan.originText = profilerTextLeadingPairCensus(part)
+				}
 			}
-			rejected = true
+			if governed {
+				scan.observed[kind] = true
+			}
+			scan.rejected = true
 			continue
 		}
 		line := string(part)
+		physicalLine := traceDBSinglePhysicalLine(line, false)
+		if !physicalLine {
+			// A non-comment row can remain precise endpoint provenance even when
+			// a trailing control/invalid rune makes the complete row unpublishable.
+			// Use only the bounded exact physical-header census, then reject, so a
+			// valid endpoint on either side cannot bridge this capture hole.
+			kind, governed, _ := profilerTextPairCensus(part)
+			if !scan.originDecided {
+				scan.originDecided = true
+				_, scan.originText = profilerTextLeadingPairCensus(part)
+			}
+			if governed {
+				scan.observed[kind] = true
+			}
+			scan.rejected = true
+			continue
+		}
+		if !scan.originDecided {
+			scan.originDecided = true
+			_, physicalHeader := tracequery.ProbePhysicalFtraceHeader(line)
+			scan.originText = physicalHeader
+		}
+		if profilerTextPairNormalizationCollision(line) {
+			// A compatibility ParseLine row that normalizes a missing/shifted
+			// event delimiter into an exact endpoint must not be published as an
+			// ungoverned row for downstream pairing. It is a near-name inventory
+			// row, so drop it locally without poisoning any pair family.
+			continue
+		}
 		pair := profilerTextPairAdmission(line)
 		if pair.Governed {
-			observed[pair.Kind] = true
-			if !pair.Admitted {
-				rejectedPairs = append(rejectedPairs, pair)
-			}
-		}
-		if !traceDBSinglePhysicalLine(line, false) {
-			rejected = true
-			continue
-		}
-		if part[0] == '#' {
-			continue
+			scan.observed[pair.Kind] = true
 		}
 		ts, ok := strictSystraceLineTimestampNS(line)
 		if !ok {
-			rejected = true
+			scan.rejected = true
 			continue
 		}
 		row := renderedRow{tsNS: ts, line: line}
@@ -302,38 +424,64 @@ func addStrictSystraceRowsFromBytes(data []byte, seq *int, sink *traceDBRowSink)
 			row.pairKind = pair.Kind
 			row.pairLane = pair.Lane
 		}
-		staged = append(staged, row)
-	}
-	if rejected {
-		for kind := range observed {
-			sink.poisonPairKind(kind)
+		if visit != nil && scan.originText {
+			visit(row, pair)
 		}
-		// This is the exact ftrace-plugin compatibility lane. Once the whole
-		// payload fails complete text classification, unread bytes may instead
-		// be a malformed structured envelope. Record delayed opacity even when
-		// no exact text header was recoverable; it suppresses nothing unless the
-		// same physical source actually contains MMC or F2FS endpoints.
-		sink.markPairCaptureOpaque(pairRenderMMC)
-		sink.markPairCaptureOpaque(pairRenderF2FS)
-		return 0, false, nil
 	}
-	if len(staged) == 0 {
-		return 0, false, nil
+	return scan
+}
+
+// profilerTextCommentPrefix is a classification-only negative gate. Leading
+// ASCII spaces are already trimmed by the caller; tabs are accepted here only
+// so an invalid tab-indented '#...' record cannot be reinterpreted by ftrace's
+// whitespace-tolerant header regex. The rune validator still rejects that
+// payload, and no other control character is skipped.
+func profilerTextCommentPrefix(data []byte) bool {
+	for len(data) > 0 && (data[0] == ' ' || data[0] == '\t') {
+		data = data[1:]
 	}
-	if sink == nil || seq == nil {
-		return 0, false, fmt.Errorf("strict systrace row sink or sequence is nil")
+	return len(data) > 0 && data[0] == '#'
+}
+
+// profilerTextPhysicalRunesSafe is the uncapped physical-rune gate used to
+// decide whether a general oversized row may elect text origin.
+// traceDBSinglePhysicalLine intentionally includes the publication cap, so it
+// cannot distinguish an oversized but otherwise physical row from one
+// containing control separators. Exact malformed endpoint provenance uses the
+// narrower leading-header probe instead. This helper mirrors the normal
+// UTF-8/control/Zl/Zp rules without making any size or blankness decision.
+func profilerTextPhysicalRunesSafe(data []byte) bool {
+	if !utf8.Valid(data) {
+		return false
 	}
-	for _, pair := range rejectedPairs {
-		pair.poison(sink)
-	}
-	for index := range staged {
-		staged[index].seq = *seq
-		if err := sink.add(staged[index]); err != nil {
-			return index, true, err
+	for len(data) > 0 {
+		r, width := utf8.DecodeRune(data)
+		if width <= 0 || unicode.IsControl(r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
+			return false
 		}
-		(*seq)++
+		data = data[width:]
 	}
-	return len(staged), true, nil
+	return true
+}
+
+// profilerTextPairNormalizationCollision detects only a precise parser-shape
+// collision: the compatibility parser resolved an exact pair endpoint, while
+// the physical header did not contain that same byte-exact `name:` token.
+// No prose/prefix heuristic participates, and near rows never poison a family.
+func profilerTextPairNormalizationCollision(line string) bool {
+	if !strings.Contains(line, "mmc_request_") && !strings.Contains(line, "f2fs_") &&
+		!strings.Contains(line, "block_rq_") && !strings.Contains(line, "block_bio_") {
+		return false
+	}
+	event, parsed := tracequery.ParseLine(1, line, nil)
+	if !parsed {
+		return false
+	}
+	if _, governed := profilerPairKindForExactName(event.Name); !governed {
+		return false
+	}
+	physicalName, exact := tracequery.ProbeExactEventNamePrefix(line)
+	return !exact || physicalName != event.Name
 }
 
 // profilerTextPairAdmission is the sole bridge for profiler text compatibility
@@ -342,13 +490,18 @@ func addStrictSystraceRowsFromBytes(data []byte, seq *int, sink *traceDBRowSink)
 // tracequery's canonical endpoint authority; prose/substrings never guess a
 // family.
 func profilerTextPairAdmission(line string) profilerPairAdmission {
-	if !strings.Contains(line, "mmc_request_") && !strings.Contains(line, "f2fs_") {
+	if !strings.Contains(line, "mmc_request_") && !strings.Contains(line, "f2fs_") &&
+		!strings.Contains(line, "block_rq_") && !strings.Contains(line, "block_bio_") {
+		return profilerPairAdmission{}
+	}
+	physicalName, exactHeader := tracequery.ProbeExactEventNamePrefix(line)
+	kind, governed := profilerPairKindForExactName(physicalName)
+	if !exactHeader || !governed {
 		return profilerPairAdmission{}
 	}
 	ev, ok := tracequery.ParseLine(1, line, nil)
 	if ok {
-		kind, governed := profilerPairKindForExactName(ev.Name)
-		if !governed {
+		if ev.Name != physicalName {
 			return profilerPairAdmission{}
 		}
 		verdict := tracequery.FingerprintPairingEvent(ev)
@@ -356,16 +509,11 @@ func profilerTextPairAdmission(line string) profilerPairAdmission {
 			verdict.EmitterKnown && verdict.EmitterAdmitted
 		return profilerPairAdmission{
 			Kind: kind, Governed: true, Admitted: admitted,
-			LaneKnown: verdict.KeyKnown && verdict.SemanticKey != "", Lane: verdict.SemanticKey,
+			LaneKnown: verdict.KeyKnown && verdict.EmitterKnown && verdict.SemanticKey != "", Lane: verdict.SemanticKey,
+			HeaderOwnerKnown: verdict.EmitterKnown, Verdict: verdict,
 		}
 	}
-	name, complete := tracequery.ProbeEventNamePrefix(line)
-	if complete {
-		if kind, governed := profilerPairKindForExactName(name); governed {
-			return profilerPairAdmission{Kind: kind, Governed: true}
-		}
-	}
-	return profilerPairAdmission{}
+	return profilerPairAdmission{Kind: kind, Governed: true}
 }
 
 func profilerPairKindForExactName(name string) (pairRenderKind, bool) {
@@ -375,12 +523,29 @@ func profilerPairKindForExactName(name string) (pairRenderKind, bool) {
 	case "f2fs_sync_file_enter", "f2fs_sync_file_exit", "f2fs_direct_IO_enter", "f2fs_direct_IO_exit",
 		"f2fs_write_begin", "f2fs_write_end":
 		return pairRenderF2FS, true
+	case "block_bio_queue", "block_bio_complete", "block_rq_issue", "block_rq_complete":
+		return pairRenderBlock, true
 	default:
 		return pairRenderUnknown, false
 	}
 }
 
 const profilerTextPairHeaderProbeBytes = 4096
+
+// profilerTextPhysicalHeaderCensus proves only the physical ftrace envelope
+// from a fixed prefix. It grants no endpoint identity: malformed scalar rows
+// and missing/shifted event delimiters may establish text origin, while exact
+// pair admission remains solely in profilerTextPairAdmission/Census.
+func profilerTextPhysicalHeaderCensus(part []byte) (bool, bool) {
+	probe := part
+	truncated := false
+	if len(probe) > profilerTextPairHeaderProbeBytes {
+		probe = probe[:profilerTextPairHeaderProbeBytes]
+		truncated = true
+	}
+	_, complete := tracequery.ProbePhysicalFtraceHeader(string(probe))
+	return complete, truncated
+}
 
 // profilerTextPairCensus uses at most a bounded header prefix. A complete
 // header provides exact family provenance; an unterminated oversized prefix
@@ -392,7 +557,7 @@ func profilerTextPairCensus(part []byte) (pairRenderKind, bool, bool) {
 		probe = probe[:profilerTextPairHeaderProbeBytes]
 		truncated = true
 	}
-	name, complete := tracequery.ProbeEventNamePrefix(string(probe))
+	name, complete := tracequery.ProbeExactEventNamePrefix(string(probe))
 	if complete {
 		if kind, governed := profilerPairKindForExactName(name); governed {
 			return kind, true, false
@@ -400,6 +565,22 @@ func profilerTextPairCensus(part []byte) (pairRenderKind, bool, bool) {
 		return pairRenderUnknown, false, false
 	}
 	return pairRenderUnknown, false, truncated
+}
+
+// profilerTextLeadingPairCensus is narrower than the general hole census: it
+// can elect text origin for an unsafe first row only when the exact governed
+// endpoint header physically begins the bounded prefix. It must never use the
+// loose rightmost-header fallback across protobuf/control metadata.
+func profilerTextLeadingPairCensus(part []byte) (pairRenderKind, bool) {
+	probe := part
+	if len(probe) > profilerTextPairHeaderProbeBytes {
+		probe = probe[:profilerTextPairHeaderProbeBytes]
+	}
+	name, complete := tracequery.ProbeLeadingExactEventNamePrefix(string(probe))
+	if !complete {
+		return pairRenderUnknown, false
+	}
+	return profilerPairKindForExactName(name)
 }
 
 func strictSystraceLineTimestampNS(line string) (uint64, bool) {

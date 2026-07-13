@@ -23,6 +23,7 @@ const (
 	pairRenderMMC
 	pairRenderF2FS
 	pairRenderBlock
+	pairRenderKindCount
 )
 
 type pairRenderPayload struct {

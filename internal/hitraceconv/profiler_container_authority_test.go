@@ -266,21 +266,21 @@ func TestProfilerContainerExactLegacyTextAndStructuredProvenanceStayDistinct(t *
 	}
 }
 
-func TestProfilerContainerMalformedProbeCannotUseCompleteTextOverlap(t *testing.T) {
+func TestProfilerContainerCompletePhysicalTextWinsMalformedProtoOverlap(t *testing.T) {
 	// '*' is the complete protobuf key for official top-level field 5/wire 2.
 	// The following 'w' is an impossible length for this payload, so the same
-	// bytes are attributable to a malformed TracePluginResult even though they
-	// also satisfy the generic ftrace text grammar.
+	// bytes also look like a malformed TracePluginResult. The complete physical
+	// ftrace row is the stronger whole-payload authority and must win.
 	overlap := "*worker-7  ( 7) [001] ....  5.000000: tracing_mark_write: B|7|overlap"
 	extracted, sink := extractSyntheticProfilerContainer(t,
 		syntheticProfilerPluginData("ftrace-plugin", []byte(overlap)),
 	)
 	defer sink.cleanup()
-	if extracted.MalformedFtrace != 1 || extracted.StructuredFtrace != 0 || extracted.TextRows != 0 || extracted.TextPluginMessages != 0 || sink.stats.RowsAccepted != 0 {
-		t.Fatalf("attributable malformed protobuf must never be rescued by an overlapping text grammar: extracted=%+v sink=%+v", extracted, sink.stats)
+	if extracted.MalformedFtrace != 0 || extracted.StructuredFtrace != 0 || extracted.TextRows != 1 || extracted.TextPluginMessages != 1 || sink.stats.RowsAccepted != 1 {
+		t.Fatalf("complete physical text lost to an overlapping protobuf grammar: extracted=%+v sink=%+v", extracted, sink.stats)
 	}
-	if !coverageTableHasSkipped(extracted.TraceCoverage, "__trace_plugin_envelope__", "envelope_trace_plugin_malformed_wire") {
-		t.Fatalf("overlap must remain top-level typed coverage: %+v", extracted.TraceCoverage)
+	if coverageTableHasSkipped(extracted.TraceCoverage, "__trace_plugin_envelope__", "envelope_trace_plugin_malformed_wire") {
+		t.Fatalf("text-owned overlap leaked typed envelope coverage: %+v", extracted.TraceCoverage)
 	}
 }
 

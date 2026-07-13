@@ -18,6 +18,7 @@ func TestBlockRendererUsesOneTypedAuthorityWithoutDefaultFallbacks(t *testing.T)
 		"func decodeDirectBlockPayload(",
 		"func decodeDirectBlockPayloadDecision(",
 		"func decodeProfilerBlockPayloadWithTypedAudit(",
+		"func decodeProfilerBlockPayloadWithTypedAuditInto(",
 		"func renderProfilerFtraceBlockEventWithTypedAudit(",
 		"func decodeTraceDBBlockPayload(",
 	} {
@@ -34,7 +35,8 @@ func TestBlockRendererUsesOneTypedAuthorityWithoutDefaultFallbacks(t *testing.T)
 		strings.Count(render, "block := decodeDirectBlockPayloadDecision(ev, content)") != 1 ||
 		!strings.Contains(render, "newDirectBlockLineAudit(ev, blockDecision)") ||
 		!strings.Contains(render, "renderCanonicalBlockPayload(block.Payload)") ||
-		strings.Count(profiler, "renderProfilerFtraceBlockEventWithTypedAudit(event)") != 1 ||
+		strings.Count(profiler, "decodeProfilerBlockPayloadWithTypedAuditInto(event, &pair)") != 1 ||
+		strings.Count(profiler, "finalizeProfilerFtraceBlockEventWithTypedAudit(event, blockPayload, blockAdmission, blockIssues)") != 1 ||
 		!strings.Contains(streamer, "return renderTraceDBBlockEvent(name, args, invalidKeys)") {
 		t.Fatal("a direct, structured, or SQL block lane bypasses the shared typed authority")
 	}

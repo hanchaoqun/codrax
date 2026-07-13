@@ -83,9 +83,8 @@ type profilerContainerExtraction struct {
 }
 
 type profilerTextMessageRows struct {
-	total int
-	mmc   profilerPairRowCensus
-	f2fs  profilerPairRowCensus
+	total  int
+	staged profilerPairCensusSet
 }
 
 type profilerBoundedPhysicalLine struct {
@@ -97,8 +96,77 @@ type profilerBoundedPhysicalLine struct {
 
 type profilerPairPublisherCensus struct {
 	coverageIndex int
-	mmc           profilerPairRowCensus
-	f2fs          profilerPairRowCensus
+	staged        profilerPairCensusSet
+}
+
+func profilerPairCensusSetHasRows(census profilerPairCensusSet) bool {
+	for _, kind := range profilerCaptureKinds {
+		if census[kind].total != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func validateProfilerPairPublisherCensus(extraction profilerContainerExtraction, sink *traceDBRowSink) error {
+	if sink == nil {
+		return &traceDBOutputInvariantError{Reason: "profiler_pair_publisher_sink_missing"}
+	}
+	byCoverage := make([]profilerPairCensusSet, len(extraction.TraceCoverage))
+	var stagedTotal profilerPairCensusSet
+	for _, publisher := range extraction.pairPublishers {
+		if publisher.coverageIndex < 0 || publisher.coverageIndex >= len(byCoverage) {
+			return &traceDBOutputInvariantError{Reason: "profiler_pair_publisher_coverage_index_invalid"}
+		}
+		for _, kind := range profilerCaptureKinds {
+			count := publisher.staged[kind].total
+			if count < 0 || !checkedProfilerIntAddTo(&byCoverage[publisher.coverageIndex][kind].total, count) ||
+				!checkedProfilerIntAddTo(&stagedTotal[kind].total, count) {
+				return &traceDBOutputInvariantError{Reason: "profiler_pair_publisher_staged_counter_invalid"}
+			}
+		}
+	}
+	for coverageIndex, staged := range byCoverage {
+		captureRows := 0
+		for _, kind := range profilerCaptureKinds {
+			count := staged[kind].total
+			if !checkedProfilerIntAddTo(&captureRows, count) {
+				return &traceDBOutputInvariantError{Reason: "profiler_pair_publisher_cross_total_overflow"}
+			}
+			if count == 0 {
+				continue
+			}
+			raw := extraction.TraceCoverage[coverageIndex].FieldSources[profilerCoverageStagedRowsKey(kind)]
+			declared, err := strconv.ParseUint(raw, 10, 64)
+			if err != nil || declared > uint64(math.MaxInt) || int(declared) != count {
+				return &traceDBOutputInvariantError{Reason: "profiler_pair_publisher_staged_coverage_mismatch"}
+			}
+		}
+		if captureRows > extraction.TraceCoverage[coverageIndex].RowsEmitted {
+			return &traceDBOutputInvariantError{Reason: "profiler_pair_publisher_rows_exceed_coverage"}
+		}
+	}
+	for _, kind := range profilerCaptureKinds {
+		if stagedTotal[kind].total != sink.pairRows[kind] {
+			return &traceDBOutputInvariantError{Reason: "profiler_pair_publisher_sink_account_mismatch"}
+		}
+	}
+	for _, message := range extraction.textMessages {
+		if message.total < 0 {
+			return &traceDBOutputInvariantError{Reason: "profiler_text_message_staged_counter_negative"}
+		}
+		captureRows := 0
+		for _, kind := range profilerCaptureKinds {
+			count := message.staged[kind].total
+			if count < 0 || !checkedProfilerIntAddTo(&captureRows, count) {
+				return &traceDBOutputInvariantError{Reason: "profiler_text_message_staged_counter_invalid"}
+			}
+		}
+		if captureRows > message.total {
+			return &traceDBOutputInvariantError{Reason: "profiler_text_message_pair_rows_exceed_total"}
+		}
+	}
+	return nil
 }
 
 type profilerZeroFrameCensus struct {
@@ -278,6 +346,20 @@ func modernRowSorterCoverage(stats traceDBRowSortStats) TraceDBCoverage {
 
 const profilerCoverageMMCStagedRows = "complete_capture_mmc_rows_staged"
 const profilerCoverageF2FSStagedRows = "complete_capture_f2fs_rows_staged"
+const profilerCoverageBlockStagedRows = "complete_capture_block_rows_staged"
+
+func profilerCoverageStagedRowsKey(kind pairRenderKind) string {
+	switch kind {
+	case pairRenderMMC:
+		return profilerCoverageMMCStagedRows
+	case pairRenderF2FS:
+		return profilerCoverageF2FSStagedRows
+	case pairRenderBlock:
+		return profilerCoverageBlockStagedRows
+	default:
+		return ""
+	}
+}
 
 func profilerMMCPairBarrierCoverage(withheld int, sink *traceDBRowSink) TraceDBCoverage {
 	return TraceDBCoverage{
@@ -288,10 +370,11 @@ func profilerMMCPairBarrierCoverage(withheld int, sink *traceDBRowSink) TraceDBC
 		RowsRead: withheld,
 		Skipped:  "source-scoped MMC endpoint publication failed the profiler full-capture anti-rescue barrier",
 		FieldSources: map[string]string{
-			"scope":              "one profiler container source namespace",
-			"pairing_guard":      "all structured field-4015/4016 and text-compatible exact MMC rows are sealed before publication; malformed, opaque, or unattributable physical endpoints close the MMC family",
-			"budget_fail_closed": strconv.FormatBool(sink != nil && sink.pairBudgetFailed),
-			"budget_failure":     profilerPairBudgetFailure(sink),
+			"scope":                    "one profiler container source namespace",
+			"pairing_guard":            "all structured field-4015/4016 and text-compatible exact MMC rows are sealed before publication; malformed, opaque, or unattributable physical endpoints close the MMC family",
+			"budget_fail_closed":       strconv.FormatBool(profilerPairBudgetFailure(sink, pairRenderMMC) != "none"),
+			"budget_failure":           profilerPairBudgetFailure(sink, pairRenderMMC),
+			"shared_authority_failure": profilerPairAuthorityFailure(sink),
 		},
 	}
 }
@@ -305,28 +388,66 @@ func profilerF2FSPairBarrierCoverage(withheld int, sink *traceDBRowSink) TraceDB
 		RowsRead: withheld,
 		Skipped:  "F2FS endpoint publication failed the profiler full-capture anti-rescue barrier",
 		FieldSources: map[string]string{
-			"scope":              "exact source-local semantic lane when owner and dev/inode/op are proven; whole profiler F2FS family only when that hard key is unknown",
-			"pairing_guard":      "structured field-4009..4012 and text-compatible exact F2FS rows share one typed fingerprint authority; known-key non-key failures quarantine only that lane, while malformed, opaque, or unattributable endpoints close the family",
-			"budget_fail_closed": strconv.FormatBool(sink != nil && sink.pairBudgetFailed),
-			"budget_failure":     profilerPairBudgetFailure(sink),
+			"scope":                    "exact source-local semantic lane when owner and dev/inode/op are proven; whole profiler F2FS family only when that hard key is unknown",
+			"pairing_guard":            "structured field-4009..4012 and text-compatible exact F2FS rows share one typed fingerprint authority; known-key non-key failures quarantine only that lane, while malformed, opaque, or unattributable endpoints close the family",
+			"budget_fail_closed":       strconv.FormatBool(profilerPairBudgetFailure(sink, pairRenderF2FS) != "none"),
+			"budget_failure":           profilerPairBudgetFailure(sink, pairRenderF2FS),
+			"shared_authority_failure": profilerPairAuthorityFailure(sink),
 		},
 	}
 }
 
-func profilerPairBudgetFailure(sink *traceDBRowSink) string {
-	if sink == nil || !sink.pairBudgetFailed {
-		return "none"
+func profilerBlockPairBarrierCoverage(withheld int, sink *traceDBRowSink) TraceDBCoverage {
+	return TraceDBCoverage{
+		Family:   "builtin_modern_ftrace:block",
+		Table:    "__complete_capture_barrier__",
+		Role:     "unsupported_input",
+		Found:    true,
+		RowsRead: withheld,
+		Skipped:  "Block endpoint publication failed the profiler full-capture anti-rescue barrier",
+		FieldSources: map[string]string{
+			"scope":                    "one profiler container source namespace; exact RQ/BIO semantic lane when owner, source, and hard key are proven",
+			"pairing_guard":            "structured field-202/204/209/211 and text-compatible exact Block rows share one typed fingerprint authority; inventory fields 205/210/212 never enter the pairing lane",
+			"budget_fail_closed":       strconv.FormatBool(profilerPairBudgetFailure(sink, pairRenderBlock) != "none"),
+			"budget_failure":           profilerPairBudgetFailure(sink, pairRenderBlock),
+			"shared_authority_failure": profilerPairAuthorityFailure(sink),
+		},
 	}
-	return sink.pairBudgetFailure
 }
 
-func profilerPairBudgetCaveat(sink *traceDBRowSink) string {
-	if sink == nil || !sink.pairBudgetFailed {
+func profilerPairBudgetFailure(sink *traceDBRowSink, kind pairRenderKind) string {
+	domain := sink.profilerPairProofDomain(kind)
+	if domain == nil || domain.failureReason == "" {
+		return "none"
+	}
+	return domain.failureReason
+}
+
+func profilerPairAuthorityFailure(sink *traceDBRowSink) string {
+	if sink == nil || sink.pairAuthorityFailure == "" {
+		return "none"
+	}
+	return sink.pairAuthorityFailure
+}
+
+func profilerPairBudgetCaveat(sink *traceDBRowSink, kind pairRenderKind) string {
+	domain := sink.profilerPairProofDomain(kind)
+	if domain == nil {
 		return ""
 	}
-	return fmt.Sprintf("; budget_fail_closed=true reason=%s observations=%d/%d lane_keys=%d/%d",
-		sink.pairBudgetFailure, sink.pairObservations, sink.pairObservationLimit,
-		sink.pairUniqueLanes, sink.pairLaneLimit)
+	var parts []string
+	if domain.failureReason != "" {
+		parts = append(parts, fmt.Sprintf("budget_fail_closed=true reason=%s observations=%d/%d lane_keys=%d/%d",
+			domain.failureReason, domain.observations, domain.maxObservations,
+			domain.laneKeys, domain.maxLaneKeys))
+	}
+	if sink.pairAuthorityFailure != "" {
+		parts = append(parts, "shared_authority_failure="+sink.pairAuthorityFailure)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "; " + strings.Join(parts, "; ")
 }
 
 func reconcileProfilerMMCCoverage(items []TraceDBCoverage, sink *traceDBRowSink, publishers []profilerPairPublisherCensus, eventIndexes profilerFtraceEventCoverageIndexes) error {
@@ -339,14 +460,28 @@ func reconcileProfilerF2FSCoverage(items []TraceDBCoverage, sink *traceDBRowSink
 		pairRenderF2FS, profilerCoverageF2FSStagedRows, "f2fs")
 }
 
+func reconcileProfilerBlockCoverage(items []TraceDBCoverage, sink *traceDBRowSink, publishers []profilerPairPublisherCensus, eventIndexes profilerFtraceEventCoverageIndexes) error {
+	return reconcileProfilerPairCoverage(items, sink, publishers, eventIndexes,
+		pairRenderBlock, profilerCoverageBlockStagedRows, "block")
+}
+
 func reconcileProfilerPairCoverage(items []TraceDBCoverage, sink *traceDBRowSink, publishers []profilerPairPublisherCensus, eventIndexes profilerFtraceEventCoverageIndexes, kind pairRenderKind, stagedKey string, family string) error {
-	withheld := sink.withheldPairRowsForKind(kind)
+	if sink == nil || stagedKey == "" || family == "" {
+		return &traceDBOutputInvariantError{Reason: "profiler_pair_reconcile_input_invalid"}
+	}
+	withheld, err := sink.withheldPairRowsForKindChecked(kind)
+	if err != nil {
+		return err
+	}
 	if withheld <= 0 {
 		return nil
 	}
 	structuredAccounted := 0
 	for _, field := range profilerStructuredPairEventFields(kind) {
-		count := sink.withheldStructuredPairRowsForEventField(kind, field)
+		count, countErr := sink.withheldStructuredPairRowsForEventFieldChecked(kind, field)
+		if countErr != nil {
+			return countErr
+		}
 		if count <= 0 {
 			continue
 		}
@@ -364,7 +499,11 @@ func reconcileProfilerPairCoverage(items []TraceDBCoverage, sink *traceDBRowSink
 			return &traceDBOutputInvariantError{Reason: "profiler_" + family + "_structured_event_accounted_counter_overflow"}
 		}
 	}
-	if structuredAccounted != sink.withheldStructuredPairRowsForKind(kind) {
+	structuredWithheld, err := sink.withheldStructuredPairRowsForKindChecked(kind)
+	if err != nil {
+		return err
+	}
+	if structuredAccounted != structuredWithheld {
 		return &traceDBOutputInvariantError{Reason: "profiler_" + family + "_structured_event_attribution_mismatch"}
 	}
 	accounted := 0
@@ -372,11 +511,11 @@ func reconcileProfilerPairCoverage(items []TraceDBCoverage, sink *traceDBRowSink
 		if publisher.coverageIndex < 0 || publisher.coverageIndex >= len(items) {
 			return &traceDBOutputInvariantError{Reason: "profiler_" + family + "_coverage_index_invalid"}
 		}
-		census := publisher.mmc
-		if kind == pairRenderF2FS {
-			census = publisher.f2fs
+		census := publisher.staged[kind]
+		count, countErr := sink.withheldPairRowsFromCensusChecked(kind, census)
+		if countErr != nil {
+			return countErr
 		}
-		count := sink.withheldPairRowsFromCensus(kind, census)
 		if count <= 0 {
 			continue
 		}
@@ -408,17 +547,6 @@ func reconcileProfilerPairCoverage(items []TraceDBCoverage, sink *traceDBRowSink
 	return nil
 }
 
-func profilerStructuredPairEventFields(kind pairRenderKind) []int {
-	switch kind {
-	case pairRenderMMC:
-		return []int{4015, 4016}
-	case pairRenderF2FS:
-		return []int{4009, 4010, 4011, 4012}
-	default:
-		return nil
-	}
-}
-
 func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize int64, output string, standaloneArtifacts []Artifact, standaloneCaveats []string, standaloneDecisions []PerfProviderDecision, initialTraceDecisions []TraceProviderDecision, initialTraceDBCoverage []TraceDBCoverage) (Result, bool, error) {
 	sink, err := newTraceDBRowSink("", 0)
 	if err != nil {
@@ -430,6 +558,9 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 			sink.cleanup()
 		}
 	}()
+	if err := sink.openProfilerCapture(opts.InputPath); err != nil {
+		return Result{}, false, err
+	}
 	sessionBodySize, embeddedSessionSidecar := profilerContainerSessionLayout(inputSize, standaloneArtifacts)
 	extracted, err := extractProfilerContainerSystraceRowsWithSessionLimit(
 		ctx, opts.InputPath, inputSize, sessionBodySize, sink)
@@ -459,6 +590,17 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 			failCloseProfilerTraceBody(&extracted, sink, "session_embedded_standalone_sidecar_ambiguity")
 		}
 	}
+	if !extracted.SourceFailClosed {
+		if err := validateProfilerPairPublisherCensus(extracted, sink); err != nil {
+			return Result{}, true, err
+		}
+	}
+	if err := sink.sealProfilerCapture(); err != nil {
+		return Result{}, true, err
+	}
+	if err := applyProfilerCaptureSourceFailure(&extracted, sink); err != nil {
+		return Result{}, true, err
+	}
 	result := Result{
 		InputPath:          opts.InputPath,
 		InputBytes:         inputSize,
@@ -477,7 +619,7 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 		if err := reconcileProfilerMMCCoverage(result.TraceCoverage, sink, extracted.pairPublishers, extracted.profilerEventCoverage); err != nil {
 			return Result{}, true, err
 		}
-		result.Caveats = append(result.Caveats, fmt.Sprintf("profiler MMC full-capture anti-rescue barrier failed closed before output: withheld_rows=%d; malformed, opaque, or unattributable exact MMC endpoints remain coverage-only%s", withheld, profilerPairBudgetCaveat(sink)))
+		result.Caveats = append(result.Caveats, fmt.Sprintf("profiler MMC full-capture anti-rescue barrier failed closed before output: withheld_rows=%d; malformed, opaque, or unattributable exact MMC endpoints remain coverage-only%s", withheld, profilerPairBudgetCaveat(sink, pairRenderMMC)))
 		result.TraceCoverage = append(result.TraceCoverage, profilerMMCPairBarrierCoverage(withheld, sink))
 	}
 	if !extracted.SourceFailClosed && sink.pairKindPoisoned(pairRenderF2FS) {
@@ -485,10 +627,22 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 		if err := reconcileProfilerF2FSCoverage(result.TraceCoverage, sink, extracted.pairPublishers, extracted.profilerEventCoverage); err != nil {
 			return Result{}, true, err
 		}
-		result.Caveats = append(result.Caveats, fmt.Sprintf("profiler F2FS full-capture anti-rescue barrier failed closed before output: withheld_rows=%d; known-key failures remain exact-lane coverage-only, while malformed, opaque, or unattributable F2FS endpoints close the source-local family%s", withheld, profilerPairBudgetCaveat(sink)))
+		result.Caveats = append(result.Caveats, fmt.Sprintf("profiler F2FS full-capture anti-rescue barrier failed closed before output: withheld_rows=%d; known-key failures remain exact-lane coverage-only, while malformed, opaque, or unattributable F2FS endpoints close the source-local family%s", withheld, profilerPairBudgetCaveat(sink, pairRenderF2FS)))
 		result.TraceCoverage = append(result.TraceCoverage, profilerF2FSPairBarrierCoverage(withheld, sink))
 	}
-	if sink.publishableRows() > 0 {
+	if !extracted.SourceFailClosed && sink.pairKindPoisoned(pairRenderBlock) {
+		withheld := sink.withheldPairRowsForKind(pairRenderBlock)
+		if err := reconcileProfilerBlockCoverage(result.TraceCoverage, sink, extracted.pairPublishers, extracted.profilerEventCoverage); err != nil {
+			return Result{}, true, err
+		}
+		result.Caveats = append(result.Caveats, fmt.Sprintf("profiler Block full-capture anti-rescue barrier failed closed before output: withheld_rows=%d; known owner/source/hard-key failures remain exact-lane coverage-only, while opaque or unattributable Block endpoints close the source-local family%s", withheld, profilerPairBudgetCaveat(sink, pairRenderBlock)))
+		result.TraceCoverage = append(result.TraceCoverage, profilerBlockPairBarrierCoverage(withheld, sink))
+	}
+	publishableRows, err := sink.profilerPublishableRows()
+	if err != nil {
+		return Result{}, true, err
+	}
+	if publishableRows > 0 {
 		out, err := os.OpenFile(output, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 		if err != nil {
 			return Result{}, true, err
@@ -538,7 +692,8 @@ func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize in
 			"OpenHarmony profiler/session trace-body was failed closed before publication because %s; suppressed_rows=%d; %s",
 			firstNonEmpty(extracted.SourceFailReason, "profiler_source_failure"), sink.stats.RowsAccepted, artifactStatus)
 		decisionReason := "profiler_source_resource_fail_closed"
-		if extracted.SourceFailReason == "session_embedded_standalone_sidecar_ambiguity" {
+		if extracted.SourceFailReason == "session_embedded_standalone_sidecar_ambiguity" ||
+			extracted.SourceFailReason == profilerPairStorageIntegrityFailure {
 			decisionReason = "profiler_source_integrity_fail_closed"
 		}
 		result.Caveats = append(result.Caveats, caveat)
@@ -779,40 +934,34 @@ frames:
 			}
 			textMessageRows := 0
 			appendPluginCoverage := func() bool {
-				mmcRows, f2fsRows := sink.endPairRowCensus()
+				staged := sink.endPairRowCensus()
 				coverageIndex, ok := diagnostics.observeAccepted(&out, route, name, plugin, decoded.IssueCensus,
-					off, outcome, coverage.RowsEmitted, mmcRows, f2fsRows)
+					off, outcome, coverage.RowsEmitted, staged)
 				if !ok {
 					return false
 				}
-				if mmcRows.total > 0 || f2fsRows.total > 0 {
+				if profilerPairCensusSetHasRows(staged) {
 					if len(out.pairPublishers) == math.MaxInt {
 						return false
 					}
 					out.pairPublishers = append(out.pairPublishers, profilerPairPublisherCensus{
-						coverageIndex: coverageIndex, mmc: mmcRows, f2fs: f2fsRows,
+						coverageIndex: coverageIndex, staged: staged,
 					})
 					if textMessageRows > 0 {
 						if len(out.textMessages) == math.MaxInt {
 							return false
 						}
 						out.textMessages = append(out.textMessages, profilerTextMessageRows{
-							total: textMessageRows, mmc: mmcRows, f2fs: f2fsRows,
+							total: textMessageRows, staged: staged,
 						})
 					}
 				}
 				return true
 			}
 			if route == profilerPluginRouteExactFtrace {
-				authority := decodeProfilerTracePluginResult(plugin.Data)
-				if authority.IssueOverflow || !diagnostics.FtraceEnvelope.observe(authority.Issues, off) {
-					_, _ = sink.endPairRowCensus()
-					profilerContainerCounterFailClose(&out, sink)
-					break frames
-				}
-				authorityDegraded := !authority.Issues.empty()
-				if authority.Disposition == profilerFtracePayloadNotStructured {
-					rows, textPayload, rowErr := addStrictSystraceRowsFromBytes(plugin.Data, &seq, sink)
+				strictStage := stageProfilerStrictSystracePayload(plugin.Data)
+				if strictStage.scan.originText {
+					rows, textPayload, rowErr := addProfilerStrictSystraceStage(strictStage, &seq, sink)
 					if rowErr != nil {
 						coverage.Error = rowErr.Error()
 						_ = appendPluginCoverage()
@@ -823,7 +972,7 @@ frames:
 						outcome = profilerPluginOutcomeStrictText
 						textMessageRows = rows
 						if !checkedProfilerIntAddTo(&out.TextRows, rows) || !checkedProfilerIntAddTo(&out.TextPluginMessages, 1) {
-							_, _ = sink.endPairRowCensus()
+							_ = sink.endPairRowCensus()
 							profilerContainerCounterFailClose(&out, sink)
 							break frames
 						}
@@ -836,7 +985,29 @@ frames:
 					}
 					outcome = profilerPluginOutcomeUnsupportedFtrace
 					if !checkedProfilerIntAddTo(&out.UnsupportedFtrace, 1) {
-						_, _ = sink.endPairRowCensus()
+						_ = sink.endPairRowCensus()
+						profilerContainerCounterFailClose(&out, sink)
+						break frames
+					}
+					if !appendPluginCoverage() {
+						profilerContainerCounterFailClose(&out, sink)
+						break frames
+					}
+					off += 4 + int64(n)
+					continue
+				}
+
+				authority := decodeProfilerTracePluginResult(plugin.Data)
+				if authority.IssueOverflow || !diagnostics.FtraceEnvelope.observe(authority.Issues, off) {
+					_ = sink.endPairRowCensus()
+					profilerContainerCounterFailClose(&out, sink)
+					break frames
+				}
+				authorityDegraded := !authority.Issues.empty()
+				if authority.Disposition == profilerFtracePayloadNotStructured {
+					outcome = profilerPluginOutcomeUnsupportedFtrace
+					if !checkedProfilerIntAddTo(&out.UnsupportedFtrace, 1) {
+						_ = sink.endPairRowCensus()
 						profilerContainerCounterFailClose(&out, sink)
 						break frames
 					}
@@ -851,14 +1022,14 @@ frames:
 				if authority.Disposition == profilerFtracePayloadStructured {
 					outcome = profilerPluginOutcomeStructured
 					if !checkedProfilerIntAddTo(&out.StructuredFtrace, 1) {
-						_, _ = sink.endPairRowCensus()
+						_ = sink.endPairRowCensus()
 						profilerContainerCounterFailClose(&out, sink)
 						break frames
 					}
 				} else {
 					outcome = profilerPluginOutcomeMalformed
 					if !checkedProfilerIntAddTo(&out.MalformedFtrace, 1) {
-						_, _ = sink.endPairRowCensus()
+						_ = sink.endPairRowCensus()
 						profilerContainerCounterFailClose(&out, sink)
 						break frames
 					}
@@ -869,14 +1040,14 @@ frames:
 					coverage.Error = summaryErr.Error()
 					outcome = profilerPluginOutcomeStructuredDegraded
 					if !checkedProfilerIntAddTo(&out.UnsupportedFtrace, 1) {
-						_, _ = sink.endPairRowCensus()
+						_ = sink.endPairRowCensus()
 						profilerContainerCounterFailClose(&out, sink)
 						break frames
 					}
 				} else {
 					if ok {
 						if summary.IssueOverflow || !diagnostics.FtraceSummary.observe(summary, off) {
-							_, _ = sink.endPairRowCensus()
+							_ = sink.endPairRowCensus()
 							profilerContainerCounterFailClose(&out, sink)
 							break frames
 						}
@@ -889,12 +1060,12 @@ frames:
 					}
 					coverage.RowsEmitted = structuredRows
 					if !checkedProfilerIntAddTo(&out.StructuredRows, structuredRows) {
-						_, _ = sink.endPairRowCensus()
+						_ = sink.endPairRowCensus()
 						profilerContainerCounterFailClose(&out, sink)
 						break frames
 					}
 					if !diagnostics.FtraceEvents.merge(eventBatch) {
-						_, _ = sink.endPairRowCensus()
+						_ = sink.endPairRowCensus()
 						profilerContainerCounterFailClose(&out, sink)
 						break frames
 					}
@@ -903,7 +1074,7 @@ frames:
 							outcome = profilerPluginOutcomeStructuredDegraded
 						}
 						if !checkedProfilerIntAddTo(&out.UnsupportedFtrace, 1) {
-							_, _ = sink.endPairRowCensus()
+							_ = sink.endPairRowCensus()
 							profilerContainerCounterFailClose(&out, sink)
 							break frames
 						}
@@ -912,12 +1083,15 @@ frames:
 			} else if route == profilerPluginRouteNoncanonicalFtrace {
 				outcome = profilerPluginOutcomeNoncanonicalFtrace
 				if !checkedProfilerIntAddTo(&out.UnsupportedFtrace, 1) {
-					_, _ = sink.endPairRowCensus()
+					_ = sink.endPairRowCensus()
 					profilerContainerCounterFailClose(&out, sink)
 					break frames
 				}
 				sink.markPairCaptureOpaque(pairRenderMMC)
 				sink.markPairCaptureOpaque(pairRenderF2FS)
+				if profilerPayloadContainsExactBlockEndpoint(plugin.Data) {
+					sink.markPairCaptureOpaque(pairRenderBlock)
+				}
 			} else if len(plugin.Data) == 0 {
 				outcome = profilerPluginOutcomeEmptyPayload
 			} else {
@@ -932,7 +1106,7 @@ frames:
 					outcome = profilerPluginOutcomeTextRows
 					textMessageRows = rows
 					if !checkedProfilerIntAddTo(&out.TextRows, rows) || !checkedProfilerIntAddTo(&out.TextPluginMessages, 1) {
-						_, _ = sink.endPairRowCensus()
+						_ = sink.endPairRowCensus()
 						profilerContainerCounterFailClose(&out, sink)
 						break frames
 					}
@@ -948,6 +1122,9 @@ frames:
 			out.RejectedMessages++
 			sink.markPairCaptureOpaque(pairRenderMMC)
 			sink.markPairCaptureOpaque(pairRenderF2FS)
+			if profilerRejectedPluginFrameContainsExactBlockEndpoint(msg) {
+				sink.markPairCaptureOpaque(pairRenderBlock)
+			}
 			if !diagnostics.observeRejected(&out, decoded.IssueCensus, off) {
 				profilerContainerCounterFailClose(&out, sink)
 				break frames
@@ -972,45 +1149,48 @@ frames:
 	}
 	withheldStructured := 0
 	withheldText := 0
-	for _, kind := range []pairRenderKind{pairRenderMMC, pairRenderF2FS} {
-		structured := sink.withheldStructuredPairRowsForKind(kind)
-		if !checkedProfilerIntAddTo(&withheldStructured, structured) ||
-			!checkedProfilerIntAddTo(&withheldText, sink.withheldPairRowsForKind(kind)-structured) {
-			profilerContainerCounterFailClose(&out, sink)
-			break
+	for _, kind := range profilerCaptureKinds {
+		structured, structuredErr := sink.withheldStructuredPairRowsForKindChecked(kind)
+		withheld, withheldErr := sink.withheldPairRowsForKindChecked(kind)
+		if structuredErr != nil {
+			return profilerContainerExtraction{}, structuredErr
+		}
+		if withheldErr != nil {
+			return profilerContainerExtraction{}, withheldErr
+		}
+		if structured > withheld || !checkedProfilerIntAddTo(&withheldStructured, structured) ||
+			!checkedProfilerIntAddTo(&withheldText, withheld-structured) {
+			return profilerContainerExtraction{}, &traceDBOutputInvariantError{Reason: "profiler_pair_withheld_cross_total_invalid"}
 		}
 	}
-	if withheldStructured > out.StructuredRows {
-		out.StructuredRows = 0
-	} else {
-		out.StructuredRows -= withheldStructured
+	if withheldStructured > out.StructuredRows || withheldText > out.TextRows {
+		return profilerContainerExtraction{}, &traceDBOutputInvariantError{Reason: "profiler_pair_withheld_exceeds_extraction_staged"}
 	}
-	if withheldText > out.TextRows {
-		out.TextRows = 0
-	} else {
-		out.TextRows -= withheldText
-	}
+	out.StructuredRows -= withheldStructured
+	out.TextRows -= withheldText
 	withheldMessages := 0
 	for _, message := range out.textMessages {
+		if message.total < 0 {
+			return profilerContainerExtraction{}, &traceDBOutputInvariantError{Reason: "profiler_text_message_staged_counter_negative"}
+		}
 		publishable := message.total
-		if sink.pairKindPoisoned(pairRenderMMC) {
-			publishable -= sink.withheldPairRowsFromCensus(pairRenderMMC, message.mmc)
+		for _, kind := range profilerCaptureKinds {
+			withheld, withheldErr := sink.withheldPairRowsFromCensusChecked(kind, message.staged[kind])
+			if withheldErr != nil || withheld > publishable {
+				return profilerContainerExtraction{}, &traceDBOutputInvariantError{Reason: "profiler_text_message_withheld_exceeds_staged"}
+			}
+			publishable -= withheld
 		}
-		if sink.pairKindPoisoned(pairRenderF2FS) {
-			publishable -= sink.withheldPairRowsFromCensus(pairRenderF2FS, message.f2fs)
-		}
-		if publishable <= 0 {
+		if publishable == 0 {
 			if !checkedProfilerIntAddTo(&withheldMessages, 1) {
-				profilerContainerCounterFailClose(&out, sink)
-				break
+				return profilerContainerExtraction{}, &traceDBOutputInvariantError{Reason: "profiler_text_message_withheld_counter_overflow"}
 			}
 		}
 	}
 	if withheldMessages > out.TextPluginMessages {
-		out.TextPluginMessages = 0
-	} else {
-		out.TextPluginMessages -= withheldMessages
+		return profilerContainerExtraction{}, &traceDBOutputInvariantError{Reason: "profiler_text_messages_withheld_exceeds_staged"}
 	}
+	out.TextPluginMessages -= withheldMessages
 	if out.SourceFailClosed {
 		failCloseProfilerTraceBody(&out, sink, out.SourceFailReason)
 	}
@@ -1132,6 +1312,27 @@ func profilerPluginFrameBudgetCoverage(declared, limit uint64) TraceDBCoverage {
 	}
 }
 
+// applyProfilerCaptureSourceFailure is the single post-seal bridge from the
+// sink's storage proof into customer-visible source-failure disclosure. The
+// sink must already have suppressed every row, so this function cannot mutate
+// capture state after seal; it only reconciles diagnostics before output-open
+// eligibility is evaluated.
+func applyProfilerCaptureSourceFailure(extraction *profilerContainerExtraction, sink *traceDBRowSink) error {
+	if sink == nil || sink.captureSourceFailure == "" {
+		return nil
+	}
+	if sink.captureLifecycle != profilerCaptureSealed || !sink.allRowsFailClosed {
+		return &traceDBOutputInvariantError{Reason: "profiler_capture_source_failure_state_invalid"}
+	}
+	if extraction == nil {
+		return &traceDBOutputInvariantError{Reason: "profiler_capture_source_failure_extraction_missing"}
+	}
+	if !extraction.SourceFailClosed {
+		failCloseProfilerTraceBody(extraction, sink, sink.captureSourceFailure)
+	}
+	return nil
+}
+
 func failCloseProfilerTraceBody(extraction *profilerContainerExtraction, sink *traceDBRowSink,
 	reason string,
 ) {
@@ -1146,6 +1347,9 @@ func failCloseProfilerTraceBody(extraction *profilerContainerExtraction, sink *t
 	if reason == "session_embedded_standalone_sidecar_ambiguity" {
 		barrierTable = "__container_integrity_barrier__"
 		failureClass = "integrity_ambiguity"
+	} else if reason == profilerPairStorageIntegrityFailure {
+		barrierTable = "__container_integrity_barrier__"
+		failureClass = "storage_integrity_failure"
 	}
 	extraction.SourceFailClosed = true
 	extraction.SourceFailReason = reason
@@ -1168,20 +1372,26 @@ func failCloseProfilerTraceBody(extraction *profilerContainerExtraction, sink *t
 	if sink != nil {
 		stagedRows = sink.stats.RowsAccepted
 	}
+	barrierFieldSources := map[string]string{
+		"scope":             "complete_profiler_trace_body",
+		"independent_scope": "not_governed_by_trace_body_barrier",
+		"failure_class":     failureClass,
+	}
+	if reason == profilerPairStorageIntegrityFailure {
+		barrierFieldSources["shared_authority_failure"] = profilerPairAuthorityFailure(sink)
+		barrierFieldSources["suppressed_rows"] = strconv.Itoa(stagedRows)
+		barrierFieldSources["seal_before_output_open"] = "true"
+	}
 	extraction.TraceCoverage = append(extraction.TraceCoverage, TraceDBCoverage{
-		Family:   "builtin_modern_profiler",
-		Table:    barrierTable,
-		Role:     "unsupported_input",
-		Found:    true,
-		RowsRead: stagedRows,
-		Skipped:  "profiler_source_fail_closed=" + reason,
-		FieldSources: map[string]string{
-			"scope":             "complete_profiler_trace_body",
-			"independent_scope": "not_governed_by_trace_body_barrier",
-			"failure_class":     failureClass,
-		},
+		Family:       "builtin_modern_profiler",
+		Table:        barrierTable,
+		Role:         "unsupported_input",
+		Found:        true,
+		RowsRead:     stagedRows,
+		Skipped:      fmt.Sprintf("profiler_source_fail_closed=%s; suppressed_rows=%d", reason, stagedRows),
+		FieldSources: barrierFieldSources,
 	})
-	if sink != nil {
+	if sink != nil && !sink.allRowsFailClosed {
 		sink.failCloseAllRows()
 	}
 }
@@ -1988,44 +2198,50 @@ func extractProfilerSessionPackageWithLineLimit(ctx context.Context, path string
 			"rejected %d profiler SessionJSON LF/NUL-delimited record(s) above the %d-byte resource limit; oversized bytes were drained without retention, suffix scanning stopped, and the complete profiler trace-body source was failed closed before publication",
 			oversizedLines, maxLineBytes))
 	}
-	mmcRows, f2fsRows := sink.endPairRowCensus()
-	stagedMMC := mmcRows.total
-	stagedF2FS := f2fsRows.total
-	if stagedMMC > 0 {
-		if coverage.FieldSources == nil {
-			coverage.FieldSources = map[string]string{}
+	staged := sink.endPairRowCensus()
+	for _, kind := range profilerCaptureKinds {
+		if staged[kind].total < 0 {
+			return profilerContainerExtraction{}, &traceDBOutputInvariantError{Reason: "profiler_session_pair_staged_counter_negative"}
 		}
-		coverage.FieldSources[profilerCoverageMMCStagedRows] = strconv.Itoa(stagedMMC)
-	}
-	if stagedF2FS > 0 {
-		if coverage.FieldSources == nil {
-			coverage.FieldSources = map[string]string{}
+		if staged[kind].total > 0 {
+			if coverage.FieldSources == nil {
+				coverage.FieldSources = map[string]string{}
+			}
+			coverage.FieldSources[profilerCoverageStagedRowsKey(kind)] = strconv.Itoa(staged[kind].total)
 		}
-		coverage.FieldSources[profilerCoverageF2FSStagedRows] = strconv.Itoa(stagedF2FS)
 	}
-	withheldMMC := sink.withheldPairRowsFromCensus(pairRenderMMC, mmcRows)
-	withheldF2FS := sink.withheldPairRowsFromCensus(pairRenderF2FS, f2fsRows)
-	withheld := withheldMMC + withheldF2FS
-	if withheld > out.TextRows {
-		out.TextRows = 0
-	} else {
-		out.TextRows -= withheld
+	var withheld profilerPairCensusSet
+	withheldTotal := 0
+	for _, kind := range profilerCaptureKinds {
+		count, countErr := sink.withheldPairRowsFromCensusChecked(kind, staged[kind])
+		if countErr != nil {
+			return profilerContainerExtraction{}, countErr
+		}
+		withheld[kind].total = count
+		if !checkedProfilerIntAddTo(&withheldTotal, count) {
+			return profilerContainerExtraction{}, &traceDBOutputInvariantError{Reason: "profiler_session_pair_withheld_counter_overflow"}
+		}
 	}
+	if withheldTotal > out.TextRows {
+		return profilerContainerExtraction{}, &traceDBOutputInvariantError{Reason: "profiler_session_pair_withheld_exceeds_staged"}
+	}
+	out.TextRows -= withheldTotal
 	if out.SourceFailClosed {
 		// The typed resource caveat above is the sole publication verdict.
 	} else if out.TextRows > 0 {
 		out.Caveats = append(out.Caveats, fmt.Sprintf("extracted %d systrace text row(s) from profiler session package payload", out.TextRows))
-	} else if withheld > 0 {
+	} else if withheldTotal > 0 {
 		traceDBAppendCoverageSkipped(&coverage,
 			"session pair-critical endpoint rows were staged but withheld by exact-lane or source-family full-capture barriers")
-		out.Caveats = append(out.Caveats, fmt.Sprintf("profiler session package staged exact pair-critical rows, but exact-lane or source-family full-capture barriers withheld them before publication: mmc=%d f2fs=%d", withheldMMC, withheldF2FS))
+		out.Caveats = append(out.Caveats, fmt.Sprintf("profiler session package staged exact pair-critical rows, but exact-lane or source-family full-capture barriers withheld them before publication: mmc=%d f2fs=%d block=%d",
+			withheld[pairRenderMMC].total, withheld[pairRenderF2FS].total, withheld[pairRenderBlock].total))
 	} else {
 		traceDBAppendCoverageSkipped(&coverage,
 			"session package did not contain directly renderable systrace text rows")
 		out.Caveats = append(out.Caveats, "session package did not contain directly renderable systrace text rows; attach extracted sidecars or export ftrace/bytrace text with the official profiler tooling")
 	}
 	out.pairPublishers = append(out.pairPublishers, profilerPairPublisherCensus{
-		coverageIndex: len(out.TraceCoverage), mmc: mmcRows, f2fs: f2fsRows,
+		coverageIndex: len(out.TraceCoverage), staged: staged,
 	})
 	out.TraceCoverage = append(out.TraceCoverage, coverage)
 	if out.SourceFailClosed {
@@ -2315,6 +2531,44 @@ func parseProfilerPluginData(data []byte) profilerPluginDataDecode {
 	return decoded
 }
 
+// profilerPayloadContainsExactBlockEndpoint is a provenance probe, not a text
+// renderer. The first non-empty, non-comment physical fragment elects the
+// origin: a source-neutral physical ftrace header elects text even when its
+// task bytes also form protobuf keys; any other fragment permanently denies
+// later embedded headers. Exact endpoint identity is proven separately. When
+// text origin is absent, only typed PairFamilies can prove structured Block.
+func profilerPayloadContainsExactBlockEndpoint(data []byte) bool {
+	scan := scanProfilerStrictSystracePayload(data, nil)
+	if scan.originText {
+		// Complete strict text wins even when its leading task bytes also form a
+		// syntactically complete TracePluginResult. A rejected text payload still
+		// retains exact Block provenance when its first physical row established
+		// the origin (malformed scalar or a later bad fragment).
+		return scan.observed[pairRenderBlock]
+	}
+	// Without a first-row text origin, later header-looking bytes are metadata.
+	// Only the typed structured family authority may then close Block.
+	authority := decodeProfilerTracePluginResult(data)
+	return authority.PairFamilies&pairCriticalFormatFamilyBlock != 0
+}
+
+// profilerRejectedPluginFrameContainsExactBlockEndpoint recovers only precise
+// provenance from a rejected ProfilerPluginData frame. A payload is eligible
+// solely when the bounded outer protobuf walk reached a complete field-3 bytes
+// value; malformed bytes before that field, wrong-wire fields and metadata are
+// never searched as text. A later outer decode failure does not erase an exact
+// Block endpoint already proven inside a complete data field.
+func profilerRejectedPluginFrameContainsExactBlockEndpoint(frame []byte) bool {
+	found := false
+	_ = walkProtoFields(frame, func(field int, wire int, raw []byte, _ uint64) error {
+		if !found && field == 3 && wire == 2 && profilerPayloadContainsExactBlockEndpoint(raw) {
+			found = true
+		}
+		return nil
+	})
+	return found
+}
+
 func addSystraceRowsFromBytes(data []byte, seq *int, sink *traceDBRowSink) (int, error) {
 	if len(data) == 0 {
 		return 0, nil
@@ -2334,6 +2588,13 @@ func addSystraceRowsFromBytes(data []byte, seq *int, sink *traceDBRowSink) (int,
 		if len(part) == 0 {
 			continue
 		}
+		// Session/bytrace records use the same leading-# comment namespace as
+		// strict ftrace compatibility payloads. Apply the negative gate before
+		// size census and endpoint admission so a comment-looking Block header,
+		// including an oversized one, cannot poison or publish a pairing lane.
+		if part[0] == '#' {
+			continue
+		}
 		if len(part) > maxProfilerTextLineBytes {
 			if kind, governed, opaque := profilerTextPairCensus(part); governed {
 				sink.poisonPairKind(kind)
@@ -2347,11 +2608,15 @@ func addSystraceRowsFromBytes(data []byte, seq *int, sink *traceDBRowSink) (int,
 		if line == "" {
 			continue
 		}
+		if profilerTextPairNormalizationCollision(line) {
+			continue
+		}
 		pair := profilerTextPairAdmission(line)
-		if !pair.Governed && (strings.Contains(line, "mmc_request_") || strings.Contains(line, "f2fs_")) {
+		if !pair.Admitted && (strings.Contains(line, "mmc_request_") || strings.Contains(line, "f2fs_") ||
+			strings.Contains(line, "block_rq_") || strings.Contains(line, "block_bio_")) {
 			// ParseLine deliberately rejects malformed timestamp/header rows. Ask
 			// tracequery's precise raw endpoint authority before dropping them so
-			// an exact physical MMC/F2FS endpoint cannot become an invisible hole
+			// an exact physical MMC/F2FS/Block endpoint cannot become an invisible hole
 			// between two otherwise valid rows. The local exact-name roster keeps
 			// this adapter source-neutral and prevents prose/near-name poisoning.
 			if probe, malformed := tracequery.ProbeMalformedPairingEndpoint(line); malformed {
@@ -2365,6 +2630,16 @@ func addSystraceRowsFromBytes(data []byte, seq *int, sink *traceDBRowSink) (int,
 		}
 		header, headerKnown := tracequery.ProbePhysicalFtraceHeader(line)
 		ts, timestampOK := header.TimestampNS, header.TimestampKnown
+		if pair.Kind == pairRenderBlock {
+			pair.HeaderOwnerKnown = headerKnown && header.OwnerKnown
+			if !pair.HeaderOwnerKnown {
+				// Block crosses contexts, so owner never enters the semantic key; it
+				// is still mandatory provenance for exact-lane quarantine. Unknown
+				// owner closes the source-local Block family instead of fabricating idle.
+				pair.LaneKnown = false
+				pair.Lane = ""
+			}
+		}
 		headerKind, headerGoverned := profilerPairKindForExactName(header.EventName)
 		headerGoverned = headerKnown && headerGoverned
 		if !timestampOK {

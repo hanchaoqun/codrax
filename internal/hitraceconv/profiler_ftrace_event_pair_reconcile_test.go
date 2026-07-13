@@ -30,7 +30,7 @@ func TestProfilerF2FSCoverageDoesNotChargeTextWithholdingToStructuredEvent(t *te
 				pairTable: "f2fs_write_begin",
 			}
 
-			var textCensus profilerPairRowCensus
+			var textStaged profilerPairCensusSet
 			addStructured := func() {
 				t.Helper()
 				if err := sink.add(structured); err != nil {
@@ -45,7 +45,7 @@ func TestProfilerF2FSCoverageDoesNotChargeTextWithholdingToStructuredEvent(t *te
 				if err := sink.add(text); err != nil {
 					t.Fatal(err)
 				}
-				_, textCensus = sink.endPairRowCensus()
+				textStaged = sink.endPairRowCensus()
 			}
 			if textFirst {
 				addText()
@@ -73,7 +73,7 @@ func TestProfilerF2FSCoverageDoesNotChargeTextWithholdingToStructuredEvent(t *te
 					FieldSources: map[string]string{profilerCoverageF2FSStagedRows: "1"},
 				},
 			}
-			publishers := []profilerPairPublisherCensus{{coverageIndex: 1, f2fs: textCensus}}
+			publishers := []profilerPairPublisherCensus{{coverageIndex: 1, staged: textStaged}}
 			var eventIndexes profilerFtraceEventCoverageIndexes
 			slot := profilerFtraceEventSlot(4011)
 			eventIndexes.Present[slot] = true
