@@ -777,6 +777,12 @@ frames:
 			}
 			if route == profilerPluginRouteExactFtrace {
 				authority := decodeProfilerTracePluginResult(plugin.Data)
+				if authority.IssueOverflow || !diagnostics.FtraceEnvelope.observe(authority.Issues, off) {
+					_, _ = sink.endPairRowCensus()
+					profilerContainerCounterFailClose(&out, sink)
+					break frames
+				}
+				authorityDegraded := !authority.Issues.empty()
 				if authority.Disposition == profilerFtracePayloadNotStructured {
 					rows, textPayload, rowErr := addStrictSystraceRowsFromBytes(plugin.Data, &seq, sink)
 					if rowErr != nil {
@@ -829,9 +835,6 @@ frames:
 						break frames
 					}
 				}
-				if issueSummary := profilerTracePluginIssueSummary(authority.Issues); issueSummary != "" {
-					out.Caveats = append(out.Caveats, "ftrace-plugin TracePluginResult degraded: "+issueSummary)
-				}
 				summary, ok, summaryErr := decodeProfilerFtraceSummaryResult(authority)
 				if summaryErr != nil {
 					out.Caveats = append(out.Caveats, fmt.Sprintf("ftrace-plugin structured metadata parse failed: %v", summaryErr))
@@ -847,7 +850,7 @@ frames:
 						out.Caveats = append(out.Caveats, profilerFtraceSummaryCaveat(summary))
 						out.TraceCoverage = append(out.TraceCoverage, profilerFtraceSummaryCoverage(summary)...)
 					}
-					structuredRows, structuredCoverage, renderErr := renderProfilerFtraceStructuredResult(authority, &seq, sink)
+					structuredRows, structuredCoverage, renderErr := renderProfilerFtraceStructuredResultForContainer(authority, &seq, sink)
 					out.TraceCoverage = append(out.TraceCoverage, structuredCoverage...)
 					if renderErr != nil {
 						coverage.Error = renderErr.Error()
@@ -860,7 +863,7 @@ frames:
 						profilerContainerCounterFailClose(&out, sink)
 						break frames
 					}
-					if ok && len(summary.Issues) > 0 || profilerFtraceCoverageHasSkipped(structuredCoverage) || ok && structuredRows == 0 && summary.DetailEventCount > 0 {
+					if authorityDegraded || ok && len(summary.Issues) > 0 || profilerFtraceCoverageHasSkipped(structuredCoverage) || ok && structuredRows == 0 && summary.DetailEventCount > 0 {
 						if outcome != profilerPluginOutcomeMalformed {
 							outcome = profilerPluginOutcomeStructuredDegraded
 						}

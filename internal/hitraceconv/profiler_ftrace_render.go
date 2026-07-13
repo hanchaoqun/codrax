@@ -32,7 +32,22 @@ func renderProfilerFtraceStructuredRows(data []byte, seq *int, sink *traceDBRowS
 }
 
 func renderProfilerFtraceStructuredResult(result profilerTracePluginResult, seq *int, sink *traceDBRowSink) (int, []TraceDBCoverage, error) {
-	topLevelCoverage := profilerTracePluginResultCoverage(result)
+	return renderProfilerFtraceStructuredResultWithEnvelopeCoverage(result, seq, sink, true)
+}
+
+// The TraceFile container owns one cross-frame envelope diagnostic ledger.
+// Direct renderer callers retain the compatibility coverage above; the
+// container path suppresses only that duplicate top-level row and leaves all
+// typed event coverage and pair behavior byte-for-byte shared.
+func renderProfilerFtraceStructuredResultForContainer(result profilerTracePluginResult, seq *int, sink *traceDBRowSink) (int, []TraceDBCoverage, error) {
+	return renderProfilerFtraceStructuredResultWithEnvelopeCoverage(result, seq, sink, false)
+}
+
+func renderProfilerFtraceStructuredResultWithEnvelopeCoverage(result profilerTracePluginResult, seq *int, sink *traceDBRowSink, includeEnvelopeCoverage bool) (int, []TraceDBCoverage, error) {
+	var topLevelCoverage []TraceDBCoverage
+	if includeEnvelopeCoverage {
+		topLevelCoverage = profilerTracePluginResultCoverage(result)
+	}
 	events, err := profilerTracePluginResultEvents(result)
 	if err != nil {
 		return 0, topLevelCoverage, err

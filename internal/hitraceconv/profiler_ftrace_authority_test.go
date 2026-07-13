@@ -235,8 +235,8 @@ func TestDecodeProfilerTracePluginResultWrongWireDoesNotStarveLegalSibling(t *te
 	if result.Disposition != profilerFtracePayloadStructured || len(result.CPUDetails) != 1 || !bytes.Equal(result.CPUDetails[0], page) {
 		t.Fatalf("wrong-wire occurrence must not erase a legal repeated sibling: %+v", result)
 	}
-	if !profilerAuthorityIssuePresent(result.Issues, "envelope_trace_plugin_field2_wrong_wire") {
-		t.Fatalf("wrong-wire occurrence needs explicit envelope coverage: %v", result.Issues)
+	if !profilerTracePluginIssuePresent(result.Issues, "envelope_trace_plugin_field2_wrong_wire") {
+		t.Fatalf("wrong-wire occurrence needs explicit envelope coverage: %s", result.Issues.summary())
 	}
 }
 
@@ -256,8 +256,8 @@ func TestDecodeProfilerTracePluginResultInvalidVersionDuplicateIsNotAuthoritativ
 		"envelope_trace_plugin_field7_wrong_wire",
 		"envelope_trace_plugin_version_duplicate",
 	} {
-		if !profilerAuthorityIssuePresent(result.Issues, issue) {
-			t.Fatalf("missing issue %q in %v", issue, result.Issues)
+		if !profilerTracePluginIssuePresent(result.Issues, issue) {
+			t.Fatalf("missing issue %q in %s", issue, result.Issues.summary())
 		}
 	}
 }
@@ -274,8 +274,8 @@ func TestDecodeProfilerTracePluginResultMalformedTailClearsPartialAuthority(t *t
 		len(result.Clocks) != 0 || len(result.Versions) != 0 || len(result.CommDicts) != 0 {
 		t.Fatalf("malformed envelope must not retain partial typed authority: %+v", result)
 	}
-	if !profilerAuthorityIssuePresent(result.Issues, "envelope_trace_plugin_malformed_wire") {
-		t.Fatalf("malformed envelope issue missing: %v", result.Issues)
+	if !profilerTracePluginIssuePresent(result.Issues, "envelope_trace_plugin_malformed_wire") {
+		t.Fatalf("malformed envelope issue missing: %s", result.Issues.summary())
 	}
 }
 
@@ -291,7 +291,7 @@ func TestDecodeProfilerTracePluginResultKnownTruncationAndUnsupportedWireStayMal
 		t.Run(test.name, func(t *testing.T) {
 			result := decodeProfilerTracePluginResult(test.payload)
 			if result.Disposition != profilerFtracePayloadMalformed ||
-				!profilerAuthorityIssuePresent(result.Issues, "envelope_trace_plugin_malformed_wire") {
+				!profilerTracePluginIssuePresent(result.Issues, "envelope_trace_plugin_malformed_wire") {
 				t.Fatalf("known top-level key must retain typed malformed provenance: %+v", result)
 			}
 		})
@@ -599,6 +599,15 @@ func profilerPluginIssuePresent(census profilerPluginIssueCensus, want string) b
 	for kind := profilerPluginIssueKind(0); kind < profilerPluginIssueKindCount; kind++ {
 		if kind.label() == want {
 			return census.Occurrences[int(kind)] > 0
+		}
+	}
+	return false
+}
+
+func profilerTracePluginIssuePresent(census profilerTracePluginIssueCensus, want string) bool {
+	for kind := profilerTracePluginIssueKind(0); kind < profilerTracePluginIssueKindCount; kind++ {
+		if kind.label() == want {
+			return census.has(kind)
 		}
 	}
 	return false

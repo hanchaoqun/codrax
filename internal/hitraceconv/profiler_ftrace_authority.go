@@ -48,7 +48,8 @@ type profilerTracePluginResult struct {
 	Clocks            [][]byte
 	Versions          [][]byte
 	CommDicts         [][]byte
-	Issues            []string
+	Issues            profilerTracePluginIssueCensus
+	IssueOverflow     bool
 }
 
 func decodeProfilerTracePluginResult(data []byte) profilerTracePluginResult {
@@ -144,7 +145,9 @@ func decodeProfilerTracePluginResult(data []byte) profilerTracePluginResult {
 			continue
 		}
 		if wire != 2 {
-			out.Issues = append(out.Issues, fmt.Sprintf("envelope_trace_plugin_field%d_wrong_wire", field))
+			if kind, ok := profilerTracePluginWrongWireIssue(field); !ok || !out.Issues.observe(kind, 1) {
+				out.IssueOverflow = true
+			}
 			continue
 		}
 		if field == 2 {
@@ -164,7 +167,9 @@ func decodeProfilerTracePluginResult(data []byte) profilerTracePluginResult {
 		out.Clocks = nil
 		out.Versions = nil
 		out.CommDicts = nil
-		out.Issues = append(out.Issues, "envelope_trace_plugin_malformed_wire")
+		if !out.Issues.observe(profilerTracePluginIssueMalformedWire, 1) {
+			out.IssueOverflow = true
+		}
 		return out
 	}
 	if !recognized {
@@ -172,7 +177,9 @@ func decodeProfilerTracePluginResult(data []byte) profilerTracePluginResult {
 		return out
 	}
 	if versionOccurrences > 1 {
-		out.Issues = append(out.Issues, "envelope_trace_plugin_version_duplicate")
+		if !out.Issues.observeVersionDuplicate(uint64(versionOccurrences - 1)) {
+			out.IssueOverflow = true
+		}
 		out.Versions = nil
 	}
 	out.Disposition = profilerFtracePayloadStructured
@@ -202,19 +209,29 @@ func profilerTracePluginResultEvents(result profilerTracePluginResult) ([]profil
 }
 
 func profilerTracePluginResultCoverage(result profilerTracePluginResult) []TraceDBCoverage {
-	if len(result.Issues) == 0 {
+	if result.Issues.empty() {
 		return nil
 	}
+	total, ok := result.Issues.totalOccurrences()
+	if !ok {
+		return nil
+	}
+	rowsRead, ok := profilerContainerCountToInt(total)
+	if !ok {
+		return nil
+	}
+	fields := map[string]string{
+		"schema_profile": "TracePluginResult repeated fields 1/2/5/6/8 and singular version field 7",
+	}
+	result.Issues.appendFieldSources(fields)
 	return []TraceDBCoverage{{
-		Family:   "builtin_modern_ftrace:trace_plugin_envelope",
-		Table:    "__trace_plugin_envelope__",
-		Role:     "unsupported_input",
-		Found:    true,
-		RowsRead: len(result.Issues),
-		Skipped:  profilerTracePluginIssueSummary(result.Issues),
-		FieldSources: map[string]string{
-			"schema_profile": "TracePluginResult repeated fields 1/2/5/6/8 and singular version field 7",
-		},
+		Family:       "builtin_modern_ftrace:trace_plugin_envelope",
+		Table:        "__trace_plugin_envelope__",
+		Role:         "unsupported_input",
+		Found:        true,
+		RowsRead:     rowsRead,
+		Skipped:      result.Issues.summary(),
+		FieldSources: fields,
 	}}
 }
 
