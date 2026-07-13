@@ -45,6 +45,7 @@ func traceWaitTestLedger() types.ObservationLedger {
 			types.TraceNoteKeyBlockedReasonCaller+"=fscache_page_wait_o"),
 		traceWaitTestRecord("trace_query:t#root_cause_rank:3", "ThreadPoolForeg-60555", "io_wait", "root_cause_tertiary", "10.433",
 			"rank=3", "effective_impact_ms=10.433",
+			types.TraceNoteKeyMemberCount+"=3",
 			types.TraceNoteKeyDStateCauseUnprovenRemainder+"=true"),
 		// unconsumed in-window markers (CR-3 件② P10 lane).
 		traceWaitTestRecord("trace_query:t#root_cause_rank:4", ".ugc.aweme.lite-17267", "io_wait", "root_cause_target_self_state", "1.354",
@@ -72,7 +73,7 @@ func TestTraceWaitEvidence_BlockedReasonFacts(t *testing.T) {
 		"Kernel-recorded wait objects (sched_blocked_reason):",
 		"CompThread_0-2955 — caller=dma_fence_default_w · d_state_or_io_wait 36.757ms · members=4",
 		"caller=fscache_page_wait_o · io_wait 7.386ms · members=17",
-		"cause-unproven remainder (no blocked_reason record backs this share) · io_wait 10.433ms",
+		"cause-unproven remainder (no blocked_reason record backs this share) · io_wait 10.433ms · members=3",
 		"window holds 6 blocked_reason record(s) (caller=fscache_page_get_an/hmfs_read)",
 	} {
 		if !strings.Contains(summary, want) {
@@ -139,8 +140,14 @@ func TestTraceWaitEvidence_SilentWithoutTypedNotes(t *testing.T) {
 // banner-parse fallback stays OFF (the banner is a top-8 display view).
 func TestTraceWaitEvidence_TypedCensusNote(t *testing.T) {
 	ledger := traceWaitTestLedger()
+	// Production invariant (BlockedReasonPIDCensus.Count): Value is the
+	// pid's TOTAL in-window record count; the enumerated per-caller counts
+	// (17+1+1=19) sum BELOW it exactly when CallerOverflow>0. The caller
+	// enumeration is the per-pid TOP list, so a capped-out symbol never
+	// holds more records than the smallest enumerated count (=1 here):
+	// the two overflow symbols hold exactly one record each → total 21.
 	ledger.Records = append(ledger.Records,
-		traceWaitTestRecord("trace_query:t#blocked_reason_census:1", "ThreadPoolForeg-60555", "blocked_reason", "blocked_reason_census", "19",
+		traceWaitTestRecord("trace_query:t#blocked_reason_census:1", "ThreadPoolForeg-60555", "blocked_reason", "blocked_reason_census", "21",
 			types.TraceNoteKeyBlockedReasonCensus+"=fscache_page_wait_o×17(Σ13.905ms)/hmfs_read×1(Σ0.145ms)/hmfs_get_dnode×1",
 			types.TraceNoteKeyBlockedReasonCensusOverflow+"=2"),
 		// Republication with a smaller stale count — per-symbol MAX wins.
@@ -156,8 +163,10 @@ func TestTraceWaitEvidence_TypedCensusNote(t *testing.T) {
 	}}
 	summary := formatTraceWaitWakeEvidenceFromLedger(ledger, results)
 	for _, want := range []string{
-		// Full per-caller enumeration with Σms, count desc, overflow tail.
-		"kernel blocked_reason record census for THIS thread: fscache_page_wait_o ×17(Σ13.905ms) / hmfs_read ×1(Σ0.145ms) / hmfs_get_dnode ×1 / (+2 more caller symbol(s))",
+		// Full per-caller enumeration with Σms, count desc, overflow tail —
+		// and (PROSE-RC ③) the engine's own published total verbatim in the
+		// lead, as a directly quotable count.
+		"kernel blocked_reason record census for THIS thread — total 21 blocked_reason record(s) in its selected window, use this total verbatim: fscache_page_wait_o ×17(Σ13.905ms) / hmfs_read ×1(Σ0.145ms) / hmfs_get_dnode ×1 / (+2 more caller symbol(s))",
 		// The census keying is stated as a data label (the counter-face to
 		// attributing a record to the thread whose line it printed on), and
 		// the Σdelay caliber label is always-on (件C: self-reported delay=,
@@ -174,6 +183,11 @@ func TestTraceWaitEvidence_TypedCensusNote(t *testing.T) {
 	}
 	if strings.Contains(summary, "×22") || strings.Contains(summary, "×5") {
 		t.Fatalf("republication must MAX, never sum or regress:\n%s", summary)
+	}
+	// PROSE-RC ③: the stale republication total (Value=5) must never
+	// regress (total 5) or sum (21+5=26) the published total.
+	if strings.Contains(summary, "total 5 ") || strings.Contains(summary, "total 26 ") {
+		t.Fatalf("census total must MAX across republications, never regress or sum:\n%s", summary)
 	}
 }
 
@@ -208,6 +222,11 @@ func TestTraceWaitEvidence_BannerCensusFallback(t *testing.T) {
 		if strings.HasPrefix(line, "- CompThread_0-2955") && strings.Contains(line, "kthread_worker_fn") {
 			t.Fatalf("another pid's census must not ride the target's line: %s", line)
 		}
+	}
+	// PROSE-RC ③: the banner fallback carries per-bucket display counts
+	// only — it must never mint a quotable total.
+	if strings.Contains(summary, "use this total verbatim") {
+		t.Fatalf("the banner fallback must not mint a census total:\n%s", summary)
 	}
 }
 
@@ -263,6 +282,146 @@ func TestTraceWaitEvidence_EdgeCapHeadTailSampling(t *testing.T) {
 	}
 	if !strings.Contains(summary, "more wakeup edges; head and tail of the window are sampled above") {
 		t.Fatalf("the edge cap must disclose its overflow:\n%s", summary)
+	}
+}
+
+// TestTraceWaitEvidence_WakerCountFacts — PROSE-RC ① (§29.57 残余, 2026-07-13):
+// per-waker observed-edge counts are NAMED facts aggregated over the FULL
+// deduplicated edge inventory — the witness summary self-counted "8×"
+// against its own 12-row list. The count must cover edges past the row cap,
+// collapse identical republications, order count-desc, and carry the
+// observed-edge caliber label (never a whole-window caliber: the minted
+// edge inventory is itself capped upstream).
+func TestTraceWaitEvidence_WakerCountFacts(t *testing.T) {
+	ledger := traceWaitTestLedger()
+	// 12 more distinct-ts edges on the same waker → wakee pair. With the
+	// base edge (whose identical republication collapses) the pair holds 13
+	// observed edges while the row cap lists only 12 rows.
+	for i := 0; i < 12; i++ {
+		ts := fmt.Sprintf("13762.9%05d", i*100)
+		ledger.Records = append(ledger.Records,
+			traceWaitTestRecord(fmt.Sprintf("trace_query:t#wakeup_chain_edge:g%d", i), "gpu-token-id4-2931", "CompThread_0-2955", "wakeup_chain_edge", "",
+				"wakeup_ts="+ts))
+	}
+	summary := formatTraceWaitWakeEvidenceFromLedger(ledger, nil)
+	for _, want := range []string{
+		// The named count covers the full inventory (13), not the 12 listed
+		// rows, and not 14 (the identical republication collapsed).
+		"- gpu-token-id4-2931 → CompThread_0-2955 ×13 observed wakeup edge(s)",
+		"- binder:642_10-1385 → gpu-token-id4-2931 ×1 observed wakeup edge(s)",
+		// Consumption + caliber label: quote, never re-count; observed-edge
+		// caliber only.
+		"use these counts verbatim instead of re-counting rows",
+		"they count observed wakeup edges only",
+		// The row cap itself still discloses.
+		"more wakeup edges; head and tail of the window are sampled above",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("waker count facts missing %q:\n%s", want, summary)
+		}
+	}
+	// count desc: the ×13 pair line precedes the ×1 pair line.
+	big := strings.Index(summary, "×13 observed wakeup edge(s)")
+	small := strings.Index(summary, "×1 observed wakeup edge(s)")
+	if big < 0 || small < 0 || big > small {
+		t.Fatalf("waker count lines must order count-desc:\n%s", summary)
+	}
+}
+
+// TestTraceWaitEvidence_WakerCountCapOverflow — PROSE-RC ①: past the
+// per-waker count cap the uncovered edges are disclosed as a NAMED
+// remainder (counts + pairs), and equal-count ties order deterministically
+// by waker then wakee.
+func TestTraceWaitEvidence_WakerCountCapOverflow(t *testing.T) {
+	ledger := types.ObservationLedger{}
+	// One dominant pair (×4) …
+	for i := 0; i < 4; i++ {
+		ledger.Records = append(ledger.Records,
+			traceWaitTestRecord(fmt.Sprintf("trace_query:t#wakeup_chain_edge:a%d", i), "waker-a", "wakee-1", "wakeup_chain_edge", "",
+				fmt.Sprintf("wakeup_ts=13762.0%05d", i*10)))
+	}
+	// … plus nine ×1 pairs: 10 pairs total against a cap of 8 lines, so
+	// 2 pairs (2 edges) fall to the named remainder. Inserted in REVERSE
+	// lexicographic ts order (waker-j earliest) so the first-appearance /
+	// ts order and the lexicographic tie key DISAGREE — the b..h roster
+	// below holds only if the deterministic waker tie key does the work
+	// (复核 F2: with aligned orders, deleting the tie key stayed green).
+	for i := 0; i < 9; i++ {
+		ledger.Records = append(ledger.Records,
+			traceWaitTestRecord(fmt.Sprintf("trace_query:t#wakeup_chain_edge:b%d", i), fmt.Sprintf("waker-%c", 'j'-i), "wakee-1", "wakeup_chain_edge", "",
+				fmt.Sprintf("wakeup_ts=13762.1%05d", i*10)))
+	}
+	summary := formatTraceWaitWakeEvidenceFromLedger(ledger, nil)
+	for _, want := range []string{
+		"- waker-a → wakee-1 ×4 observed wakeup edge(s)",
+		// Deterministic ties: waker-b .. waker-h fill the remaining 7 seats.
+		"- waker-b → wakee-1 ×1 observed wakeup edge(s)",
+		"- waker-h → wakee-1 ×1 observed wakeup edge(s)",
+		// The named remainder: 2 uncovered edges across 2 unlisted pairs.
+		"- (+2 more observed wakeup edge(s) across 2 more waker → wakee pair(s) beyond the counts above)",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("waker count cap overflow missing %q:\n%s", want, summary)
+		}
+	}
+	// The evicted tie-tail pairs must not hold count lines.
+	for _, banned := range []string{
+		"- waker-i → wakee-1 ×1",
+		"- waker-j → wakee-1 ×1",
+	} {
+		if strings.Contains(summary, banned) {
+			t.Fatalf("pairs past the count cap must fall to the named remainder, found %q:\n%s", banned, summary)
+		}
+	}
+}
+
+// TestTraceWaitEvidence_UnprovenRemainderFact — PROSE-RC ② (§29.57 残余):
+// the cause-unproven remainder is a standalone NAMED fact line — verbatim
+// seat value, zero recompute — carrying the typed partition property
+// (cause shares = proven part only, disjoint, never subtracted against
+// each other). Witness: prose minted "2.731ms" = 10.433 − 7.702, a
+// cross-caliber subtraction against the very value the report published.
+func TestTraceWaitEvidence_UnprovenRemainderFact(t *testing.T) {
+	summary := formatTraceWaitWakeEvidenceFromLedger(traceWaitTestLedger(), nil)
+	for _, want := range []string{
+		"cause-unproven remainder fact for ThreadPoolForeg-60555: the io_wait cause-unproven share is 10.433ms",
+		"this published value already IS the entire unproven share — use it verbatim",
+		// 收尾件3 (冷读姊妹形 054419): the subtraction ban re-routed the
+		// re-derivation urge into BINDING (the remainder seat moved whole
+		// under the fscache caller's name) — the sister property closes the
+		// binding direction too.
+		"It has NO kernel-recorded caller and must never be attributed to any caller-named proven cause.",
+		"disjoint from this remainder",
+		"never subtract caller-share values from this remainder",
+		// 复放新形 (tieba 052947): prose re-scoped 原因未证 onto ONE member
+		// segment of the remainder — the typed membership property must be
+		// stated whenever the seat publishes member_count.
+		"Its 3 member segment(s) are ALL inside the unproven share together — no single member segment alone is the unproven part.",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("unproven remainder fact missing %q:\n%s", want, summary)
+		}
+	}
+	// No remainder share on the thread → no fact line minted for it.
+	if strings.Contains(summary, "cause-unproven remainder fact for CompThread_0-2955") {
+		t.Fatalf("threads without an unproven share must not mint a remainder fact:\n%s", summary)
+	}
+	// The remainder fact never falls to the caller cap: push the unproven
+	// seat past traceWaitEvidenceCallerCap proven seats.
+	ledger := traceWaitTestLedger()
+	for i := 0; i < 6; i++ {
+		ledger.Records = append(ledger.Records,
+			traceWaitTestRecord(fmt.Sprintf("trace_query:t#root_cause_rank:cap%d", i), "capped-thread-77", "d_state", "root_cause_secondary", fmt.Sprintf("%d.100", 20-i),
+				"effective_impact_ms="+fmt.Sprintf("%d.100", 20-i),
+				types.TraceNoteKeyBlockedReasonCaller+fmt.Sprintf("=cap_sym_%d", i)))
+	}
+	ledger.Records = append(ledger.Records,
+		traceWaitTestRecord("trace_query:t#root_cause_rank:capr", "capped-thread-77", "d_state", "root_cause_secondary", "3.333",
+			"effective_impact_ms=3.333",
+			types.TraceNoteKeyDStateCauseUnprovenRemainder+"=true"))
+	capped := formatTraceWaitWakeEvidenceFromLedger(ledger, nil)
+	if !strings.Contains(capped, "cause-unproven remainder fact for capped-thread-77: the d_state cause-unproven share is 3.333ms") {
+		t.Fatalf("the remainder fact must never fall to the caller cap:\n%s", capped)
 	}
 }
 

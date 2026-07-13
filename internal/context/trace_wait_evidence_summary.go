@@ -30,6 +30,25 @@ package context
 // middles). 件5: the analysis target / anchor threads never fall to the
 // thread cap, every cap discloses its overflow, and the wakeup-edge cap
 // samples head+tail with anchor-wakee priority (答案常在窗尾).
+//
+// PROSE-RC (§29.57 残余立案, 2026-07-13): every exportable quantity is fed
+// as a NAMED fact so the model quotes instead of re-deriving — the fed
+// values were all correct while the prose re-computed them wrong (tieba
+// opening "18次" against a fed ×17; "2.731ms" minted by subtracting the
+// three cause seats from the cause-unproven remainder 10.433 the same
+// report published; a waker summary "8×" self-counted against its own
+// 12-row list). Three named-fact arms: ① per-waker observed wakeup-edge
+// counts aggregated from the minted edge records (count desc, deterministic
+// ties, capped with a named remainder of unlisted edges — the counts are
+// labelled with the observed-edge caliber ONLY, never a whole-window
+// caliber, because the minted edge inventory is itself capped upstream);
+// ② the cause-unproven remainder becomes a standalone named fact line
+// (verbatim seat value, zero recompute) carrying the typed partition
+// property (cause seats = proven share only, disjoint from the remainder,
+// never subtracted against each other — a mathematical property of the
+// account, not a characterization of any prose, §29.53.2 边界内); ③ the
+// census lead carries the engine's own total record count verbatim
+// (record value of the census observation) as a directly quotable total.
 
 import (
 	"fmt"
@@ -49,6 +68,10 @@ const (
 	traceWaitEvidenceThreadCap     = 6
 	traceWaitEvidenceCallerCap     = 5
 	traceWaitEvidenceWakeupEdgeCap = 12
+	// traceWaitEvidenceWakerCountCap (PROSE-RC ①) bounds the per-waker
+	// observed-edge count fact lines; edges left uncovered by the listed
+	// count lines are disclosed as a named remainder (帽外具名余数).
+	traceWaitEvidenceWakerCountCap = 8
 )
 
 // traceWaitCallerFact is one thread's published wait-object fact: the
@@ -84,6 +107,12 @@ type traceWaitThreadFacts struct {
 	census         map[string]traceWaitCensusEntry
 	censusOrder    []string
 	censusOverflow int // distinct caller symbols beyond the engine's cap
+	// censusTotal (PROSE-RC ③): the census observation's own published
+	// total record count, verbatim (the engine's Value field on the
+	// blocked_reason_census record — full-accumulator in-window total).
+	// MAX across republications like the per-symbol counts, never summed.
+	censusTotal      string
+	censusTotalValue int
 	// anchor (件5): the run's analysis-target / anchor thread — carries a
 	// target_window_states account or a tier=target_self_state row. Anchor
 	// threads never fall to the thread cap (the tieba symptom thread rides
@@ -196,6 +225,18 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 			if raw := strings.TrimSpace(notes[types.TraceNoteKeyBlockedReasonCensusOverflow]); raw != "" {
 				if n, err := strconv.Atoi(raw); err == nil && n > f.censusOverflow {
 					f.censusOverflow = n
+				}
+			}
+			// PROSE-RC ③: the census record's own Value is the engine's
+			// full-accumulator in-window total record count — carry it
+			// verbatim as a directly quotable named total (MAX across
+			// republications, matching the per-symbol count discipline).
+			if strings.TrimSpace(record.Predicate) == "blocked_reason_census" {
+				if raw := strings.TrimSpace(record.Value); raw != "" {
+					if n, err := strconv.Atoi(raw); err == nil && n > f.censusTotalValue {
+						f.censusTotalValue = n
+						f.censusTotal = raw
+					}
 				}
 			}
 		}
@@ -367,7 +408,7 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 	}
 
 	var b strings.Builder
-	b.WriteString("Measured kernel wait-object and wakeup-source evidence for this run (verbatim values). When the question asks WHAT a thread was waiting on in the kernel (uninterruptible / D-state / IO wait), the kernel's own record is the blocked_reason caller symbol below — answer with these symbols verbatim; a share marked cause-unproven has NO kernel-recorded wait object, so never invent one for it. Per-thread blocked_reason record counts are keyed by the waiting thread itself, not by the trace line a record happens to print on; a per-caller Σ value is the records' own self-reported delay= field and may include pre-window accumulation. When the question asks WHO woke a thread (and when), answer with the sched_wakeup edge below: its waker thread and its wakeup timestamp.\n")
+	b.WriteString("Measured kernel wait-object and wakeup-source evidence for this run (verbatim values). When the question asks WHAT a thread was waiting on in the kernel (uninterruptible / D-state / IO wait), the kernel's own record is the blocked_reason caller symbol below — answer with these symbols verbatim; a share marked cause-unproven has NO kernel-recorded wait object, so never invent one for it. Per-thread blocked_reason record counts are keyed by the waiting thread itself, not by the trace line a record happens to print on; a per-caller Σ value is the records' own self-reported delay= field and may include pre-window accumulation. When the question asks WHO woke a thread (and when), answer with the sched_wakeup edge below: its waker thread and its wakeup timestamp. Use the named counts, totals, and remainder shares below verbatim — never re-count listed rows yourself, and never derive a share by adding or subtracting other published values (the published value already IS the share it names).\n")
 	if len(selectedSubjects) > 0 {
 		b.WriteString("Kernel-recorded wait objects (sched_blocked_reason):\n")
 		for _, subject := range selectedSubjects {
@@ -420,9 +461,47 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 				if f.censusOverflow > 0 {
 					segs = append(segs, fmt.Sprintf("(+%d more caller symbol(s))", f.censusOverflow))
 				}
-				parts = append(parts, "kernel blocked_reason record census for THIS thread: "+strings.Join(segs, " / "))
+				lead := "kernel blocked_reason record census for THIS thread"
+				if f.censusTotal != "" {
+					// PROSE-RC ③: the engine's own published total, verbatim —
+					// a directly quotable count (tieba 开篇 +1 漂移 witness).
+					lead += fmt.Sprintf(" — total %s blocked_reason record(s) in its selected window, use this total verbatim", f.censusTotal)
+				}
+				parts = append(parts, lead+": "+strings.Join(segs, " / "))
 			}
 			b.WriteString("- " + subject + " — " + strings.Join(parts, "; ") + "\n")
+			// PROSE-RC ②: the cause-unproven remainder as a standalone NAMED
+			// fact (verbatim seat value, zero recompute) with the typed
+			// partition property. Iterates ALL facts — a remainder share
+			// never falls to the caller cap. The witness: prose minted
+			// "2.731ms" by subtracting the cause seats (7.702) from the
+			// remainder 10.433 the same report had already published.
+			for _, fact := range f.facts {
+				if !fact.unproven || fact.value == "" {
+					continue
+				}
+				stateWord := ""
+				if fact.state != "" {
+					stateWord = fact.state + " "
+				}
+				memberSeg := ""
+				if fact.members != "" {
+					// PROSE-RC 复放新形 (tieba 052947): the prose re-scoped
+					// "原因未证" onto ONE member segment (1.899) of the 10.433
+					// remainder — the membership property is typed
+					// (member_count), so state it: all members are jointly
+					// unproven, no single member alone is the unproven part.
+					memberSeg = fmt.Sprintf(" Its %s member segment(s) are ALL inside the unproven share together — no single member segment alone is the unproven part.", fact.members)
+				}
+				// PROSE-RC 收尾件3 (冷读姊妹形, 054419/052947): with the
+				// subtraction lane closed, the re-derivation urge re-routed
+				// into BINDING — the prose moved the whole remainder seat
+				// (value + fold attributes) under the fscache caller's name.
+				// The sister partition property closes that direction: the
+				// remainder has NO kernel-recorded caller and never belongs
+				// under any caller-named proven cause.
+				b.WriteString(fmt.Sprintf("  cause-unproven remainder fact for %s: the %scause-unproven share is %sms, and this published value already IS the entire unproven share — use it verbatim. It has NO kernel-recorded caller and must never be attributed to any caller-named proven cause. The caller-named shares cover only the cause-proven part and are disjoint from this remainder (one account split into non-overlapping shares), so never subtract caller-share values from this remainder, and never subtract this remainder from a caller share, to derive a new unproven amount.%s\n", subject, stateWord, fact.value, memberSeg))
+			}
 		}
 		if subjectOverflow > 0 {
 			b.WriteString(fmt.Sprintf("- (+%d more threads with blocked_reason evidence; see the measured observations)\n", subjectOverflow))
@@ -442,6 +521,54 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 		}
 		if edgeOverflow > 0 {
 			b.WriteString(fmt.Sprintf("- (+%d more wakeup edges; head and tail of the window are sampled above)\n", edgeOverflow))
+		}
+		// ── PROSE-RC ①: per-waker observed-edge count facts ────────────────
+		// Aggregated over the FULL deduplicated edge inventory (including
+		// edges past the row cap above — the witness summary self-counted
+		// "8×" against its own 12-row list). Caliber discipline: these are
+		// counts of OBSERVED wakeup-edge records only — the inventory the
+		// counts describe is itself capped at the measurement side, so the
+		// label never claims a whole-window/whole-trace caliber.
+		type wakerPairCount struct {
+			waker, wakee string
+			count        int
+		}
+		pairCounts := map[string]*wakerPairCount{}
+		var pairOrder []string
+		for _, e := range edges {
+			key := e.waker + "\x00" + e.wakee
+			if pc, ok := pairCounts[key]; ok {
+				pc.count++
+				continue
+			}
+			pairCounts[key] = &wakerPairCount{waker: e.waker, wakee: e.wakee, count: 1}
+			pairOrder = append(pairOrder, key)
+		}
+		sort.SliceStable(pairOrder, func(i, j int) bool {
+			a, c := pairCounts[pairOrder[i]], pairCounts[pairOrder[j]]
+			if a.count != c.count {
+				return a.count > c.count
+			}
+			if a.waker != c.waker {
+				return a.waker < c.waker
+			}
+			return a.wakee < c.wakee
+		})
+		listedPairs := pairOrder
+		if len(pairOrder) > traceWaitEvidenceWakerCountCap {
+			listedPairs = pairOrder[:traceWaitEvidenceWakerCountCap]
+		}
+		covered := 0
+		for _, key := range listedPairs {
+			covered += pairCounts[key].count
+		}
+		b.WriteString("Observed wakeup-edge counts per waker (each count tallies ALL measured wakeup-edge records of this run for that waker → wakee pair, including edges past the row cap above — use these counts verbatim instead of re-counting rows; they count observed wakeup edges only, so the trace itself may hold more wakeups than were measured here):\n")
+		for _, key := range listedPairs {
+			pc := pairCounts[key]
+			b.WriteString(fmt.Sprintf("- %s → %s ×%d observed wakeup edge(s)\n", pc.waker, pc.wakee, pc.count))
+		}
+		if rem := len(edges) - covered; rem > 0 {
+			b.WriteString(fmt.Sprintf("- (+%d more observed wakeup edge(s) across %d more waker → wakee pair(s) beyond the counts above)\n", rem, len(pairOrder)-len(listedPairs)))
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
