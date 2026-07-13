@@ -689,15 +689,11 @@ func decodeProfilerFtraceCommonFields(record *profilerFtraceEventRecord, data []
 }
 
 func renderProfilerFtraceEventBody(event profilerFtraceEventRecord) (string, string, bool) {
-	if _, _, blockEvent := blockRenderKindForProfilerField(event.Field); blockEvent {
-		name, body, ok, _ := renderProfilerBlockEvent(event)
-		return name, body, ok
+	name, body, ok, _, err := renderProfilerFtraceEventBodyWithTypedAudit(event)
+	if err != nil {
+		return "", "", false
 	}
-	name, body, ok, _, handled, err := renderProfilerFtraceGenericEventWithTypedAudit(event)
-	if handled && err == nil {
-		return name, body, ok
-	}
-	return "", "", false
+	return name, body, ok
 }
 
 func safeProfilerBlockedCaller(raw string) (string, bool) {
@@ -716,102 +712,35 @@ func safeProfilerBlockedCaller(raw string) (string, bool) {
 	return value, true
 }
 
-func protoUint(data []byte, field int) uint64 {
-	var out uint64
-	_ = walkProtoFields(data, func(f int, wire int, raw []byte, v uint64) error {
-		if f == field && wire == 0 {
-			out = v
-		}
-		_ = raw
-		return nil
-	})
-	return out
-}
-
-func protoInt(data []byte, field int) int64 {
-	return int64(protoUint(data, field))
-}
-
-func protoString(data []byte, field int) string {
-	var out string
-	_ = walkProtoFields(data, func(f int, wire int, raw []byte, v uint64) error {
-		if f == field && wire == 2 {
-			out = string(raw)
-		}
-		_ = v
-		return nil
-	})
-	return out
-}
-
 func renderProfilerFtraceEventBodyWithAudit(event profilerFtraceEventRecord) (string, string, bool, []string) {
-	envelopeIssues, envelopeErr := event.checkedEnvelopeIssues()
-	if envelopeErr != nil {
+	name, body, ok, issues, err := renderProfilerFtraceEventBodyWithTypedAudit(event)
+	if err != nil {
 		return "", "", false, nil
 	}
-	if len(envelopeIssues) > 0 {
-		labels, valid := profilerFtraceEventIssueLabels(event.Field, envelopeIssues)
-		if !valid {
-			return "", "", false, nil
+	// The typed ledger always carries UnmappedField for conservation. The
+	// pre-B2 compatibility surface historically exposed only independently
+	// actionable envelope labels for unknown events, and no label for a plain
+	// unsupported field. Preserve that byte contract without reversing text
+	// into authority or changing the production typed verdict.
+	if profilerFtraceEventSlot(event.Field) == profilerFtraceUnknownEventSlot {
+		visible := make([]profilerFtraceEventIssue, 0, len(issues))
+		for _, issue := range issues {
+			if issue.Kind != profilerFtraceEventIssueUnmappedField {
+				visible = append(visible, issue)
+			}
 		}
-		return "", "", false, labels
+		issues = visible
 	}
-	if name, body, ok, issues, handled, coreErr := renderProfilerFtraceCoreEventWithTypedAudit(event); handled {
-		if coreErr != nil {
-			return "", "", false, nil
-		}
-		labels, labelsOK := profilerFtraceEventIssueLabels(event.Field, issues)
-		if !labelsOK {
-			return "", "", false, nil
-		}
-		return name, body, ok, labels
-	}
-	if name, body, ok, issues, _, handled, auxErr := renderProfilerFtraceAuxEventWithTypedAudit(event); handled {
-		if auxErr != nil {
-			return "", "", false, nil
-		}
-		labels, labelsOK := profilerFtraceEventIssueLabels(event.Field, issues)
-		if !labelsOK {
-			return "", "", false, nil
-		}
-		return name, body, ok, labels
-	}
-	if profilerStructuredAuxSchemas[event.Field] != nil {
+	labels, labelsOK := profilerFtraceEventIssueLabels(event.Field, issues)
+	if !labelsOK {
 		return "", "", false, nil
 	}
-	if name, body, ok, issues, handled, filemapErr := renderProfilerFtraceFilemapEventWithTypedAudit(event); handled {
-		if filemapErr != nil {
-			return "", "", false, nil
-		}
-		labels, labelsOK := profilerFtraceEventIssueLabels(event.Field, issues)
-		if !labelsOK {
-			return "", "", false, nil
-		}
-		return name, body, ok, labels
-	}
-	if event.Field == 1000 || event.Field == 1001 {
-		return "", "", false, nil
-	}
-	if _, _, blockEvent := blockRenderKindForProfilerField(event.Field); blockEvent {
-		return renderProfilerBlockEvent(event)
-	}
-	name, body, ok, issues, handled, genericErr := renderProfilerFtraceGenericEventWithTypedAudit(event)
-	if handled {
-		if genericErr != nil {
-			return "", "", false, nil
-		}
-		labels, labelsOK := profilerFtraceEventIssueLabels(event.Field, issues)
-		if !labelsOK {
-			return "", "", false, nil
-		}
-		return name, body, ok, labels
-	}
-	return "", "", false, nil
+	return name, body, ok, labels
 }
 
-// B2-b migrates producer families one at a time. Envelope issues already enter
-// through the exact typed arm below; the strict legacy bridge remains only for
-// producer families whose typed migration is not complete yet.
+// Every structured producer enters through this typed choke. Compatibility
+// callers may render labels afterward, but no production path reverses text
+// back into issue authority.
 func renderProfilerFtraceEventBodyWithTypedAudit(event profilerFtraceEventRecord) (string, string, bool, []profilerFtraceEventIssue, error) {
 	name, body, ok, issues, _, err := renderProfilerFtraceEventBodyWithTypedAuditAndPair(event)
 	return name, body, ok, issues, err
@@ -870,53 +799,28 @@ func renderProfilerFtraceEventBodyWithTypedAuditAndPair(event profilerFtraceEven
 		return "", "", false, nil, pair,
 			&traceDBOutputInvariantError{Reason: "profiler_filemap_typed_renderer_unhandled"}
 	}
+	if name, body, ok, issues, handled, blockErr := renderProfilerFtraceBlockEventWithTypedAudit(event); handled {
+		return name, body, ok, issues, pair, blockErr
+	}
+	if _, _, block := blockRenderKindForProfilerField(event.Field); block {
+		return "", "", false, nil, pair,
+			&traceDBOutputInvariantError{Reason: "profiler_block_typed_renderer_unhandled"}
+	}
 	if name, body, ok, issues, handled, genericErr := renderProfilerFtraceGenericEventWithTypedAudit(event); handled {
 		return name, body, ok, issues, pair, genericErr
-	}
-	name, body, ok, reasons := renderProfilerFtraceEventBodyWithAudit(event)
-	legacySource := profilerFtraceEventDegradationFieldAudit
-	if _, _, block := blockRenderKindForProfilerField(event.Field); block {
-		legacySource = profilerFtraceEventDegradationBlockPayload
-	} else if _, known := profilerFtraceEventDescriptors[event.Field]; known {
-		legacySource = profilerFtraceEventDegradationWireAudit
-	} else {
-		legacySource = profilerFtraceEventDegradationUnmappedField
 	}
 	if profilerFtraceEventSlot(event.Field) == profilerFtraceUnknownEventSlot {
 		if event.Field < 100 || event.Field > profilerFtraceUnknownEventAggregateField {
 			return "", "", false, nil, pair, &traceDBOutputInvariantError{Reason: "profiler_event_field_domain_invalid"}
 		}
-		// Preserve exact envelope issues: their typed Kind+PayloadField does not
-		// depend on the compacted unknown field ID. Unmapped identity is appended
-		// below as the mandatory dominant hard issue for the unknown slot.
-		name, body, ok = "", "", false
-	}
-	if !ok && len(reasons) == 0 {
-		if profilerFtraceEventSlot(event.Field) == profilerFtraceUnknownEventSlot {
-			// The mandatory unmapped issue is appended after any envelope issues.
-		} else if legacySource == profilerFtraceEventDegradationUnmappedField {
-			reasons = []string{"unmapped structured ftrace event field"}
-		} else {
-			return "", "", false, nil, pair, &traceDBOutputInvariantError{Reason: "profiler_event_missing_typed_issue"}
-		}
-	}
-	issues := make([]profilerFtraceEventIssue, 0, len(reasons))
-	for _, reason := range reasons {
-		issue, valid := profilerFtraceEventIssueFromLegacy(event.Field, legacySource, reason)
-		if !valid {
-			return "", "", false, nil, pair, &traceDBOutputInvariantError{Reason: "profiler_event_legacy_issue_unmapped"}
-		}
-		issues = append(issues, issue)
-	}
-	if profilerFtraceEventSlot(event.Field) == profilerFtraceUnknownEventSlot {
-		unmapped, valid := profilerFtraceEventIssueFromLegacy(event.Field,
-			profilerFtraceEventDegradationUnmappedField, "unmapped structured ftrace event field")
+		unmapped, valid := profilerFtraceEventFixedIssue(event.Field, profilerFtraceEventIssueUnmappedField)
 		if !valid {
 			return "", "", false, nil, pair, &traceDBOutputInvariantError{Reason: "profiler_event_unmapped_issue_invalid"}
 		}
-		issues = append(issues, unmapped)
+		return "", "", false, []profilerFtraceEventIssue{unmapped}, pair, nil
 	}
-	return name, body, ok, issues, pair, nil
+	return "", "", false, nil, pair,
+		&traceDBOutputInvariantError{Reason: "profiler_event_typed_renderer_unhandled"}
 }
 
 const profilerFtraceGenericIssuesPerEvent = 7
@@ -1319,82 +1223,6 @@ func renderProfilerFtraceGenericEventWithTypedAudit(event profilerFtraceEventRec
 	}
 	issues, checkErr := set.checked(event.Field)
 	return name, body, true, issues, true, checkErr
-}
-
-type protoScalarState uint8
-
-const (
-	protoScalarAbsent protoScalarState = iota
-	protoScalarPresent
-	protoScalarInvalid
-)
-
-// protoScalarUint reads one singular proto scalar without collapsing three
-// distinct states: proto3 default omission, a present value (including an
-// explicitly encoded zero), and malformed/ambiguous input. Callers interpret
-// the default only when their pinned producer profile proves it.
-func protoScalarUint(data []byte, field int) (uint64, protoScalarState, string) {
-	var value uint64
-	count := 0
-	wrongWire := false
-	err := walkProtoFields(data, func(f int, wire int, raw []byte, v uint64) error {
-		if f != field {
-			return nil
-		}
-		count++
-		if wire != 0 {
-			wrongWire = true
-			return nil
-		}
-		value = v
-		_ = raw
-		return nil
-	})
-	if err != nil {
-		return 0, protoScalarInvalid, "malformed_wire"
-	}
-	if wrongWire {
-		return 0, protoScalarInvalid, "wrong_wire"
-	}
-	if count > 1 {
-		return 0, protoScalarInvalid, "duplicate"
-	}
-	if count == 0 {
-		return 0, protoScalarAbsent, ""
-	}
-	return value, protoScalarPresent, ""
-}
-
-func protoScalarString(data []byte, field int) (string, protoScalarState, string) {
-	var value string
-	count := 0
-	wrongWire := false
-	err := walkProtoFields(data, func(f int, wire int, raw []byte, v uint64) error {
-		if f != field {
-			return nil
-		}
-		count++
-		if wire != 2 {
-			wrongWire = true
-			return nil
-		}
-		value = string(raw)
-		_ = v
-		return nil
-	})
-	if err != nil {
-		return "", protoScalarInvalid, "malformed_wire"
-	}
-	if wrongWire {
-		return "", protoScalarInvalid, "wrong_wire"
-	}
-	if count > 1 {
-		return "", protoScalarInvalid, "duplicate"
-	}
-	if count == 0 {
-		return "", protoScalarAbsent, ""
-	}
-	return value, protoScalarPresent, ""
 }
 
 func profilerFtraceEventRenderCoverage(coverageByField map[int]*TraceDBCoverage, field int) *TraceDBCoverage {

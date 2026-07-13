@@ -89,11 +89,9 @@ func requireProfilerAuxTypedResult(t *testing.T, fixture profilerAuxTypedFixture
 		t.Fatalf("direct label/aux parity drifted: fixture=%s\naux=(%q,%q,%t,%v)\ncompat=(%q,%q,%t,%v)",
 			fixture.name, name, body, ok, labels, compatName, compatBody, compatOK, compatLabels)
 	}
-	roundTrip, bridgeOK := profilerFtraceEventIssueFromLegacy(fixture.event.Field,
-		profilerFtraceEventIssueLegacySource(fixture.issue.sourceClass()), labels[0])
-	if !bridgeOK || roundTrip != fixture.issue {
-		t.Fatalf("aux issue legacy round trip drifted: fixture=%s label=%q issue=%+v round=%+v ok=%t",
-			fixture.name, labels[0], fixture.issue, roundTrip, bridgeOK)
+	if label, ok := fixture.issue.label(fixture.event.Field); !ok || label != labels[0] {
+		t.Fatalf("aux typed label authority drifted: fixture=%s label=%q issue=%+v direct=(%q,%t)",
+			fixture.name, labels[0], fixture.issue, label, ok)
 	}
 }
 

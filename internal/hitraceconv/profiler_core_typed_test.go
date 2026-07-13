@@ -873,7 +873,7 @@ func TestProfilerCoreTypedProductionBypassesLegacyReasonBridge(t *testing.T) {
 	}
 
 	coreRender := sourceBetween(t, adapter,
-		"func renderProfilerFtraceCoreEventWithTypedAudit(", "func decodeProfilerCoreProtoFields(")
+		"func renderProfilerFtraceCoreEventWithTypedAudit(", "func profilerCoreDisplayField(")
 	if !strings.Contains(coreRender, "decodeProfilerCorePayloadWithTypedAudit(event)") ||
 		strings.Contains(coreRender, "decodeProfilerCorePayload(event)") ||
 		strings.Contains(coreRender, "profilerFtraceEventIssueFromLegacy(") {
@@ -882,19 +882,20 @@ func TestProfilerCoreTypedProductionBypassesLegacyReasonBridge(t *testing.T) {
 
 	compat := sourceBetween(t, renderer,
 		"func renderProfilerFtraceEventBodyWithAudit(", "func renderProfilerFtraceEventBodyWithTypedAudit(")
-	if !strings.Contains(compat, "renderProfilerFtraceCoreEventWithTypedAudit(event)") ||
+	if strings.Count(compat, "renderProfilerFtraceEventBodyWithTypedAudit(event)") != 1 ||
 		!strings.Contains(compat, "profilerFtraceEventIssueLabels(event.Field, issues)") ||
+		strings.Contains(compat, "renderProfilerFtraceCoreEventWithTypedAudit(event)") ||
 		strings.Contains(compat, "decodeProfilerCorePayload(event)") ||
 		strings.Contains(compat, "profilerFtraceEventIssueFromLegacy(") {
 		t.Fatalf("direct compatibility path is not a typed-issue-to-label adapter:\n%s", compat)
 	}
 
 	typedEntry := sourceBetween(t, renderer,
-		"func renderProfilerFtraceEventBodyWithTypedAudit(", "const profilerFtraceGenericIssuesPerEvent")
+		"func renderProfilerFtraceEventBodyWithTypedAuditAndPair(", "const profilerFtraceGenericIssuesPerEvent")
 	coreAt := strings.Index(typedEntry, "renderProfilerFtraceCoreEventWithTypedAudit(event)")
 	genericAt := strings.Index(typedEntry, "renderProfilerFtraceGenericEventWithTypedAudit(event)")
 	legacyAt := strings.Index(typedEntry, "renderProfilerFtraceEventBodyWithAudit(event)")
-	if coreAt < 0 || genericAt < 0 || legacyAt < 0 || !(coreAt < genericAt && genericAt < legacyAt) {
+	if coreAt < 0 || genericAt < 0 || legacyAt >= 0 || coreAt >= genericAt {
 		t.Fatalf("typed entry order drifted: core=%d generic=%d legacy=%d", coreAt, genericAt, legacyAt)
 	}
 	coreArm := sourceBetween(t, typedEntry,

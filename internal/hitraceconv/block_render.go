@@ -2,6 +2,7 @@ package hitraceconv
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -597,150 +598,471 @@ func traceDBBlockDecimal(value string) bool {
 	return true
 }
 
-func renderProfilerBlockEvent(event profilerFtraceEventRecord) (string, string, bool, []string) {
-	kind, name, ok := blockRenderKindForProfilerField(event.Field)
-	if !ok {
-		return "", "", false, nil
-	}
-	payload, degradations, valid := decodeProfilerBlockPayload(kind, event.Payload)
-	if !valid {
-		return name, "", false, degradations
-	}
-	return name, renderCanonicalBlockPayload(payload), true, degradations
+type profilerFtraceBlockFieldRole uint8
+
+const (
+	profilerFtraceBlockFieldUnknown profilerFtraceBlockFieldRole = iota
+	profilerFtraceBlockFieldDev
+	profilerFtraceBlockFieldSector
+	profilerFtraceBlockFieldNRSector
+	profilerFtraceBlockFieldError
+	profilerFtraceBlockFieldRWBS
+	profilerFtraceBlockFieldBytes
+	profilerFtraceBlockFieldOldDev
+	profilerFtraceBlockFieldOldSector
+	profilerFtraceBlockFieldNRBios
+	profilerFtraceBlockFieldComm
+	profilerFtraceBlockFieldCmd
+)
+
+type profilerFtraceBlockFieldState struct {
+	Count       uint8 // saturates at two: absent, singular, or duplicate
+	WrongWire   bool
+	Malformed   bool
+	UintValue   uint64
+	StringValue string
 }
 
-// decodeProfilerBlockPayload interprets scalar wire absence as exact zero only
-// because the pinned FtraceFieldParser calls every set_* method. Singular
-// wrong-wire, duplicate and malformed fields are never defaulted.
-func decodeProfilerBlockPayload(kind blockRenderKind, data []byte) (blockRenderPayload, []string, bool) {
+func profilerFtraceBlockFieldSchema(eventField, payloadField int) (profilerFtraceBlockFieldRole, int, bool) {
+	switch payloadField {
+	case 1:
+		return profilerFtraceBlockFieldDev, 0, true
+	case 2:
+		return profilerFtraceBlockFieldSector, 0, true
+	case 3:
+		return profilerFtraceBlockFieldNRSector, 0, true
+	}
+	switch eventField {
+	case 202:
+		switch payloadField {
+		case 4:
+			return profilerFtraceBlockFieldError, 0, true
+		case 5:
+			return profilerFtraceBlockFieldRWBS, 2, true
+		}
+	case 204:
+		switch payloadField {
+		case 4:
+			return profilerFtraceBlockFieldRWBS, 2, true
+		case 5:
+			return profilerFtraceBlockFieldComm, 2, true
+		}
+	case 205:
+		switch payloadField {
+		case 4:
+			return profilerFtraceBlockFieldOldDev, 0, true
+		case 5:
+			return profilerFtraceBlockFieldOldSector, 0, true
+		case 6:
+			return profilerFtraceBlockFieldRWBS, 2, true
+		}
+	case 209:
+		switch payloadField {
+		case 4:
+			return profilerFtraceBlockFieldError, 0, true
+		case 5:
+			return profilerFtraceBlockFieldRWBS, 2, true
+		case 6:
+			return profilerFtraceBlockFieldCmd, 2, true
+		}
+	case 210, 211:
+		switch payloadField {
+		case 4:
+			return profilerFtraceBlockFieldBytes, 0, true
+		case 5:
+			return profilerFtraceBlockFieldRWBS, 2, true
+		case 6:
+			return profilerFtraceBlockFieldComm, 2, true
+		case 7:
+			return profilerFtraceBlockFieldCmd, 2, true
+		}
+	case 212:
+		switch payloadField {
+		case 4:
+			return profilerFtraceBlockFieldOldDev, 0, true
+		case 5:
+			return profilerFtraceBlockFieldOldSector, 0, true
+		case 6:
+			return profilerFtraceBlockFieldNRBios, 0, true
+		case 7:
+			return profilerFtraceBlockFieldRWBS, 2, true
+		}
+	}
+	return profilerFtraceBlockFieldUnknown, 0, false
+}
+
+func profilerFtraceBlockDisplayRole(role profilerFtraceBlockFieldRole) bool {
+	return role == profilerFtraceBlockFieldComm || role == profilerFtraceBlockFieldCmd
+}
+
+const profilerFtraceBlockIssuesPerEvent = 2
+
+type profilerFtraceBlockIssueSet struct {
+	Count  uint8
+	Issues [profilerFtraceBlockIssuesPerEvent]profilerFtraceEventIssue
+}
+
+func (set *profilerFtraceBlockIssueSet) validate(eventField int) error {
+	if set == nil || int(set.Count) > len(set.Issues) {
+		return &traceDBOutputInvariantError{Reason: "profiler_block_issue_count_invalid"}
+	}
+	if _, _, governed := blockRenderKindForProfilerField(eventField); !governed {
+		return &traceDBOutputInvariantError{Reason: "profiler_block_issue_schema_invalid"}
+	}
+	lastDisplayField := uint8(0)
+	for index, issue := range set.Issues {
+		if index >= int(set.Count) {
+			if issue != (profilerFtraceEventIssue{}) {
+				return &traceDBOutputInvariantError{Reason: "profiler_block_issue_count_invalid"}
+			}
+			continue
+		}
+		if issue.Kind < profilerFtraceEventIssueBlockPayloadMalformedWire ||
+			issue.Kind > profilerFtraceEventIssueBlockCmdUnsafeOmitted ||
+			!issue.validFor(eventField) || issue.Severity != issue.expectedSeverity() {
+			return &traceDBOutputInvariantError{Reason: "profiler_block_issue_schema_invalid"}
+		}
+		for prior := 0; prior < index; prior++ {
+			if set.Issues[prior] == issue {
+				return &traceDBOutputInvariantError{Reason: "profiler_block_issue_duplicate"}
+			}
+			if set.Issues[prior].PayloadField == issue.PayloadField {
+				return &traceDBOutputInvariantError{Reason: "profiler_block_issue_endpoint_conflict"}
+			}
+		}
+		if issue.Severity == profilerFtraceEventIssueHardReject {
+			if set.Count != 1 {
+				return &traceDBOutputInvariantError{Reason: "profiler_block_issue_arm_invalid"}
+			}
+			continue
+		}
+		if issue.PayloadField <= lastDisplayField {
+			return &traceDBOutputInvariantError{Reason: "profiler_block_issue_order_invalid"}
+		}
+		lastDisplayField = issue.PayloadField
+	}
+	return nil
+}
+
+func (set *profilerFtraceBlockIssueSet) add(eventField int, issue profilerFtraceEventIssue) error {
+	if err := set.validate(eventField); err != nil {
+		return err
+	}
+	if issue.Kind < profilerFtraceEventIssueBlockPayloadMalformedWire ||
+		issue.Kind > profilerFtraceEventIssueBlockCmdUnsafeOmitted ||
+		!issue.validFor(eventField) || issue.Severity != issue.expectedSeverity() {
+		return &traceDBOutputInvariantError{Reason: "profiler_block_issue_schema_invalid"}
+	}
+	for index := 0; index < int(set.Count); index++ {
+		if set.Issues[index] == issue {
+			return &traceDBOutputInvariantError{Reason: "profiler_block_issue_duplicate"}
+		}
+		if set.Issues[index].PayloadField == issue.PayloadField {
+			return &traceDBOutputInvariantError{Reason: "profiler_block_issue_endpoint_conflict"}
+		}
+	}
+	if int(set.Count) == len(set.Issues) {
+		return &traceDBOutputInvariantError{Reason: "profiler_block_issue_overflow"}
+	}
+	candidate := *set
+	candidate.Issues[int(candidate.Count)] = issue
+	candidate.Count++
+	if err := candidate.validate(eventField); err != nil {
+		return err
+	}
+	*set = candidate
+	return nil
+}
+
+func (set *profilerFtraceBlockIssueSet) addFixed(eventField int, kind profilerFtraceEventIssueKind) error {
+	issue, ok := profilerFtraceEventFixedIssue(eventField, kind)
+	if !ok {
+		return &traceDBOutputInvariantError{Reason: "profiler_block_issue_schema_invalid"}
+	}
+	return set.add(eventField, issue)
+}
+
+func (set *profilerFtraceBlockIssueSet) addPayload(eventField int, kind profilerFtraceEventIssueKind, payloadField int) error {
+	issue, ok := profilerFtraceEventPayloadIssue(eventField, kind, payloadField)
+	if !ok {
+		return &traceDBOutputInvariantError{Reason: "profiler_block_issue_schema_invalid"}
+	}
+	return set.add(eventField, issue)
+}
+
+func (set *profilerFtraceBlockIssueSet) checked(eventField int) ([]profilerFtraceEventIssue, error) {
+	if err := set.validate(eventField); err != nil {
+		return nil, err
+	}
+	return append([]profilerFtraceEventIssue(nil), set.Issues[:int(set.Count)]...), nil
+}
+
+// decodeProfilerBlockPayloadWithTypedAudit is the single structured block
+// payload authority. Every known endpoint is observed during one wire walk;
+// diagnostics are emitted only through the checked fixed-capacity issue set.
+func decodeProfilerBlockPayloadWithTypedAudit(event profilerFtraceEventRecord) (
+	blockRenderPayload, bodyAdmission, profilerFtraceBlockIssueSet, bool, error,
+) {
+	kind, canonicalName, governed := blockRenderKindForProfilerField(event.Field)
+	if !governed {
+		return blockRenderPayload{}, bodyUnsupported, profilerFtraceBlockIssueSet{}, false, nil
+	}
+	rejectFixed := func(issueKind profilerFtraceEventIssueKind) (
+		blockRenderPayload, bodyAdmission, profilerFtraceBlockIssueSet, bool, error,
+	) {
+		var set profilerFtraceBlockIssueSet
+		err := set.addFixed(event.Field, issueKind)
+		return blockRenderPayload{}, bodyRejected, set, true, err
+	}
+	rejectPayload := func(issueKind profilerFtraceEventIssueKind, payloadField int) (
+		blockRenderPayload, bodyAdmission, profilerFtraceBlockIssueSet, bool, error,
+	) {
+		var set profilerFtraceBlockIssueSet
+		err := set.addPayload(event.Field, issueKind, payloadField)
+		return blockRenderPayload{}, bodyRejected, set, true, err
+	}
+
+	descriptor, ok := profilerFtraceEventDescriptors[event.Field]
+	if !ok {
+		return blockRenderPayload{}, bodyRejected, profilerFtraceBlockIssueSet{}, true,
+			&traceDBOutputInvariantError{Reason: "missing_block_descriptor"}
+	}
+	if descriptor.Field != event.Field {
+		return blockRenderPayload{}, bodyRejected, profilerFtraceBlockIssueSet{}, true,
+			&traceDBOutputInvariantError{Reason: "mismatched_block_descriptor_field"}
+	}
+	descriptorKind, descriptorKnown := blockRenderKindForName(descriptor.Name)
+	if descriptor.Family != "block" || descriptor.Name != canonicalName || !descriptorKnown || descriptorKind != kind {
+		return blockRenderPayload{}, bodyRejected, profilerFtraceBlockIssueSet{}, true,
+			&traceDBOutputInvariantError{Reason: "invalid_block_descriptor"}
+	}
+
+	var fields [8]profilerFtraceBlockFieldState
+	walkErr := walkProtoFields(event.Payload, func(payloadField int, wire int, raw []byte, value uint64) error {
+		role, expectedWire, known := profilerFtraceBlockFieldSchema(event.Field, payloadField)
+		if !known {
+			return nil
+		}
+		state := &fields[payloadField]
+		if state.Count < 2 {
+			state.Count++
+		}
+		if wire != expectedWire {
+			state.WrongWire = true
+			return nil
+		}
+		if role == profilerFtraceBlockFieldRWBS || profilerFtraceBlockDisplayRole(role) {
+			state.StringValue = string(raw)
+		} else {
+			state.UintValue = value
+		}
+		return nil
+	})
+	if walkErr != nil {
+		var decodeErr *protoFieldDecodeError
+		if !errors.As(walkErr, &decodeErr) {
+			return blockRenderPayload{}, bodyRejected, profilerFtraceBlockIssueSet{}, true,
+				&traceDBOutputInvariantError{Reason: "profiler_block_wire_error_untyped"}
+		}
+		role, _, known := profilerFtraceBlockFieldSchema(event.Field, decodeErr.Field)
+		localized := decodeErr.Failure == protoFieldDecodeMalformedValue ||
+			decodeErr.Failure == protoFieldDecodeUnsupportedWire
+		if !localized || !decodeErr.FieldKnown || !known ||
+			(profilerFtraceBlockDisplayRole(role) && !decodeErr.Terminal) {
+			return rejectFixed(profilerFtraceEventIssueBlockPayloadMalformedWire)
+		}
+		if !profilerFtraceBlockDisplayRole(role) {
+			return rejectPayload(profilerFtraceEventIssueBlockFieldMalformedWire, decodeErr.Field)
+		}
+		fields[decodeErr.Field].Malformed = true
+	}
+
+	for payloadField := 1; payloadField <= 7; payloadField++ {
+		role, _, known := profilerFtraceBlockFieldSchema(event.Field, payloadField)
+		if !known || profilerFtraceBlockDisplayRole(role) {
+			continue
+		}
+		state := fields[payloadField]
+		switch {
+		case state.WrongWire:
+			return rejectPayload(profilerFtraceEventIssueBlockFieldWrongWire, payloadField)
+		case state.Count > 1:
+			return rejectPayload(profilerFtraceEventIssueBlockFieldDuplicate, payloadField)
+		}
+	}
+
 	payload := blockRenderPayload{kind: kind}
-	readUint := func(field int, max uint64) (uint64, []string, bool) {
-		value, state, reason := protoScalarUint(data, field)
-		if state == protoScalarInvalid {
-			return 0, []string{fmt.Sprintf("core_field%d_%s", field, reason)}, false
+	for payloadField := 1; payloadField <= 7; payloadField++ {
+		role, _, known := profilerFtraceBlockFieldSchema(event.Field, payloadField)
+		if !known || profilerFtraceBlockDisplayRole(role) {
+			continue
 		}
-		// protoScalarAbsent is exact zero under this pinned producer profile.
-		if value > max {
-			return 0, []string{fmt.Sprintf("core_field%d_out_of_range", field)}, false
+		state := fields[payloadField]
+		switch role {
+		case profilerFtraceBlockFieldDev:
+			if state.UintValue > math.MaxUint32 {
+				return rejectPayload(profilerFtraceEventIssueBlockFieldOutOfRange, payloadField)
+			}
+			payload.dev = uint32(state.UintValue)
+		case profilerFtraceBlockFieldSector:
+			if state.UintValue > math.MaxInt64 {
+				return rejectPayload(profilerFtraceEventIssueBlockFieldOutOfRange, payloadField)
+			}
+			payload.sector = state.UintValue
+		case profilerFtraceBlockFieldNRSector:
+			if state.UintValue > math.MaxUint32 {
+				return rejectPayload(profilerFtraceEventIssueBlockFieldOutOfRange, payloadField)
+			}
+			payload.nrSector = uint32(state.UintValue)
+		case profilerFtraceBlockFieldError:
+			signed := int64(state.UintValue)
+			if signed < math.MinInt32 || signed > math.MaxInt32 {
+				return rejectPayload(profilerFtraceEventIssueBlockFieldOutOfRange, payloadField)
+			}
+			payload.errorCode = int32(signed)
+		case profilerFtraceBlockFieldRWBS:
+			if !validBlockRWBS(state.StringValue) {
+				return rejectPayload(profilerFtraceEventIssueBlockFieldMissingOrInvalid, payloadField)
+			}
+			payload.rwbs = state.StringValue
+		case profilerFtraceBlockFieldBytes:
+			if state.UintValue > math.MaxUint32 {
+				return rejectPayload(profilerFtraceEventIssueBlockFieldOutOfRange, payloadField)
+			}
+			payload.bytes = uint32(state.UintValue)
+		case profilerFtraceBlockFieldOldDev:
+			if state.UintValue > math.MaxUint32 {
+				return rejectPayload(profilerFtraceEventIssueBlockFieldOutOfRange, payloadField)
+			}
+			payload.oldDev = uint32(state.UintValue)
+		case profilerFtraceBlockFieldOldSector:
+			if state.UintValue > math.MaxInt64 {
+				return rejectPayload(profilerFtraceEventIssueBlockFieldOutOfRange, payloadField)
+			}
+			payload.oldSector = state.UintValue
+		case profilerFtraceBlockFieldNRBios:
+			if state.UintValue > math.MaxUint32 {
+				return rejectPayload(profilerFtraceEventIssueBlockFieldOutOfRange, payloadField)
+			}
+			payload.nrBios = uint32(state.UintValue)
+		default:
+			return blockRenderPayload{}, bodyRejected, profilerFtraceBlockIssueSet{}, true,
+				&traceDBOutputInvariantError{Reason: "profiler_block_schema_invalid"}
 		}
-		return value, nil, true
-	}
-	readRWBS := func(field int) (string, []string, bool) {
-		value, state, reason := protoScalarString(data, field)
-		if state == protoScalarInvalid {
-			return "", []string{fmt.Sprintf("core_field%d_%s", field, reason)}, false
-		}
-		// String absence is the exact empty value; empty cannot author a block
-		// request identity and is therefore a semantic hard failure.
-		if !validBlockRWBS(value) {
-			return "", []string{fmt.Sprintf("core_field%d_missing_or_invalid", field)}, false
-		}
-		return value, nil, true
-	}
-	readOptional := func(field int, label string, forbidden rune, degradations []string) (string, []string) {
-		value, state, reason := protoScalarString(data, field)
-		if state == protoScalarInvalid {
-			return "", append(degradations, label+"_"+reason)
-		}
-		if value == "" {
-			return "", degradations
-		}
-		if value != strings.TrimSpace(value) || !traceDBSinglePhysicalLine(value, true) || strings.ContainsRune(value, forbidden) {
-			return "", append(degradations, label+"_unsafe_omitted")
-		}
-		return value, degradations
 	}
 
-	dev, reasons, ok := readUint(1, math.MaxUint32)
-	if !ok {
-		return payload, reasons, false
+	var set profilerFtraceBlockIssueSet
+	for payloadField := 1; payloadField <= 7; payloadField++ {
+		role, _, known := profilerFtraceBlockFieldSchema(event.Field, payloadField)
+		if !known || !profilerFtraceBlockDisplayRole(role) {
+			continue
+		}
+		state := fields[payloadField]
+		value := state.StringValue
+		var issueKind profilerFtraceEventIssueKind
+		issuePresent := true
+		switch role {
+		case profilerFtraceBlockFieldComm:
+			switch {
+			case state.Malformed:
+				issueKind = profilerFtraceEventIssueBlockCommMalformedWire
+			case state.WrongWire:
+				issueKind = profilerFtraceEventIssueBlockCommWrongWire
+			case state.Count > 1:
+				issueKind = profilerFtraceEventIssueBlockCommDuplicate
+			case value != "" && (value != strings.TrimSpace(value) || !traceDBSinglePhysicalLine(value, true) || strings.ContainsRune(value, ']')):
+				issueKind = profilerFtraceEventIssueBlockCommUnsafeOmitted
+			default:
+				issuePresent = false
+			}
+			if issuePresent {
+				value = ""
+			}
+			payload.comm = value
+		case profilerFtraceBlockFieldCmd:
+			switch {
+			case state.Malformed:
+				issueKind = profilerFtraceEventIssueBlockCmdMalformedWire
+			case state.WrongWire:
+				issueKind = profilerFtraceEventIssueBlockCmdWrongWire
+			case state.Count > 1:
+				issueKind = profilerFtraceEventIssueBlockCmdDuplicate
+			case value != "" && (value != strings.TrimSpace(value) || !traceDBSinglePhysicalLine(value, true) || strings.ContainsRune(value, ')')):
+				issueKind = profilerFtraceEventIssueBlockCmdUnsafeOmitted
+			default:
+				issuePresent = false
+			}
+			if issuePresent {
+				value = ""
+			}
+			payload.cmd = value
+		}
+		if issuePresent {
+			if err := set.addFixed(event.Field, issueKind); err != nil {
+				return blockRenderPayload{}, bodyRejected, profilerFtraceBlockIssueSet{}, true, err
+			}
+		}
 	}
-	payload.dev = uint32(dev)
-	sector, reasons, ok := readUint(2, math.MaxInt64)
-	if !ok {
-		return payload, reasons, false
-	}
-	payload.sector = sector
-	nrSector, reasons, ok := readUint(3, math.MaxUint32)
-	if !ok {
-		return payload, reasons, false
-	}
-	payload.nrSector = uint32(nrSector)
+	return payload, bodyAdmitted, set, true, nil
+}
 
-	var degradations []string
-	switch kind {
-	case blockRenderBioComplete, blockRenderRQComplete:
-		rawError, state, reason := protoScalarUint(data, 4)
-		if state == protoScalarInvalid {
-			return payload, []string{"core_field4_" + reason}, false
+func renderProfilerFtraceBlockEventWithTypedAudit(event profilerFtraceEventRecord) (
+	name, body string, ok bool, issues []profilerFtraceEventIssue, handled bool, err error,
+) {
+	payload, admission, set, handled, err := decodeProfilerBlockPayloadWithTypedAudit(event)
+	if !handled || err != nil {
+		return "", "", false, nil, handled, err
+	}
+	name, body, ok, issues, err = finalizeProfilerFtraceBlockEventWithTypedAudit(event, payload, admission, set)
+	return name, body, ok, issues, true, err
+}
+
+func finalizeProfilerFtraceBlockEventWithTypedAudit(
+	event profilerFtraceEventRecord,
+	payload blockRenderPayload,
+	admission bodyAdmission,
+	set profilerFtraceBlockIssueSet,
+) (name, body string, ok bool, issues []profilerFtraceEventIssue, err error) {
+	issues, err = set.checked(event.Field)
+	if err != nil {
+		return "", "", false, nil, err
+	}
+	switch admission {
+	case bodyRejected:
+		if payload != (blockRenderPayload{}) || len(issues) != 1 ||
+			issues[0].Severity != profilerFtraceEventIssueHardReject {
+			return "", "", false, nil,
+				&traceDBOutputInvariantError{Reason: "profiler_block_rejected_verdict_invalid"}
 		}
-		signedError := int64(rawError)
-		if signedError < math.MinInt32 || signedError > math.MaxInt32 {
-			return payload, []string{"core_field4_out_of_range"}, false
+		return "", "", false, issues, nil
+	case bodyAdmitted:
+		for _, issue := range issues {
+			if issue.Severity != profilerFtraceEventIssueAdmittedDisplay {
+				return "", "", false, nil,
+					&traceDBOutputInvariantError{Reason: "profiler_block_admitted_verdict_invalid"}
+			}
 		}
-		payload.errorCode = int32(signedError)
-		payload.rwbs, reasons, ok = readRWBS(5)
-		if !ok {
-			return payload, reasons, false
+		kind, canonicalName, governed := blockRenderKindForProfilerField(event.Field)
+		if !governed || payload.kind != kind {
+			return "", "", false, nil,
+				&traceDBOutputInvariantError{Reason: "invalid_canonical_block_payload"}
 		}
-		if kind == blockRenderRQComplete {
-			payload.cmd, degradations = readOptional(6, "cmd", ')', degradations)
+		body = renderCanonicalBlockPayload(payload)
+		if body == "" {
+			return "", "", false, nil,
+				&traceDBOutputInvariantError{Reason: "invalid_canonical_block_payload"}
 		}
-	case blockRenderBioQueue:
-		payload.rwbs, reasons, ok = readRWBS(4)
-		if !ok {
-			return payload, reasons, false
+		if !profilerCanonicalLineValid(event, canonicalName, body) {
+			var canonical profilerFtraceBlockIssueSet
+			if err := canonical.addFixed(event.Field, profilerFtraceEventIssueBlockInvalidCanonicalLine); err != nil {
+				return "", "", false, nil, err
+			}
+			issues, err = canonical.checked(event.Field)
+			return "", "", false, issues, err
 		}
-		payload.comm, degradations = readOptional(5, "comm", ']', degradations)
-	case blockRenderBioRemap:
-		oldDev, fieldReasons, fieldOK := readUint(4, math.MaxUint32)
-		if !fieldOK {
-			return payload, fieldReasons, false
-		}
-		payload.oldDev = uint32(oldDev)
-		oldSector, fieldReasons, fieldOK := readUint(5, math.MaxInt64)
-		if !fieldOK {
-			return payload, fieldReasons, false
-		}
-		payload.oldSector = oldSector
-		payload.rwbs, reasons, ok = readRWBS(6)
-		if !ok {
-			return payload, reasons, false
-		}
-	case blockRenderRQInsert, blockRenderRQIssue:
-		bytesValue, fieldReasons, fieldOK := readUint(4, math.MaxUint32)
-		if !fieldOK {
-			return payload, fieldReasons, false
-		}
-		payload.bytes = uint32(bytesValue)
-		payload.rwbs, reasons, ok = readRWBS(5)
-		if !ok {
-			return payload, reasons, false
-		}
-		payload.comm, degradations = readOptional(6, "comm", ']', degradations)
-		payload.cmd, degradations = readOptional(7, "cmd", ')', degradations)
-	case blockRenderRQRemap:
-		oldDev, fieldReasons, fieldOK := readUint(4, math.MaxUint32)
-		if !fieldOK {
-			return payload, fieldReasons, false
-		}
-		payload.oldDev = uint32(oldDev)
-		oldSector, fieldReasons, fieldOK := readUint(5, math.MaxInt64)
-		if !fieldOK {
-			return payload, fieldReasons, false
-		}
-		payload.oldSector = oldSector
-		nrBios, fieldReasons, fieldOK := readUint(6, math.MaxUint32)
-		if !fieldOK {
-			return payload, fieldReasons, false
-		}
-		payload.nrBios = uint32(nrBios)
-		payload.rwbs, reasons, ok = readRWBS(7)
-		if !ok {
-			return payload, reasons, false
-		}
+		return canonicalName, body, true, issues, nil
 	default:
-		return payload, nil, false
+		return "", "", false, nil,
+			&traceDBOutputInvariantError{Reason: "profiler_block_admission_invalid"}
 	}
-	return payload, degradations, true
 }

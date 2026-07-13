@@ -2,7 +2,6 @@ package hitraceconv
 
 import (
 	"strconv"
-	"strings"
 )
 
 // profilerFtraceEventIssueSeverity distinguishes rows which cannot be
@@ -18,7 +17,7 @@ const (
 
 // profilerFtraceEventIssueKind is the closed event-diagnostic vocabulary.
 // Parameterized protobuf field numbers live in PayloadField; they are never
-// recovered from labels after this legacy ingress bridge.
+// recovered from display labels.
 type profilerFtraceEventIssueKind uint8
 
 const (
@@ -111,11 +110,13 @@ const (
 	profilerFtraceEventIssueFilemapDeviceInvalid
 	profilerFtraceEventIssueFilemapOrderInvalid
 
+	profilerFtraceEventIssueBlockPayloadMalformedWire
 	profilerFtraceEventIssueBlockFieldMalformedWire
 	profilerFtraceEventIssueBlockFieldWrongWire
 	profilerFtraceEventIssueBlockFieldDuplicate
 	profilerFtraceEventIssueBlockFieldOutOfRange
 	profilerFtraceEventIssueBlockFieldMissingOrInvalid
+	profilerFtraceEventIssueBlockInvalidCanonicalLine
 	profilerFtraceEventIssueBlockCommMalformedWire
 	profilerFtraceEventIssueBlockCommWrongWire
 	profilerFtraceEventIssueBlockCommDuplicate
@@ -191,137 +192,6 @@ func profilerFtraceEventIssueLabels(eventField int, issues []profilerFtraceEvent
 	return labels, true
 }
 
-func profilerFtraceEventIssueFromLegacy(eventField int, legacySource profilerFtraceEventDegradationKind, token string) (profilerFtraceEventIssue, bool) {
-	issue := profilerFtraceEventIssue{Severity: profilerFtraceEventIssueHardReject}
-	set := func(kind profilerFtraceEventIssueKind) (profilerFtraceEventIssue, bool) {
-		issue.Kind = kind
-		payloadField, ok := profilerFtraceEventIssueFixedPayloadField(kind, eventField)
-		if !ok {
-			return profilerFtraceEventIssue{}, false
-		}
-		issue.PayloadField = payloadField
-		return issue, issue.validFor(eventField)
-	}
-	fieldIssue := func(prefix string, suffixes map[string]profilerFtraceEventIssueKind) (profilerFtraceEventIssue, bool) {
-		field, suffix, ok := profilerFtraceEventParameterizedToken(token, prefix)
-		if !ok {
-			return profilerFtraceEventIssue{}, false
-		}
-		kind, ok := suffixes[suffix]
-		if !ok {
-			return profilerFtraceEventIssue{}, false
-		}
-		issue.Kind, issue.PayloadField = kind, field
-		return issue, issue.validFor(eventField)
-	}
-
-	switch legacySource {
-	case profilerFtraceEventDegradationEnvelope:
-		kind, ok := profilerFtraceEnvelopeLegacyKinds[token]
-		if !ok {
-			return profilerFtraceEventIssue{}, false
-		}
-		return set(kind)
-	case profilerFtraceEventDegradationCorePayload:
-		if parsed, ok := fieldIssue("core_field", map[string]profilerFtraceEventIssueKind{
-			"wrong_wire":   profilerFtraceEventIssueCoreFieldWrongWire,
-			"duplicate":    profilerFtraceEventIssueCoreFieldDuplicate,
-			"out_of_range": profilerFtraceEventIssueCoreFieldOutOfRange,
-		}); ok {
-			return parsed, true
-		}
-		kind, ok := profilerFtraceCoreLegacyKinds[token]
-		if !ok {
-			return profilerFtraceEventIssue{}, false
-		}
-		if profilerFtraceEventIssueDisplayKind(kind) {
-			issue.Severity = profilerFtraceEventIssueAdmittedDisplay
-		}
-		return set(kind)
-	case profilerFtraceEventDegradationAuxPayload:
-		if field, suffix, ok := profilerFtraceEventParameterizedToken(token, "core_field"); ok &&
-			eventField == 4015 && (field == 3 || field == 7 || field == 11) {
-			switch suffix {
-			case "wrong_wire":
-				issue.Kind = profilerFtraceEventIssueAuxResponseWrongWire
-			case "duplicate":
-				issue.Kind = profilerFtraceEventIssueAuxResponseDuplicate
-			default:
-				return profilerFtraceEventIssue{}, false
-			}
-			issue.PayloadField = field
-			issue.Severity = profilerFtraceEventIssueAdmittedDisplay
-			return issue, issue.validFor(eventField)
-		}
-		if parsed, ok := fieldIssue("core_field", map[string]profilerFtraceEventIssueKind{
-			"wrong_wire":   profilerFtraceEventIssueAuxFieldWrongWire,
-			"duplicate":    profilerFtraceEventIssueAuxFieldDuplicate,
-			"out_of_range": profilerFtraceEventIssueAuxFieldOutOfRange,
-		}); ok {
-			return parsed, true
-		}
-		if field, suffix, ok := profilerFtraceEventParameterizedToken(token, "drop_response_field"); ok && suffix == "out_of_source_profile" {
-			issue.Kind, issue.PayloadField = profilerFtraceEventIssueAuxDropResponseOutOfSourceProfile, field
-			issue.Severity = profilerFtraceEventIssueAdmittedDisplay
-			return issue, issue.validFor(eventField)
-		}
-		kind, ok := profilerFtraceAuxLegacyKinds[token]
-		if !ok {
-			return profilerFtraceEventIssue{}, false
-		}
-		return set(kind)
-	case profilerFtraceEventDegradationFilemapPayload:
-		kind, ok := profilerFtraceFilemapLegacyKinds[token]
-		if !ok {
-			return profilerFtraceEventIssue{}, false
-		}
-		return set(kind)
-	case profilerFtraceEventDegradationBlockPayload:
-		if parsed, ok := fieldIssue("core_field", map[string]profilerFtraceEventIssueKind{
-			"malformed_wire":     profilerFtraceEventIssueBlockFieldMalformedWire,
-			"wrong_wire":         profilerFtraceEventIssueBlockFieldWrongWire,
-			"duplicate":          profilerFtraceEventIssueBlockFieldDuplicate,
-			"out_of_range":       profilerFtraceEventIssueBlockFieldOutOfRange,
-			"missing_or_invalid": profilerFtraceEventIssueBlockFieldMissingOrInvalid,
-		}); ok {
-			return parsed, true
-		}
-		kind, ok := profilerFtraceBlockDisplayLegacyKinds[token]
-		if !ok {
-			return profilerFtraceEventIssue{}, false
-		}
-		issue.Severity = profilerFtraceEventIssueAdmittedDisplay
-		return set(kind)
-	case profilerFtraceEventDegradationWireAudit:
-		if parsed, ok := fieldIssue("core_field", map[string]profilerFtraceEventIssueKind{
-			"malformed_wire":     profilerFtraceEventIssueWireFieldMalformedWire,
-			"wrong_wire":         profilerFtraceEventIssueWireFieldWrongWire,
-			"duplicate":          profilerFtraceEventIssueWireFieldDuplicate,
-			"out_of_range":       profilerFtraceEventIssueWireFieldOutOfRange,
-			"missing_or_invalid": profilerFtraceEventIssueWireFieldMissingOrInvalid,
-		}); ok {
-			return parsed, true
-		}
-		if kind, ok := profilerFtraceWireHardLegacyKinds[token]; ok {
-			return set(kind)
-		}
-		kind, ok := profilerFtraceWireDisplayLegacyKinds[token]
-		if !ok {
-			return profilerFtraceEventIssue{}, false
-		}
-		issue.Severity = profilerFtraceEventIssueAdmittedDisplay
-		return set(kind)
-	case profilerFtraceEventDegradationUnmappedField:
-		if token != "unmapped structured ftrace event field" {
-			return profilerFtraceEventIssue{}, false
-		}
-		return set(profilerFtraceEventIssueUnmappedField)
-	default:
-		// Final precise source classes are output-only at this migration bridge.
-		return profilerFtraceEventIssue{}, false
-	}
-}
-
 func (issue profilerFtraceEventIssue) compare(other profilerFtraceEventIssue) int {
 	if issue.Kind < other.Kind {
 		return -1
@@ -344,23 +214,6 @@ func (issue profilerFtraceEventIssue) compare(other profilerFtraceEventIssue) in
 	return 0
 }
 
-func profilerFtraceEventParameterizedToken(token, prefix string) (uint8, string, bool) {
-	if !strings.HasPrefix(token, prefix) {
-		return 0, "", false
-	}
-	rest := strings.TrimPrefix(token, prefix)
-	separator := strings.IndexByte(rest, '_')
-	if separator <= 0 {
-		return 0, "", false
-	}
-	digits, suffix := rest[:separator], rest[separator+1:]
-	value, err := strconv.ParseUint(digits, 10, 8)
-	if err != nil || value == 0 || strconv.FormatUint(value, 10) != digits || suffix == "" {
-		return 0, "", false
-	}
-	return uint8(value), suffix, true
-}
-
 // profilerFtraceEventIssueFixedPayloadField assigns the exact protobuf field
 // governed by a fixed issue. Zero is reserved for whole-message or multi-field
 // invariants; it is never a substitute for an unknown field number.
@@ -379,6 +232,8 @@ func profilerFtraceEventIssueFixedPayloadField(kind profilerFtraceEventIssueKind
 		profilerFtraceEventIssueAuxPayloadMalformedWire,
 		profilerFtraceEventIssueAuxInvalidCanonicalLine,
 		profilerFtraceEventIssueFilemapPayloadMalformedWire,
+		profilerFtraceEventIssueBlockPayloadMalformedWire,
+		profilerFtraceEventIssueBlockInvalidCanonicalLine,
 		profilerFtraceEventIssueWirePayloadMalformedWire,
 		profilerFtraceEventIssueWireInvalidCanonicalLine,
 		profilerFtraceEventIssueUnmappedField:
@@ -545,7 +400,7 @@ func (issue profilerFtraceEventIssue) validFor(eventField int) bool {
 		return issue.validAux(eventField)
 	case issue.Kind >= profilerFtraceEventIssueFilemapPayloadMalformedWire && issue.Kind <= profilerFtraceEventIssueFilemapOrderInvalid:
 		return eventField == 1000 || eventField == 1001
-	case issue.Kind >= profilerFtraceEventIssueBlockFieldMalformedWire && issue.Kind <= profilerFtraceEventIssueBlockCmdUnsafeOmitted:
+	case issue.Kind >= profilerFtraceEventIssueBlockPayloadMalformedWire && issue.Kind <= profilerFtraceEventIssueBlockCmdUnsafeOmitted:
 		return issue.validBlock(eventField)
 	case issue.Kind >= profilerFtraceEventIssueWirePayloadMalformedWire && issue.Kind <= profilerFtraceEventIssueWireInvalidCanonicalLine:
 		return issue.validWire(eventField)
@@ -697,6 +552,12 @@ func (issue profilerFtraceEventIssue) validBlock(eventField int) bool {
 	if !known {
 		return false
 	}
+	switch issue.Kind {
+	case profilerFtraceEventIssueBlockPayloadMalformedWire:
+		return true
+	case profilerFtraceEventIssueBlockInvalidCanonicalLine:
+		return eventField == 204 || eventField == 209 || eventField == 210 || eventField == 211
+	}
 	if issue.Kind >= profilerFtraceEventIssueBlockFieldMalformedWire && issue.Kind <= profilerFtraceEventIssueBlockFieldMissingOrInvalid {
 		if issue.PayloadField == 0 || !profilerFtraceBlockPayloadFieldKnown(eventField, int(issue.PayloadField)) {
 			return false
@@ -713,45 +574,25 @@ func (issue profilerFtraceEventIssue) validBlock(eventField int) bool {
 	switch issue.Kind {
 	case profilerFtraceEventIssueBlockCommMalformedWire, profilerFtraceEventIssueBlockCommWrongWire,
 		profilerFtraceEventIssueBlockCommDuplicate, profilerFtraceEventIssueBlockCommUnsafeOmitted:
-		return eventField == 204 || eventField == 210 || eventField == 211
+		role, _, roleKnown := profilerFtraceBlockFieldSchema(eventField, int(issue.PayloadField))
+		return roleKnown && role == profilerFtraceBlockFieldComm
 	case profilerFtraceEventIssueBlockCmdMalformedWire, profilerFtraceEventIssueBlockCmdWrongWire,
 		profilerFtraceEventIssueBlockCmdDuplicate, profilerFtraceEventIssueBlockCmdUnsafeOmitted:
-		return eventField == 209 || eventField == 210 || eventField == 211
+		role, _, roleKnown := profilerFtraceBlockFieldSchema(eventField, int(issue.PayloadField))
+		return roleKnown && role == profilerFtraceBlockFieldCmd
 	default:
 		return false
 	}
 }
 
 func profilerFtraceBlockPayloadFieldKnown(eventField, payloadField int) bool {
-	max := 0
-	switch eventField {
-	case 202:
-		max = 5
-	case 204:
-		max = 4
-	case 205:
-		max = 6
-	case 209, 210, 211:
-		max = 5
-	case 212:
-		max = 7
-	}
-	return payloadField >= 1 && payloadField <= max
+	role, _, known := profilerFtraceBlockFieldSchema(eventField, payloadField)
+	return known && !profilerFtraceBlockDisplayRole(role)
 }
 
 func profilerFtraceBlockRWBSField(eventField, payloadField int) bool {
-	switch eventField {
-	case 202, 209, 210, 211:
-		return payloadField == 5
-	case 204:
-		return payloadField == 4
-	case 205:
-		return payloadField == 6
-	case 212:
-		return payloadField == 7
-	default:
-		return false
-	}
+	role, _, known := profilerFtraceBlockFieldSchema(eventField, payloadField)
+	return known && role == profilerFtraceBlockFieldRWBS
 }
 
 func (issue profilerFtraceEventIssue) validWire(eventField int) bool {
@@ -823,7 +664,7 @@ func (issue profilerFtraceEventIssue) sourceClass() profilerFtraceEventDegradati
 		return profilerFtraceEventDegradationAuxPayload
 	case issue.Kind >= profilerFtraceEventIssueFilemapPayloadMalformedWire && issue.Kind <= profilerFtraceEventIssueFilemapOrderInvalid:
 		return profilerFtraceEventDegradationFilemapPayload
-	case issue.Kind >= profilerFtraceEventIssueBlockFieldMalformedWire && issue.Kind <= profilerFtraceEventIssueBlockFieldMissingOrInvalid:
+	case issue.Kind >= profilerFtraceEventIssueBlockPayloadMalformedWire && issue.Kind <= profilerFtraceEventIssueBlockInvalidCanonicalLine:
 		return profilerFtraceEventDegradationBlockPayload
 	case issue.Kind >= profilerFtraceEventIssueBlockCommMalformedWire && issue.Kind <= profilerFtraceEventIssueBlockCmdUnsafeOmitted:
 		return profilerFtraceEventDegradationBlockDisplay
@@ -872,146 +713,104 @@ func (issue profilerFtraceEventIssue) label(eventField int) (string, bool) {
 	}
 }
 
-var profilerFtraceEnvelopeLegacyKinds = map[string]profilerFtraceEventIssueKind{
-	"envelope_event_malformed_wire":              profilerFtraceEventIssueEnvelopeEventMalformedWire,
-	"envelope_trace_plugin_malformed_wire":       profilerFtraceEventIssueEnvelopeTracePluginMalformedWire,
-	"envelope_cpu_detail_malformed_wire":         profilerFtraceEventIssueEnvelopeCPUDetailMalformedWire,
-	"envelope_event_container_wrong_wire":        profilerFtraceEventIssueEnvelopeEventContainerWrongWire,
-	"envelope_overwrite_invalid":                 profilerFtraceEventIssueEnvelopeOverwriteInvalid,
-	"envelope_cpu_duplicate":                     profilerFtraceEventIssueEnvelopeCPUDuplicate,
-	"envelope_cpu_wrong_wire":                    profilerFtraceEventIssueEnvelopeCPUWrongWire,
-	"envelope_cpu_out_of_range":                  profilerFtraceEventIssueEnvelopeCPUOutOfRange,
-	"envelope_timestamp_duplicate":               profilerFtraceEventIssueEnvelopeTimestampDuplicate,
-	"envelope_timestamp_wrong_wire":              profilerFtraceEventIssueEnvelopeTimestampWrongWire,
-	"envelope_timestamp_out_of_range":            profilerFtraceEventIssueEnvelopeTimestampOutOfRange,
-	"envelope_tgid_duplicate":                    profilerFtraceEventIssueEnvelopeTGIDDuplicate,
-	"envelope_tgid_wrong_wire":                   profilerFtraceEventIssueEnvelopeTGIDWrongWire,
-	"envelope_tgid_out_of_range":                 profilerFtraceEventIssueEnvelopeTGIDOutOfRange,
-	"envelope_comm_duplicate":                    profilerFtraceEventIssueEnvelopeCommDuplicate,
-	"envelope_comm_wrong_wire":                   profilerFtraceEventIssueEnvelopeCommWrongWire,
-	"envelope_comm_invalid":                      profilerFtraceEventIssueEnvelopeCommInvalid,
-	"envelope_common_fields_missing":             profilerFtraceEventIssueEnvelopeCommonFieldsMissing,
-	"envelope_common_fields_duplicate":           profilerFtraceEventIssueEnvelopeCommonFieldsDuplicate,
-	"envelope_common_fields_wrong_wire":          profilerFtraceEventIssueEnvelopeCommonFieldsWrongWire,
-	"envelope_common_fields_malformed_wire":      profilerFtraceEventIssueEnvelopeCommonFieldsMalformedWire,
-	"envelope_common_type_duplicate":             profilerFtraceEventIssueEnvelopeCommonTypeDuplicate,
-	"envelope_common_type_wrong_wire":            profilerFtraceEventIssueEnvelopeCommonTypeWrongWire,
-	"envelope_common_type_source_width":          profilerFtraceEventIssueEnvelopeCommonTypeSourceWidth,
-	"envelope_common_flags_duplicate":            profilerFtraceEventIssueEnvelopeCommonFlagsDuplicate,
-	"envelope_common_flags_wrong_wire":           profilerFtraceEventIssueEnvelopeCommonFlagsWrongWire,
-	"envelope_common_flags_source_width":         profilerFtraceEventIssueEnvelopeCommonFlagsSourceWidth,
-	"envelope_common_preempt_count_duplicate":    profilerFtraceEventIssueEnvelopeCommonPreemptCountDuplicate,
-	"envelope_common_preempt_count_wrong_wire":   profilerFtraceEventIssueEnvelopeCommonPreemptCountWrongWire,
-	"envelope_common_preempt_count_source_width": profilerFtraceEventIssueEnvelopeCommonPreemptCountSourceWidth,
-	"envelope_common_pid_duplicate":              profilerFtraceEventIssueEnvelopeCommonPIDDuplicate,
-	"envelope_common_pid_wrong_wire":             profilerFtraceEventIssueEnvelopeCommonPIDWrongWire,
-	"envelope_common_pid_out_of_range":           profilerFtraceEventIssueEnvelopeCommonPIDOutOfRange,
-	"envelope_oneof_missing":                     profilerFtraceEventIssueEnvelopeOneofMissing,
-	"envelope_oneof_multiple":                    profilerFtraceEventIssueEnvelopeOneofMultiple,
-	"envelope_oneof_wrong_wire":                  profilerFtraceEventIssueEnvelopeOneofWrongWire,
-	"envelope_identity_incomplete":               profilerFtraceEventIssueEnvelopeIdentityIncomplete,
+// profilerFtraceEventFixedIssueLabels is the sole fixed diagnostic label
+// authority. It is intentionally one-way: producers construct typed issues,
+// and only the output boundary renders labels.
+var profilerFtraceEventFixedIssueLabels = map[profilerFtraceEventIssueKind]string{
+	profilerFtraceEventIssueEnvelopeEventMalformedWire:            "envelope_event_malformed_wire",
+	profilerFtraceEventIssueEnvelopeTracePluginMalformedWire:      "envelope_trace_plugin_malformed_wire",
+	profilerFtraceEventIssueEnvelopeCPUDetailMalformedWire:        "envelope_cpu_detail_malformed_wire",
+	profilerFtraceEventIssueEnvelopeEventContainerWrongWire:       "envelope_event_container_wrong_wire",
+	profilerFtraceEventIssueEnvelopeOverwriteInvalid:              "envelope_overwrite_invalid",
+	profilerFtraceEventIssueEnvelopeCPUDuplicate:                  "envelope_cpu_duplicate",
+	profilerFtraceEventIssueEnvelopeCPUWrongWire:                  "envelope_cpu_wrong_wire",
+	profilerFtraceEventIssueEnvelopeCPUOutOfRange:                 "envelope_cpu_out_of_range",
+	profilerFtraceEventIssueEnvelopeTimestampDuplicate:            "envelope_timestamp_duplicate",
+	profilerFtraceEventIssueEnvelopeTimestampWrongWire:            "envelope_timestamp_wrong_wire",
+	profilerFtraceEventIssueEnvelopeTimestampOutOfRange:           "envelope_timestamp_out_of_range",
+	profilerFtraceEventIssueEnvelopeTGIDDuplicate:                 "envelope_tgid_duplicate",
+	profilerFtraceEventIssueEnvelopeTGIDWrongWire:                 "envelope_tgid_wrong_wire",
+	profilerFtraceEventIssueEnvelopeTGIDOutOfRange:                "envelope_tgid_out_of_range",
+	profilerFtraceEventIssueEnvelopeCommDuplicate:                 "envelope_comm_duplicate",
+	profilerFtraceEventIssueEnvelopeCommWrongWire:                 "envelope_comm_wrong_wire",
+	profilerFtraceEventIssueEnvelopeCommInvalid:                   "envelope_comm_invalid",
+	profilerFtraceEventIssueEnvelopeCommonFieldsMissing:           "envelope_common_fields_missing",
+	profilerFtraceEventIssueEnvelopeCommonFieldsDuplicate:         "envelope_common_fields_duplicate",
+	profilerFtraceEventIssueEnvelopeCommonFieldsWrongWire:         "envelope_common_fields_wrong_wire",
+	profilerFtraceEventIssueEnvelopeCommonFieldsMalformedWire:     "envelope_common_fields_malformed_wire",
+	profilerFtraceEventIssueEnvelopeCommonTypeDuplicate:           "envelope_common_type_duplicate",
+	profilerFtraceEventIssueEnvelopeCommonTypeWrongWire:           "envelope_common_type_wrong_wire",
+	profilerFtraceEventIssueEnvelopeCommonTypeSourceWidth:         "envelope_common_type_source_width",
+	profilerFtraceEventIssueEnvelopeCommonFlagsDuplicate:          "envelope_common_flags_duplicate",
+	profilerFtraceEventIssueEnvelopeCommonFlagsWrongWire:          "envelope_common_flags_wrong_wire",
+	profilerFtraceEventIssueEnvelopeCommonFlagsSourceWidth:        "envelope_common_flags_source_width",
+	profilerFtraceEventIssueEnvelopeCommonPreemptCountDuplicate:   "envelope_common_preempt_count_duplicate",
+	profilerFtraceEventIssueEnvelopeCommonPreemptCountWrongWire:   "envelope_common_preempt_count_wrong_wire",
+	profilerFtraceEventIssueEnvelopeCommonPreemptCountSourceWidth: "envelope_common_preempt_count_source_width",
+	profilerFtraceEventIssueEnvelopeCommonPIDDuplicate:            "envelope_common_pid_duplicate",
+	profilerFtraceEventIssueEnvelopeCommonPIDWrongWire:            "envelope_common_pid_wrong_wire",
+	profilerFtraceEventIssueEnvelopeCommonPIDOutOfRange:           "envelope_common_pid_out_of_range",
+	profilerFtraceEventIssueEnvelopeOneofMissing:                  "envelope_oneof_missing",
+	profilerFtraceEventIssueEnvelopeOneofMultiple:                 "envelope_oneof_multiple",
+	profilerFtraceEventIssueEnvelopeOneofWrongWire:                "envelope_oneof_wrong_wire",
+	profilerFtraceEventIssueEnvelopeIdentityIncomplete:            "envelope_identity_incomplete",
+	profilerFtraceEventIssueCorePayloadMalformedWire:              "core_payload_malformed_wire",
+	profilerFtraceEventIssueCoreInvalidTransactionID:              "invalid_transaction_id",
+	profilerFtraceEventIssueCoreInvalidTransactionEndpoint:        "invalid_transaction_endpoint",
+	profilerFtraceEventIssueCoreInvalidReply:                      "invalid_reply",
+	profilerFtraceEventIssueCoreMissingOrInvalidReason:            "missing_or_invalid_reason",
+	profilerFtraceEventIssueCoreMissingOrInvalidIRQ:               "missing_or_invalid_irq",
+	profilerFtraceEventIssueCoreMissingOrInvalidIRQName:           "missing_or_invalid_irq_name",
+	profilerFtraceEventIssueCoreMissingOrInvalidRet:               "missing_or_invalid_ret",
+	profilerFtraceEventIssueCoreMissingOrInvalidVec:               "missing_or_invalid_vec",
+	profilerFtraceEventIssueCoreMissingOrInvalidState:             "missing_or_invalid_state",
+	profilerFtraceEventIssueCoreMissingOrInvalidCPUID:             "missing_or_invalid_cpu_id",
+	profilerFtraceEventIssueCoreInvalidLimitsProfile:              "invalid_limits_profile",
+	profilerFtraceEventIssueCoreInvalidLimitsOrder:                "invalid_limits_order",
+	profilerFtraceEventIssueCoreMissingOrInvalidPID:               "missing_or_invalid_pid",
+	profilerFtraceEventIssueCoreMissingOrInvalidPriority:          "missing_or_invalid_priority",
+	profilerFtraceEventIssueCoreMissingOrInvalidTargetCPU:         "missing_or_invalid_target_cpu",
+	profilerFtraceEventIssueCoreMissingOrInvalidIOWait:            "missing_or_invalid_iowait",
+	profilerFtraceEventIssueCoreDisplayCommWrongWire:              "display_comm_wrong_wire",
+	profilerFtraceEventIssueCoreDisplayCommDuplicate:              "display_comm_duplicate",
+	profilerFtraceEventIssueCoreDisplayCommInvalid:                "display_comm_invalid",
+	profilerFtraceEventIssueCoreDisplayCommUnavailable:            "display_comm_unavailable",
+	profilerFtraceEventIssueCoreDisplayCommOutOfProfile:           "display_comm_out_of_profile",
+	profilerFtraceEventIssueCoreDisplayCallerStrWrongWire:         "display_caller_str_wrong_wire",
+	profilerFtraceEventIssueCoreDisplayCallerStrDuplicate:         "display_caller_str_duplicate",
+	profilerFtraceEventIssueCoreDisplayCallerStrInvalid:           "display_caller_str_invalid",
+	profilerFtraceEventIssueCoreInvalidCanonicalLine:              "invalid_canonical_core_line",
+	profilerFtraceEventIssueAuxPayloadMalformedWire:               "aux_payload_malformed_wire",
+	profilerFtraceEventIssueAuxMissingOrInvalidPrintBuf:           "missing_or_invalid_print_buf",
+	profilerFtraceEventIssueAuxMissingOrInvalidF2FSDev:            "missing_or_invalid_f2fs_dev",
+	profilerFtraceEventIssueAuxMissingOrInvalidF2FSIno:            "missing_or_invalid_f2fs_ino",
+	profilerFtraceEventIssueAuxMissingOrInvalidMMCPointer:         "missing_or_invalid_mmc_pointer",
+	profilerFtraceEventIssueAuxMissingOrInvalidMMCName:            "missing_or_invalid_mmc_name",
+	profilerFtraceEventIssueAuxInvalidCanonicalLine:               "invalid_canonical_aux_line",
+	profilerFtraceEventIssueFilemapPayloadMalformedWire:           "filemap_payload_malformed_wire",
+	profilerFtraceEventIssueFilemapPFNInvalid:                     "filemap_pfn_invalid",
+	profilerFtraceEventIssueFilemapInodeInvalid:                   "filemap_inode_invalid",
+	profilerFtraceEventIssueFilemapIndexInvalid:                   "filemap_index_invalid",
+	profilerFtraceEventIssueFilemapDeviceInvalid:                  "filemap_device_invalid",
+	profilerFtraceEventIssueFilemapOrderInvalid:                   "filemap_order_invalid",
+	profilerFtraceEventIssueBlockPayloadMalformedWire:             "block_payload_malformed_wire",
+	profilerFtraceEventIssueBlockInvalidCanonicalLine:             "invalid_canonical_block_line",
+	profilerFtraceEventIssueBlockCommMalformedWire:                "comm_malformed_wire",
+	profilerFtraceEventIssueBlockCommWrongWire:                    "comm_wrong_wire",
+	profilerFtraceEventIssueBlockCommDuplicate:                    "comm_duplicate",
+	profilerFtraceEventIssueBlockCommUnsafeOmitted:                "comm_unsafe_omitted",
+	profilerFtraceEventIssueBlockCmdMalformedWire:                 "cmd_malformed_wire",
+	profilerFtraceEventIssueBlockCmdWrongWire:                     "cmd_wrong_wire",
+	profilerFtraceEventIssueBlockCmdDuplicate:                     "cmd_duplicate",
+	profilerFtraceEventIssueBlockCmdUnsafeOmitted:                 "cmd_unsafe_omitted",
+	profilerFtraceEventIssueWirePayloadMalformedWire:              "wire_payload_malformed_wire",
+	profilerFtraceEventIssueWireInvalidCanonicalLine:              "invalid_canonical_wire_line",
+	profilerFtraceEventIssueWireCPUIDMalformedWire:                "cpu_id_malformed_wire",
+	profilerFtraceEventIssueWireCPUIDWrongWire:                    "cpu_id_wrong_wire",
+	profilerFtraceEventIssueWireCPUIDDuplicate:                    "cpu_id_duplicate",
+	profilerFtraceEventIssueWireCPUIDOutOfRange:                   "cpu_id_out_of_range",
+	profilerFtraceEventIssueWireNextInfoMalformedWire:             "next_info_malformed_wire",
+	profilerFtraceEventIssueWireNextInfoWrongWire:                 "next_info_wrong_wire",
+	profilerFtraceEventIssueWireNextInfoDuplicate:                 "next_info_duplicate",
+	profilerFtraceEventIssueUnmappedField:                         "unmapped structured ftrace event field",
 }
-
-var profilerFtraceCoreLegacyKinds = map[string]profilerFtraceEventIssueKind{
-	"core_payload_malformed_wire":   profilerFtraceEventIssueCorePayloadMalformedWire,
-	"invalid_transaction_id":        profilerFtraceEventIssueCoreInvalidTransactionID,
-	"invalid_transaction_endpoint":  profilerFtraceEventIssueCoreInvalidTransactionEndpoint,
-	"invalid_reply":                 profilerFtraceEventIssueCoreInvalidReply,
-	"missing_or_invalid_reason":     profilerFtraceEventIssueCoreMissingOrInvalidReason,
-	"missing_or_invalid_irq":        profilerFtraceEventIssueCoreMissingOrInvalidIRQ,
-	"missing_or_invalid_irq_name":   profilerFtraceEventIssueCoreMissingOrInvalidIRQName,
-	"missing_or_invalid_ret":        profilerFtraceEventIssueCoreMissingOrInvalidRet,
-	"missing_or_invalid_vec":        profilerFtraceEventIssueCoreMissingOrInvalidVec,
-	"missing_or_invalid_state":      profilerFtraceEventIssueCoreMissingOrInvalidState,
-	"missing_or_invalid_cpu_id":     profilerFtraceEventIssueCoreMissingOrInvalidCPUID,
-	"invalid_limits_profile":        profilerFtraceEventIssueCoreInvalidLimitsProfile,
-	"invalid_limits_order":          profilerFtraceEventIssueCoreInvalidLimitsOrder,
-	"missing_or_invalid_pid":        profilerFtraceEventIssueCoreMissingOrInvalidPID,
-	"missing_or_invalid_priority":   profilerFtraceEventIssueCoreMissingOrInvalidPriority,
-	"missing_or_invalid_target_cpu": profilerFtraceEventIssueCoreMissingOrInvalidTargetCPU,
-	"missing_or_invalid_iowait":     profilerFtraceEventIssueCoreMissingOrInvalidIOWait,
-	"display_comm_wrong_wire":       profilerFtraceEventIssueCoreDisplayCommWrongWire,
-	"display_comm_duplicate":        profilerFtraceEventIssueCoreDisplayCommDuplicate,
-	"display_comm_invalid":          profilerFtraceEventIssueCoreDisplayCommInvalid,
-	"display_comm_unavailable":      profilerFtraceEventIssueCoreDisplayCommUnavailable,
-	"display_comm_out_of_profile":   profilerFtraceEventIssueCoreDisplayCommOutOfProfile,
-	"display_caller_str_wrong_wire": profilerFtraceEventIssueCoreDisplayCallerStrWrongWire,
-	"display_caller_str_duplicate":  profilerFtraceEventIssueCoreDisplayCallerStrDuplicate,
-	"display_caller_str_invalid":    profilerFtraceEventIssueCoreDisplayCallerStrInvalid,
-	"invalid_canonical_core_line":   profilerFtraceEventIssueCoreInvalidCanonicalLine,
-}
-
-var profilerFtraceAuxLegacyKinds = map[string]profilerFtraceEventIssueKind{
-	"aux_payload_malformed_wire":     profilerFtraceEventIssueAuxPayloadMalformedWire,
-	"missing_or_invalid_print_buf":   profilerFtraceEventIssueAuxMissingOrInvalidPrintBuf,
-	"missing_or_invalid_f2fs_dev":    profilerFtraceEventIssueAuxMissingOrInvalidF2FSDev,
-	"missing_or_invalid_f2fs_ino":    profilerFtraceEventIssueAuxMissingOrInvalidF2FSIno,
-	"missing_or_invalid_mmc_pointer": profilerFtraceEventIssueAuxMissingOrInvalidMMCPointer,
-	"missing_or_invalid_mmc_name":    profilerFtraceEventIssueAuxMissingOrInvalidMMCName,
-	"invalid_canonical_aux_line":     profilerFtraceEventIssueAuxInvalidCanonicalLine,
-}
-
-var profilerFtraceFilemapLegacyKinds = map[string]profilerFtraceEventIssueKind{
-	"filemap_payload_malformed_wire": profilerFtraceEventIssueFilemapPayloadMalformedWire,
-	"filemap_pfn_invalid":            profilerFtraceEventIssueFilemapPFNInvalid,
-	"filemap_inode_invalid":          profilerFtraceEventIssueFilemapInodeInvalid,
-	"filemap_index_invalid":          profilerFtraceEventIssueFilemapIndexInvalid,
-	"filemap_device_invalid":         profilerFtraceEventIssueFilemapDeviceInvalid,
-	"filemap_order_invalid":          profilerFtraceEventIssueFilemapOrderInvalid,
-}
-
-var profilerFtraceBlockDisplayLegacyKinds = map[string]profilerFtraceEventIssueKind{
-	"comm_malformed_wire": profilerFtraceEventIssueBlockCommMalformedWire,
-	"comm_wrong_wire":     profilerFtraceEventIssueBlockCommWrongWire,
-	"comm_duplicate":      profilerFtraceEventIssueBlockCommDuplicate,
-	"comm_unsafe_omitted": profilerFtraceEventIssueBlockCommUnsafeOmitted,
-	"cmd_malformed_wire":  profilerFtraceEventIssueBlockCmdMalformedWire,
-	"cmd_wrong_wire":      profilerFtraceEventIssueBlockCmdWrongWire,
-	"cmd_duplicate":       profilerFtraceEventIssueBlockCmdDuplicate,
-	"cmd_unsafe_omitted":  profilerFtraceEventIssueBlockCmdUnsafeOmitted,
-}
-
-var profilerFtraceWireDisplayLegacyKinds = map[string]profilerFtraceEventIssueKind{
-	"cpu_id_malformed_wire":    profilerFtraceEventIssueWireCPUIDMalformedWire,
-	"cpu_id_wrong_wire":        profilerFtraceEventIssueWireCPUIDWrongWire,
-	"cpu_id_duplicate":         profilerFtraceEventIssueWireCPUIDDuplicate,
-	"cpu_id_out_of_range":      profilerFtraceEventIssueWireCPUIDOutOfRange,
-	"next_info_malformed_wire": profilerFtraceEventIssueWireNextInfoMalformedWire,
-	"next_info_wrong_wire":     profilerFtraceEventIssueWireNextInfoWrongWire,
-	"next_info_duplicate":      profilerFtraceEventIssueWireNextInfoDuplicate,
-}
-
-var profilerFtraceWireHardLegacyKinds = map[string]profilerFtraceEventIssueKind{
-	"wire_payload_malformed_wire": profilerFtraceEventIssueWirePayloadMalformedWire,
-	"invalid_canonical_wire_line": profilerFtraceEventIssueWireInvalidCanonicalLine,
-}
-
-var profilerFtraceEventFixedIssueLabels = func() map[profilerFtraceEventIssueKind]string {
-	out := make(map[profilerFtraceEventIssueKind]string,
-		len(profilerFtraceEnvelopeLegacyKinds)+len(profilerFtraceCoreLegacyKinds)+len(profilerFtraceAuxLegacyKinds)+
-			len(profilerFtraceFilemapLegacyKinds)+len(profilerFtraceBlockDisplayLegacyKinds)+
-			len(profilerFtraceWireDisplayLegacyKinds)+len(profilerFtraceWireHardLegacyKinds)+1)
-	for label, kind := range profilerFtraceEnvelopeLegacyKinds {
-		out[kind] = label
-	}
-	for label, kind := range profilerFtraceCoreLegacyKinds {
-		out[kind] = label
-	}
-	for label, kind := range profilerFtraceAuxLegacyKinds {
-		out[kind] = label
-	}
-	for label, kind := range profilerFtraceFilemapLegacyKinds {
-		out[kind] = label
-	}
-	for label, kind := range profilerFtraceBlockDisplayLegacyKinds {
-		out[kind] = label
-	}
-	for label, kind := range profilerFtraceWireDisplayLegacyKinds {
-		out[kind] = label
-	}
-	for label, kind := range profilerFtraceWireHardLegacyKinds {
-		out[kind] = label
-	}
-	out[profilerFtraceEventIssueUnmappedField] = "unmapped structured ftrace event field"
-	return out
-}()

@@ -1,7 +1,6 @@
 package hitraceconv
 
 import (
-	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -369,9 +368,9 @@ func decodeProfilerCorePayloadWithTypedAudit(event profilerFtraceEventRecord) (
 	return payload, bodyAdmitted, set, true, nil
 }
 
-// decodeProfilerCorePayload is the direct compatibility adapter retained while
-// B2-b4/b5 still use the legacy label surface. Production structured-core
-// verdicts consume decodeProfilerCorePayloadWithTypedAudit directly.
+// decodeProfilerCorePayload is a test/compatibility adapter over the typed
+// decoder. Production structured-core verdicts consume
+// decodeProfilerCorePayloadWithTypedAudit directly.
 func decodeProfilerCorePayload(event profilerFtraceEventRecord) (coreRenderPayload, bodyAdmission, string, []string) {
 	payload, admission, set, handled, err := decodeProfilerCorePayloadWithTypedAudit(event)
 	if !handled {
@@ -492,44 +491,9 @@ func finalizeProfilerFtraceCoreEventWithTypedAudit(
 	}
 }
 
-func decodeProfilerCoreProtoFields(data []byte, schema map[int]int) (map[int]profilerCoreProtoField, string) {
-	fields := make(map[int]profilerCoreProtoField, len(schema))
-	err := walkProtoFields(data, func(field int, wire int, raw []byte, value uint64) error {
-		expectedWire, known := schema[field]
-		if !known {
-			return nil
-		}
-		item := fields[field]
-		item.count++
-		if wire != expectedWire {
-			item.wrongWire = true
-		} else if wire == 2 {
-			item.bytesValue = raw
-		} else {
-			item.uintValue = value
-		}
-		fields[field] = item
-		return nil
-	})
-	if err != nil {
-		return nil, "core_payload_malformed_wire"
-	}
-	return fields, ""
-}
-
 func profilerCoreDisplayField(eventField, payloadField int) bool {
 	return (eventField == 2420 || eventField == 2421 || eventField == 2422) && payloadField == 1 ||
 		eventField == 4002 && payloadField == 4
-}
-
-func profilerCoreFieldWireReason(field profilerCoreProtoField, number int) string {
-	if field.wrongWire {
-		return fmt.Sprintf("core_field%d_wrong_wire", number)
-	}
-	if field.count > 1 {
-		return fmt.Sprintf("core_field%d_duplicate", number)
-	}
-	return ""
 }
 
 func profilerCoreInt32(field profilerCoreProtoField) (int64, bool) {

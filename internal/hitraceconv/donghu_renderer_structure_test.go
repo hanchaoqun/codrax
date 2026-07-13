@@ -23,7 +23,7 @@ func TestDonghuRendererStructurePinsSingleAuthorities(t *testing.T) {
 			t.Fatalf("field2002 lost %q authority:\n%s", token, field2002)
 		}
 	}
-	generic := sourceBetween(t, profiler, "func renderProfilerFtraceGenericEventWithTypedAudit(", "type protoScalarState")
+	generic := sourceBetween(t, profiler, "func renderProfilerFtraceGenericEventWithTypedAudit(", "func profilerFtraceEventRenderCoverage(")
 	if strings.Count(generic, "walkProtoFields(event.Payload") != 1 {
 		t.Fatal("generic 410/2002/2417 producer must parse its payload exactly once")
 	}
@@ -53,7 +53,8 @@ func TestDonghuRendererStructurePinsSingleAuthorities(t *testing.T) {
 		t.Fatal("profiler renderer must not contain a fabricated page pointer literal")
 	}
 	for _, token := range []string{
-		"renderProfilerFtraceEventBodyWithAudit(event)",
+		"renderProfilerFtraceEventBodyWithTypedAuditAndPair(event)",
+		"profilerFtraceEventIssueLabels(event.Field, issues)",
 		"degradationsByField",
 		"degraded_",
 		"traceDBCountSummary(counts)",

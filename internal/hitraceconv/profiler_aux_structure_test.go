@@ -120,21 +120,31 @@ func TestProfilerStructuredAuxUsesOneTypedAuthorityBeforeLegacy(t *testing.T) {
 	}
 
 	audit := sourceBetween(t, profiler, "func renderProfilerFtraceEventBodyWithAudit(", "func renderProfilerFtraceEventBodyWithTypedAudit(")
-	coreAt := strings.Index(audit, "renderProfilerFtraceCoreEventWithTypedAudit(event)")
-	auxAt := strings.Index(audit, "renderProfilerFtraceAuxEventWithTypedAudit(event)")
-	filemapAt := strings.Index(audit, "renderProfilerFtraceFilemapEventWithTypedAudit(event)")
-	blockAt := strings.Index(audit, "blockRenderKindForProfilerField(event.Field)")
-	genericAt := strings.Index(audit, "renderProfilerFtraceGenericEventWithTypedAudit(event)")
+	if strings.Count(audit, "renderProfilerFtraceEventBodyWithTypedAudit(event)") != 1 ||
+		strings.Count(audit, "profilerFtraceEventIssueLabels(event.Field, issues)") != 1 {
+		t.Fatal("compatibility audit is not one typed-call plus one label adapter")
+	}
+	for _, forbidden := range []string{
+		"renderProfilerFtraceCoreEventWithTypedAudit(event)",
+		"renderProfilerFtraceAuxEventWithTypedAudit(event)",
+		"renderProfilerFtraceFilemapEventWithTypedAudit(event)",
+		"renderProfilerFtraceBlockEventWithTypedAudit(event)",
+		"renderProfilerFtraceGenericEventWithTypedAudit(event)",
+	} {
+		if strings.Contains(audit, forbidden) {
+			t.Fatalf("compatibility audit restored a producer authority %q", forbidden)
+		}
+	}
+	typed := sourceBetween(t, profiler, "func renderProfilerFtraceEventBodyWithTypedAuditAndPair(", "const profilerFtraceGenericIssuesPerEvent")
+	coreAt := strings.Index(typed, "renderProfilerFtraceCoreEventWithTypedAudit(event)")
+	auxAt := strings.Index(typed, "finalizeProfilerFtraceAuxEventWithTypedAudit(event, auxResult)")
+	filemapAt := strings.Index(typed, "renderProfilerFtraceFilemapEventWithTypedAudit(event)")
+	blockAt := strings.Index(typed, "renderProfilerFtraceBlockEventWithTypedAudit(event)")
+	genericAt := strings.Index(typed, "renderProfilerFtraceGenericEventWithTypedAudit(event)")
 	if coreAt < 0 || auxAt < 0 || filemapAt < 0 || blockAt < 0 || genericAt < 0 ||
 		!(coreAt < auxAt && auxAt < filemapAt && filemapAt < blockAt && blockAt < genericAt) {
 		t.Fatalf("typed renderer order drifted: core=%d aux=%d filemap=%d block=%d generic=%d", coreAt, auxAt, filemapAt, blockAt, genericAt)
 	}
-	auxArm := sourceBetween(t, audit, "renderProfilerFtraceAuxEventWithTypedAudit(event)", "renderProfilerFtraceFilemapEventWithTypedAudit(event)")
-	if !strings.Contains(auxArm, "profilerFtraceEventIssueLabels(event.Field, issues)") ||
-		!strings.Contains(auxArm, "profilerStructuredAuxSchemas[event.Field]") {
-		t.Fatal("governed aux rejection/render/line-cap choke point can fall through")
-	}
-	typed := sourceBetween(t, profiler, "func renderProfilerFtraceEventBodyWithTypedAuditAndPair(", "const profilerFtraceGenericIssuesPerEvent")
 	if strings.Count(typed, "decodeProfilerAuxPayloadWithTypedAudit(event)") != 1 ||
 		!strings.Contains(typed, "finalizeProfilerFtraceAuxEventWithTypedAudit(event, auxResult)") ||
 		strings.Contains(typed, "profilerFtraceEventDegradationAuxPayload") ||

@@ -35,23 +35,19 @@ func TestProfilerStructuredCoreHasOneCanonicalRenderAuthority(t *testing.T) {
 	}
 
 	audit := sourceBetween(t, profiler, "func renderProfilerFtraceEventBodyWithAudit(", "func renderProfilerFtraceEventBodyWithTypedAudit(")
-	decodeAt := strings.Index(audit, "renderProfilerFtraceCoreEventWithTypedAudit(event)")
-	genericAt := strings.Index(audit, "renderProfilerFtraceGenericEventWithTypedAudit(event)")
-	if decodeAt < 0 || genericAt < 0 || decodeAt > genericAt {
-		t.Fatal("structured core typed admission must run before the generic typed renderer")
-	}
-	if !strings.Contains(audit, "if coreErr != nil") || !strings.Contains(audit, "profilerFtraceEventIssueLabels(event.Field, issues)") {
-		t.Fatal("direct core compatibility path no longer fail-closes or uses the typed-to-label adapter")
+	if strings.Count(audit, "renderProfilerFtraceEventBodyWithTypedAudit(event)") != 1 ||
+		strings.Count(audit, "profilerFtraceEventIssueLabels(event.Field, issues)") != 1 ||
+		strings.Contains(audit, "renderProfilerFtraceCoreEventWithTypedAudit(event)") {
+		t.Fatal("direct compatibility path is not a single typed-call-to-label adapter")
 	}
 
-	typed := sourceBetween(t, profiler, "func renderProfilerFtraceEventBodyWithTypedAudit(", "const profilerFtraceGenericIssuesPerEvent")
+	typed := sourceBetween(t, profiler, "func renderProfilerFtraceEventBodyWithTypedAuditAndPair(", "const profilerFtraceGenericIssuesPerEvent")
 	if strings.Count(typed, "renderProfilerFtraceCoreEventWithTypedAudit(event)") != 1 ||
 		!strings.Contains(typed, "profiler_core_typed_renderer_unhandled") {
-		t.Fatal("typed core path can fall through to the legacy bridge")
+		t.Fatal("typed core path lost its single typed producer or governed unhandled guard")
 	}
-	legacyBridge := sourceBetween(t, typed, "legacySource :=", "if profilerFtraceEventSlot(event.Field)")
-	if strings.Contains(legacyBridge, "profilerStructuredCoreSchemas") ||
-		strings.Contains(legacyBridge, "profilerFtraceEventDegradationCorePayload") {
+	if strings.Contains(typed, "profilerFtraceEventDegradationCorePayload") ||
+		strings.Contains(typed, "renderProfilerFtraceEventBodyWithAudit(event)") {
 		t.Fatal("production core still has a reverse legacy issue bridge")
 	}
 }

@@ -65,8 +65,7 @@ func TestProfilerEventDiagnosticsMillionObservationsUseOneFixedSlot(t *testing.T
 
 func TestProfilerEventExactIssueMillionOccurrencesKeepOneAffectedFrame(t *testing.T) {
 	const observations = 1_000_000
-	issue, ok := profilerFtraceEventIssueFromLegacy(2003, profilerFtraceEventDegradationCorePayload,
-		"core_field1_wrong_wire")
+	issue, ok := profilerFtraceEventPayloadIssue(2003, profilerFtraceEventIssueCoreFieldWrongWire, 1)
 	if !ok {
 		t.Fatal("fixture exact issue rejected")
 	}
@@ -203,8 +202,7 @@ func TestProfilerEventUnknownFieldsUseOneStableBucket(t *testing.T) {
 func TestProfilerEventAffectedFrameCountIsNotDegradationOccurrenceCount(t *testing.T) {
 	var batch profilerFtraceEventBatchCensus
 	for _, field := range []int{9_998, 9_999} {
-		issue, ok := profilerFtraceEventIssueFromLegacy(field, profilerFtraceEventDegradationUnmappedField,
-			"unmapped structured ftrace event field")
+		issue, ok := profilerFtraceEventFixedIssue(field, profilerFtraceEventIssueUnmappedField)
 		if !ok || !batch.observeRead(field) || !batch.observeIssues(field, false, []profilerFtraceEventIssue{issue}) {
 			t.Fatalf("observe degraded field %d", field)
 		}
@@ -225,13 +223,11 @@ func TestProfilerEventAffectedFrameCountIsNotDegradationOccurrenceCount(t *testi
 }
 
 func TestProfilerEventSameClassExactIssuesKeepClassAffectedFrameUnion(t *testing.T) {
-	first, ok := profilerFtraceEventIssueFromLegacy(113, profilerFtraceEventDegradationCorePayload,
-		"core_field1_wrong_wire")
+	first, ok := profilerFtraceEventPayloadIssue(113, profilerFtraceEventIssueCoreFieldWrongWire, 1)
 	if !ok {
 		t.Fatal("fixture first exact issue rejected")
 	}
-	second, ok := profilerFtraceEventIssueFromLegacy(113, profilerFtraceEventDegradationCorePayload,
-		"core_field2_duplicate")
+	second, ok := profilerFtraceEventPayloadIssue(113, profilerFtraceEventIssueCoreFieldDuplicate, 2)
 	if !ok {
 		t.Fatal("fixture second exact issue rejected")
 	}
@@ -260,11 +256,11 @@ func TestProfilerEventSameClassExactIssuesKeepClassAffectedFrameUnion(t *testing
 
 func TestProfilerEventEnvelopeSlotsRemainSeparate(t *testing.T) {
 	var batch profilerFtraceEventBatchCensus
-	for field, reason := range map[int]string{
-		0:                                    "envelope_oneof_missing",
-		profilerFtraceCPUDetailEnvelopeField: "envelope_cpu_detail_malformed_wire",
+	for field, kind := range map[int]profilerFtraceEventIssueKind{
+		0:                                    profilerFtraceEventIssueEnvelopeOneofMissing,
+		profilerFtraceCPUDetailEnvelopeField: profilerFtraceEventIssueEnvelopeCPUDetailMalformedWire,
 	} {
-		issue, ok := profilerFtraceEventIssueFromLegacy(field, profilerFtraceEventDegradationEnvelope, reason)
+		issue, ok := profilerFtraceEventFixedIssue(field, kind)
 		if !ok || !batch.observeRead(field) || !batch.observeIssues(field, false, []profilerFtraceEventIssue{issue}) {
 			t.Fatalf("observe envelope field %d", field)
 		}

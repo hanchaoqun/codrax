@@ -187,7 +187,7 @@ func TestBlockProfilerHardWireAndDomainFailures(t *testing.T) {
 		data   []byte
 		reason string
 	}{
-		{name: "malformed wire", field: 211, data: append(validIssue(), 0x80), reason: "core_field1_malformed_wire"},
+		{name: "malformed wire", field: 211, data: append(validIssue(), 0x80), reason: "block_payload_malformed_wire"},
 		{name: "dev wrong wire", field: 211, data: protoPayload(protoBytes(1, []byte{1}), protoVarint(2, 2), protoVarint(3, 3), protoVarint(4, 1), protoBytes(5, []byte("R"))), reason: "core_field1_wrong_wire"},
 		{name: "dev duplicate", field: 211, data: append(validIssue(), protoVarint(1, 1)...), reason: "core_field1_duplicate"},
 		{name: "dev range", field: 211, data: protoPayload(protoVarint(1, uint64(math.MaxUint32)+1), protoVarint(2, 2), protoVarint(3, 3), protoVarint(4, 1), protoBytes(5, []byte("R"))), reason: "core_field1_out_of_range"},

@@ -599,21 +599,23 @@ func TestProfilerFilemapTypedUnsupportedAndSingleWalkStructure(t *testing.T) {
 	}
 	compatEntry := entry[compatStart:typedStart]
 	typedEntry := entry[typedStart:genericStart]
-	for lane, source := range map[string]string{"compat": compatEntry, "typed": typedEntry} {
-		filemapAt := strings.Index(source, "renderProfilerFtraceFilemapEventWithTypedAudit(event)")
-		genericAt := strings.Index(source, "renderProfilerFtraceGenericEventWithTypedAudit(event)")
-		if strings.Count(source, "renderProfilerFtraceFilemapEventWithTypedAudit(event)") != 1 ||
-			filemapAt < 0 || genericAt < 0 || filemapAt >= genericAt {
-			t.Fatalf("%s entry lost direct filemap typed precedence", lane)
-		}
-		if strings.Contains(source[:genericAt], "decodeProfilerFilemapPayload(event)") {
-			t.Fatalf("%s entry regained legacy filemap parser authority", lane)
-		}
+	if strings.Count(compatEntry, "renderProfilerFtraceEventBodyWithTypedAudit(event)") != 1 ||
+		strings.Count(compatEntry, "profilerFtraceEventIssueLabels(event.Field, issues)") != 1 ||
+		strings.Contains(compatEntry, "renderProfilerFtraceFilemapEventWithTypedAudit(event)") {
+		t.Fatal("compat entry is not one typed-call-to-label adapter")
 	}
 	filemapAt := strings.Index(typedEntry, "renderProfilerFtraceFilemapEventWithTypedAudit(event)")
+	genericAt := strings.Index(typedEntry, "renderProfilerFtraceGenericEventWithTypedAudit(event)")
+	if strings.Count(typedEntry, "renderProfilerFtraceFilemapEventWithTypedAudit(event)") != 1 ||
+		filemapAt < 0 || genericAt < 0 || filemapAt >= genericAt {
+		t.Fatal("typed entry lost direct filemap typed precedence")
+	}
+	if strings.Contains(typedEntry[:genericAt], "decodeProfilerFilemapPayload(event)") {
+		t.Fatal("typed entry regained legacy filemap parser authority")
+	}
 	legacyAt := strings.Index(typedEntry, "renderProfilerFtraceEventBodyWithAudit(event)")
-	if legacyAt < 0 || filemapAt >= legacyAt ||
+	if legacyAt >= 0 ||
 		strings.Contains(typedEntry, "profilerFtraceEventDegradationFilemapPayload") {
-		t.Fatal("typed filemap arm fell behind or returned to the reverse bridge")
+		t.Fatal("typed filemap arm returned to the reverse bridge")
 	}
 }

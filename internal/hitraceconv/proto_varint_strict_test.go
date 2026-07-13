@@ -30,12 +30,18 @@ func TestConsumeProtoVarintRejectsUint64Overflow(t *testing.T) {
 	}
 }
 
-func TestProtoScalarUintRejectsOverflowInsteadOfMintingZero(t *testing.T) {
+func TestWalkProtoFieldsRejectsOverflowInsteadOfMintingZero(t *testing.T) {
 	// field3 varint key followed by 2^64, which previously wrapped to zero.
 	payload := append([]byte{3 << 3}, []byte{0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x02}...)
-	value, state, reason := protoScalarUint(payload, 3)
-	if value != 0 || state != protoScalarInvalid || reason != "malformed_wire" {
-		t.Fatalf("overflow scalar admitted: value=%d state=%d reason=%q", value, state, reason)
+	called := false
+	err := walkProtoFields(payload, func(int, int, []byte, uint64) error {
+		called = true
+		return nil
+	})
+	var decodeErr *protoFieldDecodeError
+	if called || !errors.As(err, &decodeErr) || decodeErr.Failure != protoFieldDecodeMalformedValue ||
+		!decodeErr.FieldKnown || decodeErr.Field != 3 || !decodeErr.Terminal {
+		t.Fatalf("overflow scalar admitted or lost typed provenance: called=%t err=%T %v typed=%+v", called, err, err, decodeErr)
 	}
 }
 
