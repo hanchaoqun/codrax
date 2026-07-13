@@ -18,9 +18,30 @@ func TestDonghuRendererStructurePinsSingleAuthorities(t *testing.T) {
 		t.Fatalf("field410 ClkSetRate schema must not acquire a CPU dimension:\n%s", field410)
 	}
 	field2002 := sourceBetween(t, profiler, "case 2002:", "case 2417:")
-	for _, token := range []string{"protoScalarUint(event.Payload, 3)", "appendClockSetRateCPU"} {
+	for _, token := range []string{"displayValue", "appendClockSetRateCPU"} {
 		if !strings.Contains(field2002, token) {
 			t.Fatalf("field2002 lost %q authority:\n%s", token, field2002)
+		}
+	}
+	generic := sourceBetween(t, profiler, "func renderProfilerFtraceGenericEventWithTypedAudit(", "type protoScalarState")
+	if strings.Count(generic, "walkProtoFields(event.Payload") != 1 {
+		t.Fatal("generic 410/2002/2417 producer must parse its payload exactly once")
+	}
+	for _, required := range []string{
+		"var fields [9]profilerFtraceGenericFieldState",
+		"Issues [profilerFtraceGenericIssuesPerEvent]profilerFtraceEventIssue",
+		"const profilerFtraceGenericIssuesPerEvent = 7",
+	} {
+		if !strings.Contains(profiler, required) {
+			t.Fatalf("generic typed producer lost fixed structure %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"protoScalarUint(", "protoScalarString(", "protoUint(", "protoInt(", "protoString(",
+		"profilerFtraceEventIssueFromLegacy(", `fmt.Sprintf("core_field`, ".Error()",
+	} {
+		if strings.Contains(generic, forbidden) {
+			t.Fatalf("generic typed producer reintroduced dynamic/rescan authority %q", forbidden)
 		}
 	}
 	if !strings.Contains(descriptors, `{Field: 2002, Family: "clock", Name: "clock_set_rate"}`) ||

@@ -1,6 +1,7 @@
 package hitraceconv
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -691,47 +692,15 @@ func decodeProfilerFtraceCommonFields(record *profilerFtraceEventRecord, data []
 }
 
 func renderProfilerFtraceEventBody(event profilerFtraceEventRecord) (string, string, bool) {
-	switch event.Field {
-	case 202, 204, 205, 209, 210, 211, 212:
+	if _, _, blockEvent := blockRenderKindForProfilerField(event.Field); blockEvent {
 		name, body, ok, _ := renderProfilerBlockEvent(event)
 		return name, body, ok
-	case 410:
-		// Field 410 is clk.proto ClkSetRateFormat{name, rate}; unlike the
-		// power event at field 2002 it has no cpu_id. Keep the established
-		// clock_set_rate text alias, but never synthesize a CPU dimension.
-		return "clock_set_rate", fmt.Sprintf("%s state=%d", protoString(event.Payload, 1), protoUint(event.Payload, 2)), true
-	case 2002:
-		parts := []string{protoString(event.Payload, 1), fmt.Sprintf("state=%d", protoUint(event.Payload, 2))}
-		cpuID, state, _ := protoScalarUint(event.Payload, 3)
-		switch state {
-		case protoScalarAbsent:
-			// FtraceEventProcessor always sets ClockSetRateFormat.cpu_id.
-			// Proto3 omits an exact zero scalar from the wire, so absence in
-			// this pinned producer profile is authoritative CPU 0.
-			parts = appendClockSetRateCPU(parts, 0)
-		case protoScalarPresent:
-			parts = appendClockSetRateCPU(parts, cpuID)
-		}
-		return "clock_set_rate", strings.Join(parts, " "), true
-	case 2417:
-		body := fmt.Sprintf("prev_comm=%s prev_pid=%d prev_prio=%d prev_state=%s ==> next_comm=%s next_pid=%d next_prio=%d",
-			protoString(event.Payload, 1), protoInt(event.Payload, 2), protoInt(event.Payload, 3),
-			linuxPrevState(protoUint(event.Payload, 4)), protoString(event.Payload, 5), protoInt(event.Payload, 6), protoInt(event.Payload, 7))
-		nextInfo, state, _ := protoScalarUint(event.Payload, 8)
-		// The pinned producer writes MaxUint64 when the source format has no
-		// next_info. Proto3 omits an exact packed zero, so wire absence is the
-		// authoritative zero tuple only for this exact field-2417 profile.
-		if state == protoScalarAbsent {
-			nextInfo = 0
-			state = protoScalarPresent
-		}
-		if state == protoScalarPresent && nextInfo != ^uint64(0) {
-			body += " next_info=" + formatHarmonySchedInfo(nextInfo, true)
-		}
-		return "sched_switch", body, true
-	default:
-		return "", "", false
 	}
+	name, body, ok, _, handled, err := renderProfilerFtraceGenericEventWithTypedAudit(event)
+	if handled && err == nil {
+		return name, body, ok
+	}
+	return "", "", false
 }
 
 func safeProfilerBlockedCaller(raw string) (string, bool) {
@@ -835,29 +804,18 @@ func renderProfilerFtraceEventBodyWithAudit(event profilerFtraceEventRecord) (st
 	if _, _, blockEvent := blockRenderKindForProfilerField(event.Field); blockEvent {
 		return renderProfilerBlockEvent(event)
 	}
-	coreOK, degradations := profilerFtraceCoreWireAudit(event)
-	if !coreOK {
-		return "", "", false, degradations
-	}
-	name, body, ok := renderProfilerFtraceEventBody(event)
-	if !ok {
-		return name, body, ok, nil
-	}
-	switch event.Field {
-	case 2002:
-		cpuID, state, reason := protoScalarUint(event.Payload, 3)
-		if state == protoScalarInvalid {
-			degradations = append(degradations, "cpu_id_"+reason)
-		} else if state == protoScalarPresent && cpuID > uint64(maxTraceDBCPUIndex) {
-			degradations = append(degradations, "cpu_id_out_of_range")
+	name, body, ok, issues, handled, genericErr := renderProfilerFtraceGenericEventWithTypedAudit(event)
+	if handled {
+		if genericErr != nil {
+			return "", "", false, nil
 		}
-	case 2417:
-		_, state, reason := protoScalarUint(event.Payload, 8)
-		if state == protoScalarInvalid {
-			degradations = append(degradations, "next_info_"+reason)
+		labels, labelsOK := profilerFtraceEventIssueLabels(event.Field, issues)
+		if !labelsOK {
+			return "", "", false, nil
 		}
+		return name, body, ok, labels
 	}
-	return name, body, ok, degradations
+	return "", "", false, nil
 }
 
 // B2-b migrates producer families one at a time. Envelope issues already enter
@@ -881,6 +839,9 @@ func renderProfilerFtraceEventBodyWithTypedAudit(event profilerFtraceEventRecord
 			issues = append(issues, unmapped)
 		}
 		return "", "", false, issues, nil
+	}
+	if name, body, ok, issues, handled, genericErr := renderProfilerFtraceGenericEventWithTypedAudit(event); handled {
+		return name, body, ok, issues, genericErr
 	}
 	name, body, ok, reasons := renderProfilerFtraceEventBodyWithAudit(event)
 	legacySource := profilerFtraceEventDegradationFieldAudit
@@ -937,61 +898,406 @@ func renderProfilerFtraceEventBodyWithTypedAudit(event profilerFtraceEventRecord
 	return name, body, ok, issues, nil
 }
 
-func profilerFtraceCoreWireAudit(event profilerFtraceEventRecord) (bool, []string) {
-	var stringFields []int
-	var scalarFields []int
-	switch event.Field {
-	case 410, 2002:
-		stringFields = []int{1}
-		scalarFields = []int{2}
-	case 2417:
-		stringFields = []int{1, 5}
-		scalarFields = []int{2, 3, 4, 6, 7}
-	default:
-		return true, nil
+const profilerFtraceGenericIssuesPerEvent = 7
+
+type profilerFtraceGenericIssueSet struct {
+	Count  uint8
+	Issues [profilerFtraceGenericIssuesPerEvent]profilerFtraceEventIssue
+}
+
+func (set *profilerFtraceGenericIssueSet) validate(eventField int) error {
+	if set == nil || int(set.Count) > len(set.Issues) {
+		return &traceDBOutputInvariantError{Reason: "profiler_generic_issue_count_invalid"}
 	}
-	var reasons []string
-	for _, field := range stringFields {
-		value, state, reason := protoScalarString(event.Payload, field)
-		validValue := state == protoScalarPresent && traceDBSinglePhysicalLine(value, false)
-		if validValue && (event.Field == 410 || event.Field == 2002) && field == 1 {
-			validValue = traceDBSingleToken(value)
-		}
-		if state == protoScalarAbsent || (state == protoScalarPresent && !validValue) {
-			reasons = append(reasons, fmt.Sprintf("core_field%d_missing_or_invalid", field))
+	var payloadFields [9]bool
+	severitySet := false
+	var severity profilerFtraceEventIssueSeverity
+	displayCount := 0
+	issueArm := uint8(0)
+	for index, issue := range set.Issues {
+		if index >= int(set.Count) {
+			if issue != (profilerFtraceEventIssue{}) {
+				return &traceDBOutputInvariantError{Reason: "profiler_generic_issue_count_invalid"}
+			}
 			continue
 		}
-		if state == protoScalarInvalid {
-			reasons = append(reasons, fmt.Sprintf("core_field%d_%s", field, reason))
+		if issue.Kind < profilerFtraceEventIssueWirePayloadMalformedWire ||
+			issue.Kind > profilerFtraceEventIssueWireInvalidCanonicalLine ||
+			!issue.validFor(eventField) || issue.Severity != issue.expectedSeverity() {
+			return &traceDBOutputInvariantError{Reason: "profiler_generic_issue_schema_invalid"}
 		}
-	}
-	for _, field := range scalarFields {
-		_, state, reason := protoScalarUint(event.Payload, field)
-		// Proto3 scalar absence is the exact default zero under these pinned
-		// generated producer profiles; only malformed/ambiguous wire is a
-		// missing core authority.
-		if state == protoScalarInvalid {
-			reasons = append(reasons, fmt.Sprintf("core_field%d_%s", field, reason))
-		}
-	}
-	if event.Field == 2417 && len(reasons) == 0 {
-		for _, field := range []int{2, 6} {
-			value, state, _ := protoScalarUint(event.Payload, field)
-			if state == protoScalarPresent && value > math.MaxInt32 {
-				reasons = append(reasons, fmt.Sprintf("core_field%d_out_of_range", field))
+		for prior := 0; prior < index; prior++ {
+			if set.Issues[prior] == issue {
+				return &traceDBOutputInvariantError{Reason: "profiler_generic_issue_duplicate"}
 			}
 		}
-		for _, field := range []int{3, 7} {
-			value, state, _ := protoScalarUint(event.Payload, field)
-			if state == protoScalarPresent {
-				signed := int64(value)
-				if signed < math.MinInt32 || signed > math.MaxInt32 {
-					reasons = append(reasons, fmt.Sprintf("core_field%d_out_of_range", field))
+		if issue.Kind == profilerFtraceEventIssueWirePayloadMalformedWire ||
+			issue.Kind == profilerFtraceEventIssueWireInvalidCanonicalLine {
+			if set.Count != 1 {
+				return &traceDBOutputInvariantError{Reason: "profiler_generic_issue_arm_invalid"}
+			}
+		}
+		currentArm := uint8(0)
+		switch issue.Kind {
+		case profilerFtraceEventIssueWirePayloadMalformedWire,
+			profilerFtraceEventIssueWireInvalidCanonicalLine:
+			currentArm = 1 // sole whole-message/canonical failure
+		case profilerFtraceEventIssueWireFieldMalformedWire:
+			currentArm = 2 // sole localized structural endpoint failure
+			if set.Count != 1 {
+				return &traceDBOutputInvariantError{Reason: "profiler_generic_issue_arm_invalid"}
+			}
+		case profilerFtraceEventIssueWireFieldWrongWire,
+			profilerFtraceEventIssueWireFieldDuplicate,
+			profilerFtraceEventIssueWireFieldMissingOrInvalid:
+			currentArm = 3 // completed-scan hard audit
+		case profilerFtraceEventIssueWireFieldOutOfRange:
+			currentArm = 4 // range audit runs only after a clean hard audit
+		case profilerFtraceEventIssueWireCPUIDMalformedWire,
+			profilerFtraceEventIssueWireCPUIDWrongWire,
+			profilerFtraceEventIssueWireCPUIDDuplicate,
+			profilerFtraceEventIssueWireCPUIDOutOfRange,
+			profilerFtraceEventIssueWireNextInfoMalformedWire,
+			profilerFtraceEventIssueWireNextInfoWrongWire,
+			profilerFtraceEventIssueWireNextInfoDuplicate:
+			currentArm = 5 // the single admitted CPU/next-info display issue
+		default:
+			return &traceDBOutputInvariantError{Reason: "profiler_generic_issue_schema_invalid"}
+		}
+		if issueArm != 0 && issueArm != currentArm {
+			return &traceDBOutputInvariantError{Reason: "profiler_generic_issue_arm_invalid"}
+		}
+		issueArm = currentArm
+		if int(issue.PayloadField) >= len(payloadFields) || payloadFields[issue.PayloadField] {
+			return &traceDBOutputInvariantError{Reason: "profiler_generic_issue_endpoint_conflict"}
+		}
+		payloadFields[issue.PayloadField] = true
+		if severitySet && issue.Severity != severity {
+			return &traceDBOutputInvariantError{Reason: "profiler_generic_issue_arm_invalid"}
+		}
+		severity, severitySet = issue.Severity, true
+		if issue.Severity == profilerFtraceEventIssueAdmittedDisplay {
+			displayCount++
+			if displayCount > 1 {
+				return &traceDBOutputInvariantError{Reason: "profiler_generic_issue_arm_invalid"}
+			}
+		}
+	}
+	return nil
+}
+
+func (set *profilerFtraceGenericIssueSet) add(eventField int, issue profilerFtraceEventIssue) error {
+	if err := set.validate(eventField); err != nil {
+		return err
+	}
+	if issue.Kind < profilerFtraceEventIssueWirePayloadMalformedWire ||
+		issue.Kind > profilerFtraceEventIssueWireInvalidCanonicalLine ||
+		!issue.validFor(eventField) || issue.Severity != issue.expectedSeverity() {
+		return &traceDBOutputInvariantError{Reason: "profiler_generic_issue_schema_invalid"}
+	}
+	for index := 0; index < int(set.Count); index++ {
+		if set.Issues[index] == issue {
+			return &traceDBOutputInvariantError{Reason: "profiler_generic_issue_duplicate"}
+		}
+	}
+	if int(set.Count) == len(set.Issues) {
+		return &traceDBOutputInvariantError{Reason: "profiler_generic_issue_overflow"}
+	}
+	candidate := *set
+	candidate.Issues[int(candidate.Count)] = issue
+	candidate.Count++
+	if err := candidate.validate(eventField); err != nil {
+		return err
+	}
+	*set = candidate
+	return nil
+}
+
+func (set *profilerFtraceGenericIssueSet) addFixed(eventField int, kind profilerFtraceEventIssueKind) error {
+	issue, ok := profilerFtraceEventFixedIssue(eventField, kind)
+	if !ok {
+		return &traceDBOutputInvariantError{Reason: "profiler_generic_issue_schema_invalid"}
+	}
+	return set.add(eventField, issue)
+}
+
+func (set *profilerFtraceGenericIssueSet) addPayload(eventField int, kind profilerFtraceEventIssueKind, payloadField int) error {
+	issue, ok := profilerFtraceEventPayloadIssue(eventField, kind, payloadField)
+	if !ok {
+		return &traceDBOutputInvariantError{Reason: "profiler_generic_issue_schema_invalid"}
+	}
+	return set.add(eventField, issue)
+}
+
+func (set *profilerFtraceGenericIssueSet) checked(eventField int) ([]profilerFtraceEventIssue, error) {
+	if err := set.validate(eventField); err != nil {
+		return nil, err
+	}
+	return append([]profilerFtraceEventIssue(nil), set.Issues[:int(set.Count)]...), nil
+}
+
+type profilerFtraceGenericFieldRole uint8
+
+const (
+	profilerFtraceGenericFieldUnknown profilerFtraceGenericFieldRole = iota
+	profilerFtraceGenericFieldHardString
+	profilerFtraceGenericFieldHardUint
+	profilerFtraceGenericFieldDisplayUint
+)
+
+type profilerFtraceGenericFieldState struct {
+	Count       uint8 // saturates at two: absent, singular, or duplicate
+	WrongWire   bool
+	Malformed   bool
+	UintValue   uint64
+	StringValue string
+}
+
+func profilerFtraceGenericFieldSchema(eventField, payloadField int) (profilerFtraceGenericFieldRole, int, bool) {
+	switch eventField {
+	case 410, 2002:
+		switch payloadField {
+		case 1:
+			return profilerFtraceGenericFieldHardString, 2, true
+		case 2:
+			return profilerFtraceGenericFieldHardUint, 0, true
+		case 3:
+			if eventField == 2002 {
+				return profilerFtraceGenericFieldDisplayUint, 0, true
+			}
+		}
+	case 2417:
+		switch payloadField {
+		case 1, 5:
+			return profilerFtraceGenericFieldHardString, 2, true
+		case 2, 3, 4, 6, 7:
+			return profilerFtraceGenericFieldHardUint, 0, true
+		case 8:
+			return profilerFtraceGenericFieldDisplayUint, 0, true
+		}
+	}
+	return profilerFtraceGenericFieldUnknown, 0, false
+}
+
+// renderProfilerFtraceGenericEventWithTypedAudit is the single parser and
+// renderer authority for profiler fields 410, 2002, and 2417. Every endpoint
+// is observed during one wire walk; issue publication happens only afterward
+// in schema order, so source order cannot change diagnostics or precedence.
+func renderProfilerFtraceGenericEventWithTypedAudit(event profilerFtraceEventRecord) (name, body string, ok bool, issues []profilerFtraceEventIssue, handled bool, err error) {
+	switch event.Field {
+	case 410, 2002, 2417:
+		handled = true
+	default:
+		return "", "", false, nil, false, nil
+	}
+
+	var fields [9]profilerFtraceGenericFieldState
+	walkErr := walkProtoFields(event.Payload, func(payloadField int, wire int, raw []byte, value uint64) error {
+		role, expectedWire, known := profilerFtraceGenericFieldSchema(event.Field, payloadField)
+		if !known {
+			return nil
+		}
+		state := &fields[payloadField]
+		if state.Count < 2 {
+			state.Count++
+		}
+		if wire != expectedWire {
+			state.WrongWire = true
+			return nil
+		}
+		if role == profilerFtraceGenericFieldHardString {
+			state.StringValue = string(raw)
+		} else {
+			state.UintValue = value
+		}
+		return nil
+	})
+	if walkErr != nil {
+		var decodeErr *protoFieldDecodeError
+		if !errors.As(walkErr, &decodeErr) {
+			return "", "", false, nil, true, &traceDBOutputInvariantError{Reason: "profiler_generic_wire_error_untyped"}
+		}
+		role, _, known := profilerFtraceGenericFieldSchema(event.Field, decodeErr.Field)
+		localizedFailure := decodeErr.Failure == protoFieldDecodeMalformedValue ||
+			decodeErr.Failure == protoFieldDecodeUnsupportedWire
+		if !localizedFailure || !decodeErr.FieldKnown || !known ||
+			(role == profilerFtraceGenericFieldDisplayUint && !decodeErr.Terminal) {
+			var set profilerFtraceGenericIssueSet
+			if addErr := set.addFixed(event.Field, profilerFtraceEventIssueWirePayloadMalformedWire); addErr != nil {
+				return "", "", false, nil, true, addErr
+			}
+			issues, checkErr := set.checked(event.Field)
+			return "", "", false, issues, true, checkErr
+		}
+		if role != profilerFtraceGenericFieldDisplayUint {
+			// A structural failure ends the scan. Returning only its localized
+			// hard endpoint prevents fields beyond that physical boundary from
+			// being falsely minted as missing or defaulted observations.
+			var set profilerFtraceGenericIssueSet
+			if addErr := set.addPayload(event.Field, profilerFtraceEventIssueWireFieldMalformedWire, decodeErr.Field); addErr != nil {
+				return "", "", false, nil, true, addErr
+			}
+			issues, checkErr := set.checked(event.Field)
+			return "", "", false, issues, true, checkErr
+		}
+		fields[decodeErr.Field].Malformed = true
+	}
+
+	var set profilerFtraceGenericIssueSet
+	stringFields := [2]int{1, 0}
+	stringFieldCount := 1
+	scalarFields := [5]int{2, 0, 0, 0, 0}
+	scalarFieldCount := 1
+	if event.Field == 2417 {
+		stringFields = [2]int{1, 5}
+		stringFieldCount = 2
+		scalarFields = [5]int{2, 3, 4, 6, 7}
+		scalarFieldCount = 5
+	}
+	for index := 0; index < stringFieldCount; index++ {
+		payloadField := stringFields[index]
+		state := fields[payloadField]
+		var kind profilerFtraceEventIssueKind
+		issuePresent := true
+		switch {
+		case state.Malformed:
+			kind = profilerFtraceEventIssueWireFieldMalformedWire
+		case state.WrongWire:
+			kind = profilerFtraceEventIssueWireFieldWrongWire
+		case state.Count > 1:
+			kind = profilerFtraceEventIssueWireFieldDuplicate
+		case state.Count == 0:
+			kind = profilerFtraceEventIssueWireFieldMissingOrInvalid
+		case (event.Field == 410 || event.Field == 2002) && !traceDBSingleToken(state.StringValue):
+			kind = profilerFtraceEventIssueWireFieldMissingOrInvalid
+		case event.Field == 2417 && !traceDBSinglePhysicalLine(state.StringValue, false):
+			kind = profilerFtraceEventIssueWireFieldMissingOrInvalid
+		default:
+			issuePresent = false
+		}
+		if issuePresent {
+			if addErr := set.addPayload(event.Field, kind, payloadField); addErr != nil {
+				return "", "", false, nil, true, addErr
+			}
+		}
+	}
+	for index := 0; index < scalarFieldCount; index++ {
+		payloadField := scalarFields[index]
+		state := fields[payloadField]
+		var kind profilerFtraceEventIssueKind
+		issuePresent := true
+		switch {
+		case state.Malformed:
+			kind = profilerFtraceEventIssueWireFieldMalformedWire
+		case state.WrongWire:
+			kind = profilerFtraceEventIssueWireFieldWrongWire
+		case state.Count > 1:
+			kind = profilerFtraceEventIssueWireFieldDuplicate
+		default:
+			issuePresent = false
+		}
+		if issuePresent {
+			if addErr := set.addPayload(event.Field, kind, payloadField); addErr != nil {
+				return "", "", false, nil, true, addErr
+			}
+		}
+	}
+	// Proto3 scalar absence is the exact default zero under these pinned
+	// generated producer profiles. Range checks run only after all wire and
+	// required-string authority is clean, preserving the established ordering.
+	if event.Field == 2417 && set.Count == 0 {
+		for _, payloadField := range [2]int{2, 6} {
+			state := fields[payloadField]
+			if state.Count == 1 && state.UintValue > math.MaxInt32 {
+				if addErr := set.addPayload(event.Field, profilerFtraceEventIssueWireFieldOutOfRange, payloadField); addErr != nil {
+					return "", "", false, nil, true, addErr
+				}
+			}
+		}
+		for _, payloadField := range [2]int{3, 7} {
+			state := fields[payloadField]
+			signed := int64(state.UintValue)
+			if state.Count == 1 && (signed < math.MinInt32 || signed > math.MaxInt32) {
+				if addErr := set.addPayload(event.Field, profilerFtraceEventIssueWireFieldOutOfRange, payloadField); addErr != nil {
+					return "", "", false, nil, true, addErr
 				}
 			}
 		}
 	}
-	return len(reasons) == 0, reasons
+	if set.Count > 0 {
+		issues, checkErr := set.checked(event.Field)
+		return "", "", false, issues, true, checkErr
+	}
+
+	displayValue := uint64(0)
+	displayValid := event.Field == 2002 || event.Field == 2417
+	if displayValid {
+		displayField := 3
+		malformedKind := profilerFtraceEventIssueWireCPUIDMalformedWire
+		wrongKind := profilerFtraceEventIssueWireCPUIDWrongWire
+		duplicateKind := profilerFtraceEventIssueWireCPUIDDuplicate
+		if event.Field == 2417 {
+			displayField = 8
+			malformedKind = profilerFtraceEventIssueWireNextInfoMalformedWire
+			wrongKind = profilerFtraceEventIssueWireNextInfoWrongWire
+			duplicateKind = profilerFtraceEventIssueWireNextInfoDuplicate
+		}
+		state := fields[displayField]
+		displayValue = state.UintValue
+		var kind profilerFtraceEventIssueKind
+		issuePresent := true
+		switch {
+		case state.Malformed:
+			kind = malformedKind
+		case state.WrongWire:
+			kind = wrongKind
+		case state.Count > 1:
+			kind = duplicateKind
+		case event.Field == 2002 && state.Count == 1 && state.UintValue > uint64(maxTraceDBCPUIndex):
+			kind = profilerFtraceEventIssueWireCPUIDOutOfRange
+		default:
+			issuePresent = false
+		}
+		if issuePresent {
+			displayValid = false
+			if addErr := set.addFixed(event.Field, kind); addErr != nil {
+				return "", "", false, nil, true, addErr
+			}
+		}
+	}
+
+	switch event.Field {
+	case 410:
+		name = "clock_set_rate"
+		body = fmt.Sprintf("%s state=%d", fields[1].StringValue, fields[2].UintValue)
+	case 2002:
+		name = "clock_set_rate"
+		parts := []string{fields[1].StringValue, fmt.Sprintf("state=%d", fields[2].UintValue)}
+		if displayValid {
+			parts = appendClockSetRateCPU(parts, displayValue)
+		}
+		body = strings.Join(parts, " ")
+	case 2417:
+		name = "sched_switch"
+		body = fmt.Sprintf("prev_comm=%s prev_pid=%d prev_prio=%d prev_state=%s ==> next_comm=%s next_pid=%d next_prio=%d",
+			fields[1].StringValue, int64(fields[2].UintValue), int64(fields[3].UintValue),
+			linuxPrevState(fields[4].UintValue), fields[5].StringValue, int64(fields[6].UintValue), int64(fields[7].UintValue))
+		// MaxUint64 is the producer's missing sentinel. Wire absence is the
+		// authoritative packed zero tuple only for this exact field profile.
+		if displayValid && displayValue != math.MaxUint64 {
+			body += " next_info=" + formatHarmonySchedInfo(displayValue, true)
+		}
+	}
+	if !profilerCanonicalLineValid(event, name, body) {
+		var canonicalSet profilerFtraceGenericIssueSet
+		if addErr := canonicalSet.addFixed(event.Field, profilerFtraceEventIssueWireInvalidCanonicalLine); addErr != nil {
+			return "", "", false, nil, true, addErr
+		}
+		issues, checkErr := canonicalSet.checked(event.Field)
+		return "", "", false, issues, true, checkErr
+	}
+	issues, checkErr := set.checked(event.Field)
+	return name, body, true, issues, true, checkErr
 }
 
 type protoScalarState uint8

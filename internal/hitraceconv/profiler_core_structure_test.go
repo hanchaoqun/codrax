@@ -34,11 +34,11 @@ func TestProfilerStructuredCoreHasOneCanonicalRenderAuthority(t *testing.T) {
 		}
 	}
 
-	audit := sourceBetween(t, profiler, "func renderProfilerFtraceEventBodyWithAudit(", "func profilerFtraceCoreWireAudit(")
+	audit := sourceBetween(t, profiler, "func renderProfilerFtraceEventBodyWithAudit(", "func renderProfilerFtraceEventBodyWithTypedAudit(")
 	decodeAt := strings.Index(audit, "decodeProfilerCorePayload(event)")
-	legacyAt := strings.Index(audit, "renderProfilerFtraceEventBody(event)")
-	if decodeAt < 0 || legacyAt < 0 || decodeAt > legacyAt {
-		t.Fatal("structured core typed admission must run before the legacy renderer")
+	genericAt := strings.Index(audit, "renderProfilerFtraceGenericEventWithTypedAudit(event)")
+	if decodeAt < 0 || genericAt < 0 || decodeAt > genericAt {
+		t.Fatal("structured core typed admission must run before the generic typed renderer")
 	}
 	if !strings.Contains(audit, "case bodyRejected:") ||
 		!strings.Contains(sourceBetween(t, audit, "case bodyRejected:", "if _, _, blockEvent"), "return") {

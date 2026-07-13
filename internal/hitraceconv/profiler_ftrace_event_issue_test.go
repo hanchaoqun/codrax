@@ -372,6 +372,8 @@ func TestProfilerFtraceEventIssueFixedPayloadFieldGolden(t *testing.T) {
 		"cpu_id_malformed_wire", "cpu_id_wrong_wire", "cpu_id_duplicate", "cpu_id_out_of_range")
 	check(2417, profilerFtraceEventDegradationWireAudit, 8,
 		"next_info_malformed_wire", "next_info_wrong_wire", "next_info_duplicate")
+	check(410, profilerFtraceEventDegradationWireAudit, 0,
+		"wire_payload_malformed_wire", "invalid_canonical_wire_line")
 	check(9_999, profilerFtraceEventDegradationUnmappedField, 0, "unmapped structured ftrace event field")
 
 	for kind := profilerFtraceEventIssueKind(0); kind < profilerFtraceEventIssueKindCount; kind++ {
@@ -716,8 +718,8 @@ func TestProfilerFtraceEventIssueFiniteUniverseRoundTripsAndFitsFixedCensus(t *t
 	}
 	// Literal totals pin schema expansion and force an explicit census-capacity
 	// review. Update only with the independent event/payload golden matrices.
-	if total != 1_820 || maxPerEvent != 106 {
-		t.Fatalf("finite issue universe drifted: total=%d want=1820 max_per_event=%d want=106", total, maxPerEvent)
+	if total != 1_826 || maxPerEvent != 106 {
+		t.Fatalf("finite issue universe drifted: total=%d want=1826 max_per_event=%d want=106", total, maxPerEvent)
 	}
 }
 

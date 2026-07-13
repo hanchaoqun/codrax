@@ -1,6 +1,7 @@
 package hitraceconv
 
 import (
+	"errors"
 	"math"
 	"testing"
 )
@@ -62,5 +63,45 @@ func TestWalkProtoFieldsRejectsInvalidFieldNumbers(t *testing.T) {
 				t.Fatalf("invalid protobuf field admitted: %x", test.wire)
 			}
 		})
+	}
+}
+
+func TestWalkProtoFieldsTypedFailuresPreserveCompatibilityAndEndpoint(t *testing.T) {
+	tenContinuations := []byte{0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80}
+	tests := []struct {
+		name       string
+		wire       []byte
+		message    string
+		failure    protoFieldDecodeFailure
+		field      int
+		fieldKnown bool
+		terminal   bool
+	}{
+		{name: "malformed key", wire: []byte{0x80}, message: "malformed protobuf field key", failure: protoFieldDecodeMalformedKey},
+		{name: "field zero", wire: []byte{0x00, 0x00}, message: "invalid protobuf field number 0", failure: protoFieldDecodeInvalidFieldNumber},
+		{name: "varint tail", wire: []byte{0x08, 0x80}, message: "malformed protobuf varint field 1", failure: protoFieldDecodeMalformedValue, field: 1, fieldKnown: true, terminal: true},
+		{name: "varint ambiguous tail", wire: append(append([]byte{0x08}, tenContinuations...), 0x01), message: "malformed protobuf varint field 1", failure: protoFieldDecodeMalformedValue, field: 1, fieldKnown: true},
+		{name: "fixed64 tail", wire: []byte{0x09, 0x00}, message: "truncated protobuf fixed64 field 1", failure: protoFieldDecodeMalformedValue, field: 1, fieldKnown: true, terminal: true},
+		{name: "bytes tail", wire: []byte{0x0a, 0x02, 'x'}, message: "truncated protobuf bytes field 1", failure: protoFieldDecodeMalformedValue, field: 1, fieldKnown: true, terminal: true},
+		{name: "fixed32 tail", wire: []byte{0x0d, 0x00}, message: "truncated protobuf fixed32 field 1", failure: protoFieldDecodeMalformedValue, field: 1, fieldKnown: true, terminal: true},
+		{name: "unsupported terminal", wire: []byte{0x0b}, message: "unsupported protobuf wire type 3 for field 1", failure: protoFieldDecodeUnsupportedWire, field: 1, fieldKnown: true, terminal: true},
+		{name: "unsupported ambiguous tail", wire: []byte{0x0b, 0x08, 0x01}, message: "unsupported protobuf wire type 3 for field 1", failure: protoFieldDecodeUnsupportedWire, field: 1, fieldKnown: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := walkProtoFields(test.wire, func(int, int, []byte, uint64) error { return nil })
+			var typed *protoFieldDecodeError
+			if !errors.As(err, &typed) || err.Error() != test.message || typed.Failure != test.failure ||
+				typed.Field != test.field || typed.FieldKnown != test.fieldKnown || typed.Terminal != test.terminal {
+				t.Fatalf("typed failure drifted: err=%v typed=%+v want=(%q,%d,%d,%t,%t)",
+					err, typed, test.message, test.failure, test.field, test.fieldKnown, test.terminal)
+			}
+		})
+	}
+
+	sentinel := errors.New("callback sentinel")
+	err := walkProtoFields(protoVarint(1, 7), func(int, int, []byte, uint64) error { return sentinel })
+	if err != sentinel || !errors.Is(err, sentinel) {
+		t.Fatalf("callback error identity changed: got=%v want=%v", err, sentinel)
 	}
 }

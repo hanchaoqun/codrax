@@ -547,24 +547,64 @@ func decodeHiperfInfo(raw []byte) ([]string, error) {
 	return configNames, err
 }
 
+type protoFieldDecodeFailure uint8
+
+const (
+	protoFieldDecodeMalformedKey protoFieldDecodeFailure = iota
+	protoFieldDecodeInvalidFieldNumber
+	protoFieldDecodeMalformedValue
+	protoFieldDecodeUnsupportedWire
+)
+
+// protoFieldDecodeError preserves the established human-readable parser error
+// while exposing exact endpoint provenance to typed consumers. FieldKnown is
+// false for a malformed key or invalid protobuf field number; callers must not
+// recover a field identity by parsing Message.
+type protoFieldDecodeError struct {
+	Failure    protoFieldDecodeFailure
+	Field      int
+	FieldKnown bool
+	// Terminal is true only when the malformed value consumes the physical
+	// payload tail. A typed consumer may then localize an optional display
+	// endpoint without risking that unparsed bytes conceal a hard endpoint.
+	Terminal bool
+	Message  string
+}
+
+func (err *protoFieldDecodeError) Error() string {
+	if err == nil {
+		return "malformed protobuf field"
+	}
+	return err.Message
+}
+
 func walkProtoFields(data []byte, fn func(field int, wire int, raw []byte, v uint64) error) error {
 	for len(data) > 0 {
 		key, n, ok := consumeProtoVarint(data)
 		if !ok {
-			return fmt.Errorf("malformed protobuf field key")
+			return &protoFieldDecodeError{
+				Failure: protoFieldDecodeMalformedKey, Message: "malformed protobuf field key",
+			}
 		}
 		data = data[n:]
 		fieldNumber := key >> 3
 		wire := int(key & 0x7)
 		if fieldNumber < 1 || fieldNumber > (1<<29)-1 {
-			return fmt.Errorf("invalid protobuf field number %d", fieldNumber)
+			return &protoFieldDecodeError{
+				Failure: protoFieldDecodeInvalidFieldNumber,
+				Message: fmt.Sprintf("invalid protobuf field number %d", fieldNumber),
+			}
 		}
 		field := int(fieldNumber)
 		switch wire {
 		case 0:
 			v, n, ok := consumeProtoVarint(data)
 			if !ok {
-				return fmt.Errorf("malformed protobuf varint field %d", field)
+				return &protoFieldDecodeError{
+					Failure: protoFieldDecodeMalformedValue, Field: field, FieldKnown: true,
+					Terminal: protoVarintFailureConsumesTail(data),
+					Message:  fmt.Sprintf("malformed protobuf varint field %d", field),
+				}
 			}
 			if err := fn(field, wire, nil, v); err != nil {
 				return err
@@ -572,7 +612,11 @@ func walkProtoFields(data []byte, fn func(field int, wire int, raw []byte, v uin
 			data = data[n:]
 		case 1:
 			if len(data) < 8 {
-				return fmt.Errorf("truncated protobuf fixed64 field %d", field)
+				return &protoFieldDecodeError{
+					Failure: protoFieldDecodeMalformedValue, Field: field, FieldKnown: true,
+					Terminal: true,
+					Message:  fmt.Sprintf("truncated protobuf fixed64 field %d", field),
+				}
 			}
 			if err := fn(field, wire, data[:8], binary.LittleEndian.Uint64(data[:8])); err != nil {
 				return err
@@ -580,8 +624,19 @@ func walkProtoFields(data []byte, fn func(field int, wire int, raw []byte, v uin
 			data = data[8:]
 		case 2:
 			l, n, ok := consumeProtoVarint(data)
-			if !ok || l > uint64(len(data[n:])) {
-				return fmt.Errorf("truncated protobuf bytes field %d", field)
+			if !ok {
+				return &protoFieldDecodeError{
+					Failure: protoFieldDecodeMalformedValue, Field: field, FieldKnown: true,
+					Terminal: protoVarintFailureConsumesTail(data),
+					Message:  fmt.Sprintf("truncated protobuf bytes field %d", field),
+				}
+			}
+			if l > uint64(len(data[n:])) {
+				return &protoFieldDecodeError{
+					Failure: protoFieldDecodeMalformedValue, Field: field, FieldKnown: true,
+					Terminal: true,
+					Message:  fmt.Sprintf("truncated protobuf bytes field %d", field),
+				}
 			}
 			raw := data[n : n+int(l)]
 			if err := fn(field, wire, raw, 0); err != nil {
@@ -590,17 +645,33 @@ func walkProtoFields(data []byte, fn func(field int, wire int, raw []byte, v uin
 			data = data[n+int(l):]
 		case 5:
 			if len(data) < 4 {
-				return fmt.Errorf("truncated protobuf fixed32 field %d", field)
+				return &protoFieldDecodeError{
+					Failure: protoFieldDecodeMalformedValue, Field: field, FieldKnown: true,
+					Terminal: true,
+					Message:  fmt.Sprintf("truncated protobuf fixed32 field %d", field),
+				}
 			}
 			if err := fn(field, wire, data[:4], uint64(binary.LittleEndian.Uint32(data[:4]))); err != nil {
 				return err
 			}
 			data = data[4:]
 		default:
-			return fmt.Errorf("unsupported protobuf wire type %d for field %d", wire, field)
+			return &protoFieldDecodeError{
+				Failure: protoFieldDecodeUnsupportedWire, Field: field, FieldKnown: true,
+				Terminal: len(data) == 0,
+				Message:  fmt.Sprintf("unsupported protobuf wire type %d for field %d", wire, field),
+			}
 		}
 	}
 	return nil
+}
+
+// consumeProtoVarint rejects an unterminated/overflowing varint no later than
+// byte ten. When at most ten bytes remain, the failure necessarily reaches the
+// physical payload tail; with more bytes, their protobuf field identity is
+// unknowable and typed consumers must fail the entire payload closed.
+func protoVarintFailureConsumesTail(data []byte) bool {
+	return len(data) <= 10
 }
 
 func consumeProtoVarint(data []byte) (uint64, int, bool) {

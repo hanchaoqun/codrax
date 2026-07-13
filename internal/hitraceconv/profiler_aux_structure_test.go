@@ -110,13 +110,13 @@ func TestProfilerStructuredAuxUsesOneTypedAuthorityBeforeLegacy(t *testing.T) {
 		}
 	}
 
-	audit := sourceBetween(t, profiler, "func renderProfilerFtraceEventBodyWithAudit(", "func profilerFtraceCoreWireAudit(")
+	audit := sourceBetween(t, profiler, "func renderProfilerFtraceEventBodyWithAudit(", "func renderProfilerFtraceEventBodyWithTypedAudit(")
 	coreAt := strings.Index(audit, "decodeProfilerCorePayload(event)")
 	auxAt := strings.Index(audit, "decodeProfilerAuxPayload(event)")
 	blockAt := strings.Index(audit, "blockRenderKindForProfilerField(event.Field)")
-	legacyAt := strings.Index(audit, "renderProfilerFtraceEventBody(event)")
-	if coreAt < 0 || auxAt < 0 || blockAt < 0 || legacyAt < 0 || !(coreAt < auxAt && auxAt < blockAt && blockAt < legacyAt) {
-		t.Fatalf("typed renderer order drifted: core=%d aux=%d block=%d legacy=%d", coreAt, auxAt, blockAt, legacyAt)
+	genericAt := strings.Index(audit, "renderProfilerFtraceGenericEventWithTypedAudit(event)")
+	if coreAt < 0 || auxAt < 0 || blockAt < 0 || genericAt < 0 || !(coreAt < auxAt && auxAt < blockAt && blockAt < genericAt) {
+		t.Fatalf("typed renderer order drifted: core=%d aux=%d block=%d generic=%d", coreAt, auxAt, blockAt, genericAt)
 	}
 	auxArm := sourceBetween(t, audit, "decodeProfilerAuxPayload(event)", "if _, _, blockEvent")
 	if !strings.Contains(auxArm, "case bodyRejected:") || !strings.Contains(auxArm, "return") ||

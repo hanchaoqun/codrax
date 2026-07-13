@@ -124,6 +124,7 @@ const (
 	profilerFtraceEventIssueBlockCmdDuplicate
 	profilerFtraceEventIssueBlockCmdUnsafeOmitted
 
+	profilerFtraceEventIssueWirePayloadMalformedWire
 	profilerFtraceEventIssueWireFieldMalformedWire
 	profilerFtraceEventIssueWireFieldWrongWire
 	profilerFtraceEventIssueWireFieldDuplicate
@@ -136,6 +137,7 @@ const (
 	profilerFtraceEventIssueWireNextInfoMalformedWire
 	profilerFtraceEventIssueWireNextInfoWrongWire
 	profilerFtraceEventIssueWireNextInfoDuplicate
+	profilerFtraceEventIssueWireInvalidCanonicalLine
 
 	profilerFtraceEventIssueUnmappedField
 	profilerFtraceEventIssueKindCount
@@ -285,6 +287,9 @@ func profilerFtraceEventIssueFromLegacy(eventField int, legacySource profilerFtr
 		}); ok {
 			return parsed, true
 		}
+		if kind, ok := profilerFtraceWireHardLegacyKinds[token]; ok {
+			return set(kind)
+		}
 		kind, ok := profilerFtraceWireDisplayLegacyKinds[token]
 		if !ok {
 			return profilerFtraceEventIssue{}, false
@@ -360,6 +365,8 @@ func profilerFtraceEventIssueFixedPayloadField(kind profilerFtraceEventIssueKind
 		profilerFtraceEventIssueAuxInvalidF2FSPayloadRange,
 		profilerFtraceEventIssueAuxInvalidCanonicalLine,
 		profilerFtraceEventIssueFilemapInvalidCanonicalLine,
+		profilerFtraceEventIssueWirePayloadMalformedWire,
+		profilerFtraceEventIssueWireInvalidCanonicalLine,
 		profilerFtraceEventIssueUnmappedField:
 		return 0, true
 	case profilerFtraceEventIssueEnvelopeCPUDuplicate,
@@ -526,7 +533,7 @@ func (issue profilerFtraceEventIssue) validFor(eventField int) bool {
 		return eventField == 1000 || eventField == 1001
 	case issue.Kind >= profilerFtraceEventIssueBlockFieldMalformedWire && issue.Kind <= profilerFtraceEventIssueBlockCmdUnsafeOmitted:
 		return issue.validBlock(eventField)
-	case issue.Kind >= profilerFtraceEventIssueWireFieldMalformedWire && issue.Kind <= profilerFtraceEventIssueWireNextInfoDuplicate:
+	case issue.Kind >= profilerFtraceEventIssueWirePayloadMalformedWire && issue.Kind <= profilerFtraceEventIssueWireInvalidCanonicalLine:
 		return issue.validWire(eventField)
 	case issue.Kind == profilerFtraceEventIssueUnmappedField:
 		_, known := profilerFtraceEventDescriptors[eventField]
@@ -724,6 +731,8 @@ func profilerFtraceBlockRWBSField(eventField, payloadField int) bool {
 
 func (issue profilerFtraceEventIssue) validWire(eventField int) bool {
 	switch issue.Kind {
+	case profilerFtraceEventIssueWirePayloadMalformedWire, profilerFtraceEventIssueWireInvalidCanonicalLine:
+		return eventField == 410 || eventField == 2002 || eventField == 2417
 	case profilerFtraceEventIssueWireFieldMalformedWire, profilerFtraceEventIssueWireFieldWrongWire,
 		profilerFtraceEventIssueWireFieldDuplicate, profilerFtraceEventIssueWireFieldOutOfRange,
 		profilerFtraceEventIssueWireFieldMissingOrInvalid:
@@ -792,6 +801,9 @@ func (issue profilerFtraceEventIssue) sourceClass() profilerFtraceEventDegradati
 		return profilerFtraceEventDegradationBlockPayload
 	case issue.Kind >= profilerFtraceEventIssueBlockCommMalformedWire && issue.Kind <= profilerFtraceEventIssueBlockCmdUnsafeOmitted:
 		return profilerFtraceEventDegradationBlockDisplay
+	case issue.Kind == profilerFtraceEventIssueWirePayloadMalformedWire ||
+		issue.Kind == profilerFtraceEventIssueWireInvalidCanonicalLine:
+		return profilerFtraceEventDegradationWireAudit
 	case issue.Kind >= profilerFtraceEventIssueWireFieldMalformedWire && issue.Kind <= profilerFtraceEventIssueWireFieldMissingOrInvalid:
 		return profilerFtraceEventDegradationWireAudit
 	case issue.Kind >= profilerFtraceEventIssueWireCPUIDMalformedWire && issue.Kind <= profilerFtraceEventIssueWireNextInfoDuplicate:
@@ -942,10 +954,16 @@ var profilerFtraceWireDisplayLegacyKinds = map[string]profilerFtraceEventIssueKi
 	"next_info_duplicate":      profilerFtraceEventIssueWireNextInfoDuplicate,
 }
 
+var profilerFtraceWireHardLegacyKinds = map[string]profilerFtraceEventIssueKind{
+	"wire_payload_malformed_wire": profilerFtraceEventIssueWirePayloadMalformedWire,
+	"invalid_canonical_wire_line": profilerFtraceEventIssueWireInvalidCanonicalLine,
+}
+
 var profilerFtraceEventFixedIssueLabels = func() map[profilerFtraceEventIssueKind]string {
 	out := make(map[profilerFtraceEventIssueKind]string,
 		len(profilerFtraceEnvelopeLegacyKinds)+len(profilerFtraceCoreLegacyKinds)+len(profilerFtraceAuxLegacyKinds)+
-			len(profilerFtraceFilemapLegacyKinds)+len(profilerFtraceBlockDisplayLegacyKinds)+len(profilerFtraceWireDisplayLegacyKinds)+1)
+			len(profilerFtraceFilemapLegacyKinds)+len(profilerFtraceBlockDisplayLegacyKinds)+
+			len(profilerFtraceWireDisplayLegacyKinds)+len(profilerFtraceWireHardLegacyKinds)+1)
 	for label, kind := range profilerFtraceEnvelopeLegacyKinds {
 		out[kind] = label
 	}
@@ -962,6 +980,9 @@ var profilerFtraceEventFixedIssueLabels = func() map[profilerFtraceEventIssueKin
 		out[kind] = label
 	}
 	for label, kind := range profilerFtraceWireDisplayLegacyKinds {
+		out[kind] = label
+	}
+	for label, kind := range profilerFtraceWireHardLegacyKinds {
 		out[kind] = label
 	}
 	out[profilerFtraceEventIssueUnmappedField] = "unmapped structured ftrace event field"
