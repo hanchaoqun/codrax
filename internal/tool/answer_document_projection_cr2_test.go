@@ -59,7 +59,7 @@ func TestCR2P4FoldExemptSeatRowWearsBadgeTwo(t *testing.T) {
 		t.Fatalf("the exempted seat #2 row must wear ❷ on the fence:\n%s", fence)
 	}
 	for _, line := range strings.Split(fence, "\n") {
-		if !strings.Contains(line, "链上折叠") {
+		if !strings.Contains(line, "项(折叠)") {
 			continue
 		}
 		for r := 1; r <= runtimeTraceProjBadgeTopN; r++ {

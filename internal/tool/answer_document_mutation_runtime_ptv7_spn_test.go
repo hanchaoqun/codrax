@@ -232,14 +232,16 @@ func TestPTV7SpnDetailTableFoldCellMirrorsC39(t *testing.T) {
 		Confidence:     0.6,
 	}
 	zhCell := runtimeTraceCausalProjectionNodeSubjectCell(fold, true)
-	if !strings.Contains(zhCell, "其余 9 项(链上折叠)") || !strings.Contains(zhCell, "OS_FFRT_2_2-43037") {
-		t.Fatalf("zh fold cell must name the lane + count + roster: %q", zhCell)
+	// P2a rider 件1 (§29.55.3, 2026-07-13): the dedup name form 其余N项(折叠)
+	// mirrors the tree row (lockstep 行名铸造点).
+	if !strings.Contains(zhCell, "其余 9 项(折叠)") || !strings.Contains(zhCell, "OS_FFRT_2_2-43037") {
+		t.Fatalf("zh fold cell must name the count + roster: %q", zhCell)
 	}
 	if strings.Contains(zhCell, "trace causal node") {
 		t.Fatalf("zh fold cell must not leak the EN fallback: %q", zhCell)
 	}
 	enCell := runtimeTraceCausalProjectionNodeSubjectCell(fold, false)
-	if !strings.Contains(enCell, "9 more (on-chain fold)") {
+	if !strings.Contains(enCell, "9 more (folded)") {
 		t.Fatalf("en fold cell must carry the fold naming: %q", enCell)
 	}
 	// Subject/object-less NON-fold rows: zh fallback speaks zh (C39), EN keeps
@@ -394,7 +396,7 @@ func TestPTV7SpnAllZeroFoldNoValueForm(t *testing.T) {
 	// token survives" pin (9线程取最大(单项0.000~0.000ms)) is RETIRED on the all-zero
 	// shape — a member-MAX claim over nothing but zeros taught noise
 	// (huadong_79 witness). The shape now speaks the honest one-line note; the
-	// count survives on the row NAME (其余 9 项(链上折叠)), and value-bearing
+	// count survives on the row NAME (其余 9 项(折叠)), and value-bearing
 	// folds keep the ×N form byte-identically (TestDisp2AllZeroFoldNote pins
 	// both directions).
 	joined := ""

@@ -58,6 +58,9 @@ func uxg1InProductionGlyphs() []string {
 	add(runtimeTraceProjOffChainDStateGlyph)
 	add(tracefence.GlyphUndrillable) // ⊘链止 keep-mark + flat banner head
 	add(tracefence.GlyphSleep)       // self sleep-row icon
+	// P2a rider 件2b (2026-07-13): the ↳ subordinate-component connector rides
+	// a row-head slot on reseated self component rows.
+	add(tracefence.GlyphSubordinate)
 	for _, spec := range runtimeTraceProjImpactFormSpecs() {
 		add(spec.Glyph)
 	}

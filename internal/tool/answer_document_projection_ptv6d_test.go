@@ -156,9 +156,12 @@ func TestPTV6DSelfRowPrefixFillAndPacking(t *testing.T) {
 		}
 	}
 	// Overflow arm ((d) 缩进常量核对): a 3-peer IO caliber note forces the
-	// packed form — every subordinate line rides the SAME "│     " lead the
-	// main self row uses (content column aligned), each line holds the cap,
-	// and the leading demoted parts that still fit stay inline (prefix fill).
+	// packed form. P2a rider 件2a (§29.58.1 a, 2026-07-13): the subordinate
+	// "· " block rides ONE LEVEL DEEPER than the host row's "│     " lead
+	// (aligned with its own wrapped continuations) — at the host lead the
+	// note marker sat in the self rows' glyph column (三层级一视觉形).
+	// Each line still holds the cap and prefix fill keeps fitting parts
+	// inline.
 	row.IOFoldPeers = []runtimeTraceProjIOFoldPeer{
 		{Token: "io_burst_episode", ImpactMS: 226.153, EvidenceTag: "E2"},
 		{Token: "io_wait", ImpactMS: 112.011, EvidenceTag: "E3"},
@@ -172,8 +175,8 @@ func TestPTV6DSelfRowPrefixFillAndPacking(t *testing.T) {
 		t.Fatalf("self main line lead drifted: %q", over[0])
 	}
 	for _, line := range over[1:] {
-		if !strings.HasPrefix(line, "│     · ") && !strings.HasPrefix(line, "│       ") {
-			t.Fatalf("self subordinate lines must align under the │ lead: %q", line)
+		if !strings.HasPrefix(line, "│       · ") && !strings.HasPrefix(line, "│         ") {
+			t.Fatalf("self subordinate lines must sit one level deeper than the host lead (件2a): %q", line)
 		}
 		if w := runewidth.StringWidth(line); w > runtimeTraceProjTreeRowMaxWidth {
 			t.Fatalf("self subordinate line over the cap (%d): %q", w, line)

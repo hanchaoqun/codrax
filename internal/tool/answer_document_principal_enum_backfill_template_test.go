@@ -42,9 +42,11 @@ func TestPrincipalEnumBackfill_RuntimeSystemLabelExtraction(t *testing.T) {
 			want: "fscache_page_wait_o+0x110/0x250[sysmgr.elf] delay=100",
 		},
 		{
-			// A pure narrative member yields the neutral locator pointer.
+			// A pure narrative member yields the neutral locator pointer
+			// (P2a rider 件5 zh-en 合审: the pointer names the actual
+			// 定义位置/Location column and speaks the reader's language).
 			in:   "均无独立的唤醒终点",
-			want: "(见定位)",
+			want: "(见定义位置)",
 		},
 		{
 			// 件A 权属模型终态 (复核 P2-2 根修): the ENGLISH claim-of-absence
@@ -59,10 +61,10 @@ func TestPrincipalEnumBackfill_RuntimeSystemLabelExtraction(t *testing.T) {
 			// An English narrative with zero typed tokens also falls to the
 			// neutral pointer (no language privilege in either direction).
 			in:   "these waits are entirely explained by the render pipeline",
-			want: "(见定位)",
+			want: "(见定义位置)",
 		},
 	} {
-		got := principalEnumerationRuntimeSystemLabel(tc.in)
+		got := principalEnumerationRuntimeSystemLabel(tc.in, true)
 		if tc.want != "" && got != tc.want {
 			t.Fatalf("label(%q) = %q, want %q", tc.in, got, tc.want)
 		}
@@ -76,6 +78,12 @@ func TestPrincipalEnumBackfill_RuntimeSystemLabelExtraction(t *testing.T) {
 				t.Fatalf("value token %q must survive the system template: %q → %q", want, tc.in, got)
 			}
 		}
+	}
+	// P2a rider 件5 (§29.57 残留 zh-en 合审, 2026-07-13): the EN face speaks
+	// the EN pointer — the zh-only 「(见定位)」 literal on an EN report was the
+	// audited inconsistency.
+	if got := principalEnumerationRuntimeSystemLabel("均无独立的唤醒终点", false); got != "(see Location)" {
+		t.Fatalf("EN locator pointer = %q, want %q", got, "(see Location)")
 	}
 }
 

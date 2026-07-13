@@ -7,7 +7,7 @@ package tool
 // fold record on the typed folded_* lane (NKR 折叠族 reuse, zero new keys);
 // nil field → zero emission (≤8 组反噪音). Display face: the record
 // re-materializes through the existing PTV5 fold pipeline into the
-// 其余 N 项(链上折叠) tree row with the ENGINE's group count, and the fold
+// 链上─ ◦ 其余 N 项(折叠) tree row with the ENGINE's group count, and the fold
 // node keeps the never-lead marker.
 
 import (
@@ -99,7 +99,9 @@ func TestPTS2EngineAggregateFoldRowReachesTreeWithCount(t *testing.T) {
 	// The row-name budget may ellipsize the roster tail — the pin anchors on
 	// the ENGINE group count plus the roster head, which the width governor
 	// never cuts (identity floor).
-	if !strings.Contains(fence, "其余 3 项(链上折叠)(ovfa-500、") {
+	// P2a rider 件1 (§29.55.3 用户裁定形, 2026-07-13): 边词管车道(链上─ 与
+	// 兄弟行同列)+行名管折叠(其余N项(折叠))+记号位留形态族。
+	if !strings.Contains(fence, "链上─ ◦ 其余 3 项(折叠)(ovfa-500、") {
 		t.Fatalf("the tree must render the engine-level fold row with the correct count and roster:\n%s", fence)
 	}
 	// Never-lead stays owned by the existing PTV5 fold pipeline.

@@ -13,7 +13,7 @@ package tool
 //         untouched; absent when a state-view symptom exists).
 //   Q3  — 树头 N-查询窗 declaration line; metric-snapshot per-window grouping;
 //         single-artifact multi-anchor-window next-step branch.
-//   PTS — the on-chain overflow fold row renders 其余 N 项(链上折叠) with the
+//   PTS — the on-chain overflow fold row renders 链上─ ◦ 其余 N 项(折叠) with the
 //         member roster and never leads the RN-3(a) fallback conclusion.
 //   Q4  — inversion candidacy via the typed field words the shape cell;
 //         runnable action word = runnable (PTV7 canonical; never the inversion-colliding
@@ -319,7 +319,8 @@ func TestPTV5OnChainFoldRowRendersAndNeverLeads(t *testing.T) {
 	projection := revisit76PTV5FoldCaliberProjection()
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "其余 3 项(链上折叠)(of-1、of-2 等)") {
+	// P2a rider 件1 (§29.55.3, 2026-07-13): lane on the edge word, dedup name.
+	if !strings.Contains(fence, "链上─ ◦ 其余 3 项(折叠)(of-1、of-2 等)") {
 		t.Fatalf("the fold row must name its lane, count and roster:\n%s", fence)
 	}
 	// The fold row (12ms) outweighs the real chain row's discounted values —
@@ -791,11 +792,11 @@ func TestPTV5FoldRowLosslessBlockNamesItsLane(t *testing.T) {
 		MergedCount: 3, MergedSubjects: []string{"of-1", "of-2"},
 		CumulativeImpactMS: 12.0,
 	}
-	if got := runtimeTraceProjDetailFullName(node, true); got != "其余 3 项(链上折叠)(of-1、of-2 等)" {
-		t.Fatalf("zh fold block name must name the lane: %q", got)
+	if got := runtimeTraceProjDetailFullName(node, true); got != "其余 3 项(折叠)(of-1、of-2 等)" {
+		t.Fatalf("zh fold block name must carry the fold stem: %q", got)
 	}
-	if got := runtimeTraceProjDetailFullName(node, false); !strings.Contains(got, "3 more (on-chain fold)") {
-		t.Fatalf("EN fold block name must name the lane: %q", got)
+	if got := runtimeTraceProjDetailFullName(node, false); !strings.Contains(got, "3 more (folded)") {
+		t.Fatalf("EN fold block name must carry the fold stem: %q", got)
 	}
 }
 

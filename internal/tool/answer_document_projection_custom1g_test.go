@@ -399,7 +399,9 @@ func TestRuntimeTraceProjCustom1gEndToEndFoldAndDedup(t *testing.T) {
 	// the idle annotation — six 101ms threads never render as 404/606ms.
 	// NEW-10: the fence row keeps at least the protected 整窗等待 marker; the
 	// detail table stays the lossless surface for the full annotation.
-	if !strings.Contains(fence, "其余 4 项合并") || !strings.Contains(fence, "整窗等待") {
+	// P2a rider 件1 F2 (§29.58.2, 2026-07-13): the ▒ stanza fold wears the
+	// section lane word on the edge slot and the dedup fold name.
+	if !strings.Contains(fence, "背景─ ☾ 其余 4 项(折叠)") || !strings.Contains(fence, "整窗等待") {
 		t.Fatalf("background fold must render with roster + idle annotation:\n%s", fence)
 	}
 	for _, banned := range []string{"404.000", "606.000"} {

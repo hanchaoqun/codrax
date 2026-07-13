@@ -102,13 +102,16 @@ const (
 	runtimeTraceProjImpactFormInterrupt
 	// ◌ 数据盲区 (trace_gap / missing_wakeup — data gaps, not causes).
 	runtimeTraceProjImpactFormBlindSpot
-	// binder 等待 (IPC wait-on-peer — 等待症状族, NOT block IO).
+	// ⋈ binder 等待 (IPC wait-on-peer — 等待症状族, NOT block IO).
 	// PTV8-RCR-C 复核收尾 (2026-07-08). EVOLUTION RECORD: binder_wait rode the
 	// ⛓ IOBlock family since RCR-A — harmless while the family word had no
 	// consumer, but the C7 FamilyWord lane would have called IPC "IO阻塞候选"
-	// (typelabels 已定 binder等待). Own table row now; the glyph borrows the
-	// ◦ 无形态兜底 (a dedicated IPC glyph extends the §24.3 closed set and
-	// needs a user ruling — ledger 记账,本批不扩).
+	// (typelabels 已定 binder等待). EVOLUTION RECORD (P2a rider 件3, §29.58.2
+	// 裁定 2026-07-13): the interim ◦ 无形态兜底 borrow is RETIRED — the user
+	// ruling extends the §24.3 closed set with the dedicated ⋈ U+22C8 glyph
+	// (fourth split precedent; census §3 first choice), and the Mark splits
+	// off IconNoDominant so a binder-only report stops lighting the ◦ 数据行
+	// legend entry (F1 承诺面 falsity, 062916 witness).
 	runtimeTraceProjImpactFormBinderWait
 	// ◦ 无形态兜底 (no dominant state, no typed family).
 	runtimeTraceProjImpactFormFallback
@@ -192,10 +195,14 @@ func runtimeTraceProjImpactFormSpecs() []runtimeTraceProjImpactFormSpec {
 			Mark: runtimeTraceProjMarkIconBlindSpot, GeneratedLegend: true},
 		// PTV8-RCR-C 复核收尾: binder IPC waits leave the ⛓ IO family — the
 		// category word rides the typelabels binder等待 typed word (+候选 同族
-		// 模式); the glyph borrows ◦ until a dedicated IPC glyph is ruled.
-		{Form: runtimeTraceProjImpactFormBinderWait, Glyph: tracefence.GlyphNeutral,
+		// 模式). P2a rider 件3 (§29.58.2 裁定, 2026-07-13): the ⋈ dedicated
+		// glyph + own Mark + generated legend entry replace the ◦/IconNoDominant
+		// borrow (F1 图例修真 — the ◦ entry's 「有形态词的行戴各自形态族记号」
+		// promise becomes true).
+		{Form: runtimeTraceProjImpactFormBinderWait, Glyph: tracefence.GlyphBinderWait,
 			CategoryZH: "binder等待候选", CategoryEN: "binder-wait candidate",
-			Mark: runtimeTraceProjMarkIconNoDominant},
+			SemanticsZH: "binder IPC 等待(等待对端处理并返回;等待症状族,非 IO 阻塞)", SemanticsEN: "a binder IPC wait (waiting on the peer to process and reply; wait-symptom family, not block IO)",
+			Mark: runtimeTraceProjMarkIconBinderWait, GeneratedLegend: true},
 		{Form: runtimeTraceProjImpactFormFallback, Glyph: tracefence.GlyphNeutral,
 			Mark: runtimeTraceProjMarkIconNoDominant},
 	}

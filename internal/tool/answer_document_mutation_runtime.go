@@ -3756,16 +3756,19 @@ func runtimeTraceCausalProjectionNodeSubjectCell(node types.TraceCausalProjectio
 		return runtimeTraceCausalProjectionCompactCellText(object, 44)
 	default:
 		// F4 (§22 PTV7-SPN, C39 漏面): the on-chain overflow fold names its
-		// lane + count + roster on THIS surface too — mirroring the tree row
-		// and the lossless block; and the subject/object-less fallback speaks
-		// zh on the zh panel ("trace causal node" stays EN-face only).
+		// count + roster on THIS surface too — mirroring the tree row and the
+		// lossless block (P2a rider 件1 lockstep, §29.55.3 2026-07-13: the
+		// dedup form 其余N项(折叠); the lane lives on the tree face's edge word
+		// and the detail block's 因果位置 line); and the subject/object-less
+		// fallback speaks zh on the zh panel ("trace causal node" stays
+		// EN-face only).
 		if node.OnChainOverflowFold {
 			if zh {
 				return runtimeTraceCausalProjectionCompactCellText(
-					fmt.Sprintf("其余 %d 项(链上折叠)%s", node.MergedCount, runtimeTraceProjMergedSubjectsSuffix(node, zh)), 44)
+					fmt.Sprintf("其余 %d 项(折叠)%s", node.MergedCount, runtimeTraceProjMergedSubjectsSuffix(node, zh)), 44)
 			}
 			return runtimeTraceCausalProjectionCompactCellText(
-				fmt.Sprintf("%d more (on-chain fold)%s", node.MergedCount, runtimeTraceProjMergedSubjectsSuffix(node, zh)), 44)
+				fmt.Sprintf("%d more (folded)%s", node.MergedCount, runtimeTraceProjMergedSubjectsSuffix(node, zh)), 44)
 		}
 		if zh {
 			return "(未命名因果节点)"
@@ -4602,10 +4605,15 @@ func runtimeTraceSemanticOptimizationParts(projection types.TraceCausalProjectio
 			if listed > 3 {
 				listed = 3
 			}
+			// P2a rider 件4 (§29.58.2 F4, 2026-07-13): the member/fold cells
+			// wear the ↳ subordinate connector (v5 从属先例, single source
+			// tracefence.GlyphSubordinate) — the former "· " read as one more
+			// enumeration bullet while the rows are subordinates of the family
+			// header row above.
 			for _, member := range span.FamilyMemberRoster[:listed] {
-				memberCell := "· 成员 " + member
+				memberCell := tracefence.GlyphSubordinate + " 成员 " + member
 				if !zh {
-					memberCell = "· member " + member
+					memberCell = tracefence.GlyphSubordinate + " member " + member
 				}
 				rows = append(rows, types.AnswerBlockItem{
 					Cells:       []string{runtimeTraceCausalProjectionMarkdownSafe(memberCell), dash, dash, dash, dash},
@@ -4613,9 +4621,9 @@ func runtimeTraceSemanticOptimizationParts(projection types.TraceCausalProjectio
 				})
 			}
 			if rest := span.FamilyMemberCount - listed; rest > 0 {
-				foldCell := fmt.Sprintf("· 其余 %d 项(家族折叠,成员共%d,列%d;见因果投影明细)", rest, span.FamilyMemberCount, listed)
+				foldCell := fmt.Sprintf("%s 其余 %d 项(家族折叠,成员共%d,列%d;见因果投影明细)", tracefence.GlyphSubordinate, rest, span.FamilyMemberCount, listed)
 				if !zh {
-					foldCell = fmt.Sprintf("· %d more (family fold; %d members, %d listed — see the causal projection detail)", rest, span.FamilyMemberCount, listed)
+					foldCell = fmt.Sprintf("%s %d more (family fold; %d members, %d listed — see the causal projection detail)", tracefence.GlyphSubordinate, rest, span.FamilyMemberCount, listed)
 				}
 				rows = append(rows, types.AnswerBlockItem{
 					Cells:       []string{runtimeTraceCausalProjectionMarkdownSafe(foldCell), dash, dash, dash, dash},

@@ -645,6 +645,12 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// CAL-1 件⑤/⑥b (2026-07-12): the cadence-idle row glyph (glyph IS
 		// the probe, same as the off-chain D-state icon).
 		runtimeTraceProjMarkIconPacing: {"∿", "∿"},
+		// P2a rider 件3 (§29.58.2 裁定, 2026-07-13): the dedicated binder
+		// IPC-wait glyph (glyph IS the probe; ◦/IconNoDominant borrow retired).
+		runtimeTraceProjMarkIconBinderWait: {"⋈", "⋈"},
+		// P2a rider 件2b (§29.58.1 b, 2026-07-13): the ↳ subordinate-component
+		// connector (glyph IS the probe).
+		runtimeTraceProjMarkSubordinateComponent: {"↳", "↳"},
 		// V2-P0 (2026-07-12): the ⌗ 口径旁栏 disclosure word.
 		runtimeTraceProjMarkCaliberSideRow: {"⌗口径旁栏", "⌗ caliber-side"},
 		// CR-2 组② P5: the same-segment mirror tag (equality arm 同段镜像已并入
@@ -658,8 +664,10 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// CR-2 组③ P7: the typed actual-scope word faces.
 		runtimeTraceProjMarkActualBeyondEpisode: {"超出发生段,窗内", "beyond own episode, inside window"},
 		runtimeTraceProjMarkActualNoInterval:    {"区间未发布", "interval unpublished"},
-		// PTV5 PTS: the on-chain overflow fold row's lane word.
-		runtimeTraceProjMarkOnChainOverflowFold: {"链上折叠", "on-chain fold"},
+		// PTV5 PTS → P2a rider 件1 (§29.55.3 处置更新 + §29.58.2 F2,
+		// 2026-07-13): the fold row's dedup name stem — the lane word moved to
+		// the edge slot; stanza folds share the name form and the mark.
+		runtimeTraceProjMarkOnChainOverflowFold: {"项(折叠)", "more (folded)"},
 		// PTV6-C ruling A (#73): the ◇/▒ cross-thread cumulative family word.
 		runtimeTraceProjMarkStanzaCrossThreadCum: {"累计(跨线程)", "cross-thread cum"},
 		// PTV6-D (b): the generic candidate category word is DELETED from the
@@ -1250,6 +1258,12 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// DISP-2 G19 (§27.5): the all-zero on-chain fold's one-line note
 		// (same fixture home).
 		{"disp2_all_zero_fold", disp2AllZeroFoldProjection()},
+		// P2a rider 件2/件3 (§29.58.1/§29.58.2, 复核 P2-1 2026-07-13): the
+		// self-stanza carve shape lights the ⋈ binder-wait glyph and the ↳
+		// subordinate-component connector — bidirectional legend parity for
+		// both new marks (fixture home:
+		// answer_document_projection_p2a_rider_test.go).
+		{"p2a_self_carve", p2aSelfCarveProjection()},
 		// §21/§22 RNB R1+R2: the same-segment two-lane fold note + the gated
 		// runnable component sub-row (fixture home:
 		// answer_document_projection_rnb_leadsem_test.go).

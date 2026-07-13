@@ -553,7 +553,8 @@ func TestRCM2C4BlockFamilyGrouping(t *testing.T) {
 	if header[0] != "类校验 14次" || header[3] != "合计7.124ms" {
 		t.Fatalf("header row must carry 类型词 ×N + 合计 cost: %+v", header)
 	}
-	if !strings.HasPrefix(rows[1].Cells[0], "· 成员 VerifyClass com.demo.Big") {
+	// P2a rider 件4 (§29.58.2 F4, 2026-07-13): member/fold cells wear ↳.
+	if !strings.HasPrefix(rows[1].Cells[0], "↳ 成员 VerifyClass com.demo.Big") {
 		t.Fatalf("member rows follow the header: %+v", rows[1].Cells)
 	}
 	fold := rows[4].Cells[0]

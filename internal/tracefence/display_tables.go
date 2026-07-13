@@ -61,7 +61,26 @@ const (
 	GlyphOptimization   = "✦"
 	GlyphInterrupt      = "↯"
 	GlyphBlindSpot      = "◌"
-	GlyphNeutral        = "◦" // 中转 / 无主导态 / binder-wait borrow (§24.3)
+	GlyphNeutral        = "◦" // 中转 / 无主导态 (§24.3; the binder-wait borrow ended with ⋈)
+	// GlyphBinderWait — P2a rider 件3 (ledger §29.58.2 binder 借用义专属字形
+	// 裁定, 2026-07-13; the FOURTH split precedent after T4/∿/⋯-withdrawn):
+	// the self/chain binder IPC-wait rows leave the ◦ neutral borrow for a
+	// dedicated mark. Chosen by the ∿ four-criteria audit (census §3 first
+	// choice): U+22C8 BOWTIE is EAW=N (width 1 in BOTH east-asian contexts),
+	// single rune / no VS16, Mathematical Operators block (same coverage
+	// argument as ∿), two-parties-meeting reads as the IPC rendezvous, and
+	// zero optical collision with the existing ◌/◦/⊚/⊘/⊗ circle marks.
+	GlyphBinderWait = "⋈"
+	// GlyphSubordinate — P2a rider 件2b (ledger §29.58.1 b, 2026-07-13): the
+	// subordinate-component connector `↳` (v5 design 双行 ↳ 先例, causal_tree
+	// v5 §C.2 重-2) worn by a component row placed directly under its owning
+	// seat (self binder ⊂ sleep carve) and by the deterministic optimization
+	// table's member/fold cells (§29.58.2 F4). Width note: U+21B3 is
+	// EAW-AMBIGUOUS (width 2 under an east-asian terminal condition) — the
+	// sanctioned treatment is the ⇅/⛓/❶ precedent recorded in the tool width
+	// pin (both generator and preview measure through the same go-runewidth
+	// condition, so grids stay self-consistent; census F6 record).
+	GlyphSubordinate = "↳"
 	// GlyphPacing — CAL-1 件⑥b (2026-07-12; 修复轮 P3-3 勘正): the
 	// cadence-idle row mark (pacing_idle / periodic_idle independent rows,
 	// 件⑤ PACE-ROW). Chosen by mechanical audit: U+223F SINE WAVE is width 1
@@ -102,6 +121,8 @@ func StateMarks() []StateMark {
 		{GlyphBlindSpot, "blind"},
 		{GlyphNeutral, "neutral"},
 		{GlyphPacing, "pacing"},
+		{GlyphBinderWait, "binder"},
+		{GlyphSubordinate, "sub"},
 	}
 }
 

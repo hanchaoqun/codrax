@@ -28,6 +28,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/mattn/go-runewidth"
 )
@@ -333,15 +334,16 @@ func TestRCRImpactFormGlyphsSingleCellNoVS16(t *testing.T) {
 		if w := runewidth.StringWidth(spec.Glyph); w != 1 {
 			t.Fatalf("glyph %q measures %d display cells, want 1 (等宽单格宽)", spec.Glyph, w)
 		}
-		// PTV8-RCR-C 复核收尾 (2026-07-08). EVOLUTION RECORD: the ◦ 无形态兜底
-		// glyph is a sanctioned share — the binder-wait family borrows it
-		// until a dedicated IPC glyph is ruled into the §24.3 closed set.
-		// EVOLUTION RECORD (SYM-2 §24.17 R2, 2026-07-08): ⛓ is the second
+		// EVOLUTION RECORD (P2a rider 件3, §29.58.2 裁定 2026-07-13): the
+		// PTV8-RCR-C ◦ sanctioned share is RETIRED — binder-wait wears the
+		// dedicated ⋈, so ◦ is one-per-form again and leaves the exemption
+		// (a re-borrow now goes red here).
+		// EVOLUTION RECORD (SYM-2 §24.17 R2, 2026-07-08): ⛓ stays the one
 		// sanctioned share — the user ruling splits the D-state family's 行2
 		// word (D状态候选) off IO阻塞候选 while keeping the EXISTING ⛓
 		// D-state icon semantics ("glyph=⛓ 既有 D-state 语义" verbatim); every
 		// other glyph stays one-per-form.
-		if seen[spec.Glyph] && spec.Glyph != "◦" && spec.Glyph != "⛓" {
+		if seen[spec.Glyph] && spec.Glyph != "⛓" {
 			t.Fatalf("glyph %q assigned to two forms — the closed set is one glyph per form", spec.Glyph)
 		}
 		seen[spec.Glyph] = true
@@ -360,6 +362,21 @@ func TestRCRImpactFormGlyphsSingleCellNoVS16(t *testing.T) {
 	}
 	if w := eaCond.StringWidth(runtimeTraceProjOffChainDStateGlyph); w != 1 {
 		t.Fatalf("off-chain D-state glyph %q measures %d cells under EastAsianWidth — must stay EAW-Neutral (⧖ class)", runtimeTraceProjOffChainDStateGlyph, w)
+	}
+	// P2a rider 件3 (§29.58.2, 2026-07-13): ⋈ U+22C8 was chosen EAW-Neutral
+	// (census §3 first-choice criterion — dual-context width 1); pin it so a
+	// glyph swap cannot silently regress to an Ambiguous candidate. The ↳
+	// connector (件2b/件4) is EAW-AMBIGUOUS by recorded exception (the ⇅/⛓/❶
+	// precedent — generator and preview share one runewidth condition), so it
+	// gets the single-rune/no-VS16/default-width-1 arms only.
+	if w := eaCond.StringWidth(tracefence.GlyphBinderWait); w != 1 {
+		t.Fatalf("binder-wait glyph %q measures %d cells under EastAsianWidth — must stay EAW-Neutral", tracefence.GlyphBinderWait, w)
+	}
+	if n := utf8.RuneCountInString(tracefence.GlyphSubordinate); n != 1 {
+		t.Fatalf("subordinate connector %q must be exactly one rune", tracefence.GlyphSubordinate)
+	}
+	if w := runewidth.StringWidth(tracefence.GlyphSubordinate); w != 1 {
+		t.Fatalf("subordinate connector %q measures %d display cells, want 1", tracefence.GlyphSubordinate, w)
 	}
 	// ⊚ replaced 🎯: the root header and its legend entry carry no emoji.
 	if strings.Contains(runtimeTraceProjTreeHeaderLabel(runtimeTraceProjTreeModel{Target: "t-1"}, true), "🎯") {

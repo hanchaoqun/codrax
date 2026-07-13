@@ -335,6 +335,13 @@ type runtimeTraceProjTreeRow struct {
 	// to a dedicated containment adjudication (CASE-1 扩围 / CASE-3).
 	NonAdditiveRef  string
 	NonAdditiveKind runtimeTraceProjNonAdditiveKind
+	// SubordinateComponentSeat (P2a rider 件2b, §29.58.1 b, 2026-07-13): this
+	// SELF row is a typed COMPONENT of another self row (WO-A1 carrier a —
+	// the binder ⊂ sleep carve) and was RESEATED directly under its owning
+	// seat by runtimeTraceProjSeatSelfComponentRows; the renderer prefixes
+	// the ↳ subordinate connector (结构管关系 — the containment used to live
+	// only in the pointer word while the row sat同级 among the state rows).
+	SubordinateComponentSeat bool
 	// MergedTwinMirrorRef (WO-D3 短期臂, SMR-1 批 S3-TPF/S8-TPF, 2026-07-12)
 	// marks this ×N MERGED row as the same-source twin of exactly one OTHER
 	// ×N merged row with the identical member fingerprint (µs display + count
@@ -628,7 +635,7 @@ const (
 	runtimeTraceProjMarkBackgroundStanza                                      // ▒ 背景压力 stanza
 	runtimeTraceProjMarkImpactCaliberFallback                                 // PTV5 C00 主行回退口径词 (链上累计/有效归因/实际状态/累计(跨线程))
 	runtimeTraceProjMarkCoverageLine                                          // PTV5 Q2 树头覆盖行(已归因/未归因)口径
-	runtimeTraceProjMarkOnChainOverflowFold                                   // PTV5 PTS 链上折叠行(其余N项,零静默丢弃)
+	runtimeTraceProjMarkOnChainOverflowFold                                   // PTV5 PTS → P2a rider 件1: 折叠行(其余N项(折叠),车道在边词,零静默丢弃;链上+区段两车道共用)
 	runtimeTraceProjMarkStanzaCrossThreadCum                                  // PTV6-C ruling A ◇/▒ 行 累计(跨线程) 族词
 	runtimeTraceProjMarkCandidateShapeClass                                   // PTV6-D (b) 候选影响 类别词降维:行内删,图例承载
 	runtimeTraceProjMarkUserFocusTransit                                      // §22 B1-b F2 折叠段内用户关注线程强制展开(中转形态)
@@ -769,6 +776,19 @@ const (
 	// disjoint same-identity occurrences carry their interval, sibling refs
 	// and the series total.
 	runtimeTraceProjMarkOccurrenceSeries
+
+	// P2a rider 件3 (§29.58.2 binder ⋈ 分裂裁定, 2026-07-13): the dedicated
+	// binder IPC-wait glyph mark — BinderWait no longer borrows
+	// IconNoDominant, so a binder-only report lights the ⋈ entry instead of
+	// the ◦ 数据行 entry (F1 图例修真). Legend entry is GENERATED from the
+	// §24.3 form table (GeneratedLegend, single source).
+	runtimeTraceProjMarkIconBinderWait
+
+	// P2a rider 件2b (§29.58.1 b, 2026-07-13): the ↳ subordinate-component
+	// connector — a component row (self binder ⊂ sleep carve) renders
+	// directly under its owning seat with the connector in the badge slot;
+	// the word face 「组成部分·不可相加」 stays on the WO-A1 pointer tag.
+	runtimeTraceProjMarkSubordinateComponent
 
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
@@ -932,6 +952,13 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkIconNoDominant, runtimeTraceProjLegendGroupMark,
 			"- `◦`(数据行) = 未识别出具体影响类型且无主导调度状态的行;有形态词的行戴各自形态族记号,该行的已知信息见行内说明或明细。",
 			"- `◦` (data row) = a row with no recognized impact type and no dominant scheduler state; rows with a form word wear their form family's glyph — this row's known facts live in the inline note or the detail table."},
+		// P2a rider 件2b (§29.58.1 b, 2026-07-13): the subordinate-component
+		// connector — 结构管关系 (the ↳ + placement say "component of the row
+		// above"), 词面管语义 (the row keeps its 「为[E#]的组成部分·不可相加」
+		// pointer tag).
+		{runtimeTraceProjMarkSubordinateComponent, runtimeTraceProjLegendGroupMark,
+			"- `" + tracefence.GlyphSubordinate + "` = 该行是紧邻上一行账目的组成部分(从属视图);两行数值不可相加,从属关系另见行内「为[E#]的组成部分」标注。",
+			"- `" + tracefence.GlyphSubordinate + "` = this row is a component of the row directly above (subordinate view); the two values never add, and the containment is also named by the row's \"component of [E#]\" tag."},
 		// PTV5 C01/C24 (#68): badges land on chain/cause/depthless rows — flat
 		// renders included — so the entry does not claim 链上 (CMP-7a: flat
 		// renders never claim on-chain). The sort key is visible per row via
@@ -1142,9 +1169,15 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `optimization point · below the top-N root-cause board` = on-chain semantic work (deterministic optimizable work such as compile/verify/texture) outside the top-N root-cause board, listed under the mention obligation; its magnitude never joins the ordering."},
 		// PTV5 PTS (#68 用户裁定 2026-07-05): on-chain overflow beyond the bucket
 		// cap folds with a count — never a silent drop.
+		// EVOLUTION RECORD (P2a rider 件1, §29.55.3 处置更新 + §29.58.2 F2,
+		// 2026-07-13): 「其余N项(链上折叠)」→「其余N项(折叠)」 — 边词管车道
+		// (链上─ restored on the fold row; the stanza folds wear their section
+		// lane word 邻近─/背景─), 行名管折叠 (lane word deduped out of the
+		// name), 记号位留形态族 (the state-mark slot keeps inheriting the
+		// merged node's impact form — ◦/◌/… carry true information).
 		{runtimeTraceProjMarkOnChainOverflowFold, runtimeTraceProjLegendGroupCaliber,
-			"- `其余N项(链上折叠)` = 超出逐行上限的链上项折叠为一行计数,数值取成员最大(墙钟跨线程不可加和);成员见明细与证据索引。",
-			"- `N more (on-chain fold)` = on-chain rows beyond the per-row cap fold into one counted row; the value is the member MAX (wall clock never sums across threads). Members live in the detail blocks and the evidence index."},
+			"- `其余N项(折叠)` = 超出逐行上限的项折叠为一行计数,所属车道见行首边词(如 `链上─`/`背景─`),数值取成员最大(墙钟跨线程不可加和);成员见明细与证据索引。",
+			"- `N more (folded)` = rows beyond the per-row cap fold into one counted row; the row's leading edge word names its lane (e.g. `on-chain─`/`background─`), and the value is the member MAX (wall clock never sums across threads). Members live in the detail blocks and the evidence index."},
 		// DISP-2 G19 (§27.5, 2026-07-09): the all-zero fold row's honest
 		// one-line note — a member-MAX claim over 0.000–0.000 taught nothing,
 		// so the ×N(0.000–0.000)取最大 tag is retired on that shape (EVOLUTION
@@ -2618,6 +2651,27 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// occurrence notes.
 	runtimeTraceProjMarkMergedTwinMirrors(&model)
 	runtimeTraceProjMarkNonAdditivePointers(&model)
+	// P2a rider 件2b (§29.58.1 b, 2026-07-13): reseat self COMPONENT rows
+	// (binder ⊂ sleep carve) directly under their owning seat with the ↳
+	// connector — must run right after the WO-A1 pass that mints the typed
+	// pointers this pass consumes.
+	//
+	// 件2c ∿ 层级核验注记 (§29.58.1 c, typed 关系核验 2026-07-13, 引擎铸造点
+	// 直读): cadence-idle (pacing_idle/periodic_idle) rows are minted from a
+	// physically-sleep segment, BUT their account is CARVED OUT of the sleep
+	// seat's account — the engine publishes the idle row under the segment's
+	// causal-impact evidence span "so the display same-fact fold engages by
+	// construction" (tracequery findBinderWaitsForChain ENG-2 追修: the
+	// segment's own sleep record folds INTO the idle row), and the display R2
+	// family fold excludes idle rows from the sleep ×N family (CAL-1 件⑤).
+	// The two accounts are therefore DISJOINT segment sets, not a subset
+	// (witness 20260713-062104: sleep ×7 members ≤14.302ms vs idle segment
+	// 15.758ms — the idle segment is NOT among the sleep members). Ruling c)
+	// verdict: 独立上下文 — the ∿ row keeps its sibling level and never takes
+	// the ↳ treatment; the carrier-(a) census exclusion in
+	// runtimeTraceProjMarkNonAdditivePointers stays the typed mirror of this
+	// fact.
+	runtimeTraceProjSeatSelfComponentRows(&model)
 	runtimeTraceProjMarkAccountRelations(&model, zh)
 	runtimeTraceProjStampOccurrenceSeries(&model)
 	runtimeTraceProjMarkSeriesAggregateSeats(&model)
@@ -6023,11 +6077,15 @@ func runtimeTraceProjTreeFence(model runtimeTraceProjTreeModel, zh bool) string 
 	// (lossless); the self area names their count and single max so the
 	// reader never mistakes the top-K for the whole population.
 	if model.SelfWaitOverflowCount > 0 {
+		// P2a rider 件2a F3 (§29.58.2 F3, 2026-07-13): this stanza-level
+		// side-note follows the §29.58.1 a) one-level-deeper arm (its host is
+		// the whole self stanza; the independent mint point rides the same
+		// geometry as the per-row "· " notes).
 		if zh {
-			b.WriteString(fmt.Sprintf("│     · 另有 %d 条自身等待症状行(单条最大 %.3fms)未在此逐行展示,见 ◇/▒ 区段与明细\n",
+			b.WriteString(fmt.Sprintf("│       · 另有 %d 条自身等待症状行(单条最大 %.3fms)未在此逐行展示,见 ◇/▒ 区段与明细\n",
 				model.SelfWaitOverflowCount, model.SelfWaitOverflowMaxMS))
 		} else {
-			b.WriteString(fmt.Sprintf("│     · %d more self wait-symptom rows (single max %.3fms) are not listed here; see the ◇/▒ stanzas and the detail blocks\n",
+			b.WriteString(fmt.Sprintf("│       · %d more self wait-symptom rows (single max %.3fms) are not listed here; see the ◇/▒ stanzas and the detail blocks\n",
 				model.SelfWaitOverflowCount, model.SelfWaitOverflowMaxMS))
 		}
 	}
@@ -6119,7 +6177,7 @@ func runtimeTraceProjTreeLabelColumn(model runtimeTraceProjTreeModel, zh bool) i
 	// the width pass records nothing).
 	for _, rows := range [][]runtimeTraceProjTreeRow{model.Adjacent, model.Background} {
 		for _, row := range rows {
-			consider(runtimeTraceProjStanzaRowFixed(row, nil),
+			consider(runtimeTraceProjStanzaRowFixed(row, nil, zh),
 				runtimeTraceProjRowName(row, zh), row)
 		}
 	}
@@ -6203,19 +6261,25 @@ func runtimeTraceProjTreeLabelParts(row runtimeTraceProjTreeRow, zh bool) (strin
 		// claim a wake relation with no wakee — render a bare branch instead.
 		edge = ""
 	}
-	if row.Kind == runtimeTraceProjTreeRowDepthless && row.Node.OnChainOverflowFold {
-		// PTS fold rows self-name their lane (其余 N 项(链上折叠)…): an edge
-		// word would claim a relation the counted roster does not carry, and
-		// its width would starve the roster head the PTS pin protects (count +
-		// head names never cut). Bare branch; the fold legend entry owns the
-		// semantics.
-		edge = ""
-	}
-	if edge != "" {
+	// EVOLUTION RECORD (P2a rider 件1, §29.55.3 处置更新, 用户裁定形
+	// `链上─ ◌ 其余 2 项(折叠)`, 2026-07-13): the PTS fold-row edge-omission
+	// arm is RETIRED — 边词管车道: the lane word is TRUE of every folded
+	// member (the former omission rationale targeted wake-RELATION edges,
+	// which a counted roster indeed does not carry, but 链上─ claims lane
+	// membership only), and restoring it puts the fold's state mark back in
+	// its siblings' glyph column (并列自明). The row NAME dropped its 「链上」
+	// in exchange (行名管折叠, net width +1); the PTS count+roster-head pin
+	// covers the new geometry. Flat renders keep the bare branch through the
+	// Parent=="" arm above (CMP-7a: flat renders never claim on-chain).
+	if edge != "" && !row.Node.OnChainOverflowFold {
 		// NEW-7 edge mark, recorded AFTER the flat-fallback suppression so a
 		// suppressed edge never claims a legend entry. The typed switch mirrors
 		// runtimeTraceProjEdgeLabel exactly (default = wake, same as its default
-		// arm) — keep the two in lockstep.
+		// arm) — keep the two in lockstep. Fold rows render the 链上─ edge but
+		// record their OWN fold mark (at the name mint) instead of the
+		// EdgeChainUnresolved entry, whose wording promises the 链上·深度未解析
+		// 行注 chip the fold row deliberately never wears
+		// (runtimeTraceProjChainDepthChipEligible exclusion — 图例是承诺面).
 		switch row.Edge {
 		case runtimeTraceProjTreeEdgeDrill:
 			row.marks.mark(runtimeTraceProjMarkEdgeDrill)
@@ -6431,10 +6495,39 @@ func runtimeTraceProjRowNameFitted(fixedW int, row runtimeTraceProjTreeRow, name
 		return head + keep
 	}
 	budget := runtimeTraceProjTreeNameBudgetReserve(fixedW, reserve)
+	// P2a rider 件1 PTS 复核 (§29.55.3, 2026-07-13): the fold row's name
+	// protects the count stem AND the whole first roster member (including a
+	// B6 见榜位 pointer suffix) — the PTS 「计数+头名永不截断」 promise. The
+	// edge-word restoration shrank the fold name budget by one net cell and
+	// the b6 pointer tail fell off exactly there; witness 062104 shows the
+	// pre-rider budget already mid-cut roster heads (承诺面欠账), so the
+	// protection lands as a typed floor instead of a byte accident. The row
+	// may run past the shared column like the L4 identity floor.
+	if row.Node.OnChainOverflowFold || runtimeTraceProjStanzaFoldRow(row) {
+		if floor := runtimeTraceProjFoldNameProtectedWidth(name); floor > budget {
+			budget = floor
+		}
+	}
 	if runewidth.StringWidth(name) > budget {
 		name = runtimeTraceProjTruncateName(name, budget)
 	}
 	return name
+}
+
+// runtimeTraceProjFoldNameProtectedWidth measures the fold-row name prefix
+// the PTS promise keeps whole: everything up to (excluding) the first roster
+// member separator — the count stem plus the head member with any pointer
+// suffix — plus one cell for the truncation ellipsis. A single-member roster
+// protects the whole name.
+func runtimeTraceProjFoldNameProtectedWidth(name string) int {
+	cut := len(name)
+	if i := strings.Index(name, "、"); i >= 0 && i < cut {
+		cut = i
+	}
+	if i := strings.Index(name, ", "); i >= 0 && i < cut {
+		cut = i
+	}
+	return runewidth.StringWidth(name[:cut]) + 1
 }
 
 // runtimeTraceProjTruncateName display-truncates a row name to a cell budget
@@ -6642,6 +6735,68 @@ func runtimeTraceProjScaleNote(model runtimeTraceProjTreeModel, zh bool) string 
 	return fmt.Sprintf("window bounds not captured; "+tracefence.ScaleMarkEN+" report max %.3fms (fallback scale, no window %%)", model.BarMaxMS)
 }
 
+// runtimeTraceProjSeatSelfComponentRows (P2a rider 件2b, §29.58.1 b,
+// 2026-07-13) reseats every SELF row that is a typed COMPONENT of another
+// self row (WO-A1 carrier a: NonAdditiveKind==Component with the ref
+// resolving to a sibling self row's evidence tag) to the position DIRECTLY
+// under its owning seat, and stamps SubordinateComponentSeat so the renderer
+// prefixes the ↳ connector. 沿折叠行裁定分工原则: 结构管关系 (placement + ↳),
+// 词面管语义 (the 「为[E#]的组成部分·不可相加」 pointer tag stays). Components
+// pointing outside the self stanza (chain-lane carriers b/c) are untouched.
+// Deterministic: hosts keep their order; components follow their host in
+// their original relative order.
+func runtimeTraceProjSeatSelfComponentRows(model *runtimeTraceProjTreeModel) {
+	rows := model.SelfRows
+	if len(rows) < 2 {
+		return
+	}
+	tags := map[string]bool{}
+	for i := range rows {
+		if tag := strings.TrimSpace(rows[i].EvidenceTag); tag != "" {
+			tags[tag] = true
+		}
+	}
+	componentsByHost := map[string][]int{}
+	componentIdx := map[int]bool{}
+	for i := range rows {
+		if rows[i].NonAdditiveKind != runtimeTraceProjNonAdditiveComponent {
+			continue
+		}
+		ref := strings.TrimSpace(rows[i].NonAdditiveRef)
+		if ref == "" || !tags[ref] || ref == strings.TrimSpace(rows[i].EvidenceTag) {
+			continue
+		}
+		componentsByHost[ref] = append(componentsByHost[ref], i)
+		componentIdx[i] = true
+	}
+	if len(componentsByHost) == 0 {
+		return
+	}
+	out := make([]runtimeTraceProjTreeRow, 0, len(rows))
+	seated := make([]bool, len(rows))
+	for i := range rows {
+		if seated[i] || componentIdx[i] {
+			continue
+		}
+		out = append(out, rows[i])
+		seated[i] = true
+		for _, j := range componentsByHost[strings.TrimSpace(rows[i].EvidenceTag)] {
+			row := rows[j]
+			row.SubordinateComponentSeat = true
+			out = append(out, row)
+			seated[j] = true
+		}
+	}
+	// Safety net: a component whose host row never emitted (unreachable while
+	// tags[] gates membership above) keeps its seat instead of vanishing.
+	for i := range rows {
+		if !seated[i] {
+			out = append(out, rows[i])
+		}
+	}
+	model.SelfRows = out
+}
+
 // runtimeTraceProjSelfRowLines renders one self row for the fence. PTV4 T1 →
 // PTV6-D (a) 悬崖消除: the whole row stays a single line whenever it holds
 // the 100-cell row cap; over the cap, the main line keeps the essentials
@@ -6667,7 +6822,12 @@ func runtimeTraceProjSelfRowLines(row runtimeTraceProjTreeRow, windowMS float64,
 		keep++
 	}
 	lines := []string{lead + strings.Join(runtimeTraceProjSelfInlineOrder(main, demoted[:keep]), " ")}
-	return append(lines, runtimeTraceProjSubordinatePackedLines(lead, demoted[keep:])...)
+	// P2a rider 件2a (§29.58.1 a, 2026-07-13): the "· " side-note block
+	// indents ONE LEVEL DEEPER than its host row (aligned with the note's own
+	// wrapped continuations) — the self stanza has no rails/edges, so a note
+	// at the host's own lead sat in the very glyph column that separates the
+	// state rows (三层级一视觉形 witness 20260713-062104).
+	return append(lines, runtimeTraceProjSubordinatePackedLines(lead+"  ", demoted[keep:])...)
 }
 
 // runtimeTraceProjSelfInlineOrder restores the legacy inline order (detail
@@ -6760,6 +6920,14 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 		main = append(main, badge+runtimeTraceProjStateIcon(node, row.Kind, true, row.marks)+" "+selfPrefix+name)
 	} else {
 		main = append(main, badge+runtimeTraceProjStateIcon(node, row.Kind, true, row.marks)+" "+selfOnly)
+	}
+	// P2a rider 件2b (§29.58.1 b, 2026-07-13): a reseated component row (↳
+	// seat stamped by runtimeTraceProjSeatSelfComponentRows) leads with the
+	// subordinate connector in the badge-family slot — 结构管关系; the
+	// containment word face stays on the WO-A1 pointer tag below.
+	if row.SubordinateComponentSeat && len(main) > 0 {
+		row.marks.mark(runtimeTraceProjMarkSubordinateComponent)
+		main[0] = tracefence.GlyphSubordinate + " " + main[0]
 	}
 	// WO-D1① 无值披露臂 (SMR-1 批 SMR-S2 ◌ 带值行, 2026-07-12; 25846 E4:
 	// the missing_wakeup ◌ row re-carried a sleep member's 80.751ms as what
@@ -7291,17 +7459,35 @@ func runtimeTraceProjRowNameBase(row runtimeTraceProjTreeRow, zh bool) string {
 	}
 	if node.OnChainOverflowFold {
 		// PTS (#68 用户裁定 2026-07-05): the on-chain overflow fold row names
-		// its lane + count explicitly — 零静默丢弃; members' names ride the
-		// roster suffix, semantics live in the legend's 链上折叠 entry.
+		// its count explicitly — 零静默丢弃; members' names ride the roster
+		// suffix, semantics live in the legend's 折叠 entry.
+		// EVOLUTION RECORD (P2a rider 件1, §29.55.3 处置更新 2026-07-13, 用户
+		// 裁定形 `链上─ ◌ 其余 2 项(折叠)`): the lane word 「链上」 deduped out
+		// of the name — the restored 链上─ edge word carries the lane (with the
+		// former edge-omission arm retired in runtimeTraceProjTreeLabelParts),
+		// and the state-mark slot keeps the merged node's impact form.
 		row.marks.mark(runtimeTraceProjMarkOnChainOverflowFold)
 		if zh {
-			return fmt.Sprintf("其余 %d 项(链上折叠)%s", node.MergedCount, runtimeTraceProjMergedSubjectsSuffix(node, zh))
+			return fmt.Sprintf("其余 %d 项(折叠)%s", node.MergedCount, runtimeTraceProjMergedSubjectsSuffix(node, zh))
 		}
-		return fmt.Sprintf("%d more (on-chain fold)%s", node.MergedCount, runtimeTraceProjMergedSubjectsSuffix(node, zh))
+		return fmt.Sprintf("%d more (folded)%s", node.MergedCount, runtimeTraceProjMergedSubjectsSuffix(node, zh))
 	}
 	if node.MergedCount > 1 && node.Subject == "" {
 		// The fold line keeps the folded rows' thread names (customer
 		// 2026-07-03: a bare "其余 N 项合并" lost every thread identity).
+		// P2a rider 件1 F2 (§29.58.2, 2026-07-13): a ◇/▒ stanza cross-thread
+		// fold joins the 边词/行名分工 arm — same dedup name form 其余N项(折叠)
+		// (the section lane word rides the stanza fold's edge word, minted in
+		// runtimeTraceProjStanzaRowFixed) and the same legend seat. Non-stanza
+		// subjectless folds (hand-built/legacy shapes; production R3 folds all
+		// render in the ▒/◇ buckets) keep the legacy 合并 wording.
+		if runtimeTraceProjStanzaRowKind(row.Kind) {
+			row.marks.mark(runtimeTraceProjMarkOnChainOverflowFold)
+			if zh {
+				return fmt.Sprintf("其余 %d 项(折叠)%s", node.MergedCount, runtimeTraceProjMergedSubjectsSuffix(node, zh))
+			}
+			return fmt.Sprintf("%d more (folded)%s", node.MergedCount, runtimeTraceProjMergedSubjectsSuffix(node, zh))
+		}
 		if zh {
 			return fmt.Sprintf("其余 %d 项合并%s", node.MergedCount, runtimeTraceProjMergedSubjectsSuffix(node, zh))
 		}
@@ -7785,7 +7971,7 @@ func runtimeTraceProjStanzaRowLine(row runtimeTraceProjTreeRow, width int, denom
 	// font drift shifted them by varying offsets. The fixed part mirrors the
 	// width pass in runtimeTraceProjTreeLabelColumn exactly (single composer:
 	// runtimeTraceProjStanzaRowFixed).
-	left := runtimeTraceProjTreeLabelRow(runtimeTraceProjStanzaRowFixed(row, row.marks),
+	left := runtimeTraceProjTreeLabelRow(runtimeTraceProjStanzaRowFixed(row, row.marks, zh),
 		row, runtimeTraceProjRowName(row, zh), width, zh)
 	return runtimeTraceProjRowLineWithMetrics(left, row, denom, windowMode, zh)
 }
@@ -7795,7 +7981,7 @@ func runtimeTraceProjStanzaRowLine(row runtimeTraceProjTreeRow, width int, denom
 // §29.27.1 (徽章跟随席位): a stanza row whose published seat is TOP-5 wears
 // its ❶..❺ glyph exactly like a tree row — the badge slot sits before the
 // state glyph, mirroring runtimeTraceProjTreeLabelParts.
-func runtimeTraceProjStanzaRowFixed(row runtimeTraceProjTreeRow, marks *runtimeTraceProjMarkSet) string {
+func runtimeTraceProjStanzaRowFixed(row runtimeTraceProjTreeRow, marks *runtimeTraceProjMarkSet, zh bool) string {
 	badge := ""
 	if glyph := runtimeTraceProjBadgeGlyph(row.Badge); glyph != "" {
 		if marks != nil {
@@ -7804,7 +7990,43 @@ func runtimeTraceProjStanzaRowFixed(row runtimeTraceProjTreeRow, marks *runtimeT
 		// UXG-0 D5: badge→state-glyph gap, same as the tree/self emitters.
 		badge = glyph + " "
 	}
-	return "    " + badge + runtimeTraceProjStateIcon(row.Node, row.Kind, true, marks) + " "
+	// P2a rider 件1 F2 (§29.58.2, 2026-07-13): the stanza cross-thread fold
+	// row wears its SECTION's lane word in the edge slot (边词管车道 — the
+	// same division of labor as the 链上─ chain fold; the row name deduped to
+	// 其余N项(折叠)). Sibling stanza rows carry no edge, so the fold's state
+	// mark sits right of the lane word instead of the shared glyph column —
+	// the lane word is the load-bearing information there.
+	edge := ""
+	if runtimeTraceProjStanzaFoldRow(row) {
+		edge = runtimeTraceProjStanzaLaneEdgeWord(row.Kind, zh) + " "
+	}
+	return "    " + edge + badge + runtimeTraceProjStateIcon(row.Node, row.Kind, true, marks) + " "
+}
+
+// runtimeTraceProjStanzaFoldRow is the ONE gate of the F2 stanza-fold form —
+// shared by the name mint (runtimeTraceProjRowName subjectless-fold arm) and
+// the edge-word mint above so the two faces can never fork: a subjectless
+// cross-thread fold row seated in a ◇/▒ stanza (the production R3 background
+// fold shape; OnChainOverflowFold rows are the chain lane's own fold).
+func runtimeTraceProjStanzaFoldRow(row runtimeTraceProjTreeRow) bool {
+	return runtimeTraceProjStanzaRowKind(row.Kind) && !row.Node.OnChainOverflowFold &&
+		row.Node.MergedCount > 1 && strings.TrimSpace(row.Node.Subject) == ""
+}
+
+// runtimeTraceProjStanzaLaneEdgeWord is the stanza fold row's lane word
+// (§29.58.2 F2 边词=该区段车道词): the section noun the ◇/▒ headers already
+// teach, in the tree edge-word form (trailing ─, same as 链上─).
+func runtimeTraceProjStanzaLaneEdgeWord(kind string, zh bool) string {
+	if kind == runtimeTraceProjTreeRowAdjacent {
+		if zh {
+			return "邻近─"
+		}
+		return "adjacent─"
+	}
+	if zh {
+		return "背景─"
+	}
+	return "background─"
 }
 
 // runtimeTraceProjRowCauseWordToken returns the display cause segment of
@@ -9311,7 +9533,7 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 			// claim over nothing but zeros (huadong_79 "×9(0.000–0.000ms)取最
 			// 大" noise witness). The shape now speaks the honest one-line note
 			// (typed numeric shape + fold identity; the row name keeps the
-			// 其余N项(链上折叠) count and the members stay reachable via the
+			// 其余N项(折叠) count and the members stay reachable via the
 			// detail blocks and the evidence index — zero information loss).
 			row.marks.mark(runtimeTraceProjMarkAllZeroFoldNote)
 			text = runtimeTraceProjAllZeroFoldNoteText(node, zh)
@@ -13168,7 +13390,9 @@ func runtimeTraceProjDetailSeatGlyph(row runtimeTraceProjTreeRow, zh bool) strin
 // wear THREE names (tree "其余 N 项合并(roster…)", table/block bare
 // "对端线程未解析") — the table/block now share the tree's fold stem; the
 // roster stays on the tree row (2026-07-03 customer ruling) and the ×N 明细
-// line. "" for every other shape.
+// line. "" for every other shape. P2a rider 件1 F2 (§29.58.2, 2026-07-13):
+// the stem follows the stanza fold's dedup form 其余N项(折叠) — the carriers
+// of this name are exactly the R3 stanza folds whose tree face changed.
 func runtimeTraceProjUnresolvedFoldName(node types.TraceCausalProjectionNode, zh bool) string {
 	if node.MergedCount <= 1 || node.OnChainOverflowFold ||
 		strings.TrimSpace(node.Subject) != "" ||
@@ -13176,9 +13400,9 @@ func runtimeTraceProjUnresolvedFoldName(node types.TraceCausalProjectionNode, zh
 		return ""
 	}
 	if zh {
-		return fmt.Sprintf("其余 %d 项合并(对端线程未解析)", node.MergedCount)
+		return fmt.Sprintf("其余 %d 项(折叠)(对端线程未解析)", node.MergedCount)
 	}
-	return fmt.Sprintf("%d more folded (peer threads unresolved)", node.MergedCount)
+	return fmt.Sprintf("%d more (folded) (peer threads unresolved)", node.MergedCount)
 }
 
 // runtimeTraceProjDetailFullName composes a node's FULL display name with NO
@@ -13226,12 +13450,15 @@ func runtimeTraceProjDetailFullName(node types.TraceCausalProjectionNode, zh boo
 		return object
 	default:
 		// PTS (复核 Low, 2026-07-06): the overflow fold row's lossless block
-		// names its lane + count — never the anonymous fallback.
+		// names its count + roster — never the anonymous fallback. P2a rider
+		// 件1 (§29.55.3, 2026-07-13): lockstep with the tree row-name mint —
+		// 其余N项(折叠); the lane lives on the tree face's edge word and this
+		// block's own 因果位置 line.
 		if node.OnChainOverflowFold {
 			if zh {
-				return fmt.Sprintf("其余 %d 项(链上折叠)%s", node.MergedCount, runtimeTraceProjMergedSubjectsSuffix(node, zh))
+				return fmt.Sprintf("其余 %d 项(折叠)%s", node.MergedCount, runtimeTraceProjMergedSubjectsSuffix(node, zh))
 			}
-			return fmt.Sprintf("%d more (on-chain fold)%s", node.MergedCount, runtimeTraceProjMergedSubjectsSuffix(node, zh))
+			return fmt.Sprintf("%d more (folded)%s", node.MergedCount, runtimeTraceProjMergedSubjectsSuffix(node, zh))
 		}
 		// PTV5 C39 (#68): the zh panel's subject/object-less fallback speaks
 		// zh; the EN face keeps the neutral phrase.

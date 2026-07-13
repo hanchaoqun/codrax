@@ -2097,9 +2097,9 @@ func buildPrincipalEnumerationRowsBlock(doc *types.AnswerDocumentV2, set types.E
 		if !principalEnumerationRowHasOrigin(blockSet.Rows[i], types.AnswerEvidenceOriginRuntimeArtifact) {
 			continue
 		}
-		blockSet.Rows[i].Member = principalEnumerationRuntimeSystemLabel(blockSet.Rows[i].Member)
-		blockSet.Rows[i].DisplayLabel = principalEnumerationRuntimeSystemLabel(blockSet.Rows[i].DisplayLabel)
-		blockSet.Rows[i].Note = principalEnumerationRuntimeSystemLabel(blockSet.Rows[i].Note)
+		blockSet.Rows[i].Member = principalEnumerationRuntimeSystemLabel(blockSet.Rows[i].Member, zh)
+		blockSet.Rows[i].DisplayLabel = principalEnumerationRuntimeSystemLabel(blockSet.Rows[i].DisplayLabel, zh)
+		blockSet.Rows[i].Note = principalEnumerationRuntimeSystemLabel(blockSet.Rows[i].Note, zh)
 	}
 	shape := principalEnumerationTableShapeForSet(blockSet, nil)
 	block := types.AnswerBlock{
@@ -2637,7 +2637,13 @@ var principalEnumerationRuntimeTypedTokenRE = regexp.MustCompile(
 // row's SYSTEM-voiced surface from typed-shaped tokens only (件A). Empty
 // extraction falls back to a neutral locator pointer (the row's typed
 // location cell still renders).
-func principalEnumerationRuntimeSystemLabel(text string) string {
+//
+// EVOLUTION RECORD (P2a rider 件5 词面族 zh-en 合审, §29.57 残留, 2026-07-13):
+// the locator pointer used to be the zh-only literal 「(见定位)」 on BOTH
+// language faces (Chinese token on the EN report), and its zh word 定位 did
+// not name the actual column (定义位置/Location). The pointer now speaks the
+// reader's language and the column's real name.
+func principalEnumerationRuntimeSystemLabel(text string, zh bool) string {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return ""
@@ -2653,7 +2659,10 @@ func principalEnumerationRuntimeSystemLabel(text string) string {
 		}
 	}
 	if !substantive {
-		return "(见定位)"
+		if zh {
+			return "(见定义位置)"
+		}
+		return "(see Location)"
 	}
 	for len(tokens) > 0 && (tokens[0] == "→" || tokens[0] == "@") {
 		tokens = tokens[1:]

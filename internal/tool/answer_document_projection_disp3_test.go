@@ -382,7 +382,7 @@ func TestDisp3OverflowFoldCrossWindowNoShare(t *testing.T) {
 	fence := runtimeTraceProjTreeFence(model, true)
 	foldLine := ""
 	for _, line := range strings.Split(fence, "\n") {
-		if strings.Contains(line, "链上折叠") {
+		if strings.Contains(line, "项(折叠)") {
 			foldLine = line
 			break
 		}
@@ -402,7 +402,7 @@ func TestDisp3OverflowFoldCrossWindowNoShare(t *testing.T) {
 	singleFence := runtimeTraceProjTreeFence(singleModel, true)
 	singleLine := ""
 	for _, line := range strings.Split(singleFence, "\n") {
-		if strings.Contains(line, "链上折叠") {
+		if strings.Contains(line, "项(折叠)") {
 			singleLine = line
 			break
 		}

@@ -92,7 +92,8 @@ func TestDisp2AllZeroFoldNoteFaces(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
 	t.Logf("all-zero fold render (zh fence):\n%s", fence)
-	if !strings.Contains(fence, "其余 9 项(链上折叠)") {
+	// P2a rider 件1 (§29.55.3, 2026-07-13): 边词管车道+行名管折叠 dedup form.
+	if !strings.Contains(fence, "链上─ ◦ 其余 9 项(折叠)") {
 		t.Fatalf("the fold row keeps its counted lane name:\n%s", fence)
 	}
 	if !strings.Contains(fence, "窗内无有效时长(数据盲区),见明细") {
@@ -106,7 +107,7 @@ func TestDisp2AllZeroFoldNoteFaces(t *testing.T) {
 	_, rows := runtimeTraceProjDetailTable(model, true)
 	foldCell := ""
 	for _, row := range rows {
-		if strings.Contains(row.Cells[0], "链上折叠") {
+		if strings.Contains(row.Cells[0], "项(折叠)") {
 			foldCell = row.Cells[0]
 		}
 	}
