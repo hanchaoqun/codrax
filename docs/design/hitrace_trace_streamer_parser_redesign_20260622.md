@@ -189,10 +189,11 @@ Then a Codrax DB exporter reads the generated SQLite database and emits:
 
 The built-in parser is selected directly only by explicit `builtin`, or as the
 recorded second lane after `trace_streamer` is unavailable or fails in `auto`.
-For trace+perf input it produces the trace body; the independent official/raw
-perf sidecar lane produces fallback samples when SQL did not export query-ready
-perf rows. The parser is organized around modern profiler payloads and the same
-semantic event families exported from the DB engine:
+For trace+perf input it produces only the trace body. When perftrace generation
+is enabled and a compatible official/raw parser is available, the independent
+perf sidecar lane may produce fallback samples if SQL did not export query-ready
+perf rows. The built-in trace parser is organized around modern profiler
+payloads and the same semantic event families exported from the DB engine:
 
 - profiler session/package metadata
 - ftrace plugin metadata and structured event payloads
