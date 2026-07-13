@@ -563,6 +563,8 @@ B终态不变，但按单点权威拆成B1-a/B1-b/B2，任一子批不得提前�
 4. **B2-b4 aux/filemap producer typed化**：F2FS/MMC/filemap及source-profile drop全部直接typed；仅4015 field3/7/11 response drop允许`AdmittedDisplay`，filemap canonical失败为内部invariant。
 5. **B2-b5 block producer typed化与收口**：block hard字段和cmd/comm显示降级分臂；补齐block与core/aux/filemap一致的canonical-line局部拒行，使近行长上限的合法envelope comm只拒对应坏block行而不扩大成conversion-wide失败；全调用图typed后删除反向bridge、`Reason string`、`[]string degradation`及reason `fmt.Sprintf`生产链，direct只经唯一`label`适配。四producer族全集、direct label golden、正反序/大计数/overflow/source fail-close及AST红线全绿后，才可关闭B2-b并复核B2总验收矩阵。
 
+**B2-b2施工补充（2026-07-12，代码前冻结）**：generic 410/2002/2417当前对每个scalar重复遍历整段payload；任一截断尾会把同一个物理坏端点扇出为多个`core_fieldN_malformed_wire`，并因hard分支先返回而使`cpu_id_malformed_wire`/`next_info_malformed_wire`实际不可达。b2必须改成单次typed endpoint扫描：可定位到已知field的截断/非法wire只铸该field的exact issue，CPU field3与next-info field8进入各自`AdmittedDisplay`；坏key等无法定位field的 framing 错误只铸whole-payload hard issue，禁止猜字段、禁止解析error文本。410/2002/2417还必须在sink前做局部canonical-line校验，超长源输入只拒对应event并铸`WireInvalidCanonicalLine{PayloadField:0,HardReject}`，不得扩大为conversion-wide `line_too_long`。同时，CPUDetail event容器field2 wrong-wire及event oneof完全缺失都会丢失无法归族的物理event，必须设置typed opaque provenance并poison MMC/F2FS barrier，禁止跨洞假配；oneof wrong-wire/multiple继续按已见exact family poison。以上新增红例、direct typed→label兼容、container守恒与pair start→opaque洞→end E2E全部通过前，B2-b2不得结案。
+
 ### P1-a2.2-B2-b1 closed bridge与exact ledger交付结案
 
 账本校准提交`c2c3f50fc`与代码提交`0ade13c13`已按顺序推送到`main`；本节只关闭B2-b1临时strict bridge与exact fixed census，不提前关闭B2-b、B2或P1-a2.2。bridge必须在B2-b2..b5逐producer typed化完成后删除，不能成为长期双权威。
