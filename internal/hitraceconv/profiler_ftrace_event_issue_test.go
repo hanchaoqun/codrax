@@ -320,7 +320,8 @@ func TestProfilerFtraceEventIssueFixedPayloadFieldGolden(t *testing.T) {
 		"envelope_common_fields_missing", "envelope_common_fields_duplicate", "envelope_common_fields_wrong_wire", "envelope_common_fields_malformed_wire")
 
 	check(113, profilerFtraceEventDegradationCorePayload, 0,
-		"core_payload_malformed_wire", "invalid_transaction_endpoint", "invalid_canonical_core_line")
+		"core_payload_malformed_wire", "invalid_transaction_endpoint")
+	check(1400, profilerFtraceEventDegradationCorePayload, 0, "invalid_canonical_core_line")
 	check(2004, profilerFtraceEventDegradationCorePayload, 0, "invalid_limits_profile", "invalid_limits_order")
 	check(113, profilerFtraceEventDegradationCorePayload, 1, "invalid_transaction_id")
 	check(1400, profilerFtraceEventDegradationCorePayload, 1, "missing_or_invalid_reason")
@@ -718,8 +719,28 @@ func TestProfilerFtraceEventIssueFiniteUniverseRoundTripsAndFitsFixedCensus(t *t
 	}
 	// Literal totals pin schema expansion and force an explicit census-capacity
 	// review. Update only with the independent event/payload golden matrices.
-	if total != 1_826 || maxPerEvent != 106 {
-		t.Fatalf("finite issue universe drifted: total=%d want=1826 max_per_event=%d want=106", total, maxPerEvent)
+	if total != 1_813 || maxPerEvent != 106 {
+		t.Fatalf("finite issue universe drifted: total=%d want=1813 max_per_event=%d want=106", total, maxPerEvent)
+	}
+}
+
+func TestProfilerFtraceCoreCanonicalIssueHasExactSourceReachability(t *testing.T) {
+	reachable := map[int]bool{1400: true, 1401: true, 1402: true, 1500: true}
+	for _, test := range profilerCoreTestCases() {
+		issue, fixedOK := profilerFtraceEventFixedIssue(test.field, profilerFtraceEventIssueCoreInvalidCanonicalLine)
+		bridged, bridgeOK := profilerFtraceEventIssueFromLegacy(test.field,
+			profilerFtraceEventDegradationCorePayload, "invalid_canonical_core_line")
+		if fixedOK != reachable[test.field] || bridgeOK != reachable[test.field] {
+			t.Fatalf("canonical reachability drifted: field=%d fixed_ok=%t bridge_ok=%t want=%t fixed=%+v bridged=%+v",
+				test.field, fixedOK, bridgeOK, reachable[test.field], issue, bridged)
+		}
+		if !reachable[test.field] {
+			continue
+		}
+		if issue != bridged || issue.PayloadField != 0 ||
+			issue.Severity != profilerFtraceEventIssueHardReject || !issue.validFor(test.field) {
+			t.Fatalf("reachable canonical tuple invalid: field=%d fixed=%+v bridged=%+v", test.field, issue, bridged)
+		}
 	}
 }
 

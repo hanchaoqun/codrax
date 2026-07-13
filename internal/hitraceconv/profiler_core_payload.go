@@ -40,63 +40,194 @@ var profilerStructuredCoreSchemas = map[int]map[int]int{
 
 const maxProfilerWakeCommBytes = 15 // TASK_COMM_LEN (16) minus terminating NUL.
 
-func decodeProfilerCorePayload(event profilerFtraceEventRecord) (coreRenderPayload, bodyAdmission, string, []string) {
+const profilerFtraceCoreIssuesPerEvent = 1
+
+// profilerFtraceCoreIssueSet preserves the established core contract: one
+// event publishes at most one dominant diagnostic. This differs deliberately
+// from generic wire events, whose pre-migration contract accumulated multiple
+// independent scalar failures after a completed scan.
+type profilerFtraceCoreIssueSet struct {
+	Count  uint8
+	Issues [profilerFtraceCoreIssuesPerEvent]profilerFtraceEventIssue
+}
+
+func (set *profilerFtraceCoreIssueSet) validate(eventField int) error {
+	if set == nil || int(set.Count) > len(set.Issues) {
+		return &traceDBOutputInvariantError{Reason: "profiler_core_issue_count_invalid"}
+	}
+	for index, issue := range set.Issues {
+		if index >= int(set.Count) {
+			if issue != (profilerFtraceEventIssue{}) {
+				return &traceDBOutputInvariantError{Reason: "profiler_core_issue_count_invalid"}
+			}
+			continue
+		}
+		if issue.Kind < profilerFtraceEventIssueCorePayloadMalformedWire ||
+			issue.Kind > profilerFtraceEventIssueCoreInvalidCanonicalLine ||
+			!issue.validFor(eventField) || issue.Severity != issue.expectedSeverity() {
+			return &traceDBOutputInvariantError{Reason: "profiler_core_issue_schema_invalid"}
+		}
+	}
+	return nil
+}
+
+func (set *profilerFtraceCoreIssueSet) add(eventField int, issue profilerFtraceEventIssue) error {
+	if err := set.validate(eventField); err != nil {
+		return err
+	}
+	if issue.Kind < profilerFtraceEventIssueCorePayloadMalformedWire ||
+		issue.Kind > profilerFtraceEventIssueCoreInvalidCanonicalLine ||
+		!issue.validFor(eventField) || issue.Severity != issue.expectedSeverity() {
+		return &traceDBOutputInvariantError{Reason: "profiler_core_issue_schema_invalid"}
+	}
+	for index := 0; index < int(set.Count); index++ {
+		if set.Issues[index] == issue {
+			return &traceDBOutputInvariantError{Reason: "profiler_core_issue_duplicate"}
+		}
+	}
+	if int(set.Count) == len(set.Issues) {
+		return &traceDBOutputInvariantError{Reason: "profiler_core_issue_overflow"}
+	}
+	candidate := *set
+	candidate.Issues[int(candidate.Count)] = issue
+	candidate.Count++
+	if err := candidate.validate(eventField); err != nil {
+		return err
+	}
+	*set = candidate
+	return nil
+}
+
+func (set *profilerFtraceCoreIssueSet) addFixed(eventField int, kind profilerFtraceEventIssueKind) error {
+	issue, ok := profilerFtraceEventFixedIssue(eventField, kind)
+	if !ok {
+		return &traceDBOutputInvariantError{Reason: "profiler_core_issue_schema_invalid"}
+	}
+	return set.add(eventField, issue)
+}
+
+func (set *profilerFtraceCoreIssueSet) addPayload(eventField int, kind profilerFtraceEventIssueKind, payloadField int) error {
+	issue, ok := profilerFtraceEventPayloadIssue(eventField, kind, payloadField)
+	if !ok {
+		return &traceDBOutputInvariantError{Reason: "profiler_core_issue_schema_invalid"}
+	}
+	return set.add(eventField, issue)
+}
+
+func (set *profilerFtraceCoreIssueSet) checked(eventField int) ([]profilerFtraceEventIssue, error) {
+	if err := set.validate(eventField); err != nil {
+		return nil, err
+	}
+	return append([]profilerFtraceEventIssue(nil), set.Issues[:int(set.Count)]...), nil
+}
+
+func decodeProfilerCorePayloadWithTypedAudit(event profilerFtraceEventRecord) (
+	coreRenderPayload, bodyAdmission, profilerFtraceCoreIssueSet, bool, error,
+) {
 	schema, governed := profilerStructuredCoreSchemas[event.Field]
 	if !governed {
-		return coreRenderPayload{}, bodyUnsupported, "", nil
+		return coreRenderPayload{}, bodyUnsupported, profilerFtraceCoreIssueSet{}, false, nil
 	}
+	rejectFixed := func(kind profilerFtraceEventIssueKind) (
+		coreRenderPayload, bodyAdmission, profilerFtraceCoreIssueSet, bool, error,
+	) {
+		var set profilerFtraceCoreIssueSet
+		err := set.addFixed(event.Field, kind)
+		return coreRenderPayload{}, bodyRejected, set, true, err
+	}
+	rejectPayload := func(kind profilerFtraceEventIssueKind, payloadField int) (
+		coreRenderPayload, bodyAdmission, profilerFtraceCoreIssueSet, bool, error,
+	) {
+		var set profilerFtraceCoreIssueSet
+		err := set.addPayload(event.Field, kind, payloadField)
+		return coreRenderPayload{}, bodyRejected, set, true, err
+	}
+
 	descriptor, ok := profilerFtraceEventDescriptors[event.Field]
 	if !ok {
-		return coreRenderPayload{}, bodyRejected, "missing_core_descriptor", nil
+		return coreRenderPayload{}, bodyRejected, profilerFtraceCoreIssueSet{}, true,
+			&traceDBOutputInvariantError{Reason: "missing_core_descriptor"}
 	}
 	if descriptor.Field != event.Field {
-		return coreRenderPayload{}, bodyRejected, "mismatched_core_descriptor_field", nil
+		return coreRenderPayload{}, bodyRejected, profilerFtraceCoreIssueSet{}, true,
+			&traceDBOutputInvariantError{Reason: "mismatched_core_descriptor_field"}
 	}
 	kind, ok := coreRenderKindForName(descriptor.Name)
 	if !ok {
-		return coreRenderPayload{}, bodyRejected, "invalid_core_descriptor_name", nil
+		return coreRenderPayload{}, bodyRejected, profilerFtraceCoreIssueSet{}, true,
+			&traceDBOutputInvariantError{Reason: "invalid_core_descriptor_name"}
 	}
-	fields, reason := decodeProfilerCoreProtoFields(event.Payload, schema)
-	if reason != "" {
-		return coreRenderPayload{}, bodyRejected, reason, nil
+	for payloadField, expectedWire := range schema {
+		if payloadField < 1 || payloadField > 7 || (expectedWire != 0 && expectedWire != 2) {
+			return coreRenderPayload{}, bodyRejected, profilerFtraceCoreIssueSet{}, true,
+				&traceDBOutputInvariantError{Reason: "profiler_core_schema_invalid"}
+		}
+	}
+
+	var fields [8]profilerCoreProtoField
+	if err := walkProtoFields(event.Payload, func(payloadField int, wire int, raw []byte, value uint64) error {
+		expectedWire, known := schema[payloadField]
+		if !known {
+			return nil
+		}
+		field := &fields[payloadField]
+		if field.count < 2 {
+			field.count++
+		}
+		if wire != expectedWire {
+			field.wrongWire = true
+			return nil
+		}
+		if wire == 2 {
+			field.bytesValue = raw
+		} else {
+			field.uintValue = value
+		}
+		return nil
+	}); err != nil {
+		return rejectFixed(profilerFtraceEventIssueCorePayloadMalformedWire)
 	}
 	for field := 1; field <= 7; field++ {
 		if _, expected := schema[field]; !expected || profilerCoreDisplayField(event.Field, field) {
 			continue
 		}
-		if reason := profilerCoreFieldWireReason(fields[field], field); reason != "" {
-			return coreRenderPayload{}, bodyRejected, reason, nil
+		switch {
+		case fields[field].wrongWire:
+			return rejectPayload(profilerFtraceEventIssueCoreFieldWrongWire, field)
+		case fields[field].count > 1:
+			return rejectPayload(profilerFtraceEventIssueCoreFieldDuplicate, field)
 		}
 	}
 
 	payload := coreRenderPayload{Kind: kind, Name: descriptor.Name}
-	var degradations []string
+	displayKind := profilerFtraceEventIssueKindCount
+	displayPresent := false
 	switch event.Field {
 	case 113:
 		values := [5]int64{}
 		for index := range values {
 			value, valid := profilerCoreInt32(fields[index+1])
 			if !valid {
-				return coreRenderPayload{}, bodyRejected, fmt.Sprintf("core_field%d_out_of_range", index+1), nil
+				return rejectPayload(profilerFtraceEventIssueCoreFieldOutOfRange, index+1)
 			}
 			values[index] = value
 		}
 		if values[0] <= 0 {
-			return coreRenderPayload{}, bodyRejected, "invalid_transaction_id", nil
+			return rejectFixed(profilerFtraceEventIssueCoreInvalidTransactionID)
 		}
 		if values[1] < 0 || values[2] < 0 || values[3] < 0 {
-			return coreRenderPayload{}, bodyRejected, "invalid_transaction_endpoint", nil
+			return rejectFixed(profilerFtraceEventIssueCoreInvalidTransactionEndpoint)
 		}
 		if values[4] != 0 && values[4] != 1 {
-			return coreRenderPayload{}, bodyRejected, "invalid_reply", nil
+			return rejectFixed(profilerFtraceEventIssueCoreInvalidReply)
 		}
 		code, valid := profilerCoreUint32(fields[6])
 		if !valid {
-			return coreRenderPayload{}, bodyRejected, "core_field6_out_of_range", nil
+			return rejectPayload(profilerFtraceEventIssueCoreFieldOutOfRange, 6)
 		}
 		flags, valid := profilerCoreUint32(fields[7])
 		if !valid {
-			return coreRenderPayload{}, bodyRejected, "core_field7_out_of_range", nil
+			return rejectPayload(profilerFtraceEventIssueCoreFieldOutOfRange, 7)
 		}
 		payload.Binder = &coreBinderPayload{
 			Transaction: values[0], DestNode: values[1], DestProc: values[2], DestThread: values[3],
@@ -105,55 +236,55 @@ func decodeProfilerCorePayload(event profilerFtraceEventRecord) (coreRenderPaylo
 	case 119:
 		transaction, valid := profilerCoreInt32(fields[1])
 		if !valid || transaction <= 0 {
-			return coreRenderPayload{}, bodyRejected, "invalid_transaction_id", nil
+			return rejectFixed(profilerFtraceEventIssueCoreInvalidTransactionID)
 		}
 		payload.Binder = &coreBinderPayload{Transaction: transaction, Received: true}
 	case 1400, 1401:
 		reason, valid := profilerCoreString(fields[1])
 		if !valid || !validCoreIPIReason(reason) {
-			return coreRenderPayload{}, bodyRejected, "missing_or_invalid_reason", nil
+			return rejectFixed(profilerFtraceEventIssueCoreMissingOrInvalidReason)
 		}
 		payload.Interrupt = &coreInterruptPayload{Reason: reason}
 	case 1402:
 		reason, valid := profilerCoreString(fields[2])
 		if !valid || !validCoreIPIReason(reason) {
-			return coreRenderPayload{}, bodyRejected, "missing_or_invalid_reason", nil
+			return rejectFixed(profilerFtraceEventIssueCoreMissingOrInvalidReason)
 		}
 		payload.Interrupt = &coreInterruptPayload{TargetMask: profilerCoreUint64(fields[1]), Reason: reason}
 	case 1500:
 		irq, valid := profilerCoreInt32(fields[1])
 		if !valid || irq < 0 {
-			return coreRenderPayload{}, bodyRejected, "missing_or_invalid_irq", nil
+			return rejectFixed(profilerFtraceEventIssueCoreMissingOrInvalidIRQ)
 		}
 		name, valid := profilerCoreString(fields[2])
 		if !valid || !traceDBSingleToken(name) {
-			return coreRenderPayload{}, bodyRejected, "missing_or_invalid_irq_name", nil
+			return rejectFixed(profilerFtraceEventIssueCoreMissingOrInvalidIRQName)
 		}
 		payload.Interrupt = &coreInterruptPayload{IRQ: irq, IRQName: name}
 	case 1501:
 		irq, valid := profilerCoreInt32(fields[1])
 		if !valid || irq < 0 {
-			return coreRenderPayload{}, bodyRejected, "missing_or_invalid_irq", nil
+			return rejectFixed(profilerFtraceEventIssueCoreMissingOrInvalidIRQ)
 		}
 		ret, valid := profilerCoreInt32(fields[2])
 		if !valid {
-			return coreRenderPayload{}, bodyRejected, "missing_or_invalid_ret", nil
+			return rejectFixed(profilerFtraceEventIssueCoreMissingOrInvalidRet)
 		}
 		payload.Interrupt = &coreInterruptPayload{IRQ: irq, Ret: ret}
 	case 1502, 1503, 1504:
 		vec, valid := profilerCoreUint32(fields[1])
 		if !valid || vec > 9 {
-			return coreRenderPayload{}, bodyRejected, "missing_or_invalid_vec", nil
+			return rejectFixed(profilerFtraceEventIssueCoreMissingOrInvalidVec)
 		}
 		payload.Interrupt = &coreInterruptPayload{Vec: vec}
 	case 2003, 2005:
 		state, valid := profilerCoreUint32(fields[1])
 		if !valid {
-			return coreRenderPayload{}, bodyRejected, "missing_or_invalid_state", nil
+			return rejectFixed(profilerFtraceEventIssueCoreMissingOrInvalidState)
 		}
 		cpuID, valid := profilerCoreUint32(fields[2])
 		if !valid || cpuID > uint64(maxTraceDBCPUIndex) {
-			return coreRenderPayload{}, bodyRejected, "missing_or_invalid_cpu_id", nil
+			return rejectFixed(profilerFtraceEventIssueCoreMissingOrInvalidCPUID)
 		}
 		payload.CPU = &coreCPUPayload{State: state, CPUID: cpuID}
 	case 2004:
@@ -161,74 +292,204 @@ func decodeProfilerCorePayload(event profilerFtraceEventRecord) (coreRenderPaylo
 		maxFreq, maxValid := profilerCoreUint32(fields[2])
 		cpuID, cpuValid := profilerCoreUint32(fields[3])
 		if !minValid || !maxValid {
-			return coreRenderPayload{}, bodyRejected, "invalid_limits_profile", nil
+			return rejectFixed(profilerFtraceEventIssueCoreInvalidLimitsProfile)
 		}
 		if minFreq > maxFreq {
-			return coreRenderPayload{}, bodyRejected, "invalid_limits_order", nil
+			return rejectFixed(profilerFtraceEventIssueCoreInvalidLimitsOrder)
 		}
 		if !cpuValid || cpuID > uint64(maxTraceDBCPUIndex) {
-			return coreRenderPayload{}, bodyRejected, "missing_or_invalid_cpu_id", nil
+			return rejectFixed(profilerFtraceEventIssueCoreMissingOrInvalidCPUID)
 		}
 		payload.CPU = &coreCPUPayload{Min: minFreq, Max: maxFreq, CPUID: cpuID, IsLimits: true}
 	case 2420, 2421, 2422:
-		comm, displayReason := profilerCoreDisplayString(fields[1], "comm")
+		comm, issueKind, issuePresent := profilerCoreDisplayComm(fields[1])
 		switch {
-		case displayReason != "":
+		case issuePresent:
 		case comm == "" || comm != strings.TrimSpace(comm) ||
 			!traceDBSinglePhysicalLine(comm, false) || strings.ContainsAny(comm, "=|"):
-			displayReason = "display_comm_unavailable"
+			issueKind, issuePresent = profilerFtraceEventIssueCoreDisplayCommUnavailable, true
 		case len(comm) > maxProfilerWakeCommBytes:
-			displayReason = "display_comm_out_of_profile"
+			issueKind, issuePresent = profilerFtraceEventIssueCoreDisplayCommOutOfProfile, true
 		}
-		if displayReason != "" {
+		if issuePresent {
 			comm = "<...>"
-			degradations = append(degradations, displayReason)
+			displayKind, displayPresent = issueKind, true
 		}
 		pid, valid := profilerCoreInt32(fields[2])
 		if !valid || pid < 0 {
-			return coreRenderPayload{}, bodyRejected, "missing_or_invalid_pid", nil
+			return rejectFixed(profilerFtraceEventIssueCoreMissingOrInvalidPID)
 		}
 		priority, valid := profilerCoreInt32(fields[3])
 		if !valid {
-			return coreRenderPayload{}, bodyRejected, "missing_or_invalid_priority", nil
+			return rejectFixed(profilerFtraceEventIssueCoreMissingOrInvalidPriority)
 		}
 		// success=4 exists in the proto schema but neither pinned producer lane
 		// reads or sets it. It is audited above when present, never required or
 		// used as a wakeup identity/value.
 		if _, valid := profilerCoreInt32(fields[4]); !valid {
-			return coreRenderPayload{}, bodyRejected, "core_field4_out_of_range", nil
+			return rejectPayload(profilerFtraceEventIssueCoreFieldOutOfRange, 4)
 		}
 		targetCPU, valid := profilerCoreInt32(fields[5])
 		if !valid || !validTraceDBCPUIndex(targetCPU) {
-			return coreRenderPayload{}, bodyRejected, "missing_or_invalid_target_cpu", nil
+			return rejectFixed(profilerFtraceEventIssueCoreMissingOrInvalidTargetCPU)
 		}
 		payload.Wakeup = &coreWakeupPayload{Comm: comm, PID: pid, Priority: priority, TargetCPU: targetCPU}
 	case 4002:
 		pid, valid := profilerCoreInt32(fields[1])
 		if !valid || pid < 0 {
-			return coreRenderPayload{}, bodyRejected, "missing_or_invalid_pid", nil
+			return rejectFixed(profilerFtraceEventIssueCoreMissingOrInvalidPID)
 		}
 		ioWait, valid := profilerCoreUint32(fields[3])
 		if !valid || ioWait > 1 {
-			return coreRenderPayload{}, bodyRejected, "missing_or_invalid_iowait", nil
+			return rejectFixed(profilerFtraceEventIssueCoreMissingOrInvalidIOWait)
 		}
 		blocked := coreBlockedPayload{PID: pid, CallerRaw: profilerCoreUint64(fields[2]), IOWait: ioWait}
-		caller, displayReason := profilerCoreDisplayString(fields[4], "caller_str")
+		caller, issueKind, issuePresent := profilerCoreDisplayCaller(fields[4])
 		if caller != "" {
 			if safe, symbolized := safeProfilerStructuredBlockedCaller(caller); symbolized {
 				blocked.Caller, blocked.CallerSymbolized = safe, true
-			} else if displayReason == "" {
-				displayReason = "display_caller_str_invalid"
+			} else if !issuePresent {
+				issueKind, issuePresent = profilerFtraceEventIssueCoreDisplayCallerStrInvalid, true
 			}
 		}
-		if displayReason != "" {
-			degradations = append(degradations, displayReason)
+		if issuePresent {
+			displayKind, displayPresent = issueKind, true
 		}
 		payload.Blocked = &blocked
 	default:
-		return coreRenderPayload{}, bodyRejected, "unhandled_core_descriptor", nil
+		return coreRenderPayload{}, bodyRejected, profilerFtraceCoreIssueSet{}, true,
+			&traceDBOutputInvariantError{Reason: "unhandled_core_descriptor"}
 	}
-	return payload, bodyAdmitted, "", degradations
+	var set profilerFtraceCoreIssueSet
+	if displayPresent {
+		if err := set.addFixed(event.Field, displayKind); err != nil {
+			return coreRenderPayload{}, bodyRejected, profilerFtraceCoreIssueSet{}, true, err
+		}
+	}
+	return payload, bodyAdmitted, set, true, nil
+}
+
+// decodeProfilerCorePayload is the direct compatibility adapter retained while
+// B2-b4/b5 still use the legacy label surface. Production structured-core
+// verdicts consume decodeProfilerCorePayloadWithTypedAudit directly.
+func decodeProfilerCorePayload(event profilerFtraceEventRecord) (coreRenderPayload, bodyAdmission, string, []string) {
+	payload, admission, set, handled, err := decodeProfilerCorePayloadWithTypedAudit(event)
+	if !handled {
+		return coreRenderPayload{}, bodyUnsupported, "", nil
+	}
+	if err != nil {
+		if reason, ok := traceDBOutputInvariantReason(err); ok {
+			return coreRenderPayload{}, bodyRejected, reason, nil
+		}
+		return coreRenderPayload{}, bodyRejected, "profiler_core_typed_audit_failed", nil
+	}
+	issues, err := set.checked(event.Field)
+	if err != nil {
+		return coreRenderPayload{}, bodyRejected, "profiler_core_typed_issue_invalid", nil
+	}
+	labels, ok := profilerFtraceEventIssueLabels(event.Field, issues)
+	if !ok {
+		return coreRenderPayload{}, bodyRejected, "profiler_core_typed_issue_invalid", nil
+	}
+	if admission == bodyRejected {
+		if len(labels) != 1 {
+			return coreRenderPayload{}, bodyRejected, "profiler_core_typed_issue_invalid", nil
+		}
+		return coreRenderPayload{}, bodyRejected, labels[0], nil
+	}
+	return payload, admission, "", labels
+}
+
+func profilerCoreDisplayComm(field profilerCoreProtoField) (string, profilerFtraceEventIssueKind, bool) {
+	switch {
+	case field.wrongWire:
+		return "", profilerFtraceEventIssueCoreDisplayCommWrongWire, true
+	case field.count > 1:
+		return "", profilerFtraceEventIssueCoreDisplayCommDuplicate, true
+	case field.count == 0:
+		return "", profilerFtraceEventIssueKindCount, false
+	}
+	value := string(field.bytesValue)
+	if !traceDBSinglePhysicalLine(value, true) {
+		return "", profilerFtraceEventIssueCoreDisplayCommInvalid, true
+	}
+	return value, profilerFtraceEventIssueKindCount, false
+}
+
+func profilerCoreDisplayCaller(field profilerCoreProtoField) (string, profilerFtraceEventIssueKind, bool) {
+	switch {
+	case field.wrongWire:
+		return "", profilerFtraceEventIssueCoreDisplayCallerStrWrongWire, true
+	case field.count > 1:
+		return "", profilerFtraceEventIssueCoreDisplayCallerStrDuplicate, true
+	case field.count == 0:
+		return "", profilerFtraceEventIssueKindCount, false
+	}
+	value := string(field.bytesValue)
+	if !traceDBSinglePhysicalLine(value, true) {
+		return "", profilerFtraceEventIssueCoreDisplayCallerStrInvalid, true
+	}
+	return value, profilerFtraceEventIssueKindCount, false
+}
+
+// renderProfilerFtraceCoreEventWithTypedAudit is the single structured-core
+// parse/render authority shared by the typed production path and the direct
+// compatibility adapter. Internal renderer/schema failures remain typed
+// invariants; only source-reachable payload and line failures become issues.
+func renderProfilerFtraceCoreEventWithTypedAudit(event profilerFtraceEventRecord) (
+	name, body string, ok bool, issues []profilerFtraceEventIssue, handled bool, err error,
+) {
+	payload, admission, set, handled, err := decodeProfilerCorePayloadWithTypedAudit(event)
+	if !handled || err != nil {
+		return "", "", false, nil, handled, err
+	}
+	name, body, ok, issues, err = finalizeProfilerFtraceCoreEventWithTypedAudit(event, payload, admission, set)
+	return name, body, ok, issues, true, err
+}
+
+func finalizeProfilerFtraceCoreEventWithTypedAudit(
+	event profilerFtraceEventRecord,
+	payload coreRenderPayload,
+	admission bodyAdmission,
+	set profilerFtraceCoreIssueSet,
+) (name, body string, ok bool, issues []profilerFtraceEventIssue, err error) {
+	// Typed-set corruption must dominate every source verdict, including a
+	// simultaneous canonical-line failure. Validate before rendering anything.
+	issues, err = set.checked(event.Field)
+	if err != nil {
+		return "", "", false, nil, err
+	}
+	switch admission {
+	case bodyRejected:
+		if payload != (coreRenderPayload{}) || len(issues) != 1 ||
+			issues[0].Severity != profilerFtraceEventIssueHardReject {
+			return "", "", false, nil,
+				&traceDBOutputInvariantError{Reason: "profiler_core_rejected_verdict_invalid"}
+		}
+		return "", "", false, issues, nil
+	case bodyAdmitted:
+		if len(issues) > 0 && issues[0].Severity != profilerFtraceEventIssueAdmittedDisplay {
+			return "", "", false, nil,
+				&traceDBOutputInvariantError{Reason: "profiler_core_admitted_verdict_invalid"}
+		}
+		body, rendered := renderCanonicalCorePayload(payload)
+		if !rendered {
+			return "", "", false, nil,
+				&traceDBOutputInvariantError{Reason: "invalid_canonical_core_payload"}
+		}
+		if !profilerCanonicalLineValid(event, payload.Name, body) {
+			var canonical profilerFtraceCoreIssueSet
+			if err := canonical.addFixed(event.Field, profilerFtraceEventIssueCoreInvalidCanonicalLine); err != nil {
+				return "", "", false, nil, err
+			}
+			issues, err = canonical.checked(event.Field)
+			return "", "", false, issues, err
+		}
+		return payload.Name, body, true, issues, nil
+	default:
+		return "", "", false, nil,
+			&traceDBOutputInvariantError{Reason: "profiler_core_admission_invalid"}
+	}
 }
 
 func decodeProfilerCoreProtoFields(data []byte, schema map[int]int) (map[int]profilerCoreProtoField, string) {
@@ -295,23 +556,6 @@ func profilerCoreString(field profilerCoreProtoField) (string, bool) {
 	}
 	value := string(field.bytesValue)
 	return value, traceDBSinglePhysicalLine(value, true)
-}
-
-func profilerCoreDisplayString(field profilerCoreProtoField, label string) (string, string) {
-	if field.count == 0 {
-		return "", ""
-	}
-	if field.wrongWire {
-		return "", "display_" + label + "_wrong_wire"
-	}
-	if field.count > 1 {
-		return "", "display_" + label + "_duplicate"
-	}
-	value := string(field.bytesValue)
-	if !traceDBSinglePhysicalLine(value, true) {
-		return "", "display_" + label + "_invalid"
-	}
-	return value, ""
 }
 
 // safeProfilerStructuredBlockedCaller admits only the exact caller_str shape

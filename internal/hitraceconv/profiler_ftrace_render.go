@@ -759,19 +759,15 @@ func renderProfilerFtraceEventBodyWithAudit(event profilerFtraceEventRecord) (st
 		}
 		return "", "", false, labels
 	}
-	corePayload, admission, reason, degradations := decodeProfilerCorePayload(event)
-	switch admission {
-	case bodyAdmitted:
-		body, ok := renderCanonicalCorePayload(corePayload)
-		if !ok {
-			return "", "", false, []string{"invalid_canonical_core_payload"}
+	if name, body, ok, issues, handled, coreErr := renderProfilerFtraceCoreEventWithTypedAudit(event); handled {
+		if coreErr != nil {
+			return "", "", false, nil
 		}
-		if !profilerCanonicalLineValid(event, corePayload.Name, body) {
-			return "", "", false, []string{"invalid_canonical_core_line"}
+		labels, labelsOK := profilerFtraceEventIssueLabels(event.Field, issues)
+		if !labelsOK {
+			return "", "", false, nil
 		}
-		return corePayload.Name, body, true, degradations
-	case bodyRejected:
-		return "", "", false, []string{reason}
+		return name, body, ok, labels
 	}
 	auxPayload, admission, reason := decodeProfilerAuxPayload(event)
 	switch admission {
@@ -840,14 +836,18 @@ func renderProfilerFtraceEventBodyWithTypedAudit(event profilerFtraceEventRecord
 		}
 		return "", "", false, issues, nil
 	}
+	if name, body, ok, issues, handled, coreErr := renderProfilerFtraceCoreEventWithTypedAudit(event); handled {
+		return name, body, ok, issues, coreErr
+	}
+	if profilerStructuredCoreSchemas[event.Field] != nil {
+		return "", "", false, nil, &traceDBOutputInvariantError{Reason: "profiler_core_typed_renderer_unhandled"}
+	}
 	if name, body, ok, issues, handled, genericErr := renderProfilerFtraceGenericEventWithTypedAudit(event); handled {
 		return name, body, ok, issues, genericErr
 	}
 	name, body, ok, reasons := renderProfilerFtraceEventBodyWithAudit(event)
 	legacySource := profilerFtraceEventDegradationFieldAudit
 	switch {
-	case profilerStructuredCoreSchemas[event.Field] != nil:
-		legacySource = profilerFtraceEventDegradationCorePayload
 	case profilerStructuredAuxSchemas[event.Field] != nil:
 		legacySource = profilerFtraceEventDegradationAuxPayload
 	case event.Field == 1000 || event.Field == 1001:

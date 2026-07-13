@@ -111,7 +111,7 @@ func TestProfilerStructuredAuxUsesOneTypedAuthorityBeforeLegacy(t *testing.T) {
 	}
 
 	audit := sourceBetween(t, profiler, "func renderProfilerFtraceEventBodyWithAudit(", "func renderProfilerFtraceEventBodyWithTypedAudit(")
-	coreAt := strings.Index(audit, "decodeProfilerCorePayload(event)")
+	coreAt := strings.Index(audit, "renderProfilerFtraceCoreEventWithTypedAudit(event)")
 	auxAt := strings.Index(audit, "decodeProfilerAuxPayload(event)")
 	blockAt := strings.Index(audit, "blockRenderKindForProfilerField(event.Field)")
 	genericAt := strings.Index(audit, "renderProfilerFtraceGenericEventWithTypedAudit(event)")

@@ -581,6 +581,13 @@ func (issue profilerFtraceEventIssue) validCore(eventField int) bool {
 	default:
 	}
 	switch issue.Kind {
+	case profilerFtraceEventIssueCorePayloadMalformedWire:
+		return true
+	case profilerFtraceEventIssueCoreInvalidCanonicalLine:
+		// Only source-controlled, unbounded core strings can push an otherwise
+		// valid canonical row over the 1 MiB line cap. Numeric bodies, wake comm
+		// and blocked caller display are bounded before this endpoint.
+		return eventField == 1400 || eventField == 1401 || eventField == 1402 || eventField == 1500
 	case profilerFtraceEventIssueCoreInvalidTransactionID:
 		return eventField == 113 || eventField == 119
 	case profilerFtraceEventIssueCoreInvalidTransactionEndpoint, profilerFtraceEventIssueCoreInvalidReply:
@@ -613,7 +620,7 @@ func (issue profilerFtraceEventIssue) validCore(eventField int) bool {
 		profilerFtraceEventIssueCoreDisplayCallerStrInvalid:
 		return eventField == 4002
 	default:
-		return true
+		return false
 	}
 }
 
