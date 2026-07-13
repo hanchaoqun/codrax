@@ -713,13 +713,17 @@ direct RMQ子批`348ed8709`与structured/text/container子批`00ab87a62`均在�
 - **验证证据**：`go test ./internal/hitraceconv ./internal/tracequery ./internal/repl -count=1`、sorter focused shuffle`×30`、三包focused race+shuffle`×5`、`go vet ./internal/hitraceconv ./internal/tracequery ./internal/repl`、`go test ./... -count=1`、`go vet ./...`、gofmt与`git diff --check`均通过；实现/测试/资源/对抗独立终审为**RELEASE**。标准Donghu输入SHA-256仍为`e15d3dfc7963739c648a3f4f40095cabff19716575949bf38ea02ef732672b25`，本批复放27,843/27,843 recognized、14 event names、0 unknown/unparsed/panic/clock regression；临时报告`/tmp/codrax-row-sort-bnd-donghu-census-20260713.txt`的SHA-256为`66282c719ef15c3cd0b14029139e3b42b291e53d56c54528a788c8172840447`，不作仓内长期地址。
 - **诚实边界**：64MiB仅是owned row-buffer retained口径，不包含pair maps；单个认证reader仍允许一条至多24MiB physical JSONL record，fan-in阶段的reader buffer峰值属于独立有界口径。通用输入/sidecar TOCTOU、tracebundle整份JSON峰值、P1-a2.3 repeated protobuf、P1-a2.4 compact row provenance、P1-b与Profiler全链有界声明继续开放；generic storage request token能力仍等待生产双端witness。
 
-## 2026-07-13 TRACE-CONVERT-ROUTE-HELP 客户紧急回访（待施工）
+## 2026-07-13 TRACE-CONVERT-ROUTE-HELP 客户紧急回访（已测绘，施工中）
 
 客户执行`codrax trace convert --input record_trace_20260710005300@18895-212105468.sys`时收到`built-in sys decoder rejected input: code=unsupported_file_type file_type=54 segment_type=0 offset=0`，随后提示只有`file_type=0`才需要`trace_streamer`，但发行物按产品声明已内置`trace_streamer`且实际没有进入该车道。该回访先按**确定性路由/发行发现缺口**立案，不能把`file_type=54`直接猜成任何producer profile；施工必须先测清文件探测、内置binary/resource发现、provider选择、built-in拒绝与trace_streamer fallback的单点控制流，证明是提前终止、发现失败还是能力矩阵刻意拒绝，再依证修复。验收至少覆盖客户同构`file_type=54`最小fixture、`0/1/54/unknown/truncated`负矩阵、内置/显式/缺失trace_streamer、退出码与无半成品输出。
 
 **路由裁定追加**：trace转换的`auto`终态统一为`trace_streamer-first`，不得由built-in header/file-type sniff在第一车道前提前终止；只有显式`--trace-engine=builtin`，或trace_streamer确实未发现/执行或DB导出失败后，才进入built-in fallback。fallback仍失败时必须同时保留trace_streamer第一车道的typed失败证据，不能只显示最后一个built-in错误；`file_type=54`的支持性只由实际trace_streamer结果证明，不因本裁定被静态白名单化。
 
 同一原子批补齐并整理CLI发现面：`codrax trace convert`子命令与通过flag触发trace转换的入口必须都出现在对应`help`，命令、flag、默认值、互斥关系、输入/输出示例和fallback说明使用同一单点定义生成，禁止两份手写表继续漂移；顶层help保持常用入口优先、进阶项分组，子命令help给完整转换参数。该批排在当前已冻结并施工中的`ROW-SORT-BND`代码提交之后立即执行，独立验证、独立提交并推送`main`，不得混入sorter提交或借此声称支持未经证明的`.sys file_type=54`语义。
+
+**施工前测绘勘正（2026-07-13）**：当前`ConvertFile`的`auto`控制流名义上已经先调用`maybeRunTraceStreamerAuto`，客户失败并非“built-in静态排在streamer前”。确定性根因是普通`go build`及Makefile/release配方从未启用仅由`embed_streamer` tag装载的已提交payload，导致产品二进制默认是silent slim；同时`BuildTraceToolStatus`与执行路径各自重新发现/选择provider，status会在streamer未发现时提前把`SelectedEngine`改写成builtin，第一车道unavailable/execute/DB-normalize失败又只存在于局部`Decision/Caveat`，后续builtin失败返回`Result{}, err`时将其全部丢失。built-in的`readFileHeader`还只做12字节读取、不校验`magic=0x0ace`和`version=1`便先解释byte 2，因此任意同构字节都可能被伪报成`file_type=54`。Help侧复现了顶层无转换示例、`trace`层信息不足、`convert`被约40个继承全局flag淹没、反引号触发pflag错误metavar，以及utility早退使`--cache-dir`/yaml cache配置未送入内嵌解压缓存等问题。
+
+**入口口径勘正**：代码与历史审计均未发现第二个顶层`--convert-*`转换flag；不得为迎合文字预期而把附件flag`--htrace`改造成有副作用的隐式转换入口。权威CLI形态是`codrax trace convert --input ...`及其本地flags，交互形态是`/htrace convert ...`（`/atrace convert`别名）。本批所谓“通过flag触发”特指`trace convert`下的`--input/--output/--trace-engine/...`参数形态；三层CLI help和REPL concise/full/convert help必须同时可发现并共享同一语义。验收还需覆盖默认内嵌与显式`slim_streamer`、静态musl诚实边界、typed双失败、strict header、utility cache优先级、NoArgs/互斥/路径碰撞和全路径无半成品输出。
 
 ## 统一采集与回访命令
 
