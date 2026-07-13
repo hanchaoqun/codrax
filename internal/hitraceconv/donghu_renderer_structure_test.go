@@ -23,7 +23,9 @@ func TestDonghuRendererStructurePinsSingleAuthorities(t *testing.T) {
 			t.Fatalf("field2002 lost %q authority:\n%s", token, field2002)
 		}
 	}
-	if !strings.Contains(descriptors, `2002: {Field: 2002, Family: "clock", Name: "clock_set_rate"}`) {
+	if !strings.Contains(descriptors, `{Field: 2002, Family: "clock", Name: "clock_set_rate"}`) ||
+		!strings.Contains(descriptors, "profilerFtraceEventDescriptorList") ||
+		!strings.Contains(descriptors, "for _, descriptor := range profilerFtraceEventDescriptorList") {
 		t.Fatal("field2002 descriptor is not pinned")
 	}
 	if strings.Contains(profiler, "page=0x0") {

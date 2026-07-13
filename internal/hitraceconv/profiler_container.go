@@ -145,6 +145,8 @@ type profilerFtraceSummary struct {
 	StatsCPUs         map[uint64]bool
 	StartTotals       profilerFtraceCPUTotals
 	EndTotals         profilerFtraceCPUTotals
+	StartTotalsSeen   bool
+	EndTotalsSeen     bool
 	StartTotalsValid  bool
 	EndTotalsValid    bool
 	DetailMessages    int
@@ -154,9 +156,13 @@ type profilerFtraceSummary struct {
 	DetailOverwriteOK bool
 	SymbolCount       int
 	SymbolExamples    []string
+	SymbolTruncated   bool
+	ClockDetailCount  int
 	ClockDetails      []string
+	ClockTruncated    bool
 	EventFieldCounts  map[int]int
-	Issues            []string
+	Issues            profilerFtraceSummaryIssueCensus
+	IssueOverflow     bool
 	recognizedMessage bool
 }
 
@@ -215,44 +221,52 @@ type profilerFtraceEventDescriptor struct {
 	Name   string
 }
 
-var profilerFtraceEventDescriptors = map[int]profilerFtraceEventDescriptor{
-	113:  {Field: 113, Family: "binder", Name: "binder_transaction"},
-	119:  {Field: 119, Family: "binder", Name: "binder_transaction_received"},
-	202:  {Field: 202, Family: "block", Name: "block_bio_complete"},
-	204:  {Field: 204, Family: "block", Name: "block_bio_queue"},
-	205:  {Field: 205, Family: "block", Name: "block_bio_remap"},
-	209:  {Field: 209, Family: "block", Name: "block_rq_complete"},
-	210:  {Field: 210, Family: "block", Name: "block_rq_insert"},
-	211:  {Field: 211, Family: "block", Name: "block_rq_issue"},
-	212:  {Field: 212, Family: "block", Name: "block_rq_remap"},
-	410:  {Field: 410, Family: "clock", Name: "clock_set_rate"},
-	1000: {Field: 1000, Family: "filemap", Name: "mm_filemap_add_to_page_cache"},
-	1001: {Field: 1001, Family: "filemap", Name: "mm_filemap_delete_from_page_cache"},
-	1109: {Field: 1109, Family: "trace_marker", Name: "print"},
-	1400: {Field: 1400, Family: "ipi", Name: "ipi_entry"},
-	1401: {Field: 1401, Family: "ipi", Name: "ipi_exit"},
-	1402: {Field: 1402, Family: "ipi", Name: "ipi_raise"},
-	1500: {Field: 1500, Family: "irq", Name: "irq_handler_entry"},
-	1501: {Field: 1501, Family: "irq", Name: "irq_handler_exit"},
-	1502: {Field: 1502, Family: "irq", Name: "softirq_entry"},
-	1503: {Field: 1503, Family: "irq", Name: "softirq_exit"},
-	1504: {Field: 1504, Family: "irq", Name: "softirq_raise"},
-	2002: {Field: 2002, Family: "clock", Name: "clock_set_rate"},
-	2003: {Field: 2003, Family: "cpu", Name: "cpu_frequency"},
-	2004: {Field: 2004, Family: "cpu", Name: "cpu_frequency_limits"},
-	2005: {Field: 2005, Family: "cpu", Name: "cpu_idle"},
-	2417: {Field: 2417, Family: "sched", Name: "sched_switch"},
-	2420: {Field: 2420, Family: "sched", Name: "sched_wakeup"},
-	2421: {Field: 2421, Family: "sched", Name: "sched_wakeup_new"},
-	2422: {Field: 2422, Family: "sched", Name: "sched_waking"},
-	4002: {Field: 4002, Family: "sched", Name: "sched_blocked_reason"},
-	4009: {Field: 4009, Family: "f2fs", Name: "f2fs_sync_file_enter"},
-	4010: {Field: 4010, Family: "f2fs", Name: "f2fs_sync_file_exit"},
-	4011: {Field: 4011, Family: "f2fs", Name: "f2fs_write_begin"},
-	4012: {Field: 4012, Family: "f2fs", Name: "f2fs_write_end"},
-	4015: {Field: 4015, Family: "mmc", Name: "mmc_request_done"},
-	4016: {Field: 4016, Family: "mmc", Name: "mmc_request_start"},
+var profilerFtraceEventDescriptorList = [...]profilerFtraceEventDescriptor{
+	{Field: 113, Family: "binder", Name: "binder_transaction"},
+	{Field: 119, Family: "binder", Name: "binder_transaction_received"},
+	{Field: 202, Family: "block", Name: "block_bio_complete"},
+	{Field: 204, Family: "block", Name: "block_bio_queue"},
+	{Field: 205, Family: "block", Name: "block_bio_remap"},
+	{Field: 209, Family: "block", Name: "block_rq_complete"},
+	{Field: 210, Family: "block", Name: "block_rq_insert"},
+	{Field: 211, Family: "block", Name: "block_rq_issue"},
+	{Field: 212, Family: "block", Name: "block_rq_remap"},
+	{Field: 410, Family: "clock", Name: "clock_set_rate"},
+	{Field: 1000, Family: "filemap", Name: "mm_filemap_add_to_page_cache"},
+	{Field: 1001, Family: "filemap", Name: "mm_filemap_delete_from_page_cache"},
+	{Field: 1109, Family: "trace_marker", Name: "print"},
+	{Field: 1400, Family: "ipi", Name: "ipi_entry"},
+	{Field: 1401, Family: "ipi", Name: "ipi_exit"},
+	{Field: 1402, Family: "ipi", Name: "ipi_raise"},
+	{Field: 1500, Family: "irq", Name: "irq_handler_entry"},
+	{Field: 1501, Family: "irq", Name: "irq_handler_exit"},
+	{Field: 1502, Family: "irq", Name: "softirq_entry"},
+	{Field: 1503, Family: "irq", Name: "softirq_exit"},
+	{Field: 1504, Family: "irq", Name: "softirq_raise"},
+	{Field: 2002, Family: "clock", Name: "clock_set_rate"},
+	{Field: 2003, Family: "cpu", Name: "cpu_frequency"},
+	{Field: 2004, Family: "cpu", Name: "cpu_frequency_limits"},
+	{Field: 2005, Family: "cpu", Name: "cpu_idle"},
+	{Field: 2417, Family: "sched", Name: "sched_switch"},
+	{Field: 2420, Family: "sched", Name: "sched_wakeup"},
+	{Field: 2421, Family: "sched", Name: "sched_wakeup_new"},
+	{Field: 2422, Family: "sched", Name: "sched_waking"},
+	{Field: 4002, Family: "sched", Name: "sched_blocked_reason"},
+	{Field: 4009, Family: "f2fs", Name: "f2fs_sync_file_enter"},
+	{Field: 4010, Family: "f2fs", Name: "f2fs_sync_file_exit"},
+	{Field: 4011, Family: "f2fs", Name: "f2fs_write_begin"},
+	{Field: 4012, Family: "f2fs", Name: "f2fs_write_end"},
+	{Field: 4015, Family: "mmc", Name: "mmc_request_done"},
+	{Field: 4016, Family: "mmc", Name: "mmc_request_start"},
 }
+
+var profilerFtraceEventDescriptors = func() map[int]profilerFtraceEventDescriptor {
+	out := make(map[int]profilerFtraceEventDescriptor, len(profilerFtraceEventDescriptorList))
+	for _, descriptor := range profilerFtraceEventDescriptorList {
+		out[descriptor.Field] = descriptor
+	}
+	return out
+}()
 
 func modernRowSorterCoverage(stats traceDBRowSortStats) TraceDBCoverage {
 	coverage := stats.coverage()
@@ -847,8 +861,11 @@ frames:
 					}
 				} else {
 					if ok {
-						out.Caveats = append(out.Caveats, profilerFtraceSummaryCaveat(summary))
-						out.TraceCoverage = append(out.TraceCoverage, profilerFtraceSummaryCoverage(summary)...)
+						if summary.IssueOverflow || !diagnostics.FtraceSummary.observe(summary, off) {
+							_, _ = sink.endPairRowCensus()
+							profilerContainerCounterFailClose(&out, sink)
+							break frames
+						}
 					}
 					structuredRows, structuredCoverage, renderErr := renderProfilerFtraceStructuredResultForContainer(authority, &seq, sink)
 					out.TraceCoverage = append(out.TraceCoverage, structuredCoverage...)
@@ -863,7 +880,7 @@ frames:
 						profilerContainerCounterFailClose(&out, sink)
 						break frames
 					}
-					if authorityDegraded || ok && len(summary.Issues) > 0 || profilerFtraceCoverageHasSkipped(structuredCoverage) || ok && structuredRows == 0 && summary.DetailEventCount > 0 {
+					if authorityDegraded || ok && !summary.Issues.empty() || profilerFtraceCoverageHasSkipped(structuredCoverage) || ok && structuredRows == 0 && summary.DetailEventCount > 0 {
 						if outcome != profilerPluginOutcomeMalformed {
 							outcome = profilerPluginOutcomeStructuredDegraded
 						}
@@ -1220,7 +1237,9 @@ func decodeProfilerFtraceSummaryResult(result profilerTracePluginResult) (profil
 	for _, raw := range result.CPUStats {
 		stats, err := decodeProfilerFtraceCPUStats(raw)
 		if err != nil {
-			summary.Issues = append(summary.Issues, "ftrace_cpu_stats_malformed_wire")
+			if !summary.Issues.observe(profilerFtraceSummaryIssueCPUStatsMalformed, 1) {
+				summary.IssueOverflow = true
+			}
 			continue
 		}
 		summary.StatsMessages++
@@ -1235,16 +1254,22 @@ func decodeProfilerFtraceSummaryResult(result profilerTracePluginResult) (profil
 		for _, cpu := range stats.PerCPU {
 			summary.StatsCPUs[cpu.CPU] = true
 			if stats.Status == 1 {
+				summary.EndTotalsSeen = true
 				if summary.EndTotalsValid && !summary.EndTotals.add(cpu) {
 					summary.EndTotalsValid = false
 					summary.EndTotals = profilerFtraceCPUTotals{}
-					summary.Issues = append(summary.Issues, "ftrace_cpu_stats_end_aggregate_overflow")
+					if !summary.Issues.observe(profilerFtraceSummaryIssueEndStatsOverflow, 1) {
+						summary.IssueOverflow = true
+					}
 				}
 			} else {
+				summary.StartTotalsSeen = true
 				if summary.StartTotalsValid && !summary.StartTotals.add(cpu) {
 					summary.StartTotalsValid = false
 					summary.StartTotals = profilerFtraceCPUTotals{}
-					summary.Issues = append(summary.Issues, "ftrace_cpu_stats_start_aggregate_overflow")
+					if !summary.Issues.observe(profilerFtraceSummaryIssueStartStatsOverflow, 1) {
+						summary.IssueOverflow = true
+					}
 				}
 			}
 		}
@@ -1266,7 +1291,9 @@ func decodeProfilerFtraceSummaryResult(result profilerTracePluginResult) (profil
 			} else {
 				summary.DetailOverwriteOK = false
 				summary.DetailOverwrite = 0
-				summary.Issues = append(summary.Issues, "ftrace_cpu_detail_overwrite_aggregate_overflow")
+				if !summary.Issues.observe(profilerFtraceSummaryIssueDetailOverwriteOverflow, 1) {
+					summary.IssueOverflow = true
+				}
 			}
 		}
 		for eventField, count := range detail.EventFieldCounts {
@@ -1276,37 +1303,54 @@ func decodeProfilerFtraceSummaryResult(result profilerTracePluginResult) (profil
 	for _, raw := range result.Symbols {
 		symbol, err := decodeProfilerFtraceSymbolDetail(raw)
 		if err != nil {
-			summary.Issues = append(summary.Issues, "symbols_detail_malformed_wire")
+			if !summary.Issues.observe(profilerFtraceSummaryIssueSymbolMalformed, 1) {
+				summary.IssueOverflow = true
+			}
 			continue
 		}
 		summary.SymbolCount++
-		if symbol.Name != "" && len(summary.SymbolExamples) < 5 {
-			if symbol.Addr != 0 {
-				summary.SymbolExamples = append(summary.SymbolExamples, fmt.Sprintf("0x%x=%s", symbol.Addr, symbol.Name))
+		if symbol.Name != "" {
+			if len(summary.SymbolExamples) < 5 {
+				if symbol.Addr != 0 {
+					summary.SymbolExamples = append(summary.SymbolExamples, fmt.Sprintf("0x%x=%s", symbol.Addr, symbol.Name))
+				} else {
+					summary.SymbolExamples = append(summary.SymbolExamples, symbol.Name)
+				}
 			} else {
-				summary.SymbolExamples = append(summary.SymbolExamples, symbol.Name)
+				summary.SymbolTruncated = true
 			}
 		}
 	}
 	for _, raw := range result.Clocks {
 		clock, err := decodeProfilerFtraceClockDetail(raw)
 		if err != nil {
-			summary.Issues = append(summary.Issues, "clocks_detail_malformed_wire")
+			if !summary.Issues.observe(profilerFtraceSummaryIssueClockMalformed, 1) {
+				summary.IssueOverflow = true
+			}
 			continue
 		}
-		if label := profilerFtraceClockDetailLabel(clock); label != "" && len(summary.ClockDetails) < 8 {
-			summary.ClockDetails = append(summary.ClockDetails, label)
+		if label := profilerFtraceClockDetailLabel(clock); label != "" {
+			summary.ClockDetailCount++
+			if len(summary.ClockDetails) < 8 {
+				summary.ClockDetails = append(summary.ClockDetails, label)
+			} else {
+				summary.ClockTruncated = true
+			}
 		}
 	}
 	for _, raw := range result.CommDicts {
 		if err := decodeProfilerFtraceCommDict(raw); err != nil {
-			summary.Issues = append(summary.Issues, "comm_dict_malformed_or_ambiguous")
+			if !summary.Issues.observe(profilerFtraceSummaryIssueCommMalformed, 1) {
+				summary.IssueOverflow = true
+			}
 		}
 	}
 	if len(result.Versions) == 1 && traceDBSinglePhysicalLine(string(result.Versions[0]), true) {
 		summary.Version = string(result.Versions[0])
 	} else if len(result.Versions) == 1 {
-		summary.Issues = append(summary.Issues, "trace_plugin_version_invalid")
+		if !summary.Issues.observe(profilerFtraceSummaryIssueVersionInvalid, 1) {
+			summary.IssueOverflow = true
+		}
 	}
 	return summary, summary.recognizedMessage, nil
 }
@@ -1684,10 +1728,12 @@ func profilerFtraceSummaryCaveat(summary profilerFtraceSummary) string {
 		totals := summary.StartTotals
 		totalsValid := summary.StartTotalsValid
 		label := "observed"
-		if summary.EndStats > 0 {
+		if summary.EndTotalsSeen {
 			totals = summary.EndTotals
 			totalsValid = summary.EndTotalsValid
 			label = "end"
+		} else if !summary.StartTotalsSeen {
+			totalsValid = false
 		}
 		parts = append(parts, fmt.Sprintf("stats_cpus=%d", len(summary.StatsCPUs)))
 		if totalsValid {
@@ -1716,30 +1762,46 @@ func profilerFtraceSummaryCaveat(summary profilerFtraceSummary) string {
 		if len(summary.SymbolExamples) > 0 {
 			parts = append(parts, "symbol_examples="+strings.Join(summary.SymbolExamples, ","))
 		}
+		if summary.SymbolTruncated {
+			parts = append(parts, "symbol_examples_truncated=true")
+		}
 	}
 	if len(summary.ClockDetails) > 0 {
 		parts = append(parts, "clock_details="+strings.Join(summary.ClockDetails, ","))
 	}
-	if issueSummary := profilerTracePluginIssueSummary(summary.Issues); issueSummary != "" {
+	if summary.ClockTruncated {
+		parts = append(parts, "clock_details_truncated=true")
+	}
+	if issueSummary := summary.Issues.summary(); issueSummary != "" {
 		parts = append(parts, "degraded="+issueSummary)
 	}
 	return "ftrace-plugin structured metadata: " + strings.Join(parts, "; ")
 }
 
 func profilerFtraceSummaryCoverage(summary profilerFtraceSummary) []TraceDBCoverage {
-	if len(summary.Issues) == 0 {
+	if summary.Issues.empty() {
 		return nil
 	}
+	total, ok := summary.Issues.totalOccurrences()
+	if !ok {
+		return nil
+	}
+	rowsRead, ok := profilerContainerCountToInt(total)
+	if !ok {
+		return nil
+	}
+	fields := map[string]string{
+		"schema_profile": "TracePluginResult CPU stats/detail, symbols, clocks, and version metadata",
+	}
+	summary.Issues.appendFieldSources(fields)
 	return []TraceDBCoverage{{
-		Family:   "builtin_modern_ftrace:trace_plugin_metadata",
-		Table:    "__trace_plugin_metadata__",
-		Role:     "unsupported_input",
-		Found:    true,
-		RowsRead: len(summary.Issues),
-		Skipped:  profilerTracePluginIssueSummary(summary.Issues),
-		FieldSources: map[string]string{
-			"schema_profile": "TracePluginResult CPU stats/detail, symbols, clocks, and version metadata",
-		},
+		Family:       "builtin_modern_ftrace:trace_plugin_metadata",
+		Table:        "__trace_plugin_metadata__",
+		Role:         "unsupported_input",
+		Found:        true,
+		RowsRead:     rowsRead,
+		Skipped:      summary.Issues.summary(),
+		FieldSources: fields,
 	}}
 }
 

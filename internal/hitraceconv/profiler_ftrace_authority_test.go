@@ -586,10 +586,10 @@ func TestAddStrictSystraceRowsAcceptsStandardCRLFWithUnicodeComment(t *testing.T
 	}
 }
 
-func profilerAuthorityIssuePresent(issues []string, want string) bool {
-	for _, issue := range issues {
-		if issue == want {
-			return true
+func profilerAuthorityIssuePresent(issues profilerFtraceSummaryIssueCensus, want string) bool {
+	for kind := profilerFtraceSummaryIssueKind(0); kind < profilerFtraceSummaryIssueKindCount; kind++ {
+		if kind.label() == want {
+			return issues.has(kind)
 		}
 	}
 	return false
