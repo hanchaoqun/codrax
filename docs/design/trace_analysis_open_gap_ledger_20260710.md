@@ -610,6 +610,16 @@ generic代码提交`8f5aee619`已独立推送到`main`；连同先行的envelope
 
 **明确留后**：B2-b5 block producer typed化、block canonical局部拒行及全调用图temporary bridge/string producer删除继续开放；只有b5完成并复核B2总矩阵后才可关闭B2-b/B2/P1-a2.2。a2.3/a2.4、`ROW-SORT-BND`、P1-b、TOCTOU、compact pairing sidecar、generic block/storage typed request identity witness及Profiler全链有界声明均不受本批改变。
 
+### P1-a2.2-B2-b4 aux/filemap producer typed化交付结案
+
+代码提交`dc5035040`已独立推送到`main`；施工冻结与容量勘正分别由`c58396fd5`/`ac73a9208`先行推送。本节只关闭B2-b4，不提前关闭B2-b、B2或P1-a2.2。
+
+- **唯一typed咽喉与内部不变量已落地**：七类aux共用固定`[26]`field state的一次`walkProtoFields`，同次decode同时产生F2FS pair sidecar与最终payload verdict，container不再为pair identity二次扫描；1000/1001 filemap改为固定`[6]`state单扫描。两族production均不再回流legacy reason bridge，旧decoder仅保留typed issue→唯一label的兼容薄适配。descriptor field/name/family、unhandled dispatch、canonical payload及bounded canonical line失败全部为内部`traceDBOutputInvariantError`，不能伪装成客户source degradation；只有无界print field1109保留真实source canonical-line局部拒行。
+- **response与pair语义已精确收口**：4015 response field3/7/11的wrong-wire、duplicate与超16B按每endpoint `wrong > duplicate > drop`裁定，可同时发布三个`AdmittedDisplay`且不重建/暴露丢失的response事实；任何whole/hard/semantic issue独占并支配display。F2FS只在field1/2、header owner及typed fingerprint均可信时铸exact lane；key损坏、非terminal歧义或owner未知仍family fail-close，known或unknown terminal non-key坏尾只隔离目标lane。structured+spill E2E证明同lane start/end均被封存、另一dev/inode/op/emitter lane继续成对发布，不会跨洞假配或扩大污染域。
+- **source闭集与固定集合代数已机械化**：aux raw producer与legal constructor逐tuple双向相等为228，逐event为`7/24/17/17/17/70/76`；filemap双向闭集为12，另以30种known-endpoint raw shape固定malformed/wrong/duplicate来源。aux capacity-3、filemap capacity-1均验证count、zero-tail、foreign event/kind/payload/severity、重复、跨arm、overflow及prospective失败无mutation；aux hard/response多异常物理正反序均保持schema顺序。全局finite issue universe为1803，最大单event为105<128，不可达`AuxInvalidF2FSPayloadRange`、六个假aux canonical及两个假filemap canonical均已删除/负pin。
+- **验证与独立终审**：print精确1MiB/cap+1及同container健康sibling局部存活、F2FS known/unknown terminal坏尾、key/nonterminal/owner负对照、filemap whole/known/unknown provenance、direct label parity、container occurrence/affected/Rows守恒与AST单权威均通过。focused shuffle至少`×20`、focused race`×3`、`go test ./internal/hitraceconv -count=1`、`go vet ./internal/hitraceconv`、最终冻结快照`go test ./... -count=1`、`go vet ./...`、gofmt/diff-check全绿；代码、测试、对抗三路独立终审均为**RELEASE**。
+- **诚实剩余**：B2-b5 block producer typed化、block canonical局部拒行及全调用图temporary bridge/string producer删除继续开放；只有b5完成并复核B2总矩阵后，才可关闭B2-b/B2/P1-a2.2。a2.3/a2.4、`ROW-SORT-BND`、P1-b、TOCTOU、compact pairing sidecar、generic block/storage typed request identity witness及Profiler全链有界声明均未由本批改变。
+
 ### P1-a2.2-B2-b1 closed bridge与exact ledger交付结案
 
 账本校准提交`c2c3f50fc`与代码提交`0ade13c13`已按顺序推送到`main`；本节只关闭B2-b1临时strict bridge与exact fixed census，不提前关闭B2-b、B2或P1-a2.2。bridge必须在B2-b2..b5逐producer typed化完成后删除，不能成为长期双权威。
