@@ -273,10 +273,11 @@ type runtimeTraceProjTreeRow struct {
 	// Zero (None) on hand-built rows and rows without an actual overshoot.
 	ActualScope runtimeTraceProjActualScope
 	// SameSegMirrorPeers carries the raw-state (root_evidence lane) copies of
-	// this row's segment folded in by the CR-2 P5 equality arm (§29.42 P5,
-	// witness 14704 E1/E2): E# merges into the bracket, the raw state word
-	// takes the 行2 状态 slot when this row lacks one, and the 行2 wears the
-	// typed 同段镜像 tag. Annotation only — never an ms account.
+	// this row's segments folded in by the CR-2 P5 MEMBER arm (WO-D1①,
+	// legacy lane since v5 P1 件① retired the equality arm to the engine):
+	// E# merges into the bracket, the raw state word takes the 行2 状态 slot
+	// when this row lacks one, and the 行2 wears the typed 同段镜像 tag.
+	// Annotation only — never an ms account.
 	SameSegMirrorPeers []runtimeTraceProjSameSegMirrorPeer
 	// ValueMirrorRef marks this un-merged AGGREGATE-lane row as the µs-equal
 	// value mirror of exactly one ×N merged candidate row (修复轮 C-2/A1,
@@ -326,10 +327,12 @@ type runtimeTraceProjTreeRow struct {
 	// §29.50.1 过渡候选反向指针 generalized to three carriers (self seat /
 	// aggregate↔member / cross-lane addition identity). Typed judgment only
 	// (registry state family + µs value relations); the word face is minted by
-	// the ONE template (runtimeTraceProjSameSegMirrorTagTexts). 过渡臂退役条件:
-	// the v5 P1 engine-side one-seat-per-segment mint covers the carrier —
-	// when it lands, this display pointer retires with the P5 display folds
-	// (same EVOLUTION contract as runtimeTraceProjFoldSameSegmentContextMirrors).
+	// the ONE template (runtimeTraceProjSameSegMirrorTagTexts). 过渡臂盘点
+	// (v5 P1 件① 落地, 2026-07-13): the pointer's carriers are NESTED-account
+	// shapes (component ⊂ seat / member ⊂ aggregate) — not duplicate seats of
+	// one segment set, so the engine one-seat mint (equal-fingerprint scope,
+	// B.2) does not cover them by definition. The arm stays; 退役条件 moves
+	// to a dedicated containment adjudication (CASE-1 扩围 / CASE-3).
 	NonAdditiveRef  string
 	NonAdditiveKind runtimeTraceProjNonAdditiveKind
 	// MergedTwinMirrorRef (WO-D3 短期臂, SMR-1 批 S3-TPF/S8-TPF, 2026-07-12)
@@ -337,7 +340,11 @@ type runtimeTraceProjTreeRow struct {
 	// ×N merged row with the identical member fingerprint (µs display + count
 	// + member extrema + query window) — the double-merged shape all three
 	// pre-SMR mirror arms structurally missed. Mutual (both rows point);
-	// tag-only, accounts untouched. 退役条件: v5 P1 engine one-seat mint.
+	// tag-only, accounts untouched. v5 P1 件① 盘点 (2026-07-13): the
+	// witnessed carriers converge at engine arm C
+	// (traceCausalProjectionConvergeMergedTwinSeats) and no longer reach this
+	// layer; the tag stays for the engine's deliberate fail-open pairs
+	// (diverging cum/eff = W-A, ranked seats, ⌗-side, ≥3 copies).
 	MergedTwinMirrorRef string
 	// BranchTwinFoldPeers (WO-D2/D4, SMR-1 批 S2-TPF/SMR-S4, 2026-07-12)
 	// carries the flat「父节点未确认」aggregate copy folded into this
@@ -1851,11 +1858,10 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// construction — the fold precedes tree-position assignment). The peers
 	// are re-attached to the surviving row after flatten (evidence + note).
 	chainNodes, rankFoldPeers := runtimeTraceProjFoldSameSegmentLaneTwins(chainNodes)
-	// CR-2 组② P5 equality arm (2026-07-12): the raw-state root_evidence copy
-	// of a fingerprint-equal segment folds into its richer row BEFORE the
-	// subject buckets (same NEW-3 position as the folds above), so the bare
-	// double seat never mints a second row (14704 E1/E2 witness). The peers
-	// re-attach to the surviving row after flatten.
+	// CR-2 组② P5 member arm (WO-D1①; the equality arm retired to the engine
+	// one-seat mint in v5 P1 件①, 2026-07-13): a legacy raw root_evidence
+	// member re-issue folds into its ×N seat BEFORE the subject buckets. The
+	// peers re-attach to the surviving row after flatten.
 	chainNodes, sameSegMirrorPeers := runtimeTraceProjFoldSameSegmentContextMirrors(chainNodes)
 	// WO-D2/D4 (SMR-1 批 S2-TPF/SMR-S4, 2026-07-12): the trunk/flat
 	// same-source ×N aggregate pair folds BEFORE the subject buckets too —
@@ -2547,7 +2553,7 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 		attach(model.Background)
 	}
 
-	// CR-2 组② P5 equality arm: attach the folded raw-state mirror copies to
+	// CR-2 组② P5 member arm (legacy lane): attach the folded raw-state mirror copies to
 	// the surviving row (bracket E#, 行2 状态 slot + 同段镜像 tag). Same
 	// post-flatten position as the rank-fold peers above; the evidence tag
 	// registration keeps the mirror observation reachable on the index.
@@ -4145,68 +4151,31 @@ func runtimeTraceProjSameSegMirrorRawArm(node types.TraceCausalProjectionNode) b
 }
 
 // runtimeTraceProjFoldSameSegmentContextMirrors is the CR-2 组② P5 同段收敛
-// equality arm (ledger §29.42 P5, witness 14704 双席 + CAL-1 修复轮 P2-3 移交,
-// 2026-07-12): a raw-state root_evidence copy of a segment folds into the
-// richer row of the SAME fingerprint. Fingerprint = the SFD same-segment twin
-// key (canonical subject + exact engine line span) PLUS µs-value equality —
-// a raw copy whose display value differs is a different account and never
-// folds (fail-open, 宁两行勿假并).
+// display fold — MEMBER ARM ONLY since v5 P1 件① (2026-07-13).
 //
-// EVOLUTION RECORD (CR-2 P5 vs v5 P1, 2026-07-12): this is the DISPLAY-LAYER
-// forerunner of the v5 P1 engine one-seat-per-segment batch (账本 §29.47.6) —
-// a defensive convergence at render, not a replacement: the engine wire stays
-// untouched, and the engine-side single-seat mint retires this lane's work
-// when it lands. Unlike the RNB rank fold above, the CONTEXT arm is admitted
-// here (the 14704 witness pair is context-tier on both sides); the fold
-// transfers annotation only (E# + raw state word), never an ms account.
+// EVOLUTION RECORD (CR-2 P5 → v5 P1 件① B.2, 指回 v3 D1「每节点全章恰 2 次」):
+// the EQUALITY arm (raw-state root_evidence copy of one segment folding into
+// the richer row of the SAME twin key + µs-value fingerprint, witness 14704
+// E1/E2) is RETIRED here — the engine one-seat mint now owns every one of
+// its carriers at the aggregation order (types/trace_causal_projection_
+// oneseat.go arm A + the pre-existing R1 lane, per-carrier pins in
+// trace_causal_projection_oneseat_test.go: valued twin = R1, valueless raw /
+// eff-lane-valued keeper = arm A), so the pair never reaches this layer.
+// The engine form renders the design-sanctioned merged_ids face ([E#(+N)] +
+// state-word back-fill) instead of the interim 同段镜像已并入 tag.
+//
+// The MEMBER arm below stays as the LEGACY-lane defense: current production
+// raw witnesses carry the typed dominant_state note (v5 P1 件① emission) and
+// converge at engine arm B; records from OLDER blob sessions can lack both
+// the note and a registered state-word Predicate (d_state_or_io_wait /
+// runnable_wait root types), where the causal-token REGISTRY lookup this
+// display layer performs (runtimeTraceProjSMR1StateFamily) is the only
+// family proof — the engine deliberately owns no registry copy (注册表单源).
+// 退役条件: the legacy-record carrier expires (or gains a typed state
+// identity through re-emission); until then this arm folds what the engine
+// provably could not.
 func runtimeTraceProjFoldSameSegmentContextMirrors(nodes []types.TraceCausalProjectionNode) ([]types.TraceCausalProjectionNode, map[string][]types.TraceCausalProjectionNode) {
-	type group struct {
-		rawIdx    []int
-		keeperIdx []int
-	}
-	groups := map[string]*group{}
-	for i, node := range nodes {
-		key := runtimeTraceProjSameSegmentTwinKey(node)
-		if key == "" {
-			continue
-		}
-		g := groups[key]
-		if g == nil {
-			g = &group{}
-			groups[key] = g
-		}
-		if runtimeTraceProjSameSegMirrorRawArm(node) {
-			g.rawIdx = append(g.rawIdx, i)
-		} else if node.MergedCount <= 1 && !node.OnChainOverflowFold {
-			g.keeperIdx = append(g.keeperIdx, i)
-		}
-	}
 	foldInto := map[int]int{} // raw node index -> keeper node index
-	for _, g := range groups {
-		if len(g.rawIdx) != 1 || len(g.keeperIdx) != 1 {
-			continue // ambiguity fails open (SFD donor-conflict rule)
-		}
-		raw, keeper := nodes[g.rawIdx[0]], nodes[g.keeperIdx[0]]
-		// µs-value equality: the raw copy re-publishes the keeper's own
-		// magnitude (14704: both 54.599). Valueless raw copies also fold.
-		rawValue := runtimeTraceProjNodeDisplayImpact(raw)
-		if rawValue > 0 && !runtimeTraceProjRound3Equal(rawValue, runtimeTraceProjNodeDisplayImpact(keeper)) {
-			continue
-		}
-		// State-word consistency: the raw lane's token must be the keeper's
-		// own state (or the keeper carries none and adopts it on 行2).
-		if keeper.StateKind != "" && keeper.StateKind != strings.TrimSpace(raw.Predicate) {
-			continue
-		}
-		// Cross-window veto (SFD F1 mirror).
-		if raw.QueryWindowStartTs > 0 && raw.QueryWindowEndTs > raw.QueryWindowStartTs &&
-			keeper.QueryWindowStartTs > 0 && keeper.QueryWindowEndTs > keeper.QueryWindowStartTs &&
-			(math.Abs(raw.QueryWindowStartTs-keeper.QueryWindowStartTs) > types.TraceCausalProjectionSameWindowToleranceS ||
-				math.Abs(raw.QueryWindowEndTs-keeper.QueryWindowEndTs) > types.TraceCausalProjectionSameWindowToleranceS) {
-			continue
-		}
-		foldInto[g.rawIdx[0]] = g.keeperIdx[0]
-	}
 	// P2-3 必要性否决 (SMR-1 修复轮, 2026-07-13): the raw copy's line interval
 	// must sit INSIDE the keeper's line envelope — a NECESSITY veto, not a
 	// sufficiency proof (行号包络禁令 bans envelope containment as PROOF of
@@ -13725,7 +13694,7 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 				add("窗来源", "window sources", strings.Join(windows, sep))
 			}
 		}
-		// CR-2 组② P5 equality arm: the folded raw-state mirror copies stay
+		// CR-2 组② P5 member arm (legacy lane): the folded raw-state mirror copies stay
 		// reachable — the lossless block names each absorbed E# explicitly.
 		if len(row.SameSegMirrorPeers) > 0 {
 			tags := make([]string, 0, len(row.SameSegMirrorPeers))

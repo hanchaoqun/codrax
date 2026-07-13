@@ -1314,10 +1314,11 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// (count + composite-score) + their legend entry (fixture home:
 		// answer_document_projection_v2p0_test.go).
 		{"v2p0_caliber_side", types.TraceCausalProjectionFromObservationRecords(v2p0CaliberRecords())},
-		// CR-2 组② P5 (2026-07-12): the same-segment mirror tag (equality arm,
-		// 14704 双席 shape) + its legend entry (fixture home:
-		// answer_document_projection_cr2_p5_test.go).
-		{"cr2_p5_same_seg_mirror", cr2P5EqualityArmProjection()},
+		// CR-2 组② P5 (2026-07-12; equality arm retired to the engine one-seat
+		// mint in v5 P1 件① — the mark's remaining producers are the FAMILY
+		// arm and the member arm): the same-segment mirror tag + its legend
+		// entry (fixture home: answer_document_projection_cr2_p5_test.go).
+		{"cr2_p5_same_seg_mirror", cr2P5CensusMirrorProjection()},
 		// CR-2 组③ P7 (2026-07-12): the typed actual-scope word faces —
 		// in-window overshoot (episode) + interval-less disclosure (fixture
 		// home: answer_document_projection_cr2_p7_test.go).

@@ -6527,6 +6527,16 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			if root.Type == "trace_gap" && strings.TrimSpace(root.GapKind) != "" {
 				rootNotes = append(rootNotes, types.TraceNoteKeyTraceGapKind+"="+strings.TrimSpace(root.GapKind))
 			}
+			// v5 P1 件① B.2 (2026-07-13): the impact twin's scheduler-state
+			// word rides the EXISTING dominant_state note lane — the raw
+			// witness row then carries its typed state identity (StateKind)
+			// like every other lane, so the engine one-seat arms can prove
+			// duration-family membership without a display-side registry
+			// lookup. Absence stays absent (missing_wakeup / trace_gap
+			// honesty rows publish no state word and never converge).
+			if state := strings.TrimSpace(root.DominantState); state != "" {
+				rootNotes = append(rootNotes, types.TraceNoteKeyDominantState+"="+state)
+			}
 			out = append(out, types.ObservationRecord{
 				ID:              fmt.Sprintf("trace_query:%s#root_evidence:%d", scope, i+1),
 				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,

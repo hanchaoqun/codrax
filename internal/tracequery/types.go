@@ -4149,6 +4149,14 @@ type RootEvidence struct {
 	// (TraceGapKindNoSchedData / TraceGapKindNoEligibleWait) decided at the
 	// expandChain mint site from the thread's own timeline shape.
 	GapKind string `json:"gap_kind,omitempty"`
+	// DominantState (v5 P1 件① B.2, 2026-07-13): the scheduler-state word of
+	// the causal-impact twin this reduced-shape witness was derived from
+	// (rootEvidenceFromCausalImpact copies item.DominantState verbatim) — the
+	// producer-side typed identity that lets the projection engine's one-seat
+	// arms prove duration-family membership for the raw lane without any
+	// display-side registry lookup. Empty on the literal-built shapes
+	// (missing_wakeup / trace_gap honesty rows), which never converge.
+	DominantState string `json:"dominant_state,omitempty"`
 }
 
 type EvidenceFact struct {

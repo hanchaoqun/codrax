@@ -16,40 +16,60 @@ import (
 // engine one-seat-per-segment batch (EVOLUTION RECORD in the fold lane): the
 // engine wire is untouched — fingerprint-equal rows converge at render.
 
-func cr2P5EqualityArmProjection() types.TraceCausalProjection {
-	return types.TraceCausalProjection{
-		WakeupPath:    []string{"waker-1", "coldpool-1"},
-		WindowStartTs: 2942.200,
-		WindowEndTs:   2942.300,
-		OnChainCauses: []types.TraceCausalProjectionNode{
-			// A plain data-bearing chain row so the fence draws its bar scale
-			// (keeps the legend-bidirectional fixture representative).
-			{Role: types.TraceCausalRoleCausalHop, EvidenceID: "trace_query:t#wakeup_causal_impact:9",
-				Subject: "waker-1", Predicate: "wakeup_causal_impact", Object: "s_sleep",
-				StateKind: "s_sleep", ChainRelevance: "on_chain",
-				ImpactMS: 20.000, CumulativeImpactMS: 20.000,
-				Confidence: 0.78, LineStart: 50, LineEnd: 60},
-			// Candidate lane: the richer word (state kind + drill identity).
-			{Role: types.TraceCausalRoleCausalHop, EvidenceID: "trace_query:t#wakeup_causal_impact:1",
-				Subject: "coldpool-1", Predicate: "wakeup_causal_impact", Object: "running",
-				StateKind: "running", Tier: types.TraceCausalTierContextOnly,
-				ChainRelevance: "on_chain", ImpactMS: 54.599, CumulativeImpactMS: 54.599,
-				Confidence: 0.78, LineStart: 101, LineEnd: 101},
-			// Raw-state lane: the bare root_evidence copy of the SAME segment
-			// (same subject, same exact line span, same value to the µs).
-			{Role: types.TraceCausalRoleCausalHop, EvidenceID: "trace_query:t#root_evidence:1",
-				Subject: "coldpool-1", Predicate: "running", Object: "",
-				Tier: types.TraceCausalTierContextOnly, ChainRelevance: "on_chain",
-				ImpactMS: 54.599, Confidence: 0.75, LineStart: 101, LineEnd: 101},
+// cr2P5EqualityArmRecords is the 14704 archetype at the PRODUCTION emission
+// level (v5 P1 件① retirement form): the candidate wakeup_causal_impact
+// record and its bare root_evidence copy — same subject, same value, same
+// exact line span. The display equality arm is retired; the ENGINE one-seat
+// mint (R1 + arm A) converges the pair before any render layer sees it.
+func cr2P5EqualityArmRecords(rawValue string) []types.ObservationRecord {
+	return []types.ObservationRecord{
+		{
+			ID:              "trace_query:t#wakeup_causal_impact:9",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard,
+			Span:            types.ObservationSpan{LineStart: 50, LineEnd: 60},
+			ClaimKey:        "wakeup_causal_impact:waker-1",
+			Subject:         "waker-1", Predicate: "wakeup_causal_impact", Object: "s_sleep",
+			Value: "20.000", Unit: "ms",
+			RichNotes:  []string{"causality=on_wakeup_chain", "dominant_state=s_sleep"},
+			Confidence: 0.78,
+		},
+		{
+			ID:              "trace_query:t#wakeup_causal_impact:1",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard,
+			Span:            types.ObservationSpan{LineStart: 101, LineEnd: 101},
+			ClaimKey:        "wakeup_causal_impact:coldpool-1",
+			Subject:         "coldpool-1", Predicate: "wakeup_causal_impact", Object: "running",
+			Value: "54.599", Unit: "ms",
+			RichNotes:  []string{"causality=on_wakeup_chain", "dominant_state=running"},
+			Confidence: 0.78,
+		},
+		{
+			ID:              "trace_query:t#root_evidence:1",
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard,
+			Span:            types.ObservationSpan{LineStart: 101, LineEnd: 101},
+			ClaimKey:        "root_evidence:running",
+			Subject:         "coldpool-1", Predicate: "running",
+			Value: rawValue, Unit: "ms",
+			RichNotes:  []string{"tier=context_only", "effective_impact_ms=0.000", "dominant_state=running"},
+			Confidence: 0.75,
 		},
 	}
 }
 
-// 14704 形 pin: fingerprint-equal candidate/raw-state rows converge to ONE row;
-// the surviving row keeps the highest-lane word, merges the mirror's E# into
-// its bracket, and wears the typed mirror tag on 行2.
-func TestCR2P5SameSegmentContextMirrorMerges(t *testing.T) {
-	model := buildRuntimeTraceProjTreeModel(cr2P5EqualityArmProjection(), newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+// 14704 形 pin — 退役等价证明 (v5 P1 件①, 2026-07-13): with the display
+// equality arm retired, the ENGINE-converged pair renders exactly one row
+// carrying the highest-lane word and the design-sanctioned merged_ids face
+// ([E#(+N)], B.2 「peer 只并 E#」) — the interim 同段镜像已并入 tag is gone
+// with its arm.
+func TestCR2P5SameSegmentEqualityConvergesAtEngine(t *testing.T) {
+	projection := types.TraceCausalProjectionFromObservationRecords(cr2P5EqualityArmRecords("54.599"))
+	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	var seats []runtimeTraceProjTreeRow
 	for _, rows := range [][]runtimeTraceProjTreeRow{model.SelfRows, model.TreeRows, model.Adjacent, model.Background} {
 		for _, row := range rows {
@@ -63,30 +83,58 @@ func TestCR2P5SameSegmentContextMirrorMerges(t *testing.T) {
 		}
 	}
 	if len(seats) != 1 {
-		t.Fatalf("one physical segment must render exactly one row (P5 一段一席), got %d", len(seats))
+		t.Fatalf("one physical segment must render exactly one row (B.2 一段一席), got %d", len(seats))
 	}
 	row := seats[0]
 	if row.Node.StateKind != "running" {
-		t.Fatalf("the surviving row must be the candidate lane (highest word position): %+v", row.Node)
-	}
-	if len(row.SameSegMirrorPeers) != 1 {
-		t.Fatalf("the raw-state copy must ride the mirror peer carrier: %+v", row)
+		t.Fatalf("the surviving row must keep the highest-lane word: %+v", row.Node)
 	}
 	ref := runtimeTraceProjCauseEvidenceRef(row)
-	if !strings.Contains(ref, "+") {
-		t.Fatalf("the mirror row's E# must merge into the surviving bracket: %q", ref)
-	}
-	fence := runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "同段镜像已并入") {
-		t.Fatalf("行2 must wear the typed mirror tag:\n%s", fence)
+	if !strings.Contains(ref, "(+") {
+		t.Fatalf("the raw copy's E# must ride the merged_ids bracket: %q", ref)
 	}
 }
 
-// Fail-open control: a differing value (not the µs-equal fingerprint) keeps the
-// two-row render byte-for-byte — the gate never merges on subject alone.
-func TestCR2P5SameSegmentContextMirrorFailsOpenOnValueMismatch(t *testing.T) {
-	projection := cr2P5EqualityArmProjection()
-	projection.OnChainCauses[1].ImpactMS = 51.000
+// 件3 (修复轮, 对抗复核 F4, 2026-07-13) — the arm-A EXCLUSIVE carriers'
+// display equivalence: the VALUELESS raw copy and the eff-lane-valued keeper
+// shapes (both structurally unreachable by R1's value-keyed merge) also
+// render exactly one seat with the merged_ids bracket. Detaching arm A from
+// the aggregation order reds BOTH variants (red-green 实录 in the batch
+// report; the valued variant above stays green under R1 alone).
+func TestCR2P5SameSegmentEqualityArmAVariantsConvergeAtEngine(t *testing.T) {
+	countSeats := func(projection types.TraceCausalProjection) (int, []runtimeTraceProjTreeRow) {
+		model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+		var seats []runtimeTraceProjTreeRow
+		for _, rows := range [][]runtimeTraceProjTreeRow{model.SelfRows, model.TreeRows, model.Adjacent, model.Background} {
+			for _, row := range rows {
+				if row.HasData && runtimeTraceCausalProjectionCanonicalNode(row.Node.Subject) ==
+					runtimeTraceCausalProjectionCanonicalNode("coldpool-1") {
+					seats = append(seats, row)
+				}
+			}
+		}
+		return len(seats), seats
+	}
+	// Variant 1: valueless raw copy.
+	if n, seats := countSeats(types.TraceCausalProjectionFromObservationRecords(
+		cr2P5EqualityArmRecords("0.000"))); n != 1 {
+		t.Fatalf("valueless raw twin must converge to one rendered seat (arm A), got %d", n)
+	} else if ref := runtimeTraceProjCauseEvidenceRef(seats[0]); !strings.Contains(ref, "(+") {
+		t.Fatalf("the valueless raw's E# must ride the merged_ids bracket: %q", ref)
+	}
+	// Variant 2: keeper valued on the effective lane only.
+	records := cr2P5EqualityArmRecords("54.599")
+	records[1].Value = "0.000"
+	records[1].RichNotes = []string{"causality=on_wakeup_chain", "dominant_state=running", "effective_impact_ms=54.599"}
+	if n, _ := countSeats(types.TraceCausalProjectionFromObservationRecords(records)); n != 1 {
+		t.Fatalf("eff-lane-valued keeper must absorb its raw twin (arm A), got %d seats", n)
+	}
+}
+
+// Fail-open control — 退役等价证明: a differing value is a different account;
+// the engine keeps two seats and the display renders both (宁两行勿假并).
+func TestCR2P5SameSegmentEqualityFailsOpenOnValueMismatch(t *testing.T) {
+	projection := types.TraceCausalProjectionFromObservationRecords(cr2P5EqualityArmRecords("51.000"))
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	count := 0
 	for _, rows := range [][]runtimeTraceProjTreeRow{model.SelfRows, model.TreeRows, model.Adjacent, model.Background} {
@@ -99,6 +147,51 @@ func TestCR2P5SameSegmentContextMirrorFailsOpenOnValueMismatch(t *testing.T) {
 	}
 	if count != 2 {
 		t.Fatalf("value-mismatched lanes are different accounts and must stay two rows, got %d", count)
+	}
+}
+
+// cr2P5CensusMirrorProjection is the legend-census fixture for the 同段镜像
+// mark since the equality arm's retirement (v5 P1 件①): the MEMBER arm's
+// LEGACY-EXCLUSIVE carrier (修复轮 件4, 对抗复核 F5) — raw re-issues whose
+// Predicate is an UNREGISTERED causal token (d_state_or_io_wait, legacy
+// records without the dominant_state note) folding into a cross-refinement
+// io keeper. The engine arm B provably cannot fold this shape (no registered
+// state word on the raw + token mismatch across the refinement — the
+// registry lookup this display arm performs is the only family proof), so
+// the fixture is production-real FOR THE DISPLAY ARM: a registered-word raw
+// (the pre-件4 fixture form) would already converge at the engine and never
+// reach this layer. Values are probe-aligned (3次(10.000~30.000ms)).
+func cr2P5CensusMirrorProjection() types.TraceCausalProjection {
+	self := "census-thread-1"
+	raw := func(id string, ms float64, line int) types.TraceCausalProjectionNode {
+		return types.TraceCausalProjectionNode{
+			Role: types.TraceCausalRoleCausalHop, EvidenceID: "trace_query:t#root_evidence:" + id,
+			Subject: self, Predicate: "d_state_or_io_wait",
+			Tier: types.TraceCausalTierContextOnly, ChainRelevance: "on_chain",
+			ImpactMS: ms, CumulativeImpactMS: ms, Confidence: 0.75,
+			LineStart: line, LineEnd: line + 40,
+		}
+	}
+	return types.TraceCausalProjection{
+		WakeupPath:    []string{"waker-1", self},
+		WindowStartTs: 1000.000,
+		WindowEndTs:   1000.100,
+		OnChainCauses: []types.TraceCausalProjectionNode{
+			{Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "trace_query:t#state_drilldown:1",
+				Subject: self, Object: "io_wait", TypeToken: "io_wait", StateKind: "io_wait",
+				ChainRelevance: "on_chain",
+				ImpactMS:       60.000, CumulativeImpactMS: 60.000,
+				MergedCount: 3, MergedMinMS: 10.000, MergedMaxMS: 30.000, MergedSumMS: 60.000,
+				Confidence: 0.9, LineStart: 100, LineEnd: 900},
+			raw("1", 10.000, 200),
+			raw("2", 20.000, 400),
+			raw("3", 30.000, 600),
+			{Role: types.TraceCausalRoleCausalHop, EvidenceID: "trace_query:t#wakeup_causal_impact:5",
+				Subject: "waker-1", Predicate: "wakeup_causal_impact",
+				Object: "runnable_wait", StateKind: "runnable", ChainRelevance: "on_chain",
+				ChainDepth: 1, ImpactMS: 13.898, CumulativeImpactMS: 13.898,
+				Confidence: 0.8, LineStart: 950, LineEnd: 980},
+		},
 	}
 }
 

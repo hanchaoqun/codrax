@@ -19036,6 +19036,10 @@ func rootEvidenceFromCausalImpact(item WakeupCausalImpact, fallback string, conf
 		LineEnd:    item.LineEnd,
 		Summary:    summary,
 		Confidence: confidence,
+		// v5 P1 件① B.2 (2026-07-13): the impact twin's scheduler-state word
+		// travels with the reduced-shape witness — the typed family identity
+		// the engine one-seat arms consume (single mint, verbatim copy).
+		DominantState: item.DominantState,
 	}
 }
 

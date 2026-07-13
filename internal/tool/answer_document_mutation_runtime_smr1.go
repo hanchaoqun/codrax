@@ -26,11 +26,24 @@ package tool
 // 零静默消失 (折叠=吸收/佩记号, 数值不重计, 证据照发); 两把尺 (⌗ 异尺行只
 // tag 不并 — CausalTokenCaliberSideClass 单源守门).
 //
-// 过渡臂退役条件 (工单 §④/CASE-4): the v5 P1 engine-side one-seat-per-segment
-// mint covers each carrier at the source — when it lands, the WO-A1 pointer,
-// the WO-D2 fold and the WO-D3 mutual tags retire with the CR-2 P5 display
-// folds (same EVOLUTION contract as
-// runtimeTraceProjFoldSameSegmentContextMirrors).
+// 过渡臂退役条件 (工单 §④/CASE-4) — v5 P1 件① 落地后的诚实盘点 (2026-07-13,
+// engine arms = types/trace_causal_projection_oneseat.go):
+//   - WO-D3 mutual tags: the WITNESSED carriers (42729 E9/E15 · 62930 E9/E19
+//     token-completeness forks; S8-TPF same-token cross-stanza pairs) now
+//     converge at engine arm C and never reach this layer. The arm STAYS for
+//     the pairs the engine deliberately fails open on (diverging cum/eff
+//     accounts = W-A; ranked seats; ⌗ caliber-side tokens; ≥3 copies) —
+//     unretired because engine coverage of those would break the W-A red
+//     line, not because the mint is missing. 禁半形退役 honored: the arm is
+//     intact, its carrier set narrowed.
+//   - WO-D2 fold: its witnessed pair (56643 E5/E19) diverges on the eff
+//     episode pick — engine arm C's W-A eff veto fails open BY DESIGN, so
+//     the D4 dual-list disclosure keeps living here. 退役条件 = a typed
+//     dual-eff wire carrier (future adjudication).
+//   - WO-A1 pointers / WO-C1 sentences: their carriers are NESTED-account
+//     shapes (component ⊂ seat / member ⊂ aggregate / two account systems),
+//     not duplicate seats of one segment set — outside B.2's equal-
+//     fingerprint scope by definition; WO-C1's own 退役条件 remains CASE-3.
 
 import (
 	"fmt"
@@ -283,8 +296,12 @@ func runtimeTraceProjFoldBranchTwinAggregates(nodes []types.TraceCausalProjectio
 // ALL four render lanes (S8-TPF 链/▒ 通道漂移 covered); ⌗ caliber-side rows
 // never join (两把尺); ≥3 matches fail open. 明令禁止 typed 家族键合并 (vnote
 // 实证: ×N is a SUM — a family-key merge would double-book into ×6). The V4
-// exact-lane token-absence relaxation (types layer) is the root arm — when it
-// folds the pair pre-merge, this display tag has nothing to do (若双行则必互指).
+// exact-lane token-absence relaxation (types layer, pre-R2) and the v5 P1
+// 件① engine arm C (post-R2, different-envelope twins — the WITNESSED D3
+// carriers) are the root arms — when either converges the pair, this display
+// tag has nothing to do (若双行则必互指). Remaining carriers here = the
+// engine's deliberate W-A fail-open pairs (diverging cum/eff, ranked seats,
+// ⌗-side, ≥3 copies).
 func runtimeTraceProjMarkMergedTwinMirrors(model *runtimeTraceProjTreeModel) {
 	fingerprint := func(node types.TraceCausalProjectionNode) string {
 		subject := runtimeTraceCausalProjectionCanonicalNode(node.Subject)

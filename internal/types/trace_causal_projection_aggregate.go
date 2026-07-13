@@ -89,6 +89,11 @@ func traceCausalProjectionAggregateForPresentation(out *TraceCausalProjection) {
 		return
 	}
 	traceCausalProjectionMergeSameFacts(out)
+	// B.2 arm A (v5 P1 件①, 2026-07-13) runs right after R1: the raw
+	// root_evidence same-segment twins R1's value-keyed identity cannot reach
+	// (valueless raw copies; keepers valued on the eff/actual lanes only)
+	// converge HERE, so R4/V4/R2 never see the bare double seat.
+	traceCausalProjectionConvergeRawSegmentTwins(out)
 	// R4 peer-alias fold runs between R1 (same-fact) and R2 (×N): the two alias
 	// rows carry slightly different ms, so R1's strict identity never catches
 	// them, and letting them reach R2 would risk a double-counting ×2 sum.
@@ -124,6 +129,13 @@ func traceCausalProjectionAggregateForPresentation(out *TraceCausalProjection) {
 	out.AdjacentCauses = traceCausalProjectionAggregateSameKind(out.AdjacentCauses)
 	out.BackgroundCauses = traceCausalProjectionAggregateSameKind(out.BackgroundCauses)
 	out.SupportingHops = traceCausalProjectionAggregateSameKind(out.SupportingHops)
+	// B.2 arms B/C (v5 P1 件①, 2026-07-13) run AFTER R2, where every ×N
+	// keeper shape (wire fold / R2 merge / marker fold) is final: raw member
+	// re-issues of a merged seat fold into it (arm B, 25846 shape), and one
+	// physical segment set R2-merged independently on two lanes converges to
+	// one seat (arm C, 42729 E9/E15 shape). E# union only — no account moves.
+	traceCausalProjectionConvergeRawMemberReissues(out)
+	traceCausalProjectionConvergeMergedTwinSeats(out)
 	out.BackgroundCauses = traceCausalProjectionFoldUnknownBackground(out.BackgroundCauses)
 	traceCausalProjectionResortAfterAggregation(out)
 }
@@ -746,10 +758,12 @@ func traceCausalProjectionSameDuplicatePublication(a, b TraceCausalProjectionNod
 		// would double-book the twin publications into ×6). Two DIFFERENT
 		// non-empty tokens stay two accounts; the 9µs near-lane strict ruling
 		// (sentinel exclusion) is untouched — this arm never enters the near
-		// lane. Retirement condition (过渡臂): the v5 P1 engine-side
-		// one-seat-per-segment mint covers this shape at the source; when it
-		// lands, this relaxation reduces to dead code and retires with the
-		// display twin-mirror arm (runtimeTraceProjMarkMergedTwinMirrors).
+		// lane. v5 P1 件① 盘点 (2026-07-13): this PRE-R2 relaxation is NOT
+		// dead code — it converges the single-row pairs whose lanes carve the
+		// SAME span; pairs whose lanes carve DIFFERENT envelopes escape it,
+		// R2-merge per lane, and converge post-R2 at engine arm C
+		// (traceCausalProjectionConvergeMergedTwinSeats) — two positions of
+		// ONE convergence doctrine, never two taxonomies.
 		oneSideAbsent := (tokenA == "") != (tokenB == "")
 		sentinelObject := !traceCausalProjectionKnownSubject(a.Object)
 		if !(oneSideAbsent && sentinelObject && sameValue) {
