@@ -1,0 +1,46 @@
+# Real trace — H3 IO multi-caliber one-seat family (IOFAM-SELF CAL-1 件②, EVAL-DONGHU-A §29.42.5)
+#
+# Golden sample donghu.ftrace, window 13762.791708..13763.024898.
+#
+# HARD oracle (trace-recomputable + typed display invariants):
+#   · the target main thread .ugc.aweme.lite-17267 issues its own block reads
+#     (block_rq_issue RCVHS on 12,80: lines 547, 556, 986, ..., 8188, 9756;
+#     completes wake it back via udk-irq threads — 28 of its 65 window
+#     wakeups come from udk-irq-12-92 alone). Trace-exact wall-clock io
+#     latencies: sector 480914568+128 issue 13762.872568 (line 9756) →
+#     complete 13762.873915 (line 9936) = 1.347ms (the window max for this
+#     thread); sector 126160840+24 issue 13762.862733 (line 8188) → complete
+#     13762.863981 (line 8318) = 1.248ms.
+#   · IOFAM-SELF display law (answer_document_projection_iofam_self_test.go):
+#     the self IO facet rows of one physical episode collapse into ONE seat —
+#     the wall-clock lead 「IO延迟」 (io_latency) holds the row with 1.347ms,
+#     and the same-segment sidebar discloses the composite caliber with its
+#     measuring-layer word: 块设备层·块设备IO(inode) with the composite score
+#     marked (综合评分,非墙钟) — never bare wall-clock ms. 口径旁栏 legend:
+#     composite/count rows take no ordinal and no badge.
+#   · CONDITIONAL (soft, 2026-07-12 two-run witness): the 完成端到端 layer
+#     word rides only when the engine mints a SECOND wall-clock facet member
+#     (io_burst_episode/io_latency) into the merged segment — present in run
+#     205424 (E4(+2), block_io 2.694), absent in run 210400 (E4(+1),
+#     block_io 2.405); member census varies with the model's trace_query
+#     dispatch pattern, so it must not be hard-required.
+#   · NOTE (trace truth, 2026-07-12 verified): pid 17267 has ZERO iowait=1
+#     sched_blocked_reason rows in this window (its 39 blocked_reason rows
+#     are all iowait=0 fscache_page_get_an page-cache waits; the iowait=1
+#     census covers only pids 17439/9644/17540/17437/17500/18132), so the
+#     调度等待 (io_wait) facet legitimately does NOT appear for this target —
+#     it must not be hard-required.
+# SOFT oracle (verdict-judged):
+#   · ❶ unique across the whole tree (one seat per family; the pre-fix 64414
+#     shape rendered THREE ❶ for five flat IO rows).
+#   · the block_io/综合评分 member value is never presented as wall-clock ms
+#     in prose conclusions (禁裸 ms on the composite caliber).
+#   · io_wait/d_state window-wide totals, if quoted, are labeled as
+#     all-thread scope, not smuggled onto the target thread.
+ID="real_trace_h3_iofam_one_seat"
+NAME="real trace donghu — IO multi-caliber one-seat"
+QUESTION="只分析这份 trace，不分析代码。请分析 .ugc.aweme.lite-17267 在 13762.791708s 到 13763.024898s 窗口内自身的 IO 等待与 IO 延迟：不同统计口径下的 IO 指标分别是多少？哪些口径是墙钟时间，哪些不是？"
+HTRACE_FILE="eval/fixtures/real_traces/donghu.ftrace"
+EXPECT_CONTAINS="IO延迟 块设备层 块设备IO(inode) 综合评分,非墙钟 1.347"
+EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

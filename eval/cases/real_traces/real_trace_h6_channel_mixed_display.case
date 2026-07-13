@@ -1,0 +1,37 @@
+# Real trace — H6 mixed-channel final display form (UXR-1/UXG §29.36+, EVAL-DONGHU-A §29.42.5)
+#
+# Golden sample donghu.ftrace, window 13762.791708..13763.024898.
+#
+# HARD oracle (typed display invariants, grep-checkable):
+#   · channel-worded ordinal chips: seat 1 of the chain channel must be
+#     spelled 根因排序#1 (display_tables.go table ③ zh chip = word+#N; a bare
+#     #1 chip is the pre-CLOSE-1 shape). Trace truth guarantees at least one
+#     ranked on-chain cause (running 157.248ms + self-IO family + folded
+#     sleep families all in-window).
+#   · the target-anchored tree must render with its typed head glyph: ⊚
+#     (RootGlyph, tracefence.go) or ⊘ (flat banner head, UXG-0 D3).
+#   · the ❶ TOP-5 badge family must be minted (❶ = seat 1; badges are the
+#     U+2776 block, display_tables.go BadgeGlyphs).
+#   · the generated aux reference markers 树读法: and 各列口径: (table ⑤,
+#     ASCII colon, engine byte form) must be present.
+# SOFT oracle (verdict-judged):
+#   · 邻近影响#N: every ordinal on the ◇ adjacent channel wears the 邻近影响
+#     word; no bare #N anywhere (bare-chip scan is substring-unsafe for grep:
+#     根因排序#1 contains #1).
+#   · ▒ background channel rows carry NO ordinal (通道3 has no ordinal by
+#     ruling §29.36.2).
+#   · ❶..❺ contiguous, no holes (if ❸ exists then ❶❷ exist).
+#   · fake ⚠ = 0: for this full-trace window nothing can be PROVEN to cross
+#     the analysis window, so any ⚠实际Xms must be justified by a real
+#     cross-window proof; in-window overruns must wear the episode wordform
+#     超出发生段,窗内 (CR-2 组③ P7) instead.
+#   · rows with unconfirmed parents keep their honest flat 父节点未确认 seats
+#     and are NOT attached into the tree as resolved children.
+ID="real_trace_h6_channel_mixed_display"
+NAME="real trace donghu — mixed-channel final display form"
+QUESTION="只分析这份 trace，不分析代码。请对 .ugc.aweme.lite-17267 在 13762.791708s 到 13763.024898s 窗口内做整体卡顿根因分析：按重要程度给出根因排序，并用树状因果视图展示直接阻塞/唤醒关系和各自的时间占比。"
+HTRACE_FILE="eval/fixtures/real_traces/donghu.ftrace"
+EXPECT_CONTAINS="根因排序#1 ❶ 树读法: 各列口径:"
+EXPECT_MATCHES_REGEX="(⊚|⊘)"
+EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

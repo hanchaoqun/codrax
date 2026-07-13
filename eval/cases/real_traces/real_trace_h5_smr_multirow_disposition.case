@@ -1,0 +1,45 @@
+# Real trace — H5 same-thread multi-row disposition (SMR-1 §29.53, EVAL-DONGHU-A §29.42.5)
+#
+# Golden sample donghu.ftrace, window 13762.791708..13763.024898 (233.190ms).
+#
+# HARD oracle (typed display invariants, grep-checkable):
+#   · the full-window target analysis puts the same thread on multiple rows
+#     (trace truth: .ugc.aweme.lite-17267 owns running 157.248ms AND the
+#     self-IO family AND 64 sleep segments folded per (waker,reason) — 28
+#     wakeups by udk-irq-12-92 alone), so the SMR-1 cross-seat pointer word
+#     family 「不可相加」 (不可相加/包含 arm, mutation_runtime_tree.go /
+#     smr1.go) must be present.
+#   · the WF-xn merge-count new wordform must be present as data:
+#     [0-9]+次( — the N次(a~b) instance/sum form (display_tables.go table ⑥,
+#     §29.52.1). The legend line spells it with a literal N (N次(a~b)), so the
+#     regex requires a leading DIGIT to prove a data row minted it.
+#   · NEGATIVE — the retired ×N marker must not reappear as a count face:
+#     ×2..×9 = 0 (WF-xn dissolution; ratios in this trace-only answer have no
+#     legitimate ×N spelling).
+# SOFT oracle (verdict-judged):
+#   · board-level sum warning: IF the seat totals on the root-cause board
+#     exceed the 233.190ms window, the warning sentence of the
+#     「席位合计 X 超窗 Y:物理时间可重叠,不可直接相加」 family must be
+#     present; if the totals stay under the window the warning must be absent
+#     (conditional face — judged against the run's own board arithmetic).
+#   · 「最大片段」 unique: when a family's chain coverage is partial, only the
+#     TRUE max covered fragment wears 最大片段 (no duplicate claim across
+#     rows of the same family).
+#   · account-relation sentences: same-thread rows must state containment/
+#     overlap relations instead of inviting addition.
+#
+# Suite note (2026-07-12 run-verified): on this full-window board the top
+# seat is deterministically CompThread_0-2955's D family as an EXPANDED cause
+# row, which wears the tri-form category word AND the unanimous wait object —
+# 「D状态候选·根因排序#1·置信中·…·等待对象 dma_fence_default_w」. Those two
+# faces are hard-pinned HERE (cause-row shape); real_trace_h2 pins the same
+# family's SELF-row shape (refined 自身·D-state face + typed appendix lane).
+ID="real_trace_h5_smr_multirow_disposition"
+NAME="real trace donghu — same-thread multi-row disposition"
+QUESTION="只分析这份 trace，不分析代码。请分析 .ugc.aweme.lite-17267 在 13762.791708s 到 13763.024898s 窗口内全部主要的等待与占用来源。如果同一个线程出现在多行结论里，请明确说明这些行之间的关系：是包含、重叠，还是可以直接相加？"
+HTRACE_FILE="eval/fixtures/real_traces/donghu.ftrace"
+EXPECT_CONTAINS="不可相加 D状态候选"
+EXPECT_MATCHES_REGEX="[0-9]+次\\(
+等待对象 dma_fence_default_w"
+EXPECT_NOT_CONTAINS="×2 ×3 ×4 ×5 ×6 ×7 ×8 ×9 still_present not_enough_evidence"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

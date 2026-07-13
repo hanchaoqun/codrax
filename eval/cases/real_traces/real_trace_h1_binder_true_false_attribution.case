@@ -1,0 +1,36 @@
+# Real trace — H1 binder true/false attribution dual form (P9, EVAL-DONGHU-A §29.42.5)
+#
+# Golden sample donghu.ftrace, window 13762.791708..13763.024898 (~233.19ms).
+#
+# HARD oracle (trace-recomputable, grep-checkable):
+#   POSITIVE — the one true synchronous binder wait must be present with its
+#   trace-exact magnitude and peer identity:
+#     · txn 12145859 sent at 13762.835811 (trace line 4353), main thread
+#       sleeps at 13762.835861 (line 4356), reply txn 12145860 completes at
+#       13762.837261 and wakes the main thread at 13762.837270 (lines
+#       4442-4443) → true binder wait = 13762.837270-13762.835861 = 1.409ms,
+#       peer thread binder:496_9-10961 (proc 9743).
+#   POSITIVE — the 15.758ms sleep segment must appear as frame-pacing idle,
+#   NOT as a binder wait (P9 arm c):
+#     · sleep out at 13762.992415 (line 23091, prev_state=S), woken at
+#       13763.008173 by app-9511 (vsync dispatch thread, tgid 9432 — line in
+#       the 24499 region); 13763.008173-13762.992415 = 15.758ms. The waker is
+#       a frame-schedule emitter (app-9511 prints renderRate/vsync spans,
+#       e.g. lines 2-3), so the display word is the typed pacing face
+#       帧间空闲(等待下一帧) with the ∿ row mark (typelabels.go pacing_idle).
+#   NEGATIVE — the historical misattribution aggregate 「binder 同步等待约45ms」
+#   (41006 witness, binder_attribution.go header) must not reappear: 约45ms=0.
+# SOFT oracle (verdict-judged on the run output):
+#   · the 帧间空闲/∿ row must NOT wear a 根因排序#N chip and must
+#     not be summed into any binder attribution total (RootCauseTierContextOnly).
+#   · no other sleep segment gets binder-attributed against a reply that
+#     completed before the segment started (P9 arm a).
+ID="real_trace_h1_binder_true_false_attribution"
+NAME="real trace donghu — binder true/false attribution dual form"
+QUESTION="只分析这份 trace，不分析代码。请分析 .ugc.aweme.lite-17267 在 13762.791708s 到 13763.024898s 整个窗口内与 binder/IPC 相关的等待：真正等在 binder 对端回复上的时间一共有多少、发生在什么时候、对端是谁？窗口内那些十几毫秒级的长睡眠段是不是 binder 等待？请给出根因排序。"
+HTRACE_FILE="eval/fixtures/real_traces/donghu.ftrace"
+EXPECT_CONTAINS="binder:496_9 帧间空闲(等待下一帧) ∿"
+EXPECT_MATCHES_REGEX="1\\.409
+15\\.758"
+EXPECT_NOT_CONTAINS="约45ms still_present not_enough_evidence"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"
