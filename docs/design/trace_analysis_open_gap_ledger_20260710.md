@@ -565,6 +565,8 @@ B终态不变，但按单点权威拆成B1-a/B1-b/B2，任一子批不得提前�
 
 **B2-b2施工补充（2026-07-12，代码前冻结）**：generic 410/2002/2417当前对每个scalar重复遍历整段payload；任一截断尾会把同一个物理坏端点扇出为多个`core_fieldN_malformed_wire`，并因hard分支先返回而使`cpu_id_malformed_wire`/`next_info_malformed_wire`实际不可达。b2必须改成单次typed endpoint扫描：可定位到已知field的截断/非法wire只铸该field的exact issue，CPU field3与next-info field8进入各自`AdmittedDisplay`；坏key等无法定位field的 framing 错误只铸whole-payload hard issue，禁止猜字段、禁止解析error文本。410/2002/2417还必须在sink前做局部canonical-line校验，超长源输入只拒对应event并铸`WireInvalidCanonicalLine{PayloadField:0,HardReject}`，不得扩大为conversion-wide `line_too_long`。同时，CPUDetail event容器field2 wrong-wire及event oneof完全缺失都会丢失无法归族的物理event，必须设置typed opaque provenance并poison MMC/F2FS barrier，禁止跨洞假配；oneof wrong-wire/multiple继续按已见exact family poison。以上新增红例、direct typed→label兼容、container守恒与pair start→opaque洞→end E2E全部通过前，B2-b2不得结案。
 
+**B2-b2 envelope/common中间交付**：代码提交`7d0bae5cf`已独立推送到`main`，只关闭本子批的CPU-detail/event-envelope/common-fields producer string权威，不提前关闭B2-b2。`EnvelopeDegradations`已删除，producer只经fixed constructor写入容量9的checked typed set；flags/preempt source-width只认singular+valid值，identity-incomplete只认`HeaderOwnerKnown`，拒绝从duplicate/wrong/missing默认值铸造假证据。37个envelope kind由三组raw fixture做唯一闭集，known event、CPU-detail及unknown+envelope走真实container核对occurrence/affected/RowsEmitted守恒；oneof-missing与event-container-wrong-wire均设opaque并由MMC/F2FS start→洞→end证明不可跨洞假配。direct入口同样先过typed invariant，再由唯一label适配保持兼容。目标包、全仓test/vet、focused race与独立复审均为RELEASE；generic 410/2002/2417 typed单次扫描、whole-payload/canonical-line issue仍是B2-b2剩余HOLD。
+
 ### P1-a2.2-B2-b1 closed bridge与exact ledger交付结案
 
 账本校准提交`c2c3f50fc`与代码提交`0ade13c13`已按顺序推送到`main`；本节只关闭B2-b1临时strict bridge与exact fixed census，不提前关闭B2-b、B2或P1-a2.2。bridge必须在B2-b2..b5逐producer typed化完成后删除，不能成为长期双权威。
