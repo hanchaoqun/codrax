@@ -549,6 +549,22 @@ B终态不变，但按单点权威拆成B1-a/B1-b/B2，任一子批不得提前�
 - **机械证据与验证**：单ledger百万observation保持一槽且RowsRead/RowsEmitted精确；36 known各唯一，1/4096 clean/degraded shape恒定，32 distinct unknown正反序K8字节一致、4096同unknown occurrence/affected精确，field 0/-1分槽，degraded后clean frame-local outcome不污染。100%负向覆盖text冒充、structured缺field、kind/field mismatch、field/lane MaxInt前置失败无mutation、budget fail-close及spill roundtrip；既有MMC/F2FS lane/family/multi-publisher/barrier E2E随目标包通过。source fail-close先物化event coverage再统一RowsEmitted归零并补source provenance。Focused shuffle`×20`、focused race、`go test ./internal/hitraceconv -count=1`、`go vet ./internal/hitraceconv`、`go test ./... -count=1`、`go vet ./...`、gofmt与diff-check全绿；代码、对抗、测试三路独立终审均为**RELEASE**。
 - **诚实剩余**：B2-b仍须把当前`Kind+bounded legacy reason sample`升级为producer全链exact closed issue enum+受限PayloadField并证明direct label parity，故B2与P1-a2.2尚未结案。a2.3 repeated protobuf、a2.4 `pairPublishers/textMessages`、`ROW-SORT-BND`、P1-b、TOCTOU及Profiler全链有界声明全部继续开放。
 
+### P1-a2.2-B2-b exact event issue迁移校准
+
+2026-07-12从已推送且干净的`main@00d47e811`复核：B2-a的source-class枚举仍携带动态`Reason string`，`observeDegradations`只检查kind范围和非空文本，因而会静默接纳未来token、错误event/source-class组合及不存在的payload field；`CoreDisplay/AuxDisplay`没有由真实producer精确赋值，block显示降级也与hard reject共用一臂。该状态不能作为商用exact诊断终态，B2-b继续为**HOLD correctness**，且内部descriptor/canonical/typed-reason不变量不得伪装为客户source degradation。
+
+**冻结终态**：producer只产生闭集`Issue{Kind, PayloadField, Severity}`，其中`Severity`只允许`HardReject`或`AdmittedDisplay`；合法性由固定event schema精确约束`event field × kind × payload field × severity`，聚合账只存固定issue slot的occurrence/affected-frame，不驻留reason字符串或动态键。legacy文本只能由合法typed issue的唯一`label(eventField)`单向生成以保持direct兼容；任意非法组合、unknown token、unknown event先记emitted、缺typed reason、descriptor错配或canonical typed payload失败均走内部invariant fail-close，不得发布为coverage/caveat。
+
+**B2-b原子批**：为避免跨producer大提交积压，按以下顺序独立落账、验证、提交并推送；任一子批都不得提前关闭B2-b/B2/P1-a2.2。
+
+1. **B2-b1 closed bridge与exact ledger**：建立唯一、严格、完整匹配的legacy-token→typed issue临时咽喉；参数化token只接受固定语法与schema白名单，拒绝空白、leading zero、越界及额外suffix。container改用exact issue fixed census并验证severity与emitted/rejected守恒，unknown event只能铸`UnmappedField+HardReject`且RowsEmitted为0；direct输出保持兼容。修前红例必须覆盖future token、field410伪CPU维度、错误source class、unknown先emitted、display severity错配及非法block/MMC display field。该bridge只允许作为有fail-unknown和全集/近似负集机械pin的可发布中间态，不是B2-b终态。
+2. **B2-b2 envelope/generic wire producer typed化**：删除`EnvelopeDegradations []string`及CPU-detail/event-envelope/common-fields/generic wire动态reason producer，改为直接构造合法issue；descriptor/canonical/missing-typed-reason转内部invariant。
+3. **B2-b3 core producer typed化**：core scalar wire、semantic、display分支全部直接返回typed issue；2420..2422 field1与4002 field4必须进入`AdmittedDisplay`，其它hard字段严格按schema。
+4. **B2-b4 aux/filemap producer typed化**：F2FS/MMC/filemap及source-profile drop全部直接typed；仅4015 field3/7/11 response drop允许`AdmittedDisplay`，filemap canonical失败为内部invariant。
+5. **B2-b5 block producer typed化与收口**：block hard字段和cmd/comm显示降级分臂；全调用图typed后删除反向bridge、`Reason string`、`[]string degradation`及reason `fmt.Sprintf`生产链，direct只经唯一`label`适配。四producer族全集、direct label golden、正反序/大计数/overflow/source fail-close及AST红线全绿后，才可关闭B2-b并复核B2总验收矩阵。
+
+**后续边界不变**：B2-b不流式化protobuf、不删除`pairPublishers/textMessages`，不关闭a2.3/a2.4、`ROW-SORT-BND`、P1-b、TOCTOU或Profiler全链有界声明。
+
 ## 统一采集与回访命令
 
 ```bash
