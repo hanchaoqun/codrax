@@ -1029,7 +1029,7 @@ frames:
 					return profilerContainerExtraction{}, strictStageErr
 				}
 				if strictStage.scan.originText {
-					rows, textPayload, rowErr := addProfilerStrictSystraceStage(strictStage, &seq, sink)
+					rows, textPayload, rowErr := addProfilerStrictSystraceStageContext(ctx, strictStage, &seq, sink)
 					if rowErr != nil {
 						coverage.Error = rowErr.Error()
 						_ = sink.endPairRowCensus()

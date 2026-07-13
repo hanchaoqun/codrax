@@ -290,7 +290,10 @@ func TestProfilerStrictAndBlockProvenanceCancellationIdentity(t *testing.T) {
 				}
 				visits := 0
 				scan, err := scanProfilerStrictSystracePayloadContext(ctx, payload,
-					func(renderedRow, profilerPairAdmission) { visits++ })
+					func(renderedRow, profilerPairAdmission) error {
+						visits++
+						return nil
+					})
 				if err != want || !reflect.DeepEqual(scan, profilerStrictSystracePayloadScan{}) ||
 					visits != 1 || ctx.polls < ctx.cancelAt {
 					t.Fatalf("strict scan cancellation drifted: polls=%d baseline=%d visits=%d scan=%+v err=%T %v want=%v",
@@ -343,7 +346,10 @@ func TestProfilerStrictScanManyBlankLinesCancellationIdentity(t *testing.T) {
 			}
 			visits := 0
 			got, err := scanProfilerStrictSystracePayloadContext(ctx, blankLines,
-				func(renderedRow, profilerPairAdmission) { visits++ })
+				func(renderedRow, profilerPairAdmission) error {
+					visits++
+					return nil
+				})
 			if err != want || !reflect.DeepEqual(got, profilerStrictSystracePayloadScan{}) ||
 				visits != 0 || ctx.polls < ctx.cancelAt {
 				t.Fatalf("blank-line cancellation drifted: polls=%d visits=%d scan=%+v err=%T %v want=%v",

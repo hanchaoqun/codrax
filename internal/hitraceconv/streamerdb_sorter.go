@@ -307,9 +307,9 @@ type profilerPairRowMapping struct {
 }
 
 // traceDBProfilerEventDelta is the fixed-width pair proof mutation staged by
-// one structured FtraceEvent. The renderer may build it freely, but only the
-// sorter event transaction applies it after every cancellable validation,
-// allocation, and completed-prefix spill has succeeded.
+// one structured or strict-text FtraceEvent. A producer may build it freely,
+// but only the sorter event transaction applies it after every cancellable
+// validation, allocation, and completed-prefix spill has succeeded.
 type traceDBProfilerEventDelta struct {
 	opaqueKinds [pairRenderKindCount]bool
 	poisonKinds [pairRenderKindCount]bool

@@ -25,8 +25,7 @@ func (delta *traceDBProfilerEventDelta) poisonAdmission(admission profilerPairAd
 		!profilerPairKindValid(admission.Kind) {
 		return
 	}
-	if (admission.Kind == pairRenderF2FS || admission.Kind == pairRenderBlock) &&
-		admission.LaneKnown && admission.Lane != "" {
+	if !admission.poisonsWholeKind() {
 		if !delta.poisonKinds[admission.Kind] {
 			delta.poisonLanes[admission.Kind] = admission.Lane
 		}

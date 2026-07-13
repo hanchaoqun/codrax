@@ -34,11 +34,15 @@ func (a profilerPairAdmission) poison(sink *traceDBRowSink) {
 	if !a.Governed || sink == nil {
 		return
 	}
-	if (a.Kind == pairRenderF2FS || a.Kind == pairRenderBlock) && a.LaneKnown {
+	if !a.poisonsWholeKind() {
 		sink.poisonPairLane(a.Kind, a.Lane)
 		return
 	}
 	sink.poisonPairKind(a.Kind)
+}
+
+func (a profilerPairAdmission) poisonsWholeKind() bool {
+	return a.Governed && !((a.Kind == pairRenderF2FS || a.Kind == pairRenderBlock) && a.LaneKnown && a.Lane != "")
 }
 
 const profilerTracePluginResultMaxField = 8
@@ -390,9 +394,9 @@ func profilerTracePluginResultCoverage(result profilerTracePluginResult) []Trace
 // addStrictSystraceRowsFromBytes is the whole-payload physical-text
 // compatibility lane for an exact ftrace-plugin. Text origin may outrank an
 // overlapping protobuf grammar; source election is separate from exact pair
-// admission. All rows are staged first, so one malformed fragment prevents
-// partial publication while an origin-proven exact endpoint retains capture
-// provenance.
+// admission. A complete classification pass precedes the streaming publish
+// pass, so one malformed fragment prevents partial publication while an
+// origin-proven exact endpoint retains capture provenance.
 func addStrictSystraceRowsFromBytes(data []byte, seq *int, sink *traceDBRowSink) (int, bool, error) {
 	if len(data) == 0 {
 		return 0, false, nil
@@ -401,9 +405,8 @@ func addStrictSystraceRowsFromBytes(data []byte, seq *int, sink *traceDBRowSink)
 }
 
 type profilerStrictSystracePayloadStage struct {
-	scan          profilerStrictSystracePayloadScan
-	rows          []renderedRow
-	rejectedPairs []profilerPairAdmission
+	scan profilerStrictSystracePayloadScan
+	data []byte
 }
 
 func stageProfilerStrictSystracePayload(data []byte) profilerStrictSystracePayloadStage {
@@ -412,21 +415,26 @@ func stageProfilerStrictSystracePayload(data []byte) profilerStrictSystracePaylo
 }
 
 func stageProfilerStrictSystracePayloadContext(ctx context.Context, data []byte) (profilerStrictSystracePayloadStage, error) {
-	var stage profilerStrictSystracePayloadStage
-	scan, err := scanProfilerStrictSystracePayloadContext(ctx, data, func(row renderedRow, pair profilerPairAdmission) {
-		if pair.Governed && !pair.Admitted {
-			stage.rejectedPairs = append(stage.rejectedPairs, pair)
-		}
-		stage.rows = append(stage.rows, row)
-	})
+	scan, err := scanProfilerStrictSystracePayloadContext(ctx, data, nil)
 	if err != nil {
 		return profilerStrictSystracePayloadStage{}, err
 	}
-	stage.scan = scan
-	return stage, nil
+	return profilerStrictSystracePayloadStage{scan: scan, data: data}, nil
 }
 
 func addProfilerStrictSystraceStage(stage profilerStrictSystracePayloadStage, seq *int, sink *traceDBRowSink) (int, bool, error) {
+	return addProfilerStrictSystraceStageContext(context.Background(), stage, seq, sink)
+}
+
+func addProfilerStrictSystraceStageContext(ctx context.Context, stage profilerStrictSystracePayloadStage,
+	seq *int, sink *traceDBRowSink,
+) (int, bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, false, err
+	}
 	if stage.scan.rejected {
 		if sink == nil {
 			return 0, false, fmt.Errorf("strict systrace row sink is nil")
@@ -448,45 +456,82 @@ func addProfilerStrictSystraceStage(stage profilerStrictSystracePayloadStage, se
 		}
 		return 0, false, nil
 	}
-	if len(stage.rows) == 0 {
+	if stage.scan.rows == 0 {
 		return 0, false, nil
 	}
 	if sink == nil || seq == nil {
 		return 0, false, fmt.Errorf("strict systrace row sink or sequence is nil")
 	}
-	for _, pair := range stage.rejectedPairs {
-		pair.poison(sink)
+	// This fixed-width pre-poison is one prospective mutation: observe
+	// cancellation once, then apply every bit without another failure point.
+	// A caller can therefore see either none or all of the classified families.
+	if err := ctx.Err(); err != nil {
+		return 0, true, err
 	}
-	for index := range stage.rows {
-		stage.rows[index].seq = *seq
-		if err := sink.add(stage.rows[index]); err != nil {
-			return index, true, err
+	for _, kind := range profilerCaptureKinds {
+		if !stage.scan.wholeKindPoison[kind] {
+			continue
 		}
-		(*seq)++
+		sink.poisonPairKind(kind)
 	}
-	return len(stage.rows), true, nil
+	rows := 0
+	rescan, err := scanProfilerStrictSystracePayloadContext(ctx, stage.data,
+		func(row renderedRow, pair profilerPairAdmission) error {
+			var delta traceDBProfilerEventDelta
+			if pair.Governed && !pair.Admitted {
+				delta.poisonAdmission(pair)
+			}
+			row.seq = *seq
+			// A threshold spill is completed before the next row, never after
+			// this row's commit. That leaves the current row and sequence at one
+			// linearization point even when spill I/O or cancellation fails.
+			if err := sink.addProfilerEventContext(ctx, row, delta); err != nil {
+				return err
+			}
+			(*seq)++
+			rows++
+			return nil
+		})
+	if err != nil {
+		return rows, true, err
+	}
+	if rescan != stage.scan || rows != stage.scan.rows {
+		return rows, true, &traceDBOutputInvariantError{Reason: "profiler_strict_text_rescan_drift"}
+	}
+	if err := sink.flushTriggeredProfilerEventContext(ctx); err != nil {
+		return rows, true, err
+	}
+	if err := ctx.Err(); err != nil {
+		return rows, true, err
+	}
+	return rows, true, nil
 }
 
+type profilerStrictSystracePayloadVisitor func(renderedRow, profilerPairAdmission) error
+
 type profilerStrictSystracePayloadScan struct {
-	observed      [pairRenderKindCount]bool
-	rejected      bool
-	originDecided bool
-	originText    bool
+	observed        [pairRenderKindCount]bool
+	wholeKindPoison [pairRenderKindCount]bool
+	rows            int
+	rejected        bool
+	originDecided   bool
+	originText      bool
 }
 
 // scanProfilerStrictSystracePayload is the shared, non-publishing authority
 // for strict legacy text classification. The first non-empty, non-comment
 // physical header elects origin once; comments are only a preamble and later
 // headers cannot rescue anonymous metadata. Exact endpoint admission remains a
-// separate authority. Callers may stage candidate rows, but may publish none
-// when any physical fragment fails the complete-text gate.
-func scanProfilerStrictSystracePayload(data []byte, visit func(renderedRow, profilerPairAdmission)) profilerStrictSystracePayloadScan {
+// separate authority. Callers may stream candidate rows only after an earlier
+// classification pass has completed; they publish none when any physical
+// fragment fails the complete-text gate.
+func scanProfilerStrictSystracePayload(data []byte, visit profilerStrictSystracePayloadVisitor) profilerStrictSystracePayloadScan {
 	scan, _ := scanProfilerStrictSystracePayloadContext(context.Background(), data, visit)
 	return scan
 }
 
 func scanProfilerStrictSystracePayloadContext(ctx context.Context, data []byte,
-	visit func(renderedRow, profilerPairAdmission),
+	visit profilerStrictSystracePayloadVisitor,
 ) (profilerStrictSystracePayloadScan, error) {
 	var scan profilerStrictSystracePayloadScan
 	if ctx == nil {
@@ -622,6 +667,9 @@ func scanProfilerStrictSystracePayloadContext(ctx context.Context, data []byte,
 		pair := profilerTextPairAdmission(line)
 		if pair.Governed {
 			scan.observed[pair.Kind] = true
+			if !pair.Admitted && pair.poisonsWholeKind() && scan.originText {
+				scan.wholeKindPoison[pair.Kind] = true
+			}
 		}
 		ts, ok := strictSystraceLineTimestampNS(line)
 		if !ok {
@@ -633,8 +681,16 @@ func scanProfilerStrictSystracePayloadContext(ctx context.Context, data []byte,
 			row.pairKind = pair.Kind
 			row.pairLane = pair.Lane
 		}
-		if visit != nil && scan.originText {
-			visit(row, pair)
+		if scan.originText {
+			if scan.rows == math.MaxInt {
+				return profilerStrictSystracePayloadScan{}, &traceDBOutputInvariantError{Reason: "profiler_strict_text_row_count_overflow"}
+			}
+			scan.rows++
+			if visit != nil {
+				if err := visit(row, pair); err != nil {
+					return profilerStrictSystracePayloadScan{}, err
+				}
+			}
 		}
 		if err := ctx.Err(); err != nil {
 			return profilerStrictSystracePayloadScan{}, err
