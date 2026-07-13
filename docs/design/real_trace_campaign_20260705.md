@@ -2507,3 +2507,6 @@ v5 P1 件② 在余数席上整体抑制 P10 残余披露(`!unprovenRemainder` �
 
 ### §29.60.1 裁定收窄(用户 2026-07-13,勘正 §29.60 表述):非全局「完全尊重」,限定两条件
 用户勘正原文要义:「系统的判定完全要尊重模型」过于武断——裁定**针对 emit_investigation_complete 这个完成信号**,且限定**非致命错误必须尊重模型的判定**。即:①适用面=完成门(模型宣告证据收集完成的判定权),非系统全部判定面;②致命/结构性错误(「无论谁对都成立」类:零工具见证、必需 typed 工件缺失、schema 无效等)系统仍可拦;③非致命类(链下钻建议/校验清单补齐/结论一致性/覆盖度建议等)必须尊重模型完成判定——降软为披露/下轮上下文提示,不得硬绑定重开收集。与 §29.42.4 框架合一:探索完成面与答案出厂面同标准。RCA 处置清单按此校准(每臂先判致命/非致命,再定废除/降软/保留)。
+
+### §29.58.4 立案(WAKE-CENSUS 批件4 核验实锤,2026-07-13):WAKE-CENSUS-D——D 退出唤醒边结构性缺席
+wakeup_chain 引擎唯一铸边点在 expandChain 的 `case StateSSleep:` 臂(findWakeup→res.Edges);`case StateDSleep, StateIOWait:` 臂只走 blocked_reason 不查 wakeup 不铸边不递归(findWakeupForWithSelection 本身状态无关,限制纯在 switch 臂)。donghu witness:窗内 raw sched_wakeup 29 条,12 条 D 退出全由 gpu-token-id4-2931,引擎 28 边零 gpu-token 对。后效:census 无法喂 D 退出计数,冷读残余漂移(+1 自数/×1 低报/时刻错绑)全部集中此车道。**修向裁定点**:a) D/IO 臂铸边是否递归 waker(blocked_reason 已占 D 因果车道,双重归因风险;D 唤醒者常为 IRQ/完成上下文);b) 边需 typed 种别(sleep-exit vs D-exit)——viaMonotonicHops 与 rank 车道都消费 res.Edges,新边会改 via 判定与排序参赛。**候选合并设计**:链无关的 window-total per-wakee sched_wakeup 直查 census(浅展开口径观察①同治)。
