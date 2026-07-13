@@ -347,15 +347,21 @@ func runtimeTraceProjFamilyTableToken(node types.TraceCausalProjectionNode, zh b
 		return ""
 	}
 	prefix := runtimeTraceProjFamilyValuePrefix(node, zh)
+	// EVOLUTION RECORD (WF-xn §29.52.1, 2026-07-12): 「×N合计」→「N次合计」/
+	// en 「n=N total」-family — the count chip speaks the same vocabulary as
+	// the data tokens (tracefence display-table ⑥).
 	if prefix == "" {
 		// Unknown caliber: the count is still typed truth — token without a
 		// caliber claim.
-		return fmt.Sprintf("×%d", node.FamilyMemberCount)
+		if zh {
+			return fmt.Sprintf("%d次", node.FamilyMemberCount)
+		}
+		return fmt.Sprintf("n=%d", node.FamilyMemberCount)
 	}
 	if zh {
-		return fmt.Sprintf("×%d%s", node.FamilyMemberCount, prefix)
+		return fmt.Sprintf("%d次%s", node.FamilyMemberCount, prefix)
 	}
-	return fmt.Sprintf("×%d %s", node.FamilyMemberCount, strings.TrimSpace(prefix))
+	return fmt.Sprintf("n=%d %s", node.FamilyMemberCount, strings.TrimSpace(prefix))
 }
 
 // runtimeTraceProjFamilySemanticClassWord is the semantic family's 行1 词位
@@ -430,7 +436,7 @@ func runtimeTraceProjSemanticCellParts(node types.TraceCausalProjectionNode, ms 
 		if word := runtimeTraceProjFamilySemanticClassWord(node, zh); word != "" {
 			name = word
 		}
-		name = fmt.Sprintf("%s ×%d", name, node.FamilyMemberCount)
+		name += runtimeTraceProjMergeCountChip(node.FamilyMemberCount, zh)
 		if prefix := runtimeTraceProjFamilyValuePrefix(node, zh); prefix != "" {
 			value = prefix + value
 		}

@@ -152,8 +152,8 @@ func TestG1DisplayEndToEndOpendirShape(t *testing.T) {
 	}
 	// The fence renders the family row once; no absorbed peer row beside it.
 	fence := runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "×6") {
-		t.Fatalf("fence must render the ×6 family row:\n%s", fence)
+	if !strings.Contains(fence, "6次") {
+		t.Fatalf("fence must render the 6次 family row:\n%s", fence)
 	}
 	if strings.Count(fence, "udk-irq-") > 0 {
 		t.Fatalf("fence must not seat absorbed peer rows:\n%s", fence)

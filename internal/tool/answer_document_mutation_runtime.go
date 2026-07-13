@@ -1205,12 +1205,12 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 			"- 窗口投影 = 该节点的状态落在分析窗内的时长;跨线程聚合行按跨线程累计计量(非墙钟,单元格已标注)。",
 			"- 链上累计 = 该节点及其下钻子链沿唤醒链累计到关注线程的投影时长。",
 			"- 有效归因 = 该行计入根因排序的影响时长;与窗口投影不同时,行内口径词(全额/折算/单次最大等)说明取值方式。",
-			"- 实际状态 = 该状态的真实完整时长,可跨出分析窗(此时带 ⚠);×N 合并行该列为合并种子单次成员的实际值(标注 单次成员),非族合计。",
+			"- 实际状态 = 该状态的真实完整时长,可跨出分析窗(此时带 ⚠);合并行该列为合并种子单次成员的实际值(标注 单次成员),非族合计。",
 			"- 「—」 = 该列对此节点无值。",
 			"- ⊘ = 窗口内无匹配唤醒事件(sched_wakeup),链止于此(同树内 ⊘链止)。",
 			"- ⚠ = 实际状态区间确证跨出分析窗(同树内 ⚠实际Xms);仅超出该行自身发生段而未跨分析窗时标注(超出发生段,窗内),区间未随数据发布时标注(区间未发布),均不作跨窗声明。",
 			"- 背景行仅作环境压力证据,不计入链上归因。",
-			"- 本表只列时长与置信;每个节点的类型、因果位置、关系、影响形态、×N 成员清单与完整名称,见下方「因果投影明细」。",
+			"- 本表只列时长与置信;每个节点的类型、因果位置、关系、影响形态、合并成员清单与完整名称,见下方「因果投影明细」。",
 		}
 		if !zh {
 			lines = []string{
@@ -1218,12 +1218,12 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 				"- window projection = the duration of the node's state inside the analysis window; cross-thread aggregate rows measure a cross-thread cumulative (not wall clock; cells carry the annotation).",
 				"- chain total = the projected duration this node plus its drill-down sub-chain accumulate toward the focused thread along the wakeup chain.",
 				"- attribution = the impact duration this row contributes to the root-cause ranking; when it differs from the window projection, the row's caliber word (in full / discounted / single max …) says how it was taken.",
-				"- actual state = the state's true full duration; it may extend beyond the analysis window (then marked ⚠); on a ×N merged row this column is the merge seed's single-member actual (marked single member), never the family total.",
+				"- actual state = the state's true full duration; it may extend beyond the analysis window (then marked ⚠); on a merged row this column is the merge seed's single-member actual (marked single member), never the family total.",
 				"- “—” = no value in this column for this node.",
 				"- ⊘ = no matching wakeup event (sched_wakeup) in the window; the chain ends there (same as the tree's ⊘chain-ends mark).",
 				"- ⚠ = the actual interval provably crosses the analysis window (same as the tree's ⚠actual mark); an overshoot beyond the row's own episode that stays inside the window is marked (beyond own episode, inside window), and an unpublished interval is marked (interval unpublished) — neither claims a window crossing.",
 				"- Background rows are context-pressure evidence only, never counted into the chain attribution.",
-				"- This table lists durations and confidence only; each node's type, causal position, relation, impact shape, ×N member roster and full name live in the Causal Projection Detail below.",
+				"- This table lists durations and confidence only; each node's type, causal position, relation, impact shape, merged-member roster and full name live in the Causal Projection Detail below.",
 			}
 		}
 		// PTV5 C33/C34 (#68): the ×N-form and dual-seat notations get legend
@@ -1267,9 +1267,9 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 			// present exactly when a ×N合计/×N成员最大 family row is on the table.
 			if flags.family {
 				if zh {
-					lines = append(lines, "- ×N合计 = 同一线程同类 N 段合并为一个参赛项,数值为同线程墙钟合计(重叠段取并集;跨线程仍不可加和);×N成员最大 = 重叠无法逐段核销时取成员最大(下界)。成员清单与区分键见下方明细。")
+					lines = append(lines, "- N次合计 = 同一线程同类 N 段合并为一个参赛项,数值为同线程墙钟合计(重叠段取并集;跨线程仍不可加和);N次成员最大 = 重叠无法逐段核销时取成员最大(下界)。成员清单与区分键见下方明细。")
 				} else {
-					lines = append(lines, "- ×N total = N same-kind segments of ONE thread merged into one contender; the value is the same-thread wall-clock total (overlaps as their interval union; across threads wall clock still never sums). ×N member max = the member MAX lower bound when overlap cannot be deducted. Member rosters and distinguishing keys live in the detail blocks.")
+					lines = append(lines, "- n=N total = N same-kind segments of ONE thread merged into one contender; the value is the same-thread wall-clock total (overlaps as their interval union; across threads wall clock still never sums). n=N member max = the member MAX lower bound when overlap cannot be deducted. Member rosters and distinguishing keys live in the detail blocks.")
 				}
 			}
 			if flags.mergedSum || flags.mergedMax || flags.mergedWindowMax || flags.mergedDedup {
@@ -1278,33 +1278,33 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 					if flags.mergedSum {
 						// PTV8-RCR-B (UXA 域B 漏审 S3): the 同一(线程,原因)
 						// scope clause matches the tree's sum entry (同词).
-						parts = append(parts, "×N(a~b) = 同一(线程,原因)的 N 次实例合并,数值为总和")
+						parts = append(parts, "N次(a~b) = 同一(线程,原因)的 N 次实例合并,数值为总和")
 					}
 					if flags.mergedMax {
 						// PTV8-RCR-B (UXA 域B #11 REVISE): canonical 墙钟跨线程不可加和.
-						parts = append(parts, "×N(a~b)取最大 = 跨线程折叠,数值取成员最大(墙钟跨线程不可加和)")
+						parts = append(parts, "N线程取最大(单项a~b) = 跨线程折叠,数值取成员最大(墙钟跨线程不可加和)")
 					}
 					if flags.mergedWindowMax {
 						// §21 CWD: the cross-window MAX form gets its own gated
 						// line — the sum line's 数值为总和 must never gloss it.
-						parts = append(parts, "×N(a~b)跨窗取最大 = 查询窗互相重叠,数值取成员最大(互相重叠的查询窗量值不可求和)")
+						parts = append(parts, "N次跨窗取最大(单项a~b) = 查询窗互相重叠,数值取成员最大(互相重叠的查询窗量值不可求和)")
 					}
 					if flags.mergedDedup {
-						parts = append(parts, "×N同值 = 同一测量重复发布,数值即那一次")
+						parts = append(parts, "N次同值 = 同一测量重复发布,数值即那一次")
 					}
 					lines = append(lines, "- "+strings.Join(parts, ";")+"。")
 				} else {
 					if flags.mergedSum {
-						parts = append(parts, "×N(a~b) = N merged instances, the value is the SUM")
+						parts = append(parts, "n=N(a~b) = N merged instances, the value is the SUM")
 					}
 					if flags.mergedMax {
-						parts = append(parts, "×N(a~b) max = cross-thread fold, the value is the member MAX (wall clock never sums)")
+						parts = append(parts, "N-thread max(each a~b) = cross-thread fold, the value is the member MAX (wall clock never sums)")
 					}
 					if flags.mergedWindowMax {
-						parts = append(parts, "×N(a~b) cross-window max = overlapping query windows, the value is the member MAX (overlapping-window magnitudes never sum)")
+						parts = append(parts, "n=N cross-window max(each a~b) = overlapping query windows, the value is the member MAX (overlapping-window magnitudes never sum)")
 					}
 					if flags.mergedDedup {
-						parts = append(parts, "×N same-value = one measurement published N times, the value IS that one")
+						parts = append(parts, "n=N same-value = one measurement published N times, the value IS that one")
 					}
 					lines = append(lines, "- "+strings.Join(parts, "; ")+".")
 				}
@@ -2356,9 +2356,9 @@ func runtimeTraceProjComparePrimaryCell(projection types.TraceCausalProjection, 
 			return cell + runtimeTraceProjPeriodicCompareCellSuffix(ms, zh) + fallbackNote
 		}
 		if zh {
-			cell += fmt.Sprintf(" 单次最大 %.3fms ×%d", primary.MergedMaxMS, primary.MergedCount)
+			cell += fmt.Sprintf(" 单次最大 %.3fms(共%d次)", primary.MergedMaxMS, primary.MergedCount)
 		} else {
-			cell += fmt.Sprintf(" single max %.3fms ×%d", primary.MergedMaxMS, primary.MergedCount)
+			cell += fmt.Sprintf(" single max %.3fms (of %d)", primary.MergedMaxMS, primary.MergedCount)
 		}
 		return cell + fallbackNote
 	}
@@ -2582,9 +2582,9 @@ func runtimeTraceProjCompareBackgroundTopRowCell(model runtimeTraceProjTreeModel
 		cell += cause
 	}
 	if runtimeTraceProjFamilyRow(*best) {
-		// RCM-2 D3: the ×N token + the family caliber word (shared single
+		// RCM-2 D3: the count chip + the family caliber word (shared single
 		// source; unknown calibers make no claim — the count is still truth).
-		cell += fmt.Sprintf(" ×%d", best.FamilyMemberCount)
+		cell += runtimeTraceProjMergeCountChip(best.FamilyMemberCount, zh)
 		if cell != "" {
 			cell += " "
 		}
@@ -3111,7 +3111,7 @@ func (idx *runtimeTraceCausalProjectionEvidenceIndex) add(node types.TraceCausal
 	}
 	window := ""
 	if node.StartTs > 0 && node.EndTs > node.StartTs {
-		window = fmt.Sprintf("[%.3f–%.3fs]", node.StartTs, node.EndTs)
+		window = fmt.Sprintf("[%.3f~%.3fs]", node.StartTs, node.EndTs)
 	}
 	idx.order = append(idx.order, runtimeTraceCausalProjectionEvidenceEntry{
 		ID:             id,
@@ -4523,7 +4523,7 @@ func runtimeTraceSemanticOptimizationSkipCaveat(doc *types.AnswerDocumentV2, zh 
 // fresh E# (修复轮 D1). "" when the span carries neither coordinate.
 func runtimeTraceSemanticSpanInlineLocator(span types.TraceCausalProjectionNode, zh bool) string {
 	if span.StartTs > 0 && span.EndTs > span.StartTs {
-		return fmt.Sprintf("[%.3f–%.3fs]", span.StartTs, span.EndTs)
+		return fmt.Sprintf("[%.3f~%.3fs]", span.StartTs, span.EndTs)
 	}
 	if span.LineStart > 0 && span.LineEnd >= span.LineStart {
 		if zh {
@@ -4859,9 +4859,9 @@ func runtimeTraceMetricSnapshotItems(doc *types.AnswerDocumentV2, ctx *types.Bus
 		// itself the honest state — 禁猜).
 		if multiWindow && candidate.windowed {
 			if zh {
-				label = fmt.Sprintf("查询窗 %.3f–%.3fs · ", candidate.winStart, candidate.winEnd) + label
+				label = fmt.Sprintf("查询窗 %.3f~%.3fs · ", candidate.winStart, candidate.winEnd) + label
 			} else {
-				label = fmt.Sprintf("query window %.3f–%.3fs · ", candidate.winStart, candidate.winEnd) + label
+				label = fmt.Sprintf("query window %.3f~%.3fs · ", candidate.winStart, candidate.winEnd) + label
 			}
 		}
 		out = append(out, types.AnswerBlockItem{
@@ -5307,7 +5307,7 @@ func runtimeTraceMetricSnapshotDisplayText(record types.ObservationRecord, zh bo
 		// any deflection pointer.
 		endpoints := ""
 		if start, end, ok := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes); ok {
-			endpoints = fmt.Sprintf("%.3fs–%.3fs", start, end)
+			endpoints = fmt.Sprintf("%.3fs~%.3fs", start, end)
 		}
 		actual := runtimeTraceMetricSnapshotActualInline(record, zh)
 		// PTV8-RCR-B (UXA 域C #11 + 域D #15, 2026-07-08). EVOLUTION RECORD:
@@ -5399,7 +5399,7 @@ func runtimeTraceMetricSnapshotActualInline(record types.ObservationRecord, zh b
 	window := ""
 	if raw := value(types.TraceNoteKeyActualWindow); raw != "" {
 		if start, end, ok := types.TraceCausalProjectionParseWindowValue(raw); ok {
-			window = fmt.Sprintf("%.3fs–%.3fs", start, end)
+			window = fmt.Sprintf("%.3fs~%.3fs", start, end)
 		}
 	}
 	if len(parts) == 0 && window == "" {

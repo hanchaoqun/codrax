@@ -269,8 +269,8 @@ func TestPTV4FenceNeverRegrowsInlineExplanations(t *testing.T) {
 		"⚠跨窗",                    // T4: ⚠实际Xms carries the data, 跨窗 semantics in the legend
 		"(链路中转",                  // T4: transit rows carry the 2-word 中转 token
 		"链路中转,本轮无独立影响行",          // full retired phrase
-		"同值合并(重复发布)",             // T4 ×N 三式: bare ×N同值
-		"(取最大值,不求和)",             // T4 ×N 三式: bare ×N(a~b)取最大
+		"同值合并(重复发布)",             // T4 ×N 三式: bare N次同值
+		"(取最大值,不求和)",             // T4 ×N 三式: bare N线程取最大(单项a~b)
 		"整窗等待(疑似空闲)",             // T4: bare 整窗等待 in the fence (full text on (b))
 		"(承自等待区间,非本行实测)",         // T4: bare 承自归因Xms
 		"↺ (recurs on chain)",    // en twin

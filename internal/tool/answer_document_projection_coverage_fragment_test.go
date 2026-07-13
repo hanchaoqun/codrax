@@ -132,23 +132,23 @@ func TestCoverageFragmentSingleMemberRowJoinsGroup(t *testing.T) {
 
 // TestCoverageFragmentMergedRowSpeaksTotalWord — WO-A1 词面统一 (SMR-S14 残余):
 // an ×N merged row's covered value is a member SUM — 「最大片段」 on it is a
-// false single-fragment claim; the merged form speaks 「链上覆盖合计(×N)」.
+// false single-fragment claim; the merged form speaks 「链上覆盖合计(共N次)」.
 // Unmerged rows keep the pinned bytes (asserted by the tests above).
 func TestCoverageFragmentMergedRowSpeaksTotalWord(t *testing.T) {
 	merged := coverageFragmentNode(19.933)
 	merged.FullWindowStateMS = 25.847
 	merged.MergedCount = 3
 	tag, ok := runtimeTraceProjFullWindowCoverageTag(merged, true, false, 0)
-	if !ok || tag.Text != "窗内 runnable 合计 25.847ms,链上覆盖合计(×3) 19.933ms(77%)" {
-		t.Fatalf("merged rows must speak the ×N total word (片段=假单段词), got %q", tag.Text)
+	if !ok || tag.Text != "窗内 runnable 合计 25.847ms,链上覆盖合计(共3次) 19.933ms(77%)" {
+		t.Fatalf("merged rows must speak the n=N total word (片段=假单段词), got %q", tag.Text)
 	}
 	if en, _ := runtimeTraceProjFullWindowCoverageTag(merged, false, false, 0); strings.Contains(en.Text, "largest fragment") ||
-		!strings.Contains(en.Text, "×3 total") {
+		!strings.Contains(en.Text, "n=3 total") {
 		t.Fatalf("EN merged wording drifted: %q", en.Text)
 	}
-	// The secondary merged form keeps both truths (another slice + ×N total).
+	// The secondary merged form keeps both truths (another slice + n=N total).
 	if sec, _ := runtimeTraceProjFullWindowCoverageTag(merged, true, true, 0); strings.Contains(sec.Text, "最大片段") ||
-		!strings.Contains(sec.Text, "合计(×3)") {
+		!strings.Contains(sec.Text, "合计(共3次)") {
 		t.Fatalf("secondary merged wording drifted: %q", sec.Text)
 	}
 }
@@ -157,12 +157,12 @@ func TestCoverageFragmentMergedRowSpeaksTotalWord(t *testing.T) {
 // TestCoverageFragmentEngineTotalTwinSpeaksTotalWord — 96717 复放追修 pin
 // (E12/E15 形): an UNMERGED rank row whose covered value is the µs-identical
 // display of its same-span ×3 merged twin (or a same-identity occurrence
-// series' additive total) is an engine-side ×N total — 「最大片段」 on it is
+// series' additive total) is an engine-side n=N total — 「最大片段」 on it is
 // the same false single-fragment claim, so it speaks 链上覆盖合计(×N).
 func TestCoverageFragmentEngineTotalTwinSpeaksTotalWord(t *testing.T) {
 	tag, ok := runtimeTraceProjFullWindowCoverageTag(coverageFragmentNode(19.933), true, false, 3)
-	if !ok || !strings.Contains(tag.Text, "链上覆盖合计(×3) 19.933ms") {
-		t.Fatalf("engine-total twin must speak the ×N total word, got %q", tag.Text)
+	if !ok || !strings.Contains(tag.Text, "链上覆盖合计(共3次) 19.933ms") {
+		t.Fatalf("engine-total twin must speak the n=N total word, got %q", tag.Text)
 	}
 	// Zero twin count keeps the pinned single-fragment bytes.
 	tag, ok = runtimeTraceProjFullWindowCoverageTag(coverageFragmentNode(14.597), true, false, 0)

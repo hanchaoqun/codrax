@@ -87,14 +87,14 @@ func TestRuntimeTraceProjConclusionMergedLeadShowsSingleMaxNotSum(t *testing.T) 
 	projection.PrimaryRootCauses[1].EffectiveImpactMS = 0.415
 	model := buildRuntimeTraceProjTreeModel(projection, nil, true)
 	line := runtimeTraceProjConclusionLine(projection, model, true)
-	if !strings.Contains(line, "单次最大 1.940ms ×7(占窗2%)") {
+	if !strings.Contains(line, "单次最大 1.940ms(共7次)(占窗2%)") {
 		t.Fatalf("merged lead must show the single-instance max with count:\n%s", line)
 	}
 	if strings.Contains(line, "13.324") {
 		t.Fatalf("the ×7 sum must not publish on the conclusion line:\n%s", line)
 	}
 	en := runtimeTraceProjConclusionLine(projection, buildRuntimeTraceProjTreeModel(projection, nil, false), false)
-	if !strings.Contains(en, "single max 1.940ms ×7 (2% of window)") || strings.Contains(en, "13.324") {
+	if !strings.Contains(en, "single max 1.940ms (of 7) (2% of window)") || strings.Contains(en, "13.324") {
 		t.Fatalf("EN merged lead must show the single-instance form:\n%s", en)
 	}
 }
@@ -276,9 +276,9 @@ func TestRuntimeTraceProjBackgroundFoldRowShowsMaxFormNotSumForm(t *testing.T) {
 		joined = append(joined, tag.Text)
 	}
 	flat := strings.Join(joined, " · ")
-	// PTV4 T4 (×N 三式): the max form is the ×N(a~b)取最大 data token — the
+	// PTV4 T4 (×N 三式): the max form is the N线程取最大(单项a~b) data token — the
 	// 不求和 semantics live in the legend's 口径组 entry.
-	if !strings.Contains(flat, "×6(99.500~101.000ms)取最大") {
+	if !strings.Contains(flat, "6线程取最大(单项99.500~101.000ms)") {
 		t.Fatalf("fold row must declare the max form:\n%s", flat)
 	}
 	if strings.Contains(flat, "单次") {
@@ -298,7 +298,7 @@ func TestRuntimeTraceProjBackgroundFoldRowShowsMaxFormNotSumForm(t *testing.T) {
 	for _, tag := range sumTags {
 		sumFlat = append(sumFlat, tag.Text)
 	}
-	if !strings.Contains(strings.Join(sumFlat, " · "), "×6(99.500~101.000ms)") {
+	if !strings.Contains(strings.Join(sumFlat, " · "), "6次(99.500~101.000ms)") {
 		t.Fatalf("subject-bearing aggregate must keep the sum form: %v", sumFlat)
 	}
 	if strings.Contains(strings.Join(sumFlat, " · "), "取最大") {
@@ -320,16 +320,16 @@ func TestRuntimeTraceProjDetailTableFoldRowKeepsRoster(t *testing.T) {
 		t.Fatalf("expected the fold row: %+v", rows)
 	}
 	// PTV4 T10 (a): the node cell carries the max-form data token; the FULL
-	// member roster lives in the (b) blocks' ×N 明细 line (更无损: the roster
+	// member roster lives in the (b) blocks' 合并明细 line (更无损: the roster
 	// is no longer subject to the name-cell cap).
-	if cell := rows[0].Cells[0]; !strings.Contains(cell, "×6(99.500~101.000ms)取最大") {
+	if cell := rows[0].Cells[0]; !strings.Contains(cell, "6线程取最大(单项99.500~101.000ms)") {
 		t.Fatalf("fold cell must carry the max-form count: %q", cell)
 	}
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: ×6 取最大口径(…,不求和)
-	// → ×6 跨线程折叠取最大(墙钟跨线程不可加和) (×N 明细族); 成员: → 成员(共6,列4):
+	// → ×6 跨线程折叠取最大(墙钟跨线程不可加和) (合并明细族); 成员: → 成员(共6,列4):
 	// (截断 roster 自报账).
 	full := runtimeTraceProjDetailFullText(model, true)
-	if !strings.Contains(full, "×6 跨线程折叠取最大(墙钟跨线程不可加和),各 99.500~101.000ms;成员(共6,列4): a-1、b-2、c-3、d-4 等") {
+	if !strings.Contains(full, "6线程取最大(墙钟跨线程不可加和),各 99.500~101.000ms;成员(共6,列4): a-1、b-2、c-3、d-4 等") {
 		t.Fatalf("(b) blocks must carry the full member roster:\n%s", full)
 	}
 	if enFull := runtimeTraceProjDetailFullText(model, false); !strings.Contains(enFull, "members (6 total, 4 listed): a-1, b-2, c-3, d-4, …") {
@@ -387,10 +387,10 @@ func TestRuntimeTraceProjCustom1gEndToEndFoldAndDedup(t *testing.T) {
 	for _, item := range detailRows {
 		detailFlat += strings.Join(item.Cells, " | ") + "\n"
 	}
-	if !strings.Contains(detailFlat, "×3同值") {
+	if !strings.Contains(detailFlat, "3次同值") {
 		t.Fatalf("detail table must carry the duplicate-publication label:\n%s", detailFlat)
 	}
-	for _, banned := range []string{"106.05", "×3(35.350"} {
+	for _, banned := range []string{"106.05", "3次(35.350"} {
 		if strings.Contains(fence, banned) || strings.Contains(detailFlat, banned) {
 			t.Fatalf("duplicate publications must not SUM (%q):\n%s\n%s", banned, fence, detailFlat)
 		}

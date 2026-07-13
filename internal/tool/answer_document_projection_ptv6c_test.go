@@ -573,7 +573,7 @@ func TestPTV6CActualWindowInlineStrictParse(t *testing.T) {
 		t.Fatalf("malformed window must drop endpoints only: %q", got)
 	}
 	record.RichNotes[0] = "actual_window=3679.899436..3681.129875"
-	if got := runtimeTraceMetricSnapshotActualInline(record, true); got != "实际状态段跨度 3679.899s–3681.130s(活动切片,非全窗事件覆盖): running 0.987ms" {
+	if got := runtimeTraceMetricSnapshotActualInline(record, true); got != "实际状态段跨度 3679.899s~3681.130s(活动切片,非全窗事件覆盖): running 0.987ms" {
 		t.Fatalf("strict-parsed window must inline at %%.3f: %q", got)
 	}
 }
@@ -779,13 +779,13 @@ func TestPTV6CRetiredPointerLiteralsStayRetired(t *testing.T) {
 // trace source coordinate (basename + 行 X–Y), never the retired pointer.
 func TestPTV6CEvidenceCoordinateTail(t *testing.T) {
 	entry := runtimeTraceCausalProjectionEvidenceEntry{
-		ID: "E1", Ref: "/x/y/berlin.systrace:824646-1624260", Window: "[6793222.031–6793225.370s]",
+		ID: "E1", Ref: "/x/y/berlin.systrace:824646-1624260", Window: "[6793222.031~6793225.370s]",
 	}
 	// Window-preferred display dropped the lines → coordinate tail.
-	if got := runtimeTraceProjEvidenceCoordinateTail(entry, "berlin.systrace [6793222.031–6793225.370s]", false, true); got != "；详见 berlin.systrace 行 824646–1624260" {
+	if got := runtimeTraceProjEvidenceCoordinateTail(entry, "berlin.systrace [6793222.031~6793225.370s]", false, true); got != "；详见 berlin.systrace 行 824646–1624260" {
 		t.Fatalf("zh coordinate tail = %q", got)
 	}
-	if got := runtimeTraceProjEvidenceCoordinateTail(entry, "berlin.systrace [6793222.031–6793225.370s]", false, false); got != "; see berlin.systrace lines 824646–1624260" {
+	if got := runtimeTraceProjEvidenceCoordinateTail(entry, "berlin.systrace [6793222.031~6793225.370s]", false, false); got != "; see berlin.systrace lines 824646–1624260" {
 		t.Fatalf("en coordinate tail = %q", got)
 	}
 	// Display already shows the line range → no tail (path-directory trims are
@@ -799,13 +799,13 @@ func TestPTV6CEvidenceCoordinateTail(t *testing.T) {
 	if got := runtimeTraceProjEvidenceCoordinateTail(entry, "行 824646–1624260", true, true); got != "" {
 		t.Fatalf("en-dash line display must not grow a tail: %q", got)
 	}
-	if got := runtimeTraceProjEvidenceCoordinateTail(entry, "[6793222.031–6793225.370s]", true, true); got != ",行 824646–1624260" {
+	if got := runtimeTraceProjEvidenceCoordinateTail(entry, "[6793222.031~6793225.370s]", true, true); got != ",行 824646–1624260" {
 		t.Fatalf("grouped coordinate tail = %q", got)
 	}
 	// CMP-7b synthetic-line entries never claim a line coordinate.
 	synthetic := entry
 	synthetic.SyntheticLine = true
-	if got := runtimeTraceProjEvidenceCoordinateTail(synthetic, "berlin.systrace [6793222.031–6793225.370s]", false, true); got != "" {
+	if got := runtimeTraceProjEvidenceCoordinateTail(synthetic, "berlin.systrace [6793222.031~6793225.370s]", false, true); got != "" {
 		t.Fatalf("synthetic entries must not claim line coordinates: %q", got)
 	}
 }
@@ -820,14 +820,14 @@ func TestPTV6CSpecimen1KeyRowsAfter(t *testing.T) {
 	// 关键行一 (trunk): PTV7 后 canonical 词 runnable (8 cells) 在名称格整词
 	// 放下 (前: 可运行等待 截断成 可运行等… + 全词保障 tag; 差表 in the PTV7
 	// report) — the typed dedupe folds the same-family state tag and the
-	// shorter words promote 链上L1/×2同值 onto the main row; 有效归因 keeps
+	// shorter words promote 链上L1/2次同值 onto the main row; 有效归因 keeps
 	// its subordinate stream slot. 调度等待 双打消失 (b3/PTV7 负向臂 below).
-	// EVOLUTION RECORD (UXR-1 §29.36④, 2026-07-11): the ×2同值 chip now rides
+	// EVOLUTION RECORD (UXR-1 §29.36④, 2026-07-11): the 2次同值 chip now rides
 	// the 词位 (name tail, reserved out of the name budget — the subject head
 	// mid-truncates instead, pid tail kept; the detail table keeps the full
 	// name). The cause word stays whole beside the chip.
-	if !strings.Contains(fence, "-59843 · runnable ×2同值") {
-		t.Fatalf("trunk row must carry the whole canonical cause word + ×N同值 chip on the name cell:\n%s", fence)
+	if !strings.Contains(fence, "-59843 · runnable 2次同值") {
+		t.Fatalf("trunk row must carry the whole canonical cause word + N次同值 chip on the name cell:\n%s", fence)
 	}
 	if strings.Contains(fence, "调度等待") || strings.Contains(fence, "可运行等待") {
 		t.Fatalf("retired zh state/action word resurfaced on the trunk:\n%s", fence)
@@ -836,19 +836,19 @@ func TestPTV6CSpecimen1KeyRowsAfter(t *testing.T) {
 	// node — 行1 keeps the E# keep-mark, 行2 carries the identity + the
 	// degenerate 有效归因 tail (计入==原始 → 全额), and the ordinary tags pack
 	// below (grammar-clean 行1). PTV8-RCR-C EVOLUTION RECORD (§24.9 G3): the
-	// chain layer moved INTO 行2 — the packed ×2同值 line no longer leads with
+	// chain layer moved INTO 行2 — the packed 2次同值 line no longer leads with
 	// the Seg-20 chip. SYM-2 EVOLUTION RECORD (§24.17 R2, 2026-07-08): the
 	// runnable family word 就绪排队候选 → 调度压力候选 (§7.4 demand-side
 	// vocabulary, user ruling verbatim).
-	// EVOLUTION RECORD (UXR-1 §29.36④): the packed 「· ×2同值」 line is
+	// EVOLUTION RECORD (UXR-1 §29.36④): the packed 「· 2次同值」 line is
 	// RETIRED — the chip rides the 行1 词位 (asserted above); the identity
 	// line keeps its geometry.
 	if !strings.Contains(fence, "[E1(+1)]") ||
 		!strings.Contains(fence, "调度压力候选·根因排序#1·置信高·链上L1·有效归因 1.661ms(全额)") {
 		t.Fatalf("trunk rows must keep the RCR four-line geometry:\n%s", fence)
 	}
-	if strings.Contains(fence, "· ×2同值") {
-		t.Fatalf("the lone ×2同值 line must not resurface (§29.36④ 孤行灭):\n%s", fence)
+	if strings.Contains(fence, "· 2次同值") {
+		t.Fatalf("the lone 2次同值 line must not resurface (§29.36④ 孤行灭):\n%s", fence)
 	}
 	// PTV6-D (b): the category words left the row face (legend carries them);
 	// every non-category tag above is still present — 打包非折叠.

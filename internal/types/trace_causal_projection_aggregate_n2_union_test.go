@@ -101,7 +101,7 @@ func TestTraceCausalProjectionCrossWindowUnionQ2E10Shape(t *testing.T) {
 	if agg.ImpactMS < agg.MergedMaxMS {
 		t.Fatalf("union value must never drop below the largest member: %+v", agg)
 	}
-	// 窗身份 (§11-N2, 联动 q1-B6): the ×N detail lists BOTH member query
+	// 窗身份 (§11-N2, 联动 q1-B6): the merge detail lists BOTH member query
 	// windows, ascending; the merged row itself claims no single window.
 	if len(agg.MergedQueryWindows) != 2 {
 		t.Fatalf("×N window roster must list both member query windows: %+v", agg.MergedQueryWindows)

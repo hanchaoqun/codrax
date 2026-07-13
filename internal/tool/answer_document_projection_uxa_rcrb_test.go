@@ -91,7 +91,7 @@ func TestUXALegendFinalFormsVerbatim(t *testing.T) {
 		runtimeTraceProjMarkChainDepthChip:          "- `链上L#` = 该行在唤醒链上的层数(与明细「层级」行一致)。",
 		runtimeTraceProjMarkBarScale:                "- 时长条:满格 = 树头标注的长度(本报告为分析窗全长);多窗合并行的时长条只作相对量级(见其专项条目)。",
 		runtimeTraceProjMarkBarScaleFallback:        "- 时长条:窗口未采集,满格 = 本报告最大时长(不显示占窗百分比);多窗合并行的时长条只作相对量级(见其专项条目)。",
-		runtimeTraceProjMarkMergedMax:               "- `×N(a~b)取最大` = N 个线程的同类行合并为一行;墙钟跨线程不可加和,数值取其中最大一项,a~b 为单项范围。",
+		runtimeTraceProjMarkMergedMax:               "- `N线程取最大(单项a~b)` = N 个线程的同类行合并为一行;墙钟跨线程不可加和,数值取其中最大一项,a~b 为单项范围。",
 		runtimeTraceProjMarkOverWindowShare:         "- 占窗>100% = 跨CPU/多段累计,可合法超过窗口长度(时长条已封顶);同一线程几乎相同的重复记录(差异≤3%)只计一次,明显不同的重叠段分段累计。",
 		runtimeTraceProjMarkWholeWindowIdle:         "- `整窗等待` = 该行几乎覆盖整个窗口(≥99%),多为空闲或常驻等待线程,仅作背景参考。",
 		runtimeTraceProjMarkAdjacentStanza:          "- `◇` = 邻近区段:与唤醒链时间相邻,不在唤醒链上。",

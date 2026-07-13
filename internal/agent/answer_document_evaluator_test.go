@@ -8511,7 +8511,7 @@ func TestAnswerDocumentEvaluator_TraceQuerySupplementNormalizesLocatorAndWindowB
 	for _, want := range []string{
 		"系统补充：trace_query 关键观测核对",
 		"本块全部坐标位于 `berlin.systrace`",
-		"[6793222.031–6793225.370s]",
+		"[6793222.031~6793225.370s]",
 		"值=2029.609ms",
 		"窗口基准=查询窗",
 	} {
@@ -8578,7 +8578,7 @@ func TestAnswerDocumentEvaluator_TraceQuerySupplementWindowBasisEndpoints(t *tes
 		t.Fatalf("ParseOutput err: %v", err)
 	}
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 选定窗→查询窗 (窗族).
-	if !strings.Contains(out.FinalAnswer, "窗口基准=查询窗 6793222.031s–6793225.370s") {
+	if !strings.Contains(out.FinalAnswer, "窗口基准=查询窗 6793222.031s~6793225.370s") {
 		t.Fatalf("supplement window-basis token must render the selected-window endpoints:\n%s", out.FinalAnswer)
 	}
 }
@@ -8595,10 +8595,10 @@ func TestTraceQueryObservationSupplementNotes_SelectedWindowEndpoints(t *testing
 	}
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: zh 选定窗→查询窗
 	// (EN token unchanged).
-	if zh := traceQueryObservationSupplementNotes(record, true); !strings.Contains(zh, "窗口基准=查询窗 6793222.031s–6793225.370s") {
+	if zh := traceQueryObservationSupplementNotes(record, true); !strings.Contains(zh, "窗口基准=查询窗 6793222.031s~6793225.370s") {
 		t.Fatalf("ZH supplement token must carry endpoints: %s", zh)
 	}
-	if en := traceQueryObservationSupplementNotes(record, false); !strings.Contains(en, "window_basis=selected_window 6793222.031s–6793225.370s") {
+	if en := traceQueryObservationSupplementNotes(record, false); !strings.Contains(en, "window_basis=selected_window 6793222.031s~6793225.370s") {
 		t.Fatalf("EN supplement token must carry endpoints: %s", en)
 	}
 	record.RichNotes[3] = "selected_window=..6793225.370000"

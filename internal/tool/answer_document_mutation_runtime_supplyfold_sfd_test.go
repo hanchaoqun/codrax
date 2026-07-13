@@ -184,8 +184,8 @@ func TestSFDXNSumRowCarriesNoFoldClause(t *testing.T) {
 			"fold_basis=known=20.000ms,unknown=0.000ms"),
 	}
 	md := audit730Render(t, audit730Bus(""), records, "")
-	if !strings.Contains(md, "×3") || !strings.Contains(md, "42.000") {
-		t.Fatalf("the ×3 member SUM row must render:\n%s", md)
+	if !strings.Contains(md, "3次") || !strings.Contains(md, "42.000") {
+		t.Fatalf("the 3次 member SUM row must render:\n%s", md)
 	}
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: banned clause words
 	// migrate to the new forms (see TestSFDRunningTwinBareWithoutSibling).

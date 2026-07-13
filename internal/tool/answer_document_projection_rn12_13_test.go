@@ -128,7 +128,7 @@ func TestRN12CrossWindowTailNoteLabelsSourceWindowZH(t *testing.T) {
 	md := audit730Render(t, audit730Bus(""),
 		rncRunnableRecordsWindowed("2528.721", "selected_window=831.000000..834.000000"), "")
 	collapsed := rn1CollapseContinuations(md)
-	if !strings.Contains(collapsed, "另一查询窗(831.000s–834.000s)内 runnable 合计 2528.721ms,链上仅覆盖其中最大片段 635.981ms(25%)") {
+	if !strings.Contains(collapsed, "另一查询窗(831.000s~834.000s)内 runnable 合计 2528.721ms,链上仅覆盖其中最大片段 635.981ms(25%)") {
 		t.Fatalf("cross-window total must render the labeled wording:\n%s", md)
 	}
 	if strings.Contains(collapsed, "窗内 runnable 合计") || strings.Contains(collapsed, "窗内 可运行等待（runnable） 合计") {
@@ -174,11 +174,11 @@ func TestRN12CoverageTagUnit(t *testing.T) {
 	cross.FullWindowStateSameWindow = false
 	cross.FullWindowStateWindowStart, cross.FullWindowStateWindowEnd = 831.0, 834.0
 	if tag, ok := runtimeTraceProjFullWindowCoverageTag(cross, true, false, 0); !ok ||
-		tag.Text != "另一查询窗(831.000s–834.000s)内 runnable 合计 2528.721ms,链上仅覆盖其中最大片段 635.981ms(25%)" {
+		tag.Text != "另一查询窗(831.000s~834.000s)内 runnable 合计 2528.721ms,链上仅覆盖其中最大片段 635.981ms(25%)" {
 		t.Fatalf("zh cross-window tag wrong: %q", tag.Text)
 	}
 	if tag, ok := runtimeTraceProjFullWindowCoverageTag(cross, false, false, 0); !ok ||
-		tag.Text != "runnable total 2528.721ms in another query window (831.000s–834.000s); the chain covers only its largest fragment 635.981ms (25%)" {
+		tag.Text != "runnable total 2528.721ms in another query window (831.000s~834.000s); the chain covers only its largest fragment 635.981ms (25%)" {
 		t.Fatalf("en cross-window tag wrong: %q", tag.Text)
 	}
 	// F-2 defensive: SameWindow=false without labelable endpoints → no tag

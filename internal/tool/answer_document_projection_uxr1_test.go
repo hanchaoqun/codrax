@@ -6,7 +6,7 @@ package tool
 // Witness-isomorphic fixtures:
 //   - 4165 (real_trace_a5): three-channel interleaving — 根因排序#1/#2 in the
 //     ▒ stanza + ◇ rows wearing ⛓ + qualifier position variants;
-//   - 140554 (hitrace_jank): the (唤醒链路径未解析;…平铺) head, the ×2同值
+//   - 140554 (hitrace_jank): the (唤醒链路径未解析;…平铺) head, the 2次同值
 //     orphan line and the ◦-beside-阻塞等待 pairing;
 //   - 54476: deep-chain bar-column drift (L3 bar left of the shared column);
 //   - 2549 (real_trace_a4): qualifier mid-value-column variant + 裸尾巴 row2.
@@ -16,7 +16,7 @@ package tool
 //   - M-D2 print 根因排序#N on adjacent rows → TestUXR1ChannelChipWords red;
 //   - M-D3 revert the Row2 qualifier demotion → TestUXR1QualifierRow2Slot red;
 //   - M-D4 revert the ⛓ off-chain fork → TestUXR1OffChainDStateGlyph red;
-//   - M-D5 restore the ×N同值 orphan tag → TestUXR1DedupChipRidesName red;
+//   - M-D5 restore the N次同值 orphan tag → TestUXR1DedupChipRidesName red;
 //   - M-D6 restore the 以下各行按层级平铺 head note → TestUXR1UndrillableBanner red;
 //   - M-D7 drop the mention-floor stamp → TestUXR1MentionObligationChannel red;
 //   - M-D8 un-group the ▒ stanza → TestUXR1BackgroundCaliberGrouping red.
@@ -251,8 +251,8 @@ func TestUXR1QualifierRow2Slot(t *testing.T) {
 	}
 }
 
-// TestUXR1DedupChipRidesName — §29.36④ (140554): the ×N同值 chip rides the
-// 词位 (same form as the detail table); the lone 「· ×2同值」 orphan line dies.
+// TestUXR1DedupChipRidesName — §29.36④ (140554): the N次同值 chip rides the
+// 词位 (same form as the detail table); the lone 「· 2次同值」 orphan line dies.
 func TestUXR1DedupChipRidesName(t *testing.T) {
 	node := types.TraceCausalProjectionNode{
 		Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "E-dup",
@@ -271,19 +271,19 @@ func TestUXR1DedupChipRidesName(t *testing.T) {
 	}
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "×2同值") {
-		t.Fatalf("the ×2同值 chip must render:\n%s", fence)
+	if !strings.Contains(fence, "2次同值") {
+		t.Fatalf("the 2次同值 chip must render:\n%s", fence)
 	}
 	for _, line := range strings.Split(fence, "\n") {
-		if strings.TrimSpace(line) == "· ×2同值" {
-			t.Fatalf("the lone ×2同值 orphan line must stay retired (§29.36④):\n%s", fence)
+		if strings.TrimSpace(line) == "· 2次同值" {
+			t.Fatalf("the lone 2次同值 orphan line must stay retired (§29.36④):\n%s", fence)
 		}
 	}
 	// 与明细表同形: the chip follows the name token on whichever line carries
 	// the name.
 	for _, line := range strings.Split(fence, "\n") {
-		if strings.Contains(line, "×2同值") {
-			if idx := strings.Index(line, "×2同值"); idx >= 0 {
+		if strings.Contains(line, "2次同值") {
+			if idx := strings.Index(line, "2次同值"); idx >= 0 {
 				head := line[:idx]
 				if !strings.Contains(head, "DoFrame") && !strings.Contains(head, "com.example-5821") &&
 					!strings.Contains(head, "…") {

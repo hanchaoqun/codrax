@@ -77,7 +77,7 @@ func TestP21AggregateFoldTieRosterOnSameValueOverflow(t *testing.T) {
 		t.Fatalf("fold max must be the tied member value: %.3f", fold.MaxImpactMs)
 	}
 	if len(fold.SameValueMembers) != 2 {
-		t.Fatalf("×2 same-value trim shape must disclose BOTH tied members: %+v", fold.SameValueMembers)
+		t.Fatalf("n=2 same-value trim shape must disclose BOTH tied members: %+v", fold.SameValueMembers)
 	}
 	for _, tie := range fold.SameValueMembers {
 		if tie.Label == "" || tie.LineStart <= 0 || tie.LineEnd < tie.LineStart {

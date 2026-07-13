@@ -142,9 +142,8 @@ func TestPSG2H_CrossThreadSumWitness(t *testing.T) {
 		t.Fatalf("cross-thread sum must raise exactly one violation, got %d: %+v", len(got), got)
 	}
 	if !strings.Contains(got[0].Detail, "139.615ms") ||
-		!strings.Contains(got[0].Detail, "is a sum of values published for thread(s)") ||
-		!strings.Contains(got[0].Detail, "target.main-100") {
-		t.Fatalf("Detail must expose the cross-thread sum shape:\n%s", got[0].Detail)
+		!strings.Contains(got[0].Detail, "reproducible on the evidence face as a sum of values published for thread(s)") {
+		t.Fatalf("Detail must expose the cross-thread sum fact:\n%s", got[0].Detail)
 	}
 
 	// Control: one summand published for the NAMED thread → agreement,

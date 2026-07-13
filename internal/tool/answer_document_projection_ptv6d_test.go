@@ -150,7 +150,7 @@ func TestPTV6DSelfRowPrefixFillAndPacking(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("fitting self row must stay a single line, got %d: %q", len(lines), lines)
 	}
-	for _, want := range []string{"☾ 自身·sleep", "25.806ms", "×2同值", "×3(1.000~12.000ms)", "[E1]"} {
+	for _, want := range []string{"☾ 自身·sleep", "25.806ms", "2次同值", "3次(1.000~12.000ms)", "[E1]"} {
 		if !strings.Contains(lines[0], want) {
 			t.Fatalf("self row lost part %q: %q", want, lines[0])
 		}
@@ -180,7 +180,7 @@ func TestPTV6DSelfRowPrefixFillAndPacking(t *testing.T) {
 		}
 	}
 	// Prefix fill kept the short parts inline (the cliff would demote them).
-	if !strings.Contains(over[0], "×2同值") {
+	if !strings.Contains(over[0], "2次同值") {
 		t.Fatalf("prefix fill must keep fitting parts on the self main line: %q", over)
 	}
 }
@@ -376,12 +376,12 @@ func TestPTV6DSpecimenReplayLineLedger(t *testing.T) {
 			// ranked rows' 行2 identity lines (类别·根因排序#N·置信); the
 			// retired 候选根因 chip left the inventory, the degenerate
 			// 有效归因 tail gained its (全额) caliber.
-			// EVOLUTION RECORD (UXR-1 §29.36④): the ×2同值 orphan line merged
+			// EVOLUTION RECORD (UXR-1 §29.36④): the 2次同值 orphan line merged
 			// into the 行1 词位 — 30 → 29 lines.
 			lines: 29, tree: 1, adjacent: 2, background: 7, beforeLines: 46,
 			evidence: []string{"[E1(+1)]", "[E2]", "[E3]", "[E4]", "[E5]", "[E6]", "[E7]", "[E8(+1)]", "[E9]", "[E10]"},
 			inventory: []string{
-				"runnable", "链上L1", "×2同值", "有效归因 1.661ms(全额)",
+				"runnable", "链上L1", "2次同值", "有效归因 1.661ms(全额)",
 				// SYM-2 §24.17 R2 (2026-07-08): 就绪排队候选 → 调度压力候选.
 				"调度压力候选·根因排序#1·置信高",
 				// EVOLUTION RECORD (UXR-1 复核 P2-3, 2026-07-11, supersedes
@@ -393,7 +393,7 @@ func TestPTV6DSpecimenReplayLineLedger(t *testing.T) {
 				// chip drops; row identity/confidence stay rendered).
 				"IRQ突发·置信高", "IRQ活动·置信高", "累计(跨线程)1.997ms",
 				"IO等待(对端 udk-irq-3-65)", "D-state/iowait(对端未解析)",
-				"IO等待(对端 udk-irq-1-63)", "×2(0.081~1.302ms)取最大",
+				"IO等待(对端 udk-irq-1-63)", "2线程取最大(单项0.081~1.302ms)",
 				"IO等待(对端 udk-irq-4-67)",
 			},
 		},

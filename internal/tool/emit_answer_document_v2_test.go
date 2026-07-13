@@ -841,7 +841,7 @@ func TestEmitAnswerDocumentV2_MetricSnapshotWindowBasisEndpointsZH(t *testing.T)
 	// inline — the intermediate-record pointer is retired.
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 选定窗→查询窗,
 	// 实际对齐窗→数据实际覆盖 (窗族).
-	if !strings.Contains(line, "窗口基准: 查询窗 3679.899s–3681.130s;实际状态段跨度(活动切片,非全窗事件覆盖): 影响 6.000ms") {
+	if !strings.Contains(line, "窗口基准: 查询窗 3679.899s~3681.130s;实际状态段跨度(活动切片,非全窗事件覆盖): 影响 6.000ms") {
 		t.Fatalf("snapshot window basis must render the selected-window endpoints:\n%s", line)
 	}
 	if strings.Contains(line, "见原始 trace_query 记录") {

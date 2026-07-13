@@ -117,16 +117,16 @@ func TestDisp2AllZeroFoldNoteFaces(t *testing.T) {
 	if !flags.allZeroFold || flags.mergedMax {
 		t.Fatalf("legend flags must fork the all-zero shape off mergedMax: %+v", flags)
 	}
-	// (b) block ×N 明细 line mirrors the no-claim form.
+	// (b) block 合并明细 line mirrors the no-claim form.
 	detail := runtimeTraceProjDetailFullText(model, true)
-	if !strings.Contains(detail, "×9 跨线程折叠,成员窗内均无可计量时长(数据盲区),不作取最大声明") {
+	if !strings.Contains(detail, "9线程折叠,成员窗内均无可计量时长(数据盲区),不作取最大声明") {
 		t.Fatalf("(b) block must mirror the no-claim form:\n%s", detail)
 	}
-	// Control: a value-bearing fold keeps the ×N取最大 form byte-identically.
+	// Control: a value-bearing fold keeps the N线程取最大 form.
 	control := revisit76PTV5FoldCaliberProjection()
 	controlModel := buildRuntimeTraceProjTreeModel(control, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	controlFence := runtimeTraceProjTreeFence(controlModel, true)
-	if !strings.Contains(controlFence, ")取最大") {
+	if !strings.Contains(controlFence, "线程取最大(") {
 		t.Fatalf("value-bearing folds keep the member-MAX form:\n%s", controlFence)
 	}
 	if strings.Contains(controlFence, "窗内无有效时长") {
@@ -425,8 +425,8 @@ func TestDisp2TextureUploadImpactFormFifthArm(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
 	t.Logf("texture_upload semantic family render (zh fence):\n%s", fence)
-	if !strings.Contains(fence, "✦ RenderThread-51342 · 纹理上传 ×9") {
-		t.Fatalf("texture family row must wear the ✦ glyph + class word + ×N (四类同待遇):\n%s", fence)
+	if !strings.Contains(fence, "✦ RenderThread-51342 · 纹理上传 9次") {
+		t.Fatalf("texture family row must wear the ✦ glyph + class word + count chip (四类同待遇):\n%s", fence)
 	}
 	if !strings.Contains(fence, "合计1.062ms") {
 		t.Fatalf("texture family row must carry the 合计 value stem:\n%s", fence)

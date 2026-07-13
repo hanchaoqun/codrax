@@ -80,7 +80,7 @@ func cwd2E19Projection(windows int) types.TraceCausalProjection {
 
 // cwd2MultiWindowSumProjection is the representative multi-window SUM shape
 // for the NEW-7 bidirectional legend harness (probe-compatible merged values:
-// the MergedSum probe token is the verbatim ×3(10.000~30.000ms)).
+// the MergedSum probe token is the verbatim 3次(10.000~30.000ms)).
 func cwd2MultiWindowSumProjection() types.TraceCausalProjection {
 	return types.TraceCausalProjection{
 		WindowStartTs: 100.000,
@@ -118,8 +118,12 @@ func TestCWD2E19MultiWindowSumSuppressesAnchorShare(t *testing.T) {
 		if !strings.Contains(fence, "63.831ms") {
 			t.Fatalf("zh=%v: the ms cell must survive:\n%s", zh, fence)
 		}
-		if !strings.Contains(fence, "×14(1.035~6.357ms)") || strings.Contains(fence, ")union") || strings.Contains(fence, "跨窗取最大") {
-			t.Fatalf("zh=%v: the row must keep the plain ×N SUM form:\n%s", zh, fence)
+		sumTok := "14次(1.035~6.357ms)"
+		if !zh {
+			sumTok = "n=14(1.035~6.357ms)"
+		}
+		if !strings.Contains(fence, sumTok) || strings.Contains(fence, ")union") || strings.Contains(fence, "跨窗取最大") || strings.Contains(fence, "cross-window max") {
+			t.Fatalf("zh=%v: the row must keep the plain SUM form:\n%s", zh, fence)
 		}
 		if !strings.Contains(fence, "█") {
 			t.Fatalf("zh=%v: the bar stays (relative scale):\n%s", zh, fence)
@@ -132,11 +136,11 @@ func TestCWD2E19MultiWindowSumSuppressesAnchorShare(t *testing.T) {
 		}
 		// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 成员窗见无损块窗来源
 		// → 成员窗来源见明细 (无损块→明细); ×14 求和口径 → 同一线程 14 次实例合并求和
-		// (×N 明细族).
+		// (合并明细族).
 		lead := runtimeTraceProjLeadText(cwd2E19Projection(2), multi, lang, zh)
-		entry := "- `×N` 多窗合并行不显示占窗% = 该行成员横跨多个查询窗,合并值与单一锚定窗不同基,不作跨窗除法(时长条仅示意相对量级);成员窗来源见明细。"
+		entry := "- 多窗合并行不显示占窗% = 该行成员横跨多个查询窗,合并值与单一锚定窗不同基,不作跨窗除法(时长条仅示意相对量级);成员窗来源见明细。"
 		if !zh {
-			entry = "- multi-window `×N` rows show no window share = the row's members span multiple query windows, so the merged value shares no base with the single anchor window and is never divided across bases (the bar is relative scale only); the member windows live in the detail blocks' window sources."
+			entry = "- multi-window merged rows show no window share = the row's members span multiple query windows, so the merged value shares no base with the single anchor window and is never divided across bases (the bar is relative scale only); the member windows live in the detail blocks' window sources."
 		}
 		if !strings.Contains(lead, entry) {
 			t.Fatalf("zh=%v: the no-share legend entry must render:\n%s", zh, lead)
@@ -145,7 +149,7 @@ func TestCWD2E19MultiWindowSumSuppressesAnchorShare(t *testing.T) {
 		if zh && !strings.Contains(lossless, "同一线程 14 次实例合并求和,单次 1.035~6.357ms") {
 			t.Fatalf("the SUM caliber wording must stay (disjoint windows are a legal sum):\n%s", lossless)
 		}
-		if !strings.Contains(lossless, "6793222.700–6793222.801s") || !strings.Contains(lossless, "6793224.895–6793224.996s") {
+		if !strings.Contains(lossless, "6793222.700~6793222.801s") || !strings.Contains(lossless, "6793224.895~6793224.996s") {
 			t.Fatalf("zh=%v: both member windows must be disclosed on the 窗来源 lane:\n%s", zh, lossless)
 		}
 
@@ -529,21 +533,21 @@ func cwd2MergedLeadProjection(rosterWindows int) types.TraceCausalProjection {
 func TestCWD2ConclusionMultiWindowMergedLeadSuppressesWindowShare(t *testing.T) {
 	multi := cwd2MergedLeadProjection(2)
 	line := runtimeTraceProjConclusionLine(multi, buildRuntimeTraceProjTreeModel(multi, nil, true), true)
-	if !strings.Contains(line, "单次最大 1.940ms ×7") {
+	if !strings.Contains(line, "单次最大 1.940ms(共7次)") {
 		t.Fatalf("the merged lead must keep the single-instance max form:\n%s", line)
 	}
 	if strings.Contains(line, "(占窗") {
 		t.Fatalf("a multi-window merged lead must not publish an anchor-window share:\n%s", line)
 	}
 	en := runtimeTraceProjConclusionLine(multi, buildRuntimeTraceProjTreeModel(multi, nil, false), false)
-	if !strings.Contains(en, "single max 1.940ms ×7") || strings.Contains(en, "% of window)") {
+	if !strings.Contains(en, "single max 1.940ms (of 7)") || strings.Contains(en, "% of window)") {
 		t.Fatalf("EN multi-window merged lead must suppress the share:\n%s", en)
 	}
 
 	// Single-window roster control: the legacy share stays byte-identical.
 	single := cwd2MergedLeadProjection(1)
 	sline := runtimeTraceProjConclusionLine(single, buildRuntimeTraceProjTreeModel(single, nil, true), true)
-	if !strings.Contains(sline, "单次最大 1.940ms ×7(占窗2%)") {
+	if !strings.Contains(sline, "单次最大 1.940ms(共7次)(占窗2%)") {
 		t.Fatalf("the single-window merged lead keeps the legacy share:\n%s", sline)
 	}
 }

@@ -43,7 +43,7 @@ func TestCR2P7SnapshotActualInlineSpeaksSegmentSpanCaliber(t *testing.T) {
 	if strings.Contains(got, "数据实际覆盖") {
 		t.Fatalf("the segment envelope must not claim data coverage: %q", got)
 	}
-	if !strings.Contains(got, "实际状态段跨度 34579.577s–34579.588s(活动切片,非全窗事件覆盖)") {
+	if !strings.Contains(got, "实际状态段跨度 34579.577s~34579.588s(活动切片,非全窗事件覆盖)") {
 		t.Fatalf("the clause must carry the typed segment-span caliber: %q", got)
 	}
 }
@@ -59,7 +59,7 @@ func TestCR2P7SnapshotEpisodeScopedHeadForWakeupLanes(t *testing.T) {
 	if !strings.Contains(text, "非查询窗全量") {
 		t.Fatalf("the head must say the values are not full-window statistics:\n%s", text)
 	}
-	if !strings.Contains(text, "查询窗 34579.473s–34579.588s(检索范围,非该行统计范围)") {
+	if !strings.Contains(text, "查询窗 34579.473s~34579.588s(检索范围,非该行统计范围)") {
 		t.Fatalf("the window basis must read as search scope:\n%s", text)
 	}
 	if strings.Contains(text, "状态时长(括号为占该线程观测时长比例)") {

@@ -59,7 +59,7 @@ func TestDCSSemanticSourceWindowShareRebasesOnSourceWindow(t *testing.T) {
 	if strings.Contains(fence, "83%") || strings.Contains(fence, "84%") {
 		t.Fatalf("the anchor-based share must not render for a differing source window:\n%s", fence)
 	}
-	if !strings.Contains(fence, "来自查询窗 8144.358–8145.242s") {
+	if !strings.Contains(fence, "来自查询窗 8144.358~8145.242s") {
 		t.Fatalf("the re-based share must disclose its source query window inline:\n%s", fence)
 	}
 	if model.Marks == nil || !model.Marks.has(runtimeTraceProjMarkSemanticSourceWindowShare) {

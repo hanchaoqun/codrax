@@ -185,7 +185,7 @@ func TestGAPBTrunkSameStateOccurrenceFold(t *testing.T) {
 		t.Fatalf("trunk chain row not found")
 	}
 	if chainRow.Node.MergedCount != 2 || chainRow.Node.MergedMinMS != 0.904 || chainRow.Node.MergedMaxMS != 4.431 {
-		t.Fatalf("same-state occurrences must fold to ×2(0.904~4.431ms), got ×%d(%.3f–%.3f)",
+		t.Fatalf("same-state occurrences must fold to 2次(0.904~4.431ms), got ×%d(%.3f–%.3f)",
 			chainRow.Node.MergedCount, chainRow.Node.MergedMinMS, chainRow.Node.MergedMaxMS)
 	}
 	if chainRow.Node.ImpactMS != 4.431+0.904 {
@@ -200,7 +200,7 @@ func TestGAPBTrunkSameStateOccurrenceFold(t *testing.T) {
 		t.Fatalf("the different-state extra must keep its 成因 decomposition edge, got %v", causeStates)
 	}
 	fence := runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "×2(0.904~4.431ms)") {
+	if !strings.Contains(fence, "2次(0.904~4.431ms)") {
 		t.Fatalf("the ×N grammar tag must render on the folded row:\n%s", fence)
 	}
 	if !strings.Contains(fence, "5.335ms") {

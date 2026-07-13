@@ -15,7 +15,7 @@ package types
 //       no duration exists — conf 0.82, the fold's min confidence).
 // The fold's min–max has always ranged over POSITIVE member displays only
 // while MergedCount counted every member, so the render claimed
-// "×2(14.272~14.272ms)取最大" — fabricating a second 14.272ms observation
+// "2线程取最大(单项14.272~14.272ms)" — fabricating a second 14.272ms observation
 // under hmfs_discard's subject and triggering the customer-site raw-trace
 // audit (g12_report.txt: zero prev_state=D over the whole region).
 //

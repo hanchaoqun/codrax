@@ -452,8 +452,8 @@ func TestRCRCMultiBoardRankSeatsCarryWindowTags(t *testing.T) {
 	fence := runtimeTraceProjTreeFence(model, true)
 	// Both #1 seats name their boards — the collision is resolved.
 	for _, want := range []string{
-		"根因排序#1·窗100.000–100.200s",
-		"根因排序#1·窗100.300–100.400s",
+		"根因排序#1·窗100.000~100.200s",
+		"根因排序#1·窗100.300~100.400s",
 	} {
 		if !strings.Contains(fence, want) {
 			t.Fatalf("multi-board seat must carry its window tag %q:\n%s", want, fence)
@@ -461,7 +461,7 @@ func TestRCRCMultiBoardRankSeatsCarryWindowTags(t *testing.T) {
 	}
 	// The detail 根因排序 line carries the same chip.
 	detail := runtimeTraceProjDetailFullText(model, true)
-	if !strings.Contains(detail, "#1·窗100.300–100.400s") {
+	if !strings.Contains(detail, "#1·窗100.300~100.400s") {
 		t.Fatalf("the detail seat must carry the window tag:\n%s", detail)
 	}
 	// Single-board negative: one window (or windowless boards) never mints

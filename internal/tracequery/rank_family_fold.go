@@ -485,10 +485,10 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 	sortBoostedMs := semanticTraceSpanEffectiveImpactMs(work, projection, TraceSpanSummary{DurationMs: fam.TotalMs})
 	var summary string
 	if fam.OnChain {
-		summary = fmt.Sprintf("%s family ×%d same-thread span(s) attributed %.3fms by exact on-chain interval intersection from %.3fms complete selected-window span union (largest %q %.3fms, smallest %.3fms); effective_impact=%.3fms; fold_caliber=%s",
+		summary = fmt.Sprintf("%s family n=%d same-thread span(s) attributed %.3fms by exact on-chain interval intersection from %.3fms complete selected-window span union (largest %q %.3fms, smallest %.3fms); effective_impact=%.3fms; fold_caliber=%s",
 			work.Label, len(fam.Members), participationMs, fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, participationMs, fam.FoldCaliber)
 	} else {
-		summary = fmt.Sprintf("%s family ×%d same-thread span(s) totalled %.3fms window projection (largest %q %.3fms, smallest %.3fms); effective_impact=%.3fms; fold_caliber=%s",
+		summary = fmt.Sprintf("%s family n=%d same-thread span(s) totalled %.3fms window projection (largest %q %.3fms, smallest %.3fms); effective_impact=%.3fms; fold_caliber=%s",
 			work.Label, len(fam.Members), fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, fam.TotalMs, fam.FoldCaliber)
 	}
 	if fam.TotalMs < fam.SumMs {

@@ -430,8 +430,8 @@ func psgSnapshot70() types.AnswerBlock {
 	return types.AnswerBlock{
 		ID: "runtime_trace_metric_snapshot", Kind: types.BlockSection,
 		SystemGeneratedKind: types.AnswerSystemGeneratedRuntimeTrace, Text: strings.Join([]string{
-			"- 查询窗 3680.569–3682.819s · demo.systrace · com.xs.fm.lite-6565 状态切换(state_churn) — running 518.776ms(26%) · runnable 21.939ms(1%) · sleep 1430.101ms(72%) · D-state 25.952ms(1%)",
-			"- 查询窗 3680.819–3682.619s · demo.systrace · com.xs.fm.lite-6565 状态切换(state_churn) — running 460.975ms(26%) · runnable 20.047ms(1%) · sleep 1295.329ms(72%) · D-state 20.417ms(1%)",
+			"- 查询窗 3680.569~3682.819s · demo.systrace · com.xs.fm.lite-6565 状态切换(state_churn) — running 518.776ms(26%) · runnable 21.939ms(1%) · sleep 1430.101ms(72%) · D-state 25.952ms(1%)",
+			"- 查询窗 3680.819~3682.619s · demo.systrace · com.xs.fm.lite-6565 状态切换(state_churn) — running 460.975ms(26%) · runnable 20.047ms(1%) · sleep 1295.329ms(72%) · D-state 20.417ms(1%)",
 		}, "\n"),
 	}
 }
@@ -470,12 +470,11 @@ func TestProseScalarGrounding_BindingWindowMismatchB3(t *testing.T) {
 	if !strings.Contains(v.Detail, "binds 2 numeric value(s)") {
 		t.Fatalf("Detail must report both misbound values (1430ms and 63.6%%):\n%s", v.Detail)
 	}
-	// The 1430ms entry names the row's window (2250ms span) AND the
-	// sentence's window (1800ms).
+	// CR-4 修复轮方向改造 (fact form): the 1430ms entry names the row's own
+	// published window (2250ms span); no prose characterization rides it.
 	if !strings.Contains(v.Detail, "1430ms") ||
-		!strings.Contains(v.Detail, "3680.569–3682.819s (≈2250ms)") ||
-		!strings.Contains(v.Detail, "1800ms") {
-		t.Fatalf("Detail must name the value, its published window and the stated window:\n%s", v.Detail)
+		!strings.Contains(v.Detail, "3680.569~3682.819s (≈2250ms)") {
+		t.Fatalf("Detail must name the value and its published window:\n%s", v.Detail)
 	}
 	// The 63.6% entry is the percent-recompute extension: it reproduces
 	// only against the 2250 denominator.
@@ -503,8 +502,8 @@ func TestProseScalarGrounding_BindingWindowMismatchD2b(t *testing.T) {
 	snapshot := types.AnswerBlock{
 		ID: "runtime_trace_metric_snapshot", Kind: types.BlockSection,
 		SystemGeneratedKind: types.AnswerSystemGeneratedRuntimeTrace, Text: strings.Join([]string{
-			"- 查询窗 8144.358–8146.608s · demo.systrace · com.xs.fm.lite-21538 状态切换(state_churn) — running 713.339ms(35%) · runnable 40.766ms(2%) · sleep 974.469ms(48%) · D-state 318.138ms(16%)",
-			"- 查询窗 8144.608–8146.253s · demo.systrace · com.xs.fm.lite-21538 状态切换(state_churn) — running 493.447ms(30%) · runnable 32.941ms(2%) · sleep 833.006ms(51%) · D-state 282.693ms(17%)",
+			"- 查询窗 8144.358~8146.608s · demo.systrace · com.xs.fm.lite-21538 状态切换(state_churn) — running 713.339ms(35%) · runnable 40.766ms(2%) · sleep 974.469ms(48%) · D-state 318.138ms(16%)",
+			"- 查询窗 8144.608~8146.253s · demo.systrace · com.xs.fm.lite-21538 状态切换(state_churn) — running 493.447ms(30%) · runnable 32.941ms(2%) · sleep 833.006ms(51%) · D-state 282.693ms(17%)",
 		}, "\n"),
 	}
 	doc := psgBindingDoc(
@@ -518,9 +517,8 @@ func TestProseScalarGrounding_BindingWindowMismatchD2b(t *testing.T) {
 	v := got[0]
 	if !strings.Contains(v.Detail, "binds 1 numeric value(s)") ||
 		!strings.Contains(v.Detail, "41ms") ||
-		!strings.Contains(v.Detail, "8144.358–8146.608s") ||
-		!strings.Contains(v.Detail, "1645ms") {
-		t.Fatalf("only the 41ms figure is misbound (2250ms row stated under the 1645ms window):\n%s", v.Detail)
+		!strings.Contains(v.Detail, "8144.358~8146.608s") {
+		t.Fatalf("only the 41ms figure is misbound (its published-window fact renders):\n%s", v.Detail)
 	}
 	for _, silent := range []string{"834ms", "493ms", "283ms", "50.7%", "30.0%", "17.2%"} {
 		if strings.Contains(v.Detail, silent) {
@@ -542,7 +540,7 @@ func TestProseScalarGrounding_BindingThreadMismatchD2c(t *testing.T) {
 		Columns:             []string{"节点[E#]", "窗口投影", "有效归因", "置信"},
 		Items: []types.AnswerBlockItem{
 			{ID: "e18", Cells: []string{"binder:8815_1-6581 / runnable [E18(+1)]", "50.057ms", "50.057ms", "中"}},
-			{ID: "e4", Cells: []string{"main-6565 / sleep（s_sleep） ×15(1.107–97.342ms) [E4(+14)]", "456.725ms", "97.342ms", "中"}},
+			{ID: "e4", Cells: []string{"main-6565 / sleep（s_sleep） 15次(1.107–97.342ms) [E4(+14)]", "456.725ms", "97.342ms", "中"}},
 		},
 	}
 	doc := psgBindingDoc(
@@ -555,9 +553,8 @@ func TestProseScalarGrounding_BindingThreadMismatchD2c(t *testing.T) {
 	}
 	v := got[0]
 	if !strings.Contains(v.Detail, "50ms") ||
-		!strings.Contains(v.Detail, "published for thread binder:8815_1-6581") ||
-		!strings.Contains(v.Detail, "wk:1/1/0/8-6537") {
-		t.Fatalf("Detail must name the publishing thread and the stated thread:\n%s", v.Detail)
+		!strings.Contains(v.Detail, "published for thread(s) binder:8815_1-6581") {
+		t.Fatalf("Detail must name the publishing thread (fact form):\n%s", v.Detail)
 	}
 }
 
@@ -589,7 +586,7 @@ func TestProseScalarGrounding_BindingSameTidAliasControl(t *testing.T) {
 	snapshot := types.AnswerBlock{
 		ID: "runtime_trace_metric_snapshot", Kind: types.BlockSection,
 		SystemGeneratedKind: types.AnswerSystemGeneratedRuntimeTrace,
-		Text:                "- 查询窗 3680.819–3682.619s · demo.systrace · foo.worker-6565 状态切换(state_churn) — sleep 1295.329ms(72%)",
+		Text:                "- 查询窗 3680.819~3682.619s · demo.systrace · foo.worker-6565 状态切换(state_churn) — sleep 1295.329ms(72%)",
 	}
 	doc := psgBindingDoc(
 		"在窗口（3680.819~3682.619s，1800ms）内，线程 bar.renamed-6565 的 sleep 为 1295.329ms。",

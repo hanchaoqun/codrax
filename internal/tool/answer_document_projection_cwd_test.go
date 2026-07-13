@@ -61,7 +61,7 @@ func cwdCrossWindowMaxProjection() types.TraceCausalProjection {
 // every-surface pin for the ×N 第五式: the cross-window MAX form token in the
 // fence and the (a)-table name cell, its own legend entry (and the ABSENCE of
 // the sum entry — a MAX value must never be glossed 数值为总和), and a
-// lossless ×N 明细 line naming the caliber, the raw Σ, the max member's own
+// lossless 合并明细 line naming the caliber, the raw Σ, the max member's own
 // window base and the window sources.
 func TestCWDCrossWindowMaxRowWearsMaxFormOnEverySurface(t *testing.T) {
 	projection := cwdCrossWindowMaxProjection()
@@ -75,22 +75,22 @@ func TestCWDCrossWindowMaxRowWearsMaxFormOnEverySurface(t *testing.T) {
 		lead := runtimeTraceProjLeadText(projection, model, lang, zh)
 		lossless := runtimeTraceProjDetailFullText(model, zh)
 
-		token := "×3(20.000~60.000ms)跨窗取最大"
+		token := "3次跨窗取最大(单项20.000~60.000ms)"
 		if !zh {
-			token = "×3(20.000~60.000ms) cross-window max"
+			token = "n=3 cross-window max(each 20.000~60.000ms)"
 		}
 		if !strings.Contains(fence, token) {
 			t.Fatalf("zh=%v: fence must carry the cross-window MAX form token:\n%s", zh, fence)
 		}
 		// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 重叠窗 →
 		// 互相重叠的查询窗 (窗族); 见无损块 → 见明细 (无损块→明细); lossless block
-		// → detail blocks (EN mirror); ×N 跨窗取最大口径(N 窗互相重叠,重叠窗量值不求和)
-		// → ×N 跨窗取最大(N 个查询窗互相重叠,互相重叠的查询窗量值不可求和) (×N 明细族).
-		maxEntry := "- `×N(a~b)跨窗取最大` = N 次实例来自互相重叠的查询窗,互相重叠的查询窗量值不可求和且重叠段无法逐段核销,数值取成员最大(以该成员自身查询窗为基),a~b 为单次范围;原始和与窗来源见明细。"
-		sumEntry := "- `×N(a~b)` = 同一(线程,原因)的 N 次实例合并,数值为总和,a~b 为单次范围。"
+		// → detail blocks (EN mirror); N次跨窗取最大口径(N 窗互相重叠,重叠窗量值不求和)
+		// → ×N 跨窗取最大(N 个查询窗互相重叠,互相重叠的查询窗量值不可求和) (合并明细族).
+		maxEntry := "- `N次跨窗取最大(单项a~b)` = N 次实例来自互相重叠的查询窗,互相重叠的查询窗量值不可求和且重叠段无法逐段核销,数值取成员最大(以该成员自身查询窗为基),a~b 为单次范围;原始和与窗来源见明细。"
+		sumEntry := "- `N次(a~b)` = 同一(线程,原因)的 N 次实例合并,数值为总和,a~b 为单次范围。"
 		if !zh {
-			maxEntry = "- `×N(a~b) cross-window max` = the N instances come from OVERLAPPING query windows: overlapping-window magnitudes never sum and the overlap cannot be deducted per segment, so the value is the member MAX (normalized over that member's own query window), a~b the per-instance range; the raw sum and the window sources live in the detail blocks."
-			sumEntry = "- `×N(a~b)` = N instances of one (thread, cause) merged; the value is the SUM, a~b the per-instance range."
+			maxEntry = "- `n=N cross-window max(each a~b)` = the N instances come from OVERLAPPING query windows: overlapping-window magnitudes never sum and the overlap cannot be deducted per segment, so the value is the member MAX (normalized over that member's own query window), a~b the per-instance range; the raw sum and the window sources live in the detail blocks."
+			sumEntry = "- `N次(a~b)` = N instances of one (thread, cause) merged; the value is the SUM, a~b the per-instance range."
 		}
 		if !strings.Contains(lead, maxEntry) {
 			t.Fatalf("zh=%v: cross-window MAX legend entry missing:\n%s", zh, lead)
@@ -98,14 +98,14 @@ func TestCWDCrossWindowMaxRowWearsMaxFormOnEverySurface(t *testing.T) {
 		if strings.Contains(lead, sumEntry) {
 			t.Fatalf("zh=%v: the SUM legend entry must NOT render for a MAX-only tree (口径谎言): %s", zh, lead)
 		}
-		wantDetail := "×3 跨窗取最大(2 个查询窗互相重叠,互相重叠的查询窗量值不可求和),原始和 110.000ms 供对照,单次 20.000~60.000ms;最大成员窗基=查询窗 3680.569–3680.719s"
-		wantWindows := "3680.569–3680.719s、3680.600–3680.750s"
+		wantDetail := "3次跨窗取最大(2 个查询窗互相重叠,互相重叠的查询窗量值不可求和),原始和 110.000ms 供对照,单次 20.000~60.000ms;最大成员窗基=查询窗 3680.569~3680.719s"
+		wantWindows := "3680.569~3680.719s、3680.600~3680.750s"
 		if !zh {
-			wantDetail = "×3 cross-window MAX caliber (2 overlapping windows; overlapping-window magnitudes never sum), raw sum 110.000ms for cross-checking, each 20.000~60.000ms; max-member window base = query window 3680.569–3680.719s"
-			wantWindows = "3680.569–3680.719s, 3680.600–3680.750s"
+			wantDetail = "n=3 cross-window MAX caliber (2 overlapping windows; overlapping-window magnitudes never sum), raw sum 110.000ms for cross-checking, each 20.000~60.000ms; max-member window base = query window 3680.569~3680.719s"
+			wantWindows = "3680.569~3680.719s, 3680.600~3680.750s"
 		}
 		if !strings.Contains(lossless, wantDetail) {
-			t.Fatalf("zh=%v: lossless ×N detail must state the MAX caliber + raw Σ + max-member window base:\n%s", zh, lossless)
+			t.Fatalf("zh=%v: lossless merge detail must state the MAX caliber + raw Σ + max-member window base:\n%s", zh, lossless)
 		}
 		if !strings.Contains(lossless, wantWindows) {
 			t.Fatalf("zh=%v: lossless block must list the member window sources:\n%s", zh, lossless)
@@ -445,10 +445,10 @@ func TestCWDInheritedNoteWindowBase(t *testing.T) {
 	own := types.TraceCausalProjectionNode{
 		QueryWindowStartTs: 3680.569, QueryWindowEndTs: 3680.719,
 	}
-	if got := runtimeTraceProjInheritedWindowBaseSuffix(own, true); got != ";窗基=查询窗 3680.569–3680.719s" {
+	if got := runtimeTraceProjInheritedWindowBaseSuffix(own, true); got != ";窗基=查询窗 3680.569~3680.719s" {
 		t.Fatalf("zh own-window suffix wrong: %q", got)
 	}
-	if got := runtimeTraceProjInheritedWindowBaseSuffix(own, false); got != "; window base = query window 3680.569–3680.719s" {
+	if got := runtimeTraceProjInheritedWindowBaseSuffix(own, false); got != "; window base = query window 3680.569~3680.719s" {
 		t.Fatalf("en own-window suffix wrong: %q", got)
 	}
 	// (2) A merged row without a single window names the member roster.
@@ -458,7 +458,7 @@ func TestCWDInheritedNoteWindowBase(t *testing.T) {
 			{StartTs: 3680.569, EndTs: 3680.719}, {StartTs: 3680.818, EndTs: 3680.919},
 		},
 	}
-	if got := runtimeTraceProjInheritedWindowBaseSuffix(merged, true); got != ";窗基=成员查询窗 3680.569–3680.719s、3680.818–3680.919s(非本行渲染窗)" {
+	if got := runtimeTraceProjInheritedWindowBaseSuffix(merged, true); got != ";窗基=成员查询窗 3680.569~3680.719s、3680.818~3680.919s(非本行渲染窗)" {
 		t.Fatalf("zh roster suffix wrong: %q", got)
 	}
 	// (3) No typed window → no label, never a guess.
@@ -483,7 +483,7 @@ func TestCWDInheritedNoteWindowBase(t *testing.T) {
 	}
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	lossless := runtimeTraceProjDetailFullText(model, true)
-	if !strings.Contains(lossless, "有效归因 2994.269ms 承自等待区间,非本行实测;窗基=查询窗 3680.569–3680.719s") {
+	if !strings.Contains(lossless, "有效归因 2994.269ms 承自等待区间,非本行实测;窗基=查询窗 3680.569~3680.719s") {
 		t.Fatalf("承自注 must name the donor window base:\n%s", lossless)
 	}
 }

@@ -288,7 +288,7 @@ func ptv7SpnTraceGapBelowFloorProjection() types.TraceCausalProjection {
 }
 
 // disp2AllZeroFoldProjection (DISP-2 G19, §27.5, 2026-07-09) is the all-zero
-// on-chain overflow fold shape (huadong_79 "×9(0.000~0.000ms)取最大" noise
+// on-chain overflow fold shape (huadong_79 "9线程取最大(单项0.000~0.000ms)" noise
 // witness): every folded member is a data blind spot with no measurable
 // in-window duration — the fold row wears the honest one-line note instead of
 // a member-MAX claim over zeros.
@@ -391,7 +391,7 @@ func TestPTV7SpnAllZeroFoldNoValueForm(t *testing.T) {
 		}
 	}
 	// EVOLUTION RECORD (DISP-2 G19, §27.5, 2026-07-09): the former "×N data
-	// token survives" pin (×9(0.000~0.000ms)取最大) is RETIRED on the all-zero
+	// token survives" pin (9线程取最大(单项0.000~0.000ms)) is RETIRED on the all-zero
 	// shape — a member-MAX claim over nothing but zeros taught noise
 	// (huadong_79 witness). The shape now speaks the honest one-line note; the
 	// count survives on the row NAME (其余 9 项(链上折叠)), and value-bearing
@@ -401,7 +401,7 @@ func TestPTV7SpnAllZeroFoldNoValueForm(t *testing.T) {
 	for _, tag := range tags {
 		joined += tag.Text + " · "
 	}
-	if strings.Contains(joined, "×9(0.000~0.000ms)") {
+	if strings.Contains(joined, "9次(0.000~0.000ms)") {
 		t.Fatalf("the all-zero fold must not claim a member-MAX over zeros: %s", joined)
 	}
 	if !strings.Contains(joined, "窗内无有效时长") {

@@ -34,7 +34,7 @@ func TestSMR1WFRangeNoEnDashValueRangeEmission(t *testing.T) {
 func TestSMR1WFRangeMergedFormsUseTilde(t *testing.T) {
 	model := buildRuntimeTraceProjTreeModel(smr1D1S2Projection(), newRuntimeTraceCausalProjectionEvidenceIndex(), true)
 	fence := runtimeTraceProjTreeFence(model, true)
-	if !strings.Contains(fence, "×3(8.879~80.751ms)") {
+	if !strings.Contains(fence, "3次(8.879~80.751ms)") {
 		t.Fatalf("×N form must use the ~ range glyph:\n%s", fence)
 	}
 	// Zero residue in value-range contexts: digits–digits…ms never renders.

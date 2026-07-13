@@ -590,20 +590,23 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// sum probe is the ptv4 fixture's VERBATIM sum token (language-neutral
 		// by design) — deleting the sum-tag emission now reds this probe
 		// instead of staying green (复核给定的突变形态).
-		runtimeTraceProjMarkMergedSum:   {"×3(10.000~30.000ms)", "×3(10.000~30.000ms)"},
+		runtimeTraceProjMarkMergedSum:   {"3次(10.000~30.000ms)", "n=3(10.000~30.000ms)"},
 		runtimeTraceProjMarkMergedDedup: {"同值", "same-value"},
 		// §21 CWD disambiguation (same discipline as the verbatim sum probe
 		// above): the bare "取最大" is a substring of the cross-window form's
 		// "跨窗取最大", so the R3 cross-thread probe anchors on its ")" prefix
 		// — ")取最大" matches the R3 tag only.
-		runtimeTraceProjMarkMergedMax: {")取最大", ") max"},
+		// WF-xn (§29.52.1): the R3 form leads with the thread-count word —
+		// 「N线程取最大(」 zh / "-thread max(" en; neither is a substring of
+		// the cross-window form (次跨窗取最大 / cross-window max).
+		runtimeTraceProjMarkMergedMax: {"线程取最大(", "-thread max("},
 		// §11-N2 ×N 第四式: the cross-query-window union form's ")union" suffix
 		// is the stable language-neutral token (the ") max" precedent) — the
 		// plain sum form never carries it.
 		runtimeTraceProjMarkMergedUnion: {")union", ")union"},
 		// §21 CWD ×N 第五式: the overlapping-query-window MAX form's suffix
 		// tokens (zh form word / en ") cross-window max" suffix).
-		runtimeTraceProjMarkMergedWindowMax: {"跨窗取最大", ") cross-window max"},
+		runtimeTraceProjMarkMergedWindowMax: {"次跨窗取最大(", " cross-window max("},
 		// §21.1 CWD-2 ① (huadong E19): the multi-window merged row's fence
 		// manifestation is the ABSENCE of the % cell — no positive fence
 		// token exists, so no fence probe; direction A (mark ⇔ legend entry)

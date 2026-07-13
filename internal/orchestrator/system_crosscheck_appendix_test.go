@@ -61,7 +61,7 @@ func TestSystemCrossCheckAppendixRendersFindings(t *testing.T) {
 	}
 	body := atts[0].Body
 	for _, want := range []string{
-		"以下为系统机械交叉核对结果，供参考，可能存在误报；以正文与证据为准。",
+		"以下为系统对正文中出现的实体/数值的 typed 事实对照，供交叉核验；系统不判定正文正误。",
 		"45.123ms",
 		"made_up_snake_token",
 		"未能在本报告证据面复算或定位",
@@ -185,8 +185,14 @@ func TestSystemCrossCheckAppendixMisboundZHFace(t *testing.T) {
 		t.Fatalf("expected one appendix attachment, got %+v", atts)
 	}
 	body := atts[0].Body
-	if !strings.Contains(body, "在证据面发布于窗口") || !strings.Contains(body, "但正文将其表述在窗口") {
-		t.Fatalf("the zh face must speak the binding mismatch in Chinese:\n%s", body)
+	if !strings.Contains(body, "在证据面发布于窗口") {
+		t.Fatalf("the zh face must speak the published-window fact in Chinese:\n%s", body)
+	}
+	// CR-4 修复轮方向改造: fact form only — no prose characterization.
+	for _, banned := range []string{"正文将", "正文称", "表述为"} {
+		if strings.Contains(body, banned) {
+			t.Fatalf("accusatory wording %q must not render:\n%s", banned, body)
+		}
 	}
 	if strings.Contains(body, "is published under window") {
 		t.Fatalf("the English detail sentence must not leak onto the zh face:\n%s", body)

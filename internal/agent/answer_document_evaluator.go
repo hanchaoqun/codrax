@@ -13181,7 +13181,7 @@ func traceQueryObservationDisplayLocator(ref string, span types.ObservationSpan)
 		suffix = ""
 	}
 	if span.StartTs > 0 && span.EndTs > span.StartTs {
-		return fmt.Sprintf("%s [%.3f–%.3fs]", base, span.StartTs, span.EndTs)
+		return fmt.Sprintf("%s [%.3f~%.3fs]", base, span.StartTs, span.EndTs)
 	}
 	return base + suffix
 }
@@ -13483,7 +13483,7 @@ func traceQueryObservationSupplementNotes(record types.ObservationRecord, zh boo
 		// never rewritten, and a missing/malformed note keeps the legacy token
 		// byte-identical.
 		if start, end, ok := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes); ok {
-			basis += fmt.Sprintf(" %.3fs–%.3fs", start, end)
+			basis += fmt.Sprintf(" %.3fs~%.3fs", start, end)
 		}
 		notes = append(notes, basis)
 	}

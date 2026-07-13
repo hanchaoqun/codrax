@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/tool"
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -181,6 +182,47 @@ var proseScalarWindowLengthREs = []*regexp.Regexp{
 // name-shape guards live in extractProseScalarThreadRefs.
 var proseScalarThreadTokenRE = regexp.MustCompile(`[A-Za-z_<][A-Za-z0-9_.:/<>@\-]*-[0-9]{2,7}`)
 
+// proseScalarLooseThreadRE additionally admits SINGLE-digit tails
+// ("keva-3") — never identity-grade (one digit is usually an ordinal or a
+// short alias), only PROXIMITY-grade: CR-4 复放误报 (donghu 54110): the
+// prose bound 1.354ms to 「keva-3」, a spelling the strict extractor cannot
+// see, so nearest-binding grabbed the farther JankManager-9655 and the
+// appendix mis-accused the prose. A loose name nearer to the value than
+// every strict token means the real subject may be invisible to the
+// extractor — binding claims stay silent (宁松勿严).
+var proseScalarLooseThreadRE = regexp.MustCompile(`[A-Za-z_<][A-Za-z0-9_.:/<>@\-]*-[0-9]{1,7}`)
+
+// proseScalarLooseNameNearer reports whether a loose-ONLY name token sits
+// strictly nearer to pos than strictDist.
+func proseScalarLooseNameNearer(text string, pos, strictDist int) bool {
+	for _, m := range proseScalarLooseThreadRE.FindAllStringIndex(text, -1) {
+		tok := text[m[0]:m[1]]
+		dash := strings.LastIndexByte(tok, '-')
+		if dash <= 0 || len(tok)-dash-1 >= 2 {
+			continue // strict-extractable shape — not a blind spot
+		}
+		if !strings.ContainsAny(tok[:dash], "abcdefghijklmnopqrstuvwxyz_.:/<>@") {
+			continue
+		}
+		if proseScalarPosDistance(m[0], pos) < strictDist {
+			return true
+		}
+	}
+	return false
+}
+
+// proseScalarNearestThreadDistance is the strict-token side of the loose
+// proximity guard.
+func proseScalarNearestThreadDistance(threads []proseScalarThreadRef, pos int) int {
+	best := 1 << 30
+	for _, t := range threads {
+		if d := proseScalarPosDistance(t.Pos, pos); d < best {
+			best = d
+		}
+	}
+	return best
+}
+
 // proseScalarToken is one extracted prose scalar occurrence.
 type proseScalarToken struct {
 	Raw     string // numeral as written, e.g. "46.821"
@@ -287,6 +329,74 @@ type proseScalarEvidenceRow struct {
 	// discloses 「成分含帧间空闲」 (the pacing carve-out rulings exclude that
 	// time from 阻塞 accounting; a sum silently re-admitting it misleads).
 	pacing bool
+	// caliber (CR-4 臂5, 2026-07-12) classifies the row's value caliber for
+	// the cross-caliber sum disclosure — the 132.041 witness stitched a
+	// cpu·ms occupancy figure onto a per-CPU thread-time figure. Values:
+	// "" (wall clock / undetermined), proseScalarCaliberCPUMS,
+	// proseScalarCaliberThreadCPULoad, proseScalarCaliberCountEquiv,
+	// proseScalarCaliberScore. Sources are typed where available (registry
+	// additivity via the record's token, the thread_cpu_load predicate) and
+	// the engine's own printed unit words on text rows ("cpu·ms",
+	// 计数当量, 综合评分) otherwise.
+	caliber string
+}
+
+// CR-4 臂5 caliber classes.
+const (
+	proseScalarCaliberCPUMS         = "cpu_ms"
+	proseScalarCaliberThreadCPULoad = "thread_cpu_load"
+	proseScalarCaliberCountEquiv    = "count_equiv"
+	proseScalarCaliberScore         = "score"
+)
+
+// proseScalarCaliberLabel renders a caliber class for the disclosure line.
+func proseScalarCaliberLabel(caliber string, zh bool) string {
+	switch caliber {
+	case proseScalarCaliberCPUMS:
+		if zh {
+			return "cpu·ms 跨核占用"
+		}
+		return "cpu·ms occupancy"
+	case proseScalarCaliberThreadCPULoad:
+		if zh {
+			return "单核线程时间 ms"
+		}
+		return "per-CPU thread time ms"
+	case proseScalarCaliberCountEquiv:
+		if zh {
+			return "计数当量"
+		}
+		return "count equivalent"
+	case proseScalarCaliberScore:
+		if zh {
+			return "综合评分"
+		}
+		return "composite score"
+	}
+	if zh {
+		return "墙钟 ms"
+	}
+	return "wall-clock ms"
+}
+
+// proseScalarTextCaliber reads the engine's printed unit words off a text
+// row ("running=96.081cpu·ms", 计数当量, 综合评分). Empty = wall/unknown.
+func proseScalarTextCaliber(texts ...string) string {
+	for _, text := range texts {
+		if text == "" {
+			continue
+		}
+		if strings.Contains(text, "cpu·ms") {
+			return proseScalarCaliberCPUMS
+		}
+		if strings.Contains(text, "计数当量") || strings.Contains(text, "count equivalent") {
+			return proseScalarCaliberCountEquiv
+		}
+		if strings.Contains(text, "综合评分") || strings.Contains(text, "composite score") {
+			return proseScalarCaliberScore
+		}
+	}
+	return ""
 }
 
 // proseScalarEvidenceSet is the numeric membership pool plus the
@@ -664,12 +774,13 @@ func buildProseScalarEvidenceSet(doc *types.AnswerDocumentV2, mut *types.Mutable
 			}
 			row.windows = append(row.windows, extractProseScalarWindowRefs(text)...)
 			row.threads = append(row.threads, extractProseScalarThreadRefs(text)...)
-			for _, cref := range extractProseScalarConfidenceRefs(text) {
-				if len(row.confidences) < proseScalarRowValueCap {
-					row.confidences = append(row.confidences, cref.Value)
-				}
-			}
 		}
+		// CR-4 臂6 carrier hygiene (2026-07-12; 56249/91951 forensics): row
+		// confidences come ONLY from the typed record.Confidence injection
+		// below — text-parsed confidences off system-index audit lines
+		// ("- **E35** — … rank=3 · confidence=0.91…", a thread-silent row)
+		// structurally muted the (subject, confidence) binding arm on every
+		// real trace run (any thread-silent carrier silences the claim).
 		// PSG-2H thread-entity face: every extracted spelling and tid
 		// joins the run-level sets BEFORE the per-row cap truncation, so
 		// a thread published on a wide row still grounds the prose.
@@ -689,6 +800,9 @@ func buildProseScalarEvidenceSet(doc *types.AnswerDocumentV2, mut *types.Mutable
 		if len(row.values) == 0 && len(row.windows) == 0 && len(row.threads) == 0 {
 			return
 		}
+		// CR-4 臂5: default caliber off the engine's own printed unit words;
+		// the record loop below overrides with typed classification.
+		row.caliber = proseScalarTextCaliber(texts...)
 		for _, w := range row.windows {
 			if w.LengthMS <= 0 {
 				continue
@@ -750,8 +864,11 @@ func buildProseScalarEvidenceSet(doc *types.AnswerDocumentV2, mut *types.Mutable
 		texts := []string{record.Value, record.Subject, record.Object, record.Summary, record.RawExcerpt}
 		texts = append(texts, record.RichNotes...)
 		texts = append(texts, record.SurfaceTerms...)
-		// CR-2 组④ F-2③: the record's own typed confidence joins its row
-		// (formatted through the same text extractor — one parse path).
+		// CR-2 组④ F-2③: the record's own typed confidence joins its row.
+		// CR-4 臂6 (2026-07-12): set DIRECTLY from the typed field — the
+		// former text-injection + re-parse path is retired with the addRow
+		// text parser (see the carrier-hygiene note there); the numeral
+		// still joins the membership pool through the injected text.
 		if record.Confidence > 0 {
 			texts = append(texts, fmt.Sprintf("confidence=%.2f", record.Confidence))
 		}
@@ -762,8 +879,19 @@ func buildProseScalarEvidenceSet(doc *types.AnswerDocumentV2, mut *types.Mutable
 			strings.TrimSpace(record.Predicate) == "pacing_idle"
 		before := len(set.rows)
 		addRow(texts...)
-		if pacingRow && len(set.rows) > before {
-			set.rows[len(set.rows)-1].pacing = true
+		if len(set.rows) > before {
+			if pacingRow {
+				set.rows[len(set.rows)-1].pacing = true
+			}
+			if record.Confidence > 0 {
+				set.rows[len(set.rows)-1].confidences = append(set.rows[len(set.rows)-1].confidences, record.Confidence)
+			}
+			// CR-4 臂5: typed caliber classification wins over the text
+			// default (registry additivity via the record's token, the
+			// thread_cpu_load predicate, the score unit).
+			if caliber := proseScalarRecordCaliber(record); caliber != "" {
+				set.rows[len(set.rows)-1].caliber = caliber
+			}
 		}
 	}
 	if doc != nil {
@@ -930,22 +1058,23 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 			tokThreads, threadFallback := threadsFor(tok.Pos)
 			tokWindows, windowFallback := windowsFor(tok.Pos)
 			sumMismatch := false
-			if tok.Value != 0 && !tok.percent() && verdict.sumOnly && len(tokThreads) > 0 {
+			looseNearer := len(tokThreads) > 0 &&
+				proseScalarLooseNameNearer(text, tok.Pos, proseScalarNearestThreadDistance(tokThreads, tok.Pos))
+			if tok.Value != 0 && !tok.percent() && verdict.sumOnly && len(tokThreads) > 0 && !looseNearer {
 				if published, bad := proseScalarSumThreadMismatch(evidence.rows, verdict.sumPairs, tokThreads, proseScalarTokenTol(tok)); bad {
 					sumMismatch = true
 					misbound = append(misbound, proseScalarFindingWithQualifiers(proseScalarBindingFinding{entry: fmt.Sprintf(
-						"%s (block %q) is a sum of values published for thread(s) %s but the prose states it for thread %s",
-						tok.label(), tok.BlockID, published,
-						proseScalarNearestThreadLabel(tokThreads, tok)),
-						entryZH: fmt.Sprintf("正文中 %s（块 %s）为线程 %s 数值之和，但正文将其表述为线程 %s 的数值",
-							tok.label(), tok.BlockID, published,
-							proseScalarNearestThreadLabel(tokThreads, tok))}, threadFallback, 0))
+						"%s (block %q) is reproducible on the evidence face as a sum of values published for thread(s) %s",
+						tok.label(), tok.BlockID, published),
+						entryZH: fmt.Sprintf("%s（块 %s）在证据面可由线程 %s 的已发布值相加复算",
+							tok.label(), tok.BlockID, published)}, threadFallback, 0))
 				}
 			}
 			if tok.Value != 0 && !tok.percent() && verdict.sumOnly && !sumMismatch && len(verdict.sumPairs) > 0 &&
 				len(advisory) < proseScalarDetailListCap && !seenSelfSummed[tok.label()] {
 				seenSelfSummed[tok.label()] = true
-				advisory = append(advisory, proseScalarSelfSumDisclosure(tok, evidence, verdict))
+				advisory = append(advisory, proseScalarSelfSumDisclosure(tok, evidence, verdict,
+					proseScalarSentenceNameParts(text, sentenceOf(tok.Pos))))
 			}
 			// PSG-2 binding arm: only audited when the unit positively
 			// names a window or a thread (句内无窗/主体 token 时不核 —
@@ -973,12 +1102,10 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 				if len(tokWindows) > 0 {
 					if published, bad := proseScalarWindowBindingMismatch(carriers, tokWindows); bad {
 						misbound = append(misbound, proseScalarFindingWithQualifiers(proseScalarBindingFinding{entry: fmt.Sprintf(
-							"%s (block %q) is published under window %s but the prose binds it to window %s",
-							tok.label(), tok.BlockID, published,
-							proseScalarNearestWindowLabel(tokWindows, tok)),
-							entryZH: fmt.Sprintf("正文中 %s（块 %s）在证据面发布于窗口 %s，但正文将其表述在窗口 %s 下",
-								tok.label(), tok.BlockID, published,
-								proseScalarNearestWindowLabel(tokWindows, tok))}, windowFallback, approxCarrier))
+							"%s (block %q) is published under window %s on the evidence face",
+							tok.label(), tok.BlockID, published),
+							entryZH: fmt.Sprintf("%s（块 %s）在证据面发布于窗口 %s",
+								tok.label(), tok.BlockID, published)}, windowFallback, approxCarrier))
 					}
 				}
 				// 修复轮 C-1② (冷读 C1 witness, 2026-07-12): PERCENT tokens
@@ -988,15 +1115,13 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 				// OS_FFRT_2_0-19627" (a real engine identity quoted onto a
 				// nonsense claim). A ratio has no thread publication of its
 				// own; the % recompute arm below keeps its window audit.
-				if len(tokThreads) > 0 && !tok.percent() {
+				if len(tokThreads) > 0 && !tok.percent() && !looseNearer {
 					if published, bad := proseScalarThreadBindingMismatch(carriers, tokThreads); bad {
 						misbound = append(misbound, proseScalarFindingWithQualifiers(proseScalarBindingFinding{entry: fmt.Sprintf(
-							"%s (block %q) is published for thread %s but the prose binds it to thread %s",
-							tok.label(), tok.BlockID, published,
-							proseScalarNearestThreadLabel(tokThreads, tok)),
-							entryZH: fmt.Sprintf("正文中 %s（块 %s）在证据面发布于线程 %s，但正文将其表述为线程 %s 的数值",
-								tok.label(), tok.BlockID, published,
-								proseScalarNearestThreadLabel(tokThreads, tok))}, threadFallback, approxCarrier))
+							"%s (block %q) is published for thread(s) %s on the evidence face",
+							tok.label(), tok.BlockID, published),
+							entryZH: fmt.Sprintf("%s（块 %s）在证据面发布于线程 %s",
+								tok.label(), tok.BlockID, published)}, threadFallback, approxCarrier))
 					}
 				}
 				continue
@@ -1007,30 +1132,63 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 			if tok.percent() && verdict.recomputeOnly && len(tokWindows) > 0 {
 				if published, bad := proseScalarRecomputeWindowMismatch(verdict.denominatorsMS, evidence.windowLengths, tokWindows, evidence.values, tok.Value, proseScalarTokenTol(tok)); bad {
 					misbound = append(misbound, proseScalarFindingWithQualifiers(proseScalarBindingFinding{entry: fmt.Sprintf(
-						"%s (block %q) recomputes only against window %s but the prose states it for window %s",
-						tok.label(), tok.BlockID, published,
-						proseScalarNearestWindowLabel(tokWindows, tok)),
-						entryZH: fmt.Sprintf("正文中 %s（块 %s）仅能按窗口 %s 复算，但正文将其表述在窗口 %s 下",
-							tok.label(), tok.BlockID, published,
-							proseScalarNearestWindowLabel(tokWindows, tok))}, windowFallback, 0))
+						"%s (block %q) recomputes only against window %s on the evidence face",
+						tok.label(), tok.BlockID, published),
+						entryZH: fmt.Sprintf("%s（块 %s）在证据面仅能按窗口 %s 复算",
+							tok.label(), tok.BlockID, published)}, windowFallback, 0))
 				}
 			}
 			// PSG-2H sum extension (§29.8) + F-2④ disclosure: both arms
 			// moved ABOVE the sentence-binding guard (修复轮 C-1 — the
 			// disclosure obligation is sentence-shape independent).
 		}
-		// CR-2 组④ F-2③ (2026-07-12) + 修复轮 R-P2-1 (复核 2026-07-12): the
-		// (subject, confidence) binding arm — a prose confidence bound to a
-		// subject none of whose rows publish it, while OTHER rows do (the
-		// 0.91 转贴 form). Precision discipline mirrors the sum arm: every
-		// carrier row must name threads, any tid agreement stays silent,
-		// thread-silent carriers stay silent (宁松勿严). R-P2-1: the finding
-		// is INFORMATION ONLY — it rides the advisory (appendix) slice like
-		// the self-sum arm, never the misbound slice (misbound feeds the
-		// ViolProseScalarUngrounded soft hint, i.e. a rewrite round —
-		// §29.47.1 soft-only zero-rewrite forbids that for this lane).
+	}
+	// CR-2 组④ F-2③ (2026-07-12) + 修复轮 R-P2-1 (复核 2026-07-12): the
+	// (subject, confidence) binding arm — a prose confidence bound to a
+	// subject none of whose rows publish it, while OTHER rows do (the
+	// 0.91 转贴 form). Precision discipline mirrors the sum arm: every
+	// carrier row must name threads, any tid agreement stays silent,
+	// thread-silent carriers stay silent (宁松勿严). R-P2-1: the finding
+	// is INFORMATION ONLY — it rides the advisory (appendix) slice like
+	// the self-sum arm, never the misbound slice (misbound feeds the
+	// ViolProseScalarUngrounded soft hint, i.e. a rewrite round —
+	// §29.47.1 soft-only zero-rewrite forbids that for this lane).
+	//
+	// CR-4 臂6 (2026-07-12, 56249/91951 两轮幽灵席 forensics): the arm scans
+	// RENDER-SHAPE units (collectModelProseBoardUnits) — in production the
+	// subject lives in a list item's Label and the confidence in its Text,
+	// so per-field scanning could never see the pair in one unit across two
+	// witness rounds. Carrier hygiene rides the typed-confidence row build.
+	scanConfidence := func(blockID, text string) {
+		if text == "" {
+			return
+		}
+		sentThreads := extractProseScalarThreadRefs(text)
+		if len(sentThreads) == 0 {
+			return
+		}
+		spans := proseSentenceSpans(text)
+		threadsFor := func(pos int) ([]proseScalarThreadRef, bool) {
+			span := [2]int{0, len(text)}
+			for _, s := range spans {
+				if pos >= s[0] && pos < s[1] {
+					span = s
+					break
+				}
+			}
+			var in []proseScalarThreadRef
+			for _, tref := range sentThreads {
+				if tref.Pos >= span[0] && tref.Pos < span[1] {
+					in = append(in, tref)
+				}
+			}
+			if len(in) > 0 {
+				return in, false
+			}
+			return sentThreads, true
+		}
 		for _, cref := range extractProseScalarConfidenceRefs(text) {
-			if confidenceScanned >= proseScalarConfidenceScanCap || len(sentThreads) == 0 {
+			if confidenceScanned >= proseScalarConfidenceScanCap {
 				break
 			}
 			confidenceScanned++
@@ -1046,6 +1204,9 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 			}
 			if nearest.TID == "" {
 				continue
+			}
+			if proseScalarLooseNameNearer(text, cref.Pos, proseScalarPosDistance(nearest.Pos, cref.Pos)) {
+				continue // a nearer loose-only name — the claimed subject may be invisible
 			}
 			dedup := fmt.Sprintf("%.2f@%s", cref.Value, nearest.TID)
 			if seenConfidence[dedup] {
@@ -1088,10 +1249,10 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 				names = append(names, p.Raw)
 			}
 			advisory = append(advisory, proseScalarFindingWithQualifiers(proseScalarBindingFinding{entry: fmt.Sprintf(
-				"confidence %.2f (block %q) is published for thread(s) %s but the prose attaches it to thread %s",
-				cref.Value, blockID, strings.Join(names, " / "), nearest.Raw),
-				entryZH: fmt.Sprintf("正文中 confidence %.2f（块 %s）在证据面发布于线程 %s，但正文将其表述为线程 %s 的置信度",
-					cref.Value, blockID, strings.Join(names, " / "), nearest.Raw)}, crefFallback, 0))
+				"confidence %.2f (block %q) is published for thread(s) %s on the evidence face",
+				cref.Value, blockID, strings.Join(names, " / ")),
+				entryZH: fmt.Sprintf("confidence %.2f（块 %s）在证据面发布于线程 %s",
+					cref.Value, blockID, strings.Join(names, " / "))}, crefFallback, 0))
 		}
 	}
 	for _, blk := range doc.Blocks {
@@ -1113,6 +1274,11 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 			}
 		}
 	}
+	// CR-4 臂6: the confidence arm walks fused render-shape units (see the
+	// scanConfidence note above).
+	for _, unit := range collectModelProseBoardUnits(doc) {
+		scanConfidence(unit.blockID, unit.text)
+	}
 	return unmatched, misbound, fabricated, advisory
 }
 
@@ -1130,7 +1296,7 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 //	④ verified components sourced from a pacing-idle publication, or whose
 //	  carrier subjects are provably disjoint, disclose
 //	  「(成分含帧间空闲/跨主体)」.
-func proseScalarSelfSumDisclosure(tok proseScalarToken, evidence proseScalarEvidenceSet, verdict proseScalarGroundingVerdict) proseScalarBindingFinding {
+func proseScalarSelfSumDisclosure(tok proseScalarToken, evidence proseScalarEvidenceSet, verdict proseScalarGroundingVerdict, sentenceNames map[string]bool) proseScalarBindingFinding {
 	tol := proseScalarTokenTol(tok)
 	// CR-3 件⑤ 伴生 (donghu 复放实证, 2026-07-12): among row-verifiable
 	// pairs, a pair whose two sides share a carrier THREAD (the physically
@@ -1140,18 +1306,32 @@ func proseScalarSelfSumDisclosure(tok proseScalarToken, evidence proseScalarEvid
 	// (0.044 + 26.444). The disclosure surface is a promise surface: an
 	// arithmetically valid but wrong formula misleads the audit (CR-2 C-1
 	// family lesson).
-	ordered := make([][2]float64, 0, len(verdict.sumPairs))
-	var crossSubject [][2]float64
+	//
+	// CR-4 复放实证 (donghu 73346, 2026-07-12): the SENTENCE-NAMED tier
+	// outranks the same-thread tier — 「keva-1/keva-3 各自的 io_wait 叠加
+	// 2.162ms」 decomposes as 0.808(keva-1) + 1.354(keva-3), a cross-subject
+	// pair the prose itself names, yet the same-thread preference picked a
+	// coincidental (0.049 + 2.113) on the target's rows and printed a wrong
+	// formula (the F-CR3-8 shape). A pair whose BOTH carrier sides match
+	// names spelled in the value's own sentence is the prose's own claimed
+	// decomposition and wins.
+	var named, sameThread, rest [][2]float64
 	for _, pair := range verdict.sumPairs {
 		aRows := proseScalarCarrierRowsForValue(evidence.rows, pair[0], tol)
 		bRows := proseScalarCarrierRowsForValue(evidence.rows, pair[1], tol)
-		if len(aRows) > 0 && len(bRows) > 0 && proseScalarCarrierSubjectsShareTID(aRows, bRows) {
-			ordered = append(ordered, pair)
-		} else {
-			crossSubject = append(crossSubject, pair)
+		switch {
+		case len(aRows) > 0 && len(bRows) > 0 &&
+			proseScalarCarriersMatchSentenceNames(aRows, sentenceNames) &&
+			proseScalarCarriersMatchSentenceNames(bRows, sentenceNames):
+			named = append(named, pair)
+		case len(aRows) > 0 && len(bRows) > 0 && proseScalarCarrierSubjectsShareTID(aRows, bRows):
+			sameThread = append(sameThread, pair)
+		default:
+			rest = append(rest, pair)
 		}
 	}
-	ordered = append(ordered, crossSubject...)
+	ordered := append(named, sameThread...)
+	ordered = append(ordered, rest...)
 	for _, pair := range ordered {
 		aRows := proseScalarCarrierRowsForValue(evidence.rows, pair[0], tol)
 		bRows := proseScalarCarrierRowsForValue(evidence.rows, pair[1], tol)
@@ -1174,10 +1354,26 @@ func proseScalarSelfSumDisclosure(tok proseScalarToken, evidence proseScalarEvid
 			suffixEN = " (" + strings.Join(qualsEN, " / ") + ")"
 			suffixZH = "（" + strings.Join(qualsZH, "/") + "）"
 		}
+		// CR-4 臂5 (2026-07-12; 132.041 witness = 96.081 cpu·ms occupancy +
+		// 35.960 per-CPU thread time): when the two verified sides carry
+		// DIFFERENT determinate calibers, the disclosure states the
+		// cross-caliber stitch explicitly — different calibers never add
+		// directly. Both sides must be typed-determinate (unanimous carrier
+		// caliber); any undetermined side keeps the plain self-sum wording
+		// (宁松勿严).
+		aCal := proseScalarSideCaliber(aRows)
+		bCal := proseScalarSideCaliber(bRows)
+		if aCal != bCal && aCal != "" && bCal != "" {
+			return proseScalarBindingFinding{entry: fmt.Sprintf(
+				"%s (block %q) is not itself published on the evidence face; if read as the sum %.3f [%s] + %.3f [%s], the two sides carry DIFFERENT calibers, which never add directly%s",
+				tok.label(), tok.BlockID, aVal, proseScalarCaliberLabel(aCal, false), bVal, proseScalarCaliberLabel(bCal, false), suffixEN),
+				entryZH: fmt.Sprintf("%s（块 %s）未在证据面单独发布；若为 %.3f[%s] + %.3f[%s] 之和，两侧口径不同，不可直接相加%s",
+					tok.label(), tok.BlockID, aVal, proseScalarCaliberLabel(aCal, true), bVal, proseScalarCaliberLabel(bCal, true), suffixZH)}
+		}
 		return proseScalarBindingFinding{entry: fmt.Sprintf(
-			"%s (block %q) is the sum of published values %.3f + %.3f, not itself an engine-published value%s",
+			"%s (block %q) is not itself published on the evidence face; it is reproducible as the sum of published values %.3f + %.3f%s",
 			tok.label(), tok.BlockID, aVal, bVal, suffixEN),
-			entryZH: fmt.Sprintf("正文中 %s（块 %s）为文中自行加和（%.3f + %.3f），非引擎发布值%s",
+			entryZH: fmt.Sprintf("%s（块 %s）未在证据面单独发布；可由已发布值 %.3f + %.3f 复算%s",
 				tok.label(), tok.BlockID, aVal, bVal, suffixZH)}
 	}
 	// ③ degraded form: the value grounded only through unprovable pool pairs
@@ -1185,7 +1381,114 @@ func proseScalarSelfSumDisclosure(tok proseScalarToken, evidence proseScalarEvid
 	return proseScalarBindingFinding{entry: fmt.Sprintf(
 		"%s (block %q) could not be re-derived on this report's evidence surfaces",
 		tok.label(), tok.BlockID),
-		entryZH: fmt.Sprintf("正文中 %s（块 %s）未能在证据面复算", tok.label(), tok.BlockID)}
+		entryZH: fmt.Sprintf("%s（块 %s）未能在证据面复算", tok.label(), tok.BlockID)}
+}
+
+// proseScalarRecordCaliber classifies a ledger record's value caliber from
+// TYPED fields only (CR-4 臂5): the causal-token registry additivity of the
+// record's token (type= note, else the rank-row Object, else the
+// Predicate), the thread_cpu_load observation predicate, and the score
+// unit. Empty = per-thread wall clock / undetermined.
+func proseScalarRecordCaliber(record types.ObservationRecord) string {
+	if strings.TrimSpace(record.Predicate) == "thread_cpu_load" {
+		return proseScalarCaliberThreadCPULoad
+	}
+	if strings.TrimSpace(record.Unit) == "score" {
+		return proseScalarCaliberScore
+	}
+	token := ""
+	for _, note := range record.RichNotes {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(note), types.TraceNoteKeyType+"="); ok {
+			token = strings.TrimSpace(v)
+			break
+		}
+	}
+	if token == "" {
+		token = strings.TrimSpace(record.Object)
+	}
+	if token == "" {
+		token = strings.TrimSpace(record.Predicate)
+	}
+	if token == "" {
+		return ""
+	}
+	if tracequery.CausalTokenCaliberSideClass(token) == tracequery.CausalCaliberSideCompositeScore {
+		return proseScalarCaliberScore
+	}
+	if spec, ok := tracequery.CausalTokenSpecFor(token); ok {
+		switch spec.Additivity {
+		case tracequery.CausalAdditivityCrossThreadCPUms:
+			return proseScalarCaliberCPUMS
+		case tracequery.CausalAdditivityCount:
+			return proseScalarCaliberCountEquiv
+		}
+	}
+	return ""
+}
+
+// proseScalarSideCaliber resolves one sum side's caliber: the UNANIMOUS
+// caliber of every carrier row for the value (any disagreement → "" — the
+// undetermined class never asserts).
+func proseScalarSideCaliber(rows []proseScalarEvidenceRow) string {
+	caliber, first := "", true
+	for _, row := range rows {
+		if first {
+			caliber, first = row.caliber, false
+			continue
+		}
+		if row.caliber != caliber {
+			return ""
+		}
+	}
+	return caliber
+}
+
+// proseScalarSentenceNameParts collects the thread NAME spellings a sentence
+// carries — strict name-tid tokens (whole raw + name part) AND loose-only
+// single-digit-tail names ("keva-1") the strict extractor cannot see.
+func proseScalarSentenceNameParts(text string, span [2]int) map[string]bool {
+	names := map[string]bool{}
+	if span[0] < 0 || span[1] > len(text) || span[0] >= span[1] {
+		return names
+	}
+	sentence := text[span[0]:span[1]]
+	for _, m := range proseScalarLooseThreadRE.FindAllString(sentence, -1) {
+		// The token class admits '/' (binder-style names), so a slashed
+		// roster ("keva-1/keva-3") matches as ONE token — each slash
+		// segment that itself looks like name-digits joins too.
+		candidates := append([]string{m}, strings.Split(m, "/")...)
+		for _, cand := range candidates {
+			dash := strings.LastIndexByte(cand, '-')
+			if dash <= 0 {
+				continue
+			}
+			if !strings.ContainsAny(strings.ToLower(cand[:dash]), "abcdefghijklmnopqrstuvwxyz_.:/<>@") {
+				continue
+			}
+			names[cand] = true
+			names[cand[:dash]] = true
+		}
+	}
+	return names
+}
+
+// proseScalarCarriersMatchSentenceNames reports whether SOME carrier row
+// names a thread whose spelling (raw or name part) the sentence carries.
+func proseScalarCarriersMatchSentenceNames(rows []proseScalarEvidenceRow, names map[string]bool) bool {
+	if len(names) == 0 {
+		return false
+	}
+	for _, row := range rows {
+		for _, tref := range row.threads {
+			if names[tref.Raw] {
+				return true
+			}
+			if dash := strings.LastIndexByte(tref.Raw, '-'); dash > 0 && names[tref.Raw[:dash]] {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // proseScalarExactCarrierValue returns the carrier rows' own published value
@@ -1764,7 +2067,16 @@ func proseScalarThreadListLabel(threads []proseScalarThreadRef) string {
 		if len(labels) >= 2 {
 			break
 		}
-		labels = append(labels, t.Raw)
+		dup := false
+		for _, have := range labels {
+			if have == t.Raw {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			labels = append(labels, t.Raw)
+		}
 	}
 	return strings.Join(labels, " / ")
 }

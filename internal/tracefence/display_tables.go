@@ -191,6 +191,44 @@ func SectionEvidenceTitles() []string {
 	return []string{SectionEvidenceZH, SectionEvidenceEN}
 }
 
+// --- Table ⑥ WF-xn merge-count family words (§29.52.1, 2026-07-12) -------------
+//
+// The ×N semantic-overload dissolution vocabulary (裁定 §29.52.1: the same
+// ×N marker carried two meanings — instance-merge count vs thread count —
+// and 「×」 read as multiplication, 「–」 as minus, in arithmetic-dense
+// reports). The zh data tokens now spell the count meaning out:
+//
+//	instance/sum form   N次(a~b)          (en n=N(a~b))
+//	same-value form     N次同值           (en n=N same-value)
+//	cross-thread max    N线程取最大(单项a~b) (en N-thread max(each a~b))
+//	cross-window max    N次跨窗取最大(单项a~b) (en n=N cross-window max(each a~b))
+//	union form          N次(a~b)union     (en n=N(a~b)union)
+//
+// Existing caliber words (合计(共N段,同线程) / 单次最大(a~b,共N次) …) stay
+// untouched by ruling. The words below are the zh family HEADS that fuse
+// with their LEADING count digits into ONE wrap atom on the tool side
+// ("4次(…)" / "6线程取最大(…)" never break between the count and its word).
+// Longest-first inside the shared 次 prefix (matcher returns first hit).
+const (
+	MergeCountCrossWindowMaxZH = "次跨窗取最大"
+	MergeCountSameValueZH      = "次同值"
+	MergeCountUnionZH          = "次union"
+	MergeCountThreadMaxZH      = "线程取最大"
+	MergeCountOccurrenceZH     = "次"
+)
+
+// MergeCountWrapAtoms returns the zh merge-count family word heads in
+// matcher order (longest-first within the shared 次 prefix).
+func MergeCountWrapAtoms() []string {
+	return []string{
+		MergeCountCrossWindowMaxZH,
+		MergeCountSameValueZH,
+		MergeCountUnionZH,
+		MergeCountThreadMaxZH,
+		MergeCountOccurrenceZH,
+	}
+}
+
 // --- Table ⑤ aux-reference markers (§29.9) -------------------------------------
 //
 // The two auxiliary reference-block marker paragraphs the generator emits

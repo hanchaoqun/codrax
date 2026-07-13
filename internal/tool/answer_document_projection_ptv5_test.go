@@ -481,8 +481,8 @@ func TestPTV5MetricSnapshotGroupsByQueryWindow(t *testing.T) {
 	if len(items) != 2 {
 		t.Fatalf("expected both snapshot rows, got %+v", items)
 	}
-	if !strings.HasPrefix(items[0].Label, "查询窗 100.000–101.000s · early-7") ||
-		!strings.HasPrefix(items[1].Label, "查询窗 200.000–203.000s · late-9") {
+	if !strings.HasPrefix(items[0].Label, "查询窗 100.000~101.000s · early-7") ||
+		!strings.HasPrefix(items[1].Label, "查询窗 200.000~203.000s · late-9") {
 		t.Fatalf("multi-window snapshots must group by ascending record window: %+v", items)
 	}
 	// 突变形态: one distinct window → labels stay byte-identical (no prefix).
@@ -513,19 +513,19 @@ func TestPTV5GatedDetailLegendRows(t *testing.T) {
 	if detail == nil {
 		t.Fatalf("fixture must render the (a) detail table")
 	}
-	// The PTV4 fixture shows ×N sum, ×N max and ×N同值 forms → the gated
+	// The PTV4 fixture shows ×N sum, ×N max and N次同值 forms → the gated
 	// legend row lists exactly the present forms.
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: N 次合并/墙钟
 	// 不求和 → 同一(线程,原因)的 N 次实例合并/墙钟跨线程不可加和 (口径族,
 	// canonical 三面同词).
-	if !strings.Contains(detail.Text, "- ×N(a~b) = 同一(线程,原因)的 N 次实例合并,数值为总和;×N(a~b)取最大 = 跨线程折叠,数值取成员最大(墙钟跨线程不可加和);×N同值 = 同一测量重复发布,数值即那一次。") {
+	if !strings.Contains(detail.Text, "- N次(a~b) = 同一(线程,原因)的 N 次实例合并,数值为总和;N线程取最大(单项a~b) = 跨线程折叠,数值取成员最大(墙钟跨线程不可加和);N次同值 = 同一测量重复发布,数值即那一次。") {
 		t.Fatalf("×N legend row must list the present forms:\n%s", detail.Text)
 	}
 	// 突变形态: a plain projection carries neither gated row.
 	plain := runtimeTraceCausalProjectionCluster(revisit76FlatUndrillableProjection(), "zh", runtimeTraceProjUserFocus{})
 	for i := range plain {
 		if strings.HasSuffix(plain[i].ID, "_detail") {
-			if strings.Contains(plain[i].Text, "×N(a~b)") || strings.Contains(plain[i].Text, "双席") {
+			if strings.Contains(plain[i].Text, "N次(a~b)") || strings.Contains(plain[i].Text, "双席") {
 				t.Fatalf("plain tables must not grow the gated legend rows:\n%s", plain[i].Text)
 			}
 		}
@@ -629,8 +629,8 @@ func TestPTV5LegendAndIntroDropHalfEnglishRoster(t *testing.T) {
 		t.Fatalf("fixture must render both detail surfaces")
 	}
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: ×N 全部成员清单 →
-	// ×N 成员清单 (图例指路句/域B).
-	if !strings.Contains(detail.Text, "×N 成员清单") || strings.Contains(detail.Text, "全 roster") {
+	// ×N 成员清单 (图例指路句/域B); WF-xn (§29.52.1): → 合并成员清单.
+	if !strings.Contains(detail.Text, "合并成员清单") || strings.Contains(detail.Text, "全 roster") {
 		t.Fatalf("the (a) legend speaks zh for the roster pointer:\n%s", detail.Text)
 	}
 	if !strings.Contains(full.Text, "树内省略行清单") || strings.Contains(full.Text, "省略行 roster") {
@@ -730,10 +730,10 @@ func TestPTV5SnapshotPerWindowFloor(t *testing.T) {
 	items := runtimeTraceMetricSnapshotItems(cmpbSnapshotDoc(), bus)
 	var winA, winB int
 	for _, item := range items {
-		if strings.Contains(item.Label, "查询窗 100.000–101.000s") {
+		if strings.Contains(item.Label, "查询窗 100.000~101.000s") {
 			winA++
 		}
-		if strings.Contains(item.Label, "查询窗 200.000–203.000s") {
+		if strings.Contains(item.Label, "查询窗 200.000~203.000s") {
 			winB++
 		}
 	}

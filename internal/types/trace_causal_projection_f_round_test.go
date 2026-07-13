@@ -9,7 +9,7 @@ import (
 //   F2 — an R2 ×N SUM row NEVER carries DuplicatePublications: the typed
 //        contract "dup>0 ⇒ the row's value is ONE republished measurement"
 //        cannot hold on a SUM, and inheriting the group-first survivor's count
-//        once rendered the mutually-exclusive ×2同值合并(重复发布) and ×3合并
+//        once rendered the mutually-exclusive 2次同值合并(重复发布) and ×3合并
 //        labels on one row. Member dup provenance stays lossless through
 //        MergedEvidenceIDs — no second counter exists.
 //   F3 support — the R3 unknown-background fold propagates the members' typed

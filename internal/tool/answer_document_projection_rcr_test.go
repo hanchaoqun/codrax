@@ -158,7 +158,7 @@ func TestRCRCauseNodeTerminalFormsVerbatim(t *testing.T) {
 	// E5 IO event-class node — ×N on 行1, the (a~b,共N次) range + 单次最大
 	// caliber on 行3, the 影响点 roster as its own list line.
 	for _, want := range []string{
-		"⛓ IO延迟 ×6",
+		"⛓ IO延迟 6次",
 		"· IO阻塞候选·根因排序#4·置信高",
 		"· 有效归因 0.568ms = 单次最大(0.374~0.568ms,共6次)",
 		"· 影响点 udk-irq-10-90/udk-irq-2-77/udk-irq-6-84",

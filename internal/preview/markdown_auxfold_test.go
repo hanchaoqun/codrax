@@ -111,8 +111,8 @@ func TestAuxAppendixRelocatesOpendir792ReferenceBlocks(t *testing.T) {
 		"满格 = 树头标注的长度(本报告为分析窗全长)", // 时长条 leaf
 		"仅按频率比折算;真实缺口只多不少",        // last legend leaf
 		"<p>各列口径:</p>",
-		"窗口投影 = 该节点的状态落在分析窗内的时长",                 // first glossary item
-		"×N(a–b)取最大 = 跨线程折叠,数值取成员最大(墙钟跨线程不可加和)。", // last glossary item
+		"窗口投影 = 该节点的状态落在分析窗内的时长",                    // first glossary item
+		"N线程取最大(单项a~b) = 跨线程折叠,数值取成员最大(墙钟跨线程不可加和)。", // last glossary item
 	} {
 		if got := strings.Count(html, probe); got != 1 {
 			t.Fatalf("probe %q: want exactly 1 occurrence (moved, not copied), got %d", probe, got)

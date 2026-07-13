@@ -16,7 +16,7 @@ package tracequery
 //   - blocked_reason critical_blocking rows stay ZERO-duration markers
 //     attributed to the payload pid (the S+iowait thread);
 //   - no engine lane mints a cross-thread same-value duration pair for these
-//     rows — the E23 "×2(14.272–14.272ms)" form was a DISPLAY fabrication
+//     rows — the E23 "2次(14.272–14.272ms)" form was a DISPLAY fabrication
 //     (see trace_causal_projection_valueless_fold_g12_test.go), never an
 //     engine double attribution.
 

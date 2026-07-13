@@ -50,8 +50,10 @@ func TestCR3BindingHygiene_BlockFallbackQualifier(t *testing.T) {
 		t.Fatalf("block-fallback misbinding must disclose once, got %+v", misbound)
 	}
 	zh := misbound[0].userReadable("zh")
-	if !strings.Contains(zh, "70.338ms") || !strings.Contains(zh, "app-9511") {
-		t.Fatalf("finding must name the token and the misbound thread:\n%s", zh)
+	// CR-4 修复轮方向改造: fact form — the line names the value and its
+	// PUBLISHING subject (the carrier), never the prose-side binding.
+	if !strings.Contains(zh, "70.338ms") || !strings.Contains(zh, "CompThread_0-2955") {
+		t.Fatalf("finding must name the token and its publishing subject:\n%s", zh)
 	}
 	if !strings.Contains(zh, "（块内最近绑定，可能不准）") {
 		t.Fatalf("block-level fallback binding must carry the humility qualifier:\n%s", zh)

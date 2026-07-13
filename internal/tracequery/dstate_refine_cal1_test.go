@@ -206,7 +206,7 @@ func TestDStateFamilySegmentTruthDonghuE8(t *testing.T) {
 		t.Fatalf("witness account drifted (total/groups): %+v", row)
 	}
 	// TRUE single-segment range: max 3.853ms (11 raw segments), never the
-	// 16.064 group sum the pre-fix ×N(a–b) claimed as 单段.
+	// 16.064 group sum the pre-fix N次(a~b) claimed as 单段.
 	if math.Abs(row.MemberMaxMs-3.853) > 0.005 {
 		t.Fatalf("MemberMaxMs must be the true single-segment max (~3.853), got %.3f", row.MemberMaxMs)
 	}

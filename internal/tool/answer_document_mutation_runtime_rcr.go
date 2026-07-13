@@ -1151,7 +1151,7 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		}
 		row.marks.mark(runtimeTraceProjMarkEffectiveBreakdown)
 		row.marks.mark(runtimeTraceProjMarkCaliberSingleMax)
-		out.NameXNSuffix = fmt.Sprintf(" ×%d", node.MergedCount)
+		out.NameXNSuffix = runtimeTraceProjMergeCountChip(node.MergedCount, zh)
 		out.ConsumedMergedTag = true
 		out.ConsumedEffective = true
 		handled = true

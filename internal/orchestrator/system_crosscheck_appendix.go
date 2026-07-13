@@ -45,11 +45,16 @@ func systemCrossCheckAppendixTitle(lang string) string {
 	return "System Cross-check Notes"
 }
 
+// systemCrossCheckLeadIn — CR-4 修复轮方向改造 (用户裁定 2026-07-12): the
+// appendix is a FACT-JUXTAPOSITION surface — typed facts about entities and
+// values the body happens to mention, for the reader to cross-check. The
+// system does not judge the body right or wrong (the only verdict wording
+// anywhere below is pure arithmetic).
 func systemCrossCheckLeadIn(lang string) string {
 	if isChineseLang(lang) {
-		return "以下为系统机械交叉核对结果，供参考，可能存在误报；以正文与证据为准。"
+		return "以下为系统对正文中出现的实体/数值的 typed 事实对照，供交叉核验；系统不判定正文正误。"
 	}
-	return "The following are the system's mechanical cross-check results, for reference only; false positives are possible — the answer body and its evidence take precedence."
+	return "The following are typed facts about entities/values that appear in the body, for cross-checking; no judgment of the body is implied."
 }
 
 // systemCrossCheckScalarFinding renders the numeric/identity re-derivation
@@ -115,6 +120,19 @@ func (o *Orchestrator) collectSystemCrossCheckFindings() []string {
 	for i, f := range wall {
 		if i >= systemCrossCheckFindingCap {
 			out = append(out, systemCrossCheckMoreLine(lang, len(wall)-i))
+			break
+		}
+		out = append(out, f.userReadable(lang))
+	}
+	// CR-4 修复轮方向改造 (用户裁定 2026-07-12): fact juxtaposition — typed
+	// fact lines for prose-present entities plus the arithmetic-only
+	// equation verdicts (the retired claim-extraction arms' successor: the
+	// system never characterizes the prose; the reader juxtaposes).
+	// Information lane only.
+	factLines := proseFactJuxtapositionFindings(doc, o.busCtx, mut)
+	for i, f := range factLines {
+		if i >= systemCrossCheckFindingCap {
+			out = append(out, systemCrossCheckMoreLine(lang, len(factLines)-i))
 			break
 		}
 		out = append(out, f.userReadable(lang))

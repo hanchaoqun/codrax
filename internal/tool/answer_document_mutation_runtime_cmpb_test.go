@@ -294,10 +294,10 @@ func TestRuntimeTraceMetricSnapshotDisplayText_SelectedWindowEndpoints(t *testin
 		},
 	}
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 选定窗 → 查询窗;实际对齐窗 → 数据实际覆盖 (窗族;aligned clause 拆平为 ";" 并列;EN keeps "selected window" + "actual data coverage")
-	if zhText := runtimeTraceMetricSnapshotDisplayText(record, true); !strings.Contains(zhText, "窗口基准: 查询窗 3679.899s–3681.130s;实际状态段跨度(活动切片,非全窗事件覆盖): 影响 6.000ms") {
+	if zhText := runtimeTraceMetricSnapshotDisplayText(record, true); !strings.Contains(zhText, "窗口基准: 查询窗 3679.899s~3681.130s;实际状态段跨度(活动切片,非全窗事件覆盖): 影响 6.000ms") {
 		t.Fatalf("ZH snapshot basis must carry the selected-window endpoints:\n%s", zhText)
 	}
-	if enText := runtimeTraceMetricSnapshotDisplayText(record, false); !strings.Contains(enText, "window basis: selected window 3679.899s–3681.130s (actual segment span (active slice, not full-window event coverage): impact 6.000ms)") {
+	if enText := runtimeTraceMetricSnapshotDisplayText(record, false); !strings.Contains(enText, "window basis: selected window 3679.899s~3681.130s (actual segment span (active slice, not full-window event coverage): impact 6.000ms)") {
 		t.Fatalf("EN snapshot basis must carry the selected-window endpoints:\n%s", enText)
 	}
 

@@ -283,7 +283,7 @@ func TestTraceProjection730EvidenceLocatorPrefersTimeWindow(t *testing.T) {
 	md := audit730Render(t, bus, obs, "")
 	// 裁定6: basename + the node's own time window; the 800k-line range and the
 	// raw customer path stay in the raw trace_query record only.
-	if !strings.Contains(md, "berlin.systrace [6793222.031–6793225.370s]") {
+	if !strings.Contains(md, "berlin.systrace [6793222.031~6793225.370s]") {
 		t.Fatalf("evidence locator must prefer basename + time window:\n%s", md)
 	}
 	for _, banned := range []string{`D:\temp`, ":824646-1624260", "xiongqing"} {

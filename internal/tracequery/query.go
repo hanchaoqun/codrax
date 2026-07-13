@@ -1920,6 +1920,14 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	// conservative gate until their multi-input completeness is propagated.
 	workqueueContributorPIDs := map[int]bool{}
 	dmaFenceContributorPIDs := map[int]bool{}
+	// CR-4 引擎件 (2026-07-12, tieba witness: 1697 条 in-window wakeup 全部
+	// target_cpu=000): the wakeup target_cpu ALL-ZERO census. A converter
+	// degradation writes every wakeup's target_cpu as 0, silently funneling
+	// the whole cross-thread runnable backlog into "CPU0" on every
+	// target_cpu-keyed per-CPU face. Valid-parse events only (malformed
+	// values are the cpu_input_integrity module's lane).
+	wakeupTargetCPUTotal, wakeupTargetCPUZero := 0, 0
+	wakeupHeaderCPUs := map[int]bool{}
 	for _, ev := range idx.Events {
 		// CFC P0 (§7.10 VS-2c): the per-CPU frequency basis admits only genuine
 		// per-CPU samples — reclassified clock_set_rate lanes are excluded by
@@ -1950,6 +1958,15 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			continue
 		}
 		stats.EventCounts[ev.Type]++
+		if ev.Type == EventSchedWakeup || ev.Type == EventSchedWaking {
+			if cpu, ok := eventTargetCPU(ev); ok {
+				wakeupTargetCPUTotal++
+				if cpu == 0 {
+					wakeupTargetCPUZero++
+				}
+				wakeupHeaderCPUs[ev.CPU] = true
+			}
+		}
 		switch ev.Type {
 		case EventSchedSwitch:
 			if schedulerDurationsSafe {
@@ -2046,6 +2063,17 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 				hiSystemContributorPIDs[ev.PID] = true
 			}
 		}
+	}
+	// CR-4 引擎件: the all-zero verdict fires only on the PRECISE degraded
+	// shape — a large in-window wakeup population, every valid target_cpu
+	// exactly 0, while the wakeups themselves are EMITTED from ≥2 distinct
+	// CPUs (a genuine single-core trace legitimately targets cpu0 and stays
+	// silent). Typed fact, disclosure only.
+	if wakeupTargetCPUTotal >= wakeupTargetCPUDegradedFloor &&
+		wakeupTargetCPUZero == wakeupTargetCPUTotal && len(wakeupHeaderCPUs) >= 2 {
+		stats.Caveats = append(stats.Caveats, fmt.Sprintf(
+			"wakeup_target_cpu_degraded=true total=%d — every in-window sched_wakeup/sched_waking target_cpu is 0 while wakeups are emitted from %d CPUs (suspected converter degradation); per-CPU runnable/pressure accounting keyed on target_cpu is unreliable",
+			wakeupTargetCPUTotal, len(wakeupHeaderCPUs)))
 	}
 	// Scheduler carry-in: an in-window sched_switch describes the CPU state
 	// AFTER that instant, so without the last pre-window switch the first CPU

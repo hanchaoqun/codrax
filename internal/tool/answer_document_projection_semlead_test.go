@@ -92,7 +92,7 @@ func TestSemLeadOnChainSemanticFamilySingleSeatCrownedZH(t *testing.T) {
 	// wears the rank ordinal + tier word on 行2.
 	fenceRow := ""
 	for _, line := range strings.Split(md, "\n") {
-		if strings.Contains(line, "纹理上传 ×2") && strings.Contains(line, "✦") {
+		if strings.Contains(line, "纹理上传 2次") && strings.Contains(line, "✦") {
 			fenceRow = line
 			break
 		}
@@ -125,7 +125,7 @@ func TestSemLeadOnChainSemanticFamilySingleSeatCrownedZH(t *testing.T) {
 
 	// ④ 词值同源: the (a) key-metric table speaks the class word, exactly one
 	// texture row, never a member span name in the node cell.
-	tableRows := regexp.MustCompile(`(?m)^\|.*纹理上传 ×2合计.*$`).FindAllString(md, -1)
+	tableRows := regexp.MustCompile(`(?m)^\|.*纹理上传 2次合计.*$`).FindAllString(md, -1)
 	if len(tableRows) != 1 {
 		t.Fatalf("the key-metric table must seat the family exactly once with the class word, got %d:\n%s", len(tableRows), md)
 	}
@@ -578,7 +578,7 @@ func TestSemLeadPartialOverlapSingleSeatDualCaliber(t *testing.T) {
 	fenceRows := 0
 	for _, line := range strings.Split(md, "\n") {
 		if strings.Contains(line, "├─语义─") && strings.Contains(line, "✦") &&
-			strings.Contains(line, "纹理上传 ×2") {
+			strings.Contains(line, "纹理上传 2次") {
 			fenceRows++
 		}
 	}
@@ -935,7 +935,7 @@ func TestSemLeadBadgeOrdinalConsistencyRealBelowPrimary(t *testing.T) {
 	if strings.Contains(badgeBlock, "纹理上传") {
 		t.Fatalf("the semantic family (real 5.300 < 8.100) must not wear ❶ on this form:\n%s", badgeBlock)
 	}
-	tex := semLeadNodeBlockLines(md, "纹理上传 ×2")
+	tex := semLeadNodeBlockLines(md, "纹理上传 2次")
 	if len(tex) == 0 {
 		t.Fatalf("the semantic family row must stay published:\n%s", md)
 	}

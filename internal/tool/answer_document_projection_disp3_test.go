@@ -286,7 +286,7 @@ func TestDisp3RankWindowChipSurvivesMerge(t *testing.T) {
 	// EVOLUTION RECORD (UXR-1 §29.36.2, 2026-07-11): the ◇ seat's chip word
 	// is now the adjacent channel's own 邻近影响#N (禁裸/禁跨通道词) — the E22
 	// pin's substance (the rank-window chip SURVIVES the merge) is unchanged.
-	if !strings.Contains(fence, "邻近影响#2·窗6793222.700–6793222.901s") {
+	if !strings.Contains(fence, "邻近影响#2·窗6793222.700~6793222.901s") {
 		t.Fatalf("the merged ◇ seat must keep its rank-window chip (E22 回归修):\n%s", fence)
 	}
 }

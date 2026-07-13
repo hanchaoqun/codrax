@@ -182,7 +182,7 @@ func TestTraceProjectionPTV6Specimen1BackgroundRowsLeaveMainTree(t *testing.T) {
 	if strings.Contains(fence, "唤醒─") {
 		t.Fatalf("specimen replay must not draw a wake edge anywhere:\n%s", fence)
 	}
-	// UXR-1 §29.36④: the ×2同值 name chip reserve mid-truncates the subject
+	// UXR-1 §29.36④: the 2次同值 name chip reserve mid-truncates the subject
 	// head (pid tail kept) — probe the surviving identity segments.
 	if !strings.Contains(fence, "下钻─") || !strings.Contains(fence, "-59843") {
 		t.Fatalf("trunk drill row must survive:\n%s", fence)
@@ -442,8 +442,8 @@ func TestPTV6LegendWordingVerbatimPins(t *testing.T) {
 		// 修正轮 Low: no single-step percentage (transitive folds may drift
 		// beyond it); the caliber is "the largest published copy in the fold".
 		runtimeTraceProjMarkMergedDedup: {
-			"- `×N同值` = 同一测量被重复发布 N 次(边界重取样时数值可有漂移,显示取合并中的最大一次发布),数值就是那一次测量,不是 N 份。",
-			"- `×N same-value` = one measurement published N times (values may drift under boundary resampling; the display keeps the largest published copy in the fold); the value IS that single measurement, never N shares.",
+			"- `N次同值` = 同一测量被重复发布 N 次(边界重取样时数值可有漂移,显示取合并中的最大一次发布),数值就是那一次测量,不是 N 份。",
+			"- `n=N same-value` = one measurement published N times (values may drift under boundary resampling; the display keeps the largest published copy in the fold); the value IS that single measurement, never N shares.",
 		},
 		// PTV6-C ruling C (#73): the legend's pointer target moved from the
 		// intermediate trace_query record to the report's own evidence index

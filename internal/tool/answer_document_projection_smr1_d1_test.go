@@ -9,7 +9,7 @@ import (
 
 // WO-D1① (SMR-1 批 SMR-S2, smr_audit_report §②, 2026-07-12; 25846 witness):
 // T7@ZeusThreadPo-61839 rendered FIVE self seats for one sleep account —
-// E1 sleep 105.794 ×3(8.879–80.751) + root_evidence re-issues E3 80.751 /
+// E1 sleep 105.794 3次(8.879–80.751) + root_evidence re-issues E3 80.751 /
 // E5 16.164 / E6 8.879 + the ◌ missing_wakeup row carrying 80.751 — the
 // key-metric table could be summed to 292.3ms vs 真值 105.8 (2.76×). Post-fix:
 // the re-issues fold into the merged seat (member-value µs identity), the ◌

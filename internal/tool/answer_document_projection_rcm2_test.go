@@ -124,7 +124,7 @@ func TestRCM2SemanticFamilyFourLineForm(t *testing.T) {
 	// 行1: 类型词 词位 + ×N 上移 + 合计 value stem + E# (one row for the
 	// sixteen-row pre-RCM shape).
 	for _, want := range []string{
-		"✦ worker-9 · 类校验 ×14",
+		"✦ worker-9 · 类校验 14次",
 		"合计7.124ms",
 		"[E1]",
 	} {
@@ -173,7 +173,7 @@ func TestRCM2SemanticFamilyFourLineForm(t *testing.T) {
 	// EN face symmetry (行3 wording).
 	_, fenceEN := rcm2RenderFence(t, projection, false)
 	for _, want := range []string{
-		"×14",
+		"n=14",
 		"total 7.124ms",
 		"attribution 7.124ms = total (14 segments, same thread)",
 		"11 more in the detail blocks (14 members, 3 listed)",
@@ -191,7 +191,7 @@ func TestRCM2GenericInodeFamilyForm(t *testing.T) {
 	_, fence := rcm2RenderFence(t, projection, true)
 	t.Logf("opendir_78 E5/E6 witness render (zh fence):\n%s", fence)
 	for _, want := range []string{
-		"块设备IO(inode) ×2",
+		"块设备IO(inode) 2次",
 		"合计1.598ms",
 		"根因排序#3",
 		"有效归因 1.598ms = 合计(共2段,同线程)",
@@ -225,7 +225,7 @@ func TestRCM2SingleMemberSemanticDegradation(t *testing.T) {
 	if !strings.Contains(fence, "VerifyClass com.demo.Big") {
 		t.Fatalf("a single span keeps its span-name 词位:\n%s", fence)
 	}
-	for _, banned := range []string{"×14", "合计", "= 合计(", "成员 ", "背景榜位#"} {
+	for _, banned := range []string{"14次", "合计", "= 合计(", "成员 ", "背景榜位#"} {
 		if strings.Contains(fence, banned) {
 			t.Fatalf("the degenerate single-member form must not carry %q (退化不变体):\n%s", banned, fence)
 		}
@@ -335,7 +335,7 @@ func TestRCM2FifthCaliberLegendVerbatimAndAdjacency(t *testing.T) {
 	lines := strings.Split(lead, "\n")
 	maxLine, familyLine := -1, -1
 	for i, line := range lines {
-		if strings.Contains(line, "`×N(a~b)取最大`") {
+		if strings.Contains(line, "`N线程取最大(单项a~b)`") {
 			maxLine = i
 		}
 		if strings.Contains(line, "`合计(共N段,同线程)`") {
@@ -413,18 +413,18 @@ func TestRCM2CompareOptimizationCellFamilyForm(t *testing.T) {
 	projection := rcm2CmpSemanticFamilyProjection()
 	model, _ := rcm2RenderFence(t, projection, true)
 	cell := runtimeTraceProjCompareOptimizationCell(model, true)
-	want := "类校验 ×14 合计7.124ms(占其查询窗9%)"
+	want := "类校验 14次 合计7.124ms(占其查询窗9%)"
 	if cell != want {
 		t.Fatalf("确定性优化点 cell:\n got %q\nwant %q", cell, want)
 	}
 	note := runtimeTraceProjCompareOptimizationPresenceNote(model, true)
-	if !strings.Contains(note, "类校验 ×14 合计7.124ms") {
+	if !strings.Contains(note, "类校验 14次 合计7.124ms") {
 		t.Fatalf("零链括注 must share the family wording: %q", note)
 	}
 	// EN symmetry.
 	modelEN, _ := rcm2RenderFence(t, projection, false)
 	cellEN := runtimeTraceProjCompareOptimizationCell(modelEN, false)
-	if !strings.Contains(cellEN, "×14 total 7.124ms") || !strings.Contains(cellEN, "of its query window") {
+	if !strings.Contains(cellEN, "n=14 total 7.124ms") || !strings.Contains(cellEN, "of its query window") {
 		t.Fatalf("EN cell must carry the family form: %q", cellEN)
 	}
 }
@@ -440,12 +440,12 @@ func TestRCM2KeyMetricTableFamilyRow(t *testing.T) {
 	}
 	var familyCell string
 	for _, row := range rows {
-		if strings.Contains(row.Cells[0], "×2合计") {
+		if strings.Contains(row.Cells[0], "2次合计") {
 			familyCell = row.Cells[0]
 		}
 	}
 	if familyCell == "" {
-		t.Fatalf("the (a) table must carry the ×N合计 family token: %+v", rows)
+		t.Fatalf("the (a) table must carry the N次合计 family token: %+v", rows)
 	}
 	flags := runtimeTraceProjDetailTableLegendFlagsFor(model, true)
 	if !flags.family {
@@ -467,7 +467,7 @@ func TestRCM2DetailBlockFamilyStanza(t *testing.T) {
 		"家族合并: 合计(共14段,同线程)",
 		"单段 0.040~2.424ms",
 		"成员: (共14,列4)VerifyClass com.demo.Big 2.424ms;VerifyClass com.demo.Mid 1.900ms;VerifyClass com.demo.Small 0.800ms;VerifyClass com.demo.Tiny 0.500ms",
-		"家族窗: 50.000–50.079s",
+		"家族窗: 50.000~50.079s",
 	} {
 		if !strings.Contains(detail, want) {
 			t.Fatalf("detail stanza must carry %q:\n%s", want, detail)
@@ -550,7 +550,7 @@ func TestRCM2C4BlockFamilyGrouping(t *testing.T) {
 		t.Fatalf("family grouping = header + 3 member rows + counted fold, got %d rows: %+v", len(rows), rows)
 	}
 	header := rows[0].Cells
-	if header[0] != "类校验 ×14" || header[3] != "合计7.124ms" {
+	if header[0] != "类校验 14次" || header[3] != "合计7.124ms" {
 		t.Fatalf("header row must carry 类型词 ×N + 合计 cost: %+v", header)
 	}
 	if !strings.HasPrefix(rows[1].Cells[0], "· 成员 VerifyClass com.demo.Big") {
@@ -591,7 +591,7 @@ func TestRCM2FamilyXNChipSurvivesNameSqueeze(t *testing.T) {
 	node.Subject = "an-extremely-long-thread-name-that-overflows-the-cell-99123"
 	projection.WakeupPath = []string{node.Subject, "app-100"}
 	_, fence := rcm2RenderFence(t, projection, true)
-	if !strings.Contains(fence, " ×2") {
+	if !strings.Contains(fence, " 2次") {
 		t.Fatalf("the family ×N chip is grammar and survives the name squeeze:\n%s", fence)
 	}
 	if !strings.Contains(fence, "合计1.598ms") {
@@ -624,7 +624,7 @@ func TestRCM2CompareBackgroundTopRowCellFamilyForm(t *testing.T) {
 	if strings.Contains(cell, "累计(跨线程)") || strings.Contains(cell, "单项最大") {
 		t.Fatalf("F6: a family total must wear neither 累计(跨线程) nor 单项最大: %q", cell)
 	}
-	for _, want := range []string{"×14", "7.124ms", "合计(共14段,同线程)"} {
+	for _, want := range []string{"14次", "7.124ms", "合计(共14段,同线程)"} {
 		if !strings.Contains(cell, want) {
 			t.Fatalf("the family background cell must carry %q: %q", want, cell)
 		}
@@ -641,7 +641,7 @@ func TestRCM2SemanticLeadTextFamilyForm(t *testing.T) {
 		t.Fatalf("the off-chain semantic family must remain reachable through the shared optimization selector: %+v", model)
 	}
 	text := runtimeTraceProjSemanticLeadText(*node, model, true)
-	if !strings.Contains(text, "类校验 ×14 合计7.124ms") {
+	if !strings.Contains(text, "类校验 14次 合计7.124ms") {
 		t.Fatalf("the semantic-fallback conclusion must speak the family form: %q", text)
 	}
 	if strings.Contains(text, fmt.Sprintf("VerifyClass com.demo.Big %.3fms", 7.124)) {
@@ -657,7 +657,7 @@ func TestRCM2SemanticLeadTextFamilyForm(t *testing.T) {
 // ONE ×N SUM row. Pre-fix the group-first seed's FamilyMember*/caliber/roster/
 // BackgroundRank/Inode/Dev survived the fold wholesale and the render carried
 // BOTH ×N lanes (行1 「×2 合计6.598」 beside the subordinate
-// 「×3(1.598~3.000ms)」). Post-fix the merged row is a PURE R2 form: no 合计
+// 「3次(1.598~3.000ms)」). Post-fix the merged row is a PURE R2 form: no 合计
 // stem, no roster sub-rows, no seat/keys — the family lane is cleared at the
 // aggregation site (DuplicatePublications/SupplyFold precedent).
 // Mutation M-5 (verified red, then reverted): dropping the family-lane clear
@@ -719,10 +719,10 @@ func TestRCM2R2AggregateChimeraCleared(t *testing.T) {
 		t.Fatalf("CHIMERA: the R2 aggregate must clear the family lane wholesale: %+v", merged)
 	}
 	_, fence := rcm2RenderFence(t, projection, true)
-	if !strings.Contains(fence, "×3(1.000~3.598ms)") {
+	if !strings.Contains(fence, "3次(1.000~3.598ms)") {
 		t.Fatalf("the merged row keeps the pure R2 ×3 form:\n%s", fence)
 	}
-	for _, banned := range []string{"合计", "成员 ", "背景榜位", "×2"} {
+	for _, banned := range []string{"合计", "成员 ", "背景榜位", "2次合计"} {
 		if strings.Contains(fence, banned) {
 			t.Fatalf("chimera token %q must not render on the R2 fold:\n%s", banned, fence)
 		}
@@ -816,7 +816,7 @@ func TestRCM2BackgroundSeatMintableEndToEnd(t *testing.T) {
 	projection := rcm2CmpSemanticFamilyProjection()
 	projection.SemanticSpans = []types.TraceCausalProjectionNode{node}
 	_, fence := rcm2RenderFence(t, projection, true)
-	for _, want := range []string{"= 合计(共2段,同线程)", "×2"} {
+	for _, want := range []string{"= 合计(共2段,同线程)", "2次"} {
 		if !strings.Contains(fence, want) {
 			t.Fatalf("the production-minted family must render %q:\n%s", want, fence)
 		}

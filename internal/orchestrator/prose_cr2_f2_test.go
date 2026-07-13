@@ -136,8 +136,10 @@ func TestCR2F2ConfidenceBindingMismatch(t *testing.T) {
 	if hit == "" {
 		t.Fatalf("the transplanted confidence must be disclosed, got %+v", misbound)
 	}
-	if !strings.Contains(hit, "app-9511") || !strings.Contains(hit, "CompThread_0-2955") {
-		t.Fatalf("the finding must name both the claimed and the publishing subject: %s", hit)
+	// CR-4 修复轮方向改造: fact form — the line states WHERE the confidence
+	// is published; it never characterizes the prose's own binding.
+	if !strings.Contains(hit, "CompThread_0-2955") {
+		t.Fatalf("the finding must name the publishing subject: %s", hit)
 	}
 }
 

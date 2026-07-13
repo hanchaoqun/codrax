@@ -73,7 +73,10 @@ var proseDeclaredSortKeyRE = regexp.MustCompile(`按[^,。;:\n]{1,24}?(?:排序|
 // (「#N」) join the mark set — the 133933 witness board (「3. **#3 app-9511
 // … 21.153 ms**」) used both and the monotone walk saw neither. Adjacent
 // duplicate marks are harmless: value extraction skips empty segments.
-var proseOrdinalMarkRE = regexp.MustCompile(`[①②③④⑤⑥⑦⑧⑨]|#[0-9]{1,2}|(?m:^\s{0,8}[0-9]{1,2}\.\s)|(?i:rank\s*[0-9])`)
+// CR-4 臂6 (2026-07-12, 91951 witness): the 「R3:」 seat-chip form joins
+// (the SMR-1 round's ghost board used R1..R5 heads and neither regex had
+// the form).
+var proseOrdinalMarkRE = regexp.MustCompile(`[①②③④⑤⑥⑦⑧⑨]|#[0-9]{1,2}|\bR[0-9]{1,2}\b|(?m:^\s{0,8}[0-9]{1,2}\.\s)|(?i:rank\s*[0-9])`)
 
 // proseOrdinalValueRE captures the first ms value after one ordinal head.
 var proseOrdinalValueRE = regexp.MustCompile(`([0-9]+(?:\.[0-9]+)?)\s*(?:ms|毫秒)`)
@@ -184,10 +187,22 @@ func proseLexiconBoardResidualFindings(doc *types.AnswerDocumentV2, bus *types.B
 
 // scanProseLexiconBoardFindings runs the three arms and returns typed
 // findings (empty = clean).
+//
+// CR-4 臂6 unit-granularity root fix (2026-07-12; witnesses 133933 §29.49
+// F-2 + 56249/91951 两轮幽灵席复发): the board-family arms (primary claims,
+// declared-key monotone walk, seat identity) scan RENDER-SHAPE units — one
+// fused unit per block (Title + numbered "Label — Text" item lines,
+// mirroring renderV2BlockItem) — because the production board is a list
+// block whose head, chip, subject and confidence are split across Title /
+// Label / Text fields, and per-field units structurally hid every claim
+// from every arm across two witness rounds. The vocabulary arm keeps
+// per-field units (finer block-id attribution; token dedup makes the
+// granularity immaterial there).
 func scanProseLexiconBoardFindings(doc *types.AnswerDocumentV2, bus *types.BusContext, mut *types.MutableState, ledger types.ObservationLedger) []proseLexiconBoardFinding {
 	var findings []proseLexiconBoardFinding
 	vocabulary := buildProseLexiconVocabulary(doc, bus, mut, ledger)
 	prose := collectModelProseUnits(doc)
+	boardProse := collectModelProseBoardUnits(doc)
 
 	// ── P2 vocabulary arm ────────────────────────────────────────────────
 	scanned := 0
@@ -216,7 +231,7 @@ func scanProseLexiconBoardFindings(doc *types.AnswerDocumentV2, bus *types.BusCo
 	}
 
 	// ── P3a internal-contradiction arm + P3b silent-deviation arm ───────
-	claims := collectProsePrimaryClaims(prose)
+	claims := collectProsePrimaryClaims(boardProse)
 	distinct := map[string]string{} // tid → raw spelling
 	for _, claim := range claims {
 		if claim.tid != "" {
@@ -253,12 +268,12 @@ func scanProseLexiconBoardFindings(doc *types.AnswerDocumentV2, bus *types.BusCo
 	}
 
 	// ── P3-1 declared-sort-key monotonic sub-arm (§29.42.3 P3a 第二子臂) ──
-	if finding, ok := proseDeclaredKeyNonMonotonic(prose); ok {
+	if finding, ok := proseDeclaredKeyNonMonotonic(boardProse); ok {
 		findings = append(findings, finding)
 	}
 
 	// ── CR-2 组④ F-2② board-member identity gate (2026-07-12) ────────────
-	findings = append(findings, proseBoardSeatIdentityFindings(prose, ledger)...)
+	findings = append(findings, proseBoardSeatIdentityFindings(boardProse, ledger)...)
 	return findings
 }
 
@@ -266,7 +281,67 @@ func scanProseLexiconBoardFindings(doc *types.AnswerDocumentV2, bus *types.BusCo
 const proseBoardSeatCap = 4
 
 // proseBoardSeatChipRE finds prose seat chips (#N) for the identity gate.
+// EVOLUTION RECORD (CR-4 修复轮方向改造, 用户裁定 2026-07-12): the CR-4
+// R-chip / circled-digit chip extensions are RETIRED with the accusatory
+// annotation lane — the system no longer characterizes the model's prose
+// (「正文自排名次」-class judgments); ghost-seat juxtaposition now rides the
+// fact lane's 「typed 席位=…」 field (prose_fact_juxtaposition.go), which
+// needs no chip grammar at all. The original CR-2 F-2② #N gate keeps its
+// engine-chip-grammar scope unchanged.
 var proseBoardSeatChipRE = regexp.MustCompile(`#([0-9]{1,2})`)
+
+// collectModelProseBoardUnits builds RENDER-SHAPE prose units (CR-4 臂6
+// root fix): one unit per block — Title, block text, then each item as the
+// renderer's "N. Label — Text" line — so board heads, seat chips, subjects
+// and confidences that production splits across Title/Label/Text land in
+// ONE scannable unit (and one sentence where the renderer joins them with
+// an em-dash). Same block population as collectModelProseUnits.
+func collectModelProseBoardUnits(doc *types.AnswerDocumentV2) []proseTextUnit {
+	var out []proseTextUnit
+	if doc == nil {
+		return out
+	}
+	for _, blk := range doc.Blocks {
+		if proseScalarScanExemptBlock(blk) {
+			continue
+		}
+		if blk.Kind == types.BlockCaveat || blk.Kind == types.BlockDiagram {
+			continue
+		}
+		var b strings.Builder
+		if strings.TrimSpace(blk.Title) != "" {
+			b.WriteString(blk.Title)
+			b.WriteString("\n")
+		}
+		if strings.TrimSpace(blk.Text) != "" {
+			b.WriteString(blk.Text)
+			b.WriteString("\n")
+		}
+		for i, it := range blk.Items {
+			line := strings.TrimSpace(it.Label)
+			if txt := strings.TrimSpace(it.Text); txt != "" {
+				if line != "" {
+					line += " — " + txt
+				} else {
+					line = txt
+				}
+			}
+			for _, cell := range it.Cells {
+				if cell = strings.TrimSpace(cell); cell != "" {
+					line += " " + cell
+				}
+			}
+			if line == "" {
+				continue
+			}
+			fmt.Fprintf(&b, "%d. %s\n", i+1, line)
+		}
+		if text := strings.TrimSpace(b.String()); text != "" {
+			out = append(out, proseTextUnit{blockID: blk.ID, text: text})
+		}
+	}
+	return out
+}
 
 // proseBoardSeatIdentityFindings is the CR-2 组④ F-2② board-member identity
 // gate (ledger §29.49; witness 133933: prose seated #3 app-9511 / #4
@@ -278,7 +353,7 @@ var proseBoardSeatChipRE = regexp.MustCompile(`#([0-9]{1,2})`)
 // 宁松勿严: chip without a nearby thread token, tid-less bindings and
 // seatless typed boards all stay silent.
 func proseBoardSeatIdentityFindings(prose []proseTextUnit, ledger types.ObservationLedger) []proseLexiconBoardFinding {
-	seated := typedBoardSeatTIDs(ledger)
+	seated := typedBoardSeatRanks(ledger)
 	if len(seated) == 0 {
 		return nil
 	}
@@ -313,7 +388,7 @@ func proseBoardSeatIdentityFindings(prose []proseTextUnit, ledger types.Observat
 			if bound == nil || bound.TID == "" || flagged[bound.TID] {
 				continue
 			}
-			if seated[bound.TID] {
+			if len(seated[bound.TID]) > 0 {
 				continue
 			}
 			flagged[bound.TID] = true
@@ -327,11 +402,11 @@ func proseBoardSeatIdentityFindings(prose []proseTextUnit, ledger types.Observat
 	return findings
 }
 
-// typedBoardSeatTIDs collects the tids of every SEATED typed board row
-// (rank > 0, chain and adjacent channels alike — the identity gate asks
-// "does this subject hold any measured seat", not which one).
-func typedBoardSeatTIDs(ledger types.ObservationLedger) map[string]bool {
-	seated := map[string]bool{}
+// typedBoardSeatRanks collects, per tid, every SEATED typed board rank
+// (rank > 0, chain and adjacent channels alike). The identity gate asks
+// membership; the F-CR3-10(c) ordinal arm asks WHICH seat.
+func typedBoardSeatRanks(ledger types.ObservationLedger) map[string]map[int]bool {
+	seated := map[string]map[int]bool{}
 	for _, record := range ledger.Records {
 		if record.Producer != "trace_query" || !strings.Contains(record.ID, "#root_cause_rank:") {
 			continue
@@ -348,7 +423,10 @@ func typedBoardSeatTIDs(ledger types.ObservationLedger) map[string]bool {
 		}
 		for _, tref := range extractProseScalarThreadRefs(record.Subject) {
 			if tref.TID != "" {
-				seated[tref.TID] = true
+				if seated[tref.TID] == nil {
+					seated[tref.TID] = map[int]bool{}
+				}
+				seated[tref.TID][rank] = true
 			}
 		}
 	}

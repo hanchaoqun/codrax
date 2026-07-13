@@ -137,7 +137,7 @@ func TestTraceCausalProjectionFoldedLaneDoesNotWriteFamilyLane(t *testing.T) {
 // 2026-07-08): the ≥3 same-(subject,object) R2 fold's group-first seed can be
 // an engine family contender — inheriting its FamilyMember*/caliber/roster/
 // BackgroundRank/Inode/Dev wholesale minted a chimera row carrying BOTH ×N
-// lanes (one row: 行1 「×2 合计」 + subordinate 「×3(…)」 R2 tag) and let one
+// lanes (one row: 行1 「×2 合计」 + subordinate 「3次(…)」 R2 tag) and let one
 // member's inode/board seat impersonate the merge. The aggregate clears the
 // family lane unconditionally (DuplicatePublications/SupplyFold precedent).
 // Mutation M-5 (verified red, then reverted): dropping the clear block in

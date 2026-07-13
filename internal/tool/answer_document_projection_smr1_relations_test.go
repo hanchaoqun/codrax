@@ -501,6 +501,12 @@ func TestSMR1B1DisjointOccurrencesIntervalNoteAndTotal(t *testing.T) {
 	if !strings.Contains(fence, "不相交(共2段,合计 20.816ms)") {
 		t.Fatalf("the series note must render with the additive total:\n%s", fence)
 	}
+	// WF-xn B1 (§29.52.1 时间区间词面族定形): the occurrence-segment
+	// timestamps use the unified interval tilde — the en-dash form (misread
+	// as minus in arithmetic-dense reports) is retired from the time family.
+	if !strings.Contains(fence, "s~") || strings.Contains(fence, "s–") {
+		t.Fatalf("发生段 timestamps must use the tilde interval form:\n%s", fence)
+	}
 }
 
 // Overlapping same-identity occurrences are NOT the B shape — no note.
