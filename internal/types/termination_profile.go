@@ -29,20 +29,49 @@ const (
 	TerminationSchedulerStalled TerminationKind = "scheduler_stalled"
 )
 
+// TerminationFloorArm names WHICH pre-finalize floor detection degraded the
+// termination (件1, 2026-07-13). The user-facing disclosure must speak each
+// arm's own truth — the ratio arm measures a proven-evidence ratio, the
+// follow-up arm records unexecuted localization/drill-down suggestions —
+// sharing one wording produced a false statement on the follow-up arm.
+type TerminationFloorArm string
+
+const (
+	// TerminationFloorArmTier1Ratio: the Tier-1 proven-evidence ratio fell
+	// below the configured floor.
+	TerminationFloorArmTier1Ratio TerminationFloorArm = "tier1_ratio"
+	// TerminationFloorArmFollowupCoverage: the read-localizer follow-up
+	// (source localization / trace drill-down suggestions) was still open.
+	TerminationFloorArmFollowupCoverage TerminationFloorArm = "followup_coverage"
+)
+
+// NormalizeTerminationFloorArm bounds arbitrary input to the enum; empty
+// (legacy/unknown) is preserved and renders the ratio wording downstream.
+func NormalizeTerminationFloorArm(a TerminationFloorArm) TerminationFloorArm {
+	switch a {
+	case TerminationFloorArmTier1Ratio, TerminationFloorArmFollowupCoverage:
+		return a
+	default:
+		return ""
+	}
+}
+
 // TerminationProfile is the typed record of how the run reached
 // finalize plus whether the pre-finalize grounding floor had to be
-// waived. FloorDegraded=true means the Tier-1 floor failed AND no
-// remediation lane remained (budget exhausted, forced finalize, or a
-// hard stall where requeueing cannot change the evidence) — the
-// answer ships, but the degradation must be visible to the user.
+// waived. FloorDegraded=true means a floor detection failed without a
+// remediation lane — the answer ships, but the degradation must be
+// visible to the user (arm-specific wording via FloorArm).
 type TerminationProfile struct {
 	Kind TerminationKind `json:"kind"`
 
 	// FloorDegraded marks that the grounding floor failed without a
 	// remediation lane. Detail keeps the bounded diagnostic for logs
-	// and telemetry; it is NOT user-facing text.
-	FloorDegraded bool   `json:"floor_degraded,omitempty"`
-	Detail        string `json:"detail,omitempty"`
+	// and telemetry; it is NOT user-facing text. FloorArm names the
+	// detection that fired so the disclosure can speak its truth;
+	// empty means legacy/unknown and renders the ratio wording.
+	FloorDegraded bool                `json:"floor_degraded,omitempty"`
+	FloorArm      TerminationFloorArm `json:"floor_arm,omitempty"`
+	Detail        string              `json:"detail,omitempty"`
 }
 
 // NormalizeTerminationKind bounds arbitrary input to the enum,
@@ -72,13 +101,24 @@ func (m *MutableState) SetTerminationProfile(p TerminationProfile) {
 		if p.Detail == "" {
 			p.Detail = m.terminationProfile.Detail
 		}
+		if p.FloorArm == "" {
+			p.FloorArm = m.terminationProfile.FloorArm
+		}
 	}
 	m.terminationProfile = &p
 }
 
 // MarkTerminationFloorDegraded upgrades the current profile (creating
 // a normal-kind one when absent) with the floor-degradation flag.
+// Legacy entry — arm-less; the disclosure renders the ratio wording.
 func (m *MutableState) MarkTerminationFloorDegraded(detail string) {
+	m.MarkTerminationFloorDegradedArm("", detail)
+}
+
+// MarkTerminationFloorDegradedArm is the arm-aware form (件1): the caller
+// names which floor detection fired so the user-facing disclosure can speak
+// that arm's truth instead of asserting a ratio the arm never measured.
+func (m *MutableState) MarkTerminationFloorDegradedArm(arm TerminationFloorArm, detail string) {
 	if m == nil {
 		return
 	}
@@ -89,6 +129,9 @@ func (m *MutableState) MarkTerminationFloorDegraded(detail string) {
 		p = &TerminationProfile{Kind: TerminationNormal}
 	}
 	p.FloorDegraded = true
+	if a := NormalizeTerminationFloorArm(arm); a != "" {
+		p.FloorArm = a
+	}
 	if d := strings.TrimSpace(detail); d != "" {
 		p.Detail = d
 	}

@@ -24,42 +24,49 @@ import (
 //
 // Return values:
 //
-//	msg      — human-readable diagnostic suitable for pendingViolation
+//	msg      — bounded diagnostic for logs and the typed
+//	           TerminationProfile.Detail (not user-facing text)
+//	arm      — WHICH detection fired (件1): tier1_ratio /
+//	           followup_coverage; drives the arm-specific disclosure
 //	proceed  — true when the gate passes; caller continues to extract
 //	exhausted — true when the gate fails AND the retry budget has no
-//	           more room. Caller falls through to finalize fail-loud.
+//	           more room
 //
-// When proceed=false and exhausted=false, the caller is expected to
-// requeue nodes + record a retry + set pendingViolation=msg and
-// continue the main loop.
-func (o *Orchestrator) checkTier1Floor(ir *types.AnalysisIR, state *graphState) (msg string, proceed bool, exhausted bool) {
+// §29.60 + 件4 (2026-07-13): this is a DETECTION function only. On
+// proceed=false the caller routes by the completion signal — an ACCEPTED
+// model completion is terminal (mark the termination profile floor-degraded,
+// continue to finalize, degradedTerminationSystemCaveat renders the
+// arm-specific disclosure); exit paths WITHOUT any completion signal
+// (ShouldStop / idle-stop / soft-stop) keep the old bounded recovery requeue
+// via requeueTier1FloorWithoutCompletion. The removed unconditional requeue
+// loop is the endless_loop.txt witness (3 full re-collection cycles on a
+// first-pass-correct answer) and the donghu.ftrace 4/4 local budget-burn
+// shape (codrax-3afc32b5/20260713).
+func (o *Orchestrator) checkTier1Floor(ir *types.AnalysisIR, state *graphState) (msg string, arm types.TerminationFloorArm, proceed bool, exhausted bool) {
 	if followup := readLocalizerFollowupForTier1(o.busCtx, ir); followup != nil {
 		traceDrill := traceObservationDrillRetryLensActive(o.busCtx, ir)
-		logging.Info("[orchestrator] pre-finalize read localizer follow-up: reason=%s paths=%d missing_routes=%d trace_drill_lens=%v — will requeue explorer",
+		logging.Info("[orchestrator] pre-finalize read localizer follow-up: reason=%s paths=%d missing_routes=%d trace_drill_lens=%v — will disclose",
 			followup.ReasonCode, len(followup.CandidatePaths), len(followup.MissingRoutes), traceDrill)
 		msg := renderReadLocalizerFollowupRetryMessage(followup, traceDrill)
-		if exhausted := state.retryBudgetExhausted(); exhausted {
-			return msg, false, true
-		}
-		return msg, false, false
+		return msg, types.TerminationFloorArmFollowupCoverage, false, state.retryBudgetExhausted()
 	}
 	floor := tool.CurrentGroundingPolicy().Tier1Floor
 	if floor <= 0 {
-		return "", true, false
+		return "", "", true, false
 	}
 	if o.busCtx == nil || o.busCtx.Mutable == nil {
-		return "", true, false
+		return "", "", true, false
 	}
 	if tier1FloorSuppressedByRuntimeSourceAuthority(o.busCtx) {
 		logging.Info("[orchestrator] pre-finalize Tier-1 floor suppressed: reason=runtime_source_authority")
-		return "", true, false
+		return "", "", true, false
 	}
 	evidence := o.busCtx.Mutable.EmittedEvidence()
 	if len(evidence) == 0 {
 		// No evidence emitted at all — tool-only investigation
 		// (exec_command / grep-only answer). Accept; downstream
 		// absence checks will handle.
-		return "", true, false
+		return "", "", true, false
 	}
 	contract := types.BuildExactResolutionContract(ir.RequestModel)
 	stableAbsent := strings.EqualFold(strings.TrimSpace(o.busCtx.Mutable.StableInvestigationResultKind()), "absence") &&
@@ -67,23 +74,88 @@ func (o *Orchestrator) checkTier1Floor(ir *types.AnalysisIR, state *graphState) 
 	requiredFiles := types.ExactResolutionRequiredContextFiles(contract, o.busCtx.Mutable)
 	tier1, total := countTier1Evidence(evidence, contract, ir.RequestModel.Scenario, stableAbsent, requiredFiles, ir.RequestModel)
 	if total == 0 {
-		return "", true, false
+		return "", "", true, false
 	}
 	ratio := float64(tier1) / float64(total)
 	if ratio >= floor {
-		return "", true, false
+		return "", "", true, false
 	}
-	logging.Info("[orchestrator] pre-finalize Tier-1 floor: ratio=%.0f%% (%d/%d) < floor=%.0f%% — will requeue explorer",
+	logging.Info("[orchestrator] pre-finalize Tier-1 floor: ratio=%.0f%% (%d/%d) < floor=%.0f%% — will disclose",
 		ratio*100, tier1, total, floor*100)
 	var b strings.Builder
 	fmt.Fprintf(&b, "Only %.0f%% of citation anchors (%d of %d) were proven by text from files already opened; the required minimum is %.0f%%.",
 		ratio*100, tier1, total, floor*100)
 	b.WriteString(" Some anchors were recovered from indexes and may fail later citation checks — ")
 	b.WriteString("call read_file on the recovered sources before declaring the investigation complete.")
-	if exhausted := state.retryBudgetExhausted(); exhausted {
-		return b.String(), false, true
+	return b.String(), types.TerminationFloorArmTier1Ratio, false, state.retryBudgetExhausted()
+}
+
+// discloseTier1FloorGap is the §29.60 (2026-07-13) terminal handling for a
+// failed pre-finalize floor detection: model completion is terminal for
+// quality-class arms, so the scheduler no longer requeues the explore DAG,
+// resets the model's completion, or burns retry budget — it marks the typed
+// termination profile floor-degraded and continues to finalize, where
+// degradedTerminationSystemCaveat renders the user-facing disclosure.
+// Witness for the removed requeue loop: donghu.ftrace 4/4 local runs
+// (codrax-3afc32b5/20260713) burned the full RetryBudget here and shipped the
+// identical disclosure anyway; the customer endless_loop.txt burned 3 full
+// re-collection cycles whose re-anchored evidence reshaped a
+// first-pass-correct answer.
+func (o *Orchestrator) discloseTier1FloorGap(msg string, arm types.TerminationFloorArm, exhausted bool) {
+	logging.Warning("[orchestrator] pre-finalize grounding floor detected a gap; continuing to finalize with disclosure (arm=%s exhausted=%v): %s", arm, exhausted, msg)
+	if o != nil && o.busCtx != nil && o.busCtx.Mutable != nil {
+		o.busCtx.Mutable.MarkTerminationFloorDegradedArm(arm, msg)
 	}
-	return b.String(), false, false
+}
+
+// requeueTier1FloorWithoutCompletion is the 件4 (2026-07-13) recovery lane:
+// checkTier1Floor also guards explore exits that carry NO model completion
+// signal (ShouldStop / idle force-stop / soft-stop) — §29.60 rules only
+// ACCEPTED completions terminal, so on those exits the old bounded requeue
+// stays legal and useful (§29.21 CSP-RM F-1 deliberately keeps the trace
+// drill-down retry alive there; cmp_792: the answer's core attribution
+// evidence landed in exactly that retry round). Both completion signals are
+// precise typed fields; the retry count keeps the old ExecutionPolicy
+// RetryBudget bound. Returns true when it requeued (caller sets
+// pendingViolation=msg and continues the loop).
+func (o *Orchestrator) requeueTier1FloorWithoutCompletion(ir *types.AnalysisIR, state *graphState, finID string, exhausted bool) bool {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || ir == nil || state == nil {
+		return false
+	}
+	if o.busCtx.Mutable.IsInvestigationComplete() ||
+		strings.TrimSpace(o.busCtx.Mutable.StableInvestigationCompleteReason()) != "" {
+		return false
+	}
+	if exhausted {
+		return false
+	}
+	if tp := o.busCtx.Mutable.TerminationProfile(); tp != nil && tp.Kind == types.TerminationHardStall {
+		// Hard stall: the evidence fingerprint is pinned — requeueing
+		// replays the identical state and re-stalls (pre-§29.60 behavior
+		// preserved).
+		return false
+	}
+	if finID != "" {
+		state.requeue(finID)
+	}
+	for _, n := range ir.TaskGraph.Nodes {
+		if n.Type == types.NodeFinalize {
+			continue
+		}
+		if state.nodeStatus(n.ID) == nodeDone {
+			state.requeue(n.ID)
+		}
+	}
+	state.recordRetry()
+	logging.Info("[orchestrator] pre-finalize floor gap with no completion signal — bounded recovery requeue (件4)")
+	o.emit(render.Event{
+		Kind:       render.EventOrchestratorNotice,
+		Timestamp:  time.Now(),
+		Agent:      "orchestrator",
+		NoticeKind: render.NoticeRetry,
+		Reasoning:  softRetryHintMessage(o.busCtx.Language),
+	})
+	return true
 }
 
 func tier1FloorSuppressedByRuntimeSourceAuthority(busCtx *types.BusContext) bool {
@@ -111,9 +183,11 @@ func readLocalizerFollowupForTier1(busCtx *types.BusContext, ir *types.AnalysisI
 	// all produced by the retry round after the first pass landed only
 	// window_stats/window_sweep/wakeup_chain-level rows truncated by
 	// index_event_limit). While the trace drill lens is active and the typed
-	// drill DEPTH is still zero, this arm yields; convergence is bounded by
-	// the existing retry budget (depth>0 after one drill round flips the
-	// pending gate off, matching the witness's single-pass convergence).
+	// drill DEPTH is still zero, this arm yields. §29.60 件4 (2026-07-13)
+	// scope: the retry this keeps alive now exists ONLY on exit paths with
+	// no model completion signal (requeueTier1FloorWithoutCompletion,
+	// bounded by the old RetryBudget); an accepted completion turns this
+	// detection into the arm-specific disclosure instead.
 	if types.RuntimeArtifactReadSourceNavigationNotRequiredForBusContext(busCtx) &&
 		!traceDrillRetryPending(busCtx, ir) {
 		return nil

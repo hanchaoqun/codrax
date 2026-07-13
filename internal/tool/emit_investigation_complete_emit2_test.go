@@ -299,11 +299,12 @@ func emit2StateChurnSiblingResult(path, subject, window string) types.ToolResult
 }
 
 // TestEmitInvestigationComplete_WakeupChainGatePerArtifactScope pins
-// CHAIN-SCOPE (§21 维度A③(b), cmp_01 dual-trace specimen): the wakeup-family
-// exemption is scoped to the observing artifact. One trace's completed chain
-// must NOT exempt the other trace's chain_required=true debt — the owed side
-// draws the one-shot guidance, named by its own artifact basename; the same
-// artifact carrying its own chain is never gated.
+// CHAIN-SCOPE (§21 维度A③(b), cmp_01 dual-trace specimen) on the §29.60
+// advisory surface: the wakeup-family exemption is scoped to the observing
+// artifact. One trace's completed chain must NOT exempt the other trace's
+// chain_required=true debt — the owed side draws the one-shot advisory note,
+// named by its own artifact basename; the same artifact carrying its own
+// chain never draws the note. Completion always passes (§29.60 flip).
 func TestEmitInvestigationComplete_WakeupChainGatePerArtifactScope(t *testing.T) {
 	prev := CurrentGroundingPolicy()
 	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
@@ -321,7 +322,7 @@ func TestEmitInvestigationComplete_WakeupChainGatePerArtifactScope(t *testing.T)
 	ir := &types.AnalysisIR{RequestModel: types.RequestModel{Intent: types.IntentRootCause}}
 
 	// ① Dual-artifact debt: the 7.0 trace has a full wakeup chain, the 6.0
-	// trace owes one — the 7.0 chain must not waive the 6.0 obligation.
+	// trace owes one — the 7.0 chain must not waive the 6.0 note.
 	mut := types.NewMutableState("对比 bindApplication 双 trace")
 	mut.AppendDispatchToolResult(emit2WakeupFamilyResult(traceNew))
 	mut.AppendDispatchToolResult(emit2ChainRequiredResult(traceOld, "com.xs.fm.lite-21538", "8144.608000..8144.708000"))
@@ -330,26 +331,33 @@ func TestEmitInvestigationComplete_WakeupChainGatePerArtifactScope(t *testing.T)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(res.Summary, "wakeup_chain") || strings.TrimSpace(mut.InvestigationCompleteReason()) != "" {
-		t.Fatalf("①: the other artifact's chain must not exempt this artifact's chain_required debt, got: %s", res.Summary)
+	if !res.Success || strings.TrimSpace(mut.InvestigationCompleteReason()) == "" {
+		t.Fatalf("①: completion must pass (§29.60 — the arm never blocks), got: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, wakeupAdvisoryNoteMarker) {
+		t.Fatalf("①: the other artifact's chain must not exempt this artifact's chain_required debt — note must fire, got: %s", res.Summary)
 	}
 	if !strings.Contains(res.Summary, "com.xs.fm.lite-21538") ||
 		!strings.Contains(res.Summary, "6.0B138_3900.sys.systrace") {
-		t.Fatalf("①: downgrade must name the owed subject and its own trace artifact, got: %s", res.Summary)
+		t.Fatalf("①: note must name the owed subject and its own trace artifact, got: %s", res.Summary)
 	}
 	if !strings.Contains(res.Summary, "DIFFERENT trace artifact") {
-		t.Fatalf("①: dual-trace guidance must explain the per-artifact mirror obligation, got: %s", res.Summary)
+		t.Fatalf("①: dual-trace guidance must explain the per-artifact mirror scope, got: %s", res.Summary)
 	}
-	// One-shot: the second attempt passes (6.0's nudge is burned).
+	// One-shot: the second attempt passes without repeating the note (6.0's
+	// note is burned).
 	second, err := tool.Execute(bus, params)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !second.Success || strings.TrimSpace(mut.InvestigationCompleteReason()) == "" {
-		t.Fatalf("①: second attempt must pass — one nudge per artifact, got: %s", second.Summary)
+		t.Fatalf("①: second attempt must pass, got: %s", second.Summary)
+	}
+	if strings.Contains(second.Summary, wakeupAdvisoryNoteMarker) {
+		t.Fatalf("①: one note per artifact — second attempt must not repeat it, got: %s", second.Summary)
 	}
 
-	// ② Same artifact with its own chain: never gated.
+	// ② Same artifact with its own chain: never noted.
 	mut2 := types.NewMutableState("单 trace 已有链")
 	mut2.AppendDispatchToolResult(emit2WakeupFamilyResult(traceOld))
 	mut2.AppendDispatchToolResult(emit2ChainRequiredResult(traceOld, "com.xs.fm.lite-21538", "8144.608000..8144.708000"))
@@ -361,15 +369,17 @@ func TestEmitInvestigationComplete_WakeupChainGatePerArtifactScope(t *testing.T)
 	if !res2.Success || strings.TrimSpace(mut2.InvestigationCompleteReason()) == "" {
 		t.Fatalf("②: an artifact carrying its own wakeup chain must not be gated, got: %s", res2.Summary)
 	}
-	if strings.Contains(res2.Summary, "wakeup-chain drilldown") {
-		t.Fatalf("②: no downgrade text expected for a self-covered artifact, got: %s", res2.Summary)
+	if strings.Contains(res2.Summary, wakeupAdvisoryNoteMarker) {
+		t.Fatalf("②: no note expected for a self-covered artifact, got: %s", res2.Summary)
 	}
 }
 
 // TestEmitInvestigationComplete_WakeupChainGateOneShotPerArtifact pins the
-// CHAIN-SCOPE one-shot semantics (§21 维度A③(b)): each artifact gets AT MOST
-// one nudge per run (livelock guard preserved), and the one-shots are
-// independent — burning artifact A's nudge must not consume artifact B's.
+// CHAIN-SCOPE one-shot semantics (§21 维度A③(b)) on the §29.60 advisory
+// surface: each artifact gets AT MOST one note per run, and the one-shots are
+// independent — burning artifact A's note must not consume artifact B's. The
+// scan-order pick means successive completions surface successive artifacts'
+// notes; completion passes from the FIRST attempt (§29.60 flip).
 func TestEmitInvestigationComplete_WakeupChainGateOneShotPerArtifact(t *testing.T) {
 	prev := CurrentGroundingPolicy()
 	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
@@ -396,25 +406,31 @@ func TestEmitInvestigationComplete_WakeupChainGateOneShotPerArtifact(t *testing.
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	if !first.Success || strings.TrimSpace(mut.InvestigationCompleteReason()) == "" {
+		t.Fatalf("attempt 1 must pass (§29.60 — the arm never blocks), got: %s", first.Summary)
+	}
 	if !strings.Contains(first.Summary, "thread-a-1") || !strings.Contains(first.Summary, "first.systrace") {
-		t.Fatalf("attempt 1 must nudge the first owed artifact, got: %s", first.Summary)
+		t.Fatalf("attempt 1 must note the first owed artifact, got: %s", first.Summary)
 	}
 	second, err := tool.Execute(bus, params)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(second.Summary, "thread-b-2") || !strings.Contains(second.Summary, "second.systrace") {
-		t.Fatalf("attempt 2 must nudge the second artifact independently (per-artifact one-shot), got: %s", second.Summary)
+	if !second.Success {
+		t.Fatalf("attempt 2 must pass, got: %s", second.Summary)
 	}
-	if strings.TrimSpace(mut.InvestigationCompleteReason()) != "" {
-		t.Fatalf("attempts 1-2 are downgrades, completion must not be marked yet")
+	if !strings.Contains(second.Summary, "thread-b-2") || !strings.Contains(second.Summary, "second.systrace") {
+		t.Fatalf("attempt 2 must note the second artifact independently (per-artifact one-shot), got: %s", second.Summary)
 	}
 	third, err := tool.Execute(bus, params)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !third.Success || strings.TrimSpace(mut.InvestigationCompleteReason()) == "" {
-		t.Fatalf("attempt 3 must pass — every artifact's single nudge is spent, got: %s", third.Summary)
+		t.Fatalf("attempt 3 must pass, got: %s", third.Summary)
+	}
+	if strings.Contains(third.Summary, wakeupAdvisoryNoteMarker) {
+		t.Fatalf("attempt 3 must not repeat any note — every artifact's single note is spent, got: %s", third.Summary)
 	}
 }
 
@@ -442,7 +458,8 @@ func TestEmitInvestigationComplete_WakeupChainSiblingReconcileArtifactScoped(t *
 	ir := &types.AnalysisIR{RequestModel: types.RequestModel{Intent: types.IntentRootCause}}
 
 	// ① Cross-artifact sibling: overlapping window, same subject label, but
-	// observed on the OTHER trace → reconciles nothing, the downgrade fires.
+	// observed on the OTHER trace → reconciles nothing, the note fires (and
+	// completion passes — §29.60 flip).
 	mut := types.NewMutableState("跨工件假兄弟")
 	mut.AppendDispatchToolResult(emit2ChainRequiredResult(traceOld, subject, "8144.608000..8144.708000"))
 	mut.AppendDispatchToolResult(emit2StateChurnSiblingResult(traceNew, subject, "8144.000000..8145.000000"))
@@ -451,12 +468,15 @@ func TestEmitInvestigationComplete_WakeupChainSiblingReconcileArtifactScoped(t *
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(res.Summary, "wakeup_chain") || strings.TrimSpace(mut.InvestigationCompleteReason()) != "" {
-		t.Fatalf("①: a same-name thread's churn face from ANOTHER artifact must not reconcile, got: %s", res.Summary)
+	if !strings.Contains(res.Summary, wakeupAdvisoryNoteMarker) {
+		t.Fatalf("①: a same-name thread's churn face from ANOTHER artifact must not reconcile — note must fire, got: %s", res.Summary)
+	}
+	if !res.Success || strings.TrimSpace(mut.InvestigationCompleteReason()) == "" {
+		t.Fatalf("①: completion must pass (§29.60 — the arm never blocks), got: %s", res.Summary)
 	}
 
 	// ② Same-artifact sibling: identical shape observed on the SAME trace →
-	// reconciles, no downgrade (CHAIN-RECONCILE behavior preserved in-scope).
+	// reconciles, no note (CHAIN-RECONCILE behavior preserved in-scope).
 	mut2 := types.NewMutableState("同工件真兄弟")
 	mut2.AppendDispatchToolResult(emit2ChainRequiredResult(traceOld, subject, "8144.608000..8144.708000"))
 	mut2.AppendDispatchToolResult(emit2StateChurnSiblingResult(traceOld, subject, "8144.000000..8145.000000"))
@@ -465,7 +485,7 @@ func TestEmitInvestigationComplete_WakeupChainSiblingReconcileArtifactScoped(t *
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if strings.Contains(res2.Summary, "wakeup-chain drilldown") || !res2.Success ||
+	if strings.Contains(res2.Summary, wakeupAdvisoryNoteMarker) || !res2.Success ||
 		strings.TrimSpace(mut2.InvestigationCompleteReason()) == "" {
 		t.Fatalf("②: the same artifact's overlapping churn face must still reconcile, got: %s", res2.Summary)
 	}

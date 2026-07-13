@@ -217,7 +217,7 @@ func TestCheckTier1Floor_RejectMessageR6(t *testing.T) {
 	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu}}
 	ir := &types.AnalysisIR{RequestModel: types.RequestModel{Scenario: types.ScenarioGeneric}}
 	state := &graphState{}
-	msg, proceed, _ := o.checkTier1Floor(ir, state)
+	msg, _, proceed, _ := o.checkTier1Floor(ir, state)
 	if proceed {
 		t.Skip("strict policy did not reject this evidence shape; nothing to audit")
 	}
@@ -265,7 +265,7 @@ func TestCheckTier1Floor_ReadLocalizerFollowupRequeuesMissingCoverage(t *testing
 		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
 	})
 
-	msg, proceed, exhausted := o.checkTier1Floor(ir, state)
+	msg, _, proceed, exhausted := o.checkTier1Floor(ir, state)
 	if proceed || exhausted {
 		t.Fatalf("expected non-exhausted localizer retry, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}
@@ -307,7 +307,7 @@ func TestCheckTier1Floor_ReadLocalizerFollowupDemotesNavigationAfterOwnerEvidenc
 		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
 	})
 
-	msg, proceed, exhausted := o.checkTier1Floor(ir, state)
+	msg, _, proceed, exhausted := o.checkTier1Floor(ir, state)
 	if !proceed || exhausted || msg != "" {
 		t.Fatalf("navigation-only localizer debt should be advisory after owner evidence, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}
@@ -359,7 +359,7 @@ func TestCheckTier1Floor_ReadLocalizerFollowupDemotesSupportAfterPrincipalMember
 		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
 	})
 
-	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	msg, _, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
 	if !proceed || exhausted || msg != "" {
 		t.Fatalf("read-backed principal member set should suppress support/navigation localizer debt, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}
@@ -419,7 +419,7 @@ func TestCheckTier1Floor_ReadLocalizerFollowupDemotesNavigationForRelativePrinci
 		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
 	})
 
-	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	msg, _, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
 	if !proceed || exhausted || msg != "" {
 		t.Fatalf("scope-relative principal member anchors should suppress navigation-only localizer debt, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}
@@ -488,7 +488,7 @@ func TestCheckTier1Floor_ReadLocalizerFollowupDemotesCaseDriftForReadPrincipalMe
 		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
 	})
 
-	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	msg, _, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
 	if !proceed || exhausted || msg != "" {
 		t.Fatalf("case-drifted principal member anchors should match read-backed repo paths, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}
@@ -532,7 +532,7 @@ func TestCheckTier1Floor_ReadLocalizerFollowupKeepsMissingPrincipalMemberAnchor(
 		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
 	})
 
-	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	msg, _, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
 	if proceed || exhausted {
 		t.Fatalf("missing principal member anchor should still requeue, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}
@@ -563,7 +563,7 @@ func TestCheckTier1Floor_RuntimeTraceObservationOnlySkipsNavigationFollowup(t *t
 		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
 	})
 
-	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	msg, _, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
 	if !proceed || exhausted || msg != "" {
 		t.Fatalf("runtime-only trace should skip source-navigation follow-up, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}
@@ -591,7 +591,7 @@ func TestCheckTier1Floor_RuntimeTraceQueryObservationSkipsNavigationFollowupWith
 		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
 	})
 
-	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	msg, _, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
 	if !proceed || exhausted || msg != "" {
 		t.Fatalf("trace_query runtime observation should skip source-navigation follow-up, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}
@@ -636,7 +636,7 @@ func TestCheckTier1Floor_RuntimeTraceQueryObservationSkipsCurrentRepoCitationFlo
 		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
 	})
 
-	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	msg, _, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
 	if !proceed || exhausted || msg != "" {
 		t.Fatalf("runtime trace evidence must not be judged by current-source Tier-1 floor, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}
@@ -687,7 +687,7 @@ func TestCheckTier1Floor_PreciseCurrentSourceRequirementKeepsCurrentRepoCitation
 		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
 	})
 
-	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	msg, _, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
 	if proceed || exhausted || msg == "" {
 		t.Fatalf("precise current-source requirement should keep Tier-1 floor, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}
@@ -737,7 +737,7 @@ func TestCheckTier1Floor_RuntimeTraceQueryClosureSkipsMechanismDimensionRepoMapD
 		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
 	})
 
-	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	msg, _, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
 	if !proceed || exhausted || msg != "" {
 		t.Fatalf("answer-grade trace_query observations should suppress stale repo_map debt for runtime-only mechanism dimensions, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}
@@ -780,7 +780,7 @@ func TestCheckTier1Floor_RuntimeTraceQuerySoftCurrentSourceObligationDowngradesT
 		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
 	})
 
-	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	msg, _, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
 	if !proceed || exhausted || msg != "" {
 		t.Fatalf("soft typed current-source obligation with runtime proof should proceed with caveat instead of repo_map follow-up, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}
@@ -826,7 +826,7 @@ func TestCheckTier1Floor_RuntimeTraceQuerySoftCurrentSourceProfileSuppressesLoca
 		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
 	})
 
-	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	msg, _, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
 	if !proceed || exhausted || msg != "" {
 		t.Fatalf("soft current-source profile with runtime proof should proceed with caveat instead of localizer follow-up, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}
@@ -889,7 +889,7 @@ func TestCheckTier1Floor_RuntimeTraceQueryAfterTraceBlobReadSkipsLocalizer(t *te
 		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
 	})
 
-	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	msg, _, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
 	if !proceed || exhausted || msg != "" {
 		t.Fatalf("trace artifact read plus trace_query proof should not reopen localizer follow-up, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}
@@ -936,7 +936,7 @@ func TestCheckTier1Floor_SourceExcludedRuntimeIgnoresIncidentalSourceRecord(t *t
 		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
 	})
 
-	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	msg, _, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
 	if !proceed || exhausted || msg != "" {
 		t.Fatalf("source-excluded runtime closure should ignore incidental source records instead of triggering localizer, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}
@@ -964,7 +964,7 @@ func TestCheckTier1Floor_AttachedLogObservationOnlySkipsNavigationFollowup(t *te
 		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
 	})
 
-	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	msg, _, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
 	if !proceed || exhausted || msg != "" {
 		t.Fatalf("runtime-only log should skip source-navigation follow-up, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}
@@ -1006,7 +1006,7 @@ func TestCheckTier1Floor_RuntimeTraceCurrentSourceRequirementKeepsNavigationFoll
 		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
 	})
 
-	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	msg, _, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
 	if proceed || exhausted || !strings.Contains(msg, "repo_map") {
 		t.Fatalf("current-source requirement should keep navigation follow-up, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}
@@ -1041,7 +1041,7 @@ func TestCheckTier1Floor_RuntimeTraceQueryUnanchoredCurrentSourceRequirementDown
 		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
 	})
 
-	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	msg, _, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
 	if !proceed || exhausted || msg != "" {
 		t.Fatalf("trace_query with unanchored current-source requirement should proceed with caveat, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}
@@ -1077,7 +1077,7 @@ func TestCheckTier1Floor_RuntimeTraceQueryPathAnchoredCurrentSourceRequirementKe
 		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
 	})
 
-	msg, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
+	msg, _, proceed, exhausted := o.checkTier1Floor(o.busCtx.AnalysisIR, state)
 	if proceed || exhausted || !strings.Contains(msg, "repo_map") {
 		t.Fatalf("trace_query with path-anchored current-source requirement should keep navigation follow-up, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}
@@ -1135,7 +1135,7 @@ func TestCheckTier1Floor_ReadLocalizerFollowupCoveredDoesNotBlock(t *testing.T) 
 		ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 1},
 	})
 
-	msg, proceed, exhausted := o.checkTier1Floor(ir, state)
+	msg, _, proceed, exhausted := o.checkTier1Floor(ir, state)
 	if !proceed || exhausted || msg != "" {
 		t.Fatalf("covered localization/navigation should proceed, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}

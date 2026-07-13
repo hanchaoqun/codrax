@@ -337,9 +337,14 @@ func TestPartitionPendingReadsForAcceptedClosure_PrincipalSpanWaiverAdvisesStale
 		Rationale: "the pointer dispatch has no source-visible intermediate user-code node",
 	})
 	ctx := &types.BusContext{Mutable: mut}
+	// The counter-example rides a citation-class origin: after the §29.60
+	// forced-read split, coverage-class origins (primary_anchor, phase1,
+	// chain_promotion) demote unconditionally at completion, so the
+	// "must keep blocking" control needs an origin the typed routing still
+	// treats as load-bearing (grounder-reject / unknown origins).
 	pending := []types.PendingRead{
 		{File: "x.go", Origin: "auto_bridge.pre_complete.call_chain_principal_span", LineRanges: []types.LineRange{{Start: 50, End: 80}}},
-		{File: "y.go", Origin: "pre_complete.primary_anchor"},
+		{File: "y.go", Origin: "finalizer_grounder_reject"},
 	}
 
 	blocking, advisory := partitionPendingReadsForAcceptedClosure(ctx, pending, nil, nil)
@@ -347,7 +352,7 @@ func TestPartitionPendingReadsForAcceptedClosure_PrincipalSpanWaiverAdvisesStale
 		t.Fatalf("principal-span waiver should demote only stale span pending read to advisory, got blocking=%+v advisory=%+v", blocking, advisory)
 	}
 	if len(blocking) != 1 || blocking[0].File != "y.go" {
-		t.Fatalf("unrelated deterministic pending read must keep blocking, got blocking=%+v advisory=%+v", blocking, advisory)
+		t.Fatalf("citation-class pending read must keep blocking, got blocking=%+v advisory=%+v", blocking, advisory)
 	}
 }
 

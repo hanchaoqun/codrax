@@ -485,8 +485,12 @@ type MutableState struct {
 	// tool when the LLM explicitly declares that it has collected
 	// enough evidence to answer the user's question. The explorer's
 	// ShouldStop reads this flag to terminate the ReAct loop, and
-	// ParseOutput reads it to set HasEnoughFacts. Reset at the start
-	// of each explore window by ResetInvestigationComplete.
+	// ParseOutput reads it to set HasEnoughFacts. §29.60 (2026-07-13):
+	// an accepted completion is terminal — ResetInvestigationComplete
+	// runs only for explore windows whose requeue lane explicitly
+	// carries a completion reset (zero-witness retry, finalize contract
+	// backtrack, strict-policy SC requeue), never for quality-lane
+	// detections.
 	investigationComplete       bool
 	investigationCompleteReason string
 
@@ -5589,8 +5593,11 @@ func (m *MutableState) StableInvestigationCompleteReason() string {
 }
 
 // ResetInvestigationComplete clears the completion flag so a retried
-// explore window starts fresh. Called by the orchestrator before
-// each explore dispatch (alongside ExploreBudget reset).
+// explore window starts fresh. §29.60 (2026-07-13): the orchestrator
+// calls this ONLY when the window's requeue lane carries a completion
+// reset (pendingCompletionReset — zero-witness retry, finalize
+// contract backtrack, strict-policy SC requeue); an accepted model
+// completion is otherwise terminal.
 func (m *MutableState) ResetInvestigationComplete() {
 	if m == nil {
 		return

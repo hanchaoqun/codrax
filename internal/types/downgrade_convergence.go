@@ -62,6 +62,18 @@ const (
 	// (the ~13 sub-checks aggregate into this lane; the typed BlockerKey below
 	// distinguishes which sub-blocker is active).
 	DowngradeLaneContractChain DowngradeLane = "contract_chain"
+	// DowngradeLaneWakeupChainDrilldown is the wakeup-chain drilldown coverage
+	// advisory (§7.30 裁定3, softened per §29.60 2026-07-13): a census-ranked
+	// chain_required=true sleep subject on a trace artifact with no
+	// wakeup-chain-family observation. It never blocks completion — the typed
+	// detection rides the accepted closure as a gate note plus this caveat lane.
+	DowngradeLaneWakeupChainDrilldown DowngradeLane = "wakeup_chain_drilldown"
+	// DowngradeLaneForcedReadCoverage records coverage-class pending reads
+	// (phase1 / anchor / chain-promotion suggestions) demoted to advisory at
+	// an accepted completion (§29.60 forced-read split, 件2 2026-07-13). The
+	// caveat drives the user-facing "suggested files were not read"
+	// disclosure lane.
+	DowngradeLaneForcedReadCoverage DowngradeLane = "forced_read_coverage"
 )
 
 // DowngradeFingerprint is the typed, comparable identity of a single pre-complete

@@ -5991,14 +5991,18 @@ func TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadBlocks(t *testin
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
-	if !strings.Contains(res.Summary, "DOWNGRADED") {
-		t.Fatalf("expected DOWNGRADED message when top-K are unread, got: %s", res.Summary)
+	// §29.60 forced-read split flip pin (2026-07-13): phase1_unread is a
+	// coverage-class origin — it no longer blocks the model's completion.
+	// The detection survives as the bounded coverage note naming the unread
+	// suggestions, so the answer discloses instead of re-looping.
+	if !res.Success || !mut.IsInvestigationComplete() {
+		t.Fatalf("coverage-class unread suggestions must not block completion (§29.60 split), got: %s", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "propose_sub_agents.go") {
-		t.Errorf("expected unread top-K file in forced-read list, got: %s", res.Summary)
+	if !strings.Contains(res.Summary, "coverage note:") || !strings.Contains(res.Summary, "propose_sub_agents.go") {
+		t.Fatalf("accepted completion must disclose the unread coverage suggestions, got: %s", res.Summary)
 	}
-	if mut.IsInvestigationComplete() {
-		t.Errorf("InvestigationComplete must remain false on downgrade")
+	if pending := mut.EvidenceClosure().PendingReads(); len(pending) != 0 {
+		t.Fatalf("demoted coverage reads must be cleared, got %+v", pending)
 	}
 }
 
@@ -6217,11 +6221,63 @@ func TestEmitInvestigationComplete_PreCompleteCheck_HistoryCurrentExplicitCallCh
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
+	// 件3 (2026-07-13, 复核回收): the explicit-endpoint call-chain shape
+	// (typed ExactTargets ∧ PredicateAxis==call) promotes its phase1-family
+	// reads to citation class — the ranked files ARE the endpoint-proof
+	// candidates, so the pre-answer forced-read gate stays hard for this
+	// shape (the general coverage split of §29.60 remains soft elsewhere —
+	// see TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadBlocks).
 	if !strings.Contains(res.Summary, "DOWNGRADED") {
-		t.Fatalf("explicit source-to-sink history+current trace must preserve current-code forced-read gates, got: %s", res.Summary)
+		t.Fatalf("explicit source-to-sink endpoint trace must keep the phase1 forced-read gate hard (件3), got: %s", res.Summary)
 	}
 	if mut.IsInvestigationComplete() {
-		t.Fatalf("explicit endpoint call-chain should remain open until current-code evidence is gathered")
+		t.Fatalf("explicit endpoint call-chain should remain open until the endpoint reads happen")
+	}
+}
+
+// TestPartitionPendingReads_ExactCallChainEndpointShapeKeepsPhase1Blocking
+// pins the 件3 typed carve-out at the partition level: with ExactTargets
+// declared AND PredicateAxis==call, phase1-family reads stay blocking; the
+// same reads demote to advisory when either typed condition is absent.
+func TestPartitionPendingReads_ExactCallChainEndpointShapeKeepsPhase1Blocking(t *testing.T) {
+	pending := []types.PendingRead{
+		{File: "a.go", Origin: "phase1_unread"},
+		{File: "b.go", Origin: "pre_complete.phase1_unread"},
+	}
+	shapeCtx := &types.BusContext{
+		Mutable: types.NewMutableState("trace Start to Finish"),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			PredicateAxis: types.AxisCall,
+			AnalyzerHints: types.AnalyzerHints{ExactTargets: []string{"Start", "Finish"}},
+		}},
+	}
+	blocking, advisory := partitionPendingReadsForAcceptedClosure(shapeCtx, pending, nil, nil)
+	if len(blocking) != 2 || len(advisory) != 0 {
+		t.Fatalf("endpoint shape must keep phase1 reads blocking, got blocking=%+v advisory=%+v", blocking, advisory)
+	}
+
+	// Control ①: same axis, no exact targets → coverage split applies.
+	noTargets := &types.BusContext{
+		Mutable: types.NewMutableState("trace the flow"),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			PredicateAxis: types.AxisCall,
+		}},
+	}
+	blocking, advisory = partitionPendingReadsForAcceptedClosure(noTargets, pending, nil, nil)
+	if len(blocking) != 0 || len(advisory) != 2 {
+		t.Fatalf("axis without exact targets must demote phase1 reads, got blocking=%+v advisory=%+v", blocking, advisory)
+	}
+
+	// Control ②: exact targets on a non-call axis → coverage split applies.
+	noAxis := &types.BusContext{
+		Mutable: types.NewMutableState("where is Start defined"),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			AnalyzerHints: types.AnalyzerHints{ExactTargets: []string{"Start"}},
+		}},
+	}
+	blocking, advisory = partitionPendingReadsForAcceptedClosure(noAxis, pending, nil, nil)
+	if len(blocking) != 0 || len(advisory) != 2 {
+		t.Fatalf("exact targets without the call axis must demote phase1 reads, got blocking=%+v advisory=%+v", blocking, advisory)
 	}
 }
 
@@ -6729,21 +6785,15 @@ func TestEmitInvestigationComplete_PreCompleteCheck_Phase1Unread_ConfigMappingMu
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
-	if !strings.Contains(res.Summary, "DOWNGRADED") {
-		t.Fatalf("multi-anchor config_mapping should trigger phase1_unread, got: %s", res.Summary)
+	// §29.60 forced-read split flip pin (2026-07-13): the multi-anchor
+	// config_mapping detection still runs (phase1_unread raised), but the
+	// coverage-class read no longer blocks — completion passes and the
+	// unread anchor is disclosed in the coverage note.
+	if !res.Success || !mut.IsInvestigationComplete() {
+		t.Fatalf("coverage-class config anchor must not block completion (§29.60 split), got: %s", res.Summary)
 	}
-	var found bool
-	for _, pending := range closure.PendingReads() {
-		if pending.Origin == "phase1_unread" && pending.File == "internal/types/config.go" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("expected phase1_unread PendingRead for config anchor, got %+v", closure.PendingReads())
-	}
-	if mut.IsInvestigationComplete() {
-		t.Fatalf("InvestigationComplete must remain false when config anchor is unread")
+	if !strings.Contains(res.Summary, "coverage note:") || !strings.Contains(res.Summary, "internal/types/config.go") {
+		t.Fatalf("accepted completion must disclose the unread config anchor, got: %s", res.Summary)
 	}
 }
 
@@ -6778,14 +6828,14 @@ func TestEmitInvestigationComplete_PreCompleteCheck_PrimaryAnchorUnreadBlocks(t 
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
-	if !strings.Contains(res.Summary, "DOWNGRADED") {
-		t.Fatalf("expected DOWNGRADED when primary anchor is unread, got: %s", res.Summary)
+	// §29.60 forced-read split flip pin (2026-07-13): the primary-anchor
+	// suggestion is coverage-class — completion passes and the unread anchor
+	// is disclosed instead of blocking.
+	if !res.Success || !mut.IsInvestigationComplete() {
+		t.Fatalf("coverage-class primary anchor must not block completion (§29.60 split), got: %s", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "internal/tool/repomap/tool.go") {
-		t.Fatalf("expected primary anchor file in downgrade message, got: %s", res.Summary)
-	}
-	if mut.IsInvestigationComplete() {
-		t.Errorf("InvestigationComplete must remain false when primary anchor is unread")
+	if !strings.Contains(res.Summary, "coverage note:") || !strings.Contains(res.Summary, "internal/tool/repomap/tool.go") {
+		t.Fatalf("accepted completion must disclose the unread primary anchor, got: %s", res.Summary)
 	}
 }
 
@@ -8040,16 +8090,19 @@ func TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadLatchFiresOnce(t
 		"result_kind": "resolved",
 	})
 
-	// First call: gate fires, files queued, latch flips.
+	// First call: detection fires (latch flips), but per the §29.60
+	// forced-read split the coverage-class reads no longer block —
+	// completion passes with the disclosure note listing the unread files.
 	res1, err := tool.Execute(bus, params)
 	if err != nil {
 		t.Fatalf("first Execute returned error: %v", err)
 	}
-	if !strings.Contains(res1.Summary, "DOWNGRADED") {
-		t.Fatalf("first call must DOWNGRADE with top-K unread, got: %s", res1.Summary)
+	if !res1.Success || !mut.IsInvestigationComplete() {
+		t.Fatalf("first call must complete with disclosure (§29.60 split), got: %s", res1.Summary)
 	}
-	if !strings.Contains(res1.Summary, "b.go") || !strings.Contains(res1.Summary, "c.go") {
-		t.Errorf("first call summary must list unread top-K files, got: %s", res1.Summary)
+	if !strings.Contains(res1.Summary, "coverage note:") ||
+		!strings.Contains(res1.Summary, "b.go") || !strings.Contains(res1.Summary, "c.go") {
+		t.Errorf("first call summary must disclose unread top-K files, got: %s", res1.Summary)
 	}
 	if !closure.Phase1UnreadFired() {
 		t.Errorf("latch must be set after first firing")
@@ -8875,5 +8928,21 @@ func TestApplyMultiPathAnchorChecks_MultiRepoQualifiesBareAnchors(t *testing.T) 
 	}
 	if found != 2 {
 		t.Fatalf("expected two qualified multi_path_anchor pending reads, got %d: %+v", found, closure.PendingReads())
+	}
+}
+
+// TestEmitInvestigationComplete_GateNoteSlotAppendDiscipline (P3②,
+// 2026-07-13): every gate-note producer in emit_investigation_complete.go
+// must APPEND to the completion-gate note slot — a Set call overwrites and
+// silently swallows earlier advisory notes (the citation-floor breaker used
+// to clobber the anchor/coverage notes appended before it). Structural
+// source pin, mirror of the repo's other AST/string tripwires.
+func TestEmitInvestigationComplete_GateNoteSlotAppendDiscipline(t *testing.T) {
+	data, err := os.ReadFile("emit_investigation_complete.go")
+	if err != nil {
+		t.Fatalf("read source: %v", err)
+	}
+	if n := strings.Count(string(data), "SetCompletionGateNote("); n != 0 {
+		t.Fatalf("emit_investigation_complete.go has %d SetCompletionGateNote call(s); gate-note producers must use AppendCompletionGateNote (P3② slot discipline)", n)
 	}
 }

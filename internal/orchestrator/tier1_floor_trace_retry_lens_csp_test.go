@@ -214,7 +214,7 @@ func TestCheckTier1Floor_Cmp792ZeroDrillDepthFiresTraceDrillRetry(t *testing.T) 
 	}
 
 	state := newGraphState(types.TaskGraph{ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 4}})
-	msg, proceed, exhausted := o.checkTier1Floor(busCtx.AnalysisIR, state)
+	msg, _, proceed, exhausted := o.checkTier1Floor(busCtx.AnalysisIR, state)
 	if proceed || exhausted {
 		t.Fatalf("zero-drill witness shape must fire the beneficial retry (F-1), proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}
@@ -259,7 +259,7 @@ func TestCheckTier1Floor_Cmp792DrilledRankObservationSuppressesRetry(t *testing.
 
 	o := &Orchestrator{busCtx: busCtx}
 	state := newGraphState(types.TaskGraph{ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 4}})
-	msg, proceed, exhausted := o.checkTier1Floor(busCtx.AnalysisIR, state)
+	msg, _, proceed, exhausted := o.checkTier1Floor(busCtx.AnalysisIR, state)
 	if !proceed || exhausted || msg != "" {
 		t.Fatalf("drilled shape must complete without a further retry (single-pass convergence), proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}
@@ -297,7 +297,7 @@ func TestCheckTier1Floor_HonestKeepNegativeGrepFiresTraceDrillRetry(t *testing.T
 
 	o := &Orchestrator{busCtx: busCtx}
 	state := newGraphState(types.TaskGraph{ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 4}})
-	msg, proceed, exhausted := o.checkTier1Floor(busCtx.AnalysisIR, state)
+	msg, _, proceed, exhausted := o.checkTier1Floor(busCtx.AnalysisIR, state)
 	if proceed || exhausted {
 		t.Fatalf("honest keep must fire the trace-drill retry, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}
@@ -351,7 +351,7 @@ func TestCheckTier1Floor_SourceReadSessionKeepsRepoMapLensWording(t *testing.T) 
 	o := &Orchestrator{busCtx: busCtx}
 	state := newGraphState(types.TaskGraph{ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 4}})
 
-	msg, proceed, exhausted := o.checkTier1Floor(busCtx.AnalysisIR, state)
+	msg, _, proceed, exhausted := o.checkTier1Floor(busCtx.AnalysisIR, state)
 	if proceed || exhausted {
 		t.Fatalf("expected localizer retry, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}
@@ -529,7 +529,7 @@ func TestCheckTier1Floor_CurrentRepoEvidenceKeepsSourceWording(t *testing.T) {
 	o := &Orchestrator{busCtx: busCtx}
 	state := newGraphState(types.TaskGraph{ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 4}})
 
-	msg, proceed, exhausted := o.checkTier1Floor(busCtx.AnalysisIR, state)
+	msg, _, proceed, exhausted := o.checkTier1Floor(busCtx.AnalysisIR, state)
 	if proceed || exhausted {
 		t.Fatalf("expected localizer retry, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}
@@ -553,7 +553,7 @@ func TestCheckTier1Floor_MixedPreciseCurrentSourceAskKeepsSourceWording(t *testi
 	o := &Orchestrator{busCtx: busCtx}
 	state := newGraphState(types.TaskGraph{ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 4}})
 
-	msg, proceed, exhausted := o.checkTier1Floor(busCtx.AnalysisIR, state)
+	msg, _, proceed, exhausted := o.checkTier1Floor(busCtx.AnalysisIR, state)
 	if proceed || exhausted {
 		t.Fatalf("expected localizer retry, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}
@@ -617,7 +617,7 @@ func TestCheckTier1Floor_ArtifactReadKeepsTraceDrillWording(t *testing.T) {
 	}
 	o := &Orchestrator{busCtx: busCtx}
 	state := newGraphState(types.TaskGraph{ExecutionPolicy: types.ExecutionPolicy{RetryBudget: 4}})
-	msg, proceed, exhausted := o.checkTier1Floor(busCtx.AnalysisIR, state)
+	msg, _, proceed, exhausted := o.checkTier1Floor(busCtx.AnalysisIR, state)
 	if proceed || exhausted {
 		t.Fatalf("expected localizer retry, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}
@@ -641,7 +641,7 @@ func TestCheckTier1Floor_ArtifactReadKeepsTraceDrillWording(t *testing.T) {
 		ToolResults: []types.ToolResult{sourceRead},
 	})
 	o = &Orchestrator{busCtx: sourceCtx}
-	msg, proceed, exhausted = o.checkTier1Floor(sourceCtx.AnalysisIR, state)
+	msg, _, proceed, exhausted = o.checkTier1Floor(sourceCtx.AnalysisIR, state)
 	if proceed || exhausted {
 		t.Fatalf("expected localizer retry, proceed=%v exhausted=%v msg=%q", proceed, exhausted, msg)
 	}

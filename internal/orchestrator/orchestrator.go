@@ -4722,6 +4722,12 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 	var pendingStageRetry string
 	var pendingStageRetryKind types.RetryHintKind
 	var pendingValidationTargets []string
+	// pendingCompletionReset (§29.60): whether the NEXT explore-window
+	// dispatch may clear the model's accepted completion. Set only by the
+	// zero-witness retry, FallbackBackToExplore contract backtracks, and
+	// template-SC requeues (post-completion reachable only under strict
+	// policy); quality-class floor detections disclose and never set it.
+	pendingCompletionReset := false
 	lowGroundingWarned := false
 
 	if b := ir.EvidencePlan.Budget.MaxReactIters; b > 0 && b < stepBudget {
@@ -5180,10 +5186,13 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 
 			o.busCtx.PipelineStage = types.StageExplore
 			o.busCtx.TaskState.Stage = types.StageExplore
-			// Reset per-tool usage counters and investigation-complete
-			// flag so a retry window (validation_feedback requeue or
-			// contract backtrack) starts fresh.
-			o.busCtx.Mutable.ResetInvestigationComplete()
+			// §29.60: accepted completion is terminal — clear it only when
+			// the requeue lane carries a completion reset (see the
+			// pendingCompletionReset declaration for the lane list).
+			if pendingCompletionReset {
+				o.busCtx.Mutable.ResetInvestigationComplete()
+			}
+			pendingCompletionReset = false
 			if eb := o.busCtx.Mutable.ExploreBudget(); eb != nil {
 				o.busCtx.Mutable.SetExploreBudget(&types.ExploreBudget{
 					PerToolCap:  eb.PerToolCap,
@@ -5345,6 +5354,10 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 						valFailed = n
 					} else {
 						state.requeue(n.ID)
+						// Post-completion reachable only under strict policy,
+						// whose contract is that template criteria may reopen
+						// exploration after completion.
+						pendingCompletionReset = true
 					}
 				}
 				if o.finishSchedulerLocalWork(stopLocal, "success_criteria", stepsUsed) || successCriteriaErr != nil {
@@ -5352,6 +5365,20 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 						o.busCtx.TaskState.LastError = successCriteriaErr.Error()
 					}
 					return stepsUsed
+				}
+				if valFailed != nil && icComplete {
+					// §29.60: a gate-accepted completion outranks hypothesis
+					// bookkeeping — route the failed validate node through
+					// the existing inconclusive-injection escape instead of
+					// requeueing upstream evidence nodes. Unreachable under
+					// soft policy (accepted-closure boundary above); guards
+					// strict-policy and future requeue paths.
+					injected := o.injectInconclusiveForStuckHypotheses(valFailed.ID)
+					state.markDone(valFailed.ID)
+					o.emitNodeEnd(valFailed.ID, true, "")
+					logging.Info("[scheduler] validate %s short-circuited after accepted completion: injected=%d inconclusive verdict(s)",
+						valFailed.ID, injected)
+					valFailed = nil
 				}
 				if valFailed != nil {
 					// Shape-stuck detection — OR semantics across two
@@ -5444,6 +5471,9 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 							pendingValidationTargets = targets
 							state.recordRetry()
 						}
+						// Post-completion reachable only under strict policy
+						// (see the accepted-completion short-circuit above).
+						pendingCompletionReset = true
 						lastSCFailShape[valFailed.ID] = currentShape
 						lastSCFailHypProgress[valFailed.ID] = currentHyp
 					}
@@ -5510,78 +5540,33 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// failure degrades with a typed, user-visible caveat
 			// instead of requeueing.
 			o.runCompletionObligationLane(&completionLaneFired, &stepsUsed)
-			if msg, proceed, _ := o.checkTier1Floor(ir, state); !proceed {
+			if msg, arm, proceed, _ := o.checkTier1Floor(ir, state); !proceed {
 				logging.Warning("[orchestrator] grounding floor failed on forced-finalize path: %s", msg)
-				o.busCtx.Mutable.MarkTerminationFloorDegraded(msg)
+				o.busCtx.Mutable.MarkTerminationFloorDegradedArm(arm, msg)
 			}
 			break
 		}
 
-		// Pre-extract Tier-1 floor gate (session 8, log
-		// 1776446668535115555). emit_investigation_complete's Tier-1
-		// floor only fires when the LLM calls that tool. An explorer
-		// that exits via ShouldStop / idle-stop / soft-stop bypasses
-		// the tool, so pure-recovery investigations still reach Turn
-		// B. The orchestrator is the single choke point where all
-		// exit paths converge, so the same floor runs here against
-		// Mutable.EmittedEvidence() before we burn LLM calls on
-		// extract + finalize.
-		//
-		// On fail-with-budget: requeue all non-finalize explore nodes
-		// + finalize, inject the diagnostic as pendingViolation (the
-		// existing contract-backtrack retry path), record a retry
-		// tick, and continue the loop — next round builds a window
-		// that includes the "need more read_file" hint.
-		//
-		// On fail-budget-exhausted: log a warning and fall through;
-		// downstream contract check will still catch the problem and
-		// fail-loud.
+		// Pre-extract Tier-1 floor gate (session 8): the single choke point
+		// where every explore exit path (emit / ShouldStop / idle-stop /
+		// soft-stop) converges before extract + finalize burn LLM calls.
+		// §29.60 件4 (2026-07-13): an ACCEPTED model completion is terminal —
+		// the detection discloses, never requeues. Exit paths carrying NO
+		// completion signal keep the old bounded recovery requeue (§29.21
+		// CSP-RM F-1 / cmp_792) via requeueTier1FloorWithoutCompletion.
 		o.runCompletionObligationLane(&completionLaneFired, &stepsUsed)
 		stopLocal = o.startSchedulerLocalWork(types.StageFinalize, "tier1_floor")
-		msg, proceed, exhausted := o.checkTier1Floor(ir, state)
+		msg, arm, proceed, exhausted := o.checkTier1Floor(ir, state)
 		if o.finishSchedulerLocalWork(stopLocal, "tier1_floor", stepsUsed) {
 			return stepsUsed
 		}
 		if !proceed {
-			stalledTermination := false
-			if tp := o.busCtx.Mutable.TerminationProfile(); tp != nil && tp.Kind == types.TerminationHardStall {
-				// Hard stall means the evidence fingerprint is pinned:
-				// requeueing exploration replays the identical state and
-				// re-stalls. Degrade directly instead of burning retry
-				// budget on a no-op lane.
-				stalledTermination = true
-			}
-			if exhausted || stalledTermination {
-				logging.Warning("[orchestrator] pre-finalize Tier-1 floor failed without a remediation lane (exhausted=%v stalled=%v): %s", exhausted, stalledTermination, msg)
-				o.busCtx.Mutable.MarkTerminationFloorDegraded(msg)
-			} else {
-				state.requeue(fin.ID)
-				for _, n := range ir.TaskGraph.Nodes {
-					if n.Type == types.NodeFinalize {
-						continue
-					}
-					if state.nodeStatus(n.ID) == nodeDone {
-						state.requeue(n.ID)
-					}
-				}
-				state.recordRetry()
+			if o.requeueTier1FloorWithoutCompletion(ir, state, fin.ID, exhausted) {
 				pendingViolation = msg
 				investigationReadyNoticePending = false
-				// Tier-1 floor violation is semantically "we do not yet
-				// have enough evidence to build a trustworthy answer,
-				// running one more pass". The full msg (with tool-name
-				// / floor-threshold / intent-class jargon) is logged
-				// via the pendingViolation pathway and the WARN above,
-				// not leaked to the user-facing event.
-				o.emit(render.Event{
-					Kind:       render.EventOrchestratorNotice,
-					Timestamp:  time.Now(),
-					Agent:      "orchestrator",
-					NoticeKind: render.NoticeRetry,
-					Reasoning:  softRetryHintMessage(o.busCtx.Language),
-				})
 				continue
 			}
+			o.discloseTier1FloorGap(msg, arm, exhausted)
 		}
 		o.warnLowGroundingIfNeeded(ir, &lowGroundingWarned)
 
@@ -5593,6 +5578,10 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		if handled {
 			if out == nil {
 				pendingViolation = retryMsg
+				// Fatal-class zero-witness retry (§29.60): with no
+				// successful read/search/evidence result the carried
+				// completion is invalid regardless of who is right.
+				pendingCompletionReset = true
 				investigationReadyNoticePending = false
 				continue
 			}
@@ -6562,6 +6551,9 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				logging.Info("[orchestrator] selective fallback explore: requeued=%v requeued_extract=%v cleared=%v",
 					requeued, requeuedExtract, cleared)
 			}
+			// Contract backtrack: the answer slate was cleared, fresh
+			// evidence will reshape the closure — allow completion reset.
+			pendingCompletionReset = true
 			state.upstreamFallbacksUsed++
 			preFinalizeExtractCompleted = false
 			lastFallbackFinalizerOnly = false

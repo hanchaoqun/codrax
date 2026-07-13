@@ -3328,20 +3328,28 @@ func TestEmitInvestigationComplete_DowngradesResolvedExactClosureWithoutDefining
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !res.Success {
-		t.Fatalf("resolved completion without defining proof should downgrade instead of tool-rejecting: %s", res.Summary)
+	// §29.60 flip pin (2026-07-13): the defining-proof arm no longer delays
+	// closure — the typed detection rides the ACCEPTED completion as a gate
+	// note plus caveat (witness codrax-20260713-053445: the old arm burned 3
+	// identical rounds before the convergence lane let the same completion
+	// pass).
+	if !res.Success || !mut.IsInvestigationComplete() {
+		t.Fatalf("resolved completion without defining proof must be accepted with disclosure (§29.60), got: %s", res.Summary)
 	}
-	if mut.IsInvestigationComplete() {
-		t.Fatalf("downgraded resolved exact completion must not mark investigation complete")
+	if !strings.Contains(res.Summary, "proof note:") || !strings.Contains(res.Summary, "no grounded defining anchor") {
+		t.Fatalf("accepted completion must carry the defining-proof disclosure note, got: %s", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "still has no grounded defining proof") || !strings.Contains(res.Summary, "result_kind=\"absence\"") {
-		t.Fatalf("downgrade should steer either toward real defining proof or exact absence closure, got: %s", res.Summary)
+	foundCaveat := false
+	for _, c := range mut.EvidenceClosure().CompletionCaveats() {
+		if c.Lane == types.DowngradeLaneExactResolvedDefiningProof {
+			foundCaveat = true
+		}
 	}
-	if res.Repair == nil || res.Repair.Code != "exact_resolved_defining_proof" {
-		t.Fatalf("downgrade should carry exact resolved defining-proof repair, got %+v", res.Repair)
+	if !foundCaveat {
+		t.Fatalf("accepted completion must record the exact_resolved_defining_proof caveat, got %+v", mut.EvidenceClosure().CompletionCaveats())
 	}
-	if repairs := mut.EvidenceClosure().ActiveRepairs(); len(repairs) != 1 || repairs[0].Kind != types.RepairEmitEvidence {
-		t.Fatalf("downgrade should record typed repair directive, got %+v", repairs)
+	if repairs := mut.EvidenceClosure().ActiveRepairs(); len(repairs) != 0 {
+		t.Fatalf("the softened arm must not queue retry-driving repairs, got %+v", repairs)
 	}
 }
 
@@ -3385,21 +3393,16 @@ func TestEmitInvestigationComplete_ResolvedExactDefiningProofForceCompletesWithC
 	tool := &EmitInvestigationComplete{}
 	params := json.RawMessage(`{"reason":"the general mechanism is understood","confidence":"high","result_kind":"resolved"}`)
 
-	for i := 1; i <= 2; i++ {
-		res, _ := tool.Execute(bus, params)
-		if !res.Success {
-			t.Fatalf("attempt %d should downgrade without tool failure: %s", i, res.Summary)
-		}
-		if mut.IsInvestigationComplete() {
-			t.Fatalf("attempt %d should not complete before convergence threshold", i)
-		}
-	}
+	// §29.60 flip pin (2026-07-13): no convergence rounds are burned — the
+	// FIRST attempt completes and the typed caveat is recorded immediately
+	// (the old shape needed 3 identical no-progress attempts to reach the
+	// same terminal state).
 	res, _ := tool.Execute(bus, params)
 	if !res.Success {
-		t.Fatalf("threshold attempt should complete with caveat, got failure: %s", res.Summary)
+		t.Fatalf("first attempt should complete with caveat, got failure: %s", res.Summary)
 	}
 	if !mut.IsInvestigationComplete() {
-		t.Fatalf("threshold attempt should force-complete with typed caveat")
+		t.Fatalf("first attempt should complete with typed caveat (§29.60)")
 	}
 	caveats := mut.EvidenceClosure().CompletionCaveats()
 	if len(caveats) != 1 || caveats[0].Lane != types.DowngradeLaneExactResolvedDefiningProof {
@@ -7102,17 +7105,25 @@ func TestEmitInvestigationComplete_ConfigAbsenceRejectsPositiveSubstituteFromTyp
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !res.Success {
-		t.Fatalf("positive substitute completion should downgrade instead of tool-rejecting: %s", res.Summary)
+	// §29.60 flip pin (2026-07-13): the positive-substitute shape completes
+	// with the defining-proof disclosure — the typed detection (exact target
+	// without a grounded defining anchor) still fires, but as a note +
+	// caveat; the answer-side exact-resolution gates keep guarding what the
+	// final answer actually claims.
+	if !res.Success || !mut.IsInvestigationComplete() {
+		t.Fatalf("positive substitute completion must be accepted with disclosure (§29.60), got: %s", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "primary exact config key") {
-		t.Fatalf("downgrade should explain exact-key guard: %s", res.Summary)
+	if !strings.Contains(res.Summary, "proof note:") || !strings.Contains(res.Summary, "no grounded defining anchor") {
+		t.Fatalf("accepted completion must carry the defining-proof disclosure note, got: %s", res.Summary)
 	}
-	if mut.IsInvestigationComplete() {
-		t.Fatalf("completion flag must not fire on positive substitute downgrade")
+	foundCaveat := false
+	for _, c := range mut.EvidenceClosure().CompletionCaveats() {
+		if c.Lane == types.DowngradeLaneExactResolvedDefiningProof {
+			foundCaveat = true
+		}
 	}
-	if res.Repair == nil || res.Repair.Code != "exact_resolved_defining_proof" {
-		t.Fatalf("downgrade should carry exact resolved defining-proof repair, got %+v", res.Repair)
+	if !foundCaveat {
+		t.Fatalf("accepted completion must record the exact_resolved_defining_proof caveat, got %+v", mut.EvidenceClosure().CompletionCaveats())
 	}
 }
 

@@ -1915,28 +1915,33 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		evidence := evidenceSnapshot
 		if targets := completionPendingExactTargets(ctx, contract, evidence); len(targets) > 0 {
 			if !evidenceHasAnyDefiningExactTargetProof(contract, evidence, targets) {
+				// Defining-proof advisory (softened per §29.60 2026-07-13):
+				// "the exact target has no grounded defining anchor yet" is a
+				// proof-strength judgment, not a structural invalidity — the
+				// model's completion may be right on nearby evidence (witness
+				// codrax-20260713-053445: this arm burned 3 identical rounds
+				// before the convergence lane let the same completion pass).
+				// The typed detection (completionPendingExactTargets +
+				// evidenceHasAnyDefiningExactTargetProof) is preserved
+				// verbatim; the result now rides the accepted completion as a
+				// gate note plus a typed caveat (§29.42.4 detect→disclose)
+				// instead of delaying closure. Answer-side citation gates
+				// still guard any concrete anchor the answer actually cites.
 				label := "target"
 				if contract != nil && strings.TrimSpace(contract.TargetLabel) != "" {
 					label = strings.TrimSpace(contract.TargetLabel)
 				}
-				summary := fmt.Sprintf(
-					"emit_investigation_complete rejected: the primary exact %s still has no grounded defining proof, and the emitted evidence only supports nearby or contextual material. Do not complete a positive substitute chain as result_kind=resolved. Either find an explicit grounded defining anchor (or alias/parser mapping) that names the exact %s, or keep investigating until an honest exact-absence closure is ready and then re-call emit_investigation_complete with result_kind=\"absence\" plus absence_justification for the exact %s.",
-					label, label, label,
-				)
-				queueExactResolvedDefiningProofRepair(ctx, label, targets)
-				if !preCompleteDowngradeConverges(ctx, types.DowngradeLaneExactResolvedDefiningProof) {
-					if ctx != nil && ctx.Mutable != nil {
-						ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
-					}
-					return types.ToolResult{
-						ToolName:  t.Name(),
-						Summary:   preCompleteDowngradeSummary(summary),
-						Repair:    attachToolJSONSurfaceMetadata(t.Name(), exactResolvedDefiningProofRepair(label, targets)),
-						Success:   true,
-						Timestamp: time.Now(),
-					}, nil
+				ctx.Mutable.AppendCompletionGateNote(fmt.Sprintf(
+					"exact-%s proof note: no grounded defining anchor names the exact %s yet — the emitted evidence supports nearby or contextual material. If the answer states where the %s is defined or asserts its exact behavior, present that part as unverified (or ground a defining anchor first)",
+					label, label, label))
+				if closure := ctx.Mutable.EvidenceClosure(); closure != nil {
+					closure.AppendCompletionCaveat(types.CompletionCaveat{
+						Lane:       types.DowngradeLaneExactResolvedDefiningProof,
+						ReasonCode: "defining_proof_missing_disclosed",
+						Reason:     "no grounded defining anchor names the exact target; completion proceeded with disclosure",
+					})
 				}
-				earlyDowngradeConverged = true
+				logging.Info("[emit_investigation_complete] exact defining-proof advisory (disclose, not delay): label=%s targets=%d", label, len(targets))
 			}
 		}
 		policy := CurrentGroundingPolicy()
@@ -2354,6 +2359,23 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	if note := userFocusWakeupChainGapNote(ctx); note != "" {
 		ctx.Mutable.AppendCompletionGateNote(note)
 	}
+	// R5 wakeup-chain drilldown advisory (§7.30 裁定3, softened per §29.60
+	// 2026-07-13, same paradigm as RN-14c above): a census-ranked
+	// chain_required=true sleep subject whose trace artifact has no
+	// wakeup-chain-family observation used to hard-downgrade the completion
+	// in the pre-complete chain. The detection (reconcile-first, per-artifact
+	// one-shot) is unchanged; the result now rides the accepted completion as
+	// a gate note plus a typed caveat instead of re-opening the tool loop.
+	if note := wakeupChainDrilldownPendingAdvisory(ctx); note != "" {
+		ctx.Mutable.AppendCompletionGateNote(note)
+		if closure := ctx.Mutable.EvidenceClosure(); closure != nil {
+			closure.AppendCompletionCaveat(types.CompletionCaveat{
+				Lane:       types.DowngradeLaneWakeupChainDrilldown,
+				ReasonCode: "wakeup_chain_drilldown_pending",
+				Reason:     "a census-ranked sleep subject on this trace artifact has no wakeup-chain drilldown; completion proceeded with disclosure",
+			})
+		}
+	}
 	// Promote the waiver only when THIS accepted attempt declared it and
 	// the declaration was not ignored — a stale pending waiver from an
 	// earlier denied attempt must not arm the finalize citation-floor
@@ -2595,36 +2617,11 @@ func groundingCitationFloorRepair(code, hint string) *types.ToolRepair {
 	}
 }
 
-func exactResolvedDefiningProofRepair(label string, targets []string) *types.ToolRepair {
-	label = strings.TrimSpace(label)
-	if label == "" {
-		label = "target"
-	}
-	cleanTargets := make([]string, 0, len(targets))
-	for _, target := range targets {
-		if target = strings.TrimSpace(target); target != "" {
-			cleanTargets = append(cleanTargets, target)
-		}
-	}
-	metadata := map[string]string{
-		"repair_origin": "emit_investigation_complete.exact_resolved_defining_proof",
-		"lane":          string(types.DowngradeLaneExactResolvedDefiningProof),
-		"target_label":  label,
-	}
-	if len(cleanTargets) > 0 {
-		metadata["targets"] = strings.Join(cleanTargets, ",")
-	}
-	return &types.ToolRepair{
-		Code: "exact_resolved_defining_proof",
-		Hint: "Find and emit a grounded defining proof for the exact target, or switch to an honest exact-absence closure if the target is absent.",
-		Fields: []string{
-			"emit_evidence.items[].context_role_hint=defining",
-			"emit_investigation_complete.result_kind",
-			"emit_investigation_complete.absence_justification",
-		},
-		Metadata: metadata,
-	}
-}
+// exactResolvedDefiningProofRepair / queueExactResolvedDefiningProofRepair
+// were removed with the §29.60 defining-proof soften (2026-07-13): the arm no
+// longer delays closure, so no retry-driving ToolRepair / RepairDirective is
+// minted — the typed detection rides the accepted completion as a gate note
+// plus a DowngradeLaneExactResolvedDefiningProof caveat instead.
 
 func principalMemberSetHandoffRepair(reasonCode string) *types.ToolRepair {
 	reasonCode = strings.TrimSpace(reasonCode)
@@ -2678,39 +2675,6 @@ func completionFormRepair(reasonCode, hint string) *types.ToolRepair {
 			"reason_code":   reasonCode,
 		},
 	}
-}
-
-func queueExactResolvedDefiningProofRepair(ctx *types.BusContext, label string, targets []string) {
-	if ctx == nil || ctx.Mutable == nil {
-		return
-	}
-	closure := ctx.Mutable.EvidenceClosure()
-	if closure == nil {
-		return
-	}
-	label = strings.TrimSpace(label)
-	if label == "" {
-		label = "target"
-	}
-	subject := label
-	cleanTargets := make([]string, 0, len(targets))
-	for _, target := range targets {
-		if target = strings.TrimSpace(target); target != "" {
-			cleanTargets = append(cleanTargets, target)
-		}
-	}
-	if len(cleanTargets) > 0 {
-		subject = label + ":" + strings.Join(cleanTargets, ",")
-	}
-	closure.AddRepair(types.RepairDirective{
-		Kind:          types.RepairEmitEvidence,
-		Subject:       "exact_resolved_defining_proof:" + subject,
-		Tools:         []string{"read_file", "repo_map", "emit_evidence"},
-		Rationale:     "positive exact-resolution closure needs a grounded defining proof for the exact target, or an honest exact-absence closure",
-		Origin:        "emit_investigation_complete.exact_resolved_defining_proof",
-		DowngradeLane: types.DowngradeLaneExactResolvedDefiningProof,
-		Stage:         string(types.StageExplore),
-	})
 }
 
 func queueCompletionFormRepair(ctx *types.BusContext, reasonCode, rationale string) {
@@ -2854,16 +2818,16 @@ func preCompleteContractCheckWithPreflight(ctx *types.BusContext, justification 
 	if investigationCompletePolicy == "override" {
 		return ""
 	}
-	// R5 wakeup-chain drilldown enforcement (§7.30 裁定3): a trace turn whose
-	// own drilldown plan says the dominant sleep REQUIRES a wakeup-chain
-	// drilldown must not close without one attempt at it — the berlin report
-	// shipped a sleep=38.5% jank analysis with no wakeup chain at all, so the
-	// projection had no path to anchor and every on-chain surface degraded.
-	// Fires at most once per run (streak-fingerprinted) and consumes only
-	// typed observation facts, so it can never loop.
-	if msg := wakeupChainDrilldownPendingDowngrade(ctx); msg != "" {
-		return msg
-	}
+	// R5 wakeup-chain drilldown (§7.30 裁定3) no longer blocks here: per
+	// §29.60 (2026-07-13) the model's completion decision is terminal for
+	// quality-class detections, and the arm's subject comes from the
+	// whole-window census drilldown plan rather than the question's target
+	// thread (witness codrax-20260713-061452: the gate held a correct
+	// CompThread D-state answer hostage over an unrelated irq thread's
+	// sleep row). The typed detection is preserved verbatim and now rides
+	// the ACCEPTED completion as a gate note + typed caveat — see
+	// wakeupChainDrilldownPendingAdvisory and its emission site next to the
+	// RN-14c note before SetInvestigationComplete.
 	closure := ctx.Mutable.EvidenceClosure()
 	refreshClosureReadSnapshot(ctx, closure)
 	// Drain PendingReads the LLM has already satisfied via its own
@@ -2991,7 +2955,7 @@ func preCompleteContractCheckWithPreflight(ctx *types.BusContext, justification 
 						demoted := closure.DemoteUnverifiedFindingsToAdvisory("path", matchedTokens...)
 						logging.Warning("[emit_investigation_complete] C2 unverified-path denial breaker tripped after %d identical no-progress denials (%s); demoted %d finding(s) to advisory and accepting completion in degraded form",
 							streak-1, fingerprint, demoted)
-						ctx.Mutable.SetCompletionGateNote(fmt.Sprintf(
+						ctx.Mutable.AppendCompletionGateNote(fmt.Sprintf(
 							"the evidence cites %d path(s) the findings check could not verify; completion proceeded in degraded form after %d identical no-progress attempts — present those anchors as unconfirmed, not as verified current-source citations",
 							len(hits), streak-1))
 						return ""
@@ -3037,6 +3001,18 @@ func preCompleteContractCheckWithPreflight(ctx *types.BusContext, justification 
 			if cleared := closure.ClearPendingReadsMatching(advisory...); cleared > 0 {
 				logging.Info("[emit_investigation_complete] cleared %d advisory pending read(s) after accepted completion boundary", cleared)
 			}
+			// §29.42.4 detect→disclose: the demoted coverage suggestions
+			// ride the accepted completion as a bounded note instead of
+			// silently vanishing — the answer should not present claims
+			// about unread files as read-verified. The typed caveat lane
+			// (件2, 2026-07-13) carries the same fact to the user-facing
+			// answer disclosure (completionCaveatLaneSystemCaveats).
+			ctx.Mutable.AppendCompletionGateNote(advisoryPendingReadCoverageNote(advisory))
+			closure.AppendCompletionCaveat(types.CompletionCaveat{
+				Lane:       types.DowngradeLaneForcedReadCoverage,
+				ReasonCode: "coverage_reads_demoted",
+				Reason:     "coverage-class read suggestions were demoted to advisory at the accepted completion",
+			})
 		}
 		pending = blocking
 	}
@@ -3321,7 +3297,7 @@ func preCompleteContractCheckWithPreflight(ctx *types.BusContext, justification 
 		if streak := ctx.Mutable.RecordCompletionDenialStreak(fingerprint); streak > completionDenialBreakerMaxStreak {
 			logging.Warning("[emit_investigation_complete] citation-floor denial breaker tripped after %d identical no-progress denials (%s); accepting completion with degraded-citation caveat",
 				streak-1, fingerprint)
-			ctx.Mutable.SetCompletionGateNote(fmt.Sprintf(
+			ctx.Mutable.AppendCompletionGateNote(fmt.Sprintf(
 				"citation floor (≥%d) accepted in degraded form after %d identical no-progress attempts; the answer must present its evidence as runtime/derived observations, not current-source citations",
 				min, streak-1))
 			return ""
@@ -3775,13 +3751,28 @@ func explicitCurrentSourceExclusionCompletionBypassLabel(ctx *types.BusContext) 
 	return "", false
 }
 
-// wakeupChainDrilldownPendingDowngrade returns a one-shot retry message when
+// wakeupChainDrilldownPendingAdvisory returns a one-shot ADVISORY note when
 // the run's own trace_query drilldown plan marked the dominant sleep state as
 // chain_required=true but no wakeup-chain-family observation was ever
 // produced (R5 / §7.30 裁定3). Both inputs are deterministic typed facts from
-// trace_query observations; the streak fingerprint guarantees the downgrade
-// fires at most once per run, so it cannot livelock — if the model attempts
-// wakeup_chain and it fails, the second completion passes this gate.
+// trace_query observations; the one-shot marker guarantees the note fires at
+// most once per trace artifact, so it cannot spam.
+//
+// §29.60 soften (2026-07-13): this arm used to return a BLOCKING downgrade
+// from the pre-complete contract chain. Two witnessed defects drove the
+// demotion to an accepted-completion gate note + typed caveat:
+//   - subject/intent orthogonality: the chain_required rows are minted by the
+//     window-census drilldown plan (top-N sleepers of the WHOLE window,
+//     query.go buildStateDrilldownPlanForTarget), so the named subject can be
+//     an idle peripheral thread unrelated to the user's question
+//     (codrax-20260713-061452: a correct CompThread D-state answer was held
+//     over udk-irq-1-76's sleep row);
+//   - coverage is artifact-scoped and subject-blind (rowWakeupCovered): ONE
+//     wakeup_chain run on any thread of the artifact discharges every row, so
+//     the old "Run wakeup_chain for that thread" wording overclaimed what the
+//     obligation actually was.
+// Everything below the message rendering — reconcile-first evaluation,
+// sibling-window rules, per-artifact one-shot — is preserved verbatim.
 //
 // CHAIN-RECONCILE (账本 §18.B B-2, P1): the SAME (thread, s_sleep) subject can
 // carry TWO sibling state_drilldown rows across different calls — a
@@ -3858,7 +3849,7 @@ func explicitCurrentSourceExclusionCompletionBypassLabel(ctx *types.BusContext) 
 //     nudge per artifact per run (the CHAIN-RECONCILE conservative arm
 //     continues; total fires stay bounded by the finite typed artifact
 //     identities of the run's actual trace files, so no livelock).
-func wakeupChainDrilldownPendingDowngrade(ctx *types.BusContext) string {
+func wakeupChainDrilldownPendingAdvisory(ctx *types.BusContext) string {
 	if ctx == nil || ctx.Mutable == nil {
 		return ""
 	}
@@ -3951,7 +3942,7 @@ func wakeupChainDrilldownPendingDowngrade(ctx *types.BusContext) string {
 	// artifact scope covers an overlapping window, and its artifact's one-shot
 	// nudge is unburned. Missing/unparseable windows fail toward keeping the
 	// obligation.
-	var downgrade *chainRequiredRow
+	var advisory *chainRequiredRow
 	owed := 0
 	for i := range chainRequiredRows {
 		row := &chainRequiredRows[i]
@@ -3965,57 +3956,86 @@ func wakeupChainDrilldownPendingDowngrade(ctx *types.BusContext) string {
 		oneShotKey := "wakeup_chain_drilldown_pending"
 		if row.artifactKey != "" {
 			// Per-artifact one-shot (§21 CHAIN-SCOPE): each artifact gets at
-			// most one nudge per run; identity-less rows keep the legacy
+			// most one note per run; identity-less rows keep the legacy
 			// run-global key byte-identical.
 			oneShotKey += "\x00" + row.artifactKey
 		}
 		if !ctx.Mutable.MarkCompletionGateOneShot(oneShotKey) {
 			continue
 		}
-		downgrade = row
+		advisory = row
 		break
 	}
-	if downgrade == nil {
+	if advisory == nil {
 		if owed == 0 {
 			// Every chain_required=true sleep row was either covered by its own
 			// artifact's wakeup face or reconciled by a state_churn /
 			// chain_required=false sibling covering an overlapping window in the
-			// same artifact scope — no false downgrade, and the one-shot markers
-			// stay unburned for this run. Advisory log only (soft observability
-			// of a stood-down hard gate).
-			logging.Info("[emit_investigation_complete] wakeup-chain downgrade reconciled away: %d chain_required=true sleep subject(s) each covered by an own-artifact wakeup face or a window-overlapping state_churn chain_required=false sibling", len(chainRequiredSubjects))
+			// same artifact scope — nothing to disclose, and the one-shot
+			// markers stay unburned for this run.
+			logging.Info("[emit_investigation_complete] wakeup-chain advisory reconciled away: %d chain_required=true sleep subject(s) each covered by an own-artifact wakeup face or a window-overlapping state_churn chain_required=false sibling", len(chainRequiredSubjects))
 		}
 		return ""
 	}
-	downgradeSubject, downgradeRow := downgrade.subject, *downgrade
-	logging.Info("[emit_investigation_complete] one-shot wakeup-chain drilldown downgrade: subject=%s source=%s window=%s artifact=%s",
-		downgradeSubject, downgradeRow.source, downgradeRow.window, downgradeRow.artifactLabel)
+	advisorySubject, advisoryRow := advisory.subject, *advisory
+	logging.Info("[emit_investigation_complete] one-shot wakeup-chain drilldown advisory: subject=%s source=%s window=%s artifact=%s",
+		advisorySubject, advisoryRow.source, advisoryRow.window, advisoryRow.artifactLabel)
 	// Attribution rides the row's own typed notes verbatim (source= / query
-	// window / trace artifact) so the model can locate the exact
-	// state_drilldown row that carries the obligation instead of dismissing
-	// the downgrade as a stale misfire; legacy rows without those notes
-	// degrade to the bare flag.
+	// window / trace artifact) so the note names the exact state_drilldown
+	// row it is talking about; legacy rows without those notes degrade to the
+	// bare flag. Honesty contract (§29.60): the subject is named as a
+	// whole-window census candidate — NOT as the question's target thread —
+	// and the suggested view is scoped to the trace artifact (any thread in
+	// the window covers it), matching the actual reconcile semantics.
 	attribution := "chain_required=true"
-	if source := strings.TrimSpace(downgradeRow.source); source != "" {
+	if source := strings.TrimSpace(advisoryRow.source); source != "" {
 		attribution += ", source=" + source
 	}
-	if window := strings.TrimSpace(downgradeRow.window); window != "" {
+	if window := strings.TrimSpace(advisoryRow.window); window != "" {
 		attribution += ", query window " + window
 	}
-	scopeSentence := "No wakeup_chain view was run this turn. "
-	closeSentence := "If the view returns no structured chain, complete directly on the next attempt; this check does not repeat."
-	if strings.TrimSpace(downgradeRow.artifactLabel) != "" {
-		attribution += ", trace artifact " + strings.TrimSpace(downgradeRow.artifactLabel)
-		scopeSentence = "No wakeup_chain view was run against that trace artifact this turn — a wakeup chain drilled on a DIFFERENT trace artifact does not cover this one; a comparison needs the same drilldown on each side. "
-		closeSentence = "If the view returns no structured chain, complete directly on the next attempt; this check fires at most once per trace artifact."
+	scopeSentence := "No wakeup_chain view was run this turn."
+	if strings.TrimSpace(advisoryRow.artifactLabel) != "" {
+		attribution += ", trace artifact " + strings.TrimSpace(advisoryRow.artifactLabel)
+		scopeSentence = "No wakeup_chain view was run against that trace artifact this turn — a wakeup chain drilled on a DIFFERENT trace artifact does not cover this one."
 	}
-	return EmitInvestigationCompleteDowngradePrefix + " — this run's own state_drilldown row marks the dominant sleep state of " + downgradeSubject +
-		" as requiring a wakeup-chain drilldown (" + attribution + "), and no sibling state_drilldown row of the same thread over an overlapping query window reconciles it with chain_required=false (source=state_churn). " +
+	return "wakeup-chain coverage note: the window census ranked the sleep of " + advisorySubject +
+		" as a wakeup-chain drilldown candidate (" + attribution + "), and no sibling state_drilldown row of the same thread over an overlapping query window reconciles it with chain_required=false (source=state_churn). " +
 		scopeSentence +
-		"Run trace_query(view=\"wakeup_chain\") for that thread and window once (bounded), then re-call emit_investigation_complete — " +
-		"with the chain the answer can name the upstream waker instead of stopping at the sleep symptom. " +
-		"If a state_churn row with chain_required=false already covers this thread over a window overlapping the one above, close on that evidence instead. " +
-		closeSentence
+		" That subject comes from the whole-window census ranking, not necessarily from the question's target thread. " +
+		"If the answer explains why that thread slept, present the upstream waker as unverified; " +
+		"a bounded trace_query(view=\"wakeup_chain\") on that trace artifact would cover it if exploration continues. " +
+		"This note is delivered at most once per trace artifact"
+}
+
+// advisoryPendingReadCoverageNote renders the bounded disclosure for
+// coverage-class pending reads demoted at an accepted completion (§29.60
+// forced-read split, 2026-07-13): the suggestions are surfaced as unread
+// coverage instead of blocking closure or silently vanishing.
+func advisoryPendingReadCoverageNote(advisory []types.PendingRead) string {
+	if len(advisory) == 0 {
+		return ""
+	}
+	const maxListed = 4
+	var files []string
+	for _, p := range advisory {
+		if f := strings.TrimSpace(p.File); f != "" {
+			files = append(files, f)
+		}
+		if len(files) == maxListed {
+			break
+		}
+	}
+	note := fmt.Sprintf("coverage note: %d suggested file(s) were not read before completion", len(advisory))
+	if len(files) > 0 {
+		note += " (" + strings.Join(files, ", ")
+		if len(advisory) > len(files) {
+			note += fmt.Sprintf(", +%d more", len(advisory)-len(files))
+		}
+		note += ")"
+	}
+	note += " — the answer stands on the evidence actually gathered; present any claim about those files as unverified"
+	return note
 }
 
 // wakeupChainSiblingWindow is one state_churn / chain_required=false sibling
@@ -11499,6 +11519,31 @@ func genericForcedReadBoundaryCanUseModelPrincipalSet(rm types.RequestModel) boo
 	}
 }
 
+// completionExactCallChainEndpointShape reports the 件3 typed shape: the
+// question declares exact targets AND rides the call predicate axis (the
+// history+current explicit source→sink trace family). For that shape the
+// phase1-ranked files are endpoint-proof candidates, so their pending reads
+// stay citation-class (blocking) instead of demoting as breadth coverage.
+// Both inputs are precise typed analyzer fields; no prose is inspected.
+func completionExactCallChainEndpointShape(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	return len(rm.AnalyzerHints.ExactTargets) > 0 && rm.PredicateAxis == types.AxisCall
+}
+
+// pendingReadIsPhase1Family reports whether a pending read came from the
+// phase1 pre-scan ranking lane (the endpoint-candidate producer for the 件3
+// shape above). Typed origin routing only.
+func pendingReadIsPhase1Family(p types.PendingRead) bool {
+	switch types.NormalizePendingReadOrigin(p.Origin) {
+	case "phase1_unread", "pre_complete.phase1_unread":
+		return true
+	}
+	return false
+}
+
 func partitionPendingReadsForAcceptedClosure(ctx *types.BusContext, pending []types.PendingRead, aggregateFacts []types.AnswerAggregateFact, evidence []types.EvidenceItem) ([]types.PendingRead, []types.PendingRead) {
 	if len(pending) == 0 {
 		return nil, nil
@@ -11523,7 +11568,26 @@ func partitionPendingReadsForAcceptedClosure(ctx *types.BusContext, pending []ty
 			advisory = append(advisory, p)
 			continue
 		}
-		if modelBoundary && (!types.PendingReadBlocksAcceptedClosure(p) || types.IsGenericForcedReadOrigin(p.Origin)) {
+		// 件3 (2026-07-13, 复核回收): the explicit-endpoint call-chain shape
+		// (typed ExactTargets declared AND PredicateAxis==call) promotes its
+		// phase1-family reads to citation class — the ranked files ARE the
+		// endpoint-proof candidates there, not breadth suggestions.
+		if completionExactCallChainEndpointShape(ctx) && pendingReadIsPhase1Family(p) {
+			blocking = append(blocking, p)
+			continue
+		}
+		// Coverage-class origins (§29.60 split, 2026-07-13): breadth /
+		// navigation / ranker-sourced reads (phase1_unread, primary_anchor,
+		// multi_path_anchor, chain_promotion.*) demote to advisory on EVERY
+		// completion attempt — the model's completion call IS the boundary;
+		// these reads suggest coverage, they do not support a citation the
+		// answer makes. Citation-supporting and unknown origins (grounder
+		// rejects, required-file obligations, empty origin) keep blocking —
+		// the conservative default of PendingReadBlocksAcceptedClosure is
+		// unchanged. Previously this demotion additionally required the
+		// grounded model-owned boundary (genericForcedReadBoundarySatisfied),
+		// which still gates the required-file overflow arm above.
+		if !types.PendingReadBlocksAcceptedClosure(p) || types.IsGenericForcedReadOrigin(p.Origin) {
 			advisory = append(advisory, p)
 			continue
 		}
