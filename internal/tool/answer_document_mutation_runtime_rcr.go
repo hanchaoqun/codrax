@@ -917,6 +917,19 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 	if category != "" {
 		identity = append(identity, category)
 	}
+	// SELF-SEM (§29.61.1 user ruling, RANK-U Stage 1, 2026-07-13): the Row2
+	// qualifier slot wears 「自身·确定性优化」 on the typed self basis — ONE
+	// field (node.OnChainBasis, minted engine-side), never a
+	// subject∧class∧relevance recomposition. zh-en 同词纪律: the en form is
+	// the same compound word.
+	if strings.TrimSpace(node.OnChainBasis) == "self_deterministic_span" {
+		if zh {
+			identity = append(identity, "自身·确定性优化")
+		} else {
+			identity = append(identity, "self·deterministic-optimization")
+		}
+		row.marks.mark(runtimeTraceProjMarkSelfDeterministicBasis)
+	}
 	if state := runtimeTraceProjCauseSemanticStateIdentity(node, zh); state != "" {
 		identity = append(identity, state)
 	}

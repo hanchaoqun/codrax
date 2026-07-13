@@ -212,6 +212,22 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 	type wakerCensusFact struct {
 		waker, wakee, first, last string
 		count                     int
+		// WAKE-CENSUS-D 2A (§29.58.4): the typed exit-state split (sleep / D /
+		// other-or-unclassified) — partitions count exactly when present;
+		// legacy records without the split keep -1 (absence never invents).
+		sleepExit, dExit, otherExit int
+		// window is the pair's typed selected_window note value; "" when the
+		// record carried none or when republications DISAGREE on it — the
+		// per-wakee TOTAL lead only sums pairs of one wakee measured over ONE
+		// window (cross-window sums are unsound; same-window republication
+		// across result scopes is idempotent and stays additive).
+		window string
+		// targetWakee (修复轮 件2): every publication of this pair carried the
+		// per-result target_wakee marker (the wakee IS that result's own
+		// analysis target, whose pair set is cap-immune). AND across
+		// republications — one unmarked publication drops the completeness
+		// authority.
+		targetWakee bool
 	}
 	wakeCensus := map[string]*wakerCensusFact{}
 	var wakeCensusOrder []string
@@ -224,6 +240,9 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 	wakeCensusOverflowPairsByScope := map[string]int{}
 	wakeCensusOverflowEdgesByScope := map[string]int{}
 	wakeCensusScopes := map[string]bool{}
+	// wakeCensusWindowByScope: each result scope's census window (one window
+	// per result by construction) — the TOTAL lead's completeness witness.
+	wakeCensusWindowByScope := map[string]string{}
 	for _, record := range ledger.Records {
 		if !types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
 			continue
@@ -255,29 +274,72 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 				continue
 			}
 			key := subject + "\x00" + wakee
+			// WAKE-CENSUS-D 2A: the split travels WITH its count (whole-entry
+			// replacement, never stitched across publications); -1 = the
+			// record carried no split note.
+			exitSplit := func(noteKey string) int {
+				raw := strings.TrimSpace(notes[noteKey])
+				if raw == "" {
+					return -1
+				}
+				n, err := strconv.Atoi(raw)
+				if err != nil || n < 0 {
+					return -1
+				}
+				return n
+			}
+			scope := record.ID
+			if cut := strings.Index(scope, "#"); cut >= 0 {
+				scope = scope[:cut]
+			}
+			window := strings.TrimSpace(notes[types.TraceNoteKeySelectedWindow])
+			targetWakee := strings.TrimSpace(notes[types.TraceNoteKeyWakeupEdgeCensusTargetWakee]) == "true"
 			entry, ok := wakeCensus[key]
 			if !ok {
 				wakeCensus[key] = &wakerCensusFact{
 					waker: subject, wakee: wakee, count: count,
-					first: strings.TrimSpace(notes[types.TraceNoteKeyWakeupEdgeCensusFirstTs]),
-					last:  strings.TrimSpace(notes[types.TraceNoteKeyWakeupEdgeCensusLastTs]),
+					first:       strings.TrimSpace(notes[types.TraceNoteKeyWakeupEdgeCensusFirstTs]),
+					last:        strings.TrimSpace(notes[types.TraceNoteKeyWakeupEdgeCensusLastTs]),
+					sleepExit:   exitSplit(types.TraceNoteKeyWakeupEdgeCensusSleepExit),
+					dExit:       exitSplit(types.TraceNoteKeyWakeupEdgeCensusDExit),
+					otherExit:   exitSplit(types.TraceNoteKeyWakeupEdgeCensusOtherExit),
+					window:      window,
+					targetWakee: targetWakee,
 				}
 				wakeCensusOrder = append(wakeCensusOrder, key)
-			} else if count > entry.count {
-				// MAX across republications — replace the WHOLE entry.
-				entry.count = count
-				entry.first = strings.TrimSpace(notes[types.TraceNoteKeyWakeupEdgeCensusFirstTs])
-				entry.last = strings.TrimSpace(notes[types.TraceNoteKeyWakeupEdgeCensusLastTs])
+			} else {
+				if count > entry.count {
+					// MAX across republications — replace the WHOLE entry.
+					entry.count = count
+					entry.first = strings.TrimSpace(notes[types.TraceNoteKeyWakeupEdgeCensusFirstTs])
+					entry.last = strings.TrimSpace(notes[types.TraceNoteKeyWakeupEdgeCensusLastTs])
+					entry.sleepExit = exitSplit(types.TraceNoteKeyWakeupEdgeCensusSleepExit)
+					entry.dExit = exitSplit(types.TraceNoteKeyWakeupEdgeCensusDExit)
+					entry.otherExit = exitSplit(types.TraceNoteKeyWakeupEdgeCensusOtherExit)
+				}
+				if entry.window != window {
+					// Republications disagreeing on the measured window: the
+					// TOTAL lead may not sum it (cross-window mixture); the
+					// pair line itself keeps the MAX union form.
+					entry.window = ""
+				}
+				// 件2: one unmarked publication drops the target authority.
+				entry.targetWakee = entry.targetWakee && targetWakee
 			}
 			// Overflow disclosures ride every census record of a result; MAX
 			// within the record's result scope (absence ⇔ 0 ⇔ complete
 			// enumeration for that result) — 件3: never MAX-folded across
 			// different results.
-			scope := record.ID
-			if cut := strings.Index(scope, "#"); cut >= 0 {
-				scope = scope[:cut]
-			}
 			wakeCensusScopes[scope] = true
+			if window != "" {
+				if prev, ok := wakeCensusWindowByScope[scope]; !ok || prev == window {
+					wakeCensusWindowByScope[scope] = window
+				} else {
+					// One result publishes ONE census window; a disagreement is
+					// a malformed replay — never let it prove completeness.
+					wakeCensusWindowByScope[scope] = "\x00conflict"
+				}
+			}
 			if raw := strings.TrimSpace(notes[types.TraceNoteKeyWakeupEdgeCensusOverflowPairs]); raw != "" {
 				if n, err := strconv.Atoi(raw); err == nil && n > wakeCensusOverflowPairsByScope[scope] {
 					wakeCensusOverflowPairsByScope[scope] = n
@@ -651,13 +713,145 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 			}
 			listed = entries[:traceWaitEvidenceCensusPairCap]
 		}
-		b.WriteString("Measured wakeup-edge counts per waker (full-inventory census: each count below is the measured total of wakeup edges for that waker → wakee pair across its query's whole analysis window, counted over every measured edge — not just the rows listed above; quote these counts verbatim and never re-count rows yourself. Each arrow keeps the sched_wakeup record's own waker → wakee direction — never reverse a pair's direction. These counts cover measured wakeup edges only, so the raw trace may still hold wakeups outside the measured set):\n")
+		// WAKE-CENSUS-D 2A (§29.58.4): the window-total caliber wording (and
+		// its STRONGER absence property) engages only on 2A-provenanced
+		// entries — every listed pair carrying the typed exit split (count>0
+		// partitions into the three buckets, so at least one split note is
+		// always present on a 2A record). Legacy/archived census records keep
+		// the first-batch observed-edges wording byte-identically: claiming
+		// window-total for an edge-fold count would be an over-claim, while
+		// the legacy wording under a 2A count only under-claims (fail-open
+		// direction — 宁弱勿假).
+		windowTotal := true
 		for _, entry := range listed {
-			line := fmt.Sprintf("- %s → %s ×%d measured wakeup edge(s)", entry.waker, entry.wakee, entry.count)
+			if entry.sleepExit < 0 && entry.dExit < 0 && entry.otherExit < 0 {
+				windowTotal = false
+				break
+			}
+		}
+		if windowTotal {
+			// The SCOPE sentence stays: only the chain-thread wakees were
+			// counted (范围句保留 — wakees outside the set remain unmeasured).
+			b.WriteString("Measured wakeup counts per waker (window-total census: each count below is the total number of raw sched_wakeup rows waking that wakee across its query's whole analysis window — counted directly from the raw event inventory, independently of the causal-chain expansion, not just the edge rows listed above; quote these counts verbatim and never re-count rows yourself. Each arrow keeps the sched_wakeup record's own waker → wakee direction — never reverse a pair's direction. The counted wakee set is the chain's threads (analysis target and chain nodes) — wakees outside that set were not counted):\n")
+		} else {
+			b.WriteString("Measured wakeup-edge counts per waker (full-inventory census: each count below is the measured total of wakeup edges for that waker → wakee pair across its query's whole analysis window, counted over every measured edge — not just the rows listed above; quote these counts verbatim and never re-count rows yourself. Each arrow keeps the sched_wakeup record's own waker → wakee direction — never reverse a pair's direction. These counts cover measured wakeup edges only, so the raw trace may still hold wakeups outside the measured set):\n")
+		}
+		for _, entry := range listed {
+			var line string
+			if windowTotal {
+				nonNeg := func(n int) int {
+					if n < 0 {
+						return 0
+					}
+					return n
+				}
+				// WAKE-CENSUS-D 2A: the typed exit split (zero-dropped notes
+				// read back as 0 — the three columns partition the count).
+				line = fmt.Sprintf("- %s → %s ×%d raw wakeup(s) in the analysis window [exits: sleep=%d, D-state/IO=%d, other/unclassified=%d — measurement facts about which state the wakee left, never causal attribution]",
+					entry.waker, entry.wakee, entry.count, nonNeg(entry.sleepExit), nonNeg(entry.dExit), nonNeg(entry.otherExit))
+			} else {
+				line = fmt.Sprintf("- %s → %s ×%d measured wakeup edge(s)", entry.waker, entry.wakee, entry.count)
+			}
 			if entry.first != "" && entry.last != "" {
 				line += fmt.Sprintf(" (first at %s, last at %s)", entry.first, entry.last)
 			}
 			b.WriteString(line + "\n")
+		}
+		// WAKE-CENSUS-D 2A 总数导语 (RANK-U Stage 1 复放实锤 2026-07-13): three
+		// replay runs consumed the per-pair counts verbatim yet FABRICATED a
+		// derived total (「其余共 12 次」against a true 17 / 「累计 121 次」/
+		// 「总计 30 次」against a true 29) — the lane published no quotable
+		// total, so the model re-derived one. Counts of ONE wakee's pairs
+		// measured by ONE result are additive (count additivity, one wakee,
+		// one window), so a complete same-scope enumeration publishes the
+		// per-wakee total as a directly quotable line (噪音从源头消除). Gated
+		// PRECISELY per wakee: window-total provenance ∧ every pair of the
+		// wakee from ONE result scope ∧ that scope complete (zero overflow) ∧
+		// no listing-cap trim — a trimmed, mixed-scope or cross-window union
+		// never mints a definite-looking partial total.
+		if windowTotal && len(listed) == len(entries) {
+			// completeWindows: a window is proven COMPLETE when at least one
+			// result scope measured exactly that window with ZERO pair-cap
+			// overflow (same-window republication is idempotent: counts are
+			// deterministic per pair, MAX dedup keeps one copy, and the
+			// complete scope's pair set subsumes any overflowed sibling's).
+			completeWindows := map[string]bool{}
+			for scope, window := range wakeCensusWindowByScope {
+				if window != "" && !strings.HasPrefix(window, "\x00") &&
+					wakeCensusOverflowPairsByScope[scope] == 0 {
+					completeWindows[window] = true
+				}
+			}
+			type wakeeTotal struct {
+				wakee, window               string
+				pairs, count                int
+				sleepExit, dExit, otherExit int
+				sound, targetWakee          bool
+			}
+			totalsByWakee := map[string]*wakeeTotal{}
+			var wakeeOrder []string
+			nonNeg := func(n int) int {
+				if n < 0 {
+					return 0
+				}
+				return n
+			}
+			for _, entry := range listed {
+				acc, ok := totalsByWakee[entry.wakee]
+				if !ok {
+					acc = &wakeeTotal{wakee: entry.wakee, window: entry.window, sound: entry.window != "", targetWakee: true}
+					totalsByWakee[entry.wakee] = acc
+					wakeeOrder = append(wakeeOrder, entry.wakee)
+				}
+				if entry.window == "" || entry.window != acc.window {
+					acc.sound = false
+				}
+				acc.targetWakee = acc.targetWakee && entry.targetWakee
+				acc.pairs++
+				acc.count += entry.count
+				acc.sleepExit += nonNeg(entry.sleepExit)
+				acc.dExit += nonNeg(entry.dExit)
+				acc.otherExit += nonNeg(entry.otherExit)
+			}
+			for _, wakee := range wakeeOrder {
+				acc := totalsByWakee[wakee]
+				if !acc.sound {
+					continue
+				}
+				// Per-wakee completeness: EITHER the window's enumeration is
+				// complete (a zero-overflow result measured it), OR every
+				// publication of every pair of this wakee carried the
+				// per-RESULT target_wakee marker — that wakee's pair set is
+				// pair-cap IMMUNE on the engine AND tool faces by construction
+				// (件5), so its enumeration is complete even when the scope's
+				// non-target pairs overflowed (donghu shape: 83 pairs, 67
+				// beyond the cap, all 11 CompThread pairs listed).
+				//
+				// EVOLUTION RECORD (修复轮 件2, 复核 F1 2026-07-13): the first
+				// cut read the SESSION-global anchor flag (threads[].anchor) —
+				// a T1 anchor could vouch for a T2 result's TRIMMED pair set
+				// and mint a definite-looking partial TOTAL. The authority is
+				// now the typed per-result marker only.
+				if !completeWindows[acc.window] && !acc.targetWakee {
+					continue
+				}
+				b.WriteString(fmt.Sprintf("- TOTAL for wakee %s in window %s: %d raw wakeup(s) across the %d listed waker pair(s) [exits: sleep=%d, D-state/IO=%d, other/unclassified=%d] — quote this total verbatim; never sum or subtract pair counts yourself.\n",
+					acc.wakee, acc.window, acc.count, acc.pairs, acc.sleepExit, acc.dExit, acc.otherExit))
+			}
+		}
+		if windowTotal {
+			// 件1 (修复轮, 冷读 RU-F1 2026-07-13): the population PROPERTY
+			// sentence — run6 witness: the prose extrapolated a census fact
+			// into「整个窗口内所有配对中唯一大于 0 的 d_exit」while the raw
+			// window held 38 D-exit pairs BETWEEN out-of-population threads.
+			// The window-total caliber is per-COUNTED-WAKEE only; the census
+			// says nothing (not even zero) about pairs among uncounted
+			// threads. Unconditional in the window-total arm (the overflow
+			// shape never reaches the absence sentence below — donghu: 67
+			// overflow pairs, and exactly that run over-claimed). Bilingual so
+			// the quoted answer language cannot lose the qualifier in
+			// translation.
+			b.WriteString("- Census population property: this census counts wakeups of the chain-thread wakee set ONLY (the analysis target and the chain-node threads). Pairs BETWEEN threads outside that set were never measured here, so never turn a census fact into a whole-window / all-pairs claim — e.g. never call a listed count \"the only non-zero D-exit pair in the window\", and never claim zero (or uniqueness) for any out-of-population pair: the raw window may hold many wakeup/D-exit pairs between uncounted threads. 本 census 种群=分析目标线程∪链节点线程;种群外线程之间的配对未测量——禁止据此作全窗/全部配对宣称(包括「窗口内唯一」「种群外为零」类)。\n")
 		}
 		switch {
 		case unlistedPairs > 0 && singleScope:
@@ -666,6 +860,17 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 			// Multi-result union: the per-result remainders do not add into
 			// one sound number — state the remainder without arithmetic.
 			b.WriteString("- (additional measured waker → wakee pairs beyond those listed exist across the combined analyses — their per-pair counts are unpublished, so never guess or invent a count for an unlisted pair)\n")
+		case windowTotal:
+			// WAKE-CENSUS-D 2A (§29.58.4): with the window-total source the
+			// absence property strengthens — a pair absent from a complete
+			// enumeration has ZERO raw sched_wakeup rows waking that counted
+			// wakee inside that analysis window (no longer merely "never
+			// measured with a per-pair count"). The SCOPE sentence stays:
+			// wakees outside the chain-thread set were not counted, so no
+			// claim exists for them. WC-F1 label extended with the D-causality
+			// pointer (双重归因防护: counts say who woke whom how many times,
+			// never WHY a D wait ended — blocked_reason owns that lane).
+			b.WriteString("- These pairs are the COMPLETE list of counted waker → wakee pairs for the chain-thread wakee set: a pair absent from this list has ZERO raw sched_wakeup rows waking that counted wakee inside its analysis window (window-total caliber), so never report a wakeup count for an absent pair. Wakees OUTSIDE the chain-thread set were not counted — never claim any count, including zero, for them. An absence here is a data-coverage fact about the measured set's scope — it is not a kernel scheduling behavior and needs no mechanism explanation. Counts are measurement-set facts (who woke whom, how many times), never causal attribution — for WHY a D-state/uninterruptible wait happened, read the sched_blocked_reason evidence, not this census.\n")
 		default:
 			// 件2 (P2-1): the descriptive half claims exactly the census
 			// caliber — a bundle run can hold engine-measured edges that

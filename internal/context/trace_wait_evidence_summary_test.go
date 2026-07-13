@@ -502,6 +502,180 @@ func TestTraceWaitEvidence_WakeCensusCounts(t *testing.T) {
 	}
 }
 
+// TestTraceWaitEvidence_WakeCensusWindowTotalCaliber — WAKE-CENSUS-D 2A
+// (§29.58.4, RANK-U Stage 1 commit B, 2026-07-13): a census whose EVERY pair
+// carries the typed exit split (2A provenance — count>0 always emits at least
+// one split note) speaks the window-total caliber: the header names the raw
+// direct-count source and the chain-thread wakee scope, each pair line carries
+// the sleep/D/other exit split with the measurement-fact label, and the
+// absence property strengthens to "ZERO raw sched_wakeup rows inside the
+// analysis window" while KEEPING the scope sentence and the extended WC-F1
+// label with the D-causality pointer (双重归因防护). The donghu waker witness
+// form: gpu-token ×12 all D exits — the §29.58.4 structurally absent pair.
+func TestTraceWaitEvidence_WakeCensusWindowTotalCaliber(t *testing.T) {
+	ledger := traceWaitTestLedger()
+	ledger.Records = append(ledger.Records,
+		traceWaitTestRecord("trace_query:t#wakeup_edge_census:1", "gpu-token-id4-2931", "CompThread_0-2955", "wakeup_edge_census", "12",
+			types.TraceNoteKeyWakeupEdgeCensusFirstTs+"=13762.801234",
+			types.TraceNoteKeyWakeupEdgeCensusLastTs+"=13762.998765",
+			types.TraceNoteKeyWakeupEdgeCensusDExit+"=12",
+			types.TraceNoteKeySelectedWindow+"=13762.791708..13763.024898"),
+		traceWaitTestRecord("trace_query:t#wakeup_edge_census:2", "binder:642_10-1385", "gpu-token-id4-2931", "wakeup_edge_census", "1",
+			types.TraceNoteKeyWakeupEdgeCensusFirstTs+"=13762.800001",
+			types.TraceNoteKeyWakeupEdgeCensusLastTs+"=13762.800001",
+			types.TraceNoteKeyWakeupEdgeCensusSleepExit+"=1",
+			types.TraceNoteKeySelectedWindow+"=13762.791708..13763.024898"),
+	)
+	summary := formatTraceWaitWakeEvidenceFromLedger(ledger, nil)
+	for _, want := range []string{
+		"Measured wakeup counts per waker (window-total census:",
+		"counted directly from the raw event inventory, independently of the causal-chain expansion",
+		// The counted-scope sentence (范围句保留).
+		"The counted wakee set is the chain's threads (analysis target and chain nodes) — wakees outside that set were not counted",
+		// The donghu D-exit pair with its typed split (双加恒等式 12+0+0? no —
+		// 0+12+0: zero-dropped sleep/other notes read back as 0).
+		"- gpu-token-id4-2931 → CompThread_0-2955 ×12 raw wakeup(s) in the analysis window [exits: sleep=0, D-state/IO=12, other/unclassified=0 — measurement facts about which state the wakee left, never causal attribution] (first at 13762.801234, last at 13762.998765)",
+		"- binder:642_10-1385 → gpu-token-id4-2931 ×1 raw wakeup(s) in the analysis window [exits: sleep=1, D-state/IO=0, other/unclassified=0",
+		// The strong window-total absence property + scope + WC-F1 D pointer.
+		"a pair absent from this list has ZERO raw sched_wakeup rows waking that counted wakee inside its analysis window (window-total caliber)",
+		"Wakees OUTSIDE the chain-thread set were not counted — never claim any count, including zero, for them",
+		"never causal attribution — for WHY a D-state/uninterruptible wait happened, read the sched_blocked_reason evidence, not this census",
+		// 件1 (修复轮, 冷读 RU-F1): the census population PROPERTY sentence —
+		// run6 witness extrapolated「整个窗口内所有配对中唯一大于 0 的 d_exit」
+		// while 38 out-of-population D-exit pairs sat in the raw window. Both
+		// languages + the explicit uniqueness/zero negative example.
+		"- Census population property: this census counts wakeups of the chain-thread wakee set ONLY",
+		"never call a listed count \"the only non-zero D-exit pair in the window\"",
+		"never claim zero (or uniqueness) for any out-of-population pair",
+		"本 census 种群=分析目标线程∪链节点线程;种群外线程之间的配对未测量——禁止据此作全窗/全部配对宣称(包括「窗口内唯一」「种群外为零」类)。",
+		// 总数导语 (RANK-U Stage 1 复放实锤): the quotable per-wakee TOTAL —
+		// both replay runs fabricated a derived total (12-vs-17 / 121-vs-29)
+		// while quoting every per-pair count verbatim; a complete single-scope
+		// window-total enumeration now publishes the additive total itself.
+		"- TOTAL for wakee CompThread_0-2955 in window 13762.791708..13763.024898: 12 raw wakeup(s) across the 1 listed waker pair(s) [exits: sleep=0, D-state/IO=12, other/unclassified=0] — quote this total verbatim; never sum or subtract pair counts yourself.",
+		"- TOTAL for wakee gpu-token-id4-2931 in window 13762.791708..13763.024898: 1 raw wakeup(s) across the 1 listed waker pair(s) [exits: sleep=1, D-state/IO=0, other/unclassified=0]",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("window-total census lane missing %q:\n%s", want, summary)
+		}
+	}
+	// The legacy narrow forms must not co-render on a 2A-provenanced census.
+	for _, banned := range []string{
+		"full-inventory census",
+		"measured wakeup edge(s) (first at",
+		"was never measured with a per-pair count here",
+	} {
+		if strings.Contains(summary, banned) {
+			t.Fatalf("legacy census wording must not render on 2A provenance, found %q:\n%s", banned, summary)
+		}
+	}
+	// Cross-WINDOW pair gate: the SAME pair republished with a DIFFERENT
+	// measured window keeps its MAX pair line but loses its TOTAL lead —
+	// cross-window sums are unsound; wakees whose pairs stay one-window keep
+	// their totals.
+	mixed := traceWaitTestLedger()
+	mixed.Records = append(mixed.Records, ledger.Records...)
+	mixed.Records = append(mixed.Records,
+		traceWaitTestRecord("trace_query:u#wakeup_edge_census:1", "gpu-token-id4-2931", "CompThread_0-2955", "wakeup_edge_census", "9",
+			types.TraceNoteKeyWakeupEdgeCensusFirstTs+"=13762.80",
+			types.TraceNoteKeyWakeupEdgeCensusLastTs+"=13762.90",
+			types.TraceNoteKeyWakeupEdgeCensusDExit+"=9",
+			types.TraceNoteKeySelectedWindow+"=13762.800000..13762.900000"),
+	)
+	mixedSummary := formatTraceWaitWakeEvidenceFromLedger(mixed, nil)
+	if strings.Contains(mixedSummary, "- TOTAL for wakee CompThread_0-2955") {
+		t.Fatalf("a cross-window pair must suppress its wakee's TOTAL lead:\n%s", mixedSummary)
+	}
+	if !strings.Contains(mixedSummary, "- TOTAL for wakee gpu-token-id4-2931") {
+		t.Fatalf("one-window wakees keep their TOTAL lead beside a cross-window sibling:\n%s", mixedSummary)
+	}
+	// Target-wakee completeness under scope overflow (the donghu shape: 83
+	// pairs, 67 beyond the engine cap, all target pairs listed via cap
+	// immunity): the pair carrying the per-RESULT target_wakee marker keeps
+	// its TOTAL lead while a non-target wakee of the same overflowed scope
+	// stays total-less.
+	overflowed := traceWaitTestLedger()
+	overflowed.Records = append(overflowed.Records,
+		traceWaitTestRecord("trace_query:t#wakeup_edge_census:1", "gpu-token-id4-2931", "CompThread_0-2955", "wakeup_edge_census", "12",
+			types.TraceNoteKeyWakeupEdgeCensusDExit+"=12",
+			types.TraceNoteKeyWakeupEdgeCensusTargetWakee+"=true",
+			types.TraceNoteKeyWakeupEdgeCensusOverflowPairs+"=67",
+			types.TraceNoteKeyWakeupEdgeCensusOverflowEdges+"=206",
+			types.TraceNoteKeySelectedWindow+"=13762.791708..13763.024898"),
+		traceWaitTestRecord("trace_query:t#wakeup_edge_census:2", "logd.writer-9163", "logd.reader.per-9522", "wakeup_edge_census", "57",
+			types.TraceNoteKeyWakeupEdgeCensusSleepExit+"=56",
+			types.TraceNoteKeyWakeupEdgeCensusOtherExit+"=1",
+			types.TraceNoteKeyWakeupEdgeCensusOverflowPairs+"=67",
+			types.TraceNoteKeyWakeupEdgeCensusOverflowEdges+"=206",
+			types.TraceNoteKeySelectedWindow+"=13762.791708..13763.024898"),
+	)
+	overflowSummary := formatTraceWaitWakeEvidenceFromLedger(overflowed, nil)
+	if !strings.Contains(overflowSummary, "- TOTAL for wakee CompThread_0-2955 in window 13762.791708..13763.024898: 12 raw wakeup(s)") {
+		t.Fatalf("the marked target wakee's TOTAL must survive scope overflow (cap-immune pair set):\n%s", overflowSummary)
+	}
+	if strings.Contains(overflowSummary, "- TOTAL for wakee logd.reader.per-9522") {
+		t.Fatalf("a non-target wakee under scope overflow must stay total-less:\n%s", overflowSummary)
+	}
+	// 复核 F1 (修复轮 件2): the SESSION-global anchor flag must NOT vouch for
+	// another result's trimmed pair set — same overflowed shape, marker
+	// REMOVED, session anchor record PRESENT: no TOTAL may mint.
+	crossScope := traceWaitTestLedger()
+	crossScope.Records = append(crossScope.Records,
+		// T1 marks CompThread as the session's anchor thread (件5 lane)…
+		traceWaitTestRecord("trace_query:t1#target_window_states", "CompThread_0-2955", "state_partition", "target_window_states", "233.190"),
+		// …while T2's census (overflowed, CompThread NOT its target) lists a
+		// CompThread pair WITHOUT the per-result marker.
+		traceWaitTestRecord("trace_query:t2#wakeup_edge_census:1", "gpu-token-id4-2931", "CompThread_0-2955", "wakeup_edge_census", "12",
+			types.TraceNoteKeyWakeupEdgeCensusDExit+"=12",
+			types.TraceNoteKeyWakeupEdgeCensusOverflowPairs+"=67",
+			types.TraceNoteKeyWakeupEdgeCensusOverflowEdges+"=206",
+			types.TraceNoteKeySelectedWindow+"=13762.791708..13763.024898"),
+	)
+	crossScopeSummary := formatTraceWaitWakeEvidenceFromLedger(crossScope, nil)
+	if strings.Contains(crossScopeSummary, "- TOTAL for wakee") {
+		t.Fatalf("a session anchor must not vouch for another result's trimmed pair set:\n%s", crossScopeSummary)
+	}
+	// Same-window republication across TWO result scopes (the common
+	// wakeup_chain + frame-bundle session shape): idempotent — the TOTAL
+	// lead survives.
+	repub := traceWaitTestLedger()
+	repub.Records = append(repub.Records, ledger.Records...)
+	repub.Records = append(repub.Records,
+		traceWaitTestRecord("trace_query:v#wakeup_edge_census:1", "gpu-token-id4-2931", "CompThread_0-2955", "wakeup_edge_census", "12",
+			types.TraceNoteKeyWakeupEdgeCensusFirstTs+"=13762.801234",
+			types.TraceNoteKeyWakeupEdgeCensusLastTs+"=13762.998765",
+			types.TraceNoteKeyWakeupEdgeCensusDExit+"=12",
+			types.TraceNoteKeySelectedWindow+"=13762.791708..13763.024898"),
+	)
+	repubSummary := formatTraceWaitWakeEvidenceFromLedger(repub, nil)
+	if !strings.Contains(repubSummary, "- TOTAL for wakee CompThread_0-2955 in window 13762.791708..13763.024898: 12 raw wakeup(s)") {
+		t.Fatalf("same-window republication must keep the TOTAL lead (idempotent):\n%s", repubSummary)
+	}
+	// Provenance gate (fail-open direction): ONE legacy pair without a split
+	// demotes the whole lane back to the first-batch wording — window-total
+	// may never over-claim an edge-fold count.
+	ledger.Records = append(ledger.Records,
+		traceWaitTestRecord("trace_query:t#wakeup_edge_census:3", "legacy-waker-9", "wakee-9", "wakeup_edge_census", "2",
+			types.TraceNoteKeyWakeupEdgeCensusFirstTs+"=13762.5",
+			types.TraceNoteKeyWakeupEdgeCensusLastTs+"=13762.6"),
+	)
+	summary = formatTraceWaitWakeEvidenceFromLedger(ledger, nil)
+	if !strings.Contains(summary, "full-inventory census") ||
+		strings.Contains(summary, "window-total census") {
+		t.Fatalf("a split-less legacy record must demote the lane to the first-batch caliber:\n%s", summary)
+	}
+	// The quotable TOTAL is a window-total-only face: the demoted legacy lane
+	// must not mint a definite-looking total over edge-fold counts.
+	if strings.Contains(summary, "- TOTAL for wakee") {
+		t.Fatalf("the per-wakee TOTAL must not render on legacy provenance:\n%s", summary)
+	}
+	// 件1: the population property sentence claims the window-total caliber's
+	// population — the demoted legacy lane keeps its own weaker scope wording.
+	if strings.Contains(summary, "Census population property") {
+		t.Fatalf("the population property sentence must not render on legacy provenance:\n%s", summary)
+	}
+}
+
 // TestTraceWaitEvidence_WakeCensusOverflow — a census pair-cap overflow
 // (typed notes) suppresses the complete-list sentence and mints the named
 // unlisted remainder instead — absence claims only on complete enumerations.

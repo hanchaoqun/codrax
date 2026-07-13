@@ -3430,13 +3430,21 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 				prioritySource,
 				sanitizeForBanner(edge.PriorityRelation), edge.PriorityInversionCandidate)
 		}
-		// WAKE-CENSUS (§29.58): the per-pair whole-inventory counts on the
-		// query-time face too (blocked_reason_census banner 同构) — each count
-		// covers EVERY measured edge of the pair in this result, so a reader
-		// never re-counts the edge rows above.
+		// WAKE-CENSUS (§29.58) / WAKE-CENSUS-D 2A (§29.58.4): the per-pair
+		// WINDOW-TOTAL raw wakeup counts on the query-time face too
+		// (blocked_reason_census banner 同构) — each count covers every raw
+		// sched_wakeup row waking that chain-thread wakee across the analysis
+		// window (counted independently of the chain expansion), so a reader
+		// never re-counts the edge rows above. The exit split partitions the
+		// count by the state the wakee left (sleep/D/other — measurement
+		// facts, never causal attribution).
 		for _, pair := range result.WakeupChain.WakeupEdgeCensus {
-			fmt.Fprintf(&b, "- wakeup_edge_census %s -> %s count=%d first=%.6f last=%.6f\n",
-				traceThreadLabel(pair.Waker), traceThreadLabel(pair.Wakee), pair.Count, pair.FirstTs, pair.LastTs)
+			split := tracequery.WakeupEdgeCensusExitSplitLabel(pair)
+			if split != "" {
+				split = " " + split
+			}
+			fmt.Fprintf(&b, "- wakeup_edge_census %s -> %s count=%d%s first=%.6f last=%.6f\n",
+				traceThreadLabel(pair.Waker), traceThreadLabel(pair.Wakee), pair.Count, split, pair.FirstTs, pair.LastTs)
 		}
 		if result.WakeupChain.WakeupEdgeCensusOverflowPairs > 0 {
 			fmt.Fprintf(&b, "- wakeup_edge_census_overflow pairs=%d edges=%d (beyond the census pair cap)\n",
@@ -5602,7 +5610,7 @@ func traceQueryRootCauseItemRelevance(item tracequery.RootCauseRankItem) string 
 		return relevance
 	}
 	switch strings.TrimSpace(item.Causality) {
-	case "on_wakeup_chain":
+	case "on_wakeup_chain", tracequery.RootCauseCausalitySelfDeterministic:
 		return "on_chain"
 	case "adjacent_to_wakeup_chain":
 		return "adjacent"
@@ -6139,6 +6147,10 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				{"drill_status", item.DrillStatus},
 				{"inherited_target_blocked_ms", traceQueryObservationMSValue(item.InheritedTargetBlockedMs)},
 				{types.TraceNoteKeyChainRelevance, item.ChainRelevance},
+				// SELF-SEM (§29.61.1): the typed on-chain proof basis — the
+				// display 「自身·确定性优化」 qualifier and the enrich keep arm
+				// read exactly this marker (zero-dropped on legacy overlap rows).
+				{types.TraceNoteKeyOnChainBasis, item.OnChainBasis},
 				// P0-E CHAIN-PATH (ledger §22.1): the owning branch ordinal of
 				// the chain impact this rank row was minted from — the display
 				// tree keys its depth attach to (branch, depth); zero-dropped
@@ -6433,14 +6445,17 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 		wakeCensusListed := wakeCensus
 		wakeCensusOverflowPairs := result.WakeupChain.WakeupEdgeCensusOverflowPairs
 		wakeCensusOverflowEdges := result.WakeupChain.WakeupEdgeCensusOverflowEdges
-		if rowCap := traceQueryWidthTypedFamilyRowCap(); len(wakeCensus) > rowCap {
-			chainTarget := result.WakeupChain.Target
-			isTargetPair := func(pair tracequery.WakeupEdgeCensusPair) bool {
-				if chainTarget.PID > 0 {
-					return pair.Wakee.PID == chainTarget.PID
-				}
-				return chainTarget.Comm != "" && pair.Wakee.Comm == chainTarget.Comm
+		// 修复轮 件2 (2026-07-13): ONE target-pair predicate for the row-cap
+		// immunity AND the per-pair target_wakee marker note (same comparator,
+		// two consumers — the marker must claim exactly the immune population).
+		chainTarget := result.WakeupChain.Target
+		isTargetPair := func(pair tracequery.WakeupEdgeCensusPair) bool {
+			if chainTarget.PID > 0 {
+				return pair.Wakee.PID == chainTarget.PID
 			}
+			return chainTarget.Comm != "" && pair.Wakee.Comm == chainTarget.Comm
+		}
+		if rowCap := traceQueryWidthTypedFamilyRowCap(); len(wakeCensus) > rowCap {
 			targetRows := 0
 			for _, pair := range wakeCensus {
 				if isTargetPair(pair) {
@@ -6491,11 +6506,25 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				Predicate: "wakeup_edge_census",
 				Object:    wakee,
 				Value:     fmt.Sprintf("%d", pair.Count),
-				Summary: fmt.Sprintf("wakeup_edge_census %s -> %s count=%d (every measured wakeup edge of this pair in this result, including edges beyond the published edge rows) first=%.6f last=%.6f",
-					waker, wakee, pair.Count, pair.FirstTs, pair.LastTs),
+				// WAKE-CENSUS-D 2A (§29.58.4): window-total caliber wording —
+				// the count is the raw sched_wakeup row total for this pair
+				// across the analysis window, counted independently of the
+				// chain expansion (D exits and off-path S exits included).
+				Summary: fmt.Sprintf("wakeup_edge_census %s -> %s count=%d (window-total: every raw sched_wakeup row waking this chain-thread wakee across the analysis window, counted independently of the causal-chain expansion)%s first=%.6f last=%.6f",
+					waker, wakee, pair.Count, traceQueryWakeupCensusSplitSummary(pair), pair.FirstTs, pair.LastTs),
 				RichNotes: traceQueryTypedKVNotes([][2]string{
 					{types.TraceNoteKeyWakeupEdgeCensusFirstTs, traceQueryTimestampValue(pair.FirstTs)},
 					{types.TraceNoteKeyWakeupEdgeCensusLastTs, traceQueryTimestampValue(pair.LastTs)},
+					// WAKE-CENSUS-D 2A: the typed exit-state split (partitions
+					// the count exactly; zero-dropped on legacy replays).
+					{types.TraceNoteKeyWakeupEdgeCensusSleepExit, traceQueryTypedCount(pair.SleepExitCount)},
+					{types.TraceNoteKeyWakeupEdgeCensusDExit, traceQueryTypedCount(pair.DExitCount)},
+					{types.TraceNoteKeyWakeupEdgeCensusOtherExit, traceQueryTypedCount(pair.OtherExitCount)},
+					// 修复轮 件2: the per-RESULT target-wakee marker — this
+					// wakee's pair set is cap-immune, so its enumeration is
+					// complete for this result (the context TOTAL lead's only
+					// anchor authority; zero-dropped on non-target pairs).
+					{types.TraceNoteKeyWakeupEdgeCensusTargetWakee, traceQueryTypedBool(isTargetPair(pair))},
 					{types.TraceNoteKeyWakeupEdgeCensusOverflowPairs, traceQueryTypedCount(wakeCensusOverflowPairs)},
 					{types.TraceNoteKeyWakeupEdgeCensusOverflowEdges, traceQueryTypedCount(wakeCensusOverflowEdges)},
 					{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(result.WakeupChain.Window)},
@@ -9346,6 +9375,9 @@ func traceQueryTypedSemanticTraceSpanObservations(result tracequery.Result, stat
 			{types.TraceNoteKeySemanticClass, semanticClass},
 			{types.TraceNoteKeyChainRelevance, ctx.chainRelevance},
 			{types.TraceNoteKeyCausality, ctx.causality},
+			// SELF-SEM (§29.61.1): single-member records carry the family
+			// fold's typed proof basis verbatim (zero-dropped otherwise).
+			{types.TraceNoteKeyOnChainBasis, fam.OnChainBasis},
 			{types.TraceNoteKeyChainDepth, traceQueryTypedCount(ctx.chainDepth)},
 			{types.TraceNoteKeyOverlap, traceQueryObservationMSValue(ctx.overlapMs)},
 			{types.TraceNoteKeyWindow, traceQueryWindowValue(span.StartTs, span.EndTs)},
@@ -9411,7 +9443,13 @@ func traceQuerySemanticSpanFamilyObservation(fam tracequery.SemanticSpanFamily, 
 	rep := fam.Members[0]
 	relevance, causality := "", ""
 	chainDepth := 0
-	if fam.OnChain {
+	if fam.OnChain && fam.OnChainBasis == tracequery.RootCauseOnChainBasisSelfDeterministicSpan {
+		// SELF-SEM (§29.61.1): the self-basis family speaks the honest
+		// causality token — on-chain channel membership without any
+		// wakeup-edge claim (projected_impact/overlap notes stay absent by
+		// construction: there is no chain intersection to publish).
+		relevance, causality = "on_chain", tracequery.RootCauseCausalitySelfDeterministic
+	} else if fam.OnChain {
 		relevance, causality, chainDepth = "on_chain", "on_wakeup_chain", fam.ChainDepth
 	} else if chain != nil && (len(chain.Nodes) > 0 || len(chain.CausalImpacts) > 0 || len(chain.Edges) > 0) {
 		if traceQueryWindowOverlapMS(fam.StartTs, fam.EndTs, chain.Window.StartTs, chain.Window.EndTs) > 0 {
@@ -9437,6 +9475,9 @@ func traceQuerySemanticSpanFamilyObservation(fam tracequery.SemanticSpanFamily, 
 		{types.TraceNoteKeySemanticClass, fam.SemanticClass},
 		{types.TraceNoteKeyChainRelevance, relevance},
 		{types.TraceNoteKeyCausality, causality},
+		// SELF-SEM (§29.61.1): the typed proof basis rides the family record
+		// too (zero-dropped on overlap/off-chain families).
+		{types.TraceNoteKeyOnChainBasis, fam.OnChainBasis},
 		{types.TraceNoteKeyChainDepth, traceQueryTypedCount(chainDepth)},
 		{types.TraceNoteKeyProjectedImpact, projectedImpact},
 		{types.TraceNoteKeyOverlap, overlap},
@@ -9462,7 +9503,10 @@ func traceQuerySemanticSpanFamilyObservation(fam tracequery.SemanticSpanFamily, 
 		{types.TraceNoteKeyActualWindow, traceQueryWindowValue(fam.ActualStartTs, fam.ActualEndTs)},
 	})
 	var summary string
-	if fam.OnChain {
+	if fam.OnChain && fam.OnChainBasis == tracequery.RootCauseOnChainBasisSelfDeterministicSpan {
+		summary = fmt.Sprintf("semantic trace span family class=%s x%d on the analysis target's own thread, complete selected-window union=%.3fms (largest %q %.3fms); deterministic self work counted on-chain without any wakeup-edge claim",
+			fam.SemanticClass, len(fam.Members), fam.TotalMs, rep.Name, fam.MaxMs)
+	} else if fam.OnChain {
 		summary = fmt.Sprintf("semantic trace span family class=%s x%d complete selected-window union=%.3fms (largest %q %.3fms); exact on-chain intersection participation=%.3fms",
 			fam.SemanticClass, len(fam.Members), fam.TotalMs, rep.Name, fam.MaxMs, fam.ProjectedImpactMs)
 	} else {
@@ -9530,6 +9574,14 @@ type traceQuerySemanticSpanContext struct {
 // derivation verbatim: envelope-vs-chain-window overlap decides
 // adjacent/background; no chain → no lane claim.
 func traceQuerySemanticSpanFamilyFoldContext(fam tracequery.SemanticSpanFamily, span tracequery.TraceSpanSummary, chain *tracequery.ChainResult) traceQuerySemanticSpanContext {
+	if fam.OnChain && fam.OnChainBasis == tracequery.RootCauseOnChainBasisSelfDeterministicSpan {
+		// SELF-SEM (§29.61.1): self-basis lane — honest causality token, no
+		// fabricated overlap/depth (the family carries no chain intersection).
+		return traceQuerySemanticSpanContext{
+			chainRelevance: "on_chain",
+			causality:      tracequery.RootCauseCausalitySelfDeterministic,
+		}
+	}
 	if fam.OnChain {
 		return traceQuerySemanticSpanContext{
 			chainRelevance: "on_chain",
@@ -10127,6 +10179,17 @@ func traceQueryTypedPluginSummary(item tracequery.TracePluginSummary) string {
 		}
 	}
 	return strings.Join(parts, " ")
+}
+
+// traceQueryWakeupCensusSplitSummary renders the exit split for the census
+// record Summary (WAKE-CENSUS-D 2A) — the tracequery banner renderer is the
+// single label source; "" on legacy pairs without a split.
+func traceQueryWakeupCensusSplitSummary(pair tracequery.WakeupEdgeCensusPair) string {
+	label := tracequery.WakeupEdgeCensusExitSplitLabel(pair)
+	if label == "" {
+		return ""
+	}
+	return " " + label
 }
 
 func traceQueryTypedKVNotes(pairs [][2]string) []string {

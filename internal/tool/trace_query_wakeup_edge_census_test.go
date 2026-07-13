@@ -2,11 +2,13 @@ package tool
 
 // trace_query_wakeup_edge_census_test.go — WAKE-CENSUS publication pins
 // (立案 §29.58, 2026-07-13, docs/design/real_trace_campaign_20260705.md;
-// PRC-F1 witness「OS_IPC_14_34911 ×4」三重假).
+// PRC-F1 witness「OS_IPC_14_34911 ×4」三重假; WAKE-CENSUS-D 2A 换源 §29.58.4:
+// the count is now the window-total raw sched_wakeup inventory with the typed
+// exit split — the assertions below track that caliber).
 //
 // The load-bearing red/green pin: the census record's count must equal the
-// engine's FULL edge inventory while the per-edge observation rows stop at
-// the typed family row cap. MUTATION self-checks:
+// engine's window-total raw inventory while the per-edge observation rows
+// stop at the typed family row cap. MUTATION self-checks:
 //   - re-deriving the census count from the capped edge-row face (the exact
 //     PRC-F1 defect direction: 截断库存二次聚合) reds
 //     TestTraceQueryWakeupEdgeCensusCountsFullInventoryPastRowCap — the
@@ -125,6 +127,20 @@ func TestTraceQueryWakeupEdgeCensusCountsFullInventoryPastRowCap(t *testing.T) {
 			t.Fatalf("zero overflow must omit %s, got notes %v", key, census.RichNotes)
 		}
 	}
+	// WAKE-CENSUS-D 2A (§29.58.4): the typed exit split rides the record —
+	// every cycle here is an S-sleep exit — and the summary speaks the
+	// window-total caliber (never the retired observed-edges wording).
+	if notes[types.TraceNoteKeyWakeupEdgeCensusSleepExit] != fmt.Sprintf("%d", cycles) {
+		t.Fatalf("census sleep_exit must count every S exit (%d), got notes %v", cycles, census.RichNotes)
+	}
+	for _, key := range []string{types.TraceNoteKeyWakeupEdgeCensusDExit, types.TraceNoteKeyWakeupEdgeCensusOtherExit} {
+		if _, ok := notes[key]; ok {
+			t.Fatalf("zero exit buckets zero-drop their notes, got %s in %v", key, census.RichNotes)
+		}
+	}
+	if !strings.Contains(census.Summary, "window-total") || strings.Contains(census.Summary, "every measured wakeup edge of this pair") {
+		t.Fatalf("census summary must speak the window-total caliber: %q", census.Summary)
+	}
 }
 
 // TestTraceQueryWakeupEdgeCensusBannerFace — the query-time text face carries
@@ -137,7 +153,8 @@ func TestTraceQueryWakeupEdgeCensusBannerFace(t *testing.T) {
 		WakeupEdgeCensus: []tracequery.WakeupEdgeCensusPair{{
 			Waker: tracequery.ThreadRef{Comm: "waker", PID: 200},
 			Wakee: tracequery.ThreadRef{Comm: "app", PID: 100},
-			Count: 35, FirstTs: 5.002, LastTs: 5.342,
+			Count: 35, SleepExitCount: 23, DExitCount: 12,
+			FirstTs: 5.002, LastTs: 5.342,
 		}},
 		WakeupEdgeCensusOverflowPairs: 2,
 		WakeupEdgeCensusOverflowEdges: 5,
@@ -145,7 +162,9 @@ func TestTraceQueryWakeupEdgeCensusBannerFace(t *testing.T) {
 	result := tracequery.Result{View: "wakeup_chain", SourcePath: "/traces/x.systrace", TimeStart: 5.0, TimeEnd: 6.0, WakeupChain: &chain}
 	summary := traceQuerySummary(result, traceQueryParams{View: "wakeup_chain"}, "x.systrace", "payload-ref")
 	for _, want := range []string{
-		"- wakeup_edge_census waker-200 -> app-100 count=35 first=5.002000 last=5.342000",
+		// WAKE-CENSUS-D 2A: the exit split rides the banner row (one label
+		// renderer with the engine face).
+		"- wakeup_edge_census waker-200 -> app-100 count=35 sleep_exit=23 d_exit=12 other_exit=0 first=5.002000 last=5.342000",
 		"- wakeup_edge_census_overflow pairs=2 edges=5 (beyond the census pair cap)",
 	} {
 		if !strings.Contains(summary, want) {

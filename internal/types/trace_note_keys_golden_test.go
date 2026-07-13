@@ -221,6 +221,8 @@ var traceNoteKeyGoldenRows = []string{
 	"occurrence_windows|anchor_window|soft_consumer",
 	"occurrences|causal_rank|display_only",
 	"offsets|io|display_only",
+	// SELF-SEM (§29.61.1, 2026-07-13): on-chain proof-basis marker.
+	"on_chain_basis|causal_rank|hard_consumer",
 	"oneway|blocking|display_only",
 	"op|io|display_only",
 	"other_cpu_idle|cpu_load|display_only",
@@ -398,10 +400,16 @@ var traceNoteKeyGoldenRows = []string{
 	"waker_priority|chain_path|display_only",
 	// WAKE-CENSUS (§29.58, 2026-07-13): per-pair whole-inventory wakeup-edge
 	// census (count folds pre-cap; overflow discloses the pair-cap trim).
+	// WAKE-CENSUS-D 2A (§29.58.4, 2026-07-13): typed exit-state split trio.
+	"wakeup_edge_census_d_exit|chain_path|soft_consumer",
 	"wakeup_edge_census_first_ts|chain_path|soft_consumer",
 	"wakeup_edge_census_last_ts|chain_path|soft_consumer",
+	"wakeup_edge_census_other_exit|chain_path|soft_consumer",
 	"wakeup_edge_census_overflow_edges|chain_path|soft_consumer",
 	"wakeup_edge_census_overflow_pairs|chain_path|soft_consumer",
+	"wakeup_edge_census_sleep_exit|chain_path|soft_consumer",
+	// 修复轮 件2 (2026-07-13): per-result target-wakee completeness marker.
+	"wakeup_edge_census_target_wakee|chain_path|soft_consumer",
 	"wakeup_ts|chain_path|display_only",
 	"weight_unit|perf|display_only",
 	"window|anchor_window|anchor_window",

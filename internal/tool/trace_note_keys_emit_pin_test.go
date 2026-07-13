@@ -404,6 +404,24 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				SemanticClass: "shader_compile",
 				Summary:       "shader compilation span overlapped selected non-chain interval",
 			}, {
+				// SELF-SEM (§29.61.1, RANK-U Stage 1, 2026-07-13): the analysis
+				// target's own deterministic semantic span on the typed self
+				// basis — exercises the on_chain_basis contract key (and the
+				// honest self_deterministic causality token beside
+				// chain_relevance=on_chain).
+				Rank: 5, Tier: "tertiary", Type: "class_verification",
+				Thread:   tracequery.ThreadRef{Comm: "app:ui", PID: 61},
+				ImpactMs: 3.2, ProjectedImpactMs: 3.2, CumulativeImpactMs: 3.2,
+				EffectiveImpactMs: 3.2, Score: 2.6, Confidence: 0.82,
+				LineStart: 72, LineEnd: 73,
+				Source:    "window_stats.trace_spans.semantic",
+				Causality: "self_deterministic", ChainRelevance: "on_chain",
+				OnChainBasis: tracequery.RootCauseOnChainBasisSelfDeterministicSpan,
+				SpanName:     "VerifyClass com.example.Foo", SpanKind: "sync",
+				SpanCategory: "runtime_verification", SpanSubcategory: "class_verification",
+				SemanticClass: "class_verification",
+				Summary:       "class verification span on the analysis target's own thread (self on-chain basis, no wakeup-edge claim)",
+			}, {
 				// RCM §24.7.1/§24.10 (2026-07-08): engine same-(thread,type)
 				// family-merged rank row — exercises the member_* contract keys
 				// (isolated family lane, never folded_*) plus the typed
@@ -478,13 +496,15 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				WakeePriority: 20, WakeePriorityClass: "cfs",
 				PriorityRelation: "waker_higher", PriorityInversionCandidate: true,
 			}},
-			// WAKE-CENSUS (§29.58): the per-pair whole-inventory census with a
-			// non-zero pair-cap overflow, so all four wakeup_edge_census_*
-			// contract keys are exercised by the emit pin.
+			// WAKE-CENSUS (§29.58) / WAKE-CENSUS-D 2A (§29.58.4): the per-pair
+			// window-total census with a non-zero pair-cap overflow and the
+			// typed exit split, so all seven wakeup_edge_census_* contract
+			// keys are exercised by the emit pin.
 			WakeupEdgeCensus: []tracequery.WakeupEdgeCensusPair{{
 				Waker: tracequery.ThreadRef{Comm: "dep", PID: 21},
 				Wakee: tracequery.ThreadRef{Comm: "app:ui", PID: 61},
-				Count: 3, FirstTs: 1.024, LastTs: 1.9,
+				Count: 3, SleepExitCount: 1, DExitCount: 1, OtherExitCount: 1,
+				FirstTs: 1.024, LastTs: 1.9,
 			}},
 			WakeupEdgeCensusOverflowPairs: 1,
 			WakeupEdgeCensusOverflowEdges: 2,

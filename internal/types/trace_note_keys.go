@@ -122,7 +122,17 @@ const (
 	TraceNoteKeySource         = "source"
 	TraceNoteKeyCausality      = "causality"
 	TraceNoteKeyChainRelevance = "chain_relevance"
-	TraceNoteKeyChainDepth     = "chain_depth"
+	// TraceNoteKeyOnChainBasis (SELF-SEM, §29.61.1 user ruling 2026-07-13):
+	// the typed proof basis behind chain_relevance=on_chain. Closed set —
+	// absent = legacy chain-window overlap basis; "self_deterministic_span" =
+	// the analysis target's own deterministic semantic span(s) admitted to the
+	// on-chain channel WITHOUT chain-window overlap and WITHOUT any wakeup-edge
+	// claim (the row's causality then reads "self_deterministic", never
+	// "on_wakeup_chain"). The projection compile parses it into
+	// TraceCausalProjectionNode.OnChainBasis; the 「自身·确定性优化」 display
+	// qualifier forks on THIS single field.
+	TraceNoteKeyOnChainBasis = "on_chain_basis"
+	TraceNoteKeyChainDepth   = "chain_depth"
 	// TraceNoteKeyDepth: RN-14c consumers key chain-root detection on the
 	// ABSENCE of this note (depth 0 is zero-dropped by the producer) — do
 	// not switch the producer to always-print without updating them.
@@ -344,10 +354,31 @@ const (
 	// pairs + their deduplicated edges beyond the listed rows; absent ⇔ 0 ⇔
 	// the pair enumeration is complete). Consumed deterministically by the
 	// model evidence feed (internal/context wait-object summary).
+	// EVOLUTION RECORD (WAKE-CENSUS-D 2A 换源, §29.58.4, RANK-U Stage 1
+	// 2026-07-13): the count caliber strengthened from "FULL pre-cap edge
+	// set" to WINDOW-TOTAL raw sched_wakeup rows for the chain-thread wakee
+	// set (target ∪ chain nodes) — D-exit and off-expansion-path S-exit
+	// wakeups now count (the donghu gpu-token ×12 structural absence closed).
+	// The exit-split trio partitions each pair's count exactly by the
+	// scheduler state the wakee left (sleep / D-family / other-or-
+	// unclassified — 双加恒等式); measurement-face counts only, the D-state
+	// CAUSAL lane stays with sched_blocked_reason.
 	TraceNoteKeyWakeupEdgeCensusFirstTs       = "wakeup_edge_census_first_ts"
 	TraceNoteKeyWakeupEdgeCensusLastTs        = "wakeup_edge_census_last_ts"
 	TraceNoteKeyWakeupEdgeCensusOverflowPairs = "wakeup_edge_census_overflow_pairs"
 	TraceNoteKeyWakeupEdgeCensusOverflowEdges = "wakeup_edge_census_overflow_edges"
+	TraceNoteKeyWakeupEdgeCensusSleepExit     = "wakeup_edge_census_sleep_exit"
+	TraceNoteKeyWakeupEdgeCensusDExit         = "wakeup_edge_census_d_exit"
+	TraceNoteKeyWakeupEdgeCensusOtherExit     = "wakeup_edge_census_other_exit"
+	// TraceNoteKeyWakeupEdgeCensusTargetWakee (修复轮 件2, 2026-07-13):
+	// "true" iff THIS census pair's wakee is the publishing RESULT's own
+	// analysis target — that wakee's pair set is pair-cap immune on the
+	// engine and tool faces by construction (件5), so its enumeration is
+	// complete even when the scope overflowed. The context TOTAL lead's
+	// anchor arm reads exactly this per-result marker — never the
+	// session-global anchor flag (a T1 anchor must not vouch for a T2
+	// result's trimmed pair set).
+	TraceNoteKeyWakeupEdgeCensusTargetWakee = "wakeup_edge_census_target_wakee"
 	// TraceNoteKeyDStateCauseUnprovenRemainder (§29.50.5 证明分区, v5 P1 批
 	// 件②, 2026-07-13): "true" ONLY on the honest-remainder D/IO seat — the
 	// unproven fragments of a thread whose other fragments proved a concrete
@@ -712,6 +743,10 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeySource, "causal_rank", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyCausality, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyChainRelevance, "causal_rank", TraceNoteCarrierHardConsumer},
+	// SELF-SEM (§29.61.1, 2026-07-13): the on-chain proof-basis marker — the
+	// projection compile parses it (node.OnChainBasis) and the self qualifier
+	// wording forks on it.
+	{TraceNoteKeyOnChainBasis, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyChainDepth, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyDepth, "causal_rank", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeySubjectKind, "causal_rank", TraceNoteCarrierHardConsumer},
@@ -1076,6 +1111,13 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyWakeupEdgeCensusLastTs, "chain_path", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyWakeupEdgeCensusOverflowPairs, "chain_path", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyWakeupEdgeCensusOverflowEdges, "chain_path", TraceNoteCarrierSoftConsumer},
+	// WAKE-CENSUS-D 2A (§29.58.4, 2026-07-13): the typed exit-state split
+	// (context evidence feed consumer, same lane as first/last ts).
+	{TraceNoteKeyWakeupEdgeCensusSleepExit, "chain_path", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyWakeupEdgeCensusDExit, "chain_path", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyWakeupEdgeCensusOtherExit, "chain_path", TraceNoteCarrierSoftConsumer},
+	// 修复轮 件2 (2026-07-13): the per-result target-wakee completeness marker.
+	{TraceNoteKeyWakeupEdgeCensusTargetWakee, "chain_path", TraceNoteCarrierSoftConsumer},
 
 	// 负载/约束族 (cpu load & affinity).
 	{"thread", "cpu_load", TraceNoteCarrierDisplayOnly},

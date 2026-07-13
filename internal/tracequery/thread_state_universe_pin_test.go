@@ -326,6 +326,11 @@ var threadStateSwitchSiteGolden = map[string]string{
 	"thread_state_universe.go:rootTypeForDominantState#1":        "running,runnable,s_sleep,d_sleep,io_wait|default",
 	"wakeup_aggregate_overlap.go:addWakeupAggregateStateValue#1": "running,runnable,s_sleep,d_sleep,io_wait",
 	"wakeup_aggregate_overlap.go:addWakeupAggregateStateValue#2": "running,runnable,s_sleep,d_sleep,io_wait",
+	// WAKE-CENSUS-D 2A (§29.58.4, 2026-07-13): the census exit-state
+	// classifier — sleep vs D-family exits get their typed split columns;
+	// every other member (running/runnable/stopped/dead/unknown) folds into
+	// the honest other/unclassified bucket via the default arm.
+	"wakeup_edge_census.go:wakeupExitStateBucket#1": "s_sleep,d_sleep,io_wait|default",
 }
 
 func TestThreadStateSwitchConsumerCoverage(t *testing.T) {

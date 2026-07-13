@@ -656,7 +656,13 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// honest-remainder D/IO seat marker beside sibling cause seats).
 	// Key-first adjudication: per-row wording input (scalar disclosure
 	// lane, same as DStateAllNonIOProven); no skipped fields.
-	reflect.TypeOf(tracequery.RootCauseRankItem{}): "48c206a21e6f4d1195a67ddbf5dd2278d98fd99b967ebe8ca13e36a6208e40dd",
+	// SELF-SEM (§29.61.1, RANK-U Stage 1, 2026-07-13) schema review:
+	// RootCauseRankItem gained OnChainBasis (string, closed set
+	// {""|self_deterministic_span} — the typed on-chain proof basis beside
+	// ChainRelevance). Key-first adjudication: per-row identity/wording input
+	// (scalar disclosure lane, same as ChainRelevance); no skipped fields;
+	// hash re-pinned after review.
+	reflect.TypeOf(tracequery.RootCauseRankItem{}): "d68828c4760ff74af85680f9c3ca08b8165f68b75e9a9d38265d69c9e410f040",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
 	// Key-first adjudication: a slice → structural bulk lane (same as
@@ -675,6 +681,16 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// blocked_reason census batch walked it, the WAKE-CENSUS main batch
 	// missed it until this tripwire fired (工作清单缺项, not a schema doubt).
 	reflect.TypeOf(tracequery.ChainResult{}): "7acd830b8504baae094c3d2d8f12f7151abf47339dd68ec0bb214b1c316c5f40",
+	// WAKE-CENSUS-D 2A (§29.58.4, RANK-U Stage 1 commit B, 2026-07-13) schema
+	// review: WakeupEdgeCensusPair now pinned in its own right (the ChainResult
+	// hash sees only the slice's type name, so pair-level field growth was
+	// invisible to the R2' 第 7 处 tripwire) and gained the typed exit-split
+	// trio (SleepExitCount/DExitCount/OtherExitCount — the three columns
+	// partition Count exactly; measurement-face counts, the D causal lane
+	// stays with blocked_reason). Key-first adjudication: plain scalar
+	// disclosure columns beside Count — no bulk lane, no dup channel, no
+	// priority override.
+	reflect.TypeOf(tracequery.WakeupEdgeCensusPair{}): "6cc9d001bd84c93e8cfee72488390af69b2bcb89e1a52c4df87b95fd81bcb839",
 	// ENG-2 追修 + P3-4 (2026-07-12) schema review: PacingIdleSummary gained
 	// EvidenceLineStart/End — the segment's causal-impact evidence span the
 	// published row aligns to so the display same-fact fold engages by

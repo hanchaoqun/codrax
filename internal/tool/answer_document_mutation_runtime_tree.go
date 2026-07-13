@@ -790,6 +790,13 @@ const (
 	// the word face 「组成部分·不可相加」 stays on the WO-A1 pointer tag.
 	runtimeTraceProjMarkSubordinateComponent
 
+	// SELF-SEM (§29.61.1 user ruling, RANK-U Stage 1, 2026-07-13): the
+	// 「自身·确定性优化」 Row2 qualifier — the analysis target's own
+	// deterministic semantic work admitted to the on-chain channel on the
+	// typed self basis (node.OnChainBasis == self_deterministic_span), with
+	// no wakeup-edge claim. Rendered wherever the cause identity row renders.
+	runtimeTraceProjMarkSelfDeterministicBasis
+
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
 	runtimeTraceProjMarkCount
@@ -1302,6 +1309,12 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkCauseIdentityRow, runtimeTraceProjLegendGroupCaliber,
 			"- 成因行身份行「类别·根因排序#N·置信」 = 该行参与根因排序的类别、榜位与置信档;「邻近影响#N」为 ◇ 邻近区段自己的独立排序(同线程墙钟口径),与「根因排序#N」不可跨通道比较;▒ 背景行不设榜位。同段被 rank 与链两车道各发一行时已合并为一行,rank 行的 E# 并入行尾 [E#+E#],数值不重复计入。",
 			"- A cause row's identity line 「category · root-cause rank #N · confidence」 = the row's ranking category, seat and confidence tier; 「adjacent-impact #N」 is the ◇ adjacent stanza's OWN independent ordering (same-thread wall-clock caliber), never comparable with 「root-cause rank #N」; ▒ background rows carry no seat. A segment published on both the rank and the chain lane is already ONE row here, with the rank row's E# merged into the trailing [E#+E#] and no value double-counted."},
+		// SELF-SEM (§29.61.1 user ruling, RANK-U Stage 1, 2026-07-13): the
+		// self-basis qualifier's teaching seat — renders exactly when the
+		// qualifier renders (typed node.OnChainBasis single field).
+		{runtimeTraceProjMarkSelfDeterministicBasis, runtimeTraceProjLegendGroupCaliber,
+			"- `自身·确定性优化` = 目标线程自身运行段内的确定性语义工作(类校验/JIT/着色器编译等):在查询窗内即按链上通道参与根因排序,数值为窗内投影并集(自身墙钟,已证可消除量);该行不含任何唤醒边、不宣称跨线程唤醒关系。",
+			"- `self·deterministic-optimization` = deterministic semantic work inside the target thread's own running segments (class verification / JIT / shader compile …): in-window it competes on the on-chain root-cause channel with its window-projection union value (the target's own wall clock, a proven eliminable amount); the row carries NO wakeup edge and claims no cross-thread wakeup relation."},
 		{runtimeTraceProjMarkEffectiveBreakdown, runtimeTraceProjLegendGroupCaliber,
 			"- `有效归因 V = …` 分解行 = 有效归因的构成:各分量按括注口径计入,分量计入之和恒等于 V;其下「分量 原始 → 计入(口径)」子行为逐项拆解。",
 			"- The `attribution V = …` breakdown line = the composition of the effective attribution: each component counts under its parenthesized caliber and the counted parts sum exactly to V; the 「component raw → counted (caliber)」 sub-rows underneath unpack it item by item."},
@@ -3706,7 +3719,8 @@ func runtimeTraceProjSemanticParticipatesInRootCauseRanking(node types.TraceCaus
 		return false
 	}
 	switch strings.TrimSpace(node.Causality) {
-	case "on_wakeup_chain", "on_dependency_chain":
+	// SELF-SEM (§29.61.1): the self token denotes on-chain membership.
+	case "on_wakeup_chain", "on_dependency_chain", "self_deterministic":
 		return true
 	default:
 		return false
@@ -3739,7 +3753,9 @@ func runtimeTraceProjNodeDemotedToBackground(node types.TraceCausalProjectionNod
 	// causal lane. Exact typed signals only.
 	onChainSemantic := strings.TrimSpace(node.SemanticClass) != "" &&
 		(strings.TrimSpace(node.ChainRelevance) == "on_chain" ||
-			strings.TrimSpace(node.Causality) == "on_wakeup_chain")
+			strings.TrimSpace(node.Causality) == "on_wakeup_chain" ||
+			// SELF-SEM (§29.61.1): self-basis on-chain semantic rows.
+			strings.TrimSpace(node.Causality) == "self_deterministic")
 	if onChainSemantic {
 		return false
 	}
@@ -4878,7 +4894,8 @@ func runtimeTraceProjSemanticTwinLane(node types.TraceCausalProjectionNode) (str
 	lane := strings.TrimSpace(node.ChainRelevance)
 	if lane == "" {
 		switch strings.TrimSpace(node.Causality) {
-		case "on_wakeup_chain", "on_dependency_chain":
+		// SELF-SEM (§29.61.1): the self token denotes on-chain membership.
+		case "on_wakeup_chain", "on_dependency_chain", "self_deterministic":
 			lane = "on_chain"
 		case "adjacent_to_wakeup_chain", "adjacent_to_dependency_chain":
 			lane = "adjacent"

@@ -2738,6 +2738,24 @@ const RootCauseTierAbsorbed = "absorbed"
 // root_cause_primary prefix never matches (target_self_state precedent).
 const RootCauseTierCaliberSide = "caliber_side"
 
+// RootCauseOnChainBasisSelfDeterministicSpan (SELF-SEM, §29.61.1 user ruling
+// 2026-07-13): the ONE non-empty member of the RootCauseRankItem.OnChainBasis
+// closed set — the analysis target's own deterministic semantic span(s)
+// admitted to the on-chain channel by typed self identity (chain universe
+// present ∧ chain.Target resolved ∧ sameThreadRef(span, target) ∧
+// deterministic semantic class ∧ in-window), never by chain-window overlap.
+// The row's Causality carries RootCauseCausalitySelfDeterministic; the wakeup
+// edge set is untouched (不铸唤醒边不宣称跨线程关系).
+const RootCauseOnChainBasisSelfDeterministicSpan = "self_deterministic_span"
+
+// RootCauseCausalitySelfDeterministic (SELF-SEM causality token, 开放裁定点①
+// adopted 2026-07-13): the honest causality word for a self-basis on-chain row.
+// "on_wakeup_chain" would be a fabricated cross-thread claim for a row that
+// carries no wakeup edge; "" would break the 21-consumer causality fallback
+// chain. chainRelevanceFromCausality maps it to "on_chain" so every
+// relevance-fallback consumer keeps the row in the chain universe.
+const RootCauseCausalitySelfDeterministic = "self_deterministic"
+
 // TraceGapKind* (G2 判据 typed 化, §27.2 + §28.1, 2026-07-09): the PRECISE
 // typed criterion split behind a trace_gap mint. The legacy single wording
 // "窗内无调度数据" over-claimed: the same (thread, window) could carry a
@@ -2905,7 +2923,26 @@ type RootCauseRankItem struct {
 	Source              string           `json:"source,omitempty"`
 	Causality           string           `json:"causality,omitempty"`
 	ChainRelevance      string           `json:"chain_relevance,omitempty"`
-	ChainDepth          int              `json:"chain_depth,omitempty"`
+	// OnChainBasis (SELF-SEM, §29.61.1 user ruling 2026-07-13, ledger
+	// real_trace_campaign_20260705.md): the typed PROOF BASIS behind an
+	// on-chain ChainRelevance. Closed set:
+	//   ""                        — legacy chain-window OVERLAP basis (every
+	//                               pre-SELF-SEM on-chain row; zero wire drift);
+	//   "self_deterministic_span" — the analysis TARGET's own deterministic
+	//                               semantic span(s) inside the query window
+	//                               (RootCauseOnChainBasisSelfDeterministicSpan):
+	//                               the row rides the on-chain channel/universe
+	//                               WITHOUT any chain-window overlap and WITHOUT
+	//                               claiming a cross-thread wakeup relation (不
+	//                               铸唤醒边不宣称跨线程关系 — Causality carries
+	//                               "self_deterministic", never
+	//                               "on_wakeup_chain", and OverlapMs stays 0).
+	// Minted ONCE at mint time; the enrich pass KEEPS a mint-time self basis
+	// instead of re-deciding the lane (§23.1 lane-decided-once discipline).
+	// Display wording forks on THIS single field (「自身·确定性优化」限定词) —
+	// never on a SubjectIsAnalysisTarget∧SemanticClass∧relevance recomposition.
+	OnChainBasis string `json:"on_chain_basis,omitempty"`
+	ChainDepth   int    `json:"chain_depth,omitempty"`
 	// ChainBranch is the owning branch ordinal of the impact/aggregate this
 	// rank row was minted from (0 = no single branch identity — window-stats
 	// lanes, cross-branch aggregates, legacy rows). Display attach domain only
@@ -3170,6 +3207,15 @@ type SemanticSpanFamily struct {
 	// node / causal-impact window overlap — thread membership alone never
 	// flips a lane). Members of one (thread,class) that split lanes form TWO
 	// families: on-chain and background never cross-merge (§24.7.1 道别键).
+	//
+	// SELF-SEM (§29.61.1, 2026-07-13): OnChain=true now has a SECOND typed
+	// basis — OnChainBasis=self_deterministic_span (the analysis target's own
+	// deterministic spans, zero chain-window overlap). The three lanes never
+	// cross-merge (three-valued fold key): a self family carries NO
+	// Projected*/DominantState* intersection fields (there is no overlap to
+	// project — fabricating one would be the §23.1 伪造重叠 shape) and its
+	// participation caliber is the complete window-projection TotalMs.
+	OnChainBasis  string  `json:"on_chain_basis,omitempty"`
 	OnChain       bool    `json:"on_chain,omitempty"`
 	ChainDepth    int     `json:"chain_depth,omitempty"`
 	ChainBranch   int     `json:"chain_branch,omitempty"`
@@ -3850,19 +3896,38 @@ type WakeupEdge struct {
 	Branch int `json:"branch,omitempty"`
 }
 
-// WakeupEdgeCensusPair is ONE (waker → wakee) pair's whole-inventory account
-// for a wakeup_chain result (WAKE-CENSUS §29.58, 2026-07-13). Count counts
-// every engine-minted wakeup edge of the pair in the result's FULL edge set
-// (identical physical republications — the same sched_wakeup row observed by
-// two branch expansions — count once); FirstTs/LastTs bound the pair's
-// observed wakeup timestamps. The direction is the sched_wakeup row's own
-// waker → wakee direction, verbatim — never inferred, never reversed.
+// WakeupEdgeCensusPair is ONE (waker → wakee) pair's window-total account for
+// a wakeup_chain result (WAKE-CENSUS §29.58 + WAKE-CENSUS-D 2A 换源 §29.58.4,
+// 2026-07-13). Count counts every raw sched_wakeup row waking this wakee
+// inside the result's window (the wakee population is the chain-thread set:
+// target ∪ chain nodes; counting is chain-INDEPENDENT — D exits and off-path
+// S exits count alike, the §29.58.4 structural absence is closed).
+// FirstTs/LastTs bound the pair's counted wakeup timestamps. The direction is
+// the sched_wakeup row's own waker → wakee direction, verbatim — never
+// inferred, never reversed.
+//
+// EVOLUTION RECORD (2A): pre-2A the Count folded the engine's FULL edge set —
+// a structurally partial supply (edges mint only on the S-sleep expansion
+// arm; the donghu gpu-token ×12 D-exit wakeups were invisible). The wire keys
+// are unchanged; only the caliber strengthened (observed-edges → window-total
+// raw rows).
 type WakeupEdgeCensusPair struct {
-	Waker   ThreadRef `json:"waker"`
-	Wakee   ThreadRef `json:"wakee"`
-	Count   int       `json:"count"`
-	FirstTs float64   `json:"first_ts,omitempty"`
-	LastTs  float64   `json:"last_ts,omitempty"`
+	Waker ThreadRef `json:"waker"`
+	Wakee ThreadRef `json:"wakee"`
+	Count int       `json:"count"`
+	// SleepExitCount/DExitCount/OtherExitCount split Count by the scheduler
+	// state the wakee LEFT at each counted wakeup (typed classifier over the
+	// wakee's own timeline: S-sleep / D-or-IO-wait / everything else incl.
+	// timeline-unclassifiable — absence never guesses). The three columns
+	// partition Count exactly (双加恒等式); split columns on ONE pair row,
+	// never split rows (同 pair 两行会被再演算互减). Measurement-face counts
+	// ONLY — the D-state CAUSAL lane stays with sched_blocked_reason (双重归因
+	// 防护; the census never claims why a D wait ended, only who woke it).
+	SleepExitCount int     `json:"sleep_exit_count,omitempty"`
+	DExitCount     int     `json:"d_exit_count,omitempty"`
+	OtherExitCount int     `json:"other_or_unclassified_exit_count,omitempty"`
+	FirstTs        float64 `json:"first_ts,omitempty"`
+	LastTs         float64 `json:"last_ts,omitempty"`
 }
 
 type WakeupCausalImpact struct {

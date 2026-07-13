@@ -53,6 +53,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -651,6 +652,9 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// P2a rider 件2b (§29.58.1 b, 2026-07-13): the ↳ subordinate-component
 		// connector (glyph IS the probe).
 		runtimeTraceProjMarkSubordinateComponent: {"↳", "↳"},
+		// SELF-SEM (§29.61.1, RANK-U Stage 1, 2026-07-13): the Row2 self-basis
+		// qualifier (word IS the probe; zh-en 同词).
+		runtimeTraceProjMarkSelfDeterministicBasis: {"自身·确定性优化", "self·deterministic-optimization"},
 		// V2-P0 (2026-07-12): the ⌗ 口径旁栏 disclosure word.
 		runtimeTraceProjMarkCaliberSideRow: {"⌗口径旁栏", "⌗ caliber-side"},
 		// CR-2 组② P5: the same-segment mirror tag (equality arm 同段镜像已并入
@@ -1146,6 +1150,39 @@ func revisit76PTV6CStanzaCrossCumProjection() types.TraceCausalProjection {
 	}
 }
 
+// revisit76SelfSemBasisProjection (SELF-SEM §29.61.1, RANK-U Stage 1,
+// 2026-07-13) is the endless_loop/donghu 970481 witness geometry: the analysis
+// target's own VerifyClass family (window-union 13.006ms) admitted to the
+// on-chain channel on the typed self basis — seat #2 behind the 26.392ms
+// runnable dependency — whose Row2 wears the 自身·确定性优化 qualifier.
+func revisit76SelfSemBasisProjection() types.TraceCausalProjection {
+	return types.TraceCausalProjection{
+		WakeupPath:    []string{"shadowhook-task-64305", "ease.cloudmusic-63993"},
+		WindowStartTs: 17729.471126,
+		WindowEndTs:   17729.622508,
+		OnChainCauses: []types.TraceCausalProjectionNode{{
+			Role: types.TraceCausalRoleRootCauseContext, Subject: "shadowhook-task-64305",
+			Object: "runnable_wait", StateKind: "runnable", ChainRelevance: "on_chain",
+			ImpactMS: 26.392, CumulativeImpactMS: 26.392, EffectiveImpactMS: 26.392,
+			Rank: 1, Tier: "primary", Confidence: 0.8, EvidenceID: "selfsem-dep",
+		}},
+		SemanticSpans: []types.TraceCausalProjectionNode{{
+			Role: types.TraceCausalRoleSemanticSpan, EvidenceID: "selfsem-fam",
+			Subject: "ease.cloudmusic-63993", Predicate: "trace_semantic_span",
+			Object: "class_verification", SemanticClass: "class_verification",
+			SpanName:       "VerifyClass com.netease.cloudmusic.Foo",
+			ChainRelevance: "on_chain", Causality: "self_deterministic",
+			OnChainBasis: "self_deterministic_span",
+			ImpactMS:     13.006, CumulativeImpactMS: 13.006, EffectiveImpactMS: 13.006,
+			Rank: 2, Tier: "secondary",
+			FamilyMemberCount: 14, FamilyMemberMaxMS: 3.1, FamilyMemberMinMS: 0.2,
+			FamilyFoldCaliber: "interval_union", FamilyMemberSumMS: 13.247,
+			FamilyMemberRoster: []string{"VerifyClass com.netease.cloudmusic.Foo 3.100ms"},
+			LineStart:          3, LineEnd: 7, Confidence: 0.82,
+		}},
+	}
+}
+
 // revisit76AssertLegendBidirectional renders one shape and asserts the NEW-7
 // two-way contract: (a) typed marks ⇔ rendered legend entries; (b) for every
 // probed mark, its fence token appears IFF its legend entry renders.
@@ -1205,6 +1242,100 @@ func revisit76AssertLegendBidirectional(t *testing.T, name string, projection ty
 		}
 	}
 	return model.Marks
+}
+
+// TestSelfSemCrownedFormSelfConsistent (件5, 修复轮 复核 F4 2026-07-13; 设计
+// 裁定④ 默认形固化): a self-basis row whose eff TOPS the board is crownable —
+// the fence renders ❶ + 根因排序#1 + the 自身·确定性优化 qualifier on ONE ✦
+// row (词面自洽: crown, seat and self basis co-render without a wake-edge
+// claim), and the bundle_top_cause banner leads with the same row carrying
+// the honest on-chain identity.
+func TestSelfSemCrownedFormSelfConsistent(t *testing.T) {
+	proj := revisit76SelfSemBasisProjection()
+	// Crown shape: the self family out-ranks the runnable dependency.
+	proj.OnChainCauses[0].Rank = 2
+	proj.OnChainCauses[0].Tier = "secondary"
+	proj.OnChainCauses[0].ImpactMS = 6.392
+	proj.OnChainCauses[0].CumulativeImpactMS = 6.392
+	proj.OnChainCauses[0].EffectiveImpactMS = 6.392
+	proj.SemanticSpans[0].Rank = 1
+	proj.SemanticSpans[0].Tier = "primary"
+	model := buildRuntimeTraceProjTreeModel(proj, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+	fence := runtimeTraceProjTreeFence(model, true)
+	var crowned string
+	for _, line := range strings.Split(fence, "\n") {
+		if strings.Contains(line, "❶") && strings.Contains(line, "✦") {
+			crowned = line
+			break
+		}
+	}
+	if crowned == "" {
+		t.Fatalf("the board-topping self row must wear ❶ on its ✦ seat:\n%s", fence)
+	}
+	if !strings.Contains(fence, "自身·确定性优化·根因排序#1") {
+		t.Fatalf("crown 词面自洽: qualifier and #1 seat must co-render on 行2:\n%s", fence)
+	}
+	if strings.Contains(crowned, "唤醒─") {
+		t.Fatalf("the crowned self row must not claim a wake edge: %q", crowned)
+	}
+	// bundle_top_cause banner: the positional crown speaks the self row's
+	// honest identity (on-chain relevance + the no-wakeup-claim summary).
+	var b strings.Builder
+	writeTraceFrameRootCauseBundleSummary(&b, &tracequery.FrameRootCauseBundle{
+		Target: tracequery.ThreadRef{Comm: "ease.cloudmusic", PID: 63993},
+		Window: tracequery.TimeWindow{StartTs: 17729.471126, EndTs: 17729.622508},
+		RootCauseRank: &tracequery.RootCauseRankResult{
+			Window: tracequery.TimeWindow{StartTs: 17729.471126, EndTs: 17729.622508},
+			Items: []tracequery.RootCauseRankItem{{
+				Rank: 1, Tier: "primary", Type: "class_verification",
+				Thread:   tracequery.ThreadRef{Comm: "ease.cloudmusic", PID: 63993},
+				ImpactMs: 13.006, CumulativeImpactMs: 13.006, EffectiveImpactMs: 13.006,
+				Causality: "self_deterministic", ChainRelevance: "on_chain",
+				OnChainBasis:  tracequery.RootCauseOnChainBasisSelfDeterministicSpan,
+				SemanticClass: "class_verification", MemberCount: 14,
+				Summary: "class verification family n=14 span(s) on the analysis target's own thread totalled 13.006ms window projection (deterministic self work counted on-chain without any wakeup-edge claim)",
+			}},
+		},
+	})
+	banner := b.String()
+	if !strings.Contains(banner, "bundle_top_cause type=class_verification") ||
+		!strings.Contains(banner, "chain_relevance=on_chain") {
+		t.Fatalf("bundle_top_cause must lead with the crowned self row's on-chain identity:\n%s", banner)
+	}
+	if !strings.Contains(banner, "without any wakeup-edge claim") {
+		t.Fatalf("the crown banner must keep the honest no-wakeup-claim wording:\n%s", banner)
+	}
+}
+
+// TestSelfSemFenceRowFormNoWakeEdge (SELF-SEM §29.61.1 显示负向 pin): the
+// self-basis semantic row renders through the ✦ 语义 lane with the Row2
+// qualifier and its chain-channel seat — and NEVER behind a fabricated wake
+// edge (不铸唤醒边: the only 唤醒─ edges in the fence belong to the real
+// trunk, none may lead into the ✦ row's line).
+func TestSelfSemFenceRowFormNoWakeEdge(t *testing.T) {
+	model := buildRuntimeTraceProjTreeModel(revisit76SelfSemBasisProjection(), newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+	fence := runtimeTraceProjTreeFence(model, true)
+	if !strings.Contains(fence, "自身·确定性优化") {
+		t.Fatalf("Row2 must wear the self qualifier:\n%s", fence)
+	}
+	if !strings.Contains(fence, "根因排序#2") {
+		t.Fatalf("the self row must keep its chain-channel seat #2:\n%s", fence)
+	}
+	for _, line := range strings.Split(fence, "\n") {
+		if strings.Contains(line, "✦") && strings.Contains(line, "唤醒─") {
+			t.Fatalf("a semantic ✦ row must never render behind a wake edge: %q", line)
+		}
+	}
+	semanticEdge := false
+	for _, line := range strings.Split(fence, "\n") {
+		if strings.Contains(line, "语义─") && strings.Contains(line, "✦") {
+			semanticEdge = true
+			break
+		}
+	}
+	if !semanticEdge {
+		t.Fatalf("the self row must render through the ✦ 语义 lane:\n%s", fence)
+	}
 }
 
 func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing.T) {
@@ -1344,6 +1475,10 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		{"smr1_a1_non_additive_pointer", smr1A1SelfBinderProjection()},
 		{"smr1_c1_account_relation", smr1C1FamilyChainProjection()},
 		{"smr1_b1_occurrence_series", smr1B1OccurrenceProjection()},
+		// SELF-SEM (§29.61.1, RANK-U Stage 1, 2026-07-13): the self-basis
+		// on-chain semantic family — Row2 自身·确定性优化 qualifier + its
+		// legend entry (fixture home: answer_document_projection_selfsem_test.go).
+		{"selfsem_basis_qualifier", revisit76SelfSemBasisProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

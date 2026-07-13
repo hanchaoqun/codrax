@@ -11,7 +11,10 @@ package tool
 // replace them with the constants.
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -140,17 +143,26 @@ func TestRCMSemanticObservationFamilyLaneIsTheFoldLane(t *testing.T) {
 	// 道别单源 pin: the tool context's target arm used to be able to call a
 	// same-thread span on-chain where the engine's mint-time overlap predicate
 	// said non-chain. A multi-member family record publishes the FOLD lane —
-	// here the chain exists but no node/impact window overlaps the spans, so
-	// the family stays off the on-chain lane (adjacent by envelope-vs-chain
-	// window overlap), exactly like its rank row.
+	// here the chain exists but no node/impact window overlaps the spans.
+	//
+	// EVOLUTION RECORD (SELF-SEM §29.61.1 user ruling, RANK-U Stage 1,
+	// 2026-07-13): the ANALYSIS TARGET's own deterministic spans now take the
+	// on-chain channel on the typed self basis (fold lane chain_self) — the
+	// observation record publishes exactly that fold verdict (two consumers,
+	// one predicate), with the honest self causality token and NO fabricated
+	// overlap/depth notes. The §23.1 道别红线 protection is byte-preserved for
+	// every NON-target chain-node thread (second arm below — the huadong E21
+	// shape): same-thread-without-overlap stays adjacent there.
 	worker := tracequery.ThreadRef{Comm: "verify", PID: 200}
-	chain := &tracequery.ChainResult{
-		Target: worker,
-		Window: tracequery.TimeWindow{StartTs: 5.0, EndTs: 5.1},
-		Nodes: []tracequery.ChainNode{{
-			Thread: worker,
-			Window: tracequery.TimeWindow{StartTs: 5.0900, EndTs: 5.0950},
-		}},
+	chainFor := func(target tracequery.ThreadRef) *tracequery.ChainResult {
+		return &tracequery.ChainResult{
+			Target: target,
+			Window: tracequery.TimeWindow{StartTs: 5.0, EndTs: 5.1},
+			Nodes: []tracequery.ChainNode{{
+				Thread: worker,
+				Window: tracequery.TimeWindow{StartTs: 5.0900, EndTs: 5.0950},
+			}},
+		}
 	}
 	stats := tracequery.WindowStats{
 		Window: tracequery.TimeWindow{StartTs: 5.0, EndTs: 5.1},
@@ -159,15 +171,123 @@ func TestRCMSemanticObservationFamilyLaneIsTheFoldLane(t *testing.T) {
 			rcmToolSpan(worker, "VerifyClass com.example.B", 5.0040, 5.0055, 12, 13),
 		},
 	}
-	records := traceQueryTypedSemanticTraceSpanObservations(tracequery.Result{WakeupChain: chain}, stats,
-		types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, Path: "a.systrace", ArtifactKind: "trace"},
-		"scope", time.Unix(1751600000, 0).UTC().Format(time.RFC3339))
+	observe := func(chain *tracequery.ChainResult) string {
+		t.Helper()
+		records := traceQueryTypedSemanticTraceSpanObservations(tracequery.Result{WakeupChain: chain}, stats,
+			types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, Path: "a.systrace", ArtifactKind: "trace"},
+			"scope", time.Unix(1751600000, 0).UTC().Format(time.RFC3339))
+		if len(records) != 1 {
+			t.Fatalf("one family record expected: %d", len(records))
+		}
+		return strings.Join(records[0].RichNotes, "\n")
+	}
+	// Arm 1 (SELF-SEM): the span thread IS the analysis target → self basis.
+	notes := observe(chainFor(worker))
+	for _, want := range []string{
+		"chain_relevance=on_chain",
+		"causality=self_deterministic",
+		"on_chain_basis=self_deterministic_span",
+	} {
+		if !strings.Contains(notes, want) {
+			t.Fatalf("target self family must publish the chain_self fold lane (%q missing): %s", want, notes)
+		}
+	}
+	if strings.Contains(notes, "causality=on_wakeup_chain") || strings.Contains(notes, "projected_impact") ||
+		strings.Contains(notes, "overlap=") {
+		t.Fatalf("self family must not claim a wakeup-chain overlap: %s", notes)
+	}
+	// Arm 2 (§23.1 preserved): the span thread is a chain NODE but not the
+	// target → same-thread-without-overlap stays adjacent, byte-identically.
+	notes = observe(chainFor(tracequery.ThreadRef{Comm: "app", PID: 100}))
+	if !strings.Contains(notes, "chain_relevance=adjacent") || strings.Contains(notes, "chain_relevance=on_chain") ||
+		strings.Contains(notes, "on_chain_basis=") {
+		t.Fatalf("a non-target chain-node thread's family must stay adjacent (道别红线原文不动): %s", notes)
+	}
+}
+
+// selfSemOverlapFamilyTrace — 件3 (修复轮, 复核 F2+F5 2026-07-13; M5 突变自检):
+// the TARGET's own multi-member deterministic family whose members TRULY
+// overlap its chain-node windows (each GC-pause span brackets one of the
+// target's own expanded sleep segments). The 道别 order is load-bearing: the
+// overlap projection is judged FIRST, the self arm only accepts the
+// no-overlap fall-through — moving the self arm ahead of the overlap check
+// (M5) flips this family onto the self basis with the UNION caliber and reds
+// every assertion below; eroding the intersection caliber (M3 同窗纪律 /
+// projection condition) reds the eff<union identity.
+const selfSemOverlapFamilyTrace = `        app-100 (100) [001] .... 5.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52 next_info=3fff,85,2,0,0,0
+        app-100 (100) [001] .... 5.000200: print: B|100|GC pause young
+        app-100 (100) [001] .... 5.001000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+       waker-500 ( 500) [002] .... 5.005000: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+        app-100 (100) [001] .... 5.005300: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52 next_info=3fff,85,2,0,0,0
+        app-100 (100) [001] .... 5.006000: print: E|100
+        app-100 (100) [001] .... 5.007000: print: B|100|GC pause young
+        app-100 (100) [001] .... 5.007600: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+       waker-500 ( 500) [002] .... 5.010600: sched_wakeup: comm=app pid=100 prio=52 target_cpu=001
+        app-100 (100) [001] .... 5.010900: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52 next_info=3fff,85,2,0,0,0
+        app-100 (100) [001] .... 5.011500: print: E|100
+        app-100 (100) [001] .... 5.012000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+`
+
+// TestSelfSemOverlapFamilyKeepsIntersectionLaneOnBothFaces (件3): a
+// TRUE-overlap self family walks the legacy chain_overlap lane on BOTH
+// consumers of the ONE fold — the rank item AND the tool-side family
+// observation — with the intersection caliber and ZERO self-basis claims.
+func TestSelfSemOverlapFamilyKeepsIntersectionLaneOnBothFaces(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "selfsem_overlap_family.systrace")
+	if err := os.WriteFile(path, []byte(selfSemOverlapFamilyTrace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	idx, err := tracequery.BuildIndex(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := tracequery.Query{PID: 100, TimeStart: 5.0, TimeEnd: 5.0125, MaxDepth: 4, MaxBranches: 4,
+		MinDurationMs: 0.5, TraceFlavorHint: tracequery.TraceFlavorHarmonyHitrace, Limit: 12}
+	chain := tracequery.BuildWakeupChain(idx, q)
+	stats := tracequery.ComputeWindowStats(idx, q)
+	// --- face 1: the rank item ------------------------------------------------
+	rank := tracequery.BuildRootCauseRank(idx, q)
+	var gc *tracequery.RootCauseRankItem
+	for i := range rank.Items {
+		if rank.Items[i].Type == "gc_pause" {
+			gc = &rank.Items[i]
+			break
+		}
+	}
+	if gc == nil || gc.MemberCount != 2 {
+		t.Fatalf("件3 fixture drifted: the ×2 gc_pause family must mint: %+v", rank.Items)
+	}
+	if gc.ChainRelevance != "on_chain" || gc.Causality != "on_wakeup_chain" || gc.OnChainBasis != "" {
+		t.Fatalf("a TRUE-overlap self family must keep the legacy overlap lane (M5 order): %+v", gc)
+	}
+	if gc.EffectiveImpactMs <= 0 || gc.CumulativeImpactMs <= gc.EffectiveImpactMs {
+		t.Fatalf("participation must be the exact intersection, strictly below the window union: eff=%.3f union=%.3f", gc.EffectiveImpactMs, gc.CumulativeImpactMs)
+	}
+	if gc.OverlapMs <= 0 {
+		t.Fatalf("the overlap lane publishes its real chain-window overlap: %+v", gc)
+	}
+	// --- face 2: the tool-side family observation (two consumers, one fold) ---
+	records := traceQueryTypedSemanticTraceSpanObservations(
+		tracequery.Result{WakeupChain: &chain}, stats,
+		types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, Path: "selfsem_overlap_family.systrace", ArtifactKind: "trace"},
+		"scope", time.Unix(1752300000, 0).UTC().Format(time.RFC3339))
 	if len(records) != 1 {
 		t.Fatalf("one family record expected: %d", len(records))
 	}
 	notes := strings.Join(records[0].RichNotes, "\n")
-	if !strings.Contains(notes, "chain_relevance=adjacent") || strings.Contains(notes, "chain_relevance=on_chain") {
-		t.Fatalf("the family record must publish the fold lane (non-chain → adjacent), never a target-arm on_chain: %s", notes)
+	for _, want := range []string{"chain_relevance=on_chain", "causality=on_wakeup_chain", "projected_impact="} {
+		if !strings.Contains(notes, want) {
+			t.Fatalf("the family observation must publish the overlap lane (%q missing):\n%s", want, notes)
+		}
+	}
+	if strings.Contains(notes, "on_chain_basis=") || strings.Contains(notes, "self_deterministic") {
+		t.Fatalf("no self-basis claim may reach the overlap-lane observation:\n%s", notes)
+	}
+	// 双面一致: the observation's projected participation equals the rank
+	// item's published effective at print precision (one value source).
+	want := fmt.Sprintf("projected_impact=%.3f", gc.EffectiveImpactMs)
+	if !strings.Contains(notes, want) {
+		t.Fatalf("the two faces must publish ONE participation value (%s):\n%s", want, notes)
 	}
 }
 

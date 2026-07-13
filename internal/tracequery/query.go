@@ -10479,9 +10479,10 @@ func buildWakeupChainWithCache(idx *Index, q Query, cache *chainQueryCache) Chai
 		targetBlockedMs := (q.TimeEnd - q.TimeStart) * 1000
 		expandChain(idx, q, cache, target, q.TimeStart, q.TimeEnd, 0, targetBlockedMs, visited, &res, "", nil, 1)
 		res.AggregatedImpacts = aggregateWakeupCausalImpacts(&res)
-		// WAKE-CENSUS (§29.58): fold the FULL surviving edge set — after every
-		// expansion pass, before publication caps ever see the edges.
-		attachWakeupEdgeCensus(&res)
+		// WAKE-CENSUS-D 2A (§29.58.4): window-total raw-inventory count over
+		// the final wakee population — after every expansion pass (the node
+		// set is complete); never sourced from res.Edges.
+		attachWakeupEdgeCensus(idx, cache, q, &res)
 		attachIPCGraphToChain(idx, q, &res)
 		attachChainViaThreadReport(viaRaw, &res)
 		return res
@@ -10493,9 +10494,10 @@ func buildWakeupChainWithCache(idx *Index, q Query, cache *chainQueryCache) Chai
 	}
 	expandViaImmuneBranches(idx, q, cache, target, targetTimeline.Intervals, branches, qualifyingBranches, viaRaw, &res)
 	res.AggregatedImpacts = aggregateWakeupCausalImpacts(&res)
-	// WAKE-CENSUS (§29.58): fold the FULL surviving edge set — after the
-	// via-immune pass (its rollbacks already removed non-kept expansions).
-	attachWakeupEdgeCensus(&res)
+	// WAKE-CENSUS-D 2A (§29.58.4): window-total raw-inventory count over the
+	// final wakee population — after the via-immune pass (its rollbacks
+	// already removed non-kept node expansions); never sourced from res.Edges.
+	attachWakeupEdgeCensus(idx, cache, q, &res)
 	attachIPCGraphToChain(idx, q, &res)
 	attachChainViaThreadReport(viaRaw, &res)
 	return res
@@ -13467,7 +13469,9 @@ func normalizeRootCauseChainRelevance(items []RootCauseRankItem, hasCausalChain 
 			relevance = "background"
 		}
 		items[i].ChainRelevance = relevance
-		if causality := causalityFromChainRelevance(relevance); causality != "" {
+		// SELF-SEM (§29.61.1): the basis-aware minter keeps the self token on
+		// self-basis rows instead of overwriting it with the wakeup-edge claim.
+		if causality := rootCauseCausalityForItem(items[i], relevance); causality != "" {
 			items[i].Causality = causality
 		}
 	}
@@ -14374,6 +14378,10 @@ type semanticTraceSpanProjection struct {
 	// (P0-E CHAIN-PATH, ledger §22.1) — 0 when no overlap won.
 	ChainBranch int
 	OnChain     bool
+	// OnChainBasis (SELF-SEM §29.61.1): "" = chain-window overlap basis;
+	// RootCauseOnChainBasisSelfDeterministicSpan = the target's own
+	// deterministic span admitted without overlap (E2 fall-through self arm).
+	OnChainBasis string
 }
 
 func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSpanSummary, hasCausalChain bool) (RootCauseRankItem, bool) {
@@ -14432,7 +14440,14 @@ func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSp
 	item.DominantState = projection.DominantState
 	item.ChainDepth = projection.ChainDepth
 	item.ChainBranch = projection.ChainBranch
-	if projection.OnChain {
+	if projection.OnChain && projection.OnChainBasis == RootCauseOnChainBasisSelfDeterministicSpan {
+		// SELF-SEM (§29.61.1): on-chain channel identity on the typed self
+		// basis — the honest causality token, never a wakeup-edge claim; the
+		// basis marker is the enrich keep arm's single input.
+		item.Causality = RootCauseCausalitySelfDeterministic
+		item.ChainRelevance = "on_chain"
+		item.OnChainBasis = RootCauseOnChainBasisSelfDeterministicSpan
+	} else if projection.OnChain {
 		item.Causality = "on_wakeup_chain"
 		item.ChainRelevance = "on_chain"
 	}
@@ -14494,11 +14509,24 @@ func semanticTraceSpanProjectionForRootCause(q Query, chain ChainResult, span Tr
 		// adjacent tier). It now mints the window-clipped typed projection with
 		// OnChain=false: 窗内即可铸,链上/非链上由重叠谓词定道. The non-chain
 		// lane (E1b) ranks it on the background composite board.
-		return semanticTraceSpanProjection{
+		//
+		// SELF-SEM (§29.61.1, 2026-07-13): the no-overlap fall-through consults
+		// the SAME shared self predicate as the family fold (single
+		// implementation, two consumers) — the target's OWN deterministic span
+		// takes the on-chain channel on the typed self basis, with the
+		// window-clipped extent as its participation (no fabricated overlap:
+		// dominant state stays empty, depth stays 0). Every non-target thread
+		// keeps this arm byte-identically (§23.1 道别红线原文不动).
+		fallThrough := semanticTraceSpanProjection{
 			StartTs:  start,
 			EndTs:    end,
 			ImpactMs: (end - start) * 1000,
-		}, 0
+		}
+		if selfDeterministicSemanticSpanLane(&chain, span) {
+			fallThrough.OnChain = true
+			fallThrough.OnChainBasis = RootCauseOnChainBasisSelfDeterministicSpan
+		}
+		return fallThrough, 0
 	}
 	// DCS E2 PID-gate removal (ledger §23.1 ruling ②; cmp_01 E2 witness: the
 	// 83.893ms JIT span's host com.huawei.hwid is NOT the query target, and
@@ -14542,6 +14570,11 @@ func overlapTimeWindow(aStart, aEnd, bStart, bEnd float64) (float64, float64, bo
 
 func semanticTraceSpanProjectionScope(projection semanticTraceSpanProjection, hasCausalChain bool) string {
 	if projection.OnChain {
+		if projection.OnChainBasis == RootCauseOnChainBasisSelfDeterministicSpan {
+			// SELF-SEM: the scope word must never claim a wakeup-chain
+			// interval the row does not carry.
+			return "the analysis target's own in-window deterministic work (self on-chain basis, no wakeup-edge claim)"
+		}
 		return "direct wakeup-chain interval"
 	}
 	if hasCausalChain {
@@ -14738,7 +14771,7 @@ func enrichRootCauseItemsWithChainContext(chain ChainResult, items []RootCauseRa
 			}
 		}
 		items[i].ChainRelevance = ctx.relevance
-		if causality := causalityFromChainRelevance(ctx.relevance); causality != "" {
+		if causality := rootCauseCausalityForItem(items[i], ctx.relevance); causality != "" {
 			items[i].Causality = causality
 		}
 		if ctx.edgeCount > 0 {
@@ -14756,6 +14789,23 @@ func enrichRootCauseItemsWithChainContext(chain ChainResult, items []RootCauseRa
 }
 
 func rootCauseChainContextForItem(item RootCauseRankItem, ctx chainCandidateContext) chainCandidateContext {
+	// SELF-SEM keep arm (§29.61.1, 2026-07-13): the lane was decided ONCE at
+	// mint time on the typed self basis — the enrich pass KEEPS that verdict
+	// instead of re-deciding it (the §23.1 lane-decided-once discipline; the
+	// unconditional ChainRelevance overwrite at the enrich call site would
+	// otherwise demote the self row back to adjacent through the same-thread
+	// no-overlap arm below). overlapMs is ZEROED (不伪造重叠): the candidate
+	// context measures the row's ENVELOPE against chain windows, and a self
+	// FAMILY's envelope spans the sleep gaps between its member spans — the
+	// members themselves were proven overlap-free at mint time (donghu
+	// witness: the two-JIT-span family envelope "overlapped" the 46ms sleep
+	// between them). edgeCount keeps the factual same-thread edge count (a
+	// fact about the chain, not a claim minted by this row).
+	if item.OnChainBasis == RootCauseOnChainBasisSelfDeterministicSpan {
+		ctx.relevance = "on_chain"
+		ctx.overlapMs = 0
+		return ctx
+	}
 	// DCS 道别红线 (ledger §23.1 ruling ①, 2026-07-08): a semantic compile
 	// span row's LANE is decided ONCE at mint time by the typed chain-node/
 	// impact WINDOW-OVERLAP predicate. Thread membership alone (this ctx path)
@@ -15027,9 +15077,26 @@ func causalityFromChainRelevance(relevance string) string {
 	}
 }
 
+// rootCauseCausalityForItem is the basis-aware causality minter (SELF-SEM
+// §29.61.1): an on-chain SELF-basis row speaks the honest self token —
+// "on_wakeup_chain" on a row that carries no wakeup edge would be a fabricated
+// cross-thread claim. Every other (relevance, basis) pair keeps the legacy
+// causalityFromChainRelevance mapping byte-identically.
+func rootCauseCausalityForItem(item RootCauseRankItem, relevance string) string {
+	if relevance == "on_chain" && item.OnChainBasis == RootCauseOnChainBasisSelfDeterministicSpan {
+		return RootCauseCausalitySelfDeterministic
+	}
+	return causalityFromChainRelevance(relevance)
+}
+
 func chainRelevanceFromCausality(causality string) string {
 	switch causality {
 	case "on_wakeup_chain":
+		return "on_chain"
+	case RootCauseCausalitySelfDeterministic:
+		// SELF-SEM (§29.61.1): the self token denotes on-chain channel
+		// membership — every relevance-fallback consumer keeps the row in the
+		// chain universe.
 		return "on_chain"
 	case "adjacent_to_wakeup_chain":
 		return "adjacent"
@@ -15577,7 +15644,14 @@ func rootCauseItemIsOnChain(item RootCauseRankItem) bool {
 	if strings.TrimSpace(item.ChainRelevance) == "on_chain" {
 		return true
 	}
-	return strings.TrimSpace(item.Causality) == "on_wakeup_chain"
+	switch strings.TrimSpace(item.Causality) {
+	// SELF-SEM (§29.61.1): the self token denotes on-chain channel
+	// membership (same mapping as chainRelevanceFromCausality).
+	case "on_wakeup_chain", RootCauseCausalitySelfDeterministic:
+		return true
+	default:
+		return false
+	}
 }
 
 // rootCauseOrdinalChannel values (UXR-1, §29.36.2 三通道裁定 2026-07-11).

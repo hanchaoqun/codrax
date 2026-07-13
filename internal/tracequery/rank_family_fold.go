@@ -257,15 +257,80 @@ func semanticSpanFamilyAdmits(span TraceSpanSummary) bool {
 	return ok
 }
 
+// semanticSpanChainLane is the three-valued family 道别 (SELF-SEM, §29.61.1):
+// the legacy bool split into a closed enum so the two ON-CHAIN calibers —
+// chain-window intersection vs the target's own window-projection union —
+// never fold into one family (两把尺禁混折; the overlap form is structurally
+// near-empty for self spans, the enum is the defense).
+type semanticSpanChainLane int
+
+const (
+	semanticSpanLaneOff semanticSpanChainLane = iota
+	semanticSpanLaneChainOverlap
+	semanticSpanLaneChainSelf
+)
+
+// selfDeterministicSemanticSpanLane is THE shared SELF-SEM admission predicate
+// (§29.61.1 user ruling 2026-07-13; §2.1 of the RANK-U design — ONE
+// implementation, two mint-time consumers: the family fold lane and the
+// single-span E2 fall-through arm; the enrich pass only KEEPS the verdict).
+// All-typed conditions:
+//   - a chain universe exists (nodes/edges/causal impacts — no chain, no
+//     "on-chain" identity to grant);
+//   - chain.Target is resolved (PID or comm — absence never guesses, the
+//     stampRootCauseRankAnalysisTargetSubject discipline);
+//   - the span's thread IS the target (sameThreadRef — the engine's tid-first
+//     identity comparator, never a label heuristic);
+//   - the span is a deterministic semantic work class (traceSpanSemanticWorkClass
+//     — the ONE six-class registry incl. normalized custom patterns; no second
+//     list) with a positive in-window extent.
+//
+// Callers apply it ONLY on the no-overlap fall-through: a genuine chain-window
+// intersection keeps the legacy overlap lane byte-identically (N5 pin; 件3
+// M5 突变自检: moving the self arm ahead of the overlap check reds
+// TestSelfSemOverlapFamilyKeepsIntersectionLaneOnBothFaces).
+// §23.1 道别红线 stays untouched for every NON-target thread: the predicate's
+// third condition is exactly the red line's protected boundary (its witness is
+// an other-process span — structurally different, ruling ③).
+func selfDeterministicSemanticSpanLane(chain *ChainResult, span TraceSpanSummary) bool {
+	if chain == nil {
+		return false
+	}
+	if len(chain.Nodes) == 0 && len(chain.Edges) == 0 && len(chain.CausalImpacts) == 0 {
+		return false
+	}
+	if chain.Target.PID <= 0 && strings.TrimSpace(chain.Target.Comm) == "" {
+		return false
+	}
+	if !sameThreadRef(span.Thread, chain.Target) {
+		return false
+	}
+	if span.DurationMs <= 0 || span.EndTs <= span.StartTs {
+		return false
+	}
+	_, ok := traceSpanSemanticWorkClass(span.Name)
+	return ok
+}
+
 // semanticSpanFamilyLane is the DCS E2 道别 predicate applied at family-fold
 // time: on-chain requires a SAME-THREAD chain node / causal-impact window
 // overlap with the (already window-clipped) span — thread membership alone
 // never flips a lane (道别红线; the huadong E21 adjacent precedent). Returns
 // the lane plus the best-overlap dominant state / chain depth for display
 // context.
-func semanticSpanFamilyLane(chain *ChainResult, span TraceSpanSummary) (onChain bool, depth int, state string) {
+//
+// SELF-SEM (§29.61.1): the no-overlap fall-through consults the shared self
+// predicate — the target's OWN deterministic spans take the chain_self lane
+// (no fabricated overlap: depth/state stay zero/empty).
+func semanticSpanFamilyLane(chain *ChainResult, span TraceSpanSummary) (lane semanticSpanChainLane, depth int, state string) {
 	projection := semanticTraceSpanChainIntersectionProjection(chain, span.Thread, []foldInterval{{start: span.StartTs, end: span.EndTs}})
-	return projection.OnChain, projection.ChainDepth, projection.DominantState
+	if projection.OnChain {
+		return semanticSpanLaneChainOverlap, projection.ChainDepth, projection.DominantState
+	}
+	if selfDeterministicSemanticSpanLane(chain, span) {
+		return semanticSpanLaneChainSelf, 0, ""
+	}
+	return semanticSpanLaneOff, projection.ChainDepth, projection.DominantState
 }
 
 // FoldSemanticSpanFamilies folds the window-clipped semantic spans of ONE
@@ -284,7 +349,7 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 	type laneKey struct {
 		thread string
 		class  string
-		lane   bool
+		lane   semanticSpanChainLane
 		source string
 	}
 	type acc struct {
@@ -297,22 +362,27 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 		if !semanticSpanFamilyAdmits(span) {
 			continue
 		}
-		onChain, depth, state := semanticSpanFamilyLane(chain, span)
-		key := laneKey{thread: threadKey(span.Thread), class: traceSpanSemanticClass(span.Name), lane: onChain, source: span.SourcePath}
+		lane, depth, state := semanticSpanFamilyLane(chain, span)
+		key := laneKey{thread: threadKey(span.Thread), class: traceSpanSemanticClass(span.Name), lane: lane, source: span.SourcePath}
 		group, ok := groups[key]
 		if !ok {
+			basis := ""
+			if lane == semanticSpanLaneChainSelf {
+				basis = RootCauseOnChainBasisSelfDeterministicSpan
+			}
 			group = &acc{family: SemanticSpanFamily{
 				Thread:        span.Thread,
 				SemanticClass: key.class,
 				SourcePath:    span.SourcePath,
-				OnChain:       onChain,
+				OnChain:       lane != semanticSpanLaneOff,
+				OnChainBasis:  basis,
 				ChainDepth:    depth,
 				DominantState: state,
 			}}
 			groups[key] = group
 			order = append(order, key)
 		}
-		if onChain && (group.family.DominantState == "" || span.DurationMs > group.family.MaxMs) {
+		if lane == semanticSpanLaneChainOverlap && (group.family.DominantState == "" || span.DurationMs > group.family.MaxMs) {
 			group.family.DominantState = state
 			group.family.ChainDepth = depth
 		}
@@ -372,7 +442,7 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 		} else {
 			fam.FoldCaliber = RootCauseMemberFoldCaliberIntervalUnion
 		}
-		if fam.OnChain {
+		if fam.OnChain && fam.OnChainBasis == "" {
 			// EVOLUTION RECORD (§24.10 → on-chain intersection caliber; 审计
 			// #62 追认, §29.25 处置委托 + §29.26 待主会话落账, 2026-07-10).
 			// §24.10 用户裁定原文: "合并键=(线程,语义类),参赛值=窗口投影合计
@@ -457,7 +527,8 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 	}
 	participationMs := fam.TotalMs
 	projectionStartTs, projectionEndTs := fam.StartTs, fam.EndTs
-	if fam.OnChain {
+	selfBasis := fam.OnChain && fam.OnChainBasis == RootCauseOnChainBasisSelfDeterministicSpan
+	if fam.OnChain && !selfBasis {
 		participationMs = fam.ProjectedImpactMs
 		projectionStartTs, projectionEndTs = fam.ProjectedStartTs, fam.ProjectedEndTs
 		if participationMs <= 0 || projectionEndTs <= projectionStartTs {
@@ -468,6 +539,14 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 			return RootCauseRankItem{}, false
 		}
 	}
+	// SELF-SEM (§29.61.1 ②, 2026-07-13): a self-basis family participates and
+	// publishes by the complete window-projection member union — the target's
+	// own running-segment deterministic work is DEFINED inside the target's
+	// window, so the union IS the proven eliminable magnitude (已证可消除量,
+	// not a conditional upper bound; the caliber difference from the overlap
+	// lane is the PROOF PATH, not the ruler). R13 携值合法性: the value is the
+	// target thread's own in-window wall clock — never another thread's
+	// borrowed account (the wc_srvinit 54.608 protected shape).
 	projection := semanticTraceSpanProjection{
 		StartTs:       projectionStartTs,
 		EndTs:         projectionEndTs,
@@ -492,7 +571,10 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 	// are byte-identical because there intersection == union.
 	sortBoostedMs := semanticTraceSpanEffectiveImpactMs(work, projection, TraceSpanSummary{DurationMs: fam.TotalMs})
 	var summary string
-	if fam.OnChain {
+	if selfBasis {
+		summary = fmt.Sprintf("%s family n=%d span(s) on the analysis target's own thread totalled %.3fms window projection (deterministic self work counted on-chain without any wakeup-edge claim; largest %q %.3fms, smallest %.3fms); effective_impact=%.3fms; fold_caliber=%s",
+			work.Label, len(fam.Members), fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, fam.TotalMs, fam.FoldCaliber)
+	} else if fam.OnChain {
 		summary = fmt.Sprintf("%s family n=%d same-thread span(s) attributed %.3fms by exact on-chain interval intersection from %.3fms complete selected-window span union (largest %q %.3fms, smallest %.3fms); effective_impact=%.3fms; fold_caliber=%s",
 			work.Label, len(fam.Members), participationMs, fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, participationMs, fam.FoldCaliber)
 	} else {
@@ -539,7 +621,15 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 	item.DominantState = fam.DominantState
 	item.ChainDepth = fam.ChainDepth
 	item.ChainBranch = fam.ChainBranch
-	if fam.OnChain {
+	if selfBasis {
+		// SELF-SEM: on-chain channel identity WITHOUT a cross-thread claim —
+		// the honest causality token, the typed basis marker (the enrich keep
+		// arm and every display qualifier read THIS one field), and NO
+		// OverlapMs (不伪造重叠).
+		item.Causality = RootCauseCausalitySelfDeterministic
+		item.ChainRelevance = "on_chain"
+		item.OnChainBasis = RootCauseOnChainBasisSelfDeterministicSpan
+	} else if fam.OnChain {
 		item.Causality = "on_wakeup_chain"
 		item.ChainRelevance = "on_chain"
 		item.OverlapMs = participationMs

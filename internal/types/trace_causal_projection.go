@@ -291,6 +291,14 @@ type TraceCausalProjectionNode struct {
 	// empty (legacy replays, pre-G2 traces) keeps the legacy wording fail-open.
 	// No gate, score or sort lane reads it.
 	TraceGapKind string `json:"trace_gap_kind,omitempty"`
+	// OnChainBasis mirrors the producer's typed on_chain_basis rich note
+	// (SELF-SEM §29.61.1, 2026-07-13): "" = legacy chain-window overlap basis;
+	// "self_deterministic_span" = the analysis target's own deterministic
+	// semantic work admitted to the on-chain channel without overlap and
+	// without any wakeup-edge claim (causality carries "self_deterministic").
+	// Display wording input ONLY (the 「自身·确定性优化」 Row2 qualifier); no
+	// gate, score or sort lane reads it.
+	OnChainBasis string `json:"on_chain_basis,omitempty"`
 	// ChainBranch is the owning branch ordinal of the node's chain measurement
 	// (typed chain_branch note — P0-E CHAIN-PATH, ledger §22.1). The display
 	// tree keys its depth attach to (branch, depth): a node from a DIFFERENT
@@ -2699,6 +2707,10 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// G2 显示半场 (§27.2/§28.1, 2026-07-09): the typed blind-spot criterion —
 	// wording input for the ◇ inline disclosure fork; absent = legacy wording.
 	node.TraceGapKind = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyTraceGapKind))
+	// SELF-SEM (§29.61.1, 2026-07-13): the typed on-chain proof basis — the
+	// 「自身·确定性优化」 display qualifier forks on THIS single field (never a
+	// subject∧class∧relevance recomposition); absent = legacy overlap basis.
+	node.OnChainBasis = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyOnChainBasis))
 	node.CumulativeImpactMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyCumulativeImpactMS)
 	if node.CumulativeImpactMS <= 0 {
 		node.CumulativeImpactMS = node.ImpactMS
@@ -3160,7 +3172,9 @@ func traceCausalProjectionRoleRank(role string) int {
 func traceCausalProjectionNodeOnChain(node TraceCausalProjectionNode) bool {
 	return strings.TrimSpace(node.ChainRelevance) == "on_chain" ||
 		strings.TrimSpace(node.Causality) == "on_wakeup_chain" ||
-		strings.TrimSpace(node.Causality) == "on_dependency_chain"
+		strings.TrimSpace(node.Causality) == "on_dependency_chain" ||
+		// SELF-SEM (§29.61.1): self-basis on-chain rows.
+		strings.TrimSpace(node.Causality) == "self_deterministic"
 }
 
 func traceCausalProjectionChainRelevanceRank(relevance string) int {
@@ -3916,7 +3930,9 @@ func traceCausalProjectionChainRelevance(notes []string) string {
 		return strings.TrimSpace(relevance)
 	}
 	switch strings.TrimSpace(traceCausalProjectionRichNoteValue(notes, TraceNoteKeyCausality)) {
-	case "on_wakeup_chain", "on_dependency_chain":
+	// SELF-SEM (§29.61.1): "self_deterministic" denotes on-chain channel
+	// membership on the typed self basis (no wakeup-edge claim).
+	case "on_wakeup_chain", "on_dependency_chain", "self_deterministic":
 		return "on_chain"
 	case "adjacent_to_wakeup_chain", "adjacent_to_dependency_chain":
 		return "adjacent"
