@@ -54,10 +54,26 @@
 # refined forms — the rank seat 「自身·D-state 36.757ms」 and the ×4 fold row
 # 「自身·D-state(对端未解析) 36.757ms」 (trace truth: the wait peer IS
 # unresolved on that row; the form still hard-rejects every /iowait merged
-# word via the banned assertion). The 4次(...)
-# member-fold face still requires the raw ×4 fold row (critical/stats family
-# in the ledger) — dispatch shapes that only run thread_timeline/event_search
-# render no tree D seats at all and legitimately fail this case.
+# word via the banned assertion).
+# EVOLUTION RECORD (SUPP-ORACLE 批2, 2026-07-14): the 「legitimately fail」
+# escape clause is DELETED. Life of the clause: born with 修复轮二 件B above
+# (§29.55.5, 2026-07-13) — the 4次(...) member-fold face requires the raw ×4
+# fold row (critical/stats family in the ledger), so dispatch shapes that only
+# ran thread_timeline/event_search rendered no tree D seats and were recorded
+# as legitimate FAILs. Died with SUPP-CORE (§29.71, 2026-07-14): the
+# explore→extract-boundary deterministic supplement now mints the missing
+# rank/chain + critical families itself (typed target/window, fail-open), so
+# the required families are dispatch-independent and pure event_search shapes
+# mint the full anchored tree too. Witnesses:
+# eval/results/real_trace_h2_dstate_dma_fence_triform-20260714-014123 (3/3
+# PASS; run-3 dispatched 3×event_search ONLY — zero rank/wakeup/blocking/
+# timeline views — and the supplement executed root_cause_rank +
+# critical_blocking_calls, disclosure line in run-3.out) and …-024052 (1/1
+# PASS, zero rank/wakeup views). The tree-seat / 4次 fold / 等待对象
+# assertions below are unconditional hard oracles with NO legitimate
+# dispatch-FAIL family left; from 批2 on, a dispatch-shaped FAIL on this case
+# is a regression, never a legal attribution (the clean-HEAD A/B variance
+# attribution arm itself stays available for OTHER causes).
 ID="real_trace_h2_dstate_dma_fence_triform"
 NAME="real trace donghu — dma_fence refined pure-D form"
 QUESTION="只分析这份 trace，不分析代码。请分析 CompThread_0-2955 在 13762.791708s 到 13763.024898s 窗口内的等待情况：它有没有进入过不可中断等待（D 状态）？内核记录的等待对象是什么，一共发生了几次，总量有多大？"
