@@ -293,8 +293,10 @@ func TestQuestionFenceNeverClassifiesAsTraceOrMermaid(t *testing.T) {
 	if strings.Contains(html, "trace-projection-tree") {
 		t.Fatalf("question fence must not classify as a projection tree:\n%s", html)
 	}
-	if !strings.Contains(html, `<pre><code class="language-text">`) {
-		t.Fatalf("question fence must render as a plain escaped pre:\n%s", html)
+	// EVOLUTION RECORD (§29.61.8a, 2026-07-14): the question pre wears the
+	// wrap-enabled user-request class; still an escaped non-grid pre.
+	if !strings.Contains(html, `<pre class="user-request"><code class="language-text">`) {
+		t.Fatalf("question fence must render as the wrap-enabled escaped pre:\n%s", html)
 	}
 
 	mermaidish := "```text codrax-user-request\ngraph TD\nA-->B\n```\n"

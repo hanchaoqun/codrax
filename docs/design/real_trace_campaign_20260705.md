@@ -2646,3 +2646,6 @@ B1 折叠行头名 floor 直接 pin(数学六形+产线实铸压力形:同主体
 
 ### §29.61.10c 用户裁定(2026-07-14,凭证清单终审):typed 因果边有直接影响链上的边依赖证据者,统一入链上排序
 用户裁定原文要义:内核记录的 typed 因果边,如有边的依赖证据能证明直接影响链上,统一到链上排序。**凭证判据定谳=证据面非类别面**:链上凭证=内核记录 typed 有向依赖边 ∧ 该边携带指向链的直接依赖证明(唤醒边天然满足;binder 同步事务边/blocked_reason 等待对象边等逐边核直接性,非按类别整族放行);纯时间重叠恒为邻近级。ATTR-UNIFY 矩阵按此判据分类每族边;RSPA 批实施。
+
+### §29.61.8a 用户裁定(2026-07-14):问题 text 块自动换行防框边遮盖
+用户裁定:html 问题 text 块加自动换行宽度处理,避免被框边遮盖。落地(主会话直落):tracefence 单源 `UserRequestInfoToken`(outputdump minter 归源+preview 消费);preview 渲染臂 `pre.user-request`(typed token 精确判,禁嗅探)+CSS `white-space: pre-wrap; overflow-wrap: anywhere`(字节 verbatim 不变,纯显示换行);**网格 fence 零波及**(投影树/◎ 保 no-wrap,负向 pin);既有两 pin 按 EVOLUTION RECORD 演进(转义性质不变仅类名)。

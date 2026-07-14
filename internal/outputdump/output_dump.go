@@ -16,6 +16,8 @@ import (
 	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
 	"github.com/hanchaoqun/codrax/internal/preview"
 	"github.com/hanchaoqun/codrax/internal/types"
+
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 )
 
 // Ext is the suffix used for both the prune glob and new files.
@@ -218,7 +220,7 @@ func BuildBody(a Args) string {
 // bare "text" info; the trace-projection classifier treats any explicit
 // non-projection token as a typed non-projection claim) and the fence falls
 // through to the plain escaped <pre> arm.
-const questionFenceInfoToken = "codrax-user-request"
+const questionFenceInfoToken = tracefence.UserRequestInfoToken
 
 // questionVerbatimFence wraps the raw request bytes in a backtick text fence.
 // Fence-collision protection is content-aware: the fence is one backtick

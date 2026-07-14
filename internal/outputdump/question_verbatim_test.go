@@ -75,9 +75,12 @@ func TestQuestionSectionHTMLEscapesInsteadOfRendering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// ③ the question renders as one plain escaped pre.
-	if !strings.Contains(html, `<pre><code class="language-text">`) {
-		t.Fatalf("问题 fence must render as a plain escaped pre:\n%s", html)
+	// ③ the question renders as one escaped pre.
+	// EVOLUTION RECORD (§29.61.8a, 2026-07-14 用户裁定): the pre now wears the
+	// wrap-enabled `user-request` class (long customer lines soft-wrap instead
+	// of being clipped) — the escape property is unchanged, only the class.
+	if !strings.Contains(html, `<pre class="user-request"><code class="language-text">`) {
+		t.Fatalf("问题 fence must render as the wrap-enabled escaped pre:\n%s", html)
 	}
 	// Injection-shaped pin: the script tag reaches the page ESCAPED only.
 	if strings.Contains(html, "<script>alert(1)</script>") {

@@ -544,6 +544,7 @@ h2 { margin-top: 2em; padding-bottom: .34em; border-bottom: 1px solid var(--line
    ratio the bars are aligned against), and the CJK fallbacks keep tree
    glyphs out of SimSun on Windows. */
 pre, code { font-family: var(--font-mono); letter-spacing: 0; }
+pre.user-request { white-space: pre-wrap; overflow-wrap: anywhere; }
 pre { max-width: 100%; overflow: auto; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; padding: 14px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--code); line-height: 1.6; }
 code { background: var(--code); border-radius: 4px; padding: .1em .3em; }
 pre code { display: block; background: transparent; padding: 0; overflow-wrap: normal; word-break: normal; }

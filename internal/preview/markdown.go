@@ -170,6 +170,11 @@ func (f fencedCodeRenderer) renderFencedCodeBlock(w util.BufWriter, source []byt
 		// technology a precise hook without changing one byte of the authoritative
 		// Markdown fence shared by terminal / Markdown / HTML surfaces.
 		_, _ = fmt.Fprint(w, `<pre class="trace-projection-tree" role="region" aria-label="Trace causal projection tree" tabindex="0"><code`)
+	case isUserRequestFence(info):
+		// §29.61.8/§29.61.8a: the customer-question verbatim fence gets a
+		// wrap-enabled pre (long input lines soft-wrap instead of being
+		// clipped); bytes stay verbatim — CSS display only.
+		_, _ = fmt.Fprint(w, `<pre class="user-request"><code`)
 	default:
 		_, _ = fmt.Fprint(w, "<pre><code")
 	}
@@ -225,6 +230,14 @@ func isTraceCausalProjectionFence(info, body string) bool {
 func isTraceElimOverviewFence(info string) bool {
 	return strings.EqualFold(firstInfoToken(info), "text") &&
 		secondInfoToken(info) == tracefence.ElimInfoToken
+}
+
+// isUserRequestFence recognizes the output-dump 问题节 verbatim fence
+// (```text codrax-user-request, §29.61.8) — exact typed-token equality,
+// post-token-era form, no sniffing arm.
+func isUserRequestFence(info string) bool {
+	return strings.EqualFold(firstInfoToken(info), "text") &&
+		secondInfoToken(info) == tracefence.UserRequestInfoToken
 }
 
 // isLegacyTraceCausalProjectionBody is the DEMOTED content-sniffing lane

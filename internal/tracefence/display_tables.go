@@ -93,6 +93,14 @@ const (
 	// periodic waveform (the row's semantics) and sits in the well-covered
 	// Mathematical Operators block.
 	GlyphPacing = "∿"
+
+	// UserRequestInfoToken is the second info token on the output-dump 问题节
+	// verbatim fence ("```text codrax-user-request", §29.61.8). Single source
+	// for the outputdump minter and the preview renderer (wrap-enabled pre
+	// class per the 2026-07-14 user ruling: the question block soft-wraps so
+	// long customer lines are never clipped by the box edge; grid fences keep
+	// no-wrap).
+	UserRequestInfoToken = "codrax-user-request"
 )
 
 // StateMark is one row of the state-mark directory: the glyph byte plus the
