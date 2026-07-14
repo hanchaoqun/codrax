@@ -488,7 +488,7 @@ func TestWeakCoreDeficitConsumerProductOrder(t *testing.T) {
         app-100 (100) [007] .... 5.020000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/7 next_pid=0 next_prio=120
       <idle>-0 (-----) [007] .... 5.100000: cpu_frequency: state=3100000 cpu_id=7
 	`)
-	cache := newChainQueryCache(idx)
+	cache := newChainQueryCache(idx, nil)
 	capability := cache.coreCapability("")
 	if capability.source != CoreCapabilitySourceDefault {
 		t.Fatalf("fixture must judge two clusters, got %q", capability.source)

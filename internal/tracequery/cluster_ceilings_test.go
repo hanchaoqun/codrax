@@ -242,7 +242,7 @@ func TestPerCPULimitSampleAdmissionCrossFaceIdentity(t *testing.T) {
 	}
 
 	// Fold face: member-identical to the single definition.
-	c := newChainQueryCache(idx)
+	c := newChainQueryCache(idx, nil)
 	c.buildFreqLimitIndex()
 	if !reflect.DeepEqual(c.freqLimitByCPU, expected) {
 		t.Fatalf("fold-face limits admission diverged from isPerCPULimitSample:\n got %+v\nwant %+v", c.freqLimitByCPU, expected)
@@ -348,7 +348,7 @@ func TestPerCPUFrequencySampleAdmissionCrossFaceIdentity(t *testing.T) {
 
 	// Fold face: member-identical to the single definition (full trace, no
 	// window convention).
-	c := newChainQueryCache(idx)
+	c := newChainQueryCache(idx, nil)
 	c.buildFreqIndex()
 	if !reflect.DeepEqual(c.freqByCPU, expected) {
 		t.Fatalf("fold-face frequency admission diverged from isPerCPUFrequencySample:\n got %+v\nwant %+v", c.freqByCPU, expected)

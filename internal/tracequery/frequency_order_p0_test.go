@@ -50,7 +50,7 @@ func TestCPUFrequencyRollbackFailsClosedPerCPUAndBlocksDonorReuse(t *testing.T) 
 		t.Fatalf("fixture did not produce cpu0 supply row: %+v", stats.ComputeSupplyBalance.PerCPU)
 	}
 
-	cache := newChainQueryCache(idx)
+	cache := newChainQueryCache(idx, nil)
 	_, basis := cache.supplyFoldRunningIntervals(q, 1.1, 2.5, []Interval{{
 		State: StateRunning, StartTs: 1.1, EndTs: 2.5, DurationMs: 1400, CPU: 0, CPUKnown: true,
 	}})
@@ -90,7 +90,7 @@ func TestCPUFrequencyLimitRollbackFailsClosedPerCPU(t *testing.T) {
 	if !foundCPU1 {
 		t.Fatalf("healthy cpu1 limits were suppressed: %+v", stats.CPUFrequencyLimits)
 	}
-	cache := newChainQueryCache(idx)
+	cache := newChainQueryCache(idx, nil)
 	if got := cache.governedLimitMaxKHz(0, 1, 2.5); got != 0 {
 		t.Fatalf("chain/fold limits index bypassed cpu0 fail-close: %d", got)
 	}

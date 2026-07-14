@@ -213,7 +213,7 @@ func TestIndexFreqSampleTimelinesMemoized(t *testing.T) {
 		t.Fatalf("memoized content wrong: %v", m1)
 	}
 	// The fold cache shares the SAME memo (single basis by construction).
-	cache := newChainQueryCache(idx)
+	cache := newChainQueryCache(idx, nil)
 	cache.buildFreqIndex()
 	if reflect.ValueOf(cache.freqByCPU).Pointer() != reflect.ValueOf(m1).Pointer() {
 		t.Fatalf("chainQueryCache must share the Index memo, not rebuild a second basis")

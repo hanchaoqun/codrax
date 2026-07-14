@@ -77,6 +77,9 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 	unresolvedInterfaceRows := 0
 	interfaceRowsBySource := map[string][]int{}
 	for eventIndex, ev := range idx.Events {
+		if q.runCancel.tick() {
+			break
+		}
 		_, lifecycleReset := schedulerLifecycleResetPID(ev)
 		traceStackRelevant := ev.Type == EventTraceMark && (ev.SpanAction == "B" || ev.SpanAction == "E" || traceMarkEventMalformed(ev))
 		if !traceStackRelevant && ev.Type != EventBinderTransaction && !lifecycleReset {
@@ -177,6 +180,9 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 		res.Caveats = append(res.Caveats, fmt.Sprintf("trace_mark_interface_join_provenance_unresolved=true; rows=%d; binder edges remain available, but transact-span interface joins were omitted because relevant rows could not be mapped to exactly one physical source artifact", unresolvedInterfaceRows))
 	}
 	for _, ev := range idx.Events {
+		if q.runCancel.tick() {
+			break
+		}
 		if !pairingEventInsideQuery(ev, q) {
 			continue
 		}
@@ -194,6 +200,9 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 	unmatchedReceives := 0
 	sendOnly := 0
 	for _, send := range idx.Events {
+		if q.runCancel.tick() {
+			break
+		}
 		if send.Type != EventBinderTransaction {
 			continue
 		}
@@ -241,6 +250,9 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 		}
 	}
 	for _, recv := range idx.Events {
+		if q.runCancel.tick() {
+			break
+		}
 		if recv.Type != EventBinderReceived || !pairingEventInsideQuery(recv, q) {
 			continue
 		}

@@ -294,6 +294,16 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		if limit, ok := t.traceQueryIndexLimitResult(ctx, p, path, sourceLabel, err); ok {
 			return limit, nil
 		}
+		// SUPP-CANCEL: a context fire during the parse is a cancellation,
+		// not a parse incompatibility — say so instead of blaming the file.
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Success:   false,
+				Summary:   fmt.Sprintf("trace_query run on %s was canceled before completion (%v); no partial results were published — narrow the time window or reduce the scope and re-run", path, err),
+				Timestamp: time.Now(),
+			}, nil
+		}
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
@@ -332,14 +342,32 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	logging.Debug("[trace_query] phase=store_result view=%s path=%s done elapsed=%s payload_ref=%s raw_ref=%s", q.View, path, time.Since(storeStart), payloadRef, rawRef)
 	now := time.Now()
 	return types.ToolResult{
-		ToolName:     t.Name(),
-		Success:      true,
-		Summary:      preview,
-		RawRef:       rawRef,
-		Refinement:   traceQueryRefinement(result, q, p, sourceLabel),
-		Observations: traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now),
-		Timestamp:    now,
+		ToolName:              t.Name(),
+		Success:               true,
+		Summary:               preview,
+		RawRef:                rawRef,
+		Refinement:            traceQueryRefinement(result, q, p, sourceLabel),
+		Observations:          traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now),
+		TraceViewCancellation: traceQueryToolViewCancellation(result),
+		Timestamp:             now,
 	}, nil
+}
+
+// traceQueryToolViewCancellation mirrors the engine's typed in-view
+// cooperative-cancellation record onto the ToolResult (SUPP-CANCEL,
+// 2026-07-14) so system callers read a precise signal instead of parsing the
+// Summary. nil in, nil out — the untriggered path stays byte-identical.
+func traceQueryToolViewCancellation(result tracequery.Result) *types.TraceViewCancellation {
+	vc := result.ViewCancellation
+	if vc == nil {
+		return nil
+	}
+	return &types.TraceViewCancellation{
+		View:           vc.View,
+		Reason:         vc.Reason,
+		ScannedUnits:   vc.ScannedUnits,
+		DiscardedFaces: append([]string(nil), vc.DiscardedFaces...),
+	}
 }
 
 // traceQueryChainTargetRunnableDominant reports whether the chain target's
@@ -667,6 +695,14 @@ func traceQueryBuildQuery(ctx *types.BusContext, p traceQueryParams, sourceLabel
 			q.Limit = override
 		}
 	}
+	// SUPP-CANCEL (2026-07-14): thread the caller's cancellation-aware
+	// context into the engine query — the SINGLE injection point for all
+	// tool-constructed queries. Model lane: the existing bus context chain.
+	// Supplement lane: the same chain wrapped with the remaining duration-
+	// budget deadline. Fixture BusContexts without a Ctx yield context.TODO()
+	// here and WithRunContext ignores non-cancelable contexts (Done()==nil),
+	// so those paths stay byte-identical.
+	q = q.WithRunContext(contextFromBus(ctx))
 	return q
 }
 
@@ -784,13 +820,14 @@ func (t *TraceQuery) maybeLargePatternWindowedView(ctx *types.BusContext, p trac
 	logging.Debug("[trace_query] phase=store_result view=%s path=%s done elapsed=%s payload_ref=%s raw_ref=%s", q.View, path, time.Since(storeStart), payloadRef, rawRef)
 	now := time.Now()
 	return types.ToolResult{
-		ToolName:     t.Name(),
-		Success:      true,
-		Summary:      preview,
-		RawRef:       rawRef,
-		Refinement:   traceQueryRefinement(result, q, boundedP, sourceLabel),
-		Observations: traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now),
-		Timestamp:    now,
+		ToolName:              t.Name(),
+		Success:               true,
+		Summary:               preview,
+		RawRef:                rawRef,
+		Refinement:            traceQueryRefinement(result, q, boundedP, sourceLabel),
+		Observations:          traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now),
+		TraceViewCancellation: traceQueryToolViewCancellation(result),
+		Timestamp:             now,
 	}, true
 }
 
@@ -3350,6 +3387,13 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	}
 	if diagnostic := traceQueryIndexDiagnostic(result); diagnostic != "" {
 		fmt.Fprintf(&b, "parse_diagnostic=%s\n", diagnostic)
+	}
+	// SUPP-CANCEL (2026-07-14): the in-view cancellation disclosure renders
+	// EARLY (head-preview safe) — the sections below only ever show COMPLETE
+	// faces; everything unfinished was discarded whole by the engine.
+	if vc := result.ViewCancellation; vc != nil {
+		fmt.Fprintf(&b, "view_cancellation=true reason=%s scanned_units=%d discarded_sections=%s (unfinished sections discarded whole, published sections are complete; narrow the time window or reduce the scope to complete the view)\n",
+			sanitizeForBanner(vc.Reason), vc.ScannedUnits, sanitizeForBanner(strings.Join(vc.DiscardedFaces, ",")))
 	}
 	if result.UnparsedLineCount > 0 || result.ParseLinePanics > 0 || result.ClockRegressions > 0 {
 		fmt.Fprintf(&b, "scanned_lines=%d parsed_events=%d unparsed_lines=%d parse_line_panics=%d clock_regressions=%d\n",

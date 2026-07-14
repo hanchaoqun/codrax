@@ -185,7 +185,7 @@ func TestCoreCapabilityCap2FourWindowParity(t *testing.T) {
 			if err != nil {
 				t.Fatalf("carve build must succeed: %v", err)
 			}
-			capability := newChainQueryCache(idx).coreCapability("")
+			capability := newChainQueryCache(idx, nil).coreCapability("")
 			if capability.source != CoreCapabilitySourceDefault {
 				t.Fatalf("§29.11: this carve must judge the default capability table (同 trace 全窗同判), got %q (floorTripped=%v, groups=%d)",
 					capability.source, capability.comoveFloorTripped, capability.domains.groupCount)
@@ -229,7 +229,7 @@ func TestSupplyFoldCarryInStateSemantics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cache := newChainQueryCache(idx)
+	cache := newChainQueryCache(idx, nil)
 	q := Query{TimeStart: 5.0, TimeEnd: 5.1}
 	intervals := []Interval{{State: StateRunning, StartTs: 5.01, EndTs: 5.05, DurationMs: 40, CPU: 2, CPUKnown: true}}
 	ideal, basis := cache.supplyFoldRunningIntervals(q, 5.0, 5.1, intervals)
@@ -336,7 +336,7 @@ func TestSupplyFoldCapabilityTokensConsistentAcrossWindows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cache := newChainQueryCache(idx)
+	cache := newChainQueryCache(idx, nil)
 	type tokens struct{ source, topo string }
 	var seen []tokens
 	for _, w := range [][2]float64{{2.0, 2.1}, {2.1, 2.2}, {2.05, 2.15}} {
@@ -469,7 +469,7 @@ func TestSupplyFoldCapabilitySplitAuditDisclosure(t *testing.T) {
 	b.WriteString("        app-100 (100) [000] .... 1.400000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=100 next_prio=52\n")
 	b.WriteString("        app-100 (100) [000] .... 1.500000: sched_switch: prev_comm=app prev_pid=100 prev_prio=52 prev_state=S ==> next_comm=idle/0 next_pid=0 next_prio=120\n")
 	idx := buildTraceIndex(t, "cap3_split_audit.systrace", b.String())
-	cache := newChainQueryCache(idx)
+	cache := newChainQueryCache(idx, nil)
 	q := Query{TimeStart: 1.0, TimeEnd: 1.5}
 	intervals := []Interval{{State: StateRunning, StartTs: 1.4, EndTs: 1.45, DurationMs: 50, CPU: 0, CPUKnown: true}}
 	_, basis := cache.supplyFoldRunningIntervals(q, 1.0, 1.5, intervals)

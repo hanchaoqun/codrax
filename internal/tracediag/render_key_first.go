@@ -624,7 +624,15 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// adjudication: small typed detail rows, no Caveats/Compactions channel
 	// to dedupe, no bulk lane, no priority override — generic detail
 	// rendering, CPUFrequencyCensus 同构; hash re-pinned after review.
-	reflect.TypeOf(tracequery.Result{}): "640412bb55af4aad8d1a13ea2e364e39d2fb7d49901da411a72f043c3b84bdeb",
+	// SUPP-CANCEL (2026-07-14) schema review (R2' 第 7 处): Result gained
+	// ViewCancellation — the typed in-view cooperative-cancellation record
+	// (view/reason/scanned_units/discarded_faces). Key-first adjudication:
+	// tracediag NEVER mints it by construction (this lane passes no run
+	// context — nil carrier, never cancels, byte-identical outputs), so the
+	// field is always nil here; if a future lane ever surfaces it, the small
+	// typed record takes generic detail rendering — no bulk lane, no dup
+	// channel, no priority override; hash re-pinned after review.
+	reflect.TypeOf(tracequery.Result{}): "d4c8a7348fdc30e3ea34bdeea35a2359d88230342c09d5357e5c02654981abe8",
 	// 修复轮二 件A (2026-07-13) schema review: WindowStats gained the
 	// per-lane cap-overflow disclosure quartet
 	// (DStateTopOverflowGroups/-Ms, IOWaitTopOverflowGroups/-Ms — scalar

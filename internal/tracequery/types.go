@@ -737,6 +737,29 @@ type Query struct {
 	// per-segment anchored overlap against these at its single ledger close
 	// site. nil (every other caller) keeps the sweep byte-identical.
 	chainAnchorWindowsByPID map[int][]TimeWindow
+	// runCancel (SUPP-CANCEL, 2026-07-14) is the in-view cooperative-
+	// cancellation carrier, set ONLY through Query.WithRunContext
+	// (run_cancel.go). Unexported in-package plumbing, never serialized;
+	// nil (tracediag lane, direct builder calls, tests) keeps every scan
+	// byte-identical.
+	runCancel *runCancelState
+}
+
+// ViewCancellation is the typed in-view cooperative-cancellation wire record
+// (SUPP-CANCEL, 2026-07-14). See Result.ViewCancellation for the publication
+// contract.
+type ViewCancellation struct {
+	// View is the canonical view name of the canceled run.
+	View string `json:"view"`
+	// Reason is the context error class: "deadline_exceeded" | "canceled".
+	Reason string `json:"reason"`
+	// ScannedUnits is the cooperative sampling counter value (scan units —
+	// indexed events / visit steps) at the moment the fire was observed.
+	ScannedUnits int64 `json:"scanned_units,omitempty"`
+	// DiscardedFaces lists the result faces (canonical view/face tokens)
+	// whose construction had not completed before the fire — they were
+	// discarded whole rather than published as partial aggregates.
+	DiscardedFaces []string `json:"discarded_faces,omitempty"`
 }
 
 type Result struct {
@@ -809,7 +832,15 @@ type Result struct {
 	// Additive only — nil when no generator row matched.
 	VsyncGeneratorCensus *VsyncGeneratorCensus `json:"vsync_generator_census,omitempty"`
 	EvidencePack         []EvidenceFact        `json:"evidence_pack,omitempty"`
-	Caveats              []string              `json:"caveats,omitempty"`
+	// ViewCancellation (SUPP-CANCEL, 2026-07-14) is the typed in-view
+	// cooperative-cancellation record: non-nil only when the run's context
+	// fired at a sampling point inside this view. Faces present on this
+	// Result are complete builder outputs; every face whose construction
+	// had not finished before the fire was discarded whole (禁半账) and is
+	// listed in DiscardedFaces. Accompanied by exactly one
+	// "in_view_cancellation=true; …" caveat (禁裸丢).
+	ViewCancellation *ViewCancellation `json:"view_cancellation,omitempty"`
+	Caveats          []string          `json:"caveats,omitempty"`
 	// Compactions are the typed truncation records for this result (E4).
 	// They ride ALONGSIDE the prose compaction caveats (which stay verbatim);
 	// the tool refinement layer reads these first and keeps caveat-substring

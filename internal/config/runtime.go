@@ -76,10 +76,15 @@ type RuntimeSettings struct {
 	// COLD lane only: with zero successful trace_query calls this run (no
 	// warm engine index cache), traces larger than this many MiB skip the
 	// supplement instead of paying a render-assembly-time cold parse.
-	// trace_supplement_max_duration_ms is the between-view deadline (P1
-	// warm-lane fuse, 2026-07-14): once a completed view pushes the
-	// supplement past it, the remaining views are skipped with disclosure
-	// (completed views kept). trace_supplement_max_window_span_s caps the
+	// trace_supplement_max_duration_ms is the supplement's ONE wall-clock
+	// duration budget (P1 warm-lane fuse, 2026-07-14; SUPP-CANCEL extended
+	// it in-view the same day): once a completed view pushes the supplement
+	// past it, the remaining views are skipped with disclosure (completed
+	// views kept), AND the remaining budget rides a context deadline into
+	// every engine call, so a single over-budget view cancels cooperatively
+	// mid-run (completed result sections kept, unfinished sections
+	// discarded whole, canceled views disclosed — never a silent stall).
+	// trace_supplement_max_window_span_s caps the
 	// derived query window's span; an over-budget user window skips the
 	// whole supplement with an honest answer-side disclosure (never a
 	// silent truncation, never a guessed sub-window). All absent /

@@ -469,7 +469,7 @@ func TestCAP2CrossValidationDiscardsTier2KeepsTier1(t *testing.T) {
     tppmgr-idle-0-296   (    2) [000] .... 15151.826003: clock_set_rate: m3_c3_freq state=2350000 cpu_id=12
 `
 	idx := buildTraceIndex(t, "cap2_crossval.systrace", cap2SchedFiller()+cap2SweepLines+cap2LimitsLines+shifted)
-	cache := newChainQueryCache(idx)
+	cache := newChainQueryCache(idx, nil)
 	capability := cache.coreCapability("")
 	if capability.railRejectReason != clusterRailRejectCrossValidation {
 		t.Fatalf("the m3_c3 rail (2350000) contradicts cpu12's proximate 1200000 samples — Tier-2 must be discarded: %q", capability.railRejectReason)
@@ -516,7 +516,7 @@ func TestCAP2RailStructureConflictDiscardsTier2(t *testing.T) {
 
 func TestCAP2RailSubdividesConstantEqualTier1Cluster(t *testing.T) {
 	idx := buildTraceIndex(t, "cap2_subdivide.systrace", cap2SchedFiller()+cap2SweepLines+cap2LimitsLines+cap2M3RailLines)
-	cache := newChainQueryCache(idx)
+	cache := newChainQueryCache(idx, nil)
 	capability := cache.coreCapability("")
 	if capability.source != CoreCapabilitySourceDefault {
 		t.Fatalf("the specimen shape must judge, got %q (railReject=%q floor=%v)", capability.source, capability.railRejectReason, capability.comoveFloorTripped)
@@ -548,7 +548,7 @@ func TestCAP2RailSubdividesConstantEqualTier1Cluster(t *testing.T) {
 // the structure; membership is wholly the anchor presumption.
 func TestCAP2PureTier2Judgment(t *testing.T) {
 	idx := buildTraceIndex(t, "cap2_pure_rail.systrace", cap2SchedFiller()+cap2LimitsLines+cap2M3RailLines)
-	cache := newChainQueryCache(idx)
+	cache := newChainQueryCache(idx, nil)
 	capability := cache.coreCapability("")
 	if capability.source != CoreCapabilitySourceDefault || capability.topologySource != CoreCapabilityTopologyKeyedRail {
 		t.Fatalf("pure Tier-2 must judge with the keyed_rail token: %q/%q", capability.source, capability.topologySource)
@@ -565,7 +565,7 @@ func TestCAP2PureTier2Judgment(t *testing.T) {
 	// 禁掷币 control: WITHOUT the limits rows the rail values alone tie
 	// (m3_c0 == m3_c1 == 417000) — no defensible order, fail-loud freq_only.
 	tieIdx := buildTraceIndex(t, "cap2_pure_rail_tie.systrace", cap2SchedFiller()+cap2M3RailLines)
-	tie := newChainQueryCache(tieIdx).coreCapability("")
+	tie := newChainQueryCache(tieIdx, nil).coreCapability("")
 	if tie.source != CoreCapabilitySourceFreqOnly {
 		t.Fatalf("the rail-value tie must fail loud (no coin flip): %q", tie.source)
 	}
@@ -575,7 +575,7 @@ func TestCAP2PureTier2Judgment(t *testing.T) {
 // not consulted and no topology token is minted (legacy wording preserved).
 func TestCAP2ExplicitTopologyOutranksRail(t *testing.T) {
 	idx := buildTraceIndex(t, "cap2_explicit.systrace", cap2SchedFiller()+cap2SweepLines+cap2LimitsLines+cap2M3RailLines)
-	cache := newChainQueryCache(idx)
+	cache := newChainQueryCache(idx, nil)
 	capability := cache.coreCapability("small=0-1;middle=2-9;big=10-13")
 	if capability.domains.source != ClusterFreqSourceExplicit {
 		t.Fatalf("explicit topology must win outright: %q", capability.domains.source)
@@ -795,7 +795,7 @@ func TestCAP2ClockLanePlausibilityFilter(t *testing.T) {
 	// Index-level: the noise sample never enters the corroboration lane; the
 	// plausible pid_freq sample stays (the filter is surgical, not a ban).
 	idx := buildTraceIndex(t, "cap2_pid_freq.systrace", cap2SchedFiller()+cap2PidFreqLines)
-	cache := newChainQueryCache(idx)
+	cache := newChainQueryCache(idx, nil)
 	cache.buildClockLaneIndex()
 	saw190091 := false
 	for _, sample := range cache.clockLaneSamples {

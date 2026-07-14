@@ -502,10 +502,23 @@ func TestTraceSupplementColdBudget(t *testing.T) {
 // --- P1 warm-lane budget fuses (2026-07-14 修复轮) ------------------------------
 
 func TestTraceSupplementDurationBudgetKeepsCompletedViews(t *testing.T) {
-	// 1ns between-view deadline: view 1 (root_cause_rank) always runs, the
-	// remaining view is skipped WITH disclosure; the completed view's
-	// observations are kept (never dropped mid-flight).
-	suppCoreSetConfig(t, true, 2<<30, time.Nanosecond, 120)
+	// EVOLUTION RECORD (SUPP-CANCEL, 2026-07-14): this pin originally used a
+	// 1ns budget and relied on "view 1 always runs" — the between-view
+	// deadline was the ONLY duration fuse. The same knob now also rides a
+	// context deadline INTO the view (in-view cooperative cancellation), so
+	// a pre-expired budget cancels view 1 instead of letting it run (that
+	// lane's pin: TestTraceSupplementInViewCancellation*). The between-view
+	// invariant itself is unchanged — completed views are kept, the
+	// remainder skips with disclosure — and stays deterministically pinned
+	// here through the test-only after-view seam (a wall-clock overrun
+	// between the views would otherwise race the in-view deadline).
+	suppCoreSetConfig(t, true, 2<<30, 30*time.Second, 120)
+	traceSupplementAfterViewHook = func(string) {
+		// Overrun the budget AFTER view 1 completes: the view-2 iteration's
+		// between-view check must fire before any engine call.
+		traceSupplementMaxDuration = -time.Nanosecond
+	}
+	t.Cleanup(func() { traceSupplementAfterViewHook = nil })
 	ctx := suppCoreContext(t)
 	// event_search-only shape: every core family missing ⇒ both views planned.
 	suppCoreModelCall(t, ctx, `{"view":"event_search","pid":200,"time_start":3.0,"time_end":3.2}`)

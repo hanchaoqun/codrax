@@ -31,7 +31,9 @@ package tool
 // disclosure).
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"time"
@@ -58,14 +60,18 @@ import (
 //   - MaxWindowSpanS gates the DERIVED window's span BEFORE any engine call:
 //     an over-budget span skips the whole supplement with an HONEST
 //     answer-side disclosure (skip reason=window_span_exceeded).
-//   - MaxDuration is the BETWEEN-VIEW deadline: after each completed view,
-//     an over-deadline supplement skips the remaining views (skip
+//   - MaxDuration is the supplement's ONE wall-clock duration budget with
+//     two enforcement rungs. Between views: after each completed view, an
+//     over-deadline supplement skips the remaining views (skip
 //     reason=duration_budget_exceeded) while KEEPING every completed view's
 //     observations — partial results are already-recorded deterministic
-//     facts and are never dropped mid-flight. In-view cancellation needs
-//     engine context cooperation and is deliberately out of scope (filed
-//     separately; candidate = threading TraceQuery.Execute's bus context
-//     into tracequery.Run).
+//     facts and are never dropped mid-flight. IN-view (SUPP-CANCEL,
+//     2026-07-14, closes the filing this note used to carry): the same
+//     budget rides a context deadline through Query.WithRunContext into
+//     tracequery.Run's cooperative sampling points, so a single over-budget
+//     view cancels mid-run — completed result sections publish, unfinished
+//     sections are discarded whole by the engine (禁半账), and the canceled
+//     views are disclosed through meta.CanceledViews (禁裸丢).
 var (
 	traceSupplementEnabled            = true
 	traceSupplementMaxColdBytes int64 = 2 << 30
@@ -74,6 +80,14 @@ var (
 	traceSupplementMaxDuration    = 20 * time.Second
 	traceSupplementMaxWindowSpanS = 120.0
 )
+
+// traceSupplementAfterViewHook is a TEST-ONLY seam invoked after each
+// completed windowed view (nil in production — never set outside tests). The
+// between-view deadline branch is otherwise reachable only through a
+// wall-clock race against the SUPP-CANCEL in-view deadline context, so the
+// deterministic pin for "completed views are kept, the remainder skips with
+// disclosure" injects its budget overrun here.
+var traceSupplementAfterViewHook func(view string)
 
 // SetTraceQuerySupplementConfig is the one-shot config injection point
 // (cmd/root.go). Non-positive values keep the code defaults.
@@ -614,6 +628,20 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 	if reject != nil || strings.TrimSpace(path) == "" {
 		return skip("no_attached_trace")
 	}
+	// SUPP-CANCEL (2026-07-14): ONE wall-clock duration budget per supplement
+	// attempt — the same trace_supplement_max_duration_ms knob that drives
+	// the between-view skip now ALSO rides a context deadline into every
+	// engine call (windowed views AND the C-lite streaming scan — 批4 P3-5),
+	// so a single long view cancels cooperatively in-view instead of
+	// stalling report assembly unboundedly. execCtx is a ShallowClone with
+	// only the context swapped: Mutable/WorkDir and every other exported
+	// field alias the caller's, so the recorder brackets and blob lanes are
+	// untouched (never `cp := *ctx` — BusContext carries a cache mutex,
+	// copylocks vet pin).
+	dctx, cancelDeadline := context.WithDeadline(contextFromBus(ctx), time.Now().Add(traceSupplementMaxDuration))
+	defer cancelDeadline()
+	execCtx := ctx.ShallowClone()
+	execCtx.Ctx = dctx
 	// Family detection runs on the SAME compiled ledger the renderer
 	// consumes (single value source for presence/absence).
 	input := types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit)
@@ -633,7 +661,7 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 	censusLiteWanted := traceSupplementVsyncFamilyHit(ctx) &&
 		!traceSupplementObservationsCarryVsyncCensus(preLedger.Records)
 	if len(views) == 0 {
-		if censusLiteWanted && runTraceSupplementCensusLite(ctx, path, sourceLabel, "families_present", &out) {
+		if censusLiteWanted && runTraceSupplementCensusLite(execCtx, path, sourceLabel, "families_present", &out) {
 			return out
 		}
 		return skip("families_present")
@@ -644,7 +672,7 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		// target / no window / inconsistent windows) — a full re-run is
 		// impossible, but a single-pass generator census needs neither
 		// target nor window.
-		if censusLiteWanted && runTraceSupplementCensusLite(ctx, path, sourceLabel, "no_typed_target", &out) {
+		if censusLiteWanted && runTraceSupplementCensusLite(execCtx, path, sourceLabel, "no_typed_target", &out) {
 			return out
 		}
 		return skip("no_typed_target")
@@ -656,7 +684,7 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		if len(callWindows) == 0 {
 			reason = "no_typed_window"
 		}
-		if censusLiteWanted && runTraceSupplementCensusLite(ctx, path, sourceLabel, reason, &out) {
+		if censusLiteWanted && runTraceSupplementCensusLite(execCtx, path, sourceLabel, reason, &out) {
 			return out
 		}
 		return skip(reason)
@@ -687,7 +715,7 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		// would otherwise stay absent for this run.
 		if censusLiteWanted {
 			ctx.Mutable.BeginSystemTraceSupplementExecution()
-			result, elapsed, ok := traceSupplementExecuteCensusLite(ctx, path, "window_span_exceeded")
+			result, elapsed, ok := traceSupplementExecuteCensusLite(execCtx, path, "window_span_exceeded")
 			ctx.Mutable.EndSystemTraceSupplementExecution()
 			if ok {
 				meta.CensusLite = true
@@ -721,6 +749,8 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 	results := make([]types.ToolResult, 0, len(views))
 	executed := make([]string, 0, len(views))
 	var skippedViews []string
+	var canceledViews []string
+	afterView := traceSupplementAfterViewHook
 	// 件4: suppress the Execute-side cursor/window recorders for the
 	// supplement's own calls (feedback-loop guard).
 	ctx.Mutable.BeginSystemTraceSupplementExecution()
@@ -729,8 +759,10 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		// P1 between-view deadline: after a completed view, an over-deadline
 		// supplement skips the REMAINING views only — completed views'
 		// observations are already-recorded deterministic facts and are
-		// never dropped mid-flight. (In-view cancellation = engine context
-		// cooperation, filed separately.)
+		// never dropped mid-flight. (In-view cancellation is the OTHER rung
+		// of the same budget — delivered by SUPP-CANCEL 2026-07-14: execCtx
+		// carries the deadline into the engine's cooperative sampling
+		// points, classified right after the Execute call below.)
 		if len(executed) > 0 && time.Since(start) > traceSupplementMaxDuration {
 			skippedViews = append([]string(nil), views[i:]...)
 			logging.Warning("[trace_supplement] skip reason=duration_budget_exceeded elapsed=%s budget=%s completed=%s skipped=%s",
@@ -753,22 +785,47 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 			continue
 		}
 		callStart := time.Now()
-		result, execErr := (&TraceQuery{}).Execute(ctx, raw)
+		result, execErr := (&TraceQuery{}).Execute(execCtx, raw)
 		callElapsed := time.Since(callStart)
 		if execErr != nil {
 			logging.Warning("[trace_supplement] view=%s failed elapsed=%s err=%v", view, callElapsed.Round(time.Millisecond), execErr)
 			continue
 		}
-		// 修复轮 件2 (2026-07-14): a Success=false typed reject (density
-		// guard, parse failure, source reject …) contributes ZERO ledger
-		// records, so it must not count as executed and must not mint a
-		// disclosure line — a disclosed "补跑" with an empty account would
-		// be a false provenance claim. Same treatment as execErr: log WARN,
-		// fail open.
+		// SUPP-CANCEL (2026-07-14): duration-budget cancellation lanes.
+		// (a) canceled BEFORE any engine work could publish (parse-phase
+		//     fire ⇒ Success=false while OUR deadline context is expired) —
+		//     nothing recorded, but the skip is DISCLOSED (禁裸丢), unlike
+		//     the ordinary engine-reject fail-open below;
+		// (b) canceled IN-VIEW with the typed engine record — completed
+		//     faces (if any) are real observations and count as executed;
+		//     zero-observation cancellations must not claim a re-run
+		//     (修复轮 件2 rule) but are disclosed as canceled.
 		if !result.Success {
+			if dctx.Err() != nil {
+				canceledViews = append(canceledViews, view)
+				logging.Warning("[trace_supplement] view=%s canceled by the duration budget before completion elapsed=%s (disclosed, nothing recorded): %s",
+					view, callElapsed.Round(time.Millisecond), traceSupplementSummaryHead(result.Summary))
+				continue
+			}
+			// 修复轮 件2 (2026-07-14): a Success=false typed reject (density
+			// guard, parse failure, source reject …) contributes ZERO ledger
+			// records, so it must not count as executed and must not mint a
+			// disclosure line — a disclosed "补跑" with an empty account would
+			// be a false provenance claim. Same treatment as execErr: log
+			// WARN, fail open.
 			logging.Warning("[trace_supplement] view=%s rejected by engine elapsed=%s (not counted, not disclosed): %s",
 				view, callElapsed.Round(time.Millisecond), traceSupplementSummaryHead(result.Summary))
 			continue
+		}
+		if vc := result.TraceViewCancellation; vc != nil {
+			canceledViews = append(canceledViews, view)
+			if len(result.Observations) == 0 {
+				logging.Warning("[trace_supplement] view=%s canceled in-view by the duration budget with no complete face elapsed=%s reason=%s (disclosed, nothing recorded)",
+					view, callElapsed.Round(time.Millisecond), vc.Reason)
+				continue
+			}
+			logging.Warning("[trace_supplement] view=%s canceled in-view by the duration budget elapsed=%s reason=%s discarded=%s (complete faces recorded, unfinished faces discarded whole)",
+				view, callElapsed.Round(time.Millisecond), vc.Reason, strings.Join(vc.DiscardedFaces, ","))
 		}
 		logging.Info("[trace_supplement] view=%s elapsed=%s window=%.6f..%.6f pid=%d thread=%q source=%s warm=%t",
 			view, callElapsed.Round(time.Millisecond), window.TimeStart, window.TimeEnd, target.PID, target.Thread, sourceLabel, warm)
@@ -780,13 +837,39 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		ctx.Mutable.RegisterTraceQueryBlobRefsFromToolResult(result)
 		executed = append(executed, view)
 		results = append(results, result)
+		if afterView != nil {
+			afterView(view)
+		}
 	}
 	if len(executed) == 0 {
 		out.Elapsed = time.Since(start)
+		// SUPP-CANCEL: nothing was recorded but the duration budget canceled
+		// ≥1 view — the user's window did not get its re-run, so the skip is
+		// DISCLOSED through the meta lane (禁裸丢), never the silent
+		// execution_failed fail-open.
+		if len(canceledViews) > 0 {
+			meta := types.SystemTraceSupplementMeta{
+				SkipReason:      "duration_budget_exceeded",
+				SkippedViews:    skippedViews,
+				CanceledViews:   canceledViews,
+				DurationBudgetS: traceSupplementMaxDuration.Seconds(),
+				WindowStart:     window.TimeStart,
+				WindowEnd:       window.TimeEnd,
+				TargetPID:       target.PID,
+				TargetThread:    target.Thread,
+				TargetSource:    targetSource,
+				ElapsedMS:       out.Elapsed.Milliseconds(),
+			}
+			ctx.Mutable.SetSystemTraceSupplement(meta, nil)
+			out.SkipReason = "duration_budget_exceeded"
+			logging.Warning("[trace_supplement] canceled by the duration budget with zero recorded views canceled=%s budget=%s (disclosed)",
+				strings.Join(canceledViews, ","), traceSupplementMaxDuration)
+			return out
+		}
 		// 修复轮 件2: engine-rejected windowed views leave the census family
 		// absent too — the standalone lite arm salvages the generator
 		// account (its own meta; nothing else was stored).
-		if censusLiteWanted && runTraceSupplementCensusLite(ctx, path, sourceLabel, "execution_failed", &out) {
+		if censusLiteWanted && runTraceSupplementCensusLite(execCtx, path, sourceLabel, "execution_failed", &out) {
 			return out
 		}
 		return skip("execution_failed")
@@ -801,7 +884,7 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 	censusLiteRan := false
 	if censusLiteWanted && !traceSupplementResultsCarryVsyncCensus(results) &&
 		time.Since(start) <= traceSupplementMaxDuration {
-		if result, _, ok := traceSupplementExecuteCensusLite(ctx, path, "windowed_census_absent"); ok {
+		if result, _, ok := traceSupplementExecuteCensusLite(execCtx, path, "windowed_census_absent"); ok {
 			results = append(results, result)
 			censusLiteRan = true
 			executed = append(executed, "event_search")
@@ -832,6 +915,13 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 	if len(skippedViews) > 0 {
 		meta.SkipReason = "duration_budget_exceeded"
 		meta.SkippedViews = skippedViews
+	}
+	if len(canceledViews) > 0 {
+		meta.CanceledViews = canceledViews
+		meta.DurationBudgetS = traceSupplementMaxDuration.Seconds()
+		if meta.SkipReason == "" && errors.Is(dctx.Err(), context.DeadlineExceeded) {
+			meta.SkipReason = "duration_budget_exceeded"
+		}
 	}
 	ctx.Mutable.SetSystemTraceSupplement(meta, results)
 	logging.Info("[trace_supplement] executed views=%s total_elapsed=%s (deterministic assembly-time supplement; observations enter the dedicated system lane)",

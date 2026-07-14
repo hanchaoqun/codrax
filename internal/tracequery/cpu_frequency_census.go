@@ -181,6 +181,11 @@ func ComputeCPUFrequencyCensus(idx *Index, q Query, displayed []EventView) *CPUF
 		return nil
 	}
 	for _, ev := range idx.Events {
+		if q.runCancel.tick() {
+			// SUPP-CANCEL: a truncated census is a claim-of-absence hazard;
+			// abandon whole (the caller's attach gate discards it).
+			return nil
+		}
 		if !eventInQuery(ev, q, typeSet, actionSet) {
 			continue
 		}

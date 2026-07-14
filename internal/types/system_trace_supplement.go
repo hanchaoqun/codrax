@@ -94,6 +94,37 @@ type SystemTraceSupplementMeta struct {
 	// CensusLitePattern is the literal search pattern the C-lite pass used
 	// (audit/disclosure).
 	CensusLitePattern string `json:"census_lite_pattern,omitempty"`
+	// CanceledViews (SUPP-CANCEL, 2026-07-14) lists the canonical view names
+	// whose ENGINE RUN hit in-view cooperative cancellation under the
+	// supplement's duration-budget deadline (the same
+	// trace_supplement_max_duration_ms knob that drives the between-view
+	// skip; in-view the remaining budget rides a context deadline into
+	// tracequery.Run). A canceled view appears in Views too when it still
+	// recorded ≥1 complete face; a canceled view with zero recorded
+	// observations stays out of Views (a disclosed "re-run" with an empty
+	// account would be a false provenance claim — 修复轮 件2 rule) but is
+	// disclosed here (禁裸丢). Unfinished faces were discarded whole by the
+	// engine (禁半账).
+	CanceledViews []string `json:"canceled_views,omitempty"`
+	// DurationBudgetS echoes the duration budget for the cancellation
+	// disclosure wording (WindowBudgetS twin).
+	DurationBudgetS float64 `json:"duration_budget_s,omitempty"`
+}
+
+// TraceViewCancellation is the ToolResult mirror of the trace engine's typed
+// in-view cooperative-cancellation record (SUPP-CANCEL, 2026-07-14). See
+// ToolResult.TraceViewCancellation for the publication contract.
+type TraceViewCancellation struct {
+	// View is the canonical view name of the canceled run.
+	View string `json:"view"`
+	// Reason is the context error class: "deadline_exceeded" | "canceled".
+	Reason string `json:"reason"`
+	// ScannedUnits is the engine's cooperative sampling counter value at the
+	// fire (scan units — indexed events / visit steps).
+	ScannedUnits int64 `json:"scanned_units,omitempty"`
+	// DiscardedFaces lists the result faces discarded whole because their
+	// construction had not completed before the fire.
+	DiscardedFaces []string `json:"discarded_faces,omitempty"`
 }
 
 // RecordTraceQueryCallWindow appends one typed call window to the run-scoped
@@ -167,6 +198,7 @@ func (m *MutableState) SetSystemTraceSupplement(meta SystemTraceSupplementMeta, 
 	metaCopy := meta
 	metaCopy.Views = append([]string(nil), meta.Views...)
 	metaCopy.SkippedViews = append([]string(nil), meta.SkippedViews...)
+	metaCopy.CanceledViews = append([]string(nil), meta.CanceledViews...)
 	m.systemTraceSupplementMeta = &metaCopy
 	m.systemTraceSupplementResults = append([]ToolResult(nil), results...)
 	m.bumpAnswerSurfaceRevisionLocked()
@@ -202,6 +234,7 @@ func (m *MutableState) SystemTraceSupplementMeta() *SystemTraceSupplementMeta {
 	out := *m.systemTraceSupplementMeta
 	out.Views = append([]string(nil), m.systemTraceSupplementMeta.Views...)
 	out.SkippedViews = append([]string(nil), m.systemTraceSupplementMeta.SkippedViews...)
+	out.CanceledViews = append([]string(nil), m.systemTraceSupplementMeta.CanceledViews...)
 	return &out
 }
 

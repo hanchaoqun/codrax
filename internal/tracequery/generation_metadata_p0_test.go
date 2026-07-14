@@ -29,7 +29,7 @@ func TestReusedTIDPriorityAndCPUMetadataStayInsideNewGeneration(t *testing.T) {
 	if prio, class := threadPriorityNear(idx, TraceFlavorHarmonyHitrace, unknownThread, 2.020000); prio != 0 || class != "" {
 		t.Fatalf("old generation priority leaked into new occupant: prio=%d class=%q", prio, class)
 	}
-	cache := newChainQueryCache(idx)
+	cache := newChainQueryCache(idx, nil)
 	if prio, class := cache.priorityNear(TraceFlavorHarmonyHitrace, unknownThread, 2.020000); prio != 0 || class != "" {
 		t.Fatalf("cached old generation priority leaked into new occupant: prio=%d class=%q", prio, class)
 	}

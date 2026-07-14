@@ -33,7 +33,7 @@ func TestWakeupPriorityProvenanceCannotMintHardPriorityEvidence(t *testing.T) {
 		t.Fatalf("inferred priority was classified as hard Harmony priority: %+v", flavored)
 	}
 	idx := &Index{Events: []Event{inferred}}
-	cache := newChainQueryCache(idx)
+	cache := newChainQueryCache(idx, nil)
 	if len(cache.priorityByPID[100]) != 0 {
 		t.Fatalf("inferred wakeup priority entered the hard priority cache: %+v", cache.priorityByPID)
 	}

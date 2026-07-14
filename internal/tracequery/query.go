@@ -124,6 +124,26 @@ func Run(idx *Index, q Query) Result {
 	if err := ValidateTraceMarkActionFilter(q.View, q.EventTypes, q.TraceMarkActions); err != nil {
 		return traceMarkActionFilterInvalidResult(idx, q, err)
 	}
+	// SUPP-CANCEL (2026-07-14): in-view cooperative cancellation. cancel is
+	// nil for every caller that never opted in (tracediag lane, tests) —
+	// every gate below then reads a constant false and the flow is
+	// byte-identical. faceCanceled is the single attach-gate primitive: it
+	// reports whether the face just built must be DISCARDED because a
+	// sampling point fired during (or before) its construction, and records
+	// the discard for the typed ViewCancellation record minted at the exit.
+	cancel := q.runCancel
+	// Entry boundary sampling point: a Run entered with an already-dead
+	// context (expired supplement deadline, user abort) does no view work at
+	// all — every arm discards through its attach gate and the exit mints
+	// the typed record. Read-only on a live context (DET).
+	cancel.sample()
+	faceCanceled := func(face string) bool {
+		if cancel.fired() {
+			cancel.discardFace(face)
+			return true
+		}
+		return false
+	}
 	flavor, confidence, signals, flavorCaveats := resolveTraceFlavor(idx, q)
 	q.TraceFlavor = flavor
 	frameworkSurfaces := detectFrameworkSurfaces(idx, q, TracePlatformAuto, 4)
@@ -166,12 +186,24 @@ func Run(idx *Index, q Query) Result {
 		TimeStart:                   q.TimeStart,
 		TimeEnd:                     q.TimeEnd,
 	}
+	if cancel.fired() && (len(spanWindows) > 0 || len(spanCaveats) > 0 || spanCompaction != nil) {
+		// The pre-switch span resolution was interrupted: discard its whole
+		// output set (windows + caveats + compaction) — 禁半账.
+		cancel.discardFace("span_windows")
+		spanWindows, spanCaveats, spanCompaction = nil, nil, nil
+	}
 	if len(spanWindows) > 0 {
 		res.SpanWindows = spanWindows
 	}
 	var cachedStats WindowStats
 	var cachedStatsOK bool
 	getStats := func() WindowStats {
+		if cancel.fired() {
+			// Post-fire fast path: never memoize — the arm's attach gate
+			// discards the value anyway, and re-entering the full sweep
+			// after the fire would burn the remaining budget for nothing.
+			return WindowStats{}
+		}
 		if !cachedStatsOK {
 			cachedStats = ComputeWindowStats(idx, q)
 			cachedStatsOK = true
@@ -181,6 +213,9 @@ func Run(idx *Index, q Query) Result {
 	var cachedLatency SchedulerLatencyResult
 	var cachedLatencyOK bool
 	getLatency := func() SchedulerLatencyResult {
+		if cancel.fired() {
+			return SchedulerLatencyResult{}
+		}
 		if !cachedLatencyOK {
 			cachedLatency = buildSchedulerLatencyStatsFromStats(idx, q, getStats())
 			cachedLatencyOK = true
@@ -190,6 +225,9 @@ func Run(idx *Index, q Query) Result {
 	var cachedChain ChainResult
 	var cachedChainOK bool
 	getChain := func() ChainResult {
+		if cancel.fired() {
+			return ChainResult{}
+		}
 		if !cachedChainOK {
 			cachedChain = BuildWakeupChain(idx, q)
 			cachedChainOK = true
@@ -199,6 +237,9 @@ func Run(idx *Index, q Query) Result {
 	var cachedIPC IPCGraphResult
 	var cachedIPCOK bool
 	getIPC := func() IPCGraphResult {
+		if cancel.fired() {
+			return IPCGraphResult{}
+		}
 		if !cachedIPCOK {
 			cachedIPC = BuildIPCGraph(idx, q)
 			cachedIPCOK = true
@@ -216,6 +257,9 @@ func Run(idx *Index, q Query) Result {
 	var cachedAnchoredStats WindowStats
 	var cachedAnchoredStatsOK bool
 	getStatsForRank := func(chain ChainResult) WindowStats {
+		if cancel.fired() {
+			return WindowStats{}
+		}
 		anchors := chainAnchorWindowsByPID(chain)
 		if anchors == nil {
 			return getStats()
@@ -229,6 +273,9 @@ func Run(idx *Index, q Query) Result {
 		return cachedAnchoredStats
 	}
 	getRootCause := func() RootCauseRankResult {
+		if cancel.fired() {
+			return RootCauseRankResult{}
+		}
 		if !cachedRootCauseOK {
 			var chain ChainResult
 			if q.PID > 0 || q.Thread != "" || q.ThreadInput != "" {
@@ -246,6 +293,9 @@ func Run(idx *Index, q Query) Result {
 	var cachedBlocking CriticalBlockingResult
 	var cachedBlockingOK bool
 	getBlocking := func() CriticalBlockingResult {
+		if cancel.fired() {
+			return CriticalBlockingResult{}
+		}
 		if !cachedBlockingOK {
 			var chain *ChainResult
 			if cachedChainOK {
@@ -259,6 +309,9 @@ func Run(idx *Index, q Query) Result {
 	var cachedFrame FramePipelineResult
 	var cachedFrameOK bool
 	getFrame := func() FramePipelineResult {
+		if cancel.fired() {
+			return FramePipelineResult{}
+		}
 		if !cachedFrameOK {
 			cachedFrame = BuildFramePipeline(idx, q)
 			cachedFrameOK = true
@@ -268,6 +321,9 @@ func Run(idx *Index, q Query) Result {
 	var cachedFrameTimeline FrameTimelineResult
 	var cachedFrameTimelineOK bool
 	getFrameTimeline := func() FrameTimelineResult {
+		if cancel.fired() {
+			return FrameTimelineResult{}
+		}
 		if !cachedFrameTimelineOK {
 			cachedFrameTimeline = buildFrameTimelineFromPipeline(q, getFrame())
 			cachedFrameTimelineOK = true
@@ -278,20 +334,36 @@ func Run(idx *Index, q Query) Result {
 	case "span_window":
 		if len(spanWindows) == 0 {
 			spanWindows, spanCaveats, spanCompaction = findSpanWindowsCompacted(idx, q, q.Limit)
+			if faceCanceled("span_windows") {
+				spanWindows, spanCaveats, spanCompaction = nil, nil, nil
+				break
+			}
 			res.SpanWindows = spanWindows
+		}
+		if faceCanceled("span_windows") {
+			break
 		}
 		res.EvidencePack = evidenceFromSpans(spanWindows)
 	case "thread_timeline":
 		tl := ThreadTimeline(idx, q)
+		if faceCanceled("thread_timeline") {
+			break
+		}
 		res.Timeline = &tl
 		res.Caveats = append(res.Caveats, tl.Caveats...)
 		res.EvidencePack = evidenceFromTimeline(tl)
 	case "window_stats":
 		stats := getStats()
+		if faceCanceled("window_stats") {
+			break
+		}
 		res.WindowStats = &stats
 		res.EvidencePack = evidenceFromStats(stats)
 	case "perf_stats":
 		stats := getStats()
+		if faceCanceled("perf_stats") {
+			break
+		}
 		res.WindowStats = &stats
 		res.PerfStats = stats.PerfSamples
 		if stats.PerfSamples == nil {
@@ -300,18 +372,30 @@ func Run(idx *Index, q Query) Result {
 		res.EvidencePack = evidenceFromPerfContext(stats.PerfSamples)
 	case "perf_timeline":
 		timeline := BuildPerfTimeline(idx, q)
+		if faceCanceled("perf_timeline") {
+			break
+		}
 		res.PerfTimeline = &timeline
 		res.EvidencePack = evidenceFromPerfTimeline(timeline)
 	case "scheduler_latency_stats":
 		latency := getLatency()
+		if faceCanceled("scheduler_latency_stats") {
+			break
+		}
 		res.SchedulerLatency = &latency
 		res.EvidencePack = evidenceFromSchedulerLatency(latency)
 	case "ipc_graph":
 		ipc := getIPC()
+		if faceCanceled("ipc_graph") {
+			break
+		}
 		res.IPCGraph = &ipc
 		res.EvidencePack = evidenceFromIPCGraph(ipc)
 	case "wakeup_chain":
 		chain := getChain()
+		if faceCanceled("wakeup_chain") {
+			break
+		}
 		res.WakeupChain = &chain
 		if q.IncludeWindowStats {
 			if idx.RelationScoped {
@@ -322,7 +406,9 @@ func Run(idx *Index, q Query) Result {
 				res.Caveats = append(res.Caveats, "relation_scoped_window_stats_unavailable=true; wakeup_chain is complete for the retained target/waker closure, but global window_stats are omitted because the index intentionally pruned unrelated scheduler events")
 			} else {
 				stats := getStats()
-				res.WindowStats = &stats
+				if !faceCanceled("window_stats") {
+					res.WindowStats = &stats
+				}
 			}
 		}
 		res.EvidencePack = append(evidenceFromChain(chain), evidenceFromIPCGraph(IPCGraphResult{Edges: chain.IPCEdges})...)
@@ -330,17 +416,35 @@ func Run(idx *Index, q Query) Result {
 		chain := ChainResult{}
 		if q.PID > 0 || q.Thread != "" {
 			chain = getChain()
+			if faceCanceled("wakeup_chain") {
+				cancel.discardFace("root_cause_rank")
+				break
+			}
 			res.WakeupChain = &chain
 		}
 		stats := getStats()
+		if faceCanceled("window_stats") {
+			cancel.discardFace("root_cause_rank")
+			break
+		}
 		res.WindowStats = &stats
 		latency := getLatency()
+		if faceCanceled("scheduler_latency_stats") {
+			cancel.discardFace("root_cause_rank")
+			break
+		}
 		res.SchedulerLatency = &latency
 		rank := getRootCause()
+		if faceCanceled("root_cause_rank") {
+			break
+		}
 		res.RootCauseRank = &rank
 		res.EvidencePack = evidenceFromRootCauseRank(rank)
 	case "frame_root_cause_bundle":
 		bundle := BuildFrameRootCauseBundle(idx, q)
+		if faceCanceled("frame_root_cause_bundle") {
+			break
+		}
 		res.FrameRootCauseBundle = &bundle
 		if bundle.WakeupChain != nil {
 			res.WakeupChain = bundle.WakeupChain
@@ -367,37 +471,62 @@ func Run(idx *Index, q Query) Result {
 			res.WindowStats = bundle.windowStats
 		} else {
 			stats := getStats()
-			res.WindowStats = &stats
+			if !faceCanceled("window_stats") {
+				res.WindowStats = &stats
+			}
 		}
 	case "trace_perf_bundle":
 		stats := getStats()
+		if faceCanceled("window_stats") {
+			cancel.discardFace("trace_perf_bundle")
+			break
+		}
 		res.WindowStats = &stats
 		res.PerfStats = stats.PerfSamples
 		if q.PID > 0 || q.Thread != "" || q.ThreadInput != "" {
 			chain := getChain()
+			if faceCanceled("wakeup_chain") {
+				cancel.discardFace("root_cause_rank")
+				break
+			}
 			res.WakeupChain = &chain
 			res.EvidencePack = append(res.EvidencePack, evidenceFromChain(chain)...)
 			rank := getRootCause()
+			if faceCanceled("root_cause_rank") {
+				break
+			}
 			res.RootCauseRank = &rank
 			res.EvidencePack = append(res.EvidencePack, evidenceFromRootCauseRank(rank)...)
 		}
 		res.EvidencePack = append(res.EvidencePack, evidenceFromStats(stats)...)
 	case "interaction_stats":
 		interactions := BuildInteractionStats(idx, q)
+		if faceCanceled("interaction_stats") {
+			break
+		}
 		res.InteractionStats = &interactions
 		res.EvidencePack = evidenceFromInteractionStats(interactions)
 	case "frame_window", "render_pipeline":
 		frame := getFrame()
+		if faceCanceled("frame_window") {
+			break
+		}
 		res.FramePipeline = &frame
 		res.SpanWindows = frameSpans(frame)
 		res.EvidencePack = evidenceFromFramePipeline(frame)
 	case "frame_timeline", "frame_flow":
 		timeline := getFrameTimeline()
+		if faceCanceled("frame_timeline") {
+			break
+		}
 		res.FrameTimeline = &timeline
 		res.SpanWindows = frameTimelineSpans(timeline)
 		res.EvidencePack = evidenceFromFrameTimeline(timeline)
 	case "critical_blocking_calls":
 		blocking := getBlocking()
+		if faceCanceled("critical_blocking_calls") {
+			break
+		}
 		res.CriticalBlocking = &blocking
 		res.EvidencePack = evidenceFromCriticalBlocking(blocking)
 	case "recipe":
@@ -418,8 +547,11 @@ func Run(idx *Index, q Query) Result {
 			}
 			locate.EventTypes = nil
 			if strings.TrimSpace(locate.Pattern) != "" {
-				res.Events = EventSearch(idx, locate)
-				res.EvidencePack = append(res.EvidencePack, evidenceFromEvents(res.Events)...)
+				events := EventSearch(idx, locate)
+				if !faceCanceled("event_search") {
+					res.Events = events
+					res.EvidencePack = append(res.EvidencePack, evidenceFromEvents(res.Events)...)
+				}
 			}
 		}
 		if recipeHasView(recipe, "span_window") {
@@ -438,67 +570,106 @@ func Run(idx *Index, q Query) Result {
 			if strings.TrimSpace(windowQ.SpanName) != "" {
 				if len(spanWindows) == 0 {
 					spanWindows, spanCaveats, spanCompaction = findSpanWindowsCompacted(idx, windowQ, windowQ.Limit)
-					res.SpanWindows = spanWindows
+					if faceCanceled("span_windows") {
+						spanWindows, spanCaveats, spanCompaction = nil, nil, nil
+					} else {
+						res.SpanWindows = spanWindows
+					}
 				}
-				res.EvidencePack = append(res.EvidencePack, evidenceFromSpans(spanWindows)...)
+				if !cancel.fired() {
+					res.EvidencePack = append(res.EvidencePack, evidenceFromSpans(spanWindows)...)
+				}
 			}
 		}
 		if recipeHasView(recipe, "window_stats") {
 			stats := getStats()
-			res.WindowStats = &stats
+			if !faceCanceled("window_stats") {
+				res.WindowStats = &stats
+			}
 		}
 		if recipeHasView(recipe, "scheduler_latency_stats") {
 			latency := getLatency()
-			res.SchedulerLatency = &latency
-			res.EvidencePack = append(res.EvidencePack, evidenceFromSchedulerLatency(latency)...)
+			if !faceCanceled("scheduler_latency_stats") {
+				res.SchedulerLatency = &latency
+				res.EvidencePack = append(res.EvidencePack, evidenceFromSchedulerLatency(latency)...)
+			}
 		}
 		if recipeHasView(recipe, "wakeup_chain") {
 			chain := getChain()
-			res.WakeupChain = &chain
-			res.EvidencePack = append(res.EvidencePack, evidenceFromChain(chain)...)
+			if !faceCanceled("wakeup_chain") {
+				res.WakeupChain = &chain
+				res.EvidencePack = append(res.EvidencePack, evidenceFromChain(chain)...)
+			}
 		}
 		if recipeHasView(recipe, "ipc_graph") {
 			ipc := getIPC()
-			res.IPCGraph = &ipc
-			res.EvidencePack = append(res.EvidencePack, evidenceFromIPCGraph(ipc)...)
+			if !faceCanceled("ipc_graph") {
+				res.IPCGraph = &ipc
+				res.EvidencePack = append(res.EvidencePack, evidenceFromIPCGraph(ipc)...)
+			}
 		}
 		if recipeHasView(recipe, "root_cause_rank") {
 			rank := getRootCause()
-			res.RootCauseRank = &rank
-			res.EvidencePack = append(res.EvidencePack, evidenceFromRootCauseRank(rank)...)
+			if !faceCanceled("root_cause_rank") {
+				res.RootCauseRank = &rank
+				res.EvidencePack = append(res.EvidencePack, evidenceFromRootCauseRank(rank)...)
+			}
 		}
 		if recipeHasView(recipe, "critical_blocking_calls") {
 			blocking := getBlocking()
-			res.CriticalBlocking = &blocking
-			res.EvidencePack = append(res.EvidencePack, evidenceFromCriticalBlocking(blocking)...)
+			if !faceCanceled("critical_blocking_calls") {
+				res.CriticalBlocking = &blocking
+				res.EvidencePack = append(res.EvidencePack, evidenceFromCriticalBlocking(blocking)...)
+			}
 		}
 		if recipeHasView(recipe, "frame_window") || recipeHasView(recipe, "render_pipeline") {
 			frame := getFrame()
-			res.FramePipeline = &frame
-			res.SpanWindows = frameSpans(frame)
-			res.EvidencePack = append(res.EvidencePack, evidenceFromFramePipeline(frame)...)
+			if !faceCanceled("frame_window") {
+				res.FramePipeline = &frame
+				res.SpanWindows = frameSpans(frame)
+				res.EvidencePack = append(res.EvidencePack, evidenceFromFramePipeline(frame)...)
+			}
 		}
 		if recipeHasView(recipe, "frame_timeline") || recipeHasView(recipe, "frame_flow") {
 			timeline := getFrameTimeline()
-			res.FrameTimeline = &timeline
-			res.EvidencePack = append(res.EvidencePack, evidenceFromFrameTimeline(timeline)...)
+			if !faceCanceled("frame_timeline") {
+				res.FrameTimeline = &timeline
+				res.EvidencePack = append(res.EvidencePack, evidenceFromFrameTimeline(timeline)...)
+			}
 		}
 		if recipeHasView(recipe, "frame_root_cause_bundle") {
 			bundle := BuildFrameRootCauseBundle(idx, q)
-			res.FrameRootCauseBundle = &bundle
-			if bundle.RootCauseRank != nil {
-				res.EvidencePack = append(res.EvidencePack, evidenceFromRootCauseRank(*bundle.RootCauseRank)...)
-			}
-			if bundle.CriticalBlocking != nil {
-				res.EvidencePack = append(res.EvidencePack, evidenceFromCriticalBlocking(*bundle.CriticalBlocking)...)
+			if !faceCanceled("frame_root_cause_bundle") {
+				res.FrameRootCauseBundle = &bundle
+				if bundle.RootCauseRank != nil {
+					res.EvidencePack = append(res.EvidencePack, evidenceFromRootCauseRank(*bundle.RootCauseRank)...)
+				}
+				if bundle.CriticalBlocking != nil {
+					res.EvidencePack = append(res.EvidencePack, evidenceFromCriticalBlocking(*bundle.CriticalBlocking)...)
+				}
 			}
 		}
 	case "evidence_pack":
 		chain := getChain()
+		if faceCanceled("evidence_pack") {
+			break
+		}
 		stats := getStats()
+		if faceCanceled("evidence_pack") {
+			break
+		}
 		ipc := getIPC()
+		if faceCanceled("evidence_pack") {
+			break
+		}
 		latency := getLatency()
+		if faceCanceled("evidence_pack") {
+			break
+		}
 		blocking := getBlocking()
+		if faceCanceled("evidence_pack") {
+			break
+		}
 		res.WakeupChain = &chain
 		res.WindowStats = &stats
 		res.IPCGraph = &ipc
@@ -509,26 +680,43 @@ func Run(idx *Index, q Query) Result {
 		res.EvidencePack = append(res.EvidencePack, evidenceFromSchedulerLatency(latency)...)
 		res.EvidencePack = append(res.EvidencePack, evidenceFromCriticalBlocking(blocking)...)
 		bundle := BuildFrameRootCauseBundle(idx, q)
-		res.FrameRootCauseBundle = &bundle
+		if !faceCanceled("frame_root_cause_bundle") {
+			res.FrameRootCauseBundle = &bundle
+		}
 	default:
 		res.View = "event_search"
 		matchedEvents := 0
+		var searchEvents []EventView
 		if len(q.TraceMarkActions) > 0 {
-			res.Events, matchedEvents = eventSearchWithAccounting(idx, q)
+			searchEvents, matchedEvents = eventSearchWithAccounting(idx, q)
 		} else {
-			res.Events = EventSearch(idx, q)
+			searchEvents = EventSearch(idx, q)
 		}
+		if faceCanceled("event_search") {
+			break
+		}
+		res.Events = searchEvents
 		res.EvidencePack = evidenceFromEvents(res.Events)
 		// RFC #71 (§8.2 c4): pre-truncation frequency tier census — nil
 		// unless the chronological display cap actually hid matched
 		// cpu_frequency rows (non-truncated results stay byte-identical).
-		if census := ComputeCPUFrequencyCensus(idx, q, res.Events); census != nil {
+		// SUPP-CANCEL 复核件1 (P3-A): the discard gate runs FIRST — a fire
+		// inside the census scan makes the builder tick-abort and return
+		// nil, and the old `census != nil &&` short-circuit swallowed the
+		// discard record (caveat claimed "discarded: none" while two faces
+		// were abandoned). Post-fire the gate conservatively books the face
+		// as cancellation-suppressed even when it would have been nil
+		// anyway — under a fire nobody can prove absence (claim-of-absence
+		// discipline). Unfired path byte-identical (gate is a pure read).
+		if census := ComputeCPUFrequencyCensus(idx, q, res.Events); !faceCanceled("cpu_frequency_census") && census != nil {
 			res.CPUFrequencyCensus = census
 			res.EvidencePack = append([]EvidenceFact{census.EvidenceFact()}, res.EvidencePack...)
 		}
 		// SA-F2 (DISPATCH-IND 批4, 2026-07-14): matched-rows generator census
 		// (indexed twin of the streaming inline accumulation).
-		res.VsyncGeneratorCensus = ComputeVsyncGeneratorSearchCensus(idx, q)
+		if vsyncCensus := ComputeVsyncGeneratorSearchCensus(idx, q); !faceCanceled("vsync_generator_census") && vsyncCensus != nil {
+			res.VsyncGeneratorCensus = vsyncCensus
+		}
 		if matchedEvents > len(res.Events) {
 			last := res.Events[len(res.Events)-1]
 			res.Compactions = append(res.Compactions, ViewCompaction{
@@ -595,6 +783,9 @@ func Run(idx *Index, q Query) Result {
 	if res.TargetWindowStates == nil && (q.PID > 0 || strings.TrimSpace(q.Thread) != "") &&
 		(res.FrameRootCauseBundle == nil || res.FrameRootCauseBundle.TargetWindowStates == nil) {
 		if stateAccountTimeStartBounded && stateAccountTimeEndBounded && q.TimeEnd > q.TimeStart {
+			if faceCanceled("target_window_states") {
+				return runCancelFinalize(&res, cancel)
+			}
 			target := ThreadRef{PID: q.PID, Comm: strings.TrimSpace(q.Thread)}
 			window := TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}
 			tl, ok := targetWindowTimeline(idx, q, target, window)
@@ -602,10 +793,27 @@ func Run(idx *Index, q Query) Result {
 			// scheduler TID (or fails closed).  Carry that resolved identity into
 			// every refinement; the raw selector's PID=0/comm is only an input
 			// hint and may be stale after a thread rename.
+			if faceCanceled("target_window_states") {
+				return runCancelFinalize(&res, cancel)
+			}
 			res.TargetWindowStates = buildTargetWindowStateAccount(idx, tl, ok, tl.Thread, window, res.WindowStats)
 		}
 	}
-	return res
+	return runCancelFinalize(&res, cancel)
+}
+
+// runCancelFinalize is Run's single exit chokepoint for the SUPP-CANCEL
+// typed record: when a cooperative sampling point fired during this run, the
+// Result carries the ViewCancellation record plus exactly one honest caveat
+// (禁裸丢); every face already attached to res is a complete builder output
+// (the attach gates discarded everything else — 禁半账). A nil / never-fired
+// carrier returns res untouched, byte-identical.
+func runCancelFinalize(res *Result, cancel *runCancelState) Result {
+	if cancel.fired() {
+		res.ViewCancellation = cancel.record(res.View)
+		res.Caveats = append(res.Caveats, cancel.caveat(res.View))
+	}
+	return *res
 }
 
 // collectResultCompactions mirrors sub-result truncation records onto the
@@ -996,6 +1204,9 @@ func EventSearch(idx *Index, q Query) []EventView {
 	actionSet := traceMarkActionFilterSet(q.TraceMarkActions)
 	var events []Event
 	for _, ev := range idx.Events {
+		if q.runCancel.tick() {
+			break
+		}
 		if !eventInQuery(ev, q, typeSet, actionSet) {
 			continue
 		}
@@ -1036,6 +1247,9 @@ func eventSearchWithAccounting(idx *Index, q Query) ([]EventView, int) {
 	matched := 0
 	selected := make([]Event, 0, q.Limit)
 	for _, event := range idx.Events {
+		if q.runCancel.tick() {
+			break
+		}
 		if !eventInQuery(event, q, typeSet, actionSet) {
 			continue
 		}
@@ -1552,7 +1766,7 @@ func threadTimelineForTarget(idx *Index, q Query, target ThreadRef, eventIDs []i
 			}
 		}
 	}
-	visitEventsInTimestampOrder(idx, eventIDs, useIndexedEvents, visit)
+	visitEventsInTimestampOrder(idx, eventIDs, useIndexedEvents, q.runCancel, visit)
 	if runningOpen {
 		iv := makeInterval(target, StateRunning, runningStart, q.TimeEnd, runningLine, 0, "")
 		iv.CPU, iv.CPUKnown = runningCPU, true
@@ -1636,7 +1850,7 @@ func schedulerHeadCoverageForWindow(idx *Index, q Query, head *schedulerHeadSnap
 		}
 		knownThreads[pid] = true
 	}
-	visitEventsInTimestampOrder(idx, nil, false, func(ev Event) {
+	visitEventsInTimestampOrder(idx, nil, false, q.runCancel, func(ev Event) {
 		if !eventLineInWindow(ev, q) || ev.Ts < q.TimeStart || (q.TimeEnd > 0 && ev.Ts > q.TimeEnd) {
 			return
 		}
@@ -1953,6 +2167,12 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	wakeupTargetCPUTotal, wakeupTargetCPUZero := 0, 0
 	wakeupHeaderCPUs := map[int]bool{}
 	for _, ev := range idx.Events {
+		// SUPP-CANCEL: cooperative sampling point of the main window sweep —
+		// on fire the partial accumulators are abandoned and the caller's
+		// attach gate discards the whole stats value (禁半账).
+		if q.runCancel.tick() {
+			return stats
+		}
 		// CFC P0 (§7.10 VS-2c): the per-CPU frequency basis admits only genuine
 		// per-CPU samples — reclassified clock_set_rate lanes are excluded by
 		// the SAME shared predicate the fold face uses (isPerCPUFrequencySample,
@@ -2296,6 +2516,13 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	if len(stats.TopRunning) > 8 {
 		stats.TopRunning = stats.TopRunning[:8]
 	}
+	// SUPP-CANCEL phase-boundary sampling points: the sub-passes below each
+	// rescan the event set; a fire observed at a boundary (or inside the
+	// instrumented sweeps) returns the partial stats immediately — the
+	// caller's attach gate discards it whole.
+	if q.runCancel.sample() {
+		return stats
+	}
 	stats.CPU = applyCPUFrequencyResidency(stats.CPU, freqByCPU, q)
 	coreByCPU, topologySource := resolveCoreTopology(stats.CPU, q.CoreTopology)
 	applyCPUCoreClasses(stats.CPU, coreByCPU)
@@ -2308,6 +2535,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	observedFmaxByCPU := windowObservedFmaxByCPU(stats.CPU)
 	stats.ClusterFrequencyCeilings = computeWindowClusterFrequencyCeilings(observedFmaxByCPU, coreByCPU, limitTimelineByCPU, q)
 	offCPU := computeOffCPUStats(idx, q, freqTimelineFor, pressure)
+	if q.runCancel.sample() {
+		return stats
+	}
 	stats.RunnableTop, stats.DStateTop, stats.SleepTop, stats.IOWaitTop, stats.CPUPressure = offCPU.runnableTop, offCPU.dstateTop, offCPU.sleepTop, offCPU.iowaitTop, offCPU.pressure
 	// 修复轮二 件A (2026-07-13): the D/IO family seats mint from the FULL
 	// census (帽外泄漏修根 — tieba 60555 witness: fscache cause seat 4.739 vs
@@ -2428,6 +2658,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			}
 		}
 	}
+	if q.runCancel.sample() {
+		return stats
+	}
 	stats.ComputeSupplyBalance = computeComputeSupplyBalance(idx, q, queryWindowWallMs(q), supplyByCPU, schedCPUs, headRunnablePIDs, stats.CPU, coreByCPU, observedFmaxByCPU, freqDonors.donorFor, freqDonors.sourceToken())
 	// CFR (#75 簇共频): one deterministic window-level disclosure covering
 	// every frequency-weighted face that consumed a donor timeline in this
@@ -2505,6 +2738,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	}
 	var traceMarkCaveats []string
 	if schedulerDurationsSafe {
+		if q.runCancel.sample() {
+			return stats
+		}
 		traceSpans, traceCounters, candidateCaveats := computeTraceMarks(idx, q, 8)
 		stats.TraceCounters = traceCounters
 		if failure := durationFailures[durationOrderTraceSpan]; failure != nil {
@@ -2539,6 +2775,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	if failure := durationFailures[durationOrderIRQ]; failure != nil {
 		stats.Caveats = append(stats.Caveats, durationOrderFailClosedCaveat(failure, "irq_bursts/irq_activity"))
 	} else {
+		if q.runCancel.sample() {
+			return stats
+		}
 		stats.IRQBursts = computeIRQBursts(idx, q, 8)
 		stats.IRQActivity, tracePairingCaveats = computeInterruptActivity(idx, q, EventIRQ, coreByCPU, 8)
 		stats.Caveats = append(stats.Caveats, tracePairingCaveats...)
@@ -2574,6 +2813,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	}
 	if schedulerDurationsSafe {
 		stats.SchedStatAccounting = computeSchedStatAccounting(idx, q, 8)
+	}
+	if q.runCancel.sample() {
+		return stats
 	}
 	stats.MemoryKinds = computeMemoryKinds(idx, q, 8)
 	stats.ThreadDrifts = detectThreadDrifts(idx, q, 8)
@@ -2648,6 +2890,9 @@ func computePerfContextFiltered(idx *Index, q Query, max int, filter perfSampleF
 	byThread := map[string]*perfThreadAcc{}
 	quality := newPerfQualityAcc()
 	for _, ev := range idx.Events {
+		if q.runCancel.tick() {
+			break
+		}
 		if ev.Type != EventPerfSample || !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
 			continue
 		}
@@ -3312,6 +3557,9 @@ func BuildPerfTimeline(idx *Index, q Query) PerfTimelineResult {
 	res.BucketMs = bucketSec * 1000
 	buckets := map[int]*perfTimelineBucketAcc{}
 	for _, ev := range idx.Events {
+		if q.runCancel.tick() {
+			break
+		}
 		// ENG audit #46 (§29.25 处置委托 2026-07-10): single shared admission
 		// predicate with perfTimelineWindow — the contributor-PID guard is
 		// sound only if every bucketed sample went through the same filter, so
@@ -4097,7 +4345,7 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 			}
 		}
 	}
-	visitEventsInTimestampOrder(idx, nil, false, visit)
+	visitEventsInTimestampOrder(idx, nil, false, q.runCancel, visit)
 	if q.TimeEnd > 0 {
 		for _, start := range open {
 			switch start.state {
@@ -4473,7 +4721,7 @@ func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats)
 			}
 		}
 	}
-	visitEventsInTimestampOrder(idx, nil, false, visitLatency)
+	visitEventsInTimestampOrder(idx, nil, false, q.runCancel, visitLatency)
 	if q.TimeEnd > 0 {
 		for pid := range open {
 			closeWait(pid, q.TimeEnd, 0)
@@ -5812,7 +6060,7 @@ func computeStateChurnSummaries(idx *Index, q Query, max int) []ThreadStateChurn
 			}
 		}
 	}
-	visitEventsInTimestampOrder(idx, nil, false, visitChurn)
+	visitEventsInTimestampOrder(idx, nil, false, q.runCancel, visitChurn)
 	endTs := q.TimeEnd
 	if endTs == 0 && idx.LastTs > 0 {
 		endTs = idx.LastTs
@@ -7146,6 +7394,9 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 	// (clipTraceMarkSpanToQueryWindow); C| counter rows keep the strict
 	// window filter unchanged.
 	for _, ev := range idx.Events {
+		if q.runCancel.tick() {
+			break
+		}
 		if resetPID, reset := schedulerLifecycleResetPID(ev); reset {
 			source, ok := tracePairingSourceIdentity(idx, ev)
 			if !ok {
@@ -7618,6 +7869,9 @@ func findSpanWindowsCompacted(idx *Index, q Query, max int) ([]TraceSpanSummary,
 	})
 	unresolvedPairingRows := 0
 	for _, ev := range idx.Events {
+		if q.runCancel.tick() {
+			break
+		}
 		if resetPID, reset := schedulerLifecycleResetPID(ev); reset {
 			source, ok := tracePairingSourceIdentity(idx, ev)
 			if !ok {
@@ -10521,7 +10775,7 @@ func sortedIntSet(in map[int]bool) []int {
 }
 
 func BuildWakeupChain(idx *Index, q Query) ChainResult {
-	return buildWakeupChainWithCache(idx, q, newChainQueryCache(idx))
+	return buildWakeupChainWithCache(idx, q, newChainQueryCache(idx, q.runCancel))
 }
 
 func buildWakeupChainWithCache(idx *Index, q Query, cache *chainQueryCache) ChainResult {
@@ -10570,6 +10824,9 @@ func buildWakeupChainWithCache(idx *Index, q Query, cache *chainQueryCache) Chai
 		return res
 	}
 	for i, branch := range branches {
+		if q.runCancel.sample() {
+			break
+		}
 		visited := map[int]bool{}
 		targetBlockedMs := (branch.EndTs - branch.StartTs) * 1000
 		expandChain(idx, q, cache, target, branch.StartTs, branch.EndTs, 0, targetBlockedMs, visited, &res, "", nil, i+1)
@@ -16060,6 +16317,9 @@ func BuildInteractionStats(idx *Index, q Query) InteractionStatsResult {
 		}
 	}
 	for _, ev := range idx.Events {
+		if q.runCancel.tick() {
+			break
+		}
 		if ev.Type != EventSchedWakeup && ev.Type != EventSchedWaking {
 			continue
 		}
@@ -16126,7 +16386,7 @@ func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 	if frameTargetResolutionWindowChanged(q, targetResolution) {
 		frame = BuildFrameTimeline(idx, analysisQ)
 	}
-	cache := newChainQueryCache(idx)
+	cache := newChainQueryCache(idx, q.runCancel)
 	// RSPA (§29.61.10): the chain is built FIRST so the stats sweep can run
 	// with its typed anchor windows (the chain has no stats dependency; the
 	// exported WindowStats faces are unchanged — anchored sums ride
@@ -18718,7 +18978,7 @@ type prioritySample struct {
 	prio int
 }
 
-func newChainQueryCache(idx *Index) *chainQueryCache {
+func newChainQueryCache(idx *Index, cancel *runCancelState) *chainQueryCache {
 	cache := &chainQueryCache{
 		idx:             idx,
 		eventsByPID:     map[int][]int{},
@@ -18732,6 +18992,12 @@ func newChainQueryCache(idx *Index) *chainQueryCache {
 		return cache
 	}
 	for i := range idx.Events {
+		if cancel.tick() {
+			// SUPP-CANCEL: a partial per-thread event index would silently
+			// truncate every chain search built on it; abandon the build —
+			// the enclosing chain result is discarded by Run's attach gate.
+			break
+		}
 		ev := idx.Events[i]
 		addEventPID := func(pid int) {
 			if pid <= 0 {
@@ -18924,6 +19190,12 @@ func (c *chainQueryCache) priorityNear(flavor TraceFlavor, thread ThreadRef, ts 
 }
 
 func expandChain(idx *Index, q Query, cache *chainQueryCache, thread ThreadRef, start, end float64, depth int, targetBlockedMs float64, visited map[int]bool, res *ChainResult, parentID string, consumers []ThreadRef, branch int) string {
+	// SUPP-CANCEL per-hop boundary sampling point: once fired, the whole
+	// expansion collapses fast — the chain result is discarded by Run's
+	// attach gate, so no partially expanded tree is ever published.
+	if q.runCancel.sample() {
+		return ""
+	}
 	if depth >= q.MaxDepth {
 		res.Caveats = append(res.Caveats, fmt.Sprintf("max_depth=%d reached at pid=%d", q.MaxDepth, thread.PID))
 		return ""
@@ -19716,12 +19988,21 @@ func eventLaterThan(candidate, current Event) bool {
 // consumed PID/CPU lane proven monotonic, physical interleaving across
 // independent lanes is safe and preserves zero-allocation trace order.  We do
 // not globally sort a clock rollback into a fabricated elapsed timeline.
-func visitEventsInTimestampOrder(idx *Index, eventIDs []int, useIndexedEvents bool, visit func(Event)) {
+// visitEventsInTimestampOrder drives the shared timestamp-order sweeps
+// (thread timelines, off-CPU stats, scheduler latency, state churn). cancel
+// is the SUPP-CANCEL cooperative sampling carrier (nil = never cancels): one
+// tick per visited event, aborting the sweep once a sampling point fires —
+// the enclosing builder's partial output is then discarded by Run's attach
+// gates, never published.
+func visitEventsInTimestampOrder(idx *Index, eventIDs []int, useIndexedEvents bool, cancel *runCancelState, visit func(Event)) {
 	if idx == nil || visit == nil {
 		return
 	}
 	if useIndexedEvents {
 		for _, id := range eventIDs {
+			if cancel.tick() {
+				return
+			}
 			if id >= 0 && id < len(idx.Events) {
 				visit(idx.Events[id])
 			}
@@ -19729,6 +20010,9 @@ func visitEventsInTimestampOrder(idx *Index, eventIDs []int, useIndexedEvents bo
 		return
 	}
 	for _, ev := range idx.Events {
+		if cancel.tick() {
+			return
+		}
 		visit(ev)
 	}
 }

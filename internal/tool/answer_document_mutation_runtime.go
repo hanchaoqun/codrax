@@ -4654,7 +4654,12 @@ func runtimeTraceSupplementViewList(views []string, zh bool) string {
 //     completed views are kept, the partial skip is disclosed;
 //   - window_span_exceeded: nothing ran — the user named this window, so
 //     the line says so and points at narrowing the window (never a silent
-//     truncation, never a guessed sub-window).
+//     truncation, never a guessed sub-window);
+//   - canceled (SUPP-CANCEL, 2026-07-14): the duration budget's context
+//     deadline canceled ≥1 view IN-view. Canceled-only (zero recorded
+//     views) gets its own sentence; a mixed run keeps the executed line and
+//     appends the canceled tail — completed faces recorded, unfinished
+//     parts discarded whole.
 //
 // EVOLUTION RECORD (§29.71 残留3 词面终稿, WF-2 词面批 2026-07-14; supersedes
 // the DISPATCH-IND provisional form):
@@ -4671,8 +4676,21 @@ func runtimeTraceSupplementViewList(views []string, zh bool) string {
 //     form's 「时长预算」 name two DIFFERENT budgets and deliberately stay
 //     distinct words.
 func runtimeTraceSupplementDisclosureText(meta *types.SystemTraceSupplementMeta, zh bool) string {
-	if meta == nil || (len(meta.Views) == 0 && meta.SkipReason != "window_span_exceeded" && !meta.CensusLite) {
+	if meta == nil || (len(meta.Views) == 0 && meta.SkipReason != "window_span_exceeded" && !meta.CensusLite && len(meta.CanceledViews) == 0) {
 		return ""
+	}
+	// SUPP-CANCEL (2026-07-14) canceled-only form: the duration budget
+	// canceled every attempted view before any complete face was recorded —
+	// nothing ran to completion, and the user-named window must hear that
+	// honestly (禁裸丢). Partial aggregates were discarded whole by the
+	// engine (禁半账), so the sentence claims no re-run.
+	if len(meta.Views) == 0 && meta.SkipReason != "window_span_exceeded" && !meta.CensusLite && len(meta.CanceledViews) > 0 {
+		if zh {
+			return fmt.Sprintf("%s 未完成成文前确定性补跑——%s超 %g 秒时长预算在执行中被取消,未采信任何部分结果(窗 %.6f..%.6f);缩小时间窗后可补齐该窗结果",
+				runtimeTraceSupplementDisclosurePrefixZH, runtimeTraceSupplementViewList(meta.CanceledViews, true), meta.DurationBudgetS, meta.WindowStart, meta.WindowEnd)
+		}
+		return fmt.Sprintf("%s pre-report re-run incomplete — %s canceled mid-run over the %gs duration budget; no partial aggregates were kept (window %.6f..%.6f); narrow the time window to fill it in",
+			runtimeTraceSupplementDisclosurePrefixEN, runtimeTraceSupplementViewList(meta.CanceledViews, false), meta.DurationBudgetS, meta.WindowStart, meta.WindowEnd)
 	}
 	// SA-F2 / C-lite (DISPATCH-IND 批4 + 修复轮 件2, 2026-07-14): the
 	// lightweight census arm's disclosure. Three shapes: lite-ONLY (nothing
@@ -4728,12 +4746,20 @@ func runtimeTraceSupplementDisclosureText(meta *types.SystemTraceSupplementMeta,
 		if meta.SkipReason == "duration_budget_exceeded" && len(meta.SkippedViews) > 0 {
 			line += ";超时长预算未补跑 " + runtimeTraceSupplementViewList(meta.SkippedViews, true)
 		}
+		if len(meta.CanceledViews) > 0 {
+			line += fmt.Sprintf(";其中 %s 在 %g 秒时长预算处被取消,仅已完成的完整结果被记录,未完成部分整弃",
+				runtimeTraceSupplementViewList(meta.CanceledViews, true), meta.DurationBudgetS)
+		}
 		return line + liteTail
 	}
 	line := fmt.Sprintf("%s deterministic pre-report re-run of %s (window %.6f..%.6f, target %s)",
 		runtimeTraceSupplementDisclosurePrefixEN, runtimeTraceSupplementViewList(meta.Views, false), meta.WindowStart, meta.WindowEnd, target)
 	if meta.SkipReason == "duration_budget_exceeded" && len(meta.SkippedViews) > 0 {
 		line += "; not re-run over the duration budget: " + runtimeTraceSupplementViewList(meta.SkippedViews, false)
+	}
+	if len(meta.CanceledViews) > 0 {
+		line += fmt.Sprintf("; %s canceled at the %gs duration budget — only fully-completed results were recorded, unfinished parts were discarded whole",
+			runtimeTraceSupplementViewList(meta.CanceledViews, false), meta.DurationBudgetS)
 	}
 	return line + liteTail
 }
@@ -4750,7 +4776,7 @@ func materializeRuntimeTraceSupplementDisclosureCaveat(doc *types.AnswerDocument
 		return false
 	}
 	meta := ctx.Mutable.SystemTraceSupplementMeta()
-	if meta == nil || (len(meta.Views) == 0 && meta.SkipReason != "window_span_exceeded" && !meta.CensusLite) {
+	if meta == nil || (len(meta.Views) == 0 && meta.SkipReason != "window_span_exceeded" && !meta.CensusLite && len(meta.CanceledViews) == 0) {
 		return false
 	}
 	kept := doc.Caveats[:0]

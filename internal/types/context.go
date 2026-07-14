@@ -6235,6 +6235,16 @@ type ToolResult struct {
 	// interpret them as semantic evidence about the repository.
 	RuntimeTimings []ToolRuntimeTiming `json:"runtime_timings,omitempty"`
 
+	// TraceViewCancellation (SUPP-CANCEL, 2026-07-14) is trace_query's typed
+	// in-view cooperative-cancellation record, mirrored from the engine
+	// result (tracequery.Result.ViewCancellation) so system callers — the
+	// pre-report supplement's duration-budget accounting — read a PRECISE
+	// signal instead of parsing the prose Summary. Non-nil only when the
+	// engine run was canceled mid-view: every published face is complete;
+	// unfinished faces were discarded whole and are listed here. Tool-
+	// specific typed slot precedent: SourceInventory / CommandMeasurement.
+	TraceViewCancellation *TraceViewCancellation `json:"trace_view_cancellation,omitempty"`
+
 	Success   bool      `json:"success"`
 	Timestamp time.Time `json:"timestamp"`
 }

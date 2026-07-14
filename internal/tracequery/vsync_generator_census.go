@@ -369,6 +369,11 @@ func ComputeVsyncGeneratorWindowCensus(idx *Index, q Query) *VsyncGeneratorCensu
 	}
 	acc := newVsyncGeneratorCensusAcc()
 	for _, ev := range idx.Events {
+		if q.runCancel.tick() {
+			// SUPP-CANCEL: a truncated census is a claim-of-absence hazard;
+			// abandon whole (the caller's attach gate discards it).
+			return nil
+		}
 		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
 			continue
 		}
@@ -406,6 +411,9 @@ func ComputeVsyncGeneratorSearchCensus(idx *Index, q Query) *VsyncGeneratorCensu
 	actionSet := traceMarkActionFilterSet(q.TraceMarkActions)
 	acc := newVsyncGeneratorCensusAcc()
 	for _, ev := range idx.Events {
+		if q.runCancel.tick() {
+			return nil
+		}
 		if !eventInQuery(ev, q, typeSet, actionSet) {
 			continue
 		}
