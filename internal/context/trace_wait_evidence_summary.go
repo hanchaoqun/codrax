@@ -73,6 +73,17 @@ package context
 // result scope, and a multi-scope union DE-NUMBERIZES its remainder line
 // instead of minting a definite-looking unsound sum; 件4 — the per-pair MAX
 // pin is order-adversarial (the stale lower count arrives first).
+//
+// PROSE-RC 续批 (§29.74 R4 witness, 2026-07-14): the remainder fact's
+// property-sentence family gains its third sister sentence — the explicit
+// MEMBER-level prohibition (zh/en). The re-derivation urge, blocked from
+// subtracting shares (052947) and from binding the whole seat under a
+// caller's name (054419), re-routed into re-allocating the remainder's
+// member segments: one member (1.899) bound to the fscache proven cause
+// plus a minted derived unproven amount 8.534 = 10.433 − 1.899. The new
+// sentence anchors the true-partition property at member granularity: the
+// members are one indivisible unproven whole, no single member rebinds to
+// any proven cause, and no member subtraction mints a new unproven amount.
 
 import (
 	"fmt"
@@ -644,7 +655,23 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 					// remainder — the membership property is typed
 					// (member_count), so state it: all members are jointly
 					// unproven, no single member alone is the unproven part.
-					memberSeg = fmt.Sprintf(" Its %s member segment(s) are ALL inside the unproven share together — no single member segment alone is the unproven part.", fact.members)
+					//
+					// PROSE-RC 续批 (§29.74 R4 witness, 2026-07-14): with the
+					// subtraction lane AND the whole-seat binding lane closed,
+					// the re-derivation urge re-routed into MEMBER re-allocation
+					// — the prose bound one member segment (1.899) to the
+					// fscache proven cause and minted a derived unproven amount
+					// 8.534 = 10.433 − 1.899 (the softer "no single member alone
+					// is the unproven part" wording was present and bypassed).
+					// The membership property therefore rises to an EXPLICIT
+					// member-level prohibition in the same imperative family:
+					// the members are one indivisible unproven whole — never
+					// rebind any single member to a proven cause, never derive a
+					// new unproven amount by subtracting member values. A
+					// partition/account property statement, never a
+					// characterization of any prose (§29.53.2 边界内); bilingual
+					// so the quoted answer language cannot lose it.
+					memberSeg = fmt.Sprintf(" Its %s member segment(s) are ALL inside the unproven share together — no single member segment alone is the unproven part. These member segments are one indivisible unproven whole: never rebind any single member segment to a caller-named proven cause, and never derive a new unproven amount by subtracting member-segment values from this share or from each other. 这些成员段是不可拆分的未证整体——禁止把任一成员段单独重绑到任何已证原因名下,也禁止用本份额减去成员段值、或成员段之间互减,铸造新的未证量。", fact.members)
 				}
 				// PROSE-RC 收尾件3 (冷读姊妹形, 054419/052947): with the
 				// subtraction lane closed, the re-derivation urge re-routed

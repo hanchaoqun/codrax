@@ -397,6 +397,16 @@ func TestTraceWaitEvidence_UnprovenRemainderFact(t *testing.T) {
 		// segment of the remainder — the typed membership property must be
 		// stated whenever the seat publishes member_count.
 		"Its 3 member segment(s) are ALL inside the unproven share together — no single member segment alone is the unproven part.",
+		// PROSE-RC 续批 (§29.74 R4, 2026-07-14): the subtraction + whole-seat
+		// binding bans were honored and the re-derivation urge re-routed into
+		// MEMBER re-allocation — the prose bound member segment 1.899 to the
+		// fscache proven cause and minted 8.534 = 10.433 − 1.899 as a "new"
+		// unproven amount, bypassing the softer membership wording above. The
+		// explicit member-level prohibition is pinned VERBATIM in both
+		// languages (bilingual so the quoted answer language cannot lose it;
+		// mutation self-check performed: dropping either clause reds here).
+		"These member segments are one indivisible unproven whole: never rebind any single member segment to a caller-named proven cause, and never derive a new unproven amount by subtracting member-segment values from this share or from each other.",
+		"这些成员段是不可拆分的未证整体——禁止把任一成员段单独重绑到任何已证原因名下,也禁止用本份额减去成员段值、或成员段之间互减,铸造新的未证量。",
 	} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("unproven remainder fact missing %q:\n%s", want, summary)
@@ -422,6 +432,17 @@ func TestTraceWaitEvidence_UnprovenRemainderFact(t *testing.T) {
 	capped := formatTraceWaitWakeEvidenceFromLedger(ledger, nil)
 	if !strings.Contains(capped, "cause-unproven remainder fact for capped-thread-77: the d_state cause-unproven share is 3.333ms") {
 		t.Fatalf("the remainder fact must never fall to the caller cap:\n%s", capped)
+	}
+	// A remainder WITHOUT a published member_count must not borrow the member
+	// property/prohibition sentences — the membership claims ride exactly the
+	// typed member_count signal (the capped-thread-77 seat above publishes
+	// none, while the tieba seat's member sentences co-render in the same
+	// summary, so the check is per-LINE).
+	for _, line := range strings.Split(capped, "\n") {
+		if strings.Contains(line, "cause-unproven remainder fact for capped-thread-77") &&
+			(strings.Contains(line, "member segment") || strings.Contains(line, "成员段")) {
+			t.Fatalf("a member-less remainder must not carry the member sentences: %s", line)
+		}
 	}
 }
 
