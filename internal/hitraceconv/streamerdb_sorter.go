@@ -537,6 +537,41 @@ func (s *traceDBRowSink) profilerCapturePreOpenStatePristine() bool {
 }
 
 func (s *traceDBRowSink) openProfilerCapture(sourcePath string) error {
+	if err := s.validateProfilerCaptureOpenState(); err != nil {
+		return err
+	}
+	if strings.TrimSpace(sourcePath) == "" {
+		return &traceDBOutputInvariantError{Reason: "profiler_capture_source_namespace_missing"}
+	}
+	abs, err := filepath.Abs(sourcePath)
+	if err != nil {
+		return fmt.Errorf("resolve profiler capture source namespace: %w", err)
+	}
+	abs = filepath.Clean(abs)
+	physical, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return fmt.Errorf("resolve physical profiler capture source namespace: %w", err)
+	}
+	return s.openProfilerCaptureForNamespace(filepath.Clean(physical))
+}
+
+func (s *traceDBRowSink) openProfilerCaptureForNamespace(sourceNamespace string) error {
+	if err := s.validateProfilerCaptureOpenState(); err != nil {
+		return err
+	}
+	if strings.TrimSpace(sourceNamespace) == "" {
+		return &traceDBOutputInvariantError{Reason: "profiler_capture_source_namespace_missing"}
+	}
+	if !filepath.IsAbs(sourceNamespace) || filepath.Clean(sourceNamespace) != sourceNamespace {
+		return &traceDBOutputInvariantError{Reason: "profiler_capture_source_namespace_invalid"}
+	}
+	s.profilerSourceProof.activate()
+	s.captureSource = sourceNamespace
+	s.captureLifecycle = profilerCaptureOpen
+	return nil
+}
+
+func (s *traceDBRowSink) validateProfilerCaptureOpenState() error {
 	if s == nil {
 		return &traceDBOutputInvariantError{Reason: "profiler_capture_sink_missing"}
 	}
@@ -555,25 +590,6 @@ func (s *traceDBRowSink) openProfilerCapture(sourcePath string) error {
 		!s.profilerSourceProof.pristine() {
 		return &traceDBOutputInvariantError{Reason: "profiler_capture_open_state_invalid"}
 	}
-	if strings.TrimSpace(sourcePath) == "" {
-		return &traceDBOutputInvariantError{Reason: "profiler_capture_source_namespace_missing"}
-	}
-	abs, err := filepath.Abs(sourcePath)
-	if err != nil {
-		return fmt.Errorf("resolve profiler capture source namespace: %w", err)
-	}
-	abs = filepath.Clean(abs)
-	physical, err := filepath.EvalSymlinks(abs)
-	if err != nil {
-		return fmt.Errorf("resolve physical profiler capture source namespace: %w", err)
-	}
-	abs = filepath.Clean(physical)
-	if abs == "" || abs == "." {
-		return &traceDBOutputInvariantError{Reason: "profiler_capture_source_namespace_invalid"}
-	}
-	s.profilerSourceProof.activate()
-	s.captureSource = abs
-	s.captureLifecycle = profilerCaptureOpen
 	return nil
 }
 

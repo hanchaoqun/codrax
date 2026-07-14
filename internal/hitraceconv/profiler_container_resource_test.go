@@ -1007,10 +1007,10 @@ func TestProfilerContainerResourceStructurePinned(t *testing.T) {
 		}
 	}
 	required := []string{
-		"extractProfilerSessionPackage", "extractProfilerSessionPackageWithLineLimit",
-		"scanProfilerBoundedSessionRecords",
-		"extractProfilerTraceFile", "extractProfilerTraceFileWithFrameLimit", "extractProfilerTraceFileAtWithFrameLimit",
-		"extractProfilerContainerSystraceRowsWithSessionLimit", "tryConvertProfilerContainer",
+		"extractProfilerSessionPackageFromInput", "extractProfilerSessionPackageAt", "scanProfilerBoundedSessionRecords",
+		"extractProfilerTraceFileFromInput", "extractProfilerTraceFileAtWithFrameLimit",
+		"extractProfilerContainerSystraceRowsWithSessionLimitFromInput", "tryConvertProfilerContainerWithLedger",
+		"readProfilerTraceHeaderFromInput", "readProfilerTraceHeaderAtExact", "newProfilerInputBinding",
 	}
 	for _, name := range required {
 		if functions[name] == nil {
@@ -1019,6 +1019,16 @@ func TestProfilerContainerResourceStructurePinned(t *testing.T) {
 	}
 	if functions["readProfilerBoundedPhysicalLine"] != nil {
 		t.Fatal("a second LF-only Session record reader bypasses the LF/NUL authority")
+	}
+	for _, forbidden := range []string{
+		"extractProfilerSessionPackage", "extractProfilerSessionPackageWithLineLimit",
+		"extractProfilerTraceFile", "extractProfilerTraceFileWithFrameLimit",
+		"extractProfilerContainerSystraceRows", "extractProfilerContainerSystraceRowsWithSessionLimit",
+		"tryConvertProfilerContainer", "readProfilerTraceHeaderAtPath", "profilerSessionJSONMarkerOffset",
+	} {
+		if functions[forbidden] != nil {
+			t.Fatalf("production retained path-shaped profiler compatibility parser %s", forbidden)
+		}
 	}
 	callSites := func(function *ast.FuncDecl, name string) []*ast.CallExpr {
 		var out []*ast.CallExpr
@@ -1046,25 +1056,14 @@ func TestProfilerContainerResourceStructurePinned(t *testing.T) {
 		return ok && ident.Name == name
 	}
 
-	sessionWrapper := callSites(functions["extractProfilerSessionPackage"], "extractProfilerSessionPackageWithLineLimit")
-	if len(sessionWrapper) != 1 || len(sessionWrapper[0].Args) != 5 ||
-		!isIdent(sessionWrapper[0].Args[2], "inputSize") ||
-		!isIdent(sessionWrapper[0].Args[len(sessionWrapper[0].Args)-1], "maxProfilerTextLineBytes") {
-		t.Fatalf("Session wrapper does not pass the fixed input size and production line cap exactly once: %+v", sessionWrapper)
-	}
-	traceWrapper := callSites(functions["extractProfilerTraceFile"], "extractProfilerTraceFileWithFrameLimit")
-	if len(traceWrapper) != 1 || len(traceWrapper[0].Args) == 0 ||
-		!isIdent(traceWrapper[0].Args[len(traceWrapper[0].Args)-1], "maxProfilerPluginFrameBytes") {
-		t.Fatalf("TraceFile wrapper does not pass the production frame cap exactly once: %+v", traceWrapper)
-	}
-	traceReaderWrapper := callSites(functions["extractProfilerTraceFileWithFrameLimit"], "extractProfilerTraceFileAtWithFrameLimit")
+	traceReaderWrapper := callSites(functions["extractProfilerTraceFileFromInput"], "extractProfilerTraceFileAtWithFrameLimit")
 	if len(traceReaderWrapper) != 1 || len(traceReaderWrapper[0].Args) == 0 ||
 		!isIdent(traceReaderWrapper[0].Args[len(traceReaderWrapper[0].Args)-1], "maxFrameBytes") {
-		t.Fatalf("TraceFile path wrapper does not delegate its frame cap to the ReaderAt authority exactly once: %+v",
+		t.Fatalf("TraceFile authority wrapper does not delegate its frame cap to the ReaderAt core exactly once: %+v",
 			traceReaderWrapper)
 	}
 	for _, functionName := range []string{
-		"extractProfilerSessionPackage", "extractProfilerSessionPackageWithLineLimit", "scanProfilerBoundedSessionRecords",
+		"extractProfilerSessionPackageFromInput", "extractProfilerSessionPackageAt", "scanProfilerBoundedSessionRecords",
 	} {
 		for _, forbidden := range []string{"ReadBytes", "ReadString", "ReadAll"} {
 			if calls := callSites(functions[functionName], forbidden); len(calls) != 0 {
@@ -1072,17 +1071,17 @@ func TestProfilerContainerResourceStructurePinned(t *testing.T) {
 			}
 		}
 	}
-	sessionLimited := functions["extractProfilerSessionPackageWithLineLimit"]
+	sessionLimited := functions["extractProfilerSessionPackageAt"]
 	sessionOpen := callSites(sessionLimited, "Open")
 	sessionMarker := callSites(sessionLimited, "profilerSessionJSONMarkerOffsetAt")
 	sessionSections := callSites(sessionLimited, "NewSectionReader")
 	sessionScans := callSites(sessionLimited, "scanProfilerBoundedSessionRecords")
-	if len(sessionOpen) != 1 || len(sessionMarker) != 1 || len(sessionMarker[0].Args) < 2 ||
-		!isIdent(sessionMarker[0].Args[0], "f") || !isIdent(sessionMarker[0].Args[1], "inputSize") ||
+	if len(sessionOpen) != 0 || len(sessionMarker) != 1 || len(sessionMarker[0].Args) < 2 ||
+		!isIdent(sessionMarker[0].Args[0], "input") || !isIdent(sessionMarker[0].Args[1], "inputSize") ||
 		len(sessionSections) != 1 || len(sessionSections[0].Args) != 3 ||
-		!isIdent(sessionSections[0].Args[0], "f") || !isIdent(sessionSections[0].Args[2], "inputSize") ||
-		len(sessionScans) != 1 || len(callSites(sessionLimited, "profilerSessionJSONMarkerOffset")) != 0 {
-		t.Fatalf("Session extraction lost its single-FD fixed-size scanner: open=%v marker=%v sections=%v scans=%v",
+		!isIdent(sessionSections[0].Args[0], "input") || !isIdent(sessionSections[0].Args[2], "inputSize") ||
+		len(sessionScans) != 1 {
+		t.Fatalf("Session extraction lost its authority-bound fixed-size scanner: open=%v marker=%v sections=%v scans=%v",
 			sessionOpen, sessionMarker, sessionSections, sessionScans)
 	}
 	sessionFailClose := callSites(sessionLimited, "failCloseAllRows")
@@ -1206,7 +1205,7 @@ func TestProfilerContainerResourceStructurePinned(t *testing.T) {
 	}
 
 	publisher := functions["tryConvertProfilerContainerWithLedger"]
-	extractCalls := callSites(publisher, "extractProfilerContainerSystraceRowsWithSessionLimit")
+	extractCalls := callSites(publisher, "extractProfilerContainerSystraceRowsWithSessionLimitFromInput")
 	openCalls := callSites(publisher, "OpenFile")
 	writeCalls := callSites(publisher, "writeTo")
 	if len(extractCalls) != 1 || len(openCalls) != 1 || len(writeCalls) != 1 ||
@@ -1214,8 +1213,8 @@ func TestProfilerContainerResourceStructurePinned(t *testing.T) {
 		t.Fatalf("profiler first publication is no longer dominated by full extraction: extract=%v open=%v write=%v",
 			extractCalls, openCalls, writeCalls)
 	}
-	if len(extractCalls[0].Args) != 5 || !isIdent(extractCalls[0].Args[2], "inputSize") ||
-		!isIdent(extractCalls[0].Args[3], "sessionBodySize") {
+	if len(extractCalls[0].Args) != 4 || !isIdent(extractCalls[0].Args[1], "binding") ||
+		!isIdent(extractCalls[0].Args[2], "sessionBodySize") {
 		t.Fatalf("profiler route lost distinct full TraceFile and Session-only input bounds: %+v", extractCalls[0].Args)
 	}
 	writeOwners := map[string]int{}
@@ -1227,7 +1226,7 @@ func TestProfilerContainerResourceStructurePinned(t *testing.T) {
 	if len(writeOwners) != 1 || writeOwners["tryConvertProfilerContainerWithLedger"] != 1 {
 		t.Fatalf("profiler trace-body publication authority is no longer unique: %+v", writeOwners)
 	}
-	for _, functionName := range []string{"extractProfilerTraceFileAtWithFrameLimit", "extractProfilerSessionPackageWithLineLimit"} {
+	for _, functionName := range []string{"extractProfilerTraceFileAtWithFrameLimit", "extractProfilerSessionPackageAt"} {
 		if calls := callSites(functions[functionName], "writeTo"); len(calls) != 0 {
 			t.Fatalf("resource extractor %s acquired publication authority: %+v", functionName, calls)
 		}

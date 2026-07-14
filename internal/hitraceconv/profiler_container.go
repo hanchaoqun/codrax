@@ -10,6 +10,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -33,6 +34,36 @@ type profilerTraceHeader struct {
 	DataType      uint32
 	PluginName    string
 	PluginVersion string
+}
+
+type profilerInputBinding struct {
+	input           conversionInputView
+	inputSize       int64
+	sourceNamespace string
+}
+
+func newProfilerInputBinding(input conversionInputView, sourceNamespace string) (*profilerInputBinding, error) {
+	if input == nil {
+		return nil, conversionInputFailure(
+			ConversionInputCodeInternalContract,
+			conversionInputStageProfilerHeader,
+			"",
+			errors.New("nil profiler conversion input"),
+		)
+	}
+	inputSize := input.Size()
+	if inputSize < 0 || strings.TrimSpace(sourceNamespace) == "" ||
+		!filepath.IsAbs(sourceNamespace) || filepath.Clean(sourceNamespace) != sourceNamespace {
+		return nil, conversionInputFailure(
+			ConversionInputCodeInternalContract,
+			conversionInputStageProfilerHeader,
+			input.DisplayPath(),
+			fmt.Errorf("invalid profiler input binding: size=%d namespace=%q", inputSize, sourceNamespace),
+		)
+	}
+	return &profilerInputBinding{
+		input: input, inputSize: inputSize, sourceNamespace: sourceNamespace,
+	}, nil
 }
 
 type profilerPluginData struct {
@@ -976,25 +1007,21 @@ func profilerPairBudgetCaveat(sink *traceDBRowSink, kind pairRenderKind) string 
 	return "; " + strings.Join(parts, "; ")
 }
 
-func tryConvertProfilerContainer(ctx context.Context, opts Options, inputSize int64, output string, standaloneArtifacts []Artifact, standaloneCaveats []string, standaloneDecisions []PerfProviderDecision, initialTraceDecisions []TraceProviderDecision, initialTraceDBCoverage []TraceDBCoverage) (result Result, detected bool, err error) {
-	ledger, err := newConversionFileLedger(opts.InputPath)
+func tryConvertProfilerContainerWithLedger(ctx context.Context, opts Options, authority *conversionInputAuthority, output string, standaloneArtifacts []Artifact, standaloneCaveats []string, standaloneDecisions []PerfProviderDecision, initialTraceDecisions []TraceProviderDecision, initialTraceDBCoverage []TraceDBCoverage, ledger *conversionFileLedger) (result Result, detected bool, err error) {
+	if authority == nil {
+		return Result{}, false, conversionInputFailure(
+			ConversionInputCodeInternalContract,
+			conversionInputStageProfilerHeader,
+			"",
+			errors.New("nil profiler input authority"),
+		)
+	}
+	binding, err := newProfilerInputBinding(authority, authority.CanonicalPath())
 	if err != nil {
 		return Result{}, false, err
 	}
-	committed := false
-	defer func() {
-		if !committed {
-			err = joinConversionCleanupError(err, ledger)
-		}
-	}()
-	result, detected, err = tryConvertProfilerContainerWithLedger(ctx, opts, inputSize, output, standaloneArtifacts, standaloneCaveats, standaloneDecisions, initialTraceDecisions, initialTraceDBCoverage, ledger)
-	if err == nil {
-		committed = true
-	}
-	return result, detected, err
-}
-
-func tryConvertProfilerContainerWithLedger(ctx context.Context, opts Options, inputSize int64, output string, standaloneArtifacts []Artifact, standaloneCaveats []string, standaloneDecisions []PerfProviderDecision, initialTraceDecisions []TraceProviderDecision, initialTraceDBCoverage []TraceDBCoverage, ledger *conversionFileLedger) (result Result, detected bool, err error) {
+	inputSize := binding.inputSize
+	opts.InputPath = authority.DisplayPath()
 	sink, err := newTraceDBRowSink("", 0)
 	if err != nil {
 		return Result{}, false, err
@@ -1008,12 +1035,12 @@ func tryConvertProfilerContainerWithLedger(ctx context.Context, opts Options, in
 			err = traceDBJoinPreservingSingle(err, sink.cleanup())
 		}
 	}()
-	if err := sink.openProfilerCapture(opts.InputPath); err != nil {
+	if err := sink.openProfilerCaptureForNamespace(binding.sourceNamespace); err != nil {
 		return Result{}, false, err
 	}
 	sessionBodySize, embeddedSessionSidecar := profilerContainerSessionLayout(inputSize, standaloneArtifacts)
-	extracted, err := extractProfilerContainerSystraceRowsWithSessionLimit(
-		ctx, opts.InputPath, inputSize, sessionBodySize, sink)
+	extracted, err := extractProfilerContainerSystraceRowsWithSessionLimitFromInput(
+		ctx, binding, sessionBodySize, sink)
 	if err != nil {
 		return Result{}, false, err
 	}
@@ -1039,6 +1066,9 @@ func tryConvertProfilerContainerWithLedger(ctx context.Context, opts Options, in
 		if !extracted.SourceFailClosed {
 			failCloseProfilerTraceBody(&extracted, sink, "session_embedded_standalone_sidecar_ambiguity")
 		}
+	}
+	if err := completeConversionInputStage(ctx, binding.input, conversionInputStageProfilerBody, nil); err != nil {
+		return Result{}, true, err
 	}
 	if err := sink.sealProfilerCaptureContext(ctx); err != nil {
 		return Result{}, true, err
@@ -1278,24 +1308,82 @@ func profilerContainerSessionLayout(inputSize int64, artifacts []Artifact) (int6
 	return inputSize, len(merged) > 0
 }
 
-func extractProfilerContainerSystraceRows(ctx context.Context, path string, inputSize int64, sink *traceDBRowSink) (profilerContainerExtraction, error) {
-	return extractProfilerContainerSystraceRowsWithSessionLimit(ctx, path, inputSize, inputSize, sink)
+func validateProfilerInputBinding(binding *profilerInputBinding, stage conversionInputStage) error {
+	if binding == nil || binding.input == nil {
+		return conversionInputFailure(
+			ConversionInputCodeInternalContract,
+			stage,
+			"",
+			errors.New("nil profiler input binding"),
+		)
+	}
+	currentSize := binding.input.Size()
+	if binding.inputSize < 0 || binding.inputSize != currentSize ||
+		strings.TrimSpace(binding.sourceNamespace) == "" ||
+		!filepath.IsAbs(binding.sourceNamespace) || filepath.Clean(binding.sourceNamespace) != binding.sourceNamespace {
+		return conversionInputFailure(
+			ConversionInputCodeInternalContract,
+			stage,
+			binding.input.DisplayPath(),
+			fmt.Errorf("invalid profiler input binding: fixed_size=%d current_size=%d namespace=%q", binding.inputSize, currentSize, binding.sourceNamespace),
+		)
+	}
+	return nil
 }
 
-func extractProfilerContainerSystraceRowsWithSessionLimit(ctx context.Context, path string,
-	inputSize, sessionInputSize int64, sink *traceDBRowSink,
-) (profilerContainerExtraction, error) {
-	if inputSize < 0 || sessionInputSize < 0 || sessionInputSize > inputSize {
-		return profilerContainerExtraction{}, &traceDBOutputInvariantError{Reason: "invalid_profiler_session_input_boundary"}
+func readProfilerTraceHeaderFromInput(ctx context.Context, binding *profilerInputBinding) (
+	header profilerTraceHeader,
+	ok bool,
+	err error,
+) {
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	header, ok, err := readProfilerTraceHeaderAtPath(path, 0, inputSize)
+	var input conversionInputView
+	if binding != nil {
+		input = binding.input
+	}
+	if err := completeConversionInputStage(ctx, input, conversionInputStageProfilerHeader, nil); err != nil {
+		return profilerTraceHeader{}, false, err
+	}
+	defer func() {
+		err = completeConversionInputStage(ctx, input, conversionInputStageProfilerHeader, err)
+		if err != nil {
+			header = profilerTraceHeader{}
+			ok = false
+		}
+	}()
+	if err := validateProfilerInputBinding(binding, conversionInputStageProfilerHeader); err != nil {
+		return profilerTraceHeader{}, false, err
+	}
+	return readProfilerTraceHeaderAtExact(input, 0, binding.inputSize)
+}
+
+func extractProfilerContainerSystraceRowsWithSessionLimitFromInput(ctx context.Context,
+	binding *profilerInputBinding, sessionInputSize int64, sink *traceDBRowSink,
+) (profilerContainerExtraction, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	header, ok, err := readProfilerTraceHeaderFromInput(ctx, binding)
 	if err != nil {
 		return profilerContainerExtraction{}, err
 	}
-	if ok && header.DataType == profilerDataTypeProtobuf {
-		return extractProfilerTraceFile(ctx, path, inputSize, header, sink)
+	if err := ctx.Err(); err != nil {
+		return profilerContainerExtraction{}, err
 	}
-	session, err := extractProfilerSessionPackage(ctx, path, sessionInputSize, sink)
+	if sessionInputSize < 0 || sessionInputSize > binding.inputSize {
+		return profilerContainerExtraction{}, conversionInputFailure(
+			ConversionInputCodeInternalContract,
+			conversionInputStageProfilerBody,
+			binding.input.DisplayPath(),
+			fmt.Errorf("invalid profiler session input boundary %d for fixed size %d", sessionInputSize, binding.inputSize),
+		)
+	}
+	if ok && header.DataType == profilerDataTypeProtobuf {
+		return extractProfilerTraceFileFromInput(ctx, binding, header, sink, maxProfilerPluginFrameBytes)
+	}
+	session, err := extractProfilerSessionPackageFromInput(ctx, binding, sessionInputSize, sink, maxProfilerTextLineBytes)
 	if err != nil {
 		return profilerContainerExtraction{}, err
 	}
@@ -1305,19 +1393,33 @@ func extractProfilerContainerSystraceRowsWithSessionLimit(ctx context.Context, p
 	return profilerContainerExtraction{}, nil
 }
 
-func extractProfilerTraceFile(ctx context.Context, path string, inputSize int64, header profilerTraceHeader, sink *traceDBRowSink) (profilerContainerExtraction, error) {
-	return extractProfilerTraceFileWithFrameLimit(ctx, path, inputSize, header, sink, maxProfilerPluginFrameBytes)
-}
-
-func extractProfilerTraceFileWithFrameLimit(ctx context.Context, path string, inputSize int64,
+func extractProfilerTraceFileFromInput(ctx context.Context, binding *profilerInputBinding,
 	header profilerTraceHeader, sink *traceDBRowSink, maxFrameBytes uint64,
-) (profilerContainerExtraction, error) {
-	f, err := os.Open(path)
-	if err != nil {
+) (extracted profilerContainerExtraction, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var input conversionInputView
+	if binding != nil {
+		input = binding.input
+	}
+	if err := completeConversionInputStage(ctx, input, conversionInputStageProfilerBody, nil); err != nil {
 		return profilerContainerExtraction{}, err
 	}
-	defer f.Close()
-	return extractProfilerTraceFileAtWithFrameLimit(ctx, f, inputSize, header, sink, maxFrameBytes)
+	defer func() {
+		err = completeConversionInputStage(ctx, input, conversionInputStageProfilerBody, err)
+		if err != nil {
+			extracted = profilerContainerExtraction{}
+			var inputErr *ConversionInputError
+			if sink != nil && errors.As(err, &inputErr) {
+				sink.failCloseAllRows()
+			}
+		}
+	}()
+	if err := validateProfilerInputBinding(binding, conversionInputStageProfilerBody); err != nil {
+		return profilerContainerExtraction{}, err
+	}
+	return extractProfilerTraceFileAtWithFrameLimit(ctx, input, binding.inputSize, header, sink, maxFrameBytes)
 }
 
 func extractProfilerTraceFileAtWithFrameLimit(ctx context.Context, reader io.ReaderAt, inputSize int64,
@@ -2799,24 +2901,50 @@ func commitProfilerSessionRowCounters(coverage *TraceDBCoverage,
 	return nil
 }
 
-func extractProfilerSessionPackage(ctx context.Context, path string, inputSize int64,
-	sink *traceDBRowSink,
-) (profilerContainerExtraction, error) {
-	return extractProfilerSessionPackageWithLineLimit(ctx, path, inputSize, sink, maxProfilerTextLineBytes)
-}
-
-func extractProfilerSessionPackageWithLineLimit(ctx context.Context, path string, inputSize int64,
-	sink *traceDBRowSink, maxLineBytes int,
-) (profilerContainerExtraction, error) {
-	if inputSize < 0 || maxLineBytes <= 0 || maxLineBytes >= math.MaxInt {
-		return profilerContainerExtraction{}, &traceDBOutputInvariantError{Reason: "invalid_profiler_session_line_limit"}
+func extractProfilerSessionPackageFromInput(ctx context.Context, binding *profilerInputBinding,
+	inputSize int64, sink *traceDBRowSink, maxLineBytes int,
+) (extracted profilerContainerExtraction, err error) {
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	f, err := os.Open(path)
-	if err != nil {
+	var input conversionInputView
+	if binding != nil {
+		input = binding.input
+	}
+	if err := completeConversionInputStage(ctx, input, conversionInputStageProfilerBody, nil); err != nil {
 		return profilerContainerExtraction{}, err
 	}
-	defer f.Close()
-	if _, ok, err := profilerSessionJSONMarkerOffsetAt(f, inputSize, 64*1024); err != nil {
+	defer func() {
+		err = completeConversionInputStage(ctx, input, conversionInputStageProfilerBody, err)
+		if err != nil {
+			extracted = profilerContainerExtraction{}
+			var inputErr *ConversionInputError
+			if sink != nil && errors.As(err, &inputErr) {
+				sink.failCloseAllRows()
+			}
+		}
+	}()
+	if err := validateProfilerInputBinding(binding, conversionInputStageProfilerBody); err != nil {
+		return profilerContainerExtraction{}, err
+	}
+	if inputSize < 0 || inputSize > binding.inputSize {
+		return profilerContainerExtraction{}, conversionInputFailure(
+			ConversionInputCodeInternalContract,
+			conversionInputStageProfilerBody,
+			input.DisplayPath(),
+			fmt.Errorf("invalid profiler session input boundary %d for fixed size %d", inputSize, binding.inputSize),
+		)
+	}
+	return extractProfilerSessionPackageAt(ctx, input, inputSize, sink, maxLineBytes)
+}
+
+func extractProfilerSessionPackageAt(ctx context.Context, input io.ReaderAt, inputSize int64,
+	sink *traceDBRowSink, maxLineBytes int,
+) (profilerContainerExtraction, error) {
+	if input == nil || inputSize < 0 || maxLineBytes <= 0 || maxLineBytes >= math.MaxInt {
+		return profilerContainerExtraction{}, &traceDBOutputInvariantError{Reason: "invalid_profiler_session_line_limit"}
+	}
+	if _, ok, err := profilerSessionJSONMarkerOffsetAt(input, inputSize, 64*1024); err != nil {
 		return profilerContainerExtraction{}, err
 	} else if !ok {
 		return profilerContainerExtraction{}, nil
@@ -2836,7 +2964,7 @@ func extractProfilerSessionPackageWithLineLimit(ctx context.Context, path string
 		Role:   "query_ready_export",
 		Found:  true,
 	}
-	reader := bufio.NewReaderSize(io.NewSectionReader(f, 0, inputSize), profilerSessionReaderBufBytes)
+	reader := bufio.NewReaderSize(io.NewSectionReader(input, 0, inputSize), profilerSessionReaderBufBytes)
 	if !sink.beginPairRowCensusForPublisher(profilerPairPublisherSession) {
 		return profilerContainerExtraction{}, &traceDBOutputInvariantError{Reason: "profiler_pair_census_nested"}
 	}
@@ -3003,19 +3131,6 @@ func normalizeProfilerBoundedPhysicalLine(line profilerBoundedPhysicalLine,
 	return line
 }
 
-func profilerSessionJSONMarkerOffset(path string, maxProbe int64) (int64, bool, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return 0, false, err
-	}
-	defer f.Close()
-	info, err := f.Stat()
-	if err != nil {
-		return 0, false, err
-	}
-	return profilerSessionJSONMarkerOffsetAt(f, info.Size(), maxProbe)
-}
-
 func profilerSessionJSONMarkerOffsetAt(reader io.ReaderAt, inputSize, maxProbe int64) (int64, bool, error) {
 	if reader == nil || inputSize <= 0 {
 		return 0, false, nil
@@ -3030,37 +3145,35 @@ func profilerSessionJSONMarkerOffsetAt(reader io.ReaderAt, inputSize, maxProbe i
 		return 0, false, &traceDBOutputInvariantError{Reason: "invalid_profiler_session_marker_probe"}
 	}
 	probe := make([]byte, int(maxProbe))
-	n, err := reader.ReadAt(probe, 0)
-	if err != nil && err != io.EOF {
+	if _, err := io.ReadFull(io.NewSectionReader(reader, 0, maxProbe), probe); err != nil {
 		return 0, false, err
 	}
-	idx := bytes.Index(probe[:n], []byte(profilerSessionJSONTag))
+	idx := bytes.Index(probe, []byte(profilerSessionJSONTag))
 	if idx < 0 {
 		return 0, false, nil
 	}
 	return int64(idx), true, nil
 }
 
-func readProfilerTraceHeaderAtPath(path string, off int64, fileSize int64) (profilerTraceHeader, bool, error) {
-	f, err := os.Open(path)
+func readProfilerTraceHeaderAt(r io.ReaderAt, off int64, fileSize int64) (profilerTraceHeader, bool) {
+	header, ok, _ := readProfilerTraceHeaderAtExact(r, off, fileSize)
+	return header, ok
+}
+
+func readProfilerTraceHeaderAtExact(r io.ReaderAt, off int64, fileSize int64) (profilerTraceHeader, bool, error) {
+	if r == nil {
+		return profilerTraceHeader{}, false, &traceDBOutputInvariantError{Reason: "invalid_profiler_trace_header_reader"}
+	}
+	if off < 0 || fileSize < 0 || off > fileSize || int64(profilerTraceHeaderSize) > fileSize-off {
+		return profilerTraceHeader{}, false, nil
+	}
+	header := make([]byte, profilerTraceHeaderSize)
+	_, err := io.ReadFull(io.NewSectionReader(r, off, profilerTraceHeaderSize), header)
 	if err != nil {
 		return profilerTraceHeader{}, false, err
 	}
-	defer f.Close()
-	header, ok := readProfilerTraceHeaderAt(f, off, fileSize)
-	return header, ok, nil
-}
-
-func readProfilerTraceHeaderAt(r io.ReaderAt, off int64, fileSize int64) (profilerTraceHeader, bool) {
-	if off < 0 || off+profilerTraceHeaderSize > fileSize {
-		return profilerTraceHeader{}, false
-	}
-	header := make([]byte, profilerTraceHeaderSize)
-	if _, err := r.ReadAt(header, off); err != nil {
-		return profilerTraceHeader{}, false
-	}
 	if binary.LittleEndian.Uint64(header[0:8]) != profilerTraceHeaderMagic {
-		return profilerTraceHeader{}, false
+		return profilerTraceHeader{}, false, nil
 	}
 	length := binary.LittleEndian.Uint64(header[8:16])
 	return profilerTraceHeader{
@@ -3071,7 +3184,7 @@ func readProfilerTraceHeaderAt(r io.ReaderAt, off int64, fileSize int64) (profil
 		DataType:      binary.LittleEndian.Uint32(header[56:60]),
 		PluginName:    cString(header[profilerPluginNameOffset : profilerPluginNameOffset+profilerPluginNameSize]),
 		PluginVersion: cString(header[profilerPluginVersionOffset : profilerPluginVersionOffset+profilerPluginVersionSize]),
-	}, true
+	}, true, nil
 }
 
 func parseProfilerPluginData(data []byte) profilerPluginDataDecode {

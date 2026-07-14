@@ -309,7 +309,7 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 		normalizeResultCollections(&result)
 		return commit(result, nil)
 	}
-	if result, ok, err := tryConvertProfilerContainerWithLedger(ctx, opts, inputBytes, output, standaloneArtifacts, standaloneCaveats, standaloneDecisions, initialTraceDecisions, initialTraceDBCoverage, ledger); ok || err != nil {
+	if result, ok, err := tryConvertProfilerContainerWithLedger(ctx, opts, authority, output, standaloneArtifacts, standaloneCaveats, standaloneDecisions, initialTraceDecisions, initialTraceDBCoverage, ledger); ok || err != nil {
 		if err != nil {
 			return result, wrapFallbackFailure(err)
 		}
