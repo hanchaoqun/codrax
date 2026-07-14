@@ -729,6 +729,14 @@ type Query struct {
 	TracePlatform         TracePlatform
 	TracePlatformHint     TracePlatform
 	TracePlatformSource   string
+	// chainAnchorWindowsByPID (RSPA §29.61.10a/b/c, 2026-07-14). Unexported
+	// in-package plumbing, never serialized: the merged typed wakeup-
+	// dependency jump-window unions per chain pid (chainAnchorWindowsByPID
+	// helper output), set ONLY by the rank/bundle lanes that computed the
+	// chain BEFORE the stats sweep. computeOffCPUStats accumulates the
+	// per-segment anchored overlap against these at its single ledger close
+	// site. nil (every other caller) keeps the sweep byte-identical.
+	chainAnchorWindowsByPID map[int][]TimeWindow
 }
 
 type Result struct {
@@ -779,12 +787,12 @@ type Result struct {
 	// (体积小账; the bundle copy stays authoritative when both exist). nil
 	// when no target/window or the timeline has no measurable intervals
 	// (absence never fabricates zeros).
-	TargetWindowStates          *TargetWindowStateAccount `json:"target_window_states,omitempty"`
-	InteractionStats            *InteractionStatsResult `json:"interaction_stats,omitempty"`
-	PerfStats                   *PerfContext            `json:"perf_stats,omitempty"`
-	PerfTimeline                *PerfTimelineResult     `json:"perf_timeline,omitempty"`
-	WindowSweep                 *WindowSweepResult      `json:"window_sweep,omitempty"`
-	Recipe                      *RecipeResult           `json:"recipe,omitempty"`
+	TargetWindowStates *TargetWindowStateAccount `json:"target_window_states,omitempty"`
+	InteractionStats   *InteractionStatsResult   `json:"interaction_stats,omitempty"`
+	PerfStats          *PerfContext              `json:"perf_stats,omitempty"`
+	PerfTimeline       *PerfTimelineResult       `json:"perf_timeline,omitempty"`
+	WindowSweep        *WindowSweepResult        `json:"window_sweep,omitempty"`
+	Recipe             *RecipeResult             `json:"recipe,omitempty"`
 	// CPUFrequencyCensus is the RFC #71 (§8.2 c4) pre-truncation frequency
 	// tier ladder for event_search results whose chronological display cap
 	// hid matched cpu_frequency rows: distinct kHz tiers + per-tier row
@@ -800,8 +808,8 @@ type Result struct {
 	// caliber; the window_stats face carries the window_population twin).
 	// Additive only — nil when no generator row matched.
 	VsyncGeneratorCensus *VsyncGeneratorCensus `json:"vsync_generator_census,omitempty"`
-	EvidencePack       []EvidenceFact      `json:"evidence_pack,omitempty"`
-	Caveats            []string            `json:"caveats,omitempty"`
+	EvidencePack         []EvidenceFact        `json:"evidence_pack,omitempty"`
+	Caveats              []string              `json:"caveats,omitempty"`
 	// Compactions are the typed truncation records for this result (E4).
 	// They ride ALONGSIDE the prose compaction caveats (which stay verbatim);
 	// the tool refinement layer reads these first and keeps caveat-substring
@@ -979,8 +987,8 @@ type WindowStats struct {
 	// an interval refined by sched_blocked_reason iowait=1 appears only in
 	// IOWaitTop; DStateTop contains the remaining non-IO uninterruptible waits.
 	// Their same-thread sum is the complete D/IO blocking account.
-	DStateTop            []ThreadDuration         `json:"d_state_top,omitempty"`
-	IOWaitTop            []ThreadDuration         `json:"io_wait_top,omitempty"`
+	DStateTop []ThreadDuration `json:"d_state_top,omitempty"`
+	IOWaitTop []ThreadDuration `json:"io_wait_top,omitempty"`
 	// DStateTopOverflow*/IOWaitTopOverflow* (修复轮二 件A, 2026-07-13): the
 	// per-lane cap-overflow disclosure — how many (thread,cpu) census groups
 	// sit beyond the top-8 display list and their summed account. Disclosure
@@ -990,36 +998,42 @@ type WindowStats struct {
 	DStateTopOverflowMs     float64 `json:"d_state_top_overflow_ms,omitempty"`
 	IOWaitTopOverflowGroups int     `json:"io_wait_top_overflow_groups,omitempty"`
 	IOWaitTopOverflowMs     float64 `json:"io_wait_top_overflow_ms,omitempty"`
-	CPUPressure          []CPUPressureStats       `json:"cpu_pressure,omitempty"`
-	CPUConstraints       []CPUConstraintSummary   `json:"cpu_constraints,omitempty"`
-	ThreadCPULoad        []ThreadCPULoadSummary   `json:"thread_cpu_load,omitempty"`
-	ProcessCPULoad       []ProcessCPULoadSummary  `json:"process_cpu_load,omitempty"`
-	RunnableContext      []RunnableContextSummary `json:"runnable_context,omitempty"`
-	IOLatencies          []IOLatencySummary       `json:"io_latencies,omitempty"`
-	CPUFrequencyLimits   []CPUFrequencyLimit      `json:"cpu_frequency_limits,omitempty"`
-	SubsystemEvents      []SubsystemEventSummary  `json:"subsystem_events,omitempty"`
-	BlockIssueCount      int                      `json:"block_issue_count,omitempty"`
-	BlockRemapCount      int                      `json:"block_remap_count,omitempty"`
-	BlockCompleteCount   int                      `json:"block_complete_count,omitempty"`
-	BinderCount          int                      `json:"binder_count,omitempty"`
-	BinderReceivedCount  int                      `json:"binder_received_count,omitempty"`
-	BinderAuxCount       int                      `json:"binder_aux_count,omitempty"`
-	IRQCount             int                      `json:"irq_count,omitempty"`
-	SoftIRQCount         int                      `json:"softirq_count,omitempty"`
-	MemoryEventCount     int                      `json:"memory_event_count,omitempty"`
-	StorageEventCount    int                      `json:"storage_event_count,omitempty"`
-	FilesystemEventCount int                      `json:"filesystem_event_count,omitempty"`
-	PowerEventCount      int                      `json:"power_event_count,omitempty"`
-	AbilityEventCount    int                      `json:"ability_event_count,omitempty"`
-	XPowerEventCount     int                      `json:"xpower_event_count,omitempty"`
-	HiSystemEventCount   int                      `json:"hi_sysevent_event_count,omitempty"`
-	WorkqueueEventCount  int                      `json:"workqueue_event_count,omitempty"`
-	DMAFenceEventCount   int                      `json:"dma_fence_event_count,omitempty"`
-	BlockedReasonCount   int                      `json:"blocked_reason_count,omitempty"`
-	SchedStatCount       int                      `json:"sched_stat_count,omitempty"`
-	IPICount             int                      `json:"ipi_count,omitempty"`
-	IOWaitBlockedCount   int                      `json:"io_wait_blocked_count,omitempty"`
-	BlockedReasons       []BlockedReasonSummary   `json:"blocked_reasons,omitempty"`
+	// RunnableTopOverflow* (RSPA §29.61.10, 2026-07-14): the runnable lane's
+	// cap-overflow disclosure — 件A 的同族补完 (the fourth 「帽基当全量」
+	// instance): how many (thread,cpu) runnable census groups sit beyond the
+	// top-8 display list and their summed account. Disclosure only.
+	RunnableTopOverflowGroups int                      `json:"runnable_top_overflow_groups,omitempty"`
+	RunnableTopOverflowMs     float64                  `json:"runnable_top_overflow_ms,omitempty"`
+	CPUPressure               []CPUPressureStats       `json:"cpu_pressure,omitempty"`
+	CPUConstraints            []CPUConstraintSummary   `json:"cpu_constraints,omitempty"`
+	ThreadCPULoad             []ThreadCPULoadSummary   `json:"thread_cpu_load,omitempty"`
+	ProcessCPULoad            []ProcessCPULoadSummary  `json:"process_cpu_load,omitempty"`
+	RunnableContext           []RunnableContextSummary `json:"runnable_context,omitempty"`
+	IOLatencies               []IOLatencySummary       `json:"io_latencies,omitempty"`
+	CPUFrequencyLimits        []CPUFrequencyLimit      `json:"cpu_frequency_limits,omitempty"`
+	SubsystemEvents           []SubsystemEventSummary  `json:"subsystem_events,omitempty"`
+	BlockIssueCount           int                      `json:"block_issue_count,omitempty"`
+	BlockRemapCount           int                      `json:"block_remap_count,omitempty"`
+	BlockCompleteCount        int                      `json:"block_complete_count,omitempty"`
+	BinderCount               int                      `json:"binder_count,omitempty"`
+	BinderReceivedCount       int                      `json:"binder_received_count,omitempty"`
+	BinderAuxCount            int                      `json:"binder_aux_count,omitempty"`
+	IRQCount                  int                      `json:"irq_count,omitempty"`
+	SoftIRQCount              int                      `json:"softirq_count,omitempty"`
+	MemoryEventCount          int                      `json:"memory_event_count,omitempty"`
+	StorageEventCount         int                      `json:"storage_event_count,omitempty"`
+	FilesystemEventCount      int                      `json:"filesystem_event_count,omitempty"`
+	PowerEventCount           int                      `json:"power_event_count,omitempty"`
+	AbilityEventCount         int                      `json:"ability_event_count,omitempty"`
+	XPowerEventCount          int                      `json:"xpower_event_count,omitempty"`
+	HiSystemEventCount        int                      `json:"hi_sysevent_event_count,omitempty"`
+	WorkqueueEventCount       int                      `json:"workqueue_event_count,omitempty"`
+	DMAFenceEventCount        int                      `json:"dma_fence_event_count,omitempty"`
+	BlockedReasonCount        int                      `json:"blocked_reason_count,omitempty"`
+	SchedStatCount            int                      `json:"sched_stat_count,omitempty"`
+	IPICount                  int                      `json:"ipi_count,omitempty"`
+	IOWaitBlockedCount        int                      `json:"io_wait_blocked_count,omitempty"`
+	BlockedReasons            []BlockedReasonSummary   `json:"blocked_reasons,omitempty"`
 	// BlockedReasonCensus (件1 census 根修, 2026-07-13): the per-pid FULL
 	// blocked_reason census on the wire face — per-caller 符号×count×Σms off
 	// the full pre-truncation accumulator (never the top-8 display view),
@@ -1046,7 +1060,35 @@ type WindowStats struct {
 	// mint fails open to the capped lists verbatim.
 	dstateCensus map[string]ThreadDuration
 	iowaitCensus map[string]ThreadDuration
-	TraceSpans             []TraceSpanSummary `json:"trace_spans,omitempty"`
+	// runnableCensus (RSPA §29.61.10a/b/c, 2026-07-14): the FULL pre-cap
+	// runnable ledger behind the capped RunnableTop display list — the
+	// 「帽基当全量」 fix's fourth instance (D/IO 件A precedent verbatim: the
+	// formal runnable seats mint from THIS 全量账; nil on legacy/direct-
+	// literal WindowStats, where the mint fails open to the capped list).
+	runnableCensus map[string]ThreadDuration
+	// offCPUProducerDisjoint (件6 修复轮, 2026-07-14). Unexported: the
+	// ordered-stream premise of the off-CPU state machine (ORD 复核 P3-1
+	// same gate the mint sites read) — false on clock-regressed indexes. The
+	// RSPA family decisions gate on it so a regressed trace can never
+	// suppress a chain D-IO seat while the MAX-fallback window seats stayed
+	// unclipped (板面失链值行).
+	offCPUProducerDisjoint bool
+	// chainAnchorsByPID (RSPA §29.61.10a/b/c, 2026-07-14). Unexported: the
+	// typed wakeup-dependency jump-window unions (per chain pid, target
+	// excluded — self-causality is fully anchored by definition) this stats
+	// sweep accumulated anchoredMs against. nil == the sweep ran WITHOUT
+	// anchor data — the seat re-anchoring pass fails open (no migration)
+	// because anchored==0 would be indistinguishable from "never measured".
+	chainAnchorsByPID map[int][]TimeWindow
+	// anchoredDIOWakeups (RSPA M-IO closure lane): the wakeup-closed anchored
+	// D/IO segment ends of chain threads — (waker pid, wakeup ts) pairs
+	// recorded when a sched_wakeup terminated a D/IO segment whose anchored
+	// overlap is positive. The per-IO completion-closure check reads these
+	// (io_latency completion thread + ts window); bounded by
+	// anchoredDIOWakeupCap, and the overflow direction is honest: a dropped
+	// record can only DEMOTE an io row to ◇ (宁漏勿猜), never promote.
+	anchoredDIOWakeups []anchoredDIOWakeupRecord
+	TraceSpans         []TraceSpanSummary `json:"trace_spans,omitempty"`
 	// TraceTrackSpans is the isolated Android ASYNC_FOR_TRACK G/H lane. These
 	// spans have logical track ownership, not emitter-thread ownership, and
 	// therefore never feed TraceSpans, semantic classification or root rank.
@@ -1779,6 +1821,13 @@ type offCPUCauseSlice struct {
 	endTs     float64
 	lineStart int
 	lineEnd   int
+	// anchoredMs (RSPA §29.61.10a/b/c, 2026-07-14): the slice's segment time
+	// that intersects the thread's typed wakeup-dependency jump windows
+	// (chain-anchored credential portion). Accumulated segment-by-segment at
+	// the ONE ledger close site (addDurationCause) so 全窗账 = anchored +
+	// remainder is an exact same-segment-set bipartition, never a second
+	// aggregation. 0 when no anchor windows were supplied to the sweep.
+	anchoredMs float64
 }
 
 type ThreadDuration struct {
@@ -1806,6 +1855,14 @@ type ThreadDuration struct {
 	segCount int
 	segMinMs float64
 	segMaxMs float64
+	// anchoredMs (RSPA §29.61.10a/b/c, 2026-07-14). Unexported: in-package
+	// verdict input, never serialized. The group's segment time intersecting
+	// the thread's typed wakeup-dependency jump windows (union of the chain's
+	// depth>0 node windows for this pid), accumulated at the ONE ledger close
+	// site with the exact clamped segment endpoints — the chain-anchored
+	// credential portion of this (thread,cpu) account. 0 when the sweep ran
+	// without anchor windows (legacy paths; absence never guesses).
+	anchoredMs float64
 
 	// DSTATE-REFINE arm a carriers (CAL-1 件③, §29.39②/§29.47.2, 2026-07-12).
 	// Unexported: in-package verdict input, never serialized. dFamilySegments
@@ -2905,11 +2962,53 @@ type RootCauseRankItem struct {
 	// 「D-state(原因未证)」 display form. A thread with no cause seat never
 	// wears it (a lone generic seat is not a remainder). Wording input only
 	// — rank/score lanes never read it.
-	DStateCauseUnprovenRemainder bool    `json:"d_state_cause_unproven_remainder,omitempty"`
-	ImpactMs                     float64 `json:"impact_ms,omitempty"`
-	ProjectedImpactMs            float64 `json:"projected_impact_ms,omitempty"`
-	CumulativeImpactMs           float64 `json:"cumulative_impact_ms,omitempty"`
-	EffectiveImpactMs            float64 `json:"effective_impact_ms,omitempty"`
+	DStateCauseUnprovenRemainder bool `json:"d_state_cause_unproven_remainder,omitempty"`
+	// ChainAnchoredMs / ChainAnchorFullMs / ChainAnchorRemainderSeat (RSPA
+	// §29.61.10a/b/c user rulings, 2026-07-13/14): the on-chain seat-value
+	// re-anchoring decomposition. A window_stats state seat of a chain thread
+	// no longer publishes its FULL-window account on the chain tier: the
+	// credential-anchored portion (segments ∩ the thread's typed wakeup-
+	// dependency jump windows — constructively equal to the chain lane's own
+	// per-state value, µs-identity gated) is owned by the chain-lane seat,
+	// and THIS row becomes the ◇ adjacent remainder seat:
+	//   ChainAnchorFullMs   — the same-source full-window account (census
+	//                         basis; the pre-migration seat value);
+	//   ChainAnchoredMs     — the anchored portion that moved to the chain
+	//                         seat (0 ≤ anchored ≤ full);
+	//   ChainAnchorRemainderSeat — true on the ◇ remainder seat; its
+	//                         published value channels carry full − anchored.
+	// 同源二分: the two seats partition ONE segment set (mutually disjoint,
+	// additive back to the full account — the ONLY additive relation form;
+	// wall-clock across different accounts stays non-additive). Absent
+	// (0/0/false) on every non-migrated row: no chain, no jump windows, no
+	// census basis, µs-identity gate failed — all fail open to the legacy
+	// full-window publication (无凭证形禁猜).
+	ChainAnchoredMs          float64 `json:"chain_anchored_ms,omitempty"`
+	ChainAnchorFullMs        float64 `json:"chain_anchor_full_ms,omitempty"`
+	ChainAnchorRemainderSeat bool    `json:"chain_anchor_remainder_seat,omitempty"`
+	// ResourceCompletionClosure (RSPA M-IO, §29.61.10c): typed per-IO
+	// completion-closure credential on an io_latency row — the IO's
+	// completion thread is recorded as the WAKER that ended an ANCHORED D/IO
+	// segment of a chain thread inside the IO's lifetime (block completion →
+	// 段尾 wakeup closure). With the RSPA anchor basis present, a non-target
+	// resource-attribution row keeps the on-chain lane ONLY with this
+	// credential; pure interval overlap demotes to ◇ (10c: 纯时间重叠恒邻近).
+	ResourceCompletionClosure bool `json:"resource_completion_closure,omitempty"`
+	// resourceClosureEvaluated (unexported): true when the RSPA anchor basis
+	// existed at mint time so the closure credential above was actually
+	// computable — the M-IO demotion arm engages ONLY then (legacy fixtures /
+	// anchor-less sweeps keep the pre-RSPA overlap behavior byte-identically).
+	resourceClosureEvaluated bool
+	// ledgerAnchor* (unexported): mint-time stamps of the census ledger's
+	// anchored/full split for this seat (Σ over the seat's members). Working
+	// inputs for the re-anchoring pass; never serialized.
+	ledgerAnchorStamped bool
+	ledgerAnchoredDMs   float64
+	ledgerAnchoredIOMs  float64
+	ImpactMs            float64 `json:"impact_ms,omitempty"`
+	ProjectedImpactMs   float64 `json:"projected_impact_ms,omitempty"`
+	CumulativeImpactMs  float64 `json:"cumulative_impact_ms,omitempty"`
+	EffectiveImpactMs   float64 `json:"effective_impact_ms,omitempty"`
 	// RankSortBoostedEffectiveMs (SEM-LEAD §29.7-2 ② + 复核 P1-1 修向(a),
 	// ledger real_trace_campaign_20260705.md §29.22, 2026-07-10) is the
 	// ENGINE-INTERNAL boost channel for on-chain semantic span work: the
@@ -3631,12 +3730,12 @@ type CriticalBlockingCandidate struct {
 	// lesson). Nil on rows whose peer is unresolved, or when the peer produced no
 	// usable continuation. Display tier (peer_chain_* notes); the P0-A
 	// projection/answer face consumes it, exactly like PeerState.
-	PeerChain          *PeerChainStep `json:"peer_chain,omitempty"`
-	Flags             string  `json:"flags,omitempty"`
-	Oneway            *bool   `json:"oneway,omitempty"`
-	SyncLike          *bool   `json:"sync_like,omitempty"`
-	BlockingCandidate *bool   `json:"blocking_candidate,omitempty"`
-	ChainRelevance    string  `json:"chain_relevance,omitempty"`
+	PeerChain         *PeerChainStep `json:"peer_chain,omitempty"`
+	Flags             string         `json:"flags,omitempty"`
+	Oneway            *bool          `json:"oneway,omitempty"`
+	SyncLike          *bool          `json:"sync_like,omitempty"`
+	BlockingCandidate *bool          `json:"blocking_candidate,omitempty"`
+	ChainRelevance    string         `json:"chain_relevance,omitempty"`
 	// OnChainBasis (SELF-ALL, §29.61.2 2026-07-13): same closed set and
 	// semantics as RootCauseRankItem.OnChainBasis — non-empty ONLY when this
 	// candidate's on-chain relevance was granted by the typed self wall-clock
@@ -3649,9 +3748,9 @@ type CriticalBlockingCandidate struct {
 	EdgeCount          int        `json:"edge_count,omitempty"`
 	NearestChainThread ThreadRef  `json:"nearest_chain_thread,omitempty"`
 	NearestChainWindow TimeWindow `json:"nearest_chain_window,omitempty"`
-	DurationMs         float64        `json:"duration_ms,omitempty"`
-	StartTs            float64        `json:"start_ts,omitempty"`
-	EndTs              float64        `json:"end_ts,omitempty"`
+	DurationMs         float64    `json:"duration_ms,omitempty"`
+	StartTs            float64    `json:"start_ts,omitempty"`
+	EndTs              float64    `json:"end_ts,omitempty"`
 	// ActualStartTs/ActualEndTs/ActualDurationMs (DCS E4 复核 F-1, ledger
 	// §23.2, 2026-07-08): the blocking span's FULL B/E extent when the pair
 	// straddled the query window boundary — DurationMs/StartTs/EndTs then
@@ -3678,7 +3777,7 @@ type CriticalBlockingCandidate struct {
 	// (rankFamilyReconKey) — verbatim-equal to the family row's RankFamilyKey,
 	// never a display-side label re-derivation. Absent family row → both stay
 	// zero and rendering is byte-identical (负向保护).
-	AbsorbedByRankFamily bool    `json:"absorbed_by_rank_family,omitempty"`
+	AbsorbedByRankFamily bool `json:"absorbed_by_rank_family,omitempty"`
 	// reconStartTs/reconEndTs (CASE-1 gap (a), §29.52 → v5 P1 批, 2026-07-13;
 	// 修复轮 h1 ∿ 回归). Unexported: engine-internal recon identity only —
 	// the D/IO rows' per-(thread,cpu) group interval (same-source floats
@@ -3696,13 +3795,13 @@ type CriticalBlockingCandidate struct {
 	// merged-word gate consumes them through the observation notes, so the
 	// refined 「D-state」 word survives the rank-family-less dispatch shapes
 	// whose only D seats are these rows.
-	proofRefined bool
-	proofCaller  string
-	AbsorbedIntoFamily   string  `json:"absorbed_into,omitempty"`
-	LineStart            int     `json:"line_start,omitempty"`
-	LineEnd              int     `json:"line_end,omitempty"`
-	Confidence           float64 `json:"confidence,omitempty"`
-	Summary              string  `json:"summary,omitempty"`
+	proofRefined       bool
+	proofCaller        string
+	AbsorbedIntoFamily string  `json:"absorbed_into,omitempty"`
+	LineStart          int     `json:"line_start,omitempty"`
+	LineEnd            int     `json:"line_end,omitempty"`
+	Confidence         float64 `json:"confidence,omitempty"`
+	Summary            string  `json:"summary,omitempty"`
 }
 
 type ThreadStateBreakdown struct {

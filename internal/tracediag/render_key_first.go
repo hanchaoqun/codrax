@@ -644,7 +644,12 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// typed detail rows, no Caveats/Compactions channel to dedupe, no bulk
 	// lane, no priority override — generic detail rendering, blocked_reason
 	// census 同构; hash re-pinned after review.
-	reflect.TypeOf(tracequery.WindowStats{}):                "0693cee07ece1cb21b5de53312af1776eb1478b903dab9b874b84a794c62e17f",
+	// RSPA (§29.61.10, 2026-07-14) schema review (R2' 第 7 处): WindowStats
+	// gained RunnableTopOverflowGroups/-Ms — the runnable lane's cap-overflow
+	// disclosure pair (件A 帽基当全量 fourth-instance mirror of the D/IO
+	// quartet above). Key-first adjudication: plain scalar disclosure fields,
+	// no skipped fields, no priority override; hash re-pinned after review.
+	reflect.TypeOf(tracequery.WindowStats{}):                "21e7c40fd75517720e146033298b58918829f17d1c4d9978427b9ee244cd2292",
 	reflect.TypeOf(tracequery.TimelineResult{}):             "ec28f82b56a2e1b64cdfde5e0b6a4769886b32df15dc7a99250ec0da16dacc3a",
 	reflect.TypeOf(tracequery.TraceCounterQualitySummary{}): "e3bead6ff4a3c2e7f9d24487c5905f3594b219505afc106d95af9cfd9c552c2d",
 	reflect.TypeOf(tracequery.PerfQualitySummary{}):         "72c447267958bb72db82ab1e807135761cbea3caf60bf09f040a8f451476972a",
@@ -684,7 +689,16 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// gained their own OnChainBasis mirror (same scalar disclosure lane;
 	// neither type is hash-pinned here — key-first renders fields
 	// reflectively, no skipped-field table entry required).
-	reflect.TypeOf(tracequery.RootCauseRankItem{}): "d68828c4760ff74af85680f9c3ca08b8165f68b75e9a9d38265d69c9e410f040",
+	// RSPA (§29.61.10a/b/c, 2026-07-14) schema review (R2' 第 7 处):
+	// RootCauseRankItem gained the re-anchoring bipartition trio
+	// ChainAnchoredMs/ChainAnchorFullMs (float64, the 全窗=锚定+余段 same-
+	// source split both halves carry) + ChainAnchorRemainderSeat (bool, the
+	// ◇ remainder half marker) and ResourceCompletionClosure (bool, the
+	// M-IO per-IO completion-closure credential). Key-first adjudication:
+	// all four are per-row identity/wording disclosure inputs (scalar
+	// disclosure lane, same as DStateCauseUnprovenRemainder); no skipped
+	// fields; hash re-pinned after review.
+	reflect.TypeOf(tracequery.RootCauseRankItem{}): "8c729036597b70ee6362e33fb7e5e0fb85ea9fe3268f149de850f03a3cf96512",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
 	// Key-first adjudication: a slice → structural bulk lane (same as

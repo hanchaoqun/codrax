@@ -244,6 +244,20 @@ func traceCausalProjectionSameFactKey(node TraceCausalProjectionNode) string {
 	if impact <= 0 {
 		impact = node.CumulativeImpactMS
 	}
+	// RSPA (§29.61.10, 2026-07-14): the ⛓ clipped half of a re-anchored seat
+	// still DESCRIBES the same physical full-window fact its un-migrated
+	// twins publish (critical_blocking / window-view rows carry the full
+	// account over the same line range) — the value-keyed identity therefore
+	// reads the typed full-account float, restoring the pre-RSPA one-fact-
+	// one-row merge (survivor keeps its published anchored value; the twin's
+	// E# folds in losslessly). The ◇ remainder half is its OWN account and
+	// never joins a value-keyed identity (marker-forked key).
+	remainderHalf := ""
+	if node.ChainAnchorRemainderSeat {
+		remainderHalf = "\x00remainder"
+	} else if node.ChainAnchorFullMS > 0 {
+		impact = node.ChainAnchorFullMS
+	}
 	if impact <= 0 {
 		return ""
 	}
@@ -251,7 +265,7 @@ func traceCausalProjectionSameFactKey(node TraceCausalProjectionNode) string {
 	if subject == "" {
 		return ""
 	}
-	return fmt.Sprintf("%s\x00%.3f\x00%d\x00%d", subject, impact, node.LineStart, node.LineEnd)
+	return fmt.Sprintf("%s\x00%.3f\x00%d\x00%d%s", subject, impact, node.LineStart, node.LineEnd, remainderHalf)
 }
 
 // traceCausalProjectionMergeSameFacts merges R1 duplicates across the
@@ -306,6 +320,28 @@ func traceCausalProjectionMergeSameFacts(out *TraceCausalProjection) {
 				// converge.
 				kept = append(kept, node)
 				continue
+			}
+			// RSPA (§29.61.10, 2026-07-14): when a full-account twin met a
+			// re-anchored ⛓ clipped half under the full-keyed identity, the ⛓
+			// half OWNS the published seat (its value is the credential-
+			// anchored account; letting the full-value twin survive would
+			// republish the very full-window claim the migration retired).
+			// Swap the node into the survivor slot and absorb the displaced
+			// full-account view as the loser.
+			// 件2 (修复轮, 2026-07-14): the id accounting swaps WITH the seat —
+			// the seed slot held the old survivor's id, and absorbing the
+			// displaced twin without re-seeding skipped its id entirely
+			// (MergedEvidenceIDs came out empty; "lossless" was false). The
+			// new survivor's id takes the seed; the displaced id becomes
+			// absorbable and is recorded by the absorb below.
+			if node.ChainAnchorFullMS > 0 && !node.ChainAnchorRemainderSeat && survivor.ChainAnchorFullMS == 0 {
+				displaced := *survivor
+				*survivor = node
+				node = displaced
+				delete(merged[key], traceCausalProjectionCanonicalNode(node.EvidenceID))
+				if id := traceCausalProjectionCanonicalNode(survivor.EvidenceID); id != "" {
+					merged[key][id] = true
+				}
 			}
 			traceCausalProjectionAbsorbSameFact(survivor, node, merged[key], foldBackfills[key])
 		}
@@ -479,6 +515,16 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 	// as a pair (count+symbols are one disclosure).
 	survivor.DStateRefinedNonIO = survivor.DStateRefinedNonIO || loser.DStateRefinedNonIO
 	survivor.DStateCauseUnprovenRemainder = survivor.DStateCauseUnprovenRemainder || loser.DStateCauseUnprovenRemainder
+	// RSPA (§29.61.10): the bipartition trio travels as ONE disclosure —
+	// values + remainder marker move together (a survivor with its own
+	// decomposition keeps it; the two halves of one bipartition can never R1
+	// same-fact merge because their published values differ by construction).
+	if survivor.ChainAnchorFullMS == 0 && loser.ChainAnchorFullMS > 0 {
+		survivor.ChainAnchoredMS = loser.ChainAnchoredMS
+		survivor.ChainAnchorFullMS = loser.ChainAnchorFullMS
+		survivor.ChainAnchorRemainderSeat = loser.ChainAnchorRemainderSeat
+	}
+	survivor.ResourceCompletionClosure = survivor.ResourceCompletionClosure || loser.ResourceCompletionClosure
 	if survivor.BlockedReasonCaller == "" {
 		survivor.BlockedReasonCaller = loser.BlockedReasonCaller
 	}

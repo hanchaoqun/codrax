@@ -393,6 +393,32 @@ const (
 	// 「D-state(原因未证)」 remainder word gate. A thread with no cause seat
 	// never emits it (a lone generic seat is not a remainder).
 	TraceNoteKeyDStateCauseUnprovenRemainder = "dstate_cause_unproven_remainder"
+	// TraceNoteKeyChainAnchored / TraceNoteKeyChainAnchorFull /
+	// TraceNoteKeyChainAnchorRemainderSeat (RSPA §29.61.10a/b/c, 2026-07-14):
+	// the on-chain seat-value re-anchoring decomposition. A migrated chain
+	// thread's window state seat splits into the same-source bipartition —
+	// the ⛓ anchored portion (segments ∩ typed wakeup-dependency jump
+	// windows; owned by the chain-lane seat or the clipped window seat) and
+	// the ◇ remainder (no chain credential). chain_anchored_ms + the row's
+	// published value channels reconstruct the full account exactly:
+	// full = anchored + remainder (同源二分,唯一可相加还原形 — wall clock
+	// across DIFFERENT accounts stays non-additive). remainder_seat="true"
+	// marks the ◇ half; the ⛓ half carries the same two floats with the
+	// marker absent. Consumed by the projection compile into
+	// TraceCausalProjectionNode.ChainAnchoredMS/ChainAnchorFullMS/
+	// ChainAnchorRemainderSeat — the 行2 「全窗X=锚定Y+其余Z」 decomposition
+	// and the WO-C1 同源二分 relation sentence read these; never a
+	// rank/score input (values were re-derived engine-side).
+	TraceNoteKeyChainAnchored            = "chain_anchored"
+	TraceNoteKeyChainAnchorFull          = "chain_anchor_full"
+	TraceNoteKeyChainAnchorRemainderSeat = "chain_anchor_remainder_seat"
+	// TraceNoteKeyResourceCompletionClosure (RSPA M-IO, §29.61.10c): "true"
+	// on an io_latency rank row whose completion thread performed the wakeup
+	// that ended an ANCHORED D/IO wait of a chain thread inside the IO's
+	// lifetime — the typed per-IO completion-closure credential that keeps
+	// the row on the chain lane (pure overlap demotes to ◇). Wording/context
+	// input only.
+	TraceNoteKeyResourceCompletionClosure = "resource_completion_closure"
 	// TraceNoteKeyTGID / TraceNoteKeyProcessComm (CR-3 件③ P11, 2026-07-12;
 	// 冷读案8 关键角色裸线程名无 tgid): the rank row's process attribution —
 	// the TGID the trace's second column published for the thread, plus the
@@ -883,6 +909,12 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyBlockedReasonCensusOverflow, "state", TraceNoteCarrierSoftConsumer},
 	// §29.50.5 (v5 P1 批 件②, 2026-07-13): proof-partition honest remainder.
 	{TraceNoteKeyDStateCauseUnprovenRemainder, "state", TraceNoteCarrierHardConsumer},
+	// RSPA (§29.61.10, 2026-07-14): the re-anchoring bipartition trio + the
+	// M-IO completion-closure credential.
+	{TraceNoteKeyChainAnchored, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyChainAnchorFull, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyChainAnchorRemainderSeat, "state", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyResourceCompletionClosure, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyIOWait, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeySleepIOWait, "state", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyDeterministicRunning, "state", TraceNoteCarrierHardConsumer},

@@ -102,35 +102,55 @@ func TestSelfAllDonghuIOSeatEntersOnChainChannel(t *testing.T) {
 	}
 	// 佩序数 (witness acceptance): a chain-channel ordinal on the ordinary
 	// election ladder — never the ◇ adjacent ordinal space, never Rank=0.
-	if seat.Rank != 6 || seat.Tier != "tertiary" || seat.BackgroundRank != 0 {
-		t.Fatalf("witness seat drifted (根因排序#6 · tertiary · no background seat): rank=%d tier=%s bg=%d",
+	// EVOLUTION RECORD (RSPA §29.61.10a/b/c, matrix §2.1, 2026-07-14): #6→#5.
+	// The re-anchoring clipped the two no-credential giants above this seat
+	// (CompThread D 36.757→3.598 anchored, JankManager runnable →1.759
+	// anchored), so one fewer on-chain row sorts above the 3.264 self seat.
+	// The seat's own value/basis/tier are untouched by RSPA (self exemption).
+	if seat.Rank != 5 || seat.Tier != "tertiary" || seat.BackgroundRank != 0 {
+		t.Fatalf("witness seat drifted (根因排序#5 · tertiary · no background seat): rank=%d tier=%s bg=%d",
 			seat.Rank, seat.Tier, seat.BackgroundRank)
 	}
 }
 
 // TestSelfAllOverlapProvenSeatStaysASeparateSeat (M3, 两把尺禁混折): the
-// target's 1.347ms io_latency proved by genuine chain-window overlap keeps its
-// OWN seat with the overlap basis ("" + on_wakeup_chain) — the self-basis
-// family and the overlap-proven row never fold into one contender.
+// target's 1.347ms io_latency proved by genuine chain-window overlap never
+// folds into the self-basis family — the two proof lanes stay two rulers.
+//
+// EVOLUTION RECORD (RSPA §29.61.10, 2026-07-14): the witness board's tail
+// re-composed — the re-anchored giants (36.757→3.598 anchored, 16.687→
+// census-full→1.759 anchored) left the top and the chain threads' census-
+// basis seats entered, so the 1.347 overlap-proven row now sorts at candidate
+// #13 and the hard root_cause_rank capacity (MaxLimit=12) truncates it with
+// the disclosed compaction caveat — a capacity cut, never a fold. The M3
+// property under pin is NON-FOLDING: the self family's shape is byte-stable
+// (exactly the five self-basis member IOs, window-union 3.264) — had the
+// overlap row folded in, the family would count six members and its union
+// would exceed 3.264. The truncated row's own lane behavior stays covered by
+// the synthetic keep-arm pins (TestSelfAllKeepArmHoldsLaneOnReEnrich).
 func TestSelfAllOverlapProvenSeatStaysASeparateSeat(t *testing.T) {
 	rank := BuildRootCauseRank(selfAllDonghuIndex(t), selfAllDonghuQuery())
-	var overlap *RootCauseRankItem
+	var family *RootCauseRankItem
 	for i := range rank.Items {
 		item := &rank.Items[i]
-		if item.Type == "io_latency" && item.SubjectIsAnalysisTarget && item.OnChainBasis == "" {
-			overlap = item
-			break
+		if item.Type == "io_latency" && item.SubjectIsAnalysisTarget {
+			if item.OnChainBasis == "" {
+				// The overlap-proven row, when on the board, must never wear
+				// the self basis nor a family fold with the self members.
+				if item.MemberCount != 0 {
+					t.Fatalf("the overlap-proven row must stay a single separate seat: %+v", item)
+				}
+				continue
+			}
+			family = item
 		}
 	}
-	if overlap == nil {
-		t.Fatalf("fixture drifted: the overlap-proven io_latency seat vanished: %+v", rank.Items)
+	if family == nil {
+		t.Fatalf("fixture drifted: no self-basis io_latency family: %+v", rank.Items)
 	}
-	if overlap.ChainRelevance != "on_chain" || overlap.Causality != "on_wakeup_chain" {
-		t.Fatalf("the overlap-proven row keeps the legacy lane byte-identically: %+v", overlap)
-	}
-	if got := fmt.Sprintf("%.3f", overlap.EffectiveImpactMs); got != "1.347" || overlap.MemberCount != 0 {
-		t.Fatalf("the overlap-proven 1.347ms row must stay a single separate seat: eff=%s members=%d",
-			got, overlap.MemberCount)
+	if got := fmt.Sprintf("%.3f", family.EffectiveImpactMs); got != "3.264" || family.MemberCount != 5 {
+		t.Fatalf("M3 两把尺禁混折: the self family must hold exactly the five self-basis IOs (union 3.264) — the 1.347 overlap row never folds in: eff=%s members=%d",
+			got, family.MemberCount)
 	}
 }
 

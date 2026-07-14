@@ -340,12 +340,23 @@ func runtimeTraceProjFamilyRosterSubRows(node types.TraceCausalProjectionNode, z
 		listed = 3
 	}
 	out := make([]string, 0, listed+1)
-	for _, entry := range roster[:listed] {
-		if zh {
-			out = append(out, "成员 "+entry)
-		} else {
-			out = append(out, "member "+entry)
+	// RSPA (§29.61.10, 2026-07-14): a re-anchored half publishes only its own
+	// side of the 同源二分 while the engine roster keeps the FULL-window
+	// member inventory (both halves share it) — the member rows say so, so
+	// the roster can never read as summing to the row's published value (the
+	// split itself is disclosed by the row's 同源二分 line).
+	memberWord := "成员 "
+	if !zh {
+		memberWord = "member "
+	}
+	if node.ChainAnchorFullMS > 0 {
+		memberWord = "成员(全窗账) "
+		if !zh {
+			memberWord = "member (full-window account) "
 		}
+	}
+	for _, entry := range roster[:listed] {
+		out = append(out, memberWord+entry)
 	}
 	if rest := node.FamilyMemberCount - listed; rest > 0 {
 		if zh {

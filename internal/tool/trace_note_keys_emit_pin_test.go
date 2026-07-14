@@ -446,6 +446,35 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				RankFamilyKey: "io_latency|pid:106|background|1.000000..2.000000", AbsorbedChainRows: 1,
 				Summary: "block IO family merged across two inodes on one thread",
 			}, {
+				// RSPA §29.61.10a/b (2026-07-14): the ◇ remainder half of a
+				// re-anchored runnable window seat — exercises the
+				// chain_anchored / chain_anchor_full /
+				// chain_anchor_remainder_seat contract keys (donghu witness:
+				// census-full 31.191 = 1.759 anchored + 29.432 remainder).
+				Rank: 6, Tier: "tertiary", Type: "runnable_wait",
+				Thread:   tracequery.ThreadRef{Comm: "JankManager", PID: 109},
+				ImpactMs: 29.432, ProjectedImpactMs: 29.432, CumulativeImpactMs: 29.432,
+				EffectiveImpactMs: 29.432, Score: 0.4, Confidence: 0.8,
+				LineStart: 100, LineEnd: 101,
+				Source:    "window_stats",
+				Causality: "adjacent_to_wakeup_chain", ChainRelevance: "adjacent",
+				DominantState: string(tracequery.StateRunnable), RunnableMs: 29.432,
+				ChainAnchoredMs: 1.759, ChainAnchorFullMs: 31.191, ChainAnchorRemainderSeat: true,
+				Summary: "runnable remainder outside its wakeup-dependency windows (no chain credential for these segments)",
+			}, {
+				// RSPA M-IO (§29.61.10c): the io_latency completion-closure
+				// credential — exercises the resource_completion_closure
+				// contract key.
+				Rank: 7, Tier: "tertiary", Type: "io_latency",
+				Thread:   tracequery.ThreadRef{Comm: "irq/143-ufs", PID: 110},
+				ImpactMs: 1.4, ProjectedImpactMs: 1.4, CumulativeImpactMs: 1.4,
+				EffectiveImpactMs: 1.4, Score: 0.3, Confidence: 0.8,
+				LineStart: 102, LineEnd: 103,
+				Source:    "window_stats",
+				Causality: "on_wakeup_chain", ChainRelevance: "on_chain", ChainDepth: 2,
+				ResourceCompletionClosure: true,
+				Summary:                   "io completion thread woke an anchored D/IO wait of a chain thread inside the IO's lifetime",
+			}, {
 				// G2/G9 (§27.2/§28.1, 2026-07-09): data-blind-spot rank row —
 				// demoted tier=data_gap with Rank=0 (no board seat; the emit
 				// face must NOT backfill an ordinal for a tier-carrying row)

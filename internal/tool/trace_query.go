@@ -7127,6 +7127,25 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 	if item.DStateCauseUnprovenRemainder {
 		remainder = "true"
 	}
+	// RSPA (§29.61.10, 2026-07-14): the re-anchoring bipartition decomposition
+	// — emitted only when the engine minted it (ChainAnchorFullMs > 0 ⇔ the
+	// seat was migrated; the ⛓ clipped half carries the same floats with the
+	// remainder marker absent).
+	anchored, anchorFull, remainderSeat := "", "", ""
+	if item.ChainAnchorFullMs > 0 {
+		anchored = traceQueryObservationMSValue(item.ChainAnchoredMs)
+		if anchored == "" {
+			anchored = "0.000"
+		}
+		anchorFull = traceQueryObservationMSValue(item.ChainAnchorFullMs)
+		if item.ChainAnchorRemainderSeat {
+			remainderSeat = "true"
+		}
+	}
+	closure := ""
+	if item.ResourceCompletionClosure {
+		closure = "true"
+	}
 	return traceQueryTypedKVNotes([][2]string{
 		{types.TraceNoteKeyDominantState, item.DominantState},
 		{types.TraceNoteKeyRunning, traceQueryObservationMSValue(item.RunningMs)},
@@ -7139,6 +7158,10 @@ func traceQueryTypedRootCauseStateRichNotes(item tracequery.RootCauseRankItem) [
 		{types.TraceNoteKeyBlockedReasonWindowCount, windowCount},
 		{types.TraceNoteKeyBlockedReasonWindowCaller, sanitizeForBanner(item.BlockedReasonWindowCaller)},
 		{types.TraceNoteKeyDStateCauseUnprovenRemainder, remainder},
+		{types.TraceNoteKeyChainAnchored, anchored},
+		{types.TraceNoteKeyChainAnchorFull, anchorFull},
+		{types.TraceNoteKeyChainAnchorRemainderSeat, remainderSeat},
+		{types.TraceNoteKeyResourceCompletionClosure, closure},
 	})
 }
 

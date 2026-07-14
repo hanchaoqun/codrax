@@ -699,8 +699,163 @@ func runtimeTraceProjSMR1AccountCaliber(row *runtimeTraceProjTreeRow, zh bool) s
 //
 // 过渡: the S1-TPF pair keeps this sentence until CASE-3 adjudicates the
 // dedicated 双 rank 席 arm.
+//
+// Pair class (0) — RSPA §29.61.10b 同源二分 (2026-07-14) — runs FIRST: the
+// engine bipartition pair is typed-provably SAME-SOURCE (one segment set split
+// by chain credentials), so it must claim its rows before the class-(1)
+// same-span arm could word the pair 「两套账目·不可相加」 (the one pair where
+// that verdict would be FALSE — anchored + remainder == full exactly).
 func runtimeTraceProjMarkAccountRelations(model *runtimeTraceProjTreeModel, zh bool) {
 	all := runtimeTraceProjSMR1AllRows(model)
+
+	// Pair class (0): ◇ remainder half ↔ ⛓ counterpart. Typed pair rule: same
+	// subject thread + same state family; the counterpart is the row with
+	// ChainAnchorFullMS>0 && !ChainAnchorRemainderSeat (the case-B clipped
+	// window seat) OR, when no such row renders, the thread's chain-lane seat
+	// of the same state family (case A — the anchored half already lives on
+	// the on_chain seat). ≥2 clipped counterparts fail open (禁猜); ⌗
+	// caliber-side rows never join (两把尺).
+	for _, rem := range all {
+		rn := rem.Node
+		if !rem.HasData || !rn.ChainAnchorRemainderSeat || rn.ChainAnchorFullMS <= 0 {
+			continue
+		}
+		if rem.AccountRelRef != "" || strings.TrimSpace(rem.EvidenceTag) == "" {
+			continue
+		}
+		if !runtimeTraceProjSMR1WallClockRow(rn) {
+			continue
+		}
+		family := runtimeTraceProjSMR1StateFamily(rn)
+		if family == "" {
+			continue
+		}
+		var clipped, chainSeat *runtimeTraceProjTreeRow
+		clippedAmbiguous := false
+		for _, other := range all {
+			on := other.Node
+			if other == rem || !other.HasData || on.ChainAnchorRemainderSeat {
+				continue
+			}
+			if runtimeTraceCausalProjectionCanonicalNode(on.Subject) !=
+				runtimeTraceCausalProjectionCanonicalNode(rn.Subject) {
+				continue
+			}
+			if runtimeTraceProjSMR1StateFamily(on) != family || !runtimeTraceProjSMR1WallClockRow(on) {
+				continue
+			}
+			if !runtimeTraceProjSMR1WindowsCompatible(on, rn) {
+				continue
+			}
+			if on.ChainAnchorFullMS > 0 {
+				if clipped != nil {
+					clippedAmbiguous = true
+					break
+				}
+				clipped = other
+			} else if strings.TrimSpace(on.ChainRelevance) == "on_chain" &&
+				runtimeTraceProjNodeDisplayImpact(on) > 0 {
+				// Case-A fallback: the thread's chain-lane seat owns the
+				// anchored portion — the LARGEST such seat when several render
+				// (same tiebreak as pair class (2)).
+				if chainSeat == nil || runtimeTraceProjNodeDisplayImpact(on) > runtimeTraceProjNodeDisplayImpact(chainSeat.Node) {
+					chainSeat = other
+				}
+			}
+		}
+		if clippedAmbiguous {
+			continue
+		}
+		pick := clipped
+		if pick == nil {
+			pick = chainSeat
+		}
+		if pick == nil || strings.TrimSpace(pick.EvidenceTag) == "" {
+			continue
+		}
+		rem.AccountRelRef = strings.TrimSpace(pick.EvidenceTag)
+		rem.AccountRelSameSourceFullMS = rn.ChainAnchorFullMS
+		rem.AccountRelSameSourceAnchoredSide = false
+		if pick.AccountRelRef == "" {
+			pick.AccountRelRef = strings.TrimSpace(rem.EvidenceTag)
+			pick.AccountRelSameSourceFullMS = rn.ChainAnchorFullMS
+			pick.AccountRelSameSourceAnchoredSide = true
+		}
+	}
+
+	// Pair class (0b) — 件1 (修复轮, 2026-07-14; donghu E12(+3) witness): the
+	// full-window MIRROR row. An UNDECOMPOSED wall-clock row of the SAME
+	// thread + state family whose display value equals a rendered bipartition
+	// pair's full account at 3 decimals is another lane's face of the SAME
+	// full-window account (e.g. the critical_blocking view) — without a
+	// relation sentence the board reads three unrelated values (36.757 beside
+	// 3.598 + 33.159). Typed value identity only; ≥2 candidate pairs or ≥2
+	// mirror candidates fail open (禁猜).
+	for _, mirror := range all {
+		mn := mirror.Node
+		if !mirror.HasData || mn.ChainAnchorFullMS > 0 || mirror.AccountRelRef != "" ||
+			mirror.AccountRelMirrorAnchoredRef != "" || strings.TrimSpace(mirror.EvidenceTag) == "" {
+			continue
+		}
+		if !runtimeTraceProjSMR1WallClockRow(mn) {
+			continue
+		}
+		family := runtimeTraceProjSMR1StateFamily(mn)
+		if family == "" {
+			continue
+		}
+		value := runtimeTraceProjNodeDisplayImpact(mn)
+		if value <= 0 {
+			continue
+		}
+		var anchored, remainder *runtimeTraceProjTreeRow
+		ambiguous := false
+		for _, other := range all {
+			on := other.Node
+			if other == mirror || !other.HasData || on.ChainAnchorFullMS <= 0 {
+				continue
+			}
+			if runtimeTraceCausalProjectionCanonicalNode(on.Subject) !=
+				runtimeTraceCausalProjectionCanonicalNode(mn.Subject) {
+				continue
+			}
+			if runtimeTraceProjSMR1StateFamily(on) != family || !runtimeTraceProjSMR1WallClockRow(on) {
+				continue
+			}
+			if !runtimeTraceProjSMR1WindowsCompatible(on, mn) {
+				continue
+			}
+			if fmt.Sprintf("%.3f", on.ChainAnchorFullMS) != fmt.Sprintf("%.3f", value) {
+				continue
+			}
+			if on.ChainAnchorRemainderSeat {
+				if remainder != nil {
+					ambiguous = true
+					break
+				}
+				remainder = other
+			} else {
+				if anchored != nil {
+					ambiguous = true
+					break
+				}
+				anchored = other
+			}
+		}
+		if ambiguous || anchored == nil || remainder == nil ||
+			strings.TrimSpace(anchored.EvidenceTag) == "" || strings.TrimSpace(remainder.EvidenceTag) == "" {
+			continue
+		}
+		mirror.AccountRelMirrorAnchoredRef = strings.TrimSpace(anchored.EvidenceTag)
+		mirror.AccountRelMirrorRemainderRef = strings.TrimSpace(remainder.EvidenceTag)
+		mirror.AccountRelSameSourceFullMS = anchored.Node.ChainAnchorFullMS
+		if anchored.AccountRelMirrorRef == "" {
+			anchored.AccountRelMirrorRef = strings.TrimSpace(mirror.EvidenceTag)
+		}
+		if remainder.AccountRelMirrorRef == "" {
+			remainder.AccountRelMirrorRef = strings.TrimSpace(mirror.EvidenceTag)
+		}
+	}
 
 	// Pair class (1): identical span, diverging cumulative scope accounts.
 	bySpan := map[string][]*runtimeTraceProjTreeRow{}
@@ -719,7 +874,8 @@ func runtimeTraceProjMarkAccountRelations(model *runtimeTraceProjTreeModel, zh b
 			continue
 		}
 		a, b := rows[0], rows[1]
-		if a.AccountRelRef != "" || b.AccountRelRef != "" {
+		if a.AccountRelRef != "" || b.AccountRelRef != "" ||
+			a.AccountRelMirrorAnchoredRef != "" || b.AccountRelMirrorAnchoredRef != "" {
 			continue
 		}
 		// 两把尺: ⌗ caliber-side rows never enter a wall-clock account pair
@@ -772,7 +928,8 @@ func runtimeTraceProjMarkAccountRelations(model *runtimeTraceProjTreeModel, zh b
 	// Pair class (2): d/io family window seat ↔ chain rank seat.
 	for _, family := range all {
 		fn := family.Node
-		if !family.HasData || fn.FamilyMemberCount <= 1 || family.AccountRelRef != "" {
+		if !family.HasData || fn.FamilyMemberCount <= 1 || family.AccountRelRef != "" ||
+			family.AccountRelMirrorAnchoredRef != "" {
 			continue
 		}
 		if !runtimeTraceProjSMR1WallClockRow(fn) {
@@ -870,7 +1027,8 @@ func runtimeTraceProjStampOccurrenceSeries(model *runtimeTraceProjTreeModel) {
 			if runtimeTraceProjTraceGapNode(n) || strings.TrimSpace(n.SemanticClass) != "" {
 				continue
 			}
-			if !runtimeTraceProjSMR1RelationFree(row) || row.AccountRelRef != "" {
+			if !runtimeTraceProjSMR1RelationFree(row) || row.AccountRelRef != "" ||
+				row.AccountRelMirrorAnchoredRef != "" {
 				continue
 			}
 			if runtimeTraceProjSMR1StateFamily(n) == "" {

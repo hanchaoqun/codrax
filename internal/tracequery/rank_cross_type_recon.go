@@ -42,6 +42,14 @@ type crossTypeRankSeatReconSpec struct {
 	// same-source state-scalar equality instead of guessing an interval.
 	stateScalarMatch   bool
 	familyMatchAllowed bool
+	// anchorAbsorb (RSPA §29.61.10 / matrix §6.3 锚定分解吸收, 2026-07-14):
+	// upgrades this causal pair from exact interval-twin matching to the
+	// anchored-decomposition arm — a re-anchored window seat whose ◇
+	// remainder is ≈0 (µs tolerance) is FULLY the chain seat's account and
+	// folds into it losslessly even though the interval sets are no longer
+	// byte-equal; a remainder >tol is the COMPLEMENT account and must never
+	// be absorbed by the chain seat. Only the causal_* pairs carry it.
+	anchorAbsorb bool
 }
 
 // Closed adjudication set: adding a pair changes rank semantics and requires
@@ -88,6 +96,7 @@ var crossTypeRankSeatReconPairs = map[string]crossTypeRankSeatReconSpec{
 		absorberSources:    []string{"wakeup_chain.causal_impacts", "wakeup_chain.aggregated_impacts"},
 		absorbedSource:     "window_stats",
 		familyMatchAllowed: true,
+		anchorAbsorb:       true,
 	},
 	"causal_inversion_window": {
 		absorberType:       "priority_inversion_candidate",
@@ -103,6 +112,9 @@ var crossTypeRankSeatReconPairs = map[string]crossTypeRankSeatReconSpec{
 		absorberSources:    []string{"wakeup_chain.causal_impacts", "wakeup_chain.aggregated_impacts"},
 		absorbedSource:     "window_stats",
 		familyMatchAllowed: true,
+		// RSPA: a chain thread whose chain-lane seat is the inversion row is
+		// still the anchored owner of a fully-anchored window runnable twin.
+		anchorAbsorb: true,
 	},
 	"causal_io_window": {
 		absorberType:       "io_wait",
@@ -110,6 +122,7 @@ var crossTypeRankSeatReconPairs = map[string]crossTypeRankSeatReconSpec{
 		absorberSources:    []string{"wakeup_chain.causal_impacts", "wakeup_chain.aggregated_impacts"},
 		absorbedSource:     "window_stats.io_wait_top",
 		familyMatchAllowed: true,
+		anchorAbsorb:       true,
 	},
 	"causal_dio_window": {
 		absorberTypes:      []string{"d_state_or_io_wait", "io_wait"},
@@ -117,6 +130,7 @@ var crossTypeRankSeatReconPairs = map[string]crossTypeRankSeatReconSpec{
 		absorberSources:    []string{"wakeup_chain.causal_impacts", "wakeup_chain.aggregated_impacts"},
 		absorbedSource:     "window_stats",
 		familyMatchAllowed: true,
+		anchorAbsorb:       true,
 	},
 }
 
@@ -268,6 +282,29 @@ func crossTypeRankSeatExactMatch(absorber, candidate RootCauseRankItem, spec cro
 	if !crossTypeRankSeatAbsorberSourceMatches(absorber.Source, spec) || candidate.Source != spec.absorbedSource {
 		return false
 	}
+	// RSPA anchored-decomposition arm (§29.61.10 / §6.3): a re-anchored ◇
+	// remainder candidate meets a chain-lane absorber on the VALUE-IDENTITY
+	// criterion, not interval-twin equality — remainder ≈ 0 (µs tolerance)
+	// proves the window seat's whole account is the chain seat's anchored
+	// value; a positive remainder is the complement account and never folds
+	// into the chain seat (the two rows together restore the full account).
+	if candidate.ChainAnchorRemainderSeat && spec.anchorAbsorb {
+		scalar, ok := crossTypeRankSeatStateScalar(candidate)
+		if !ok || scalar > rspaAnchorIdentityTolMs {
+			return false
+		}
+		if absorber.Thread.PID <= 0 || candidate.Thread.PID <= 0 || absorber.Thread.PID != candidate.Thread.PID {
+			return false
+		}
+		absorberWindow, absorberWindowOK := crossTypeRankSeatWindow(absorber, queryWindow)
+		candidateWindow, candidateWindowOK := crossTypeRankSeatWindow(candidate, queryWindow)
+		return absorberWindowOK && candidateWindowOK && candidateWindow == absorberWindow
+	}
+	if candidate.ChainAnchorRemainderSeat && strings.HasPrefix(strings.TrimSpace(absorber.Source), "wakeup_chain.") {
+		// A positive-remainder seat under any causal pair keeps its own ◇
+		// seat (complement account) — never re-absorbed by exact matching.
+		return false
+	}
 	// io_burst_episode families can mix D-state-derived episodes with
 	// independently sourced block/storage episodes. Without a typed subtype
 	// roster, a multi-member family is not proof that every member belongs to
@@ -303,6 +340,20 @@ func crossTypeRankSeatExactMatch(absorber, candidate RootCauseRankItem, spec cro
 		}
 		absorberScalar, absorberOK := crossTypeRankSeatStateScalar(absorber)
 		candidateScalar, candidateOK := crossTypeRankSeatStateScalar(candidate)
+		if absorber.ChainAnchorRemainderSeat && candidate.ChainAnchorRemainderSeat {
+			// RSPA: a re-anchored pair compares the PRE-SPLIT full accounts —
+			// both sides were rewritten with the same per-pid anchored value,
+			// so full-account equality (the pre-RSPA match condition) still
+			// certifies one physical account even when both remainders are 0.
+			return absorberOK && candidateOK && absorber.ChainAnchorFullMs > 0 &&
+				absorber.ChainAnchorFullMs == candidate.ChainAnchorFullMs &&
+				absorberScalar == candidateScalar
+		}
+		if absorber.ChainAnchorRemainderSeat != candidate.ChainAnchorRemainderSeat {
+			// One migrated, one fail-open — different calibers now; honest
+			// dual beats wrong absorption.
+			return false
+		}
 		return absorberOK && candidateOK && absorberScalar > 0 && absorberScalar == candidateScalar
 	}
 	if !crossTypeRankSeatIntervalSetsEqual(absorber, candidate) {
@@ -382,6 +433,12 @@ func crossTypeRankSeatNormalizedIntervals(item RootCauseRankItem) []foldInterval
 		physicalMs := rootCauseCumulativeImpactMs(item)
 		if stateMs, ok := crossTypeRankSeatStateScalar(item); ok && stateMs > 0 {
 			physicalMs = stateMs
+		}
+		if item.ChainAnchorRemainderSeat && item.ChainAnchorFullMs > 0 {
+			// RSPA: the row's typed interval still spans the PRE-SPLIT
+			// physical segment; the published scalar is the remainder. The
+			// continuity proof must therefore read the full account.
+			physicalMs = item.ChainAnchorFullMs
 		}
 		lengthMs := (item.EndTs - item.StartTs) * 1000
 		tolerance := math.Max(0.000001, math.Abs(physicalMs)*0.000001)

@@ -326,6 +326,10 @@ var threadStateSwitchSiteGolden = map[string]string{
 	"thread_state_universe.go:rootTypeForDominantState#1":        "running,runnable,s_sleep,d_sleep,io_wait|default",
 	"wakeup_aggregate_overlap.go:addWakeupAggregateStateValue#1": "running,runnable,s_sleep,d_sleep,io_wait",
 	"wakeup_aggregate_overlap.go:addWakeupAggregateStateValue#2": "running,runnable,s_sleep,d_sleep,io_wait",
+	// RSPA (§29.61.10, 2026-07-14): the chain-lane seat-presence fork of the
+	// re-anchoring pass — runnable vs D-family presence decides the case A/B
+	// migration form; every other dominant state is no chain seat (default).
+	"rank_chain_anchor_rspa.go:rspaChainSeatPresenceByPID#1": "runnable,d_sleep,io_wait|default",
 	// WAKE-CENSUS-D 2A (§29.58.4, 2026-07-13): the census exit-state
 	// classifier — sleep vs D-family exits get their typed split columns;
 	// every other member (running/runnable/stopped/dead/unknown) folds into
@@ -544,8 +548,12 @@ var threadStateComparisonSiteGolden = map[string]string{
 	"query.go:addStateChurnInterval": "d_sleep#1",
 	// A1 bounded continuation (§12.3-5): the peer's own dominant state gates
 	// whether it was itself sleep-blocked (→ name its single direct blocker).
-	"query.go:buildCriticalBlockingPeerChain":      "s_sleep#1",
-	"query.go:buildRootCauseRankFrom":              "running#1",
+	"query.go:buildCriticalBlockingPeerChain": "s_sleep#1",
+	// RSPA (§29.61.10, 2026-07-14): the M-D one-seat closure predicate
+	// (rspaSuppressChainDIOSeat) gates on the two D-family dominant states —
+	// only a migrated pid's chain-lane D/IO rank seat yields to the clipped
+	// §29.50.5 partition seats; every other dominant state keeps minting.
+	"query.go:buildRootCauseRankFrom":              "running,d_sleep,io_wait#3",
 	"query.go:buildSchedulerLatencyStatsFromStats": "runnable#2",
 	"query.go:buildStateDrilldownPlanForTarget":    "s_sleep#1",
 	// Exact sched_migrate_task handling splits only an open RUNNABLE wait;
@@ -582,8 +590,12 @@ var threadStateComparisonSiteGolden = map[string]string{
 	"query.go:mintRootCauseDIOStateSeat": "d_sleep,io_wait#3",
 	// The closed aggregate effective accessor now owns one former duplicated
 	// running-state branch; the constructor retains only its raw-display case.
-	"query.go:rootCauseItemFromCausalAggregate":           "running#1",
-	"query.go:rootCauseItemFromCausalImpact":              "running#2",
+	"query.go:rootCauseItemFromCausalAggregate": "running#1",
+	"query.go:rootCauseItemFromCausalImpact":    "running#2",
+	// RSPA (§29.61.10, 2026-07-14): the re-anchoring pass gates the
+	// scheduler_latency/low_frequency satellite arm on the runnable dominant
+	// state (one comparison; the formal-seat arms fork on the type token).
+	"rank_chain_anchor_rspa.go:reanchorOnChainStateSeats": "runnable#1",
 	"query.go:rootCauseItemIsRunnableCaliber":             "runnable#2",
 	"query.go:rootCauseItemIsRunningCaliber":              "running#2",
 	"query.go:schedulerHeadCoverageForWindow":             "dead,unknown#2",

@@ -554,10 +554,10 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// scans the combined tree+overview surface (the overview is its own
 		// fence rendered right under the tree).
 		runtimeTraceProjMarkElimOverview: {"◎", "◎"},
-		runtimeTraceProjMarkEdgeDrill:  {"下钻─", "drill─"},
-		runtimeTraceProjMarkEdgeWake:   {"唤醒─", "wakes─"},
-		runtimeTraceProjMarkEdgeCause:  {"成因─", "cause─"},
-		runtimeTraceProjMarkEdgeOwn:    {"自身─", "own─"},
+		runtimeTraceProjMarkEdgeDrill:    {"下钻─", "drill─"},
+		runtimeTraceProjMarkEdgeWake:     {"唤醒─", "wakes─"},
+		runtimeTraceProjMarkEdgeCause:    {"成因─", "cause─"},
+		runtimeTraceProjMarkEdgeOwn:      {"自身─", "own─"},
 		// PTV6 #1b: the depthless on-chain lane's dedicated edge word (the mark
 		// records only when the edge label actually renders — fold rows and
 		// flat renders suppress the word and record nothing).
@@ -678,6 +678,16 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		runtimeTraceProjMarkNonAdditivePointer: {"不可相加·", "non-additive · "},
 		runtimeTraceProjMarkAccountRelation:    {"两套账目覆盖集不同", "accounting"},
 		runtimeTraceProjMarkOccurrenceSeries:   {"不相交(共", "disjoint from ["},
+		// RSPA §29.61.10a/b (2026-07-14): the same-source bipartition word
+		// family — the 行2 split disclosure head and the relation sentence's
+		// additive-identity tail. The zh probes are registered wrap atoms
+		// (never bisected); the en probes are single space-free atoms
+		// ("full-window" opens both disclosure forms and rides the relation
+		// sentence too — legal, since the relation only stamps renders whose
+		// remainder row also fires the split mark; "restores" is unique to
+		// the relation sentence).
+		runtimeTraceProjMarkChainAnchorSplit:    {"同源二分:全窗", "full-window"},
+		runtimeTraceProjMarkChainAnchorRelation: {"合计还原全窗账", "restores"},
 		// CR-2 组③ P7: the typed actual-scope word faces.
 		runtimeTraceProjMarkActualBeyondEpisode: {"超出发生段,窗内", "beyond own episode, inside window"},
 		runtimeTraceProjMarkActualNoInterval:    {"区间未发布", "interval unpublished"},
@@ -1548,6 +1558,11 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// relocated 非链 residual and the cross-channel mutual pointers
 		// (fixture home: answer_document_projection_selfall_test.go).
 		{"selfall_wall_clock_seat", revisit76SelfAllWallClockProjection()},
+		// RSPA §29.61.10a/b (2026-07-14): the same-source bipartition — the
+		// 行2 同源二分 disclosure on both halves and the 合计还原全窗账
+		// relation sentence + their legend entries (fixture home:
+		// answer_document_projection_rspa_test.go).
+		{"rspa_same_source_split", rspaSameSourceSplitProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

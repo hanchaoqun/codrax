@@ -385,6 +385,23 @@ type TraceCausalProjectionNode struct {
 	// carried theirs. Drives the 「D-state(原因未证)」 display qualifier;
 	// wording input only (no gate, score or sort lane reads it).
 	DStateCauseUnprovenRemainder bool `json:"d_state_cause_unproven_remainder,omitempty"`
+	// ChainAnchoredMS / ChainAnchorFullMS / ChainAnchorRemainderSeat (RSPA
+	// §29.61.10a/b/c, 2026-07-14): the on-chain seat-value re-anchoring
+	// bipartition — a migrated chain thread's window state seat splits into
+	// the ⛓ anchored portion (segments ∩ typed wakeup-dependency jump
+	// windows) and the ◇ remainder (no chain credential). The two floats ride
+	// BOTH halves; the boolean marks the ◇ remainder half. Drives the 行2
+	// 「全窗X=锚定Y+其余Z」 decomposition, the ◇ 「调度压力候选」/⧗ lane
+	// words and the WO-C1 同源二分 relation sentence; wording/relation input
+	// only (values were re-derived engine-side, no display math).
+	ChainAnchoredMS          float64 `json:"chain_anchored_ms,omitempty"`
+	ChainAnchorFullMS        float64 `json:"chain_anchor_full_ms,omitempty"`
+	ChainAnchorRemainderSeat bool    `json:"chain_anchor_remainder_seat,omitempty"`
+	// ResourceCompletionClosure (RSPA M-IO §29.61.10c): the io_latency row's
+	// typed per-IO completion-closure credential (completion thread woke an
+	// anchored D/IO wait of a chain thread inside the IO's lifetime).
+	// Wording/context input only.
+	ResourceCompletionClosure bool `json:"resource_completion_closure,omitempty"`
 	// SystemSupplement (SUPP-CORE 修复轮 件5 / 冷读 SC-F1, 2026-07-14):
 	// the node compiled from a SUPP-CORE system-supplement record
 	// (ObservationRecord.SystemSupplement — deterministic tool witness the
@@ -2758,6 +2775,11 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	node.BlockedReasonWindowCaller = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyBlockedReasonWindowCaller))
 	// §29.50.5 (v5 P1 批 件②): the proof-partition honest-remainder marker.
 	node.DStateCauseUnprovenRemainder = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyDStateCauseUnprovenRemainder)) == "true"
+	// RSPA (§29.61.10): the re-anchoring bipartition trio + M-IO closure.
+	node.ChainAnchoredMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyChainAnchored)
+	node.ChainAnchorFullMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyChainAnchorFull)
+	node.ChainAnchorRemainderSeat = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyChainAnchorRemainderSeat)) == "true"
+	node.ResourceCompletionClosure = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyResourceCompletionClosure)) == "true"
 	// CR-3 件③ P11: the process attribution pair (tgid + owning comm).
 	if raw := strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyTGID)); raw != "" {
 		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
@@ -3378,12 +3400,14 @@ func traceCausalProjectionOverflowMirrorHostRef(kept []TraceCausalProjectionNode
 // 修复轮 2026-07-13) resolves the pool's cross-caliber projection host among
 // the rendered rows. Two µs-precise lanes (occurrence_windows inventory is
 // not display-reachable, so the identities ARE the typed proof):
-//   (a) Σ(pool member displays, all one canonical subject) µs-equals a
-//       rendered same-subject row's display — the pool re-publishes that
-//       row's occurrence projections (tieba E21 → E11);
-//   (b) the pool headline µs-equals a rendered same-subject row's PUBLISHED
-//       effective attribution — the eff caliber re-issued as a pool value
-//       (donghu E26 → E13).
+//
+//	(a) Σ(pool member displays, all one canonical subject) µs-equals a
+//	    rendered same-subject row's display — the pool re-publishes that
+//	    row's occurrence projections (tieba E21 → E11);
+//	(b) the pool headline µs-equals a rendered same-subject row's PUBLISHED
+//	    effective attribution — the eff caliber re-issued as a pool value
+//	    (donghu E26 → E13).
+//
 // Ambiguity (≥2 hosts) or any miss returns "" (fail-open, no tag).
 func traceCausalProjectionOverflowProjectionMirrorID(rendered, overflow []TraceCausalProjectionNode) string {
 	if len(overflow) == 0 {
@@ -3906,12 +3930,23 @@ func traceCausalProjectionDedupeNodes(nodes []TraceCausalProjectionNode) []Trace
 	seen := make(map[string]bool, len(nodes))
 	out := make([]TraceCausalProjectionNode, 0, len(nodes))
 	for _, node := range nodes {
+		// RSPA (§29.61.10, 2026-07-14): the re-anchoring bipartition halves are
+		// TWO ACCOUNTS of one segment set (⛓ anchored + ◇ remainder) — same
+		// Role/Subject/Predicate/Object, deliberately co-published; the dedupe
+		// key forks on the typed remainder marker so the ◇ half can never be
+		// swallowed as a duplicate of its ⛓ sibling (donghu witness: the
+		// 33.159 ◇ seat vanished behind the 3.598 ⛓ seat).
+		remainderHalf := ""
+		if node.ChainAnchorRemainderSeat {
+			remainderHalf = "remainder"
+		}
 		key := strings.Join([]string{
 			traceCausalProjectionCanonicalNode(node.Role),
 			traceCausalProjectionCanonicalNode(node.Subject),
 			traceCausalProjectionCanonicalNode(node.Predicate),
 			traceCausalProjectionCanonicalNode(node.Object),
 			traceCausalProjectionCanonicalNode(strings.Join(node.SupportRefs, "|")),
+			remainderHalf,
 		}, "\x00")
 		if seen[key] {
 			continue

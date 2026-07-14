@@ -13,6 +13,16 @@ import (
 const rootCauseRankZeroSeatDisclosureCap = 4
 const rootCauseRankZeroSeatPerLaneReservedCap = rootCauseRankZeroSeatDisclosureCap / 2
 
+// rootCauseRankRemainderSideCap bounds the RSPA ◇ remainder sub-lane
+// (§29.61.10): a remainder seat is the complement half of an on-board ⛓
+// anchored account — the same-source bipartition (identity/relation sentence)
+// needs both halves visible, so remainder seats ride the side lane instead of
+// competing for candidate seats (they'd otherwise sort behind every on-chain
+// row and silently truncate — 零静默消失). Bounded by the migrated-thread
+// count in practice; the cap is a defensive wire bound (overflow stays
+// disclosed through the side-row caveat counts).
+const rootCauseRankRemainderSideCap = 8
+
 func rootEvidenceRankSeatKey(root RootEvidence) string {
 	return fmt.Sprintf("%s|%s|%d|%d|%.9f", strings.TrimSpace(root.Type), threadKey(root.Thread), root.LineStart, root.LineEnd, root.DurationMs)
 }
@@ -72,7 +82,15 @@ func truncateRootCauseRankCandidatesAndSideRows(items []RootCauseRankItem, limit
 	// self-symptom/context disclosures out of the shared cap (donghu witness:
 	// the pacing_idle context row evicted by two IO caliber rows).
 	caliberSide := make([]RootCauseRankItem, 0, rootCauseRankZeroSeatDisclosureCap)
+	remainderSide := make([]RootCauseRankItem, 0, rootCauseRankRemainderSideCap)
 	for _, item := range items {
+		if item.ChainAnchorRemainderSeat {
+			// RSPA ◇ remainder seats: complement halves of on-board anchored
+			// accounts — side lane, never a candidate seat (see cap comment).
+			sideTotal++
+			remainderSide = append(remainderSide, item)
+			continue
+		}
 		if rootCauseRankItemIsZeroSeatDisclosure(item) {
 			sideTotal++
 			if item.Type == "trace_gap" {
@@ -108,6 +126,10 @@ func truncateRootCauseRankCandidatesAndSideRows(items []RootCauseRankItem, limit
 	if len(caliberSide) > 0 {
 		caliberLimit := min(rootCauseRankZeroSeatDisclosureCap, len(caliberSide))
 		side = append(side, caliberSide[:caliberLimit]...)
+	}
+	if len(remainderSide) > 0 {
+		remainderLimit := min(rootCauseRankRemainderSideCap, len(remainderSide))
+		side = append(side, remainderSide[:remainderLimit]...)
 	}
 	sideEmitted = len(side)
 	out = make([]RootCauseRankItem, 0, candidateEmitted+sideEmitted)

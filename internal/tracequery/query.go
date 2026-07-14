@@ -207,15 +207,36 @@ func Run(idx *Index, q Query) Result {
 	}
 	var cachedRootCause RootCauseRankResult
 	var cachedRootCauseOK bool
+	// RSPA (§29.61.10): the rank lane needs a stats sweep run WITH the
+	// chain's typed anchor windows. The shared getStats memo stays anchor-
+	// less (the plain window_stats view must never trigger a chain build);
+	// the rank lane keeps its own anchored memo — the exported faces of the
+	// two stats are identical (anchored sums ride unexported fields), so no
+	// view-order dependence can leak.
+	var cachedAnchoredStats WindowStats
+	var cachedAnchoredStatsOK bool
+	getStatsForRank := func(chain ChainResult) WindowStats {
+		anchors := chainAnchorWindowsByPID(chain)
+		if anchors == nil {
+			return getStats()
+		}
+		if !cachedAnchoredStatsOK {
+			qa := q
+			qa.chainAnchorWindowsByPID = anchors
+			cachedAnchoredStats = ComputeWindowStats(idx, qa)
+			cachedAnchoredStatsOK = true
+		}
+		return cachedAnchoredStats
+	}
 	getRootCause := func() RootCauseRankResult {
 		if !cachedRootCauseOK {
 			var chain ChainResult
 			if q.PID > 0 || q.Thread != "" || q.ThreadInput != "" {
 				chain = getChain()
 			}
-			stats := getStats()
+			stats := getStatsForRank(chain)
 			rank := buildRootCauseRankFrom(idx, q, chain, stats)
-			rank = enrichRootCauseRankWithScheduler(q, rank, getLatency(), stats, chain)
+			rank = enrichRootCauseRankWithScheduler(q, rank, buildSchedulerLatencyStatsFromStats(idx, q, stats), stats, chain)
 			rank = attachPerfContextToRootCauseRank(idx, q, rank, stats)
 			cachedRootCause = rank
 			cachedRootCauseOK = true
@@ -2296,8 +2317,23 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	// floats, subtraction-free: summed once over the census keys outside
 	// the kept set).
 	stats.dstateCensus, stats.iowaitCensus = offCPU.dstateCensus, offCPU.iowaitCensus
+	// RSPA (§29.61.10, 2026-07-14): the runnable lane joins the same 全量账
+	// discipline (帽基当全量 fourth instance) — the formal runnable seats
+	// mint from the FULL census; plus the anchor basis this sweep ran with
+	// and the M-IO closure records ride back for the re-anchoring pass.
+	stats.runnableCensus = offCPU.runnableCensus
+	stats.chainAnchorsByPID = q.chainAnchorWindowsByPID
+	stats.anchoredDIOWakeups = offCPU.anchoredDIOWakeups
+	stats.offCPUProducerDisjoint = idx != nil && idx.TimestampOrder == TraceTimestampOrderMonotonic
 	stats.DStateTopOverflowGroups, stats.DStateTopOverflowMs = threadDurationCapOverflow(offCPU.dstateCensus, stats.DStateTop)
 	stats.IOWaitTopOverflowGroups, stats.IOWaitTopOverflowMs = threadDurationCapOverflow(offCPU.iowaitCensus, stats.IOWaitTop)
+	stats.RunnableTopOverflowGroups, stats.RunnableTopOverflowMs = threadDurationCapOverflow(offCPU.runnableCensus, stats.RunnableTop)
+	if stats.RunnableTopOverflowGroups > 0 {
+		// 件4 (修复轮, 2026-07-14): the runnable census scope is narrower than
+		// the D/IO donor wording — chain-member seats mint from the census;
+		// background threads keep the top-8 basis. Say exactly that.
+		stats.Caveats = append(stats.Caveats, fmt.Sprintf("top_runnable shows %d of %d (thread,cpu) groups; %d group(s) totalling %.3fms sit beyond the display cap — chain-member runnable seats carry the full census account; background threads keep top-8 seats with this overflow disclosed", len(stats.RunnableTop), len(stats.RunnableTop)+stats.RunnableTopOverflowGroups, stats.RunnableTopOverflowGroups, stats.RunnableTopOverflowMs))
+	}
 	if stats.DStateTopOverflowGroups > 0 {
 		stats.Caveats = append(stats.Caveats, fmt.Sprintf("top_d_state shows %d of %d (thread,cpu) groups; %d group(s) totalling %.3fms sit beyond the display cap — the D/IO family seats carry the full per-thread account", len(stats.DStateTop), len(stats.DStateTop)+stats.DStateTopOverflowGroups, stats.DStateTopOverflowGroups, stats.DStateTopOverflowMs))
 	}
@@ -3790,7 +3826,12 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 	// track slices (hypothesis lanes never partition — 假设永不并). Segment
 	// sums are unchanged; §29.19 sum_disjoint semantics carry through per
 	// slice.
-	addDurationCause := func(bucket map[string]ThreadDuration, start offCPUStart, endTs float64, endLine int, cause string, trackSlices bool) {
+	// RSPA (§29.61.10a/b/c, 2026-07-14): the typed wakeup-dependency jump
+	// windows this sweep anchors against — supplied only by the rank/bundle
+	// lanes that built the chain first; nil keeps the sweep byte-identical.
+	anchorsByPID := q.chainAnchorWindowsByPID
+	var anchoredDIOWakeups []anchoredDIOWakeupRecord
+	addDurationCause := func(bucket map[string]ThreadDuration, start offCPUStart, endTs float64, endLine int, cause string, trackSlices bool) float64 {
 		startTs := start.ts
 		if q.TimeStart > 0 && startTs < q.TimeStart {
 			startTs = q.TimeStart
@@ -3799,9 +3840,19 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 			endTs = q.TimeEnd
 		}
 		if endTs <= startTs {
-			return
+			return 0
 		}
 		dur := (endTs - startTs) * 1000
+		// RSPA anchored split: the segment's overlap with the thread's typed
+		// jump-window union — accumulated HERE (the one ledger close site,
+		// exact clamped endpoints) so full = anchored + remainder is an exact
+		// same-segment-set bipartition.
+		anchoredOverlap := 0.0
+		if len(anchorsByPID) > 0 {
+			if windows, ok := anchorsByPID[start.thread.PID]; ok {
+				anchoredOverlap = anchorWindowsOverlapMs(windows, startTs, endTs)
+			}
+		}
 		freq := frequencyAt(freqTimelineFor(start.cpu), startTs)
 		key := threadCPUKey(start.thread, start.cpu)
 		td := bucket[key]
@@ -3811,6 +3862,7 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 			}
 			slice := td.causeSlices[cause]
 			slice.durMs += dur
+			slice.anchoredMs += anchoredOverlap
 			slice.segCount++
 			if slice.segMinMs == 0 || dur < slice.segMinMs {
 				slice.segMinMs = dur
@@ -3837,6 +3889,7 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 			td.Thread = start.thread
 		}
 		td.DurationMs += dur
+		td.anchoredMs += anchoredOverlap
 		// F-1 (修复轮, 2026-07-12): true per-segment stats ride the
 		// aggregation so folds can speak segment truth (never group sums
 		// dressed as 段).
@@ -3886,9 +3939,19 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 			})
 			accumulateThreadDuration(acc.runnable, start.thread, dur, start.cpu, freq, startTs, endTs, firstPositive(endLine, start.line), start.priority, start.priorityClass)
 		}
+		return anchoredOverlap
 	}
 	addDuration := func(bucket map[string]ThreadDuration, start offCPUStart, endTs float64, endLine int) {
 		addDurationCause(bucket, start, endTs, endLine, "", false)
+	}
+	// RSPA M-IO closure lane: record the (waker, ts) identity of a wakeup
+	// that ended an ANCHORED D/IO segment of a chain thread — the typed
+	// directed record the per-IO completion-closure credential reads.
+	recordAnchoredDIOWakeup := func(anchoredOverlap float64, wakerPID int, ts float64) {
+		if anchoredOverlap <= 0 || wakerPID <= 0 || len(anchoredDIOWakeups) >= anchoredDIOWakeupCap {
+			return
+		}
+		anchoredDIOWakeups = append(anchoredDIOWakeups, anchoredDIOWakeupRecord{wakerPID: wakerPID, ts: ts})
 	}
 	// DSTATE-REFINE arm a (件③): stamp the D-ledger coverage verdict onto the
 	// aggregated duration (same key/clamp derivation as addDuration; a
@@ -3969,13 +4032,15 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 					addDuration(sleep, start, ev.Ts, ev.Line)
 				case StateDSleep, StateIOWait:
 					if io, marked, caller := offCPUDStateVerdict(start, ev.Ts, blockedReasons); io {
-						addDurationCause(iowait, start, ev.Ts, ev.Line, offCPUCauseSymbol(caller), true)
+						anchored := addDurationCause(iowait, start, ev.Ts, ev.Line, offCPUCauseSymbol(caller), true)
+						recordAnchoredDIOWakeup(anchored, ev.PID, ev.Ts)
 					} else {
 						cause := ""
 						if marked {
 							cause = offCPUCauseSymbol(caller)
 						}
-						addDurationCause(dstate, start, ev.Ts, ev.Line, cause, true)
+						anchored := addDurationCause(dstate, start, ev.Ts, ev.Line, cause, true)
+						recordAnchoredDIOWakeup(anchored, ev.PID, ev.Ts)
 						markDStateCoverage(start, ev.Ts, marked, caller)
 					}
 				}
@@ -4071,6 +4136,8 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 		// per-lane cap overflow honestly.
 		dstateCensus: dstate,
 		iowaitCensus: iowait,
+		// RSPA M-IO closure records (empty when the sweep ran anchor-less).
+		anchoredDIOWakeups: anchoredDIOWakeups,
 	}
 }
 
@@ -4086,6 +4153,9 @@ type offCPUStatsResult struct {
 	runnableCensus map[string]ThreadDuration
 	dstateCensus   map[string]ThreadDuration
 	iowaitCensus   map[string]ThreadDuration
+	// anchoredDIOWakeups (RSPA M-IO): wakeup-closed anchored D/IO segment
+	// ends of chain threads (waker pid + ts), see anchoredDIOWakeupRecord.
+	anchoredDIOWakeups []anchoredDIOWakeupRecord
 }
 
 func offCPUStateIsIOWait(start offCPUStart, endTs float64, blockedReasons map[int][]Event) bool {
@@ -11773,6 +11843,11 @@ func BuildRootCauseRank(idx *Index, q Query) RootCauseRankResult {
 	if q.PID > 0 || q.Thread != "" || q.ThreadInput != "" {
 		chain = BuildWakeupChain(idx, q)
 	}
+	// RSPA (§29.61.10): the stats sweep runs WITH the chain's typed anchor
+	// windows so the census carries the anchored/remainder split (exported
+	// WindowStats output is unchanged — anchored sums ride unexported
+	// fields consumed only by the rank re-anchoring pass).
+	q.chainAnchorWindowsByPID = chainAnchorWindowsByPID(chain)
 	stats := ComputeWindowStats(idx, q)
 	rank := buildRootCauseRankFrom(idx, q, chain, stats)
 	latency := buildSchedulerLatencyStatsFromStats(idx, q, stats)
@@ -11841,6 +11916,22 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	for _, aggregate := range seatedAggregates {
 		seatedAggregateGroups[wakeupCausalAggregateGroupKey(aggregate.Thread.PID, aggregate.DominantState)] = true
 	}
+	// RSPA M-D (§29.61.10, 2026-07-14): when a pid's D-IO re-anchoring
+	// decision holds, the §29.50.5 partition seats (cause 身份×锚定窗 正交
+	// 合成 — 分区机械零改) own the on-chain D-IO account with their values
+	// clipped to the anchored slices; the chain-lane D-IO rank seat would
+	// then duplicate their Σ µs-exactly (the migration identity gate) — the
+	// ORD one-occurrence-set-one-seat closure suppresses it at mint (the
+	// ORD-A seated-aggregate member-suppression precedent; the lossless
+	// CausalImpacts VIEW lane is untouched). 跨车道双席 §1.3 顺带收口.
+	_, rspaDIODecisions := buildRSPAFamilyDecisions(chain, stats)
+	rspaSuppressChainDIOSeat := func(pid int, dominantState string) bool {
+		if pid <= 0 || (dominantState != string(StateDSleep) && dominantState != string(StateIOWait)) {
+			return false
+		}
+		decision, ok := rspaDIODecisions[pid]
+		return ok && decision.migrate
+	}
 	// One physical causal occurrence may be published on both lossless
 	// wakeup-chain faces: CausalImpacts and RootEvidence.  Only the former owns
 	// the active rank seat when it (or its aggregate) was admitted.  Record the
@@ -11890,10 +11981,22 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 			seatRootEvidenceTwin(impact)
 			continue
 		}
+		if impact.ChainDepth > 0 && rspaSuppressChainDIOSeat(impact.Thread.PID, impact.DominantState) {
+			// RSPA M-D: the clipped §29.50.5 partition seats own this
+			// account; the RootEvidence twin is seeded so no lane resurrects
+			// the same physical occurrence.
+			seatRootEvidenceTwin(impact)
+			continue
+		}
 		items = append(items, rootCauseItemFromCausalImpact(impact))
 		seatRootEvidenceTwin(impact)
 	}
 	for _, aggregate := range seatedAggregates {
+		if rspaSuppressChainDIOSeat(aggregate.Thread.PID, aggregate.DominantState) {
+			// RSPA M-D: same one-seat closure on the aggregate face (member
+			// occurrences were twin-seeded in the loop above).
+			continue
+		}
 		items = append(items, rootCauseItemFromCausalAggregate(aggregate))
 	}
 	for _, root := range chain.RootEvidence {
@@ -11933,6 +12036,14 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 			// CPU/window identity and priority-inversion refinement) and owns the
 			// single self-cause seat. RootEvidence remains lossless on the
 			// wakeup_chain view but must not mint a second rank vote.
+			continue
+		}
+		if !sameThreadRef(root.Thread, res.Target) &&
+			(root.Type == "d_state_or_io_wait" || root.Type == "io_wait") &&
+			rspaSuppressChainDIOSeat(root.Thread.PID, string(StateDSleep)) {
+			// RSPA M-D: a non-twin RootEvidence D/IO row of a migrated pid
+			// would re-seat the chain-lane D-IO account the clipped partition
+			// seats now own — same one-seat closure (view lane untouched).
 			continue
 		}
 		item := rootCauseItem(root.Type, root.Thread, root.DurationMs, root.Confidence, root.LineStart, root.LineEnd, "wakeup_chain", root.Summary)
@@ -12006,6 +12117,16 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		}
 		onChain := threadInSet(chainThreads, io.IssueThread) || threadInSet(chainThreads, io.CompleteThread)
 		item := rootCauseItem("io_latency", io.IssueThread, backgroundImpactMs(q, projectedMs, hasCausalChain, onChain), 0.86, io.IssueLine, io.CompleteLine, "window_stats", fmt.Sprintf("block IO %s %s sector=%d len=%d projected %.3fms inside the selected window (physical %.3fms)", io.Dev, io.Op, io.Sector, io.Len, projectedMs, io.DurationMs))
+		// RSPA M-IO (§29.61.10c): the per-IO completion-closure credential —
+		// computable only with the anchor basis; the enrich resource arm then
+		// requires it for the on-chain lane (pure overlap demotes to ◇).
+		if stats.chainAnchorsByPID != nil {
+			item.resourceClosureEvaluated = true
+			item.ResourceCompletionClosure = resourceCompletionClosureProven(stats, io.CompleteThread.PID, io.IssueTs, io.CompleteTs)
+			if item.ResourceCompletionClosure {
+				item.Summary = appendRootCauseSummaryDetail(item.Summary, "completion woke an anchored D/IO wait of a chain thread (typed completion-closure credential)")
+			}
+		}
 		item.PhysicalSourcePath = io.SourcePath
 		item.ProjectedImpactMs = projectedMs
 		item.CumulativeImpactMs = projectedMs
@@ -12209,7 +12330,32 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	// indexes; a regressed trace conservatively degrades the family fold to
 	// the member MAX (honest lower bound, never an over-count Σ).
 	offCPUProducerDisjoint := idx != nil && idx.TimestampOrder == TraceTimestampOrderMonotonic
-	for _, td := range stats.RunnableTop {
+	// RSPA (§29.61.10, 2026-07-14): CHAIN threads' runnable seats mint from
+	// the FULL pre-cap census — 帽基当全量 fourth instance, D/IO 件A
+	// precedent (donghu witness: JankManager seat 16.687 off the capped
+	// basis vs census-provable 31.136). Scope deliberately = chain members
+	// (the formal accounts the re-anchoring decomposes); background threads
+	// keep the top-8 display-capped mint byte-identically — minting the
+	// whole census (donghu: 827 groups) would flood the candidate pool with
+	// hundreds of always-truncated background rows (噪音从源头消除; their
+	// values are §7.5 window-capped anyway). A WindowStats built without
+	// the census fails open to the capped list verbatim.
+	runnableMembers := stats.RunnableTop
+	if stats.runnableCensus != nil && len(chainThreads) > 0 {
+		seen := map[string]bool{}
+		for _, td := range stats.RunnableTop {
+			seen[threadCPUKey(td.Thread, td.CPU)] = true
+		}
+		members := append([]ThreadDuration(nil), stats.RunnableTop...)
+		for _, td := range topThreadDurations(stats.runnableCensus, len(stats.runnableCensus)) {
+			if !threadInSet(chainThreads, td.Thread) || seen[threadCPUKey(td.Thread, td.CPU)] {
+				continue
+			}
+			members = append(members, td)
+		}
+		runnableMembers = members
+	}
+	for _, td := range runnableMembers {
 		onChain := threadInSet(chainThreads, td.Thread)
 		item := rootCauseItem("runnable_wait", td.Thread, backgroundImpactMs(q, td.DurationMs, hasCausalChain, onChain), 0.76, td.LineStart, td.LineEnd, "window_stats", fmt.Sprintf("%s was runnable for %.3fms%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)))
 		item.CumulativeImpactMs = td.DurationMs
@@ -12359,6 +12505,11 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	// (blocking_span holders, binder_wait peers, io_latency completers) carry
 	// the typed drill-debt verdict.
 	stampRootCauseRankDrillStatus(idx, items, buildDrillSubjectUniverse(&chain, &stats), &chain, &stats)
+	// RSPA M-IO (§29.61.10c): every resource-attribution row carries the
+	// typed "closure was computable" bit when the anchor basis exists, so the
+	// enrich lane decision below can require the completion-closure
+	// credential (legacy anchor-less builds keep the overlap behavior).
+	stampResourceClosureEvaluation(stats, items)
 	items = enrichRootCauseItemsWithChainContext(chain, items)
 	attributeOnChainResourceItemsToWakeupDependency(chain, items)
 	normalizeRootCauseChainRelevance(items, hasCausalChain)
@@ -12375,6 +12526,12 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	// (opendir_78 E5/E6: 1.136 rank#3 + 0.462 rank#8 → 1.598 one seat). Keyed
 	// additionally on chain lane and typed selected window (M3 跨窗纪律).
 	items = foldSameThreadTypeRankFamilies(q, hasCausalChain, items)
+	// RSPA (§29.61.10a/b/c): the on-chain seat-value re-anchoring — chain
+	// threads' window_stats state seats split into the chain-owned anchored
+	// portion and the ◇ adjacent remainder seat (fail-open on every missing
+	// or non-identical basis). After the family fold (one decomposition per
+	// surviving seat), before the recon/sort.
+	items = reanchorOnChainStateSeats(chain, stats, items)
 	// B4 (2026-07-10): the d_state_or_io_wait source row and its
 	// io_burst_episode resource projection may be the exact same physical
 	// segment. Reconcile only the adjudicated exact-match shape before sort /
@@ -12496,6 +12653,9 @@ type dioStateFamilyMember struct {
 	lineStart int
 	lineEnd   int
 	wholeTd   bool
+	// anchoredMs (RSPA §29.61.10): the member's chain-anchored portion off
+	// the ledger (whole group / slice accounting respectively).
+	anchoredMs float64
 }
 
 // dioStateMemberFromTd builds the whole-group member (pre-§29.50.5 accounting
@@ -12507,6 +12667,7 @@ func dioStateMemberFromTd(state string, td ThreadDuration, cause string) dioStat
 		segMinMs: td.segMinMs, segMaxMs: td.segMaxMs,
 		startTs: td.StartTs, endTs: td.EndTs,
 		lineStart: td.LineStart, lineEnd: td.LineEnd,
+		anchoredMs: td.anchoredMs,
 	}
 }
 
@@ -12519,6 +12680,7 @@ func dioStateMemberFromSlice(state string, td ThreadDuration, cause string, slic
 		segMinMs: slice.segMinMs, segMaxMs: slice.segMaxMs,
 		startTs: slice.startTs, endTs: slice.endTs,
 		lineStart: slice.lineStart, lineEnd: slice.lineEnd,
+		anchoredMs: slice.anchoredMs,
 	}
 }
 
@@ -12663,13 +12825,19 @@ func mintRootCauseDIOStateSeat(q Query, stats WindowStats, hasCausalChain, produ
 		// carries the WHOLE-group floats, so absorption fails open there —
 		// honest dual beats wrong absorption).
 		var memberIntervals []foldInterval
+		// RSPA (§29.61.10): the per-lane anchored split off the ledger — the
+		// seat's chain-anchored credential portion (Σ member anchoredMs by
+		// owning ledger state), consumed by the re-anchoring pass.
+		anchoredDMs, anchoredIOMs := 0.0, 0.0
 		strongest := members[0]
 		for _, m := range members {
 			total += m.durMs
 			if m.state == string(StateIOWait) {
 				ioWaitMs += m.durMs
+				anchoredIOMs += m.anchoredMs
 			} else {
 				dStateMs += m.durMs
+				anchoredDMs += m.anchoredMs
 			}
 			if m.durMs > strongest.durMs {
 				strongest = m
@@ -12827,6 +12995,15 @@ func mintRootCauseDIOStateSeat(q Query, stats WindowStats, hasCausalChain, produ
 			}
 		}
 		item.memberSegmentsProducerDisjoint = producerDisjoint
+		// RSPA (§29.61.10): the ledger anchored/full basis rides the seat for
+		// the re-anchoring pass — ONLY on the exact sum_disjoint account (a
+		// MAX-fallback fold's value is a lower bound, not the census sum;
+		// migration must fail open there, 宁漏勿猜).
+		if caliber == RootCauseMemberFoldCaliberSumDisjoint {
+			item.ledgerAnchorStamped = true
+			item.ledgerAnchoredDMs = anchoredDMs
+			item.ledgerAnchoredIOMs = anchoredIOMs
+		}
 		item.EffectiveImpactMs = rootCauseEffectiveImpactMs(item)
 		item.Score = item.EffectiveImpactMs * item.Confidence * rootCauseItemScoreWeight(item)
 		if len(members) > 1 {
@@ -12979,6 +13156,11 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	// re-sort. Idempotent over the build pass: already-merged families arrive
 	// as single rows and pass through untouched.
 	rank.Items = foldSameThreadTypeRankFamilies(q, hasCausalChain, rank.Items)
+	// RSPA (§29.61.10a/b/c): idempotent re-anchoring over the enrich-minted
+	// additions (scheduler_latency / low_frequency satellites of migrated
+	// threads take the same per-thread decision; already-migrated rows carry
+	// the typed remainder marker and pass through untouched).
+	rank.Items = reanchorOnChainStateSeats(chain, stats, rank.Items)
 	// Idempotent B4 recomputation after enrichment: scheduler additions cannot
 	// silently resurrect the absorbed cross-type seat, and the dedicated
 	// lossless carrier is rejoined to the same exact engine key.
@@ -14767,7 +14949,7 @@ func enrichRootCauseItemsWithChainContext(chain ChainResult, items []RootCauseRa
 				ctx.relevance = ""
 			}
 		}
-		ctx = rootCauseChainContextForItem(items[i], ctx)
+		ctx = rootCauseChainContextForItem(items[i], ctx, chain.Target)
 		// §20 E-Gap③ (2026-07-07, aligns the §17 tool-half demotion): an
 		// aggregate-metric row (registry Subject==aggregate_only — the
 		// subject IS the window/CPU-scoped metric, no thread) must never be
@@ -14815,7 +14997,7 @@ func enrichRootCauseItemsWithChainContext(chain ChainResult, items []RootCauseRa
 	return items
 }
 
-func rootCauseChainContextForItem(item RootCauseRankItem, ctx chainCandidateContext) chainCandidateContext {
+func rootCauseChainContextForItem(item RootCauseRankItem, ctx chainCandidateContext, target ThreadRef) chainCandidateContext {
 	// SELF-SEM keep arm (§29.61.1, 2026-07-13): the lane was decided ONCE at
 	// mint time on the typed self basis — the enrich pass KEEPS that verdict
 	// instead of re-deciding it (the §23.1 lane-decided-once discipline; the
@@ -14855,6 +15037,25 @@ func rootCauseChainContextForItem(item RootCauseRankItem, ctx chainCandidateCont
 		// with a chain window. Same-TID membership alone is not causality.
 		ctx.relevance = "adjacent"
 		ctx.overlapMs = 0
+		return ctx
+	}
+	// RSPA M-IO (§29.61.10c 判据: 证据面非类别面): with the anchor basis
+	// present (resourceClosureEvaluated — mint-time typed bit), a NON-target
+	// io_latency row keeps the on-chain lane ONLY with the per-IO
+	// completion-closure credential; its [issue, complete] interval is a
+	// block-layer COURIER record — overlap with a chain window is proximity,
+	// not a directed dependency record — so without closure it demotes to ◇
+	// adjacent (OverlapMs stays an honest note). Deliberately io_latency
+	// ONLY: the burst/inode/workqueue/dma_fence projections' intervals ARE
+	// the anchored host thread's own wait/work occupying its dependency
+	// window (the semantic-span 宿主关系 credential form, §3.1 — 现状合规),
+	// and their double-seat risk is already owned by B4 recon + the Q4-B
+	// material gate. The analysis target's own rows are self-causality and
+	// keep the legacy lane; anchor-less builds never set the evaluated bit.
+	if ctx.relevance == "on_chain" && item.Type == "io_latency" &&
+		item.resourceClosureEvaluated && !item.ResourceCompletionClosure &&
+		!(target.PID > 0 && item.Thread.PID == target.PID) {
+		ctx.relevance = "adjacent"
 		return ctx
 	}
 	if ctx.relevance != "on_chain" || rootCauseItemCanBeDirectOnChain(item) {
@@ -15926,11 +16127,16 @@ func BuildFrameRootCauseBundle(idx *Index, q Query) FrameRootCauseBundle {
 		frame = BuildFrameTimeline(idx, analysisQ)
 	}
 	cache := newChainQueryCache(idx)
-	stats := ComputeWindowStats(idx, analysisQ)
+	// RSPA (§29.61.10): the chain is built FIRST so the stats sweep can run
+	// with its typed anchor windows (the chain has no stats dependency; the
+	// exported WindowStats faces are unchanged — anchored sums ride
+	// unexported fields consumed only by the rank re-anchoring pass).
 	var chain ChainResult
 	if analysisQ.PID > 0 || analysisQ.Thread != "" || analysisQ.ThreadInput != "" {
 		chain = buildWakeupChainWithCache(idx, analysisQ, cache)
 	}
+	analysisQ.chainAnchorWindowsByPID = chainAnchorWindowsByPID(chain)
+	stats := ComputeWindowStats(idx, analysisQ)
 	rank := buildRootCauseRankFrom(idx, analysisQ, chain, stats)
 	latency := buildSchedulerLatencyStatsFromStats(idx, analysisQ, stats)
 	rank = enrichRootCauseRankWithScheduler(analysisQ, rank, latency, stats, chain)

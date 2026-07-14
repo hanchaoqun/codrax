@@ -173,6 +173,14 @@ func TestDIOFullAccountNoOverflowParity(t *testing.T) {
 // out-of-repo customer trace): pid=60555 window partition on the FULL basis
 // 18.135 = fscache 7.386 + hmfs_get_dnode 0.171 + hmfs_read 0.145 + 余数
 // 10.433 (previously 15.317 capped basis, Δ2.818 evicted).
+//
+// EVOLUTION RECORD (RSPA §29.61.10, 2026-07-14): the per-cause sums below now
+// span the re-anchoring bipartition — a migrated cause seat may publish as
+// ⛓ anchored + ◇ remainder halves, and the Σ-per-cause pin holds BY the
+// bipartition identity (同源二分可相加还原; anchored + remainder == the full
+// cause account exactly). The pinned values are therefore unchanged whether
+// or not the seat migrated on this capture; the added sweep asserts the
+// identity on any decomposed row.
 func TestDIOFullAccountTiebaWitness(t *testing.T) {
 	const trace = "/Users/han/opt/customlogs/xxx_all.systrace"
 	if _, err := os.Stat(trace); err != nil {
@@ -196,6 +204,12 @@ func TestDIOFullAccountTiebaWitness(t *testing.T) {
 			strings.HasPrefix(item.Source, "window_stats") {
 			got[item.BlockedReasonCaller] += item.CumulativeImpactMs
 			sum += item.CumulativeImpactMs
+			// RSPA bipartition identity on any decomposed half.
+			if item.ChainAnchorFullMs > 0 && item.ChainAnchorRemainderSeat {
+				if math.Abs(item.ChainAnchoredMs+item.CumulativeImpactMs-item.ChainAnchorFullMs) > 0.002 {
+					t.Fatalf("RSPA ◇ identity broken on cause %q: %+v", item.BlockedReasonCaller, item)
+				}
+			}
 		}
 	}
 	for cause, ms := range want {

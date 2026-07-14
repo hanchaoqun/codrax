@@ -80,6 +80,12 @@ var traceNoteKeyGoldenRows = []string{
 	"capacity_truncated|causal_rank|hard_consumer",
 	"category|plugin|display_only",
 	"causality|causal_rank|hard_consumer",
+	// RSPA (§29.61.10a/b/c, 2026-07-14): the on-chain seat-value re-anchoring
+	// bipartition trio — 全窗 = 锚定 + 余段 (同源二分,唯一可相加还原形);
+	// the remainder marker gates the ◇ half's lane words.
+	"chain_anchor_full|state|hard_consumer",
+	"chain_anchor_remainder_seat|state|hard_consumer",
+	"chain_anchored|state|hard_consumer",
 	"chain_branch|causal_rank|hard_consumer",
 	"chain_depth|causal_rank|hard_consumer",
 	"chain_relevance|causal_rank|hard_consumer",
@@ -285,6 +291,8 @@ var traceNoteKeyGoldenRows = []string{
 	"recommended_sections|causal_rank|display_only",
 	"recommended_views|causal_rank|soft_consumer",
 	"recursive|causal_rank|soft_consumer",
+	// RSPA M-IO (§29.61.10c, 2026-07-14): per-IO completion-closure credential.
+	"resource_completion_closure|state|hard_consumer",
 	"ret|io|display_only",
 	"runnable|state|hard_consumer",
 	// EVOLUTION RECORD (SYM-2 §24.17 R2, 2026-07-08): the typed below-RT

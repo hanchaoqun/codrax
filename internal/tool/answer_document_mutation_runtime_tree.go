@@ -381,6 +381,30 @@ type runtimeTraceProjTreeRow struct {
 	// to the current template, 禁量化重叠 ms unchanged).
 	AccountRelDisjoint bool
 	AccountRelPeer     string
+	// AccountRelSameSourceFullMS / AccountRelSameSourceAnchoredSide (RSPA
+	// §29.61.10b, 2026-07-14): the same-source bipartition relation pair — a
+	// migrated window state seat split into the ⛓ credential-anchored half and
+	// the ◇ remainder half over ONE segment set (typed engine fields
+	// Node.ChainAnchoredMS/ChainAnchorFullMS/ChainAnchorRemainderSeat). When
+	// FullMS > 0 the AccountRel sentence renders the RSPA same-source template
+	// (合计还原全窗账 — the ONLY additive seat relation: anchored + remainder
+	// == full exactly, same-source disjoint bipartition) instead of the
+	// two-accounting-systems form; AnchoredSide selects which half speaks
+	// 本行. W-A stays untouched for every other pair (wall clock across
+	// different accounts remains non-additive).
+	AccountRelSameSourceFullMS       float64
+	AccountRelSameSourceAnchoredSide bool
+	// AccountRelMirror* (件1 修复轮, 2026-07-14; donghu E12(+3) witness): the
+	// full-window MIRROR row relation — an UNDECOMPOSED same-thread same-state
+	// row (another lane's face, e.g. critical_blocking) whose display value
+	// equals the bipartition pair's full account at 3 decimals. The mirror row
+	// carries both halves' refs and speaks 「同段镜像·全窗账=[⛓]+[◇] 二分席之
+	// 和,不可与二分席相加」; each half carries the back-pointer ref. Typed
+	// value identity only (3dp equality against Node.ChainAnchorFullMS); ≥2
+	// candidate pairs fail open.
+	AccountRelMirrorAnchoredRef  string
+	AccountRelMirrorRemainderRef string
+	AccountRelMirrorRef          string
 	// OccurrenceSeries* (WO-B1, SMR-1 批 SMR-S8/S10/S11, 2026-07-12): the
 	// B-type same-identity multi-occurrence short note — typed provably
 	// DISJOINT same-(thread, state, object, type, window) single rows carry
@@ -841,6 +865,21 @@ const (
 	// a fourth §29.27.1 mark surface (design R7 boundary): it wears no
 	// ordinals and no badges, so the 三面记号一致 invariant owes it nothing.
 	runtimeTraceProjMarkElimOverview
+
+	// RSPA §29.61.10a (2026-07-14): the 行2 同源二分 decomposition disclosure
+	// — BOTH halves of a re-anchored window state seat (the ⛓ clipped anchored
+	// half and the ◇ remainder half) name the 全窗=锚定+其余 split (typed
+	// Node.ChainAnchoredMS / ChainAnchorFullMS / ChainAnchorRemainderSeat
+	// only; remainder = full − anchored is display arithmetic over the ONE
+	// engine-minted pair, never a new account).
+	runtimeTraceProjMarkChainAnchorSplit
+
+	// RSPA §29.61.10b (2026-07-14): the WO-C1-family same-source seat relation
+	// sentence (合计还原全窗账) — the ⛓ anchored seat and its ◇ remainder seat
+	// cross-reference [E#] both ways; deliberately its OWN mark (the generic
+	// 账目关系 entry teaches 不可相加, while this pair is the ONLY additive
+	// seat relation — one legend entry cannot speak both).
+	runtimeTraceProjMarkChainAnchorRelation
 
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
@@ -1354,6 +1393,17 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkAccountRelation, runtimeTraceProjLegendGroupMark,
 			"- `账目关系` = 同线程同状态族的两行来自两套账目体系(覆盖集不同;物理时间重叠或不相交,行内句按 typed 区间推导如实标注):行内句标出双方口径自述与互指 [E#];两行数值不可直较,双行均为诚实账目(W-A 不同账目绝不折)。",
 			"- `account relation` = two rows of one thread's one state family come from two accounting systems (different coverage sets, overlapping physical time): the inline sentence names both calibers and cross-references [E#]; the two values are neither additive nor directly comparable — both rows are honest accounts (W-A: different accounts never fold)."},
+		// RSPA §29.61.10a (2026-07-14): the same-source bipartition teaching
+		// entry — the 行2 disclosure names the split, this entry names the rule.
+		{runtimeTraceProjMarkChainAnchorSplit, runtimeTraceProjLegendGroupMark,
+			"- `同源二分` = 一份全窗账按链上凭证拆成 ⛓锚定席 + ◇余段席,两席不相交、相加还原全窗值(唯一可相加形):锚定席=发生段∩typed 唤醒依赖跳变窗(留在链上通道),余段席=全窗−锚定(无链上凭证,记 ◇ 邻近通道)。",
+			"- `same-source split` = one full-window account split by its chain credentials into the ⛓ anchored seat + the ◇ remainder seat; the two seats are disjoint and sum back exactly to the full-window value (the ONLY additive form): anchored = segments ∩ typed wakeup-dependency jump windows (stays on the chain channel), remainder = full − anchored (no chain credential, seated on the ◇ adjacent channel)."},
+		// RSPA §29.61.10b (2026-07-14): the same-source relation sentence entry
+		// — sits beside the generic 账目关系 entry but teaches the OPPOSITE
+		// additivity verdict, so it owns its own seat.
+		{runtimeTraceProjMarkChainAnchorRelation, runtimeTraceProjLegendGroupMark,
+			"- `合计还原全窗账` = 同线程同状态的 ⛓锚定席 与 ◇余段席 互指 [E#]:两席出自同一份全窗账、不相交,相加恰还原全窗值;此关系是唯一可相加的席位对,其余跨行墙钟仍不可相加。",
+			"- `restores the full-window account` = the ⛓ anchored seat and its ◇ remainder seat of one thread + state cross-reference [E#]: both halves come from ONE full-window account, are disjoint, and sum exactly back to it — the only additive seat pair; wall clock across any other rows stays non-additive."},
 		// WO-B1 (SMR-1 批, 2026-07-12): the occurrence-series note entry.
 		{runtimeTraceProjMarkOccurrenceSeries, runtimeTraceProjLegendGroupMark,
 			"- `发生段` = 同(线程,状态,对端)的多次独立发生各占一行:行内给出本次发生的墙钟区间与其余次的 [E#] 互指;各段不相交(typed 区间证明),故给出可相加的合计值。",
@@ -4618,27 +4668,106 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 			out = append(out, text)
 		}
 	}
+	// RSPA §29.61.10a (2026-07-14): the same-source bipartition 行2 disclosure
+	// — every row carrying the typed decomposition pair names the split; the
+	// remainder value is display arithmetic over the ONE engine-minted pair
+	// (full − anchored), never a new account. Emitted HERE (the shared 行2
+	// relation/disclosure composer) so the tree, ◇/▒ stanza and self faces all
+	// speak it from one site.
+	if row.Node.ChainAnchorFullMS > 0 {
+		row.marks.mark(runtimeTraceProjMarkChainAnchorSplit)
+		full := row.Node.ChainAnchorFullMS
+		anchored := row.Node.ChainAnchoredMS
+		rem := full - anchored
+		if rem < 0 {
+			rem = 0
+		}
+		// The en face joins the "=" compact (like the zh form): the spaced
+		// "ms = " token is the EffectiveBreakdown 行3 probe's documented
+		// uniqueness invariant (revisit76LegendProbes) and must stay unique
+		// to that grammar line.
+		var text string
+		if row.Node.ChainAnchorRemainderSeat {
+			text = fmt.Sprintf("同源二分:全窗%.3fms=锚定%.3fms(⛓链上席)+本行其余%.3fms(无链上凭证)", full, anchored, rem)
+			if !zh {
+				text = fmt.Sprintf("same-source split: full-window %.3fms=%.3fms anchored (⛓ chain seat) + this remainder %.3fms (no chain credential)", full, anchored, rem)
+			}
+		} else {
+			text = fmt.Sprintf("同源二分:全窗%.3fms=本行锚定%.3fms+其余%.3fms(◇余段席)", full, anchored, rem)
+			if !zh {
+				text = fmt.Sprintf("same-source split: full-window %.3fms=this row %.3fms anchored + remainder %.3fms (◇ remainder seat)", full, anchored, rem)
+			}
+		}
+		out = append(out, text)
+	}
 	// WO-C1 (SMR-1 批, 2026-07-12): the account-relation sentence — 口径自述 +
 	// 互指 only; 禁「同段」字面, 禁覆盖方向暗示, 禁量化重叠 ms (S6 vnote 三禁令).
 	if row.AccountRelRef != "" {
-		row.marks.mark(runtimeTraceProjMarkAccountRelation)
-		// 修复轮三 R2-F2: the overlap/disjoint claim is DERIVED (typed hull
-		// disjointness), never an unconditional template; the disjoint form
-		// adds no additive invitation (账目自识别句保留 — 跨账目体系与其它行
-		// 仍有双计面).
-		text := "与[" + row.AccountRelRef + "]同线程同状态族·物理时间重叠(不可相加);两套账目覆盖集不同:本行=" +
-			row.AccountRelOwn + ",[" + row.AccountRelRef + "]=" + row.AccountRelPeer
-		if row.AccountRelDisjoint {
-			text = "与[" + row.AccountRelRef + "]同线程同状态族·物理时间不相交;两套账目覆盖集不同:本行=" +
-				row.AccountRelOwn + ",[" + row.AccountRelRef + "]=" + row.AccountRelPeer
-		}
-		if !zh {
-			text = "same thread, same state family as [" + row.AccountRelRef + "] · physical time overlaps (never additive); two accounting systems with different coverage sets: this row = " +
-				row.AccountRelOwn + ", [" + row.AccountRelRef + "] = " + row.AccountRelPeer
-			if row.AccountRelDisjoint {
-				text = "same thread, same state family as [" + row.AccountRelRef + "] · physical time disjoint; two accounting systems with different coverage sets: this row = " +
-					row.AccountRelOwn + ", [" + row.AccountRelRef + "] = " + row.AccountRelPeer
+		if row.AccountRelSameSourceFullMS > 0 {
+			// RSPA §29.61.10b (2026-07-14): the same-source seat pair speaks
+			// the bipartition relation (the ONLY additive seat relation —
+			// anchored + remainder == full exactly); the generic two-accounts
+			// template below would falsely claim 不可相加 on this pair.
+			row.marks.mark(runtimeTraceProjMarkChainAnchorRelation)
+			var text string
+			if row.AccountRelSameSourceAnchoredSide {
+				text = fmt.Sprintf("◇席=[%s]同线程同状态窗内其余段(无链上凭证);⛓席(本行)=凭证锚定段合计;两席同源不相交,合计还原全窗账 %.3fms",
+					row.AccountRelRef, row.AccountRelSameSourceFullMS)
+				if !zh {
+					text = fmt.Sprintf("◇ seat = [%s] the thread's remaining in-window same-state segments (no chain credential); ⛓ seat (this row) = credential-anchored segment total; same-source disjoint seats — their sum restores the full-window account %.3fms",
+						row.AccountRelRef, row.AccountRelSameSourceFullMS)
+				}
+			} else {
+				text = fmt.Sprintf("⛓席=[%s]凭证锚定段合计;◇席(本行)=同线程同状态窗内其余段(无链上凭证);两席同源不相交,合计还原全窗账 %.3fms",
+					row.AccountRelRef, row.AccountRelSameSourceFullMS)
+				if !zh {
+					text = fmt.Sprintf("⛓ seat = [%s] credential-anchored segment total; ◇ seat (this row) = the thread's remaining in-window same-state segments (no chain credential); same-source disjoint seats — their sum restores the full-window account %.3fms",
+						row.AccountRelRef, row.AccountRelSameSourceFullMS)
+				}
 			}
+			out = append(out, text)
+		} else {
+			row.marks.mark(runtimeTraceProjMarkAccountRelation)
+			// 修复轮三 R2-F2: the overlap/disjoint claim is DERIVED (typed hull
+			// disjointness), never an unconditional template; the disjoint form
+			// adds no additive invitation (账目自识别句保留 — 跨账目体系与其它行
+			// 仍有双计面).
+			text := "与[" + row.AccountRelRef + "]同线程同状态族·物理时间重叠(不可相加);两套账目覆盖集不同:本行=" +
+				row.AccountRelOwn + ",[" + row.AccountRelRef + "]=" + row.AccountRelPeer
+			if row.AccountRelDisjoint {
+				text = "与[" + row.AccountRelRef + "]同线程同状态族·物理时间不相交;两套账目覆盖集不同:本行=" +
+					row.AccountRelOwn + ",[" + row.AccountRelRef + "]=" + row.AccountRelPeer
+			}
+			if !zh {
+				text = "same thread, same state family as [" + row.AccountRelRef + "] · physical time overlaps (never additive); two accounting systems with different coverage sets: this row = " +
+					row.AccountRelOwn + ", [" + row.AccountRelRef + "] = " + row.AccountRelPeer
+				if row.AccountRelDisjoint {
+					text = "same thread, same state family as [" + row.AccountRelRef + "] · physical time disjoint; two accounting systems with different coverage sets: this row = " +
+						row.AccountRelOwn + ", [" + row.AccountRelRef + "] = " + row.AccountRelPeer
+				}
+			}
+			out = append(out, text)
+		}
+	}
+	// 件1 (修复轮, 2026-07-14): the full-window MIRROR row relation — the
+	// undecomposed lane face of a bipartitioned account speaks the mirror
+	// sentence (冷读给定句形); each half carries the back-pointer. Same
+	// relation mark family as the bipartition sentence (one legend home).
+	if row.AccountRelMirrorAnchoredRef != "" && row.AccountRelMirrorRemainderRef != "" {
+		row.marks.mark(runtimeTraceProjMarkChainAnchorRelation)
+		text := fmt.Sprintf("同段镜像·全窗账=[%s]+[%s] 二分席之和,不可与二分席相加",
+			row.AccountRelMirrorAnchoredRef, row.AccountRelMirrorRemainderRef)
+		if !zh {
+			text = fmt.Sprintf("same-segment mirror · this full-window account = the sum of the split seats [%s]+[%s]; never add it to those seats",
+				row.AccountRelMirrorAnchoredRef, row.AccountRelMirrorRemainderRef)
+		}
+		out = append(out, text)
+	}
+	if ref := strings.TrimSpace(row.AccountRelMirrorRef); ref != "" {
+		row.marks.mark(runtimeTraceProjMarkChainAnchorRelation)
+		text := "全窗账镜像行 [" + ref + "](另一车道面,不可相加)"
+		if !zh {
+			text = "full-window mirror row [" + ref + "] (another lane's face; never additive)"
 		}
 		out = append(out, text)
 	}
@@ -4660,6 +4789,17 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 			text = "this thread also holds an adjacent seat [" + ref + "]"
 		}
 		out = append(out, text)
+	}
+	// RSPA M-IO §29.61.10c (2026-07-14): the io_latency row whose completion
+	// thread performed the wakeup that ended an anchored D/IO wait of a chain
+	// thread wears the typed per-IO credential as a small demoted context word
+	// (soft note, no legend mark — the 等待对象 precedent).
+	if row.Node.ResourceCompletionClosure {
+		if zh {
+			out = append(out, "完成闭合凭证")
+		} else {
+			out = append(out, "completion-closure credential")
+		}
 	}
 	// WO-B1 (SMR-1 批, 2026-07-12): the occurrence-series short note — the
 	// interval identifies the occurrence (preferred over 第N次 ordinals, S10
@@ -8967,6 +9107,15 @@ var runtimeTraceProjWrapAtomCompounds = []string{
 	// order between the two is immaterial.
 	"计数当量",
 	"成员最大",
+	// RSPA §29.61.10a/b (2026-07-14): the same-source bipartition word heads
+	// join the unbreakable set — the 行2 disclosure head (同源二分:全窗X…)
+	// and the relation sentence's additive-identity claim must never bisect
+	// at a wrap boundary (they are the bidirectional legend probes). The
+	// 合计还原全窗账 entry sits BEFORE the bare 合计 entry (longest-first
+	// inside the shared 合计 prefix); 同源二分:全窗 diverges from 同线程 at
+	// rune 2, so order there is immaterial.
+	"同源二分:全窗",
+	"合计还原全窗账",
 	"合计",
 	"同线程",
 	"重叠未拆",
@@ -15174,6 +15323,19 @@ func runtimeTraceProjFullWindowCoverageTag(node types.TraceCausalProjectionNode,
 	if covered <= 0 {
 		return runtimeTraceProjTag{}, false
 	}
+	// 件3 (修复轮, 2026-07-14; JankManager witness): a re-anchored row's RN-12
+	// donor total is the CAPPED display-list value (16.687) while the row's
+	// own 同源二分 line speaks the census full account (31.191) — 五表单源:
+	// the decomposition floats are the same-source authority, so the tag
+	// reads THEM. The ◇ remainder half suppresses the tag entirely (its
+	// covered value is the OFF-chain remainder — any 「链上…」 claim over it
+	// would be false; the 同源二分 line already carries the whole account).
+	if node.ChainAnchorRemainderSeat {
+		return runtimeTraceProjTag{}, false
+	}
+	if node.ChainAnchorFullMS > 0 {
+		full = node.ChainAnchorFullMS
+	}
 	// PTV7 (#74, 用户裁定 2026-07-06): the state class IS the canonical
 	// display word on both faces — the class TABLE keys stay untouched.
 	// EVOLUTION RECORD (用户重裁 2026-07-08, UXA D#30 终稿, supersedes the
@@ -15209,6 +15371,13 @@ func runtimeTraceProjFullWindowCoverageTag(node types.TraceCausalProjectionNode,
 			fragmentZH = fmt.Sprintf("本行覆盖其中另一部分·合计(共%d次)", mergedN)
 			fragmentEN = fmt.Sprintf("this row covers another n=%d total slice of it,", mergedN)
 		}
+	}
+	// 件3 (修复轮, 2026-07-14): the ⛓ clipped half's covered value is the
+	// anchored Σ over ALL member segments inside the dependency windows —
+	// 「最大片段」 would be a false single-fragment claim (JankManager: 1.759
+	// spans several anchored slices).
+	if node.ChainAnchorFullMS > 0 && !node.ChainAnchorRemainderSeat {
+		fragmentZH, fragmentEN = "链上锚定合计", "the chain-anchored total is"
 	}
 	var text string
 	switch {

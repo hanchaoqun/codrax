@@ -239,6 +239,15 @@ func TestDStateRefineHexCallerCollapsesToNoDisclosure(t *testing.T) {
 // max 3.853ms). The published a–b range must be the TRUE segment range and
 // multi-segment roster members must speak 「合计…(N段)」 — a group sum never
 // masquerades as a 段. Skip-gated on the gold witness trace.
+//
+// EVOLUTION RECORD (RSPA §29.61.10a/b/c, matrix witness §2.1, 2026-07-14):
+// the ❶ 36.757 seat re-anchored — only 3.598ms of the account intersects
+// CompThread's typed wakeup-dependency jump windows (90.2% held no chain
+// credential). The single 36.757 window seat is now the same-source
+// bipartition: ⛓ anchored seat 3.598 (on-chain, roster/caller/segment-truth
+// intact) + ◇ remainder seat 33.159 (adjacent, no chain credential), with
+// 3.598 + 33.159 == 36.757 exactly (the ELIM-1 identity). The F-1 segment
+// truths ride both halves unchanged.
 func TestDStateFamilySegmentTruthDonghuE8(t *testing.T) {
 	const donghuWitnessTracePath = "/Users/han/opt/donghu/donghu.ftrace"
 	if _, err := os.Stat(donghuWitnessTracePath); err != nil {
@@ -249,19 +258,36 @@ func TestDStateFamilySegmentTruthDonghuE8(t *testing.T) {
 		t.Fatalf("index: %v", err)
 	}
 	rank := BuildRootCauseRank(idx, Query{PID: 17267, TimeStart: 13762.791708, TimeEnd: 13763.024898, MaxDepth: 4, MinDurationMs: 0.05, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
-	var row RootCauseRankItem
-	found := false
+	var row, remainder RootCauseRankItem
+	found, foundRemainder := false, false
 	for _, item := range rank.Items {
 		if item.Thread.PID == 2955 && item.Type == "d_state_or_io_wait" && strings.HasPrefix(item.Source, "window_stats") {
+			if item.ChainAnchorRemainderSeat {
+				remainder, foundRemainder = item, true
+				continue
+			}
 			row, found = item, true
-			break
 		}
 	}
 	if !found {
 		t.Fatalf("witness drifted: no CompThread window_stats D row: %+v", rank.Items)
 	}
-	if math.Abs(row.CumulativeImpactMs-36.757) > 0.002 || row.MemberCount != 4 {
-		t.Fatalf("witness account drifted (total/groups): %+v", row)
+	if !foundRemainder {
+		t.Fatalf("RSPA: the ◇ remainder half of the bipartition must stay visible: %+v", rank.Items)
+	}
+	// RSPA ⛓ seat: the anchored value is the published account; the full
+	// window account rides the typed decomposition fields.
+	if math.Abs(row.CumulativeImpactMs-3.598) > 0.002 || row.MemberCount != 4 {
+		t.Fatalf("witness account drifted (anchored/groups): %+v", row)
+	}
+	if row.ChainRelevance != "on_chain" || math.Abs(row.ChainAnchoredMs-3.598) > 0.002 || math.Abs(row.ChainAnchorFullMs-36.757) > 0.002 {
+		t.Fatalf("witness anchored decomposition drifted: %+v", row)
+	}
+	// ELIM-1 identity: 旧全窗席值 = ⛓锚定 + ◇余段 (同源二分, µs 容差).
+	if remainder.ChainRelevance != "adjacent" ||
+		math.Abs(row.CumulativeImpactMs+remainder.CumulativeImpactMs-36.757) > 0.002 ||
+		math.Abs(remainder.ChainAnchorFullMs-36.757) > 0.002 {
+		t.Fatalf("RSPA bipartition identity broken: anchored=%.3f remainder=%.3f (%+v)", row.CumulativeImpactMs, remainder.CumulativeImpactMs, remainder)
 	}
 	// TRUE single-segment range: max 3.853ms (11 raw segments), never the
 	// 16.064 group sum the pre-fix N次(a~b) claimed as 单段.
