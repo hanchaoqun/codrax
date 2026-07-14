@@ -186,7 +186,7 @@ func assertProfilerSequencePrefix(t testing.TB, sink *traceDBRowSink,
 	registry := sink.pairLaneRegistries[pairRenderF2FS]
 	census := sink.activePairCensus[pairRenderF2FS]
 	if !pairFirst {
-		if row.pairKind != pairRenderUnknown || sink.pairRows[pairRenderF2FS] != 0 ||
+		if provenance.PairKind != pairRenderUnknown || sink.pairRows[pairRenderF2FS] != 0 ||
 			len(sink.pairLaneRows[pairRenderF2FS]) != 0 || sink.structuredPairRows[pairRenderF2FS] != 0 ||
 			len(registry.byKey) != 0 || len(registry.keys) != 0 || len(registry.states) != 0 ||
 			census.total != 0 || len(census.byLane) != 0 || sink.legacyPairProof.observations != 0 {
@@ -196,25 +196,30 @@ func assertProfilerSequencePrefix(t testing.TB, sink *traceDBRowSink,
 		}
 		return
 	}
-	if row.pairKind != pairRenderF2FS || row.pairLane == "" ||
+	laneKey := ""
+	if len(registry.keys) == 1 {
+		laneKey = registry.keys[0]
+	}
+	if provenance.PairKind != pairRenderF2FS || laneKey == "" ||
 		provenance.EndpointSlot != profilerPairEndpointF2FSWriteBegin || provenance.LaneID == 0 ||
-		sink.pairRows[pairRenderF2FS] != 1 || sink.pairLaneRows[pairRenderF2FS][row.pairLane] != 1 ||
-		census.total != 1 || census.byLane[row.pairLane] != 1 || len(registry.byKey) != 1 ||
+		sink.pairRows[pairRenderF2FS] != 1 || sink.pairLaneRows[pairRenderF2FS][laneKey] != 1 ||
+		census.total != 1 || census.byLane[laneKey] != 1 || len(registry.byKey) != 1 ||
 		len(registry.keys) != 1 || len(registry.states) != 1 || sink.legacyPairProof.observations != 1 {
 		t.Fatalf("%s pair prefix is incomplete: row=%+v provenance=%+v pair=%d lanes=%v registry=%+v census=%+v proof=%+v",
 			lane.name, row, provenance, sink.pairRows[pairRenderF2FS], sink.pairLaneRows[pairRenderF2FS],
 			registry, census, sink.legacyPairProof)
 	}
 	if lane.structured {
-		if !row.structuredPair || row.profilerEventField != 4011 ||
+		if provenance.Flags != profilerPairRowProvenanceStructured ||
 			sink.structuredPairRows[pairRenderF2FS] != 1 ||
-			sink.structuredLaneRows[pairRenderF2FS][row.pairLane] != 1 ||
+			sink.structuredLaneRows[pairRenderF2FS][laneKey] != 1 ||
 			sink.structuredEventRows[pairRenderF2FS][4011] != 1 {
 			t.Fatalf("structured pair prefix counters drifted: row=%+v structured=%d lanes=%v events=%v",
 				row, sink.structuredPairRows[pairRenderF2FS], sink.structuredLaneRows[pairRenderF2FS],
 				sink.structuredEventRows[pairRenderF2FS])
 		}
-	} else if row.structuredPair || sink.structuredPairRows[pairRenderF2FS] != 0 ||
+	} else if provenance.Flags&profilerPairRowProvenanceStructured != 0 ||
+		sink.structuredPairRows[pairRenderF2FS] != 0 ||
 		len(sink.structuredEventRows[pairRenderF2FS]) != 0 {
 		t.Fatalf("%s text prefix entered structured accounting: row=%+v totals=%d events=%v",
 			lane.name, row, sink.structuredPairRows[pairRenderF2FS], sink.structuredEventRows[pairRenderF2FS])

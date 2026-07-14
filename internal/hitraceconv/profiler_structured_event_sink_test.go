@@ -218,7 +218,8 @@ func TestProfilerStructuredEventFieldSurvivesSpillAndFiltering(t *testing.T) {
 	closeErr := reader.close()
 	spilled := record.row
 	if readErr != nil || eofErr != nil || closeErr != nil || !ok || more ||
-		!spilled.structuredPair || spilled.profilerEventField != 4011 {
+		spilled.provenance.Flags != profilerPairRowProvenanceStructured ||
+		spilled.provenance.EndpointSlot != profilerPairEndpointF2FSWriteBegin {
 		t.Fatalf("spilled typed provenance drifted: row=%+v ok=%t more=%t read=%v eof=%v close=%v",
 			spilled, ok, more, readErr, eofErr, closeErr)
 	}

@@ -151,6 +151,24 @@ func (proof *profilerSourceOrderProof) validMutableState() bool {
 // tail, so the fixed 12-byte typed provenance is appended by commitPreparedRow.
 // An error never changes count or the committed rolling state.
 func (proof *profilerSourceOrderProof) prepareRowContext(ctx context.Context, row renderedRow, ordinal uint64) error {
+	return proof.prepareStoredScalarsContext(ctx, row.tsNS, row.seq, row.line, ordinal)
+}
+
+func (proof *profilerSourceOrderProof) prepareStoredRowContext(
+	ctx context.Context,
+	row traceDBStoredRow,
+	ordinal uint64,
+) error {
+	return proof.prepareStoredScalarsContext(ctx, row.tsNS, row.seq, row.line, ordinal)
+}
+
+func (proof *profilerSourceOrderProof) prepareStoredScalarsContext(
+	ctx context.Context,
+	tsNS uint64,
+	seq int,
+	line string,
+	ordinal uint64,
+) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -162,7 +180,7 @@ func (proof *profilerSourceOrderProof) prepareRowContext(ctx context.Context, ro
 		return &traceDBOutputInvariantError{Reason: "profiler_source_order_proof_state_invalid"}
 	}
 	if err := prepareProfilerSourceOrderLeafContext(
-		ctx, proof.hasher, proof.workspace, proof.scratch, row, ordinal,
+		ctx, proof.hasher, proof.workspace, proof.scratch, tsNS, seq, line, ordinal,
 	); err != nil {
 		return err
 	}
@@ -175,7 +193,9 @@ func prepareProfilerSourceOrderLeafContext(
 	hasher hash.Hash,
 	workspace *profilerSourceOrderProofWorkspace,
 	scratch []byte,
-	row renderedRow,
+	tsNS uint64,
+	seq int,
+	line string,
 	ordinal uint64,
 ) error {
 	if ctx == nil {
@@ -188,7 +208,7 @@ func prepareProfilerSourceOrderLeafContext(
 		&scratch[0] != &workspace.scratch[0] {
 		return &traceDBOutputInvariantError{Reason: "profiler_source_order_leaf_workspace_invalid"}
 	}
-	if row.seq < 0 {
+	if seq < 0 {
 		return &traceDBOutputInvariantError{Reason: "profiler_source_order_proof_sequence_invalid"}
 	}
 
@@ -199,22 +219,22 @@ func prepareProfilerSourceOrderLeafContext(
 	offset += 2
 	binary.LittleEndian.PutUint64(prefix[offset:], ordinal)
 	offset += 8
-	binary.LittleEndian.PutUint64(prefix[offset:], row.tsNS)
+	binary.LittleEndian.PutUint64(prefix[offset:], tsNS)
 	offset += 8
-	binary.LittleEndian.PutUint64(prefix[offset:], uint64(row.seq))
+	binary.LittleEndian.PutUint64(prefix[offset:], uint64(seq))
 	offset += 8
-	binary.LittleEndian.PutUint64(prefix[offset:], uint64(len(row.line)))
+	binary.LittleEndian.PutUint64(prefix[offset:], uint64(len(line)))
 	_, _ = hasher.Write(prefix[:]) // crypto hashes never return a write error.
 
 	processed := uint64(0)
-	for start := 0; start < len(row.line); {
-		end := min(start+len(scratch), len(row.line))
+	for start := 0; start < len(line); {
+		end := min(start+len(scratch), len(line))
 		if err := profilerByteContextCheckpoint(ctx, &processed, uint64(end-start)); err != nil {
 			hasher.Reset()
 			return err
 		}
 		chunk := scratch[:end-start]
-		copy(chunk, row.line[start:end])
+		copy(chunk, line[start:end])
 		_, _ = hasher.Write(chunk) // crypto hashes never return a write error.
 		start = end
 	}
@@ -244,14 +264,15 @@ func finishProfilerSourceOrderLeaf(
 
 func (builder *profilerSourceOrderLeafBuilder) leafContext(
 	ctx context.Context,
-	row renderedRow,
+	row traceDBStoredRow,
 	ordinal uint64,
 ) ([sha256.Size]byte, error) {
 	if builder == nil || builder.hasher == nil || builder.workspace == nil {
 		return [sha256.Size]byte{}, &traceDBOutputInvariantError{Reason: "profiler_source_order_leaf_builder_invalid"}
 	}
 	if err := prepareProfilerSourceOrderLeafContext(
-		ctx, builder.hasher, builder.workspace, builder.scratch, row, ordinal,
+		ctx, builder.hasher, builder.workspace, builder.scratch,
+		row.tsNS, row.seq, row.line, ordinal,
 	); err != nil {
 		return [sha256.Size]byte{}, err
 	}

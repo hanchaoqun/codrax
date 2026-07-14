@@ -63,6 +63,36 @@ func (row renderedRow) profilerProvenance() profilerPairRowProvenance {
 	}
 }
 
+func (row renderedRow) profilerNeutral() bool {
+	return row.pairKind == pairRenderUnknown &&
+		row.profilerEndpointSlot == profilerPairEndpointNone &&
+		row.profilerPublisherSlot == profilerPairPublisherNone &&
+		row.profilerProvenanceFlags == 0 && row.profilerLaneID == 0 &&
+		row.pairLane == "" && row.pairTable == "" && !row.structuredPair &&
+		row.profilerTextMessageOrdinal == 0 && row.profilerEventField == 0
+}
+
+// traceDBStoredRow is the only row shape retained by the bounded sorter and
+// written to authenticated runs. Raw lane/table/field aliases exist only while
+// renderedRow is admitted; after the closed provenance tuple is staged they
+// must not become a second semantic authority in memory or on disk.
+type traceDBStoredRow struct {
+	tsNS       uint64
+	seq        int
+	line       string
+	provenance profilerPairRowProvenance
+}
+
+func compactTraceDBStoredRow(row renderedRow) traceDBStoredRow {
+	return traceDBStoredRow{
+		tsNS: row.tsNS, seq: row.seq, line: row.line, provenance: row.profilerProvenance(),
+	}
+}
+
+func (row traceDBStoredRow) profilerProvenance() profilerPairRowProvenance {
+	return row.provenance
+}
+
 // ConvertFile converts a binary Harmony/OpenHarmony HiTrace capture to a
 // ftrace/systrace-compatible text file. It never overwrites the output path.
 func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {

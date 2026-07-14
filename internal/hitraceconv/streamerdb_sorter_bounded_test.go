@@ -46,7 +46,7 @@ func traceDBBoundedTestOptions(bufferBytes, maximumRunRowBytes uint64, fanIn int
 func traceDBBoundedPhysicalRowSize(t *testing.T, row renderedRow, ingestOrdinal uint64) uint64 {
 	t.Helper()
 	raw, err := json.Marshal(traceDBChunkRowFor(traceDBBufferedRunRow{
-		row: row, ingestOrdinal: ingestOrdinal,
+		row: compactTraceDBStoredRow(row), ingestOrdinal: ingestOrdinal,
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -161,7 +161,7 @@ func TestTraceDBRowSorterRetainedByteGateBoundaries(t *testing.T) {
 		if err := sink.add(second); err != nil {
 			t.Fatal(err)
 		}
-		secondBytes, _ := traceDBRenderedRowRetainedBytes(second)
+		secondBytes, _ := traceDBStoredRowRetainedBytes(compactTraceDBStoredRow(second))
 		if len(sink.runs) != 1 || len(sink.rows) != 1 || sink.rows[0].line != "b" ||
 			sink.bufferedBytes != secondBytes || sink.stats.PeakBufferedBytes != capBytes-1 {
 			t.Fatalf("append gate was applied after mutation: runs=%d rows=%d buffered=%d peak=%d",
@@ -170,8 +170,11 @@ func TestTraceDBRowSorterRetainedByteGateBoundaries(t *testing.T) {
 	})
 
 	t.Run("metadata participates in byte gate", func(t *testing.T) {
-		row := renderedRow{tsNS: 1, seq: 1, line: "x", pairLane: strings.Repeat("l", 127), pairTable: strings.Repeat("t", 128)}
-		retained, ok := traceDBRenderedRowRetainedBytes(row)
+		row := renderedRow{
+			tsNS: 1, seq: 1,
+			line: strings.Repeat("x", int(bufferCap-traceDBBufferedRowMetadataBytes)),
+		}
+		retained, ok := traceDBStoredRowRetainedBytes(compactTraceDBStoredRow(row))
 		if !ok || retained != bufferCap {
 			t.Fatalf("fixture retained bytes=%d ok=%t want=%d", retained, ok, bufferCap)
 		}
@@ -194,7 +197,7 @@ func TestTraceDBRowSorterRetainedByteGateBoundaries(t *testing.T) {
 			t.Fatalf("fixed metadata charge=%d want=256", traceDBBufferedRowMetadataBytes)
 		}
 		row := renderedRow{tsNS: 1, seq: 1, line: "x"}
-		rowBytes, ok := traceDBRenderedRowRetainedBytes(row)
+		rowBytes, ok := traceDBStoredRowRetainedBytes(compactTraceDBStoredRow(row))
 		if !ok {
 			t.Fatal("retained byte fixture overflowed")
 		}
@@ -219,7 +222,7 @@ func TestTraceDBRowSorterRetainedByteGateBoundaries(t *testing.T) {
 			t.Fatalf("fixture did not exercise spare slice capacity: rows=%d/%d ordinals=%d/%d",
 				len(sink.rows), cap(sink.rows), len(sink.rowIngestOrdinals), cap(sink.rowIngestOrdinals))
 		}
-		physicalEstimate := uint64(cap(sink.rows))*uint64(unsafe.Sizeof(renderedRow{})) +
+		physicalEstimate := uint64(cap(sink.rows))*uint64(unsafe.Sizeof(traceDBStoredRow{})) +
 			uint64(cap(sink.rowIngestOrdinals))*uint64(unsafe.Sizeof(uint64(0))) +
 			uint64(unsafe.Sizeof(sink.rows)+unsafe.Sizeof(sink.rowIngestOrdinals)) + cohortRows
 		if sink.bufferedBytes != rowBytes*cohortRows || sink.bufferedBytes > capBytes ||
@@ -321,26 +324,32 @@ func TestTraceDBRowSorterRetainedByteGateBoundaries(t *testing.T) {
 		parent := strings.Repeat("p", 2<<20)
 		line := parent[17:49]
 		lane := parent[1<<20 : (1<<20)+32]
-		table := parent[(1<<20)+100 : (1<<20)+132]
 		sink, err := newTraceDBRowSinkWithOptions(t.TempDir(), 100,
 			traceDBBoundedTestOptions(8<<20, 2<<20, 4))
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer func() { _ = sink.cleanup() }()
-		if err := sink.add(renderedRow{tsNS: 1, seq: 1, line: line, pairLane: lane, pairTable: table}); err != nil {
+		if err := sink.add(renderedRow{
+			tsNS: 1, seq: 1, line: line, pairKind: pairRenderF2FS,
+			pairLane: lane, pairTable: "f2fs_write_begin",
+		}); err != nil {
 			t.Fatal(err)
 		}
 		stored := sink.rows[0]
+		canonicalLane, ok := sink.pairLaneRegistries[pairRenderF2FS].key(stored.provenance.LaneID)
+		if !ok {
+			t.Fatalf("stored lane provenance is not registered: %+v", stored.provenance)
+		}
 		if unsafe.StringData(stored.line) == unsafe.StringData(line) ||
-			unsafe.StringData(stored.pairLane) == unsafe.StringData(lane) ||
-			unsafe.StringData(stored.pairTable) == unsafe.StringData(table) {
+			unsafe.StringData(canonicalLane) == unsafe.StringData(lane) {
 			t.Fatalf("sink retained parent-backed substring: stored=%+v", stored)
 		}
-		if stored.line != line || stored.pairLane != lane || stored.pairTable != table {
+		if stored.line != line || canonicalLane != lane ||
+			stored.provenance.EndpointSlot != profilerPairEndpointF2FSWriteBegin {
 			t.Fatalf("cloning changed row bytes: stored=%+v", stored)
 		}
-		retained, ok := traceDBRenderedRowRetainedBytes(stored)
+		retained, ok := traceDBStoredRowRetainedBytes(stored)
 		if !ok || sink.bufferedBytes != retained {
 			t.Fatalf("cloned row byte accounting drifted: buffered=%d retained=%d ok=%t", sink.bufferedBytes, retained, ok)
 		}
@@ -607,7 +616,6 @@ func TestTraceDBRowSorterRequiresPreflightAndFreezesMutation(t *testing.T) {
 		t.Fatalf("preflight did not freeze one final run: prepared=%t runs=%d", sink.prepared, len(sink.runs))
 	}
 	manifest := sink.runs[0]
-	pairMappings := len(sink.pairRowMappings)
 	if err := sink.prepareForPublication(context.Background()); err != nil {
 		t.Fatalf("idempotent preflight failed: %v", err)
 	}
@@ -616,7 +624,7 @@ func TestTraceDBRowSorterRequiresPreflightAndFreezesMutation(t *testing.T) {
 	}
 	sink.poisonPairKind(pairRenderMMC)
 	sink.markPairCaptureOpaque(pairRenderF2FS)
-	if len(sink.runs) != 1 || sink.runs[0] != manifest || len(sink.pairRowMappings) != pairMappings ||
+	if len(sink.runs) != 1 || sink.runs[0] != manifest ||
 		sink.poisoned[pairRenderMMC] || sink.opaque[pairRenderF2FS] {
 		t.Fatalf("post-prepare mutation changed frozen authority: runs=%+v poison=%v opaque=%v",
 			sink.runs, sink.poisoned, sink.opaque)
@@ -1205,7 +1213,7 @@ func TestTraceDBRowSorterContextAndFaultCleanup(t *testing.T) {
 	})
 }
 
-func TestTraceDBRowSorterMultiLevelPairMappingAndWithholdParity(t *testing.T) {
+func TestTraceDBRowSorterMultiLevelCompactProvenanceAndWithholdParity(t *testing.T) {
 	rows := []renderedRow{
 		{tsNS: 100, seq: 0, line: "ordinary-first"},
 		{tsNS: 200, seq: 1, line: "block-drop-start", pairKind: pairRenderBlock, pairLane: "block-drop", pairTable: "block_bio_queue", structuredPair: true, profilerEventField: 204},
@@ -1233,32 +1241,43 @@ func TestTraceDBRowSorterMultiLevelPairMappingAndWithholdParity(t *testing.T) {
 		}
 		sink.poisonPairLane(pairRenderBlock, "block-drop")
 		sink.poisonPairKind(pairRenderMMC)
-		if len(sink.pairRowMappings) != 6 {
-			t.Fatalf("pair publisher map=%d want=6", len(sink.pairRowMappings))
-		}
-		for _, row := range rows {
-			if row.pairKind == pairRenderUnknown {
-				continue
-			}
-			expected := row
-			slot, ok := profilerPairEndpointForStructuredField(row.profilerEventField)
-			if !ok {
-				t.Fatalf("fixture field %d has no typed endpoint", row.profilerEventField)
-			}
-			expected.profilerLaneID = 1
-			expected.profilerEndpointSlot = slot
-			expected.profilerProvenanceFlags = profilerPairRowProvenanceStructured
-			mapping, ok := sink.pairRowMappings[row.seq]
-			if !ok || !mapping.matches(expected) {
-				t.Fatalf("pair mapping drifted before merge: seq=%d mapping=%+v expected=%+v", row.seq, mapping, expected)
-			}
-		}
 		if err := sink.prepareForPublication(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 		if len(sink.runs) != 1 || sink.runs[0].rowCount != uint64(len(rows)) ||
 			sink.stats.PeakOpenRunFDs > fanIn+1 {
 			t.Fatalf("pair merge manifest drifted: runs=%+v stats=%+v", sink.runs, sink.stats)
+		}
+		reader, err := sink.openAuthenticatedRunReader(sink.runs[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		pairRows := 0
+		for {
+			record, ok, readErr := reader.next(context.Background())
+			if readErr != nil {
+				_ = reader.close()
+				t.Fatal(readErr)
+			}
+			if !ok {
+				break
+			}
+			if record.row.provenance.PairKind == pairRenderUnknown {
+				continue
+			}
+			pairRows++
+			if record.row.provenance.LaneID != 1 ||
+				record.row.provenance.EndpointSlot == profilerPairEndpointNone ||
+				record.row.provenance.Flags != profilerPairRowProvenanceStructured {
+				_ = reader.close()
+				t.Fatalf("compact pair provenance drifted: %+v", record.row.provenance)
+			}
+		}
+		if err := reader.close(); err != nil {
+			t.Fatal(err)
+		}
+		if pairRows != 6 {
+			t.Fatalf("compact pair rows=%d want=6", pairRows)
 		}
 		var output bytes.Buffer
 		stats, err := sink.writeTo(context.Background(), &output)

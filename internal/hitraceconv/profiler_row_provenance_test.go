@@ -206,24 +206,24 @@ func TestProfilerPairRowProvenanceFixedShapeAndValidity(t *testing.T) {
 	}
 }
 
-func TestProfilerPairRowProvenanceUsesExistingRenderedRowBudget(t *testing.T) {
+func TestProfilerPairRowProvenanceUsesCompactStoredRowBudget(t *testing.T) {
 	if unsafe.Sizeof(uintptr(0)) != 8 {
 		t.Skip("the zero-growth rendered-row layout contract is pinned on 64-bit targets")
 	}
 	if got := unsafe.Sizeof(renderedRow{}); got != 88 {
 		t.Fatalf("rendered row size=%d want=88", got)
 	}
-	if got := unsafe.Sizeof(profilerPairRowMapping{}); got != 56 {
-		t.Fatalf("legacy parity mapping size=%d want=56", got)
+	if got := unsafe.Sizeof(traceDBStoredRow{}); got != 48 {
+		t.Fatalf("stored row size=%d want=48", got)
 	}
-	if got := unsafe.Sizeof(traceDBChunkRow{}); got != 96 {
-		t.Fatalf("chunk row size=%d want=96", got)
+	if got := unsafe.Sizeof(traceDBChunkRow{}); got != 56 {
+		t.Fatalf("chunk row size=%d want=56", got)
 	}
-	if got := unsafe.Sizeof(traceDBChunkWireRow{}); got != 88 {
-		t.Fatalf("chunk wire row size=%d want=88", got)
+	if got := unsafe.Sizeof(traceDBChunkWireRow{}); got != 40 {
+		t.Fatalf("chunk wire row size=%d want=40", got)
 	}
-	if traceDBBufferedRowMetadataProofBytes != 240 || traceDBBufferedRowMetadataBytes != 256 {
-		t.Fatalf("metadata proof=%d charge=%d want=240/256",
+	if traceDBBufferedRowMetadataProofBytes != 160 || traceDBBufferedRowMetadataBytes != 256 {
+		t.Fatalf("metadata proof=%d charge=%d want=160/256",
 			traceDBBufferedRowMetadataProofBytes, traceDBBufferedRowMetadataBytes)
 	}
 }
@@ -350,6 +350,26 @@ func TestProfilerPairRowProvenanceWireRequiresEveryScalar(t *testing.T) {
 			t.Fatalf("object provenance wire was admitted: %s", raw)
 		}
 	})
+	for _, legacyField := range []string{
+		"pair_lane", "pair_table", "profiler_event_field", "pair_kind", "structured_pair",
+	} {
+		t.Run("legacy top-level field/"+legacyField, func(t *testing.T) {
+			var outer map[string]json.RawMessage
+			if err := json.Unmarshal(base, &outer); err != nil {
+				t.Fatal(err)
+			}
+			outer[legacyField] = json.RawMessage(`0`)
+			raw, err := json.Marshal(outer)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, decodeErr := decodeTraceDBRunRecord(append(raw, '\n'), 1)
+			if !traceDBInvariantChainContains(decodeErr, "trace_row_sort_run_decode_failed") {
+				t.Fatalf("retired run field %q was not rejected fail-loud: err=%v wire=%s",
+					legacyField, decodeErr, raw)
+			}
+		})
+	}
 }
 
 func traceDBInvariantChainContains(err error, reason string) bool {
@@ -401,14 +421,8 @@ func TestProfilerPairRowProvenanceWireRoundTripsClosedEndpoints(t *testing.T) {
 					LaneID: 1, TextMessageOrdinal: mode.ordinal, PairKind: descriptor.kind,
 					EndpointSlot: descriptor.slot, PublisherSlot: mode.publisher, Flags: mode.flags,
 				}
-				field := 0
-				if mode.structured {
-					field = descriptor.structuredField
-				}
 				raw, err := json.Marshal(traceDBChunkRow{
-					TSNS: 1, Seq: 1, IngestOrdinal: 0, Line: "row", PairKind: descriptor.kind,
-					PairLane: "lane", PairTable: descriptor.name, StructuredPair: mode.structured,
-					ProfilerEventField: field, ProfilerProvenance: provenance,
+					TSNS: 1, Seq: 1, IngestOrdinal: 0, Line: "row", ProfilerProvenance: provenance,
 				})
 				if err != nil {
 					t.Fatal(err)

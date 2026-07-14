@@ -212,34 +212,37 @@ func profilerSourceOrderSidecarRecordUnwritten(wire []byte) bool {
 }
 
 func (s *traceDBRowSink) typedProfilerSourceOrderDisposition(
-	row renderedRow,
+	row traceDBStoredRow,
 ) (profilerSourceOrderDisposition, error) {
 	if s == nil || s.captureLifecycle == profilerCaptureInactive {
 		return profilerSourceOrderDispositionInvalid, &traceDBOutputInvariantError{
 			Reason: "profiler_source_order_disposition_state_invalid",
 		}
 	}
-	if err := validateProfilerPairRowProvenance(row); err != nil {
-		return profilerSourceOrderDispositionInvalid, err
+	provenance := row.profilerProvenance()
+	if !provenance.valid() {
+		return profilerSourceOrderDispositionInvalid, &traceDBOutputInvariantError{
+			Reason: "profiler_row_provenance_invalid",
+		}
 	}
 	if s.allRowsFailClosed {
 		return profilerSourceOrderDispositionWithhold, nil
 	}
-	if row.pairKind == pairRenderUnknown {
+	if provenance.PairKind == pairRenderUnknown {
 		return profilerSourceOrderDispositionPublish, nil
 	}
-	if !profilerPairKindValid(row.pairKind) {
+	if !profilerPairKindValid(provenance.PairKind) {
 		return profilerSourceOrderDispositionInvalid, &traceDBOutputInvariantError{
 			Reason: "profiler_source_order_disposition_kind_invalid",
 		}
 	}
-	if s.pairAuthorityFailure != "" || s.poisoned[row.pairKind] {
+	if s.pairAuthorityFailure != "" || s.poisoned[provenance.PairKind] {
 		return profilerSourceOrderDispositionWithhold, nil
 	}
-	if row.profilerLaneID == 0 {
+	if provenance.LaneID == 0 {
 		return profilerSourceOrderDispositionPublish, nil
 	}
-	state, ok := s.pairLaneRegistries[row.pairKind].state(row.profilerLaneID)
+	state, ok := s.pairLaneRegistries[provenance.PairKind].state(provenance.LaneID)
 	if !ok {
 		return profilerSourceOrderDispositionInvalid, &traceDBOutputInvariantError{
 			Reason: "profiler_source_order_disposition_lane_missing",
@@ -249,21 +252,6 @@ func (s *traceDBRowSink) typedProfilerSourceOrderDisposition(
 		return profilerSourceOrderDispositionWithhold, nil
 	}
 	return profilerSourceOrderDispositionPublish, nil
-}
-
-func (s *traceDBRowSink) profilerSourceOrderDispositionWithLegacyParity(
-	row renderedRow,
-) (profilerSourceOrderDisposition, error) {
-	disposition, err := s.typedProfilerSourceOrderDisposition(row)
-	if err != nil {
-		return profilerSourceOrderDispositionInvalid, err
-	}
-	if disposition.publishable() != s.rowPublishable(row) {
-		return profilerSourceOrderDispositionInvalid, &traceDBOutputInvariantError{
-			Reason: "profiler_source_order_disposition_legacy_mismatch",
-		}
-	}
-	return disposition, nil
 }
 
 func (s *traceDBRowSink) createPendingProfilerSourceOrderSidecar() (*os.File, string, error) {
@@ -800,9 +788,13 @@ func (s *traceDBRowSink) buildProfilerSourceOrderSidecar(ctx context.Context) er
 			streamErr = leafErr
 			break
 		}
-		disposition, dispositionErr := s.profilerSourceOrderDispositionWithLegacyParity(record.row)
+		disposition, dispositionErr := s.typedProfilerSourceOrderDisposition(record.row)
 		if dispositionErr != nil {
-			streamErr = dispositionErr
+			// The producer registries and fixed counters were validated before
+			// this pass. A compact run tuple which can no longer resolve against
+			// that authority is registered-input drift, just like a leaf/root
+			// mismatch; classify it before the row can influence publication.
+			streamErr = traceDBRunInputIntegrity(dispositionErr)
 			break
 		}
 		_, offsetErr := profilerSourceOrderSidecarRecordOffset(record.ingestOrdinal, expectedCount)
@@ -1019,7 +1011,7 @@ func (proof *profilerSourceOrderPublicationProof) verifyRunRecord(
 			Reason: "profiler_source_order_sidecar_row_mismatch",
 		}
 	}
-	disposition, err := proof.sink.profilerSourceOrderDispositionWithLegacyParity(record.row)
+	disposition, err := proof.sink.typedProfilerSourceOrderDisposition(record.row)
 	if err != nil {
 		return profilerSourceOrderDispositionInvalid, err
 	}

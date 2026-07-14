@@ -71,8 +71,8 @@ func traceDBFrameB2Export(t *testing.T, statements []string, lifecycle traceDBLi
 	if err != nil {
 		t.Fatalf("export frame lifecycle fixture: %v coverage=%+v", err, coverage)
 	}
-	rows := append([]renderedRow(nil), sink.rows...)
-	sortRenderedRows(rows)
+	rows := append([]traceDBStoredRow(nil), sink.rows...)
+	sortTraceDBStoredRows(rows)
 	lines := make([]string, 0, len(rows))
 	for _, row := range rows {
 		lines = append(lines, row.line)

@@ -3,7 +3,6 @@ package hitraceconv
 import (
 	"os"
 	"testing"
-	"unsafe"
 )
 
 func TestProfilerPairLaneRegistryInternsOncePerFamily(t *testing.T) {
@@ -27,18 +26,15 @@ func TestProfilerPairLaneRegistryInternsOncePerFamily(t *testing.T) {
 	}
 	if len(sink.pairLaneRegistries[pairRenderF2FS].states) != 1 ||
 		len(sink.pairLaneRegistries[pairRenderMMC].states) != 1 ||
-		sink.rows[0].profilerLaneID != 1 || sink.rows[1].profilerLaneID != 1 || sink.rows[2].profilerLaneID != 1 {
+		sink.rows[0].provenance.LaneID != 1 || sink.rows[1].provenance.LaneID != 1 ||
+		sink.rows[2].provenance.LaneID != 1 {
 		t.Fatalf("lane registry did not intern once per family: f2fs=%+v mmc=%+v rows=%+v",
 			sink.pairLaneRegistries[pairRenderF2FS], sink.pairLaneRegistries[pairRenderMMC], sink.rows)
 	}
-	for key := range sink.pairLaneRegistries[pairRenderF2FS].byKey {
-		if unsafe.StringData(key) != unsafe.StringData(sink.rows[0].pairLane) {
-			t.Fatalf("owned first lane was cloned twice: key=%q row=%q", key, sink.rows[0].pairLane)
-		}
-	}
-	descriptor, _ := profilerPairEndpointF2FSWriteBegin.descriptor()
-	if unsafe.StringData(sink.rows[0].pairTable) != unsafe.StringData(descriptor.name) {
-		t.Fatal("closed endpoint table did not reuse the static roster string")
+	if sink.pairLaneRegistries[pairRenderF2FS].keys[0] != "shared" ||
+		sink.rows[0].provenance.EndpointSlot != profilerPairEndpointF2FSWriteBegin ||
+		sink.rows[1].provenance.EndpointSlot != profilerPairEndpointF2FSWriteEnd {
+		t.Fatal("compact stored provenance lost canonical lane or closed endpoint identity")
 	}
 	if sink.pairLaneRows[pairRenderF2FS]["shared"] != 2 || sink.pairLaneRows[pairRenderMMC]["shared"] != 1 {
 		t.Fatalf("typed/legacy lane totals drifted: f2fs=%v mmc=%v",
@@ -83,21 +79,14 @@ func TestProfilerPairLaneRegistryDenseIDsSurviveSpill(t *testing.T) {
 	}
 	wantIDs := []uint32{1, 2, 1}
 	for index, wantID := range wantIDs {
-		mapping := sink.pairRowMappings[index+1]
-		if mapping.profilerLaneID != wantID {
-			t.Fatalf("mapping[%d] lane id=%d want=%d", index, mapping.profilerLaneID, wantID)
-		}
 		raw, err := os.ReadFile(sink.runs[index].path)
 		if err != nil {
 			t.Fatal(err)
 		}
 		record, err := decodeTraceDBRunRecord(raw, uint64(len(wantIDs)))
-		if err != nil || record.row.profilerLaneID != wantID {
-			t.Fatalf("spill[%d] lane id=%d want=%d err=%v", index, record.row.profilerLaneID, wantID, err)
+		if err != nil || record.row.provenance.LaneID != wantID {
+			t.Fatalf("spill[%d] lane id=%d want=%d err=%v", index, record.row.provenance.LaneID, wantID, err)
 		}
-	}
-	if unsafe.StringData(sink.pairRowMappings[1].lane) != unsafe.StringData(sink.pairRowMappings[3].lane) {
-		t.Fatal("repeated lane did not reuse the registry-owned canonical bytes")
 	}
 	if err := sink.validateProfilerPairAccounting(); err != nil {
 		t.Fatalf("dense spill parity failed: %v", err)

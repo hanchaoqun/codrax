@@ -130,7 +130,7 @@ func TestProfilerGenericTextTailSpillFailureKeepsCurrentTransactionWhole(t *test
 				registry := &sink.pairLaneRegistries[pairRenderF2FS]
 				laneID, laneFound := registry.idFor(admission.Lane)
 				state, stateFound := registry.state(laneID)
-				var row renderedRow
+				var row traceDBStoredRow
 				if len(sink.rows) == 1 {
 					row = sink.rows[0]
 				}
@@ -150,8 +150,8 @@ func TestProfilerGenericTextTailSpillFailureKeepsCurrentTransactionWhole(t *test
 				census := sink.activePairCensus[pairRenderF2FS]
 				if !errors.Is(rowErr, want) || rows != 1 || seq != 24 ||
 					sink.stats.RowsAccepted != 1 || len(sink.rows) != 1 || len(sink.runs) != 0 ||
-					sink.nextIngestOrdinal != 1 || row.seq != 23 || row.pairKind != pairRenderF2FS ||
-					row.pairLane != admission.Lane || row.profilerEndpointSlot != admission.EndpointSlot ||
+					sink.nextIngestOrdinal != 1 || row.seq != 23 || provenance.PairKind != pairRenderF2FS ||
+					provenance.EndpointSlot != admission.EndpointSlot ||
 					provenance.PublisherSlot != publisher.publisher || provenance.Flags != wantFlags ||
 					provenance.TextMessageOrdinal != wantOrdinal || !laneFound || !stateFound || state == nil ||
 					!state.poisoned || laneID == 0 || provenance.LaneID != laneID ||

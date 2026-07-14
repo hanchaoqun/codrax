@@ -17,7 +17,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"unicode/utf8"
 	"unsafe"
 )
 
@@ -32,17 +31,17 @@ const (
 	// capacity below 2x logical length. The compile-time proof below makes 256
 	// bytes/logical row cover both backing arrays and slice headers.
 	traceDBBufferedRowMetadataBytes uint64 = 256
-	// encoding/json escapes each byte of the three bounded string fields by at
-	// most six bytes. Keep additional room for keys and numeric punctuation.
+	// encoding/json escapes each byte of the sole stored line field by at most
+	// six bytes. Keep additional room for keys and numeric punctuation.
 	defaultTraceDBMaxPhysicalRunRowBytes uint64 = 24 << 20
 )
 
 // The controlled doubling allocator below guarantees cap < 2*len for every
 // non-empty buffer. This compile-time proof includes both backing arrays and
-// both slice headers; adding fields to renderedRow or changing an architecture
+// both slice headers; adding fields to traceDBStoredRow or changing an architecture
 // cannot silently invalidate the fixed per-row charge.
-const traceDBBufferedRowMetadataProofBytes = int(2*(unsafe.Sizeof(renderedRow{})+unsafe.Sizeof(uint64(0))) +
-	unsafe.Sizeof([]renderedRow(nil)) + unsafe.Sizeof([]uint64(nil)))
+const traceDBBufferedRowMetadataProofBytes = int(2*(unsafe.Sizeof(traceDBStoredRow{})+unsafe.Sizeof(uint64(0))) +
+	unsafe.Sizeof([]traceDBStoredRow(nil)) + unsafe.Sizeof([]uint64(nil)))
 
 var _ [int(traceDBBufferedRowMetadataBytes) - traceDBBufferedRowMetadataProofBytes]byte
 
@@ -277,7 +276,7 @@ type traceDBRowSink struct {
 	threshold            int
 	tempDir              string
 	ownDir               string
-	rows                 []renderedRow
+	rows                 []traceDBStoredRow
 	rowIngestOrdinals    []uint64
 	bufferedBytes        uint64
 	nextIngestOrdinal    uint64
@@ -313,8 +312,6 @@ type traceDBRowSink struct {
 	nextTextMessage      uint32
 	legacyPairProof      profilerPairProofDomain
 	blockPairProof       profilerPairProofDomain
-	pairRowCapacity      int64
-	pairRowMappings      map[int]profilerPairRowMapping
 	blockLaneClocks      map[string]profilerBlockLaneClock
 	pairAuthorityFailure string
 	captureLifecycle     profilerCaptureLifecycle
@@ -322,6 +319,7 @@ type traceDBRowSink struct {
 	captureBreach        string
 	captureSourceFailure string
 	allRowsFailClosed    bool
+	inactiveOrdinaryOnly bool
 	profilerSourceProof  profilerSourceOrderProof
 	sourceOrderSidecar   profilerSourceOrderSidecarManifest
 }
@@ -350,24 +348,6 @@ type profilerPairProofDomain struct {
 type profilerBlockLaneClock struct {
 	seq  int
 	tsNS uint64
-}
-
-// profilerPairRowMapping is the immutable publisher-side semantic provenance
-// for one pair-critical row. All semantic fields must match on readback so kind,
-// lane and structured endpoint ownership cannot drift. The sole typed run
-// manifest proves every physical spill byte, including tsNS, line and ordinary
-// rows which intentionally do not enter this pair-only map.
-type profilerPairRowMapping struct {
-	lane                       string
-	table                      string
-	profilerEventField         int
-	profilerLaneID             uint32
-	profilerTextMessageOrdinal uint32
-	kind                       pairRenderKind
-	profilerEndpointSlot       profilerPairEndpointSlot
-	profilerPublisherSlot      profilerPairPublisherSlot
-	profilerProvenanceFlags    profilerPairRowProvenanceFlags
-	structuredPair             bool
 }
 
 // traceDBProfilerEventDelta is the fixed-width pair proof mutation staged by
@@ -489,6 +469,19 @@ func newTraceDBRowSink(tempDir string, threshold int) (*traceDBRowSink, error) {
 	return newTraceDBRowSinkWithOptions(tempDir, threshold, traceDBRowSinkOptions{})
 }
 
+// newTraceDBInactiveOrdinaryRowSink is the production constructor for SQL and
+// generic sources. Those sources have no Profiler capture lifecycle and may
+// retain only ordinary rows; pair provenance is accepted solely after an
+// explicit Profiler capture open (or by source-neutral unit fixtures).
+func newTraceDBInactiveOrdinaryRowSink(tempDir string, threshold int) (*traceDBRowSink, error) {
+	sink, err := newTraceDBRowSink(tempDir, threshold)
+	if err != nil {
+		return nil, err
+	}
+	sink.inactiveOrdinaryOnly = true
+	return sink, nil
+}
+
 func newTraceDBRowSinkWithOptions(tempDir string, threshold int, options traceDBRowSinkOptions) (*traceDBRowSink, error) {
 	if threshold <= 0 {
 		threshold = defaultTraceDBRowSinkThreshold
@@ -517,8 +510,6 @@ func newTraceDBRowSinkWithOptions(tempDir string, threshold int, options traceDB
 			maxObservations: profilerPairBarrierMaxObservations,
 			maxLaneKeys:     profilerPairBarrierMaxLaneKeys,
 		},
-		pairRowCapacity: profilerPairBarrierMaxObservations,
-		pairRowMappings: make(map[int]profilerPairRowMapping),
 		blockLaneClocks: make(map[string]profilerBlockLaneClock),
 	}
 	if sink.tempDir == "" {
@@ -551,7 +542,7 @@ func (s *traceDBRowSink) profilerCapturePreOpenStatePristine() bool {
 		len(s.pairTableRows) != 0 || len(s.pairTableTotals) != 0 || len(s.poisoned) != 0 ||
 		len(s.poisonedLanes) != 0 || len(s.opaque) != 0 || len(s.structuredPairRows) != 0 ||
 		len(s.structuredLaneRows) != 0 || len(s.structuredEventRows) != 0 ||
-		len(s.structuredEventLanes) != 0 || len(s.pairRowMappings) != 0 || len(s.blockLaneClocks) != 0 ||
+		len(s.structuredEventLanes) != 0 || len(s.blockLaneClocks) != 0 ||
 		s.legacyPairProof.observations != 0 || s.legacyPairProof.laneKeys != 0 ||
 		s.legacyPairProof.failureReason != "" || s.blockPairProof.observations != 0 ||
 		s.blockPairProof.laneKeys != 0 || s.blockPairProof.failureReason != "" ||
@@ -572,6 +563,9 @@ func (s *traceDBRowSink) profilerCapturePreOpenStatePristine() bool {
 func (s *traceDBRowSink) openProfilerCapture(sourcePath string) error {
 	if s == nil {
 		return &traceDBOutputInvariantError{Reason: "profiler_capture_sink_missing"}
+	}
+	if s.inactiveOrdinaryOnly {
+		return &traceDBOutputInvariantError{Reason: "profiler_capture_ordinary_sink_forbidden"}
 	}
 	if s.captureLifecycle != profilerCaptureInactive || s.captureSource != "" ||
 		s.stats.RowsAccepted != 0 || len(s.rows) != 0 ||
@@ -770,6 +764,9 @@ func (s *traceDBRowSink) commitProfilerEventDeltaContext(ctx context.Context, de
 	if s == nil {
 		return &traceDBOutputInvariantError{Reason: "trace_row_sink_missing"}
 	}
+	if s.inactiveOrdinaryOnly {
+		return &traceDBOutputInvariantError{Reason: "trace_row_sink_inactive_profiler_mutation"}
+	}
 	if !s.profilerMutationAllowed("profiler_capture_event_delta_after_seal") {
 		reason := s.captureBreach
 		if reason == "" {
@@ -822,6 +819,11 @@ func (s *traceDBRowSink) addContext(ctx context.Context, row renderedRow, eventD
 			reason = "trace_row_sink_add_after_prepare"
 		}
 		return &traceDBOutputInvariantError{Reason: reason}
+	}
+	if s.inactiveOrdinaryOnly && (eventDelta != nil || !row.profilerNeutral() ||
+		s.pairCensusActive || s.textMessageActive ||
+		s.activePairPublisher != profilerPairPublisherNone || s.activeTextMessage != 0) {
+		return &traceDBOutputInvariantError{Reason: "trace_row_sink_inactive_nonordinary_row"}
 	}
 	if err := s.validateProfilerSourceOrderProof(); err != nil {
 		return err
@@ -890,7 +892,7 @@ func (s *traceDBRowSink) addContext(ctx context.Context, row renderedRow, eventD
 			return err
 		}
 	}
-	rowBytes, ok := traceDBRenderedRowRetainedBytes(row)
+	rowBytes, ok := traceDBStoredRowRetainedBytes(compactTraceDBStoredRow(row))
 	if !ok || s.stats.RowsAccepted == math.MaxInt || s.nextIngestOrdinal == math.MaxUint64 {
 		return &traceDBOutputInvariantError{Reason: "trace_row_sort_buffer_accounting_overflow"}
 	}
@@ -957,7 +959,7 @@ func (s *traceDBRowSink) addContext(ctx context.Context, row renderedRow, eventD
 				}
 			}
 		}
-		s.auditProfilerPairPhysicalRow(row)
+		s.commitProfilerBlockLaneClock(row)
 	}
 	if s.stats.RowsAccepted == 0 || row.tsNS < s.stats.FirstTSNS {
 		s.stats.FirstTSNS = row.tsNS
@@ -967,7 +969,8 @@ func (s *traceDBRowSink) addContext(ctx context.Context, row renderedRow, eventD
 	}
 	s.rows = s.rows[:nextBufferedRows]
 	s.rowIngestOrdinals = s.rowIngestOrdinals[:nextBufferedRows]
-	s.rows[nextBufferedRows-1] = row
+	storedRow := compactTraceDBStoredRow(row)
+	s.rows[nextBufferedRows-1] = storedRow
 	s.rowIngestOrdinals[nextBufferedRows-1] = s.nextIngestOrdinal
 	s.nextIngestOrdinal++
 	s.bufferedBytes = projectedBytes
@@ -1039,14 +1042,13 @@ func (s *traceDBRowSink) addContext(ctx context.Context, row renderedRow, eventD
 	return nil
 }
 
-func traceDBRenderedRowRetainedBytes(row renderedRow) (uint64, bool) {
+func traceDBStoredRowRetainedBytes(row traceDBStoredRow) (uint64, bool) {
 	total := traceDBBufferedRowMetadataBytes
-	for _, size := range []int{len(row.line), len(row.pairLane), len(row.pairTable)} {
-		var ok bool
-		total, ok = checkedTraceDBUint64Add(total, uint64(size))
-		if !ok {
-			return 0, false
-		}
+	var ok bool
+	lineBytes := len(row.line)
+	total, ok = checkedTraceDBUint64Add(total, uint64(lineBytes))
+	if !ok {
+		return 0, false
 	}
 	return total, true
 }
@@ -1055,13 +1057,13 @@ func traceDBBufferedCapacityBytes(capacity int) (uint64, bool) {
 	if capacity < 0 {
 		return 0, false
 	}
-	elementBytes := uint64(unsafe.Sizeof(renderedRow{}) + unsafe.Sizeof(uint64(0)))
+	elementBytes := uint64(unsafe.Sizeof(traceDBStoredRow{}) + unsafe.Sizeof(uint64(0)))
 	if elementBytes != 0 && uint64(capacity) > math.MaxUint64/elementBytes {
 		return 0, false
 	}
 	total := uint64(capacity) * elementBytes
 	return checkedTraceDBUint64Add(total,
-		uint64(unsafe.Sizeof([]renderedRow(nil))+unsafe.Sizeof([]uint64(nil))))
+		uint64(unsafe.Sizeof([]traceDBStoredRow(nil))+unsafe.Sizeof([]uint64(nil))))
 }
 
 // ensureBufferedCapacity is the sole backing-array allocator. Exact doubling
@@ -1091,7 +1093,7 @@ func (s *traceDBRowSink) ensureBufferedCapacity(needed int) error {
 		physicalBytes > uint64(needed)*traceDBBufferedRowMetadataBytes {
 		return &traceDBOutputInvariantError{Reason: "trace_row_sort_buffer_metadata_bound_invalid"}
 	}
-	rows := make([]renderedRow, len(s.rows), newCapacity)
+	rows := make([]traceDBStoredRow, len(s.rows), newCapacity)
 	copy(rows, s.rows)
 	ordinals := make([]uint64, len(s.rowIngestOrdinals), newCapacity)
 	copy(ordinals, s.rowIngestOrdinals)
@@ -1104,30 +1106,9 @@ func profilerPairKindValid(kind pairRenderKind) bool {
 	return kind < pairRenderKindCount
 }
 
-func (s *traceDBRowSink) auditProfilerPairPhysicalRow(row renderedRow) {
-	if s == nil || row.pairKind == pairRenderUnknown || s.pairAuthorityFailure != "" {
-		return
-	}
-	if row.seq < 0 || row.pairKind == pairRenderBlock && row.pairLane == "" && !s.poisoned[row.pairKind] {
-		s.failProfilerPairAuthority("published_row_mapping_missing")
-		return
-	}
-	if int64(len(s.pairRowMappings)) >= s.pairRowCapacity {
-		s.failProfilerPairAuthority("shared_row_capacity")
-		return
-	}
-	if _, exists := s.pairRowMappings[row.seq]; exists {
-		s.failProfilerPairAuthority("duplicate_published_seq")
-		return
-	}
-	s.pairRowMappings[row.seq] = profilerPairRowMapping{
-		lane: row.pairLane, table: row.pairTable, profilerEventField: row.profilerEventField,
-		profilerLaneID: row.profilerLaneID, profilerTextMessageOrdinal: row.profilerTextMessageOrdinal,
-		kind: row.pairKind, profilerEndpointSlot: row.profilerEndpointSlot,
-		profilerPublisherSlot: row.profilerPublisherSlot, profilerProvenanceFlags: row.profilerProvenanceFlags,
-		structuredPair: row.structuredPair,
-	}
-	if row.pairKind != pairRenderBlock || row.pairLane == "" || s.poisoned[pairRenderBlock] {
+func (s *traceDBRowSink) commitProfilerBlockLaneClock(row renderedRow) {
+	if s == nil || row.pairKind != pairRenderBlock || row.pairLane == "" ||
+		s.pairAuthorityFailure != "" || s.poisoned[pairRenderBlock] {
 		return
 	}
 	state, stateOK := s.pairLaneRegistries[pairRenderBlock].state(row.profilerLaneID)
@@ -1154,126 +1135,6 @@ func (s *traceDBRowSink) auditProfilerPairPhysicalRow(row renderedRow) {
 	state.lastBlockSeq = row.seq
 	state.lastBlockTSNS = row.tsNS
 	s.blockLaneClocks[row.pairLane] = profilerBlockLaneClock{seq: row.seq, tsNS: row.tsNS}
-}
-
-func (mapping profilerPairRowMapping) matches(row renderedRow) bool {
-	return mapping.lane == row.pairLane &&
-		mapping.table == row.pairTable &&
-		mapping.profilerEventField == row.profilerEventField &&
-		mapping.profilerLaneID == row.profilerLaneID &&
-		mapping.profilerTextMessageOrdinal == row.profilerTextMessageOrdinal &&
-		mapping.kind == row.pairKind &&
-		mapping.profilerEndpointSlot == row.profilerEndpointSlot &&
-		mapping.profilerPublisherSlot == row.profilerPublisherSlot &&
-		mapping.profilerProvenanceFlags == row.profilerProvenanceFlags &&
-		mapping.structuredPair == row.structuredPair
-}
-
-// validatePreparedProfilerPairStorage verifies pair mappings while the sole
-// authenticated final run is read to complete EOF. It deliberately runs after
-// family poison: shared sequence/mapping and physical-storage authority cannot
-// be waived by a narrower publication decision.
-func (s *traceDBRowSink) validatePreparedProfilerPairStorage(ctx context.Context) error {
-	if s == nil {
-		return &traceDBOutputInvariantError{Reason: "profiler_pair_sink_missing"}
-	}
-	if s.stats.RowsAccepted == 0 {
-		if len(s.runs) != 0 {
-			return traceDBRunInputIntegrity(&traceDBOutputInvariantError{Reason: "trace_row_sort_manifest_row_count_mismatch"})
-		}
-		return nil
-	}
-	if len(s.runs) != 1 {
-		return traceDBRunInputIntegrity(&traceDBOutputInvariantError{Reason: "trace_row_sort_final_manifest_missing"})
-	}
-	mappingProofActive := s.pairAuthorityFailure == ""
-	seen := make(map[int]struct{}, len(s.pairRowMappings))
-	var readRows uint64
-	var localizedDuplicateRows uint64
-	failStorageAuthority := func(reason string, sourceWide bool) {
-		s.failProfilerPairAuthority(reason)
-		if sourceWide {
-			// A missing/unassociated physical record cannot be distinguished
-			// from a pair row whose seq and kind both drifted to ordinary.
-			// Suppress the complete source; family-only poison would let that
-			// forged ordinary row recreate the very pairing hole we guard.
-			s.allRowsFailClosed = true
-			if s.captureSourceFailure == "" {
-				s.captureSourceFailure = profilerPairStorageIntegrityFailure
-			}
-		}
-	}
-	observe := func(row renderedRow) bool {
-		if readRows == math.MaxUint64 {
-			failStorageAuthority("published_row_storage_count_overflow", true)
-			return false
-		}
-		readRows++
-		if !mappingProofActive {
-			return false
-		}
-		expected, mapped := s.pairRowMappings[row.seq]
-		if !mapped {
-			if row.pairKind != pairRenderUnknown {
-				failStorageAuthority("published_row_mapping_missing", true)
-			}
-			return false
-		}
-		if _, duplicate := seen[row.seq]; duplicate {
-			if localizedDuplicateRows == math.MaxUint64 {
-				failStorageAuthority("published_row_storage_count_overflow", true)
-				return true
-			}
-			localizedDuplicateRows++
-			failStorageAuthority("duplicate_published_seq", false)
-			return true
-		}
-		seen[row.seq] = struct{}{}
-		if !expected.matches(row) {
-			failStorageAuthority("published_row_mapping_mismatch", false)
-		}
-		return true
-	}
-	reader, err := s.openAuthenticatedRunReader(s.runs[0])
-	if err != nil {
-		return traceDBRunInputIntegrity(err)
-	}
-	var rowValidationErr error
-	for {
-		record, ok, readErr := reader.next(ctx)
-		if readErr != nil {
-			err = traceDBRunInputIntegrity(readErr)
-			break
-		}
-		if !ok {
-			break
-		}
-		mapped := observe(record.row)
-		if !mapped && rowValidationErr == nil {
-			rowValidationErr = validateProfilerEventFieldProvenance(record.row)
-		}
-	}
-	err = errors.Join(err, traceDBRunInputIntegrity(reader.close()))
-	if err != nil {
-		return err
-	}
-	if rowValidationErr != nil {
-		return rowValidationErr
-	}
-	if mappingProofActive && len(seen) != len(s.pairRowMappings) {
-		failStorageAuthority("published_row_mapping_missing", true)
-	}
-	logicalRows := readRows
-	if localizedDuplicateRows > logicalRows {
-		failStorageAuthority("published_row_storage_count_invalid", true)
-		logicalRows = math.MaxUint64
-	} else {
-		logicalRows -= localizedDuplicateRows
-	}
-	if logicalRows != uint64(s.stats.RowsAccepted) {
-		failStorageAuthority("published_row_storage_count_mismatch", true)
-	}
-	return nil
 }
 
 func profilerStructuredPairEventField(kind pairRenderKind, field int) bool {
@@ -1417,7 +1278,7 @@ func validateProfilerEventFieldProvenance(row renderedRow) error {
 }
 
 func (s *traceDBRowSink) markPairCaptureOpaque(kind pairRenderKind) {
-	if s == nil || kind == pairRenderUnknown || !profilerPairKindValid(kind) {
+	if s == nil || s.inactiveOrdinaryOnly || kind == pairRenderUnknown || !profilerPairKindValid(kind) {
 		return
 	}
 	if !s.profilerMutationAllowed("profiler_capture_opaque_after_seal") {
@@ -1430,7 +1291,7 @@ func (s *traceDBRowSink) markPairCaptureOpaque(kind pairRenderKind) {
 }
 
 func (s *traceDBRowSink) failCloseAllRows() {
-	if s == nil {
+	if s == nil || s.inactiveOrdinaryOnly {
 		return
 	}
 	if !s.profilerMutationAllowed("profiler_capture_source_fail_close_after_seal") {
@@ -1446,7 +1307,7 @@ func (s *traceDBRowSink) failCloseAllRows() {
 }
 
 func (s *traceDBRowSink) poisonPairKind(kind pairRenderKind) {
-	if s == nil || kind == pairRenderUnknown || !profilerPairKindValid(kind) {
+	if s == nil || s.inactiveOrdinaryOnly || kind == pairRenderUnknown || !profilerPairKindValid(kind) {
 		return
 	}
 	if !s.profilerMutationAllowed("profiler_capture_family_poison_after_seal") {
@@ -1479,7 +1340,7 @@ func (s *traceDBRowSink) poisonPairKindRaw(kind pairRenderKind) {
 }
 
 func (s *traceDBRowSink) poisonPairLane(kind pairRenderKind, lane string) {
-	if s == nil || kind == pairRenderUnknown || !profilerPairKindValid(kind) {
+	if s == nil || s.inactiveOrdinaryOnly || kind == pairRenderUnknown || !profilerPairKindValid(kind) {
 		return
 	}
 	if !s.profilerMutationAllowed("profiler_capture_lane_poison_after_seal") {
@@ -1760,7 +1621,8 @@ func (s *traceDBRowSink) beginPairRowCensus() bool {
 }
 
 func (s *traceDBRowSink) beginPairRowCensusForPublisher(publisher profilerPairPublisherSlot) bool {
-	if s == nil || s.pairCensusActive || !s.profilerMutationAllowed("profiler_capture_census_begin_after_seal") {
+	if s == nil || s.inactiveOrdinaryOnly || s.pairCensusActive ||
+		!s.profilerMutationAllowed("profiler_capture_census_begin_after_seal") {
 		return false
 	}
 	if !publisher.valid() {
@@ -1788,6 +1650,9 @@ func (s *traceDBRowSink) endProfilerTextMessage(expectedRows int) error {
 	if s == nil {
 		return &traceDBOutputInvariantError{Reason: "profiler_text_message_end_state_invalid"}
 	}
+	if s.inactiveOrdinaryOnly {
+		return &traceDBOutputInvariantError{Reason: "trace_row_sink_inactive_profiler_mutation"}
+	}
 	if !s.textMessageActive || expectedRows < 0 || s.activeTextRows != expectedRows ||
 		s.activeTextMessage == 0 || s.activeTextMessage != s.nextTextMessage+1 {
 		s.recordProfilerCaptureBreach("profiler_text_message_end_state_invalid")
@@ -1804,7 +1669,7 @@ func (s *traceDBRowSink) endProfilerTextMessage(expectedRows int) error {
 }
 
 func (s *traceDBRowSink) abortProfilerTextMessage() {
-	if s == nil || !s.textMessageActive {
+	if s == nil || s.inactiveOrdinaryOnly || !s.textMessageActive {
 		return
 	}
 	if s.activeTextRows > 0 && s.activeTextMessage > s.nextTextMessage {
@@ -1816,7 +1681,7 @@ func (s *traceDBRowSink) abortProfilerTextMessage() {
 }
 
 func (s *traceDBRowSink) abortPairRowCensus() {
-	if s == nil || !s.pairCensusActive {
+	if s == nil || s.inactiveOrdinaryOnly || !s.pairCensusActive {
 		return
 	}
 	s.abortProfilerTextMessage()
@@ -1861,7 +1726,7 @@ func (s *traceDBRowSink) currentPairRowCensus(kind pairRenderKind) profilerPairR
 }
 
 func (s *traceDBRowSink) endPairRowCensus() profilerPairCensusSet {
-	if s == nil || !s.pairCensusActive {
+	if s == nil || s.inactiveOrdinaryOnly || !s.pairCensusActive {
 		return profilerPairCensusSet{}
 	}
 	if s.textMessageActive {
@@ -2209,21 +2074,28 @@ func (s *traceDBRowSink) validateProfilerPairLaneRegistryParity() error {
 	return nil
 }
 
-func (s *traceDBRowSink) rowPublishable(row renderedRow) bool {
+func (s *traceDBRowSink) rowPublishable(row traceDBStoredRow) bool {
 	if s == nil || s.allRowsFailClosed {
 		return false
 	}
-	if s.pairAuthorityFailure != "" {
-		if _, governed := s.pairRowMappings[row.seq]; governed {
-			return false
-		}
+	provenance := row.profilerProvenance()
+	if !provenance.valid() || s.pairAuthorityFailure != "" && provenance.PairKind != pairRenderUnknown {
+		return false
 	}
-	return row.pairKind == pairRenderUnknown ||
-		(profilerPairKindValid(row.pairKind) && !s.poisoned[row.pairKind] &&
-			(row.pairLane == "" || !s.poisonedLanes[row.pairKind][row.pairLane]))
+	if provenance.PairKind == pairRenderUnknown {
+		return true
+	}
+	if !profilerPairKindValid(provenance.PairKind) || s.poisoned[provenance.PairKind] {
+		return false
+	}
+	if provenance.LaneID == 0 {
+		return true
+	}
+	state, ok := s.pairLaneRegistries[provenance.PairKind].state(provenance.LaneID)
+	return ok && !state.poisoned
 }
 
-func (s *traceDBRowSink) accountWrittenRow(row renderedRow) {
+func (s *traceDBRowSink) accountWrittenRow(row traceDBStoredRow) {
 	if s.stats.RowsWritten == 0 || row.tsNS < s.stats.FirstTSNS {
 		s.stats.FirstTSNS = row.tsNS
 	}
@@ -2396,6 +2268,47 @@ func (s *traceDBRowSink) finishRegisteredRunStorageFailure(err error) error {
 	return &traceDBOutputInvariantError{Reason: profilerPairStorageIntegrityFailure}
 }
 
+// authenticatePreparedFinalRun closes the single-leaf gap where an inactive
+// SQL/generic sink has nothing to merge. validateRunManifestSet authenticates
+// manifest shape, not file bytes; consume the final registered run to EOF in
+// preflight so digest/order/record damage is found before output is opened.
+// The reader retains one record only and therefore replaces no retired
+// per-row map, bitmap, or seen set.
+func (s *traceDBRowSink) authenticatePreparedFinalRun(ctx context.Context) error {
+	if s == nil || ctx == nil || s.captureLifecycle != profilerCaptureInactive {
+		return &traceDBOutputInvariantError{Reason: "trace_row_sort_preflight_auth_state_invalid"}
+	}
+	if s.stats.RowsAccepted == 0 {
+		if len(s.runs) != 0 {
+			return traceDBRunInputIntegrity(&traceDBOutputInvariantError{
+				Reason: "trace_row_sort_preflight_auth_zero_run_mismatch",
+			})
+		}
+		return nil
+	}
+	if len(s.runs) != 1 || s.runs[0].rowCount != uint64(s.stats.RowsAccepted) {
+		return traceDBRunInputIntegrity(&traceDBOutputInvariantError{
+			Reason: "trace_row_sort_preflight_auth_manifest_mismatch",
+		})
+	}
+	reader, err := s.openAuthenticatedRunReader(s.runs[0])
+	if err != nil {
+		return traceDBRunInputIntegrity(err)
+	}
+	var readErr error
+	for readErr == nil {
+		_, ok, nextErr := reader.next(ctx)
+		if nextErr != nil {
+			readErr = traceDBRunInputIntegrity(nextErr)
+			break
+		}
+		if !ok {
+			break
+		}
+	}
+	return traceDBJoinPreservingSingle(readErr, traceDBRunInputIntegrity(reader.close()))
+}
+
 func (s *traceDBRowSink) prepareForPublication(ctx context.Context) (result error) {
 	if s == nil {
 		return &traceDBOutputInvariantError{Reason: "trace_row_sink_missing"}
@@ -2459,12 +2372,14 @@ func (s *traceDBRowSink) prepareForPublication(ctx context.Context) (result erro
 		}
 		return nil
 	}
-	if err := s.validatePreparedProfilerPairStorage(ctx); err != nil {
-		if handled := s.finishRegisteredRunStorageFailure(err); handled != nil {
-			s.prepareFailure = handled
-			return handled
+	if s.captureLifecycle == profilerCaptureInactive {
+		if err := s.authenticatePreparedFinalRun(ctx); err != nil {
+			if handled := s.finishRegisteredRunStorageFailure(err); handled != nil {
+				s.prepareFailure = handled
+				return handled
+			}
+			return nil
 		}
-		return nil
 	}
 	// The typed/legacy accounting oracle must fail before B-c derives a
 	// terminal disposition from either side. sealProfilerCapture historically
@@ -2614,7 +2529,7 @@ func (s *traceDBRowSink) writeTo(ctx context.Context, w io.Writer) (stats traceD
 		if !ok {
 			break
 		}
-		publishable := s.rowPublishable(record.row)
+		publishable := false
 		if sourceOrderPublication != nil {
 			disposition, verifyErr := sourceOrderPublication.verifyRunRecord(ctx, record)
 			if verifyErr != nil {
@@ -2622,6 +2537,8 @@ func (s *traceDBRowSink) writeTo(ctx context.Context, w io.Writer) (stats traceD
 				break
 			}
 			publishable = disposition.publishable()
+		} else {
+			publishable = s.rowPublishable(record.row)
 		}
 		if !publishable {
 			continue
@@ -2694,12 +2611,12 @@ func (s *traceDBRowSink) flushChunkWithContext(ctx context.Context) (result erro
 }
 
 type traceDBBufferedRunRow struct {
-	row           renderedRow
+	row           traceDBStoredRow
 	ingestOrdinal uint64
 }
 
 type traceDBBufferedRows struct {
-	rows     []renderedRow
+	rows     []traceDBStoredRow
 	ordinals []uint64
 }
 
@@ -2730,8 +2647,6 @@ func traceDBRunRowLess(left, right traceDBBufferedRunRow) bool {
 func traceDBChunkRowFor(row traceDBBufferedRunRow) traceDBChunkRow {
 	return traceDBChunkRow{
 		TSNS: row.row.tsNS, Seq: row.row.seq, IngestOrdinal: row.ingestOrdinal, Line: row.row.line,
-		PairKind: row.row.pairKind, PairLane: row.row.pairLane, PairTable: row.row.pairTable,
-		StructuredPair: row.row.structuredPair, ProfilerEventField: row.row.profilerEventField,
 		ProfilerProvenance: row.row.profilerProvenance(),
 	}
 }
@@ -3046,34 +2961,33 @@ func sortRenderedRows(rows []renderedRow) {
 	})
 }
 
+func sortTraceDBStoredRows(rows []traceDBStoredRow) {
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].tsNS == rows[j].tsNS {
+			return rows[i].seq < rows[j].seq
+		}
+		return rows[i].tsNS < rows[j].tsNS
+	})
+}
+
 type traceDBChunkRow struct {
 	Line               string                    `json:"line"`
-	PairLane           string                    `json:"pair_lane,omitempty"`
-	PairTable          string                    `json:"pair_table,omitempty"`
 	TSNS               uint64                    `json:"ts_ns"`
 	IngestOrdinal      uint64                    `json:"ingest_ordinal"`
 	Seq                int                       `json:"seq"`
-	ProfilerEventField int                       `json:"profiler_event_field,omitempty"`
 	ProfilerProvenance profilerPairRowProvenance `json:"p"`
-	PairKind           pairRenderKind            `json:"pair_kind,omitempty"`
-	StructuredPair     bool                      `json:"structured_pair,omitempty"`
 }
 
 type traceDBChunkWireRow struct {
-	PairLane           string                     `json:"pair_lane,omitempty"`
-	PairTable          string                     `json:"pair_table,omitempty"`
 	Line               *string                    `json:"line"`
 	TSNS               *uint64                    `json:"ts_ns"`
 	Seq                *int                       `json:"seq"`
 	IngestOrdinal      *uint64                    `json:"ingest_ordinal"`
 	ProfilerProvenance *profilerPairRowProvenance `json:"p"`
-	ProfilerEventField int                        `json:"profiler_event_field,omitempty"`
-	PairKind           pairRenderKind             `json:"pair_kind,omitempty"`
-	StructuredPair     bool                       `json:"structured_pair,omitempty"`
 }
 
 type traceDBRunRecord struct {
-	row           renderedRow
+	row           traceDBStoredRow
 	ingestOrdinal uint64
 	raw           []byte
 }
@@ -3144,26 +3058,11 @@ func decodeTraceDBRunRecord(raw []byte, maximumIngest uint64) (traceDBRunRecord,
 	if *wire.IngestOrdinal >= maximumIngest {
 		return traceDBRunRecord{}, &traceDBOutputInvariantError{Reason: "trace_row_sort_ingest_ordinal_out_of_range"}
 	}
-	row := renderedRow{
-		tsNS: *wire.TSNS, seq: *wire.Seq, line: *wire.Line, pairKind: wire.PairKind,
-		pairLane: wire.PairLane, pairTable: wire.PairTable, structuredPair: wire.StructuredPair,
-		profilerEventField:         wire.ProfilerEventField,
-		profilerLaneID:             provenance.LaneID,
-		profilerEndpointSlot:       provenance.EndpointSlot,
-		profilerPublisherSlot:      provenance.PublisherSlot,
-		profilerTextMessageOrdinal: provenance.TextMessageOrdinal,
-		profilerProvenanceFlags:    provenance.Flags,
+	row := traceDBStoredRow{
+		tsNS: *wire.TSNS, seq: *wire.Seq, line: *wire.Line, provenance: provenance,
 	}
-	if !traceDBSinglePhysicalLine(row.line, false) || !profilerPairKindValid(row.pairKind) ||
-		len(row.pairLane) > maxTraceDBSystraceLineBytes || len(row.pairTable) > maxTraceDBSystraceLineBytes ||
-		!utf8.ValidString(row.pairLane) || !utf8.ValidString(row.pairTable) {
+	if !traceDBSinglePhysicalLine(row.line, false) || !provenance.valid() {
 		return traceDBRunRecord{}, &traceDBOutputInvariantError{Reason: "trace_row_sort_record_invalid"}
-	}
-	if provenance.PairKind != wire.PairKind {
-		return traceDBRunRecord{}, &traceDBOutputInvariantError{Reason: "profiler_row_provenance_pair_kind_mismatch"}
-	}
-	if err := validateProfilerPairRowProvenance(row); err != nil {
-		return traceDBRunRecord{}, err
 	}
 	return traceDBRunRecord{row: row, ingestOrdinal: *wire.IngestOrdinal, raw: raw}, nil
 }

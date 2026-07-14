@@ -133,8 +133,8 @@ func exportTraceDBSyscallTestFixture(t *testing.T, statements []string, options 
 	if options.authorityResult != nil {
 		*options.authorityResult = authorityCoverage
 	}
-	rows := append([]renderedRow(nil), sink.rows...)
-	sortRenderedRows(rows)
+	rows := append([]traceDBStoredRow(nil), sink.rows...)
+	sortTraceDBStoredRows(rows)
 	lines := make([]string, 0, len(rows))
 	for _, row := range rows {
 		lines = append(lines, row.line)

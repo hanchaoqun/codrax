@@ -226,7 +226,7 @@ func (provenance profilerPairRowProvenance) valid() bool {
 	switch provenance.PublisherSlot {
 	case profilerPairPublisherNone:
 		// Inactive/source-neutral sorter callers carry no outer publisher. A
-		// structured pair flag remains legal for the legacy parity oracle.
+		// structured pair flag remains legal for source-neutral typed fixtures.
 		if provenance.TextMessageOrdinal != 0 || provenance.Flags == profilerPairRowProvenanceText {
 			return false
 		}

@@ -57,7 +57,7 @@ func exportTraceDBToSystraceWithLedger(ctx context.Context, dbPath, output strin
 	}
 	defer tdb.close()
 
-	sink, err := newTraceDBRowSink("", 0)
+	sink, err := newTraceDBInactiveOrdinaryRowSink("", 0)
 	if err != nil {
 		return traceDBSystraceExport{}, err
 	}

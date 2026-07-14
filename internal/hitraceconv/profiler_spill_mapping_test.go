@@ -19,24 +19,48 @@ func profilerSpillMappingBlockRow() renderedRow {
 	}
 }
 
-func setProfilerSpillChunkPairTuple(row *traceDBChunkRow, slot profilerPairEndpointSlot, structured bool) {
-	descriptor, ok := slot.descriptor()
-	if !ok {
-		panic("test fixture uses an invalid profiler pair endpoint")
+func assertProfilerCompactStorageSidecarSamples(
+	t *testing.T,
+	manifest profilerSourceOrderSidecarManifest,
+	rows int,
+) {
+	t.Helper()
+	file, err := os.Open(manifest.path)
+	if err != nil {
+		t.Fatal(err)
 	}
-	row.PairKind = descriptor.kind
-	row.PairTable = descriptor.name
-	row.StructuredPair = structured
-	row.ProfilerEventField = 0
-	row.ProfilerProvenance.PairKind = descriptor.kind
-	row.ProfilerProvenance.EndpointSlot = slot
-	row.ProfilerProvenance.Flags = 0
-	if structured {
-		if descriptor.structuredField == 0 {
-			panic("test fixture uses a text-only endpoint as structured")
+	defer file.Close()
+	for _, ordinal := range []uint64{0, uint64(rows / 2), uint64(rows - 1)} {
+		offset, err := profilerSourceOrderSidecarRecordOffset(ordinal, uint64(rows))
+		if err != nil {
+			t.Fatal(err)
 		}
-		row.ProfilerEventField = descriptor.structuredField
-		row.ProfilerProvenance.Flags = profilerPairRowProvenanceStructured
+		var wire [profilerSourceOrderSidecarRecordBytes]byte
+		if _, err := file.ReadAt(wire[:], offset); err != nil {
+			t.Fatal(err)
+		}
+		record, err := decodeProfilerSourceOrderSidecarRecord(wire[:])
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantLaneID := uint32(1)
+		wantEndpoint := profilerPairEndpointF2FSWriteBegin
+		wantDisposition := profilerSourceOrderDispositionWithhold
+		if ordinal%2 == 1 {
+			wantLaneID = 2
+			wantEndpoint = profilerPairEndpointF2FSWriteEnd
+			wantDisposition = profilerSourceOrderDispositionPublish
+		}
+		if record.ordinalPlusOne != ordinal+1 || record.provenance.LaneID != wantLaneID ||
+			record.provenance.TextMessageOrdinal != 1 ||
+			record.provenance.PairKind != pairRenderF2FS ||
+			record.provenance.EndpointSlot != wantEndpoint ||
+			record.provenance.PublisherSlot != profilerPairPublisherOtherText ||
+			record.provenance.Flags != profilerPairRowProvenanceText ||
+			record.disposition != wantDisposition {
+			t.Fatalf("compact storage sidecar sample ordinal=%d drifted: record=%+v want_lane=%d want_endpoint=%d want_disposition=%d",
+				ordinal, record, wantLaneID, wantEndpoint, wantDisposition)
+		}
 	}
 }
 
@@ -81,8 +105,8 @@ func appendProfilerSpillChunkRow(t *testing.T, path string, row traceDBChunkRow)
 }
 
 // refreshProfilerRunProof deliberately updates the test fixture's typed
-// manifest after rewriting a run. This isolates semantic row-map validation
-// from the stronger physical-digest layer; ordinary tamper tests never call it.
+// manifest after rewriting a run. This isolates producer-root validation from
+// the stronger physical-digest layer; ordinary tamper tests never call it.
 func refreshProfilerRunProof(t *testing.T, sink *traceDBRowSink, runIndex int) {
 	t.Helper()
 	raw, err := os.ReadFile(sink.runs[runIndex].path)
@@ -137,6 +161,157 @@ func TestProfilerInactiveSpillWithoutDriftWritesNormally(t *testing.T) {
 		!strings.Contains(output.String(), "ordinary-survives") {
 		t.Fatalf("clean inactive spill was not published normally: source=%q stats=%+v\n%s",
 			sink.captureSourceFailure, stats, output.String())
+	}
+}
+
+func TestProfilerCompactStorageTinySpillLifecycle(t *testing.T) {
+	const rows = 512
+	source := profilerSourceLifecycleFile(t)
+	options := traceDBRowSinkOptions{
+		bufferBytes: 8 << 20, maxRunRowBytes: 2 << 20, mergeFanIn: 2,
+		activeTempCap: 64 << 20, liveTempCap: 128 << 20,
+	}
+	sink, err := newTraceDBRowSinkWithOptions(t.TempDir(), 17, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+	if err := sink.openProfilerCapture(source); err != nil {
+		t.Fatal(err)
+	}
+	if !sink.beginPairRowCensusForPublisher(profilerPairPublisherOtherText) ||
+		!sink.beginProfilerTextMessage() {
+		t.Fatal("begin compact tiny-spill text publisher")
+	}
+	for index := 0; index < rows; index++ {
+		row := renderedRow{tsNS: uint64(index + 1), seq: index, pairKind: pairRenderF2FS}
+		if index%2 == 0 {
+			row.line, row.pairLane, row.pairTable =
+				"compact-tiny-begin", "compact-storage-lane-a", "f2fs_write_begin"
+			row.profilerEndpointSlot = profilerPairEndpointF2FSWriteBegin
+		} else {
+			row.line, row.pairLane, row.pairTable =
+				"compact-tiny-end", "compact-storage-lane-b", "f2fs_write_end"
+			row.profilerEndpointSlot = profilerPairEndpointF2FSWriteEnd
+		}
+		if err := sink.add(row); err != nil {
+			t.Fatalf("add compact tiny-spill row %d: %v", index, err)
+		}
+	}
+	if err := sink.endProfilerTextMessage(rows); err != nil {
+		t.Fatal(err)
+	}
+	_ = sink.endPairRowCensus()
+	sink.poisonPairLane(pairRenderF2FS, "compact-storage-lane-a")
+	if err := sink.sealProfilerCapture(); err != nil {
+		t.Fatal(err)
+	}
+	registry := sink.pairLaneRegistries[pairRenderF2FS]
+	wantSidecarBytes := uint64(profilerSourceOrderSidecarHeaderBytes) +
+		uint64(rows)*uint64(profilerSourceOrderSidecarRecordBytes)
+	if len(sink.runs) != 1 || sink.runs[0].rowCount != rows ||
+		sink.stats.SpillChunks <= 1 || sink.stats.MergePasses <= 1 ||
+		sink.stats.PeakOpenRunFDs > options.mergeFanIn+1 ||
+		sink.sourceOrderSidecar.size != wantSidecarBytes ||
+		len(registry.keys) != 2 || len(registry.states) != 2 ||
+		!registry.states[0].poisoned || registry.states[1].poisoned {
+		t.Fatalf("compact tiny-spill prepared shape drifted: registry=%+v runs=%+v sidecar=%+v stats=%+v",
+			registry, sink.runs, sink.sourceOrderSidecar, sink.stats)
+	}
+	assertProfilerCompactStorageSidecarSamples(t, sink.sourceOrderSidecar, rows)
+	var output bytes.Buffer
+	stats, err := sink.writeTo(context.Background(), &output)
+	if err != nil || stats.RowsWritten != rows/2 || stats.RowsWithheld != rows/2 ||
+		strings.Contains(output.String(), "compact-tiny-begin") ||
+		!strings.Contains(output.String(), "compact-tiny-end") {
+		t.Fatalf("compact tiny-spill publication drifted: err=%v stats=%+v\n%s",
+			err, stats, output.String())
+	}
+}
+
+func TestProfilerInactiveFinalRunIsAuthenticatedDuringPreflight(t *testing.T) {
+	sink, err := newTraceDBInactiveOrdinaryRowSink(t.TempDir(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+	if err := sink.add(renderedRow{tsNS: 1, seq: 1, line: "ordinary-a"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.runs) != 1 {
+		t.Fatalf("single-leaf fixture runs=%d want=1", len(sink.runs))
+	}
+	rewriteProfilerSpillChunkRow(t, sink.runs[0].path, func(row *traceDBChunkRow) {
+		row.Line = "ordinary-b"
+	})
+	err = sink.prepareForPublication(context.Background())
+	requireProfilerInactiveStorageIntegrityError(t, err)
+	if sink.prepared || sink.pairAuthorityFailure != "profiler_pair_spill_integrity_mismatch" ||
+		sink.captureSourceFailure != profilerPairStorageIntegrityFailure || !sink.allRowsFailClosed ||
+		sink.stats.RowsAccepted != 1 || sink.stats.RowsWritten != 0 || sink.stats.RowsWithheld != 1 {
+		t.Fatalf("inactive preflight authentication did not fail closed: prepared=%t authority=%q source=%q all=%t stats=%+v",
+			sink.prepared, sink.pairAuthorityFailure, sink.captureSourceFailure,
+			sink.allRowsFailClosed, sink.stats)
+	}
+}
+
+func TestTraceDBInactiveOrdinarySinkRejectsProfilerRowsBeforeMutation(t *testing.T) {
+	sink, err := newTraceDBInactiveOrdinaryRowSink(t.TempDir(), 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+	err = sink.add(profilerSpillMappingBlockRow())
+	if reason := traceDBInvariantReason(err); reason != "trace_row_sink_inactive_nonordinary_row" {
+		t.Fatalf("inactive ordinary row gate reason=%q err=%v", reason, err)
+	}
+	if sink.stats.RowsAccepted != 0 || len(sink.rows) != 0 || len(sink.runs) != 0 ||
+		len(sink.pairLaneRegistries[pairRenderBlock].states) != 0 ||
+		sink.profilerSourceProof.count != 0 {
+		t.Fatalf("inactive profiler reject mutated sink: stats=%+v rows=%d runs=%d registry=%+v proof=%+v",
+			sink.stats, len(sink.rows), len(sink.runs),
+			sink.pairLaneRegistries[pairRenderBlock], sink.profilerSourceProof)
+	}
+	if sink.beginPairRowCensusForPublisher(profilerPairPublisherOtherText) ||
+		sink.beginProfilerTextMessage() || sink.pairCensusActive || sink.textMessageActive {
+		t.Fatal("inactive ordinary sink opened a profiler publisher/message context")
+	}
+	if err := sink.endProfilerTextMessage(0); traceDBInvariantReason(err) != "trace_row_sink_inactive_profiler_mutation" {
+		t.Fatalf("inactive ordinary sink accepted text-message end: %v", err)
+	}
+	sink.abortProfilerTextMessage()
+	sink.abortPairRowCensus()
+	census := sink.endPairRowCensus()
+	for kind := pairRenderKind(0); kind < pairRenderKindCount; kind++ {
+		if census[kind].total != 0 || len(census[kind].byLane) != 0 {
+			t.Fatalf("inactive ordinary sink returned profiler census: %+v", census)
+		}
+	}
+	zeroDelta := traceDBProfilerEventDelta{}
+	err = sink.addContext(context.Background(), renderedRow{tsNS: 2, seq: 2, line: "ordinary"}, &zeroDelta, false)
+	if reason := traceDBInvariantReason(err); reason != "trace_row_sink_inactive_nonordinary_row" {
+		t.Fatalf("inactive zero-delta pointer bypass reason=%q err=%v", reason, err)
+	}
+	delta := traceDBProfilerEventDelta{}
+	delta.poisonKinds[pairRenderF2FS] = true
+	if err := sink.commitProfilerEventDeltaContext(context.Background(), delta); traceDBInvariantReason(err) != "trace_row_sink_inactive_profiler_mutation" {
+		t.Fatalf("inactive detached delta bypassed ordinary gate: %v", err)
+	}
+	sink.markPairCaptureOpaque(pairRenderMMC)
+	sink.poisonPairKind(pairRenderF2FS)
+	sink.poisonPairLane(pairRenderBlock, "forbidden-lane")
+	sink.failCloseAllRows()
+	if len(sink.opaque) != 0 || len(sink.poisoned) != 0 || len(sink.poisonedLanes) != 0 ||
+		sink.allRowsFailClosed || sink.pairAuthorityFailure != "" {
+		t.Fatalf("inactive profiler mutator changed ordinary authority: opaque=%v poison=%v lanes=%v all=%t authority=%q",
+			sink.opaque, sink.poisoned, sink.poisonedLanes, sink.allRowsFailClosed,
+			sink.pairAuthorityFailure)
+	}
+	if err := sink.add(renderedRow{tsNS: 2, seq: 2, line: "ordinary"}); err != nil {
+		t.Fatalf("ordinary row rejected after profiler negative control: %v", err)
+	}
+	if err := sink.openProfilerCapture(profilerSourceLifecycleFile(t)); traceDBInvariantReason(err) != "profiler_capture_ordinary_sink_forbidden" {
+		t.Fatalf("ordinary sink entered profiler capture: %v", err)
 	}
 }
 
@@ -309,66 +484,15 @@ func TestProfilerRegisteredSpillContextCancellationKeepsItsBoundary(t *testing.T
 	}
 }
 
-func TestProfilerSpillReadbackValidatesCompletePairRowMapping(t *testing.T) {
-	tests := []struct {
-		name   string
-		mutate func(*traceDBChunkRow)
-	}{
-		{name: "kind", mutate: func(row *traceDBChunkRow) {
-			setProfilerSpillChunkPairTuple(row, profilerPairEndpointF2FSWriteBegin, true)
-		}},
-		{name: "lane", mutate: func(row *traceDBChunkRow) { row.PairLane = "other-lane" }},
-		{name: "table", mutate: func(row *traceDBChunkRow) {
-			setProfilerSpillChunkPairTuple(row, profilerPairEndpointBlockBIOComplete, true)
-		}},
-		{name: "structured", mutate: func(row *traceDBChunkRow) {
-			setProfilerSpillChunkPairTuple(row, profilerPairEndpointBlockBIOQueue, false)
-		}},
-		{name: "event field", mutate: func(row *traceDBChunkRow) {
-			setProfilerSpillChunkPairTuple(row, profilerPairEndpointBlockRQIssue, true)
-		}},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			sink, err := newTraceDBRowSink(t.TempDir(), 1)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer sink.cleanup()
-			if err := sink.add(profilerSpillMappingBlockRow()); err != nil {
-				t.Fatal(err)
-			}
-			if err := sink.add(renderedRow{tsNS: 2, seq: 12, line: "ordinary-survives"}); err != nil {
-				t.Fatal(err)
-			}
-			if len(sink.runs) != 2 {
-				t.Fatalf("threshold-one fixture did not spill both rows: runs=%d", len(sink.runs))
-			}
-			rewriteProfilerSpillChunkRow(t, sink.runs[0].path, test.mutate)
-			refreshProfilerRunProof(t, sink, 0)
-
-			var output bytes.Buffer
-			stats, err := sink.prepareAndWriteForTest(context.Background(), &output)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if sink.pairAuthorityFailure != "published_row_mapping_mismatch" ||
-				sink.captureSourceFailure != "" || sink.allRowsFailClosed ||
-				stats.RowsAccepted != 2 || stats.RowsWritten != 1 || stats.RowsWithheld != 1 ||
-				!strings.Contains(output.String(), "ordinary-survives") || strings.Contains(output.String(), "block_bio_queue-row") {
-				t.Fatalf("spill mapping drift did not close pair publication: reason=%q stats=%+v\n%s",
-					sink.pairAuthorityFailure, stats, output.String())
-			}
-		})
-	}
-}
-
-func TestProfilerSpillRejectsInternallyIncoherentTypedProvenanceSourceWide(t *testing.T) {
+func TestProfilerSpillRejectsInternallyIncoherentTypedProvenanceAgainstProducerRoot(t *testing.T) {
 	sink, err := newTraceDBRowSink(t.TempDir(), 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer sink.cleanup()
+	if err := sink.openProfilerCapture(profilerSourceLifecycleFile(t)); err != nil {
+		t.Fatal(err)
+	}
 	if err := sink.add(profilerSpillMappingBlockRow()); err != nil {
 		t.Fatal(err)
 	}
@@ -379,10 +503,15 @@ func TestProfilerSpillRejectsInternallyIncoherentTypedProvenanceSourceWide(t *te
 		row.ProfilerProvenance.EndpointSlot = profilerPairEndpointBlockBIOComplete
 	})
 	refreshProfilerRunProof(t, sink, 0)
+	if err := sink.sealProfilerCapture(); err != nil {
+		t.Fatal(err)
+	}
 
 	counter := &profilerSpillWriteCounter{}
 	stats, err := sink.prepareAndWriteForTest(context.Background(), counter)
-	requireProfilerInactiveStorageIntegrityError(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if sink.pairAuthorityFailure != "profiler_pair_spill_integrity_mismatch" ||
 		sink.captureSourceFailure != profilerPairStorageIntegrityFailure || !sink.allRowsFailClosed ||
 		counter.calls != 0 || counter.bytes != 0 || stats.RowsAccepted != 2 ||
@@ -395,30 +524,33 @@ func TestProfilerSpillRejectsInternallyIncoherentTypedProvenanceSourceWide(t *te
 
 func TestProfilerSpillAuthenticatesEveryCompactProvenanceScalar(t *testing.T) {
 	tests := []struct {
-		name       string
-		sourceWide bool
-		mutate     func(*profilerPairRowProvenance)
+		name   string
+		mutate func(*profilerPairRowProvenance)
 	}{
 		{name: "lane id", mutate: func(value *profilerPairRowProvenance) { value.LaneID++ }},
 		{name: "message ordinal", mutate: func(value *profilerPairRowProvenance) { value.TextMessageOrdinal++ }},
-		{name: "pair kind", sourceWide: true, mutate: func(value *profilerPairRowProvenance) {
+		{name: "pair kind", mutate: func(value *profilerPairRowProvenance) {
 			value.PairKind = pairRenderMMC
 		}},
-		{name: "endpoint slot", sourceWide: true, mutate: func(value *profilerPairRowProvenance) {
+		{name: "endpoint slot", mutate: func(value *profilerPairRowProvenance) {
 			value.EndpointSlot = profilerPairEndpointF2FSWriteEnd
 		}},
 		{name: "publisher slot", mutate: func(value *profilerPairRowProvenance) {
 			value.PublisherSlot = profilerPairPublisherBytrace
 		}},
-		{name: "flags", sourceWide: true, mutate: func(value *profilerPairRowProvenance) { value.Flags = 0 }},
+		{name: "flags", mutate: func(value *profilerPairRowProvenance) { value.Flags = 0 }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			source := profilerSourceLifecycleFile(t)
 			sink, err := newTraceDBRowSink(t.TempDir(), 1)
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer sink.cleanup()
+			if err := sink.openProfilerCapture(source); err != nil {
+				t.Fatal(err)
+			}
 			if !sink.beginPairRowCensusForPublisher(profilerPairPublisherOtherText) ||
 				!sink.beginProfilerTextMessage() {
 				t.Fatal("begin text publisher")
@@ -444,22 +576,16 @@ func TestProfilerSpillAuthenticatesEveryCompactProvenanceScalar(t *testing.T) {
 				test.mutate(&row.ProfilerProvenance)
 			})
 			refreshProfilerRunProof(t, sink, 0)
+			if err := sink.sealProfilerCapture(); err != nil {
+				t.Fatal(err)
+			}
 
 			counter := &profilerSpillWriteCounter{}
 			stats, writeErr := sink.prepareAndWriteForTest(context.Background(), counter)
-			if test.sourceWide {
-				requireProfilerInactiveStorageIntegrityError(t, writeErr)
-				if sink.captureSourceFailure != profilerPairStorageIntegrityFailure || !sink.allRowsFailClosed ||
-					counter.calls != 0 || counter.bytes != 0 || stats.RowsWritten != 0 || stats.RowsWithheld != 2 {
-					t.Fatalf("invalid %s scalar escaped source fail-close: err=%v sink=%+v writes=%d/%d stats=%+v",
-						test.name, writeErr, sink, counter.calls, counter.bytes, stats)
-				}
-				return
-			}
-			if writeErr != nil || sink.pairAuthorityFailure != "published_row_mapping_mismatch" ||
-				sink.captureSourceFailure != "" || sink.allRowsFailClosed || stats.RowsWritten != 1 ||
-				stats.RowsWithheld != 1 || counter.calls == 0 || counter.bytes == 0 {
-				t.Fatalf("coherent %s scalar drift was not localized: err=%v authority=%q source=%q all=%t writes=%d/%d stats=%+v",
+			if writeErr != nil || sink.pairAuthorityFailure != "profiler_pair_spill_integrity_mismatch" ||
+				sink.captureSourceFailure != profilerPairStorageIntegrityFailure || !sink.allRowsFailClosed ||
+				stats.RowsWritten != 0 || stats.RowsWithheld != 2 || counter.calls != 0 || counter.bytes != 0 {
+				t.Fatalf("compact %s scalar escaped producer-root fail-close: err=%v authority=%q source=%q all=%t writes=%d/%d stats=%+v",
 					test.name, writeErr, sink.pairAuthorityFailure, sink.captureSourceFailure,
 					sink.allRowsFailClosed, counter.calls, counter.bytes, stats)
 			}
@@ -467,7 +593,7 @@ func TestProfilerSpillAuthenticatesEveryCompactProvenanceScalar(t *testing.T) {
 	}
 }
 
-func TestProfilerSealCompletesSpillMappingProofBeforePublication(t *testing.T) {
+func TestProfilerSealCompletesSpillProducerProofBeforePublication(t *testing.T) {
 	source := t.TempDir() + "/capture.htrace"
 	if err := os.WriteFile(source, []byte("capture"), 0o600); err != nil {
 		t.Fatal(err)
@@ -489,16 +615,17 @@ func TestProfilerSealCompletesSpillMappingProofBeforePublication(t *testing.T) {
 			t.Fatal(err)
 		}
 		rewriteProfilerSpillChunkRow(t, sink.runs[0].path, func(row *traceDBChunkRow) {
-			row.PairLane = "drifted-at-rest"
+			row.ProfilerProvenance.LaneID++
 		})
 		refreshProfilerRunProof(t, sink, 0)
 		if err := sink.sealProfilerCapture(); err != nil {
 			t.Fatal(err)
 		}
 		if sink.captureLifecycle != profilerCaptureSealed ||
-			sink.pairAuthorityFailure != "published_row_mapping_mismatch" ||
-			sink.captureSourceFailure != "" || sink.allRowsFailClosed || sink.publishableRows() != 1 {
-			t.Fatalf("seal did not freeze spill mapping failure: lifecycle=%d reason=%q publishable=%d",
+			sink.pairAuthorityFailure != "profiler_pair_spill_integrity_mismatch" ||
+			sink.captureSourceFailure != profilerPairStorageIntegrityFailure ||
+			!sink.allRowsFailClosed || sink.publishableRows() != 0 {
+			t.Fatalf("seal did not freeze producer-root failure: lifecycle=%d reason=%q publishable=%d",
 				sink.captureLifecycle, sink.pairAuthorityFailure, sink.publishableRows())
 		}
 	})
@@ -527,9 +654,10 @@ func TestProfilerSealCompletesSpillMappingProofBeforePublication(t *testing.T) {
 		if err := sink.sealProfilerCapture(); err != nil {
 			t.Fatal(err)
 		}
-		if sink.pairAuthorityFailure != "" || len(sink.rows) != 0 || len(sink.runs) != 1 || len(sink.pairRowMappings) != 2 {
-			t.Fatalf("seal did not join spill and tail proof: reason=%q runs=%d rows=%d mappings=%d",
-				sink.pairAuthorityFailure, len(sink.runs), len(sink.rows), len(sink.pairRowMappings))
+		if sink.pairAuthorityFailure != "" || len(sink.rows) != 0 || len(sink.runs) != 1 ||
+			sink.sourceOrderSidecar.rowCount != 3 {
+			t.Fatalf("seal did not join spill and tail proof: reason=%q runs=%d rows=%d sidecar_rows=%d",
+				sink.pairAuthorityFailure, len(sink.runs), len(sink.rows), sink.sourceOrderSidecar.rowCount)
 		}
 	})
 }
@@ -557,11 +685,7 @@ func TestProfilerSpillUnassociatedRowsFailSourceBeforeAnyWrite(t *testing.T) {
 			apply: func(t *testing.T, path string) {
 				rewriteProfilerSpillChunkRow(t, path, func(row *traceDBChunkRow) {
 					row.Seq = 991
-					row.PairKind = pairRenderUnknown
-					row.PairLane = ""
-					row.PairTable = ""
-					row.StructuredPair = false
-					row.ProfilerEventField = 0
+					row.ProfilerProvenance = profilerPairRowProvenance{}
 				})
 			},
 		},
@@ -644,46 +768,6 @@ func TestProfilerSpillUnassociatedRowsFailSourceBeforeAnyWrite(t *testing.T) {
 	})
 }
 
-func TestProfilerPreexistingAuthorityFailureStillDetectsSpillCompositeDrift(t *testing.T) {
-	sink, err := newTraceDBRowSink(t.TempDir(), 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer sink.cleanup()
-	pair := profilerSpillMappingBlockRow()
-	if err := sink.add(pair); err != nil {
-		t.Fatal(err)
-	}
-	if err := sink.add(pair); err != nil {
-		t.Fatal(err)
-	}
-	if err := sink.add(renderedRow{tsNS: 2, seq: 12, line: "genuine-ordinary-sibling"}); err != nil {
-		t.Fatal(err)
-	}
-	if sink.pairAuthorityFailure != "duplicate_published_seq" || len(sink.runs) != 3 {
-		t.Fatalf("fixture did not establish preexisting authority failure: reason=%q runs=%d",
-			sink.pairAuthorityFailure, len(sink.runs))
-	}
-	rewriteProfilerSpillChunkRow(t, sink.runs[1].path, func(row *traceDBChunkRow) {
-		row.Seq = 993
-		row.PairKind = pairRenderUnknown
-		row.PairLane = ""
-		row.PairTable = ""
-		row.StructuredPair = false
-		row.ProfilerEventField = 0
-	})
-	counter := &profilerSpillWriteCounter{}
-	stats, err := sink.prepareAndWriteForTest(context.Background(), counter)
-	requireProfilerInactiveStorageIntegrityError(t, err)
-	if sink.pairAuthorityFailure != "duplicate_published_seq" ||
-		sink.captureSourceFailure != profilerPairStorageIntegrityFailure || !sink.allRowsFailClosed ||
-		counter.calls != 0 || counter.bytes != 0 || stats.RowsAccepted != 3 ||
-		stats.RowsWritten != 0 || stats.RowsWithheld != 3 {
-		t.Fatalf("preexisting authority let at-rest composite drift escape: reason=%q source=%q all=%t writes=%d/%d stats=%+v",
-			sink.pairAuthorityFailure, sink.captureSourceFailure, sink.allRowsFailClosed, counter.calls, counter.bytes, stats)
-	}
-}
-
 func TestProfilerStorageIntegrityFailureBecomesDisclosedSourceFailure(t *testing.T) {
 	source := t.TempDir() + "/capture.htrace"
 	if err := os.WriteFile(source, []byte("capture"), 0o600); err != nil {
@@ -705,11 +789,6 @@ func TestProfilerStorageIntegrityFailureBecomesDisclosedSourceFailure(t *testing
 	}
 	rewriteProfilerSpillChunkRow(t, sink.runs[0].path, func(row *traceDBChunkRow) {
 		row.Seq = 994
-		row.PairKind = pairRenderUnknown
-		row.PairLane = ""
-		row.PairTable = ""
-		row.StructuredPair = false
-		row.ProfilerEventField = 0
 		row.ProfilerProvenance = profilerPairRowProvenance{}
 	})
 	refreshProfilerRunProof(t, sink, 0)
@@ -749,7 +828,7 @@ func TestProfilerStorageIntegrityFailureBecomesDisclosedSourceFailure(t *testing
 		barrier == nil || barrier.RowsRead != 2 ||
 		!strings.Contains(barrier.Skipped, "suppressed_rows=2") ||
 		barrier.FieldSources["failure_class"] != "storage_integrity_failure" ||
-		barrier.FieldSources["shared_authority_failure"] != "published_row_mapping_missing" ||
+		barrier.FieldSources["shared_authority_failure"] != "profiler_pair_spill_integrity_mismatch" ||
 		barrier.FieldSources["suppressed_rows"] != "2" ||
 		barrier.FieldSources["seal_before_output_open"] != "true" || sink.captureBreach != "" {
 		t.Fatalf("storage source failure disclosure drifted: extracted=%+v barrier=%+v breach=%q",
@@ -893,7 +972,7 @@ func TestProfilerStorageFailureBridgePrecedesOutputOpen(t *testing.T) {
 	}
 }
 
-func TestProfilerSpillReadbackMissingAndDuplicateMappingsFailClosed(t *testing.T) {
+func TestProfilerSpillReadbackMissingAndDuplicateRecordsFailClosed(t *testing.T) {
 	tests := []struct {
 		name         string
 		wantReason   string
@@ -946,87 +1025,8 @@ func TestProfilerSpillReadbackMissingAndDuplicateMappingsFailClosed(t *testing.T
 			if sink.pairAuthorityFailure != test.wantReason || stats.RowsAccepted != 2 ||
 				stats.RowsWritten != test.wantWritten || stats.RowsWithheld != test.wantWithheld ||
 				strings.Contains(output.String(), "ordinary-survives") != test.wantOrdinary {
-				t.Fatalf("%s spill mapping did not fail closed: reason=%q stats=%+v\n%s",
+				t.Fatalf("%s spill record did not fail closed: reason=%q stats=%+v\n%s",
 					test.name, sink.pairAuthorityFailure, stats, output.String())
-			}
-		})
-	}
-}
-
-func TestProfilerSharedRowAuthoritySurvivesPriorFamilyPoison(t *testing.T) {
-	row := func(seq int, lane string) renderedRow {
-		return renderedRow{
-			tsNS: uint64(seq + 10), seq: seq, line: "block-row",
-			pairKind: pairRenderBlock, pairLane: lane, pairTable: "block_bio_queue",
-		}
-	}
-	tests := []struct {
-		name       string
-		wantReason string
-		prepare    func(*traceDBRowSink) error
-	}{
-		{
-			name: "unknown lane remains mappable after family poison",
-			prepare: func(sink *traceDBRowSink) error {
-				return sink.add(row(1, ""))
-			},
-		},
-		{
-			name:       "negative sequence",
-			wantReason: "published_row_mapping_missing",
-			prepare: func(sink *traceDBRowSink) error {
-				return sink.add(row(-1, "lane"))
-			},
-		},
-		{
-			name:       "duplicate sequence",
-			wantReason: "duplicate_published_seq",
-			prepare: func(sink *traceDBRowSink) error {
-				if err := sink.add(row(1, "lane")); err != nil {
-					return err
-				}
-				return sink.add(row(1, "lane"))
-			},
-		},
-		{
-			name:       "shared capacity",
-			wantReason: "shared_row_capacity",
-			prepare: func(sink *traceDBRowSink) error {
-				sink.pairRowCapacity = 1
-				if err := sink.add(row(1, "lane-a")); err != nil {
-					return err
-				}
-				return sink.add(row(2, "lane-b"))
-			},
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			sink, err := newTraceDBRowSink(t.TempDir(), 32)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer sink.cleanup()
-			sink.poisonPairKind(pairRenderBlock)
-			if err := test.prepare(sink); err != nil {
-				t.Fatal(err)
-			}
-			if sink.pairAuthorityFailure != test.wantReason {
-				t.Fatalf("authority reason=%q want=%q mappings=%+v", sink.pairAuthorityFailure, test.wantReason, sink.pairRowMappings)
-			}
-			if test.wantReason == "" {
-				mapping, ok := sink.pairRowMappings[1]
-				if !ok || mapping.kind != pairRenderBlock || mapping.lane != "" {
-					t.Fatalf("family-poisoned unknown lane lost its expected mapping: %+v", sink.pairRowMappings)
-				}
-				return
-			}
-			for _, kind := range []pairRenderKind{
-				pairRenderWorkqueue, pairRenderDMAFence, pairRenderMMC, pairRenderF2FS, pairRenderBlock,
-			} {
-				if !sink.poisoned[kind] {
-					t.Fatalf("global authority failure left family %d open: poisoned=%v", kind, sink.poisoned)
-				}
 			}
 		})
 	}

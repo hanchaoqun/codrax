@@ -77,11 +77,11 @@ func TestProfilerSourceOrderProofCoversEveryProfilerPublisherLane(t *testing.T) 
 			pairLaneResolved := false
 			for index, row := range sink.rows {
 				ordinal := sink.rowIngestOrdinals[index]
-				if err := recomputed.prepareRowContext(context.Background(), row, ordinal); err != nil {
+				if err := recomputed.prepareStoredRowContext(context.Background(), row, ordinal); err != nil {
 					t.Fatalf("recompute %s accepted row %d: %v", lane.name, index, err)
 				}
 				recomputed.commitPreparedRow(row.profilerProvenance())
-				if profilerPairBudgetKind(row.pairKind) && row.profilerLaneID != 0 {
+				if profilerPairBudgetKind(row.provenance.PairKind) && row.provenance.LaneID != 0 {
 					pairLaneResolved = true
 				}
 			}

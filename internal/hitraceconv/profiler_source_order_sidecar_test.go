@@ -583,7 +583,8 @@ func TestProfilerSourceOrderSidecarReplaysReverseTimestampRowsAndCleansUp(t *tes
 		if err != nil {
 			t.Fatal(err)
 		}
-		wantLeaf, err := leafBuilder.leafContext(context.Background(), row, uint64(ordinal))
+		stored := compactTraceDBStoredRow(row)
+		wantLeaf, err := leafBuilder.leafContext(context.Background(), stored, uint64(ordinal))
 		if err != nil || record.ordinalPlusOne != uint64(ordinal+1) || record.leaf != wantLeaf ||
 			record.provenance != row.profilerProvenance() ||
 			record.disposition != profilerSourceOrderDispositionPublish {

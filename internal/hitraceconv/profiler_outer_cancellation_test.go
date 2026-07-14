@@ -205,9 +205,9 @@ func assertProfilerOuterCancellationSinkPristine(t *testing.T, sink *traceDBRowS
 	}
 	if sink.legacyPairProof.observations != 0 || sink.legacyPairProof.laneKeys != 0 ||
 		sink.blockPairProof.observations != 0 || sink.blockPairProof.laneKeys != 0 ||
-		len(sink.pairRowMappings) != 0 || len(sink.blockLaneClocks) != 0 {
-		t.Fatalf("canceled profiler extraction mutated shared proof: legacy=%+v block=%+v mappings=%d clocks=%d",
-			sink.legacyPairProof, sink.blockPairProof, len(sink.pairRowMappings), len(sink.blockLaneClocks))
+		len(sink.blockLaneClocks) != 0 {
+		t.Fatalf("canceled profiler extraction mutated shared proof: legacy=%+v block=%+v clocks=%d",
+			sink.legacyPairProof, sink.blockPairProof, len(sink.blockLaneClocks))
 	}
 }
 

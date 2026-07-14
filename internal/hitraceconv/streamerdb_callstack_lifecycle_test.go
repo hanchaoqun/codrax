@@ -69,8 +69,8 @@ func exportTraceDBCallstackAuthorityFixture(t *testing.T, statements []string, l
 	}
 	items, _, _ := finalizeTraceDBTestSyncSpans(t, sink, syncSpans, []TraceDBCoverage{coverage})
 	coverage = items[0]
-	rows := append([]renderedRow(nil), sink.rows...)
-	sortRenderedRows(rows)
+	rows := append([]traceDBStoredRow(nil), sink.rows...)
+	sortTraceDBStoredRows(rows)
 	lines := make([]string, 0, len(rows))
 	for _, row := range rows {
 		lines = append(lines, row.line)

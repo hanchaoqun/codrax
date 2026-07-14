@@ -60,15 +60,15 @@ func TestProfilerRowProvenanceRealPublisherRoutes(t *testing.T) {
 			profilerPairRowProvenanceStructured, 0, pairRenderF2FS, profilerPairEndpointF2FSWriteBegin, true)
 		profilerAssertRouteProvenance(t, end, profilerPairPublisherExactFtrace,
 			profilerPairRowProvenanceStructured, 0, pairRenderF2FS, profilerPairEndpointF2FSWriteEnd, true)
-		if begin.profilerEventField != 4011 || end.profilerEventField != 4012 ||
-			!begin.structuredPair || !end.structuredPair {
+		if begin.provenance.Flags != profilerPairRowProvenanceStructured ||
+			end.provenance.Flags != profilerPairRowProvenanceStructured {
 			t.Fatalf("structured endpoint identity drifted: begin=%+v end=%+v", begin, end)
 		}
 		profilerAssertSameRouteLane(t, begin, end)
 		ordinary := profilerRouteLineRow(t, sink.rows, "print: B|7|Frame")
 		profilerAssertRouteProvenance(t, ordinary, profilerPairPublisherExactFtrace, 0, 0,
 			pairRenderUnknown, profilerPairEndpointNone, false)
-		if ordinary.structuredPair || ordinary.profilerEventField != 0 {
+		if ordinary.provenance.Flags&profilerPairRowProvenanceStructured != 0 {
 			t.Fatalf("ordinary structured event acquired pair identity: %+v", ordinary)
 		}
 		profilerAssertRouteContextsClosed(t, sink, 0)
@@ -175,12 +175,12 @@ func TestProfilerRowProvenanceRealPublisherRoutes(t *testing.T) {
 	})
 }
 
-func profilerRoutePairRow(t testing.TB, rows []renderedRow, endpoint profilerPairEndpointSlot) renderedRow {
+func profilerRoutePairRow(t testing.TB, rows []traceDBStoredRow, endpoint profilerPairEndpointSlot) traceDBStoredRow {
 	t.Helper()
-	var found renderedRow
+	var found traceDBStoredRow
 	count := 0
 	for _, row := range rows {
-		if row.profilerEndpointSlot == endpoint {
+		if row.provenance.EndpointSlot == endpoint {
 			found = row
 			count++
 		}
@@ -191,9 +191,9 @@ func profilerRoutePairRow(t testing.TB, rows []renderedRow, endpoint profilerPai
 	return found
 }
 
-func profilerRouteLineRow(t testing.TB, rows []renderedRow, marker string) renderedRow {
+func profilerRouteLineRow(t testing.TB, rows []traceDBStoredRow, marker string) traceDBStoredRow {
 	t.Helper()
-	var found renderedRow
+	var found traceDBStoredRow
 	count := 0
 	for _, row := range rows {
 		if strings.Contains(row.line, marker) {
@@ -207,7 +207,7 @@ func profilerRouteLineRow(t testing.TB, rows []renderedRow, marker string) rende
 	return found
 }
 
-func profilerAssertRouteProvenance(t testing.TB, row renderedRow,
+func profilerAssertRouteProvenance(t testing.TB, row traceDBStoredRow,
 	publisher profilerPairPublisherSlot, flags profilerPairRowProvenanceFlags, ordinal uint32,
 	kind pairRenderKind, endpoint profilerPairEndpointSlot, wantLane bool,
 ) {
@@ -220,22 +220,20 @@ func profilerAssertRouteProvenance(t testing.TB, row renderedRow,
 	}
 	if wantLane {
 		descriptor, ok := endpoint.descriptor()
-		if !ok || descriptor.kind != kind || row.pairTable != descriptor.name ||
-			got.LaneID == 0 || row.pairLane == "" {
+		if !ok || descriptor.kind != kind || got.LaneID == 0 {
 			t.Fatalf("pair route lost typed endpoint/lane identity: provenance=%+v row=%+v descriptor=%+v ok=%t",
 				got, row, descriptor, ok)
 		}
 		return
 	}
-	if got.LaneID != 0 || row.pairLane != "" || row.pairTable != "" {
+	if got.LaneID != 0 || got.EndpointSlot != profilerPairEndpointNone {
 		t.Fatalf("ordinary route acquired pair lane/table identity: provenance=%+v row=%+v", got, row)
 	}
 }
 
-func profilerAssertSameRouteLane(t testing.TB, left, right renderedRow) {
+func profilerAssertSameRouteLane(t testing.TB, left, right traceDBStoredRow) {
 	t.Helper()
-	if left.profilerLaneID == 0 || left.profilerLaneID != right.profilerLaneID ||
-		left.pairLane == "" || left.pairLane != right.pairLane {
+	if left.provenance.LaneID == 0 || left.provenance.LaneID != right.provenance.LaneID {
 		t.Fatalf("paired endpoints do not share one typed lane: left=%+v right=%+v", left, right)
 	}
 }

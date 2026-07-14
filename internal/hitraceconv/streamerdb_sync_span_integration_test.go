@@ -303,8 +303,8 @@ func traceDBRunSyncSpanBoundaryExporter(t *testing.T, test traceDBSyncSpanBounda
 		items = append(items, TraceDBCoverage{Family: "metadata", Table: "thread", Found: true})
 	}
 	items, report, _ := finalizeTraceDBTestSyncSpans(t, sink, spans, items)
-	rows := append([]renderedRow(nil), sink.rows...)
-	sortRenderedRows(rows)
+	rows := append([]traceDBStoredRow(nil), sink.rows...)
+	sortTraceDBStoredRows(rows)
 	lines := make([]string, 0, len(rows))
 	for _, row := range rows {
 		lines = append(lines, row.line)

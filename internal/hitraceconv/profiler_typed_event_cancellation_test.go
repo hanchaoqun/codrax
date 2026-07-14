@@ -308,14 +308,14 @@ func requireProfilerTypedEventTransactionEmpty(t *testing.T, sink *traceDBRowSin
 	t.Helper()
 	if len(sink.rows) != 0 || len(sink.rowIngestOrdinals) != 0 || sink.bufferedBytes != 0 ||
 		sink.nextIngestOrdinal != 0 || len(sink.runs) != 0 || sink.stats.RowsAccepted != 0 ||
-		len(sink.pairRowMappings) != 0 || sink.opaque[pairRenderF2FS] || sink.poisoned[pairRenderF2FS] ||
+		sink.opaque[pairRenderF2FS] || sink.poisoned[pairRenderF2FS] ||
 		sink.pairRows[pairRenderF2FS] != 0 || sink.structuredPairRows[pairRenderF2FS] != 0 ||
 		sink.pairCensusActive || sink.activePairPublisher != profilerPairPublisherNone ||
 		sink.textMessageActive || sink.activeTextMessage != 0 || sink.activeTextRows != 0 ||
 		sink.nextTextMessage != 0 {
-		t.Fatalf("current event escaped transaction: rows=%d ordinals=%d bytes=%d next=%d runs=%d stats=%+v mappings=%d opaque=%t poisoned=%t pair_rows=%d structured=%d",
+		t.Fatalf("current event escaped transaction: rows=%d ordinals=%d bytes=%d next=%d runs=%d stats=%+v opaque=%t poisoned=%t pair_rows=%d structured=%d",
 			len(sink.rows), len(sink.rowIngestOrdinals), sink.bufferedBytes, sink.nextIngestOrdinal,
-			len(sink.runs), sink.stats, len(sink.pairRowMappings), sink.opaque[pairRenderF2FS],
+			len(sink.runs), sink.stats, sink.opaque[pairRenderF2FS],
 			sink.poisoned[pairRenderF2FS], sink.pairRows[pairRenderF2FS], sink.structuredPairRows[pairRenderF2FS])
 	}
 	for _, kind := range profilerCaptureKinds {
@@ -485,7 +485,7 @@ func TestProfilerTypedEventProductionAddCancellationLeavesStagedBatchAndPairUnco
 	}
 }
 
-func seedProfilerTypedEventDeferredPrefix(t *testing.T, sink *traceDBRowSink) renderedRow {
+func seedProfilerTypedEventDeferredPrefix(t *testing.T, sink *traceDBRowSink) traceDBStoredRow {
 	t.Helper()
 	prefix := profilerTypedEventTransactionRow(1_000, 1, "completed-prefix")
 	if err := sink.addProfilerEventContext(context.Background(), prefix, traceDBProfilerEventDelta{}); err != nil {
@@ -495,7 +495,7 @@ func seedProfilerTypedEventDeferredPrefix(t *testing.T, sink *traceDBRowSink) re
 		t.Fatalf("completed prefix was not deferred intact: rows=%d stats=%+v next=%d runs=%d",
 			len(sink.rows), sink.stats, sink.nextIngestOrdinal, len(sink.runs))
 	}
-	return prefix
+	return compactTraceDBStoredRow(prefix)
 }
 
 func assertProfilerTypedEventCurrentDeltaAbsent(t *testing.T, sink *traceDBRowSink) {

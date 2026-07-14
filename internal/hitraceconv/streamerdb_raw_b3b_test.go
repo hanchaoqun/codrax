@@ -123,8 +123,8 @@ func exportTraceDBRawB3BFixture(t *testing.T, statements []string, authority tra
 	if err != nil {
 		t.Fatalf("export raw B3-b fixture: %v", err)
 	}
-	rows := append([]renderedRow(nil), sink.rows...)
-	sortRenderedRows(rows)
+	rows := append([]traceDBStoredRow(nil), sink.rows...)
+	sortTraceDBStoredRows(rows)
 	lines := make([]string, 0, len(rows))
 	for _, row := range rows {
 		lines = append(lines, row.line)
