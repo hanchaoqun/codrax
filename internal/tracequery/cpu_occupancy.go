@@ -678,6 +678,14 @@ func computeIdleRunnableMismatchMs(idx *Index, q Query, headRunnable map[int]boo
 	}
 	var evs []Event
 	for _, ev := range idx.Events {
+		// SUPP-HYG P3-C (§29.81 立案, 2026-07-14): cooperative sampling point —
+		// this collection scan sat between two ComputeWindowStats boundary
+		// samples with zero interior points. On fire the mismatch value is
+		// abandoned (0); the caller's whole stats face is discarded by the
+		// attach gate anyway (禁半账).
+		if q.runCancel.tick() {
+			return 0
+		}
 		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
 			continue
 		}
@@ -737,6 +745,11 @@ func computeIdleRunnableMismatchMs(idx *Index, q Query, headRunnable map[int]boo
 		}
 	}
 	for _, ev := range evs {
+		// SUPP-HYG P3-C: sweep-loop sampling point (same discard contract as
+		// the collection loop above).
+		if q.runCancel.tick() {
+			return 0
+		}
 		advance(ev.Ts)
 		switch ev.Type {
 		case EventSchedWakeup, EventSchedWaking:

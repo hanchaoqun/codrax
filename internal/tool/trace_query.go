@@ -296,11 +296,25 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		}
 		// SUPP-CANCEL: a context fire during the parse is a cancellation,
 		// not a parse incompatibility — say so instead of blaming the file.
+		// SUPP-HYG P3-D (§29.81 立案, 2026-07-14): the parse-phase cancellation
+		// also mints the typed TraceViewCancellation record (reason from the
+		// precise errors.Is class), so system callers — the supplement's
+		// canceled-view accounting — read the SAME typed in-presence signal on
+		// the parse-fire lane they read on the in-view lane, instead of the
+		// ambient dctx.Err() whose expiry can race an ordinary engine reject.
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			reason := "canceled"
+			if errors.Is(err, context.DeadlineExceeded) {
+				reason = "deadline_exceeded"
+			}
 			return types.ToolResult{
-				ToolName:  t.Name(),
-				Success:   false,
-				Summary:   fmt.Sprintf("trace_query run on %s was canceled before completion (%v); no partial results were published — narrow the time window or reduce the scope and re-run", path, err),
+				ToolName: t.Name(),
+				Success:  false,
+				Summary:  fmt.Sprintf("trace_query run on %s was canceled before completion (%v); no partial results were published — narrow the time window or reduce the scope and re-run", path, err),
+				TraceViewCancellation: &types.TraceViewCancellation{
+					View:   tracequery.CanonicalViewName(p.View),
+					Reason: reason,
+				},
 				Timestamp: time.Now(),
 			}, nil
 		}

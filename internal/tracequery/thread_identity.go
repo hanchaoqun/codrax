@@ -222,6 +222,16 @@ func resolvePIDThread(idx *Index, pid int, q Query) ThreadRef {
 	// bound. With a head, scan only the inclusive selected window so pre-window
 	// metadata cannot overwrite it.
 	for _, ev := range idx.Events {
+		// SUPP-HYG P3-C (§29.81 立案, 2026-07-14): cooperative sampling point.
+		// This resolver runs NESTED per blocked-reason row inside the
+		// ComputeWindowStats main sweep (donghu profile: resolvePIDThread was
+		// >50% of the whole stats build), so without a tick each nested scan
+		// was one opaque scan unit and the cancellation-observation gap grew
+		// with O(rows × events). On fire the partial ref is returned and the
+		// enclosing face is discarded whole by its attach gate (禁半账).
+		if q.runCancel.tick() {
+			return ref
+		}
 		if q.LineEnd > 0 && ev.Line > q.LineEnd {
 			continue
 		}

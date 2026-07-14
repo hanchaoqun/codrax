@@ -147,6 +147,16 @@ func Run(idx *Index, q Query) Result {
 	flavor, confidence, signals, flavorCaveats := resolveTraceFlavor(idx, q)
 	q.TraceFlavor = flavor
 	frameworkSurfaces := detectFrameworkSurfaces(idx, q, TracePlatformAuto, 4)
+	if cancel.fired() {
+		// SUPP-HYG P3-C: the pre-switch probe scan was interrupted — the
+		// framework-surface census is a partial count census and is discarded
+		// whole (禁半账), recorded on the typed ViewCancellation like every
+		// other abandoned face (禁裸丢). resolveTraceFlavor /
+		// resolveTracePlatform read only parse-time index metadata (no event
+		// scan), so their outputs are complete by construction and stay.
+		frameworkSurfaces = nil
+		cancel.discardFace("framework_surfaces")
+	}
 	platform, platformCandidate, platformCandidateConfidence, platformCandidateSignals, platformCaveats := resolveTracePlatform(idx, q, flavor, idx.platformDetectionSurfaces(), signals)
 	if platform == TracePlatformDonghu && q.TraceFlavorHintSource == "" && q.TraceFlavorHint != TraceFlavorAndroidAtrace {
 		flavor = TraceFlavorHarmonyHitrace
@@ -1027,6 +1037,15 @@ func detectFrameworkSurfaces(idx *Index, q Query, platform TracePlatform, limit 
 		}
 	}
 	for _, ev := range idx.Events {
+		// SUPP-HYG P3-C (§29.81 立案, 2026-07-14): the pre-switch probe segment
+		// ran a full unsampled event scan before ANY view work, so a deadline
+		// expiring here (or an already-dead context surviving the entry
+		// boundary sample only because the modulo never hit) paid the whole
+		// scan. On fire the partial census is discarded whole by Run's probe
+		// gate (禁半账).
+		if q.runCancel.tick() {
+			return nil
+		}
 		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
 			continue
 		}
@@ -2268,7 +2287,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			}
 			key := fmt.Sprintf("%d/%d/%s", ev.WakeePID, ev.IOWait, ev.Reason)
 			br := blockedReasons[key]
-			br.Thread = resolveBlockedReasonThread(idx, ev)
+			br.Thread = resolveBlockedReasonThread(idx, q, ev)
 			br.IOWait = int(ev.IOWait)
 			br.Reason = ev.Reason
 			br.Count++
@@ -2662,6 +2681,13 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		return stats
 	}
 	stats.ComputeSupplyBalance = computeComputeSupplyBalance(idx, q, queryWindowWallMs(q), supplyByCPU, schedCPUs, headRunnablePIDs, stats.CPU, coreByCPU, observedFmaxByCPU, freqDonors.donorFor, freqDonors.sourceToken())
+	// SUPP-HYG P3-C: boundary sampling point after the supply-balance
+	// sub-pass (its idle-mismatch scans are tick-instrumented; a fire inside
+	// them — or a deadline expiring in the cheap passes around them — returns
+	// here instead of running the remaining sub-passes).
+	if q.runCancel.sample() {
+		return stats
+	}
 	// CFR (#75 簇共频): one deterministic window-level disclosure covering
 	// every frequency-weighted face that consumed a donor timeline in this
 	// window (busy loop, off-CPU context, compute_supply fmax).
@@ -2823,6 +2849,12 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		if drift.Caveat != "" {
 			stats.Caveats = append(stats.Caveats, drift.Caveat)
 		}
+	}
+	// SUPP-HYG P3-C: boundary sampling point after the memory-kind /
+	// thread-drift scans (both tick-instrumented) — a fire inside them must
+	// not pay for the tail composite passes below.
+	if q.runCancel.sample() {
+		return stats
 	}
 	stats.ComputeSupply = computeSupplySummaries(stats, 8)
 	stats.StateChurn = enrichStateChurnWithCPUPressure(computeStateChurnSummaries(idx, q, 8), stats.CPUPressure)
@@ -6916,14 +6948,23 @@ func topBlockedReasons(in map[string]BlockedReasonSummary, max int) []BlockedRea
 	return out
 }
 
-func resolveBlockedReasonThread(idx *Index, ev Event) ThreadRef {
+// resolveBlockedReasonThread resolves the blocked-reason row's wakee thread.
+// SUPP-HYG P3-C (§29.81 立案, 2026-07-14): the caller's q rides in ONLY to
+// hand the cooperative-cancellation carrier to the nested resolvePIDThread
+// scan — the resolution query itself stays the bare lifecycle-prefix probe
+// (Query{LineEnd: ev.Line}, byte-identical semantics). Without the carrier
+// this O(events) resolver ran once per in-window blocked-reason row inside
+// the ComputeWindowStats main sweep as one opaque scan unit, and the donghu
+// 2ms-deadline observation latency was ~200ms (profile: resolvePIDThread
+// >50% of the stats build).
+func resolveBlockedReasonThread(idx *Index, q Query, ev Event) ThreadRef {
 	if idx == nil || ev.WakeePID == 0 {
 		return ThreadRef{PID: ev.WakeePID}
 	}
 	// Resolve metadata from the physical lifecycle prefix ending at this exact
 	// evidence row. A full-index first match can belong to an earlier occupant
 	// of the same numeric TID and leak its comm/TGID into the blocked reason.
-	return resolvePIDThread(idx, ev.WakeePID, Query{LineEnd: ev.Line})
+	return resolvePIDThread(idx, ev.WakeePID, Query{LineEnd: ev.Line, runCancel: q.runCancel})
 }
 
 func upsertCPUBusyIdle(in []CPUStats, cpu int, busy, idle float64) []CPUStats {
@@ -8012,6 +8053,13 @@ func computeIRQBursts(idx *Index, q Query, max int) []IRQBurstSummary {
 		delete(active, key)
 	}
 	for _, ev := range idx.Events {
+		// SUPP-HYG P3-C (§29.81 立案, 2026-07-14): cooperative sampling point of
+		// the IRQ-burst scan (untick sub-segment between ComputeWindowStats
+		// boundary samples). On fire the partial burst set is abandoned; the
+		// caller's whole stats face is discarded by the attach gate (禁半账).
+		if q.runCancel.tick() {
+			return nil
+		}
 		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
 			continue
 		}
@@ -8131,6 +8179,12 @@ func computeInterruptActivity(idx *Index, q Query, typ EventType, coreByCPU map[
 		return item
 	}
 	for _, ev := range idx.Events {
+		// SUPP-HYG P3-C: interrupt-activity scan sampling point (runs three
+		// times per stats build: IRQ / softirq / IPI). On fire the partial
+		// activity set is abandoned whole (禁半账 via the caller's attach gate).
+		if q.runCancel.tick() {
+			return nil, nil
+		}
 		if !eventLineInWindow(ev, q) || ev.Type != typ {
 			continue
 		}
@@ -8628,6 +8682,12 @@ func computeWorkqueueActivity(idx *Index, q Query, max int, providedIntegrity ..
 	// retained topology. Query bounds must not delete a malformed barrier or a
 	// carry-in start before the cohort state machine sees it.
 	for eventIndex, ev := range idx.Events {
+		// SUPP-HYG P3-C: workqueue completeness pre-pass sampling point. On
+		// fire the endpoint inventory is abandoned whole (禁半账 via the
+		// caller's attach gate).
+		if q.runCancel.tick() {
+			return nil, nil
+		}
 		if ev.Type != EventWorkqueue {
 			continue
 		}
@@ -8665,6 +8725,10 @@ func computeWorkqueueActivity(idx *Index, q Query, max int, providedIntegrity ..
 	}
 	if !integrity.familyGlobal {
 		for eventIndex, ev := range idx.Events {
+			// SUPP-HYG P3-C: lifecycle-reset scan sampling point.
+			if q.runCancel.tick() {
+				return nil, nil
+			}
 			resetPID, reset := schedulerLifecycleResetPID(ev)
 			if !reset || !relevantPIDs[resetPID] {
 				continue
@@ -8945,6 +9009,12 @@ func computeDMAFenceActivity(idx *Index, q Query, max int, providedIntegrity ...
 	invalidEndpointRows := 0
 	var invalidSamples []string
 	for eventIndex, ev := range idx.Events {
+		// SUPP-HYG P3-C: DMA-fence completeness pre-pass sampling point. On
+		// fire the endpoint inventory is abandoned whole (禁半账 via the
+		// caller's attach gate).
+		if q.runCancel.tick() {
+			return nil, nil
+		}
 		if ev.Type != EventDMAFence {
 			continue
 		}
@@ -8982,6 +9052,10 @@ func computeDMAFenceActivity(idx *Index, q Query, max int, providedIntegrity ...
 	}
 	if !integrity.familyGlobal {
 		for eventIndex, ev := range idx.Events {
+			// SUPP-HYG P3-C: lifecycle-reset scan sampling point.
+			if q.runCancel.tick() {
+				return nil, nil
+			}
 			resetPID, reset := schedulerLifecycleResetPID(ev)
 			if !reset || !relevantPIDs[resetPID] {
 				continue
@@ -9231,6 +9305,12 @@ func computeMemoryKinds(idx *Index, q Query, max int) []MemoryKindSummary {
 	}
 	byKind := map[string]MemoryKindSummary{}
 	for _, ev := range idx.Events {
+		// SUPP-HYG P3-C: memory-kind scan sampling point (untick sub-segment
+		// after the last ComputeWindowStats boundary sample). On fire the
+		// partial census is abandoned whole (禁半账 via the attach gate).
+		if q.runCancel.tick() {
+			return nil
+		}
 		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) || ev.Type != EventMemory {
 			continue
 		}
@@ -10723,6 +10803,11 @@ func detectThreadDrifts(idx *Index, q Query, max int) []ThreadDriftSummary {
 		}
 	}
 	for _, ev := range idx.Events {
+		// SUPP-HYG P3-C: thread-drift scan sampling point (same whole-discard
+		// contract as the sibling memory-kind scan).
+		if q.runCancel.tick() {
+			return nil
+		}
 		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
 			continue
 		}
@@ -16786,6 +16871,15 @@ func BuildFramePipeline(idx *Index, q Query) FramePipelineResult {
 		res.Compactions = append(res.Compactions, *spanCompaction)
 	}
 	for _, span := range spans {
+		// SUPP-HYG P3-B (§29.81 立案, 2026-07-14): cooperative sampling point of
+		// the frame assembly main loop — the frame family previously had ZERO
+		// sampling points after the span scan, so its cancellation-latency
+		// upper bound grew with the assembled span count. On fire the partial
+		// item list is abandoned and the caller's attach gate discards the
+		// whole face (禁半账).
+		if q.runCancel.tick() {
+			return res
+		}
 		if !isFrameLikeSpan(span.Name) && strings.TrimSpace(q.SpanName) == "" {
 			continue
 		}
@@ -16842,6 +16936,11 @@ func buildFrameTimelineFromPipeline(q Query, frame FramePipelineResult) FrameTim
 		res.Window = TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}
 	}
 	for i, phase := range frame.Items {
+		// SUPP-HYG P3-B: frame_timeline item-assembly sampling point (same
+		// whole-discard contract as the pipeline loop above).
+		if q.runCancel.tick() {
+			return res
+		}
 		item := FrameTimelineItem{
 			Index:      i + 1,
 			Thread:     phase.Thread,
@@ -16859,6 +16958,10 @@ func buildFrameTimelineFromPipeline(q Query, frame FramePipelineResult) FrameTim
 		res.Items = append(res.Items, item)
 	}
 	for i := 0; i+1 < len(res.Items); i++ {
+		// SUPP-HYG P3-B: frame_flow edge-assembly sampling point.
+		if q.runCancel.tick() {
+			return res
+		}
 		from := res.Items[i]
 		to := res.Items[i+1]
 		latency := (to.StartTs - from.EndTs) * 1000

@@ -53,14 +53,19 @@ type SystemTraceSupplementMeta struct {
 	// execution order.
 	Views []string `json:"views,omitempty"`
 	// SkipReason / SkippedViews carry the P1 budget-fuse disclosure lanes
-	// (2026-07-14): "window_span_exceeded" = the whole supplement was
-	// skipped before any engine call because the derived window's span
-	// exceeded WindowBudgetS (Views empty, SkippedViews = the planned view
-	// set); "duration_budget_exceeded" = the between-view deadline fired
-	// after ≥1 completed view (Views = the kept completions, SkippedViews =
-	// the remainder). Both are HONEST disclosed skips — unlike the silent
-	// fail-open family (no target / no window), the user named this window,
-	// so the answer must say the supplement did not (fully) run for it.
+	// (2026-07-14). SkipReason values come from the TraceSupplementReason*
+	// closed set (trace_supplement_reasons.go — SUPP-HYG P3-4):
+	// "window_span_exceeded" = the whole supplement was skipped before any
+	// engine call because the derived window's span exceeded WindowBudgetS
+	// (Views empty, SkippedViews = the planned view set);
+	// "duration_budget_exceeded" = the duration budget fired (between views
+	// after ≥1 completed view — Views = the kept completions, SkippedViews =
+	// the remainder — or in-view via the SUPP-CANCEL deadline);
+	// "canceled_by_caller" (SUPP-HYG P3-D) = the engine work was canceled by
+	// the CALLER's context (user abort), not by the budget. All are HONEST
+	// disclosed skips — unlike the silent fail-open family (no target / no
+	// window), the user named this window, so the answer must say the
+	// supplement did not (fully) run for it.
 	SkipReason   string   `json:"skip_reason,omitempty"`
 	SkippedViews []string `json:"skipped_views,omitempty"`
 	// WindowBudgetS echoes the span budget for the window_span_exceeded
@@ -113,7 +118,12 @@ type SystemTraceSupplementMeta struct {
 
 // TraceViewCancellation is the ToolResult mirror of the trace engine's typed
 // in-view cooperative-cancellation record (SUPP-CANCEL, 2026-07-14). See
-// ToolResult.TraceViewCancellation for the publication contract.
+// ToolResult.TraceViewCancellation for the publication contract. SUPP-HYG
+// P3-D (2026-07-14): a context fire during the PARSE phase (index build,
+// before any view work) mints this record too — View/Reason only,
+// ScannedUnits/DiscardedFaces zero — so the cancellation in-presence signal
+// is typed on both fire lanes and consumers never fall back to racy ambient
+// context checks.
 type TraceViewCancellation struct {
 	// View is the canonical view name of the canceled run.
 	View string `json:"view"`

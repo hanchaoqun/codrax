@@ -4676,15 +4676,27 @@ func runtimeTraceSupplementViewList(views []string, zh bool) string {
 //     form's 「时长预算」 name two DIFFERENT budgets and deliberately stay
 //     distinct words.
 func runtimeTraceSupplementDisclosureText(meta *types.SystemTraceSupplementMeta, zh bool) string {
-	if meta == nil || (len(meta.Views) == 0 && meta.SkipReason != "window_span_exceeded" && !meta.CensusLite && len(meta.CanceledViews) == 0) {
+	if meta == nil || (len(meta.Views) == 0 && meta.SkipReason != types.TraceSupplementReasonWindowSpanExceeded && !meta.CensusLite && len(meta.CanceledViews) == 0) {
 		return ""
 	}
-	// SUPP-CANCEL (2026-07-14) canceled-only form: the duration budget
-	// canceled every attempted view before any complete face was recorded —
-	// nothing ran to completion, and the user-named window must hear that
-	// honestly (禁裸丢). Partial aggregates were discarded whole by the
-	// engine (禁半账), so the sentence claims no re-run.
-	if len(meta.Views) == 0 && meta.SkipReason != "window_span_exceeded" && !meta.CensusLite && len(meta.CanceledViews) > 0 {
+	// SUPP-CANCEL (2026-07-14) canceled-only form: the cancellation canceled
+	// every attempted view before any complete face was recorded — nothing
+	// ran to completion, and the user-named window must hear that honestly
+	// (禁裸丢). Partial aggregates were discarded whole by the engine
+	// (禁半账), so the sentence claims no re-run. SUPP-HYG P3-D (2026-07-14,
+	// ATOMIC zh/en fork): the caller-abort reason (canceled_by_caller) names
+	// the caller's cancellation and recommends a plain re-run — it must never
+	// blame the duration budget (which did not fire) nor advise narrowing the
+	// window.
+	if len(meta.Views) == 0 && meta.SkipReason != types.TraceSupplementReasonWindowSpanExceeded && !meta.CensusLite && len(meta.CanceledViews) > 0 {
+		if meta.SkipReason == types.TraceSupplementReasonCanceledByCaller {
+			if zh {
+				return fmt.Sprintf("%s 未完成成文前确定性补跑——%s在执行中被本次运行的取消信号中止,未采信任何部分结果(窗 %.6f..%.6f);重新运行可补齐该窗结果",
+					runtimeTraceSupplementDisclosurePrefixZH, runtimeTraceSupplementViewList(meta.CanceledViews, true), meta.WindowStart, meta.WindowEnd)
+			}
+			return fmt.Sprintf("%s pre-report re-run incomplete — %s canceled mid-run by this run's cancellation signal; no partial aggregates were kept (window %.6f..%.6f); re-run to fill it in",
+				runtimeTraceSupplementDisclosurePrefixEN, runtimeTraceSupplementViewList(meta.CanceledViews, false), meta.WindowStart, meta.WindowEnd)
+		}
 		if zh {
 			return fmt.Sprintf("%s 未完成成文前确定性补跑——%s超 %g 秒时长预算在执行中被取消,未采信任何部分结果(窗 %.6f..%.6f);缩小时间窗后可补齐该窗结果",
 				runtimeTraceSupplementDisclosurePrefixZH, runtimeTraceSupplementViewList(meta.CanceledViews, true), meta.DurationBudgetS, meta.WindowStart, meta.WindowEnd)
@@ -4702,7 +4714,7 @@ func runtimeTraceSupplementDisclosureText(meta *types.SystemTraceSupplementMeta,
 	liteTail := ""
 	if meta.CensusLite {
 		pattern := strings.TrimSpace(meta.CensusLitePattern)
-		if len(meta.Views) == 0 && meta.SkipReason != "window_span_exceeded" {
+		if len(meta.Views) == 0 && meta.SkipReason != types.TraceSupplementReasonWindowSpanExceeded {
 			// Lite-only sentence is LANE-NEUTRAL by design (修复轮 件2): the
 			// arm fires on derivation failures AND on the families_present /
 			// execution_failed lanes, so it claims only what ran — never why
@@ -4731,7 +4743,7 @@ func runtimeTraceSupplementDisclosureText(meta *types.SystemTraceSupplementMeta,
 	case target == "" && meta.TargetPID > 0:
 		target = fmt.Sprintf("pid %d", meta.TargetPID)
 	}
-	if meta.SkipReason == "window_span_exceeded" {
+	if meta.SkipReason == types.TraceSupplementReasonWindowSpanExceeded {
 		span := meta.WindowEnd - meta.WindowStart
 		if zh {
 			return fmt.Sprintf("%s 未补跑 %s——窗 %.6f..%.6f 跨度 %.3f 秒超出补跑窗长预算 %g 秒;缩小时间窗后可补齐该窗结果",
@@ -4743,23 +4755,36 @@ func runtimeTraceSupplementDisclosureText(meta *types.SystemTraceSupplementMeta,
 	if zh {
 		line := fmt.Sprintf("%s 成文前确定性补跑 %s(窗 %.6f..%.6f, 目标 %s)",
 			runtimeTraceSupplementDisclosurePrefixZH, runtimeTraceSupplementViewList(meta.Views, true), meta.WindowStart, meta.WindowEnd, target)
-		if meta.SkipReason == "duration_budget_exceeded" && len(meta.SkippedViews) > 0 {
+		if meta.SkipReason == types.TraceSupplementReasonDurationBudgetExceeded && len(meta.SkippedViews) > 0 {
 			line += ";超时长预算未补跑 " + runtimeTraceSupplementViewList(meta.SkippedViews, true)
 		}
 		if len(meta.CanceledViews) > 0 {
-			line += fmt.Sprintf(";其中 %s 在 %g 秒时长预算处被取消,仅已完成的完整结果被记录,未完成部分整弃",
-				runtimeTraceSupplementViewList(meta.CanceledViews, true), meta.DurationBudgetS)
+			// SUPP-HYG P3-D (ATOMIC zh/en fork): caller abort vs duration
+			// budget — the tail must name the cancellation that actually
+			// happened.
+			if meta.SkipReason == types.TraceSupplementReasonCanceledByCaller {
+				line += fmt.Sprintf(";其中 %s 被本次运行的取消信号中止,仅已完成的完整结果被记录,未完成部分整弃",
+					runtimeTraceSupplementViewList(meta.CanceledViews, true))
+			} else {
+				line += fmt.Sprintf(";其中 %s 在 %g 秒时长预算处被取消,仅已完成的完整结果被记录,未完成部分整弃",
+					runtimeTraceSupplementViewList(meta.CanceledViews, true), meta.DurationBudgetS)
+			}
 		}
 		return line + liteTail
 	}
 	line := fmt.Sprintf("%s deterministic pre-report re-run of %s (window %.6f..%.6f, target %s)",
 		runtimeTraceSupplementDisclosurePrefixEN, runtimeTraceSupplementViewList(meta.Views, false), meta.WindowStart, meta.WindowEnd, target)
-	if meta.SkipReason == "duration_budget_exceeded" && len(meta.SkippedViews) > 0 {
+	if meta.SkipReason == types.TraceSupplementReasonDurationBudgetExceeded && len(meta.SkippedViews) > 0 {
 		line += "; not re-run over the duration budget: " + runtimeTraceSupplementViewList(meta.SkippedViews, false)
 	}
 	if len(meta.CanceledViews) > 0 {
-		line += fmt.Sprintf("; %s canceled at the %gs duration budget — only fully-completed results were recorded, unfinished parts were discarded whole",
-			runtimeTraceSupplementViewList(meta.CanceledViews, false), meta.DurationBudgetS)
+		if meta.SkipReason == types.TraceSupplementReasonCanceledByCaller {
+			line += fmt.Sprintf("; %s canceled by this run's cancellation signal — only fully-completed results were recorded, unfinished parts were discarded whole",
+				runtimeTraceSupplementViewList(meta.CanceledViews, false))
+		} else {
+			line += fmt.Sprintf("; %s canceled at the %gs duration budget — only fully-completed results were recorded, unfinished parts were discarded whole",
+				runtimeTraceSupplementViewList(meta.CanceledViews, false), meta.DurationBudgetS)
+		}
 	}
 	return line + liteTail
 }
@@ -4776,7 +4801,7 @@ func materializeRuntimeTraceSupplementDisclosureCaveat(doc *types.AnswerDocument
 		return false
 	}
 	meta := ctx.Mutable.SystemTraceSupplementMeta()
-	if meta == nil || (len(meta.Views) == 0 && meta.SkipReason != "window_span_exceeded" && !meta.CensusLite && len(meta.CanceledViews) == 0) {
+	if meta == nil || (len(meta.Views) == 0 && meta.SkipReason != types.TraceSupplementReasonWindowSpanExceeded && !meta.CensusLite && len(meta.CanceledViews) == 0) {
 		return false
 	}
 	kept := doc.Caveats[:0]
