@@ -133,9 +133,11 @@ func TestSemLeadOnChainSemanticFamilySingleSeatCrownedZH(t *testing.T) {
 	for _, line := range strings.Split(md, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "|") && strings.Contains(line, "Texture upload(15573)") &&
-			!strings.Contains(line, "成员") {
-			// Roster sub-rows (·成员 …) keep the real span names lossless
-			// (§24.7.1 ① 区分键不能丢); every NODE cell speaks the class word.
+			!strings.Contains(line, "| ↳ ") && !strings.Contains(line, "成员") {
+			// Roster sub-rows (↳ <member>; §29.61.4a retired the 成员 label
+			// word, the subordinate connector alone marks roster rows) keep
+			// the real span names lossless (§24.7.1 ① 区分键不能丢); every
+			// NODE cell speaks the class word.
 			t.Fatalf("a table node cell must never speak one member's span name (§29.7-2 ④): %q", line)
 		}
 	}
