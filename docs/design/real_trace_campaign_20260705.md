@@ -2640,3 +2640,6 @@ B1 折叠行头名 floor 直接 pin(数学六形+产线实铸压力形:同主体
 
 ## §29.76 UX-ANCHOR 收账(2026-07-14;§29.61.7/.8 客户反馈四件;md 零字节纯 HTML 层)
 **件a** lead 段 E# 锚点:新 markdown_trace_lead.go 挂锚配对 transformer 尾;lead 作用域=精确信号(投影 fence 向前回溯,H2∧SectionProjectionTitles 闭集终止;◎/aux 跳过);语法=fence 侧 token 复用+括号裸形,仅 claimed 序数铸链;**Text 节点 run 扫描**(goldmark 拆节点漏 token 已修);fail-closed=计数恒等破整体降纯文本。**顺带修根在产 bug**:`❹[E1](折算…)` 被 markdown 误解析假链接+口径括注吞进 href——按精确语法重建还原(真链接零触碰负向 pin)。**件b** 正文徽章紧凑形(0.85em/去粗/轻背景;树 pill 零改哨兵;DOM 证行高零撑=含徽章 li 恰 2×行盒与对照同值)。**件c** 链接可辨(--link+点划线 hover 实线)。**件d** 问题节 verbatim(§29.61.8):```text codrax-user-request 围栏+内容感知围栏长度防碰撞;HTML pre 转义=注入面关死(script 注入 pin);逐字节恒等 pin(控制符混合);typed 第二 token 关 mermaid 嗅探+分类器收紧(档案车道正负 pin)。全仓绿×2(工作树+HEAD 快照门);md 零字节 cmp 实证;真工件 47 锚零悬空点击实测。注:与批4 共享 answer_document_mutation_runtime.go(hunk 零交叠:披露函数族 vs title 发射点),合并收账双节分记。
+
+### §29.61.10b 用户裁定(2026-07-14,推广 §29.61.10a 至全族):唤醒边=链上因果唯一凭证,邻近级证据责任归位——D/IO/running/span/binder 全状态族同原则排查
+用户裁定原文要义:按同样语义思路排查其它状态(D/IO/running/span/binder 等),同一原则处理——「唤醒边=链上因果的唯一凭证」「邻近级证据责任归位」。**执行框架**:①每族链上席审定其**因果凭证类型**(唤醒边/binder 同步事务边/self-causality/blocked_reason 等待对象边——typed 有向依赖记录候选与唤醒边同级性逐一列举供用户终审;纯时间重叠恒为邻近级);②席值锚定=凭证关联片段合计(非全窗/非重叠窗);③无凭证片段/线程→◇ 邻近(词面随迁,ELIM-1 链∪◇ 收口=可见性不损);④每族出处置矩阵(凭证类型/现值口径/缺口/迁移形/爆炸半径)。ATTR-BOUND 排查扩为全族 ATTR-UNIFY;实施=RSPA 批(按矩阵与用户终审分件)。
