@@ -115,6 +115,51 @@ func TestProfilerContainerExtractionHasNoLegacyPublicationArrays(t *testing.T) {
 			t.Fatalf("profiler extraction retained legacy publication array %q", field)
 		}
 	}
+	allowedDynamic := map[string]reflect.Type{
+		"PluginMessages": reflect.TypeOf(map[string]int{}),
+		"TraceCoverage":  reflect.TypeOf([]TraceDBCoverage{}),
+		"Caveats":        reflect.TypeOf([]string{}),
+	}
+	seen := make(map[string]bool, len(allowedDynamic))
+	for index := 0; index < typeOf.NumField(); index++ {
+		field := typeOf.Field(index)
+		if want, allowed := allowedDynamic[field.Name]; allowed {
+			if field.Type != want {
+				t.Fatalf("profiler extraction dynamic field %q changed type from %v to %v",
+					field.Name, want, field.Type)
+			}
+			seen[field.Name] = true
+			continue
+		}
+		if profilerTypeHasUnboundedCollection(field.Type, make(map[reflect.Type]bool)) {
+			t.Fatalf("profiler extraction gained unbounded dynamic field %q of type %v", field.Name, field.Type)
+		}
+	}
+	for name := range allowedDynamic {
+		if !seen[name] {
+			t.Fatalf("profiler extraction dynamic collection roster lost %q", name)
+		}
+	}
+}
+
+func profilerTypeHasUnboundedCollection(typeOf reflect.Type, seen map[reflect.Type]bool) bool {
+	if typeOf == nil || seen[typeOf] {
+		return false
+	}
+	seen[typeOf] = true
+	switch typeOf.Kind() {
+	case reflect.Map, reflect.Slice, reflect.Chan, reflect.Func, reflect.Interface:
+		return true
+	case reflect.Array, reflect.Pointer:
+		return profilerTypeHasUnboundedCollection(typeOf.Elem(), seen)
+	case reflect.Struct:
+		for index := 0; index < typeOf.NumField(); index++ {
+			if profilerTypeHasUnboundedCollection(typeOf.Field(index).Type, seen) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func TestProfilerTerminalPublicationBuilderAccountsWholeMessagesAndRowClasses(t *testing.T) {
