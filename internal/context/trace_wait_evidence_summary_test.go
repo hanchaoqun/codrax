@@ -173,6 +173,11 @@ func TestTraceWaitEvidence_TypedCensusNote(t *testing.T) {
 		// may include pre-window accumulation — Σ>窗长 forms stay honest).
 		"keyed by the waiting thread itself",
 		"self-reported delay= field and may include pre-window accumulation",
+		// PROSE-RC-4 臂① (§29.78): the outside sentence names the census
+		// caller symbols too — the tieba prose nested exactly the census-fed
+		// hmfs shares inside the remainder seat, so the shares it must never
+		// nest are spelled out on the remainder's own fact line.
+		"The caller-named shares (fscache_page_wait_o, hmfs_read, hmfs_get_dnode) are OUTSIDE this unproven share",
 	} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("typed census summary missing %q:\n%s", want, summary)
@@ -407,6 +412,15 @@ func TestTraceWaitEvidence_UnprovenRemainderFact(t *testing.T) {
 		// mutation self-check performed: dropping either clause reds here).
 		"These member segments are one indivisible unproven whole: never rebind any single member segment to a caller-named proven cause, and never derive a new unproven amount by subtracting member-segment values from this share or from each other.",
 		"这些成员段是不可拆分的未证整体——禁止把任一成员段单独重绑到任何已证原因名下,也禁止用本份额减去成员段值、或成员段之间互减,铸造新的未证量。",
+		// PROSE-RC-4 臂① (§29.78, 2026-07-14): the fourth sister — the
+		// re-derivation urge re-routed into NESTING (the remainder seat framed
+		// as a TOTAL containing the hmfs caller shares, re-subtracted to mint
+		// 10.117 = 10.433 − 0.145 − 0.171; no explicit "=", disjoint sentence
+		// bypassed by the total framing). Pinned VERBATIM in both languages
+		// with the account's own caller symbols named (mutation self-check
+		// performed: dropping either clause or the symbol list reds here).
+		"The caller-named shares (fscache_page_wait_o) are OUTSIDE this unproven share, never nested inside it — this value is already net of every proven cause, so never treat any caller-named share as contained in this share, and never subtract caller-named share values from this value again to derive a smaller unproven amount.",
+		"各已证原因份额(fscache_page_wait_o)均在本未证份额之外、绝非嵌套其中——本值已扣除全部已证原因、本身即净值;禁止把任何已证份额视作包含在本份额之内,也禁止再用本值减去已证份额值,铸造更小的新未证量。",
 	} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("unproven remainder fact missing %q:\n%s", want, summary)
@@ -432,6 +446,11 @@ func TestTraceWaitEvidence_UnprovenRemainderFact(t *testing.T) {
 	capped := formatTraceWaitWakeEvidenceFromLedger(ledger, nil)
 	if !strings.Contains(capped, "cause-unproven remainder fact for capped-thread-77: the d_state cause-unproven share is 3.333ms") {
 		t.Fatalf("the remainder fact must never fall to the caller cap:\n%s", capped)
+	}
+	// PROSE-RC-4 臂①: past the caller cap the outside-sentence symbol list
+	// discloses its overflow instead of dropping symbols silently.
+	if !strings.Contains(capped, "The caller-named shares (cap_sym_0, cap_sym_1, cap_sym_2, cap_sym_3, cap_sym_4, …) are OUTSIDE this unproven share") {
+		t.Fatalf("the outside sentence must cap its symbol list with a disclosed overflow:\n%s", capped)
 	}
 	// A remainder WITHOUT a published member_count must not borrow the member
 	// property/prohibition sentences — the membership claims ride exactly the

@@ -94,6 +94,19 @@ package context
 // sentence anchors the true-partition property at member granularity: the
 // members are one indivisible unproven whole, no single member rebinds to
 // any proven cause, and no member subtraction mints a new unproven amount.
+//
+// PROSE-RC-4 臂① (§29.78 第四改道向, 2026-07-14): the FOURTH sister sentence.
+// With the subtraction, whole-seat binding and member re-allocation lanes
+// closed, the re-derivation urge re-routed into NESTING — the prose framed
+// the remainder seat as a TOTAL containing the hmfs caller shares
+// (0.145+0.171, self-summed wrong as 0.296) and re-subtracted them to mint
+// 10.117 = 10.433 − 0.145 − 0.171 as the "real" unproven amount; no explicit
+// "=" equation, and the disjoint sentence was bypassed by the total framing.
+// The new sentence states the OUTSIDE/net property with the account's own
+// caller symbols named: every caller-named share lies outside this value,
+// which is already net of every proven cause — never nested inside it. The
+// orchestrator side grows the matching implicit-subtraction arithmetic arm
+// (prose_fact_juxtaposition.go, 臂②).
 
 import (
 	"fmt"
@@ -761,6 +774,53 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 					// so the quoted answer language cannot lose it.
 					memberSeg = fmt.Sprintf(" Its %s member segment(s) are ALL inside the unproven share together — no single member segment alone is the unproven part. These member segments are one indivisible unproven whole: never rebind any single member segment to a caller-named proven cause, and never derive a new unproven amount by subtracting member-segment values from this share or from each other. 这些成员段是不可拆分的未证整体——禁止把任一成员段单独重绑到任何已证原因名下,也禁止用本份额减去成员段值、或成员段之间互减,铸造新的未证量。", fact.members)
 				}
+				// PROSE-RC-4 臂① (§29.78 第四改道向, 2026-07-14): with the
+				// subtraction, whole-seat binding and member re-allocation
+				// lanes closed, the re-derivation urge re-routed into NESTING
+				// — the prose framed the remainder seat as a TOTAL containing
+				// the hmfs caller shares (0.145+0.171) and re-subtracted them
+				// to mint "10.117" as the real unproven amount (no explicit
+				// equation, so the arithmetic arm stayed dark; the disjoint
+				// sentence was bypassed by the total framing). The fourth
+				// sister states the OUTSIDE/net account property with the
+				// account's own caller symbols named: every caller-named
+				// share lies outside this value, which is already net of
+				// every proven cause. Account property only (§29.53.2 边界内),
+				// bilingual so the quoted answer language cannot lose it.
+				var callerNames []string
+				seenName := map[string]bool{}
+				addCallerName := func(sym string) {
+					sym = strings.TrimSpace(sym)
+					if sym == "" || sym == "unknown" || seenName[sym] {
+						return
+					}
+					seenName[sym] = true
+					callerNames = append(callerNames, sym)
+				}
+				for _, pf := range f.facts {
+					addCallerName(pf.caller)
+				}
+				for _, sym := range f.censusOrder {
+					addCallerName(sym)
+				}
+				for _, sym := range f.windowCallers {
+					addCallerName(sym)
+				}
+				nameSeg := ""
+				if len(callerNames) > 0 {
+					shown := callerNames
+					if len(shown) > traceWaitEvidenceCallerCap {
+						shown = append(append([]string(nil), shown[:traceWaitEvidenceCallerCap]...), "…")
+					}
+					nameSeg = "(" + strings.Join(shown, ", ") + ")"
+				}
+				outsideSegEN := " The caller-named shares"
+				outsideSegZH := "各已证原因份额"
+				if nameSeg != "" {
+					outsideSegEN += " " + nameSeg
+					outsideSegZH += nameSeg
+				}
+				outsideSeg := outsideSegEN + " are OUTSIDE this unproven share, never nested inside it — this value is already net of every proven cause, so never treat any caller-named share as contained in this share, and never subtract caller-named share values from this value again to derive a smaller unproven amount. " + outsideSegZH + "均在本未证份额之外、绝非嵌套其中——本值已扣除全部已证原因、本身即净值;禁止把任何已证份额视作包含在本份额之内,也禁止再用本值减去已证份额值,铸造更小的新未证量。"
 				// PROSE-RC 收尾件3 (冷读姊妹形, 054419/052947): with the
 				// subtraction lane closed, the re-derivation urge re-routed
 				// into BINDING — the prose moved the whole remainder seat
@@ -768,7 +828,7 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 				// The sister partition property closes that direction: the
 				// remainder has NO kernel-recorded caller and never belongs
 				// under any caller-named proven cause.
-				b.WriteString(fmt.Sprintf("  cause-unproven remainder fact for %s: the %scause-unproven share is %sms, and this published value already IS the entire unproven share — use it verbatim. It has NO kernel-recorded caller and must never be attributed to any caller-named proven cause. The caller-named shares cover only the cause-proven part and are disjoint from this remainder (one account split into non-overlapping shares), so never subtract caller-share values from this remainder, and never subtract this remainder from a caller share, to derive a new unproven amount.%s\n", subject, stateWord, fact.value, memberSeg))
+				b.WriteString(fmt.Sprintf("  cause-unproven remainder fact for %s: the %scause-unproven share is %sms, and this published value already IS the entire unproven share — use it verbatim. It has NO kernel-recorded caller and must never be attributed to any caller-named proven cause. The caller-named shares cover only the cause-proven part and are disjoint from this remainder (one account split into non-overlapping shares), so never subtract caller-share values from this remainder, and never subtract this remainder from a caller share, to derive a new unproven amount.%s%s\n", subject, stateWord, fact.value, outsideSeg, memberSeg))
 			}
 		}
 		if subjectOverflow > 0 {

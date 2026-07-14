@@ -315,3 +315,105 @@ func TestCR4Fact_SeatRepublicationCollapses(t *testing.T) {
 		t.Fatalf("the distinct-window twin seat must stay: %s", line)
 	}
 }
+
+// cr4SubtractionRecords — the §29.78 tieba shape: the cause-unproven
+// remainder seat (10.433) plus the caller-named proven shares, published
+// both as a caller seat value (7.386) and as census Σ magnitudes (0.145 /
+// 0.171 — the hmfs shares the witness prose nested inside the remainder).
+func cr4SubtractionRecords() []types.ObservationRecord {
+	recs := cr4FactRecords()
+	remainder := psgTraceRecord("trace_query:t#root_cause_rank:3", "root_cause_tertiary", "10.433",
+		"rank=3", "effective_impact_ms=10.433",
+		types.TraceNoteKeyMemberCount+"=3",
+		types.TraceNoteKeyDStateCauseUnprovenRemainder+"=true")
+	remainder.Subject = "ThreadPoolForeg-60555"
+	remainder.Object = "io_wait"
+	proven := psgTraceRecord("trace_query:t#root_cause_rank:4", "root_cause_secondary", "7.386",
+		"rank=4", "effective_impact_ms=7.386",
+		types.TraceNoteKeyBlockedReasonCaller+"=fscache_page_wait_o")
+	proven.Subject = "ThreadPoolForeg-60555"
+	proven.Object = "io_wait"
+	census := psgTraceRecord("trace_query:t#blocked_reason_census:1", "blocked_reason_census", "19",
+		types.TraceNoteKeyBlockedReasonCensus+"=fscache_page_wait_o×17(Σ7.386ms)/hmfs_read×1(Σ0.145ms)/hmfs_get_dnode×1(Σ0.171ms)")
+	census.Subject = "ThreadPoolForeg-60555"
+	census.Predicate = "blocked_reason_census"
+	census.Object = "blocked_reason"
+	return append(recs, remainder, proven, census)
+}
+
+// TestCR4Fact_ImplicitNestedResubtraction — PROSE-RC-4 臂② (§29.78): the
+// witness carried NO "=" equation — the remainder seat was framed as a
+// TOTAL containing the hmfs caller shares and 10.117 = 10.433−0.145−0.171
+// was minted as the "real" unproven amount (with a wrong self-summed 0.296
+// alongside). The three-value co-occurrence with the pure arithmetic
+// identity and the unpublished residual draws the fact-only line.
+func TestCR4Fact_ImplicitNestedResubtraction(t *testing.T) {
+	mut := psgTraceMutable(cr4SubtractionRecords()...)
+	bus := psgBus(mut)
+	doc := psgProseDoc("D 状态总量 10.433ms 中,已获内核 blocked_reason 记录证实的部分仅 0.296ms(hmfs_read 的 0.145ms + hmfs_get_dnode 的 0.171ms),剩余约 10.117ms 的 D 状态段无对应内核等待原因记录。")
+
+	facts := proseFactJuxtapositionFindings(doc, bus, mut)
+	var hit string
+	for _, f := range facts {
+		if zh := f.userReadable("zh"); strings.Contains(zh, "系统事实对照") {
+			hit = zh
+		}
+	}
+	if hit == "" {
+		t.Fatalf("the implicit nested-re-subtraction form must draw the fact line, got %+v", facts)
+	}
+	for _, want := range []string{
+		// The net-of account property, the arithmetic identity over the
+		// prose's own verbatim tokens, and the negative set-membership fact.
+		"10.433 为已扣除全部已证原因份额后的净值",
+		"各已证份额均在其外",
+		"文中共现数值满足 10.433-0.145-0.171≈10.117",
+		"10.117 非本次运行的任何 typed 发布值",
+	} {
+		if !strings.Contains(hit, want) {
+			t.Fatalf("implicit-subtraction fact line missing %q: %s", want, hit)
+		}
+	}
+	// The wrong self-summed 0.296 must never be picked as the residual (it
+	// satisfies no subtraction identity), and no accusatory wording appears.
+	if strings.Contains(hit, "0.296") {
+		t.Fatalf("the non-identity residual must not be picked: %s", hit)
+	}
+	cr4BannedWordingCheck(t, []string{hit})
+}
+
+// TestCR4Fact_ImplicitSubtractionNegatives — the precise-gate boundary
+// (§29.78 边界谨慎: the false-positive surface is legitimate multi-value
+// citation): published values, rounded re-quotes of published values, and
+// co-occurrence WITHOUT the arithmetic identity all stay silent; runs
+// without a remainder or without proven shares are structurally inert.
+func TestCR4Fact_ImplicitSubtractionNegatives(t *testing.T) {
+	silent := func(t *testing.T, prose string, records []types.ObservationRecord) {
+		t.Helper()
+		mut := psgTraceMutable(records...)
+		bus := psgBus(mut)
+		doc := psgProseDoc(prose)
+		for _, f := range proseFactJuxtapositionFindings(doc, bus, mut) {
+			if strings.Contains(f.userReadable("zh"), "系统事实对照") {
+				t.Fatalf("legitimate citation must stay silent: %s", f.userReadable("zh"))
+			}
+		}
+	}
+	// Legitimate multi-value citation: every number restates a published
+	// value (10.43 is an honest rounded re-quote of 10.433 — half-ulp gate).
+	silent(t, "原因未证余数约 10.43ms;其外的已证份额包括 fscache_page_wait_o 7.386ms、hmfs_read 0.145ms 与 hmfs_get_dnode 0.171ms。", cr4SubtractionRecords())
+	// Co-occurrence without the arithmetic identity: 9.850 matches no
+	// remainder-minus-shares subset — token presence alone never fires.
+	silent(t, "余数 10.433ms 中已证 0.145ms 与 0.171ms 之外,还有约 9.850ms 待确认。", cr4SubtractionRecords())
+	// A percent form never enters the operand lane — even one that would
+	// satisfy the identity as a bare number.
+	silent(t, "余数 10.433ms;已证 0.145ms 与 0.171ms;某处占比记为 10.117%。", cr4SubtractionRecords())
+	// The residual gate reads the published-value set: once 10.117 itself is
+	// published on the evidence face, the witness sentence stays silent.
+	published := psgTraceRecord("trace_query:t#state_drilldown:1", "state_drilldown:x", "10.117")
+	published.Subject = "ThreadPoolForeg-60555"
+	silent(t, "D 状态总量 10.433ms 中,已证部分为 0.145ms 与 0.171ms,剩余约 10.117ms。", append(cr4SubtractionRecords(), published))
+	// No cause-unproven remainder on the evidence face → structurally inert
+	// even with an unpublished residual in the prose.
+	silent(t, "总量 10.433ms 减去 0.145ms 与 0.171ms 后余 10.117ms。", cr4FactRecords())
+}

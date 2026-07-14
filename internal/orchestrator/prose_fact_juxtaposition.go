@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"fmt"
+	"math/bits"
 	"regexp"
 	"sort"
 	"strconv"
@@ -58,6 +59,17 @@ const (
 	// operand never trips the arithmetic check (per-numeral half-ulps sum,
 	// floored here). Own named constant (容差常量禁跨语义借用).
 	proseFactEquationBaseTolMS = 0.002
+	// proseFactImplicitSubCap bounds the PROSE-RC-4 臂② implicit nested-
+	// re-subtraction fact lines per report (one per prose unit at most).
+	proseFactImplicitSubCap = 2
+	// proseFactImplicitSubTermCap bounds the distinct proven-share operands
+	// considered per prose unit (subset enumeration stays ≤ 2^6−1 = 63).
+	proseFactImplicitSubTermCap = 6
+	// proseFactImplicitSubBaseTolMS: honest last-digit rounding floor for
+	// the implicit-subtraction identity |X−ΣY−Z|. Own named constant
+	// (容差常量禁跨语义借用 — same value as the equation arm's is a
+	// coincidence of discipline, never a shared constant).
+	proseFactImplicitSubBaseTolMS = 0.002
 )
 
 // proseFactCPURE / proseFactFreqValueRE / proseFactFreqKVRE are token-level
@@ -74,6 +86,24 @@ var proseFactEquationRE = regexp.MustCompile(`((?:[0-9]+(?:\.[0-9]+)?\s*(?:ms|�
 // proseFactWakeupDegradedRE reads the engine's typed degradation caveat off
 // the tool-result banner (wakeup_target_cpu_degraded=true total=N).
 var proseFactWakeupDegradedRE = regexp.MustCompile(`wakeup_target_cpu_degraded=true\s+total=([0-9]+)`)
+
+// proseFactAnyNumeralRE harvests every numeral (integer or decimal) off an
+// evidence surface for the implicit-subtraction arm's negative published-
+// value gate. Over-inclusion is the SAFE direction here: a richer published
+// set can only suppress findings, never mint one.
+var proseFactAnyNumeralRE = regexp.MustCompile(`[0-9]+(?:\.[0-9]+)?`)
+
+// proseFactDecimalTokenRE finds prose-side decimal numeric tokens — the
+// implicit-subtraction operands. Integer prose tokens (counts, line numbers,
+// tids) stay out of this lane by design.
+var proseFactDecimalTokenRE = regexp.MustCompile(`[0-9]+\.[0-9]+`)
+
+// proseFactCensusShareRE pulls the per-caller Σms share magnitudes out of
+// the engine's typed blocked_reason_census note ("sym×N(ΣXms)/…" — the same
+// typed note format the wait-evidence summary consumes; format pinned by the
+// census tests). Each Σ value is a published caller-named proven-share
+// magnitude.
+var proseFactCensusShareRE = regexp.MustCompile(`×[0-9]+\(Σ([0-9.]+)ms\)`)
 
 // proseFactThreadFacts is one evidence-face entity's typed fact bundle.
 type proseFactThreadFacts struct {
@@ -158,6 +188,15 @@ func proseFactJuxtapositionFindings(doc *types.AnswerDocumentV2, bus *types.BusC
 
 	// ── arithmetic verdicts first (the only verdict wording, math-only) ──
 	for _, f := range proseFactEquationFindings(prose) {
+		add(f)
+	}
+
+	// ── PROSE-RC-4 臂② (§29.78): the implicit nested-re-subtraction form —
+	// the explicit arm needs a literal "=" and the witness carried none
+	// (remainder framed as a total containing the caller shares, 10.117
+	// minted by re-subtraction). Four precise signals, zero NL reading; see
+	// the arm's block comment below.
+	for _, f := range proseFactImplicitSubtractionFindings(prose, buildProseFactSubtractionInventory(ledger, bus, mut)) {
 		add(f)
 	}
 
@@ -629,6 +668,269 @@ func proseFactEquationFindings(prose []proseTextUnit) []proseScalarBindingFindin
 		}
 	}
 	return out
+}
+
+// ── PROSE-RC-4 臂② (§29.78, 2026-07-14): implicit nested-re-subtraction ──
+//
+// The explicit equation arm above needs a literal "=", and the §29.78
+// witness carried none: the prose framed the cause-unproven remainder seat
+// (10.433) as a TOTAL containing the hmfs caller shares (0.145, 0.171) and
+// re-subtracted them to mint 10.117 as the "real" unproven amount. This arm
+// detects that three-value co-occurrence with ZERO natural-language reading —
+// four precise signals must hold at once:
+//
+//	X — a prose decimal token VERBATIM-equal to a published cause-unproven
+//	    remainder magnitude (typed DStateCauseUnprovenRemainder lane);
+//	Y — prose decimal tokens VERBATIM-equal to published caller-named
+//	    proven-share magnitudes (typed caller / census Σ lanes);
+//	Z — a prose decimal token matching NO published numeral, by exact
+//	    string AND by half-ulp value against every numeral any evidence
+//	    surface of this run published (ledger values/notes/summaries plus
+//	    tool banners — over-inclusive on purpose: over-inclusion only
+//	    suppresses);
+//	arithmetic — |X − ΣY − Z| ≤ 0.002 + Σ half-ulps (pure math, own
+//	    tolerance constant).
+//
+// The finding wording stays fact-only (the remainder's net-of account
+// property + the arithmetic identity + the set-membership fact); it never
+// characterizes the prose, and it feeds only the cross-check appendix
+// (零输出影响 lane discipline above).
+
+// proseFactSubtractionInventory carries the typed magnitude sets the
+// implicit-subtraction arm matches prose tokens against, verbatim.
+type proseFactSubtractionInventory struct {
+	remainder     map[string]bool // published cause-unproven remainder magnitudes
+	proven        map[string]bool // published caller-named proven-share magnitudes
+	published     map[string]bool // every numeral string any evidence surface published
+	publishedVals []float64       // sorted numeric forms (half-ulp value gate)
+}
+
+// buildProseFactSubtractionInventory assembles the typed magnitude sets. The
+// positive sets (remainder / proven) admit ONLY deterministic-query typed
+// lanes; the negative published set sweeps every evidence surface.
+func buildProseFactSubtractionInventory(ledger types.ObservationLedger, bus *types.BusContext, mut *types.MutableState) proseFactSubtractionInventory {
+	inv := proseFactSubtractionInventory{
+		remainder: map[string]bool{},
+		proven:    map[string]bool{},
+		published: map[string]bool{},
+	}
+	addMagnitude := func(set map[string]bool, raw string) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" || !strings.Contains(raw, ".") {
+			return // prose-side tokens are decimal-only; integers cannot match
+		}
+		if v, err := strconv.ParseFloat(raw, 64); err != nil || v <= 0 {
+			return
+		}
+		set[raw] = true
+	}
+	for _, record := range ledger.Records {
+		if !types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
+			continue
+		}
+		notes := record.RichNotes
+		unproven := strings.TrimSpace(proseWallClockNoteValue(notes, types.TraceNoteKeyDStateCauseUnprovenRemainder)) == "true"
+		caller := strings.TrimSpace(proseWallClockNoteValue(notes, types.TraceNoteKeyBlockedReasonCaller))
+		if caller == "unknown" {
+			caller = ""
+		}
+		if unproven || caller != "" {
+			set := inv.proven
+			if unproven {
+				set = inv.remainder
+			}
+			// The same published-magnitude lanes the wait-evidence summary
+			// feeds from (effective impact / duration note / record value).
+			addMagnitude(set, proseWallClockNoteValue(notes, types.TraceNoteKeyEffectiveImpactMS))
+			addMagnitude(set, proseWallClockNoteValue(notes, "duration"))
+			addMagnitude(set, record.Value)
+		}
+		if raw := proseWallClockNoteValue(notes, types.TraceNoteKeyBlockedReasonCensus); raw != "" {
+			for _, m := range proseFactCensusShareRE.FindAllStringSubmatch(raw, -1) {
+				addMagnitude(inv.proven, m[1])
+			}
+		}
+	}
+	// A magnitude published on BOTH lanes teaches nothing about direction —
+	// keep it as the remainder (X) it names and never as a subtrahend.
+	for raw := range inv.remainder {
+		delete(inv.proven, raw)
+	}
+	if len(inv.remainder) == 0 || len(inv.proven) == 0 {
+		return inv // structurally inert: no scan, no published sweep
+	}
+	addPublished := func(text string) {
+		for _, m := range proseFactAnyNumeralRE.FindAllString(text, -1) {
+			if inv.published[m] {
+				continue
+			}
+			inv.published[m] = true
+			if v, err := strconv.ParseFloat(m, 64); err == nil {
+				inv.publishedVals = append(inv.publishedVals, v)
+			}
+		}
+	}
+	for _, record := range ledger.Records {
+		addPublished(record.Value)
+		addPublished(record.Summary)
+		for _, note := range record.RichNotes {
+			addPublished(note)
+		}
+	}
+	if bus != nil {
+		for _, tr := range bus.ToolResults {
+			addPublished(tr.Summary)
+		}
+	}
+	if mut != nil {
+		if ta := mut.TurnAArtifacts(); ta != nil {
+			for _, tr := range ta.ToolResults {
+				addPublished(tr.Summary)
+			}
+		}
+	}
+	sort.Float64s(inv.publishedVals)
+	return inv
+}
+
+// publishedValue reports whether a prose token restates a published numeral:
+// exact string, or within half an ulp of the token's own last written digit
+// of ANY published value (an honest rounded re-quote is still published).
+func (inv proseFactSubtractionInventory) publishedValue(tok proseFactNumToken) bool {
+	if inv.published[tok.raw] {
+		return true
+	}
+	tol := 0.5 * proseScalarUlp(tok.raw)
+	i := sort.SearchFloat64s(inv.publishedVals, tok.val-tol)
+	return i < len(inv.publishedVals) && inv.publishedVals[i] <= tok.val+tol
+}
+
+// proseFactNumToken is one prose-side decimal numeric token.
+type proseFactNumToken struct {
+	raw string
+	val float64
+}
+
+// proseFactUnitDecimalTokens extracts the unit's boundary-clean decimal
+// tokens (token-level presence only: percent forms and digit/dot-adjacent
+// fragments stay out; a leading minus stays IN — subtrahends follow one).
+func proseFactUnitDecimalTokens(text string) []proseFactNumToken {
+	var out []proseFactNumToken
+	for _, loc := range proseFactDecimalTokenRE.FindAllStringIndex(text, -1) {
+		start, end := loc[0], loc[1]
+		if start > 0 {
+			if prev := text[start-1]; prev == '.' || (prev >= '0' && prev <= '9') {
+				continue
+			}
+		}
+		if end < len(text) {
+			next := text[end]
+			if next == '.' || next == '%' || (next >= '0' && next <= '9') {
+				continue
+			}
+			if strings.HasPrefix(text[end:], "％") {
+				continue
+			}
+		}
+		raw := text[start:end]
+		v, err := strconv.ParseFloat(raw, 64)
+		if err != nil {
+			continue
+		}
+		out = append(out, proseFactNumToken{raw: raw, val: v})
+	}
+	return out
+}
+
+// proseFactImplicitSubtractionFindings runs the four-signal detection over
+// the prose units; at most one finding per unit, capped per report.
+func proseFactImplicitSubtractionFindings(prose []proseTextUnit, inv proseFactSubtractionInventory) []proseScalarBindingFinding {
+	if len(inv.remainder) == 0 || len(inv.proven) == 0 {
+		return nil
+	}
+	var out []proseScalarBindingFinding
+	for _, unit := range prose {
+		if len(out) >= proseFactImplicitSubCap {
+			break
+		}
+		var xs, ys, zs []proseFactNumToken
+		seenX, seenY := map[string]bool{}, map[string]bool{}
+		for _, tok := range proseFactUnitDecimalTokens(unit.text) {
+			switch {
+			case inv.remainder[tok.raw]:
+				if !seenX[tok.raw] {
+					seenX[tok.raw] = true
+					xs = append(xs, tok)
+				}
+			case inv.proven[tok.raw]:
+				if !seenY[tok.raw] && len(ys) < proseFactImplicitSubTermCap {
+					seenY[tok.raw] = true
+					ys = append(ys, tok)
+				}
+			case !inv.publishedValue(tok):
+				zs = append(zs, tok)
+			}
+		}
+		if len(xs) == 0 || len(ys) == 0 || len(zs) == 0 {
+			continue
+		}
+		if f, ok := proseFactImplicitSubtractionMatch(unit, xs, ys, zs); ok {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// proseFactImplicitSubtractionMatch enumerates the proven-share subsets
+// (fullest decomposition first, then ascending mask — deterministic) against
+// the residual candidates in text order and renders the first arithmetic hit
+// as a fact-only line.
+func proseFactImplicitSubtractionMatch(unit proseTextUnit, xs, ys, zs []proseFactNumToken) (proseScalarBindingFinding, bool) {
+	masks := make([]int, 0, 1<<len(ys)-1)
+	for m := 1; m < 1<<len(ys); m++ {
+		masks = append(masks, m)
+	}
+	sort.SliceStable(masks, func(i, j int) bool {
+		if pi, pj := bits.OnesCount(uint(masks[i])), bits.OnesCount(uint(masks[j])); pi != pj {
+			return pi > pj
+		}
+		return masks[i] < masks[j]
+	})
+	for _, x := range xs {
+		for _, mask := range masks {
+			sum, tol := 0.0, proseFactImplicitSubBaseTolMS+0.5*proseScalarUlp(x.raw)
+			var terms []string
+			for i, y := range ys {
+				if mask&(1<<i) == 0 {
+					continue
+				}
+				sum += y.val
+				tol += 0.5 * proseScalarUlp(y.raw)
+				terms = append(terms, y.raw)
+			}
+			w := x.val - sum
+			if w <= 0 {
+				continue
+			}
+			for _, z := range zs {
+				diff := w - z.val
+				if diff < 0 {
+					diff = -diff
+				}
+				if diff > tol+0.5*proseScalarUlp(z.raw) {
+					continue
+				}
+				expr := x.raw + "-" + strings.Join(terms, "-")
+				return proseScalarBindingFinding{
+					entry: fmt.Sprintf("fact juxtaposition (block %q): %s is a published cause-unproven remainder value — already net of every caller-named proven share, which all lie outside it; the co-occurring numbers satisfy %s≈%s, and %s matches no typed published value of this run",
+						unit.blockID, x.raw, expr, z.raw, z.raw),
+					entryZH: fmt.Sprintf("系统事实对照(块 %s):%s 为已扣除全部已证原因份额后的净值(原因未证余数发布值,各已证份额均在其外);文中共现数值满足 %s≈%s,而 %s 非本次运行的任何 typed 发布值",
+						unit.blockID, x.raw, expr, z.raw, z.raw),
+				}, true
+			}
+		}
+	}
+	return proseScalarBindingFinding{}, false
 }
 
 // proseFactWakeupDegradation reads the engine's typed target_cpu degradation
