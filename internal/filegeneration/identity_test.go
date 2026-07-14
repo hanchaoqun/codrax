@@ -86,3 +86,24 @@ func TestIdentityFromPathMatchesOpenFile(t *testing.T) {
 		t.Fatalf("same file identities differ: open=%q path=%q", opened.CacheToken(), resolved.CacheToken())
 	}
 }
+
+func TestWindowsStrongIdentitySentinelsFailClosed(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		volume     uint64
+		fileIndex  uint64
+		changeTime int64
+		want       bool
+	}{
+		{name: "complete", volume: 1, fileIndex: 2, changeTime: 3, want: true},
+		{name: "missing_volume", fileIndex: 2, changeTime: 3},
+		{name: "missing_file_id", volume: 1, changeTime: 3},
+		{name: "missing_change_clock", volume: 1, fileIndex: 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := validWindowsStrongIdentity(test.volume, test.fileIndex, test.changeTime); got != test.want {
+				t.Fatalf("validWindowsStrongIdentity()=%t want=%t", got, test.want)
+			}
+		})
+	}
+}

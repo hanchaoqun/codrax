@@ -4,6 +4,7 @@ package filegeneration
 
 import (
 	"os"
+	"runtime"
 	"syscall"
 	"unsafe"
 )
@@ -25,6 +26,7 @@ func enhanceIdentityFromFile(file *os.File, _ os.FileInfo, id Identity) Identity
 	if file == nil {
 		return id
 	}
+	defer runtime.KeepAlive(file)
 	handle := syscall.Handle(file.Fd())
 	var fileInfo syscall.ByHandleFileInformation
 	if err := syscall.GetFileInformationByHandle(handle, &fileInfo); err != nil {
@@ -40,8 +42,13 @@ func enhanceIdentityFromFile(file *os.File, _ os.FileInfo, id Identity) Identity
 	if ok == 0 {
 		return id
 	}
-	id.device = uint64(fileInfo.VolumeSerialNumber)
-	id.inode = uint64(fileInfo.FileIndexHigh)<<32 | uint64(fileInfo.FileIndexLow)
+	volume := uint64(fileInfo.VolumeSerialNumber)
+	fileIndex := uint64(fileInfo.FileIndexHigh)<<32 | uint64(fileInfo.FileIndexLow)
+	if !validWindowsStrongIdentity(volume, fileIndex, basic.ChangeTime) {
+		return id
+	}
+	id.device = volume
+	id.inode = fileIndex
 	id.changePrimary = basic.ChangeTime
 	id.changeSecondary = basic.CreationTime
 	id.strong = true

@@ -77,7 +77,7 @@ func FromFile(file *os.File) (Identity, error) {
 // FromPath opens path only long enough to capture its strongest identity. It
 // is intended for explicit path-binding validation, not for content reads.
 func FromPath(path string) (Identity, error) {
-	file, err := os.Open(path)
+	file, err := openPathForIdentity(path)
 	if err != nil {
 		return Identity{}, err
 	}
@@ -90,6 +90,12 @@ func FromPath(path string) (Identity, error) {
 		return Identity{}, closeErr
 	}
 	return id, nil
+}
+
+// validWindowsStrongIdentity is kept platform-neutral so the Windows
+// admission contract has executable tests on every development host.
+func validWindowsStrongIdentity(volume, fileIndex uint64, changeTime int64) bool {
+	return volume != 0 && fileIndex != 0 && changeTime != 0
 }
 
 // NewPortable reconstructs the legacy size/mtime/mode observation used by
