@@ -338,9 +338,17 @@ func rspaRewriteSeatToRemainder(item *RootCauseRankItem, anchoredMs, fullMs floa
 // rspaRemainderSummary renders the honest engine-side (English) remainder
 // account. LLM-facing: states the decomposition facts only, no internal
 // batch vocabulary.
+//
+// EVOLUTION RECORD (RSPA-HYG 修复轮, §29.77, 2026-07-14): the Sprintf arg
+// order swapped anchored/full since the RSPA batch — the sentence read
+// "full-window account 0.039ms = 0.307ms anchored" (arithmetic
+// self-contradictory; live donghu specimen udk-irq-12-92, caught by the 件⑤
+// typed sweep dump). The typed fields (ChainAnchoredMs/ChainAnchorFullMs)
+// and every display face were always correct; only this engine-side prose
+// slot was swapped. Pinned by TestRSPAHygRemainderSummaryArithmetic.
 func rspaRemainderSummary(thread ThreadRef, family string, remainder, anchored, full float64) string {
 	return fmt.Sprintf("%s %s remainder %.3fms outside its wakeup-dependency windows (no chain credential for these segments); full-window account %.3fms = %.3fms anchored inside typed dependency windows (owned by the chain seat) + this remainder — same segment set, mutually disjoint, additive back to the full account",
-		threadLabel(thread), family, remainder, anchored, full)
+		threadLabel(thread), family, remainder, full, anchored)
 }
 
 // rspaRowIntervalAnchoredMs computes the anchored overlap of a row that
@@ -682,13 +690,37 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 // overlap behavior byte-identically. Other resource projections keep their
 // lane (host-wait/host-work credential form, see the enrich arm comment) but
 // carry the bit so the display can distinguish "evaluated" from "legacy".
+//
+// RSPA-HYG 件③ (§29.77 立案③, 2026-07-14): the io_burst_episode /
+// block_io_by_inode facets additionally carry the typed host-containment
+// verdict — their host-form credential (§3.1: the row's interval IS the
+// anchored host thread's own wait/work occupying its dependency window) is
+// refined per the §29.61.10c per-edge criterion from "any overlap" to
+// interval ⊆ anchor-window union (µs tolerance). Deliberately these two
+// facets only: io_latency owns the stronger per-IO completion-closure
+// credential above; file_io_hot_inode / page_cache_churn / workqueue /
+// dma_fence stay on the legacy host form (out of the 立案③ scope — a
+// narrowing there needs its own witness and ruling).
 func stampResourceClosureEvaluation(stats WindowStats, items []RootCauseRankItem) {
 	if stats.chainAnchorsByPID == nil {
 		return
 	}
 	for i := range items {
-		if rootCauseTypeIsResourceAttribution(items[i].Type) {
-			items[i].resourceClosureEvaluated = true
+		if !rootCauseTypeIsResourceAttribution(items[i].Type) {
+			continue
+		}
+		items[i].resourceClosureEvaluated = true
+		switch strings.TrimSpace(items[i].Type) {
+		case "io_burst_episode", "block_io_by_inode":
+			if items[i].EndTs <= items[i].StartTs {
+				// Interval-less rows are already demoted by the typed-interval
+				// arm (enrich :15377) — nothing to evaluate here.
+				continue
+			}
+			items[i].resourceHostContainmentEvaluated = true
+			lengthMs := (items[i].EndTs - items[i].StartTs) * 1000
+			anchored := anchorWindowsOverlapMs(stats.chainAnchorsByPID[items[i].Thread.PID], items[i].StartTs, items[i].EndTs)
+			items[i].resourceHostWindowContained = anchored >= lengthMs-rspaAnchorIdentityTolMs
 		}
 	}
 }

@@ -260,10 +260,18 @@ func Run(idx *Index, q Query) Result {
 	var cachedRootCauseOK bool
 	// RSPA (§29.61.10): the rank lane needs a stats sweep run WITH the
 	// chain's typed anchor windows. The shared getStats memo stays anchor-
-	// less (the plain window_stats view must never trigger a chain build);
-	// the rank lane keeps its own anchored memo — the exported faces of the
-	// two stats are identical (anchored sums ride unexported fields), so no
-	// view-order dependence can leak.
+	// less on its own (the plain window_stats view must never trigger a
+	// chain build); the rank lane keeps its own anchored memo — the exported
+	// faces of the two stats are identical (anchored sums ride unexported
+	// fields), so no view-order dependence can leak.
+	//
+	// RSPA-HYG 件② (§29.77 立案②, 2026-07-14): the anchored sweep BACKFEEDS
+	// the shared memo — on the exported-face isomorphism above, any later
+	// plain-stats consumer in the same Run (window_stats face, scheduler
+	// latency) reuses the anchored sweep instead of paying a second full
+	// ComputeWindowStats. Together with the root_cause_rank view pulling its
+	// published stats face through THIS lane (chain first, stats second),
+	// a mixed-view rank Run performs exactly ONE sweep (pinned).
 	var cachedAnchoredStats WindowStats
 	var cachedAnchoredStatsOK bool
 	getStatsForRank := func(chain ChainResult) WindowStats {
@@ -279,6 +287,10 @@ func Run(idx *Index, q Query) Result {
 			qa.chainAnchorWindowsByPID = anchors
 			cachedAnchoredStats = ComputeWindowStats(idx, qa)
 			cachedAnchoredStatsOK = true
+			if !cachedStatsOK {
+				cachedStats = cachedAnchoredStats
+				cachedStatsOK = true
+			}
 		}
 		return cachedAnchoredStats
 	}
@@ -432,7 +444,12 @@ func Run(idx *Index, q Query) Result {
 			}
 			res.WakeupChain = &chain
 		}
-		stats := getStats()
+		// RSPA-HYG 件② (§29.77 立案②): the published stats face comes through
+		// the rank lane (anchored memo + backfeed) — exported faces are
+		// isomorphic to the plain sweep, and the Run performs exactly ONE
+		// ComputeWindowStats instead of plain+anchored. A chainless query
+		// (no anchors) falls through to the plain shared memo unchanged.
+		stats := getStatsForRank(chain)
 		if faceCanceled("window_stats") {
 			cancel.discardFace("root_cause_rank")
 			break
@@ -2111,6 +2128,11 @@ func threadMatches(ref ThreadRef, pid int, comm string) bool {
 
 func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	q = ensureQueryFlavor(idx, q)
+	if q.statsSweepProbe != nil {
+		// RSPA-HYG 件② test probe (§29.77 立案②): precise per-Run sweep count
+		// for the 单 Run 恰一次 sweep pin. nil in production — zero effect.
+		*q.statsSweepProbe++
+	}
 	stats := WindowStats{
 		Window:      TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd},
 		EventCounts: map[EventType]int{},
@@ -12890,6 +12912,9 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 	normalizeRootCauseEffectiveImpact(items)
 	sortRootCauseRankItems(items, hasCausalChain)
 	limit := ViewCapacityFor("root_cause_rank").ClampLimit(q.Limit)
+	// RSPA-HYG 件⑤ (§29.77 立案⑤): snapshot the sorted pre-truncation pool for
+	// the typed population-conservation release arm (see the field comment).
+	res.preTruncationItems = items
 	items, candidateTotal, candidateEmitted, sideTotal, sideEmitted := truncateRootCauseRankCandidatesAndSideRows(items, limit)
 	if candidateTotal > candidateEmitted {
 		last := items[candidateEmitted-1]
@@ -12904,7 +12929,12 @@ func buildRootCauseRankFrom(idx *Index, q Query, chain ChainResult, stats Window
 		res.Caveats = append(res.Caveats, fmt.Sprintf("root_cause_rank compacted from %d to %d competing candidate(s); rank-0 diagnostics do not consume candidate seats", candidateTotal, candidateEmitted))
 	}
 	if sideTotal > sideEmitted {
-		res.Caveats = append(res.Caveats, fmt.Sprintf("root_cause_rank kept %d of %d rank-0 diagnostic/target-self disclosure row(s); these rows do not consume candidate seats", sideEmitted, sideTotal))
+		// RSPA-HYG 件⑥ (§29.77 立案⑥): the side lane holds THREE row classes —
+		// rank-0 diagnostics (data-gap/caliber), rank-0 target-self
+		// disclosures, and the ◇ chain-remainder seats, which wear an ADJACENT
+		// ordinal (邻近影响#N), not rank-0 — the sentence enumerates all three
+		// so the count is honest about its population.
+		res.Caveats = append(res.Caveats, fmt.Sprintf("root_cause_rank kept %d of %d side disclosure row(s) (rank-0 diagnostic/target-self rows plus chain-remainder seats, which carry an adjacent ordinal rather than rank-0); these rows do not consume candidate seats", sideEmitted, sideTotal))
 	}
 	assignRootCauseRanksAndTiers(items)
 	if caveat, ok := semanticSpanRankFailLoudCaveat(stats, items); ok {
@@ -13514,6 +13544,10 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 	normalizeRootCauseEffectiveImpact(rank.Items)
 	sortRootCauseRankItems(rank.Items, hasCausalChain)
 	limit := ViewCapacityFor("root_cause_rank").ClampLimit(q.Limit)
+	// RSPA-HYG 件⑤ (§29.77 立案⑤): append the enrich lane's truncation input
+	// to the build lane's — the pool is the union over BOTH capacity caps
+	// (see the field comment; a counterpart may die at either).
+	rank.preTruncationItems = append(rank.preTruncationItems, rank.Items...)
 	var candidateTotal, candidateEmitted, sideTotal, sideEmitted int
 	rank.Items, candidateTotal, candidateEmitted, sideTotal, sideEmitted = truncateRootCauseRankCandidatesAndSideRows(rank.Items, limit)
 	if candidateTotal > candidateEmitted {
@@ -13529,7 +13563,9 @@ func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency
 		rank.Caveats = append(rank.Caveats, fmt.Sprintf("root_cause_rank compacted after scheduler/compute enrichment from %d to %d competing candidate(s); rank-0 diagnostics do not consume candidate seats", candidateTotal, candidateEmitted))
 	}
 	if sideTotal > sideEmitted {
-		rank.Caveats = append(rank.Caveats, fmt.Sprintf("root_cause_rank kept %d of %d rank-0 diagnostic/target-self disclosure row(s) after enrichment; these rows do not consume candidate seats", sideEmitted, sideTotal))
+		// RSPA-HYG 件⑥ (§29.77 立案⑥): three-class enumeration — see the build
+		// lane's sister sentence.
+		rank.Caveats = append(rank.Caveats, fmt.Sprintf("root_cause_rank kept %d of %d side disclosure row(s) after enrichment (rank-0 diagnostic/target-self rows plus chain-remainder seats, which carry an adjacent ordinal rather than rank-0); these rows do not consume candidate seats", sideEmitted, sideTotal))
 	}
 	assignRootCauseRanksAndTiers(rank.Items)
 	rank.Caveats = append(rank.Caveats, latency.Caveats...)
@@ -15396,6 +15432,29 @@ func rootCauseChainContextForItem(item RootCauseRankItem, ctx chainCandidateCont
 	// keep the legacy lane; anchor-less builds never set the evaluated bit.
 	if ctx.relevance == "on_chain" && item.Type == "io_latency" &&
 		item.resourceClosureEvaluated && !item.ResourceCompletionClosure &&
+		!(target.PID > 0 && item.Thread.PID == target.PID) {
+		ctx.relevance = "adjacent"
+		return ctx
+	}
+	// RSPA-HYG 件③ (§29.77 立案③, 2026-07-14) — EVOLUTION RECORD: the "§3.1
+	// 现状合规" clause above narrowed for the io_burst_episode /
+	// block_io_by_inode facets. Their host-form credential holds exactly when
+	// the row's typed interval sits INSIDE the thread's anchor-window union
+	// (interval ⊆ 锚定窗 — mint-time typed containment verdict); a PARTIALLY
+	// contained non-target row's uncovered share carries pure time overlap
+	// only (10c: 纯时间重叠恒邻近), so the indivisible row demotes to ◇
+	// adjacent with its published values untouched (the D-IO partition's
+	// additive bisection never reads this facet's composite/episode caliber —
+	// demote is the mechanically compatible narrowing; clipping would mint a
+	// value equal to neither the measured episode nor any partition term).
+	// Witness (tieba 59566 window): the ThreadPoolForeg-60555
+	// block_io_by_inode envelope 61.540ms held only 24.568ms inside its
+	// dependency windows yet rode the chain tier with its full composite
+	// score. Target self rows and anchor-less builds keep the legacy lane;
+	// OverlapMs stays an honest note.
+	if ctx.relevance == "on_chain" &&
+		(item.Type == "io_burst_episode" || item.Type == "block_io_by_inode") &&
+		item.resourceHostContainmentEvaluated && !item.resourceHostWindowContained &&
 		!(target.PID > 0 && item.Thread.PID == target.PID) {
 		ctx.relevance = "adjacent"
 		return ctx

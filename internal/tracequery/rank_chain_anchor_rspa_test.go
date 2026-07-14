@@ -543,38 +543,55 @@ func rspaAssertBoardBipartitionInvariants(t *testing.T, rank RootCauseRankResult
 			}
 			// Population conservation: the anchored complement is on the board
 			// — either the same thread's clipped ⛓ window seat or a chain-lane
-			// seat of the same state family. A candidate-compacted board may
-			// have truncated a SMALL ⛓ half (disclosed compaction; the ◇ row's
-			// own decomposition fields still reconstruct the account) — the
-			// strict counterpart requirement applies to un-compacted boards
-			// and to material anchored values.
-			compacted := false
-			for _, compaction := range rank.Compactions {
-				if compaction.Total > compaction.Emitted {
-					compacted = true
-				}
-			}
-			if item.ChainAnchoredMs > rspaAnchorIdentityTolMs && !(compacted && item.ChainAnchoredMs < 1.0) {
-				found := false
-				for _, peer := range rank.Items {
+			// seat of the same state family.
+			//
+			// RSPA-HYG 件⑤ (§29.77 立案⑤) — EVOLUTION RECORD: the former
+			// release arm read "board compacted ∧ anchored<1ms" (a magnitude
+			// heuristic — a noisy signal in a hard assertion). It is replaced
+			// by the TYPED direct assertion: a counterpart absent from the
+			// published board must be found in the pre-truncation pool
+			// (capacity-truncated is the only lane between the two), and the
+			// truncation must be disclosed through a candidates Compaction.
+			if item.ChainAnchoredMs > rspaAnchorIdentityTolMs {
+				matches := func(peer RootCauseRankItem) bool {
 					if peer.Thread.PID != item.Thread.PID || peer.ChainAnchorRemainderSeat {
-						continue
+						return false
 					}
 					if peer.ChainAnchorFullMs > 0 && rootCauseItemIsOnChain(peer) {
-						found = true
-						break
+						return true
 					}
 					if strings.HasPrefix(peer.Source, "wakeup_chain") && rootCauseItemIsOnChain(peer) {
-						found = true
-						break
+						return true
 					}
-					if rootCauseItemIsOnChain(peer) && (peer.Type == "d_state_or_io_wait" || peer.Type == "io_wait") && item.DStateMs+item.IOWaitMs > 0 {
+					return rootCauseItemIsOnChain(peer) && (peer.Type == "d_state_or_io_wait" || peer.Type == "io_wait") && item.DStateMs+item.IOWaitMs > 0
+				}
+				found := false
+				for _, peer := range rank.Items {
+					if matches(peer) {
 						found = true
 						break
 					}
 				}
 				if !found {
-					t.Fatalf("◇ remainder without a published ⛓ counterpart (锚定值静默消失): %+v", item)
+					// Typed release arm: the counterpart must exist in the
+					// pre-truncation pool AND the truncation must be disclosed.
+					inPool := false
+					for _, peer := range rank.preTruncationItems {
+						if matches(peer) {
+							inPool = true
+							break
+						}
+					}
+					compactionDisclosed := false
+					for _, compaction := range rank.Compactions {
+						if compaction.Dimension == CompactionDimensionCandidates && compaction.Total > compaction.Emitted {
+							compactionDisclosed = true
+						}
+					}
+					if !inPool || !compactionDisclosed {
+						t.Fatalf("◇ remainder without a ⛓ counterpart on the board or in the disclosed pre-truncation pool (锚定值静默消失; inPool=%v compactionDisclosed=%v): %+v",
+							inPool, compactionDisclosed, item)
+					}
 				}
 			}
 		} else {

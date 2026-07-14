@@ -743,6 +743,12 @@ type Query struct {
 	// nil (tracediag lane, direct builder calls, tests) keeps every scan
 	// byte-identical.
 	runCancel *runCancelState
+	// statsSweepProbe (RSPA-HYG 件②, §29.77 立案②, 2026-07-14). Unexported
+	// TEST-ONLY sweep counter: when non-nil, ComputeWindowStats increments it
+	// once per full sweep. The 单 Run 恰一次 sweep pin sets it on the Query it
+	// hands to Run — a per-Run-scoped precise count, immune to parallel-test
+	// pollution. nil everywhere in production; zero behavior effect.
+	statsSweepProbe *int
 }
 
 // ViewCancellation is the typed in-view cooperative-cancellation wire record
@@ -2732,6 +2738,18 @@ type RootCauseRankResult struct {
 	AbsorbedItems []RootCauseRankItem `json:"absorbed_items,omitempty"`
 	Caveats       []string            `json:"caveats,omitempty"`
 	Compactions   []ViewCompaction    `json:"compactions,omitempty"`
+	// preTruncationItems (RSPA-HYG 件⑤, §29.77 立案⑤, 2026-07-14). Unexported,
+	// never serialized: the UNION of the boards AS HANDED to the capacity
+	// truncations (the build lane seeds it, the enrich lane appends its own
+	// truncation input — a Run truncates twice and a counterpart may die at
+	// EITHER cap while the ◇ remainder survives on the side lane; donghu
+	// witness: udk-irq-12-92's 0.039ms ⛓ chain seat died in the build-lane
+	// 60→12 cap). The bipartition population-conservation sweep reads it as
+	// the typed release arm: a ◇ remainder whose ⛓ counterpart is absent from
+	// the published board must find it HERE with the truncation disclosed via
+	// Compactions — a direct membership assertion instead of the former noisy
+	// "compacted ∧ anchored<1ms" magnitude release.
+	preTruncationItems []RootCauseRankItem
 }
 
 // RootCauseSubjectKindAggregateMetric is the typed SubjectKind for root-cause
@@ -3030,6 +3048,22 @@ type RootCauseRankItem struct {
 	// computable — the M-IO demotion arm engages ONLY then (legacy fixtures /
 	// anchor-less sweeps keep the pre-RSPA overlap behavior byte-identically).
 	resourceClosureEvaluated bool
+	// resourceHostContainment* (unexported; RSPA-HYG 件③, §29.77 立案③ /
+	// §29.61.10c per-edge criterion, 2026-07-14): the io_burst_episode /
+	// block_io_by_inode host-form credential refined from "any interval
+	// overlap" to typed CONTAINMENT — the facet's credential is the anchored
+	// host thread's own wait/work OCCUPYING its dependency window, which holds
+	// exactly when the row's typed interval sits inside the thread's merged
+	// anchor-window union (µs tolerance). Evaluated=true when the anchor basis
+	// existed at mint time AND the row carries a positive typed interval;
+	// Contained=true when interval ⊆ anchor windows. A partially-contained
+	// non-target row demotes to ◇ adjacent (values untouched — the D-IO
+	// partition's additive bisection never reads this facet's composite/episode
+	// caliber, so the lane move is the mechanically compatible narrowing;
+	// clipping would mint a value equal to neither the measured episode nor
+	// any partition term). Anchor-less builds keep the legacy overlap lane.
+	resourceHostContainmentEvaluated bool
+	resourceHostWindowContained      bool
 	// ledgerAnchor* (unexported): mint-time stamps of the census ledger's
 	// anchored/full split for this seat (Σ over the seat's members). Working
 	// inputs for the re-anchoring pass; never serialized.

@@ -592,7 +592,18 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 	// The dual-view case (a root_cause_primary row carrying the chain-cumulative
 	// value merged with its per-hop twin): cumulative is the larger scope, keep
 	// the max — both describe the same fact, max never invents a number.
-	if loser.CumulativeImpactMS > survivor.CumulativeImpactMS {
+	//
+	// RSPA-HYG 件① (§29.77 立案①, 2026-07-14): EXCEPT onto a re-anchored
+	// survivor. A ⛓ clipped (or ◇ remainder) seat publishes the anchored /
+	// remainder account on its value channels BY CONSTRUCTION, and an
+	// undecomposed same-fact mirror's cumulative IS the retired full-window
+	// claim (== ChainAnchorFullMS, which already travels typed on the
+	// survivor) — lifting it would republish on the cumulative channel the
+	// very claim the migration retired. Caught by the synthetic same-line-
+	// range exchange fixture (TestRSPAHygD2SameLineRangeExchangeSurvivorIs-
+	// ClippedSeat); the production donghu/tieba twins publish over different
+	// line ranges and never reached this arm.
+	if survivor.ChainAnchorFullMS == 0 && loser.CumulativeImpactMS > survivor.CumulativeImpactMS {
 		survivor.CumulativeImpactMS = loser.CumulativeImpactMS
 	}
 	// COV §24.9 D-1: TargetImpactMS follows the same one-fact MAX discipline —
