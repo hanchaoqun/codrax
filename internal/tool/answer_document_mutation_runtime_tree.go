@@ -797,6 +797,14 @@ const (
 	// no wakeup-edge claim. Rendered wherever the cause identity row renders.
 	runtimeTraceProjMarkSelfDeterministicBasis
 
+	// ELIM-1 (◎ 窗内可消除量总览, rank_order_v2_design_20260712.md R16⑥,
+	// GREENLIT 2026-07-12; RANK-U Stage 2, 2026-07-13): the overview stanza's
+	// region mark — lit exactly when the ◎ fence renders under the tree; its
+	// catalog entry is the R16⑥ legend promise sentence. The overview is NOT
+	// a fourth §29.27.1 mark surface (design R7 boundary): it wears no
+	// ordinals and no badges, so the 三面记号一致 invariant owes it nothing.
+	runtimeTraceProjMarkElimOverview
+
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
 	runtimeTraceProjMarkCount
@@ -1147,6 +1155,15 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkBackgroundStanza, runtimeTraceProjLegendGroupCaliber,
 			"- `▒` = 背景压力区段:环境证据,不计入链上归因,需结合链上证据解读。",
 			"- `▒` = background-pressure stanza: environmental evidence, not chain attribution; read with on-chain evidence."},
+		// ELIM-1 R16⑥ (rank_order_v2_design_20260712.md §2.1, GREENLIT
+		// 2026-07-12; RANK-U Stage 2): the ◎ overview's promise sentence —
+		// 图例是承诺面, wording changes require a ruling. The R7 boundary
+		// clause (not a fourth §29.27.1 mark surface) lives on the mark
+		// constant; the channel-identity teaching (⛓链上/◇邻近, 基石 B) rides
+		// this one entry instead of repeating per row (§29.36.4 冗余判据).
+		{runtimeTraceProjMarkElimOverview, runtimeTraceProjLegendGroupCaliber,
+			"- `◎` = 窗内可消除量总览:跨「链上/邻近」两通道、同尺(目标线程窗内墙钟ms)持值行按发布有效归因值纯降序的导航索引;只转录值、通道身份、口径注记与 [E#] 指针,不铸序数、不佩戴徽章、不求和、不加冕,榜位与徽章唯一归属见下方主榜;行首 `⛓链上`=已证可消除量,`◇邻近`=条件可消除上界(因果候选成立时至多好这么多);计数当量/复合分数/背景压力口径不参与汇排,以脚注提及;序数仍不可跨通道比较,可跨通道并列的只是同尺数值。",
+			"- `◎` = eliminable-in-window overview: a navigation index over the valued rows of the on-chain/adjacent channels on ONE ruler (the focused thread's in-window wall-clock ms), sorted purely by the published effective attribution; it only transcribes values, channel identity, caliber notes and [E#] pointers — no ordinals, no badges, no sums, no crowns; seats and badges belong solely to the main board below. Leading `⛓on-chain` = proven eliminable amount; `◇adjacent` = conditional upper bound (at most this much if the causal candidate holds). Count-equivalent / composite-score / background-pressure calibers never join the ranking and are footnoted; ordinals still never compare across channels — only same-ruler values sit side by side."},
 		// PTV5 C00 (#68 用户裁定 2026-07-05): a fallback-sourced main-line ms is
 		// identifiable at the point of reading — the inline caliber word reuses
 		// the (a)-table caliber vocabulary; the semantics live here.
@@ -1306,9 +1323,14 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// four-line cause-node grammar below replaced both seats (the runnable
 		// component rides the 拆解子行, the folded rank row's rank/confidence/
 		// E# rise into 行2/行1). The entries below carry the new grammar.
+		// R5 措辞补充 (rank_order_v2_design_20260712.md §8 R5, GREENLIT
+		// 2026-07-12): the former sentence could read as "values are not
+		// comparable either" — the supplement states the §29.36.2 boundary
+		// precisely: ordinals never compare across channels; same-ruler
+		// wall-clock VALUES may sit side by side (the ◎ overview is that face).
 		{runtimeTraceProjMarkCauseIdentityRow, runtimeTraceProjLegendGroupCaliber,
-			"- 成因行身份行「类别·根因排序#N·置信」 = 该行参与根因排序的类别、榜位与置信档;「邻近影响#N」为 ◇ 邻近区段自己的独立排序(同线程墙钟口径),与「根因排序#N」不可跨通道比较;▒ 背景行不设榜位。同段被 rank 与链两车道各发一行时已合并为一行,rank 行的 E# 并入行尾 [E#+E#],数值不重复计入。",
-			"- A cause row's identity line 「category · root-cause rank #N · confidence」 = the row's ranking category, seat and confidence tier; 「adjacent-impact #N」 is the ◇ adjacent stanza's OWN independent ordering (same-thread wall-clock caliber), never comparable with 「root-cause rank #N」; ▒ background rows carry no seat. A segment published on both the rank and the chain lane is already ONE row here, with the rank row's E# merged into the trailing [E#+E#] and no value double-counted."},
+			"- 成因行身份行「类别·根因排序#N·置信」 = 该行参与根因排序的类别、榜位与置信档;「邻近影响#N」为 ◇ 邻近区段自己的独立排序(同线程墙钟口径),与「根因排序#N」不可跨通道比较(序数不可跨通道比较;可跨通道并列的只是同尺墙钟数值,◎ 总览即此);▒ 背景行不设榜位。同段被 rank 与链两车道各发一行时已合并为一行,rank 行的 E# 并入行尾 [E#+E#],数值不重复计入。",
+			"- A cause row's identity line 「category · root-cause rank #N · confidence」 = the row's ranking category, seat and confidence tier; 「adjacent-impact #N」 is the ◇ adjacent stanza's OWN independent ordering (same-thread wall-clock caliber), never comparable with 「root-cause rank #N」 (ordinals never compare across channels; only same-ruler wall-clock values sit side by side — the ◎ overview is that face); ▒ background rows carry no seat. A segment published on both the rank and the chain lane is already ONE row here, with the rank row's E# merged into the trailing [E#+E#] and no value double-counted."},
 		// SELF-SEM (§29.61.1 user ruling, RANK-U Stage 1, 2026-07-13): the
 		// self-basis qualifier's teaching seat — renders exactly when the
 		// qualifier renders (typed node.OnChainBasis single field).
@@ -3277,8 +3299,7 @@ func runtimeTraceProjAssignTopBadges(model *runtimeTraceProjTreeModel) {
 //
 // Returns the displayed seat ordinal for badge emission; ok=false → 0.
 func runtimeTraceProjRowValidSeat(row runtimeTraceProjTreeRow) (int, bool) {
-	if !row.HasData || row.Node.OnChainOverflowFold || row.Node.IsTargetSelfStateRow() ||
-		row.Node.IsContextOnlyRow() || row.Node.EffectiveImpactMS <= 0 {
+	if !runtimeTraceProjRowSharedSeatArm(row) {
 		return 0, false
 	}
 	// UXR-1 复核 P2-2(b) 裁定 (2026-07-11): the CHANNEL belt — badge/crown
@@ -3337,6 +3358,25 @@ func runtimeTraceProjRowValidSeat(row runtimeTraceProjTreeRow) (int, bool) {
 		return 0, false
 	}
 	return rank, true
+}
+
+// runtimeTraceProjRowSharedSeatArm is the SHARED first arm of the §29.30.1
+// valid-seat gate, extracted per ELIM-1 B1 (rank_order_v2_design_20260712.md
+// §2.2 共享臂抽取, GREENLIT 2026-07-12; RANK-U Stage 2 commit C): the typed
+// row-shape conditions BOTH the badge/lead valid-seat gate above AND the
+// ◎ 窗内可消除量总览 admission gate consume —
+//
+//	HasData ∧ 发布 EffectiveImpactMS > 0
+//	∧ tier ∉ {context_only, target_self_state} ∧ 非 overflow fold roster.
+//
+// Pure refactor (§29.30.1 单门原则延伸, design R4): semantics are verbatim the
+// former runtimeTraceProjRowValidSeat first-if — the existing badge/lead/board
+// pins are the refactor-correctness judges (全绿零改判据). A second
+// independent implementation of these arms is forbidden; per-arm rationale
+// lives on runtimeTraceProjRowValidSeat.
+func runtimeTraceProjRowSharedSeatArm(row runtimeTraceProjTreeRow) bool {
+	return row.HasData && !row.Node.OnChainOverflowFold && !row.Node.IsTargetSelfStateRow() &&
+		!row.Node.IsContextOnlyRow() && row.Node.EffectiveImpactMS > 0
 }
 
 // runtimeTraceProjRowSeatBadgeOrdinal is the §29.27.1 single badge authority:

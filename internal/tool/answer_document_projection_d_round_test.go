@@ -16,6 +16,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -247,9 +248,12 @@ func TestTraceProjectionSelfRowsCarryImpactShapeInTree(t *testing.T) {
 	obs := append([]types.ObservationRecord{selfContention}, dRoundTypeObs()...)
 	md := audit730Render(t, audit730Bus(""), obs, "")
 	fence := ""
-	if start := strings.Index(md, "```text"); start >= 0 {
-		if end := strings.Index(md[start+7:], "```"); end >= 0 {
-			fence = md[start : start+7+end]
+	// ELIM-1 reposition (user ruling 2026-07-13): the ◎ overview fence now
+	// precedes the tree — extract the TREE fence by its typed opener.
+	if start := strings.Index(md, tracefence.Opener); start >= 0 {
+		body := md[start+len(tracefence.Opener):]
+		if end := strings.Index(body, "```"); end >= 0 {
+			fence = md[start : start+len(tracefence.Opener)+end]
 		}
 	}
 	if fence == "" {

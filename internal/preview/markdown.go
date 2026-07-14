@@ -151,14 +151,23 @@ func (f fencedCodeRenderer) renderFencedCodeBlock(w util.BufWriter, source []byt
 		_, _ = fmt.Fprint(w, "\n</div>\n")
 		return ast.WalkSkipChildren, nil
 	}
-	projectionTree := isTraceCausalProjectionFence(info, body)
-	if projectionTree {
+	elimOverview := isTraceElimOverviewFence(info)
+	projectionTree := isTraceCausalProjectionFence(info, body) || elimOverview
+	switch {
+	case elimOverview:
+		// ELIM-1 (RANK-U Stage 2, 2026-07-13): the ◎ 窗内可消除量总览 fence
+		// shares the projection grid treatment (same class = same monospace
+		// grid CSS) plus its own hook class; classified on its OWN typed
+		// second info token — a brand-new form with no archives, so no
+		// content-sniffing fallback exists for it.
+		_, _ = fmt.Fprint(w, `<pre class="trace-projection-tree trace-elim-overview" role="region" aria-label="Trace eliminable-in-window overview" tabindex="0"><code`)
+	case projectionTree:
 		// The generated trace tree is a horizontally scrollable, information-
 		// dense region in the standalone report.  Give the page CSS and assistive
 		// technology a precise hook without changing one byte of the authoritative
 		// Markdown fence shared by terminal / Markdown / HTML surfaces.
 		_, _ = fmt.Fprint(w, `<pre class="trace-projection-tree" role="region" aria-label="Trace causal projection tree" tabindex="0"><code`)
-	} else {
+	default:
 		_, _ = fmt.Fprint(w, "<pre><code")
 	}
 	if cls := safeCodeClass(lang); cls != "" {
@@ -193,6 +202,15 @@ func isTraceCausalProjectionFence(info, body string) bool {
 		return true
 	}
 	return isLegacyTraceCausalProjectionBody(body)
+}
+
+// isTraceElimOverviewFence recognizes the ◎ 窗内可消除量总览 fence minted by
+// runtimeTraceProjElimOverviewFence (internal/tool; ELIM-1, RANK-U Stage 2).
+// EXACT typed-token equality only — the overview post-dates the token era, so
+// no legacy body-sniffing arm exists (or may ever be added) for it.
+func isTraceElimOverviewFence(info string) bool {
+	return strings.EqualFold(firstInfoToken(info), "text") &&
+		secondInfoToken(info) == tracefence.ElimInfoToken
 }
 
 // isLegacyTraceCausalProjectionBody is the DEMOTED content-sniffing lane
@@ -312,7 +330,8 @@ func writeTraceProjectionGrid(w util.BufWriter, body string, anchor *traceAnchor
 			continue
 		}
 		classes := "trace-line"
-		if strings.HasPrefix(line, "◇ ") || strings.HasPrefix(line, "▒ ") {
+		if strings.HasPrefix(line, "◇ ") || strings.HasPrefix(line, "▒ ") ||
+			strings.HasPrefix(line, tracefence.ElimGlyph+" ") {
 			classes += " trace-stanza-head"
 		}
 		_, _ = fmt.Fprintf(w, `<span class="%s">`, classes)

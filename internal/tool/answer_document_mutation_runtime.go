@@ -1164,13 +1164,31 @@ func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjecti
 	if fence == "" {
 		return nil
 	}
+	// ELIM-1 ◎ 窗内可消除量总览 (RANK-U Stage 2, 2026-07-13): its own typed
+	// fence in the lead block (rollback = drop this append). Render CALL
+	// order stays tree→overview→lead so the ◎ legend mark reaches the
+	// dynamic legend; only the CONCATENATION order below places it first.
+	//
+	// EVOLUTION RECORD (user ruling 2026-07-13, RANK-U Stage 2 mid-batch):
+	// the overview renders BEFORE the projection tree (先执摘后细节 — the
+	// executive summary leads, details follow); the GREENLIT draft's
+	// 「树 fence 后/明细表前」 placement is superseded. E#/seat pointers keep
+	// their semantics as FORWARD references into the tree/board below — the
+	// evidence ordinals are allocated at model build, never at fence render,
+	// so the assembly order is position-independent; the preview anchor
+	// transformer pairs the overview with its FOLLOWING tree fence.
+	elimFence := runtimeTraceProjElimOverviewFence(projection, model, zh)
 	titleSuffix := ""
 	if label := strings.TrimSpace(artifactLabel); label != "" {
 		titleSuffix = " — " + label
 	}
 	claimUses := []types.RenderedClaimUse{{ClaimForm: types.ClaimExternalObservation}}
 	facets := []string{"observed_artifact_fact"}
-	leadText := runtimeTraceProjLeadText(projection, model, lang, zh) + "\n\n" + fence
+	leadText := runtimeTraceProjLeadText(projection, model, lang, zh)
+	if elimFence != "" {
+		leadText += "\n\n" + elimFence
+	}
+	leadText += "\n\n" + fence
 	out := []types.AnswerBlock{{
 		ID:          idPrefix,
 		Kind:        types.BlockSection,
@@ -4364,13 +4382,13 @@ func materializeRuntimeTraceSemanticOptimizationBlock(doc *types.AnswerDocumentV
 				continue
 			}
 			evidence := newRuntimeTraceCausalProjectionEvidenceIndex()
-			buildRuntimeTraceProjTreeModel(projection, evidence, zh)
-			cols, sectionRows := runtimeTraceSemanticOptimizationParts(projection, evidence, zh)
+			model := buildRuntimeTraceProjTreeModel(projection, evidence, zh)
+			cols, sectionRows := runtimeTraceSemanticOptimizationParts(projection, evidence, model.WindowMS, zh)
 			columns = cols
 			label := strings.TrimSpace(projection.ArtifactLabel)
 			for _, row := range sectionRows {
-				if label != "" && len(row.Cells) == 5 && row.Cells[4] != "—" {
-					row.Cells[4] = runtimeTraceCausalProjectionMarkdownSafe(label) + " " + row.Cells[4]
+				if label != "" && len(row.Cells) == 6 && row.Cells[5] != "—" {
+					row.Cells[5] = runtimeTraceCausalProjectionMarkdownSafe(label) + " " + row.Cells[5]
 				}
 				rows = append(rows, row)
 			}
@@ -4387,8 +4405,8 @@ func materializeRuntimeTraceSemanticOptimizationBlock(doc *types.AnswerDocumentV
 		// E# tags in this block match the cluster's evidence index (same ledger,
 		// same compile, same model walk — pure and deterministic).
 		evidence := newRuntimeTraceCausalProjectionEvidenceIndex()
-		buildRuntimeTraceProjTreeModel(projection, evidence, zh)
-		columns, rows = runtimeTraceSemanticOptimizationParts(projection, evidence, zh)
+		model := buildRuntimeTraceProjTreeModel(projection, evidence, zh)
+		columns, rows = runtimeTraceSemanticOptimizationParts(projection, evidence, model.WindowMS, zh)
 	}
 	if len(rows) == 0 {
 		return false
@@ -4537,12 +4555,31 @@ func runtimeTraceSemanticSpanInlineLocator(span types.TraceCausalProjectionNode,
 	return ""
 }
 
-func runtimeTraceSemanticOptimizationParts(projection types.TraceCausalProjection, evidence *runtimeTraceCausalProjectionEvidenceIndex, zh bool) ([]string, []types.AnswerBlockItem) {
-	columns := []string{tracefence.ActionWordZH, "类别", "宿主线程", "有效成本", "证据"}
+func runtimeTraceSemanticOptimizationParts(projection types.TraceCausalProjection, evidence *runtimeTraceCausalProjectionEvidenceIndex, windowMS float64, zh bool) ([]string, []types.AnswerBlockItem) {
+	// 占窗% (RANK-U Stage 2 rider, §29.61 d, caliber ruling ⑤ 2026-07-13):
+	// the C4 table gains a window-share column — basis = THE SAME published
+	// effective-cost value the ms cell prints (one field, one value source;
+	// the member_sum basis was rejected: it would split the row across two
+	// calibers) divided by the analysis-window length. Semantic-class rows
+	// only (typed SemanticClass gate — the whole table is semantic, but
+	// member/fold subordinate rows and class-less spans render "—"), and a
+	// merged row straddling MULTIPLE query windows renders "—" (§21.1 CWD-2 ①:
+	// no single window base — never a cross-window numerator over one anchor
+	// denominator). Legality: semantic eff is pure wall clock (union /
+	// intersection calibers, zero supply-discount component), so the §29.27
+	// discounted-value percentage ban does not bind here.
+	columns := []string{tracefence.ActionWordZH, "类别", "宿主线程", "有效成本", "占窗%", "证据"}
 	if !zh {
-		columns = []string{"Optimization point", "Class", "Host thread", "Effective cost", "Evidence"}
+		columns = []string{"Optimization point", "Class", "Host thread", "Effective cost", "% of window", "Evidence"}
 	}
 	dash := "—"
+	windowShare := func(span types.TraceCausalProjectionNode, cost float64) string {
+		if strings.TrimSpace(span.SemanticClass) == "" || windowMS <= 0 || cost <= 0 ||
+			runtimeTraceProjMultiWindowMergedRow(span) {
+			return dash
+		}
+		return fmt.Sprintf("%.1f%%", cost/windowMS*100)
+	}
 	var rows []types.AnswerBlockItem
 	for _, span := range projection.SemanticSpans {
 		name := strings.TrimSpace(span.SpanName)
@@ -4597,6 +4634,7 @@ func runtimeTraceSemanticOptimizationParts(projection types.TraceCausalProjectio
 					class,
 					runtimeTraceCausalProjectionMarkdownSafe(host),
 					famCost,
+					windowShare(span, runtimeTraceProjFamilyPublishedMS(span)),
 					tag,
 				},
 				CitationRef: -1,
@@ -4616,7 +4654,7 @@ func runtimeTraceSemanticOptimizationParts(projection types.TraceCausalProjectio
 					memberCell = tracefence.GlyphSubordinate + " member " + member
 				}
 				rows = append(rows, types.AnswerBlockItem{
-					Cells:       []string{runtimeTraceCausalProjectionMarkdownSafe(memberCell), dash, dash, dash, dash},
+					Cells:       []string{runtimeTraceCausalProjectionMarkdownSafe(memberCell), dash, dash, dash, dash, dash},
 					CitationRef: -1,
 				})
 			}
@@ -4626,7 +4664,7 @@ func runtimeTraceSemanticOptimizationParts(projection types.TraceCausalProjectio
 					foldCell = fmt.Sprintf("%s %d more (family fold; %d members, %d listed — see the causal projection detail)", tracefence.GlyphSubordinate, rest, span.FamilyMemberCount, listed)
 				}
 				rows = append(rows, types.AnswerBlockItem{
-					Cells:       []string{runtimeTraceCausalProjectionMarkdownSafe(foldCell), dash, dash, dash, dash},
+					Cells:       []string{runtimeTraceCausalProjectionMarkdownSafe(foldCell), dash, dash, dash, dash, dash},
 					CitationRef: -1,
 				})
 			}
@@ -4638,6 +4676,7 @@ func runtimeTraceSemanticOptimizationParts(projection types.TraceCausalProjectio
 				class,
 				runtimeTraceCausalProjectionMarkdownSafe(host),
 				costCell,
+				windowShare(span, cost),
 				tag,
 			},
 			CitationRef: -1,

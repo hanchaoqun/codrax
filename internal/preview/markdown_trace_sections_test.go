@@ -204,11 +204,32 @@ func TestStandaloneTraceAuditCSSIsCompactResponsiveAndPrintable(t *testing.T) {
 	for _, want := range []string{
 		"section.trace-action-optimization", "section.trace-projection-detail", "section.trace-projection-evidence",
 		"column-count: 2", "font-size: .86rem", "column-count: 1", "font-size: 8pt",
-		"border-left-width: 4px", "color: var(--action-fg)",
+		// EVOLUTION RECORD (user ruling 2026-07-13, card UX simplification):
+		// the optimization card's former tinted decoration (4px colored
+		// left-border-width + --action-fg header/first-column + --action-bg
+		// wash + 9px radius) is retired — monochrome palette, ONE accent =
+		// the plain left rule; no fill, no rounding, no gradients.
+		"section.trace-action-optimization { margin: 1.45em 0 2em; padding: 12px 14px 14px; border: 1px solid var(--line); border-left: 3px solid var(--action-border); background: transparent; }",
 		"section.trace-projection-detail > h3 { break-after: avoid-column; break-inside: avoid-column; }",
 	} {
 		if !strings.Contains(page, want) {
 			t.Fatalf("standalone report missing compact audit CSS %q", want)
+		}
+	}
+	// Negative half of the ruling: the tinted-card decorations must not
+	// return (gradient ban pinned affirmatively — none existed, none may
+	// appear on this card's rules).
+	for _, banned := range []string{
+		"section.trace-action-optimization { margin: 1.45em 0 2em; padding: 12px 14px 14px; border: 1px solid var(--action-border);",
+		"background: var(--action-bg); }",
+	} {
+		if strings.Contains(page, banned) {
+			t.Fatalf("retired tinted-card decoration resurfaced: %q", banned)
+		}
+	}
+	for _, fn := range []string{"linear-gradient(", "radial-gradient(", "conic-gradient("} {
+		if strings.Contains(page, fn) {
+			t.Fatalf("the report page CSS must stay gradient-free (user ruling 2026-07-13): %q", fn)
 		}
 	}
 }

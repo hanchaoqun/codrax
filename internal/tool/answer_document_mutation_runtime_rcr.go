@@ -1117,20 +1117,7 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		// 「折算,按大核满频」 beside 「簇结构不可判…」 was the claim-vs-caveat
 		// contradiction form; the class-less 折算,按满频 degrades honestly and
 		// its class-word legend seat stays off with the word.
-		refWord, _ := runtimeTraceProjFoldReferenceClusterWord(node.SupplyFoldReferenceClass, zh)
-		var componentMarks []runtimeTraceProjMark
-		if node.SupplyFoldCapabilitySource == runtimeTraceCapabilitySourceFreqOnly {
-			refWord = ""
-		} else {
-			componentMarks = append(componentMarks, runtimeTraceProjFoldReferenceMark(node.SupplyFoldReferenceClass))
-		}
-		short := "折算,按" + refWord + "满频"
-		if !zh {
-			short = "discounted, at " + refWord + " fmax"
-			if refWord == "" {
-				short = "discounted, at fmax"
-			}
-		}
+		short, componentMarks := runtimeTraceProjSupplyDiscountShortWord(node, zh)
 		full := short
 		if node.SupplyFoldUnknownMS > 0 {
 			if zh {
@@ -1162,13 +1149,8 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 	if !handled && eligible && runtimeTraceProjCauseEventFoldRow(row) {
 		// §24.2 event-class form: ×N moves onto 行1, the (a–b,共N次) range and
 		// the 单次最大 caliber ride 行3. Identity: V == 单次最大 (typed check).
-		if zh {
-			out.Breakdown = fmt.Sprintf("%s %s = 单次最大(%.3f~%.3fms,共%d次)",
-				effectiveWord, runtimeTraceProjFmtMS(effective), node.MergedMinMS, node.MergedMaxMS, node.MergedCount)
-		} else {
-			out.Breakdown = fmt.Sprintf("%s %s = single max (%.3f~%.3fms, of %d)",
-				effectiveWord, runtimeTraceProjFmtMS(effective), node.MergedMinMS, node.MergedMaxMS, node.MergedCount)
-		}
+		out.Breakdown = fmt.Sprintf("%s %s = %s",
+			effectiveWord, runtimeTraceProjFmtMS(effective), runtimeTraceProjSingleMaxCaliberWord(node, zh))
 		row.marks.mark(runtimeTraceProjMarkEffectiveBreakdown)
 		row.marks.mark(runtimeTraceProjMarkCaliberSingleMax)
 		out.NameXNSuffix = runtimeTraceProjMergeCountChip(node.MergedCount, zh)
@@ -1210,6 +1192,40 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		row.marks.mark(runtimeTraceProjMarkEffectiveAttributionTag)
 	}
 	return out, true
+}
+
+// runtimeTraceProjSupplyDiscountShortWord is the ONE composer of the §20.2
+// running-deficit short caliber word 「折算,按X核满频」 (extracted for the
+// ELIM-1 ◎ note transcription, RANK-U Stage 2 收尾件1, 2026-07-13 — the 行3
+// breakdown and the ◎ overview note consume the SAME bytes). freq_only
+// capability degrades to the class-less word (UXR-1 §29.36.4 ② 核类词诚实门)
+// and suppresses the reference-class legend mark exactly like the 行3 site.
+func runtimeTraceProjSupplyDiscountShortWord(node types.TraceCausalProjectionNode, zh bool) (string, []runtimeTraceProjMark) {
+	refWord, _ := runtimeTraceProjFoldReferenceClusterWord(node.SupplyFoldReferenceClass, zh)
+	var marks []runtimeTraceProjMark
+	if node.SupplyFoldCapabilitySource == runtimeTraceCapabilitySourceFreqOnly {
+		refWord = ""
+	} else {
+		marks = append(marks, runtimeTraceProjFoldReferenceMark(node.SupplyFoldReferenceClass))
+	}
+	short := "折算,按" + refWord + "满频"
+	if !zh {
+		short = "discounted, at " + refWord + " fmax"
+		if refWord == "" {
+			short = "discounted, at fmax"
+		}
+	}
+	return short, marks
+}
+
+// runtimeTraceProjSingleMaxCaliberWord is the ONE composer of the §24.2
+// event-class caliber word 「单次最大(a~b,共N次)」 (same extraction rationale
+// as above — 行3 and the ◎ note share the bytes).
+func runtimeTraceProjSingleMaxCaliberWord(node types.TraceCausalProjectionNode, zh bool) string {
+	if zh {
+		return fmt.Sprintf("单次最大(%.3f~%.3fms,共%d次)", node.MergedMinMS, node.MergedMaxMS, node.MergedCount)
+	}
+	return fmt.Sprintf("single max (%.3f~%.3fms, of %d)", node.MergedMinMS, node.MergedMaxMS, node.MergedCount)
 }
 
 // runtimeTraceProjCauseSemanticStateIdentity keeps a ranked semantic-work

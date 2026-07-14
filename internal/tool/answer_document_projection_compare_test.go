@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/render"
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -220,10 +221,13 @@ func TestTraceProjectionMultiArtifactRendersPerArtifactSections(t *testing.T) {
 			t.Fatalf("identity-less observations must not blend into a section:\n%s", section.Text)
 		}
 	}
-	// Whole-document sanity: two independent text fences, zero mermaid.
+	// Whole-document sanity: two independent tree fences (one per artifact)
+	// plus their ◎ overview fences (ELIM-1, RANK-U Stage 2 — each rank-
+	// bearing artifact section carries its own overview), zero mermaid.
 	md := render.RenderAnswerDocument(got, "zh")
-	if strings.Count(md, "```text") != 2 || strings.Contains(md, "```mermaid") {
-		t.Fatalf("multi-artifact render must emit exactly one tree fence per artifact:\n%s", md)
+	if strings.Count(md, tracefence.Opener) != 2 || strings.Count(md, tracefence.ElimOpener) != 2 ||
+		strings.Contains(md, "```mermaid") {
+		t.Fatalf("multi-artifact render must emit exactly one tree fence + one ◎ overview per artifact:\n%s", md)
 	}
 }
 

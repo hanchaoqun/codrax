@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/preview"
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -533,7 +534,7 @@ func TestB9CustTraceVC710OffChainClassVerificationTwinSingleSeat(t *testing.T) {
 	}
 
 	_, optimizationRows := runtimeTraceSemanticOptimizationParts(projection,
-		newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+		newRuntimeTraceCausalProjectionEvidenceIndex(), 0, true)
 	if len(optimizationRows) == 0 || !strings.Contains(strings.Join(optimizationRows[0].Cells, "|"), "类校验") {
 		t.Fatalf("off-chain folding must not remove the independent deterministic-optimization obligation: %+v", optimizationRows)
 	}
@@ -889,14 +890,18 @@ func semLeadEngineObservationsFromTrace(t *testing.T, name, content string, q tr
 // semLeadNodeBlockLines returns the fence row line containing marker plus its
 // subordinate "·" continuation lines (the node's 行2..N block).
 func semLeadNodeBlockLines(md, marker string) []string {
+	// ELIM-1 reposition (user ruling 2026-07-13): the ◎ overview fence now
+	// PRECEDES the tree and transcribes the same class words — the node-block
+	// probe reads the TREE fence only (typed opener), never the overview.
 	lines := strings.Split(md, "\n")
-	inFence := false
+	inFence, inElim := false, false
 	for i, line := range lines {
 		if strings.HasPrefix(strings.TrimSpace(line), "```") {
 			inFence = !inFence
+			inElim = inFence && strings.TrimSpace(line) == tracefence.ElimOpener
 			continue
 		}
-		if !inFence || !strings.Contains(line, marker) {
+		if !inFence || inElim || !strings.Contains(line, marker) {
 			continue
 		}
 		block := []string{line}

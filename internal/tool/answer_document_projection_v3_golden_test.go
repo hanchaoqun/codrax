@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/render"
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -225,9 +226,13 @@ func TestTraceProjectionV3GoldenBerlinShape(t *testing.T) {
 	if !strings.Contains(md, "全部证据位于 `berlin.systrace`") || !strings.Contains(md, "行 104233–104391") {
 		t.Fatalf("berlin golden should group evidence by file:\n%s", md)
 	}
-	// Zero mermaid; single text fence tree.
-	if strings.Contains(md, "```mermaid") || strings.Count(md, "```text") != 1 {
-		t.Fatalf("v3 must render exactly one monospace tree and zero mermaid:\n%s", md)
+	// Zero mermaid; single text fence tree. ELIM-1 (RANK-U Stage 2,
+	// 2026-07-13): the rank-bearing berlin shape additionally renders exactly
+	// one ◎ overview fence under the tree (typed openers — never a loose
+	// ```text count that cannot tell the two apart).
+	if strings.Contains(md, "```mermaid") || strings.Count(md, "```text") != 2 ||
+		strings.Count(md, tracefence.Opener) != 1 || strings.Count(md, tracefence.ElimOpener) != 1 {
+		t.Fatalf("v3 must render exactly one monospace tree + one ◎ overview and zero mermaid:\n%s", md)
 	}
 }
 

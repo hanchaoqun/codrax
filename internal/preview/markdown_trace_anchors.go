@@ -55,6 +55,15 @@ func (traceEvidenceAnchorTransformer) Transform(doc *ast.Document, reader text.R
 	}
 	source := reader.Source()
 	var fences []*ast.FencedCodeBlock
+	// ELIM-1 (RANK-U Stage 2): ◎ overview fences are EXCLUDED from the
+	// fence↔section pairing census (a second counted fence would break the
+	// count identity and kill every anchor in the document). Each overview
+	// borrows the pairing of its HOST projection fence — the one it PRECEDES
+	// (user ruling 2026-07-13: the overview renders before its tree, so its
+	// [E#] pointers are forward references into the same section's
+	// detail/evidence targets); an overview after the last tree (archive
+	// forms) falls back to the preceding one.
+	elimSeen := map[*ast.FencedCodeBlock]int{}
 	var details, evidences []*traceAuditSectionBlock
 	for node := doc.FirstChild(); node != nil; node = node.NextSibling() {
 		switch n := node.(type) {
@@ -62,6 +71,10 @@ func (traceEvidenceAnchorTransformer) Transform(doc *ast.Document, reader text.R
 			info := ""
 			if n.Info != nil {
 				info = string(n.Info.Segment.Value(source))
+			}
+			if isTraceElimOverviewFence(info) {
+				elimSeen[n] = len(fences) // count of projection fences before it
+				continue
 			}
 			if isTraceCausalProjectionFence(info, fencedCodeBody(n, source)) {
 				fences = append(fences, n)
@@ -84,6 +97,7 @@ func (traceEvidenceAnchorTransformer) Transform(doc *ast.Document, reader text.R
 	if len(evidences) > 0 && len(evidences) != len(fences) {
 		return
 	}
+	pairings := make([]*traceAnchorPairing, len(fences))
 	for k, fence := range fences {
 		prefix := "trace-"
 		if len(fences) > 1 {
@@ -98,7 +112,21 @@ func (traceEvidenceAnchorTransformer) Transform(doc *ast.Document, reader text.R
 		if len(evidences) > 0 {
 			traceAnchorMarkTargets(evidences[k], source, prefix, seen)
 		}
-		fence.SetAttributeString(traceAnchorPrefixAttr, &traceAnchorPairing{prefix: prefix, claimed: seen})
+		pairings[k] = &traceAnchorPairing{prefix: prefix, claimed: seen}
+		fence.SetAttributeString(traceAnchorPrefixAttr, pairings[k])
+	}
+	// ◎ overview fences link through their host tree fence's pairing (same
+	// claimed set — never a fresh id namespace, never a dangling link). Host
+	// = the FOLLOWING projection fence (the overview leads its section, user
+	// ruling 2026-07-13); a trailing overview keeps the preceding fence.
+	for fence, before := range elimSeen {
+		host := before
+		if host >= len(pairings) {
+			host = len(pairings) - 1
+		}
+		if host >= 0 && host < len(pairings) && pairings[host] != nil {
+			fence.SetAttributeString(traceAnchorPrefixAttr, pairings[host])
+		}
 	}
 }
 

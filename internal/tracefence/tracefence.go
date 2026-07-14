@@ -47,6 +47,34 @@ const Opener = "```" + Info
 // 🎯 → ⊚, single-cell text presentation, EAW-Neutral).
 const RootGlyph = "⊚"
 
+// ELIM-1 「◎ 窗内可消除量总览」 fence contract (rank_order_v2_design_20260712.md
+// §2.1, GREENLIT 2026-07-12; RANK-U Stage 2, 2026-07-13). The overview is its
+// own fence rendered directly AFTER the projection tree fence and BEFORE the
+// detail table; it carries a DISTINCT typed second info token so
+//
+//   - the preview classifier grid-renders it exactly like the tree
+//     (precise-signal hard gate, zero content sniffing — a brand-new form has
+//     no archives, so no legacy fallback arm exists for it), and
+//   - the E# anchor transformer can EXCLUDE it from the fence↔detail/evidence
+//     pairing census (it borrows its sibling tree fence's pairing instead) —
+//     a second trace-causal-projection token would break the count identity
+//     and silently kill every anchor link in the document.
+//
+// ElimGlyph closed-set audit (design O-2 「tracefence 闭集查重后定稿」,
+// recorded): U+25CE BULLSEYE is EAW-Ambiguous — the same width class as the
+// ◇/▒ stanza FIELD marks it joins (line-head field mark, deliberately NOT a
+// StateMarks envelope slot, UXG-0 D3 family). Optical neighbors checked: the
+// root ⊚ (U+229A, small inner ring, EAW-N) renders visibly smaller/lighter
+// than the double-ringed ◎ and the two never appear inside one fence (◎ is
+// the overview's own head; ⊚ heads the tree fence); no collision with
+// ◌/◦/⊘/⊗.
+const (
+	ElimInfoToken = "trace-elim-overview"
+	ElimInfo      = "text " + ElimInfoToken
+	ElimOpener    = "```" + ElimInfo
+	ElimGlyph     = "◎"
+)
+
 // Target-head provenance chips (§7.30 C4a R2): the four closed-set suffixes a
 // ⊚ header line carries after the target name.
 const (

@@ -550,6 +550,10 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 	return map[runtimeTraceProjMark]revisit76LegendProbe{
 		// PTV8-RCR-A §24.3: 🎯 → ⊚ (无亮色 hard rule).
 		runtimeTraceProjMarkRootTarget: {"⊚", "⊚"},
+		// ELIM-1 (RANK-U Stage 2): the ◎ overview region mark — the probe
+		// scans the combined tree+overview surface (the overview is its own
+		// fence rendered right under the tree).
+		runtimeTraceProjMarkElimOverview: {"◎", "◎"},
 		runtimeTraceProjMarkEdgeDrill:  {"下钻─", "drill─"},
 		runtimeTraceProjMarkEdgeWake:   {"唤醒─", "wakes─"},
 		runtimeTraceProjMarkEdgeCause:  {"成因─", "cause─"},
@@ -1190,6 +1194,13 @@ func revisit76AssertLegendBidirectional(t *testing.T, name string, projection ty
 	t.Helper()
 	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), zh)
 	fence := runtimeTraceProjTreeFence(model, zh)
+	// ELIM-1 (RANK-U Stage 2): mirror the production render order — the ◎
+	// overview fence renders after the tree and BEFORE the lead text, so its
+	// legend mark participates in the bidirectional sweep. Probes scan the
+	// combined fence surface.
+	if elim := runtimeTraceProjElimOverviewFence(projection, model, zh); elim != "" {
+		fence += "\n" + elim
+	}
 	lang := "zh"
 	if !zh {
 		lang = "en"

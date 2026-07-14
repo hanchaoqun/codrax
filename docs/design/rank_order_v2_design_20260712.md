@@ -1,5 +1,12 @@
 状态:**GREENLIT**(用户裁定 2026-07-12「按默认(最优)建议执行」:R16 主裁定通过;O-1 否/O-2 照稿/O-3 不带/O-4 新裁定 A/B/C+ADJ-MINT 立案批准/O-5 指针行;R5/R7 措辞补充批准。落地序照 §10:CR-1 硬前置→v5 P1 后 ELIM-1 形制批;V2-P0 并行道与 IOFAM-SELF 合并执行)
 
+> **AS-BUILT 勘注(RANK-U Stage 2 落地,2026-07-13)**:
+> ① **位置改判(用户裁定 2026-07-13,覆盖 §2.1 原稿)**:◎ 总览渲染在**投影树之前**(先执摘后细节),原「根因板首、投影树之前」与施工单「树 fence 后/明细表前」两种表述均以此为准;E#/榜位指针语义不变(前向引用下方树/榜——证据序数在 model build 期分配,与装配序无关;preview 锚配对以总览**后随**的树 fence 为宿主)。
+> ② **词面(裁定⑥执行形)**:SELF-SEM 落地后目标自身确定性语义行以 ⛓链上 转录并佩「自身·确定性优化」,「候选」词自动脱落——§7.1 mockup 的 `◇最大 2.388ms … JIT编译 ×2 ·合计·候选` 行在该案的实铸形为 TOP 成员行 `2.388ms ⛓链上 · … ·合计(共2段,同线程) ·自身·确定性优化`;◇ 语义行保留「确定性优化·候选」身份词族。§3.2 生效:逐行不再重复 ·候选 尾词,◇ 认识论语义由 ◎ 图例句承载。
+> ③ **◎ fence 形**:自成 typed fence(`text trace-elim-overview`,tracefence 单源常量),preview 按自有 token 分类(网格渲染+trace-elim-overview hook 类),且**不入**树 fence↔明细/证据锚配对普查(计数恒等式保持,借宿主配对)。
+> ④ **新裁定 C 执行形收窄(tieba 对照实测)**:「▒ 永 context 词」按 Tier=context_only 试装会吞持值 ▒ 行的无损面(有效归因列/成员 roster/置信行),回收为「▒ 恒 tertiary、不占不耗选举梯、永不得 primary/secondary」;完整 context 词形留待专用 typed token 批。
+> ⑤ **同席修根(donghu W1 实测揭示)**:R1 same-fact 合并曾把 rank 视图的席位身份(Rank/Tier)丢弃在被吸收侧(引擎 #2 vs 显示「未入根因排序前3」同页矛盾)——席位随事实走(absorb 席位对回填 + SemanticSpans 副本席位统一),见 internal/types/trace_causal_projection_aggregate.go。
+
 # 根因板排序语义 v2 终稿 —「◎ 窗内可消除量总览」导航层(ELIM-1)+ 行级尺守卫前置批(V2-P0)
 
 - 骨架 = 方案2(sectioned/ELIM-1),按三方评审一致排序(方案2 > 方案3 > 方案1)选定;并入方案1 的 V2-P0 前置切片/升舱换值不变量/4165 三成分解剖,方案3 的 ⌗ 口径旁栏语义/不可能三角论证/honest-fallback 冕词/tier 词卫生/E30 对抗 pin(各处注明出处)。

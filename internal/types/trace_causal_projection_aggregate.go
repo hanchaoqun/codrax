@@ -137,7 +137,97 @@ func traceCausalProjectionAggregateForPresentation(out *TraceCausalProjection) {
 	traceCausalProjectionConvergeRawMemberReissues(out)
 	traceCausalProjectionConvergeMergedTwinSeats(out)
 	out.BackgroundCauses = traceCausalProjectionFoldUnknownBackground(out.BackgroundCauses)
+	// RANK-U Stage 2 (donghu W1 witness, 2026-07-13): carry the R1-merged
+	// semantic seat onto the entity's SemanticSpans display copy — the ✦ 语义
+	// lane renders from THAT bucket, and without the hand-off the engine's
+	// seat evaporated between the merge survivor (classified bucket copy) and
+	// the rendered row.
+	traceCausalProjectionUnifySemanticSpanSeats(out)
 	traceCausalProjectionResortAfterAggregation(out)
+}
+
+// traceCausalProjectionUnifySemanticSpanSeats (RANK-U Stage 2, 2026-07-13):
+// bucket-copy seat unification for semantic span entities. The compile keeps
+// one classified copy of a semantic record in the relevance buckets (the R1
+// merge survivor — it may have absorbed the entity's RANK view: seat ordinal,
+// ladder tier, published effective) AND one copy in SemanticSpans (the ✦
+// display lane's source; possibly a sibling emission of the same family under
+// its own record id). Identity is the EXACT EvidenceID / R1 MergedEvidenceIDs
+// membership, else the SAME strict same-fact key R1 itself merges on (one
+// identity function, never a new heuristic). Empty display-copy slots adopt
+// the survivor's seat/tier/effective; non-empty slots always keep their own
+// (same doctrine as the R1 absorb).
+func traceCausalProjectionUnifySemanticSpanSeats(out *TraceCausalProjection) {
+	if len(out.SemanticSpans) == 0 {
+		return
+	}
+	donors := map[string]*TraceCausalProjectionNode{}
+	factDonors := map[string]*TraceCausalProjectionNode{}
+	buckets := []*[]TraceCausalProjectionNode{
+		&out.PrimaryRootCauses,
+		&out.OnChainCauses,
+		&out.SupportingHops,
+		&out.AdjacentCauses,
+		&out.BackgroundCauses,
+	}
+	for _, bucket := range buckets {
+		for i := range *bucket {
+			node := &(*bucket)[i]
+			if node.Role != TraceCausalRoleSemanticSpan &&
+				strings.TrimSpace(node.Predicate) != "trace_semantic_span" {
+				continue
+			}
+			if node.Rank <= 0 && node.BackgroundRank <= 0 && node.EffectiveImpactMS <= 0 {
+				continue
+			}
+			ids := append([]string{node.EvidenceID}, node.MergedEvidenceIDs...)
+			for _, id := range ids {
+				key := traceCausalProjectionCanonicalNode(id)
+				if key == "" {
+					continue
+				}
+				if _, exists := donors[key]; !exists {
+					donors[key] = node
+				}
+			}
+			if key := traceCausalProjectionSameFactKey(*node); key != "" {
+				if _, exists := factDonors[key]; !exists {
+					factDonors[key] = node
+				}
+			}
+		}
+	}
+	if len(donors) == 0 && len(factDonors) == 0 {
+		return
+	}
+	for i := range out.SemanticSpans {
+		sem := &out.SemanticSpans[i]
+		donor := donors[traceCausalProjectionCanonicalNode(sem.EvidenceID)]
+		if donor == nil {
+			if key := traceCausalProjectionSameFactKey(*sem); key != "" {
+				donor = factDonors[key]
+			}
+		}
+		if donor == nil {
+			continue
+		}
+		if sem.Rank == 0 && donor.Rank > 0 {
+			sem.Rank = donor.Rank
+			if strings.TrimSpace(sem.Tier) == "" {
+				sem.Tier = donor.Tier
+			}
+		}
+		if sem.BackgroundRank == 0 && donor.BackgroundRank > 0 {
+			sem.BackgroundRank = donor.BackgroundRank
+			if strings.TrimSpace(sem.Tier) == "" {
+				sem.Tier = donor.Tier
+			}
+		}
+		if sem.EffectiveImpactMS <= 0 && donor.EffectiveImpactMS > 0 {
+			sem.EffectiveImpactMS = donor.EffectiveImpactMS
+			sem.EffectiveImpactPublished = sem.EffectiveImpactPublished || donor.EffectiveImpactPublished
+		}
+	}
 }
 
 // --- R1: cross-predicate same-fact merge -----------------------------------
@@ -426,6 +516,29 @@ func traceCausalProjectionAbsorbSameFact(survivor *TraceCausalProjectionNode, lo
 	}
 	if survivor.UndrillableReason == "" {
 		survivor.UndrillableReason = loser.UndrillableReason
+	}
+	// RANK-U Stage 2 (donghu W1 witness, 2026-07-13): the BOARD SEAT identity
+	// follows the fact. The self-basis semantic family publishes TWO views of
+	// one fact — the span-family record (no rank notes) and the rank record
+	// (根因排序#N) — with identical subject/value/line envelope since SELF-SEM;
+	// the span view scans first (wakeup_chain view order) and used to absorb
+	// the rank view WITHOUT its seat: the engine seated the row #2 while every
+	// display face spoke the mention floor 「未入根因排序前N」 (same-page
+	// contradiction, §29.30.1 family). An unseated survivor adopts the seated
+	// loser's ordinal with its ladder tier as ONE pair; a seated survivor
+	// keeps its own (priority-scan doctrine). The non-chain composite-board
+	// seat (BackgroundRank) travels the same way. Typed fields only.
+	if survivor.Rank == 0 && loser.Rank > 0 {
+		survivor.Rank = loser.Rank
+		if strings.TrimSpace(survivor.Tier) == "" {
+			survivor.Tier = loser.Tier
+		}
+	}
+	if survivor.BackgroundRank == 0 && loser.BackgroundRank > 0 {
+		survivor.BackgroundRank = loser.BackgroundRank
+		if strings.TrimSpace(survivor.Tier) == "" {
+			survivor.Tier = loser.Tier
+		}
 	}
 	if survivor.ChainDepth <= 0 {
 		survivor.ChainDepth = loser.ChainDepth

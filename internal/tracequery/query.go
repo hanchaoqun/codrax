@@ -15622,6 +15622,32 @@ func assignRootCauseRanksAndTiers(items []RootCauseRankItem) {
 			takeOrdinal(i)
 			continue
 		}
+		if rootCauseOrdinalChannel(items[i]) == rootCauseOrdinalChannelBackground {
+			// 新裁定 C (rank_order_v2_design_20260712.md §6.4 tier 词空间对齐,
+			// GREENLIT 2026-07-12; RANK-U Stage 2 rider): the ladder words
+			// primary/secondary are SEAT words — only ordinal-holding rows
+			// (chain/◇ channels) may wear or consume the election ladder. A ▒
+			// background row falling through here used to (a) eat an
+			// electionPos slot a seated row below then lost, and (b) wear
+			// "primary" when the chain rows were all consumed by the skip arms
+			// above (4165 摩擦形: a ▒ row speaking the primary word while
+			// 通道3 publishes no ordinal). Background rows keep their value,
+			// their member rosters and every display face under the fixed
+			// supporting tier, off the ladder. Ordinals are untouched
+			// (takeOrdinal is a no-op on this channel by construction).
+			//
+			// 实施注 (2026-07-13, tieba 对照实测): the ruling's full 「▒ 永
+			// context 词」 word form was piloted as Tier=context_only and
+			// REVERTED — the context_only token carries zero-attribution
+			// display semantics (有效归因列 —, 成员 roster suppressed,
+			// confidence line dropped), so valued ▒ rows lost lossless faces
+			// (重要信息永不省略). A dedicated background-context tier token is
+			// R2' seven-spot work for its own batch; until then the supporting
+			// "tertiary" word keeps every face intact while the primary/
+			// secondary theft and the ladder-slot theft stay fixed.
+			items[i].Tier = "tertiary"
+			continue
+		}
 		tier := rootCauseTier(electionPos)
 		electionPos++
 		items[i].Tier = tier

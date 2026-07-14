@@ -545,7 +545,7 @@ func TestRCM2C4BlockFamilyGrouping(t *testing.T) {
 	projection := rcm2CmpSemanticFamilyProjection()
 	evidence := newRuntimeTraceCausalProjectionEvidenceIndex()
 	buildRuntimeTraceProjTreeModel(projection, evidence, true)
-	_, rows := runtimeTraceSemanticOptimizationParts(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+	_, rows := runtimeTraceSemanticOptimizationParts(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), 0, true)
 	if len(rows) != 5 {
 		t.Fatalf("family grouping = header + 3 member rows + counted fold, got %d rows: %+v", len(rows), rows)
 	}

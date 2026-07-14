@@ -389,7 +389,7 @@ func TestCR2FixOptimizationTableNeverDanglesEvidence(t *testing.T) {
 	// The walk-rebuilt index deliberately does NOT contain the span (the r2
 	// witness shape: the tree rendered no seat for it).
 	evidence := newRuntimeTraceCausalProjectionEvidenceIndex()
-	_, rows := runtimeTraceSemanticOptimizationParts(projection, evidence, true)
+	_, rows := runtimeTraceSemanticOptimizationParts(projection, evidence, 0, true)
 	if len(rows) == 0 {
 		t.Fatalf("the optimization table must render the span row")
 	}
@@ -403,7 +403,7 @@ func TestCR2FixOptimizationTableNeverDanglesEvidence(t *testing.T) {
 	// Control: a walk-allocated span keeps its E#.
 	walked := newRuntimeTraceCausalProjectionEvidenceIndex()
 	walked.add(span, true)
-	_, rows = runtimeTraceSemanticOptimizationParts(projection, walked, true)
+	_, rows = runtimeTraceSemanticOptimizationParts(projection, walked, 0, true)
 	if tag := rows[0].Cells[len(rows[0].Cells)-1]; tag != "E1" {
 		t.Fatalf("a walk-allocated span keeps its E#: %q", tag)
 	}

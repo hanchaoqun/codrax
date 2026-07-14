@@ -650,11 +650,21 @@ img, svg { max-width: 100%; height: auto; }
 section.trace-projection-detail,
 section.trace-projection-evidence { margin-top: 2.5em; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--code); font-size: .86rem; line-height: 1.55; }
 /* Action surface: visible before the lossless audit appendix, but restrained
-   enough that TOP rank chips remain the strongest scan anchors. */
-section.trace-action-optimization { margin: 1.45em 0 2em; padding: 12px 14px 14px; border: 1px solid var(--action-border); border-left-width: 4px; border-radius: 9px; background: var(--action-bg); }
-section.trace-action-optimization > h2 { margin: 0 0 .72em; padding-bottom: .4em; border-bottom-color: var(--action-border); color: var(--action-fg); font-size: 1.24rem; }
+   enough that TOP rank chips remain the strongest scan anchors.
+   EVOLUTION RECORD (user ruling 2026-07-13, RANK-U Stage 2 rider — the
+   deterministic-optimization card UX simplification: 不要渐变、颜色收敛、
+   装饰从简): the tinted card (green --action-bg wash + colored border/
+   header/first-column + 9px radius) is RETIRED — the card now reads in the
+   report's monochrome palette with ONE accent (the left rule), structure
+   carried by border + whitespace, no background fill, no rounding, and no
+   gradients (none existed; none may appear). Scope note: only the card's
+   OWN section rules changed — the shared --action-* variables still style
+   the tree fence's action-word token and are deliberately untouched
+   (共享变量不动). */
+section.trace-action-optimization { margin: 1.45em 0 2em; padding: 12px 14px 14px; border: 1px solid var(--line); border-left: 3px solid var(--action-border); background: transparent; }
+section.trace-action-optimization > h2 { margin: 0 0 .72em; padding-bottom: .4em; border-bottom: 1px solid var(--line); color: var(--fg); font-size: 1.24rem; }
 section.trace-action-optimization th:first-child,
-section.trace-action-optimization td:first-child { color: var(--action-fg); font-weight: 700; }
+section.trace-action-optimization td:first-child { font-weight: 650; }
 section.trace-projection-detail { column-count: 2; column-gap: 28px; column-rule: 1px solid var(--line); }
 section.trace-projection-detail > h2,
 section.trace-projection-evidence > h2 { margin: 0 0 .75em; padding-bottom: .45em; border-bottom: 1px solid var(--line); font-size: 1.18rem; column-span: all; }
