@@ -5610,7 +5610,10 @@ func traceQueryRootCauseItemRelevance(item tracequery.RootCauseRankItem) string 
 		return relevance
 	}
 	switch strings.TrimSpace(item.Causality) {
-	case "on_wakeup_chain", tracequery.RootCauseCausalitySelfDeterministic:
+	// SELF-SEM (§29.61.1) / SELF-ALL (§29.61.2): the self tokens denote
+	// on-chain channel membership.
+	case "on_wakeup_chain", tracequery.RootCauseCausalitySelfDeterministic,
+		tracequery.RootCauseCausalitySelfWallClock:
 		return "on_chain"
 	case "adjacent_to_wakeup_chain":
 		return "adjacent"
@@ -7840,6 +7843,11 @@ func traceQueryTypedCriticalBlockingRichNotes(item tracequery.CriticalBlockingCa
 		{"sync_like", traceQueryTypedBoolPtr(item.SyncLike)},
 		{"blocking_candidate", traceQueryTypedBoolPtr(item.BlockingCandidate)},
 		{types.TraceNoteKeyChainRelevance, item.ChainRelevance},
+		// SELF-ALL (§29.61.2): the typed on-chain proof basis rides the
+		// critical_blocking face too (registered causal_rank-family key;
+		// zero-dropped on legacy overlap rows) — a self-basis on-chain verdict
+		// must never read as a chain-window overlap claim.
+		{types.TraceNoteKeyOnChainBasis, item.OnChainBasis},
 		{types.TraceNoteKeyOverlap, traceQueryObservationMSValue(item.OverlapMs)},
 		{"edge_count", traceQueryTypedCount(item.EdgeCount)},
 		{"nearest_chain_thread", traceThreadLabel(item.NearestChainThread)},
@@ -8947,6 +8955,9 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 			Summary:         episode.Summary,
 			RichNotes: traceQueryTypedKVNotes([][2]string{
 				{types.TraceNoteKeyChainRelevance, episode.ChainRelevance},
+				// SELF-ALL (§29.61.2): typed on-chain proof basis — a self-basis
+				// verdict must never read as a chain-window overlap claim.
+				{types.TraceNoteKeyOnChainBasis, episode.OnChainBasis},
 				{"signal", episode.DominantSignal},
 				{types.TraceNoteKeyDState, traceQueryObservationMSValue(episode.DStateMs)},
 				{types.TraceNoteKeyIOWait, traceQueryObservationMSValue(episode.IOWaitMs)},

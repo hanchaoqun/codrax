@@ -3085,6 +3085,14 @@ type runtimeTraceCausalProjectionEvidenceEntry struct {
 	// witness the customer verifies line ranges from, so the ceiling widens
 	// exactly like FamilyAudit. Typed flag from the node.
 	SameValueAudit bool
+	// AbsorbedAudit (SELF-ALL rider, 2026-07-13) marks an absorbed chain-lane
+	// entry (G1 §27.2-G1): its absorbed_into=<family key> pointer token is
+	// load-bearing (信息守恒第三面 — the E# is only self-explaining through the
+	// family pointer), and the family key grew a typed proof-basis lane
+	// dimension (rootCauseFamilyFoldLaneKey "on_chain|<basis>"), so the 96-rune
+	// ceiling would part-boundary-drop the pointer. Widens exactly like
+	// FamilyAudit. Typed flag from the node.
+	AbsorbedAudit bool
 }
 
 func newRuntimeTraceCausalProjectionEvidenceIndex() *runtimeTraceCausalProjectionEvidenceIndex {
@@ -3139,6 +3147,7 @@ func (idx *runtimeTraceCausalProjectionEvidenceIndex) add(node types.TraceCausal
 		SyntheticLine:  node.Undrillable(),
 		FamilyAudit:    node.FamilyMemberCount > 1,
 		SameValueAudit: len(node.SameValueMembers) > 0,
+		AbsorbedAudit:  node.AbsorbedByRankFamily,
 	})
 	return id
 }
@@ -3963,6 +3972,32 @@ func runtimeTraceCausalProjectionResolvedPeerText(kind, peer string, zh bool) st
 		return "IO wait (peer " + peer + ")"
 	}
 	return peer
+}
+
+// runtimeTraceCausalProjectionPeerRelationShortWord (§29.58.5 ③, 2026-07-13)
+// is the STATE-WORD HEAD of the peer-relation forms above — the short form a
+// dedup fold row's 行1 keeps when the width fit cannot hold the full relation
+// word (「主体 · IO等待 2次同值」 主行三要素). SAME wording home as the two
+// composers (one word source — never a string cut of the composed form).
+// "" for unknown kinds (labels are never fabricated).
+func runtimeTraceCausalProjectionPeerRelationShortWord(kind string, zh bool) string {
+	switch kind {
+	case "blocking_span":
+		if zh {
+			return "阻塞等待"
+		}
+		return "blocking wait"
+	case "d_state_or_io_wait":
+		return "D-state/iowait"
+	case "d_state_refined":
+		return "D-state"
+	case "io_latency":
+		if zh {
+			return "IO等待"
+		}
+		return "IO wait"
+	}
+	return ""
 }
 
 // runtimeTraceCausalProjectionKnownSubject reports whether a subject names a

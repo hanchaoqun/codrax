@@ -441,7 +441,9 @@ var uxg1ToolAuthorityLiteralAllowlist = map[string]map[string]int{
 		// +1 (2026-07-13, SELF-SEM §29.61.1): the 自身·确定性优化 legend
 		// entry's 参与根因排序 clause — legend prose quoting the channel word,
 		// not a new hand-copied board emitter.
-		"根因排序": 19, "邻近影响": 1, "root-cause rank": 3, "adjacent-impact": 1,
+		// +1 (2026-07-13, SELF-ALL §29.61.2): the 自身·墙钟席 legend entry's
+		// 参与根因排序 clause — same legend-prose family as the SELF-SEM line.
+		"根因排序": 20, "邻近影响": 1, "root-cause rank": 3, "adjacent-impact": 1,
 		"优化点": 2, "optimization point": 1, "确定性优化点": 3, "证据索引": 5,
 		"❶": 2, "❺": 2,
 	},

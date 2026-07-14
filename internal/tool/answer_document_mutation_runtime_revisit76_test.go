@@ -659,6 +659,15 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// SELF-SEM (§29.61.1, RANK-U Stage 1, 2026-07-13): the Row2 self-basis
 		// qualifier (word IS the probe; zh-en 同词).
 		runtimeTraceProjMarkSelfDeterministicBasis: {"自身·确定性优化", "self·deterministic-optimization"},
+		// SELF-ALL (§29.61.2/§29.61.2a, 2026-07-13): the wall-clock self-basis
+		// qualifier (word IS the probe; zh-en 同词).
+		runtimeTraceProjMarkSelfWallClockBasis: {"自身·墙钟席", "self·wall-clock-seat"},
+		// SELF-LANE (§29.58.3 处置 a, 2026-07-13): the relocated non-chain self
+		// row's qualifier.
+		runtimeTraceProjMarkSelfNonChainSeat: {"非链", "non-chain"},
+		// SELF-LANE (§29.58.3 处置 b, 2026-07-13): the cross-channel mutual
+		// pointer pair (shared word stem 本线程另有/this thread also holds).
+		runtimeTraceProjMarkCrossChannelPointer: {"本线程另有", "this thread also holds an"},
 		// V2-P0 (2026-07-12): the ⌗ 口径旁栏 disclosure word.
 		runtimeTraceProjMarkCaliberSideRow: {"⌗口径旁栏", "⌗ caliber-side"},
 		// CR-2 组② P5: the same-segment mirror tag (equality arm 同段镜像已并入
@@ -1187,6 +1196,50 @@ func revisit76SelfSemBasisProjection() types.TraceCausalProjection {
 	}
 }
 
+// revisit76SelfAllWallClockProjection (SELF-ALL §29.61.2/§29.61.2a +
+// SELF-LANE §29.58.3, 2026-07-13) is the donghu 133136 witness geometry: the
+// target's own io_latency wall-clock family promoted to the on-chain channel
+// on the typed self basis (Row2 自身·墙钟席 + 根因排序#6), its non-wall-clock
+// ⌗ page-cache residual relocating 非链 into the self stanza, and a NON-target
+// thread seated on both channels wearing the cross-channel mutual pointers.
+func revisit76SelfAllWallClockProjection() types.TraceCausalProjection {
+	return types.TraceCausalProjection{
+		WakeupPath:    []string{"app-9511", ".ugc.aweme.lite-17267"},
+		WindowStartTs: 13762.791708,
+		WindowEndTs:   13763.024898,
+		OnChainCauses: []types.TraceCausalProjectionNode{
+			{Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "selfall-io",
+				Subject: ".ugc.aweme.lite-17267", Predicate: "root_cause_tertiary",
+				Object: "io_latency", TypeToken: "io_latency",
+				ChainRelevance: "on_chain", Causality: "self_wall_clock",
+				OnChainBasis: "self_wall_clock_interval",
+				ImpactMS:     3.264, CumulativeImpactMS: 3.264, EffectiveImpactMS: 3.264,
+				Rank: 6, Tier: "tertiary",
+				FamilyMemberCount: 5, FamilyMemberMaxMS: 1.248, FamilyMemberMinMS: 0.865,
+				FamilyFoldCaliber: "interval_union", FamilyMemberSumMS: 5.111,
+				FamilyMemberRoster: []string{"dev=12,80 op=RCVHS sector=126160840 1.248ms"},
+				LineStart:          20486, LineEnd: 20517, Confidence: 0.86},
+			{Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "selfall-peer-chain",
+				Subject: "keva-3-17439", Object: "running_burst", StateKind: "running",
+				ChainRelevance: "on_chain", ChainDepth: 1, ImpactMS: 2.579, CumulativeImpactMS: 2.579,
+				EffectiveImpactMS: 2.579, Rank: 3, Tier: "tertiary", Confidence: 0.8,
+				LineStart: 100, LineEnd: 120},
+		},
+		AdjacentCauses: []types.TraceCausalProjectionNode{
+			{Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "selfall-pagecache",
+				Subject: ".ugc.aweme.lite-17267", Predicate: "root_cause_caliber_side",
+				Object: "page_cache_churn", TypeToken: "page_cache_churn",
+				ChainRelevance: "adjacent", ImpactMS: 81.616, CumulativeImpactMS: 81.616,
+				EffectiveImpactMS: 81.616, Tier: "caliber_side", Confidence: 0.72,
+				LineStart: 200, LineEnd: 260},
+			{Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "selfall-peer-adj",
+				Subject: "keva-3-17439", Object: "io_latency", TypeToken: "io_latency",
+				ChainRelevance: "adjacent", ImpactMS: 0.871, CumulativeImpactMS: 0.871,
+				EffectiveImpactMS: 0.871, Confidence: 0.8, LineStart: 300, LineEnd: 320},
+		},
+	}
+}
+
 // revisit76AssertLegendBidirectional renders one shape and asserts the NEW-7
 // two-way contract: (a) typed marks ⇔ rendered legend entries; (b) for every
 // probed mark, its fence token appears IFF its legend entry renders.
@@ -1490,6 +1543,11 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// on-chain semantic family — Row2 自身·确定性优化 qualifier + its
 		// legend entry (fixture home: answer_document_projection_selfsem_test.go).
 		{"selfsem_basis_qualifier", revisit76SelfSemBasisProjection()},
+		// SELF-ALL (§29.61.2/§29.61.2a) + SELF-LANE (§29.58.3, 2026-07-13):
+		// the promoted wall-clock self seat (自身·墙钟席 qualifier), the
+		// relocated 非链 residual and the cross-channel mutual pointers
+		// (fixture home: answer_document_projection_selfall_test.go).
+		{"selfall_wall_clock_seat", revisit76SelfAllWallClockProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

@@ -930,6 +930,18 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		}
 		row.marks.mark(runtimeTraceProjMarkSelfDeterministicBasis)
 	}
+	// SELF-ALL (§29.61.2/§29.61.2a, 2026-07-13): the wall-clock self basis
+	// wears its own qualifier the same way — ONE typed field, honest on-chain
+	// membership without a wakeup-edge claim (the effective ladder is the
+	// ordinary on-chain ladder, 零特判, so no caliber fork rides this word).
+	if strings.TrimSpace(node.OnChainBasis) == "self_wall_clock_interval" {
+		if zh {
+			identity = append(identity, "自身·墙钟席")
+		} else {
+			identity = append(identity, "self·wall-clock-seat")
+		}
+		row.marks.mark(runtimeTraceProjMarkSelfWallClockBasis)
+	}
 	if state := runtimeTraceProjCauseSemanticStateIdentity(node, zh); state != "" {
 		identity = append(identity, state)
 	}

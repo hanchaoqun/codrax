@@ -14770,6 +14770,21 @@ func enrichRootCauseItemsWithChainContext(chain ChainResult, items []RootCauseRa
 				ctx.overlapMs = 0
 			}
 		}
+		// SELF-ALL (§29.61.2 user ruling 2026-07-13): the analysis TARGET's own
+		// WALL-CLOCK seat with a typed interval inside the query window takes
+		// the on-chain channel on the typed self basis — the ◇ adjacent verdict
+		// above was pure proximity for a row whose subject IS the chain's own
+		// root. No overlap is fabricated (overlapMs zeroed) and no wakeup edge
+		// is claimed (rootCauseCausalityForItem mints the self token below).
+		// Non-target threads, symptom-family rows, non-wall-clock calibers
+		// (V2-P0 ⌗ 旁栏) and interval-less rows keep the adjacent lane
+		// byte-identically (§23.1 道别红线 negative forms).
+		if ctx.relevance == "adjacent" && rootCauseItemIsSelfWallClockSeat(items[i]) &&
+			selfWallClockSeatLane(&chain, items[i].Thread, items[i].StartTs, items[i].EndTs) {
+			ctx.relevance = "on_chain"
+			ctx.overlapMs = 0
+			items[i].OnChainBasis = RootCauseOnChainBasisSelfWallClockInterval
+		}
 		items[i].ChainRelevance = ctx.relevance
 		if causality := rootCauseCausalityForItem(items[i], ctx.relevance); causality != "" {
 			items[i].Causality = causality
@@ -14801,7 +14816,12 @@ func rootCauseChainContextForItem(item RootCauseRankItem, ctx chainCandidateCont
 	// witness: the two-JIT-span family envelope "overlapped" the 46ms sleep
 	// between them). edgeCount keeps the factual same-thread edge count (a
 	// fact about the chain, not a claim minted by this row).
-	if item.OnChainBasis == RootCauseOnChainBasisSelfDeterministicSpan {
+	//
+	// SELF-ALL (§29.61.2): the wall-clock self basis rides the SAME keep arm —
+	// the lane was decided once (the enrich self arm below the candidate
+	// context), and a re-enrich (scheduler pass) must keep that verdict
+	// instead of demoting the row back through the same-thread no-overlap arm.
+	if rootCauseOnChainBasisIsSelf(item.OnChainBasis) {
 		ctx.relevance = "on_chain"
 		ctx.overlapMs = 0
 		return ctx
@@ -15086,6 +15106,11 @@ func rootCauseCausalityForItem(item RootCauseRankItem, relevance string) string 
 	if relevance == "on_chain" && item.OnChainBasis == RootCauseOnChainBasisSelfDeterministicSpan {
 		return RootCauseCausalitySelfDeterministic
 	}
+	// SELF-ALL (§29.61.2): the wall-clock self basis speaks its own honest
+	// token the same way — never "on_wakeup_chain" on a row without an edge.
+	if relevance == "on_chain" && item.OnChainBasis == RootCauseOnChainBasisSelfWallClockInterval {
+		return RootCauseCausalitySelfWallClock
+	}
 	return causalityFromChainRelevance(relevance)
 }
 
@@ -15093,10 +15118,10 @@ func chainRelevanceFromCausality(causality string) string {
 	switch causality {
 	case "on_wakeup_chain":
 		return "on_chain"
-	case RootCauseCausalitySelfDeterministic:
-		// SELF-SEM (§29.61.1): the self token denotes on-chain channel
-		// membership — every relevance-fallback consumer keeps the row in the
-		// chain universe.
+	case RootCauseCausalitySelfDeterministic, RootCauseCausalitySelfWallClock:
+		// SELF-SEM (§29.61.1) / SELF-ALL (§29.61.2): the self tokens denote
+		// on-chain channel membership — every relevance-fallback consumer
+		// keeps the row in the chain universe.
 		return "on_chain"
 	case "adjacent_to_wakeup_chain":
 		return "adjacent"
@@ -15347,7 +15372,14 @@ func rootCauseTier(idx int) string {
 // minted ONLY by rootCauseItemFromSemanticTraceSpan — never a name/substring
 // heuristic.
 func rootCauseItemIsSemanticSpanWork(item RootCauseRankItem) bool {
-	switch item.Type {
+	return rootCauseTypeIsSemanticSpanWork(item.Type)
+}
+
+// rootCauseTypeIsSemanticSpanWork is the token half of the same closed set
+// (SELF-ALL §29.61.2 needs the token form on faces that carry no rank item —
+// one list, two shapes; extracted verbatim, zero behavior change).
+func rootCauseTypeIsSemanticSpanWork(typ string) bool {
+	switch typ {
 	case "jit_compile", "class_verification", "shader_compile", "runtime_compile", "texture_upload", "gc_pause":
 		return true
 	default:
@@ -15671,9 +15703,9 @@ func rootCauseItemIsOnChain(item RootCauseRankItem) bool {
 		return true
 	}
 	switch strings.TrimSpace(item.Causality) {
-	// SELF-SEM (§29.61.1): the self token denotes on-chain channel
-	// membership (same mapping as chainRelevanceFromCausality).
-	case "on_wakeup_chain", RootCauseCausalitySelfDeterministic:
+	// SELF-SEM (§29.61.1) / SELF-ALL (§29.61.2): the self tokens denote
+	// on-chain channel membership (same mapping as chainRelevanceFromCausality).
+	case "on_wakeup_chain", RootCauseCausalitySelfDeterministic, RootCauseCausalitySelfWallClock:
 		return true
 	default:
 		return false
@@ -16234,6 +16266,15 @@ func safeResolveThread(idx *Index, q Query) ThreadRef {
 func enrichIOBurstEpisodesWithChainContext(chain ChainResult, items []IOBurstEpisodeSummary) []IOBurstEpisodeSummary {
 	for i := range items {
 		ctx := chainContextForCandidate(chain, items[i].Thread, items[i].StartTs, items[i].EndTs)
+		// SELF-ALL (§29.61.2): the target's own io_burst episode is a
+		// wall-clock IO facet seat — same self-basis verdict as the rank/
+		// critical faces (one 道别 predicate, three consumers).
+		if ctx.relevance == "adjacent" && selfWallClockSeatTokenIsSeatFamily("io_burst_episode") &&
+			selfWallClockSeatLane(&chain, items[i].Thread, items[i].StartTs, items[i].EndTs) {
+			ctx.relevance = "on_chain"
+			ctx.overlapMs = 0
+			items[i].OnChainBasis = RootCauseOnChainBasisSelfWallClockInterval
+		}
 		items[i].ChainRelevance = ctx.relevance
 		items[i].OverlapMs = ctx.overlapMs
 		items[i].NearestChainThread = ctx.nearest
@@ -17562,6 +17603,18 @@ func peerChainStepSummary(step *PeerChainStep) string {
 func enrichCriticalBlockingWithChainContext(chain ChainResult, items []CriticalBlockingCandidate) []CriticalBlockingCandidate {
 	for i := range items {
 		ctx := chainContextForCandidate(chain, items[i].Thread, items[i].StartTs, items[i].EndTs)
+		// SELF-ALL (§29.61.2): the critical_blocking face is a witness feeder
+		// for the display's self/◇ stanzas — the target's own wall-clock seat
+		// rows (D/IO family, IO facet rows) take the SAME self-basis on-chain
+		// verdict as their rank twins (one 道别 predicate, two consumers).
+		// Wait-on-counterpart tokens (binder_wait / blocking_span — registry
+		// symptom lanes) and interval-less rows keep their lane byte-identically.
+		if ctx.relevance == "adjacent" && selfWallClockSeatTokenIsSeatFamily(items[i].Type) &&
+			selfWallClockSeatLane(&chain, items[i].Thread, items[i].StartTs, items[i].EndTs) {
+			ctx.relevance = "on_chain"
+			ctx.overlapMs = 0
+			items[i].OnChainBasis = RootCauseOnChainBasisSelfWallClockInterval
+		}
 		items[i].ChainRelevance = ctx.relevance
 		items[i].OverlapMs = ctx.overlapMs
 		items[i].EdgeCount = ctx.edgeCount

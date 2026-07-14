@@ -413,7 +413,7 @@ func TestPTV5SelfRowWordingShareGateAndBareChainEnd(t *testing.T) {
 	row := runtimeTraceProjTreeRow{Kind: runtimeTraceProjTreeRowSelf, HasData: true, Node: node}
 	row.marks = &runtimeTraceProjMarkSet{}
 	// ≥50% share → 主要; the ⊘链止 marker stays bare (no typed enum on the panel).
-	main, demoted := runtimeTraceProjSelfRowParts(row, 100.0, true)
+	main, _, demoted := runtimeTraceProjSelfRowParts(row, 100.0, true)
 	joined := strings.Join(append(append([]string{}, main...), demoted...), " ")
 	if !strings.Contains(joined, "窗口内主要处于等待唤醒") {
 		t.Fatalf("a ≥50%% sleep share keeps the 主要 wording: %s", joined)
@@ -423,7 +423,7 @@ func TestPTV5SelfRowWordingShareGateAndBareChainEnd(t *testing.T) {
 	}
 	// 突变形态: a small share (or no window) drops the 主要 claim.
 	row.Node.ImpactMS = 10.0
-	main, demoted = runtimeTraceProjSelfRowParts(row, 100.0, true)
+	main, _, demoted = runtimeTraceProjSelfRowParts(row, 100.0, true)
 	joined = strings.Join(append(append([]string{}, main...), demoted...), " ")
 	if strings.Contains(joined, "主要处于等待唤醒") || !strings.Contains(joined, "该段处于等待唤醒") {
 		t.Fatalf("a small sleep share must keep the neutral wording: %s", joined)

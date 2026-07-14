@@ -316,6 +316,15 @@ func runtimeTraceProjElimQualifier(row runtimeTraceProjTreeRow, channel string, 
 		}
 		return "self·deterministic-optimization"
 	}
+	// SELF-ALL (§29.61.2, 2026-07-13): the wall-clock self basis wears its own
+	// qualifier — same single-field fork, no 候选 word (the seat is a proven
+	// wall-clock amount, not a conditional upper bound).
+	if strings.TrimSpace(row.Node.OnChainBasis) == "self_wall_clock_interval" {
+		if zh {
+			return "自身·墙钟席"
+		}
+		return "self·wall-clock-seat"
+	}
 	if channel == runtimeTraceProjOrdinalChannelAdjacent && strings.TrimSpace(row.Node.SemanticClass) != "" {
 		if zh {
 			return "确定性优化·候选"

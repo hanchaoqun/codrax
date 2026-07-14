@@ -104,9 +104,17 @@ func TestP2aSelfComponentReseatWearsSubordinateConnector(t *testing.T) {
 		t.Fatalf("component row must render directly under its owning seat (sleep=%d binder=%d idle=%d):\n%s",
 			sleepAt, binderAt, idleAt, fence)
 	}
-	// ↳ + ⋈ on the component row; the ∿ sibling keeps the bare lead.
-	if !strings.HasPrefix(lines[binderAt], "│     "+tracefence.GlyphSubordinate+" "+tracefence.GlyphBinderWait+" 自身·binder") {
-		t.Fatalf("component row must lead ↳ ⋈: %q", lines[binderAt])
+	// §29.58.5 ① (user 精化裁定, 2026-07-13) — EVOLUTION RECORD: the component
+	// row now indents ONE LEVEL DEEPER than its owning seat (lead + 2 cells),
+	// the ↳ connector falls into the indent position and the row wears the
+	// SINGLE form mark ⋈ (the pre-ruling form put ↳ at the host mark column,
+	// where the two 2ch envelopes read as a double icon; 133136 witness). The
+	// ∿ sibling keeps the bare host-level lead.
+	if !strings.HasPrefix(lines[binderAt], "│       "+tracefence.GlyphSubordinate+" "+tracefence.GlyphBinderWait+" 自身·binder") {
+		t.Fatalf("component row must indent one level deeper and lead ↳ ⋈: %q", lines[binderAt])
+	}
+	if !strings.HasPrefix(lines[sleepAt], "│     ☾") {
+		t.Fatalf("the owning seat keeps the host-level lead: %q", lines[sleepAt])
 	}
 	if strings.Contains(lines[idleAt], tracefence.GlyphSubordinate) {
 		t.Fatalf("∿ sibling must not wear ↳: %q", lines[idleAt])

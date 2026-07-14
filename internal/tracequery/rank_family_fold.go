@@ -709,8 +709,17 @@ func markSemanticSpanConsumed(consumed map[int]bool, spans []TraceSpanSummary, m
 // rootCauseFamilyFoldLaneKey is the 道别 half of the merge key: the on-chain
 // board and the background composite board never cross-merge, and a typed
 // adjacent row keeps its own lane.
+//
+// SELF-ALL (§29.61.2, 2026-07-13): the on-chain lane additionally keys on the
+// typed proof basis — an overlap-proven row and a self-basis row never fold
+// into one family (the SELF-SEM 两把尺禁混折 enum precedent: mixing proof
+// paths inside one seat would let the family speak an overlap claim its
+// self-basis members never earned, or under-claim a proven overlap).
 func rootCauseFamilyFoldLaneKey(item RootCauseRankItem) string {
 	if rootCauseItemIsOnChain(item) {
+		if basis := strings.TrimSpace(item.OnChainBasis); basis != "" {
+			return "on_chain|" + basis
+		}
 		return "on_chain"
 	}
 	if relevance := strings.TrimSpace(item.ChainRelevance); relevance != "" {

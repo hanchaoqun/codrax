@@ -419,6 +419,23 @@ type runtimeTraceProjTreeRow struct {
 	// overflow fold's headline re-publishes (typed
 	// Node.OverflowMirrorEvidenceIDs resolved post-build). Wording input only.
 	OverflowMirrorRefs []string
+	// SelfNonChainSeat (SELF-LANE §29.58.3 处置 a, 2026-07-13): this
+	// target-subject row was RELOCATED out of the ◇ 邻近区段 into the self
+	// stanza — display placement only. Its typed channel identity stays
+	// adjacent (node.ChainRelevance untouched — chip word, ordinal channel,
+	// caliber words all read the node), and the renderer adds the 「非链」
+	// qualifier so the self stanza never implies an on-chain proof it lacks.
+	SelfNonChainSeat bool
+	// CrossChannelChainRef / CrossChannelAdjacentRef (SELF-LANE §29.58.3 处置
+	// b, 2026-07-13): the cross-channel same-thread mutual pointers (SMR-1
+	// relation-sentence family) — an adjacent-channel row whose thread also
+	// holds an on-chain seat points at that thread's LARGEST on-chain seat
+	// (「本线程另有链上席 [E#]」), and that on-chain seat points back at the
+	// thread's largest adjacent-channel seat (「本线程另有邻近席 [E#]」), so a
+	// reader can always tell deliberate segmentation from duplication.
+	// Wording input only; accounts untouched.
+	CrossChannelChainRef    string
+	CrossChannelAdjacentRef string
 	// marks is the NEW-7 emission collector for this render pass. The fence
 	// renderer stamps model.Marks onto its per-row COPIES right before calling
 	// the row-render helpers, so every mark is recorded AT the emission site
@@ -796,6 +813,26 @@ const (
 	// typed self basis (node.OnChainBasis == self_deterministic_span), with
 	// no wakeup-edge claim. Rendered wherever the cause identity row renders.
 	runtimeTraceProjMarkSelfDeterministicBasis
+
+	// SELF-ALL (§29.61.2/§29.61.2a user rulings, 2026-07-13): the
+	// 「自身·墙钟席」 Row2 qualifier — the analysis target's own wall-clock
+	// seat (blocked-state family / IO facet / runnable / running) admitted to
+	// the on-chain channel on the typed self basis (node.OnChainBasis ==
+	// self_wall_clock_interval), with no wakeup-edge claim; effective
+	// attribution rides the same per-state ladder as every on-chain row.
+	runtimeTraceProjMarkSelfWallClockBasis
+
+	// SELF-LANE (§29.58.3 处置 a, 2026-07-13): the 「非链」 qualifier on a
+	// target-subject row RELOCATED out of the ◇ 邻近区段 into the self stanza —
+	// display placement only (the row's typed channel stays adjacent, its
+	// ordinal/caliber words unchanged): the 邻近 word promises OTHER threads
+	// competing nearby, and the subject is never its own neighbour.
+	runtimeTraceProjMarkSelfNonChainSeat
+
+	// SELF-LANE (§29.58.3 处置 b, 2026-07-13): the cross-channel same-thread
+	// mutual pointer pair (「本线程另有链上席 [E#]」/「本线程另有邻近席 [E#]」)
+	// — SMR-1 relation-sentence family; lit at the ONE template's emission.
+	runtimeTraceProjMarkCrossChannelPointer
 
 	// ELIM-1 (◎ 窗内可消除量总览, rank_order_v2_design_20260712.md R16⑥,
 	// GREENLIT 2026-07-12; RANK-U Stage 2, 2026-07-13): the overview stanza's
@@ -1337,6 +1374,22 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		{runtimeTraceProjMarkSelfDeterministicBasis, runtimeTraceProjLegendGroupCaliber,
 			"- `自身·确定性优化` = 目标线程自身运行段内的确定性语义工作(类校验/JIT/着色器编译等):在查询窗内即按链上通道参与根因排序,数值为窗内投影并集(自身墙钟,已证可消除量);该行不含任何唤醒边、不宣称跨线程唤醒关系。",
 			"- `self·deterministic-optimization` = deterministic semantic work inside the target thread's own running segments (class verification / JIT / shader compile …): in-window it competes on the on-chain root-cause channel with its window-projection union value (the target's own wall clock, a proven eliminable amount); the row carries NO wakeup edge and claims no cross-thread wakeup relation."},
+		// SELF-ALL (§29.61.2/§29.61.2a user rulings, 2026-07-13): the wall-clock
+		// self-basis qualifier's teaching seat — renders exactly when the
+		// qualifier renders (typed node.OnChainBasis single field).
+		{runtimeTraceProjMarkSelfWallClockBasis, runtimeTraceProjLegendGroupCaliber,
+			"- `自身·墙钟席` = 目标线程自身的墙钟等待/占用席位(D状态/IO/runnable/running 等):其墙钟区间在查询窗内即按链上通道参与根因排序;该行不含任何唤醒边、不宣称跨线程唤醒关系;有效归因与其他链上行同一阶梯(running=供给折算、runnable=全额、D/IO=墙钟合计)。",
+			"- `self·wall-clock-seat` = the target thread's own wall-clock wait/occupancy seat (D-state / IO / runnable / running …): with its wall-clock interval inside the query window it competes on the on-chain root-cause channel; the row carries NO wakeup edge and claims no cross-thread wakeup relation; its effective attribution rides the same ladder as every other on-chain row (running=supply-folded, runnable=in full, D/IO=wall-clock sum)."},
+		// SELF-LANE (§29.58.3 处置 a, 2026-07-13): the relocated non-chain self
+		// row's qualifier — placement moved, channel identity did not.
+		{runtimeTraceProjMarkSelfNonChainSeat, runtimeTraceProjLegendGroupCaliber,
+			"- `非链` = 目标自身的非链上行(无链上证明或非墙钟口径):显示归位自身段(「邻近区段」词面只留其它线程),其通道身份、口径词与序数不变。",
+			"- `non-chain` = the target's own row without on-chain proof (or on a non-wall-clock caliber): it is displayed inside the self stanza (the adjacent stanza's wording is reserved for OTHER threads), while its channel identity, caliber words and ordinals stay unchanged."},
+		// SELF-LANE (§29.58.3 处置 b, 2026-07-13): the cross-channel pointer
+		// pair's teaching seat.
+		{runtimeTraceProjMarkCrossChannelPointer, runtimeTraceProjLegendGroupCaliber,
+			"- `本线程另有链上席/邻近席 [E#]` = 同一线程在另一通道还有席位的互指指针:两席各记各账(通道不同,不可相加),指针只帮助区分刻意分账与重复。",
+			"- `this thread also holds an on-chain/adjacent seat [E#]` = the mutual cross-channel pointer for one thread seated on both channels: each seat keeps its own account (different channels, never additive); the pointer only distinguishes deliberate segmentation from duplication."},
 		{runtimeTraceProjMarkEffectiveBreakdown, runtimeTraceProjLegendGroupCaliber,
 			"- `有效归因 V = …` 分解行 = 有效归因的构成:各分量按括注口径计入,分量计入之和恒等于 V;其下「分量 原始 → 计入(口径)」子行为逐项拆解。",
 			"- The `attribution V = …` breakdown line = the composition of the effective attribution: each component counts under its parenthesized caliber and the counted parts sum exactly to V; the 「component raw → counted (caliber)」 sub-rows underneath unpack it item by item."},
@@ -2679,6 +2732,15 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// ×N candidate row) — typed fingerprint, tag-only convergence.
 	runtimeTraceProjMarkValueMirrorTwins(&model)
 
+	// SELF-LANE (§29.58.3 处置 a, SELF-ALL 批 件②, 2026-07-13): after the
+	// SELF-ALL engine promotion the ◇ residual target rows are the honest
+	// non-chain leftovers (no on-chain proof / non-wall-clock caliber) — they
+	// relocate into the self stanza wearing the 「非链」 qualifier: the 邻近
+	// word promises OTHER threads competing nearby, and the subject is never
+	// its own neighbour (062104 witness). Runs BEFORE every relation pass so
+	// the SMR-1 family and the cross-channel pointers see the final seating.
+	runtimeTraceProjRelocateSelfNonChainSeats(&model, targetKey)
+
 	// SMR-1 批 relation passes (2026-07-12) — order matters (四臂判定互斥,
 	// 矩阵判型即路由): D3 double-merged twins first (equality shapes), then
 	// the A1 non-additive pointers (containment/membership), then the C1
@@ -2708,6 +2770,10 @@ func buildRuntimeTraceProjTreeModel(projection types.TraceCausalProjection, evid
 	// fact.
 	runtimeTraceProjSeatSelfComponentRows(&model)
 	runtimeTraceProjMarkAccountRelations(&model, zh)
+	// SELF-LANE (§29.58.3 处置 b, 2026-07-13): the cross-channel same-thread
+	// mutual pointers join the relation-sentence family — after the account
+	// relations so the four-arm routing above stays untouched.
+	runtimeTraceProjMarkCrossChannelSameThread(&model)
 	runtimeTraceProjStampOccurrenceSeries(&model)
 	runtimeTraceProjMarkSeriesAggregateSeats(&model)
 	runtimeTraceProjResolveOverflowMirrorRefs(&model)
@@ -3759,8 +3825,10 @@ func runtimeTraceProjSemanticParticipatesInRootCauseRanking(node types.TraceCaus
 		return false
 	}
 	switch strings.TrimSpace(node.Causality) {
-	// SELF-SEM (§29.61.1): the self token denotes on-chain membership.
-	case "on_wakeup_chain", "on_dependency_chain", "self_deterministic":
+	// SELF-SEM (§29.61.1) / SELF-ALL (§29.61.2): the self tokens denote
+	// on-chain membership (self_wall_clock never rides a semantic row today —
+	// closed-set consistency arm).
+	case "on_wakeup_chain", "on_dependency_chain", "self_deterministic", "self_wall_clock":
 		return true
 	default:
 		return false
@@ -3794,8 +3862,9 @@ func runtimeTraceProjNodeDemotedToBackground(node types.TraceCausalProjectionNod
 	onChainSemantic := strings.TrimSpace(node.SemanticClass) != "" &&
 		(strings.TrimSpace(node.ChainRelevance) == "on_chain" ||
 			strings.TrimSpace(node.Causality) == "on_wakeup_chain" ||
-			// SELF-SEM (§29.61.1): self-basis on-chain semantic rows.
-			strings.TrimSpace(node.Causality) == "self_deterministic")
+			// SELF-SEM (§29.61.1) / SELF-ALL (§29.61.2): self-basis on-chain rows.
+			strings.TrimSpace(node.Causality) == "self_deterministic" ||
+			strings.TrimSpace(node.Causality) == "self_wall_clock")
 	if onChainSemantic {
 		return false
 	}
@@ -3908,6 +3977,16 @@ func runtimeTraceProjFoldSameSubjectIONodes(nodes []types.TraceCausalProjectionN
 			continue
 		}
 		key += "\x00lane=" + strconv.Itoa(runtimeTraceProjChainLane(node))
+		// SELF-ALL 修复轮 件2 F2 (2026-07-13): the typed proof basis joins the
+		// fold key — the ENGINE fold key gained this dimension (两把尺禁混折,
+		// rootCauseFamilyFoldLaneKey) while the display fold did not, so the
+		// overlap-PROVEN 1.347ms seat (#12) folded into the self-basis
+		// family's 「同段IO另有」 note although the engine interval probe
+		// proves the segments are pairwise DISJOINT (the 同段 claim was false
+		// and the seat went invisible). Same single-implementation discipline:
+		// mixed-basis seats render as separate rows; same-basis facets keep
+		// folding exactly as before.
+		key += "\x00basis=" + strings.TrimSpace(node.OnChainBasis)
 		if _, ok := groups[key]; !ok {
 			groupOrder = append(groupOrder, key)
 		}
@@ -3956,6 +4035,16 @@ func runtimeTraceProjFoldSameSubjectIONodes(nodes []types.TraceCausalProjectionN
 			}
 			for _, idx := range members {
 				if idx == primary {
+					continue
+				}
+				// SELF-ALL 修复轮 件1 F1 连带 (2026-07-13, seat #9 witness): a
+				// SEATED row (typed engine Rank > 0) is never absorbed as a
+				// fold peer — the ⌗ note carries no ordinal, so folding a
+				// ranked facet (io_burst #9 beside the equal-value io_latency
+				// #10) punched a hole in the contiguous seat sequence. Same
+				// whitelist philosophy as the compile-cap exemption (CR-2 P4);
+				// unranked facets keep folding exactly as before.
+				if nodes[idx].Rank > 0 {
 					continue
 				}
 				folded[idx] = true
@@ -4541,6 +4630,25 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 		}
 		out = append(out, text)
 	}
+	// SELF-LANE (§29.58.3 处置 b, 2026-07-13): the cross-channel same-thread
+	// mutual pointers — ONE template each direction, typed refs stamped by
+	// runtimeTraceProjMarkCrossChannelSameThread.
+	if ref := strings.TrimSpace(row.CrossChannelChainRef); ref != "" {
+		row.marks.mark(runtimeTraceProjMarkCrossChannelPointer)
+		text := "本线程另有链上席 [" + ref + "]"
+		if !zh {
+			text = "this thread also holds an on-chain seat [" + ref + "]"
+		}
+		out = append(out, text)
+	}
+	if ref := strings.TrimSpace(row.CrossChannelAdjacentRef); ref != "" {
+		row.marks.mark(runtimeTraceProjMarkCrossChannelPointer)
+		text := "本线程另有邻近席 [" + ref + "]"
+		if !zh {
+			text = "this thread also holds an adjacent seat [" + ref + "]"
+		}
+		out = append(out, text)
+	}
 	// WO-B1 (SMR-1 批, 2026-07-12): the occurrence-series short note — the
 	// interval identifies the occurrence (preferred over 第N次 ordinals, S10
 	// vnote), the sibling refs cross-link, and the series total rides the
@@ -4934,8 +5042,9 @@ func runtimeTraceProjSemanticTwinLane(node types.TraceCausalProjectionNode) (str
 	lane := strings.TrimSpace(node.ChainRelevance)
 	if lane == "" {
 		switch strings.TrimSpace(node.Causality) {
-		// SELF-SEM (§29.61.1): the self token denotes on-chain membership.
-		case "on_wakeup_chain", "on_dependency_chain", "self_deterministic":
+		// SELF-SEM (§29.61.1) / SELF-ALL (§29.61.2): the self tokens denote
+		// on-chain membership.
+		case "on_wakeup_chain", "on_dependency_chain", "self_deterministic", "self_wall_clock":
 			lane = "on_chain"
 		case "adjacent_to_wakeup_chain", "adjacent_to_dependency_chain":
 			lane = "adjacent"
@@ -6526,6 +6635,32 @@ func runtimeTraceProjRowNameKeepSuffix(row runtimeTraceProjTreeRow, zh bool) str
 	return xn + dedup
 }
 
+// runtimeTraceProjDedupRowShortStateWord (§29.58.5 ③, 2026-07-13): the SHORT
+// state word a dedup fold row's 行1 keeps (主行三要素) when the width fit
+// dropped the full cause word — typed lanes only (StateKind label first, else
+// the TypeToken state word through the same refined-class chain the 裁定4 tag
+// uses); "" when the node carries no typed state (labels are never fabricated).
+func runtimeTraceProjDedupRowShortStateWord(row runtimeTraceProjTreeRow, zh bool) string {
+	node := row.Node
+	if label := strings.TrimSpace(runtimeTraceProjStateKindLabel(node, zh)); label != "" {
+		return label
+	}
+	if class := runtimeTraceCausalProjectionTypeTokenStateClass(node); class != "" {
+		return strings.TrimSpace(runtimeTraceCausalProjectionTypeTokenStateWord(
+			runtimeTraceCausalProjectionRefinedStateClass(node, class), zh))
+	}
+	// Peer-relation forms (IO等待(对端 X) …): the short word is the relation
+	// form's own state head — SAME wording home as the composers (133136 E29
+	// witness form 「主体 · IO等待 2次同值」).
+	if kind := runtimeTraceCausalProjectionResolvedPeerKind(node); kind != "" {
+		return runtimeTraceCausalProjectionPeerRelationShortWord(kind, zh)
+	}
+	if kind := runtimeTraceCausalProjectionUnresolvedPeerKind(node); kind != "" {
+		return runtimeTraceCausalProjectionPeerRelationShortWord(kind, zh)
+	}
+	return ""
+}
+
 // runtimeTraceProjRowNameFitted is THE single name-budget fit (§24.9 G2): the
 // keep suffix is carved out of the budget as a reserve and re-attached whole
 // after the head truncation; every other name keeps the legacy TruncateName
@@ -6548,6 +6683,26 @@ func runtimeTraceProjRowNameFitted(fixedW int, row runtimeTraceProjTreeRow, name
 		budget := runtimeTraceProjTreeNameBudgetReserve(fixedW, reserve+runewidth.StringWidth(keep))
 		if head != "" && runewidth.StringWidth(head) > budget {
 			head = runtimeTraceProjTruncateName(head, budget)
+			// §29.58.5 ③ (user ruling 2026-07-13): a dedup fold row's 行1 keeps
+			// its STATE WORD in short form (主行三要素 — 「主体 · IO等待 2次同值」)
+			// even when the width cut dropped the full cause word; the full form
+			// (with the peer tail) stays on the row-2 guarantee copy. Typed
+			// state lanes only (no guess); a typed floor like the PTS fold-name
+			// floor — the row may run past the shared column rather than lose
+			// the state word.
+			if row.Node.DuplicatePublications > 1 {
+				causeWord, _ := runtimeTraceProjRowCauseWordToken(row, zh)
+				// The keep lane may already reserve the state word (chain-row
+				// grammar 词位) — judge the WHOLE rendered name, never the
+				// head alone (tieba CookieMonster witness: a second
+				// 「· runnable」 would double-speak).
+				if causeWord != "" && !strings.Contains(head+keep, causeWord) {
+					if short := runtimeTraceProjDedupRowShortStateWord(row, zh); short != "" &&
+						!strings.Contains(head+keep, short) {
+						head += " · " + short
+					}
+				}
+			}
 		}
 		return head + keep
 	}
@@ -6802,6 +6957,145 @@ func runtimeTraceProjScaleNote(model runtimeTraceProjTreeModel, zh bool) string 
 // pointing outside the self stanza (chain-lane carriers b/c) are untouched.
 // Deterministic: hosts keep their order; components follow their host in
 // their original relative order.
+// runtimeTraceProjRelocateSelfNonChainSeats (SELF-LANE §29.58.3 处置 a,
+// 2026-07-13) relocates every TARGET-subject row out of the ◇ adjacent stanza
+// into the self stanza: after the SELF-ALL engine promotion (§29.61.2) the
+// remaining target rows there are the honest non-chain residuals — rows
+// without a typed wall-clock interval or on a non-wall-clock ⌗ caliber — and
+// the 邻近区段 wording promises OTHER threads competing nearby (主体非自己
+// 邻居, 062104 witness). Display placement ONLY: the row keeps its node
+// verbatim (channel identity, ordinal, caliber words unchanged) and gains the
+// typed SelfNonChainSeat qualifier seat.
+func runtimeTraceProjRelocateSelfNonChainSeats(model *runtimeTraceProjTreeModel, targetKey string) {
+	if model == nil || strings.TrimSpace(targetKey) == "" || len(model.Adjacent) == 0 {
+		return
+	}
+	kept := make([]runtimeTraceProjTreeRow, 0, len(model.Adjacent))
+	for _, row := range model.Adjacent {
+		if runtimeTraceCausalProjectionCanonicalNode(row.Node.Subject) != targetKey {
+			kept = append(kept, row)
+			continue
+		}
+		row.Kind = runtimeTraceProjTreeRowSelf
+		row.SelfNonChainSeat = true
+		model.SelfRows = append(model.SelfRows, row)
+	}
+	model.Adjacent = kept
+}
+
+// runtimeTraceProjMarkCrossChannelSameThread (SELF-LANE §29.58.3 处置 b,
+// 2026-07-13) stamps the cross-channel same-thread mutual pointers: every
+// adjacent-CHANNEL row (◇ stanza rows and relocated 非链 self rows alike —
+// the channel is the node's typed relevance, not the display placement) whose
+// subject also holds an on-chain seat points at that thread's LARGEST on-chain
+// seat, and that seat points back at the thread's largest adjacent-channel
+// seat. ONE pointer each way (largest display impact; ties by first-rendered
+// order) — a roster would out-shout the accounts it annotates. Wording input
+// only; every account and ordinal stays untouched.
+func runtimeTraceProjMarkCrossChannelSameThread(model *runtimeTraceProjTreeModel) {
+	if model == nil {
+		return
+	}
+	type seat struct {
+		rows []runtimeTraceProjTreeRow
+		idx  int
+		lane int
+	}
+	lanes := [][]runtimeTraceProjTreeRow{model.SelfRows, model.TreeRows, model.Adjacent, model.Background}
+	chainBest := map[string]seat{}
+	adjBest := map[string]seat{}
+	// SELF-ALL 修复轮 件4 F4 (2026-07-13): ONE eligibility predicate for BOTH
+	// the collection loop and the stamping loop — the collection required
+	// HasData∧EvidenceTag while the stamp only matched subjects, so a
+	// tag-less ◌ blind-spot row wore 「本线程另有链上席」 while its chain seat
+	// could never point back (adjBest never saw the tag-less row): a one-way
+	// pointer against the 双向 promise. 双向或双无.
+	eligible := func(row runtimeTraceProjTreeRow) bool {
+		return row.HasData && strings.TrimSpace(row.EvidenceTag) != ""
+	}
+	better := func(best seat, rows []runtimeTraceProjTreeRow, i int) bool {
+		if best.rows == nil {
+			return true
+		}
+		// Prefer a RANKED seat over a context row (席 means a seat); at equal
+		// seat class the larger display impact wins.
+		bestRanked := best.rows[best.idx].Node.Rank > 0
+		candRanked := rows[i].Node.Rank > 0
+		if bestRanked != candRanked {
+			return candRanked
+		}
+		return runtimeTraceProjNodeDisplayImpact(rows[i].Node) >
+			runtimeTraceProjNodeDisplayImpact(best.rows[best.idx].Node)
+	}
+	for lane, rows := range lanes {
+		for i := range rows {
+			if !eligible(rows[i]) {
+				continue
+			}
+			subject := runtimeTraceCausalProjectionCanonicalNode(rows[i].Node.Subject)
+			if subject == "" || subject == "unknown-thread" || subject == "unknown" {
+				continue
+			}
+			switch runtimeTraceProjRowOrdinalChannel(rows[i]) {
+			case runtimeTraceProjOrdinalChannelChain:
+				if better(chainBest[subject], rows, i) {
+					chainBest[subject] = seat{rows: rows, idx: i, lane: lane}
+				}
+			case runtimeTraceProjOrdinalChannelAdjacent:
+				if better(adjBest[subject], rows, i) {
+					adjBest[subject] = seat{rows: rows, idx: i, lane: lane}
+				}
+			}
+		}
+	}
+	if len(chainBest) == 0 || len(adjBest) == 0 {
+		return
+	}
+	// 同段噪声闸: the pointer's purpose is cross-STANZA linkage — a pair whose
+	// two seats already render in the SAME display stanza (the relocated 非链
+	// self rows beside the target's own chain seats) points at a neighbour the
+	// reader is already looking at, so it stamps nothing.
+	sameStanza := func(subject string) bool {
+		best, okChain := chainBest[subject]
+		peer, okAdj := adjBest[subject]
+		return okChain && okAdj && best.lane == peer.lane
+	}
+	for lane, rows := range lanes {
+		for i := range rows {
+			if !eligible(rows[i]) {
+				continue // F4: 双向或双无 — the stamp shares the collection predicate
+			}
+			subject := runtimeTraceCausalProjectionCanonicalNode(rows[i].Node.Subject)
+			if subject == "" || sameStanza(subject) {
+				continue
+			}
+			switch runtimeTraceProjRowOrdinalChannel(rows[i]) {
+			case runtimeTraceProjOrdinalChannelAdjacent:
+				if best, ok := chainBest[subject]; ok && best.lane != lane {
+					if tag := strings.TrimSpace(best.rows[best.idx].EvidenceTag); tag != "" &&
+						tag != strings.TrimSpace(rows[i].EvidenceTag) {
+						rows[i].CrossChannelChainRef = tag
+					}
+				}
+			case runtimeTraceProjOrdinalChannelChain:
+				// Only the thread's LARGEST on-chain seat carries the reverse
+				// pointer (one pointer each way).
+				best, ok := chainBest[subject]
+				if !ok || strings.TrimSpace(rows[i].EvidenceTag) == "" ||
+					best.rows[best.idx].EvidenceTag != rows[i].EvidenceTag {
+					continue
+				}
+				if peer, okAdj := adjBest[subject]; okAdj && peer.lane != lane {
+					if tag := strings.TrimSpace(peer.rows[peer.idx].EvidenceTag); tag != "" &&
+						tag != strings.TrimSpace(rows[i].EvidenceTag) {
+						rows[i].CrossChannelAdjacentRef = tag
+					}
+				}
+			}
+		}
+	}
+}
+
 func runtimeTraceProjSeatSelfComponentRows(model *runtimeTraceProjTreeModel) {
 	rows := model.SelfRows
 	if len(rows) < 2 {
@@ -6862,12 +7156,40 @@ func runtimeTraceProjSeatSelfComponentRows(model *runtimeTraceProjTreeModel) {
 // trailing [E#]), and the overflow parts PACK into "· " subordinate detail
 // lines — nothing is elided (the FitTags drop lane stays retired).
 func runtimeTraceProjSelfRowLines(row runtimeTraceProjTreeRow, windowMS float64, zh bool) []string {
-	const lead = "│     "
-	main, demoted := runtimeTraceProjSelfRowParts(row, windowMS, zh)
+	lead := "│     "
+	// §29.58.5 ① (user 精化裁定, 2026-07-13): a reseated COMPONENT row indents
+	// ONE LEVEL DEEPER than its owning seat — the ↳ connector falls into the
+	// indent position (从宿主分支义) and the row wears a SINGLE form mark (⋈).
+	// The pre-ruling form put ↳ at the host mark column, so the two 2ch glyph
+	// envelopes sat side by side and read as a double icon (133136 witness
+	// 「↳ ⋈ 自身·binder」). The row is distinguished from "· " side notes at
+	// the same depth family by its prefix glyph (与旁注靠前缀字形区分).
+	//
+	// EVOLUTION RECORD (§29.58.5b 终裁, user 2026-07-13, 225901 工件复核后):
+	// the component row's form evolved across the rulings — ◦ 同级行 → ↳⋈
+	// 同级双记号 (P2a 件2b) → 深缩进+↳+⋈ (this arm). A retirement of ↳ (deep
+	// indent as the sole structure encoding) was considered and REVERSED by
+	// the final ruling: deep-indent + ↳ + ⋈ DOUBLE encoding of the
+	// containment structure is the deliberate terminal form (结构管关系(缩进+
+	// 连接符)/记号管形态(⋈)/词面管语义(为[E#]的组成部分)). The
+	// optimization-table ↳ member/fold cells remain a separate, unrelated
+	// semantics (P2a 件4).
+	if row.SubordinateComponentSeat {
+		lead += "  "
+	}
+	// SELF-ALL (§29.61.2/§29.61.2a, 2026-07-13): a self row that IS a ranked
+	// cause node renders the SAME cause grammar as every chain row — 行2
+	// identity (类别·[自身·墙钟席·]根因排序#N·置信), 行3 「=」breakdown and
+	// the 拆解子行 as dedicated note lines (同形纪律: ONE composer —
+	// runtimeTraceProjCauseStructuredParts — two stanzas; the witness form is
+	// the promoted ◇→self wall-clock seat wearing its chain-channel ordinal).
+	// Non-cause self rows keep the legacy single-line/packed form
+	// byte-identically.
+	main, structuredLines, demoted := runtimeTraceProjSelfRowParts(row, windowMS, zh)
 	// legacy layout order for the single-line form: essentials interleave with
 	// the detail parts exactly where they were built; the E# ref stays last.
 	single := lead + strings.Join(runtimeTraceProjSelfInlineOrder(main, demoted), " ")
-	if len(demoted) == 0 || runewidth.StringWidth(single) <= runtimeTraceProjTreeRowMaxWidth {
+	if len(structuredLines) == 0 && (len(demoted) == 0 || runewidth.StringWidth(single) <= runtimeTraceProjTreeRowMaxWidth) {
 		return []string{single}
 	}
 	keep := 0
@@ -6878,12 +7200,21 @@ func runtimeTraceProjSelfRowLines(row runtimeTraceProjTreeRow, windowMS float64,
 		}
 		keep++
 	}
+	if len(structuredLines) > 0 {
+		// The cause grammar owns rows 2..N — every detail part demotes below
+		// it (the identity line always sits directly under 行1, tree-row
+		// discipline).
+		keep = 0
+	}
 	lines := []string{lead + strings.Join(runtimeTraceProjSelfInlineOrder(main, demoted[:keep]), " ")}
 	// P2a rider 件2a (§29.58.1 a, 2026-07-13): the "· " side-note block
 	// indents ONE LEVEL DEEPER than its host row (aligned with the note's own
 	// wrapped continuations) — the self stanza has no rails/edges, so a note
 	// at the host's own lead sat in the very glyph column that separates the
 	// state rows (三层级一视觉形 witness 20260713-062104).
+	for _, text := range structuredLines {
+		lines = append(lines, runtimeTraceProjSubordinateLines(lead+"  ", text)...)
+	}
 	return append(lines, runtimeTraceProjSubordinatePackedLines(lead+"  ", demoted[keep:])...)
 }
 
@@ -6901,19 +7232,35 @@ func runtimeTraceProjSelfInlineOrder(main, demoted []string) []string {
 	return append(append([]string(nil), main...), demoted...)
 }
 
-// runtimeTraceProjSelfRowParts builds a self row's essential (main-line) parts
-// and its demotable detail parts (PTV4 T1 split).
-func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64, zh bool) ([]string, []string) {
+// runtimeTraceProjSelfRowParts builds a self row's essential (main-line) parts,
+// its cause-grammar lines (SELF-ALL §29.61.2/§29.61.2a: rows 2..N of a ranked
+// self cause node — the SAME composer as every chain row, 同形纪律) and its
+// demotable detail parts (PTV4 T1 split). structured is nil for non-cause
+// rows (their layout is byte-identical to the pre-SELF-ALL form).
+func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64, zh bool) (mainParts, structuredLines, demotedParts []string) {
 	node := row.Node
 	var main, demoted []string
 	name := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(node, zh))
+	nameIsStateWord := false
 	// A runnable self row names the focused thread's scheduler state, not the
 	// causal object token (runnable_wait). Use the shared state label on both
 	// languages so the compact tree reads 自身·runnable / own·runnable.
 	if strings.EqualFold(strings.TrimSpace(node.StateKind), "runnable") {
 		if stateName := strings.TrimSpace(runtimeTraceProjStateKindLabel(node, zh)); stateName != "" {
 			name = stateName
+			nameIsStateWord = true
 		}
+	}
+	// SELF-ALL (§29.61.2/§29.61.2a): compute the cause grammar ONCE (marks are
+	// emission-counted; a second call would skew the legend frequency order).
+	var structured runtimeTraceProjCauseStructured
+	structuredOK := false
+	if structured, structuredOK = runtimeTraceProjCauseStructuredParts(row, zh); structuredOK {
+		structuredLines = append(structuredLines, structured.IdentityRow)
+		if structured.Breakdown != "" {
+			structuredLines = append(structuredLines, structured.Breakdown)
+		}
+		structuredLines = append(structuredLines, structured.SubRows...)
 	}
 	selfPrefix := "自身·"
 	selfOnly := "自身"
@@ -6995,7 +7342,30 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 	// (吸收=佩记号, 数值不重计; the observation itself stays lossless).
 	if v := runtimeTraceProjNodeDisplayImpact(node); v > 0 &&
 		!(node.Undrillable() && row.NonAdditiveKind == runtimeTraceProjNonAdditiveMember) {
-		main = append(main, fmt.Sprintf("%.3fms", v))
+		value := fmt.Sprintf("%.3fms", v)
+		// SELF-ALL/SELF-LANE (2026-07-13): the self 行1 value speaks the SAME
+		// caliber words as the stanza value cell — a count-class magnitude must
+		// never print as bare wall-clock ms (G3/DISP-2 计数当量 discipline), a
+		// composite score never as a duration, and an engine family total wears
+		// its fold stem (合计/成员最大 — the tree-row 行1 convention).
+		switch tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)) {
+		case tracequery.CausalCaliberSideCount:
+			row.marks.mark(runtimeTraceProjMarkFamilyCountEquivalent)
+			value = "计数当量" + value
+			if !zh {
+				value = fmt.Sprintf("count-equivalent %.3fms", v)
+			}
+		case tracequery.CausalCaliberSideCompositeScore:
+			value = fmt.Sprintf("%.3f(综合评分,非墙钟)", v)
+			if !zh {
+				value = fmt.Sprintf("%.3f (composite score, not wall clock)", v)
+			}
+		default:
+			if prefix := runtimeTraceProjFamilyValuePrefix(node, zh); prefix != "" {
+				value = prefix + value
+			}
+		}
+		main = append(main, value)
 	}
 	// RF2b/V4: the duplicate-publication fold (single measurement) and the R2
 	// sum aggregate are independent typed signals with distinct labels (PTV4
@@ -7057,10 +7427,47 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 			// PTV6-D (b): the generic category word leaves the self row too —
 			// same typed branch signal + legend carrier as the tree rows.
 			row.marks.mark(runtimeTraceProjMarkCandidateShapeClass)
+		case structuredOK && structured.SuppressShapeWord:
+			// SELF-ALL (§29.61.2) — the tree-row §24.2 行尾形态词撤 mirrored:
+			// the shape word RELOCATED onto the 行2 category slot of the cause
+			// grammar this self row now renders; re-tagging it here would
+			// double-speak (typed branch relocation, never a string dedupe).
+			wordless = false
+		case structuredOK && nameIsStateWord && stateTag == name:
+			// SELF-ALL (§29.61.2): the 行1 name already speaks the state word
+			// (自身·runnable) and the cause grammar names the category on 行2 —
+			// the bare state tag would be a third same-word seat.
+			wordless = false
+		case row.SelfNonChainSeat && name != "" && strings.Contains(name, stateTag):
+			// SELF-LANE (§29.58.3 a): a relocated row's 行1 name is the SAME
+			// composed cause word (自身·页缓存抖动) — re-tagging the shape word
+			// beside it would double-speak (display-face dedupe, cosmetic only;
+			// the ⌗ caliber word below stays).
+			wordless = false
 		default:
 			row.marks.mark(runtimeTraceProjMarkStateLabel)
 			demoted = append(demoted, stateTag)
 			wordless = false
+		}
+	}
+	// SELF-LANE (§29.58.3 处置 a, 2026-07-13): a relocated non-chain self row
+	// wears the 「非链」 qualifier FIRST — the self stanza sits inside the
+	// chain-universe display, and this row's channel identity is honest
+	// adjacent (placement moved, proof did not). The ⌗ caliber-side word
+	// keeps stanza-face parity (the ◇ renderer's V2-P0 arm).
+	if row.SelfNonChainSeat {
+		row.marks.mark(runtimeTraceProjMarkSelfNonChainSeat)
+		if zh {
+			demoted = append(demoted, "非链")
+		} else {
+			demoted = append(demoted, "non-chain")
+		}
+		if node.IsCaliberSideRow() {
+			row.marks.mark(runtimeTraceProjMarkCaliberSideRow)
+			if tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)) == tracequery.CausalCaliberSideCount {
+				row.marks.mark(runtimeTraceProjMarkFamilyCountEquivalent)
+			}
+			demoted = append(demoted, runtimeTraceProjCaliberSideWord(node, zh))
 		}
 	}
 	// 修复轮二 件B (2026-07-13): the proven wait object discloses on the D/IO
@@ -7157,19 +7564,16 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 		row.marks.mark(runtimeTraceProjMarkIOCaliberNote)
 		demoted = append(demoted, runtimeTraceProjIOFoldNoteText(row.IOFoldPeers, zh))
 	}
-	// PTV8-RCR-A (§24.2): a fold whose chain row landed on the target's own
-	// state lane carries the 行2 identity line instead of the retired RNB
-	// 同段rank行并入 note (self-row mirror of the cause-node grammar); the
-	// folded rank row's E# merges into the [E#] bracket below.
-	if len(row.RankFoldPeers) > 0 {
-		if structured, ok := runtimeTraceProjCauseStructuredParts(row, zh); ok {
-			demoted = append(demoted, structured.IdentityRow)
-		}
-	}
+	// PTV8-RCR-A (§24.2) — EVOLUTION RECORD (SELF-ALL §29.61.2, 2026-07-13):
+	// the RankFoldPeers identity arm is SUBSUMED — a fold-peer self row is a
+	// cause node (runtimeTraceProjCauseNodeRow admits len(RankFoldPeers)>0),
+	// so the full cause grammar above already renders its identity line (plus
+	// breakdown/sub-rows it previously lacked); a second identity append here
+	// would double-render 行2.
 	if ref := runtimeTraceProjCauseEvidenceRef(row); ref != "" {
 		main = append(main, ref)
 	}
-	return main, demoted
+	return main, structuredLines, demoted
 }
 
 // runtimeTraceProjAncestorRails renders a row's ancestor rails with the
@@ -12960,6 +13364,21 @@ func runtimeTraceProjUnadmittedOnChainDisclosure(model runtimeTraceProjTreeModel
 		if row.Node.EffectiveImpactMS <= 0 {
 			continue // no attribution caliber → not an "explained on-chain" candidate
 		}
+		// SELF-ALL 修复轮 件3 F3 (2026-07-13): the census claims 「链上行」 and
+		// prints bare wall-clock ms — two typed gates keep it honest against
+		// the SELF-LANE relocated rows now living in SelfRows:
+		//   - channel: a typed-adjacent row (非链 relocation is display
+		//     placement only) is NOT an on-chain row — the channel word reads
+		//     the node's own relevance, never the display stanza;
+		//   - caliber: a ⌗ caliber-side value (计数当量/综合评分) must never
+		//     enter a bare-ms census MAX (G3/DISP-2 — the 81.616 count
+		//     equivalent printed as 「单项最大 81.616ms」).
+		if runtimeTraceProjNodeOrdinalChannel(row.Node) != runtimeTraceProjOrdinalChannelChain {
+			continue
+		}
+		if row.Node.IsCaliberSideRow() {
+			continue
+		}
 		// COV §24.9 D-2 (opendir_78): the target's OWN state/hop-view rows are
 		// the 被解释对象 — the sentence above already used them as its
 		// denominator — never "uncounted on-chain rows". Counting the ×3 sleep
@@ -14553,6 +14972,13 @@ func runtimeTraceProjEvidenceBlockParts(evidence *runtimeTraceCausalProjectionEv
 		// members; a cut here would hide the merge from the audit face).
 		auditCeiling := 96
 		if entry.FamilyAudit {
+			auditCeiling = 160
+		}
+		// SELF-ALL rider (2026-07-13): an absorbed chain-lane entry's
+		// absorbed_into=<family key> pointer is load-bearing (G1 第三面无损)
+		// and the family key now carries the typed proof-basis lane dimension —
+		// widen exactly like FamilyAudit so the pointer never drops.
+		if entry.AbsorbedAudit {
 			auditCeiling = 160
 		}
 		// DIAG A1 (§28.11-3(a)): same-value fold entries widen further — the

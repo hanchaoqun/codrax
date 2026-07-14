@@ -239,8 +239,19 @@ func TestSelfSemSelfNonDeterministicSpanUntouched(t *testing.T) {
 	rank := BuildRootCauseRank(idx, q)
 	rows := append(append([]RootCauseRankItem{}, rank.Items...), rank.AbsorbedItems...)
 	for _, item := range rows {
-		if item.OnChainBasis != "" || item.Causality == RootCauseCausalitySelfDeterministic {
-			t.Fatalf("N3: no row of this shape may carry the self basis: %+v", item)
+		// EVOLUTION RECORD (SELF-ALL §29.61.2, 2026-07-13): the assertion
+		// narrowed from "no row carries ANY basis" to the pin's actual intent —
+		// the SELF-SEM deterministic basis never mints on this shape. The
+		// target's own runnable/state rows may now legitimately carry the
+		// SELF-ALL wall-clock basis (a different lane with its own pins in
+		// rank_self_wall_clock_selfall_test.go); the SPAN row itself stays
+		// bare either way (trace_span is not a wall-clock seat family).
+		if item.OnChainBasis == RootCauseOnChainBasisSelfDeterministicSpan ||
+			item.Causality == RootCauseCausalitySelfDeterministic {
+			t.Fatalf("N3: no row of this shape may carry the SELF-SEM basis: %+v", item)
+		}
+		if item.Type == "trace_span" && item.OnChainBasis != "" {
+			t.Fatalf("N3: the near-miss span row itself must stay basis-free: %+v", item)
 		}
 		if rootCauseItemIsSemanticSpanWork(item) {
 			t.Fatalf("N3: a near-miss name must not classify into the semantic closed set: %+v", item)

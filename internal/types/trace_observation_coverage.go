@@ -443,8 +443,9 @@ func traceObservationChainRelevance(record ObservationRecord) string {
 		return value
 	}
 	switch value := traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyCausality); value {
-	// SELF-SEM (§29.61.1): the self token denotes on-chain membership.
-	case "on_wakeup_chain", "on_dependency_chain", "self_deterministic":
+	// SELF-SEM (§29.61.1) / SELF-ALL (§29.61.2): the self tokens denote
+	// on-chain membership.
+	case "on_wakeup_chain", "on_dependency_chain", "self_deterministic", "self_wall_clock":
 		return "on_chain"
 	case "adjacent_to_wakeup_chain", "adjacent_to_dependency_chain":
 		return "adjacent"

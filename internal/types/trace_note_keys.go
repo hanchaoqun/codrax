@@ -122,15 +122,20 @@ const (
 	TraceNoteKeySource         = "source"
 	TraceNoteKeyCausality      = "causality"
 	TraceNoteKeyChainRelevance = "chain_relevance"
-	// TraceNoteKeyOnChainBasis (SELF-SEM, §29.61.1 user ruling 2026-07-13):
-	// the typed proof basis behind chain_relevance=on_chain. Closed set —
-	// absent = legacy chain-window overlap basis; "self_deterministic_span" =
-	// the analysis target's own deterministic semantic span(s) admitted to the
-	// on-chain channel WITHOUT chain-window overlap and WITHOUT any wakeup-edge
-	// claim (the row's causality then reads "self_deterministic", never
-	// "on_wakeup_chain"). The projection compile parses it into
-	// TraceCausalProjectionNode.OnChainBasis; the 「自身·确定性优化」 display
-	// qualifier forks on THIS single field.
+	// TraceNoteKeyOnChainBasis (SELF-SEM §29.61.1 + SELF-ALL §29.61.2 user
+	// rulings 2026-07-13): the typed proof basis behind
+	// chain_relevance=on_chain. Closed set — absent = legacy chain-window
+	// overlap basis; "self_deterministic_span" = the analysis target's own
+	// deterministic semantic span(s) admitted to the on-chain channel WITHOUT
+	// chain-window overlap and WITHOUT any wakeup-edge claim (the row's
+	// causality then reads "self_deterministic", never "on_wakeup_chain");
+	// "self_wall_clock_interval" = the target's own WALL-CLOCK seat
+	// (blocked-state family / IO facet / runnable / running) admitted the same
+	// way (causality "self_wall_clock"). Emitted on the causal_rank family AND
+	// the critical_blocking / io_burst_episode witness-feeder records (one 道别
+	// predicate, three producers). The projection compile parses it into
+	// TraceCausalProjectionNode.OnChainBasis; the 「自身·确定性优化」/
+	// 「自身·墙钟席」 display qualifiers fork on THIS single field.
 	TraceNoteKeyOnChainBasis = "on_chain_basis"
 	TraceNoteKeyChainDepth   = "chain_depth"
 	// TraceNoteKeyDepth: RN-14c consumers key chain-root detection on the

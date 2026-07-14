@@ -54,25 +54,38 @@ func TestCR2P4OnChainFoldExemptsSeatHolderRows(t *testing.T) {
 	}
 }
 
-// Boundary: seats beyond the badge population (rank > TopN) keep folding —
-// the exemption mirrors the ❶..❺ promise exactly, not every positive rank.
+// Boundary — EVOLUTION RECORD (SELF-ALL 修复轮 件1 F1, 2026-07-13): the
+// former arm pinned "rank > TopN keeps folding"; the 133136 A/B witness
+// falsified that boundary (the promotion's +1 pushed seat #7 past the
+// positional cap → row invisible on every surface + ordinal hole #6→#8
+// against the legend's contiguity promise). EVERY seated row (Rank > 0) is
+// now exempt; unranked rows keep folding.
 func TestCR2P4OnChainFoldExemptionBoundary(t *testing.T) {
 	nodes := []TraceCausalProjectionNode{
 		cr2P4Node("e-1", "keeper-a", 100, 1),
 		cr2P4Node("e-2", "keeper-b", 90, 0),
 		cr2P4Node("e-3", "seat-5", 5, TraceCausalProjectionSeatFoldExemptTopN),
-		cr2P4Node("e-4", "rank-6", 4, TraceCausalProjectionSeatFoldExemptTopN+1),
+		cr2P4Node("e-4", "seat-7", 4, 7), // the F1 witness shape: seat #7 beyond the cap
+		cr2P4Node("e-5", "plain-a", 3, 0),
 	}
 	out := traceCausalProjectionLimitNodesOnChainFold(nodes, 2, nil)
-	if len(out) != 4 {
-		t.Fatalf("want kept(2) + exempted rank-5 + fold(rank-6) = 4 rows, got %d", len(out))
+	if len(out) != 5 {
+		t.Fatalf("want kept(2) + exempted rank-5 + exempted rank-7 + fold(plain) = 5 rows, got %d", len(out))
 	}
 	if out[2].Subject != "seat-5" || out[2].OnChainOverflowFold {
 		t.Fatalf("rank-5 seat must be exempt: %+v", out[2])
 	}
-	fold := out[3]
+	if out[3].Subject != "seat-7" || out[3].OnChainOverflowFold || out[3].Rank != 7 {
+		t.Fatalf("F1: seat #7 must survive the fold as an independent row (序数连续承诺): %+v", out[3])
+	}
+	fold := out[4]
 	if !fold.OnChainOverflowFold || fold.MergedCount != 1 {
-		t.Fatalf("rank-6 row must keep folding (no seat promise beyond TopN): %+v", fold)
+		t.Fatalf("the unranked row keeps folding: %+v", fold)
+	}
+	for _, s := range fold.MergedSubjects {
+		if s == "seat-7" {
+			t.Fatalf("exempted seat row must not double-publish inside the fold roster: %v", fold.MergedSubjects)
+		}
 	}
 }
 
@@ -113,5 +126,42 @@ func TestCR2P4HopsFoldExemptsSeatHolderRows(t *testing.T) {
 	}
 	if !out[3].OnChainOverflowFold || out[3].MergedCount != 2 {
 		t.Fatalf("hop fold count must exclude the exempted seat row: %+v", out[3])
+	}
+}
+
+// SELF-ALL rider (§29.61.2 连带, 2026-07-13; h3 复放 flake witness): a ⌗
+// caliber-side row beyond the on-chain cap keeps its independent row — the
+// V2-P0 legend promises 「行照常显示并经 [E#] 互链」, and the SELF-ALL
+// promotion grew the on-chain population enough that the block_io composite
+// row (the ONLY carrier of its caliber words) intermittently vanished into
+// the counted fold, whose roster speaks subjects only. Typed tier token.
+func TestSelfAllOnChainFoldExemptsCaliberSideRows(t *testing.T) {
+	caliber := cr2P4Node("e-3", "target-block-io", 2.694, 0)
+	caliber.Predicate = "root_cause_caliber_side"
+	caliber.Tier = TraceCausalTierCaliberSide
+	caliber.TypeToken = "block_io_by_inode"
+	nodes := []TraceCausalProjectionNode{
+		cr2P4Node("e-1", "keeper-a", 100, 1),
+		cr2P4Node("e-2", "keeper-b", 90, 0),
+		caliber,
+		cr2P4Node("e-4", "plain-a", 9, 0),
+		cr2P4Node("e-5", "plain-b", 8, 0),
+	}
+	out := traceCausalProjectionLimitNodesOnChainFold(nodes, 2, nil)
+	if len(out) != 4 {
+		t.Fatalf("want kept(2) + exempted caliber row + fold row = 4 rows, got %d: %+v", len(out), out)
+	}
+	side := out[2]
+	if side.Subject != "target-block-io" || !side.IsCaliberSideRow() || side.OnChainOverflowFold {
+		t.Fatalf("the ⌗ caliber-side row must survive the fold as an independent row: %+v", side)
+	}
+	fold := out[3]
+	if !fold.OnChainOverflowFold || fold.MergedCount != 2 {
+		t.Fatalf("fold count must honestly exclude the exempted caliber row (want 2, got %d)", fold.MergedCount)
+	}
+	for _, s := range fold.MergedSubjects {
+		if s == "target-block-io" {
+			t.Fatalf("exempted caliber row must not double-publish inside the fold roster: %v", fold.MergedSubjects)
+		}
 	}
 }

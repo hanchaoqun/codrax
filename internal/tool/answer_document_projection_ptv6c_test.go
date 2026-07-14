@@ -250,11 +250,11 @@ func TestPTV6CSleepSelfRowSpeaksStateKindLabel(t *testing.T) {
 		},
 		Kind: runtimeTraceProjTreeRowSelf, HasData: true, marks: &runtimeTraceProjMarkSet{},
 	}
-	main, _ := runtimeTraceProjSelfRowParts(row, 2.992, true)
+	main, _, _ := runtimeTraceProjSelfRowParts(row, 2.992, true)
 	if len(main) == 0 || main[0] != "☾ 自身·sleep" {
 		t.Fatalf("zh sleep self row must lead with the StateKindLabel: %v", main)
 	}
-	mainEN, _ := runtimeTraceProjSelfRowParts(row, 2.992, false)
+	mainEN, _, _ := runtimeTraceProjSelfRowParts(row, 2.992, false)
 	if len(mainEN) == 0 || mainEN[0] != "☾ own·sleep" {
 		t.Fatalf("en sleep self row must lead with the StateKindLabel: %v", mainEN)
 	}

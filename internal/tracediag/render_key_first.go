@@ -662,6 +662,15 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// ChainRelevance). Key-first adjudication: per-row identity/wording input
 	// (scalar disclosure lane, same as ChainRelevance); no skipped fields;
 	// hash re-pinned after review.
+	// SELF-ALL (§29.61.2, 2026-07-13) schema review (R2' 第 7 处): the
+	// OnChainBasis closed set gained "self_wall_clock_interval" (the target's
+	// own wall-clock seat basis; causality closed set gained
+	// "self_wall_clock" alongside). VALUE-set growth on an existing pinned
+	// field — no struct/field change, hash unchanged by construction; the
+	// CriticalBlockingCandidate / IOBurstEpisodeSummary witness-feeder structs
+	// gained their own OnChainBasis mirror (same scalar disclosure lane;
+	// neither type is hash-pinned here — key-first renders fields
+	// reflectively, no skipped-field table entry required).
 	reflect.TypeOf(tracequery.RootCauseRankItem{}): "d68828c4760ff74af85680f9c3ca08b8165f68b75e9a9d38265d69c9e410f040",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).

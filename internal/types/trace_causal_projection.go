@@ -292,12 +292,14 @@ type TraceCausalProjectionNode struct {
 	// No gate, score or sort lane reads it.
 	TraceGapKind string `json:"trace_gap_kind,omitempty"`
 	// OnChainBasis mirrors the producer's typed on_chain_basis rich note
-	// (SELF-SEM §29.61.1, 2026-07-13): "" = legacy chain-window overlap basis;
-	// "self_deterministic_span" = the analysis target's own deterministic
-	// semantic work admitted to the on-chain channel without overlap and
-	// without any wakeup-edge claim (causality carries "self_deterministic").
-	// Display wording input ONLY (the 「自身·确定性优化」 Row2 qualifier); no
-	// gate, score or sort lane reads it.
+	// (SELF-SEM §29.61.1 + SELF-ALL §29.61.2, 2026-07-13): "" = legacy
+	// chain-window overlap basis; "self_deterministic_span" = the analysis
+	// target's own deterministic semantic work admitted to the on-chain
+	// channel without overlap and without any wakeup-edge claim (causality
+	// carries "self_deterministic"); "self_wall_clock_interval" = the
+	// target's own wall-clock seat admitted the same way (causality
+	// "self_wall_clock"). Display wording input ONLY (the 「自身·确定性优化」/
+	// 「自身·墙钟席」 Row2 qualifiers); no gate, score or sort lane reads it.
 	OnChainBasis string `json:"on_chain_basis,omitempty"`
 	// ChainBranch is the owning branch ordinal of the node's chain measurement
 	// (typed chain_branch note — P0-E CHAIN-PATH, ledger §22.1). The display
@@ -3173,8 +3175,9 @@ func traceCausalProjectionNodeOnChain(node TraceCausalProjectionNode) bool {
 	return strings.TrimSpace(node.ChainRelevance) == "on_chain" ||
 		strings.TrimSpace(node.Causality) == "on_wakeup_chain" ||
 		strings.TrimSpace(node.Causality) == "on_dependency_chain" ||
-		// SELF-SEM (§29.61.1): self-basis on-chain rows.
-		strings.TrimSpace(node.Causality) == "self_deterministic"
+		// SELF-SEM (§29.61.1) / SELF-ALL (§29.61.2): self-basis on-chain rows.
+		strings.TrimSpace(node.Causality) == "self_deterministic" ||
+		strings.TrimSpace(node.Causality) == "self_wall_clock"
 }
 
 func traceCausalProjectionChainRelevanceRank(relevance string) int {
@@ -3569,9 +3572,33 @@ const TraceCausalProjectionSeatFoldExemptTopN = 5
 // never a score/heuristic): such rows are white-listed out of the overflow
 // folds so the badge/ordinal promise survives the cap (CR-2 P4). Fold rows
 // themselves never qualify (a roster carries no seat by construction).
+//
+// SELF-ALL rider (§29.61.2 连带, 2026-07-13): ⌗ caliber-side rows join the
+// exemption — the V2-P0 legend promises 「行照常显示并经 [E#] 互链」, and the
+// SELF-ALL promotion grew the on-chain bucket population enough that a
+// caliber-side row (donghu block_io_by_inode, the ONLY carrier of its
+// composite-caliber words) could overflow into the counted fold, whose roster
+// speaks subjects — the caliber words silently vanished (h3 复放 flake
+// witness, 2026-07-13). Typed tier token, bounded population (the V2-P0 side
+// rail is small by construction).
 func traceCausalProjectionSeatFoldExempt(node TraceCausalProjectionNode) bool {
-	return !node.OnChainOverflowFold &&
-		node.Rank >= 1 && node.Rank <= TraceCausalProjectionSeatFoldExemptTopN
+	if node.OnChainOverflowFold {
+		return false
+	}
+	if node.IsCaliberSideRow() {
+		return true
+	}
+	// EVOLUTION RECORD (SELF-ALL 修复轮 件1 F1, 2026-07-13): Rank ≤ TopN →
+	// EVERY seated row (Rank > 0). The SELF-ALL promotion grew the on-chain
+	// population by the target's own seats, and the +1 pushed keva-3 seat #7
+	// past the positional compile cap — the row vanished from every render
+	// surface while the visible ordinal sequence read #6→#8 (the legend
+	// promises contiguous seat ordinals; 133136 A/B witness). The widened
+	// exemption is still a precise bounded signal: engine ordinals are capped
+	// by the rank candidate limit, so the exempt population never exceeds the
+	// published board (CR-2 P4 philosophy, 勿显示层打补丁). The TopN const
+	// keeps its badge-parity meaning (❶..❺) unchanged.
+	return node.Rank > 0
 }
 
 // traceCausalProjectionSeatedDataGapSubjects collects the canonical subjects
@@ -3930,9 +3957,9 @@ func traceCausalProjectionChainRelevance(notes []string) string {
 		return strings.TrimSpace(relevance)
 	}
 	switch strings.TrimSpace(traceCausalProjectionRichNoteValue(notes, TraceNoteKeyCausality)) {
-	// SELF-SEM (§29.61.1): "self_deterministic" denotes on-chain channel
-	// membership on the typed self basis (no wakeup-edge claim).
-	case "on_wakeup_chain", "on_dependency_chain", "self_deterministic":
+	// SELF-SEM (§29.61.1) / SELF-ALL (§29.61.2): the self tokens denote
+	// on-chain channel membership on the typed self basis (no wakeup-edge claim).
+	case "on_wakeup_chain", "on_dependency_chain", "self_deterministic", "self_wall_clock":
 		return "on_chain"
 	case "adjacent_to_wakeup_chain", "adjacent_to_dependency_chain":
 		return "adjacent"

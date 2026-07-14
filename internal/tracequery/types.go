@@ -2017,8 +2017,13 @@ type IOPressureSummary struct {
 }
 
 type IOBurstEpisodeSummary struct {
-	Thread              ThreadRef  `json:"thread,omitempty"`
-	ChainRelevance      string     `json:"chain_relevance,omitempty"`
+	Thread         ThreadRef `json:"thread,omitempty"`
+	ChainRelevance string    `json:"chain_relevance,omitempty"`
+	// OnChainBasis (SELF-ALL, §29.61.2 2026-07-13): same closed set and
+	// semantics as RootCauseRankItem.OnChainBasis — non-empty ONLY when the
+	// episode's on-chain relevance was granted by the typed self wall-clock
+	// predicate ("self_wall_clock_interval") instead of chain-window overlap.
+	OnChainBasis        string     `json:"on_chain_basis,omitempty"`
 	DominantSignal      string     `json:"dominant_signal,omitempty"`
 	StartTs             float64    `json:"start_ts,omitempty"`
 	EndTs               float64    `json:"end_ts,omitempty"`
@@ -2739,14 +2744,31 @@ const RootCauseTierAbsorbed = "absorbed"
 const RootCauseTierCaliberSide = "caliber_side"
 
 // RootCauseOnChainBasisSelfDeterministicSpan (SELF-SEM, §29.61.1 user ruling
-// 2026-07-13): the ONE non-empty member of the RootCauseRankItem.OnChainBasis
-// closed set — the analysis target's own deterministic semantic span(s)
-// admitted to the on-chain channel by typed self identity (chain universe
-// present ∧ chain.Target resolved ∧ sameThreadRef(span, target) ∧
-// deterministic semantic class ∧ in-window), never by chain-window overlap.
-// The row's Causality carries RootCauseCausalitySelfDeterministic; the wakeup
-// edge set is untouched (不铸唤醒边不宣称跨线程关系).
+// 2026-07-13): a member of the RootCauseRankItem.OnChainBasis closed set
+// {""|self_deterministic_span|self_wall_clock_interval} — the analysis
+// target's own deterministic semantic span(s) admitted to the on-chain channel
+// by typed self identity (chain universe present ∧ chain.Target resolved ∧
+// sameThreadRef(span, target) ∧ deterministic semantic class ∧ in-window),
+// never by chain-window overlap. The row's Causality carries
+// RootCauseCausalitySelfDeterministic; the wakeup edge set is untouched
+// (不铸唤醒边不宣称跨线程关系).
 const RootCauseOnChainBasisSelfDeterministicSpan = "self_deterministic_span"
+
+// RootCauseOnChainBasisSelfWallClockInterval (SELF-ALL, §29.61.2/§29.61.2a
+// user rulings 2026-07-13, extending §29.61.1): the SECOND non-empty member of
+// the OnChainBasis closed set — the analysis target's own WALL-CLOCK seat
+// (blocked-state family / IO facet seat / runnable / running) admitted to the
+// on-chain channel by typed self identity plus a typed wall-clock interval
+// inside the query window (selfWallClockSeatLane — the shared SELF-ALL
+// admission predicate), never by chain-window overlap. Non-wall-clock calibers
+// (composite score / count equivalents, V2-P0 registry verdict) never take
+// this basis and stay on the ⌗ caliber side rail. The row's Causality carries
+// RootCauseCausalitySelfWallClock; no wakeup edge is minted (零唤醒边宣称).
+// Naming note: §29.61.2 suggested "self_blocking_wait" as an example, but the
+// §29.61.2a effective-attribution ladder explicitly includes the target's own
+// RUNNING seats (supply-fold caliber) — "blocking" would be a false claim on
+// those rows, so the honest interval-scoped token is used instead.
+const RootCauseOnChainBasisSelfWallClockInterval = "self_wall_clock_interval"
 
 // RootCauseCausalitySelfDeterministic (SELF-SEM causality token, 开放裁定点①
 // adopted 2026-07-13): the honest causality word for a self-basis on-chain row.
@@ -2755,6 +2777,14 @@ const RootCauseOnChainBasisSelfDeterministicSpan = "self_deterministic_span"
 // chain. chainRelevanceFromCausality maps it to "on_chain" so every
 // relevance-fallback consumer keeps the row in the chain universe.
 const RootCauseCausalitySelfDeterministic = "self_deterministic"
+
+// RootCauseCausalitySelfWallClock (SELF-ALL causality token, §29.61.2
+// 2026-07-13): the honest causality word for a self wall-clock-basis on-chain
+// row — same closed-set discipline as RootCauseCausalitySelfDeterministic
+// (chainRelevanceFromCausality maps it to "on_chain"; every consumer that
+// enumerates the causality closed set carries this member; "on_wakeup_chain"
+// on such a row would fabricate a cross-thread wakeup claim).
+const RootCauseCausalitySelfWallClock = "self_wall_clock"
 
 // TraceGapKind* (G2 判据 typed 化, §27.2 + §28.1, 2026-07-09): the PRECISE
 // typed criterion split behind a trace_gap mint. The legacy single wording
@@ -2936,9 +2966,20 @@ type RootCauseRankItem struct {
 	//                               claiming a cross-thread wakeup relation (不
 	//                               铸唤醒边不宣称跨线程关系 — Causality carries
 	//                               "self_deterministic", never
-	//                               "on_wakeup_chain", and OverlapMs stays 0).
-	// Minted ONCE at mint time; the enrich pass KEEPS a mint-time self basis
-	// instead of re-deciding the lane (§23.1 lane-decided-once discipline).
+	//                               "on_wakeup_chain", and OverlapMs stays 0);
+	//   "self_wall_clock_interval" — SELF-ALL (§29.61.2/§29.61.2a): the
+	//                               target's own WALL-CLOCK seat (blocked-state
+	//                               family / IO facet / runnable / running)
+	//                               whose typed interval lies inside the query
+	//                               window — same no-overlap / no-wakeup-edge
+	//                               discipline; Causality carries
+	//                               "self_wall_clock". Effective attribution
+	//                               consumes the SAME per-state ladder as every
+	//                               on-chain row (running=supply-fold,
+	//                               runnable=full, D/IO=wall-clock sum — 零特判).
+	// Minted ONCE (mint time for SELF-SEM, the ONE enrich lane decision for
+	// SELF-ALL); the enrich pass KEEPS an existing self basis instead of
+	// re-deciding the lane (§23.1 lane-decided-once discipline).
 	// Display wording forks on THIS single field (「自身·确定性优化」限定词) —
 	// never on a SubjectIsAnalysisTarget∧SemanticClass∧relevance recomposition.
 	OnChainBasis string `json:"on_chain_basis,omitempty"`
@@ -3575,15 +3616,23 @@ type CriticalBlockingCandidate struct {
 	// usable continuation. Display tier (peer_chain_* notes); the P0-A
 	// projection/answer face consumes it, exactly like PeerState.
 	PeerChain          *PeerChainStep `json:"peer_chain,omitempty"`
-	Flags              string         `json:"flags,omitempty"`
-	Oneway             *bool          `json:"oneway,omitempty"`
-	SyncLike           *bool          `json:"sync_like,omitempty"`
-	BlockingCandidate  *bool          `json:"blocking_candidate,omitempty"`
-	ChainRelevance     string         `json:"chain_relevance,omitempty"`
-	OverlapMs          float64        `json:"overlap_ms,omitempty"`
-	EdgeCount          int            `json:"edge_count,omitempty"`
-	NearestChainThread ThreadRef      `json:"nearest_chain_thread,omitempty"`
-	NearestChainWindow TimeWindow     `json:"nearest_chain_window,omitempty"`
+	Flags             string  `json:"flags,omitempty"`
+	Oneway            *bool   `json:"oneway,omitempty"`
+	SyncLike          *bool   `json:"sync_like,omitempty"`
+	BlockingCandidate *bool   `json:"blocking_candidate,omitempty"`
+	ChainRelevance    string  `json:"chain_relevance,omitempty"`
+	// OnChainBasis (SELF-ALL, §29.61.2 2026-07-13): same closed set and
+	// semantics as RootCauseRankItem.OnChainBasis — non-empty ONLY when this
+	// candidate's on-chain relevance was granted by the typed self wall-clock
+	// predicate ("self_wall_clock_interval") instead of chain-window overlap.
+	// The critical_blocking face is a witness feeder for the ◇/self display
+	// stanzas, so its lane verdict and proof basis must ride the same wire the
+	// rank face uses (one 道别 predicate, two consumers).
+	OnChainBasis       string     `json:"on_chain_basis,omitempty"`
+	OverlapMs          float64    `json:"overlap_ms,omitempty"`
+	EdgeCount          int        `json:"edge_count,omitempty"`
+	NearestChainThread ThreadRef  `json:"nearest_chain_thread,omitempty"`
+	NearestChainWindow TimeWindow `json:"nearest_chain_window,omitempty"`
 	DurationMs         float64        `json:"duration_ms,omitempty"`
 	StartTs            float64        `json:"start_ts,omitempty"`
 	EndTs              float64        `json:"end_ts,omitempty"`
