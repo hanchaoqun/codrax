@@ -25,7 +25,17 @@ func detectPerfInputFormat(path string) perfInputFormat {
 	if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {
 		return perfInputUnknown
 	}
-	data := header[:n]
+	return detectPerfInputFormatProbe(header[:n])
+}
+
+// detectPerfInputFormatProbe is the content-only classifier used by the
+// conversion transaction after its immutable input authority has captured the
+// one fixed-size route probe. Path-based status inspection may use the wrapper
+// above, but production conversion must not reopen or reclassify the source.
+func detectPerfInputFormatProbe(data []byte) perfInputFormat {
+	if len(data) > conversionInputProbeSize {
+		data = data[:conversionInputProbeSize]
+	}
 	switch {
 	case hasPrefixBytes(data, []byte(perfMagic2)):
 		return perfInputLinuxPerfData

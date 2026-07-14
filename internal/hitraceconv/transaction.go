@@ -43,6 +43,20 @@ func newConversionFileLedger(protectedPaths ...string) (*conversionFileLedger, e
 	return ledger, nil
 }
 
+func newConversionFileLedgerForAuthority(authority *conversionInputAuthority) (*conversionFileLedger, error) {
+	protected, err := authority.canonicalIdentity()
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(protected.path) == "" || protected.info == nil || !protected.info.Mode().IsRegular() {
+		return nil, conversionInputFailure(ConversionInputCodeInternalContract, conversionInputStageRoute, authority.DisplayPath(), errors.New("immutable input authority has no regular canonical identity"))
+	}
+	return &conversionFileLedger{
+		protected: []traceCanonicalPath{protected},
+		byPath:    make(map[string]int),
+	}, nil
+}
+
 func (l *conversionFileLedger) recordOpenFile(path string, file *os.File) error {
 	if l == nil {
 		return fmt.Errorf("conversion file ledger is required to register %s", path)

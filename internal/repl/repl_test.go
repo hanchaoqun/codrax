@@ -3,6 +3,7 @@ package repl
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -501,7 +502,7 @@ func TestHitraceConvertHelpAndParserShareTheSupportedOptionSurface(t *testing.T)
 	}
 }
 
-func TestHitraceConvertRejectsBuiltinStreamerConflictBeforeExecutor(t *testing.T) {
+func TestHitraceConvertDefersRouteSpecificConflictToExecutor(t *testing.T) {
 	store, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
@@ -519,14 +520,14 @@ func TestHitraceConvertRejectsBuiltinStreamerConflictBeforeExecutor(t *testing.T
 		Language: "en",
 		HitraceConvert: func(_ context.Context, opts hitraceconv.Options) (hitraceconv.Result, error) {
 			calls++
-			return hitraceconv.Result{}, nil
+			return hitraceconv.Result{}, errors.New("--trace-engine=builtin bypasses trace_streamer and cannot be combined with --keep-trace-db")
 		},
 	})
 
 	r.handleHitraceCmd("/htrace convert --trace-engine=builtin --keep-trace-db input.htrace out.systrace")
 
-	if calls != 0 {
-		t.Fatalf("builtin/streamer-only conflict reached converter, calls=%d", calls)
+	if calls != 1 {
+		t.Fatalf("route-specific conflict did not reach conversion input authority, calls=%d", calls)
 	}
 	if !strings.Contains(out.String(), "cannot be combined with --keep-trace-db") {
 		t.Fatalf("shared option authority was not surfaced to the REPL user:\n%s", out.String())

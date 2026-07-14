@@ -2,12 +2,27 @@ package cmd
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/hitraceconv"
 )
+
+func TestTraceConvertExecutionDoesNotPreemptImmutableInputRoute(t *testing.T) {
+	source, err := os.ReadFile("trace_convert.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(source)
+	if strings.Contains(text, "hitraceconv.ValidateOptions(opts)") {
+		t.Fatal("trace convert CLI regained conservative static validation before immutable input routing")
+	}
+	if !strings.Contains(text, "hitraceconv.ConvertFile(cmd.Context(), opts)") {
+		t.Fatal("trace convert CLI lost the conversion input authority entry point")
+	}
+}
 
 func TestTraceConvertResultLinesFollowLanguage(t *testing.T) {
 	result := hitraceconv.Result{

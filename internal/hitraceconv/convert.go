@@ -106,18 +106,45 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 	if input == "" {
 		return Result{}, fmt.Errorf("input path is required")
 	}
-	if err := ValidateOptions(opts); err != nil {
+	if err := validateOptionEnums(opts); err != nil {
+		return Result{}, err
+	}
+	authority, err := openConversionInputAuthority(input)
+	if err != nil {
+		return Result{}, err
+	}
+	defer func() {
+		if closeErr := authority.Close(); closeErr != nil {
+			result = Result{}
+			err = traceDBJoinPreservingSingle(err, closeErr)
+		}
+	}()
+	if err := ctx.Err(); err != nil {
+		return Result{}, err
+	}
+	input = authority.DisplayPath()
+	opts.InputPath = input
+	inputBytes := authority.Size()
+	probe, err := authority.Probe()
+	if err != nil {
+		return Result{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return Result{}, err
+	}
+	inputFormat := detectPerfInputFormatProbe(probe)
+	directPerf, err := validateOptionsForInput(opts, authority, inputFormat)
+	if err != nil {
+		return Result{}, err
+	}
+	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
 	output := strings.TrimSpace(opts.OutputPath)
 	if output == "" {
 		output = DefaultOutputPath(input)
 	}
-	info, err := os.Stat(input)
-	if err != nil {
-		return Result{}, err
-	}
-	ledger, err := newConversionFileLedger(input)
+	ledger, err := newConversionFileLedgerForAuthority(authority)
 	if err != nil {
 		return Result{}, err
 	}
@@ -132,6 +159,15 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 			return Result{}, ctxErr
 		}
 		if completionErr == nil {
+			if validateErr := authority.Validate(conversionInputStagePreCommit); validateErr != nil {
+				return Result{}, validateErr
+			}
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return Result{}, ctxErr
+			}
+			if closeErr := authority.Close(); closeErr != nil {
+				return Result{}, traceDBJoinPreservingSingle(ctx.Err(), closeErr)
+			}
 			if validateErr := ledger.validateOwnedPaths(); validateErr != nil {
 				return Result{}, validateErr
 			}
@@ -143,7 +179,6 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 		return completed, completionErr
 	}
 	mode := requestedTraceEngineMode(opts.TraceEngine)
-	directPerf := traceInputUsesDirectPerfRoute(opts)
 	if directPerf {
 		directPlan, err := buildTraceProviderPlanWithInput(opts, false, true)
 		if err != nil {
@@ -158,7 +193,7 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 		if !directPlan.DirectPerf || directPlan.PreflightEngine != traceEngineDirectPerf {
 			return Result{}, fmt.Errorf("typed trace provider plan did not select the direct perf route")
 		}
-		if result, ok, err := maybeConvertDirectSimpleperfPerfData(ctx, opts, directPlan, input, info.Size(), output, ledger); ok || err != nil {
+		if result, ok, err := maybeConvertDirectSimpleperfPerfData(ctx, opts, directPlan, input, inputBytes, output, inputFormat, ledger); ok || err != nil {
 			if err != nil {
 				return result, err
 			}
@@ -174,14 +209,14 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 		return Result{}, err
 	}
 	if mode == traceEngineTraceStreamer {
-		converted, convertErr := convertTraceStreamerOnly(ctx, opts, plan, input, info.Size(), output, ledger)
+		converted, convertErr := convertTraceStreamerOnly(ctx, opts, plan, input, inputBytes, output, ledger)
 		return commit(converted, convertErr)
 	}
-	hasTracePerfSidecar, err := inputContainsStandalonePerfSidecar(ctx, input, info.Size())
+	hasTracePerfSidecar, err := inputContainsStandalonePerfSidecar(ctx, input, inputBytes)
 	if err != nil {
 		return Result{}, err
 	}
-	traceStreamerExport, err := maybeRunTraceStreamerAuto(ctx, opts, plan, input, info.Size(), output, hasTracePerfSidecar, ledger)
+	traceStreamerExport, err := maybeRunTraceStreamerAuto(ctx, opts, plan, input, inputBytes, output, hasTracePerfSidecar, ledger)
 	if err != nil {
 		return Result{}, err
 	}
@@ -209,7 +244,7 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 		standaloneExtractOpts.GeneratePerfTrace = false
 		standaloneExtractOpts.PrimaryPerfSource = "trace_streamer DB perf_sample rows embedded in systrace"
 	}
-	extractedStandaloneArtifacts, standaloneCaveats, standaloneDecisions, err := extractStandaloneArtifactsWithOptionsAndLedger(ctx, opts, info.Size(), output, standaloneExtractOpts, ledger)
+	extractedStandaloneArtifacts, standaloneCaveats, standaloneDecisions, err := extractStandaloneArtifactsWithOptionsAndLedger(ctx, opts, inputBytes, output, standaloneExtractOpts, ledger)
 	if err != nil {
 		return Result{}, wrapFallbackFailure(err)
 	}
@@ -219,7 +254,7 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 		result := Result{
 			InputPath:          input,
 			OutputPath:         traceStreamerExport.SystraceArtifact.Path,
-			InputBytes:         info.Size(),
+			InputBytes:         inputBytes,
 			OutputBytes:        traceStreamerExport.OutputBytes,
 			Artifacts:          append([]Artifact{traceStreamerExport.SystraceArtifact}, standaloneArtifacts...),
 			ProviderDecisions:  append([]PerfProviderDecision(nil), standaloneDecisions...),
@@ -246,7 +281,7 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 	if traceStreamerSelectionShouldStopBuiltinFallback(plan, traceStreamerExport) {
 		result := Result{
 			InputPath:         input,
-			InputBytes:        info.Size(),
+			InputBytes:        inputBytes,
 			Artifacts:         append([]Artifact(nil), standaloneArtifacts...),
 			ProviderDecisions: append([]PerfProviderDecision(nil), standaloneDecisions...),
 			TraceDecisions:    append([]TraceProviderDecision(nil), initialTraceDecisions...),
@@ -266,20 +301,20 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 		normalizeResultCollections(&result)
 		return commit(result, nil)
 	}
-	if result, ok, err := tryConvertProfilerContainerWithLedger(ctx, opts, info.Size(), output, standaloneArtifacts, standaloneCaveats, standaloneDecisions, initialTraceDecisions, initialTraceDBCoverage, ledger); ok || err != nil {
+	if result, ok, err := tryConvertProfilerContainerWithLedger(ctx, opts, inputBytes, output, standaloneArtifacts, standaloneCaveats, standaloneDecisions, initialTraceDecisions, initialTraceDBCoverage, ledger); ok || err != nil {
 		if err != nil {
 			return result, wrapFallbackFailure(err)
 		}
 		return commit(result, nil)
 	}
-	meta, err := scanMetadata(ctx, input, info.Size())
+	meta, err := scanMetadata(ctx, input, inputBytes)
 	if err != nil {
 		fallbackErr := traceProviderFallbackFailure(plan, traceStreamerExport, err)
 		if hasAnalyzableStandaloneSidecar(standaloneArtifacts) {
-			fallbackCaveat := builtinTraceBodyFallbackFailureCaveat(input, info.Size(), standaloneArtifacts, err)
+			fallbackCaveat := builtinTraceBodyFallbackFailureCaveat(input, inputBytes, standaloneArtifacts, err)
 			result := Result{
 				InputPath:  input,
-				InputBytes: info.Size(),
+				InputBytes: inputBytes,
 				Artifacts:  append([]Artifact(nil), standaloneArtifacts...),
 				ProviderDecisions: append([]PerfProviderDecision(nil),
 					standaloneDecisions...),
@@ -348,7 +383,7 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 	result = Result{
 		InputPath:   input,
 		OutputPath:  output,
-		InputBytes:  info.Size(),
+		InputBytes:  inputBytes,
 		OutputBytes: outInfo.Size(),
 		Artifacts: []Artifact{{
 			Type:      ArtifactSystrace,

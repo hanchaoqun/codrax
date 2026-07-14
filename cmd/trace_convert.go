@@ -137,9 +137,6 @@ are never overwritten; delete the file first or choose another output path.`,
 		if input == "" {
 			return fmt.Errorf("--input is required")
 		}
-		if err := hitraceconv.ValidateOptions(opts); err != nil {
-			return err
-		}
 		result, err := hitraceconv.ConvertFile(cmd.Context(), opts)
 		if err != nil {
 			return err

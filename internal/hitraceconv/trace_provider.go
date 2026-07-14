@@ -243,53 +243,84 @@ func validateTraceEngineMode(mode string) error {
 	}
 }
 
-// ValidateOptions is the single conversion-time option authority shared by
-// library callers, CLI, and REPL entry points. Status-only inspection may
-// intentionally carry trace_streamer options while showing an explicitly
-// selected built-in route, so BuildTraceToolStatus validates only the engine
-// enum and does not call this conversion conflict gate.
+// ValidateOptions validates content-independent option syntax and the static
+// built-in/trace_streamer option conflict. Input classification, direct-perf
+// precedence, and filesystem alias checks belong to the immutable conversion
+// transaction; this helper never opens or probes the source path.
 func ValidateOptions(opts Options) error {
+	if err := validateOptionEnums(opts); err != nil {
+		return err
+	}
+	return validateBuiltinTraceOptions(opts)
+}
+
+func validateOptionEnums(opts Options) error {
 	if err := validatePerfParserMode(opts.PerfParser); err != nil {
 		return err
 	}
 	if err := validateTraceEngineMode(opts.TraceEngine); err != nil {
 		return err
 	}
-	// Direct-perf classification is a precise input-format decision and is
-	// authoritative before trace-engine conflict checks. Status and execution
-	// must report the same trace-only-option blocker for auto and builtin; an
-	// explicit trace_streamer request intentionally bypasses this route.
-	if traceInputUsesDirectPerfRoute(opts) {
-		if err := validateDirectPerfTraceOptions(opts); err != nil {
-			return err
-		}
-	}
-	if err := validateTraceOutputPathCollisions(opts); err != nil {
-		return err
-	}
-	if requestedTraceEngineMode(opts.TraceEngine) == traceEngineBuiltin {
-		var conflicts []string
-		if strings.TrimSpace(opts.TraceStreamerPath) != "" {
-			conflicts = append(conflicts, "--trace-streamer")
-		}
-		if strings.TrimSpace(opts.TraceDBOutputPath) != "" {
-			conflicts = append(conflicts, "--trace-db-output")
-		}
-		if opts.KeepTraceDB {
-			conflicts = append(conflicts, "--keep-trace-db")
-		}
-		for _, dir := range opts.TraceStreamerSoDirs {
-			if strings.TrimSpace(dir) != "" {
-				conflicts = append(conflicts, "--trace-streamer-so-dir")
-				break
-			}
-		}
-		if len(conflicts) != 0 {
-			sort.Strings(conflicts)
-			return fmt.Errorf("--trace-engine=builtin bypasses trace_streamer and cannot be combined with %s", strings.Join(conflicts, ", "))
-		}
-	}
 	return nil
+}
+
+// validateOptionsForInput is the dynamic route/collision authority used only
+// after ConvertFile has opened one immutable input generation and classified
+// its fixed probe. It returns the typed route bit consumed by the provider
+// plan; callers must never repeat path-based content detection.
+func validateOptionsForInput(opts Options, authority *conversionInputAuthority, inputFormat perfInputFormat) (bool, error) {
+	if err := authority.Validate(conversionInputStageRoute); err != nil {
+		return false, err
+	}
+	directPerf := requestedTraceEngineMode(opts.TraceEngine) != traceEngineTraceStreamer && simpleperfDirectRequested(inputFormat)
+	if directPerf {
+		if err := validateDirectPerfTraceOptions(opts); err != nil {
+			return false, err
+		}
+	}
+	inputPath, err := authority.canonicalIdentity()
+	if err != nil {
+		return false, err
+	}
+	if err := validateTraceOutputPathCollisionsForInput(opts, authority.DisplayPath(), inputPath); err != nil {
+		return false, err
+	}
+	if !directPerf {
+		if err := validateBuiltinTraceOptions(opts); err != nil {
+			return false, err
+		}
+	}
+	if err := authority.Validate(conversionInputStageRoute); err != nil {
+		return false, err
+	}
+	return directPerf, nil
+}
+
+func validateBuiltinTraceOptions(opts Options) error {
+	if requestedTraceEngineMode(opts.TraceEngine) != traceEngineBuiltin {
+		return nil
+	}
+	var conflicts []string
+	if strings.TrimSpace(opts.TraceStreamerPath) != "" {
+		conflicts = append(conflicts, "--trace-streamer")
+	}
+	if strings.TrimSpace(opts.TraceDBOutputPath) != "" {
+		conflicts = append(conflicts, "--trace-db-output")
+	}
+	if opts.KeepTraceDB {
+		conflicts = append(conflicts, "--keep-trace-db")
+	}
+	for _, dir := range opts.TraceStreamerSoDirs {
+		if strings.TrimSpace(dir) != "" {
+			conflicts = append(conflicts, "--trace-streamer-so-dir")
+			break
+		}
+	}
+	if len(conflicts) == 0 {
+		return nil
+	}
+	sort.Strings(conflicts)
+	return fmt.Errorf("--trace-engine=builtin bypasses trace_streamer and cannot be combined with %s", strings.Join(conflicts, ", "))
 }
 
 type traceCanonicalPath struct {
@@ -297,18 +328,14 @@ type traceCanonicalPath struct {
 	info os.FileInfo
 }
 
-func validateTraceOutputPathCollisions(opts Options) error {
-	input := strings.TrimSpace(opts.InputPath)
+func validateTraceOutputPathCollisionsForInput(opts Options, input string, inputPath traceCanonicalPath) error {
+	input = strings.TrimSpace(input)
 	if input == "" {
 		return nil
 	}
 	output := strings.TrimSpace(opts.OutputPath)
 	if output == "" {
 		output = DefaultOutputPath(input)
-	}
-	inputPath, err := canonicalTracePath(input)
-	if err != nil {
-		return fmt.Errorf("resolve trace input path %s: %w", input, err)
 	}
 	outputPath, err := canonicalTracePath(output)
 	if err != nil {

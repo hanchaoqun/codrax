@@ -38,11 +38,10 @@ type simpleperfFrame struct {
 	DSO    string
 }
 
-func maybeConvertDirectSimpleperfPerfData(ctx context.Context, opts Options, plan traceProviderPlan, input string, inputBytes int64, outputPath string, ledger *conversionFileLedger) (Result, bool, error) {
+func maybeConvertDirectSimpleperfPerfData(ctx context.Context, opts Options, plan traceProviderPlan, input string, inputBytes int64, outputPath string, inputFormat perfInputFormat, ledger *conversionFileLedger) (Result, bool, error) {
 	if !plan.DirectPerf || plan.PreflightEngine != traceEngineDirectPerf {
 		return Result{}, false, nil
 	}
-	inputFormat := detectPerfInputFormat(input)
 	if !simpleperfDirectRequested(inputFormat) {
 		return Result{}, false, nil
 	}

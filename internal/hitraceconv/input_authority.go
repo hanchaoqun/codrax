@@ -144,6 +144,7 @@ type conversionInputAuthority struct {
 	requestedPath string
 	canonicalPath string
 	size          int64
+	fileInfo      os.FileInfo
 	identity      filegeneration.Identity
 	closed        bool
 }
@@ -188,7 +189,7 @@ func openConversionInputAuthority(path string) (*conversionInputAuthority, error
 	}
 	authority := &conversionInputAuthority{
 		file: file, displayPath: requested, requestedPath: abs, canonicalPath: filepath.Clean(canonical),
-		size: identity.Size(), identity: identity,
+		size: identity.Size(), fileInfo: info, identity: identity,
 	}
 	if err := authority.validateLocked(conversionInputStageOpen, true); err != nil {
 		return nil, err
@@ -230,6 +231,21 @@ func (authority *conversionInputAuthority) CanonicalPath() string {
 		return ""
 	}
 	return authority.canonicalPath
+}
+
+// canonicalIdentity returns the immutable input identity in the same closed
+// shape used by output-collision and file-ledger checks. This is controller
+// authority only: parser views intentionally do not expose canonical paths.
+func (authority *conversionInputAuthority) canonicalIdentity() (traceCanonicalPath, error) {
+	if authority == nil {
+		return traceCanonicalPath{}, conversionInputFailure(ConversionInputCodeClosed, conversionInputStageRoute, "", nil)
+	}
+	authority.mu.RLock()
+	defer authority.mu.RUnlock()
+	if authority.closed || authority.file == nil || authority.fileInfo == nil {
+		return traceCanonicalPath{}, conversionInputFailure(ConversionInputCodeClosed, conversionInputStageRoute, authority.requestedPath, nil)
+	}
+	return traceCanonicalPath{path: authority.canonicalPath, info: authority.fileInfo}, nil
 }
 
 func (authority *conversionInputAuthority) ReadAt(buffer []byte, offset int64) (int, error) {
