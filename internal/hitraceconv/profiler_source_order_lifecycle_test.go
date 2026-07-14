@@ -96,6 +96,11 @@ func TestProfilerSourceOrderInactiveSorterKeepsZeroProof(t *testing.T) {
 	if !sink.profilerSourceProof.pristine() {
 		t.Fatalf("inactive prepare/write/cleanup allocated or retired proof: %+v", sink.profilerSourceProof)
 	}
+	if sink.sourceOrderSidecar.present() || stats.SourceSidecarLogicalBytes != 0 ||
+		stats.SourceSidecarPhysicalBytes != 0 {
+		t.Fatalf("inactive sorter allocated source-order sidecar: manifest=%+v stats=%+v",
+			sink.sourceOrderSidecar, stats)
+	}
 	if _, _, err := sink.expectedProfilerSourceOrderProof(); err == nil {
 		t.Fatal("inactive sorter exposed a Profiler source proof")
 	} else {

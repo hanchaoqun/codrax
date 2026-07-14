@@ -56,21 +56,23 @@ const (
 )
 
 type traceDBRowSortStats struct {
-	RowsAccepted         int
-	RowsWritten          int
-	RowsWithheld         int
-	PeakBufferedRows     int
-	PeakBufferedBytes    uint64
-	SpillChunks          int
-	TempBytes            int64
-	CurrentLiveTempBytes uint64
-	PeakLiveTempBytes    uint64
-	PeakOpenRunFDs       int
-	MergePasses          int
-	FirstTSNS            uint64
-	LastTSNS             uint64
-	ElapsedUS            int64
-	FailureReason        string
+	RowsAccepted               int
+	RowsWritten                int
+	RowsWithheld               int
+	PeakBufferedRows           int
+	PeakBufferedBytes          uint64
+	SpillChunks                int
+	TempBytes                  int64
+	CurrentLiveTempBytes       uint64
+	PeakLiveTempBytes          uint64
+	PeakOpenRunFDs             int
+	MergePasses                int
+	SourceSidecarLogicalBytes  uint64
+	SourceSidecarPhysicalBytes uint64
+	FirstTSNS                  uint64
+	LastTSNS                   uint64
+	ElapsedUS                  int64
+	FailureReason              string
 }
 
 type traceDBRunManifest struct {
@@ -102,7 +104,33 @@ func traceDBRunInputIntegrity(err error) error {
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
+	// Never put a second integrity wrapper around an existing graph. In
+	// particular, wrapping Join(integrity, cleanup-error) would make the exact
+	// type check below misclassify a mixed failure as source corruption.
+	if traceDBRunInputIntegrityPresent(err) {
+		return err
+	}
 	return &traceDBRunInputIntegrityError{cause: err}
+}
+
+func traceDBRunInputIntegrityPresent(err error) bool {
+	if err == nil {
+		return false
+	}
+	if _, ok := err.(*traceDBRunInputIntegrityError); ok {
+		return true
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		for _, branch := range joined.Unwrap() {
+			if traceDBRunInputIntegrityPresent(branch) {
+				return true
+			}
+		}
+	}
+	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
+		return traceDBRunInputIntegrityPresent(wrapped.Unwrap())
+	}
+	return false
 }
 
 // traceDBRunInputIntegrityOnly rejects mixed error graphs. A registered input
@@ -114,8 +142,14 @@ func traceDBRunInputIntegrityOnly(err error) bool {
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
-	if _, ok := err.(*traceDBRunInputIntegrityError); ok {
-		return true
+	if wrapped, ok := err.(*traceDBRunInputIntegrityError); ok {
+		// A normal wrapper may contain errors.Join(invariant, OS-cause) from a
+		// single authenticated read operation. Only reject a nested wrapper
+		// whose cause already contains a separately classified integrity branch;
+		// that shape can only be an attempted laundering of a mixed graph.
+		return wrapped.cause != nil &&
+			(!traceDBRunInputIntegrityPresent(wrapped.cause) ||
+				traceDBRunInputIntegrityOnly(wrapped.cause))
 	}
 	if joined, ok := err.(interface{ Unwrap() []error }); ok {
 		branches := joined.Unwrap()
@@ -128,6 +162,9 @@ func traceDBRunInputIntegrityOnly(err error) bool {
 			}
 		}
 		return true
+	}
+	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
+		return traceDBRunInputIntegrityOnly(wrapped.Unwrap())
 	}
 	return false
 }
@@ -145,6 +182,9 @@ type traceDBRowSinkOps struct {
 	createTemp func(string, string) (*os.File, error)
 	open       func(string) (*os.File, error)
 	stat       func(string) (os.FileInfo, error)
+	truncate   func(*os.File, int64) error
+	writeAt    func(*os.File, []byte, int64) (int, error)
+	readAt     func(*os.File, []byte, int64) (int, error)
 	remove     func(string) error
 	removeAll  func(string) error
 	fault      func(point, path string) error
@@ -187,14 +227,18 @@ func traceDBSorterOperationError(point string, cause error) error {
 	}
 	reason := "trace_row_sort_operation_failed"
 	switch point {
-	case "create", "open", "stat", "read", "decode", "write", "flush", "close", "remove", "remove_all", "encode":
+	case "create", "open", "stat", "fstat", "seek", "read", "decode", "write", "flush", "close", "remove", "remove_all", "encode":
 		reason = "trace_row_sort_run_" + point + "_failed"
+	default:
+		if strings.HasPrefix(point, "sidecar_") {
+			reason = "trace_row_sort_" + point + "_failed"
+		}
 	}
 	return errors.Join(&traceDBOutputInvariantError{Reason: reason}, cause)
 }
 
 func (s traceDBRowSortStats) coverage() TraceDBCoverage {
-	return TraceDBCoverage{
+	coverage := TraceDBCoverage{
 		Family:               "sorter",
 		Table:                "__systrace_rows__",
 		Role:                 "systrace_text_output",
@@ -220,6 +264,13 @@ func (s traceDBRowSortStats) coverage() TraceDBCoverage {
 				defaultTraceDBActiveTempBytes, defaultTraceDBLiveTempBytes),
 		},
 	}
+	if s.SourceSidecarLogicalBytes != 0 || s.SourceSidecarPhysicalBytes != 0 {
+		coverage.FieldSources["profiler_source_order_sidecar"] = fmt.Sprintf(
+			"%d_logical_bytes+%d_physical_bytes",
+			s.SourceSidecarLogicalBytes, s.SourceSidecarPhysicalBytes,
+		)
+	}
+	return coverage
 }
 
 type traceDBRowSink struct {
@@ -272,6 +323,7 @@ type traceDBRowSink struct {
 	captureSourceFailure string
 	allRowsFailClosed    bool
 	profilerSourceProof  profilerSourceOrderProof
+	sourceOrderSidecar   profilerSourceOrderSidecarManifest
 }
 
 type profilerPairRowCensus struct {
@@ -367,8 +419,17 @@ func defaultTraceDBRowSinkOptions() traceDBRowSinkOptions {
 			createTemp: os.CreateTemp,
 			open:       os.Open,
 			stat:       os.Stat,
-			remove:     os.Remove,
-			removeAll:  os.RemoveAll,
+			truncate: func(file *os.File, size int64) error {
+				return file.Truncate(size)
+			},
+			writeAt: func(file *os.File, data []byte, offset int64) (int, error) {
+				return file.WriteAt(data, offset)
+			},
+			readAt: func(file *os.File, data []byte, offset int64) (int, error) {
+				return file.ReadAt(data, offset)
+			},
+			remove:    os.Remove,
+			removeAll: os.RemoveAll,
 		},
 	}
 }
@@ -405,6 +466,15 @@ func normalizeTraceDBRowSinkOptions(options traceDBRowSinkOptions) (traceDBRowSi
 	}
 	if options.ops.stat == nil {
 		options.ops.stat = defaults.ops.stat
+	}
+	if options.ops.truncate == nil {
+		options.ops.truncate = defaults.ops.truncate
+	}
+	if options.ops.writeAt == nil {
+		options.ops.writeAt = defaults.ops.writeAt
+	}
+	if options.ops.readAt == nil {
+		options.ops.readAt = defaults.ops.readAt
 	}
 	if options.ops.remove == nil {
 		options.ops.remove = defaults.ops.remove
@@ -484,7 +554,8 @@ func (s *traceDBRowSink) profilerCapturePreOpenStatePristine() bool {
 		len(s.structuredEventLanes) != 0 || len(s.pairRowMappings) != 0 || len(s.blockLaneClocks) != 0 ||
 		s.legacyPairProof.observations != 0 || s.legacyPairProof.laneKeys != 0 ||
 		s.legacyPairProof.failureReason != "" || s.blockPairProof.observations != 0 ||
-		s.blockPairProof.laneKeys != 0 || s.blockPairProof.failureReason != "" {
+		s.blockPairProof.laneKeys != 0 || s.blockPairProof.failureReason != "" ||
+		s.sourceOrderSidecar != (profilerSourceOrderSidecarManifest{}) {
 		return false
 	}
 	for kind := pairRenderKind(1); kind < pairRenderKindCount; kind++ {
@@ -2231,8 +2302,30 @@ func (s *traceDBRowSink) validateRunManifestSet(requireFinal bool) error {
 			return &traceDBOutputInvariantError{Reason: "trace_row_sort_manifest_row_count_overflow"}
 		}
 	}
+	sidecarBytes := uint64(0)
+	if s.sourceOrderSidecar.present() {
+		manifest := s.sourceOrderSidecar
+		artifact := s.artifacts[manifest.path]
+		expectedSidecarSize, sidecarSizeErr := profilerSourceOrderSidecarSize(manifest.rowCount)
+		if s.captureLifecycle == profilerCaptureInactive || s.stats.RowsAccepted <= 0 || len(s.runs) != 1 ||
+			sidecarSizeErr != nil || manifest.rowCount != uint64(s.stats.RowsAccepted) ||
+			manifest.size != expectedSidecarSize || manifest.boundRunDigest != s.runs[0].digest ||
+			manifest.producerRoot != s.profilerSourceProof.expectedRoot ||
+			manifest.rowCount != s.profilerSourceProof.expectedCount || artifact == nil || artifact.removed ||
+			s.stats.SourceSidecarLogicalBytes != manifest.size ||
+			s.stats.SourceSidecarPhysicalBytes != manifest.size {
+			return &traceDBOutputInvariantError{Reason: "profiler_source_order_sidecar_manifest_invalid"}
+		}
+		sidecarBytes = manifest.size
+	} else if s.stats.SourceSidecarLogicalBytes != 0 ||
+		s.stats.SourceSidecarPhysicalBytes != 0 {
+		return &traceDBOutputInvariantError{Reason: "profiler_source_order_sidecar_manifest_missing"}
+	}
+	expectedLive, liveOK := checkedTraceDBUint64Add(totalSize, sidecarBytes)
+	activeWithSidecar, activeOK := checkedTraceDBUint64Add(s.activeTempBytes, sidecarBytes)
 	if totalRows != uint64(s.stats.RowsAccepted) || totalSize != s.activeTempBytes ||
-		totalSize != s.liveTempBytes || s.activeTempBytes > s.options.activeTempCap ||
+		!liveOK || expectedLive != s.liveTempBytes || !activeOK ||
+		activeWithSidecar > s.options.activeTempCap || s.activeTempBytes > s.options.activeTempCap ||
 		s.liveTempBytes > s.options.liveTempCap || s.stats.CurrentLiveTempBytes != s.liveTempBytes {
 		return &traceDBOutputInvariantError{Reason: "trace_row_sort_manifest_accounting_mismatch"}
 	}
@@ -2373,6 +2466,25 @@ func (s *traceDBRowSink) prepareForPublication(ctx context.Context) (result erro
 		}
 		return nil
 	}
+	// The typed/legacy accounting oracle must fail before B-c derives a
+	// terminal disposition from either side. sealProfilerCapture historically
+	// performed this check after prepare; sidecar construction now consumes the
+	// same state, so preserve the earlier authoritative reason here as well.
+	if s.captureLifecycle != profilerCaptureInactive {
+		if err := s.validateProfilerPairAccounting(); err != nil {
+			s.prepareFailure = err
+			return err
+		}
+	}
+	if s.captureLifecycle != profilerCaptureInactive {
+		if err := s.buildProfilerSourceOrderSidecar(ctx); err != nil {
+			if handled := s.finishRegisteredRunStorageFailure(err); handled != nil {
+				s.prepareFailure = handled
+				return handled
+			}
+			return nil
+		}
+	}
 	if s.captureSourceFailure != "" {
 		if accountingErr := s.accountAllRowsFailClosed(); accountingErr != nil {
 			s.prepareFailure = accountingErr
@@ -2430,8 +2542,13 @@ func (s *traceDBRowSink) writeTo(ctx context.Context, w io.Writer) (stats traceD
 		return s.stats, err
 	}
 	start := time.Now()
+	var sourceOrderPublication *profilerSourceOrderPublicationProof
 	defer func() {
-		err = traceDBJoinPreservingSingle(err, s.accumulateElapsed(start), s.cleanup())
+		var publicationCloseErr error
+		if sourceOrderPublication != nil {
+			publicationCloseErr = sourceOrderPublication.close()
+		}
+		err = traceDBJoinPreservingSingle(err, publicationCloseErr, s.accumulateElapsed(start), s.cleanup())
 		s.recordSorterFailure(err)
 		stats = s.stats
 	}()
@@ -2455,12 +2572,12 @@ func (s *traceDBRowSink) writeTo(ctx context.Context, w io.Writer) (stats traceD
 		return s.stats, nil
 	}
 	bw := bufio.NewWriterSize(w, 256*1024)
-	if err := writeSystraceHeader(bw); err != nil {
-		return s.stats, err
-	}
 	if s.stats.RowsAccepted == 0 {
-		if len(s.runs) != 0 {
+		if len(s.runs) != 0 || s.sourceOrderSidecar.present() {
 			return s.stats, &traceDBOutputInvariantError{Reason: "trace_row_sort_final_manifest_invalid"}
+		}
+		if err := writeSystraceHeader(bw); err != nil {
+			return s.stats, err
 		}
 		if err := bw.Flush(); err != nil {
 			return s.stats, err
@@ -2470,9 +2587,22 @@ func (s *traceDBRowSink) writeTo(ctx context.Context, w io.Writer) (stats traceD
 	if len(s.runs) != 1 {
 		return s.stats, &traceDBOutputInvariantError{Reason: "trace_row_sort_final_manifest_invalid"}
 	}
-	reader, openErr := s.openAuthenticatedRunReader(s.runs[0])
-	if openErr != nil {
-		return s.stats, traceDBRunInputIntegrity(openErr)
+	var reader *traceDBAuthenticatedRunReader
+	if s.captureLifecycle != profilerCaptureInactive {
+		sourceOrderPublication, err = s.openProfilerSourceOrderPublicationProof(ctx)
+		if err != nil {
+			return s.stats, err
+		}
+		reader = sourceOrderPublication.run
+	} else {
+		var openErr error
+		reader, openErr = s.openAuthenticatedRunReader(s.runs[0])
+		if openErr != nil {
+			return s.stats, traceDBRunInputIntegrity(openErr)
+		}
+	}
+	if err := writeSystraceHeader(bw); err != nil {
+		return s.stats, err
 	}
 	var readErr error
 	for {
@@ -2484,7 +2614,16 @@ func (s *traceDBRowSink) writeTo(ctx context.Context, w io.Writer) (stats traceD
 		if !ok {
 			break
 		}
-		if !s.rowPublishable(record.row) {
+		publishable := s.rowPublishable(record.row)
+		if sourceOrderPublication != nil {
+			disposition, verifyErr := sourceOrderPublication.verifyRunRecord(ctx, record)
+			if verifyErr != nil {
+				readErr = traceDBRunInputIntegrity(verifyErr)
+				break
+			}
+			publishable = disposition.publishable()
+		}
+		if !publishable {
 			continue
 		}
 		if _, writeErr := bw.WriteString(record.row.line); writeErr != nil {
@@ -2497,9 +2636,21 @@ func (s *traceDBRowSink) writeTo(ctx context.Context, w io.Writer) (stats traceD
 		}
 		s.accountWrittenRow(record.row)
 	}
-	readErr = errors.Join(readErr, traceDBRunInputIntegrity(reader.close()))
+	if readErr == nil && sourceOrderPublication != nil {
+		readErr = sourceOrderPublication.validateFinalSidecar(ctx)
+	}
+	if sourceOrderPublication != nil {
+		readErr = traceDBJoinPreservingSingle(readErr, sourceOrderPublication.close())
+	} else {
+		readErr = traceDBJoinPreservingSingle(readErr, traceDBRunInputIntegrity(reader.close()))
+	}
 	if readErr != nil {
 		return s.stats, readErr
+	}
+	// A close/final-audit fault hook may cancel after the last row poll. Keep
+	// cancellation identity and stop before the buffered publication is flushed.
+	if err := ctx.Err(); err != nil {
+		return s.stats, err
 	}
 	if err := bw.Flush(); err != nil {
 		return s.stats, err
@@ -2875,6 +3026,7 @@ func (s *traceDBRowSink) cleanup() error {
 		s.artifacts = nil
 		s.rows = nil
 		s.rowIngestOrdinals = nil
+		s.sourceOrderSidecar = profilerSourceOrderSidecarManifest{}
 		s.activeTempBytes = 0
 		s.liveTempBytes = 0
 		s.openRunFDs = 0
@@ -3046,10 +3198,57 @@ func (s *traceDBRowSink) openAuthenticatedRunReader(manifest traceDBRunManifest)
 	if err != nil {
 		return nil, err
 	}
+	if err := s.runFault("fstat", manifest.path); err != nil {
+		return nil, traceDBJoinPreservingSingle(
+			traceDBRunInputIntegrity(err), s.closeRunFile(file, manifest.path),
+		)
+	}
+	openedInfo, err := file.Stat()
+	if err != nil {
+		return nil, traceDBJoinPreservingSingle(
+			traceDBRunInputIntegrity(traceDBSorterOperationError("fstat", err)),
+			s.closeRunFile(file, manifest.path),
+		)
+	}
+	if !openedInfo.Mode().IsRegular() || openedInfo.Size() < 0 || uint64(openedInfo.Size()) != manifest.size {
+		return nil, traceDBJoinPreservingSingle(
+			traceDBRunInputIntegrity(&traceDBOutputInvariantError{
+				Reason: "trace_row_sort_manifest_opened_size_mismatch",
+			}),
+			s.closeRunFile(file, manifest.path),
+		)
+	}
 	return &traceDBAuthenticatedRunReader{
 		sink: s, manifest: manifest, file: file,
 		reader: bufio.NewReaderSize(file, 256*1024), proof: sha256.New(),
 	}, nil
+}
+
+// reset replays one already-authenticated run through the same opened file
+// description. B-c uses the first pass as a publication preflight and the
+// second as the actual output pass; closing and reopening by path between the
+// two would reintroduce a replace-by-path window.
+func (reader *traceDBAuthenticatedRunReader) reset() error {
+	if reader == nil || reader.sink == nil || reader.file == nil || !reader.verified {
+		return &traceDBOutputInvariantError{Reason: "trace_row_sort_reader_reset_state_invalid"}
+	}
+	if err := reader.sink.runFault("seek", reader.manifest.path); err != nil {
+		return err
+	}
+	offset, err := reader.file.Seek(0, io.SeekStart)
+	if err != nil {
+		return traceDBSorterOperationError("seek", err)
+	}
+	if offset != 0 {
+		return &traceDBOutputInvariantError{Reason: "trace_row_sort_reader_reset_offset_invalid"}
+	}
+	reader.reader.Reset(reader.file)
+	reader.proof.Reset()
+	reader.rowsRead = 0
+	reader.previous = traceDBRunRecord{}
+	reader.havePrev = false
+	reader.verified = false
+	return nil
 }
 
 func (reader *traceDBAuthenticatedRunReader) next(ctx context.Context) (traceDBRunRecord, bool, error) {

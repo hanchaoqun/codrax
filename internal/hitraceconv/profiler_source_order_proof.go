@@ -28,6 +28,23 @@ type profilerSourceOrderProofWorkspace struct {
 	step       [profilerSourceOrderProofStepBytes]byte
 }
 
+// profilerSourceOrderLeafBuilder recomputes canonical leaves from an
+// authenticated sorter row without carrying source-order state. The final run
+// is publication-sorted rather than ingest-sorted, so B-c must scatter these
+// leaves by ingest ordinal before replaying the rolling proof.
+type profilerSourceOrderLeafBuilder struct {
+	hasher    hash.Hash
+	workspace *profilerSourceOrderProofWorkspace
+	scratch   []byte
+}
+
+func newProfilerSourceOrderLeafBuilder() *profilerSourceOrderLeafBuilder {
+	workspace := new(profilerSourceOrderProofWorkspace)
+	return &profilerSourceOrderLeafBuilder{
+		hasher: sha256.New(), workspace: workspace, scratch: workspace.scratch[:],
+	}
+}
+
 // profilerSourceOrderProof is the producer-side authority for the exact order
 // in which an open Profiler capture accepts rows. It deliberately retains only
 // a fixed state and one reusable 64 KiB hashing buffer. The authenticated
@@ -144,12 +161,39 @@ func (proof *profilerSourceOrderProof) prepareRowContext(ctx context.Context, ro
 		!proof.validWorkspace() || proof.count != ordinal {
 		return &traceDBOutputInvariantError{Reason: "profiler_source_order_proof_state_invalid"}
 	}
+	if err := prepareProfilerSourceOrderLeafContext(
+		ctx, proof.hasher, proof.workspace, proof.scratch, row, ordinal,
+	); err != nil {
+		return err
+	}
+	proof.prepared = true
+	return nil
+}
+
+func prepareProfilerSourceOrderLeafContext(
+	ctx context.Context,
+	hasher hash.Hash,
+	workspace *profilerSourceOrderProofWorkspace,
+	scratch []byte,
+	row renderedRow,
+	ordinal uint64,
+) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if hasher == nil || workspace == nil || len(scratch) != profilerContextByteCheckpointBytes ||
+		&scratch[0] != &workspace.scratch[0] {
+		return &traceDBOutputInvariantError{Reason: "profiler_source_order_leaf_workspace_invalid"}
+	}
 	if row.seq < 0 {
 		return &traceDBOutputInvariantError{Reason: "profiler_source_order_proof_sequence_invalid"}
 	}
 
-	proof.hasher.Reset()
-	prefix := &proof.workspace.leafPrefix
+	hasher.Reset()
+	prefix := &workspace.leafPrefix
 	offset := copy(prefix[:], profilerSourceOrderProofLeafDomain)
 	binary.LittleEndian.PutUint16(prefix[offset:], profilerSourceOrderProofVersion)
 	offset += 2
@@ -160,26 +204,88 @@ func (proof *profilerSourceOrderProof) prepareRowContext(ctx context.Context, ro
 	binary.LittleEndian.PutUint64(prefix[offset:], uint64(row.seq))
 	offset += 8
 	binary.LittleEndian.PutUint64(prefix[offset:], uint64(len(row.line)))
-	_, _ = proof.hasher.Write(prefix[:]) // crypto hashes never return a write error.
+	_, _ = hasher.Write(prefix[:]) // crypto hashes never return a write error.
 
 	processed := uint64(0)
 	for start := 0; start < len(row.line); {
-		end := min(start+len(proof.scratch), len(row.line))
+		end := min(start+len(scratch), len(row.line))
 		if err := profilerByteContextCheckpoint(ctx, &processed, uint64(end-start)); err != nil {
-			proof.hasher.Reset()
+			hasher.Reset()
 			return err
 		}
-		chunk := proof.scratch[:end-start]
+		chunk := scratch[:end-start]
 		copy(chunk, row.line[start:end])
-		_, _ = proof.hasher.Write(chunk) // crypto hashes never return a write error.
+		_, _ = hasher.Write(chunk) // crypto hashes never return a write error.
 		start = end
 	}
 	if err := ctx.Err(); err != nil {
-		proof.hasher.Reset()
+		hasher.Reset()
 		return err
 	}
-	proof.prepared = true
 	return nil
+}
+
+func finishProfilerSourceOrderLeaf(
+	hasher hash.Hash,
+	workspace *profilerSourceOrderProofWorkspace,
+	provenance profilerPairRowProvenance,
+) [sha256.Size]byte {
+	encodedProvenance := &workspace.provenance
+	binary.LittleEndian.PutUint32(encodedProvenance[0:4], provenance.LaneID)
+	binary.LittleEndian.PutUint32(encodedProvenance[4:8], provenance.TextMessageOrdinal)
+	encodedProvenance[8] = byte(provenance.PairKind)
+	encodedProvenance[9] = byte(provenance.EndpointSlot)
+	encodedProvenance[10] = byte(provenance.PublisherSlot)
+	encodedProvenance[11] = byte(provenance.Flags)
+	_, _ = hasher.Write(encodedProvenance[:]) // crypto hashes never return a write error.
+	hasher.Sum(workspace.leaf[:0])
+	return workspace.leaf
+}
+
+func (builder *profilerSourceOrderLeafBuilder) leafContext(
+	ctx context.Context,
+	row renderedRow,
+	ordinal uint64,
+) ([sha256.Size]byte, error) {
+	if builder == nil || builder.hasher == nil || builder.workspace == nil {
+		return [sha256.Size]byte{}, &traceDBOutputInvariantError{Reason: "profiler_source_order_leaf_builder_invalid"}
+	}
+	if err := prepareProfilerSourceOrderLeafContext(
+		ctx, builder.hasher, builder.workspace, builder.scratch, row, ordinal,
+	); err != nil {
+		return [sha256.Size]byte{}, err
+	}
+	leaf := finishProfilerSourceOrderLeaf(builder.hasher, builder.workspace, row.profilerProvenance())
+	builder.hasher.Reset()
+	return leaf, nil
+}
+
+func advanceProfilerSourceOrderState(
+	state [sha256.Size]byte,
+	ordinal uint64,
+	leaf [sha256.Size]byte,
+	step *[profilerSourceOrderProofStepBytes]byte,
+) [sha256.Size]byte {
+	offset := copy(step[:], profilerSourceOrderProofStepDomain)
+	binary.LittleEndian.PutUint16(step[offset:], profilerSourceOrderProofVersion)
+	offset += 2
+	copy(step[offset:], state[:])
+	offset += sha256.Size
+	binary.LittleEndian.PutUint64(step[offset:], ordinal)
+	offset += 8
+	copy(step[offset:], leaf[:])
+	return sha256.Sum256(step[:])
+}
+
+func terminalProfilerSourceOrderDigest(count uint64, state [sha256.Size]byte) [sha256.Size]byte {
+	var input [len(profilerSourceOrderProofTerminalDomain) + 2 + 8 + sha256.Size]byte
+	offset := copy(input[:], profilerSourceOrderProofTerminalDomain)
+	binary.LittleEndian.PutUint16(input[offset:], profilerSourceOrderProofVersion)
+	offset += 2
+	binary.LittleEndian.PutUint64(input[offset:], count)
+	offset += 8
+	copy(input[offset:], state[:])
+	return sha256.Sum256(input[:])
 }
 
 func (proof *profilerSourceOrderProof) abortPreparedRow() {
@@ -195,30 +301,12 @@ func (proof *profilerSourceOrderProof) abortPreparedRow() {
 // The returned leaf is useful to B-c and to ABI tests; it is never retained.
 func (proof *profilerSourceOrderProof) commitPreparedRow(provenance profilerPairRowProvenance) [sha256.Size]byte {
 	workspace := proof.workspace
-	encodedProvenance := &workspace.provenance
-	binary.LittleEndian.PutUint32(encodedProvenance[0:4], provenance.LaneID)
-	binary.LittleEndian.PutUint32(encodedProvenance[4:8], provenance.TextMessageOrdinal)
-	encodedProvenance[8] = byte(provenance.PairKind)
-	encodedProvenance[9] = byte(provenance.EndpointSlot)
-	encodedProvenance[10] = byte(provenance.PublisherSlot)
-	encodedProvenance[11] = byte(provenance.Flags)
-	_, _ = proof.hasher.Write(encodedProvenance[:]) // crypto hashes never return a write error.
-	proof.hasher.Sum(workspace.leaf[:0])
-
-	step := &workspace.step
-	offset := copy(step[:], profilerSourceOrderProofStepDomain)
-	binary.LittleEndian.PutUint16(step[offset:], profilerSourceOrderProofVersion)
-	offset += 2
-	copy(step[offset:], proof.state[:])
-	offset += sha256.Size
-	binary.LittleEndian.PutUint64(step[offset:], proof.count)
-	offset += 8
-	copy(step[offset:], workspace.leaf[:])
-	proof.state = sha256.Sum256(step[:])
+	leaf := finishProfilerSourceOrderLeaf(proof.hasher, workspace, provenance)
+	proof.state = advanceProfilerSourceOrderState(proof.state, proof.count, leaf, &workspace.step)
 	proof.count++
 	proof.prepared = false
 	proof.hasher.Reset()
-	return workspace.leaf
+	return leaf
 }
 
 func (proof *profilerSourceOrderProof) terminalDigest() ([sha256.Size]byte, bool) {
@@ -234,14 +322,7 @@ func (proof *profilerSourceOrderProof) terminalDigestUnchecked() ([sha256.Size]b
 	if proof == nil {
 		return [sha256.Size]byte{}, false
 	}
-	var input [len(profilerSourceOrderProofTerminalDomain) + 2 + 8 + sha256.Size]byte
-	offset := copy(input[:], profilerSourceOrderProofTerminalDomain)
-	binary.LittleEndian.PutUint16(input[offset:], profilerSourceOrderProofVersion)
-	offset += 2
-	binary.LittleEndian.PutUint64(input[offset:], proof.count)
-	offset += 8
-	copy(input[offset:], proof.state[:])
-	return sha256.Sum256(input[:]), true
+	return terminalProfilerSourceOrderDigest(proof.count, proof.state), true
 }
 
 func (proof *profilerSourceOrderProof) freezeExpected() error {
