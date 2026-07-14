@@ -9,14 +9,13 @@ import (
 )
 
 func TestProfilerPairObservationBudgetFailsBothFamiliesBeforeSpillPublication(t *testing.T) {
-	sink, err := newTraceDBRowSink(t.TempDir(), 1)
-	if err != nil {
-		t.Fatal(err)
-	}
+	sink := newProfilerSourceLifecycleCapture(
+		t, profilerSourceLifecycleFile(t), 1, traceDBRowSinkOptions{},
+	)
 	defer sink.cleanup()
 	sink.legacyPairProof.maxObservations = 2
 	sink.legacyPairProof.maxLaneKeys = 10
-	if !sink.beginPairRowCensus() {
+	if !sink.beginPairRowCensusForPublisher(profilerPairPublisherExactFtrace) {
 		t.Fatal("pair census did not start")
 	}
 	rows := []renderedRow{
@@ -33,7 +32,10 @@ func TestProfilerPairObservationBudgetFailsBothFamiliesBeforeSpillPublication(t 
 		}
 	}
 	staged := sink.endPairRowCensus()
-	mmcCensus, f2fsCensus := staged[pairRenderMMC], staged[pairRenderF2FS]
+	if staged[pairRenderMMC].total != 1 || staged[pairRenderF2FS].total != 2 {
+		t.Fatalf("publisher staged totals drifted: mmc=%d f2fs=%d",
+			staged[pairRenderMMC].total, staged[pairRenderF2FS].total)
+	}
 	if sink.legacyPairProof.failureReason != "observations" || sink.legacyPairProof.observations != 2 ||
 		!sink.poisoned[pairRenderMMC] || !sink.poisoned[pairRenderF2FS] {
 		t.Fatalf("observation cap did not fail closed globally: failed=%t reason=%q observations=%d poisoned=%v",
@@ -48,11 +50,9 @@ func TestProfilerPairObservationBudgetFailsBothFamiliesBeforeSpillPublication(t 
 	if sink.withheldPairRowsForKind(pairRenderF2FS) != 2 || sink.withheldPairRowsForKind(pairRenderMMC) != 1 ||
 		sink.pairFixedLedger.endpoints[profilerPairEndpointF2FSWriteBegin].withheld != 1 ||
 		sink.pairFixedLedger.endpoints[profilerPairEndpointF2FSWriteEnd].withheld != 1 ||
-		sink.pairFixedLedger.endpoints[profilerPairEndpointMMCRequestStart].withheld != 1 ||
-		sink.withheldPairRowsFromCensus(pairRenderF2FS, f2fsCensus) != 2 ||
-		sink.withheldPairRowsFromCensus(pairRenderMMC, mmcCensus) != 1 {
-		t.Fatalf("scalar/table/census accounting drifted after map release: totals=%v tables=%v mmc=%+v f2fs=%+v",
-			sink.pairRows, profilerTestPairTableTotals(sink), mmcCensus, f2fsCensus)
+		sink.pairFixedLedger.endpoints[profilerPairEndpointMMCRequestStart].withheld != 1 {
+		t.Fatalf("fixed scalar/endpoint accounting drifted after map release: totals=%v tables=%v ledger=%+v",
+			sink.pairRows, profilerTestPairTableTotals(sink), sink.pairFixedLedger)
 	}
 	if sink.stats.RowsAccepted != 4 || sink.publishableRows() != 1 || len(sink.runs) == 0 {
 		t.Fatalf("budget barrier damaged spill/non-pair accounting: stats=%+v publishable=%d chunks=%d",
@@ -63,34 +63,55 @@ func TestProfilerPairObservationBudgetFailsBothFamiliesBeforeSpillPublication(t 
 		!strings.Contains(profilerPairBudgetCaveat(sink, pairRenderF2FS), "budget_fail_closed=true reason=observations") {
 		t.Fatalf("budget failure was not disclosed in coverage/caveat: coverage=%+v caveat=%q", coverage, profilerPairBudgetCaveat(sink, pairRenderF2FS))
 	}
-	ledger := []TraceDBCoverage{
-		{Family: "builtin_modern_profiler", Table: "plugin:ftrace-plugin", RowsRead: 1, RowsEmitted: 3, FieldSources: map[string]string{
-			profilerCoverageF2FSStagedRows: "2", profilerCoverageMMCStagedRows: "1",
-		}},
-		{Table: "f2fs_write_begin", RowsRead: 1, RowsEmitted: 1},
-		{Table: "f2fs_write_end", RowsRead: 1, RowsEmitted: 1},
-		{Table: "mmc_request_start", RowsRead: 1, RowsEmitted: 1},
+	if err := sink.sealProfilerCapture(); err != nil {
+		t.Fatal(err)
 	}
-	publishers := []profilerPairPublisherCensus{{coverageIndex: 0, staged: staged}}
-	var eventIndexes profilerFtraceEventCoverageIndexes
+	extraction := profilerContainerExtraction{
+		Messages:                 1,
+		StructuredFtrace:         1,
+		StructuredRows:           4,
+		publicationCaveatPending: true,
+		TraceCoverage: []TraceDBCoverage{
+			{Family: "builtin_modern_profiler", Table: "plugin:ftrace-plugin", RowsRead: 4, RowsEmitted: 4, FieldSources: map[string]string{
+				profilerCoverageF2FSStagedRows: "2", profilerCoverageMMCStagedRows: "1",
+			}},
+			{Table: "f2fs_write_begin", RowsRead: 1, RowsEmitted: 1},
+			{Table: "f2fs_write_end", RowsRead: 1, RowsEmitted: 1},
+			{Table: "mmc_request_start", RowsRead: 1, RowsEmitted: 1},
+		},
+	}
+	if !extraction.profilerPublisherCoverage.observe(profilerPairPublisherExactFtrace, 0) {
+		t.Fatal("record fixed structured publisher coverage")
+	}
 	for field, index := range map[int]int{4011: 1, 4012: 2, 4016: 3} {
 		slot := profilerFtraceEventSlot(field)
-		eventIndexes.Present[slot] = true
-		eventIndexes.Index[slot] = index
+		extraction.profilerEventCoverage.Present[slot] = true
+		extraction.profilerEventCoverage.Index[slot] = index
 	}
-	if err := reconcileProfilerMMCCoverage(ledger, sink, publishers, eventIndexes); err != nil {
+	terminal, err := applyProfilerTerminalPublication(&extraction, sink)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := reconcileProfilerF2FSCoverage(ledger, sink, publishers, eventIndexes); err != nil {
-		t.Fatal(err)
+	if terminal.rows != (profilerTerminalPublicationCounts{staged: 4, published: 1, withheld: 3}) ||
+		terminal.structuredRows != terminal.rows ||
+		terminal.publisherFamilies[profilerPairPublisherExactFtrace][pairRenderF2FS] !=
+			(profilerTerminalPublicationCounts{staged: 2, withheld: 2}) ||
+		terminal.publisherFamilies[profilerPairPublisherExactFtrace][pairRenderMMC] !=
+			(profilerTerminalPublicationCounts{staged: 1, withheld: 1}) {
+		t.Fatalf("budget terminal ledger drifted: %+v", terminal)
 	}
-	for index, item := range ledger {
+	for index, item := range extraction.TraceCoverage[1:] {
 		if item.RowsEmitted != 0 || item.RowsEmitted > item.RowsRead {
-			t.Fatalf("budget reconciliation left a published pair row at ledger[%d]: %+v", index, item)
+			t.Fatalf("terminal projection left a published pair row at event coverage[%d]: %+v", index, item)
+		}
+		if item.FieldSources["complete_capture_withheld_rows"] != "1" {
+			t.Fatalf("terminal endpoint projection lost exact withheld row at event coverage[%d]: %+v", index, item)
 		}
 	}
-	if ledger[0].FieldSources["complete_capture_withheld_rows"] != "3" {
-		t.Fatalf("publisher RowsRead/RowsEmitted reconciliation did not account once: %+v", ledger[0])
+	if extraction.TraceCoverage[0].RowsEmitted != 1 ||
+		extraction.TraceCoverage[0].FieldSources["complete_capture_withheld_rows"] != "3" ||
+		extraction.StructuredRows != 1 || !extraction.terminalPublicationApplied {
+		t.Fatalf("terminal publisher projection did not account once: %+v", extraction)
 	}
 	var out bytes.Buffer
 	stats, err := sink.prepareAndWriteForTest(context.Background(), &out)
@@ -158,6 +179,9 @@ func TestProfilerPairFamilyPoisonStopsAllLaterLaneMapGrowth(t *testing.T) {
 	}
 }
 
+// C-b1 removes the extraction consumer, but C-b2 owns retirement of this
+// remaining sink census. Keep its direct bounded-walk contract until that
+// separate structural deletion lands.
 func TestProfilerWithheldCensusWalksOnlyPublisherRows(t *testing.T) {
 	source := mustReadRendererSource(t, "streamerdb_sorter.go")
 	censusBody := sourceBetweenProfilerPairFunctions(t, source,

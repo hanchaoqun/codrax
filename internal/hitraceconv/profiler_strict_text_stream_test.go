@@ -131,23 +131,25 @@ func TestProfilerStrictTextContainerDiagnosticsAndPairCensus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	coverageIndex, publisherPresent := extracted.profilerPublisherCoverage.coverageIndex(
+		profilerPairPublisherExactFtrace,
+	)
+	publisherSlots, stagedPairRows := profilerPublisherCoverageStateForTest(t, extracted)
 	if !extracted.Detected || extracted.Messages != 1 || extracted.TextPluginMessages != 1 ||
-		extracted.TextRows != 1 || extracted.StructuredFtrace != 0 || extracted.MalformedFtrace != 0 ||
+		extracted.TextRows != 4 || extracted.StructuredFtrace != 0 || extracted.MalformedFtrace != 0 ||
 		extracted.UnsupportedFtrace != 0 || extracted.RejectedMessages != 0 || extracted.SourceFailClosed ||
-		len(extracted.pairPublishers) != 1 || len(extracted.textMessages) != 1 {
+		!publisherPresent || publisherSlots != 1 || stagedPairRows != 3 {
 		t.Fatalf("strict container extraction ledger drifted: %+v", extracted)
 	}
-	publisher := extracted.pairPublishers[0]
-	message := extracted.textMessages[0]
-	if publisher.coverageIndex < 0 || publisher.coverageIndex >= len(extracted.TraceCoverage) ||
-		publisher.staged[pairRenderF2FS].total != 3 || message.total != 4 ||
-		message.staged[pairRenderF2FS].total != 3 || sink.pairCensusActive ||
+	if coverageIndex < 0 || coverageIndex >= len(extracted.TraceCoverage) ||
+		extracted.TraceCoverage[coverageIndex].FieldSources[profilerCoverageF2FSStagedRows] != "3" ||
+		sink.pairCensusActive ||
 		sink.stats.RowsAccepted != 4 || sink.withheldPairRowsForKind(pairRenderF2FS) != 3 ||
 		sink.publishableRows() != 1 {
-		t.Fatalf("strict container pair/message census drifted: publisher=%+v message=%+v sink=%+v",
-			publisher, message, sink.stats)
+		t.Fatalf("strict container fixed publisher/message census drifted: coverage_index=%d staged_pair_rows=%d sink=%+v",
+			coverageIndex, stagedPairRows, sink.stats)
 	}
-	coverage := extracted.TraceCoverage[publisher.coverageIndex]
+	coverage := extracted.TraceCoverage[coverageIndex]
 	if coverage.Table != "plugin:ftrace-plugin" || coverage.RowsRead != 1 || coverage.RowsEmitted != 4 ||
 		coverage.FieldSources["outcome_strict_legacy_text_frames"] != "1" {
 		t.Fatalf("strict container coverage drifted: %+v", coverage)

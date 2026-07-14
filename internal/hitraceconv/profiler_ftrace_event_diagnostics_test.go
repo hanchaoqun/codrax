@@ -128,9 +128,10 @@ func TestProfilerEventContainerAggregatesKnownFieldAcrossFrames(t *testing.T) {
 			extracted, sink := extractProfilerCensusFixture(t, profilerRepeatedDiagnosticFrameFixture(message, frameCount))
 			defer sink.cleanup()
 			coverage, entries := profilerEventCoverageByField(extracted, 2003)
+			_, stagedPairRows := profilerPublisherCoverageStateForTest(t, extracted)
 			if entries != 1 || coverage.RowsRead != frameCount || coverage.RowsEmitted != frameCount || coverage.Skipped != "" ||
 				extracted.StructuredRows != frameCount || extracted.UnsupportedFtrace != 0 ||
-				len(extracted.pairPublishers) != 0 || len(extracted.textMessages) != 0 {
+				stagedPairRows != 0 {
 				t.Fatalf("known event aggregation drifted at %d frames: extracted=%+v coverage=%+v entries=%d",
 					frameCount, extracted, coverage, entries)
 			}
@@ -461,7 +462,7 @@ func TestProfilerEventDiagnosticStructurePin(t *testing.T) {
 	}
 	for _, declaration := range container.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || (function.Name.Name != "extractProfilerTraceFileAtWithFrameLimit" && function.Name.Name != "reconcileProfilerPairCoverage") {
+		if !ok || (function.Name.Name != "extractProfilerTraceFileAtWithFrameLimit" && function.Name.Name != "applyProfilerTerminalPublication") {
 			continue
 		}
 		ast.Inspect(function.Body, func(node ast.Node) bool {

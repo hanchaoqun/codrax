@@ -42,6 +42,39 @@ func profilerDiagnosticCoverage(extracted profilerContainerExtraction, table str
 	return found, count
 }
 
+func profilerPublisherCoverageStateForTest(
+	t *testing.T,
+	extracted profilerContainerExtraction,
+) (int, uint64) {
+	t.Helper()
+	presentSlots := 0
+	stagedRows := uint64(0)
+	for publisher := profilerPairPublisherSlot(1); publisher < profilerPairPublisherSlotCount; publisher++ {
+		coverageIndex, present := extracted.profilerPublisherCoverage.coverageIndex(publisher)
+		if !present {
+			continue
+		}
+		presentSlots++
+		if coverageIndex < 0 || coverageIndex >= len(extracted.TraceCoverage) {
+			t.Fatalf("publisher %d retained invalid fixed coverage index %d: coverage=%+v",
+				publisher, coverageIndex, extracted.TraceCoverage)
+		}
+		for _, kind := range profilerCaptureKinds {
+			raw, present := extracted.TraceCoverage[coverageIndex].FieldSources[profilerCoverageStagedRowsKey(kind)]
+			if !present {
+				continue
+			}
+			count, err := strconv.ParseUint(raw, 10, 64)
+			if err != nil || ^uint64(0)-stagedRows < count {
+				t.Fatalf("publisher %d retained invalid staged %s count %q: err=%v",
+					publisher, profilerCoverageStagedRowsKey(kind), raw, err)
+			}
+			stagedRows += count
+		}
+	}
+	return presentSlots, stagedRows
+}
+
 func TestProfilerOuterAcceptedDiagnosticsRetainedShapeIsConstant(t *testing.T) {
 	message := protoBytes(1, []byte("bytrace_plugin"))
 	for _, frameCount := range []int{1, 4_096, 1_000_000} {
@@ -49,6 +82,7 @@ func TestProfilerOuterAcceptedDiagnosticsRetainedShapeIsConstant(t *testing.T) {
 			extracted, sink := extractProfilerCensusFixture(t, profilerRepeatedDiagnosticFrameFixture(message, frameCount))
 			defer sink.cleanup()
 			coverage, entries := profilerDiagnosticCoverage(extracted, "plugin:bytrace_plugin")
+			_, stagedPairRows := profilerPublisherCoverageStateForTest(t, extracted)
 			if extracted.Messages != frameCount || extracted.RejectedMessages != 0 || extracted.SourceFailClosed ||
 				extracted.PluginMessages["bytrace_plugin"] != frameCount || len(extracted.PluginMessages) != 1 ||
 				coverage.RowsRead != frameCount || coverage.RowsEmitted != 0 || entries != 1 ||
@@ -57,10 +91,9 @@ func TestProfilerOuterAcceptedDiagnosticsRetainedShapeIsConstant(t *testing.T) {
 				t.Fatalf("accepted diagnostic census drifted at %d frames: extracted=%+v coverage=%+v entries=%d",
 					frameCount, extracted, coverage, entries)
 			}
-			if len(extracted.TraceCoverage) != 1 || len(extracted.Caveats) != 2 ||
-				len(extracted.pairPublishers) != 0 || len(extracted.textMessages) != 0 {
-				t.Fatalf("pair-free retained diagnostics grew at %d frames: caveats=%d coverage=%d publishers=%d messages=%d",
-					frameCount, len(extracted.Caveats), len(extracted.TraceCoverage), len(extracted.pairPublishers), len(extracted.textMessages))
+			if len(extracted.TraceCoverage) != 1 || len(extracted.Caveats) != 2 || stagedPairRows != 0 {
+				t.Fatalf("pair-free retained diagnostics grew at %d frames: caveats=%d coverage=%d staged_pair_rows=%d",
+					frameCount, len(extracted.Caveats), len(extracted.TraceCoverage), stagedPairRows)
 			}
 		})
 	}
@@ -111,6 +144,7 @@ func TestProfilerOuterRouteBucketsAreClosed(t *testing.T) {
 	}
 	extracted, sink := extractProfilerCensusFixture(t, syntheticProfilerTraceFile(messages...))
 	defer sink.cleanup()
+	_, stagedPairRows := profilerPublisherCoverageStateForTest(t, extracted)
 	want := map[string]string{
 		"plugin:ftrace-plugin":           "outcome_unsupported_ftrace_frames",
 		"plugin:bytrace_plugin":          "outcome_empty_payload_frames",
@@ -124,7 +158,7 @@ func TestProfilerOuterRouteBucketsAreClosed(t *testing.T) {
 		}
 	}
 	if len(extracted.TraceCoverage) != len(want) || len(extracted.PluginMessages) != len(want) ||
-		extracted.UnsupportedFtrace != 2 || len(extracted.pairPublishers) != 0 || len(extracted.textMessages) != 0 {
+		extracted.UnsupportedFtrace != 2 || stagedPairRows != 0 {
 		t.Fatalf("outer route closed set drifted: %+v coverage=%+v", extracted, extracted.TraceCoverage)
 	}
 }
@@ -202,12 +236,13 @@ func TestProfilerOuterSameReasonRejectedRetainedShapeIsConstant(t *testing.T) {
 			extracted, sink := extractProfilerCensusFixture(t, profilerRepeatedDiagnosticFrameFixture(message, frameCount))
 			defer sink.cleanup()
 			coverage, entries := profilerDiagnosticCoverage(extracted, "plugin:__rejected__")
+			_, stagedPairRows := profilerPublisherCoverageStateForTest(t, extracted)
 			if extracted.Messages != frameCount || extracted.RejectedMessages != frameCount || extracted.SourceFailClosed ||
 				entries != 1 || coverage.RowsRead != frameCount || coverage.RowsEmitted != 0 ||
 				coverage.FieldSources["issue_plugin_name_missing_occurrences"] != strconv.Itoa(frameCount) ||
 				coverage.FieldSources["issue_plugin_name_missing_affected_frames"] != strconv.Itoa(frameCount) ||
 				len(extracted.Caveats) != 2 || len(extracted.TraceCoverage) != 1 || len(extracted.PluginMessages) != 0 ||
-				len(extracted.pairPublishers) != 0 || len(extracted.textMessages) != 0 {
+				stagedPairRows != 0 {
 				t.Fatalf("same-reason rejected diagnostics grew or drifted at %d: extracted=%+v coverage=%+v entries=%d",
 					frameCount, extracted, coverage, entries)
 			}
@@ -339,24 +374,30 @@ func TestProfilerOuterPairPublishersShareStableAggregateCoverageIndex(t *testing
 	extracted, sink := extractProfilerCensusFixture(t, syntheticProfilerTraceFile(messages...))
 	defer sink.cleanup()
 	coverage, entries := profilerDiagnosticCoverage(extracted, "plugin:__other_text__")
+	coverageIndex, publisherPresent := extracted.profilerPublisherCoverage.coverageIndex(
+		profilerPairPublisherOtherText,
+	)
+	publisherSlots, stagedPairRows := profilerPublisherCoverageStateForTest(t, extracted)
 	if entries != 1 || coverage.RowsRead != 3 || coverage.RowsEmitted != 2 ||
 		coverage.FieldSources[profilerCoverageMMCStagedRows] != "2" ||
-		len(extracted.pairPublishers) != 2 || len(extracted.textMessages) != 2 {
+		extracted.TextPluginMessages != 2 || extracted.TextRows != 2 ||
+		!publisherPresent || publisherSlots != 1 || stagedPairRows != 2 {
 		t.Fatalf("pair-bearing publisher census drifted: extracted=%+v coverage=%+v", extracted, coverage)
 	}
-	coverageIndex := extracted.pairPublishers[0].coverageIndex
 	if coverageIndex < 0 || coverageIndex >= len(extracted.TraceCoverage) ||
-		extracted.TraceCoverage[coverageIndex].Table != "plugin:__other_text__" {
+		extracted.TraceCoverage[coverageIndex].Table != "plugin:__other_text__" ||
+		extracted.TraceCoverage[coverageIndex].FieldSources[profilerCoverageMMCStagedRows] != "2" {
 		t.Fatalf("publisher did not bind to the aggregate route coverage: index=%d coverage=%+v", coverageIndex, extracted.TraceCoverage)
-	}
-	for _, publisher := range extracted.pairPublishers {
-		if publisher.coverageIndex != coverageIndex {
-			t.Fatalf("same route publishers gained unstable coverage indices: %+v", extracted.pairPublishers)
-		}
 	}
 }
 
 func TestProfilerOuterDiagnosticLedgerHasNoDynamicRetainedCollections(t *testing.T) {
+	extractionType := reflect.TypeOf(profilerContainerExtraction{})
+	for _, removedField := range []string{"pairPublishers", "textMessages"} {
+		if field, present := extractionType.FieldByName(removedField); present {
+			t.Fatalf("profiler extraction regained legacy per-message field %s kind=%s", removedField, field.Type.Kind())
+		}
+	}
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "profiler_container_diagnostics.go", nil, 0)
 	if err != nil {

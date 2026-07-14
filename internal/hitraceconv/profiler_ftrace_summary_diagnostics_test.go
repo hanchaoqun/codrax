@@ -59,6 +59,7 @@ func TestProfilerSummaryDiagnosticsRetainedShapeIsConstant(t *testing.T) {
 		t.Run(strconv.Itoa(frameCount), func(t *testing.T) {
 			extracted, sink := extractProfilerCensusFixture(t, profilerRepeatedDiagnosticFrameFixture(message, frameCount))
 			defer sink.cleanup()
+			_, stagedPairRows := profilerPublisherCoverageStateForTest(t, extracted)
 			coverage, coverageEntries := profilerSummaryCoverage(extracted)
 			caveat, caveatEntries := profilerSummaryCaveat(extracted)
 			plugin, pluginEntries := profilerDiagnosticCoverage(extracted, "plugin:ftrace-plugin")
@@ -70,7 +71,7 @@ func TestProfilerSummaryDiagnosticsRetainedShapeIsConstant(t *testing.T) {
 				coverage.FieldSources["issue_ftrace_cpu_stats_malformed_wire_affected_frames"] != strconv.Itoa(frameCount) ||
 				caveatEntries != 1 || !strings.Contains(caveat, "summary_frames="+strconv.Itoa(frameCount)) ||
 				pluginEntries != 1 || plugin.FieldSources["outcome_structured_degraded_frames"] != strconv.Itoa(frameCount) ||
-				len(extracted.pairPublishers) != 0 || len(extracted.textMessages) != 0 {
+				stagedPairRows != 0 {
 				t.Fatalf("summary retained shape drifted at %d frames: extracted=%+v coverage=%+v caveat=%q plugin=%+v",
 					frameCount, extracted, coverage, caveat, plugin)
 			}

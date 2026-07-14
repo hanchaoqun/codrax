@@ -99,14 +99,14 @@ func runProfilerStrictTextHostileResourceCase(t *testing.T) {
 		t.Fatalf("strict text hostile fixture lost deterministic legacy discrimination: lower=%d limit=%d",
 			legacyLowerBound, limit)
 	}
+	_, stagedPairRows := profilerPublisherCoverageStateForTest(t, extracted)
 	if !extracted.Detected || extracted.Kind != "openharmony_profiler_trace_file" ||
 		extracted.Messages != 1 || len(extracted.PluginMessages) != 1 ||
 		extracted.PluginMessages["ftrace-plugin"] != 1 || extracted.StructuredFtrace != 0 ||
 		extracted.MalformedFtrace != 0 || extracted.UnsupportedFtrace != 0 ||
 		extracted.RejectedMessages != 0 || extracted.TextPluginMessages != 1 ||
 		extracted.TextRows != int(fixture.Occurrences) || extracted.SourceFailClosed ||
-		extracted.StandaloneDetected || len(extracted.textMessages) != 0 ||
-		len(extracted.pairPublishers) != 0 {
+		extracted.StandaloneDetected || stagedPairRows != 0 {
 		t.Fatalf("strict text hostile return shape drifted: fixture=%+v extracted=%+v",
 			fixture, extracted)
 	}

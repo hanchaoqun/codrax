@@ -327,7 +327,8 @@ func profilerHostileCoverageByTable(t *testing.T, coverage []TraceDBCoverage, ta
 
 func assertProfilerHostileNestedDiagnostics(t *testing.T, extracted profilerContainerExtraction) {
 	t.Helper()
-	if len(extracted.TraceCoverage) != 2 || len(extracted.Caveats) != 4 {
+	if len(extracted.TraceCoverage) != 2 || len(extracted.Caveats) != 3 ||
+		!extracted.publicationCaveatPending || extracted.terminalPublicationApplied {
 		t.Fatalf("nested hostile returned diagnostics shape drifted: coverage=%d caveats=%d",
 			len(extracted.TraceCoverage), len(extracted.Caveats))
 	}
@@ -362,7 +363,8 @@ func assertProfilerHostileTopDiagnostics(t *testing.T, fixture profilerHostileRe
 	extracted profilerContainerExtraction,
 ) {
 	t.Helper()
-	if fixture.Occurrences == 0 || len(extracted.TraceCoverage) != 1 || len(extracted.Caveats) != 4 {
+	if fixture.Occurrences == 0 || len(extracted.TraceCoverage) != 1 || len(extracted.Caveats) != 3 ||
+		!extracted.publicationCaveatPending || extracted.terminalPublicationApplied {
 		t.Fatalf("top hostile returned diagnostics shape drifted: fixture=%+v coverage=%d caveats=%d",
 			fixture, len(extracted.TraceCoverage), len(extracted.Caveats))
 	}
@@ -444,12 +446,13 @@ func runProfilerHostileResourceCase(t *testing.T, writeFixture func(*testing.T, 
 	if fixture.Name == "nested" {
 		wantUnsupported = 1
 	}
+	_, stagedPairRows := profilerPublisherCoverageStateForTest(t, extracted)
 	if !extracted.Detected || extracted.Kind != "openharmony_profiler_trace_file" || extracted.Messages != 1 ||
 		len(extracted.PluginMessages) != 1 || extracted.PluginMessages["ftrace-plugin"] != 1 ||
 		extracted.StructuredFtrace != 1 || extracted.MalformedFtrace != 0 || extracted.RejectedMessages != 0 ||
 		extracted.StructuredRows != 0 || extracted.UnsupportedFtrace != wantUnsupported ||
 		extracted.TextPluginMessages != 0 || extracted.TextRows != 0 || extracted.StandaloneDetected ||
-		extracted.SourceFailClosed || len(extracted.textMessages) != 0 || len(extracted.pairPublishers) != 0 ||
+		extracted.SourceFailClosed || stagedPairRows != 0 ||
 		sink.stats.RowsAccepted != 0 || sink.publishableRows() != 0 {
 		t.Fatalf("%s hostile structured return shape drifted: extracted=%+v sink=%+v", fixture.Name, extracted, sink.stats)
 	}

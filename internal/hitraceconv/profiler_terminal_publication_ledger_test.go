@@ -46,6 +46,54 @@ func profilerTerminalTypeHasDynamicState(current reflect.Type, seen map[reflect.
 	return false
 }
 
+func cloneProfilerContainerExtractionForTerminalTest(
+	extraction profilerContainerExtraction,
+) profilerContainerExtraction {
+	cloned := extraction
+	if extraction.PluginMessages != nil {
+		cloned.PluginMessages = make(map[string]int, len(extraction.PluginMessages))
+		for key, value := range extraction.PluginMessages {
+			cloned.PluginMessages[key] = value
+		}
+	}
+	cloned.TraceCoverage = append([]TraceDBCoverage(nil), extraction.TraceCoverage...)
+	for index := range cloned.TraceCoverage {
+		coverage := &cloned.TraceCoverage[index]
+		coverage.ColumnsPresent = append([]string(nil), coverage.ColumnsPresent...)
+		coverage.ColumnsMissing = append([]string(nil), coverage.ColumnsMissing...)
+		if coverage.FieldSources != nil {
+			fields := make(map[string]string, len(coverage.FieldSources))
+			for key, value := range coverage.FieldSources {
+				fields[key] = value
+			}
+			coverage.FieldSources = fields
+		}
+	}
+	cloned.Caveats = append([]string(nil), extraction.Caveats...)
+	return cloned
+}
+
+func requireProfilerTerminalApplyErrorUnchanged(
+	t *testing.T,
+	extraction profilerContainerExtraction,
+	sink *traceDBRowSink,
+	wantReason string,
+) {
+	t.Helper()
+	candidate := cloneProfilerContainerExtractionForTerminalTest(extraction)
+	before := cloneProfilerContainerExtractionForTerminalTest(candidate)
+	_, err := applyProfilerTerminalPublication(&candidate, sink)
+	reason, ok := traceDBOutputInvariantReason(err)
+	if !ok || reason != wantReason {
+		t.Fatalf("terminal publication error reason=%q ok=%t want=%q err=%v",
+			reason, ok, wantReason, err)
+	}
+	if !reflect.DeepEqual(candidate, before) {
+		t.Fatalf("failed terminal projection mutated extraction:\n before=%+v\n after=%+v",
+			before, candidate)
+	}
+}
+
 func TestProfilerTerminalPublicationStateHasNoDynamicCollections(t *testing.T) {
 	for _, value := range []any{
 		profilerTerminalPublicationCounts{},
@@ -56,6 +104,15 @@ func TestProfilerTerminalPublicationStateHasNoDynamicCollections(t *testing.T) {
 		typeOf := reflect.TypeOf(value)
 		if profilerTerminalTypeHasDynamicState(typeOf, make(map[reflect.Type]bool)) {
 			t.Fatalf("terminal publication state %v gained dynamic retained storage", typeOf)
+		}
+	}
+}
+
+func TestProfilerContainerExtractionHasNoLegacyPublicationArrays(t *testing.T) {
+	typeOf := reflect.TypeOf(profilerContainerExtraction{})
+	for _, field := range []string{"pairPublishers", "textMessages"} {
+		if _, present := typeOf.FieldByName(field); present {
+			t.Fatalf("profiler extraction retained legacy publication array %q", field)
 		}
 	}
 }
@@ -329,12 +386,12 @@ func TestProfilerTerminalPublicationCoversEveryStructuredEndpoint(t *testing.T) 
 	}
 }
 
-func TestProfilerTerminalPublicationLegacyParityRejectsCrossPublisherSwap(t *testing.T) {
+func TestProfilerTerminalPublicationProjectsStagedTextCountsFromFixedCoverage(t *testing.T) {
 	sink := newProfilerSourceLifecycleCapture(
 		t, profilerSourceLifecycleFile(t), 2, traceDBRowSinkOptions{},
 	)
 	defer sink.cleanup()
-	addMessage := func(publisher profilerPairPublisherSlot, lane string, ts uint64) profilerPairCensusSet {
+	addMessage := func(publisher profilerPairPublisherSlot, lane string, ts uint64) {
 		t.Helper()
 		if !sink.beginPairRowCensusForPublisher(publisher) || !sink.beginProfilerTextMessage() {
 			t.Fatalf("begin publisher %d", publisher)
@@ -349,61 +406,113 @@ func TestProfilerTerminalPublicationLegacyParityRejectsCrossPublisherSwap(t *tes
 		if err := sink.endProfilerTextMessage(1); err != nil {
 			t.Fatal(err)
 		}
-		return sink.endPairRowCensus()
+		_ = sink.endPairRowCensus()
 	}
-	otherStaged := addMessage(profilerPairPublisherOtherText, "withheld-lane", 1)
-	bytraceStaged := addMessage(profilerPairPublisherBytrace, "published-lane", 2)
+	addMessage(profilerPairPublisherOtherText, "withheld-lane", 1)
+	addMessage(profilerPairPublisherBytrace, "published-lane", 2)
 	sink.poisonPairLane(pairRenderF2FS, "withheld-lane")
 	if err := sink.sealProfilerCapture(); err != nil {
 		t.Fatal(err)
 	}
-	extraction := profilerContainerExtraction{
-		TextPluginMessages: 1,
-		TextRows:           1,
+	staged := profilerContainerExtraction{
+		Messages:                 2,
+		TextPluginMessages:       2,
+		TextRows:                 2,
+		Caveats:                  []string{"before publication", "after publication"},
+		publicationCaveatPending: true,
+		publicationCaveatIndex:   1,
 		TraceCoverage: []TraceDBCoverage{
 			{RowsEmitted: 1, FieldSources: map[string]string{profilerCoverageF2FSStagedRows: "1"}},
 			{RowsEmitted: 1, FieldSources: map[string]string{profilerCoverageF2FSStagedRows: "1"}},
 		},
-		pairPublishers: []profilerPairPublisherCensus{
-			{coverageIndex: 0, publisherSlot: profilerPairPublisherOtherText, staged: otherStaged},
-			{coverageIndex: 1, publisherSlot: profilerPairPublisherBytrace, staged: bytraceStaged},
-		},
-		textMessages: []profilerTextMessageRows{
-			{total: 1, staged: otherStaged},
-			{total: 1, staged: bytraceStaged},
-		},
 	}
-	if !extraction.profilerPublisherCoverage.observe(profilerPairPublisherOtherText, 0) ||
-		!extraction.profilerPublisherCoverage.observe(profilerPairPublisherBytrace, 1) {
+	if !staged.profilerPublisherCoverage.observe(profilerPairPublisherOtherText, 0) ||
+		!staged.profilerPublisherCoverage.observe(profilerPairPublisherBytrace, 1) {
 		t.Fatal("record fixed publisher coverage")
 	}
-	if err := validateProfilerTerminalPublicationParity(extraction, sink); err != nil {
-		t.Fatalf("valid terminal/legacy parity failed: %v", err)
+	projected := cloneProfilerContainerExtractionForTerminalTest(staged)
+	terminal, err := applyProfilerTerminalPublication(&projected, sink)
+	if err != nil {
+		t.Fatalf("valid staged terminal projection failed: %v", err)
 	}
-	extraction.TextPluginMessages++
-	err := validateProfilerTerminalPublicationParity(extraction, sink)
-	reason, ok := traceDBOutputInvariantReason(err)
-	if !ok || reason != "profiler_terminal_publication_message_count_mismatch" {
-		t.Fatalf("legacy message overcount escaped parity: reason=%q ok=%t err=%v", reason, ok, err)
+	if projected.TextPluginMessages != 1 || projected.TextRows != 1 || projected.StructuredRows != 0 {
+		t.Fatalf("staged counts were not projected from the terminal ledger: %+v", projected)
 	}
-	extraction.TextPluginMessages--
+	if terminal.textMessages != (profilerTerminalTextMessageLedger{
+		staged: 2, published: 1, fullyWithheld: 1, pairBearing: 2,
+	}) || terminal.textRows != (profilerTerminalPublicationCounts{
+		staged: 2, published: 1, withheld: 1,
+	}) || terminal.publisherFamilies[profilerPairPublisherOtherText][pairRenderF2FS] !=
+		(profilerTerminalPublicationCounts{staged: 1, withheld: 1}) ||
+		terminal.publisherFamilies[profilerPairPublisherBytrace][pairRenderF2FS] !=
+			(profilerTerminalPublicationCounts{staged: 1, published: 1}) {
+		t.Fatalf("terminal authority drifted: %+v", terminal)
+	}
+	if projected.TraceCoverage[0].RowsEmitted != 0 ||
+		projected.TraceCoverage[0].FieldSources["complete_capture_withheld_rows"] != "1" ||
+		projected.TraceCoverage[1].RowsEmitted != 1 ||
+		projected.TraceCoverage[1].FieldSources["complete_capture_withheld_rows"] != "" ||
+		projected.profilerPublisherCoverage != staged.profilerPublisherCoverage {
+		t.Fatalf("terminal verdict was not projected onto fixed publisher coverage: %+v", projected)
+	}
+	wantCaveats := []string{
+		"before publication",
+		"extracted 1 systrace text row(s) from 1 profiler plugin message(s)",
+		"after publication",
+	}
+	if projected.publicationCaveatPending || !projected.terminalPublicationApplied ||
+		!reflect.DeepEqual(projected.Caveats, wantCaveats) {
+		t.Fatalf("deferred publication caveat drifted: got=%q pending=%t want=%q",
+			projected.Caveats, projected.publicationCaveatPending, wantCaveats)
+	}
+	if staged.TraceCoverage[0].RowsEmitted != 1 ||
+		staged.TraceCoverage[0].FieldSources["complete_capture_withheld_rows"] != "" ||
+		!staged.publicationCaveatPending || !reflect.DeepEqual(staged.Caveats,
+		[]string{"before publication", "after publication"}) {
+		t.Fatalf("projection mutated the staged input authority: %+v", staged)
+	}
+
+	overcount := cloneProfilerContainerExtractionForTerminalTest(staged)
+	overcount.TextPluginMessages++
+	requireProfilerTerminalApplyErrorUnchanged(t, overcount, sink,
+		"profiler_terminal_publication_message_count_mismatch")
+
+	missingFamily := cloneProfilerContainerExtractionForTerminalTest(staged)
+	delete(missingFamily.TraceCoverage[0].FieldSources, profilerCoverageF2FSStagedRows)
+	requireProfilerTerminalApplyErrorUnchanged(t, missingFamily, sink,
+		"profiler_terminal_publication_publisher_family_coverage_mismatch")
+
+	wrongFamily := cloneProfilerContainerExtractionForTerminalTest(staged)
+	wrongFamily.TraceCoverage[1].FieldSources[profilerCoverageF2FSStagedRows] = "2"
+	requireProfilerTerminalApplyErrorUnchanged(t, wrongFamily, sink,
+		"profiler_terminal_publication_publisher_family_coverage_mismatch")
+
+	explicitZeroFamily := cloneProfilerContainerExtractionForTerminalTest(staged)
+	explicitZeroFamily.TraceCoverage[0].FieldSources[profilerCoverageMMCStagedRows] = "0"
+	requireProfilerTerminalApplyErrorUnchanged(t, explicitZeroFamily, sink,
+		"profiler_terminal_publication_publisher_family_coverage_mismatch")
+
+	negativeCaveatIndex := cloneProfilerContainerExtractionForTerminalTest(staged)
+	negativeCaveatIndex.publicationCaveatIndex = -1
+	requireProfilerTerminalApplyErrorUnchanged(t, negativeCaveatIndex, sink,
+		"profiler_terminal_publication_caveat_index_invalid")
+
+	pastCaveatIndex := cloneProfilerContainerExtractionForTerminalTest(staged)
+	pastCaveatIndex.publicationCaveatIndex = len(pastCaveatIndex.Caveats) + 1
+	requireProfilerTerminalApplyErrorUnchanged(t, pastCaveatIndex, sink,
+		"profiler_terminal_publication_caveat_index_invalid")
+
+	requireProfilerTerminalApplyErrorUnchanged(t, projected, sink,
+		"profiler_terminal_publication_already_applied")
+
+	// Terminal publisher verdicts are authoritative, but they must remain
+	// internally consistent with the authenticated publisher-family projection.
 	otherPublisher := &sink.sourceOrderSidecar.terminal.publishers[profilerPairPublisherOtherText]
 	bytracePublisher := &sink.sourceOrderSidecar.terminal.publishers[profilerPairPublisherBytrace]
 	*otherPublisher, *bytracePublisher = *bytracePublisher, *otherPublisher
-	err = validateProfilerTerminalPublicationParity(extraction, sink)
-	reason, ok = traceDBOutputInvariantReason(err)
-	if !ok || reason != "profiler_terminal_publication_publisher_verdict_mismatch" {
-		t.Fatalf("publisher terminal verdict swap escaped parity: reason=%q ok=%t err=%v", reason, ok, err)
-	}
+	requireProfilerTerminalApplyErrorUnchanged(t, staged, sink,
+		"profiler_terminal_publication_publisher_verdict_mismatch")
 	*otherPublisher, *bytracePublisher = *bytracePublisher, *otherPublisher
-	other := &sink.sourceOrderSidecar.terminal.publisherFamilies[profilerPairPublisherOtherText][pairRenderF2FS]
-	bytrace := &sink.sourceOrderSidecar.terminal.publisherFamilies[profilerPairPublisherBytrace][pairRenderF2FS]
-	*other, *bytrace = *bytrace, *other
-	err = validateProfilerTerminalPublicationParity(extraction, sink)
-	reason, ok = traceDBOutputInvariantReason(err)
-	if !ok || reason != "profiler_terminal_publication_publisher_parity_mismatch" {
-		t.Fatalf("cross-publisher terminal swap escaped parity: reason=%q ok=%t err=%v", reason, ok, err)
-	}
 }
 
 func TestProfilerTerminalPublicationStructuredEventCoverageIsExact(t *testing.T) {
@@ -421,16 +530,22 @@ func TestProfilerTerminalPublicationStructuredEventCoverageIsExact(t *testing.T)
 	}, traceDBProfilerEventDelta{}); err != nil {
 		t.Fatal(err)
 	}
-	staged := sink.endPairRowCensus()
+	_ = sink.endPairRowCensus()
+	sink.poisonPairLane(pairRenderF2FS, "event-lane")
 	if err := sink.sealProfilerCapture(); err != nil {
 		t.Fatal(err)
 	}
 	extraction := profilerContainerExtraction{
-		StructuredRows: 1,
-		TraceCoverage:  []TraceDBCoverage{{RowsEmitted: 1}, {RowsEmitted: 1}},
-		pairPublishers: []profilerPairPublisherCensus{{
-			coverageIndex: 0, publisherSlot: profilerPairPublisherExactFtrace, staged: staged,
-		}},
+		Messages:                 1,
+		StructuredFtrace:         1,
+		StructuredRows:           1,
+		Caveats:                  []string{"before publication", "after publication"},
+		publicationCaveatPending: true,
+		publicationCaveatIndex:   1,
+		TraceCoverage: []TraceDBCoverage{
+			{RowsEmitted: 1, FieldSources: map[string]string{profilerCoverageF2FSStagedRows: "1"}},
+			{RowsEmitted: 1},
+		},
 	}
 	if !extraction.profilerPublisherCoverage.observe(profilerPairPublisherExactFtrace, 0) {
 		t.Fatal("record structured publisher coverage")
@@ -438,8 +553,26 @@ func TestProfilerTerminalPublicationStructuredEventCoverageIsExact(t *testing.T)
 	eventSlot := profilerFtraceEventSlot(4011)
 	extraction.profilerEventCoverage.Present[eventSlot] = true
 	extraction.profilerEventCoverage.Index[eventSlot] = 1
-	if err := validateProfilerTerminalPublicationParity(extraction, sink); err != nil {
-		t.Fatalf("valid structured event parity failed: %v", err)
+	projected := cloneProfilerContainerExtractionForTerminalTest(extraction)
+	terminal, err := applyProfilerTerminalPublication(&projected, sink)
+	if err != nil {
+		t.Fatalf("valid structured event projection failed: %v", err)
+	}
+	if projected.StructuredRows != 0 || projected.TextRows != 0 ||
+		terminal.structuredEndpoints[profilerPairEndpointF2FSWriteBegin] !=
+			(profilerTerminalPublicationCounts{staged: 1, withheld: 1}) ||
+		projected.TraceCoverage[0].RowsEmitted != 0 ||
+		projected.TraceCoverage[0].FieldSources["complete_capture_withheld_rows"] != "1" ||
+		projected.TraceCoverage[1].RowsEmitted != 0 ||
+		projected.TraceCoverage[1].FieldSources["complete_capture_withheld_rows"] != "1" {
+		t.Fatalf("structured terminal projection drifted: projected=%+v terminal=%+v",
+			projected, terminal)
+	}
+	wantCaveat := "decoded 1 authoritative ftrace-plugin TracePluginResult message(s) and rendered 0 structured trace row(s); unsupported or degraded members remain explicit in typed coverage"
+	if projected.publicationCaveatPending || !projected.terminalPublicationApplied ||
+		len(projected.Caveats) != 3 ||
+		projected.Caveats[1] != wantCaveat {
+		t.Fatalf("structured deferred caveat drifted: %+v", projected)
 	}
 
 	for _, test := range []struct {
@@ -452,40 +585,27 @@ func TestProfilerTerminalPublicationStructuredEventCoverageIsExact(t *testing.T)
 		{name: "over", present: true, rows: 2},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			mutated := extraction
-			mutated.TraceCoverage = append([]TraceDBCoverage(nil), extraction.TraceCoverage...)
+			mutated := cloneProfilerContainerExtractionForTerminalTest(extraction)
 			mutated.profilerEventCoverage.Present[eventSlot] = test.present
 			mutated.TraceCoverage[1].RowsEmitted = test.rows
-			err := validateProfilerTerminalPublicationParity(mutated, sink)
-			reason, ok := traceDBOutputInvariantReason(err)
-			if !ok || reason != "profiler_terminal_publication_event_coverage_mismatch" {
-				t.Fatalf("event coverage %s escaped: reason=%q ok=%t err=%v", test.name, reason, ok, err)
-			}
+			requireProfilerTerminalApplyErrorUnchanged(t, mutated, sink,
+				"profiler_terminal_publication_event_coverage_mismatch")
 		})
 	}
-	mutated := extraction
+	mutated := cloneProfilerContainerExtractionForTerminalTest(extraction)
 	mutated.profilerEventCoverage.Index[eventSlot] = 0
-	err := validateProfilerTerminalPublicationParity(mutated, sink)
-	reason, ok := traceDBOutputInvariantReason(err)
-	if !ok || reason != "profiler_terminal_publication_coverage_index_collision" {
-		t.Fatalf("event/publisher coverage collision escaped: reason=%q ok=%t err=%v", reason, ok, err)
-	}
-	mutated = extraction
-	secondEventSlot := profilerFtraceEventSlot(2003)
-	mutated.profilerEventCoverage.Present[secondEventSlot] = true
-	mutated.profilerEventCoverage.Index[secondEventSlot] = 1
-	err = validateProfilerTerminalPublicationParity(mutated, sink)
-	reason, ok = traceDBOutputInvariantReason(err)
-	if !ok || reason != "profiler_terminal_publication_coverage_index_collision" {
-		t.Fatalf("event/event coverage collision escaped: reason=%q ok=%t err=%v", reason, ok, err)
-	}
-	mutated = extraction
+	requireProfilerTerminalApplyErrorUnchanged(t, mutated, sink,
+		"profiler_terminal_publication_coverage_index_collision")
+
+	mutated = cloneProfilerContainerExtractionForTerminalTest(extraction)
 	mutated.profilerPublisherCoverage.Present[profilerPairPublisherExactFtrace] = false
-	err = validateProfilerTerminalPublicationParity(mutated, sink)
-	reason, ok = traceDBOutputInvariantReason(err)
-	if !ok || reason != "profiler_terminal_publication_publisher_index_mismatch" {
-		t.Fatalf("publisher row lost its coverage mapping: reason=%q ok=%t err=%v", reason, ok, err)
-	}
+	requireProfilerTerminalApplyErrorUnchanged(t, mutated, sink,
+		"profiler_terminal_publication_publisher_index_mismatch")
+
+	mutated = cloneProfilerContainerExtractionForTerminalTest(extraction)
+	delete(mutated.TraceCoverage[0].FieldSources, profilerCoverageF2FSStagedRows)
+	requireProfilerTerminalApplyErrorUnchanged(t, mutated, sink,
+		"profiler_terminal_publication_publisher_family_coverage_mismatch")
 }
 
 func TestProfilerTerminalPublicationSessionHasNoPluginMessage(t *testing.T) {
@@ -498,51 +618,158 @@ func TestProfilerTerminalPublicationSessionHasNoPluginMessage(t *testing.T) {
 	}
 	if err := sink.addProfilerEventContext(context.Background(), renderedRow{
 		tsNS: 1, seq: 1, line: "session-row",
+		pairKind: pairRenderF2FS, pairLane: "session-withheld-lane",
+		pairTable: "f2fs_write_begin", profilerEndpointSlot: profilerPairEndpointF2FSWriteBegin,
 	}, traceDBProfilerEventDelta{}); err != nil {
 		t.Fatal(err)
 	}
-	staged := sink.endPairRowCensus()
+	_ = sink.endPairRowCensus()
+	sink.poisonPairLane(pairRenderF2FS, "session-withheld-lane")
 	if err := sink.sealProfilerCapture(); err != nil {
 		t.Fatal(err)
 	}
 	extraction := profilerContainerExtraction{
-		Kind:     "openharmony_profiler_session_package",
-		TextRows: 1,
+		Kind:                     "openharmony_profiler_session_package",
+		TextRows:                 1,
+		Caveats:                  []string{"before publication", "after publication"},
+		publicationCaveatPending: true,
+		publicationCaveatIndex:   1,
 		TraceCoverage: []TraceDBCoverage{{
-			RowsEmitted: 1,
-		}},
-		pairPublishers: []profilerPairPublisherCensus{{
-			coverageIndex: 0,
-			publisherSlot: profilerPairPublisherSession,
-			staged:        staged,
+			RowsEmitted:  1,
+			FieldSources: map[string]string{profilerCoverageF2FSStagedRows: "1"},
 		}},
 	}
 	if !extraction.profilerPublisherCoverage.observe(profilerPairPublisherSession, 0) {
 		t.Fatal("record Session publisher coverage")
 	}
-	if err := validateProfilerTerminalPublicationParity(extraction, sink); err != nil {
-		t.Fatalf("valid Session terminal parity failed: %v", err)
+	projected := cloneProfilerContainerExtractionForTerminalTest(extraction)
+	terminal, err := applyProfilerTerminalPublication(&projected, sink)
+	if err != nil {
+		t.Fatalf("valid Session terminal projection failed: %v", err)
 	}
-	extraction.SourceFailClosed = true
-	err := validateProfilerTerminalPublicationParity(extraction, sink)
-	reason, ok := traceDBOutputInvariantReason(err)
-	if !ok || reason != "profiler_terminal_publication_source_fail_close_state_mismatch" {
-		t.Fatalf("extraction-only source fail-close escaped: reason=%q ok=%t err=%v", reason, ok, err)
+	if projected.TextRows != 0 || projected.TextPluginMessages != 0 ||
+		terminal.textRows != (profilerTerminalPublicationCounts{staged: 1, withheld: 1}) ||
+		terminal.textMessages != (profilerTerminalTextMessageLedger{}) ||
+		terminal.publishers[profilerPairPublisherSession] !=
+			(profilerTerminalPublicationCounts{staged: 1, withheld: 1}) ||
+		projected.TraceCoverage[0].RowsEmitted != 0 ||
+		projected.TraceCoverage[0].FieldSources["complete_capture_withheld_rows"] != "1" {
+		t.Fatalf("Session terminal projection drifted: projected=%+v terminal=%+v",
+			projected, terminal)
 	}
-	extraction.SourceFailClosed = false
+	wantSkipped := "session pair-critical endpoint rows were staged but withheld by exact-lane or source-family full-capture barriers"
+	wantCaveat := "profiler session package staged exact pair-critical rows, but exact-lane or source-family full-capture barriers withheld them before publication: mmc=0 f2fs=1 block=0"
+	if projected.TraceCoverage[0].Skipped != wantSkipped ||
+		projected.publicationCaveatPending || !projected.terminalPublicationApplied ||
+		len(projected.Caveats) != 3 ||
+		projected.Caveats[1] != wantCaveat {
+		t.Fatalf("Session deferred disclosure drifted: %+v", projected)
+	}
+
+	mutated := cloneProfilerContainerExtractionForTerminalTest(extraction)
+	mutated.SourceFailClosed = true
+	requireProfilerTerminalApplyErrorUnchanged(t, mutated, sink,
+		"profiler_terminal_publication_source_fail_close_state_mismatch")
+
 	sink.allRowsFailClosed = true
-	err = validateProfilerTerminalPublicationParity(extraction, sink)
-	reason, ok = traceDBOutputInvariantReason(err)
-	if !ok || reason != "profiler_terminal_publication_source_fail_close_state_mismatch" {
-		t.Fatalf("sink-only source fail-close escaped: reason=%q ok=%t err=%v", reason, ok, err)
-	}
+	requireProfilerTerminalApplyErrorUnchanged(t, extraction, sink,
+		"profiler_terminal_publication_source_fail_close_state_mismatch")
 	sink.allRowsFailClosed = false
-	extraction.TextPluginMessages = 1
-	err = validateProfilerTerminalPublicationParity(extraction, sink)
-	reason, ok = traceDBOutputInvariantReason(err)
-	if !ok || reason != "profiler_terminal_publication_session_message_mismatch" {
-		t.Fatalf("Session acquired a plugin-message seat: reason=%q ok=%t err=%v", reason, ok, err)
-	}
+
+	mutated = cloneProfilerContainerExtractionForTerminalTest(extraction)
+	mutated.TextPluginMessages = 1
+	requireProfilerTerminalApplyErrorUnchanged(t, mutated, sink,
+		"profiler_terminal_publication_session_message_mismatch")
+}
+
+func TestProfilerTerminalPublicationSessionDisclosurePublishedAndRowless(t *testing.T) {
+	t.Run("published", func(t *testing.T) {
+		sink := newProfilerSourceLifecycleCapture(
+			t, profilerSourceLifecycleFile(t), 1, traceDBRowSinkOptions{},
+		)
+		defer sink.cleanup()
+		if !sink.beginPairRowCensusForPublisher(profilerPairPublisherSession) {
+			t.Fatal("begin Session publisher")
+		}
+		if err := sink.addProfilerEventContext(context.Background(), renderedRow{
+			tsNS: 1, seq: 1, line: "published-session-row",
+		}, traceDBProfilerEventDelta{}); err != nil {
+			t.Fatal(err)
+		}
+		_ = sink.endPairRowCensus()
+		if err := sink.sealProfilerCapture(); err != nil {
+			t.Fatal(err)
+		}
+		extraction := profilerContainerExtraction{
+			Kind:                     "openharmony_profiler_session_package",
+			TextRows:                 1,
+			Caveats:                  []string{"after publication"},
+			publicationCaveatPending: true,
+			TraceCoverage:            []TraceDBCoverage{{RowsEmitted: 1}},
+		}
+		if !extraction.profilerPublisherCoverage.observe(profilerPairPublisherSession, 0) {
+			t.Fatal("record Session publisher coverage")
+		}
+		terminal, err := applyProfilerTerminalPublication(&extraction, sink)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantCaveats := []string{
+			"extracted 1 systrace text row(s) from profiler session package payload",
+			"after publication",
+		}
+		if extraction.TextRows != 1 || extraction.TraceCoverage[0].RowsEmitted != 1 ||
+			extraction.TraceCoverage[0].Skipped != "" || extraction.publicationCaveatPending ||
+			!extraction.terminalPublicationApplied ||
+			!reflect.DeepEqual(extraction.Caveats, wantCaveats) ||
+			terminal.textRows != (profilerTerminalPublicationCounts{staged: 1, published: 1}) {
+			t.Fatalf("published Session disclosure drifted: extraction=%+v terminal=%+v",
+				extraction, terminal)
+		}
+	})
+
+	t.Run("rowless", func(t *testing.T) {
+		sink := newProfilerSourceLifecycleCapture(
+			t, profilerSourceLifecycleFile(t), 1, traceDBRowSinkOptions{},
+		)
+		defer sink.cleanup()
+		if err := sink.sealProfilerCapture(); err != nil {
+			t.Fatal(err)
+		}
+		extraction := profilerContainerExtraction{
+			Kind:                     "openharmony_profiler_session_package",
+			Caveats:                  []string{"after publication"},
+			publicationCaveatPending: true,
+			TraceCoverage:            []TraceDBCoverage{{RowsEmitted: 0}},
+		}
+		if !extraction.profilerPublisherCoverage.observe(profilerPairPublisherSession, 0) {
+			t.Fatal("record rowless Session publisher coverage")
+		}
+		terminal, err := applyProfilerTerminalPublication(&extraction, sink)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantSkipped := "session package did not contain directly renderable systrace text rows"
+		wantCaveats := []string{
+			"session package did not contain directly renderable systrace text rows; attach extracted sidecars or export ftrace/bytrace text with the official profiler tooling",
+			"after publication",
+		}
+		if terminal != (profilerTerminalPublicationLedger{}) ||
+			extraction.TraceCoverage[0].Skipped != wantSkipped ||
+			extraction.publicationCaveatPending || !extraction.terminalPublicationApplied ||
+			!reflect.DeepEqual(extraction.Caveats, wantCaveats) {
+			t.Fatalf("rowless Session disclosure drifted: extraction=%+v terminal=%+v",
+				extraction, terminal)
+		}
+
+		missingMapping := profilerContainerExtraction{
+			Kind:                     "openharmony_profiler_session_package",
+			publicationCaveatPending: true,
+			TraceCoverage:            []TraceDBCoverage{{RowsEmitted: 0}},
+		}
+		requireProfilerTerminalApplyErrorUnchanged(t, missingMapping, sink,
+			"profiler_terminal_publication_publisher_index_mismatch")
+	})
 }
 
 func TestProfilerTerminalPublicationRejectsProductionSourceNeutralRow(t *testing.T) {
@@ -554,13 +781,9 @@ func TestProfilerTerminalPublicationRejectsProductionSourceNeutralRow(t *testing
 	if err := sink.sealProfilerCapture(); err != nil {
 		t.Fatal(err)
 	}
-	err := validateProfilerTerminalPublicationParity(
-		profilerContainerExtraction{TextRows: 1}, sink,
-	)
-	reason, ok := traceDBOutputInvariantReason(err)
-	if !ok || reason != "profiler_terminal_publication_source_neutral_row" {
-		t.Fatalf("source-neutral production row escaped: reason=%q ok=%t err=%v", reason, ok, err)
-	}
+	requireProfilerTerminalApplyErrorUnchanged(t,
+		profilerContainerExtraction{TextRows: 1, publicationCaveatPending: true}, sink,
+		"profiler_terminal_publication_source_neutral_row")
 }
 
 func TestProfilerTerminalPublicationMissingSidecarRequiresEmptySourceFailure(t *testing.T) {
@@ -588,28 +811,113 @@ func TestProfilerTerminalPublicationMissingSidecarRequiresEmptySourceFailure(t *
 		t.Fatalf("storage drift was not converted to source failure: %v", err)
 	}
 	extraction := profilerContainerExtraction{
-		TextPluginMessages: 1,
-		TextRows:           1,
-		TraceCoverage:      []TraceDBCoverage{{RowsEmitted: 1}},
+		Messages:                 1,
+		TextPluginMessages:       1,
+		TextRows:                 1,
+		publicationCaveatPending: true,
+		TraceCoverage:            []TraceDBCoverage{{RowsEmitted: 1}},
 	}
 	if err := applyProfilerCaptureSourceFailure(&extraction, sink); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateProfilerTerminalPublicationParity(extraction, sink); err != nil {
-		t.Fatalf("valid missing-sidecar source failure failed parity: %v", err)
+	sourceFailure := cloneProfilerContainerExtractionForTerminalTest(extraction)
+	terminal, err := applyProfilerTerminalPublication(&sourceFailure, sink)
+	if err != nil {
+		t.Fatalf("valid missing-sidecar source failure projection failed: %v", err)
 	}
-	extraction.TextRows = 1
-	err := validateProfilerTerminalPublicationParity(extraction, sink)
-	reason, ok := traceDBOutputInvariantReason(err)
-	if !ok || reason != "profiler_terminal_publication_source_fail_close_mismatch" {
-		t.Fatalf("missing-sidecar nonempty row account escaped: reason=%q ok=%t err=%v", reason, ok, err)
+	wantSourceFailure := cloneProfilerContainerExtractionForTerminalTest(extraction)
+	wantSourceFailure.publicationCaveatPending = false
+	wantSourceFailure.terminalPublicationApplied = true
+	if terminal != (profilerTerminalPublicationLedger{}) ||
+		!reflect.DeepEqual(sourceFailure, wantSourceFailure) {
+		t.Fatalf("source failure acquired substitute publication: terminal=%+v before=%+v after=%+v",
+			terminal, extraction, sourceFailure)
 	}
-	extraction.TextRows = 0
-	extraction.TraceCoverage[0].RowsEmitted = 1
-	err = validateProfilerTerminalPublicationParity(extraction, sink)
-	reason, ok = traceDBOutputInvariantReason(err)
-	if !ok || reason != "profiler_terminal_publication_source_fail_coverage_mismatch" {
-		t.Fatalf("missing-sidecar nonempty coverage escaped: reason=%q ok=%t err=%v", reason, ok, err)
+
+	nonemptyRows := cloneProfilerContainerExtractionForTerminalTest(extraction)
+	nonemptyRows.TextRows = 1
+	requireProfilerTerminalApplyErrorUnchanged(t, nonemptyRows, sink,
+		"profiler_terminal_publication_source_fail_close_mismatch")
+
+	nonemptyCoverage := cloneProfilerContainerExtractionForTerminalTest(extraction)
+	nonemptyCoverage.TraceCoverage[0].RowsEmitted = 1
+	requireProfilerTerminalApplyErrorUnchanged(t, nonemptyCoverage, sink,
+		"profiler_terminal_publication_source_fail_coverage_mismatch")
+}
+
+func TestProfilerTerminalPublicationSourceFailureWithSidecarSkipsNormalMessageInvariant(t *testing.T) {
+	sink := newProfilerSourceLifecycleCapture(
+		t, profilerSourceLifecycleFile(t), 2, traceDBRowSinkOptions{},
+	)
+	defer sink.cleanup()
+	if !sink.beginPairRowCensusForPublisher(profilerPairPublisherOtherText) ||
+		!sink.beginProfilerTextMessage() {
+		t.Fatal("begin non-pair source-failure message")
+	}
+	addProfilerSidecarOrdinaryRow(t, sink, renderedRow{
+		tsNS: 1, seq: 1, line: "ordinary-source-failure-row",
+	})
+	if err := sink.endProfilerTextMessage(1); err != nil {
+		t.Fatal(err)
+	}
+	_ = sink.endPairRowCensus()
+	if !sink.beginPairRowCensusForPublisher(profilerPairPublisherOtherText) ||
+		!sink.beginProfilerTextMessage() {
+		t.Fatal("begin pair-bearing source-failure message")
+	}
+	if err := sink.addProfilerEventContext(context.Background(), renderedRow{
+		tsNS: 2, seq: 2, line: "pair-source-failure-row",
+		pairKind: pairRenderF2FS, pairLane: "source-failure-lane",
+		pairTable: "f2fs_write_begin", profilerEndpointSlot: profilerPairEndpointF2FSWriteBegin,
+	}, traceDBProfilerEventDelta{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sink.endProfilerTextMessage(1); err != nil {
+		t.Fatal(err)
+	}
+	_ = sink.endPairRowCensus()
+	sink.failCloseAllRows()
+	if err := sink.sealProfilerCapture(); err != nil {
+		t.Fatal(err)
+	}
+	// Mirror the already fail-closed public extraction state. StructuredFtrace is
+	// a decoded-frame diagnostic (not a terminal row-class counter); setting it
+	// here selects the source-failure wording while this fixture proves that the
+	// normal-only fullyWithheld<=pairBearing rule is not applied after fail-close.
+	extraction := profilerContainerExtraction{
+		Messages:                 2,
+		StructuredFtrace:         1,
+		SourceFailClosed:         true,
+		SourceFailReason:         "test_source_failure",
+		Caveats:                  []string{"source failure resource verdict", "after publication"},
+		publicationCaveatPending: true,
+		publicationCaveatIndex:   1,
+		TraceCoverage: []TraceDBCoverage{{
+			RowsEmitted:  0,
+			FieldSources: map[string]string{profilerCoverageF2FSStagedRows: "1"},
+		}},
+	}
+	if !extraction.profilerPublisherCoverage.observe(profilerPairPublisherOtherText, 0) {
+		t.Fatal("record source-failure publisher coverage")
+	}
+	terminal, err := applyProfilerTerminalPublication(&extraction, sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantCaveats := []string{
+		"source failure resource verdict",
+		"decoded 1 authoritative ftrace-plugin TracePluginResult message(s), but all structured rows were withheld by the profiler trace-body source fail-close",
+		"after publication",
+	}
+	if terminal.textMessages != (profilerTerminalTextMessageLedger{
+		staged: 2, fullyWithheld: 2, pairBearing: 1,
+	}) || terminal.rows != (profilerTerminalPublicationCounts{staged: 2, withheld: 2}) ||
+		extraction.TextRows != 0 || extraction.TextPluginMessages != 0 ||
+		extraction.TraceCoverage[0].RowsEmitted != 0 || extraction.publicationCaveatPending ||
+		!extraction.terminalPublicationApplied ||
+		!reflect.DeepEqual(extraction.Caveats, wantCaveats) {
+		t.Fatalf("source-failure terminal projection drifted: extraction=%+v terminal=%+v",
+			extraction, terminal)
 	}
 }
 
@@ -621,13 +929,11 @@ func TestProfilerTerminalPublicationZeroRowsRejectsMessageCount(t *testing.T) {
 	if err := sink.sealProfilerCapture(); err != nil {
 		t.Fatal(err)
 	}
-	err := validateProfilerTerminalPublicationParity(
-		profilerContainerExtraction{TextPluginMessages: 1}, sink,
-	)
-	reason, ok := traceDBOutputInvariantReason(err)
-	if !ok || reason != "profiler_terminal_publication_zero_row_mismatch" {
-		t.Fatalf("zero-row message count escaped parity: reason=%q ok=%t err=%v", reason, ok, err)
-	}
+	requireProfilerTerminalApplyErrorUnchanged(t,
+		profilerContainerExtraction{
+			TextPluginMessages: 1, publicationCaveatPending: true,
+		}, sink,
+		"profiler_terminal_publication_zero_row_mismatch")
 }
 
 func TestProfilerTerminalPublicationZeroRowsValidatesRowlessPublisherCoverage(t *testing.T) {
@@ -638,19 +944,33 @@ func TestProfilerTerminalPublicationZeroRowsValidatesRowlessPublisherCoverage(t 
 	if err := sink.sealProfilerCapture(); err != nil {
 		t.Fatal(err)
 	}
-	extraction := profilerContainerExtraction{TraceCoverage: []TraceDBCoverage{{RowsEmitted: 0}}}
+	extraction := profilerContainerExtraction{
+		Caveats:                  []string{"after publication"},
+		publicationCaveatPending: true,
+		TraceCoverage:            []TraceDBCoverage{{RowsEmitted: 0}},
+	}
 	if !extraction.profilerPublisherCoverage.observe(profilerPairPublisherOtherText, 0) {
 		t.Fatal("record rowless publisher coverage")
 	}
-	if err := validateProfilerTerminalPublicationParity(extraction, sink); err != nil {
+	projected := cloneProfilerContainerExtractionForTerminalTest(extraction)
+	terminal, err := applyProfilerTerminalPublication(&projected, sink)
+	if err != nil {
 		t.Fatalf("valid rowless publisher coverage failed: %v", err)
 	}
-	extraction.TraceCoverage[0].RowsEmitted = 1
-	err := validateProfilerTerminalPublicationParity(extraction, sink)
-	reason, ok := traceDBOutputInvariantReason(err)
-	if !ok || reason != "profiler_terminal_publication_publisher_coverage_mismatch" {
-		t.Fatalf("rowless publisher acquired emitted rows: reason=%q ok=%t err=%v", reason, ok, err)
+	wantCaveats := []string{
+		"official profiler header was present, but no length-prefixed ProfilerPluginData messages were readable",
+		"after publication",
 	}
+	if terminal != (profilerTerminalPublicationLedger{}) ||
+		projected.publicationCaveatPending || !projected.terminalPublicationApplied ||
+		!reflect.DeepEqual(projected.Caveats, wantCaveats) {
+		t.Fatalf("rowless publication disclosure drifted: terminal=%+v before=%+v after=%+v",
+			terminal, extraction, projected)
+	}
+	nonempty := cloneProfilerContainerExtractionForTerminalTest(extraction)
+	nonempty.TraceCoverage[0].RowsEmitted = 1
+	requireProfilerTerminalApplyErrorUnchanged(t, nonempty, sink,
+		"profiler_terminal_publication_publisher_coverage_mismatch")
 }
 
 func TestProfilerTerminalPublicationZeroRowsRejectsUnattributedCoverageRows(t *testing.T) {
@@ -661,13 +981,12 @@ func TestProfilerTerminalPublicationZeroRowsRejectsUnattributedCoverageRows(t *t
 	if err := sink.sealProfilerCapture(); err != nil {
 		t.Fatal(err)
 	}
-	err := validateProfilerTerminalPublicationParity(
-		profilerContainerExtraction{TraceCoverage: []TraceDBCoverage{{RowsEmitted: 1}}}, sink,
-	)
-	reason, ok := traceDBOutputInvariantReason(err)
-	if !ok || reason != "profiler_terminal_publication_zero_row_coverage_mismatch" {
-		t.Fatalf("zero-row capture acquired unattributed coverage rows: reason=%q ok=%t err=%v", reason, ok, err)
-	}
+	requireProfilerTerminalApplyErrorUnchanged(t,
+		profilerContainerExtraction{
+			publicationCaveatPending: true,
+			TraceCoverage:            []TraceDBCoverage{{RowsEmitted: 1}},
+		}, sink,
+		"profiler_terminal_publication_zero_row_coverage_mismatch")
 }
 
 func TestProfilerPublisherCoverageIndexesRejectIdentityCollisions(t *testing.T) {
@@ -678,6 +997,26 @@ func TestProfilerPublisherCoverageIndexesRejectIdentityCollisions(t *testing.T) 
 		indexes.observe(profilerPairPublisherBytrace, 0) ||
 		indexes.observe(profilerPairPublisherNone, 2) {
 		t.Fatalf("publisher coverage identity collision escaped: %+v", indexes)
+	}
+}
+
+func TestProfilerTerminalCoverageIndexesRejectEventIdentityCollisions(t *testing.T) {
+	extraction := profilerContainerExtraction{
+		TraceCoverage: []TraceDBCoverage{{RowsEmitted: 0}},
+	}
+	first := profilerFtraceEventSlot(4011)
+	second := profilerFtraceEventSlot(4016)
+	extraction.profilerEventCoverage.Present[first] = true
+	extraction.profilerEventCoverage.Index[first] = 0
+	extraction.profilerEventCoverage.Present[second] = true
+	extraction.profilerEventCoverage.Index[second] = 0
+	err := validateProfilerTerminalCoverageIndexes(
+		extraction, profilerTerminalPublicationLedger{},
+	)
+	reason, ok := traceDBOutputInvariantReason(err)
+	if !ok || reason != "profiler_terminal_publication_coverage_index_collision" {
+		t.Fatalf("event/event coverage collision escaped: reason=%q ok=%t err=%v",
+			reason, ok, err)
 	}
 }
 

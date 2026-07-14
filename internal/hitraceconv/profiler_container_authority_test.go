@@ -261,8 +261,9 @@ func TestProfilerContainerExactLegacyTextAndStructuredProvenanceStayDistinct(t *
 		t.Fatalf("structured rows must not be reported as text: %+v", structuredExtracted)
 	}
 	joined := strings.Join(structuredExtracted.Caveats, "\n")
-	if strings.Contains(joined, "text rows from 0") || !strings.Contains(joined, "rendered 1 structured trace row") {
-		t.Fatalf("structured provenance wording drifted: %s", joined)
+	if strings.Contains(joined, "text rows from 0") || strings.Contains(joined, "rendered 1 structured trace row") ||
+		!structuredExtracted.publicationCaveatPending || structuredExtracted.terminalPublicationApplied {
+		t.Fatalf("extract stage leaked terminal structured publication wording: %s", joined)
 	}
 }
 

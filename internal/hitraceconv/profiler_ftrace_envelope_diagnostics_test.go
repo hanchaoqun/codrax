@@ -82,6 +82,7 @@ func TestProfilerInnerEnvelopeDiagnosticsRetainedShapeIsConstant(t *testing.T) {
 		t.Run(strconv.Itoa(frameCount), func(t *testing.T) {
 			extracted, sink := extractProfilerCensusFixture(t, profilerRepeatedDiagnosticFrameFixture(message, frameCount))
 			defer sink.cleanup()
+			_, stagedPairRows := profilerPublisherCoverageStateForTest(t, extracted)
 			envelope, envelopeEntries := profilerInnerCoverage(extracted, "builtin_modern_ftrace:trace_plugin_envelope", "__trace_plugin_envelope__")
 			plugin, pluginEntries := profilerDiagnosticCoverage(extracted, "plugin:ftrace-plugin")
 			degradedCaveats := 0
@@ -98,7 +99,7 @@ func TestProfilerInnerEnvelopeDiagnosticsRetainedShapeIsConstant(t *testing.T) {
 				envelope.FieldSources["issue_envelope_trace_plugin_field2_wrong_wire_affected_frames"] != strconv.Itoa(frameCount) ||
 				pluginEntries != 1 || plugin.RowsRead != frameCount ||
 				plugin.FieldSources["outcome_structured_degraded_frames"] != strconv.Itoa(frameCount) ||
-				degradedCaveats != 1 || len(extracted.pairPublishers) != 0 || len(extracted.textMessages) != 0 {
+				degradedCaveats != 1 || stagedPairRows != 0 {
 				t.Fatalf("envelope retained shape drifted at %d frames: extracted=%+v envelope=%+v plugin=%+v caveats=%d",
 					frameCount, extracted, envelope, plugin, degradedCaveats)
 			}

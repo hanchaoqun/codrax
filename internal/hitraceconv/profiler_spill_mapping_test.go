@@ -966,9 +966,12 @@ func TestProfilerStorageFailureBridgePrecedesOutputOpen(t *testing.T) {
 	}
 	seal := bytes.Index(source, []byte("if err := sink.sealProfilerCaptureContext(ctx)"))
 	bridge := bytes.Index(source, []byte("if err := applyProfilerCaptureSourceFailure"))
+	terminal := bytes.Index(source, []byte("terminal, err := applyProfilerTerminalPublication"))
+	result := bytes.Index(source, []byte("result = Result{"))
 	open := bytes.Index(source, []byte("out, err := os.OpenFile(output"))
-	if seal < 0 || bridge <= seal || open <= bridge {
-		t.Fatalf("storage source-failure order drifted: seal=%d bridge=%d output-open=%d", seal, bridge, open)
+	if seal < 0 || bridge <= seal || terminal <= bridge || result <= terminal || open <= result {
+		t.Fatalf("terminal publication order drifted: seal=%d bridge=%d terminal=%d result=%d output-open=%d",
+			seal, bridge, terminal, result, open)
 	}
 }
 
