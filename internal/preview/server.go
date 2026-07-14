@@ -663,8 +663,7 @@ section.trace-projection-evidence { margin-top: 2.5em; padding: 14px 16px; borde
    (共享变量不动). */
 section.trace-action-optimization { margin: 1.45em 0 2em; padding: 12px 14px 14px; border: 1px solid var(--line); border-left: 3px solid var(--action-border); background: transparent; }
 section.trace-action-optimization > h2 { margin: 0 0 .72em; padding-bottom: .4em; border-bottom: 1px solid var(--line); color: var(--fg); font-size: 1.24rem; }
-section.trace-action-optimization th:first-child,
-section.trace-action-optimization td:first-child { font-weight: 650; }
+section.trace-action-optimization th:first-child { font-weight: 650; }
 section.trace-projection-detail { column-count: 2; column-gap: 28px; column-rule: 1px solid var(--line); }
 section.trace-projection-detail > h2,
 section.trace-projection-evidence > h2 { margin: 0 0 .75em; padding-bottom: .45em; border-bottom: 1px solid var(--line); font-size: 1.18rem; column-span: all; }

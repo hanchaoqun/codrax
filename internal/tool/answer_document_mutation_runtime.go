@@ -4683,11 +4683,14 @@ func runtimeTraceSemanticOptimizationParts(projection types.TraceCausalProjectio
 			// tracefence.GlyphSubordinate) — the former "· " read as one more
 			// enumeration bullet while the rows are subordinates of the family
 			// header row above.
+			// EVOLUTION RECORD (用户裁定 2026-07-14): the「成员/member」label
+			// word is retired — ↳ alone carries the subordinate-member
+			// semantic (redundant double word), and the cell is now
+			// language-neutral (glyph + verbatim member name). The HTML
+			// first-column bold on this table retired in the same ruling
+			// (preview/server.go keeps th bold only).
 			for _, member := range span.FamilyMemberRoster[:listed] {
-				memberCell := tracefence.GlyphSubordinate + " 成员 " + member
-				if !zh {
-					memberCell = tracefence.GlyphSubordinate + " member " + member
-				}
+				memberCell := tracefence.GlyphSubordinate + " " + member
 				rows = append(rows, types.AnswerBlockItem{
 					Cells:       []string{runtimeTraceCausalProjectionMarkdownSafe(memberCell), dash, dash, dash, dash, dash},
 					CitationRef: -1,
