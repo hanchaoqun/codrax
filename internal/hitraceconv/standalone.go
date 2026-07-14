@@ -659,6 +659,10 @@ func copyRangeToFileWithLedger(ctx context.Context, in io.ReaderAt, off, length 
 }
 
 func copyStandaloneRange(ctx context.Context, dst io.Writer, src io.Reader) (int64, error) {
+	return copyCancellableRange(ctx, dst, src, nil)
+}
+
+func copyCancellableRange(ctx context.Context, dst io.Writer, src io.Reader, observe func(written int64)) (int64, error) {
 	buffer := make([]byte, 64*1024)
 	var written int64
 	for {
@@ -669,6 +673,9 @@ func copyStandaloneRange(ctx context.Context, dst io.Writer, src io.Reader) (int
 		if read > 0 {
 			n, writeErr := dst.Write(buffer[:read])
 			written += int64(n)
+			if observe != nil {
+				observe(written)
+			}
 			if writeErr != nil {
 				return written, writeErr
 			}

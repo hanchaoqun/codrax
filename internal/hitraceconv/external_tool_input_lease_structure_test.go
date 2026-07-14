@@ -14,12 +14,18 @@ func TestExternalToolInputLeaseStructurePinned(t *testing.T) {
 		"expectedSize := source.Size()",
 		"defer func()",
 		"completeConversionInputStage(ctx, source, conversionInputStageExternalTool, resultErr)",
-		"copyStandaloneRange(ctx, writer, io.NewSectionReader(source, 0, expectedSize))",
+		"copyExternalToolInputSnapshot(",
 		"writer.Sync()",
 		"freezeExternalToolInputSnapshotFile",
 	} {
 		if !strings.Contains(constructor, required) {
 			t.Fatalf("external tool snapshot transaction lost %q:\n%s", required, constructor)
+		}
+	}
+	copyBody := sourceGenerationFunctionBody(t, "external_tool_input_lease.go", "copyExternalToolInputSnapshot")
+	for _, required := range []string{"copyCancellableRange(ctx, dst, src", "progress(written, total)"} {
+		if !strings.Contains(copyBody, required) {
+			t.Fatalf("external tool snapshot copy lost %q:\n%s", required, copyBody)
 		}
 	}
 	command := sourceGenerationFunctionBody(t, "external_tool_input_lease.go", "Command")
@@ -32,6 +38,14 @@ func TestExternalToolInputLeaseStructurePinned(t *testing.T) {
 		if !strings.Contains(command, required) {
 			t.Fatalf("external tool command authority lost %q:\n%s", required, command)
 		}
+	}
+	resolver := sourceGenerationFunctionBody(t, "trace_tools.go", "resolveTraceStreamerToolResolution")
+	returns := strings.Count(resolver, "return ")
+	if snapshotReturns := strings.Count(resolver, "return traceStreamerSnapshotToolResolution("); returns == 0 || snapshotReturns != returns {
+		t.Fatalf("trace_streamer resolver no longer routes every terminal arm through the snapshot-only typed helper: returns=%d snapshot_returns=%d\n%s", returns, snapshotReturns, resolver)
+	}
+	if strings.Contains(resolver, "externalToolInputVerifiedLinuxFD") {
+		t.Fatalf("trace_streamer resolver enabled inherited-FD transport without an exact native-tool capability proof:\n%s", resolver)
 	}
 
 	linux := sourceGenerationFunctionBody(t, "external_tool_input_lease_linux.go", "tryExternalToolInheritedInputPlatform")

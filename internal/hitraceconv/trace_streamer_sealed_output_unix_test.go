@@ -125,7 +125,10 @@ func TestTraceStreamerProviderHardFailsLateOutputGenerationDrift(t *testing.T) {
 			}
 			opts.Progress = func(event ProgressEvent) {
 				if event.Stage == "trace_db_normalize" && event.Status == ProgressStatusStarted {
-					once.Do(func() { mutationErr = test.mutate(event.Path, replacement) })
+					once.Do(func() {
+						args := traceStreamerTestArgs(t, argsLog)
+						mutationErr = test.mutate(args[2], replacement)
+					})
 				}
 			}
 			_, err = ConvertFile(context.Background(), opts)

@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const traceStreamerConverter = converterVersion + "+trace-streamer-db"
@@ -41,7 +41,7 @@ func convertTraceStreamerOnly(ctx context.Context, opts Options, plan traceProvi
 		return Result{}, err
 	}
 	retainDB := opts.KeepTraceDB || strings.TrimSpace(opts.TraceDBOutputPath) != ""
-	export, err := runTraceStreamerExport(ctx, opts, plan.TraceStreamer, inputPath, output, opts.KeepTraceDB, ledger)
+	export, err := runTraceStreamerExport(ctx, opts, plan.TraceStreamer, input, output, opts.KeepTraceDB, ledger)
 	if err != nil {
 		return Result{}, err
 	}
@@ -106,7 +106,16 @@ func convertTraceStreamerOnly(ctx context.Context, opts Options, plan traceProvi
 	return result, nil
 }
 
-func maybeRunTraceStreamerAuto(ctx context.Context, opts Options, plan traceProviderPlan, input string, inputBytes int64, output string, hasTracePerfSidecar bool, ledger *conversionFileLedger) (traceStreamerExportResult, error) {
+func maybeRunTraceStreamerAuto(ctx context.Context, opts Options, plan traceProviderPlan, input conversionInputView, output string, hasTracePerfSidecar bool, ledger *conversionFileLedger) (traceStreamerExportResult, error) {
+	if input == nil {
+		return traceStreamerExportResult{}, conversionInputFailure(
+			ConversionInputCodeInternalContract,
+			conversionInputStageExternalTool,
+			"",
+			fmt.Errorf("trace_streamer input authority is missing"),
+		)
+	}
+	inputPath := input.DisplayPath()
 	if !plan.includesEngine(traceEngineTraceStreamer) {
 		return traceStreamerExportResult{}, nil
 	}
@@ -120,7 +129,7 @@ func maybeRunTraceStreamerAuto(ctx context.Context, opts Options, plan traceProv
 			}
 		}
 		decision := traceProviderSkipped(
-			newTraceProviderDecision(traceProviderStageTraceBody, traceProviderByName(traceProviderNameTraceStreamer), opts, input, output),
+			newTraceProviderDecision(traceProviderStageTraceBody, traceProviderByName(traceProviderNameTraceStreamer), opts, inputPath, output),
 			false,
 			"trace_streamer_unavailable",
 			caveat,
@@ -137,11 +146,20 @@ func maybeRunTraceStreamerAuto(ctx context.Context, opts Options, plan traceProv
 	return runTraceStreamerExport(ctx, opts, plan.TraceStreamer, input, output, opts.KeepTraceDB, ledger)
 }
 
-func runTraceStreamerExport(ctx context.Context, opts Options, lane traceProviderLanePlan, input, output string, keepDB bool, ledger *conversionFileLedger) (traceStreamerExportResult, error) {
+func runTraceStreamerExport(ctx context.Context, opts Options, lane traceProviderLanePlan, input conversionInputView, output string, keepDB bool, ledger *conversionFileLedger) (result traceStreamerExportResult, resultErr error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	decision := newTraceProviderDecision(traceProviderStageTraceBody, traceProviderByName(traceProviderNameTraceStreamer), opts, input, output)
+	if input == nil {
+		return traceStreamerExportResult{}, conversionInputFailure(
+			ConversionInputCodeInternalContract,
+			conversionInputStageExternalTool,
+			"",
+			fmt.Errorf("trace_streamer input authority is missing"),
+		)
+	}
+	inputPath := input.DisplayPath()
+	decision := newTraceProviderDecision(traceProviderStageTraceBody, traceProviderByName(traceProviderNameTraceStreamer), opts, inputPath, output)
 	decision.Selected = true
 	decision.Attempted = true
 	if !lane.Available || strings.TrimSpace(lane.Path) == "" {
@@ -152,10 +170,15 @@ func runTraceStreamerExport(ctx context.Context, opts Options, lane traceProvide
 			Ran:      false, FailureStage: "trace_streamer_discovery", FailureCode: "trace_streamer_unavailable", Cause: cause,
 		}, nil
 	}
-	dbTarget, err := prepareTraceStreamerDBTarget(opts, input, output, keepDB)
+	dbTarget, err := prepareTraceStreamerDBTarget(opts, inputPath, output, keepDB)
 	if err != nil {
 		return traceStreamerExportResult{}, fmt.Errorf("prepare trace_streamer DB staging path: %w", err)
 	}
+	privateStagingPath := dbTarget.stagingDir.Path()
+	defer func() {
+		redactTraceStreamerExportResult(&result, privateStagingPath)
+		resultErr = redactTraceStreamerPrivateError(resultErr, privateStagingPath)
+	}()
 	cleanup := dbTarget.Cleanup
 	dbPath := dbTarget.StagingPath
 	if err := dbTarget.validateStaging(); err != nil {
@@ -163,20 +186,81 @@ func runTraceStreamerExport(ctx context.Context, opts Options, lane traceProvide
 		cleanup = nil
 		return traceStreamerExportResult{}, traceDBJoinPreservingSingle(err, cleanupErr)
 	}
-	cmd := buildTraceStreamerExportCommand(ctx, lane.Path, input, dbPath, opts.TraceStreamerSoDirs)
-	combined, runErr := runCommandWithProgress(opts, cmd, "trace_streamer_export", "running trace_streamer SQLite DB export")
-	if err := privateConversionDirCommandBoundaryError(ctx, runErr, dbTarget.stagingDir); err != nil {
+	snapshotLeaf, err := traceStreamerInputSnapshotLeaf(inputPath)
+	if err != nil {
 		cleanupErr := cleanupTraceStreamerDBTarget(cleanup)
 		cleanup = nil
 		return traceStreamerExportResult{}, traceDBJoinPreservingSingle(err, cleanupErr)
 	}
+	snapshotStart := progressStarted(
+		opts,
+		"trace_streamer_input_snapshot",
+		"preparing immutable trace_streamer input",
+		inputPath,
+		output,
+	)
+	lastSnapshotProgress := snapshotStart
+	inputLease, err := newExternalToolInputLeaseWithProgress(
+		ctx,
+		input,
+		dbTarget.stagingDir,
+		snapshotLeaf,
+		lane.ExternalInputProfile,
+		func(done, total int64) {
+			now := time.Now()
+			if done != total && now.Sub(lastSnapshotProgress) < progressHeartbeatInterval {
+				return
+			}
+			lastSnapshotProgress = now
+			emitProgress(opts, ProgressEvent{
+				Stage:      "trace_streamer_input_snapshot",
+				Status:     ProgressStatusProgress,
+				Message:    "copying immutable trace_streamer input",
+				Path:       inputPath,
+				OutputPath: output,
+				BytesDone:  done,
+				BytesTotal: total,
+				Elapsed:    now.Sub(snapshotStart),
+			})
+		},
+	)
+	if err != nil {
+		progressFinished(opts, "trace_streamer_input_snapshot", "trace_streamer input snapshot failed", inputPath, output, snapshotStart, ProgressStatusFailed)
+		cleanupErr := cleanupTraceStreamerDBTarget(cleanup)
+		cleanup = nil
+		return traceStreamerExportResult{}, traceDBJoinPreservingSingle(err, cleanupErr)
+	}
+	progressFinished(opts, "trace_streamer_input_snapshot", "prepared immutable trace_streamer input", inputPath, output, snapshotStart, ProgressStatusComplete)
+	cmd, err := inputLease.Command(ctx, lane.Path, nil, traceStreamerExportArguments(dbPath, opts.TraceStreamerSoDirs))
+	if err != nil {
+		boundaryErr := finishExternalToolCommand(ctx, inputLease, dbTarget.stagingDir, nil)
+		cleanupErr := cleanupTraceStreamerDBTarget(cleanup)
+		cleanup = nil
+		return traceStreamerExportResult{}, traceDBJoinPreservingSingle(err, boundaryErr, cleanupErr)
+	}
+	combined, runErr, commandStart, commandStarted := runCommandWithProgressUntilExit(opts, cmd, "trace_streamer_export", "running trace_streamer SQLite DB export")
+	if err := finishExternalToolCommand(ctx, inputLease, dbTarget.stagingDir, runErr); err != nil {
+		progressFinished(opts, "trace_streamer_export", "trace_streamer command boundary rejected", lane.Path, "", commandStart, ProgressStatusFailed)
+		cleanupErr := cleanupTraceStreamerDBTarget(cleanup)
+		cleanup = nil
+		return traceStreamerExportResult{}, traceDBJoinPreservingSingle(err, cleanupErr)
+	}
+	commandStatus := ProgressStatusComplete
+	if runErr != nil {
+		commandStatus = ProgressStatusFailed
+	}
+	commandMessage := terminalProgressMessage("running trace_streamer SQLite DB export", commandStatus)
+	if !commandStarted {
+		commandMessage = "external command failed to start"
+	}
+	progressFinished(opts, "trace_streamer_export", commandMessage, lane.Path, "", commandStart, commandStatus)
 	if runErr != nil {
 		cleanupErr := cleanupTraceStreamerDBTarget(cleanup)
 		cleanup = nil
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return traceStreamerExportResult{}, traceDBJoinPreservingSingle(ctxErr, cleanupErr)
+			return traceStreamerExportResult{}, traceDBJoinPreservingSingle(ctxErr, runErr, cleanupErr)
 		}
-		caveat := fmt.Sprintf("trace_streamer DB export failed (%s)%s", runErr, boundedCommandOutput(combined))
+		caveat := fmt.Sprintf("trace_streamer DB export failed (%s)%s", runErr, boundedTraceStreamerCommandOutput(combined))
 		if cleanupErr != nil {
 			return traceStreamerExportResult{}, traceDBJoinPreservingSingle(traceStreamerProviderAttemptError("trace_streamer_export", "trace_streamer_failed", caveat, runErr), cleanupErr)
 		}
@@ -215,7 +299,7 @@ func runTraceStreamerExport(ctx context.Context, opts Options, lane traceProvide
 	}
 	dbBytes := sealedOutputs.Size()
 	companionPresent := sealedOutputs.CompanionPresent()
-	normalizeDisplayPath := dbPath
+	normalizeDisplayPath := inputPath
 	if dbTarget.Retained {
 		normalizeDisplayPath = dbTarget.FinalPath
 	}
@@ -281,7 +365,7 @@ func runTraceStreamerExport(ctx context.Context, opts Options, lane traceProvide
 		dbArtifact.Caveats = append(dbArtifact.Caveats, "timestamp_companion="+dbPath+".ohos.ts")
 	}
 	if systraceErr != nil {
-		progressFinished(opts, "trace_db_normalize", "trace_streamer SQLite DB normalization failed", dbPath, output, normalizeStart, ProgressStatusFailed)
+		progressFinished(opts, "trace_db_normalize", "trace_streamer SQLite DB normalization failed", normalizeDisplayPath, output, normalizeStart, ProgressStatusFailed)
 		if cleanup != nil {
 			if cleanupErr := cleanupTraceStreamerDBTarget(cleanup); cleanupErr != nil {
 				caveat := fmt.Sprintf("trace_streamer DB export succeeded, but Codrax could not normalize the DB to systrace: %v", systraceErr)
@@ -309,7 +393,7 @@ func runTraceStreamerExport(ctx context.Context, opts Options, lane traceProvide
 		}, nil
 	}
 	if systraceExport.Artifact.Path == "" {
-		progressFinished(opts, "trace_db_normalize", "trace_streamer SQLite DB normalization produced no systrace rows", dbPath, output, normalizeStart, ProgressStatusFailed)
+		progressFinished(opts, "trace_db_normalize", "trace_streamer SQLite DB normalization produced no systrace rows", normalizeDisplayPath, output, normalizeStart, ProgressStatusFailed)
 		if cleanup != nil {
 			if cleanupErr := cleanupTraceStreamerDBTarget(cleanup); cleanupErr != nil {
 				caveat := "trace_streamer DB export succeeded, but no systrace-compatible rows were emitted; inspect trace_db_coverage for missing or empty tables"
@@ -336,7 +420,7 @@ func runTraceStreamerExport(ctx context.Context, opts Options, lane traceProvide
 			Ran:           true, FailureStage: "trace_db_normalize", FailureCode: "trace_db_no_rows", Cause: errors.New(caveat),
 		}, nil
 	}
-	progressFinished(opts, "trace_db_normalize", "normalized trace_streamer SQLite DB to systrace", dbPath, output, normalizeStart, ProgressStatusComplete)
+	progressFinished(opts, "trace_db_normalize", "normalized trace_streamer SQLite DB to systrace", normalizeDisplayPath, output, normalizeStart, ProgressStatusComplete)
 	if cleanup != nil {
 		if err := cleanupTraceStreamerDBTarget(cleanup); err != nil {
 			return traceStreamerExportResult{}, err
@@ -523,14 +607,118 @@ func cleanupTraceStreamerDBTarget(cleanup func() error) error {
 	return cleanup()
 }
 
-func buildTraceStreamerExportCommand(ctx context.Context, traceStreamer, input, dbPath string, soDirs []string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, traceStreamer, input, "-e", dbPath)
+func traceStreamerExportArguments(dbPath string, soDirs []string) []string {
+	afterInput := []string{"-e", dbPath}
 	for _, dir := range soDirs {
 		dir = strings.TrimSpace(dir)
 		if dir == "" {
 			continue
 		}
-		cmd.Args = append(cmd.Args, "--So_dir", dir)
+		afterInput = append(afterInput, "--So_dir", dir)
 	}
-	return cmd
+	return afterInput
+}
+
+func traceStreamerInputSnapshotLeaf(inputPath string) (string, error) {
+	leaf := filepath.Base(strings.TrimSpace(inputPath))
+	if leaf == "" || leaf == "." || leaf == string(filepath.Separator) {
+		return "", conversionInputFailure(
+			ConversionInputCodeInvalidPath,
+			conversionInputStageExternalTool,
+			inputPath,
+			fmt.Errorf("trace_streamer input has no usable basename"),
+		)
+	}
+	for _, reserved := range []string{
+		"trace_streamer_export.db",
+		"trace_streamer_export.db.ohos.ts",
+		"trace_streamer_export.db-journal",
+		"trace_streamer_export.db-wal",
+		"trace_streamer_export.db-shm",
+		"ts_tmp",
+		"ts_tmp.perf.data",
+		"ts_tmp.jsmemory_timeline.heapsnapshot",
+		"ts_tmp.jsmemory_snapshot",
+	} {
+		if strings.EqualFold(leaf, reserved) {
+			return "", conversionInputFailure(
+				ConversionInputCodeInvalidPath,
+				conversionInputStageExternalTool,
+				inputPath,
+				fmt.Errorf("trace_streamer input basename %q conflicts with a reserved staging artifact; rename the input file", leaf),
+			)
+		}
+	}
+	return leaf, nil
+}
+
+func boundedTraceStreamerCommandOutput(output []byte) string {
+	if strings.TrimSpace(string(output)) == "" {
+		return ""
+	}
+	// trace_streamer is an external process and can echo arbitrary fragments of
+	// its private argv. Post-hoc path replacement cannot be made safe after the
+	// shared command buffer truncates output, so customer-facing surfaces retain
+	// only the typed exit status and this stable disclosure marker.
+	return "\n[trace_streamer child output suppressed]"
+}
+
+type traceStreamerPrivateError struct {
+	err     error
+	message string
+}
+
+func (err *traceStreamerPrivateError) Error() string {
+	if err == nil {
+		return "trace_streamer conversion failed"
+	}
+	return err.message
+}
+
+func (err *traceStreamerPrivateError) Unwrap() error {
+	if err == nil {
+		return nil
+	}
+	return err.err
+}
+
+func redactTraceStreamerPrivateError(err error, stagingDir string) error {
+	if err == nil {
+		return nil
+	}
+	message := redactTraceStreamerPrivateText(err.Error(), stagingDir)
+	if message == err.Error() {
+		return err
+	}
+	return &traceStreamerPrivateError{err: err, message: message}
+}
+
+func redactTraceStreamerExportResult(result *traceStreamerExportResult, stagingDir string) {
+	if result == nil || strings.TrimSpace(stagingDir) == "" {
+		return
+	}
+	result.Decision.Caveat = redactTraceStreamerPrivateText(result.Decision.Caveat, stagingDir)
+	for index := range result.Caveats {
+		result.Caveats[index] = redactTraceStreamerPrivateText(result.Caveats[index], stagingDir)
+	}
+	for index := range result.Artifact.Caveats {
+		result.Artifact.Caveats[index] = redactTraceStreamerPrivateText(result.Artifact.Caveats[index], stagingDir)
+	}
+	for index := range result.SystraceArtifact.Caveats {
+		result.SystraceArtifact.Caveats[index] = redactTraceStreamerPrivateText(result.SystraceArtifact.Caveats[index], stagingDir)
+	}
+	for index := range result.Coverage {
+		result.Coverage[index].Error = redactTraceStreamerPrivateText(result.Coverage[index].Error, stagingDir)
+	}
+	for index := range result.TraceCoverage {
+		result.TraceCoverage[index].Error = redactTraceStreamerPrivateText(result.TraceCoverage[index].Error, stagingDir)
+	}
+	result.Cause = redactTraceStreamerPrivateError(result.Cause, stagingDir)
+}
+
+func redactTraceStreamerPrivateText(message, stagingDir string) string {
+	for _, privatePrefix := range uniqueNonEmptyStrings([]string{stagingDir, filepath.ToSlash(stagingDir)}) {
+		message = strings.ReplaceAll(message, privatePrefix, "<private_trace_staging>")
+	}
+	return message
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"math"
 	"os"
 	"path/filepath"
@@ -15,6 +16,88 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
+
+func TestTraceStreamerInputSnapshotLeafPreservesExactBasenameAndRejectsArtifacts(t *testing.T) {
+	for _, input := range []string{
+		filepath.Join("tmp", "hiprofiler_data_20260714_010203_123.htrace"),
+		filepath.Join("tmp", "record_trace_20260710005300@18895-212105468.sys"),
+		filepath.Join("tmp", "Donghu Capture (final).trace"),
+	} {
+		leaf, err := traceStreamerInputSnapshotLeaf(input)
+		if err != nil {
+			t.Fatalf("preserve trace_streamer basename %q: %v", input, err)
+		}
+		if leaf != filepath.Base(input) {
+			t.Fatalf("trace_streamer basename drifted: got=%q want=%q", leaf, filepath.Base(input))
+		}
+	}
+	for _, leaf := range []string{
+		"trace_streamer_export.db",
+		"TRACE_STREAMER_EXPORT.DB.OHOS.TS",
+		"trace_streamer_export.db-journal",
+		"trace_streamer_export.db-wal",
+		"trace_streamer_export.db-shm",
+		"ts_tmp",
+		"ts_tmp.perf.data",
+		"ts_tmp.jsmemory_timeline.heapsnapshot",
+		"ts_tmp.jsmemory_snapshot",
+	} {
+		_, err := traceStreamerInputSnapshotLeaf(filepath.Join("tmp", leaf))
+		var inputErr *ConversionInputError
+		if !errors.As(err, &inputErr) || inputErr.Code != ConversionInputCodeInvalidPath || inputErr.Stage != conversionInputStageExternalTool.String() {
+			t.Fatalf("reserved trace_streamer artifact %q was not rejected with typed external-tool error: %v", leaf, err)
+		}
+	}
+}
+
+func TestConvertFileTraceStreamerReportsPublicSnapshotProgress(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake trace_streamer shell fixture uses /bin/sh")
+	}
+	dir := t.TempDir()
+	input := filepath.Join(dir, "hiprofiler_data_20260714_010203_123.htrace")
+	if err := os.WriteFile(input, []byte("modern profiler payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fixtureDB := createTraceDBFixture(t, traceStreamerIntegrationDBStatements())
+	traceStreamer := writeFakeTraceStreamer(t, dir, 0)
+	t.Setenv("TRACE_STREAMER_FIXTURE_DB", fixtureDB)
+	output := filepath.Join(dir, "out.systrace")
+	var events []ProgressEvent
+	_, err := ConvertFile(context.Background(), Options{
+		InputPath: input, OutputPath: output, TraceEngine: traceEngineTraceStreamer,
+		TraceStreamerPath: traceStreamer,
+		Progress:          func(event ProgressEvent) { events = append(events, event) },
+	})
+	if err != nil {
+		t.Fatalf("convert with trace_streamer snapshot progress: %v", err)
+	}
+	var started, copied, completed bool
+	for _, event := range events {
+		if strings.Contains(event.Path, "codrax-trace-streamer-") || strings.Contains(event.OutputPath, "codrax-trace-streamer-") {
+			t.Fatalf("progress exposed private trace_streamer staging path: %+v", event)
+		}
+		if event.Stage != "trace_streamer_input_snapshot" {
+			continue
+		}
+		if event.Path != input || event.OutputPath != output {
+			t.Fatalf("snapshot progress lost public path identity: %+v", event)
+		}
+		switch event.Status {
+		case ProgressStatusStarted:
+			started = true
+		case ProgressStatusProgress:
+			if event.BytesDone == int64(len("modern profiler payload")) && event.BytesTotal == event.BytesDone {
+				copied = true
+			}
+		case ProgressStatusComplete:
+			completed = true
+		}
+	}
+	if !started || !copied || !completed {
+		t.Fatalf("snapshot progress lifecycle incomplete: started=%t copied=%t completed=%t events=%+v", started, copied, completed, events)
+	}
+}
 
 func TestConvertFileTraceStreamerExplicitProducesSystraceWithTransientDBBundle(t *testing.T) {
 	if runtime.GOOS == "windows" {
@@ -42,8 +125,13 @@ func TestConvertFileTraceStreamerExplicitProducesSystraceWithTransientDBBundle(t
 	if err != nil {
 		t.Fatalf("convert trace_streamer explicit: %v", err)
 	}
-	if result.OutputPath != output || result.EventsWritten == 0 || result.OutputBytes == 0 {
+	if result.InputPath != input || result.OutputPath != output || result.EventsWritten == 0 || result.OutputBytes == 0 {
 		t.Fatalf("trace_streamer should emit systrace rows: %+v", result)
+	}
+	for _, decision := range result.TraceDecisions {
+		if decision.InputPath != "" && decision.InputPath != input {
+			t.Fatalf("trace_streamer decision exposed a non-public input path: %+v", decision)
+		}
 	}
 	var db Artifact
 	var systrace Artifact
@@ -66,17 +154,21 @@ func TestConvertFileTraceStreamerExplicitProducesSystraceWithTransientDBBundle(t
 		t.Fatal(err)
 	}
 	argLines := strings.Split(strings.TrimSpace(string(args)), "\n")
-	if len(argLines) != 5 || argLines[0] != input || argLines[1] != "-e" ||
+	if len(argLines) != 5 || argLines[0] == input || filepath.Base(argLines[0]) != filepath.Base(input) || argLines[1] != "-e" ||
 		argLines[3] != "--So_dir" || argLines[4] != filepath.Join(dir, "symbols") {
 		t.Fatalf("unexpected trace_streamer args: %#v", argLines)
 	}
+	stagingInput := argLines[0]
 	stagingDB := argLines[2]
 	if filepath.Base(stagingDB) != "trace_streamer_export.db" ||
-		!strings.HasPrefix(filepath.Base(filepath.Dir(stagingDB)), "codrax-trace-streamer-") {
+		!strings.HasPrefix(filepath.Base(filepath.Dir(stagingDB)), "codrax-trace-streamer-") ||
+		filepath.Dir(stagingInput) != filepath.Dir(stagingDB) {
 		t.Fatalf("default DB must use a private transient staging directory, got %q", stagingDB)
 	}
-	if _, statErr := os.Lstat(stagingDB); !os.IsNotExist(statErr) {
-		t.Fatalf("successful conversion leaked transient DB %s: %v", stagingDB, statErr)
+	for _, stagingPath := range []string{stagingInput, stagingDB} {
+		if _, statErr := os.Lstat(stagingPath); !os.IsNotExist(statErr) {
+			t.Fatalf("successful conversion leaked transient path %s: %v", stagingPath, statErr)
+		}
 	}
 	defaultRetainedDB := strings.TrimSuffix(output, defaultOutputSuffix) + ".trace.db"
 	if _, statErr := os.Lstat(defaultRetainedDB); !os.IsNotExist(statErr) {
@@ -100,6 +192,11 @@ func TestConvertFileTraceStreamerExplicitProducesSystraceWithTransientDBBundle(t
 	}
 	if strings.Contains(string(bundle), `"type": "trace_db"`) {
 		t.Fatalf("transient DB must not be published as an artifact:\n%s", bundle)
+	}
+	for _, privatePath := range []string{stagingInput, stagingDB, filepath.Dir(stagingDB)} {
+		if strings.Contains(string(bundle), privatePath) || strings.Contains(string(bundle), filepath.ToSlash(privatePath)) {
+			t.Fatalf("tracebundle exposed private trace_streamer staging path %q:\n%s", privatePath, bundle)
+		}
 	}
 	var parsed struct {
 		Coverage      []TraceDBCoverage `json:"trace_db_coverage"`
@@ -237,6 +334,9 @@ func TestConvertFileNoPerfSysTraceAutoTraceStreamerFailureFallsBackToBuiltin(t *
 		t.Fatal(err)
 	}
 	traceStreamer := writeFakeTraceStreamer(t, dir, 7)
+	argsLog := filepath.Join(dir, "failed-args.log")
+	t.Setenv("TRACE_STREAMER_ARGS_LOG", argsLog)
+	t.Setenv("TRACE_STREAMER_ECHO_ARGS", "1")
 	output := filepath.Join(dir, "out.systrace")
 
 	result, err := ConvertFile(context.Background(), Options{
@@ -260,6 +360,31 @@ func TestConvertFileNoPerfSysTraceAutoTraceStreamerFailureFallsBackToBuiltin(t *
 	}
 	if !containsString(result.Caveats, "trace_streamer DB export failed") || result.BundlePath == "" {
 		t.Fatalf("fallback bundle should preserve SQL failure caveat: caveats=%+v bundle=%q", result.Caveats, result.BundlePath)
+	}
+	args, err := os.ReadFile(argsLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	argLines := strings.Split(strings.TrimSpace(string(args)), "\n")
+	if len(argLines) < 3 || argLines[0] == input || filepath.Base(argLines[0]) != filepath.Base(input) {
+		t.Fatalf("failed trace_streamer did not receive the private exact-name snapshot: %#v", argLines)
+	}
+	bundle, err := os.ReadFile(result.BundlePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, privatePath := range []string{argLines[0], argLines[2], filepath.Dir(argLines[0])} {
+		if strings.Contains(strings.Join(result.Caveats, "\n"), privatePath) ||
+			bytes.Contains(bundle, []byte(privatePath)) ||
+			bytes.Contains(bundle, []byte(filepath.ToSlash(privatePath))) {
+			t.Fatalf("soft trace_streamer failure exposed private path %q: caveats=%+v\n%s", privatePath, result.Caveats, bundle)
+		}
+		if _, statErr := os.Lstat(privatePath); !os.IsNotExist(statErr) {
+			t.Fatalf("failed trace_streamer leaked private path %q: %v", privatePath, statErr)
+		}
+	}
+	if !containsString(result.Caveats, "[trace_streamer child output suppressed]") {
+		t.Fatalf("redacted trace_streamer output should retain a stable suppression disclosure: %+v", result.Caveats)
 	}
 }
 
@@ -889,8 +1014,29 @@ func writeFakeTraceStreamer(t *testing.T, dir string, exitCode int) string {
 	t.Helper()
 	path := filepath.Join(dir, "trace_streamer")
 	script := `#!/bin/sh
+input="$1"
 if [ -n "$TRACE_STREAMER_ARGS_LOG" ]; then
   printf '%s\n' "$@" > "$TRACE_STREAMER_ARGS_LOG"
+fi
+if [ -n "$TRACE_STREAMER_ECHO_ARGS" ]; then
+  printf 'trace_streamer argv: %s\n' "$*" >&2
+fi
+if [ -n "$TRACE_STREAMER_READY" ]; then
+  : > "$TRACE_STREAMER_READY"
+fi
+if [ -n "$TRACE_STREAMER_RELEASE_FIFO" ]; then
+  IFS= read -r _ < "$TRACE_STREAMER_RELEASE_FIFO"
+fi
+if [ -n "$TRACE_STREAMER_CONSUMED_INPUT" ]; then
+  cp "$input" "$TRACE_STREAMER_CONSUMED_INPUT" || exit 66
+else
+  cp "$input" /dev/null || exit 66
+fi
+if [ -n "$TRACE_STREAMER_CONSUMED_READY" ]; then
+  : > "$TRACE_STREAMER_CONSUMED_READY"
+fi
+if [ -n "$TRACE_STREAMER_FINISH_FIFO" ]; then
+  IFS= read -r _ < "$TRACE_STREAMER_FINISH_FIFO"
 fi
 out=""
 while [ "$#" -gt 0 ]; do

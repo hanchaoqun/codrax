@@ -61,13 +61,14 @@ func traceInputUsesDirectPerfRoute(opts Options) bool {
 }
 
 type traceProviderLanePlan struct {
-	Engine    string
-	Provider  traceProviderSpec
-	Available bool
-	Selected  bool
-	Path      string
-	Source    string
-	Caveats   []string
+	Engine               string
+	Provider             traceProviderSpec
+	Available            bool
+	Selected             bool
+	Path                 string
+	Source               string
+	ExternalInputProfile externalToolInputProfile
+	Caveats              []string
 }
 
 func (p traceProviderPlan) includesEngine(engine string) bool {

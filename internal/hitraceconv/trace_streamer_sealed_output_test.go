@@ -160,6 +160,10 @@ func TestSealedTraceDBNormalizationFatalityIsFailClosed(t *testing.T) {
 func TestTraceStreamerProductionPinsSealedReadBeforeExactPublish(t *testing.T) {
 	body := sourceGenerationFunctionBody(t, "trace_streamer_provider.go", "runTraceStreamerExport")
 	required := []string{
+		"newExternalToolInputLeaseWithProgress(",
+		"inputLease.Command(ctx, lane.Path, nil, traceStreamerExportArguments",
+		"runCommandWithProgressUntilExit(opts, cmd",
+		"finishExternalToolCommand(ctx, inputLease, dbTarget.stagingDir, runErr)",
 		"adoptTraceStreamerDBOutputs(dbTarget.stagingDir)",
 		"exportTraceDBToSystraceFromSealedWithLedger(ctx, sealedOutputs.main",
 		"integrityErr := sealedOutputs.validate()",

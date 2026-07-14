@@ -92,10 +92,13 @@ func TestReleasePrivateConversionDirProviderSingleAuthorityStructure(t *testing.
 	}
 
 	traceStreamerRun := releasePrivateConversionDirFunctionBody(t, filepath.Join(dir, "trace_streamer_provider.go"), "runTraceStreamerExport")
-	for _, required := range []string{"dbTarget.validateStaging()", "privateConversionDirCommandBoundaryError(ctx, runErr, dbTarget.stagingDir)", "cleanupTraceStreamerDBTarget(cleanup)"} {
+	for _, required := range []string{"dbTarget.validateStaging()", "newExternalToolInputLeaseWithProgress(", "finishExternalToolCommand(ctx, inputLease, dbTarget.stagingDir, runErr)", "cleanupTraceStreamerDBTarget(cleanup)"} {
 		if !strings.Contains(traceStreamerRun, required) {
 			t.Fatalf("runTraceStreamerExport no longer consumes the ferried staging authority through %q", required)
 		}
+	}
+	if strings.Contains(traceStreamerRun, "privateConversionDirCommandBoundaryError(") {
+		t.Fatalf("trace_streamer regained the staging-only command boundary instead of the input lease boundary:\n%s", traceStreamerRun)
 	}
 }
 

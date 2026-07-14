@@ -46,13 +46,15 @@ type externalToolInputFileSource interface {
 }
 
 // externalToolInputSnapshot holds the exact private snapshot generation from
-// creation through child completion. Its public path is only an argv binding;
-// validation always starts from this handle plus the held parent authority.
+// creation through child completion. path is the private argv binding, while
+// display is the public diagnostic identity; validation always starts from
+// this handle plus the held parent authority.
 type externalToolInputSnapshot struct {
 	mu       sync.RWMutex
 	dir      *privateConversionDir
 	name     string
 	path     string
+	display  string
 	file     *os.File
 	identity filegeneration.Identity
 	size     int64
@@ -74,12 +76,25 @@ type externalToolInputLease struct {
 	closed            bool
 }
 
+type externalToolInputProgress func(done, total int64)
+
 func newExternalToolInputLease(
 	ctx context.Context,
 	source conversionInputView,
 	staging *privateConversionDir,
 	snapshotLeaf string,
 	profile externalToolInputProfile,
+) (*externalToolInputLease, error) {
+	return newExternalToolInputLeaseWithProgress(ctx, source, staging, snapshotLeaf, profile, nil)
+}
+
+func newExternalToolInputLeaseWithProgress(
+	ctx context.Context,
+	source conversionInputView,
+	staging *privateConversionDir,
+	snapshotLeaf string,
+	profile externalToolInputProfile,
+	progress externalToolInputProgress,
 ) (*externalToolInputLease, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -122,7 +137,7 @@ func newExternalToolInputLease(
 			fmt.Errorf("private snapshot directory authority is missing"),
 		)
 	}
-	snapshot, err := createExternalToolInputSnapshot(ctx, source, staging, snapshotLeaf)
+	snapshot, err := createExternalToolInputSnapshot(ctx, source, staging, snapshotLeaf, progress)
 	if err != nil {
 		return nil, err
 	}
@@ -140,6 +155,7 @@ func createExternalToolInputSnapshot(
 	source conversionInputView,
 	dir *privateConversionDir,
 	name string,
+	progress externalToolInputProgress,
 ) (result *externalToolInputSnapshot, resultErr error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -190,7 +206,13 @@ func createExternalToolInputSnapshot(
 		}
 	}()
 
-	written, copyErr := copyStandaloneRange(ctx, writer, io.NewSectionReader(source, 0, expectedSize))
+	written, copyErr := copyExternalToolInputSnapshot(
+		ctx,
+		writer,
+		io.NewSectionReader(source, 0, expectedSize),
+		expectedSize,
+		progress,
+	)
 	if copyErr != nil {
 		return nil, copyErr
 	}
@@ -245,13 +267,31 @@ func createExternalToolInputSnapshot(
 		)
 	}
 	snapshot := &externalToolInputSnapshot{
-		dir: dir, name: name, path: path, file: held, identity: heldIdentity, size: heldIdentity.Size(),
+		dir: dir, name: name, path: path, display: source.DisplayPath(), file: held,
+		identity: heldIdentity, size: heldIdentity.Size(),
 	}
 	if err := snapshot.Validate(); err != nil {
 		return nil, err
 	}
 	closeHeld = false
 	return snapshot, nil
+}
+
+func copyExternalToolInputSnapshot(
+	ctx context.Context,
+	dst io.Writer,
+	src io.Reader,
+	total int64,
+	progress externalToolInputProgress,
+) (int64, error) {
+	if progress != nil {
+		progress(0, total)
+	}
+	return copyCancellableRange(ctx, dst, src, func(written int64) {
+		if progress != nil {
+			progress(written, total)
+		}
+	})
 }
 
 func createExternalToolInputSnapshotFile(dir *privateConversionDir, name string) (*os.File, error) {
@@ -330,7 +370,7 @@ func (snapshot *externalToolInputSnapshot) Validate() error {
 		return conversionInputFailure(
 			ConversionInputCodeClosed,
 			conversionInputStageExternalTool,
-			snapshot.path,
+			snapshot.display,
 			fmt.Errorf("external tool input snapshot is closed or incomplete: %s", snapshot.name),
 		)
 	}
@@ -352,7 +392,7 @@ func (snapshot *externalToolInputSnapshot) Validate() error {
 		return conversionInputFailure(
 			ConversionInputCodeGenerationChanged,
 			conversionInputStageExternalTool,
-			snapshot.path,
+			snapshot.display,
 			traceDBJoinPreservingSingle(fmt.Errorf("external tool input snapshot generation changed: %s", snapshot.name), err),
 		)
 	}
@@ -361,7 +401,7 @@ func (snapshot *externalToolInputSnapshot) Validate() error {
 		return conversionInputFailure(
 			ConversionInputCodeGenerationChanged,
 			conversionInputStageExternalTool,
-			snapshot.path,
+			snapshot.display,
 			traceDBJoinPreservingSingle(fmt.Errorf("external tool input snapshot identity changed: %s", snapshot.name), err),
 		)
 	}
@@ -369,7 +409,7 @@ func (snapshot *externalToolInputSnapshot) Validate() error {
 		return conversionInputFailure(
 			ConversionInputCodeGenerationChanged,
 			conversionInputStageExternalTool,
-			snapshot.path,
+			snapshot.display,
 			fmt.Errorf("external tool input snapshot binding changed: %s: %w", snapshot.name, err),
 		)
 	}

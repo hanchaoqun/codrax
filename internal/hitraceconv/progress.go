@@ -65,13 +65,30 @@ func progressFinished(opts Options, stage, message, path, outputPath string, sta
 }
 
 func runCommandWithProgress(opts Options, cmd *exec.Cmd, stage, message string) ([]byte, error) {
+	output, err, start, started := runCommandWithProgressUntilExit(opts, cmd, stage, message)
+	status := ProgressStatusComplete
+	if err != nil {
+		status = ProgressStatusFailed
+	}
+	terminalMessage := terminalProgressMessage(message, status)
+	if !started {
+		terminalMessage = "external command failed to start"
+	}
+	progressFinished(opts, stage, terminalMessage, cmd.Path, "", start, status)
+	return output, err
+}
+
+// runCommandWithProgressUntilExit emits start/heartbeat events but deliberately
+// leaves the terminal event to the caller. Providers with post-exit authority
+// gates use this form so a child exit cannot be reported as successful before
+// source, staging, and output generations have been validated.
+func runCommandWithProgressUntilExit(opts Options, cmd *exec.Cmd, stage, message string) ([]byte, error, time.Time, bool) {
 	start := progressStarted(opts, stage, message, cmd.Path, "")
 	var output boundedCommandBuffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output
 	if err := cmd.Start(); err != nil {
-		progressFinished(opts, stage, "external command failed to start", cmd.Path, "", start, ProgressStatusFailed)
-		return output.Bytes(), err
+		return output.Bytes(), err, start, false
 	}
 	done := make(chan error, 1)
 	go func() {
@@ -82,12 +99,7 @@ func runCommandWithProgress(opts Options, cmd *exec.Cmd, stage, message string) 
 	for {
 		select {
 		case err := <-done:
-			status := ProgressStatusComplete
-			if err != nil {
-				status = ProgressStatusFailed
-			}
-			progressFinished(opts, stage, terminalProgressMessage(message, status), cmd.Path, "", start, status)
-			return output.Bytes(), err
+			return output.Bytes(), err, start, true
 		case <-ticker.C:
 			emitProgress(opts, ProgressEvent{
 				Stage:   stage,

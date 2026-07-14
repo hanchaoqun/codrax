@@ -231,7 +231,7 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 		return commit(converted, convertErr)
 	}
 	hasTracePerfSidecar := standaloneInventory.hasHiperfData()
-	traceStreamerExport, err := maybeRunTraceStreamerAuto(ctx, opts, plan, input, inputBytes, output, hasTracePerfSidecar, ledger)
+	traceStreamerExport, err := maybeRunTraceStreamerAuto(ctx, opts, plan, authority, output, hasTracePerfSidecar, ledger)
 	if err != nil {
 		return Result{}, err
 	}

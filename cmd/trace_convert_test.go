@@ -122,6 +122,36 @@ func TestTraceConvertProgressLineTerminalMessage(t *testing.T) {
 	}
 }
 
+func TestTraceConvertSnapshotProgressLineFollowsLanguage(t *testing.T) {
+	event := hitraceconv.ProgressEvent{
+		Stage:      "trace_streamer_input_snapshot",
+		Status:     hitraceconv.ProgressStatusProgress,
+		Message:    "copying immutable trace_streamer input",
+		Path:       "capture.htrace",
+		OutputPath: "capture.systrace",
+		BytesDone:  64,
+		BytesTotal: 128,
+	}
+	zh := traceConvertProgressLine("zh", event)
+	for _, want := range []string{
+		"阶段=准备trace_streamer输入快照",
+		"状态=进行中",
+		"说明=正在复制不可变的 trace_streamer 输入快照",
+		"路径=capture.htrace",
+		"字节=64/128",
+	} {
+		if !strings.Contains(zh, want) {
+			t.Fatalf("zh snapshot progress missing %q:\n%s", want, zh)
+		}
+	}
+	en := traceConvertProgressLine("en", event)
+	if !strings.Contains(en, "stage=trace_streamer_input_snapshot") ||
+		!strings.Contains(en, "message=copying immutable trace_streamer input") ||
+		!strings.Contains(en, "bytes=64/128") {
+		t.Fatalf("en snapshot progress mismatch:\n%s", en)
+	}
+}
+
 func TestTraceConvertCoverageLinesExplainResolverRows(t *testing.T) {
 	coverage := []hitraceconv.TraceDBCoverage{{
 		Family:      "resolver",

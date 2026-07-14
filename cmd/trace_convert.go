@@ -1451,6 +1451,8 @@ func traceConvertProgressStageEn(stage string) string {
 
 func traceConvertProgressStageZh(stage string) string {
 	switch strings.TrimSpace(stage) {
+	case "trace_streamer_input_snapshot":
+		return "准备trace_streamer输入快照"
 	case "trace_streamer_export":
 		return "trace_streamer导出DB"
 	case "trace_db_normalize":
@@ -1493,12 +1495,22 @@ func traceConvertProgressStatusZh(status string) string {
 
 func traceConvertProgressMessageZh(message string) string {
 	switch strings.TrimSpace(message) {
+	case "preparing immutable trace_streamer input":
+		return "正在准备不可变的 trace_streamer 输入快照"
+	case "copying immutable trace_streamer input":
+		return "正在复制不可变的 trace_streamer 输入快照"
+	case "prepared immutable trace_streamer input":
+		return "已准备不可变的 trace_streamer 输入快照"
+	case "trace_streamer input snapshot failed":
+		return "trace_streamer 输入快照准备失败"
 	case "running trace_streamer SQLite DB export":
 		return "正在运行 trace_streamer 导出 SQLite DB"
 	case "completed trace_streamer SQLite DB export":
 		return "已完成 trace_streamer 导出 SQLite DB"
 	case "trace_streamer SQLite DB export failed":
 		return "trace_streamer 导出 SQLite DB 失败"
+	case "trace_streamer command boundary rejected":
+		return "trace_streamer 命令完成后的一致性校验失败"
 	case "normalizing trace_streamer SQLite DB to systrace":
 		return "正在把 trace_streamer SQLite DB 转成文本 systrace"
 	case "normalized trace_streamer SQLite DB to systrace":

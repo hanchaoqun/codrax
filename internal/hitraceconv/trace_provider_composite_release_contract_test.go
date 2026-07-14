@@ -80,7 +80,12 @@ func TestReleaseTraceProviderCancellationBypassesComposite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := runTraceStreamerExport(context.Background(), opts, plan.TraceStreamer, input, opts.OutputPath, false, ledger)
+	authority, err := openConversionInputAuthority(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer authority.Close()
+	first, err := runTraceStreamerExport(context.Background(), opts, plan.TraceStreamer, authority, opts.OutputPath, false, ledger)
 	if err != nil {
 		t.Fatal(err)
 	}

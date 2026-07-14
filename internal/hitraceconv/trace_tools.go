@@ -84,8 +84,9 @@ func buildTraceProviderPlanWithInput(opts Options, inspectUnselected bool, direc
 	plan := traceProviderPlan{
 		RequestedEngine: mode,
 		TraceStreamer: traceProviderLanePlan{
-			Engine:   traceEngineTraceStreamer,
-			Provider: traceProviderByName(traceProviderNameTraceStreamer),
+			Engine:               traceEngineTraceStreamer,
+			Provider:             traceProviderByName(traceProviderNameTraceStreamer),
+			ExternalInputProfile: externalToolInputSnapshotOnly,
 		},
 		Builtin: traceProviderLanePlan{
 			Engine:    traceEngineBuiltin,
@@ -129,12 +130,13 @@ func buildTraceProviderPlanWithInput(opts Options, inspectUnselected bool, direc
 }
 
 func resolveTraceStreamerLanePlan(opts Options, lane traceProviderLanePlan) traceProviderLanePlan {
-	path, source, caveats := resolveTraceStreamerToolWithCaveats(opts)
-	lane.Path = path
-	lane.Source = source
+	resolution := resolveTraceStreamerToolResolution(opts)
+	lane.Path = resolution.Path
+	lane.Source = resolution.Source
+	lane.ExternalInputProfile = resolution.ExternalInputProfile
 	if strings.TrimSpace(lane.Source) == "" {
 		lane.Source = "unresolved"
-		for _, caveat := range caveats {
+		for _, caveat := range resolution.Caveats {
 			lower := strings.ToLower(caveat)
 			switch {
 			case strings.Contains(lower, "default embedded trace_streamer tier has no bundled payload"):
@@ -144,9 +146,9 @@ func resolveTraceStreamerLanePlan(opts Options, lane traceProviderLanePlan) trac
 			}
 		}
 	}
-	lane.Caveats = append([]string(nil), caveats...)
+	lane.Caveats = append([]string(nil), resolution.Caveats...)
 	probe := TraceToolProviderStatus{}
-	lane.Available = traceToolPathUsable(path, &probe)
+	lane.Available = traceToolPathUsable(lane.Path, &probe)
 	lane.Caveats = append(lane.Caveats, probe.Caveats...)
 	return lane
 }
@@ -290,33 +292,54 @@ func inspectTraceToolStatusInput(status *TraceToolStatus, opts Options) {
 }
 
 func resolveTraceStreamerTool(opts Options) (string, string) {
-	path, source, _ := resolveTraceStreamerToolWithCaveats(opts)
-	return path, source
+	resolution := resolveTraceStreamerToolResolution(opts)
+	return resolution.Path, resolution.Source
 }
 
 func resolveTraceStreamerToolWithCaveats(opts Options) (string, string, []string) {
+	resolution := resolveTraceStreamerToolResolution(opts)
+	return resolution.Path, resolution.Source, append([]string(nil), resolution.Caveats...)
+}
+
+type traceStreamerToolResolution struct {
+	Path                 string
+	Source               string
+	Caveats              []string
+	ExternalInputProfile externalToolInputProfile
+}
+
+func traceStreamerSnapshotToolResolution(path, source string, caveats []string) traceStreamerToolResolution {
+	return traceStreamerToolResolution{
+		Path:                 path,
+		Source:               source,
+		Caveats:              append([]string(nil), caveats...),
+		ExternalInputProfile: externalToolInputSnapshotOnly,
+	}
+}
+
+func resolveTraceStreamerToolResolution(opts Options) traceStreamerToolResolution {
 	if path := strings.TrimSpace(opts.TraceStreamerPath); path != "" {
-		return path, "configured trace_streamer", nil
+		return traceStreamerSnapshotToolResolution(path, "configured trace_streamer", nil)
 	}
 	if path := strings.TrimSpace(os.Getenv("CODRAX_TRACE_STREAMER")); path != "" {
-		return path, "CODRAX_TRACE_STREAMER", nil
+		return traceStreamerSnapshotToolResolution(path, "CODRAX_TRACE_STREAMER", nil)
 	}
 	for _, candidate := range traceStreamerCodraxBinaryDirCandidates() {
 		if traceToolPathUsable(candidate, nil) {
-			return candidate, "codrax executable directory", nil
+			return traceStreamerSnapshotToolResolution(candidate, "codrax executable directory", nil)
 		}
 	}
 	embeddedPath, embeddedSource, embeddedCaveats := resolveEmbeddedTraceStreamerTool()
 	if strings.TrimSpace(embeddedPath) != "" {
-		return embeddedPath, embeddedSource, embeddedCaveats
+		return traceStreamerSnapshotToolResolution(embeddedPath, embeddedSource, embeddedCaveats)
 	}
 	persistentEmbeddedCaveats := embeddedIntegrityCaveats(embeddedCaveats)
 	if path, err := exec.LookPath(traceStreamerBinaryName()); err == nil && strings.TrimSpace(path) != "" {
-		return path, traceStreamerBinaryName() + " on PATH", persistentEmbeddedCaveats
+		return traceStreamerSnapshotToolResolution(path, traceStreamerBinaryName()+" on PATH", persistentEmbeddedCaveats)
 	}
 	for _, candidate := range traceStreamerKnownLocationCandidates() {
 		if path := firstUsableTraceStreamerCandidate(candidate); path != "" {
-			return path, "known OpenHarmony/SmartPerf/hmtrace location", persistentEmbeddedCaveats
+			return traceStreamerSnapshotToolResolution(path, "known OpenHarmony/SmartPerf/hmtrace location", persistentEmbeddedCaveats)
 		}
 	}
 	if len(embeddedCaveats) > 0 {
@@ -327,9 +350,9 @@ func resolveTraceStreamerToolWithCaveats(opts Options) (string, string, []string
 				break
 			}
 		}
-		return "", source, embeddedCaveats
+		return traceStreamerSnapshotToolResolution("", source, embeddedCaveats)
 	}
-	return "", "unresolved", nil
+	return traceStreamerSnapshotToolResolution("", "unresolved", nil)
 }
 
 func embeddedIntegrityCaveats(caveats []string) []string {
