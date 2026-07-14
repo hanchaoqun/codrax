@@ -691,14 +691,15 @@ func TestGAPBCountFamilyDetailNoteCountEquivalent(t *testing.T) {
 		FamilyFoldCaliber: tracequery.RootCauseMemberFoldCaliberCountSum,
 	}
 	note := runtimeTraceProjFamilySumDetailNote(count, true)
-	if !strings.Contains(note, "计数当量198.300ms") {
+	// §29.55 观察③ 两形一裁 (2026-07-14): suffix-free 计数当量X(非墙钟).
+	if !strings.Contains(note, "计数当量198.300(非墙钟)") {
 		t.Fatalf("count-class Σ must wear the 计数当量 marker, got %q", note)
 	}
 	if strings.Contains(note, "原始和 198.300ms") {
 		t.Fatalf("count-class Σ must never print the bare wall-clock form, got %q", note)
 	}
 	en := runtimeTraceProjFamilySumDetailNote(count, false)
-	if !strings.Contains(en, "count-equivalent 198.300ms") {
+	if !strings.Contains(en, "count-equivalent 198.300 (not wall clock)") {
 		t.Fatalf("EN count-class Σ must carry the count-equivalent marker, got %q", en)
 	}
 	wall := count

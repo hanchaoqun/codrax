@@ -422,8 +422,9 @@ func reconcileAdjacentIOFacetFamilySeats(rank *RootCauseRankResult) {
 				entry += fmt.Sprintf(" %.3fms(不计入墙钟合计)", value)
 			default:
 				// Count facets disclose as count equivalents — never summed
-				// into the wall-clock seat value (计数当量非墙钟).
-				entry += fmt.Sprintf(" 计数当量%.3fms", value)
+				// into the wall-clock seat value (计数当量非墙钟). ONE form
+				// via the shared helper (§29.55 观察③ 两形一裁, 2026-07-14).
+				entry += " " + rootCauseCountEquivalentValue(value)
 			}
 			roster = append(roster, entry)
 			if lineStart == 0 || (m.LineStart > 0 && m.LineStart < lineStart) {

@@ -857,16 +857,16 @@ func revisit76RCM2FamilyProjection() types.TraceCausalProjection {
 				FamilyMemberRoster: []string{"inode=286395 dev=254:2 1.136ms", "inode=300123 dev=254:2 0.462ms"},
 				Dev:                "254:2", Confidence: 0.8},
 			// DISP-2 (2026-07-09): roster entries carry the engine-real
-			// 计数当量Xms marker (rootCauseCountEquivalentValue renders every
-			// count-family roster value through it — fixture 取引擎实铸形,
-			// §28.7 新纪律), so the FamilyCountEquivalent probe is
-			// bidirectional on this shape.
+			// 计数当量X(非墙钟) marker (rootCauseCountEquivalentValue renders
+			// every count-family roster value through it — fixture 取引擎
+			// 实铸形, §28.7 新纪律; §29.55③ 两形一裁 ms 后缀退役), so the
+			// FamilyCountEquivalent probe is bidirectional on this shape.
 			{Role: types.TraceCausalRoleRootCauseContext, EvidenceID: "rcm2-count",
 				Subject: "worker-9", Object: "state_churn", TypeToken: "state_churn",
 				ChainRelevance: "on_chain", Rank: 4,
 				ImpactMS: 5.0, CumulativeImpactMS: 5.0, EffectiveImpactMS: 5.0,
 				FamilyMemberCount: 3, FamilyFoldCaliber: "count_sum",
-				FamilyMemberRoster: []string{"churn a 计数当量2.000ms", "churn b 计数当量2.000ms", "churn c 计数当量1.000ms"},
+				FamilyMemberRoster: []string{"churn a 计数当量2.000(非墙钟)", "churn b 计数当量2.000(非墙钟)", "churn c 计数当量1.000(非墙钟)"},
 				Confidence:         0.8},
 		},
 		SemanticSpans: []types.TraceCausalProjectionNode{

@@ -106,15 +106,30 @@ func runtimeTraceProjFamilyCountSumClamped(node types.TraceCausalProjectionNode)
 // runtimeTraceProjMarkFamilyCaliber records a family caliber-word mark at a
 // render site, plus the 计数当量 companion entry on the count arm (DISP-2 /
 // GAP-A P3-6, 2026-07-09): the count family's engine faces (member roster /
-// raw-Σ detail note / Summary) print the 计数当量Xms marker wherever the count
-// caliber word renders, so its teaching entry rides exactly those renders.
-// ALL family caliber-word mark sites MUST route through this helper — never a
-// bare marks.mark(caliberMark) — so the companion can never drift off one face.
+// raw-Σ detail note / Summary) print the 计数当量X(非墙钟) marker wherever
+// the count caliber word renders, so its teaching entry rides exactly those
+// renders. ALL family caliber-word mark sites MUST route through this helper
+// — never a bare marks.mark(caliberMark) — so the companion can never drift
+// off one face.
 func runtimeTraceProjMarkFamilyCaliber(marks *runtimeTraceProjMarkSet, caliberMark runtimeTraceProjMark) {
 	marks.mark(caliberMark)
 	if caliberMark == runtimeTraceProjMarkFamilyCountSum {
 		marks.mark(runtimeTraceProjMarkFamilyCountEquivalent)
 	}
+}
+
+// runtimeTraceProjCountEquivalentValueText is the ONE display form of a
+// count-equivalent magnitude rendered WITH its value (§29.55 观察③ 两形一裁,
+// WF-2 词面批 2026-07-14): 计数当量<value>(非墙钟) — the value is not
+// wall-clock milliseconds, so it never wears an ms suffix (带 ms=口径谎;
+// the G3/DISP-2 bare-ms discipline's wordface half). The sidebar form won
+// the ruling; the tree 行1 form 计数当量Xms is retired. Mirrors the engine's
+// rootCauseCountEquivalentValue byte-for-byte on the zh face (三面同源).
+func runtimeTraceProjCountEquivalentValueText(v float64, zh bool) string {
+	if zh {
+		return fmt.Sprintf("计数当量%.3f(非墙钟)", v)
+	}
+	return fmt.Sprintf("count-equivalent %.3f (not wall clock)", v)
 }
 
 // runtimeTraceProjFamilyValuePrefix is the COMPACT 行1 value qualifier
@@ -294,11 +309,14 @@ func runtimeTraceProjFamilySumDetailNote(node types.TraceCausalProjectionNode, z
 	// contradicting the fence face (which deliberately excludes count) and
 	// the engine's roster/Summary faces. The 计数当量 marker mirrors the
 	// engine's ONE helper wording (rootCauseCountEquivalentValue) — 三面同源.
+	// §29.55 观察③ 两形一裁 (2026-07-14): the value speaks the suffix-free
+	// atom 计数当量X(非墙钟); the trailing paren keeps only the class word
+	// (非墙钟 now rides the value, never said twice).
 	if strings.TrimSpace(node.FamilyFoldCaliber) == tracequery.RootCauseMemberFoldCaliberCountSum {
 		if zh {
-			return fmt.Sprintf(";原始和 计数当量%.3fms 供对照(计数类,非墙钟)", node.FamilyMemberSumMS)
+			return fmt.Sprintf(";原始和 %s 供对照(计数类)", runtimeTraceProjCountEquivalentValueText(node.FamilyMemberSumMS, true))
 		}
-		return fmt.Sprintf("; raw sum count-equivalent %.3fms for cross-checking (count-class, not wall clock)", node.FamilyMemberSumMS)
+		return fmt.Sprintf("; raw sum %s for cross-checking (count-class)", runtimeTraceProjCountEquivalentValueText(node.FamilyMemberSumMS, false))
 	}
 	if zh {
 		return fmt.Sprintf(";原始和 %.3fms 供对照", node.FamilyMemberSumMS)
@@ -437,7 +455,11 @@ func runtimeTraceProjSemanticCellParts(node types.TraceCausalProjectionNode, ms 
 			name = word
 		}
 		name += runtimeTraceProjMergeCountChip(node.FamilyMemberCount, zh)
-		if prefix := runtimeTraceProjFamilyValuePrefix(node, zh); prefix != "" {
+		if runtimeTraceProjFamilyCountSumClamped(node) {
+			// §29.55 观察③ 两形一裁 (2026-07-14): the 计数当量 stem never
+			// composes with an ms-suffixed value — suffix-free atom.
+			value = runtimeTraceProjCountEquivalentValueText(ms, zh)
+		} else if prefix := runtimeTraceProjFamilyValuePrefix(node, zh); prefix != "" {
 			value = prefix + value
 		}
 	}

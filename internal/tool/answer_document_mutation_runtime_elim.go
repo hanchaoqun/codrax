@@ -604,7 +604,12 @@ func runtimeTraceProjElimFootnotes(model runtimeTraceProjTreeModel, board []runt
 				caliberTotal++
 				if caliberListed < caliberCap {
 					caliberListed++
-					part := runtimeTraceProjElimSubject(row, zh) + " " + fmt.Sprintf("%.3fms", value) +
+					// §29.55 观察③ 两形一裁 (2026-07-14): every row on this
+					// footnote is caliber-side (count / composite score) —
+					// its magnitude is NOT wall-clock ms, so the value
+					// renders suffix-free; the adjacent ⌗ word carries the
+					// class and the 非墙钟 qualifier.
+					part := runtimeTraceProjElimSubject(row, zh) + " " + fmt.Sprintf("%.3f", value) +
 						"·" + runtimeTraceProjCaliberSideWord(row.Node, zh)
 					if tag := strings.TrimSpace(row.EvidenceTag); tag != "" {
 						part += " [" + tag + "]"

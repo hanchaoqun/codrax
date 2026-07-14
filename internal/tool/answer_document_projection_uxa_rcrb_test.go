@@ -96,7 +96,10 @@ func TestUXALegendFinalFormsVerbatim(t *testing.T) {
 		runtimeTraceProjMarkWholeWindowIdle:         "- `整窗等待` = 该行几乎覆盖整个窗口(≥99%),多为空闲或常驻等待线程,仅作背景参考。",
 		runtimeTraceProjMarkAdjacentStanza:          "- `◇` = 邻近区段:与唤醒链时间相邻,不在唤醒链上。",
 		runtimeTraceProjMarkBackgroundStanza:        "- `▒` = 背景压力区段:环境证据,不计入链上归因,需结合链上证据解读。",
-		runtimeTraceProjMarkCoverageLine:            "- 已归因/未归因 = 树头覆盖句的口径:只统计第一层直接原因行对关注线程的影响;未归因 = 关注线程等待(或整窗)时长 − 已归因;各层时长在墙钟上互相包含,不能逐层相加。",
+		// §29.61.6 (词面批 2026-07-14): the epistemic-status sentence is part
+		// of the verbatim pin — 三要素: 非正常义 (未归因≠正常/无需解释)、可能
+		// 构成 (未发现原因/未探查窗/未识别空闲,系统不判定)、已识别正常空闲另列.
+		runtimeTraceProjMarkCoverageLine:            "- 已归因/未归因 = 树头覆盖句的口径:只统计第一层直接原因行对关注线程的影响;未归因 = 关注线程等待(或整窗)时长 − 已归因;各层时长在墙钟上互相包含,不能逐层相加;未归因≠正常/无需解释:是尚未被已发布原因覆盖的部分(可能含未发现原因/未探查窗/未识别空闲,系统不判定);已识别的正常空闲(如帧间空闲)另行单列。",
 		runtimeTraceProjMarkStanzaCrossThreadCum:    "- `累计(跨线程)` = ◇/▒ 区段行的时长口径:多线程时间累计,不计入链上已归因。",
 		runtimeTraceProjMarkStanzaDiscount:          "- `折算` = 该行折算后的有效值,仅在与累计值不同时并列显示。",
 		runtimeTraceProjMarkCandidateShapeClass:     "- 无类型词的行 = 未识别出具体影响类型;逐行影响形态见明细。",

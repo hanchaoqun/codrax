@@ -275,7 +275,7 @@ func TestUXR1AdjacentIOFacetFamilyOneSeat4165(t *testing.T) {
 	roster := strings.Join(family.MemberRoster, " | ")
 	for _, want := range []string{"io_wait", "io_latency",
 		"block_io_by_inode inode=0x1 dev=260:84 0.198ms(不计入墙钟合计)",
-		"io_burst_episode", "page_cache_churn inode=0x81251 dev=260:84 计数当量0.600ms"} {
+		"io_burst_episode", "page_cache_churn inode=0x81251 dev=260:84 计数当量0.600(非墙钟)"} {
 		if !strings.Contains(roster, want) {
 			t.Fatalf("family roster must keep the facet distinguishing keys (%q): %q", want, roster)
 		}

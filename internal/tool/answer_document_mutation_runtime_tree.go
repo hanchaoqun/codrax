@@ -717,7 +717,7 @@ const (
 	// three new gated seats.
 	runtimeTraceProjMarkTraceGapBelowFloor    // ◇ 盲区判据二 窗内无≥阈值等待区间·链止 (G2 措辞按 kind 分形)
 	runtimeTraceProjMarkAllZeroFoldNote       // 全零折叠行一行注 窗内无有效时长 (G19, 取代 ×N(0.000–0.000)取最大)
-	runtimeTraceProjMarkFamilyCountEquivalent // 计数当量Xms 对照写法词条 (GAP-A P3-6, 随 count 家族行按需出场)
+	runtimeTraceProjMarkFamilyCountEquivalent // 计数当量X(非墙钟) 对照写法词条 (GAP-A P3-6, 随 count 家族行按需出场; §29.55③ 两形一裁 ms 后缀退役)
 
 	// G12-ENG (§29.1, 2026-07-09): one new gated seat.
 	runtimeTraceProjMarkValuelessFoldMembers // 无时长值成员 混合折叠行词条 (E23 ×2 同值伪形修根)
@@ -1127,9 +1127,12 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// Summary — rootCauseCountEquivalentValue 三面同源) gets its teaching
 		// entry, riding exactly the renders where the count caliber word above
 		// appears (co-marked via runtimeTraceProjMarkFamilyCaliber).
+		// EVOLUTION RECORD (§29.55 观察③ 两形一裁, 2026-07-14): the taught
+		// form 计数当量Xms → 计数当量X(非墙钟) — the value never wears an ms
+		// suffix (带 ms=口径谎); the entry follows the minted form.
 		{runtimeTraceProjMarkFamilyCountEquivalent, runtimeTraceProjLegendGroupCaliber,
-			"- `计数当量Xms` = 计数类数值的对照写法:按计数换算的当量毫秒,非墙钟时长,不与时长行相加。",
-			"- `计数当量Xms` (count-equivalent X ms) = the comparison form of a count-class magnitude: count-derived equivalent milliseconds, not wall-clock duration; never added to duration rows."},
+			"- `计数当量X(非墙钟)` = 计数类数值的对照写法:按计数换算的当量值(毫秒尺度),非墙钟时长,故不带 ms 后缀,不与时长行相加。",
+			"- `计数当量X(非墙钟)` (count-equivalent X, not wall clock) = the comparison form of a count-class magnitude: a count-derived equivalent on the millisecond scale, not wall-clock duration — it never wears an ms suffix and is never added to duration rows."},
 		// §11-N2 (2026-07-06, real_trace_campaign ledger): the cross-query-window
 		// union caliber gets its own form token — the plain ×N(a~b) entry claims
 		// "数值为总和" and must stay truthful, so a union row NEVER wears the sum
@@ -1210,9 +1213,18 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// PTV5 Q2 (#68 用户裁定 2026-07-05): the tree-header coverage sentence's
 		// caliber gets its own legend entry — attributed = the chain's depth-1
 		// cumulative toward the target, residual by subtraction only.
+		// §29.61.6 (用户立案 2026-07-14, 词面批): the entry taught the
+		// arithmetic but not the epistemic status of 未归因 — a user read it
+		// three ways (不需要深挖 / 无需深挖的正常 / 没有深挖的未知). The
+		// appended sentence states the ruling meaning: NOT-normal / not
+		// needs-no-explanation — the portion not yet covered by any published
+		// cause (undiscovered causes / unexplored windows / unrecognized idle
+		// possible, the system does not rule), while RECOGNIZED normal idle
+		// (∿ 帧间空闲) is split onto its own row and the self running
+		// residual never wears the 未归因 word (tree.go 自身执行 ruling).
 		{runtimeTraceProjMarkCoverageLine, runtimeTraceProjLegendGroupCaliber,
-			"- 已归因/未归因 = 树头覆盖句的口径:只统计第一层直接原因行对关注线程的影响;未归因 = 关注线程等待(或整窗)时长 − 已归因;各层时长在墙钟上互相包含,不能逐层相加。",
-			"- attributed/unattributed = the tree-header coverage caliber: only the depth-1 direct-cause rows' impact on the focused thread is counted; unattributed = the focused thread's wait (or whole-window) duration minus attributed; layer durations contain each other on the wall clock, so layers never add up."},
+			"- 已归因/未归因 = 树头覆盖句的口径:只统计第一层直接原因行对关注线程的影响;未归因 = 关注线程等待(或整窗)时长 − 已归因;各层时长在墙钟上互相包含,不能逐层相加;未归因≠正常/无需解释:是尚未被已发布原因覆盖的部分(可能含未发现原因/未探查窗/未识别空闲,系统不判定);已识别的正常空闲(如帧间空闲)另行单列。",
+			"- attributed/unattributed = the tree-header coverage caliber: only the depth-1 direct-cause rows' impact on the focused thread is counted; unattributed = the focused thread's wait (or whole-window) duration minus attributed; layer durations contain each other on the wall clock, so layers never add up; unattributed ≠ normal / needs-no-explanation: it is the portion not yet covered by any published cause (it may hold undiscovered causes, unexplored windows or unrecognized idle — no verdict is made); recognized normal idle (e.g. inter-frame idle) is listed on its own row."},
 		// §29.27② (COV-4 用户裁定, 2026-07-11): the four-state coverage
 		// account's caliber entry — full-window wall-clock partition,
 		// window-denominator percentages (a different base from the wait-
@@ -7350,11 +7362,11 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 		// its fold stem (合计/成员最大 — the tree-row 行1 convention).
 		switch tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)) {
 		case tracequery.CausalCaliberSideCount:
+			// §29.55 观察③ 两形一裁 (2026-07-14): the 行1 form 计数当量Xms is
+			// retired — the count-equivalent value never wears an ms suffix;
+			// ONE form via the shared helper.
 			row.marks.mark(runtimeTraceProjMarkFamilyCountEquivalent)
-			value = "计数当量" + value
-			if !zh {
-				value = fmt.Sprintf("count-equivalent %.3fms", v)
-			}
+			value = runtimeTraceProjCountEquivalentValueText(v, zh)
 		case tracequery.CausalCaliberSideCompositeScore:
 			value = fmt.Sprintf("%.3f(综合评分,非墙钟)", v)
 			if !zh {
@@ -9438,7 +9450,15 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		if _, caliberMark, ok := runtimeTraceProjFamilyCaliberWord(node, zh); ok {
 			runtimeTraceProjMarkFamilyCaliber(row.marks, caliberMark)
 		}
-		b.WriteString(" " + prefix + fmt.Sprintf("%.3fms", impact))
+		if runtimeTraceProjFamilyCountSumClamped(node) {
+			// §29.55 观察③ 两形一裁 (2026-07-14): the clamped count seat's
+			// stem is 计数当量 — its value is not wall-clock ms, so the 行1
+			// composite speaks the ONE suffix-free form (same typed condition
+			// that minted the stem; 合计/成员最大 wall-clock stems keep ms).
+			b.WriteString(" " + runtimeTraceProjCountEquivalentValueText(impact, zh))
+		} else {
+			b.WriteString(" " + prefix + fmt.Sprintf("%.3fms", impact))
+		}
 	} else {
 		b.WriteString(fmt.Sprintf(" %9.3fms", impact))
 	}
@@ -9542,8 +9562,8 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 	if node.IsCaliberSideRow() {
 		row.marks.mark(runtimeTraceProjMarkCaliberSideRow)
 		// A count-class caliber word speaks 计数当量 — its comparison-form
-		// legend entry (计数当量Xms) rides along (词条-图例双向; typed class,
-		// never a substring probe).
+		// legend entry (计数当量X(非墙钟)) rides along (词条-图例双向; typed
+		// class, never a substring probe).
 		if tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)) == tracequery.CausalCaliberSideCount {
 			row.marks.mark(runtimeTraceProjMarkFamilyCountEquivalent)
 		}

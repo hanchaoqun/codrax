@@ -260,7 +260,10 @@ func TestTraceSupplementDisclosureSingleLineUpsert(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("exactly one disclosure line, got %d: %q", len(lines), doc.Caveats)
 	}
-	wantZH := "系统补采: 装配期确定性补跑 root_cause_rank(窗 3.000000..3.200000, 目标 worker-200)"
+	// EVOLUTION RECORD (WF-2 词面批 §29.71 残留3, 2026-07-14): 「装配期」→
+	// 「成文前」(零内部管线词) + zh 视图名（token） per the D4 label（token）
+	// precedent; EN "assembly-time" → "pre-report", tokens kept raw.
+	wantZH := "系统补采: 成文前确定性补跑 根因排序（root_cause_rank）(窗 3.000000..3.200000, 目标 worker-200)"
 	if lines[0] != wantZH {
 		t.Fatalf("zh disclosure = %q, want %q", lines[0], wantZH)
 	}
@@ -271,7 +274,7 @@ func TestTraceSupplementDisclosureSingleLineUpsert(t *testing.T) {
 	// EN wording form.
 	meta := ctx.Mutable.SystemTraceSupplementMeta()
 	en := runtimeTraceSupplementDisclosureText(meta, false)
-	wantEN := "System supplement: deterministic assembly-time re-run of root_cause_rank (window 3.000000..3.200000, target worker-200)"
+	wantEN := "System supplement: deterministic pre-report re-run of root_cause_rank (window 3.000000..3.200000, target worker-200)"
 	if en != wantEN {
 		t.Fatalf("en disclosure = %q, want %q", en, wantEN)
 	}
@@ -530,12 +533,12 @@ func TestTraceSupplementDurationBudgetKeepsCompletedViews(t *testing.T) {
 	if !materializeRuntimeTraceSupplementDisclosureCaveat(doc, ctx) || len(doc.Caveats) != 1 {
 		t.Fatalf("partial run must disclose: %q", doc.Caveats)
 	}
-	wantZH := "系统补采: 装配期确定性补跑 root_cause_rank(窗 3.000000..3.200000, 目标 worker-200);超时长预算未补跑 critical_blocking_calls"
+	wantZH := "系统补采: 成文前确定性补跑 根因排序（root_cause_rank）(窗 3.000000..3.200000, 目标 worker-200);超时长预算未补跑 关键阻塞调用（critical_blocking_calls）"
 	if doc.Caveats[0] != wantZH {
 		t.Fatalf("zh partial disclosure = %q, want %q", doc.Caveats[0], wantZH)
 	}
 	en := runtimeTraceSupplementDisclosureText(meta, false)
-	wantEN := "System supplement: deterministic assembly-time re-run of root_cause_rank (window 3.000000..3.200000, target worker-200); not re-run over the duration budget: critical_blocking_calls"
+	wantEN := "System supplement: deterministic pre-report re-run of root_cause_rank (window 3.000000..3.200000, target worker-200); not re-run over the duration budget: critical_blocking_calls"
 	if en != wantEN {
 		t.Fatalf("en partial disclosure = %q, want %q", en, wantEN)
 	}
@@ -568,7 +571,7 @@ func TestTraceSupplementWindowSpanBudgetDisclosedSkip(t *testing.T) {
 	if !materializeRuntimeTraceSupplementDisclosureCaveat(doc, ctx) || len(doc.Caveats) != 1 {
 		t.Fatalf("span skip must disclose: %q", doc.Caveats)
 	}
-	wantZH := "系统补采: 未补跑 root_cause_rank——窗 3.000000..3.200000 跨度 0.200 秒超出补跑窗长预算 0.1 秒;缩小时间窗后可补齐该窗结果"
+	wantZH := "系统补采: 未补跑 根因排序（root_cause_rank）——窗 3.000000..3.200000 跨度 0.200 秒超出补跑窗长预算 0.1 秒;缩小时间窗后可补齐该窗结果"
 	if doc.Caveats[0] != wantZH {
 		t.Fatalf("zh span disclosure = %q, want %q", doc.Caveats[0], wantZH)
 	}

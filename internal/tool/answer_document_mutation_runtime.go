@@ -3176,12 +3176,15 @@ func runtimeTraceCausalProjectionEvidenceText(zh bool) string {
 	// legend sentence gains the same_value_* pair — a cross-thread take-MAX
 	// fold whose members tie the published MAX to the µs names those members
 	// and their line intervals (token 本身零改动,§22.2.1 审计车道原文保留).
+	// WF-2 件④ (2026-07-14). EVOLUTION RECORD: the sentence gains the
+	// origin=system_supplement token (SUPP-CORE 修复轮 件5 provenance face) —
+	// the member_*/same_value_* extension precedent; token 本身零改动.
 	if zh {
 		return "正文用 E1、E2 等编号引用证据;本索引给出每条证据在 trace 中的位置(行号或时间区间)与审计字段。" +
-			"审计字段为 trace_query 原文 token,便于回溯核对:tier=证据层级、causality=因果位置、rank=根因排序、confidence=置信度、predicate=判定类型、span=span 名、merged_*=合并明细、member_*=同线程家族合并明细、same_value_*=跨线程取最大折叠中同值到微秒的成员及各自行区间(供核对是否同段);其余字段同为原文 token。"
+			"审计字段为 trace_query 原文 token,便于回溯核对:tier=证据层级、causality=因果位置、rank=根因排序、confidence=置信度、predicate=判定类型、span=span 名、merged_*=合并明细、member_*=同线程家族合并明细、same_value_*=跨线程取最大折叠中同值到微秒的成员及各自行区间(供核对是否同段)、origin=记录出处(system_supplement=成文前确定性补采所得,非模型查询);其余字段同为原文 token。"
 	}
 	return "The answer cites evidence by the E1/E2 numbers; this index gives each entry's location in the trace (line or time span) and its audit fields. " +
-		"Audit fields are raw trace_query tokens kept for cross-checking: tier = evidence tier, causality = causal position, rank = root-cause rank, confidence = confidence, predicate = judgment kind, span = span name, merged_* = merge detail, member_* = same-thread family-merge detail, same_value_* = members of a cross-thread take-MAX fold whose values tie to the µs, with each member's own line interval (to check whether they are one segment); any other field is likewise a raw token."
+		"Audit fields are raw trace_query tokens kept for cross-checking: tier = evidence tier, causality = causal position, rank = root-cause rank, confidence = confidence, predicate = judgment kind, span = span name, merged_* = merge detail, member_* = same-thread family-merge detail, same_value_* = members of a cross-thread take-MAX fold whose values tie to the µs, with each member's own line interval (to check whether they are one segment), origin = record provenance (system_supplement = collected by the deterministic pre-report supplement, not a model query); any other field is likewise a raw token."
 }
 
 func runtimeTraceCausalProjectionPriorityCell(node types.TraceCausalProjectionNode, zh bool) string {
@@ -4603,11 +4606,45 @@ const (
 	runtimeTraceSupplementDisclosurePrefixEN = "System supplement:"
 )
 
+// runtimeTraceSupplementViewZHLabel maps the supplement's CLOSED engine-view
+// set (traceSupplementViews — exactly two tokens today) to user-facing zh
+// display words. root_cause_rank speaks the established channel word
+// (tracefence single source — UXG-1 F2 tripwire: never a hand-copied
+// literal). Unmapped tokens pass through verbatim (D4 rule: no claim, never
+// a guess).
+func runtimeTraceSupplementViewZHLabel(view string) string {
+	switch strings.TrimSpace(view) {
+	case "root_cause_rank":
+		return tracefence.SeatChannelChainZH
+	case "critical_blocking_calls":
+		return "关键阻塞调用"
+	}
+	return ""
+}
+
+// runtimeTraceSupplementViewList renders the disclosure line's view list. The
+// zh face speaks 中文视图名（raw_token） — the D4 combined-form precedent
+// (label（token）, tree ⌗ 口径行), keeping the raw token inline for audit
+// fidelity while the Chinese word carries the reading; the EN face keeps the
+// raw tokens (existing EN token convention).
+func runtimeTraceSupplementViewList(views []string, zh bool) string {
+	if !zh {
+		return strings.Join(views, ", ")
+	}
+	parts := make([]string, 0, len(views))
+	for _, view := range views {
+		if label := runtimeTraceSupplementViewZHLabel(view); label != "" && label != view {
+			parts = append(parts, label+"（"+view+"）")
+			continue
+		}
+		parts = append(parts, view)
+	}
+	return strings.Join(parts, "、")
+}
+
 // runtimeTraceSupplementDisclosureText renders the single disclosure line
 // from the typed supplement meta (never model-authored text — §29.57 typed
-// backfill discipline; wording is the DISPATCH-IND design form, final word
-// surface deferred to the wording batch). Three forms (P1 budget fuses,
-// 2026-07-14):
+// backfill discipline). Three forms (P1 budget fuses, 2026-07-14):
 //   - executed: the standard re-run line;
 //   - executed + duration_budget_exceeded: the re-run line plus the honest
 //     "remaining views not re-run over the duration budget" tail —
@@ -4615,6 +4652,21 @@ const (
 //   - window_span_exceeded: nothing ran — the user named this window, so
 //     the line says so and points at narrowing the window (never a silent
 //     truncation, never a guessed sub-window).
+//
+// EVOLUTION RECORD (§29.71 残留3 词面终稿, WF-2 词面批 2026-07-14; supersedes
+// the DISPATCH-IND provisional form):
+//   - 「装配期确定性补跑」→「成文前确定性补跑」/ EN "deterministic
+//     assembly-time re-run" → "deterministic pre-report re-run" — 装配期/
+//     assembly-time named an internal pipeline phase; the reader-visible
+//     fact is that the re-run happened before this report was written
+//     (零内部管线词 discipline).
+//   - raw view tokens (root_cause_rank) → zh 视图名（token） via
+//     runtimeTraceSupplementViewList (D4 label（token） precedent); EN keeps
+//     the raw tokens.
+//   - three-form audit: shared skeleton kept (prefix + 补跑/未补跑 + views +
+//     window/reason); the span-skip form's 「补跑窗长预算」 vs the partial
+//     form's 「时长预算」 name two DIFFERENT budgets and deliberately stay
+//     distinct words.
 func runtimeTraceSupplementDisclosureText(meta *types.SystemTraceSupplementMeta, zh bool) string {
 	if meta == nil || (len(meta.Views) == 0 && meta.SkipReason != "window_span_exceeded") {
 		return ""
@@ -4634,23 +4686,23 @@ func runtimeTraceSupplementDisclosureText(meta *types.SystemTraceSupplementMeta,
 		span := meta.WindowEnd - meta.WindowStart
 		if zh {
 			return fmt.Sprintf("%s 未补跑 %s——窗 %.6f..%.6f 跨度 %.3f 秒超出补跑窗长预算 %g 秒;缩小时间窗后可补齐该窗结果",
-				runtimeTraceSupplementDisclosurePrefixZH, strings.Join(meta.SkippedViews, "、"), meta.WindowStart, meta.WindowEnd, span, meta.WindowBudgetS)
+				runtimeTraceSupplementDisclosurePrefixZH, runtimeTraceSupplementViewList(meta.SkippedViews, true), meta.WindowStart, meta.WindowEnd, span, meta.WindowBudgetS)
 		}
 		return fmt.Sprintf("%s %s not re-run — window %.6f..%.6f spans %.3fs, over the %gs span budget; narrow the time window to fill it in",
-			runtimeTraceSupplementDisclosurePrefixEN, strings.Join(meta.SkippedViews, ", "), meta.WindowStart, meta.WindowEnd, span, meta.WindowBudgetS)
+			runtimeTraceSupplementDisclosurePrefixEN, runtimeTraceSupplementViewList(meta.SkippedViews, false), meta.WindowStart, meta.WindowEnd, span, meta.WindowBudgetS)
 	}
 	if zh {
-		line := fmt.Sprintf("%s 装配期确定性补跑 %s(窗 %.6f..%.6f, 目标 %s)",
-			runtimeTraceSupplementDisclosurePrefixZH, strings.Join(meta.Views, "、"), meta.WindowStart, meta.WindowEnd, target)
+		line := fmt.Sprintf("%s 成文前确定性补跑 %s(窗 %.6f..%.6f, 目标 %s)",
+			runtimeTraceSupplementDisclosurePrefixZH, runtimeTraceSupplementViewList(meta.Views, true), meta.WindowStart, meta.WindowEnd, target)
 		if meta.SkipReason == "duration_budget_exceeded" && len(meta.SkippedViews) > 0 {
-			line += ";超时长预算未补跑 " + strings.Join(meta.SkippedViews, "、")
+			line += ";超时长预算未补跑 " + runtimeTraceSupplementViewList(meta.SkippedViews, true)
 		}
 		return line
 	}
-	line := fmt.Sprintf("%s deterministic assembly-time re-run of %s (window %.6f..%.6f, target %s)",
-		runtimeTraceSupplementDisclosurePrefixEN, strings.Join(meta.Views, ", "), meta.WindowStart, meta.WindowEnd, target)
+	line := fmt.Sprintf("%s deterministic pre-report re-run of %s (window %.6f..%.6f, target %s)",
+		runtimeTraceSupplementDisclosurePrefixEN, runtimeTraceSupplementViewList(meta.Views, false), meta.WindowStart, meta.WindowEnd, target)
 	if meta.SkipReason == "duration_budget_exceeded" && len(meta.SkippedViews) > 0 {
-		line += "; not re-run over the duration budget: " + strings.Join(meta.SkippedViews, ", ")
+		line += "; not re-run over the duration budget: " + runtimeTraceSupplementViewList(meta.SkippedViews, false)
 	}
 	return line
 }

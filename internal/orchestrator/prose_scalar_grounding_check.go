@@ -389,7 +389,11 @@ func proseScalarTextCaliber(texts ...string) string {
 		if strings.Contains(text, "cpu·ms") {
 			return proseScalarCaliberCPUMS
 		}
-		if strings.Contains(text, "计数当量") || strings.Contains(text, "count equivalent") {
+		// Wordface consumer follows the wordface (§29.55 观察③ 两形一裁,
+		// 2026-07-14): the EN faces mint the hyphenated "count-equivalent"
+		// (tree 行1 / raw-Σ note / table marker) — match both EN spellings.
+		if strings.Contains(text, "计数当量") || strings.Contains(text, "count equivalent") ||
+			strings.Contains(text, "count-equivalent") {
 			return proseScalarCaliberCountEquiv
 		}
 		if strings.Contains(text, "综合评分") || strings.Contains(text, "composite score") {

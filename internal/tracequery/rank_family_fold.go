@@ -1191,8 +1191,14 @@ func mergeSameThreadTypeRankFamily(q Query, hasCausalChain bool, items []RootCau
 // both faces render through THIS one helper — 两面同源, and the marker is
 // generic per-CLASS: page_cache_churn, file_io_hot_inode and any future
 // count-class family share it — never a per-type carve-out).
+//
+// EVOLUTION RECORD (§29.55 观察③ 两形一裁, WF-2 词面批 2026-07-14):
+// 「计数当量Xms」→「计数当量X(非墙钟)」 — the value is NOT wall-clock
+// milliseconds, so the ms suffix was a caliber lie (G3/DISP-2 裸 ms 纪律的
+// 词面面); the sidebar's (非墙钟) qualifier won the ruling and every
+// value-adjacent minting point speaks the one form.
 func rootCauseCountEquivalentValue(ms float64) string {
-	return fmt.Sprintf("计数当量%.3fms", ms)
+	return fmt.Sprintf("计数当量%.3f(非墙钟)", ms)
 }
 
 // rootCauseFamilyMemberKey is the roster-entry identity fallback for a member

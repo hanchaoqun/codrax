@@ -250,7 +250,7 @@ func disp2CountFamilyLedger() types.ObservationLedger {
 				"impact=41.671ms", "cumulative_impact_ms=41.671", "effective_impact_ms=41.671",
 				"member_count=2", "member_fold_caliber=count_sum",
 				"member_max_ms=133.200", "member_min_ms=65.100", "member_sum_ms=198.300",
-				"member_roster=inode=0x6a16 dev=254:2 计数当量133.200ms | inode=0x6a20 dev=254:2 计数当量65.100ms",
+				"member_roster=inode=0x6a16 dev=254:2 计数当量133.200(非墙钟) | inode=0x6a20 dev=254:2 计数当量65.100(非墙钟)",
 			},
 		},
 	}}
@@ -277,14 +277,17 @@ func TestDisp2CountFamilyEndToEnd(t *testing.T) {
 	// 41.671 < member Σ 198.300) — the former 「合计41.671ms」 stem claimed a
 	// sum identity that does not hold; the honest 计数当量 stem replaces it
 	// (unclamped count families keep 合计 — TestV2P0CountFamilyClamped…).
-	if !strings.Contains(fence, "计数当量41.671ms") {
+	// EVOLUTION RECORD (§29.55 观察③ 两形一裁, 2026-07-14): 计数当量41.671ms
+	// → 计数当量41.671(非墙钟) — the count-equivalent value never wears an
+	// ms suffix on ANY face (negative sweep below).
+	if !strings.Contains(fence, "计数当量41.671(非墙钟)") {
 		t.Fatalf("tree 行1 must carry the published value under the honest 计数当量 stem:\n%s", fence)
 	}
 	if strings.Contains(fence, "合计41.671ms") || strings.Contains(fence, "计数合计(共2项") {
 		t.Fatalf("a clamped count seat must not claim the sum identity:\n%s", fence)
 	}
 	// Roster carries the engine 计数当量 marker verbatim.
-	if !strings.Contains(fence, "计数当量133.200ms") {
+	if !strings.Contains(fence, "计数当量133.200(非墙钟)") {
 		t.Fatalf("the roster's count-equivalent marker must reach the fence:\n%s", fence)
 	}
 	// (a) table: 窗口投影 == 有效归因 == published value; 链上累计 = — (G3 表列).
@@ -307,7 +310,7 @@ func TestDisp2CountFamilyEndToEnd(t *testing.T) {
 	// Detail Σ note: count-equivalent form only — never the bare wall-clock
 	// 原始和 (Wave-3.1 X2; this pin guards the whole chain against regression).
 	detail := runtimeTraceProjDetailFullText(model, true)
-	if !strings.Contains(detail, "原始和 计数当量198.300ms 供对照(计数类,非墙钟)") {
+	if !strings.Contains(detail, "原始和 计数当量198.300(非墙钟) 供对照(计数类)") {
 		t.Fatalf("detail Σ note must speak the count-equivalent form:\n%s", detail)
 	}
 	if strings.Contains(detail, "原始和 198.300ms") {
@@ -315,7 +318,7 @@ func TestDisp2CountFamilyEndToEnd(t *testing.T) {
 	}
 	// Legend: the 计数当量 entry rides the count-family render (P3-6).
 	lead := runtimeTraceProjLeadText(projection, model, "zh", true)
-	if !strings.Contains(lead, "- `计数当量Xms` = 计数类数值的对照写法:按计数换算的当量毫秒,非墙钟时长,不与时长行相加。") {
+	if !strings.Contains(lead, "- `计数当量X(非墙钟)` = 计数类数值的对照写法:按计数换算的当量值(毫秒尺度),非墙钟时长,故不带 ms 后缀,不与时长行相加。") {
 		t.Fatalf("legend must teach the 计数当量 marker:\n%s", lead)
 	}
 	// F-7: the clamped seat prints no 计数合计 word, so its 计数合计 legend
@@ -324,7 +327,19 @@ func TestDisp2CountFamilyEndToEnd(t *testing.T) {
 	if strings.Contains(lead, "计数合计") {
 		t.Fatalf("a clamped-only render must not teach the unused 计数合计 word:\n%s", lead)
 	}
+	// §29.55 观察③ 两形一裁 negative sweep (2026-07-14): the retired
+	// ms-suffixed composite 计数当量Xms must never ship on any face.
+	for _, face := range []string{fence, detail, lead} {
+		if disp2CountEquivalentMSForm.MatchString(face) {
+			t.Fatalf("retired 计数当量Xms form shipped:\n%s", face)
+		}
+	}
 }
+
+// disp2CountEquivalentMSForm matches the RETIRED ms-suffixed composite
+// (计数当量81.616ms) — §29.55 观察③ 两形一裁: the one live form is
+// 计数当量X(非墙钟).
+var disp2CountEquivalentMSForm = regexp.MustCompile(`计数当量[0-9][0-9.]*ms`)
 
 // TestDisp2CountEquivalentWrapAtom pins the P3-6 wrap atom: at no wrap width
 // that can hold the word (≥ its own 8 cells — narrower widths legitimately
@@ -334,8 +349,10 @@ func TestDisp2CountFamilyEndToEnd(t *testing.T) {
 // nowhere else in the probe string, so any chunk touching one of them must
 // carry the whole word.
 func TestDisp2CountEquivalentWrapAtom(t *testing.T) {
+	// Probe string carries the production-minted form (§29.55③ 两形一裁:
+	// suffix-free 计数当量X(非墙钟); fixture 取产线实铸形).
 	for width := 8; width <= 30; width++ {
-		for _, chunk := range runtimeTraceProjWrapDisplay("成员 inode=0x6a16 dev=254:2 计数当量133.200ms", width) {
+		for _, chunk := range runtimeTraceProjWrapDisplay("成员 inode=0x6a16 dev=254:2 计数当量133.200(非墙钟)", width) {
 			if strings.ContainsAny(chunk, "计数当量") && !strings.Contains(chunk, "计数当量") {
 				t.Fatalf("width %d: wrap must not bisect 计数当量: %q", width, chunk)
 			}
