@@ -208,14 +208,15 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if mode == traceEngineTraceStreamer {
-		converted, convertErr := convertTraceStreamerOnly(ctx, opts, plan, input, inputBytes, output, ledger)
-		return commit(converted, convertErr)
-	}
-	hasTracePerfSidecar, err := inputContainsStandalonePerfSidecar(ctx, input, inputBytes)
+	standaloneInventory, err := findStandaloneSegmentsFromInput(ctx, authority)
 	if err != nil {
 		return Result{}, err
 	}
+	if mode == traceEngineTraceStreamer {
+		converted, convertErr := convertTraceStreamerOnly(ctx, opts, plan, standaloneInventory, output, ledger)
+		return commit(converted, convertErr)
+	}
+	hasTracePerfSidecar := standaloneInventory.hasHiperfData()
 	traceStreamerExport, err := maybeRunTraceStreamerAuto(ctx, opts, plan, input, inputBytes, output, hasTracePerfSidecar, ledger)
 	if err != nil {
 		return Result{}, err
@@ -244,7 +245,7 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 		standaloneExtractOpts.GeneratePerfTrace = false
 		standaloneExtractOpts.PrimaryPerfSource = "trace_streamer DB perf_sample rows embedded in systrace"
 	}
-	extractedStandaloneArtifacts, standaloneCaveats, standaloneDecisions, err := extractStandaloneArtifactsWithOptionsAndLedger(ctx, opts, inputBytes, output, standaloneExtractOpts, ledger)
+	extractedStandaloneArtifacts, standaloneCaveats, standaloneDecisions, err := extractStandaloneArtifactsWithOptionsAndLedger(ctx, opts, standaloneInventory, output, standaloneExtractOpts, ledger)
 	if err != nil {
 		return Result{}, wrapFallbackFailure(err)
 	}
@@ -518,6 +519,10 @@ func traceStreamerSelectionShouldStopBuiltinFallback(plan traceProviderPlan, tra
 
 func traceProviderFallbackFailure(plan traceProviderPlan, first traceStreamerExportResult, fallback error) error {
 	if errors.Is(fallback, context.Canceled) || errors.Is(fallback, context.DeadlineExceeded) {
+		return fallback
+	}
+	var inputErr *ConversionInputError
+	if errors.As(fallback, &inputErr) {
 		return fallback
 	}
 	if !plan.allowsBuiltinFallback() || first.Decision.ProviderName == "" || first.Decision.Succeeded || strings.TrimSpace(first.Decision.Reason) == "" {

@@ -262,7 +262,7 @@ func inspectTraceToolStatusInput(status *TraceToolStatus, opts Options) {
 		return
 	}
 	status.InputPath = input
-	info, err := os.Stat(input)
+	_, err := os.Stat(input)
 	if err != nil {
 		status.InputKind = "unreadable"
 		status.InputInspectionError = err.Error()
@@ -274,7 +274,7 @@ func inspectTraceToolStatusInput(status *TraceToolStatus, opts Options) {
 		status.InputKind = "direct_perf"
 		return
 	}
-	hasPerf, err := inputContainsStandalonePerfSidecar(context.Background(), input, info.Size())
+	hasPerf, err := statusInputContainsStandalonePerfSidecar(context.Background(), input)
 	status.InputInspected = true
 	status.InputHasPerfSidecar = hasPerf
 	if hasPerf {

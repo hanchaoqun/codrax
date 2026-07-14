@@ -30,12 +30,18 @@ type traceStreamerExportResult struct {
 	Cause             error
 }
 
-func convertTraceStreamerOnly(ctx context.Context, opts Options, plan traceProviderPlan, input string, inputBytes int64, output string, ledger *conversionFileLedger) (Result, error) {
+func convertTraceStreamerOnly(ctx context.Context, opts Options, plan traceProviderPlan, inventory standaloneSegmentInventory, output string, ledger *conversionFileLedger) (Result, error) {
+	input := inventory.input
+	if input == nil {
+		return Result{}, conversionInputFailure(ConversionInputCodeInternalContract, conversionInputStageStandaloneScan, "", fmt.Errorf("standalone inventory has no input authority"))
+	}
+	inputPath := input.DisplayPath()
+	inputBytes := input.Size()
 	if err := ensureOutputDoesNotExist(output); err != nil {
 		return Result{}, err
 	}
 	retainDB := opts.KeepTraceDB || strings.TrimSpace(opts.TraceDBOutputPath) != ""
-	export, err := runTraceStreamerExport(ctx, opts, plan.TraceStreamer, input, output, opts.KeepTraceDB, ledger)
+	export, err := runTraceStreamerExport(ctx, opts, plan.TraceStreamer, inputPath, output, opts.KeepTraceDB, ledger)
 	if err != nil {
 		return Result{}, err
 	}
@@ -56,7 +62,7 @@ func convertTraceStreamerOnly(ctx context.Context, opts Options, plan traceProvi
 		standaloneExtractOpts.GeneratePerfTrace = false
 		standaloneExtractOpts.PrimaryPerfSource = "trace_streamer DB perf_sample rows in systrace"
 	}
-	standaloneArtifacts, standaloneCaveats, standaloneDecisions, err := extractStandaloneArtifactsWithOptionsAndLedger(ctx, opts, inputBytes, output, standaloneExtractOpts, ledger)
+	standaloneArtifacts, standaloneCaveats, standaloneDecisions, err := extractStandaloneArtifactsWithOptionsAndLedger(ctx, opts, inventory, output, standaloneExtractOpts, ledger)
 	if err != nil {
 		if export.SystraceArtifact.Path != "" {
 			err = traceDBJoinPreservingSingle(err, ledger.removeOwnedPath(export.SystraceArtifact.Path))
@@ -73,7 +79,7 @@ func convertTraceStreamerOnly(ctx context.Context, opts Options, plan traceProvi
 	caveats := append([]string(nil), export.Caveats...)
 	caveats = append(caveats, standaloneCaveats...)
 	result := Result{
-		InputPath:          input,
+		InputPath:          inputPath,
 		InputBytes:         inputBytes,
 		OutputPath:         export.SystraceArtifact.Path,
 		OutputBytes:        export.OutputBytes,
@@ -90,7 +96,7 @@ func convertTraceStreamerOnly(ctx context.Context, opts Options, plan traceProvi
 		UnknownEventCount:  0,
 	}
 	normalizeResultCollections(&result)
-	if bundleArtifact, err := writeTraceBundleWithAllCoverageAndLedger(input, result.OutputPath, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage, ledger); err != nil {
+	if bundleArtifact, err := writeTraceBundleWithAllCoverageAndLedger(inputPath, result.OutputPath, result.Artifacts, result.Caveats, result.ProviderDecisions, result.TraceDecisions, result.TraceDBCoverage, result.TraceCoverage, ledger); err != nil {
 		return Result{}, err
 	} else if bundleArtifact.Path != "" {
 		result.BundlePath = bundleArtifact.Path

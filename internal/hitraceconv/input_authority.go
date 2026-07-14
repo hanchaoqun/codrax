@@ -1,6 +1,7 @@
 package hitraceconv
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -429,6 +430,48 @@ type conversionInputView interface {
 }
 
 var _ conversionInputView = (*conversionInputAuthority)(nil)
+
+// completeConversionInputStage gives cancellation and source-generation
+// failures stable precedence over parser-specific failures. Consumers call it
+// before a stage with operationErr=nil and again on every return path.
+func completeConversionInputStage(ctx context.Context, input conversionInputView, stage conversionInputStage, operationErr error) error {
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			if errors.Is(operationErr, err) {
+				return operationErr
+			}
+			return traceDBJoinPreservingSingle(err, operationErr)
+		}
+	}
+	if input == nil {
+		return traceDBJoinPreservingSingle(
+			conversionInputFailure(ConversionInputCodeInternalContract, stage, "", errors.New("nil conversion input view")),
+			operationErr,
+		)
+	}
+	if err := input.Validate(stage); err != nil {
+		if conversionInputFailureAlreadyPresent(operationErr, err) {
+			return operationErr
+		}
+		return traceDBJoinPreservingSingle(err, operationErr)
+	}
+	return operationErr
+}
+
+func conversionInputFailureAlreadyPresent(operationErr, gateErr error) bool {
+	if operationErr == nil || gateErr == nil {
+		return false
+	}
+	if errors.Is(operationErr, gateErr) {
+		return true
+	}
+	var operationTyped *ConversionInputError
+	var gateTyped *ConversionInputError
+	return errors.As(operationErr, &operationTyped) && errors.As(gateErr, &gateTyped) &&
+		operationTyped.Code == gateTyped.Code &&
+		operationTyped.Stage == gateTyped.Stage &&
+		operationTyped.Path == gateTyped.Path
+}
 
 func (authority *conversionInputAuthority) String() string {
 	if authority == nil {

@@ -42,6 +42,21 @@ type standaloneSegment struct {
 	PluginVersion string
 }
 
+type standaloneSegmentInventory struct {
+	inputSize int64
+	segments  []standaloneSegment
+	input     conversionInputView
+}
+
+func (inventory standaloneSegmentInventory) hasHiperfData() bool {
+	for _, segment := range inventory.segments {
+		if segment.DataType == profilerDataTypeHiperf {
+			return true
+		}
+	}
+	return false
+}
+
 type traceBundleMetadata struct {
 	Version             string                  `json:"version"`
 	InputPath           string                  `json:"input_path"`
@@ -61,34 +76,70 @@ type standaloneExtractOptions struct {
 	PrimaryPerfSource string
 }
 
-func extractStandaloneArtifacts(ctx context.Context, opts Options, inputSize int64, outputPath string) ([]Artifact, []string, []PerfProviderDecision, error) {
-	return extractStandaloneArtifactsWithOptions(ctx, opts, inputSize, outputPath, standaloneExtractOptions{GeneratePerfTrace: true})
-}
-
-func extractStandaloneArtifactsWithOptions(ctx context.Context, opts Options, inputSize int64, outputPath string, extractOpts standaloneExtractOptions) ([]Artifact, []string, []PerfProviderDecision, error) {
-	ledger, err := newConversionFileLedger(opts.InputPath)
-	if err != nil {
+func extractStandaloneArtifactsWithOptionsAndLedger(
+	ctx context.Context,
+	opts Options,
+	inventory standaloneSegmentInventory,
+	outputPath string,
+	extractOpts standaloneExtractOptions,
+	ledger *conversionFileLedger,
+) (artifacts []Artifact, caveats []string, decisions []PerfProviderDecision, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	input := inventory.input
+	if err := completeConversionInputStage(ctx, input, conversionInputStageStandaloneExtract, nil); err != nil {
 		return nil, nil, nil, err
 	}
-	artifacts, caveats, decisions, err := extractStandaloneArtifactsWithOptionsAndLedger(ctx, opts, inputSize, outputPath, extractOpts, ledger)
-	if err != nil {
-		err = joinConversionCleanupError(err, ledger)
+	defer func() {
+		err = completeConversionInputStage(ctx, input, conversionInputStageStandaloneExtract, err)
+		if err != nil {
+			artifacts = nil
+			caveats = nil
+			decisions = nil
+		}
+	}()
+	if ledger == nil {
+		return nil, nil, nil, conversionInputFailure(
+			ConversionInputCodeInternalContract,
+			conversionInputStageStandaloneExtract,
+			input.DisplayPath(),
+			fmt.Errorf("nil conversion file ledger"),
+		)
 	}
-	return artifacts, caveats, decisions, err
-}
-
-func extractStandaloneArtifactsWithOptionsAndLedger(ctx context.Context, opts Options, inputSize int64, outputPath string, extractOpts standaloneExtractOptions, ledger *conversionFileLedger) ([]Artifact, []string, []PerfProviderDecision, error) {
-	input := strings.TrimSpace(opts.InputPath)
-	segments, err := findStandaloneSegments(ctx, input, inputSize)
-	if err != nil {
-		return nil, nil, nil, err
+	if inventory.inputSize != input.Size() {
+		return nil, nil, nil, conversionInputFailure(
+			ConversionInputCodeInternalContract,
+			conversionInputStageStandaloneExtract,
+			input.DisplayPath(),
+			fmt.Errorf("standalone inventory size %d does not match input authority size %d", inventory.inputSize, input.Size()),
+		)
 	}
-	if len(segments) == 0 {
+	for index, segment := range inventory.segments {
+		if !standaloneSegmentRangeValid(segment, inventory.inputSize) {
+			return nil, nil, nil, conversionInputFailure(
+				ConversionInputCodeInternalContract,
+				conversionInputStageStandaloneExtract,
+				input.DisplayPath(),
+				fmt.Errorf("standalone inventory segment %d has invalid range: offset=%d length=%d input_size=%d", index, segment.Offset, segment.Length, inventory.inputSize),
+			)
+		}
+		verified, ok := readStandaloneSegmentAt(input, segment.Offset, inventory.inputSize)
+		if !ok || verified != segment {
+			return nil, nil, nil, conversionInputFailure(
+				ConversionInputCodeInternalContract,
+				conversionInputStageStandaloneExtract,
+				input.DisplayPath(),
+				fmt.Errorf("standalone inventory segment %d does not match its authority header", index),
+			)
+		}
+	}
+	if len(inventory.segments) == 0 {
 		return nil, nil, nil, nil
 	}
 	if !extractOpts.GeneratePerfTrace {
 		perfDataCount := 0
-		for _, seg := range segments {
+		for _, seg := range inventory.segments {
 			if seg.DataType == profilerDataTypeHiperf {
 				perfDataCount++
 			}
@@ -102,18 +153,10 @@ func extractStandaloneArtifactsWithOptionsAndLedger(ctx context.Context, opts Op
 		}
 		return nil, nil, nil, nil
 	}
-	base := traceSidecarBase(input, outputPath)
-	in, err := os.Open(input)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	defer in.Close()
-	var artifacts []Artifact
-	var caveats []string
-	var decisions []PerfProviderDecision
+	base := traceSidecarBase(input.DisplayPath(), outputPath)
 	perfTraceProviders := map[string]int{}
 	perfOrdinal := 0
-	for _, seg := range segments {
+	for _, seg := range inventory.segments {
 		if seg.DataType != profilerDataTypeHiperf {
 			continue
 		}
@@ -122,9 +165,12 @@ func extractStandaloneArtifactsWithOptionsAndLedger(ctx context.Context, opts Op
 		if err := ensureOutputDoesNotExist(outPath); err != nil {
 			return artifacts, caveats, decisions, err
 		}
-		n, err := copyRangeToFileWithLedger(in, seg.Offset+profilerStandalonePayloadBase, seg.Length-profilerStandalonePayloadBase, outPath, ledger)
+		n, err := copyRangeToFileWithLedger(ctx, input, seg.Offset+profilerStandalonePayloadBase, seg.Length-profilerStandalonePayloadBase, outPath, ledger)
 		if err != nil {
 			return artifacts, caveats, decisions, err
+		}
+		if err := completeConversionInputStage(ctx, input, conversionInputStageStandaloneExtract, nil); err != nil {
+			return nil, nil, nil, err
 		}
 		rawArtifact := Artifact{
 			Type:          ArtifactPerfData,
@@ -176,8 +222,8 @@ func extractStandaloneArtifactsWithOptionsAndLedger(ctx context.Context, opts Op
 	return artifacts, caveats, decisions, nil
 }
 
-func inputContainsStandalonePerfSidecar(ctx context.Context, input string, inputSize int64) (bool, error) {
-	segments, err := findStandaloneSegments(ctx, input, inputSize)
+func statusInputContainsStandalonePerfSidecar(ctx context.Context, input string) (bool, error) {
+	segments, err := findStandaloneSegmentsAtPathForStatus(ctx, input)
 	if err != nil {
 		return false, err
 	}
@@ -219,20 +265,71 @@ func standalonePerfTraceSummaryCaveat(perfDataCount, perfTraceCount int, provide
 	}
 }
 
-func findStandaloneSegments(ctx context.Context, path string, size int64) ([]standaloneSegment, error) {
-	if size < profilerTraceHeaderSize {
-		return nil, nil
+func findStandaloneSegmentsFromInput(ctx context.Context, input conversionInputView) (inventory standaloneSegmentInventory, err error) {
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	f, err := os.Open(path)
+	if err := completeConversionInputStage(ctx, input, conversionInputStageStandaloneScan, nil); err != nil {
+		return standaloneSegmentInventory{}, err
+	}
+	defer func() {
+		err = completeConversionInputStage(ctx, input, conversionInputStageStandaloneScan, err)
+		if err != nil {
+			inventory = standaloneSegmentInventory{}
+		}
+	}()
+	size := input.Size()
+	if size < 0 {
+		return standaloneSegmentInventory{}, conversionInputFailure(
+			ConversionInputCodeInternalContract,
+			conversionInputStageStandaloneScan,
+			input.DisplayPath(),
+			fmt.Errorf("negative conversion input size %d", size),
+		)
+	}
+	segments, err := scanStandaloneSegments(ctx, input, size)
+	if err != nil {
+		return standaloneSegmentInventory{}, err
+	}
+	return standaloneSegmentInventory{inputSize: size, segments: segments, input: input}, nil
+}
+
+func findStandaloneSegmentsAtPathForStatus(ctx context.Context, path string) (segments []standaloneSegment, err error) {
+	authority, err := openConversionInputAuthority(path)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() {
+		err = traceDBJoinPreservingSingle(err, authority.Close())
+		if err != nil {
+			segments = nil
+		}
+	}()
+	inventory, err := findStandaloneSegmentsFromInput(ctx, authority)
+	if err != nil {
+		return nil, err
+	}
+	return inventory.segments, nil
+}
+
+func scanStandaloneSegments(ctx context.Context, reader io.ReaderAt, size int64) ([]standaloneSegment, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if reader == nil {
+		return nil, fmt.Errorf("standalone scan reader is nil")
+	}
+	if size < 0 {
+		return nil, fmt.Errorf("standalone scan size is negative: %d", size)
+	}
+	if size < profilerTraceHeaderSize {
+		return nil, nil
+	}
+	section := io.NewSectionReader(reader, 0, size)
 	const chunkSize = 1024 * 1024
 	overlap := len(profilerTraceHeaderMagicLE) - 1
 	buf := make([]byte, chunkSize+overlap)
 	var segments []standaloneSegment
-	seen := map[int64]bool{}
 	var base int64
 	var carry []byte
 	for {
@@ -240,19 +337,24 @@ func findStandaloneSegments(ctx context.Context, path string, size int64) ([]sta
 			return nil, err
 		}
 		copy(buf, carry)
-		n, readErr := f.Read(buf[len(carry):chunkSize])
+		n, readErr := section.Read(buf[len(carry):chunkSize])
+		if n == 0 && readErr == nil {
+			return nil, io.ErrNoProgress
+		}
 		window := buf[:len(carry)+n]
 		search := window
 		searchBase := base - int64(len(carry))
 		for {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			idx := bytes.Index(search, profilerTraceHeaderMagicLE)
 			if idx < 0 {
 				break
 			}
 			candidate := searchBase + int64(idx)
-			if candidate >= 0 && !seen[candidate] {
-				seen[candidate] = true
-				if seg, ok := readStandaloneSegmentAt(f, candidate, size); ok {
+			if candidate >= 0 {
+				if seg, ok := readStandaloneSegmentAt(reader, candidate, size); ok {
 					segments = append(segments, seg)
 				}
 			}
@@ -279,21 +381,22 @@ func isProfilerTraceHeaderPrefix(first, second uint32) bool {
 	return first == uint32(profilerTraceHeaderMagic&0xffffffff) && second == uint32((profilerTraceHeaderMagic>>32)&0xffffffff)
 }
 
-func readStandaloneSegmentAt(f *os.File, off int64, fileSize int64) (standaloneSegment, bool) {
-	if off < 0 || off+profilerTraceHeaderSize > fileSize {
+func readStandaloneSegmentAt(reader io.ReaderAt, off int64, fileSize int64) (standaloneSegment, bool) {
+	if reader == nil || off < 0 || off > fileSize || int64(profilerTraceHeaderSize) > fileSize-off {
 		return standaloneSegment{}, false
 	}
 	header := make([]byte, profilerTraceHeaderSize)
-	if _, err := f.ReadAt(header, off); err != nil {
+	if _, err := io.ReadFull(io.NewSectionReader(reader, off, profilerTraceHeaderSize), header); err != nil {
 		return standaloneSegment{}, false
 	}
 	if binary.LittleEndian.Uint64(header[0:8]) != profilerTraceHeaderMagic {
 		return standaloneSegment{}, false
 	}
-	length := int64(binary.LittleEndian.Uint64(header[8:16]))
-	if length < profilerTraceHeaderSize || off+length > fileSize {
+	declaredLength := binary.LittleEndian.Uint64(header[8:16])
+	if declaredLength < profilerTraceHeaderSize || declaredLength > uint64(fileSize-off) {
 		return standaloneSegment{}, false
 	}
+	length := int64(declaredLength)
 	dataType := binary.LittleEndian.Uint32(header[56:60])
 	return standaloneSegment{
 		Offset:        off,
@@ -302,6 +405,16 @@ func readStandaloneSegmentAt(f *os.File, off int64, fileSize int64) (standaloneS
 		PluginName:    cString(header[profilerPluginNameOffset : profilerPluginNameOffset+profilerPluginNameSize]),
 		PluginVersion: cString(header[profilerPluginVersionOffset : profilerPluginVersionOffset+profilerPluginVersionSize]),
 	}, true
+}
+
+func standaloneSegmentRangeValid(segment standaloneSegment, fileSize int64) bool {
+	if fileSize < 0 || segment.Offset < 0 || segment.Offset > fileSize {
+		return false
+	}
+	remaining := fileSize - segment.Offset
+	return int64(profilerTraceHeaderSize) <= remaining &&
+		segment.Length >= profilerTraceHeaderSize &&
+		segment.Length <= remaining
 }
 
 func writeTraceBundle(input, outputPath string, artifacts []Artifact, caveats []string, decisions []PerfProviderDecision, traceDecisions []TraceProviderDecision) (Artifact, error) {
@@ -494,19 +607,25 @@ func ensureOutputDoesNotExist(path string) error {
 	return nil
 }
 
-func copyRangeToFile(in *os.File, off, length int64, outPath string) (int64, error) {
-	ledger, err := newConversionFileLedger()
-	if err != nil {
+func copyRangeToFileWithLedger(ctx context.Context, in io.ReaderAt, off, length int64, outPath string, ledger *conversionFileLedger) (int64, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
-	written, err := copyRangeToFileWithLedger(in, off, length, outPath, ledger)
-	if err != nil {
-		err = joinConversionCleanupError(err, ledger)
+	if in == nil {
+		return 0, fmt.Errorf("standalone source reader is nil")
 	}
-	return written, err
-}
-
-func copyRangeToFileWithLedger(in *os.File, off, length int64, outPath string, ledger *conversionFileLedger) (int64, error) {
+	if ledger == nil {
+		return 0, fmt.Errorf("standalone conversion file ledger is nil")
+	}
+	if off < 0 || length < 0 {
+		return 0, fmt.Errorf("invalid standalone source range: offset=%d length=%d", off, length)
+	}
+	if off > int64(^uint64(0)>>1)-length {
+		return 0, fmt.Errorf("standalone source range overflows int64: offset=%d length=%d", off, length)
+	}
 	out, err := os.OpenFile(outPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
 		return 0, err
@@ -514,7 +633,7 @@ func copyRangeToFileWithLedger(in *os.File, off, length int64, outPath string, l
 	if err := ledger.recordOpenFile(outPath, out); err != nil {
 		return 0, traceDBJoinPreservingSingle(err, rollbackOpenConversionFile(outPath, out))
 	}
-	written, copyErr := io.Copy(out, io.NewSectionReader(in, off, length))
+	written, copyErr := copyStandaloneRange(ctx, out, io.NewSectionReader(in, off, length))
 	if copyErr == nil && written != length {
 		copyErr = io.ErrUnexpectedEOF
 	}
@@ -537,6 +656,36 @@ func copyRangeToFileWithLedger(in *os.File, off, length int64, outPath string, l
 		return written, traceDBJoinPreservingSingle(err, ledger.removeOwnedPath(outPath))
 	}
 	return written, nil
+}
+
+func copyStandaloneRange(ctx context.Context, dst io.Writer, src io.Reader) (int64, error) {
+	buffer := make([]byte, 64*1024)
+	var written int64
+	for {
+		if err := ctx.Err(); err != nil {
+			return written, err
+		}
+		read, readErr := src.Read(buffer)
+		if read > 0 {
+			n, writeErr := dst.Write(buffer[:read])
+			written += int64(n)
+			if writeErr != nil {
+				return written, writeErr
+			}
+			if n != read {
+				return written, io.ErrShortWrite
+			}
+		}
+		if readErr == io.EOF {
+			return written, nil
+		}
+		if readErr != nil {
+			return written, readErr
+		}
+		if read == 0 {
+			return written, io.ErrNoProgress
+		}
+	}
 }
 
 func cString(data []byte) string {
