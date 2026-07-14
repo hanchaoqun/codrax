@@ -82,11 +82,12 @@ func assertProfilerGenericCurrentMutationAbsent(t testing.TB, sink *traceDBRowSi
 		len(sink.pairLaneRegistries[pairRenderF2FS].keys) != 0 ||
 		len(sink.pairLaneRegistries[pairRenderF2FS].states) != 0 ||
 		sink.activePairCensus[pairRenderF2FS].total != 0 ||
-		len(sink.activePairCensus[pairRenderF2FS].byLane) != 0 {
-		t.Fatalf("%s cancellation committed current row/delta/registry/census: stats=%+v rows=%d runs=%d next=%d buffered=%d registry=%+v census=%+v",
+		sink.pairRows[pairRenderF2FS] != 0 || sink.structuredPairRows[pairRenderF2FS] != 0 ||
+		!sink.pairFixedLedger.pristine() {
+		t.Fatalf("%s cancellation committed current row/delta/registry/census/fixed-ledger: stats=%+v rows=%d runs=%d next=%d buffered=%d registry=%+v census=%+v fixed=%+v",
 			publisher.name, sink.stats, len(sink.rows), len(sink.runs), sink.nextIngestOrdinal,
 			sink.bufferedBytes, sink.pairLaneRegistries[pairRenderF2FS],
-			sink.activePairCensus[pairRenderF2FS])
+			sink.activePairCensus[pairRenderF2FS], sink.pairFixedLedger)
 	}
 	if !sink.pairCensusActive || sink.activePairPublisher != publisher.publisher ||
 		sink.textMessageActive != publisher.text || sink.activeTextRows != 0 || sink.nextTextMessage != 0 ||
@@ -148,6 +149,8 @@ func TestProfilerGenericTextTailSpillFailureKeepsCurrentTransactionWhole(t *test
 					wantActiveRows = 1
 				}
 				census := sink.activePairCensus[pairRenderF2FS]
+				family := sink.pairFixedLedger.families[pairRenderF2FS]
+				endpoint := sink.pairFixedLedger.endpoints[admission.EndpointSlot]
 				if !errors.Is(rowErr, want) || rows != 1 || seq != 24 ||
 					sink.stats.RowsAccepted != 1 || len(sink.rows) != 1 || len(sink.runs) != 0 ||
 					sink.nextIngestOrdinal != 1 || row.seq != 23 || provenance.PairKind != pairRenderF2FS ||
@@ -155,14 +158,18 @@ func TestProfilerGenericTextTailSpillFailureKeepsCurrentTransactionWhole(t *test
 					provenance.PublisherSlot != publisher.publisher || provenance.Flags != wantFlags ||
 					provenance.TextMessageOrdinal != wantOrdinal || !laneFound || !stateFound || state == nil ||
 					!state.poisoned || laneID == 0 || provenance.LaneID != laneID ||
-					census.total != 1 || census.byLane[admission.Lane] != 1 ||
+					sink.pairRows[pairRenderF2FS] != 1 || sink.structuredPairRows[pairRenderF2FS] != 0 ||
+					census.total != 1 || family.staged != 1 || family.withheld != 1 ||
+					family.structured != 0 || family.structuredWithheld != 0 || family.poisoned || family.opaque ||
+					endpoint.staged != 1 || endpoint.withheld != 1 ||
+					endpoint.structured != 0 || endpoint.structuredWithheld != 0 ||
 					!sink.pairCensusActive || sink.activePairPublisher != publisher.publisher ||
 					sink.textMessageActive != wantTextActive || sink.activeTextMessage != wantActiveMessage ||
 					sink.activeTextRows != wantActiveRows || sink.nextTextMessage != 0 {
-					t.Fatalf("%s tail %s split current transaction: err=%T %v rows=%d seq=%d stats=%+v buffered_rows=%d runs=%d next=%d row=%+v provenance=%+v lane=(%d,%t,%t,%+v) census=%+v text=%t/%d/%d next_text=%d",
+					t.Fatalf("%s tail %s split current transaction: err=%T %v rows=%d seq=%d stats=%+v buffered_rows=%d runs=%d next=%d row=%+v provenance=%+v lane=(%d,%t,%t,%+v) census=%+v fixed=(%+v/%+v) text=%t/%d/%d next_text=%d",
 						publisher.name, point, rowErr, rowErr, rows, seq, sink.stats, len(sink.rows),
 						len(sink.runs), sink.nextIngestOrdinal, row, provenance, laneID, laneFound, stateFound,
-						state, census, sink.textMessageActive,
+						state, census, family, endpoint, sink.textMessageActive,
 						sink.activeTextMessage, sink.activeTextRows, sink.nextTextMessage)
 				}
 			})
@@ -277,17 +284,20 @@ func assertProfilerGenericProductionSinkPristine(t testing.TB, sink *traceDBRowS
 	if sink.stats.RowsAccepted != 0 || len(sink.rows) != 0 || len(sink.runs) != 0 ||
 		sink.nextIngestOrdinal != 0 || sink.bufferedBytes != 0 || sink.pairCensusActive ||
 		sink.activePairPublisher != profilerPairPublisherNone || sink.textMessageActive ||
-		sink.activeTextMessage != 0 || sink.activeTextRows != 0 || sink.nextTextMessage != 0 {
-		t.Fatalf("no-row production route mutated sink: stats=%+v rows=%d runs=%d next=%d buffered=%d census=%t publisher=%d text=%t/%d/%d next_text=%d",
+		sink.activeTextMessage != 0 || sink.activeTextRows != 0 || sink.nextTextMessage != 0 ||
+		!sink.pairFixedLedger.pristine() {
+		t.Fatalf("no-row production route mutated sink: stats=%+v rows=%d runs=%d next=%d buffered=%d census=%t publisher=%d text=%t/%d/%d next_text=%d fixed=%+v",
 			sink.stats, len(sink.rows), len(sink.runs), sink.nextIngestOrdinal, sink.bufferedBytes,
 			sink.pairCensusActive, sink.activePairPublisher, sink.textMessageActive,
-			sink.activeTextMessage, sink.activeTextRows, sink.nextTextMessage)
+			sink.activeTextMessage, sink.activeTextRows, sink.nextTextMessage, sink.pairFixedLedger)
 	}
 	for _, kind := range profilerCaptureKinds {
 		if len(sink.pairLaneRegistries[kind].byKey) != 0 || len(sink.pairLaneRegistries[kind].keys) != 0 ||
-			len(sink.pairLaneRegistries[kind].states) != 0 {
-			t.Fatalf("no-row production route mutated pair kind %d registry=%+v",
-				kind, sink.pairLaneRegistries[kind])
+			len(sink.pairLaneRegistries[kind].states) != 0 || sink.activePairCensus[kind].total != 0 ||
+			sink.pairRows[kind] != 0 || sink.structuredPairRows[kind] != 0 {
+			t.Fatalf("no-row production route mutated pair kind %d registry=%+v census=%+v pair=%d structured=%d",
+				kind, sink.pairLaneRegistries[kind], sink.activePairCensus[kind],
+				sink.pairRows[kind], sink.structuredPairRows[kind])
 		}
 	}
 }

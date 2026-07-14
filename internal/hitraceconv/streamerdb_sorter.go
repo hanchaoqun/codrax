@@ -318,8 +318,7 @@ type traceDBRowSink struct {
 }
 
 type profilerPairRowCensus struct {
-	total  int
-	byLane map[string]int
+	total int
 }
 
 type profilerPairCensusSet [pairRenderKindCount]profilerPairRowCensus
@@ -530,7 +529,7 @@ func (s *traceDBRowSink) profilerCapturePreOpenStatePristine() bool {
 		registry := s.pairLaneRegistries[kind]
 		census := s.activePairCensus[kind]
 		if len(registry.byKey) != 0 || len(registry.keys) != 0 || len(registry.states) != 0 ||
-			census.total != 0 || len(census.byLane) != 0 {
+			census.total != 0 {
 			return false
 		}
 	}
@@ -844,8 +843,9 @@ func (s *traceDBRowSink) addContext(ctx context.Context, row renderedRow, eventD
 	if err := s.stageProfilerPairRowProvenance(&row); err != nil {
 		return err
 	}
-	if err := s.validateActivePairRowCapacity(row); err != nil {
-		return err
+	if s.pairCensusActive && profilerPairBudgetKind(row.pairKind) &&
+		s.activePairCensus[row.pairKind].total == math.MaxInt {
+		return &traceDBOutputInvariantError{Reason: "profiler_pair_census_total_overflow"}
 	}
 	if len(row.pairLane) > maxTraceDBSystraceLineBytes || len(row.pairTable) > maxTraceDBSystraceLineBytes {
 		return &traceDBOutputInvariantError{Reason: "trace_row_sort_metadata_too_large"}
@@ -975,7 +975,9 @@ func (s *traceDBRowSink) addContext(ctx context.Context, row renderedRow, eventD
 	}
 	if row.pairKind != pairRenderUnknown {
 		s.pairRows[row.pairKind]++
-		s.accountActivePairRow(row, trackLane)
+		if s.pairCensusActive && profilerPairBudgetKind(row.pairKind) {
+			s.activePairCensus[row.pairKind].total++
+		}
 		if row.structuredPair {
 			s.structuredPairRows[row.pairKind]++
 		}
@@ -1296,9 +1298,6 @@ func (s *traceDBRowSink) poisonPairKindLegacyRaw(kind pairRenderKind) {
 		// Whole-family publication reads the fixed ledger. Exact lane state is
 		// no longer needed once every staged row is withheld.
 		s.pairLaneRegistries[kind].reset()
-		if s.pairCensusActive {
-			s.activePairCensus[kind].byLane = nil
-		}
 	}
 }
 
@@ -1628,41 +1627,6 @@ func (s *traceDBRowSink) abortPairRowCensus() {
 	s.activePairPublisher = profilerPairPublisherNone
 }
 
-func (s *traceDBRowSink) validateActivePairRowCapacity(row renderedRow) error {
-	if s == nil || !s.pairCensusActive || !profilerPairBudgetKind(row.pairKind) {
-		return nil
-	}
-	census := &s.activePairCensus[row.pairKind]
-	if census.total == math.MaxInt {
-		return &traceDBOutputInvariantError{Reason: "profiler_pair_census_total_overflow"}
-	}
-	if row.pairLane != "" && census.byLane != nil && census.byLane[row.pairLane] == math.MaxInt {
-		return &traceDBOutputInvariantError{Reason: "profiler_pair_census_lane_overflow"}
-	}
-	return nil
-}
-
-func (s *traceDBRowSink) accountActivePairRow(row renderedRow, trackLane bool) {
-	if s == nil || !s.pairCensusActive || !profilerPairBudgetKind(row.pairKind) {
-		return
-	}
-	census := &s.activePairCensus[row.pairKind]
-	census.total++
-	if trackLane && row.pairLane != "" {
-		if census.byLane == nil {
-			census.byLane = make(map[string]int)
-		}
-		census.byLane[row.pairLane]++
-	}
-}
-
-func (s *traceDBRowSink) currentPairRowCensus(kind pairRenderKind) profilerPairRowCensus {
-	if s == nil || !s.pairCensusActive || !profilerPairBudgetKind(kind) {
-		return profilerPairRowCensus{}
-	}
-	return s.activePairCensus[kind]
-}
-
 func (s *traceDBRowSink) endPairRowCensus() profilerPairCensusSet {
 	if s == nil || s.inactiveOrdinaryOnly || !s.pairCensusActive {
 		return profilerPairCensusSet{}
@@ -1676,51 +1640,6 @@ func (s *traceDBRowSink) endPairRowCensus() profilerPairCensusSet {
 	s.pairCensusActive = false
 	s.activePairPublisher = profilerPairPublisherNone
 	return census
-}
-
-func (s *traceDBRowSink) withheldPairRowsFromCensus(kind pairRenderKind, census profilerPairRowCensus) int {
-	total, err := s.withheldPairRowsFromCensusChecked(kind, census)
-	if err != nil {
-		return 0
-	}
-	return total
-}
-
-func (s *traceDBRowSink) withheldPairRowsFromCensusChecked(kind pairRenderKind, census profilerPairRowCensus) (int, error) {
-	if s == nil || kind == pairRenderUnknown || !profilerPairBudgetKind(kind) {
-		return 0, nil
-	}
-	if census.total < 0 {
-		return 0, &traceDBOutputInvariantError{Reason: "profiler_pair_publisher_staged_counter_negative"}
-	}
-	family, ok := s.pairFixedLedger.family(kind)
-	if !ok {
-		return 0, &traceDBOutputInvariantError{Reason: "profiler_pair_fixed_ledger_invalid"}
-	}
-	if family.poisoned {
-		return census.total, nil
-	}
-	total := 0
-	for lane, count := range census.byLane {
-		if count < 0 {
-			return 0, &traceDBOutputInvariantError{Reason: "profiler_pair_publisher_lane_counter_negative"}
-		}
-		id, found := s.pairLaneRegistries[kind].idFor(lane)
-		if !found {
-			return 0, &traceDBOutputInvariantError{Reason: "profiler_pair_publisher_lane_registry_missing"}
-		}
-		state, found := s.pairLaneRegistries[kind].state(id)
-		if !found {
-			return 0, &traceDBOutputInvariantError{Reason: "profiler_pair_publisher_lane_registry_missing"}
-		}
-		if state.poisoned && !checkedProfilerIntAddTo(&total, count) {
-			return 0, &traceDBOutputInvariantError{Reason: "profiler_pair_publisher_withheld_counter_overflow"}
-		}
-	}
-	if total > census.total {
-		return 0, &traceDBOutputInvariantError{Reason: "profiler_pair_publisher_withheld_exceeds_staged"}
-	}
-	return total, nil
 }
 
 func (s *traceDBRowSink) publishableRows() int {
@@ -1829,8 +1748,7 @@ func (s *traceDBRowSink) validateProfilerPairLaneRegistryParity() error {
 			return &traceDBOutputInvariantError{Reason: "profiler_pair_fixed_ledger_invalid"}
 		}
 		if family.poisoned {
-			if len(registry.byKey) != 0 || len(registry.keys) != 0 || len(registry.states) != 0 ||
-				len(s.activePairCensus[kind].byLane) != 0 {
+			if len(registry.byKey) != 0 || len(registry.keys) != 0 || len(registry.states) != 0 {
 				return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_family_reset_mismatch"}
 			}
 			continue
@@ -1900,21 +1818,6 @@ func (s *traceDBRowSink) validateProfilerPairLaneRegistryParity() error {
 		if poisonedFamily.staged != family.withheld ||
 			poisonedFamily.structured != family.structuredWithheld {
 			return &traceDBOutputInvariantError{Reason: "profiler_pair_fixed_withheld_family_mismatch"}
-		}
-		censusLaneTotal := 0
-		for lane, count := range s.activePairCensus[kind].byLane {
-			if count <= 0 {
-				return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_census_count_invalid"}
-			}
-			if _, ok := registry.idFor(lane); !ok {
-				return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_census_lane_missing"}
-			}
-			if !checkedProfilerIntAddTo(&censusLaneTotal, count) {
-				return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_census_count_invalid"}
-			}
-		}
-		if censusLaneTotal > s.activePairCensus[kind].total {
-			return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_census_total_mismatch"}
 		}
 	}
 	return s.validateProfilerPairFixedLedgerParity()

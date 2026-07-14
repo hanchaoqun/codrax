@@ -190,7 +190,7 @@ func TestProfilerPairCensusUsesFixedCaptureKindSet(t *testing.T) {
 		t.Fatalf("pair census is not enum-sized: len=%d count=%d", len(staged), pairRenderKindCount)
 	}
 	for _, kind := range profilerCaptureKinds {
-		if staged[kind].total != 1 || len(staged[kind].byLane) != 1 {
+		if staged[kind].total != 1 {
 			t.Fatalf("fixed census lost kind %d: %+v", kind, staged[kind])
 		}
 	}

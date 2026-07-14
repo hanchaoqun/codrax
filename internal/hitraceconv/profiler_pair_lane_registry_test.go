@@ -263,36 +263,18 @@ func TestProfilerPairLaneRegistryParityRejectsSplitBrain(t *testing.T) {
 		state.endpointCounts[5].rows = 1
 		assertReason(t, sink, "profiler_pair_fixed_lane_exceeds_endpoint")
 	})
-	t.Run("active census ghost lane", func(t *testing.T) {
-		sink := newFixture(t, pairRenderF2FS)
-		sink.activePairCensus[pairRenderF2FS].byLane = map[string]int{"ghost": 1}
-		assertReason(t, sink, "profiler_pair_lane_registry_census_lane_missing")
-	})
-
 	t.Run("bounded scalar mismatch", func(t *testing.T) {
 		sink := newFixture(t, pairRenderF2FS)
 		sink.pairRows[pairRenderF2FS]++
 		assertReason(t, sink, "profiler_pair_fixed_ledger_family_mismatch")
 	})
 
-	for _, test := range []struct {
-		name   string
-		mutate func(*traceDBRowSink)
-	}{
-		{name: "registry state", mutate: func(sink *traceDBRowSink) {
-			if _, ok := sink.pairLaneRegistries[pairRenderF2FS].intern("ghost"); !ok {
-				panic("failed to create family-reset residue")
-			}
-		}},
-		{name: "active census lanes", mutate: func(sink *traceDBRowSink) {
-			sink.activePairCensus[pairRenderF2FS].byLane = map[string]int{"lane": 1}
-		}},
-	} {
-		t.Run("family reset/"+test.name, func(t *testing.T) {
-			sink := newFixture(t, pairRenderF2FS)
-			sink.poisonPairKind(pairRenderF2FS)
-			test.mutate(sink)
-			assertReason(t, sink, "profiler_pair_lane_registry_family_reset_mismatch")
-		})
-	}
+	t.Run("family reset rejects typed registry residue", func(t *testing.T) {
+		sink := newFixture(t, pairRenderF2FS)
+		sink.poisonPairKind(pairRenderF2FS)
+		if _, ok := sink.pairLaneRegistries[pairRenderF2FS].intern("ghost"); !ok {
+			t.Fatal("failed to create family-reset residue")
+		}
+		assertReason(t, sink, "profiler_pair_lane_registry_family_reset_mismatch")
+	})
 }

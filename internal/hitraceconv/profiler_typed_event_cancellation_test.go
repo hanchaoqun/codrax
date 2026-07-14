@@ -323,11 +323,14 @@ func requireProfilerTypedEventTransactionEmpty(t *testing.T, sink *traceDBRowSin
 		if len(registry.byKey) != 0 || len(registry.keys) != 0 || len(registry.states) != 0 ||
 			len(profilerTestPairLaneRows(sink)[kind]) != 0 || len(profilerTestPairTableRows(sink)[kind]) != 0 ||
 			len(profilerTestPoisonedLanes(sink)[kind]) != 0 || len(profilerTestStructuredLaneRows(sink)[kind]) != 0 ||
-			len(profilerTestStructuredEventLanes(sink)[kind]) != 0 || len(sink.activePairCensus[kind].byLane) != 0 {
+			len(profilerTestStructuredEventLanes(sink)[kind]) != 0 || sink.activePairCensus[kind].total != 0 {
 			t.Fatalf("current event escaped typed lane transaction for kind %d: registry=%+v lanes=%v tables=%v poisoned=%v structured=%v events=%v census=%+v",
 				kind, registry, profilerTestPairLaneRows(sink)[kind], profilerTestPairTableRows(sink)[kind], profilerTestPoisonedLanes(sink)[kind],
 				profilerTestStructuredLaneRows(sink)[kind], profilerTestStructuredEventLanes(sink)[kind], sink.activePairCensus[kind])
 		}
+	}
+	if !sink.pairFixedLedger.pristine() {
+		t.Fatalf("current event escaped fixed pair ledger transaction: %+v", sink.pairFixedLedger)
 	}
 }
 

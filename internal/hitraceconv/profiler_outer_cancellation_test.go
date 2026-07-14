@@ -179,14 +179,15 @@ func assertProfilerOuterCancellationSinkPristine(t *testing.T, sink *traceDBRowS
 		len(sink.rows) != 0 || len(sink.rowIngestOrdinals) != 0 || len(sink.runs) != 0 ||
 		len(sink.artifacts) != 0 || sink.bufferedBytes != 0 || sink.activeTempBytes != 0 || sink.liveTempBytes != 0 ||
 		sink.pairCensusActive || !reflect.DeepEqual(sink.activePairCensus, profilerPairCensusSet{}) ||
+		!sink.pairFixedLedger.pristine() ||
 		sink.activePairPublisher != profilerPairPublisherNone || sink.textMessageActive ||
 		sink.activeTextMessage != 0 || sink.activeTextRows != 0 || sink.nextTextMessage != 0 ||
 		sink.allRowsFailClosed || sink.pairAuthorityFailure != "" {
 		t.Fatalf("canceled profiler extraction mutated row state: stats=%+v rows=%d runs=%d artifacts=%d "+
-			"buffered=%d active_temp=%d live_temp=%d census_active=%t census=%+v publisher=%d "+
+			"buffered=%d active_temp=%d live_temp=%d census_active=%t census=%+v fixed=%+v publisher=%d "+
 			"text=%t/%d/%d next=%d fail_closed=%t authority=%q",
 			sink.stats, len(sink.rows), len(sink.runs), len(sink.artifacts), sink.bufferedBytes,
-			sink.activeTempBytes, sink.liveTempBytes, sink.pairCensusActive, sink.activePairCensus,
+			sink.activeTempBytes, sink.liveTempBytes, sink.pairCensusActive, sink.activePairCensus, sink.pairFixedLedger,
 			sink.activePairPublisher, sink.textMessageActive, sink.activeTextMessage, sink.activeTextRows, sink.nextTextMessage,
 			sink.allRowsFailClosed, sink.pairAuthorityFailure)
 	}

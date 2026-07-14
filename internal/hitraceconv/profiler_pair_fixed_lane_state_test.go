@@ -3,6 +3,7 @@ package hitraceconv
 import (
 	"math"
 	"reflect"
+	"strings"
 	"testing"
 	"unsafe"
 )
@@ -18,12 +19,11 @@ func TestProfilerPairSinkRetiresOnlyLegacyShadowLedgers(t *testing.T) {
 		}
 	}
 	if _, found := sinkType.FieldByName("activePairCensus"); !found {
-		t.Fatal("B-d2b accidentally removed the C-batch publisher census")
+		t.Fatal("C-b2 accidentally removed the fixed publisher staged-total census")
 	}
 	wantStringMapOwners := map[string]bool{
 		"artifacts":          true,
 		"pairLaneRegistries": true,
-		"activePairCensus":   true,
 	}
 	for index := 0; index < sinkType.NumField(); index++ {
 		field := sinkType.Field(index)
@@ -40,8 +40,19 @@ func TestProfilerPairSinkRetiresOnlyLegacyShadowLedgers(t *testing.T) {
 		t.Fatalf("traceDBRowSink approved string-map owners drifted: missing=%v", wantStringMapOwners)
 	}
 	censusType := reflect.TypeOf(profilerPairRowCensus{})
-	if byLane, found := censusType.FieldByName("byLane"); !found || byLane.Type.Kind() != reflect.Map {
-		t.Fatal("B-d2b accidentally removed the transient publisher by-lane census")
+	if censusType.NumField() != 1 {
+		t.Fatalf("publisher census regained shadow state: fields=%d want=1", censusType.NumField())
+	}
+	total, found := censusType.FieldByName("total")
+	if !found || total.Type.Kind() != reflect.Int {
+		t.Fatalf("publisher census staged total drifted: field=%+v found=%t", total, found)
+	}
+	for index := 0; index < censusType.NumField(); index++ {
+		switch kind := censusType.Field(index).Type.Kind(); kind {
+		case reflect.Map, reflect.Slice, reflect.String, reflect.Interface:
+			t.Fatalf("publisher census regained dynamic identity at field %q (%v)",
+				censusType.Field(index).Name, censusType.Field(index).Type)
+		}
 	}
 	directType := reflect.TypeOf(directPairCaptureBarrier{})
 	for _, name := range []string{"poisonedLanes", "blockLaneClocks"} {
@@ -54,6 +65,20 @@ func TestProfilerPairSinkRetiresOnlyLegacyShadowLedgers(t *testing.T) {
 		kind := stateType.Field(index).Type.Kind()
 		if kind == reflect.Map || kind == reflect.Slice || kind == reflect.String {
 			t.Fatalf("unique lane state regained dynamic shadow at field %q", stateType.Field(index).Name)
+		}
+	}
+}
+
+func TestProfilerPairSinkRetiresDynamicCensusHelpers(t *testing.T) {
+	source := mustReadRendererSource(t, "streamerdb_sorter.go")
+	for _, marker := range []string{
+		"func (s *traceDBRowSink) validateActivePairRowCapacity",
+		"func (s *traceDBRowSink) accountActivePairRow",
+		"func (s *traceDBRowSink) currentPairRowCensus",
+		"func (s *traceDBRowSink) withheldPairRowsFromCensus",
+	} {
+		if strings.Contains(source, marker) {
+			t.Fatalf("retired dynamic census helper returned: %s", marker)
 		}
 	}
 }

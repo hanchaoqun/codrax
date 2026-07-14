@@ -283,7 +283,7 @@ func TestTraceDBInactiveOrdinarySinkRejectsProfilerRowsBeforeMutation(t *testing
 	sink.abortPairRowCensus()
 	census := sink.endPairRowCensus()
 	for kind := pairRenderKind(0); kind < pairRenderKindCount; kind++ {
-		if census[kind].total != 0 || len(census[kind].byLane) != 0 {
+		if census[kind].total != 0 {
 			t.Fatalf("inactive ordinary sink returned profiler census: %+v", census)
 		}
 	}

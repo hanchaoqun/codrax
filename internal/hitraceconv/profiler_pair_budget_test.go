@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 )
@@ -179,47 +180,40 @@ func TestProfilerPairFamilyPoisonStopsAllLaterLaneMapGrowth(t *testing.T) {
 	}
 }
 
-// C-b1 removes the extraction consumer, but C-b2 owns retirement of this
-// remaining sink census. Keep its direct bounded-walk contract until that
-// separate structural deletion lands.
-func TestProfilerWithheldCensusWalksOnlyPublisherRows(t *testing.T) {
-	source := mustReadRendererSource(t, "streamerdb_sorter.go")
-	censusBody := sourceBetweenProfilerPairFunctions(t, source,
-		"func (s *traceDBRowSink) withheldPairRowsFromCensus", "func (s *traceDBRowSink) publishableRows")
-	if !strings.Contains(censusBody, "for lane, count := range census.byLane") ||
-		!strings.Contains(censusBody, "s.pairFixedLedger.family(kind)") ||
-		!strings.Contains(censusBody, "pairLaneRegistries[kind].state") ||
-		strings.Contains(censusBody, "s.poisoned[kind]") ||
-		strings.Contains(censusBody, "range s.pairLaneRegistries") {
-		t.Fatalf("publisher reconciliation must use the fixed family verdict and be O(publisher lanes), not O(global poison lanes):\n%s", censusBody)
-	}
-
-	sink, err := newTraceDBRowSink(t.TempDir(), 128)
+func TestProfilerPairCensusTotalOverflowIsTransactionalAndAbortClearsIt(t *testing.T) {
+	sink, err := newTraceDBRowSink(t.TempDir(), 8)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer sink.cleanup()
-	for i := 0; i < 32; i++ {
-		sink.poisonPairLane(pairRenderF2FS, fmt.Sprintf("poison-%d", i))
+	if !sink.beginPairRowCensus() {
+		t.Fatal("begin pair census")
 	}
-	if !sink.observeProfilerPairState(pairRenderF2FS, "clean") {
-		t.Fatal("failed to register clean publisher lane")
+	sink.activePairCensus[pairRenderF2FS].total = math.MaxInt
+	beforeLedger := sink.pairFixedLedger
+	err = sink.add(renderedRow{
+		tsNS: 1, seq: 1, line: "must-not-commit", pairKind: pairRenderF2FS,
+		pairLane: "lane", pairTable: "f2fs_write_begin",
+	})
+	if reason := traceDBInvariantReason(err); reason != "profiler_pair_census_total_overflow" {
+		t.Fatalf("census overflow reason=%q err=%v", reason, err)
 	}
-	census := profilerPairRowCensus{total: 18, byLane: map[string]int{"clean": 11, "poison-31": 7}}
-	if got := sink.withheldPairRowsFromCensus(pairRenderF2FS, census); got != 7 {
-		t.Fatalf("linear publisher census count=%d want=7", got)
+	if sink.stats.RowsAccepted != 0 || len(sink.rows) != 0 || len(sink.runs) != 0 ||
+		len(sink.pairRows) != 0 || sink.pairFixedLedger != beforeLedger ||
+		len(sink.pairLaneRegistries[pairRenderF2FS].states) != 0 ||
+		sink.activePairCensus[pairRenderF2FS].total != math.MaxInt {
+		t.Fatalf("census overflow partially committed: stats=%+v rows=%d runs=%d pair=%v ledger=%+v registry=%+v census=%+v",
+			sink.stats, len(sink.rows), len(sink.runs), sink.pairRows, sink.pairFixedLedger,
+			sink.pairLaneRegistries[pairRenderF2FS], sink.activePairCensus[pairRenderF2FS])
 	}
-}
-
-func sourceBetweenProfilerPairFunctions(t *testing.T, source, start, end string) string {
-	t.Helper()
-	from := strings.Index(source, start)
-	if from < 0 {
-		t.Fatalf("missing source marker %q", start)
+	sink.abortPairRowCensus()
+	if sink.pairCensusActive || sink.activePairPublisher != profilerPairPublisherNone {
+		t.Fatalf("census abort left active context: active=%t publisher=%d",
+			sink.pairCensusActive, sink.activePairPublisher)
 	}
-	to := strings.Index(source[from+len(start):], end)
-	if to < 0 {
-		t.Fatalf("missing source marker %q after %q", end, start)
+	for kind := pairRenderKind(0); kind < pairRenderKindCount; kind++ {
+		if sink.activePairCensus[kind].total != 0 {
+			t.Fatalf("census abort retained staged total for kind %d: %+v", kind, sink.activePairCensus)
+		}
 	}
-	return source[from : from+len(start)+to]
 }

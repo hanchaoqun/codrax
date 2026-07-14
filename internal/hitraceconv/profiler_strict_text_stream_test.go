@@ -790,13 +790,15 @@ func TestProfilerStrictTextKnownLanePairProofBudgetBoundary(t *testing.T) {
 			}
 			if test.wantFamily {
 				if sink.legacyPairProof.failureReason != "observations" ||
-					census[pairRenderF2FS].byLane != nil {
+					len(sink.pairLaneRegistries[pairRenderF2FS].states) != 0 ||
+					!sink.pairFixedLedger.families[pairRenderF2FS].poisoned {
 					t.Fatalf("short proof budget did not fail-close fixed state: proof=%+v census=%+v",
 						sink.legacyPairProof, census[pairRenderF2FS])
 				}
 			} else if sink.legacyPairProof.failureReason != "" ||
 				len(profilerTestPoisonedLanes(sink)[pairRenderF2FS]) != 1 ||
-				len(census[pairRenderF2FS].byLane) != 1 {
+				len(sink.pairLaneRegistries[pairRenderF2FS].states) != 1 ||
+				sink.pairFixedLedger.families[pairRenderF2FS].poisoned {
 				t.Fatalf("exact proof budget widened known-lane rejection: proof=%+v lanes=%v census=%+v",
 					sink.legacyPairProof, profilerTestPoisonedLanes(sink)[pairRenderF2FS], census[pairRenderF2FS])
 			}
