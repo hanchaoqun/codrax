@@ -14,11 +14,14 @@ fit one customer sample.
 
 Most signals in this sample are Harmony/OpenHarmony hitrace/ftrace family
 signals rather than Donghu-only signals: scheduler state/wakeup rows, Harmony
-priority semantics, `sched_switch next_info` affinity/restricted fields,
-filesystem/page-cache/storage rows, IRQ/softirq, workqueue, trace marks, and
-clock/frequency/resource rows. Donghu is treated as one rich mixed-platform
-sample in that family. Implementations and evals must key off producer event
-families and typed fields, not off the Donghu customer name or model prose.
+priority semantics, filesystem/page-cache/storage rows, IRQ/softirq,
+workqueue, trace marks, and clock/frequency/resource rows. The family and the
+current engine also support `sched_switch next_info` affinity/restricted
+fields, but this specific old converted sample carries `next_info` on 0/3517
+switch rows and must not be cited as that field's production witness. Donghu
+is treated as one rich mixed-platform sample in that family. Implementations
+and evals must key off producer event families and typed fields, not off the
+Donghu customer name or model prose.
 
 ## Trace inventory
 
@@ -82,7 +85,8 @@ Already implemented or present in the current code path:
   - other-core idle;
   - CPU frequency;
   - explicit affinity/cpuset/migration constraints;
-  - Harmony/Donghu `sched_switch next_info` affinity/restricted fields.
+  - Harmony/Donghu `sched_switch next_info` affinity/restricted fields when
+    present (engine capability; absent from this old `xxx_all` conversion).
 - IO outputs:
   - `file_io_by_inode`;
   - `page_cache_by_inode`;
