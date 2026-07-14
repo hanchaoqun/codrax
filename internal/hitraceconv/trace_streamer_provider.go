@@ -158,8 +158,18 @@ func runTraceStreamerExport(ctx context.Context, opts Options, lane traceProvide
 	}
 	cleanup := dbTarget.Cleanup
 	dbPath := dbTarget.StagingPath
+	if err := dbTarget.validateStaging(); err != nil {
+		cleanupErr := cleanupTraceStreamerDBTarget(cleanup)
+		cleanup = nil
+		return traceStreamerExportResult{}, traceDBJoinPreservingSingle(err, cleanupErr)
+	}
 	cmd := buildTraceStreamerExportCommand(ctx, lane.Path, input, dbPath, opts.TraceStreamerSoDirs)
 	combined, runErr := runCommandWithProgress(opts, cmd, "trace_streamer_export", "running trace_streamer SQLite DB export")
+	if err := privateConversionDirCommandBoundaryError(ctx, runErr, dbTarget.stagingDir); err != nil {
+		cleanupErr := cleanupTraceStreamerDBTarget(cleanup)
+		cleanup = nil
+		return traceStreamerExportResult{}, traceDBJoinPreservingSingle(err, cleanupErr)
+	}
 	if runErr != nil {
 		cleanupErr := cleanupTraceStreamerDBTarget(cleanup)
 		cleanup = nil
@@ -369,6 +379,14 @@ type traceStreamerDBTarget struct {
 	FinalPath   string
 	Retained    bool
 	Cleanup     func() error
+	stagingDir  *privateConversionDir
+}
+
+func (target traceStreamerDBTarget) validateStaging() error {
+	if target.stagingDir == nil {
+		return fmt.Errorf("trace_streamer staging directory authority is missing")
+	}
+	return target.stagingDir.Validate()
 }
 
 func prepareTraceStreamerDBTarget(opts Options, input, output string, keepDB bool) (traceStreamerDBTarget, error) {
@@ -398,35 +416,24 @@ func prepareTraceStreamerDBTarget(opts Options, input, output string, keepDB boo
 			return traceStreamerDBTarget{}, fmt.Errorf("trace DB output parent is not a directory: %s", parent)
 		}
 	}
-	var (
-		stagingDir string
-		err        error
-	)
+	pattern := "codrax-trace-streamer-*"
 	if parent != "" {
-		stagingDir, err = os.MkdirTemp(parent, ".codrax-trace-db-*")
-	} else {
-		stagingDir, err = os.MkdirTemp("", "codrax-trace-streamer-*")
+		pattern = ".codrax-trace-db-*"
 	}
+	stagingDir, err := newPrivateConversionDir(parent, pattern)
 	if err != nil {
 		return traceStreamerDBTarget{}, err
 	}
-	stagingInfo, err := os.Lstat(stagingDir)
+	stagingPath, err := stagingDir.ChildPath("trace_streamer_export.db")
 	if err != nil {
-		return traceStreamerDBTarget{}, err
+		return traceStreamerDBTarget{}, traceDBJoinPreservingSingle(err, stagingDir.FinalizeCleanup())
 	}
-	if !stagingInfo.IsDir() || stagingInfo.Mode().Perm() != 0o700 {
-		primary := fmt.Errorf("trace DB staging path is not a private directory: %s mode=%s", stagingDir, stagingInfo.Mode())
-		if stagingInfo.IsDir() {
-			return traceStreamerDBTarget{}, traceDBJoinPreservingSingle(primary, removeOwnedConversionDir(stagingDir, stagingInfo))
-		}
-		return traceStreamerDBTarget{}, primary
-	}
-	cleanup := func() error { return removeOwnedConversionDir(stagingDir, stagingInfo) }
 	return traceStreamerDBTarget{
-		StagingPath: filepath.Join(stagingDir, "trace_streamer_export.db"),
+		StagingPath: stagingPath,
 		FinalPath:   finalPath,
 		Retained:    finalPath != "",
-		Cleanup:     cleanup,
+		Cleanup:     stagingDir.FinalizeCleanup,
+		stagingDir:  stagingDir,
 	}, nil
 }
 
@@ -440,6 +447,9 @@ func cleanupTraceStreamerDBTarget(cleanup func() error) error {
 func publishStagedTraceDB(target traceStreamerDBTarget, stagingInfo os.FileInfo, ledger *conversionFileLedger) error {
 	if !target.Retained || strings.TrimSpace(target.FinalPath) == "" {
 		return nil
+	}
+	if err := target.validateStaging(); err != nil {
+		return err
 	}
 	if stagingInfo == nil || !stagingInfo.Mode().IsRegular() || stagingInfo.Size() <= 0 {
 		return fmt.Errorf("trace DB staging file is not a non-empty regular file")

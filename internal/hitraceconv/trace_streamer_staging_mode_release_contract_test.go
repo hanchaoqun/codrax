@@ -29,12 +29,8 @@ func TestReleaseTraceStreamerDBStagingIsPrivate(t *testing.T) {
 				t.Fatal(err)
 			}
 			stagingDir := filepath.Dir(target.StagingPath)
-			info, err := os.Lstat(stagingDir)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !info.IsDir() || info.Mode().Perm() != 0o700 {
-				t.Fatalf("trace DB staging is not private: path=%s mode=%s", stagingDir, info.Mode())
+			if err := target.validateStaging(); err != nil {
+				t.Fatalf("trace DB staging is not private: path=%s err=%v", stagingDir, err)
 			}
 			if err := cleanupTraceStreamerDBTarget(target.Cleanup); err != nil {
 				t.Fatal(err)

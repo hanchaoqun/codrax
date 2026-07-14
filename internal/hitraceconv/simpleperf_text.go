@@ -139,22 +139,17 @@ func maybeConvertSimpleperfPerfData(ctx context.Context, opts Options, input dir
 	if err := ensureOutputDoesNotExist(perfTracePath); err != nil {
 		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
 	}
-	reportDir, err := os.MkdirTemp(filepath.Dir(perfTracePath), "."+filepath.Base(perfTracePath)+".*.simpleperf")
+	reportDir, err := newPrivateConversionDir(filepath.Dir(perfTracePath), "."+filepath.Base(perfTracePath)+".*.simpleperf")
 	if err != nil {
 		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
 	}
-	reportDirInfo, err := os.Lstat(reportDir)
-	if err != nil || !reportDirInfo.IsDir() || reportDirInfo.Mode().Perm() != 0o700 {
-		cleanupErr := removeOwnedConversionDir(reportDir, reportDirInfo)
-		if err == nil {
-			err = fmt.Errorf("simpleperf staging path is not a private directory: %s mode=%s", reportDir, reportDirInfo.Mode())
-		}
-		return Artifact{}, "", []PerfProviderDecision{officialDecision}, traceDBJoinPreservingSingle(err, cleanupErr)
-	}
 	defer func() {
-		err = traceDBJoinPreservingSingle(err, removeOwnedConversionDir(reportDir, reportDirInfo))
+		err = traceDBJoinPreservingSingle(err, reportDir.FinalizeCleanup())
 	}()
-	reportPath := filepath.Join(reportDir, "report_sample.txt")
+	reportPath, err := reportDir.ChildPath("report_sample.txt")
+	if err != nil {
+		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
+	}
 
 	args := []string{"-i", perfPath, "-o", reportPath}
 	if symfs := strings.TrimSpace(opts.SimpleperfSymfsDir); symfs != "" {
@@ -169,10 +164,13 @@ func maybeConvertSimpleperfPerfData(ctx context.Context, opts Options, input dir
 		cmdName = python
 		cmdArgs = append([]string{tool}, args...)
 	}
+	if err := reportDir.Validate(); err != nil {
+		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
+	}
 	cmd := exec.CommandContext(ctx, cmdName, cmdArgs...)
 	output, runErr := runCommandWithProgress(opts, cmd, "simpleperf_adapter", "running official simpleperf adapter")
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return Artifact{}, "", []PerfProviderDecision{officialDecision}, ctxErr
+	if err := privateConversionDirCommandBoundaryError(ctx, runErr, reportDir); err != nil {
+		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
 	}
 	if runErr != nil {
 		caveat := fmt.Sprintf("official simpleperf adapter %q failed (%s)%s", tool, runErr, boundedCommandOutput(output))

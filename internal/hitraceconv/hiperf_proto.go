@@ -91,31 +91,29 @@ func maybeConvertHiperfPerfData(ctx context.Context, opts Options, perfPath, per
 	if err := ensureOutputDoesNotExist(perfTracePath); err != nil {
 		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
 	}
-	protoDir, err := os.MkdirTemp(filepath.Dir(perfTracePath), "."+filepath.Base(perfTracePath)+".*.hiperf")
+	protoDir, err := newPrivateConversionDir(filepath.Dir(perfTracePath), "."+filepath.Base(perfTracePath)+".*.hiperf")
 	if err != nil {
 		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
 	}
-	protoDirInfo, err := os.Lstat(protoDir)
-	if err != nil || !protoDirInfo.IsDir() || protoDirInfo.Mode().Perm() != 0o700 {
-		cleanupErr := removeOwnedConversionDir(protoDir, protoDirInfo)
-		if err == nil {
-			err = fmt.Errorf("hiperf staging path is not a private directory: %s mode=%s", protoDir, protoDirInfo.Mode())
-		}
-		return Artifact{}, "", []PerfProviderDecision{officialDecision}, traceDBJoinPreservingSingle(err, cleanupErr)
-	}
 	defer func() {
-		err = traceDBJoinPreservingSingle(err, removeOwnedConversionDir(protoDir, protoDirInfo))
+		err = traceDBJoinPreservingSingle(err, protoDir.FinalizeCleanup())
 	}()
-	protoPath := filepath.Join(protoDir, "report_sample.proto")
+	protoPath, err := protoDir.ChildPath("report_sample.proto")
+	if err != nil {
+		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
+	}
 
 	args := []string{"report", "--proto", "-i", perfPath, "-o", protoPath}
 	if len(opts.HiperfSymbolDirs) > 0 {
 		args = append(args, "--symbol-dir", strings.Join(opts.HiperfSymbolDirs, ","))
 	}
+	if err := protoDir.Validate(); err != nil {
+		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
+	}
 	cmd := exec.CommandContext(ctx, tool, args...)
 	output, runErr := runCommandWithProgress(opts, cmd, "hiperf_adapter", "running official hiperf adapter")
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return Artifact{}, "", []PerfProviderDecision{officialDecision}, ctxErr
+	if err := privateConversionDirCommandBoundaryError(ctx, runErr, protoDir); err != nil {
+		return Artifact{}, "", []PerfProviderDecision{officialDecision}, err
 	}
 	if runErr != nil {
 		caveat := fmt.Sprintf("official hiperf adapter %q failed (%s)%s", tool, runErr, boundedCommandOutput(output))
