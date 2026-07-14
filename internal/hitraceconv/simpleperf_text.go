@@ -178,21 +178,29 @@ func maybeConvertSimpleperfPerfData(ctx context.Context, opts Options, input dir
 		artifact, rawCaveat, rawDecisions, err := maybeRawPerfFallbackForSimpleperf(ctx, opts, input, perfTracePath, caveat, stage, ledger)
 		return artifact, rawCaveat, append([]PerfProviderDecision{officialDecision}, rawDecisions...), err
 	}
-	reportInfo, err := os.Lstat(reportPath)
-	if err != nil || !reportInfo.Mode().IsRegular() {
-		if err == nil {
-			err = fmt.Errorf("official simpleperf adapter produced a non-regular report: %s", reportPath)
-		}
+	sealedReport, err := reportDir.AdoptRegularChild("report_sample.txt", true)
+	if err != nil {
 		caveat := fmt.Sprintf("official simpleperf adapter %q produced unreadable report (%v)", tool, err)
 		officialDecision = perfProviderFailure(officialDecision, "official_output_unreadable", caveat)
 		artifact, rawCaveat, rawDecisions, fallbackErr := maybeRawPerfFallbackForSimpleperf(ctx, opts, input, perfTracePath, caveat, stage, ledger)
 		return artifact, rawCaveat, append([]PerfProviderDecision{officialDecision}, rawDecisions...), fallbackErr
 	}
-	if err := convertSimpleperfReportFileToPerfTraceWithLedger(ctx, reportPath, perfTracePath, ledger); err != nil {
-		caveat := fmt.Sprintf("official simpleperf adapter %q produced unreadable report (%v)", tool, err)
+	defer func() {
+		err = traceDBJoinPreservingSingle(err, sealedReport.Close())
+	}()
+	samples, parseErr := parseSimpleperfReport(ctx, sealedReport.Reader())
+	parseErr = finishSealedConversionFile(sealedReport, parseErr)
+	if parseErr == nil && len(samples) == 0 {
+		parseErr = fmt.Errorf("simpleperf report contains no samples")
+	}
+	if parseErr == nil {
+		parseErr = writeSimpleperfSamplesToPerfTraceWithLedger(ctx, samples, perfTracePath, ledger)
+	}
+	if parseErr != nil {
+		caveat := fmt.Sprintf("official simpleperf adapter %q produced unreadable report (%v)", tool, parseErr)
 		officialDecision = perfProviderFailure(officialDecision, "official_output_unreadable", caveat)
-		artifact, rawCaveat, rawDecisions, err := maybeRawPerfFallbackForSimpleperf(ctx, opts, input, perfTracePath, caveat, stage, ledger)
-		return artifact, rawCaveat, append([]PerfProviderDecision{officialDecision}, rawDecisions...), err
+		artifact, rawCaveat, rawDecisions, fallbackErr := maybeRawPerfFallbackForSimpleperf(ctx, opts, input, perfTracePath, caveat, stage, ledger)
+		return artifact, rawCaveat, append([]PerfProviderDecision{officialDecision}, rawDecisions...), fallbackErr
 	}
 	info, err := os.Lstat(perfTracePath)
 	if err != nil {
@@ -328,6 +336,10 @@ func convertSimpleperfReportFileToPerfTraceWithLedger(ctx context.Context, input
 	if len(samples) == 0 {
 		return fmt.Errorf("simpleperf report contains no samples")
 	}
+	return writeSimpleperfSamplesToPerfTraceWithLedger(ctx, samples, outputPath, ledger)
+}
+
+func writeSimpleperfSamplesToPerfTraceWithLedger(ctx context.Context, samples []simpleperfSample, outputPath string, ledger *conversionFileLedger) error {
 	if err := ensureOutputDoesNotExist(outputPath); err != nil {
 		return err
 	}

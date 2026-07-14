@@ -44,3 +44,11 @@ func removePrivateConversionDirRootPlatform(string, os.FileInfo, *privateConvers
 }
 
 func closePrivateConversionDirPlatform(*privateConversionDirPlatformState) error { return nil }
+
+func adoptPrivateConversionRegularChildPlatform(*privateConversionDirPlatformState, string) (*os.File, os.FileInfo, error) {
+	return nil, nil, fmt.Errorf("private conversion child adoption is unsupported on this platform")
+}
+
+func validatePrivateConversionRegularChildPlatform(*privateConversionDirPlatformState, string, *os.File, os.FileInfo) error {
+	return fmt.Errorf("private conversion child validation is unsupported on this platform")
+}

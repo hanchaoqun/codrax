@@ -121,21 +121,29 @@ func maybeConvertHiperfPerfData(ctx context.Context, opts Options, perfPath, per
 		artifact, rawCaveat, rawDecisions, err := maybeRawPerfFallback(ctx, opts, perfPath, perfTracePath, caveat, stage, inputFormat, ledger)
 		return artifact, rawCaveat, append([]PerfProviderDecision{officialDecision}, rawDecisions...), err
 	}
-	protoInfo, err := os.Lstat(protoPath)
-	if err != nil || !protoInfo.Mode().IsRegular() {
-		if err == nil {
-			err = fmt.Errorf("official hiperf adapter produced a non-regular protobuf: %s", protoPath)
-		}
+	sealedProto, err := protoDir.AdoptRegularChild("report_sample.proto", true)
+	if err != nil {
 		caveat := fmt.Sprintf("official hiperf adapter %q produced unreadable protobuf (%v)", tool, err)
 		officialDecision = perfProviderFailure(officialDecision, "official_output_unreadable", caveat)
 		artifact, rawCaveat, rawDecisions, fallbackErr := maybeRawPerfFallback(ctx, opts, perfPath, perfTracePath, caveat, stage, inputFormat, ledger)
 		return artifact, rawCaveat, append([]PerfProviderDecision{officialDecision}, rawDecisions...), fallbackErr
 	}
-	if err := convertHiperfProtoFileToPerfTraceWithLedger(ctx, protoPath, perfTracePath, ledger); err != nil {
-		caveat := fmt.Sprintf("official hiperf adapter %q produced unreadable protobuf (%v)", tool, err)
+	defer func() {
+		err = traceDBJoinPreservingSingle(err, sealedProto.Close())
+	}()
+	data, parseErr := readHiperfProto(ctx, sealedProto.Reader())
+	parseErr = finishSealedConversionFile(sealedProto, parseErr)
+	if parseErr == nil && len(data.Samples) == 0 {
+		parseErr = fmt.Errorf("hiperf protobuf contains no sample records")
+	}
+	if parseErr == nil {
+		parseErr = writeHiperfProtoDataToPerfTraceWithLedger(ctx, data, perfTracePath, ledger)
+	}
+	if parseErr != nil {
+		caveat := fmt.Sprintf("official hiperf adapter %q produced unreadable protobuf (%v)", tool, parseErr)
 		officialDecision = perfProviderFailure(officialDecision, "official_output_unreadable", caveat)
-		artifact, rawCaveat, rawDecisions, err := maybeRawPerfFallback(ctx, opts, perfPath, perfTracePath, caveat, stage, inputFormat, ledger)
-		return artifact, rawCaveat, append([]PerfProviderDecision{officialDecision}, rawDecisions...), err
+		artifact, rawCaveat, rawDecisions, fallbackErr := maybeRawPerfFallback(ctx, opts, perfPath, perfTracePath, caveat, stage, inputFormat, ledger)
+		return artifact, rawCaveat, append([]PerfProviderDecision{officialDecision}, rawDecisions...), fallbackErr
 	}
 	info, err := os.Lstat(perfTracePath)
 	if err != nil {
@@ -336,6 +344,10 @@ func convertHiperfProtoFileToPerfTraceWithLedger(ctx context.Context, inputPath,
 	if len(data.Samples) == 0 {
 		return fmt.Errorf("hiperf protobuf contains no sample records")
 	}
+	return writeHiperfProtoDataToPerfTraceWithLedger(ctx, data, outputPath, ledger)
+}
+
+func writeHiperfProtoDataToPerfTraceWithLedger(ctx context.Context, data hiperfProtoData, outputPath string, ledger *conversionFileLedger) error {
 	if err := ensureOutputDoesNotExist(outputPath); err != nil {
 		return err
 	}
@@ -356,15 +368,22 @@ func readHiperfProtoFile(ctx context.Context, path string) (hiperfProtoData, err
 		return hiperfProtoData{}, err
 	}
 	defer f.Close()
+	return readHiperfProto(ctx, f)
+}
+
+func readHiperfProto(ctx context.Context, reader io.Reader) (hiperfProtoData, error) {
+	if reader == nil {
+		return hiperfProtoData{}, fmt.Errorf("hiperf protobuf reader is nil")
+	}
 	var magic [len(hiperfProtoMagic)]byte
-	if _, err := io.ReadFull(f, magic[:]); err != nil {
+	if _, err := io.ReadFull(reader, magic[:]); err != nil {
 		return hiperfProtoData{}, fmt.Errorf("read hiperf protobuf magic: %w", err)
 	}
 	if string(magic[:]) != hiperfProtoMagic {
 		return hiperfProtoData{}, fmt.Errorf("unsupported hiperf protobuf magic %q", string(magic[:]))
 	}
 	var versionBuf [2]byte
-	if _, err := io.ReadFull(f, versionBuf[:]); err != nil {
+	if _, err := io.ReadFull(reader, versionBuf[:]); err != nil {
 		return hiperfProtoData{}, fmt.Errorf("read hiperf protobuf version: %w", err)
 	}
 	if version := binary.LittleEndian.Uint16(versionBuf[:]); version != hiperfProtoVersion {
@@ -379,7 +398,7 @@ func readHiperfProtoFile(ctx context.Context, path string) (hiperfProtoData, err
 		if err := ctx.Err(); err != nil {
 			return hiperfProtoData{}, err
 		}
-		if _, err := io.ReadFull(f, sizeBuf[:]); err != nil {
+		if _, err := io.ReadFull(reader, sizeBuf[:]); err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 				return hiperfProtoData{}, fmt.Errorf("truncated hiperf protobuf record size: %w", err)
 			}
@@ -390,7 +409,7 @@ func readHiperfProtoFile(ctx context.Context, path string) (hiperfProtoData, err
 			break
 		}
 		record := make([]byte, size)
-		if _, err := io.ReadFull(f, record); err != nil {
+		if _, err := io.ReadFull(reader, record); err != nil {
 			return hiperfProtoData{}, fmt.Errorf("read hiperf protobuf record: %w", err)
 		}
 		if err := decodeHiperfRecord(record, &data); err != nil {
