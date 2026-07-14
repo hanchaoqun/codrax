@@ -364,6 +364,7 @@ func TestReleaseArtifactsPinPlatformAndStreamerContract(t *testing.T) {
 		"$(error formal release targets reject make -i/--ignore-errors)",
 		"$(error formal release targets reject execution-suppressing make flags (-n/-t/-q))",
 		"$(error MAKECMDGOALS is an automatic authority and must not be overridden)",
+		"$(error OS is a host-detection authority and must not be overridden; use an explicit cross-* target)",
 		"override FORMAL_RELEASE_GOALS := release release-strict release-clean-dist verify-trace-streamer-commercial-release",
 		"override RELEASE_MAKE_OPTION_WORDS :=",
 		"override RELEASE_MAKE_SHORT_FLAGS :=",
@@ -533,6 +534,7 @@ func TestFormalReleaseMakeSemanticsCannotIgnoreCommercialGate(t *testing.T) {
 		{name: "formal goal authority", args: []string{"-i", "-n", "release", "FORMAL_RELEASE_GOALS="}, want: "reject make -i/--ignore-errors"},
 		{name: "formal helper authority", args: []string{"-i", "-n", "release", "RELEASE_MAKE_OPTION_WORDS=", "RELEASE_MAKE_SHORT_FLAGS="}, want: "reject make -i/--ignore-errors"},
 		{name: "automatic goal authority", args: []string{"-i", "-n", "release", "MAKECMDGOALS="}, want: "MAKECMDGOALS is an automatic authority"},
+		{name: "host selector authority", args: []string{"help", "OS=Windows_NT"}, want: "OS is a host-detection authority"},
 		{name: "reserved static identity", args: []string{"-n", "static", "STATIC_EXTRA_TAGS=codrax_embedded_streamer_release"}, want: "must not contain reserved standard-build tag"},
 	}
 	for _, test := range tests {

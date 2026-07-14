@@ -101,6 +101,13 @@ override POSIX_GO_VERIFY_ENV := GOENV=off GOOS= GOARCH= CGO_ENABLED=0 GOFLAGS=
 # an operator chasing a real warning can override via env.
 export CGO_CFLAGS := $(CGO_CFLAGS) -w
 
+# OS selects the recipe language before HOST_OS/HOST_KIND can be fixed. It is
+# an environment fact on native Windows, not a cross-build switch; explicit
+# cross targets must be used instead of a command-line OS override.
+ifeq ($(origin OS),command line)
+  $(error OS is a host-detection authority and must not be overridden; use an explicit cross-* target)
+endif
+
 ifeq ($(OS),Windows_NT)
   override HOST_OS := windows
   override HOST_KIND := windows
