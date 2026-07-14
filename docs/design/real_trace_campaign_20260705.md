@@ -2568,3 +2568,6 @@ wakeup_chain 引擎唯一铸边点在 expandChain 的 `case StateSSleep:` 臂(fi
 
 ## §29.68 PIN-1 收账(2026-07-13;§29.65 七回归口+DOM 机械化三件;纯看护批零行为改动;突变红实录逐件)
 B1 折叠行头名 floor 直接 pin(数学六形+产线实铸压力形:同主体兄弟行中截而折叠行头名+榜位指针整体存活=压力真实性双见证);B2 帽外披露 wire 文案 verbatim pin(删行红);B3 Reset 车道闭集 pin(置位点恰 4+全仓恰 1 调用点+latch 守卫;第 5 软车道置位即红);B4 h3 账实差勘注(§29.55.2「回升硬」过铸勘正=保软+条件恒等,判定逻辑零改);**B5 tool Description byte-golden**(23,918B 产线实铸+UPDATE RITUAL 显式门;复现 §29.64 病根形 byte 2164 咬红,既有子串 pin 全盲=判别力实证);B6 auxfold 存档纪元勘注(标本字节不动,live 消费 grep 零);**B7 ARTIFACT-KEEP harness 修根**(eval runner cp -pn append-only 归档制先于每 case 起跑+Go 侧接线 pin 入 go test 面——三犯病根关账)。**DOM 机械化 3/3**(零新依赖,挂投影测试族):①折叠行记号列与兄弟 rune-width 恒等 sweep(zh 边词闭集恒 2 CJK 不变量);②旁注深恰 2ch 全 fence sweep;③md↔html `<pre>` textContent 逐字节恒等(P2a 形六 fence)——一次性 DOM 验收升级为常驻回归看护。残留:B5 golden 仅 trace_query(按证据扩)/EN 边词宽度不齐=设计现状/归档目录 append-only 手动清。
+
+### §29.58.5a 用户裁定(2026-07-13,工件 225901 复问):组成部分行 ↳ 退役——深缩进已承载结构,冗余双编码
+用户问 ☾ sleep 与 ↳ ⋈ binder 是否上下级、为何多一个 ↳。答:是(binder=E1 组成部分,词面明示);↳ 系归位时的从属连接符,深缩进(§29.58.5 用户裁定)落地后同一关系被双编码。**裁定(默认最优)**:↳ 从组成部分行退役,终形=深缩进+单记号 ⋈+「组成部分·不可相加」词面(结构管关系/记号管形态/词面管语义);与旁注行(· 前缀)区分保持;优化点表 ↳ cell 系另一语义不动;lockstep 全面回收(tracefence/图例/mark/census/宽度 pin/PIN-1 DOM sweep);记号演进史=◦→↳⋈→深缩进+⋈(EVOLUTION RECORD)。已并入在飞 SELF-ALL 批。
