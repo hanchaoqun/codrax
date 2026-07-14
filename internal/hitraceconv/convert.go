@@ -664,10 +664,29 @@ func scanMetadata(ctx context.Context, input conversionInputView, sourceNamespac
 		if err != nil {
 			return nil, err
 		}
-		typ, segSize, err := readSegmentHeader(reader)
-		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		remaining := size - pos
+		if remaining == 0 {
 			break
 		}
+		if remaining < 0 {
+			return nil, conversionInputFailure(
+				ConversionInputCodeInternalContract,
+				conversionInputStageBuiltinMetadata,
+				input.DisplayPath(),
+				fmt.Errorf("segment cursor %d exceeds fixed input size %d", pos, size),
+			)
+		}
+		if remaining < segmentHdrSize {
+			return nil, &BuiltinSysDecodeError{
+				Code:        builtinSysDecodeTruncatedSegmentHeader,
+				FileType:    header.FileType,
+				HeaderBytes: int(remaining),
+				Offset:      pos,
+				Detail:      fmt.Sprintf("segment header requires %d bytes, only %d remain", segmentHdrSize, remaining),
+				Cause:       io.ErrUnexpectedEOF,
+			}
+		}
+		typ, segSize, err := readSegmentHeader(reader)
 		if err != nil {
 			return nil, fmt.Errorf("read segment header at %d: %w", pos, err)
 		}

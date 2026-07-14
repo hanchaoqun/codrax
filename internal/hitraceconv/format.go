@@ -31,15 +31,16 @@ const (
 )
 
 const (
-	builtinSysDecodeTruncatedHeader      = "truncated_header"
-	builtinSysDecodeInvalidMagic         = "invalid_magic"
-	builtinSysDecodeUnsupportedVersion   = "unsupported_version"
-	builtinSysDecodeUnsupportedFileType  = "unsupported_file_type"
-	builtinSysDecodePartialPageSegment   = "partial_page_segment"
-	builtinSysDecodePageLength           = "page_length_out_of_range"
-	builtinSysDecodeTruncatedEventHeader = "truncated_event_header"
-	builtinSysDecodeEventBounds          = "event_out_of_bounds"
-	builtinSysDecodeTimestampOverflow    = "timestamp_overflow"
+	builtinSysDecodeTruncatedHeader        = "truncated_header"
+	builtinSysDecodeTruncatedSegmentHeader = "truncated_segment_header"
+	builtinSysDecodeInvalidMagic           = "invalid_magic"
+	builtinSysDecodeUnsupportedVersion     = "unsupported_version"
+	builtinSysDecodeUnsupportedFileType    = "unsupported_file_type"
+	builtinSysDecodePartialPageSegment     = "partial_page_segment"
+	builtinSysDecodePageLength             = "page_length_out_of_range"
+	builtinSysDecodeTruncatedEventHeader   = "truncated_event_header"
+	builtinSysDecodeEventBounds            = "event_out_of_bounds"
+	builtinSysDecodeTimestampOverflow      = "timestamp_overflow"
 )
 
 // BuiltinSysDecodeError is a fail-closed, machine-readable rejection from the
@@ -69,7 +70,7 @@ func (e *BuiltinSysDecodeError) Error() string {
 		return "built-in sys decoder rejected input"
 	}
 	switch e.Code {
-	case builtinSysDecodeTruncatedHeader:
+	case builtinSysDecodeTruncatedHeader, builtinSysDecodeTruncatedSegmentHeader:
 		return fmt.Sprintf("built-in sys decoder rejected input: code=%s header_bytes=%d offset=%d: %s",
 			e.Code, e.HeaderBytes, e.Offset, e.Detail)
 	case builtinSysDecodeInvalidMagic:
