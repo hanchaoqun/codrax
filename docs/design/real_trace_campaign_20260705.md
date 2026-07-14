@@ -2597,3 +2597,6 @@ B1 折叠行头名 floor 直接 pin(数学六形+产线实铸压力形:同主体
 **件① F4 修根**:eval/fixtures/stub_repo/(中性 README+空 docs)+22 金样本 trace-only case 密封(FIXTURE 指向;逐 case 判定:e2/g2 混合形保留=repo 即案件主体);密封 PASS 趟日志普查=零仓内容读取(全部 read/grep/exec 目标 ∈ .codrax/blob;witness 串在自仓源码/case/PROFILE 逐字在而 stub scratch grep=0=通道关死)。**反证红利**:未密封对照趟模型整窗游走仓内一次 trace_query 未派=自宿主分心形——密封兼提质。h2 六败诚实归因 dispatch 族(两 PASS 趟携 wakeup_chain/rank,FAIL 趟全无;§29.56 在案,非本批)。域外同形 11 case 列册待裁(路径解析考点须留仓 8+donghu_real 族 3 随下批)。
 **件② h5 词边界**:runner 层数字边界守卫(尾数字→`([^0-9]|$)` 前后文界定,×多字节 CJK 语境 \b 无效;ERE 转义;hex 短哈希雕除防身份前缀假 miss——u7g 存档实锤);四字面通道全走 helper,case oracle 零改(禁降 bar);19 断言(×3 三态真出现咬红/×39 不误咬/132.041 族/4次( 门);存档 A/B+80 token 全扫零翻转。**附加修根**:run.sh 同秒 OUTDIR 碰撞(原子 mkdir 认领+.N 后缀+e2e pin;3 污染目录标记+隔离重跑替证)。
 **纪律**:全仓绿 witness(00:44);其后复跑红=SUPP-CORE 并发在飞(含其 orchestrator.go 触自身 LOC ratchet 9403>9395 的中间态信号,移交其批)。遗留:16 非 h 密封 case 随例行 sweep 覆盖;`7s`⊂`3.7s` 小数点邻接类=非数字族授权面,无实锤不动。
+
+### §29.61.5 用户裁定(2026-07-14):补采双预算默认放宽
+用户裁定:补采看护默认值翻倍+——`trace_supplement_max_duration` 5s→**20s**;窗跨度门 30s→**120s**。语义/披露/fail-open 纪律不变,仅默认值(codrax.yaml 可覆盖);随 SUPP-CORE 修复轮落。
