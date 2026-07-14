@@ -1876,7 +1876,7 @@ func NormalizeFlowchartSubgraphTitles(body string) string {
 		if !flowchartSubgraphTitleNeedsRepair(rest) {
 			continue
 		}
-		lines[i] = indent + "subgraph " + flowchartSubgraphID(rest, i) + " " + flowchartLabelShapeSource(rest, "[", "]", false)
+		lines[i] = indent + "subgraph " + flowchartSubgraphID(rest, i) + " " + flowchartLabelShapeSource(rest, "[", "]", flowchartSubgraphTitleHasUnlexableToken(rest))
 		changed = true
 	}
 	if !changed {
@@ -1925,7 +1925,56 @@ func flowchartSubgraphTitleNeedsRepair(rest string) bool {
 	if rest == "" || flowchartSubgraphAlreadyExplicit(rest) {
 		return false
 	}
-	return len(strings.Fields(rest)) > 1 || flowchartLabelNeedsQuotes(rest)
+	return len(strings.Fields(rest)) > 1 || flowchartLabelNeedsQuotes(rest) ||
+		flowchartSubgraphTitleHasUnlexableToken(rest)
+}
+
+// flowchartSubgraphTitleHasUnlexableToken reports whether an unquoted
+// flowchart subgraph title contains text that Mermaid's statement-level lexer
+// rejects ("Lexical error ... Unrecognized text") or re-tokenizes as link
+// syntax. Node-shape and pipe-label text runs in Mermaid's permissive text
+// mode, but a bare subgraph title is lexed with the same restricted token
+// stream as bare node IDs, so titles that render fine elsewhere can kill the
+// whole diagram here.
+//
+// The character classes below are an empirically verified whitelist boundary
+// against the embedded Mermaid (11.12.0; MMD-1 witness 20260713-181931.791,
+// `subgraph 次因—优先级反转候选`):
+//   - non-ASCII runes lex only as UNICODE_TEXT, which covers Unicode letters
+//     (CJK, kana, accented Latin, Greek, fullwidth letters all pass) and
+//     nothing else: em/en dash, ×, ·, arrows, fullwidth punctuation and
+//     digits, circled numbers, ellipsis all fail;
+//   - ASCII `,` `@` `=` fail at statement level while `.` `:` `/` `&` `%`
+//     `;` `+` `-` pass;
+//   - `->` `--` `==` inside the title start a link token (TAGEND/EDGE_TEXT)
+//     and break the parse even though each byte alone may be lexable.
+//
+// Everything this predicate flags is unparseable today, so quoting the title
+// can only un-break diagrams; titles it leaves alone keep their exact bytes.
+// Fully quoted titles (`subgraph "..."`) already lex as STR, so the
+// flowchartLabelAlreadyQuoted guard below leaves them untouched.
+func flowchartSubgraphTitleHasUnlexableToken(title string) bool {
+	if flowchartLabelAlreadyQuoted(title) {
+		return false
+	}
+	for _, seq := range []string{"->", "--", "=="} {
+		if strings.Contains(title, seq) {
+			return true
+		}
+	}
+	for _, r := range title {
+		if r < 0x80 {
+			switch r {
+			case ',', '@', '=':
+				return true
+			}
+			continue
+		}
+		if !unicode.IsLetter(r) {
+			return true
+		}
+	}
+	return false
 }
 
 func flowchartSubgraphAlreadyExplicit(rest string) bool {

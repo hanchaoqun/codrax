@@ -617,3 +617,92 @@ func TestMermaidKeywordRegistryCoversPreviewAndTerminalForms(t *testing.T) {
 		t.Fatal("raw arrows without a Mermaid directive must not be classified as Mermaid")
 	}
 }
+
+// MMD-1 (2026-07-13, witness .codrax/output/20260713-181931.791-19240.html):
+// Mermaid lexes bare subgraph titles with the restricted statement-level
+// token stream (NODE_STRING + UNICODE_TEXT letters), so a single-token CJK
+// title carrying an em-dash killed the whole browser render. The repair
+// quotes exactly the empirically unlexable titles and leaves every form the
+// lexer accepts byte-identical.
+func TestNormalizeSourceForMarkdown_QuotesUnlexableSubgraphTitles(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		"    subgraph 次因—优先级反转候选",
+		`        K1["x"]`,
+		"    end",
+	}, "\n")
+	got := NormalizeSourceForMarkdown(in)
+	if strings.Contains(got, "subgraph 次因—优先级反转候选") {
+		t.Fatalf("unlexable em-dash subgraph title survived unquoted:\n%s", got)
+	}
+	if !strings.Contains(got, `subgraph subgraph_2 ["次因—优先级反转候选"]`) {
+		t.Fatalf("em-dash subgraph title was not rewritten to explicit quoted form:\n%s", got)
+	}
+}
+
+func TestNormalizeSourceForMarkdown_QuotesUnlexableSubgraphTitleRunes(t *testing.T) {
+	// Every title below fails Mermaid 11.12.0's statement-level lexer when
+	// left bare (verified against the embedded mermaid.min.js).
+	for _, title := range []string{
+		"次因–候选",   // en dash
+		"次因×候选",   // multiplication sign
+		"次因·候选",   // middle dot
+		"次因、候选",   // ideographic comma
+		"次因：候选",   // fullwidth colon
+		"次因（候选）",  // fullwidth parentheses
+		"次因…候选",   // ellipsis
+		"次因１候选",   // fullwidth digit
+		"次因①候选",   // circled digit
+		"stage,two", // ASCII comma
+		"stage@two", // ASCII at
+		"stage=two", // ASCII equals
+		"a->b",      // link token
+		"a--b",      // link token
+		"a==b",      // link token
+	} {
+		in := strings.Join([]string{
+			"flowchart TD",
+			"    subgraph " + title,
+			`        K1["x"]`,
+			"    end",
+		}, "\n")
+		got := NormalizeSourceForMarkdown(in)
+		if strings.Contains(got, "subgraph "+title+"\n") {
+			t.Fatalf("unlexable subgraph title %q survived unquoted:\n%s", title, got)
+		}
+		if !strings.Contains(got, `["`+title+`"]`) {
+			t.Fatalf("unlexable subgraph title %q lost its quoted visible label:\n%s", title, got)
+		}
+	}
+}
+
+func TestNormalizeSourceForMarkdown_KeepsLexableSubgraphTitlesByteIdentical(t *testing.T) {
+	// Every title below parses bare in Mermaid 11.12.0 (verified against the
+	// embedded mermaid.min.js), so the shim must not touch a byte.
+	for _, title := range []string{
+		"目标线程",              // plain CJK letters
+		"根因层",               // plain CJK letters
+		"Ｓｔａｇｅカナー",          // fullwidth letters + kana + prolonged sound mark
+		"étape_greek_αβ",    // accented Latin + Greek
+		"stage.two",         // ASCII dot
+		"stage:two",         // ASCII colon
+		"stage/two",         // ASCII slash
+		"stage&two",         // ASCII ampersand
+		"stage;two",         // ASCII semicolon
+		"stage+two",         // ASCII plus
+		"a-b",               // single dash
+		"a..b",              // dots
+		`"次因—优先级反转候选"`,      // already fully quoted: legal STR title
+		`sg1["次因—优先级反转候选"]`, // already explicit id["title"] form
+	} {
+		in := strings.Join([]string{
+			"flowchart TD",
+			"    subgraph " + title,
+			`        K1["x"]`,
+			"    end",
+		}, "\n")
+		if got := NormalizeSourceForMarkdown(in); got != in {
+			t.Fatalf("lexable subgraph title %q was perturbed:\nin:\n%s\ngot:\n%s", title, in, got)
+		}
+	}
+}
