@@ -2304,10 +2304,13 @@ func (s *traceDBRowSink) writeTo(ctx context.Context, w io.Writer) (stats traceD
 	}
 	start := time.Now()
 	var sourceOrderPublication *profilerSourceOrderPublicationProof
+	var standaloneReader *traceDBAuthenticatedRunReader
 	defer func() {
 		var publicationCloseErr error
 		if sourceOrderPublication != nil {
 			publicationCloseErr = sourceOrderPublication.close()
+		} else if standaloneReader != nil {
+			publicationCloseErr = traceDBRunInputIntegrity(standaloneReader.close())
 		}
 		err = traceDBJoinPreservingSingle(err, publicationCloseErr, s.accumulateElapsed(start), s.cleanup())
 		s.recordSorterFailure(err)
@@ -2361,6 +2364,7 @@ func (s *traceDBRowSink) writeTo(ctx context.Context, w io.Writer) (stats traceD
 		if openErr != nil {
 			return s.stats, traceDBRunInputIntegrity(openErr)
 		}
+		standaloneReader = reader
 	}
 	if err := writeSystraceHeader(bw); err != nil {
 		return s.stats, err
@@ -2850,24 +2854,43 @@ func traceDBRunRecordKeyEqual(left, right traceDBRunRecord) bool {
 		left.ingestOrdinal == right.ingestOrdinal
 }
 
-func readTraceDBBoundedJSONLRecord(reader *bufio.Reader, maximum uint64) ([]byte, bool, error) {
-	if reader == nil || maximum == 0 || maximum > uint64(math.MaxInt) {
+func readTraceDBBoundedJSONLRecord(
+	reader *bufio.Reader,
+	maximum uint64,
+	scratch *[]byte,
+) ([]byte, bool, error) {
+	if reader == nil || maximum == 0 || maximum > uint64(math.MaxInt) || scratch == nil {
 		return nil, false, &traceDBOutputInvariantError{Reason: "trace_row_sort_record_limit_invalid"}
 	}
-	record := make([]byte, 0, min(int(maximum), 256*1024))
+	*scratch = (*scratch)[:0]
+	record := *scratch
+	retainScratch := func() {
+		*scratch = record[:0]
+	}
 	for {
 		fragment, err := reader.ReadSlice('\n')
 		projected, ok := checkedTraceDBUint64Add(uint64(len(record)), uint64(len(fragment)))
 		if !ok || projected > maximum {
+			retainScratch()
 			return nil, false, &traceDBOutputInvariantError{Reason: "trace_row_sort_physical_record_too_large"}
 		}
+		// A record which fits in bufio's fixed reader buffer needs no second
+		// allocation. Its bytes share the same lease as a scratch-backed record:
+		// the caller must consume them before the next read/reset/close.
+		if len(record) == 0 && err == nil {
+			if len(fragment) == 0 || fragment[len(fragment)-1] != '\n' {
+				return nil, false, &traceDBOutputInvariantError{Reason: "trace_row_sort_record_not_terminated"}
+			}
+			return fragment[:len(fragment):len(fragment)], true, nil
+		}
 		record = append(record, fragment...)
+		retainScratch()
 		switch {
 		case err == nil:
 			if len(record) == 0 || record[len(record)-1] != '\n' {
 				return nil, false, &traceDBOutputInvariantError{Reason: "trace_row_sort_record_not_terminated"}
 			}
-			return record, true, nil
+			return record[:len(record):len(record)], true, nil
 		case errors.Is(err, bufio.ErrBufferFull):
 			continue
 		case errors.Is(err, io.EOF) && len(record) == 0:
@@ -2919,10 +2942,13 @@ type traceDBAuthenticatedRunReader struct {
 	file     *os.File
 	reader   *bufio.Reader
 	proof    hash.Hash
-	rowsRead uint64
-	previous traceDBRunRecord
-	havePrev bool
-	verified bool
+	// recordScratch is allocated lazily only for a physical record which spans
+	// bufio fragments, then reused for every later fragmented record/pass.
+	recordScratch []byte
+	rowsRead      uint64
+	previous      traceDBRunRecord
+	havePrev      bool
+	verified      bool
 }
 
 func (s *traceDBRowSink) openAuthenticatedRunReader(manifest traceDBRunManifest) (*traceDBAuthenticatedRunReader, error) {
@@ -2974,7 +3000,8 @@ func (s *traceDBRowSink) openAuthenticatedRunReader(manifest traceDBRunManifest)
 // second as the actual output pass; closing and reopening by path between the
 // two would reintroduce a replace-by-path window.
 func (reader *traceDBAuthenticatedRunReader) reset() error {
-	if reader == nil || reader.sink == nil || reader.file == nil || !reader.verified {
+	if reader == nil || reader.sink == nil || reader.file == nil || reader.reader == nil ||
+		reader.proof == nil || !reader.verified {
 		return &traceDBOutputInvariantError{Reason: "trace_row_sort_reader_reset_state_invalid"}
 	}
 	if err := reader.sink.runFault("seek", reader.manifest.path); err != nil {
@@ -2993,11 +3020,19 @@ func (reader *traceDBAuthenticatedRunReader) reset() error {
 	reader.previous = traceDBRunRecord{}
 	reader.havePrev = false
 	reader.verified = false
+	reader.recordScratch = reader.recordScratch[:0]
 	return nil
 }
 
+// next returns a borrowed record. record.raw is a read-only, capacity-fenced
+// view which aliases this reader's bufio buffer or recordScratch and remains
+// valid only until the next next, reset, or close call on this same reader.
+// record.row owns its decoded values and outlives that raw lease. Callers must
+// consume raw first; merge keeps at most one outstanding record per reader and
+// advances it only after writing that record.
 func (reader *traceDBAuthenticatedRunReader) next(ctx context.Context) (traceDBRunRecord, bool, error) {
-	if reader == nil || reader.sink == nil || reader.verified {
+	if reader == nil || reader.sink == nil || reader.file == nil || reader.reader == nil ||
+		reader.proof == nil || reader.verified {
 		return traceDBRunRecord{}, false, &traceDBOutputInvariantError{Reason: "trace_row_sort_reader_state_invalid"}
 	}
 	if err := ctx.Err(); err != nil {
@@ -3006,7 +3041,9 @@ func (reader *traceDBAuthenticatedRunReader) next(ctx context.Context) (traceDBR
 	if err := reader.sink.runFault("read", reader.manifest.path); err != nil {
 		return traceDBRunRecord{}, false, err
 	}
-	raw, ok, err := readTraceDBBoundedJSONLRecord(reader.reader, reader.sink.options.maxRunRowBytes)
+	raw, ok, err := readTraceDBBoundedJSONLRecord(
+		reader.reader, reader.sink.options.maxRunRowBytes, &reader.recordScratch,
+	)
 	if err != nil {
 		return traceDBRunRecord{}, false, traceDBSorterOperationError("read", err)
 	}
@@ -3051,6 +3088,13 @@ func (reader *traceDBAuthenticatedRunReader) close() error {
 	}
 	err := reader.sink.closeRunFile(reader.file, reader.manifest.path)
 	reader.file = nil
+	reader.reader = nil
+	reader.proof = nil
+	reader.recordScratch = nil
+	reader.rowsRead = 0
+	reader.previous = traceDBRunRecord{}
+	reader.havePrev = false
+	reader.verified = false
 	return err
 }
 

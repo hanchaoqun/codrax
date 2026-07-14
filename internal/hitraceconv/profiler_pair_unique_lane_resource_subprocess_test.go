@@ -59,7 +59,7 @@ func TestProfilerPairUniqueLaneResourceBound(t *testing.T) {
 	// sampled HeapAlloc peak, its slope cannot move with the GC phase while it
 	// still catches accidental per-lane allocation amplification. The retained
 	// slope plus the exact sink-structure pin remains the duplicate-shadow proof.
-	const allocatedSlopeAllowance = uint64(32*1024*50_000 + 64<<20)
+	const allocatedSlopeAllowance = uint64(16*1024*50_000 + 64<<20)
 	if large.PreparedGrowth > small.PreparedGrowth+retainedSlopeAllowance {
 		t.Fatalf("unique-lane retained heap suggests a duplicate shadow: small=%+v large=%+v allowance=%d",
 			small, large, retainedSlopeAllowance)
@@ -148,12 +148,11 @@ func runProfilerPairUniqueLaneResourceCase(t *testing.T, rows int) profilerPairU
 	if err := os.Mkdir(sinkDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	// This fixture's records are tiny. Keep the authenticated-reader bound
-	// tight so the ledger allocation proof measures unique-lane state rather
-	// than the independent default maximum-record scratch policy.
-	sink, err := newTraceDBRowSinkWithOptions(sinkDir, rows+1, traceDBRowSinkOptions{
-		maxRunRowBytes: 4 << 10,
-	})
+	// Use production defaults: the authenticated reader now borrows short
+	// records directly from bufio and retains at most one lazy fragmented-row
+	// scratch per reader, so its configured 24 MiB hard cap no longer creates a
+	// fresh 256 KiB allocation for every row/pass.
+	sink, err := newTraceDBRowSink(sinkDir, rows+1)
 	if err != nil {
 		t.Fatal(err)
 	}
