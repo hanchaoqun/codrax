@@ -15,7 +15,14 @@ import (
 
 const tracePerfAutoFallbackCaveat = "trace+perf auto conversion uses trace_streamer/SQLite first and falls back to built-in raw trace parsing when SQL is unavailable or fails; explicit trace engine modes do not fall back"
 
+type builtinInputBinding struct {
+	input           conversionInputView
+	inputSize       int64
+	sourceNamespace string
+}
+
 type traceMetadata struct {
+	binding              *builtinInputBinding
 	header               fileHeader
 	formats              map[int]eventFormat
 	formatPoisoned       map[int]bool
@@ -308,11 +315,21 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 		}
 		return commit(result, nil)
 	}
-	meta, err := scanMetadata(ctx, input, inputBytes)
+	meta, err := scanMetadata(ctx, authority, authority.CanonicalPath())
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return Result{}, err
+		}
+		var inputErr *ConversionInputError
+		if errors.As(err, &inputErr) {
+			return Result{}, err
+		}
 		fallbackErr := traceProviderFallbackFailure(plan, traceStreamerExport, err)
 		if hasAnalyzableStandaloneSidecar(standaloneArtifacts) {
-			fallbackCaveat := builtinTraceBodyFallbackFailureCaveat(input, inputBytes, standaloneArtifacts, err)
+			fallbackCaveat := builtinTraceBodyFallbackFailureCaveat(authority, standaloneArtifacts, err)
+			if validateErr := completeConversionInputStage(ctx, authority, conversionInputStageBuiltinMetadata, nil); validateErr != nil {
+				return Result{}, validateErr
+			}
 			result := Result{
 				InputPath:  input,
 				InputBytes: inputBytes,
@@ -343,7 +360,7 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 		}
 		return Result{}, fallbackErr
 	}
-	rows, missing, unknown, suppressed, first, last, err := renderRows(ctx, input, meta)
+	rows, missing, unknown, suppressed, first, last, err := renderRows(ctx, meta)
 	if err != nil {
 		return Result{}, wrapFallbackFailure(err)
 	}
@@ -463,8 +480,8 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 	return commit(result, nil)
 }
 
-func builtinTraceBodyFallbackFailureCaveat(input string, inputSize int64, artifacts []Artifact, err error) string {
-	reasons := builtinTraceBodyFallbackReasons(input, inputSize, artifacts)
+func builtinTraceBodyFallbackFailureCaveat(input conversionInputView, artifacts []Artifact, err error) string {
+	reasons := builtinTraceBodyFallbackReasons(input, artifacts)
 	if len(reasons) == 0 {
 		reasons = append(reasons, "no supported trace body was found")
 	}
@@ -475,7 +492,7 @@ func builtinTraceBodyFallbackFailureCaveat(input string, inputSize int64, artifa
 	return message
 }
 
-func builtinTraceBodyFallbackReasons(input string, inputSize int64, artifacts []Artifact) []string {
+func builtinTraceBodyFallbackReasons(input conversionInputView, artifacts []Artifact) []string {
 	var reasons []string
 	for _, artifact := range artifacts {
 		if artifact.Type != ArtifactPerfData || artifact.SourceOffset != 0 {
@@ -484,7 +501,7 @@ func builtinTraceBodyFallbackReasons(input string, inputSize int64, artifacts []
 		reasons = append(reasons, fmt.Sprintf("input starts with OpenHarmony profiler standalone perf sidecar data_type=%d plugin=%s version=%s bytes=%d rather than a trace body", artifact.DataType, firstNonEmpty(artifact.PluginName, "unknown"), firstNonEmpty(artifact.PluginVersion, "unknown"), artifact.SourceBytes))
 		break
 	}
-	if off, ok, err := profilerSessionJSONMarkerOffset(input, 64*1024); err == nil && ok {
+	if off, ok, err := profilerSessionJSONMarkerOffsetAt(input, input.Size(), 64*1024); err == nil && ok {
 		reasons = append(reasons, fmt.Sprintf("input contains OpenHarmony profiler SessionJSON package marker at offset %d but no directly renderable systrace rows were extracted before fallback", off))
 	}
 	if len(reasons) == 0 {
@@ -498,7 +515,6 @@ func builtinTraceBodyFallbackReasons(input string, inputSize int64, artifacts []
 			reasons = append(reasons, fmt.Sprintf("%d standalone perf sidecar artifact(s) were preserved, but no supported trace body was found", perfSidecars))
 		}
 	}
-	_ = inputSize
 	return reasons
 }
 
@@ -561,16 +577,38 @@ func hasAnalyzableStandaloneSidecar(artifacts []Artifact) bool {
 	return false
 }
 
-func scanMetadata(ctx context.Context, path string, size int64) (*traceMetadata, error) {
-	if err := ctx.Err(); err != nil {
+func scanMetadata(ctx context.Context, input conversionInputView, sourceNamespace string) (meta *traceMetadata, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := completeConversionInputStage(ctx, input, conversionInputStageBuiltinMetadata, nil); err != nil {
 		return nil, err
 	}
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
+	defer func() {
+		err = completeConversionInputStage(ctx, input, conversionInputStageBuiltinMetadata, err)
+		if err != nil {
+			meta = nil
+		}
+	}()
+	size := input.Size()
+	if size < 0 {
+		return nil, conversionInputFailure(
+			ConversionInputCodeInternalContract,
+			conversionInputStageBuiltinMetadata,
+			input.DisplayPath(),
+			fmt.Errorf("negative conversion input size %d", size),
+		)
 	}
-	defer f.Close()
-	header, err := readFileHeader(f)
+	if !directPairSourceNamespaceValid(sourceNamespace) {
+		return nil, conversionInputFailure(
+			ConversionInputCodeInternalContract,
+			conversionInputStageBuiltinMetadata,
+			input.DisplayPath(),
+			fmt.Errorf("invalid frozen direct-pair source namespace"),
+		)
+	}
+	reader := io.NewSectionReader(input, 0, size)
+	header, err := readFileHeader(reader)
 	if err != nil {
 		return nil, err
 	}
@@ -601,7 +639,10 @@ func scanMetadata(ctx context.Context, path string, size int64) (*traceMetadata,
 			Detail:   "the built-in decoder supports Harmony RMQ file_type=1 only; OpenHarmony/Linux file_type=0 requires trace_streamer",
 		}
 	}
-	meta := &traceMetadata{
+	meta = &traceMetadata{
+		binding: &builtinInputBinding{
+			input: input, inputSize: size, sourceNamespace: sourceNamespace,
+		},
 		header:               header,
 		formats:              map[int]eventFormat{},
 		formatPoisoned:       map[int]bool{},
@@ -615,11 +656,11 @@ func scanMetadata(ctx context.Context, path string, size int64) (*traceMetadata,
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		pos, err := f.Seek(0, io.SeekCurrent)
+		pos, err := reader.Seek(0, io.SeekCurrent)
 		if err != nil {
 			return nil, err
 		}
-		typ, segSize, err := readSegmentHeader(f)
+		typ, segSize, err := readSegmentHeader(reader)
 		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 			break
 		}
@@ -629,15 +670,21 @@ func scanMetadata(ctx context.Context, path string, size int64) (*traceMetadata,
 		if isProfilerTraceHeaderPrefix(typ, segSize) {
 			break
 		}
-		payloadOffset, _ := f.Seek(0, io.SeekCurrent)
-		if segSize > uint32(size) || payloadOffset+int64(segSize) > size {
+		payloadOffset, err := reader.Seek(0, io.SeekCurrent)
+		if err != nil {
+			return nil, fmt.Errorf("read segment payload offset at %d: %w", pos, err)
+		}
+		if payloadOffset < 0 || payloadOffset > size || int64(segSize) > size-payloadOffset {
 			return nil, fmt.Errorf("invalid segment type=%d size=%d at offset=%d", typ, segSize, pos)
 		}
 		meta.segments = append(meta.segments, segmentMeta{Type: typ, Size: segSize, Offset: payloadOffset})
 		switch {
 		case typ == segmentEventsFormat || typ == segmentCmdlines || typ == segmentTGIDs || typ == segmentPrintk:
+			if uint64(segSize) > uint64(^uint(0)>>1) {
+				return nil, fmt.Errorf("metadata segment type=%d size=%d exceeds host addressable memory", typ, segSize)
+			}
 			data := make([]byte, segSize)
-			if _, err := io.ReadFull(f, data); err != nil {
+			if _, err := io.ReadFull(reader, data); err != nil {
 				return nil, fmt.Errorf("read segment type=%d: %w", typ, err)
 			}
 			switch typ {
@@ -669,7 +716,7 @@ func scanMetadata(ctx context.Context, path string, size int64) (*traceMetadata,
 				meta.printkFormats, meta.printkPoisoned, meta.printkMalformed = catalog.Formats, catalog.Poisoned, catalog.Malformed
 			}
 		default:
-			if _, err := f.Seek(int64(segSize), io.SeekCurrent); err != nil {
+			if _, err := reader.Seek(int64(segSize), io.SeekCurrent); err != nil {
 				return nil, fmt.Errorf("skip segment type=%d: %w", typ, err)
 			}
 		}
@@ -680,32 +727,103 @@ func scanMetadata(ctx context.Context, path string, size int64) (*traceMetadata,
 	return meta, nil
 }
 
-func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]renderedRow, int, int, int, uint64, uint64, error) {
-	if meta != nil {
-		meta.formatConflictRows = 0
-		meta.bodyRejectedRows = 0
-		meta.bodyRejectReasons = make(map[string]int)
-		meta.pairQuarantinedRows = 0
-		meta.pairPoisonedLanes = 0
-		meta.pairPoisonedFamilies = 0
-		meta.pairBarrierBudget = false
-		meta.pairBarrierReport = directPairBarrierReport{}
+func validateBuiltinMetadataSegment(input io.ReaderAt, inputSize int64, segment segmentMeta) error {
+	if input == nil || inputSize < 0 || segment.Offset < fileHeaderSize+segmentHdrSize || segment.Offset > inputSize {
+		return fmt.Errorf("invalid range offset=%d size=%d input_size=%d", segment.Offset, segment.Size, inputSize)
 	}
-	pairBarrier, err := newDirectPairCaptureBarrier(path)
+	if int64(segment.Size) > inputSize-segment.Offset {
+		return fmt.Errorf("range exceeds fixed input: offset=%d size=%d input_size=%d", segment.Offset, segment.Size, inputSize)
+	}
+	headerOffset := segment.Offset - segmentHdrSize
+	segmentType, segmentSize, err := readSegmentHeader(io.NewSectionReader(input, headerOffset, segmentHdrSize))
+	if err != nil {
+		return fmt.Errorf("read segment header at %d: %w", headerOffset, err)
+	}
+	if segmentType != segment.Type || segmentSize != segment.Size {
+		return fmt.Errorf("segment header mismatch at %d: type=%d/%d size=%d/%d", headerOffset, segmentType, segment.Type, segmentSize, segment.Size)
+	}
+	return nil
+}
+
+func renderRows(ctx context.Context, meta *traceMetadata) (
+	rows []renderedRow,
+	missing int,
+	unknown int,
+	suppressed int,
+	first uint64,
+	last uint64,
+	err error,
+) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var input conversionInputView
+	if meta != nil && meta.binding != nil {
+		input = meta.binding.input
+	}
+	if err := completeConversionInputStage(ctx, input, conversionInputStageBuiltinRender, nil); err != nil {
+		return nil, 0, 0, 0, 0, 0, err
+	}
+	defer func() {
+		err = completeConversionInputStage(ctx, input, conversionInputStageBuiltinRender, err)
+		if err != nil {
+			rows = nil
+			missing, unknown, suppressed = 0, 0, 0
+			first, last = 0, 0
+		}
+	}()
+	currentSize := input.Size()
+	if meta.binding.inputSize < 0 || meta.binding.inputSize != currentSize {
+		return nil, 0, 0, 0, 0, 0, conversionInputFailure(
+			ConversionInputCodeInternalContract,
+			conversionInputStageBuiltinRender,
+			input.DisplayPath(),
+			fmt.Errorf("builtin metadata size %d does not match input authority size %d", meta.binding.inputSize, currentSize),
+		)
+	}
+	if !directPairSourceNamespaceValid(meta.binding.sourceNamespace) {
+		return nil, 0, 0, 0, 0, 0, conversionInputFailure(
+			ConversionInputCodeInternalContract,
+			conversionInputStageBuiltinRender,
+			input.DisplayPath(),
+			fmt.Errorf("builtin metadata has an invalid frozen direct-pair source namespace"),
+		)
+	}
+	expectedHeaderOffset := int64(fileHeaderSize)
+	for index, segment := range meta.segments {
+		if err := ctx.Err(); err != nil {
+			return nil, 0, 0, 0, 0, 0, err
+		}
+		if err := validateBuiltinMetadataSegment(input, meta.binding.inputSize, segment); err != nil {
+			return nil, 0, 0, 0, 0, 0, conversionInputFailure(
+				ConversionInputCodeInternalContract,
+				conversionInputStageBuiltinRender,
+				input.DisplayPath(),
+				fmt.Errorf("builtin metadata segment %d is not authority-bound: %w", index, err),
+			)
+		}
+		if segment.Offset-segmentHdrSize != expectedHeaderOffset {
+			return nil, 0, 0, 0, 0, 0, conversionInputFailure(
+				ConversionInputCodeInternalContract,
+				conversionInputStageBuiltinRender,
+				input.DisplayPath(),
+				fmt.Errorf("builtin metadata segment %d is out of physical order: header_offset=%d want=%d", index, segment.Offset-segmentHdrSize, expectedHeaderOffset),
+			)
+		}
+		expectedHeaderOffset = segment.Offset + int64(segment.Size)
+	}
+	meta.formatConflictRows = 0
+	meta.bodyRejectedRows = 0
+	meta.bodyRejectReasons = make(map[string]int)
+	meta.pairQuarantinedRows = 0
+	meta.pairPoisonedLanes = 0
+	meta.pairPoisonedFamilies = 0
+	meta.pairBarrierBudget = false
+	meta.pairBarrierReport = directPairBarrierReport{}
+	pairBarrier, err := newDirectPairCaptureBarrierForNamespace(meta.binding.sourceNamespace)
 	if err != nil {
 		return nil, 0, 0, 0, 0, 0, err
 	}
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, 0, 0, 0, 0, 0, err
-	}
-	defer f.Close()
-	var rows []renderedRow
-	missing := 0
-	unknown := 0
-	suppressed := 0
-	var first uint64
-	var last uint64
 	seq := 0
 	rc := renderContext{
 		cmdlines:       meta.cmdlines,
@@ -732,14 +850,17 @@ func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]render
 				Detail:      fmt.Sprintf("raw segment size %d is not a multiple of the %d-byte RMQ page size", seg.Size, tracePageSize),
 			}
 		}
-		if _, err := f.Seek(seg.Offset, io.SeekStart); err != nil {
-			return nil, 0, 0, 0, 0, 0, err
+		if uint64(seg.Size) > uint64(^uint(0)>>1) {
+			return nil, 0, 0, 0, 0, 0, fmt.Errorf("raw segment type=%d size=%d exceeds host addressable memory", seg.Type, seg.Size)
 		}
 		data := make([]byte, seg.Size)
-		if _, err := io.ReadFull(f, data); err != nil {
+		if _, err := io.ReadFull(io.NewSectionReader(input, seg.Offset, int64(seg.Size)), data); err != nil {
 			return nil, 0, 0, 0, 0, 0, err
 		}
-		for pageOff := 0; pageOff+tracePageSize <= len(data); pageOff += tracePageSize {
+		for pageOff := 0; pageOff < len(data); pageOff += tracePageSize {
+			if err := ctx.Err(); err != nil {
+				return nil, 0, 0, 0, 0, 0, err
+			}
 			page := data[pageOff : pageOff+tracePageSize]
 			ph, ok := parsePageHeader(page)
 			if !ok {
@@ -757,6 +878,9 @@ func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]render
 			}
 			body := page[pageHeaderSize : pageHeaderSize+int(ph.Length)]
 			for off := 0; off < len(body); {
+				if err := ctx.Err(); err != nil {
+					return nil, 0, 0, 0, 0, 0, err
+				}
 				if len(body)-off < eventHeaderSize {
 					return nil, 0, 0, 0, 0, 0, &BuiltinSysDecodeError{
 						Code:        builtinSysDecodeTruncatedEventHeader,

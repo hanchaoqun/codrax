@@ -82,7 +82,7 @@ func TestReleaseBuiltinHeaderValidationOrder(t *testing.T) {
 			if err := os.WriteFile(path, body, 0o600); err != nil {
 				t.Fatal(err)
 			}
-			_, err := scanMetadata(context.Background(), path, int64(len(body)))
+			_, err := scanMetadataAtPathForTest(context.Background(), path)
 			var decodeErr *BuiltinSysDecodeError
 			if !errors.As(err, &decodeErr) {
 				t.Fatalf("scanMetadata error is not *BuiltinSysDecodeError: %T %v", err, err)
@@ -101,7 +101,7 @@ func TestReleaseBuiltinHeaderValidationOrder(t *testing.T) {
 	if err := os.WriteFile(path, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := scanMetadata(context.Background(), path, int64(len(body)))
+	_, err := scanMetadataAtPathForTest(context.Background(), path)
 	var decodeErr *BuiltinSysDecodeError
 	if errors.As(err, &decodeErr) {
 		t.Fatalf("valid admitted header was rejected as a header error: %+v", decodeErr)

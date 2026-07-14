@@ -78,11 +78,16 @@ func newDirectPairCaptureBarrier(sourcePath string) (*directPairCaptureBarrier, 
 	if physical, resolveErr := filepath.EvalSymlinks(abs); resolveErr == nil {
 		abs = filepath.Clean(physical)
 	}
-	if abs == "" || abs == "." {
+	return newDirectPairCaptureBarrierForNamespace(abs)
+}
+
+func newDirectPairCaptureBarrierForNamespace(sourceNamespace string) (*directPairCaptureBarrier, error) {
+	if !directPairSourceNamespaceValid(sourceNamespace) {
 		return nil, &traceDBOutputInvariantError{Reason: "invalid_direct_pair_source_namespace"}
 	}
+	source := sourceNamespace
 	return &directPairCaptureBarrier{
-		source:  abs,
+		source:  source,
 		maxRows: directPairBarrierMaxObservations,
 		legacyProof: directPairProofDomain{
 			maxObservations: directPairBarrierMaxObservations, maxLaneKeys: directPairBarrierMaxLaneKeys,
@@ -94,6 +99,11 @@ func newDirectPairCaptureBarrier(sourcePath string) (*directPairCaptureBarrier, 
 		seenLanes: map[pairRenderKind]map[string]struct{}{}, blockLaneClocks: map[string]directPairLaneClock{},
 		rows: map[int]directPairBarrierRow{}, stagedRows: map[pairRenderKind]int{}, withheldRows: map[pairRenderKind]int{},
 	}, nil
+}
+
+func directPairSourceNamespaceValid(sourceNamespace string) bool {
+	return strings.TrimSpace(sourceNamespace) != "" &&
+		filepath.IsAbs(sourceNamespace) && filepath.Clean(sourceNamespace) == sourceNamespace
 }
 
 func (barrier *directPairCaptureBarrier) observe(audit directPairLineAudit) {
