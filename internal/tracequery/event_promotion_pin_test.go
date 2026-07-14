@@ -62,8 +62,9 @@ func TestEventSideTablePromotionBan(t *testing.T) {
 		// tracequery grows a new internal dep, the strict check below fails
 		// loud with an "undefined" error — add the dep here.
 		realModulePaths: map[string]bool{
-			tracequeryPath:                true,
-			modPath + "/internal/logging": true,
+			tracequeryPath:                       true,
+			modPath + "/internal/filegeneration": true,
+			modPath + "/internal/logging":        true,
 			// HYG (§28.2 顺手项 b, 2026-07-09): parse.go truncation goes
 			// through the shared rune-safe primitives in internal/types.
 			modPath + "/internal/types": true,

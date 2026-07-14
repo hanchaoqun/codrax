@@ -19608,7 +19608,7 @@ func loadRawArtifactLines(idx *Index, events []Event) (map[int]string, map[int]s
 			}
 		}
 		finalInfo, finalStatErr := f.Stat()
-		identityChanged := finalStatErr != nil || !openedIdentity.matchesInfo(finalInfo)
+		identityChanged := finalStatErr != nil || !openedIdentity.MatchesInfo(finalInfo)
 		if !identityChanged && sourceOK {
 			identityChanged = !source.identityMatchesInfo(finalInfo)
 		}

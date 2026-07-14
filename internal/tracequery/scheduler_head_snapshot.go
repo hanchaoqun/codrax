@@ -684,7 +684,7 @@ func scanSourceSchedulerHead(ctx context.Context, source TraceArtifactSource, f 
 	if statErr != nil {
 		return nil, statErr
 	}
-	if !traceFileIdentityFromInfo(info).matchesInfo(finalInfo) || !schedulerHeadSourceIdentityMatches(source, finalInfo) {
+	if !traceFileIdentityFromInfo(info).MatchesInfo(finalInfo) || !schedulerHeadSourceIdentityMatches(source, finalInfo) {
 		return nil, fmt.Errorf("scheduler head source changed while its prefix was being scanned")
 	}
 	snapshot.Complete = true

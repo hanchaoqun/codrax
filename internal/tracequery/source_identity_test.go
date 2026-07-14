@@ -46,7 +46,7 @@ func TestStrongSourceIdentityRejectsSameSizeRestoredMtimeRewrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(first.TraceArtifacts) != 1 || !first.TraceArtifacts[0].sourceIdentity.strong {
+	if len(first.TraceArtifacts) != 1 || !first.TraceArtifacts[0].sourceIdentity.Strong() {
 		t.Skip("host filesystem does not expose device+inode+ctime through os.FileInfo")
 	}
 	if len(first.Events) != 1 || first.Events[0].NextPID != 10 {
@@ -58,7 +58,7 @@ func TestStrongSourceIdentityRejectsSameSizeRestoredMtimeRewrite(t *testing.T) {
 	}
 	originalIdentity := traceFileIdentityFromInfo(originalInfo)
 	rewrittenInfo := overwriteTraceSameSizeAndRestoreMtime(t, path, replacementText, originalInfo)
-	if originalIdentity.sameVersion(traceFileIdentityFromInfo(rewrittenInfo)) {
+	if originalIdentity.SameVersion(traceFileIdentityFromInfo(rewrittenInfo)) {
 		t.Fatal("adversarial fixture did not advance the strong change identity")
 	}
 
@@ -105,7 +105,7 @@ func TestTraceAnchorKeyIncludesStrongChangeIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	beforeIdentity := traceFileIdentityFromInfo(before)
-	if !beforeIdentity.strong {
+	if !beforeIdentity.Strong() {
 		t.Skip("host filesystem does not expose device+inode+ctime through os.FileInfo")
 	}
 	beforeKey := traceAnchorKeyForInfo(path, before)
@@ -194,11 +194,11 @@ func TestTraceSourceVersionValidatesWholeRunGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 	identity := traceFileIdentityFromInfo(info)
-	if !identity.strong {
+	if !identity.Strong() {
 		t.Skip("host filesystem does not expose device+inode+ctime through os.FileInfo")
 	}
 	after := overwriteTraceSameSizeAndRestoreMtime(t, path, replacement, info)
-	if identity.sameVersion(traceFileIdentityFromInfo(after)) {
+	if identity.SameVersion(traceFileIdentityFromInfo(after)) {
 		t.Fatal("adversarial fixture did not change the strong identity")
 	}
 	if err := version.Validate(path); err == nil || !strings.Contains(err.Error(), "source universe changed") {

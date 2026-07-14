@@ -79,7 +79,7 @@ func streamScan(ctx context.Context, path string, flavorHint TraceFlavor, fn fun
 		return nil, err
 	}
 	openedIdentity := traceFileIdentityFromInfo(openedInfo)
-	if !openedIdentity.sameVersion(traceFileIdentityFromInfo(info)) {
+	if !openedIdentity.SameVersion(traceFileIdentityFromInfo(info)) {
 		return nil, fmt.Errorf("trace source identity changed before stream_scan opened the artifact")
 	}
 	info = openedInfo

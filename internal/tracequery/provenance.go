@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/filegeneration"
 )
 
 const (
@@ -619,7 +621,7 @@ func traceClockOrderedFloatBits(value float64) uint64 {
 }
 
 func singleTraceArtifactSource(path string, sourceBytes int64, sourceModUnixNano int64, lineCount, eventCount int) TraceArtifactSource {
-	identity := traceFileIdentity{size: sourceBytes, modUnixNano: sourceModUnixNano, initialized: true}
+	identity := filegeneration.NewPortable(sourceBytes, sourceModUnixNano, 0)
 	if info, err := os.Stat(path); err == nil && info.Size() == sourceBytes && info.ModTime().UnixNano() == sourceModUnixNano {
 		identity = traceFileIdentityFromInfo(info)
 	}
@@ -636,8 +638,8 @@ func singleTraceArtifactSourceWithIdentity(path string, identity traceFileIdenti
 		CanonicalTimeDomain: domain,
 		LocalLineCount:      lineCount,
 		EventCount:          eventCount,
-		SourceBytes:         identity.size,
-		SourceModUnixNano:   identity.modUnixNano,
+		SourceBytes:         identity.Size(),
+		SourceModUnixNano:   identity.ModUnixNano(),
 		CausalCompatible:    true,
 		ClockAlignment:      TraceClockAlignmentIdentity,
 		sourceIdentity:      identity,
@@ -648,8 +650,8 @@ func (s TraceArtifactSource) identityMatchesInfo(info os.FileInfo) bool {
 	if info == nil {
 		return false
 	}
-	if s.sourceIdentity.initialized {
-		return s.sourceIdentity.matchesInfo(info)
+	if s.sourceIdentity.Initialized() {
+		return s.sourceIdentity.MatchesInfo(info)
 	}
 	// Compatibility for hand-built and deserialized Index values that predate
 	// the private ledger. Production parsers always populate sourceIdentity.
@@ -663,10 +665,10 @@ func (s TraceArtifactSource) identityMatchesInfo(info os.FileInfo) bool {
 }
 
 func (s TraceArtifactSource) identityToken(info os.FileInfo) string {
-	if s.sourceIdentity.initialized {
-		return s.sourceIdentity.cacheToken()
+	if s.sourceIdentity.Initialized() {
+		return s.sourceIdentity.CacheToken()
 	}
-	return traceFileIdentityFromInfo(info).cacheToken()
+	return traceFileIdentityFromInfo(info).CacheToken()
 }
 
 // ResolveArtifactSpans maps an index-global virtual range back to physical

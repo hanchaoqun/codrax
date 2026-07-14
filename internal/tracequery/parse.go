@@ -638,7 +638,7 @@ func traceIndexSourceIdentity(path string, entry os.FileInfo) (int64, string, er
 		}
 		total += info.Size()
 		identity := traceFileIdentityFromInfo(info)
-		fmt.Fprintf(&key, "%d:%s:%s|", len(candidate), candidate, identity.cacheToken())
+		fmt.Fprintf(&key, "%d:%s:%s|", len(candidate), candidate, identity.CacheToken())
 	}
 	return total, key.String(), nil
 }
@@ -1841,7 +1841,7 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 		if statErr != nil {
 			return nil, statErr
 		}
-		if !openedIdentity.matchesInfo(finalInfo) {
+		if !openedIdentity.MatchesInfo(finalInfo) {
 			return nil, fmt.Errorf("trace source changed while it was being parsed")
 		}
 		idx.TraceArtifacts = []TraceArtifactSource{singleTraceArtifactSourceWithIdentity(path, openedIdentity, idx.LineCount, len(idx.Events))}
