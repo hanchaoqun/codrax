@@ -2548,3 +2548,6 @@ wakeup_chain 引擎唯一铸边点在 expandChain 的 `case StateSSleep:` 臂(fi
 
 ### §29.61.3 用户裁定(2026-07-13):◎ 窗内可消除量总览置于投影树之前
 用户裁定:总览表放投影树前面,视觉效果更好(先执摘后细节,与五问信息优先级一致)——覆盖 rank_order_v2 原稿「树 fence 后/明细表前」位置。已转发在飞 Stage 2 批(E#/榜位前向指针语义不变,装配序先核;分类器/census/宽度 pin 位置断言同步;md/html 同位;EVOLUTION RECORD 记裁定)。
+
+### §29.65 pin 覆盖审计(用户问「之前问题是否都有测试看护」,2026-07-13;矩阵 scratchpad/pin_coverage_audit_20260713.md)
+本窗 ~60 项修复逐条对账:绝大多数 (a) 已修+pin 实名核到 file:line;五类高危抽查健康(显示形 md pin 齐/冷读 prose 病五项 feed pin 全在/完成门行为翻转三向/census 族三层/修真假 pin 在位)。**回归口 7 条立案 PIN-1 批(排 Stage 2 后)**:B1(P2)折叠行头名保护 floor 无直接 pin(golden 间接覆盖,floor 数学+窄宽压力零用例);B2(P2)ENG-1 帽外披露 wire 文案无 pin(删 banner 行仍绿);B3(P3)Reset 三车道收窄无枚举 pin;B4(P3)h3 oracle 账实差勘注(账本称回升硬实为保软+条件恒等);B5(P3)tool Description 无 byte-golden(§29.64 dispatch 敏感面病根形可无声重现);B6 auxfold 旧词形(Stage 2 合入后复核);B7 ARTIFACT-KEEP 无 harness 机械看护(三犯)。**结构性折扣两条**:金样本单趟 FAIL 不可判回归(dispatch 方差,须 clean-HEAD A/B)+eval 不进 make test;DOM 几何一次性验收→机械化候选(记号同列/旁注深 2ch=rune-width 字符串几何断言零新依赖;html=md↔html fence 字节恒等 golden;信封宽扩 full-width sweep)随 PIN-1。
