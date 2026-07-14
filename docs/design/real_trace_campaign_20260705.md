@@ -2583,3 +2583,6 @@ B1 折叠行头名 floor 直接 pin(数学六形+产线实铸压力形:同主体
 
 ### §29.61.4a 用户裁定(2026-07-14):优化点表成员行「成员」词退役+首列去加粗
 用户裁定:「↳ 成员」的「成员」二字冗余(↳ 已表从属),其后内容不加粗。落地:member cell=`↳ <成员名>`(语言中立,zh/en 分叉消);rcm2 pin 随改;HTML `section.trace-action-optimization td:first-child` 加粗退役(th 保留);EVOLUTION RECORD 记裁定。主会话直接落地(三行级,全仓绿)。
+
+### §29.61.4b 事故记录(2026-07-14,主会话自查):红树推送 15 分钟窗
+§29.61.4a 落地时复合命令 `go test;git commit&&push` 的 `;` 未拦 test exit=1,红树 commit 89247838 被推出——红源=删「成员」词使 SEM-LEAD ④ 的 roster 行豁免键(靠「成员」字面识别)失锁,pin 按设计咬红但推送未被挡。15 分钟内修复(豁免键改从属连接符 2dd9ebd1)。**教训**:①词面 pin 的豁免键靠字面词识别时,删词类改动必先 grep 该词全部 pin 消费点(词面族 lockstep 纪律漏了 test 侧豁免键);②推送链的 test 门必须用独立步骤硬拦(先 test 取 exit 再单独 commit,禁复合 `;`)。
