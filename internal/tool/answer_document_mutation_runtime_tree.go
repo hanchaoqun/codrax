@@ -881,6 +881,21 @@ const (
 	// seat relation — one legend entry cannot speak both).
 	runtimeTraceProjMarkChainAnchorRelation
 
+	// INV-SUPPLY 件① (§29.61.11/.11a, 2026-07-14): the compound type-word
+	// suffix 「·供给缺口主导」 — a supply-gap-dominant inversion seat's 行2
+	// category word and its ◎ overview transcription (同词, one composer:
+	// runtimeTraceProjInversionSupplyGapCompoundWord). Lit at both emission
+	// sites; the entry teaches the typed criterion and the non-additive
+	// caliber boundary.
+	runtimeTraceProjMarkSupplyGapDominant
+
+	// INV-SUPPLY 件③ (§29.61.11, 2026-07-14): the ◎ overview seat's
+	// eliminable-composition leverage note 「可消除构成: 调度修复 X +
+	// 频点/热策略 Y」 — a transcription of the seat's OWN 行3 attribution
+	// split (runtimeTraceProjInversionComponents, the balance-gated builder)
+	// relabeled by leverage direction; a constituent display, never a Σ row.
+	runtimeTraceProjMarkElimComposition
+
 	// runtimeTraceProjMarkCount is the completeness sentinel — every mark above
 	// MUST have a runtimeTraceProjLegendCatalog entry (structurally pinned).
 	runtimeTraceProjMarkCount
@@ -1240,9 +1255,29 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// clause (not a fourth §29.27.1 mark surface) lives on the mark
 		// constant; the channel-identity teaching (⛓链上/◇邻近, 基石 B) rides
 		// this one entry instead of repeating per row (§29.36.4 冗余判据).
+		// §29.61.12 (用户裁定 2026-07-14, INV-SUPPLY 件④). EVOLUTION RECORD: the
+		// promise sentence's ordering clause 「按发布有效归因值纯降序」 →
+		// 「⛓ 链上块整块在前、◇ 邻近块在后,块内按发布有效归因值降序」 (因果
+		// 等级分块: RSPA 后无凭证 ◇ 余段可数值压 ⛓,纯值降序会让其视觉盖过有
+		// 凭证因果), and the row-lead channel words gained their glyph-word
+		// space (`⛓链上` → `⛓ 链上`, 记号词距).
 		{runtimeTraceProjMarkElimOverview, runtimeTraceProjLegendGroupCaliber,
-			"- `◎` = 窗内可消除量总览:跨「链上/邻近」两通道、同尺(目标线程窗内墙钟ms)持值行按发布有效归因值纯降序的导航索引;只转录值、通道身份、口径注记与 [E#] 指针,不铸序数、不佩戴徽章、不求和、不加冕,榜位与徽章唯一归属见下方主榜;行首 `⛓链上`=已证可消除量,`◇邻近`=条件可消除上界(因果候选成立时至多好这么多);计数当量/复合分数/背景压力口径不参与汇排,以脚注提及;序数仍不可跨通道比较,可跨通道并列的只是同尺数值。",
-			"- `◎` = eliminable-in-window overview: a navigation index over the valued rows of the on-chain/adjacent channels on ONE ruler (the focused thread's in-window wall-clock ms), sorted purely by the published effective attribution; it only transcribes values, channel identity, caliber notes and [E#] pointers — no ordinals, no badges, no sums, no crowns; seats and badges belong solely to the main board below. Leading `⛓on-chain` = proven eliminable amount; `◇adjacent` = conditional upper bound (at most this much if the causal candidate holds). Count-equivalent / composite-score / background-pressure calibers never join the ranking and are footnoted; ordinals still never compare across channels — only same-ruler values sit side by side."},
+			"- `◎` = 窗内可消除量总览:跨「链上/邻近」两通道、同尺(目标线程窗内墙钟ms)持值行的导航索引,⛓ 链上块整块在前、◇ 邻近块在后(因果等级分块),块内按发布有效归因值降序;只转录值、通道身份、口径注记与 [E#] 指针,不铸序数、不佩戴徽章、不求和、不加冕,榜位与徽章唯一归属见下方主榜;行首 `⛓ 链上`=已证可消除量,`◇ 邻近`=条件可消除上界(因果候选成立时至多好这么多);满格=全区最大值(链上条短=诚实);计数当量/复合分数/背景压力口径不参与汇排,以脚注提及;序数仍不可跨通道比较,可跨通道并列的只是同尺数值。",
+			"- `◎` = eliminable-in-window overview: a navigation index over the valued rows of the on-chain/adjacent channels on ONE ruler (the focused thread's in-window wall-clock ms); the ⛓ on-chain block renders whole before the ◇ adjacent block (causal-tier blocking), each block sorted by the published effective attribution; it only transcribes values, channel identity, caliber notes and [E#] pointers — no ordinals, no badges, no sums, no crowns; seats and badges belong solely to the main board below. Leading `⛓ on-chain` = proven eliminable amount; `◇ adjacent` = conditional upper bound (at most this much if the causal candidate holds); the full bar is the section-wide maximum (short chain bars are honest). Count-equivalent / composite-score / background-pressure calibers never join the ranking and are footnoted; ordinals still never compare across channels — only same-ruler values sit side by side."},
+		// INV-SUPPLY 件① (§29.61.11/.11a, 2026-07-14): the compound type-word
+		// suffix's teaching entry — the threshold interpolates from the ONE
+		// shared constant (types.TraceSupplyGapDominanceShare) so the legend
+		// promise can never drift from the criterion.
+		{runtimeTraceProjMarkSupplyGapDominant, runtimeTraceProjLegendGroupCaliber,
+			fmt.Sprintf("- `供给缺口主导` = 类型词复合后缀:该席已发布的供给折算缺口量 ≥ 有效归因×%.0f%%(两值均为已发布 typed 值,纯比较),席位影响以频点/算力供给缺口成分为主;缺口为独立口径,不与有效归因相加,构成拆解见该行行3与明细。", types.TraceSupplyGapDominanceShare*100),
+			fmt.Sprintf("- `supply-gap dominant` = a compound type-word suffix: the seat's published supply-fold deficit is ≥ %.0f%% of its published effective attribution (both engine-published typed values, pure comparison) — the seat's impact is dominated by the frequency/compute-supply gap component; the deficit is an independent caliber and never adds to the attribution (the split lives on the row's line 3 and the detail block).", types.TraceSupplyGapDominanceShare*100)},
+		// INV-SUPPLY 件③ (§29.61.11, 2026-07-14): the ◎ leverage note's
+		// teaching entry — a transcription of the seat's OWN 行3 attribution
+		// split relabeled by leverage direction; a constituent display, never
+		// a Σ row (零求和红线).
+		{runtimeTraceProjMarkElimComposition, runtimeTraceProjLegendGroupCaliber,
+			"- ◎ 行下「可消除构成」注 = 该席有效归因的构成按消除杠杆转录:调度修复=runnable(全额)分量、频点/热策略=running(折算)分量,数值与该行行3拆解逐字同源;是构成陈列,非合计行,不与其他行相加。",
+			"- the ◎ per-seat 「eliminable composition」 note = the seat's OWN attribution split transcribed by elimination lever: scheduling fix = the runnable (in-full) component, frequency/thermal policy = the running (discounted) component — the numbers are byte-identical with that row's line-3 breakdown; a constituent display, never a total row, never added across rows."},
 		// PTV5 C00 (#68 用户裁定 2026-07-05): a fallback-sourced main-line ms is
 		// identifiable at the point of reading — the inline caliber word reuses
 		// the (a)-table caliber vocabulary; the semantics live here.
@@ -9116,6 +9151,11 @@ var runtimeTraceProjWrapAtomCompounds = []string{
 	// rune 2, so order there is immaterial.
 	"同源二分:全窗",
 	"合计还原全窗账",
+	// INV-SUPPLY 件① (§29.61.11, 2026-07-14): the compound type-word suffix
+	// joins the unbreakable set — a 行2 wrap must never bisect 供给缺口主导
+	// mid-claim (G8 折行劈词 family). No shared prefix with the 供给折算缺口
+	// clause words (those live in whole clauses, not this atom table).
+	"供给缺口主导",
 	"合计",
 	"同线程",
 	"重叠未拆",

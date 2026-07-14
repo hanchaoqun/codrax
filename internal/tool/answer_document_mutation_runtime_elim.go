@@ -17,11 +17,14 @@ package tool
 //
 //   - population = typed VALUED RANK-ITEM rows of the rendered model (chain ∪
 //     ◇ adjacent channels, the two same-ruler channels — 目标线程窗内墙钟 ms);
-//   - order = published EffectiveImpactMS DESC (§29.22.1 同一权威字段; the
-//     design EXPLICITLY REJECTS an eff×conf composite key and any confidence
-//     demotion — R-d, §7.30 S1 「排序合成分数不得以 ms 硬事实发布」), ties by
-//     homeChannelRank (chain first — typed 已证 beats 条件上界), then home
-//     render order, then LineStart;
+//   - order = causal-tier blocks first (§29.61.12 ② user ruling 2026-07-14:
+//     the ⛓ chain block renders WHOLE before the ◇ adjacent block — post-RSPA
+//     the credential-less ◇ remainder seats can numerically dwarf the
+//     credentialed causes and pure value order buried the proven causality),
+//     then published EffectiveImpactMS DESC within each block (§29.22.1 同一
+//     权威字段; the design EXPLICITLY REJECTS an eff×conf composite key and
+//     any confidence demotion — R-d, §7.30 S1 「排序合成分数不得以 ms 硬事实
+//     发布」), then home render order, then LineStart;
 //   - TOP5 (K=5 aligned with §29.27.1; widening K requires a joint re-ruling,
 //     design R-c) + ◇-max fallback row + honest empty-chain line + exclusion
 //     footnote (⌗ caliber-side / target-self-state rows: 排除≠消失) + ▒
@@ -55,7 +58,7 @@ package tool
 //	        汇排 members.
 //
 // Wording: the row transcription mints NO new per-row vocabulary — value
-// (verbatim %.3f), channel identity (⛓链上/◇邻近 — glyph + the existing
+// (verbatim %.3f), channel identity (⛓ 链上/◇ 邻近 — glyph + the existing
 // channel nouns, single emitter below), subject display name, class word,
 // existing caliber words (family fold ladder), the Stage-1 self qualifier
 // 「自身·确定性优化」 (§29.61.1 ruling ⑥: the ◇-era 「候选」 word drops when
@@ -177,13 +180,23 @@ func runtimeTraceProjElimBoard(model runtimeTraceProjTreeModel) []runtimeTracePr
 	collect(model.SelfRows)
 	collect(model.TreeRows)
 	collect(model.Adjacent)
+	// §29.61.12 ② (用户裁定 2026-07-14, INV-SUPPLY 件④). EVOLUTION RECORD:
+	// the board order was ONE pure eff-desc list (纯值降序, chain-first only
+	// on exact ties); it is now CAUSAL-TIER BLOCKED — the ⛓ chain block
+	// renders whole before the ◇ adjacent block, each block internally
+	// eff-desc (语义更贴切: post-RSPA the credential-less ◇ remainder seats
+	// can numerically dwarf the credentialed ⛓ causes — h6 witness ◇ 33.159
+	// vs ⛓ 3.598 — and pure value order let them visually bury the proven
+	// causality). The header promise sentence and the ◎ legend entry moved
+	// in lockstep; the bar ruler stays the SECTION-WIDE maximum (short chain
+	// bars are honest — see the fence assembler).
 	sort.SliceStable(entries, func(i, j int) bool {
 		a, b := entries[i], entries[j]
+		if a.channelRank != b.channelRank {
+			return a.channelRank < b.channelRank // ⛓ 块在前 (typed channel)
+		}
 		if a.row.Node.EffectiveImpactMS != b.row.Node.EffectiveImpactMS {
 			return a.row.Node.EffectiveImpactMS > b.row.Node.EffectiveImpactMS
-		}
-		if a.channelRank != b.channelRank {
-			return a.channelRank < b.channelRank // 同值时已证优先 (typed)
 		}
 		if a.homeOrder != b.homeOrder {
 			return a.homeOrder < b.homeOrder // transcribed engine order
@@ -202,17 +215,23 @@ const runtimeTraceProjElimTopN = runtimeTraceProjBadgeTopN
 // identity word (design §3: 单源转录 ChainRelevance — the display channel
 // authority; glyphs are the existing channel marks, nouns the existing
 // channel vocabulary; 禁词面匹配, single emission point).
+//
+// §29.61.12 ① (用户裁定 2026-07-14, INV-SUPPLY 件④). EVOLUTION RECORD: the
+// glyph and the channel noun gained a separating space (`⛓链上` → `⛓ 链上`,
+// `◇邻近` → `◇ 邻近`; en likewise) — 记号词距, the md face is the authority
+// and every consumer (rows, header promise, legend backticks, pins) moves in
+// lockstep through THIS one emitter plus the legend entry.
 func runtimeTraceProjElimChannelWord(channel string, zh bool) string {
 	if channel == runtimeTraceProjOrdinalChannelAdjacent {
 		if zh {
-			return "◇邻近"
+			return "◇ 邻近"
 		}
-		return "◇adjacent"
+		return "◇ adjacent"
 	}
 	if zh {
-		return "⛓链上"
+		return "⛓ 链上"
 	}
-	return "⛓on-chain"
+	return "⛓ on-chain"
 }
 
 // runtimeTraceProjElimCaliberNote transcribes the row's published caliber
@@ -278,8 +297,20 @@ func runtimeTraceProjElimCaliberNote(row runtimeTraceProjTreeRow, marks *runtime
 // overview line — the semantic family class word (with its merge-count chip)
 // on semantic rows, else the same cause/type display word the home row
 // renders. Never a new coinage.
+//
+// INV-SUPPLY 件① (§29.61.11, 2026-07-14): a supply-gap-dominant inversion
+// seat transcribes its 行2 compound type word 优先级反转候选·供给缺口主导 in
+// this slot — SAME composer, byte-identical (◎ 转录同词, 零新词源); the
+// pre-INV-SUPPLY state word (running/runnable) that rode here said less than
+// the seat's own 行2 and is superseded on exactly these seats.
 func runtimeTraceProjElimClassWord(row runtimeTraceProjTreeRow, zh bool) string {
 	node := row.Node
+	if word, ok := runtimeTraceProjInversionSupplyGapCompoundWord(node, zh); ok {
+		if node.MergedCount > 1 {
+			word += runtimeTraceProjMergeCountChip(node.MergedCount, zh)
+		}
+		return word
+	}
 	if strings.TrimSpace(node.SemanticClass) != "" {
 		word := runtimeTraceProjFamilySemanticClassWord(node, zh)
 		if word == "" {
@@ -385,6 +416,11 @@ func runtimeTraceProjElimRowLine(entry runtimeTraceProjElimEntry, top float64, l
 	b.WriteString(sep + runtimeTraceProjElimSubject(row, zh))
 	if class := runtimeTraceProjElimClassWord(row, zh); class != "" {
 		b.WriteString(sep + class)
+		// INV-SUPPLY 件①: the compound word's legend follows its ◎ emission
+		// site too (词条-图例双向; the tree 行2 site marks independently).
+		if _, ok := runtimeTraceProjInversionSupplyGapCompoundWord(row.Node, zh); ok {
+			marks.mark(runtimeTraceProjMarkSupplyGapDominant)
+		}
 	}
 	if note := runtimeTraceProjElimCaliberNote(row, marks, zh); note != "" {
 		b.WriteString(" ·" + note)
@@ -396,6 +432,62 @@ func runtimeTraceProjElimRowLine(entry runtimeTraceProjElimEntry, top float64, l
 		b.WriteString(" [" + tag + "]")
 	}
 	return b.String()
+}
+
+// runtimeTraceProjElimCompositionNoteLine renders the INV-SUPPLY 件③
+// (§29.61.11, 2026-07-14) per-seat eliminable-composition leverage note for a
+// compound-word seat: 「可消除构成: 调度修复 X + 频点/热策略 Y」 — the seat's
+// OWN 行3 attribution split (runtimeTraceProjInversionComponents, the SAME
+// balance-gated builder, so the bytes can never disagree with 行3 and an
+// unbalanced split refuses to render — 拒渲绝不造数) transcribed by
+// elimination lever: 调度修复 = the runnable(全额) component, 频点/热策略 =
+// the running(折算) component. A constituent display of ONE seat's value —
+// never a Σ row, never added across rows (零求和红线; the renderer emits no
+// total and no "=" claim). ok=false on every non-compound seat: the note
+// exists exactly where the compound word says the supply gap dominates.
+func runtimeTraceProjElimCompositionNoteLine(row runtimeTraceProjTreeRow, leadWidth int, marks *runtimeTraceProjMarkSet, zh bool) (string, bool) {
+	if _, compound := runtimeTraceProjInversionSupplyGapCompoundWord(row.Node, zh); !compound {
+		return "", false
+	}
+	components, _, ok := runtimeTraceProjInversionComponents(row.Node, zh)
+	if !ok {
+		return "", false
+	}
+	var parts []string
+	for _, c := range components {
+		lever := ""
+		switch c.Word {
+		case "runnable":
+			if zh {
+				lever = "调度修复"
+			} else {
+				lever = "scheduling fix"
+			}
+		case "running":
+			if zh {
+				lever = "频点/热策略"
+			} else {
+				lever = "frequency/thermal policy"
+			}
+		default:
+			// A component outside the two-lever vocabulary has no leverage
+			// label — the note refuses to guess (absence never invents).
+			return "", false
+		}
+		parts = append(parts, lever+" "+runtimeTraceProjFmtMS(c.InMS))
+	}
+	if len(parts) == 0 {
+		return "", false
+	}
+	marks.mark(runtimeTraceProjMarkElimComposition)
+	head := "可消除构成: "
+	if !zh {
+		head = "eliminable composition: "
+	}
+	// Indent one step past the row lead so the note reads as the row's own
+	// subordinate line (same "· " family as the tree's note lines), distinct
+	// from the flush-left region footnotes.
+	return strings.Repeat(" ", leadWidth) + "  · " + head + strings.Join(parts, " + "), true
 }
 
 // runtimeTraceProjElimFallbackLead is the ◇-max fallback row's lead-field
@@ -412,8 +504,15 @@ func runtimeTraceProjElimFallbackLead(zh bool) string {
 // runtimeTraceProjElimHead composes the overview head line (region name +
 // ruler declaration + the R16② form promises + bar scale). The ruler subject
 // resolves typed-only: the ⊚ target, else the flat-lane analysis anchor,
-// else the generic noun (absence never invents a thread).
-func runtimeTraceProjElimHead(model runtimeTraceProjTreeModel, zh bool) []string {
+// else the generic noun (absence never invents a thread). withForm=false
+// (the honest empty-board shape) drops the ordering/scale promise line — a
+// board that admitted nothing has no member ordering to promise. chainPresent
+// forks the block promise (表头禁撒谎 both directions): a chain-bearing board
+// promises 「⛓ 链上块先·块内值降序」; a ◇-only board promises its single
+// block honestly (「◇ 邻近块·块内值降序」) and never prints the ⛓ glyph it
+// has no rows for (the empty-chain honest line below the members states the
+// missing channel).
+func runtimeTraceProjElimHead(model runtimeTraceProjTreeModel, zh, withForm, chainPresent bool) []string {
 	target := strings.TrimSpace(model.Target)
 	if target == "" {
 		target = strings.TrimSpace(model.FlatAnchorThread)
@@ -421,6 +520,12 @@ func runtimeTraceProjElimHead(model runtimeTraceProjTreeModel, zh bool) []string
 	if target != "" {
 		target = runtimeTraceCausalProjectionDisplayNodeName(target, zh)
 	}
+	// §29.61.12 ② (INV-SUPPLY 件④). EVOLUTION RECORD: the promise sentence
+	// follows the block ordering (表头禁撒谎 — 「纯值降序」 would lie over a
+	// blocked list): 「纯值降序」 → 「⛓ 链上块先·块内值降序」, composed from
+	// the ONE channel-word emitter (零新词源 for the glyph+noun identity).
+	// The scale promise stays 满格=本区TOP1: the full bar remains the
+	// SECTION-WIDE largest value wherever its row sits (链上条短=诚实).
 	var title, ruler, form string
 	if zh {
 		if target == "" {
@@ -428,16 +533,27 @@ func runtimeTraceProjElimHead(model runtimeTraceProjTreeModel, zh bool) []string
 		}
 		title = tracefence.ElimGlyph + " 窗内可消除量总览"
 		ruler = "尺=" + target + " 窗内墙钟ms"
-		form = "纯值降序·零序数·零佩戴 · 定位走 [E#] · " + tracefence.ScaleMarkZH + "本区TOP1"
+		blockWord := runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelChain, true) + "块先"
+		if !chainPresent {
+			blockWord = runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelAdjacent, true) + "块"
+		}
+		form = blockWord + "·块内值降序·零序数·零佩戴 · 定位走 [E#] · " + tracefence.ScaleMarkZH + "本区TOP1"
 	} else {
 		if target == "" {
 			target = "focused thread"
 		}
 		title = tracefence.ElimGlyph + " Eliminable-in-window overview"
 		ruler = "ruler = " + target + " in-window wall-clock ms"
-		form = "pure value desc · zero ordinals · zero wear · locate via [E#] · " + tracefence.ScaleMarkEN + " section TOP1"
+		blockWord := runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelChain, false) + " block first"
+		if !chainPresent {
+			blockWord = runtimeTraceProjElimChannelWord(runtimeTraceProjOrdinalChannelAdjacent, false) + " block"
+		}
+		form = blockWord + " · value desc within block · zero ordinals · zero wear · locate via [E#] · " + tracefence.ScaleMarkEN + " section TOP1"
 	}
 	sep := " · "
+	if !withForm {
+		return []string{title + sep + ruler}
+	}
 	head := title + sep + ruler + sep + form
 	if runewidth.StringWidth(head) <= runtimeTraceProjTreeRowMaxWidth {
 		return []string{head}
@@ -462,6 +578,11 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 	}
 	// ◇-max fallback (design §2.5): adjacent-channel members exist but none
 	// made TOP5 — append the largest one under its own lead marker.
+	// §29.61.12 ② 核后如实注: under causal-tier blocking the ◇ block sorts
+	// AFTER the whole ⛓ block and eff-desc within itself, so the first ◇
+	// entry past TOP-K IS the ◇ maximum by construction — the fallback
+	// guarantee is naturally satisfied and this scan is now a structural
+	// identity (kept as the honest implementation).
 	var fallback *runtimeTraceProjElimEntry
 	adjacentInTop := false
 	for i := range top {
@@ -487,7 +608,7 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 	}
 	model.Marks.mark(runtimeTraceProjMarkElimOverview)
 	var lines []string
-	lines = append(lines, runtimeTraceProjElimHead(model, zh)...)
+	lines = append(lines, runtimeTraceProjElimHead(model, zh, len(board) > 0, chainPresent)...)
 	if len(board) == 0 {
 		// 空板形 (design §2.5): the board ran and admitted nothing — one
 		// honest line, no silent-disappearance path.
@@ -498,16 +619,34 @@ func runtimeTraceProjElimOverviewFence(projection types.TraceCausalProjection, m
 		}
 		return runtimeTraceProjElimClose(lines)
 	}
-	topValue := top[0].row.Node.EffectiveImpactMS
+	// §29.61.12 ② (INV-SUPPLY 件④): the bar ruler is the SECTION-WIDE maximum
+	// over the whole board (满格尺保持全区最大值) — under causal-tier blocking
+	// the list head is the largest ⛓ value, but a ◇ remainder seat (or the
+	// fallback row) may be numerically larger; short chain bars against the
+	// global ruler are the honest rendering (链上条短=诚实).
+	topValue := 0.0
+	for i := range board {
+		if v := board[i].row.Node.EffectiveImpactMS; v > topValue {
+			topValue = v
+		}
+	}
 	leadWidth := 0
 	if fallback != nil {
 		leadWidth = runewidth.StringWidth(runtimeTraceProjElimFallbackLead(zh))
 	}
+	appendMember := func(entry runtimeTraceProjElimEntry, lead string) {
+		lines = append(lines, runtimeTraceProjElimRowLine(entry, topValue, lead, leadWidth, model.Marks, zh))
+		// INV-SUPPLY 件③: the compound seat's eliminable-composition leverage
+		// note rides directly under its own row (adjacency binds it).
+		if note, ok := runtimeTraceProjElimCompositionNoteLine(entry.row, leadWidth, model.Marks, zh); ok {
+			lines = append(lines, note)
+		}
+	}
 	for _, entry := range top {
-		lines = append(lines, runtimeTraceProjElimRowLine(entry, topValue, "", leadWidth, model.Marks, zh))
+		appendMember(entry, "")
 	}
 	if fallback != nil {
-		lines = append(lines, runtimeTraceProjElimRowLine(*fallback, topValue, runtimeTraceProjElimFallbackLead(zh), leadWidth, model.Marks, zh))
+		appendMember(*fallback, runtimeTraceProjElimFallbackLead(zh))
 	}
 	if !chainPresent {
 		lines = append(lines, runtimeTraceProjElimEmptyChainLine(model, zh))

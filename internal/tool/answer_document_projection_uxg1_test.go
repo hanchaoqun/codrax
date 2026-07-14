@@ -336,6 +336,18 @@ var uxg1LegendPromises = map[runtimeTraceProjMark]uxg1LegendPromise{
 		Components: []string{"EffectiveImpactMS"},
 		Reason:     "「有效归因的构成」承诺由 Σ计入==V 机器 pin 背书(§24.1 恒等式)",
 	},
+	// INV-SUPPLY 件① (§29.61.11, 2026-07-14): the compound suffix promises
+	// the typed ratio of two DISPLAYED values (行3/供给折算 line carry both).
+	runtimeTraceProjMarkSupplyGapDominant: {
+		Components: []string{"SupplyFoldDeficitMS", "EffectiveImpactMS"},
+		Reason:     "「席位影响以…成分为主」= 两已显示 typed 值的纯比较(types.TraceSupplyGapDominant);构成拆解指向既有行3面",
+	},
+	// INV-SUPPLY 件③ (§29.61.11, 2026-07-14): the ◎ leverage note transcribes
+	// the SAME balance-gated component pair 行3 displays.
+	runtimeTraceProjMarkElimComposition: {
+		Components: []string{"GatedRunnableMS", "GatedRunningDeficitMS"},
+		Reason:     "「可消除构成」= 行3 拆解分量的杠杆转录(runtimeTraceProjInversionComponents 同一 balance-gated 构建器)",
+	},
 }
 
 // uxg1ProsePromises — decomposition-promise sentences on the NON-catalog

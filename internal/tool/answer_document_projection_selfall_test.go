@@ -329,7 +329,7 @@ func TestSelfAllDisplayIOFoldKeySplitsProofBases(t *testing.T) {
 }
 
 // ◎ 总览随动 (witness acceptance): the promoted seat enters the ◎ overview on
-// the ⛓链上 channel wearing the 自身·墙钟席 qualifier — never a 候选 word (a
+// the ⛓ 链上 channel wearing the 自身·墙钟席 qualifier — never a 候选 word (a
 // wall-clock seat is a proven amount, not a conditional upper bound).
 func TestSelfAllPromotedSeatEntersElimOverview(t *testing.T) {
 	projection := revisit76SelfAllWallClockProjection()
@@ -349,8 +349,8 @@ func TestSelfAllPromotedSeatEntersElimOverview(t *testing.T) {
 	if seatLine == "" {
 		t.Fatalf("the promoted wall-clock seat must enter the ◎ board:\n%s", fence)
 	}
-	if !strings.Contains(seatLine, "⛓链上") {
-		t.Fatalf("◎ 随动: the promoted seat rides the ⛓链上 channel word: %q", seatLine)
+	if !strings.Contains(seatLine, "⛓ 链上") { // §29.61.12 ① 记号词距
+		t.Fatalf("◎ 随动: the promoted seat rides the ⛓ 链上 channel word: %q", seatLine)
 	}
 	if !strings.Contains(seatLine, "自身·墙钟席") || strings.Contains(seatLine, "候选") {
 		t.Fatalf("the ◎ qualifier must be 自身·墙钟席 with no 候选 word: %q", seatLine)

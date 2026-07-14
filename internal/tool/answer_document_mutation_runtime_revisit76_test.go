@@ -688,6 +688,11 @@ func revisit76LegendProbes() map[runtimeTraceProjMark]revisit76LegendProbe {
 		// the relation sentence).
 		runtimeTraceProjMarkChainAnchorSplit:    {"同源二分:全窗", "full-window"},
 		runtimeTraceProjMarkChainAnchorRelation: {"合计还原全窗账", "restores"},
+		// INV-SUPPLY 件①/件③ (§29.61.11, 2026-07-14): the compound type-word
+		// suffix (行2 + ◎ 同词, one composer) and the ◎ leverage note head
+		// (the ◎ head's 可消除量 shares no substring with 可消除构成).
+		runtimeTraceProjMarkSupplyGapDominant: {"供给缺口主导", "supply-gap dominant"},
+		runtimeTraceProjMarkElimComposition:   {"可消除构成", "eliminable composition"},
 		// CR-2 组③ P7: the typed actual-scope word faces.
 		runtimeTraceProjMarkActualBeyondEpisode: {"超出发生段,窗内", "beyond own episode, inside window"},
 		runtimeTraceProjMarkActualNoInterval:    {"区间未发布", "interval unpublished"},
@@ -1563,6 +1568,11 @@ func TestTraceProjectionLegendBidirectionalAcrossRepresentativeShapes(t *testing
 		// relation sentence + their legend entries (fixture home:
 		// answer_document_projection_rspa_test.go).
 		{"rspa_same_source_split", rspaSameSourceSplitProjection()},
+		// INV-SUPPLY 件①/件③ (§29.61.11/.11a, 2026-07-14): the supply-gap-
+		// dominant inversion seat — 行2/◎ compound word + the ◎ leverage note
+		// + their legend entries (fixture home:
+		// answer_document_projection_elim_test.go, 090607 witness ❶ shape).
+		{"inv_supply_compound_seat", elimInvSupplyCompoundProjection()},
 	}
 	union := map[runtimeTraceProjMark]bool{}
 	for _, fixture := range fixtures {

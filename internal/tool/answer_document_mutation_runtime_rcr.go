@@ -180,7 +180,7 @@ func runtimeTraceProjImpactFormSpecs() []runtimeTraceProjImpactFormSpec {
 			SemanticsZH: "锁竞争(持锁/被锁阻塞)", SemanticsEN: "lock contention (holding / blocked on a lock)",
 			Mark: runtimeTraceProjMarkIconLock, GeneratedLegend: true},
 		{Form: runtimeTraceProjImpactFormInversion, Glyph: tracefence.GlyphInversion,
-			CategoryZH: "优先级反转候选", CategoryEN: "priority-inversion candidate",
+			CategoryZH: tracefence.InversionCandidateWordZH, CategoryEN: "priority-inversion candidate",
 			SemanticsZH: "优先级反转候选(低优先级依赖/持有资源可能阻塞高优先级)", SemanticsEN: "a priority-inversion candidate (a lower-priority dependency/holder may block a higher-priority waiter)",
 			Mark: runtimeTraceProjMarkIconInversion, GeneratedLegend: true},
 		{Form: runtimeTraceProjImpactFormDeterministicOpt, Glyph: tracefence.GlyphOptimization,
@@ -455,6 +455,14 @@ func runtimeTraceProjCauseCategoryWord(node types.TraceCausalProjectionNode, kin
 		word, _ := runtimeTraceCausalProjectionImpactShapeCellTyped(node, zh)
 		return word, true
 	case runtimeTraceProjImpactFormInversion:
+		// INV-SUPPLY 件① (§29.61.11, 2026-07-14): a supply-gap-dominant
+		// inversion seat (typed criterion, shared with the model-face feed)
+		// speaks the compound type word 优先级反转候选·供给缺口主导 — the
+		// 「·可运行等待」 rename + D-族 tri-form compound precedent; below the
+		// threshold the bare word stands byte-identically.
+		if word, ok := runtimeTraceProjInversionSupplyGapCompoundWord(node, zh); ok {
+			return word, true
+		}
 		if zh {
 			return runtimeTraceRootCauseTypeZHLabel("priority_inversion_candidate"), true
 		}
@@ -916,6 +924,12 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 	var identity []string
 	if category != "" {
 		identity = append(identity, category)
+		// INV-SUPPLY 件① (§29.61.11): the compound word's legend entry
+		// travels with its emission (词条-图例双向) — marked HERE, where 行2
+		// actually renders the word.
+		if _, ok := runtimeTraceProjInversionSupplyGapCompoundWord(node, zh); ok {
+			row.marks.mark(runtimeTraceProjMarkSupplyGapDominant)
+		}
 	}
 	// SELF-SEM (§29.61.1 user ruling, RANK-U Stage 1, 2026-07-13): the Row2
 	// qualifier slot wears 「自身·确定性优化」 on the typed self basis — ONE

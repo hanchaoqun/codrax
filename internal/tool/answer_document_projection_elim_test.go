@@ -96,11 +96,20 @@ func elimRenderOverview(t *testing.T, projection types.TraceCausalProjection, zh
 	return model, runtimeTraceProjElimOverviewFence(projection, model, zh)
 }
 
+// §29.61.12 ① (INV-SUPPLY 件④, 2026-07-14). EVOLUTION RECORD: the channel
+// identity words gained their glyph-word space (`⛓链上` → `⛓ 链上` etc.) —
+// this helper and every byte pin below moved in lockstep with the ONE
+// emitter (runtimeTraceProjElimChannelWord). The header promise line also
+// carries the ⛓ 链上 bytes now, so member scanning additionally requires the
+// value/bar shape (a leading value cell) to keep matching member rows only.
 func elimOverviewMemberLines(fence string) []string {
 	var out []string
 	for _, line := range strings.Split(fence, "\n") {
-		if strings.Contains(line, "⛓链上") || strings.Contains(line, "◇邻近") ||
-			strings.Contains(line, "⛓on-chain") || strings.Contains(line, "◇adjacent") {
+		if !strings.Contains(line, "█") && !strings.Contains(line, "░") {
+			continue // member rows always carry the bar cell; the header never does
+		}
+		if strings.Contains(line, "⛓ 链上") || strings.Contains(line, "◇ 邻近") ||
+			strings.Contains(line, "⛓ on-chain") || strings.Contains(line, "◇ adjacent") {
 			out = append(out, line)
 		}
 	}
@@ -229,9 +238,12 @@ func TestElimGateCaliberArm(t *testing.T) {
 
 // --- 键与序 (design §1.2) --------------------------------------------------------
 
-// TestElimBoardPureEffOrder — the board orders by published eff DESC with the
-// chain-first tie-break; confidence NEVER participates (R-d: the low-conf
-// large row outranks the high-conf small row).
+// TestElimBoardPureEffOrder — §29.61.12 ② (INV-SUPPLY 件④, 2026-07-14).
+// EVOLUTION RECORD: the board WAS one pure eff-desc list; it is now
+// causal-tier BLOCKED — the ⛓ chain block whole before the ◇ adjacent block,
+// eff DESC within each block. Confidence still NEVER participates (R-d: the
+// low-conf large row keeps the chain block's head) — the M-C eff×conf
+// mutation stays red on the in-block assertion.
 func TestElimBoardPureEffOrder(t *testing.T) {
 	projection := elimBoardProjection()
 	// Confidence inversion probe: the largest chain row gets the LOWEST
@@ -244,29 +256,54 @@ func TestElimBoardPureEffOrder(t *testing.T) {
 		t.Fatalf("fixture must field ≥3 eligible members, got %d", len(board))
 	}
 	for i := 1; i < len(board); i++ {
-		if board[i].row.Node.EffectiveImpactMS > board[i-1].row.Node.EffectiveImpactMS {
-			t.Fatalf("board must order by published eff desc: %d before %d", i-1, i)
+		if board[i].channelRank < board[i-1].channelRank {
+			t.Fatalf("◇ block must never precede the ⛓ block: %d before %d", i-1, i)
+		}
+		if board[i].channelRank == board[i-1].channelRank &&
+			board[i].row.Node.EffectiveImpactMS > board[i-1].row.Node.EffectiveImpactMS {
+			t.Fatalf("within one block the board must order by published eff desc: %d before %d", i-1, i)
 		}
 	}
 	if board[0].row.Node.EffectiveImpactMS != 26.392 {
-		t.Fatalf("the low-confidence 26.392 row must keep TOP1 (置信不进键): %+v", board[0].row.Node)
+		t.Fatalf("the low-confidence 26.392 row must keep the chain block head (置信不进键): %+v", board[0].row.Node)
 	}
-	// Chain-first on equal eff (typed 已证 beats 条件上界).
-	tie := elimBoardProjection()
-	tie.AdjacentCauses[1].EffectiveImpactMS = 13.006
-	tie.AdjacentCauses[1].ImpactMS = 13.006
-	tie.AdjacentCauses[1].CumulativeImpactMS = 13.006
-	model2, _ := elimRenderOverview(t, tie, true)
+	// §29.61.12 ②: block ordering — a ◇ member NUMERICALLY LARGER than every
+	// chain member still renders after the whole chain block (post-RSPA the
+	// credential-less ◇ remainder must not visually bury proven causality).
+	dominant := elimBoardProjection()
+	dominant.AdjacentCauses[1].EffectiveImpactMS = 54.0
+	dominant.AdjacentCauses[1].ImpactMS = 54.0
+	dominant.AdjacentCauses[1].CumulativeImpactMS = 54.0
+	model2, fence2 := elimRenderOverview(t, dominant, true)
 	board2 := runtimeTraceProjElimBoard(model2)
-	seenChain := false
-	for _, entry := range board2 {
-		if entry.row.Node.EffectiveImpactMS == 13.006 {
-			if entry.channelRank == 0 {
-				seenChain = true
-			} else if !seenChain {
-				t.Fatalf("on equal eff the chain member must precede the ◇ member")
-			}
-		}
+	if len(board2) < 3 || board2[0].row.Node.EffectiveImpactMS != 26.392 ||
+		board2[len(board2)-1].channelRank != 1 ||
+		board2[len(board2)-1].row.Node.EffectiveImpactMS != 54.0 {
+		t.Fatalf("the dominant ◇ 54.0 member must sort after the whole ⛓ block: %+v", board2)
+	}
+	members := elimOverviewMemberLines(fence2)
+	if len(members) < 3 || !strings.Contains(members[0], "26.392ms") ||
+		!strings.Contains(members[len(members)-1], "54.000ms") {
+		t.Fatalf("render order must follow the blocked board:\n%s", fence2)
+	}
+	// 满格尺=全区最大值 (链上条短=诚实): the dominant ◇ row wears the FULL
+	// bar; the chain block head does not.
+	fullBar := strings.Repeat("█", runtimeTraceProjElimBarWidth)
+	if !strings.Contains(members[len(members)-1], fullBar) {
+		t.Fatalf("the section maximum must wear the full bar wherever it sits:\n%s", members[len(members)-1])
+	}
+	if strings.Contains(members[0], fullBar) {
+		t.Fatalf("a chain head below the section maximum must render a short (honest) bar:\n%s", members[0])
+	}
+	// 表头承诺句随改 (表头禁撒谎) + §29.61.12 ① 记号词距.
+	if !strings.Contains(fence2, "⛓ 链上块先·块内值降序·零序数·零佩戴") {
+		t.Fatalf("the header promise must state the block ordering:\n%s", fence2)
+	}
+	if strings.Contains(fence2, "纯值降序") {
+		t.Fatalf("the retired pure-desc promise must leave the header:\n%s", fence2)
+	}
+	if !strings.Contains(members[0], "⛓ 链上 · ") || !strings.Contains(members[len(members)-1], "◇ 邻近 · ") {
+		t.Fatalf("channel identity words must carry the glyph-word space:\n%s", fence2)
 	}
 }
 
@@ -293,11 +330,11 @@ func TestElimOverviewMemberFormAndSameValueAsHome(t *testing.T) {
 			t.Fatalf("member %d must transcribe the home published eff %s verbatim:\n%s", i, want, members[i])
 		}
 	}
-	if !strings.Contains(members[0], "⛓链上") || !strings.Contains(members[0], "26.392ms") ||
+	if !strings.Contains(members[0], "⛓ 链上") || !strings.Contains(members[0], "26.392ms") ||
 		!strings.Contains(members[0], "[E") {
 		t.Fatalf("TOP1 must be the ⛓ 26.392 row with its E# pointer:\n%s", members[0])
 	}
-	if !strings.Contains(members[2], "◇邻近") || !strings.Contains(members[2], "0.710ms") {
+	if !strings.Contains(members[2], "◇ 邻近") || !strings.Contains(members[2], "0.710ms") {
 		t.Fatalf("the ◇ wall-clock member must ride the same list:\n%s", members[2])
 	}
 	// §29.50.5 partition-seat pin: members never exceed the valued home rows.
@@ -432,7 +469,7 @@ func TestElimOverviewAdjacentMaxFallback(t *testing.T) {
 			fallback = line
 		}
 	}
-	if !strings.Contains(fallback, "0.710ms") || !strings.Contains(fallback, "◇邻近") {
+	if !strings.Contains(fallback, "0.710ms") || !strings.Contains(fallback, "◇ 邻近") {
 		t.Fatalf("the fallback row must carry the ◇ member's own value/channel:\n%s", fallback)
 	}
 	if members := elimOverviewMemberLines(fence); len(members) != runtimeTraceProjElimTopN+1 {
@@ -459,8 +496,17 @@ func TestElimOverviewEmptyChainHonestLine(t *testing.T) {
 	if len(members) != 2 {
 		t.Fatalf("the ◇ wall-clock members must rank (io_latency + runnable), got %d:\n%s", len(members), fence)
 	}
-	if !strings.Contains(members[0], "0.099ms") || !strings.Contains(members[0], "◇邻近") {
+	if !strings.Contains(members[0], "0.099ms") || !strings.Contains(members[0], "◇ 邻近") {
 		t.Fatalf("◇ TOP1 must be the io_latency wall-clock row:\n%s", members[0])
+	}
+	// 收尾件2 (P2-2, §29.61.12 表头禁撒谎 both directions): a chainless board
+	// promises its single ◇ block honestly and NEVER prints the ⛓ glyph it
+	// has no rows for.
+	if !strings.Contains(fence, "◇ 邻近块·块内值降序·零序数·零佩戴") {
+		t.Fatalf("the chainless header must promise the ◇ block form:\n%s", fence)
+	}
+	if strings.Contains(fence, "⛓") {
+		t.Fatalf("a chainless ◎ face must not print the ⛓ glyph anywhere:\n%s", fence)
 	}
 }
 
@@ -476,6 +522,15 @@ func TestElimOverviewEmptyBoardHonestLine(t *testing.T) {
 	_, fence := elimRenderOverview(t, projection, true)
 	if !strings.Contains(fence, "窗内可消除量:无同尺持值行(详见背景/义务通道)") {
 		t.Fatalf("the empty board must render the honest single line:\n%s", fence)
+	}
+	// 收尾件2 (P2-2): a board that admitted nothing has no member ordering to
+	// promise — the ordering/scale promise line is ABSENT (and with it the ⛓
+	// glyph a memberless face has no rows for).
+	if strings.Contains(fence, "块内值降序") || strings.Contains(fence, tracefence.ScaleMarkZH) {
+		t.Fatalf("the empty board must not carry the ordering/scale promise line:\n%s", fence)
+	}
+	if strings.Contains(fence, "⛓") {
+		t.Fatalf("an empty ◎ face must not print the ⛓ glyph:\n%s", fence)
 	}
 }
 
@@ -511,7 +566,7 @@ func TestElimOverviewSelfQualifierWordDrop(t *testing.T) {
 	if selfLine == "" {
 		t.Fatalf("the self semantic member must rank:\n%s", fence)
 	}
-	if !strings.Contains(selfLine, "⛓链上") || !strings.Contains(selfLine, "自身·确定性优化") {
+	if !strings.Contains(selfLine, "⛓ 链上") || !strings.Contains(selfLine, "自身·确定性优化") {
 		t.Fatalf("the self member must wear the chain word + the Stage-1 self qualifier:\n%s", selfLine)
 	}
 	if strings.Contains(selfLine, "候选") {
@@ -610,6 +665,218 @@ func TestElimOverviewFamilyCaliberTranscription(t *testing.T) {
 	_, fence := elimRenderOverview(t, projection, true)
 	if !strings.Contains(fence, "合计(共14段,同线程)") {
 		t.Fatalf("the family member must transcribe its home caliber word verbatim:\n%s", fence)
+	}
+}
+
+// --- INV-SUPPLY 件①/件③ (§29.61.11/.11a, 2026-07-14) ---------------------------
+
+// elimInvSupplyCompoundProjection — the 090607 witness ❶ seat shape: an
+// inversion cause seat whose published supply-fold deficit (7.296) dominates
+// its published effective attribution (7.081 = runnable(全额) 0.109 +
+// running(折算) 6.972; 行3 identity balances at print precision).
+func elimInvSupplyCompoundProjection() types.TraceCausalProjection {
+	projection := elimBoardProjection()
+	// The ⌗ count/composite ◇ rows are irrelevant here — keep the wall-clock
+	// ◇ member only (the compound seat + a plain board around it).
+	projection.AdjacentCauses = projection.AdjacentCauses[1:2]
+	inv := elimChainNode("E-inv", "CompThread_0-2955", "priority_inversion_candidate", "running", 1, 7.081, 100)
+	inv.PriorityInversionCandidate = true
+	inv.ImpactMS = 8.294
+	inv.CumulativeImpactMS = 8.294
+	inv.GatedRunnableMS = 0.109
+	inv.GatedRunningDeficitMS = 6.972
+	inv.SupplyFoldComputed = true
+	inv.SupplyFoldDeficitMS = 7.296
+	inv.SupplyFoldIdealMS = 0.998
+	inv.SupplyFoldKnownMS = 8.294
+	projection.OnChainCauses[0] = inv
+	return projection
+}
+
+// TestElimInversionCompoundWordSameBytes — 件① 行2 复合词 + ◎ 转录同词: the
+// typed dominance criterion mints 优先级反转候选·供给缺口主导 on the tree 行2
+// AND the ◎ class-word slot from ONE composer (byte-identical); below the
+// threshold both faces keep their pre-INV-SUPPLY words byte-identically, and
+// the legend entry renders exactly with the word (词条-图例双向).
+func TestElimInversionCompoundWordSameBytes(t *testing.T) {
+	projection := elimInvSupplyCompoundProjection()
+	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+	tree := runtimeTraceProjTreeFence(model, true)
+	overview := runtimeTraceProjElimOverviewFence(projection, model, true)
+	compound := tracefence.InversionCandidateWordZH + "·" + tracefence.SupplyGapDominantWordZH
+	if !strings.Contains(tree, compound+"·"+tracefence.SeatChannelChainZH+"#1") {
+		t.Fatalf("行2 must wear the compound type word before its seat chip:\n%s", tree)
+	}
+	seatLine := ""
+	for _, line := range elimOverviewMemberLines(overview) {
+		if strings.Contains(line, "7.081ms") {
+			seatLine = line
+		}
+	}
+	if seatLine == "" || !strings.Contains(seatLine, compound) {
+		t.Fatalf("◎ must transcribe the SAME compound word bytes (同词):\n%s", overview)
+	}
+	if !model.Marks.has(runtimeTraceProjMarkSupplyGapDominant) {
+		t.Fatalf("the compound word must light its legend mark")
+	}
+	if lead := runtimeTraceProjLeadText(projection, model, "zh", true); !strings.Contains(lead, "`供给缺口主导`") {
+		t.Fatalf("the compound word's legend entry must render with it:\n%s", lead)
+	}
+	// EN face: raw wire token + spaced en suffix (D2 discipline).
+	enModel := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), false)
+	enTree := runtimeTraceProjTreeFence(enModel, false)
+	enOverview := runtimeTraceProjElimOverviewFence(projection, enModel, false)
+	enCompound := "priority_inversion_candidate · " + tracefence.SupplyGapDominantWordEN
+	// The en tree 行2 may wrap between words (space-boundary atoms) — the
+	// despaced surface carries the whole compound; the ◎ member line never
+	// wraps and must carry it verbatim.
+	if !strings.Contains(vs2Despace(enTree), vs2Despace(enCompound)) || !strings.Contains(enOverview, enCompound) {
+		t.Fatalf("the en compound must ride both faces:\n%s\n%s", enTree, enOverview)
+	}
+	// Sub-threshold negative (typed criterion, candidate 50%): deficit 3.0 <
+	// 7.081×0.50 — both faces keep the bare word; no legend entry.
+	below := elimInvSupplyCompoundProjection()
+	below.OnChainCauses[0].SupplyFoldDeficitMS = 3.0
+	belowModel := buildRuntimeTraceProjTreeModel(below, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+	belowTree := runtimeTraceProjTreeFence(belowModel, true)
+	belowOverview := runtimeTraceProjElimOverviewFence(below, belowModel, true)
+	if strings.Contains(belowTree, tracefence.SupplyGapDominantWordZH) ||
+		strings.Contains(belowOverview, tracefence.SupplyGapDominantWordZH) {
+		t.Fatalf("below the threshold the compound word must not mint:\n%s\n%s", belowTree, belowOverview)
+	}
+	if !strings.Contains(belowTree, tracefence.InversionCandidateWordZH+"·"+tracefence.SeatChannelChainZH+"#1") {
+		t.Fatalf("below the threshold 行2 keeps the bare inversion word:\n%s", belowTree)
+	}
+	if lead := runtimeTraceProjLeadText(below, belowModel, "zh", true); strings.Contains(lead, "`供给缺口主导`") {
+		t.Fatalf("no compound word → no legend entry:\n%s", lead)
+	}
+}
+
+// TestElimCompositionLeverageNote — 件③ ◎ 分杠杆注: the compound seat's ◎ row
+// carries the 可消除构成 note directly under it, transcribing the SAME 行3
+// component bytes by elimination lever (调度修复=runnable(全额), 频点/热策略=
+// running(折算)); a constituent display — never a Σ row, no total claim; and
+// non-compound seats render no note.
+func TestElimCompositionLeverageNote(t *testing.T) {
+	projection := elimInvSupplyCompoundProjection()
+	model, fence := elimRenderOverview(t, projection, true)
+	lines := strings.Split(fence, "\n")
+	noteAt := -1
+	for i, line := range lines {
+		if strings.Contains(line, "· 可消除构成: 调度修复 0.109ms + 频点/热策略 6.972ms") {
+			noteAt = i
+		}
+	}
+	if noteAt < 1 {
+		t.Fatalf("the compound seat must carry the leverage note:\n%s", fence)
+	}
+	if !strings.Contains(lines[noteAt-1], "7.081ms") {
+		t.Fatalf("the note must ride directly under its own seat row:\n%s", fence)
+	}
+	// 零求和红线: a constituent display — no total, no Σ vocabulary.
+	if strings.Contains(lines[noteAt], "=") || strings.Contains(fence, "Σ") || strings.Contains(fence, "总计") {
+		t.Fatalf("the note must never claim a total:\n%s", fence)
+	}
+	if !model.Marks.has(runtimeTraceProjMarkElimComposition) {
+		t.Fatalf("the note must light its legend mark")
+	}
+	if lead := runtimeTraceProjLeadText(projection, model, "zh", true); !strings.Contains(lead, "可消除构成") {
+		t.Fatalf("the note's legend entry must render with it:\n%s", lead)
+	}
+	// Negative: the plain board (no compound seat) renders no note.
+	_, plain := elimRenderOverview(t, elimBoardProjection(), true)
+	if strings.Contains(plain, "可消除构成") {
+		t.Fatalf("non-compound seats must not mint the note:\n%s", plain)
+	}
+	// EN face rides the same lane.
+	enModel := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), false)
+	enFence := runtimeTraceProjElimOverviewFence(projection, enModel, false)
+	if !strings.Contains(enFence, "· eliminable composition: scheduling fix 0.109ms + frequency/thermal policy 6.972ms") {
+		t.Fatalf("en leverage note missing:\n%s", enFence)
+	}
+	_ = enModel
+}
+
+// TestElimInvSupplyDonghuEngineRealWitness — the INV-SUPPLY witness on
+// ENGINE-REAL records (§29.53 产线实铸形 red line; zero LLM, zero dispatch
+// variance): the real donghu.ftrace 090607 window (target .ugc.aweme.lite-
+// 17267, 13762.791708..13763.024898) mints the ❶ CompThread_0-2955 inversion
+// seat with eff 7.081 = runnable(全额) 0.109 + running(折算) 6.972 and
+// supply-fold deficit 7.296 (probe-verified byte-equal with the 090607
+// artifact). The report must show, at once:
+//
+//   - 行2: the compound type word 优先级反转候选·供给缺口主导 before the
+//     根因排序#1 chip (件①);
+//   - ◎ overview: the SAME compound bytes on the 7.081ms member (同词) plus
+//     the 可消除构成 leverage note transcribing the 行3 split (件③);
+//   - §29.61.12: the blocked-order header promise and the spaced channel
+//     words on the real board (件④).
+func TestElimInvSupplyDonghuEngineRealWitness(t *testing.T) {
+	const trace = "../../eval/fixtures/real_traces/donghu.ftrace"
+	if _, err := os.Stat(trace); err != nil {
+		t.Skipf("golden fixture not present: %v", err)
+	}
+	idx, err := tracequery.BuildIndex(context.Background(), trace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := tracequery.Query{PID: 17267, TimeStart: 13762.791708, TimeEnd: 13763.024898,
+		MaxDepth: 4, MinDurationMs: 0.5, TraceFlavorHint: tracequery.TraceFlavorHarmonyHitrace, Limit: 12}
+	at := time.Unix(1751600000, 0).UTC()
+	var obs []types.ObservationRecord
+	for _, view := range []string{"wakeup_chain", "root_cause_rank"} {
+		q := query
+		q.View = view
+		result := tracequery.Run(idx, q)
+		obs = append(obs, traceQueryTypedObservations(result, "donghu.ftrace", "p-"+view, "r", "", at)...)
+	}
+	bus := newBusForMutationTest()
+	bus.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentTrace, Scenario: types.ScenarioPerformanceBottleneck,
+	}}
+	bus.ToolResults = []types.ToolResult{{ToolName: "trace_query", Success: true, Observations: obs}}
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{ID: "s1", Kind: types.BlockSummary, Text: "donghu 090607 witness。"}}}
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil || !res.Success {
+		t.Fatalf("apply: %v %s", err, res.Summary)
+	}
+	md := render.RenderAnswerDocument(bus.Mutable.AnswerDocumentV2(), "zh")
+	compound := tracefence.InversionCandidateWordZH + "·" + tracefence.SupplyGapDominantWordZH
+	// 件① 行2: the compound word rides the primary seat's identity row.
+	if !strings.Contains(md, compound+"·"+tracefence.SeatChannelChainZH+"#1") {
+		t.Fatalf("行2 must wear the compound word on the real ❶ seat:\n%s", md)
+	}
+	// ◎ region: same word + the leverage note with the REAL 行3 bytes.
+	elimAt := strings.Index(md, tracefence.ElimOpener)
+	if elimAt < 0 {
+		t.Fatalf("the ◎ overview must render:\n%s", md)
+	}
+	elim := md[elimAt:]
+	if end := strings.Index(elim[len(tracefence.ElimOpener):], "```"); end >= 0 {
+		elim = elim[:len(tracefence.ElimOpener)+end+3]
+	}
+	seatLine := ""
+	for _, line := range elimOverviewMemberLines(elim) {
+		if strings.Contains(line, "7.081ms") {
+			seatLine = line
+		}
+	}
+	if seatLine == "" || !strings.Contains(seatLine, compound) {
+		t.Fatalf("◎ must transcribe the compound word on the 7.081 seat (同词):\n%s", elim)
+	}
+	if !strings.Contains(elim, "· 可消除构成: 调度修复 0.109ms + 频点/热策略 6.972ms") {
+		t.Fatalf("the ◎ leverage note must transcribe the real 行3 split:\n%s", elim)
+	}
+	// 件④: blocked-order header promise + spaced channel words.
+	if !strings.Contains(elim, "⛓ 链上块先·块内值降序·零序数·零佩戴") {
+		t.Fatalf("the blocked-order header promise must render:\n%s", elim)
+	}
+	if !strings.Contains(seatLine, "⛓ 链上 · ") {
+		t.Fatalf("the member rows must wear the spaced channel word:\n%s", seatLine)
+	}
+	// 行3 itself stays byte-stable next to the compound (truth row intact).
+	if !strings.Contains(strings.ReplaceAll(md, " ", ""), "有效归因7.081ms=runnable(全额)0.109ms+running(折算)6.972ms") {
+		t.Fatalf("the 行3 identity must keep the real split:\n%s", md)
 	}
 }
 
@@ -732,7 +999,7 @@ func TestElimOverviewPreviewClassifierAndAnchors(t *testing.T) {
 // show the SELF SEAT on BOTH faces at once:
 //
 //   - main board (tree fence): ❷ + 根因排序#2 + 自身·确定性优化 on the ✦ row;
-//   - ◎ overview: the 2.388ms ⛓链上 member with the self qualifier and NO
+//   - ◎ overview: the 2.388ms ⛓ 链上 member with the self qualifier and NO
 //     候选 word — value verbatim, ordered under the larger chain seats.
 func TestElimOverviewDonghuJitEngineRealWitness(t *testing.T) {
 	const trace = "../../eval/fixtures/real_traces/donghu.ftrace"
@@ -794,8 +1061,8 @@ func TestElimOverviewDonghuJitEngineRealWitness(t *testing.T) {
 	if selfLine == "" {
 		t.Fatalf("the self family member (2.388ms verbatim) must ride the overview:\n%s", elim)
 	}
-	if !strings.Contains(selfLine, "⛓链上") || !strings.Contains(selfLine, "自身·确定性优化") {
-		t.Fatalf("the overview self member must wear ⛓链上 + the self qualifier:\n%s", selfLine)
+	if !strings.Contains(selfLine, "⛓ 链上") || !strings.Contains(selfLine, "自身·确定性优化") {
+		t.Fatalf("the overview self member must wear ⛓ 链上 + the self qualifier:\n%s", selfLine)
 	}
 	if strings.Contains(selfLine, "候选") {
 		t.Fatalf("裁定⑥: no 候选 word on the on-chain self member:\n%s", selfLine)

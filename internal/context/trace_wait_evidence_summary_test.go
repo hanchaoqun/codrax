@@ -853,6 +853,168 @@ func TestTraceWaitEvidence_WakeCensusFallbackSelfAdmits(t *testing.T) {
 // TestBuildPromptContext_TraceWaitEvidenceSection — the summary rides the
 // investigation and answer-rendering dispatches only (same stage gate as the
 // CR-1 board summary).
+// --- INV-SUPPLY 件② (§29.61.11/.11a, 2026-07-14) -------------------------------
+
+// traceWaitInvSupplySeatRecord builds the 090607 witness ❶ seat record shape:
+// a seated inversion rank row carrying the gated split, the supply-fold
+// notes and the witnessed thermal cap.
+func traceWaitInvSupplySeatRecord() types.ObservationRecord {
+	return traceWaitTestRecord("trace_query:t#root_cause_rank:9", "CompThread_0-2955", "priority_inversion_candidate", "root_cause_primary", "8.294",
+		"rank=1", "effective_impact_ms=7.081",
+		types.TraceNoteKeyPriorityInversionCandidate+"=true",
+		types.TraceNoteKeyGatedRunnable+"=0.109",
+		types.TraceNoteKeyGatedRunningDeficit+"=6.972",
+		types.TraceNoteKeySupplyFoldDeficitMS+"=7.296",
+		types.TraceNoteKeySupplyFoldIdealMS+"=0.998",
+		types.TraceNoteKeyFoldBasis+"=known=8.294ms,unknown=0.000ms",
+		types.TraceNoteKeyThermalCapKHz+"=1530000",
+		types.TraceNoteKeyThermalCapWitnessed+"=true")
+}
+
+// TestTraceWaitEvidence_SeatCompositionFact — the compound seat's composition
+// reaches the model face as ONE named fact: badge + subject + compound type
+// word, both factors verbatim (反转等待 全额 + running 折算), the supply-gap
+// lower bound and the witnessed thermal cap — 两因并提,引用勿推导.
+func TestTraceWaitEvidence_SeatCompositionFact(t *testing.T) {
+	ledger := traceWaitTestLedger()
+	ledger.Records = append(ledger.Records, traceWaitInvSupplySeatRecord())
+	summary := formatTraceWaitWakeEvidenceFromLedger(ledger, nil)
+	want := "- 席位构成(❶ CompThread_0-2955 优先级反转候选·供给缺口主导): 反转等待(全额) 0.109ms + running 折算 6.972ms(供给缺口 7.296ms 下界为主,热限压 1.53GHz)——两因并提,引用勿推导"
+	if !strings.Contains(summary, want) {
+		t.Fatalf("seat composition fact missing/mutated:\n%s", summary)
+	}
+	if !strings.Contains(summary, "state BOTH factors together") {
+		t.Fatalf("the section's consumption preamble is missing:\n%s", summary)
+	}
+	// 复放轮强化 (run-1 witness): the imperative is bilingual — the zh
+	// anti-compression clause must ride the lead (EVID-1/PROSE-RC sister-
+	// sentence discipline: the quoted answer language cannot lose it).
+	if !strings.Contains(summary, "必须两因并提") || !strings.Contains(summary, "禁止把该席压缩为只提「优先级反转」的单因词形") {
+		t.Fatalf("the zh anti-compression imperative is missing:\n%s", summary)
+	}
+	// Identical republications collapse to one line.
+	ledger.Records = append(ledger.Records, traceWaitInvSupplySeatRecord())
+	if got := strings.Count(formatTraceWaitWakeEvidenceFromLedger(ledger, nil), "席位构成(❶ CompThread_0-2955"); got != 1 {
+		t.Fatalf("identical seat republications must collapse (got %d lines)", got)
+	}
+}
+
+// TestTraceWaitEvidence_SeatCompositionGates — the fact emits ONLY on the
+// typed criterion (the SAME shared inequality the display compound judges):
+// sub-threshold deficit, missing fold, missing running component and
+// non-inversion seats all stay silent; the unwitnessed thermal cap keeps the
+// honest 限压原因未见证 wording; a rank>5 seat wears #N instead of a badge.
+func TestTraceWaitEvidence_SeatCompositionGates(t *testing.T) {
+	render := func(mutate func(*types.ObservationRecord)) string {
+		record := traceWaitInvSupplySeatRecord()
+		mutate(&record)
+		ledger := traceWaitTestLedger()
+		ledger.Records = append(ledger.Records, record)
+		return formatTraceWaitWakeEvidenceFromLedger(ledger, nil)
+	}
+	replaceNote := func(record *types.ObservationRecord, key, value string) {
+		var notes []string
+		for _, note := range record.RichNotes {
+			if strings.HasPrefix(note, key+"=") {
+				continue
+			}
+			notes = append(notes, note)
+		}
+		if value != "" {
+			notes = append(notes, key+"="+value)
+		}
+		record.RichNotes = notes
+	}
+	// Sub-threshold (3.0 < 7.081×0.50): no fact line.
+	if got := render(func(r *types.ObservationRecord) { replaceNote(r, types.TraceNoteKeySupplyFoldDeficitMS, "3.000") }); strings.Contains(got, "席位构成") {
+		t.Fatalf("sub-threshold seat must not feed a composition fact:\n%s", got)
+	}
+	// No fold basis → structurally out (criterion mirrors SupplyFoldComputed).
+	if got := render(func(r *types.ObservationRecord) { replaceNote(r, types.TraceNoteKeyFoldBasis, "") }); strings.Contains(got, "席位构成") {
+		t.Fatalf("a seat without a fold must not feed a composition fact:\n%s", got)
+	}
+	// No running component → the template cannot render (never fabricated).
+	if got := render(func(r *types.ObservationRecord) { replaceNote(r, types.TraceNoteKeyGatedRunningDeficit, "") }); strings.Contains(got, "席位构成") {
+		t.Fatalf("a seat without the running component must not feed the fact:\n%s", got)
+	}
+	// Non-inversion seat (pure running) → out (census conclusion: its own
+	// type word already speaks the supply family).
+	if got := render(func(r *types.ObservationRecord) {
+		r.Object = "running"
+		replaceNote(r, types.TraceNoteKeyPriorityInversionCandidate, "")
+	}); strings.Contains(got, "席位构成") {
+		t.Fatalf("a non-inversion seat must not feed the fact:\n%s", got)
+	}
+	// Unwitnessed thermal cap → honest wording, no 热限压 claim ON THE FACT
+	// LINE (the bilingual section lead legitimately names the 热限压 factor).
+	unwitnessed := render(func(r *types.ObservationRecord) { replaceNote(r, types.TraceNoteKeyThermalCapWitnessed, "false") })
+	factLine := ""
+	for _, line := range strings.Split(unwitnessed, "\n") {
+		if strings.Contains(line, "席位构成(") {
+			factLine = line
+		}
+	}
+	if !strings.Contains(factLine, ",窗内运行于 1.53GHz(限压原因未见证))") || strings.Contains(factLine, "热限压") {
+		t.Fatalf("unwitnessed cap must keep the honest wording:\n%s", unwitnessed)
+	}
+	// Absent thermal cap → no frequency clause at all.
+	bare := render(func(r *types.ObservationRecord) {
+		replaceNote(r, types.TraceNoteKeyThermalCapKHz, "")
+		replaceNote(r, types.TraceNoteKeyThermalCapWitnessed, "")
+	})
+	if !strings.Contains(bare, "(供给缺口 7.296ms 下界为主)") {
+		t.Fatalf("capless seat must state the gap without a frequency claim:\n%s", bare)
+	}
+	// Runnable component absent → single-term composition (no fabricated 0).
+	single := render(func(r *types.ObservationRecord) { replaceNote(r, types.TraceNoteKeyGatedRunnable, "") })
+	if !strings.Contains(single, "): running 折算 6.972ms(") || strings.Contains(single, "反转等待(全额)") {
+		t.Fatalf("runnable-less seat must render the single running term:\n%s", single)
+	}
+	// Rank 6 → #6 head (badges are seats 1..5 only).
+	rank6 := render(func(r *types.ObservationRecord) { replaceNote(r, types.TraceNoteKeyRank, "6") })
+	if !strings.Contains(rank6, "席位构成(#6 CompThread_0-2955") || strings.Contains(rank6, "❻") {
+		t.Fatalf("a rank-6 seat wears #6, never a badge:\n%s", rank6)
+	}
+}
+
+// TestTraceWaitEvidence_SeatCompositionCapOverflow — 收尾件3 (P3-3): the
+// seat-composition lane is capped at traceWaitEvidenceSeatCompositionCap
+// lines in seat order; the remainder folds into ONE named overflow line
+// (帽外具名余数,照 feed 惯例) — never silent, never an extra fact line.
+func TestTraceWaitEvidence_SeatCompositionCapOverflow(t *testing.T) {
+	ledger := traceWaitTestLedger()
+	for i := 1; i <= traceWaitEvidenceSeatCompositionCap+2; i++ {
+		record := traceWaitInvSupplySeatRecord()
+		record.ID = fmt.Sprintf("trace_query:t#root_cause_rank:%d0", i)
+		record.Subject = fmt.Sprintf("inv-thread-%d", i)
+		var notes []string
+		for _, note := range record.RichNotes {
+			if strings.HasPrefix(note, "rank=") {
+				note = fmt.Sprintf("rank=%d", i)
+			}
+			notes = append(notes, note)
+		}
+		record.RichNotes = notes
+		ledger.Records = append(ledger.Records, record)
+	}
+	summary := formatTraceWaitWakeEvidenceFromLedger(ledger, nil)
+	if got := strings.Count(summary, "- 席位构成("); got != traceWaitEvidenceSeatCompositionCap {
+		t.Fatalf("the fact lines must cap at %d (got %d):\n%s", traceWaitEvidenceSeatCompositionCap, got, summary)
+	}
+	if !strings.Contains(summary, "- (+2 more supply-gap-dominant seat(s); see the measured observations)") {
+		t.Fatalf("the capped remainder must fold into one named overflow line:\n%s", summary)
+	}
+	// Seat order: the cap keeps the LOWEST ranks (seat order, not arrival).
+	for i := 1; i <= traceWaitEvidenceSeatCompositionCap; i++ {
+		if !strings.Contains(summary, fmt.Sprintf("inv-thread-%d ", i)) {
+			t.Fatalf("seat %d must survive the cap in seat order:\n%s", i, summary)
+		}
+	}
+	if strings.Contains(summary, fmt.Sprintf("inv-thread-%d ", traceWaitEvidenceSeatCompositionCap+1)) {
+		t.Fatalf("a beyond-cap seat must never render its own fact line:\n%s", summary)
+	}
+}
+
 func TestBuildPromptContext_TraceWaitEvidenceSection(t *testing.T) {
 	for _, tc := range []struct {
 		stage types.PipelineStage

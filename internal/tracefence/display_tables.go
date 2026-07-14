@@ -192,6 +192,22 @@ func BadgeGlyphs() []string {
 	return []string{"❶", "❷", "❸", "❹", "❺"}
 }
 
+// --- Table ③b INV-SUPPLY compound type-word bytes (§29.61.11/.11a) -------------
+//
+// The supply-gap-dominant compound type word 「优先级反转候选·供给缺口主导」
+// renders on the tree 行2 and the ◎ overview (internal/tool single composer
+// runtimeTraceProjInversionSupplyGapCompoundWord) AND on the model-face seat-
+// composition named fact (internal/context/trace_wait_evidence_summary.go,
+// CR-1 dual-stage feed). The word BYTES live here so the two packages can
+// never hand-mirror apart (UXG-1 M1 precedent: phrase bytes move to
+// tracefence, consumers read the same constants). Face separators stay with
+// the consumers (zh no-space "·" within-tag, en spaced " · ").
+const (
+	InversionCandidateWordZH = "优先级反转候选"
+	SupplyGapDominantWordZH  = "供给缺口主导"
+	SupplyGapDominantWordEN  = "supply-gap dominant"
+)
+
 // --- Table ④ generated section headings ---------------------------------------
 //
 // The three deterministic H2 chapters the runtime-trace report generates; the

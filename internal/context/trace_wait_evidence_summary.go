@@ -74,6 +74,16 @@ package context
 // instead of minting a definite-looking unsound sum; 件4 — the per-pair MAX
 // pin is order-adversarial (the stale lower count arrives first).
 //
+// INV-SUPPLY 件② (§29.61.11/.11a 用户裁定+确认, 2026-07-14): supply-gap-
+// dominant inversion seats (the typed criterion types.TraceSupplyGapDominant
+// over the SAME two published notes the display compound word judges) feed
+// their seat composition as a named fact — 席位构成(❶ …优先级反转候选·供给
+// 缺口主导): 反转等待(全额) X + running 折算 Y(供给缺口 Z 下界为主,热限压
+// fmax)——两因并提,引用勿推导. Witness 090607: 行3 carried the full split
+// while the prose compressed to the single type word and dropped the
+// frequency component — the decomposition is a display face the model never
+// sees, same disease family as the 等待对象四跑四答案 witness above.
+//
 // PROSE-RC 续批 (§29.74 R4 witness, 2026-07-14): the remainder fact's
 // property-sentence family gains its third sister sentence — the explicit
 // MEMBER-level prohibition (zh/en). The re-derivation urge, blocked from
@@ -92,6 +102,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -112,6 +123,9 @@ const (
 	// wakeup_chain result always lists whole; only multi-query unions can
 	// trim, and the trim folds into the named remainder (never silent).
 	traceWaitEvidenceCensusPairCap = 16
+	// traceWaitEvidenceSeatCompositionCap (INV-SUPPLY 件② §29.61.11a) bounds
+	// the per-seat composition fact lines (帽外具名余数,照 feed 惯例).
+	traceWaitEvidenceSeatCompositionCap = 4
 )
 
 // traceWaitCallerFact is one thread's published wait-object fact: the
@@ -131,6 +145,24 @@ type traceWaitCallerFact struct {
 type traceWaitCensusEntry struct {
 	count int
 	sigMS string
+}
+
+// traceSeatCompositionFact is one INV-SUPPLY 件② (§29.61.11a 用户确认必需)
+// seat-composition named fact: a seated inversion row whose published
+// supply-fold deficit dominates its published effective attribution (the
+// SAME typed criterion as the display compound word —
+// types.TraceSupplyGapDominant over the same two note values, so the feed
+// and the report face can never fork). All magnitudes are VERBATIM note
+// strings (CR-1 rule, zero recompute); only the thermal cap converts its
+// unit (kHz → GHz) via the display layer's own formula.
+type traceSeatCompositionFact struct {
+	rank             int
+	subject          string
+	runnable         string // gated_runnable note, verbatim ("" = no runnable component)
+	running          string // gated_running_deficit note, verbatim
+	deficit          string // supply_fold_deficit_ms note, verbatim
+	thermalKHz       int
+	thermalWitnessed bool
 }
 
 type traceWaitThreadFacts struct {
@@ -254,6 +286,9 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 	// wakeCensusWindowByScope: each result scope's census window (one window
 	// per result by construction) — the TOTAL lead's completeness witness.
 	wakeCensusWindowByScope := map[string]string{}
+	// seatComps (INV-SUPPLY 件② §29.61.11a): the compound-word seats' typed
+	// composition facts, in board seat order.
+	var seatComps []traceSeatCompositionFact
 	for _, record := range ledger.Records {
 		if !types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
 			continue
@@ -370,6 +405,59 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 		if strings.TrimSpace(record.Predicate) == "target_window_states" ||
 			strings.TrimSpace(notes[types.TraceNoteKeyTier]) == "target_self_state" {
 			get(subject).anchor = true
+		}
+		// ── INV-SUPPLY 件② (§29.61.11a): seat-composition named facts ──────
+		// Seated rank rows only (the board-summary identity: one seat per
+		// published result), gated by the SAME typed dominance criterion as
+		// the display compound word. Values stay verbatim note strings.
+		//
+		// 收尾件5 (P3-1, ACCEPTED asymmetry 2026-07-14): the feed additionally
+		// requires the gated_running_deficit note (the template's running 折算
+		// term cannot render without it), while the display compound word does
+		// not — a fold-bearing inversion seat whose gated split never
+		// published would wear the word with the feed silent. Both failure
+		// directions are honest (the display never claims components it lacks;
+		// the feed never fabricates a term), no such seat has been witnessed
+		// (the engine mints the gated split wherever it mints the fold on an
+		// inversion row), and collapsing the asymmetry would mean fabricating
+		// a one-term "composition" — rejected.
+		if strings.Contains(record.ID, "#root_cause_rank:") {
+			rank, _ := strconv.Atoi(strings.TrimSpace(notes[types.TraceNoteKeyRank]))
+			inversion := strings.TrimSpace(notes[types.TraceNoteKeyPriorityInversionCandidate]) == "true" ||
+				strings.TrimSpace(record.Object) == "priority_inversion_candidate"
+			deficitRaw := strings.TrimSpace(notes[types.TraceNoteKeySupplyFoldDeficitMS])
+			effRaw := strings.TrimSpace(notes[types.TraceNoteKeyEffectiveImpactMS])
+			foldRan := strings.TrimSpace(notes[types.TraceNoteKeyFoldBasis]) != ""
+			runningRaw := strings.TrimSpace(notes[types.TraceNoteKeyGatedRunningDeficit])
+			if rank > 0 && inversion && foldRan && runningRaw != "" {
+				deficitMS, errD := strconv.ParseFloat(deficitRaw, 64)
+				effMS, errE := strconv.ParseFloat(effRaw, 64)
+				if errD == nil && errE == nil && types.TraceSupplyGapDominant(deficitMS, effMS) {
+					fact := traceSeatCompositionFact{
+						rank:     rank,
+						subject:  subject,
+						runnable: strings.TrimSpace(notes[types.TraceNoteKeyGatedRunnable]),
+						running:  runningRaw,
+						deficit:  deficitRaw,
+					}
+					if raw := strings.TrimSpace(notes[types.TraceNoteKeyThermalCapKHz]); raw != "" {
+						if khz, err := strconv.Atoi(raw); err == nil && khz > 0 {
+							fact.thermalKHz = khz
+							fact.thermalWitnessed = strings.TrimSpace(notes[types.TraceNoteKeyThermalCapWitnessed]) == "true"
+						}
+					}
+					dup := false
+					for _, have := range seatComps {
+						if have == fact {
+							dup = true // identical republications collapse
+							break
+						}
+					}
+					if !dup {
+						seatComps = append(seatComps, fact)
+					}
+				}
+			}
 		}
 		// ── the engine's typed per-pid census note (件1 primary source) ────
 		if raw := strings.TrimSpace(notes[types.TraceNoteKeyBlockedReasonCensus]); raw != "" {
@@ -509,7 +597,7 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 			subjects = append(subjects, s)
 		}
 	}
-	if len(subjects) == 0 && len(edges) == 0 && len(wakeCensusOrder) == 0 {
+	if len(subjects) == 0 && len(edges) == 0 && len(wakeCensusOrder) == 0 && len(seatComps) == 0 {
 		return ""
 	}
 	sort.SliceStable(subjects, func(i, j int) bool {
@@ -685,6 +773,56 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 		}
 		if subjectOverflow > 0 {
 			b.WriteString(fmt.Sprintf("- (+%d more threads with blocked_reason evidence; see the measured observations)\n", subjectOverflow))
+		}
+	}
+	if len(seatComps) > 0 {
+		// ── INV-SUPPLY 件② (§29.61.11a 用户裁定: 让模型看到构成): each
+		// supply-gap-dominant inversion seat's OWN published split as a
+		// quotable named fact — the 行3 decomposition is a display face the
+		// model never sees (it writes prose BEFORE rendering; 等待对象四跑四
+		// 答案 同构病根), so the composition rides the CR-1 dual-stage feed.
+		// Verbatim value chain (note strings, zero recompute); only the
+		// thermal cap converts kHz → GHz via the display layer's own formula
+		// (supplyfold.go THERM appendix, %.2f of khz/1e6 — a unit conversion
+		// of ONE typed value, never a derivation).
+		sort.SliceStable(seatComps, func(i, j int) bool {
+			if seatComps[i].rank != seatComps[j].rank {
+				return seatComps[i].rank < seatComps[j].rank
+			}
+			return seatComps[i].subject < seatComps[j].subject
+		})
+		// 复放轮强化 (2026-07-14, run-1 witness: the fact reached the finalize
+		// dispatch yet the zh prose still compressed to the single type word) —
+		// the imperative is BILINGUAL with an explicit anti-compression clause,
+		// the EVID-1/PROSE-RC sister-sentence discipline ("bilingual so the
+		// quoted answer language cannot lose it").
+		b.WriteString("Seat composition facts (typed, per-seat published split): each line below is that seat's OWN published composition — when naming that seat's cause, state BOTH factors together (the inversion wait AND the supply-gap/thermal-frequency component); quote each value verbatim and never re-derive, sum across seats, or drop either factor. 叙述下列席位的根因时必须两因并提:优先级反转等待 + 供给缺口/热限压(频点跑慢)成分——按行内构成值逐字引用;禁止把该席压缩为只提「优先级反转」的单因词形。\n")
+		badges := tracefence.BadgeGlyphs()
+		compoundWord := tracefence.InversionCandidateWordZH + "·" + tracefence.SupplyGapDominantWordZH
+		for i, fact := range seatComps {
+			if i >= traceWaitEvidenceSeatCompositionCap {
+				b.WriteString(fmt.Sprintf("- (+%d more supply-gap-dominant seat(s); see the measured observations)\n", len(seatComps)-traceWaitEvidenceSeatCompositionCap))
+				break
+			}
+			seat := fmt.Sprintf("#%d", fact.rank)
+			if fact.rank >= 1 && fact.rank <= len(badges) {
+				seat = badges[fact.rank-1]
+			}
+			var terms []string
+			if fact.runnable != "" {
+				terms = append(terms, "反转等待(全额) "+fact.runnable+"ms")
+			}
+			terms = append(terms, "running 折算 "+fact.running+"ms")
+			paren := "供给缺口 " + fact.deficit + "ms 下界为主"
+			if fact.thermalKHz > 0 {
+				if fact.thermalWitnessed {
+					paren += fmt.Sprintf(",热限压 %.2fGHz", float64(fact.thermalKHz)/1e6)
+				} else {
+					paren += fmt.Sprintf(",窗内运行于 %.2fGHz(限压原因未见证)", float64(fact.thermalKHz)/1e6)
+				}
+			}
+			b.WriteString(fmt.Sprintf("- 席位构成(%s %s %s): %s(%s)——两因并提,引用勿推导\n",
+				seat, fact.subject, compoundWord, strings.Join(terms, " + "), paren))
 		}
 	}
 	if len(selectedEdges) > 0 {

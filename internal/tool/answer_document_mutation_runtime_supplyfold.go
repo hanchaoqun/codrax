@@ -34,6 +34,7 @@ package tool
 import (
 	"fmt"
 
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -215,6 +216,54 @@ func runtimeTraceProjFoldReferenceMark(refClass string) runtimeTraceProjMark {
 		return runtimeTraceProjMarkCaliberReferenceClusterFmax
 	}
 	return runtimeTraceProjMarkCaliberBigCoreFmax
+}
+
+// --- INV-SUPPLY 件① compound type word (§29.61.11/.11a, 2026-07-14) -----------
+
+// runtimeTraceProjSupplyGapDominantSeat is the typed dominance predicate for
+// ONE seat: an inversion row whose supply fold ran and whose published
+// deficit dominates its published effective attribution (the shared
+// types.TraceSupplyGapDominant inequality — the SAME criterion the model-face
+// seat-composition fact consumes, internal/context). Pure typed comparison;
+// it selects wording only (soft face — ranking, values and gates untouched).
+//
+// 普查结论 (work-order census, 2026-07-14): the Dominant supply-fold FORM
+// also appears on NON-inversion seats — exactly the PURE running family
+// (tieba witness: com.baidu.tieba-59566 算力供给候选 #7, eff 2.089 ==
+// deficit 2.089), where the §20.2 running arm publishes eff = deficit by
+// identity, making the ratio 100% by construction. The compression DISEASE
+// the ruling names (行2 类型词单形 → prose drops the frequency component)
+// does NOT exist there: that family's type word 算力供给候选 ALREADY names
+// the supply mechanism, and 行3 speaks 折算,按大核满频 — appending
+// 「·供给缺口主导」 would be a same-family tautology (§29.36.4 冗余判据).
+// The suffix arm therefore covers seats whose type word names a NON-supply
+// mechanism while the gap dominates — today exactly the inversion family;
+// the composer below is the generic word+suffix form the ruling pre-approved
+// should a future family need the same arm.
+func runtimeTraceProjSupplyGapDominantSeat(node types.TraceCausalProjectionNode) bool {
+	return runtimeTraceCausalProjectionInversionRow(node) && node.SupplyFoldComputed &&
+		types.TraceSupplyGapDominant(node.SupplyFoldDeficitMS, node.EffectiveImpactMS)
+}
+
+// runtimeTraceProjInversionSupplyGapCompoundWord is THE single composer of
+// the compound type word 「优先级反转候选·供给缺口主导」 (zh) /
+// "priority_inversion_candidate · supply-gap dominant" (en) — consumed by
+// the 行2 category-word arm AND the ◎ overview class-word slot (转录制同词,
+// 零新词源: the overview transcribes these exact bytes, never a re-spelling).
+// Word bytes single-sourced in tracefence (table ③b); face separators follow
+// the within-tag conventions (zh no-space "·", en spaced " · " — supply-fold
+// clause F3 precedent). ok=false below the threshold or without a fold — the
+// callers keep their pre-INV-SUPPLY words byte-identically.
+func runtimeTraceProjInversionSupplyGapCompoundWord(node types.TraceCausalProjectionNode, zh bool) (string, bool) {
+	if !runtimeTraceProjSupplyGapDominantSeat(node) {
+		return "", false
+	}
+	if zh {
+		return runtimeTraceRootCauseTypeZHLabel("priority_inversion_candidate") + "·" + tracefence.SupplyGapDominantWordZH, true
+	}
+	// D2 discipline: the EN inversion category word is the raw wire token
+	// (PTV6-C ruling B) — the suffix rides it with the spaced en separator.
+	return "priority_inversion_candidate" + " · " + tracefence.SupplyGapDominantWordEN, true
 }
 
 // runtimeTraceProjSupplyFoldVerdict is the typed four-branch outcome.

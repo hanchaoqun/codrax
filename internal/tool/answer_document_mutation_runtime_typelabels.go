@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -35,7 +36,8 @@ import (
 func runtimeTraceRootCauseTypeZHLabel(token string) string {
 	switch strings.ToLower(strings.TrimSpace(token)) {
 	case "priority_inversion_candidate":
-		return "优先级反转候选"
+		// INV-SUPPLY §29.61.11: bytes in tracefence (UXG-1 M1; feed shares them).
+		return tracefence.InversionCandidateWordZH
 	case "priority_inversion_runnable_wait":
 		return "优先级反转·可运行等待"
 	case "io_latency":

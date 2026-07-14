@@ -97,6 +97,14 @@ var wordingLaneRules = []wordingLaneRule{
 			// helper so the THERM sentence could append once at the wrapper —
 			// still ONE decision-table home, only the enclosing func renamed.
 			"answer_document_mutation_runtime_supplyfold.go::runtimeTraceProjSupplyFoldClauseCore": true,
+			// INV-SUPPLY 件① (§29.61.11, 2026-07-14; §7.4/§7.5 re-read): the
+			// 供给缺口主导 legend entry NAMES the delivery-lane quantity its
+			// typed criterion compares (「该席已发布的供给折算缺口量 ≥ 有效
+			// 归因×50%」) so the reader can bind the suffix to the row's own
+			// clause word — a noun reference to the SAME lane, not a second
+			// decision-table sentence (the four-branch clause home above stays
+			// the only clause emitter).
+			"answer_document_mutation_runtime_tree.go::runtimeTraceProjLegendCatalog": true,
 			// PTV8-RCR-A §24 ②/§24.1 (2026-07-08): the inversion node's
 			// detail-block 供给折算 line — the retired Triple sentence's data
 			// half in the unified sub-row grammar (供给折算缺口 句式并入口径
@@ -113,13 +121,24 @@ var wordingLaneRules = []wordingLaneRule{
 		term: "running 折算",
 		whitelist: map[string]bool{
 			"answer_document_mutation_runtime_supplyfold.go::runtimeTraceProjInversionCompositionText": true,
+			// INV-SUPPLY 件② 收尾件4 (§29.61.11a, 2026-07-14; §7.4/§7.5
+			// re-read): the model-face seat-composition fact quotes the
+			// inversion lane's own component term verbatim (反转等待(全额) X +
+			// running 折算 Y) — SAME lane, a quoting consumer, never a second
+			// clause/decision table. The 收口 is this registration: the lint
+			// now scans ../context, so any further literal must come back
+			// through this table.
+			"trace_wait_evidence_summary.go::formatTraceWaitWakeEvidenceFromLedger": true,
 		},
 	},
 }
 
-// wordingLintDirs: the two packages owning trace causal wording (relative to
-// this package's directory).
-var wordingLintDirs = []string{".", "../tracequery"}
+// wordingLintDirs: the packages owning trace causal wording (relative to
+// this package's directory). 收尾件4 (2026-07-14): ../context joined the scan
+// — the CR-1/EVID/INV-SUPPLY feed lanes quote display wording onto the model
+// face, so their literals ride the same lane discipline (a term hit there
+// without a whitelist row is a fork like any other).
+var wordingLintDirs = []string{".", "../tracequery", "../context"}
 
 func TestSemanticWordingLaneLint(t *testing.T) {
 	fset := token.NewFileSet()
