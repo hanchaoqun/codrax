@@ -17,6 +17,16 @@ import (
 // Markdown: the real 树读法 legend block, the causal-projection ```text
 // fence, the real 各列口径 glossary block, and the metric table head).
 // Do not hand-edit it — fixtures carry the engine-cast shape.
+//
+// PIN-1 B6 复核 (§29.65, 2026-07-13): the specimens deliberately keep the
+// ARCHIVE-ERA word forms (「◦ 其余 6 项合并」 here, 「其余N项(链上折叠)」 in
+// auxfold_cmp_792.md) — reports minted before the P2a rider 件1 rename.
+// They are consumed by these preview tests only (no production reader), and
+// the assertions here exercise appendix relocation/dedup geometry, never the
+// current-generation fold vocabulary; the CURRENT forms' preview coverage
+// lives in the projection-family pins (internal/tool p2a/pts2 + the PIN-1
+// md↔html byte-identity sweep). VERBATIM 存档标本原则: never refresh these
+// bytes to新词形.
 
 func auxFoldFixture(t *testing.T) []byte {
 	t.Helper()

@@ -1178,4 +1178,29 @@ if ! grep -q 'answer volatility detected' "$tmp/data-real-gate-volatile.err"; th
   fail "data real scenario gate volatility failure was not explained"
 fi
 
+# --- eval_archive_output_artifacts (ARTIFACT-KEEP, PIN-1 B7) ---------------
+fake_root="$tmp/artifact-keep-root"
+mkdir -p "$fake_root/.codrax/output"
+printf 'witness md\n' >"$fake_root/.codrax/output/20260713-000001.000-11.md"
+printf 'witness html\n' >"$fake_root/.codrax/output/20260713-000001.000-11.html"
+eval_archive_output_artifacts "$fake_root" || fail "archive helper must not fail"
+[[ -f "$fake_root/.codrax/output_archive/20260713-000001.000-11.md" ]] ||
+  fail "md witness was not archived"
+[[ -f "$fake_root/.codrax/output_archive/20260713-000001.000-11.html" ]] ||
+  fail "html witness was not archived"
+[[ -f "$fake_root/.codrax/output/20260713-000001.000-11.md" ]] ||
+  fail "archive must copy, never move, the original dump"
+# Idempotent no-clobber: a re-run keeps the FIRST archived copy even if the
+# live dump was rewritten in between.
+printf 'rewritten\n' >"$fake_root/.codrax/output/20260713-000001.000-11.md"
+eval_archive_output_artifacts "$fake_root" || fail "archive helper must not fail on rerun"
+assert_eq "$(cat "$fake_root/.codrax/output_archive/20260713-000001.000-11.md")" "witness md" \
+  "archive must be no-clobber (first copy wins)"
+# Absent output dir: silent no-op.
+eval_archive_output_artifacts "$tmp/artifact-keep-missing" || fail "missing output dir must be a no-op"
+# run.sh must actually invoke the guard before any run (wiring pin; the Go
+# side mirrors this in internal/outputdump).
+grep -q 'eval_archive_output_artifacts "\$ROOT"' eval/run.sh ||
+  fail "eval/run.sh lost the ARTIFACT-KEEP archive call"
+
 echo "ok eval runner contracts"

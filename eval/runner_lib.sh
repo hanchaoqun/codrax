@@ -84,6 +84,40 @@ PY
   "$@"
 }
 
+# eval_archive_output_artifacts <repo-root> — ARTIFACT-KEEP mechanical guard
+# (PIN-1 B7, ledger §29.65 / §29.60.2 第三犯, 2026-07-13).
+#
+# Root cause: eval runs execute codrax with CWD at the repo root, so every run
+# writes its report into <root>/.codrax/output/ — and the product's retention
+# prune (outputdump.PruneDir, keeps the newest N) then deletes the OLDEST
+# dumps there. A gold sweep floods that directory and silently destroys the
+# operator's replay/witness artifacts (three incidents: gold sweep ate a
+# witness dump; log rotation ate 6/7 morning witness logs; §29.55.5 F-item).
+#
+# Guard shape: BEFORE any run starts, copy (cp -pn: no-clobber, preserve
+# mtimes) every existing dump into <root>/.codrax/output_archive/. Canonical
+# dump names are timestamp+pid unique, so a flat no-clobber archive is
+# idempotent and race-tolerant under parallel sweeps. The archive is
+# APPEND-ONLY by design — nothing in the harness ever deletes from it; the
+# operator prunes it manually. Never fails the run (guard, not gate).
+eval_archive_output_artifacts() {
+  local root="$1"
+  local outdir="$root/.codrax/output"
+  local archive="$root/.codrax/output_archive"
+  [[ -d "$outdir" ]] || return 0
+  local have=0 f
+  for f in "$outdir"/*.md "$outdir"/*.html; do
+    [[ -f "$f" ]] && { have=1; break; }
+  done
+  [[ "$have" -eq 1 ]] || return 0
+  mkdir -p "$archive" 2>/dev/null || return 0
+  for f in "$outdir"/*.md "$outdir"/*.html; do
+    [[ -f "$f" ]] || continue
+    cp -pn "$f" "$archive/" 2>/dev/null || true
+  done
+  return 0
+}
+
 eval_latest_result_dir() {
   local results_root="$1"
   local case_id="$2"

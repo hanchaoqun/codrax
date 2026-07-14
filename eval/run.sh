@@ -265,6 +265,12 @@ RESULTS_ROOT="${EVAL_RESULTS_ROOT:-eval/results}"
 OUTDIR="${RESULTS_ROOT}/${ID}-${TS}"
 mkdir -p "$OUTDIR"
 
+# ARTIFACT-KEEP (PIN-1 B7): runs write dumps into <root>/.codrax/output and
+# the product's retention prune evicts the oldest — archive every existing
+# witness/replay artifact BEFORE the first run so a sweep can never destroy
+# the only copy (append-only .codrax/output_archive/, see runner_lib.sh).
+eval_archive_output_artifacts "$ROOT"
+
 echo "case: $ID  ($NAME)" >&2
 echo "question: $QUESTION" >&2
 echo "runs: $N" >&2
