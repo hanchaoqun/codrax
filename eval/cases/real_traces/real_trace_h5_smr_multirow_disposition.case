@@ -38,6 +38,11 @@ ID="real_trace_h5_smr_multirow_disposition"
 NAME="real trace donghu — same-thread multi-row disposition"
 QUESTION="只分析这份 trace，不分析代码。请分析 .ugc.aweme.lite-17267 在 13762.791708s 到 13763.024898s 窗口内全部主要的等待与占用来源。如果同一个线程出现在多行结论里，请明确说明这些行之间的关系：是包含、重叠，还是可以直接相加？"
 HTRACE_FILE="eval/fixtures/real_traces/donghu.ftrace"
+# F4 seal (§29.55.5, EVAL-HYG 2026-07-14): trace-only case — --repo points at
+# the sealed stub fixture instead of the codrax self-repo, so repository
+# greps/reads cannot echo oracle witness strings (these .case files,
+# real_traces/PROFILE.md and tracequery tests all carry them verbatim).
+FIXTURE="eval/fixtures/stub_repo"
 EXPECT_CONTAINS="不可相加 D状态候选"
 EXPECT_MATCHES_REGEX="[0-9]+次\\(
 等待对象 dma_fence_default_w"

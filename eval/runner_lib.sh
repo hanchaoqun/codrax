@@ -302,6 +302,63 @@ eval_reason_slug() {
     LC_ALL=C cut -c1-120
 }
 
+# eval_expect_token_regex <token> — prints the ERE used to match one literal
+# EXPECT_CONTAINS / EXPECT_NOT_CONTAINS / EXPECT_SECTIONS / dimension /
+# inventory token, with digit-boundary guards on digit edges.
+#
+# EVALFIX h5 (§29.64 / §29.67): plain grep -F substring matching let the
+# banned count face `×3` bite the innocent `×39` (and `×2`/`×4` bite
+# `×28`/`×40`) — an oracle-precision false FAIL on a structurally fine
+# answer. `\b` is not the fix: these tokens sit in CJK/symbol context where
+# byte-locale word boundaries do not exist. Instead the boundary is spelled
+# as explicit context classes, exactly for the numeric-edge family:
+#   - a token that ENDS with a digit must not be followed by another digit
+#     (`×3` → `×3([^0-9]|$)` — end-of-line counts as a boundary);
+#   - a token that STARTS with a digit must not be preceded by one
+#     (`132.041` must not bite `5132.041`).
+# Non-digit edges keep plain substring semantics — the token's own edge
+# character (×, GHz, 次, %, letters…) is already the boundary marker, and
+# tightening those would change long-standing concept-containment matching.
+# ERE metacharacters inside the token are escaped so the literal semantics
+# of the historical -F channel are preserved.
+#
+# Hash-prefix carve-out: a token that is a pure hex string of >=7 chars with
+# at least one hex LETTER (git short-hash shape, e.g. `aa27be48`) keeps plain
+# substring semantics even on digit edges — it names an identity PREFIX of a
+# longer hash, so a following hex digit is the same object, not a different
+# value (archived u7g PASS answer carries `aa27be488e9e030afc88`; a digit
+# guard there would be a false miss).
+eval_expect_token_regex() {
+  local token="$1" escaped prefix="" suffix="" hash_like=0
+  escaped="$(printf '%s' "$token" | LC_ALL=C sed -E 's/[][\.|$(){}?+*^]/\\&/g')"
+  case "$token" in
+    *[!0-9a-fA-F]*) ;;
+    *[a-fA-F]*)
+      if [[ "${#token}" -ge 7 ]]; then
+        hash_like=1
+      fi
+      ;;
+  esac
+  if [[ "$hash_like" -eq 0 ]]; then
+    case "$token" in
+      [0-9]*) prefix='(^|[^0-9])' ;;
+    esac
+    case "$token" in
+      *[0-9]) suffix='([^0-9]|$)' ;;
+    esac
+  fi
+  printf '%s%s%s' "$prefix" "$escaped" "$suffix"
+}
+
+# eval_expect_token_present <token> <text> — case-insensitive containment
+# test for one literal expect/banned token over the checked bytes, with the
+# digit-boundary semantics of eval_expect_token_regex. Replaces the raw
+# `grep -aqiF` sites in run.sh write_verdict and the inventory row matcher.
+eval_expect_token_present() {
+  local token="$1" text="$2"
+  LC_ALL=C grep -aqiE -- "$(eval_expect_token_regex "$token")" <<<"$text"
+}
+
 eval_inventory_row_tokens_visible() {
   local text="$1"
   local row="$2"
@@ -316,7 +373,7 @@ eval_inventory_row_tokens_visible() {
     token="$(eval_trim "$token")"
     [[ -z "$token" ]] && continue
     seen=1
-    if ! LC_ALL=C grep -aqiF -- "$token" <<<"$text"; then
+    if ! eval_expect_token_present "$token" "$text"; then
       return 1
     fi
   done

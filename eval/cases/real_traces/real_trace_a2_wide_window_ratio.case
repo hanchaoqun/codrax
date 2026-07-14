@@ -9,6 +9,11 @@ ID="real_trace_a2_wide_window_ratio"
 NAME="real trace — widened window state composition ratios"
 QUESTION="只分析这份 trace，不分析代码。请分析 com.baidu.tieba 59566 主线程在 34579.472865s 到 34579.502785s 这个加宽窗口内的状态构成：各状态的累计时长和占比分别是多少，哪个状态占主导？"
 HTRACE_FILE="eval/fixtures/real_traces/donghu_tieba_frame.systrace"
+# F4 seal (§29.55.5, EVAL-HYG 2026-07-14): trace-only case — --repo points at
+# the sealed stub fixture instead of the codrax self-repo, so repository
+# greps/reads cannot echo oracle witness strings (these .case files,
+# real_traces/PROFILE.md and tracequery tests all carry them verbatim).
+FIXTURE="eval/fixtures/stub_repo"
 EXPECT_CONTAINS="com.baidu.tieba"
 EXPECT_MATCHES_REGEX="34579\\.472865
 34579\\.502785

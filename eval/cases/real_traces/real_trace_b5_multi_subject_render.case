@@ -10,6 +10,11 @@ ID="real_trace_b5_multi_subject_render"
 NAME="real trace — multi-subject main vs RenderThread"
 QUESTION="只分析这份 trace，不分析代码。在 34579.472865s 到 34579.587805s 之间，请分别说明 com.baidu.tieba 59566 主线程和 RenderThread 59891 各自的状态：谁在干活，谁在等待？渲染线程这段时间为什么几乎没有动静？"
 HTRACE_FILE="eval/fixtures/real_traces/donghu_tieba_frame.systrace"
+# F4 seal (§29.55.5, EVAL-HYG 2026-07-14): trace-only case — --repo points at
+# the sealed stub fixture instead of the codrax self-repo, so repository
+# greps/reads cannot echo oracle witness strings (these .case files,
+# real_traces/PROFILE.md and tracequery tests all carry them verbatim).
+FIXTURE="eval/fixtures/stub_repo"
 EXPECT_SECTIONS="com.baidu.tieba RenderThread"
 EXPECT_MATCHES_TEXT_REGEX="RenderThread.{0,160}(一直|全程|始终|完全)?.{0,20}(睡眠|sleep|挂起|没有运行|未运行|无运行|没有被唤醒|空闲)|(一直|全程|始终|睡眠|sleep|没有运行|未运行).{0,120}RenderThread
 (主线程|com\\.baidu\\.tieba).{0,160}(运行|running|活跃|干活|执行)"

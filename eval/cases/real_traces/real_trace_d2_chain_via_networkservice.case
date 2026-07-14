@@ -9,6 +9,11 @@ ID="real_trace_d2_chain_via_networkservice"
 NAME="real trace — chain via NetworkService"
 QUESTION="只分析这份 trace，不分析代码。com.baidu.tieba 59566 主线程反复等待的那条依赖链，上游都经过哪些线程？NetworkService（线程号 60595）在不在这条链上？请按链条顺序说明。"
 HTRACE_FILE="eval/fixtures/real_traces/donghu_tieba_frame.systrace"
+# F4 seal (§29.55.5, EVAL-HYG 2026-07-14): trace-only case — --repo points at
+# the sealed stub fixture instead of the codrax self-repo, so repository
+# greps/reads cannot echo oracle witness strings (these .case files,
+# real_traces/PROFILE.md and tracequery tests all carry them verbatim).
+FIXTURE="eval/fixtures/stub_repo"
 EXPECT_CONTAINS="CookieMonsterCl NetworkService"
 EXPECT_MATCHES_TEXT_REGEX="NetworkService.*CookieMonsterCl.*(com\\.baidu\\.tieba|主线程)|(com\\.baidu\\.tieba|主线程).*CookieMonsterCl.*NetworkService"
 EXPECT_MATCHES_REGEX="(链|chain|上游|经过|中转|依赖)"

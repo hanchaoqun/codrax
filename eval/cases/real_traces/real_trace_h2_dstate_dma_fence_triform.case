@@ -62,6 +62,11 @@ ID="real_trace_h2_dstate_dma_fence_triform"
 NAME="real trace donghu — dma_fence refined pure-D form"
 QUESTION="只分析这份 trace，不分析代码。请分析 CompThread_0-2955 在 13762.791708s 到 13763.024898s 窗口内的等待情况：它有没有进入过不可中断等待（D 状态）？内核记录的等待对象是什么，一共发生了几次，总量有多大？"
 HTRACE_FILE="eval/fixtures/real_traces/donghu.ftrace"
+# F4 seal (§29.55.5, EVAL-HYG 2026-07-14): trace-only case — --repo points at
+# the sealed stub fixture instead of the codrax self-repo, so repository
+# greps/reads cannot echo oracle witness strings (these .case files,
+# real_traces/PROFILE.md and tracequery tests all carry them verbatim).
+FIXTURE="eval/fixtures/stub_repo"
 EXPECT_CONTAINS="dma_fence_default_w 36.757 4次(3.774~16.064ms)"
 EXPECT_MATCHES_REGEX="自身·D-state(\\(对端未解析\\))? 36\\.757ms
 等待对象[ =]dma_fence_default_w"

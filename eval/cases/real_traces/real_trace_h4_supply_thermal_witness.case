@@ -30,6 +30,11 @@ ID="real_trace_h4_supply_thermal_witness"
 NAME="real trace donghu — supply discount + thermal witness"
 QUESTION="只分析这份 trace，不分析代码。请分析 .ugc.aweme.lite-17267 在 13762.791708s 到 13763.024898s 窗口内的 CPU 供给与运行占用：它在窗口内实际运行了多久？窗口内四种线程状态各占多少？它运行的 CPU 频率有没有受到限制，证据是什么？"
 HTRACE_FILE="eval/fixtures/real_traces/donghu.ftrace"
+# F4 seal (§29.55.5, EVAL-HYG 2026-07-14): trace-only case — --repo points at
+# the sealed stub fixture instead of the codrax self-repo, so repository
+# greps/reads cannot echo oracle witness strings (these .case files,
+# real_traces/PROFILE.md and tracequery tests all carry them verbatim).
+FIXTURE="eval/fixtures/stub_repo"
 EXPECT_CONTAINS="157.248 受热限压至 1.53GHz 全窗四态"
 EXPECT_NOT_CONTAINS="132.041 still_present not_enough_evidence"
 EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

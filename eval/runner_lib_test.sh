@@ -1203,4 +1203,96 @@ eval_archive_output_artifacts "$tmp/artifact-keep-missing" || fail "missing outp
 grep -q 'eval_archive_output_artifacts "\$ROOT"' eval/run.sh ||
   fail "eval/run.sh lost the ARTIFACT-KEEP archive call"
 
+# --- eval_expect_token_regex / eval_expect_token_present (EVALFIX h5) ------
+# §29.64/§29.67 wound: banned `×3` substring-bit `×39` (and ×2/×4 bit
+# ×28/×40) in real_trace_h5 — digit-edged tokens need digit-boundary guards;
+# \b is unusable in CJK/symbol context, so boundaries are explicit classes.
+assert_eq "$(eval_expect_token_regex '×3')" '×3([^0-9]|$)' \
+  "digit-suffix token gets a trailing digit guard"
+assert_eq "$(eval_expect_token_regex '132.041')" '(^|[^0-9])132\.041([^0-9]|$)' \
+  "digit-both-edges token gets both guards and dot escaping"
+assert_eq "$(eval_expect_token_regex 'still_present')" 'still_present' \
+  "non-digit-edged token keeps plain literal semantics"
+assert_eq "$(eval_expect_token_regex '块设备IO(inode)')" '块设备IO\(inode\)' \
+  "ERE metacharacters inside the token are escaped"
+
+# The h5 false-bite form: ×39 in the answer must NOT trigger banned ×3.
+if eval_expect_token_present '×3' 'fscache_page_get_an ×39 次合计 14.756ms'; then
+  fail "banned ×3 must not bite ×39 (§29.64 substring wound)"
+fi
+if eval_expect_token_present '×2' '（×28 次）说明目标线程'; then
+  fail "banned ×2 must not bite ×28"
+fi
+# The constructed true-occurrence forms MUST still bite: mid-line,
+# punctuation-adjacent, line-end, and own-line.
+eval_expect_token_present '×3' 'sync_buffer_read_wait ×3（Σ1.354ms）' ||
+  fail "true ×3 occurrence must bite (mid-line, CJK paren follower)"
+eval_expect_token_present '×3' '合并计数 ×3' ||
+  fail "true ×3 occurrence must bite (end of text)"
+eval_expect_token_present '×3' "$(printf 'first\n×3\nlast')" ||
+  fail "true ×3 occurrence must bite (own line)"
+# Digit-prefix family: a longer number must not satisfy/trip the token.
+if eval_expect_token_present '132.041' 'sum 5132.041 ms'; then
+  fail "digit-prefixed superstring must not bite"
+fi
+if eval_expect_token_present '132.041' 'total 132.0415 ms'; then
+  fail "digit-suffixed superstring must not bite"
+fi
+eval_expect_token_present '132.041' 'total 132.041ms' ||
+  fail "digit token followed by a unit must bite"
+# Positive channel precision: 4次( must not be satisfied by 14次(.
+if eval_expect_token_present '4次(3.774~16.064ms)' '折叠 14次(3.774~16.064ms)'; then
+  fail "4次(...) must not be satisfied by 14次(...)"
+fi
+eval_expect_token_present '4次(3.774~16.064ms)' '折叠 4次(3.774~16.064ms)' ||
+  fail "paren-carrying fold token must bite its exact form"
+# Historical semantics preserved: ASCII case-insensitivity and trailing-digit
+# identifiers followed by non-digit context.
+eval_expect_token_present 'rust' 'Rust 运行时崩溃' ||
+  fail "case-insensitive concept matching must be preserved"
+eval_expect_token_present 'binder:496_9' '对端 binder:496_9-10961 (proc 9743)' ||
+  fail "trailing-digit identifier followed by dash must bite"
+# Hash-prefix carve-out: git short hashes are identity PREFIXES — the next
+# char being a hex digit is the same object (archived u7g PASS witness
+# carries aa27be488e9e030afc88; a digit guard there is a false miss).
+assert_eq "$(eval_expect_token_regex 'aa27be48')" 'aa27be48' \
+  "hex short-hash token keeps plain substring semantics"
+eval_expect_token_present 'aa27be48' '合入 aa27be488e9e030afc88 引入了' ||
+  fail "hash prefix must still match inside the full hash"
+# But short pure-digit values are NOT hashes — the guard applies.
+if eval_expect_token_present '8330' 'period 18330us'; then
+  fail "pure-digit value must not bite inside a longer number"
+fi
+
+# --- run.sh OUTDIR exclusivity (same-case same-second collision guard) -----
+# Two run.sh processes launched for the SAME case in the SAME second used to
+# share ID-TS and race each other's run files (witnessed 2026-07-14: parallel
+# same-case arms cross-contaminated verdicts / setup_fail). run.sh must claim
+# an unused directory atomically; when the second-granular name is taken it
+# suffixes .2, .3, … — simulate the collision by pre-claiming every name the
+# invocation could pick in the next seconds.
+cat >"$tmp/fake-codrax-outdir" <<'SH'
+#!/usr/bin/env bash
+echo '━━━'
+echo 'outdir exclusivity probe answer with enough characters to pass'
+SH
+chmod +x "$tmp/fake-codrax-outdir"
+cat >"$tmp/outdir-claim.case" <<'CASE'
+ID="outdir_claim"
+NAME="outdir claim"
+QUESTION="outdir exclusivity test"
+EXPECT_CONTAINS="probe"
+CASE
+mkdir -p "$tmp/outdir-results"
+for pre_ts in $(python3 -c 'import time
+for i in range(0, 20):
+    print(time.strftime("%Y%m%d-%H%M%S", time.localtime(time.time() + i)))'); do
+  mkdir -p "$tmp/outdir-results/outdir_claim-$pre_ts"
+done
+CODRAX_BIN="$tmp/fake-codrax-outdir" EVAL_RESULTS_ROOT="$tmp/outdir-results" CODRAX_PROVIDER_ARGS_RAW="" \
+  eval/run.sh "$tmp/outdir-claim.case" 1 >/dev/null 2>&1 || fail "outdir claim eval failed to run"
+outdir_suffixed="$(ls -dt "$tmp/outdir-results"/outdir_claim-*.2 2>/dev/null | head -1)"
+[[ -n "$outdir_suffixed" ]] || fail "collided OUTDIR was not re-claimed with a .2 suffix"
+assert_eq "$(cat "$outdir_suffixed/run-1.verdict")" "PASS" "suffixed OUTDIR run must complete normally"
+
 echo "ok eval runner contracts"

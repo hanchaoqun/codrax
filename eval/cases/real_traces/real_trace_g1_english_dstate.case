@@ -9,6 +9,11 @@ ID="real_trace_g1_english_dstate"
 NAME="real trace — English variant D-state/io wait"
 QUESTION="Analyze this trace only; do not analyze any source code. For the com.baidu.tieba main thread (tid 59566), did it ever enter uninterruptible sleep (D state) or IO wait anywhere in this trace? When did that happen, and what wait reason did the kernel record?"
 HTRACE_FILE="eval/fixtures/real_traces/donghu_tieba_frame.systrace"
+# F4 seal (§29.55.5, EVAL-HYG 2026-07-14): trace-only case — --repo points at
+# the sealed stub fixture instead of the codrax self-repo, so repository
+# greps/reads cannot echo oracle witness strings (these .case files,
+# real_traces/PROFILE.md and tracequery tests all carry them verbatim).
+FIXTURE="eval/fixtures/stub_repo"
 EXPECT_CONTAINS="sync_buffer_read_wi"
 EXPECT_MATCHES_REGEX="(D[- ]?state|uninterruptible|io_?wait|IO wait|D 状态|不可中断|IO 等待)
 34579\\.4(5|7)"

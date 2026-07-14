@@ -29,6 +29,11 @@ ID="real_trace_h1_binder_true_false_attribution"
 NAME="real trace donghu — binder true/false attribution dual form"
 QUESTION="只分析这份 trace，不分析代码。请分析 .ugc.aweme.lite-17267 在 13762.791708s 到 13763.024898s 整个窗口内与 binder/IPC 相关的等待：真正等在 binder 对端回复上的时间一共有多少、发生在什么时候、对端是谁？窗口内那些十几毫秒级的长睡眠段是不是 binder 等待？请给出根因排序。"
 HTRACE_FILE="eval/fixtures/real_traces/donghu.ftrace"
+# F4 seal (§29.55.5, EVAL-HYG 2026-07-14): trace-only case — --repo points at
+# the sealed stub fixture instead of the codrax self-repo, so repository
+# greps/reads cannot echo oracle witness strings (these .case files,
+# real_traces/PROFILE.md and tracequery tests all carry them verbatim).
+FIXTURE="eval/fixtures/stub_repo"
 EXPECT_CONTAINS="binder:496_9 帧间空闲(等待下一帧) ∿"
 EXPECT_MATCHES_REGEX="1\\.409
 15\\.758"

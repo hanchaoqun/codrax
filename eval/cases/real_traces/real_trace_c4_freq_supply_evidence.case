@@ -10,6 +10,11 @@ ID="real_trace_c4_freq_supply_evidence"
 NAME="real trace — frequency evidence per cpu honesty"
 QUESTION="只分析这份 trace，不分析代码。这份 trace 里有哪些 CPU 频率方面的证据？哪些核上有频率采样，频率范围多大？是不是所有核都有频率数据？"
 HTRACE_FILE="eval/fixtures/real_traces/donghu_tieba_frame.systrace"
+# F4 seal (§29.55.5, EVAL-HYG 2026-07-14): trace-only case — --repo points at
+# the sealed stub fixture instead of the codrax self-repo, so repository
+# greps/reads cannot echo oracle witness strings (these .case files,
+# real_traces/PROFILE.md and tracequery tests all carry them verbatim).
+FIXTURE="eval/fixtures/stub_repo"
 EXPECT_MATCHES_REGEX="(2189000|2\\.189 ?GHz|2\\.19 ?GHz|2189 ?MHz)
 (807000|807 ?MHz|0\\.807 ?GHz)
 (cpu|CPU|核).{0,3}3"

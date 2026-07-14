@@ -10,6 +10,11 @@ ID="real_trace_c2_dstate_iowait"
 NAME="real trace — D-state/io_wait evidence"
 QUESTION="只分析这份 trace，不分析代码。com.baidu.tieba 59566 主线程在这份 trace 里有没有进入过不可中断等待（D 状态）或 IO 等待？发生在什么时间，内核记录的等待原因是什么，总量有多大？"
 HTRACE_FILE="eval/fixtures/real_traces/donghu_tieba_frame.systrace"
+# F4 seal (§29.55.5, EVAL-HYG 2026-07-14): trace-only case — --repo points at
+# the sealed stub fixture instead of the codrax self-repo, so repository
+# greps/reads cannot echo oracle witness strings (these .case files,
+# real_traces/PROFILE.md and tracequery tests all carry them verbatim).
+FIXTURE="eval/fixtures/stub_repo"
 EXPECT_CONTAINS="sync_buffer_read_wi"
 EXPECT_MATCHES_REGEX="(D 状态|D-state|D state|不可中断|io_?wait|IO 等待|iowait)
 34579\\.4(5|7)

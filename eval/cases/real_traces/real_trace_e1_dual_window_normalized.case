@@ -11,6 +11,11 @@ ID="real_trace_e1_dual_window_normalized"
 NAME="real trace — dual window normalized comparison"
 QUESTION="只分析这份 trace，不分析代码。请对比 com.baidu.tieba 59566 主线程在两个窗口里的表现：窗口 A 是 34579.472865s 到 34579.475857s，窗口 B 是 34579.475857s 到 34579.505857s。两个窗口长度不同，请用占比或归一化的方式对比两个窗口里主线程获得 CPU 的情况差异。"
 HTRACE_FILE="eval/fixtures/real_traces/donghu_tieba_frame.systrace"
+# F4 seal (§29.55.5, EVAL-HYG 2026-07-14): trace-only case — --repo points at
+# the sealed stub fixture instead of the codrax self-repo, so repository
+# greps/reads cannot echo oracle witness strings (these .case files,
+# real_traces/PROFILE.md and tracequery tests all carry them verbatim).
+FIXTURE="eval/fixtures/stub_repo"
 # Endpoints must be echoed; full 6-decimal or legitimate ms-precision rounding
 # (34579.472865->.473, .475857->.476, .505857->.506) both accepted - presentation
 # rounding is honest, PROFILE-backed (attribution 2026-07-05, same class as e2 arm).

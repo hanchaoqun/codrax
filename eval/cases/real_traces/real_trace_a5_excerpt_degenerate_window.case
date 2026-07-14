@@ -9,6 +9,11 @@ ID="real_trace_a5_excerpt_degenerate_window"
 NAME="real trace — excerpt degenerate window coverage honesty"
 QUESTION="只分析这份 trace，不分析代码。请分析 [GT]ColdPool#6（线程号 36644）在 2942.200s 到 2942.300s 之间做了什么、等过什么？如果数据支撑不了这个窗口，请说清楚实际能分析的范围。"
 HTRACE_FILE="eval/fixtures/real_traces/donghu_short_excerpt.systrace"
+# F4 seal (§29.55.5, EVAL-HYG 2026-07-14): trace-only case — --repo points at
+# the sealed stub fixture instead of the codrax self-repo, so repository
+# greps/reads cannot echo oracle witness strings (these .case files,
+# real_traces/PROFILE.md and tracequery tests all carry them verbatim).
+FIXTURE="eval/fixtures/stub_repo"
 EXPECT_CONTAINS="ColdPool"
 EXPECT_MATCHES_REGEX="2942\\.24
 (0\\.5[0-9]* *(ms|毫秒)|0\\.556|不到 ?1 *(ms|毫秒)|亚毫秒|只覆盖|仅覆盖|实际.{0,6}(覆盖|数据)|覆盖.{0,12}(很短|极短|有限)|远小于|少量样本)"

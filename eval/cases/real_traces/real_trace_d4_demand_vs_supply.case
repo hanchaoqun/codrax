@@ -11,6 +11,11 @@ ID="real_trace_d4_demand_vs_supply"
 NAME="real trace — demand vs supply attribution wording"
 QUESTION="只分析这份 trace，不分析代码。在 34579.472865s 到 34579.587805s 期间，com.baidu.tieba 59566 主线程的卡顿更像是 CPU 算力不够（供给侧问题），还是在等依赖/事件（需求侧问题）？请给出判断和 trace 内依据。"
 HTRACE_FILE="eval/fixtures/real_traces/donghu_tieba_frame.systrace"
+# F4 seal (§29.55.5, EVAL-HYG 2026-07-14): trace-only case — --repo points at
+# the sealed stub fixture instead of the codrax self-repo, so repository
+# greps/reads cannot echo oracle witness strings (these .case files,
+# real_traces/PROFILE.md and tracequery tests all carry them verbatim).
+FIXTURE="eval/fixtures/stub_repo"
 EXPECT_CONTAINS="com.baidu.tieba"
 EXPECT_MATCHES_REGEX="(依赖|等待|需求侧|等事件|demand)
 (空闲|idle|余量|充足|不是.{0,12}(算力|CPU|供给)|并非.{0,12}(算力|CPU|供给)|(算力|CPU|供给).{0,12}(充足|不缺|足够|并非|不是瓶颈))

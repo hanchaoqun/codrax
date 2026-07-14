@@ -263,7 +263,23 @@ fi
 TS="$(date +%Y%m%d-%H%M%S)"
 RESULTS_ROOT="${EVAL_RESULTS_ROOT:-eval/results}"
 OUTDIR="${RESULTS_ROOT}/${ID}-${TS}"
-mkdir -p "$OUTDIR"
+mkdir -p "$RESULTS_ROOT"
+# OUTDIR must be EXCLUSIVE to this invocation: two run.sh processes started
+# for the SAME case in the SAME second used to share ID-TS and silently race
+# each other's run-1.out / scratch / verdict bytes (witnessed 2026-07-14:
+# parallel same-case arms cross-contaminated verdicts; concurrent
+# setup_scratch on the shared path produced setup_fail). Plain mkdir is the
+# atomic claim; on collision take the next .N suffix (eval_latest_result_dir
+# tolerates it: prefix strip + string compare + mtime sort).
+outdir_claim=2
+while ! mkdir "$OUTDIR" 2>/dev/null; do
+  OUTDIR="${RESULTS_ROOT}/${ID}-${TS}.${outdir_claim}"
+  outdir_claim=$((outdir_claim + 1))
+  if [[ "$outdir_claim" -gt 64 ]]; then
+    echo "cannot claim exclusive results dir under ${RESULTS_ROOT}/${ID}-${TS}" >&2
+    exit 1
+  fi
+done
 
 # ARTIFACT-KEEP (PIN-1 B7): runs write dumps into <root>/.codrax/output and
 # the product's retention prune evicts the oldest — archive every existing
@@ -775,15 +791,22 @@ write_verdict() {
   # LLM answers (proper-noun / class-name capitalisation). The
   # 2026-04-21 logtri_rust failure is the canonical trace:
   # EXPECT_CONTAINS='rust' vs. answer 'Rust 运行时' — 25 hits
-  # case-insensitive, 0 case-sensitive. Using -iF uniformly treats
+  # case-insensitive, 0 case-sensitive. Matching uniformly treats
   # EXPECT_CONTAINS / EXPECT_NOT_CONTAINS / EXPECT_SECTIONS as
   # "this concept must appear" rather than "this exact byte
   # sequence must appear"; if a case ever legitimately needs the
   # latter, EXPECT_MATCHES_REGEX is the explicit case-sensitive
   # channel.
+  #
+  # EVALFIX h5 (§29.64/§29.67): the literal channels go through
+  # eval_expect_token_present (runner_lib.sh), which adds
+  # digit-boundary guards on digit-edged tokens so banned `×3` can
+  # no longer bite `×39` and positive `4次(` can no longer be
+  # satisfied by `14次(`. Non-digit-edged tokens keep the exact
+  # historical substring semantics.
   if [[ -n "$EXPECT_CONTAINS" ]]; then
     for needle in $EXPECT_CONTAINS; do
-      if ! LC_ALL=C grep -aqiF -- "$needle" <<<"$cleaned"; then
+      if ! eval_expect_token_present "$needle" "$cleaned"; then
         pass=0
         reasons+=("missing:$needle")
       fi
@@ -791,7 +814,7 @@ write_verdict() {
   fi
   if [[ -n "$EXPECT_NOT_CONTAINS" ]]; then
     for needle in $EXPECT_NOT_CONTAINS; do
-      if LC_ALL=C grep -aqiF -- "$needle" <<<"$cleaned"; then
+      if eval_expect_token_present "$needle" "$cleaned"; then
         pass=0
         reasons+=("banned:$needle")
       fi
@@ -841,7 +864,7 @@ write_verdict() {
   # identifier".
   if [[ -n "$EXPECT_SECTIONS" ]]; then
     for needle in $EXPECT_SECTIONS; do
-      if ! LC_ALL=C grep -aqiF -- "$needle" <<<"$cleaned"; then
+      if ! eval_expect_token_present "$needle" "$cleaned"; then
         pass=0
         reasons+=("missing_section:$needle")
       fi
@@ -864,7 +887,7 @@ write_verdict() {
       regexes="${!regex_var:-}"
       if [[ -n "$values" ]]; then
         for value in $values; do
-          if ! LC_ALL=C grep -aqiF -- "$value" <<<"$cleaned"; then
+          if ! eval_expect_token_present "$value" "$cleaned"; then
             pass=0
             reasons+=("missing_dimension:${dim}:${value}")
           fi
@@ -884,7 +907,7 @@ write_verdict() {
         IFS="$old_ifs"
         continue
       fi
-      if ! LC_ALL=C grep -aqiF -- "$dim" <<<"$cleaned"; then
+      if ! eval_expect_token_present "$dim" "$cleaned"; then
         pass=0
         reasons+=("missing_dimension:$dim")
       fi

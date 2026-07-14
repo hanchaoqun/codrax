@@ -8,6 +8,11 @@ ID="real_trace_b4_missing_thread_miss"
 NAME="real trace — nonexistent thread honest miss"
 QUESTION="只分析这份 trace，不分析代码。请分析线程 99999 在这份 trace 中的调度情况：它运行了多久，在等什么？"
 HTRACE_FILE="eval/fixtures/real_traces/donghu_tieba_frame.systrace"
+# F4 seal (§29.55.5, EVAL-HYG 2026-07-14): trace-only case — --repo points at
+# the sealed stub fixture instead of the codrax self-repo, so repository
+# greps/reads cannot echo oracle witness strings (these .case files,
+# real_traces/PROFILE.md and tracequery tests all carry them verbatim).
+FIXTURE="eval/fixtures/stub_repo"
 EXPECT_CONTAINS="99999"
 EXPECT_MATCHES_REGEX="(不存在|没有出现|未出现|找不到|没有找到|未找到|无法找到|没有.{0,8}(记录|事件|数据)|无.{0,4}(记录|事件|数据)|not found|no such|does not (appear|exist)|absent)"
 EXPECT_NOT_CONTAINS="still_present not_enough_evidence"

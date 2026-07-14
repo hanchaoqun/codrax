@@ -31,6 +31,11 @@ ID="real_trace_h6_channel_mixed_display"
 NAME="real trace donghu — mixed-channel final display form"
 QUESTION="只分析这份 trace，不分析代码。请对 .ugc.aweme.lite-17267 在 13762.791708s 到 13763.024898s 窗口内做整体卡顿根因分析：按重要程度给出根因排序，并用树状因果视图展示直接阻塞/唤醒关系和各自的时间占比。"
 HTRACE_FILE="eval/fixtures/real_traces/donghu.ftrace"
+# F4 seal (§29.55.5, EVAL-HYG 2026-07-14): trace-only case — --repo points at
+# the sealed stub fixture instead of the codrax self-repo, so repository
+# greps/reads cannot echo oracle witness strings (these .case files,
+# real_traces/PROFILE.md and tracequery tests all carry them verbatim).
+FIXTURE="eval/fixtures/stub_repo"
 EXPECT_CONTAINS="根因排序#1 ❶ 树读法: 各列口径:"
 EXPECT_MATCHES_REGEX="(⊚|⊘)"
 EXPECT_NOT_CONTAINS="still_present not_enough_evidence"

@@ -48,6 +48,11 @@ ID="real_trace_h3_iofam_one_seat"
 NAME="real trace donghu — IO multi-caliber one-seat"
 QUESTION="只分析这份 trace，不分析代码。请分析 .ugc.aweme.lite-17267 在 13762.791708s 到 13763.024898s 窗口内自身的 IO 等待与 IO 延迟：不同统计口径下的 IO 指标分别是多少？哪些口径是墙钟时间，哪些不是？"
 HTRACE_FILE="eval/fixtures/real_traces/donghu.ftrace"
+# F4 seal (§29.55.5, EVAL-HYG 2026-07-14): trace-only case — --repo points at
+# the sealed stub fixture instead of the codrax self-repo, so repository
+# greps/reads cannot echo oracle witness strings (these .case files,
+# real_traces/PROFILE.md and tracequery tests all carry them verbatim).
+FIXTURE="eval/fixtures/stub_repo"
 EXPECT_CONTAINS="IO延迟 块设备层 块设备IO(inode) 综合评分,非墙钟 1.347"
 EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
 EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"
