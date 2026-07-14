@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "acquisition": {
+    "repository": "https://gitcode.com/diting/hmtrace.git",
+    "ref": "7fb4eabae01f310beccecf339403aca4e9660131",
+    "repository_license": "Apache-2.0",
+    "repository_license_file": "third_party/hmtrace/LICENSE.hmtrace.txt",
+    "repository_license_sha256": "c5accbbd8546e94c34aed24afe689a617627d18eed5a6c48277e48db57c23851",
+    "disclaimer": "The hmtrace repository declares Apache-2.0 for hmtrace. This does not assert that Apache-2.0 is the sole or concluded license of the bundled trace_streamer binary or its statically linked dependencies."
+  },
+  "license_concluded": "NOASSERTION",
+  "redistribution_status": "blocked",
+  "commercial_release_evidence": {
+    "payload_scoped_legal_approval": null,
+    "sbom": null,
+    "dependency_license_bundle": null,
+    "third_party_notices": null,
+    "source_build_attestation": null
+  },
+  "assets": [
+    {
+      "goos": "linux",
+      "goarch": "amd64",
+      "source_path": "assets/trace_streamer/linux-x86_64/trace_streamer",
+      "repository_path": "internal/hitraceconv/embedded_trace_streamer/linux-amd64/trace_streamer",
+      "sha256": "ecee7cf8862df3a9dde0ea39c53a29ac49edf401854efcd140ba3a063ed3971b",
+      "size_bytes": 12703088,
+      "copy_method": "verbatim_unmodified",
+      "minimum_glibc": "2.34"
+    },
+    {
+      "goos": "windows",
+      "goarch": "amd64",
+      "source_path": "assets/trace_streamer/windows-x86_64/trace_streamer.exe",
+      "repository_path": "internal/hitraceconv/embedded_trace_streamer/windows-amd64/trace_streamer.exe",
+      "sha256": "5589c881b1482a3c7a3289383afa89bd2941e297f9feaedfcc203f3f5d5a5ac8",
+      "size_bytes": 27586048,
+      "copy_method": "verbatim_unmodified",
+      "minimum_glibc": ""
+    }
+  ]
+}

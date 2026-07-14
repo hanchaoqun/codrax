@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CODRAX 下载</title>
-  <meta name="description" content="下载 CODRAX —— Linux x64 静态版与 macOS universal 发布包。" />
+  <meta name="description" content="下载 CODRAX —— Linux x64 静态精简版与 macOS universal 发布包。" />
   <style>
     :root {
       --bg: #ffffff;
@@ -358,7 +358,7 @@
         <h1>下载 CODRAX</h1>
         <p>
           这里提供 Linux 和 macOS 发布包。每个包只包含 <code>codrax</code> 二进制、<code>codrax.yaml.example</code>、
-          <code>providers.yaml.example</code> 和 <code>docs/user_guide.md</code>，不附带第三方依赖或安装脚本。
+          <code>providers.yaml.example</code> 和 <code>docs/user_guide.md</code>，不附带第三方工具或安装脚本。内嵌 <code>trace_streamer</code> 的正式商用包须先通过独立许可证据门，当前下载包不作该承诺。
         </p>
       </section>
 
@@ -367,7 +367,7 @@
         <div class="decision-grid">
           <div class="decision">
             <strong>Linux 服务器或容器</strong>
-            <span>下载 <code>codrax-linux-amd64.tar.gz</code>。二进制通过 musl 静态链接，适合 x64 Linux 环境直接运行。</span>
+            <span>下载 <code>codrax-linux-amd64.tar.gz</code>。当前发布面按静态精简包理解，需要另行配置兼容的 <code>trace_streamer</code>。</span>
           </div>
           <div class="decision">
             <strong>macOS 开发机</strong>
@@ -383,9 +383,9 @@
           <article class="card">
             <div class="card-head">
               <span class="badge">Linux</span>
-              <h3>Linux x64 静态版</h3>
+              <h3>Linux x64 静态精简版</h3>
             </div>
-            <p class="desc">适合服务器、容器和远程终端环境，二进制由 musl 静态编译，不依赖系统 glibc 版本。</p>
+            <p class="desc">适合服务器、容器和远程终端环境；不宣称内嵌 <code>trace_streamer</code>，二进制 trace 转换需通过参数、环境变量或安装路径提供兼容工具。</p>
             <a class="dl-btn" href="./codrax-linux-amd64.tar.gz">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg>
               下载 Linux x64
@@ -496,8 +496,8 @@ brew install ripgrep</code></pre>
       <section class="section">
         <h2 class="section-title">补充说明</h2>
         <div class="notes">
-          <p><strong>包内容固定：</strong><code>codrax</code>、<code>codrax.yaml.example</code>、<code>providers.yaml.example</code>、<code>docs/user_guide.md</code>。不再放入依赖压缩包、安装脚本或其它工具。</p>
-          <p><strong>Linux 构建要求：</strong>Linux x64 包必须来自静态编译；发布侧用 <code>make release</code> 时会以 <code>musl-gcc</code> 构建 <code>dist/codrax-linux-amd64</code> 后再打包。</p>
+          <p><strong>包内容固定：</strong><code>codrax</code>、<code>codrax.yaml.example</code>、<code>providers.yaml.example</code>、<code>docs/user_guide.md</code>。当前下载页不把仓库中的 acquisition LICENSE/provenance 误报为完整 payload 依赖许可闭包。</p>
+          <p><strong>内嵌包发布门：</strong>源码构建中的标准 Linux/Windows amd64 目标会内嵌匹配平台的 <code>trace_streamer</code>；其中 Linux 子工具最低要求 glibc 2.34。正式发布前还必须取得绑定两份 payload SHA 的法务批准、SBOM、依赖许可与 NOTICE、来源/构建证明。当前 provenance 为 <code>NOASSERTION/blocked</code>，<code>make release</code> 会在清理或构建前 fail-loud。</p>
           <p><strong>安装完成后第一件事</strong>是打开 <code>providers.yaml</code> 填入模型地址、模型名和密钥；更完整的配置、日志和 trace 用法见 <a href="../user_guide.html">使用手册</a>。</p>
         </div>
       </section>

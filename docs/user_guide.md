@@ -380,7 +380,7 @@ codrax --htrace /tmp/perfetto.txt -r "..."
 
 # 二进制 HiTrace 需要先手动转换;不会自动附加
 # 默认 auto 的有序路由固定为 trace_streamer→builtin；第一车道不可用或 SQL 失败才披露后回退
-# linux-amd64/windows-amd64 普通发行包默认内嵌本平台 payload；musl static、macOS 和其他架构需外部工具
+# codrax-linux-amd64 / codrax-windows-amd64.exe 开发构建默认内嵌本平台 payload；正式发行另受许可证据门约束
 # 显式 --trace-engine=trace_streamer 或 --trace-engine=builtin 时,不会退化到另一个引擎
 codrax trace convert --trace-tools-status
 codrax trace convert --input /tmp/capture.htrace.bin
@@ -421,7 +421,7 @@ REPL 内也可以先看 trace 转换工具和 sys parity gate 状态:
   · next: /htrace /tmp/capture.htrace.bin.systrace
 ```
 
-如果没有指定输出文件,默认写到 `<原文件名>.systrace`。如果目标文件已存在,codrax 会拒绝覆盖,提示先删除旧文件或重新指定输出路径。`auto` 的有序车道固定为 `trace_streamer→builtin`:先尝试 SQL;只有第一车道确实不可用,或执行/导出/归一化失败时,才会在结果中保留第一车道证据并回退到 Codrax 内置 raw trace 解析器。显式 `--trace-engine=trace_streamer` 要求 SQL 工具可用且不会退到内置解析;显式 `--trace-engine=builtin` 只走内置解析,不会尝试 SQL。普通 linux-amd64 和 windows-amd64 发行包默认只内嵌本平台经过 manifest/hash 校验的 `trace_streamer`;完全静态 musl 发行包、macOS 和其他未批准架构需要用 `--trace-streamer`、`CODRAX_TRACE_STREAMER` 或安装路径提供兼容工具。转换命令不会默认附加到当前会话;需要继续分析时,按下面两种方式之一把转换产物交给分析流程。
+如果没有指定输出文件,默认写到 `<原文件名>.systrace`。如果目标文件已存在,codrax 会拒绝覆盖,提示先删除旧文件或重新指定输出路径。`auto` 的有序车道固定为 `trace_streamer→builtin`:先尝试 SQL;只有第一车道确实不可用,或执行/导出/归一化失败时,才会在结果中保留第一车道证据并回退到 Codrax 内置 raw trace 解析器。显式 `--trace-engine=trace_streamer` 要求 SQL 工具可用且不会退到内置解析;显式 `--trace-engine=builtin` 只走内置解析,不会尝试 SQL。标准 `codrax-linux-amd64`（glibc/default-tag）与 `codrax-windows-amd64.exe` 开发构建默认只内嵌本平台经过 manifest/hash 校验的 `trace_streamer`;Linux 内嵌的子工具是 x86_64 glibc ELF，机械核验的最低 glibc 版本为 2.34（manifest 中的 GNU/Linux 3.2.0 是内核 ABI 标记，不是 glibc 版本）。完全静态、明确命名的 `codrax-linux-amd64-static-slim` 只承诺 fully-static，不把构建器名称当成 libc 家族证明；它与 macOS、其他未批准架构均需用 `--trace-streamer`、`CODRAX_TRACE_STREAMER` 或安装路径提供兼容工具，static-slim 不会伪装成标准内嵌包。正式内嵌发行还必须通过 payload-scoped 法务批准、SBOM、依赖许可/NOTICE 与来源/构建证明门；当前 provenance 的 `NOASSERTION/blocked` 会令 `make release` 在清理或构建前 fail-loud，不影响普通开发构建。转换命令不会默认附加到当前会话;需要继续分析时,按下面两种方式之一把转换产物交给分析流程。
 
 `trace_streamer` 的发现顺序固定为:显式 `--trace-streamer`、`CODRAX_TRACE_STREAMER`、Codrax 可执行文件/发行包目录、校验通过的内嵌 payload、`PATH`、已知 OpenHarmony/SmartPerf/hmtrace 安装位置。工具状态中的 `requested_engine`、`ordered_route`、`first_lane`、`preflight_engine` 和 `execution_blocker` 描述的是执行前计划;即使第一车道不可用,`auto` 的 `first_lane` 仍是 `trace_streamer`。实际尝试、成功和 fallback 以转换结果中的 `trace_provider_decision` 为准。
 

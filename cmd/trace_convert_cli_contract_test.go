@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -323,11 +324,239 @@ func TestStaticBuildsDoNotClaimGlibcTraceStreamerPayload(t *testing.T) {
 	if staticRecipes != 4 {
 		t.Fatalf("static recipe census=%d, want 4; update the packaging pin when adding a target", staticRecipes)
 	}
-	for _, disclosure := range []string{"embed trace_streamer by default", "Linux/musl", "requires glibc", "external trace_streamer", "STATIC_EXTRA_TAGS", "slim_streamer cannot be removed"} {
+	for _, disclosure := range []string{"embed the platform-matched", "fully-static", "requires glibc", "external-only", "STATIC_EXTRA_TAGS", "slim_streamer cannot be removed"} {
 		if !strings.Contains(contents, disclosure) {
 			t.Fatalf("Makefile help lacks packaging disclosure %q", disclosure)
 		}
 	}
+}
+
+func TestReleaseArtifactsPinPlatformAndStreamerContract(t *testing.T) {
+	_, currentFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("locate test source")
+	}
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(currentFile), "..", "Makefile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents := string(data)
+
+	for _, declaration := range []string{
+		"override BINARY := codrax",
+		"override GO  := go",
+		"override MAKE := make",
+		"override SHELL := powershell.exe",
+		"override .SHELLFLAGS := -NoProfile -Command",
+		"override SHELL := /bin/sh",
+		"override .SHELLFLAGS := -c",
+		"override DIST_LINUX_AMD64             := dist/$(BINARY)-linux-amd64",
+		"override DIST_LINUX_AMD64_STATIC_SLIM := dist/$(BINARY)-linux-amd64-static-slim",
+		"override DIST_WINDOWS_AMD64           := dist/$(BINARY)-windows-amd64.exe",
+		"override STATIC_BUILD_TAGS := slim_streamer",
+		"override STANDARD_EMBEDDED_BUILD_TAGS := codrax_embedded_streamer_release",
+		"override STREAMER_ARTIFACT_VERIFIER := $(GO) run ./internal/releaseartifact/cmd/verify",
+		"override STREAMER_COMMERCIAL_RELEASE_VERIFIER := $(GO) run ./internal/releaseartifact/cmd/verifycommercial",
+		"override POSIX_GO_BUILD_ENV := GOENV=off GOFLAGS=",
+		"override POSIX_GO_VERIFY_ENV := GOENV=off GOOS= GOARCH= CGO_ENABLED=0 GOFLAGS=",
+		"$(error STATIC_EXTRA_TAGS must not contain reserved standard-build tag $(STANDARD_EMBEDDED_BUILD_TAGS))",
+		"$(error formal release targets do not allow a command-line MAKEFLAGS override)",
+		"$(error formal release targets reject make -i/--ignore-errors)",
+		"$(error formal release targets reject execution-suppressing make flags (-n/-t/-q))",
+		"$(error MAKECMDGOALS is an automatic authority and must not be overridden)",
+		"override FORMAL_RELEASE_GOALS := release release-strict release-clean-dist verify-trace-streamer-commercial-release",
+		"override RELEASE_MAKE_OPTION_WORDS :=",
+		"override RELEASE_MAKE_SHORT_FLAGS :=",
+		"override FORMAL_RELEASE_PREFLIGHT_RESULT :=",
+		"formal commercial trace_streamer preflight rejected before target scheduling",
+		"override WINDOWS_GO_ENV := if (-not $$env:GOROOT)",
+		"override WSL_REPO :=",
+		"override HOST_OS := windows",
+		"override HOST_KIND := windows",
+		"override HOST_OS := unix",
+		"override HOST_KIND := darwin",
+		"override HOST_KIND := linux",
+		"override WINDOWS_AMD64_GO_ENV := $(WINDOWS_GO_ENV) $$env:GOENV='off'; $$env:GOFLAGS=''; $$env:GOOS='windows'; $$env:GOARCH='amd64';",
+		"override WINDOWS_VERIFY_GO_ENV := $(WINDOWS_GO_ENV) $$env:GOENV='off'; $$env:GOFLAGS=''; $$env:GOOS=''; $$env:GOARCH=''; $$env:CGO_ENABLED='0';",
+		"GOOS   ?= $(shell GOENV=off GOOS= GOARCH= $(GO) env GOOS)",
+		"GOARCH ?= $(shell GOENV=off GOOS= GOARCH= $(GO) env GOARCH)",
+	} {
+		if !strings.Contains(contents, declaration) {
+			t.Fatalf("release artifact authority missing %q", declaration)
+		}
+	}
+	if got := strings.Count(contents, "$(WINDOWS_AMD64_GO_ENV)"); got != 4 {
+		t.Fatalf("Windows-host amd64 authority consumer count=%d want=4 (build + lowmem + cross + release)", got)
+	}
+	if got := strings.Count(contents, "$(WINDOWS_VERIFY_GO_ENV)"); got != 10 {
+		t.Fatalf("Windows-host verifier authority consumer count=%d want=10 (artifact verifiers plus recipe/parse commercial gates)", got)
+	}
+
+	verifierRecipes := 0
+	for _, line := range strings.Split(contents, "\n") {
+		if !strings.Contains(line, "$(STREAMER_ARTIFACT_VERIFIER) --artifact") {
+			continue
+		}
+		verifierRecipes++
+		if !strings.Contains(line, "$(POSIX_GO_VERIFY_ENV)") && !strings.Contains(line, "$(WINDOWS_VERIFY_GO_ENV)") {
+			t.Fatalf("artifact verifier can inherit target tuple or persistent GOENV state:\n%s", line)
+		}
+	}
+	if verifierRecipes != 26 {
+		t.Fatalf("artifact verifier recipe census=%d want=26; update the authority pin when adding a target", verifierRecipes)
+	}
+
+	standardLinuxRecipes := 0
+	staticSlimRecipes := 0
+	windowsAMD64Recipes := 0
+	for _, line := range strings.Split(contents, "\n") {
+		switch {
+		case strings.Contains(line, "-o $(DIST_LINUX_AMD64) ."):
+			standardLinuxRecipes++
+			if !strings.Contains(line, "GOOS=linux GOARCH=amd64") || !strings.Contains(line, "-tags '$(STANDARD_EMBEDDED_BUILD_TAGS)'") || strings.Contains(line, "STATIC_BUILD_TAGS") || strings.Contains(line, "-static") {
+				t.Fatalf("standard Linux release recipe is not an embedded default-tag target:\n%s", line)
+			}
+		case strings.Contains(line, "-o $(DIST_LINUX_AMD64_STATIC_SLIM) ."):
+			staticSlimRecipes++
+			if !strings.Contains(line, "GOOS=linux GOARCH=amd64") || !strings.Contains(line, "-tags '$(STATIC_BUILD_TAGS)'") || !strings.Contains(line, "-static") {
+				t.Fatalf("Linux static-slim recipe lost its explicit target/opt-out contract:\n%s", line)
+			}
+		}
+		if strings.Contains(line, "--artifact $(DIST_LINUX_AMD64) ") && !strings.Contains(line, "--linux-runtime glibc") {
+			t.Fatalf("standard Linux artifact verifier lacks typed glibc ABI contract:\n%s", line)
+		}
+		if strings.Contains(line, "$(STREAMER_ARTIFACT_VERIFIER) --artifact") && strings.Contains(line, "--require-tags '$(STATIC_BUILD_TAGS)'") {
+			if !strings.Contains(line, "--linux-runtime static") || !strings.Contains(line, "--forbid-tags '$(STANDARD_EMBEDDED_BUILD_TAGS)'") {
+				t.Fatalf("static-slim verifier lacks static ABI or dual-identity rejection:\n%s", line)
+			}
+		}
+		if strings.Contains(line, "-o $(DIST_WINDOWS_AMD64) .") {
+			windowsAMD64Recipes++
+			if (!strings.Contains(line, "GOOS=windows GOARCH=amd64") && !strings.Contains(line, "$(WINDOWS_AMD64_GO_ENV)")) || !strings.Contains(line, "-tags '$(STANDARD_EMBEDDED_BUILD_TAGS)'") {
+				t.Fatalf("windows-amd64 filename is not bound to a matching target tuple:\n%s", line)
+			}
+		}
+	}
+	if standardLinuxRecipes != 5 || staticSlimRecipes != 3 {
+		t.Fatalf("Linux artifact recipe census standard=%d static-slim=%d want=5/3", standardLinuxRecipes, staticSlimRecipes)
+	}
+	if windowsAMD64Recipes != 5 {
+		t.Fatalf("windows-amd64 recipe census=%d want=5", windowsAMD64Recipes)
+	}
+	if got := strings.Count(contents, "release-strict:"); got != 3 {
+		t.Fatalf("release-strict host implementation count=%d want=3", got)
+	}
+	if strings.Contains(contents, "release: clean-dist") {
+		t.Fatal("formal release can clean/build before the commercial trace_streamer evidence gate")
+	}
+	if got := strings.Count(contents, "release: release-clean-dist"); got != 3 {
+		t.Fatalf("release commercial-gate chain count=%d want=3", got)
+	}
+	if got := strings.Count(contents, "release-clean-dist: verify-trace-streamer-commercial-release"); got != 2 {
+		t.Fatalf("host release-clean commercial-gate implementation count=%d want=2", got)
+	}
+	if got := strings.Count(contents, "release-strict: verify-trace-streamer-commercial-release"); got != 3 {
+		t.Fatalf("release-strict commercial preflight count=%d want=3", got)
+	}
+	releaseParts := strings.SplitN(contents, "# Release\n", 2)
+	if len(releaseParts) != 2 {
+		t.Fatal("Makefile release section marker is missing")
+	}
+	if strings.Contains(releaseParts[0], "--commercial-release") {
+		t.Fatal("development build/cross target was accidentally coupled to the commercial evidence gate")
+	}
+	formalArtifactVerifiers := strings.Count(releaseParts[1], "$(STREAMER_ARTIFACT_VERIFIER) --artifact")
+	if formalArtifactVerifiers != 13 || strings.Count(releaseParts[1], "--commercial-release") != formalArtifactVerifiers {
+		t.Fatalf("formal artifact commercial binding census verifiers=%d flags=%d want=13/13", formalArtifactVerifiers, strings.Count(releaseParts[1], "--commercial-release"))
+	}
+	for _, gate := range []string{
+		"$(WINDOWS_VERIFY_GO_ENV) & $(STREAMER_COMMERCIAL_RELEASE_VERIFIER) --repo .",
+		"$(POSIX_GO_VERIFY_ENV) $(STREAMER_COMMERCIAL_RELEASE_VERIFIER) --repo .",
+		"fails loud while provenance says NOASSERTION/blocked",
+		"if (Test-Path dist) { Remove-Item -Recurse -Force dist }",
+	} {
+		if !strings.Contains(contents, gate) {
+			t.Fatalf("commercial release gate lacks %q", gate)
+		}
+	}
+	for marker, want := range map[string]int{
+		"--artifact $(DIST_LINUX_AMD64) --repo . --goos linux --goarch amd64 --cgo 1 --payload linux-amd64":       5,
+		"--artifact $(DIST_LINUX_AMD64_STATIC_SLIM) --repo . --goos linux --goarch amd64 --cgo 1 --payload none":  3,
+		"--artifact $(DIST_WINDOWS_AMD64) --repo . --goos windows --goarch amd64 --cgo 1 --payload windows-amd64": 5,
+	} {
+		if got := strings.Count(contents, marker); got != want {
+			t.Fatalf("artifact verifier census for %q=%d want=%d", marker, got, want)
+		}
+	}
+	for _, strictPin := range []string{
+		"if ($$LASTEXITCODE -ne 0) { Write-Error 'release-strict requires",
+		"& $(MAKE) release; if (-not $$?) { Write-Error 'release-strict recursive release failed.'",
+	} {
+		if !strings.Contains(contents, strictPin) {
+			t.Fatalf("Windows release-strict lacks same-shell fail-loud pin %q", strictPin)
+		}
+	}
+	for _, disclosure := range []string{
+		"dist/$(BINARY)-linux-amd64 is the standard glibc/default-tag artifact",
+		"dist/$(BINARY)-linux-amd64-static-slim and make static are fully-static external-only artifacts",
+		"embedded Linux trace_streamer child requires glibc",
+		"release-strict     Build and require every supported/core artifact for this host",
+	} {
+		if !strings.Contains(contents, disclosure) {
+			t.Fatalf("Makefile help lacks exact release disclosure %q", disclosure)
+		}
+	}
+}
+
+func TestFormalReleaseMakeSemanticsCannotIgnoreCommercialGate(t *testing.T) {
+	makePath, err := exec.LookPath("make")
+	if err != nil {
+		t.Skip("make is not installed")
+	}
+	_, currentFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("locate test source")
+	}
+	repo := filepath.Clean(filepath.Join(filepath.Dir(currentFile), ".."))
+	tests := []struct {
+		name string
+		args []string
+		env  []string
+		want string
+	}{
+		{name: "ignore errors flag", args: []string{"-i", "-n", "release"}, want: "reject make -i/--ignore-errors"},
+		{name: "hidden ignore errors flag", args: []string{"-i", "-n", "release", "MAKEFLAGS="}, want: "do not allow a command-line MAKEFLAGS override"},
+		{name: "environment ignore errors", args: []string{"-n", "release"}, env: []string{"MAKEFLAGS=--ignore-errors"}, want: "reject make -i/--ignore-errors"},
+		{name: "dry run is not a release", args: []string{"-n", "release"}, want: "reject execution-suppressing make flags"},
+		{name: "touch mode is not a release", args: []string{"-t", "release"}, want: "reject execution-suppressing make flags"},
+		{name: "old-file cannot skip preflight", args: []string{"-o", "verify-trace-streamer-commercial-release", "verify-trace-streamer-commercial-release"}, want: "formal commercial trace_streamer preflight rejected before target scheduling"},
+		{name: "formal goal authority", args: []string{"-i", "-n", "release", "FORMAL_RELEASE_GOALS="}, want: "reject make -i/--ignore-errors"},
+		{name: "formal helper authority", args: []string{"-i", "-n", "release", "RELEASE_MAKE_OPTION_WORDS=", "RELEASE_MAKE_SHORT_FLAGS="}, want: "reject make -i/--ignore-errors"},
+		{name: "automatic goal authority", args: []string{"-i", "-n", "release", "MAKECMDGOALS="}, want: "MAKECMDGOALS is an automatic authority"},
+		{name: "reserved static identity", args: []string{"-n", "static", "STATIC_EXTRA_TAGS=codrax_embedded_streamer_release"}, want: "must not contain reserved standard-build tag"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			command := exec.Command(makePath, test.args...)
+			command.Dir = repo
+			command.Env = append(environmentWithoutKey(os.Environ(), "MAKEFLAGS"), test.env...)
+			output, err := command.CombinedOutput()
+			if err == nil || !strings.Contains(string(output), test.want) {
+				t.Fatalf("make %v error=%v output=%s, want fail-loud containing %q", test.args, err, output, test.want)
+			}
+		})
+	}
+}
+
+func environmentWithoutKey(environment []string, blocked string) []string {
+	prefix := strings.ToUpper(blocked) + "="
+	out := make([]string, 0, len(environment))
+	for _, item := range environment {
+		if !strings.HasPrefix(strings.ToUpper(item), prefix) {
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 func commandHelpText(t *testing.T, command *cobra.Command) string {

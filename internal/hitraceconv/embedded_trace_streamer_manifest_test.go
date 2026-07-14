@@ -20,14 +20,14 @@ import (
 //
 //	windows-amd64/trace_streamer.exe 27,586,048
 //	linux-amd64/trace_streamer       12,703,088
-//	windows-amd64/manifest.json           1,056
-//	linux-amd64/manifest.json             1,180
+//	windows-amd64/manifest.json           1,285
+//	linux-amd64/manifest.json             1,413
 //
 // Any change — new platform payloads, binary upgrades, manifest edits —
 // MUST go through an explicit ruling and update this baseline in the
 // same commit. This is the anti-drift ratchet: nobody quietly grows the
 // release payload without the number changing here.
-const embeddedTraceStreamerPayloadRatchetBytes int64 = 40291372
+const embeddedTraceStreamerPayloadRatchetBytes int64 = 40291834
 
 func TestEmbeddedTraceStreamerDirectoryRequiresManifest(t *testing.T) {
 	info, err := os.Stat(embeddedTraceStreamerDir)
@@ -66,11 +66,14 @@ func TestEmbeddedTraceStreamerDirectoryRequiresManifest(t *testing.T) {
 		if len(manifest.Platforms) != 1 {
 			t.Fatalf("per-platform manifest %s must declare exactly one platform, got %d", name, len(manifest.Platforms))
 		}
-		approval := strings.ToLower(strings.TrimSpace(manifest.ApprovalRef))
+		approval := strings.ToLower(strings.TrimSpace(manifest.ProductApprovalRef))
 		for _, required := range []string{"by default", "slim_streamer", "external-only opt-out"} {
 			if !strings.Contains(approval, required) {
-				t.Fatalf("platform manifest %s approval_ref lacks default-embed distribution term %q: %q", name, required, manifest.ApprovalRef)
+				t.Fatalf("platform manifest %s product_approval_ref lacks default-embed distribution term %q: %q", name, required, manifest.ProductApprovalRef)
 			}
+		}
+		if manifest.LicenseConcluded != "NOASSERTION" || manifest.RedistributionStatus != "blocked" {
+			t.Fatalf("platform manifest %s must preserve the audited legal hold until payload-scoped approval exists: concluded=%q status=%q", name, manifest.LicenseConcluded, manifest.RedistributionStatus)
 		}
 		platform := manifest.Platforms[0]
 		if got := strings.TrimSpace(platform.GOOS) + "-" + strings.TrimSpace(platform.GOARCH); got != name {
@@ -173,6 +176,24 @@ func TestEmbeddedTraceStreamerManifestValidation(t *testing.T) {
 			want: "source_url",
 		},
 		{
+			name: "missing upstream ref",
+			setup: func(dir string, manifest embeddedTraceStreamerManifest) {
+				manifest.UpstreamRef = ""
+				writeEmbeddedTraceStreamerBinary(t, dir, binaryRel, binaryBody, 0o755)
+				writeEmbeddedTraceStreamerManifest(t, dir, manifest)
+			},
+			want: "upstream_ref",
+		},
+		{
+			name: "source is not commit pinned",
+			setup: func(dir string, manifest embeddedTraceStreamerManifest) {
+				manifest.SourceURL = "https://gitcode.com/diting/hmtrace/tree/main/assets/trace_streamer"
+				writeEmbeddedTraceStreamerBinary(t, dir, binaryRel, binaryBody, 0o755)
+				writeEmbeddedTraceStreamerManifest(t, dir, manifest)
+			},
+			want: "source_url must pin upstream_ref",
+		},
+		{
 			name: "missing version",
 			setup: func(dir string, manifest embeddedTraceStreamerManifest) {
 				manifest.Version = ""
@@ -182,13 +203,40 @@ func TestEmbeddedTraceStreamerManifestValidation(t *testing.T) {
 			want: "version",
 		},
 		{
-			name: "missing approval",
+			name: "missing acquisition repository license",
 			setup: func(dir string, manifest embeddedTraceStreamerManifest) {
-				manifest.ApprovalRef = ""
+				manifest.AcquisitionRepoLicense = ""
 				writeEmbeddedTraceStreamerBinary(t, dir, binaryRel, binaryBody, 0o755)
 				writeEmbeddedTraceStreamerManifest(t, dir, manifest)
 			},
-			want: "approval_ref",
+			want: "acquisition_repo_license",
+		},
+		{
+			name: "missing concluded license",
+			setup: func(dir string, manifest embeddedTraceStreamerManifest) {
+				manifest.LicenseConcluded = ""
+				writeEmbeddedTraceStreamerBinary(t, dir, binaryRel, binaryBody, 0o755)
+				writeEmbeddedTraceStreamerManifest(t, dir, manifest)
+			},
+			want: "license_concluded",
+		},
+		{
+			name: "invalid redistribution status",
+			setup: func(dir string, manifest embeddedTraceStreamerManifest) {
+				manifest.RedistributionStatus = "pending"
+				writeEmbeddedTraceStreamerBinary(t, dir, binaryRel, binaryBody, 0o755)
+				writeEmbeddedTraceStreamerManifest(t, dir, manifest)
+			},
+			want: "redistribution_status",
+		},
+		{
+			name: "missing product approval",
+			setup: func(dir string, manifest embeddedTraceStreamerManifest) {
+				manifest.ProductApprovalRef = ""
+				writeEmbeddedTraceStreamerBinary(t, dir, binaryRel, binaryBody, 0o755)
+				writeEmbeddedTraceStreamerManifest(t, dir, manifest)
+			},
+			want: "product_approval_ref",
 		},
 		{
 			name: "missing size_bytes",
@@ -553,12 +601,18 @@ func writeEmbeddedTraceStreamerBinary(t *testing.T, root, rel string, body []byt
 }
 
 func embeddedTraceStreamerTestManifest(binaryRel string, binaryBody []byte) embeddedTraceStreamerManifest {
+	minimumGlibc := ""
+	if runtime.GOOS == "linux" {
+		minimumGlibc = "2.34"
+	}
 	return embeddedTraceStreamerManifest{
-		SourceURL:   "https://gitcode.com/diting/hmtrace/tree/main",
-		UpstreamRef: "6b05b2a60456910f05c149012b0d4833faa2d10e",
-		Version:     "test fixture snapshot",
-		LicenseID:   "Apache-2.0",
-		ApprovalRef: "release-approval-123",
+		SourceURL:              "https://gitcode.com/diting/hmtrace/tree/6b05b2a60456910f05c149012b0d4833faa2d10e/assets/trace_streamer",
+		UpstreamRef:            "6b05b2a60456910f05c149012b0d4833faa2d10e",
+		Version:                "test fixture snapshot",
+		AcquisitionRepoLicense: "Apache-2.0",
+		LicenseConcluded:       "NOASSERTION",
+		RedistributionStatus:   "blocked",
+		ProductApprovalRef:     "release-approval-123",
 		Platforms: []embeddedTraceStreamerPlatform{{
 			GOOS:         runtime.GOOS,
 			GOARCH:       runtime.GOARCH,
@@ -566,6 +620,7 @@ func embeddedTraceStreamerTestManifest(binaryRel string, binaryBody []byte) embe
 			SHA256:       embeddedTraceStreamerSHA256(binaryBody),
 			SizeBytes:    int64(len(binaryBody)),
 			ActualFormat: "test fixture bytes",
+			MinimumGlibc: minimumGlibc,
 		}},
 	}
 }

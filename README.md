@@ -57,13 +57,13 @@ make info     # 查看当前平台、Go、工具链信息
 | 目标 | 命令 | 说明 |
 |---|---|---|
 | 当前平台 | `make` | 生成 `./codrax` |
-| Linux 静态包 | `make static` | Linux/musl 静态构建；macOS/Windows 会给出工具链提示 |
-| Linux amd64 | `make cross-linux` | 需要目标平台 C 工具链 |
+| Linux 标准内嵌构建 | `make cross-linux` | `dist/codrax-linux-amd64` 为 glibc/default-tag 开发构建，默认内嵌 Linux `trace_streamer`；该子工具最低要求 glibc 2.34 |
+| Linux 静态精简构建 | `make static` | Linux/WSL 生成本地 fully-static `./codrax`（不承诺具体 libc 家族，也不内嵌 glibc `trace_streamer`）；macOS 会 fail-loud 并提示所需 Linux 工具链 |
 | Linux arm64 | `make cross-linux-arm64` | 需要 `aarch64-linux-gnu-gcc` 等工具链 |
 | macOS amd64 | `make cross-darwin` | 推荐在 macOS 上构建 |
 | macOS arm64 | `make cross-darwin-arm64` | 推荐在 macOS 上构建 |
 | Windows amd64 | `make cross-windows` | 需要 MinGW 目标工具链 |
-| 发布矩阵 | `make release` | 按当前平台可用工具链构建可发布包 |
+| 正式发布矩阵 | `make release` | 先执行 payload-scoped 法务批准、SBOM、依赖许可/NOTICE 与构建证明门；当前 `NOASSERTION/blocked` 状态会在清理或构建前 fail-loud |
 
 ## 适合什么场景
 

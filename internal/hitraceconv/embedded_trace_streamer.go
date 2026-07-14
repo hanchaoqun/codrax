@@ -35,12 +35,14 @@ var embeddedTraceStreamerBundledPlatformDirs = map[string]bool{
 }
 
 type embeddedTraceStreamerManifest struct {
-	SourceURL   string                          `json:"source_url"`
-	UpstreamRef string                          `json:"upstream_ref"`
-	Version     string                          `json:"version"`
-	LicenseID   string                          `json:"license_id"`
-	ApprovalRef string                          `json:"approval_ref"`
-	Platforms   []embeddedTraceStreamerPlatform `json:"platforms"`
+	SourceURL              string                          `json:"source_url"`
+	UpstreamRef            string                          `json:"upstream_ref"`
+	Version                string                          `json:"version"`
+	AcquisitionRepoLicense string                          `json:"acquisition_repo_license"`
+	LicenseConcluded       string                          `json:"license_concluded"`
+	RedistributionStatus   string                          `json:"redistribution_status"`
+	ProductApprovalRef     string                          `json:"product_approval_ref"`
+	Platforms              []embeddedTraceStreamerPlatform `json:"platforms"`
 }
 
 type embeddedTraceStreamerPlatform struct {
@@ -55,6 +57,7 @@ type embeddedTraceStreamerPlatform struct {
 	// the bytes actually are, not what the upstream folder claims.
 	SizeBytes    int64  `json:"size_bytes"`
 	ActualFormat string `json:"actual_format"`
+	MinimumGlibc string `json:"minimum_glibc"`
 }
 
 type embeddedTraceStreamerResolution struct {
@@ -265,14 +268,24 @@ func validateEmbeddedTraceStreamerManifestFields(manifest embeddedTraceStreamerM
 	if strings.TrimSpace(manifest.UpstreamRef) == "" {
 		return fmt.Errorf("upstream_ref is required")
 	}
+	if !strings.Contains(manifest.SourceURL, manifest.UpstreamRef) {
+		return fmt.Errorf("source_url must pin upstream_ref")
+	}
 	if strings.TrimSpace(manifest.Version) == "" {
 		return fmt.Errorf("version is required")
 	}
-	if strings.TrimSpace(manifest.LicenseID) == "" {
-		return fmt.Errorf("license_id is required")
+	if strings.TrimSpace(manifest.AcquisitionRepoLicense) == "" {
+		return fmt.Errorf("acquisition_repo_license is required")
 	}
-	if strings.TrimSpace(manifest.ApprovalRef) == "" {
-		return fmt.Errorf("approval_ref is required")
+	if strings.TrimSpace(manifest.LicenseConcluded) == "" {
+		return fmt.Errorf("license_concluded is required")
+	}
+	status := strings.ToLower(strings.TrimSpace(manifest.RedistributionStatus))
+	if status != "blocked" && status != "approved" {
+		return fmt.Errorf("redistribution_status must be blocked or approved")
+	}
+	if strings.TrimSpace(manifest.ProductApprovalRef) == "" {
+		return fmt.Errorf("product_approval_ref is required")
 	}
 	if len(manifest.Platforms) == 0 {
 		return fmt.Errorf("at least one platform binary is required")
@@ -300,6 +313,13 @@ func validateEmbeddedTraceStreamerManifestFields(manifest embeddedTraceStreamerM
 		}
 		if strings.TrimSpace(platform.ActualFormat) == "" {
 			return fmt.Errorf("actual_format (verbatim `file` output) is required for embedded trace_streamer platform %s", key)
+		}
+		if goos == "linux" {
+			if platform.MinimumGlibc != "2.34" {
+				return fmt.Errorf("minimum_glibc=%q want 2.34 for embedded trace_streamer platform %s", platform.MinimumGlibc, key)
+			}
+		} else if platform.MinimumGlibc != "" {
+			return fmt.Errorf("minimum_glibc must be empty for embedded trace_streamer platform %s", key)
 		}
 	}
 	return nil

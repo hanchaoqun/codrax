@@ -1,0 +1,4 @@
+# Hash-bound provenance, licenses, approvals, SBOMs, notices, and attestations
+# must retain byte identity on Windows checkouts with core.autocrlf enabled.
+hmtrace/** -text
+trace_streamer/** -text
