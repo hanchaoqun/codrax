@@ -409,8 +409,8 @@ func TestProfilerFtraceEnvelopeProducerTypedStructurePinned(t *testing.T) {
 		"var pairDelta traceDBProfilerEventDelta":                           1,
 		"stageProfilerFtraceEventBatchDeltaContext(ctx, batch, event.Field": 2,
 		"sink.commitProfilerEventDeltaContext(ctx, pairDelta)":              1,
-		"sink.addProfilerEventContext(ctx, row, pairDelta)":                 1,
-		"batchDelta.commit()":                                               2,
+		"sink.addSequencedProfilerEventContext(ctx, seq, row, pairDelta)":   1,
+		"batchDelta.commit()": 2,
 	} {
 		if count := strings.Count(directLoop, token); count != want {
 			t.Fatalf("structured event transaction token %q count=%d want=%d", token, count, want)
@@ -433,7 +433,7 @@ func TestProfilerFtraceEnvelopeProducerTypedStructurePinned(t *testing.T) {
 	rejectedSinkAt := strings.Index(directLoop, "sink.commitProfilerEventDeltaContext(ctx, pairDelta)")
 	rejectedCommitAt := strings.Index(directLoop, "batchDelta.commit()")
 	emittedStageAt := strings.Index(directLoop, "stageProfilerFtraceEventBatchDeltaContext(ctx, batch, event.Field, ok, issues, true)")
-	emittedSinkAt := strings.Index(directLoop, "sink.addProfilerEventContext(ctx, row, pairDelta)")
+	emittedSinkAt := strings.Index(directLoop, "sink.addSequencedProfilerEventContext(ctx, seq, row, pairDelta)")
 	emittedCommitRel := strings.Index(directLoop[emittedSinkAt:], "batchDelta.commit()")
 	if rejectedStageAt < 0 || rejectedSinkAt <= rejectedStageAt || rejectedCommitAt <= rejectedSinkAt ||
 		emittedStageAt <= rejectedCommitAt || emittedSinkAt <= emittedStageAt || emittedCommitRel < 0 {

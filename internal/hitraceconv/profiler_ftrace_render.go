@@ -240,7 +240,7 @@ func renderProfilerFtraceStructuredResultConsumerContext(ctx context.Context, re
 			return nil
 		}
 		task := firstNonEmpty(event.Comm, "unknown")
-		row, err := prepareTraceDBRenderedRowWithTraceFlagsContext(ctx, int64(event.TSNS), *seq, task, event.PID,
+		row, err := prepareTraceDBRenderedRowWithTraceFlagsContext(ctx, int64(event.TSNS), 0, task, event.PID,
 			event.TGID, event.CPU, event.CommonFlags, event.CommonPreemptCount, name+": "+body)
 		if err != nil {
 			return err
@@ -305,12 +305,11 @@ func renderProfilerFtraceStructuredResultConsumerContext(ctx context.Context, re
 		if err != nil {
 			return err
 		}
-		if err := sink.addProfilerEventContext(ctx, row, pairDelta); err != nil {
+		if err := sink.addSequencedProfilerEventContext(ctx, seq, row, pairDelta); err != nil {
 			return err
 		}
 		batchDelta.commit()
 		commitCoverage(true)
-		(*seq)++
 		rows++
 		return nil
 	}

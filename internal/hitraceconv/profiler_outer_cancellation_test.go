@@ -791,7 +791,7 @@ func TestProfilerOuterCancellationProductionContextTopology(t *testing.T) {
 	for _, required := range []string{
 		"profilerTrimSpaceBytesContext(ctx, raw)",
 		"sink.commitProfilerEventDeltaContext(ctx, delta)",
-		"sink.addProfilerEventContext(ctx, row, delta)",
+		"sink.addSequencedProfilerEventContext(ctx, seq, row, delta)",
 		"sink.flushTriggeredProfilerEventContext(ctx)",
 	} {
 		if !strings.Contains(genericContext, required) {

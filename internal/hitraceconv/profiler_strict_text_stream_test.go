@@ -61,9 +61,22 @@ func TestProfilerStrictTextTwoPassProductionTopology(t *testing.T) {
 		"func addProfilerStrictSystraceStageContext(",
 		"type profilerStrictSystracePayloadScan struct {")
 	if strings.Count(add, "scanProfilerStrictSystracePayloadContext(ctx, stage.data,") != 1 ||
-		strings.Count(add, "sink.addProfilerEventContext(ctx, row, delta)") != 1 ||
-		strings.Contains(add, "sink.add(row)") {
+		strings.Count(add, "validateProfilerRowSequenceRange(seq, stage.scan.rows)") != 1 ||
+		strings.Count(add, "sink.addSequencedProfilerEventContext(ctx, seq, row, delta)") != 1 ||
+		strings.Contains(add, "sink.add(row)") || strings.Contains(add, "(*seq)++") {
 		t.Fatalf("strict text second pass is not the unique Context row-sink publisher:\n%s", add)
+	}
+	sequenceRangeAt := strings.Index(add, "validateProfilerRowSequenceRange(seq, stage.scan.rows)")
+	fixedPrePoisonCommentAt := strings.Index(add, "// This fixed-width pre-poison")
+	fixedPrePoisonLoopAt := -1
+	if fixedPrePoisonCommentAt >= 0 {
+		if relative := strings.Index(add[fixedPrePoisonCommentAt:], "for _, kind := range profilerCaptureKinds {"); relative >= 0 {
+			fixedPrePoisonLoopAt = fixedPrePoisonCommentAt + relative
+		}
+	}
+	if sequenceRangeAt < 0 || fixedPrePoisonLoopAt < 0 || sequenceRangeAt >= fixedPrePoisonLoopAt {
+		t.Fatalf("strict sequence capacity gate no longer dominates whole-kind pre-poison: range=%d pre_poison=%d\n%s",
+			sequenceRangeAt, fixedPrePoisonLoopAt, add)
 	}
 
 	scan := sourceBetween(t, authority,

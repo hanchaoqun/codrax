@@ -2395,6 +2395,44 @@ func profilerFtraceClockName(id uint64) string {
 	}
 }
 
+func validateProfilerSessionRowCounterState(coverage *TraceDBCoverage,
+	out *profilerContainerExtraction, seq int,
+) error {
+	if coverage == nil || out == nil || seq < 0 || coverage.RowsRead < 0 ||
+		coverage.RowsEmitted != seq || out.TextRows != seq || coverage.RowsRead < coverage.RowsEmitted {
+		return &traceDBOutputInvariantError{Reason: "profiler_session_row_counter_state_invalid"}
+	}
+	return nil
+}
+
+func nextProfilerSessionRowsRead(rowsRead int) (int, error) {
+	next := rowsRead
+	if !checkedProfilerIntAddTo(&next, 1) {
+		return 0, &traceDBOutputInvariantError{Reason: "profiler_session_rows_read_overflow"}
+	}
+	return next, nil
+}
+
+func commitProfilerSessionRowCounters(coverage *TraceDBCoverage,
+	out *profilerContainerExtraction, oldSeq, nextSeq, lineRows, nextRowsRead int,
+) error {
+	if err := validateProfilerSessionRowCounterState(coverage, out, oldSeq); err != nil {
+		return err
+	}
+	wantRowsRead, err := nextProfilerSessionRowsRead(coverage.RowsRead)
+	if err != nil || wantRowsRead != nextRowsRead || lineRows < 0 || lineRows > 1 {
+		return &traceDBOutputInvariantError{Reason: "profiler_session_row_counter_commit_invalid"}
+	}
+	wantSeq := oldSeq
+	if !checkedProfilerIntAddTo(&wantSeq, lineRows) || wantSeq != nextSeq || nextRowsRead < nextSeq {
+		return &traceDBOutputInvariantError{Reason: "profiler_session_row_counter_commit_invalid"}
+	}
+	coverage.RowsRead = nextRowsRead
+	coverage.RowsEmitted = nextSeq
+	out.TextRows = nextSeq
+	return nil
+}
+
 func extractProfilerSessionPackage(ctx context.Context, path string, inputSize int64,
 	sink *traceDBRowSink,
 ) (profilerContainerExtraction, error) {
@@ -2439,20 +2477,32 @@ func extractProfilerSessionPackageWithLineLimit(ctx context.Context, path string
 	oversizedLines := 0
 	_, scanErr := scanProfilerBoundedSessionRecords(ctx, reader, maxLineBytes,
 		func(record profilerBoundedPhysicalLine) (bool, error) {
-			coverage.RowsRead++
+			if err := validateProfilerSessionRowCounterState(&coverage, &out, seq); err != nil {
+				return false, err
+			}
+			nextRowsRead, err := nextProfilerSessionRowsRead(coverage.RowsRead)
+			if err != nil {
+				return false, err
+			}
 			if record.Oversized {
-				oversizedLines++
+				if oversizedLines != 0 {
+					return false, &traceDBOutputInvariantError{Reason: "profiler_session_oversized_record_count_invalid"}
+				}
+				coverage.RowsRead = nextRowsRead
+				oversizedLines = 1
 				out.SourceFailClosed = true
 				out.SourceFailReason = "session_line_size_budget_exceeded"
 				sink.failCloseAllRows()
 				return false, nil
 			}
+			oldSeq := seq
 			lineRows, rowErr := addSystraceRowsFromBytesContext(ctx, record.Bytes, &seq, sink)
 			if rowErr != nil {
 				return false, rowErr
 			}
-			coverage.RowsEmitted += lineRows
-			out.TextRows += lineRows
+			if err := commitProfilerSessionRowCounters(&coverage, &out, oldSeq, seq, lineRows, nextRowsRead); err != nil {
+				return false, err
+			}
 			return true, nil
 		})
 	if scanErr != nil {
@@ -2462,7 +2512,11 @@ func extractProfilerSessionPackageWithLineLimit(ctx context.Context, path string
 		return profilerContainerExtraction{}, scanErr
 	}
 	if oversizedLines > 0 {
-		out.RejectedMessages += oversizedLines
+		if out.RejectedMessages != 0 || oversizedLines != 1 {
+			sink.abortPairRowCensus()
+			return profilerContainerExtraction{}, &traceDBOutputInvariantError{Reason: "profiler_session_oversized_record_count_invalid"}
+		}
+		out.RejectedMessages = oversizedLines
 		traceDBAppendCoverageSkipped(&coverage,
 			fmt.Sprintf("session_line_size_budget_exceeded=%d", oversizedLines))
 		if coverage.FieldSources == nil {
@@ -2958,8 +3012,11 @@ func addSystraceRowsFromBytesContext(ctx context.Context, data []byte, seq *int,
 	if len(data) == 0 {
 		return 0, nil
 	}
-	if sink == nil || seq == nil {
-		return 0, fmt.Errorf("systrace row sink or sequence is nil")
+	if sink == nil {
+		return 0, &traceDBOutputInvariantError{Reason: "trace_row_sink_missing"}
+	}
+	if seq == nil {
+		return 0, &traceDBOutputInvariantError{Reason: "profiler_row_sequence_missing"}
 	}
 	rows := 0
 	err := forEachProfilerSystraceRecordContext(ctx, data, func(raw []byte) error {
@@ -3048,7 +3105,7 @@ func addSystraceRowsFromBytesContext(ctx context.Context, data []byte, seq *int,
 			}
 			return ctx.Err()
 		}
-		row := renderedRow{tsNS: ts, seq: *seq, line: line}
+		row := renderedRow{tsNS: ts, line: line}
 		var delta traceDBProfilerEventDelta
 		if pair.Governed {
 			if headerGoverned && pair.Kind == headerKind {
@@ -3067,10 +3124,9 @@ func addSystraceRowsFromBytesContext(ctx context.Context, data []byte, seq *int,
 				delta.poisonAdmission(pair)
 			}
 		}
-		if err := sink.addProfilerEventContext(ctx, row, delta); err != nil {
+		if err := sink.addSequencedProfilerEventContext(ctx, seq, row, delta); err != nil {
 			return err
 		}
-		(*seq)++
 		rows++
 		return nil
 	})

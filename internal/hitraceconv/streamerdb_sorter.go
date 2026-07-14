@@ -602,6 +602,53 @@ func (s *traceDBRowSink) addProfilerEventContext(ctx context.Context, row render
 	return s.addContext(ctx, row, &delta, true)
 }
 
+func validateProfilerRowSequenceRange(seq *int, count int) error {
+	if seq == nil {
+		return &traceDBOutputInvariantError{Reason: "profiler_row_sequence_missing"}
+	}
+	next := *seq
+	if count < 0 || !checkedProfilerIntAddTo(&next, count) {
+		return &traceDBOutputInvariantError{Reason: "profiler_row_sequence_invalid"}
+	}
+	return nil
+}
+
+// addSequencedProfilerEventContext is the sole Profiler row/sequence commit
+// authority. It assigns the display sequence itself, lets addContext commit the
+// fixed event delta, provenance, census and row after its final Context poll,
+// then advances the caller sequence as the no-fail tail of the same event.
+// Future source-order proof must join this linearization point rather than add
+// another publisher-local sequence or digest transaction.
+func (s *traceDBRowSink) addSequencedProfilerEventContext(ctx context.Context, seq *int,
+	row renderedRow, delta traceDBProfilerEventDelta,
+) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if s == nil {
+		return &traceDBOutputInvariantError{Reason: "trace_row_sink_missing"}
+	}
+	if err := validateProfilerRowSequenceRange(seq, 1); err != nil {
+		return err
+	}
+	if row.seq != 0 {
+		return &traceDBOutputInvariantError{Reason: "profiler_row_sequence_preassigned"}
+	}
+	next := *seq
+	if !checkedProfilerIntAddTo(&next, 1) {
+		return &traceDBOutputInvariantError{Reason: "profiler_row_sequence_invalid"}
+	}
+	row.seq = *seq
+	if err := s.addProfilerEventContext(ctx, row, delta); err != nil {
+		return err
+	}
+	*seq = next
+	return nil
+}
+
 func (s *traceDBRowSink) commitProfilerEventDeltaContext(ctx context.Context, delta traceDBProfilerEventDelta) error {
 	if ctx == nil {
 		ctx = context.Background()

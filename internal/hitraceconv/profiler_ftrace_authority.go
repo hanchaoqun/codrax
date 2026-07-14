@@ -460,8 +460,14 @@ func addProfilerStrictSystraceStageContext(ctx context.Context, stage profilerSt
 	if stage.scan.rows == 0 {
 		return 0, false, nil
 	}
-	if sink == nil || seq == nil {
-		return 0, false, fmt.Errorf("strict systrace row sink or sequence is nil")
+	if sink == nil {
+		return 0, false, &traceDBOutputInvariantError{Reason: "trace_row_sink_missing"}
+	}
+	if seq == nil {
+		return 0, false, &traceDBOutputInvariantError{Reason: "profiler_row_sequence_missing"}
+	}
+	if err := validateProfilerRowSequenceRange(seq, stage.scan.rows); err != nil {
+		return 0, true, err
 	}
 	// This fixed-width pre-poison is one prospective mutation: observe
 	// cancellation once, then apply every bit without another failure point.
@@ -482,14 +488,12 @@ func addProfilerStrictSystraceStageContext(ctx context.Context, stage profilerSt
 			if pair.Governed && !pair.Admitted {
 				delta.poisonAdmission(pair)
 			}
-			row.seq = *seq
 			// A threshold spill is completed before the next row, never after
 			// this row's commit. That leaves the current row and sequence at one
 			// linearization point even when spill I/O or cancellation fails.
-			if err := sink.addProfilerEventContext(ctx, row, delta); err != nil {
+			if err := sink.addSequencedProfilerEventContext(ctx, seq, row, delta); err != nil {
 				return err
 			}
-			(*seq)++
 			rows++
 			return nil
 		})
