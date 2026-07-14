@@ -271,6 +271,7 @@ type traceDBRowSink struct {
 	captureBreach        string
 	captureSourceFailure string
 	allRowsFailClosed    bool
+	profilerSourceProof  profilerSourceOrderProof
 }
 
 type profilerPairRowCensus struct {
@@ -475,15 +476,42 @@ func (s *traceDBRowSink) bindContext(ctx context.Context) error {
 	return nil
 }
 
+func (s *traceDBRowSink) profilerCapturePreOpenStatePristine() bool {
+	if s == nil || s.artifacts == nil || len(s.pairRows) != 0 || len(s.pairLaneRows) != 0 ||
+		len(s.pairTableRows) != 0 || len(s.pairTableTotals) != 0 || len(s.poisoned) != 0 ||
+		len(s.poisonedLanes) != 0 || len(s.opaque) != 0 || len(s.structuredPairRows) != 0 ||
+		len(s.structuredLaneRows) != 0 || len(s.structuredEventRows) != 0 ||
+		len(s.structuredEventLanes) != 0 || len(s.pairRowMappings) != 0 || len(s.blockLaneClocks) != 0 ||
+		s.legacyPairProof.observations != 0 || s.legacyPairProof.laneKeys != 0 ||
+		s.legacyPairProof.failureReason != "" || s.blockPairProof.observations != 0 ||
+		s.blockPairProof.laneKeys != 0 || s.blockPairProof.failureReason != "" {
+		return false
+	}
+	for kind := pairRenderKind(1); kind < pairRenderKindCount; kind++ {
+		registry := s.pairLaneRegistries[kind]
+		census := s.activePairCensus[kind]
+		if len(registry.byKey) != 0 || len(registry.keys) != 0 || len(registry.states) != 0 ||
+			census.total != 0 || len(census.byLane) != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *traceDBRowSink) openProfilerCapture(sourcePath string) error {
 	if s == nil {
 		return &traceDBOutputInvariantError{Reason: "profiler_capture_sink_missing"}
 	}
 	if s.captureLifecycle != profilerCaptureInactive || s.captureSource != "" ||
 		s.stats.RowsAccepted != 0 || len(s.rows) != 0 ||
-		len(s.runs) != 0 || len(s.artifacts) != 0 || len(s.rowIngestOrdinals) != 0 || s.bufferedBytes != 0 ||
+		!s.profilerCapturePreOpenStatePristine() || len(s.runs) != 0 || len(s.artifacts) != 0 ||
+		len(s.rowIngestOrdinals) != 0 || s.bufferedBytes != 0 ||
 		s.nextIngestOrdinal != 0 || s.nextRunOrdinal != 0 || s.activeTempBytes != 0 || s.liveTempBytes != 0 ||
-		s.prepared || s.prepareFailure != nil || s.pairCensusActive || s.captureSourceFailure != "" {
+		s.prepared || s.prepareFailure != nil || s.pairCensusActive || s.textMessageActive ||
+		s.activePairPublisher != profilerPairPublisherNone || s.activeTextMessage != 0 ||
+		s.activeTextRows != 0 || s.nextTextMessage != 0 || s.captureBreach != "" ||
+		s.captureSourceFailure != "" || s.pairAuthorityFailure != "" || s.allRowsFailClosed ||
+		!s.profilerSourceProof.pristine() {
 		return &traceDBOutputInvariantError{Reason: "profiler_capture_open_state_invalid"}
 	}
 	if strings.TrimSpace(sourcePath) == "" {
@@ -502,6 +530,7 @@ func (s *traceDBRowSink) openProfilerCapture(sourcePath string) error {
 	if abs == "" || abs == "." {
 		return &traceDBOutputInvariantError{Reason: "profiler_capture_source_namespace_invalid"}
 	}
+	s.profilerSourceProof.activate()
 	s.captureSource = abs
 	s.captureLifecycle = profilerCaptureOpen
 	return nil
@@ -530,6 +559,11 @@ func (s *traceDBRowSink) sealProfilerCaptureContext(ctx context.Context) error {
 		s.recordProfilerCaptureBreach("profiler_pair_census_open_at_seal")
 		s.captureLifecycle = profilerCaptureSealed
 		return &traceDBOutputInvariantError{Reason: s.captureBreach}
+	}
+	if err := s.validateProfilerSourceOrderProof(); err != nil {
+		s.recordProfilerCaptureBreach("profiler_source_order_proof_invalid")
+		s.captureLifecycle = profilerCaptureSealed
+		return err
 	}
 	// Spill provenance is part of the capture proof, not an output-time best
 	// effort check. Complete its readback before the caller is allowed to open
@@ -566,11 +600,17 @@ func (s *traceDBRowSink) profilerMutationAllowed(reason string) bool {
 		}
 		return false
 	}
-	if s.captureLifecycle != profilerCaptureSealed {
-		return true
+	if s.captureLifecycle == profilerCaptureSealed {
+		s.recordProfilerCaptureBreach(reason)
+		return false
 	}
-	s.recordProfilerCaptureBreach(reason)
-	return false
+	if s.profilerSourceProof.frozen || s.profilerSourceProof.retired {
+		if s.captureLifecycle != profilerCaptureInactive {
+			s.recordProfilerCaptureBreach("profiler_capture_mutation_after_source_freeze")
+		}
+		return false
+	}
+	return true
 }
 
 func (s *traceDBRowSink) recordProfilerCaptureBreach(reason string) {
@@ -701,13 +741,22 @@ func (s *traceDBRowSink) addContext(ctx context.Context, row renderedRow, eventD
 	if s == nil {
 		return &traceDBOutputInvariantError{Reason: "trace_row_sink_missing"}
 	}
-	defer func() { s.recordSorterFailure(result) }()
+	defer func() {
+		s.profilerSourceProof.abortPreparedRow()
+		s.recordSorterFailure(result)
+	}()
 	if !s.profilerMutationAllowed("profiler_capture_add_after_seal") {
 		reason := s.captureBreach
 		if reason == "" {
 			reason = "trace_row_sink_add_after_prepare"
 		}
 		return &traceDBOutputInvariantError{Reason: reason}
+	}
+	if err := s.validateProfilerSourceOrderProof(); err != nil {
+		return err
+	}
+	if s.profilerSourceProof.frozen {
+		return &traceDBOutputInvariantError{Reason: "profiler_source_order_proof_frozen"}
 	}
 	if deferTriggeredFlush && (len(s.rows) >= s.threshold || s.bufferedBytes >= s.options.bufferBytes) {
 		if err := s.flushChunkWithContext(ctx); err != nil {
@@ -803,6 +852,11 @@ func (s *traceDBRowSink) addContext(ctx context.Context, row renderedRow, eventD
 	if err := s.ensureBufferedCapacity(nextBufferedRows); err != nil {
 		return err
 	}
+	if s.profilerSourceProof.active {
+		if err := s.profilerSourceProof.prepareRowContext(ctx, row, s.nextIngestOrdinal); err != nil {
+			return err
+		}
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -847,6 +901,9 @@ func (s *traceDBRowSink) addContext(ctx context.Context, row renderedRow, eventD
 	s.nextIngestOrdinal++
 	s.bufferedBytes = projectedBytes
 	s.stats.RowsAccepted++
+	if s.profilerSourceProof.prepared {
+		s.profilerSourceProof.commitPreparedRow(row.profilerProvenance())
+	}
 	if s.textMessageActive {
 		s.activeTextRows++
 	}
@@ -1826,6 +1883,9 @@ func (s *traceDBRowSink) validateProfilerPairAccounting() error {
 	if s == nil {
 		return &traceDBOutputInvariantError{Reason: "profiler_pair_sink_missing"}
 	}
+	if err := s.validateProfilerSourceOrderProof(); err != nil {
+		return err
+	}
 	if err := s.validateProfilerPairLaneRegistryParity(); err != nil {
 		return err
 	}
@@ -2260,6 +2320,16 @@ func (s *traceDBRowSink) prepareForPublication(ctx context.Context) (result erro
 	if err := ctx.Err(); err != nil {
 		s.prepareFailure = err
 		return err
+	}
+	if err := s.validateProfilerSourceOrderProof(); err != nil {
+		s.prepareFailure = err
+		return err
+	}
+	if s.captureLifecycle != profilerCaptureInactive {
+		if err := s.profilerSourceProof.freezeExpected(); err != nil {
+			s.prepareFailure = err
+			return err
+		}
 	}
 	started := time.Now()
 	defer func() {
@@ -2780,6 +2850,13 @@ func (s *traceDBRowSink) cleanup() error {
 		return nil
 	}
 	var result error
+	// Cleanup is a terminal lifecycle transition even when a filesystem
+	// removal later fails. Freeze the accepted prefix first so a caller cannot
+	// resume mutation against a partially removed artifact set; a retry may
+	// finish physical cleanup but can never change the expected source proof.
+	if s.profilerSourceProof.active && !s.profilerSourceProof.frozen && !s.profilerSourceProof.retired {
+		result = errors.Join(result, s.profilerSourceProof.freezeExpected())
+	}
 	for path, artifact := range s.artifacts {
 		if artifact == nil || artifact.removed {
 			continue
@@ -2801,6 +2878,7 @@ func (s *traceDBRowSink) cleanup() error {
 		s.activeTempBytes = 0
 		s.liveTempBytes = 0
 		s.openRunFDs = 0
+		s.profilerSourceProof.retire()
 		s.updateLiveTempStats()
 	}
 	s.recordSorterFailure(result)
