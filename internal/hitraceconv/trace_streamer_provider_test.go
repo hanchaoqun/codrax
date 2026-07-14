@@ -894,6 +894,9 @@ fi
 if [ -n "$TRACE_STREAMER_CREATE_OHOS_TS" ]; then
   printf 'fake ohos timestamp sidecar\n' > "$out.ohos.ts"
 fi
+if [ -n "$TRACE_STREAMER_CREATE_SQLITE_AUX" ]; then
+  printf 'fake uncheckpointed sqlite state\n' > "$out$TRACE_STREAMER_CREATE_SQLITE_AUX"
+fi
 `
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)

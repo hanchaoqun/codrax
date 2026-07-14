@@ -2,6 +2,7 @@ package hitraceconv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -55,7 +56,39 @@ func exportTraceDBToSystraceWithLedger(ctx context.Context, dbPath, output strin
 	if err != nil {
 		return traceDBSystraceExport{}, err
 	}
-	defer tdb.close()
+	return exportTraceDBToSystraceFromOpenWithLedger(ctx, tdb, output, ledger)
+}
+
+func exportTraceDBToSystraceFromSealedWithLedger(ctx context.Context, sealed *sealedConversionFile, displayPath, output string, ledger *conversionFileLedger) (result traceDBSystraceExport, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ensureOutputDoesNotExist(output); err != nil {
+		return traceDBSystraceExport{}, err
+	}
+	tdb, err := openTraceDBFromSealed(ctx, sealed, displayPath)
+	if err != nil {
+		return traceDBSystraceExport{}, err
+	}
+	result, err = exportTraceDBToSystraceFromOpenWithLedger(ctx, tdb, output, ledger)
+	if err != nil && !errors.Is(err, errSealedTraceDBAuthority) && sealedTraceDBSQLiteErrorIsAuthorityFailure(err) {
+		err = newSealedTraceDBAuthorityError("query_vfs", err)
+	}
+	return result, err
+}
+
+func exportTraceDBToSystraceFromOpenWithLedger(ctx context.Context, tdb *traceDB, output string, ledger *conversionFileLedger) (result traceDBSystraceExport, err error) {
+	if tdb == nil || tdb.db == nil {
+		return traceDBSystraceExport{}, fmt.Errorf("trace DB authority is required")
+	}
+	sealedAuthority := tdb.sealedVFS != nil
+	defer func() {
+		closeErr := tdb.close()
+		if sealedAuthority {
+			closeErr = newSealedTraceDBAuthorityError("close_database_and_vfs", closeErr)
+		}
+		err = traceDBJoinPreservingSingle(err, closeErr)
+	}()
 
 	sink, err := newTraceDBInactiveOrdinaryRowSink("", 0)
 	if err != nil {

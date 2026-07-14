@@ -191,45 +191,69 @@ func runTraceStreamerExport(ctx context.Context, opts Options, lane traceProvide
 		cleanup = nil
 		return traceStreamerExportResult{}, traceDBJoinPreservingSingle(ctxErr, cleanupErr)
 	}
-	info, statErr := os.Lstat(dbPath)
-	if statErr != nil {
-		if cleanupErr := cleanupTraceStreamerDBTarget(cleanup); cleanupErr != nil {
-			caveat := fmt.Sprintf("trace_streamer DB export completed but output DB is not readable: %v", statErr)
-			return traceStreamerExportResult{}, traceDBJoinPreservingSingle(traceStreamerProviderAttemptError("trace_db_validate", "trace_db_missing", caveat, statErr), cleanupErr)
-		}
+	sealedOutputs, adoptionErr := adoptTraceStreamerDBOutputs(dbTarget.stagingDir)
+	if adoptionErr != nil {
+		failureCode, recoverable := traceStreamerDBOutputValidationCode(adoptionErr)
+		caveat := fmt.Sprintf("trace_streamer DB export completed but its output set could not be sealed: %v", adoptionErr)
+		cleanupErr := cleanupTraceStreamerDBTarget(cleanup)
 		cleanup = nil
-		caveat := fmt.Sprintf("trace_streamer DB export completed but output DB is not readable: %v", statErr)
+		if !recoverable {
+			return traceStreamerExportResult{}, traceDBJoinPreservingSingle(
+				traceStreamerProviderAttemptError("trace_db_validate", failureCode, caveat, adoptionErr), cleanupErr,
+			)
+		}
+		if cleanupErr != nil {
+			return traceStreamerExportResult{}, traceDBJoinPreservingSingle(
+				traceStreamerProviderAttemptError("trace_db_validate", failureCode, caveat, adoptionErr), cleanupErr,
+			)
+		}
 		return traceStreamerExportResult{
-			Decision: traceProviderFailure(decision, "trace_db_missing", caveat),
+			Decision: traceProviderFailure(decision, failureCode, caveat),
 			Caveats:  traceStreamerFailureCaveats(lane, caveat),
-			Ran:      true, FailureStage: "trace_db_validate", FailureCode: "trace_db_missing", Cause: statErr,
+			Ran:      true, FailureStage: "trace_db_validate", FailureCode: failureCode, Cause: adoptionErr,
 		}, nil
 	}
-	if !info.Mode().IsRegular() {
-		caveat := fmt.Sprintf("trace_streamer DB export completed but staging output is not a regular file: mode=%s", info.Mode())
-		if cleanupErr := cleanupTraceStreamerDBTarget(cleanup); cleanupErr != nil {
-			return traceStreamerExportResult{}, traceDBJoinPreservingSingle(traceStreamerProviderAttemptError("trace_db_validate", "trace_db_not_regular", caveat, errors.New(caveat)), cleanupErr)
-		}
-		cleanup = nil
-		return traceStreamerExportResult{
-			Decision: traceProviderFailure(decision, "trace_db_not_regular", caveat),
-			Caveats:  traceStreamerFailureCaveats(lane, caveat),
-			Ran:      true, FailureStage: "trace_db_validate", FailureCode: "trace_db_not_regular", Cause: errors.New(caveat),
-		}, nil
+	dbBytes := sealedOutputs.Size()
+	companionPresent := sealedOutputs.CompanionPresent()
+	normalizeDisplayPath := dbPath
+	if dbTarget.Retained {
+		normalizeDisplayPath = dbTarget.FinalPath
 	}
-	if info.Size() == 0 {
-		caveat := "trace_streamer DB export completed but output DB is empty"
-		if cleanupErr := cleanupTraceStreamerDBTarget(cleanup); cleanupErr != nil {
-			return traceStreamerExportResult{}, traceDBJoinPreservingSingle(traceStreamerProviderAttemptError("trace_db_validate", "trace_db_empty", caveat, errors.New(caveat)), cleanupErr)
-		}
+	normalizeStart := progressStarted(opts, "trace_db_normalize", "normalizing trace_streamer SQLite DB to systrace", normalizeDisplayPath, output)
+	systraceExport, systraceErr := exportTraceDBToSystraceFromSealedWithLedger(ctx, sealedOutputs.main, normalizeDisplayPath, output, ledger)
+	integrityErr := sealedOutputs.finish(nil)
+	if integrityErr != nil {
+		progressFinished(opts, "trace_db_normalize", "trace_streamer SQLite DB generation changed during normalization", normalizeDisplayPath, output, normalizeStart, ProgressStatusFailed)
+		cleanupErr := cleanupTraceStreamerDBTarget(cleanup)
 		cleanup = nil
-		return traceStreamerExportResult{
-			Decision: traceProviderFailure(decision, "trace_db_empty", caveat),
-			Caveats:  traceStreamerFailureCaveats(lane, caveat),
-			Ran:      true, FailureStage: "trace_db_validate", FailureCode: "trace_db_empty", Cause: errors.New(caveat),
-		}, nil
+		return traceStreamerExportResult{}, traceDBJoinPreservingSingle(
+			fmt.Errorf("trace_streamer DB output integrity failed: %w", integrityErr), systraceErr, cleanupErr,
+		)
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		cleanupErr := cleanupTraceStreamerDBTarget(cleanup)
+		cleanup = nil
+		return traceStreamerExportResult{}, traceDBJoinPreservingSingle(ctxErr, systraceErr, cleanupErr)
+	}
+	if sealedTraceDBNormalizationFailureIsFatal(systraceErr) {
+		progressFinished(opts, "trace_db_normalize", "sealed trace_streamer SQLite authority failed", normalizeDisplayPath, output, normalizeStart, ProgressStatusFailed)
+		cleanupErr := cleanupTraceStreamerDBTarget(cleanup)
+		cleanup = nil
+		return traceStreamerExportResult{}, traceDBJoinPreservingSingle(
+			fmt.Errorf("sealed trace_streamer DB normalization failed closed: %w", systraceErr), cleanupErr,
+		)
 	}
 	if dbTarget.Retained {
+		info, statErr := os.Lstat(dbPath)
+		if statErr != nil || !info.Mode().IsRegular() || info.Size() != dbBytes {
+			if statErr == nil {
+				statErr = fmt.Errorf("staging DB identity changed before retained publication: mode=%s size=%d want_size=%d", info.Mode(), info.Size(), dbBytes)
+			}
+			return traceStreamerExportResult{}, traceDBJoinPreservingSingle(
+				fmt.Errorf("inspect sealed trace_streamer DB before retained publication: %w", statErr),
+				cleanupTraceStreamerDBTarget(cleanup),
+			)
+		}
 		if err := publishStagedTraceDB(dbTarget, info, ledger); err != nil {
 			return traceStreamerExportResult{}, traceDBJoinPreservingSingle(fmt.Errorf("publish retained trace_streamer DB: %w", err), cleanupTraceStreamerDBTarget(cleanup))
 		}
@@ -242,19 +266,12 @@ func runTraceStreamerExport(ctx context.Context, opts Options, lane traceProvide
 	dbArtifact := Artifact{
 		Type:      ArtifactTraceDB,
 		Path:      dbPath,
-		Bytes:     info.Size(),
+		Bytes:     dbBytes,
 		Converter: traceStreamerConverter,
 		Caveats:   []string{"trace_streamer SQLite DB preserved as conversion provenance"},
 	}
-	if companion := dbPath + ".ohos.ts"; artifactPathExists(companion) {
-		dbArtifact.Caveats = append(dbArtifact.Caveats, "timestamp_companion="+companion)
-	}
-	normalizeStart := progressStarted(opts, "trace_db_normalize", "normalizing trace_streamer SQLite DB to systrace", dbPath, output)
-	systraceExport, systraceErr := exportTraceDBToSystraceWithLedger(ctx, dbPath, output, ledger)
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		cleanupErr := cleanupTraceStreamerDBTarget(cleanup)
-		cleanup = nil
-		return traceStreamerExportResult{}, traceDBJoinPreservingSingle(ctxErr, cleanupErr)
+	if companionPresent {
+		dbArtifact.Caveats = append(dbArtifact.Caveats, "timestamp_companion="+dbPath+".ohos.ts")
 	}
 	if systraceErr != nil {
 		progressFinished(opts, "trace_db_normalize", "trace_streamer SQLite DB normalization failed", dbPath, output, normalizeStart, ProgressStatusFailed)
@@ -364,6 +381,40 @@ func traceStreamerProviderAttemptError(stage, code, caveat string, cause error) 
 		return errors.New(message)
 	}
 	return fmt.Errorf("%s: %w", message, cause)
+}
+
+func traceStreamerDBOutputValidationCode(err error) (code string, recoverable bool) {
+	// A producer-shape error is safe to fall back from only when it is the
+	// sole failure. errors.Join means adoption/validation also lost a close or
+	// authority invariant; the precise shape sentinel must not mask that.
+	if traceDBErrorHasJoinedFailures(err) {
+		return "trace_db_unsealed", false
+	}
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return "trace_db_missing", true
+	case errors.Is(err, errSealedConversionFileEmpty):
+		return "trace_db_empty", true
+	case errors.Is(err, errSealedConversionFileNotRegular):
+		return "trace_db_not_regular", true
+	case errors.Is(err, errTraceStreamerDBAuxiliaryState):
+		return "trace_db_auxiliary_state", true
+	default:
+		return "trace_db_unsealed", false
+	}
+}
+
+func sealedTraceDBNormalizationFailureIsFatal(err error) bool {
+	return err != nil && (errors.Is(err, errSealedTraceDBAuthority) || traceDBErrorHasJoinedFailures(err))
+}
+
+func traceDBErrorHasJoinedFailures(err error) bool {
+	for current := err; current != nil; current = errors.Unwrap(current) {
+		if _, joined := current.(interface{ Unwrap() []error }); joined {
+			return true
+		}
+	}
+	return false
 }
 
 func traceStreamerFailureCaveats(lane traceProviderLanePlan, primary string) []string {

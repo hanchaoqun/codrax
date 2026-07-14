@@ -3,6 +3,7 @@ package hitraceconv
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 	"net/url"
@@ -14,7 +15,9 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	_ "modernc.org/sqlite"
+	modernsqlite "modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
+	sqlitevfs "modernc.org/sqlite/vfs"
 )
 
 // Mirrors tracequery.maxTraceCPUIndex. Keep the converter boundary identical
@@ -27,8 +30,41 @@ const maxTraceDBCPUIndex int64 = 4095
 const maxTraceDBInternalID int64 = 1<<32 - 2
 
 type traceDB struct {
-	db   *sql.DB
-	path string
+	db        *sql.DB
+	path      string
+	sealedVFS *sqlitevfs.FS
+}
+
+var errSealedTraceDBAuthority = errors.New("sealed trace DB authority lifecycle failed")
+
+type sealedTraceDBAuthorityError struct {
+	operation string
+	cause     error
+}
+
+func (err *sealedTraceDBAuthorityError) Error() string {
+	if err == nil {
+		return errSealedTraceDBAuthority.Error()
+	}
+	return fmt.Sprintf("%s: operation=%s: %v", errSealedTraceDBAuthority, err.operation, err.cause)
+}
+
+func (err *sealedTraceDBAuthorityError) Unwrap() error {
+	if err == nil {
+		return nil
+	}
+	return err.cause
+}
+
+func (err *sealedTraceDBAuthorityError) Is(target error) bool {
+	return target == errSealedTraceDBAuthority
+}
+
+func newSealedTraceDBAuthorityError(operation string, cause error) error {
+	if cause == nil {
+		return nil
+	}
+	return &sealedTraceDBAuthorityError{operation: strings.TrimSpace(operation), cause: cause}
 }
 
 type traceDBValue struct {
@@ -150,6 +186,81 @@ func openTraceDB(ctx context.Context, path string) (*traceDB, error) {
 	return &traceDB{db: db, path: trimmed}, nil
 }
 
+func openTraceDBFromSealed(ctx context.Context, sealed *sealedConversionFile, displayPath string) (*traceDB, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := sealed.Validate(); err != nil {
+		return nil, newSealedTraceDBAuthorityError("validate_before_open", err)
+	}
+	filesystem, err := newSealedTraceDBFS(sealed)
+	if err != nil {
+		return nil, newSealedTraceDBAuthorityError("create_exact_vfs", err)
+	}
+	vfsName, registeredVFS, err := sqlitevfs.New(filesystem)
+	if err != nil {
+		return nil, newSealedTraceDBAuthorityError("register_vfs", err)
+	}
+	db, err := sql.Open("sqlite", sqliteSealedReadOnlyDSN(vfsName))
+	if err != nil {
+		return nil, traceDBJoinPreservingSingle(
+			newSealedTraceDBAuthorityError("open_database_sql", err),
+			newSealedTraceDBAuthorityError("close_vfs_after_open_failure", registeredVFS.Close()),
+		)
+	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	if err := db.PingContext(ctx); err != nil {
+		if sealedTraceDBSQLiteErrorIsAuthorityFailure(err) {
+			err = newSealedTraceDBAuthorityError("ping_vfs", err)
+		}
+		return nil, traceDBJoinPreservingSingle(
+			err,
+			newSealedTraceDBAuthorityError("close_database_after_ping_failure", db.Close()),
+			newSealedTraceDBAuthorityError("close_vfs_after_ping_failure", registeredVFS.Close()),
+		)
+	}
+	return &traceDB{db: db, path: strings.TrimSpace(displayPath), sealedVFS: registeredVFS}, nil
+}
+
+func sealedTraceDBSQLiteErrorIsAuthorityFailure(err error) bool {
+	var sqliteErr *modernsqlite.Error
+	if !errors.As(err, &sqliteErr) {
+		return false
+	}
+	switch sqliteErr.Code() & 0xff {
+	case sqlite3.SQLITE_BUSY,
+		sqlite3.SQLITE_LOCKED,
+		sqlite3.SQLITE_NOMEM,
+		sqlite3.SQLITE_READONLY,
+		sqlite3.SQLITE_INTERRUPT,
+		sqlite3.SQLITE_IOERR,
+		sqlite3.SQLITE_FULL,
+		sqlite3.SQLITE_CANTOPEN,
+		sqlite3.SQLITE_PROTOCOL,
+		sqlite3.SQLITE_INTERNAL,
+		sqlite3.SQLITE_PERM,
+		sqlite3.SQLITE_MISUSE,
+		sqlite3.SQLITE_NOLFS:
+		return true
+	default:
+		return false
+	}
+}
+
+func sqliteSealedReadOnlyDSN(vfsName string) string {
+	query := url.Values{}
+	// modernc's fs-backed VFS is deliberately exact-one-file and read-only;
+	// it cannot create SQLite's anonymous sorter files. Apply this through the
+	// DSN so every replacement connection also keeps temporary B-trees in
+	// memory instead of silently depending on a path-backed temp VFS.
+	query.Add("_pragma", "temp_store(MEMORY)")
+	query.Add("_pragma", "query_only(1)")
+	query.Set("mode", "ro")
+	query.Set("vfs", strings.TrimSpace(vfsName))
+	return "file:" + sealedTraceDBVirtualName + "?" + query.Encode()
+}
+
 func sqliteReadOnlyDSN(path string) string {
 	uriPath := strings.TrimSpace(path)
 	if abs, err := filepath.Abs(uriPath); err == nil {
@@ -191,10 +302,22 @@ func sqliteLooksLikeWindowsDrivePath(path string) bool {
 }
 
 func (tdb *traceDB) close() error {
-	if tdb == nil || tdb.db == nil {
+	if tdb == nil {
 		return nil
 	}
-	return tdb.db.Close()
+	db := tdb.db
+	registeredVFS := tdb.sealedVFS
+	tdb.db = nil
+	tdb.sealedVFS = nil
+	var dbErr error
+	if db != nil {
+		dbErr = db.Close()
+	}
+	var vfsErr error
+	if registeredVFS != nil {
+		vfsErr = registeredVFS.Close()
+	}
+	return traceDBJoinPreservingSingle(dbErr, vfsErr)
 }
 
 func (tdb *traceDB) tableExists(ctx context.Context, table string) (bool, error) {

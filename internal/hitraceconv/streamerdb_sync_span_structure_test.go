@@ -270,7 +270,7 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 				ast.Inspect(declaration.Body, func(node ast.Node) bool {
 					switch node := node.(type) {
 					case *ast.DeferStmt:
-						if name != "exportTraceDBToSystraceWithLedger" {
+						if name != "exportTraceDBToSystraceFromOpenWithLedger" {
 							return true
 						}
 						foundCleanup := false
@@ -303,7 +303,7 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 							laneLiterals = append(laneLiterals, laneLiteralSite{file: base, function: name, literal: node})
 						}
 					case *ast.SelectorExpr:
-						if name == "exportTraceDBToSystraceWithLedger" && node.Sel.Name == "RowsAccepted" {
+						if name == "exportTraceDBToSystraceFromOpenWithLedger" && node.Sel.Name == "RowsAccepted" {
 							if receiver, _, ok := selectorParts(node.X); ok && receiver == "sink" && topRowsAccepted == 0 {
 								topRowsAccepted = node.Pos()
 							}
@@ -438,19 +438,19 @@ func TestTraceDBSyncSpanAuthorityProductionClosure(t *testing.T) {
 	// The top-level owns one authority. The exact same pointer crosses both
 	// collection stages and is finalized once, after both stages and before any
 	// empty-output or file-write decision.
-	if !reflect.DeepEqual(callerCounts("newTraceDBSyncSpanAuthority"), map[string]int{"exportTraceDBToSystraceWithLedger": 1}) {
+	if !reflect.DeepEqual(callerCounts("newTraceDBSyncSpanAuthority"), map[string]int{"exportTraceDBToSystraceFromOpenWithLedger": 1}) {
 		t.Fatalf("sync authority constructors=%v", callerCounts("newTraceDBSyncSpanAuthority"))
 	}
 	syncFinalizers := authorityCallerCounts("finalize")
-	if !reflect.DeepEqual(syncFinalizers, map[string]int{"exportTraceDBToSystraceWithLedger": 1}) {
+	if !reflect.DeepEqual(syncFinalizers, map[string]int{"exportTraceDBToSystraceFromOpenWithLedger": 1}) {
 		t.Fatalf("sync authority finalizers=%v", syncFinalizers)
 	}
-	constructor := onlyCall("newTraceDBSyncSpanAuthority", "exportTraceDBToSystraceWithLedger")
-	scheduler := onlyCall("exportTraceDBSchedulerFamilies", "exportTraceDBToSystraceWithLedger")
-	extended := onlyCall("exportTraceDBExtendedFamilies", "exportTraceDBToSystraceWithLedger")
-	finalize := onlyAuthorityCall("finalize", "exportTraceDBToSystraceWithLedger")
-	reconcile := onlyCall("reconcileTraceDBSyncSpanCoverage", "exportTraceDBToSystraceWithLedger")
-	writeTo := onlyCall("writeTo", "exportTraceDBToSystraceWithLedger")
+	constructor := onlyCall("newTraceDBSyncSpanAuthority", "exportTraceDBToSystraceFromOpenWithLedger")
+	scheduler := onlyCall("exportTraceDBSchedulerFamilies", "exportTraceDBToSystraceFromOpenWithLedger")
+	extended := onlyCall("exportTraceDBExtendedFamilies", "exportTraceDBToSystraceFromOpenWithLedger")
+	finalize := onlyAuthorityCall("finalize", "exportTraceDBToSystraceFromOpenWithLedger")
+	reconcile := onlyCall("reconcileTraceDBSyncSpanCoverage", "exportTraceDBToSystraceFromOpenWithLedger")
+	writeTo := onlyCall("writeTo", "exportTraceDBToSystraceFromOpenWithLedger")
 	if len(constructor.Args) != 2 || !isIdent(constructor.Args[0], "ctx") || !isIdent(constructor.Args[1], "output") {
 		t.Fatal("sync authority constructor does not use (ctx, final output artifact)")
 	}

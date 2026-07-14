@@ -149,7 +149,7 @@ func TestProfilerCompactStorageHasOneStaticAuthority(t *testing.T) {
 					}
 				}
 			case *ast.FuncDecl:
-				if typed.Name.Name == "exportTraceDBToSystraceWithLedger" {
+				if typed.Name.Name == "exportTraceDBToSystraceFromOpenWithLedger" {
 					sqlExportFunctions++
 					ast.Inspect(typed.Body, func(node ast.Node) bool {
 						call, ok := node.(*ast.CallExpr)
