@@ -188,7 +188,18 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		// during exploration, before the answer-rendering dispatch ever sees
 		// the summary. Empty on runs without seated runtime rank rows.
 		if stage == types.StageFinalize || stage == types.StageExplore {
-			ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(bus, types.ObservationExtractLedgerEvidenceLimit))
+			ledgerInput := types.ObservationLedgerInputFromBusContext(bus, types.ObservationExtractLedgerEvidenceLimit)
+			if stage == types.StageExplore {
+				// SUPP-CORE (DISPATCH-IND 批1, 2026-07-14): the explore
+				// dispatch surface stays displacement-free — the post-
+				// explore system supplement must never appear on any
+				// explore-model-visible feed (it normally runs after the
+				// last explore dispatch anyway; this gate also covers the
+				// rare violation-driven re-explore). Finalize keeps the
+				// lane: R1 ruling (a) — the answer author sees the facts.
+				ledgerInput.SystemTraceSupplementResults = nil
+			}
+			ledger := types.CompileObservationLedger(ledgerInput)
 			ac.TraceRootCauseBoard = formatTraceRootCauseBoardFromLedger(ledger)
 			// EVID-BR 件① (§29.55.4 F1/R2-F3, 2026-07-13): the typed kernel
 			// wait-object + wakeup-source evidence rides the same two
@@ -201,6 +212,12 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 			if bus.Mutable != nil {
 				if ta := bus.Mutable.TurnAArtifacts(); ta != nil {
 					censusResults = append(censusResults, ta.ToolResults...)
+				}
+				if stage == types.StageFinalize {
+					// SUPP-CORE: supplement census rows feed the finalize
+					// wait/wake evidence face only (explore excluded, same
+					// gate as above).
+					censusResults = append(censusResults, bus.Mutable.SystemTraceSupplementResults()...)
 				}
 			}
 			ac.TraceWaitEvidence = formatTraceWaitWakeEvidenceFromLedger(ledger, censusResults)

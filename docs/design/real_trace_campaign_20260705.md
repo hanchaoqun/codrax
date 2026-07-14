@@ -2603,3 +2603,8 @@ B1 折叠行头名 floor 直接 pin(数学六形+产线实铸压力形:同主体
 
 ### §29.61.6 立案(用户 2026-07-14):「未归因」图例补认识论定位句(词面批)
 用户问「未归因」三读(不需要深挖/无需深挖正常/没有深挖未知)何义。核清:=树头覆盖句算术余量(等待时长−第一层已发布原因行覆盖),语义=**没有被归因(未知待查)**——已识别正常空闲(∿ 节拍)会被单独拆行,自身 running 残余禁叫未归因(在案裁定,tree.go:11746)。图例既有条目讲清了算法但未讲认识论地位——用户三选一困惑即 witness。**修向(词面批)**:图例条目补一句「未归因≠正常/无需解释:是尚未被已发布原因覆盖的部分(可能含未发现原因/未探查窗/未识别空闲,系统不判定),已识别的正常空闲另行单列」;zh-en 双语。
+
+## §29.71 SUPP-CORE 收账(2026-07-14;DISPATCH-IND 批1+P1 双保险丝+修复轮六件;三关全过;dispatch 病族转折点)
+**交付**:explore 完成被接受后、extract 前单点确定性补采——布尔 family 探测(与渲染同一 compiled ledger)→typed 参数推导(目标 user-source 恰一先+唯一正 pid 归一;窗口三档梯锚族→scoped-stats→全量,±1ms 共享容差永不 last-wins)→≤2 次直调 Execute(单一值源)→专用系统车道逐记录 SystemSupplement typed 出处→单行披露(三形:执行/超时部分跳过/超窗跳过);任一 typed 缺失=fail-open 跳过输出字节同 HEAD。**§29.60 完成门零重开/零 requeue/零 Reset(复核源码直证:零见证臂结构性不可被补采洗白);B5 byte-golden 零触碰;L1 直跑绿。P1 双保险丝(用户裁定默认 20s/120s)**:视图间 deadline(已完成 view 保留+尾注)+派生窗跨度门(整体跳过+缩窗指引,禁静默截窗禁猜)。产线脆性双修根(scoped-stats 中间档/pid 归一,013012 对照趟定谳)。
+**三关**:复核 SHIP-WITH-FIXES(§29.60 相容首趟无懈可击;突变 6/6;树中途动用快照法);冷读=批1 达成(h2 纯 es 形铸满树逐值 raw 恒等/补采窗=用户窗/no-op 零披露/值面零回归)。修复轮六件:回探清槽单点门(五消费面归位+checkpoint pin)/reject 不计不披露(假出处宣称关死)/blob ref 注册/cursor 回写抑制双 recorder 门/审计面 origin=system_supplement 纯渲染 token(R2' 免)/SC-F2 双 tid 已修。**金样本:h2 历史 0/8 族→3/3 PASS(含案文自档 legitimately-fail 纯 event_search 形铸满树);h4 首趟 PASS;对照零回归,warm 亚秒级。**
+**账面**:execution_failed 静默形+blocked-DAG 跳过形=不劣于 HEAD(记录);**立案 SUPP-CANCEL**(视图内取消=tracequery.Run ctx 线程化+协作取消采样点+typed canceled/partial+DET 义务,独立引擎批)。**遗留**:批2 SUPP-ORACLE(legitimately-fail 条款删除/h3 恒铸升硬/F6 满帽 E# pin)→批3 SUPP-FEED→批4 SA-F2+C-lite。

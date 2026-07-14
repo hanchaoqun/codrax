@@ -385,6 +385,14 @@ type TraceCausalProjectionNode struct {
 	// carried theirs. Drives the 「D-state(原因未证)」 display qualifier;
 	// wording input only (no gate, score or sort lane reads it).
 	DStateCauseUnprovenRemainder bool `json:"d_state_cause_unproven_remainder,omitempty"`
+	// SystemSupplement (SUPP-CORE 修复轮 件5 / 冷读 SC-F1, 2026-07-14):
+	// the node compiled from a SUPP-CORE system-supplement record
+	// (ObservationRecord.SystemSupplement — deterministic tool witness the
+	// SYSTEM dispatched at the explore→extract boundary, not the model).
+	// Drives the E# audit face's `origin=system_supplement` render token
+	// (pure display token, no wire note key — R2' exempt); never a gate,
+	// score or sort input.
+	SystemSupplement bool `json:"system_supplement,omitempty"`
 	// ProcessTGID / ProcessComm (CR-3 件③ P11, 2026-07-12; 冷读案8 关键角色
 	// 裸线程名无 tgid): the row's process attribution — the trace-published
 	// tgid and the resolved owning process comm. Detail identity 「进程
@@ -2705,6 +2713,9 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		SpanSubcategory: traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeySpanSubcategory),
 		SemanticClass:   traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeySemanticClass),
 		Confidence:      record.Confidence,
+		// 件5 (SC-F1): typed provenance carry — the audit face's
+		// origin=system_supplement token reads this, never re-derives.
+		SystemSupplement: record.SystemSupplement,
 	}
 	// G2 显示半场 (§27.2/§28.1, 2026-07-09): the typed blind-spot criterion —
 	// wording input for the ◇ inline disclosure fork; absent = legacy wording.

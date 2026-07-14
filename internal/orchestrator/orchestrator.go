@@ -5193,6 +5193,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				o.busCtx.Mutable.ResetInvestigationComplete()
 			}
 			pendingCompletionReset = false
+			o.resetTraceSupplementOnExploreReopen()
 			if eb := o.busCtx.Mutable.ExploreBudget(); eb != nil {
 				o.busCtx.Mutable.SetExploreBudget(&types.ExploreBudget{
 					PerToolCap:  eb.PerToolCap,
@@ -5599,6 +5600,13 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				Reasoning:  softInvestigationReadyMessage(o.busCtx.Language),
 			})
 			investigationReadyNoticePending = false
+		}
+
+		// SUPP-CORE supplement (contract + rationale: trace_supplement_hook.go).
+		stopLocal = o.startSchedulerLocalWork(types.StageExtract, "trace_supplement")
+		o.runTraceQuerySupplement()
+		if o.finishSchedulerLocalWork(stopLocal, "trace_supplement", stepsUsed) {
+			return stepsUsed
 		}
 
 		// Full Turn B extract dispatch — runs once, just before

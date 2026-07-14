@@ -66,6 +66,30 @@ type RuntimeSettings struct {
 	// gates.
 	TraceSemanticSpanPatterns []TraceSemanticSpanPattern `yaml:"trace_semantic_span_patterns"`
 
+	// trace_supplement_* — SUPP-CORE (DISPATCH-IND 批1, 2026-07-14): the
+	// post-explore deterministic trace_query supplement that re-collects
+	// missing core trace record families with typed parameters (see
+	// internal/tool/trace_query_supplement.go).
+	//
+	// trace_supplement_enabled defaults ON; explicit false is the kill
+	// switch (write_enabled style). trace_supplement_max_cold_mb bounds the
+	// COLD lane only: with zero successful trace_query calls this run (no
+	// warm engine index cache), traces larger than this many MiB skip the
+	// supplement instead of paying a render-assembly-time cold parse.
+	// trace_supplement_max_duration_ms is the between-view deadline (P1
+	// warm-lane fuse, 2026-07-14): once a completed view pushes the
+	// supplement past it, the remaining views are skipped with disclosure
+	// (completed views kept). trace_supplement_max_window_span_s caps the
+	// derived query window's span; an over-budget user window skips the
+	// whole supplement with an honest answer-side disclosure (never a
+	// silent truncation, never a guessed sub-window). All absent /
+	// non-positive values keep the code defaults (2048 MiB / 20000 ms /
+	// 120 s — duration/span defaults per user ruling 2026-07-14).
+	TraceSupplementEnabled          *bool    `yaml:"trace_supplement_enabled"`
+	TraceSupplementMaxColdMB        *int     `yaml:"trace_supplement_max_cold_mb"`
+	TraceSupplementMaxDurationMS    *int     `yaml:"trace_supplement_max_duration_ms"`
+	TraceSupplementMaxWindowSpanSec *float64 `yaml:"trace_supplement_max_window_span_s"`
+
 	// MCP server integration. Empty by default, which keeps read/write
 	// pipeline prompts, tool schemas, dispatch, and observation ledger
 	// behavior identical to a build without MCP producer support.
@@ -1023,31 +1047,31 @@ type RuntimeSettings struct {
 	// identical empty-blocks emit rejects the loop stops for snapshot
 	// recovery instead of paying another identical round. Was a
 	// hardcoded const; non-positive / nil → default (3).
-	AgentFinalizerEmptyBlocksBreakerMaxStreak *int `yaml:"agent_finalizer_empty_blocks_breaker_max_streak"`
-	AgentFinalizerPreservePriorProse   *bool    `yaml:"agent_finalizer_preserve_prior_prose"`
-	AgentFinalizerShrinkageMinProseLen *int     `yaml:"agent_finalizer_shrinkage_min_prose_len"`
-	AgentFinalizerShrinkageRatio       *float64 `yaml:"agent_finalizer_shrinkage_ratio"`
-	AgentExtractorMaxCorrectionRetries *int     `yaml:"agent_extractor_max_correction_retries"`
-	AgentSubTopicPrescanExtra          *int     `yaml:"agent_subtopic_prescan_extra"`
-	AgentSubTopicExplorerExtra         *int     `yaml:"agent_subtopic_explorer_extra"`
-	AgentSubTopicPlannerExtra          *int     `yaml:"agent_subtopic_planner_extra"`
-	AgentPlannerComplexityExtra        *int     `yaml:"agent_planner_complexity_extra"`
-	AgentSubTopicPipelineExtra         *int     `yaml:"agent_subtopic_pipeline_extra"`
-	AgentSubTopicRetryExtra            *int     `yaml:"agent_subtopic_retry_extra"`
-	AgentSubTopicExtractorExtra        *int     `yaml:"agent_subtopic_extractor_extra"`
-	AgentExtractorComplexityExtra      *int     `yaml:"agent_extractor_complexity_extra"`
-	AgentTargetPathsVerifierExtra      *int     `yaml:"agent_target_paths_verifier_extra"`
-	AgentPrescanRoundsCeil             *int     `yaml:"agent_prescan_rounds_ceil"`
-	AgentExplorerScaledIterMax         *int     `yaml:"agent_explorer_scaled_iter_max"`
-	AgentPlannerScaledIterMax          *int     `yaml:"agent_planner_scaled_iter_max"`
-	AgentExtractorScaledIterMax        *int     `yaml:"agent_extractor_scaled_iter_max"`
-	AgentVerifierScaledIterMax         *int     `yaml:"agent_verifier_scaled_iter_max"`
-	AgentMaxRetryBudgetCeil            *int     `yaml:"agent_max_retry_budget_ceil"`
-	AgentPerfTriagerIterCap            *int     `yaml:"agent_perf_triager_iter_cap"`
-	AgentDowngradeConvergenceHard      *int     `yaml:"agent_downgrade_convergence_hard"`
-	AgentLogTriagerIterCap             *int     `yaml:"agent_log_triager_iter_cap"`
-	AgentInvestigationCompletePolicy   *string  `yaml:"agent_investigation_complete_policy"`
-	AgentPriorConvPolicy               *string  `yaml:"agent_prior_conversation_policy"`
+	AgentFinalizerEmptyBlocksBreakerMaxStreak *int     `yaml:"agent_finalizer_empty_blocks_breaker_max_streak"`
+	AgentFinalizerPreservePriorProse          *bool    `yaml:"agent_finalizer_preserve_prior_prose"`
+	AgentFinalizerShrinkageMinProseLen        *int     `yaml:"agent_finalizer_shrinkage_min_prose_len"`
+	AgentFinalizerShrinkageRatio              *float64 `yaml:"agent_finalizer_shrinkage_ratio"`
+	AgentExtractorMaxCorrectionRetries        *int     `yaml:"agent_extractor_max_correction_retries"`
+	AgentSubTopicPrescanExtra                 *int     `yaml:"agent_subtopic_prescan_extra"`
+	AgentSubTopicExplorerExtra                *int     `yaml:"agent_subtopic_explorer_extra"`
+	AgentSubTopicPlannerExtra                 *int     `yaml:"agent_subtopic_planner_extra"`
+	AgentPlannerComplexityExtra               *int     `yaml:"agent_planner_complexity_extra"`
+	AgentSubTopicPipelineExtra                *int     `yaml:"agent_subtopic_pipeline_extra"`
+	AgentSubTopicRetryExtra                   *int     `yaml:"agent_subtopic_retry_extra"`
+	AgentSubTopicExtractorExtra               *int     `yaml:"agent_subtopic_extractor_extra"`
+	AgentExtractorComplexityExtra             *int     `yaml:"agent_extractor_complexity_extra"`
+	AgentTargetPathsVerifierExtra             *int     `yaml:"agent_target_paths_verifier_extra"`
+	AgentPrescanRoundsCeil                    *int     `yaml:"agent_prescan_rounds_ceil"`
+	AgentExplorerScaledIterMax                *int     `yaml:"agent_explorer_scaled_iter_max"`
+	AgentPlannerScaledIterMax                 *int     `yaml:"agent_planner_scaled_iter_max"`
+	AgentExtractorScaledIterMax               *int     `yaml:"agent_extractor_scaled_iter_max"`
+	AgentVerifierScaledIterMax                *int     `yaml:"agent_verifier_scaled_iter_max"`
+	AgentMaxRetryBudgetCeil                   *int     `yaml:"agent_max_retry_budget_ceil"`
+	AgentPerfTriagerIterCap                   *int     `yaml:"agent_perf_triager_iter_cap"`
+	AgentDowngradeConvergenceHard             *int     `yaml:"agent_downgrade_convergence_hard"`
+	AgentLogTriagerIterCap                    *int     `yaml:"agent_log_triager_iter_cap"`
+	AgentInvestigationCompletePolicy          *string  `yaml:"agent_investigation_complete_policy"`
+	AgentPriorConvPolicy                      *string  `yaml:"agent_prior_conversation_policy"`
 
 	// Per-evaluator iteration caps (soft / hard pair) — gates the
 	// two-stage stop machinery in iterationCapShouldStop. Each pair

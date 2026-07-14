@@ -3166,6 +3166,31 @@ func initApp(cmd *cobra.Command, args []string) error {
 			})
 		}
 
+		// SUPP-CORE trace supplement knobs (trace_supplement_* prefix
+		// group). One-shot injection mirroring SetWidthGovernor above:
+		// enabled defaults ON (explicit false = kill switch); absent /
+		// non-positive budgets keep the code defaults (2048 MiB cold /
+		// 20000 ms between-view deadline / 120 s window span).
+		{
+			enabled := true
+			if rs.TraceSupplementEnabled != nil {
+				enabled = *rs.TraceSupplementEnabled
+			}
+			var maxColdBytes int64
+			if rs.TraceSupplementMaxColdMB != nil && *rs.TraceSupplementMaxColdMB > 0 {
+				maxColdBytes = int64(*rs.TraceSupplementMaxColdMB) << 20
+			}
+			var maxDuration time.Duration
+			if rs.TraceSupplementMaxDurationMS != nil && *rs.TraceSupplementMaxDurationMS > 0 {
+				maxDuration = time.Duration(*rs.TraceSupplementMaxDurationMS) * time.Millisecond
+			}
+			var maxWindowSpanS float64
+			if rs.TraceSupplementMaxWindowSpanSec != nil && *rs.TraceSupplementMaxWindowSpanSec > 0 {
+				maxWindowSpanS = *rs.TraceSupplementMaxWindowSpanSec
+			}
+			tool.SetTraceQuerySupplementConfig(enabled, maxColdBytes, maxDuration, maxWindowSpanS)
+		}
+
 		// Per-shape Summary caps. Start from code defaults and
 		// overlay any non-nil yaml fields; a partial override leaves
 		// the other entries at their default.

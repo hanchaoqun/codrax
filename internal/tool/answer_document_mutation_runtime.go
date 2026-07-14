@@ -181,6 +181,9 @@ func persistMergedAnswerDocument(
 	if materializeRuntimeTraceObservationBlock(merged, ctx) {
 		logging.Info("[%s] materialized runtime trace observation block from structured perf facts", toolName)
 	}
+	if materializeRuntimeTraceSupplementDisclosureCaveat(merged, ctx) {
+		logging.Info("[%s] stamped the system trace supplement disclosure caveat (SUPP-CORE single-line provenance)", toolName)
+	}
 	normalizeAnswerDocumentRowsBeforePersist(toolName, ctx, merged)
 	if stamped := stampReadOwnerAnchorsFromTurnA(ctx, merged); stamped > 0 {
 		logging.Info("[%s] stamped %d read owner anchor(s) from typed source localization", toolName, stamped)
@@ -3093,6 +3096,11 @@ type runtimeTraceCausalProjectionEvidenceEntry struct {
 	// ceiling would part-boundary-drop the pointer. Widens exactly like
 	// FamilyAudit. Typed flag from the node.
 	AbsorbedAudit bool
+	// SupplementAudit (修复轮 件5, 2026-07-14): the entry's record was
+	// minted by the SUPP-CORE system supplement — its
+	// origin=system_supplement provenance token is load-bearing on the
+	// audit face, so the ceiling widens exactly like FamilyAudit.
+	SupplementAudit bool
 }
 
 func newRuntimeTraceCausalProjectionEvidenceIndex() *runtimeTraceCausalProjectionEvidenceIndex {
@@ -3140,14 +3148,15 @@ func (idx *runtimeTraceCausalProjectionEvidenceIndex) add(node types.TraceCausal
 		window = fmt.Sprintf("[%.3f~%.3fs]", node.StartTs, node.EndTs)
 	}
 	idx.order = append(idx.order, runtimeTraceCausalProjectionEvidenceEntry{
-		ID:             id,
-		Ref:            strings.TrimSpace(ref),
-		Window:         window,
-		Details:        runtimeTraceCausalProjectionAuditDetail(node, zh, idx.flatChain),
-		SyntheticLine:  node.Undrillable(),
-		FamilyAudit:    node.FamilyMemberCount > 1,
-		SameValueAudit: len(node.SameValueMembers) > 0,
-		AbsorbedAudit:  node.AbsorbedByRankFamily,
+		ID:              id,
+		Ref:             strings.TrimSpace(ref),
+		Window:          window,
+		Details:         runtimeTraceCausalProjectionAuditDetail(node, zh, idx.flatChain),
+		SyntheticLine:   node.Undrillable(),
+		FamilyAudit:     node.FamilyMemberCount > 1,
+		SameValueAudit:  len(node.SameValueMembers) > 0,
+		AbsorbedAudit:   node.AbsorbedByRankFamily,
+		SupplementAudit: node.SystemSupplement,
 	})
 	return id
 }
@@ -3605,6 +3614,17 @@ func runtimeTraceCausalProjectionAuditDetail(node types.TraceCausalProjectionNod
 	}
 	if node.Confidence > 0 {
 		parts = append(parts, fmt.Sprintf("confidence=%.2f", node.Confidence))
+	}
+	// SUPP-CORE 修复轮 件5 / 冷读 SC-F1 (2026-07-14): the audit face's typed
+	// provenance token — this row's record was minted by the SYSTEM
+	// supplement's deterministic re-run, not a model dispatch. Pure render
+	// token from the typed node flag (no wire note key — R2' exempt), seated
+	// EARLY like the member tokens so free-length predicate/span parts can
+	// never push it off the audit ceiling. The user-visible total disclosure
+	// stays the single caveat line (R5); this is the per-record audit/replay
+	// granularity face.
+	if node.SystemSupplement {
+		parts = append(parts, "origin=system_supplement")
 	}
 	// RCM-2 D4 + 复核 F-3 (2026-07-08): the engine family merge's audit tokens
 	// — the index entry says it stands for N same-thread members and names the
@@ -4567,6 +4587,102 @@ func runtimeTraceSemanticOptimizationSkipCaveat(doc *types.AnswerDocumentV2, zh 
 	}
 	runtimeTraceSemanticOptimizationSkipCaveatReconcile(doc)
 	doc.Caveats = append(doc.Caveats, runtimeTraceSemanticOptimizationSkipCaveatText(zh))
+}
+
+// --- SUPP-CORE (DISPATCH-IND 批1, 2026-07-14) supplement disclosure --------
+//
+// runtimeTraceSupplementDisclosurePrefixZH/EN are the reserved single-line
+// disclosure prefixes for the post-explore deterministic trace supplement
+// (R5 ruling: ONE total line on the document caveat lane, no per-face
+// labels). The prefix doubles as the reconcile identity so repeated
+// mutation passes upsert exactly one line (both language forms removed
+// before the current-language append — semantic-optimization skip caveat
+// precedent).
+const (
+	runtimeTraceSupplementDisclosurePrefixZH = "系统补采:"
+	runtimeTraceSupplementDisclosurePrefixEN = "System supplement:"
+)
+
+// runtimeTraceSupplementDisclosureText renders the single disclosure line
+// from the typed supplement meta (never model-authored text — §29.57 typed
+// backfill discipline; wording is the DISPATCH-IND design form, final word
+// surface deferred to the wording batch). Three forms (P1 budget fuses,
+// 2026-07-14):
+//   - executed: the standard re-run line;
+//   - executed + duration_budget_exceeded: the re-run line plus the honest
+//     "remaining views not re-run over the duration budget" tail —
+//     completed views are kept, the partial skip is disclosed;
+//   - window_span_exceeded: nothing ran — the user named this window, so
+//     the line says so and points at narrowing the window (never a silent
+//     truncation, never a guessed sub-window).
+func runtimeTraceSupplementDisclosureText(meta *types.SystemTraceSupplementMeta, zh bool) string {
+	if meta == nil || (len(meta.Views) == 0 && meta.SkipReason != "window_span_exceeded") {
+		return ""
+	}
+	target := strings.TrimSpace(meta.TargetThread)
+	switch {
+	case target != "" && meta.TargetPID > 0:
+		// name-tid label form; labels that already carry the "-<tid>" tail
+		// (".ugc.aweme.lite-17267") are kept verbatim, never doubled.
+		if !strings.HasSuffix(target, fmt.Sprintf("-%d", meta.TargetPID)) {
+			target = fmt.Sprintf("%s-%d", target, meta.TargetPID)
+		}
+	case target == "" && meta.TargetPID > 0:
+		target = fmt.Sprintf("pid %d", meta.TargetPID)
+	}
+	if meta.SkipReason == "window_span_exceeded" {
+		span := meta.WindowEnd - meta.WindowStart
+		if zh {
+			return fmt.Sprintf("%s 未补跑 %s——窗 %.6f..%.6f 跨度 %.3f 秒超出补跑窗长预算 %g 秒;缩小时间窗后可补齐该窗结果",
+				runtimeTraceSupplementDisclosurePrefixZH, strings.Join(meta.SkippedViews, "、"), meta.WindowStart, meta.WindowEnd, span, meta.WindowBudgetS)
+		}
+		return fmt.Sprintf("%s %s not re-run — window %.6f..%.6f spans %.3fs, over the %gs span budget; narrow the time window to fill it in",
+			runtimeTraceSupplementDisclosurePrefixEN, strings.Join(meta.SkippedViews, ", "), meta.WindowStart, meta.WindowEnd, span, meta.WindowBudgetS)
+	}
+	if zh {
+		line := fmt.Sprintf("%s 装配期确定性补跑 %s(窗 %.6f..%.6f, 目标 %s)",
+			runtimeTraceSupplementDisclosurePrefixZH, strings.Join(meta.Views, "、"), meta.WindowStart, meta.WindowEnd, target)
+		if meta.SkipReason == "duration_budget_exceeded" && len(meta.SkippedViews) > 0 {
+			line += ";超时长预算未补跑 " + strings.Join(meta.SkippedViews, "、")
+		}
+		return line
+	}
+	line := fmt.Sprintf("%s deterministic assembly-time re-run of %s (window %.6f..%.6f, target %s)",
+		runtimeTraceSupplementDisclosurePrefixEN, strings.Join(meta.Views, ", "), meta.WindowStart, meta.WindowEnd, target)
+	if meta.SkipReason == "duration_budget_exceeded" && len(meta.SkippedViews) > 0 {
+		line += "; not re-run over the duration budget: " + strings.Join(meta.SkippedViews, ", ")
+	}
+	return line
+}
+
+// materializeRuntimeTraceSupplementDisclosureCaveat upserts the supplement
+// disclosure onto the document caveat lane when the supplement executed this
+// run OR was budget-skipped on the user-named window (window_span_exceeded —
+// P1 honest disclosure). The silent fail-open family (no target / no window
+// / inconsistent windows / disabled / cold budget) leaves the document
+// byte-identical. Precise trigger: typed meta present with a non-empty
+// executed view list or the span-skip reason.
+func materializeRuntimeTraceSupplementDisclosureCaveat(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
+	if doc == nil || ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	meta := ctx.Mutable.SystemTraceSupplementMeta()
+	if meta == nil || (len(meta.Views) == 0 && meta.SkipReason != "window_span_exceeded") {
+		return false
+	}
+	kept := doc.Caveats[:0]
+	for _, caveat := range doc.Caveats {
+		trimmed := strings.TrimSpace(caveat)
+		if strings.HasPrefix(trimmed, runtimeTraceSupplementDisclosurePrefixZH) ||
+			strings.HasPrefix(trimmed, runtimeTraceSupplementDisclosurePrefixEN) {
+			continue
+		}
+		kept = append(kept, caveat)
+	}
+	doc.Caveats = kept
+	zh := runtimeTraceCausalProjectionUseChinese(requestedAnswerDocumentLanguage(ctx))
+	doc.Caveats = append(doc.Caveats, runtimeTraceSupplementDisclosureText(meta, zh))
+	return true
 }
 
 // runtimeTraceSemanticOptimizationParts builds the ZH/EN-symmetric table rows

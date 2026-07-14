@@ -369,8 +369,8 @@ type runtimeTraceProjTreeRow struct {
 	// quantified overlap ms (cross-lane ts inventory unbuilt — typed
 	// unprovable). 过渡: the S1-TPF pair keeps this sentence until CASE-3
 	// adjudicates its dedicated arm.
-	AccountRelRef  string
-	AccountRelOwn  string
+	AccountRelRef string
+	AccountRelOwn string
 	// AccountRelDisjoint (修复轮三 R2-F2, 冷读 witness tieba E4↔E25,
 	// 2026-07-13): the pair's typed occurrence hulls are PROVABLY disjoint
 	// (hull-disjoint ⇒ member-disjoint, precise) — the sentence speaks
@@ -380,7 +380,7 @@ type runtimeTraceProjTreeRow struct {
 	// overlap wording (hull noise cannot prove member overlap — fail-open
 	// to the current template, 禁量化重叠 ms unchanged).
 	AccountRelDisjoint bool
-	AccountRelPeer string
+	AccountRelPeer     string
 	// OccurrenceSeries* (WO-B1, SMR-1 批 SMR-S8/S10/S11, 2026-07-12): the
 	// B-type same-identity multi-occurrence short note — typed provably
 	// DISJOINT same-(thread, state, object, type, window) single rows carry
@@ -490,7 +490,7 @@ type runtimeTraceProjAbsorbedChainPeer struct {
 }
 
 type runtimeTraceProjTreeModel struct {
-	Target     string
+	Target string
 	// RankBoardEffSumMS (冷读扩臂④ 板级警示, SMR-1 修复轮 2026-07-13): the
 	// Σ of the rank-seated rows' effective attributions when it EXCEEDS the
 	// analysis-window length (typed precise: only over-window mints the
@@ -498,11 +498,11 @@ type runtimeTraceProjTreeModel struct {
 	// sentence). Drives ONE tree-head line 「席位间物理时间可重叠,不可直接
 	// 相加」; never a gate/sort input. 0 = silent (within window).
 	RankBoardEffSumMS float64
-	TreeRows   []runtimeTraceProjTreeRow // trunk + attached (flattened, render order)
-	SelfRows   []runtimeTraceProjTreeRow // target's own state rows (under root)
-	Adjacent   []runtimeTraceProjTreeRow
-	Background []runtimeTraceProjTreeRow
-	WindowMS   float64 // >0 = window mode; 0 = fallback (BarMaxMS denominator)
+	TreeRows          []runtimeTraceProjTreeRow // trunk + attached (flattened, render order)
+	SelfRows          []runtimeTraceProjTreeRow // target's own state rows (under root)
+	Adjacent          []runtimeTraceProjTreeRow
+	Background        []runtimeTraceProjTreeRow
+	WindowMS          float64 // >0 = window mode; 0 = fallback (BarMaxMS denominator)
 	// WindowStartTs/EndTs are the analysis-window endpoints behind WindowMS
 	// (CR-2 组③ P7): the ⚠ containment gate compares a row's typed actual
 	// interval against THESE endpoints — 「实际状态跨出分析窗」 is a claim
@@ -14979,6 +14979,11 @@ func runtimeTraceProjEvidenceBlockParts(evidence *runtimeTraceCausalProjectionEv
 		// and the family key now carries the typed proof-basis lane dimension —
 		// widen exactly like FamilyAudit so the pointer never drops.
 		if entry.AbsorbedAudit {
+			auditCeiling = 160
+		}
+		// 修复轮 件5 (2026-07-14): the origin=system_supplement provenance
+		// token must never part-boundary-drop — widen like FamilyAudit.
+		if entry.SupplementAudit && auditCeiling < 160 {
 			auditCeiling = 160
 		}
 		// DIAG A1 (§28.11-3(a)): same-value fold entries widen further — the

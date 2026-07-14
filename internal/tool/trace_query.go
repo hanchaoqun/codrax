@@ -260,6 +260,11 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		return *reject, nil
 	}
 	window := normalizedTraceQueryWindow(p)
+	// SUPP-CORE (DISPATCH-IND 批1, 2026-07-14): register the call's explicit
+	// typed window on the run-scoped registry so the post-explore
+	// deterministic supplement can derive its query window from model-call
+	// PARAMETERS only (precise signals; prose is never consulted).
+	traceQueryRecordCallWindow(ctx, p, window)
 	callCaveat := traceQueryJoinCallCaveats(window.NormalizationCaveat, targetCaveat)
 	if auto, ok := t.maybeLargeRecipeAutoWindow(ctx, p, path, sourceLabel, callCaveat); ok {
 		return auto, nil
@@ -10354,6 +10359,13 @@ func traceQueryCPUGlobalEventSearchTypes(p traceQueryParams) []string {
 
 func traceQueryRecordExplicitRuntimeTarget(ctx *types.BusContext, p traceQueryParams) {
 	if ctx == nil {
+		return
+	}
+	// SUPP-CORE 修复轮 件4 (2026-07-14): the system supplement's own engine
+	// calls must not write their (lane-derived) target back as a model
+	// exploration cursor — the feedback loop could flip the exactly-one
+	// target determination on a revisit round.
+	if ctx.Mutable != nil && ctx.Mutable.SystemTraceSupplementInProgress() {
 		return
 	}
 	pid := p.PID.Int()

@@ -159,6 +159,13 @@ type ObservationRecord struct {
 	ObservedAt      string                    `json:"observed_at,omitempty"`
 	Scope           string                    `json:"scope,omitempty"`
 	Confidence      float64                   `json:"confidence,omitempty"`
+	// SystemSupplement marks a record compiled from the SUPP-CORE
+	// post-explore deterministic trace_query supplement lane (typed audit
+	// provenance — §29.21-legal deterministic tool witness, but system-
+	// dispatched rather than model-dispatched). User-visible provenance is
+	// the single answer-side disclosure caveat (R5: one total line, no
+	// per-face labels); this flag keeps the ledger/audit surface honest.
+	SystemSupplement bool `json:"system_supplement,omitempty"`
 }
 
 // ObservationLedger is the deterministic, compiled fact ledger for a run. Later
@@ -341,12 +348,19 @@ type ObservationLedgerInput struct {
 	AggregateFacts             []AnswerAggregateFact
 	SourceInventoryObservation SourceInventoryObservation
 	ToolResults                []ToolResult
-	LogBundle                  *LogBundle
-	PerfBundle                 *PerfBundle
-	MCPResponses               []MCPResponse
-	RequestModel               *RequestModel
-	AnswerContract             *AnswerContract
-	RowSetWriter               ObservationRowSetWriter
+	// SystemTraceSupplementResults is the SUPP-CORE dedicated lane: the
+	// post-explore deterministic trace_query supplement's tool results.
+	// Kept OUTSIDE ToolResults so (a) provenance is structural — every
+	// record compiled from this lane is stamped SystemSupplement=true —
+	// and (b) the explore-stage prompt feed can exclude the lane with a
+	// single field clear (dispatch-probability zero displacement).
+	SystemTraceSupplementResults []ToolResult
+	LogBundle                    *LogBundle
+	PerfBundle                   *PerfBundle
+	MCPResponses                 []MCPResponse
+	RequestModel                 *RequestModel
+	AnswerContract               *AnswerContract
+	RowSetWriter                 ObservationRowSetWriter
 }
 
 // ObservationRowSetWriter stores a large, already-structured row set and
@@ -404,7 +418,20 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 	compileEvidenceItemObservations(input.EvidenceItems, add)
 	compileAggregateFactObservations(input.AggregateFacts, input.RequestModel, input.RowSetWriter, currentSourceSupport, add)
 	compileSourceInventoryObservationObservations(input.SourceInventoryObservation, input.RowSetWriter, add)
-	compileToolResultObservations(input.ToolResults, input.RowSetWriter, add)
+	// SUPP-CORE: supplement results compile through the SAME tool-result
+	// path (single value source — identical record shapes to model-
+	// dispatched trace_query calls), appended AFTER the model results so
+	// index-anchored fallback IDs stay collision-free. Records from the
+	// supplement segment are stamped SystemSupplement=true (audit lane).
+	toolResults := input.ToolResults
+	supplementFrom := len(toolResults)
+	if len(input.SystemTraceSupplementResults) > 0 {
+		combined := make([]ToolResult, 0, supplementFrom+len(input.SystemTraceSupplementResults))
+		combined = append(combined, toolResults...)
+		combined = append(combined, input.SystemTraceSupplementResults...)
+		toolResults = combined
+	}
+	compileToolResultObservations(toolResults, supplementFrom, input.RowSetWriter, add)
 	compileLogBundleObservations(input.LogBundle, add)
 	compilePerfBundleObservations(input.PerfBundle, add)
 	compileMCPResponseObservations(input.MCPResponses, add)
@@ -1492,12 +1519,26 @@ func observationRowSetJSONLForSourceInventoryObservation(set SourceInventoryObse
 	return b.String()
 }
 
-func compileToolResultObservations(results []ToolResult, rowSetWriter ObservationRowSetWriter, add func(ObservationRecord)) {
+// compileToolResultObservations compiles tool results into observation
+// records. supplementFrom is the SUPP-CORE boundary index: results at
+// index >= supplementFrom came from the system trace supplement lane and
+// every record they mint is stamped SystemSupplement=true (structural
+// provenance — the callback wrapper is the single stamping point for the
+// typed, carrier, AND legacy summary-reparse lanes alike).
+func compileToolResultObservations(results []ToolResult, supplementFrom int, rowSetWriter ObservationRowSetWriter, add func(ObservationRecord)) {
 	typedSeen := map[string]bool{}
 	carrierSeen := map[string]bool{}
+	baseAdd := add
 	for i, result := range results {
 		if !result.Success {
 			continue
+		}
+		add := baseAdd
+		if i >= supplementFrom {
+			add = func(record ObservationRecord) {
+				record.SystemSupplement = true
+				baseAdd(record)
+			}
 		}
 		// Producer-published typed rows win over the summary re-parse:
 		// the re-parse only sees the capped/clipped prose preview, so a

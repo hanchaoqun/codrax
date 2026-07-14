@@ -168,6 +168,7 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"StateKind":                     {Status: "displayed", Ref: "行1 glyph+状态词 + 行2 [状态state]"},
 	"DStateRefinedNonIO":            {Status: "displayed", Ref: "件③ arm a: 细化「D-state」词面门(名/形态格/对端措辞族)"},
 	"DStateCauseUnprovenRemainder":  {Status: "displayed", Ref: "§29.50.5 件②: 「(原因未证)」余数词面门(cause 词族 qualifier)"},
+	"SystemSupplement":              {Status: "displayed", Ref: "SUPP-CORE 修复轮 件5: E# 审计面 origin=system_supplement 出处 token"},
 	"BlockedReasonCaller":           {Status: "displayed", Ref: "件③ 行2 等待对象 披露"},
 	"BlockedReasonWindowCount":      {Status: "displayed", Ref: "CR-3 件② 行2/headline 未核销 blocked_reason 残余披露"},
 	"BlockedReasonWindowCaller":     {Status: "displayed", Ref: "CR-3 件② 行2/headline 未核销 caller 符号"},

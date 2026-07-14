@@ -269,6 +269,35 @@ type MutableState struct {
 	turnAArtifactsRevision      uint64
 	dispatchToolResultsRevision uint64
 	searchGraphRevision         uint64
+	// traceQueryCallWindows is the typed registry of explicit model-authored
+	// trace_query call windows (SUPP-CORE, DISPATCH-IND 批1, 2026-07-14). The
+	// trace_query tool records every strict-decoded call that carried BOTH
+	// time_start and time_end (normalized seconds, plus the call's canonical
+	// view and typed enum params) so the post-explore deterministic supplement
+	// can derive its query window from TYPED model-call parameters only —
+	// never from prose, never last-wins (F1 micro-probe anchor precedent).
+	// Cleared at the same per-task boundary as traceQueryPublishedBlobRefs
+	// (ResetTurnAArtifacts). exploreForkTraceQueryCallWindowBase is the
+	// parent's length at fork time so MergeExploreFork folds back only the
+	// fork's new windows (same delta pattern as the runtime-observation
+	// counter above).
+	traceQueryCallWindows               []TraceQueryCallWindow
+	exploreForkTraceQueryCallWindowBase int
+	// systemTraceSupplement* is the dedicated system lane for the SUPP-CORE
+	// post-explore deterministic trace_query supplement. Results live OUTSIDE
+	// bus.ToolResults / dispatchToolResults on purpose: the explore model
+	// transcript must never see them (dispatch-probability zero displacement),
+	// while the observation-ledger input builders merge them through the
+	// typed SystemTraceSupplementResults field for extract/finalize/render
+	// consumers. attempted is the one-shot latch — the supplement runs at
+	// most once per task regardless of outcome.
+	systemTraceSupplementResults   []ToolResult
+	systemTraceSupplementMeta      *SystemTraceSupplementMeta
+	systemTraceSupplementAttempted bool
+	// systemTraceSupplementInProgress gates trace_query's Execute-side
+	// recorders while the supplement's own engine calls run (修复轮 件4:
+	// no cursor write-back / call-window feedback loop from system calls).
+	systemTraceSupplementInProgress bool
 	// traceQueryRuntimeObservationCount persists the precise signal that a
 	// successful trace_query call published hard-grounded runtime-artifact
 	// observations during the current explore/extract cycle. The per-dispatch
@@ -1152,6 +1181,8 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 		traceQueryRuntimeObservationCount:   m.traceQueryRuntimeObservationCount,
 		exploreForkTraceQueryRuntimeObservationBase: m.traceQueryRuntimeObservationCount,
 		traceQueryPublishedBlobRefs:                 cloneStringStringMap(m.traceQueryPublishedBlobRefs),
+		traceQueryCallWindows:                       append([]TraceQueryCallWindow(nil), m.traceQueryCallWindows...),
+		exploreForkTraceQueryCallWindowBase:         len(m.traceQueryCallWindows),
 	}
 	if m.requestModel != nil {
 		cp := *m.requestModel
@@ -1233,6 +1264,10 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	exactContextRequiredFiles := append([]string(nil), fork.exactContextRequiredFiles...)
 	traceQueryRuntimeObservationDelta := fork.traceQueryRuntimeObservationCount - fork.exploreForkTraceQueryRuntimeObservationBase
 	traceQueryBlobRefs := cloneStringStringMap(fork.traceQueryPublishedBlobRefs)
+	var traceQueryCallWindowDelta []TraceQueryCallWindow
+	if len(fork.traceQueryCallWindows) > fork.exploreForkTraceQueryCallWindowBase {
+		traceQueryCallWindowDelta = append([]TraceQueryCallWindow(nil), fork.traceQueryCallWindows[fork.exploreForkTraceQueryCallWindowBase:]...)
+	}
 	closure := fork.evidenceClosure
 	fork.mu.RUnlock()
 
@@ -1310,6 +1345,7 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 			m.traceQueryPublishedBlobRefs[canonKey] = verbatim
 		}
 	}
+	m.traceQueryCallWindows = append(m.traceQueryCallWindows, traceQueryCallWindowDelta...)
 	m.bumpAnswerSurfaceRevisionLocked()
 	m.mu.Unlock()
 
@@ -4201,6 +4237,12 @@ func (m *MutableState) ResetTurnAArtifacts() {
 	m.traceQueryRuntimeObservationCount = 0
 	m.exploreForkTraceQueryRuntimeObservationBase = 0
 	m.traceQueryPublishedBlobRefs = nil
+	m.traceQueryCallWindows = nil
+	m.exploreForkTraceQueryCallWindowBase = 0
+	m.systemTraceSupplementResults = nil
+	m.systemTraceSupplementMeta = nil
+	m.systemTraceSupplementAttempted = false
+	m.systemTraceSupplementInProgress = false
 	m.sourceInventoryAdvisory = SourceInventoryAdvisory{}
 	m.sourceInventoryObservation = SourceInventoryObservation{}
 	if m.evidenceClosure != nil {

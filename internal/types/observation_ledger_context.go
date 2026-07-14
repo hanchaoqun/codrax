@@ -67,11 +67,15 @@ func ObservationLedgerInputFromAgentContext(ctx *AgentContext, evidenceLimit int
 		AggregateFacts:             aggregateFacts,
 		SourceInventoryObservation: sourceInventory,
 		ToolResults:                toolResults,
-		LogBundle:                  logBundle,
-		PerfBundle:                 perfBundle,
-		MCPResponses:               append(mcpResponses, ctx.MCPResponses...),
-		RequestModel:               requestModel,
-		AnswerContract:             answerContract,
+		// SUPP-CORE single merge point (AgentContext side): the dedicated
+		// system supplement lane rides its own input field so compile-side
+		// provenance stamping stays structural.
+		SystemTraceSupplementResults: ctx.Mutable.SystemTraceSupplementResults(),
+		LogBundle:                    logBundle,
+		PerfBundle:                   perfBundle,
+		MCPResponses:                 append(mcpResponses, ctx.MCPResponses...),
+		RequestModel:                 requestModel,
+		AnswerContract:               answerContract,
 	}
 }
 
@@ -127,16 +131,23 @@ func ObservationLedgerInputFromBusContext(bus *BusContext, evidenceLimit int) Ob
 		}
 		toolResults = mergeObservationLedgerToolResults(toolResults, bus.Mutable.DispatchToolResults())
 	}
+	var supplementResults []ToolResult
+	if bus.Mutable != nil {
+		// SUPP-CORE single merge point (BusContext side) — twin of the
+		// AgentContext builder above.
+		supplementResults = bus.Mutable.SystemTraceSupplementResults()
+	}
 	return ObservationLedgerInput{
-		EvidenceItems:              evidenceItems,
-		AggregateFacts:             aggregateFacts,
-		SourceInventoryObservation: sourceInventory,
-		ToolResults:                toolResults,
-		LogBundle:                  logBundle,
-		PerfBundle:                 perfBundle,
-		MCPResponses:               mcpResponses,
-		RequestModel:               requestModel,
-		AnswerContract:             answerContract,
+		EvidenceItems:                evidenceItems,
+		AggregateFacts:               aggregateFacts,
+		SourceInventoryObservation:   sourceInventory,
+		ToolResults:                  toolResults,
+		SystemTraceSupplementResults: supplementResults,
+		LogBundle:                    logBundle,
+		PerfBundle:                   perfBundle,
+		MCPResponses:                 mcpResponses,
+		RequestModel:                 requestModel,
+		AnswerContract:               answerContract,
 	}
 }
 
