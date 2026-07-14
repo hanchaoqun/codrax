@@ -31,6 +31,64 @@ type profilerPairEndpointDescriptor struct {
 	structuredField int
 }
 
+// profilerPairFamilyEndpointCapacity is the largest closed endpoint roster in
+// one Profiler pair family. Family-local ledgers use this fixed width instead
+// of retaining a dynamic endpoint map per exact lane.
+const profilerPairFamilyEndpointCapacity = 6
+
+type profilerPairFamilyEndpointOrdinal uint8
+
+// profilerPairFamilyEndpointRange is derived from the numeric endpoint ABI:
+// every family occupies one contiguous range in profilerPairEndpointRoster.
+// Keeping only the first slot and count avoids a second endpoint descriptor
+// authority while still allowing O(1) fixed-ledger indexing.
+func profilerPairFamilyEndpointRange(kind pairRenderKind) (profilerPairEndpointSlot, uint8, bool) {
+	switch kind {
+	case pairRenderMMC:
+		return profilerPairEndpointMMCRequestStart, 2, true
+	case pairRenderF2FS:
+		return profilerPairEndpointF2FSSyncFileEnter, 6, true
+	case pairRenderBlock:
+		return profilerPairEndpointBlockBIOQueue, 4, true
+	default:
+		return profilerPairEndpointNone, 0, false
+	}
+}
+
+func profilerPairFamilyEndpointCount(kind pairRenderKind) (uint8, bool) {
+	_, count, ok := profilerPairFamilyEndpointRange(kind)
+	return count, ok
+}
+
+func (slot profilerPairEndpointSlot) familyOrdinal(kind pairRenderKind) (profilerPairFamilyEndpointOrdinal, bool) {
+	first, count, ok := profilerPairFamilyEndpointRange(kind)
+	if !ok || slot < first {
+		return 0, false
+	}
+	offset := uint8(slot - first)
+	if offset >= count || offset >= profilerPairFamilyEndpointCapacity {
+		return 0, false
+	}
+	descriptor, descriptorOK := slot.descriptor()
+	if !descriptorOK || descriptor.kind != kind {
+		return 0, false
+	}
+	return profilerPairFamilyEndpointOrdinal(offset), true
+}
+
+func profilerPairEndpointForFamilyOrdinal(kind pairRenderKind, ordinal profilerPairFamilyEndpointOrdinal) (profilerPairEndpointSlot, bool) {
+	first, count, ok := profilerPairFamilyEndpointRange(kind)
+	if !ok || uint8(ordinal) >= count || uint8(ordinal) >= profilerPairFamilyEndpointCapacity {
+		return profilerPairEndpointNone, false
+	}
+	slot := first + profilerPairEndpointSlot(ordinal)
+	descriptor, descriptorOK := slot.descriptor()
+	if !descriptorOK || descriptor.kind != kind {
+		return profilerPairEndpointNone, false
+	}
+	return slot, true
+}
+
 var profilerPairEndpointRoster = [...]profilerPairEndpointDescriptor{
 	{profilerPairEndpointMMCRequestStart, pairRenderMMC, "mmc_request_start", 4016},
 	{profilerPairEndpointMMCRequestDone, pairRenderMMC, "mmc_request_done", 4015},

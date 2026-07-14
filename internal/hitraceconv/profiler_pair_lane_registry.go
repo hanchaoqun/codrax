@@ -7,19 +7,125 @@ import (
 
 // profilerPairLaneRegistry is the single typed identity registry for one pair
 // family. A lane string is retained exactly once and rows carry only its dense
-// source-local ID. Publication counters remain on the legacy oracle during
-// P1-a2.4-A and move to the terminal fixed ledger in the following sub-batch.
+// source-local ID. B-d2a stores the fixed endpoint counters in the same state
+// while the legacy keyed maps remain only as a fail-loud parity oracle; B-d2b
+// removes that oracle after transition/resource validation.
 type profilerPairLaneRegistry struct {
 	byKey  map[string]uint32
 	keys   []string
 	states []profilerPairLaneState
 }
 
+type profilerPairLaneEndpointCounts struct {
+	rows           uint32
+	structuredRows uint32
+}
+
 type profilerPairLaneState struct {
+	endpointCounts [profilerPairFamilyEndpointCapacity]profilerPairLaneEndpointCounts
 	poisoned       bool
 	blockClockSeen bool
 	lastBlockSeq   int
 	lastBlockTSNS  uint64
+}
+
+// checkedProfilerPairLaneCounterAdd is deliberately uint32: an unpoisoned
+// exact-lane state is dominated by the 4,000,000-observation proof domain.
+// endpointCountsValid additionally proves that aggregate bound across all six
+// fixed slots, so a wider or dynamically allocated per-lane counter is neither
+// necessary nor permitted.
+func checkedProfilerPairLaneCounterAdd(current, delta uint32) (uint32, bool) {
+	if delta > math.MaxUint32-current {
+		return 0, false
+	}
+	return current + delta, true
+}
+
+func (state profilerPairLaneState) endpointCountsValid(kind pairRenderKind) bool {
+	count, ok := profilerPairFamilyEndpointCount(kind)
+	if !ok || count == 0 || count > profilerPairFamilyEndpointCapacity {
+		return false
+	}
+	var rowsTotal, structuredTotal uint64
+	for ordinal, counts := range state.endpointCounts {
+		if ordinal >= int(count) {
+			if counts != (profilerPairLaneEndpointCounts{}) {
+				return false
+			}
+			continue
+		}
+		if counts.structuredRows > counts.rows {
+			return false
+		}
+		rowsTotal += uint64(counts.rows)
+		structuredTotal += uint64(counts.structuredRows)
+	}
+	return structuredTotal <= rowsTotal && rowsTotal <= uint64(profilerPairBarrierMaxObservations)
+}
+
+// stageEndpointRows returns a complete next lane state or no state at all. It
+// never mutates the receiver on overflow, a foreign endpoint, an invalid
+// structured subset, an already-corrupt unused tail, or a breach of the
+// observation proof bound. Callers may therefore preflight a row/event delta
+// and make the final commit tail infallible.
+func (state profilerPairLaneState) stageEndpointRows(
+	kind pairRenderKind,
+	endpoint profilerPairEndpointSlot,
+	rows uint32,
+	structuredRows uint32,
+) (profilerPairLaneState, bool) {
+	if structuredRows > rows || !state.endpointCountsValid(kind) {
+		return profilerPairLaneState{}, false
+	}
+	ordinal, ok := endpoint.familyOrdinal(kind)
+	if !ok {
+		return profilerPairLaneState{}, false
+	}
+	counts := state.endpointCounts[ordinal]
+	nextRows, rowsOK := checkedProfilerPairLaneCounterAdd(counts.rows, rows)
+	nextStructured, structuredOK := checkedProfilerPairLaneCounterAdd(counts.structuredRows, structuredRows)
+	if !rowsOK || !structuredOK {
+		return profilerPairLaneState{}, false
+	}
+	state.endpointCounts[ordinal] = profilerPairLaneEndpointCounts{
+		rows: nextRows, structuredRows: nextStructured,
+	}
+	if !state.endpointCountsValid(kind) {
+		return profilerPairLaneState{}, false
+	}
+	return state, true
+}
+
+func (state profilerPairLaneState) endpointCountsFor(
+	kind pairRenderKind,
+	endpoint profilerPairEndpointSlot,
+) (profilerPairLaneEndpointCounts, bool) {
+	if !state.endpointCountsValid(kind) {
+		return profilerPairLaneEndpointCounts{}, false
+	}
+	ordinal, ok := endpoint.familyOrdinal(kind)
+	if !ok {
+		return profilerPairLaneEndpointCounts{}, false
+	}
+	return state.endpointCounts[ordinal], true
+}
+
+func (state profilerPairLaneState) endpointTotals(kind pairRenderKind) (uint32, uint32, bool) {
+	if !state.endpointCountsValid(kind) {
+		return 0, 0, false
+	}
+	count, _ := profilerPairFamilyEndpointCount(kind)
+	var rows, structuredRows uint32
+	for ordinal := uint8(0); ordinal < count; ordinal++ {
+		counts := state.endpointCounts[ordinal]
+		var rowsOK, structuredOK bool
+		rows, rowsOK = checkedProfilerPairLaneCounterAdd(rows, counts.rows)
+		structuredRows, structuredOK = checkedProfilerPairLaneCounterAdd(structuredRows, counts.structuredRows)
+		if !rowsOK || !structuredOK {
+			return 0, 0, false
+		}
+	}
+	return rows, structuredRows, true
 }
 
 func (registry *profilerPairLaneRegistry) idFor(key string) (uint32, bool) {

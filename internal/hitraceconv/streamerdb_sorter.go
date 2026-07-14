@@ -302,6 +302,7 @@ type traceDBRowSink struct {
 	structuredLaneRows   map[pairRenderKind]map[string]int
 	structuredEventRows  map[pairRenderKind]map[int]int
 	structuredEventLanes map[pairRenderKind]map[int]map[string]int
+	pairFixedLedger      profilerPairFixedLedger
 	pairLaneRegistries   [pairRenderKindCount]profilerPairLaneRegistry
 	activePairCensus     profilerPairCensusSet
 	pairCensusActive     bool
@@ -543,6 +544,7 @@ func (s *traceDBRowSink) profilerCapturePreOpenStatePristine() bool {
 		len(s.poisonedLanes) != 0 || len(s.opaque) != 0 || len(s.structuredPairRows) != 0 ||
 		len(s.structuredLaneRows) != 0 || len(s.structuredEventRows) != 0 ||
 		len(s.structuredEventLanes) != 0 || len(s.blockLaneClocks) != 0 ||
+		!s.pairFixedLedger.pristine() ||
 		s.legacyPairProof.observations != 0 || s.legacyPairProof.laneKeys != 0 ||
 		s.legacyPairProof.failureReason != "" || s.blockPairProof.observations != 0 ||
 		s.blockPairProof.laneKeys != 0 || s.blockPairProof.failureReason != "" ||
@@ -774,6 +776,11 @@ func (s *traceDBRowSink) commitProfilerEventDeltaContext(ctx context.Context, de
 		}
 		return &traceDBOutputInvariantError{Reason: reason}
 	}
+	if delta != (traceDBProfilerEventDelta{}) {
+		if err := s.preflightProfilerPairFixedMutation(nil, &delta); err != nil {
+			return err
+		}
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -845,6 +852,9 @@ func (s *traceDBRowSink) addContext(ctx context.Context, row renderedRow, eventD
 	}
 	if !profilerPairKindValid(row.pairKind) {
 		return &traceDBOutputInvariantError{Reason: "invalid_pair_render_kind"}
+	}
+	if !profilerPairBudgetKind(row.pairKind) && (row.pairLane != "" || row.pairTable != "") {
+		return &traceDBOutputInvariantError{Reason: "profiler_nonbudget_pair_metadata_forbidden"}
 	}
 	if row.profilerLaneID != 0 {
 		return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_id_preassigned"}
@@ -925,6 +935,12 @@ func (s *traceDBRowSink) addContext(ctx context.Context, row renderedRow, eventD
 	if err := s.ensureBufferedCapacity(nextBufferedRows); err != nil {
 		return err
 	}
+	if row.pairKind != pairRenderUnknown ||
+		eventDelta != nil && *eventDelta != (traceDBProfilerEventDelta{}) {
+		if err := s.preflightProfilerPairFixedMutation(&row, eventDelta); err != nil {
+			return err
+		}
+	}
 	if s.profilerSourceProof.active {
 		if err := s.profilerSourceProof.prepareRowContext(ctx, row, s.nextIngestOrdinal); err != nil {
 			return err
@@ -960,6 +976,16 @@ func (s *traceDBRowSink) addContext(ctx context.Context, row renderedRow, eventD
 			}
 		}
 		s.commitProfilerBlockLaneClock(row)
+		// The Block clock can fail the source-wide authority after trackLane was
+		// computed. That reset deliberately clears every exact-lane registry and
+		// legacy keyed oracle; never let the stale pre-reset decision recreate a
+		// subordinate lane account for the current withheld row.
+		if s.poisoned[row.pairKind] || s.pairAuthorityFailure != "" {
+			trackLane = false
+		}
+	}
+	if row.pairKind != pairRenderUnknown {
+		trackLane = s.commitProfilerPairFixedRow(row, trackLane)
 	}
 	if s.stats.RowsAccepted == 0 || row.tsNS < s.stats.FirstTSNS {
 		s.stats.FirstTSNS = row.tsNS
@@ -1284,6 +1310,12 @@ func (s *traceDBRowSink) markPairCaptureOpaque(kind pairRenderKind) {
 	if !s.profilerMutationAllowed("profiler_capture_opaque_after_seal") {
 		return
 	}
+	plan, ok := s.pairFixedLedger.planMarkOpaque(kind)
+	if !ok {
+		s.failProfilerPairFixedLedger("profiler_pair_fixed_ledger_opaque_invalid")
+		return
+	}
+	plan.apply(&s.pairFixedLedger)
 	s.opaque[kind] = true
 	if s.pairRows[kind] > 0 {
 		s.poisonPairKindRaw(kind)
@@ -1301,6 +1333,12 @@ func (s *traceDBRowSink) failCloseAllRows() {
 	for _, kind := range []pairRenderKind{
 		pairRenderWorkqueue, pairRenderDMAFence, pairRenderMMC, pairRenderF2FS, pairRenderBlock,
 	} {
+		plan, ok := s.pairFixedLedger.planMarkOpaque(kind)
+		if !ok {
+			s.failProfilerPairFixedLedger("profiler_pair_fixed_ledger_opaque_invalid")
+			return
+		}
+		plan.apply(&s.pairFixedLedger)
 		s.opaque[kind] = true
 		s.poisonPairKindRaw(kind)
 	}
@@ -1317,6 +1355,19 @@ func (s *traceDBRowSink) poisonPairKind(kind pairRenderKind) {
 }
 
 func (s *traceDBRowSink) poisonPairKindRaw(kind pairRenderKind) {
+	if s == nil || kind == pairRenderUnknown || !profilerPairKindValid(kind) {
+		return
+	}
+	plan, ok := s.pairFixedLedger.planPoisonFamily(kind)
+	if !ok {
+		s.failProfilerPairFixedLedger("profiler_pair_fixed_ledger_family_poison_invalid")
+		return
+	}
+	plan.apply(&s.pairFixedLedger)
+	s.poisonPairKindLegacyRaw(kind)
+}
+
+func (s *traceDBRowSink) poisonPairKindLegacyRaw(kind pairRenderKind) {
 	if s == nil || kind == pairRenderUnknown || !profilerPairKindValid(kind) {
 		return
 	}
@@ -1353,6 +1404,13 @@ func (s *traceDBRowSink) poisonPairLane(kind pairRenderKind, lane string) {
 	if s.poisoned[kind] {
 		return
 	}
+	if !profilerPairBudgetKind(kind) {
+		// Workqueue/DMA do not carry a compact exact-lane identity. A coarse
+		// lane rejection therefore closes the whole typed family instead of
+		// manufacturing a string-only quarantine that publication cannot see.
+		s.poisonPairKindRaw(kind)
+		return
+	}
 	if profilerPairBudgetKind(kind) && !s.observeProfilerPairState(kind, lane) {
 		return
 	}
@@ -1363,19 +1421,26 @@ func (s *traceDBRowSink) poisonPairLaneRaw(kind pairRenderKind, lane string) {
 	if s == nil || kind == pairRenderUnknown || !profilerPairKindValid(kind) || lane == "" || s.poisoned[kind] {
 		return
 	}
-	if profilerPairBudgetKind(kind) {
-		id, ok := s.pairLaneRegistries[kind].idFor(lane)
-		if !ok {
-			s.failProfilerPairAuthority("pair_lane_registry_missing")
-			return
-		}
-		state, ok := s.pairLaneRegistries[kind].state(id)
-		if !ok {
-			s.failProfilerPairAuthority("pair_lane_registry_state_missing")
-			return
-		}
-		state.poisoned = true
+	if !profilerPairBudgetKind(kind) {
+		s.poisonPairKindRaw(kind)
+		return
 	}
+	id, ok := s.pairLaneRegistries[kind].idFor(lane)
+	if !ok {
+		s.failProfilerPairAuthority("pair_lane_registry_missing")
+		return
+	}
+	state, ok := s.pairLaneRegistries[kind].state(id)
+	if !ok {
+		s.failProfilerPairAuthority("pair_lane_registry_state_missing")
+		return
+	}
+	plan, ok := s.pairFixedLedger.planPoisonLane(kind, *state)
+	if !ok {
+		s.failProfilerPairFixedLedger("profiler_pair_fixed_ledger_lane_poison_invalid")
+		return
+	}
+	plan.apply(&s.pairFixedLedger, state)
 	if s.poisonedLanes[kind] == nil {
 		s.poisonedLanes[kind] = make(map[string]bool)
 	}
@@ -2071,7 +2136,7 @@ func (s *traceDBRowSink) validateProfilerPairLaneRegistryParity() error {
 			}
 		}
 	}
-	return nil
+	return s.validateProfilerPairFixedLedgerParity()
 }
 
 func (s *traceDBRowSink) rowPublishable(row traceDBStoredRow) bool {
