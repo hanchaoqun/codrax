@@ -121,9 +121,9 @@ func TestProfilerBlockAndLegacyProofBudgetsAreIndependent(t *testing.T) {
 		defer sink.cleanup()
 		sink.blockPairProof.maxObservations = 1
 		for _, row := range []renderedRow{
-			{tsNS: 1, seq: 1, line: "block-start", pairKind: pairRenderBlock, pairLane: "block-a"},
-			{tsNS: 2, seq: 2, line: "block-done", pairKind: pairRenderBlock, pairLane: "block-a"},
-			{tsNS: 3, seq: 3, line: "mmc-survives", pairKind: pairRenderMMC, pairLane: "mmc-a"},
+			{tsNS: 1, seq: 1, line: "block-start", pairKind: pairRenderBlock, pairLane: "block-a", pairTable: "block_bio_queue"},
+			{tsNS: 2, seq: 2, line: "block-done", pairKind: pairRenderBlock, pairLane: "block-a", pairTable: "block_bio_complete"},
+			{tsNS: 3, seq: 3, line: "mmc-survives", pairKind: pairRenderMMC, pairLane: "mmc-a", pairTable: "mmc_request_start"},
 		} {
 			if err := sink.add(row); err != nil {
 				t.Fatal(err)
@@ -145,9 +145,9 @@ func TestProfilerBlockAndLegacyProofBudgetsAreIndependent(t *testing.T) {
 		defer sink.cleanup()
 		sink.legacyPairProof.maxObservations = 1
 		for _, row := range []renderedRow{
-			{tsNS: 1, seq: 1, line: "mmc-start", pairKind: pairRenderMMC, pairLane: "mmc-a"},
-			{tsNS: 2, seq: 2, line: "f2fs-cap", pairKind: pairRenderF2FS, pairLane: "f2fs-a"},
-			{tsNS: 3, seq: 3, line: "block-survives", pairKind: pairRenderBlock, pairLane: "block-a"},
+			{tsNS: 1, seq: 1, line: "mmc-start", pairKind: pairRenderMMC, pairLane: "mmc-a", pairTable: "mmc_request_start"},
+			{tsNS: 2, seq: 2, line: "f2fs-cap", pairKind: pairRenderF2FS, pairLane: "f2fs-a", pairTable: "f2fs_write_begin"},
+			{tsNS: 3, seq: 3, line: "block-survives", pairKind: pairRenderBlock, pairLane: "block-a", pairTable: "block_bio_queue"},
 		} {
 			if err := sink.add(row); err != nil {
 				t.Fatal(err)
@@ -172,9 +172,12 @@ func TestProfilerPairCensusUsesFixedCaptureKindSet(t *testing.T) {
 		t.Fatal("pair census did not start")
 	}
 	for index, kind := range profilerCaptureKinds {
+		pairTable := map[pairRenderKind]string{
+			pairRenderMMC: "mmc_request_start", pairRenderF2FS: "f2fs_write_begin", pairRenderBlock: "block_bio_queue",
+		}[kind]
 		if err := sink.add(renderedRow{
 			tsNS: uint64(index + 1), seq: index + 1, line: "capture-row", pairKind: kind,
-			pairLane: "lane-" + string(rune('a'+index)),
+			pairLane: "lane-" + string(rune('a'+index)), pairTable: pairTable,
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -216,9 +219,9 @@ func TestProfilerBlockPhysicalLaneClockAuditedBeforeSort(t *testing.T) {
 		}
 		defer sink.cleanup()
 		for _, row := range []renderedRow{
-			{tsNS: 20, seq: 1, line: "lane-a-start", pairKind: pairRenderBlock, pairLane: "lane-a"},
-			{tsNS: 5, seq: 2, line: "lane-b", pairKind: pairRenderBlock, pairLane: "lane-b"},
-			{tsNS: 10, seq: 3, line: "lane-a-done", pairKind: pairRenderBlock, pairLane: "lane-a"},
+			{tsNS: 20, seq: 1, line: "lane-a-start", pairKind: pairRenderBlock, pairLane: "lane-a", pairTable: "block_bio_queue"},
+			{tsNS: 5, seq: 2, line: "lane-b", pairKind: pairRenderBlock, pairLane: "lane-b", pairTable: "block_bio_queue"},
+			{tsNS: 10, seq: 3, line: "lane-a-done", pairKind: pairRenderBlock, pairLane: "lane-a", pairTable: "block_bio_complete"},
 		} {
 			if err := sink.add(row); err != nil {
 				t.Fatal(err)
@@ -245,7 +248,7 @@ func TestProfilerBlockPhysicalLaneClockAuditedBeforeSort(t *testing.T) {
 		}
 		defer sink.cleanup()
 		for seq := 1; seq <= 2; seq++ {
-			if err := sink.add(renderedRow{tsNS: 10, seq: seq, line: "same-ts", pairKind: pairRenderBlock, pairLane: "lane"}); err != nil {
+			if err := sink.add(renderedRow{tsNS: 10, seq: seq, line: "same-ts", pairKind: pairRenderBlock, pairLane: "lane", pairTable: "block_bio_queue"}); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -268,13 +271,16 @@ func TestProfilerCaptureAccountingRejectsWithheldAboveStagedWithoutClamp(t *test
 	if err := sink.openProfilerCapture(source); err != nil {
 		t.Fatal(err)
 	}
-	if err := sink.add(renderedRow{tsNS: 1, seq: 1, line: "block", pairKind: pairRenderBlock, pairLane: "lane"}); err != nil {
+	if err := sink.add(renderedRow{tsNS: 1, seq: 1, line: "block", pairKind: pairRenderBlock, pairLane: "lane", pairTable: "block_bio_queue"}); err != nil {
 		t.Fatal(err)
 	}
 	sink.pairLaneRows[pairRenderBlock]["lane"] = 2
 	sink.poisonedLanes[pairRenderBlock] = map[string]bool{"lane": true}
-	if err := sink.sealProfilerCapture(); traceDBInvariantReason(err) != "profiler_pair_withheld_counter_invalid" {
-		t.Fatalf("withheld>staged was clamped instead of rejected: err=%v breach=%q", err, sink.captureBreach)
+	if _, err := sink.withheldPairRowsForKindChecked(pairRenderBlock); traceDBInvariantReason(err) != "profiler_pair_withheld_exceeds_staged" {
+		t.Fatalf("withheld>staged was clamped instead of rejected by the scalar guard: err=%v", err)
+	}
+	if err := sink.sealProfilerCapture(); traceDBInvariantReason(err) != "profiler_pair_lane_registry_poison_mismatch" {
+		t.Fatalf("split typed/legacy accounting escaped the earlier parity guard: err=%v breach=%q", err, sink.captureBreach)
 	}
 	if _, err := sink.writeTo(context.Background(), &bytes.Buffer{}); traceDBInvariantReason(err) != "profiler_capture_accounting_invalid" {
 		t.Fatalf("invalid accounting reached publication: %v", err)

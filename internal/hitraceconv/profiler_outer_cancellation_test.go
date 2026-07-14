@@ -157,22 +157,74 @@ func assertProfilerOuterCancellationSinkPristine(t *testing.T, sink *traceDBRowS
 		len(sink.rows) != 0 || len(sink.rowIngestOrdinals) != 0 || len(sink.runs) != 0 ||
 		len(sink.artifacts) != 0 || sink.bufferedBytes != 0 || sink.activeTempBytes != 0 || sink.liveTempBytes != 0 ||
 		sink.pairCensusActive || !reflect.DeepEqual(sink.activePairCensus, profilerPairCensusSet{}) ||
+		sink.activePairPublisher != profilerPairPublisherNone || sink.textMessageActive ||
+		sink.activeTextMessage != 0 || sink.activeTextRows != 0 || sink.nextTextMessage != 0 ||
 		sink.allRowsFailClosed || sink.pairAuthorityFailure != "" {
 		t.Fatalf("canceled profiler extraction mutated row state: stats=%+v rows=%d runs=%d artifacts=%d "+
-			"buffered=%d active_temp=%d live_temp=%d census_active=%t census=%+v fail_closed=%t authority=%q",
+			"buffered=%d active_temp=%d live_temp=%d census_active=%t census=%+v publisher=%d "+
+			"text=%t/%d/%d next=%d fail_closed=%t authority=%q",
 			sink.stats, len(sink.rows), len(sink.runs), len(sink.artifacts), sink.bufferedBytes,
 			sink.activeTempBytes, sink.liveTempBytes, sink.pairCensusActive, sink.activePairCensus,
+			sink.activePairPublisher, sink.textMessageActive, sink.activeTextMessage, sink.activeTextRows, sink.nextTextMessage,
 			sink.allRowsFailClosed, sink.pairAuthorityFailure)
 	}
 	for _, kind := range profilerCaptureKinds {
 		if sink.pairRows[kind] != 0 || sink.poisoned[kind] || sink.opaque[kind] ||
 			sink.structuredPairRows[kind] != 0 || len(sink.pairLaneRows[kind]) != 0 ||
-			len(sink.pairTableRows[kind]) != 0 || len(sink.poisonedLanes[kind]) != 0 {
+			len(sink.pairTableRows[kind]) != 0 || len(sink.poisonedLanes[kind]) != 0 ||
+			len(sink.pairLaneRegistries[kind].byKey) != 0 || len(sink.pairLaneRegistries[kind].keys) != 0 ||
+			len(sink.pairLaneRegistries[kind].states) != 0 {
 			t.Fatalf("canceled profiler extraction mutated pair kind %d state: rows=%d poisoned=%t opaque=%t "+
-				"structured=%d lanes=%v tables=%v poisoned_lanes=%v", kind,
+				"structured=%d lanes=%v tables=%v poisoned_lanes=%v registry=%+v", kind,
 				sink.pairRows[kind], sink.poisoned[kind], sink.opaque[kind], sink.structuredPairRows[kind],
-				sink.pairLaneRows[kind], sink.pairTableRows[kind], sink.poisonedLanes[kind])
+				sink.pairLaneRows[kind], sink.pairTableRows[kind], sink.poisonedLanes[kind],
+				sink.pairLaneRegistries[kind])
 		}
+	}
+	if sink.legacyPairProof.observations != 0 || sink.legacyPairProof.laneKeys != 0 ||
+		sink.blockPairProof.observations != 0 || sink.blockPairProof.laneKeys != 0 ||
+		len(sink.pairRowMappings) != 0 || len(sink.blockLaneClocks) != 0 {
+		t.Fatalf("canceled profiler extraction mutated shared proof: legacy=%+v block=%+v mappings=%d clocks=%d",
+			sink.legacyPairProof, sink.blockPairProof, len(sink.pairRowMappings), len(sink.blockLaneClocks))
+	}
+}
+
+func TestProfilerSessionCancellationAfterAcceptedPrefixClosesPublisherContext(t *testing.T) {
+	start, _, _ := profilerStrictTextF2FSFixture(t)
+	payload := strings.Join([]string{
+		profilerSessionJSONTag,
+		start,
+		"other-7 (7) [001] .... 1.001000: print: B|7|Suffix",
+		"",
+	}, "\n")
+	input := filepath.Join(t.TempDir(), "session-cancel-after-prefix.htrace")
+	if err := os.WriteFile(input, []byte(payload), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sink, err := newTraceDBRowSink(t.TempDir(), 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sink.cleanup()
+	ctx := &profilerOuterCancellationContext{
+		Context: context.Background(), targetSuffix: ".scanProfilerBoundedSessionRecords",
+		cancelAt: 3, err: context.DeadlineExceeded,
+	}
+	_, err = extractProfilerSessionPackageWithLineLimit(ctx, input, int64(len(payload)), sink, maxProfilerTextLineBytes)
+	if !errors.Is(err, context.DeadlineExceeded) || ctx.polls != 3 || sink.stats.RowsAccepted != 1 || len(sink.rows) != 1 {
+		t.Fatalf("prefix cancellation drifted: err=%v polls=%d stats=%+v rows=%d",
+			err, ctx.polls, sink.stats, len(sink.rows))
+	}
+	want := profilerPairRowProvenance{
+		LaneID: 1, PairKind: pairRenderF2FS, EndpointSlot: profilerPairEndpointF2FSWriteBegin,
+		PublisherSlot: profilerPairPublisherSession,
+	}
+	if got := sink.rows[0].profilerProvenance(); got != want || sink.pairCensusActive ||
+		sink.activePairPublisher != profilerPairPublisherNone || sink.textMessageActive ||
+		sink.activeTextMessage != 0 || sink.activeTextRows != 0 {
+		t.Fatalf("prefix cancellation leaked publisher context: provenance=%+v want=%+v census=%t publisher=%d text=%t/%d/%d",
+			got, want, sink.pairCensusActive, sink.activePairPublisher,
+			sink.textMessageActive, sink.activeTextMessage, sink.activeTextRows)
 	}
 }
 

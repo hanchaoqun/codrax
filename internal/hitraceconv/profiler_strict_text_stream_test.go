@@ -632,7 +632,12 @@ func TestProfilerStrictTextCurrentRowCancellationLeavesNoRowOrSequenceDelta(t *t
 			if sink.stats.RowsAccepted != 0 || len(sink.rows) != 0 || len(sink.runs) != 0 ||
 				sink.nextIngestOrdinal != 0 || len(sink.pairRows) != 0 || len(sink.poisoned) != 0 ||
 				len(sink.poisonedLanes) != 0 || sink.legacyPairProof.observations != 0 ||
-				sink.legacyPairProof.laneKeys != 0 {
+				sink.legacyPairProof.laneKeys != 0 || sink.pairCensusActive ||
+				sink.activePairPublisher != profilerPairPublisherNone || sink.textMessageActive ||
+				sink.activeTextMessage != 0 || sink.activeTextRows != 0 || sink.nextTextMessage != 0 ||
+				len(sink.pairLaneRegistries[pairRenderF2FS].byKey) != 0 ||
+				len(sink.pairLaneRegistries[pairRenderF2FS].keys) != 0 ||
+				len(sink.pairLaneRegistries[pairRenderF2FS].states) != 0 {
 				sink.cleanup()
 				t.Fatalf("cancel=%d/%d strict current row partially committed: stats=%+v rows=%d runs=%d next=%d pair=%v poisoned=%v lanes=%v proof=%+v",
 					cancelAt, calibrationPolls, sink.stats, len(sink.rows), len(sink.runs),

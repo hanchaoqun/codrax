@@ -46,6 +46,10 @@ func TestProfilerBlockPairExactEndpointRosterAndTypedTextParity(t *testing.T) {
 		eventField := eventField
 		t.Run(profilerFtraceEventDescriptors[eventField].Name, func(t *testing.T) {
 			t.Parallel()
+			wantSlot, found := profilerPairEndpointForStructuredField(eventField)
+			if !found {
+				t.Fatalf("field %d has no typed endpoint", eventField)
+			}
 			event := profilerBlockTypedRecord(eventField, profilerBlockTypedPayload(eventField, nil))
 			name, body, ok, issues, pair, err := renderProfilerFtraceEventBodyWithTypedAuditAndPair(event)
 			if err != nil || !ok || len(issues) != 0 || !pair.Governed || pair.Kind != pairRenderBlock ||
@@ -60,8 +64,8 @@ func TestProfilerBlockPairExactEndpointRosterAndTypedTextParity(t *testing.T) {
 			line := traceDBFormatLine(event.Comm, event.PID, event.TGID, event.CPU, int64(event.TSNS),
 				event.CommonFlags, event.CommonPreemptCount, name+": "+body)
 			wire := profilerTextPairAdmission(line)
-			if !wire.Governed || wire.Kind != pairRenderBlock || !wire.Admitted ||
-				wire.Lane != pair.Lane || wire.Verdict != pair.Verdict {
+			if pair.EndpointSlot != wantSlot || !wire.Governed || wire.Kind != pairRenderBlock || !wire.Admitted ||
+				wire.EndpointSlot != wantSlot || wire.Lane != pair.Lane || wire.Verdict != pair.Verdict {
 				t.Fatalf("typed/text verdict drift: typed=%+v text=%+v line=%q", pair, wire, line)
 			}
 		})
@@ -69,7 +73,8 @@ func TestProfilerBlockPairExactEndpointRosterAndTypedTextParity(t *testing.T) {
 	for _, inventoryField := range []int{205, 210, 212} {
 		event := profilerBlockTypedRecord(inventoryField, profilerBlockTypedPayload(inventoryField, nil))
 		pair, admission := decodeProfilerBlockPairForTest(t, event)
-		if admission != bodyAdmitted || pair.Governed || pair.Kind != pairRenderUnknown {
+		if admission != bodyAdmitted || pair.Governed || pair.Kind != pairRenderUnknown ||
+			pair.EndpointSlot != profilerPairEndpointNone {
 			t.Fatalf("inventory field %d entered elapsed barrier: admission=%d pair=%+v", inventoryField, admission, pair)
 		}
 	}
@@ -82,7 +87,7 @@ func TestProfilerBlockTextRosterRejectsNearAndInventoryNames(t *testing.T) {
 		"block_bio_remap", "block_bio_queue_extra",
 	} {
 		line := "worker-40 [002] d..2 5.000000: " + name + ": 8,0 R 4096 () 32 + 8 []"
-		if pair := profilerTextPairAdmission(line); pair.Governed {
+		if pair := profilerTextPairAdmission(line); pair.Governed || pair.EndpointSlot != profilerPairEndpointNone {
 			t.Fatalf("near/inventory name entered Block barrier: name=%q pair=%+v", name, pair)
 		}
 	}

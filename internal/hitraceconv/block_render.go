@@ -972,7 +972,11 @@ func (set *profilerFtraceBlockIssueSet) checked(eventField int) ([]profilerFtrac
 
 func profilerStructuredBlockPairFamily(eventField int) profilerPairAdmission {
 	if profilerStructuredPairEventField(pairRenderBlock, eventField) {
-		return profilerPairAdmission{Kind: pairRenderBlock, Governed: true}
+		slot, ok := profilerPairEndpointForStructuredField(eventField)
+		if !ok {
+			return profilerPairAdmission{}
+		}
+		return profilerPairAdmission{Kind: pairRenderBlock, EndpointSlot: slot, Governed: true}
 	}
 	return profilerPairAdmission{}
 }

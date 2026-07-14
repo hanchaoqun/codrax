@@ -461,7 +461,11 @@ func decodeProfilerAuxPayloadWithPairAdmission(event profilerFtraceEventRecord) 
 
 func profilerStructuredF2FSPairFamily(field int) profilerPairAdmission {
 	if profilerStructuredPairEventField(pairRenderF2FS, field) {
-		return profilerPairAdmission{Kind: pairRenderF2FS, Governed: true}
+		slot, ok := profilerPairEndpointForStructuredField(field)
+		if !ok {
+			return profilerPairAdmission{}
+		}
+		return profilerPairAdmission{Kind: pairRenderF2FS, EndpointSlot: slot, Governed: true}
 	}
 	return profilerPairAdmission{}
 }

@@ -37,17 +37,30 @@ type traceMetadata struct {
 }
 
 type renderedRow struct {
-	tsNS           uint64
-	seq            int
-	line           string
-	pairKind       pairRenderKind
-	pairLane       string
-	pairTable      string
-	structuredPair bool
+	tsNS                       uint64
+	seq                        int
+	line                       string
+	pairKind                   pairRenderKind
+	profilerEndpointSlot       profilerPairEndpointSlot
+	profilerPublisherSlot      profilerPairPublisherSlot
+	profilerProvenanceFlags    profilerPairRowProvenanceFlags
+	profilerLaneID             uint32
+	pairLane                   string
+	pairTable                  string
+	structuredPair             bool
+	profilerTextMessageOrdinal uint32
 	// profilerEventField is the exact FtraceEvent oneof field which produced a
 	// structured pair-critical row. Text-compatible and all other rows leave it
 	// zero; the row sink rejects a non-structured row carrying this provenance.
 	profilerEventField int
+}
+
+func (row renderedRow) profilerProvenance() profilerPairRowProvenance {
+	return profilerPairRowProvenance{
+		LaneID: row.profilerLaneID, TextMessageOrdinal: row.profilerTextMessageOrdinal,
+		PairKind: row.pairKind, EndpointSlot: row.profilerEndpointSlot,
+		PublisherSlot: row.profilerPublisherSlot, Flags: row.profilerProvenanceFlags,
+	}
 }
 
 // ConvertFile converts a binary Harmony/OpenHarmony HiTrace capture to a

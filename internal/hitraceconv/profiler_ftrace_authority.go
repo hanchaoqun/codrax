@@ -19,11 +19,12 @@ const (
 )
 
 type profilerPairAdmission struct {
-	Kind      pairRenderKind
-	Governed  bool
-	Admitted  bool
-	LaneKnown bool
-	Lane      string
+	Kind         pairRenderKind
+	EndpointSlot profilerPairEndpointSlot
+	Governed     bool
+	Admitted     bool
+	LaneKnown    bool
+	Lane         string
 	// HeaderOwnerKnown records the precise physical emitter proof separately
 	// from the semantic key; idle TID 0 is known, malformed/absent is not.
 	HeaderOwnerKnown bool
@@ -680,6 +681,7 @@ func scanProfilerStrictSystracePayloadContext(ctx context.Context, data []byte,
 		if pair.Governed {
 			row.pairKind = pair.Kind
 			row.pairLane = pair.Lane
+			row.profilerEndpointSlot = pair.EndpointSlot
 		}
 		if scan.originText {
 			if scan.rows == math.MaxInt {
@@ -778,6 +780,10 @@ func profilerTextPairAdmission(line string) profilerPairAdmission {
 	if !exactHeader || !governed {
 		return profilerPairAdmission{}
 	}
+	endpointSlot, endpointKnown := profilerPairEndpointForName(physicalName)
+	if !endpointKnown {
+		return profilerPairAdmission{}
+	}
 	ev, ok := tracequery.ParseLine(1, line, nil)
 	if ok {
 		if ev.Name != physicalName {
@@ -787,26 +793,24 @@ func profilerTextPairAdmission(line string) profilerPairAdmission {
 		admitted := verdict.Recognized && verdict.KeyKnown && verdict.PayloadAdmitted &&
 			verdict.EmitterKnown && verdict.EmitterAdmitted
 		return profilerPairAdmission{
-			Kind: kind, Governed: true, Admitted: admitted,
+			Kind: kind, EndpointSlot: endpointSlot, Governed: true, Admitted: admitted,
 			LaneKnown: verdict.KeyKnown && verdict.EmitterKnown && verdict.SemanticKey != "", Lane: verdict.SemanticKey,
 			HeaderOwnerKnown: verdict.EmitterKnown, Verdict: verdict,
 		}
 	}
-	return profilerPairAdmission{Kind: kind, Governed: true}
+	return profilerPairAdmission{Kind: kind, EndpointSlot: endpointSlot, Governed: true}
 }
 
 func profilerPairKindForExactName(name string) (pairRenderKind, bool) {
-	switch name {
-	case "mmc_request_start", "mmc_request_done":
-		return pairRenderMMC, true
-	case "f2fs_sync_file_enter", "f2fs_sync_file_exit", "f2fs_direct_IO_enter", "f2fs_direct_IO_exit",
-		"f2fs_write_begin", "f2fs_write_end":
-		return pairRenderF2FS, true
-	case "block_bio_queue", "block_bio_complete", "block_rq_issue", "block_rq_complete":
-		return pairRenderBlock, true
-	default:
+	slot, ok := profilerPairEndpointForName(name)
+	if !ok {
 		return pairRenderUnknown, false
 	}
+	descriptor, ok := slot.descriptor()
+	if !ok {
+		return pairRenderUnknown, false
+	}
+	return descriptor.kind, true
 }
 
 const profilerTextPairHeaderProbeBytes = 4096

@@ -991,7 +991,8 @@ frames:
 			coverage := TraceDBCoverage{
 				RowsRead: 1,
 			}
-			if !sink.beginPairRowCensus() {
+			publisherSlot, publisherKnown := profilerPairPublisherForRoute(route)
+			if !publisherKnown || !sink.beginPairRowCensusForPublisher(publisherSlot) {
 				return profilerContainerExtraction{}, &traceDBOutputInvariantError{Reason: "profiler_pair_census_nested"}
 			}
 			textMessageRows := 0
@@ -1029,11 +1030,20 @@ frames:
 					return profilerContainerExtraction{}, strictStageErr
 				}
 				if strictStage.scan.originText {
+					if !sink.beginProfilerTextMessage() {
+						_ = sink.endPairRowCensus()
+						return profilerContainerExtraction{}, &traceDBOutputInvariantError{Reason: "profiler_text_message_begin_state_invalid"}
+					}
 					rows, textPayload, rowErr := addProfilerStrictSystraceStageContext(ctx, strictStage, &seq, sink)
 					if rowErr != nil {
+						sink.abortProfilerTextMessage()
 						coverage.Error = rowErr.Error()
 						_ = sink.endPairRowCensus()
 						return profilerContainerExtraction{}, rowErr
+					}
+					if messageErr := sink.endProfilerTextMessage(rows); messageErr != nil {
+						_ = sink.endPairRowCensus()
+						return profilerContainerExtraction{}, messageErr
 					}
 					coverage.RowsEmitted = rows
 					if textPayload {
@@ -1170,11 +1180,20 @@ frames:
 			} else if len(plugin.Data) == 0 {
 				outcome = profilerPluginOutcomeEmptyPayload
 			} else {
+				if !sink.beginProfilerTextMessage() {
+					_ = sink.endPairRowCensus()
+					return profilerContainerExtraction{}, &traceDBOutputInvariantError{Reason: "profiler_text_message_begin_state_invalid"}
+				}
 				rows, rowErr := addSystraceRowsFromBytes(plugin.Data, &seq, sink)
 				if rowErr != nil {
+					sink.abortProfilerTextMessage()
 					coverage.Error = rowErr.Error()
 					_ = sink.endPairRowCensus()
 					return profilerContainerExtraction{}, rowErr
+				}
+				if messageErr := sink.endProfilerTextMessage(rows); messageErr != nil {
+					_ = sink.endPairRowCensus()
+					return profilerContainerExtraction{}, messageErr
 				}
 				coverage.RowsEmitted = rows
 				if rows > 0 {
@@ -2414,7 +2433,7 @@ func extractProfilerSessionPackageWithLineLimit(ctx context.Context, path string
 		Found:  true,
 	}
 	reader := bufio.NewReaderSize(io.NewSectionReader(f, 0, inputSize), profilerSessionReaderBufBytes)
-	if !sink.beginPairRowCensus() {
+	if !sink.beginPairRowCensusForPublisher(profilerPairPublisherSession) {
 		return profilerContainerExtraction{}, &traceDBOutputInvariantError{Reason: "profiler_pair_census_nested"}
 	}
 	oversizedLines := 0
@@ -2437,6 +2456,7 @@ func extractProfilerSessionPackageWithLineLimit(ctx context.Context, path string
 			return true, nil
 		})
 	if scanErr != nil {
+		sink.abortPairRowCensus()
 		coverage.Error = scanErr.Error()
 		out.TraceCoverage = append(out.TraceCoverage, coverage)
 		return profilerContainerExtraction{}, scanErr
@@ -2944,6 +2964,7 @@ func addSystraceRowsFromBytes(data []byte, seq *int, sink *traceDBRowSink) (int,
 						Kind: kind, Governed: true,
 						LaneKnown: probe.KeyKnown && probe.SemanticKey != "", Lane: probe.SemanticKey,
 					}
+					pair.EndpointSlot, _ = profilerPairEndpointForName(probe.Name)
 				}
 			}
 		}
@@ -2981,6 +3002,7 @@ func addSystraceRowsFromBytes(data []byte, seq *int, sink *traceDBRowSink) (int,
 			if headerGoverned && pair.Kind == headerKind {
 				row.pairKind = pair.Kind
 				row.pairLane = pair.Lane
+				row.profilerEndpointSlot = pair.EndpointSlot
 				if !pair.Admitted {
 					pair.poison(sink)
 				}

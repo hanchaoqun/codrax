@@ -309,11 +309,25 @@ func requireProfilerTypedEventTransactionEmpty(t *testing.T, sink *traceDBRowSin
 	if len(sink.rows) != 0 || len(sink.rowIngestOrdinals) != 0 || sink.bufferedBytes != 0 ||
 		sink.nextIngestOrdinal != 0 || len(sink.runs) != 0 || sink.stats.RowsAccepted != 0 ||
 		len(sink.pairRowMappings) != 0 || sink.opaque[pairRenderF2FS] || sink.poisoned[pairRenderF2FS] ||
-		sink.pairRows[pairRenderF2FS] != 0 || sink.structuredPairRows[pairRenderF2FS] != 0 {
+		sink.pairRows[pairRenderF2FS] != 0 || sink.structuredPairRows[pairRenderF2FS] != 0 ||
+		sink.pairCensusActive || sink.activePairPublisher != profilerPairPublisherNone ||
+		sink.textMessageActive || sink.activeTextMessage != 0 || sink.activeTextRows != 0 ||
+		sink.nextTextMessage != 0 {
 		t.Fatalf("current event escaped transaction: rows=%d ordinals=%d bytes=%d next=%d runs=%d stats=%+v mappings=%d opaque=%t poisoned=%t pair_rows=%d structured=%d",
 			len(sink.rows), len(sink.rowIngestOrdinals), sink.bufferedBytes, sink.nextIngestOrdinal,
 			len(sink.runs), sink.stats, len(sink.pairRowMappings), sink.opaque[pairRenderF2FS],
 			sink.poisoned[pairRenderF2FS], sink.pairRows[pairRenderF2FS], sink.structuredPairRows[pairRenderF2FS])
+	}
+	for _, kind := range profilerCaptureKinds {
+		registry := sink.pairLaneRegistries[kind]
+		if len(registry.byKey) != 0 || len(registry.keys) != 0 || len(registry.states) != 0 ||
+			len(sink.pairLaneRows[kind]) != 0 || len(sink.pairTableRows[kind]) != 0 ||
+			len(sink.poisonedLanes[kind]) != 0 || len(sink.structuredLaneRows[kind]) != 0 ||
+			len(sink.structuredEventLanes[kind]) != 0 || len(sink.activePairCensus[kind].byLane) != 0 {
+			t.Fatalf("current event escaped typed lane transaction for kind %d: registry=%+v lanes=%v tables=%v poisoned=%v structured=%v events=%v census=%+v",
+				kind, registry, sink.pairLaneRows[kind], sink.pairTableRows[kind], sink.poisonedLanes[kind],
+				sink.structuredLaneRows[kind], sink.structuredEventLanes[kind], sink.activePairCensus[kind])
+		}
 	}
 }
 

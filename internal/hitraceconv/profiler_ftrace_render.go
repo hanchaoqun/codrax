@@ -278,6 +278,13 @@ func renderProfilerFtraceStructuredResultConsumerContext(ctx context.Context, re
 				blockPairInvalid = true
 			}
 		}
+		if row.structuredPair {
+			endpointSlot, endpointKnown := profilerPairEndpointForStructuredField(event.Field)
+			if !endpointKnown {
+				return &traceDBOutputInvariantError{Reason: "profiler_structured_pair_event_slot_missing"}
+			}
+			row.profilerEndpointSlot = endpointSlot
+		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}

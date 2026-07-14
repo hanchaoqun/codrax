@@ -10,9 +10,15 @@ import (
 )
 
 func profilerStructuredEventTestRow(seq int, kind pairRenderKind, field int, lane, line string) renderedRow {
+	pairTable := ""
+	if slot, ok := profilerPairEndpointForStructuredField(field); ok {
+		if descriptor, found := slot.descriptor(); found {
+			pairTable = descriptor.name
+		}
+	}
 	return renderedRow{
 		tsNS: seqToTS(seq), seq: seq, line: line,
-		pairKind: kind, pairLane: lane, pairTable: line,
+		pairKind: kind, pairLane: lane, pairTable: pairTable,
 		structuredPair: true, profilerEventField: field,
 	}
 }

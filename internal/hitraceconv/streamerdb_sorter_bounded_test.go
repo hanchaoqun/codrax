@@ -1240,9 +1240,17 @@ func TestTraceDBRowSorterMultiLevelPairMappingAndWithholdParity(t *testing.T) {
 			if row.pairKind == pairRenderUnknown {
 				continue
 			}
+			expected := row
+			slot, ok := profilerPairEndpointForStructuredField(row.profilerEventField)
+			if !ok {
+				t.Fatalf("fixture field %d has no typed endpoint", row.profilerEventField)
+			}
+			expected.profilerLaneID = 1
+			expected.profilerEndpointSlot = slot
+			expected.profilerProvenanceFlags = profilerPairRowProvenanceStructured
 			mapping, ok := sink.pairRowMappings[row.seq]
-			if !ok || !mapping.matches(row) {
-				t.Fatalf("pair mapping drifted before merge: seq=%d mapping=%+v row=%+v", row.seq, mapping, row)
+			if !ok || !mapping.matches(expected) {
+				t.Fatalf("pair mapping drifted before merge: seq=%d mapping=%+v expected=%+v", row.seq, mapping, expected)
 			}
 		}
 		if err := sink.prepareForPublication(context.Background()); err != nil {

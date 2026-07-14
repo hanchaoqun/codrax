@@ -948,8 +948,12 @@ func TestProfilerContainerResourceCancellationDoesNotStageRows(t *testing.T) {
 		}
 		defer sink.cleanup()
 		_, err = extractProfilerSessionPackageWithLineLimit(ctx, input, int64(len(payload)), sink, maxProfilerTextLineBytes)
-		if !errors.Is(err, context.Canceled) || sink.stats.RowsAccepted != 0 {
-			t.Fatalf("cancelled Session extraction err=%v sink=%+v", err, sink.stats)
+		if !errors.Is(err, context.Canceled) || sink.stats.RowsAccepted != 0 || sink.pairCensusActive ||
+			sink.activePairPublisher != profilerPairPublisherNone || sink.textMessageActive ||
+			sink.activeTextMessage != 0 || sink.activeTextRows != 0 {
+			t.Fatalf("cancelled Session extraction leaked context: err=%v stats=%+v census=%t publisher=%d text=%t/%d/%d",
+				err, sink.stats, sink.pairCensusActive, sink.activePairPublisher,
+				sink.textMessageActive, sink.activeTextMessage, sink.activeTextRows)
 		}
 	})
 

@@ -1,0 +1,286 @@
+package hitraceconv
+
+import "strconv"
+
+// profilerPairEndpointSlot is the closed endpoint identity carried by
+// Profiler pair-critical rows. It replaces free-form pairTable as the typed
+// authority; display names are derived from this roster in one direction.
+type profilerPairEndpointSlot uint8
+
+const (
+	profilerPairEndpointNone profilerPairEndpointSlot = iota
+	profilerPairEndpointMMCRequestStart
+	profilerPairEndpointMMCRequestDone
+	profilerPairEndpointF2FSSyncFileEnter
+	profilerPairEndpointF2FSSyncFileExit
+	profilerPairEndpointF2FSDirectIOEnter
+	profilerPairEndpointF2FSDirectIOExit
+	profilerPairEndpointF2FSWriteBegin
+	profilerPairEndpointF2FSWriteEnd
+	profilerPairEndpointBlockBIOQueue
+	profilerPairEndpointBlockBIOComplete
+	profilerPairEndpointBlockRQIssue
+	profilerPairEndpointBlockRQComplete
+	profilerPairEndpointSlotCount
+)
+
+type profilerPairEndpointDescriptor struct {
+	slot            profilerPairEndpointSlot
+	kind            pairRenderKind
+	name            string
+	structuredField int
+}
+
+var profilerPairEndpointRoster = [...]profilerPairEndpointDescriptor{
+	{profilerPairEndpointMMCRequestStart, pairRenderMMC, "mmc_request_start", 4016},
+	{profilerPairEndpointMMCRequestDone, pairRenderMMC, "mmc_request_done", 4015},
+	{profilerPairEndpointF2FSSyncFileEnter, pairRenderF2FS, "f2fs_sync_file_enter", 4009},
+	{profilerPairEndpointF2FSSyncFileExit, pairRenderF2FS, "f2fs_sync_file_exit", 4010},
+	{profilerPairEndpointF2FSDirectIOEnter, pairRenderF2FS, "f2fs_direct_IO_enter", 0},
+	{profilerPairEndpointF2FSDirectIOExit, pairRenderF2FS, "f2fs_direct_IO_exit", 0},
+	{profilerPairEndpointF2FSWriteBegin, pairRenderF2FS, "f2fs_write_begin", 4011},
+	{profilerPairEndpointF2FSWriteEnd, pairRenderF2FS, "f2fs_write_end", 4012},
+	{profilerPairEndpointBlockBIOQueue, pairRenderBlock, "block_bio_queue", 204},
+	{profilerPairEndpointBlockBIOComplete, pairRenderBlock, "block_bio_complete", 202},
+	{profilerPairEndpointBlockRQIssue, pairRenderBlock, "block_rq_issue", 211},
+	{profilerPairEndpointBlockRQComplete, pairRenderBlock, "block_rq_complete", 209},
+}
+
+func profilerPairEndpointForName(name string) (profilerPairEndpointSlot, bool) {
+	for _, descriptor := range profilerPairEndpointRoster {
+		if descriptor.name == name {
+			return descriptor.slot, true
+		}
+	}
+	return profilerPairEndpointNone, false
+}
+
+func profilerPairEndpointForStructuredField(field int) (profilerPairEndpointSlot, bool) {
+	for _, descriptor := range profilerPairEndpointRoster {
+		if descriptor.structuredField != 0 && descriptor.structuredField == field {
+			return descriptor.slot, true
+		}
+	}
+	return profilerPairEndpointNone, false
+}
+
+func (slot profilerPairEndpointSlot) descriptor() (profilerPairEndpointDescriptor, bool) {
+	if slot == profilerPairEndpointNone || slot >= profilerPairEndpointSlotCount {
+		return profilerPairEndpointDescriptor{}, false
+	}
+	for _, descriptor := range profilerPairEndpointRoster {
+		if descriptor.slot == slot {
+			return descriptor, true
+		}
+	}
+	return profilerPairEndpointDescriptor{}, false
+}
+
+// profilerPairPublisherSlot is a source-local closed publisher identity. The
+// four outer slots map exactly to profilerPluginRoute; SessionJSON has its own
+// slot and never pretends to be a plugin message.
+type profilerPairPublisherSlot uint8
+
+const (
+	profilerPairPublisherNone profilerPairPublisherSlot = iota
+	profilerPairPublisherExactFtrace
+	profilerPairPublisherBytrace
+	profilerPairPublisherNoncanonicalFtrace
+	profilerPairPublisherOtherText
+	profilerPairPublisherSession
+	profilerPairPublisherSlotCount
+)
+
+func profilerPairPublisherForRoute(route profilerPluginRoute) (profilerPairPublisherSlot, bool) {
+	switch route {
+	case profilerPluginRouteExactFtrace:
+		return profilerPairPublisherExactFtrace, true
+	case profilerPluginRouteBytrace:
+		return profilerPairPublisherBytrace, true
+	case profilerPluginRouteNoncanonicalFtrace:
+		return profilerPairPublisherNoncanonicalFtrace, true
+	case profilerPluginRouteOtherText:
+		return profilerPairPublisherOtherText, true
+	default:
+		return profilerPairPublisherNone, false
+	}
+}
+
+func (slot profilerPairPublisherSlot) valid() bool {
+	return slot < profilerPairPublisherSlotCount
+}
+
+func (slot profilerPairPublisherSlot) textCapable() bool {
+	return slot == profilerPairPublisherExactFtrace || slot == profilerPairPublisherBytrace ||
+		slot == profilerPairPublisherOtherText
+}
+
+type profilerPairRowProvenanceFlags uint8
+
+const (
+	profilerPairRowProvenanceText profilerPairRowProvenanceFlags = 1 << iota
+	profilerPairRowProvenanceStructured
+	profilerPairRowProvenanceFlagMask = profilerPairRowProvenanceText | profilerPairRowProvenanceStructured
+)
+
+// profilerPairRowProvenance is deliberately twelve bytes wide. renderedRow
+// stores its scalar members in existing alignment holes; the wire and the
+// source-order proof use this canonical aggregate.
+type profilerPairRowProvenance struct {
+	LaneID             uint32
+	TextMessageOrdinal uint32
+	PairKind           pairRenderKind
+	EndpointSlot       profilerPairEndpointSlot
+	PublisherSlot      profilerPairPublisherSlot
+	Flags              profilerPairRowProvenanceFlags
+}
+
+// MarshalJSON keeps the authenticated internal run wire compact without
+// weakening required-field semantics. The six positions are an ABI-pinned
+// closed tuple; unlike an object, no field name is repeated for every row.
+func (provenance profilerPairRowProvenance) MarshalJSON() ([]byte, error) {
+	out := make([]byte, 0, 48)
+	out = append(out, '[')
+	values := [...]uint64{
+		uint64(provenance.LaneID), uint64(provenance.TextMessageOrdinal), uint64(provenance.PairKind),
+		uint64(provenance.EndpointSlot), uint64(provenance.PublisherSlot), uint64(provenance.Flags),
+	}
+	for index, value := range values {
+		if index > 0 {
+			out = append(out, ',')
+		}
+		out = strconv.AppendUint(out, value, 10)
+	}
+	out = append(out, ']')
+	return out, nil
+}
+
+func (provenance *profilerPairRowProvenance) UnmarshalJSON(data []byte) error {
+	values, ok := parseProfilerPairRowProvenanceTuple(data)
+	if !ok || values[0] > uint64(^uint32(0)) || values[1] > uint64(^uint32(0)) ||
+		values[2] > uint64(^uint8(0)) || values[3] > uint64(^uint8(0)) ||
+		values[4] > uint64(^uint8(0)) || values[5] > uint64(^uint8(0)) {
+		return &traceDBOutputInvariantError{Reason: "profiler_row_provenance_wire_invalid"}
+	}
+	*provenance = profilerPairRowProvenance{
+		LaneID: uint32(values[0]), TextMessageOrdinal: uint32(values[1]), PairKind: pairRenderKind(values[2]),
+		EndpointSlot: profilerPairEndpointSlot(values[3]), PublisherSlot: profilerPairPublisherSlot(values[4]),
+		Flags: profilerPairRowProvenanceFlags(values[5]),
+	}
+	return nil
+}
+
+func parseProfilerPairRowProvenanceTuple(data []byte) ([6]uint64, bool) {
+	var values [6]uint64
+	index := 0
+	skipSpace := func() {
+		for index < len(data) {
+			switch data[index] {
+			case ' ', '\t', '\r', '\n':
+				index++
+			default:
+				return
+			}
+		}
+	}
+	skipSpace()
+	if index >= len(data) || data[index] != '[' {
+		return values, false
+	}
+	index++
+	for slot := range values {
+		skipSpace()
+		if index >= len(data) || data[index] < '0' || data[index] > '9' {
+			return values, false
+		}
+		var value uint64
+		for index < len(data) && data[index] >= '0' && data[index] <= '9' {
+			digit := uint64(data[index] - '0')
+			if value > (^uint64(0)-digit)/10 {
+				return values, false
+			}
+			value = value*10 + digit
+			index++
+		}
+		values[slot] = value
+		skipSpace()
+		want := byte(',')
+		if slot == len(values)-1 {
+			want = ']'
+		}
+		if index >= len(data) || data[index] != want {
+			return values, false
+		}
+		index++
+	}
+	skipSpace()
+	return values, index == len(data)
+}
+
+func (provenance profilerPairRowProvenance) valid() bool {
+	if !profilerPairKindValid(provenance.PairKind) || !provenance.PublisherSlot.valid() ||
+		provenance.Flags&^profilerPairRowProvenanceFlagMask != 0 ||
+		provenance.Flags == profilerPairRowProvenanceFlagMask {
+		return false
+	}
+	switch provenance.PublisherSlot {
+	case profilerPairPublisherNone:
+		// Inactive/source-neutral sorter callers carry no outer publisher. A
+		// structured pair flag remains legal for the legacy parity oracle.
+		if provenance.TextMessageOrdinal != 0 || provenance.Flags == profilerPairRowProvenanceText {
+			return false
+		}
+	case profilerPairPublisherExactFtrace:
+		// Exact ftrace can publish structured rows, strict compatibility text,
+		// or ordinary non-pair structured events with no pair/text flag.
+		if profilerPairBudgetKind(provenance.PairKind) && provenance.Flags == 0 {
+			return false
+		}
+	case profilerPairPublisherBytrace, profilerPairPublisherOtherText:
+		if provenance.TextMessageOrdinal == 0 || provenance.Flags != profilerPairRowProvenanceText {
+			return false
+		}
+	case profilerPairPublisherNoncanonicalFtrace:
+		// This route is coverage-only and never owns a rendered row.
+		return false
+	case profilerPairPublisherSession:
+		if provenance.TextMessageOrdinal != 0 || provenance.Flags != 0 {
+			return false
+		}
+	default:
+		return false
+	}
+	if provenance.TextMessageOrdinal == 0 {
+		if provenance.Flags&profilerPairRowProvenanceText != 0 {
+			return false
+		}
+	} else if provenance.Flags != profilerPairRowProvenanceText ||
+		provenance.PublisherSlot == profilerPairPublisherNone ||
+		provenance.PublisherSlot == profilerPairPublisherSession {
+		return false
+	}
+	if provenance.PairKind == pairRenderUnknown {
+		return provenance.LaneID == 0 && provenance.EndpointSlot == profilerPairEndpointNone &&
+			provenance.Flags&profilerPairRowProvenanceStructured == 0
+	}
+	if provenance.PairKind == pairRenderWorkqueue || provenance.PairKind == pairRenderDMAFence {
+		return provenance.LaneID == 0 && provenance.EndpointSlot == profilerPairEndpointNone &&
+			provenance.PublisherSlot == profilerPairPublisherNone && provenance.TextMessageOrdinal == 0 &&
+			provenance.Flags == 0
+	}
+	descriptor, ok := provenance.EndpointSlot.descriptor()
+	if !ok || descriptor.kind != provenance.PairKind {
+		return false
+	}
+	if provenance.Flags&profilerPairRowProvenanceStructured != 0 {
+		return provenance.TextMessageOrdinal == 0 && descriptor.structuredField != 0 &&
+			(provenance.PublisherSlot == profilerPairPublisherNone ||
+				provenance.PublisherSlot == profilerPairPublisherExactFtrace)
+	}
+	if provenance.PublisherSlot != profilerPairPublisherNone &&
+		provenance.PublisherSlot != profilerPairPublisherSession &&
+		provenance.Flags != profilerPairRowProvenanceText {
+		return false
+	}
+	return true
+}
