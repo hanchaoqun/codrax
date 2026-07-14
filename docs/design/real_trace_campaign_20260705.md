@@ -2625,3 +2625,6 @@ B1 折叠行头名 floor 直接 pin(数学六形+产线实铸压力形:同主体
 
 ### §29.61.8 用户裁定(2026-07-14):「问题」节客户原稿 text 块 verbatim 呈现
 用户裁定:报告「问题」节(客户输入回显)禁一切渲染,text 块最忠实。落地(并入 UX-ANCHOR 批件d):md=```text 围栏字节 verbatim(内容感知围栏长度防 ``` 碰撞);html 自然 <pre> 转义(注入面顺带关死,注入形 pin);逐字节恒等 pin(控制符混合 fixture);fence 分类器负向核。
+
+### §29.61.9 用户裁定(2026-07-14):HTML 正文字体升级——Sarasa UI SC 前置+表格等宽数字
+用户问正文默认字体推荐(卡片好看=mono 栈首选 Sarasa Mono SC)。裁定=正文栈前置 **Sarasa UI SC**(与卡片同设计族,装了更纱的环境观感统一;未装环境按原系统栈优雅回退,零外部字体自包含安全)+`td,th font-variant-numeric: tabular-nums`(数值列对齐)。letter-spacing 零触碰(mermaid 量宽教训)。

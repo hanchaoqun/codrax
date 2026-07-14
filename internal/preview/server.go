@@ -515,7 +515,7 @@ func renderHTMLPage(a pageArgs) string {
      forbidden cross-channel comparison with the root-cause seat colors. */
   --rank-adjacent-fg: #334155; --rank-adjacent-bg: #e2e8f0;
   --action-fg: #166534; --action-bg: #ecfdf3; --action-border: #14532d;
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei", Arial, sans-serif;
+  --font-sans: "Sarasa UI SC", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei", Arial, sans-serif;
   --font-mono: "Sarasa Mono SC", "Noto Sans Mono CJK SC", "Source Han Mono SC", ui-monospace, "Cascadia Mono", "Cascadia Code", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Microsoft YaHei UI", "Microsoft YaHei", monospace;
   --font-symbols: "Apple Symbols", "Segoe UI Symbol", "Noto Sans Symbols 2", "Symbola", "Arial Unicode MS", sans-serif;
 }
@@ -642,6 +642,7 @@ pre.trace-projection-tree:focus-visible { outline: 3px solid var(--focus); outli
 table { border-collapse: collapse; width: max-content; max-width: 100%; overflow: auto; overscroll-behavior-x: contain; display: block; font-size: .925em; line-height: 1.52; }
 th, td { border: 1px solid var(--line); padding: 6px 10px; }
 th { background: var(--code); font-weight: 650; }
+td, th { font-variant-numeric: tabular-nums; }
 blockquote { border-left: 4px solid var(--line); margin-left: 0; padding-left: 16px; color: var(--muted); }
 img, svg { max-width: 100%; height: auto; }
 /* Lossless trace audit surfaces remain complete but visually subordinate to
