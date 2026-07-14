@@ -321,12 +321,12 @@ func requireProfilerTypedEventTransactionEmpty(t *testing.T, sink *traceDBRowSin
 	for _, kind := range profilerCaptureKinds {
 		registry := sink.pairLaneRegistries[kind]
 		if len(registry.byKey) != 0 || len(registry.keys) != 0 || len(registry.states) != 0 ||
-			len(sink.pairLaneRows[kind]) != 0 || len(sink.pairTableRows[kind]) != 0 ||
-			len(sink.poisonedLanes[kind]) != 0 || len(sink.structuredLaneRows[kind]) != 0 ||
-			len(sink.structuredEventLanes[kind]) != 0 || len(sink.activePairCensus[kind].byLane) != 0 {
+			len(profilerTestPairLaneRows(sink)[kind]) != 0 || len(profilerTestPairTableRows(sink)[kind]) != 0 ||
+			len(profilerTestPoisonedLanes(sink)[kind]) != 0 || len(profilerTestStructuredLaneRows(sink)[kind]) != 0 ||
+			len(profilerTestStructuredEventLanes(sink)[kind]) != 0 || len(sink.activePairCensus[kind].byLane) != 0 {
 			t.Fatalf("current event escaped typed lane transaction for kind %d: registry=%+v lanes=%v tables=%v poisoned=%v structured=%v events=%v census=%+v",
-				kind, registry, sink.pairLaneRows[kind], sink.pairTableRows[kind], sink.poisonedLanes[kind],
-				sink.structuredLaneRows[kind], sink.structuredEventLanes[kind], sink.activePairCensus[kind])
+				kind, registry, profilerTestPairLaneRows(sink)[kind], profilerTestPairTableRows(sink)[kind], profilerTestPoisonedLanes(sink)[kind],
+				profilerTestStructuredLaneRows(sink)[kind], profilerTestStructuredEventLanes(sink)[kind], sink.activePairCensus[kind])
 		}
 	}
 }
@@ -728,16 +728,16 @@ func runProfilerTypedEventPairParity(t *testing.T, result profilerTracePluginRes
 		rows: rows, seq: seq, batch: batch,
 		pairRows: sink.pairRows[pairRenderF2FS], structuredPairRows: sink.structuredPairRows[pairRenderF2FS],
 		structuredEventRows: [2]int{
-			sink.structuredEventRows[pairRenderF2FS][4009], sink.structuredEventRows[pairRenderF2FS][4010],
+			profilerTestStructuredEventRows(sink)[pairRenderF2FS][4009], profilerTestStructuredEventRows(sink)[pairRenderF2FS][4010],
 		},
 		proofObservations: sink.legacyPairProof.observations,
 		proofLaneKeys:     sink.legacyPairProof.laneKeys,
 		poisoned:          sink.poisoned[pairRenderF2FS], ingestSpillChunks: sink.stats.SpillChunks,
 	}
-	for _, count := range sink.pairLaneRows[pairRenderF2FS] {
+	for _, count := range profilerTestPairLaneRows(sink)[pairRenderF2FS] {
 		parity.pairLaneRows += count
 	}
-	for _, lanes := range sink.pairTableRows[pairRenderF2FS] {
+	for _, lanes := range profilerTestPairTableRows(sink)[pairRenderF2FS] {
 		for _, count := range lanes {
 			parity.pairTableRows += count
 		}

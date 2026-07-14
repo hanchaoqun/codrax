@@ -2,9 +2,81 @@ package hitraceconv
 
 import (
 	"math"
+	"reflect"
 	"testing"
 	"unsafe"
 )
+
+func TestProfilerPairSinkRetiresOnlyLegacyShadowLedgers(t *testing.T) {
+	sinkType := reflect.TypeOf(traceDBRowSink{})
+	for _, name := range []string{
+		"pairLaneRows", "pairTableRows", "pairTableTotals", "poisonedLanes",
+		"structuredLaneRows", "structuredEventRows", "structuredEventLanes", "blockLaneClocks",
+	} {
+		if _, found := sinkType.FieldByName(name); found {
+			t.Fatalf("traceDBRowSink retained B-d2 shadow field %q", name)
+		}
+	}
+	if _, found := sinkType.FieldByName("activePairCensus"); !found {
+		t.Fatal("B-d2b accidentally removed the C-batch publisher census")
+	}
+	wantStringMapOwners := map[string]bool{
+		"artifacts":          true,
+		"pairLaneRegistries": true,
+		"activePairCensus":   true,
+	}
+	for index := 0; index < sinkType.NumField(); index++ {
+		field := sinkType.Field(index)
+		if !profilerTypeContainsStringKeyedMap(field.Type, make(map[reflect.Type]bool)) {
+			continue
+		}
+		if !wantStringMapOwners[field.Name] {
+			t.Fatalf("traceDBRowSink gained an unapproved string-keyed authority under %q (%v)",
+				field.Name, field.Type)
+		}
+		delete(wantStringMapOwners, field.Name)
+	}
+	if len(wantStringMapOwners) != 0 {
+		t.Fatalf("traceDBRowSink approved string-map owners drifted: missing=%v", wantStringMapOwners)
+	}
+	censusType := reflect.TypeOf(profilerPairRowCensus{})
+	if byLane, found := censusType.FieldByName("byLane"); !found || byLane.Type.Kind() != reflect.Map {
+		t.Fatal("B-d2b accidentally removed the transient publisher by-lane census")
+	}
+	directType := reflect.TypeOf(directPairCaptureBarrier{})
+	for _, name := range []string{"poisonedLanes", "blockLaneClocks"} {
+		if _, found := directType.FieldByName(name); !found {
+			t.Fatalf("sink-only retirement damaged direct RMQ authority field %q", name)
+		}
+	}
+	stateType := reflect.TypeOf(profilerPairLaneState{})
+	for index := 0; index < stateType.NumField(); index++ {
+		kind := stateType.Field(index).Type.Kind()
+		if kind == reflect.Map || kind == reflect.Slice || kind == reflect.String {
+			t.Fatalf("unique lane state regained dynamic shadow at field %q", stateType.Field(index).Name)
+		}
+	}
+}
+
+func profilerTypeContainsStringKeyedMap(current reflect.Type, seen map[reflect.Type]bool) bool {
+	if current == nil || seen[current] {
+		return false
+	}
+	seen[current] = true
+	switch current.Kind() {
+	case reflect.Map:
+		return current.Key().Kind() == reflect.String
+	case reflect.Pointer, reflect.Array, reflect.Slice:
+		return profilerTypeContainsStringKeyedMap(current.Elem(), seen)
+	case reflect.Struct:
+		for index := 0; index < current.NumField(); index++ {
+			if profilerTypeContainsStringKeyedMap(current.Field(index).Type, seen) {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 func TestProfilerPairFamilyEndpointOrdinalsClosedContinuousAndDescriptorConsistent(t *testing.T) {
 	if profilerPairFamilyEndpointCapacity != 6 {

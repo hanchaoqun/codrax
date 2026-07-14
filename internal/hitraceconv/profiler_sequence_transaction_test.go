@@ -120,20 +120,20 @@ func assertProfilerSequenceNoRowMutation(t testing.TB, sink *traceDBRowSink,
 	census := sink.activePairCensus[pairRenderF2FS]
 	if sink.stats.RowsAccepted != 0 || len(sink.rows) != 0 || len(sink.rowIngestOrdinals) != 0 ||
 		sink.nextIngestOrdinal != 0 || sink.bufferedBytes != 0 || len(sink.runs) != 0 ||
-		sink.pairRows[pairRenderF2FS] != 0 || len(sink.pairLaneRows[pairRenderF2FS]) != 0 ||
-		sink.structuredPairRows[pairRenderF2FS] != 0 || len(sink.structuredLaneRows[pairRenderF2FS]) != 0 ||
-		len(sink.structuredEventRows[pairRenderF2FS]) != 0 ||
+		sink.pairRows[pairRenderF2FS] != 0 || len(profilerTestPairLaneRows(sink)[pairRenderF2FS]) != 0 ||
+		sink.structuredPairRows[pairRenderF2FS] != 0 || len(profilerTestStructuredLaneRows(sink)[pairRenderF2FS]) != 0 ||
+		len(profilerTestStructuredEventRows(sink)[pairRenderF2FS]) != 0 ||
 		len(registry.byKey) != 0 || len(registry.keys) != 0 || len(registry.states) != 0 ||
 		census.total != 0 || len(census.byLane) != 0 || sink.poisoned[pairRenderF2FS] ||
-		len(sink.poisonedLanes[pairRenderF2FS]) != 0 || sink.opaque[pairRenderF2FS] ||
+		len(profilerTestPoisonedLanes(sink)[pairRenderF2FS]) != 0 || sink.opaque[pairRenderF2FS] ||
 		sink.legacyPairProof.observations != 0 || sink.legacyPairProof.laneKeys != 0 ||
 		sink.pairAuthorityFailure != "" {
 		t.Fatalf("%s invalid sequence mutated current row/delta/registry/census: stats=%+v rows=%d runs=%d next=%d bytes=%d pair=%d lanes=%v structured=%d/%v/%v registry=%+v census=%+v poisoned=%v/%v opaque=%v proof=%+v authority=%q",
 			lane.name, sink.stats, len(sink.rows), len(sink.runs), sink.nextIngestOrdinal,
-			sink.bufferedBytes, sink.pairRows[pairRenderF2FS], sink.pairLaneRows[pairRenderF2FS],
-			sink.structuredPairRows[pairRenderF2FS], sink.structuredLaneRows[pairRenderF2FS],
-			sink.structuredEventRows[pairRenderF2FS], registry, census, sink.poisoned[pairRenderF2FS],
-			sink.poisonedLanes[pairRenderF2FS], sink.opaque[pairRenderF2FS], sink.legacyPairProof,
+			sink.bufferedBytes, sink.pairRows[pairRenderF2FS], profilerTestPairLaneRows(sink)[pairRenderF2FS],
+			sink.structuredPairRows[pairRenderF2FS], profilerTestStructuredLaneRows(sink)[pairRenderF2FS],
+			profilerTestStructuredEventRows(sink)[pairRenderF2FS], registry, census, sink.poisoned[pairRenderF2FS],
+			profilerTestPoisonedLanes(sink)[pairRenderF2FS], sink.opaque[pairRenderF2FS], sink.legacyPairProof,
 			sink.pairAuthorityFailure)
 	}
 	wantTextMessage := uint32(0)
@@ -187,11 +187,11 @@ func assertProfilerSequencePrefix(t testing.TB, sink *traceDBRowSink,
 	census := sink.activePairCensus[pairRenderF2FS]
 	if !pairFirst {
 		if provenance.PairKind != pairRenderUnknown || sink.pairRows[pairRenderF2FS] != 0 ||
-			len(sink.pairLaneRows[pairRenderF2FS]) != 0 || sink.structuredPairRows[pairRenderF2FS] != 0 ||
+			len(profilerTestPairLaneRows(sink)[pairRenderF2FS]) != 0 || sink.structuredPairRows[pairRenderF2FS] != 0 ||
 			len(registry.byKey) != 0 || len(registry.keys) != 0 || len(registry.states) != 0 ||
 			census.total != 0 || len(census.byLane) != 0 || sink.legacyPairProof.observations != 0 {
 			t.Fatalf("%s rejected second pair leaked into ordinary prefix: row=%+v pair=%d lanes=%v structured=%d registry=%+v census=%+v proof=%+v",
-				lane.name, row, sink.pairRows[pairRenderF2FS], sink.pairLaneRows[pairRenderF2FS],
+				lane.name, row, sink.pairRows[pairRenderF2FS], profilerTestPairLaneRows(sink)[pairRenderF2FS],
 				sink.structuredPairRows[pairRenderF2FS], registry, census, sink.legacyPairProof)
 		}
 		return
@@ -202,27 +202,27 @@ func assertProfilerSequencePrefix(t testing.TB, sink *traceDBRowSink,
 	}
 	if provenance.PairKind != pairRenderF2FS || laneKey == "" ||
 		provenance.EndpointSlot != profilerPairEndpointF2FSWriteBegin || provenance.LaneID == 0 ||
-		sink.pairRows[pairRenderF2FS] != 1 || sink.pairLaneRows[pairRenderF2FS][laneKey] != 1 ||
+		sink.pairRows[pairRenderF2FS] != 1 || profilerTestPairLaneRows(sink)[pairRenderF2FS][laneKey] != 1 ||
 		census.total != 1 || census.byLane[laneKey] != 1 || len(registry.byKey) != 1 ||
 		len(registry.keys) != 1 || len(registry.states) != 1 || sink.legacyPairProof.observations != 1 {
 		t.Fatalf("%s pair prefix is incomplete: row=%+v provenance=%+v pair=%d lanes=%v registry=%+v census=%+v proof=%+v",
-			lane.name, row, provenance, sink.pairRows[pairRenderF2FS], sink.pairLaneRows[pairRenderF2FS],
+			lane.name, row, provenance, sink.pairRows[pairRenderF2FS], profilerTestPairLaneRows(sink)[pairRenderF2FS],
 			registry, census, sink.legacyPairProof)
 	}
 	if lane.structured {
 		if provenance.Flags != profilerPairRowProvenanceStructured ||
 			sink.structuredPairRows[pairRenderF2FS] != 1 ||
-			sink.structuredLaneRows[pairRenderF2FS][laneKey] != 1 ||
-			sink.structuredEventRows[pairRenderF2FS][4011] != 1 {
+			profilerTestStructuredLaneRows(sink)[pairRenderF2FS][laneKey] != 1 ||
+			profilerTestStructuredEventRows(sink)[pairRenderF2FS][4011] != 1 {
 			t.Fatalf("structured pair prefix counters drifted: row=%+v structured=%d lanes=%v events=%v",
-				row, sink.structuredPairRows[pairRenderF2FS], sink.structuredLaneRows[pairRenderF2FS],
-				sink.structuredEventRows[pairRenderF2FS])
+				row, sink.structuredPairRows[pairRenderF2FS], profilerTestStructuredLaneRows(sink)[pairRenderF2FS],
+				profilerTestStructuredEventRows(sink)[pairRenderF2FS])
 		}
 	} else if provenance.Flags&profilerPairRowProvenanceStructured != 0 ||
 		sink.structuredPairRows[pairRenderF2FS] != 0 ||
-		len(sink.structuredEventRows[pairRenderF2FS]) != 0 {
+		len(profilerTestStructuredEventRows(sink)[pairRenderF2FS]) != 0 {
 		t.Fatalf("%s text prefix entered structured accounting: row=%+v totals=%d events=%v",
-			lane.name, row, sink.structuredPairRows[pairRenderF2FS], sink.structuredEventRows[pairRenderF2FS])
+			lane.name, row, sink.structuredPairRows[pairRenderF2FS], profilerTestStructuredEventRows(sink)[pairRenderF2FS])
 	}
 }
 
@@ -328,16 +328,16 @@ func TestProfilerStrictSequenceRangePrecedesWholeKindPrePoison(t *testing.T) {
 	}
 	registry := sink.pairLaneRegistries[pairRenderMMC]
 	census := sink.activePairCensus[pairRenderMMC]
-	if sink.poisoned[pairRenderMMC] || len(sink.poisonedLanes[pairRenderMMC]) != 0 ||
+	if sink.poisoned[pairRenderMMC] || len(profilerTestPoisonedLanes(sink)[pairRenderMMC]) != 0 ||
 		sink.opaque[pairRenderMMC] || sink.pairRows[pairRenderMMC] != 0 ||
-		len(sink.pairLaneRows[pairRenderMMC]) != 0 || len(registry.byKey) != 0 ||
+		len(profilerTestPairLaneRows(sink)[pairRenderMMC]) != 0 || len(registry.byKey) != 0 ||
 		len(registry.keys) != 0 || len(registry.states) != 0 || census.total != 0 ||
 		len(census.byLane) != 0 || sink.legacyPairProof.observations != 0 ||
 		sink.legacyPairProof.laneKeys != 0 || sink.stats.RowsAccepted != 0 || len(sink.rows) != 0 ||
 		sink.activeTextRows != 0 || sink.nextTextMessage != 0 {
 		t.Fatalf("sequence range failure leaked MMC pre-poison or row state: poisoned=%t lanes=%v opaque=%t pair=%d lane_rows=%v registry=%+v census=%+v proof=%+v stats=%+v rows=%d text=%d next=%d",
-			sink.poisoned[pairRenderMMC], sink.poisonedLanes[pairRenderMMC], sink.opaque[pairRenderMMC],
-			sink.pairRows[pairRenderMMC], sink.pairLaneRows[pairRenderMMC], registry, census,
+			sink.poisoned[pairRenderMMC], profilerTestPoisonedLanes(sink)[pairRenderMMC], sink.opaque[pairRenderMMC],
+			sink.pairRows[pairRenderMMC], profilerTestPairLaneRows(sink)[pairRenderMMC], registry, census,
 			sink.legacyPairProof, sink.stats, len(sink.rows), sink.activeTextRows, sink.nextTextMessage)
 	}
 }

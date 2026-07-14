@@ -7,9 +7,9 @@ import (
 
 // profilerPairLaneRegistry is the single typed identity registry for one pair
 // family. A lane string is retained exactly once and rows carry only its dense
-// source-local ID. B-d2a stores the fixed endpoint counters in the same state
-// while the legacy keyed maps remain only as a fail-loud parity oracle; B-d2b
-// removes that oracle after transition/resource validation.
+// source-local ID. Its fixed endpoint counters, poison bit, and optional Block
+// clock are the sole long-lived exact-lane authority; no parallel keyed
+// accounting map is retained by traceDBRowSink.
 type profilerPairLaneRegistry struct {
 	byKey  map[string]uint32
 	keys   []string

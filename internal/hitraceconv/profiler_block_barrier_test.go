@@ -63,11 +63,11 @@ func TestStructuredBlockExactLaneBarrierKeepsUnrelatedLaneAcrossSpill(t *testing
 			t.Fatal(renderErr)
 		}
 	}
-	if sink.poisoned[pairRenderBlock] || len(sink.poisonedLanes[pairRenderBlock]) != 1 ||
+	if sink.poisoned[pairRenderBlock] || len(profilerTestPoisonedLanes(sink)[pairRenderBlock]) != 1 ||
 		sink.withheldPairRowsForKind(pairRenderBlock) != 2 || sink.publishableRows() != 2 || len(sink.runs) == 0 {
 		t.Fatalf("Block exact-lane barrier drifted: accepted=%d withheld=%d publishable=%d family=%v lanes=%v chunks=%d",
 			sink.stats.RowsAccepted, sink.withheldPairRowsForKind(pairRenderBlock), sink.publishableRows(),
-			sink.poisoned, sink.poisonedLanes, len(sink.runs))
+			sink.poisoned, profilerTestPoisonedLanes(sink), len(sink.runs))
 	}
 	text, stats := writeProfilerBlockSinkForStats(t, sink)
 	if stats.RowsAccepted != 4 || stats.RowsWritten != 2 || stats.RowsWithheld != 2 ||
@@ -149,10 +149,10 @@ func TestStructuredBlockSemanticRejectQuarantinesOnlyExactLane(t *testing.T) {
 			t.Fatal(renderErr)
 		}
 	}
-	if sink.poisoned[pairRenderBlock] || len(sink.poisonedLanes[pairRenderBlock]) != 1 ||
+	if sink.poisoned[pairRenderBlock] || len(profilerTestPoisonedLanes(sink)[pairRenderBlock]) != 1 ||
 		sink.withheldPairRowsForKind(pairRenderBlock) != 2 || sink.publishableRows() != 2 {
 		t.Fatalf("semantic Block rejection widened beyond exact lane: family=%v lanes=%v withheld=%d publishable=%d",
-			sink.poisoned, sink.poisonedLanes, sink.withheldPairRowsForKind(pairRenderBlock), sink.publishableRows())
+			sink.poisoned, profilerTestPoisonedLanes(sink), sink.withheldPairRowsForKind(pairRenderBlock), sink.publishableRows())
 	}
 }
 
@@ -242,11 +242,11 @@ func TestStructuredAndStrictTextBlockShareOneBarrier(t *testing.T) {
 	if _, handled, err := addStrictSystraceRowsFromBytes(printText, &seq, sink); err != nil || !handled {
 		t.Fatalf("strict print sibling not handled: handled=%t err=%v", handled, err)
 	}
-	if sink.poisoned[pairRenderBlock] || len(sink.poisonedLanes[pairRenderBlock]) != 1 ||
+	if sink.poisoned[pairRenderBlock] || len(profilerTestPoisonedLanes(sink)[pairRenderBlock]) != 1 ||
 		sink.withheldPairRowsForKind(pairRenderBlock) != 3 || sink.publishableRows() != 1 {
 		t.Fatalf("structured/text source barrier split: accepted=%d withheld=%d publishable=%d family=%v lanes=%v",
 			sink.stats.RowsAccepted, sink.withheldPairRowsForKind(pairRenderBlock), sink.publishableRows(),
-			sink.poisoned, sink.poisonedLanes)
+			sink.poisoned, profilerTestPoisonedLanes(sink))
 	}
 	text, stats := writeProfilerBlockSinkForStats(t, sink)
 	if stats.RowsWritten != 1 || stats.RowsWithheld != 3 || strings.Contains(text, "block_rq_") ||

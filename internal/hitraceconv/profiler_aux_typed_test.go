@@ -525,9 +525,9 @@ func TestProfilerAuxTypedF2FSTerminalNonKeyFailureKeepsExactLane(t *testing.T) {
 	}
 	defer sink.cleanup()
 	badPair.poison(sink)
-	if sink.poisoned[pairRenderF2FS] || len(sink.poisonedLanes[pairRenderF2FS]) != 1 ||
-		!sink.poisonedLanes[pairRenderF2FS][badPair.Lane] {
-		t.Fatalf("exact F2FS failure poisoned wrong scope: family=%v lanes=%v", sink.poisoned, sink.poisonedLanes)
+	if sink.poisoned[pairRenderF2FS] || len(profilerTestPoisonedLanes(sink)[pairRenderF2FS]) != 1 ||
+		!profilerTestPoisonedLanes(sink)[pairRenderF2FS][badPair.Lane] {
+		t.Fatalf("exact F2FS failure poisoned wrong scope: family=%v lanes=%v", sink.poisoned, profilerTestPoisonedLanes(sink))
 	}
 
 	unknownKey := protoVarint(99, 0)

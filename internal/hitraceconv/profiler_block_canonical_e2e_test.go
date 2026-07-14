@@ -136,7 +136,7 @@ func TestProfilerBlockCanonicalRejectIsSiblingLocalAndPairNeutralInBothOrders(t 
 				sink.publishableRows() != 5 || sink.pairKindPoisoned(pairRenderMMC) ||
 				sink.pairKindPoisoned(pairRenderF2FS) || sink.withheldPairRows() != 0 {
 				t.Fatalf("bad block contaminated a healthy sibling or pair state: extracted=%+v accepted=%d publishable=%d withheld=%d poisoned=%v lanes=%v",
-					extracted, sink.stats.RowsAccepted, sink.publishableRows(), sink.withheldPairRows(), sink.poisoned, sink.poisonedLanes)
+					extracted, sink.stats.RowsAccepted, sink.publishableRows(), sink.withheldPairRows(), sink.poisoned, profilerTestPoisonedLanes(sink))
 			}
 
 			var out bytes.Buffer

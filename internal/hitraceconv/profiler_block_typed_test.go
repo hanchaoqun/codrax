@@ -682,9 +682,9 @@ func TestProfilerBlockTypedCanonicalBoundaryAllReachableAndContainerLocality(t *
 	// barrier must therefore quarantine the healthy row on the same RQ/BIO
 	// lane; inventory-only rq_insert remains publishable.
 	if extracted.SourceFailClosed || extracted.StructuredRows != 1 || sink.publishableRows() != 1 ||
-		len(sink.rows) != 4 || sink.poisoned[pairRenderBlock] || len(sink.poisonedLanes[pairRenderBlock]) != 2 {
+		len(sink.rows) != 4 || sink.poisoned[pairRenderBlock] || len(profilerTestPoisonedLanes(sink)[pairRenderBlock]) != 2 {
 		t.Fatalf("canonical Block hole did not isolate pair lanes and retain inventory: extracted=%+v sink=%+v rows=%+v lanes=%v",
-			extracted, sink.stats, sink.rows, sink.poisonedLanes)
+			extracted, sink.stats, sink.rows, profilerTestPoisonedLanes(sink))
 	}
 	published := 0
 	for _, row := range sink.rows {

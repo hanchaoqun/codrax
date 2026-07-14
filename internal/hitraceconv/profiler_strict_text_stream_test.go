@@ -297,13 +297,13 @@ func TestProfilerStrictTextRejectedPairOrderingParity(t *testing.T) {
 							sink.withheldPairRowsForKind(fixture.kind), sink.publishableRows())
 					}
 					if fixture.wantLaneLocal {
-						if sink.poisoned[fixture.kind] || len(sink.poisonedLanes[fixture.kind]) != 1 {
+						if sink.poisoned[fixture.kind] || len(profilerTestPoisonedLanes(sink)[fixture.kind]) != 1 {
 							t.Fatalf("known-lane rejection widened to family: family=%v lanes=%v",
-								sink.poisoned, sink.poisonedLanes)
+								sink.poisoned, profilerTestPoisonedLanes(sink))
 						}
-					} else if !sink.poisoned[fixture.kind] || len(sink.poisonedLanes[fixture.kind]) != 0 {
+					} else if !sink.poisoned[fixture.kind] || len(profilerTestPoisonedLanes(sink)[fixture.kind]) != 0 {
 						t.Fatalf("unknown-lane rejection did not close family: family=%v lanes=%v",
-							sink.poisoned, sink.poisonedLanes)
+							sink.poisoned, profilerTestPoisonedLanes(sink))
 					}
 				})
 			}
@@ -354,7 +354,7 @@ func runProfilerStrictTextSpillLane(t *testing.T, payload []byte, threshold int,
 	lane := profilerStrictTextSpillLane{
 		rows: rows, seq: seq, output: append([]byte(nil), output.Bytes()...), ingest: ingest, final: final,
 		pairRows: clonePairRenderIntMap(sink.pairRows), poisoned: clonePairRenderBoolMap(sink.poisoned),
-		poisonedLanes: clonePairRenderLaneBoolMap(sink.poisonedLanes), withheld: withheld,
+		poisonedLanes: clonePairRenderLaneBoolMap(profilerTestPoisonedLanes(sink)), withheld: withheld,
 	}
 	if err := sink.cleanup(); err != nil {
 		t.Fatalf("cleanup strict text spill fixture: %v", err)
@@ -644,7 +644,7 @@ func TestProfilerStrictTextCurrentRowCancellationLeavesNoRowOrSequenceDelta(t *t
 			}
 			if sink.stats.RowsAccepted != 0 || len(sink.rows) != 0 || len(sink.runs) != 0 ||
 				sink.nextIngestOrdinal != 0 || len(sink.pairRows) != 0 || len(sink.poisoned) != 0 ||
-				len(sink.poisonedLanes) != 0 || sink.legacyPairProof.observations != 0 ||
+				len(profilerTestPoisonedLanes(sink)) != 0 || sink.legacyPairProof.observations != 0 ||
 				sink.legacyPairProof.laneKeys != 0 || sink.pairCensusActive ||
 				sink.activePairPublisher != profilerPairPublisherNone || sink.textMessageActive ||
 				sink.activeTextMessage != 0 || sink.activeTextRows != 0 || sink.nextTextMessage != 0 ||
@@ -654,7 +654,7 @@ func TestProfilerStrictTextCurrentRowCancellationLeavesNoRowOrSequenceDelta(t *t
 				sink.cleanup()
 				t.Fatalf("cancel=%d/%d strict current row partially committed: stats=%+v rows=%d runs=%d next=%d pair=%v poisoned=%v lanes=%v proof=%+v",
 					cancelAt, calibrationPolls, sink.stats, len(sink.rows), len(sink.runs),
-					sink.nextIngestOrdinal, sink.pairRows, sink.poisoned, sink.poisonedLanes, sink.legacyPairProof)
+					sink.nextIngestOrdinal, sink.pairRows, sink.poisoned, profilerTestPoisonedLanes(sink), sink.legacyPairProof)
 			}
 			if err := sink.cleanup(); err != nil {
 				t.Fatal(err)
@@ -784,7 +784,7 @@ func TestProfilerStrictTextKnownLanePairProofBudgetBoundary(t *testing.T) {
 			if sink.poisoned[pairRenderF2FS] != test.wantFamily {
 				t.Fatalf("pair proof boundary family=%t want=%t lanes=%v proof=%+v",
 					sink.poisoned[pairRenderF2FS], test.wantFamily,
-					sink.poisonedLanes[pairRenderF2FS], sink.legacyPairProof)
+					profilerTestPoisonedLanes(sink)[pairRenderF2FS], sink.legacyPairProof)
 			}
 			if test.wantFamily {
 				if sink.legacyPairProof.failureReason != "observations" ||
@@ -793,10 +793,10 @@ func TestProfilerStrictTextKnownLanePairProofBudgetBoundary(t *testing.T) {
 						sink.legacyPairProof, census[pairRenderF2FS])
 				}
 			} else if sink.legacyPairProof.failureReason != "" ||
-				len(sink.poisonedLanes[pairRenderF2FS]) != 1 ||
+				len(profilerTestPoisonedLanes(sink)[pairRenderF2FS]) != 1 ||
 				len(census[pairRenderF2FS].byLane) != 1 {
 				t.Fatalf("exact proof budget widened known-lane rejection: proof=%+v lanes=%v census=%+v",
-					sink.legacyPairProof, sink.poisonedLanes[pairRenderF2FS], census[pairRenderF2FS])
+					sink.legacyPairProof, profilerTestPoisonedLanes(sink)[pairRenderF2FS], census[pairRenderF2FS])
 			}
 		})
 	}
@@ -879,11 +879,11 @@ func TestProfilerStrictTextPrefixSpillFailureCannotCommitCurrentPairRow(t *testi
 	}
 	if sink.stats.RowsAccepted != 1 || len(sink.rows) != 1 || sink.rows[0].seq != 70 ||
 		len(sink.runs) != 0 || sink.nextIngestOrdinal != 1 || sink.stats.SpillChunks != 0 ||
-		len(sink.pairRows) != 0 || len(sink.poisoned) != 0 || len(sink.poisonedLanes) != 0 ||
+		len(sink.pairRows) != 0 || len(sink.poisoned) != 0 || len(profilerTestPoisonedLanes(sink)) != 0 ||
 		sink.legacyPairProof.observations != 0 || sink.activeTempBytes != 0 || sink.liveTempBytes != 0 {
 		t.Fatalf("prefix spill failure committed current pair delta: rows=%+v stats=%+v runs=%d next=%d pair=%v poisoned=%v lanes=%v proof=%+v active=%d live=%d",
 			sink.rows, sink.stats, len(sink.runs), sink.nextIngestOrdinal, sink.pairRows,
-			sink.poisoned, sink.poisonedLanes, sink.legacyPairProof,
+			sink.poisoned, profilerTestPoisonedLanes(sink), sink.legacyPairProof,
 			sink.activeTempBytes, sink.liveTempBytes)
 	}
 	entries, readErr := os.ReadDir(dir)

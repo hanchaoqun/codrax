@@ -39,20 +39,20 @@ func TestProfilerPairObservationBudgetFailsBothFamiliesBeforeSpillPublication(t 
 		t.Fatalf("observation cap did not fail closed globally: failed=%t reason=%q observations=%d poisoned=%v",
 			sink.legacyPairProof.failureReason != "", sink.legacyPairProof.failureReason, sink.legacyPairProof.observations, sink.poisoned)
 	}
-	if len(sink.pairLaneRows[pairRenderMMC]) != 0 || len(sink.pairLaneRows[pairRenderF2FS]) != 0 ||
-		len(sink.pairTableRows[pairRenderMMC]) != 0 || len(sink.pairTableRows[pairRenderF2FS]) != 0 ||
-		len(sink.structuredLaneRows[pairRenderMMC]) != 0 || len(sink.structuredLaneRows[pairRenderF2FS]) != 0 {
+	if len(profilerTestPairLaneRows(sink)[pairRenderMMC]) != 0 || len(profilerTestPairLaneRows(sink)[pairRenderF2FS]) != 0 ||
+		len(profilerTestPairTableRows(sink)[pairRenderMMC]) != 0 || len(profilerTestPairTableRows(sink)[pairRenderF2FS]) != 0 ||
+		len(profilerTestStructuredLaneRows(sink)[pairRenderMMC]) != 0 || len(profilerTestStructuredLaneRows(sink)[pairRenderF2FS]) != 0 {
 		t.Fatalf("budget failure retained subordinate proof maps: lanes=%v tables=%v structured=%v",
-			sink.pairLaneRows, sink.pairTableRows, sink.structuredLaneRows)
+			profilerTestPairLaneRows(sink), profilerTestPairTableRows(sink), profilerTestStructuredLaneRows(sink))
 	}
 	if sink.withheldPairRowsForKind(pairRenderF2FS) != 2 || sink.withheldPairRowsForKind(pairRenderMMC) != 1 ||
-		sink.withheldPairRowsForTable(pairRenderF2FS, "f2fs_write_begin") != 1 ||
-		sink.withheldPairRowsForTable(pairRenderF2FS, "f2fs_write_end") != 1 ||
-		sink.withheldPairRowsForTable(pairRenderMMC, "mmc_request_start") != 1 ||
+		sink.pairFixedLedger.endpoints[profilerPairEndpointF2FSWriteBegin].withheld != 1 ||
+		sink.pairFixedLedger.endpoints[profilerPairEndpointF2FSWriteEnd].withheld != 1 ||
+		sink.pairFixedLedger.endpoints[profilerPairEndpointMMCRequestStart].withheld != 1 ||
 		sink.withheldPairRowsFromCensus(pairRenderF2FS, f2fsCensus) != 2 ||
 		sink.withheldPairRowsFromCensus(pairRenderMMC, mmcCensus) != 1 {
 		t.Fatalf("scalar/table/census accounting drifted after map release: totals=%v tables=%v mmc=%+v f2fs=%+v",
-			sink.pairRows, sink.pairTableTotals, mmcCensus, f2fsCensus)
+			sink.pairRows, profilerTestPairTableTotals(sink), mmcCensus, f2fsCensus)
 	}
 	if sink.stats.RowsAccepted != 4 || sink.publishableRows() != 1 || len(sink.runs) == 0 {
 		t.Fatalf("budget barrier damaged spill/non-pair accounting: stats=%+v publishable=%d chunks=%d",
@@ -116,9 +116,9 @@ func TestProfilerPairLaneBudgetCountsInvalidOnlyPoisonAndFailsBothFamilies(t *te
 	sink.poisonPairLane(pairRenderF2FS, "f2fs-cap-plus-one")
 	if sink.legacyPairProof.failureReason != "lane_keys" || sink.legacyPairProof.laneKeys != 2 ||
 		sink.legacyPairProof.observations != 3 || !sink.poisoned[pairRenderMMC] || !sink.poisoned[pairRenderF2FS] ||
-		len(sink.poisonedLanes[pairRenderMMC]) != 0 || len(sink.poisonedLanes[pairRenderF2FS]) != 0 {
+		len(profilerTestPoisonedLanes(sink)[pairRenderMMC]) != 0 || len(profilerTestPoisonedLanes(sink)[pairRenderF2FS]) != 0 {
 		t.Fatalf("invalid-only lane cap did not release maps/fail both families: observations=%d lanes=%d failed=%t reason=%q poisoned=%v lane_maps=%v",
-			sink.legacyPairProof.observations, sink.legacyPairProof.laneKeys, sink.legacyPairProof.failureReason != "", sink.legacyPairProof.failureReason, sink.poisoned, sink.poisonedLanes)
+			sink.legacyPairProof.observations, sink.legacyPairProof.laneKeys, sink.legacyPairProof.failureReason != "", sink.legacyPairProof.failureReason, sink.poisoned, profilerTestPoisonedLanes(sink))
 	}
 	if err := sink.add(renderedRow{tsNS: 1, seq: 1, line: "print-survives-invalid-only-cap"}); err != nil {
 		t.Fatal(err)
@@ -150,25 +150,24 @@ func TestProfilerPairFamilyPoisonStopsAllLaterLaneMapGrowth(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if sink.legacyPairProof.observations != 1 || sink.legacyPairProof.laneKeys != 1 || len(sink.pairLaneRows[pairRenderF2FS]) != 0 ||
-		len(sink.pairTableRows[pairRenderF2FS]) != 0 || len(sink.poisonedLanes[pairRenderF2FS]) != 0 ||
-		sink.pairRows[pairRenderF2FS] != 65 || sink.pairTableTotals[pairRenderF2FS]["f2fs_write_end"] != 64 {
+	if sink.legacyPairProof.observations != 1 || sink.legacyPairProof.laneKeys != 1 || len(profilerTestPairLaneRows(sink)[pairRenderF2FS]) != 0 ||
+		len(profilerTestPairTableRows(sink)[pairRenderF2FS]) != 0 || len(profilerTestPoisonedLanes(sink)[pairRenderF2FS]) != 0 ||
+		sink.pairRows[pairRenderF2FS] != 65 || profilerTestPairTableTotals(sink)[pairRenderF2FS]["f2fs_write_end"] != 64 {
 		t.Fatalf("family poison continued growing subordinate maps or lost scalar totals: observations=%d lanes=%d laneRows=%v tableRows=%v totals=%v",
-			sink.legacyPairProof.observations, sink.legacyPairProof.laneKeys, sink.pairLaneRows, sink.pairTableRows, sink.pairTableTotals)
+			sink.legacyPairProof.observations, sink.legacyPairProof.laneKeys, profilerTestPairLaneRows(sink), profilerTestPairTableRows(sink), profilerTestPairTableTotals(sink))
 	}
 }
 
-func TestProfilerWithheldCensusAndTableWalkPublisherRowsNotGlobalPoisonSet(t *testing.T) {
+func TestProfilerWithheldCensusWalksOnlyPublisherRows(t *testing.T) {
 	source := mustReadRendererSource(t, "streamerdb_sorter.go")
 	censusBody := sourceBetweenProfilerPairFunctions(t, source,
-		"func (s *traceDBRowSink) withheldPairRowsFromCensus", "func (s *traceDBRowSink) withheldPairRowsForTable")
-	if !strings.Contains(censusBody, "for lane, count := range census.byLane") || strings.Contains(censusBody, "range s.poisonedLanes") {
-		t.Fatalf("publisher reconciliation must be O(publisher lanes), not O(global poison lanes):\n%s", censusBody)
-	}
-	tableBody := sourceBetweenProfilerPairFunctions(t, source,
-		"func (s *traceDBRowSink) withheldPairRowsForTable", "func (s *traceDBRowSink) publishableRows")
-	if !strings.Contains(tableBody, "for lane, count := range lanes") || strings.Contains(tableBody, "range s.poisonedLanes") {
-		t.Fatalf("table reconciliation must be O(table lanes), not O(global poison lanes):\n%s", tableBody)
+		"func (s *traceDBRowSink) withheldPairRowsFromCensus", "func (s *traceDBRowSink) publishableRows")
+	if !strings.Contains(censusBody, "for lane, count := range census.byLane") ||
+		!strings.Contains(censusBody, "s.pairFixedLedger.family(kind)") ||
+		!strings.Contains(censusBody, "pairLaneRegistries[kind].state") ||
+		strings.Contains(censusBody, "s.poisoned[kind]") ||
+		strings.Contains(censusBody, "range s.pairLaneRegistries") {
+		t.Fatalf("publisher reconciliation must use the fixed family verdict and be O(publisher lanes), not O(global poison lanes):\n%s", censusBody)
 	}
 
 	sink, err := newTraceDBRowSink(t.TempDir(), 128)
@@ -178,6 +177,9 @@ func TestProfilerWithheldCensusAndTableWalkPublisherRowsNotGlobalPoisonSet(t *te
 	defer sink.cleanup()
 	for i := 0; i < 32; i++ {
 		sink.poisonPairLane(pairRenderF2FS, fmt.Sprintf("poison-%d", i))
+	}
+	if !sink.observeProfilerPairState(pairRenderF2FS, "clean") {
+		t.Fatal("failed to register clean publisher lane")
 	}
 	census := profilerPairRowCensus{total: 18, byLane: map[string]int{"clean": 11, "poison-31": 7}}
 	if got := sink.withheldPairRowsFromCensus(pairRenderF2FS, census); got != 7 {

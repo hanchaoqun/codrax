@@ -77,14 +77,12 @@ func (s *traceDBRowSink) preflightProfilerPairFixedMutation(
 		if !profilerPairBudgetKind(row.pairKind) && lanePoisoned {
 			continue
 		}
-		candidate := next
-		plan, ok := candidate.planStageRow(
+		_, ok := next.planStageRow(
 			row.pairKind, row.profilerEndpointSlot, row.structuredPair, lanePoisoned,
 		)
 		if !ok {
 			return &traceDBOutputInvariantError{Reason: "profiler_pair_fixed_ledger_plan_invalid"}
 		}
-		plan.apply(&candidate)
 	}
 	if profilerPairBudgetKind(row.pairKind) && row.pairLane != "" && !next.families[row.pairKind].poisoned {
 		laneState := profilerPairLaneState{}
@@ -109,7 +107,7 @@ func (s *traceDBRowSink) preflightProfilerPairFixedMutation(
 	// Proof-budget exhaustion and Block authority failure can conservatively
 	// close a whole family after the ordinary row path was selected. Prove that
 	// alternate fixed branch too without mutating the real ledger.
-	if profilerPairBudgetKind(row.pairKind) {
+	if profilerPairBudgetFailurePossible(s, *row, &next) {
 		candidate := next
 		if row.pairKind == pairRenderBlock {
 			plan, ok := candidate.planPoisonFamily(pairRenderBlock)
@@ -158,14 +156,37 @@ func (s *traceDBRowSink) preflightProfilerPairFixedMutation(
 			delta.poisonLanes[pairRenderBlock] == row.pairLane {
 			laneState.poisoned = true
 		}
-		candidate := next
-		plan, ok := candidate.planPoisonLane(pairRenderBlock, laneState)
+		_, ok := next.planPoisonLane(pairRenderBlock, laneState)
 		if !ok {
 			return &traceDBOutputInvariantError{Reason: "profiler_pair_fixed_ledger_plan_invalid"}
 		}
-		plan.apply(&candidate, &laneState)
 	}
 	return nil
+}
+
+func profilerPairBudgetFailurePossible(
+	s *traceDBRowSink,
+	row renderedRow,
+	next *profilerPairFixedLedger,
+) bool {
+	if s == nil || next == nil || !profilerPairBudgetKind(row.pairKind) ||
+		next.families[row.pairKind].poisoned || s.pairAuthorityFailure != "" {
+		return false
+	}
+	domain := s.profilerPairProofDomain(row.pairKind)
+	if domain == nil || domain.failureReason != "" {
+		return false
+	}
+	if domain.observations >= domain.maxObservations {
+		return true
+	}
+	if row.pairLane == "" {
+		return false
+	}
+	if _, found := s.pairLaneRegistries[row.pairKind].idFor(row.pairLane); found {
+		return false
+	}
+	return domain.laneKeys >= domain.maxLaneKeys
 }
 
 func profilerBlockAuthorityResetPossible(s *traceDBRowSink, row renderedRow) bool {
@@ -183,9 +204,7 @@ func profilerBlockAuthorityResetPossible(s *traceDBRowSink, row renderedRow) boo
 	if !stateOK {
 		return true
 	}
-	legacy, legacyFound := s.blockLaneClocks[row.pairLane]
-	if legacyFound != state.blockClockSeen || legacyFound &&
-		(legacy.seq != state.lastBlockSeq || legacy.tsNS != state.lastBlockTSNS) {
+	if !state.blockClockSeen && (state.lastBlockSeq != 0 || state.lastBlockTSNS != 0) {
 		return true
 	}
 	return state.blockClockSeen && row.seq <= state.lastBlockSeq
@@ -208,9 +227,7 @@ func profilerBlockLanePoisonPossible(
 	if !stateOK {
 		return profilerPairLaneState{}, false
 	}
-	legacy, legacyFound := s.blockLaneClocks[row.pairLane]
-	if legacyFound != state.blockClockSeen || legacyFound &&
-		(legacy.seq != state.lastBlockSeq || legacy.tsNS != state.lastBlockTSNS) {
+	if !state.blockClockSeen && (state.lastBlockSeq != 0 || state.lastBlockTSNS != 0) {
 		return profilerPairLaneState{}, false
 	}
 	if !state.blockClockSeen || row.seq <= state.lastBlockSeq || row.tsNS >= state.lastBlockTSNS {
@@ -222,7 +239,7 @@ func profilerBlockLanePoisonPossible(
 // commitProfilerPairFixedRow is the no-error tail selected after delta,
 // registry-budget and Block-clock decisions. It returns the final keyed-lane
 // decision because an unexpected fixed-state breach source-wide fail-closes
-// the capture and must not let legacy parity maps regrow.
+// the capture and must not let a reset exact-lane registry regrow.
 func (s *traceDBRowSink) commitProfilerPairFixedRow(row renderedRow, trackLane bool) bool {
 	if s == nil || row.pairKind == pairRenderUnknown {
 		return trackLane
@@ -289,84 +306,10 @@ func (s *traceDBRowSink) validateProfilerPairFixedLedgerParity() error {
 		return &traceDBOutputInvariantError{Reason: "profiler_pair_fixed_ledger_invalid"}
 	}
 	for kind := pairRenderKind(1); kind < pairRenderKindCount; kind++ {
-		withheld, err := s.withheldPairRowsForKindChecked(kind)
-		if err != nil {
-			return err
-		}
-		structuredWithheld, err := s.withheldStructuredPairRowsForKindChecked(kind)
-		if err != nil {
-			return err
-		}
-		wantFamily := profilerPairFixedFamilyLedger{
-			profilerPairFixedCounts: profilerPairFixedCounts{
-				staged: s.pairRows[kind], structured: s.structuredPairRows[kind],
-				withheld: withheld, structuredWithheld: structuredWithheld,
-			},
-			poisoned: s.poisoned[kind], opaque: s.opaque[kind],
-		}
-		if got := s.pairFixedLedger.families[kind]; got != wantFamily {
+		family := s.pairFixedLedger.families[kind]
+		if family.staged != s.pairRows[kind] || family.structured != s.structuredPairRows[kind] ||
+			family.poisoned != s.poisoned[kind] || family.opaque != s.opaque[kind] {
 			return &traceDBOutputInvariantError{Reason: "profiler_pair_fixed_ledger_family_mismatch"}
-		}
-		if !profilerPairBudgetKind(kind) {
-			continue
-		}
-		registry := &s.pairLaneRegistries[kind]
-		for slot := profilerPairEndpointSlot(1); slot < profilerPairEndpointSlotCount; slot++ {
-			descriptor, ok := slot.descriptor()
-			if !ok || descriptor.kind != kind {
-				continue
-			}
-			structured := 0
-			structuredWithheld := 0
-			if descriptor.structuredField != 0 {
-				structured = s.structuredEventRows[kind][descriptor.structuredField]
-				structuredWithheld, err = s.withheldStructuredPairRowsForEventFieldChecked(
-					kind, descriptor.structuredField,
-				)
-				if err != nil {
-					return err
-				}
-			}
-			want := profilerPairFixedCounts{
-				staged: s.pairTableTotals[kind][descriptor.name], structured: structured,
-				withheld:           s.withheldPairRowsForTable(kind, descriptor.name),
-				structuredWithheld: structuredWithheld,
-			}
-			if got := s.pairFixedLedger.endpoints[slot]; got != want {
-				return &traceDBOutputInvariantError{Reason: "profiler_pair_fixed_ledger_endpoint_mismatch"}
-			}
-		}
-		if s.poisoned[kind] {
-			continue
-		}
-		for index, lane := range registry.keys {
-			state := registry.states[index]
-			if !state.endpointCountsValid(kind) {
-				return &traceDBOutputInvariantError{Reason: "profiler_pair_fixed_lane_state_invalid"}
-			}
-			rows, structured, ok := state.endpointTotals(kind)
-			if !ok || int(rows) != s.pairLaneRows[kind][lane] ||
-				int(structured) != s.structuredLaneRows[kind][lane] {
-				return &traceDBOutputInvariantError{Reason: "profiler_pair_fixed_lane_total_mismatch"}
-			}
-			for ordinal := profilerPairFamilyEndpointOrdinal(0); ; ordinal++ {
-				slot, slotOK := profilerPairEndpointForFamilyOrdinal(kind, ordinal)
-				if !slotOK {
-					break
-				}
-				descriptor, _ := slot.descriptor()
-				counts, countsOK := state.endpointCountsFor(kind, slot)
-				if !countsOK || int(counts.rows) != s.pairTableRows[kind][descriptor.name][lane] {
-					return &traceDBOutputInvariantError{Reason: "profiler_pair_fixed_lane_endpoint_mismatch"}
-				}
-				wantStructured := 0
-				if descriptor.structuredField != 0 {
-					wantStructured = s.structuredEventLanes[kind][descriptor.structuredField][lane]
-				}
-				if int(counts.structuredRows) != wantStructured {
-					return &traceDBOutputInvariantError{Reason: "profiler_pair_fixed_lane_structured_mismatch"}
-				}
-			}
 		}
 	}
 	return nil

@@ -227,9 +227,9 @@ func TestProfilerBlockPhysicalLaneClockAuditedBeforeSort(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		if sink.poisoned[pairRenderBlock] || !sink.poisonedLanes[pairRenderBlock]["lane-a"] ||
-			sink.poisonedLanes[pairRenderBlock]["lane-b"] || sink.withheldPairRowsForKind(pairRenderBlock) != 2 {
-			t.Fatalf("physical rollback quarantine scope drifted: poisoned=%v lanes=%v", sink.poisoned, sink.poisonedLanes)
+		if sink.poisoned[pairRenderBlock] || !profilerTestPoisonedLanes(sink)[pairRenderBlock]["lane-a"] ||
+			profilerTestPoisonedLanes(sink)[pairRenderBlock]["lane-b"] || sink.withheldPairRowsForKind(pairRenderBlock) != 2 {
+			t.Fatalf("physical rollback quarantine scope drifted: poisoned=%v lanes=%v", sink.poisoned, profilerTestPoisonedLanes(sink))
 		}
 		var output bytes.Buffer
 		stats, err := sink.prepareAndWriteForTest(context.Background(), &output)
@@ -253,7 +253,7 @@ func TestProfilerBlockPhysicalLaneClockAuditedBeforeSort(t *testing.T) {
 			}
 		}
 		if sink.pairKindPoisoned(pairRenderBlock) || sink.publishableRows() != 2 {
-			t.Fatalf("same timestamp was treated as rollback: poisoned=%v lanes=%v", sink.poisoned, sink.poisonedLanes)
+			t.Fatalf("same timestamp was treated as rollback: poisoned=%v lanes=%v", sink.poisoned, profilerTestPoisonedLanes(sink))
 		}
 	})
 }
@@ -274,13 +274,13 @@ func TestProfilerCaptureAccountingRejectsWithheldAboveStagedWithoutClamp(t *test
 	if err := sink.add(renderedRow{tsNS: 1, seq: 1, line: "block", pairKind: pairRenderBlock, pairLane: "lane", pairTable: "block_bio_queue"}); err != nil {
 		t.Fatal(err)
 	}
-	sink.pairLaneRows[pairRenderBlock]["lane"] = 2
-	sink.poisonedLanes[pairRenderBlock] = map[string]bool{"lane": true}
-	if _, err := sink.withheldPairRowsForKindChecked(pairRenderBlock); traceDBInvariantReason(err) != "profiler_pair_withheld_exceeds_staged" {
+	sink.pairFixedLedger.families[pairRenderBlock].withheld = 2
+	sink.pairFixedLedger.endpoints[profilerPairEndpointBlockBIOQueue].withheld = 2
+	if _, err := sink.withheldPairRowsForKindChecked(pairRenderBlock); traceDBInvariantReason(err) != "profiler_pair_fixed_ledger_invalid" {
 		t.Fatalf("withheld>staged was clamped instead of rejected by the scalar guard: err=%v", err)
 	}
-	if err := sink.sealProfilerCapture(); traceDBInvariantReason(err) != "profiler_pair_lane_registry_poison_mismatch" {
-		t.Fatalf("split typed/legacy accounting escaped the earlier parity guard: err=%v breach=%q", err, sink.captureBreach)
+	if err := sink.sealProfilerCapture(); traceDBInvariantReason(err) != "profiler_pair_fixed_ledger_invalid" {
+		t.Fatalf("invalid fixed accounting escaped the seal guard: err=%v breach=%q", err, sink.captureBreach)
 	}
 	if _, err := sink.writeTo(context.Background(), &bytes.Buffer{}); traceDBInvariantReason(err) != "profiler_capture_accounting_invalid" {
 		t.Fatalf("invalid accounting reached publication: %v", err)

@@ -77,10 +77,10 @@ func TestProfilerStructuredEventSinkTracksExactFieldAndLane(t *testing.T) {
 	if got := sink.withheldStructuredPairRowsForEventField(pairRenderMMC, 4016); got != 1 {
 		t.Fatalf("field 4016 family-withheld=%d want=1", got)
 	}
-	if sink.structuredEventLanes[pairRenderMMC] != nil ||
-		sink.structuredEventRows[pairRenderMMC][4015] != 1 || sink.structuredEventRows[pairRenderMMC][4016] != 1 {
+	if profilerTestStructuredEventLanes(sink)[pairRenderMMC] != nil ||
+		profilerTestStructuredEventRows(sink)[pairRenderMMC][4015] != 1 || profilerTestStructuredEventRows(sink)[pairRenderMMC][4016] != 1 {
 		t.Fatalf("family poison did not release lane proof state and retain exact scalars: lanes=%v totals=%v",
-			sink.structuredEventLanes[pairRenderMMC], sink.structuredEventRows[pairRenderMMC])
+			profilerTestStructuredEventLanes(sink)[pairRenderMMC], profilerTestStructuredEventRows(sink)[pairRenderMMC])
 	}
 }
 
@@ -123,9 +123,9 @@ func TestProfilerStructuredEventFieldRequiresMatchingStructuredPair(t *testing.T
 			if reason := profilerSinkInvariantReason(t, sink.add(test.row)); reason != test.reason {
 				t.Fatalf("reason=%q want=%q", reason, test.reason)
 			}
-			if sink.stats.RowsAccepted != 0 || len(sink.rows) != 0 || len(sink.structuredEventRows) != 0 {
+			if sink.stats.RowsAccepted != 0 || len(sink.rows) != 0 || len(profilerTestStructuredEventRows(sink)) != 0 {
 				t.Fatalf("rejected provenance mutated sink: stats=%+v rows=%d exact=%v",
-					sink.stats, len(sink.rows), sink.structuredEventRows)
+					sink.stats, len(sink.rows), profilerTestStructuredEventRows(sink))
 			}
 		})
 	}
@@ -138,13 +138,19 @@ func TestProfilerStructuredEventCountersFailLoudBeforeMutation(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer sink.cleanup()
-		sink.structuredEventRows[pairRenderMMC] = map[int]int{4015: math.MaxInt}
+		sink.pairFixedLedger.families[pairRenderMMC].profilerPairFixedCounts = profilerPairFixedCounts{
+			staged: math.MaxInt, structured: math.MaxInt,
+		}
+		sink.pairFixedLedger.endpoints[profilerPairEndpointMMCRequestDone] = profilerPairFixedCounts{
+			staged: math.MaxInt, structured: math.MaxInt,
+		}
+		before := sink.pairFixedLedger
 		row := profilerStructuredEventTestRow(1, pairRenderMMC, 4015, "lane", "overflow")
-		if reason := profilerSinkInvariantReason(t, sink.add(row)); reason != "profiler_structured_event_counter_overflow" {
+		if reason := profilerSinkInvariantReason(t, sink.add(row)); reason != "profiler_pair_fixed_ledger_plan_invalid" {
 			t.Fatalf("reason=%q", reason)
 		}
-		if sink.stats.RowsAccepted != 0 || len(sink.rows) != 0 || sink.structuredEventRows[pairRenderMMC][4015] != math.MaxInt {
-			t.Fatalf("field overflow mutated sink: stats=%+v rows=%d totals=%v", sink.stats, len(sink.rows), sink.structuredEventRows)
+		if sink.stats.RowsAccepted != 0 || len(sink.rows) != 0 || sink.pairFixedLedger != before {
+			t.Fatalf("field overflow mutated sink: stats=%+v rows=%d ledger=%+v", sink.stats, len(sink.rows), sink.pairFixedLedger)
 		}
 	})
 
@@ -154,14 +160,28 @@ func TestProfilerStructuredEventCountersFailLoudBeforeMutation(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer sink.cleanup()
-		sink.structuredEventLanes[pairRenderF2FS] = map[int]map[string]int{4011: {"lane": math.MaxInt}}
+		id, ok := sink.pairLaneRegistries[pairRenderF2FS].intern("lane")
+		if !ok {
+			t.Fatal("failed to seed exact lane")
+		}
+		state, ok := sink.pairLaneRegistries[pairRenderF2FS].state(id)
+		if !ok {
+			t.Fatal("seed exact lane state missing")
+		}
+		ordinal, ok := profilerPairEndpointF2FSWriteBegin.familyOrdinal(pairRenderF2FS)
+		if !ok {
+			t.Fatal("F2FS write-begin ordinal missing")
+		}
+		state.endpointCounts[ordinal] = profilerPairLaneEndpointCounts{
+			rows: uint32(profilerPairBarrierMaxObservations), structuredRows: uint32(profilerPairBarrierMaxObservations),
+		}
+		before := *state
 		row := profilerStructuredEventTestRow(1, pairRenderF2FS, 4011, "lane", "overflow")
-		if reason := profilerSinkInvariantReason(t, sink.add(row)); reason != "profiler_structured_event_lane_counter_overflow" {
+		if reason := profilerSinkInvariantReason(t, sink.add(row)); reason != "profiler_pair_fixed_lane_plan_invalid" {
 			t.Fatalf("reason=%q", reason)
 		}
-		if sink.stats.RowsAccepted != 0 || len(sink.rows) != 0 ||
-			sink.structuredEventLanes[pairRenderF2FS][4011]["lane"] != math.MaxInt {
-			t.Fatalf("lane overflow mutated sink: stats=%+v rows=%d lanes=%v", sink.stats, len(sink.rows), sink.structuredEventLanes)
+		if sink.stats.RowsAccepted != 0 || len(sink.rows) != 0 || *state != before {
+			t.Fatalf("lane overflow mutated sink: stats=%+v rows=%d state=%+v", sink.stats, len(sink.rows), *state)
 		}
 	})
 }
@@ -183,11 +203,11 @@ func TestProfilerStructuredEventBudgetFailCloseRetainsExactFieldTotals(t *testin
 		}
 	}
 	if sink.legacyPairProof.failureReason == "" || !sink.poisoned[pairRenderF2FS] || !sink.poisoned[pairRenderMMC] ||
-		sink.structuredEventLanes[pairRenderF2FS] != nil ||
+		profilerTestStructuredEventLanes(sink)[pairRenderF2FS] != nil ||
 		sink.withheldStructuredPairRowsForEventField(pairRenderF2FS, 4011) != 1 ||
 		sink.withheldStructuredPairRowsForEventField(pairRenderF2FS, 4012) != 1 {
 		t.Fatalf("budget fail-close lost exact event totals: failed=%t poisoned=%v totals=%v lanes=%v",
-			sink.legacyPairProof.failureReason != "", sink.poisoned, sink.structuredEventRows, sink.structuredEventLanes)
+			sink.legacyPairProof.failureReason != "", sink.poisoned, profilerTestStructuredEventRows(sink), profilerTestStructuredEventLanes(sink))
 	}
 }
 

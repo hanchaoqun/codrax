@@ -65,22 +65,35 @@ type profilerPairFixedLedger struct {
 	endpoints [profilerPairEndpointSlotCount]profilerPairFixedCounts
 }
 
-// profilerPairFixedLedgerPlan holds a complete validated next state. Planning
-// performs every checked addition; apply is consequently an infallible fixed
-// assignment at the commit tail.
+// profilerPairFixedLedgerPlan retains only one affected family and endpoint.
+// Whole-family poison is represented as a closed operation bit rather than a
+// second 656-byte ledger snapshot. Planning performs every checked addition;
+// apply is consequently an infallible bounded assignment at the commit tail.
 type profilerPairFixedLedgerPlan struct {
-	next profilerPairFixedLedger
+	kind           pairRenderKind
+	endpoint       profilerPairEndpointSlot
+	nextFamily     profilerPairFixedFamilyLedger
+	nextEndpoint   profilerPairFixedCounts
+	poisonFamily   bool
+	updateEndpoint bool
 }
 
 func (plan profilerPairFixedLedgerPlan) apply(ledger *profilerPairFixedLedger) {
-	*ledger = plan.next
+	if plan.poisonFamily {
+		poisonProfilerPairFixedFamily(ledger, plan.kind)
+	}
+	ledger.families[plan.kind] = plan.nextFamily
+	if plan.updateEndpoint {
+		ledger.endpoints[plan.endpoint] = plan.nextEndpoint
+	}
 }
 
 // profilerPairFixedLanePoisonPlan commits the ledger and exact-lane poison bit
 // together. The current lane state is the idempotency token: a repeated plan
 // over an already-poisoned state adds no counters a second time.
 type profilerPairFixedLanePoisonPlan struct {
-	nextLedger profilerPairFixedLedger
+	kind       pairRenderKind
+	nextFamily profilerPairFixedFamilyLedger
 	nextLane   profilerPairLaneState
 }
 
@@ -88,18 +101,33 @@ func (plan profilerPairFixedLanePoisonPlan) apply(
 	ledger *profilerPairFixedLedger,
 	lane *profilerPairLaneState,
 ) {
-	*ledger = plan.nextLedger
+	// apply must remain the immediate no-fail tail of planPoisonLane over this
+	// exact ledger/lane prestate. The checked plan proved every addition below;
+	// no caller may mutate either authority between plan and apply.
+	if !lane.poisoned && plan.nextLane.poisoned {
+		first, count, _ := profilerPairFamilyEndpointRange(plan.kind)
+		for ordinal := uint8(0); ordinal < count; ordinal++ {
+			laneCounts := lane.endpointCounts[ordinal]
+			slot := first + profilerPairEndpointSlot(ordinal)
+			ledger.endpoints[slot].withheld += int(laneCounts.rows)
+			ledger.endpoints[slot].structuredWithheld += int(laneCounts.structuredRows)
+		}
+	}
+	ledger.families[plan.kind] = plan.nextFamily
 	*lane = plan.nextLane
 }
 
-func (ledger profilerPairFixedLedger) pristine() bool {
-	return ledger == (profilerPairFixedLedger{})
+func (ledger *profilerPairFixedLedger) pristine() bool {
+	return ledger != nil && *ledger == (profilerPairFixedLedger{})
 }
 
 // valid is O(1): both loops range over compile-time closed enum arrays. Besides
 // local subset invariants, it proves that each profiler family's account is
 // exactly the sum of its endpoint accounts.
-func (ledger profilerPairFixedLedger) valid() bool {
+func (ledger *profilerPairFixedLedger) valid() bool {
+	if ledger == nil {
+		return false
+	}
 	if ledger.families[pairRenderUnknown] != (profilerPairFixedFamilyLedger{}) ||
 		ledger.endpoints[profilerPairEndpointNone] != (profilerPairFixedCounts{}) {
 		return false
@@ -112,11 +140,14 @@ func (ledger profilerPairFixedLedger) valid() bool {
 	return true
 }
 
-func (ledger profilerPairFixedLedger) familyLocallyValid(kind pairRenderKind) bool {
-	if kind == pairRenderUnknown || !profilerPairKindValid(kind) {
+func (ledger *profilerPairFixedLedger) familyLocallyValid(kind pairRenderKind) bool {
+	if ledger == nil || kind == pairRenderUnknown || !profilerPairKindValid(kind) {
 		return false
 	}
-	family := ledger.families[kind]
+	return profilerPairFixedFamilyLocallyValid(ledger.families[kind])
+}
+
+func profilerPairFixedFamilyLocallyValid(family profilerPairFixedFamilyLedger) bool {
 	return family.profilerPairFixedCounts.valid() &&
 		(!family.poisoned || family.withheld == family.staged &&
 			family.structuredWithheld == family.structured) &&
@@ -125,7 +156,7 @@ func (ledger profilerPairFixedLedger) familyLocallyValid(kind pairRenderKind) bo
 
 // validateFamilyEndpoints is the non-hot family parity check. It visits at
 // most the six slots in one closed family and never scans the global roster.
-func (ledger profilerPairFixedLedger) validateFamilyEndpoints(kind pairRenderKind) bool {
+func (ledger *profilerPairFixedLedger) validateFamilyEndpoints(kind pairRenderKind) bool {
 	if !ledger.familyLocallyValid(kind) {
 		return false
 	}
@@ -149,7 +180,7 @@ func (ledger profilerPairFixedLedger) validateFamilyEndpoints(kind pairRenderKin
 	return sum == ledger.families[kind].profilerPairFixedCounts
 }
 
-func (ledger profilerPairFixedLedger) affectedEndpointValid(
+func (ledger *profilerPairFixedLedger) affectedEndpointValid(
 	kind pairRenderKind,
 	endpoint profilerPairEndpointSlot,
 ) bool {
@@ -164,10 +195,17 @@ func (ledger profilerPairFixedLedger) affectedEndpointValid(
 		return false
 	}
 	counts := ledger.endpoints[endpoint]
-	family := ledger.families[kind].profilerPairFixedCounts
-	return counts.valid() && counts.staged <= family.staged && counts.structured <= family.structured &&
+	return profilerPairFixedEndpointWithinFamily(ledger.families[kind], counts)
+}
+
+func profilerPairFixedEndpointWithinFamily(
+	family profilerPairFixedFamilyLedger,
+	counts profilerPairFixedCounts,
+) bool {
+	return profilerPairFixedFamilyLocallyValid(family) && counts.valid() &&
+		counts.staged <= family.staged && counts.structured <= family.structured &&
 		counts.withheld <= family.withheld && counts.structuredWithheld <= family.structuredWithheld &&
-		(!ledger.families[kind].poisoned || counts.withheld == counts.staged &&
+		(!family.poisoned || counts.withheld == counts.staged &&
 			counts.structuredWithheld == counts.structured)
 }
 
@@ -187,7 +225,7 @@ func addProfilerPairFixedCounts(dst *profilerPairFixedCounts, delta profilerPair
 	return true
 }
 
-func (ledger profilerPairFixedLedger) family(
+func (ledger *profilerPairFixedLedger) family(
 	kind pairRenderKind,
 ) (profilerPairFixedFamilyLedger, bool) {
 	if !ledger.validateFamilyEndpoints(kind) {
@@ -196,7 +234,7 @@ func (ledger profilerPairFixedLedger) family(
 	return ledger.families[kind], true
 }
 
-func (ledger profilerPairFixedLedger) endpoint(
+func (ledger *profilerPairFixedLedger) endpoint(
 	slot profilerPairEndpointSlot,
 ) (profilerPairFixedCounts, bool) {
 	if slot == profilerPairEndpointNone || slot >= profilerPairEndpointSlotCount {
@@ -212,7 +250,7 @@ func (ledger profilerPairFixedLedger) endpoint(
 // planStageRow accounts one already-admitted pair row. lanePoisoned is the
 // caller's typed exact-lane verdict. Whole-family poison and opacity dominate
 // it: every later row remains staged but is immediately withheld.
-func (ledger profilerPairFixedLedger) planStageRow(
+func (ledger *profilerPairFixedLedger) planStageRow(
 	kind pairRenderKind,
 	endpoint profilerPairEndpointSlot,
 	structured bool,
@@ -227,45 +265,65 @@ func (ledger profilerPairFixedLedger) planStageRow(
 		return profilerPairFixedLedgerPlan{}, false
 	}
 
-	next := ledger
-	if next.families[kind].opaque && !next.families[kind].poisoned {
-		poisonProfilerPairFixedFamily(&next, kind)
+	nextFamily := ledger.families[kind]
+	nextEndpoint := profilerPairFixedCounts{}
+	updateEndpoint := profilerPairBudgetKind(kind)
+	if updateEndpoint {
+		nextEndpoint = ledger.endpoints[endpoint]
 	}
-	withheld := next.families[kind].poisoned || lanePoisoned
-	familyCounts, ok := next.families[kind].profilerPairFixedCounts.stage(structured, withheld)
+	poisonFamily := nextFamily.opaque && !nextFamily.poisoned
+	if poisonFamily {
+		if !ledger.validateFamilyEndpoints(kind) {
+			return profilerPairFixedLedgerPlan{}, false
+		}
+		nextFamily.poisoned = true
+		nextFamily.withheld = nextFamily.staged
+		nextFamily.structuredWithheld = nextFamily.structured
+		if updateEndpoint {
+			nextEndpoint.withheld = nextEndpoint.staged
+			nextEndpoint.structuredWithheld = nextEndpoint.structured
+		}
+	}
+	withheld := nextFamily.poisoned || lanePoisoned
+	familyCounts, ok := nextFamily.profilerPairFixedCounts.stage(structured, withheld)
 	if !ok {
 		return profilerPairFixedLedgerPlan{}, false
 	}
-	next.families[kind].profilerPairFixedCounts = familyCounts
-	if profilerPairBudgetKind(kind) {
-		endpointCounts, endpointOK := next.endpoints[endpoint].stage(structured, withheld)
+	nextFamily.profilerPairFixedCounts = familyCounts
+	if updateEndpoint {
+		endpointCounts, endpointOK := nextEndpoint.stage(structured, withheld)
 		if !endpointOK {
 			return profilerPairFixedLedgerPlan{}, false
 		}
-		next.endpoints[endpoint] = endpointCounts
+		nextEndpoint = endpointCounts
 	}
-	if !next.affectedEndpointValid(kind, endpoint) {
+	if !profilerPairFixedFamilyLocallyValid(nextFamily) ||
+		updateEndpoint && !profilerPairFixedEndpointWithinFamily(nextFamily, nextEndpoint) {
 		return profilerPairFixedLedgerPlan{}, false
 	}
-	return profilerPairFixedLedgerPlan{next: next}, true
+	return profilerPairFixedLedgerPlan{
+		kind: kind, endpoint: endpoint, nextFamily: nextFamily, nextEndpoint: nextEndpoint,
+		poisonFamily: poisonFamily, updateEndpoint: updateEndpoint,
+	}, true
 }
 
 // planPoisonFamily converts every row already staged in the family and its
 // endpoint accounts to withheld without discarding endpoint totals. Repeating
 // the transition is an exact no-op plan.
-func (ledger profilerPairFixedLedger) planPoisonFamily(
+func (ledger *profilerPairFixedLedger) planPoisonFamily(
 	kind pairRenderKind,
 ) (profilerPairFixedLedgerPlan, bool) {
 	if kind == pairRenderUnknown || !profilerPairKindValid(kind) ||
 		!ledger.validateFamilyEndpoints(kind) {
 		return profilerPairFixedLedgerPlan{}, false
 	}
-	next := ledger
-	poisonProfilerPairFixedFamily(&next, kind)
-	if !next.validateFamilyEndpoints(kind) {
-		return profilerPairFixedLedgerPlan{}, false
-	}
-	return profilerPairFixedLedgerPlan{next: next}, true
+	nextFamily := ledger.families[kind]
+	nextFamily.poisoned = true
+	nextFamily.withheld = nextFamily.staged
+	nextFamily.structuredWithheld = nextFamily.structured
+	return profilerPairFixedLedgerPlan{
+		kind: kind, nextFamily: nextFamily, poisonFamily: true,
+	}, true
 }
 
 func poisonProfilerPairFixedFamily(ledger *profilerPairFixedLedger, kind pairRenderKind) {
@@ -287,28 +345,33 @@ func poisonProfilerPairFixedFamily(ledger *profilerPairFixedLedger, kind pairRen
 // planMarkOpaque retains opacity as an independent family fact. If rows
 // already exist it closes the family immediately; otherwise the first later
 // row closes and stages itself atomically in planStageRow.
-func (ledger profilerPairFixedLedger) planMarkOpaque(
+func (ledger *profilerPairFixedLedger) planMarkOpaque(
 	kind pairRenderKind,
 ) (profilerPairFixedLedgerPlan, bool) {
 	if kind == pairRenderUnknown || !profilerPairKindValid(kind) ||
 		!ledger.validateFamilyEndpoints(kind) {
 		return profilerPairFixedLedgerPlan{}, false
 	}
-	next := ledger
-	next.families[kind].opaque = true
-	if next.families[kind].staged > 0 {
-		poisonProfilerPairFixedFamily(&next, kind)
+	nextFamily := ledger.families[kind]
+	nextFamily.opaque = true
+	poisonFamily := nextFamily.staged > 0
+	if poisonFamily {
+		nextFamily.poisoned = true
+		nextFamily.withheld = nextFamily.staged
+		nextFamily.structuredWithheld = nextFamily.structured
 	}
-	if !next.validateFamilyEndpoints(kind) {
+	if !profilerPairFixedFamilyLocallyValid(nextFamily) {
 		return profilerPairFixedLedgerPlan{}, false
 	}
-	return profilerPairFixedLedgerPlan{next: next}, true
+	return profilerPairFixedLedgerPlan{
+		kind: kind, nextFamily: nextFamily, poisonFamily: poisonFamily,
+	}, true
 }
 
 // planPoisonLane folds one exact lane's fixed six-slot account into the
 // capture-wide withheld totals exactly once. A current poisoned bit yields an
 // idempotent no-op plan; the caller need not maintain any second lane set.
-func (ledger profilerPairFixedLedger) planPoisonLane(
+func (ledger *profilerPairFixedLedger) planPoisonLane(
 	kind pairRenderKind,
 	lane profilerPairLaneState,
 ) (profilerPairFixedLanePoisonPlan, bool) {
@@ -317,10 +380,13 @@ func (ledger profilerPairFixedLedger) planPoisonLane(
 		return profilerPairFixedLanePoisonPlan{}, false
 	}
 	if ledger.families[kind].poisoned || lane.poisoned {
-		return profilerPairFixedLanePoisonPlan{nextLedger: ledger, nextLane: lane}, true
+		return profilerPairFixedLanePoisonPlan{
+			kind: kind, nextFamily: ledger.families[kind], nextLane: lane,
+		}, true
 	}
 
-	next := ledger
+	nextFamily := ledger.families[kind]
+	nextEndpoints := [profilerPairFamilyEndpointCapacity]profilerPairFixedCounts{}
 	nextLane := lane
 	first, count, rangeOK := profilerPairFamilyEndpointRange(kind)
 	if !rangeOK || count == 0 || count > profilerPairFamilyEndpointCapacity {
@@ -329,16 +395,24 @@ func (ledger profilerPairFixedLedger) planPoisonLane(
 	for ordinal := uint8(0); ordinal < count; ordinal++ {
 		slot := first + profilerPairEndpointSlot(ordinal)
 		laneCounts := lane.endpointCounts[ordinal]
-		if !checkedProfilerPairFixedAddTo(&next.families[kind].withheld, int(laneCounts.rows)) ||
-			!checkedProfilerPairFixedAddTo(&next.families[kind].structuredWithheld, int(laneCounts.structuredRows)) ||
-			!checkedProfilerPairFixedAddTo(&next.endpoints[slot].withheld, int(laneCounts.rows)) ||
-			!checkedProfilerPairFixedAddTo(&next.endpoints[slot].structuredWithheld, int(laneCounts.structuredRows)) {
+		nextEndpoints[ordinal] = ledger.endpoints[slot]
+		if !checkedProfilerPairFixedAddTo(&nextFamily.withheld, int(laneCounts.rows)) ||
+			!checkedProfilerPairFixedAddTo(&nextFamily.structuredWithheld, int(laneCounts.structuredRows)) ||
+			!checkedProfilerPairFixedAddTo(&nextEndpoints[ordinal].withheld, int(laneCounts.rows)) ||
+			!checkedProfilerPairFixedAddTo(&nextEndpoints[ordinal].structuredWithheld, int(laneCounts.structuredRows)) {
 			return profilerPairFixedLanePoisonPlan{}, false
 		}
 	}
 	nextLane.poisoned = true
-	if !next.validateFamilyEndpoints(kind) {
+	if !profilerPairFixedFamilyLocallyValid(nextFamily) {
 		return profilerPairFixedLanePoisonPlan{}, false
 	}
-	return profilerPairFixedLanePoisonPlan{nextLedger: next, nextLane: nextLane}, true
+	for ordinal := uint8(0); ordinal < count; ordinal++ {
+		if !profilerPairFixedEndpointWithinFamily(nextFamily, nextEndpoints[ordinal]) {
+			return profilerPairFixedLanePoisonPlan{}, false
+		}
+	}
+	return profilerPairFixedLanePoisonPlan{
+		kind: kind, nextFamily: nextFamily, nextLane: nextLane,
+	}, true
 }

@@ -295,6 +295,12 @@ func TestProfilerPairFixedLedgerStorageIsClosedAndCaptureWideCountersAreInts(t *
 	if got := reflect.TypeOf(profilerPairFixedLedger{}).Field(1).Type.Len(); got != int(profilerPairEndpointSlotCount) {
 		t.Fatalf("endpoint ledger width=%d want=%d", got, profilerPairEndpointSlotCount)
 	}
+	if size := reflect.TypeOf(profilerPairFixedLedgerPlan{}).Size(); size > 128 {
+		t.Fatalf("row/family mutation plan retained whole-ledger scale: size=%d want<=128", size)
+	}
+	if size := reflect.TypeOf(profilerPairFixedLanePoisonPlan{}).Size(); size > 128 {
+		t.Fatalf("lane poison mutation plan exceeded bounded family-local shape: size=%d want<=128", size)
+	}
 }
 
 func TestProfilerPairFixedLedgerPlansAllocateNothing(t *testing.T) {
@@ -343,7 +349,7 @@ func assertClosedFixedLedgerType(t *testing.T, typ reflect.Type, path string, ca
 		}
 	case reflect.Array:
 		assertClosedFixedLedgerType(t, typ.Elem(), path+"[]", captureWide)
-	case reflect.Int, reflect.Bool:
+	case reflect.Int, reflect.Bool, reflect.Uint8:
 		return
 	case reflect.Uint32:
 		if captureWide {

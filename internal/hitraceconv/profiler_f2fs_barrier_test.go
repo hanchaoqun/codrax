@@ -83,12 +83,12 @@ func TestStructuredF2FSKnownNonKeyFailureQuarantinesOnlyExactLaneAcrossSpill(t *
 			t.Fatal(renderErr)
 		}
 	}
-	if sink.poisoned[pairRenderF2FS] || len(sink.poisonedLanes[pairRenderF2FS]) != 1 ||
+	if sink.poisoned[pairRenderF2FS] || len(profilerTestPoisonedLanes(sink)[pairRenderF2FS]) != 1 ||
 		sink.pairKindPoisoned(pairRenderMMC) || sink.withheldPairRowsForKind(pairRenderF2FS) != 2 ||
 		sink.withheldStructuredPairRowsForKind(pairRenderF2FS) != 2 || sink.publishableRows() != 5 ||
 		len(sink.runs) == 0 {
 		t.Fatalf("known F2FS non-key failure escaped exact-lane spill quarantine: accepted=%d withheld=%d publishable=%d family=%v lanes=%v chunks=%d",
-			sink.stats.RowsAccepted, sink.withheldPairRowsForKind(pairRenderF2FS), sink.publishableRows(), sink.poisoned, sink.poisonedLanes, len(sink.runs))
+			sink.stats.RowsAccepted, sink.withheldPairRowsForKind(pairRenderF2FS), sink.publishableRows(), sink.poisoned, profilerTestPoisonedLanes(sink), len(sink.runs))
 	}
 	var out bytes.Buffer
 	stats, err := sink.prepareAndWriteForTest(context.Background(), &out)
@@ -137,13 +137,13 @@ func TestStructuredF2FSTerminalNonKeyMalformedQuarantinesOnlyExactLaneAcrossSpil
 			t.Fatal(renderErr)
 		}
 	}
-	if sink.poisoned[pairRenderF2FS] || len(sink.poisonedLanes[pairRenderF2FS]) != 1 ||
+	if sink.poisoned[pairRenderF2FS] || len(profilerTestPoisonedLanes(sink)[pairRenderF2FS]) != 1 ||
 		sink.withheldPairRowsForKind(pairRenderF2FS) != 2 ||
 		sink.withheldStructuredPairRowsForKind(pairRenderF2FS) != 2 || sink.publishableRows() != 2 ||
 		len(sink.runs) == 0 {
 		t.Fatalf("terminal non-key damage escaped exact-lane spill quarantine: accepted=%d withheld=%d publishable=%d family=%v lanes=%v chunks=%d",
 			sink.stats.RowsAccepted, sink.withheldPairRowsForKind(pairRenderF2FS), sink.publishableRows(),
-			sink.poisoned, sink.poisonedLanes, len(sink.runs))
+			sink.poisoned, profilerTestPoisonedLanes(sink), len(sink.runs))
 	}
 	var out bytes.Buffer
 	stats, err := sink.prepareAndWriteForTest(context.Background(), &out)
@@ -229,8 +229,8 @@ func TestStructuredF2FSUnknownOwnerClosesFamilyInsteadOfGuessingLane(t *testing.
 	if rows, _, renderErr := renderProfilerFtraceStructuredResult(result, &seq, sink); renderErr != nil || rows != 0 {
 		t.Fatalf("unknown-owner fixture verdict rows=%d err=%v", rows, renderErr)
 	}
-	if !sink.poisoned[pairRenderF2FS] || len(sink.poisonedLanes[pairRenderF2FS]) != 0 {
-		t.Fatalf("unknown F2FS owner did not close family exactly: family=%v lanes=%v", sink.poisoned, sink.poisonedLanes)
+	if !sink.poisoned[pairRenderF2FS] || len(profilerTestPoisonedLanes(sink)[pairRenderF2FS]) != 0 {
+		t.Fatalf("unknown F2FS owner did not close family exactly: family=%v lanes=%v", sink.poisoned, profilerTestPoisonedLanes(sink))
 	}
 }
 
@@ -252,8 +252,8 @@ func TestStructuredF2FSExplicitUnknownOwnerCannotBeReconstructedFromPID(t *testi
 	}
 	defer sink.cleanup()
 	pair.poison(sink)
-	if !sink.poisoned[pairRenderF2FS] || len(sink.poisonedLanes[pairRenderF2FS]) != 0 {
-		t.Fatalf("unknown owner must close the F2FS family, not guess a lane: family=%v lanes=%v", sink.poisoned, sink.poisonedLanes)
+	if !sink.poisoned[pairRenderF2FS] || len(profilerTestPoisonedLanes(sink)[pairRenderF2FS]) != 0 {
+		t.Fatalf("unknown owner must close the F2FS family, not guess a lane: family=%v lanes=%v", sink.poisoned, profilerTestPoisonedLanes(sink))
 	}
 }
 
@@ -407,8 +407,8 @@ func TestProfilerTextAndSessionF2FSBarriersShareSourceSeal(t *testing.T) {
 			if !sink.pairKindPoisoned(pairRenderF2FS) || sink.withheldPairRowsForKind(pairRenderF2FS) != 3 || sink.publishableRows() != 0 {
 				t.Fatalf("text publisher bypassed F2FS source barrier: accepted=%d withheld=%d poisoned=%v", sink.stats.RowsAccepted, sink.withheldPairRows(), sink.poisoned)
 			}
-			if sink.poisoned[pairRenderF2FS] || len(sink.poisonedLanes[pairRenderF2FS]) != 1 {
-				t.Fatalf("known text hard key escalated beyond its exact F2FS lane: family=%v lanes=%v", sink.poisoned, sink.poisonedLanes)
+			if sink.poisoned[pairRenderF2FS] || len(profilerTestPoisonedLanes(sink)[pairRenderF2FS]) != 1 {
+				t.Fatalf("known text hard key escalated beyond its exact F2FS lane: family=%v lanes=%v", sink.poisoned, profilerTestPoisonedLanes(sink))
 			}
 		})
 	}
@@ -465,10 +465,10 @@ func TestProfilerGenericAndSessionMalformedTimestampCannotBridgeF2FS(t *testing.
 					t.Fatal(err)
 				}
 			}
-			if sink.poisoned[pairRenderF2FS] || len(sink.poisonedLanes[pairRenderF2FS]) != 1 ||
+			if sink.poisoned[pairRenderF2FS] || len(profilerTestPoisonedLanes(sink)[pairRenderF2FS]) != 1 ||
 				sink.withheldPairRowsForKind(pairRenderF2FS) != 2 || sink.publishableRows() != 1 {
 				t.Fatalf("malformed %q F2FS endpoint became an invisible bridge: accepted=%d withheld=%d family=%v lanes=%v",
-					timestamp, sink.stats.RowsAccepted, sink.withheldPairRows(), sink.poisoned, sink.poisonedLanes)
+					timestamp, sink.stats.RowsAccepted, sink.withheldPairRows(), sink.poisoned, profilerTestPoisonedLanes(sink))
 			}
 		})
 	}
@@ -525,7 +525,7 @@ func TestProfilerTextPairHeaderPreservesBracketAndNumericSuffixComm(t *testing.T
 			}
 			if sink.pairKindPoisoned(pairRenderF2FS) || sink.pairRows[pairRenderF2FS] != 2 || sink.publishableRows() != 2 {
 				t.Fatalf("legal header-like comm lost profiler pair: publishable=%d poisoned=%v lanes=%v",
-					sink.publishableRows(), sink.poisoned, sink.poisonedLanes)
+					sink.publishableRows(), sink.poisoned, profilerTestPoisonedLanes(sink))
 			}
 		})
 	}
@@ -547,10 +547,10 @@ func TestProfilerTextPairHeaderPreservesBracketAndNumericSuffixComm(t *testing.T
 				t.Fatal(err)
 			}
 		}
-		if sink.poisoned[pairRenderF2FS] || len(sink.poisonedLanes[pairRenderF2FS]) != 1 ||
+		if sink.poisoned[pairRenderF2FS] || len(profilerTestPoisonedLanes(sink)[pairRenderF2FS]) != 1 ||
 			sink.withheldPairRowsForKind(pairRenderF2FS) != 2 || sink.publishableRows() != 1 {
 			t.Fatalf("numeric-suffix comm widened malformed endpoint quarantine: publishable=%d family=%v lanes=%v",
-				sink.publishableRows(), sink.poisoned, sink.poisonedLanes)
+				sink.publishableRows(), sink.poisoned, profilerTestPoisonedLanes(sink))
 		}
 	})
 
@@ -626,10 +626,10 @@ func TestProfilerGenericRawMalformedF2FSScopeUsesProvenHardKeyOnly(t *testing.T)
 				}
 			}
 			if sink.poisoned[pairRenderF2FS] != test.wantFamily ||
-				(!test.wantFamily && len(sink.poisonedLanes[pairRenderF2FS]) != 1) ||
+				(!test.wantFamily && len(profilerTestPoisonedLanes(sink)[pairRenderF2FS]) != 1) ||
 				sink.withheldPairRowsForKind(pairRenderF2FS) != test.wantRows || sink.publishableRows() != 0 {
 				t.Fatalf("raw malformed F2FS scope drifted: accepted=%d withheld=%d family=%v lanes=%v",
-					sink.stats.RowsAccepted, sink.withheldPairRows(), sink.poisoned, sink.poisonedLanes)
+					sink.stats.RowsAccepted, sink.withheldPairRows(), sink.poisoned, profilerTestPoisonedLanes(sink))
 			}
 		})
 	}
@@ -662,7 +662,7 @@ func TestProfilerGenericMalformedProbeDoesNotPoisonProsePrintOrNearNames(t *test
 		}
 	}
 	if sink.pairKindPoisoned(pairRenderF2FS) || sink.withheldPairRowsForKind(pairRenderF2FS) != 0 {
-		t.Fatalf("prose/print/near-name poisoned exact F2FS scope: accepted=%d family=%v lanes=%v", sink.stats.RowsAccepted, sink.poisoned, sink.poisonedLanes)
+		t.Fatalf("prose/print/near-name poisoned exact F2FS scope: accepted=%d family=%v lanes=%v", sink.stats.RowsAccepted, sink.poisoned, profilerTestPoisonedLanes(sink))
 	}
 }
 
@@ -718,7 +718,7 @@ func TestProfilerNestedFullHeadersInsidePrintProseDoNotPoisonPairFamilies(t *tes
 			if sink.pairKindPoisoned(test.kind) || sink.withheldPairRowsForKind(test.kind) != 0 ||
 				sink.publishableRows() != 3 {
 				t.Fatalf("nested print prose poisoned %s: accepted=%d withheld=%d family=%v lanes=%v",
-					test.name, sink.stats.RowsAccepted, sink.withheldPairRows(), sink.poisoned, sink.poisonedLanes)
+					test.name, sink.stats.RowsAccepted, sink.withheldPairRows(), sink.poisoned, profilerTestPoisonedLanes(sink))
 			}
 		})
 	}
@@ -824,7 +824,7 @@ func TestProfilerMalformedOuterPrintCannotPromoteOrPoisonNestedPairEndpoint(t *t
 			if sink.pairKindPoisoned(test.kind) || sink.withheldPairRowsForKind(test.kind) != 0 ||
 				sink.pairRows[test.kind] != 2 || sink.publishableRows() != test.wantPublished {
 				t.Fatalf("malformed outer print promoted or poisoned nested %s endpoint: accepted=%d publishable=%d withheld=%d poisoned=%v lanes=%v",
-					test.name, sink.stats.RowsAccepted, sink.publishableRows(), sink.withheldPairRows(), sink.poisoned, sink.poisonedLanes)
+					test.name, sink.stats.RowsAccepted, sink.publishableRows(), sink.withheldPairRows(), sink.poisoned, profilerTestPoisonedLanes(sink))
 			}
 		})
 	}
@@ -885,7 +885,7 @@ func TestProfilerTimestampEventProseCannotMintPairAuthority(t *testing.T) {
 	}
 	if sink.pairKindPoisoned(pairRenderF2FS) || sink.pairRows[pairRenderF2FS] != 2 || sink.publishableRows() != 2 {
 		t.Fatalf("timestamp:event prose minted profiler pair authority: accepted=%d publishable=%d poisoned=%v lanes=%v",
-			sink.stats.RowsAccepted, sink.publishableRows(), sink.poisoned, sink.poisonedLanes)
+			sink.stats.RowsAccepted, sink.publishableRows(), sink.poisoned, profilerTestPoisonedLanes(sink))
 	}
 
 	dir := t.TempDir()

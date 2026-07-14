@@ -292,16 +292,9 @@ type traceDBRowSink struct {
 	liveTempBytes        uint64
 	stats                traceDBRowSortStats
 	pairRows             map[pairRenderKind]int
-	pairLaneRows         map[pairRenderKind]map[string]int
-	pairTableRows        map[pairRenderKind]map[string]map[string]int
-	pairTableTotals      map[pairRenderKind]map[string]int
 	poisoned             map[pairRenderKind]bool
-	poisonedLanes        map[pairRenderKind]map[string]bool
 	opaque               map[pairRenderKind]bool
 	structuredPairRows   map[pairRenderKind]int
-	structuredLaneRows   map[pairRenderKind]map[string]int
-	structuredEventRows  map[pairRenderKind]map[int]int
-	structuredEventLanes map[pairRenderKind]map[int]map[string]int
 	pairFixedLedger      profilerPairFixedLedger
 	pairLaneRegistries   [pairRenderKindCount]profilerPairLaneRegistry
 	activePairCensus     profilerPairCensusSet
@@ -313,7 +306,6 @@ type traceDBRowSink struct {
 	nextTextMessage      uint32
 	legacyPairProof      profilerPairProofDomain
 	blockPairProof       profilerPairProofDomain
-	blockLaneClocks      map[string]profilerBlockLaneClock
 	pairAuthorityFailure string
 	captureLifecycle     profilerCaptureLifecycle
 	captureSource        string
@@ -344,11 +336,6 @@ type profilerPairProofDomain struct {
 	observations    int64
 	laneKeys        int64
 	failureReason   string
-}
-
-type profilerBlockLaneClock struct {
-	seq  int
-	tsNS uint64
 }
 
 // traceDBProfilerEventDelta is the fixed-width pair proof mutation staged by
@@ -494,15 +481,8 @@ func newTraceDBRowSinkWithOptions(tempDir string, threshold int, options traceDB
 	sink := &traceDBRowSink{
 		threshold: threshold, tempDir: tempDir, options: normalized, operationContext: context.Background(),
 		artifacts: make(map[string]*traceDBTempArtifact),
-		pairRows:  make(map[pairRenderKind]int), pairLaneRows: make(map[pairRenderKind]map[string]int),
-		pairTableRows: make(map[pairRenderKind]map[string]map[string]int), poisoned: make(map[pairRenderKind]bool),
-		pairTableTotals:      make(map[pairRenderKind]map[string]int),
-		poisonedLanes:        make(map[pairRenderKind]map[string]bool),
-		opaque:               make(map[pairRenderKind]bool),
-		structuredPairRows:   make(map[pairRenderKind]int),
-		structuredLaneRows:   make(map[pairRenderKind]map[string]int),
-		structuredEventRows:  make(map[pairRenderKind]map[int]int),
-		structuredEventLanes: make(map[pairRenderKind]map[int]map[string]int),
+		pairRows:  make(map[pairRenderKind]int), poisoned: make(map[pairRenderKind]bool),
+		opaque: make(map[pairRenderKind]bool), structuredPairRows: make(map[pairRenderKind]int),
 		legacyPairProof: profilerPairProofDomain{
 			maxObservations: profilerPairBarrierMaxObservations,
 			maxLaneKeys:     profilerPairBarrierMaxLaneKeys,
@@ -511,7 +491,6 @@ func newTraceDBRowSinkWithOptions(tempDir string, threshold int, options traceDB
 			maxObservations: profilerPairBarrierMaxObservations,
 			maxLaneKeys:     profilerPairBarrierMaxLaneKeys,
 		},
-		blockLaneClocks: make(map[string]profilerBlockLaneClock),
 	}
 	if sink.tempDir == "" {
 		dir, err := os.MkdirTemp("", "codrax-tracedb-sort-*")
@@ -539,12 +518,8 @@ func (s *traceDBRowSink) bindContext(ctx context.Context) error {
 }
 
 func (s *traceDBRowSink) profilerCapturePreOpenStatePristine() bool {
-	if s == nil || s.artifacts == nil || len(s.pairRows) != 0 || len(s.pairLaneRows) != 0 ||
-		len(s.pairTableRows) != 0 || len(s.pairTableTotals) != 0 || len(s.poisoned) != 0 ||
-		len(s.poisonedLanes) != 0 || len(s.opaque) != 0 || len(s.structuredPairRows) != 0 ||
-		len(s.structuredLaneRows) != 0 || len(s.structuredEventRows) != 0 ||
-		len(s.structuredEventLanes) != 0 || len(s.blockLaneClocks) != 0 ||
-		!s.pairFixedLedger.pristine() ||
+	if s == nil || s.artifacts == nil || len(s.pairRows) != 0 || len(s.poisoned) != 0 ||
+		len(s.opaque) != 0 || len(s.structuredPairRows) != 0 || !s.pairFixedLedger.pristine() ||
 		s.legacyPairProof.observations != 0 || s.legacyPairProof.laneKeys != 0 ||
 		s.legacyPairProof.failureReason != "" || s.blockPairProof.observations != 0 ||
 		s.blockPairProof.laneKeys != 0 || s.blockPairProof.failureReason != "" ||
@@ -916,15 +891,6 @@ func (s *traceDBRowSink) addContext(ctx context.Context, row renderedRow, eventD
 		}
 		projectedBytes = rowBytes
 	}
-	if row.profilerEventField != 0 {
-		if s.structuredEventRows[row.pairKind][row.profilerEventField] == math.MaxInt {
-			return &traceDBOutputInvariantError{Reason: "profiler_structured_event_counter_overflow"}
-		}
-		if row.pairLane != "" &&
-			s.structuredEventLanes[row.pairKind][row.profilerEventField][row.pairLane] == math.MaxInt {
-			return &traceDBOutputInvariantError{Reason: "profiler_structured_event_lane_counter_overflow"}
-		}
-	}
 	if len(s.rows) == math.MaxInt {
 		return &traceDBOutputInvariantError{Reason: "trace_row_sort_buffer_accounting_overflow"}
 	}
@@ -977,9 +943,9 @@ func (s *traceDBRowSink) addContext(ctx context.Context, row renderedRow, eventD
 		}
 		s.commitProfilerBlockLaneClock(row)
 		// The Block clock can fail the source-wide authority after trackLane was
-		// computed. That reset deliberately clears every exact-lane registry and
-		// legacy keyed oracle; never let the stale pre-reset decision recreate a
-		// subordinate lane account for the current withheld row.
+		// computed. That reset deliberately clears every exact-lane registry;
+		// never let the stale pre-reset decision recreate a subordinate lane
+		// account for the current withheld row.
 		if s.poisoned[row.pairKind] || s.pairAuthorityFailure != "" {
 			trackLane = false
 		}
@@ -1009,51 +975,9 @@ func (s *traceDBRowSink) addContext(ctx context.Context, row renderedRow, eventD
 	}
 	if row.pairKind != pairRenderUnknown {
 		s.pairRows[row.pairKind]++
-		if row.pairTable != "" {
-			if s.pairTableTotals[row.pairKind] == nil {
-				s.pairTableTotals[row.pairKind] = make(map[string]int)
-			}
-			s.pairTableTotals[row.pairKind][row.pairTable]++
-		}
-		if trackLane && row.pairLane != "" {
-			if s.pairLaneRows[row.pairKind] == nil {
-				s.pairLaneRows[row.pairKind] = make(map[string]int)
-			}
-			s.pairLaneRows[row.pairKind][row.pairLane]++
-		}
-		if trackLane && row.pairTable != "" && row.pairLane != "" {
-			if s.pairTableRows[row.pairKind] == nil {
-				s.pairTableRows[row.pairKind] = make(map[string]map[string]int)
-			}
-			if s.pairTableRows[row.pairKind][row.pairTable] == nil {
-				s.pairTableRows[row.pairKind][row.pairTable] = make(map[string]int)
-			}
-			s.pairTableRows[row.pairKind][row.pairTable][row.pairLane]++
-		}
 		s.accountActivePairRow(row, trackLane)
 		if row.structuredPair {
 			s.structuredPairRows[row.pairKind]++
-			if trackLane && row.pairLane != "" {
-				if s.structuredLaneRows[row.pairKind] == nil {
-					s.structuredLaneRows[row.pairKind] = make(map[string]int)
-				}
-				s.structuredLaneRows[row.pairKind][row.pairLane]++
-			}
-			if row.profilerEventField != 0 {
-				if s.structuredEventRows[row.pairKind] == nil {
-					s.structuredEventRows[row.pairKind] = make(map[int]int)
-				}
-				s.structuredEventRows[row.pairKind][row.profilerEventField]++
-				if trackLane && row.pairLane != "" {
-					if s.structuredEventLanes[row.pairKind] == nil {
-						s.structuredEventLanes[row.pairKind] = make(map[int]map[string]int)
-					}
-					if s.structuredEventLanes[row.pairKind][row.profilerEventField] == nil {
-						s.structuredEventLanes[row.pairKind][row.profilerEventField] = make(map[string]int)
-					}
-					s.structuredEventLanes[row.pairKind][row.profilerEventField][row.pairLane]++
-				}
-			}
 		}
 	}
 	if len(s.rows) > s.stats.PeakBufferedRows {
@@ -1142,25 +1066,21 @@ func (s *traceDBRowSink) commitProfilerBlockLaneClock(row renderedRow) {
 		s.failProfilerPairAuthority("block_lane_registry_missing")
 		return
 	}
-	previous, found := s.blockLaneClocks[row.pairLane]
-	if found != state.blockClockSeen || found &&
-		(previous.seq != state.lastBlockSeq || previous.tsNS != state.lastBlockTSNS) {
-		s.failProfilerPairAuthority("block_lane_registry_parity")
-		return
-	}
 	if state.blockClockSeen {
-		if row.seq <= previous.seq {
+		if row.seq <= state.lastBlockSeq {
 			s.failProfilerPairAuthority("block_physical_sequence_regression")
 			return
 		}
-		if row.tsNS < previous.tsNS {
+		if row.tsNS < state.lastBlockTSNS {
 			s.poisonPairLaneRaw(pairRenderBlock, row.pairLane)
 		}
+	} else if state.lastBlockSeq != 0 || state.lastBlockTSNS != 0 {
+		s.failProfilerPairAuthority("block_lane_registry_clock_residue")
+		return
 	}
 	state.blockClockSeen = true
 	state.lastBlockSeq = row.seq
 	state.lastBlockTSNS = row.tsNS
-	s.blockLaneClocks[row.pairLane] = profilerBlockLaneClock{seq: row.seq, tsNS: row.tsNS}
 }
 
 func profilerStructuredPairEventField(kind pairRenderKind, field int) bool {
@@ -1373,17 +1293,9 @@ func (s *traceDBRowSink) poisonPairKindLegacyRaw(kind pairRenderKind) {
 	}
 	s.poisoned[kind] = true
 	if profilerPairBudgetKind(kind) {
-		// Whole-family publication now reads only the scalar totals. Drop all
-		// subordinate maps immediately and never grow them again.
-		s.pairLaneRows[kind] = nil
-		s.pairTableRows[kind] = nil
-		s.poisonedLanes[kind] = nil
-		s.structuredLaneRows[kind] = nil
-		s.structuredEventLanes[kind] = nil
+		// Whole-family publication reads the fixed ledger. Exact lane state is
+		// no longer needed once every staged row is withheld.
 		s.pairLaneRegistries[kind].reset()
-		if kind == pairRenderBlock {
-			s.blockLaneClocks = nil
-		}
 		if s.pairCensusActive {
 			s.activePairCensus[kind].byLane = nil
 		}
@@ -1441,10 +1353,6 @@ func (s *traceDBRowSink) poisonPairLaneRaw(kind pairRenderKind, lane string) {
 		return
 	}
 	plan.apply(&s.pairFixedLedger, state)
-	if s.poisonedLanes[kind] == nil {
-		s.poisonedLanes[kind] = make(map[string]bool)
-	}
-	s.poisonedLanes[kind][lane] = true
 }
 
 func profilerPairBudgetKind(kind pairRenderKind) bool {
@@ -1511,7 +1419,6 @@ func (s *traceDBRowSink) failProfilerPairBudget(kind pairRenderKind, reason stri
 	domain.failureReason = reason
 	if kind == pairRenderBlock {
 		s.poisonPairKindRaw(pairRenderBlock)
-		s.blockLaneClocks = nil
 		return
 	}
 	// MMC and F2FS intentionally share one legacy proof domain. Exhausting it
@@ -1532,12 +1439,22 @@ func (s *traceDBRowSink) failProfilerPairAuthority(reason string) {
 	} {
 		s.poisonPairKindRaw(kind)
 	}
-	s.blockLaneClocks = nil
 }
 
 func (s *traceDBRowSink) pairKindPoisoned(kind pairRenderKind) bool {
-	return s != nil && kind != pairRenderUnknown &&
-		(s.poisoned[kind] || len(s.poisonedLanes[kind]) > 0)
+	if s == nil || kind == pairRenderUnknown || !profilerPairKindValid(kind) {
+		return false
+	}
+	family, ok := s.pairFixedLedger.family(kind)
+	if !ok || family.poisoned {
+		return true
+	}
+	for _, state := range s.pairLaneRegistries[kind].states {
+		if state.poisoned {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *traceDBRowSink) withheldPairRows() int {
@@ -1574,26 +1491,11 @@ func (s *traceDBRowSink) withheldPairRowsForKindChecked(kind pairRenderKind) (in
 	if s == nil || kind == pairRenderUnknown || !profilerPairKindValid(kind) {
 		return 0, nil
 	}
-	staged := s.pairRows[kind]
-	if staged < 0 {
-		return 0, &traceDBOutputInvariantError{Reason: "profiler_pair_staged_counter_negative"}
+	family, ok := s.pairFixedLedger.family(kind)
+	if !ok {
+		return 0, &traceDBOutputInvariantError{Reason: "profiler_pair_fixed_ledger_invalid"}
 	}
-	if s.poisoned[kind] {
-		return staged, nil
-	}
-	total := 0
-	for lane, count := range s.pairLaneRows[kind] {
-		if count < 0 {
-			return 0, &traceDBOutputInvariantError{Reason: "profiler_pair_lane_counter_negative"}
-		}
-		if s.poisonedLanes[kind][lane] && !checkedProfilerIntAddTo(&total, count) {
-			return 0, &traceDBOutputInvariantError{Reason: "profiler_pair_withheld_counter_overflow"}
-		}
-	}
-	if total > staged {
-		return 0, &traceDBOutputInvariantError{Reason: "profiler_pair_withheld_exceeds_staged"}
-	}
-	return total, nil
+	return family.withheld, nil
 }
 
 func (s *traceDBRowSink) withheldStructuredPairRows() int {
@@ -1619,26 +1521,11 @@ func (s *traceDBRowSink) withheldStructuredPairRowsForKindChecked(kind pairRende
 	if s == nil || kind == pairRenderUnknown || !profilerPairKindValid(kind) {
 		return 0, nil
 	}
-	staged := s.structuredPairRows[kind]
-	if staged < 0 || staged > s.pairRows[kind] {
-		return 0, &traceDBOutputInvariantError{Reason: "profiler_structured_pair_staged_counter_invalid"}
+	family, ok := s.pairFixedLedger.family(kind)
+	if !ok {
+		return 0, &traceDBOutputInvariantError{Reason: "profiler_pair_fixed_ledger_invalid"}
 	}
-	if s.poisoned[kind] {
-		return staged, nil
-	}
-	total := 0
-	for lane, count := range s.structuredLaneRows[kind] {
-		if count < 0 {
-			return 0, &traceDBOutputInvariantError{Reason: "profiler_structured_pair_lane_counter_negative"}
-		}
-		if s.poisonedLanes[kind][lane] && !checkedProfilerIntAddTo(&total, count) {
-			return 0, &traceDBOutputInvariantError{Reason: "profiler_structured_pair_withheld_counter_overflow"}
-		}
-	}
-	if total > staged {
-		return 0, &traceDBOutputInvariantError{Reason: "profiler_structured_pair_withheld_exceeds_staged"}
-	}
-	return total, nil
+	return family.structuredWithheld, nil
 }
 
 // withheldStructuredPairRowsForEventField reports only structured profiler
@@ -1656,29 +1543,15 @@ func (s *traceDBRowSink) withheldStructuredPairRowsForEventFieldChecked(kind pai
 	if s == nil || !profilerStructuredPairEventField(kind, field) {
 		return 0, nil
 	}
-	totalForField := s.structuredEventRows[kind][field]
-	if totalForField < 0 || totalForField > s.structuredPairRows[kind] {
-		return 0, &traceDBOutputInvariantError{Reason: "profiler_structured_event_staged_counter_invalid"}
+	slot, ok := profilerPairEndpointForStructuredField(field)
+	if !ok {
+		return 0, nil
 	}
-	if s.poisoned[kind] {
-		return totalForField, nil
+	counts, ok := s.pairFixedLedger.endpoint(slot)
+	if !ok {
+		return 0, &traceDBOutputInvariantError{Reason: "profiler_pair_fixed_ledger_invalid"}
 	}
-	withheld := 0
-	for lane, count := range s.structuredEventLanes[kind][field] {
-		if count < 0 {
-			return 0, &traceDBOutputInvariantError{Reason: "profiler_structured_event_lane_counter_negative"}
-		}
-		if !s.poisonedLanes[kind][lane] {
-			continue
-		}
-		if !checkedProfilerIntAddTo(&withheld, count) {
-			return 0, &traceDBOutputInvariantError{Reason: "profiler_structured_event_withheld_counter_overflow"}
-		}
-	}
-	if withheld > totalForField {
-		return 0, &traceDBOutputInvariantError{Reason: "profiler_structured_event_withheld_exceeds_staged"}
-	}
-	return withheld, nil
+	return counts.structuredWithheld, nil
 }
 
 func (s *traceDBRowSink) beginPairRowCensus() bool {
@@ -1820,7 +1693,11 @@ func (s *traceDBRowSink) withheldPairRowsFromCensusChecked(kind pairRenderKind, 
 	if census.total < 0 {
 		return 0, &traceDBOutputInvariantError{Reason: "profiler_pair_publisher_staged_counter_negative"}
 	}
-	if s.poisoned[kind] {
+	family, ok := s.pairFixedLedger.family(kind)
+	if !ok {
+		return 0, &traceDBOutputInvariantError{Reason: "profiler_pair_fixed_ledger_invalid"}
+	}
+	if family.poisoned {
 		return census.total, nil
 	}
 	total := 0
@@ -1828,7 +1705,15 @@ func (s *traceDBRowSink) withheldPairRowsFromCensusChecked(kind pairRenderKind, 
 		if count < 0 {
 			return 0, &traceDBOutputInvariantError{Reason: "profiler_pair_publisher_lane_counter_negative"}
 		}
-		if s.poisonedLanes[kind][lane] && !checkedProfilerIntAddTo(&total, count) {
+		id, found := s.pairLaneRegistries[kind].idFor(lane)
+		if !found {
+			return 0, &traceDBOutputInvariantError{Reason: "profiler_pair_publisher_lane_registry_missing"}
+		}
+		state, found := s.pairLaneRegistries[kind].state(id)
+		if !found {
+			return 0, &traceDBOutputInvariantError{Reason: "profiler_pair_publisher_lane_registry_missing"}
+		}
+		if state.poisoned && !checkedProfilerIntAddTo(&total, count) {
 			return 0, &traceDBOutputInvariantError{Reason: "profiler_pair_publisher_withheld_counter_overflow"}
 		}
 	}
@@ -1836,23 +1721,6 @@ func (s *traceDBRowSink) withheldPairRowsFromCensusChecked(kind pairRenderKind, 
 		return 0, &traceDBOutputInvariantError{Reason: "profiler_pair_publisher_withheld_exceeds_staged"}
 	}
 	return total, nil
-}
-
-func (s *traceDBRowSink) withheldPairRowsForTable(kind pairRenderKind, table string) int {
-	if s == nil || kind == pairRenderUnknown || table == "" {
-		return 0
-	}
-	lanes := s.pairTableRows[kind][table]
-	if s.poisoned[kind] {
-		return s.pairTableTotals[kind][table]
-	}
-	total := 0
-	for lane, count := range lanes {
-		if s.poisonedLanes[kind][lane] {
-			total += count
-		}
-	}
-	return total
 }
 
 func (s *traceDBRowSink) publishableRows() int {
@@ -1896,26 +1764,25 @@ func (s *traceDBRowSink) validateProfilerPairAccounting() error {
 	pairRows := 0
 	withheldRows := 0
 	for kind := pairRenderKind(1); kind < pairRenderKindCount; kind++ {
-		staged := s.pairRows[kind]
-		if staged < 0 || !checkedProfilerIntAddTo(&pairRows, staged) {
+		family, ok := s.pairFixedLedger.family(kind)
+		if !ok || !checkedProfilerIntAddTo(&pairRows, family.staged) {
 			return &traceDBOutputInvariantError{Reason: "profiler_pair_staged_counter_invalid"}
 		}
-		withheld, err := s.withheldPairRowsForKindChecked(kind)
-		if err != nil || !checkedProfilerIntAddTo(&withheldRows, withheld) {
+		if !checkedProfilerIntAddTo(&withheldRows, family.withheld) {
 			return &traceDBOutputInvariantError{Reason: "profiler_pair_withheld_counter_invalid"}
 		}
-		structuredWithheld, err := s.withheldStructuredPairRowsForKindChecked(kind)
-		if err != nil || structuredWithheld > withheld {
+		if family.structuredWithheld > family.withheld {
 			return &traceDBOutputInvariantError{Reason: "profiler_structured_pair_withheld_account_invalid"}
 		}
 		structuredEvents := 0
 		for _, field := range profilerStructuredPairEventFields(kind) {
-			count := s.structuredEventRows[kind][field]
-			if count < 0 || !checkedProfilerIntAddTo(&structuredEvents, count) {
+			slot, slotOK := profilerPairEndpointForStructuredField(field)
+			counts, countsOK := s.pairFixedLedger.endpoint(slot)
+			if !slotOK || !countsOK || !checkedProfilerIntAddTo(&structuredEvents, counts.structured) {
 				return &traceDBOutputInvariantError{Reason: "profiler_structured_event_staged_counter_invalid"}
 			}
 		}
-		if structuredEvents != s.structuredPairRows[kind] {
+		if structuredEvents != family.structured {
 			return &traceDBOutputInvariantError{Reason: "profiler_structured_event_staged_account_mismatch"}
 		}
 	}
@@ -1957,33 +1824,22 @@ func (s *traceDBRowSink) validateProfilerPairLaneRegistryParity() error {
 			}
 			continue
 		}
-		pairTableGrandTotal := 0
-		for table, total := range s.pairTableTotals[kind] {
-			slot, endpointKnown := profilerPairEndpointForName(table)
-			descriptor, descriptorKnown := slot.descriptor()
-			if !endpointKnown || !descriptorKnown || descriptor.kind != kind || total <= 0 ||
-				!checkedProfilerIntAddTo(&pairTableGrandTotal, total) {
-				return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_table_invalid"}
-			}
+		family, ok := s.pairFixedLedger.family(kind)
+		if !ok {
+			return &traceDBOutputInvariantError{Reason: "profiler_pair_fixed_ledger_invalid"}
 		}
-		if pairTableGrandTotal != s.pairRows[kind] {
-			return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_pair_total_mismatch"}
-		}
-		if s.poisoned[kind] {
+		if family.poisoned {
 			if len(registry.byKey) != 0 || len(registry.keys) != 0 || len(registry.states) != 0 ||
-				len(s.pairLaneRows[kind]) != 0 || len(s.pairTableRows[kind]) != 0 ||
-				len(s.poisonedLanes[kind]) != 0 || len(s.structuredLaneRows[kind]) != 0 ||
-				len(s.structuredEventLanes[kind]) != 0 || len(s.activePairCensus[kind].byLane) != 0 {
+				len(s.activePairCensus[kind].byLane) != 0 {
 				return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_family_reset_mismatch"}
-			}
-			if kind == pairRenderBlock && len(s.blockLaneClocks) != 0 {
-				return &traceDBOutputInvariantError{Reason: "profiler_block_lane_registry_family_reset_mismatch"}
 			}
 			continue
 		}
 		if len(registry.byKey) != len(registry.states) || len(registry.keys) != len(registry.states) {
 			return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_cardinality_mismatch"}
 		}
+		var laneTotals [profilerPairFamilyEndpointCapacity]profilerPairFixedCounts
+		var poisonedTotals [profilerPairFamilyEndpointCapacity]profilerPairFixedCounts
 		for index, lane := range registry.keys {
 			if lane == "" {
 				return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_empty_key"}
@@ -1994,124 +1850,56 @@ func (s *traceDBRowSink) validateProfilerPairLaneRegistryParity() error {
 				return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_id_mismatch"}
 			}
 			state, ok := registry.state(id)
-			if !ok || state.poisoned != s.poisonedLanes[kind][lane] {
-				return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_poison_mismatch"}
+			if !ok || !state.endpointCountsValid(kind) {
+				return &traceDBOutputInvariantError{Reason: "profiler_pair_fixed_lane_state_invalid"}
 			}
-			if s.pairLaneRows[kind][lane] == 0 && !state.poisoned {
+			rows, _, totalsOK := state.endpointTotals(kind)
+			if !totalsOK || rows == 0 && !state.poisoned {
 				return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_orphan"}
 			}
 			if kind == pairRenderBlock {
 				if !state.blockClockSeen && (state.lastBlockSeq != 0 || state.lastBlockTSNS != 0) {
 					return &traceDBOutputInvariantError{Reason: "profiler_block_lane_registry_clock_residue"}
 				}
-				clock, found := s.blockLaneClocks[lane]
-				if found != state.blockClockSeen || found &&
-					(clock.seq != state.lastBlockSeq || clock.tsNS != state.lastBlockTSNS) {
-					return &traceDBOutputInvariantError{Reason: "profiler_block_lane_registry_clock_mismatch"}
-				}
 			} else if state.blockClockSeen || state.lastBlockSeq != 0 || state.lastBlockTSNS != 0 {
 				return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_foreign_clock"}
 			}
-		}
-		for lane, count := range s.pairLaneRows[kind] {
-			if count <= 0 {
-				return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_row_count_invalid"}
-			}
-			if _, ok := registry.idFor(lane); !ok {
-				return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_row_missing"}
-			}
-		}
-		for lane, poisoned := range s.poisonedLanes[kind] {
-			if !poisoned {
-				return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_false_poison_key"}
-			}
-			if _, ok := registry.idFor(lane); !ok {
-				return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_poison_missing"}
-			}
-		}
-		for table, total := range s.pairTableTotals[kind] {
-			slot, endpointKnown := profilerPairEndpointForName(table)
-			descriptor, descriptorKnown := slot.descriptor()
-			if !endpointKnown || !descriptorKnown || descriptor.kind != kind || total <= 0 {
-				return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_table_invalid"}
-			}
-			laneTotal := 0
-			for lane, count := range s.pairTableRows[kind][table] {
-				if count <= 0 {
-					return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_table_count_invalid"}
+			count, _ := profilerPairFamilyEndpointCount(kind)
+			for ordinal := uint8(0); ordinal < count; ordinal++ {
+				laneCounts := state.endpointCounts[ordinal]
+				delta := profilerPairFixedCounts{
+					staged: int(laneCounts.rows), structured: int(laneCounts.structuredRows),
 				}
-				if _, ok := registry.idFor(lane); !ok {
-					return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_table_lane_missing"}
+				if !addProfilerPairFixedCounts(&laneTotals[ordinal], delta) {
+					return &traceDBOutputInvariantError{Reason: "profiler_pair_fixed_lane_total_invalid"}
 				}
-				if !checkedProfilerIntAddTo(&laneTotal, count) {
-					return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_table_count_invalid"}
+				if state.poisoned && !addProfilerPairFixedCounts(&poisonedTotals[ordinal], delta) {
+					return &traceDBOutputInvariantError{Reason: "profiler_pair_fixed_lane_withheld_invalid"}
 				}
 			}
-			// MMC and conservatively degraded structured endpoints may carry a
-			// source/family identity without an exact lane. Their fixed table
-			// total remains authoritative, while only the keyed subset belongs
-			// in the exact lane registry and legacy lane map.
-			if laneTotal > total {
-				return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_table_total_mismatch"}
+		}
+		first, count, rangeOK := profilerPairFamilyEndpointRange(kind)
+		if !rangeOK {
+			return &traceDBOutputInvariantError{Reason: "profiler_pair_fixed_endpoint_range_invalid"}
+		}
+		var poisonedFamily profilerPairFixedCounts
+		for ordinal := uint8(0); ordinal < count; ordinal++ {
+			fixed := s.pairFixedLedger.endpoints[first+profilerPairEndpointSlot(ordinal)]
+			lanes := laneTotals[ordinal]
+			poisoned := poisonedTotals[ordinal]
+			if lanes.staged > fixed.staged || lanes.structured > fixed.structured {
+				return &traceDBOutputInvariantError{Reason: "profiler_pair_fixed_lane_exceeds_endpoint"}
+			}
+			if poisoned.staged != fixed.withheld || poisoned.structured != fixed.structuredWithheld {
+				return &traceDBOutputInvariantError{Reason: "profiler_pair_fixed_withheld_lane_mismatch"}
+			}
+			if !addProfilerPairFixedCounts(&poisonedFamily, poisoned) {
+				return &traceDBOutputInvariantError{Reason: "profiler_pair_fixed_lane_withheld_invalid"}
 			}
 		}
-		for table := range s.pairTableRows[kind] {
-			if _, ok := s.pairTableTotals[kind][table]; !ok {
-				return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_table_total_missing"}
-			}
-		}
-		for lane, count := range s.structuredLaneRows[kind] {
-			if count <= 0 {
-				return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_structured_count_invalid"}
-			}
-			if _, ok := registry.idFor(lane); !ok {
-				return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_structured_lane_missing"}
-			}
-		}
-		for field, total := range s.structuredEventRows[kind] {
-			if !profilerStructuredPairEventField(kind, field) || total <= 0 {
-				return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_event_field_invalid"}
-			}
-			laneTotal := 0
-			for lane, count := range s.structuredEventLanes[kind][field] {
-				if count <= 0 {
-					return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_event_count_invalid"}
-				}
-				if _, ok := registry.idFor(lane); !ok {
-					return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_event_lane_missing"}
-				}
-				if !checkedProfilerIntAddTo(&laneTotal, count) {
-					return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_event_count_invalid"}
-				}
-			}
-			if laneTotal > total {
-				return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_event_total_mismatch"}
-			}
-		}
-		for field := range s.structuredEventLanes[kind] {
-			if _, ok := s.structuredEventRows[kind][field]; !ok {
-				return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_event_total_missing"}
-			}
-		}
-		for _, lane := range registry.keys {
-			tableLaneTotal := 0
-			for _, lanes := range s.pairTableRows[kind] {
-				if !checkedProfilerIntAddTo(&tableLaneTotal, lanes[lane]) {
-					return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_table_count_invalid"}
-				}
-			}
-			if tableLaneTotal != s.pairLaneRows[kind][lane] {
-				return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_row_table_mismatch"}
-			}
-			structuredLaneTotal := 0
-			for _, lanes := range s.structuredEventLanes[kind] {
-				if !checkedProfilerIntAddTo(&structuredLaneTotal, lanes[lane]) {
-					return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_event_count_invalid"}
-				}
-			}
-			if structuredLaneTotal != s.structuredLaneRows[kind][lane] {
-				return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_structured_event_mismatch"}
-			}
+		if poisonedFamily.staged != family.withheld ||
+			poisonedFamily.structured != family.structuredWithheld {
+			return &traceDBOutputInvariantError{Reason: "profiler_pair_fixed_withheld_family_mismatch"}
 		}
 		censusLaneTotal := 0
 		for lane, count := range s.activePairCensus[kind].byLane {
@@ -2127,13 +1915,6 @@ func (s *traceDBRowSink) validateProfilerPairLaneRegistryParity() error {
 		}
 		if censusLaneTotal > s.activePairCensus[kind].total {
 			return &traceDBOutputInvariantError{Reason: "profiler_pair_lane_registry_census_total_mismatch"}
-		}
-		if kind == pairRenderBlock {
-			for lane := range s.blockLaneClocks {
-				if _, ok := registry.idFor(lane); !ok {
-					return &traceDBOutputInvariantError{Reason: "profiler_block_lane_registry_clock_orphan"}
-				}
-			}
 		}
 	}
 	return s.validateProfilerPairFixedLedgerParity()

@@ -301,10 +301,10 @@ func TestTraceDBInactiveOrdinarySinkRejectsProfilerRowsBeforeMutation(t *testing
 	sink.poisonPairKind(pairRenderF2FS)
 	sink.poisonPairLane(pairRenderBlock, "forbidden-lane")
 	sink.failCloseAllRows()
-	if len(sink.opaque) != 0 || len(sink.poisoned) != 0 || len(sink.poisonedLanes) != 0 ||
+	if len(sink.opaque) != 0 || len(sink.poisoned) != 0 || len(profilerTestPoisonedLanes(sink)) != 0 ||
 		sink.allRowsFailClosed || sink.pairAuthorityFailure != "" {
 		t.Fatalf("inactive profiler mutator changed ordinary authority: opaque=%v poison=%v lanes=%v all=%t authority=%q",
-			sink.opaque, sink.poisoned, sink.poisonedLanes, sink.allRowsFailClosed,
+			sink.opaque, sink.poisoned, profilerTestPoisonedLanes(sink), sink.allRowsFailClosed,
 			sink.pairAuthorityFailure)
 	}
 	if err := sink.add(renderedRow{tsNS: 2, seq: 2, line: "ordinary"}); err != nil {

@@ -192,22 +192,22 @@ func assertProfilerOuterCancellationSinkPristine(t *testing.T, sink *traceDBRowS
 	}
 	for _, kind := range profilerCaptureKinds {
 		if sink.pairRows[kind] != 0 || sink.poisoned[kind] || sink.opaque[kind] ||
-			sink.structuredPairRows[kind] != 0 || len(sink.pairLaneRows[kind]) != 0 ||
-			len(sink.pairTableRows[kind]) != 0 || len(sink.poisonedLanes[kind]) != 0 ||
+			sink.structuredPairRows[kind] != 0 || len(profilerTestPairLaneRows(sink)[kind]) != 0 ||
+			len(profilerTestPairTableRows(sink)[kind]) != 0 || len(profilerTestPoisonedLanes(sink)[kind]) != 0 ||
 			len(sink.pairLaneRegistries[kind].byKey) != 0 || len(sink.pairLaneRegistries[kind].keys) != 0 ||
 			len(sink.pairLaneRegistries[kind].states) != 0 {
 			t.Fatalf("canceled profiler extraction mutated pair kind %d state: rows=%d poisoned=%t opaque=%t "+
 				"structured=%d lanes=%v tables=%v poisoned_lanes=%v registry=%+v", kind,
 				sink.pairRows[kind], sink.poisoned[kind], sink.opaque[kind], sink.structuredPairRows[kind],
-				sink.pairLaneRows[kind], sink.pairTableRows[kind], sink.poisonedLanes[kind],
+				profilerTestPairLaneRows(sink)[kind], profilerTestPairTableRows(sink)[kind], profilerTestPoisonedLanes(sink)[kind],
 				sink.pairLaneRegistries[kind])
 		}
 	}
 	if sink.legacyPairProof.observations != 0 || sink.legacyPairProof.laneKeys != 0 ||
 		sink.blockPairProof.observations != 0 || sink.blockPairProof.laneKeys != 0 ||
-		len(sink.blockLaneClocks) != 0 {
+		len(profilerTestBlockLaneClocks(sink)) != 0 {
 		t.Fatalf("canceled profiler extraction mutated shared proof: legacy=%+v block=%+v clocks=%d",
-			sink.legacyPairProof, sink.blockPairProof, len(sink.blockLaneClocks))
+			sink.legacyPairProof, sink.blockPairProof, len(profilerTestBlockLaneClocks(sink)))
 	}
 }
 

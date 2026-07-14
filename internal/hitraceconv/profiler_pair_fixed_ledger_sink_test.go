@@ -152,17 +152,17 @@ func TestProfilerBlockSequenceAuthorityResetDoesNotReviveLaneAccounts(t *testing
 	}
 	if sink.pairAuthorityFailure != "block_physical_sequence_regression" ||
 		!sink.poisoned[pairRenderBlock] || len(sink.pairLaneRegistries[pairRenderBlock].states) != 0 ||
-		len(sink.pairLaneRows[pairRenderBlock]) != 0 || len(sink.pairTableRows[pairRenderBlock]) != 0 ||
-		len(sink.poisonedLanes[pairRenderBlock]) != 0 || len(sink.blockLaneClocks) != 0 {
+		len(profilerTestPairLaneRows(sink)[pairRenderBlock]) != 0 || len(profilerTestPairTableRows(sink)[pairRenderBlock]) != 0 ||
+		len(profilerTestPoisonedLanes(sink)[pairRenderBlock]) != 0 || len(profilerTestBlockLaneClocks(sink)) != 0 {
 		t.Fatalf("authority reset revived Block lane state: failure=%q poisoned=%v registry=%+v lanes=%v tables=%v poison_lanes=%v clocks=%v",
 			sink.pairAuthorityFailure, sink.poisoned[pairRenderBlock],
-			sink.pairLaneRegistries[pairRenderBlock], sink.pairLaneRows[pairRenderBlock],
-			sink.pairTableRows[pairRenderBlock], sink.poisonedLanes[pairRenderBlock], sink.blockLaneClocks)
+			sink.pairLaneRegistries[pairRenderBlock], profilerTestPairLaneRows(sink)[pairRenderBlock],
+			profilerTestPairTableRows(sink)[pairRenderBlock], profilerTestPoisonedLanes(sink)[pairRenderBlock], profilerTestBlockLaneClocks(sink))
 	}
-	if sink.pairRows[pairRenderBlock] != 2 || sink.pairTableTotals[pairRenderBlock]["block_rq_issue"] != 1 ||
-		sink.pairTableTotals[pairRenderBlock]["block_rq_complete"] != 1 || sink.withheldPairRowsForKind(pairRenderBlock) != 2 {
+	if sink.pairRows[pairRenderBlock] != 2 || profilerTestPairTableTotals(sink)[pairRenderBlock]["block_rq_issue"] != 1 ||
+		profilerTestPairTableTotals(sink)[pairRenderBlock]["block_rq_complete"] != 1 || sink.withheldPairRowsForKind(pairRenderBlock) != 2 {
 		t.Fatalf("authority reset lost scalar totals: rows=%v tables=%v withheld=%d",
-			sink.pairRows, sink.pairTableTotals[pairRenderBlock], sink.withheldPairRowsForKind(pairRenderBlock))
+			sink.pairRows, profilerTestPairTableTotals(sink)[pairRenderBlock], sink.withheldPairRowsForKind(pairRenderBlock))
 	}
 	block := sink.pairFixedLedger.families[pairRenderBlock]
 	issue := sink.pairFixedLedger.endpoints[profilerPairEndpointBlockRQIssue]
@@ -211,7 +211,7 @@ func TestProfilerBlockTimestampLanePoisonPreflightRejectsBeforeMutation(t *testi
 	// observes this split before seal.
 	state.endpointCounts[ordinal].rows = 2
 	beforeLedger, beforeState := sink.pairFixedLedger, *state
-	beforeClock := sink.blockLaneClocks["request"]
+	beforeClock := profilerTestBlockLaneClocks(sink)["request"]
 	beforeRows, beforeOrdinal := sink.stats.RowsAccepted, sink.nextIngestOrdinal
 	beforeProof := sink.profilerSourceProof.count
 	delta := traceDBProfilerEventDelta{}
@@ -224,15 +224,15 @@ func TestProfilerBlockTimestampLanePoisonPreflightRejectsBeforeMutation(t *testi
 		t.Fatalf("reason=%q err=%v", reason, err)
 	}
 	if sink.pairFixedLedger != beforeLedger || *state != beforeState ||
-		sink.blockLaneClocks["request"] != beforeClock || sink.stats.RowsAccepted != beforeRows ||
+		profilerTestBlockLaneClocks(sink)["request"] != beforeClock || sink.stats.RowsAccepted != beforeRows ||
 		sink.nextIngestOrdinal != beforeOrdinal || sink.profilerSourceProof.count != beforeProof ||
 		sink.poisoned[pairRenderMMC] || sink.pairRows[pairRenderBlock] != 1 ||
-		sink.pairTableTotals[pairRenderBlock]["block_rq_issue"] != 1 ||
-		sink.pairTableTotals[pairRenderBlock]["block_rq_complete"] != 0 {
+		profilerTestPairTableTotals(sink)[pairRenderBlock]["block_rq_issue"] != 1 ||
+		profilerTestPairTableTotals(sink)[pairRenderBlock]["block_rq_complete"] != 0 {
 		t.Fatalf("timestamp poison preflight partially committed: ledger=%+v state=%+v clock=%+v stats=%+v ordinal=%d proof=%+v poisoned=%v rows=%v tables=%v",
-			sink.pairFixedLedger, *state, sink.blockLaneClocks["request"], sink.stats,
+			sink.pairFixedLedger, *state, profilerTestBlockLaneClocks(sink)["request"], sink.stats,
 			sink.nextIngestOrdinal, sink.profilerSourceProof, sink.poisoned,
-			sink.pairRows, sink.pairTableTotals[pairRenderBlock])
+			sink.pairRows, profilerTestPairTableTotals(sink)[pairRenderBlock])
 	}
 }
 
@@ -299,9 +299,9 @@ func TestProfilerPairFixedLedgerSinkPoisonTransitions(t *testing.T) {
 		}, poisoned: true,
 	}) || end != (profilerPairFixedCounts{staged: 3, withheld: 3}) ||
 		len(sink.pairLaneRegistries[pairRenderF2FS].states) != 0 ||
-		len(sink.pairLaneRows[pairRenderF2FS]) != 0 {
+		len(profilerTestPairLaneRows(sink)[pairRenderF2FS]) != 0 {
 		t.Fatalf("family poison transition drifted: family=%+v end=%+v registry=%+v lanes=%v",
-			family, end, sink.pairLaneRegistries[pairRenderF2FS], sink.pairLaneRows[pairRenderF2FS])
+			family, end, sink.pairLaneRegistries[pairRenderF2FS], profilerTestPairLaneRows(sink)[pairRenderF2FS])
 	}
 	if err := sink.validateProfilerPairAccounting(); err != nil {
 		t.Fatalf("fixed transition parity failed: %v", err)
@@ -396,14 +396,14 @@ func TestProfilerPairFixedLedgerParityRejectsSplitBrain(t *testing.T) {
 		want   string
 		mutate func(*traceDBRowSink)
 	}{
-		{name: "fixed withheld only", want: "profiler_pair_fixed_ledger_family_mismatch", mutate: func(sink *traceDBRowSink) {
+		{name: "fixed withheld only", want: "profiler_pair_fixed_withheld_lane_mismatch", mutate: func(sink *traceDBRowSink) {
 			sink.pairFixedLedger.families[pairRenderF2FS].withheld = 1
 			sink.pairFixedLedger.endpoints[profilerPairEndpointF2FSWriteBegin].withheld = 1
 		}},
-		{name: "lane total", want: "profiler_pair_fixed_lane_total_mismatch", mutate: func(sink *traceDBRowSink) {
+		{name: "lane total", want: "profiler_pair_fixed_lane_exceeds_endpoint", mutate: func(sink *traceDBRowSink) {
 			sink.pairLaneRegistries[pairRenderF2FS].states[0].endpointCounts[4].rows++
 		}},
-		{name: "wrong endpoint", want: "profiler_pair_fixed_lane_endpoint_mismatch", mutate: func(sink *traceDBRowSink) {
+		{name: "wrong endpoint", want: "profiler_pair_fixed_lane_exceeds_endpoint", mutate: func(sink *traceDBRowSink) {
 			state := &sink.pairLaneRegistries[pairRenderF2FS].states[0]
 			state.endpointCounts[4].rows = 0
 			state.endpointCounts[5].rows = 1
