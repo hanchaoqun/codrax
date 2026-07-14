@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"runtime"
-	"strings"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -48,24 +47,7 @@ func duplicatePublishedConversionParentPlatform(dir *privateConversionDir) (publ
 }
 
 func validateRetainedTraceDBWindowsFileSystem(parent windows.Handle) error {
-	var fileSystemName [64]uint16
-	if err := windows.GetVolumeInformationByHandle(
-		parent,
-		nil,
-		0,
-		nil,
-		nil,
-		nil,
-		&fileSystemName[0],
-		uint32(len(fileSystemName)),
-	); err != nil {
-		return fmt.Errorf("identify retained trace DB destination file system: %w", err)
-	}
-	fileSystem := windows.UTF16ToString(fileSystemName[:])
-	if !strings.EqualFold(fileSystem, "NTFS") {
-		return fmt.Errorf("retained trace DB exact-generation publication requires NTFS; destination file system=%q", fileSystem)
-	}
-	return nil
+	return validateWindowsExactGenerationFileSystem(parent, "retained trace DB destination")
 }
 
 func validatePublishedConversionFilePlatform(

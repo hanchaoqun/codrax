@@ -280,6 +280,23 @@ func (authority *conversionInputAuthority) ReadAt(buffer []byte, offset int64) (
 	return n, err
 }
 
+// withOpenFile lends the exact held input generation to platform authorities
+// that must derive another kernel-bound handle (for example the Linux
+// external-tool FD lease or a Windows file-system identity gate). The callback
+// must not retain file; the conversion authority keeps ownership and remains
+// the only component allowed to close it.
+func (authority *conversionInputAuthority) withOpenFile(callback func(*os.File) error) error {
+	if authority == nil || callback == nil {
+		return conversionInputFailure(ConversionInputCodeInternalContract, conversionInputStageExternalTool, "", fmt.Errorf("input file callback authority is incomplete"))
+	}
+	authority.mu.RLock()
+	defer authority.mu.RUnlock()
+	if authority.closed || authority.file == nil {
+		return conversionInputFailure(ConversionInputCodeClosed, conversionInputStageExternalTool, authority.requestedPath, nil)
+	}
+	return callback(authority.file)
+}
+
 func (authority *conversionInputAuthority) Section(offset, length int64) (*io.SectionReader, error) {
 	if authority == nil {
 		return nil, conversionInputFailure(ConversionInputCodeClosed, conversionInputStageOpen, "", nil)

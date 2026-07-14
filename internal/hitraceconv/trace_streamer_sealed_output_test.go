@@ -272,9 +272,15 @@ func TestRetainedTraceDBExactPublicationStructurePinned(t *testing.T) {
 		}
 	}
 	windowsFS := sourceGenerationFunctionBody(t, "retained_trace_db_publication_windows.go", "validateRetainedTraceDBWindowsFileSystem")
-	for _, required := range []string{"windows.GetVolumeInformationByHandle", `strings.EqualFold(fileSystem, "NTFS")`} {
+	for _, required := range []string{"validateWindowsExactGenerationFileSystem", `"retained trace DB destination"`} {
 		if !strings.Contains(windowsFS, required) {
 			t.Fatalf("Windows retained publication lost NTFS exact-identity gate %q:\n%s", required, windowsFS)
+		}
+	}
+	windowsExactFS := sourceGenerationFunctionBody(t, "windows_exact_generation.go", "validateWindowsExactGenerationFileSystem")
+	for _, required := range []string{"windows.GetVolumeInformationByHandle", `strings.EqualFold(fileSystem, "NTFS")`} {
+		if !strings.Contains(windowsExactFS, required) {
+			t.Fatalf("shared Windows exact-generation gate lost %q:\n%s", required, windowsExactFS)
 		}
 	}
 	for _, forbidden := range []string{"MoveFile", "os.Rename", "syscall.MoveFile"} {
