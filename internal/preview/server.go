@@ -514,13 +514,13 @@ func renderHTMLPage(a pageArgs) string {
      wear ONE neutral slate-blue pair — a per-rank palette would invite the
      forbidden cross-channel comparison with the root-cause seat colors. */
   --rank-adjacent-fg: #334155; --rank-adjacent-bg: #e2e8f0;
-  --action-fg: #166534; --action-bg: #ecfdf3; --action-border: #86efac;
+  --action-fg: #166534; --action-bg: #ecfdf3; --action-border: #14532d;
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei", Arial, sans-serif;
   --font-mono: "Sarasa Mono SC", "Noto Sans Mono CJK SC", "Source Han Mono SC", ui-monospace, "Cascadia Mono", "Cascadia Code", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Microsoft YaHei UI", "Microsoft YaHei", monospace;
   --font-symbols: "Apple Symbols", "Segoe UI Symbol", "Noto Sans Symbols 2", "Symbola", "Arial Unicode MS", sans-serif;
 }
 @media (prefers-color-scheme: dark) {
-  :root { --fg: #e6edf3; --muted: #9aa4b2; --line: #30363d; --code: #161b22; --bg: #0d1117; --error-bg: #2a1212; --error-fg: #ffb4a8; --link: #79c0ff; --focus: #60a5fa; --rank-1-fg: #fed7aa; --rank-1-bg: #7c2d12; --rank-2-fg: #bfdbfe; --rank-2-bg: #1e3a8a; --rank-3-fg: #ddd6fe; --rank-3-bg: #4c1d95; --rank-4-fg: #bbf7d0; --rank-4-bg: #14532d; --rank-5-fg: #fbcfe8; --rank-5-bg: #831843; --rank-adjacent-fg: #cbd5e1; --rank-adjacent-bg: #334155; --action-fg: #bbf7d0; --action-bg: #123524; --action-border: #22c55e; }
+  :root { --fg: #e6edf3; --muted: #9aa4b2; --line: #30363d; --code: #161b22; --bg: #0d1117; --error-bg: #2a1212; --error-fg: #ffb4a8; --link: #79c0ff; --focus: #60a5fa; --rank-1-fg: #fed7aa; --rank-1-bg: #7c2d12; --rank-2-fg: #bfdbfe; --rank-2-bg: #1e3a8a; --rank-3-fg: #ddd6fe; --rank-3-bg: #4c1d95; --rank-4-fg: #bbf7d0; --rank-4-bg: #14532d; --rank-5-fg: #fbcfe8; --rank-5-bg: #831843; --rank-adjacent-fg: #cbd5e1; --rank-adjacent-bg: #334155; --action-fg: #bbf7d0; --action-bg: #123524; --action-border: #3a5f4b; }
 }
 /* CJK-heavy report body: the stack must name CJK faces explicitly —
    without them Windows browsers fall back to SimSun for the zh text,
@@ -706,7 +706,7 @@ section.aux h2 { font-size: 1em; color: var(--muted); margin: 0 0 .5em; font-wei
 }
 @page { margin: 12mm; }
 @media print {
-  :root { color-scheme: light; --fg: #111; --muted: #555; --line: #aaa; --code: #f7f7f7; --bg: #fff; --rank-1-fg: #7c2d12; --rank-1-bg: #ffedd5; --rank-2-fg: #1e40af; --rank-2-bg: #dbeafe; --rank-3-fg: #5b21b6; --rank-3-bg: #ede9fe; --rank-4-fg: #14532d; --rank-4-bg: #dcfce7; --rank-5-fg: #9d174d; --rank-5-bg: #fce7f3; --rank-adjacent-fg: #334155; --rank-adjacent-bg: #e2e8f0; --action-fg: #166534; --action-bg: #ecfdf3; --action-border: #86efac; }
+  :root { color-scheme: light; --fg: #111; --muted: #555; --line: #aaa; --code: #f7f7f7; --bg: #fff; --rank-1-fg: #7c2d12; --rank-1-bg: #ffedd5; --rank-2-fg: #1e40af; --rank-2-bg: #dbeafe; --rank-3-fg: #5b21b6; --rank-3-bg: #ede9fe; --rank-4-fg: #14532d; --rank-4-bg: #dcfce7; --rank-5-fg: #9d174d; --rank-5-bg: #fce7f3; --rank-adjacent-fg: #334155; --rank-adjacent-bg: #e2e8f0; --action-fg: #166534; --action-bg: #ecfdf3; --action-border: #14532d; }
   body { background: #fff; color: #111; font: 10.5pt/1.55 var(--font-sans); }
   main { max-width: none; padding: 0; letter-spacing: 0; }
   .topbar { display: none; }
