@@ -74,6 +74,9 @@ func TestReleaseTraceStreamerRetainedDBPublishesStagedPair(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake trace_streamer fixture uses /bin/sh")
 	}
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("exact retained DB publication is intentionally fail-closed on this platform")
+	}
 	for _, tc := range []struct {
 		name      string
 		configure func(*Options, string)
@@ -173,6 +176,9 @@ func TestReleaseTraceStreamerRetainedDBPublishesStagedPair(t *testing.T) {
 func TestReleaseTraceStreamerCompanionPublishFailureRollsBackDBOnly(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake trace_streamer fixture uses /bin/sh")
+	}
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("exact retained DB publication is intentionally fail-closed on this platform")
 	}
 	dir := t.TempDir()
 	input := filepath.Join(dir, "capture.sys")

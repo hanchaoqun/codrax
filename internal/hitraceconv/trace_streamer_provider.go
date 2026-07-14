@@ -221,43 +221,50 @@ func runTraceStreamerExport(ctx context.Context, opts Options, lane traceProvide
 	}
 	normalizeStart := progressStarted(opts, "trace_db_normalize", "normalizing trace_streamer SQLite DB to systrace", normalizeDisplayPath, output)
 	systraceExport, systraceErr := exportTraceDBToSystraceFromSealedWithLedger(ctx, sealedOutputs.main, normalizeDisplayPath, output, ledger)
-	integrityErr := sealedOutputs.finish(nil)
+	integrityErr := sealedOutputs.validate()
 	if integrityErr != nil {
 		progressFinished(opts, "trace_db_normalize", "trace_streamer SQLite DB generation changed during normalization", normalizeDisplayPath, output, normalizeStart, ProgressStatusFailed)
+		closeErr := sealedOutputs.close()
 		cleanupErr := cleanupTraceStreamerDBTarget(cleanup)
 		cleanup = nil
 		return traceStreamerExportResult{}, traceDBJoinPreservingSingle(
-			fmt.Errorf("trace_streamer DB output integrity failed: %w", integrityErr), systraceErr, cleanupErr,
+			fmt.Errorf("trace_streamer DB output integrity failed: %w", integrityErr), systraceErr, closeErr, cleanupErr,
 		)
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
+		closeErr := sealedOutputs.close()
 		cleanupErr := cleanupTraceStreamerDBTarget(cleanup)
 		cleanup = nil
-		return traceStreamerExportResult{}, traceDBJoinPreservingSingle(ctxErr, systraceErr, cleanupErr)
+		return traceStreamerExportResult{}, traceDBJoinPreservingSingle(ctxErr, systraceErr, closeErr, cleanupErr)
 	}
 	if sealedTraceDBNormalizationFailureIsFatal(systraceErr) {
 		progressFinished(opts, "trace_db_normalize", "sealed trace_streamer SQLite authority failed", normalizeDisplayPath, output, normalizeStart, ProgressStatusFailed)
+		closeErr := sealedOutputs.close()
 		cleanupErr := cleanupTraceStreamerDBTarget(cleanup)
 		cleanup = nil
 		return traceStreamerExportResult{}, traceDBJoinPreservingSingle(
-			fmt.Errorf("sealed trace_streamer DB normalization failed closed: %w", systraceErr), cleanupErr,
+			fmt.Errorf("sealed trace_streamer DB normalization failed closed: %w", systraceErr), closeErr, cleanupErr,
 		)
 	}
 	if dbTarget.Retained {
-		info, statErr := os.Lstat(dbPath)
-		if statErr != nil || !info.Mode().IsRegular() || info.Size() != dbBytes {
-			if statErr == nil {
-				statErr = fmt.Errorf("staging DB identity changed before retained publication: mode=%s size=%d want_size=%d", info.Mode(), info.Size(), dbBytes)
-			}
+		if err := publishRetainedTraceDBOutputs(ctx, dbTarget, sealedOutputs, ledger); err != nil {
+			closeErr := sealedOutputs.close()
+			cleanupErr := cleanupTraceStreamerDBTarget(cleanup)
+			cleanup = nil
 			return traceStreamerExportResult{}, traceDBJoinPreservingSingle(
-				fmt.Errorf("inspect sealed trace_streamer DB before retained publication: %w", statErr),
-				cleanupTraceStreamerDBTarget(cleanup),
+				fmt.Errorf("publish retained trace_streamer DB: %w", err), closeErr, cleanupErr,
 			)
 		}
-		if err := publishStagedTraceDB(dbTarget, info, ledger); err != nil {
-			return traceStreamerExportResult{}, traceDBJoinPreservingSingle(fmt.Errorf("publish retained trace_streamer DB: %w", err), cleanupTraceStreamerDBTarget(cleanup))
-		}
 		dbPath = dbTarget.FinalPath
+	}
+	if closeErr := sealedOutputs.close(); closeErr != nil {
+		cleanupErr := cleanupTraceStreamerDBTarget(cleanup)
+		cleanup = nil
+		return traceStreamerExportResult{}, traceDBJoinPreservingSingle(
+			fmt.Errorf("close sealed trace_streamer DB outputs: %w", closeErr), cleanupErr,
+		)
+	}
+	if dbTarget.Retained {
 		if err := cleanupTraceStreamerDBTarget(cleanup); err != nil {
 			return traceStreamerExportResult{}, fmt.Errorf("cleanup trace_streamer DB staging after publish: %w", err)
 		}
@@ -426,11 +433,13 @@ func traceStreamerFailureCaveats(lane traceProviderLanePlan, primary string) []s
 }
 
 type traceStreamerDBTarget struct {
-	StagingPath string
-	FinalPath   string
-	Retained    bool
-	Cleanup     func() error
-	stagingDir  *privateConversionDir
+	StagingPath      string
+	FinalPath        string
+	Retained         bool
+	Cleanup          func() error
+	stagingDir       *privateConversionDir
+	finalLeaf        string
+	finalBindingPath string
 }
 
 func (target traceStreamerDBTarget) validateStaging() error {
@@ -446,7 +455,24 @@ func prepareTraceStreamerDBTarget(opts Options, input, output string, keepDB boo
 		finalPath = traceSidecarBase(input, output) + ".trace.db"
 	}
 	parent := ""
+	finalLeaf := ""
+	finalBindingPath := ""
 	if finalPath != "" {
+		absoluteFinal, err := filepath.Abs(filepath.Clean(finalPath))
+		if err != nil {
+			return traceStreamerDBTarget{}, fmt.Errorf("resolve trace DB output path %s: %w", finalPath, err)
+		}
+		finalLeaf = filepath.Base(absoluteFinal)
+		if finalLeaf == "" || finalLeaf == "." || finalLeaf == ".." || filepath.Base(finalLeaf) != finalLeaf {
+			return traceStreamerDBTarget{}, fmt.Errorf("trace DB output file name is invalid: %s", finalPath)
+		}
+		if err := validatePrivateConversionDirChildNamePlatform(finalLeaf); err != nil {
+			return traceStreamerDBTarget{}, fmt.Errorf("trace DB output file name is invalid: %s: %w", finalPath, err)
+		}
+		if err := validatePrivateConversionDirChildNamePlatform(finalLeaf + ".ohos.ts"); err != nil {
+			return traceStreamerDBTarget{}, fmt.Errorf("trace DB companion output file name is invalid: %s: %w", finalPath+".ohos.ts", err)
+		}
+		finalBindingPath = absoluteFinal
 		if _, err := os.Lstat(finalPath); err == nil {
 			return traceStreamerDBTarget{}, fmt.Errorf("output file already exists: %s (delete it first or specify a different trace DB output path)", finalPath)
 		} else if !os.IsNotExist(err) {
@@ -480,11 +506,13 @@ func prepareTraceStreamerDBTarget(opts Options, input, output string, keepDB boo
 		return traceStreamerDBTarget{}, traceDBJoinPreservingSingle(err, stagingDir.FinalizeCleanup())
 	}
 	return traceStreamerDBTarget{
-		StagingPath: stagingPath,
-		FinalPath:   finalPath,
-		Retained:    finalPath != "",
-		Cleanup:     stagingDir.FinalizeCleanup,
-		stagingDir:  stagingDir,
+		StagingPath:      stagingPath,
+		FinalPath:        finalPath,
+		Retained:         finalPath != "",
+		Cleanup:          stagingDir.FinalizeCleanup,
+		stagingDir:       stagingDir,
+		finalLeaf:        finalLeaf,
+		finalBindingPath: finalBindingPath,
 	}, nil
 }
 
@@ -493,71 +521,6 @@ func cleanupTraceStreamerDBTarget(cleanup func() error) error {
 		return nil
 	}
 	return cleanup()
-}
-
-func publishStagedTraceDB(target traceStreamerDBTarget, stagingInfo os.FileInfo, ledger *conversionFileLedger) error {
-	if !target.Retained || strings.TrimSpace(target.FinalPath) == "" {
-		return nil
-	}
-	if err := target.validateStaging(); err != nil {
-		return err
-	}
-	if stagingInfo == nil || !stagingInfo.Mode().IsRegular() || stagingInfo.Size() <= 0 {
-		return fmt.Errorf("trace DB staging file is not a non-empty regular file")
-	}
-	companionStaging := target.StagingPath + ".ohos.ts"
-	var companionInfo os.FileInfo
-	if info, err := os.Lstat(companionStaging); err == nil {
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("trace DB timestamp companion is not a regular file: %s", companionStaging)
-		}
-		companionInfo = info
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("inspect trace DB timestamp companion %s: %w", companionStaging, err)
-	}
-	// Publish the optional timestamp companion first and the DB last. The DB is
-	// the public commit marker: observers can never see a newly published DB
-	// while its conversion-owned companion is still absent. Every publication
-	// uses an atomic no-replace primitive, so a racing external owner is never
-	// overwritten.
-	if companionInfo != nil {
-		if err := publishStagedTraceRegularFile(companionStaging, target.FinalPath+".ohos.ts", companionInfo, ledger); err != nil {
-			return fmt.Errorf("publish trace DB timestamp companion: %w", err)
-		}
-	}
-	if err := publishStagedTraceRegularFile(target.StagingPath, target.FinalPath, stagingInfo, ledger); err != nil {
-		if companionInfo != nil {
-			return traceDBJoinPreservingSingle(err, ledger.removeOwnedPath(target.FinalPath+".ohos.ts"))
-		}
-		return err
-	}
-	return nil
-}
-
-func publishStagedTraceRegularFile(stagingPath, finalPath string, stagingInfo os.FileInfo, ledger *conversionFileLedger) error {
-	stagingMoved, err := publishConversionFileNoReplace(stagingPath, finalPath)
-	if err != nil {
-		return err
-	}
-	if err := ledger.recordIdentity(finalPath, stagingInfo); err != nil {
-		return traceDBJoinPreservingSingle(err, removeOwnedConversionPath(finalPath, stagingInfo))
-	}
-	finalInfo, err := os.Lstat(finalPath)
-	if err != nil {
-		return err
-	}
-	if !finalInfo.Mode().IsRegular() || !os.SameFile(stagingInfo, finalInfo) || finalInfo.Size() != stagingInfo.Size() {
-		return fmt.Errorf("published trace DB failed identity/regular-file validation: %s", finalPath)
-	}
-	if err := ledger.sealOwnedPath(finalPath, finalInfo.Size()); err != nil {
-		return err
-	}
-	if !stagingMoved {
-		if err := removeOwnedConversionPath(stagingPath, stagingInfo); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func buildTraceStreamerExportCommand(ctx context.Context, traceStreamer, input, dbPath string, soDirs []string) *exec.Cmd {

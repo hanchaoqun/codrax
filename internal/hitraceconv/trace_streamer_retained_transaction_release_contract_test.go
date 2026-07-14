@@ -1,4 +1,4 @@
-//go:build !windows
+//go:build linux || darwin
 
 package hitraceconv
 
@@ -54,6 +54,72 @@ func TestReleaseRetainedTraceDBBundleRaceRollsBackOwnedPublications(t *testing.T
 			if readErr != nil || string(body) != externalBundle {
 				t.Fatalf("external racing bundle was changed: body=%q err=%v", body, readErr)
 			}
+			assertReleaseTraceStreamerStagingGone(t, argsLog)
+		})
+	}
+}
+
+func TestReleaseRetainedTraceDBFinalReplacementFailsCommitAndPreservesExternalOwner(t *testing.T) {
+	for _, replaced := range []struct {
+		name   string
+		suffix string
+	}{
+		{name: "db"},
+		{name: "companion", suffix: ".ohos.ts"},
+	} {
+		t.Run(replaced.name, func(t *testing.T) {
+			dir := t.TempDir()
+			input := filepath.Join(dir, "capture.sys")
+			output := filepath.Join(dir, "capture.systrace")
+			finalDB := filepath.Join(dir, "operator.trace.db")
+			if err := os.WriteFile(input, []byte("trace payload"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			fixtureDB := createTraceDBFixture(t, traceStreamerIntegrationDBStatements())
+			tool := writeFakeTraceStreamer(t, dir, 0)
+			argsLog := filepath.Join(dir, "args.log")
+			t.Setenv("TRACE_STREAMER_FIXTURE_DB", fixtureDB)
+			t.Setenv("TRACE_STREAMER_CREATE_OHOS_TS", "1")
+			t.Setenv("TRACE_STREAMER_ARGS_LOG", argsLog)
+
+			victim := finalDB + replaced.suffix
+			other := finalDB
+			if replaced.suffix == "" {
+				other = finalDB + ".ohos.ts"
+			}
+			external := []byte("external replacement owner\n")
+			var once sync.Once
+			var raceErr error
+			opts := Options{
+				InputPath: input, OutputPath: output, TraceEngine: traceEngineTraceStreamer,
+				TraceStreamerPath: tool, TraceDBOutputPath: finalDB,
+			}
+			opts.Progress = func(event ProgressEvent) {
+				if event.Stage == "trace_db_normalize" && event.Status == ProgressStatusComplete {
+					once.Do(func() {
+						displaced := victim + ".displaced-owned"
+						if err := os.Rename(victim, displaced); err != nil {
+							raceErr = err
+							return
+						}
+						raceErr = os.WriteFile(victim, external, 0o600)
+					})
+				}
+			}
+			_, err := ConvertFile(context.Background(), opts)
+			if raceErr != nil {
+				t.Fatalf("replace retained pair member: %v", raceErr)
+			}
+			if err == nil || !strings.Contains(err.Error(), "changed") {
+				t.Fatalf("retained final replacement passed commit or was misclassified: %v", err)
+			}
+			body, readErr := os.ReadFile(victim)
+			if readErr != nil || string(body) != string(external) {
+				t.Fatalf("external replacement owner was changed: body=%q err=%v", body, readErr)
+			}
+			assertReleasePathAbsent(t, other)
+			assertReleasePathAbsent(t, output)
+			assertReleasePathAbsent(t, traceSidecarBase(input, output)+".tracebundle.json")
 			assertReleaseTraceStreamerStagingGone(t, argsLog)
 		})
 	}
@@ -142,6 +208,48 @@ func TestReleaseRetainedTraceDBNoRowsIsTypedCommittedPartialResult(t *testing.T)
 	bundleDecision, ok := releaseTraceDecision(meta.TraceDecisions, traceProviderNameTraceStreamer)
 	if !ok || bundleDecision.Reason != "trace_db_no_rows" || bundleDecision.DBPath != finalDB {
 		t.Fatalf("partial tracebundle lost typed decision: %+v", meta.TraceDecisions)
+	}
+}
+
+func TestReleaseRetainedTraceDBNormalizeFailureIsTypedCommittedPartialResult(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "capture.sys")
+	output := filepath.Join(dir, "capture.systrace")
+	if err := os.WriteFile(input, []byte("trace payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tool := writeFakeTraceStreamer(t, dir, 0)
+	t.Setenv("TRACE_STREAMER_CREATE_OHOS_TS", "1")
+
+	result, err := ConvertFile(context.Background(), Options{
+		InputPath: input, OutputPath: output, TraceEngine: traceEngineTraceStreamer,
+		TraceStreamerPath: tool, KeepTraceDB: true,
+	})
+	if err != nil {
+		t.Fatalf("retained normalize failure should commit a typed partial result: %v", err)
+	}
+	finalDB := traceSidecarBase(input, output) + ".trace.db"
+	if result.OutputPath != "" || result.EventsWritten != 0 || result.BundlePath == "" {
+		t.Fatalf("normalize failure falsely claimed systrace or omitted bundle: %+v", result)
+	}
+	artifact, ok := releaseArtifactByType(result.Artifacts, ArtifactTraceDB)
+	if !ok || artifact.Path != finalDB || !releaseContains(artifact.Caveats, "timestamp_companion="+finalDB+".ohos.ts") {
+		t.Fatalf("retained normalize-failure DB artifact malformed: %+v", result.Artifacts)
+	}
+	decision, ok := releaseTraceDecision(result.TraceDecisions, traceProviderNameTraceStreamer)
+	if !ok || decision.Succeeded || decision.Reason != "trace_db_normalize_failed" || decision.DBPath != finalDB {
+		t.Fatalf("retained normalize-failure decision malformed: %+v", result.TraceDecisions)
+	}
+	if _, err := os.Stat(finalDB); err != nil {
+		t.Fatalf("retained normalize-failure DB missing: %v", err)
+	}
+	if _, err := os.Stat(finalDB + ".ohos.ts"); err != nil {
+		t.Fatalf("retained normalize-failure companion missing: %v", err)
+	}
+	meta := releaseReadTraceBundle(t, result.BundlePath)
+	bundleDB, ok := releaseArtifactByType(meta.Artifacts, ArtifactTraceDB)
+	if !ok || bundleDB.Path != finalDB {
+		t.Fatalf("normalize-failure tracebundle lost retained DB provenance: %+v", meta.Artifacts)
 	}
 }
 

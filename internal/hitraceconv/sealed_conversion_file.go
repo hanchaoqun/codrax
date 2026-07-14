@@ -140,6 +140,36 @@ func (sealed *sealedConversionFile) Reader() io.Reader {
 	return io.NewSectionReader(sealed, 0, sealed.size)
 }
 
+func (sealed *sealedConversionFile) withOpenFile(fn func(*os.File) error) error {
+	if sealed == nil || fn == nil {
+		return fmt.Errorf("sealed conversion file callback authority is incomplete")
+	}
+	sealed.mu.RLock()
+	defer sealed.mu.RUnlock()
+	if sealed.closed || sealed.file == nil {
+		return fmt.Errorf("sealed conversion file is closed: %s", sealed.name)
+	}
+	return fn(sealed.file)
+}
+
+func (sealed *sealedConversionFile) publishAndDetachOpenFile(publish func(*os.File) error) (*os.File, error) {
+	if sealed == nil || publish == nil {
+		return nil, fmt.Errorf("sealed conversion file publication authority is incomplete")
+	}
+	sealed.mu.Lock()
+	defer sealed.mu.Unlock()
+	if sealed.closed || sealed.file == nil {
+		return nil, fmt.Errorf("sealed conversion file is closed: %s", sealed.name)
+	}
+	if err := publish(sealed.file); err != nil {
+		return nil, err
+	}
+	file := sealed.file
+	sealed.file = nil
+	sealed.closed = true
+	return file, nil
+}
+
 func (sealed *sealedConversionFile) Validate() error {
 	if sealed == nil {
 		return fmt.Errorf("sealed conversion file is nil")

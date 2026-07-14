@@ -20,11 +20,23 @@ type conversionFileLedger struct {
 }
 
 type createdConversionFile struct {
-	path     string
-	identity os.FileInfo
-	removed  bool
-	sealed   bool
-	size     int64
+	path           string
+	identity       os.FileInfo
+	authority      conversionOwnedFileAuthority
+	authorityBound bool
+	removed        bool
+	sealed         bool
+	size           int64
+}
+
+// conversionOwnedFileAuthority keeps a newly-published file bound to the
+// exact creator generation until the whole conversion commits or rolls back.
+// Path-only records remain supported for ordinary outputs, but retained
+// trace_streamer DB publications use this stronger lifecycle.
+type conversionOwnedFileAuthority interface {
+	Validate() (os.FileInfo, error)
+	Remove() error
+	Close() error
 }
 
 func newConversionFileLedger(protectedPaths ...string) (*conversionFileLedger, error) {
@@ -122,6 +134,42 @@ func (l *conversionFileLedger) recordIdentity(path string, identity os.FileInfo)
 	return nil
 }
 
+func (l *conversionFileLedger) recordSealedAuthority(path string, size int64, authority conversionOwnedFileAuthority) error {
+	if l == nil {
+		return fmt.Errorf("conversion file ledger is required to register %s", path)
+	}
+	if authority == nil {
+		return fmt.Errorf("conversion file authority is required to register %s", path)
+	}
+	abs, err := filepath.Abs(filepath.Clean(strings.TrimSpace(path)))
+	if err != nil {
+		return fmt.Errorf("resolve newly published conversion file %s: %w", path, err)
+	}
+	identity, err := authority.Validate()
+	if err != nil {
+		return fmt.Errorf("validate newly published conversion file %s: %w", path, err)
+	}
+	if identity == nil || !identity.Mode().IsRegular() || identity.Size() != size {
+		return fmt.Errorf("newly published conversion file is not a sealed regular file: %s", path)
+	}
+	for _, protected := range l.protected {
+		if protected.info != nil && os.SameFile(identity, protected.info) {
+			return fmt.Errorf("refusing to register protected input as a published conversion file: %s", path)
+		}
+	}
+	if index, ok := l.byPath[abs]; ok {
+		record := &l.created[index]
+		if !record.removed {
+			return fmt.Errorf("conversion path already has a live creator authority: %s", path)
+		}
+	}
+	l.byPath[abs] = len(l.created)
+	l.created = append(l.created, createdConversionFile{
+		path: abs, identity: identity, authority: authority, authorityBound: true, sealed: true, size: size,
+	})
+	return nil
+}
+
 func (l *conversionFileLedger) ownsPathIdentity(path string, identity os.FileInfo) bool {
 	if l == nil || identity == nil {
 		return false
@@ -146,9 +194,25 @@ func (l *conversionFileLedger) removeOwnedPath(path string) error {
 	if !ok {
 		return fmt.Errorf("refusing to remove unregistered conversion path: %s", path)
 	}
-	err = removeOwnedConversionPath(abs, l.created[index].identity)
+	record := &l.created[index]
+	if record.removed {
+		return nil
+	}
+	if record.authority != nil {
+		removeErr := record.authority.Remove()
+		closeErr := record.authority.Close()
+		record.authority = nil
+		if removeErr == nil {
+			record.removed = true
+		}
+		return traceDBJoinPreservingSingle(removeErr, closeErr)
+	}
+	if record.authorityBound {
+		return fmt.Errorf("refusing path-only removal of authority-bound conversion generation: %s", path)
+	}
+	err = removeOwnedConversionPath(abs, record.identity)
 	if err == nil {
-		l.created[index].removed = true
+		record.removed = true
 	}
 	return err
 }
@@ -164,15 +228,39 @@ func (l *conversionFileLedger) validateOwnedPaths() error {
 		if !record.sealed {
 			return fmt.Errorf("created conversion file was not sealed before commit: %s", record.path)
 		}
-		current, err := os.Lstat(record.path)
+		var current os.FileInfo
+		var err error
+		if record.authority != nil {
+			current, err = record.authority.Validate()
+		} else if record.authorityBound {
+			return fmt.Errorf("created conversion file lost its held authority before commit: %s", record.path)
+		} else {
+			current, err = os.Lstat(record.path)
+		}
 		if err != nil {
 			return fmt.Errorf("validate created conversion file %s before commit: %w", record.path, err)
 		}
-		if !current.Mode().IsRegular() || !os.SameFile(record.identity, current) || current.Size() != record.size {
+		if current == nil || !current.Mode().IsRegular() || !os.SameFile(record.identity, current) || current.Size() != record.size {
 			return fmt.Errorf("created conversion file changed identity before commit: %s", record.path)
 		}
 	}
 	return nil
+}
+
+func (l *conversionFileLedger) releaseOwnedAuthorities() error {
+	if l == nil {
+		return nil
+	}
+	var result error
+	for index := len(l.created) - 1; index >= 0; index-- {
+		record := &l.created[index]
+		if record.removed || record.authority == nil {
+			continue
+		}
+		result = traceDBJoinPreservingSingle(result, record.authority.Close())
+		record.authority = nil
+	}
+	return result
 }
 
 func (l *conversionFileLedger) sealOwnedPath(path string, size int64) error {
@@ -208,6 +296,22 @@ func (l *conversionFileLedger) cleanup() error {
 	for index := len(l.created) - 1; index >= 0; index-- {
 		record := &l.created[index]
 		if record.removed || record.path == "" || record.identity == nil {
+			continue
+		}
+		if record.authority != nil {
+			removeErr := record.authority.Remove()
+			closeErr := record.authority.Close()
+			record.authority = nil
+			cleanupErr = errors.Join(cleanupErr, removeErr, closeErr)
+			if removeErr == nil {
+				record.removed = true
+				continue
+			}
+			continue
+		}
+		if record.authorityBound {
+			cleanupErr = errors.Join(cleanupErr,
+				fmt.Errorf("authority-bound conversion generation cannot fall back to path cleanup: %s", record.path))
 			continue
 		}
 		cleanupErr = errors.Join(cleanupErr, removeOwnedConversionPath(record.path, record.identity))

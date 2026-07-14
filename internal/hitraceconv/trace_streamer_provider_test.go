@@ -117,6 +117,9 @@ func TestConvertFileNoPerfTraceKeepsBuiltinAndTraceStreamerPaths(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake trace_streamer shell fixture uses /bin/sh")
 	}
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("exact retained DB publication is intentionally fail-closed on this platform")
+	}
 	dir := t.TempDir()
 	input := filepath.Join(dir, "donghu-no-perf.sys")
 	if err := os.WriteFile(input, syntheticBinaryHitrace(t), 0o644); err != nil {
@@ -264,6 +267,9 @@ func TestConvertFileNoPerfTraceBuiltinAndTraceStreamerWakeupParity(t *testing.T)
 	if runtime.GOOS == "windows" {
 		t.Skip("fake trace_streamer shell fixture uses /bin/sh")
 	}
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("exact retained DB publication is intentionally fail-closed on this platform")
+	}
 	dir := t.TempDir()
 	input := filepath.Join(dir, "donghu-no-perf.sys")
 	if err := os.WriteFile(input, syntheticBinaryHitrace(t), 0o644); err != nil {
@@ -317,6 +323,9 @@ func TestConvertFileNoPerfTraceBuiltinAndTraceStreamerWakeupParity(t *testing.T)
 func TestConvertFileNoPerfTraceRootCauseEvidenceParityMatrix(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake trace_streamer shell fixture uses /bin/sh")
+	}
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("exact retained DB publication is intentionally fail-closed on this platform")
 	}
 	dir := t.TempDir()
 	input := filepath.Join(dir, "root-cause-matrix.sys")
@@ -391,6 +400,9 @@ func TestConvertFileNoPerfTraceRootCauseEvidenceParityMatrix(t *testing.T) {
 func TestConvertFileNoPerfTraceRawFtraceRootCauseParityMatrix(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake trace_streamer shell fixture uses /bin/sh")
+	}
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("exact retained DB publication is intentionally fail-closed on this platform")
 	}
 	dir := t.TempDir()
 	input := filepath.Join(dir, "raw-ftrace-root-cause.sys")
@@ -475,6 +487,9 @@ func TestConvertFileTraceStreamerExplicitNoRowsProducesPartialBundle(t *testing.
 	if runtime.GOOS == "windows" {
 		t.Skip("fake trace_streamer shell fixture uses /bin/sh")
 	}
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("exact retained DB publication is intentionally fail-closed on this platform")
+	}
 	dir := t.TempDir()
 	input := filepath.Join(dir, "empty.htrace")
 	if err := os.WriteFile(input, []byte("modern profiler payload"), 0o644); err != nil {
@@ -522,6 +537,9 @@ func TestConvertFileTraceStreamerExplicitNoRowsProducesPartialBundle(t *testing.
 func TestConvertFileTraceStreamerAutoPrefersDBSystraceAndKeepsDB(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake trace_streamer shell fixture uses /bin/sh")
+	}
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("exact retained DB publication is intentionally fail-closed on this platform")
 	}
 	dir := t.TempDir()
 	input := filepath.Join(dir, "profiler.htrace")

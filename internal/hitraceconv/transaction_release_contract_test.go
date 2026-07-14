@@ -5,8 +5,40 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+type conversionAuthoritySpy struct {
+	info       os.FileInfo
+	name       string
+	order      *[]string
+	validates  int
+	removes    int
+	closes     int
+	closeError error
+}
+
+func (spy *conversionAuthoritySpy) Validate() (os.FileInfo, error) {
+	spy.validates++
+	return spy.info, nil
+}
+
+func (spy *conversionAuthoritySpy) Remove() error {
+	spy.removes++
+	if spy.order != nil {
+		*spy.order = append(*spy.order, "remove:"+spy.name)
+	}
+	return nil
+}
+
+func (spy *conversionAuthoritySpy) Close() error {
+	spy.closes++
+	if spy.order != nil {
+		*spy.order = append(*spy.order, "close:"+spy.name)
+	}
+	return spy.closeError
+}
 
 // Cancellation after an output has been fully written and sealed still means
 // the transaction did not commit. The creator ledger must remove that exact
@@ -93,5 +125,91 @@ func TestReleaseConversionFileLedgerRegistersReplacementGeneration(t *testing.T)
 	}
 	if _, err := os.Lstat(path); !os.IsNotExist(err) {
 		t.Fatalf("replacement generation survived creator cleanup: %v", err)
+	}
+}
+
+func TestReleaseConversionFileLedgerAuthorityCommitAndRollbackLifecycle(t *testing.T) {
+	dir := t.TempDir()
+	newSpy := func(name string, order *[]string) (string, *conversionAuthoritySpy) {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(name), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		info, err := os.Lstat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return path, &conversionAuthoritySpy{info: info, name: name, order: order}
+	}
+
+	commitLedger, err := newConversionFileLedger()
+	if err != nil {
+		t.Fatal(err)
+	}
+	commitPath, commitSpy := newSpy("commit.db", nil)
+	if err := commitLedger.recordSealedAuthority(commitPath, commitSpy.info.Size(), commitSpy); err != nil {
+		t.Fatal(err)
+	}
+	if err := commitLedger.validateOwnedPaths(); err != nil {
+		t.Fatal(err)
+	}
+	if err := commitLedger.releaseOwnedAuthorities(); err != nil {
+		t.Fatal(err)
+	}
+	if commitSpy.validates < 2 || commitSpy.removes != 0 || commitSpy.closes != 1 {
+		t.Fatalf("commit authority lifecycle malformed: %+v", commitSpy)
+	}
+	if _, err := os.Lstat(commitPath); err != nil {
+		t.Fatalf("committed authority file was removed: %v", err)
+	}
+
+	rollbackLedger, err := newConversionFileLedger()
+	if err != nil {
+		t.Fatal(err)
+	}
+	order := []string{}
+	companionPath, companion := newSpy("pair.db.ohos.ts", &order)
+	dbPath, db := newSpy("pair.db", &order)
+	if err := rollbackLedger.recordSealedAuthority(companionPath, companion.info.Size(), companion); err != nil {
+		t.Fatal(err)
+	}
+	if err := rollbackLedger.recordSealedAuthority(dbPath, db.info.Size(), db); err != nil {
+		t.Fatal(err)
+	}
+	if err := rollbackLedger.cleanup(); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"remove:pair.db", "close:pair.db", "remove:pair.db.ohos.ts", "close:pair.db.ohos.ts"}
+	if strings.Join(order, "|") != strings.Join(want, "|") {
+		t.Fatalf("authority rollback order=%v want=%v", order, want)
+	}
+}
+
+func TestReleaseConversionFileLedgerAuthorityCloseFailureBlocksCommit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "close-error.db")
+	if err := os.WriteFile(path, []byte("db"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := errors.New("injected authority close failure")
+	spy := &conversionAuthoritySpy{info: info, closeError: want}
+	ledger, err := newConversionFileLedger()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ledger.recordSealedAuthority(path, info.Size(), spy); err != nil {
+		t.Fatal(err)
+	}
+	if err := ledger.releaseOwnedAuthorities(); !errors.Is(err, want) {
+		t.Fatalf("authority close failure was lost: %v", err)
+	}
+	if err := ledger.cleanup(); err == nil {
+		t.Fatal("closed authority failure downgraded to path-only cleanup")
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != "db" {
+		t.Fatalf("close-failed authority generation was deleted or changed: got=%q err=%v", got, err)
 	}
 }

@@ -240,6 +240,9 @@ func runRepresentativeSysTraceFixture(t *testing.T, manifest representativeSysTr
 
 func convertRepresentativeSysTraceSQL(t *testing.T, manifest representativeSysTraceManifest, input, output string) Result {
 	t.Helper()
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("representative SQL fixtures retain DB provenance and exact retained publication is fail-closed on this platform")
+	}
 	opts := Options{
 		InputPath:   input,
 		OutputPath:  output,

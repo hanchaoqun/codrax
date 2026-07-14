@@ -353,8 +353,12 @@ func TestReleaseConvertFileRouteAndCommitAreStructurallyAuthorityOwned(t *testin
 		"authority.Validate(conversionInputStagePreCommit)",
 		"authority.Close()",
 		"ledger.validateOwnedPaths()",
+		"ledger.releaseOwnedAuthorities()",
 		"committed = true",
 	)
+	if strings.Count(commitBody, "ledger.releaseOwnedAuthorities()") != 1 {
+		t.Fatalf("ConvertFile commit must release creator authorities exactly once:\n%s", commitBody)
+	}
 
 	directBody := sourceGenerationFunctionBody(t, "simpleperf_text.go", "maybeConvertDirectSimpleperfPerfData")
 	if !strings.Contains(directBody, "input directPerfInputBinding") ||

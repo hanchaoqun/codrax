@@ -30,7 +30,7 @@ func adoptPrivateConversionRegularChildPlatform(state *privateConversionDirPlatf
 	allocationSize := int64(0)
 	err = windows.NtCreateFile(
 		&handle,
-		windows.FILE_READ_DATA|windows.FILE_READ_ATTRIBUTES|windows.SYNCHRONIZE,
+		windows.FILE_READ_DATA|windows.FILE_READ_ATTRIBUTES|windows.FILE_WRITE_ATTRIBUTES|windows.DELETE|windows.SYNCHRONIZE,
 		oa,
 		&iosb,
 		&allocationSize,
@@ -84,7 +84,13 @@ func validatePrivateConversionRegularChildPlatform(state *privateConversionDirPl
 	if !current.Mode().IsRegular() || !os.SameFile(held, current) {
 		return fmt.Errorf("held child identity mismatch")
 	}
-	reopened, reopenedInfo, err := adoptPrivateConversionRegularChildPlatform(state, name)
+	// Reopen only for parent-relative binding validation. The held source owns
+	// DELETE authority but deliberately does not share DELETE; asking for a
+	// second DELETE-capable handle would conflict with our own share gate.
+	// This read-attributes handle shares WRITE/DELETE so it remains compatible
+	// with the already-held WRITE_ATTRIBUTES/DELETE authority without granting
+	// itself mutation rights.
+	reopened, reopenedInfo, err := openPublishedConversionRegularChildWindows(windows.Handle(state.guard.Fd()), name)
 	if err != nil {
 		return err
 	}

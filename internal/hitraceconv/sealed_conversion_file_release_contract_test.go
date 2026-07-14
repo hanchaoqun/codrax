@@ -180,13 +180,22 @@ func TestReleaseSealedConversionFilePlatformSourcePins(t *testing.T) {
 	windowsAdopt := sourceGenerationFunctionBody(t, "sealed_conversion_file_windows.go", "adoptPrivateConversionRegularChildPlatform")
 	for _, required := range []string{
 		"windows.NtCreateFile(", "RootDirectory: windows.Handle(state.guard.Fd())",
-		"Attributes:    privateConversionDirWindowsObjectAttrs", "windows.FILE_SHARE_READ",
+		"Attributes:    privateConversionDirWindowsObjectAttrs", "windows.FILE_WRITE_ATTRIBUTES", "windows.DELETE", "windows.FILE_SHARE_READ",
 		"windows.FILE_OPEN_REPARSE_POINT", "windows.FILE_ATTRIBUTE_REPARSE_POINT",
 		"windows.STATUS_NO_SUCH_FILE", "windows.STATUS_OBJECT_NAME_NOT_FOUND",
 		"runtime.KeepAlive(state.guard)",
 	} {
 		if !strings.Contains(windowsAdopt, required) {
 			t.Fatalf("Windows sealed adoption lost %q:\n%s", required, windowsAdopt)
+		}
+	}
+	windowsValidate := sourceGenerationFunctionBody(t, "sealed_conversion_file_windows.go", "validatePrivateConversionRegularChildPlatform")
+	for _, required := range []string{
+		"openPublishedConversionRegularChildWindows(windows.Handle(state.guard.Fd()), name)",
+		"os.SameFile(current, reopenedInfo)",
+	} {
+		if !strings.Contains(windowsValidate, required) {
+			t.Fatalf("Windows sealed DELETE/share validation lost %q:\n%s", required, windowsValidate)
 		}
 	}
 }

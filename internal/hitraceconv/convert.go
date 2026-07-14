@@ -181,6 +181,9 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return Result{}, ctxErr
 			}
+			if releaseErr := ledger.releaseOwnedAuthorities(); releaseErr != nil {
+				return Result{}, fmt.Errorf("release conversion publication authorities: %w", releaseErr)
+			}
 			committed = true
 		}
 		return completed, completionErr

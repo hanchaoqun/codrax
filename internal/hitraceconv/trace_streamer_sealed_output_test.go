@@ -157,14 +157,14 @@ func TestSealedTraceDBNormalizationFatalityIsFailClosed(t *testing.T) {
 	}
 }
 
-func TestTraceStreamerProductionPinsSealedReadBeforeLegacyPublish(t *testing.T) {
+func TestTraceStreamerProductionPinsSealedReadBeforeExactPublish(t *testing.T) {
 	body := sourceGenerationFunctionBody(t, "trace_streamer_provider.go", "runTraceStreamerExport")
 	required := []string{
 		"adoptTraceStreamerDBOutputs(dbTarget.stagingDir)",
 		"exportTraceDBToSystraceFromSealedWithLedger(ctx, sealedOutputs.main",
-		"sealedOutputs.finish(nil)",
+		"integrityErr := sealedOutputs.validate()",
 		"sealedTraceDBNormalizationFailureIsFatal(systraceErr)",
-		"publishStagedTraceDB(dbTarget, info, ledger)",
+		"publishRetainedTraceDBOutputs(ctx, dbTarget, sealedOutputs, ledger)",
 	}
 	last := -1
 	for _, token := range required {
@@ -175,11 +175,15 @@ func TestTraceStreamerProductionPinsSealedReadBeforeLegacyPublish(t *testing.T) 
 		last = index
 	}
 	if strings.Contains(body, "exportTraceDBToSystraceWithLedger(ctx, dbPath") ||
-		strings.Contains(body, "artifactPathExists(dbPath +") {
-		t.Fatalf("production regained path-reopen normalization/companion discovery:\n%s", body)
+		strings.Contains(body, "artifactPathExists(dbPath +") ||
+		strings.Contains(body, "os.Lstat(dbPath)") ||
+		strings.Contains(body, "publishStagedTraceDB(") {
+		t.Fatalf("production regained path-reopen normalization/publication discovery:\n%s", body)
 	}
-	if lstat := strings.Index(body, "os.Lstat(dbPath)"); lstat < strings.Index(body, "sealedOutputs.finish(nil)") {
-		t.Fatalf("retained compatibility Lstat moved before sealed read exit gate: lstat=%d\n%s", lstat, body)
+	publish := strings.Index(body, "publishRetainedTraceDBOutputs(ctx, dbTarget, sealedOutputs, ledger)")
+	closeAfterPublish := strings.Index(body[publish:], "if closeErr := sealedOutputs.close();")
+	if closeAfterPublish < 0 {
+		t.Fatalf("sealed handles no longer close after exact retained publication:\n%s", body)
 	}
 }
 
@@ -196,6 +200,91 @@ func TestTraceDBExportWrappersHaveOneCommonCore(t *testing.T) {
 	}
 	if !strings.Contains(core, `newSealedTraceDBAuthorityError("close_database_and_vfs", closeErr)`) {
 		t.Fatalf("common export core no longer types sealed DB/VFS close failures as authority failures:\n%s", core)
+	}
+}
+
+func TestRetainedTraceDBExactPublicationStructurePinned(t *testing.T) {
+	pair := sourceGenerationFunctionBody(t, "retained_trace_db_publication.go", "publishRetainedTraceDBOutputs")
+	assertSourceGenerationOrder(t, pair,
+		"outputs.validate()",
+		"outputs.companion, target.finalCompanionLeaf()",
+		"outputs.main, target.finalLeaf",
+	)
+	companionAt := strings.Index(pair, "outputs.companion, target.finalCompanionLeaf()")
+	mainAt := strings.Index(pair, "outputs.main, target.finalLeaf")
+	if companionAt < 0 || mainAt <= companionAt || !strings.Contains(pair[companionAt:mainAt], "ctx.Err()") {
+		t.Fatalf("retained pair lost cancellation gate between companion and DB commit marker:\n%s", pair)
+	}
+	for _, forbidden := range []string{"os.Lstat(target.StagingPath)", "publishStagedTraceDB", "publishConversionFileNoReplace"} {
+		if strings.Contains(pair, forbidden) {
+			t.Fatalf("retained pair publication regained path authority %q:\n%s", forbidden, pair)
+		}
+	}
+
+	linux := sourceGenerationFunctionBody(t, "retained_trace_db_publication_linux.go", "publishSealedConversionFilePlatform")
+	for _, required := range []string{
+		"source.Validate()", "unix.O_TMPFILE", "unix.IoctlFileClone", "copyStandaloneRange(ctx",
+		"unix.Linkat(int(temp.Fd()), \"\"", "unix.AT_EMPTY_PATH", "linkLinuxRetainedTraceDBThroughHeldProcFD",
+	} {
+		if !strings.Contains(linux, required) {
+			t.Fatalf("Linux exact retained publication lost %q:\n%s", required, linux)
+		}
+	}
+	linuxProc := sourceGenerationFunctionBody(t, "retained_trace_db_publication_linux.go", "linkLinuxRetainedTraceDBThroughHeldProcFD")
+	for _, required := range []string{
+		`unix.Open("/proc/self/fd"`, "unix.O_NOFOLLOW", "unix.Fstatfs", "unix.PROC_SUPER_MAGIC",
+		"unix.Fstatat(procFD, fdLeaf", "unix.Fstat(tempFD", "procEntry.Dev != temp.Dev", "procEntry.Ino != temp.Ino",
+		"unix.Linkat(procFD, fdLeaf", "unix.AT_SYMLINK_FOLLOW",
+	} {
+		if !strings.Contains(linuxProc, required) {
+			t.Fatalf("Linux held proc fallback lost %q:\n%s", required, linuxProc)
+		}
+	}
+	for _, forbidden := range []string{"os.Open(source", "os.Link(", "os.Rename("} {
+		if strings.Contains(linux, forbidden) {
+			t.Fatalf("Linux retained publication regained source-path fallback %q:\n%s", forbidden, linux)
+		}
+	}
+
+	darwin := sourceGenerationFunctionBody(t, "retained_trace_db_publication_darwin.go", "publishSealedConversionFilePlatform")
+	for _, required := range []string{
+		"source.Validate()", "unix.Fclonefileat", "dir.AdoptRegularChild", "snapshot.publishAndDetachOpenFile",
+		"unix.RenameatxNp", "unix.RENAME_EXCL",
+	} {
+		if !strings.Contains(darwin, required) {
+			t.Fatalf("Darwin exact retained publication lost %q:\n%s", required, darwin)
+		}
+	}
+
+	windowsBody := sourceGenerationFunctionBody(t, "retained_trace_db_publication_windows.go", "publishSealedConversionFilePlatform")
+	for _, required := range []string{
+		"source.Validate()", "duplicatePublishedConversionParentPlatform", "source.publishAndDetachOpenFile",
+		"renameRetainedTraceDBWindows", "newRetainedTraceDBPublication",
+	} {
+		if !strings.Contains(windowsBody, required) {
+			t.Fatalf("Windows exact retained publication lost %q:\n%s", required, windowsBody)
+		}
+	}
+	windowsRename := sourceGenerationFunctionBody(t, "retained_trace_db_publication_windows.go", "renameRetainedTraceDBWindows")
+	for _, required := range []string{"ReplaceIfExists = 0", "RootDirectory = parent", "windows.NtSetInformationFile", "windows.FileRenameInformation"} {
+		if !strings.Contains(windowsRename, required) {
+			t.Fatalf("Windows root-relative no-replace rename lost %q:\n%s", required, windowsRename)
+		}
+	}
+	windowsFS := sourceGenerationFunctionBody(t, "retained_trace_db_publication_windows.go", "validateRetainedTraceDBWindowsFileSystem")
+	for _, required := range []string{"windows.GetVolumeInformationByHandle", `strings.EqualFold(fileSystem, "NTFS")`} {
+		if !strings.Contains(windowsFS, required) {
+			t.Fatalf("Windows retained publication lost NTFS exact-identity gate %q:\n%s", required, windowsFS)
+		}
+	}
+	for _, forbidden := range []string{"MoveFile", "os.Rename", "syscall.MoveFile"} {
+		if strings.Contains(windowsBody, forbidden) || strings.Contains(windowsRename, forbidden) {
+			t.Fatalf("Windows retained publication regained path rename %q", forbidden)
+		}
+	}
+	otherUnix := sourceGenerationFunctionBody(t, "retained_trace_db_publication_unix_other.go", "publishSealedConversionFilePlatform")
+	if !strings.Contains(otherUnix, "unsupported on this Unix platform") {
+		t.Fatalf("unsupported Unix retained publication no longer fails closed:\n%s", otherUnix)
 	}
 }
 
