@@ -890,6 +890,9 @@ func TestProfilerSourceOrderSidecarManifestTamperPrecedesHeader(t *testing.T) {
 		{name: "physical digest", mutate: func(manifest *profilerSourceOrderSidecarManifest) {
 			manifest.digest[0] ^= 0x80
 		}},
+		{name: "terminal ledger", mutate: func(manifest *profilerSourceOrderSidecarManifest) {
+			manifest.terminal.rows.published++
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

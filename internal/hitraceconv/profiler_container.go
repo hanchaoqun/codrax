@@ -62,25 +62,26 @@ type profilerPluginDataDecode struct {
 }
 
 type profilerContainerExtraction struct {
-	Detected              bool
-	Kind                  string
-	Messages              int
-	PluginMessages        map[string]int
-	StructuredFtrace      int
-	MalformedFtrace       int
-	UnsupportedFtrace     int
-	TextPluginMessages    int
-	TextRows              int
-	StructuredRows        int
-	RejectedMessages      int
-	StandaloneDetected    bool
-	SourceFailClosed      bool
-	SourceFailReason      string
-	TraceCoverage         []TraceDBCoverage
-	Caveats               []string
-	textMessages          []profilerTextMessageRows
-	pairPublishers        []profilerPairPublisherCensus
-	profilerEventCoverage profilerFtraceEventCoverageIndexes
+	Detected                  bool
+	Kind                      string
+	Messages                  int
+	PluginMessages            map[string]int
+	StructuredFtrace          int
+	MalformedFtrace           int
+	UnsupportedFtrace         int
+	TextPluginMessages        int
+	TextRows                  int
+	StructuredRows            int
+	RejectedMessages          int
+	StandaloneDetected        bool
+	SourceFailClosed          bool
+	SourceFailReason          string
+	TraceCoverage             []TraceDBCoverage
+	Caveats                   []string
+	textMessages              []profilerTextMessageRows
+	pairPublishers            []profilerPairPublisherCensus
+	profilerPublisherCoverage profilerPublisherCoverageIndexes
+	profilerEventCoverage     profilerFtraceEventCoverageIndexes
 }
 
 type profilerTextMessageRows struct {
@@ -97,7 +98,44 @@ type profilerBoundedPhysicalLine struct {
 
 type profilerPairPublisherCensus struct {
 	coverageIndex int
+	publisherSlot profilerPairPublisherSlot
 	staged        profilerPairCensusSet
+}
+
+type profilerPublisherCoverageIndexes struct {
+	Present [profilerPairPublisherSlotCount]bool
+	Index   [profilerPairPublisherSlotCount]int
+}
+
+func (indexes *profilerPublisherCoverageIndexes) observe(
+	publisher profilerPairPublisherSlot,
+	coverageIndex int,
+) bool {
+	if indexes == nil || publisher == profilerPairPublisherNone ||
+		publisher >= profilerPairPublisherSlotCount || coverageIndex < 0 {
+		return false
+	}
+	if indexes.Present[publisher] {
+		return indexes.Index[publisher] == coverageIndex
+	}
+	for slot := profilerPairPublisherSlot(1); slot < profilerPairPublisherSlotCount; slot++ {
+		if indexes.Present[slot] && indexes.Index[slot] == coverageIndex {
+			return false
+		}
+	}
+	indexes.Present[publisher] = true
+	indexes.Index[publisher] = coverageIndex
+	return true
+}
+
+func (indexes profilerPublisherCoverageIndexes) coverageIndex(
+	publisher profilerPairPublisherSlot,
+) (int, bool) {
+	if publisher == profilerPairPublisherNone || publisher >= profilerPairPublisherSlotCount ||
+		!indexes.Present[publisher] {
+		return 0, false
+	}
+	return indexes.Index[publisher], true
 }
 
 func profilerPairCensusSetHasRows(census profilerPairCensusSet) bool {
@@ -116,7 +154,9 @@ func validateProfilerPairPublisherCensus(extraction profilerContainerExtraction,
 	byCoverage := make([]profilerPairCensusSet, len(extraction.TraceCoverage))
 	var stagedTotal profilerPairCensusSet
 	for _, publisher := range extraction.pairPublishers {
-		if publisher.coverageIndex < 0 || publisher.coverageIndex >= len(byCoverage) {
+		coverageIndex, present := extraction.profilerPublisherCoverage.coverageIndex(publisher.publisherSlot)
+		if publisher.coverageIndex < 0 || publisher.coverageIndex >= len(byCoverage) ||
+			!present || coverageIndex != publisher.coverageIndex {
 			return &traceDBOutputInvariantError{Reason: "profiler_pair_publisher_coverage_index_invalid"}
 		}
 		for _, kind := range profilerCaptureKinds {
@@ -166,6 +206,277 @@ func validateProfilerPairPublisherCensus(extraction profilerContainerExtraction,
 		if captureRows > message.total {
 			return &traceDBOutputInvariantError{Reason: "profiler_text_message_pair_rows_exceed_total"}
 		}
+	}
+	return nil
+}
+
+func profilerTerminalCountToInt(count uint64, reason string) (int, error) {
+	if count > uint64(math.MaxInt) {
+		return 0, &traceDBOutputInvariantError{Reason: reason}
+	}
+	return int(count), nil
+}
+
+func validateProfilerTerminalCoverageIndexes(
+	extraction profilerContainerExtraction,
+	terminal profilerTerminalPublicationLedger,
+) error {
+	if extraction.profilerPublisherCoverage.Present[profilerPairPublisherNone] {
+		return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_publisher_index_mismatch"}
+	}
+	for publisher := profilerPairPublisherSlot(1); publisher < profilerPairPublisherSlotCount; publisher++ {
+		rows := terminal.publishers[publisher]
+		coverageIndex, present := extraction.profilerPublisherCoverage.coverageIndex(publisher)
+		if !present {
+			if rows.staged != 0 {
+				return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_publisher_index_mismatch"}
+			}
+			continue
+		}
+		if coverageIndex < 0 || coverageIndex >= len(extraction.TraceCoverage) ||
+			extraction.TraceCoverage[coverageIndex].RowsEmitted < 0 ||
+			uint64(extraction.TraceCoverage[coverageIndex].RowsEmitted) != rows.staged {
+			return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_publisher_coverage_mismatch"}
+		}
+		for previous := profilerPairPublisherSlot(1); previous < publisher; previous++ {
+			previousIndex, previousPresent := extraction.profilerPublisherCoverage.coverageIndex(previous)
+			if previousPresent && previousIndex == coverageIndex {
+				return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_publisher_index_mismatch"}
+			}
+		}
+	}
+	for eventSlot := 0; eventSlot < profilerFtraceEventSlotCount; eventSlot++ {
+		if !extraction.profilerEventCoverage.Present[eventSlot] {
+			continue
+		}
+		coverageIndex := extraction.profilerEventCoverage.Index[eventSlot]
+		if coverageIndex < 0 || coverageIndex >= len(extraction.TraceCoverage) {
+			return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_event_coverage_index_mismatch"}
+		}
+		for previous := 0; previous < eventSlot; previous++ {
+			if extraction.profilerEventCoverage.Present[previous] &&
+				extraction.profilerEventCoverage.Index[previous] == coverageIndex {
+				return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_coverage_index_collision"}
+			}
+		}
+		for publisher := profilerPairPublisherSlot(1); publisher < profilerPairPublisherSlotCount; publisher++ {
+			publisherIndex, publisherPresent := extraction.profilerPublisherCoverage.coverageIndex(publisher)
+			if publisherPresent && publisherIndex == coverageIndex {
+				return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_coverage_index_collision"}
+			}
+		}
+	}
+	return nil
+}
+
+func validateProfilerTerminalSourceFailureProjection(
+	extraction profilerContainerExtraction,
+	sink *traceDBRowSink,
+) error {
+	if sink == nil || !extraction.SourceFailClosed || !sink.allRowsFailClosed ||
+		extraction.TextRows != 0 || extraction.StructuredRows != 0 ||
+		extraction.TextPluginMessages != 0 || sink.stats.RowsWritten != 0 ||
+		sink.stats.RowsWithheld != sink.stats.RowsAccepted {
+		return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_source_fail_close_mismatch"}
+	}
+	for _, coverage := range extraction.TraceCoverage {
+		if coverage.RowsEmitted != 0 {
+			return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_source_fail_coverage_mismatch"}
+		}
+	}
+	return nil
+}
+
+// validateProfilerTerminalPublicationParity is the C-a bridge. Customer output
+// still consumes the legacy publisher/message reconciliation in this batch;
+// the authenticated fixed terminal ledger must independently reproduce every
+// legacy projection before C-b is allowed to switch consumers.
+func validateProfilerTerminalPublicationParity(
+	extraction profilerContainerExtraction,
+	sink *traceDBRowSink,
+) error {
+	if sink == nil || sink.captureLifecycle != profilerCaptureSealed {
+		return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_parity_state_invalid"}
+	}
+	if extraction.TextPluginMessages < 0 {
+		return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_message_count_invalid"}
+	}
+	if extraction.SourceFailClosed != sink.allRowsFailClosed {
+		return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_source_fail_close_state_mismatch"}
+	}
+	if sink.stats.RowsAccepted == 0 {
+		if sink.sourceOrderSidecar.present() || sink.nextTextMessage != 0 ||
+			extraction.TextRows != 0 || extraction.StructuredRows != 0 ||
+			extraction.TextPluginMessages != 0 {
+			return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_zero_row_mismatch"}
+		}
+		if err := validateProfilerTerminalCoverageIndexes(
+			extraction, profilerTerminalPublicationLedger{},
+		); err != nil {
+			return err
+		}
+		for _, coverage := range extraction.TraceCoverage {
+			if coverage.RowsEmitted != 0 {
+				return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_zero_row_coverage_mismatch"}
+			}
+		}
+		if extraction.SourceFailClosed {
+			return validateProfilerTerminalSourceFailureProjection(extraction, sink)
+		}
+		return nil
+	}
+	if !sink.sourceOrderSidecar.present() {
+		// A registered-run/sidecar construction integrity failure deliberately
+		// produces no substitute terminal ledger. Its sole legal result is the
+		// already-sealed source-wide empty publication.
+		if extraction.SourceFailClosed && sink.captureSourceFailure != "" && sink.allRowsFailClosed {
+			return validateProfilerTerminalSourceFailureProjection(extraction, sink)
+		}
+		return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_ledger_missing"}
+	}
+	terminal := sink.sourceOrderSidecar.terminal
+	if err := sink.validateProfilerTerminalPublicationLedger(terminal); err != nil {
+		return err
+	}
+	if terminal.sourceNeutralRows != (profilerTerminalPublicationCounts{}) ||
+		terminal.publishers[profilerPairPublisherNone] != (profilerTerminalPublicationCounts{}) {
+		return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_source_neutral_row"}
+	}
+	if extraction.Kind == "openharmony_profiler_session_package" {
+		if extraction.TextPluginMessages != 0 || terminal.textMessages != (profilerTerminalTextMessageLedger{}) ||
+			terminal.structuredRows != (profilerTerminalPublicationCounts{}) {
+			return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_session_message_mismatch"}
+		}
+		for publisher := profilerPairPublisherSlot(1); publisher < profilerPairPublisherSlotCount; publisher++ {
+			if publisher != profilerPairPublisherSession &&
+				terminal.publishers[publisher] != (profilerTerminalPublicationCounts{}) {
+				return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_session_publisher_mismatch"}
+			}
+		}
+	} else if terminal.publishers[profilerPairPublisherSession] != (profilerTerminalPublicationCounts{}) {
+		return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_session_publisher_mismatch"}
+	}
+	if extraction.SourceFailClosed {
+		if terminal.rows.published != 0 {
+			return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_source_fail_close_mismatch"}
+		}
+		return validateProfilerTerminalSourceFailureProjection(extraction, sink)
+	}
+	textRows, err := profilerTerminalCountToInt(
+		terminal.textRows.published, "profiler_terminal_publication_text_rows_overflow",
+	)
+	if err != nil {
+		return err
+	}
+	structuredRows, err := profilerTerminalCountToInt(
+		terminal.structuredRows.published, "profiler_terminal_publication_structured_rows_overflow",
+	)
+	if err != nil {
+		return err
+	}
+	if textRows != extraction.TextRows || structuredRows != extraction.StructuredRows {
+		return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_row_class_parity_mismatch"}
+	}
+	for _, descriptor := range profilerPairEndpointRoster {
+		if descriptor.structuredField == 0 {
+			continue
+		}
+		counts := terminal.structuredEndpoints[descriptor.slot]
+		coverageIndex, present := extraction.profilerEventCoverage.coverageIndexForField(
+			descriptor.structuredField,
+		)
+		if !present {
+			if counts.staged != 0 {
+				return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_event_coverage_mismatch"}
+			}
+			continue
+		}
+		if coverageIndex < 0 || coverageIndex >= len(extraction.TraceCoverage) ||
+			extraction.TraceCoverage[coverageIndex].RowsEmitted < 0 ||
+			uint64(extraction.TraceCoverage[coverageIndex].RowsEmitted) != counts.staged {
+			return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_event_coverage_mismatch"}
+		}
+	}
+	if err := validateProfilerTerminalCoverageIndexes(extraction, terminal); err != nil {
+		return err
+	}
+
+	var legacyPublisher [profilerPairPublisherSlotCount][pairRenderKindCount]profilerTerminalPublicationCounts
+	for _, publisher := range extraction.pairPublishers {
+		coverageIndex, present := extraction.profilerPublisherCoverage.coverageIndex(publisher.publisherSlot)
+		if !present || coverageIndex != publisher.coverageIndex ||
+			coverageIndex < 0 || coverageIndex >= len(extraction.TraceCoverage) {
+			return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_publisher_index_mismatch"}
+		}
+		for _, kind := range profilerCaptureKinds {
+			staged := publisher.staged[kind].total
+			withheld, withheldErr := sink.withheldPairRowsFromCensusChecked(kind, publisher.staged[kind])
+			if withheldErr != nil || staged < 0 || withheld < 0 || withheld > staged {
+				return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_legacy_publisher_invalid"}
+			}
+			delta := profilerTerminalPublicationCounts{
+				staged: uint64(staged), published: uint64(staged - withheld), withheld: uint64(withheld),
+			}
+			if !addProfilerTerminalPublicationCounts(&legacyPublisher[publisher.publisherSlot][kind], delta) {
+				return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_legacy_publisher_overflow"}
+			}
+		}
+	}
+	for publisher := profilerPairPublisherSlot(1); publisher < profilerPairPublisherSlotCount; publisher++ {
+		publisherRows := terminal.publishers[publisher]
+		publisherWithheld := uint64(0)
+		for _, kind := range profilerCaptureKinds {
+			if legacyPublisher[publisher][kind] != terminal.publisherFamilies[publisher][kind] {
+				return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_publisher_parity_mismatch"}
+			}
+			if !checkedProfilerUint64AddTo(
+				&publisherWithheld, legacyPublisher[publisher][kind].withheld,
+			) {
+				return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_publisher_overflow"}
+			}
+		}
+		if publisherWithheld > publisherRows.staged ||
+			publisherRows != (profilerTerminalPublicationCounts{
+				staged: publisherRows.staged, published: publisherRows.staged - publisherWithheld,
+				withheld: publisherWithheld,
+			}) {
+			return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_publisher_verdict_mismatch"}
+		}
+	}
+
+	legacyFullyWithheld := uint64(0)
+	for _, message := range extraction.textMessages {
+		publishable := message.total
+		if publishable < 0 {
+			return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_legacy_message_invalid"}
+		}
+		for _, kind := range profilerCaptureKinds {
+			withheld, withheldErr := sink.withheldPairRowsFromCensusChecked(kind, message.staged[kind])
+			if withheldErr != nil || withheld < 0 || withheld > publishable {
+				return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_legacy_message_invalid"}
+			}
+			publishable -= withheld
+		}
+		if publishable == 0 {
+			if legacyFullyWithheld == math.MaxUint64 {
+				return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_legacy_message_overflow"}
+			}
+			legacyFullyWithheld++
+		}
+	}
+	if terminal.textMessages.pairBearing != uint64(len(extraction.textMessages)) ||
+		terminal.textMessages.fullyWithheld != legacyFullyWithheld {
+		return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_message_parity_mismatch"}
+	}
+	fullyWithheldMessages, err := profilerTerminalCountToInt(
+		legacyFullyWithheld, "profiler_terminal_publication_message_overflow",
+	)
+	if err != nil || extraction.TextPluginMessages > math.MaxInt-fullyWithheldMessages {
+		return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_message_overflow"}
+	}
+	stagedMessages := extraction.TextPluginMessages + fullyWithheldMessages
+	if uint64(stagedMessages) != terminal.textMessages.staged {
+		return &traceDBOutputInvariantError{Reason: "profiler_terminal_publication_message_count_mismatch"}
 	}
 	return nil
 }
@@ -630,6 +941,9 @@ func tryConvertProfilerContainerWithLedger(ctx context.Context, opts Options, in
 	if err := applyProfilerCaptureSourceFailure(&extracted, sink); err != nil {
 		return Result{}, true, err
 	}
+	if err := validateProfilerTerminalPublicationParity(extracted, sink); err != nil {
+		return Result{}, true, err
+	}
 	result = Result{
 		InputPath:          opts.InputPath,
 		InputBytes:         inputSize,
@@ -1011,9 +1325,14 @@ frames:
 				if !ok {
 					return false, nil
 				}
+				if !out.profilerPublisherCoverage.observe(publisherSlot, coverageIndex) {
+					return false, &traceDBOutputInvariantError{
+						Reason: "profiler_publisher_coverage_index_mismatch",
+					}
+				}
 				if profilerPairCensusSetHasRows(staged) {
 					out.pairPublishers = append(out.pairPublishers, profilerPairPublisherCensus{
-						coverageIndex: coverageIndex, staged: staged,
+						coverageIndex: coverageIndex, publisherSlot: publisherSlot, staged: staged,
 					})
 					if textMessageRows > 0 {
 						out.textMessages = append(out.textMessages, profilerTextMessageRows{
@@ -2572,8 +2891,14 @@ func extractProfilerSessionPackageWithLineLimit(ctx context.Context, path string
 			"session package did not contain directly renderable systrace text rows")
 		out.Caveats = append(out.Caveats, "session package did not contain directly renderable systrace text rows; attach extracted sidecars or export ftrace/bytrace text with the official profiler tooling")
 	}
+	coverageIndex := len(out.TraceCoverage)
+	if !out.profilerPublisherCoverage.observe(profilerPairPublisherSession, coverageIndex) {
+		return profilerContainerExtraction{}, &traceDBOutputInvariantError{
+			Reason: "profiler_session_coverage_index_mismatch",
+		}
+	}
 	out.pairPublishers = append(out.pairPublishers, profilerPairPublisherCensus{
-		coverageIndex: len(out.TraceCoverage), staged: staged,
+		coverageIndex: coverageIndex, publisherSlot: profilerPairPublisherSession, staged: staged,
 	})
 	out.TraceCoverage = append(out.TraceCoverage, coverage)
 	if out.SourceFailClosed {

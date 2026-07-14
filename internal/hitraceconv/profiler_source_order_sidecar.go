@@ -50,6 +50,7 @@ type profilerSourceOrderSidecarManifest struct {
 	digest         [sha256.Size]byte
 	producerRoot   [sha256.Size]byte
 	boundRunDigest [sha256.Size]byte
+	terminal       profilerTerminalPublicationLedger
 }
 
 func (manifest profilerSourceOrderSidecarManifest) present() bool {
@@ -73,6 +74,7 @@ type profilerSourceOrderSidecarAudit struct {
 	digest    [sha256.Size]byte
 	published uint64
 	withheld  uint64
+	terminal  profilerTerminalPublicationLedger
 }
 
 func profilerSourceOrderSidecarSize(rowCount uint64) (uint64, error) {
@@ -214,12 +216,17 @@ func profilerSourceOrderSidecarRecordUnwritten(wire []byte) bool {
 func (s *traceDBRowSink) typedProfilerSourceOrderDisposition(
 	row traceDBStoredRow,
 ) (profilerSourceOrderDisposition, error) {
+	return s.typedProfilerSourceOrderDispositionForProvenance(row.profilerProvenance())
+}
+
+func (s *traceDBRowSink) typedProfilerSourceOrderDispositionForProvenance(
+	provenance profilerPairRowProvenance,
+) (profilerSourceOrderDisposition, error) {
 	if s == nil || s.captureLifecycle == profilerCaptureInactive {
 		return profilerSourceOrderDispositionInvalid, &traceDBOutputInvariantError{
 			Reason: "profiler_source_order_disposition_state_invalid",
 		}
 	}
-	provenance := row.profilerProvenance()
 	if !provenance.valid() {
 		return profilerSourceOrderDispositionInvalid, &traceDBOutputInvariantError{
 			Reason: "profiler_row_provenance_invalid",
@@ -429,6 +436,8 @@ func (s *traceDBRowSink) validateOpenProfilerSourceOrderSidecar(
 	var step [profilerSourceOrderProofStepBytes]byte
 	page := new([profilerSourceOrderSidecarRecordPageBytes]byte)
 	audit := profilerSourceOrderSidecarAudit{}
+	terminalBuilder := profilerTerminalPublicationBuilder{}
+	var terminalErr error
 	for first := uint64(0); first < manifest.rowCount; {
 		if err := ctx.Err(); err != nil {
 			return profilerSourceOrderSidecarAudit{}, err
@@ -467,6 +476,22 @@ func (s *traceDBRowSink) validateOpenProfilerSourceOrderSidecar(
 				}
 			}
 			state = advanceProfilerSourceOrderState(state, ordinal, record.leaf, &step)
+			expectedDisposition, dispositionErr := s.typedProfilerSourceOrderDispositionForProvenance(
+				record.provenance,
+			)
+			if dispositionErr != nil {
+				return profilerSourceOrderSidecarAudit{}, dispositionErr
+			}
+			if expectedDisposition != record.disposition {
+				return profilerSourceOrderSidecarAudit{}, &traceDBOutputInvariantError{
+					Reason: "profiler_source_order_sidecar_disposition_mismatch",
+				}
+			}
+			if terminalErr == nil && !terminalBuilder.observe(record.provenance, record.disposition) {
+				terminalErr = &traceDBOutputInvariantError{
+					Reason: "profiler_terminal_publication_ledger_record_invalid",
+				}
+			}
 			if record.disposition.publishable() {
 				if audit.published == math.MaxUint64 {
 					return profilerSourceOrderSidecarAudit{}, &traceDBOutputInvariantError{
@@ -490,6 +515,24 @@ func (s *traceDBRowSink) validateOpenProfilerSourceOrderSidecar(
 			Reason: "profiler_source_order_sidecar_root_mismatch",
 		}
 	}
+	if terminalErr != nil {
+		return profilerSourceOrderSidecarAudit{}, terminalErr
+	}
+	terminal, terminalOK := terminalBuilder.finish()
+	if !terminalOK {
+		return profilerSourceOrderSidecarAudit{}, &traceDBOutputInvariantError{
+			Reason: "profiler_terminal_publication_ledger_message_invalid",
+		}
+	}
+	if err := s.validateProfilerTerminalPublicationLedger(terminal); err != nil {
+		return profilerSourceOrderSidecarAudit{}, err
+	}
+	if terminal.rows.published != audit.published || terminal.rows.withheld != audit.withheld {
+		return profilerSourceOrderSidecarAudit{}, &traceDBOutputInvariantError{
+			Reason: "profiler_terminal_publication_ledger_audit_mismatch",
+		}
+	}
+	audit.terminal = terminal
 	// Recheck the already-open file description after the complete bounded
 	// read. This is the sidecar EOF proof: an append/truncate racing the initial
 	// fstat cannot hide outside the manifest-sized hash domain.
@@ -506,6 +549,11 @@ func (s *traceDBRowSink) validateOpenProfilerSourceOrderSidecar(
 	if requireDigest && audit.digest != manifest.digest {
 		return profilerSourceOrderSidecarAudit{}, &traceDBOutputInvariantError{
 			Reason: "profiler_source_order_sidecar_digest_mismatch",
+		}
+	}
+	if requireDigest && audit.terminal != manifest.terminal {
+		return profilerSourceOrderSidecarAudit{}, &traceDBOutputInvariantError{
+			Reason: "profiler_terminal_publication_ledger_manifest_mismatch",
 		}
 	}
 	if err := ctx.Err(); err != nil {
@@ -866,6 +914,7 @@ func (s *traceDBRowSink) buildProfilerSourceOrderSidecar(ctx context.Context) er
 		return s.discardPendingProfilerSourceOrderSidecar(nil, path, size, closeErr)
 	}
 	manifest.digest = audit.digest
+	manifest.terminal = audit.terminal
 	s.sourceOrderSidecar = manifest
 	s.stats.TempBytes += int64(size)
 	s.stats.SourceSidecarLogicalBytes = size
