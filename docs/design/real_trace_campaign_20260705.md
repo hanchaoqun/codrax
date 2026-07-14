@@ -2649,3 +2649,6 @@ B1 折叠行头名 floor 直接 pin(数学六形+产线实铸压力形:同主体
 
 ### §29.61.8a 用户裁定(2026-07-14):问题 text 块自动换行防框边遮盖
 用户裁定:html 问题 text 块加自动换行宽度处理,避免被框边遮盖。落地(主会话直落):tracefence 单源 `UserRequestInfoToken`(outputdump minter 归源+preview 消费);preview 渲染臂 `pre.user-request`(typed token 精确判,禁嗅探)+CSS `white-space: pre-wrap; overflow-wrap: anywhere`(字节 verbatim 不变,纯显示换行);**网格 fence 零波及**(投影树/◎ 保 no-wrap,负向 pin);既有两 pin 按 EVOLUTION RECORD 演进(转义性质不变仅类名)。
+
+### §29.61.11 立案(用户 2026-07-14,工件 090607):优先级反转席的供给缺口成分禁压缩(INV-SUPPLY 批)
+用户裁定:优先级反转问题中若部分成因(或窗内可消除部分)来自频点没跑满,答案必须提及,不能单压缩为「优先级反转」。witness=❶ CompThread 席:有效归因 7.081=runnable 全额 0.109+running 折算 6.972,而供给折算缺口 7.296 下界为主+热限压 1.53GHz——行3 真相已全,行2 类型词单形+prose 顺词压缩=丢频点成分。**设计(三层,零 NL 判定)**:①词面——typed 主导判据(缺口折算量/有效归因≥阈值,纯 typed 比较)→行2 复合词「优先级反转候选·供给缺口主导」(「·可运行等待」更名+tri-form 先例),◎ 转录同词;②喂入——席位构成 named-fact(反转全额 X+折算 Y(缺口 Z 下界,热限压 fmax) verbatim 值链,PROSE-RC 引用式);③ELIM 面——可消除构成分杠杆(调度修复 vs 频点/热策略)。阈值=精确信号纪律定值(实现时按双 trace witness 标定);排 RSPA 收账后(display 域让路)。
