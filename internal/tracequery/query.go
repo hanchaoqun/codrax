@@ -505,6 +505,9 @@ func Run(idx *Index, q Query) Result {
 			res.CPUFrequencyCensus = census
 			res.EvidencePack = append([]EvidenceFact{census.EvidenceFact()}, res.EvidencePack...)
 		}
+		// SA-F2 (DISPATCH-IND 批4, 2026-07-14): matched-rows generator census
+		// (indexed twin of the streaming inline accumulation).
+		res.VsyncGeneratorCensus = ComputeVsyncGeneratorSearchCensus(idx, q)
 		if matchedEvents > len(res.Events) {
 			last := res.Events[len(res.Events)-1]
 			res.Compactions = append(res.Compactions, ViewCompaction{
@@ -2350,6 +2353,15 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	// that proves identity is unsafe.
 	if identityConflict == nil {
 		stats.ProcessDomainCensus = computeProcessDomainCensus(idx, q, running, windowCatalog, coreByCPU, 8, tidTgidApplied)
+	}
+	// SA-F2 (DISPATCH-IND 批4, 2026-07-14): the vsync/frame-pacing generator
+	// census — population-wide window face (no pid predicate; the query's
+	// target is usually the CONSUMER thread while the generator lives in
+	// render_service). Same identity fail-closed gate as the sibling
+	// pid-keyed census: under a declared incarnation conflict a per-PID
+	// account cannot safely merge task incarnations.
+	if identityConflict == nil {
+		stats.VsyncGeneratorCensus = ComputeVsyncGeneratorWindowCensus(idx, q)
 	}
 	if tidTgidApplied {
 		stats.Caveats = append(stats.Caveats, tidTgidDerivedCaveat)

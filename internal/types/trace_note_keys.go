@@ -1124,6 +1124,22 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// 修复轮 件2 (2026-07-13): the per-result target-wakee completeness marker.
 	{TraceNoteKeyWakeupEdgeCensusTargetWakee, "chain_path", TraceNoteCarrierSoftConsumer},
 
+	// VSync/帧节拍发生器普查族 (SA-F2, DISPATCH-IND 批4, 2026-07-14): the
+	// per-generator census notes (event/wakeup counts, the authoritative
+	// period parsed from the generator's own period print, caliber marker).
+	// Display tier today — no consumer parses them yet; promote to
+	// contract-tier constants the moment a feed/projection consumer lands.
+	{"vsync_generator_census_caliber", "vsync_census", TraceNoteCarrierDisplayOnly},
+	{"vsync_generator_census_events", "vsync_census", TraceNoteCarrierDisplayOnly},
+	{"vsync_generator_census_trace_marks", "vsync_census", TraceNoteCarrierDisplayOnly},
+	{"vsync_generator_census_woken", "vsync_census", TraceNoteCarrierDisplayOnly},
+	{"vsync_generator_census_period_prints", "vsync_census", TraceNoteCarrierDisplayOnly},
+	{"vsync_generator_census_period_ns", "vsync_census", TraceNoteCarrierDisplayOnly},
+	{"vsync_generator_census_refresh_rate", "vsync_census", TraceNoteCarrierDisplayOnly},
+	{"vsync_generator_census_identified_by", "vsync_census", TraceNoteCarrierDisplayOnly},
+	{"vsync_generator_census_first_ts", "vsync_census", TraceNoteCarrierDisplayOnly},
+	{"vsync_generator_census_last_ts", "vsync_census", TraceNoteCarrierDisplayOnly},
+
 	// 负载/约束族 (cpu load & affinity).
 	{"thread", "cpu_load", TraceNoteCarrierDisplayOnly},
 	{"threads", "cpu_load", TraceNoteCarrierDisplayOnly},

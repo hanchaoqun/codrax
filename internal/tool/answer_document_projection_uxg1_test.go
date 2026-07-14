@@ -464,6 +464,11 @@ func TestUXG1ToolAuthorityKeepsNoUncountedTableLiteral(t *testing.T) {
 		tracefence.SectionOptimizationZH, tracefence.SectionOptimizationEN,
 		tracefence.SectionDetailZH, tracefence.SectionDetailEN,
 		tracefence.SectionEvidenceZH, tracefence.SectionEvidenceEN,
+		// UX-ANCHOR 件a (2026-07-14): the projection lead-section title joined
+		// table ④ — every tool emitter (base title + the 对比总览/分区边界/
+		// 覆盖边界 compositions) derives from the constant, so the allowlist
+		// carries no residue rows for it.
+		tracefence.SectionProjectionZH, tracefence.SectionProjectionEN,
 		tracefence.AuxTreeLegendMarker, tracefence.AuxColumnGlossaryMarker,
 	}
 	literals = append(literals, tracefence.BadgeGlyphs()...)

@@ -104,6 +104,17 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 	// the scan already runs past the display limit to count matchedTotal,
 	// so the full tier ladder costs O(distinct tiers) extra memory only.
 	census := newCPUFrequencyCensusAcc(typeSet)
+	// SA-F2 (DISPATCH-IND 批4, 2026-07-14): the generator census accumulates
+	// in this same pass on the TARGET-FREE matched set (pattern/type/window
+	// arms only — the pid/thread arms are deliberately not applied, see the
+	// caliber note in vsync_generator_census.go: the generator lives outside
+	// the queried thread's process by construction, and the tool-injected
+	// runtime target blinded the census on the tieba run-2 witness). The raw
+	// prefilter is pattern-only, so generator rows are parsed regardless of
+	// the thread filter. O(generators) memory.
+	vsyncCensus := newVsyncGeneratorCensusAcc()
+	vsyncCensusQ := vsyncGeneratorCensusQuery(q)
+	vsyncCensusTargetFree := vsyncCensusQ.PID != q.PID || vsyncCensusQ.Thread != q.Thread
 	var events []EventView
 	var scan lineScan
 	for lineNo := startLine; ; lineNo++ {
@@ -210,10 +221,16 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 			flavor.observeEvent(ev)
 			platformVote.observe(ev)
 			if !eventInQuery(ev, q, typeSet, actionSet) {
+				// SA-F2 target-free census arm: a row excluded ONLY by the
+				// pid/thread filter still feeds the generator census.
+				if vsyncCensusTargetFree && eventInQuery(ev, vsyncCensusQ, typeSet, actionSet) {
+					vsyncCensus.observe(ev)
+				}
 				goto nextLine
 			}
 			matchedTotal++
 			census.observe(ev)
+			vsyncCensus.observe(ev)
 			events = insertEventViewChronological(events, eventViewFromSource(
 				applyPriorityFlavor(ev, q.TraceFlavor), trimmed, artifactSource, ev.Line), limit)
 		}
@@ -328,6 +345,8 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 		res.CPUFrequencyCensus = c
 		res.EvidencePack = append([]EvidenceFact{c.EvidenceFact()}, res.EvidencePack...)
 	}
+	// SA-F2 (DISPATCH-IND 批4, 2026-07-14): matched-rows generator census.
+	res.VsyncGeneratorCensus = vsyncCensus.finalize(VsyncGeneratorCensusCaliberMatched)
 	attachEvidenceFactProvenance(res.EvidencePack, res.TraceArtifacts)
 	res.Caveats = append(res.Caveats,
 		fmt.Sprintf("streamed_event_search=true; scanned %d line(s) without building or caching a full trace index", idx.ScannedLineCount))

@@ -3629,6 +3629,16 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		if result.WindowStats.BlockedReasonCensusOverflow > 0 {
 			fmt.Fprintf(&b, "- blocked_reason_census_overflow pids=%d (beyond the census pid cap)\n", result.WindowStats.BlockedReasonCensusOverflow)
 		}
+		// SA-F2 (DISPATCH-IND 批4, 2026-07-14): the generator census renders
+		// EARLY in the stanza beside the sibling census face — busy real-trace
+		// windows hit the banner width cliff and a tail placement never
+		// reached the model face (witness debug: the whole advisory tail was
+		// cut on the tieba window). Canonical window_stats view only — the
+		// composite views sit at the cliff already and keep the typed field
+		// in the JSON payload (CMP-8/CMP-10 width doctrine).
+		if strings.EqualFold(strings.TrimSpace(result.View), "window_stats") {
+			writeTraceVsyncGeneratorCensus(&b, result.WindowStats.VsyncGeneratorCensus)
+		}
 		for _, io := range result.WindowStats.IOLatencies {
 			fmt.Fprintf(&b, "- io_latency dev=%s op=%s sector=%d len=%d duration=%.3fms issue=%s complete=%s source=%s lines=%d-%d\n",
 				io.Dev, io.Op, io.Sector, io.Len, io.DurationMs, traceThreadLabel(io.IssueThread), traceThreadLabel(io.CompleteThread), traceQuerySourceBasename(io.SourcePath), io.IssueLine, io.CompleteLine)
@@ -3965,6 +3975,11 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			)
 		}
 		writeTraceCPUFrequencyCensus(&b, result.CPUFrequencyCensus)
+		// SA-F2 (DISPATCH-IND 批4, 2026-07-14): the matched-rows generator
+		// census renders beside the truncated Events face — the tieba
+		// witness's event_search display rows never surfaced the generator's
+		// period print.
+		writeTraceVsyncGeneratorCensus(&b, result.VsyncGeneratorCensus)
 		b.WriteString("\n")
 	}
 	if len(result.EvidencePack) > 0 {
@@ -5178,6 +5193,36 @@ func writeTraceCPUFrequencyCensus(b *strings.Builder, census *tracequery.CPUFreq
 	)
 	fmt.Fprintf(b, "- cpu_frequency_census_tiers khz×rows=%s\n",
 		tracequery.FormatCPUFrequencyCensusTiers(census.Tiers, 24))
+}
+
+// writeTraceVsyncGeneratorCensus renders the SA-F2 (DISPATCH-IND 批4,
+// 2026-07-14) vsync/frame-pacing generator census: one row per generator
+// thread with its event/wakeup counts and the authoritative period parsed
+// from the generator's own period print, plus a fixed caliber sentence
+// distinguishing the signal period from consumer callback spacing (the tieba
+// witness misread two Choreographer callbacks 124.14ms apart as the period
+// while the generator's print said 16.55ms).
+func writeTraceVsyncGeneratorCensus(b *strings.Builder, census *tracequery.VsyncGeneratorCensus) {
+	if census == nil || len(census.Threads) == 0 {
+		return
+	}
+	scope := "over ALL events in the queried window"
+	if census.Caliber == tracequery.VsyncGeneratorCensusCaliberMatched {
+		scope = "over ALL pattern-matched rows in the queried window BEFORE the chronological display truncation (thread/pid filters not applied — the generator usually lives outside the queried thread's process)"
+	}
+	fmt.Fprintf(b, "- vsync_generator_census(VSync/帧节拍发生器普查) generators=%d — census %s; a generator's own period print states the signal period; consumer callback spacing (e.g. Choreographer#onVsync intervals) measures frame pacing and may span skipped frames, so do not report it as the vsync period\n",
+		len(census.Threads), scope)
+	for _, t := range census.Threads {
+		periods := ""
+		if len(t.Periods) > 0 {
+			periods = " " + sanitizeForBanner(tracequery.FormatVsyncGeneratorPeriods(t.Periods))
+		} else if t.PeriodPrintRows == 0 {
+			periods = " period_print=none(该发生器在此范围未见周期打印)"
+		}
+		fmt.Fprintf(b, "- vsync_generator_census_thread %s events=%d trace_marks=%d woken=%d period_prints=%d%s identified_by=%s first=%.6f last=%.6f lines=%d-%d\n",
+			traceThreadLabel(t.Thread), t.EventCount, t.TraceMarkCount, t.WokenCount, t.PeriodPrintRows,
+			periods, sanitizeForBanner(t.IdentifiedBy), t.FirstTs, t.LastTs, t.FirstLine, t.LastLine)
+	}
 }
 
 func traceFrequencyResidencySummary(items []tracequery.CPUFrequencyResidency) string {
@@ -6759,6 +6804,12 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 		out = append(out, traceQueryTypedWindowStatsObservations(*result.WindowStats, ref, scope, at)...)
 		out = append(out, traceQueryTypedSemanticTraceSpanObservations(result, *result.WindowStats, ref, scope, at)...)
 	}
+
+	// SA-F2 (DISPATCH-IND 批4, 2026-07-14): the event_search-side generator
+	// census (matched_rows caliber). The window_population twin rides
+	// traceQueryTypedWindowStatsObservations; the two slots are set by
+	// disjoint view paths, so no result mints the same census twice.
+	out = append(out, traceQueryTypedVsyncGeneratorCensusObservations(result.VsyncGeneratorCensus, ref, scope, at)...)
 
 	// NEW-9 (adversarial re-review 2026-07-04): a capacity-truncated result
 	// (typed per-view compaction channel non-empty — row budgets cut the TAIL;
@@ -8416,6 +8467,86 @@ func traceQueryTypedBlockedReasonCensusObservations(stats tracequery.WindowStats
 	return out
 }
 
+// traceQueryTypedVsyncGeneratorCensusObservations mints one typed record per
+// generator thread of the SA-F2 census (DISPATCH-IND 批4, 2026-07-14). Value
+// carries the authoritative period (the generator's own period print) when
+// exactly parseable, else the event count; the full account rides the typed
+// census notes. Both calibers (window_population / matched_rows) share this
+// projector — the caliber note keeps them honest.
+func traceQueryTypedVsyncGeneratorCensusObservations(census *tracequery.VsyncGeneratorCensus, ref types.ObservationSourceRef, scope, at string) []types.ObservationRecord {
+	if census == nil {
+		return nil
+	}
+	var out []types.ObservationRecord
+	for i, t := range census.Threads {
+		if i >= traceQueryWidthTypedFamilyRowCap() {
+			break
+		}
+		thread := traceThreadLabel(t.Thread)
+		if strings.TrimSpace(thread) == "" || (t.EventCount <= 0 && t.WokenCount <= 0) {
+			continue
+		}
+		periods := tracequery.FormatVsyncGeneratorPeriods(t.Periods)
+		value := fmt.Sprintf("events=%d", t.EventCount)
+		if len(t.Periods) > 0 {
+			value = periods
+		}
+		periodNsList := make([]string, 0, len(t.Periods))
+		for _, p := range t.Periods {
+			periodNsList = append(periodNsList, fmt.Sprintf("%d", p.PeriodNs))
+		}
+		refreshRate := ""
+		for _, p := range t.Periods {
+			if p.RefreshRate > 0 {
+				refreshRate = fmt.Sprintf("%d", p.RefreshRate)
+				break
+			}
+		}
+		summary := fmt.Sprintf("vsync_generator_census %s events=%d woken=%d period_prints=%d", thread, t.EventCount, t.WokenCount, t.PeriodPrintRows)
+		if periods != "" {
+			summary += " " + periods + " — the generator's own period print states the signal period; consumer callback spacing measures frame pacing, not the vsync period"
+		}
+		notes := traceQueryTypedKVNotes([][2]string{
+			{"vsync_generator_census_caliber", census.Caliber},
+			{"vsync_generator_census_events", traceQueryTypedCount(t.EventCount)},
+			{"vsync_generator_census_trace_marks", traceQueryTypedCount(t.TraceMarkCount)},
+			{"vsync_generator_census_woken", traceQueryTypedCount(t.WokenCount)},
+			{"vsync_generator_census_period_prints", traceQueryTypedCount(t.PeriodPrintRows)},
+			{"vsync_generator_census_period_ns", strings.Join(periodNsList, ",")},
+			{"vsync_generator_census_refresh_rate", refreshRate},
+			{"vsync_generator_census_identified_by", t.IdentifiedBy},
+			{"vsync_generator_census_first_ts", traceQueryTimestampValue(t.FirstTs)},
+			{"vsync_generator_census_last_ts", traceQueryTimestampValue(t.LastTs)},
+		})
+		out = append(out, types.ObservationRecord{
+			ID:              fmt.Sprintf("trace_query:%s#vsync_generator_census:%d", scope, i+1),
+			Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "trace_query",
+			Role:            types.AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: types.ClaimGroundingHard,
+			ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+			SourceRef:       ref,
+			Span: types.ObservationSpan{
+				LineStart: t.FirstLine,
+				LineEnd:   t.LastLine,
+				StartTs:   t.FirstTs,
+				EndTs:     t.LastTs,
+			},
+			ClaimKey:    "vsync_generator_census:" + thread,
+			Subject:     thread,
+			Predicate:   "vsync_generator_census",
+			Object:      "vsync_generator",
+			Value:       value,
+			Summary:     summary,
+			RichNotes:   notes,
+			SupportRefs: traceQueryObservationSupportRefs(ref, t.FirstLine, t.LastLine),
+			ObservedAt:  at,
+			Confidence:  0.85,
+		})
+	}
+	return out
+}
+
 func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref types.ObservationSourceRef, scope, at string) []types.ObservationRecord {
 	var out []types.ObservationRecord
 
@@ -8429,6 +8560,11 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 	// ledger so the model evidence feed never re-derives it from truncated
 	// display faces (复核实锤: top-8 view + blob preview truncation).
 	out = append(out, traceQueryTypedBlockedReasonCensusObservations(stats, ref, scope, at)...)
+	// SA-F2 (DISPATCH-IND 批4, 2026-07-14): the window_population generator
+	// census — the generator-side account (thread + authoritative period
+	// print) reaches the ledger so the answer never re-derives a "period"
+	// from consumer callback spacing (tieba 124.14ms witness).
+	out = append(out, traceQueryTypedVsyncGeneratorCensusObservations(stats.VsyncGeneratorCensus, ref, scope, at)...)
 	// RN-1 (§7.9): significant runnable starvation gets its same-window
 	// occupier attribution published as a ledger observation — without it the
 	// customer's runnable-dominant report (FFRT runnable 2528ms of a 3000ms

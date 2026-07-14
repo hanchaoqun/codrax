@@ -196,6 +196,15 @@ const (
 	SectionDetailEN       = "Causal Projection Detail (full attributes per node)"
 	SectionEvidenceZH     = "证据索引"
 	SectionEvidenceEN     = "Evidence Index"
+	// SectionProjectionZH/EN — UX-ANCHOR 件a (§29.61.7, 2026-07-14): the
+	// projection LEAD section's H2 title joins the table-④ single source. The
+	// preview lead-segment decorator (markdown_trace_lead.go) uses it as the
+	// lead-scope boundary heading (E# anchor links / compact ❶..❺ badges
+	// decorate ONLY between this heading and its following projection fence);
+	// the tool-side title emitters (runtimeTraceCausalProjectionTitle + the
+	// 对比总览/分区边界/覆盖边界 composed titles) derive from the same bytes.
+	SectionProjectionZH = "Trace 因果投影"
+	SectionProjectionEN = "Trace Causal Projection"
 )
 
 // SectionOptimizationTitles / SectionDetailTitles / SectionEvidenceTitles
@@ -210,6 +219,12 @@ func SectionDetailTitles() []string {
 
 func SectionEvidenceTitles() []string {
 	return []string{SectionEvidenceZH, SectionEvidenceEN}
+}
+
+// SectionProjectionTitles returns the projection lead-section zh/en closed
+// heading set (UX-ANCHOR 件a lead-scope boundary).
+func SectionProjectionTitles() []string {
+	return []string{SectionProjectionZH, SectionProjectionEN}
 }
 
 // --- Table ⑥ WF-xn merge-count family words (§29.52.1, 2026-07-12) -------------

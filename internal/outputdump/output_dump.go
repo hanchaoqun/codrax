@@ -159,18 +159,26 @@ func FileName(now time.Time, pid int) string {
 // contract the file carries H1 request/answer sections. Attachments
 // surface as a compact typed table when source metadata is available,
 // otherwise as legacy quoted footnote lines under the request.
+//
+// UX-ANCHOR 件d (§29.61.7 user ruling, 2026-07-14): the 问题 section is the
+// customer's own input echoed back — it renders as a VERBATIM text fence,
+// never as markdown. A request written with #/*/_/```/<tag> markup used to
+// re-render as headings/emphasis/raw-HTML in the dump; now the md face
+// carries the raw bytes inside a content-aware backtick fence and the HTML
+// face falls out as one escaped <pre> (the injection surface closes with it).
 func BuildBody(a Args) string {
 	var b strings.Builder
 	labels := dumpLabels(a.Language)
 	b.WriteString("# ")
 	b.WriteString(labels.Question)
 	b.WriteString("\n\n")
-	req := strings.TrimRight(a.Request, "\n")
-	if req == "" {
-		req = labels.Empty
+	if req := a.Request; strings.TrimRight(req, "\n") == "" {
+		b.WriteString(labels.Empty)
+		b.WriteString("\n")
+	} else {
+		b.WriteString(questionVerbatimFence(req))
+		b.WriteString("\n")
 	}
-	b.WriteString(req)
-	b.WriteString("\n")
 	if len(a.RuntimeArtifacts) > 0 {
 		b.WriteString("\n## ")
 		b.WriteString(labels.RuntimeArtifacts)
@@ -201,6 +209,54 @@ func BuildBody(a Args) string {
 	b.WriteString(ans)
 	b.WriteString("\n")
 	return b.String()
+}
+
+// questionFenceInfoToken is the typed second info token on the 问题 verbatim
+// fence ("```text codrax-user-request"). It exists so the HTML renderer can
+// never re-interpret customer input: with a non-bare info string the preview
+// face skips BOTH content-sniffing lanes (mermaid body sniffing requires a
+// bare "text" info; the trace-projection classifier treats any explicit
+// non-projection token as a typed non-projection claim) and the fence falls
+// through to the plain escaped <pre> arm.
+const questionFenceInfoToken = "codrax-user-request"
+
+// questionVerbatimFence wraps the raw request bytes in a backtick text fence.
+// Fence-collision protection is content-aware: the fence is one backtick
+// LONGER than the longest backtick run anywhere in the request (minimum 3),
+// so no request line can close the fence early. The body is byte-verbatim;
+// only a terminating newline is appended when the request lacks one (the
+// closing fence needs its own line).
+func questionVerbatimFence(request string) string {
+	fence := strings.Repeat("`", questionFenceLength(request))
+	var b strings.Builder
+	b.WriteString(fence)
+	b.WriteString("text ")
+	b.WriteString(questionFenceInfoToken)
+	b.WriteString("\n")
+	b.WriteString(request)
+	if !strings.HasSuffix(request, "\n") {
+		b.WriteString("\n")
+	}
+	b.WriteString(fence)
+	return b.String()
+}
+
+func questionFenceLength(request string) int {
+	longest, run := 0, 0
+	for i := 0; i < len(request); i++ {
+		if request[i] == '`' {
+			run++
+			if run > longest {
+				longest = run
+			}
+		} else {
+			run = 0
+		}
+	}
+	if longest+1 > 3 {
+		return longest + 1
+	}
+	return 3
 }
 
 type dumpTextLabels struct {

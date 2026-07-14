@@ -72,6 +72,9 @@ func RenderMarkdownHTML(markdown []byte) (string, error) {
 				util.Prioritized(rawHTMLLiteralRenderer{}, 500),
 				util.Prioritized(auxRefRenderer{}, 500),
 				util.Prioritized(traceAuditSectionRenderer{}, 500),
+				// UX-ANCHOR 件a/件b: lead-segment E# anchor links + compact
+				// ❶..❺ body badges (markdown_trace_lead.go).
+				util.Prioritized(traceLeadRefRenderer{}, 500),
 			),
 		),
 	)
@@ -198,10 +201,21 @@ func isTraceCausalProjectionFence(info, body string) bool {
 	if !strings.EqualFold(firstInfoToken(info), "text") {
 		return false
 	}
-	if secondInfoToken(info) == tracefence.InfoToken {
+	switch secondInfoToken(info) {
+	case tracefence.InfoToken:
 		return true
+	case "":
+		// Bare "```text" is the pre-token ARCHIVE shape — the demoted
+		// content-sniffing lane exists exactly for it.
+		return isLegacyTraceCausalProjectionBody(body)
+	default:
+		// UX-ANCHOR 件d⑤ (§29.61.7, 2026-07-14): a fence carrying an explicit
+		// OTHER second token is a typed non-projection claim minted after the
+		// token era (e.g. the output-dump 问题节 verbatim fence) — it is never
+		// an archive, so the legacy body sniff must not reclassify pasted
+		// report fragments inside it.
+		return false
 	}
-	return isLegacyTraceCausalProjectionBody(body)
 }
 
 // isTraceElimOverviewFence recognizes the ◎ 窗内可消除量总览 fence minted by

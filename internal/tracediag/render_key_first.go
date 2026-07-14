@@ -618,7 +618,13 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// path keeps its own copy, so no run ever carries two). Generic detail
 	// rendering (small typed account, no bulk lane, no dup channel) — same
 	// treatment as the bundle copy; hash re-pinned after review.
-	reflect.TypeOf(tracequery.Result{}): "7b9d88f0f8d28c4b39d5587ae867b1bd0ba323e0055eaeb3397d51eb2604837a",
+	// SA-F2 (DISPATCH-IND 批4, 2026-07-14) schema review (R2' 第 7 处):
+	// Result gained VsyncGeneratorCensus (event_search matched-rows caliber
+	// — per-generator counts + authoritative period-print parse). Key-first
+	// adjudication: small typed detail rows, no Caveats/Compactions channel
+	// to dedupe, no bulk lane, no priority override — generic detail
+	// rendering, CPUFrequencyCensus 同构; hash re-pinned after review.
+	reflect.TypeOf(tracequery.Result{}): "640412bb55af4aad8d1a13ea2e364e39d2fb7d49901da411a72f043c3b84bdeb",
 	// 修复轮二 件A (2026-07-13) schema review: WindowStats gained the
 	// per-lane cap-overflow disclosure quartet
 	// (DStateTopOverflowGroups/-Ms, IOWaitTopOverflowGroups/-Ms — scalar
@@ -631,7 +637,14 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// disclosure scalar). Key-first adjudication: small typed detail rows
 	// with explicit overflow scalars — no bulk lane, no dup channel, no
 	// priority override; hash re-pinned after review.
-	reflect.TypeOf(tracequery.WindowStats{}):                "d5baa758950ca25167c64d2e0e82ccef172ca9f9c4aa15fd0c1ccd3d0d20b38a",
+	// SA-F2 (DISPATCH-IND 批4, 2026-07-14) schema review (R2' 第 7 处):
+	// WindowStats gained VsyncGeneratorCensus (window_population caliber —
+	// per-generator event/wakeup counts + authoritative period-print parse;
+	// population-wide, no pid predicate). Key-first adjudication: small
+	// typed detail rows, no Caveats/Compactions channel to dedupe, no bulk
+	// lane, no priority override — generic detail rendering, blocked_reason
+	// census 同构; hash re-pinned after review.
+	reflect.TypeOf(tracequery.WindowStats{}):                "0693cee07ece1cb21b5de53312af1776eb1478b903dab9b874b84a794c62e17f",
 	reflect.TypeOf(tracequery.TimelineResult{}):             "ec28f82b56a2e1b64cdfde5e0b6a4769886b32df15dc7a99250ec0da16dacc3a",
 	reflect.TypeOf(tracequery.TraceCounterQualitySummary{}): "e3bead6ff4a3c2e7f9d24487c5905f3594b219505afc106d95af9cfd9c552c2d",
 	reflect.TypeOf(tracequery.PerfQualitySummary{}):         "72c447267958bb72db82ab1e807135761cbea3caf60bf09f040a8f451476972a",

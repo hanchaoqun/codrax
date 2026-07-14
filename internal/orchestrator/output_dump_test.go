@@ -18,7 +18,9 @@ func TestBuildOutputDumpBody_TwoSections(t *testing.T) {
 		request: "panic source",
 		answer:  "Section A\n\nSection B",
 	})
-	if !strings.Contains(body, "# 问题\n\npanic source\n") {
+	// UX-ANCHOR 件d (§29.61.7): the 问题 section echoes the request as a
+	// verbatim text fence (customer input is never re-rendered as markdown).
+	if !strings.Contains(body, "# 问题\n\n```text codrax-user-request\npanic source\n```\n") {
 		t.Fatalf("missing 问题 section:\n%s", body)
 	}
 	if !strings.Contains(body, "# 回答\n\nSection A\n\nSection B\n") {
@@ -195,7 +197,7 @@ func TestWriteFinalOutputDump_EndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected file %s: %v", want, err)
 	}
-	if !strings.Contains(string(got), "# 问题\n\nwhat does X do") {
+	if !strings.Contains(string(got), "# 问题\n\n```text codrax-user-request\nwhat does X do") {
 		t.Fatalf("body missing 问题 section:\n%s", got)
 	}
 	if !strings.Contains(string(got), "# 回答\n\nX does Y.\n") {
@@ -303,7 +305,7 @@ func TestRecordTaskFinalizeUsesExpandedTranscriptRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read markdown dump %s: %v", path, err)
 	}
-	if !strings.Contains(string(body), "# 问题\n\n"+expanded) ||
+	if !strings.Contains(string(body), "# 问题\n\n```text codrax-user-request\n"+expanded) ||
 		!strings.Contains(string(body), "# 回答\n\nanswer body") {
 		t.Fatalf("markdown dump did not use expanded request:\n%s", body)
 	}
@@ -349,10 +351,10 @@ func TestRecordTaskFinalizeUsesRunScopedTranscriptOverStaleSetter(t *testing.T) 
 		t.Fatalf("read markdown dump %s: %v", path, err)
 	}
 	text := string(body)
-	if !strings.Contains(text, "# 问题\n\n"+secondTurn+"\n") {
+	if !strings.Contains(text, "# 问题\n\n```text codrax-user-request\n"+secondTurn+"\n```\n") {
 		t.Fatalf("markdown dump did not use current run transcript request:\n%s", text)
 	}
-	if strings.Contains(text, "# 问题\n\n"+firstTurn+"\n") {
+	if strings.Contains(text, "# 问题\n\n```text codrax-user-request\n"+firstTurn+"\n```\n") {
 		t.Fatalf("markdown dump leaked stale first-turn request:\n%s", text)
 	}
 

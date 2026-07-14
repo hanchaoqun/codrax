@@ -639,6 +639,22 @@ pre.trace-projection-tree .trace-action-token { display: inline-block; height: 1
 pre.trace-projection-tree .trace-action-width-6 { width: 6ch; min-width: 6ch; }
 pre.trace-projection-tree .trace-action-width-18 { width: 18ch; min-width: 18ch; }
 pre.trace-projection-tree:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+/* UX-ANCHOR 件b/件c (§29.61.7, 2026-07-14) — lead-prose decorations, OUTSIDE
+   the fence scope (the tree pill above is untouched).
+   件b: TOP-5 seat badge glyphs in the lead prose wear a COMPACT badge form —
+   0.85em, unbolded, line-height 1 so the body line box never stretches; the
+   shared per-rank color pair keeps the seat identity readable without the
+   2ch envelope.
+   件c: lead E# anchor links keep the page link color (global a rule) plus a
+   dotted underline that solidifies on hover — visibly navigable in prose. */
+.trace-lead-badge { display: inline-block; font-family: var(--font-symbols); font-size: .85em; font-weight: 400; line-height: 1; padding: .06em .16em; border-radius: .28em; vertical-align: baseline; font-synthesis: none; font-variant-emoji: text; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+.trace-lead-badge.trace-rank-1 { color: var(--rank-1-fg); background: var(--rank-1-bg); }
+.trace-lead-badge.trace-rank-2 { color: var(--rank-2-fg); background: var(--rank-2-bg); }
+.trace-lead-badge.trace-rank-3 { color: var(--rank-3-fg); background: var(--rank-3-bg); }
+.trace-lead-badge.trace-rank-4 { color: var(--rank-4-fg); background: var(--rank-4-bg); }
+.trace-lead-badge.trace-rank-5 { color: var(--rank-5-fg); background: var(--rank-5-bg); }
+a.trace-eref-lead { font-family: var(--font-mono); font-size: .92em; white-space: nowrap; text-decoration: underline dotted; text-underline-offset: .18em; }
+a.trace-eref-lead:hover { text-decoration-style: solid; }
 table { border-collapse: collapse; width: max-content; max-width: 100%; overflow: auto; overscroll-behavior-x: contain; display: block; font-size: .925em; line-height: 1.52; }
 th, td { border: 1px solid var(--line); padding: 6px 10px; }
 th { background: var(--code); font-weight: 650; }

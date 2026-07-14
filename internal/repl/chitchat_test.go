@@ -82,7 +82,7 @@ func TestChitchat_WritesMarkdownAndPreview(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read chitchat dump %q: %v", preview.path, err)
 	}
-	if body := string(data); !strings.Contains(body, "# Question\n\ndraw it\n") ||
+	if body := string(data); !strings.Contains(body, "# Question\n\n```text codrax-user-request\ndraw it\n```\n") ||
 		!strings.Contains(body, "# Answer\n\n```mermaid\nflowchart LR") {
 		t.Fatalf("chitchat dump body missing request/answer:\n%s", body)
 	}

@@ -792,6 +792,14 @@ type Result struct {
 	// rows. Additive only — nil whenever the Events face already shows every
 	// matched cpu_frequency row.
 	CPUFrequencyCensus *CPUFrequencyCensus `json:"cpu_frequency_census,omitempty"`
+	// VsyncGeneratorCensus (SA-F2, DISPATCH-IND 批4, 2026-07-14) is the
+	// event_search-side vsync/frame-pacing generator account: per-generator
+	// event/wakeup counts + the authoritative period parsed from the
+	// generator's own period print, aggregated over ALL matched rows in the
+	// SAME match pass BEFORE the chronological display cap (matched_rows
+	// caliber; the window_stats face carries the window_population twin).
+	// Additive only — nil when no generator row matched.
+	VsyncGeneratorCensus *VsyncGeneratorCensus `json:"vsync_generator_census,omitempty"`
 	EvidencePack       []EvidenceFact      `json:"evidence_pack,omitempty"`
 	Caveats            []string            `json:"caveats,omitempty"`
 	// Compactions are the typed truncation records for this result (E4).
@@ -1097,6 +1105,14 @@ type WindowStats struct {
 	// (TopRunning / ThreadCPULoad / ProcessCPULoad) are byte-untouched. Nil
 	// when the query names no pid/thread or the process is unresolvable.
 	ProcessDomainCensus *ProcessDomainCensus `json:"process_domain_census,omitempty"`
+	// VsyncGeneratorCensus (SA-F2, DISPATCH-IND 批4, 2026-07-14) is the
+	// window_population-caliber vsync/frame-pacing generator account:
+	// per-generator event/wakeup counts + the authoritative period parsed
+	// from the generator's own period print, aggregated over EVERY event in
+	// the selected window (population-wide, same admission as the other
+	// window faces — no pid predicate). Additive only — nil when no
+	// generator thread was sighted in the window.
+	VsyncGeneratorCensus *VsyncGeneratorCensus `json:"vsync_generator_census,omitempty"`
 	// ComputeSupplyBalance is the CMP-10 (§7.4) true supply-side metric:
 	// frequency-weighted delivered compute Σ(running×f/fmax) against the
 	// nominal capacity (window×cpus), with the supply-gap three-way

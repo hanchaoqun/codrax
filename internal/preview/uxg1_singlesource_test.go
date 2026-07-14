@@ -39,6 +39,7 @@ func uxg1TableLiterals() []string {
 	out = append(out, tracefence.SectionOptimizationTitles()...) // table ④ headings
 	out = append(out, tracefence.SectionDetailTitles()...)
 	out = append(out, tracefence.SectionEvidenceTitles()...)
+	out = append(out, tracefence.SectionProjectionTitles()...) // UX-ANCHOR 件a lead boundary
 	out = append(out, tracefence.AuxRefMarkers()...) // table ⑤ aux markers
 	// fence-head table (P0-landed single source, same discipline).
 	out = append(out, tracefence.RootGlyph, tracefence.InfoToken)

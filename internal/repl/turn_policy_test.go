@@ -1877,7 +1877,7 @@ func TestTurnPolicyDispatch_LocalTransformWritesMarkdownAndPreview(t *testing.T)
 		t.Fatalf("read local dump %q: %v", preview.path, err)
 	}
 	body := string(data)
-	if !strings.Contains(body, "# Question\n\n换成时序图\n") ||
+	if !strings.Contains(body, "# Question\n\n```text codrax-user-request\n换成时序图\n```\n") ||
 		!strings.Contains(body, "# Answer\n\n```mermaid\nsequenceDiagram\n") ||
 		!strings.Contains(body, "Explorer->>Runtime: propose") {
 		t.Fatalf("local dump body missing request/answer:\n%s", body)

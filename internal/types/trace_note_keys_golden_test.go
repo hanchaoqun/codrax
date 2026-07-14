@@ -394,6 +394,18 @@ var traceNoteKeyGoldenRows = []string{
 	"value|plugin|display_only",
 	"vector|interrupt|display_only",
 	"verdict|cpu_load|display_only",
+	// SA-F2 (DISPATCH-IND 批4, 2026-07-14): per-generator vsync/frame-pacing
+	// census notes (display tier — no consumer parses them yet).
+	"vsync_generator_census_caliber|vsync_census|display_only",
+	"vsync_generator_census_events|vsync_census|display_only",
+	"vsync_generator_census_first_ts|vsync_census|display_only",
+	"vsync_generator_census_identified_by|vsync_census|display_only",
+	"vsync_generator_census_last_ts|vsync_census|display_only",
+	"vsync_generator_census_period_ns|vsync_census|display_only",
+	"vsync_generator_census_period_prints|vsync_census|display_only",
+	"vsync_generator_census_refresh_rate|vsync_census|display_only",
+	"vsync_generator_census_trace_marks|vsync_census|display_only",
+	"vsync_generator_census_woken|vsync_census|display_only",
 	"wait_object|blocking|display_only",
 	"waiters|blocking|hard_consumer",
 	"wakee_priority|chain_path|display_only",

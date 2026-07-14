@@ -88,46 +88,56 @@ func (traceEvidenceAnchorTransformer) Transform(doc *ast.Document, reader text.R
 			}
 		}
 	}
-	if len(fences) == 0 || (len(details) == 0 && len(evidences) == 0) {
+	if len(fences) == 0 {
 		return
 	}
-	if len(details) > 0 && len(details) != len(fences) {
-		return
-	}
-	if len(evidences) > 0 && len(evidences) != len(fences) {
-		return
-	}
+	// UX-ANCHOR 件a (§29.61.7, 2026-07-14): the count-identity bail no longer
+	// returns before the lead walk — pairings stays nil-filled instead, so the
+	// LINK lanes (fence writer + lead decorator) degrade to plain text whole
+	// (fail-closed, a wrong link is worse than none) while the lead's compact
+	// ❶..❺ badge styling (件b — presentation only, no target to dangle) keeps
+	// working off the fence-anchored lead scope.
 	pairings := make([]*traceAnchorPairing, len(fences))
-	for k, fence := range fences {
-		prefix := "trace-"
-		if len(fences) > 1 {
-			prefix = fmt.Sprintf("trace-g%d-", k+1)
+	paired := (len(details) > 0 || len(evidences) > 0) &&
+		(len(details) == 0 || len(details) == len(fences)) &&
+		(len(evidences) == 0 || len(evidences) == len(fences))
+	if paired {
+		for k, fence := range fences {
+			prefix := "trace-"
+			if len(fences) > 1 {
+				prefix = fmt.Sprintf("trace-g%d-", k+1)
+			}
+			// Claim targets FIRST, then stamp the fence with the claimed set —
+			// the writer links exactly the ordinals that own an id (F5).
+			seen := map[int]bool{}
+			if len(details) > 0 {
+				traceAnchorMarkTargets(details[k], source, prefix, seen)
+			}
+			if len(evidences) > 0 {
+				traceAnchorMarkTargets(evidences[k], source, prefix, seen)
+			}
+			pairings[k] = &traceAnchorPairing{prefix: prefix, claimed: seen}
+			fence.SetAttributeString(traceAnchorPrefixAttr, pairings[k])
 		}
-		// Claim targets FIRST, then stamp the fence with the claimed set —
-		// the writer links exactly the ordinals that own an id (F5).
-		seen := map[int]bool{}
-		if len(details) > 0 {
-			traceAnchorMarkTargets(details[k], source, prefix, seen)
+		// ◎ overview fences link through their host tree fence's pairing (same
+		// claimed set — never a fresh id namespace, never a dangling link). Host
+		// = the FOLLOWING projection fence (the overview leads its section, user
+		// ruling 2026-07-13); a trailing overview keeps the preceding fence.
+		for fence, before := range elimSeen {
+			host := before
+			if host >= len(pairings) {
+				host = len(pairings) - 1
+			}
+			if host >= 0 && host < len(pairings) && pairings[host] != nil {
+				fence.SetAttributeString(traceAnchorPrefixAttr, pairings[host])
+			}
 		}
-		if len(evidences) > 0 {
-			traceAnchorMarkTargets(evidences[k], source, prefix, seen)
-		}
-		pairings[k] = &traceAnchorPairing{prefix: prefix, claimed: seen}
-		fence.SetAttributeString(traceAnchorPrefixAttr, pairings[k])
 	}
-	// ◎ overview fences link through their host tree fence's pairing (same
-	// claimed set — never a fresh id namespace, never a dangling link). Host
-	// = the FOLLOWING projection fence (the overview leads its section, user
-	// ruling 2026-07-13); a trailing overview keeps the preceding fence.
-	for fence, before := range elimSeen {
-		host := before
-		if host >= len(pairings) {
-			host = len(pairings) - 1
-		}
-		if host >= 0 && host < len(pairings) && pairings[host] != nil {
-			fence.SetAttributeString(traceAnchorPrefixAttr, pairings[host])
-		}
-	}
+	// UX-ANCHOR 件a/件b (§29.61.7): decorate each projection section's LEAD
+	// segment (the generator prose between the section's H2 heading and its
+	// tree fence) — E# refs become in-page links on the SAME claimed pairing,
+	// ❶..❺ glyphs wear the compact body badge. See markdown_trace_lead.go.
+	decorateTraceProjectionLeadSegments(doc, source, fences, elimSeen, pairings)
 }
 
 // traceAnchorMarkTargets assigns id attributes inside one detail/evidence

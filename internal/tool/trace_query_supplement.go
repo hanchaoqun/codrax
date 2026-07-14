@@ -380,6 +380,172 @@ type traceSupplementCallParams struct {
 	Platform     string  `json:"platform,omitempty"`
 }
 
+// traceSupplementCensusLiteParams is the C-lite call shape (SA-F2 批4,
+// 2026-07-14): a WINDOWLESS whole-trace event_search — time bounds are
+// deliberately absent (omitting the fields keeps Execute's optional-window
+// semantics; a literal 0 would be a claimed bound).
+type traceSupplementCensusLiteParams struct {
+	View         string `json:"view"`
+	Pattern      string `json:"pattern"`
+	TraceFlavor  string `json:"trace_flavor,omitempty"`
+	CoreTopology string `json:"core_topology,omitempty"`
+	Platform     string `json:"platform,omitempty"`
+}
+
+// traceSupplementCensusLitePattern is the C-lite literal search token: the
+// event_search pattern is a case-insensitive literal substring, and the
+// survey-derived generator signals (VSyncGenerator comm, hwc_vsync_threa
+// comm, GenerateVsyncCount period print) all carry it, as do the consumer
+// callbacks — one token covers the whole family's matched set.
+const traceSupplementCensusLitePattern = "vsync"
+
+// traceSupplementVsyncFamilyHit reports whether the request's TYPED analyzer
+// keyword/entity face names the vsync/frame family (SA-F2 批4 "命中 VSync/帧类
+// family" gate). Reads only analyzer-emitted typed lists (never RawRequest);
+// precise verbatim tokens:
+//   - substring hits: unambiguous family words (a keyword CONTAINING them is
+//     family-scoped by construction);
+//   - exact hits: short words whose substring form would false-fire
+//     ("frame" ⊂ "framework", "帧" is kept exact-or-compound via the
+//     substring list's compound forms).
+func traceSupplementVsyncFamilyHit(ctx *types.BusContext) bool {
+	if ctx == nil {
+		return false
+	}
+	var terms []string
+	collect := func(rm *types.RequestModel) {
+		if rm == nil {
+			return
+		}
+		terms = append(terms, rm.AnalyzerHints.Keywords...)
+		terms = append(terms, rm.AnalyzerHints.Entities...)
+		terms = append(terms, rm.AnalyzerHints.PrimaryEntities...)
+	}
+	if ctx.AnalysisIR != nil {
+		collect(&ctx.AnalysisIR.RequestModel)
+	}
+	if ctx.Mutable != nil {
+		collect(ctx.Mutable.RequestModel())
+	}
+	// 修复轮 件4 (P3, 2026-07-14):「卡顿」moved OUT of the exact set — bare
+	// 卡顿 is the generic stutter word (IO/lock/GC stutter questions all
+	// carry it) and would false-arm the vsync census scan on non-frame
+	// questions; genuine frame-stutter analyzer keyword lists carry a frame
+	// word (掉帧/帧率/卡帧/vsync/…) that the substring family already hits.
+	substrings := []string{"vsync", "choreographer", "doframe", "垂直同步", "掉帧", "丢帧", "跳帧", "帧率", "帧节拍", "卡帧", "jank"}
+	exact := map[string]bool{"frame": true, "frames": true, "帧": true}
+	for _, term := range terms {
+		lower := strings.ToLower(strings.TrimSpace(term))
+		if lower == "" {
+			continue
+		}
+		if exact[lower] {
+			return true
+		}
+		for _, token := range substrings {
+			if strings.Contains(lower, token) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// traceSupplementObservationsCarryVsyncCensus reports whether any of the
+// given records carries the SA-F2 generator-census predicate (the C-lite
+// absence gate's precise signal — 修复轮 件2, 2026-07-14).
+func traceSupplementObservationsCarryVsyncCensus(records []types.ObservationRecord) bool {
+	for _, record := range records {
+		if strings.TrimSpace(record.Predicate) == "vsync_generator_census" {
+			return true
+		}
+	}
+	return false
+}
+
+// traceSupplementResultsCarryVsyncCensus is the ToolResult-set form of the
+// census-presence signal.
+func traceSupplementResultsCarryVsyncCensus(results []types.ToolResult) bool {
+	for _, result := range results {
+		if traceSupplementObservationsCarryVsyncCensus(result.Observations) {
+			return true
+		}
+	}
+	return false
+}
+
+// traceSupplementExecuteCensusLite runs the SA-F2 批4 C-lite pass: ONE
+// windowless whole-trace streaming event_search (single-pass scan, zero heavy
+// views) minting the generator census. Fail-open everywhere: any gate/engine
+// failure — or a scan that produced no census record (never a claim of
+// absence: an unmatched scan is data coverage, not device behavior) — returns
+// ok=false and the caller's lane stands unchanged. The caller owns the
+// Begin/End execution bracket and the meta/results bookkeeping.
+func traceSupplementExecuteCensusLite(ctx *types.BusContext, path, laneReason string) (types.ToolResult, time.Duration, bool) {
+	// The pass is one streaming scan over the trace file; the cold byte
+	// budget bounds it the same way it bounds the full supplement's cold
+	// lane.
+	if info, err := os.Stat(path); err == nil && info.Size() > traceSupplementMaxColdBytes {
+		logging.Warning("[trace_supplement] census-lite skip reason=cold_budget_exceeded size=%d budget=%d path=%s", info.Size(), traceSupplementMaxColdBytes, path)
+		return types.ToolResult{}, 0, false
+	}
+	params := traceSupplementCensusLiteParams{
+		View:    "event_search",
+		Pattern: traceSupplementCensusLitePattern,
+	}
+	raw, err := json.Marshal(params)
+	if err != nil {
+		logging.Warning("[trace_supplement] census-lite params marshal failed: %v", err)
+		return types.ToolResult{}, 0, false
+	}
+	start := time.Now()
+	result, execErr := (&TraceQuery{}).Execute(ctx, raw)
+	elapsed := time.Since(start)
+	if execErr != nil {
+		logging.Warning("[trace_supplement] census-lite view=event_search failed elapsed=%s err=%v", elapsed.Round(time.Millisecond), execErr)
+		return types.ToolResult{}, elapsed, false
+	}
+	if !result.Success {
+		logging.Warning("[trace_supplement] census-lite view=event_search rejected by engine elapsed=%s (not counted, not disclosed): %s",
+			elapsed.Round(time.Millisecond), traceSupplementSummaryHead(result.Summary))
+		return types.ToolResult{}, elapsed, false
+	}
+	if !traceSupplementObservationsCarryVsyncCensus(result.Observations) {
+		logging.Info("[trace_supplement] census-lite view=event_search found no generator census (lane=%s stands; output unchanged)", laneReason)
+		return types.ToolResult{}, elapsed, false
+	}
+	ctx.Mutable.RegisterTraceQueryBlobRefsFromToolResult(result)
+	return result, elapsed, true
+}
+
+// runTraceSupplementCensusLite is the STANDALONE C-lite arm (SA-F2 批4 +
+// 修复轮 件2, 2026-07-14): invoked on every lane where the FULL windowed
+// supplement did not store results — the derivation-failure family (S13: no
+// typed target / no typed window / inconsistent windows), the healthy
+// families_present no-op, and the execution_failed lane. The trigger gate
+// (vsync-family keywords hit ∧ census family absent from the compiled ledger)
+// is the CALLER's censusLiteWanted signal; this helper runs the pass and
+// stores a lite-only supplement (meta.Views empty — no windowed view ran).
+func runTraceSupplementCensusLite(ctx *types.BusContext, path, sourceLabel, laneReason string, out *TraceQuerySupplementOutcome) bool {
+	ctx.Mutable.BeginSystemTraceSupplementExecution()
+	defer ctx.Mutable.EndSystemTraceSupplementExecution()
+	result, elapsed, ok := traceSupplementExecuteCensusLite(ctx, path, laneReason)
+	if !ok {
+		return false
+	}
+	meta := types.SystemTraceSupplementMeta{
+		CensusLite:        true,
+		CensusLitePattern: traceSupplementCensusLitePattern,
+		ElapsedMS:         elapsed.Milliseconds(),
+	}
+	ctx.Mutable.SetSystemTraceSupplement(meta, []types.ToolResult{result})
+	logging.Info("[trace_supplement] census-lite executed view=event_search pattern=%s elapsed=%s source=%s (windowless single-pass generator census; lane=%s)",
+		traceSupplementCensusLitePattern, elapsed.Round(time.Millisecond), sourceLabel, laneReason)
+	out.Executed = []string{"event_search"}
+	out.Elapsed = elapsed
+	return true
+}
+
 // traceSupplementSummaryHead returns the reject summary's first line,
 // capped, for the operator WARN line.
 func traceSupplementSummaryHead(summary string) string {
@@ -451,22 +617,49 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 	// Family detection runs on the SAME compiled ledger the renderer
 	// consumes (single value source for presence/absence).
 	input := types.ObservationLedgerInputFromBusContext(ctx, types.ObservationExtractLedgerEvidenceLimit)
-	families := traceSupplementFamilies(types.CompileObservationLedger(input))
+	preLedger := types.CompileObservationLedger(input)
+	families := traceSupplementFamilies(preLedger)
 	views := traceSupplementViews(families)
+	// SA-F2 批4 C-lite trigger gate (修复轮 件2 扩形, 2026-07-14): vsync/frame
+	// family keywords hit (typed analyzer face) ∧ the generator-census family
+	// is ABSENT from the compiled ledger. The arm fires on EVERY lane where
+	// the census would otherwise stay absent — derivation failures (S13),
+	// the healthy families_present no-op (run-1 cold-read residual: the
+	// model's own windowed dispatches minted the core families but none of
+	// its searches matched a generator row), the span-budget skip, the
+	// execution_failed lane, and the windowed success path whose executed
+	// views did not mint the census. A ledger that already carries the
+	// census keeps every lane byte-identical.
+	censusLiteWanted := traceSupplementVsyncFamilyHit(ctx) &&
+		!traceSupplementObservationsCarryVsyncCensus(preLedger.Records)
 	if len(views) == 0 {
+		if censusLiteWanted && runTraceSupplementCensusLite(ctx, path, sourceLabel, "families_present", &out) {
+			return out
+		}
 		return skip("families_present")
 	}
 	target, targetSource, ok := traceSupplementDeriveTarget(ctx)
 	if !ok {
+		// The windowless census arm covers the derivation-failure family (no
+		// target / no window / inconsistent windows) — a full re-run is
+		// impossible, but a single-pass generator census needs neither
+		// target nor window.
+		if censusLiteWanted && runTraceSupplementCensusLite(ctx, path, sourceLabel, "no_typed_target", &out) {
+			return out
+		}
 		return skip("no_typed_target")
 	}
 	callWindows := ctx.Mutable.TraceQueryCallWindows()
 	window, ok := traceSupplementDeriveWindow(callWindows)
 	if !ok {
+		reason := "window_inconsistent"
 		if len(callWindows) == 0 {
-			return skip("no_typed_window")
+			reason = "no_typed_window"
 		}
-		return skip("window_inconsistent")
+		if censusLiteWanted && runTraceSupplementCensusLite(ctx, path, sourceLabel, reason, &out) {
+			return out
+		}
+		return skip(reason)
 	}
 	// P1 window-span budget gate: the warm lane's view cost scales with
 	// in-window events, so an over-budget span skips the WHOLE supplement
@@ -477,7 +670,7 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		logging.Warning("[trace_supplement] skip reason=window_span_exceeded span=%.6fs budget=%.6fs window=%.6f..%.6f",
 			span, traceSupplementMaxWindowSpanS, window.TimeStart, window.TimeEnd)
 		out.SkipReason = "window_span_exceeded"
-		ctx.Mutable.SetSystemTraceSupplement(types.SystemTraceSupplementMeta{
+		meta := types.SystemTraceSupplementMeta{
 			SkipReason:    "window_span_exceeded",
 			SkippedViews:  views,
 			WindowStart:   window.TimeStart,
@@ -486,7 +679,28 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 			TargetPID:     target.PID,
 			TargetThread:  target.Thread,
 			TargetSource:  targetSource,
-		}, nil)
+		}
+		var spanResults []types.ToolResult
+		// 修复轮 件2: the census arm still runs on the span-budget skip — the
+		// single-pass scan is not the per-window view cost the budget guards
+		// (cold byte budget still applies inside), and the census family
+		// would otherwise stay absent for this run.
+		if censusLiteWanted {
+			ctx.Mutable.BeginSystemTraceSupplementExecution()
+			result, elapsed, ok := traceSupplementExecuteCensusLite(ctx, path, "window_span_exceeded")
+			ctx.Mutable.EndSystemTraceSupplementExecution()
+			if ok {
+				meta.CensusLite = true
+				meta.CensusLitePattern = traceSupplementCensusLitePattern
+				meta.ElapsedMS = elapsed.Milliseconds()
+				spanResults = []types.ToolResult{result}
+				out.Executed = []string{"event_search"}
+				out.Elapsed = elapsed
+				logging.Info("[trace_supplement] census-lite executed view=event_search pattern=%s elapsed=%s source=%s (windowless single-pass generator census; lane=window_span_exceeded)",
+					traceSupplementCensusLitePattern, elapsed.Round(time.Millisecond), sourceLabel)
+			}
+		}
+		ctx.Mutable.SetSystemTraceSupplement(meta, spanResults)
 		return out
 	}
 	warm := false
@@ -567,10 +781,35 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		executed = append(executed, view)
 		results = append(results, result)
 	}
-	out.Elapsed = time.Since(start)
 	if len(executed) == 0 {
+		out.Elapsed = time.Since(start)
+		// 修复轮 件2: engine-rejected windowed views leave the census family
+		// absent too — the standalone lite arm salvages the generator
+		// account (its own meta; nothing else was stored).
+		if censusLiteWanted && runTraceSupplementCensusLite(ctx, path, sourceLabel, "execution_failed", &out) {
+			return out
+		}
 		return skip("execution_failed")
 	}
+	// 修复轮 件2 (有窗趟武装, cold-read 残差修根): the windowed views ran but
+	// none of them minted the generator census (e.g. the derived window does
+	// not cover the generator burst, or rank was already present and only
+	// critical_blocking re-ran). One extra single-pass scan appends the
+	// census result to the SAME supplement (combined disclosure) — gated on
+	// the between-view deadline like any other step, and on the census
+	// staying absent from the executed results (redundant scans never run).
+	censusLiteRan := false
+	if censusLiteWanted && !traceSupplementResultsCarryVsyncCensus(results) &&
+		time.Since(start) <= traceSupplementMaxDuration {
+		if result, _, ok := traceSupplementExecuteCensusLite(ctx, path, "windowed_census_absent"); ok {
+			results = append(results, result)
+			censusLiteRan = true
+			executed = append(executed, "event_search")
+			logging.Info("[trace_supplement] census-lite executed view=event_search pattern=%s source=%s (windowless single-pass generator census; adjunct to executed views %s)",
+				traceSupplementCensusLitePattern, sourceLabel, strings.Join(executed[:len(executed)-1], ","))
+		}
+	}
+	out.Elapsed = time.Since(start)
 	out.Executed = executed
 	meta := types.SystemTraceSupplementMeta{
 		Views:        executed,
@@ -580,6 +819,15 @@ func RunTraceQuerySystemSupplement(ctx *types.BusContext) TraceQuerySupplementOu
 		TargetThread: target.Thread,
 		TargetSource: targetSource,
 		ElapsedMS:    out.Elapsed.Milliseconds(),
+	}
+	if censusLiteRan {
+		// The lite adjunct is not a windowed view: meta.Views keeps ONLY the
+		// windowed executions (the disclosure's windowed sentence must not
+		// claim the whole-trace scan ran on the derived window); the lite
+		// flag + pattern carry the adjunct's own disclosure clause.
+		meta.Views = executed[:len(executed)-1]
+		meta.CensusLite = true
+		meta.CensusLitePattern = traceSupplementCensusLitePattern
 	}
 	if len(skippedViews) > 0 {
 		meta.SkipReason = "duration_budget_exceeded"

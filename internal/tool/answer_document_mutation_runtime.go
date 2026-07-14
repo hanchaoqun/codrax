@@ -1907,10 +1907,10 @@ func runtimeTraceProjCompareOverviewBlocks(projections []types.TraceCausalProjec
 	// PTV5 C15 (#68): no internal jargon on the user panel — "typed" out, and
 	// the retired LLM-predicate framing ("对比形态判定") with it (NEW-2 made
 	// the gate a deterministic partition count).
-	title := "Trace 因果投影对比总览"
+	title := tracefence.SectionProjectionZH + "对比总览"
 	text := "跨 trace 对比总览:数值来自各份 trace 独立的投影,跨线程累计值带单位标注,详情见各 trace 分段。"
 	if !zh {
-		title = "Trace Causal Projection Comparison Overview"
+		title = tracefence.SectionProjectionEN + " Comparison Overview"
 		text = "Cross-trace comparison overview: every value comes from an independent projection of each trace file; cross-thread cumulative values carry their unit annotation. Details live in the per-trace-file sections."
 	}
 	// PTV8-LAD L6: layer by importance (同类相邻), fold past the visible cap;
@@ -2853,9 +2853,9 @@ func runtimeTraceProjPartitionCaveatBlock(set types.TraceCausalProjectionSet, zh
 	if len(parts) == 0 {
 		return nil
 	}
-	title := "Trace 因果投影分区边界"
+	title := tracefence.SectionProjectionZH + "分区边界"
 	if !zh {
-		title = "Trace Causal Projection Partition Boundary"
+		title = tracefence.SectionProjectionEN + " Partition Boundary"
 	}
 	return &types.AnswerBlock{
 		ID:        runtimeTraceCausalProjectionPartitionBlockID,
@@ -2919,9 +2919,9 @@ func runtimeTraceCausalProjectionCoverageBlock(input types.ObservationLedgerInpu
 		return nil
 	}
 	text := runtimeTraceCausalProjectionCoverageText(reasons, zh)
-	title := "Trace 因果投影覆盖边界"
+	title := tracefence.SectionProjectionZH + "覆盖边界"
 	if !zh {
-		title = "Trace Causal Projection Coverage Boundary"
+		title = tracefence.SectionProjectionEN + " Coverage Boundary"
 	}
 	return &types.AnswerBlock{
 		ID:        runtimeTraceCausalProjectionCoverageBlockID,
@@ -3739,10 +3739,13 @@ func runtimeTraceCausalProjectionUseChinese(lang string) bool {
 }
 
 func runtimeTraceCausalProjectionTitle(lang string) string {
+	// UX-ANCHOR 件a (§29.61.7, 2026-07-14): the title bytes come from the
+	// tracefence table-④ single source — the preview lead-segment decorator
+	// keys its lead-scope boundary on the same constant (byte-identical).
 	if runtimeTraceCausalProjectionUseChinese(lang) {
-		return "Trace 因果投影"
+		return tracefence.SectionProjectionZH
 	}
-	return "Trace Causal Projection"
+	return tracefence.SectionProjectionEN
 }
 
 func runtimeTraceCausalProjectionNodeSubjectCell(node types.TraceCausalProjectionNode, zh bool) string {
@@ -4668,8 +4671,36 @@ func runtimeTraceSupplementViewList(views []string, zh bool) string {
 //     form's 「时长预算」 name two DIFFERENT budgets and deliberately stay
 //     distinct words.
 func runtimeTraceSupplementDisclosureText(meta *types.SystemTraceSupplementMeta, zh bool) string {
-	if meta == nil || (len(meta.Views) == 0 && meta.SkipReason != "window_span_exceeded") {
+	if meta == nil || (len(meta.Views) == 0 && meta.SkipReason != "window_span_exceeded" && !meta.CensusLite) {
 		return ""
+	}
+	// SA-F2 / C-lite (DISPATCH-IND 批4 + 修复轮 件2, 2026-07-14): the
+	// lightweight census arm's disclosure. Three shapes: lite-ONLY (nothing
+	// windowed ran — standalone sentence below), windowed views + lite
+	// adjunct (tail clause on the windowed line), span-skip + lite (tail
+	// clause on the span line). Every form states exactly what ran — one
+	// whole-trace literal search minting the generator census — never a
+	// window/target claim for the lite pass itself.
+	liteTail := ""
+	if meta.CensusLite {
+		pattern := strings.TrimSpace(meta.CensusLitePattern)
+		if len(meta.Views) == 0 && meta.SkipReason != "window_span_exceeded" {
+			// Lite-only sentence is LANE-NEUTRAL by design (修复轮 件2): the
+			// arm fires on derivation failures AND on the families_present /
+			// execution_failed lanes, so it claims only what ran — never why
+			// the windowed re-run stayed absent.
+			if zh {
+				return fmt.Sprintf("%s 成文前对全 trace 补跑 VSync/帧节拍发生器轻量普查(event_search·%s, 无时间窗)",
+					runtimeTraceSupplementDisclosurePrefixZH, pattern)
+			}
+			return fmt.Sprintf("%s ran a lightweight whole-trace VSync/frame-pacing generator census pre-report (event_search, %q, windowless)",
+				runtimeTraceSupplementDisclosurePrefixEN, pattern)
+		}
+		if zh {
+			liteTail = fmt.Sprintf(";另对全 trace 补跑 VSync/帧节拍发生器轻量普查(event_search·%s)", pattern)
+		} else {
+			liteTail = fmt.Sprintf("; also ran a lightweight whole-trace VSync/frame-pacing generator census (event_search, %q)", pattern)
+		}
 	}
 	target := strings.TrimSpace(meta.TargetThread)
 	switch {
@@ -4686,10 +4717,10 @@ func runtimeTraceSupplementDisclosureText(meta *types.SystemTraceSupplementMeta,
 		span := meta.WindowEnd - meta.WindowStart
 		if zh {
 			return fmt.Sprintf("%s 未补跑 %s——窗 %.6f..%.6f 跨度 %.3f 秒超出补跑窗长预算 %g 秒;缩小时间窗后可补齐该窗结果",
-				runtimeTraceSupplementDisclosurePrefixZH, runtimeTraceSupplementViewList(meta.SkippedViews, true), meta.WindowStart, meta.WindowEnd, span, meta.WindowBudgetS)
+				runtimeTraceSupplementDisclosurePrefixZH, runtimeTraceSupplementViewList(meta.SkippedViews, true), meta.WindowStart, meta.WindowEnd, span, meta.WindowBudgetS) + liteTail
 		}
 		return fmt.Sprintf("%s %s not re-run — window %.6f..%.6f spans %.3fs, over the %gs span budget; narrow the time window to fill it in",
-			runtimeTraceSupplementDisclosurePrefixEN, runtimeTraceSupplementViewList(meta.SkippedViews, false), meta.WindowStart, meta.WindowEnd, span, meta.WindowBudgetS)
+			runtimeTraceSupplementDisclosurePrefixEN, runtimeTraceSupplementViewList(meta.SkippedViews, false), meta.WindowStart, meta.WindowEnd, span, meta.WindowBudgetS) + liteTail
 	}
 	if zh {
 		line := fmt.Sprintf("%s 成文前确定性补跑 %s(窗 %.6f..%.6f, 目标 %s)",
@@ -4697,14 +4728,14 @@ func runtimeTraceSupplementDisclosureText(meta *types.SystemTraceSupplementMeta,
 		if meta.SkipReason == "duration_budget_exceeded" && len(meta.SkippedViews) > 0 {
 			line += ";超时长预算未补跑 " + runtimeTraceSupplementViewList(meta.SkippedViews, true)
 		}
-		return line
+		return line + liteTail
 	}
 	line := fmt.Sprintf("%s deterministic pre-report re-run of %s (window %.6f..%.6f, target %s)",
 		runtimeTraceSupplementDisclosurePrefixEN, runtimeTraceSupplementViewList(meta.Views, false), meta.WindowStart, meta.WindowEnd, target)
 	if meta.SkipReason == "duration_budget_exceeded" && len(meta.SkippedViews) > 0 {
 		line += "; not re-run over the duration budget: " + runtimeTraceSupplementViewList(meta.SkippedViews, false)
 	}
-	return line
+	return line + liteTail
 }
 
 // materializeRuntimeTraceSupplementDisclosureCaveat upserts the supplement
@@ -4719,7 +4750,7 @@ func materializeRuntimeTraceSupplementDisclosureCaveat(doc *types.AnswerDocument
 		return false
 	}
 	meta := ctx.Mutable.SystemTraceSupplementMeta()
-	if meta == nil || (len(meta.Views) == 0 && meta.SkipReason != "window_span_exceeded") {
+	if meta == nil || (len(meta.Views) == 0 && meta.SkipReason != "window_span_exceeded" && !meta.CensusLite) {
 		return false
 	}
 	kept := doc.Caveats[:0]

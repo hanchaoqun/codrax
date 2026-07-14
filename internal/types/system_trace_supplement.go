@@ -79,6 +79,21 @@ type SystemTraceSupplementMeta struct {
 	// ElapsedMS is the total engine wall time of the executed views
 	// (performance disclosure — log surface).
 	ElapsedMS int64 `json:"elapsed_ms,omitempty"`
+	// CensusLite (SA-F2 / C-lite, DISPATCH-IND 批4 + 修复轮 件2, 2026-07-14)
+	// marks the windowless lightweight census arm: whenever the request's
+	// typed analyzer keywords hit the vsync/frame family AND the compiled
+	// ledger carries no generator-census record, the system runs ONE
+	// whole-trace streaming event_search (single-pass scan, zero heavy
+	// views) so the generator census reaches the evidence face — on the
+	// derivation-failure lanes (S13), the families_present no-op, the
+	// span-budget skip, the execution_failed lane, AND as an adjunct to a
+	// windowed success whose executed views minted no census. Views carries
+	// ONLY the windowed executions (empty on the lite-only lanes); the
+	// disclosure renderer derives the lite clause from this flag + pattern.
+	CensusLite bool `json:"census_lite,omitempty"`
+	// CensusLitePattern is the literal search pattern the C-lite pass used
+	// (audit/disclosure).
+	CensusLitePattern string `json:"census_lite_pattern,omitempty"`
 }
 
 // RecordTraceQueryCallWindow appends one typed call window to the run-scoped
