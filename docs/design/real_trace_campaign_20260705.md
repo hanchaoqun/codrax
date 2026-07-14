@@ -2589,3 +2589,6 @@ B1 折叠行头名 floor 直接 pin(数学六形+产线实铸压力形:同主体
 
 ### §29.61.4c 用户裁定(2026-07-14):优化点卡左侧竖线换墨绿
 用户问绿色竖线换黑或墨绿孰优。裁定=墨绿(黑丢「优化」语义残留且暗主题不可见):light `--action-border` #86efac→#14532d(两处含 print 块),dark #22c55e→#3a5f4b(柔和暗绿保可见);树内 action token(fg/bg)不受影响。注:落地时全仓扫撞上 SUPP-CORE 在飞半写态一次瞬态 build 红(归因排除,域零依赖),按并行批纪律以域内绿+build 净提交。
+
+### §29.61.4d 事故补记(2026-07-14):推送门第二形态失效——管道吞退出码
+§29.61.4c 落地时 `go test|tail` 后取 `$?`=tail 的 0,域内红(SUPP-CORE WIP 瞬态)未拦。事后 HEAD 快照严格验证 tool+preview 全绿=推送内容无恙(commit 只含 preview css+docs,红全在未提交 WIP)。**推送门终形纪律**:test 命令禁管道,`go test … > log 2>&1; EXIT=$?` 独立取码;并行批在飞时全仓门以 HEAD 快照(git archive)跑,不以活树跑。
