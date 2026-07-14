@@ -354,3 +354,61 @@ func runConversionFileTransaction(ctx context.Context, protected string, work fu
 	committed = true
 	return nil
 }
+
+// runConversionInputTransaction gives standalone file-conversion APIs the
+// same immutable source-generation and output-ownership transaction used by
+// ConvertFile. The work callback must consume authority directly; reopening
+// inputPath inside work would reintroduce an A->B->A source-generation gap.
+func runConversionInputTransaction(ctx context.Context, inputPath string, work func(*conversionInputAuthority, *conversionFileLedger) error) (err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	authority, err := openConversionInputAuthority(inputPath)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		err = traceDBJoinPreservingSingle(err, authority.Close())
+	}()
+	ledger, err := newConversionFileLedgerForAuthority(authority)
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			err = joinConversionCleanupError(err, ledger)
+		}
+	}()
+	if work == nil {
+		return conversionInputFailure(
+			ConversionInputCodeInternalContract,
+			conversionInputStageRoute,
+			authority.DisplayPath(),
+			errors.New("nil conversion input transaction callback"),
+		)
+	}
+	if err = work(authority, ledger); err != nil {
+		return err
+	}
+	if err = ctx.Err(); err != nil {
+		return err
+	}
+	if err = authority.Validate(conversionInputStagePreCommit); err != nil {
+		return err
+	}
+	if err = authority.Close(); err != nil {
+		return err
+	}
+	if err = ledger.validateOwnedPaths(); err != nil {
+		return err
+	}
+	if err = ctx.Err(); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}

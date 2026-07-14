@@ -200,7 +200,11 @@ func ConvertFile(ctx context.Context, opts Options) (result Result, err error) {
 		if !directPlan.DirectPerf || directPlan.PreflightEngine != traceEngineDirectPerf {
 			return Result{}, fmt.Errorf("typed trace provider plan did not select the direct perf route")
 		}
-		if result, ok, err := maybeConvertDirectSimpleperfPerfData(ctx, opts, directPlan, input, inputBytes, output, inputFormat, ledger); ok || err != nil {
+		directInput, err := newDirectPerfInputBinding(authority, inputFormat)
+		if err != nil {
+			return Result{}, err
+		}
+		if result, ok, err := maybeConvertDirectSimpleperfPerfData(ctx, opts, directPlan, directInput, output, ledger); ok || err != nil {
 			if err != nil {
 				return result, err
 			}

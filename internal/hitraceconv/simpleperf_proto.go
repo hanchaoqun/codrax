@@ -97,9 +97,44 @@ func maybeConvertSimpleperfProtoWithDecision(ctx context.Context, opts Options, 
 	return artifact, "", []PerfProviderDecision{decision}, nil
 }
 
+func maybeConvertSimpleperfProtoFromInputWithDecision(ctx context.Context, opts Options, input directPerfInputBinding, perfTracePath string, stage string, ledger *conversionFileLedger) (Artifact, string, []PerfProviderDecision, error) {
+	if err := input.validate(); err != nil {
+		return Artifact{}, "", nil, err
+	}
+	decision := newPerfProviderDecision(stage, perfProviderByName(perfProviderNameSimpleperfProto), opts, input.displayPath, perfInputSimpleperfReportProto, perfTracePath)
+	if err := convertSimpleperfProtoInputToPerfTraceWithLedger(ctx, input, perfTracePath, ledger); err != nil {
+		if directPerfInputBoundaryError(err) {
+			return Artifact{}, "", nil, err
+		}
+		caveat := fmt.Sprintf("Android SIMPLEPERF report-sample proto could not be converted (%v)", err)
+		decision = perfProviderFailure(decision, "official_proto_unreadable", caveat)
+		return Artifact{}, caveat, []PerfProviderDecision{decision}, nil
+	}
+	info, err := os.Lstat(perfTracePath)
+	if err != nil {
+		return Artifact{}, "", []PerfProviderDecision{decision}, err
+	}
+	artifact := Artifact{
+		Type:      ArtifactPerfTrace,
+		Path:      perfTracePath,
+		Bytes:     info.Size(),
+		Converter: simpleperfProtoConverter,
+		Perf:      perfCapabilityForSimpleperfReportProto("Android cmd_report_sample.proto"),
+		Caveats: []string{
+			"generated from Android SIMPLEPERF report-sample protobuf; sample CPU is unavailable in cmd_report_sample.proto and is emitted as cpu=-1",
+		},
+	}
+	decision = perfProviderSuccess(decision, artifact)
+	return artifact, "", []PerfProviderDecision{decision}, nil
+}
+
 func ConvertSimpleperfProtoFileToPerfTrace(ctx context.Context, inputPath, outputPath string) error {
-	return runConversionFileTransaction(ctx, inputPath, func(ledger *conversionFileLedger) error {
-		return convertSimpleperfProtoFileToPerfTraceWithLedger(ctx, inputPath, outputPath, ledger)
+	return runConversionInputTransaction(ctx, inputPath, func(authority *conversionInputAuthority, ledger *conversionFileLedger) error {
+		input, err := newDirectPerfInputBinding(authority, perfInputSimpleperfReportProto)
+		if err != nil {
+			return err
+		}
+		return convertSimpleperfProtoInputToPerfTraceWithLedger(ctx, input, outputPath, ledger)
 	})
 }
 
@@ -111,6 +146,30 @@ func convertSimpleperfProtoFileToPerfTraceWithLedger(ctx context.Context, inputP
 	if err != nil {
 		return err
 	}
+	return writeSimpleperfProtoDataToPerfTraceWithLedger(ctx, data, outputPath, ledger)
+}
+
+func convertSimpleperfProtoInputToPerfTraceWithLedger(ctx context.Context, input directPerfInputBinding, outputPath string, ledger *conversionFileLedger) (err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := input.validate(); err != nil {
+		return err
+	}
+	if err := completeConversionInputStage(ctx, input.input, conversionInputStageDirectPerfRead, nil); err != nil {
+		return err
+	}
+	defer func() {
+		err = completeConversionInputStage(ctx, input.input, conversionInputStageDirectPerfRead, err)
+	}()
+	data, readErr := readSimpleperfProtoAt(ctx, input.input, input.inputSize)
+	if err := completeConversionInputStage(ctx, input.input, conversionInputStageDirectPerfRead, readErr); err != nil {
+		return err
+	}
+	return writeSimpleperfProtoDataToPerfTraceWithLedger(ctx, data, outputPath, ledger)
+}
+
+func writeSimpleperfProtoDataToPerfTraceWithLedger(ctx context.Context, data simpleperfProtoData, outputPath string, ledger *conversionFileLedger) error {
 	if len(data.Samples) == 0 {
 		return fmt.Errorf("simpleperf protobuf contains no sample records")
 	}
@@ -134,20 +193,48 @@ func readSimpleperfProtoFile(ctx context.Context, path string) (simpleperfProtoD
 		return simpleperfProtoData{}, err
 	}
 	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return simpleperfProtoData{}, err
+	}
+	return readSimpleperfProtoAt(ctx, f, info.Size())
+}
+
+func readSimpleperfProtoAt(ctx context.Context, reader io.ReaderAt, size int64) (simpleperfProtoData, error) {
+	if reader == nil {
+		return simpleperfProtoData{}, fmt.Errorf("simpleperf protobuf reader is nil")
+	}
+	if size < 0 {
+		return simpleperfProtoData{}, fmt.Errorf("simpleperf protobuf size is negative: %d", size)
+	}
+	return readSimpleperfProto(ctx, io.NewSectionReader(reader, 0, size), size)
+}
+
+func readSimpleperfProto(ctx context.Context, reader io.Reader, size int64) (simpleperfProtoData, error) {
+	if size < 0 {
+		return simpleperfProtoData{}, fmt.Errorf("simpleperf protobuf size is negative: %d", size)
+	}
 	var magic [len(simpleperfProtoMagic)]byte
-	if _, err := io.ReadFull(f, magic[:]); err != nil {
+	if _, err := io.ReadFull(reader, magic[:]); err != nil {
 		return simpleperfProtoData{}, fmt.Errorf("read simpleperf protobuf magic: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return simpleperfProtoData{}, err
 	}
 	if string(magic[:]) != simpleperfProtoMagic {
 		return simpleperfProtoData{}, fmt.Errorf("unsupported simpleperf protobuf magic %q", string(magic[:]))
 	}
 	var versionBuf [2]byte
-	if _, err := io.ReadFull(f, versionBuf[:]); err != nil {
+	if _, err := io.ReadFull(reader, versionBuf[:]); err != nil {
 		return simpleperfProtoData{}, fmt.Errorf("read simpleperf protobuf version: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return simpleperfProtoData{}, err
 	}
 	if version := binary.LittleEndian.Uint16(versionBuf[:]); version != simpleperfProtoVersion {
 		return simpleperfProtoData{}, fmt.Errorf("unsupported simpleperf protobuf version %d", version)
 	}
+	remaining := size - int64(len(magic)+len(versionBuf))
 	data := simpleperfProtoData{
 		Files:   map[uint32]simpleperfProtoFile{},
 		Threads: map[uint32]simpleperfProtoThread{},
@@ -157,20 +244,31 @@ func readSimpleperfProtoFile(ctx context.Context, path string) (simpleperfProtoD
 		if err := ctx.Err(); err != nil {
 			return simpleperfProtoData{}, err
 		}
-		if _, err := io.ReadFull(f, sizeBuf[:]); err != nil {
+		if _, err := io.ReadFull(reader, sizeBuf[:]); err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 				return simpleperfProtoData{}, fmt.Errorf("truncated simpleperf protobuf record size: %w", err)
 			}
 			return simpleperfProtoData{}, err
 		}
+		remaining -= int64(len(sizeBuf))
 		size := binary.LittleEndian.Uint32(sizeBuf[:])
 		if size == 0 {
 			break
 		}
+		if err := ctx.Err(); err != nil {
+			return simpleperfProtoData{}, err
+		}
+		if remaining < 0 || int64(size) > remaining {
+			return simpleperfProtoData{}, fmt.Errorf("simpleperf protobuf record size %d exceeds fixed input remainder %d", size, remaining)
+		}
+		if uint64(size) > uint64(^uint(0)>>1) {
+			return simpleperfProtoData{}, fmt.Errorf("simpleperf protobuf record size %d exceeds host allocation limit", size)
+		}
 		record := make([]byte, size)
-		if _, err := io.ReadFull(f, record); err != nil {
+		if _, err := io.ReadFull(reader, record); err != nil {
 			return simpleperfProtoData{}, fmt.Errorf("read simpleperf protobuf record: %w", err)
 		}
+		remaining -= int64(size)
 		if err := decodeSimpleperfRecord(record, &data); err != nil {
 			return simpleperfProtoData{}, err
 		}

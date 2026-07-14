@@ -332,6 +332,7 @@ func TestReleaseConvertFileRouteAndCommitAreStructurallyAuthorityOwned(t *testin
 	for _, required := range []string{
 		"validateOptionEnums(opts)", "opts.InputPath = input", "authority.Probe()", "detectPerfInputFormatProbe(probe)",
 		"validateOptionsForInput(opts, authority, inputFormat)", "buildTraceProviderPlanWithInput(opts", "newConversionFileLedgerForAuthority(authority)",
+		"newDirectPerfInputBinding(authority, inputFormat)", "maybeConvertDirectSimpleperfPerfData(ctx, opts, directPlan, directInput, output, ledger)",
 	} {
 		if !strings.Contains(convertBody, required) {
 			t.Fatalf("ConvertFile lost authority route step %q", required)
@@ -356,8 +357,10 @@ func TestReleaseConvertFileRouteAndCommitAreStructurallyAuthorityOwned(t *testin
 	)
 
 	directBody := sourceGenerationFunctionBody(t, "simpleperf_text.go", "maybeConvertDirectSimpleperfPerfData")
-	if !strings.Contains(directBody, "inputFormat perfInputFormat") || strings.Contains(directBody, "detectPerfInputFormat") {
-		t.Fatalf("direct perf consumer does not exclusively consume typed route format:\n%s", directBody)
+	if !strings.Contains(directBody, "input directPerfInputBinding") ||
+		!strings.Contains(directBody, "input.inputFormat") ||
+		strings.Contains(directBody, "detectPerfInputFormat") {
+		t.Fatalf("direct perf consumer does not exclusively consume the authority-bound typed route:\n%s", directBody)
 	}
 	for _, function := range []string{"maybeConvertRawPerfData", "maybeConvertRawPerfDataWithDecision"} {
 		body := sourceGenerationFunctionBody(t, "raw_perfdata.go", function)
