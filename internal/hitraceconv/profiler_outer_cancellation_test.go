@@ -30,6 +30,14 @@ type profilerOuterDirectCallerCancellationContext struct {
 	err          error
 }
 
+type profilerOuterAcceptedPrefixCancellationContext struct {
+	context.Context
+	sink       *traceDBRowSink
+	cancelRows int
+	polls      int
+	err        error
+}
+
 func (ctx *profilerOuterCancellationContext) Err() error {
 	if ctx == nil {
 		return context.Canceled
@@ -69,6 +77,20 @@ func (ctx *profilerOuterDirectCallerCancellationContext) Err() error {
 				return ctx.err
 			}
 		}
+	}
+	if ctx.Context != nil {
+		return ctx.Context.Err()
+	}
+	return nil
+}
+
+func (ctx *profilerOuterAcceptedPrefixCancellationContext) Err() error {
+	if ctx == nil {
+		return context.Canceled
+	}
+	ctx.polls++
+	if ctx.err != nil && ctx.sink != nil && ctx.sink.stats.RowsAccepted >= ctx.cancelRows {
+		return ctx.err
 	}
 	if ctx.Context != nil {
 		return ctx.Context.Err()
@@ -206,12 +228,11 @@ func TestProfilerSessionCancellationAfterAcceptedPrefixClosesPublisherContext(t 
 		t.Fatal(err)
 	}
 	defer sink.cleanup()
-	ctx := &profilerOuterCancellationContext{
-		Context: context.Background(), targetSuffix: ".scanProfilerBoundedSessionRecords",
-		cancelAt: 3, err: context.DeadlineExceeded,
+	ctx := &profilerOuterAcceptedPrefixCancellationContext{
+		Context: context.Background(), sink: sink, cancelRows: 1, err: context.DeadlineExceeded,
 	}
 	_, err = extractProfilerSessionPackageWithLineLimit(ctx, input, int64(len(payload)), sink, maxProfilerTextLineBytes)
-	if !errors.Is(err, context.DeadlineExceeded) || ctx.polls != 3 || sink.stats.RowsAccepted != 1 || len(sink.rows) != 1 {
+	if !errors.Is(err, context.DeadlineExceeded) || ctx.polls == 0 || sink.stats.RowsAccepted != 1 || len(sink.rows) != 1 {
 		t.Fatalf("prefix cancellation drifted: err=%v polls=%d stats=%+v rows=%d",
 			err, ctx.polls, sink.stats, len(sink.rows))
 	}
@@ -754,6 +775,32 @@ func TestProfilerOuterCancellationProductionContextTopology(t *testing.T) {
 		"func addSystraceRowsFromBytes(")
 	if !strings.Contains(rejectedContext, "if err := ctx.Err(); err != nil") {
 		t.Fatalf("rejected Block provenance probe lost its final cancellation check:\n%s", rejectedContext)
+	}
+	if strings.Count(container, "addSystraceRowsFromBytesContext(ctx,") != 2 {
+		t.Fatalf("generic text production callers escaped the single Context authority")
+	}
+	legacyGeneric := sourceBetween(t, container,
+		"func addSystraceRowsFromBytes(",
+		"func forEachProfilerSystraceRecordContext(")
+	if strings.Count(legacyGeneric, "addSystraceRowsFromBytesContext(context.Background()") != 1 {
+		t.Fatalf("legacy generic text adapter is not a Background-only wrapper:\n%s", legacyGeneric)
+	}
+	genericContext := sourceBetween(t, container,
+		"func addSystraceRowsFromBytesContext(",
+		"func readProtoKey(")
+	for _, required := range []string{
+		"profilerTrimSpaceBytesContext(ctx, raw)",
+		"sink.commitProfilerEventDeltaContext(ctx, delta)",
+		"sink.addProfilerEventContext(ctx, row, delta)",
+		"sink.flushTriggeredProfilerEventContext(ctx)",
+	} {
+		if !strings.Contains(genericContext, required) {
+			t.Fatalf("generic Context text authority lost %q:\n%s", required, genericContext)
+		}
+	}
+	if strings.Contains(genericContext, "bytes.TrimSpace(") || strings.Contains(genericContext, "sink.add(row)") ||
+		strings.Contains(genericContext, "pair.poison(sink)") {
+		t.Fatalf("generic Context text authority regained a context-free or pre-row mutation path:\n%s", genericContext)
 	}
 
 	authority := mustReadRendererSource(t, "profiler_ftrace_authority.go")

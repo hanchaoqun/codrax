@@ -296,6 +296,33 @@ func TestProfilerASCIITrimAndCommentPrefixContextParity(t *testing.T) {
 	}
 }
 
+func TestProfilerUnicodeTrimSpaceContextMatchesBytesAuthority(t *testing.T) {
+	for _, raw := range [][]byte{
+		nil,
+		{},
+		[]byte("plain"),
+		[]byte(" \t\r\nplain\v\f "),
+		[]byte("\u0085\u00a0\u2003plain\u3000"),
+		[]byte("\u3000"),
+		{0xff, 'x', 0xfe},
+		{' ', 0xff, ' '},
+	} {
+		got, err := profilerTrimSpaceBytesContext(context.Background(), raw)
+		if err != nil || !bytes.Equal(got, bytes.TrimSpace(raw)) {
+			t.Fatalf("unicode trim raw=%q got=%q err=%v want=%q", raw, got, err, bytes.TrimSpace(raw))
+		}
+	}
+
+	longWhitespace := append(bytes.Repeat([]byte{'\t'}, 2*profilerContextByteCheckpointBytes+1), 'x')
+	ctx := &profilerByteCancelAfterPollContext{
+		Context: context.Background(), cancelAt: 3, err: context.DeadlineExceeded,
+	}
+	if got, err := profilerTrimSpaceBytesContext(ctx, longWhitespace); got != nil ||
+		!errors.Is(err, context.DeadlineExceeded) || ctx.polls != ctx.cancelAt {
+		t.Fatalf("unicode trim cancellation got=%q err=%v polls=%d", got, err, ctx.polls)
+	}
+}
+
 func TestProfilerStableSampleObserveContextMatchesLegacyAlgorithm(t *testing.T) {
 	type input struct {
 		domain string

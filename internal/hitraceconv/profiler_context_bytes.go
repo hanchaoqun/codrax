@@ -263,6 +263,68 @@ func profilerTrimASCIISpacesBytesContext(ctx context.Context, raw []byte) ([]byt
 	return raw[left:right], nil
 }
 
+// profilerTrimSpaceBytesContext mirrors bytes.TrimSpace without allowing a
+// long all-whitespace generic text record to become an uninterruptible scan.
+// The returned view aliases raw and preserves bytes.TrimSpace's Unicode
+// whitespace and invalid-UTF-8 behavior exactly.
+func profilerTrimSpaceBytesContext(ctx context.Context, raw []byte) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	left, right := 0, len(raw)
+	processed := uint64(0)
+	pending := uint64(0)
+	account := func(width int) error {
+		if width < 0 {
+			return &traceDBOutputInvariantError{Reason: "profiler_trim_space_width_invalid"}
+		}
+		pending += uint64(width)
+		for pending >= profilerContextByteCheckpointBytes {
+			if err := profilerByteContextCheckpoint(ctx, &processed, profilerContextByteCheckpointBytes); err != nil {
+				return err
+			}
+			pending -= profilerContextByteCheckpointBytes
+		}
+		return nil
+	}
+	for left < right {
+		r, width := utf8.DecodeRune(raw[left:right])
+		if width <= 0 || width > right-left {
+			return nil, &traceDBOutputInvariantError{Reason: "profiler_trim_space_width_invalid"}
+		}
+		if !unicode.IsSpace(r) {
+			break
+		}
+		left += width
+		if err := account(width); err != nil {
+			return nil, err
+		}
+	}
+	for right > left {
+		r, width := utf8.DecodeLastRune(raw[left:right])
+		if width <= 0 || width > right-left {
+			return nil, &traceDBOutputInvariantError{Reason: "profiler_trim_space_width_invalid"}
+		}
+		if !unicode.IsSpace(r) {
+			break
+		}
+		right -= width
+		if err := account(width); err != nil {
+			return nil, err
+		}
+	}
+	if err := profilerByteContextCheckpoint(ctx, &processed, pending); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return raw[left:right], nil
+}
+
 func profilerPhysicalRuneFactsBytesContext(ctx context.Context, raw []byte) (profilerPhysicalRuneFacts, bool, error) {
 	return profilerPhysicalRuneFactsContext(ctx, len(raw), func(offset int) (rune, int) {
 		return utf8.DecodeRune(raw[offset:])

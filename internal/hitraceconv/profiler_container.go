@@ -1184,7 +1184,7 @@ frames:
 					_ = sink.endPairRowCensus()
 					return profilerContainerExtraction{}, &traceDBOutputInvariantError{Reason: "profiler_text_message_begin_state_invalid"}
 				}
-				rows, rowErr := addSystraceRowsFromBytes(plugin.Data, &seq, sink)
+				rows, rowErr := addSystraceRowsFromBytesContext(ctx, plugin.Data, &seq, sink)
 				if rowErr != nil {
 					sink.abortProfilerTextMessage()
 					coverage.Error = rowErr.Error()
@@ -2447,7 +2447,7 @@ func extractProfilerSessionPackageWithLineLimit(ctx context.Context, path string
 				sink.failCloseAllRows()
 				return false, nil
 			}
-			lineRows, rowErr := addSystraceRowsFromBytes(record.Bytes, &seq, sink)
+			lineRows, rowErr := addSystraceRowsFromBytesContext(ctx, record.Bytes, &seq, sink)
 			if rowErr != nil {
 				return false, rowErr
 			}
@@ -2909,46 +2909,96 @@ func profilerRejectedPluginFrameContainsExactBlockEndpointContext(ctx context.Co
 }
 
 func addSystraceRowsFromBytes(data []byte, seq *int, sink *traceDBRowSink) (int, error) {
+	return addSystraceRowsFromBytesContext(context.Background(), data, seq, sink)
+}
+
+func forEachProfilerSystraceRecordContext(ctx context.Context, data []byte, visit func([]byte) error) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if visit == nil {
+		return &traceDBOutputInvariantError{Reason: "profiler_systrace_record_visitor_missing"}
+	}
+	processed := uint64(0)
+	recordStart := 0
+	for chunkStart := 0; chunkStart < len(data); {
+		chunkEnd := min(chunkStart+profilerContextByteCheckpointBytes, len(data))
+		if err := profilerByteContextCheckpoint(ctx, &processed, uint64(chunkEnd-chunkStart)); err != nil {
+			return err
+		}
+		for offset := chunkStart; offset < chunkEnd; offset++ {
+			if data[offset] != '\n' && data[offset] != 0 {
+				continue
+			}
+			if err := visit(data[recordStart:offset]); err != nil {
+				return err
+			}
+			recordStart = offset + 1
+		}
+		chunkStart = chunkEnd
+	}
+	if recordStart < len(data) {
+		if err := visit(data[recordStart:]); err != nil {
+			return err
+		}
+	}
+	return ctx.Err()
+}
+
+func addSystraceRowsFromBytesContext(ctx context.Context, data []byte, seq *int, sink *traceDBRowSink) (int, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	if len(data) == 0 {
 		return 0, nil
 	}
+	if sink == nil || seq == nil {
+		return 0, fmt.Errorf("systrace row sink or sequence is nil")
+	}
 	rows := 0
-	for start := 0; start < len(data); {
-		end := start
-		for end < len(data) && data[end] != '\n' && data[end] != 0 {
-			end++
-		}
-		part := bytes.TrimSpace(data[start:end])
-		if end < len(data) {
-			start = end + 1
-		} else {
-			start = len(data)
+	err := forEachProfilerSystraceRecordContext(ctx, data, func(raw []byte) error {
+		part, trimErr := profilerTrimSpaceBytesContext(ctx, raw)
+		if trimErr != nil {
+			return trimErr
 		}
 		if len(part) == 0 {
-			continue
+			return nil
 		}
 		// Session/bytrace records use the same leading-# comment namespace as
 		// strict ftrace compatibility payloads. Apply the negative gate before
 		// size census and endpoint admission so a comment-looking Block header,
 		// including an oversized one, cannot poison or publish a pairing lane.
 		if part[0] == '#' {
-			continue
+			return nil
 		}
 		if len(part) > maxProfilerTextLineBytes {
+			var delta traceDBProfilerEventDelta
+			deltaPresent := false
 			if kind, governed, opaque := profilerTextPairCensus(part); governed {
-				sink.poisonPairKind(kind)
+				delta.poisonKind(kind)
+				deltaPresent = true
 			} else if opaque {
-				sink.markPairCaptureOpaque(pairRenderMMC)
-				sink.markPairCaptureOpaque(pairRenderF2FS)
+				delta.markOpaque(pairRenderMMC)
+				delta.markOpaque(pairRenderF2FS)
+				deltaPresent = true
 			}
-			continue
+			if !deltaPresent {
+				return ctx.Err()
+			}
+			return sink.commitProfilerEventDeltaContext(ctx, delta)
 		}
 		line := string(part)
 		if line == "" {
-			continue
+			return nil
 		}
 		if profilerTextPairNormalizationCollision(line) {
-			continue
+			return ctx.Err()
 		}
 		pair := profilerTextPairAdmission(line)
 		if !pair.Admitted && (strings.Contains(line, "mmc_request_") || strings.Contains(line, "f2fs_") ||
@@ -2984,27 +3034,29 @@ func addSystraceRowsFromBytes(data []byte, seq *int, sink *traceDBRowSink) (int,
 		headerGoverned = headerKnown && headerGoverned
 		if !timestampOK {
 			if pair.Governed {
-				pair.poison(sink)
+				var delta traceDBProfilerEventDelta
+				delta.poisonAdmission(pair)
+				return sink.commitProfilerEventDeltaContext(ctx, delta)
 			}
-			continue
+			return ctx.Err()
 		}
 		if !headerKnown {
 			if pair.Governed {
-				pair.poison(sink)
+				var delta traceDBProfilerEventDelta
+				delta.poisonAdmission(pair)
+				return sink.commitProfilerEventDeltaContext(ctx, delta)
 			}
-			continue
-		}
-		if sink == nil {
-			return rows, fmt.Errorf("systrace row sink is nil")
+			return ctx.Err()
 		}
 		row := renderedRow{tsNS: ts, seq: *seq, line: line}
+		var delta traceDBProfilerEventDelta
 		if pair.Governed {
 			if headerGoverned && pair.Kind == headerKind {
 				row.pairKind = pair.Kind
 				row.pairLane = pair.Lane
 				row.profilerEndpointSlot = pair.EndpointSlot
 				if !pair.Admitted {
-					pair.poison(sink)
+					delta.poisonAdmission(pair)
 				}
 			} else {
 				// A complete outer header is the physical row authority. A raw
@@ -3012,14 +3064,26 @@ func addSystraceRowsFromBytes(data []byte, seq *int, sink *traceDBRowSink) (int,
 				// unrelated print/vendor row as a nested pair. Quarantine only the
 				// proven raw lane/family and publish the outer row without pair
 				// metadata.
-				pair.poison(sink)
+				delta.poisonAdmission(pair)
 			}
 		}
-		if err := sink.add(row); err != nil {
-			return rows, err
+		if err := sink.addProfilerEventContext(ctx, row, delta); err != nil {
+			return err
 		}
 		(*seq)++
 		rows++
+		return nil
+	})
+	if err != nil {
+		return rows, err
+	}
+	if rows > 0 {
+		if err := sink.flushTriggeredProfilerEventContext(ctx); err != nil {
+			return rows, err
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return rows, err
 	}
 	return rows, nil
 }
