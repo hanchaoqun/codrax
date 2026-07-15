@@ -11,10 +11,13 @@ package tracequery
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/filegeneration"
 )
 
 // StreamScan streams every parsed event of the trace file to fn in file
@@ -38,6 +41,64 @@ import (
 // callers that finish the scan).
 func StreamScan(ctx context.Context, path string, flavorHint TraceFlavor, fn func(Event) bool) (*Index, error) {
 	return streamScan(ctx, path, flavorHint, fn, false)
+}
+
+// StreamScanHeldFile streams one already-open, strongly identified regular
+// file without reopening its pathname. It is the converter-owned publication
+// validation lane: callers keep the generation handle alive, this function
+// reuses StreamScan's single parser loop with O(1) event memory, and a
+// per-physical-line byte limit fails before an unbounded line can be retained.
+//
+// Unlike StreamScan, this API deliberately does not discover siblings or
+// inspect file.Name(). The caller owns the private parent-relative binding and
+// must validate it before and after this call. The held generation itself is
+// validated here with the strongest platform identity available.
+func StreamScanHeldFile(ctx context.Context, file *os.File, displayPath string, flavorHint TraceFlavor, maxLineBytes int, fn func(Event) bool) (*Index, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if file == nil {
+		return nil, fmt.Errorf("trace held stream scan: file is nil")
+	}
+	if fn == nil {
+		return nil, fmt.Errorf("trace held stream scan: fn is nil")
+	}
+	displayPath = strings.TrimSpace(displayPath)
+	if displayPath == "" {
+		return nil, fmt.Errorf("trace held stream scan: display path is empty")
+	}
+	if maxLineBytes <= 0 || maxLineBytes > 16<<20 {
+		return nil, fmt.Errorf("trace held stream scan: max line bytes must be in 1..%d", 16<<20)
+	}
+	openedIdentity, err := filegeneration.FromFile(file)
+	if err != nil {
+		return nil, fmt.Errorf("trace held stream scan: capture source identity: %w", err)
+	}
+	if !openedIdentity.Strong() {
+		return nil, fmt.Errorf("trace held stream scan: strong source identity is unavailable")
+	}
+	if !openedIdentity.Mode().IsRegular() || openedIdentity.Size() < 0 {
+		return nil, fmt.Errorf("trace held stream scan: source is not a regular file")
+	}
+	info, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("trace held stream scan: stat source: %w", err)
+	}
+	reader := io.NewSectionReader(file, 0, openedIdentity.Size())
+	idx, scanErr := streamScanReader(ctx, displayPath, info, reader, flavorHint, fn, false, maxLineBytes, true)
+	finalIdentity, identityErr := filegeneration.FromFile(file)
+	if identityErr != nil {
+		identityErr = fmt.Errorf("trace held stream scan: revalidate source identity: %w", identityErr)
+	} else if !openedIdentity.SameVersion(finalIdentity) {
+		identityErr = fmt.Errorf("trace held stream scan: source generation changed during validation")
+	}
+	if scanErr != nil {
+		return nil, traceStreamScanJoin(scanErr, identityErr)
+	}
+	if identityErr != nil {
+		return nil, identityErr
+	}
+	return idx, nil
 }
 
 // streamScanWithPairingAudit is the pairing-window discovery lane. It keeps
@@ -83,12 +144,22 @@ func streamScan(ctx context.Context, path string, flavorHint TraceFlavor, fn fun
 		return nil, fmt.Errorf("trace source identity changed before stream_scan opened the artifact")
 	}
 	info = openedInfo
+	idx, scanErr := streamScanReader(ctx, path, info, f, flavorHint, fn, pairingAudit, 0, false)
+	if scanErr != nil {
+		return nil, scanErr
+	}
+	if err := validateTraceFileIdentityAfterRead(f, openedIdentity, "stream_scan"); err != nil {
+		return nil, err
+	}
+	return idx, nil
+}
 
+func streamScanReader(ctx context.Context, path string, info os.FileInfo, source io.Reader, flavorHint TraceFlavor, fn func(Event) bool, pairingAudit bool, maxLineBytes int, canonicalGeneratedLines bool) (*Index, error) {
 	applyHint := flavorHint != "" && flavorHint != TraceFlavorAuto
 	idx := &Index{Path: path, Size: info.Size(), ModTime: info.ModTime()}
 	intern := newStringInterner()
 	flavor := newFlavorVote(path)
-	reader := bufio.NewReaderSize(f, 256*1024)
+	reader := bufio.NewReaderSize(source, 256*1024)
 	lastParsedTs := 0.0
 	stopped := false
 	var durationAudit *durationOrderTracker
@@ -100,8 +171,13 @@ func streamScan(ctx context.Context, path string, flavorHint TraceFlavor, fn fun
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		line, readErr := reader.ReadString('\n')
+		line, readErr := readStreamScanPhysicalLine(reader, maxLineBytes)
 		if len(line) > 0 {
+			if canonicalGeneratedLines {
+				if line[len(line)-1] != '\n' || strings.IndexByte(line, '\r') >= 0 {
+					return nil, fmt.Errorf("trace held stream scan: non-canonical generated line terminator at line %d", lineNo)
+				}
+			}
 			idx.LineCount = lineNo
 			idx.ScannedLineCount = lineNo
 			trimmed := strings.TrimRight(line, "\r\n")
@@ -201,9 +277,6 @@ func streamScan(ctx context.Context, path string, flavorHint TraceFlavor, fn fun
 			return nil, readErr
 		}
 	}
-	if err := validateTraceFileIdentityAfterRead(f, openedIdentity, "stream_scan"); err != nil {
-		return nil, err
-	}
 	if pairingAudit {
 		for family, capped := range durationAudit.capped {
 			if _, _, relevant := pairingDiscoveryFamilyForDuration(family); capped && relevant {
@@ -226,4 +299,30 @@ func streamScan(ctx context.Context, path string, flavorHint TraceFlavor, fn fun
 	}
 	idx.TraceFlavor, idx.FlavorConfidence, idx.FlavorSignals = flavor.result()
 	return idx, nil
+}
+
+func readStreamScanPhysicalLine(reader *bufio.Reader, maxLineBytes int) (string, error) {
+	if maxLineBytes <= 0 {
+		return reader.ReadString('\n')
+	}
+	line := make([]byte, 0, min(maxLineBytes+1, 256*1024))
+	for {
+		fragment, err := reader.ReadSlice('\n')
+		contentBudget := maxLineBytes
+		if len(fragment) > 0 && fragment[len(fragment)-1] == '\n' {
+			contentBudget++
+		}
+		if len(line) > contentBudget-len(fragment) {
+			return "", fmt.Errorf("trace held stream scan: physical line exceeds %d bytes", maxLineBytes)
+		}
+		line = append(line, fragment...)
+		if err == bufio.ErrBufferFull {
+			continue
+		}
+		return string(line), err
+	}
+}
+
+func traceStreamScanJoin(primary, secondary error) error {
+	return errors.Join(primary, secondary)
 }
