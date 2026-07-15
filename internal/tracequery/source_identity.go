@@ -1,6 +1,7 @@
 package tracequery
 
 import (
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"os"
@@ -18,6 +19,10 @@ func traceFileIdentityFromInfo(info os.FileInfo) traceFileIdentity {
 	return filegeneration.FromInfo(info)
 }
 
+func traceFileIdentityFromFile(file *os.File) (traceFileIdentity, error) {
+	return filegeneration.FromFile(file)
+}
+
 func traceAnchorKeyForIdentity(path string, identity traceFileIdentity) traceAnchorKey {
 	return traceAnchorKey{
 		path:     path,
@@ -29,6 +34,14 @@ func traceAnchorKeyForIdentity(path string, identity traceFileIdentity) traceAnc
 }
 
 func traceAnchorKeyForInfo(path string, info os.FileInfo) traceAnchorKey {
+	// FromInfo is portable-only on Windows, while every production anchor
+	// writer keys the held descriptor's strong identity. Resolve the current
+	// pathname first so test and compatibility callers address that same cache
+	// entry on NTFS; retain the supplied FileInfo only as a fail-closed fallback
+	// for a path that can no longer be opened.
+	if identity, err := filegeneration.FromPath(path); err == nil {
+		return traceAnchorKeyForIdentity(path, identity)
+	}
 	return traceAnchorKeyForIdentity(path, traceFileIdentityFromInfo(info))
 }
 
@@ -51,12 +64,15 @@ func CaptureTraceSourceVersion(path string) (TraceSourceVersion, error) {
 		return TraceSourceVersion{}, fmt.Errorf("trace source version: path is empty")
 	}
 	path = canonicalTraceIndexPath(path)
-	entry, err := os.Stat(path)
+	selection, err := resolveTraceIndexSelection(context.Background(), path)
 	if err != nil {
 		return TraceSourceVersion{}, fmt.Errorf("trace source version: %w", err)
 	}
-	bytes, token, err := traceIndexSourceIdentity(path, entry)
-	if err != nil {
+	bytes, token := selection.universe.totalBytes, selection.universe.cacheToken
+	if err := selection.validate(context.Background()); err != nil {
+		return TraceSourceVersion{}, fmt.Errorf("trace source version: %w", selection.closeAfter(err))
+	}
+	if err := selection.close(); err != nil {
 		return TraceSourceVersion{}, fmt.Errorf("trace source version: %w", err)
 	}
 	sum := sha256.Sum256([]byte(token))
@@ -97,18 +113,18 @@ func validateTraceFileIdentityAfterRead(file *os.File, opened traceFileIdentity,
 	if file == nil || !opened.Initialized() {
 		return fmt.Errorf("trace source identity unavailable after %s", operation)
 	}
-	finalInfo, err := file.Stat()
+	finalIdentity, err := traceFileIdentityFromFile(file)
 	if err != nil {
 		return fmt.Errorf("trace source identity check after %s: %w", operation, err)
 	}
-	if !opened.MatchesInfo(finalInfo) {
+	if !opened.SameVersion(finalIdentity) {
 		return fmt.Errorf("trace source identity changed during %s; discard mixed-version streaming results and retry", operation)
 	}
-	pathInfo, err := os.Stat(file.Name())
+	pathIdentity, err := filegeneration.FromPath(file.Name())
 	if err != nil {
 		return fmt.Errorf("trace source path identity check after %s: %w", operation, err)
 	}
-	if !opened.MatchesInfo(pathInfo) {
+	if !opened.SameVersion(pathIdentity) {
 		return fmt.Errorf("trace source path was replaced during %s; discard stale-path streaming results and retry", operation)
 	}
 	return nil

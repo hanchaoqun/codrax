@@ -8,7 +8,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const ParserVersion = "tracequery-v29"
+const ParserVersion = "tracequery-v30"
 
 type EventType string
 

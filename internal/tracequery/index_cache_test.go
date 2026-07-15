@@ -97,16 +97,28 @@ func TestBuildIndex_CacheHitReturnsSameIndex(t *testing.T) {
 }
 
 func TestBuildIndexSingleflight_JoinerWaitsAndSharesResult(t *testing.T) {
-	key := cacheTestKey("/nonexistent/singleflight.trace")
+	path := filepath.Join(t.TempDir(), "singleflight.trace")
+	content := "          <idle>-0     (-----) [000] d..3  100.000000: sched_switch: prev_comm=swapper prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=10 next_prio=100\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	selection, err := resolveTraceIndexSelection(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := cacheTestKey(selection.indexPath)
 	call := &indexBuildCall{done: make(chan struct{})}
 	indexBuildMu.Lock()
 	indexBuilds[key] = call
 	indexBuildMu.Unlock()
 
-	want := &Index{Path: "singleflight"}
+	want, err := parseSelectedFile(t.Context(), selection, BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	got := make(chan *Index, 1)
 	go func() {
-		idx, _ := buildIndexSingleflight(context.Background(), key, key.path, key.size, key.modUnix, BuildOptions{}, false)
+		idx, _ := buildIndexSingleflight(context.Background(), key, selection, BuildOptions{}, false, nil)
 		got <- idx
 	}()
 	select {

@@ -35,6 +35,9 @@ func validateJSONEnvelope(ctx context.Context, data []byte) error {
 	if !utf8.Valid(data) {
 		return invalidManifestf("UTF-8 is required")
 	}
+	if err := validateJSONSurrogateEscapes(data); err != nil {
+		return err
+	}
 	v := envelopeValidator{ctx: ctx, decoder: json.NewDecoder(bytes.NewReader(data))}
 	v.decoder.UseNumber()
 
@@ -60,6 +63,76 @@ func validateJSONEnvelope(ctx context.Context, data []byte) error {
 		return err
 	}
 	return nil
+}
+
+// validateJSONSurrogateEscapes rejects the lossy corner of encoding/json's
+// string decoder: an unpaired UTF-16 surrogate escape is silently converted
+// to U+FFFD. Manifest paths and provenance keys must never be rewritten while
+// crossing the hard intake boundary.
+func validateJSONSurrogateEscapes(data []byte) error {
+	inString := false
+	for i := 0; i < len(data); {
+		switch data[i] {
+		case '"':
+			inString = !inString
+			i++
+		case '\\':
+			if !inString {
+				i++
+				continue
+			}
+			if i+1 >= len(data) {
+				return invalidManifestf("unterminated JSON string escape")
+			}
+			if data[i+1] != 'u' {
+				i += 2
+				continue
+			}
+			unit, ok := parseJSONHexUnit(data, i+2)
+			if !ok {
+				return invalidManifestf("invalid Unicode escape in JSON string")
+			}
+			switch {
+			case unit >= 0xD800 && unit <= 0xDBFF:
+				if i+12 > len(data) || data[i+6] != '\\' || data[i+7] != 'u' {
+					return invalidManifestf("unpaired high surrogate escape in JSON string")
+				}
+				low, lowOK := parseJSONHexUnit(data, i+8)
+				if !lowOK || low < 0xDC00 || low > 0xDFFF {
+					return invalidManifestf("high surrogate escape is not followed by a low surrogate")
+				}
+				i += 12
+			case unit >= 0xDC00 && unit <= 0xDFFF:
+				return invalidManifestf("unpaired low surrogate escape in JSON string")
+			default:
+				i += 6
+			}
+		default:
+			i++
+		}
+	}
+	return nil
+}
+
+func parseJSONHexUnit(data []byte, start int) (uint16, bool) {
+	if start < 0 || start+4 > len(data) {
+		return 0, false
+	}
+	var value uint16
+	for _, b := range data[start : start+4] {
+		value <<= 4
+		switch {
+		case b >= '0' && b <= '9':
+			value |= uint16(b - '0')
+		case b >= 'a' && b <= 'f':
+			value |= uint16(b-'a') + 10
+		case b >= 'A' && b <= 'F':
+			value |= uint16(b-'A') + 10
+		default:
+			return 0, false
+		}
+	}
+	return value, true
 }
 
 func (v *envelopeValidator) parseValue(token json.Token, depth int, field string, parentObjectDepth int) error {

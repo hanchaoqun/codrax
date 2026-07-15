@@ -116,6 +116,8 @@ const indexSchedulerHeadMemoBudgetBytes int64 = 16 << 20
 const indexSchedulerHeadMemoMaxEntries = 2
 const schedulerHeadCrossSourceStateUnprovenReason = "cross_source_scheduler_state_unproven"
 
+var errSchedulerHeadSourceGeneration = errors.New("scheduler head source generation changed")
+
 type schedulerHeadCacheKey struct {
 	path         string
 	size         int64
@@ -677,6 +679,9 @@ func populateWindowSchedulerHead(ctx context.Context, idx *Index, boundaryTs flo
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return err
 			}
+			if errors.Is(err, errSchedulerHeadSourceGeneration) {
+				return err
+			}
 			child = newSchedulerHeadSnapshot(boundaryTs)
 			child.Reason = "scheduler_head_scan_error=" + err.Error()
 		}
@@ -766,19 +771,30 @@ func mergeSchedulerHeadSnapshot(dst, src *schedulerHeadSnapshot) {
 	}
 }
 
-func sourceSchedulerHeadSnapshot(ctx context.Context, source TraceArtifactSource, canonicalBoundary float64) (*schedulerHeadSnapshot, error) {
+func sourceSchedulerHeadSnapshot(ctx context.Context, source TraceArtifactSource, canonicalBoundary float64) (snapshot *schedulerHeadSnapshot, err error) {
 	canonicalPath := canonicalTraceIndexPath(source.SourcePath)
-	f, err := os.Open(canonicalPath)
+	f, openedIdentity, err := openTraceSourceRegular(canonicalPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: open selected source: %v", errSchedulerHeadSourceGeneration, err)
 	}
-	defer f.Close()
+	var pendingCacheKey schedulerHeadCacheKey
+	storeAfterClose := false
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			snapshot = nil
+			err = errors.Join(err, fmt.Errorf("%w: close selected source after scheduler-head scan: %v", errSchedulerHeadSourceGeneration, closeErr))
+			return
+		}
+		if err == nil && storeAfterClose && snapshot != nil {
+			schedulerHeadCache.store(pendingCacheKey, snapshot)
+		}
+	}()
 	info, err := f.Stat()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: stat selected source: %v", errSchedulerHeadSourceGeneration, err)
 	}
-	if !schedulerHeadSourceIdentityMatches(source, info) {
-		return nil, fmt.Errorf("scheduler head source identity differs from parsed artifact ledger")
+	if !schedulerHeadSourceIdentityMatches(source, openedIdentity) {
+		return nil, fmt.Errorf("%w: opened source differs from parsed artifact ledger", errSchedulerHeadSourceGeneration)
 	}
 	offset, slope := traceClockMapValues(source.ClockOffsetSec, source.ClockSlope)
 	key := schedulerHeadCacheKey{
@@ -795,15 +811,16 @@ func sourceSchedulerHeadSnapshot(ctx context.Context, source TraceArtifactSource
 	if cached := schedulerHeadCache.load(key); cached != nil {
 		return cached, nil
 	}
-	snapshot, err := scanSourceSchedulerHead(ctx, source, f, info, canonicalBoundary)
+	snapshot, err = scanSourceSchedulerHead(ctx, source, f, openedIdentity, canonicalBoundary)
 	if err == nil {
-		schedulerHeadCache.store(key, snapshot)
+		pendingCacheKey = key
+		storeAfterClose = true
 	}
 	return snapshot, err
 }
 
-func schedulerHeadSourceIdentityMatches(source TraceArtifactSource, info os.FileInfo) bool {
-	return source.identityMatchesInfo(info)
+func schedulerHeadSourceIdentityMatches(source TraceArtifactSource, identity traceFileIdentity) bool {
+	return source.identityMatchesIdentity(identity)
 }
 
 func appendSchedulerHeadRowIntegrityFailure(snapshot *schedulerHeadSnapshot, source TraceArtifactSource, failure *schedulerRowIntegrityFailure) bool {
@@ -830,10 +847,10 @@ func appendSchedulerHeadRowIntegrityFailure(snapshot *schedulerHeadSnapshot, sou
 	return true
 }
 
-func scanSourceSchedulerHead(ctx context.Context, source TraceArtifactSource, f *os.File, info os.FileInfo, canonicalBoundary float64) (*schedulerHeadSnapshot, error) {
+func scanSourceSchedulerHead(ctx context.Context, source TraceArtifactSource, f *os.File, openedIdentity traceFileIdentity, canonicalBoundary float64) (*schedulerHeadSnapshot, error) {
 	snapshot := newSchedulerHeadSnapshot(canonicalBoundary)
-	if f == nil || !schedulerHeadSourceIdentityMatches(source, info) {
-		return nil, fmt.Errorf("scheduler head scan requires the parsed artifact version")
+	if f == nil || !schedulerHeadSourceIdentityMatches(source, openedIdentity) {
+		return nil, fmt.Errorf("%w: scan requires the parsed artifact version", errSchedulerHeadSourceGeneration)
 	}
 	rawBoundary, boundaryOK := source.toSourceTsChecked(canonicalBoundary)
 	if !boundaryOK {
@@ -843,7 +860,7 @@ func scanSourceSchedulerHead(ctx context.Context, source TraceArtifactSource, f 
 	rawScanBoundary := traceClockWidenULPs(rawBoundary, math.Inf(1), traceClockRoundTripMaxULPs)
 	canonicalPath := canonicalTraceIndexPath(source.SourcePath)
 	proof := TraceTimestampOrderUnknown
-	if anchors := anchorCache.load(traceAnchorKeyForInfo(canonicalPath, info)); anchors != nil {
+	if anchors := anchorCache.load(traceAnchorKeyForIdentity(canonicalPath, openedIdentity)); anchors != nil {
 		proof = anchors.TimestampOrder
 	}
 	reader := bufio.NewReaderSize(f, 256*1024)
@@ -976,12 +993,12 @@ func scanSourceSchedulerHead(ctx context.Context, source TraceArtifactSource, f 
 	// Re-check the exact descriptor after the scan. This catches in-place
 	// append/truncate/write races; atomic path replacement keeps this old fd
 	// coherent and is caught by BuildIndexWithOptions' final universe check.
-	finalInfo, statErr := f.Stat()
-	if statErr != nil {
-		return nil, statErr
+	if err := validateTraceFileIdentityAfterRead(f, openedIdentity, "scheduler head scan"); err != nil {
+		return nil, fmt.Errorf("%w: %v", errSchedulerHeadSourceGeneration, err)
 	}
-	if !traceFileIdentityFromInfo(info).MatchesInfo(finalInfo) || !schedulerHeadSourceIdentityMatches(source, finalInfo) {
-		return nil, fmt.Errorf("scheduler head source changed while its prefix was being scanned")
+	finalIdentity, identityErr := traceFileIdentityFromFile(f)
+	if identityErr != nil || !schedulerHeadSourceIdentityMatches(source, finalIdentity) {
+		return nil, fmt.Errorf("%w: source changed while its prefix was being scanned", errSchedulerHeadSourceGeneration)
 	}
 	snapshot.Complete = true
 	return snapshot, nil

@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"container/list"
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -20,6 +20,7 @@ import (
 	"unicode/utf8"
 	"unsafe"
 
+	"github.com/hanchaoqun/codrax/internal/filegeneration"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -214,7 +215,11 @@ func traceIndexCacheCost(idx *Index) int64 {
 	blockedReasonAuditBytes += int64(len(idx.blockedReasonIntegrityOverflow.PIDs)) * int64(unsafe.Sizeof(int(0)))
 	blockedReasonAuditBytes += int64(len(idx.blockedReasonIdentityOverflow.PIDs)) * int64(unsafe.Sizeof(int(0)))
 	blockedReasonAuditBytes += int64(len(idx.blockedReasonIntegrityOverflow.PIDDomains)+len(idx.blockedReasonIdentityOverflow.PIDDomains)) * int64(unsafe.Sizeof(blockedReasonIntegrityPIDDomain{}))
-	return int64(len(idx.Events))*eventSizeBytes + idx.RetainedStringBytes + idx.RetainedSideTableBytes + headBytes + durationAuditBytes + cpuInputAuditBytes + traceMarkAuditBytes + schedulerRowAuditBytes + blockedReasonAuditBytes
+	var caveatBytes int64
+	for _, caveat := range idx.Caveats {
+		caveatBytes += int64(len(caveat))
+	}
+	return int64(len(idx.Events))*eventSizeBytes + idx.RetainedStringBytes + idx.RetainedSideTableBytes + headBytes + durationAuditBytes + cpuInputAuditBytes + traceMarkAuditBytes + schedulerRowAuditBytes + blockedReasonAuditBytes + caveatBytes
 }
 
 func (c *traceIndexCache) Load(key parseCacheKey) (*Index, bool) {
@@ -254,6 +259,22 @@ func (c *traceIndexCache) Store(key parseCacheKey, idx *Index) {
 		delete(c.items, entry.key)
 		c.used -= entry.cost
 	}
+}
+
+func (c *traceIndexCache) Delete(key parseCacheKey) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	el, ok := c.items[key]
+	if !ok {
+		return
+	}
+	entry := el.Value.(*traceIndexCacheEntry)
+	c.order.Remove(el)
+	delete(c.items, key)
+	c.used -= entry.cost
 }
 
 type indexBuildCall struct {
@@ -446,7 +467,22 @@ func BuildIndex(ctx context.Context, path string) (*Index, error) {
 	return BuildIndexWithOptions(ctx, path, BuildOptions{})
 }
 
+type traceIndexBuildPhase uint8
+
+const (
+	traceIndexPhaseSelectionFrozen traceIndexBuildPhase = iota + 1
+	traceIndexPhaseBeforeSchedulerHead
+	traceIndexPhaseBeforeUniverseValidation
+	traceIndexPhaseSingleflightJoined
+)
+
+type traceIndexBuildObserver func(traceIndexBuildPhase, parseCacheKey)
+
 func BuildIndexWithOptions(ctx context.Context, path string, opts BuildOptions) (*Index, error) {
+	return buildIndexWithObserver(ctx, path, opts, nil)
+}
+
+func buildIndexWithObserver(ctx context.Context, path string, opts BuildOptions, observer traceIndexBuildObserver) (idx *Index, err error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -454,29 +490,53 @@ func BuildIndexWithOptions(ctx context.Context, path string, opts BuildOptions) 
 	if path == "" {
 		return nil, fmt.Errorf("trace path is empty")
 	}
-	path = canonicalTraceIndexPath(path)
-	path = promoteSiblingTraceBundlePath(path)
-	info, err := os.Stat(path)
+	preCanceled := ctx.Err()
+	selectionCtx := ctx
+	if preCanceled != nil {
+		// A warm cached index is still useful to the tool layer: it mints the
+		// typed canceled-partial result without publishing any query faces. Do
+		// the bounded source-generation lookup even for an already-dead context,
+		// but never parse a cache miss below.
+		selectionCtx = context.WithoutCancel(ctx)
+	}
+	selection, err := resolveTraceIndexSelection(selectionCtx, path)
 	if err != nil {
+		if preCanceled != nil {
+			return nil, preCanceled
+		}
 		return nil, err
 	}
-	sourceBytes, sourceKey, err := traceIndexSourceIdentity(path, info)
-	if err != nil {
-		return nil, err
-	}
+	defer func() {
+		if closeErr := selection.close(); closeErr != nil {
+			idx = nil
+			err = errors.Join(err, closeErr)
+		}
+	}()
+	path = selection.indexPath
+	sourceBytes := selection.universe.totalBytes
+	sourceKey := selection.universe.cacheToken
+	size := selection.indexIdentity.Size()
+	modUnix := selection.indexIdentity.ModUnixNano()
 	opts = normalizeBuildOptions(opts)
 	windowKey := opts.cacheKey()
 	cacheable := shouldCacheTraceIndex(sourceBytes, opts)
 	key := parseCacheKey{
 		path:      path,
-		size:      info.Size(),
-		modUnix:   info.ModTime().UnixNano(),
+		size:      size,
+		modUnix:   modUnix,
 		version:   ParserVersion,
 		windowKey: windowKey,
 		sourceKey: sourceKey,
 	}
+	if observer != nil {
+		observer(traceIndexPhaseSelectionFrozen, key)
+	}
 	if cacheable {
 		if idx, ok := indexCache.Load(key); ok {
+			if err := selection.finish(context.WithoutCancel(ctx), idx); err != nil {
+				indexCache.Delete(key)
+				return nil, err
+			}
 			return idx, nil
 		}
 	}
@@ -487,12 +547,16 @@ func BuildIndexWithOptions(ctx context.Context, path string, opts BuildOptions) 
 	if opts.windowed() && !opts.relationScoped() {
 		fullKey := parseCacheKey{
 			path:      path,
-			size:      info.Size(),
-			modUnix:   info.ModTime().UnixNano(),
+			size:      size,
+			modUnix:   modUnix,
 			version:   ParserVersion,
 			sourceKey: sourceKey,
 		}
 		if idx, ok := indexCache.Load(fullKey); ok {
+			if err := selection.validate(context.WithoutCancel(ctx)); err != nil {
+				indexCache.Delete(fullKey)
+				return nil, selection.closeAfter(err)
+			}
 			derived := deriveWindowedIndex(idx, opts)
 			auditQ := Query{TimeStart: derived.IndexTimeStart, TimeEnd: derived.IndexTimeEnd, LineStart: derived.IndexLineStart, LineEnd: derived.IndexLineEnd}
 			derived.schedulerOrderFailures = nil
@@ -589,44 +653,17 @@ func BuildIndexWithOptions(ctx context.Context, path string, opts BuildOptions) 
 			if opts.TimeStartSet && opts.TimeStart > 0 {
 				derived.setSchedulerHead(schedulerHeadFromEvents(idx, opts.TimeStart))
 			}
+			if err := selection.finish(context.WithoutCancel(ctx), derived); err != nil {
+				indexCache.Delete(fullKey)
+				return nil, err
+			}
 			return derived, nil
 		}
 	}
-	idx, err := buildIndexSingleflight(ctx, key, path, info.Size(), info.ModTime().UnixNano(), opts, cacheable)
-	if err != nil {
-		return idx, err
+	if err := ctx.Err(); err != nil {
+		return nil, selection.closeAfter(err)
 	}
-	currentEntry, statErr := os.Stat(path)
-	if statErr != nil {
-		return nil, fmt.Errorf("revalidate trace source identity after parse: %w", statErr)
-	}
-	_, currentSourceKey, identityErr := traceIndexSourceIdentity(path, currentEntry)
-	if identityErr != nil {
-		return nil, identityErr
-	}
-	if currentSourceKey != sourceKey {
-		return nil, fmt.Errorf("trace source artifacts changed while the index was being built; retry with a stable capture")
-	}
-	if opts.windowed() && opts.TimeStartSet && opts.TimeStart > 0 {
-		if err := populateWindowSchedulerHead(ctx, idx, opts.TimeStart); err != nil {
-			return nil, err
-		}
-		// The checkpoint scan is a second read phase. Revalidate the complete
-		// artifact universe again so an atomic replacement between the index and
-		// head phases cannot publish a mixed-version result.
-		finalEntry, finalStatErr := os.Stat(path)
-		if finalStatErr != nil {
-			return nil, fmt.Errorf("revalidate trace source identity after scheduler head scan: %w", finalStatErr)
-		}
-		_, finalSourceKey, finalIdentityErr := traceIndexSourceIdentity(path, finalEntry)
-		if finalIdentityErr != nil {
-			return nil, finalIdentityErr
-		}
-		if finalSourceKey != sourceKey {
-			return nil, fmt.Errorf("trace source artifacts changed while the scheduler head checkpoint was being built; retry with a stable capture")
-		}
-	}
-	return idx, nil
+	return buildIndexSingleflight(ctx, key, selection, opts, cacheable, observer)
 }
 
 func shouldCacheTraceIndex(size int64, opts BuildOptions) bool {
@@ -642,46 +679,29 @@ func shouldCacheTraceIndex(size int64, opts BuildOptions) bool {
 // sibling artifact.  The same value keys the cache and in-flight singleflight;
 // total bytes (not the small manifest/primary size) decide cacheability.
 func traceIndexSourceIdentity(path string, entry os.FileInfo) (int64, string, error) {
-	paths := []string{canonicalTraceIndexPath(path)}
-	if traceBundlePath(path) {
-		body, err := os.ReadFile(path)
-		if err != nil {
-			return 0, "", err
-		}
-		var bundle traceBundleFile
-		if err := json.Unmarshal(body, &bundle); err != nil {
-			return 0, "", fmt.Errorf("parse trace bundle %s for source identity: %w", path, err)
-		}
-		paths = append(paths, traceBundleIndexPaths(path, bundle)...)
-	} else {
-		paths = append(paths, siblingTraceArtifactPaths(path)...)
+	_ = entry // retained for package-local compatibility with existing callers.
+	selection, err := resolveTraceIndexSelection(context.Background(), path)
+	if err != nil {
+		return 0, "", err
 	}
-	seen := map[string]bool{}
-	var total int64
-	var key strings.Builder
-	for _, candidate := range paths {
-		candidate = canonicalTraceIndexPath(candidate)
-		if candidate == "" || seen[candidate] {
-			continue
-		}
-		seen[candidate] = true
-		info := entry
-		if candidate != canonicalTraceIndexPath(path) || info == nil {
-			var err error
-			info, err = os.Stat(candidate)
-			if err != nil {
-				return 0, "", fmt.Errorf("stat trace source artifact %s: %w", candidate, err)
-			}
-		}
-		total += info.Size()
-		identity := traceFileIdentityFromInfo(info)
-		fmt.Fprintf(&key, "%d:%s:%s|", len(candidate), candidate, identity.CacheToken())
+	if err := selection.validate(context.Background()); err != nil {
+		return 0, "", selection.closeAfter(err)
 	}
-	return total, key.String(), nil
+	if err := selection.close(); err != nil {
+		return 0, "", err
+	}
+	return selection.universe.totalBytes, selection.universe.cacheToken, nil
 }
 
 func canonicalTraceIndexPath(path string) string {
 	path = filepath.Clean(path)
+	// Windows pipe namespaces are not filesystem paths: filepath.Abs or
+	// EvalSymlinks may reach CreateFile/Lstat and wait for a pipe server before
+	// the regular-file opener gets a chance to reject them. Keep the lexical
+	// spelling untouched until the shared admission guard returns the error.
+	if traceSourcePathIsBlockingNamespace(path) {
+		return path
+	}
 	if abs, err := filepath.Abs(path); err == nil {
 		abs = filepath.Clean(abs)
 		if real, err := filepath.EvalSymlinks(abs); err == nil {
@@ -692,12 +712,23 @@ func canonicalTraceIndexPath(path string) string {
 	return path
 }
 
-func buildIndexSingleflight(ctx context.Context, key parseCacheKey, path string, size int64, modUnix int64, opts BuildOptions, cacheable bool) (*Index, error) {
+func buildIndexSingleflight(ctx context.Context, key parseCacheKey, selection *traceIndexSelection, opts BuildOptions, cacheable bool, observer traceIndexBuildObserver) (*Index, error) {
 	indexBuildMu.Lock()
 	if call := indexBuilds[key]; call != nil {
 		indexBuildMu.Unlock()
+		if observer != nil {
+			observer(traceIndexPhaseSingleflightJoined, key)
+		}
 		select {
 		case <-call.done:
+			if call.err == nil {
+				if err := selection.finish(ctx, call.idx); err != nil {
+					indexCache.Delete(key)
+					return nil, err
+				}
+			} else if err := selection.closeAfter(call.err); err != nil {
+				return nil, err
+			}
 			return call.idx, call.err
 		case <-ctx.Done():
 			return nil, ctx.Err()
@@ -707,9 +738,28 @@ func buildIndexSingleflight(ctx context.Context, key parseCacheKey, path string,
 	indexBuilds[key] = call
 	indexBuildMu.Unlock()
 
-	call.idx, call.err = parseFile(ctx, path, size, modUnix, opts)
+	call.idx, call.err = parseSelectedFile(ctx, selection, opts)
+	if call.err == nil && opts.windowed() && opts.TimeStartSet && opts.TimeStart > 0 {
+		if observer != nil {
+			observer(traceIndexPhaseBeforeSchedulerHead, key)
+		}
+		if call.err = populateWindowSchedulerHead(ctx, call.idx, opts.TimeStart); call.err != nil {
+			call.idx = nil
+		}
+	}
+	if call.err == nil {
+		if observer != nil {
+			observer(traceIndexPhaseBeforeUniverseValidation, key)
+		}
+		if call.err = selection.finish(ctx, call.idx); call.err != nil {
+			call.idx = nil
+		}
+	}
 	if call.err == nil && cacheable {
 		indexCache.Store(key, call.idx)
+	} else if call.err != nil {
+		call.err = selection.closeAfter(call.err)
+		indexCache.Delete(key)
 	}
 	indexBuildMu.Lock()
 	delete(indexBuilds, key)
@@ -1377,13 +1427,36 @@ func completeTimestampOrderProof(ctx context.Context, r *bufio.Reader, nextLine 
 }
 
 func parseFile(ctx context.Context, path string, size int64, modUnix int64, opts BuildOptions) (*Index, error) {
-	if traceBundlePath(path) {
-		return parseTraceBundleFile(ctx, path, size, modUnix, opts)
+	selection, err := resolveTraceIndexSelection(ctx, path)
+	if err != nil {
+		return nil, err
 	}
-	if companions := siblingTraceArtifactPaths(path); len(companions) > 0 {
-		return parseTraceArtifactPathList(ctx, path, size, modUnix, opts, append([]string{path}, companions...))
+	if selection.indexIdentity.Size() != size || selection.indexIdentity.ModUnixNano() != modUnix {
+		return nil, selection.closeAfter(fmt.Errorf("trace source identity changed before parsing began"))
 	}
-	idx, err := parseSingleTraceFile(ctx, path, size, modUnix, opts)
+	idx, err := parseSelectedFile(ctx, selection, opts)
+	if err == nil {
+		err = selection.finish(ctx, idx)
+	} else {
+		err = selection.closeAfter(err)
+	}
+	return idx, err
+}
+
+func parseSelectedFile(ctx context.Context, selection *traceIndexSelection, opts BuildOptions) (*Index, error) {
+	if selection == nil {
+		return nil, fmt.Errorf("trace index selection is nil")
+	}
+	path := selection.indexPath
+	size := selection.indexIdentity.Size()
+	modUnix := selection.indexIdentity.ModUnixNano()
+	if selection.bundleSet {
+		return parseTraceBundleSelection(ctx, selection, opts)
+	}
+	if len(selection.artifactSpecs) > 0 {
+		return parseTraceArtifactSpecs(ctx, path, size, modUnix, opts, selection.artifactSpecs, &selection.universe)
+	}
+	idx, err := parseSingleTraceFile(ctx, path, size, modUnix, opts, selection.indexIdentity)
 	if err == nil && idx != nil && strings.HasSuffix(strings.ToLower(path), ".perftrace") {
 		// Audit #35 (§29.25 处置委托 2026-07-10): a directly queried .perftrace is
 		// the intentional per-clock-domain escape hatch and deliberately never
@@ -1399,22 +1472,25 @@ func parseFile(ctx context.Context, path string, size int64, modUnix int64, opts
 	return idx, err
 }
 
-func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix int64, opts BuildOptions) (*Index, error) {
-	f, err := os.Open(path)
+func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix int64, opts BuildOptions, expected traceFileIdentity) (idx *Index, err error) {
+	f, openedIdentity, err := openTraceSourceRegular(path)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
-	openedInfo, err := f.Stat()
-	if err != nil {
-		return nil, err
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			idx = nil
+			err = errors.Join(err, fmt.Errorf("close trace source %s after parsing: %w", path, closeErr))
+		}
+	}()
+	if expected.Initialized() && !expected.SameVersion(openedIdentity) {
+		return nil, fmt.Errorf("trace source generation differs from the selected artifact ledger")
 	}
-	openedIdentity := traceFileIdentityFromInfo(openedInfo)
-	if openedInfo.Size() != size || openedInfo.ModTime().UnixNano() != modUnix {
+	if openedIdentity.Size() != size || openedIdentity.ModUnixNano() != modUnix {
 		return nil, fmt.Errorf("trace source identity changed before its parser opened the artifact")
 	}
 
-	idx := &Index{Path: path, Size: size, ModTime: time.Unix(0, modUnix)}
+	idx = &Index{Path: path, Size: size, ModTime: time.Unix(0, modUnix)}
 	if opts.windowed() {
 		idx.Windowed = true
 		idx.IndexTimeStart = paddedTimeStart(opts)
@@ -1448,12 +1524,15 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 	var relScope *relationScope
 	var relScopeCaveats []string
 	if opts.relationScoped() {
-		s, caveats, derr := discoverRelationScope(ctx, path, opts)
+		s, caveats, derr := discoverRelationScope(ctx, f, path, openedIdentity, opts)
 		if derr != nil {
 			return nil, derr
 		}
 		relScope = s
 		relScopeCaveats = caveats
+		if _, seekErr := f.Seek(0, io.SeekStart); seekErr != nil {
+			return nil, fmt.Errorf("rewind trace source after relation discovery: %w", seekErr)
+		}
 	}
 	// P1 anchor seek: a windowed build over an already-anchored file jumps
 	// to the last anchor guaranteed to precede every in-window line instead
@@ -1937,12 +2016,8 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 		}
 	}
 	if len(idx.TraceArtifacts) == 0 {
-		finalInfo, statErr := f.Stat()
-		if statErr != nil {
-			return nil, statErr
-		}
-		if !openedIdentity.MatchesInfo(finalInfo) {
-			return nil, fmt.Errorf("trace source changed while it was being parsed")
+		if err := validateTraceFileIdentityAfterRead(f, openedIdentity, "trace parsing"); err != nil {
+			return nil, err
 		}
 		idx.TraceArtifacts = []TraceArtifactSource{singleTraceArtifactSourceWithIdentity(path, openedIdentity, idx.LineCount, len(idx.Events))}
 	}
@@ -2122,43 +2197,40 @@ func promoteSiblingTraceBundlePath(path string) string {
 	if strings.HasSuffix(strings.ToLower(path), ".perftrace") {
 		return path
 	}
-	if bundle := siblingTraceBundlePath(path); bundle != "" {
-		return bundle
+	selection, err := resolveTraceIndexSelection(context.Background(), path)
+	if err == nil {
+		if selection.promoted {
+			promoted := selection.indexPath
+			if selection.close() == nil {
+				return promoted
+			}
+			return path
+		}
+		_ = selection.close()
 	}
 	return path
 }
 
 func siblingTraceBundlePath(path string) string {
-	requested := canonicalTraceIndexPath(path)
-	base := traceArtifactBase(requested)
-	if base == "" {
-		return ""
-	}
-	candidate := canonicalTraceIndexPath(base + ".tracebundle.json")
-	body, err := os.ReadFile(candidate)
-	if err != nil {
-		// A sibling manifest is optional metadata. An unreadable candidate must
-		// not make the explicitly requested physical trace unusable.
-		return ""
-	}
-	var bundle traceBundleFile
-	if err := json.Unmarshal(body, &bundle); err != nil {
-		// Likewise, a partial/stale invalid manifest cannot hijack a direct
-		// systrace request. BuildIndex will continue with requested itself.
-		return ""
-	}
-	for _, spec := range traceBundleArtifactSpecs(candidate, bundle) {
-		if spec.source.Kind == "systrace" && canonicalTraceIndexPath(spec.source.SourcePath) == requested {
-			return candidate
+	selection, err := resolveTraceIndexSelection(context.Background(), path)
+	if err == nil {
+		if selection.promoted {
+			promoted := selection.indexPath
+			if selection.close() == nil {
+				return promoted
+			}
+			return ""
 		}
+		_ = selection.close()
 	}
-	// Basename proximity is not capture provenance. Only an explicit,
-	// canonically resolved systrace declaration authorizes auto-promotion.
 	return ""
 }
 
 func siblingTraceArtifactPaths(path string) []string {
 	if traceBundlePath(path) {
+		return nil
+	}
+	if traceSourcePathIsBlockingNamespace(path) {
 		return nil
 	}
 	base := traceArtifactBase(path)
@@ -2179,7 +2251,7 @@ func siblingTraceArtifactPaths(path string) []string {
 		if filepath.Clean(candidate) == filepath.Clean(path) {
 			continue
 		}
-		if _, err := os.Stat(candidate); err == nil {
+		if identity, err := filegeneration.FromPath(candidate); err == nil && identity.Mode().IsRegular() {
 			out = append(out, candidate)
 		}
 	}
@@ -2199,38 +2271,60 @@ func traceArtifactBase(path string) string {
 }
 
 func parseTraceBundleFile(ctx context.Context, path string, size int64, modUnix int64, opts BuildOptions) (*Index, error) {
-	body, err := os.ReadFile(path)
+	selection, err := resolveTraceIndexSelection(ctx, path)
 	if err != nil {
 		return nil, err
 	}
-	var bundle traceBundleFile
-	if err := json.Unmarshal(body, &bundle); err != nil {
-		return nil, fmt.Errorf("parse trace bundle %s: %w", path, err)
+	if !selection.bundleSet || selection.indexPath != canonicalTraceIndexPath(path) {
+		return nil, selection.closeAfter(fmt.Errorf("trace bundle selection did not preserve the explicit manifest"))
 	}
-	artifactSpecs := traceBundleArtifactSpecs(path, bundle)
-	if len(artifactSpecs) == 0 {
-		return nil, fmt.Errorf("trace bundle %s has no systrace or perftrace artifacts", path)
+	if selection.indexIdentity.Size() != size || selection.indexIdentity.ModUnixNano() != modUnix {
+		return nil, selection.closeAfter(fmt.Errorf("trace bundle generation changed before parsing began"))
 	}
-	idx, err := parseTraceArtifactSpecs(ctx, path, size, modUnix, opts, artifactSpecs)
+	idx, err := parseTraceBundleSelection(ctx, selection, opts)
+	if err == nil {
+		err = selection.finish(ctx, idx)
+	} else {
+		err = selection.closeAfter(err)
+	}
+	return idx, err
+}
+
+func parseTraceBundleSelection(ctx context.Context, selection *traceIndexSelection, opts BuildOptions) (*Index, error) {
+	if selection == nil || !selection.bundleSet {
+		return nil, fmt.Errorf("trace bundle selection is missing its decoded manifest")
+	}
+	if len(selection.artifactSpecs) == 0 {
+		return nil, fmt.Errorf("trace bundle %s has no systrace or perftrace artifacts", selection.indexPath)
+	}
+	idx, err := parseTraceArtifactSpecs(
+		ctx,
+		selection.indexPath,
+		selection.indexIdentity.Size(),
+		selection.indexIdentity.ModUnixNano(),
+		opts,
+		selection.artifactSpecs,
+		&selection.universe,
+	)
 	if err != nil {
 		return nil, err
 	}
-	idx.Caveats = append(idx.Caveats, traceBundleCaveats(bundle)...)
+	idx.Caveats = append(idx.Caveats, traceBundleCaveats(selection.bundle)...)
 	return idx, nil
 }
 
 func traceBundleCaveats(bundle traceBundleFile) []string {
 	var out []string
+	seen := make(map[string]struct{})
 	add := func(s string) {
 		s = strings.TrimSpace(s)
 		if s == "" {
 			return
 		}
-		for _, existing := range out {
-			if existing == s {
-				return
-			}
+		if _, exists := seen[s]; exists {
+			return
 		}
+		seen[s] = struct{}{}
 		out = append(out, s)
 	}
 	for _, caveat := range bundle.Caveats {
@@ -3013,10 +3107,10 @@ func traceBundleCompactValue(value string) string {
 }
 
 func parseTraceArtifactPathList(ctx context.Context, path string, size int64, modUnix int64, opts BuildOptions, artifactPaths []string) (*Index, error) {
-	return parseTraceArtifactSpecs(ctx, path, size, modUnix, opts, traceArtifactSpecsForPaths(artifactPaths))
+	return parseTraceArtifactSpecs(ctx, path, size, modUnix, opts, traceArtifactSpecsForPaths(artifactPaths), nil)
 }
 
-func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUnix int64, opts BuildOptions, artifactSpecs []traceArtifactSpec) (*Index, error) {
+func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUnix int64, opts BuildOptions, artifactSpecs []traceArtifactSpec, universe *traceSourceUniverse) (*Index, error) {
 	// A bundle owns manifest bytes in addition to its children.  A sibling
 	// systrace/perftrace universe does not: the primary path is one of the
 	// children and must not be counted twice.
@@ -3051,23 +3145,37 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 			return nil, err
 		}
 		artifactPath := spec.source.SourcePath
-		info, err := os.Stat(artifactPath)
-		if err != nil {
-			return nil, fmt.Errorf("stat trace bundle artifact %s: %w", artifactPath, err)
+		var artifactIdentity traceFileIdentity
+		if universe != nil {
+			entry, ok := universe.entry(artifactPath)
+			if !ok {
+				return nil, fmt.Errorf("trace source universe omitted artifact %s", artifactPath)
+			}
+			artifactIdentity = entry.identity
+		} else {
+			var err error
+			artifactIdentity, err = filegeneration.FromPath(artifactPath)
+			if err != nil {
+				return nil, fmt.Errorf("inspect trace bundle artifact %s: %w", artifactPath, err)
+			}
 		}
 		source := spec.source
-		source.SourceBytes = info.Size()
-		source.SourceModUnixNano = info.ModTime().UnixNano()
-		source.sourceIdentity = traceFileIdentityFromInfo(info)
+		source.SourceBytes = artifactIdentity.Size()
+		source.SourceModUnixNano = artifactIdentity.ModUnixNano()
+		source.sourceIdentity = artifactIdentity
 		source.VirtualLineBase = virtualLineBase
-		reserve, reserveErr := traceArtifactVirtualLineReserve(info.Size(), virtualLineBase)
+		reserve, reserveErr := traceArtifactVirtualLineReserve(artifactIdentity.Size(), virtualLineBase)
 		if reserveErr != nil {
 			return nil, fmt.Errorf("trace bundle artifact %s: %w", artifactPath, reserveErr)
 		}
 		virtualLineBase += reserve
-		idx.Size += info.Size()
-		if info.ModTime().After(idx.ModTime) {
-			idx.ModTime = info.ModTime()
+		if artifactIdentity.Size() > math.MaxInt64-idx.Size {
+			return nil, fmt.Errorf("trace bundle artifact bytes overflow the composite size")
+		}
+		idx.Size += artifactIdentity.Size()
+		artifactModTime := time.Unix(0, artifactIdentity.ModUnixNano())
+		if artifactModTime.After(idx.ModTime) {
+			idx.ModTime = artifactModTime
 		}
 		if !source.CausalCompatible {
 			idx.TraceArtifacts = append(idx.TraceArtifacts, source)
@@ -3099,7 +3207,7 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 			// sample identity is scrubbed/admitted immediately below.
 			childOpts.RelationScoped = false
 		}
-		child, err := parseSingleTraceFile(ctx, artifactPath, info.Size(), info.ModTime().UnixNano(), childOpts)
+		child, err := parseSingleTraceFile(ctx, artifactPath, artifactIdentity.Size(), artifactIdentity.ModUnixNano(), childOpts, artifactIdentity)
 		if err != nil {
 			return nil, fmt.Errorf("parse trace bundle artifact %s: %w", artifactPath, err)
 		}
@@ -3521,10 +3629,36 @@ func traceBundleIndexPaths(bundlePath string, bundle traceBundleFile) []string {
 	return paths
 }
 
-func resolveTraceBundleArtifactPath(baseDir, p string) string {
-	if p == "" {
+type traceBundleArtifactPathResolver struct {
+	baseDir  string
+	resolved map[string]string
+}
+
+func newTraceBundleArtifactPathResolver(baseDir string) *traceBundleArtifactPathResolver {
+	return &traceBundleArtifactPathResolver{
+		baseDir:  baseDir,
+		resolved: make(map[string]string),
+	}
+}
+
+func (r *traceBundleArtifactPathResolver) resolve(rawPath string) string {
+	p := strings.TrimSpace(rawPath)
+	if r == nil || p == "" {
 		return ""
 	}
+	if resolved, ok := r.resolved[p]; ok {
+		return resolved
+	}
+	resolved := resolveTraceBundleArtifactPathUncached(r.baseDir, p)
+	r.resolved[p] = resolved
+	return resolved
+}
+
+func resolveTraceBundleArtifactPath(baseDir, p string) string {
+	return newTraceBundleArtifactPathResolver(baseDir).resolve(p)
+}
+
+func resolveTraceBundleArtifactPathUncached(baseDir, p string) string {
 	if filepath.IsAbs(p) {
 		return canonicalTraceIndexPath(p)
 	}
@@ -3533,11 +3667,15 @@ func resolveTraceBundleArtifactPath(baseDir, p string) string {
 	// and parse a different capture than the manifest names. Retain the old
 	// CWD-relative form only as a compatibility fallback when the bundle-local
 	// target does not exist.
+	// The chosen absolute path is frozen in traceIndexSelection. If a later
+	// call observes a newly created bundle-local target, that different path is
+	// part of a different source-universe cache token and cannot reuse the
+	// earlier CWD-fallback index.
 	bundleRelative := filepath.Clean(filepath.Join(baseDir, p))
-	if _, err := os.Stat(bundleRelative); err == nil {
+	if identity, err := filegeneration.FromPath(bundleRelative); err == nil && identity.Mode().IsRegular() {
 		return canonicalTraceIndexPath(bundleRelative)
 	}
-	if _, err := os.Stat(p); err == nil {
+	if identity, err := filegeneration.FromPath(p); err == nil && identity.Mode().IsRegular() {
 		return canonicalTraceIndexPath(p)
 	}
 	return canonicalTraceIndexPath(bundleRelative)

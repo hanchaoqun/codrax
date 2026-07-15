@@ -126,11 +126,11 @@ func streamScan(ctx context.Context, path string, flavorHint TraceFlavor, fn fun
 	if tracePathRequiresCompositeIndex(path) {
 		return nil, fmt.Errorf("stream_scan requires a single physical artifact; %s has a tracebundle or sibling artifact universe, so use an indexed composite view", path)
 	}
-	info, err := os.Stat(path)
+	initialIdentity, err := filegeneration.FromPath(path)
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.Open(path)
+	f, openedIdentity, err := openTraceSourceRegular(path)
 	if err != nil {
 		return nil, err
 	}
@@ -139,12 +139,10 @@ func streamScan(ctx context.Context, path string, flavorHint TraceFlavor, fn fun
 	if err != nil {
 		return nil, err
 	}
-	openedIdentity := traceFileIdentityFromInfo(openedInfo)
-	if !openedIdentity.SameVersion(traceFileIdentityFromInfo(info)) {
+	if !openedIdentity.SameVersion(initialIdentity) {
 		return nil, fmt.Errorf("trace source identity changed before stream_scan opened the artifact")
 	}
-	info = openedInfo
-	idx, scanErr := streamScanReader(ctx, path, info, f, flavorHint, fn, pairingAudit, 0, false)
+	idx, scanErr := streamScanReader(ctx, path, openedInfo, f, flavorHint, fn, pairingAudit, 0, false)
 	if scanErr != nil {
 		return nil, scanErr
 	}

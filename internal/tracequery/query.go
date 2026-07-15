@@ -21424,7 +21424,7 @@ func loadRawArtifactLines(idx *Index, events []Event) (map[int]string, map[int]s
 				}
 			}
 		}
-		f, err := os.Open(path)
+		f, openedIdentity, err := openTraceSourceRegular(path)
 		if err != nil {
 			markSourceIssue("artifact_open_failed", false)
 			continue
@@ -21433,13 +21433,11 @@ func loadRawArtifactLines(idx *Index, events []Event) (map[int]string, map[int]s
 		// before Open. This closes the stat->open replacement race: the identity
 		// we approve is the same file object from which raw lines are scanned.
 		source, sourceOK := traceArtifactSourceForPath(idx.TraceArtifacts, path)
-		openedInfo, statErr := f.Stat()
-		if statErr != nil || (sourceOK && !source.identityMatchesInfo(openedInfo)) {
+		if sourceOK && !source.identityMatchesIdentity(openedIdentity) {
 			_ = f.Close()
 			markSourceIssue("artifact_identity_changed", true)
 			continue
 		}
-		openedIdentity := traceFileIdentityFromInfo(openedInfo)
 		sc := bufioNewScanner(f)
 		lineNo := 0
 		found := 0
@@ -21457,10 +21455,13 @@ func loadRawArtifactLines(idx *Index, events []Event) (map[int]string, map[int]s
 				break
 			}
 		}
-		finalInfo, finalStatErr := f.Stat()
-		identityChanged := finalStatErr != nil || !openedIdentity.MatchesInfo(finalInfo)
+		finalIdentity, finalStatErr := traceFileIdentityFromFile(f)
+		identityChanged := finalStatErr != nil || !openedIdentity.SameVersion(finalIdentity)
 		if !identityChanged && sourceOK {
-			identityChanged = !source.identityMatchesInfo(finalInfo)
+			identityChanged = !source.identityMatchesIdentity(finalIdentity)
+		}
+		if !identityChanged && validateTraceFileIdentityAfterRead(f, openedIdentity, "raw evidence scan") != nil {
+			identityChanged = true
 		}
 		scanErr := sc.Err()
 		_ = f.Close()

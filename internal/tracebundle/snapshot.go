@@ -56,6 +56,12 @@ func Open(ctx context.Context, path string) (_ *Snapshot, err error) {
 	if err := contextError(ctx); err != nil {
 		return nil, err
 	}
+	// Reject Win32/NT pipe namespaces before filepath.Abs can delegate to a
+	// platform path resolver. The normalized absolute spelling is checked again
+	// below so both raw and derived forms share the same closed set.
+	if err := preflightManifestPath(path); err != nil {
+		return nil, err
+	}
 
 	absPath, err := filepath.Abs(path)
 	if err != nil {
@@ -88,7 +94,9 @@ func Open(ctx context.Context, path string) (_ *Snapshot, err error) {
 	}
 	defer func() {
 		if err != nil {
-			_ = file.Close()
+			if closeErr := file.Close(); closeErr != nil {
+				err = errors.Join(err, fmt.Errorf("tracebundle manifest cleanup close: %w", closeErr))
+			}
 		}
 	}()
 

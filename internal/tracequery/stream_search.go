@@ -5,10 +5,11 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/filegeneration"
 )
 
 // StreamEventSearch scans a trace for event_search rows without materializing a
@@ -27,11 +28,11 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 	if tracePathRequiresCompositeIndex(path) {
 		return Result{}, fmt.Errorf("stream_event_search requires a single physical artifact; %s is a tracebundle, so use the indexed path to preserve artifact and clock-domain provenance", path)
 	}
-	info, err := os.Stat(path)
+	initialIdentity, err := filegeneration.FromPath(path)
 	if err != nil {
 		return Result{}, err
 	}
-	f, err := os.Open(path)
+	f, openedIdentity, err := openTraceSourceRegular(path)
 	if err != nil {
 		return Result{}, err
 	}
@@ -40,11 +41,10 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 	if err != nil {
 		return Result{}, err
 	}
-	if openedInfo.Size() != info.Size() || openedInfo.ModTime().UnixNano() != info.ModTime().UnixNano() {
+	if !openedIdentity.SameVersion(initialIdentity) {
 		return Result{}, fmt.Errorf("trace source identity changed before stream_event_search opened the artifact")
 	}
-	info = openedInfo
-	openedIdentity := traceFileIdentityFromInfo(openedInfo)
+	info := openedInfo
 
 	if err := ValidateTraceMarkActionFilter(q.View, q.EventTypes, q.TraceMarkActions); err != nil {
 		return Result{}, fmt.Errorf("stream_event_search: %w", err)
@@ -61,7 +61,7 @@ func StreamEventSearch(ctx context.Context, path string, q Query) (Result, error
 
 	idx := &Index{Path: path, Size: info.Size(), ModTime: info.ModTime()}
 	artifactSource := singleTraceArtifactSourceWithIdentity(path, openedIdentity, 0, 0)
-	anchorKey := traceAnchorKeyForInfo(path, info)
+	anchorKey := traceAnchorKeyForIdentity(path, openedIdentity)
 	anchorSet := anchorCache.load(anchorKey)
 	if anchorSet != nil {
 		idx.TimestampOrder = anchorSet.TimestampOrder
@@ -437,11 +437,11 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 	if tracePathRequiresCompositeIndex(path) {
 		return Result{}, fmt.Errorf("stream_state_cluster requires a single physical artifact; %s is a tracebundle, so use the indexed path to preserve artifact and clock-domain provenance", path)
 	}
-	info, err := os.Stat(path)
+	initialIdentity, err := filegeneration.FromPath(path)
 	if err != nil {
 		return Result{}, err
 	}
-	f, err := os.Open(path)
+	f, openedIdentity, err := openTraceSourceRegular(path)
 	if err != nil {
 		return Result{}, err
 	}
@@ -450,11 +450,10 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 	if err != nil {
 		return Result{}, err
 	}
-	if openedInfo.Size() != info.Size() || openedInfo.ModTime().UnixNano() != info.ModTime().UnixNano() {
+	if !openedIdentity.SameVersion(initialIdentity) {
 		return Result{}, fmt.Errorf("trace source identity changed before stream_state_cluster opened the artifact")
 	}
-	info = openedInfo
-	openedIdentity := traceFileIdentityFromInfo(openedInfo)
+	info := openedInfo
 	if max <= 0 {
 		max = StreamStateClusterDefaultMax
 	}
@@ -468,7 +467,7 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 		idx.IndexLineStart = q.LineStart
 		idx.IndexLineEnd = q.LineEnd
 	}
-	anchorKey := traceAnchorKeyForInfo(path, info)
+	anchorKey := traceAnchorKeyForIdentity(path, openedIdentity)
 	anchorSet := anchorCache.load(anchorKey)
 	if anchorSet != nil {
 		idx.TimestampOrder = anchorSet.TimestampOrder

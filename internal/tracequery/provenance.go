@@ -160,6 +160,7 @@ func traceArtifactBuildOptions(opts BuildOptions, source TraceArtifactSource) (B
 
 func traceBundleArtifactSpecs(bundlePath string, bundle traceBundleFile) []traceArtifactSpec {
 	baseDir := filepath.Dir(bundlePath)
+	pathResolver := newTraceBundleArtifactPathResolver(baseDir)
 	type declaredArtifact struct {
 		path       string
 		kind       string
@@ -168,7 +169,7 @@ func traceBundleArtifactSpecs(bundlePath string, bundle traceBundleFile) []trace
 	seen := map[string]bool{}
 	declarations := make([]declaredArtifact, 0, len(bundle.Artifacts)+1)
 	declare := func(rawPath, rawKind string, capability *traceBundlePerfCapability) {
-		path := resolveTraceBundleArtifactPath(baseDir, strings.TrimSpace(rawPath))
+		path := pathResolver.resolve(rawPath)
 		if path == "" || seen[path] || traceBundlePath(path) {
 			return
 		}
@@ -208,7 +209,7 @@ func traceBundleArtifactSpecs(bundlePath string, bundle traceBundleFile) []trace
 	alignments := map[string]traceBundlePerfClockAlignment{}
 	alignmentConflicts := map[string]bool{}
 	for _, alignment := range bundle.PerfClockAlignments {
-		path := resolveTraceBundleArtifactPath(baseDir, strings.TrimSpace(alignment.ArtifactPath))
+		path := pathResolver.resolve(alignment.ArtifactPath)
 		// Alignment records are capabilities of a declared perftrace artifact,
 		// not declarations themselves. Foreign/stale paths and records aimed at
 		// the primary systrace must have no authority over either artifact
@@ -662,6 +663,27 @@ func (s TraceArtifactSource) identityMatchesInfo(info os.FileInfo) bool {
 		return false
 	}
 	return true
+}
+
+func (s TraceArtifactSource) identityMatchesIdentity(identity traceFileIdentity) bool {
+	if !identity.Initialized() {
+		return false
+	}
+	if s.sourceIdentity.Initialized() {
+		return s.sourceIdentity.SameVersion(identity)
+	}
+	if s.SourceBytes > 0 && identity.Size() != s.SourceBytes {
+		return false
+	}
+	if s.SourceModUnixNano != 0 && identity.ModUnixNano() != s.SourceModUnixNano {
+		return false
+	}
+	return true
+}
+
+func (s TraceArtifactSource) identityMatchesFile(file *os.File) bool {
+	identity, err := traceFileIdentityFromFile(file)
+	return err == nil && s.identityMatchesIdentity(identity)
 }
 
 func (s TraceArtifactSource) identityToken(info os.FileInfo) string {

@@ -5,7 +5,8 @@ package tracebundle
 import (
 	"fmt"
 	"os"
-	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/filegeneration"
 )
 
 func openManifestFile(path string) (*os.File, error) {
@@ -16,8 +17,7 @@ func openManifestFile(path string) (*os.File, error) {
 // allowed to wait for a server and therefore cannot be a bounded manifest
 // intake operation.
 func preflightManifestPath(path string) error {
-	normalized := strings.ToLower(strings.ReplaceAll(path, "/", `\`))
-	if strings.HasPrefix(normalized, `\\.\pipe\`) {
+	if filegeneration.IsWindowsNamedPipePath(path) {
 		return fmt.Errorf("%w: named-pipe path=%q", ErrNotRegular, path)
 	}
 	return nil

@@ -77,24 +77,29 @@ func relationScopeAlwaysKeepEvent(t EventType) bool {
 // edges (to close the waker chain), then runs a bounded BFS. Thread-only
 // selectors prune only when they resolve to a single pid/tgid universe; ambiguous
 // selectors degrade to an unpruned index with a caveat instead of hard-choosing.
-func discoverRelationScope(ctx context.Context, path string, opts BuildOptions) (*relationScope, []string, error) {
+func discoverRelationScope(ctx context.Context, f *os.File, path string, expected traceFileIdentity, opts BuildOptions) (*relationScope, []string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	f, err := os.Open(path)
+	if f == nil {
+		return nil, nil, fmt.Errorf("relation discovery requires an opened trace source")
+	}
+	opened, err := traceFileIdentityFromFile(f)
 	if err != nil {
 		return nil, nil, err
 	}
-	defer f.Close()
+	if expected.Initialized() && !expected.SameVersion(opened) {
+		return nil, nil, fmt.Errorf("relation discovery source differs from the selected artifact ledger")
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return nil, nil, fmt.Errorf("rewind trace source for relation discovery: %w", err)
+	}
 
 	// Reuse only an EOF-complete timestamp-order proof. Without it the
 	// discovery pass must scan through out-of-window future rows because a
 	// later physical line may regress back into the selected window.
 	var anchorSet *traceAnchorSet
-	if info, ierr := f.Stat(); ierr == nil {
-		key := traceAnchorKeyForInfo(path, info)
-		anchorSet = anchorCache.load(key)
-	}
+	anchorSet = anchorCache.load(traceAnchorKeyForIdentity(path, opened))
 	gate := windowGate{
 		lineStart:        paddedLineStart(opts),
 		lineEnd:          paddedLineEnd(opts),
@@ -165,6 +170,9 @@ func discoverRelationScope(ctx context.Context, path string, opts BuildOptions) 
 			}
 			return nil, nil, rerr
 		}
+	}
+	if err := validateTraceFileIdentityAfterRead(f, opened, "relation discovery"); err != nil {
+		return nil, nil, err
 	}
 
 	scopePID, caveat, ok := resolveRelationScopeSeedPID(opts, selector, tidToTgid, threadCandidates)

@@ -126,11 +126,10 @@ func TestValidateTraceFileIdentityAfterReadRejectsMutation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	info, err := f.Stat()
+	opened, err := traceFileIdentityFromFile(f)
 	if err != nil {
 		t.Fatal(err)
 	}
-	opened := traceFileIdentityFromInfo(info)
 	if err := validateTraceFileIdentityAfterRead(f, opened, "test_stream"); err != nil {
 		t.Fatalf("unchanged source rejected: %v", err)
 	}
@@ -154,11 +153,10 @@ func TestValidateTraceFileIdentityAfterReadRejectsAtomicPathReplacement(t *testi
 		t.Fatal(err)
 	}
 	defer f.Close()
-	info, err := f.Stat()
+	opened, err := traceFileIdentityFromFile(f)
 	if err != nil {
 		t.Fatal(err)
 	}
-	opened := traceFileIdentityFromInfo(info)
 	if err := os.WriteFile(replacement, []byte("second-versio\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

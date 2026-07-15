@@ -59,6 +59,29 @@ func TestJSONEnvelopeStringBoundaries(t *testing.T) {
 	}
 }
 
+func TestJSONEnvelopeRejectsUnpairedSurrogateEscapes(t *testing.T) {
+	for name, body := range map[string]string{
+		"high_value":       `{"path":"\uD800"}`,
+		"low_value":        `{"path":"\uDC00"}`,
+		"high_key":         `{"\uD800":"value"}`,
+		"high_then_scalar": `{"path":"\uD800\u0041"}`,
+		"high_then_high":   `{"path":"\uD800\uD801"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := validateJSONEnvelope(context.Background(), []byte(body)); !errors.Is(err, ErrInvalidManifest) {
+				t.Fatalf("unpaired surrogate error = %v", err)
+			}
+		})
+	}
+}
+
+func TestJSONEnvelopeAcceptsPairedAndNonEscapedReplacementText(t *testing.T) {
+	body := `{"emoji":"\uD83D\uDE00","replacement":"�","literal":"\\uD800"}`
+	if err := validateJSONEnvelope(context.Background(), []byte(body)); err != nil {
+		t.Fatalf("valid Unicode string forms rejected: %v", err)
+	}
+}
+
 func TestJSONEnvelopeObjectMemberBoundaries(t *testing.T) {
 	if err := validateJSONEnvelope(context.Background(), []byte(objectWithMembers(maxJSONObjectMembers))); err != nil {
 		t.Fatalf("exact member limit rejected: %v", err)

@@ -65,6 +65,7 @@ func TestEventSideTablePromotionBan(t *testing.T) {
 			tracequeryPath:                       true,
 			modPath + "/internal/filegeneration": true,
 			modPath + "/internal/logging":        true,
+			modPath + "/internal/tracebundle":    true,
 			// HYG (§28.2 顺手项 b, 2026-07-09): parse.go truncation goes
 			// through the shared rune-safe primitives in internal/types.
 			modPath + "/internal/types": true,

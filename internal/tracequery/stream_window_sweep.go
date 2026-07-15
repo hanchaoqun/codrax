@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"os"
 	"sort"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/filegeneration"
 )
 
 // stream_window_sweep.go — §4.7 W3: view=window_sweep, the streaming coverage
@@ -154,11 +155,11 @@ func StreamWindowSweep(ctx context.Context, path string, q Query) (Result, error
 	if tracePathRequiresCompositeIndex(path) {
 		return Result{}, fmt.Errorf("stream_window_sweep requires a single physical artifact; %s has a tracebundle or sibling artifact universe, so run the sweep on an explicit physical child or use an indexed composite view", path)
 	}
-	info, err := os.Stat(path)
+	initialIdentity, err := filegeneration.FromPath(path)
 	if err != nil {
 		return Result{}, err
 	}
-	f, err := os.Open(path)
+	f, openedIdentity, err := openTraceSourceRegular(path)
 	if err != nil {
 		return Result{}, err
 	}
@@ -167,11 +168,10 @@ func StreamWindowSweep(ctx context.Context, path string, q Query) (Result, error
 	if err != nil {
 		return Result{}, err
 	}
-	if openedInfo.Size() != info.Size() || openedInfo.ModTime().UnixNano() != info.ModTime().UnixNano() {
+	if !openedIdentity.SameVersion(initialIdentity) {
 		return Result{}, fmt.Errorf("trace source identity changed before stream_window_sweep opened the artifact")
 	}
-	info = openedInfo
-	openedIdentity := traceFileIdentityFromInfo(openedInfo)
+	info := openedInfo
 
 	requestedBucketMs := q.BucketMs
 	bucketMs := ClampWindowSweepBucketMs(q.BucketMs)
@@ -198,7 +198,7 @@ func StreamWindowSweep(ctx context.Context, path string, q Query) (Result, error
 	// reconstruction), so the seek can only skip guaranteed-out-of-window
 	// lines. Seeking requires the cached flavor (a seek never sees the first
 	// ~200 raw lines the flavor vote depends on) — same rule as parseFile.
-	anchorKey := traceAnchorKeyForInfo(path, info)
+	anchorKey := traceAnchorKeyForIdentity(path, openedIdentity)
 	anchorSet := anchorCache.load(anchorKey)
 	if anchorSet != nil {
 		idx.TimestampOrder = anchorSet.TimestampOrder
