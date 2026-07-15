@@ -585,6 +585,13 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 				// Chinese (§22.2.1 词条尺子; number/line formats preserved).
 				HolderHandoff:           []string{"WorkerA", "WorkerB"},
 				HolderSelfContradiction: "推断持有者 holder-102 自身在同一 payload 持有者 tid 987654 上排队 5.000ms(本段共 6.000ms;行 65-66)",
+				// G10-EN 根修 (QH2-A, 2026-07-14): the typed component
+				// quintet rides beside the zh string — exercises the five
+				// holder_self_contradiction_* contract keys.
+				HolderSelfContradictionParts: &types.TraceHolderSelfContradictionWitness{
+					Holder: "holder-102", OwnerTid: 987654,
+					QueuedMs: 5, SpanMs: 6, LineStart: 65, LineEnd: 66,
+				},
 				PeerState: &tracequery.ThreadStateBreakdown{
 					DominantState: string(tracequery.StateRunning), TotalMs: 6, RunningMs: 4,
 					RunnableMs: 1, SleepMs: 1, DStateMs: 1, IOWaitMs: 1, FragmentCount: 2,

@@ -132,6 +132,20 @@ func runtimeTraceProjCountEquivalentValueText(v float64, zh bool) string {
 	return fmt.Sprintf("count-equivalent %.3f (not wall clock)", v)
 }
 
+// runtimeTraceProjCompositeScoreValueText is the ONE display form of a
+// composite-score magnitude rendered WITH its value (QH2-A 件2 站①, §29.55
+// 观察③ 族裁延伸 2026-07-14): <value>(综合评分,非墙钟) — the value is a
+// score over mixed units (block_io_by_inode: max latencies + MiB), not
+// wall-clock milliseconds, so it never wears an ms suffix. Extracted from
+// the tree 行1 mint (微词面① 2026-07-12) so the roster/树行1 wording stays
+// the single source; the 关键指标表 value cells consume the same form.
+func runtimeTraceProjCompositeScoreValueText(v float64, zh bool) string {
+	if zh {
+		return fmt.Sprintf("%.3f(综合评分,非墙钟)", v)
+	}
+	return fmt.Sprintf("%.3f (composite score, not wall clock)", v)
+}
+
 // runtimeTraceProjFamilyValuePrefix is the COMPACT 行1 value qualifier
 // (witness form 「合计7.124ms」): the fifth word's stem rides directly on the
 // main-line duration so the merged magnitude is identifiable at the point of

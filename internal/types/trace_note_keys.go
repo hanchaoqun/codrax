@@ -506,6 +506,15 @@ const (
 	// TraceNoteKeyFoldRailBasis (CAP-2 §28.5-T6 审计注): the adopted keyed-
 	// rail family mask + the rail-governed slice-CPU roster — the traceback
 	// that keeps the anchor-presumption fold auditable. Display tier.
+	//
+	// G10-EN 族内豁免 (QH2-A adjudication, 2026-07-14; §28.8 记债): the
+	// zh-only value ("族=…;cpuN 频点=簇轨 …") is EXEMPT from the G10-EN
+	// per-lane wording fix — display_only with ZERO display/compile
+	// consumers (holder_ns_unification precedent, §29.40 OM-10 class), so no
+	// zh/EN report lane exists to fork; its only surface is the
+	// evidence-index audit lane, which is ruled 原文保留 (§22.2.1 审计车道
+	// verbatim traceback tokens). If a display consumer is ever wired, walk
+	// the G10-EN component pattern (typed fields + per-lane wording) first.
 	TraceNoteKeyFoldRailBasis = "fold_rail_basis"
 	// TraceNoteKeyThermalCapKHz (THERM §28.5-T7, 2026-07-09): the fold's
 	// dominant running cluster was pressed below its fmax inside the
@@ -597,6 +606,21 @@ const (
 	// faces (tree row / detail stanza / lead qualifier).
 	TraceNoteKeyHolderHandoff           = "holder_handoff"
 	TraceNoteKeyHolderSelfContradiction = "holder_self_contradiction"
+	// G10-EN 根修 (QH2-A, 2026-07-14; §28.7 留账): the typed COMPONENTS of the
+	// self-contradiction witness above — inferred-holder label / payload
+	// owner tid / the holder's own queued overlap (ms) / the attributed span
+	// (ms) / the contradicting span's line range ("start-end"). The
+	// projection compile assembles them into
+	// TraceCausalProjectionNode.BlockingHolderContradictionParts so the zh/EN
+	// detail lanes each word their own sentence
+	// (TraceHolderSelfContradictionWitness.WitnessText); the legacy zh string
+	// key above keeps the byte-frozen audit-verbatim value. All five ride or
+	// drop together (partial sets parse to nil — absence never guesses).
+	TraceNoteKeyHolderSelfContradictionHolder   = "holder_self_contradiction_holder"
+	TraceNoteKeyHolderSelfContradictionOwnerTid = "holder_self_contradiction_owner_tid"
+	TraceNoteKeyHolderSelfContradictionQueuedMs = "holder_self_contradiction_queued_ms"
+	TraceNoteKeyHolderSelfContradictionSpanMs   = "holder_self_contradiction_span_ms"
+	TraceNoteKeyHolderSelfContradictionLines    = "holder_self_contradiction_lines"
 	// TraceNoteKeySubjectIsLockHolder (BLK §15.C, 2026-07-06): "true" on a
 	// resolved blocking_span rank row whose SUBJECT is the lock HOLDER (and
 	// whose peer= is the blocked WAITER). The projection compile reads it into
@@ -993,6 +1017,14 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// P0-E 锁车道修2 witnesses — node-field read-ins (disclosure faces).
 	{TraceNoteKeyHolderHandoff, "blocking", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyHolderSelfContradiction, "blocking", TraceNoteCarrierHardConsumer},
+	// G10-EN 根修 (QH2-A, 2026-07-14): the witness component quintet — the
+	// compile assembles BlockingHolderContradictionParts from them (the zh/EN
+	// detail lanes' per-lane wording source), hard read-ins.
+	{TraceNoteKeyHolderSelfContradictionHolder, "blocking", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyHolderSelfContradictionOwnerTid, "blocking", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyHolderSelfContradictionQueuedMs, "blocking", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyHolderSelfContradictionSpanMs, "blocking", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyHolderSelfContradictionLines, "blocking", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyWaitObject, "blocking", TraceNoteCarrierDisplayOnly},
 	// LCK-2 ns-span derivation keys (§18.E/§18.E.1) — display tier.
 	{TraceNoteKeyHolderNsUnification, "blocking", TraceNoteCarrierDisplayOnly},

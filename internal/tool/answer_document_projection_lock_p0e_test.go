@@ -133,11 +133,55 @@ func TestLockHolderContradictionDetailStanzaP0E(t *testing.T) {
 		t.Fatalf("detail stanza must disclose the withdrawn attribution witness:\n%s", detail)
 	}
 	// 复核收尾③e: the EN face of the withdrawal line.
+	// G10-EN 根修 (QH2-A, 2026-07-14): a LEGACY record (no typed components)
+	// keeps the verbatim witness on both lanes — lossless fallback, absence
+	// never fabricates an EN sentence.
 	modelEN := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), false)
 	detailEN := runtimeTraceProjDetailFullText(modelEN, false)
 	if !strings.Contains(detailEN, "holder attribution withdrawn") ||
 		!strings.Contains(detailEN, "queued on the same lock") {
 		t.Fatalf("EN detail stanza must disclose the withdrawal:\n%s", detailEN)
+	}
+}
+
+// TestLockHolderContradictionPerLaneWordingG10EN (QH2-A, 2026-07-14; ledger
+// §28.7 留账 G10-EN): with the typed witness components present, each lane
+// words its OWN sentence — the zh face is byte-identical to the legacy
+// engine mint (zero display regression, pinned verbatim), the EN face is a
+// full English sentence and never embeds the zh body.
+//
+// MUTATION self-check: reverting the EN lane to concatenate the zh string
+// (dropping the parts arm in the runtime-tree withdrawal stanza) reds the
+// EN assertions below.
+func TestLockHolderContradictionPerLaneWordingG10EN(t *testing.T) {
+	node := lockInferredHolderNode()
+	node.BlockingSubjectIsHolder = false
+	node.BlockingPeer = ""
+	node.BlockingHolderSource = ""
+	node.Subject = "LegoHandler-16865"
+	node.BlockingHolderContradiction = "推断持有者 ugc.aweme.lite-16547 自身在同一 payload 持有者 tid 42067 上排队 112.223ms(本段共 115.944ms;行 45696-79136)"
+	node.BlockingHolderContradictionParts = &types.TraceHolderSelfContradictionWitness{
+		Holder: "ugc.aweme.lite-16547", OwnerTid: 42067,
+		QueuedMs: 112.223, SpanMs: 115.944,
+		LineStart: 45696, LineEnd: 79136,
+	}
+	projection := types.TraceCausalProjection{
+		OnChainCauses: []types.TraceCausalProjectionNode{node},
+	}
+	model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), true)
+	detail := runtimeTraceProjDetailFullText(model, true)
+	// zh 零回归 verbatim pin: the whole disclosure line is byte-identical to
+	// the pre-QH2-A shape (framing + legacy witness wording).
+	if !strings.Contains(detail, "持有者归因已撤回(推断持有者自身同锁排队):推断持有者 ugc.aweme.lite-16547 自身在同一 payload 持有者 tid 42067 上排队 112.223ms(本段共 115.944ms;行 45696-79136)") {
+		t.Fatalf("zh withdrawal line must stay byte-identical to the legacy wording:\n%s", detail)
+	}
+	modelEN := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), false)
+	detailEN := runtimeTraceProjDetailFullText(modelEN, false)
+	if !strings.Contains(detailEN, "holder attribution withdrawn (inferred holder was itself queued on the same lock): inferred holder ugc.aweme.lite-16547 was itself queued on the same payload owner tid 42067 for 112.223ms (of the 115.944ms span; lines 45696-79136)") {
+		t.Fatalf("EN withdrawal line must word the witness in English from the typed components:\n%s", detailEN)
+	}
+	if strings.Contains(detailEN, "推断持有者") {
+		t.Fatalf("the EN face must not embed the zh witness body when the typed components are present:\n%s", detailEN)
 	}
 }
 

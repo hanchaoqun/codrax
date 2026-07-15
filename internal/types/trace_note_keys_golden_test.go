@@ -176,6 +176,16 @@ var traceNoteKeyGoldenRows = []string{
 	"holder_host_process|blocking|display_only",
 	"holder_ns_unification|blocking|display_only",
 	"holder_self_contradiction|blocking|hard_consumer",
+	// G10-EN 根修 (QH2-A, 2026-07-14): the self-contradiction witness typed
+	// component quintet — the compile assembles
+	// BlockingHolderContradictionParts from them so the zh/EN detail lanes
+	// each word their own sentence; the legacy zh string key keeps the
+	// byte-frozen audit-verbatim value.
+	"holder_self_contradiction_holder|blocking|hard_consumer",
+	"holder_self_contradiction_lines|blocking|hard_consumer",
+	"holder_self_contradiction_owner_tid|blocking|hard_consumer",
+	"holder_self_contradiction_queued_ms|blocking|hard_consumer",
+	"holder_self_contradiction_span_ms|blocking|hard_consumer",
 	"holder_site|blocking|hard_consumer",
 	"holder_source|blocking|hard_consumer",
 	"idle_mismatch_ms|compute_supply|soft_consumer",

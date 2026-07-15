@@ -7578,10 +7578,10 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 			row.marks.mark(runtimeTraceProjMarkFamilyCountEquivalent)
 			value = runtimeTraceProjCountEquivalentValueText(v, zh)
 		case tracequery.CausalCaliberSideCompositeScore:
-			value = fmt.Sprintf("%.3f(综合评分,非墙钟)", v)
-			if !zh {
-				value = fmt.Sprintf("%.3f (composite score, not wall clock)", v)
-			}
+			// QH2-A 件2 站① (2026-07-14): the shared helper is the single
+			// wording source (byte-identical extraction of the 微词面① mint);
+			// the 关键指标表 value cells consume the same form.
+			value = runtimeTraceProjCompositeScoreValueText(v, zh)
 		default:
 			if prefix := runtimeTraceProjFamilyValuePrefix(node, zh); prefix != "" {
 				value = prefix + value
@@ -13958,8 +13958,21 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 		// CMP-3 mirror (F6): every duration cell of a cross-thread aggregate
 		// row carries the unit annotation.
 		crossThread := runtimeTraceProjCrossThreadAggregateType(node)
+		// QH2-A 件2 站① (§29.55 观察③ 族裁延伸, 2026-07-14): a composite-score
+		// ⌗ row's value cells never wear the wall-clock ms suit — the CR-3
+		// count carve above only recognized CausalCaliberSideCount, so the
+		// composite class (token 恰一 block_io_by_inode) printed bare ms into
+		// the wall-clock columns. The cells adopt the roster/树行1
+		// single-source form <value>(综合评分,非墙钟); zero/absent values keep
+		// the dash, every non-composite row stays byte-identical.
+		compositeCaliber := node.IsCaliberSideRow() &&
+			tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)) == tracequery.CausalCaliberSideCompositeScore
 		annotated := func(v float64) string {
-			return runtimeTraceProjDetailCrossThreadCell(msCell(v), v, crossThread, zh)
+			cell := msCell(v)
+			if compositeCaliber && v > 0 {
+				cell = runtimeTraceProjCompositeScoreValueText(v, zh)
+			}
+			return runtimeTraceProjDetailCrossThreadCell(cell, v, crossThread, zh)
 		}
 		effective := annotated(node.EffectiveImpactMS)
 		// 审计 #5 (§29.25/§29.26, 2026-07-10): an unfolded on-chain semantic
@@ -14780,8 +14793,20 @@ func runtimeTraceProjDetailFullText(model runtimeTraceProjTreeModel, zh bool) st
 			}
 			add("持有者移交链(线程)", "holder hand-off chain (threads)", runtimeTraceCausalProjectionMarkdownSafe(text))
 		}
-		if contradiction := strings.TrimSpace(node.BlockingHolderContradiction); contradiction != "" {
+		if contradiction := strings.TrimSpace(node.BlockingHolderContradiction); contradiction != "" ||
+			node.BlockingHolderContradictionParts != nil {
 			// 修2 同锁自相矛盾守护: the withdrawn attribution's witness.
+			// G10-EN 根修 (QH2-A, 2026-07-14; §28.7 留账): each lane words the
+			// witness from the typed components — the zh sentence is
+			// byte-identical to the legacy engine mint (single wording
+			// source, types.TraceHolderSelfContradictionWitness.WitnessText),
+			// the EN face carries a full English sentence instead of the zh
+			// body verbatim. Legacy records without the component notes keep
+			// the verbatim witness on both lanes (lossless fallback; absence
+			// never fabricates an EN sentence).
+			if parts := node.BlockingHolderContradictionParts; parts != nil {
+				contradiction = parts.WitnessText(zh)
+			}
 			text := "持有者归因已撤回(推断持有者自身同锁排队):" + contradiction
 			if !zh {
 				text = "holder attribution withdrawn (inferred holder was itself queued on the same lock): " + contradiction

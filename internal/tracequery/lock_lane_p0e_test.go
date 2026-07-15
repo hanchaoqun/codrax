@@ -193,6 +193,33 @@ func TestLockHolderSelfContradictionGuardP0E(t *testing.T) {
 		t.Fatalf("rank row must port both witnesses, got contradiction=%q handoff=%v",
 			item.HolderSelfContradiction, item.HolderHandoff)
 	}
+
+	// G10-EN 根修 (QH2-A, 2026-07-14): the guard mints the typed witness
+	// COMPONENTS beside the zh string; the zh string is the components' own
+	// zh wording (single source — zero display regression by construction)
+	// and the EN engine summary embeds the EN wording, never the zh body.
+	parts := lego.cand.HolderSelfContradictionParts
+	if parts == nil {
+		t.Fatalf("修2 guard must mint the typed witness components")
+	}
+	if parts.Holder != "ugc.aweme.lite-16547" || parts.OwnerTid != 42067 ||
+		parts.QueuedMs <= 0 || parts.SpanMs <= 0 || parts.LineStart <= 0 || parts.LineEnd < parts.LineStart {
+		t.Fatalf("witness components drifted from the guard facts: %+v", parts)
+	}
+	if lego.cand.HolderSelfContradiction != parts.WitnessText(true) {
+		t.Fatalf("the zh witness string must be the components' own zh wording, got %q vs %q",
+			lego.cand.HolderSelfContradiction, parts.WitnessText(true))
+	}
+	if !strings.Contains(lego.cand.Summary, parts.WitnessText(false)) {
+		t.Fatalf("the EN summary must embed the EN witness wording, got %q", lego.cand.Summary)
+	}
+	if strings.Contains(lego.cand.Summary, "推断持有者") {
+		t.Fatalf("the EN summary must not embed the zh witness body, got %q", lego.cand.Summary)
+	}
+	if item.HolderSelfContradictionParts == nil ||
+		*item.HolderSelfContradictionParts != *parts {
+		t.Fatalf("rank row must port the typed witness components, got %+v", item.HolderSelfContradictionParts)
+	}
 }
 
 // 复核收尾③b: the coverage threshold is INCLUSIVE — overlap of exactly 50%

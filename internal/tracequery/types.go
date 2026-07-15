@@ -4,6 +4,8 @@ import (
 	"math"
 	"sync"
 	"time"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 const ParserVersion = "tracequery-v27"
@@ -3262,6 +3264,12 @@ type RootCauseRankItem struct {
 	// self-contradiction demotion witness. See CriticalBlockingCandidate.
 	HolderHandoff           []string `json:"holder_handoff,omitempty"`
 	HolderSelfContradiction string   `json:"holder_self_contradiction,omitempty"`
+	// HolderSelfContradictionParts (G10-EN 根修, QH2-A 2026-07-14): the typed
+	// components of the witness above, ported verbatim from the folded
+	// blocking candidate — the zh/EN display lanes each word their own
+	// sentence from these (types.TraceHolderSelfContradictionWitness).
+	// nil = guard never fired.
+	HolderSelfContradictionParts *types.TraceHolderSelfContradictionWitness `json:"holder_self_contradiction_parts,omitempty"`
 	// DrillStatus (RCX① engine side, §12.3 ruling 1): whether this row's
 	// contention counterpart/holder was itself examined by a subject==peer
 	// observation inside THIS report's observation universe. See the
@@ -3771,7 +3779,16 @@ type CriticalBlockingCandidate struct {
 	// back to unresolved (§12.3 未解析不准入 keeps it out of the direct lane
 	// and the 1.35 weight automatically); this value names the contradicting
 	// span for the disclosure faces. Empty = guard never fired.
-	HolderSelfContradiction string `json:"holder_self_contradiction,omitempty"`
+	//
+	// G10-EN 根修 (QH2-A, 2026-07-14): the string stays the zh mint
+	// (byte-frozen legacy wording — the audit verbatim lane and the zh 明细
+	// face consume it unchanged); HolderSelfContradictionParts carries the
+	// typed components so the zh/EN display lanes each word their own
+	// sentence (types.TraceHolderSelfContradictionWitness.WitnessText) and
+	// the EN faces stop embedding the zh body verbatim. nil = guard never
+	// fired.
+	HolderSelfContradiction      string                                     `json:"holder_self_contradiction,omitempty"`
+	HolderSelfContradictionParts *types.TraceHolderSelfContradictionWitness `json:"holder_self_contradiction_parts,omitempty"`
 	// WaitObject (P0-E2a, §10 A2): the blocking span's own name, published as
 	// the wait object for payload-less blocking spans so the row can at least
 	// say what it was blocked on when no structured owner was parseable.

@@ -3561,7 +3561,16 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		rankRows = append(rankRows, result.RootCauseRank.AbsorbedItems...)
 		for _, item := range rankRows {
 			occurrenceWindows := traceQueryOccurrenceWindowsCompact(item.OccurrenceWindows, 4)
-			projection := traceQueryProjectedActualFields(item.ProjectedImpactMs, item.CumulativeImpactMs, item.ActualImpactMs, item.ActualTotalMs, item.ActualStartTs, item.ActualEndTs)
+			// QH2-A 件2 站② (§29.55 观察③ 族裁延伸, 2026-07-14): a
+			// composite-score row's POSITIVE value slots never wear the ms
+			// suit on this LLM-facing rank text — the published value is a
+			// score over mixed units (block_io_by_inode), not wall clock, and
+			// the caliber word rides each slot. Zero slots and every
+			// non-composite row stay byte-identical; the wire typed field
+			// names (*_impact_ms) are out of scope (留裁), the numbers are
+			// untouched.
+			rankValue := traceQueryRankImpactValue(item.Type)
+			projection := traceQueryProjectedActualFieldsValued(rankValue, item.ProjectedImpactMs, item.CumulativeImpactMs, item.ActualImpactMs, item.ActualTotalMs, item.ActualStartTs, item.ActualEndTs)
 			backgroundRank := ""
 			if item.BackgroundRank > 0 && traceQueryRootCauseItemIsSemanticSpanWork(item.Type) {
 				// DCS E6 (ledger §23.1 ruling ③): the typed non-chain board
@@ -3579,10 +3588,10 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			if strings.TrimSpace(item.PhysicalSourcePath) != "" {
 				physicalSource = " physical_source=" + traceQuerySourceBasename(item.PhysicalSourcePath)
 			}
-			fmt.Fprintf(&b, "- rank=%d tier=%s%s type=%s thread=%s window=%.6f..%.6f occurrence_windows=%s dominant_state=%s running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms impact=%.3fms cumulative_impact=%.3fms effective_impact=%.3fms target_impact=%.3fms%s score=%.3f confidence=%.2f lines=%d-%d source=%s%s causality=%s chain_relevance=%s chain_depth=%d overlap=%.3fms edge_count=%d nearest_chain=%s nearest_window=%.6f..%.6f span=%s perf_context=%s perf_contexts=%s%s — %s\n",
+			fmt.Fprintf(&b, "- rank=%d tier=%s%s type=%s thread=%s window=%.6f..%.6f occurrence_windows=%s dominant_state=%s running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms impact=%s cumulative_impact=%s effective_impact=%s target_impact=%s%s score=%.3f confidence=%.2f lines=%d-%d source=%s%s causality=%s chain_relevance=%s chain_depth=%d overlap=%.3fms edge_count=%d nearest_chain=%s nearest_window=%.6f..%.6f span=%s perf_context=%s perf_contexts=%s%s — %s\n",
 				item.Rank, item.Tier, backgroundRank, item.Type, traceThreadLabel(item.Thread), item.StartTs, item.EndTs,
 				occurrenceWindows, sanitizeForBanner(item.DominantState), item.RunningMs, item.RunnableMs, item.SleepMs, item.DStateMs, item.IOWaitMs,
-				item.ImpactMs, item.CumulativeImpactMs, traceQueryRootCauseEffectiveImpact(item), item.TargetImpactMs, projection, item.Score, item.Confidence,
+				rankValue(item.ImpactMs), rankValue(item.CumulativeImpactMs), rankValue(traceQueryRootCauseEffectiveImpact(item)), rankValue(item.TargetImpactMs), projection, item.Score, item.Confidence,
 				item.LineStart, item.LineEnd, item.Source, physicalSource, sanitizeForBanner(item.Causality), sanitizeForBanner(item.ChainRelevance), item.ChainDepth, item.OverlapMs, item.EdgeCount,
 				traceThreadLabel(item.NearestChainThread), item.NearestChainWindow.StartTs, item.NearestChainWindow.EndTs, traceQueryRootCauseSpanCompact(item), traceQueryPerfContextCompact(item.PerfContext), traceQueryPerfRoleContextsCompact(item.PerfContexts, 4), reconciliation, item.Summary)
 			writeTraceRootCausePerfRoles(&b, item.Rank, item.PerfContexts)
@@ -5787,19 +5796,57 @@ func traceQuerySelectedWindowNoteValue(window tracequery.TimeWindow) string {
 	return traceQueryWindowValue(window.StartTs, window.EndTs)
 }
 
+// traceQueryRankWallClockValue renders a rank-row duration slot in the
+// pinned wall-clock form (byte-identical to the legacy inline %.3fms).
+func traceQueryRankWallClockValue(v float64) string {
+	return fmt.Sprintf("%.3fms", v)
+}
+
+// traceQueryRankImpactValue (QH2-A 件2 站②, §29.55 观察③ 族裁延伸,
+// 2026-07-14) picks the value-slot renderer for a rank row's impact-family
+// slots. Composite-score rows (registry caliber class, token 恰一
+// block_io_by_inode) render POSITIVE values without the ms suit and with the
+// non-wall-clock caliber word — the same word face the report already
+// teaches ("composite score, not wall clock"); zero slots and every other
+// caliber class keep the legacy wall-clock form byte-identically.
+func traceQueryRankImpactValue(rowType string) func(float64) string {
+	if tracequery.CausalTokenCaliberSideClass(strings.TrimSpace(rowType)) != tracequery.CausalCaliberSideCompositeScore {
+		return traceQueryRankWallClockValue
+	}
+	return func(v float64) string {
+		if v <= 0 {
+			return traceQueryRankWallClockValue(v)
+		}
+		return fmt.Sprintf("%.3f(composite score, not wall clock)", v)
+	}
+}
+
 func traceQueryProjectedActualFields(projectedImpact, projectedTotal, actualImpact, actualTotal, actualStart, actualEnd float64) string {
+	return traceQueryProjectedActualFieldsValued(traceQueryRankWallClockValue, projectedImpact, projectedTotal, actualImpact, actualTotal, actualStart, actualEnd)
+}
+
+// traceQueryProjectedActualFieldsValued is the value-slot-parameterized body
+// of traceQueryProjectedActualFields (QH2-A 件2 站②): the rank lane threads
+// its composite-aware renderer through the PROJECTED pair (mirrors of the
+// row's published magnitude — the composite score on composite rows), every
+// other caller keeps the wall-clock form via the wrapper above (one
+// implementation, no second door). The actual_* pair is the dual-basis
+// PHYSICAL wall-clock ledger on every row shape and keeps its ms suit
+// unconditionally (口径分离 — a composite row never mints actual_* today,
+// and if one ever does the value is wall clock by that family's definition).
+func traceQueryProjectedActualFieldsValued(projectedValue func(float64) string, projectedImpact, projectedTotal, actualImpact, actualTotal, actualStart, actualEnd float64) string {
 	var fields []string
 	if projectedImpact > 0 {
-		fields = append(fields, fmt.Sprintf("projected_impact=%.3fms", projectedImpact))
+		fields = append(fields, "projected_impact="+projectedValue(projectedImpact))
 	}
 	if projectedTotal > 0 {
-		fields = append(fields, fmt.Sprintf("projected_total=%.3fms", projectedTotal))
+		fields = append(fields, "projected_total="+projectedValue(projectedTotal))
 	}
 	if actualImpact > 0 {
-		fields = append(fields, fmt.Sprintf("actual_impact=%.3fms", actualImpact))
+		fields = append(fields, "actual_impact="+traceQueryRankWallClockValue(actualImpact))
 	}
 	if actualTotal > 0 {
-		fields = append(fields, fmt.Sprintf("actual_total=%.3fms", actualTotal))
+		fields = append(fields, "actual_total="+traceQueryRankWallClockValue(actualTotal))
 	}
 	if actualWindow := traceQueryWindowValue(actualStart, actualEnd); actualWindow != "" {
 		fields = append(fields, "actual_window="+actualWindow)
@@ -6189,6 +6236,9 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 			// backing causal impact/aggregate, so the projection's decision
 			// table works on the lead row too.
 			notes = append(notes, traceQueryTypedSupplyFoldRichNotes(item.SupplyFoldBasis, item.SupplyFoldDeficitMs, item.SupplyFoldIdealMs)...)
+			// G10-EN 根修 (QH2-A, 2026-07-14): the witness component quintet
+			// rides beside the legacy zh string (per-lane wording source).
+			hscHolder, hscOwnerTid, hscQueuedMs, hscSpanMs, hscLines := traceQueryHolderSelfContradictionNoteValues(item.HolderSelfContradictionParts)
 			notes = append(notes, traceQueryTypedKVNotes([][2]string{
 				// F1: root_cause rows have no Span ts at all — the selected
 				// query window (RootCauseRankResult.Window = q.TimeStart/TimeEnd)
@@ -6260,6 +6310,11 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				// the self-contradiction demotion witness.
 				{types.TraceNoteKeyHolderHandoff, strings.Join(item.HolderHandoff, " --> ")},
 				{types.TraceNoteKeyHolderSelfContradiction, item.HolderSelfContradiction},
+				{types.TraceNoteKeyHolderSelfContradictionHolder, hscHolder},
+				{types.TraceNoteKeyHolderSelfContradictionOwnerTid, hscOwnerTid},
+				{types.TraceNoteKeyHolderSelfContradictionQueuedMs, hscQueuedMs},
+				{types.TraceNoteKeyHolderSelfContradictionSpanMs, hscSpanMs},
+				{types.TraceNoteKeyHolderSelfContradictionLines, hscLines},
 				{"drill_status", item.DrillStatus},
 				{"inherited_target_blocked_ms", traceQueryObservationMSValue(item.InheritedTargetBlockedMs)},
 				{types.TraceNoteKeyChainRelevance, item.ChainRelevance},
@@ -7933,6 +7988,9 @@ func traceQueryTypedLockTwinSubjectChainNotes(chain *tracequery.PeerChainStep) [
 }
 
 func traceQueryTypedCriticalBlockingRichNotes(item tracequery.CriticalBlockingCandidate) []string {
+	// G10-EN 根修 (QH2-A, 2026-07-14): the witness component quintet rides
+	// beside the legacy zh string (per-lane wording source).
+	hscHolder, hscOwnerTid, hscQueuedMs, hscSpanMs, hscLines := traceQueryHolderSelfContradictionNoteValues(item.HolderSelfContradictionParts)
 	notes := traceQueryTypedKVNotes([][2]string{
 		{types.TraceNoteKeyType, item.Type},
 		{types.TraceNoteKeyPeer, traceThreadLabel(item.Peer)},
@@ -7957,6 +8015,11 @@ func traceQueryTypedCriticalBlockingRichNotes(item tracequery.CriticalBlockingCa
 		// P0-E 锁车道修2 (§24.9-C F2): hand-off / self-contradiction witnesses.
 		{types.TraceNoteKeyHolderHandoff, strings.Join(item.HolderHandoff, " --> ")},
 		{types.TraceNoteKeyHolderSelfContradiction, item.HolderSelfContradiction},
+		{types.TraceNoteKeyHolderSelfContradictionHolder, hscHolder},
+		{types.TraceNoteKeyHolderSelfContradictionOwnerTid, hscOwnerTid},
+		{types.TraceNoteKeyHolderSelfContradictionQueuedMs, hscQueuedMs},
+		{types.TraceNoteKeyHolderSelfContradictionSpanMs, hscSpanMs},
+		{types.TraceNoteKeyHolderSelfContradictionLines, hscLines},
 		// DCS E4 复核 F-1 (ledger §23.2): a window-clipped blocking span
 		// publishes its physical B/E extent on the registered dual-basis
 		// actual_* keys (zero-dropped when the span lay fully inside the
@@ -10428,6 +10491,19 @@ func traceQueryWakeupCensusSplitSummary(pair tracequery.WakeupEdgeCensusPair) st
 		return ""
 	}
 	return " " + label
+}
+
+// traceQueryHolderSelfContradictionNoteValues (G10-EN 根修, QH2-A 2026-07-14)
+// renders the typed witness-component note values. All-"" when the guard
+// never fired — traceQueryTypedKVNotes zero-drops empties, so the quintet
+// rides or drops together with the legacy zh string.
+func traceQueryHolderSelfContradictionNoteValues(parts *types.TraceHolderSelfContradictionWitness) (holder, ownerTid, queuedMs, spanMs, lines string) {
+	if parts == nil {
+		return "", "", "", "", ""
+	}
+	return parts.Holder, strconv.Itoa(parts.OwnerTid),
+		fmt.Sprintf("%.3f", parts.QueuedMs), fmt.Sprintf("%.3f", parts.SpanMs),
+		fmt.Sprintf("%d-%d", parts.LineStart, parts.LineEnd)
 }
 
 func traceQueryTypedKVNotes(pairs [][2]string) []string {

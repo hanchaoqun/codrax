@@ -706,7 +706,18 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// all four are per-row identity/wording disclosure inputs (scalar
 	// disclosure lane, same as DStateCauseUnprovenRemainder); no skipped
 	// fields; hash re-pinned after review.
-	reflect.TypeOf(tracequery.RootCauseRankItem{}): "8c729036597b70ee6362e33fb7e5e0fb85ea9fe3268f149de850f03a3cf96512",
+	// G10-EN 根修 (QH2-A, 2026-07-14) schema review (R2' 第 7 处):
+	// RootCauseRankItem gained HolderSelfContradictionParts
+	// (*types.TraceHolderSelfContradictionWitness — the typed components of
+	// the same-lock self-contradiction withdrawal witness, riding beside the
+	// byte-frozen zh string so the zh/EN report lanes each word their own
+	// sentence). Key-first adjudication: a small typed disclosure record
+	// behind a pointer (nil when the guard never fired) — generic detail
+	// rendering, PeerChain 同构; no bulk lane, no dup channel, no skipped
+	// fields, no priority override; hash re-pinned after review. The
+	// CriticalBlockingCandidate mirror gained the same field (not hash-pinned
+	// here — key-first renders fields reflectively).
+	reflect.TypeOf(tracequery.RootCauseRankItem{}): "85fb376bc340ef06161cc2bf109f41d29f49c11e9cc8f314337a972c356554c7",
 	// CR-1 P9 (§29.42 案1, 2026-07-12) schema review: ChainResult gained
 	// PacingIdles ([]PacingIdleSummary, arm-c frame-pacing idle segments).
 	// Key-first adjudication: a slice → structural bulk lane (same as

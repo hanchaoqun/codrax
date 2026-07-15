@@ -14906,8 +14906,11 @@ func rootCauseItemFromLockContentionCandidate(q Query, chainThreads map[int]bool
 	item.HolderHostProcess = cand.HolderHostProcess
 	// P0-E 锁车道修2: the hand-off witness and the self-contradiction
 	// demotion witness ride the rank row verbatim (display disclosure faces).
+	// G10-EN 根修 (QH2-A, 2026-07-14): the typed witness components ride
+	// beside the zh string so every lane can word its own sentence.
 	item.HolderHandoff = append([]string(nil), cand.HolderHandoff...)
 	item.HolderSelfContradiction = cand.HolderSelfContradiction
+	item.HolderSelfContradictionParts = cand.HolderSelfContradictionParts
 	if holderResolved {
 		// BlockingPeer = the contention counterpart of the row subject: the
 		// blocked waiter. Deliberately left EMPTY when the holder is
@@ -18562,12 +18565,24 @@ func guardLockHolderSelfContradiction(rows []blockingSpanRow) {
 			// straight onto the zh 明细 face, so it is minted in Chinese —
 			// §22.2.1 词条尺子 (trace 专有名词 payload/tid 不翻译; number and
 			// line formats byte-preserved: %.3fms, 行 %d-%d).
-			witness := fmt.Sprintf("推断持有者 %s 自身在同一 payload 持有者 tid %d 上排队 %.3fms(本段共 %.3fms;行 %d-%d)",
-				threadLabel(cand.Peer), rows[i].payloadOwnerTid, overlap, spanMs,
-				peer.LineStart, peer.LineEnd)
-			cand.HolderSelfContradiction = witness
+			// G10-EN 根修 (QH2-A, 2026-07-14; §28.7 留账): the engine now
+			// mints the typed COMPONENTS and every lane words its own
+			// sentence from them — the zh string below is byte-identical to
+			// the legacy mint by construction (single wording source), and
+			// the EN engine summary embeds the EN wording instead of the zh
+			// body verbatim.
+			parts := &types.TraceHolderSelfContradictionWitness{
+				Holder:    threadLabel(cand.Peer),
+				OwnerTid:  rows[i].payloadOwnerTid,
+				QueuedMs:  overlap,
+				SpanMs:    spanMs,
+				LineStart: peer.LineStart,
+				LineEnd:   peer.LineEnd,
+			}
+			cand.HolderSelfContradiction = parts.WitnessText(true)
+			cand.HolderSelfContradictionParts = parts
 			cand.Summary = appendRootCauseSummaryDetail(cand.Summary,
-				"holder attribution withdrawn (same-lock self-contradiction): "+witness+" — a thread queued on the lock for most of the span cannot have held it for the whole span; the holder stays unresolved")
+				"holder attribution withdrawn (same-lock self-contradiction): "+parts.WitnessText(false)+" — a thread queued on the lock for most of the span cannot have held it for the whole span; the holder stays unresolved")
 			cand.Peer = ThreadRef{}
 			cand.HolderSource = ""
 			break

@@ -204,3 +204,55 @@ func TestV2P0SingleMemberCountRowTableMarker(t *testing.T) {
 		t.Fatalf("the composite row must not borrow the count marker, got %q", compositeLabel)
 	}
 }
+
+// TestQH2ACompositeRowTableCellsDropMsSuit (QH2-A 件2 站①, §29.55 观察③
+// 族裁延伸, 2026-07-14): a composite-score ⌗ row's value cells in the
+// 关键指标表 never wear the wall-clock ms suit — they adopt the roster/树行1
+// single-source form <value>(综合评分,非墙钟) on both lanes. The count ⌗ row
+// and the wall-clock row stay byte-identical (this batch's carve is
+// composite-only; the count family's wordface was ruled in §29.73 件③).
+//
+// MUTATION self-check: dropping the compositeCaliber cell override in
+// runtimeTraceProjDetailTable reds the composite assertions below.
+func TestQH2ACompositeRowTableCellsDropMsSuit(t *testing.T) {
+	projection := types.TraceCausalProjectionFromObservationRecords(v2p0CaliberRecords())
+	for _, zh := range []bool{true, false} {
+		model := buildRuntimeTraceProjTreeModel(projection, newRuntimeTraceCausalProjectionEvidenceIndex(), zh)
+		_, rows := runtimeTraceProjDetailTable(model, zh)
+		var composite, count, wall []string
+		for _, row := range rows {
+			if len(row.Cells) == 0 {
+				continue
+			}
+			switch {
+			case strings.Contains(row.Cells[0], "块设备IO(inode)") || strings.Contains(row.Cells[0], "block_io_by_inode"):
+				composite = row.Cells
+			case strings.Contains(row.Cells[0], "页缓存抖动") || strings.Contains(row.Cells[0], "page_cache_churn"):
+				count = row.Cells
+			case strings.Contains(row.Cells[0], "io_latency") || strings.Contains(row.Cells[0], "IO延迟"):
+				wall = row.Cells
+			}
+		}
+		if composite == nil || count == nil {
+			t.Fatalf("zh=%v: caliber rows missing from the table: %+v", zh, rows)
+		}
+		wantComposite := runtimeTraceProjCompositeScoreValueText(0.198, zh)
+		joinedComposite := strings.Join(composite, " | ")
+		if !strings.Contains(joinedComposite, wantComposite) {
+			t.Fatalf("zh=%v: composite value cells must wear the 综合评分 form %q, got %q", zh, wantComposite, joinedComposite)
+		}
+		if strings.Contains(joinedComposite, "0.198ms") {
+			t.Fatalf("zh=%v: a composite value cell must never wear the ms suit, got %q", zh, joinedComposite)
+		}
+		// Negative arms: the count row keeps its bare wall-clock cells
+		// (its wordface ruling lives elsewhere), the wall row untouched.
+		if joined := strings.Join(count, " | "); !strings.Contains(joined, "0.600ms") {
+			t.Fatalf("zh=%v: the count row's cells must stay byte-identical this batch, got %q", zh, joined)
+		}
+		if wall != nil {
+			if joined := strings.Join(wall, " | "); !strings.Contains(joined, "0.099ms") {
+				t.Fatalf("zh=%v: the wall-clock row must stay byte-identical, got %q", zh, joined)
+			}
+		}
+	}
+}

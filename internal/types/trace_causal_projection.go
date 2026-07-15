@@ -824,6 +824,13 @@ type TraceCausalProjectionNode struct {
 	BlockingOwnerTidRaw         int    `json:"blocking_owner_tid_raw,omitempty"`
 	BlockingHolderHandoff       string `json:"blocking_holder_handoff,omitempty"`
 	BlockingHolderContradiction string `json:"blocking_holder_contradiction,omitempty"`
+	// BlockingHolderContradictionParts (G10-EN 根修, QH2-A 2026-07-14):
+	// the typed components of the withdrawal witness above, assembled from
+	// the holder_self_contradiction_* note quintet — the zh/EN detail lanes
+	// each word their own sentence from them (WitnessText); the zh string
+	// stays the byte-frozen legacy value. nil (legacy records without the
+	// component notes) keeps the verbatim-string fallback on both lanes.
+	BlockingHolderContradictionParts *TraceHolderSelfContradictionWitness `json:"blocking_holder_contradiction_parts,omitempty"`
 	// BlockingSubjectIsHolder (BLK §15.C, 2026-07-06) mirrors the producer's
 	// typed "subject_is_lock_holder=true" note: THIS node's Subject is the lock
 	// HOLDER and BlockingPeer is the blocked WAITER (the resolved rank lock
@@ -2864,6 +2871,10 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 		node.BlockingOwnerTidRaw = traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyOwnerTidRaw)
 		node.BlockingHolderHandoff = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyHolderHandoff))
 		node.BlockingHolderContradiction = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyHolderSelfContradiction))
+		// G10-EN 根修 (QH2-A, 2026-07-14): the typed witness components ride
+		// beside the zh string (per-lane wording source; nil on legacy
+		// records keeps the verbatim fallback).
+		node.BlockingHolderContradictionParts = traceCausalProjectionParseHolderSelfContradiction(record.RichNotes)
 	}
 	// §7.30.3 D3: gated-impact composition for priority-inversion rows.
 	node.GatedRunnableMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyGatedRunnable)
@@ -3049,6 +3060,40 @@ func traceCausalProjectionParseFoldBasis(raw string) (knownMs, unknownMs float64
 		}
 	}
 	return knownMs, unknownMs
+}
+
+// traceCausalProjectionParseHolderSelfContradiction (G10-EN 根修, QH2-A
+// 2026-07-14) assembles the typed witness components from the
+// holder_self_contradiction_* note quintet. All five components must parse
+// (positive tid/durations, a sane line range) or the whole set yields nil —
+// the display lanes then fall back to the legacy verbatim string; absence
+// never guesses a component.
+func traceCausalProjectionParseHolderSelfContradiction(notes []string) *TraceHolderSelfContradictionWitness {
+	holder := strings.TrimSpace(traceCausalProjectionRichNoteValue(notes, TraceNoteKeyHolderSelfContradictionHolder))
+	if holder == "" {
+		return nil
+	}
+	ownerTid := traceCausalProjectionRichNoteInt(notes, TraceNoteKeyHolderSelfContradictionOwnerTid)
+	queuedMs := traceCausalProjectionRichNoteFloat(notes, TraceNoteKeyHolderSelfContradictionQueuedMs)
+	spanMs := traceCausalProjectionRichNoteFloat(notes, TraceNoteKeyHolderSelfContradictionSpanMs)
+	lines := strings.TrimSpace(traceCausalProjectionRichNoteValue(notes, TraceNoteKeyHolderSelfContradictionLines))
+	startRaw, endRaw, ok := strings.Cut(lines, "-")
+	if !ok || ownerTid <= 0 || queuedMs <= 0 || spanMs <= 0 {
+		return nil
+	}
+	lineStart, errStart := strconv.Atoi(strings.TrimSpace(startRaw))
+	lineEnd, errEnd := strconv.Atoi(strings.TrimSpace(endRaw))
+	if errStart != nil || errEnd != nil || lineStart <= 0 || lineEnd < lineStart {
+		return nil
+	}
+	return &TraceHolderSelfContradictionWitness{
+		Holder:    holder,
+		OwnerTid:  ownerTid,
+		QueuedMs:  queuedMs,
+		SpanMs:    spanMs,
+		LineStart: lineStart,
+		LineEnd:   lineEnd,
+	}
 }
 
 // traceCausalProjectionUndrillableReason returns a typed reason when a

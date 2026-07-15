@@ -243,6 +243,9 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"BlockingOwnerTidRaw":          {Status: "displayed", Ref: "幻影 tid 半场词面"},
 	"BlockingHolderHandoff":        {Status: "displayed", Ref: "换手披露三面"},
 	"BlockingHolderContradiction":  {Status: "displayed", Ref: "自相矛盾撤回披露"},
+	// G10-EN 根修 (QH2-A, 2026-07-14): the typed witness components — the
+	// zh/EN withdrawal lanes each word their own sentence from them.
+	"BlockingHolderContradictionParts": {Status: "displayed", Ref: "自相矛盾撤回披露(两 lane 各自措辞)"},
 	"BlockingSubjectIsHolder":      {Status: "displayed", Ref: "HOLD 朝向词面(twin-port)"},
 	"TypeToken":                    {Status: "displayed", Ref: "行1 词位输入 + 行2 类别词 + 明细类型(raw)"},
 	"GatedRunnableMS":              {Status: "displayed", Ref: "行1 词位构成 + 行3 恒等式(反转行)"},
@@ -360,7 +363,8 @@ var rankItemNodeMirror = map[string]string{
 	"HolderSource":            "BlockingHolderSource",
 	"OwnerTidRaw":             "BlockingOwnerTidRaw",
 	"HolderHandoff":           "BlockingHolderHandoff",
-	"HolderSelfContradiction": "BlockingHolderContradiction",
+	"HolderSelfContradiction":      "BlockingHolderContradiction",
+	"HolderSelfContradictionParts": "BlockingHolderContradictionParts",
 	"MemberCount":             "FamilyMemberCount",
 	"MemberRoster":            "FamilyMemberRoster",
 	"MemberMaxMs":             "FamilyMemberMaxMS",
@@ -449,6 +453,7 @@ var rankItemContract = map[string]fieldDisposition{
 	"HolderHostProcess":              {Status: "known_gap", Ref: "OM-10"},
 	"HolderHandoff":                  {Status: "node_mirror", Ref: "Node.BlockingHolderHandoff"},
 	"HolderSelfContradiction":        {Status: "node_mirror", Ref: "Node.BlockingHolderContradiction"},
+	"HolderSelfContradictionParts":   {Status: "node_mirror", Ref: "Node.BlockingHolderContradictionParts"},
 	"DrillStatus":                    {Status: "known_gap", Ref: "OM-7"},
 	"InheritedTargetBlockedMs":       {Status: "known_gap", Ref: "OM-13"},
 	"PriorityInversionLockDominated": {Status: "known_gap", Ref: "OM-8"},
