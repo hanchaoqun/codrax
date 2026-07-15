@@ -2774,3 +2774,6 @@ witness:◎ 板 JankManager-9655 双席同值 0.423(E31 优先级反转候选·�
 
 ### §29.90.1 立案 SUPP-TARGET:分析器变体分类不铸 runtime_targets→补采 fail-open 跳过(冷读官发现,h2 1 FAIL 复放)
 病形:h2 某趟 analyzer 分类 intent=return_value/kind=conditional 且未铸 runtime_targets(entities 有 CompThread_0-2955,typed 车道空)→SUPP-CORE 补采 skip reason=no_typed_target→无树→三 hard oracle 全缺,答案以 blocked_reason delay 合计 39.157 顶替 36.757 墙钟账。在 SUPP-ORACLE 批2「dispatch-shaped FAIL 从此=回归」承诺射程内;修向=补采 entities-lane 回退或 analyzer 侧 runtime_targets pin。独立批,非 RNB-1 diff 所致(17 文件零触 analyzer/补采)。
+
+### §29.88.12 R5 补强:两套 running 折算算法统一为单基准单算法(2026-07-15,用户 witness=20260714-235214.072-29116)
+witness 实锤双算法同席并存:E10 行同一段 running 8.294ms,「计入 6.972ms(折算,**按下游消费核**,按实测频点共动分簇折算)」与「供给折算缺口 7.296ms(**按大核满频折算**,下界)」两套基准两个数并存,读者无从互推对账。**用户裁定**:统一为「最大核最高频(全域)」折算=单基准单算法(R5 §29.88.3 的显式扩面——不止取代 gated 车道的「按下游消费核」,supply-fold 车道的「按大核满频」也并入同一全域基准);同席只呈一套折算数,构成拆解/缺口与计入值同源可互推;热限(如 witness 的 1.53GHz)/降频/小核事实保留为成因披露(R5b 提及义务),不改变基准。fmax 取值循 R6 规则 4(全文件扫描)。归 RNB-4。
