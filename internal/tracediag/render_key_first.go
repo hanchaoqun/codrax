@@ -39,7 +39,7 @@ var nonEventDetailPolicy = detailRenderPolicy{skipped: map[reflect.Type]map[stri
 	reflect.TypeOf(tracequery.PerfQualitySummary{}): {
 		"CPUKnownCount": true, "CPUUnknownCount": true,
 		"CallchainKnownCount": true, "CallchainUnknownCount": true,
-		"Caveats": true,
+		"InputIntegrityIssues": true, "Caveats": true,
 	},
 	reflect.TypeOf(tracequery.StorageLatencySummary{}): {
 		"PairedCount": true, "UnpairedStartCount": true, "UnpairedDoneCount": true,
@@ -475,13 +475,31 @@ func renderPerfQualitySummaries(res *tracequery.Result, emit func(string)) {
 	}
 	for _, ref := range refs[:shown] {
 		quality := ref.quality
-		emit(fmt.Sprintf("- key_first.perf_quality %s: cpu_known=%d cpu_unknown=%d callchain_known=%d callchain_unknown=%d sources=%d symbolization_statuses=%d sample_kinds=%d weight_units=%d clocks=%d clock_confidences=%d callchain_statuses=%d caveats=%d",
+		emit(fmt.Sprintf("- key_first.perf_quality %s: cpu_known=%d cpu_unknown=%d callchain_known=%d callchain_unknown=%d sources=%d input_integrity_issues=%d input_integrity=%s symbolization_statuses=%d sample_kinds=%d weight_units=%d clocks=%d clock_confidences=%d callchain_statuses=%d caveats=%d",
 			ref.path, quality.CPUKnownCount, quality.CPUUnknownCount,
 			quality.CallchainKnownCount, quality.CallchainUnknownCount,
-			len(quality.Sources), len(quality.SymbolizationStatuses), len(quality.SampleKinds),
+			len(quality.Sources), len(quality.InputIntegrityIssues), perfIntegrityValueToken(quality.InputIntegrityIssues, 4),
+			len(quality.SymbolizationStatuses), len(quality.SampleKinds),
 			len(quality.WeightUnits), len(quality.Clocks), len(quality.ClockConfidences),
 			len(quality.CallchainStatuses), len(quality.Caveats)))
 	}
+}
+
+func perfIntegrityValueToken(values []tracequery.PerfValueCount, max int) string {
+	if len(values) == 0 {
+		return "none"
+	}
+	if max <= 0 || max > len(values) {
+		max = len(values)
+	}
+	parts := make([]string, 0, max+1)
+	for _, value := range values[:max] {
+		parts = append(parts, fmt.Sprintf("%s:%d", clampToken(value.Value), value.SampleCount))
+	}
+	if len(values) > max {
+		parts = append(parts, fmt.Sprintf("omitted:%d", len(values)-max))
+	}
+	return "{" + strings.Join(parts, ",") + "}"
 }
 
 type capabilityAudit struct {
@@ -660,7 +678,7 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	reflect.TypeOf(tracequery.WindowStats{}):                "2b8831a2d60a240cd93fee91d1b2b61acce31ce63550a9c15c9af267ae080e66",
 	reflect.TypeOf(tracequery.TimelineResult{}):             "ec28f82b56a2e1b64cdfde5e0b6a4769886b32df15dc7a99250ec0da16dacc3a",
 	reflect.TypeOf(tracequery.TraceCounterQualitySummary{}): "e3bead6ff4a3c2e7f9d24487c5905f3594b219505afc106d95af9cfd9c552c2d",
-	reflect.TypeOf(tracequery.PerfQualitySummary{}):         "72c447267958bb72db82ab1e807135761cbea3caf60bf09f040a8f451476972a",
+	reflect.TypeOf(tracequery.PerfQualitySummary{}):         "69f46e3f0acd8d2d40af73de1f12c8c1a90fc4e4735abc8124325273c2934780",
 	reflect.TypeOf(tracequery.StorageLatencySummary{}):      "0dd6c71d18f36308bc3771f2dd87270d3c02a194f0b3051ceaffc36a961a7559",
 	reflect.TypeOf(tracequery.InterruptActivity{}):          "697433793ee39e4a426d249ed9b1559ea6a11d1ca76a569bb30fe9159f45617f",
 	reflect.TypeOf(tracequery.WorkqueueActivity{}):          "ed0cdfade0931978ac0def62cbd7c55d226ec943a4e33a43154e3d09a6e3bb70",

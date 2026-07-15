@@ -162,6 +162,9 @@ func TestNonEventKeyFirstTypedFieldsAreNotRepeatedByGenericWalker(t *testing.T) 
 			StorageLatencyByLayer: []tracequery.StorageLatencySummary{{
 				Layer: "block", Count: 2, PairedCount: 1, UnpairedDoneCount: 1,
 			}},
+			PerfSamples: &tracequery.PerfContext{Quality: &tracequery.PerfQualitySummary{
+				InputIntegrityIssues: []tracequery.PerfValueCount{{Value: "cpu_duplicate_conflict", SampleCount: 2, Period: 2}},
+			}},
 		},
 	}
 
@@ -172,6 +175,9 @@ func TestNonEventKeyFirstTypedFieldsAreNotRepeatedByGenericWalker(t *testing.T) 
 	}
 	if strings.Contains(report, "paired_count=") || strings.Contains(report, "unpaired_done_count=") {
 		t.Fatalf("generic detail repeated key-first pairing fields:\n%s", report)
+	}
+	if got := strings.Count(report, "cpu_duplicate_conflict"); got != 1 || !strings.Contains(report, "input_integrity_issues=1") {
+		t.Fatalf("perf input integrity was hidden or repeated: count=%d\n%s", got, report)
 	}
 }
 
