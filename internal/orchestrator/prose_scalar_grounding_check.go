@@ -148,6 +148,16 @@ const (
 // such unit — the exemption set is structural before it is arithmetic.
 var proseScalarTokenRE = regexp.MustCompile(`([0-9]+(?:\.[0-9]+)?)\s*(ms|毫秒|%|％)`)
 
+// proseScalarSeatTokenRE (QH2-B §29.79, 2026-07-15) captures a DECIMAL
+// numeral immediately followed by the 席 seat word — the h9 witness form
+// 「.ugc.aweme.lite-17267 CPU running 占 146.899 席」 carried a self-summed
+// ms magnitude (143.499 + a self-derived 3.400) wearing the seat word
+// instead of a unit, so the ms/%-scoped scan structurally never saw it and
+// the whole grounding family stayed silent. Decimal-only on purpose:
+// integer seat COUNTS (共3席 / 5 席合计 0.094) are counting numbers, not
+// magnitudes, and stay out of scope.
+var proseScalarSeatTokenRE = regexp.MustCompile(`([0-9]+\.[0-9]+)\s*(席)`)
+
 // proseScalarNumeralRE extracts every bare numeral from an evidence-side
 // text surface (unit-agnostic on purpose — the evidence pool is loose).
 var proseScalarNumeralRE = regexp.MustCompile(`[0-9]+(?:\.[0-9]+)?`)
@@ -417,6 +427,14 @@ type proseScalarEvidenceSet struct {
 	// scan uses, so the two faces cannot diverge in shape.
 	threadSpellings map[string]bool
 	threadTIDs      map[string]bool
+	// caliberBindings (QH2-B §29.79, 2026-07-15): every (value, caliber
+	// word) pair the evidence surfaces publish TOGETHER — a published
+	// caliber word (tracefence Table ③c closed set) within the leash of a
+	// magnitude on one evidence text. Extracted with the same token +
+	// word extractors the prose scan uses (same-extractor-both-sides
+	// discipline). Over-collection is the safe direction: more published
+	// pairings can only silence the caliber audit, never fire it.
+	caliberBindings []proseScalarCaliberBinding
 }
 
 // proseScalarBindingFinding is one second-arm mismatch, preformatted for
@@ -778,6 +796,10 @@ func buildProseScalarEvidenceSet(doc *types.AnswerDocumentV2, mut *types.Mutable
 			}
 			row.windows = append(row.windows, extractProseScalarWindowRefs(text)...)
 			row.threads = append(row.threads, extractProseScalarThreadRefs(text)...)
+			// QH2-B: published (value, caliber word) pairings — one TEXT is
+			// the pairing scope (word/value adjacency across joined fields
+			// would fabricate pairings).
+			collectProseScalarCaliberBindings(text, &set)
 		}
 		// CR-4 臂6 carrier hygiene (2026-07-12; 56249/91951 forensics): row
 		// confidences come ONLY from the typed record.Confidence injection
@@ -958,6 +980,7 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 	seenFabricated := map[string]bool{}
 	seenConfidence := map[string]bool{}
 	seenSelfSummed := map[string]bool{}
+	seenCaliber := map[string]bool{}
 	scan := func(blockID, text string) {
 		if text == "" {
 			return
@@ -968,9 +991,15 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 		toks := extractProseScalarTokens(blockID, text)
 		var sentWindows []proseScalarWindowRef
 		var sentThreads []proseScalarThreadRef
+		var caliberRefs []proseScalarCaliberWordRef
 		if len(toks) > 0 || len(evidence.threadSpellings) > 0 {
 			sentWindows = extractProseScalarWindowRefs(text)
 			sentThreads = extractProseScalarThreadRefs(text)
+		}
+		if len(toks) > 0 {
+			// QH2-B: caliber-word occurrences (same extractor as the
+			// evidence-side pairing collection).
+			caliberRefs = extractProseScalarCaliberWordRefs(text)
 		}
 		// CR-3 件⑤ (2026-07-12, CR-2 遗留「块级绑定粒度」): binding arms
 		// prefer refs from the SAME SENTENCE as the audited position; the
@@ -987,6 +1016,9 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 			}
 			return [2]int{0, len(text)}
 		}
+		// QH2-B: each caliber word binds its NEAREST token only (a word
+		// belongs to one value, not to every value in reach).
+		caliberByTok := assignProseScalarCaliberWords(toks, caliberRefs, sentenceOf)
 		threadsFor := func(pos int) ([]proseScalarThreadRef, bool) {
 			span := sentenceOf(pos)
 			var in []proseScalarThreadRef
@@ -1041,7 +1073,7 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 		if len(toks) == 0 {
 			return
 		}
-		for _, tok := range toks {
+		for ti, tok := range toks {
 			if scanned >= proseScalarScanTokenCap {
 				return
 			}
@@ -1079,6 +1111,19 @@ func scanProseScalarFindings(doc *types.AnswerDocumentV2, evidence proseScalarEv
 				seenSelfSummed[tok.label()] = true
 				advisory = append(advisory, proseScalarSelfSumDisclosure(tok, evidence, verdict,
 					proseScalarSentenceNameParts(text, sentenceOf(tok.Pos))))
+			}
+			// QH2-B caliber-word audit (§29.79 观察续档, 2026-07-15): a
+			// caliber word next to a grounded value — the 满额-class
+			// never-published near-synonym is directly decidable, and a
+			// published word contradicting every published pairing of the
+			// value is disclosed by juxtaposition. Information lane only
+			// (advisory/appendix — 检测→披露, 禁硬拦).
+			if tok.Value != 0 && !tok.percent() && len(caliberByTok[ti]) > 0 &&
+				len(advisory) < proseScalarDetailListCap && !seenCaliber[tok.label()] {
+				if finding, ok := proseScalarCaliberAudit(tok, caliberByTok[ti], evidence); ok {
+					seenCaliber[tok.label()] = true
+					advisory = append(advisory, finding)
+				}
 			}
 			// PSG-2 binding arm: only audited when the unit positively
 			// names a window or a thread (句内无窗/主体 token 时不核 —
@@ -1754,6 +1799,35 @@ func extractProseScalarTokens(blockID, text string) []proseScalarToken {
 			Approx:  proseScalarApproxMarked(text, start),
 		})
 	}
+	// QH2-B: decimal 席-worded magnitudes join the scan (same boundary
+	// guard; the 席 word needs no trailing guard — 席位-style continuations
+	// keep the same seat semantics).
+	for _, m := range proseScalarSeatTokenRE.FindAllStringSubmatchIndex(text, -1) {
+		start := m[0]
+		if start > 0 {
+			prev := text[start-1]
+			if prev == '.' || prev == '-' || prev == '_' || prev == ',' ||
+				(prev >= '0' && prev <= '9') ||
+				(prev >= 'a' && prev <= 'z') || (prev >= 'A' && prev <= 'Z') {
+				continue
+			}
+		}
+		raw := text[m[2]:m[3]]
+		value, err := strconv.ParseFloat(raw, 64)
+		if err != nil {
+			continue
+		}
+		out = append(out, proseScalarToken{
+			Raw:     raw,
+			Unit:    text[m[4]:m[5]],
+			BlockID: blockID,
+			Pos:     m[2],
+			Value:   value,
+			Ulp:     proseScalarUlp(raw),
+			Approx:  proseScalarApproxMarked(text, start),
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Pos < out[j].Pos })
 	return out
 }
 

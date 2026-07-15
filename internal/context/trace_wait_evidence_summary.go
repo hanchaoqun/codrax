@@ -107,6 +107,20 @@ package context
 // which is already net of every proven cause — never nested inside it. The
 // orchestrator side grows the matching implicit-subtraction arithmetic arm
 // (prose_fact_juxtaposition.go, 臂②).
+//
+// QH2-B caliber-word binding (§29.79 观察续档, 2026-07-15): a report
+// paraphrased the seat line's 全额 into 满额 — value zero-loss, so every
+// value-membership audit stayed silent while the caliber word (the account
+// the number belongs to) silently changed meaning. The seat-composition
+// lead therefore binds the caliber words THEMSELVES into the named fact
+// (INV-SUPPLY 反压缩导语 discipline, bilingual): the word and its value are
+// one quotable unit — 「反转等待(全额) X」/「running 折算 Y」/「…下界」 —
+// never re-worded, never swapped for an unpublished near-synonym. The
+// published words stay literals (the semantic wording lane lint tracks
+// them); the never-published example word and the answer-side caliber audit
+// (internal/orchestrator/prose_scalar_caliber_check.go) read the tracefence
+// Table ③c single source, and the test-side containment pins tie the two
+// faces together.
 
 import (
 	"fmt"
@@ -856,7 +870,20 @@ func formatTraceWaitWakeEvidenceFromLedger(ledger types.ObservationLedger, toolR
 		// the imperative is BILINGUAL with an explicit anti-compression clause,
 		// the EVID-1/PROSE-RC sister-sentence discipline ("bilingual so the
 		// quoted answer language cannot lose it").
-		b.WriteString("Seat composition facts (typed, per-seat published split): each line below is that seat's OWN published composition — when naming that seat's cause, state BOTH factors together (the inversion wait AND the supply-gap/thermal-frequency component); quote each value verbatim and never re-derive, sum across seats, or drop either factor. 叙述下列席位的根因时必须两因并提:优先级反转等待 + 供给缺口/热限压(频点跑慢)成分——按行内构成值逐字引用;禁止把该席压缩为只提「优先级反转」的单因词形。\n")
+		// QH2-B (§29.79 观察续档): the caliber words are bound INTO the named
+		// fact — the witnessed paraphrase swapped 全额→满额 with the value
+		// intact, so the imperative names the word+value pair as the quote
+		// unit and the unpublished near-synonym as the concrete wrong form
+		// (bilingual, sister-sentence discipline). The published words stay
+		// literals so the semantic wording lane lint keeps seeing them
+		// (internal/tool/semantic_wording_lint_test.go); only the
+		// never-published example interpolates from the tracefence Table ③c
+		// single source, and the cross-face containment pins in
+		// trace_wait_evidence_summary_test.go tie the literals to the same
+		// table.
+		neverWord := tracefence.CaliberWordNeverPublishedZH()[0]
+		b.WriteString(fmt.Sprintf("Seat composition facts (typed, per-seat published split): each line below is that seat's OWN published composition — when naming that seat's cause, state BOTH factors together (the inversion wait AND the supply-gap/thermal-frequency component); quote each value verbatim and never re-derive, sum across seats, or drop either factor. The caliber word attached to each value is PART of the fact: quote the word and its value together exactly as printed (反转等待(全额) X / running 折算 Y / …下界), and never replace a caliber word with a near-synonym this report does not publish (e.g. %[1]s — the published word is 全额). 叙述下列席位的根因时必须两因并提:优先级反转等待 + 供给缺口/热限压(频点跑慢)成分——按行内构成值逐字引用;禁止把该席压缩为只提「优先级反转」的单因词形。口径词与数值同为具名事实:引用时连词带值整体照抄(「反转等待(全额) X」「running 折算 Y」「…下界」);禁止改写口径词,或以「%[1]s」等未发布近义词替换「全额」等发布词。\n",
+			neverWord))
 		badges := tracefence.BadgeGlyphs()
 		compoundWord := tracefence.InversionCandidateWordZH + "·" + tracefence.SupplyGapDominantWordZH
 		for i, fact := range seatComps {

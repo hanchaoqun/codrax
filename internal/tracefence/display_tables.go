@@ -208,6 +208,53 @@ const (
 	SupplyGapDominantWordEN  = "supply-gap dominant"
 )
 
+// --- Table ③c value-caliber word faces (QH2-B §29.79 观察续档, 2026-07-15) -----
+//
+// The zh CALIBER words the engine publishes NEXT TO a magnitude to state
+// which account the number belongs to: 全额 (counted in full), 折算 (folded /
+// converted), 下界 (lower bound), 原始 (the raw pre-fold magnitude), 计入
+// (the counted post-fold share), 单次最大 (single-occurrence max). Emission
+// faces: the causal-projection rows (internal/tool
+// answer_document_mutation_runtime_rcr.go 行3/sub-rows) and the model-face
+// seat-composition named fact (internal/context/trace_wait_evidence_summary.go).
+// The bytes live here so the emitting faces, the feed imperative and the
+// answer-side caliber audit (internal/orchestrator
+// prose_scalar_grounding_check.go) can never hand-mirror apart (UXG-1 M1
+// precedent).
+//
+// CaliberWordNeverPublishedZH is the QH2-B never-published near-synonym
+// list: words OUTSIDE the published closed set that read like caliber words
+// (witnessed: a report paraphrased 全额→满额 — value zero-loss, the caliber
+// word silently swapped, and the value-membership audit had nothing to
+// catch). One occurrence next to a magnitude is directly decidable (the
+// engine never prints these), so the answer-side audit discloses it on the
+// information lane. Extend ONLY with witnessed paraphrase neighbors; a
+// structural test pins that no production emission face prints them.
+const (
+	CaliberWordFullZH       = "全额"
+	CaliberWordFoldedZH     = "折算"
+	CaliberWordLowerBoundZH = "下界"
+	CaliberWordRawZH        = "原始"
+	CaliberWordCountedZH    = "计入"
+	CaliberWordSingleMaxZH  = "单次最大"
+)
+
+// CaliberWordFacesZH returns the published caliber-word closed set (zh).
+func CaliberWordFacesZH() []string {
+	return []string{
+		CaliberWordFullZH, CaliberWordFoldedZH, CaliberWordLowerBoundZH,
+		CaliberWordRawZH, CaliberWordCountedZH, CaliberWordSingleMaxZH,
+	}
+}
+
+// CaliberWordNeverPublishedZH returns the never-published near-synonym list
+// (QH2-B 词表, single point). 满额 is the witnessed 全额-paraphrase; 足额 is
+// its immediate sibling. Both are grep-pinned absent from every production
+// emission face.
+func CaliberWordNeverPublishedZH() []string {
+	return []string{"满额", "足额"}
+}
+
 // --- Table ④ generated section headings ---------------------------------------
 //
 // The three deterministic H2 chapters the runtime-trace report generates; the

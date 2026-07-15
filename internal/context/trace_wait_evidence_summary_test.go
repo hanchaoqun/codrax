@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/skill"
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -911,6 +912,33 @@ func TestTraceWaitEvidence_SeatCompositionFact(t *testing.T) {
 	if !strings.Contains(summary, "必须两因并提") || !strings.Contains(summary, "禁止把该席压缩为只提「优先级反转」的单因词形") {
 		t.Fatalf("the zh anti-compression imperative is missing:\n%s", summary)
 	}
+	// QH2-B (§29.79 观察续档): the caliber words are bound INTO the named
+	// fact — word+value quoted as one unit, the never-published near-synonym
+	// named as the concrete wrong form. Bilingual (sister-sentence
+	// discipline), word bytes from the tracefence Table ③c single source.
+	for _, clause := range []string{
+		"The caliber word attached to each value is PART of the fact",
+		"quote the word and its value together exactly as printed (反转等待(全额) X / running 折算 Y / …下界)",
+		"never replace a caliber word with a near-synonym this report does not publish (e.g. 满额 — the published word is 全额)",
+		"口径词与数值同为具名事实:引用时连词带值整体照抄(「反转等待(全额) X」「running 折算 Y」「…下界」)",
+		"禁止改写口径词,或以「满额」等未发布近义词替换「全额」等发布词",
+	} {
+		if !strings.Contains(summary, clause) {
+			t.Fatalf("QH2-B caliber-word binding imperative clause missing %q:\n%s", clause, summary)
+		}
+	}
+	// Cross-face containment: the feed's literal caliber words are members
+	// of the tracefence Table ③c closed set (the answer-side audit's single
+	// source), and the imperative's wrong-form example is the first
+	// never-published word — the faces cannot drift apart.
+	for _, word := range []string{tracefence.CaliberWordFullZH, tracefence.CaliberWordFoldedZH, tracefence.CaliberWordLowerBoundZH} {
+		if !strings.Contains(want, word) && !strings.Contains(summary, word) {
+			t.Fatalf("closed-set word %q missing from the seat feed face", word)
+		}
+	}
+	if !strings.Contains(summary, tracefence.CaliberWordNeverPublishedZH()[0]) {
+		t.Fatalf("the never-published example word must come from the Table ③c list")
+	}
 	// Identical republications collapse to one line.
 	ledger.Records = append(ledger.Records, traceWaitInvSupplySeatRecord())
 	if got := strings.Count(formatTraceWaitWakeEvidenceFromLedger(ledger, nil), "席位构成(❶ CompThread_0-2955"); got != 1 {
@@ -984,9 +1012,18 @@ func TestTraceWaitEvidence_SeatCompositionGates(t *testing.T) {
 	if !strings.Contains(bare, "(供给缺口 7.296ms 下界为主)") {
 		t.Fatalf("capless seat must state the gap without a frequency claim:\n%s", bare)
 	}
-	// Runnable component absent → single-term composition (no fabricated 0).
+	// Runnable component absent → single-term composition (no fabricated 0)
+	// ON THE FACT LINE (QH2-B: the bilingual section lead legitimately names
+	// the 反转等待(全额) X quote pattern — same fact-line scoping as the
+	// unwitnessed-cap pin above).
 	single := render(func(r *types.ObservationRecord) { replaceNote(r, types.TraceNoteKeyGatedRunnable, "") })
-	if !strings.Contains(single, "): running 折算 6.972ms(") || strings.Contains(single, "反转等待(全额)") {
+	singleFactLine := ""
+	for _, line := range strings.Split(single, "\n") {
+		if strings.Contains(line, "席位构成(") {
+			singleFactLine = line
+		}
+	}
+	if !strings.Contains(singleFactLine, "): running 折算 6.972ms(") || strings.Contains(singleFactLine, "反转等待(全额)") {
 		t.Fatalf("runnable-less seat must render the single running term:\n%s", single)
 	}
 	// Rank 6 → #6 head (badges are seats 1..5 only).
